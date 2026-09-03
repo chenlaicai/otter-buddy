@@ -36,7 +36,7 @@ import type { SynthesisPrefetch } from "@frameworks/agent/synthesis-prompt-build
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 // F20260826mwrd C3：高危 healing 事件提醒（Part 4 高危路由消费侧）
 import { healingAlertRegistry, renderHealingAlerts } from "@usecases/healing/healing-alert-registry";
-import { HandoffState, shouldTriggerHandoff, recordPostTurnTokens, restoreHandoffContext, DEFAULT_CTX_MAX } from "./handoff-support";
+import { HandoffState, recordPostTurnTokens, restoreHandoffContext, DEFAULT_CTX_MAX } from "./handoff-support";
 import { MIN_SENSIBLE_CTX_WINDOW, type OtterContextWindowProvider } from "@usecases/ports/otter-context-window-provider";
 import { mapToSSEEvent, mapToMessageEventInput } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
@@ -199,13 +199,16 @@ export class AgentInvoker implements AgentTurnPort {
       ...(retryCount > 0 && { retryCount }),
     });
 
-    /** F20260825hndf Pre-invoke 检查：上轮 ctxTokens 超 70% 阈值 → 先 handoff 再处理本轮消息
-     * F20260901cxmw：ctxMax 按 otter 实际模型窗口解析（同步，带缓存） */
-    const ctxMax = this.getCtxMax(otterId);
-    if (shouldTriggerHandoff(otterId, this.handoffState, ctxMax)) {
-      this.logger.info('[handoff] Pre-invoke threshold exceeded', { otterId, ctxMax });
-      await this.handleHandoff(otterId, conversationId);
-    }
+    /** F20260903cmpk：70% Pre-invoke 自动 handoff 链路退役。
+     *  原因：压缩算法已由 session_before_compact 钩子接管（七段合成），
+     *  Pi 的 threshold 检查（每次 LLM 响应前，比轮边界更密）成为唯一触发方，
+     *  轮边界的 70% 预防性检查失去存在理由（抢跑对象消失）。
+     *  保留：handleHandoff 本体（手动/熔断重启路径仍在用）。 */
+    // const ctxMax = this.getCtxMax(otterId);
+    // if (shouldTriggerHandoff(otterId, this.handoffState, ctxMax)) {
+    //   this.logger.info('[handoff] Pre-invoke threshold exceeded', { otterId, ctxMax });
+    //   await this.handleHandoff(otterId, conversationId);
+    // }
 
     this.logger.debug('Building dynamic context', { otterId });
     /** F20260818cbkr 二级触发：invoke 前按 healing_events 推导，命中先重启（消息尚未创建，重启后摘要随新 invoke 注入） */
@@ -816,6 +819,14 @@ export class AgentInvoker implements AgentTurnPort {
   /** F20260827he2f：healing_repo 健康探针——外部健康检查可调用，验证熔断事件落库能力 */
   async probeHealingRepo(): Promise<boolean> {
     return this.circuitBreak ? this.circuitBreak.probeHealingRepo() : false;
+  }
+
+  /** F20260903cmpk：压缩钩子合成函数（readOnly invocation，与 handoff 合成同源）。
+   *  bootstrap 拿它注入 agentGateway.setCompactionSynthesis——压缩时机归 Pi，
+   *  算法归七段合成。conversationId 在压缩时不可知（钩子在 session 内触发），
+   *  故以空串占位（合成闭包仅用它记日志 + 产物预取，压缩场景预取走钩子外的机械数据）。 */
+  buildCompactionSynthesisFn(otterId: string): (prompt: string) => Promise<string> {
+    return this.buildSynthesisFunction(otterId, "");
   }
 
   /**

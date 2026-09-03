@@ -17,6 +17,7 @@ import type { ModelConfig } from "@frameworks/config";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import type { OtterPromptConfig } from "@contract/api/otter";
 import { buildOtterPrompt } from "./session-helpers";
+import { handleSessionBeforeCompact, type CompactionHookDeps, type CompactionPreparationLike } from "./compaction-hook";
 import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
 import { buildHaltBlockReason } from "@usecases/signal/halt-block-reason";
 
@@ -127,6 +128,15 @@ export class ModelRuntimeRegistry {
                   return { isError: true };
                 }
                 return undefined;
+              });
+              // F20260903cmpk：压缩算法替换——threshold 触发时用七段合成替代 Pi 默认摘要
+              //（overflow/manual 放行）。deps 由 PiSessionFactory 在创建 session 时注入
+              //（setCompactionHookDeps），此处读全局槽（factory 与 registry 同模块层级，
+              // 避免 registry 构造参数反向穿透）。无 deps 时 undefined = Pi 默认兜底。
+              pi.on("session_before_compact", async (event: { reason: "manual" | "threshold" | "overflow"; preparation: CompactionPreparationLike }) => {
+                const store = otterInvokeStorage.getStore();
+                const otterName = store?.displayName ?? "海獭";
+                return await handleSessionBeforeCompact(event, compactionHookDeps, otterName);
               });
             },
           }],
@@ -278,9 +288,20 @@ export interface OtterInvokeContext {
   identityPrefix: string;
   /** F20260826mwrd C1：当前 invoke 的 otterId——tool_call handler 查 halt 标用 */
   otterId: string;
+  /** F20260903cmpk：otter 显示名（otters.name）——压缩钩子合成 prompt 的 meta 行用（#770 检视发现 2） */
+  displayName?: string;
 }
 
 export const otterInvokeStorage = new AsyncLocalStorage<OtterInvokeContext>();
+
+
+/** F20260903cmpk：压缩钩子依赖槽。PiSessionFactory 创建 session 时注入（setCompactionHookDeps）。
+ *  模块级单例与 otter-hooks 单例 factory 对应；null = 钩子放行 Pi 默认。 */
+let compactionHookDeps: CompactionHookDeps | null = null;
+
+export function setCompactionHookDeps(deps: CompactionHookDeps | null): void {
+  compactionHookDeps = deps;
+}
 
 /**
  * F20260826mwrd C1：halt tool_call handler 的 block 判定（纯函数，测试可独立覆盖）。

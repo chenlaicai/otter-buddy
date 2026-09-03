@@ -45,6 +45,12 @@ export class IdentityBuilder {
 
   /** S1（R20260810piab）：构建首次 invoke 的身份前缀：名称/ID/类型 + 按类型加载的身份文案。类型以 otterConfig 为准（与工具门控同一事实源）
    * @param modelAlias 当前 otter 的模型别名（来自 otterConfigProvider），用于注入模型身份段 */
+  /** F20260903cmpk（#770 检视发现 2）：otter 显示名（压缩钩子 meta 行用）。查不到返回 undefined */
+  async getOtterName(otterId: string): Promise<string | undefined> {
+    const otter = await this.otterRepo.getById(otterId);
+    return otter?.name;
+  }
+
   async buildIdentityPrefix(otterId: string, otterType: string, conversationId: string, modelAlias?: string): Promise<string> {
     const otter = await this.otterRepo.getById(otterId);
     if (!otter) {
