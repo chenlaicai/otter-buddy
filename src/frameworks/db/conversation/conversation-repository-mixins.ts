@@ -183,6 +183,21 @@ export function updateLastReadTurnNumber(
   `).run(turnNumber, conversationId, otterId);
 }
 
+/** F20260902sgp2 S4c：游标 seq 双写（新刻度）。NULL 安全：last_read_seq 列可空，
+ *  首次写入直接设值；回滚面 = 旧列 last_read_turn_number 未动，读路径按 NULL 回退。 */
+export function updateLastReadSeq(
+  db: Database.Database,
+  conversationId: string,
+  otterId: string,
+  seq: number,
+): void {
+  db.prepare(`
+    UPDATE conversation_participants
+    SET last_read_seq = ?
+    WHERE conversation_id = ? AND otter_id = ? AND status = 'active'
+  `).run(seq, conversationId, otterId);
+}
+
 /** F20260819idnw：更新最后活跃轮次（小獭发言时） */
 export function updateLastActiveTurnNumber(
   db: Database.Database,

@@ -542,6 +542,11 @@ export class DispatchChainEngine {
       const turn = await this.deps.conversationRepo.getTurnById(msg.turnId);
       if (!turn) continue;
       await this.deps.conversationRepo.updateLastReadTurnNumber(conversationId, msg.senderId, turn.turnNumber);
+      // F20260902sgp2 S4c：游标 seq 双写（新刻度）——推进到本条消息自己的 sequence_num。
+      // 双写期间旧列（last_read_turn_number）保持原语义，读路径按 NULL 回退旧刻度。
+      if (this.deps.conversationRepo.updateLastReadSeq) {
+        this.deps.conversationRepo.updateLastReadSeq(conversationId, msg.senderId, msg.sequenceNum);
+      }
 
       // F20260819idnw：更新最后活跃轮次（小獭发言时）
       if (msg.senderType === 'otter') {

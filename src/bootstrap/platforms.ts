@@ -235,6 +235,8 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
     manageScheduledTask: uc.manageScheduledTask,
     manageSession: uc.manageSession,
     healingRepo: repos.healingEvent,
+    // F20260902sgp2 S4b：派发台账——看门狗台账终态判活（可选语义，未注入回退消息判定）
+    dispatchAttemptRepo: repos.dispatchAttempt,
     metrics,
     dispatchChainEngine,
     functionRegistry: db ? paperTradingFunctionRegistry : undefined,

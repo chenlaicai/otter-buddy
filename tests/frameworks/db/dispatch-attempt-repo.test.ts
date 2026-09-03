@@ -89,13 +89,14 @@ describe("SqliteDispatchAttemptRepo（sgp2 S1 真实仓储集成）", () => {
       expect(repo.countPendingSignals("conv-1")).toBe(0);
     });
 
-    it("非信号消息不进 pending：system / 无目标 / user 目标 / 自指 / 非 completed", () => {
-      seedDelivered(db, "m-sys", { senderType: "system", targets: ["otter-1"] });
+    it("非信号消息不进 pending：无目标 / user 目标 / otter 自指 / 非 completed（S4：system 带 tsp 行动类消息现进 pending）", () => {
       seedDelivered(db, "m-none", { targets: null });
       seedDelivered(db, "m-user", { targets: ["user"] });
       seedDelivered(db, "m-self", { senderType: "otter", senderId: "otter-1", targets: ["otter-1"] });
       seedDelivered(db, "m-stream", { status: "streaming", targets: ["otter-1"] });
-      expect(repo.countPendingSignals("conv-1")).toBe(0);
+      // S4 判据特例清零：system 消息带 tsp 点名獭 = 行动类，进 pending（scheduler/招聘换轨的语义基础）
+      seedDelivered(db, "m-sys-action", { senderType: "system", targets: ["otter-1"] });
+      expect(repo.countPendingSignals("conv-1")).toBe(1);
     });
 
     it("归档会话不扫（c.status=active 过滤）", () => {
