@@ -67,6 +67,8 @@ export interface FeatureChain {
   touchFiles: Set<string>;
   /** 关联文档（orphan 时为 null） */
   doc: CollectedFeatureDoc | null;
+  /** 链上 view 失败的 open PR 数（观测性：降级时可观测） */
+  unknownPrCount: number;
 }
 
 export interface ChainBuildOptions {
@@ -163,6 +165,7 @@ function newEmptyChain(featureId: string, doc: CollectedFeatureDoc | null): Feat
     bugfixCount: 0,
     touchFiles: new Set<string>(),
     doc,
+    unknownPrCount: 0,
   };
 }
 
@@ -266,12 +269,18 @@ function findRegressed(chain: FeatureChain): { sha: string; filesTouched: number
   return { sha: last.sha, filesTouched: touched.length };
 }
 
-/** pr-stalled 判定：链上 open PR 的 lastActivity 距今超过阈值 */
+/** pr-stalled 判定：链上 open PR 的 lastActivity 距今超过阈值。viewFailed PR 不参与判定但计数可观测 */
 function findPrStalled(chain: FeatureChain, ctx: ChainCtx): ChainSignal | null {
   const prs = ctx.prsByFid.get(chain.featureId);
   if (!prs || prs.length === 0) return null;
 
+  // viewFailed PR：不参与停滞判定（未知数据不猜），但计数可观测
+  const unknownCount = prs.filter(pr => pr.viewFailed).length;
+  chain.unknownPrCount += unknownCount;
+
+  // 只对 view 成功的 PR 判定停滞
   const stalled = prs
+    .filter(pr => !pr.viewFailed)
     .map(pr => ({ pr, days: daysSince(pr.lastActivityAt, ctx.now) }))
     .filter(({ days }) => days !== null && days > ctx.stalledPrDays);
   if (stalled.length === 0) return null;

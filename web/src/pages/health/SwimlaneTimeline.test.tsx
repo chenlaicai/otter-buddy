@@ -91,7 +91,7 @@ describe('SwimlaneTimeline 泳道时间线（Issue #649 视觉契约）', () => 
     const c = render(<SwimlaneTimeline chains={[chain('regressed', 'F5')]} onOpen={() => {}} />)
     const mark = c.querySelector('path.swim-regressed-mark') as SVGElement | null
     expect(mark).toBeTruthy()
-    expect(mark!.getAttribute('stroke')).toBe(CARAMEL[600])
+    expect(mark!.getAttribute('stroke')).toBe(CARAMEL[700])
   })
 
   it('节点色义：bug 系=caramel、其他=teal（复发卡同款）', () => {
@@ -192,7 +192,7 @@ describe('四态元数据（chain-state-meta 单一真相源）', () => {
   it('色义锁定：与观澜 §3.4 表一致（F20260902sigm：zombie 删除）', () => {
     expect(CHAIN_STATE_META.active.color).toBe(TEAL[500])
     expect(CHAIN_STATE_META.stalled.color).toBe(CARAMEL[500])
-    expect(CHAIN_STATE_META.regressed.color).toBe(CARAMEL[600])
+    expect(CHAIN_STATE_META.regressed.color).toBe(CARAMEL[700])
     expect(CHAIN_STATE_META.orphan.color).toBe(LAVENDER[400])
   })
 })
