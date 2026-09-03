@@ -1,3 +1,21 @@
+---
+id: F20260903s4ma
+title: '信号协议 v2 消息机制全景矩阵：三发送者 × 八场景 × 触发语义'
+doc_type: feature
+summary: |
+  S4 合并设计前置分析（搭档要求的消息机制全景对齐）：三类发送者的产生场景穷举、
+  八个对话场景时序、信号/pending/attempt/闸门四概念关系总表、D1-D5 缺漏清单。
+  结论：判据特例清零（删除 sender_type 排除，自指精确化），scheduler/招聘换轨。
+status: final
+change_type: feature
+tags: [signal-protocol, message-matrix, s4]
+modules: []
+capability_test: "n/a: 分析文档（无代码变更），场景事实由勘测 SQL 佐证"
+causal_links:
+  from:
+    - F20260903s4fn   # S4 终局设计（本附录是其前置分析）
+---
+
 # 信号协议 v2 消息机制全景（S4 合并设计前置分析）
 
 > F20260903s4fn 附录 A。目的：把「人、海獭、系统」三类主体在所有对话场景下的
