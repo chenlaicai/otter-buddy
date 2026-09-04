@@ -70,16 +70,19 @@ function seedBounceEvent(overrides: Partial<HealingEvent> = {}): HealingEvent {
   };
 }
 
-/** SendMessage mock：记录 fail/abort/sendSystem；complete 返回 aggregatedTargets=['user-1']（链正常交棒） */
+/** SendMessage mock：记录 fail/abort/sendSystem；complete 返回 aggregatedTargets=['user-1']（链正常交棒）；
+ *  start 捕获入参（2026-09-04 幽灵 sender 修复回归锚：断言重试新消息 speaker=otterId 非 senderId） */
 function mockSendMessage() {
   const failCalls: Array<{ id: string; body: string }> = [];
   const abortCalls: Array<{ id: string; body: string }> = [];
   const sendSystemBodies: string[] = [];
   const startedMessages: string[] = [];
+  const startInputs: Array<{ senderId: string; talkingStonePassedTo: string[] }> = [];
   let seq = 0;
-  const start = async (): Promise<Message> => {
+  const start = async (input: { conversationId: string; senderId: string; talkingStonePassedTo: string[] }): Promise<Message> => {
     const id = `msg-${++seq}`;
     startedMessages.push(id);
+    startInputs.push({ senderId: input.senderId, talkingStonePassedTo: [...input.talkingStonePassedTo] });
     return {
       id, conversationId: "conv-1", turnId: "turn-1",
       senderType: "otter", senderId: "otter-1", talkingStonePassedTo: null,
@@ -115,9 +118,11 @@ function mockSendMessage() {
     _abortCalls: abortCalls,
     _sendSystemBodies: sendSystemBodies,
     _startedMessages: startedMessages,
+    _startInputs: startInputs,
   } as unknown as SendMessage & {
     _failCalls: typeof failCalls; _abortCalls: typeof abortCalls;
     _sendSystemBodies: typeof sendSystemBodies; _startedMessages: typeof startedMessages;
+    _startInputs: typeof startInputs;
   };
 }
 
@@ -206,6 +211,14 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     expect(bounceMsg).not.toContain("restart");
     // 新消息承载重整：3 条消息（原始 + bounce 新消息…实际上 auto-retry 复用原消息，bounce 新建 1 条）
     expect(msg._startedMessages.length).toBeGreaterThanOrEqual(2);
+    // 幽灵 sender 门禁（2026-09-04 修复）：重试新建消息的 speaker 必须是当前獭 otterId，
+    // 不是触发者 senderId（曾误传致 49 条「user 海獭」幽灵消息，首例 2026-08-19）
+    for (const s of msg._startInputs) {
+      expect(s.senderId).toBe("otter-1");
+      expect(s.senderId).not.toBe("user-1");
+    }
+    // 发言石去向保持触发者（重试失败兑底时回传触发者，语义正确）
+    expect(msg._startInputs.at(-1)!.talkingStonePassedTo).toContain("user-1");
     // bounce 计数落账：guard_intercept + bounce=true
     const bounceEvent = healing.events.find(e =>
       e.errorType === "guard_intercept" && (e.context as { bounce?: boolean })?.bounce === true);

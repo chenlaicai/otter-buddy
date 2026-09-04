@@ -625,10 +625,13 @@ export class SchedulerService {
   }
 
   private async createSystemMessage(task: ScheduledTask, body?: string) {
+    // 身份修复：system 消息 senderId 归一为 'system'。曾透传 task.senderId（大獭 UUID），
+    // 落地为 system+UUID 杂交态（700+ 条，查询按 sender_id='system' 全部漏检）。
+    // scheduled_tasks.sender_id 保留原值不动——它是「任务归谁」的业务字段，不是消息发言者。
     const { message } = await this.sendMessage.send({
       conversationId: task.conversationId,
       senderType: 'system',
-      senderId: task.senderId,
+      senderId: 'system',
       body: body ?? task.body,
       talkingStonePassedTo: task.talkingStonePassedTo,
     });
@@ -981,12 +984,12 @@ export class SchedulerService {
     const now = new Date().toISOString();
     const body = `[定时任务错误] 「${task.name}」连续 ${failures} 次执行失败，已自动停跑（status=error）。最近错误：${errorMessage}。请检查任务配置或手动恢复（update status='active'）后重试。`;
 
-    // 1) 系统消息注入任务所属对话
+    // 1) 系统消息注入任务所属对话（senderId 归一 'system'，同 createSystemMessage 身份修复）
     try {
       await this.sendMessage.send({
         conversationId: task.conversationId,
         senderType: 'system',
-        senderId: task.senderId,
+        senderId: 'system',
         body,
         // 系统消息豁免发言石校验，但接口要求必填——传空数组占位（createSystemMessage 同款语义）
         talkingStonePassedTo: [],

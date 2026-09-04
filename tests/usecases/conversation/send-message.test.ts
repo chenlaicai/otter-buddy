@@ -326,6 +326,18 @@ describe("SendMessage（真 sqlite）", () => {
   });
 
   describe("start / appendEvent / complete / fail / abort（流式生命周期）", () => {
+    beforeEach(async () => {
+      /** 身份门禁（2026-09-04 幽灵 sender 修复）：start() 现校验 senderId 必须真实存在 */
+      await seedOtter(otterFixture());
+      await joinParticipant("otter-big");
+    });
+
+    it("幽灵 sender 门禁：senderId 不在 otters 表时抛 not_found（2026-09-04 修复回归锚）", async () => {
+      await expect(
+        sm.start({ conversationId: "conv-1", senderId: "user", talkingStonePassedTo: ["user"] }),
+      ).rejects.toSatisfy((err: DomainError) => err.kind === "not_found");
+    });
+
     it("start 创建流式消息，status=streaming，body=null", async () => {
       const msg = await sm.start({ conversationId: "conv-1", senderId: "otter-big", talkingStonePassedTo: ["user"] });
 
@@ -346,8 +358,6 @@ describe("SendMessage（真 sqlite）", () => {
     });
 
     it("completed 消息追加事件抛出 validation 错误", async () => {
-      await seedOtter(otterFixture());
-      await joinParticipant("otter-big");
       const { message: msg } = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "完成", talkingStonePassedTo: [] });
 
       await expect(
@@ -389,8 +399,6 @@ describe("SendMessage（真 sqlite）", () => {
     });
 
     it("fail：completed 消息标记失败抛出 validation 错误", async () => {
-      await seedOtter(otterFixture());
-      await joinParticipant("otter-big");
       const { message: msg } = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "完成", talkingStonePassedTo: [] });
 
       await expect(sm.fail(msg.id)).rejects.toSatisfy(
@@ -421,6 +429,12 @@ describe("SendMessage（真 sqlite）", () => {
   });
 
   describe("prepareForRetry", () => {
+    beforeEach(async () => {
+      /** 身份门禁（2026-09-04 幽灵 sender 修复）：start() 现校验 senderId 必须真实存在 */
+      await seedOtter(otterFixture());
+      await joinParticipant("otter-big");
+    });
+
     it("成功：failed 消息重置为 streaming，创建新 Turn", async () => {
       const msg = await sm.start({ conversationId: "conv-1", senderId: "otter-big", talkingStonePassedTo: ["user"] });
       await sm.fail(msg.id, "[系统] 未调用 yield 交棒");

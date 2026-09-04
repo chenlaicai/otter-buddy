@@ -123,6 +123,66 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
 
   /** F20260904schf P2（#792）：dispatch_attempts.source CHECK 扩展 dissolve 枚举值（存量库重建）。 */
   rebuildDispatchAttemptsSourceCheck(db, logger);
+
+  /** 幽灵 sender 回填：sender_type 与 sender_id 语义错位的存量数据修复（2026-09-04 排查）。 */
+  backfillGhostSenders(db, logger);
+}
+
+/** 幽灵 sender 回填（2026-09-04 排查）：修复两类发言者身份错位。
+ *  症状 A：sender_type='otter' AND sender_id='user'——重试新消息/服务重启恢复链路误传
+ *         触发者身份为发言者（49 条，最早 2026-08-19）。
+ *  症状 B：sender_type='system' AND sender_id != 'system'——scheduler 定时任务
+ *         透传 task.senderId（大獭 UUID）落库（700+ 条），查询按 sender_id='system' 全漏。
+ *  回填策略：
+ *  - 症状 A：同 conversation 内 sequence 更小的最近一条正常獭消息的 sender——重试场景中
+ *    被恢复/被重试的发言者就是幽灵消息的真正作者；找不到同会话猿消息则跳过不误伤。
+ *    sender_name 同步回填该兽名。
+ *  - 症状 B：sender_id 归一 'system'（与修复后的 createSystemMessage 一致）。
+ *  幂等：症状命中才 UPDATE；重跑无命中即无写入。 */
+function backfillGhostSenders(db: Database.Database, logger: Logger): void {
+  // 症状 B：system + 非 'system' UUID → 'system'（scheduler 修正前的存量）
+  const sysResult = db.prepare(
+    "UPDATE messages SET sender_id = 'system' WHERE sender_type = 'system' AND sender_id != 'system'",
+  ).run();
+  if (sysResult.changes > 0) {
+    logger.info(`Backfilled ${sysResult.changes} system messages with ghost otter sender_id`, {});
+  }
+
+  // 症状 A：otter + 'user' → 同会话最近一条正常獭消息的 sender
+  const ghostRows = db.prepare(
+    "SELECT id, conversation_id, sequence_num FROM messages WHERE sender_type = 'otter' AND sender_id = 'user' ORDER BY created_at",
+  ).all() as Array<{ id: string; conversation_id: string; sequence_num: number }>;
+  if (ghostRows.length === 0) return;
+
+  let fixed = 0, skipped = 0;
+  const fixOne = db.prepare(
+    "UPDATE messages SET sender_id = ?, sender_name = ? WHERE id = ?",
+  );
+  const findNeighbor = db.prepare(`
+    SELECT m.sender_id, o.name AS sender_name
+    FROM messages m
+    JOIN otters o ON o.id = m.sender_id
+    WHERE m.conversation_id = ? AND m.sender_type = 'otter'
+      AND m.sender_id != 'user'
+      AND m.sequence_num < ?
+    ORDER BY m.sequence_num DESC
+    LIMIT 1
+  `);
+
+  db.transaction(() => {
+    for (const ghost of ghostRows) {
+      const neighbor = findNeighbor.get(
+        ghost.conversation_id, ghost.sequence_num,
+      ) as { sender_id: string; sender_name: string } | undefined;
+      if (!neighbor) {
+        skipped++;
+      } else {
+        fixOne.run(neighbor.sender_id, neighbor.sender_name, ghost.id);
+        fixed++;
+      }
+    }
+  })();
+  logger.info(`Backfilled ghost otter senders: fixed=${fixed}, skipped=${skipped}`, {});
 }
 
 /** Issue #608：attachments 表 kind CHECK 约束扩展 audio/video（存量库迁移）。
