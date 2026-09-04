@@ -15,9 +15,6 @@ import { attachOutputGuard } from "./output-guard";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { checkBashCommandSafety, readMainProcessPid } from "./bash-safety-guard";
 
-/** 上下文窗口占用警告阈值（超过则记录警告） */
-export const TOKEN_WARNING_THRESHOLD = 100_000;
-
 /** _attachGuards 所需的参数类型 */
 export interface AttachGuardsParams {
   session: { subscribe: (fn: (event: unknown) => void) => () => void; abort: () => Promise<void> };
@@ -102,14 +99,13 @@ export interface BuildInvokeResultResult {
 
 /** buildInvokeResult：构建 invoke 结果 */
 export function buildInvokeResult(params: BuildInvokeResultParams): BuildInvokeResultResult {
-  const { otterId, session, circuitBreaker, modelPool, otterConfigProvider, model, logger, getModelAliasForLog } = params;
+  const { otterId, session, circuitBreaker, modelPool, otterConfigProvider, model, getModelAliasForLog } = params;
   const stats = session.getSessionStats();
   const tokenUsage = { input: stats.tokens.input, output: stats.tokens.output };
 
   /** F20260808ctxw：上下文窗口占用 = 末次有效 assistant 消息的 usage（input+output+cacheRead+cacheWrite），
    * 与 SDK compaction 判定同公式、同 compaction 边界语义；session 重建/compaction 后自然回落，不会虚增 */
   const ctxTokens = getContextWindowTokens(session.sessionManager.getBranch());
-  checkTokenWarning(otterId, ctxTokens, logger);
 
   // per-otter contextWindow
   let ctxMax: number | undefined;
@@ -274,12 +270,9 @@ export function attachCircuitBreaker(
   };
 }
 
-/** token 超阈值警告（F20260808ctxw：口径为上下文窗口占用，非 session 累计消耗） */
-export function checkTokenWarning(otterId: string, ctxTokens: number | undefined, logger: Logger): void {
-  if (ctxTokens !== undefined && ctxTokens > TOKEN_WARNING_THRESHOLD) {
-    logger.warn(`[token-warning] otter=${otterId} ctxTokens=${ctxTokens} threshold=${TOKEN_WARNING_THRESHOLD}`);
-  }
-}
+  /** token 超阈值警告已删（F20260904cq30）：1278 次日志零下游消费的假水位线。
+   *  上下文水位域唯一真相源 = compaction 触发线（config contextQuality.compactionReserveTokens）；
+   *  水位数据每消息落 DB（messages.context_tokens），观测走 DB/metrics 不走日志。 */
 
 /** 构建执行结果（含熔断器元数据） */
 export function buildResult(

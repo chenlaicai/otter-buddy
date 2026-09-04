@@ -49,19 +49,28 @@ T3: 水位 300K 以下会话零感知（现状不受影响）
 
 ### 改动
 
-`src/frameworks/agent/model-runtime-registry.ts` L164-165（SettingsManager 创建处）：现有 `applyOverrides({ retry: {...} })` 同一调用追加 compaction 覆盖：
+**① 触发线注入（config 化，搭档要求）**
+
+`config.yaml.example` 新增 `contextQuality.compactionReserveTokens: 700000`（缺省 700_000）；`config-service.ts` 解析；`model-runtime-registry.ts` applyOverrides 读 config：
 
 ```ts
-this.settingsManager = piCodingAgent.SettingsManager.create(process.cwd());
-this.settingsManager.applyOverrides({
-  retry: { enabled: true, maxRetries: 4 },
-  compaction: { reserveTokens: 700_000 },  // 本 PR 新增：触发线 1M−700K≈340K
-});
+this.settingsManager.applyOverrides({ retry: { enabled: true, maxRetries: 4 }, compaction: { reserveTokens: getConfig().contextQuality.compactionReserveTokens } });
 ```
+
+本地 config.yaml 无此字段时走缺省值，**无需手动同步**。
 
 applyOverrides 是 SDK 公开 API（`Partial<Settings>`，settings-manager.d.ts），`Settings.compaction?: CompactionSettings` 字段存在，且 Otter 已有 retry 注入先例——同模式扩展，无新依赖。
 
 **merge 语义**（检视发现 3）：applyOverrides 走 deepMergeSettings 部分合并——仅覆盖显式注入的字段。本方案只注入 `reserveTokens`，`compaction.enabled`（默认 true）与 `keepRecentTokens`（默认 20000）保留 SDK 默认或用户 settings.json 配置值，不做全面接管。
+
+**② 假水位线删除（搭档审计拍板）**
+
+40 天运行日志实查（2026-07-27 至今）：token-warning 日志 1278 次（8月 679 + 9月 593）**零下游消费**；且 config `circuitBreaker.tokenWarningThreshold: 50000` 与硬编码 `TOKEN_WARNING_THRESHOLD: 100_000` 是两个值两条独立路径，配置项形同虚设。上下文水位域曾有两条假线一个真空，本次收敛为**唯一真相源**：
+
+- 删 `config.yaml.example` 的 `tokenWarningThreshold` + `config-service.ts` 解析 + `CircuitBreakerConfig` 字段
+- 删 `circuit-breaker-helpers.ts` 的 `TOKEN_WARNING_THRESHOLD`/`checkTokenWarning`（及其在 buildInvokeResult 的调用点）
+- 熔断器（94 次真实战果）与 degenerate 检测（538 次检测）不动
+- 观测路径不变：水位数据每消息落 DB（messages.context_tokens）
 
 ```
 触发线验证：contextWindow(1_048_576) − reserveTokens(700_000) = 348_576 ≈ 340K 触发
@@ -97,8 +106,8 @@ applyOverrides 是 SDK 公开 API（`Partial<Settings>`，settings-manager.d.ts�
 
 | 取舍 | 决策 | 替代方案 | 理由 |
 |---|---|---|---|
-| 配置注入 vs 改 config.yaml | 代码注入（SettingsManager 创建后覆盖） | models-factory 按模型注入 | 当前所有模型同窗口（1M），per-model 差异化无需求；未来有需求时再迁移 |
-| 340K 实际触发 vs 精确 300K | reserveTokens=700K 整数 | 748_576 精确值 | 标称值与实际值差 40K 无实质影响，整数可读 |
+| 配置化 vs 硬编码 | config.yaml contextQuality.compactionReserveTokens（缺省 700_000） | 硬编码在 registry | 搭档要求可调；生效点仍是 applyOverrides，pi 公式不动 |
+| 假水位线处置 | 删除（两条） | 保留/接告警 | 1278 次日志零消费，观测走 DB；保留 = 维护而成本无收益 |
 
 ## 验证
 
@@ -110,5 +119,10 @@ applyOverrides 是 SDK 公开 API（`Partial<Settings>`，settings-manager.d.ts�
 
 | 文件 | 操作 | 说明 |
 |---|---|---|
-| src/frameworks/agent/model-runtime-registry.ts | 修改 | L165 applyOverrides 追加 `compaction: { reserveTokens: 700_000 }`（与既有 retry 注入同调用） |
-| tests/frameworks/agent/*.test.ts | 新增 | V1 边界单测 |
+| config/config.yaml.example | 修改 | 新增 contextQuality.compactionReserveTokens；删 circuitBreaker.tokenWarningThreshold |
+| src/frameworks/config-service.ts | 修改 | 解析 contextQuality；删 tokenWarningThreshold 字段/解析 |
+| src/frameworks/agent/model-runtime-registry.ts | 修改 | applyOverrides 读 config 注入 reserveTokens |
+| src/frameworks/agent/circuit-breaker-helpers.ts | 修改 | 删 TOKEN_WARNING_THRESHOLD/checkTokenWarning 及调用点 |
+| src/frameworks/agent/tool-call-circuit-breaker.ts | 修改 | 删 CircuitBreakerConfig.tokenWarningThreshold |
+| tests/frameworks/agent/compaction-threshold.test.ts | 新增 | 340K 边界 8 用例 |
+| tests/frameworks/agent/context-tokens.test.ts | 修改 | 假水位线删除回归锁（导出不存在断言） |

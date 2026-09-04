@@ -62,6 +62,12 @@ export interface AppConfig {
     /** worker 线程 execArgv 覆盖（测试用：vitest 注入的 --conditions 会让 worker 内模型库解析错乱），默认继承 process.execArgv */
     workerExecArgv?: string[];
   };
+  /** 上下文质量（F20260904cq30）：compaction 触发线等水位域唯一真相源 */
+  contextQuality: {
+    /** pi compaction 触发储备（触发公式 contextTokens > contextWindow − reserveTokens）。
+     * 1M 窗口下 700000 → 340K 触发。缺省 700000（搭档拍板 300K 标称线的整数 reserve 实现） */
+    compactionReserveTokens: number;
+  };
   llm: {
     /** 默认模型 alias（必须在 models[] 中） */
     default: string;
@@ -79,7 +85,6 @@ export interface AppConfig {
     slidingWindowSize: number;
     slidingWindowRepeat: number;
     maxRepeatAfterWarning: number;
-    tokenWarningThreshold: number;
     maxChainDepth: number;
     outputGuard: {
       enabled: boolean;
@@ -215,6 +220,9 @@ interface RawConfig {
     modelPath?: string;
     localModelPath?: string;
   };
+  contextQuality?: {
+    compactionReserveTokens?: number;
+  };
   circuitBreaker?: {
     maxToolCalls?: number;
     maxConsecutiveIdentical?: number;
@@ -223,7 +231,6 @@ interface RawConfig {
     slidingWindowSize?: number;
     slidingWindowRepeat?: number;
     maxRepeatAfterWarning?: number;
-    tokenWarningThreshold?: number;
     maxChainDepth?: number;
     outputGuard?: {
       enabled?: boolean;
@@ -402,7 +409,6 @@ function buildCircuitBreakerConfig(raw: RawConfig): AppConfig["circuitBreaker"] 
     slidingWindowSize: d(raw.circuitBreaker?.slidingWindowSize, 6),
     slidingWindowRepeat: d(raw.circuitBreaker?.slidingWindowRepeat, 3),
     maxRepeatAfterWarning: d(raw.circuitBreaker?.maxRepeatAfterWarning, 5),
-    tokenWarningThreshold: d(raw.circuitBreaker?.tokenWarningThreshold, 50000),
     maxChainDepth: d(raw.circuitBreaker?.maxChainDepth, 100),
     outputGuard: buildOutputGuardConfig(raw),
     streamingTimeoutMs: d(raw.circuitBreaker?.streamingTimeoutMs, 120000),
@@ -483,6 +489,10 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelC
       // 用户设了 localModelPath 但没设 modelPath 时，本地目录名 "bge-m3" 才是正确默认。
       modelPath: d(raw.embedding?.modelPath, raw.embedding?.localModelPath ? "bge-m3" : "Xenova/bge-m3"),
       localModelPath: raw.embedding?.localModelPath ?? undefined,
+    },
+    contextQuality: {
+      // F20260904cq30：compaction 触发线唯一真相源（旧 token 警告假水位线已删，水位域只此一线）
+      compactionReserveTokens: d(raw.contextQuality?.compactionReserveTokens, 700_000),
     },
     llm: {
       default: raw.llm.default,

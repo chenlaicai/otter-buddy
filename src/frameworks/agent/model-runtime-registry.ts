@@ -16,6 +16,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { ModelConfig } from "@frameworks/config";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import type { OtterPromptConfig } from "@contract/api/otter";
+import { getConfig } from "../config";
 import { buildOtterPrompt } from "./session-helpers";
 import { handleSessionBeforeCompact, type CompactionHookDeps, type CompactionPreparationLike } from "./compaction-hook";
 import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
@@ -166,8 +167,9 @@ export class ModelRuntimeRegistry {
       // 触发公式 contextTokens > contextWindow − reserveTokens，1M 窗口下 1048576−700000=348576≈340K。
       // Why 340K：实测大獭上下文均值 60-73K 为好体验区、266K 已入退化区（详见 F 文档决策记录）；
       // 搭档拍板 300K 标称线，整数 reserveTokens=700K 的实际触发 340K 在退化区间之上且留有余量。
+      // 配置化（搭档要求）：config contextQuality.compactionReserveTokens，缺省 700_000。
       // merge 语义：partial merge——仅接管 reserveTokens，enabled/keepRecentTokens 保留 SDK 默认。
-      this.settingsManager.applyOverrides({ retry: { enabled: true, maxRetries: 4 }, compaction: { reserveTokens: 700_000 } });
+      this.settingsManager.applyOverrides({ retry: { enabled: true, maxRetries: 4 }, compaction: { reserveTokens: getConfig().contextQuality.compactionReserveTokens } });
 
       // initModels 恒产出 ModelPool（models-factory.ts），bootstrap 必装配下传
       if (this.modelPool) {
