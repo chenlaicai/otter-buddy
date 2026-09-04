@@ -12,7 +12,8 @@
  * 
  * 口径说明（来自特性文档 F20260824rhib）：
  * - F 前缀：249/259（96.1%）
- * - 严格三段格式：182/259（70.3%）—— 模块段仅允许纯字母（不含连字符）
+ * - 严格三段格式：182/259（70.3%）（F20260824rhib 当时口径；现模块段正则
+ *   [a-z][a-z-]* 允许连字符，如 agent-runtime——#788 检视发现 3 勘误）
  *
  * FID 形态契约（#667）：F/R ID 的日期段与后缀段正则源自单一真相源
  * src/entities/document/fid-format.ts（排除 0/1/l/o 的旧字母表已废弃——
@@ -45,8 +46,9 @@ import { FID_DATE_SEGMENT, FID_SUFFIX_SEGMENT } from "@entities/document/fid-for
  * 类型白名单：真相源为 commit-convention.md Type Tags 表与 .githooks/commit-msg（#671）。
  * parser 原白名单仅 3 种（缺 Refactor/Design），与 #427（hook 补录）/ #432（文档删
  * Feature 历史别名）两次收口漂移，致存量真实特性 commit 被误判 non_standard_format。
+ * 导出供元测试与 hook types 变量交叉断言（#788 检视发现 2：双向锁定）。
  */
-const CHANGE_TYPE_WHITELIST = ["New Feature", "Feature Update", "BugFix", "Refactor", "Design"] as const;
+export const CHANGE_TYPE_WHITELIST = ["New Feature", "Feature Update", "BugFix", "Refactor", "Design"] as const;
 
 /** 白名单 → 正则类型段（空格兼容无空格笔误：Feature Update → Feature ?Update，#425 建议 2） */
 const TYPE_PATTERN = CHANGE_TYPE_WHITELIST.map((t) => t.replace(" ", " ?")).join("|");

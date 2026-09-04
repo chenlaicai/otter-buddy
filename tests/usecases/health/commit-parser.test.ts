@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { parseCommit, parseCommits } from "@usecases/health/commit-parser";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { parseCommit, parseCommits, CHANGE_TYPE_WHITELIST } from "@usecases/health/commit-parser";
 
 describe("CommitParser", () => {
   describe("parseCommit", () => {
@@ -239,6 +241,36 @@ describe("CommitParser", () => {
       expect(results[1].isCompliant).toBe(false);
       expect(results[1].skipReason).toBe("merge_commit");
       expect(results[2].isCompliant).toBe(true);
+    });
+  });
+
+  // #788 检视发现 2：hook→parser 方向无测试拦截（此前仅 parser 白名单单测自锁，
+  // 三方一致性是单向锁定）。照 fid-format.test.ts 元测试模式，从 hook 源码提取
+  // types 变量与 parser 导出的 CHANGE_TYPE_WHITELIST 交叉断言——任意一侧单独
+  // 改动都会在此变红，CI 即校验（hook 是 shell 内嵌 node -e 无法 import ts，
+  // 只能字符级比对，与 #670 的 ID 段元测试同理）。
+  describe("真相源锁死元测试（hook types ↔ parser 白名单双向锁定）", () => {
+    const repoRoot = path.resolve(__dirname, "../../..");
+    const hookSource = fs.readFileSync(path.join(repoRoot, ".githooks/commit-msg"), "utf-8");
+
+    it("hook types 变量与 parser CHANGE_TYPE_WHITELIST 字符级一致", () => {
+      // hook 源文件中类型段写法（fs 读到的原始字节，bash 双引号内 \\→\，
+      // node 字符串内 \→正则转义）：
+      //   const types = '(Feature Update|BugFix|New Feature|Refactor|Design)';
+      const m = hookSource.match(/const types = '\((.+)\)';/);
+      expect(m).not.toBeNull();
+      const hookTypes = m![1].split("|");
+      // 锁定的是集合一致性（正则交替顺序不影响匹配语义），非顺序——hook 与 parser
+      // 的枚举顺序本就不同，排序后比较
+      expect([...hookTypes].sort()).toEqual([...CHANGE_TYPE_WHITELIST].sort());
+    });
+
+    it("hook 错误提示文案中的类型清单与 parser 白名单一致", () => {
+      // hook 报错模板行：[F|YYYYMMDDNN|...][module][Feature Update|BugFix|...][Incompatible] 中文标题
+      const m = hookSource.match(/\[module\]\[([^\]]+)\]\[Incompatible\]/);
+      expect(m).not.toBeNull();
+      const hintTypes = m![1].split("|");
+      expect([...hintTypes].sort()).toEqual([...CHANGE_TYPE_WHITELIST].sort());
     });
   });
 });

@@ -39,7 +39,9 @@ Type Tags 表、校验侧 `.githooks/commit-msg`、识别侧 `src/usecases/healt
   —— Refactor×11、Design×5、`[Feature]`×1、`[Enhancement]`×1、`[Tests]`×1、
   两段式缺类型段×15
 - changeType 分布失真：Refactor/Design 类 commit 在健康报告的 changeTypeDistribution
-  中完全不可见；hotspot_imbalance 检测的 feature 计数亦受影响（detect-signals.ts:350）
+  中完全不可见。（#788 检视勘误：hotspot_imbalance 检测不受此漂移影响——
+  detect-signals.ts:349-350 的 bugfix/feature 计数只认 BugFix/New Feature/
+  Feature Update，均在旧白名单内；初稿误写为受影响，已修正）
 
 ### 语义决策点：`[Feature]` 简写的处理（派工时大獭留的判断题）
 
