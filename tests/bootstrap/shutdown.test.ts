@@ -7,7 +7,11 @@
 import { describe, it, expect } from "vitest";
 import { disposeWithTimeout } from "../../src/bootstrap/shutdown";
 
-/** 记录型 exitFn：副作用 = 记录退出码（真 exitFn 不可逆，测试用记录替代） */
+/** 记录型 exitFn：副作用 = 记录退出码。
+ *  注（检视#808 发现 1）：生产 exitFn = process.exit，同步终止进程、不返回；
+ *  测试用 throw 模拟「不返回」——race 走 reject/catch 路径，而生产直接终止（catch 不执行）。
+ *  两种语义下进程都会退出，功能等价；本测试验证的是「exitFn 被调 + 退出码正确」的副作用事实，
+ *  reject 语义仅是可观测载体。 */
 function recordingExit(): { codes: number[]; fn: (code?: number) => never } {
   const codes: number[] = [];
   const fn = ((code?: number): never => {
