@@ -30,7 +30,9 @@ function makeMocks() {
   const updateLastReadSeq = vi.fn();
   const updateLastActiveTurnNumber = vi.fn().mockResolvedValue(undefined);
   const getTurnById = vi.fn().mockResolvedValue(makeTurn());
-  const getMessageById = vi.fn().mockResolvedValue(makeMsg());
+  // F20260904schf：链引擎改读行级 tsp（getMessageById 的 talkingStonePassedTo），
+  // mock 默认按 messageId 返回对应消息行（tsp 默认空）——需 yield 路由的测试自行 override mockImplementation 注册行级 tsp
+  const getMessageById = vi.fn(async (messageId: string) => makeMsg({ id: messageId }));
   const getLastMessageBySender = vi.fn().mockResolvedValue(makeMsg());
   const getActiveTurn = vi.fn().mockResolvedValue(null);
 
@@ -118,7 +120,7 @@ describe("DispatchChainEngine markBatchRead（F20260803trrf: 时序修复）", (
     m.getMessageById.mockImplementation(async (id: string) => {
       if (id === "m-1") return makeMsg({ id: "m-1", senderId: "otter-1", turnId: "turn-1" });
       if (id === "m-2") return makeMsg({ id: "m-2", senderId: "otter-2", turnId: "turn-2" });
-      return null;
+      return makeMsg({ id });
     });
     m.getTurnById.mockImplementation(async (turnId: string) => {
       if (turnId === "turn-1") return makeTurn({ id: "turn-1", turnNumber: 5 });
@@ -160,6 +162,9 @@ describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒�
 
   it("scheduler 路径：小獭 yield 回任务属主 otter，属主应被唤醒（不再被 senderId 过滤吞掉）", async () => {
     const { m, invoked, invokeFn } = makeChainMocks();
+    // F20260904schf：行级出处——m-work 行的 tsp 携带 yield 目标（生产中 completeMessage 落库）
+    m.getMessageById.mockImplementation(async (id: string) =>
+      id === "m-work" ? makeMsg({ id, talkingStonePassedTo: ["owner-otter"] }) : makeMsg({ id }));
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
 
     await engine.executeChain({
@@ -174,6 +179,8 @@ describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒�
 
   it("web 路径：senderId=user 时 yield to user 仍被滤除（人类不参与链调度）", async () => {
     const { m, invoked } = makeChainMocks();
+    m.getMessageById.mockImplementation(async (id: string) =>
+      id === "m-work" ? makeMsg({ id, talkingStonePassedTo: ["user"] }) : makeMsg({ id }));
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
 
     await engine.executeChain({
@@ -193,20 +200,22 @@ describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒�
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, maxChainDepth: 10 });
     const invoked: string[] = [];
 
+    m.getMessageById.mockImplementation(async (id: string) =>
+      id === "m-work" ? makeMsg({ id, talkingStonePassedTo: ["otter-worker"] }) : makeMsg({ id }));
+
     await engine.executeChain({
       conversationId: "conv-1", userMessageContent: "hi", senderId: "owner-otter",
       initialTargets: ["otter-worker"],
       /** 小獭持续 yield 回自己（工具层 validateAndResolve 应拦截，链层验证不因此死循环） */
       invokeFn: async ({ otterId }: { otterId: string }) => {
         invoked.push(otterId);
-        return { messageId: "m-work", aggregatedTargets: ["otter-worker"] };
+        return { messageId: "m-work" };
       },
     });
 
-    /** 行为契约：自指目标不再引发新一轮 invoke（executeOneHop 逐批派发，同批内目标只 invoke 一次后靠下一轮终止）。
-     *  修复后 senderId 不再参与过滤，自指唯一终止保障是链层：invoke 幂等去重（同 hop 不重派）。 */
-    expect(invoked.length).toBeLessThanOrEqual(10);
-    expect(invoked[0]).toBe("otter-worker");
+    /** F20260904schf 契约升级：行级 tsp 自指守卫（producer 过滤）——自指 yield 不再引发任何
+     *  后续 invoke，链一轮终止（旧实现靠同批去重 + 烧满 maxDepth 兜底，#792 同族风险） */
+    expect(invoked).toEqual(["otter-worker"]);
   });
 });
 
@@ -601,6 +610,9 @@ describe("sgp2 hop 取源修复（F20260902sgp2 #712：hop 2+ 记账 + 多源覆
 
   it("hop 2+ 记账不再跳过：小獭 yield 属主，属主被记为消费触发消息 m-work", async () => {
     const { m, attempts, dispatchAttemptRepo } = makeLedgerMocks();
+    // F20260904schf：行级出处——m-work 行的 tsp 携带 yield 目标
+    m.getMessageById.mockImplementation(async (id: string) =>
+      id === "m-work" ? makeMsg({ id, talkingStonePassedTo: ["owner-otter"] }) : makeMsg({ id }));
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, dispatchAttemptRepo });
 
     await engine.executeChain({
@@ -623,6 +635,9 @@ describe("sgp2 hop 取源修复（F20260902sgp2 #712：hop 2+ 记账 + 多源覆
 
   it("多源覆盖：A、B 同 hop yield 给 C，C 对两条触发消息各记一条 attempt", async () => {
     const { m, attempts, dispatchAttemptRepo } = makeLedgerMocks();
+    // F20260904schf：行级出处——m-a/m-b 行的 tsp 各自携带 yield 目标 otter-c
+    m.getMessageById.mockImplementation(async (id: string) =>
+      (id === "m-a" || id === "m-b") ? makeMsg({ id, talkingStonePassedTo: ["otter-c"] }) : makeMsg({ id }));
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, dispatchAttemptRepo });
 
     await engine.executeChain({
@@ -643,6 +658,8 @@ describe("sgp2 hop 取源修复（F20260902sgp2 #712：hop 2+ 记账 + 多源覆
 
   it("无 repo 时不记账也不抛（可选依赖，零行为变化）", async () => {
     const { m } = makeLedgerMocks();
+    m.getMessageById.mockImplementation(async (id: string) =>
+      id === "m-work" ? makeMsg({ id, talkingStonePassedTo: ["owner-otter"] }) : makeMsg({ id }));
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
     const invoked: string[] = [];
 
