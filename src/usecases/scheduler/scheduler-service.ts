@@ -67,7 +67,8 @@ export interface SchedulerServiceOptions {
   dispatchAttemptRepo?: DispatchAttemptRepo;
   /** #775 S4a 换轨：信号路由器（可选注入）。注入后定时任务触发 = 投信号 → 路由器点火
    *  （过闸门+台账记账）；未注入回退直连链（回滚面，与 sgpv 降级基线同语义）。 */
-  signalRouter?: SignalRouter;  metrics?: SchedulerMetricsPort;
+  signalRouter?: SignalRouter;
+  metrics?: SchedulerMetricsPort;
   /** Why: 链外 invoke 路径不消费 aggregatedTargets 导致 yield 传递目标丢失（#332）。
    *  注入后 invokeAgentWithTimeout 走 DispatchChainEngine.executeChain 续跑发言链。 */
   dispatchChainEngine?: DispatchChainEngine;
@@ -710,8 +711,13 @@ export class SchedulerService {
    *  换轨后点火是路由器 fire-and-forget，无法握 promise——判活只能靠持久台账：
    *  - 锚点 attempt 全部到终态 → 执行收工（allAnchorAttemptsSettled，S4b 复用）
    *  - 有 in_progress 在途 → 活着，续期（#516 教训：静默 ≠ 死亡）
-   *  - 无任何行（信号被闸门冻结或待点火）→ 保守等下一轮，硬上限兕底
-   *  阻尼/补扫保证最坏情况下信号最终被消化；硬上限防真死循环占住调度器。 */
+   *  - 无任何行（目标 busy 排队中 / 待点火）→ 保守等下一轮，硬上限兕底
+   *  busy 排队语义（检视发现 1 处置说明）：routeDirectSignal 返回 queued_busy 时信号在
+   *  busyQueue，无 attempt 行 → 本看门狗持续轮询。Why 正确：①排队会被目标 idle 后的
+   *  debounce 重扫自动消化（分钟级），消化后 attempt 行出现，收敛到真实 completed；
+   *  ②triggerTask 是 fire-and-forget，等待只挂起本任务的 Promise，不阻塞其他任务调度；
+   *  ③若此时跳过等待记 completed = 任务未执行却记账完成（账面谎报，违 #517）。
+   *  24h 硬上限即病态场景（目标持续 busy 一整天）的兕底。 */
   private async watchExecutionByLedger(task: ScheduledTask, anchorMessageId: string): Promise<void> {
     const deadline = this.now() + LEDGER_WATCH_HARD_LIMIT_MS;
     while (this.now() < deadline) {
