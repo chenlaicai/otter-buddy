@@ -334,3 +334,85 @@ describe("updateDefaultModelInYaml", () => {
     ).toThrow('模型别名 "nonexistent" 不存在于 config.yaml models[] 中');
   });
 });
+
+describe("updateDefaultModelInYaml comment preservation (#391)", () => {
+  const mockModelPool = { hasModel: (alias: string) => ["fast", "powerful"].includes(alias) };
+
+  // 带注释的代表性配置（块注释 + 行内注释，对齐真实 config.yaml 的注释形态）
+  const COMMENTED_YAML = [
+    "# ===== 服务配置 =====",
+    "server:",
+    "  port: 3000 # 端口（行内注释）",
+    "",
+    "# LLM 配置：默认模型的唯一真相源",
+    "llm:",
+    "  default: fast",
+    "  # models 列表：每个条目是一个可用模型",
+    "  models:",
+    "    - alias: fast # 快速模型",
+    "      provider: openai",
+    "      model: gpt-4o",
+    "      input: [\"text\", \"image\"]",
+    "    - alias: powerful",
+    "      provider: anthropic",
+    "      model: claude-sonnet-4-20250514",
+    "# ===== 结束 =====",
+  ].join("\n") + "\n";
+
+  const countCommentLines = (s: string) => (s.match(/^\s*#.*/gm) ?? []).length;
+
+  beforeEach(() => {
+    mockWriteFileSync.mockReset();
+    mockRenameSync.mockReset();
+  });
+
+  it("round-trip preserves all comment lines (#391)", () => {
+    const captured: { path: string; content: string } = { path: "", content: "" };
+    mockReadFileSync.mockReturnValue(COMMENTED_YAML);
+    mockWriteFileSync.mockImplementation((p: unknown, content: unknown) => {
+      captured.path = p as string;
+      captured.content = content as string;
+    });
+
+    updateDefaultModelInYaml("powerful", mockModelPool, undefined, "/tmp/config.yaml");
+
+    // 核心断言：注释行数 round-trip 前后不变
+    expect(countCommentLines(captured.content)).toBe(countCommentLines(COMMENTED_YAML));
+    // 具体注释仍在（含 llm 块内注释）
+    expect(captured.content).toContain("# LLM 配置：默认模型的唯一真相源");
+    expect(captured.content).toContain("# models 列表：每个条目是一个可用模型");
+    // 行内注释与未触及的值保持原样
+    expect(captured.content).toContain("- alias: fast # 快速模型");
+    expect(captured.content).toContain("claude-sonnet-4-20250514");
+    // flow 序列不变形：["text"] 不得变 [ "text" ]（flowCollectionPadding: false，最小 diff）
+    expect(captured.content).toContain('input: ["text", "image"]');
+    // default 值确实已切换
+    expect(captured.content).toMatch(/^ {2}default: powerful$/m);
+    // 原子写路径保持：tmp + rename（mock.calls 模式，对齐既有测试）
+    expect(captured.path).toBe("/tmp/config.yaml.tmp");
+    expect(mockRenameSync.mock.calls[0]).toEqual(["/tmp/config.yaml.tmp", "/tmp/config.yaml"]);
+  });
+
+  it("creates llm block via setIn when missing (对齐原 if (!raw.llm) 语义)", () => {
+    let content = "";
+    mockReadFileSync.mockReturnValue("server:\n  port: 3000\n");
+    mockWriteFileSync.mockImplementation((_p: unknown, c: unknown) => {
+      content = c as string;
+    });
+
+    updateDefaultModelInYaml("fast", mockModelPool, undefined, "/tmp/config.yaml");
+
+    expect(content).toMatch(/^llm:\n {2}default: fast$/m);
+  });
+
+  it("throws on malformed yaml without writing anything", () => {
+    mockReadFileSync.mockReturnValue("llm: [unclosed\n");
+
+    expect(() =>
+      updateDefaultModelInYaml("fast", mockModelPool, undefined, "/tmp/config.yaml"),
+    ).toThrow("config.yaml 解析失败");
+    // 坏输入不落盘：不写 tmp、不 rename，原文件不被破坏（mock.calls 模式，对齐既有测试）
+    expect(mockWriteFileSync.mock.calls).toHaveLength(0);
+    expect(mockRenameSync.mock.calls).toHaveLength(0);
+  });
+});
