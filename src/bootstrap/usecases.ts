@@ -65,8 +65,10 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
     repos.otter, agentGateway, manageConversation, manageMemory, logger,
   );
   // F20260903dmpe 阻尼#4（S4 补丁批）：dissolve 事务内销账名下 in_progress 派发
+  // F20260904schf P2（#792）：dissolve 出站清算——未派发的出站信号补 aborted 墓碑
   const dissolveOtter = new DissolveOtter(repos.otter, agentGateway, manageSession, {
     settlePendingForOtter: async (otterId: string) => repos.dispatchAttempt.failAllInProgressForOtter(otterId),
+    abortUnattemptedOutgoing: async (otterId: string) => repos.dispatchAttempt.abortUnattemptedOutgoingForOtter(otterId),
     logger,
   });
   const manageContext = new ManageContext(repos.otterContext);
