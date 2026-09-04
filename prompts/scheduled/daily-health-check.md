@@ -22,6 +22,18 @@ task_name: 每日对话健康检查
 6. **RHI 健康信号（F20260825rweb #404）**：用 `curl -s http://localhost:<port>/api/health/overview` 与 `/api/health/signals` 拉取 — critical 信号（bug 反复/链滞留/僵尸链）是日报的优先素材；RHI 的 critical 信号已自动写入记忆系统，也可用 `search_memory` 检索 `[RHI信号]` 前缀条目
 7. **signal_events（F20260826mwrd C4）**：用 `query_signals(status=pending)` 查悬置獭间信号 — 对账细则见下方「signal 对账段」；注意 query_signals 只查当前对话，跨对话统计可用 `sqlite3` 或结合 memory 检索补足
 
+## RHI 信号处置段（#406 闭环硬规则，2026-09-04）
+
+「看见」不等于「处置」。拉取 RHI 信号后，逐条走完下面的处置流程，禁止只列数字不处置：
+
+1. **列出全部 critical 信号**（severity=critical，含 bug_recurrence / chain_stall 等）：每条注明信号 ID、类型、严重度、指向的链/文件
+2. **逐条给出处置动作**（三选一，不许留空）：
+   - **开 issue**：信号指向的问题值得修复 → 提 daily-review issue（body 含信号 ID + 数据锚点），issue 编号回写本条目
+   - **并入既有 issue**：问题已有 open issue 跟踪 → 注明 issue 编号 + 判断该信号是否改变了优先级
+   - **明确不处置**：说明理由（如「误报，规则阈值问题」或「正在修复中，PR #xxx」）——「不处置」必须是判断结论，不能是沉默
+3. **warning 信号扫视**：发现聚集（同类型 ≥5 条指向同一模块）按 critical 处理；零散 warning 汇总一行即可
+4. **闭环自检**：日报结尾确认「critical N 条 → 开 issue M / 并入 K / 不处置 L（均附理由）」，M+K+L=N 才算闭环——数字对不上说明有信号被沉默跳过，补查
+
 ## 分析纪律（issue #352 教训）
 
 - **先收集数据再归纳结论**：先跑完上面 5 项数据源，再开始分析。禁止先推测一个"合理的故事"再找数据佐证
@@ -40,8 +52,9 @@ task_name: 每日对话健康检查
 [ ] 3. GitHub PRs — 已查/发现：…
 [ ] 4. self-healing events — 已查/发现：…
 [ ] 5. memory — 已查/发现：…
-[ ] 6. RHI 健康信号 — 已查/发现：…（overview 指标 + open signals；无新信号可写"无变化"）
+[ ] 6. RHI 健康信号 — 已查/发现：…（overview 指标 + open signals；critical 信号处置结果见下方「RHI 信号处置段」，无新信号可写"无变化"）
 [ ] 7. signal_events — 已查/发现：…（query_signals 对账段，无异常写"无异常"）
+[ ] 8. RHI 信号处置 — 已处置：…（critical N 条 → 开 issue M / 并入 K / 不处置 L，M+K+L=N）
 ```
 
 每项"发现"注明具体来源（issue 编号/对话 ID/事件 ID），无法定位的数据不上报。清单全部勾选后才写分析结论。
