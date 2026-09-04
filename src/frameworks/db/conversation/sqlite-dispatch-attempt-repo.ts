@@ -175,6 +175,17 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
     return row.n === 0;
   }
 
+  failAllInProgressForOtter(otterId: string): number {
+    // F20260903dmpe 阻尼#4（S4 补丁批）：dissolve 獭名下 in_progress 全部落 failed。
+    // 与 markStaleInProgressFailed 的区别：按 otter 维度（解散场景），非全表。
+    return this.db.prepare(`
+      UPDATE dispatch_attempts
+      SET status = 'failed', attempt_finished_at = datetime('now'),
+          note = COALESCE(note || '; ', '') || '目标已解散，派发无主（dissolve 销账）'
+      WHERE status = 'in_progress' AND target_otter_id = ?
+    `).run(otterId).changes;
+  }
+
   markStaleInProgressFailed(): number {
     // §4.4 死亡证明（flash 对撞③）：进程内无存活的 in_progress 跨越重启。
     // 先例 reconcile-orphans.ts:50 failInFlightMessages 同款语义。

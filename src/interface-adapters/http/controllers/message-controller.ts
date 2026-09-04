@@ -617,6 +617,21 @@ export class MessageController {
     }
   }
 
+  /** F20260902sgp2 S1 观测端点：pending 计数裸探针（机器可读，监控/核查用；
+   *  与 /signal-trail 分离——那是给人的投影，这是账面的数字） */
+  async getPendingCount(c: Context): Promise<Response> {
+    try {
+      if (!this.dispatchAttemptRepo) {
+        return c.json({ error: "dispatch attempt repo not configured" }, 501);
+      }
+      const conversationId = param(c, "id");
+      const count = this.dispatchAttemptRepo.countPendingSignals(conversationId);
+      return c.json({ conversationId, pending: count });
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
   /** 标记已读（只前进不后退） */
   async markRead(c: Context): Promise<Response> {
     try {

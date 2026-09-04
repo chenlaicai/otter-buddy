@@ -19,6 +19,44 @@ causal_links:
     - F20260902sgp2   # 父特性（S4 原规划）
     - F20260901sgpx   # 母方案（P4 turn 退役原设计）
 ---
+## 10. S4 补丁批（自检发现的偏差与遗漏修复）
+
+自检（搭档令）对照设计文档/阻尼清单/会议裁决，发现 2 偏差 + 2 遗漏：
+
+| 项 | 类型 | 修复 |
+|----|------|------|
+| 偏差1 | 设计文档 §2 核心语义未同步 S4a 判据清零 | §2 更新为最终版（无 sender 类型特例） |
+| 偏差2 | S1 承诺的观测端点缺失 | GET /api/conversations/:id/pending-count（裸探针，机器可读） |
+| 遗漏1 | 阻尼#4 dissolve 事务销账未做 | DissolveOtter 可选 deps settlePendingForOtter → failAllInProgressForOtter |
+| 遗漏2 | 阻尼#5 yield 未解析墓碑未做 | 拆出（依赖 yield 写入路径改造，独立 PR——见 §11） |
+
+## 11. 阻尼#5 拆出说明
+
+yield 未解析目标（点名不存在的獭）写「跳过」墓碑——需改 yield 工具的写入路径
+（tool-factory），与 dissolve 销账（otter 生命周期路径）是不同面。当前被
+pendingClause 的 dissolved 过滤罩住（哑火侧安全），拆出独立排期不阻塞本批。
+
+---
+id: F20260903s4fn
+title: 'sgp2 S4 终局：scheduler 换轨 + 看门狗语义迁移 + 游标 seq 化 + turn 写路径退役'
+doc_type: feature
+summary: |
+  信号协议 v2 的收官段。四件套：① scheduler 入口换轨（最后一条直连链进闸门体系）；
+  ② 看门狗语义迁移（静默窗判死 → 「attempt 终态 + 持续产出」双条件，#516 教训平移）；
+  ③ 游标 seq 化（lastReadTurnNumber → lastReadSeq 双写迁移，刻度从 turn 换消息 seq）；
+  ④ turn 写路径退役评估（读路径 #677 已派生视图化，写路径 createTurn/closeTurn 的
+  消费面盘点后决定拆或留）。分四个独立 PR，每段可回滚。
+status: draft
+change_type: feature
+tags: [signal-protocol, scheduler, watchdog, cursor-migration, turn-retirement]
+modules: [src/usecases/scheduler/, src/usecases/conversation/, src/frameworks/db/]
+created_in_conversation: 52bfdd91-a61e-4323-b1f7-1fe3daaadc32
+capability_test: "n/a: S4a/b/c 为调度/记账/游标逻辑（A 类），无 LLM 参与行为变化；回归由 2903 用例全量 + S2.x 判据块覆盖"
+causal_links:
+  from:
+    - F20260902sgp2   # 父特性（S4 原规划）
+    - F20260901sgpx   # 母方案（P4 turn 退役原设计）
+---
 
 # F20260903s4fn: S4 终局
 

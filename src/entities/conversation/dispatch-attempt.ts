@@ -54,6 +54,9 @@ export interface DispatchAttemptRepo {
    *  true=链收工；false=有在途派发（链活跃）；无任何行 = false（保守：等消息层判定）。
    *  判定失败/无数据由调用方回退消息存在性判定（SchedulerService 看门狗语义）。 */
   allAnchorAttemptsSettled(messageId: string): boolean;
+  /** F20260903dmpe 阻尼#4（S4 补丁批）：dissolve 事务内销账——某獭名下全部
+   *  in_progress 派发落 failed（'目标已解散'）。返回翻篇行数。 */
+  failAllInProgressForOtter(otterId: string): number;
   /**
    * S1b 轨迹 UI（§4.7）：本会话全部 attempt（无 limit——轨迹批量投影用，
    * (message,target) 唯一键防膨胀；与 pendingClause 同文件同真相源）。

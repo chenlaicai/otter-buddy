@@ -64,7 +64,11 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const manageSession = new ManageSession(
     repos.otter, agentGateway, manageConversation, manageMemory, logger,
   );
-  const dissolveOtter = new DissolveOtter(repos.otter, agentGateway, manageSession);
+  // F20260903dmpe 阻尼#4（S4 补丁批）：dissolve 事务内销账名下 in_progress 派发
+  const dissolveOtter = new DissolveOtter(repos.otter, agentGateway, manageSession, {
+    settlePendingForOtter: async (otterId: string) => repos.dispatchAttempt.failAllInProgressForOtter(otterId),
+    logger,
+  });
   const manageContext = new ManageContext(repos.otterContext);
   const manageScheduledTask = new ManageScheduledTask(repos.scheduledTask);
   const manageConnection = new ManageConnection(repos.connection, repos.conversation, logger);
