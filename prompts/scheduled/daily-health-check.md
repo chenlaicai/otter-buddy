@@ -8,13 +8,17 @@ task_name: 每日对话健康检查
 
 关注点：用户情绪信号、系统问题、海獭行为。没信号就不报，宁缺毋滥。
 
+## 范围约束（#778 教训，2026-09-04 搭档定调）
+
+只找 otter-buddy 自身系统的优化点。其他项目（如 Echo agent 等）的对话反馈、UX 讨论、报错，一律忽略不上报。跨对话 memory 检索到的候选信号，上报前先验证对话归属——讨论的工作是否属于本仓库（otter-buddy 运行时/海獭系统）：看对话中引用的路径、PR、issue 是否指向 otter-buddy；无法确认归属的，宁缺毋滥，不报。
+
 ## 必须检查的数据源
 
-1. **对话历史**：本系统所有对话的消息（用户吐槽、系统错误、小獭异常）。跨对话用 memory 检索（search_memory + get_related）覆盖，不要声称"只能查当前对话"——那是错误的能力边界声明（issue #352 教训）
+1. **对话历史**：本系统所有对话的消息（用户吐槽、系统错误、小獭异常）。跨对话用 memory 检索（search_memory + get_related）覆盖，不要声称"只能查当前对话"——那是错误的能力边界声明（issue #352 教训）。检索结果按上方「范围约束」过滤归属
 2. **GitHub issues**：用 `gh issue list --state all --limit 50` 获取最近 issue，筛选昨天创建/更新的 — 用户自建的 issue 也是重要信号，不在对话中吐槽不等于没有问题
 3. **GitHub PRs**：用 `gh pr list --state all --limit 50` 获取最近 PR，筛选昨天创建/合入的 — 用户自建的 PR 说明遇到了需要修复的问题
 4. **self-healing events**：用 `manage_healing_events(action: query)` 查看系统自愈记录 — 工具故障、检索缺失、格式异常都在这里，注意 otterId 字段可定位到具体海獭
-5. **memory**：用 `search_memory` 检索昨天的记录（created_after 过滤）— 跨会话的问题脉络、未闭环的任务状态
+5. **memory**：用 `search_memory` 检索昨天的记录（created_after 过滤）— 跨会话的问题脉络、未闭环的任务状态（按「范围约束」验证归属后再纳入）
 6. **RHI 健康信号（F20260825rweb #404）**：用 `curl -s http://localhost:<port>/api/health/overview` 与 `/api/health/signals` 拉取 — critical 信号（bug 反复/链滞留/僵尸链）是日报的优先素材；RHI 的 critical 信号已自动写入记忆系统，也可用 `search_memory` 检索 `[RHI信号]` 前缀条目
 7. **signal_events（F20260826mwrd C4）**：用 `query_signals(status=pending)` 查悬置獭间信号 — 对账细则见下方「signal 对账段」；注意 query_signals 只查当前对话，跨对话统计可用 `sqlite3` 或结合 memory 检索补足
 
@@ -23,6 +27,7 @@ task_name: 每日对话健康检查
 - **先收集数据再归纳结论**：先跑完上面 5 项数据源，再开始分析。禁止先推测一个"合理的故事"再找数据佐证
 - **不确定的因果不写**：时间相邻 ≠ 因果关系。凡不能从数据直接得出的结论（数字、归属、因果链），要么查证，要么明确标注"未确认"
 - **能力边界先测试再声明**：不确定工具能否做到时，先测试再下结论，不凭印象断言
+- **对话归属先验证再上报**：跨对话候选信号必须验证是否属于 otter-buddy 系统（#778 教训——Echo agent 项目的 UX 反馈曾被误报为 daily-review issue）
 
 ## 产出前检查清单（硬门禁）
 
