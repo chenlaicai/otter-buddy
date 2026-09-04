@@ -2561,13 +2561,14 @@ describe('#775 S4a: scheduler 换轨', () => {
       });
 
       const triggerPromise = service.trigger('task-1');
-      const hardLimitMs = 24 * 60 * 60 * 1000;
+      // 先预挂 rejection handler 再推进时间：fake timers 推进期间 rejection 若落地时
+      // 无 handler 会被 vitest 记为 Unhandled Rejection（CI 慢机放大窗口，02:39 实证）
+      const expectation = expect(triggerPromise).rejects.toThrowError(/hard limit/);
       // 分段推进避免单次推进过大的边界问题（vi 对超大步长支持不稳）
       for (let i = 0; i < 24; i++) {
         await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
       }
-      void hardLimitMs;
-      await expect(triggerPromise).rejects.toThrowError(/hard limit/);
+      await expectation;
       // 失败记账：非闸门错误 → 走 failure 记账 + 连败
       const execution = Array.from(taskRepo._executions.values())[0];
       expect(execution?.status).toBe('failed');
