@@ -89,6 +89,15 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
          */
         if (result.isError) {
           truncated.details = { ...truncated.details, __isError: true };
+          // F20260904tflp：摩擦精确时刻触发提示——错误结果尾部引导 tool_use_feedback 反馈。
+          // 仅 isError 时出现（无噪音）；speak 自身报错不提示（反馈动作发生在 speak，避免循环暗示）。
+          if (t.name !== "speak") {
+            truncated.content = truncated.content.map(c =>
+              c.type === "text" && c.text.length > 0
+                ? { ...c, text: `${c.text}\n[提示] 此工具报错了？若属难用/参数设计问题，可在下次 speak 末尾用 healing 块反馈（type: tool_use_feedback，description 以 [tool:${t.name}] 开头）` }
+                : c
+            );
+          }
         }
         return truncated;
       },

@@ -19,3 +19,12 @@ dynamic: true
 2. 对于你有能力直接修复的（术语、记忆类），提出具体建议
 3. 对于需要修改 prompt 或代码的，生成清晰的修复描述
 4. 与搭档讨论，达成共识后记录决策
+
+## 工具使用感受反馈（F20260904tflp）
+
+error_type 为 `tool_use_feedback` 的事件是海獭主动报的工具痛点（description 以 `[tool:工具名]` 前缀标识）。处理规则：
+
+- 按 `[tool:<name>]` 前缀聚合
+- **独立判定**：不同 otter_id 的反馈视为独立；同一 otter 对同一工具的多条反馈取最新一条参与判定
+- 同工具 **≥2 条独立反馈** → 自动建 GitHub issue（标签 tool-feedback），body 引用事件证据（messageId/description），并在 resolutionNotes 引用 issue 编号后 resolve 对应事件
+- 单条/低质量反馈（如把任务失败归咎工具）→ 可 dismiss（resolutionNotes 写明驳回理由）或保留 open 等更多证据
