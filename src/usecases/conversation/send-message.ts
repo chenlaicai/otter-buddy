@@ -465,7 +465,7 @@ export class SendMessage {
    * 设计决策：失败期间的 message_events 保留不删——包含两次尝试的完整
    * 工具调用链，有调试价值。FTS 索引清空以避免搜索命中旧 fail body。
    */
-  async prepareForRetry(messageId: string, preserveSegments: boolean = false): Promise<Message> {
+  async prepareForRetry(messageId: string, preserveSegments: boolean = false, noResetToStreaming: boolean = false): Promise<Message> {
     const message = await this._repo.getMessageById(messageId);
     if (!message) {
       throw new DomainError(`Message not found: ${messageId}`, "not_found");
@@ -477,19 +477,33 @@ export class SendMessage {
     // 创建新 Turn（旧 Turn 已被 fail() 关闭）
     const turn = await this.ensureActiveTurn(message.conversationId);
 
-    // 重置消息状态（含状态守卫 + FTS 清空）
-    // F20260821fix: no_yield 重试时保留 segments（speak 内容有效，不应被删除）
-    await this._repo.resetForStreaming(messageId, turn.id, preserveSegments);
+    // F202609048840 F3: 恢复路径不再复位为 streaming，避免 UI 双 streaming 误读
+    if (!noResetToStreaming) {
+      // 重置消息状态（含状态守卫 + FTS 清空）
+      // F20260821fix: no_yield 重试时保留 segments（speak 内容有效，不应被删除）
+      await this._repo.resetForStreaming(messageId, turn.id, preserveSegments);
+    } else {
+      // 恢复路径：保留 failed 状态，只保留 segments 和创建新 turn
+      // 检视发现 5 处置：resetForStreaming 的状态守卫被跳过——此处补防御性检查，
+      // 非 failed 终态（脏数据）仅 warn 不阻断（finalizeResumedMessage 的 canFailMessage 守卫兜底）
+      if (message.status !== "failed" && message.status !== "aborted") {
+        this.logger.warn("prepareForRetry(noResetToStreaming)：消息非 failed/aborted 终态，跳过状态守卫继续（脏数据防御）", { messageId, status: message.status });
+      }
+      if (preserveSegments) {
+        // 保留 segments，但需要更新 turn_id
+        await this._repo.updateMessageTurnId(messageId, turn.id);
+      }
+    }
 
     // F20260821fix: preserveSegments 时保留原始 segments
     const segments = preserveSegments ? message.segments : [];
 
     return {
       ...message,
-      status: "streaming",
+      status: noResetToStreaming ? message.status : "streaming",
       segments,
       turnId: turn.id,
-      talkingStonePassedTo: null,
+      talkingStonePassedTo: noResetToStreaming ? message.talkingStonePassedTo : null,
     };
   }
 

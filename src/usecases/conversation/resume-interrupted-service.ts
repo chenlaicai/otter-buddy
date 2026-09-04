@@ -11,6 +11,7 @@ import {
   buildRestartResumeFailedMsg,
   buildRestartResumeTerminalMsg,
   buildRestartResumeCompletedMsg,
+  buildRestartResumeFailedInvokeMsg,
 } from "./agent-turn-orchestrator/retry-policy";
 import { canFailMessage } from "@entities/conversation/message";
 
@@ -43,6 +44,10 @@ export class ResumeInterruptedService {
       /** F20260901sgpv P1：信号路由器（可选）——注入后启动补扫含信号补路由
        *  （崩溃窗口内未点火信号的克星）；恢复链本身仍走链引擎 */
       signalRouter?: SignalRouter;
+      /** F202609048840 F4：派发台账（可选）——done 语义判定的真相源。
+       *  链引擎对 invoke 拒绝是吞错语义，executeChain 正常返回 ≠ invoke 成功；
+       *  台账 settle 终态（completed/failed）才是准确判据。未注入时保守判成功。 */
+      dispatchAttemptRepo?: { getAttempt: (messageId: string, targetOtterId: string) => { status: string; note: string | null } | null };
       logger: Logger;
       /** #613：healing 台账写入（服务重启事件落账，观测层闭环） */
       healingRepo?: HealingEventRepository;
@@ -80,13 +85,25 @@ export class ResumeInterruptedService {
         list.push(item);
         byConversation.set(item.conversationId, list);
       }
-      // F20260830rfto: 每个 conversation 独立 try/catch，一条失败不阻塞其余
+      // F202609048840 F1: 恢复循环跨会话并行——不同会话并行执行，同会话内多条 item 仍串行（防 sequence_num 竞态）
       const results = new Map<string, { resumed: number; skipped: number; failed: number }>();
-      for (const [conversationId, items] of byConversation) {
-        const result = await this.resumeConversation(conversationId, items);
-        results.set(conversationId, result);
-      }
-      // #613 方案 A：恢复完成终态消息（成功路径与失败路径的 [错误] 消息对称）
+      const conversationEntries = Array.from(byConversation.entries());
+      
+      // 并行处理所有会话，每个会话内串行处理 items
+      await Promise.allSettled(
+        conversationEntries.map(async ([conversationId, items]) => {
+          try {
+            const result = await this.resumeConversation(conversationId, items);
+            results.set(conversationId, result);
+          } catch (err) {
+            // 单个会话失败不阻塞其他会话
+            this.deps.logger.error(`Resume conversation ${conversationId} failed`, err instanceof Error ? err : new Error(String(err)));
+            results.set(conversationId, { resumed: 0, skipped: 0, failed: items.length });
+          }
+        })
+      );
+      
+      // #613 方案 A：恢复完成终态消息（成功路径与失败路径的 [错误] 消息对称）——等全部完成后统一发
       for (const [conversationId, result] of results) {
         await this.sendCompletedSafe(conversationId, result);
       }
@@ -171,6 +188,9 @@ export class ResumeInterruptedService {
    * F20260830rfto: 单条 resume 的安全包装——捕获所有异常确保不崩循环。
    * #617 检视发现1：返回三分类 outcome（done/skipped/failed）而非 boolean，
    * 让 stale 数据清理路径与真实恢复失败在终态消息中区分呈现。
+   * F202609048840 F4：重试耗尽的链错误（429/网络类，从 resumeOneWithRetry 冒出）标 failed
+   * （可手动重试）而非 exhausted（永久放弃）——与「invoke 失败标 failed」语义统一；
+   * 非可重试错误（resumeOne 内部已处理）维持 exhausted。
    */
   private async resumeItemSafe(item: { messageId: string; conversationId: string; otterId: string }): Promise<"done" | "skipped" | "failed"> {
     try {
@@ -179,14 +199,32 @@ export class ResumeInterruptedService {
       this.deps.logger.error("Resume item failed after retries", err instanceof Error ? err : new Error(String(err)), {
         messageId: item.messageId, conversationId: item.conversationId, otterId: item.otterId,
       });
-      await this.markExhaustedSafe(item.messageId, err);
+      // F4 语义统一：可重试错误耗尽重试后仍标 failed（可手动重试），不说「永久放弃」
+      // 检视发现 8 处置：收尾写库/发消息包防护——收尾异常不得逃逸中断同会话剩余 items
+      // （与 markExhaustedSafe 同款纪律，F20260830rfto「单条失败不阻塞其余」约束）
+      if (this.isRetryableNetworkError(err)) {
+        await this.markFailedSafe(item, err);
+      } else {
+        await this.markExhaustedSafe(item.messageId, err);
+      }
       return "failed";
+    }
+  }
+
+  /** 检视发现 8 处置：安全标记 failed（可手动重试）+ 失败文案——收尾异常不逃逸（对齐 markExhaustedSafe） */
+  private async markFailedSafe(item: { messageId: string; conversationId: string }, originalErr: unknown): Promise<void> {
+    try {
+      await this.deps.conversationRepo.updateResumeStatus(item.messageId, "failed", new Date().toISOString());
+      await this.deps.sendMessage.sendSystem(item.conversationId, buildRestartResumeFailedInvokeMsg());
+    } catch {
+      this.deps.logger.error("Failed to mark resume as failed", originalErr instanceof Error ? originalErr : new Error(String(originalErr)), { messageId: item.messageId });
     }
   }
 
   /** 安全标记 exhausted——updateResumeStatus 失败不阻塞后续 */
   private async markExhaustedSafe(messageId: string, originalErr: unknown): Promise<void> {
     try {
+      // F202609048840 F5: 时间戳修正——写入时取新时刻，不使用函数开头快照
       await this.deps.conversationRepo.updateResumeStatus(messageId, "exhausted", new Date().toISOString());
     } catch {
       this.deps.logger.error("Failed to mark resume as exhausted", originalErr instanceof Error ? originalErr : new Error(String(originalErr)), { messageId });
@@ -206,17 +244,19 @@ export class ResumeInterruptedService {
         return await this.resumeOne(item);
       } catch (err) {
         lastErr = err;
-        if (this.isRateLimitError(err) && attempt < ResumeInterruptedService.RATE_LIMIT_MAX_RETRIES) {
+        // F202609048840 F2: 扩展可重试判定——Connection error / timeout 类纳入重试
+        if (this.isRetryableNetworkError(err) && attempt < ResumeInterruptedService.RATE_LIMIT_MAX_RETRIES) {
           const delay = baseDelay * Math.pow(2, attempt);
-          this.deps.logger.warn(`Resume rate limited, retrying after ${delay}ms`, {
+          this.deps.logger.warn(`Resume network error, retrying after ${delay}ms`, {
             messageId: item.messageId,
             attempt: attempt + 1,
             maxRetries: ResumeInterruptedService.RATE_LIMIT_MAX_RETRIES,
+            error: err instanceof Error ? err.message : String(err),
           });
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
-        throw err; // 非限流错误或重试耗尽
+        throw err; // 非可重试错误或重试耗尽
       }
     }
     throw lastErr;
@@ -231,45 +271,134 @@ export class ResumeInterruptedService {
     return str.includes("429") || str.includes("rate_limit") || str.includes("rate limit");
   }
 
+  /** F202609048840 F2: 判断是否为可重试的网络/连接错误 */
+  private isRetryableNetworkError(err: unknown): boolean {
+    if (this.isRateLimitError(err)) return true;
+    const message = err instanceof Error ? err.message : String(err);
+    return this.isRetryableNetworkErrorMessage(message);
+  }
+
+  /** F202609048840 F2: 网络类可重试错误的文本模式匹配（错误对象与台账 note 共用） */
+  private isRetryableNetworkErrorMessage(message: string): boolean {
+    const retryablePatterns = [
+      "Connection error",
+      "timeout",
+      "ECONNRESET",
+      "fetch failed",
+      "network error",
+      "ECONNREFUSED",
+      "ETIMEDOUT",
+    ];
+    return retryablePatterns.some(pattern => message.toLowerCase().includes(pattern.toLowerCase()));
+  }
+
   private async resumeOne(item: { messageId: string; conversationId: string; otterId: string }): Promise<"done" | "skipped" | "failed"> {
-    const now = new Date().toISOString();
     /** #599：finally 终态守卫用——try 成功为 done，catch 降级为 failed */
     let outcome: "done" | "failed" = "done";
     try {
       // 1. 启动间隙可能被清理：conversation/otter/participant 任一失效则放弃
-      const participant = await this.deps.conversationRepo.getParticipant(item.conversationId, item.otterId);
+      const skipReason = await this.checkSkipConditions(item);
+      if (skipReason) {
+        return skipReason;
+      }
+
+      // 2. 获取消息信息
       const message = await this.deps.queryMessage.getMessageById(item.messageId);
-      if (!participant || participant.status !== "active" || !message) {
-        await this.deps.conversationRepo.updateResumeStatus(item.messageId, "exhausted", now);
+      if (!message) {
+        await this.markExhaustedSafe(item.messageId, new Error("Message not found"));
         return "skipped";
       }
 
-      // 2. 并发防护：窗口内有新 user 消息 → 跳过恢复降级手动（sequence_num 竞态最小防护）
-      if (await this.isConcurrentSkip(item.conversationId)) {
-        await this.deps.conversationRepo.updateResumeStatus(item.messageId, "exhausted", now);
-        await this.deps.sendMessage.sendSystem(item.conversationId, buildRestartResumeFailedMsg("skipped_concurrent"));
-        return "skipped";
+      // F4 done 语义拆分——区分「链完成且 invoke 成功」vs「链完成但 invoke 失败」
+      // 判据真相源 = 派发台账 settle 终态：链引擎对 invoke 拒绝是 allSettled 吞错语义
+      // （#599：processHopResults 只记日志不上抛），executeChain 正常返回 ≠ invoke 成功
+      // （现场实证：2026-09-04 17:58 恢复 invoke 秒败但链正常返回，旧判据漏判 → done 说谎）。
+      try {
+        await this.executeResumeChain(item, message.turnId);
+        return await this.settleResumedOutcome(item);
+      } catch (chainErr) {
+        // 检视发现 1 处置（F2 死路径修复）：可重试错误（429/网络类）必须重抛交
+        // resumeOneWithRetry 退避重试——内层不得吞（旧内层 catch 吞 429 致重试层死路径，回归）。
+        // settleResumedOutcome 对台账 failed+网络类 note 也抛可重试错误，同为重试入口。
+        if (this.isRetryableNetworkError(chainErr)) {
+          throw chainErr;
+        }
+        // executeChain 抛不可重试异常（链前置失败等）= invoke 失败，标 failed（可手动重试）
+        return this.settleChainError(item, chainErr);
       }
-
-      await this.executeResumeChain(item, message.turnId);
-      await this.deps.conversationRepo.updateResumeStatus(item.messageId, "done", now);
-      return "done";
     } catch (err) {
       outcome = "failed";
       this.deps.logger.error("Resume one interrupted message failed", err instanceof Error ? err : new Error(String(err)), {
         messageId: item.messageId, conversationId: item.conversationId, otterId: item.otterId,
       });
-      // F20260830rfto: 429/限流类错误向上传播，由 resumeOneWithRetry 退避重试；
-      // 非限流错误在此标记 exhausted 并通知用户（不可重试的失败快速闭环）
-      if (this.isRateLimitError(err)) {
+      // F20260830rfto + F202609048840 F2：429/限流与网络类错误（Connection error/timeout 等）
+      // 向上传播，由 resumeOneWithRetry 退避重试；不可重试错误标 exhausted 快速闭环。
+      // 网络类的真实落点：链吞错返回后 settleResumedOutcome 查台账 failed+网络 note 抛出——
+      // 异常冒泡路径（链前置抛网络错误）与此汇合，同一重试层兜住。
+      if (this.isRetryableNetworkError(err)) {
         throw err;
       }
-      await this.deps.conversationRepo.updateResumeStatus(item.messageId, "exhausted", now);
-      await this.deps.sendMessage.sendSystem(item.conversationId, buildRestartResumeFailedMsg("invoke_error"));
+      await this.deps.conversationRepo.updateResumeStatus(item.messageId, "exhausted", new Date().toISOString());
+      await this.deps.sendMessage.sendSystem(item.conversationId, buildRestartResumeFailedInvokeMsg());
       return "failed";
     } finally {
       await this.finalizeResumedMessage(item, outcome);
     }
+  }
+
+  /** 检视发现 1 处置：链抛不可重试异常的终态收尾（提取控复杂度） */
+  private async settleChainError(item: { messageId: string; conversationId: string; otterId: string }, chainErr: unknown): Promise<"failed"> {
+    this.deps.logger.error("Resume chain failed (invoke error)", chainErr instanceof Error ? chainErr : new Error(String(chainErr)), {
+      messageId: item.messageId, conversationId: item.conversationId, otterId: item.otterId,
+    });
+    await this.deps.conversationRepo.updateResumeStatus(item.messageId, "failed", new Date().toISOString());
+    await this.deps.sendMessage.sendSystem(item.conversationId, buildRestartResumeFailedInvokeMsg());
+    return "failed";
+  }
+
+  /**
+   * F202609048840 F4：链正常返回后的终态判定（提取控复杂度）。
+   * 判据真相源 = 派发台账 settle 终态：executeChain 正常返回 ≠ invoke 成功（链引擎对
+   * invoke 拒绝是 allSettled 吞错语义，#599）。台账无行（记账链路异常）保守判成功——
+   * 不因观测缺失误标 failed。invoke 失败标 failed（可手动重试）+ 终态文案如实。
+   *
+   * 检视发现 1 处置（F2 真实落点）：台账 failed 且 note 匹配网络类可重试错误时抛出，
+   * 交 resumeOneWithRetry 退避重试——这是链吞错语义下网络错误重试的唯一真实路径。
+   */
+  private async settleResumedOutcome(item: { messageId: string; conversationId: string; otterId: string }): Promise<"done" | "failed"> {
+    const attempt = this.deps.dispatchAttemptRepo?.getAttempt(item.messageId, item.otterId) ?? null;
+    if (attempt && attempt.status === "failed") {
+      const note = attempt.note ?? "";
+      // F2 真实落点：网络类失败（链吞错返回，note 来自 settle 记账的拒绝原因）→ 抛可重试错误
+      if (this.isRetryableNetworkErrorMessage(note)) {
+        throw new Error(`invoke failed (retryable network error): ${note}`);
+      }
+      this.deps.logger.warn("Resume chain returned but invoke failed (ledger settle = failed)", {
+        messageId: item.messageId, conversationId: item.conversationId, otterId: item.otterId, note,
+      });
+      await this.deps.conversationRepo.updateResumeStatus(item.messageId, "failed", new Date().toISOString());
+      await this.deps.sendMessage.sendSystem(item.conversationId, buildRestartResumeFailedInvokeMsg());
+      return "failed";
+    }
+    await this.deps.conversationRepo.updateResumeStatus(item.messageId, "done", new Date().toISOString());
+    return "done";
+  }
+
+  /** 检查跳过条件：participant 失效或并发窗口 */
+  private async checkSkipConditions(item: { messageId: string; conversationId: string; otterId: string }): Promise<"skipped" | null> {
+    const participant = await this.deps.conversationRepo.getParticipant(item.conversationId, item.otterId);
+    if (!participant || participant.status !== "active") {
+      await this.deps.conversationRepo.updateResumeStatus(item.messageId, "exhausted", new Date().toISOString());
+      return "skipped";
+    }
+
+    if (await this.isConcurrentSkip(item.conversationId)) {
+      await this.deps.conversationRepo.updateResumeStatus(item.messageId, "exhausted", new Date().toISOString());
+      await this.deps.sendMessage.sendSystem(item.conversationId, buildRestartResumeFailedMsg("skipped_concurrent"));
+      return "skipped";
+    }
+
+    return null;
   }
 
   /** #613 提取：单条恢复的核心步骤（senderId 反查 + prepareForRetry + 链引擎续跑） */
@@ -280,8 +409,9 @@ export class ResumeInterruptedService {
     //    触发者是系统而非用户，宁空不假（下游仅用于展示名解析，空串走层 3 前端 fallback）。
     const turnUserMsgs = await this.deps.queryMessage.getMessages(item.conversationId, { turnId, senderType: "user", limit: 1 });
     const senderId = turnUserMsgs[0]?.senderId ?? "";
-    // 4. 重置消息：failed→streaming，新 turn，半截 segments 保留（F20260821fix 语义）
-    await this.deps.sendMessage.prepareForRetry(item.messageId, true);
+    // 4. F202609048840 F3: 恢复路径不再复位为 streaming，避免 UI 双 streaming 误读
+    // 保留 failed 终态，恢复链写新消息，半截 segments 保留（F20260821fix 语义）
+    await this.deps.sendMessage.prepareForRetry(item.messageId, true, true);
     // 5. 链引擎续跑：读产出消息行级 tsp，恢复后 yield 交棒的链不断（#332；F20260904schf
     // 起链引擎不再消费 turn 级 aggregatedTargets）
     await this.deps.dispatchChainEngine.executeChain({

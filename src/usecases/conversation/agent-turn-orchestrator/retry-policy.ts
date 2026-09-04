@@ -78,6 +78,11 @@ export function buildRestartResumeFailedMsg(reason: "invoke_error" | "skipped_co
   return "[系统] 服务重启自动恢复失败，请手动重试该消息。";
 }
 
+/** F202609048840 F4: 新增失败状态的提示消息 */
+export function buildRestartResumeFailedInvokeMsg(): string {
+  return "[系统] 恢复过程中 invoke 失败，已标记为失败，请手动重试该消息。";
+}
+
 /**
  * #613：恢复完成的用户可见终态消息（issue #613 方案 A）。
  * Why: 「正在自动恢复」发出后成功路径无终态反馈，用户不知恢复结果（#604 只覆盖失败路径）。
@@ -87,6 +92,8 @@ export function buildRestartResumeFailedMsg(reason: "invoke_error" | "skipped_co
  * skipped 表示 stale 数据清理或并发窗口跳过（对应消息已标记 exhausted），
  * 用户无操作可做，「请手动重试」对这类数据是误导；failed 才是真正的恢复失败，
  * 保留可重试的操作指引。
+ *
+ * F202609048840 F4: done 语义拆分——新增 failed 状态，区分「链完成但 invoke 失败」
  */
 export function buildRestartResumeCompletedMsg(resumed: number, skipped: number, failed: number): string {
   const parts: string[] = [];
