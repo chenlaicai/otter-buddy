@@ -154,6 +154,9 @@ describe("StockQuoteGatewayImpl 兜底链 (F20260904pptq)", () => {
     expect(quotes["600519"].close).toBe(1330.0);
     expect(quotes["600519"].prevClose).toBe(1298.88);
     expect(quotes["600519"].date).toBe("2026-09-04");
+    // 检视发现 1：high/low 应取实时日内高低，不再退化到 price
+    expect(quotes["600519"].high).toBe(1338.86);
+    expect(quotes["600519"].low).toBe(1295.6);
   });
 
   it("getQuotes：kline 正常 → 不走兜底", async () => {

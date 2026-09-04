@@ -110,8 +110,8 @@ async function executeQuote(
   repoRoot: string,
   code: string,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
-): Promise<{ price: number; open: number; prevClose: number; date: string } | null> {
-  return executeCliJson<{ price: number; open: number; prevClose: number; date: string }>(
+): Promise<{ price: number; open: number; prevClose: number; high: number; low: number; date: string } | null> {
+  return executeCliJson<{ price: number; open: number; prevClose: number; high: number; low: number; date: string }>(
     repoRoot, ["quote", code],
     timeoutMs,
     (parsed) => {
@@ -120,6 +120,8 @@ async function executeQuote(
         price: parsed.price,
         open: typeof parsed.open === "number" ? parsed.open : NaN,
         prevClose: typeof parsed.prev_close === "number" ? parsed.prev_close : NaN,
+        high: typeof parsed.high === "number" ? parsed.high : NaN,
+        low: typeof parsed.low === "number" ? parsed.low : NaN,
         date: String(parsed.date),
       };
     },
@@ -164,8 +166,8 @@ export class StockQuoteGatewayImpl implements StockQuoteGateway {
         return;
       }
       // 兑底链（F20260904pptq）：当日 kline 缺席时用实时行情拼一个最小 DailyQuote，
-      // 使撮合不因数据源故障整日卡 pending。high/low 取实时值，prevClose 缺失时
-      // 用日线最后一行（当日缺席时即 T-1 收盘）。
+      // 使撮合不因数据源故障整日卡 pending。high/low 取实时日内高低（检视发现 1：
+      // CLI 已返回该数据，丢弃会导致区间内限价单无法成交），字段缺失时退化到 price。
       const realtime = await executeQuote(this.repoRoot, code);
       if (realtime && realtime.date === date) {
         const lastKline = (records ?? []).at(-1);
@@ -177,8 +179,8 @@ export class StockQuoteGatewayImpl implements StockQuoteGateway {
           prevClose: Number.isFinite(realtime.prevClose)
             ? realtime.prevClose
             : lastKline ? Number(lastKline.close) : realtime.price,
-          high: realtime.price,
-          low: realtime.price,
+          high: Number.isFinite(realtime.high) ? realtime.high : realtime.price,
+          low: Number.isFinite(realtime.low) ? realtime.low : realtime.price,
         };
       }
     });
