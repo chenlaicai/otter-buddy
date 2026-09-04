@@ -127,6 +127,40 @@ describe("SqliteDispatchAttemptRepo（sgp2 S1 真实仓储集成）", () => {
       expect(repo.countPendingSignals("conv-1")).toBe(0);
     });
 
+    it("F20260904ldgr #795：recordFinish note 追加语义——retry 失败 reason 不抹平前情链", () => {
+      seedDelivered(db, "msg-f1", { targets: ["otter-1"] });
+      // 首轮：chain 起跑 → failed（reason 含前情）
+      repo.recordStart({ id: "b1", conversationId: "conv-1", messageId: "msg-f1", targetOtterId: "otter-1", status: "in_progress", source: "chain", attemptStartedAt: "2026-09-02T09:00:01Z", note: null });
+      repo.recordFinish("msg-f1", "otter-1", "failed", "tool timeout");
+      // retry：重新起跑（OR REPLACE 压缩前情进 note）→ 再次失败（新 reason）
+      repo.recordStart({ id: "b2", conversationId: "conv-1", messageId: "msg-f1", targetOtterId: "otter-1", status: "in_progress", source: "retry", attemptStartedAt: "2026-09-02T09:05:00Z", note: null });
+      repo.recordFinish("msg-f1", "otter-1", "failed", "second attempt failed");
+      const row = db.prepare(`SELECT note FROM dispatch_attempts WHERE message_id = 'msg-f1' AND target_otter_id = 'otter-1'`).get() as { note: string | null };
+      // 追加语义：前情链完整（首轮 reason 压缩链 + 新 reason 共存），不再被覆盖抹平
+      expect(row.note).toContain("tool timeout");
+      expect(row.note).toContain("second attempt failed");
+      const orderA = row.note!.indexOf("tool timeout");
+      const orderB = row.note!.indexOf("second attempt failed");
+      expect(orderA).toBeLessThan(orderB); // 时序可读：前情在前，新账在后
+    });
+
+    it("F20260904ldgr #798：appendNote 在终态行追加备注不改 status（反连接不变量完好）", () => {
+      seedDelivered(db, "msg-an", { targets: ["otter-1"] });
+      repo.recordStart({ id: "c1", conversationId: "conv-1", messageId: "msg-an", targetOtterId: "otter-1", status: "in_progress", source: "chain", attemptStartedAt: "2026-09-02T09:00:01Z", note: null });
+      repo.recordFinish("msg-an", "otter-1", "completed");
+      repo.appendNote("msg-an", "otter-1", "出处降级：查库失败");
+      const row = db.prepare(`SELECT status, note FROM dispatch_attempts WHERE message_id = 'msg-an' AND target_otter_id = 'otter-1'`).get() as { status: string; note: string | null };
+      expect(row.status).toBe("completed"); // status 不动
+      expect(row.note).toContain("出处降级");
+      // 反连接不变量：有行（任意状态）即非 pending
+      expect(repo.countPendingSignals("conv-1")).toBe(0);
+      // 追加幂等友好：连续两次都保留
+      repo.appendNote("msg-an", "otter-1", "二次备注");
+      const row2 = db.prepare(`SELECT note FROM dispatch_attempts WHERE message_id = 'msg-an' AND target_otter_id = 'otter-1'`).get() as { note: string | null };
+      expect(row2.note).toContain("出处降级");
+      expect(row2.note).toContain("二次备注");
+    });
+
     it("in_progress 即非 pending（起跑即销账）", () => {
       seedDelivered(db, "msg-2", { targets: ["otter-1"] });
       repo.recordStart({ id: "a1", conversationId: "conv-1", messageId: "msg-2", targetOtterId: "otter-1", status: "in_progress", source: "chain", attemptStartedAt: "2026-09-02T09:00:01Z", note: null });

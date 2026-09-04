@@ -33,7 +33,7 @@ function makeMsg(overrides: Partial<Message> = {}): Message {
 }
 
 function makeEnv(messageRows: Record<string, Message>, opts?: { getMessageByIdError?: Error }) {
-  const attempts: Array<{ messageId: string; target: string; status: string }> = [];
+  const attempts: Array<{ messageId: string; target: string; status: string; note?: string }> = [];
   const dispatchAttemptRepo = {
     recordStart: (a: { messageId: string; targetOtterId: string }) => {
       attempts.push({ messageId: a.messageId, target: a.targetOtterId, status: "in_progress" });
@@ -50,6 +50,10 @@ function makeEnv(messageRows: Record<string, Message>, opts?: { getMessageByIdEr
     shouldThrottle: () => false,
     allAnchorAttemptsSettled: () => true,
     failAllInProgressForOtter: () => 0,
+    appendNote: (messageId: string, target: string, note: string) => {
+      const row = attempts.find(x => x.messageId === messageId && x.target === target);
+      if (row) row.note = ((row as { note?: string }).note ?? "") + note;
+    },
     listAttemptsForConversation: () => [],
   } as unknown as DispatchAttemptRepo;
 
@@ -241,5 +245,79 @@ describe("F20260904schf：信号自链循环事故形态回归（#792）", () =>
     // 查库失败 → 行级出处为空 → 不路由；外层 try 吞掉 recordAttemptSettle 的异常
     expect(invocations).toEqual(["otter-worker"]);
     expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("F20260904ldgr #798 发现2：降级槽位账面留痕——appendNote 标记出处降级，status 不变", async () => {
+    const { engine, attempts, logger } = makeEnv({}, { getMessageByIdError: new Error("db glitch") });
+
+    await engine.executeChain({
+      conversationId: "conv-1", userMessageContent: "hi", senderId: "user",
+      initialTargets: ["otter-worker"],
+      // triggerMessageId 必传：首 hop 记账依赖它（无它 = S1 零侵入跳过，无行可标）
+      triggerMessageId: "m-user",
+      invokeFn: async () => ({ messageId: "m-out", aggregatedTargets: ["otter-next"] }),
+    });
+
+    // 账面：槽位（触发消息 m-user 名下，非产出消息）仍 completed，但 note 含降级标记
+    const row = attempts.find(a => a.messageId === "m-user" && a.target === "otter-worker");
+    expect(row).toBeDefined();
+    expect(row!.status).toBe("completed");
+    expect((row as { note?: string }).note ?? "").toContain("出处降级");
+    // 日志兜底仍在（双通道）：查库失败 warn 至少一次（状态断言，不断言参数绑定）
+    const warnMessages = (logger.warn as ReturnType<typeof vi.fn>).mock.calls.map(c => String(c[0]));
+    expect(warnMessages.some(m => m.includes("查库失败"))).toBe(true);
+  });
+
+  it("F20260904ldgr #798 发现1：17 源 fan-in 触发截尾 warn，保留最新 16 源；16 源以内零截尾", async () => {
+    // 单 hop 并行 17 个 otter 都 yield 给 otter-c：第 1 条（最早）被截掉，2..17 保留
+    const messageRows: Record<string, Message> = {};
+    for (let i = 1; i <= 17; i++) {
+      messageRows[`m-src-${i}`] = makeMsg({
+        id: `m-src-${i}`, senderId: `otter-s-${i}`,
+        talkingStonePassedTo: ["otter-c"],
+      });
+    }
+    const { engine, logger } = makeEnv(messageRows);
+    const invocations: string[] = [];
+
+    await engine.executeChain({
+      conversationId: "conv-1", userMessageContent: "hi", senderId: "user",
+      initialTargets: Array.from({ length: 17 }, (_, i) => `otter-s-${i + 1}`),
+      invokeFn: async ({ otterId }) => {
+        invocations.push(otterId);
+        const idx = invocations.length;
+        return { messageId: `m-src-${idx}`, aggregatedTargets: ["otter-c"] };
+      },
+    });
+
+    const truncWarns = (logger.warn as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c: unknown[]) => String(c[0]).includes("截尾"),
+    );
+    expect(truncWarns.length).toBe(1);
+    expect(truncWarns[0][1]).toMatchObject({ next: "otter-c", dropped: 1 });
+  });
+
+  it("F20260904ldgr #798 发现1：16 源 fan-in 在上限内不截尾（现状兼容）", async () => {
+    const messageRows: Record<string, Message> = {};
+    for (let i = 1; i <= 16; i++) {
+      messageRows[`m-k-${i}`] = makeMsg({ id: `m-k-${i}`, senderId: `otter-k-${i}`, talkingStonePassedTo: ["otter-c"] });
+    }
+    const { engine, logger } = makeEnv(messageRows);
+    const invocations: string[] = [];
+
+    await engine.executeChain({
+      conversationId: "conv-1", userMessageContent: "hi", senderId: "user",
+      initialTargets: Array.from({ length: 16 }, (_, i) => `otter-k-${i + 1}`),
+      invokeFn: async ({ otterId }) => {
+        invocations.push(otterId);
+        const idx = invocations.length;
+        return { messageId: `m-k-${idx}`, aggregatedTargets: ["otter-c"] };
+      },
+    });
+
+    const truncWarns = (logger.warn as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c: unknown[]) => String(c[0]).includes("截尾"),
+    );
+    expect(truncWarns.length).toBe(0);
   });
 });

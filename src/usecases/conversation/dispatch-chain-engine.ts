@@ -6,6 +6,8 @@ import type { ConversationRepository } from "./conversation-repository";
 import type { QueryMessage } from "./query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
+/* eslint-disable max-lines -- F20260904ldgr 注入降级备注后 461>450；压缩注释已尽（本轮削 20+ 行），
+ *  余下行数由 DI 参数/多入口/记账与路由双重职责决定，拆文件会切断 hop 取源与记账的紧耦合内聚（message-controller.ts 同款先例） */
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import { runWithTrace, newTraceId } from "@usecases/ports/trace-context";
@@ -90,14 +92,10 @@ export class DispatchChainEngine {
       callbacks?: ChainCallbacks;
       /** 多模态 Phase 1：当前任务消息携带的图片（≤2 张，超出在 controller 层已拒绝） */
       images?: Array<{ type: "image"; data: string; mimeType: string }>;
-      /** F20260902sgp2 S1：触发消息 ID（派发台账记账用）。首 hop 必填；
-       *  缺省时 S1 仅跳过首 hop 记账并打点日志（链路行为零变化，硬约束 1）。
-       *  hop 2+ 的记账用 yield 出处消息 ID（InvokeFnResult.messageId），与此参数无关。 */
+      /** F20260902sgp2 S1：触发消息 ID（首 hop 记账）。缺省时跳过首 hop 记账（链路零变化）。
+       *  hop 2+ 记账用 yield 出处消息 ID，与此参数无关。 */
       triggerMessageId?: string;
-      /** #775：台账账面来源（穿透到首 hop 记账行，默认 'chain'）。
-       *  Why 必须穿透：路由器点火（常规扫描/直投）的记账原点在路由器，但 INSERT 后
-       *  立刻被链引擎 recordStart INSERT OR REPLACE 覆写——source 不穿透则终态行
-       *  恒为 'chain'，S2 观察期发现「路由器点火无法从终态行审计」的标签失真即此。 */
+      /** #775：账面来源穿透（路由器点火的记账原点在路由器；不穿透则终态行恒标 'chain'，S2 观察期标签失真）。 */
       ledgerSource?: "chain" | "router" | "retry";
     },
   ): Promise<{ otterReply?: string }> {
@@ -126,9 +124,7 @@ export class DispatchChainEngine {
     let lastOtterReply: string | undefined;
     const maxDepth = this.deps.maxChainDepth ?? 100;
     /** F20260902sgp2 hop 取源修复：target → 链上所有 yield 出处 messageId（链级生命周期）。
-     *  多源列表：A、B 同 hop 都 yield 给 C 时，C 的记账需覆盖两条触发消息（各记一条 attempt）。
-     *  原 bug：Map 是 hop 局部变量，settle 回填出方法即丢——hop 2+ 记账全部静默跳过
-     *  （生产观察 2026-09-02：9 pending 中 3 条假阳性源于此）。 */
+     *  多源：A、B 同 hop 都 yield C 时 C 各记一条。原 bug：hop 局部 Map 出方法即丢，hop2+ 记账全跳过。 */
     const chainSourceMessageIds = new Map<string, string[]>();
 
     // F20260826mwrd C3（Part 6）：L2 安全词扫描——用户原始消息命中独立成词「停下」时
@@ -217,12 +213,27 @@ export class DispatchChainEngine {
     // F20260902sgp2 S1：settle 记账（§4.2）——终态回写 + 链级出处回填
     // F20260904schf：出处回填改读行级 tsp，方法变 async（行级查库在 try 内，异常仍不阻断链路）
     // 审视建议 1：调用点再隔一层 try/catch——防方法内部 try 块之外的理论异常阻断 markBatchRead
+    const degradedSlots: Array<{ target: string }> = [];
     try {
       await this.recordAttemptSettle(conversationId, targets, results, triggerMessageId, chainSourceMessageIds);
     } catch { /* 记账面异常不阻断链路（硬约束 1） */ }
     await this.markBatchRead(conversationId, results, targets);
 
-    return this.processHopResults(results, senderId, conversationId, targets);
+    // F20260904ldgr（#798 发现 2）：降级槽位补账面备注——追加「出处降级」标记，
+    // 只改 note 不改 status（反连接不变量完好）。槽位键 = 记账键（triggerMessageId
+    // 或 chainSource[target]，与 settle 同源）——产出消息 ID 不是记账键，用错 appendNote 无靶。
+    try {
+      return await this.processHopResults(results, senderId, conversationId, targets, degradedSlots);
+    } finally {
+      for (const slot of degradedSlots) {
+        const ledgerMsgIds = triggerMessageId ? [triggerMessageId] : (chainSourceMessageIds?.get(slot.target) ?? []);
+        for (const ledgerMsgId of ledgerMsgIds) {
+          try {
+            this.deps.dispatchAttemptRepo?.appendNote(ledgerMsgId, slot.target, '出处降级：invoke 完成但行级出处查库失败，yield 路由信息丢失（#798）');
+          } catch { /* 备注失败不影响链路（硬约束 1） */ }
+        }
+      }
+    }
   }
 
   /** F20260902sgp2 S1：起跑记账——首 hop 用 triggerMessageId，hop 2+ 用 yield 出处
@@ -258,13 +269,10 @@ export class DispatchChainEngine {
     }
   }
 
-  /** F20260902sgp2 S1：settle 记账——每个目标按起跑同源 messageId 列表记终态；
-   *  fulfilled 时把产出消息追加进链级出处列表（后续 hop 记账取源）。失败仅日志不阻断。
-   *  F20260904schf：出处回填改读行级 tsp（消息自身 talkingStonePassedTo 终值），不再消费
-   *  InvokeFnResult.aggregatedTargets（turn 级并集——streaming 期间共栖的输入信号/system 消息
-   *  会污染并集，产生 chainSource[自己]=自己消息 的脏账 → 自链循环，见 issue #792）。
-   *  行级事实依据：completeMessage 先落库 tsp 终值后关 turn（send-message.ts），invoke 返回时
-   *  消息行已含最终 yield 目标——行级读数因果局部，无 turn 共存时间窗竞态。 */
+  /** F20260902sgp2 S1：settle 记账——终态回写 + 产出消息追加进链级出处列表（hop 记账取源）。
+   *  F20260904schf：出处回填改读行级 tsp（#792：aggregatedTargets turn 级并集是共栖污染源，
+   *  chainSource[自己]=自己消息 → 自链循环）。行级事实依据：completeMessage 先落库后关 turn，
+   *  invoke 返回时消息行已含最终 yield——行级读数因果局部，无 turn 共存窗口竞态。 */
   // eslint-disable-next-line complexity -- 多源记账双层循环 + 逐源 try/catch 兜底（硬约束 1：记账失败不阻断链路），拆分反而损可读性
   private async recordAttemptSettle(
     conversationId: string,
@@ -330,7 +338,11 @@ export class DispatchChainEngine {
   /** F20260904schf 检视发现 1（mimo-reviewer）：链级出处追加 + 截尾观测。
    *  多源追加不去重（A、B 都 yield C 时 C 名下两条触发消息各记一次）；
    *  同目标重复 yield 只留最新产出（去重 + 截尾防膨胀）。截尾丢弃更早记账源时
-   *  warn（极端多源下被丢源将永远缺失消费义务销账，假 pending 风险，结构性修复挂 #798）。 */
+   *  warn（极端多源下被丢源将永远缺失消费义务销账，假 pending 风险）。
+   *  F20260904ldgr（#798 发现 1 结构性修复）：截尾上限 8→16——用例支撑：单目标在途
+   *  消费义务 = 并行 fan-in 上限（@提及多选，实际规模 <16）∨ 并行 invoke 池深度
+   *  ∨ scheduler 群发点名数，三者取最大；16 倍于当前观测到的最大 fan-in，且仍能
+   *  防无界膨胀（恶意超长 yield 链按最新 16 源保留，更早的已有 hop 记账自然消亡）。 */
   private appendChainSource(
     chainSourceMessageIds: Map<string, string[]>,
     next: string,
@@ -339,7 +351,7 @@ export class DispatchChainEngine {
   ): void {
     const list = (chainSourceMessageIds.get(next) ?? []).filter(id => id !== produced);
     list.push(produced);
-    const trimmed = list.slice(-8);
+    const trimmed = list.slice(-16);
     if (trimmed.length < list.length) {
       this.deps.logger.warn('[signal-ledger] 链级出处列表截尾，丢弃更早记账源', { conv: conversationId, next, kept: trimmed.length, dropped: list.length - trimmed.length });
     }
@@ -348,16 +360,28 @@ export class DispatchChainEngine {
 
   /** F20260904schf：读产出消息行级数据（otterReply 提取 + 行级出处共用的查库点）。
    *  查库失败降级为 null（无出处不路由、无回复），不阻断链路（硬约束 1 同款纪律）；
-   *  Promise.resolve 包装使 mock 返回 undefined 等非 Promise 值时仍安全。 */
+   *  Promise.resolve 包装使 mock 返回 undefined 等非 Promise 值时仍安全。
+   *  F20260904ldgr（#798 发现 2）：返回 [data, degraded]——degraded 时账面补降级备注。 */
+  /** F20260904ldgr：降级槽位收集（拆出控复杂度）。目标缺失 = 无槽位键，静默跳过（同起跑记账）。 */
+  private collectDegradedSlot(
+    degraded: boolean,
+    degradedSlots: Array<{ target: string }> | undefined,
+    targets: string[] | undefined,
+    index: number,
+  ): void {
+    if (degraded && degradedSlots && targets?.[index]) degradedSlots.push({ target: targets[index] });
+  }
+
   private async fetchProducedMessage(
     messageId: string,
     conversationId?: string,
-  ): Promise<Awaited<ReturnType<QueryMessage["getMessageById"]>> | null> {
+  ): Promise<[Awaited<ReturnType<QueryMessage["getMessageById"]>> | null, boolean]> {
     try {
-      return await Promise.resolve(this.deps.queryMessage.getMessageById(messageId));
+      const data = await Promise.resolve(this.deps.queryMessage.getMessageById(messageId));
+      return [data, false];
     } catch (e) {
       this.deps.logger.warn('行级出处查库失败，降级为无出处（不阻断链路）', { conversationId, messageId, error: e instanceof Error ? e.message : String(e) });
-      return null;
+      return [null, true];
     }
   }
 
@@ -366,6 +390,9 @@ export class DispatchChainEngine {
     senderId: string,
     conversationId?: string,
     targets?: string[],
+    /** F20260904ldgr（#798 发现 2）：降级槽位收集器（target）——槽位键由
+     *  executeOneHop 在 appendNote 时按记账同源解析（产出消息 ID 不是记账键）。 */
+    degradedSlots?: Array<{ target: string }>,
   ): Promise<ChainHopResult> {
     let otterReply: string | undefined;
     const nextTargets = new Set<string>();
@@ -380,7 +407,8 @@ export class DispatchChainEngine {
       // F20260904schf：下一跳目标改读行级 tsp（消息自身 talkingStonePassedTo 终值），
       // 不再消费 InvokeFnResult.aggregatedTargets（turn 级并集，共栖污染源，#792）。
       // 早完成者的 yield 不再依赖 turn 是否关闭——closed:false 空聚合不再丢 yield（并行错记族）。
-      const producedMsg = await this.fetchProducedMessage(r.value.messageId, conversationId);
+      const [producedMsg, degraded] = await this.fetchProducedMessage(r.value.messageId, conversationId);
+      this.collectDegradedSlot(degraded, degradedSlots, targets, i);
       if (producedMsg?.segments.length) {
         otterReply = aggregateBody(producedMsg.segments);
       }

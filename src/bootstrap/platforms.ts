@@ -283,9 +283,10 @@ export function setupFeishu(options: {
   registry?: ChannelStatusRegistry;
   /** F20260901sgpv P1：信号路由器（飞书入口换轨） */
   signalRouter?: SignalRouter;
-}): void {
+  /** #460：返回飞书 stop 句柄（app dispose 时停 WSClient 重连，防僵尸进程） */
+}): { stopFeishu: () => void } | undefined {
   const { appConfig, uc, repos, agentInvoker, feishu, messageBroadcaster, logger, registry, signalRouter } = options;
-  if (!appConfig.feishu) return;
+  if (!appConfig.feishu) return undefined;
 
   const commandDispatcher = new CommandDispatcher(uc.manageConnection, uc.queryMessage, feishu.client, logger);
   // F20260826fpbd：命令门禁（方案B）——setupFeishu 入口有 !appConfig.feishu 早退，此处必存在；partnerOpenId 仍可选
@@ -338,6 +339,12 @@ export function setupFeishu(options: {
   }).catch((err) => {
     logger.error("Failed to start Feishu long connection", err instanceof Error ? err : undefined);
   });
+
+  // #460：返回 stop 句柄接入 app.ts dispose 链——WSClient 重连会阻止进程退出（僵尸进程根因之四）
+  return {
+    stopFeishu: () => void longConnectionClient.stop().catch((err) =>
+      logger.error("Feishu long connection stop failed", err instanceof Error ? err : undefined)),
+  };
 }
 
 export interface PlatformBootstrapResult {
@@ -350,6 +357,8 @@ export interface PlatformBootstrapResult {
   weixinPollers?: WeixinPollingChannel[];
   /** 通道状态注册表（F20260901chun：统一 IM 页 + 真实健康状态） */
   registry?: ChannelStatusRegistry;
+  /** #460：飞书长连接 stop 句柄（app dispose 时停 WSClient 重连，防僵尸进程） */
+  stopFeishu?: () => void;
 }
 
 /** 微信通道启动（issue #565）：每个已登录账号拉一条轮询 + 注册出站通道 */

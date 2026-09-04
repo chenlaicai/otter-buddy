@@ -45,9 +45,19 @@ export function buildHttpApp(controllers: Controllers, logger: Logger, staticRoo
   return app;
 }
 
-/** 监听端口（生产路径；测试用 app.request 不需要） */
+/** 监听端口（生产路径；测试用 app.request 不需要）。
+ *  #460：serve() 回调只在成功时触发；EADDRINUSE 等绑定错误走 server 的 'error' 事件——
+ *  捕获后干净退出，避免 port 冲突时走 uncaughtException → dispose 链又卡住（僵尸进程根因之三）。 */
 export function listen(app: Hono, port: number, logger: Logger): void {
-  serve({ fetch: app.fetch, port }, (info) => {
+  const server = serve({ fetch: app.fetch, port }, (info) => {
     logger.info(`Otter Buddy server running at http://localhost:${info.port}`);
+  });
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      logger.error(`Port ${port} already in use — another instance is likely running. Exiting. (code=${err.code})`);
+    } else {
+      logger.error(`HTTP server error, exiting`, err);
+    }
+    process.exit(1);
   });
 }
