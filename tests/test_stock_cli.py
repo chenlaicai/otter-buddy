@@ -527,3 +527,90 @@ class TestNaNNormalization:
             capture_output=True, text=True, timeout=30,
         )
         assert json.loads(proc.stdout)  # must parse without error
+
+
+class TestQuoteCommand:
+    """F20260904pptq: quote 命令（新浪实时行情，当日价唯一可用源）。"""
+
+    @staticmethod
+    def _quote_args(code="600519"):
+        args = MagicMock()
+        args.code = code
+        return args
+
+    @staticmethod
+    def _fake_response(payload: bytes):
+        """模拟 urllib.request.urlopen 返回的上下文对象"""
+        resp = MagicMock()
+        resp.read.return_value = payload
+        resp.__enter__ = MagicMock(return_value=resp)
+        resp.__exit__ = MagicMock(return_value=False)
+        return resp
+
+    def test_quote_ok(self):
+        payload = 'var hq_str_sh600519="贵州茅台,1295.880,1298.880,1330.000,1338.860,1295.600,1329.820,1330.000,4541564,6022594729.000,100,1329.820,2200,1329.590,100,1329.580,200,1329.500,300,1329.490,4626,1330.000,200,1330.010,2900,1330.020,2300,1330.030,100,1330.060,2026-09-04,15:34:59,00,D|1800|2394000.00";'
+        # GBK 编码（新浪接口原生编码）
+        with patch.object(cli.urllib.request, "urlopen", return_value=self._fake_response(payload.encode("gbk"))):
+            result = cli.cmd_quote(self._quote_args())
+        assert result["source"] == "sina"
+        assert result["price"] == 1330.0
+        assert result["open"] == 1295.88
+        assert result["prev_close"] == 1298.88
+        assert result["date"] == "2026-09-04"
+        assert result["time"] == "15:34:59"
+
+    def test_quote_sz_code_prefix(self):
+        """000001 深市 → sz 前缀"""
+        captured = {}
+        payload = 'var hq_str_sz000001="平安银行,11.860,11.880,11.890,12.000,11.850,11.890,11.900,81437295,969948436.210,90800,11.890,103800,11.880,272000,11.870,503100,11.860,424000,11.850,108800,11.900,186600,11.910,327700,11.920,244900,11.930,431300,11.940,2026-09-04,15:36:00,00,D|44700|531483.000";'
+        def fake_urlopen(req, timeout=10):
+            captured["url"] = req.full_url
+            return self._fake_response(payload.encode("gbk"))
+        with patch.object(cli.urllib.request, "urlopen", side_effect=fake_urlopen):
+            result = cli.cmd_quote(self._quote_args("000001"))
+        assert "sz000001" in captured["url"]
+        assert result["price"] == 11.89
+        assert result["name"] == "平安银行"
+
+    def test_quote_referer_header(self):
+        """新浪接口要求 Referer 头，缺失会被拒——防回归"""
+        captured = {}
+        payload = 'var hq_str_sh600519="贵州茅台,1295.880,1298.880,1330.000,1338.860,1295.600,1329.820,1330.000,4541564,6022594729.000,100,1329.820,2200,1329.590,100,1329.580,200,1329.500,300,1329.490,4626,1330.000,200,1330.010,2900,1330.020,2300,1330.030,100,1330.060,2026-09-04,15:34:59,00,D|1800|2394000.00";'
+        def fake_urlopen(req, timeout=10):
+            captured["headers"] = dict(req.header_items())
+            return self._fake_response(payload.encode("gbk"))
+        with patch.object(cli.urllib.request, "urlopen", side_effect=fake_urlopen):
+            cli.cmd_quote(self._quote_args())
+        referer = captured["headers"].get("Referer") or captured["headers"].get("referer")
+        assert referer and "sina" in referer
+
+    def test_quote_network_error_returns_structured_error(self):
+        with patch.object(cli.urllib.request, "urlopen", side_effect=ConnectionError("refused")):
+            result = cli.cmd_quote(self._quote_args())
+        assert "error" in result
+        assert "all sources failed" in result["error"]
+        assert any("sina_quote" in s for s in result["sources"])
+
+    def test_quote_bad_payload_returns_error(self):
+        """载荷字段数不足 → 结构化错误而非 KeyError"""
+        payload = 'var hq_str_sh600519="too,few,fields";'
+        with patch.object(cli.urllib.request, "urlopen", return_value=self._fake_response(payload.encode("gbk"))):
+            result = cli.cmd_quote(self._quote_args())
+        assert "error" in result
+
+    def test_quote_bad_date_returns_error(self):
+        """日期字段异常（接口改版）→ 结构化错误"""
+        fields = ["x"] * 32
+        fields[30] = "not-a-date"
+        fields[31] = "00:00:00"
+        payload = 'var hq_str_sh600519="' + ",".join(fields) + '";'
+        with patch.object(cli.urllib.request, "urlopen", return_value=self._fake_response(payload.encode("gbk"))):
+            result = cli.cmd_quote(self._quote_args())
+        assert "error" in result
+
+    def test_quote_exit_code_nonzero_on_error(self):
+        """错误结果经 main 层 exit 1（LLM 调用方依赖退出码）——校验 result 结构即可"""
+        with patch.object(cli.urllib.request, "urlopen", side_effect=ConnectionError("refused")):
+            result = cli.cmd_quote(self._quote_args())
+        # main() 对含 error 的 result 置 sys.exit(1)；单测层校验 error 键存在
+        assert isinstance(result, dict) and "error" in result

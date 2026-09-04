@@ -34,6 +34,7 @@ import re
 import sys
 import tempfile
 import time
+import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -153,6 +154,50 @@ def _normalize(obj):
 
 # 测试访问句柄（main 内部直接用 _normalize，测试经此公共名访问）
 _normalize_public = _normalize
+
+
+def fetch_sina_realtime(code: str, errors: list) -> dict | None:
+    """新浪实时行情备源（非东财域）：当日现价。
+为什么需要：paper-trade 引擎 getClosePrice 需要当日收盘价撮合模拟成交。
+东财双路拒连（2026-09-01 起持续）且新浪日线当日更新滞后（15:58 实测仍停在 T-1），
+而 hq.sinajs.cn 实时接口当日 15:34 已定格收盘价——是当日价的唯一可用源。
+实现直接用 urllib 打 hq.sinajs.cn（GBK 编码，需 Referer 头），不依赖 akshare 版本。
+失败时 append 错误到 errors 并返回 None，由调用方决定报错结构。"""
+    sina_symbol = ("sh" if code.startswith(("6", "9")) else "sz") + code
+    url = f"https://hq.sinajs.cn/list={sina_symbol}"
+    req = urllib.request.Request(url, headers={"Referer": "https://finance.sina.com.cn"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            raw = resp.read().decode("gbk", errors="replace")
+        # 格式：var hq_str_sh600519="名称,今开,昨收,现价,最高,最低,...,日期,时间,...";
+        m = re.search(r'"([^"]*)"', raw)
+        if not m:
+            errors.append("sina_quote: empty payload")
+            return None
+        fields = m.group(1).split(",")
+        if len(fields) < 32:
+            errors.append(f"sina_quote: unexpected field count {len(fields)}")
+            return None
+        quote_date = fields[30]  # 日期 yyyy-MM-dd
+        quote_time = fields[31]  # 时间 HH:MM:SS
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", quote_date):
+            errors.append(f"sina_quote: bad date field {quote_date!r}")
+            return None
+        return {
+            "code": code,
+            "source": "sina",
+            "name": fields[0],
+            "open": float(fields[1]),
+            "prev_close": float(fields[2]),
+            "price": float(fields[3]),
+            "high": float(fields[4]),
+            "low": float(fields[5]),
+            "date": quote_date,
+            "time": quote_time,
+        }
+    except Exception as e:
+        errors.append(f"sina_quote: {type(e).__name__}: {str(e)[:200]}")
+        return None
 
 
 def fetch_baidu_valuation(ak, code: str, errors: list) -> dict | None:
@@ -333,6 +378,19 @@ def cmd_kline(args) -> dict:
     return with_cache("kline", args.cache_dir, args.max_age, args.no_cache,
                        {"code": code, "days": days, "adjust": adjust, "raw": raw},
                        fetch)
+
+
+def cmd_quote(args) -> dict:
+    """当日实时行情：新浪源（唯一当日价可用源，东财拒连 + 新浪日线 T-1 滞后）。"""
+    errors: list[str] = []
+    quote = fetch_sina_realtime(args.code, errors)
+    if quote is None:
+        return {
+            "error": f"quote all sources failed for {args.code}",
+            "sources": errors,
+            "suggestion": "Run 'selftest' command to diagnose: python scripts/stock-cli.py selftest",
+        }
+    return quote
 
 
 def cmd_overview(args) -> dict:
@@ -910,6 +968,10 @@ def build_parser() -> argparse.ArgumentParser:
                          help="Price adjustment: qfq=fwd, hfq=back, ''=none (default: qfq)")
     p_kline.add_argument("--raw", action="store_true", help="Output full data (default: summary)")
 
+    # quote
+    p_quote = sub.add_parser("quote", help="Realtime quote (sina source, same-day price)")
+    p_quote.add_argument("code", help="6-digit stock code (e.g. 600519)")
+
     # overview
     p_overview = sub.add_parser("overview", help="Stock overview (info + quote + valuation)")
     p_overview.add_argument("code", help="6-digit stock code")
@@ -965,6 +1027,7 @@ def main():
     # Dispatch
     dispatch = {
         "kline": cmd_kline,
+        "quote": cmd_quote,
         "overview": cmd_overview,
         "finance": cmd_finance,
         "news": cmd_news,
