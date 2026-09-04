@@ -3,7 +3,12 @@
  * 
  * 支持的格式：
  * 1. 标准格式：[F20260824rhib][health][New Feature] 标题 (#409)
- * 2. 不合规格式：init/Revert/R 文档头等 → skip-with-reason
+ *    类型白名单 5 种（New Feature/Feature Update/BugFix/Refactor/Design，
+ *    与 commit-convention.md、.githooks/commit-msg 对齐，#671；
+ *    FeatureUpdate 无空格笔误归一化为 Feature Update，#425 建议 2）
+ * 2. 不合规格式：init/Revert/R 文档头等 → skip-with-reason；
+ *    三段结构完整但类型未识别 → unrecognized_change_type（#425 发现 7）；
+ *    缺类型段等格式问题 → non_standard_format
  * 
  * 口径说明（来自特性文档 F20260824rhib）：
  * - F 前缀：249/259（96.1%）
@@ -36,9 +41,29 @@ export interface ParsedCommit {
 
 import { FID_DATE_SEGMENT, FID_SUFFIX_SEGMENT } from "@entities/document/fid-format";
 
-/** 标准三段格式正则：[FID][module][type]（#667：FID 段源自 fid-format.ts 单一真相源） */
+/**
+ * 类型白名单：真相源为 commit-convention.md Type Tags 表与 .githooks/commit-msg（#671）。
+ * parser 原白名单仅 3 种（缺 Refactor/Design），与 #427（hook 补录）/ #432（文档删
+ * Feature 历史别名）两次收口漂移，致存量真实特性 commit 被误判 non_standard_format。
+ */
+const CHANGE_TYPE_WHITELIST = ["New Feature", "Feature Update", "BugFix", "Refactor", "Design"] as const;
+
+/** 白名单 → 正则类型段（空格兼容无空格笔误：Feature Update → Feature ?Update，#425 建议 2） */
+const TYPE_PATTERN = CHANGE_TYPE_WHITELIST.map((t) => t.replace(" ", " ?")).join("|");
+
+/** FeatureUpdate 笔误归一化（#425 建议 2）：无空格形态归一为标准类型名 */
+function normalizeChangeType(raw: string): string {
+  return raw === "FeatureUpdate" ? "Feature Update" : raw;
+}
+
+/** 标准三段格式正则：[FID][module][type]（#667：FID 段源自 fid-format.ts 单一真相源；#671：类型段由白名单生成） */
 const STANDARD_FORMAT_REGEX = new RegExp(
-  `^\\[F(${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT})\\]\\[([a-z][a-z-]*)\\]\\[(New Feature|BugFix|Feature Update)\\]`
+  `^\\[F(${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT})\\]\\[([a-z][a-z-]*)\\]\\[(${TYPE_PATTERN})\\]`
+);
+
+/** 三段结构探测正则（#425 发现 7）：类型段存在但值任意——用于区分「类型未识别」与「格式不合规」；捕获组结构与 STANDARD_FORMAT_REGEX 对齐（1=FID，2=module，3=类型） */
+const STRUCTURED_TYPE_SEGMENT_REGEX = new RegExp(
+  `^\\[F(${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT})\\]\\[([a-z][a-z-]*)\\]\\[([^\\]]+)\\]`
 );
 
 /** PR 号正则：(#123) */
@@ -58,13 +83,20 @@ export function parseCommit(sha: string, message: string): ParsedCommit {
     return createNonCompliantResult(sha, message, skipReason);
   }
 
-  // 尝试匹配标准格式
+  // 尝试匹配标准格式（类型段白名单命中，含 FeatureUpdate 笔误归一化）
   const standardMatch = firstLine.match(STANDARD_FORMAT_REGEX);
   if (standardMatch) {
     return createCompliantResult(sha, message, standardMatch, firstLine);
   }
 
-  // 非标准格式但有 F 前缀
+  // 三段结构完整但类型未识别（#425 发现 7）：与纯格式不合规区分，
+  // 如 [Feature]/[Enhancement]/[Tests]（Feature 是历史别名，#432 起不再收录）
+  const structuredTypeMatch = firstLine.match(STRUCTURED_TYPE_SEGMENT_REGEX);
+  if (structuredTypeMatch) {
+    return createFPrefixResult(sha, message, structuredTypeMatch, firstLine, { skipReason: 'unrecognized_change_type', module: structuredTypeMatch[2] });
+  }
+
+  // 非标准格式但有 F 前缀（缺类型段等格式问题）
   const fPrefixMatch = firstLine.match(new RegExp(`^\\[F(${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT})\\]`));
   if (fPrefixMatch) {
     return createFPrefixResult(sha, message, fPrefixMatch, firstLine);
@@ -98,23 +130,24 @@ function createCompliantResult(
 ): ParsedCommit {
   const featureId = `F${match[1]}`;
   const module = match[2];
-  const changeType = match[3];
+  const changeType = normalizeChangeType(match[3]);
   const prMatch = firstLine.match(PR_NUMBER_REGEX);
   const prNumber = prMatch ? parseInt(prMatch[1], 10) : null;
   return { sha, message, featureId, module, changeType, prNumber, isCompliant: true };
 }
 
-/** 创建 F 前缀非标准格式结果 */
+/** 创建 F 前缀非标准格式结果（skipReason 区分 unrecognized_change_type 与 non_standard_format，#671） */
 function createFPrefixResult(
   sha: string,
   message: string,
   match: RegExpMatchArray,
-  firstLine: string
+  firstLine: string,
+  opts: { skipReason?: string; module?: string | null } = {}
 ): ParsedCommit {
   const featureId = `F${match[1]}`;
   const prMatch = firstLine.match(PR_NUMBER_REGEX);
   const prNumber = prMatch ? parseInt(prMatch[1], 10) : null;
-  return { sha, message, featureId, module: null, changeType: null, prNumber, isCompliant: false, skipReason: 'non_standard_format' };
+  return { sha, message, featureId, module: opts.module ?? null, changeType: null, prNumber, isCompliant: false, skipReason: opts.skipReason ?? 'non_standard_format' };
 }
 
 /**
