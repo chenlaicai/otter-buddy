@@ -133,6 +133,19 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
     );
   }
 
+  /** #775：启动对账——进程内不可能有存活的 running 执行跨越重启（同 markStaleInProgressFailed
+   *  的死亡证明逻辑，dispatch-attempt 侧先例）。不 increment consecutiveFailures：
+   *  僵尸行是进程死亡痕迹，非任务失败证据（重启前的失败已由异常路径记账）。 */
+  async failAllRunningExecutions(): Promise<number> {
+    const result = this.db.prepare(`
+      UPDATE scheduled_task_executions
+      SET status = 'failed', completed_at = ?,
+          error_message = COALESCE(error_message || '; ', '') || '进程重启对账：执行被中断，无存活现场（启动死亡证明）'
+      WHERE status = 'running'
+    `).run(new Date().toISOString());
+    return result.changes;
+  }
+
   async updateExecutionStatus(
     id: string,
     updates: {

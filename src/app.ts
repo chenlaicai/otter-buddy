@@ -300,6 +300,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     healingRepo: repos.healingEvent,
     dispatchAttemptRepo: repos.dispatchAttempt,
   });
+  // #775 S4a：scheduler 换轨接线——路由器晚于 scheduler 诞生（initAgentAndScheduler
+  // 内部依赖链更长），构造后注入；scheduler 触发从此过闸门+台账，与五入口同一调度纪律。
+  schedulerService.attachSignalRouter(signalRouter);
   const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, weixinPollers, registry } =
     await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger, messageBroadcaster, signalRouter });
 
