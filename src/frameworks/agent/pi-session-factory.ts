@@ -43,6 +43,8 @@ import { SessionRestore } from "./session-restore";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import { IdentityBuilder } from "./identity-builder";
 import { buildCustomTools } from "./tool-builder";
+// F20260904cg77（#776）：编码工具描述覆写（「如何正确使用工具」归位工具自身描述）
+import { buildToolDescriptionOverrides, buildPiBuiltinToolDefinitions } from "./tool-description-overrides";
 // F20260901mbfx（审计 F5）：readOnly 合成的自定义工具白名单（只读查询类）
 import { SYNTHESIS_READ_ONLY_TOOL_WHITELIST } from "./synthesis-prompt-builder";
 import { ModelRuntimeRegistry, otterInvokeStorage } from "./model-runtime-registry";
@@ -551,7 +553,7 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /** 创建带工具配置的 AgentSession */
-  // eslint-disable-next-line max-params, complexity -- Phase 2: readOnly 参数增加工具过滤
+  // eslint-disable-next-line max-params, complexity, max-statements -- Phase 2: readOnly 参数增加工具过滤；F20260904cg77 描述覆写接线 +1 语句（覆写本体在 tool-description-overrides.ts，此处仅组装）
   private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, sessionManager: SessionManager, turnText?: { text: string }, readOnly?: boolean) {
     const conversationId = options?.conversationId ?? "";
     const messageId = options?.messageId;
@@ -591,12 +593,19 @@ export class PiSessionFactory implements AgentGateway {
     const modelRuntime = this.modelRuntimeRegistry.getModelRuntime();
     const settingsManager = this.modelRuntimeRegistry.getSettingsManager();
 
+    // F20260904cg77（#776）：编码工具描述覆写（引导归位工具描述，readOnly 不覆写——
+    // 合成路径工具已过滤，保持 prompt 最小）。机制见 tool-description-overrides.ts。
+    const descriptionOverrides = readOnly ? [] : buildToolDescriptionOverrides(
+      buildPiBuiltinToolDefinitions(piCodingAgent as unknown as Record<string, unknown>, process.cwd()),
+      filteredCodingTools,
+    );
+
     this.logger.debug('[createSession] Calling createAgentSession', { otterId, modelAlias: resolvedAlias });
     const { session } = await piCodingAgent.createAgentSession({
       model: resolvedModel,
       sessionManager,
       tools: [...filteredCodingTools, ...filteredCustomTools.map(t => t.name)],
-      customTools: filteredCustomTools,
+      customTools: [...descriptionOverrides, ...filteredCustomTools],
       resourceLoader: resourceLoader ?? undefined,
       modelRuntime: modelRuntime ?? undefined,
       settingsManager: settingsManager ?? undefined,
