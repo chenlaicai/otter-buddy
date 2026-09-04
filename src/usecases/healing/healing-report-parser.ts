@@ -47,23 +47,29 @@ function parseSingleIssue(entry: string): HealingIssue | null {
 /**
  * 从 speak body 中解析 healing report。
  * 鲁棒性处理：normalize、白名单校验、多行支持、误解析防护。
+ *
+ * 误解析防护（F20260904hstr）：只认「协议块」——<healing> 开头紧跟
+ * [issues] / [no_issue] 标记。正文里引用标签字样（裸写或反引号包裹）不触发。
  */
 export function parseHealingReport(body: string): ParsedHealingReport {
-  const normalized = body
-    .replace(/\\<|\\>/g, m => m.slice(1))
-    .replace(/`<healing>`/gi, '<healing>')
-    .replace(/<\/healing>/gi, '</healing>');
+  const normalized = body.replace(/\\<|\\>/g, m => m.slice(1));
 
-  const match = normalized.match(/<healing>([\s\S]*?)<\/healing>/i);
+  // 协议块开头必然紧跟 [issues] 或 [no_issue]/[no issue] 变体标记，
+  // 以此锚定，避免正文提及标签字样被误当报告块开头。
+  // \s* 容忍 LLM 输出格式微偏（如标签与标记间夹了空白/换行）——宽松无害：
+  // 漏剥的代价（正文多显示残块）远小于误吞的代价（正文丢失，2026-09-04 现场）。
+  // 注意：不做反引号还原——`` `<healing>` `` 是正文引用，不是报告（F20260904hstr）。
+  const match = normalized.match(/<healing>\s*\[(issues|no.?issues?)\]([\s\S]*?)<\/healing>/i);
   if (!match) return { hasIssues: false, issues: [] };
 
-  const content = match[1].trim();
-  if (/\[no.?issue\]/i.test(content)) return { hasIssues: false, issues: [] };
+  const [, marker, content] = match;
+  if (!/^issues$/i.test(marker)) return { hasIssues: false, issues: [] };
 
-  const issueBlock = content.match(/\[issues\]([\s\S]*?)\[\/issues\]/i);
-  if (!issueBlock) return { hasIssues: false, issues: [] };
+  // [issues] 必须与 [/issues] 成对，缺闭合视为残缺块，不解析
+  const entriesRaw = content.match(/([\s\S]*?)\[\/issues\]/i)?.[1] ?? null;
+  if (entriesRaw === null) return { hasIssues: false, issues: [] };
 
-  const entries = issueBlock[1].split(/(?=- type:)/gi).filter(Boolean);
+  const entries = entriesRaw.split(/(?=- type:)/gi).filter(Boolean);
   const issues = entries.map(parseSingleIssue).filter((i): i is HealingIssue => i !== null);
 
   if (issues.length > 0 && match[0].length > MAX_HEALING_BLOCK_LENGTH) {
@@ -76,10 +82,14 @@ export function parseHealingReport(body: string): ParsedHealingReport {
 
 /**
  * 从 speak body 中剥离 healing report。
+ *
+ * 误剥防护（F20260904hstr）：只剥离协议块（开头紧跟 [issues]/[no_issue] 标记）。
+ * 旧正则从正文首次出现的 <healing> 字样起非贪婪吞到文末闭合，
+ * 正文引用标签名的消息被整段剥离（2026-09-04 现场：正文+卡片全部丢失）。
  */
 export function stripHealingReport(body: string): string {
   return body
-    .replace(/<healing>[\s\S]*?<\/healing>/gi, '')
+    .replace(/<healing>\s*\[(issues|no.?issues?)\][\s\S]*?<\/healing>/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
