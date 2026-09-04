@@ -195,3 +195,20 @@ suggestion: 交换默认值或在 description 里加对照示例
 | prompts/scheduled/self-healing-analysis.md | 修改 | tool_use_feedback 聚合建 issue 指令（含独立定义） |
 | tests/usecases/healing/healing-report-parser.test.ts | 修改 | 新类型解析用例 |
 | docs/features/2026/09/04/F20260904tflp-*.md | 新建 | 本方案文档 |
+
+## 实现（2026-09-04 补充，PR #796）
+
+方案终审通过后同 PR 补全实现：
+
+| 文件 | 改动 |
+|---|---|
+| src/entities/healing/healing-event.ts | HealingErrorType 联合类型 + 'tool_use_feedback' |
+| src/usecases/healing/healing-report-parser.ts | VALID_TYPES + tool_use_feedback（未知值本就回退 other，白名单使其合法解析） |
+| src/interface-adapters/agent-runtime/tools/tool-factory.ts | speak 自愈段重写（工具可报项 + 四触发时机，净增约 +50 token） |
+| src/frameworks/agent/tool-builder.ts | 统一错误出口：isError 结果尾部追加 tool_use_feedback 引导提示（speak 豁免，避免循环暗示） |
+| .pi/SYSTEM.md | R5 补一句工具感受可报项（约 +30 token） |
+| prompts/scheduled/self-healing-analysis.md | tool_use_feedback 处理规则（独立判定 + ≥2 建 issue + 驳回权） |
+| tests/usecases/healing/healing-report-parser.test.ts | +1 用例：tool_use_feedback 解析含 [tool:name] 前缀 |
+| tests/frameworks/agent/tool-error-feedback-hint.test.ts | +3 用例：isError 追加提示/非错误无噪音/speak 豁免 |
+
+**验证**：parser+builder 单测 31 passed；agent+healing+speak 全量 26 文件 420 passed；golden gate（软代码）运行中，结果见 PR。
