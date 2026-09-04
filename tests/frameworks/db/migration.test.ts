@@ -772,6 +772,23 @@ describe("migrateDatabase - backfillGhostSenders", () => {
     expect(row.sender_id).toBe("user"); // 不误伤：无法判定真身时不改
   });
 
+  it("级联：同会话连续多条幽灵收敛到同一作者（双次重试场景防御锚）", () => {
+    seedMessage(db, "msg-1", "大獭正常发言"); // seq=1
+    seedOtter(db, "otter-1", "大獭");
+    seedMsg(db, "msg-ghost-a", "otter", "user", 2, "2026-08-19T03:00:00Z");
+    seedMsg(db, "msg-ghost-b", "otter", "user", 3, "2026-08-19T03:30:00Z");
+
+    migrateDatabase(db, createTestLogger());
+
+    // 事务内后一条溯源命中前一条已回填的行——收敛到同一作者，不跳过
+    const rows = db.prepare("SELECT id, sender_id, sender_name FROM messages WHERE id IN ('msg-ghost-a', 'msg-ghost-b') ORDER BY id").all() as Array<{ id: string; sender_id: string; sender_name: string }>;
+    expect(rows).toHaveLength(2);
+    for (const r of rows) {
+      expect(r.sender_id).toBe("otter-1");
+      expect(r.sender_name).toBe("大獭");
+    }
+  });
+
   it("幂等：二次迁移零写入", () => {
     seedMessage(db, "msg-1", "大獭正常发言");
     seedOtter(db, "otter-1", "大獭");

@@ -70,7 +70,7 @@ modules:
 
 `migration.ts backfillGhostSenders`：
 - 症状 B：`UPDATE ... WHERE sender_type='system' AND sender_id != 'system'` 归一为 'system'。
-- 症状 A：幽灵獭回填为**同 conversation 内 sequence 更小的最近一条正常獭消息的 sender**——重试场景中被恢复/被重试的发言者就是幽灵消息的真正作者；找不到则跳过不误伤。sender_name 同步回填。
+- 症状 A：幽灵獭回填为**同 conversation 内 sequence 更小的最近一条正常獭消息的 sender**——重试场景中被恢复/被重试的发言者就是幽灵消息的真正作者；找不到则跳过不误伤。sender_name 同步回填。级联语义：同会话连续多条幽灵（多次重试）时，后一条的溯源会命中前一条已回填的行（事务内可见）——收敛到同一作者，与「连续重试同属一獭」的真实场景一致，防御性测试已锚住（migration.test.ts 级联用例）。
 - 幂等：症状命中才 UPDATE；生产库副本实测 49+614 全部回填，二次运行零写入。
 
 ## 变更清单
@@ -88,7 +88,7 @@ modules:
 
 ## 验证
 
-- **全量测试**：3015 passed / 241 files（含新增 4 个门禁用例 + 4 个迁移用例 + guard-bounce 断言扩展）
+- **全量测试**：3015 passed / 241 files（基线 3010 + 新增 5 用例：1 个 send-message 门禁拒绝用例 + 4 个迁移用例；guard-bounce 幽灵断言为已有用例加锚，不计新增）
 - **生产库副本实测**（/tmp/ghost-test.db 复刻迁移逻辑）：症状 A 49 条全部回填（fixed=49, skipped=0）、症状 B 614 条归一、幂等复跑零写入；现场样本（今天 seq50 那条）正确变回 `sender_id=13b0a07b（大獭）`
 - **幂等性**：迁移按症状命中，重跑无命中即无写入（38 测试含二次迁移用例）
 - **最简实现检查**：已过——无新依赖、无新表、无 schema 变更；门禁复用已有 getById 查询；迁移复用既有一次性补丁模式（PRAGMA/条件检测）
