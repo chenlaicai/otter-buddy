@@ -274,9 +274,12 @@ export class ResumeInterruptedService {
 
   /** #613 提取：单条恢复的核心步骤（senderId 反查 + prepareForRetry + 链引擎续跑） */
   private async executeResumeChain(item: { messageId: string; conversationId: string; otterId: string }, turnId: string): Promise<void> {
-    // 3. senderId 从原所属 turn 反查（prepareForRetry 会创建全新 turn，新 turn 为空不能作锚——审视发现 3）
+    // 3. senderId 从原所属 turn 反查（prepareForRetry 会创建全新 turn，新 turn 为空不能作锚——审视发现 3）。
+    //    反查落空的纯獭链发言（无用户消息）：曾兑底字面量 'user'——那是幽灵 sender 的帮凶
+    //    （2026-09-04 排查）。改为兑底 ''：senderId 语义是「触发者」，纯獭链恢复时
+    //    触发者是系统而非用户，宁空不假（下游仅用于展示名解析，空串走层 3 前端 fallback）。
     const turnUserMsgs = await this.deps.queryMessage.getMessages(item.conversationId, { turnId, senderType: "user", limit: 1 });
-    const senderId = turnUserMsgs[0]?.senderId ?? "user";
+    const senderId = turnUserMsgs[0]?.senderId ?? "";
     // 4. 重置消息：failed→streaming，新 turn，半截 segments 保留（F20260821fix 语义）
     await this.deps.sendMessage.prepareForRetry(item.messageId, true);
     // 5. 链引擎续跑：读产出消息行级 tsp，恢复后 yield 交棒的链不断（#332；F20260904schf

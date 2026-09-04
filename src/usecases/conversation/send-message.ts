@@ -263,9 +263,16 @@ export class SendMessage {
 
     const turn = await this.ensureActiveTurn(input.conversationId);
 
-    // 解析 senderName（层 1：创建时快照）
+    // 身份门禁：senderId 必须是 otters 表真实存在的獭（幽灵 sender 防线）。
+    // Why：曾因上游重试链路误传字面量 'user'，落地 49 条「user 海獭」幽灵消息
+    // （2026-09-04 排查，scheduler+UUID 共 700+ 异常态）——寧可 fail-fast 也不静默落库。
+    // 下游 sendMessage.start 不再重复校验：本门禁是层 2 收敛点。
     const otter = await this.otterRepo.getById(input.senderId);
-    const senderName = resolveSpeakerName("otter", input.senderId, otter?.name) ?? '';
+    if (!otter) {
+      throw new DomainError(`sendMessage.start: senderId 不存在于 otters 表（幽灵 sender 拒绝落库）: ${input.senderId}`, "not_found");
+    }
+    // 解析 senderName（层 1：创建时快照）——otter 必存在，直接取名，无需 senderId 兜底
+    const senderName = resolveSpeakerName("otter", input.senderId, otter.name) ?? otter.name;
 
     const id = crypto.randomUUID();
     const now = new Date().toISOString();

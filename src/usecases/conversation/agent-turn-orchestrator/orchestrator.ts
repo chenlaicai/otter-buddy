@@ -640,10 +640,13 @@ export class AgentTurnOrchestrator {
     }
 
     // Create new message for retry (degenerate retry uses new message)
+    // 发言者身份修复：新消息 speaker 必须是当前獭（otterId）。曾误传 ctx.input.senderId
+    // （发言石回传目标，用户触发时为字面量 'user'）——落地为幽灵 sender（49 条，2026-09-04 排查）。
+    // talkingStonePassedTo 保持 [senderId]：重试失败兜底时发言石回传触发者，语义正确。
     try {
       const newMsg = await ctx.callbacks.startNewMessage(
         ctx.input.conversationId,
-        ctx.input.senderId,
+        ctx.input.otterId,
         [ctx.input.senderId],
       );
       this.safeEmitEvent(ctx.callbacks, {
@@ -815,10 +818,13 @@ export class AgentTurnOrchestrator {
     }
 
     // 新消息承载重整：executeTurn 主循环继续驱动
+    // 发言者身份修复（同 degenerate retry 分支）：speaker=otterId，tsp 保持回传触发者。
+    // 此处曾传 ctx.input.senderId——#731 上线后服务重启恢复链触发时 senderId 为 'user'，
+    // 落地为「user 海獭」幽灵消息（现场：2026-09-04 工具优化对话 seq50）。
     try {
       const newMsg = await ctx.callbacks.startNewMessage(
         ctx.input.conversationId,
-        ctx.input.senderId,
+        ctx.input.otterId,
         [ctx.input.senderId],
       );
       this.safeEmitEvent(ctx.callbacks, {

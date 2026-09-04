@@ -714,3 +714,93 @@ describe("migrateDatabase - F20260904schf P2 补丁: rebuildDispatchAttemptsSour
     }
   });
 });
+
+/** 幽灵 sender 回填（2026-09-04 排查）：两类身份错位的存量修复 */
+describe("migrateDatabase - backfillGhostSenders", () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = createTestDb();
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  function seedOtter(db: Database.Database, id: string, name: string): void {
+    db.prepare(`INSERT INTO otters (id, name, type, status, created_at) VALUES (?, ?, 'big', 'active', '2026-01-01T00:00:00Z')`).run(id, name);
+  }
+
+  function seedMsg(db: Database.Database, id: string, senderType: string, senderId: string, seq: number, createdAt: string): void {
+    db.prepare(`INSERT OR IGNORE INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 't', '2026-08-19T00:00:00Z', '2026-08-19T00:00:00Z')`).run();
+    db.prepare(`INSERT OR IGNORE INTO turns (id, conversation_id, turn_number, created_at) VALUES ('turn-1', 'conv-1', 1, '2026-08-19T00:00:00Z')`).run();
+    db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, created_at)
+      VALUES (?, 'conv-1', ?, ?, 'completed', ?, 'turn-1', ?)`).run(id, senderType, senderId, seq, createdAt);
+  }
+
+  it("症状A：otter+user 幽灵回填为同会话最近的正常獭（含 sender_name）", () => {
+    seedMessage(db, "msg-1", "大獭正常发言"); // seq=1, sender=otter-1
+    seedOtter(db, "otter-1", "大獭");
+    seedMsg(db, "msg-ghost", "otter", "user", 2, "2026-08-19T03:00:00Z");
+
+    migrateDatabase(db, createTestLogger());
+
+    const row = db.prepare("SELECT sender_id, sender_name FROM messages WHERE id = 'msg-ghost'").get() as { sender_id: string; sender_name: string };
+    expect(row.sender_id).toBe("otter-1");
+    expect(row.sender_name).toBe("大獭");
+    // 正常消息不受影响
+    const normal = db.prepare("SELECT sender_id FROM messages WHERE id = 'msg-1'").get() as { sender_id: string };
+    expect(normal.sender_id).toBe("otter-1");
+  });
+
+  it("症状B：system+UUID 归一为 'system'", () => {
+    seedOtter(db, "87f172c6-uuid-of-big-otter", "大獭");
+    seedMsg(db, "msg-sys", "system", "87f172c6-uuid-of-big-otter", 3, "2026-08-19T04:00:00Z");
+
+    migrateDatabase(db, createTestLogger());
+
+    const row = db.prepare("SELECT sender_id FROM messages WHERE id = 'msg-sys'").get() as { sender_id: string };
+    expect(row.sender_id).toBe("system");
+  });
+
+  it("无同会话正常獭消息时跳过不误伤（保持原样）", () => {
+    seedMsg(db, "msg-lone-ghost", "otter", "user", 1, "2026-08-19T05:00:00Z");
+
+    migrateDatabase(db, createTestLogger());
+
+    const row = db.prepare("SELECT sender_id FROM messages WHERE id = 'msg-lone-ghost'").get() as { sender_id: string };
+    expect(row.sender_id).toBe("user"); // 不误伤：无法判定真身时不改
+  });
+
+  it("级联：同会话连续多条幽灵收敛到同一作者（双次重试场景防御锚）", () => {
+    seedMessage(db, "msg-1", "大獭正常发言"); // seq=1
+    seedOtter(db, "otter-1", "大獭");
+    seedMsg(db, "msg-ghost-a", "otter", "user", 2, "2026-08-19T03:00:00Z");
+    seedMsg(db, "msg-ghost-b", "otter", "user", 3, "2026-08-19T03:30:00Z");
+
+    migrateDatabase(db, createTestLogger());
+
+    // 事务内后一条溯源命中前一条已回填的行——收敛到同一作者，不跳过
+    const rows = db.prepare("SELECT id, sender_id, sender_name FROM messages WHERE id IN ('msg-ghost-a', 'msg-ghost-b') ORDER BY id").all() as Array<{ id: string; sender_id: string; sender_name: string }>;
+    expect(rows).toHaveLength(2);
+    for (const r of rows) {
+      expect(r.sender_id).toBe("otter-1");
+      expect(r.sender_name).toBe("大獭");
+    }
+  });
+
+  it("幂等：二次迁移零写入", () => {
+    seedMessage(db, "msg-1", "大獭正常发言");
+    seedOtter(db, "otter-1", "大獭");
+    seedMsg(db, "msg-ghost", "otter", "user", 2, "2026-08-19T03:00:00Z");
+    seedMsg(db, "msg-sys", "system", "some-uuid", 3, "2026-08-19T04:00:00Z");
+
+    migrateDatabase(db, createTestLogger());
+    migrateDatabase(db, createTestLogger()); // 二次
+
+    const ghosts = db.prepare("SELECT COUNT(*) AS c FROM messages WHERE sender_type = 'otter' AND sender_id = 'user'").get() as { c: number };
+    const sysBad = db.prepare("SELECT COUNT(*) AS c FROM messages WHERE sender_type = 'system' AND sender_id != 'system'").get() as { c: number };
+    expect(ghosts.c).toBe(0);
+    expect(sysBad.c).toBe(0);
+  });
+});
