@@ -6,8 +6,11 @@ change_type: prompt   # 方案/设计文档：本变更主体是 prompt+协议�
 created_in_conversation: de5bcf98-7a4b-4e2e-9475-835359da0bd7
 tags: [healing, tools, feedback-loop, observability]
 intent:
-  problem: "海獭使用工具的痛点无反馈入口，工具冗余/难用问题无从被发现"
-  verify_by: "golden_gate + 单元测试（协议解析）"
+  problem: "海獭使用工具的痛点无反馈入口，工具冗余/难用问题无从被发现——245+ 条 healing 事件全为系统自动监测，主动自报 0"
+  expected_effect: "工具报错返回尾部出现 tool_use_feedback 引导提示（非错误零噪音）；parser 接受 tool_use_feedback 类型；22:00 任务按独立反馈聚合"
+  verify_by:
+    type: behavior_check
+    detail: "单测 32 用例（parser 1 + builder 4：isError 追加提示含工具名/非错误无噪音/speak 豁免/空 content 安全默认）；运行验证：上线 2 周后 healing_events 出现 tool_use_feedback 条目"
 modules: []
 created_at: 2026-09-04
 ---
