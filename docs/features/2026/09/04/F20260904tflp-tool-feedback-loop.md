@@ -165,7 +165,7 @@ suggestion: 交换默认值或在 description 里加对照示例
 | 提示位置（三层） | SYSTEM.md 一句 + speak description + 错误返回触发 | 只改 speak description | 纪律层/操作层/触发层各司其职；错误返回提示在摩擦时刻出现，解决"根本想不起来报" |
 | 消费时机 | 复用 22:00 任务 | 新建专项定时任务 | 不加任务数量；22:00 任务已是事件池的标准消费者 |
 | 客观数据呈现 | 分析时按需 SQL 聚合 message_events | 预聚合物化视图 | 按需查询零维护；数据量（月 7 万条）远未到需物化的量级 |
-| token 预算 | SYSTEM.md +30 / speak 净增 +50 | 详情全放 SYSTEM.md | SYSTEM.md 当前 8KB，阈值 15KB，全局 SDK base 膨胀需克制；详情下沉到操作层 |
+| token 预算 | SYSTEM.md +30 / speak 净增 +80（实现轮修正） | 详情全放 SYSTEM.md；替换旧自愈段文本 | SYSTEM.md 当前 8KB，阈值 15KB，克制。实现轮审视发现 2 裁定：保留旧文本——它是指向 SYSTEM.md R5 的指针与 no_issue 惯例说明，删了会把协议细节全压进 description；实际净增 +80 而非预估 +50，绝对量仍在预算内 |
 
 ## 对抗审视记录
 

@@ -70,4 +70,19 @@ describe("F20260904tflp: 错误返回尾部 tool_use_feedback 提示", () => {
     const text = result.content.find(c => c.type === "text")?.text ?? "";
     expect(text).not.toContain("tool_use_feedback");
   });
+
+  it("isError 但 content 为空数组时不报错不追加（F20260904tflp 审视发现 3）", async () => {
+    // 钉死空 content 的安全默认：[].map() => []，无 TypeError、无提示追加。
+    // 防未来重构（map 改 forEach/push）时意外改变此行为。
+    const { tools } = makeTools(() => [
+      {
+        name: "search_memory",
+        description: "test",
+        parameters: { type: "object", properties: {} },
+        execute: async () => ({ content: [], details: {}, isError: true } as never),
+      },
+    ]);
+    const result = await tools[0].execute("call-1", {});
+    expect(result.content).toEqual([]);
+  });
 });
