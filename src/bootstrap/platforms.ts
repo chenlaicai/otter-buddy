@@ -424,7 +424,7 @@ interface StartWeixinAccountOptions {
 function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingChannel | undefined {
   const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig, account, registry } = options;
   try {
-      const api = new WeixinApiClient({ baseUrl: account.baseUrl || weixinConfig.baseUrl || "https://ilinkai.weixin.qq.com", token: account.token });
+      const api = new WeixinApiClient({ baseUrl: account.baseUrl || weixinConfig.baseUrl || "https://ilinkai.weixin.qq.com", token: account.token, logger });
       // 媒体支持（issue #567）：CDN 客户端同构注入 gateway（出站上传）与媒体下载实现（入站）
       const cdn = new WeixinCdnClient({ api, logger });
       const mediaGateway = new WeixinMediaClient({ cdn, logger });

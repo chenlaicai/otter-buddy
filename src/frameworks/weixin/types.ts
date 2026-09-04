@@ -158,6 +158,9 @@ export interface WeixinGetUpdatesResp {
 
 export interface WeixinSendMessageResp {
   ret?: number;
+  /** F20260904wxeg：errcode 与 ret 并列留痕——relay-claw F137 实证 sendmessage
+   * 失败可能走 errcode 通道（-2 token 失效 / -14 会话过期），仅查 ret 会漏判 */
+  errcode?: number;
   errmsg?: string;
 }
 
