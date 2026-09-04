@@ -27,13 +27,24 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
       attempt.status, attempt.source, attempt.attemptStartedAt, note);
   }
 
+  /** F20260904ldgr（#795）：note 改追加语义——新内容以 "; " 拼接在既有 note 后，
+   *  前情链（§8.2 压缩链 / retry reason / 降级标记）在多次 finish 间完整保留，
+   *  事故取证通道不再被覆盖抹平（9/4 晨事故唯一幸存取证证据就是 note 前情链）。 */
   recordFinish(messageId: string, targetOtterId: string, status: "completed" | "failed" | "aborted", note?: string | null): void {
     this.db.prepare(`
       UPDATE dispatch_attempts
       SET status = ?, attempt_finished_at = datetime('now'),
-          note = CASE WHEN ? IS NOT NULL THEN ? ELSE note END
+          note = CASE WHEN ? IS NOT NULL THEN COALESCE(note || '; ', '') || ? ELSE note END
       WHERE message_id = ? AND target_otter_id = ?
     `).run(status, note ?? null, note ?? null, messageId, targetOtterId);
+  }
+
+  appendNote(messageId: string, targetOtterId: string, note: string): void {
+    this.db.prepare(`
+      UPDATE dispatch_attempts
+      SET note = COALESCE(note || '; ', '') || ?
+      WHERE message_id = ? AND target_otter_id = ?
+    `).run(note, messageId, targetOtterId);
   }
 
   backfillLegacyAttempted(): number {

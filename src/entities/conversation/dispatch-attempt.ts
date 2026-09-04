@@ -34,8 +34,14 @@ export interface DispatchAttemptRepo {
    * try/catch 责任在调用方（插桩失败仅日志，绝不阻断链路——硬约束 1）。
    */
   recordStart(attempt: DispatchAttempt): void;
-  /** settle 记账：completed/failed/aborted。 */
+  /** settle 记账：completed/failed/aborted。
+   *  F20260904ldgr（#795）：note 参数为追加语义（非覆盖）——新内容以 "; " 拼接在既有
+   *  note 之后，前情链在 retry 失败等多次 finish 场景下完整保留（审计取证通道）。 */
   recordFinish(messageId: string, targetOtterId: string, status: "completed" | "failed" | "aborted", note?: string | null): void;
+  /** F20260904ldgr（#798 发现 2）：终态行追加备注——invoke fulfilled 但行级出处查库
+   *  失败时，在已 completed 的槽位上标记「出处降级」，yield 路由信息丢失不再无痕。
+   *  只改 note 不改 status（pending 反连接不变量不可破坏）。失败由调用方日志兜底。 */
+  appendNote(messageId: string, targetOtterId: string, note: string): void;
   /**
    * S1 backfill 墓碑（§4.5）：所有存量已投递消息 × otter 目标一次性标记 legacy-attempted。
    * 切换瞬间 pending=0——多獭稳态滞后（rbsg 事故主因）在墓碑一刀之下。
