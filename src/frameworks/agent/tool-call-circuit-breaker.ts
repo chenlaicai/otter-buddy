@@ -22,7 +22,6 @@ export interface CircuitBreakerConfig {
   maxPerEventTimeMs: number;
   slidingWindowSize: number;
   slidingWindowRepeat: number;
-  tokenWarningThreshold: number;
 }
 
 export const DEFAULT_CIRCUIT_BREAKER_CONFIG: CircuitBreakerConfig = {
@@ -31,7 +30,6 @@ export const DEFAULT_CIRCUIT_BREAKER_CONFIG: CircuitBreakerConfig = {
   maxPerEventTimeMs: 600_000,
   slidingWindowSize: 6,
   slidingWindowRepeat: 3,
-  tokenWarningThreshold: 50_000,
 };
 
 interface CheckResult {

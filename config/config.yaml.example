@@ -84,6 +84,14 @@ embedding:
   #     └─ onnx/{model.onnx, model.onnx_data}
   localModelPath: ./models
 
+# === 上下文质量配置（F20260904cq30）===
+contextQuality:
+  # pi compaction 触发储备（触发公式：contextTokens > contextWindow − reserveTokens）
+  # 1M 窗口下 1048576 − 700000 = 348576 ≈ 340K 触发。
+  # 质量优先：实测好体验区 60-90K、退化区 266K+；搭档拍板 300K 标称线。
+  # 上下文水位域唯一真相源——旧 tokenWarningThreshold/TOKEN_WARNING 假水位线已删。
+  compactionReserveTokens: 700000
+
 # === 熔断器配置 ===
 circuitBreaker:
   # 允许的最大连续相同工具调用次数（默认 5）

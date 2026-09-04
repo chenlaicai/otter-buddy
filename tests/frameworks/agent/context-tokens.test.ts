@@ -6,8 +6,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { getContextWindowTokens, getLastStopReason } from "@frameworks/agent/context-tokens";
-import { checkTokenWarning } from "@frameworks/agent/circuit-breaker-helpers";
-import { createCapturingLogger } from "../../helpers/logger";
 
 type Usage = { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens?: number };
 
@@ -87,24 +85,11 @@ describe("getContextWindowTokens", () => {
   });
 });
 
-describe("checkTokenWarning（窗口占用口径）", () => {
-  it("ctxTokens undefined 时不告警", () => {
-    const logger = createCapturingLogger();
-    checkTokenWarning("otter-1", undefined, logger);
-    expect(logger.captured.warns).toHaveLength(0);
-  });
-
-  it("窗口占用未超 100k 不告警", () => {
-    const logger = createCapturingLogger();
-    checkTokenWarning("otter-1", 99_999, logger);
-    expect(logger.captured.warns).toHaveLength(0);
-  });
-
-  it("窗口占用超 100k 告警", () => {
-    const logger = createCapturingLogger();
-    checkTokenWarning("otter-1", 100_001, logger);
-    expect(logger.captured.warns).toHaveLength(1);
-    expect(logger.captured.warns[0]).toContain("otter-1");
+describe("checkTokenWarning 已删（F20260904cq30 假水位线退役）", () => {
+  it("导出不存在——水位域唯一真相源是 compaction 触发线（config contextQuality）", async () => {
+    const mod = await import("@frameworks/agent/circuit-breaker-helpers");
+    expect((mod as Record<string, unknown>).checkTokenWarning).toBeUndefined();
+    expect((mod as Record<string, unknown>).TOKEN_WARNING_THRESHOLD).toBeUndefined();
   });
 });
 
