@@ -7,6 +7,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { parseDocument } from "yaml";
+// 双 YAML 库并存说明（#391 审视采纳）：js-yaml 仅用于读路径（loadConfig/validate），
+// 写路径 updateDefaultModelInYaml 用 yaml 包 parseDocument 保留注释——js-yaml 无此 API。
+// 两库对 config.yaml 解析结果逐字段一致（检视獭独立验证）；收敛到单库需另开 issue 评估，暂不动读路径。
 import * as yaml from "js-yaml";
 import type { Logger } from "@usecases/ports/logger";
 
