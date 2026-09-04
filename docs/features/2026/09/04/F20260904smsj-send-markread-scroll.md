@@ -10,7 +10,7 @@ summary: >
 change_type: fix
 tags: [conversation, scroll, unread, mark-read, ux]
 modules: [web/src/pages/conversation/index.tsx]
-capability_test: n/a: 前端滚动交互行为，现有 MessageList.test.tsx 9 用例回归通过（视口跳动的因果在 CSSOM/滚动时序，jsdom 无法模拟，人工验收）
+capability_test: "n/a: 前端滚动交互行为，现有 MessageList.test.tsx 9 用例回归通过（视口跳动的因果在 CSSOM/滚动时序，jsdom 无法模拟，人工验收）"
 created_in_conversation: bffea3ae-a1df-47d6-b9b3-83606c230448
 causal_links:
   from:
