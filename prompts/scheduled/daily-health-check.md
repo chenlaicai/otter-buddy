@@ -14,13 +14,15 @@ task_name: 每日对话健康检查
 
 ## 必须检查的数据源
 
+**sqlite3 直查前置纪律（issue #791，2026-09-04 定）**：任何直接 `sqlite3 <path>` 查询前，第一步先 `curl -s http://localhost:3000/api/settings` 确认 dbPath（服务实际在用的库路径），用返回值核对你即将查的路径。data/ 下可能残留同名相似库文件（如已废弃的 otter.db）——结构完整、schema 齐全但全表空，错查会得出「零事件」假象并滑向错误结论（#791 现场：healing_events 查成 0 条，实际在用库有 245 条）。
+
 1. **对话历史**：本系统所有对话的消息（用户吐槽、系统错误、小獭异常）。跨对话用 memory 检索（search_memory + get_related）覆盖，不要声称"只能查当前对话"——那是错误的能力边界声明（issue #352 教训）。检索结果按上方「范围约束」过滤归属
 2. **GitHub issues**：用 `gh issue list --state all --limit 50` 获取最近 issue，筛选昨天创建/更新的 — 用户自建的 issue 也是重要信号，不在对话中吐槽不等于没有问题
 3. **GitHub PRs**：用 `gh pr list --state all --limit 50` 获取最近 PR，筛选昨天创建/合入的 — 用户自建的 PR 说明遇到了需要修复的问题
 4. **self-healing events**：用 `manage_healing_events(action: query)` 查看系统自愈记录 — 工具故障、检索缺失、格式异常都在这里，注意 otterId 字段可定位到具体海獭
 5. **memory**：用 `search_memory` 检索昨天的记录（created_after 过滤）— 跨会话的问题脉络、未闭环的任务状态（按「范围约束」验证归属后再纳入）
 6. **RHI 健康信号（F20260825rweb #404）**：用 `curl -s http://localhost:<port>/api/health/overview` 与 `/api/health/signals` 拉取 — critical 信号（bug 反复/链滞留/僵尸链）是日报的优先素材；RHI 的 critical 信号已自动写入记忆系统，也可用 `search_memory` 检索 `[RHI信号]` 前缀条目
-7. **signal_events（F20260826mwrd C4）**：用 `query_signals(status=pending)` 查悬置獭间信号 — 对账细则见下方「signal 对账段」；注意 query_signals 只查当前对话，跨对话统计可用 `sqlite3` 或结合 memory 检索补足
+7. **signal_events（F20260826mwrd C4）**：用 `query_signals(status=pending)` 查悬置獭间信号 — 对账细则见下方「signal 对账段」；注意 query_signals 只查当前对话，跨对话统计可用 `sqlite3` 或结合 memory 检索补足（sqlite3 直查先按上方前置纪律确认 dbPath）
 
 ## RHI 信号处置段（#406 闭环硬规则，2026-09-04）
 
@@ -36,7 +38,8 @@ task_name: 每日对话健康检查
 
 ## 分析纪律（issue #352 教训）
 
-- **先收集数据再归纳结论**：先跑完上面 5 项数据源，再开始分析。禁止先推测一个"合理的故事"再找数据佐证
+- **先收集数据再归纳结论**：先跑完上面 7 项数据源，再开始分析。禁止先推测一个"合理的故事"再找数据佐证
+- **关键数字双源验证**：写入分析/issue 的关键计数（事件数、消息数、issue 数），用两个独立途径交叉核对（如 manage_healing_events 的 query 结果 vs sqlite3 直查同表 COUNT），单源数字标注「未交叉验证」——#791 现场：口径混排（error_type 字段值与 description 内容分类混排一表）把真实的 other:33 拆散隐去，呈现失真即数据不实
 - **不确定的因果不写**：时间相邻 ≠ 因果关系。凡不能从数据直接得出的结论（数字、归属、因果链），要么查证，要么明确标注"未确认"
 - **能力边界先测试再声明**：不确定工具能否做到时，先测试再下结论，不凭印象断言
 - **对话归属先验证再上报**：跨对话候选信号必须验证是否属于 otter-buddy 系统（#778 教训——Echo agent 项目的 UX 反馈曾被误报为 daily-review issue）
