@@ -54,6 +54,8 @@ export function streamEvents(
         stream.write(':\n\n').catch(() => { /* stream closed, ignore */ });
       }
     }, SSE_KEEPALIVE_INTERVAL_MS);
+    // #460：keep-alive timer unref，防 SSE 连接的 timer 阻止进程退出（僵尸进程根因之二）
+    keepAliveTimer.unref?.();
 
     stream.onAbort(() => {
       closed = true;

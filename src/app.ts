@@ -450,8 +450,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const app = buildHttpApp(controllers, logger, options.staticRoot ?? "./web/dist");
 
   // 飞书长连接启动（原 startServer 内的副作用，装配语义上属于"启动平台集成"）
+  // #460：捕获 stopFeishu 句柄接入 dispose 链（防 WSClient 重连阻止退出）
+  let feishuStop: ReturnType<typeof setupFeishu> | undefined;
   if (feishu) {
-    setupFeishu({ appConfig: config, uc, repos, agentInvoker, feishu, messageBroadcaster, logger, registry });
+    feishuStop = setupFeishu({ appConfig: config, uc, repos, agentInvoker, feishu, messageBroadcaster, logger, registry });
   }
 
   /** 等待所有 ensure 完成后再启动 scheduler，确保新创建的 scheduled task 被遍历到。
@@ -491,6 +493,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     dispose: async () => {
       if (disposed) return;
       disposed = true;
+      // #460：停飞书长连接 WSClient（重连机制会阻止退出，根因之四）
+      feishuStop?.stopFeishu();
       // F20260829wxch（#213 检视发现2）：停微信长轮询通道——否则 SIGINT/SIGTERM 时
       // fetch 挂到超时、notifyStop 不调用、服务端不知客户端已断
       weixinPollers?.forEach((p) => p.stop());
