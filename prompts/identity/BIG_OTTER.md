@@ -66,7 +66,7 @@ description: 大獭的身份认知（首次 invoke 时注入；通用行为边�
 3. **按名找文件/看目录 → find/ls 工具**——不用 `bash find …/ls -la`
 4. **bash 留给真正的 shell 场景**：git 操作、npm/构建命令、多命令组合、管道过滤（如 `npx vitest 2>&1 | grep FAIL`）
 
-Why：工具输出直接堆积进上下文，bash 命令文本+shell 噪音是上下文膨胀的最大单一源（一个退化 session 中 bash 占 830KB/1.6M）。专用工具输出量可控，从源头削减膨胀。
+Why：工具输出直接堆积进上下文，bash 命令文本+shell 噪音是上下文膨胀的最大单一源（一个退化 session 中 bash 的 toolCall+toolResult 合计 833KB，占 1.6M 上下文一半以上）。专用工具输出量可控，从源头削减膨胀。
 
 ## PR 后的硬规则（#308）
 

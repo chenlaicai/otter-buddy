@@ -10,19 +10,22 @@ modules: [src/frameworks/agent/, prompts/identity/]
 from: [F20260904cq30]
 supersedes: []
 intent:
-  problem: "专用工具可用不等于会用——read 全程可用但 79 次 sed 读文件走了 bash，bash 万金油习惯压过工具描述引导，上下文膨胀源未被削减"
-  verify_by: "capability_test"
+  problem: "专用工具可用不等于会用——read 全程可用但 79 次 sed 读文件走了 bash，bash 万金油习惯压过工具描述引导，上下文膨胀源未被削减。756 次 bash 中可迁移部分（文件搜索 grep 203 + sed 读 79 + find/ls 9）仅 38%，需引导层推动实际迁移"
+  expected_effect: "新 session 中搜索/读文件/找文件场景的 grep/find/ls 工具调用占比上升，同类 bash 调用占比下降；Golden Gate 既有场景不回归（4/4）"
+  verify_by:
+    type: capability_test
+    reason: "prompt 层行为引导，以 golden 场景集（真 LLM 采样）验证不回归；迁移率为后续观察指标（daily-review 可查 session 工具分布）"
 ---
 
 ## 背景
 
 上下文质量主线三件套之二（兄弟：#780 compaction 300K 已合入 PR #781；#779 图片外置待排期）。#780 解决「膨胀后何时压」，本 issue（#776）解决「膨胀的源头」。
 
-**实证数据**（issue #776 原文 + 9/4 排查）：
+**实证数据**（issue #776 原文 + 9/4 排查，口径统一为 toolCall 参数侧 + toolResult 输出侧合计）：
 
 - 海獭实际只持有 pi 的 4 个默认编码工具 `read/write/edit/bash`（`getCodingToolsForOtterType` 白名单）——**grep/find/ls 未启用**：pi 内置了它们但默认不激活（`sdk.js` L139：`defaultActiveToolNames = ["read", "bash", "edit", "write"]`）
 - 后果：所有搜索/浏览操作全走 bash（`grep -rn ... | head` 这种），bash 输出无结构、带 shell 噪音、易截断不准
-- **最大单一膨胀源**：《对话中invoke机制》大獭 session（01a05fbe）9/2-9/4 堆积 1.6M 字符，其中 bash 的 toolCall+toolResult 占 ~950K 字符（1054 次调用中 756 次是 bash），是 538K token 上下文膨胀的最大单一来源。上下文膨胀与 9/2-9/3 表现退化（瞎说/糊弄/听不懂纠正）时间线吻合（同对话 9/1 均值 64K → 9/3 均值 266K/峰值 743K）
+- **最大单一膨胀源**：《对话中invoke机制》大獭 session（01a05fbe）9/2-9/4 堆积 1.6M 字符，其中 bash 的 toolCall 参数（404KB）+ toolResult 输出（429KB）合计 **833KB**（1054 次调用中 756 次是 bash）——最大单一来源。issue 原文的 ~950K 为含转义/JSON 包装的粗估口径，本文档以逐条解剖的 833KB 为准。上下文膨胀与 9/2-9/3 表现退化（瞎说/糊弄/听不懂纠正）时间线吻合（同对话 9/1 均值 64K → 9/3 均值 266K/峰值 743K）
 
 ## pi 侧机制（SDK 源码核实）
 
@@ -66,7 +69,7 @@ agent-session.js L158: _buildRuntime({ activeToolNames: this._initialActiveToolN
 搭档质询：「bash 放大量字符不是 bash 的问题，是用法的问题；grep/find/ls 也可能有同样的问题，所以要优化工具的使用」。逐条解剖 session 后证实：
 
 - **pi bash 工具一直有硬截断**（50KB/2000 行，与 grep 同源 truncate 机制），756 次 bash 调用最大单次输出仅 7.6KB——上限从没触发过，问题不是单次爆量
-- 真实体积：**404KB 在 toolCall 参数侧**（复合命令 `cd 长路径 && grep … && echo && sed …` 每条几百字符）+ 429KB 小输出累积（median 仅 290 字符）
+- 真实体积：**404KB 在 toolCall 参数侧**（复合命令 `cd 长路径 && grep … && echo && sed …` 每条几百字符）+ 429KB 输出侧小调用累积（median 仅 290 字符），合计 833KB
 - **read 反例**：read 工具全程可用，但 79 次 sed 读文件走了 bash——「工具可用 ≠ 工具会用」，工具描述引导被 bash 万金油习惯压倒，推翻了上段「工具描述本身即引导」的推断
 - 756 次 bash 分类：文件搜索型 grep 203 次（27%）+ sed 读 79 次（10%）+ find/ls 9 次（1%）可迁移（合计 ~38%）；管道过滤型 271 次（36%）+ 真 bash 194 次（26%）天然留 bash
 - **决策（搭档拍板）**：引导塞入本 PR（原计划分开的引导 PR 取消）——issue 目标一直是上下文优化，不是单纯启用工具

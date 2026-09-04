@@ -15,7 +15,7 @@ import { loadToolManifest, getToolNamesFromManifest } from "../config/tool-manif
  * Why: small otter 需要写代码（开发獭）、评论 PR（检视獭）、执行构建命令等实际工作，
  * 只给 read 会导致它们无法完成任务。管理类工具的隔离在 getOtterToolNamesForType 中控制。
  * F20260904（#776）：加入 pi 内置的 grep/find/ls 专用工具——此前搜索/浏览全走 bash 管道，
- * 输出无结构且量不可控（《对话中invoke机制》大獭 session 实测 bash 占 1.6M 字符中的 950K，
+ * 输出无结构且量不可控（《对话中invoke机制》大獭 session 实测 bash 的 toolCall+toolResult 合计 833KB/1.6M，
  * 是 538K token 上下文膨胀的最大单一来源）。pi 的专用工具自带结果截断与格式化，
  * 语义清晰可降低试探性调用。pi 侧 createAllToolDefinitions 全量创建工具 registry，
  * activeToolNames 按名激活（sdk.js L139-144），白名单加名即生效，SDK 零改动。
