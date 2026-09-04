@@ -56,6 +56,8 @@ export function parseHealingReport(body: string): ParsedHealingReport {
 
   // 协议块开头必然紧跟 [issues] 或 [no_issue]/[no issue] 变体标记，
   // 以此锚定，避免正文提及标签字样被误当报告块开头。
+  // \s* 容忍 LLM 输出格式微偏（如标签与标记间夹了空白/换行）——宽松无害：
+  // 漏剥的代价（正文多显示残块）远小于误吞的代价（正文丢失，2026-09-04 现场）。
   // 注意：不做反引号还原——`` `<healing>` `` 是正文引用，不是报告（F20260904hstr）。
   const match = normalized.match(/<healing>\s*\[(issues|no.?issues?)\]([\s\S]*?)<\/healing>/i);
   if (!match) return { hasIssues: false, issues: [] };

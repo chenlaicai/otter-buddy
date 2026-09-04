@@ -211,7 +211,19 @@ describe("stripHealingReport", () => {
     expect(stripped).not.toMatch(/<healing>\s*\[issues\]/);
   });
 
-  it("残缺报告块（缺 [/issues]）不剥离，保留原文", () => {
+  it("残缺块（缺 [/issues] 闭合标记但有 </healing>）会被剥掉，不残留结构化数据", () => {
+    // strip 不要求 [/issues] 成对——只要有开头标记 + </healing> 闭合就剥。
+    // 反驳审视发现 1 的实测证据（PR #787 审视处置）：此场景不会残留。
+    const body = "正文A\n<healing>[issues]\n- type: other\n  severity: low\n  description: x\n</healing>\n正文B";
+    const stripped = stripHealingReport(body);
+    expect(stripped).toContain("正文A");
+    expect(stripped).toContain("正文B");
+    expect(stripped).not.toContain("type:");
+  });
+
+  it("残缺块（缺 </healing> 闭合标签）不剥离，保留原文", () => {
+    // 无闭合标签时旧版同样剥不掉（旧正则也需要 </healing>），行为无变化。
+    // fail-open 设计：宁可多显示也不丢正文（2026-09-04 两次吞正文现场）。
     const body = "A<healing>[issues]\n- type: other\n  severity: low\n  description: x\nB";
     expect(stripHealingReport(body)).toBe(body);
   });
