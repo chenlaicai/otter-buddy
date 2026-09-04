@@ -10,11 +10,11 @@ modules: [src/frameworks/agent/, prompts/identity/]
 from: [F20260904cq30]
 supersedes: []
 intent:
-  problem: "专用工具可用不等于会用——read 全程可用但 79 次 sed 读文件走了 bash，bash 万金油习惯压过工具描述引导，上下文膨胀源未被削减。756 次 bash 中可迁移部分（文件搜索 grep 203 + sed 读 79 + find/ls 9）仅 38%，需引导层推动实际迁移"
-  expected_effect: "新 session 中搜索/读文件/找文件场景的 grep/find/ls 工具调用占比上升，同类 bash 调用占比下降；Golden Gate 既有场景不回归（4/4）"
+  problem: "专用工具可用不等于会用——read 全程可用但 79 次 sed 读文件走了 bash，bash 万金油习惯压过工具描述引导，上下文膨胀源未被削减。756 次 bash 中可迁移部分（文件搜索 grep 203 + sed 读 79 + find/ls 9）仅 38%，需在工具描述层推动实际迁移"
+  expected_effect: "新 session 中搜索/读文件/找文件场景的 grep/find/ls 工具调用占比上升，同类 bash 调用占比下降；Golden Gate 既有场景不回归；工具描述覆写零行为变化（execute/parameters 同引用）"
   verify_by:
     type: capability_test
-    reason: "prompt 层行为引导，以 golden 场景集（真 LLM 采样）验证不回归；迁移率为后续观察指标（daily-review 可查 session 工具分布）"
+    reason: "工具描述层行为引导，以 golden 场景集（真 LLM 采样）验证不回归 + 单测锁定覆写零行为变化；迁移率为后续观察指标"
 ---
 
 ## 背景
@@ -48,9 +48,11 @@ agent-session.js L158: _buildRuntime({ activeToolNames: this._initialActiveToolN
 | 文件 | 变更 |
 |------|------|
 | `src/frameworks/agent/session-helpers.ts` | `getCodingToolsForOtterType` 返回值 `["read","write","edit","bash"]` → `["read","write","edit","bash","grep","find","ls"]`，注释补 Why（#776 实证数据 + pi 激活机制） |
+| `src/frameworks/agent/tool-description-overrides.ts` | 新增：编码工具描述覆写（bash/read/grep/find/ls 追加使用引导，customTools 同名覆盖 builtin，零行为变化） |
+| `src/frameworks/agent/pi-session-factory.ts` | `_createSessionWithTools` 接线：非 readOnly 时把描述覆写拼进 customTools |
 | `tests/frameworks/agent/coding-tools.test.ts` | 4 个用例更新：+grep/find/ls 断言、toHaveLength(4)→(7) |
-| `prompts/identity/BIG_OTTER.md` | 新增「工具选择」节：搜索/读文件/找文件优先专用工具的 4 条规则 + Why（实证数据） |
-| `prompts/identity/SMALL_OTTER.md` | 同上（与编码工具段衔接） |
+| `tests/frameworks/agent/tool-description-overrides.test.ts` | 新增：覆写纯函数行为 6 用例（追加不替换/同引用零行为变化/白名单外不覆写） |
+| `prompts/identity/BIG_OTTER.md` / `SMALL_OTTER.md` | 第二轮引导节的净变更归零（第三轮修正：引导归位工具描述，身份层回到 main 基线） |
 
 ## 设计取舍
 
@@ -76,12 +78,21 @@ agent-session.js L158: _buildRuntime({ activeToolNames: this._initialActiveToolN
 
 引导设计：落点在身份层（BIG_OTTER.md / SMALL_OTTER.md 各加「工具选择」节）而非 SYSTEM.md——身份文件在每次新 session 注入、语义具体（选哪个工具干什么活），SYSTEM.md 是全局规则层且已 19.5KB（双轨 digest 阈值 15KB 已超，不适合再加）。
 
+### 第三轮修正：引导归位工具描述（14:16-14:25，搭档拍板，本节取代上段落点判断）
+
+搭档两连问推翻了上段论证：
+
+1. 「19.5KB 超阈值不能作为理由把提示词优化从系统提示词挪到大小獭提示词」——核实成立：SYSTEM.md 经 pi ResourceLoader（discoverSystemPromptFile，cwd/.pi/SYSTEM.md）进每个海獭的 system prompt，大小獭都收；阈值是「何时拆 digest」的运维指标，不是「内容往哪放」的架构依据。上段把运维参数当架构约束，是论证偷懒。
+2. 「倾向不写在任何系统提示词里——这是『工具如何被正确使用』，准确位置是工具自身的描述」——采纳。工具描述层引导的优势：①语义归位（选择引导属于工具用法知识）；②一处改全部生效（所有 otter 类型、所有 session、含未来新消费者）；③不占 SYSTEM.md/身份层任何 token 预算；④随工具 schema 一起被 LLM 自然读到，引导时机最贴近选择时刻。
+
+实现：`src/frameworks/agent/tool-description-overrides.ts`——pi SDK 各 create*ToolDefinition 组装 builtin 定义，spread 拷贝仅追加 description（bash 追加「专用工具优先 + bash 保留场景」引导，read/grep/find/ls 各追加「优先本工具而非 bash 等价命令」），经 customTools 传入 createAgentSession——pi 的 _refreshToolRegistry 中 customTools 后注册无条件覆盖同名 builtin（源码核实 L2123-2125），零行为变化（execute/parameters 同引用，测试锁定）。身份层引导节全部移除（回到 main 基线）。readOnly 模式不传覆写（合成路径 prompt 最小化）。
+
 ## 验证
 
 - 单测 9/9 通过（coding-tools.test.ts，4 用例更新为 7 工具断言）
 - `tests/frameworks/agent/` 全量 338 用例通过（readOnly 路径在此覆盖）
 - 全量 `npm test`：236 文件 / 2934 用例通过，lint（pretest 内置）零 error
-- Golden Gate（prompt 层变更必跑）：`vitest run --config vitest.capability.config.ts tests/capability/golden/golden.capability.test.ts` **4/4 通过**（2026-09-04 本地真 LLM：r4-summon-search-first 2/3≥2 达标、yield-handoff 3/3、talking-stone 3/3、seriousness manual review structuredSignal=true）。旁证：采样轨迹中已出现 grep/find 工具调用（引导生效的早期信号）
+- Golden Gate（工具描述层变更必跑）：`vitest run --config vitest.capability.config.ts tests/capability/golden/golden.capability.test.ts` **4/4 通过**（2026-09-04 14:51-15:05 本地真 LLM，工具描述覆写版：r4-summon-search-first 2/3≥2 达标、yield-handoff 3/3、talking-stone 3/3、seriousness manual review 信号 ok；results.jsonl 2026-09-04T06:43-07:05Z 8 条可审计）。首轮（身份层引导版）亦 4/4——两种引导载体都不破坏既有行为
 - **最简实现检查**：已过——仓库已有实现（pi 内置工具全量在 registry，只差白名单点名）；引导层用身份文件现成注入通道，零新代码；本变更共 4 文件 + 1 行逻辑 + 身份文案，无更简实现空间
 - **生效路径**：进程重启 → 所有 otter（big/small）invoke 时 session 按新白名单激活 grep/find/ls。旧 session（已有 activeToolNames 持久化）不受影响，新 session 生效
 - **观察指标**（后续 daily-review 可查）：messages 表 context_tokens 增速；session 文件中 bash 调用占比——预期搜索类 bash 调用迁移到 grep/find 工具，bash 总次数下降
