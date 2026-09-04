@@ -653,6 +653,8 @@ export class SqliteConversationRepository implements ConversationRepository {
   async getActiveParticipants(conversationId: string): Promise<ConversationParticipant[]> { return mixins.getActiveParticipants(this.db, conversationId); }
   async updateParticipantLeave(participantId: string, leftAtTurnId: string, leftAtTurnNumber: number, leftAt: string): Promise<void> { mixins.updateParticipantLeave(this.db, participantId, leftAtTurnId, leftAtTurnNumber, leftAt); }
   async updateLastReadSeq(conversationId: string, otterId: string, seq: number): Promise<void> { mixins.updateLastReadSeq(this.db, conversationId, otterId, seq); }
+  /** #775：seq 刻度存量回填（一次性，启动时调用） */
+  backfillLastReadSeq(): number { return mixins.backfillLastReadSeq(this.db); }
   async updateLastReadTurnNumber(conversationId: string, otterId: string, turnNumber: number): Promise<void> { mixins.updateLastReadTurnNumber(this.db, conversationId, otterId, turnNumber); }
   async updateLastActiveTurnNumber(conversationId: string, otterId: string, turnNumber: number): Promise<void> { mixins.updateLastActiveTurnNumber(this.db, conversationId, otterId, turnNumber); }
   async markParticipantLeft(conversationId: string, otterId: string): Promise<void> { mixins.markParticipantLeft(this.db, conversationId, otterId); }

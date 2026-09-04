@@ -165,6 +165,9 @@ export interface ConversationRepository {
     otterId: string,
     seq: number,
   ): void;
+  /** #775：seq 刻度存量回填（一次性，启动时调用）。实体方法：sqlite 实现专用，
+   *  未实现的仓储（测试桩）不需要——调用方用 `'backfillLastReadSeq' in repo` 防御。 */
+  backfillLastReadSeq?(): number;
   updateLastReadTurnNumber(
     conversationId: string,
     otterId: string,

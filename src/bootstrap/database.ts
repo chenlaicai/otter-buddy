@@ -116,6 +116,20 @@ export async function postInitDatabase(db: Database.Database, repos: Repositorie
     }
     const pendingCount = repos.dispatchAttempt.countPendingSignals();
     logger.info('[signal-ledger] 启动完成，当前 pending 计数', { pending: pendingCount });
+    // #775：seq 刻度存量回填（观察项①收尾前置）。守卫 = NULL 行计数（幂等：只更新 NULL 行，
+    // 全量覆盖后计数恒 0，重复启动零代价）；回填后 markBatchRead 停写旧列，读路径 NULL
+    // 回退保留（seq 列不会因停写回 NULL，回退分支只服务极端脏数据）。
+    try {
+      const nullRows = db.prepare(
+        "SELECT count(*) AS n FROM conversation_participants WHERE last_read_seq IS NULL"
+      ).get() as { n: number };
+      if (nullRows.n > 0 && repos.conversation.backfillLastReadSeq) {
+        const backfilled = repos.conversation.backfillLastReadSeq();
+        logger.info('[cursor-seq] 存量 participants last_read_seq 回填完成（观察项①收尾）', { backfilled });
+      }
+    } catch (e) {
+      logger.warn('[cursor-seq] seq 回填失败（不阻塞启动；读路径 NULL 回退仍在）', { error: e instanceof Error ? e.message : String(e) });
+    }
   } catch (e) {
     logger.warn('[signal-ledger] 启动任务失败（不影响启动）', { error: e instanceof Error ? e.message : String(e) });
   }

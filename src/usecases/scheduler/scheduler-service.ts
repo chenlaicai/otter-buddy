@@ -13,6 +13,8 @@ import type { Logger } from '@usecases/ports/logger';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
 import type { SchedulerMetricsPort } from './scheduler-metrics-port';
 import type { DispatchChainEngine } from '@usecases/conversation/dispatch-chain-engine';
+import type { SignalRouter } from '@usecases/conversation/signal-router';
+import { DirectChainGatedError } from '@usecases/conversation/signal-router';
 import type { FunctionRegistry } from '@usecases/paper-trading/function-registry';
 import { DomainError, isSessionLockConflictError } from '@entities/errors';
 import { readFileSync } from 'node:fs';
@@ -24,6 +26,13 @@ const ONCE_RETRY_DELAY_MS = 65_000; // 65 秒（避开 claimTask 60s 窗口）
 
 /** #640: 轮询间隔（30 秒）。quartz/celery beat 模式：定时扫描 active 任务，比对墙钟，迟到即补触发 */
 const POLL_INTERVAL_MS = 30_000;
+/** #775 执行级看门狗轮询：任务触发后按此间隔探测「台账在途尝试 + 产出活性」。
+ *  #516 静默窗是「无产出才判死」的容忍窗；换轨后信号可能被闸门冻结（用户停机/限流熔断），
+ *  静默窗判死会误杀「被闸门保留、等待恢复」的信号——判活优先看台账（in_progress 即活），
+ *  闸门冻结由信号保留语义兜住（恢复后补扫点燃），不靠 scheduler 轮询硬等。 */
+const LEDGER_WATCH_POLL_MS = 15_000;
+/** #775 执行级看门狗硬上限：与链路径 MAX_CHAIN_TIMEOUT_MS 同值。 */
+const LEDGER_WATCH_HARD_LIMIT_MS = 24 * 60 * 60 * 1000;
 
 /** #642: 429/rate_limit 类错误的最大重试次数。超过此次数仍 429 → 判死（配额耗尽不会自愈，续期无意义） */
 const MAX_429_RETRIES = 3;
@@ -56,7 +65,9 @@ export interface SchedulerServiceOptions {
   healingRepo?: HealingEventRepository;
   /** F20260902sgp2 S4b：派发台账（可选）——看门狗台账终态判活 */
   dispatchAttemptRepo?: DispatchAttemptRepo;
-  metrics?: SchedulerMetricsPort;
+  /** #775 S4a 换轨：信号路由器（可选注入）。注入后定时任务触发 = 投信号 → 路由器点火
+   *  （过闸门+台账记账）；未注入回退直连链（回滚面，与 sgpv 降级基线同语义）。 */
+  signalRouter?: SignalRouter;  metrics?: SchedulerMetricsPort;
   /** Why: 链外 invoke 路径不消费 aggregatedTargets 导致 yield 传递目标丢失（#332）。
    *  注入后 invokeAgentWithTimeout 走 DispatchChainEngine.executeChain 续跑发言链。 */
   dispatchChainEngine?: DispatchChainEngine;
@@ -83,6 +94,12 @@ export class SchedulerService {
   private readonly healingRepo?: HealingEventRepository;
   /** F20260902sgp2 S4b：派发台账——看门狗台账终态判活的数据源（可选，未注入回退消息判定） */
   private readonly dispatchAttemptRepo?: DispatchAttemptRepo;
+  /** #775 S4a 换轨：信号路由器（可选）——注入后触发走投信号路径 */
+  private signalRouter?: SignalRouter;
+  /** #775 S4a：装配顺序注入点（路由器晚于 scheduler 诞生，构造期互指会循环依赖） */
+  attachSignalRouter(router: SignalRouter): void {
+    this.signalRouter = router;
+  }
   private readonly metrics?: SchedulerMetricsPort;
   private readonly dispatchChainEngine?: DispatchChainEngine;
   private readonly now: () => number;
@@ -98,6 +115,7 @@ export class SchedulerService {
     this.logger = options.logger;
     this.healingRepo = options.healingRepo;
     this.dispatchAttemptRepo = options.dispatchAttemptRepo;
+    this.signalRouter = options.signalRouter;
     this.metrics = options.metrics;
     this.dispatchChainEngine = options.dispatchChainEngine;
     this.now = options.now ?? (() => performance.now());
@@ -158,6 +176,16 @@ export class SchedulerService {
 
   /** 启动调度器 */
   async start(): Promise<void> {
+    // #775：启动对账——僵尸 running 执行翻篇（进程内无存活 running 跨越重启）。
+    // 对账失败不阻塞启动（仅日志）：脏行只影响面板展示，不影响调度正确性。
+    try {
+      const stale = await this.taskRepo.failAllRunningExecutions();
+      if (stale > 0) {
+        this.logger.warn(`启动对账：${stale} 条僵尸 running 执行记录已翻篇为 failed`, { stale });
+      }
+    } catch (err) {
+      this.logger.warn('启动对账失败（不阻塞启动）', { error: err instanceof Error ? err.message : String(err) });
+    }
     const tasks = await this.getAllActiveTasks();
     if (this.metrics) {
       const counts: Record<string, number> = { cron: 0, once: 0 };
@@ -518,6 +546,14 @@ export class SchedulerService {
           await this.handleExecutionSkipped(executionId, error);
           throw error;
         }
+        // #775 S4a：调度闸门拦截（用户 halt / 限流熔断）——与锁冲突同类的「环境冲突
+        // 非任务失败」：execution 记 skipped、不 increment consecutiveFailures、不触发熔断；
+        // 信号已由路由器保留在台账，恢复窗口由补扫消化。Why 仍 rethrow：手动触发者需感知。
+        if (error instanceof DirectChainGatedError) {
+          status = 'skipped';
+          await this.handleExecutionSkipped(executionId, error);
+          throw error;
+        }
         await this.handleTaskExecutionFailure(executionId, task.id, error, options?.skipConsecutiveFailureTracking);
         throw error;
       }
@@ -598,6 +634,31 @@ export class SchedulerService {
   }
 
   private async invokeAgentWithTimeout(task: ScheduledTask, body?: string, anchorMessageId?: string): Promise<void> {
+    // #775 S4a 换轨（最优先分支）：注入路由器时投信号 → 路由器点火。
+    // - 闸门生效：用户停机/限流熔断期间信号保留（skipped_halted/skipped_rate_limited），
+    //   等用户显式恢复/窗口过后补扫点燃——不再绕过闸门（09-03 ihlt 同形态盲区封死）。
+    // - 记账即销账：路由器点火即写 attempt（in_progress），与全系统唯一账本对齐；
+    //   判据清零后本条 system 消息（带 tsp）本身就在路由器 pending 判据内，投信号后
+    //   补扫也能兜底——双跑被幂等记账+阻尼挡住（F20260903damp）。
+    // - 看门狗：#516 静默窗判死会误杀「被闸门冻结等待恢复」的信号，改为执行级
+    //   台账判活轮询（in_progress 即活），闸门冻结期不判死（闸门拦截在直投处抛
+    //   DirectChainGatedError 记 skipped，不会进入等待循环）。
+    // 回滚面：摘除 platforms.ts 的 signalRouter 注入即回直连链（降级基线不变）。
+    if (this.signalRouter) {
+      if (anchorMessageId && task.talkingStonePassedTo.length > 0) {
+        // #775 S4a：直投通道（原点独占点火权）。Why 不用 routePendingSignals：
+        // ① 整会话扫描会把任务锚点外的历史 pending 也点爁（触发面失控）；
+        // ② 闸门拦截时静默保留信号会让本方法空转轮询到硬上限（执行假死一天）——
+        //    直投被闸门拒时抛 DirectChainGatedError，调用方记 skipped（非 failed），
+        //    信号保留在台账，恢复后由补扫/下次触发消化。
+        // 补扫兜底：若路由器点火前进程崩溃，锚点消息无账，重启补扫按台账判据点燃（双跑被幂等记账+阻尼挡住）。
+        await this.signalRouter.routeDirectSignal(task.conversationId, anchorMessageId, task.talkingStonePassedTo[0]);
+        await this.watchExecutionByLedger(task, anchorMessageId);
+        return;
+      }
+      // 防御：无锚点/无目标（不应发生——createSystemMessage 必有 id，tsp 创建时必填）回退直连链路径
+      this.logger.warn('scheduler 换轨路径缺少锚点或目标，回退直连链', { taskId: task.id, anchorMessageId: anchorMessageId ?? 'none' });
+    }
     // Why: 有 dispatchChainEngine 时走链引擎消费 aggregatedTargets 续跑发言链（#332），
     // 否则降级为直接 invoke（兼容未注入的旧装配）。超时语义分路径：
     // - 链路径（#516）：静默容忍窗 + 硬上限。窗口内链无新消息才判死；有新消息即续期。
@@ -644,6 +705,24 @@ export class SchedulerService {
    *  - 无（含探测失败）→ 判死，抛 Agent invocation timeout
    *  总时长恒受 MAX_CHAIN_TIMEOUT_MS 硬上限约束，防真死循环占住调度器。
    *  Why 含探测失败判死：链消息流不可读（DB 故障等）时链产出无从验证，继续等待只会永远占位。 */
+  /** #775 S4a：执行级台账判活看门狗（换轨路径专用）。
+   *  与 watchChainWithActivity（静默窗判死）的本质区别：链路径握着 chainPromise 能等 settle；
+   *  换轨后点火是路由器 fire-and-forget，无法握 promise——判活只能靠持久台账：
+   *  - 锚点 attempt 全部到终态 → 执行收工（allAnchorAttemptsSettled，S4b 复用）
+   *  - 有 in_progress 在途 → 活着，续期（#516 教训：静默 ≠ 死亡）
+   *  - 无任何行（信号被闸门冻结或待点火）→ 保守等下一轮，硬上限兕底
+   *  阻尼/补扫保证最坏情况下信号最终被消化；硬上限防真死循环占住调度器。 */
+  private async watchExecutionByLedger(task: ScheduledTask, anchorMessageId: string): Promise<void> {
+    const deadline = this.now() + LEDGER_WATCH_HARD_LIMIT_MS;
+    while (this.now() < deadline) {
+      await new Promise(r => setTimeout(r, LEDGER_WATCH_POLL_MS));
+      const settled = this.dispatchAttemptRepo?.allAnchorAttemptsSettled(anchorMessageId);
+      if (settled === true) return;
+      // false（在途）或 undefined（repo 未注入/查询失败）：保守续期
+    }
+    throw new Error(`Agent invocation timeout (ledger watch exceeded hard limit ${LEDGER_WATCH_HARD_LIMIT_MS / 3_600_000}h)`);
+  }
+
   private async watchChainWithActivity(
     task: ScheduledTask,
     anchorMessageId: string | undefined,

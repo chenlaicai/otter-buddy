@@ -8,6 +8,8 @@ import type { SettingsRepository } from '@usecases/settings/settings-repository'
 import type { QueryMessage } from '@usecases/conversation/query-message';
 import type { SendMessage } from '@usecases/conversation/send-message';
 import type { DispatchChainEngine, InvokeFn } from '@usecases/conversation/dispatch-chain-engine';
+import type { SignalRouter } from '@usecases/conversation/signal-router';
+import { DirectChainGatedError } from '@usecases/conversation/signal-router';
 import type { AgentTurnPort } from '@usecases/ports/agent-turn-port';
 import type { Logger } from '@usecases/ports/logger';
 
@@ -61,7 +63,7 @@ export interface ProcessResult {
  * 最近消息，inbound 是系统消息，复用走不通）。
  */
 export class ProcessInboundRecruit {
-  // eslint-disable-next-line max-params -- 7 个 DI 依赖均为必需
+  // eslint-disable-next-line max-params -- 7+1 个 DI 依赖均为必需
   constructor(
     private readonly settings: SettingsRepository,
     private readonly queryMessage: QueryMessage,
@@ -69,6 +71,8 @@ export class ProcessInboundRecruit {
     private readonly dispatchChainEngine: DispatchChainEngine,
     private readonly agentInvokePort: AgentTurnPort,
     private readonly logger: Logger,
+    /** #775 S4a：信号路由器（可选注入）——注入后触发过闸门+台账，未注入回退直连链 */
+    private readonly signalRouter?: SignalRouter,
   ) {}
 
   async execute(payload: InboundPayload): Promise<ProcessResult> {
@@ -219,13 +223,33 @@ export class ProcessInboundRecruit {
     return { accepted, deduplicated: 0 };
   }
 
-  /** bypass AgentDispatchService 直接调 executeChain，invokeFn 内部构造 */
+  /**
+   * #775 S4a 真换轨：触发大獭处理。注入路由器时走直投通道（闸门+台账+busy 语义，
+   * 与 scheduler 同款）——桥接消息不再绕过调度纪律；闸门拦截（用户停机/限流熔断）
+   * 时信号已由 sendMessage 落库，恢复后补扫点燃，此处仅记 warn 不重试。
+   * 未注入时回退直连链（回滚面与装配开关对齐）。
+   */
   private async triggerDispatch(
     conversationId: string,
     bigOtterId: string,
     userMessageContent: string,
     triggerMessageId: string,
   ): Promise<void> {
+    if (this.signalRouter) {
+      try {
+        await this.signalRouter.routeDirectSignal(conversationId, triggerMessageId, bigOtterId);
+        return;
+      } catch (err) {
+        if (err instanceof DirectChainGatedError) {
+          // 信号保留在台账（消息已带 tsp），恢复窗口由补扫消化——非失败，不重试
+          this.logger.warn('inbound recruit: dispatch gated by scheduler gate, signal retained', {
+            conversationId, messageId: triggerMessageId, gate: err.gate,
+          });
+          return;
+        }
+        throw err;
+      }
+    }
     const invokeFn: InvokeFn = async ({ otterId, conversationId, userMessageContent, senderId }) =>
       this.agentInvokePort.invokeConversation({
         otterId,
