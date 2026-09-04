@@ -28,8 +28,8 @@ sdk.js L144: const initialActiveToolNames = (options.tools ?? (...)).filter(...)
              // 显式传 options.tools → 覆盖默认白名单
 agent-session.js L2175-2210: _buildRuntime → createAllToolDefinitions(cwd, ...)
              // 8 个工具（read/bash/powershell/edit/write/grep/find/ls）全部创建进 registry
-agent-session.js L159: _refreshToolRegistry({ activeToolNames: this._initialActiveToolNames })
-             // 按 activeToolNames 从 registry 激活
+agent-session.js L158: _buildRuntime({ activeToolNames: this._initialActiveToolNames, ... })
+             // _refreshToolRegistry（L2098 定义）在 _buildRuntime 内部（L2205）按名激活
 ```
 
 结论：pi 工具 registry 是「全量创建、按名激活」架构，白名单加入 `grep/find/ls` 即生效，**pi SDK 侧零改动**。
