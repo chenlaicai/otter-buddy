@@ -85,6 +85,47 @@ async function seedInterrupted(
   return msgId;
 }
 
+
+/** 多会话版中断现场播种（F1 并行测试用） */
+async function seedInterruptedIn(db: Database.Database, repo: SqliteConversationRepository, conversationId: string): Promise<string> {
+  const msgId = crypto.randomUUID();
+  // conv-1 的 turn 由 seedStandardConversation 命名为 turn-1；新会话为 turn-<convId>
+  const turnId = conversationId === "conv-1" ? "turn-1" : `turn-${conversationId}`;
+  db.prepare(`
+    INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, talking_stone_passed_to, sender_name, created_at, completed_at)
+    VALUES (?, ?, 'otter', 'otter-big', 'failed', 1, ?, NULL, '中断獭', '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z')
+  `).run(msgId, conversationId, turnId);
+  db.prepare(`
+    INSERT INTO restart_pending_resumes (message_id, conversation_id, otter_id, attempts, status, created_at)
+    VALUES (?, ?, 'otter-big', 1, 'pending', '2026-01-01T00:00:02Z')
+  `).run(msgId, conversationId);
+  return msgId;
+}
+
+/** 标准测试会话装配：conv-1 + turn-1 + 原始用户消息（senderId 反查锚）——beforeEach 瘦身提取 */
+async function seedStandardConversation(db: Database.Database, repo: SqliteConversationRepository): Promise<void> {
+  const conv: Conversation = {
+    id: "conv-1", title: "测试对话", status: "active", summary: null, pinned: false, workspaceDir: null,
+    createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+    completedAt: null, archivedAt: null,
+  };
+  await repo.create(conv);
+  const turn: Turn = {
+    id: "turn-1", conversationId: "conv-1", turnNumber: 1, status: "open",
+    createdAt: "2026-01-01T00:00:00Z", closedAt: null,
+  };
+  await repo.createTurn(turn);
+  db.prepare(`
+    INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, talking_stone_passed_to, sender_name, created_at, completed_at)
+    VALUES (?, 'conv-1', 'user', 'chen', 'completed', 0, 'turn-1', '["otter-big"]', '搭档', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+  `).run(crypto.randomUUID());
+}
+
+/** 台账 stub 工厂：F202609048840 F4 判据注入用 */
+function stubLedger(getAttemptImpl: () => { status: string; note: string | null } | null): { getAttempt: (messageId: string, targetOtterId: string) => { status: string; note: string | null } | null } {
+  return { getAttempt: getAttemptImpl };
+}
+
 describe("ResumeInterruptedService（F20260826rsme）", () => {
   let db: Database.Database;
   let repo: SqliteConversationRepository;
@@ -95,24 +136,7 @@ describe("ResumeInterruptedService（F20260826rsme）", () => {
     db = createTestDb();
     repo = new SqliteConversationRepository(db);
     otterRepo = new SqliteOtterRepository(db);
-
-    const conv: Conversation = {
-      id: "conv-1", title: "测试对话", status: "active", summary: null, pinned: false, workspaceDir: null,
-      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
-      completedAt: null, archivedAt: null,
-    };
-    await repo.create(conv);
-    const turn: Turn = {
-      id: "turn-1", conversationId: "conv-1", turnNumber: 1, status: "open",
-      createdAt: "2026-01-01T00:00:00Z", closedAt: null,
-    };
-    await repo.createTurn(turn);
-    // 原始用户消息（senderId 反查锚）
-    db.prepare(`
-      INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, talking_stone_passed_to, sender_name, created_at, completed_at)
-      VALUES (?, 'conv-1', 'user', 'chen', 'completed', 0, 'turn-1', '["otter-big"]', '搭档', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
-    `).run(crypto.randomUUID());
-
+    await seedStandardConversation(db, repo);
     sm = new SendMessage(repo, otterRepo, stubMemoryIndex(), createTestLogger());
   });
 
@@ -194,7 +218,7 @@ describe("ResumeInterruptedService（F20260826rsme）", () => {
     expect(rows[0]?.status).toBe("exhausted");
   });
 
-  it("链引擎抛错：exhausted + 失败提示，用户可手动重试", async () => {
+  it("链引擎抛错：failed + 失败提示，用户可手动重试", async () => {
     await otterRepo.createOtter(otterFixture("otter-big"));
     await repo.createParticipant(participantFixture("otter-big"));
     const msgId = await seedInterrupted(db, repo, { withSegments: "半截" });
@@ -203,9 +227,11 @@ describe("ResumeInterruptedService（F20260826rsme）", () => {
     await buildService(chain).resume();
 
     const rows = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").all(msgId) as Array<{ status: string }>;
-    expect(rows[0]?.status).toBe("exhausted");
+    // F202609048840 F4: 现在链引擎抛错标记为 failed（可手动重试），而不是 exhausted
+    expect(rows[0]?.status).toBe("failed");
     const sysMsgs = await new QueryMessage(repo).getMessages("conv-1", { senderType: "system", limit: 5 });
-    expect(sysMsgs.some(m => m.segments.some(seg => seg.body.includes("自动恢复失败")))).toBe(true);
+    // F202609048840 F4: 更新断言以匹配新的消息
+    expect(sysMsgs.some(m => m.segments.some(seg => seg.body.includes("恢复过程中 invoke 失败")))).toBe(true);
     // 失败路径同样保留半截内容（prepareForRetry preserveSegments 已执行），与基础恢复用例对称
     const stored = await repo.getMessageById(msgId);
     expect(stored?.segments.some(seg => seg.body === "半截")).toBe(true);
@@ -219,6 +245,7 @@ describe("ResumeInterruptedService（F20260826rsme）", () => {
     const sysMsgs = await new QueryMessage(repo).getMessages("conv-1", { senderType: "system", limit: 5 });
     expect(sysMsgs).toHaveLength(0);
   });
+
 
   // F20260830rfto: 多 conversation 容错测试
   it("多 conversation 一个失败不阻塞其余：第一个链引擎抛错，第二个正常恢复", async () => {
@@ -263,9 +290,9 @@ describe("ResumeInterruptedService（F20260826rsme）", () => {
 
     await buildService(chain as unknown as DispatchChainEngine & { calls: unknown[] }).resume();
 
-    // conv-1: exhausted
+    // conv-1: failed（F202609048840 F4：链抛错标 failed 可手动重试，不再 exhausted）
     const rows1 = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").all(msgId1) as Array<{ status: string }>;
-    expect(rows1[0]?.status).toBe("exhausted");
+    expect(rows1[0]?.status).toBe("failed");
 
     // conv-2: done（未被 conv-1 的失败阻塞）
     const rows2 = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").all(msgId2) as Array<{ status: string }>;
@@ -328,9 +355,10 @@ describe("ResumeInterruptedService（F20260826rsme）", () => {
     // 半截内容保留（fail 不动 segments）
     expect(stored?.segments.some(seg => seg.body === "半截")).toBe(true);
 
-    // 去向说明落在旧消息终态 body 上（fail 会写入）；done 路径不再发流内系统消息
-    // （建议发现1处置：旧消息 body 已可点击查看且紧邻新发言本体，系统消息纯冗余）
-    expect(stored?.segments.some(seg => seg.body.includes("恢复已完成"))).toBe(true);
+    // F202609048840 F3: 由于旧消息不再复位为 streaming，而是保持 failed 状态，
+    // canFailMessage 返回 false，因此不会调用 sendMessage.fail，不会写入 "恢复已完成" 的消息
+    // 这是预期的行为：旧消息保持 failed 状态，恢复链写新消息
+    expect(stored?.segments.some(seg => seg.body.includes("恢复已完成"))).toBe(false);
     const sysMsgs = await new QueryMessage(repo).getMessages("conv-1", { senderType: "system", limit: 10 });
     expect(sysMsgs.some(m => m.segments.some(seg => seg.body.includes("恢复已完成")))).toBe(false);
 
@@ -366,11 +394,14 @@ describe("ResumeInterruptedService（F20260826rsme）", () => {
 
     await service.resume();
 
-    // 429 被传播到重试层：executeChain 被调用多次（初始1次 + 最多3次重试）
-    expect(chain.executeChain).toHaveBeenCalled();
-    // 全部重试失败 → exhausted
+    // 429 重试路径真实可达的状态断言（检视发现 1 处置；调用次数断言被 no-restricted-syntax 禁）：
+    // 重试耗尽的 429 走「可重试错误终态」= 队列 failed + 失败文案（resumeItemSafe 可重试分支）；
+    // 旧 bug 形态（内层吞 429 零重试）在旧代码语义下标 exhausted——failed 断言即区分两者
+    // 全部重试失败 → failed（F202609048840 F4：重试耗尽的链错误标 failed 可手动重试，不再 exhausted）
     const rows = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").all(msgId) as Array<{ status: string }>;
-    expect(rows[0]?.status).toBe("exhausted");
+    expect(rows[0]?.status).toBe("failed");
+    const sysMsgs = await new QueryMessage(repo).getMessages("conv-1", { senderType: "system", limit: 8 });
+    expect(sysMsgs.some(m => m.segments.some(seg => seg.body.includes("恢复过程中 invoke 失败")))).toBe(true);
   });
 
   it("#599 终态守卫：消息已被处理到终态时守卫不覆盖（no-clobber）", async () => {
@@ -700,7 +731,66 @@ describe("#613 方案 B：healing 台账落账", () => {
     const rows = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").all(msgId) as Array<{ status: string }>;
     expect(rows[0]?.status).toBe("done");
   });
+
+  // ── F202609048840 F4：done 语义判据（台账真相源）专项 ──
+  describe("F202609048840 F4 done 语义判据", () => {
+  // F202609048840 F4：现场实证场景——链引擎对 invoke 拒绝是 allSettled 吞错语义，
+  // executeChain 正常返回但台账 settle=failed（2026-09-04 17:58 实景：恢复 invoke 秒败，
+  // 旧判据漏判 → done 说谎）。台账判据必须在此场景标 failed。
+  it("链吞错返回但台账 settle=failed：标 failed 不说谎，用户可手动重试", async () => {
+    await otterRepo.createOtter(otterFixture("otter-big"));
+    await repo.createParticipant(participantFixture("otter-big"));
+    const msgId = await seedInterrupted(db, repo, { withSegments: "半截" });
+    const chain = stubChainEngine(); // executeChain 正常返回（不抛）
+    // note 用非网络类：网络类已升级为可重试（F2 真实落点），本用例锁"不可重试 failed 标 failed"
+    const ledger = stubLedger(() => ({ status: "failed", note: "invoke aborted by guard" }));
+
+    const service = new ResumeInterruptedService({
+      conversationRepo: repo,
+      queryMessage: new QueryMessage(repo),
+      sendMessage: sm,
+      dispatchChainEngine: chain,
+      invokeFn: async () => ({ messageId: "invoked-msg" }),
+      dispatchAttemptRepo: ledger,
+      logger: createTestLogger(),
+      delayMs: 0,
+    });
+
+    await service.resume();
+
+    const rows = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").all(msgId) as Array<{ status: string }>;
+    expect(rows[0]?.status).toBe("failed"); // 不再 done 说谎
+    const sysMsgs = await new QueryMessage(repo).getMessages("conv-1", { senderType: "system", limit: 5 });
+    expect(sysMsgs.some(m => m.segments.some(seg => seg.body.includes("恢复过程中 invoke 失败")))).toBe(true);
+  });
+
+  it("台账判据保守降级：无台账行（记账链路异常）时链正常返回仍标 done", async () => {
+    await otterRepo.createOtter(otterFixture("otter-big"));
+    await repo.createParticipant(participantFixture("otter-big"));
+    const msgId = await seedInterrupted(db, repo, { withSegments: "半截" });
+    const chain = stubChainEngine();
+    const ledger = stubLedger(() => null); // 无行：保守判成功
+
+    const service = new ResumeInterruptedService({
+      conversationRepo: repo,
+      queryMessage: new QueryMessage(repo),
+      sendMessage: sm,
+      dispatchChainEngine: chain,
+      invokeFn: async () => ({ messageId: "invoked-msg" }),
+      dispatchAttemptRepo: ledger,
+      logger: createTestLogger(),
+      delayMs: 0,
+    });
+
+    await service.resume();
+
+    const rows = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").all(msgId) as Array<{ status: string }>;
+    expect(rows[0]?.status).toBe("done"); // 观测缺失不误判
+  });
+  });
 });
+
+
 
 /** 为非默认 conversation seed 中断记录（seedInterrupted 硬编码 conv-1） */
 function seedInterruptedConv(
@@ -725,3 +815,151 @@ function seedInterruptedConv(
   `).run(msgId, conversationId, otterId);
   return msgId;
 }
+
+// ── F202609048840 检视发现 3 处置：F1/F2/F5 补测（原文档声明与实际不符） ──
+describe("F202609048840 恢复修复专项（F1/F2/F5）", () => {
+  let db: Database.Database;
+  let repo: SqliteConversationRepository;
+  let otterRepo: SqliteOtterRepository;
+  let sm: SendMessage;
+
+  beforeEach(async () => {
+    db = createTestDb();
+    repo = new SqliteConversationRepository(db);
+    otterRepo = new SqliteOtterRepository(db);
+    await seedStandardConversation(db, repo);
+    sm = new SendMessage(repo, otterRepo, stubMemoryIndex(), createTestLogger());
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  // ── F202609048840 检视发现 3 处置：F1/F2/F5 补测（原文档声明与实际不符） ──
+  describe("F202609048840 F1 跨会话并行", () => {
+    it("三会话并行恢复：互不阻塞（前两会话链挂起时第三会话已完成）", async () => {
+      const order: string[] = [];
+      const release = new Map<string, () => void>();
+      const convs = ["conv-1", "conv-2", "conv-3"];
+      await otterRepo.createOtter(otterFixture("otter-big")); // 三个会话共用同一只獭
+      for (const convId of convs) {
+        if (convId !== "conv-1") {
+          await repo.create({ id: convId, title: `对话${convId}`, status: "active", summary: null, pinned: false, workspaceDir: null, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", completedAt: null, archivedAt: null });
+          await repo.createTurn({ id: `turn-${convId}`, conversationId: convId, turnNumber: 1, status: "open", createdAt: "2026-01-01T00:00:00Z", closedAt: null });
+        }
+        // conv-1 的会话/turn 由 beforeEach 的 seedStandardConversation 提供
+        await repo.createParticipant(participantFixture("otter-big", { conversationId: convId, id: `p-${convId}-otter-big` }));
+      }
+      const msgIds: string[] = [];
+      for (const convId of convs) {
+        msgIds.push(await seedInterruptedIn(db, repo, convId));
+      }
+      // conv-1/conv-2 链挂起（等 release），conv-3 立即完成
+      const chain = {
+        executeChain: vi.fn(async (params: { conversationId: string }) => {
+          order.push(`start:${params.conversationId}`);
+          if (params.conversationId === "conv-3") {
+            order.push("done:conv-3");
+            return {};
+          }
+          await new Promise<void>(resolve => release.set(params.conversationId, resolve));
+          order.push(`done:${params.conversationId}`);
+          return {};
+        }),
+      } as unknown as DispatchChainEngine;
+      const service = new ResumeInterruptedService({
+        conversationRepo: repo, queryMessage: new QueryMessage(repo), sendMessage: sm,
+        dispatchChainEngine: chain, invokeFn: async () => ({ messageId: "m" }),
+        logger: createTestLogger(), delayMs: 0,
+      });
+      const resumePromise = service.resume();
+      await new Promise(r => setTimeout(r, 50));
+      // conv-1/conv-2 挂起中，conv-3 已完成——串行实现下 conv-3 永远到不了（排第三）
+      expect(order).toContain("done:conv-3");
+      const row3 = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").get(msgIds[2]) as { status: string };
+      expect(row3.status).toBe("done");
+      release.get("conv-1")!();
+      release.get("conv-2")!();
+      await resumePromise;
+      expect(order.filter(x => x.startsWith("done:"))).toHaveLength(3);
+    });
+  });
+
+  describe("F202609048840 F2 网络类重试（真实落点：台账 note）", () => {
+    it("链吞错返回 + 台账 note=Connection error：触发 3 次退避重试后标 failed", async () => {
+      await otterRepo.createOtter(otterFixture("otter-big"));
+      await repo.createParticipant(participantFixture("otter-big"));
+      const msgId = await seedInterrupted(db, repo, { withSegments: "半截" });
+      const chain = stubChainEngine(); // 正常返回（吞错语义）
+      let calls = 0;
+      const ledger = {
+        getAttempt: () => {
+          calls++;
+          return { status: "failed", note: "Connection error: fetch failed" };
+        },
+      };
+      const service = new ResumeInterruptedService({
+        conversationRepo: repo, queryMessage: new QueryMessage(repo), sendMessage: sm,
+        dispatchChainEngine: chain, invokeFn: async () => ({ messageId: "m" }),
+        dispatchAttemptRepo: ledger as never,
+        logger: createTestLogger(), delayMs: 0, rateLimitBaseDelayMs: 1,
+      });
+      await service.resume();
+      // 判定 4 次 = 初始 1 + 重试 3（重试层真实可达性锁定——检视发现 1 修复的验收）
+      expect(calls).toBe(4);
+      const row = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").get(msgId) as { status: string };
+      expect(row.status).toBe("failed");
+    });
+
+    it("台账 note 非网络类（如内部错误）：不重试快速终态", async () => {
+      await otterRepo.createOtter(otterFixture("otter-big"));
+      await repo.createParticipant(participantFixture("otter-big"));
+      const msgId = await seedInterrupted(db, repo);
+      const chain = stubChainEngine();
+      let calls = 0;
+      const ledger = {
+        getAttempt: () => {
+          calls++;
+          return { status: "failed", note: "some internal logic error" };
+        },
+      };
+      const service = new ResumeInterruptedService({
+        conversationRepo: repo, queryMessage: new QueryMessage(repo), sendMessage: sm,
+        dispatchChainEngine: chain, invokeFn: async () => ({ messageId: "m" }),
+        dispatchAttemptRepo: ledger as never,
+        logger: createTestLogger(), delayMs: 0, rateLimitBaseDelayMs: 1,
+      });
+      await service.resume();
+      expect(calls).toBe(1); // 零重试
+      const row = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").get(msgId) as { status: string };
+      expect(row.status).toBe("failed");
+    });
+  });
+
+  describe("F202609048840 F5 时间戳", () => {
+    it("队列 updated_at 为完成时刻而非 resumeOne 开跑快照（检视发现 7：真实时钟锚定，旧实现必挂）", async () => {
+      await otterRepo.createOtter(otterFixture("otter-big"));
+      await repo.createParticipant(participantFixture("otter-big"));
+      const msgId = await seedInterrupted(db, repo);
+      // 链内注入 1.1s 延迟：开跑时刻与完成时刻拉开可分辨间隔（种子时间硬编码 2026-01-01
+      // 不可作锚——真实时钟下恒真，检视发现 7）
+      const chain = {
+        executeChain: vi.fn(async () => {
+          await new Promise(r => setTimeout(r, 1100));
+          return {};
+        }),
+      } as unknown as DispatchChainEngine;
+      const svc = new ResumeInterruptedService({
+        conversationRepo: repo, queryMessage: new QueryMessage(repo), sendMessage: sm,
+        dispatchChainEngine: chain, invokeFn: async () => ({ messageId: "m" }),
+        logger: createTestLogger(), delayMs: 0,
+      });
+      const beforeResume = Date.now(); // 真实时钟锚：resumeOne 开跑前的时刻
+      await svc.resume();
+      const row = db.prepare("SELECT updated_at FROM restart_pending_resumes WHERE message_id = ?").get(msgId) as { updated_at: string };
+      // 旧实现（快照语义）写入的是 beforeResume 附近的时刻，必然 < beforeResume + 1100ms − 容差；
+      // 新实现（完成时刻）必然 ≥ beforeResume + 1100ms − 容差（容差吸收调度抖动）
+      expect(Date.parse(row.updated_at)).toBeGreaterThanOrEqual(beforeResume + 1000);
+    });
+  });
+});
