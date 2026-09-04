@@ -89,7 +89,12 @@ function executeStockCli(
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   const scriptPath = resolve(repoRoot, STOCK_CLI_REL);
   const pythonPath = resolvePython(repoRoot);
-  const fullArgs = [scriptPath, command, ...args];
+  // Why: --no-cache 是顶层参数，必须拼在子命令之前，
+  // 否则 argparse 报 unrecognized arguments（F20260904pptq 实证：no_cache=true 报错）。
+  // buildCliArgs 只产生无值型顶层参数 --no-cache，安全过滤
+  const globalArgs = args.filter(a => a === "--no-cache");
+  const subArgs = args.filter(a => a !== "--no-cache");
+  const fullArgs = [scriptPath, ...globalArgs, command, ...subArgs];
 
   return new Promise((res) => {
     const proc = spawn(pythonPath, fullArgs, {
@@ -144,7 +149,6 @@ function buildCliArgs(command: string, params: Record<string, unknown>): string[
   if (params.no_cache) args.push("--no-cache");
   return args;
 }
-
 /** 处理执行结果，返回 ToolResponse */
 function processResult(result: { stdout: string; stderr: string; exitCode: number | null }) {
   if (result.exitCode === -1 && result.stderr.includes("spawn")) {

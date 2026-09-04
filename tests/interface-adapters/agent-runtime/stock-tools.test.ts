@@ -139,7 +139,7 @@ describe("stock_data tool", () => {
     expect(spawnArgs[1]).not.toContain("600519");
   });
 
-  it("no_cache 参数透传", async () => {
+  it("no_cache 参数透传（顶层位置，子命令之前）", async () => {
     const tool = createStockDataTool(createMockCtx());
 
     let spawnCalls = 0;
@@ -151,8 +151,16 @@ describe("stock_data tool", () => {
 
     await tool.execute("id", { command: "selftest", no_cache: true });
 
+    // F20260904pptq：--no-cache 是 argparse 顶层参数，必须出现在子命令之前，
+    // 否则 CLI 报 unrecognized arguments（旧 bug：拼在子命令后导致 no_cache=true 必报错）
     const spawnArgs = mockSpawn.mock.calls[1];
-    expect(spawnArgs[1]).toContain("--no-cache");
+    const cliArgs = spawnArgs[1] as string[];
+    expect(cliArgs).toContain("--no-cache");
+    const selftestIdx = cliArgs.indexOf("selftest");
+    const noCacheIdx = cliArgs.indexOf("--no-cache");
+    expect(selftestIdx).toBeGreaterThan(-1);
+    expect(noCacheIdx).toBeGreaterThan(-1);
+    expect(noCacheIdx).toBeLessThan(selftestIdx);
   });
 
   it("spawn 失败返回错误", async () => {
