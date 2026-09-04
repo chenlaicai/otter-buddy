@@ -19,7 +19,7 @@
  */
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -31,11 +31,12 @@ const repoRoot = join(__dirname, '..');
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const parsed = { dryRun: false, name: null };
+  const parsed = { dryRun: false, name: null, tplDir: null };
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--dry-run') parsed.dryRun = true;
     else if (args[i] === '--name') parsed.name = args[++i];
     else if (args[i] === '--db') parsed.dbPath = args[++i];
+    else if (args[i] === '--tpl-dir') parsed.tplDir = args[++i]; // 测试注入用（#430），生产默认仓内 prompts/scheduled
   }
   if (!parsed.name) {
     console.error('用法: node scripts/update-scheduled-task-body.mjs --name <任务名> [--dry-run]');
@@ -48,8 +49,9 @@ function kebab(name) {
   return name.replace(/\s+/g, '-').toLowerCase();
 }
 
-function loadTemplate(taskName) {
-  const dir = join(repoRoot, 'prompts', 'scheduled');
+/** 从模板名找对应文件：direct path（kebab 名）优先，退回 frontmatter task_name 扫描。
+ *  dir 可注入（测试用），默认仓库 prompts/scheduled/。#430 */
+export function loadTemplate(taskName, dir = join(repoRoot, 'prompts', 'scheduled')) {
   const direct = join(dir, `${kebab(taskName)}.md`);
   if (existsSync(direct)) {
     const content = readFileSync(direct, 'utf8');
@@ -80,14 +82,16 @@ function loadTemplate(taskName) {
 }
 
 /** dynamic 模板含运行时占位符（如 {{HEALING_DATA}}），DB 里的 body 由调度器动态生成，
- *  静态同步会破坏占位符形态（issue #416）。接受已读文件内容，避免重复 IO。 */
-function isDynamicTemplate(fileContent) {
+ *  静态同步会破坏占位符形态（issue #416）。接受已读文件内容，避免重复 IO。
+ *  值形态兼容：裸 true（含 YAML 规范的 True/TRUE 大写变体，检视#797 发现 2）/ 带引号 "true" / 行尾注释
+ *  （#430 测试锁定，保守侧：宁可误判 dynamic 跳过，不覆盖 DB）。 */
+export function isDynamicTemplate(fileContent) {
   const m = fileContent.match(/^---\n([\s\S]*?)\n---\n/);
-  return m ? /^dynamic:\s*true\s*$/m.test(m[1]) : false;
+  return m ? /^dynamic:\s*['"]?(?:true|True|TRUE)['"]?\s*(?:#.*)?$/m.test(m[1]) : false;
 }
 
 function main() {
-  const { name, dryRun, dbPath: explicitDb } = parseArgs();
+  const { name, dryRun, dbPath: explicitDb, tplDir: explicitTplDir } = parseArgs();
   const dbPath = explicitDb || join(repoRoot, 'data', 'otter-buddy.db');
 
   if (!existsSync(dbPath)) {
@@ -95,9 +99,9 @@ function main() {
     return;
   }
 
-  // 模板永远从脚本所在仓（worktree）读，确保与 PR 内容一致
+  // 模板永远从脚本所在仓（worktree）读，确保与 PR 内容一致；--tpl-dir 供测试注入（#430）
 
-  const tpl = loadTemplate(name);
+  const tpl = loadTemplate(name, explicitTplDir ?? join(repoRoot, 'prompts', 'scheduled'));
   if (!tpl) {
     console.error(`[update-task] 未找到任务「${name}」的模板（prompts/scheduled/ 下无匹配文件）`);
     process.exit(1);
@@ -133,4 +137,7 @@ function main() {
   console.log(`[update-task] 任务「${name}」(${task.id}) body 已更新 ← ${tpl.path}`);
 }
 
-main();
+// 直接执行（非 import）时才跑 main——支持测试 import 函数级用例（#430）
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}
