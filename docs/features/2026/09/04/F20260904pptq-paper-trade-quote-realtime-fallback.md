@@ -79,6 +79,17 @@ argparse 只认顶层位置 → no_cache=true 必报 `unrecognized arguments`（
 - stock_data 工具 no_cache 参数从必报错恢复可用
 - 东财恢复正常后 kline 命中主路径，兜底链零开销（不会多打 quote 接口）
 
+## 审视处置
+
+对抗审视（检视獭-799，mimo，异模型）：0 严重 / 4 建议。
+
+| 发现 | 处置 | 结果 |
+|------|------|------|
+| 1. executeQuote 丢弃 high/low，兑底 DailyQuote 退化 high=low=price | 本 PR 修复 | commit de11fe0a：extractor 保留字段，getQuotes 用真实日内高低，测试补断言 |
+| 2. 新浪字段索引 magic number | 建 issue #800 | 后续优化 |
+| 3. executeCliJson 丢 stderr 收集 | 建 issue #801 | 后续优化 |
+| 4. quote 是否暴露到 stock_data 工具 | 建 issue #802 | 待设计决策 |
+
 ## 遗留
 
 - 东财域名拒连根因（IP 风控 or 代理出口指纹）仍未定位——本修复绕开而非解决；建议观察 selftest 何时转绿
