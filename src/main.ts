@@ -1,9 +1,10 @@
 /**
  * 生产入口（薄 shim）。全部装配逻辑在 ./app.ts 的 buildApp()。
- * 本文件只做：创建 logger → buildApp → listen → SIGINT 清理。
+ * 本文件只做：创建 logger → buildApp → listen → SIGINT/SIGTERM 清理。
  */
 import { buildApp, createLogger } from "./app";
 import { listen } from "./bootstrap/server";
+import { disposeWithTimeout } from "./bootstrap/shutdown";
 
 async function main(): Promise<void> {
   const logger = createLogger("./data/logs");
@@ -12,12 +13,16 @@ async function main(): Promise<void> {
 
   // ── 进程级安全网：最后一道防线，防止未处理异常/rejection 导致进程裸死 ──
 
+  /** #460：dispose 超时兜底（5s，超时强退，防僵尸进程根因之一）。实现见 bootstrap/shutdown.ts */
+  const DISPOSE_TIMEOUT_MS = 5_000;
+  const forceExit = process.exit.bind(process);
+
   /** 优雅关闭：SIGINT / SIGTERM 统一走 dispose → exit。
    *  async 以确保 metric flush 等 async 清理在 process.exit 前完成。 */
   const gracefulShutdown = async (signal: string) => {
     logger.info(`Received ${signal}, shutting down gracefully…`);
     try {
-      await built.dispose();
+      await disposeWithTimeout(() => built.dispose(), DISPOSE_TIMEOUT_MS, forceExit, 1);
     } catch (err) {
       logger.error("dispose failed during graceful shutdown", err instanceof Error ? err : undefined);
     }
@@ -32,7 +37,9 @@ async function main(): Promise<void> {
    */
   process.on("uncaughtException", async (err: Error) => {
     logger.error("uncaughtException — 进程将退出", err, { stack: err.stack });
-    try { await built.dispose(); } catch { /* dispose 失败不阻塞退出 */ }
+    try {
+      await disposeWithTimeout(() => built.dispose(), DISPOSE_TIMEOUT_MS, forceExit, 1);
+    } catch { /* dispose 失败不阻塞退出 */ }
     process.exit(1);
   });
 
@@ -43,7 +50,9 @@ async function main(): Promise<void> {
   process.on("unhandledRejection", async (reason: unknown) => {
     const err = reason instanceof Error ? reason : new Error(String(reason));
     logger.error("unhandledRejection — 进程将退出", err, { stack: err.stack });
-    try { await built.dispose(); } catch { /* dispose 失败不阻塞退出 */ }
+    try {
+      await disposeWithTimeout(() => built.dispose(), DISPOSE_TIMEOUT_MS, forceExit, 1);
+    } catch { /* dispose 失败不阻塞退出 */ }
     process.exit(1);
   });
 }

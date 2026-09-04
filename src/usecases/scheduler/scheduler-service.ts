@@ -231,6 +231,9 @@ export class SchedulerService {
         this.logger.error('Polling tick failed', error as Error);
       }
     }, POLL_INTERVAL_MS);
+    // #460：轮询 timer unref，不阻止进程自然退出（僵尸进程根因之二）。
+    // unref 只影响"进程能否自然退出"，不影响 tick 触发——主进程生命周期由 HTTP 监听持有。
+    this.pollTimer?.unref?.();
     // 立即执行一次 tick，捕获进程重启后的迟到任务（审视建议2: catch 防 unhandled rejection）
     void this.tick().catch(error => {
       this.logger.error('Initial polling tick failed', error as Error);

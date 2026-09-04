@@ -145,6 +145,8 @@ export class RhiScanWorker {
     this.timer = setInterval(() => {
       this.inflightTick = this.tickSafely();
     }, interval);
+    // #460：1h 扫描 timer unref，不阻止进程自然退出（僵尸进程根因之二）
+    this.timer?.unref?.();
     this.logger.info("RHI scan worker started", { action: "rhi_worker_start", intervalMs: interval });
   }
 
