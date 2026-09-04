@@ -29,11 +29,14 @@ export class WeixinApiClient {
 
   private readonly baseUrl: string;
   private readonly token?: string;
+  /** F20260904wxeg：出站观测依赖（可选——不影响既有调用方，无 logger 时静默降级） */
+  private readonly logger?: { info: (msg: string, ctx?: Record<string, unknown>) => void; error: (msg: string, err?: Error, ctx?: Record<string, unknown>) => void };
 
-  constructor(options: { baseUrl: string; token?: string }) {
+  constructor(options: { baseUrl: string; token?: string; logger?: WeixinApiClient["logger"] }) {
     // 去掉尾部斜杠，endpoint 拼接统一 this.baseUrl + "/" + endpoint
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.token = options.token;
+    this.logger = options.logger;
   }
 
   /** 组装每请求自声明信息 */
@@ -154,11 +157,38 @@ export class WeixinApiClient {
       item_list: [{ type: 1, text_item: { text: params.text } }],
       context_token: params.contextToken,
     };
-    const resp = await this.post(
-      "ilink/bot/sendmessage",
-      { msg, base_info: this.baseInfo() },
-      15000,
-    ) as WeixinSendMessageResp;
+    // F20260904wxeg：出站全量观测——sendmessage 是 iLink「假成功」重灾区（ret=0 但微信侧
+    // 不投递），入参/响应逐字段留痕，排查不再依赖「无错误日志」的反推（#213 教训）
+    const startedAt = Date.now();
+    let resp: WeixinSendMessageResp;
+    try {
+      resp = await this.post(
+        "ilink/bot/sendmessage",
+        { msg, base_info: this.baseInfo() },
+        15000,
+      ) as WeixinSendMessageResp;
+    } catch (err) {
+      this.logger?.error("weixin sendmessage transport failed", err instanceof Error ? err : undefined, {
+        toUserId: params.toUserId, clientId: msg.client_id,
+        textLength: params.text.length, hasContextToken: Boolean(params.contextToken),
+        elapsedMs: Date.now() - startedAt,
+      });
+      throw err;
+    }
+    this.logger?.info("weixin sendmessage response", {
+      toUserId: params.toUserId,
+      clientId: msg.client_id,
+      textLength: params.text.length,
+      hasContextToken: Boolean(params.contextToken),
+      ret: resp.ret,
+      errcode: resp.errcode,
+      errmsg: resp.errmsg,
+      elapsedMs: Date.now() - startedAt,
+    });
+    // errcode 通道同步校验（F137 教训：errcode≠0 但 ret 缺失时旧逻辑会静默放行）
+    if (resp.errcode !== undefined && resp.errcode !== 0) {
+      throw new Error(`weixin sendmessage errcode=${resp.errcode} errmsg=${resp.errmsg ?? "(none)"}`);
+    }
     if (resp.ret !== undefined && resp.ret !== 0) {
       throw new Error(`weixin sendmessage ret=${resp.ret} errmsg=${resp.errmsg ?? "(none)"}`);
     }
