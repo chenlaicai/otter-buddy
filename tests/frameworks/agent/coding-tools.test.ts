@@ -10,22 +10,29 @@ import { getCodingToolsForOtterType, getOtterToolNamesForType } from "@framework
 describe("getCodingToolsForOtterType", () => {
   // Why: 函数现在返回常量数组，但测试多个输入确保没有隐藏的分支逻辑
   // 如果未来有人恢复了 otterType 分支，这些测试会捕获回归
-  it("big otter 应包含全部编码工具", () => {
+  // F20260904（#776）：+grep/find/ls 专用工具（bash 一把梭 → 结构化搜索/浏览）
+  it("big otter 应包含全部编码工具（含 grep/find/ls 专用工具）", () => {
     const tools = getCodingToolsForOtterType("big");
     expect(tools).toContain("read");
     expect(tools).toContain("write");
     expect(tools).toContain("edit");
     expect(tools).toContain("bash");
-    expect(tools).toHaveLength(4);
+    expect(tools).toContain("grep");
+    expect(tools).toContain("find");
+    expect(tools).toContain("ls");
+    expect(tools).toHaveLength(7);
   });
 
-  it("small otter 应包含全部编码工具", () => {
+  it("small otter 应包含全部编码工具（含 grep/find/ls 专用工具）", () => {
     const tools = getCodingToolsForOtterType("small");
     expect(tools).toContain("read");
     expect(tools).toContain("write");
     expect(tools).toContain("edit");
     expect(tools).toContain("bash");
-    expect(tools).toHaveLength(4);
+    expect(tools).toContain("grep");
+    expect(tools).toContain("find");
+    expect(tools).toContain("ls");
+    expect(tools).toHaveLength(7);
   });
 
   it("undefined otterType 应按 big otter 处理", () => {
@@ -34,7 +41,10 @@ describe("getCodingToolsForOtterType", () => {
     expect(tools).toContain("write");
     expect(tools).toContain("edit");
     expect(tools).toContain("bash");
-    expect(tools).toHaveLength(4);
+    expect(tools).toContain("grep");
+    expect(tools).toContain("find");
+    expect(tools).toContain("ls");
+    expect(tools).toHaveLength(7);
   });
 
   it("空字符串 otterType 应按 big otter 处理", () => {
@@ -43,7 +53,10 @@ describe("getCodingToolsForOtterType", () => {
     expect(tools).toContain("write");
     expect(tools).toContain("edit");
     expect(tools).toContain("bash");
-    expect(tools).toHaveLength(4);
+    expect(tools).toContain("grep");
+    expect(tools).toContain("find");
+    expect(tools).toContain("ls");
+    expect(tools).toHaveLength(7);
   });
 });
 
