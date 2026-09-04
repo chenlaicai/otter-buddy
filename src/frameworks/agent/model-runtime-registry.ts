@@ -162,7 +162,12 @@ export class ModelRuntimeRegistry {
       // M2（R20260810piab）：创建 SettingsManager，retry maxRetries=4 取代 otter 层 API error 重试。
       // SDK 默认 maxRetries=3；调到 4 后移除了 otter AgentInvoker 的 API error 重试（原最坏 4 次 = SDK 3 + otter 1）。
       this.settingsManager = piCodingAgent.SettingsManager.create(process.cwd());
-      this.settingsManager.applyOverrides({ retry: { enabled: true, maxRetries: 4 } });
+      // F20260904cq30：compaction 触发线从贴窗才压（窗口−默认 reserve 16K≈1032K）修正为质量线。
+      // 触发公式 contextTokens > contextWindow − reserveTokens，1M 窗口下 1048576−700000=348576≈340K。
+      // Why 340K：实测大獭上下文均值 60-73K 为好体验区、266K 已入退化区（详见 F 文档决策记录）；
+      // 搭档拍板 300K 标称线，整数 reserveTokens=700K 的实际触发 340K 在退化区间之上且留有余量。
+      // merge 语义：partial merge——仅接管 reserveTokens，enabled/keepRecentTokens 保留 SDK 默认。
+      this.settingsManager.applyOverrides({ retry: { enabled: true, maxRetries: 4 }, compaction: { reserveTokens: 700_000 } });
 
       // initModels 恒产出 ModelPool（models-factory.ts），bootstrap 必装配下传
       if (this.modelPool) {
