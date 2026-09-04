@@ -206,6 +206,7 @@ suggestion: 交换默认值或在 description 里加对照示例
 | 文件 | 改动 |
 |---|---|
 | src/entities/healing/healing-event.ts | HealingErrorType 联合类型 + 'tool_use_feedback' |
+| src/usecases/scheduler/scheduler-service.ts | HEALING_FALLBACK_PROMPT 回退文案同步（#428 守卫测试要求与模板逐字节一致） |
 | src/usecases/healing/healing-report-parser.ts | VALID_TYPES + tool_use_feedback（未知值本就回退 other，白名单使其合法解析） |
 | src/interface-adapters/agent-runtime/tools/tool-factory.ts | speak 自愈段重写（工具可报项 + 四触发时机，净增约 +50 token） |
 | src/frameworks/agent/tool-builder.ts | 统一错误出口：isError 结果尾部追加 tool_use_feedback 引导提示（speak 豁免，避免循环暗示） |
