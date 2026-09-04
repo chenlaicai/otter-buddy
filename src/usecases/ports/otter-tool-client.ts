@@ -69,7 +69,7 @@ export interface OtterToolClient {
       /** 完成消息：speaking → completed */
       complete(messageId: string, params?: {
         talkingStonePassedTo?: string[];
-      }): Promise<{ message: Message; turnClose: { closed: boolean; aggregatedTargets: string[] } }>;
+      }): Promise<{ message: Message; turnClose: { closed: boolean; /** @deprecated F20260904schf：turn 级并集（#792），链引擎已改读行级 tsp */ aggregatedTargets: string[] } }>;
       getById(id: string): Promise<Message | null>;
       list(conversationId: string, opts?: { limit?: number; before?: string }): Promise<Message[]>;
       search(conversationId: string, query: string, limit?: number): Promise<Message[]>;

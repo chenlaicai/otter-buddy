@@ -69,7 +69,8 @@ export interface SchedulerServiceOptions {
    *  （过闸门+台账记账）；未注入回退直连链（回滚面，与 sgpv 降级基线同语义）。 */
   signalRouter?: SignalRouter;
   metrics?: SchedulerMetricsPort;
-  /** Why: 链外 invoke 路径不消费 aggregatedTargets 导致 yield 传递目标丢失（#332）。
+  /** Why: 链外 invoke 路径不消费 yield 传递目标导致 yield 传递目标丢失（#332；
+   *  F20260904schf 起链引擎改读行级 tsp，不再消费 turn 级 aggregatedTargets）。
    *  注入后 invokeAgentWithTimeout 走 DispatchChainEngine.executeChain 续跑发言链。 */
   dispatchChainEngine?: DispatchChainEngine;
   /** 时钟注入（F20260814qswp）：替代对 @frameworks/metrics nowMs 的直接依赖，测试可替换。
@@ -660,7 +661,8 @@ export class SchedulerService {
       // 防御：无锚点/无目标（不应发生——createSystemMessage 必有 id，tsp 创建时必填）回退直连链路径
       this.logger.warn('scheduler 换轨路径缺少锚点或目标，回退直连链', { taskId: task.id, anchorMessageId: anchorMessageId ?? 'none' });
     }
-    // Why: 有 dispatchChainEngine 时走链引擎消费 aggregatedTargets 续跑发言链（#332），
+    // Why: 有 dispatchChainEngine 时走链引擎续跑发言链（#332；F20260904schf 起
+    // 链引擎读行级 tsp，不再消费 turn 级 aggregatedTargets），
     // 否则降级为直接 invoke（兼容未注入的旧装配）。超时语义分路径：
     // - 链路径（#516）：静默容忍窗 + 硬上限。窗口内链无新消息才判死；有新消息即续期。
     //   任务级 timeoutMinutes 覆盖静默窗（默认 15 分钟），硬上限恒 24h。链 settle 即返回，

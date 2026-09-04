@@ -72,6 +72,7 @@ export interface TurnResult {
   messageId: string;
   duration: number;
   tokenUsage?: { input: number; output: number };
+  /** @deprecated F20260904schf：turn 级并集，链引擎已改读行级 tsp（#792），新代码禁止消费 */
   aggregatedTargets?: string[];
   /** F20260818cbkr：degenerate 二次退化时携带，agent-invoker 执行熔断重启 */
   _circuitBreak?: CircuitBreakInfo;
@@ -114,7 +115,7 @@ export interface HealingEventInput {
 /** TurnCallbacks - orchestrator 回调 adapter 的接口 */
 export interface TurnCallbacks {
   /** 消息生命周期回调 */
-  completeMessage(messageId: string, input?: { contextTokens?: number; contextTokensMax?: number }): Promise<{ turnClose: { aggregatedTargets?: string[] } }>;
+  completeMessage(messageId: string, input?: { contextTokens?: number; contextTokensMax?: number }): Promise<{ turnClose: { /** @deprecated F20260904schf：turn 级并集（#792），链引擎已改读行级 tsp */ aggregatedTargets?: string[] } }>;
   failMessage(messageId: string, body?: string, talkingStonePassedTo?: string[]): Promise<void>;
   abortMessage(messageId: string, input: { body: string; talkingStonePassedTo?: string[] }): Promise<void>;
   /** F20260818cbkr：写 healing 事件（degenerate guard 触发点数据源） */
