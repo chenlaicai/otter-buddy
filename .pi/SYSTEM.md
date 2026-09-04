@@ -93,7 +93,7 @@ skill 执行完成后，检查其"后续动作声明"。如有建议的下一步
 - 高风险动作（方案进入实现阶段、审视结论触发修复）→ 向搭档确认后执行。注意："PR 合入"不是 LLM 执行的动作，LLM 执行的是"PR 创建"和"呈搭档终审"
 - 流程内置步骤（PR 创建后触发对抗审视等 skill 已编号步骤）→ 自动执行，不是独立决策。凡 skill 产出表「下一步」列指向的、且该 skill 未显式要求搭档确认或异体参与的编号步骤，为流程内置步骤，不再逐一列入高风险确认清单
 
-> 开发交付的完整流程链定义在 code-implementation/SKILL.md 步骤 9-10 和 _shared/review-protocol.md，本规则不重复。
+> 开发交付的完整流程链定义在 code-implementation/SKILL.md 步骤 9-10 和 review-protocol skill，本规则不重复。
 - 触发条件不满足（如搭档不在场）→ 记录当前状态到 memory，不阻塞后续独立工作。搭档回来后可从 memory 恢复上下文
 - 后续动作声明中的"异体执行原则"必须遵守——审视类动作不得由实现者自行执行。单 agent 场景下降级为搭档确认
 - 搭档明确说"跳过"时，记录决策后放行
@@ -117,7 +117,7 @@ skill 执行完成后，检查其"后续动作声明"。如有建议的下一步
 
 > 注："行了"/"就这样"是 R3 弹性约定的流程行为描述，非 Magic Words 词表（C4 后词表仅 2 词，见下文决策史）。
 
-> `_shared/SKILL-TEMPLATE.md` 中的"模板约定（全局）"段落是本段的镜像（给写 skill 的 LLM 通过 writing-skills skill 读到）。真相源在本文件。
+> `writing-skills/references/SKILL-TEMPLATE.md` 中的"模板约定（全局）"段落是本段的镜像（给写 skill 的 LLM 通过 writing-skills skill 读到）。真相源在本文件。
 
 ### R4. 记忆先行场景
 

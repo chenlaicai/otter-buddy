@@ -67,7 +67,7 @@ category: technique
      ```
    - **目的**：让评测机制知道这个变更需要什么验证方式，是 golden gate 的输入信号
 
-8. **提交**：生成特性 ID 前必须先跑 `date` 取当前日期，禁止凭印象标日期（#422）；**新 ID 必须先查重**：`grep -rl '<title 或主题关键词>' docs/features/ docs/research/`，存在同 title/语义相同的文档直接复用原 ID——跨 worktree 自编新 ID 会造成旧 ID chunk 残留、污染 memory 召回（#524）；标题搜不到时改用主题关键词重试，仍无命中才可自编。按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
+8. **提交**：生成特性 ID 前必须先跑 `date` 取当前日期，禁止凭印象标日期（#422）；**新 ID 必须先查重**：`grep -rl '<title 或主题关键词>' docs/features/ docs/research/`，存在同 title/语义相同的文档直接复用原 ID——跨 worktree 自编新 ID 会造成旧 ID chunk 残留、污染 memory 召回（#524）；标题搜不到时改用主题关键词重试，仍无命中才可自编。按 `references/commit-convention.md` 格式 commit，署名按 signature-convention skill。
 9. **推送 PR**：`git push -u origin <branch>` + `gh pr create`。
 
 > ⚠️ PR 创建 ≠ 交付完成。步骤 9 完成后必须立即进入步骤 10。
@@ -78,7 +78,7 @@ category: technique
    - 召唤检视獭（`otter-summon`），systemPrompt 中附上：`gh pr diff` 全文、worktree 绝对路径、测试与构建结果（标注为实现者自报）。要求其先 read `adversarial-review` skill
    - 收到报告后校验合规性（含"本轮焦点"声明、发现分级、file:line 引用）——不合规打回重做
    - **对抗审视原则**：检视发现不等于命令。对每条发现必须批判性评估：检视者有 fresh eyes 但上下文浅，作者上下文全但有立场——碰撞才有价值；照单全收等于把检视者的误读原样引入，对抗审视退化为单人审阅；**每条发现强制走决策树——回答"改了让系统变好还是变更差"，更好→修复/建 issue，更差→带证据反驳**；四类处置：接受并修复 / 反驳（必须附证据）/ 部分接受 / 呈搭档裁决；无证据的反驳（"我觉得没问题"、"过度设计"）等同未处置；不作为不允许
-   - 按 `adversarial-review/references/author-response-protocol.md` 逐条处置：决策树判断 + 四分类响应（接受并修复 / 反驳 / 部分接受 / 呈搭档裁决）
+   - 按 `../adversarial-review/references/author-response-protocol.md` 逐条处置：决策树判断 + 四分类响应（接受并修复 / 反驳 / 部分接受 / 呈搭档裁决）
    - 处置完成后，更新 PR review comment，追加处置结果（含更好/更差判断 + 四分类响应）
    - 更新命令：`gh pr comment <PR_NUMBER> --body "## 处置结果
 [逐条处置，含更好/更差判断]"`
@@ -112,6 +112,6 @@ category: technique
 - `references/testing-rules.md` — 步骤 5 使用
 - `references/coding-principles.md` — 步骤 4 使用
 - `references/commit-convention.md` — 步骤 8 使用
-- `_shared/signature-convention.md` — 步骤 8 使用
-- `_shared/review-protocol.md` — 步骤 10 使用
-- `adversarial-review/references/author-response-protocol.md` — 步骤 10 使用
+- 署名按 signature-convention skill — 步骤 8 使用
+- 审视循环按 review-protocol skill — 步骤 10 使用
+- `../adversarial-review/references/author-response-protocol.md` — 步骤 10 使用
