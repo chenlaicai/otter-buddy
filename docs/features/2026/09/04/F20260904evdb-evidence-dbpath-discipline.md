@@ -3,12 +3,12 @@ id: F20260904evdb
 title: "数据核查防再发：sqlite3 直查先确认 dbPath + 关键数字双源验证 + 废弃文件清理 checklist"
 summary: "issue #791 P1。同日搭档两次抓到数据错误（错查孤儿库 otter.db 得「零事件」、error_type 口径混排隐去 other:33），定调「错误数据比错误结论更恐怖」。本特性三处防再发：9:00 健康检查模板加 sqlite3 直查前置纪律（先 curl /api/settings 确认 dbPath）与关键数字双源验证纪律；code-implementation skill 步骤 6 加废弃资源清理 checklist（旧文件本体必须删除，不只改代码默认值）；测试锁住模板纪律行。"
 change_type: prompt
-capability_test: "tests/usecases/scheduler/daily-health-check-prompt-discipline.test.ts"
+capability_test: "n/a: 模板纪律行由 tests/usecases/scheduler/daily-health-check-prompt-discipline.test.ts 3 用例静态锁定（常规单测管线，非 capability 设施）；行为层验证靠明晨 9:00 日报观察 sqlite3 直查是否引用 dbPath 确认"
 intent:
   problem: "海獭数据核查不查在用库路径、关键数字单源就写——错查孤儿库得出「零事件」假象（#791），口径混排把 other:33 拆散隐去；F20260829hviz 修复只改代码默认值不删旧文件，留下「看起来正常」的孤儿库"
   expected_effect: "9:00 日报产出中 sqlite3 直查场景先引用 dbPath 确认步骤；关键计数双源核对或标注「未交叉验证」；后续含路径迁移的 PR 按 skill checklist 删除旧文件本体"
   verify_by:
-    type: capability_test
+    type: behavior_check
     effect_window: 1d
 created: 2026-09-04
 created_in_conversation: de5bcf98-7a4b-4e2e-9475-835359da0bd7
