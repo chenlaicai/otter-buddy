@@ -14,6 +14,7 @@ export interface AgentTurnResult {
   messageId: string;
   duration: number;
   tokenUsage?: { input: number; output: number };
+  /** @deprecated F20260904schf：turn 级并集，链引擎已改读行级 tsp（#792），新代码禁止消费 */
   aggregatedTargets?: string[];
 }
 

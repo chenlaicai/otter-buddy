@@ -279,7 +279,8 @@ export class ResumeInterruptedService {
     const senderId = turnUserMsgs[0]?.senderId ?? "user";
     // 4. 重置消息：failed→streaming，新 turn，半截 segments 保留（F20260821fix 语义）
     await this.deps.sendMessage.prepareForRetry(item.messageId, true);
-    // 5. 链引擎续跑：消费 aggregatedTargets，恢复后 yield 交棒的链不断（#332）
+    // 5. 链引擎续跑：读产出消息行级 tsp，恢复后 yield 交棒的链不断（#332；F20260904schf
+    // 起链引擎不再消费 turn 级 aggregatedTargets）
     await this.deps.dispatchChainEngine.executeChain({
       conversationId: item.conversationId,
       userMessageContent: buildRestartResumeMsg(),

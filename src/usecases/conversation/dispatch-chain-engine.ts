@@ -44,6 +44,8 @@ export interface InvokeFnParams {
 
 export interface InvokeFnResult {
   messageId: string;
+  /** @deprecated F20260904schf：链引擎已改读行级 tsp（getMessageById 的 talkingStonePassedTo），
+   *  此字段为 turn 级并集（streaming 共栖污染源，#792），保留仅供观测/过渡期，新代码禁止消费。 */
   aggregatedTargets?: string[];
 }
 
@@ -213,9 +215,10 @@ export class DispatchChainEngine {
 
     const results = await Promise.allSettled(promises);
     // F20260902sgp2 S1：settle 记账（§4.2）——终态回写 + 链级出处回填
+    // F20260904schf：出处回填改读行级 tsp，方法变 async（行级查库在 try 内，异常仍不阻断链路）
     // 审视建议 1：调用点再隔一层 try/catch——防方法内部 try 块之外的理论异常阻断 markBatchRead
     try {
-      this.recordAttemptSettle(conversationId, targets, results, triggerMessageId, chainSourceMessageIds);
+      await this.recordAttemptSettle(conversationId, targets, results, triggerMessageId, chainSourceMessageIds);
     } catch { /* 记账面异常不阻断链路（硬约束 1） */ }
     await this.markBatchRead(conversationId, results, targets);
 
@@ -256,15 +259,20 @@ export class DispatchChainEngine {
   }
 
   /** F20260902sgp2 S1：settle 记账——每个目标按起跑同源 messageId 列表记终态；
-   *  fulfilled 时把产出消息追加进链级出处列表（后续 hop 记账取源）。失败仅日志不阻断。 */
+   *  fulfilled 时把产出消息追加进链级出处列表（后续 hop 记账取源）。失败仅日志不阻断。
+   *  F20260904schf：出处回填改读行级 tsp（消息自身 talkingStonePassedTo 终值），不再消费
+   *  InvokeFnResult.aggregatedTargets（turn 级并集——streaming 期间共栖的输入信号/system 消息
+   *  会污染并集，产生 chainSource[自己]=自己消息 的脏账 → 自链循环，见 issue #792）。
+   *  行级事实依据：completeMessage 先落库 tsp 终值后关 turn（send-message.ts），invoke 返回时
+   *  消息行已含最终 yield 目标——行级读数因果局部，无 turn 共存时间窗竞态。 */
   // eslint-disable-next-line complexity -- 多源记账双层循环 + 逐源 try/catch 兜底（硬约束 1：记账失败不阻断链路），拆分反而损可读性
-  private recordAttemptSettle(
+  private async recordAttemptSettle(
     conversationId: string,
     targets: string[],
     results: PromiseSettledResult<InvokeFnResult>[],
     triggerMessageId: string | undefined,
     chainSourceMessageIds: Map<string, string[]> | undefined,
-  ): void {
+  ): Promise<void> {
     if (!this.deps.dispatchAttemptRepo) return;
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
@@ -285,19 +293,71 @@ export class DispatchChainEngine {
         }
       }
       // 链级出处回填（hop 取源修复核心）：该目标的产出消息是【它 yield 给的下一跳目标】的
-      // 触发源——按 aggregatedTargets 落位，而非记在自己名下。
-      // 例：worker 产出 m-work 并 yield owner → m-work 应记在 chainSource[owner]，
+      // 触发源——按产出消息自身的行级 talkingStonePassedTo 落位（F20260904schf），而非记在自己名下。
+      // 例：worker 产出 m-work 并 yield owner → m-work 行级 tsp=[owner]，记入 chainSource[owner]，
       // 下 hop owner 起跑时用它记账 (m-work, owner)。多源追加不去重（A、B 都 yield C 时
       // C 名下两条触发消息各记一次）；同目标重复 yield 只留最新产出（去重 + 截尾防膨胀）。
       if (r.status === "fulfilled" && chainSourceMessageIds) {
         const produced = r.value.messageId;
-        const nextHops = r.value.aggregatedTargets?.filter(id => id !== "user") ?? [];
+        // 行级出处 + 自指守卫：产出消息的 tsp 不应含 sender 自己（发言石传给别人的领域不变量），
+        // filter target 是纵深防御——即使上游异常写入自指 tsp，也不得回到自己名下（#792 自链病根）。
+        // Promise.resolve 包装：mock 返回 undefined 等非 Promise 值时仍安全（回归测试底线：mock 宽容性不回退）
+        const producedMsg = await Promise.resolve(this.deps.queryMessage.getMessageById(produced)).catch(() => null);
+        const nextHops = (producedMsg?.talkingStonePassedTo ?? []).filter(id => id !== "user" && id !== target);
+        if (nextHops.length === 0 && (r.value.aggregatedTargets?.filter(id => id !== "user").length ?? 0) > 0) {
+          this.deps.logger.warn('[signal-ledger] 行级出处为空但聚合目标非空（turn 共栖污染被行级化拦截）', { conv: conversationId, msg: produced, aggregated: r.value.aggregatedTargets });
+        }
         for (const next of nextHops) {
-          const list = (chainSourceMessageIds.get(next) ?? []).filter(id => id !== produced);
-          list.push(produced);
-          chainSourceMessageIds.set(next, list.slice(-8));
+          this.appendChainSource(chainSourceMessageIds, next, produced, conversationId);
         }
       }
+    }
+  }
+
+  /** rejected 结果日志（自 processHopResults 拆出控复杂度） */
+  private logRejectedTarget(
+    r: PromiseRejectedResult,
+    otterId: string | undefined,
+    conversationId?: string,
+  ): void {
+    const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
+    this.deps.logger.error('发言链目标调用失败', r.reason instanceof Error ? r.reason : new Error(reason), {
+      conversationId,
+      otterId,
+    });
+  }
+
+  /** F20260904schf 检视发现 1（mimo-reviewer）：链级出处追加 + 截尾观测。
+   *  多源追加不去重（A、B 都 yield C 时 C 名下两条触发消息各记一次）；
+   *  同目标重复 yield 只留最新产出（去重 + 截尾防膨胀）。截尾丢弃更早记账源时
+   *  warn（极端多源下被丢源将永远缺失消费义务销账，假 pending 风险，结构性修复挂 #798）。 */
+  private appendChainSource(
+    chainSourceMessageIds: Map<string, string[]>,
+    next: string,
+    produced: string,
+    conversationId: string,
+  ): void {
+    const list = (chainSourceMessageIds.get(next) ?? []).filter(id => id !== produced);
+    list.push(produced);
+    const trimmed = list.slice(-8);
+    if (trimmed.length < list.length) {
+      this.deps.logger.warn('[signal-ledger] 链级出处列表截尾，丢弃更早记账源', { conv: conversationId, next, kept: trimmed.length, dropped: list.length - trimmed.length });
+    }
+    chainSourceMessageIds.set(next, trimmed);
+  }
+
+  /** F20260904schf：读产出消息行级数据（otterReply 提取 + 行级出处共用的查库点）。
+   *  查库失败降级为 null（无出处不路由、无回复），不阻断链路（硬约束 1 同款纪律）；
+   *  Promise.resolve 包装使 mock 返回 undefined 等非 Promise 值时仍安全。 */
+  private async fetchProducedMessage(
+    messageId: string,
+    conversationId?: string,
+  ): Promise<Awaited<ReturnType<QueryMessage["getMessageById"]>> | null> {
+    try {
+      return await Promise.resolve(this.deps.queryMessage.getMessageById(messageId));
+    } catch (e) {
+      this.deps.logger.warn('行级出处查库失败，降级为无出处（不阻断链路）', { conversationId, messageId, error: e instanceof Error ? e.message : String(e) });
+      return null;
     }
   }
 
@@ -313,23 +373,20 @@ export class DispatchChainEngine {
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
       if (r.status !== "fulfilled") {
-        const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
-        this.deps.logger.error('发言链目标调用失败', r.reason instanceof Error ? r.reason : new Error(reason), {
-          conversationId,
-          otterId: targets?.[i],
-        });
+        this.logRejectedTarget(r, targets?.[i], conversationId);
         continue;
       }
 
-      const msg = await this.deps.queryMessage.getMessageById(r.value.messageId);
-      if (msg?.segments.length) {
-        otterReply = aggregateBody(msg.segments);
+      // F20260904schf：下一跳目标改读行级 tsp（消息自身 talkingStonePassedTo 终值），
+      // 不再消费 InvokeFnResult.aggregatedTargets（turn 级并集，共栖污染源，#792）。
+      // 早完成者的 yield 不再依赖 turn 是否关闭——closed:false 空聚合不再丢 yield（并行错记族）。
+      const producedMsg = await this.fetchProducedMessage(r.value.messageId, conversationId);
+      if (producedMsg?.segments.length) {
+        otterReply = aggregateBody(producedMsg.segments);
       }
-
-      if (r.value.aggregatedTargets) {
-        for (const id of r.value.aggregatedTargets) {
-          nextTargets.add(id);
-        }
+      // 自指守卫：行级 tsp 不含 sender 自己（领域不变量），filter producer 为纵深防御。
+      for (const id of producedMsg?.talkingStonePassedTo ?? []) {
+        if (id !== targets?.[i]) nextTargets.add(id);
       }
     }
 
@@ -548,7 +605,8 @@ export class DispatchChainEngine {
         messageId = lastMsg?.id;
       }
       if (!messageId) continue;
-      const msg = await this.deps.queryMessage.getMessageById(messageId);
+      // F20260904schf：查库失败降级为跳过该行（best-effort 推进语义同款），不阻断链路（#792 回归测试暴露）
+      const msg = await Promise.resolve(this.deps.queryMessage.getMessageById(messageId)).catch(() => null);
       if (!msg) continue;
       const turn = await this.deps.conversationRepo.getTurnById(msg.turnId);
       if (!turn) continue;
