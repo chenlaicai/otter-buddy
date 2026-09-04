@@ -51,7 +51,22 @@ function makeSendMessageUseCase() {
 }
 
 const queryOtterStub = { getById: async () => null } as unknown as QueryOtter;
-const queryMessageStub = { getMessageById: async () => null } as unknown as QueryMessage;
+// F20260904schf：行级出处语义下，链引擎从消息行读 yield 目标——stub 按 messageId 返回带 tsp 的行
+//（模拟生产事实：completeMessage 先落库 tsp）；「互传死循环」测试意图因此得以保留。
+const queryMessageStub = {
+  getMessageById: async (id: string) => {
+    // F20260904schf：行级出处语义下，链引擎从消息行读 yield 目标（生产事实：completeMessage 先落库 tsp）。
+    // 测试意图升级：旧版用「自指 yield」制造死循环（恰是 #792 要杀的病态，自指守卫下已一轮终止），
+    // 改为真互传乒乓 otter-x ↔ otter-y——合法信号流仍需 maxChainDepth 截断保护。
+    if (id === "m-otter-x") {
+      return { id, conversationId: "conv-1", turnId: "turn-1", senderId: "otter-x", senderType: "otter", status: "completed", segments: [], sequenceNum: 2, talkingStonePassedTo: ["otter-y"], contextTokens: null, contextTokensMax: null, source: "web", senderName: "Otter X", createdAt: "", completedAt: "" };
+    }
+    if (id === "m-otter-y") {
+      return { id, conversationId: "conv-1", turnId: "turn-1", senderId: "otter-y", senderType: "otter", status: "completed", segments: [], sequenceNum: 3, talkingStonePassedTo: ["otter-x"], contextTokens: null, contextTokensMax: null, source: "web", senderName: "Otter Y", createdAt: "", completedAt: "" };
+    }
+    return null;
+  },
+} as unknown as QueryMessage;
 
 function postMessage(app: Hono) {
   return app.request("/api/conversations/conv-1/messages", {
@@ -103,7 +118,8 @@ describe("dispatchTurnLoop 深度上限", () => {
     const res = await postMessage(createApp(ctrl));
     const sseText = await res.text();
 
-    /** depth=2：只派发 2 跳，第 3 跳被截断 */
+    /** depth=2：只派发 2 跳（x→y→x），第 3 跳被截断。深度截断验证改为合法互传乒乓后，
+     *  行动权触顶时还持有 yield 方（x）的目标 */
     expect(dispatchCount).toBe(2);
     // DispatchChainEngine 和 MessageController 都会记录 warn 日志
     expect(warns.length).toBeGreaterThanOrEqual(1);
@@ -128,9 +144,12 @@ describe("dispatchTurnLoop 深度上限", () => {
       },
     } as unknown as AgentInvoker;
 
+    // F20260904schf：本测试场景 = 消息行无行级 yield → 链一轮终止。
+    // 不能与触顶测试共享带互传 tsp 的 stub（那会让本场景变 2 跳，测试失真）。
+    const noYieldMessageStub = { getMessageById: async () => null } as unknown as QueryMessage;
     const dispatchChainEngine = new DispatchChainEngine({
       conversationRepo,
-      queryMessage: queryMessageStub,
+      queryMessage: noYieldMessageStub,
       queryOtter: queryOtterStub,
       logger: logger as never,
       maxChainDepth: 2,
@@ -138,7 +157,7 @@ describe("dispatchTurnLoop 深度上限", () => {
 
     const ctrl = new MessageController(
       useCase as unknown as SendMessage,
-      queryMessageStub,
+      noYieldMessageStub,
       { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) } as unknown as ManageReadState,
       agentInvoker,
       logger as never,
@@ -148,6 +167,8 @@ describe("dispatchTurnLoop 深度上限", () => {
     const res = await postMessage(createApp(ctrl));
     await res.text();
 
+    // F20260904schf：invoke 返回空 aggregatedTargets 且消息行无行级 yield（stub 查不到 m-otter-x
+    // 时返回 null）→ 行级出处为空 → 链一轮终止。若 stub 泄漏了互传 tsp，这里会变 2+ 跳（测试失真）。
     expect(dispatchCount).toBe(1);
     expect(systemBodies).toHaveLength(0);
     expect(warns).toHaveLength(0);
