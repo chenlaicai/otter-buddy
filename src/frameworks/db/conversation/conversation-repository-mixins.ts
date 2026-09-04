@@ -183,6 +183,21 @@ export function updateLastReadTurnNumber(
   `).run(turnNumber, conversationId, otterId);
 }
 
+/** F20260902sgp2 S4c：游标 seq 双写（新刻度）。NULL 安全：last_read_seq 列可空，
+ *  首次写入直接设值；回滚面 = 旧列 last_read_turn_number 未动，读路径按 NULL 回退。 */
+export function updateLastReadSeq(
+  db: Database.Database,
+  conversationId: string,
+  otterId: string,
+  seq: number,
+): void {
+  db.prepare(`
+    UPDATE conversation_participants
+    SET last_read_seq = ?
+    WHERE conversation_id = ? AND otter_id = ? AND status = 'active'
+  `).run(seq, conversationId, otterId);
+}
+
 /** F20260819idnw：更新最后活跃轮次（小獭发言时） */
 export function updateLastActiveTurnNumber(
   db: Database.Database,
@@ -202,10 +217,12 @@ export function getUnreadMessages(
   conversationId: string,
   otterId: string,
 ): Array<{ id: string; sender_id: string; sender_type: string; sequence_num: number; sender_name: string | null; talking_stone_passed_to: string | null }> {
+  // F20260902sgp2 S4c 读路径切换：seq 刻度优先（last_read_seq 非空 = 已迁移），
+  // NULL 回退 turn 刻度（存量 participants / 双写前的旧行）。回滚面 = 旧列原样保留。
   const participant = db.prepare(`
-    SELECT last_read_turn_number FROM conversation_participants
+    SELECT last_read_turn_number, last_read_seq FROM conversation_participants
     WHERE conversation_id = ? AND otter_id = ? AND status = 'active'
-  `).get(conversationId, otterId) as { last_read_turn_number: number } | undefined;
+  `).get(conversationId, otterId) as { last_read_turn_number: number; last_read_seq: number | null } | undefined;
 
   if (!participant) return [];
 
@@ -213,6 +230,17 @@ export function getUnreadMessages(
    *  F20260826fuid：携带 sender_name（user 消息的飞书姓名快照，群聊多人识别用）。
    *  F20260902uspr：携带 talking_stone_passed_to（SignalRouter 收件箱判别依赖——
    *  此前投影硬编码 null，信号路由器 pendingSignalsFor 恒空，全部入口静默哑火） */
+  if (participant.last_read_seq != null) {
+    // seq 刻度（S4c 新路径）
+    return db.prepare(`
+      SELECT m.id, m.sender_id, m.sender_type, m.sequence_num, m.sender_name, m.talking_stone_passed_to
+      FROM messages m
+      WHERE m.conversation_id = ? AND m.sequence_num > ? AND m.sender_id != ?
+        AND m.status NOT IN ('streaming', 'speaking')
+      ORDER BY m.sequence_num ASC
+    `).all(conversationId, participant.last_read_seq, otterId) as Array<{ id: string; sender_id: string; sender_type: string; sequence_num: number; sender_name: string | null; talking_stone_passed_to: string | null }>;
+  }
+  // turn 刻度（存量回退路径）
   return db.prepare(`
     SELECT m.id, m.sender_id, m.sender_type, m.sequence_num, m.sender_name, m.talking_stone_passed_to
     FROM messages m

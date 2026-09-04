@@ -1,6 +1,7 @@
 /* eslint-disable max-lines -- 调度核心路径（触发/重试/healing 注入/指标/链看门狗）聚合于本文件，
    拆分需新建模块并移动多个私有方法，引入间接层而降低可读性；#516/#517 增加活跃看门狗与记账校验已尽量精简 */
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
+import type { DispatchAttemptRepo } from '@entities/conversation/dispatch-attempt';
 import type { SendMessage } from '@usecases/conversation/send-message';
 import type { AgentTurnPort } from '@usecases/ports/agent-turn-port';
 import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled-task-repository';
@@ -53,6 +54,8 @@ export interface SchedulerServiceOptions {
   manageScheduledTask?: ManageScheduledTask;
   manageSession?: ManageSession;
   healingRepo?: HealingEventRepository;
+  /** F20260902sgp2 S4b：派发台账（可选）——看门狗台账终态判活 */
+  dispatchAttemptRepo?: DispatchAttemptRepo;
   metrics?: SchedulerMetricsPort;
   /** Why: 链外 invoke 路径不消费 aggregatedTargets 导致 yield 传递目标丢失（#332）。
    *  注入后 invokeAgentWithTimeout 走 DispatchChainEngine.executeChain 续跑发言链。 */
@@ -78,6 +81,8 @@ export class SchedulerService {
   private readonly cronParser: CronParser;
   private readonly logger: Logger;
   private readonly healingRepo?: HealingEventRepository;
+  /** F20260902sgp2 S4b：派发台账——看门狗台账终态判活的数据源（可选，未注入回退消息判定） */
+  private readonly dispatchAttemptRepo?: DispatchAttemptRepo;
   private readonly metrics?: SchedulerMetricsPort;
   private readonly dispatchChainEngine?: DispatchChainEngine;
   private readonly now: () => number;
@@ -92,6 +97,7 @@ export class SchedulerService {
     this.cronParser = options.cronParser;
     this.logger = options.logger;
     this.healingRepo = options.healingRepo;
+    this.dispatchAttemptRepo = options.dispatchAttemptRepo;
     this.metrics = options.metrics;
     this.dispatchChainEngine = options.dispatchChainEngine;
     this.now = options.now ?? (() => performance.now());
@@ -672,8 +678,9 @@ export class SchedulerService {
         return;
       }
 
-      // 静默窗到：探测链活性
-      const alive = await this.isChainStillActive(anchorMessageId);
+      // 静默窗到：探测链活性（F20260902sgp2 S4b：台账终态优先，回退消息存在性）
+      const alive = await this.isChainAliveByLedger(anchorMessageId)
+        ?? await this.isChainStillActive(anchorMessageId);
       if (!alive) {
         if (this.settleOutcome(chainSettled)) return;
         throw new Error('Agent invocation timeout');
@@ -733,6 +740,19 @@ export class SchedulerService {
 
   /** #516: 链活性探测——锚点之后有任意新消息（任何状态）即活跃。
    *  探测失败（DB 异常）视为死亡：链产出无从验证，继续等待只会永远占位。 */
+  /** F20260902sgp2 S4b：台账终态判活（看门狗）。
+   *  @returns true=锚点 attempt 全终态（收工→alive=false 语义由调用方取反——注意本方法返回
+   *           「链活跃与否」：true=有 in_progress 活跃；false=全终态收工；undefined=回退） */
+  private async isChainAliveByLedger(anchorMessageId: string | undefined): Promise<boolean | undefined> {
+    if (!anchorMessageId || !this.dispatchAttemptRepo) return undefined;
+    try {
+      const allSettled = await this.dispatchAttemptRepo.allAnchorAttemptsSettled(anchorMessageId);
+      return !allSettled;
+    } catch {
+      return undefined;
+    }
+  }
+
   private async isChainStillActive(anchorMessageId: string): Promise<boolean> {
     try {
       const msgs = await this.convRepo.getMessagesAfter(anchorMessageId, 1);

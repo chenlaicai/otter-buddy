@@ -154,7 +154,10 @@ export class ManageScheduledTask {
       timezone: input.timezone ?? 'Asia/Shanghai',
       body: input.body,
       talkingStonePassedTo: input.talkingStonePassedTo,
-      senderId: input.senderId ?? input.talkingStonePassedTo[0],
+      // F20260903s4fn：任务触发消息是「系统说的」——senderId 归属 system，不偷目标獭。
+      // 历史默认值 talkingStonePassedTo[0] 是发送者语义与展示归属的混淆（生产实证：60+ 条
+      // system 消息挂獭 id）。展示归属由前端显示层解决，数据层不撒谎。
+      senderId: input.senderId ?? 'system',
       status: 'active',
       consecutiveFailures: 0,
       lastTriggeredAt: null,

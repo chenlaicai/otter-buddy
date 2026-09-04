@@ -158,6 +158,13 @@ export interface ConversationRepository {
     leftAt: string,
   ): Promise<void>;
   /** 更新已读位置 */
+  /** F20260902sgp2 S4c：游标 seq 双写（新刻度；旧 turn 刻度保留为回滚面）。
+   *  可选：双写是 S4c 渐进语义，未实现的仓储（测试桩/嵌入方）跳过即可。 */
+  updateLastReadSeq?(
+    conversationId: string,
+    otterId: string,
+    seq: number,
+  ): void;
   updateLastReadTurnNumber(
     conversationId: string,
     otterId: string,
