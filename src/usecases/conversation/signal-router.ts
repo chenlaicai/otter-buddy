@@ -425,7 +425,8 @@ export class SignalRouter {
   }
 
   /**
-   * 点火一次 invoke（链引擎承载，消费 aggregatedTargets 续跑发言链——#332 语义）。
+   * 点火一次 invoke（链引擎承载，读产出消息行级 tsp 续跑发言链——#332 语义；
+   * F20260904schf 起链引擎不再消费 turn 级 aggregatedTargets）。
    * fire-and-forget：入口（HTTP 请求 / scheduler tick / resume）不被 invoke 时长阻塞。
    * @param content busyQueue 消化路径传入快照内容（显式「当前任务」）；未读路径传空
    *                （链内 buildMessageWithContext 注入完整未读）

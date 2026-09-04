@@ -308,9 +308,7 @@ export class DispatchChainEngine {
           this.deps.logger.warn('[signal-ledger] 行级出处为空但聚合目标非空（turn 共栖污染被行级化拦截）', { conv: conversationId, msg: produced, aggregated: r.value.aggregatedTargets });
         }
         for (const next of nextHops) {
-          const list = (chainSourceMessageIds.get(next) ?? []).filter(id => id !== produced);
-          list.push(produced);
-          chainSourceMessageIds.set(next, list.slice(-8));
+          this.appendChainSource(chainSourceMessageIds, next, produced, conversationId);
         }
       }
     }
@@ -327,6 +325,25 @@ export class DispatchChainEngine {
       conversationId,
       otterId,
     });
+  }
+
+  /** F20260904schf 检视发现 1（mimo-reviewer）：链级出处追加 + 截尾观测。
+   *  多源追加不去重（A、B 都 yield C 时 C 名下两条触发消息各记一次）；
+   *  同目标重复 yield 只留最新产出（去重 + 截尾防膨胀）。截尾丢弃更早记账源时
+   *  warn（极端多源下被丢源将永远缺失消费义务销账，假 pending 风险，结构性修复挂 #798）。 */
+  private appendChainSource(
+    chainSourceMessageIds: Map<string, string[]>,
+    next: string,
+    produced: string,
+    conversationId: string,
+  ): void {
+    const list = (chainSourceMessageIds.get(next) ?? []).filter(id => id !== produced);
+    list.push(produced);
+    const trimmed = list.slice(-8);
+    if (trimmed.length < list.length) {
+      this.deps.logger.warn('[signal-ledger] 链级出处列表截尾，丢弃更早记账源', { conv: conversationId, next, kept: trimmed.length, dropped: list.length - trimmed.length });
+    }
+    chainSourceMessageIds.set(next, trimmed);
   }
 
   /** F20260904schf：读产出消息行级数据（otterReply 提取 + 行级出处共用的查库点）。

@@ -388,7 +388,8 @@ export class MessageController {
     }
 
     // Why: 通过 DispatchChainEngine 执行而非直接 invoke——
-    // 链引擎消费 aggregatedTargets 续跑发言链，直接 invoke 会丢弃 yield 传递目标（#332）
+    // 链引擎读产出消息行级 tsp 续跑发言链，直接 invoke 会丢弃 yield 传递目标（#332；
+    // F20260904schf 起链引擎不再消费 turn 级 aggregatedTargets）
     this.dispatchChainEngine.executeChain({
       conversationId,
       userMessageContent,
