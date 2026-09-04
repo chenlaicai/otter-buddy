@@ -2,8 +2,8 @@
  * F20260901sgpv（母方案 F20260901sgpx P1）：信号路由器。
  *
  * 职责：把「消息表里的信号」点火为 invoke——入口（web sendMessage / IM / resume
- * 补扫）的调度收敛点。路由动作由 DispatchChainEngine 承载（链引擎 hop 驱动的替代
- * 是 P2 的灰度战场），P1 的核心增量：
+ * 补扫 / scheduler·招聘直投 routeDirectSignal）的调度收敛点。路由动作由
+ * DispatchChainEngine 承载（链引擎 hop 驱动的替代是 P2 的灰度战场），P1 的核心增量：
  * ① pending 真相源 = 派发台账（F20260902sgp2 S2 起）：未消费信号 = 已投递 ∧
  *    无 (message,target) attempt 记录。v1 的「收件箱 = 游标视图」判据已退役
  *    （09-02 事故根因：未读 ≠ 待行动，F20260902rbsg）——已读游标回归上下文注入
@@ -14,11 +14,11 @@
  * ④ 消费失败可见：invoke 异常落 healing 台账（七刀之七——现状锁超时被 allSettled
  *    吞掉用户不可见，是「不可见的坏」）
  *
- * P1 边界（本 PR 不做，防调度双真相源竞态）：
- * - scheduler 入口仍走直连链（其信号为 system 发送者，路由器显式排除——system 信号
- *   入路由与 scheduler 直连并存会造成同一任务双重执行；scheduler 入口化在 P1 后续 PR）
- * - web retry 仍走直连链（需要 manualRetry/images 参数透传，与 scheduler 同批落地）
- * - URGENT 的 steer 直注入 / HALT 的 abort 物理停依赖打断决策协议，归 P3
+ * P1 边界的历史注记（#775 已消解）：原「scheduler/retry 入口仍走直连链」的边界在
+ * S3（retry，#768）与 #775（scheduler/招聘直投通道 routeDirectSignal）后已全部收窄——
+ * 五入口全部经路由器闸门+台账；system 排除防波堤随 S4a 判据清零删除
+ * （F20260902sgp2 修订，前提即本文件旧边界）。URGENT 的 steer 直注入 / HALT 的
+ * abort 物理停依赖打断决策协议，仍归 P3。
  */
 import type { Message } from "@entities/conversation/message";
 import type { DispatchAttemptRepo, PendingSignalRow } from "@entities/conversation/dispatch-attempt";
@@ -56,6 +56,14 @@ interface QueuedSignal {
   content: string;
   senderId: string;
   level: string;
+}
+
+/** #775 S4a：routeDirectSignal 无法进行执行时抛出——携带不可路由原因，scheduler 据此记 skipped（非 failed，不触发连败熔断）。gate 取值：调度闸门两态 / skipped_no_signal（消息已删）/ skipped_inactive（目标不可路由） */
+export class DirectChainGatedError extends Error {
+  constructor(public readonly gate: "skipped_halted" | "skipped_rate_limited" | "skipped_no_signal" | "skipped_inactive" | "skipped_no_target") {
+    super(`调度闸门/不可路由拦截：${gate}`);
+    this.name = "DirectChainGatedError";
+  }
 }
 
 /** 去抖重扫窗口：invoke 结束后等待迟到的信号写入事务提交（母方案 §2 竞态兜底，50ms 语义） */
@@ -119,6 +127,49 @@ export class SignalRouter {
       dispatchAttemptRepo: DispatchAttemptRepo;
     },
   ) {}
+
+  /**
+   * #775 S4a 真换轨：scheduler·招聘直投通道（原点独占点火权）。
+   *
+   * Why 不走 routePendingSignals：行动类 system 消息落库后、链引擎记账前存在扫描
+   * 窗口（判据清零后 system 带 tsp 消息对路由器可见），常规路由会产生「入口
+   * 直连派发 + 路由器重复点火」的双跑面——入口必须从原点独占点火权，路由器
+   * 只服务「重启后无主信号」的补扫（彼时执行记录已判死，无并发写者，恢复台账判据安全）。
+   *
+   * 闸门与 busyQueue 语义与 routeTarget 完全一致：用户 halt / 限流熔断期间信号保留
+   * （本方法抛 DirectChainGatedError，调用方记 skipped 不触发熔断）；busy 目标入队消化。
+   * 等待链 settle 是调用方（scheduler watchExecutionByLedger）的职责——路由器只管点火。
+   *
+   * @param messageId 触发消息 ID（= scheduler anchor，点火即记账的账面键）
+   * @throws DirectChainGatedError 闸门拦截/消息缺失/目标不可路由——调用方记 skipped
+   */
+  async routeDirectSignal(conversationId: string, messageId: string, otterId: string): Promise<"invoked" | "queued_busy"> {
+    const signal = await this.loadSignalMessage(messageId);
+    if (!signal) {
+      // 消息已删等脏数据：执行无从进行，按 skipped 记账（返回会让调用方空转等待）
+      this.deps.logger.warn("[signal-router] 直投信号消息缺失", { conversationId, messageId });
+      throw new DirectChainGatedError("skipped_no_signal");
+    }
+    const gate = await this.checkDispatchGates(conversationId);
+    if (gate === "skipped_halted" || gate === "skipped_rate_limited") {
+      throw new DirectChainGatedError(gate);
+    }
+    // 直投也是路由器点火：source 标 'router'（账面可审计，S2 标签失真修复）。
+    // retry 态理论不可达——直投不走 retry 源；防御归入不可路由，按 skipped 记账
+    const action = await this.routeTarget(conversationId, otterId, signal, "router");
+    switch (action) {
+      case "invoked":
+      case "queued_busy":
+        return action;
+      case "retry_gated":
+      case "retry_invoked":
+        // retry 态理论不可达——直投不走 retry 源；防御归入不可路由，按 skipped 记账
+        throw new DirectChainGatedError("skipped_no_target");
+      default:
+        // 目标已解散等不可路由态：执行无从进行，按 skipped 记账（原因即 action）
+        throw new DirectChainGatedError(action);
+    }
+  }
 
   /**
    * 路由一个会话内的未消费信号。
@@ -312,7 +363,7 @@ export class SignalRouter {
    * | URGENT  | 点火 invoke              | 入 busyQueue（同上；steer 归 P3） |
    * | HALT    | 点火 invoke（处理停机请求）| 大獭：入 busyQueue 优先消化；小獭：丢弃 + healing 留痕 |
    */
-  private async routeTarget(conversationId: string, targetId: string, signal: Message, source: "chain" | "retry" = "chain"): Promise<RouteAction> {
+  private async routeTarget(conversationId: string, targetId: string, signal: Message, source: "chain" | "retry" | "router" = "chain"): Promise<RouteAction> {
     const level = (signal.signalLevel ?? "NORMAL").toUpperCase();
     const otter = await this.deps.queryOtter.getById(targetId).catch(() => null);
     // F20260903damp：dissolved 目标不点火——getById 不过滤 status（sqlite-otter-repository
@@ -385,6 +436,25 @@ export class SignalRouter {
    *        链引擎 recordStart 对同 (message,target) INSERT OR REPLACE 覆盖（幂等），
    *        settle 终态由链按 triggerMessageId 落；链整体抛错时由本方法 catch 兜底 failed。
    */
+  /** 点火即记账（in_progress）：从 invokeTarget 提取（complexity 拆分），语义不变 */
+  private recordRouterStart(conversationId: string, otterId: string, triggerMessageId: string, source: "chain" | "router" | "retry"): void {
+    try {
+      this.deps.dispatchAttemptRepo.recordStart({
+        id: crypto.randomUUID(),
+        conversationId,
+        messageId: triggerMessageId,
+        targetOtterId: otterId,
+        status: "in_progress",
+        source,
+        attemptStartedAt: new Date().toISOString(),
+        note: null,
+      });
+      this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: triggerMessageId, otter: otterId, status: 'in_progress', source });
+    } catch (e) {
+      this.deps.logger.warn('[signal-ledger] 路由器点火记账失败（不影响链路）', { conversationId, messageId: triggerMessageId, otterId, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
   private invokeTarget(conversationId: string, otterId: string, content: string, senderId: string, ledger?: { triggerMessageId: string; source: "chain" | "router" | "retry" }): "invoked" {
     const key = `${conversationId}:${otterId}`;
     if (this.inFlight.has(key)) return "invoked"; // 去抖窗口内的重复触发，静默合并
@@ -394,23 +464,7 @@ export class SignalRouter {
       // 点火即记账（in_progress 即非 pending）：写入义务收敛在点火原点，
       // 不随链引擎参数传递的完整性而变。失败仅日志（台账不阻断链路，硬约束 1）。
       const triggerMessageId = ledger?.triggerMessageId;
-      if (triggerMessageId) {
-        try {
-          this.deps.dispatchAttemptRepo.recordStart({
-            id: crypto.randomUUID(),
-            conversationId,
-            messageId: triggerMessageId,
-            targetOtterId: otterId,
-            status: "in_progress",
-            source: ledger.source,
-            attemptStartedAt: new Date().toISOString(),
-            note: null,
-          });
-          this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: triggerMessageId, otter: otterId, status: 'in_progress', source: ledger.source });
-        } catch (e) {
-          this.deps.logger.warn('[signal-ledger] 路由器点火记账失败（不影响链路）', { conversationId, messageId: triggerMessageId, otterId, error: e instanceof Error ? e.message : String(e) });
-        }
-      }
+      if (triggerMessageId) this.recordRouterStart(conversationId, otterId, triggerMessageId, ledger.source);
       try {
         await this.deps.dispatchChainEngine.executeChain({
           conversationId,
@@ -419,6 +473,9 @@ export class SignalRouter {
           initialTargets: [otterId],
           invokeFn: (params) => this.deps.invokeFn(params),
           triggerMessageId,
+          // #775：账面来源穿透——链引擎 recordStart 会覆写路由器预写行，不穿透则
+          // 终态行恒标 'chain'（S2 观察期发现的标签失真：路由器点火无法从终态行审计）
+          ledgerSource: ledger?.source ?? "chain",
         });
       } catch (err) {
         // 消费失败可见性（七刀之七）：healing 留痕（消息终态由链/orchestrator 侧管理）

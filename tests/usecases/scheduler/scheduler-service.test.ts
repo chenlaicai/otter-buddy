@@ -11,6 +11,7 @@ import { DomainError } from '@entities/errors';
 import { SessionLockConflictError } from '@entities/errors';
 import type { Logger } from '@usecases/ports/logger';
 import type { DispatchChainEngine } from '@usecases/conversation/dispatch-chain-engine';
+import { DirectChainGatedError } from '@usecases/conversation/signal-router';
 
 // ─── 辅助工具 ─────────────────────────────────────────────
 
@@ -129,6 +130,7 @@ function createMockTaskRepo() {
     }),
     getExecutions: vi.fn(async () => []),
     getExecutionCount: vi.fn(async () => 0),
+    failAllRunningExecutions: vi.fn(async () => 0),
   };
 }
 
@@ -2435,5 +2437,178 @@ describe('#654: session 锁冲突记 skipped（非 failed），不计 consecutiv
     expect(statuses).toEqual(['failed', 'failed', 'failed']);
     expect(taskRepo._getFailureCount()).toBe(3);
     expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #775 S4a：scheduler 换轨（routeDirectSignal 直投 + 执行级台账看门狗 + 闸门 skipped）
+// ─────────────────────────────────────────────────────────────────────────────
+describe('#775 S4a: scheduler 换轨', () => {
+  function makeSwappedService(opts: {
+    taskRepo: ReturnType<typeof createMockTaskRepo>;
+    convRepo: ReturnType<typeof createMockConvRepo>;
+    sendMessage: ReturnType<typeof createMockSendMessage>;
+    agentInvoke: ReturnType<typeof createMockAgentInvoke>;
+    router: { routeDirectSignal: ReturnType<typeof vi.fn>; watchHint?: string };
+    dispatchAttemptRepo?: { allAnchorAttemptsSettled: (id: string) => boolean };
+  }) {
+    const nextTime = new Date('2025-06-15T09:00:00.000Z');
+    return new SchedulerService({
+      taskRepo: opts.taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: opts.convRepo as unknown as ConversationRepository,
+      sendMessage: opts.sendMessage as unknown as SendMessage,
+      agentInvokePort: opts.agentInvoke as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(nextTime) as unknown as CronParser,
+      logger: mockLogger,
+      dispatchAttemptRepo: opts.dispatchAttemptRepo as never,
+      signalRouter: opts.router as never,
+    });
+  }
+
+  function seedReadyTask(taskRepo: ReturnType<typeof createMockTaskRepo>, convRepo: ReturnType<typeof createMockConvRepo>): void {
+    taskRepo._store.set('task-1', makeTask());
+    convRepo._addConversation('conv-1', { status: 'active' });
+  }
+
+  it('A1 换轨生效：trigger 走 routeDirectSignal（不再直连 executeChain/agentInvokePort）', async () => {
+    vi.useFakeTimers();
+    try {
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendMessage = createMockSendMessage();
+      const agentInvoke = createMockAgentInvoke();
+      const routeDirectSignal = vi.fn().mockResolvedValue('invoked');
+      seedReadyTask(taskRepo, convRepo);
+
+      const service = makeSwappedService({
+        taskRepo, convRepo, sendMessage, agentInvoke,
+        router: { routeDirectSignal },
+        // 看门狗首轮轮询即判收工（attempt 全终态）
+        dispatchAttemptRepo: { allAnchorAttemptsSettled: () => true },
+      });
+
+      const triggerPromise = service.trigger('task-1');
+      // 推进看门狗首轮 15s 轮询 sleep（watchExecutionByLedger 先 sleep 后查台账）
+      await vi.advanceTimersByTimeAsync(15_000);
+      const result = await triggerPromise;
+      expect(result.executionId).toBeTruthy();
+      expect(routeDirectSignal.mock.calls).toHaveLength(1);
+      expect(routeDirectSignal.mock.calls[0][0]).toBe('conv-1');
+      // 目标 = tsp[0]（第三参数）
+      expect(routeDirectSignal.mock.calls[0][2]).toBe('otter-1');
+      const execution = taskRepo._executions.get(result.executionId);
+      expect(execution?.status).toBe('completed');
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 15_000);
+
+  it('A1b 看门狗真实行为：无行（busy 排队中）保守续期 → 行出现后收敛 completed（检视发现3）', async () => {
+    vi.useFakeTimers();
+    try {
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendMessage = createMockSendMessage();
+      const agentInvoke = createMockAgentInvoke();
+      const routeDirectSignal = vi.fn().mockResolvedValue('queued_busy');
+      seedReadyTask(taskRepo, convRepo);
+
+      // 真实状态机模拟 busy 排队：前 2 轮无行（undefined→false 均保守续期），
+      // 第 3 轮起 attempt 行落终态（目标 idle 后 debounce 重扫消化）→ 收敛
+      let pollCount = 0;
+      const dispatchAttemptRepo = {
+        allAnchorAttemptsSettled: () => {
+          pollCount++;
+          return pollCount >= 3; // 前 2 轮未收敛（false=在途/undefined=无行同语义），第 3 轮收工
+        },
+      };
+
+      const service = makeSwappedService({
+        taskRepo, convRepo, sendMessage, agentInvoke,
+        router: { routeDirectSignal },
+        dispatchAttemptRepo,
+      });
+
+      const triggerPromise = service.trigger('task-1');
+      await vi.advanceTimersByTimeAsync(15_000); // 轮1：无行 → 续期
+      await vi.advanceTimersByTimeAsync(15_000); // 轮2：仍无行 → 续期
+      await vi.advanceTimersByTimeAsync(15_000); // 轮3：行已终态 → 收工
+      const result = await triggerPromise;
+
+      expect(routeDirectSignal.mock.calls).toHaveLength(1);
+      expect(pollCount).toBe(3); // 证明真的轮询了 3 轮而非首轮即返回
+      const execution = taskRepo._executions.get(result.executionId);
+      expect(execution?.status).toBe('completed');
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 15_000);
+
+  it('A1c 看门狗硬上限：allAnchorAttemptsSettled 恒 false → 24h 后抛 timeout（防死等）', async () => {
+    vi.useFakeTimers();
+    try {
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendMessage = createMockSendMessage();
+      const agentInvoke = createMockAgentInvoke();
+      const routeDirectSignal = vi.fn().mockResolvedValue('invoked');
+      seedReadyTask(taskRepo, convRepo);
+
+      const service = makeSwappedService({
+        taskRepo, convRepo, sendMessage, agentInvoke,
+        router: { routeDirectSignal },
+        dispatchAttemptRepo: { allAnchorAttemptsSettled: () => false }, // 永远在途（病态）
+      });
+
+      const triggerPromise = service.trigger('task-1');
+      // 先预挂 rejection handler 再推进时间：fake timers 推进期间 rejection 若落地时
+      // 无 handler 会被 vitest 记为 Unhandled Rejection（CI 慢机放大窗口，02:39 实证）
+      const expectation = expect(triggerPromise).rejects.toThrowError(/hard limit/);
+      // 分段推进避免单次推进过大的边界问题（vi 对超大步长支持不稳）
+      for (let i = 0; i < 24; i++) {
+        await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+      }
+      await expectation;
+      // 失败记账：非闸门错误 → 走 failure 记账 + 连败
+      const execution = Array.from(taskRepo._executions.values())[0];
+      expect(execution?.status).toBe('failed');
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 15_000);
+
+  it('A2 闸门拦截（DirectChainGatedError）→ execution 记 skipped、不 increment 连败', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const routeDirectSignal = vi.fn().mockRejectedValue(
+      new DirectChainGatedError('skipped_halted'),
+    );
+    seedReadyTask(taskRepo, convRepo);
+
+    const service = makeSwappedService({
+      taskRepo, convRepo, sendMessage, agentInvoke,
+      router: { routeDirectSignal },
+    });
+
+    await expect(service.trigger('task-1')).rejects.toThrowError(DirectChainGatedError);
+    const execution = Array.from(taskRepo._executions.values())[0];
+    expect(execution?.status).toBe('skipped');
+    expect(taskRepo._getFailureCount()).toBe(0); // 不触发连败熔断
+  });
+
+  it('A3 启动对账：start() 把僵尸 running 执行翻篇为 failed', async () => {
+    const taskRepo = createMockTaskRepo();
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: createMockConvRepo() as unknown as ConversationRepository,
+      sendMessage: createMockSendMessage() as unknown as SendMessage,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(new Date('2025-06-15T09:00:00.000Z')) as unknown as CronParser,
+      logger: mockLogger,
+    });
+    await service.start();
+    expect(taskRepo.failAllRunningExecutions.mock.calls).toHaveLength(1);
   });
 });

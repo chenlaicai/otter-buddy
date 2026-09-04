@@ -27,6 +27,7 @@ function makeMsg(overrides: Partial<Message> = {}): Message {
 
 function makeMocks() {
   const updateLastReadTurnNumber = vi.fn().mockResolvedValue(undefined);
+  const updateLastReadSeq = vi.fn();
   const updateLastActiveTurnNumber = vi.fn().mockResolvedValue(undefined);
   const getTurnById = vi.fn().mockResolvedValue(makeTurn());
   const getMessageById = vi.fn().mockResolvedValue(makeMsg());
@@ -37,7 +38,7 @@ function makeMocks() {
     getActiveParticipants: vi.fn().mockResolvedValue([]),
     getUnreadMessages: vi.fn().mockResolvedValue([]),
     getMaxTurnNumber: vi.fn().mockResolvedValue(0),
-    getTurnById, updateLastReadTurnNumber, updateLastActiveTurnNumber, getLastMessageBySender,
+    getTurnById, updateLastReadTurnNumber, updateLastReadSeq, updateLastActiveTurnNumber, getLastMessageBySender,
     getActiveTurn, getMessageById,
     getParticipant: vi.fn().mockResolvedValue(null),
   } as unknown as ConversationRepository;
@@ -47,7 +48,7 @@ function makeMocks() {
   const queryOtter = { getById: vi.fn().mockResolvedValue(null) } as unknown as QueryOtter;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger;
 
-  return { sendMessage, conversationRepo, queryMessage, queryOtter, logger, updateLastReadTurnNumber, updateLastActiveTurnNumber, getTurnById, getMessageById, getLastMessageBySender, getActiveTurn, getMaxTurnNumber: conversationRepo.getMaxTurnNumber as ReturnType<typeof vi.fn> };
+  return { sendMessage, conversationRepo, queryMessage, queryOtter, logger, updateLastReadTurnNumber, updateLastReadSeq, updateLastActiveTurnNumber, getTurnById, getMessageById, getLastMessageBySender, getActiveTurn, getMaxTurnNumber: conversationRepo.getMaxTurnNumber as ReturnType<typeof vi.fn> };
 }
 
 /** 提取 mock 首次调用的参数（避免 toHaveBeenCalledWith 绑定实现细节的 lint 规则） */
@@ -69,10 +70,12 @@ describe("DispatchChainEngine markBatchRead（F20260803trrf: 时序修复）", (
     /** 核心修复点：不依赖 getActiveTurn（turn 已关闭返回 null） */
     expect(m.getActiveTurn).not.toHaveBeenCalled();
     expect(m.getTurnById).toHaveBeenCalled();
-    expect(m.updateLastReadTurnNumber).toHaveBeenCalled();
-    const [convId, otterId, turnNum] = firstCallArgs(m.updateLastReadTurnNumber);
-    expect([convId, otterId, turnNum]).toEqual(["conv-1", "otter-1", 5]);
-    // F20260819idnw: 小獭发言时同时更新 lastActiveTurnNumber
+    // #775 停写旧列：游标只写 seq 刻度，旧 turn 刻度冻结（观察项①收尾）
+    expect(m.updateLastReadTurnNumber).not.toHaveBeenCalled();
+    expect(m.updateLastReadSeq).toHaveBeenCalled();
+    const [convId, otterId, seq] = firstCallArgs(m.updateLastReadSeq);
+    expect([convId, otterId, seq]).toEqual(["conv-1", "otter-1", 1]); // makeMsg 默认 sequenceNum=1
+    // F20260819idnw: 小獭发言时同时更新 lastActiveTurnNumber（turn 刻度，与游标无关）
     expect(m.updateLastActiveTurnNumber).toHaveBeenCalled();
     const [aConvId, aOtterId, aTurnNum] = firstCallArgs(m.updateLastActiveTurnNumber);
     expect([aConvId, aOtterId, aTurnNum]).toEqual(["conv-1", "otter-1", 5]);
@@ -91,7 +94,8 @@ describe("DispatchChainEngine markBatchRead（F20260803trrf: 时序修复）", (
     expect(m.getLastMessageBySender).toHaveBeenCalled();
     const [rConvId, rOtterId] = firstCallArgs(m.getLastMessageBySender);
     expect([rConvId, rOtterId]).toEqual(["conv-1", "otter-1"]);
-    expect(m.updateLastReadTurnNumber).toHaveBeenCalled();
+    // #775 停写旧列：rejected 路径同样只推进 seq 游标
+    expect(m.updateLastReadSeq).toHaveBeenCalled();
   });
 
   it("getTurnById 返回 null 时不推进（防御性）", async () => {
@@ -106,9 +110,10 @@ describe("DispatchChainEngine markBatchRead（F20260803trrf: 时序修复）", (
     });
 
     expect(m.updateLastReadTurnNumber).not.toHaveBeenCalled();
+    expect(m.updateLastReadSeq).not.toHaveBeenCalled();
   });
 
-  it("多 targets：各自 last_read 独立推进到自己的 turn", async () => {
+  it("多 targets：各自 last_read 独立推进到自己的消息 seq（#775 刻度语义）", async () => {
     const m = makeMocks();
     m.getMessageById.mockImplementation(async (id: string) => {
       if (id === "m-1") return makeMsg({ id: "m-1", senderId: "otter-1", turnId: "turn-1" });
@@ -128,11 +133,11 @@ describe("DispatchChainEngine markBatchRead（F20260803trrf: 时序修复）", (
       invokeFn: async ({ otterId }) => ({ messageId: otterId === "otter-1" ? "m-1" : "m-2" }),
     });
 
-    const calls = m.updateLastReadTurnNumber.mock.calls as Array<[string, string, number]>;
+    const calls = m.updateLastReadSeq.mock.calls as Array<[string, string, number]>;
     expect(calls).toHaveLength(2);
-    const byOtter = new Map(calls.map(([, otterId, turnNum]) => [otterId, turnNum]));
-    expect(byOtter.get("otter-1")).toBe(5);
-    expect(byOtter.get("otter-2")).toBe(7);
+    const byOtter = new Map(calls.map(([, otterId, seq]) => [otterId, seq]));
+    expect(byOtter.get("otter-1")).toBe(1);
+    expect(byOtter.get("otter-2")).toBe(1);
   });
 });
 

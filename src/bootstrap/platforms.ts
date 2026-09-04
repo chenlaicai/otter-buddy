@@ -513,7 +513,7 @@ export function ensureWeixinConfig(opts: { configPath?: string; stateDir?: strin
 }
 
 export async function initPlatforms(options: { appConfig: AppConfig; repos: Repositories; uc: UseCases; agentInvoker: AgentInvoker; dispatchChainEngine: DispatchChainEngine; messageBroadcaster: MessageBroadcaster; logger: Logger; signalRouter?: SignalRouter }): Promise<PlatformBootstrapResult> {
-  const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, logger } = options;
+  const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, logger, signalRouter } = options;
   const healingInit = ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, otterRepo: repos.otter, settings: repos.settings, sendMessage: uc.sendMessage, logger })
     .then(({ conversationId, bigOtterId }) => ensureHealingScheduler({ manageScheduledTask: uc.manageScheduledTask, scheduledTaskRepo: repos.scheduledTask, healingConversationId: conversationId, bigOtterId }))
     .then(() => undefined)
@@ -532,6 +532,8 @@ export async function initPlatforms(options: { appConfig: AppConfig; repos: Repo
       dispatchChainEngine,
       agentInvoker,
       logger,
+      // #775 S4a：招聘入口换轨——过闸门+台账（未注入回退直连链）
+      signalRouter,
     );
     getBridgeStatus = new GetBridgeStatus(repos.settings);
     recruitingInit = ensureRecruitingConversation({

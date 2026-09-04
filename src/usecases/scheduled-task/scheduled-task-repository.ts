@@ -29,6 +29,9 @@ export interface ScheduledTaskRepository {
 
   // 执行记录
   createExecution(execution: ScheduledTaskExecution): Promise<void>;
+  /** #775：启动对账——进程内不可能有存活的 running 执行跨越重启，全部翻篇为 failed。
+   *  @returns 翻篇行数（日志可见）。先例：markStaleInProgressFailed（台账死亡证明）同款语义。 */
+  failAllRunningExecutions(): Promise<number>;
   updateExecutionStatus(
     id: string,
     updates: {

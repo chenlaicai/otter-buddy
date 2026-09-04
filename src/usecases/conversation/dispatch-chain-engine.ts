@@ -92,6 +92,11 @@ export class DispatchChainEngine {
        *  缺省时 S1 仅跳过首 hop 记账并打点日志（链路行为零变化，硬约束 1）。
        *  hop 2+ 的记账用 yield 出处消息 ID（InvokeFnResult.messageId），与此参数无关。 */
       triggerMessageId?: string;
+      /** #775：台账账面来源（穿透到首 hop 记账行，默认 'chain'）。
+       *  Why 必须穿透：路由器点火（常规扫描/直投）的记账原点在路由器，但 INSERT 后
+       *  立刻被链引擎 recordStart INSERT OR REPLACE 覆写——source 不穿透则终态行
+       *  恒为 'chain'，S2 观察期发现「路由器点火无法从终态行审计」的标签失真即此。 */
+      ledgerSource?: "chain" | "router" | "retry";
     },
   ): Promise<{ otterReply?: string }> {
     return runWithTrace({ traceId: newTraceId(), source: "chain" }, () => this.executeChainInner(params));
@@ -109,9 +114,11 @@ export class DispatchChainEngine {
       images?: Array<{ type: "image"; data: string; mimeType: string }>;
       /** F20260902sgp2 S1：触发消息 ID（首 hop 记账） */
       triggerMessageId?: string;
+      /** #775：台账账面来源（穿透到首 hop 记账行，缺省 'chain'） */
+      ledgerSource?: "chain" | "router" | "retry";
     },
   ): Promise<{ otterReply?: string }> {
-    const { conversationId, userMessageContent, senderId, initialTargets, invokeFn, callbacks, images, triggerMessageId } = params;
+    const { conversationId, userMessageContent, senderId, initialTargets, invokeFn, callbacks, images, triggerMessageId, ledgerSource } = params;
     let targets = initialTargets;
     let depth = 0;
     let lastOtterReply: string | undefined;
@@ -135,6 +142,7 @@ export class DispatchChainEngine {
       const result = await this.executeOneHop({
         conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder,
         triggerMessageId: depth === 1 ? triggerMessageId : undefined,
+        ledgerSource,
         chainSourceMessageIds,
       });
       lastOtterReply = result.otterReply ?? lastOtterReply;
@@ -167,16 +175,18 @@ export class DispatchChainEngine {
     stopWordReminder?: string | null;
     /** F20260902sgp2 S1：触发消息 ID（仅首 hop 传入；hop 2+ 的记账用 yield 出处 messageId） */
     triggerMessageId?: string;
+    /** #775：台账账面来源（穿透到记账行；缺省 'chain'——S2 标签失真修复） */
+    ledgerSource?: "chain" | "router" | "retry";
     /** F20260902sgp2 hop 取源修复：链级 target → yield 出处列表（跨 hop 存活，修复局部 Map 回填即丢的 bug） */
     chainSourceMessageIds?: Map<string, string[]>;
   }): Promise<ChainHopResult> {
-    const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder, triggerMessageId, chainSourceMessageIds } = params;
+    const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder, triggerMessageId, ledgerSource, chainSourceMessageIds } = params;
     const roster = await this.buildRoster(conversationId, senderId);
 
     const promises = targets.map(async otterId => {
       // F20260902sgp2 S1：起跑记账（§4.2）——失败仅日志，绝不阻断链路（硬约束 1）。
       // hop 取源修复：hop 2+ 从链级多源列表取全部触发消息（一条 per (msg,target) 记账）
-      this.recordAttemptStart(conversationId, otterId, triggerMessageId, chainSourceMessageIds?.get(otterId));
+      this.recordAttemptStart(conversationId, otterId, triggerMessageId, chainSourceMessageIds?.get(otterId), ledgerSource);
       let messageWithContext = await this.buildMessageWithContext(
         conversationId, otterId, userMessageContent, senderId, roster
       );
@@ -220,6 +230,7 @@ export class DispatchChainEngine {
     target: string,
     triggerMessageId: string | undefined,
     chainSourceMessageIds: string[] | undefined,
+    ledgerSource: "chain" | "router" | "retry" = "chain",
   ): void {
     // hop 取源修复：首 hop 用 triggerMessageId；hop 2+ 用链级多源列表——
     // A、B 同 hop 都 yield 给 C 时，C 需为每条触发消息各记一条 attempt（消费义务逐条销账）
@@ -233,11 +244,11 @@ export class DispatchChainEngine {
           messageId: ledgerMsgId,
           targetOtterId: target,
           status: "in_progress",
-          source: "chain",
+          source: ledgerSource,
           attemptStartedAt: new Date().toISOString(),
           note: null,
         });
-        this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: ledgerMsgId, otter: target, status: 'in_progress', source: 'chain' });
+        this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: ledgerMsgId, otter: target, status: 'in_progress', source: ledgerSource });
       } catch (e) {
         this.deps.logger.warn('[signal-ledger] 起跑记账失败（不影响链路）', { conversationId, messageId: ledgerMsgId, otterId: target, error: e instanceof Error ? e.message : String(e) });
       }
@@ -541,9 +552,10 @@ export class DispatchChainEngine {
       if (!msg) continue;
       const turn = await this.deps.conversationRepo.getTurnById(msg.turnId);
       if (!turn) continue;
-      await this.deps.conversationRepo.updateLastReadTurnNumber(conversationId, msg.senderId, turn.turnNumber);
-      // F20260902sgp2 S4c：游标 seq 双写（新刻度）——推进到本条消息自己的 sequence_num。
-      // 双写期间旧列（last_read_turn_number）保持原语义，读路径按 NULL 回退旧刻度。
+      // #775：停写旧列（观察项①收尾）——seq 刻度已是唯一写入刻度，旧 turn 刻度冻结在
+      // backfill 值作历史快照。Why 不删调用方接口：updateLastActiveTurnNumber（发言活跃度）
+      // 仍用 turn 刻度，与游标无关；读路径 NULL 回退保留（防御极端脏数据，非功能依赖）。
+      // F20260902sgp2 S4c：游标 seq 写入（唯一刻度）。
       if (this.deps.conversationRepo.updateLastReadSeq) {
         this.deps.conversationRepo.updateLastReadSeq(conversationId, msg.senderId, msg.sequenceNum);
       }

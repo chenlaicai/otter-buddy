@@ -185,6 +185,21 @@ export function updateLastReadTurnNumber(
 
 /** F20260902sgp2 S4c：游标 seq 双写（新刻度）。NULL 安全：last_read_seq 列可空，
  *  首次写入直接设值；回滚面 = 旧列 last_read_turn_number 未动，读路径按 NULL 回退。 */
+/** #775：seq 刻度存量回填（一次性，停写旧列的前置）。以同会话最大 sequence_num 为
+ *  基线回填 last_read_seq=NULL 的行——「读到最新」是双写过渡期 NULL 行的事实状态
+ *  （这些行从未走过新路径，若回填 0 会把全部历史当未读，属 rbsg 形态误判）。
+ *  幂等：只更新 NULL 行；回滚面 = 回填值与旧列独立，读路径 NULL 回退逻辑保留。 */
+export function backfillLastReadSeq(db: Database.Database): number {
+  const result = db.prepare(`
+    UPDATE conversation_participants
+    SET last_read_seq = (
+      SELECT COALESCE(MAX(m.sequence_num), 0) FROM messages m WHERE m.conversation_id = conversation_participants.conversation_id
+    )
+    WHERE last_read_seq IS NULL
+  `).run();
+  return result.changes;
+}
+
 export function updateLastReadSeq(
   db: Database.Database,
   conversationId: string,

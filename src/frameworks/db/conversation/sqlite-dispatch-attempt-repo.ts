@@ -67,7 +67,9 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
     // ① 删除 sender_type != 'system'：消息就是消息，tsp（yield）才是触发信号。
     //    scheduler/招聘的行动类 system 消息（带 tsp 点名獭）与其他消息同一语义；
     //    纯通知类（进场/恢复/警告）无 tsp，天然落在判据之外，无需排除。
-    //    前提：#744 换轨后 scheduler/招聘入口已进闸门体系，无双重执行。
+    //    前提：#775 S4a 换轨后 scheduler/招聘入口经 routeDirectSignal 进闸门体系（原点独占
+    //    点火权），补扫仅服务重启后无主信号，无双重执行。（注：本注释曾误引 #744——那是
+    //    S2 web/IM 换轨，不含 scheduler；09-04 审查纠正，见 issue #775。）
     // ② 自指排除精确化：仅 otter 发言者排除自指（防獭 yield 自己的自链病态）——
     //    system 消息的 sender_id 是技术归属（'system' / 任务标识），非语义发言者。
     const where = `

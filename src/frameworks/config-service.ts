@@ -6,6 +6,10 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { parseDocument } from "yaml";
+// 双 YAML 库并存说明（#391 审视采纳）：js-yaml 仅用于读路径（loadConfig/validate），
+// 写路径 updateDefaultModelInYaml 用 yaml 包 parseDocument 保留注释——js-yaml 无此 API。
+// 两库对 config.yaml 解析结果逐字段一致（检视獭独立验证）；收敛到单库需另开 issue 评估，暂不动读路径。
 import * as yaml from "js-yaml";
 import type { Logger } from "@usecases/ports/logger";
 
@@ -159,13 +163,22 @@ export function updateDefaultModelInYaml(
     throw new Error(`模型别名 "${alias}" 不存在于 config.yaml models[] 中`);
   }
 
-  const raw = yaml.load(fs.readFileSync(configPath, "utf8")) as RawConfig;
-  if (!raw.llm) raw.llm = {};
+  // Why: parseDocument 而非 yaml.load+dump（#391）——config.yaml 有 52 行注释（约占 40%），
+  // dump 序列化会全部丢失，parseDocument 的 Document 模型保留源注释。
+  // lineWidth: 0 禁止长行折行、flowCollectionPadding: false 保持 flow 序列原格式（["a"] 不变 [ "a" ]），
+  // 对齐原 dump lineWidth: -1 的最小 diff 语义：round-trip 后与变更无关的行逐字节不变。
+  // 此处用 yaml 包（eemeli/yaml）的 parseDocument；js-yaml 仅 loadConfig 读路径继续使用，
+  // 避免扩大解析行为变化面。
+  const doc = parseDocument(fs.readFileSync(configPath, "utf8"));
+  if (doc.errors.length > 0) {
+    throw new Error(`config.yaml 解析失败: ${doc.errors[0]?.message ?? "unknown error"}`);
+  }
 
-  if (raw.llm.default === alias) return; // 无需更新
+  if (doc.getIn(["llm", "default"]) === alias) return; // 无需更新
 
-  raw.llm.default = alias;
-  const content = yaml.dump(raw, { lineWidth: -1, noRefs: true });
+  // setIn 在 llm 块缺失时自动创建中间节点，对齐原 `if (!raw.llm) raw.llm = {}` 语义
+  doc.setIn(["llm", "default"], alias);
+  const content = doc.toString({ lineWidth: 0, flowCollectionPadding: false });
 
   // Why: write-to-temp + rename —— rename 在同文件系统下是原子的，
   // 避免 truncate+write 模式下进程崩溃导致配置文件损坏
