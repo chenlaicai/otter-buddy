@@ -1,7 +1,7 @@
 ---
 id: F20260904cq30
 title: 上下文质量主线：compaction 触发线 300K（质量优先阈值修正）
-summary: pi compaction 触发线从"贴窗才压"（1M−16K=1016K）修正为 300K 质量线，修正 9/1 #643 之后上下文防线真空区导致的 session 无限膨胀与 LLM 表现退化。
+summary: pi compaction 触发线从"贴窗才压"（1048576−16384≈1032K）修正为 300K 质量线，修正 9/1 #643 之后上下文防线真空区导致的 session 无限膨胀与 LLM 表现退化。
 change_type: fix
 created_in_conversation: 7b5a13fc-5d21-4977-bec2-68fc1da24ae7
 tags: [context-quality, compaction, threshold, long-context, observability]
@@ -18,15 +18,15 @@ supersedes: []
 
 排查结论（2026-09-04，对话《系统优化》）：
 
-1. **表现退化与上下文规模强相关**。messages.context_tokens 全量数据：大獭 8/28-9/1 均值 60-73K（好体验区，搭档「聪明利索」体感）→ 9/2 均值 114K → 9/3 均值 261K、峰值 743K、80 条消息超 300K（退化区，搭档连续生气）。
-2. **膨胀机制**：9/1 10:52 #643（F20260901cxmw）将 handoff 阈值从「128K 一刀切占位」修复为「按模型真实窗口×0.7」——修复方向正确，但 config 中 glm/mimo 窗口均配 1M，阈值跳至 737K。9/3 #770（F20260903cmpk）退役 70% handoff 后，唯一活着的防线是 pi compaction（窗口−reserve=1016K）。**质量拐点（~100-300K）到 1016K 之间成为无人区**，session 无限膨胀、零压缩。《对话中invoke机制》大獭 session（01a05fbe）实测：9/2 早 29K → 9/4 凌晨 538K，1054 次工具调用堆积 1.6M 字符（bash 占 950K）。
+1. **表现退化与上下文规模强相关**。messages.context_tokens 全量数据：大獭 8/28-9/1 均值 60-73K（好体验区，搭档「聪明利索」体感）→ 9/2 均值 114K → 9/3 均值 266K、峰值 743K、80 条消息超 300K（退化区，搭档连续生气）。
+2. **膨胀机制**：9/1 10:52 #643（F20260901cxmw）将 handoff 阈值从「128K 一刀切占位」修复为「按模型真实窗口×0.7」——修复方向正确，但 config 中 glm/mimo 窗口均配 1M，阈值跳至 737K。9/3 #770（F20260903cmpk）退役 70% handoff 后，唯一活着的防线是 pi compaction（窗口−reserve：1048576−16384=1032192≈1032K）。**质量拐点（~100-300K）到 1032K 之间成为无人区**，session 无限膨胀、零压缩。《对话中invoke机制》大獭 session（01a05fbe）实测：9/2 早 29K → 9/4 凌晨 538K，1054 次工具调用堆积 1.6M 字符（bash 占 950K）。
 3. 长上下文退化为当前代 LLM 的机制本质（注意力 softmax 稀释 + lost-in-the-middle），KV cache 只省成本不救质量。物理窗口是油箱，不是工作区。
 
 同主线兄弟 issue：#776（bash→grep/find/ls 专用工具，削减膨胀源头）、#779（历史图片外置，消灭 97% 体积的图片堆积）。本 issue（#780）解决「膨胀后何时压」。
 
 ## 目标
 
-T1: pi compaction 触发线从 1016K 修正为 **300K**（质量优先）
+T1: pi compaction 触发线从 1032K 修正为 **300K**（质量优先）
 T2: 机制不动——#770 七段压缩钩子（threshold 路径）继续接管摘要算法
 T3: 水位 300K 以下会话零感知（现状不受影响）
 
@@ -59,13 +59,15 @@ this.settingsManager.applyOverrides({
 });
 ```
 
-applyOverrides 是 SDK 公开 API（`Partial<Settings>`，settings-manager.d.ts），`Settings.compaction?: CompactionSettings` 字段存在，且 Otter 已有 retry 注入先例——同模式扩展，无新依赖。settings.json 用户配置与本覆盖冲突时以代码注入为准（确定性优先，R3）。
+applyOverrides 是 SDK 公开 API（`Partial<Settings>`，settings-manager.d.ts），`Settings.compaction?: CompactionSettings` 字段存在，且 Otter 已有 retry 注入先例——同模式扩展，无新依赖。
+
+**merge 语义**（检视发现 3）：applyOverrides 走 deepMergeSettings 部分合并——仅覆盖显式注入的字段。本方案只注入 `reserveTokens`，`compaction.enabled`（默认 true）与 `keepRecentTokens`（默认 20000）保留 SDK 默认或用户 settings.json 配置值，不做全面接管。
 
 ```
 触发线验证：contextWindow(1_048_576) − reserveTokens(700_000) = 348_576 ≈ 340K 触发
 ```
 
-> 注：300K 为标称值，实际触发 340K（整数好算的 reserveTokens 700K）。误差在退化区间起点（实测 261K 均值已退化，340K 已在其上）与 240K 提案之间，可接受；如需精确 300K 可用 reserveTokens=748_576，无实质收益。
+> 注：300K 为标称值，实际触发 340K（整数好算的 reserveTokens 700K）。误差在退化区间起点（实测 266K 均值已退化，340K 已在其上）与 240K 提案之间，可接受；如需精确 300K 可用 reserveTokens=748_576，无实质收益。
 
 ### 机制链路（不变，列出供审视核对）
 
@@ -81,7 +83,7 @@ applyOverrides 是 SDK 公开 API（`Partial<Settings>`，settings-manager.d.ts�
 
 ## 影响范围
 
-- 所有 otter session（big/small）：水位超 340K 时触发压缩（此前要到 1016K）
+- 所有 otter session（big/small）：水位超 340K 时触发压缩（此前要到 1032K）
 - 高频长任务（如 Self-Healing daily-review）：从「永不压缩」变为「可能每日 1-2 次压缩」，压缩期间该 session 暂停响应（合成耗时 ~10-60s，#770 有 60s 超时降级）
 - 无 schema 变更、无 API 变更、无 UI 变更
 
@@ -89,7 +91,7 @@ applyOverrides 是 SDK 公开 API（`Partial<Settings>`，settings-manager.d.ts�
 
 - R1: 压缩信息损失——七段合成质量决定。已有 #767（截断摘要拒绝落盘）+ #770 降级链路兜底
 - R2: 首次上线后存量长 session（如本对话大獭 538K）会在下轮 invoke 触发压缩——预期行为，但需观察首压体验
-- R3: reserveTokens 注入若与 settings.json 用户配置冲突，以代码注入为准（确定性优先）
+- R3: settings.json 用户配置与代码注入的 merge 语义见§方案设计——partial merge，仅 reserveTokens 被接管
 
 ## 设计取舍
 
