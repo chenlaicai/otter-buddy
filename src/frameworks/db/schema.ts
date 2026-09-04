@@ -782,7 +782,7 @@ function createDispatchAttemptsTable(db: Database.Database): void {
       message_id TEXT NOT NULL,
       target_otter_id TEXT NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('in_progress','completed','failed','aborted')),
-      source TEXT NOT NULL DEFAULT 'chain' CHECK (source IN ('chain','router','retry','backfill')),
+      source TEXT NOT NULL DEFAULT 'chain' CHECK (source IN ('chain','router','retry','backfill','dissolve')), -- dissolve：F20260904schf P2 出站清算墓碑（#792）
       attempt_started_at TEXT NOT NULL DEFAULT (datetime('now')),
       attempt_finished_at TEXT,
       note TEXT,
