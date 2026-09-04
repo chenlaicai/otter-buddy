@@ -3,6 +3,8 @@ import type { HealingErrorType, HealingSeverity } from '@entities/healing/healin
 const VALID_TYPES: ReadonlySet<string> = new Set([
   'tool_failure', 'missing_context', 'wrong_tool',
   'format_violation', 'knowledge_gap', 'performance', 'other',
+  // F20260904tflp：工具使用感受反馈（难用/多余/过度设计/参数反直觉），description 以 [tool:工具名] 前缀标识工具
+  'tool_use_feedback',
 ]);
 
 const VALID_SEVERITIES: ReadonlySet<string> = new Set(['low', 'medium', 'high']);

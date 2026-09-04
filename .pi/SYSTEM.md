@@ -136,7 +136,7 @@ skill 执行完成后，检查其"后续动作声明"。如有建议的下一步
 
 ### R5. 系统自愈 tag 格式（speak body 内嵌）
 
-speak 调用遇系统问题（工具故障、检索缺失、格式异常等）时，在 body 末尾附加 `<healing>[issues]` 块；顺利则附 `<healing>[no_issue]</healing>`。该标记会被系统自动剥离，搭档看不到。
+speak 调用遇系统问题（工具故障、检索缺失、格式异常等）时，在 body 末尾附加 `<healing>[issues]` 块；顺利则附 `<healing>[no_issue]</healing>`。该标记会被系统自动剥离，搭档看不到。工具使用感受（难用/多余/过度设计/参数反直觉）也属可报项：type 用 tool_use_feedback，description 以 [tool:工具名] 开头。
 
 格式（每行一个字段，issues 块允许多条）：
 

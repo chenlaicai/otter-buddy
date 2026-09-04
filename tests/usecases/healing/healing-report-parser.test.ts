@@ -120,6 +120,19 @@ describe("parseHealingReport", () => {
     expect(result.issues[0].type).toBe("other");
   });
 
+  it("parses tool_use_feedback type with [tool:name] prefix (F20260904tflp)", () => {
+    const body = `<healing>[issues]
+- type: tool_use_feedback
+  severity: low
+  description: [tool:get_related] direction 参数 in/out 语义反直觉，每次都要试错
+  suggestion: 交换默认值或加对照示例
+[/issues]</healing>`;
+    const result = parseHealingReport(body);
+    expect(result.hasIssues).toBe(true);
+    expect(result.issues[0].type).toBe("tool_use_feedback");
+    expect(result.issues[0].description).toContain("[tool:get_related]");
+  });
+
   it("falls back to 'low' for unknown severity", () => {
     const body = `<healing>[issues]
 - type: tool_failure
