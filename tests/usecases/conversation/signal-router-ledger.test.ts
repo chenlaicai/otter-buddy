@@ -289,10 +289,13 @@ describe("F20260903damp 阻尼机制（S2.1：R5 判据——失效模式落哑�
     repo.recordFinish("msg-dup", "otter-1", "failed", "boom 2");
     const rows = db.prepare(`SELECT id FROM dispatch_attempts WHERE message_id = 'msg-dup'`).all();
     expect(rows).toHaveLength(1); // UNIQUE 槽位覆盖，不膨胀
-    // recordStart 时已压缩前情（retry note 含 prev=failed），recordFinish 以本轮原因覆盖 note
-    // ——本轮失败原因可查（排查线索），历史轮次经覆盖时已被压缩进上一轮 note 链
+    // recordStart 时已压缩前情（retry note 含 prev=failed）；recordFinish 追加本轮原因——
+    // F20260904ldgr（#795）：追加语义后 note 完整保留「前情压缩链 + 每轮失败原因」，
+    // 排查时能看到完整历史（旧覆盖语义只留 boom 2，历史轮次淹没）
     const row = db.prepare(`SELECT note FROM dispatch_attempts WHERE message_id = 'msg-dup'`).get() as { note: string };
-    expect(row.note).toBe("boom 2");
+    expect(row.note).toContain("prev=failed: boom 1");
+    expect(row.note).toContain("boom 2");
+    expect(row.note.indexOf("boom 1")).toBeLessThan(row.note.indexOf("boom 2")); // 时序可读
   });
 });
 
