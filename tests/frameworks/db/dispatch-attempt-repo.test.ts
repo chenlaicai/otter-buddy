@@ -168,4 +168,54 @@ describe("SqliteDispatchAttemptRepo（sgp2 S1 真实仓储集成）", () => {
       expect(repo.countPendingSignals("conv-arch2")).toBe(0);
     });
   });
+
+  describe("P2 dissolve 出站清算（F20260904schf，#792）", () => {
+    it("核心场景：被解散獭的出站未记账信号补 aborted/dissolve 墓碑，pending 归零且幂等", () => {
+      // 活跃会话 + 归档会话各一条裸槽位（墓碑宁多勿少：归档也翻）
+      seedDelivered(db, "m-out", { senderType: "otter", senderId: "otter-9", targets: ["otter-1"] });
+      seedDelivered(db, "m-out-arch", { senderType: "otter", senderId: "otter-9", targets: ["otter-2"], conversationId: "conv-arch3" });
+      db.prepare(`UPDATE conversations SET status = 'archived' WHERE id = 'conv-arch3'`).run();
+      // 清算前：活跃会话的槽位是活生生的僵尸 pending
+      expect(repo.countPendingSignals("conv-1")).toBe(1);
+
+      const n = repo.abortUnattemptedOutgoingForOtter("otter-9");
+      expect(n).toBe(2); // 两个会话的裸槽位都补上
+      const row = db.prepare(`SELECT status, source, note FROM dispatch_attempts WHERE message_id = 'm-out' AND target_otter_id = 'otter-1'`).get() as { status: string; source: string; note: string | null };
+      expect(row.status).toBe("aborted");
+      expect(row.source).toBe("dissolve");
+      expect(row.note).toContain("已解散");
+      // 清算后归零；幂等：第二次零新增
+      expect(repo.countPendingSignals("conv-1")).toBe(0);
+      expect(repo.abortUnattemptedOutgoingForOtter("otter-9")).toBe(0);
+    });
+
+    it("只清算无行槽位：已有记账（任意状态）不被篡改", () => {
+      seedDelivered(db, "m-mix", { senderType: "otter", senderId: "otter-9", targets: ["otter-1", "otter-2"] });
+      // otter-1 槽位链引擎已记账；otter-2 是裸槽位
+      repo.recordStart({ id: "a1", conversationId: "conv-1", messageId: "m-mix", targetOtterId: "otter-1", status: "in_progress", source: "chain", attemptStartedAt: "2026-09-02T09:00:01Z", note: null });
+      const n = repo.abortUnattemptedOutgoingForOtter("otter-9");
+      expect(n).toBe(1); // 只补 otter-2
+      const r1 = db.prepare(`SELECT status, source FROM dispatch_attempts WHERE message_id = 'm-mix' AND target_otter_id = 'otter-1'`).get() as { status: string; source: string };
+      expect(r1.status).toBe("in_progress"); // 链引擎记账是事实，清算不得改写
+      expect(r1.source).toBe("chain");
+      const r2 = db.prepare(`SELECT status, source FROM dispatch_attempts WHERE message_id = 'm-mix' AND target_otter_id = 'otter-2'`).get() as { status: string; source: string };
+      expect(r2.status).toBe("aborted");
+      expect(r2.source).toBe("dissolve");
+    });
+
+    it("边界不误伤：user 目标 / 自指 / 非 completed / 非 otter 发送者 / inactive 目标 / 非本人消息", () => {
+      seedDelivered(db, "m-u", { senderType: "otter", senderId: "otter-9", targets: ["user"] });
+      seedDelivered(db, "m-self", { senderType: "otter", senderId: "otter-9", targets: ["otter-9"] });
+      seedDelivered(db, "m-stream", { senderType: "otter", senderId: "otter-9", targets: ["otter-1"], status: "streaming" });
+      seedDelivered(db, "m-sys", { senderType: "system", senderId: "otter-9", targets: ["otter-1"] });
+      seedDelivered(db, "m-other", { senderType: "otter", senderId: "otter-8", targets: ["otter-1"] });
+      seedDelivered(db, "m-dead", { senderType: "otter", senderId: "otter-9", targets: ["otter-dead"] });
+      db.prepare(`INSERT OR IGNORE INTO otters (id, name, type, status, created_at) VALUES ('otter-dead', 'dead', 'small', 'dissolved', '2026-09-02T00:00:00Z')`).run();
+      expect(repo.abortUnattemptedOutgoingForOtter("otter-9")).toBe(0);
+      // 清算后 pending 计数：m-sys（system 带 tsp，S4 行动类语义）+ m-other（otter-8 本人消息）
+      // ——两条都是真 pending 且都不在 P2 清算范围（只清解散獭自己的 otter 消息）；
+      // system 消息 sender_id=解散獭 id 的残留属既有语义，与 dissolve 无关，本 PR 不扩权
+      expect(repo.countPendingSignals("conv-1")).toBe(2);
+    });
+  });
 });

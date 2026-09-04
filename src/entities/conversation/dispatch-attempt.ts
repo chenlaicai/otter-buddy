@@ -11,8 +11,8 @@ export interface DispatchAttempt {
   targetOtterId: string;
   /** in_progress | completed | failed | aborted */
   status: "in_progress" | "completed" | "failed" | "aborted";
-  /** chain | router | retry | backfill */
-  source: "chain" | "router" | "retry" | "backfill";
+  /** chain | router | retry | backfill | dissolve（F20260904schf P2：出站清算墓碑） */
+  source: "chain" | "router" | "retry" | "backfill" | "dissolve";
   attemptStartedAt: string;
   /** 起跑记账时尚未结束，允许缺省（recordStart 不传）；settle 时由 repo 写入 */
   attemptFinishedAt?: string | null;
@@ -57,6 +57,12 @@ export interface DispatchAttemptRepo {
   /** F20260903dmpe 阻尼#4（S4 补丁批）：dissolve 事务内销账——某獭名下全部
    *  in_progress 派发落 failed（'目标已解散'）。返回翻篇行数。 */
   failAllInProgressForOtter(otterId: string): number;
+  /** F20260904schf P2（#792）：dissolve 出站清算——该獭已发出的 completed 消息，
+   *  tsp 指向 active 目标且从未记账的槽位，补 aborted/dissolve 墓碑。
+   *  发言人已解散，其 yield 信号永不派发；不补则槽位永久 pending（僵尸信号）。
+   *  判据与 pendingClause 同源（见实现），归档会话也补（墓碑宁多勿少，同 backfill 偏置）。
+   *  返回补账行数。 */
+  abortUnattemptedOutgoingForOtter(otterId: string): number;
   /**
    * S1b 轨迹 UI（§4.7）：本会话全部 attempt（无 limit——轨迹批量投影用，
    * (message,target) 唯一键防膨胀；与 pendingClause 同文件同真相源）。

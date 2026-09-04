@@ -175,5 +175,58 @@ describe("DissolveOtter", () => {
       /** 验证归档时使用了传入的 summary */
       expect(manageSession._archiveInputs[0].summary).toBe("项目结束，解散水獭");
     });
+
+    it("P2 出站清算：dissolve 时调用 abortUnattemptedOutgoing，行数>0 时打日志", async () => {
+      const otter = makeActiveOtter();
+      const repo = mockRepo(otter);
+      const gateway = mockAgentGateway();
+      const manageSession = mockManageSession(null);
+      const abortCalls: string[] = [];
+      const logRecords: Array<{ message: string; context?: Record<string, unknown> }> = [];
+      const logger = { warn: (m: string, c?: Record<string, unknown>) => logRecords.push({ message: m, context: c }) };
+
+      const useCase = new DissolveOtter(repo, gateway, manageSession, {
+        abortUnattemptedOutgoing: async (id) => { abortCalls.push(id); return 3; },
+        logger,
+      });
+      await useCase.execute("otter-1");
+
+      /** 副作用：清算被调用且日志带清算结果（不 toHaveBeenCalledWith，用状态断言） */
+      expect(abortCalls).toEqual(["otter-1"]);
+      const log = logRecords.find((r) => r.message.includes("出站清算"));
+      expect(log?.context).toMatchObject({ otterId: "otter-1", aborted: 3 });
+    });
+
+    it("P2 出站清算失败不阻断解散主流程（仅日志）", async () => {
+      const otter = makeActiveOtter();
+      const repo = mockRepo(otter);
+      const gateway = mockAgentGateway();
+      const manageSession = mockManageSession(null);
+      const logRecords: Array<{ message: string; context?: Record<string, unknown> }> = [];
+      const logger = { warn: (m: string, c?: Record<string, unknown>) => logRecords.push({ message: m, context: c }) };
+
+      const useCase = new DissolveOtter(repo, gateway, manageSession, {
+        abortUnattemptedOutgoing: async () => { throw new Error("db locked"); },
+        logger,
+      });
+      await expect(useCase.execute("otter-1")).resolves.toBeUndefined();
+
+      /** 解散与 agent 销毁照常完成；失败仅留日志 */
+      expect(repo._operations).toContain("dissolve");
+      expect(gateway._destroyedIds).toEqual(["otter-1"]);
+      const failLog = logRecords.find((r) => r.message.includes("失败"));
+      expect(failLog?.context).toMatchObject({ otterId: "otter-1" });
+    });
+
+    it("P2 出站清算未注入时不调用（向后兼容）", async () => {
+      const otter = makeActiveOtter();
+      const repo = mockRepo(otter);
+      const gateway = mockAgentGateway();
+      const manageSession = mockManageSession(null);
+
+      const useCase = new DissolveOtter(repo, gateway, manageSession);
+      await expect(useCase.execute("otter-1")).resolves.toBeUndefined();
+      expect(repo._operations).toContain("dissolve");
+    });
   });
 });

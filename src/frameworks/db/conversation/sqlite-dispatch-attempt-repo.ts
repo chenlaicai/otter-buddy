@@ -199,4 +199,37 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
     `).run();
     return result.changes;
   }
+
+  /** F20260904schf P2（#792）dissolve 出站清算：该獭已发出的 completed 消息，
+   *  tsp 指向 active 目标且从未记账的槽位，补 aborted/dissolve 墓碑。
+   *
+   *  判据与 pendingClause 同源（sender 过滤换成 sender_id = 被解散獭）：
+   *  - m.status = 'completed' ∧ sender_id = otterId：只清算该獭已落库的产出消息；
+   *  - t.value != 'user' ∧ 目标 EXISTS 且 active：user 无需台账，inactive 目标由
+   *    pendingClause 的 dissolved 过滤保底，不重复翻篇；
+   *  - NOT EXISTS 派发行：只补「从未记账」的槽位——已有行（任意状态）不动，
+   *    链引擎/路由器的记账是事实，清算不得篡改；
+   *  - 不加 c.status = 'active'：墓碑宁多勿少（同 backfillLegacyAttempted 偏置），
+   *    归档会话的历史槽位也翻篇，防「归档→复活」窗口陈年信号变 pending。
+   *
+   *  幂等：NOT EXISTS 判「无行」，补过的槽位第二次不再命中。 */
+  abortUnattemptedOutgoingForOtter(otterId: string): number {
+    const result = this.db.prepare(`
+      INSERT OR IGNORE INTO dispatch_attempts
+        (id, conversation_id, message_id, target_otter_id, status, source, attempt_started_at, attempt_finished_at, note)
+      SELECT lower(hex(randomblob(16))), m.conversation_id, m.id, t.value,
+             'aborted', 'dissolve', datetime('now'), datetime('now'),
+             '发言人已解散，出站信号永不派发（F20260904schf P2 清算墓碑）'
+      FROM messages m, json_each(m.talking_stone_passed_to) t
+      WHERE m.status = 'completed'
+        AND m.sender_type = 'otter'
+        AND m.sender_id = ?
+        AND t.value != 'user'
+        AND t.value != m.sender_id
+        AND EXISTS (SELECT 1 FROM otters o WHERE o.id = t.value AND o.status = 'active')
+        AND NOT EXISTS (SELECT 1 FROM dispatch_attempts da
+                        WHERE da.message_id = m.id AND da.target_otter_id = t.value)
+    `).run(otterId);
+    return result.changes;
+  }
 }
