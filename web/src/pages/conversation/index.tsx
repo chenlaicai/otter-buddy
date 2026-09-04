@@ -745,6 +745,19 @@ function ConversationPage() {
     if (!activeId) return
     // S3.5（G3）：发新消息 = 恢复动作（后端 clearUserHalt）——此前停机态时告知调度已恢复
     if (gateState?.halted) showToast('调度已恢复', 'info')
+    /** F20260904smsj：发言 = 已看完全部（聊天通用语义）——立即标记已读到当前最新 +
+     *  强制回底部 + 清未读分隔线，消除「分隔线定位 × 自动滚底门控」竞争导致的视口上跳。
+     *  此前：发言时若上一轮獭回复未读，轮询刷新会让视口跳向未读消息位置；
+     *  且 isAtBottomRef=false 时插入新消息不触发滚底，最新消息不可见。 */
+    isAtBottomRef.current = true
+    setNewMessagesCount(0)
+    setUnreadSeparatorSeq(null)
+    {
+      const msgs = allMessagesRef.current[activeId] || []
+      const realMsgs = msgs.filter(m => !m.id.startsWith('tmp-') && !m.id.startsWith('err-') && m.seq != null)
+      const maxSeq = realMsgs.length > 0 ? Math.max(...realMsgs.map(m => m.seq!)) : null
+      if (maxSeq != null) api.markRead(activeId, maxSeq).catch(() => {})
+    }
     /** 有 @ 则指定目标；无 @ 传空数组，由后端按规则解析（回复最后发言者，兜底大獭） */
     const targetOtterIds = mentionOtterIds ?? []
     /** 多模态 Phase 1：附件从 ChatView 中转区传入（上传已完成，此处只带服务端 id 引用） */
