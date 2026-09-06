@@ -335,6 +335,106 @@ describe("AgentInvoker — 自重启循环防护 (F20260824srst)", () => {
     expect(session.restartCalls).toHaveLength(0);
   });
 
+  it("AT-10 (#811)：session 由自重启创建但用户消息已介入 → 放行 restart", async () => {
+    const msg = mockSendMessage();
+    const session = mockManageSession(makeSession({ id: "sess-self-restart", startedAt: "2026-09-04T12:00:00Z" }));
+    let invokeCount = 0;
+    const invoke: SdkInvokePort = {
+      invoke: async () => {
+        invokeCount++;
+        if (invokeCount === 1) return { text: "已标记重启", _selfRestart: { otterId: "otter-1" } };
+        return { text: "已重启完成，等待新指令" };
+      },
+      abort: () => {},
+      getToolCallCount: () => 1,
+      getInternalAbortReason: () => undefined,
+    };
+    // mock healingRepo: 当前 session 由自重启创建
+    const healingRepo = {
+      create: async () => {},
+      findById: async () => null,
+      findOpen: async () => [],
+      findAll: async () => [],
+      findByConversation: async () => [],
+      findRecentByOtter: async () => [{
+        id: "evt-1", errorType: "self_restart" as const,
+        context: { newSessionId: "sess-self-restart" },
+        createdAt: new Date().toISOString(),
+      } as unknown as HealingEvent],
+      updateStatus: async () => {},
+      resolve: async () => {},
+      getStats: async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} }),
+      autoStaleDismiss: async () => 0,
+      batchResolveByFilter: async () => ({ matched: 0, resolved: 0, resolvedIds: [] }),
+    } as HealingEventRepository;
+    // 用户消息介入：最新 user 消息晚于 session.startedAt
+    const qm: QueryMessage = {
+      ...mockQueryMessage(),
+      getLastMessageBySenderType: async () => ({
+        id: "user-msg-1", createdAt: "2026-09-04T13:30:00Z",
+      } as Message),
+    } as unknown as QueryMessage;
+    const invoker = new AgentInvoker(
+      invoke, msg, qm, session.mock, queryOtter, createTestLogger(),
+      undefined, undefined, undefined, undefined, healingRepo,
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "老规矩，你重启下自己，然后批6", senderId: "user-1",
+    });
+
+    // 用户消息介入 → 正常运维，restart 执行（不是循环）
+    expect(session.restartCalls).toHaveLength(1);
+  });
+
+  it("AT-11 (#811)：session 由自重启创建、无用户消息介入（纯 LLM 自发）→ 仍拦截", async () => {
+    const msg = mockSendMessage();
+    const session = mockManageSession(makeSession({ id: "sess-self-restart", startedAt: "2026-09-04T13:00:00Z" }));
+    const invoke: SdkInvokePort = {
+      invoke: async () => ({ text: "已标记重启", _selfRestart: { otterId: "otter-1" } }),
+      abort: () => {},
+      getToolCallCount: () => 1,
+      getInternalAbortReason: () => undefined,
+    };
+    const healingRepo = {
+      create: async () => {},
+      findById: async () => null,
+      findOpen: async () => [],
+      findAll: async () => [],
+      findByConversation: async () => [],
+      findRecentByOtter: async () => [{
+        id: "evt-1", errorType: "self_restart" as const,
+        context: { newSessionId: "sess-self-restart" },
+        createdAt: new Date().toISOString(),
+      } as unknown as HealingEvent],
+      updateStatus: async () => {},
+      resolve: async () => {},
+      getStats: async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} }),
+      autoStaleDismiss: async () => 0,
+      batchResolveByFilter: async () => ({ matched: 0, resolved: 0, resolvedIds: [] }),
+    } as HealingEventRepository;
+    // 无用户消息介入：最新 user 消息早于 session.startedAt（重启前的旧指令）
+    const qm: QueryMessage = {
+      ...mockQueryMessage(),
+      getLastMessageBySenderType: async () => ({
+        id: "user-msg-0", createdAt: "2026-09-04T12:00:00Z",
+      } as Message),
+    } as unknown as QueryMessage;
+    const invoker = new AgentInvoker(
+      invoke, msg, qm, session.mock, queryOtter, createTestLogger(),
+      undefined, undefined, undefined, undefined, healingRepo,
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "[系统] 你已完成自重启", senderId: "system-1",
+    });
+
+    // 纯 LLM 自发 → 循环，拦截（restart 未执行）
+    expect(session.restartCalls).toHaveLength(0);
+  });
+
   it("AT-8: continuation message 替代原始消息——re-invoke 传入的不是原始消息", async () => {
     const msg = mockSendMessage();
     const session = mockManageSession(makeSession());

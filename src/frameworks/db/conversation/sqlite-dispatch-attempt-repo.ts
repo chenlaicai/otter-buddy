@@ -1,6 +1,20 @@
 import type Database from "better-sqlite3";
 import type { DispatchAttempt, DispatchAttemptRepo, PendingSignalRow } from "@entities/conversation/dispatch-attempt";
 
+/** #810 note 保留策略：滑动窗口 + 段边界截断。
+ *  NOTE_HARD_CAP：单行 note 总长上限（字符）；超过即从最旧段开始丢弃。
+ *  NOTE_KEEP_SEGMENTS：保留最近段数窗口（超窗先丢最旧，与长度上限双约束）。
+ *  段分隔符 "; " 与追加语义（recordFinish/appendNote）一致；只丢最旧段，
+ *  近期链（含 prev= 压缩链）完整保留，grep 排查习惯不受影响。
+ *  背景：#795 追加语义 + retry 时 prev= 全量嵌套前情 → 极端 retry 场景无界膨胀
+ *  （100 次 retry × 300 字符 ≈ 30KB）。 */
+export const NOTE_HARD_CAP = 4096;
+export const NOTE_KEEP_SEGMENTS = 20;
+/** 段分隔符（#816 检视发现 1）：与追加语义（recordFinish/appendNote）一致，
+ *  全部 note 拼接/切分点单一来源——改分隔符只需改此处（capNote 的 split/join 依赖它）。 */
+const SEGMENT_SEP = "; ";
+const truncationMarker = (dropped: number): string => `…（更早 ${dropped} 段已截断）`;
+
 /**
  * F20260902sgp2 S1：派发台账 SQLite 实现。
  * 全部方法同步（better-sqlite3 同步 API）且自带事务语义（单语句原子）；
@@ -17,8 +31,10 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
     let note = attempt.note ?? null;
     if (prev) {
       const prevSummary = `prev=${prev.status}${prev.note ? `: ${prev.note}` : ""} @${prev.source}`;
-      note = note ? `${note}; ${prevSummary}` : prevSummary;
+      note = note ? `${note}${SEGMENT_SEP}${prevSummary}` : prevSummary;
     }
+    // #810：prev= 全量嵌套前情是无界膨胀的源头，写入前截断（近期段完整保留）
+    note = capNote(note);
     this.db.prepare(`
       INSERT OR REPLACE INTO dispatch_attempts
         (id, conversation_id, message_id, target_otter_id, status, source, attempt_started_at, attempt_finished_at, note)
@@ -29,22 +45,36 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
 
   /** F20260904ldgr（#795）：note 改追加语义——新内容以 "; " 拼接在既有 note 后，
    *  前情链（§8.2 压缩链 / retry reason / 降级标记）在多次 finish 间完整保留，
-   *  事故取证通道不再被覆盖抹平（9/4 晨事故唯一幸存取证证据就是 note 前情链）。 */
+   *  事故取证通道不再被覆盖抹平（9/4 晨事故唯一幸存取证证据就是 note 前情链）。
+   *  #810：改为读-拼-截断-写——截断作用于拼接后的总量而非新片段，硬上限闭环；
+   *  旧版单语句 UPDATE 换为事务内两语句（better-sqlite3 同步单连接，无并发插入点）。 */
   recordFinish(messageId: string, targetOtterId: string, status: "completed" | "failed" | "aborted", note?: string | null): void {
-    this.db.prepare(`
-      UPDATE dispatch_attempts
-      SET status = ?, attempt_finished_at = datetime('now'),
-          note = CASE WHEN ? IS NOT NULL THEN COALESCE(note || '; ', '') || ? ELSE note END
-      WHERE message_id = ? AND target_otter_id = ?
-    `).run(status, note ?? null, note ?? null, messageId, targetOtterId);
+    this.db.transaction(() => {
+      const current = this.db.prepare(
+        "SELECT note FROM dispatch_attempts WHERE message_id = ? AND target_otter_id = ?",
+      ).get(messageId, targetOtterId) as { note: string | null } | undefined;
+      const combined = current?.note && note ? `${current.note}${SEGMENT_SEP}${note}` : (note ?? current?.note ?? null);
+      this.db.prepare(`
+        UPDATE dispatch_attempts
+        SET status = ?, attempt_finished_at = datetime('now'), note = ?
+        WHERE message_id = ? AND target_otter_id = ?
+      `).run(status, capNote(combined), messageId, targetOtterId);
+    })();
   }
 
+  /** #810：同 recordFinish——截断作用于拼接后总量（定长追加逐次累积也不会越限）。 */
   appendNote(messageId: string, targetOtterId: string, note: string): void {
-    this.db.prepare(`
-      UPDATE dispatch_attempts
-      SET note = COALESCE(note || '; ', '') || ?
-      WHERE message_id = ? AND target_otter_id = ?
-    `).run(note, messageId, targetOtterId);
+    this.db.transaction(() => {
+      const current = this.db.prepare(
+        "SELECT note FROM dispatch_attempts WHERE message_id = ? AND target_otter_id = ?",
+      ).get(messageId, targetOtterId) as { note: string | null } | undefined;
+      const combined = current?.note ? `${current.note}${SEGMENT_SEP}${note}` : note;
+      this.db.prepare(`
+        UPDATE dispatch_attempts
+        SET note = ?
+        WHERE message_id = ? AND target_otter_id = ?
+      `).run(capNote(combined), messageId, targetOtterId);
+    })();
   }
 
   backfillLegacyAttempted(): number {
@@ -219,24 +249,45 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
   failAllInProgressForOtter(otterId: string): number {
     // F20260903dmpe 阻尼#4（S4 补丁批）：dissolve 獭名下 in_progress 全部落 failed。
     // 与 markStaleInProgressFailed 的区别：按 otter 维度（解散场景），非全表。
-    return this.db.prepare(`
+    // #810：逐行读-拼-截断-写——固定短注拼在接近上限的历史 note 后也不会越限。
+    const rows = this.db.prepare(
+      "SELECT message_id, note FROM dispatch_attempts WHERE status = 'in_progress' AND target_otter_id = ?",
+    ).all(otterId) as Array<{ message_id: string; note: string | null }>;
+    const settle = this.db.prepare(`
       UPDATE dispatch_attempts
-      SET status = 'failed', attempt_finished_at = datetime('now'),
-          note = COALESCE(note || '; ', '') || '目标已解散，派发无主（dissolve 销账）'
-      WHERE status = 'in_progress' AND target_otter_id = ?
-    `).run(otterId).changes;
+      SET status = 'failed', attempt_finished_at = datetime('now'), note = ?
+      WHERE message_id = ? AND target_otter_id = ?
+    `);
+    let changed = 0;
+    this.db.transaction(() => {
+      for (const row of rows) {
+        const combined = row.note ? `${row.note}${SEGMENT_SEP}目标已解散，派发无主（dissolve 销账）` : '目标已解散，派发无主（dissolve 销账）';
+        changed += settle.run(capNote(combined), row.message_id, otterId).changes;
+      }
+    })();
+    return changed;
   }
 
   markStaleInProgressFailed(): number {
     // §4.4 死亡证明（flash 对撞③）：进程内无存活的 in_progress 跨越重启。
     // 先例 reconcile-orphans.ts:50 failInFlightMessages 同款语义。
-    const result = this.db.prepare(`
+    // #810：逐行读-拼-截断-写，同 failAllInProgressForOtter。
+    const rows = this.db.prepare(
+      "SELECT message_id, target_otter_id, note FROM dispatch_attempts WHERE status = 'in_progress'",
+    ).all() as Array<{ message_id: string; target_otter_id: string; note: string | null }>;
+    const settle = this.db.prepare(`
       UPDATE dispatch_attempts
-      SET status = 'failed', attempt_finished_at = datetime('now'),
-          note = COALESCE(note || '; ', '') || '进程重启，派发中断（sgp2 死亡证明）'
-      WHERE status = 'in_progress'
-    `).run();
-    return result.changes;
+      SET status = 'failed', attempt_finished_at = datetime('now'), note = ?
+      WHERE message_id = ? AND target_otter_id = ?
+    `);
+    let changed = 0;
+    this.db.transaction(() => {
+      for (const row of rows) {
+        const combined = row.note ? `${row.note}${SEGMENT_SEP}进程重启，派发中断（sgp2 死亡证明）` : '进程重启，派发中断（sgp2 死亡证明）';
+        changed += settle.run(capNote(combined), row.message_id, row.target_otter_id).changes;
+      }
+    })();
+    return changed;
   }
 
   /** F20260904schf P2（#792）dissolve 出站清算：该獭已发出的 completed 消息，
@@ -271,4 +322,45 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
     `).run(otterId);
     return result.changes;
   }
+}
+
+/** #810：单段超限时尾部硬切 + 超长截断标记（标记优先保留——「被切过」比「最早内容」重要） */
+function hardCutTail(body: string): string {
+  const OVERSEG_MARKER = "…（前段超长已截断）";
+  const cut = body.slice(body.length - NOTE_HARD_CAP);
+  const withMarker = `${OVERSEG_MARKER}${SEGMENT_SEP}${cut}`;
+  if (withMarker.length <= NOTE_HARD_CAP) return withMarker;
+  const bodyBudget = NOTE_HARD_CAP - OVERSEG_MARKER.length - SEGMENT_SEP.length;
+  return `${OVERSEG_MARKER}${SEGMENT_SEP}${cut.slice(cut.length - bodyBudget)}`;
+}
+
+/** #810：note 有界化——滑动窗口 + 段边界截断（纯函数，可独立单测）。
+ *  规则：① 超过 KEEP_SEGMENTS 段时从最旧段开始丢弃；② 总长超 HARD_CAP 时继续丢最旧段。
+ *  实际发生丢弃时在最前加「…（更早 N 段已截断）」标记；仅剩单段仍超限时尾部硬切（hardCutTail，
+ *  加「前段超长已截断」标记）——取证语义不静默：宁可看见「被切过」也不呈现貌似完整的假象。
+ *  段以 SEGMENT_SEP（"; "）分隔，与追加语义单一来源。 */
+export function capNote(note: string | null): string | null {
+  if (note == null) return null;
+  const segments = note.split(SEGMENT_SEP);
+  let dropped = 0;
+  let kept = segments;
+  // 段数窗口：超 KEEP_SEGMENTS 先丢最旧
+  if (kept.length > NOTE_KEEP_SEGMENTS) {
+    dropped = kept.length - NOTE_KEEP_SEGMENTS;
+    kept = kept.slice(kept.length - NOTE_KEEP_SEGMENTS);
+  }
+  // 长度上限：继续丢最旧段；仅剩单段仍超限时尾部硬切（保留最近内容）
+  while (kept.join(SEGMENT_SEP).length > NOTE_HARD_CAP && kept.length > 1) {
+    dropped += 1;
+    kept = kept.slice(1);
+  }
+  const body = kept.join(SEGMENT_SEP);
+  if (body.length > NOTE_HARD_CAP) return hardCutTail(body);
+  if (dropped === 0) return body;
+  const marker = truncationMarker(dropped);
+  const withMarker = `${marker}${SEGMENT_SEP}${body}`;
+  // 标记本身挤占上限时从 body 头部再硬切（标记永远保留——「丢了多少」比「最早内容」重要）
+  if (withMarker.length <= NOTE_HARD_CAP) return withMarker;
+  const bodyBudget = NOTE_HARD_CAP - marker.length - SEGMENT_SEP.length;
+  return `${marker}${SEGMENT_SEP}${body.slice(body.length - bodyBudget)}`;
 }

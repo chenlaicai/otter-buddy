@@ -45,6 +45,26 @@ interface TurnWindowCount {
   latestMessageId: string;
 }
 
+/**
+ * F20260906srst（#811）：自重启 session 创建后是否有用户消息介入。
+ * 意图来源维度——有用户消息介入的自重启是正常运维（搭档显式指令），不构成循环；
+ * 纯 LLM 自发（无用户消息）才是 F20260824srst 威胁模型要拦的循环。
+ * 查询失败降级为 false（无介入）——维持拦截，保守。
+ * Why 不看 system 消息：scheduler/continuation 触发的链路无用户意图，LLM 在其上自发重启仍属循环。
+ */
+export async function hasUserMessageSince(
+  queryLastUserMessage: () => Promise<{ createdAt: string } | null>,
+  since: string,
+): Promise<boolean> {
+  try {
+    const last = await queryLastUserMessage();
+    if (!last) return false;
+    return Date.parse(last.createdAt) >= Date.parse(since);
+  } catch {
+    return false;
+  }
+}
+
 export class CircuitBreakSupport {
   constructor(private readonly deps: {
     manageSession: ManageSession;
@@ -374,14 +394,25 @@ export class CircuitBreakSupport {
    * Why 复用 isCircuitBreakCreatedSession 模式：self_restart 与 circuit_break 的防循环机制同构，
    * 都是 healing_events + context.newSessionId 标记新 session，区别仅在 errorType 语义。
    */
-  async isSessionSelfRestartCreated(otterId: string): Promise<boolean> {
+  async isSessionSelfRestartCreated(otterId: string, conversationId?: string): Promise<boolean> {
     const session = await this.deps.manageSession.getActiveSession(otterId).catch(() => null);
     if (!session) return false;
     const events = await this.deps.healingRepo.findRecentByOtter(otterId, 'self_restart', 20);
-    return events.some(e => {
+    const selfRestartCreated = events.some(e => {
       const ctx = e.context as { newSessionId?: string } | null;
       return ctx?.newSessionId === session.id;
     });
+    if (!selfRestartCreated) return false;
+    // F20260906srst（#811）：session 虽由自重启创建，但此后有用户消息介入 → 正常运维，放行。
+    // 判据：最新 user 消息 createdAt >= session.startedAt（continuation message 不落库，不污染判据）。
+    if (conversationId) {
+      const intervened = await hasUserMessageSince(
+        () => this.deps.queryMessage.getLastMessageBySenderType(conversationId, 'user'),
+        session.startedAt,
+      );
+      if (intervened) return false;
+    }
+    return true;
   }
 
   /**

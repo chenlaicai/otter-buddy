@@ -7,10 +7,8 @@ import type { Logger } from "@usecases/ports/logger";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import {
   buildRestartResumeMsg,
-  buildRestartResumeSystemMsg,
   buildRestartResumeFailedMsg,
   buildRestartResumeTerminalMsg,
-  buildRestartResumeCompletedMsg,
   buildRestartResumeFailedInvokeMsg,
 } from "./agent-turn-orchestrator/retry-policy";
 import { canFailMessage } from "@entities/conversation/message";
@@ -103,32 +101,15 @@ export class ResumeInterruptedService {
         })
       );
       
-      // #613 方案 A：恢复完成终态消息（成功路径与失败路径的 [错误] 消息对称）——等全部完成后统一发
-      for (const [conversationId, result] of results) {
-        await this.sendCompletedSafe(conversationId, result);
-      }
+      /* F20260906rsts：成功路径不再向对话流发任何宣告（开场「正在自动恢复」与终态「恢复完成」
+       * 均已移除——搭档裁决：恢复职责边界 = 重新触发即结束，成功的恢复是透明的。
+       * 失败路径的用户可见提示保留（resumeItemSafe 内各 failed 出口）。 */
     } catch (err) {
       this.deps.logger.error("Resume interrupted messages failed", err instanceof Error ? err : new Error(String(err)));
     }
   }
 
-  /** #613：安全发送恢复完成终态消息——失败不阻塞主流程 */
-  private async sendCompletedSafe(
-    conversationId: string,
-    result: { resumed: number; skipped: number; failed: number },
-  ): Promise<void> {
-    try {
-      await this.deps.sendMessage.sendSystem(
-        conversationId,
-        buildRestartResumeCompletedMsg(result.resumed, result.skipped, result.failed),
-      );
-    } catch (err) {
-      this.deps.logger.warn("Resume completed sendSystem failed", {
-        conversationId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
+  /** F20260906rsts：#613 方案 A 汇总宣告已移除，sendCompletedSafe 一并删除（静默成功裁决） */
 
   /** #613：服务重启事件落 healing 台账（try/catch non-fatal，对齐 notifyTaskErrored 模式） */
   private async recordRestartHealingEvent(pendingCount: number): Promise<void> {
@@ -165,14 +146,7 @@ export class ResumeInterruptedService {
     let resumed = 0;
     let skipped = 0;
     let failed = 0;
-    try {
-      await this.deps.sendMessage.sendSystem(conversationId, buildRestartResumeSystemMsg(items.length));
-    } catch (err) {
-      this.deps.logger.warn("Resume sendSystem failed, continuing with resume", {
-        conversationId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+    // F20260906rsts：开场「正在自动恢复」宣告已移除（静默成功裁决）——不再发 sendSystem
     for (const item of items) {
       const outcome = await this.resumeItemSafe(item);
       // 检视发现1（#617）：skipped（stale 数据清理/并发窗口跳过，消息已 exhausted）
