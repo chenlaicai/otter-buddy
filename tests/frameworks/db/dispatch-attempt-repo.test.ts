@@ -8,46 +8,12 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
 import { initSchema } from "@frameworks/db/schema";
 import { SqliteDispatchAttemptRepo } from "@frameworks/db/conversation/sqlite-dispatch-attempt-repo";
+import { seedDelivered, seedOtter } from "./helpers/dispatch-attempt-seed";
 
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
   initSchema(db);
   return db;
-}
-
-/** seed 一条已投递消息（talkingStonePassedTo JSON 列，模拟真实投影格式） */
-function seedDelivered(
-  db: Database.Database,
-  id: string,
-  opts: {
-    targets?: string[] | null;
-    senderType?: string;
-    senderId?: string;
-    status?: string;
-    conversationId?: string;
-    createdAt?: string;
-  } = {},
-): void {
-  const convId = opts.conversationId ?? "conv-1";
-  const turnId = `turn-${convId}`;
-  db.prepare(`INSERT OR IGNORE INTO conversations (id, title, created_at, updated_at) VALUES (?, 't', '2026-09-02T00:00:00Z', '2026-09-02T00:00:00Z')`).run(convId);
-  db.prepare(`INSERT OR IGNORE INTO turns (id, conversation_id, turn_number, created_at) VALUES (?, ?, 1, '2026-09-02T00:00:00Z')`).run(turnId, convId);
-  db.prepare(`
-    INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, talking_stone_passed_to, created_at)
-    VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
-  `).run(
-    id, convId,
-    opts.senderType ?? "user",
-    opts.senderId ?? "user",
-    opts.status ?? "completed",
-    turnId,
-    opts.targets ? JSON.stringify(opts.targets) : null,
-    opts.createdAt ?? "2026-09-02T09:00:00Z",
-  );
-}
-
-function seedOtter(db: Database.Database, id: string): void {
-  db.prepare(`INSERT OR IGNORE INTO otters (id, name, type, created_at) VALUES (?, ?, 'big', '2026-09-02T00:00:00Z')`).run(id, `otter-${id}`);
 }
 
 describe("SqliteDispatchAttemptRepo（sgp2 S1 真实仓储集成）", () => {
