@@ -136,11 +136,24 @@ function appendResult(record: Record<string, unknown>): void {
   }
 }
 
-/** 当前 PR 号（GitHub Actions 注入；本地跑为 undefined） */
-function currentPr(): number | undefined {
+/** 当前 PR 号（GitHub Actions 注入；本地跑回退到 git 分支名） */
+function currentPr(): number | string | undefined {
+  // 环境变量 PR_NUMBER 显式覆盖（本地跑时 PR_NUMBER=123 npx vitest ...）
+  const envPr = process.env.PR_NUMBER;
+  if (envPr && /^\d+$/.test(envPr)) return Number(envPr);
+
+  // GitHub Actions 注入
   const ref = process.env.GITHUB_REF ?? "";
   const m = ref.match(/refs\/pull\/(\d+)\//);
-  return m ? Number(m[1]) : undefined;
+  if (m) return Number(m[1]);
+
+  // #793：本地跑兜底——从 git 取当前分支名，便于关联测试结果与开发分支
+  try {
+    const branch = execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf8", timeout: 5000 }).trim();
+    if (branch && branch !== "HEAD") return `local:${branch}`;
+  } catch { /* 非 git 环境或 detached HEAD */ }
+
+  return undefined;
 }
 
 /** F20260828gssf: selftest 结果 */
