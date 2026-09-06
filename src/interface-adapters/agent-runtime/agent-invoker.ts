@@ -975,8 +975,10 @@ export class AgentInvoker implements AgentTurnPort {
     const { otterId, summary } = signal;
 
     // F20260824srst 防循环（第二道防线）：当前 session 是否由自重启创建
+    // F20260906xxxx（#811）：加意图来源维度——传 conversationId 检测用户消息介入，
+    // 搭档显式指令的重启不再误拦（issue 现场：重启后搭档发过 2 条新指令仍被拦）
     if (this.circuitBreak) {
-      const isSelfRestartSession = await this.circuitBreak.isSessionSelfRestartCreated(otterId);
+      const isSelfRestartSession = await this.circuitBreak.isSessionSelfRestartCreated(otterId, params.conversationId);
       if (isSelfRestartSession) {
         this.logger.warn('Self-restart blocked: current session was created by self-restart', { otterId });
         return null;

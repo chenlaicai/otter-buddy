@@ -56,6 +56,9 @@ function createMockToolContext(overrides: Partial<ToolContext> = {}): ToolContex
         participant: {
           getActive: vi.fn(async () => []),
         },
+        message: {
+          getLastBySenderType: vi.fn(async () => null),
+        },
       },
     },
     logger: createRecordingLogger(),
@@ -256,5 +259,81 @@ describe('restart_otter 自重启循环防护（F20260824srst）', () => {
     // 无 self_restart 事件 → 放行
     expect(result.isError).toBeUndefined();
     expect(ctx.pendingRestart).toBeDefined();
+  });
+
+  it('#811：session 由自重启创建但用户消息已介入 → 放行（不再误拦）', async () => {
+    const ctx = createMockToolContext();
+    const healingRepo = {
+      create: async () => {},
+      findById: async () => null,
+      findOpen: async () => [],
+      findAll: async () => [],
+      findByConversation: async () => [],
+      findRecentByOtter: async () => [{
+        id: 'evt-1', errorType: 'self_restart',
+        context: { newSessionId: 'new-session-otter-1' },
+        createdAt: new Date().toISOString(),
+      }],
+      updateStatus: async () => {},
+      resolve: async () => {},
+      getStats: async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} }),
+      autoStaleDismiss: async () => 0,
+    } as unknown as import('@usecases/healing/healing-event-repository').HealingEventRepository;
+    // session 由自重启创建，startedAt 早于用户消息
+    (ctx.client.otter.getActiveSession as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 'new-session-otter-1', otterId: 'otter-1', status: 'active',
+      startedAt: '2026-09-04T12:00:00Z',
+    });
+    // 最新 user 消息晚于 session 创建（搭档重启后发过新指令）
+    (ctx.client.conversation.message.getLastBySenderType as ReturnType<typeof vi.fn>) = vi.fn(async () => ({
+      id: 'user-msg-1', createdAt: '2026-09-04T13:30:00Z',
+    }));
+    const tools = createTools(ctx, healingRepo, createRecordingLogger());
+    const restartTool = tools.find(t => t.name === 'restart_otter');
+    if (!restartTool) throw new Error('restart_otter tool not found');
+
+    const result = await restartTool.execute('call-1', { summary: '搭档指令重启' });
+
+    // 用户消息介入 → 正常运维，放行
+    expect(result.isError).toBeUndefined();
+    expect(ctx.pendingRestart).toBeDefined();
+  });
+
+  it('#811：用户消息早于 session 创建（重启前的旧消息）→ 仍拦截', async () => {
+    const ctx = createMockToolContext();
+    const healingRepo = {
+      create: async () => {},
+      findById: async () => null,
+      findOpen: async () => [],
+      findAll: async () => [],
+      findByConversation: async () => [],
+      findRecentByOtter: async () => [{
+        id: 'evt-1', errorType: 'self_restart',
+        context: { newSessionId: 'new-session-otter-1' },
+        createdAt: new Date().toISOString(),
+      }],
+      updateStatus: async () => {},
+      resolve: async () => {},
+      getStats: async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} }),
+      autoStaleDismiss: async () => 0,
+    } as unknown as import('@usecases/healing/healing-event-repository').HealingEventRepository;
+    (ctx.client.otter.getActiveSession as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 'new-session-otter-1', otterId: 'otter-1', status: 'active',
+      startedAt: '2026-09-04T13:00:00Z',
+    });
+    // 最新 user 消息早于 session 创建 → 无新介入，维持拦截
+    (ctx.client.conversation.message.getLastBySenderType as ReturnType<typeof vi.fn>) = vi.fn(async () => ({
+      id: 'user-msg-0', createdAt: '2026-09-04T12:00:00Z',
+    }));
+    const tools = createTools(ctx, healingRepo, createRecordingLogger());
+    const restartTool = tools.find(t => t.name === 'restart_otter');
+    if (!restartTool) throw new Error('restart_otter tool not found');
+
+    const result = await restartTool.execute('call-1', { summary: '测试' });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('系统保护');
+    expect(ctx._restartCalls).toHaveLength(0);
+    expect(ctx.pendingRestart).toBeUndefined();
   });
 });

@@ -74,6 +74,8 @@ export interface OtterToolClient {
       list(conversationId: string, opts?: { limit?: number; before?: string }): Promise<Message[]>;
       search(conversationId: string, query: string, limit?: number): Promise<Message[]>;
       getTurnHistory(conversationId: string, opts?: { includeMessages?: boolean }): Promise<TurnHistoryEntry[]>;
+      /** F20260906xxxx（#811）：指定 senderType 的最新消息——自重启防循环的用户介入检测用（只读） */
+      getLastBySenderType(conversationId: string, senderType: "user" | "otter" | "system"): Promise<Message | null>;
     };
     participant: {
       join(conversationId: string, otterId: string): Promise<ConversationParticipant>;
