@@ -66,6 +66,43 @@ describe("capNote 纯函数（#810 滑动窗口 + 段边界截断）", () => {
     const out = capNote(segs.join("; "))!;
     expect(out.startsWith(`…（更早 ${50 - NOTE_KEEP_SEGMENTS} 段已截断）`)).toBe(true);
   });
+
+  it("标记挤占上限的下沉路径（#816 检视发现 2）：marker+body 超限时保标记再切 body，输出恒有界", () => {
+    // 可达性构造：500 个短段（撑大 dropped → marker）+ 两个长段压轴（让退出时 body 贴近 CAP）
+    // while 退出时 body=4096、marker=14 → withMarker=4112 > 4096，命中 marker 优先保留路径
+    const segs: string[] = [
+      ...Array.from({ length: 500 }, () => "b"),
+      "c".repeat(2035),
+      "d".repeat(2035),
+    ];
+    const out = capNote(segs.join("; "))!;
+    expect(out.length).toBeLessThanOrEqual(NOTE_HARD_CAP);
+    expect(out.startsWith("…（更早 ")).toBe(true); // 标记保留
+    expect(out.endsWith("d".repeat(100))).toBe(true); // 最新段尾部保留（body 从头部再切）
+  });
+
+  it("随机 fuzz（#816 检视发现 2）：任意输入输出恒有界且带丢弃必留标记", () => {
+    // 种子固定可复现；200 轮 × 2000 段内随机长度
+    let seed = 20260906;
+    const rand = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648;
+    };
+    for (let round = 0; round < 200; round++) {
+      const n = Math.floor(rand() * 2000);
+      const segs = Array.from({ length: n }, () => "x".repeat(Math.floor(rand() * 100)));
+      const input = segs.join("; ");
+      const out = capNote(input);
+      if (out != null) {
+        expect(out.length).toBeLessThanOrEqual(NOTE_HARD_CAP);
+        // 丢过段的输入必带标记（取证语义不静默）
+        const inputSegs = n;
+        if (inputSegs > NOTE_KEEP_SEGMENTS || input.length > NOTE_HARD_CAP) {
+          expect(out.includes("已截断")).toBe(true);
+        }
+      }
+    }
+  });
 });
 
 describe("note 有界化真库集成（#810 五条写路径）", () => {

@@ -10,6 +10,9 @@ import type { DispatchAttempt, DispatchAttemptRepo, PendingSignalRow } from "@en
  *  （100 次 retry × 300 字符 ≈ 30KB）。 */
 export const NOTE_HARD_CAP = 4096;
 export const NOTE_KEEP_SEGMENTS = 20;
+/** 段分隔符（#816 检视发现 1）：与追加语义（recordFinish/appendNote）一致，
+ *  全部 note 拼接/切分点单一来源——改分隔符只需改此处（capNote 的 split/join 依赖它）。 */
+const SEGMENT_SEP = "; ";
 const truncationMarker = (dropped: number): string => `…（更早 ${dropped} 段已截断）`;
 
 /**
@@ -28,7 +31,7 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
     let note = attempt.note ?? null;
     if (prev) {
       const prevSummary = `prev=${prev.status}${prev.note ? `: ${prev.note}` : ""} @${prev.source}`;
-      note = note ? `${note}; ${prevSummary}` : prevSummary;
+      note = note ? `${note}${SEGMENT_SEP}${prevSummary}` : prevSummary;
     }
     // #810：prev= 全量嵌套前情是无界膨胀的源头，写入前截断（近期段完整保留）
     note = capNote(note);
@@ -50,7 +53,7 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
       const current = this.db.prepare(
         "SELECT note FROM dispatch_attempts WHERE message_id = ? AND target_otter_id = ?",
       ).get(messageId, targetOtterId) as { note: string | null } | undefined;
-      const combined = current?.note && note ? `${current.note}; ${note}` : (note ?? current?.note ?? null);
+      const combined = current?.note && note ? `${current.note}${SEGMENT_SEP}${note}` : (note ?? current?.note ?? null);
       this.db.prepare(`
         UPDATE dispatch_attempts
         SET status = ?, attempt_finished_at = datetime('now'), note = ?
@@ -65,7 +68,7 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
       const current = this.db.prepare(
         "SELECT note FROM dispatch_attempts WHERE message_id = ? AND target_otter_id = ?",
       ).get(messageId, targetOtterId) as { note: string | null } | undefined;
-      const combined = current?.note ? `${current.note}; ${note}` : note;
+      const combined = current?.note ? `${current.note}${SEGMENT_SEP}${note}` : note;
       this.db.prepare(`
         UPDATE dispatch_attempts
         SET note = ?
@@ -258,7 +261,7 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
     let changed = 0;
     this.db.transaction(() => {
       for (const row of rows) {
-        const combined = row.note ? `${row.note}; 目标已解散，派发无主（dissolve 销账）` : '目标已解散，派发无主（dissolve 销账）';
+        const combined = row.note ? `${row.note}${SEGMENT_SEP}目标已解散，派发无主（dissolve 销账）` : '目标已解散，派发无主（dissolve 销账）';
         changed += settle.run(capNote(combined), row.message_id, otterId).changes;
       }
     })();
@@ -280,7 +283,7 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
     let changed = 0;
     this.db.transaction(() => {
       for (const row of rows) {
-        const combined = row.note ? `${row.note}; 进程重启，派发中断（sgp2 死亡证明）` : '进程重启，派发中断（sgp2 死亡证明）';
+        const combined = row.note ? `${row.note}${SEGMENT_SEP}进程重启，派发中断（sgp2 死亡证明）` : '进程重启，派发中断（sgp2 死亡证明）';
         changed += settle.run(capNote(combined), row.message_id, row.target_otter_id).changes;
       }
     })();
@@ -325,20 +328,20 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
 function hardCutTail(body: string): string {
   const OVERSEG_MARKER = "…（前段超长已截断）";
   const cut = body.slice(body.length - NOTE_HARD_CAP);
-  const withMarker = `${OVERSEG_MARKER}; ${cut}`;
+  const withMarker = `${OVERSEG_MARKER}${SEGMENT_SEP}${cut}`;
   if (withMarker.length <= NOTE_HARD_CAP) return withMarker;
-  const bodyBudget = NOTE_HARD_CAP - OVERSEG_MARKER.length - 2;
-  return `${OVERSEG_MARKER}; ${cut.slice(cut.length - bodyBudget)}`;
+  const bodyBudget = NOTE_HARD_CAP - OVERSEG_MARKER.length - SEGMENT_SEP.length;
+  return `${OVERSEG_MARKER}${SEGMENT_SEP}${cut.slice(cut.length - bodyBudget)}`;
 }
 
 /** #810：note 有界化——滑动窗口 + 段边界截断（纯函数，可独立单测）。
  *  规则：① 超过 KEEP_SEGMENTS 段时从最旧段开始丢弃；② 总长超 HARD_CAP 时继续丢最旧段。
  *  实际发生丢弃时在最前加「…（更早 N 段已截断）」标记；仅剩单段仍超限时尾部硬切（hardCutTail，
  *  加「前段超长已截断」标记）——取证语义不静默：宁可看见「被切过」也不呈现貌似完整的假象。
- *  段以 "; " 分隔（与追加语义一致）。 */
+ *  段以 SEGMENT_SEP（"; "）分隔，与追加语义单一来源。 */
 export function capNote(note: string | null): string | null {
   if (note == null) return null;
-  const segments = note.split("; ");
+  const segments = note.split(SEGMENT_SEP);
   let dropped = 0;
   let kept = segments;
   // 段数窗口：超 KEEP_SEGMENTS 先丢最旧
@@ -347,17 +350,17 @@ export function capNote(note: string | null): string | null {
     kept = kept.slice(kept.length - NOTE_KEEP_SEGMENTS);
   }
   // 长度上限：继续丢最旧段；仅剩单段仍超限时尾部硬切（保留最近内容）
-  while (kept.join("; ").length > NOTE_HARD_CAP && kept.length > 1) {
+  while (kept.join(SEGMENT_SEP).length > NOTE_HARD_CAP && kept.length > 1) {
     dropped += 1;
     kept = kept.slice(1);
   }
-  const body = kept.join("; ");
+  const body = kept.join(SEGMENT_SEP);
   if (body.length > NOTE_HARD_CAP) return hardCutTail(body);
   if (dropped === 0) return body;
   const marker = truncationMarker(dropped);
-  const withMarker = `${marker}; ${body}`;
+  const withMarker = `${marker}${SEGMENT_SEP}${body}`;
   // 标记本身挤占上限时从 body 头部再硬切（标记永远保留——「丢了多少」比「最早内容」重要）
   if (withMarker.length <= NOTE_HARD_CAP) return withMarker;
-  const bodyBudget = NOTE_HARD_CAP - marker.length - 2;
-  return `${marker}; ${body.slice(body.length - bodyBudget)}`;
+  const bodyBudget = NOTE_HARD_CAP - marker.length - SEGMENT_SEP.length;
+  return `${marker}${SEGMENT_SEP}${body.slice(body.length - bodyBudget)}`;
 }
