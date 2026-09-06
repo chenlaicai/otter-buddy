@@ -56,8 +56,6 @@ import type { RhiScanWorker as RhiScanWorkerType } from "@usecases/health/rhi-sc
 import { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import { SignalPipeline } from "@usecases/health/signal-pipeline";
 import { collectHealingEvents } from "@usecases/health/healing-collector";
-import { SignalRepository } from "@usecases/health/signal-repository";
-import { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
 import type { AgentSessionSource } from "@usecases/health/cost-output-collector";
 import type { CreateSnapshotRow } from "@usecases/health/snapshot-rows";
 
@@ -145,12 +143,14 @@ function createRhiScanWorker(deps: {
   const healingSource = async () => collectHealingEvents(await deps.repos.healingEvent.findOpen(1000));
 
   // 指标快照落库端口（F20260829hviz Fix A）：scanOnce 计算指标写 health_snapshots
-  const snapshotRepo = new HealthSnapshotRepository(deps.db);
+  // #447：改从 Repositories DI 消费（healthSnapshot），不再直实例化
+  const snapshotRepo = deps.repos.healthSnapshot;
   const snapshotSink = (snapshotDate: string, rows: CreateSnapshotRow[]) =>
     snapshotRepo.replaceForDate(snapshotDate, rows);
 
-  // 健康评分 D5 输入：open 信号计数（issue #595 PR1）
-  const signalRepo = new SignalRepository(deps.db);
+  // 健康评分 D5 输入：open 信号计数（issue #595 PR1）。
+  // #447：改从 Repositories DI 消费（rhiSignal，与 signalEvent 獭间语义池区分），不再直实例化
+  const signalRepo = deps.repos.rhiSignal;
 
   // 成本/产出快照落库端口（#583）：同 repo 的 replaceForDate，独立 metric_type
   const costOutputSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>, metricType?: string) =>
@@ -410,8 +410,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     processInboundRecruit, inboundApiKey, getBridgeStatus,
     // F20260825rweb（#402）：RHI 面板 API 依赖
     rhiScanWorker,
-    signalRepo: new SignalRepository(db),
-    healthSnapshotRepo: new HealthSnapshotRepository(db),
+    // #447：RHI 面板 API 依赖改从 Repositories DI 消费
+    signalRepo: repos.rhiSignal,
+    healthSnapshotRepo: repos.healthSnapshot,
     // F20260826mwrd C4：消息徽章数据源（signal_events 表，与 RHI 的 health 语义池区分）
     signalEventRepo: repos.signalEvent,
     // F20260902sgp2 S2：信号路由器重挂（web 主入口换轨；未注入时 MC 降级直连链）

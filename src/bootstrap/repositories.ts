@@ -13,6 +13,8 @@ import { SqliteScheduledTaskRepository } from "@frameworks/db/scheduled-task/sql
 import { SqliteConnectionRepository } from "@frameworks/db/im/sqlite-connection-repository";
 import { SqliteHealingEventRepository } from "@frameworks/db/healing/sqlite-healing-event-repository";
 import { SqliteSignalEventRepository } from "@frameworks/db/signal/sqlite-signal-repository";
+import { SignalRepository } from "@usecases/health/signal-repository";
+import { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
 import { SqliteAttachmentRepository } from "@frameworks/db/attachment/sqlite-attachment-repository";
 import { SqliteDispatchAttemptRepo } from "@frameworks/db/conversation/sqlite-dispatch-attempt-repo";
 import type { Logger } from "@usecases/ports/logger";
@@ -36,6 +38,9 @@ export function initRepositories(db: Database.Database, logger?: Logger): Reposi
     connection: new SqliteConnectionRepository(db),
     healingEvent: new SqliteHealingEventRepository(db),
     signalEvent: new SqliteSignalEventRepository(db),
+    /** RHI 健康池两 repo（issue #447）：此前 app.ts 4 处直实例化，绕过注册惯例 */
+    rhiSignal: new SignalRepository(db),
+    healthSnapshot: new HealthSnapshotRepository(db),
     /** F20260902sgp2 S1：派发台账（信号协议 v2） */
     dispatchAttempt: new SqliteDispatchAttemptRepo(db),
     /** 多模态 Phase 1：附件 repo */
