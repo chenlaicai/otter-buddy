@@ -180,9 +180,9 @@ describe("ResumeInterruptedService（F20260826rsme）", () => {
     const rows = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").all(msgId) as Array<{ status: string }>;
     expect(rows[0]?.status).toBe("done");
 
-    // 恢复开始前有系统提示（sendSystem 落库的 completed system 消息）
+    // F20260906rsts：成功路径静默——不再有开场「正在自动恢复」宣告，对话流零系统消息
     const sysMsgs = await new QueryMessage(repo).getMessages("conv-1", { senderType: "system", limit: 5 });
-    expect(sysMsgs.some(m => m.segments.some(seg => seg.body.includes("正在自动恢复")))).toBe(true);
+    expect(sysMsgs).toHaveLength(0);
   });
 
   it("并发窗口内有新 user 消息：跳过恢复 + exhausted + 降级提示", async () => {
@@ -356,11 +356,11 @@ describe("ResumeInterruptedService（F20260826rsme）", () => {
     expect(stored?.segments.some(seg => seg.body === "半截")).toBe(true);
 
     // F202609048840 F3: 由于旧消息不再复位为 streaming，而是保持 failed 状态，
-    // canFailMessage 返回 false，因此不会调用 sendMessage.fail，不会写入 "恢复已完成" 的消息
-    // 这是预期的行为：旧消息保持 failed 状态，恢复链写新消息
-    expect(stored?.segments.some(seg => seg.body.includes("恢复已完成"))).toBe(false);
+    // canFailMessage 返回 false，因此不会调用 sendMessage.fail，旧消息不写入终态说明文案
+    // F20260906rsts：成功路径静默——对话流零系统消息（无宣告、无汇总）
+    expect(stored?.segments.some(seg => seg.body.includes("恢复"))).toBe(false);
     const sysMsgs = await new QueryMessage(repo).getMessages("conv-1", { senderType: "system", limit: 10 });
-    expect(sysMsgs.some(m => m.segments.some(seg => seg.body.includes("恢复已完成")))).toBe(false);
+    expect(sysMsgs).toHaveLength(0);
 
     // pending 流转不受影响
     const rows = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").all(msgId) as Array<{ status: string }>;
@@ -472,9 +472,11 @@ describe("#613 恢复流终态反馈 + healing 台账落账", () => {
   }
 
 
-  // ── #613 方案 A：恢复完成终态消息 ──
+  // ── F20260906rsts：静默成功裁决（移除 #613 方案 A 终态宣告） ──
 
-  it("#613 方案 A：恢复完成后发终态消息「N 条已恢复」", async () => {
+  it("F20260906rsts：成功路径全程静默——零系统消息（无开场宣告、无终态汇总）", async () => {
+    // 搭档裁决（2026-09-06）：恢复职责边界 = 重启后重新触发即结束，成功的恢复是透明的。
+    // 验证面：resume() 全流程后对话流无任何 sender_type=system 消息。
     await otterRepo.createOtter(otterFixture("otter-big"));
     await repo.createParticipant(participantFixture("otter-big"));
     await seedInterrupted(db, repo, { withSegments: "半截" });
@@ -482,13 +484,12 @@ describe("#613 恢复流终态反馈 + healing 台账落账", () => {
 
     await buildService(chain).resume();
 
+    expect(chain.calls).toHaveLength(1); // 链正常触发
     const sysMsgs = await new QueryMessage(repo).getMessages("conv-1", { senderType: "system", limit: 10 });
-    // 恢复完成终态消息（成功路径与失败路径的 [错误] 消息对称）
-    expect(sysMsgs.some(m => m.segments.some(seg => seg.body.includes("恢复完成")))).toBe(true);
-    expect(sysMsgs.some(m => m.segments.some(seg => seg.body.includes("1 条中断发言已恢复")))).toBe(true);
+    expect(sysMsgs).toHaveLength(0);
   });
 
-  it("#613 方案 A：部分失败时终态消息含「M 条未能恢复」", async () => {
+  it("F20260906rsts：部分失败时失败提示保留，成功会话仍静默", async () => {
     // conv-1 一条成功、conv-2 一条失败（链引擎对 conv-2 抛错）
     await otterRepo.createOtter(otterFixture("otter-big"));
     await otterRepo.createOtter(otterFixture("otter-small"));
@@ -522,18 +523,19 @@ describe("#613 恢复流终态反馈 + healing 台账落账", () => {
 
     await buildService(chain as unknown as DispatchChainEngine & { calls: unknown[] }).resume();
 
-    // conv-1：1 条已恢复
+    // conv-1（成功会话）：静默——零系统消息
     const sysMsgs1 = await new QueryMessage(repo).getMessages("conv-1", { senderType: "system", limit: 10 });
-    expect(sysMsgs1.some(m => m.segments.some(seg => seg.body.includes("1 条中断发言已恢复")))).toBe(true);
-    // conv-2：1 条未能恢复（新文案：失败单独列出，不带「0 条已恢复」前缀）
+    expect(sysMsgs1).toHaveLength(0);
+    // conv-2（失败会话）：失败提示保留（buildRestartResumeFailedInvokeMsg，可手动重试）
     const sysMsgs2 = await new QueryMessage(repo).getMessages("conv-2", { senderType: "system", limit: 10 });
-    expect(sysMsgs2.some(m => m.segments.some(seg => seg.body.includes("1 条未能恢复（请手动重试）")))).toBe(true);
+    expect(sysMsgs2.some(m => m.segments.some(seg => seg.body.includes("invoke 失败")))).toBe(true);
+    expect(sysMsgs2.some(m => m.segments.some(seg => seg.body.includes("手动重试")))).toBe(true);
   });
 
-  it("#617 检视发现1：stale data（participant 失效）被统计为「已跳过」，不带「请手动重试」误导", async () => {
-    // Why: resumeOne 返回 "skipped"（stale 数据清理）此前被计入 "failed"，
-    // 终态消息显示「请手动重试」对已 exhausted 的过期数据无操作指引意义。
-    // 修复后 skipped 与 failed 分开统计，文案精确区分。
+  it("#617 检视发现1：stale data（participant 失效）跳过恢复，静默清理（无系统消息）", async () => {
+    // Why: resumeOne 返回 "skipped"（stale 数据清理）此前被计入终态汇总的「已跳过」统计。
+    // F20260906rsts 静默成功裁决后无终态汇总——skipped 路径本就不单独发消息，
+    // 消息已标 exhausted，用户无操作可做，静默清理符合「恢复即结束」的职责边界。
     await otterRepo.createOtter(otterFixture("otter-big"));
     // participant status=left 模拟 stale 现场（服务重启间隙参与者已离开）
     await repo.createParticipant(participantFixture("otter-big", { status: "left", leftAt: "2026-01-02T00:00:00Z" }));
@@ -544,12 +546,7 @@ describe("#613 恢复流终态反馈 + healing 台账落账", () => {
 
     expect(chain.calls).toHaveLength(0); // stale 数据不触发链引擎
     const sysMsgs = await new QueryMessage(repo).getMessages("conv-1", { senderType: "system", limit: 10 });
-    const completedMsg = sysMsgs.find(m => m.segments.some(seg => seg.body.includes("恢复完成")));
-    expect(completedMsg).toBeDefined();
-    const body = completedMsg!.segments.map(s => s.body).join("");
-    // 关键断言：skipped 走「已跳过」分支，不出现「请手动重试」
-    expect(body).toContain("1 条已跳过（过期/并发，无需处理）");
-    expect(body).not.toContain("请手动重试");
+    expect(sysMsgs).toHaveLength(0);
     // pending 记录已被 exhausted 清理（resumeOne 内 updateResumeStatus）
     const rows = db.prepare("SELECT status FROM restart_pending_resumes").all() as Array<{ status: string }>;
     expect(rows[0]?.status).toBe("exhausted");
