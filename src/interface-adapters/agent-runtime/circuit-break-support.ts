@@ -46,7 +46,7 @@ interface TurnWindowCount {
 }
 
 /**
- * F20260906xxxx（#811）：自重启 session 创建后是否有用户消息介入。
+ * F20260906srst（#811）：自重启 session 创建后是否有用户消息介入。
  * 意图来源维度——有用户消息介入的自重启是正常运维（搭档显式指令），不构成循环；
  * 纯 LLM 自发（无用户消息）才是 F20260824srst 威胁模型要拦的循环。
  * 查询失败降级为 false（无介入）——维持拦截，保守。
@@ -403,7 +403,7 @@ export class CircuitBreakSupport {
       return ctx?.newSessionId === session.id;
     });
     if (!selfRestartCreated) return false;
-    // F20260906xxxx（#811）：session 虽由自重启创建，但此后有用户消息介入 → 正常运维，放行。
+    // F20260906srst（#811）：session 虽由自重启创建，但此后有用户消息介入 → 正常运维，放行。
     // 判据：最新 user 消息 createdAt >= session.startedAt（continuation message 不落库，不污染判据）。
     if (conversationId) {
       const intervened = await hasUserMessageSince(

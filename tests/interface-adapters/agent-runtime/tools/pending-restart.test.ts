@@ -205,9 +205,11 @@ describe('restart_otter 自重启循环防护（F20260824srst）', () => {
       getStats: async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} }),
       autoStaleDismiss: async () => 0,
     } as unknown as import('@usecases/healing/healing-event-repository').HealingEventRepository;
-    // mock getActiveSession 返回匹配的 session
+    // mock getActiveSession 返回匹配的 session（F20260906srst：显式带 startedAt，验证无用户消息介入时的降级路径——
+    // 不再依赖 Date.parse(undefined)=NaN 的隐式 false；getLastBySenderType 默认 mock 返回 null → last 为空 → 维持拦截）
     (ctx.client.otter.getActiveSession as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: 'new-session-otter-1', otterId: 'otter-1', status: 'active',
+      startedAt: '2026-09-04T13:00:00Z',
     });
     const tools = createTools(ctx, healingRepo, createRecordingLogger());
     const restartTool = tools.find(t => t.name === 'restart_otter');
