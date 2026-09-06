@@ -86,8 +86,10 @@ export interface ConversationRepository {
   listInFlightOtterMessages(): Promise<Array<{ id: string; conversationId: string; senderId: string }>>;
   /** 查询待恢复记录（status=pending），按 created_at 升序 */
   getPendingResumes(): Promise<Array<{ messageId: string; conversationId: string; otterId: string }>>;
-  /** 恢复结果流转：done（成功）| exhausted（超限/失败，不再重试） */
-  updateResumeStatus(messageId: string, status: "done" | "exhausted", now: string): Promise<void>;
+  /** 恢复结果流转：done（成功）| exhausted（超限/失败，不再重试）| failed（链完成但 invoke 失败，可手动重试） */
+  updateResumeStatus(messageId: string, status: "done" | "exhausted" | "failed", now: string): Promise<void>;
+  /** F202609048840 F3: 更新消息的 turn_id（恢复路径保留 failed 状态时使用） */
+  updateMessageTurnId(messageId: string, turnId: string): Promise<void>;
   /** 更新消息的 token 使用量（yield complete 后补充写入） */
   updateTokenUsage(messageId: string, contextTokens: number, contextTokensMax: number): Promise<void>;
   /** 中止消息：streaming -> aborted（body + talkingStonePassedTo 同一事务写入） */

@@ -606,6 +606,7 @@ describe("sgp2 hop 取源修复（F20260902sgp2 #712：hop 2+ 记账 + 多源覆
       abortUnattemptedOutgoingForOtter: () => 0,
       appendNote: () => {},
       listAttemptsForConversation: () => [],
+      getAttempt: () => null,
     };
     return { m, attempts, dispatchAttemptRepo };
   }

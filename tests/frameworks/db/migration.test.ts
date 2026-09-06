@@ -804,3 +804,89 @@ describe("migrateDatabase - backfillGhostSenders", () => {
     expect(sysBad.c).toBe(0);
   });
 });
+
+/**
+ * F202609048840 F4：restart_pending_resumes.status CHECK 扩展 failed（存量库重建）。
+ * 恢复链 invoke 失败需标 failed（可手动重试）——老库 CHECK (pending/done/exhausted)
+ * 写 failed 被 SQLite 拒绝，迁移四步重建（#608/#654/#804 同模式）。
+ */
+describe("migrateDatabase - F202609048840: rebuildRestartPendingResumesStatusCheck", () => {
+  /** 模拟旧库：restart_pending_resumes 表带旧 CHECK（无 failed） */
+  function createOldResumesDb(): Database.Database {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    initSchema(db);
+    db.exec("DROP TABLE restart_pending_resumes");
+    db.exec(`
+      CREATE TABLE restart_pending_resumes (
+        message_id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        otter_id TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'done', 'exhausted')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT
+      );
+    `);
+    db.prepare(
+      "INSERT INTO restart_pending_resumes (message_id, conversation_id, otter_id, attempts, status, created_at) VALUES ('msg-old', 'conv-x', 'otter-1', 1, 'done', '2026-09-04T00:00:00Z')"
+    ).run();
+    return db;
+  }
+
+  it("老库重建：failed 可入库，旧数据完整保留", () => {
+    const db = createOldResumesDb();
+    try {
+      // 重建前：failed 被 CHECK 拒收
+      expect(() =>
+        db.prepare(
+          "INSERT INTO restart_pending_resumes (message_id, conversation_id, otter_id, attempts, status, created_at) VALUES ('msg-new', 'conv-x', 'otter-1', 1, 'failed', '2026-09-04T12:00:00Z')"
+        ).run()
+      ).toThrow();
+
+      migrateDatabase(db, createTestLogger());
+
+      // 重建后：failed 可入
+      expect(() =>
+        db.prepare(
+          "INSERT INTO restart_pending_resumes (message_id, conversation_id, otter_id, attempts, status, created_at) VALUES ('msg-new', 'conv-x', 'otter-1', 1, 'failed', '2026-09-04T12:00:00Z')"
+        ).run()
+      ).not.toThrow();
+
+      // 旧数据完整保留
+      const row = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = 'msg-old'").get() as { status: string };
+      expect(row.status).toBe("done");
+
+      // 索引重建
+      const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_restart_pending_resumes_status'").get();
+      expect(idx).toBeTruthy();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("幂等：二次迁移不报错不重复重建", () => {
+    const db = createOldResumesDb();
+    try {
+      migrateDatabase(db, createTestLogger());
+      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("全新库（initSchema 已含 failed）：无需重建，直接通过", () => {
+    const db = new Database(":memory:");
+    try {
+      initSchema(db);
+      migrateDatabase(db, createTestLogger());
+      expect(() =>
+        db.prepare(
+          "INSERT INTO restart_pending_resumes (message_id, conversation_id, otter_id, attempts, status, created_at) VALUES ('msg-fresh', 'conv-x', 'otter-1', 1, 'failed', '2026-09-04T12:00:00Z')"
+        ).run()
+      ).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+});

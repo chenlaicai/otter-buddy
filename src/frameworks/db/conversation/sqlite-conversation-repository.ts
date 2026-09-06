@@ -478,10 +478,16 @@ export class SqliteConversationRepository implements ConversationRepository {
     return rows.map(r => ({ messageId: r.message_id, conversationId: r.conversation_id, otterId: r.otter_id }));
   }
 
-  async updateResumeStatus(messageId: string, status: "done" | "exhausted", now: string): Promise<void> {
+  async updateResumeStatus(messageId: string, status: "done" | "exhausted" | "failed", now: string): Promise<void> {
     this.db.prepare(
       "UPDATE restart_pending_resumes SET status = ?, updated_at = ? WHERE message_id = ?",
     ).run(status, now, messageId);
+  }
+
+  async updateMessageTurnId(messageId: string, turnId: string): Promise<void> {
+    this.db.prepare(
+      "UPDATE messages SET turn_id = ? WHERE id = ?",
+    ).run(turnId, messageId);
   }
 
   async updateTokenUsage(messageId: string, contextTokens: number, contextTokensMax: number): Promise<void> {

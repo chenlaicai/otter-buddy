@@ -81,6 +81,13 @@ export interface DispatchAttemptRepo {
    */
   countPendingForTarget(conversationId: string, targetOtterId: string): { total: number; halt: number };
   /**
+   * F202609048840 F4：按 (messageId, targetOtterId) 精确查单行——resume done 语义判定的
+   * 真相源。链引擎对 invoke 拒绝是 allSettled 吞错语义（#599：processHopResults 只记日志
+   * 不上抛），executeChain 正常返回 ≠ invoke 成功；台账 settle 终态才是准确判据。
+   * 无行（记账链路异常）返回 null，调用方保守判成功（不因观测缺失误标 failed）。
+   */
+  getAttempt(messageId: string, targetOtterId: string): DispatchAttempt | null;
+  /**
    * 启动死亡证明（§4.4，flash 对撞③）：进程内不可能有存活的 in_progress 跨越重启——
    * 补扫之前把所有 in_progress 标 failed + note。先例 reconcile-orphans.ts:50 同款语义。
    * 返回翻篇行数（日志可见）。

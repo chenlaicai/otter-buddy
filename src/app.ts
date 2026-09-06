@@ -477,6 +477,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     healingRepo: repos.healingEvent,
     // F20260902sgp2 S2：启动补扫含信号补路由（崩溃窗口兜底，台账判据）
     signalRouter,
+    // F202609048840 F4：done 语义判定的真相源——链引擎对 invoke 拒绝是吞错语义，
+    // executeChain 正常返回 ≠ invoke 成功，台账 settle 终态才是准确判据
+    dispatchAttemptRepo: repos.dispatchAttempt,
   });
   if (options.startResume ?? true) {
     // fire-and-forget：resume 内部自带延迟，不阻塞也不吞启动错误

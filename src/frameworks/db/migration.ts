@@ -126,6 +126,11 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
 
   /** 幽灵 sender 回填：sender_type 与 sender_id 语义错位的存量数据修复（2026-09-04 排查）。 */
   backfillGhostSenders(db, logger);
+
+  /** F202609048840 F4：restart_pending_resumes.status CHECK 扩展 failed 枚举值（存量库重建）。
+   *  Why：恢复链 invoke 失败需标 failed（可手动重试）而非 exhausted（永久放弃）——done 语义拆分。
+   *  老库 CHECK (pending/done/exhausted) 写 failed 会被 SQLite 拒绝，四步重建（#608/#654/#804 同模式）。 */
+  rebuildRestartPendingResumesStatusCheck(db, logger);
 }
 
 /** 幽灵 sender 回填（2026-09-04 排查）：修复两类发言者身份错位。
@@ -816,4 +821,42 @@ function rebuildDispatchAttemptsSourceCheck(db: Database.Database, logger: Logge
     db.pragma("foreign_keys = ON");
   }
   logger.info('Rebuilt dispatch_attempts table to add dissolve source (F20260904schf P2)');
+}
+
+/** F202609048840 F4：restart_pending_resumes.status CHECK 扩展 failed（存量库重建）。
+ *  SQLite 无法修改已有 CHECK，只能重建表替换。检测 sqlite_master 旧 CHECK 文本判存量；
+ *  幂等：新库宽约束（含 failed）不命中直接返回。表无 FK，重建较简。 */
+function rebuildRestartPendingResumesStatusCheck(db: Database.Database, logger: Logger): void {
+  const schema = db.prepare(
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name='restart_pending_resumes'",
+  ).get() as { sql: string } | undefined;
+  if (!schema?.sql || schema.sql.includes("'failed'")) return;
+
+  logger.info('Rebuilding restart_pending_resumes table to widen status CHECK constraint (add failed)');
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE restart_pending_resumes_new (
+          message_id TEXT PRIMARY KEY,
+          conversation_id TEXT NOT NULL,
+          otter_id TEXT NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'done', 'exhausted', 'failed')),
+          created_at TEXT NOT NULL,
+          updated_at TEXT
+        );
+        INSERT INTO restart_pending_resumes_new
+          (message_id, conversation_id, otter_id, attempts, status, created_at, updated_at)
+        SELECT message_id, conversation_id, otter_id, attempts, status, created_at, updated_at
+        FROM restart_pending_resumes;
+        DROP TABLE restart_pending_resumes;
+        ALTER TABLE restart_pending_resumes_new RENAME TO restart_pending_resumes;
+        CREATE INDEX IF NOT EXISTS idx_restart_pending_resumes_status ON restart_pending_resumes(status);
+      `);
+    })();
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+  logger.info('Rebuilt restart_pending_resumes table to add failed status (F202609048840 F4)');
 }

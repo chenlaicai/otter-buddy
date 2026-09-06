@@ -146,6 +146,34 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
     }));
   }
 
+  /** F202609048840 F4：按 (messageId, targetOtterId) 精确查单行（唯一键）。
+   *  resume done 语义判定的真相源——链引擎对 invoke 拒绝是吞错语义，
+   *  executeChain 正常返回 ≠ invoke 成功，台账 settle 终态才是准确判据。
+   *  无行返回 null（记账链路异常时调用方保守判成功）。 */
+  getAttempt(messageId: string, targetOtterId: string): DispatchAttempt | null {
+    const r = this.db.prepare(`
+      SELECT id, conversation_id, message_id, target_otter_id, status, source,
+             attempt_started_at, attempt_finished_at, note
+      FROM dispatch_attempts WHERE message_id = ? AND target_otter_id = ?
+    `).get(messageId, targetOtterId) as {
+      id: string; conversation_id: string; message_id: string; target_otter_id: string;
+      status: string; source: string; attempt_started_at: string;
+      attempt_finished_at: string | null; note: string | null;
+    } | undefined;
+    if (!r) return null;
+    return {
+      id: r.id,
+      conversationId: r.conversation_id,
+      messageId: r.message_id,
+      targetOtterId: r.target_otter_id,
+      status: r.status as DispatchAttempt["status"],
+      source: r.source as DispatchAttempt["source"],
+      attemptStartedAt: r.attempt_started_at,
+      attemptFinishedAt: r.attempt_finished_at,
+      note: r.note,
+    };
+  }
+
   listPendingSignals(conversationId?: string, limit = 50): PendingSignalRow[] {
     // F20260903damp 阻尼#1：重扫只碰「从未派发」的行（attempts=0）。
     // 含 failed 终态行的信号不进重扫视野——「无自动重试」从口号机制化：

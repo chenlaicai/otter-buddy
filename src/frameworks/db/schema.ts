@@ -833,7 +833,7 @@ function createRestartPendingResumesTable(db: Database.Database): void {
       conversation_id TEXT NOT NULL,
       otter_id TEXT NOT NULL,
       attempts INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'done', 'exhausted')),
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'done', 'exhausted', 'failed')),
       created_at TEXT NOT NULL,
       updated_at TEXT
     );
