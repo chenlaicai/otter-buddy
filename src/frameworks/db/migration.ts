@@ -208,9 +208,11 @@ function rebuildAttachmentsKindCheck(db: Database.Database, logger: Logger): voi
   // FK 修复：message_attachments.attachment_id 引用 attachments(id)，存量有数据时
   // DROP TABLE attachments 触发 FOREIGN KEY constraint failed。
   // PRAGMA foreign_keys 不能在事务内切换，须在事务外关闭、事务后恢复。
+  // #805：补 try/finally——事务抛异常时 foreign_keys 也能恢复 ON（对齐 #792 P2 模式）。
   db.pragma("foreign_keys = OFF");
-  const rebuild = db.transaction(() => {
-    db.exec(`
+  try {
+    db.transaction(() => {
+      db.exec(`
       CREATE TABLE attachments_new (
         id TEXT PRIMARY KEY,
         sha256 TEXT NOT NULL,
@@ -232,9 +234,10 @@ function rebuildAttachmentsKindCheck(db: Database.Database, logger: Logger): voi
       CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_sha ON attachments(sha256, uploader_id);
       CREATE INDEX IF NOT EXISTS idx_attachments_uploader ON attachments(uploader_id);
     `);
-  });
-  rebuild();
-  db.pragma("foreign_keys = ON");
+    })();
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
   logger.info('attachments kind CHECK widened: audio/video now accepted');
 }
 
@@ -745,7 +748,8 @@ function ensureMessagesSourceAndSenderNameColumns(db: Database.Database, logger:
 /** #654：scheduled_task_executions 表 CHECK 约束扩展 skipped 枚举值。
  *  老库 CHECK (status IN (running, completed, failed)) 不含 skipped，写入即抛
  *  constraint violation。SQLite 无法 ALTER CHECK，需 CREATE-INSERT-DROP-RENAME 四步重建
- *  （先例：rebuildDocumentTablesDropCheck）。幂等：新库 CHECK 已含 skipped 时直接返回。 */
+ *  （先例：rebuildDocumentTablesDropCheck）。幂等：新库 CHECK 已含 skipped 时直接返回。
+ *  #805：重建补齐 FK 防护（foreign_keys OFF + try/finally + ON，与 #608/#792/#812 统一）。 */
 function rebuildExecutionsStatusCheck(db: Database.Database, logger: Logger): void {
   const schemaRow = db.prepare(
     "SELECT sql FROM sqlite_master WHERE type='table' AND name='scheduled_task_executions'",
@@ -754,8 +758,14 @@ function rebuildExecutionsStatusCheck(db: Database.Database, logger: Logger): vo
   // 新库（initSchema 建表已含 skipped）或已迁移：无需重建
   if (!schemaRow?.sql || schemaRow.sql.includes("'skipped'")) return;
 
-  db.transaction(() => {
-    db.exec(`
+  logger.info('Rebuilding scheduled_task_executions table to add skipped status (#654)');
+  // #805：补 FK 防护——本表含 3 个 FK（scheduled_tasks/messages/turns），同文件先例
+  // （#608/#792 P2/#812 F4）重建时均关 foreign_keys 防 DROP 被引用表时 constraint failed；
+  // PRAGMA 不能在事务内切换，须事务外关闭；try/finally 保证异常时也恢复 ON（#792 P2 模式）。
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.transaction(() => {
+      db.exec(`
       CREATE TABLE scheduled_task_executions_new (
         id TEXT PRIMARY KEY,
         task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
@@ -772,7 +782,10 @@ function rebuildExecutionsStatusCheck(db: Database.Database, logger: Logger): vo
       ALTER TABLE scheduled_task_executions_new RENAME TO scheduled_task_executions;
       CREATE INDEX IF NOT EXISTS idx_executions_task ON scheduled_task_executions(task_id, triggered_at);
     `);
-  })();
+    })();
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
   logger.info('Rebuilt scheduled_task_executions table to add skipped status (#654)');
 }
 

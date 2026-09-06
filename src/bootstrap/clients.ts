@@ -21,6 +21,8 @@ export function buildMessageClient(uc: UseCases) {
       uc.queryMessage.expandMessage(messageId, direction, count),
     getTurnHistory: (convId: string, opts?: { includeMessages?: boolean }) =>
       uc.queryMessage.getTurnHistory(convId, opts),
+    getLastBySenderType: (convId: string, senderType: "user" | "otter" | "system") =>
+      uc.queryMessage.getLastMessageBySenderType(convId, senderType),
   };
 }
 

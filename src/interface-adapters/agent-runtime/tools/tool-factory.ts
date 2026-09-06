@@ -402,16 +402,28 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** F20260824srst: 自重启循环防护——当前 session 是否由自重启创建（tool 层第一道防线） */
+/** F20260824srst + F20260906srst（#811）: 自重启循环防护——当前 session 是否由自重启创建且无用户消息介入（tool 层第一道防线）
+ *  意图来源维度：session 由自重启创建后，若搭档发过新指令（senderType=user 消息晚于 startedAt），
+ *  重启是正常运维 → 不拦；纯 LLM 自发（无用户消息介入）才是循环，拦。
+ *  Why 走 OtterToolClient 端口：tool 层无 queryMessage 依赖，复用 message 客户端的只读查询。 */
 async function isSelfRestartLoop(ctx: ToolContext, healingRepo?: HealingEventRepository): Promise<boolean> {
   if (!healingRepo) return false;
   const activeSession = await ctx.client.otter.getActiveSession(ctx.otterId).catch(() => null);
   if (!activeSession) return false;
   const events = await healingRepo.findRecentByOtter(ctx.otterId, 'self_restart', 20);
-  return events.some(e => {
+  const selfRestartCreated = events.some(e => {
     const ectx = e.context as { newSessionId?: string } | null;
     return ectx?.newSessionId === activeSession.id;
   });
+  if (!selfRestartCreated) return false;
+  // 用户消息介入检测：查询失败或客户端缺方法时降级为 false（维持拦截，保守）
+  try {
+    const last = await ctx.client.conversation.message.getLastBySenderType(ctx.conversationId, 'user');
+    if (last && Date.parse(last.createdAt) >= Date.parse(activeSession.startedAt)) return false;
+  } catch {
+    // 降级：视为无介入，维持拦截
+  }
+  return true;
 }
 
 /** F20260810rstart: restart_otter 工具。小獭只能重启自己，大獭可重启任意 otter。 */
