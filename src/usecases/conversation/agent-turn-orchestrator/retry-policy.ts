@@ -67,12 +67,7 @@ export function buildRestartResumeMsg(): string {
   return '[系统提醒] 服务重启导致你的发言中断，系统已自动恢复。你之前 speak 的内容已保留在本条消息中，请基于已有进度继续完成发言，然后 yield 交棒。如果对任务上下文记忆不完整，先查阅消息历史再继续。';
 }
 
-/** F20260826rsme：恢复开始前的用户可见系统消息 */
-export function buildRestartResumeSystemMsg(count: number): string {
-  return `[系统] 服务重启导致 ${count} 条发言中断，正在自动恢复。`;
-}
-
-/** F20260826rsme：恢复失败/跳过时的用户可见提示 */
+/** F20260906rsts：恢复失败/跳过时的用户可见提示（成功路径静默——触发重跑即结束，不宣告） */
 export function buildRestartResumeFailedMsg(reason: "invoke_error" | "skipped_concurrent"): string {
   if (reason === "skipped_concurrent") return "[系统] 检测到恢复窗口内有新消息进入，跳过自动恢复，请手动重试该消息。";
   return "[系统] 服务重启自动恢复失败，请手动重试该消息。";
@@ -83,27 +78,10 @@ export function buildRestartResumeFailedInvokeMsg(): string {
   return "[系统] 恢复过程中 invoke 失败，已标记为失败，请手动重试该消息。";
 }
 
-/**
- * #613：恢复完成的用户可见终态消息（issue #613 方案 A）。
- * Why: 「正在自动恢复」发出后成功路径无终态反馈，用户不知恢复结果（#604 只覆盖失败路径）。
- * 按 conversation 汇总统计——单条恢复的消息粒度太细，用户关心的是「这次重启恢复了几条、没恢复几条」。
- *
- * 检视发现1（#617）：三分类 resumed/skipped/failed 分别统计——
- * skipped 表示 stale 数据清理或并发窗口跳过（对应消息已标记 exhausted），
- * 用户无操作可做，「请手动重试」对这类数据是误导；failed 才是真正的恢复失败，
- * 保留可重试的操作指引。
- *
- * F202609048840 F4: done 语义拆分——新增 failed 状态，区分「链完成但 invoke 失败」
- */
-export function buildRestartResumeCompletedMsg(resumed: number, skipped: number, failed: number): string {
-  const parts: string[] = [];
-  if (resumed > 0) parts.push(`${resumed} 条中断发言已恢复`);
-  if (skipped > 0) parts.push(`${skipped} 条已跳过（过期/并发，无需处理）`);
-  if (failed > 0) parts.push(`${failed} 条未能恢复（请手动重试）`);
-  // 全跳过（0 恢复 0 失败）：单条表述避免「0 条中断发言已恢复」的怪味文案
-  if (resumed === 0 && skipped === 0 && failed === 0) parts.push("0 条中断发言已恢复");
-  return `[系统] 恢复完成：${parts.join("，")}。`;
-}
+/* F20260906rsts：#613 方案 A「恢复完成」终态宣告已移除——搭档裁决（2026-09-06）：
+ * 恢复的职责边界 = 重启后重新触发被中断的发言，触发即结束；成功的恢复是透明的
+ * （海獭把话说完本身就是结果），不再向对话流发任何成功宣告。失败路径提示保留。
+ * buildRestartResumeCompletedMsg 随之删除。 */
 
 /**
  * #599：恢复收尾消息（终态守卫用）。
@@ -113,7 +91,7 @@ export function buildRestartResumeCompletedMsg(resumed: number, skipped: number,
  */
 export function buildRestartResumeTerminalMsg(outcome: "done" | "failed"): string {
   return outcome === "done"
-    ? "[系统] 恢复已完成：本条为中断前的原始发言（半截内容已保留），恢复后的内容见新发言。"
+    ? "[系统] 本条发言因服务重启中断（半截内容已保留），后续内容见新发言。"
     : "[系统] 恢复未完成：本条发言已中止（半截内容已保留），可在本条上手动重试。";
 }
 
