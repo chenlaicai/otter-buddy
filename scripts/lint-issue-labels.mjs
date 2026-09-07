@@ -83,18 +83,22 @@ function lintIssue(issue) {
   return { problems, suggestions };
 }
 
-/** 标题启发式猜 type——仅建议，不自动执行 */
+/** 标题启发式猜 type——仅建议，不自动执行。优先级：bug（强症状词）→ enhancement（新能力动词）→ tech-debt（改造动词）→ question 兜底 */
 function guessTypeByTitle(title, existing) {
   if (existing.length) return null;
   const t = title.toLowerCase();
   if (/(静默|丢|失败|错|漏|崩|悬置|无告警|异常|误拦|报错|炸弹|中断)/.test(t)) return "bug";
+  if (/(接入|新增|支持|建设)/.test(t)) return "enhancement";
   if (/(优化|重构|改进|enhance|统一|收口)/.test(t)) return "tech-debt";
   if (/(方案|悬置待拍板|讨论|评估|待分析)/.test(t)) return "question";
-  if (/(接入|新增|支持|建设)/.test(t)) return "enhancement";
   return null;
 }
 
 const issues = fetchOpenIssues();
+if (issues.length === 0) {
+  console.log("✓ 无 open issue，无需审计");
+  process.exit(0);
+}
 const violations = [];
 const dash = { bug: 0, enhancement: 0, "tech-debt": 0, question: 0, P0: 0, P1: 0, P2: 0, "daily-review": 0 };
 let noLabel = 0;

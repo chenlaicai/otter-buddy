@@ -104,8 +104,8 @@ skill 执行完成后，检查其"后续动作声明"。如有建议的下一步
 
 **Issue 标签与标题规范（F20260907itri）**——海獭创建任何 issue 时强制遵守：
 
-1. **标签必打**：type 一个（`bug`=行为不符预期 / `enhancement`=新能力增强 / `tech-debt`=能用但结构烂 / `question`=待讨论待分析）+ priority 一个（`P0`=正确性或数据安全，当天进开发流程 / `P1`=本周应修 / `P2`=等排期）+ 来源标签（`daily-review`，仅每日健康检查产出时打）。可选主题标签 ≤1（agent-evolution / observability）
-2. **标题格式**：`[模块] 一句话摘要`（模块如 signal-protocol / scheduler / web / memory / healing / im / stock / skill / prompt / docs / general；F 特性 follow-up 用 `[F…-followup]` 占模块位）。不用 [daily-review]/[tech-debt]/[Bug] 等与标签重复的前缀
+1. **标签必打**：type 一个（`bug`=行为不符预期 / `enhancement`=新能力增强 / `tech-debt`=能用但结构烂 / `question`=待讨论/待分析）+ priority 一个（`P0`=正确性或数据安全，当天进开发流程 / `P1`=本周应修 / `P2`=等排期）+ 来源标签（`daily-review`，仅每日健康检查产出时打）。可选主题标签 ≤1（agent-evolution / observability）
+2. **标题格式**：`[模块] 一句话摘要`（模块如 signal-protocol / scheduler / web / memory / healing / im / stock / skill / prompt / docs / rhi / general；F 特性 follow-up 用 `[F…-followup]` 占模块位）。不用 [daily-review]/[tech-debt]/[Bug] 等与标签重复的前缀
 3. **聚合红线**：同根因或同模块同类型的多个问题，合并为一条 issue 分点陈述，不拆多条
 4. **审计**：`node scripts/lint-issue-labels.mjs` 扫 open issue 合规性（缺 type/priority、非法组合、标题格式违规），每日任务例行调用，标签不完整率 >5% 日报标红
 

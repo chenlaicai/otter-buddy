@@ -4,6 +4,12 @@ title: Issue 看板治理：三维标签体系 + 标题规范 + 全入口落地�
 summary: 解决「issue 越清越多、标签缺失、人眼无法一眼看到关键点」的结构性问题——建立 type×priority×source 三维正交标签、[模块] 标题规范，并对全部 4 个 issue 生成入口做 prompt/tool 层落地收口
 change_type: prompt
 capability_test: "n/a: prompt/流程层改动，验证走 lint 脚本自测 + 存量补标前后大盘对比"
+intent:
+  problem: "issue 看板 46 条 open 中 41% 无标签、bug 标签 0 次使用、priority 维度完全缺失，搭档无法一眼看到严重bug/待讨论/加强优化/待分析的分布，只能靠海獭逐条人肉分析；且 4 个生成入口无标签约定，生成不合规持续发生"
+  expected_effect: "新产出 issue 100% 带 type+priority 标签且标题 [模块] 格式；每日任务产出 issue 大盘统计行；存量 46 条补标后 lint 不完整率 <5%；周一 backlog digest 可按 priority 排序呈搭档"
+  verify_by:
+    type: static_only
+    reason: "prompt/流程层改动，无 LLM 行为可采样；行为验证走 lint 脚本对 GitHub issue 的实际扫描（大盘数字与 gh 实测交叉验证），issue 打标 golden 场景列为后续待办（见验证节）"
 created_in_conversation: d8d6a5c6-0e3c-421c-9597-ec6ce03d6033
 tags: [issue-management, labels, prompt, governance, lint]
 modules: [".pi/SYSTEM.md", "prompts/scheduled/", "scripts/", ".pi/skills/"]
@@ -82,11 +88,11 @@ T4: **存量归零 + 持续审计**——46 条存量一次性补齐标签，之
 - **模块枚举**（开放集，常用先列）：`signal-protocol` / `scheduler` / `web` / `memory` / `healing` / `im` / `stock` / `skill` / `prompt` / `docs` / `rhi` / `general`
 - **保留**：[signal-protocol]、[stock-cli]、[ctx-quality] 等模块型前缀（信息量独立于标签）
 - **淘汰**：[daily-review]（与标签重复）、[tech-debt]（与标签重复）、[Bug]（与标签重复且大小写不一）、[rhi]（rhi-linked 由每日任务语义判断，不靠前缀）
-- **保留特例**：[F...follow-up]（特性文档可追溯性，放模块位：`[F20260902rcq3-followup] ...`）
+- **保留特例**：[F…-followup]（特性文档可追溯性，放模块位：`[F20260902rcq3-followup] ...`，单连字符 followup，与 SYSTEM.md R2 一致）
 
 ### 3. 落地机制（四层防线，回应「不能光有规范」）
 
-**层 1——生成侧 prompt/skill 收口（改 5 处）**：
+**层 1——生成侧 prompt/skill 收口（改 6 处）**：
 
 | 改造点 | 改动 |
 |--------|------|
@@ -94,6 +100,7 @@ T4: **存量归零 + 持续审计**——46 条存量一次性补齐标签，之
 | prompts/scheduled/每日-issue-处理.md Step 0 | 输入域扩容：+「任意 open 的标签不完整 issue（type/priority 缺失），每日补标 ≤5 条」；产出增加大盘统计行 |
 | .pi/skills/code-implementation/SKILL.md 步骤 9 | 「带标签 tech-debt / bug」→「按 SYSTEM.md Issue 规范打标（type+priority）」 |
 | .pi/skills/adversarial-review/references/anti-patterns.md | gh issue create 处补「按规范打标」引用 |
+| .pi/skills/adversarial-review/references/author-response-protocol.md | 同上（独立于 anti-patterns 的转出路径，同等打标约束） |
 | .pi/SYSTEM.md R2「Issue 处理规范」 | 从「必须有具体修复方案」扩为完整紧凑版规范（标签表+标题格式+聚合规则），作为海獭散点提 issue 的单源引用 |
 
 **层 2——工具兜底（新增 scripts/lint-issue-labels.mjs）**：
