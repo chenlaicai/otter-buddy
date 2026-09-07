@@ -13,12 +13,12 @@ import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 /** stock-cli.py 相对仓库根的路径 */
 const STOCK_CLI_REL = "scripts/stock-cli.py";
 
-/** 合法命令枚举 */
-const VALID_COMMANDS = ["kline", "overview", "finance", "news", "northflow", "hkline", "hvaluation", "selftest"] as const;
+/** 合法命令枚举（#802：quote 暴露——走同一条命令链，与 kline 同约束无绕过风险） */
+const VALID_COMMANDS = ["kline", "overview", "finance", "news", "northflow", "hkline", "hvaluation", "quote", "selftest"] as const;
 type StockCommand = (typeof VALID_COMMANDS)[number];
 
-/** 需要 code 参数的命令 */
-const COMMANDS_NEEDING_CODE = new Set(["kline", "overview", "finance", "news", "hkline", "hvaluation"]);
+/** 需要 code 参数的命令（#802：quote 需要） */
+const COMMANDS_NEEDING_CODE = new Set(["kline", "overview", "finance", "news", "hkline", "hvaluation", "quote"]);
 
 /** 默认超时 60 秒 */
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -180,13 +180,16 @@ function processResult(result: { stdout: string; stderr: string; exitCode: numbe
 
 /** 工具 description——LLM 消费的引导文案是本工具价值的一半 */
 const TOOL_DESCRIPTION = [
-  "A 股数据查询工具——通过 akshare 获取个股行情、财务、新闻、北向资金。",
+  "A 股+港股数据查询工具——通过 akshare 获取个股行情、财务、新闻、北向资金。",
   "命令：",
   "  kline <code> — 日 K 线（默认摘要：最近 30 日 OHLCV + 区间统计；adjust 控制复权方式）",
   "  overview <code> — 个股概览（基本信息 + 实时行情 + 估值 PE/PB/市值）",
   "  finance <code> — 财务指标（营收/净利/ROE/毛利率，quarter 控制季数）",
   "  news <code> — 个股新闻（limit 控制条数）",
   "  northflow — 北向资金汇总（无需 code）",
+  "  hkline <code> — 港股日 K 线（新浪港股源，未复权价）",
+  "  hvaluation <code> — 港股估值（百度源）",
+  "  quote <code> — 新浪实时行情（当日价：最新价/涨跌幅/时间戳，盘中实时）",
   "  selftest — 自检各接口连通性",
   "输出：单行 JSON 到 stdout；错误时 {\"error\":\"...\"}。",
   "缓存：默认 5 分钟落盘缓存，no_cache=true 强制刷新。",
@@ -208,7 +211,7 @@ export function createStockDataTool(_ctx: ToolContext): AgentTool {
         },
         code: {
           type: "string",
-          description: "股票代码。A 股：6 位数字（如 600519）。港股：5 位数字（如 01810）。kline/overview/finance/news/hkline/hvaluation 必填，northflow/selftest 不需要。",
+          description: "股票代码。A 股：6 位数字（如 600519）。港股：5 位数字（如 01810）。kline/overview/finance/news/hkline/hvaluation/quote 必填，northflow/selftest 不需要。",
         },
         days: {
           type: "number",
