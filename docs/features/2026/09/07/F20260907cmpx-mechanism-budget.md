@@ -3,7 +3,7 @@ id: F20260907cmpx
 title: 机制预算：把「防补丁叠加」固化进方案、排查与审视流程
 summary: 搭档发现系统呈「叠加打补丁式过度设计」（恢复机制 10 天长出宣告→五连修复→全链聚合三代补丁，两次由搭档人肉裁决砍除）。经三方分析（大獭+掘根+一线）收敛出通用根因理论与三层解法。本特性将解法固化为流程软代码：机制预算四问进 requirement-analysis（方案层）、修法排序进 troubleshooting（排查层）、软焦点维度进 adversarial-review（审视层）、零基重推进大版本重构动作清单。零新机制——用约束治机制，本方案自身过四问自审。
 change_type: prompt
-capability_test: n/a: 改动为 skill 流程文本（按需加载的指导文档），无直接可采样的对话行为；B7 以既有 golden 场景全量跑作冒烟（无回归断言点，四问本身的效果走 issue 跟踪期观察）
+capability_test: "n/a: 改动为 skill 流程文本（按需加载的指导文档），无直接可采样的对话行为；B7 以既有 golden 场景全量跑作冒烟"（无回归断言点，四问本身的效果走 issue 跟踪期观察）
 created_in_conversation: dcf866f2-187b-4ec3-aa18-31a18ace8fa9
 tags: [overengineering, mechanism-budget, skills, design-philosophy]
 intent:
