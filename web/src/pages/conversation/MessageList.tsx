@@ -208,6 +208,8 @@ export function MessageList({
   const prevMessagesLenRef = useRef(messages.length)
   /** 上翻加载历史时，记录需要恢复的滚动位置差值 */
   const pendingScrollRestoreRef = useRef<number | null>(null)
+  /** F20260907sgpt：内容高度贴底补偿——上次采样的内容高度，见下方 ResizeObserver */
+  const prevContentHeightRef = useRef(0)
 
   /** 滚动到底部 */
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
@@ -244,6 +246,46 @@ export function MessageList({
       requestAnimationFrame(() => scrollToBottom())
     }
   }, [messages.length, scrollToBottom, isAtBottomRef])
+
+  /** F20260907sgpt：高度贴底补偿（ResizeObserver）。
+   *
+   * 背景：自 virtuent→原生滚动迁移（F20260818nscp）起 overflowAnchor:'none'，原生滚动
+   * 锚定关闭，且「messages.length effect」只对条数变化补偿——而信号轨迹 chip（trailItems
+   * 2s 轮询异步到达）、信号徽标（SSE 终态替换 tmp- 消息，条数不变）、GateBanner 等都只在
+   * 视口内增减内容高度，条数不变 → 无补偿 → 用户在底部时视口周期性上跳（F20260903ah68
+   * 根因 ① 的未读分隔线是同类，#790 只修了「发言时刻」那一条路）。
+   *
+   * 修法：ResizeObserver 盯内容高度，用户在底部（isAtBottomRef）时任何来源的高度变化
+   * 都把 scrollTop 重新贴到底。这修复「这一类」而非继续逐个打地鼠。
+   *
+   * 边界处理：
+   * - requestAnimationFrame 合帧：高频 resize（流式渲染）下每帧至多补偿一次，避免布局抖动
+   * - 只认高度增大：高度减小（如 GateBanner 消失）若贴底，scrollHeight 缩短本身就把视口
+   *   推到 ≥ 底部位置，无需补偿；isNearBottom 检测随之重判，不产生上跳
+   * - 上翻加载历史的 preserve-scroll 由 pendingScrollRestoreRef 路径独占，本 effect 只在
+   *   isAtBottomRef=true 时动作，两路径互斥不干扰
+   * - 高度不变（width-only resize 等）不动 scrollTop */
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(entries => {
+      const entry = entries[entries.length - 1]
+      const h = entry?.contentRect?.height ?? 0
+      if (h === prevContentHeightRef.current) return // 高度没变（width-only 等）
+      const grew = h > prevContentHeightRef.current
+      prevContentHeightRef.current = h
+      if (!grew) return
+      if (!isAtBottomRef.current) return // 用户不在底部：任何高度变化都不打扰
+      requestAnimationFrame(() => {
+        const sc = scrollRef.current
+        if (sc && isAtBottomRef.current) sc.scrollTop = sc.scrollHeight
+      })
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+    // Why: mount-only——observer 闭包经 ref 读取最新状态，无需重订阅；isAtBottomRef 是稳定 ref
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   /** 滚动事件处理：检测是否在底部 + 触发加载更多 */
   const handleScroll = useCallback(() => {
