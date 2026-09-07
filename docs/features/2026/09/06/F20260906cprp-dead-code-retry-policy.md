@@ -17,7 +17,7 @@ created_at: 2026-09-06
 
 `buildRestartResumeFailedMsg` 原签名接受 `"invoke_error" | "skipped_concurrent"` 两个分支，
 但 `invoke_error` 路径在 F202609048840 后已由 `buildRestartResumeFailedInvokeMsg()` 独占——
-全局搜索确认唯一调用点 `resume-interrupted-service.ts:397` 仅传 `"skipped_concurrent"`。
+全局搜索确认唯一调用点 `resume-interrupted-service.ts:371` 仅传 `"skipped_concurrent"`。
 
 本次收紧：
 - 类型签名：`"invoke_error" | "skipped_concurrent"` → `"skipped_concurrent"`
