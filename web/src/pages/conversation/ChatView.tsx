@@ -6,7 +6,6 @@ import { MessageList } from './MessageList'
 import { MessageInput } from './MessageInput'
 import { GateBanner, type GateState } from './GateBanner'
 import { useAttachmentStaging, type StagedAttachment } from './hooks/useAttachmentStaging'
-import type { TrailItem } from '../../lib/signal-trail'
 
 interface ChatViewProps {
   conversation: Conversation | null
@@ -37,7 +36,6 @@ interface ChatViewProps {
   /** 用户滚动到底部时调用，用于标记已读 */
   onReachBottom?: () => void
   /** 信号轨迹（F20260902u5tr）：透传 MessageList */
-  trailItems?: TrailItem[]
   /** S3.5：会话调度闸门状态（横幅数据源，null=路由器未注入不渲染） */
   gateState?: GateState | null
 }
@@ -100,7 +98,6 @@ export function ChatView(props: ChatViewProps) {
         highlightMessageId={props.highlightMessageId}
         userName={props.userName}
         onReachBottom={props.onReachBottom}
-        trailItems={props.trailItems}
       />
 
       {/* 卡片提交预览槽位（强制且永久，无直接发送开关）：summary 全文 + data JSON 全文默认可见 */}
