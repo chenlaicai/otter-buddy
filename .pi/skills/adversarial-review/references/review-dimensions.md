@@ -131,7 +131,7 @@ Can the next developer understand this?
 - No dead code left behind
 - Error messages are actionable
 
-## 7. Mechanism Budget (F20260907cmpx)
+## 7. Mechanism Budget
 
 > 范围（软维度，非必查）：变更净新增机制（新机制/子机制/对外承诺）时可选用此维度作焦点。纯修 bug、纯删除、纯重构豁免。复盘记录破例（搭档裁决豁免 + 特性文档引用裁决）亦豁免。
 
