@@ -149,8 +149,10 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     // F20260902sgp2 S1：派发台账注入——所有入口每次派发都记账（链引擎是必经之路，§4.2）。
     // 记账失败仅日志不阻断（硬约束 1）；不注入时链路行为与 sgpv 回滚基线一致。
     dispatchAttemptRepo: repos.dispatchAttempt,
-    // #530 梯度护栏：steer/abort 回调注入（可选——不注入时护栏降级为纯计数+日志）。
-    steer: options?.agentGateway ? (otterId, text) => Promise.resolve(options.agentGateway!.steerSession(otterId, text)) : undefined,
+    // #530 梯度护栏：abort 回调注入（可选——不注入时降级为纯日志）。
+    // F20260907ylfs ②：steer 回调已删（③ 检视修复后 steer 注入改走 ChainHopResult.steerText
+    // 进程级传递，回调零调用点成死装配——检视-838 移交件 A）；steerSession 保留在
+    // pi-session-factory（① URGENT steer 注入的依赖，signal-router 直调不经链引擎 deps）。
     abort: options?.agentGateway ? (otterId) => options.agentGateway!.abort(otterId) : undefined,
     healingRepo: repos.healingEvent,
   });

@@ -74,7 +74,6 @@ function makeMocks() {
   const queryOtter = { getById: vi.fn().mockResolvedValue(null) } as unknown as QueryOtter;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger;
 
-  const steer = vi.fn().mockResolvedValue(true);
   const abort = vi.fn();
   const healingRepo = {
     create: vi.fn().mockResolvedValue(undefined),
@@ -82,20 +81,19 @@ function makeMocks() {
 
   return {
     conversationRepo, queryMessage, queryOtter, logger,
-    steer, abort, healingRepo,
+    abort, healingRepo,
     getMessageById, getMessages,
     setSeededMessages: (msgs: Message[]) => { seededMessages = msgs; },
   };
 }
 
-function makeChainEngine(m: ReturnType<typeof makeMocks>, overrides?: { steer?: typeof m.steer; abort?: typeof m.abort; healingRepo?: typeof m.healingRepo }) {
+function makeChainEngine(m: ReturnType<typeof makeMocks>, overrides?: { abort?: typeof m.abort; healingRepo?: typeof m.healingRepo }) {
   return new DispatchChainEngine({
     conversationRepo: m.conversationRepo,
     queryMessage: m.queryMessage,
     queryOtter: m.queryOtter,
     logger: m.logger,
     maxChainDepth: 10,
-    steer: overrides?.steer ?? m.steer,
     abort: overrides?.abort ?? m.abort,
     healingRepo: overrides?.healingRepo ?? m.healingRepo,
   });
@@ -127,6 +125,7 @@ describe("#530 self-yield guardrail", () => {
 
       const engine = makeChainEngine(m);
       const invoked: string[] = [];
+      const receivedSteer: boolean[] = [];
       await engine.executeChain({
         conversationId: "conv-1",
         userMessageContent: "hi",
@@ -134,21 +133,24 @@ describe("#530 self-yield guardrail", () => {
         initialTargets: ["otter-1"],
         invokeFn: async ({ otterId, userMessageContent }) => {
           invoked.push(otterId);
-          // #530 修复（检视-838 发现 1）：steer 不再直接调用 session.steer，
-          // 而是通过 ChainHopResult.steerText 进程级传递，前置注入到下一 hop 消息上下文
-          if (invoked.length > 1) {
-            // 第二个 hop 应该收到 steer 文案
-            expect(userMessageContent).toContain("连续 3 次 self-yield");
-            expect(userMessageContent).toContain("建议");
-          }
-          return { messageId: "m-new" };
+          // F20260907ylfs ②（件 B 转正）：self 链真实续跑——第一跳 self-yield（计数 total=3
+          // 命中 steer），第二跳真实被唤醒并收到注入文案；第二跳无 yield（tsp=[]）收链。
+          // 旧版「if (invoked.length > 1)」死代码（② 前滤 self → 第二跳不存在）退役。
+          receivedSteer.push(userMessageContent.includes("连续 3 次 self-yield"));
+          m.getMessageById.mockResolvedValue(
+            invoked.length === 1
+              ? makeMsg({ id: "m-new", talkingStonePassedTo: ["otter-1"] })
+              : makeMsg({ id: "m-new-2", talkingStonePassedTo: [] })
+          );
+          return { messageId: invoked.length === 1 ? "m-new" : "m-new-2" };
         },
       });
 
+      // ② 转正：链两跳（hop1 self-yield → hop2 续跑收链），第二跳收到 steer 注入
+      expect(invoked).toEqual(["otter-1", "otter-1"]);
+      expect(receivedSteer).toEqual([false, true]);
       // abort 未被调用（3 < 5）
       expect(m.abort).not.toHaveBeenCalled();
-      // 链仍然继续（steer 不停链）
-      expect(invoked).toContain("otter-1");
     });
 
     it("第 5 次 self-yield（DB 有 4 条 previous）→ abort + healing 留痕", async () => {
@@ -205,7 +207,7 @@ describe("#530 self-yield guardrail", () => {
       });
 
       // steer 只在第 3 次触发（previous=2），第 4 次不重复 steer
-      expect(m.steer).not.toHaveBeenCalled();
+      expect(m.abort).not.toHaveBeenCalled();
       expect(m.abort).not.toHaveBeenCalled();
     });
   });
@@ -236,7 +238,7 @@ describe("#530 self-yield guardrail", () => {
         invokeFn: async () => ({ messageId: "m-new" }),
       });
 
-      expect(m.steer).not.toHaveBeenCalled();
+      expect(m.abort).not.toHaveBeenCalled();
       expect(m.abort).not.toHaveBeenCalled();
     });
 
@@ -259,7 +261,7 @@ describe("#530 self-yield guardrail", () => {
         invokeFn: async () => ({ messageId: "m-new" }),
       });
 
-      expect(m.steer).not.toHaveBeenCalled();
+      expect(m.abort).not.toHaveBeenCalled();
     });
 
     it("外部指向该獭的信号消息重置计数", async () => {
@@ -306,6 +308,7 @@ describe("#530 self-yield guardrail", () => {
 
       const engine = makeChainEngine(m);
       const invoked: string[] = [];
+      const receivedSteer: boolean[] = [];
       await engine.executeChain({
         conversationId: "conv-1",
         userMessageContent: "hi",
@@ -313,13 +316,20 @@ describe("#530 self-yield guardrail", () => {
         initialTargets: ["otter-1"],
         invokeFn: async ({ otterId, userMessageContent }) => {
           invoked.push(otterId);
-          // 不相关 system 消息被跳过，previous=2，totalCount=3，触发 steer
-          if (invoked.length > 1) {
-            expect(userMessageContent).toContain("连续 3 次 self-yield");
-          }
-          return { messageId: "m-new" };
+          // F20260907ylfs ②（件 B 转正）：不相关 system 消息透明 → 计数累计 → steer
+          // 注入第二 hop（真实续跑）；第二跳无 yield 收链
+          receivedSteer.push(userMessageContent.includes("连续 3 次 self-yield"));
+          m.getMessageById.mockResolvedValue(
+            invoked.length === 1
+              ? makeMsg({ id: "m-new", talkingStonePassedTo: ["otter-1"] })
+              : makeMsg({ id: "m-new-2", talkingStonePassedTo: [] })
+          );
+          return { messageId: invoked.length === 1 ? "m-new" : "m-new-2" };
         },
       });
+
+      expect(invoked).toEqual(["otter-1", "otter-1"]);
+      expect(receivedSteer).toEqual([false, true]);
     });
 
     it("不相关外部 otter 消息透明（tsp 不含该獭），连续 previous 触发 steer 注入下一 hop", async () => {
@@ -336,6 +346,7 @@ describe("#530 self-yield guardrail", () => {
 
       const engine = makeChainEngine(m);
       const invoked: string[] = [];
+      const receivedSteer: boolean[] = [];
       await engine.executeChain({
         conversationId: "conv-1",
         userMessageContent: "hi",
@@ -343,20 +354,27 @@ describe("#530 self-yield guardrail", () => {
         initialTargets: ["otter-1"],
         invokeFn: async ({ otterId, userMessageContent }) => {
           invoked.push(otterId);
-          // 不相关外部 otter 消息透明，previous=2，totalCount=3，触发 steer
-          if (invoked.length > 1) {
-            expect(userMessageContent).toContain("连续 3 次 self-yield");
-          }
-          return { messageId: "m-new" };
+          // F20260907ylfs ②（件 B 转正）：不相关外部 otter 消息透明 → 计数累计 → steer
+          // 注入第二 hop（真实续跑）；第二跳无 yield 收链
+          receivedSteer.push(userMessageContent.includes("连续 3 次 self-yield"));
+          m.getMessageById.mockResolvedValue(
+            invoked.length === 1
+              ? makeMsg({ id: "m-new", talkingStonePassedTo: ["otter-1"] })
+              : makeMsg({ id: "m-new-2", talkingStonePassedTo: [] })
+          );
+          return { messageId: invoked.length === 1 ? "m-new" : "m-new-2" };
         },
       });
+
+      expect(invoked).toEqual(["otter-1", "otter-1"]);
+      expect(receivedSteer).toEqual([false, true]);
     });
   });
 
   // ─── 可选依赖降级 ───
 
   describe("可选依赖降级", () => {
-    it("无 steer 回调时 steer 注入降级为 no-op（不抛）", async () => {
+    it("无 abort/healing 回调时护栏降级 no-op（不抛）", async () => {
       m.setSeededMessages([
         makeMsg({ id: "m-2", sequenceNum: 2, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
         makeMsg({ id: "m-1", sequenceNum: 1, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
@@ -365,7 +383,7 @@ describe("#530 self-yield guardrail", () => {
         makeMsg({ id: "m-new", talkingStonePassedTo: ["otter-1"] })
       );
 
-      const engine = makeChainEngine(m, { steer: undefined, abort: undefined, healingRepo: undefined });
+      const engine = makeChainEngine(m, { abort: undefined, healingRepo: undefined });
       const result = await engine.executeChain({
         conversationId: "conv-1",
         userMessageContent: "hi",
@@ -374,7 +392,7 @@ describe("#530 self-yield guardrail", () => {
         invokeFn: async () => ({ messageId: "m-new" }),
       });
 
-      // 不抛异常（steer 回调可选，降级为 no-op）
+      // 不抛异常（回调可选，降级为 no-op）
       expect(result.otterReply).toBeDefined();
     });
 
@@ -417,7 +435,7 @@ describe("#530 self-yield guardrail", () => {
         invokeFn: async () => ({ messageId: "m-new" }),
       });
 
-      expect(m.steer).not.toHaveBeenCalled();
+      expect(m.abort).not.toHaveBeenCalled();
       expect(m.abort).not.toHaveBeenCalled();
       // warn 日志记录降级
       expect(m.logger.warn).toHaveBeenCalled();
@@ -445,7 +463,7 @@ describe("#530 self-yield guardrail", () => {
         },
       });
 
-      expect(m.steer).not.toHaveBeenCalled();
+      expect(m.abort).not.toHaveBeenCalled();
       expect(m.abort).not.toHaveBeenCalled();
       expect(invoked).toContain("otter-1");
     });
@@ -464,7 +482,7 @@ describe("#530 self-yield guardrail", () => {
         invokeFn: async () => ({ messageId: "m-noyield" }),
       });
 
-      expect(m.steer).not.toHaveBeenCalled();
+      expect(m.abort).not.toHaveBeenCalled();
       expect(m.abort).not.toHaveBeenCalled();
     });
   });

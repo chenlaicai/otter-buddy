@@ -290,13 +290,13 @@ describe("yield 工具（行动权移交）", () => {
     expect(speakingCalls).toHaveLength(0);
   });
 
-  it("传给自己仍然被拒绝，不终止 loop", async () => {
+  it("F20260907ylfs ②：yield 给自己（任务未完下轮继续）合法放行，tsp 含自身 ID，终止 loop（护栏门控在链引擎侧）", async () => {
     const { yield: yieldTool, speakingCalls } = makeTools(PARTICIPANTS);
     const res = await yieldTool.execute("c1", { to: ["小獭"] });
-    expect(res.content[0].text).toContain("[错误]");
-    expect(res.content[0].text).toContain("小獭");
-    expect(res.terminate).toBeUndefined();
-    expect(speakingCalls).toHaveLength(0);
+    expect(res.content[0].text).toContain("交棒成功");
+    expect(res.terminate).toBe(true);
+    expect(speakingCalls).toHaveLength(1);
+    expect(speakingCalls[0].talkingStonePassedTo).toEqual(["otter-self"]);
   });
 
   it("to 为空数组：返回错误，不终止", async () => {

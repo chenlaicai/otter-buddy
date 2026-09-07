@@ -36,20 +36,21 @@ export function resolveTalkingStoneTargets(
  *
  * @param recipients 接收者名字列表
  * @param active 当前活跃参与者列表
- * @param selfOtterId 当前 Otter 的 ID（不能传给自己）
- * @returns resolvedIds: 解析后的 ID 列表，error: 错误信息（如果有）
+ * @returns resolvedIds: 解析后的 ID 列表（F20260907ylfs ②：可含 self——「任务未完成，下轮继续」锚点，
+ * 护栏门控在链引擎侧，工具层不拦），error: 错误信息（如果有）
  */
 export function validateAndResolve(
   recipients: string[],
   active: Array<{ otterId: string; otterName: string }>,
-  selfOtterId: string,
 ): { resolvedIds: string[]; error?: string } {
   if (!recipients || recipients.length === 0) return { resolvedIds: [], error: "[错误] 行动权目标不能为空数组。请指定下一个应该行动的参与者名字。" };
   const { resolvedIds, invalid } = resolveTalkingStoneTargets(recipients, active);
-  if (resolvedIds.includes(selfOtterId)) {
-    const myName = active.find(p => p.otterId === selfOtterId)?.otterName ?? selfOtterId;
-    return { resolvedIds: [], error: `[错误] 不能把行动权传给自己（${myName}）。请选择其他参与者。` };
-  }
+  // F20260907ylfs ②（P3a 批次 2）：拆除自交禁令（含 selfOtterId 参数）——yield 给自己 = 任务锚点入箱
+  // （「任务未完成，下轮继续」），实现打断≠丢弃的对称恢复。
+  // 消化路径唯一 = 链引擎护栏门控的链续跑（dispatch-chain-engine resolveHopOutcomes：
+  // 护栏计数 <5 放行 self 进下一跳；≥3 附 steer 警示；≥5 拒入 + abort + healing）；
+  // 病态自链由 ③ 梯度护栏（F20260907grdr）兜底，工具层硬禁令退役。
+  // 路由判据侧自指排除（pendingClause）保留不动——自指信号不进路由 pending（方案 B）。
   if (invalid.length > 0) {
     const options = [...active.map(p => p.otterName), "搭档('user')"].join("、");
     return { resolvedIds: [], error: `[错误] 行动权目标不在场：${invalid.join("、")}。可选目标：${options}。请用正确的名字重新调用 yield。` };

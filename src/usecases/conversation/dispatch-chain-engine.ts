@@ -25,6 +25,21 @@ export interface ChainHopResult {
   steerText?: string;
 }
 
+/** F20260907ylfs ②（P3a 批次 2）：单目标 hop 产出判定——护栏决策单点化的载体。
+ *  settle 记账（chainSource 回填）与路由（nextTargets）共享同一实例，两处不再各滤各的。 */
+export interface HopOutcome {
+  /** 行级取数：产出消息行（fetchProducedMessage，含 talkingStonePassedTo 终值）；查库失败/degraded 时 null */
+  producedMsg: Awaited<ReturnType<QueryMessage["getMessageById"]>> | null;
+  /** 取数降级标记（#798 发现 2）：账面补「出处降级」备注用 */
+  degraded: boolean;
+  /** 护栏门控后的下一跳目标（已滤 'user'；self 仅护栏放行时含）——记账与路由的唯一口径 */
+  allowedNext: string[];
+  /** 护栏 abort（≥5 拒入）：路由清空 nextTargets 终链，settle 不得回填 chainSource */
+  aborted: boolean;
+  /** 护栏 steer 警示文案（totalCount=3 生成，仅一次）——进程级传递到下一 hop 前置注入 */
+  steerText?: string;
+}
+
 /** 多模态 Phase 1：每轮真图上限（服务端硬限制，超出拒绝）。
  *  依据：SDK estImageChars 按图 1200 tokens 估算，实测 GLM 2048px 图 ≈5500 input tokens
  *  （差 4.6 倍），图片多时 compaction 触发严重偏晚。 */
@@ -75,8 +90,6 @@ export class DispatchChainEngine {
       /** F20260902sgp2 S1：派发台账（可选注入——不注入时链路行为与 sgpv 回滚基线完全一致）。
        *  记账失败仅日志不阻断（硬约束 1）。 */
       dispatchAttemptRepo?: DispatchAttemptRepo;
-      /** #530 梯度护栏：steer 注入回调（可选——不注入时护栏降级为纯计数+日志）。 */
-      steer?: (otterId: string, text: string) => Promise<boolean>;
       /** #530 梯度护栏：abort 回调（可选——不注入时 abort 降级为纯日志）。
        *  ⚠️ 生产链路中 session 已在 finally 块 dispose，此回调恒为 no-op。
        *  链停能力实际由 processHopResults 清空 nextTargets 实现。 */
@@ -232,12 +245,22 @@ export class DispatchChainEngine {
     });
 
     const results = await Promise.allSettled(promises);
+    // F20260907ylfs ②（P3a 批次 2）：护栏决策单点化——settle 记账与路由共享同一门控结果。
+    // 旧序：recordAttemptSettle（:314 filter 滤 self）先执行、processHopResults（:417 filter 滤 self）
+    // 后执行——两处各滤各的，自→自记账通道被 :314 无条件关死（顺序依赖，快审 delta 重点）。
+    // 新序：resolveHopOutcomes 先一次完成「行级取数 + 护栏门控」，产 allowedNext per target；
+    // settle（chainSource 回填）与路由（nextTargets）消费同一结果，两处 filter 分叉在结构上不可能。
+    // 副产品：旧实现两处各查一次 getMessageById，合一后每 hop 少一次查库。
+    const outcomes = await this.resolveHopOutcomes(conversationId, targets, results);
+    // F20260904ldgr（#798 发现 2）保留：降级槽位（fetchProducedMessage 查库失败）补账面备注——
+    // 追加「出处降级」标记，只改 note 不改 status（反连接不变量完好）。槽位键 = 记账键。
+    // F20260907ylfs ②：degraded 随 resolveHopOutcomes 预判产出，此处批量收集（拆出控行数）。
+    const degradedSlots = this.collectDegradedSlots(outcomes, targets);
     // F20260902sgp2 S1：settle 记账（§4.2）——终态回写 + 链级出处回填
     // F20260904schf：出处回填改读行级 tsp，方法变 async（行级查库在 try 内，异常仍不阻断链路）
     // 审视建议 1：调用点再隔一层 try/catch——防方法内部 try 块之外的理论异常阻断 markBatchRead
-    const degradedSlots: Array<{ target: string }> = [];
     try {
-      await this.recordAttemptSettle(conversationId, targets, results, triggerMessageId, chainSourceMessageIds);
+      await this.recordAttemptSettle({ conversationId, targets, results, triggerMessageId, chainSourceMessageIds, outcomes });
     } catch { /* 记账面异常不阻断链路（硬约束 1） */ }
     await this.markBatchRead(conversationId, results, targets);
 
@@ -245,17 +268,86 @@ export class DispatchChainEngine {
     // 只改 note 不改 status（反连接不变量完好）。槽位键 = 记账键（triggerMessageId
     // 或 chainSource[target]，与 settle 同源）——产出消息 ID 不是记账键，用错 appendNote 无靶。
     try {
-      return await this.processHopResults(results, senderId, conversationId, targets, degradedSlots);
+      return await this.processHopResults(results, senderId, outcomes, conversationId, targets);
     } finally {
-      for (const slot of degradedSlots) {
-        const ledgerMsgIds = triggerMessageId ? [triggerMessageId] : (chainSourceMessageIds?.get(slot.target) ?? []);
-        for (const ledgerMsgId of ledgerMsgIds) {
-          try {
-            this.deps.dispatchAttemptRepo?.appendNote(ledgerMsgId, slot.target, '出处降级：invoke 完成但行级出处查库失败，yield 路由信息丢失（#798）');
-          } catch { /* 备注失败不影响链路（硬约束 1） */ }
-        }
+      this.appendDegradedNotes(degradedSlots, triggerMessageId, chainSourceMessageIds);
+    }
+  }
+
+  /** F20260907ylfs ②：降级槽位批量收集（自 executeOneHop 拆出，控 max-lines/complexity）。
+   *  F20260904ldgr 语义不变：fetchProducedMessage 查库失败的目标 → 账面补「出处降级」备注。 */
+  private collectDegradedSlots(outcomes: Map<number, HopOutcome>, targets: string[]): Array<{ target: string }> {
+    const slots: Array<{ target: string }> = [];
+    for (const [i, oc] of outcomes) {
+      if (oc.degraded && targets[i]) slots.push({ target: targets[i] });
+    }
+    return slots;
+  }
+
+  /** F20260907ylfs ②：降级槽位补账面备注（自 executeOneHop 的 finally 拆出，控 max-lines）。
+   *  #798 发现 2 语义不变：槽位键 = 记账键（triggerMessageId 或 chainSource[target]）。 */
+  private appendDegradedNotes(
+    degradedSlots: Array<{ target: string }>,
+    triggerMessageId: string | undefined,
+    chainSourceMessageIds: Map<string, string[]> | undefined,
+  ): void {
+    for (const slot of degradedSlots) {
+      const ledgerMsgIds = triggerMessageId ? [triggerMessageId] : (chainSourceMessageIds?.get(slot.target) ?? []);
+      for (const ledgerMsgId of ledgerMsgIds) {
+        try {
+          this.deps.dispatchAttemptRepo?.appendNote(ledgerMsgId, slot.target, '出处降级：invoke 完成但行级出处查库失败，yield 路由信息丢失（#798）');
+        } catch { /* 备注失败不影响链路（硬约束 1） */ }
       }
     }
+  }
+
+  /** F20260907ylfs ②（P3a 批次 2）：护栏决策单点化——本 hop 全部 fulfilled 目标的产出判定。
+ *  一次完成「行级取数（fetchProducedMessage）+ 护栏门控（checkSelfYieldGuardrail）」，
+ *  产出 per-target 的 allowedNext（已滤 'user'；self 仅护栏放行时含）。
+ *  消费方：recordAttemptSettle（chainSource 回填）与 processHopResults（nextTargets）——
+ *  记账与路由共享同一结果，旧版两处独立 filter（:314/:417 各滤 self）的顺序依赖在结构上消灭。
+ *  F20260904schf 保留：行级取数不变式（读产出消息自身 talkingStonePassedTo 终值，不读 turn 级并集）。
+ *  查库/护栏异常降级（无出处不路由 + degraded 备注账面），不阻断链路（硬约束 1 同款纪律）。 */
+  private async resolveHopOutcomes(
+    conversationId: string,
+    targets: string[],
+    results: PromiseSettledResult<InvokeFnResult>[],
+  ): Promise<Map<number, HopOutcome>> {
+    const outcomes = new Map<number, HopOutcome>();
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i]!;
+      const target = targets[i];
+      if (r.status !== "fulfilled" || !target) continue; // rejected 目标无产出可判，不进 outcomes
+      const [producedMsg, degraded] = await this.fetchProducedMessage(r.value.messageId, conversationId);
+      const tsp = producedMsg?.talkingStonePassedTo ?? [];
+      // F20260907ylfs ②：护栏门控（取代旧「静默滤 self → 链终止」）——门控分支下沉
+      // checkSelfYieldGuardrail / filterChainTargets（各分支独立计复杂度，拆后均 < 12）。
+      // self-yield = 任务锚点入箱（「任务未完，下轮继续」），消化路径唯一 = 本门控的链续跑。
+      const guard = this.isSelfYield(target, conversationId, tsp)
+        ? await this.checkSelfYieldGuardrail(conversationId, target, r.value.messageId)
+        : { aborted: false as const, steerText: undefined };
+      const allowedNext = guard.aborted ? [] : this.filterChainTargets(tsp);
+      outcomes.set(i, { producedMsg, degraded, allowedNext, aborted: guard.aborted, ...(guard.steerText ? { steerText: guard.steerText } : {}) });
+    }
+    return outcomes;
+  }
+
+  /** F20260907ylfs ②：链调度目标过滤——'user' 恒滤（#474 人类不参与链调度）。
+   *  self 不滤（护栏门控在 resolveHopOutcomes 的 guard 分支已处理）；旧版「滤 senderId」
+   *  禁令见 processHopResults 的 #474 注释（scheduler 回属主交棒是设计内，不得误伤）。 */
+  private filterChainTargets(tsp: string[]): string[] {
+    const out: string[] = [];
+    for (const id of tsp) {
+      if (id !== "user") out.push(id);
+    }
+    return out;
+  }
+
+  /** F20260907ylfs ②（检视-840 发现 2）：self-yield 判据单点——产出消息的行级 tsp 含
+   *  hop 目标自身 = 自指 yield（任务锚点入箱）。护栏门控唯一入口判据（① URGENT 注入
+   *  的类似判据后续复用此处出处），conversationId 缺失（理论降级路径）时不判 self。 */
+  private isSelfYield(target: string | undefined, conversationId: string | undefined, tsp: string[]): boolean {
+    return !!(target && conversationId && tsp.includes(target));
   }
 
   /** F20260902sgp2 S1：起跑记账——首 hop 用 triggerMessageId，hop 2+ 用 yield 出处
@@ -294,15 +386,23 @@ export class DispatchChainEngine {
   /** F20260902sgp2 S1：settle 记账——终态回写 + 产出消息追加进链级出处列表（hop 记账取源）。
    *  F20260904schf：出处回填改读行级 tsp（#792：aggregatedTargets turn 级并集是共栖污染源，
    *  chainSource[自己]=自己消息 → 自链循环）。行级事实依据：completeMessage 先落库后关 turn，
-   *  invoke 返回时消息行已含最终 yield——行级读数因果局部，无 turn 共存窗口竞态。 */
+   *  invoke 返回时消息行已含最终 yield——行级读数因果局部，无 turn 共存窗口竞态。
+   *  F20260907ylfs ②（P3a 批次 2）：出处回填改读 resolveHopOutcomes 的门控结果（本方法旧版
+   *  「tsp 不含 sender 自己」领域不变量随 ② 合法化退役）——护栏放行的 self hop 记 chainSource
+   *  （自→自：下轮重跑自己时对产出消息销账），拒入（≥5）不记；与路由同源，账面不说谎。 */
   // eslint-disable-next-line complexity -- 多源记账双层循环 + 逐源 try/catch 兜底（硬约束 1：记账失败不阻断链路），拆分反而损可读性
   private async recordAttemptSettle(
-    conversationId: string,
-    targets: string[],
-    results: PromiseSettledResult<InvokeFnResult>[],
-    triggerMessageId: string | undefined,
-    chainSourceMessageIds: Map<string, string[]> | undefined,
+    params: {
+      conversationId: string;
+      targets: string[];
+      results: PromiseSettledResult<InvokeFnResult>[];
+      triggerMessageId: string | undefined;
+      chainSourceMessageIds: Map<string, string[]> | undefined;
+      /** F20260907ylfs ②：护栏门控后的产出判定（resolveHopOutcomes 预算）——chainSource 回填依据 */
+      outcomes: Map<number, HopOutcome>;
+    },
   ): Promise<void> {
+    const { conversationId, targets, results, triggerMessageId, chainSourceMessageIds, outcomes } = params;
     if (!this.deps.dispatchAttemptRepo) return;
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
@@ -323,21 +423,19 @@ export class DispatchChainEngine {
         }
       }
       // 链级出处回填（hop 取源修复核心）：该目标的产出消息是【它 yield 给的下一跳目标】的
-      // 触发源——按产出消息自身的行级 talkingStonePassedTo 落位（F20260904schf），而非记在自己名下。
-      // 例：worker 产出 m-work 并 yield owner → m-work 行级 tsp=[owner]，记入 chainSource[owner]，
-      // 下 hop owner 起跑时用它记账 (m-work, owner)。多源追加不去重（A、B 都 yield C 时
-      // C 名下两条触发消息各记一次）；同目标重复 yield 只留最新产出（去重 + 截尾防膨胀）。
+      // 触发源——按 resolveHopOutcomes 门控后的 allowedNext 落位（F20260907ylfs ②：护栏决策
+      // 与路由同源，两处 filter 分叉在结构上不可能），而非记在自己名下。例：worker 产出 m-work
+      // 并 yield owner → allowedNext=[owner]，记入 chainSource[owner]，下 hop owner 起跑时用它
+      // 记账 (m-work, owner)。多源追加不去重（A、B 都 yield C 时 C 名下两条触发消息各记一次）；
+      // 同目标重复 yield 只留最新产出（去重 + 截尾防膨胀）。
       if (r.status === "fulfilled" && chainSourceMessageIds) {
+        const outcome = outcomes.get(i);
+        if (!outcome) continue;
         const produced = r.value.messageId;
-        // 行级出处 + 自指守卫：产出消息的 tsp 不应含 sender 自己（发言石传给别人的领域不变量），
-        // filter target 是纵深防御——即使上游异常写入自指 tsp，也不得回到自己名下（#792 自链病根）。
-        // Promise.resolve 包装：mock 返回 undefined 等非 Promise 值时仍安全（回归测试底线：mock 宽容性不回退）
-        const producedMsg = await Promise.resolve(this.deps.queryMessage.getMessageById(produced)).catch(() => null);
-        const nextHops = (producedMsg?.talkingStonePassedTo ?? []).filter(id => id !== "user" && id !== target);
-        if (nextHops.length === 0 && (r.value.aggregatedTargets?.filter(id => id !== "user").length ?? 0) > 0) {
-          this.deps.logger.warn('[signal-ledger] 行级出处为空但聚合目标非空（turn 共栖污染被行级化拦截）', { conv: conversationId, msg: produced, aggregated: r.value.aggregatedTargets });
-        }
-        for (const next of nextHops) {
+        // 护栏拒入（abort）时 allowedNext 清空是门控决策非降级，不误报污染日志——
+        // 共栖污染 warn 判定下沉 warnIfCoexistPollution（F20260904schf 语义保留，拆出控语句数）
+        this.warnIfCoexistPollution(outcome, r.value, conversationId, produced);
+        for (const next of outcome.allowedNext) {
           this.appendChainSource(chainSourceMessageIds, next, produced, conversationId);
         }
       }
@@ -355,6 +453,23 @@ export class DispatchChainEngine {
       conversationId,
       otterId,
     });
+  }
+
+  /** F20260907ylfs ②：turn 共栖污染 warn 判定（自 recordAttemptSettle 拆出，控 max-statements）。
+   *  F20260904schf 语义保留：行级出处为空（且非护栏拒入——tsp 本就无目标）但聚合目标非空
+   *  → turn 级并集污染被行级化拦截，warn 观测。 */
+  private warnIfCoexistPollution(
+    outcome: HopOutcome,
+    value: InvokeFnResult,
+    conversationId: string,
+    produced: string,
+  ): void {
+    if (outcome.allowedNext.length > 0) return;
+    const aggregatedNonUser = (value.aggregatedTargets?.filter(id => id !== "user").length ?? 0) > 0;
+    const tspNonUser = (outcome.producedMsg?.talkingStonePassedTo ?? []).filter(id => id !== "user").length > 0;
+    if (aggregatedNonUser && !tspNonUser) {
+      this.deps.logger.warn('[signal-ledger] 行级出处为空但聚合目标非空（turn 共栖污染被行级化拦截）', { conv: conversationId, msg: produced, aggregated: value.aggregatedTargets });
+    }
   }
 
   /** F20260904schf 检视发现 1（mimo-reviewer）：链级出处追加 + 截尾观测。
@@ -384,16 +499,6 @@ export class DispatchChainEngine {
    *  查库失败降级为 null（无出处不路由、无回复），不阻断链路（硬约束 1 同款纪律）；
    *  Promise.resolve 包装使 mock 返回 undefined 等非 Promise 值时仍安全。
    *  F20260904ldgr（#798 发现 2）：返回 [data, degraded]——degraded 时账面补降级备注。 */
-  /** F20260904ldgr：降级槽位收集（拆出控复杂度）。目标缺失 = 无槽位键，静默跳过（同起跑记账）。 */
-  private collectDegradedSlot(
-    degraded: boolean,
-    degradedSlots: Array<{ target: string }> | undefined,
-    targets: string[] | undefined,
-    index: number,
-  ): void {
-    if (degraded && degradedSlots && targets?.[index]) degradedSlots.push({ target: targets[index] });
-  }
-
   private async fetchProducedMessage(
     messageId: string,
     conversationId?: string,
@@ -525,15 +630,15 @@ export class DispatchChainEngine {
     return { aborted: false };
   }
 
-  // eslint-disable-next-line complexity -- #530 护栏检查增加 self-yield 检测分支；原有 tsp 路由 + 降级槽位 + try/finally 本已接近上限
+  // F20260907ylfs ②：complexity 抑制随旧版自指守卫/护栏挂载逻辑投递 outcomes 而退役——现仅消费预判结果
   private async processHopResults(
     results: PromiseSettledResult<InvokeFnResult>[],
     senderId: string,
+    /** F20260907ylfs ②（P3a 批次 2）：护栏门控后的产出判定（resolveHopOutcomes 预算）——
+ *    本方法降为纯消费：otterReply 提取 + nextTargets 汇总 + abort/steer 聚合，不再自取数/自滤。 */
+    outcomes: Map<number, HopOutcome>,
     conversationId?: string,
     targets?: string[],
-    /** F20260904ldgr（#798 发现 2）：降级槽位收集器（target）——槽位键由
-     *  executeOneHop 在 appendNote 时按记账同源解析（产出消息 ID 不是记账键）。 */
-    degradedSlots?: Array<{ target: string }>,
   ): Promise<ChainHopResult> {
     let otterReply: string | undefined;
     const nextTargets = new Set<string>();
@@ -547,42 +652,40 @@ export class DispatchChainEngine {
         continue;
       }
 
-      // F20260904schf：下一跳目标改读行级 tsp（消息自身 talkingStonePassedTo 终值），
-      // 不再消费 InvokeFnResult.aggregatedTargets（turn 级并集，共栖污染源，#792）。
-      // 早完成者的 yield 不再依赖 turn 是否关闭——closed:false 空聚合不再丢 yield（并行错记族）。
-      const [producedMsg, degraded] = await this.fetchProducedMessage(r.value.messageId, conversationId);
-      this.collectDegradedSlot(degraded, degradedSlots, targets, i);
+      const outcome = outcomes.get(i);
+      if (!outcome) continue; // resolveHopOutcomes 跳过（无 target 等降级）——无产出可路由
+      const { producedMsg, allowedNext, aborted, steerText: hopSteerText } = outcome;
       if (producedMsg?.segments.length) {
         otterReply = aggregateBody(producedMsg.segments);
       }
 
-      // #530 梯度护栏：检测 self-yield（产出消息的 tsp 含 hop 自身目标 = 自指 yield）
-      const target = targets?.[i];
-      if (target && conversationId && producedMsg?.talkingStonePassedTo?.includes(target)) {
-        const guardrail = await this.checkSelfYieldGuardrail(conversationId, target, r.value.messageId);
-        if (guardrail.aborted) {
-          shouldAbort = true;
-          break; // abort 后立即退出循环，不处理后续 targets
-        }
-        if (guardrail.steerText) {
-          steerText = guardrail.steerText; // 收集 steer 文案，传递到下一 hop 注入
-        }
+      // F20260907ylfs ②（P3a 批次 2）：旧版「自指守卫（行级 tsp 不含 sender 自己，滤 self → 链终止）」
+      // 的领域不变量随 ② 合法化退役——self-yield 不再滤除，由 resolveHopOutcomes 护栏门控
+      // （<5 放行进 nextTargets = 链续跑即消化；≥5 拒入 + abort + healing，③ 梯度护栏）接管。
+      // #530：任一目标 abort 即终链（abort 后立即退出循环，不处理后续 targets）。
+      if (aborted) {
+        shouldAbort = true;
+        break;
       }
-
-      // 自指守卫：行级 tsp 不含 sender 自己（领域不变量），filter producer 为纵深防御。
-      for (const id of producedMsg?.talkingStonePassedTo ?? []) {
-        if (id !== target) nextTargets.add(id);
+      if (hopSteerText) {
+        steerText = hopSteerText; // 收集 steer 文案，传递到下一 hop 注入
+      }
+      for (const id of allowedNext) {
+        nextTargets.add(id);
       }
     }
 
     /** #474: 只滤 'user'——人类不参与链调度（web 路径 senderId 恒为 'user'，等价回声，照旧滤除）。
      *  禁止再滤 senderId：scheduler 路径（AgentDispatchService / SchedulerService / resume）的 sender
      *  是任务属主 otter，小獭 yield 回属主是设计内交棒，被滤掉即行动权悬空（石砧 8-26 实证：链在
-     *  yield 大獭后正常结束，大獭永不唤醒，需用户手动接棒）。 */
+     *  yield 大獭后正常结束，大獭永不唤醒，需用户手动接棒）。
+     *  F20260907ylfs ②（检视-840 发现 1）：'user' 过滤已在 resolveHopOutcomes → filterChainTargets
+     *  单点执行（allowedNext 入队前），此处不再重复 filter（每目标已过一遍，再滤是冗余动作）；
+     *  self 目标不滤——护栏放行即链续跑（合法消化路径），allowedNext 已含门控结果。 */
     // #530 梯度护栏：abort 后清空 nextTargets 终链（链停非惩罚，可被外部重新 invoke）
     return {
       otterReply,
-      nextTargets: shouldAbort ? [] : [...nextTargets].filter(id => id !== "user"),
+      nextTargets: shouldAbort ? [] : [...nextTargets],
       steerText, // #530 进程级传递，下一 hop 前置注入
     };
   }
