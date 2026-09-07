@@ -476,18 +476,22 @@ export class SignalRouter {
     }
   }
 
+  /** P3a ①：URGENT steer 打断询问文案构造（纯函数，#841 建议②：从 trySteerInjection 提取回线内） */
+  private buildSteerPrompt(signal: Message): string {
+    const meta = signal.signalMeta ? JSON.parse(signal.signalMeta) as { reason?: string } : null;
+    const reason = meta?.reason ?? "（未说明原因）";
+    const sender = signal.senderName?.trim() || signal.senderId;
+    return (
+      `【URGENT 打断询问】来自 ${sender} 的急迫信号：${reason}\n` +
+      `建议：你可以在完成当前工具调用后选择：继续手头工作（新信号留箱，完成后处理）或转向处理（读取箱内新消息）。不需要显式回答，你的下一个行动就是答案。`
+    );
+  }
+
   /** P3a ①：URGENT + busy → 尝试 steer 注入打断询问。返回 RouteAction 则路由已完成（steer 成功+销账），null 则未处理（降级 busyQueue）。 */
-  // eslint-disable-next-line complexity -- try/catch + 分支是防降级链的安全模式，拆分会割裂错误处理语义
   private trySteerInjection(conversationId: string, targetId: string, signal: Message): RouteAction | null {
     if (!this.deps.agentGateway?.steerSession) return null;
     try {
-      const meta = signal.signalMeta ? JSON.parse(signal.signalMeta) as { reason?: string } : null;
-      const reason = meta?.reason ?? "（未说明原因）";
-      const sender = signal.senderName?.trim() || signal.senderId;
-      const steerText =
-        `【URGENT 打断询问】来自 ${sender} 的急迫信号：${reason}\n` +
-        `建议：你可以在完成当前工具调用后选择：继续手头工作（新信号留箱，完成后处理）或转向处理（读取箱内新消息）。不需要显式回答，你的下一个行动就是答案。`;
-      const steered = this.deps.agentGateway.steerSession(targetId, steerText);
+      const steered = this.deps.agentGateway.steerSession(targetId, this.buildSteerPrompt(signal));
       if (steered) {
         // 销账：写 completed 行——否则 pendingClause 仍判 pending，invoke 完成检查会二次路由 = 双投递
         try {

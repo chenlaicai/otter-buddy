@@ -65,8 +65,14 @@ P3a 打断轻量版三件套之①（③ 梯度护栏 F20260907grdr 已合入；
 - **轻量版**：纯 prompt 注入，无结构化出口解析（母方案 §3 的 `{decision}` schema 归 P3b）
 - **信号消费**：信号仍留消息表（UI/上下文可见），但路由语义已消费（销账行 = completed）
 - **崩溃边界**：steer 失败回落 busyQueue 后进程崩溃 → busyQueue 内存态丢失，消息表信号仍在，重启补扫重新路由 = 相当于重新投递，可接受
+- **steer 竞态窗口**（F20260907usti 审视严重1）：pi-session-factory.steerSession 是 fire-and-forget 语义——`void entry.steer(text).catch(...)` 后无条件 return true。session 收尾 finally 块 delete activeSessions 前的窗口内，steer 可能抛错（session dispose 中），此时返回 true + 路由器写 completed/steered 销账行 → URGENT 零投递且台账说已消费。比双投递更糟：双投递有两次送达机会，这个变体一次都没有且不可观测。最小修复：factory catch 落 healing event（可观测），文档声明此窗口。设计显式接受此边界（steer 语义本身即 fire-and-forget，不 await 送达确认）
+- **销账姿势声明**（F20260907usti 审视建议③）：本 PR 的销账行是全 repo 首个运行时消费型直写终态点（`recordStart` 以 status='completed' 直接写终态，不经过链引擎的 recordStart→recordFinish 两阶段生命周期）。语义等价于「消费即完成」——steer 注入是同步返回的（从调用方视角），不涉及异步链执行，单阶段直写与两阶段生命周期等价但更简洁。
 
 ## 验证
+
+### 验证计划
+
+- ①合入后大獭手动投 URGENT 实测：大獭 yield 有 level 参数，在有小獭运行时投一条 URGENT 到该小獭，验证 steer 注入+销账全链路（原「web 投 URGENT」不可执行——web/IM 入口无 level 参数，URGENT 唯一上游是獭侧 yield）
 
 ### 测试覆盖
 
