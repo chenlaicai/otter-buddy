@@ -678,7 +678,7 @@ export class PiSessionFactory implements AgentGateway {
               errorType: "other",
               severity: "medium",
               description: `URGENT steer 注入失败（session 收尾竞态窗口）：${errMsg}`,
-              suggestion: "URGENT 信号已降级 busyQueue 排队消化（如果路由器有降级路径）；若为链引擎调用则仅护栏警示缺失，不影响信号消费",
+              suggestion: "注入未送达且已销账=零投递，需补救时人工重投；链引擎护栏调用则仅警示缺失",
               context: { layer: "framework", method: "steerSession" },
               status: "open",
               resolution: null,
