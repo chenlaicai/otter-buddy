@@ -96,7 +96,7 @@ category: technique
 2. 问题与当前变更相关（同一模块/文件/函数）？
    - 相关 + 数量 ≤ 5 → 顺手修复，PR 描述 Discovered Issues 节记录（格式见 `references/commit-convention.md`）
    - 相关 + 数量 > 5 → PR 描述 Discovered Issues 节记录，审查者决定是否拆分 PR
-3. 问题与当前变更无关？ → 不能静默丢失：执行 `gh issue create`（带标签 tech-debt / bug），issue 链接写入 PR 描述 Discovered Issues 节（格式见 `references/commit-convention.md`）
+3. 问题与当前变更无关？ → 不能静默丢失：执行 `gh issue create`，按 SYSTEM.md R2 Issue 标签与标题规范打标（type=bug 或 tech-debt + priority P0/P1/P2，标题 `[模块] 摘要`），issue 链接写入 PR 描述 Discovered Issues 节（格式见 `references/commit-convention.md`）
 
 检视獭报上来的发现不适用上述规则 → 走 review-protocol 作者处置协议，带证据的反驳是合法处置。
 

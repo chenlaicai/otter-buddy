@@ -4,9 +4,10 @@ task_name: 每日 issue 处理
 
 ## Step 0：Intake Triage（每日开工先做，F20260831whfw）
 
-输入域（两部分，缺一不可）：
+输入域（三部分，缺一不可）：
 - 今天新建的 daily-review issue（由每日健康检查生成）
-- 昨天新建的**非** daily-review issue（海獭运行中产出：tech-debt / enhancement / 无标签）
+- 昨天新建的**非** daily-review issue（海獭运行中产出：bug / tech-debt / enhancement / 无标签）
+- **任意 open 的标签不完整 issue（F20260907itri）**：缺 type（bug/enhancement/tech-debt/question）或缺 priority（P0/P1/P2）的，按创建时间从早到晚每日补标 ≤5 条——依据标题+body 语义判断，`gh issue edit <N> --add-label` 补齐；拿不准类型的在 issue 评论留问待人工，不强打
 
 对每条输入做分类分流：
 
@@ -49,3 +50,15 @@ task_name: 每日 issue 处理
 关闭评论格式：
 > 自动关闭：[原因说明]
 > 关联 PR/commit：[链接]
+
+## Issue 大盘（F20260907itri，产出末尾必附）
+
+跑 `node scripts/lint-issue-labels.mjs` 取数，产出末尾固定附一行大盘统计：
+
+```
+issue 大盘：open N | bug:x enhancement:y tech-debt:z question:w | P0:a P1:b P2:c | 无标签:d（目标 <5%）
+```
+
+- 数字与 `gh issue list` 实测交叉验证后才写入（#791 双源验证教训）
+- 标签不完整率（d/N）>5% 时标红并在次日优先补标；lint 脚本不可用（gh CLI 故障）时标注「lint 不可用」，不静默跳过
+- 同日 actionable 配额不变（仍为 3 条，bug > tech-debt，同级按创建时间）——补标不占配额，是额外例行职责

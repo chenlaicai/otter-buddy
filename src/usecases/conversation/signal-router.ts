@@ -401,7 +401,12 @@ export class SignalRouter {
     // 全量 SELECT），过滤责任在此落地。09-03 事故：dissolved 检视獭被启动补扫点火 →
     // No session or config found × 50ms 重扫热循环（614 次/42s）。判据 SQL 已同步过滤，
     // 此处是 SQL 求值与 otters 状态变更之间的竞态兜底（双层独立成立）。
-    if (!otter || otter.status !== "active") return "skipped_inactive"; // 目标已解散等：留箱静默，等人工处理
+    // #827：dissolve 时刻的入站清算墓碑已覆盖存量；此处是清算后新写入的边角
+    // （dissolve 与本路由的竞态窗口）——healing 留痕让「为什么这条没跑」排查可见
+    if (!otter || otter.status !== "active") {
+      await this.recordHealing({ conversationId, messageId: signal.id, otterId: targetId, level, errorType: "other", severity: "low", description: `信号目标 ${targetId} 不在场或非 active，路由跳过（#827 可观测性）` });
+      return "skipped_inactive";
+    }
 
     if (await this.haltToSmallOtterGuard(conversationId, level, signal, targetId)) {
       return "skipped_no_target";

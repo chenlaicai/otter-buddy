@@ -75,7 +75,7 @@ code-implementation 的"立即修复、不许问要不要修"管的是**作者�
 
 1. 论证"本 PR 无法承载"——为什么不能本 PR 修？（范围、风险、依赖外部系统等）
 2. 论证不成立 → 必须本 PR 修复，不可走 issue 子路径
-3. 论证成立 → 执行 `gh issue create`，在回应中贴 issue 链接
+3. 论证成立 → 执行 `gh issue create`（按 SYSTEM.md R2 Issue 规范打标：type + priority，标题 `[模块] 摘要`），在回应中贴 issue 链接
 4. 将 issue 写入 PR 描述 Discovered Issues 节
 
 检视者在 delta 审视时核对：论证是否成立 + issue 链接是否存在 + Discovered Issues 是否登记（见 `review-loop.md`）。任一项缺失 = 处置未完成。
