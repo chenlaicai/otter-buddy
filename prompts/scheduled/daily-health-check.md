@@ -93,6 +93,13 @@ task_name: 每日对话健康检查
 
 每个提交的 daily-review issue 必须有具体修复方案（代码/配置/prompt/流程），不能只写「留评论跟踪」或「分析类不需要PR」——问题值得记录就值得有修复路径（SYSTEM.md R2 Issue 处理规范）。
 
+**标签与标题硬约束（F20260907itri）**：
+
+- **标签必打**：type 一个（bug=行为不符预期 / enhancement=新能力 / tech-debt=能用但结构烂 / question=待讨论）+ priority 一个（P0=正确性或数据安全 / P1=本周应修 / P2=等排期）+ `daily-review`。判定拿不准时宁降一级（P1→P2），周一 backlog digest 搭档校准
+- **标题格式**：`[模块] 一句话摘要`（模块枚举：signal-protocol / scheduler / web / memory / healing / im / stock / skill / prompt / docs / rhi / general）——不用 [daily-review] 等与标签重复的前缀
+- **聚合红线**：同根因或同模块同类型的多个问题，合并为一条 issue 分点陈述——例：同属 signal-protocol 的阻尼、墓碑、例外收口三题应合一条，不拆三条（#826/827/828 反例）
+- 合规性由 `node scripts/lint-issue-labels.mjs` 每日审计，产出日报时自行对照上述四条自查
+
 ## 止损线检查（P0-c，v6.3）
 
 每日检查评测机制止损线状态，发现问题立即开 issue：
