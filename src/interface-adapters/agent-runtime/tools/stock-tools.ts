@@ -211,7 +211,7 @@ export function createStockDataTool(_ctx: ToolContext): AgentTool {
         },
         code: {
           type: "string",
-          description: "股票代码。A 股：6 位数字（如 600519）。港股：5 位数字（如 01810）。kline/overview/finance/news/hkline/hvaluation 必填，northflow/selftest 不需要。",
+          description: "股票代码。A 股：6 位数字（如 600519）。港股：5 位数字（如 01810）。kline/overview/finance/news/hkline/hvaluation/quote 必填，northflow/selftest 不需要。",
         },
         days: {
           type: "number",
