@@ -22,8 +22,9 @@ supersedes: []
 from: []
 intent:
   problem: "URGENT 信号到 busy 獭时仍走 busyQueue 排队消化，无即时打断通道——URGENT 的「必决策」档位语义在物理层无落地"
-  verify_by: "unit_test"
   expected_effect: "URGENT+busy 信号通过 steerSession 注入打断询问文案，成功即销账防双投递；不可达时降级 busyQueue"
+  verify_by:
+    type: static_only
 capability_test: "n/a: 纯路由层改动（signal-router busy 分支），无 prompt/skill/协议层变更，单元测试覆盖全路径"
 ---
 
