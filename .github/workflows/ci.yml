@@ -116,6 +116,15 @@ jobs:
       - name: Run tests
         run: npm test
 
+      # #802 附带：Python 侧 stock-cli.py 测试接入 CI（检视-D类批次发现的存量缺口：
+      # 51 个测试不在 CI 覆盖内，quote 兜底链改坏要等真实操盘才炸）。
+      # 依赖说明：CLI 顶层 import 纯标准库（akshare 是函数内延迟 import），但测试文件
+      # 内部真 import akshare（mock.patch 用），CI 必须装 akshare（亲测裸 pytest 7 挂）。
+      - name: Run stock-cli Python tests
+        run: |
+          python3 -m pip install --quiet pytest akshare
+          python3 -m pytest tests/test_stock_cli.py -q
+
   # P0-b: Golden Gate selftest-only 独立入口（零 LLM、不配置 LLM 端点）
   # 仅跑 selftest 层（good/bad 参考序列校验断言判别力，纯构造零真实请求）；
   # 采样层靠 LLM，本地跑不走 CI（方案 v6.2 mimo 定案：selftest-only 入口）。
