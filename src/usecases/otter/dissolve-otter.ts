@@ -18,6 +18,10 @@ export class DissolveOtter {
        *  active 目标但从未记账的信号槽位，补 aborted 墓碑（发言人已不存在，
        *  信号永不派发；不补则永久 pending，僵尸信号）。可选注入，失败仅日志。 */
       abortUnattemptedOutgoing?: (otterId: string) => Promise<number>;
+      /** #827：dissolve 入站清算——别人 yield 给已解散獭、从未记账的信号槽位补
+       *  aborted 墓碑（目标不存在，信号永不点火；不补则每次补扫被 skipped_inactive
+       *  静默跳过，无账无痕且占 SCAN_LIMIT 名额）。可选注入，失败仅日志。 */
+      abortUnattemptedIncoming?: (otterId: string) => Promise<number>;
       logger?: { warn(message: string, context?: Record<string, unknown>): void };
     },
   ) {}
@@ -59,6 +63,7 @@ export class DissolveOtter {
     /** 4.5/4.6 信号台账双面清账（均失败仅日志，不阻断主流程） */
     await this.settlePendingDispatches(otterId);
     await this.abortOutgoingSignals(otterId);
+    await this.abortIncomingSignals(otterId);
 
     /** 5. 销毁 Agent（B5 回归守护） */
     await this.agentGateway.destroy(otterId);
@@ -95,6 +100,22 @@ export class DissolveOtter {
       }
     } catch (e) {
       this.deps.logger?.warn('[signal-ledger] dissolve 出站清算失败（不阻断解散）', { otterId, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  /** #827：dissolve 入站清算——别人 yield 给已解散獭、从未记账的信号槽位补 aborted 墓碑。
+   *  与 abortOutgoingSignals 对称：出站清「它发给别人的」，入站清「别人发给它的」。
+   *  不补则这些信号永远停在 pending 判据边缘——每次补扫被 routeTarget 判
+   *  skipped_inactive 静默跳过，无账无痕（排查不可见）且占 SCAN_LIMIT 名额。 */
+  private async abortIncomingSignals(otterId: string): Promise<void> {
+    if (!this.deps?.abortUnattemptedIncoming) return;
+    try {
+      const aborted = await this.deps.abortUnattemptedIncoming(otterId);
+      if (aborted > 0) {
+        this.deps.logger?.warn(`[signal-ledger] dissolve 入站清算：指向已解散獭的未消费信号补 aborted 墓碑（#827）`, { otterId, aborted });
+      }
+    } catch (e) {
+      this.deps.logger?.warn('[signal-ledger] dissolve 入站清算失败（不阻断解散）', { otterId, error: e instanceof Error ? e.message : String(e) });
     }
   }
 }

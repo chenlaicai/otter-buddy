@@ -69,6 +69,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const dissolveOtter = new DissolveOtter(repos.otter, agentGateway, manageSession, {
     settlePendingForOtter: async (otterId: string) => repos.dispatchAttempt.failAllInProgressForOtter(otterId),
     abortUnattemptedOutgoing: async (otterId: string) => repos.dispatchAttempt.abortUnattemptedOutgoingForOtter(otterId),
+    abortUnattemptedIncoming: async (otterId: string) => repos.dispatchAttempt.abortUnattemptedIncomingForOtter(otterId),
     logger,
   });
   const manageContext = new ManageContext(repos.otterContext);

@@ -322,6 +322,28 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
     `).run(otterId);
     return result.changes;
   }
+
+  /** #827：dissolve 入站清算——tsp 指向该獭、从未记账的信号槽位补 aborted 墓碑（与出站对称）。
+   *  判据与 pendingClause 同源但方向相反：不限制 sender 状态（发起者还在场），
+   *  仅限 target = dissolved 獭。归档会话也补（墓碑宁多勿少，同 backfill 偏置）。 */
+  abortUnattemptedIncomingForOtter(otterId: string): number {
+    const result = this.db.prepare(`
+      INSERT OR IGNORE INTO dispatch_attempts
+        (id, conversation_id, message_id, target_otter_id, status, source, attempt_started_at, attempt_finished_at, note)
+      SELECT lower(hex(randomblob(16))), m.conversation_id, m.id, t.value,
+             'aborted', 'dissolve', datetime('now'), datetime('now'),
+             '目标獭已解散，信号永不点火（#827 入站清算墓碑）'
+      FROM messages m, json_each(m.talking_stone_passed_to) t
+      JOIN conversations c ON c.id = m.conversation_id
+      WHERE m.status = 'completed'
+        AND c.status = 'active'
+        AND t.value = ?
+        AND NOT (m.sender_type = 'otter' AND t.value = m.sender_id)
+        AND NOT EXISTS (SELECT 1 FROM dispatch_attempts da
+                        WHERE da.message_id = m.id AND da.target_otter_id = t.value)
+    `).run(otterId);
+    return result.changes;
+  }
 }
 
 /** #810：单段超限时尾部硬切 + 超长截断标记（标记优先保留——「被切过」比「最早内容」重要） */

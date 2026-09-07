@@ -69,6 +69,13 @@ export interface DispatchAttemptRepo {
    *  判据与 pendingClause 同源（见实现），归档会话也补（墓碑宁多勿少，同 backfill 偏置）。
    *  返回补账行数。 */
   abortUnattemptedOutgoingForOtter(otterId: string): number;
+
+  /**
+   * #827 dissolve 入站清算：tsp 指向该獭但从未记账的信号槽位补 aborted 墓碑。
+   *  目标不存在，信号永不点火；不补则每次补扫被 skipped_inactive 静默跳过，
+   *  无账无痕（排查不可见）且占 SCAN_LIMIT 名额。与出站清算对称，可选注入。
+   *  返回补账行数。 */
+  abortUnattemptedIncomingForOtter(otterId: string): number;
   /**
    * S1b 轨迹 UI（§4.7）：本会话全部 attempt（无 limit——轨迹批量投影用，
    * (message,target) 唯一键防膨胀；与 pendingClause 同文件同真相源）。
