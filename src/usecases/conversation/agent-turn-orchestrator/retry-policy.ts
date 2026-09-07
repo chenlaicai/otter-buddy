@@ -67,10 +67,12 @@ export function buildRestartResumeMsg(): string {
   return '[系统提醒] 服务重启导致你的发言中断，系统已自动恢复。你之前 speak 的内容已保留在本条消息中，请基于已有进度继续完成发言，然后 yield 交棒。如果对任务上下文记忆不完整，先查阅消息历史再继续。';
 }
 
-/** F20260906rsts：恢复失败/跳过时的用户可见提示（成功路径静默——触发重跑即结束，不宣告） */
-export function buildRestartResumeFailedMsg(reason: "invoke_error" | "skipped_concurrent"): string {
-  if (reason === "skipped_concurrent") return "[系统] 检测到恢复窗口内有新消息进入，跳过自动恢复，请手动重试该消息。";
-  return "[系统] 服务重启自动恢复失败，请手动重试该消息。";
+/** F20260906rsts：恢复失败/跳过时的用户可见提示（成功路径静默——触发重跑即结束，不宣告）
+ *  #818：invoke_error 分支已由 buildRestartResumeFailedInvokeMsg 独占（F202609048840 F4），
+ *  本函数仅剩 skipped_concurrent 一条路径，签名收紧。 */
+export function buildRestartResumeFailedMsg(reason: "skipped_concurrent"): string {
+  void reason; // 保留参数以维持调用方签名兼容
+  return "[系统] 检测到恢复窗口内有新消息进入，跳过自动恢复，请手动重试该消息。";
 }
 
 /** F202609048840 F4: 新增失败状态的提示消息 */
