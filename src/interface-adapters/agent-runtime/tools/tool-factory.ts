@@ -142,14 +142,14 @@ async function validateMessageHasContent(ctx: ToolContext): Promise<string | nul
 function createYieldTool(ctx: ToolContext, healingRepo?: HealingEventRepository): AgentTool {
   return {
     name: "yield",
-    description: "交棒工具——结束你的本轮行动，把行动权交给指定的参与者。接到行动权的人会被立即唤醒执行。调用前应先用 speak 输出你的结论/成果（yield 不会携带内容）。GOTCHA: yield 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。WORKFLOW: 路由规则——子任务完成时传回召唤你的海獭或工作流下一步执行者；整个任务终审才传 'user'；不能传自己。不确定在场成员时先调 get_active_participants。\n\n⚠️ yield to 'user' 反思检查点：当 to 包含 'user' 时，请先暂停想一想——为什么需要用户介入？如果你自己能处理、或有其他人应该先确认，就不要 yield 给 user。建议通过 reason 参数说明你的理由。",
+    description: "交棒工具——结束你的本轮行动，把行动权交给指定的参与者。接到行动权的人会被立即唤醒执行。调用前应先用 speak 输出你的结论/成果（yield 不会携带内容）。GOTCHA: yield 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。WORKFLOW: 路由规则——子任务完成时传回召唤你的海獭或工作流下一步执行者；整个任务终审才传 'user'。不确定在场成员时先调 get_active_participants。⚠️ yield 给自己（F20260907ylfs ②）——合法：任务未完成、需要下轮继续时 yield 给自己，等于把任务锚点入箱（「这个任务我还没干完，下轮继续」）；下一轮你会被重新唤醒续跑（连续自链受梯度护栏保护：第 3 次警示、第 5 次链停）。禁止用它逃避交棒义务：长期占用行动权不产出才是滥用。\n\n⚠️ yield to 'user' 反思检查点：当 to 包含 'user' 时，请先暂停想一想——为什么需要用户介入？如果你自己能处理、或有其他人应该先确认，就不要 yield 给 user。建议通过 reason 参数说明你的理由。",
     parameters: {
       type: "object",
       properties: {
         to: {
           type: "array",
           items: { type: "string" },
-          description: "行动权交给谁（用 Otter 的名字或 'user'，见在场成员名册）。接到行动权的人会被系统立即唤醒执行。路由规则：(1) 子任务完成时，传回召唤你的海獭（小獭默认交回召唤者）或工作流下一步的执行者——不是 'user'；(2) 整个协作任务完成、需要搭档（用户）拍板时，才传 'user'；(3) 不能传自己。",
+          description: "行动权交给谁（用 Otter 的名字或 'user'，见在场成员名册）。接到行动权的人会被系统立即唤醒执行。路由规则：(1) 子任务完成时，传回召唤你的海獭（小獭默认交回召唤者）或工作流下一步的执行者——不是 'user'；(2) 整个协作任务完成、需要搭档（用户）拍板时，才传 'user'；(3) 任务未完成需下轮继续时，可以传自己（任务锚点入箱，下轮继续；连续自链受梯度护栏保护）。",
         },
         reason: {
           type: "string",
@@ -172,7 +172,7 @@ function createYieldTool(ctx: ToolContext, healingRepo?: HealingEventRepository)
       if (!recipients || recipients.length === 0) return errorResponse("[错误] 交棒目标不能为空。请指定下一个应该行动的参与者名字。");
 
       const active = await ctx.client.conversation.participant.getActive(ctx.conversationId);
-      const { resolvedIds, error } = validateAndResolve(recipients, active, ctx.otterId);
+      const { resolvedIds, error } = validateAndResolve(recipients, active);
       if (error) return errorResponse(error);
 
       /** F20260813actk C9：软守卫——未派工票据未清空时给一次提醒（非阻断，二次放行；此处不清除票据） */

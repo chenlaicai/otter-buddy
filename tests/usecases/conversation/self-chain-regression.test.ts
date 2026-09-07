@@ -59,8 +59,13 @@ function makeEnv(messageRows: Record<string, Message>, opts?: { getMessageByIdEr
 
   const getMessageById = vi.fn(async (id: string) => {
     if (opts?.getMessageByIdError) throw opts.getMessageByIdError;
-    return messageRows[id] ?? null;
+    // F20260907ylfs ②：动态消息表优先——self 链端到端测试的每 hop 产出从表内取
+    return messageTable.find(m => m.id === id) ?? messageRows[id] ?? null;
   });
+
+  /** F20260907ylfs ②：动态消息表（护栏计数真相源模拟）——测试用它模拟生产「产出消息
+   *  先落库后关 turn」时序，计数跨 hop 真实累计（非 mock 断言）。 */
+  const messageTable: Message[] = [];
 
   const makeTurn = (overrides: Record<string, unknown> = {}) => ({
     id: "turn-1", conversationId: "conv-1", turnNumber: 5, status: "closed", createdAt: "", closedAt: null, ...overrides,
@@ -76,6 +81,18 @@ function makeEnv(messageRows: Record<string, Message>, opts?: { getMessageByIdEr
     updateLastActiveTurnNumber: vi.fn().mockResolvedValue(undefined),
     updateLastReadSeq: vi.fn().mockResolvedValue(undefined),
     getLastMessageBySender: vi.fn().mockResolvedValue(null),
+    // F20260907ylfs ②：护栏计数真相源 = 消息表（getMessages 倒序）——动态 push 模拟
+    // 生产时序（completeMessage 先落库后关 turn，invoke 返回前行已可读）；
+    // before 语义与真实 SQL 同构：排除 before 消息及其后（更高 seq）的窗口
+    getMessages: vi.fn(async (_convId: string, opts2?: { limit?: number; before?: string }) => {
+      let list = messageTable;
+      const before = opts2?.before;
+      if (before) {
+        const idx = messageTable.findIndex(m => m.id === before);
+        if (idx >= 0) list = list.slice(0, idx);
+      }
+      return [...list].reverse();
+    }),
   } as unknown as ConversationRepository;
 
   const queryMessage = { getMessageById, getLastMessageBySender: vi.fn().mockResolvedValue(null) } as unknown as QueryMessage;
@@ -87,16 +104,19 @@ function makeEnv(messageRows: Record<string, Message>, opts?: { getMessageByIdEr
     dispatchAttemptRepo, maxChainDepth: 10,
   });
 
-  return { attempts, engine, getMessageById, logger };
+  return { attempts, engine, getMessageById, logger, messageTable };
 }
 
 describe("F20260904schf：信号自链循环事故形态回归（#792）", () => {
 
-  it("事故回放：产出消息行级 tsp 异常含 sender 自己时，自指守卫拦截，链一轮终止", async () => {
-    // 领域不变量：发言石传给别人，行级 tsp 不应含 sender 自己。此处模拟上游异常产出自指行
-    // （历史脏数据/工具层 bug）——链引擎纵深防御：不回到自己名下，不二跳自燃。
+  it("事故回放→F20260907ylfs ②新契约：产出消息行级 tsp 含 sender 自己时，护栏梯度门控——5 跳链停（端到端真实计数）", async () => {
+    // 旧不变量（F20260904schf 自指守卫拦截一轮终止）随 ② 合法化退役：self-yield = 任务
+    // 锚点入箱，消化路径 = 护栏门控的链续跑。纵深防御不再由「滤 self」承担，而由
+    // ③ 梯度护栏（F20260907grdr）承担：计数 <5 放行续跑，≥5 拒入 + abort + healing。
+    // 本测试动态维护消息表，计数跨 hop 真实累计（非 mock 断言）：
+    //   hop1 计数0→total1 放行；hop2 total2；hop3 total3（steer 生成）；hop4 total4；hop5 total5 → abort 链停。
     const bigOtter = "otter-big";
-    const { engine } = makeEnv({
+    const { engine, messageTable } = makeEnv({
       "m-out": makeMsg({ id: "m-out", senderId: bigOtter, talkingStonePassedTo: [bigOtter] }),
     });
     const invoked: string[] = [];
@@ -107,11 +127,16 @@ describe("F20260904schf：信号自链循环事故形态回归（#792）", () =>
       triggerMessageId: "m-user",
       invokeFn: async () => {
         invoked.push(bigOtter);
-        return { messageId: "m-out" };
+        // 模拟生产时序：产出消息先落库（护栏计数可在下一跳读到），后返回——
+        // 每 hop 产出自己的消息（生产语义），返回真实 messageId 供行级取数
+        const produced = makeMsg({ id: `m-self-${invoked.length}`, sequenceNum: invoked.length, senderId: bigOtter, talkingStonePassedTo: [bigOtter] });
+        messageTable.push(produced);
+        return { messageId: produced.id };
       },
     });
 
-    expect(invoked).toEqual([bigOtter]);
+    // 护栏端到端：5 跳后链停（第 5 跳 total=5 ≥ abort 阈值），不再烧满 maxChainDepth=10
+    expect(invoked).toEqual([bigOtter, bigOtter, bigOtter, bigOtter, bigOtter]);
   });
 
   it("事故回放：turn 共栖污染（aggregatedTargets 含自己）不回填脏账——行级 tsp 为准", async () => {

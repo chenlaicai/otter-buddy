@@ -195,7 +195,7 @@ describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒�
     expect(invoked).toEqual(["otter-worker"]);
   });
 
-  it("自指回声防环：小獭 yield 回自己时链终止于本轮（不无限循环）", async () => {
+  it("F20260907ylfs ②：yield 回自己 = 任务锚点入箱，护栏放行链续跑（无消息表服务时降级 0 永放行，maxChainDepth 兜底）", async () => {
     const { m } = makeChainMocks();
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, maxChainDepth: 10 });
     const invoked: string[] = [];
@@ -206,16 +206,18 @@ describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒�
     await engine.executeChain({
       conversationId: "conv-1", userMessageContent: "hi", senderId: "owner-otter",
       initialTargets: ["otter-worker"],
-      /** 小獭持续 yield 回自己（工具层 validateAndResolve 应拦截，链层验证不因此死循环） */
+      /** 小獭持续 yield 回自己：② 合法化后 = 任务锚点入箱，每轮重跑自己（消化），
+       *  护栏（计数）才是终链手段——本测试无消息表服务（makeChainMocks 无 getMessages mock），
+       *  计数降级 0 永放行，由 maxChainDepth 兜底（真实 5 跳链停见 self-yield-guardrail 集成测试） */
       invokeFn: async ({ otterId }: { otterId: string }) => {
         invoked.push(otterId);
         return { messageId: "m-work" };
       },
     });
 
-    /** F20260904schf 契约升级：行级 tsp 自指守卫（producer 过滤）——自指 yield 不再引发任何
-     *  后续 invoke，链一轮终止（旧实现靠同批去重 + 烧满 maxDepth 兜底，#792 同族风险） */
-    expect(invoked).toEqual(["otter-worker"]);
+    /** 新契约：self 不再被滤除——链持续续跑到 maxChainDepth（10 跳全为 otter-worker），
+     *  旧 F20260904schf「自指滤除 → 一轮终止」不变量随 ② 合法化退役 */
+    expect(invoked).toEqual(Array(10).fill("otter-worker"));
   });
 });
 
