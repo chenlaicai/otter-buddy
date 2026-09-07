@@ -201,9 +201,16 @@ export function MessageList({
   /** F20260814qswp：全部 hooks 前置于任何条件 return——旧实现 no-llm/loading/empty 分支
    *  的早退位于 hooks 声明之前，同一挂载实例上 state 切换会导致 hooks 数量变化而崩溃 */
   const scrollRef = useRef<HTMLDivElement>(null)
+  /** F20260907sgpt：内容包裹 div 的 ref——ResizeObserver 观测目标。
+   * 不可观测滚动容器本身：容器的 contentRect.height 是视口布局高度（flex-1 决定），
+   * 内容变化不触发回调（检视发现 1，mimo）；包裹 div 是普通 block，高度随内容真实变化 */
+  const contentRef = useRef<HTMLDivElement>(null)
   const prevMessagesLenRef = useRef(messages.length)
   /** 上翻加载历史时，记录需要恢复的滚动位置差值 */
   const pendingScrollRestoreRef = useRef<number | null>(null)
+  /** F20260907sgpt：上次采样的内容高度 / 视口高度（两个 observer 各自记各自的） */
+  const prevContentHeightRef = useRef(0)
+  const prevViewportHeightRef = useRef(0)
 
   /** 滚动到底部 */
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
@@ -240,6 +247,71 @@ export function MessageList({
       requestAnimationFrame(() => scrollToBottom())
     }
   }, [messages.length, scrollToBottom, isAtBottomRef])
+
+  /** F20260907sgpt：高度贴底补偿（双 ResizeObserver，检视发现 1 修正版）。
+   *
+   * 背景：自 virtuoso→原生滚动迁移（F20260818nscp）起 overflowAnchor:'none'，原生滚动
+   * 锚定关闭，且「messages.length effect」只对条数变化补偿——而信号轨迹 chip（trailItems
+   * 2s 轮询异步到达）、信号徽标（SSE 终态替换 tmp- 消息，条数不变）等都只在视口内增减
+   * 内容高度，条数不变 → 无补偿 → 用户在底部时视口周期性上跳（#790 只修了发言时刻未读
+   * 分隔线那一条路）。
+   *
+   * 修法：两个 observer 分工——
+   * - contentObserver 观测内容包裹 div（contentRef）：contentRect.height = 内容总高度，
+   *   chip 弹出/徽标出现/流式增长时真实变化。内容高度增大且在底部 → 贴底。
+   *   （不可观测滚动容器：容器 contentRect.height 是视口布局高度，内容变化不触发——
+   *   首版实现踩过的坑，jsdom 测试手动 fire 回调掩盖了这一点）
+   * - viewportObserver 观测滚动容器（scrollRef）：contentRect.height = 视口高度（flex-1
+   *   布局）。GateBanner 出现/loadingMore 指示条/窗口缩小会压缩视口，底部内容被推出
+   *   视口下缘 → 视口减小且在底部 → 贴底拉回。
+   *
+   * 边界处理：
+   * - 内容高度减小（流式面板折叠等）：scrollHeight 缩短自然把视口推近底部，
+   *   isNearBottom 重判，无需补偿；视口增大（banner 消失/窗口拉大）同理不补
+   * - requestAnimationFrame 合帧：高频 resize（流式渲染）下每帧至多补偿一次
+   * - 上翻加载历史的 preserve-scroll（pendingScrollRestoreRef 路径）互斥：用户上翻中
+   *   isAtBottomRef=false，本机制不动作
+   * - 依赖 [conversationId]：滚动容器带 key={conversationId}，切会话时容器重建，
+   *   mount-only 会观测已卸载元素而失效——切会话时重挂 observer 并重置采样基线 */
+  useEffect(() => {
+    const content = contentRef.current
+    const viewport = scrollRef.current
+    if (typeof ResizeObserver === 'undefined' || (!content && !viewport)) return
+    prevContentHeightRef.current = 0
+    prevViewportHeightRef.current = 0
+    const rafPinToBottom = () => {
+      requestAnimationFrame(() => {
+        const sc = scrollRef.current
+        if (sc && isAtBottomRef.current) sc.scrollTop = sc.scrollHeight
+      })
+    }
+    const contentObserver = content ? new ResizeObserver(entries => {
+      const entry = entries[entries.length - 1]
+      const h = entry?.contentRect?.height ?? 0
+      if (h === prevContentHeightRef.current) return // 高度没变（width-only 等）
+      const grew = h > prevContentHeightRef.current
+      prevContentHeightRef.current = h
+      if (!grew) return // 内容缩短：scrollHeight 缩短自然贴底，不补
+      if (!isAtBottomRef.current) return // 用户不在底部：任何高度变化都不打扰
+      rafPinToBottom()
+    }) : null
+    const viewportObserver = viewport ? new ResizeObserver(entries => {
+      const entry = entries[entries.length - 1]
+      const h = entry?.contentRect?.height ?? 0
+      if (h === prevViewportHeightRef.current) return
+      const shrank = h < prevViewportHeightRef.current
+      prevViewportHeightRef.current = h
+      if (!shrank) return // 视口增大：底部内容更可见，不补
+      if (!isAtBottomRef.current) return
+      rafPinToBottom() // 视口被压缩（GateBanner 出现等）：底部内容被推出视口，拉回
+    }) : null
+    if (content && contentObserver) contentObserver.observe(content)
+    if (viewport && viewportObserver) viewportObserver.observe(viewport)
+    return () => { contentObserver?.disconnect(); viewportObserver?.disconnect() }
+    // Why: 依赖 conversationId——容器带 key 切会话时重建，需重挂 observer；
+    // 其余状态经 ref 读取，无需重订阅
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId])
 
   /** 滚动事件处理：检测是否在底部 + 触发加载更多 */
   const handleScroll = useCallback(() => {
@@ -339,6 +411,10 @@ export function MessageList({
         className="flex-1 overflow-y-auto"
         style={{ overflowAnchor: 'none' }}
       >
+        {/* F20260907sgpt 检视发现 1：内容包裹 div——ResizeObserver 观测目标。
+            不可直接观测滚动容器（其 contentRect.height 是视口布局高度，内容变化不触发）。
+            普通 block div 高度随内容真实变化；包一层对布局无影响（block 默认占满宽度） */}
+        <div ref={contentRef}>
         {/* F20260901sgpx §7：活动段分组（「一轮」派生视图）——替代按 turnId 的分隔线（P4 turn 退役后读路径不变） */}
         {activityGroups.map(group => (
           <ActivityGroupBlock key={group.id} group={group}>
@@ -356,6 +432,7 @@ export function MessageList({
             ))}
           </ActivityGroupBlock>
         ))}
+        </div>
       </div>
       {newMessagesCount > 0 && onJumpToBottom && (
         <button
