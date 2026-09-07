@@ -267,7 +267,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const agentMetrics = new AgentMetrics(metricsRegistry);
 
   // ── 调度引擎 + 平台集成 ──
-  const dispatchChainEngine = createDispatchChainEngine(repos, uc, config, logger, agentMetrics);
+  const dispatchChainEngine = createDispatchChainEngine(repos, uc, config, logger, { agentMetrics, agentGateway });
   /** issue #281：广播总线无条件创建（平台无关），飞书出站作为 channel 注册——
    *  旧实现 messageBroadcaster: feishu?.broadcaster 导致 web-only 部署流式链路断流 */
   const messageBroadcaster = new MessageBroadcaster(logger);
