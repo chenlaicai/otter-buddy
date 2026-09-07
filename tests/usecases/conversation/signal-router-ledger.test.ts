@@ -530,6 +530,26 @@ describe("F20260902sgp2 S3：retrySignal——retry 入口过闸门与记账（�
     const action2 = await router.retrySignal("conv-1", "msg-retry", "otter-1", signal);
     expect(action2).toBe("retry_invoked");
   });
+
+  it("S3d #826：带 retryAttachmentIds 的 retry → executeChain 收到重建的 images（多模态收口判据）", async () => {
+    seedRetryScene();
+    // 被重试的是 otter 消息（自身无附件——message_attachments 只挂 user 消息），
+    // 附件 ID 由 controller 反查同 turn user 消息后经第 5 参显式传入（检视建议发现 1 修复链路）
+    const mockBuild = vi.fn().mockResolvedValue({
+      images: [{ type: "image", data: "retry-img-b64", mimeType: "image/png" }],
+    });
+    (router as unknown as { deps: Record<string, unknown> }).deps.attachmentInjection = {
+      available: true,
+      buildInjectionPayload: mockBuild,
+    };
+    const signal = makeMsg({ id: "msg-retry", senderType: "otter", senderId: "otter-1", status: "failed" });
+    const action = await router.retrySignal("conv-1", "msg-retry", "otter-1", signal, ["att-r1"]);
+    expect(action).toBe("retry_invoked");
+    await vi.waitFor(() => expect(executeChain).toHaveBeenCalled());
+    // 副作用断言：附件 ID 穿透到重建层、真图进 executeChain（不绑 mock 调用参数）
+    const chainCall = executeChain.mock.calls[0][0];
+    expect(chainCall.images).toEqual([{ type: "image", data: "retry-img-b64", mimeType: "image/png" }]);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

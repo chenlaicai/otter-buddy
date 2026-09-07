@@ -23,6 +23,8 @@ import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invok
 import type { SchedulerService } from "@usecases/scheduler/scheduler-service";
 import { ResumeInterruptedService } from "@usecases/conversation/resume-interrupted-service";
 import { SignalRouter } from "@usecases/conversation/signal-router";
+import { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
+
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
 
 import {
@@ -290,6 +292,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // 可选注入降级面保持：出问题摘除本构造块 + 下方注入点即回直连链（回滚通道）。
   // 恢复的入口范围：web MC / 飞书 ADS / 微信 / RIS 启动补扫（scheduler/retry 仍直连，
   // 其派发经链引擎记账，无双触发账面歧义——F20260902sgp2 §4.2）。
+  // #826 多模态收口：附件注入服务——路由器 invokeTarget 从 attachments 重建 InjectionPayload
+  const attachmentInjection = new AttachmentInjectionService({
+    attachmentRepo: repos.attachment,
+    storageRoot: config.attachments?.storageRoot ?? "./data/attachments",
+    logger,
+  });
   const signalRouter = new SignalRouter({
     conversationRepo: repos.conversation,
     queryMessage: uc.queryMessage,
@@ -299,6 +307,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     logger,
     healingRepo: repos.healingEvent,
     dispatchAttemptRepo: repos.dispatchAttempt,
+    attachmentInjection,
   });
   // #775 S4a：scheduler 换轨接线——路由器晚于 scheduler 诞生（initAgentAndScheduler
   // 内部依赖链更长），构造后注入；scheduler 触发从此过闸门+台账，与五入口同一调度纪律。

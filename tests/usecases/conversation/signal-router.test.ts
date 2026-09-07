@@ -228,3 +228,144 @@ describe("SignalRouter（F20260902sgp2 S2：pending = 台账真相源）", () =>
     expect(call.userMessageContent).toBe("do it"); // 快照内容显式注入（非空串直连）
   });
 });
+
+describe("#826 多模态注入收口：invokeTarget 从附件重建 InjectionPayload", () => {
+  it("invokeTarget 从 triggerMessage 的 attachments 重建图片注入并传给 executeChain", async () => {
+    const mockBuildInjection = vi.fn().mockResolvedValue({
+      images: [{ type: "image", data: "base64data", mimeType: "image/png" }],
+    });
+    const { executeChain, router } = makeDeps({
+      messageById: makeMsg({
+        attachments: [{ id: "att-1", kind: "image", originalName: "test.png", mimeType: "image/png", sizeBytes: 100, width: 10, height: 10, caption: null }],
+      }),
+    });
+    // 覆盖 attachmentInjection 依赖
+    (router as any).deps.attachmentInjection = {
+      available: true,
+      buildInjectionPayload: mockBuildInjection,
+    };
+
+    await router.routePendingSignals("conv-1");
+
+    // 等待 fire-and-forget 的 invokeTarget 完成
+    await vi.waitFor(() => expect(executeChain).toHaveBeenCalled());
+
+    // 建议发现 3（#826 收尾整改）：副作用断言（executeChain 收到的 images），
+    // 不再断言 mock 调用参数绑定实现细节（lint no-restricted-syntax）
+    const chainCall = executeChain.mock.calls[0][0];
+    expect(chainCall.images).toEqual([{ type: "image", data: "base64data", mimeType: "image/png" }]);
+  });
+
+  it("invokeTarget 从附件重建 documentBlock 并追加到 content", async () => {
+    const { executeChain, router } = makeDeps({
+      messageById: makeMsg({
+        attachments: [{ id: "att-doc", kind: "document", originalName: "readme.txt", mimeType: "text/plain", sizeBytes: 50, width: null, height: null, caption: null }],
+      }),
+    });
+    (router as any).deps.attachmentInjection = {
+      available: true,
+      buildInjectionPayload: vi.fn().mockResolvedValue({
+        documentBlock: "[文件: readme.txt]\nHello world",
+      }),
+    };
+
+    await router.routePendingSignals("conv-1");
+    await vi.waitFor(() => expect(executeChain).toHaveBeenCalled());
+
+    const chainCall = executeChain.mock.calls[0][0];
+    expect(chainCall.userMessageContent).toContain("[文件: readme.txt]");
+    expect(chainCall.userMessageContent).toContain("Hello world");
+  });
+
+  it("invokeTarget 无附件时不调用 buildInjectionPayload", async () => {
+    const mockBuildInjection = vi.fn();
+    const { executeChain, router } = makeDeps({
+      messageById: makeMsg(), // 无 attachments
+    });
+    (router as any).deps.attachmentInjection = {
+      available: true,
+      buildInjectionPayload: mockBuildInjection,
+    };
+
+    await router.routePendingSignals("conv-1");
+    await vi.waitFor(() => expect(executeChain).toHaveBeenCalled());
+
+    expect(mockBuildInjection).not.toHaveBeenCalled();
+    const chainCall = executeChain.mock.calls[0][0];
+    expect(chainCall.images).toBeUndefined();
+  });
+
+  it("invokeTarget 注入载荷重建失败时降级纯文本、不阻断链路", async () => {
+    const { executeChain, router } = makeDeps({
+      messageById: makeMsg({
+        attachments: [{ id: "att-1", kind: "image", originalName: "bad.png", mimeType: "image/png", sizeBytes: 100, width: 10, height: 10, caption: null }],
+      }),
+    });
+    (router as any).deps.attachmentInjection = {
+      available: true,
+      buildInjectionPayload: vi.fn().mockRejectedValue(new Error("read failed")),
+    };
+
+    await router.routePendingSignals("conv-1");
+    await vi.waitFor(() => expect(executeChain).toHaveBeenCalled());
+
+    // 链路不中断，content 不含图片（降级纯文本）
+    const chainCall = executeChain.mock.calls[0][0];
+    expect(chainCall.images).toBeUndefined();
+  });
+
+  it("attachmentInjection 未装配时不影响正常路由", async () => {
+    const { executeChain, router } = makeDeps({
+      messageById: makeMsg({
+        attachments: [{ id: "att-1", kind: "image", originalName: "test.png", mimeType: "image/png", sizeBytes: 100, width: 10, height: 10, caption: null }],
+      }),
+    });
+    // 不注入 attachmentInjection（undefined）
+
+    await router.routePendingSignals("conv-1");
+    await vi.waitFor(() => expect(executeChain).toHaveBeenCalled());
+
+    const chainCall = executeChain.mock.calls[0][0];
+    expect(chainCall.images).toBeUndefined();
+  });
+
+  it("busyQueue 入队时保存 attachmentIds，消化时传给 invokeTarget", async () => {
+    const mockBuildInjection = vi.fn().mockResolvedValue({
+      images: [{ type: "image", data: "base64data", mimeType: "image/jpeg" }],
+    });
+    // 第一次 isOtterActive 返回 true（busy），第二次返回 false
+    let activeCallCount = 0;
+    const { executeChain, router } = makeDeps({
+      messageById: makeMsg({
+        attachments: [{ id: "att-q", kind: "image", originalName: "queued.jpg", mimeType: "image/jpeg", sizeBytes: 200, width: 20, height: 20, caption: null }],
+      }),
+    });
+    (router as any).deps.attachmentInjection = {
+      available: true,
+      buildInjectionPayload: mockBuildInjection,
+    };
+
+    // 模拟目标 busy：覆盖 isOtterActive（第一轮 busy → 入队；后续 idle → 消化）
+    (router as any).isOtterActive = vi.fn().mockImplementation(async () => {
+      activeCallCount++;
+      return activeCallCount <= 1; // 第一次 busy，第二次 idle
+    });
+
+    // 第一次路由：目标 busy → 入队
+    await router.routePendingSignals("conv-1");
+    // 等入队完成
+    await new Promise(r => setTimeout(r, 10));
+
+    // 验证入队时保存了 attachmentIds
+    const queue = (router as any).busyQueue.get("conv-1:otter-1");
+    expect(queue).toBeDefined();
+    expect(queue[0].attachmentIds).toEqual(["att-q"]);
+
+    // 建议发现 3（#826 收尾整改）：补消化链路断言——目标转 idle 后驱动 drain，
+    // 验证 images 传到 executeChain（F3 核心链路）
+    await (router as any).drainBusyQueue("conv-1");
+    await vi.waitFor(() => expect(executeChain).toHaveBeenCalled());
+    const chainCall = executeChain.mock.calls[0][0];
+    expect(chainCall.images).toEqual([{ type: "image", data: "base64data", mimeType: "image/jpeg" }]);
+  });
+});
