@@ -2,13 +2,13 @@
 /**
  * S3.5 交互投影测试（F20260903s35u）：
  * - GateBanner 两种态文案与优先级（用户停机 > 限流冷却）
- * - trailStateMeta 弱化模式（正常流转只图标，FAILED/高优豁免）
- * - G7 黑话映射（note 人话化）
+ *
+ * F20260907rmst：信号轨迹 chip 移除后，trailStateMeta/humanizeNote 用例随
+ * signal-trail.ts 一并退役（chip 已删，库无消费方）。
  */
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { GateBanner, gateBannerMeta } from './GateBanner'
-import { trailStateMeta, humanizeNote } from '../../lib/signal-trail'
 
 describe('gateBannerMeta（横幅两态与优先级）', () => {
   it('halted 优先于 rateLimited（用户意志 > 系统推导）', () => {
@@ -36,41 +36,5 @@ describe('gateBannerMeta（横幅两态与优先级）', () => {
     render(<GateBanner gate={{ halted: true, rateLimitedUntil: null }} />)
     expect(screen.getByTestId('gate-banner')).toBeDefined()
     expect(screen.getByTestId('gate-banner').textContent).toContain('已停机')
-  })
-})
-
-describe('trailStateMeta 弱化模式（G8/A 方案：正常流转静默，异常醒目）', () => {
-  it('quiet=true：正常态只出图标（label=icon）', () => {
-    expect(trailStateMeta('PENDING', 'NORMAL', null, true).label).toBe('⏳')
-    expect(trailStateMeta('CONSUMING', 'NORMAL', null, true).label).toBe('⚡')
-    expect(trailStateMeta('CONSUMED', 'NORMAL', null, true).label).toBe('✓')
-  })
-  it('quiet=true：FAILED 与 URGENT/HALT 豁免弱化（保持文字）', () => {
-    expect(trailStateMeta('FAILED', 'NORMAL', null, true).label).toBe('❌')
-    expect(trailStateMeta('PENDING', 'URGENT', null, true).label).toBe('排队待消化')
-    expect(trailStateMeta('PENDING', 'HALT', null, true).label).toBe('排队待消化')
-  })
-  it('quiet=false（详情行）：全文字不弱化', () => {
-    expect(trailStateMeta('PENDING', 'NORMAL', null, false).label).toBe('排队待消化')
-    expect(trailStateMeta('CONSUMED', 'NORMAL', null).label).toBe('已处理')
-  })
-})
-
-describe('humanizeNote（G7 黑话映射）', () => {
-  it('死亡证明 note → 人话', () => {
-    expect(humanizeNote('进程重启，派发中断（sgp2 死亡证明）')).toBe('服务重启时被打断')
-  })
-  it('router catch → 自动处理失败', () => {
-    const out = humanizeNote('router catch: No session or config found')
-    expect(out).toContain('自动处理失败')
-    expect(out).toContain('No session or config found')
-    expect(out).not.toContain('router catch:')
-  })
-  it('retry 前情链只取本轮原因（分号前）', () => {
-    expect(humanizeNote('boom 2')).toBe('boom 2')
-  })
-  it('null/空 → null', () => {
-    expect(humanizeNote(null)).toBeNull()
-    expect(humanizeNote('')).toBeNull()
   })
 })
