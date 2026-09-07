@@ -1,0 +1,86 @@
+---
+id: F20260907mmcl
+title: "多模态注入例外收口：带附件消息过信号路由器"
+summary: "消灭信号路由器最后一个绕过分支——带附件注入（图片/文档）的消息从此走信号路由器闸门+台账，请求内存中的临时载荷退役。"
+change_type: feature
+capability_test: "n/a: 纯后端调度路径变更，无 prompt/skill 层改动"
+created_in_conversation: 449d8f5d-e91e-49c0-ade5-0fbd9b3d0fcb
+created_at: 2026-09-07T09:45:00+08:00
+tags: ["signal-protocol", "multimodal", "injection", "dispatch-ledger", "gate"]
+modules:
+  - src/usecases/conversation/signal-router.ts
+  - src/interface-adapters/http/controllers/message-controller.ts
+  - src/usecases/conversation/agent-dispatch-service.ts
+  - src/app.ts
+from: ["F20260902sgp2", "F20260827mmdu"]
+supersedes: []
+intent:
+  problem: "带附件注入（图片/文档）的消息绕过信号路由器，直连 dispatchTurnLoop，丢失闸门+台账保护"
+  verify_by: "unit_test"
+---
+
+# 多模态注入例外收口
+
+## 背景与问题
+
+信号协议 v2（F20260902sgp2）后，五入口（web/IM/retry/scheduler/招聘）已全部过信号路由器闸门 + 派发台账记账。唯一例外：**带注入载荷的消息**——
+
+- `message-controller.ts` L247：`if (this.signalRouter && !injection)` — injection 存在时走直连链 dispatchTurnLoop
+- `agent-dispatch-service.ts` L52：同款 `!injection` 分支
+
+**根因**：注入载荷（InjectionPayload：图片 base64 + 文档文本块）存在于 HTTP 请求内存中，信号路由器从消息表重建内容时拿不到它。
+
+## 方案设计
+
+### 核心思路：载荷持久化
+
+用户消息落库时附件已持久（message_attachments 关联表）。信号路由器的 invokeTarget 调链前，从触发消息的 attachments 重建 InjectionPayload——复用 retry 路径 `loadRetryInjection` 同款模式。
+
+### 数据流
+
+```
+用户发送消息（含附件）
+  ↓
+sendMessage: validateAndBuild 校验 + 消息落库（attachments 持久化）
+  ↓
+signalRouter.routePendingSignals()
+  ↓
+routeTarget → invokeTarget(attachmentIds)
+  ↓
+invokeTarget: attachmentInjection.buildInjectionPayload(attachmentIds)
+  ↓
+executeChain(content + documentBlock, images)
+```
+
+### 变更点
+
+| 文件 | 变更 |
+|------|------|
+| `signal-router.ts` | 新增 `attachmentInjection` 可选依赖；`invokeTarget` 加 `attachmentIds` 参数，从附件重建注入载荷；`QueuedSignal` 快照 `attachmentIds` |
+| `message-controller.ts` | 移除 `!injection` bypass，带附件消息从此过信号路由器 |
+| `agent-dispatch-service.ts` | 移除 `!injection` bypass，IM 入口同理 |
+| `app.ts` | 传 `attachmentInjection` 给 SignalRouter 构造函数 |
+
+### 降级设计
+
+- `attachmentInjection` 未装配 → 多模态消息降级纯文本（与 Phase 1 前行为等价）
+- 注入载荷重建失败 → warn 日志 + 降级纯文本，不阻断链路
+- 信号路由器未注入 → 保留直连链降级路径（灰度回滚面）
+
+### busyQueue 场景
+
+信号被 busyQueue 拥塞时，入队快照 `attachmentIds`。消化时传给 `invokeTarget`，重建注入载荷。content 的 documentBlock 在 invokeTarget 内追加（不在入队时拼接——避免快照内容膨胀）。
+
+## 验证
+
+- ✅ TypeScript 编译通过（0 errors）
+- ✅ 全量测试通过：3068 tests / 245 files（含 6 个新增 #826 用例）
+- ✅ 新增测试覆盖：图片注入重建、documentBlock 追加、无附件跳过、重建失败降级、未装配降级、busyQueue attachmentIds 快照
+- ✅ 已过最简检查：复用现有 `AttachmentInjectionService.buildInjectionPayload`，不新增依赖
+
+## 最简实现检查
+
+已过最简检查：
+1. 仓库已有实现：`AttachmentInjectionService.buildInjectionPayload` 可直接复用
+2. 不新增外部依赖
+3. 变更范围最小：4 个文件（1 个核心 + 2 个 bypass 移除 + 1 个 DI 接线）

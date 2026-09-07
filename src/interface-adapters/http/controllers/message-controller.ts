@@ -241,9 +241,8 @@ export class MessageController {
     // Why 路由器优先：四入口各自直调 executeChain 是旧架构的核心痛点（T1），“插话撞
     // 锁超时”的根因即在此；未注入路由器时降级直连链（灰度回滚面，行为与现状等价）。
     // K3（F20260903k23）：SSE 生命周期挂台账终态——本轮信号 attempt 全部到终态或超时才关流。
-    if (this.signalRouter && !injection) {
-      // Why !injection（多模态例外）：带图片/文档注入的消息暂留直连链——注入载荷只存在于此请求内存中，
-      // 信号路由从消息表重建内容拿不到它（多模态×信号路由的统一归 P2 接缝层解决）
+    // #826 多模态收口：带附件消息从此过信号路由器闸门+台账（注入载荷由路由器从 attachments 重建，请求内存临时载荷退役）
+    if (this.signalRouter) {
       this.signalRouter.routePendingSignals(conversationId)
         .then(async (results) => {
           // S3.5（F20260903s35u，G6）：熔断/停机导致本轮信号全部被闸门挡下时，

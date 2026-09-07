@@ -29,6 +29,7 @@ import type { DispatchChainEngine } from "./dispatch-chain-engine";
 import type { Logger } from "@usecases/ports/logger";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { HealingErrorType, HealingEventStatus, HealingEvent, HealingSeverity } from "@entities/healing/healing-event";
+import type { AttachmentInjectionService } from "./attachment-injection-service";
 
 /** invoke 函数签名（与 AgentInvoker.invokeConversation 对齐的最小面；装配处闭包捕获 agentInvoker） */
 export type SignalRouterInvokeFn = (params: {
@@ -56,6 +57,8 @@ interface QueuedSignal {
   content: string;
   senderId: string;
   level: string;
+  /** #826：busyQueue 入队时快照附件 ID，消化时重建注入载荷 */
+  attachmentIds?: string[];
 }
 
 /** #775 S4a：routeDirectSignal 无法进行执行时抛出——携带不可路由原因，scheduler 据此记 skipped（非 failed，不触发连败熔断）。gate 取值：调度闸门两态 / skipped_no_signal（消息已删）/ skipped_inactive（目标不可路由） */
@@ -125,6 +128,8 @@ export class SignalRouter {
       /** F20260902sgp2 S2：派发台账——pending 真相源（已投递 ∧ 无派发记录）。
        *  必注入：路由器无台账不构成 v2 语义（装配层保证）。 */
       dispatchAttemptRepo: DispatchAttemptRepo;
+      /** 多模态 Phase 1 收口（#826）：附件注入服务——invokeTarget 从触发消息 attachments 重建 InjectionPayload。可选：未装配时降级纯文本 */
+      attachmentInjection?: AttachmentInjectionService;
     },
   ) {}
 
@@ -385,7 +390,7 @@ export class SignalRouter {
     }
     const busy = this.inFlight.has(key) || await this.isOtterActive(conversationId, targetId);
     if (!busy) {
-      return this.invokeTarget(conversationId, targetId, "", signal.senderId, { triggerMessageId: signal.id, source });
+      return this.invokeTarget(conversationId, targetId, "", signal.senderId, { triggerMessageId: signal.id, source }, signal.attachments?.map(a => a.id));
     }
 
     // busy：入队保内容（HALT 到 busy 大獭置队首——停机请求优先于普通排队信号消化）
@@ -394,7 +399,9 @@ export class SignalRouter {
       content: this.signalContent(signal),
       senderId: signal.senderId,
       level,
-    };    const queue = this.busyQueue.get(key) ?? [];
+      attachmentIds: signal.attachments?.map(a => a.id),
+    };
+    const queue = this.busyQueue.get(key) ?? [];
     if (level === "HALT") {
       queue.unshift(queued);
     } else {
@@ -456,7 +463,8 @@ export class SignalRouter {
     }
   }
 
-  private invokeTarget(conversationId: string, otterId: string, content: string, senderId: string, ledger?: { triggerMessageId: string; source: "chain" | "router" | "retry" }): "invoked" {
+  /** #826 多模态收口：invokeTarget 可从附件重建注入载荷（复用 loadRetryInjection 同款模式） */
+  private async invokeTarget(conversationId: string, otterId: string, content: string, senderId: string, ledger?: { triggerMessageId: string; source: "chain" | "router" | "retry" }, attachmentIds?: string[]): Promise<"invoked"> {
     const key = `${conversationId}:${otterId}`;
     if (this.inFlight.has(key)) return "invoked"; // 去抖窗口内的重复触发，静默合并
 
@@ -466,12 +474,27 @@ export class SignalRouter {
       // 不随链引擎参数传递的完整性而变。失败仅日志（台账不阻断链路，硬约束 1）。
       const triggerMessageId = ledger?.triggerMessageId;
       if (triggerMessageId) this.recordRouterStart(conversationId, otterId, triggerMessageId, ledger.source);
+      // #826 多模态收口：从附件重建注入载荷（复用 loadRetryInjection 同款模式）
+      let chainContent = content;
+      let chainImages: Array<{ type: "image"; data: string; mimeType: string }> | undefined;
+      if (attachmentIds && attachmentIds.length > 0 && this.deps.attachmentInjection?.available) {
+        try {
+          const injection = await this.deps.attachmentInjection.buildInjectionPayload(attachmentIds);
+          if (injection) {
+            if (injection.documentBlock) chainContent = content ? `${content}\n\n${injection.documentBlock}` : injection.documentBlock;
+            if (injection.images && injection.images.length > 0) chainImages = injection.images;
+          }
+        } catch (e) {
+          this.deps.logger.warn("[signal-router] #826 注入载荷重建失败，降级纯文本", { conversationId, otterId, error: e instanceof Error ? e.message : String(e) });
+        }
+      }
       try {
         await this.deps.dispatchChainEngine.executeChain({
           conversationId,
-          userMessageContent: content,
+          userMessageContent: chainContent,
           senderId,
           initialTargets: [otterId],
+          ...(chainImages && { images: chainImages }),
           invokeFn: (params) => this.deps.invokeFn(params),
           triggerMessageId,
           // #775：账面来源穿透——链引擎 recordStart 会覆写路由器预写行，不穿透则
@@ -530,7 +553,7 @@ export class SignalRouter {
         queue.unshift(item); // 放回队首，保序
         continue; // 该目标仍 busy（外部路径在跑）：跳过，不终止——同会话其他 idle 目标的队列不被饿死
       }
-      this.invokeTarget(conversationId, otterId, item.content, item.senderId, { triggerMessageId: item.signalId, source: "router" });
+      this.invokeTarget(conversationId, otterId, item.content, item.senderId, { triggerMessageId: item.signalId, source: "router" }, item.attachmentIds);
       return; // 单条点火即止，接力交给完成重扫
     }
   }
