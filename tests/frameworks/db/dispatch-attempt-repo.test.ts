@@ -218,4 +218,38 @@ describe("SqliteDispatchAttemptRepo（sgp2 S1 真实仓储集成）", () => {
       expect(repo.countPendingSignals("conv-1")).toBe(2);
     });
   });
+
+  describe("#827 dissolve 入站清算（yield 墓碑对称面）", () => {
+    it("核心场景：tsp 指向已解散獭的未记账信号补 aborted/dissolve 墓碑，pending 归零且幂等", () => {
+      // 在场獭 A yield 给 otter-9（后来 dissolve）——tsp 已落库但从未记账。
+      // seed 的 otters 无 status 列默认（pendingClause 的 EXISTS 要求 active——seedOtter 不
+      // 写 status 时 SQLite 默认值者不匹配，故先建 active 行再翻 dissolved，还原真实时序）
+      seedOtter(db, "otter-9");
+      db.prepare(`UPDATE otters SET status = 'dissolved' WHERE id = 'otter-9'`).run();
+      seedDelivered(db, "m-in", { senderType: "otter", senderId: "otter-1", targets: ["otter-9"] });
+      expect(repo.countPendingSignals("conv-1")).toBe(0); // inactive 过滤已罩住（不误点）；但台账无行——排查不可见，即 #827 病灶
+
+      const n = repo.abortUnattemptedIncomingForOtter("otter-9");
+      expect(n).toBe(1);
+      const row = db.prepare(`SELECT status, source, note FROM dispatch_attempts WHERE message_id = 'm-in' AND target_otter_id = 'otter-9'`).get() as { status: string; source: string; note: string | null };
+      expect(row.status).toBe("aborted");
+      expect(row.source).toBe("dissolve");
+      expect(row.note).toContain("目标獭已解散");
+      expect(repo.countPendingSignals("conv-1")).toBe(0);
+      expect(repo.abortUnattemptedIncomingForOtter("otter-9")).toBe(0); // 幂等
+    });
+
+    it("边界不误伤：自指排除 / 归档会话不入 / user 点名照样清算", () => {
+      // 自指：otter-9 自己 yield 给自己——不入墓碑（与 pendingClause 自指排除同语义）
+      seedDelivered(db, "m-self", { senderType: "otter", senderId: "otter-9", targets: ["otter-9"] });
+      // 归档会话的入站信号不入（对齐 pendingClause 的 active 会话限定）
+      seedDelivered(db, "m-arch", { senderType: "otter", senderId: "otter-1", targets: ["otter-9"], conversationId: "conv-arch3" });
+      db.prepare(`UPDATE conversations SET status = 'archived' WHERE id = 'conv-arch3'`).run();
+      // user 消息带 tsp 指向 otter-9 → 清算（用户点名已解散獭同样永不点火）
+      seedDelivered(db, "m-user", { senderType: "user", senderId: "u1", targets: ["otter-9"] });
+      const n = repo.abortUnattemptedIncomingForOtter("otter-9");
+      expect(n).toBe(1); // 只补活跃会话的 m-user；自指与归档不入
+      expect(repo.countPendingSignals("conv-1")).toBe(0);
+    });
+  });
 });
