@@ -250,7 +250,8 @@ describe("#826 多模态注入收口：invokeTarget 从附件重建 InjectionPay
     // 等待 fire-and-forget 的 invokeTarget 完成
     await vi.waitFor(() => expect(executeChain).toHaveBeenCalled());
 
-    expect(mockBuildInjection).toHaveBeenCalledWith(["att-1"]);
+    // 建议发现 3（#826 收尾整改）：副作用断言（executeChain 收到的 images），
+    // 不再断言 mock 调用参数绑定实现细节（lint no-restricted-syntax）
     const chainCall = executeChain.mock.calls[0][0];
     expect(chainCall.images).toEqual([{ type: "image", data: "base64data", mimeType: "image/png" }]);
   });
@@ -330,11 +331,11 @@ describe("#826 多模态注入收口：invokeTarget 从附件重建 InjectionPay
 
   it("busyQueue 入队时保存 attachmentIds，消化时传给 invokeTarget", async () => {
     const mockBuildInjection = vi.fn().mockResolvedValue({
-      images: [{ type: "image", data: "queued-img", mimeType: "image/jpeg" }],
+      images: [{ type: "image", data: "base64data", mimeType: "image/jpeg" }],
     });
     // 第一次 isOtterActive 返回 true（busy），第二次返回 false
     let activeCallCount = 0;
-    const { router } = makeDeps({
+    const { executeChain, router } = makeDeps({
       messageById: makeMsg({
         attachments: [{ id: "att-q", kind: "image", originalName: "queued.jpg", mimeType: "image/jpeg", sizeBytes: 200, width: 20, height: 20, caption: null }],
       }),
@@ -344,8 +345,7 @@ describe("#826 多模态注入收口：invokeTarget 从附件重建 InjectionPay
       buildInjectionPayload: mockBuildInjection,
     };
 
-    // 模拟目标 busy：覆盖 isOtterActive
-    const originalIsOtterActive = (router as any).isOtterActive.bind(router);
+    // 模拟目标 busy：覆盖 isOtterActive（第一轮 busy → 入队；后续 idle → 消化）
     (router as any).isOtterActive = vi.fn().mockImplementation(async () => {
       activeCallCount++;
       return activeCallCount <= 1; // 第一次 busy，第二次 idle
@@ -360,5 +360,12 @@ describe("#826 多模态注入收口：invokeTarget 从附件重建 InjectionPay
     const queue = (router as any).busyQueue.get("conv-1:otter-1");
     expect(queue).toBeDefined();
     expect(queue[0].attachmentIds).toEqual(["att-q"]);
+
+    // 建议发现 3（#826 收尾整改）：补消化链路断言——目标转 idle 后驱动 drain，
+    // 验证 images 传到 executeChain（F3 核心链路）
+    await (router as any).drainBusyQueue("conv-1");
+    await vi.waitFor(() => expect(executeChain).toHaveBeenCalled());
+    const chainCall = executeChain.mock.calls[0][0];
+    expect(chainCall.images).toEqual([{ type: "image", data: "base64data", mimeType: "image/jpeg" }]);
   });
 });

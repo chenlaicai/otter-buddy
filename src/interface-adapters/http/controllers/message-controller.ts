@@ -176,8 +176,12 @@ export class MessageController {
       if (requestError) return requestError;
 
       /** 多模态 Phase 1：附件前置校验（usecases 层策略：存在性 + 每轮 ≤2 图硬限制）。
-       *  R4/R7 同步组装注入载荷（一次 getByIds，避免二次查询）。 */
-      const payload = await this.attachmentInjection?.validateAndBuild(body.attachmentIds);
+       *  #826 收尾处置（检视建议发现 2）：路由器在位时仅校验、不组装内存载荷
+       *  （路由器消费信号时从 attachments 重建——controller 侧组装的载荷无人消费，
+       *  每条带附件消息双读盘×base64 白建）；降级路径（无路由器直连链）才组装 */
+      const payload = this.signalRouter
+        ? await this.attachmentInjection?.validateForSendOnly(body.attachmentIds) ?? undefined
+        : await this.attachmentInjection?.validateAndBuild(body.attachmentIds);
       if (typeof payload === "string") return c.json({ error: payload }, 400);
 
       /** 2. 创建用户消息（completed 状态），空目标会被解析为默认派发对象 */
@@ -327,12 +331,12 @@ export class MessageController {
    *  照跑撞 429 → 熔断窗口重置 → 自动点火继续冻结（09-03 会议定性，搭档实锤）。 */
   private retryViaRouterPath(args: {
     conversationId: string; otterId: string; messageId: string; senderId: string;
-    signal: Message; unsubscribe: (() => void) | undefined;
+    signal: Message; retryAttachmentIds?: string[]; unsubscribe: (() => void) | undefined;
     push: (event: { event: string; data: Record<string, unknown> }) => void;
     close: () => void; response: Response;
   }): Response {
-    const { conversationId, otterId, messageId, signal, unsubscribe, push, close, response } = args;
-    void this.signalRouter!.retrySignal(conversationId, messageId, otterId, signal)
+    const { conversationId, otterId, messageId, signal, retryAttachmentIds, unsubscribe, push, close, response } = args;
+    void this.signalRouter!.retrySignal(conversationId, messageId, otterId, signal, retryAttachmentIds)
       .then((action) => {
         if (action === "retry_gated") {
           push({ event: "system.message", data: { content: "调度闸门暂缓：限流冷却中或会话已停机，重试将在恢复后可再次执行", messageId, otterId } });
@@ -363,9 +367,9 @@ export class MessageController {
 
   private startRetryChain(
     c: Context,
-    ctx: { conversationId: string; otterId: string; messageId: string; userMessageContent: string; senderId: string; images?: Array<{ type: "image"; data: string; mimeType: string }>; signal?: Message },
+    ctx: { conversationId: string; otterId: string; messageId: string; userMessageContent: string; senderId: string; images?: Array<{ type: "image"; data: string; mimeType: string }>; retryAttachmentIds?: string[]; signal?: Message },
   ): Response {
-    const { conversationId, otterId, messageId, userMessageContent, senderId, images, signal } = ctx;
+    const { conversationId, otterId, messageId, userMessageContent, senderId, images, retryAttachmentIds, signal } = ctx;
     const { response, push, close } = streamEvents(c);
 
     // F20260903ihlt：手动 retry = 用户显式恢复动作——解除中断停机，冻结的 pending 随链收尾重扫恢复
@@ -383,7 +387,7 @@ export class MessageController {
     // F20260902sgp2 S3（09-03 会议整改，堵闸门绕过漏洞）：路由器在位且带信号实体 → 换轨；
     // 降级（未注入/直写库无信号实体）→ 保留直连链。见 retryViaRouterPath。
     if (this.signalRouter && signal) {
-      return this.retryViaRouterPath({ conversationId, otterId, messageId, senderId, signal, unsubscribe, push, close, response });
+      return this.retryViaRouterPath({ conversationId, otterId, messageId, senderId, signal, retryAttachmentIds, unsubscribe, push, close, response });
     }
 
     // Why: 通过 DispatchChainEngine 执行而非直接 invoke——
@@ -572,14 +576,19 @@ export class MessageController {
       const senderId = turnUserMsgs[0]?.senderId ?? "user";
 
       /** 多模态 Phase 1（审视修复 R9）：重试路径从原 user 消息 attachments 重新组装注入载荷——
-       *  session 历史未重启时图仍在，但 self-restart/换 session 后当前任务图不缺席 */
+       *  session 历史未重启时图仍在，但 self-restart/换 session 后当前任务图不缺席。
+       *  #826 收尾处置（检视建议发现 1）：换轨路径的 signal 是被重试的 otter 消息
+       *  （attachments 恒空——message_attachments 只挂 user 消息），附件 ID 由
+       *  retryViaRouterPath 显式传递，不再静默丢弃 */
       const retryPayload = await this.loadRetryInjection(turnUserMsgs[0]?.attachments);
       const contentWithDocs = this.withDocumentBlock(userMessageContent, retryPayload?.documentBlock);
+      const retryAttachmentIds = turnUserMsgs[0]?.attachments?.map(a => a.id);
 
       return this.startRetryChain(c, {
         conversationId, otterId, messageId: id,
         userMessageContent: contentWithDocs, senderId,
         images: retryPayload?.images,
+        retryAttachmentIds,
         // S3：retry 信号实体（档位/内容/发送者）——路由器 retrySignal 的闸门与记账输入
         signal: msg,
       });

@@ -74,13 +74,28 @@ executeChain(content + documentBlock, images)
 ## 验证
 
 - ✅ TypeScript 编译通过（0 errors）
-- ✅ 全量测试通过：3068 tests / 245 files（含 6 个新增 #826 用例）
-- ✅ 新增测试覆盖：图片注入重建、documentBlock 追加、无附件跳过、重建失败降级、未装配降级、busyQueue attachmentIds 快照
+- ✅ 全量测试通过：3070 tests / 245 files（含 6 个新增 #826 用例）
+- ✅ eslint src/ tests/：0 error（2 warning 为 main 既有 no-console）
+- ✅ npm run build：成功
+- ✅ 新增测试覆盖：图片注入重建、documentBlock 追加、无附件跳过、重建失败降级、未装配降级、busyQueue attachmentIds 快照+消化链路
 - ✅ 已过最简检查：复用现有 `AttachmentInjectionService.buildInjectionPayload`，不新增依赖
+
+## 检视处置记录（检视-829，2026-09-07）
+
+检视发现 2 严重 + 4 建议，全部处置：
+
+| 发现 | 处置 |
+|------|------|
+| 严重 1：5 个 eslint error（复杂度/参数数/断言风格/unused） | ✅ 拆 rebuildInjection + mergeDocument、attachmentIds 并入 ledger 对象、attachmentIdsOf 辅助函数、测试改副作用断言 + 补消化链路断言 |
+| 严重 2：behind main | ✅ rebase onto main（#819 先合） |
+| 建议 1：retry 路径多模态收口不完整（otter 消息 attachments 恒空，retryPayload 丢弃） | ✅ 同 PR 修复：controller 反查同 turn user 消息附件 ID，retryAttachmentIds 显式传递，retrySignal 消费重建 |
+| 建议 2：双读盘（router 在位时 validateAndBuild 白建） | ✅ 同 PR 修复：新增 validateForSendOnly，router 在位时仅校验不组装 |
+| 建议 3：busyQueue 消化链路无断言 | ✅ 补 drainBusyQueue 驱动 + executeChain images 断言 |
+| 建议 4：附件被删静默降级无日志 | ✅ rebuildInjection 内 injection 为空时 info 留痕 |
 
 ## 最简实现检查
 
 已过最简检查：
 1. 仓库已有实现：`AttachmentInjectionService.buildInjectionPayload` 可直接复用
 2. 不新增外部依赖
-3. 变更范围最小：4 个文件（1 个核心 + 2 个 bypass 移除 + 1 个 DI 接线）
+3. 变更范围：5 个源文件 + 1 测试文件（重构后 invokeTarget/rebuildInjection/mergeDocument 职责单一）
