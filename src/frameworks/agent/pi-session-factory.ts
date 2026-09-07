@@ -11,6 +11,7 @@
  *
  * F20260722ta2k: Session 复用机制修复
  */
+/* eslint-disable max-lines -- #530 护栏 +11 行（steerSession 方法 + activeSessions steer 字段）；拆工厂会切断 session 生命周期与 steer/abort 的闭包内聚 */
 
 import fs from 'fs';
 import type Database from "better-sqlite3";
@@ -147,7 +148,7 @@ import type { SessionManager } from "@earendil-works/pi-coding-agent";
 
 export class PiSessionFactory implements AgentGateway {
   private readonly sessionStore: AgentSessionStore;
-  private readonly activeSessions = new Map<string, { abort: () => Promise<void>; toolCallCount: number; guardAbortReason?: string }>();
+  private readonly activeSessions = new Map<string, { abort: () => Promise<void>; steer?: (text: string) => Promise<void>; toolCallCount: number; guardAbortReason?: string }>();
   /** F20260830fabt-r2: 持久化 abort 函数映射。finally 块从 activeSessions 删除 session 后，
    * orchestrator failMessage 仍可通过此 map 调用 session.abort()。 */
   private readonly pendingAborts = new Map<string, () => Promise<void>>();
@@ -613,7 +614,7 @@ export class PiSessionFactory implements AgentGateway {
     this.logger.debug('[createSession] createAgentSession returned', { otterId });
 
     const sessionKey = messageId ? `${otterId}:${messageId}` : otterId;
-    this.activeSessions.set(sessionKey, { abort: () => session.abort(), toolCallCount: 0 });
+    this.activeSessions.set(sessionKey, { abort: () => session.abort(), steer: (text: string) => session.steer?.(text) ?? Promise.resolve(), toolCallCount: 0 });
 
     return { session, sessionKey, toolContext };
   }
@@ -651,6 +652,21 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   getInternalAbortReason(messageId: string): string | undefined { const s = `:${messageId}`; for (const [k, e] of this.activeSessions) { if (e.guardAbortReason && k.endsWith(s) && k.length > s.length) { const r = e.guardAbortReason; e.guardAbortReason = undefined; return r; } } return undefined; }
+
+  /** #530 梯度护栏：向活跃 session 注入 steer 文案（链引擎调用）。
+   *  复用 circuit-breaker-helpers 的 session.steer 通道。
+   *  返回 true=注入成功，false=session 不活跃或无 steer 能力。 */
+  steerSession(otterId: string, text: string): boolean {
+    const entry = this.activeSessions.get(otterId);
+    if (entry?.steer) {
+      void entry.steer(text).catch((err: unknown) => {
+        this.logger.warn(`[steer] steer 调用失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
+      });
+      return true;
+    }
+    this.logger.warn(`[steer] session 不活跃或无 steer 能力 otter=${otterId}`);
+    return false;
+  }
 
 
 }

@@ -135,7 +135,7 @@ export async function createAgentGateway(options: {
   };
 }
 
-export function createDispatchChainEngine(repos: Repositories, uc: UseCases, appConfig: AppConfig, logger: Logger, agentMetrics?: AgentMetricsPort): DispatchChainEngine {
+export function createDispatchChainEngine(repos: Repositories, uc: UseCases, appConfig: AppConfig, logger: Logger, options?: { agentMetrics?: AgentMetricsPort; agentGateway?: PiSessionFactory }): DispatchChainEngine {
   return new DispatchChainEngine({
     conversationRepo: repos.conversation,
     queryMessage: uc.queryMessage,
@@ -143,12 +143,16 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     logger,
     maxChainDepth: appConfig.circuitBreaker.maxChainDepth,
     settingsRepo: repos.settings,
-    metrics: agentMetrics,
+    metrics: options?.agentMetrics,
     // F20260826fpbd：搭档身份静态判定。appConfig.feishu 可选，未配置时 PartnerResolver 降级（动态推断）
     partnerResolver: new PartnerResolver(appConfig.feishu?.partnerOpenId),
     // F20260902sgp2 S1：派发台账注入——所有入口每次派发都记账（链引擎是必经之路，§4.2）。
     // 记账失败仅日志不阻断（硬约束 1）；不注入时链路行为与 sgpv 回滚基线一致。
     dispatchAttemptRepo: repos.dispatchAttempt,
+    // #530 梯度护栏：steer/abort 回调注入（可选——不注入时护栏降级为纯计数+日志）。
+    steer: options?.agentGateway ? (otterId, text) => Promise.resolve(options.agentGateway!.steerSession(otterId, text)) : undefined,
+    abort: options?.agentGateway ? (otterId) => options.agentGateway!.abort(otterId) : undefined,
+    healingRepo: repos.healingEvent,
   });
 }
 
