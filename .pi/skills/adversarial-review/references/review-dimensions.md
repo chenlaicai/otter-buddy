@@ -130,3 +130,15 @@ Can the next developer understand this?
 - No unnecessary duplication
 - No dead code left behind
 - Error messages are actionable
+
+## 7. Mechanism Budget
+
+> 范围（软维度，非必查）：变更净新增机制（新机制/子机制/对外承诺）时可选用此维度作焦点。纯修 bug、纯删除、纯重构豁免。复盘记录破例（搭档裁决豁免 + 特性文档引用裁决）亦豁免。
+
+Does the addition carry its full future cost explicitly? (加法自带全部未来)
+
+- Check the feature doc's「设计取舍」section for the four answers:
+  ① 谁需要它（具体角色，不是「应该有」）② 失败后果（用户可感知，还是仅内部指标异常）③ 后续机制（它创造的新状态里哪些可能出错、会被怎么修）④ 退役条件（什么信号出现时该删它）
+- **Net-new mechanism with no four answers → 建议发现**（软维度，走决策树处置；先软后硬，跑熟后再评估升级为 B 维度）
+- ①② 答非所问（如「应该有」「提升健壮性」这类无角色无后果的答案）同视为缺失
+- Context: 病根五条（生成回路/局部有效/前提不死/路径不对称/度是全局属性）见 F20260907cmpx 特性文档
