@@ -187,7 +187,8 @@ def fetch_sina_realtime(code: str, errors: list) -> dict | None:
             errors.append("sina_quote: empty payload")
             return None
         fields = m.group(1).split(",")
-        if len(fields) < 32:
+        # 最后一个索引常量 + 1（SINA_IDX_TIME=31，所以 < 32）
+        if len(fields) < SINA_IDX_TIME + 1:
             errors.append(f"sina_quote: unexpected field count {len(fields)}")
             return None
         quote_date = fields[SINA_IDX_DATE]  # 日期 yyyy-MM-dd

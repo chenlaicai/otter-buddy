@@ -62,6 +62,7 @@ async function executeCliJson<T>(
       proc.on("close", (code_) => {
         if (code_ !== 0) {
           // #801：非零退出时收集 stderr 用于 debug 日志，Python 端 warnings/deprecation 信息不丢失
+          // eslint-disable-next-line no-console -- #801: executeCliJson 无 logger 注入，debug 级 stderr 仅非零退出时输出，排查可查
           if (stderr) console.debug("[stock-cli] stderr:", stderr.trim());
           res(null);
           return;
