@@ -59,13 +59,17 @@ category: technique
 
    **Intent 块生成（软代码改动必须）**：
    - **触发条件**：本次变更涉及 prompt/skill/协议层（软代码）时，特性文档 frontmatter 必须生成 intent 块
-   - **格式**：在 frontmatter 中添加 `intent` 字段，包含 `problem`（要解决什么问题）和 `verify_by`（如何验证，如 `golden_gate`、`capability_test`、`manual_review`）
+   - **格式**（⚠️ verify_by 必须是对象不是字符串——#829/#838/#841 三次同型 CI 红的根因就是照旧示例写成字符串；且 golden_gate 不是合法枚举）：在 frontmatter 中添加 `intent` 字段，包含 `problem`（要解决什么问题）、`expected_effect`（可判定的预期效果，字符串）和 `verify_by`（对象，`type` 用合法枚举）
+   - **verify_by.type 合法枚举**（真相源 scripts/lint-intent.mjs，读它为准）：`metric_probe` / `behavior_check` / `human_judge` / `capability_test` / `golden_replay` / `static_only`
+   - **commit 前本地跑** `npm run lint:intent`，0 error 才算过（CI 的 intent gate 会拦，本地提前拦住不用返工）
    - **n/a 须附理由**：如果 verify_by 填 n/a，必须附理由说明为什么不需要验证
-   - **示例**：
+   - **示例**（可直接抄的合规格式）：
      ```yaml
      intent:
        problem: "海獭在召唤小獭前不搜记忆，违反 R4 约束"
-       verify_by: "golden_gate"
+       expected_effect: "召唤前 search_memory 调用率从基线 X% 升至 ≥Y%，无相关结论时才创建新獭"
+       verify_by:
+         type: behavior_check
      ```
    - **目的**：让评测机制知道这个变更需要什么验证方式，是 golden gate 的输入信号
 
