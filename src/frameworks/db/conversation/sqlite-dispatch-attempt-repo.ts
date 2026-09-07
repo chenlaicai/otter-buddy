@@ -324,8 +324,9 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
   }
 
   /** #827：dissolve 入站清算——tsp 指向该獭、从未记账的信号槽位补 aborted 墓碑（与出站对称）。
-   *  判据与 pendingClause 同源但方向相反：不限制 sender 状态（发起者还在场），
-   *  仅限 target = dissolved 獭。归档会话也补（墓碑宁多勿少，同 backfill 偏置）。 */
+   *  判据与 pendingClause 同源但方向相反：sender_type 不限（出站清算限 otter 发言者，
+   *  入站清算 user/otter/system 消息都算——user 点名已解散獭同样永不点火），
+   *  仅限 target = dissolved 獭。归档会话不补（对齐 pendingClause 的 active 会话限定）。 */
   abortUnattemptedIncomingForOtter(otterId: string): number {
     const result = this.db.prepare(`
       INSERT OR IGNORE INTO dispatch_attempts

@@ -239,13 +239,16 @@ describe("SqliteDispatchAttemptRepo（sgp2 S1 真实仓储集成）", () => {
       expect(repo.abortUnattemptedIncomingForOtter("otter-9")).toBe(0); // 幂等
     });
 
-    it("边界不误伤：user 目标 / 自指 / 非 completed / 归档会话 / 已记账槽位不碰", () => {
+    it("边界不误伤：自指排除 / 归档会话不入 / user 点名照样清算", () => {
+      // 自指：otter-9 自己 yield 给自己——不入墓碑（与 pendingClause 自指排除同语义）
+      seedDelivered(db, "m-self", { senderType: "otter", senderId: "otter-9", targets: ["otter-9"] });
+      // 归档会话的入站信号不入（对齐 pendingClause 的 active 会话限定）
       seedDelivered(db, "m-arch", { senderType: "otter", senderId: "otter-1", targets: ["otter-9"], conversationId: "conv-arch3" });
       db.prepare(`UPDATE conversations SET status = 'archived' WHERE id = 'conv-arch3'`).run();
+      // user 消息带 tsp 指向 otter-9 → 清算（用户点名已解散獭同样永不点火）
       seedDelivered(db, "m-user", { senderType: "user", senderId: "u1", targets: ["otter-9"] });
-      // user 消息带 tsp 指向 otter-9 也该被清算（用户点名已解散獭同样永不点火）
       const n = repo.abortUnattemptedIncomingForOtter("otter-9");
-      expect(n).toBe(1); // 只补活跃会话的 m-user；归档会话不入（与出站墓碑宁多勿少不同：入站判据对齐 pendingClause 的 c.status='active'）
+      expect(n).toBe(1); // 只补活跃会话的 m-user；自指与归档不入
       expect(repo.countPendingSignals("conv-1")).toBe(0);
     });
   });
