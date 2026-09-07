@@ -323,8 +323,7 @@ export class DispatchChainEngine {
       // F20260907ylfs ②：护栏门控（取代旧「静默滤 self → 链终止」）——门控分支下沉
       // checkSelfYieldGuardrail / filterChainTargets（各分支独立计复杂度，拆后均 < 12）。
       // self-yield = 任务锚点入箱（「任务未完，下轮继续」），消化路径唯一 = 本门控的链续跑。
-      const isSelfYield = !!(target && conversationId && tsp.includes(target));
-      const guard = isSelfYield
+      const guard = this.isSelfYield(target, conversationId, tsp)
         ? await this.checkSelfYieldGuardrail(conversationId, target, r.value.messageId)
         : { aborted: false as const, steerText: undefined };
       const allowedNext = guard.aborted ? [] : this.filterChainTargets(tsp);
@@ -342,6 +341,13 @@ export class DispatchChainEngine {
       if (id !== "user") out.push(id);
     }
     return out;
+  }
+
+  /** F20260907ylfs ②（检视-840 发现 2）：self-yield 判据单点——产出消息的行级 tsp 含
+   *  hop 目标自身 = 自指 yield（任务锚点入箱）。护栏门控唯一入口判据（① URGENT 注入
+   *  的类似判据后续复用此处出处），conversationId 缺失（理论降级路径）时不判 self。 */
+  private isSelfYield(target: string | undefined, conversationId: string | undefined, tsp: string[]): boolean {
+    return !!(target && conversationId && tsp.includes(target));
   }
 
   /** F20260902sgp2 S1：起跑记账——首 hop 用 triggerMessageId，hop 2+ 用 yield 出处
@@ -673,7 +679,9 @@ export class DispatchChainEngine {
      *  禁止再滤 senderId：scheduler 路径（AgentDispatchService / SchedulerService / resume）的 sender
      *  是任务属主 otter，小獭 yield 回属主是设计内交棒，被滤掉即行动权悬空（石砧 8-26 实证：链在
      *  yield 大獭后正常结束，大獭永不唤醒，需用户手动接棒）。
-     *  F20260907ylfs ②：self 目标例外——护栏放行即链续跑（合法消化路径），allowedNext 已含门控结果。 */
+     *  F20260907ylfs ②（检视-840 发现 1）：'user' 过滤已在 resolveHopOutcomes → filterChainTargets
+     *  单点执行（allowedNext 入队前），此处不再重复 filter（每目标已过一遍，再滤是冗余动作）；
+     *  self 目标不滤——护栏放行即链续跑（合法消化路径），allowedNext 已含门控结果。 */
     // #530 梯度护栏：abort 后清空 nextTargets 终链（链停非惩罚，可被外部重新 invoke）
     return {
       otterReply,
