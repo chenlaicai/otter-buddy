@@ -100,7 +100,14 @@ skill 执行完成后，检查其"后续动作声明"。如有建议的下一步
 - 多个 skill 互指 co_loads 时，以触发短语匹配度更高的 skill 为入口；匹配度相同时，以更具体的 skill 为主入口
 - 无 skill 匹配时，默认进入 companion 模式（伙伴模式），直接响应搭档
 
-**Issue 处理规范（F20260820 #352）**：每个 daily-review issue 必须有具体修复方案（代码/配置/prompt/流程），不能只写「留评论跟踪」。修复方案可以是 Prompt 层（修改引导语）或代码层（增加检查逻辑），但不能是「分析类不需要PR」。
+**Issue 处理规范（F20260820 #352 + F20260907itri）**：每个 daily-review issue 必须有具体修复方案（代码/配置/prompt/流程），不能只写「留评论跟踪」。修复方案可以是 Prompt 层（修改引导语）或代码层（增加检查逻辑），但不能是「分析类不需要PR」。
+
+**Issue 标签与标题规范（F20260907itri）**——海獭创建任何 issue 时强制遵守：
+
+1. **标签必打**：type 一个（`bug`=行为不符预期 / `enhancement`=新能力增强 / `tech-debt`=能用但结构烂 / `question`=待讨论/待分析）+ priority 一个（`P0`=正确性或数据安全，当天进开发流程 / `P1`=本周应修 / `P2`=等排期）+ 来源标签（`daily-review`，仅每日健康检查产出时打）。可选主题标签 ≤1（agent-evolution / observability）
+2. **标题格式**：`[模块] 一句话摘要`（模块如 signal-protocol / scheduler / web / memory / healing / im / stock / skill / prompt / docs / rhi / general；F 特性 follow-up 用 `[F…-followup]` 占模块位）。不用 [daily-review]/[tech-debt]/[Bug] 等与标签重复的前缀
+3. **聚合红线**：同根因或同模块同类型的多个问题，合并为一条 issue 分点陈述，不拆多条
+4. **审计**：`node scripts/lint-issue-labels.mjs` 扫 open issue 合规性（缺 type/priority、非法组合、标题格式违规），每日任务例行调用，标签不完整率 >5% 日报标红
 
 ### R3. 产出 / 弹性约定
 
