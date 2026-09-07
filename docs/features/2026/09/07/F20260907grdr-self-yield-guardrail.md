@@ -7,7 +7,9 @@ modules: ["conversation"]
 capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为，steer 文案是注入 LLM 的行为引导文本但由链引擎生成而非 skill 定义"
 intent:
   problem: "海獭连续 self-yield 无干预机制，病态自链可无限循环（9/4 事故），且 ② yield-to-self 合法化需要安全兜底"
-  verify_by: "capability_test"
+  expected_effect: "同一獭连续 self-yield 第 3 次时下一 hop 前置注入警示文案（含交棒/分派引导出口）、第 5 次链停（nextTargets 清空）+ healing 留痕（errorType other, severity medium，含 #530 标记）；介入信号（to≠self yield/user 消息/外部指向信号）重置计数；② 合入前护栏为防御性计数（禁令拦截合法产出）"
+  verify_by:
+    type: static_only
 created_at: "2026-09-07"
 created_in_conversation: "449d8f5d-e91e-49c0-ade5-0fbd9b3d0fcb"
 ---
