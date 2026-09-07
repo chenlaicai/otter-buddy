@@ -152,6 +152,18 @@ def _normalize(obj):
     return obj
 
 
+# 新浪实时接口字段索引（hq.sinajs.cn，事实标准无官方文档）
+# 字段顺序：0=名称, 1=今开, 2=昨收, 3=现价, 4=最高, 5=最低, ..., 30=日期, 31=时间
+# 接口改版时需重查映射：curl -H 'Referer: https://finance.sina.com.cn' 'https://hq.sinajs.cn/list=sh600519'
+SINA_IDX_NAME = 0
+SINA_IDX_OPEN = 1
+SINA_IDX_PREV_CLOSE = 2
+SINA_IDX_PRICE = 3
+SINA_IDX_HIGH = 4
+SINA_IDX_LOW = 5
+SINA_IDX_DATE = 30
+SINA_IDX_TIME = 31
+
 # 测试访问句柄（main 内部直接用 _normalize，测试经此公共名访问）
 _normalize_public = _normalize
 
@@ -175,23 +187,24 @@ def fetch_sina_realtime(code: str, errors: list) -> dict | None:
             errors.append("sina_quote: empty payload")
             return None
         fields = m.group(1).split(",")
-        if len(fields) < 32:
+        # 最后一个索引常量 + 1（SINA_IDX_TIME=31，所以 < 32）
+        if len(fields) < SINA_IDX_TIME + 1:
             errors.append(f"sina_quote: unexpected field count {len(fields)}")
             return None
-        quote_date = fields[30]  # 日期 yyyy-MM-dd
-        quote_time = fields[31]  # 时间 HH:MM:SS
+        quote_date = fields[SINA_IDX_DATE]  # 日期 yyyy-MM-dd
+        quote_time = fields[SINA_IDX_TIME]  # 时间 HH:MM:SS
         if not re.match(r"^\d{4}-\d{2}-\d{2}$", quote_date):
             errors.append(f"sina_quote: bad date field {quote_date!r}")
             return None
         return {
             "code": code,
             "source": "sina",
-            "name": fields[0],
-            "open": float(fields[1]),
-            "prev_close": float(fields[2]),
-            "price": float(fields[3]),
-            "high": float(fields[4]),
-            "low": float(fields[5]),
+            "name": fields[SINA_IDX_NAME],
+            "open": float(fields[SINA_IDX_OPEN]),
+            "prev_close": float(fields[SINA_IDX_PREV_CLOSE]),
+            "price": float(fields[SINA_IDX_PRICE]),
+            "high": float(fields[SINA_IDX_HIGH]),
+            "low": float(fields[SINA_IDX_LOW]),
             "date": quote_date,
             "time": quote_time,
         }

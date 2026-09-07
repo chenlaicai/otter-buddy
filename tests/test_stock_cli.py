@@ -601,8 +601,8 @@ class TestQuoteCommand:
     def test_quote_bad_date_returns_error(self):
         """日期字段异常（接口改版）→ 结构化错误"""
         fields = ["x"] * 32
-        fields[30] = "not-a-date"
-        fields[31] = "00:00:00"
+        fields[cli.SINA_IDX_DATE] = "not-a-date"
+        fields[cli.SINA_IDX_TIME] = "00:00:00"
         payload = 'var hq_str_sh600519="' + ",".join(fields) + '";'
         with patch.object(cli.urllib.request, "urlopen", return_value=self._fake_response(payload.encode("gbk"))):
             result = cli.cmd_quote(self._quote_args())
