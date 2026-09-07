@@ -2,9 +2,14 @@
 id: F20260907grdr
 title: "梯度护栏：self-yield 连续计数 + 梯度响应（closes #530）"
 summary: "P3a 先行件：dispatch-chain-engine 挂载 self-yield 连续计数 + 梯度响应（3次 steer 警示 / 5次 abort + healing 留痕），为 ② yield-to-self 合法化提供安全兜底，同时覆盖 #530。"
+change_type: feature
+modules: ["conversation"]
+capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为，steer 文案是注入 LLM 的行为引导文本但由链引擎生成而非 skill 定义"
+intent:
+  problem: "海獭连续 self-yield 无干预机制，病态自链可无限循环（9/4 事故），且 ② yield-to-self 合法化需要安全兜底"
+  verify_by: "capability_test"
 created_at: "2026-09-07"
 created_in_conversation: "449d8f5d-e91e-49c0-ade5-0fbd9b3d0fcb"
-status: active
 ---
 
 # 梯度护栏：self-yield 连续计数 + 梯度响应
@@ -70,6 +75,15 @@ P3a 打断轻量版三件套的先行件。为 ② yield-to-self 合法化提供
 - 保留 F20260904schf 行级 tsp 取数 + 自指守卫语义不变
 - 本 PR 仅含 ③ 梯度护栏，② 拆禁令（talking-stone.ts）是下一个 PR
 - ② 合入前，合法 self-yield 路径被 talking-stone 禁令拦截，护栏是「防御性计数」
+
+## 机制预算四问
+
+| 问题 | 回答 |
+|------|------|
+| 谁需要这个机制？ | ② yield-to-self 合法化后，需要安全兜底防止病态自链循环；9/4 事故后需要比 maxChainDepth=100 更精确的自链检测 |
+| 失败后果是什么？ | 无护栏时病态自链可无限循环（9/4 事故），浪费资源且可能阻塞其他任务；② 合法化后合法长任务也可能撞到 maxChainDepth 限制 |
+| 后续机制是什么？ | ② yield-to-self 合法化（拆禁令）；① URGENT steer 注入（独立可并行）；实测后评估升阈值或进度豁免（P3b） |
+| 退役条件是什么？ | 当 ② 合入且实测验证阈值 3/5 不误杀合法长任务后，可考虑退役或调整阈值；若进度豁免机制上线，护栏可降级为纯观测 |
 
 ## Discovered Issues
 

@@ -116,7 +116,7 @@ describe("#530 self-yield guardrail", () => {
   // Steer 阈值=3（previous >= 2），Abort 阈值=5（previous >= 4）。
 
   describe("梯度响应", () => {
-    it("第 3 次 self-yield（DB 有 2 条 previous）→ steer 警示", async () => {
+    it("第 3 次 self-yield（DB 有 2 条 previous）→ steer 警示文案注入下一 hop", async () => {
       m.setSeededMessages([
         makeMsg({ id: "m-2", sequenceNum: 2, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
         makeMsg({ id: "m-1", sequenceNum: 1, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
@@ -132,17 +132,19 @@ describe("#530 self-yield guardrail", () => {
         userMessageContent: "hi",
         senderId: "user",
         initialTargets: ["otter-1"],
-        invokeFn: async ({ otterId }) => {
+        invokeFn: async ({ otterId, userMessageContent }) => {
           invoked.push(otterId);
+          // #530 修复（检视-838 发现 1）：steer 不再直接调用 session.steer，
+          // 而是通过 ChainHopResult.steerText 进程级传递，前置注入到下一 hop 消息上下文
+          if (invoked.length > 1) {
+            // 第二个 hop 应该收到 steer 文案
+            expect(userMessageContent).toContain("连续 3 次 self-yield");
+            expect(userMessageContent).toContain("建议");
+          }
           return { messageId: "m-new" };
         },
       });
 
-      // steer 被调用（第 3 次触发）
-      expect(m.steer).toHaveBeenCalledOnce();
-      const steerArg = m.steer.mock.calls[0]![1] as string;
-      expect(steerArg).toContain("连续 3 次 self-yield");
-      expect(steerArg).toContain("建议");
       // abort 未被调用（3 < 5）
       expect(m.abort).not.toHaveBeenCalled();
       // 链仍然继续（steer 不停链）
@@ -271,22 +273,26 @@ describe("#530 self-yield guardrail", () => {
       );
 
       const engine = makeChainEngine(m);
+      const invoked: string[] = [];
       await engine.executeChain({
         conversationId: "conv-1",
         userMessageContent: "hi",
         senderId: "user",
         initialTargets: ["otter-1"],
-        invokeFn: async () => ({ messageId: "m-new" }),
+        invokeFn: async ({ otterId, userMessageContent }) => {
+          invoked.push(otterId);
+          // 外部信号重置计数，不应触发 steer
+          expect(userMessageContent).not.toContain("self-yield-guard");
+          return { messageId: "m-new" };
+        },
       });
-
-      expect(m.steer).not.toHaveBeenCalled();
     });
   });
 
   // ─── 不相关消息透明 ───
 
   describe("不相关消息透明", () => {
-    it("不相关 system 消息透明（不重置计数），连续 3 条 previous 触发 steer", async () => {
+    it("不相关 system 消息透明（不重置计数），连续 3 条 previous 触发 steer 注入下一 hop", async () => {
       // m-3: self-yield (prev=1), m-sys: transparent (skip), m-2: self-yield (prev=2)
       // current: self-yield → totalCount=3 → steer
       m.setSeededMessages([
@@ -299,19 +305,24 @@ describe("#530 self-yield guardrail", () => {
       );
 
       const engine = makeChainEngine(m);
+      const invoked: string[] = [];
       await engine.executeChain({
         conversationId: "conv-1",
         userMessageContent: "hi",
         senderId: "user",
         initialTargets: ["otter-1"],
-        invokeFn: async () => ({ messageId: "m-new" }),
+        invokeFn: async ({ otterId, userMessageContent }) => {
+          invoked.push(otterId);
+          // 不相关 system 消息被跳过，previous=2，totalCount=3，触发 steer
+          if (invoked.length > 1) {
+            expect(userMessageContent).toContain("连续 3 次 self-yield");
+          }
+          return { messageId: "m-new" };
+        },
       });
-
-      // 不相关 system 消息被跳过，previous=2，totalCount=3，触发 steer
-      expect(m.steer).toHaveBeenCalledOnce();
     });
 
-    it("不相关外部 otter 消息透明（tsp 不含该獭），连续 previous 触发 steer", async () => {
+    it("不相关外部 otter 消息透明（tsp 不含该獭），连续 previous 触发 steer 注入下一 hop", async () => {
       // m-3: self-yield (prev=1), m-other: transparent, m-2: self-yield (prev=2)
       // current: self-yield → totalCount=3 → steer
       m.setSeededMessages([
@@ -324,15 +335,21 @@ describe("#530 self-yield guardrail", () => {
       );
 
       const engine = makeChainEngine(m);
+      const invoked: string[] = [];
       await engine.executeChain({
         conversationId: "conv-1",
         userMessageContent: "hi",
         senderId: "user",
         initialTargets: ["otter-1"],
-        invokeFn: async () => ({ messageId: "m-new" }),
+        invokeFn: async ({ otterId, userMessageContent }) => {
+          invoked.push(otterId);
+          // 不相关外部 otter 消息透明，previous=2，totalCount=3，触发 steer
+          if (invoked.length > 1) {
+            expect(userMessageContent).toContain("连续 3 次 self-yield");
+          }
+          return { messageId: "m-new" };
+        },
       });
-
-      expect(m.steer).toHaveBeenCalledOnce();
     });
   });
 
@@ -473,8 +490,9 @@ describe("#530 self-yield guardrail", () => {
       });
 
       // 验证护栏只查本会话（scope boundary，非实现细节——跨会话查询会导致计数串扰）
+      // #530 修复（检视-838 发现 2）：before=currentMessageId 排除当前消息，避免重复计数
       // eslint-disable-next-line no-restricted-syntax -- #530 scope boundary: 验证 getMessages 调用的 conversationId 参数，确保同会话隔离
-      expect(m.getMessages).toHaveBeenCalledWith("conv-1", { limit: 100 });
+      expect(m.getMessages).toHaveBeenCalledWith("conv-1", { limit: 100, before: "m-new" });
     });
   });
 });

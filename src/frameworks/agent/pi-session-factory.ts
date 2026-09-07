@@ -655,14 +655,17 @@ export class PiSessionFactory implements AgentGateway {
 
   /** #530 梯度护栏：向活跃 session 注入 steer 文案（链引擎调用）。
    *  复用 circuit-breaker-helpers 的 session.steer 通道。
+   *  键格式：生产链路 sessionKey 恒为 ${otterId}:${messageId}，需前缀扫描匹配。
    *  返回 true=注入成功，false=session 不活跃或无 steer 能力。 */
   steerSession(otterId: string, text: string): boolean {
-    const entry = this.activeSessions.get(otterId);
-    if (entry?.steer) {
-      void entry.steer(text).catch((err: unknown) => {
-        this.logger.warn(`[steer] steer 调用失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
-      });
-      return true;
+    // 遍历 activeSessions 查找 otterId 前缀匹配（键格式 ${otterId}:${messageId}）
+    for (const [key, entry] of this.activeSessions) {
+      if ((key === otterId || key.startsWith(`${otterId}:`)) && entry.steer) {
+        void entry.steer(text).catch((err: unknown) => {
+          this.logger.warn(`[steer] steer 调用失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
+        });
+        return true;
+      }
     }
     this.logger.warn(`[steer] session 不活跃或无 steer 能力 otter=${otterId}`);
     return false;

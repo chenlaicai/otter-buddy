@@ -21,6 +21,8 @@ import { scanStopWords } from "@usecases/signal/stop-word-scanner";
 export interface ChainHopResult {
   otterReply?: string;
   nextTargets: string[];
+  /** #530 护栏 steer 文案：进程级传递，下一 hop 前置注入（解决 session 已 dispose 无法 steer 的生命周期问题） */
+  steerText?: string;
 }
 
 /** 多模态 Phase 1：每轮真图上限（服务端硬限制，超出拒绝）。
@@ -75,7 +77,9 @@ export class DispatchChainEngine {
       dispatchAttemptRepo?: DispatchAttemptRepo;
       /** #530 梯度护栏：steer 注入回调（可选——不注入时护栏降级为纯计数+日志）。 */
       steer?: (otterId: string, text: string) => Promise<boolean>;
-      /** #530 梯度护栏：abort 回调（可选——不注入时 abort 降级为纯日志）。 */
+      /** #530 梯度护栏：abort 回调（可选——不注入时 abort 降级为纯日志）。
+       *  ⚠️ 生产链路中 session 已在 finally 块 dispose，此回调恒为 no-op。
+       *  链停能力实际由 processHopResults 清空 nextTargets 实现。 */
       abort?: (otterId: string) => void;
       /** #530 梯度护栏：healing 事件仓库（可选——不注入时 healing 留痕降级为纯日志）。 */
       healingRepo?: HealingEventRepository;
@@ -141,6 +145,8 @@ export class DispatchChainEngine {
       stopWordReminder = scanStopWords(userMessageContent).reminder;
     } catch { /* 扫描器异常降级为无 reminder */ }
 
+    let pendingSteerText: string | undefined; // #530 护栏 steer 文案，从上一 hop 传递到下一 hop
+
     while (targets.length > 0 && depth < maxDepth) {
       depth++;
       const result = await this.executeOneHop({
@@ -148,8 +154,10 @@ export class DispatchChainEngine {
         triggerMessageId: depth === 1 ? triggerMessageId : undefined,
         ledgerSource,
         chainSourceMessageIds,
+        steerText: pendingSteerText, // #530 注入上一 hop 的 steer 文案
       });
       lastOtterReply = result.otterReply ?? lastOtterReply;
+      pendingSteerText = result.steerText; // 收集本 hop 的 steer 文案，传递到下一 hop
       targets = result.nextTargets;
     }
 
@@ -183,8 +191,10 @@ export class DispatchChainEngine {
     ledgerSource?: "chain" | "router" | "retry";
     /** F20260902sgp2 hop 取源修复：链级 target → yield 出处列表（跨 hop 存活，修复局部 Map 回填即丢的 bug） */
     chainSourceMessageIds?: Map<string, string[]>;
+    /** #530 护栏 steer 文案：从上一 hop 传递，前置注入到本 hop 消息上下文（解决 session 已 dispose 的生命周期问题） */
+    steerText?: string;
   }): Promise<ChainHopResult> {
-    const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder, triggerMessageId, ledgerSource, chainSourceMessageIds } = params;
+    const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder, triggerMessageId, ledgerSource, chainSourceMessageIds, steerText } = params;
     const roster = await this.buildRoster(conversationId, senderId);
 
     const promises = targets.map(async otterId => {
@@ -194,6 +204,12 @@ export class DispatchChainEngine {
       let messageWithContext = await this.buildMessageWithContext(
         conversationId, otterId, userMessageContent, senderId, roster
       );
+      // #530 护栏 steer 文案前置注入：位置在消息开头，靠近生成点，注意力权重最高。
+      // 解决 session 已 dispose 无法通过 session.steer 注入的生命周期问题。
+      if (steerText) {
+        messageWithContext = `${steerText}\n\n${messageWithContext}`;
+        this.deps.logger.info('[self-yield-guard] steer 文案已注入下一 hop 消息', { otterId, steerTextPreview: steerText.substring(0, 100) });
+      }
       // F20260826mwrd C3：安全词 reminder 附在消息末尾——链上每个 hop 都能看到，
       // 防注意力稀释漏判（母方案 T6）。位置在末尾：靠近生成点，注意力权重最高。
       if (stopWordReminder) {
@@ -394,21 +410,27 @@ export class DispatchChainEngine {
   // #530 梯度护栏阈值
   private static readonly SELF_YIELD_STEER_THRESHOLD = 3;
   private static readonly SELF_YIELD_ABORT_THRESHOLD = 5;
-  /** 计数扫描的消息上限——正常链路 self-yield ≤5 即触发 abort，100 足够覆盖 + 缓冲 */
+  /** 计数扫描的消息上限——正常链路 self-yield ≤5 即触发 abort，100 足够覆盖 + 缓冲。
+   *  窗口截断方向：若 95+ 条连续透明消息把介入消息挤出窗口，计数虚低（更难触发），
+   *  方向上由 maxChainDepth=100 兜底，可接受。 */
   private static readonly SELF_YIELD_SCAN_LIMIT = 100;
 
   /** #530 梯度护栏：从消息表倒序数连续 self-yield。
-   *  给定 otterId + conversationId，从最新消息倒序扫描，遇介入即停。
+   *  给定 otterId + conversationId + currentMessageId，从当前消息之前倒序扫描，遇介入即停。
    *  介入三类：①该獭自己的 to≠self yield ②user 消息 ③外部(sender≠该獭) tsp 含该獭的信号消息。
    *  不相关消息(非指向该獭的 system 消息等)透明——跳过不重置。
-   *  真相源=消息表，重启不归零；同会话计数(跨会话留 P3b)。 */
+   *  真相源=消息表，重启不归零；同会话计数(跨会话留 P3b)。
+   *  窗口截断方向：若 95+ 条连续透明消息把介入消息挤出窗口，计数虚低（更难触发），
+   *  方向上由 maxChainDepth=100 兜底，可接受。 */
   // eslint-disable-next-line complexity -- #530 梯度护栏计数：6 类消息分支（self-yield/to≠self/user/system 外部信号/透明）+ try/catch
-  private async countConsecutiveSelfYields(conversationId: string, otterId: string): Promise<number> {
+  private async countConsecutiveSelfYields(conversationId: string, otterId: string, currentMessageId: string): Promise<number> {
     try {
-      // 用 getMessages(before=undefined) 取最新消息（DESC 序）——ConversationRepository.getMessages
-      // 支持 before/status/senderType/limit，不传 before 即从最新开始
+      // #530 修复（检视-838 发现 2）：传 before=currentMessageId 排除当前消息，避免重复计数。
+      // 生产时序：completeMessage 先落库后关 turn，invoke 返回时消息行已含最终 yield——
+      // 不排除会导致 count+1 虚高一档（真实阈值 2/4 ≠ 设计 3/5）。
       const messages = await this.deps.conversationRepo.getMessages(conversationId, {
         limit: DispatchChainEngine.SELF_YIELD_SCAN_LIMIT,
+        before: currentMessageId,
       });
       let count = 0;
       for (const msg of messages) {
@@ -445,33 +467,25 @@ export class DispatchChainEngine {
 
   /** #530 梯度护栏：自 yield 检查 + 梯度响应。
    *  检出 processHopResults 中产出消息的 tsp 含 hop 自身目标(= self-yield)时，计数并响应。
-   *  返回 { aborted: true } 时 processHopResults 应清空 nextTargets 终链。 */
-  // eslint-disable-next-line complexity -- #530 梯度护栏响应：steer/abort/healing 多级分支 + try/catch 隔离
+   *  返回 { aborted: true } 时 processHopResults 应清空 nextTargets 终链。
+   *  返回 { steerText } 时由调用方进程级传递到下一 hop 前置注入（解决 session 已 dispose 的生命周期问题）。 */
   private async checkSelfYieldGuardrail(
     conversationId: string,
     otterId: string,
     currentMessageId: string,
-  ): Promise<{ aborted: boolean }> {
-    const count = await this.countConsecutiveSelfYields(conversationId, otterId);
-    // 当前 hop 是第 (count+1) 次 self-yield（消息表不含当前 hop 的产出）
+  ): Promise<{ aborted: boolean; steerText?: string }> {
+    const count = await this.countConsecutiveSelfYields(conversationId, otterId, currentMessageId);
+    // #530 修复（检视-838 发现 2）：before=currentMessageId 排除当前消息，count = 前序 self-yield 数，
+    // +1 计入当前 hop（当前消息已在 invoke 返回前落库，但 before 参数将其排除在扫描之外）
     const totalCount = count + 1;
     this.deps.logger.info('[self-yield-guard] 计数结果', { conversationId, otterId, messageId: currentMessageId, previousCount: count, totalCount });
     if (totalCount < DispatchChainEngine.SELF_YIELD_STEER_THRESHOLD) return { aborted: false };
 
     if (totalCount === DispatchChainEngine.SELF_YIELD_STEER_THRESHOLD) {
-      // 第 3 次：steer 警示——引导出口（建议交棒大獭/分派，别无限自续）
+      // 第 3 次：steer 警示——返回 steerText 由调用方注入下一 hop（解决 session 已 dispose 的生命周期问题）
       const steerText = `[self-yield-guard] 检测到连续 ${totalCount} 次 self-yield。建议：如果任务确实较长，将中间结论交给大獭/搭档或分派出去，而非无限自续。你可以调用 speak + yield 交棒。`;
-      try {
-        const steered = await this.deps.steer?.(otterId, steerText);
-        if (steered) {
-          this.deps.logger.info('[self-yield-guard] steer 注入成功', { otterId, totalCount });
-        } else {
-          this.deps.logger.warn('[self-yield-guard] steer 注入失败（session 不活跃或未注入）', { otterId, totalCount });
-        }
-      } catch (e) {
-        this.deps.logger.warn('[self-yield-guard] steer 调用异常', { otterId, error: e instanceof Error ? e.message : String(e) });
-      }
-      return { aborted: false };
+      this.deps.logger.info('[self-yield-guard] steer 警示生成，将注入下一 hop', { otterId, totalCount });
+      return { aborted: false, steerText };
     }
 
     if (totalCount >= DispatchChainEngine.SELF_YIELD_ABORT_THRESHOLD) {
@@ -524,6 +538,7 @@ export class DispatchChainEngine {
     let otterReply: string | undefined;
     const nextTargets = new Set<string>();
     let shouldAbort = false;
+    let steerText: string | undefined; // #530 护栏 steer 文案，进程级传递到下一 hop
 
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
@@ -549,6 +564,9 @@ export class DispatchChainEngine {
           shouldAbort = true;
           break; // abort 后立即退出循环，不处理后续 targets
         }
+        if (guardrail.steerText) {
+          steerText = guardrail.steerText; // 收集 steer 文案，传递到下一 hop 注入
+        }
       }
 
       // 自指守卫：行级 tsp 不含 sender 自己（领域不变量），filter producer 为纵深防御。
@@ -565,6 +583,7 @@ export class DispatchChainEngine {
     return {
       otterReply,
       nextTargets: shouldAbort ? [] : [...nextTargets].filter(id => id !== "user"),
+      steerText, // #530 进程级传递，下一 hop 前置注入
     };
   }
 
