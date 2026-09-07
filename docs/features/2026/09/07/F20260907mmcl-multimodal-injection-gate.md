@@ -16,7 +16,10 @@ from: ["F20260902sgp2", "F20260827mmdu"]
 supersedes: []
 intent:
   problem: "带附件注入（图片/文档）的消息绕过信号路由器，直连 dispatchTurnLoop，丢失闸门+台账保护"
-  verify_by: "unit_test"
+  expected_effect: "带附件消息与纯文本消息同一闸门/台账语义；retry 后多模态载荷不丢失"
+  verify_by:
+    type: static_only
+    reason: "纯后端调度路径变更，3070 单测全绿验证链路，无 LLM 行为可采样"
 ---
 
 # 多模态注入例外收口
