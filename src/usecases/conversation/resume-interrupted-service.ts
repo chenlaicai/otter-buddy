@@ -53,6 +53,8 @@ export class ResumeInterruptedService {
       delayMs?: number;
       /** F20260830rfto: 429 限流退避基础延迟（ms），测试可注入小值 */
       rateLimitBaseDelayMs?: number;
+      /** F20260908rlcp：获取 otter 的 session 文件路径（steer 去重读 jsonl 尾部用） */
+      getOtterSessionFile?: (otterId: string) => string | null;
     },
   ) {}
 
@@ -386,7 +388,9 @@ export class ResumeInterruptedService {
     // 4. F202609048840 F3: 恢复路径不再复位为 streaming，避免 UI 双 streaming 误读
     // 保留 failed 终态，恢复链写新消息，半截 segments 保留（F20260821fix 语义）
     await this.deps.sendMessage.prepareForRetry(item.messageId, true, true);
-    // 5. 链引擎续跑：读产出消息行级 tsp，恢复后 yield 交棒的链不断（#332；F20260904schf
+    // 5. F20260908rlcp：恢复侧 steer 去重——读 jsonl 分支尾部，匹配已消化的 steer 消息
+    const excludeMessageIds = await this.collectSteerDigestIds(item.otterId);
+    // 6. 链引擎续跑：读产出消息行级 tsp，恢复后 yield 交棒的链不断（#332；F20260904schf
     // 起链引擎不再消费 turn 级 aggregatedTargets）
     await this.deps.dispatchChainEngine.executeChain({
       conversationId: item.conversationId,
@@ -396,6 +400,8 @@ export class ResumeInterruptedService {
       // F20260902sgp2 S1：resume 续跑记账——触发消息 = 被恢复的半截消息（item.messageId）
       triggerMessageId: item.messageId,
       invokeFn: this.deps.invokeFn,
+      // F20260908rlcp：steer 已消化消息不重复注入
+      ...(excludeMessageIds.size > 0 ? { excludeMessageIds } : {}),
     });
   }
 
@@ -403,6 +409,44 @@ export class ResumeInterruptedService {
   private async isConcurrentSkip(conversationId: string): Promise<boolean> {
     const lastUserMsg = await this.deps.queryMessage.getLastMessageBySenderType(conversationId, "user");
     return !!(lastUserMsg && Date.now() - Date.parse(lastUserMsg.createdAt) < ResumeInterruptedService.CONCURRENT_WINDOW_MS);
+  }
+
+  /**
+   * F20260908rlcp：恢复侧 steer 去重（出路 A）——读 jsonl 分支尾部，提取已消化的 steer 消息 ID。
+   * steer 文本格式：【急讯 msg:<messageId>】来自 <sender>：<内容>
+   * 匹配到的 msg id 表示该消息已被 steer 消费，恢复时不应作为未读注入。
+   * 读取成本低（仅尾部几行），失败不阻断恢复（降级为不去重，宁可重复不漏）。 */
+  private async collectSteerDigestIds(otterId: string): Promise<Set<string>> {
+    const result = new Set<string>();
+    try {
+      const sessionFile = this.deps.getOtterSessionFile?.(otterId);
+      if (!sessionFile) return result;
+      const fs = await import('fs');
+      if (!fs.existsSync(sessionFile)) return result;
+      // 读取文件最后 4KB（覆盖最近的 steer 消息）
+      const stat = fs.statSync(sessionFile);
+      const readSize = Math.min(4096, stat.size);
+      const buffer = Buffer.alloc(readSize);
+      const fd = fs.openSync(sessionFile, 'r');
+      try {
+        fs.readSync(fd, buffer, 0, readSize, stat.size - readSize);
+      } finally {
+        fs.closeSync(fd);
+      }
+      const tail = buffer.toString('utf8');
+      // 匹配 steer 包装格式：【急讯 msg:<id>】
+      const steerPattern = /【急讯 msg:([a-f0-9-]+)】/g;
+      let match;
+      while ((match = steerPattern.exec(tail)) !== null) {
+        if (match[1]) result.add(match[1]);
+      }
+      if (result.size > 0) {
+        this.deps.logger.info('[steer-dedup] found steer entries in session tail', { otterId, count: result.size, ids: [...result] });
+      }
+    } catch (err) {
+      this.deps.logger.warn('[steer-dedup] failed to read session tail (non-fatal, degrading to no dedup)', { otterId, error: err instanceof Error ? err.message : String(err) });
+    }
+    return result;
   }
 
   /**

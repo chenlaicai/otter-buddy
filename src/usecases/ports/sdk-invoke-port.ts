@@ -76,6 +76,8 @@ export interface InvokeOptions {
   /** F20260825hndf Phase 2：只读模式——跳过消息持久化和 SSE 广播，用于交接摘要合成。
    *  Pi SDK 无原生 read-only 支持，靠 prompt 约束 + 工具白名单实现。 */
   readOnly?: boolean;
+  /** F20260908rlcp：本批未读消息的最大 sequence_num（启动成功后推进游标用） */
+  batchMaxSeq?: number;
 }
 
 export interface SdkInvokePort {

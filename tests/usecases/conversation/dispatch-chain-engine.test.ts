@@ -53,96 +53,6 @@ function makeMocks() {
   return { sendMessage, conversationRepo, queryMessage, queryOtter, logger, updateLastReadTurnNumber, updateLastReadSeq, updateLastActiveTurnNumber, getTurnById, getMessageById, getLastMessageBySender, getActiveTurn, getMaxTurnNumber: conversationRepo.getMaxTurnNumber as ReturnType<typeof vi.fn> };
 }
 
-/** 提取 mock 首次调用的参数（避免 toHaveBeenCalledWith 绑定实现细节的 lint 规则） */
-function firstCallArgs(fn: ReturnType<typeof vi.fn>): unknown[] {
-  return (fn.mock.calls[0] as unknown[]) ?? [];
-}
-
-describe("DispatchChainEngine markBatchRead（F20260803trrf: 时序修复）", () => {
-  it("fulfilled 结果：turn 已关闭时仍用 turnId 反查推进 last_read", async () => {
-    const m = makeMocks();
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
-
-    await engine.executeChain({
-      conversationId: "conv-1", userMessageContent: "hi", senderId: "user",
-      initialTargets: ["otter-1"],
-      invokeFn: async () => ({ messageId: "m-1" }),
-    });
-
-    /** 核心修复点：不依赖 getActiveTurn（turn 已关闭返回 null） */
-    expect(m.getActiveTurn).not.toHaveBeenCalled();
-    expect(m.getTurnById).toHaveBeenCalled();
-    // #775 停写旧列：游标只写 seq 刻度，旧 turn 刻度冻结（观察项①收尾）
-    expect(m.updateLastReadTurnNumber).not.toHaveBeenCalled();
-    expect(m.updateLastReadSeq).toHaveBeenCalled();
-    const [convId, otterId, seq] = firstCallArgs(m.updateLastReadSeq);
-    expect([convId, otterId, seq]).toEqual(["conv-1", "otter-1", 1]); // makeMsg 默认 sequenceNum=1
-    // F20260819idnw: 小獭发言时同时更新 lastActiveTurnNumber（turn 刻度，与游标无关）
-    expect(m.updateLastActiveTurnNumber).toHaveBeenCalled();
-    const [aConvId, aOtterId, aTurnNum] = firstCallArgs(m.updateLastActiveTurnNumber);
-    expect([aConvId, aOtterId, aTurnNum]).toEqual(["conv-1", "otter-1", 5]);
-  });
-
-  it("rejected 结果：用 getLastMessageBySender 反查仍推进 last_read", async () => {
-    const m = makeMocks();
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
-
-    await engine.executeChain({
-      conversationId: "conv-1", userMessageContent: "hi", senderId: "user",
-      initialTargets: ["otter-1"],
-      invokeFn: async () => { throw new Error("invoke failed"); },
-    });
-
-    expect(m.getLastMessageBySender).toHaveBeenCalled();
-    const [rConvId, rOtterId] = firstCallArgs(m.getLastMessageBySender);
-    expect([rConvId, rOtterId]).toEqual(["conv-1", "otter-1"]);
-    // #775 停写旧列：rejected 路径同样只推进 seq 游标
-    expect(m.updateLastReadSeq).toHaveBeenCalled();
-  });
-
-  it("getTurnById 返回 null 时不推进（防御性）", async () => {
-    const m = makeMocks();
-    m.getTurnById.mockResolvedValue(null);
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
-
-    await engine.executeChain({
-      conversationId: "conv-1", userMessageContent: "hi", senderId: "user",
-      initialTargets: ["otter-1"],
-      invokeFn: async () => ({ messageId: "m-1" }),
-    });
-
-    expect(m.updateLastReadTurnNumber).not.toHaveBeenCalled();
-    expect(m.updateLastReadSeq).not.toHaveBeenCalled();
-  });
-
-  it("多 targets：各自 last_read 独立推进到自己的消息 seq（#775 刻度语义）", async () => {
-    const m = makeMocks();
-    m.getMessageById.mockImplementation(async (id: string) => {
-      if (id === "m-1") return makeMsg({ id: "m-1", senderId: "otter-1", turnId: "turn-1" });
-      if (id === "m-2") return makeMsg({ id: "m-2", senderId: "otter-2", turnId: "turn-2" });
-      return makeMsg({ id });
-    });
-    m.getTurnById.mockImplementation(async (turnId: string) => {
-      if (turnId === "turn-1") return makeTurn({ id: "turn-1", turnNumber: 5 });
-      if (turnId === "turn-2") return makeTurn({ id: "turn-2", turnNumber: 7 });
-      return null;
-    });
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
-
-    await engine.executeChain({
-      conversationId: "conv-1", userMessageContent: "hi", senderId: "user",
-      initialTargets: ["otter-1", "otter-2"],
-      invokeFn: async ({ otterId }) => ({ messageId: otterId === "otter-1" ? "m-1" : "m-2" }),
-    });
-
-    const calls = m.updateLastReadSeq.mock.calls as Array<[string, string, number]>;
-    expect(calls).toHaveLength(2);
-    const byOtter = new Map(calls.map(([, otterId, seq]) => [otterId, seq]));
-    expect(byOtter.get("otter-1")).toBe(1);
-    expect(byOtter.get("otter-2")).toBe(1);
-  });
-});
-
 describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒失效）", () => {
   /** 复现 8-26 现场：scheduler 路径 senderId=大獭（任务属主），小獭 yield 回属主被旧 filter 吞掉 */
   function makeChainMocks() {
@@ -327,7 +237,7 @@ describe("buildMessageWithContext 闲置预警集成", () => {
     (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
-    const result = await engine.buildMessageWithContext("conv-1", "user-1", "hi", "user-1", "## 在场成员\n- user'");
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "user-1", "hi", "user-1", "## 在场成员\n- user'");
 
     expect(result).toContain("闲置獭");
     expect(result).toContain("24 轮");
@@ -341,17 +251,17 @@ describe("buildMessageWithContext 闲置预警集成", () => {
     // 路径 1：无未读消息（早返回）
     (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     const noUnread = await engine.buildMessageWithContext("conv-1", "user-1", "hi", "user-1", "## 在场成员");
-    expect(noUnread).toMatch(/## 当前时间\n- \d{4}-\d{2}-\d{2} \d{2}:\d{2}（Asia\/Shanghai）/);
-    expect(noUnread.indexOf("## 当前时间")).toBeGreaterThan(noUnread.indexOf("## 在场成员"));
-    expect(noUnread.indexOf("## 当前任务")).toBeGreaterThan(noUnread.indexOf("## 当前时间"));
+    expect(noUnread.message).toMatch(/## 当前时间\n- \d{4}-\d{2}-\d{2} \d{2}:\d{2}（Asia\/Shanghai）/);
+    expect(noUnread.message.indexOf("## 当前时间")).toBeGreaterThan(noUnread.message.indexOf("## 在场成员"));
+    expect(noUnread.message.indexOf("## 当前任务")).toBeGreaterThan(noUnread.message.indexOf("## 当前时间"));
 
     // 路径 2：有未读消息
     (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { senderType: "otter", senderId: "otter-1", senderName: "Test Otter", segments: [{ body: "msg" }] },
+      { senderType: "otter", senderId: "otter-1", senderName: "Test Otter", segments: [{ body: "msg" }], sequenceNum: 1 },
     ]);
     const withUnread = await engine.buildMessageWithContext("conv-1", "user-1", "hi", "user-1", "## 在场成员");
-    expect(withUnread).toMatch(/## 当前时间\n- \d{4}-\d{2}-\d{2} \d{2}:\d{2}（Asia\/Shanghai）/);
-    expect(withUnread.indexOf("## 当前任务")).toBeGreaterThan(withUnread.indexOf("## 当前时间"));
+    expect(withUnread.message).toMatch(/## 当前时间\n- \d{4}-\d{2}-\d{2} \d{2}:\d{2}（Asia\/Shanghai）/);
+    expect(withUnread.message.indexOf("## 当前任务")).toBeGreaterThan(withUnread.message.indexOf("## 当前时间"));
   });
 
   it("buildIdleOttersWarning 抛异常时不影响主流程", async () => {
@@ -363,7 +273,7 @@ describe("buildMessageWithContext 闲置预警集成", () => {
     ]);
 
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
-    const result = await engine.buildMessageWithContext("conv-1", "user-1", "hi", "user-1", "## 在场成员");
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "user-1", "hi", "user-1", "## 在场成员");
 
     // 预警失败不影响主流程，结果仍包含对话历史和当前任务
     expect(result).toContain("## 对话历史");
@@ -380,7 +290,7 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
     ]);
 
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
-    const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
     expect(result).toContain("[张三] 我是张三的消息");
   });
@@ -393,7 +303,7 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
     ]);
 
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
-    const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
     expect(result).toContain("[张三] 第一条");
     expect(result).toContain("[李四] 第二条");
@@ -406,7 +316,7 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
     ]);
 
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
-    const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
     expect(result).toContain("[搭档] 在吗");
   });
@@ -418,7 +328,7 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
     ]);
 
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
-    const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
     expect(result).toContain("[ou_zhangsan] 我是谁");
     expect(result).not.toContain("[搭档] 我是谁");
@@ -431,7 +341,7 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
     ]);
 
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
-    const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
     expect(result).toContain("[搭档] 在吗");
   });
@@ -456,7 +366,7 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
 
     // joy 触发本次派发，但历史里 chen 的消息仍标搭档（静态锚定，不随说话者变）
     const engine = makeEngine(m, "ou_chen");
-    const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
 
     expect(result).toContain("[搭档] 看看这个");
   });
@@ -468,7 +378,7 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
     ]);
 
     const engine = makeEngine(m, "ou_chen");
-    const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
 
     expect(result).toContain("[ou_joy] 我也觉得行");
     expect(result).not.toContain("[搭档] 我也觉得行");
@@ -481,7 +391,7 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
     ]);
 
     const engine = makeEngine(m, "ou_chen");
-    const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
 
     expect(result).toContain("[Joy] 哈哈");
   });
@@ -493,7 +403,7 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
     ]);
 
     const engine = makeEngine(m, "ou_chen");
-    const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "user", "## 在场成员");
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "user", "## 在场成员");
 
     expect(result).toContain("[搭档] Web 来的");
   });
@@ -505,7 +415,7 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
     ]);
 
     const engine = makeEngine(m, undefined);
-    const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
 
     expect(result).toContain("[搭档] 在吗");
   });

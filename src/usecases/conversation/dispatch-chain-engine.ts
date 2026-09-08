@@ -59,6 +59,8 @@ export interface InvokeFnParams {
    *  每轮 ≤2 图服务端硬限制（compaction 低估 4.6 倍实测后的预算控制）；
    *  未读历史统一文本投影不按獭分叉，分叉只发生在当前任务消息。 */
   images?: Array<{ type: "image"; data: string; mimeType: string }>;
+  /** F20260908rlcp：本批未读消息的最大 sequence_num（启动成功后推进游标用） */
+  batchMaxSeq?: number;
 }
 
 export interface InvokeFnResult {
@@ -120,6 +122,8 @@ export class DispatchChainEngine {
       triggerMessageId?: string;
       /** #775：账面来源穿透（路由器点火的记账原点在路由器；不穿透则终态行恒标 'chain'，S2 观察期标签失真）。 */
       ledgerSource?: "chain" | "router" | "retry";
+      /** F20260908rlcp：恢复侧 steer 去重——已消化的 msg id 从未读注入剔除 */
+      excludeMessageIds?: Set<string>;
     },
   ): Promise<{ otterReply?: string }> {
     return runWithTrace({ traceId: newTraceId(), source: "chain" }, () => this.executeChainInner(params));
@@ -139,9 +143,11 @@ export class DispatchChainEngine {
       triggerMessageId?: string;
       /** #775：台账账面来源（穿透到首 hop 记账行，缺省 'chain'） */
       ledgerSource?: "chain" | "router" | "retry";
+      /** F20260908rlcp：恢复侧 steer 去重 */
+      excludeMessageIds?: Set<string>;
     },
   ): Promise<{ otterReply?: string }> {
-    const { conversationId, userMessageContent, senderId, initialTargets, invokeFn, callbacks, images, triggerMessageId, ledgerSource } = params;
+    const { conversationId, userMessageContent, senderId, initialTargets, invokeFn, callbacks, images, triggerMessageId, ledgerSource, excludeMessageIds } = params;
     let targets = initialTargets;
     let depth = 0;
     let lastOtterReply: string | undefined;
@@ -168,6 +174,7 @@ export class DispatchChainEngine {
         ledgerSource,
         chainSourceMessageIds,
         steerText: pendingSteerText, // #530 注入上一 hop 的 steer 文案
+        excludeMessageIds: depth === 1 ? excludeMessageIds : undefined, // F20260908rlcp：仅首 hop 去重
       });
       lastOtterReply = result.otterReply ?? lastOtterReply;
       pendingSteerText = result.steerText; // 收集本 hop 的 steer 文案，传递到下一 hop
@@ -206,6 +213,8 @@ export class DispatchChainEngine {
     chainSourceMessageIds?: Map<string, string[]>;
     /** #530 护栏 steer 文案：从上一 hop 传递，前置注入到本 hop 消息上下文（解决 session 已 dispose 的生命周期问题） */
     steerText?: string;
+    /** F20260908rlcp：恢复侧 steer 去重——已消化的 msg id 从未读注入剔除 */
+    excludeMessageIds?: Set<string>;
   }): Promise<ChainHopResult> {
     const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder, triggerMessageId, ledgerSource, chainSourceMessageIds, steerText } = params;
     const roster = await this.buildRoster(conversationId, senderId);
@@ -214,33 +223,35 @@ export class DispatchChainEngine {
       // F20260902sgp2 S1：起跑记账（§4.2）——失败仅日志，绝不阻断链路（硬约束 1）。
       // hop 取源修复：hop 2+ 从链级多源列表取全部触发消息（一条 per (msg,target) 记账）
       this.recordAttemptStart(conversationId, otterId, triggerMessageId, chainSourceMessageIds?.get(otterId), ledgerSource);
-      let messageWithContext = await this.buildMessageWithContext(
-        conversationId, otterId, userMessageContent, senderId, roster
+      const messageWithContext = await this.buildMessageWithContext(
+        conversationId, otterId, userMessageContent, senderId, roster, params.excludeMessageIds
       );
       // #530 护栏 steer 文案前置注入：位置在消息开头，靠近生成点，注意力权重最高。
       // 解决 session 已 dispose 无法通过 session.steer 注入的生命周期问题。
+      let fullMessage = messageWithContext.message;
       if (steerText) {
-        messageWithContext = `${steerText}\n\n${messageWithContext}`;
+        fullMessage = `${steerText}\n\n${fullMessage}`;
         this.deps.logger.info('[self-yield-guard] steer 文案已注入下一 hop 消息', { otterId, steerTextPreview: steerText.substring(0, 100) });
       }
       // F20260826mwrd C3：安全词 reminder 附在消息末尾——链上每个 hop 都能看到，
       // 防注意力稀释漏判（母方案 T6）。位置在末尾：靠近生成点，注意力权重最高。
       if (stopWordReminder) {
-        messageWithContext += `\n\n${stopWordReminder}`;
+        fullMessage += `\n\n${stopWordReminder}`;
       }
 
       this.deps.logger.info('发言链调用', {
         otterId,
-        messageLength: messageWithContext.length,
-        messagePreview: messageWithContext.substring(0, 200),
+        messageLength: fullMessage.length,
+        messagePreview: fullMessage.substring(0, 200),
         ...(images && { imageCount: images.length }),
       });
 
       return invokeFn({
         otterId, conversationId,
-        userMessageContent: messageWithContext,
+        userMessageContent: fullMessage,
         senderId,
         ...(images && { images }),
+        batchMaxSeq: messageWithContext.batchMaxSeq,
       });
     });
 
@@ -262,7 +273,7 @@ export class DispatchChainEngine {
     try {
       await this.recordAttemptSettle({ conversationId, targets, results, triggerMessageId, chainSourceMessageIds, outcomes });
     } catch { /* 记账面异常不阻断链路（硬约束 1） */ }
-    await this.markBatchRead(conversationId, results, targets);
+    // F20260908rlcp：markBatchRead 已删除——游标推进上移到启动成功回调（pi-session-factory）
 
     // F20260904ldgr（#798 发现 2）：降级槽位补账面备注——追加「出处降级」标记，
     // 只改 note 不改 status（反连接不变量完好）。槽位键 = 记账键（triggerMessageId
@@ -762,14 +773,18 @@ export class DispatchChainEngine {
   /** 组装派发上下文：名册 + 具名对话历史 + 当前任务
    * F20260829cach: 首部注入分钟级当前时间。原分钟级时间戳在 system prompt 身份段（每 invoke
    * 重建即变，打断前缀缓存）；改为：system prompt 日粒度锚点（identity-builder）+ 本处
-   * 消息首部分钟级新鲜时间。本段随 user message 持久化、位于历史末尾，不占缓存前缀。 */
+   * 消息首部分钟级新鲜时间。本段随 user message 持久化、位于历史末尾，不占缓存前缀。
+   * F20260908rlcp: 返回 batchMaxSeq（本批未读最大 seq），启动成功后推进游标。
+   * @param excludeMessageIds 恢复侧 steer 去重：已消化的 msg id 从未读注入剔除 */
+  // eslint-disable-next-line max-params, complexity -- F20260908rlcp: excludeMessageIds 参数 + batchMaxSeq 计算
   async buildMessageWithContext(
     conversationId: string,
     otterId: string,
     userMessageContent: string,
     senderId: string,
     roster: string,
-  ): Promise<string> {
+    excludeMessageIds?: Set<string>,
+  ): Promise<{ message: string; batchMaxSeq: number }> {
     // F20260819idnw：闲置小獭预警（增强功能，失败不影响主流程）
     // 必须在早返回路径之前计算，否则无未读消息时预警会被跳过
     let idleWarning: string | null = null;
@@ -790,12 +805,16 @@ export class DispatchChainEngine {
     const pendingPreview = this.buildPendingPreview(conversationId, otterId);
 
     const unreadMessages = await this.deps.conversationRepo.getUnreadMessages(conversationId, otterId);
-    if (unreadMessages.length === 0) {
+    // F20260908rlcp：恢复侧 steer 去重——已消化的 msg id 剔除
+    const filtered = excludeMessageIds ? unreadMessages.filter(m => !excludeMessageIds.has(m.id)) : unreadMessages;
+    // F20260908rlcp：记录本批未读最大 seq（启动成功后推进游标）
+    const batchMaxSeq = filtered.length > 0 ? Math.max(...filtered.map(m => m.sequenceNum)) : 0;
+    if (filtered.length === 0) {
       let result = `${roster}\n\n## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n${pendingPreview ?? ""}\n\n## 当前任务\n${userMessageContent}`;
       if (idleWarning) result += `\n\n${idleWarning}`;
-      return result;
+      return { message: result, batchMaxSeq };
     }
-    const names = await this.resolveSenderNames(unreadMessages);
+    const names = await this.resolveSenderNames(filtered);
     const partnerLabel = this.deps.settingsRepo ? ((await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
     // F20260826fuid：user 消息优先用持久化快照名（飞书群聊多人识别）。
     // F20260826fpbd：搭档判定改静态——partnerLabel 只属于配置锚定的搭档（含 Web 'user'），
@@ -806,7 +825,7 @@ export class DispatchChainEngine {
     //  TS 控制流在回调内自动收窄（if (staticResolver) ⟹ 非空），零非空断言且不把 ?. 分支点
     //  携入 .map 回调（复杂度门禁 12，携入会 13 超限）
     const staticResolver = resolver?.configured ? resolver : undefined;
-    const formatted = unreadMessages
+    const formatted = filtered
       .map(m => {
         let label: string;
         if (m.senderType === 'system') {
@@ -832,7 +851,7 @@ export class DispatchChainEngine {
     if (idleWarning) {
       result += `\n\n${idleWarning}`;
     }
-    return result;
+    return { message: result, batchMaxSeq };
   }
 
   /** K2 收件箱预告（F20260903k23）：本獭名下台账 pending 计数 > 0 时注入一行预告。
@@ -873,49 +892,7 @@ export class DispatchChainEngine {
     return names;
   }
 
-  private async markBatchRead(
-    conversationId: string,
-    results: PromiseSettledResult<InvokeFnResult>[],
-    targets: string[],
-  ): Promise<void> {
-    /** F20260803trrf: 不依赖 getActiveTurn（turn 已在 complete() 中关闭，返回 null）。
-     *  用 msg.turnId 反查 turn_number；fulfilled + rejected 都推进 last_read。 */
-    for (let i = 0; i < results.length; i++) {
-      const r = results[i];
-      let messageId: string | undefined;
-      if (r.status === 'fulfilled') {
-        messageId = r.value.messageId;
-      } else {
-        /** rejected：invokeFn 抛错（罕见，agent-invoker.invokeConversation 已 catch 大部分）。
-         *  用 targets[i] 反查该 otter 最新消息（发言已 start 但 invoke 失败）。
-         *  限制（review P1）：lastMsg 是该 otter 自己发的最新消息，推进到的是"自己上次发言的 turn"
-         *  而非"应读的最新 turn"。精确修复需在 buildMessageWithContext 时记录注入的最新 turn，
-         *  改动大且 rejected 极罕见，接受此 best-effort 语义。 */
-        const lastMsg = await this.deps.queryMessage.getLastMessageBySender(conversationId, targets[i]);
-        messageId = lastMsg?.id;
-      }
-      if (!messageId) continue;
-      // F20260904schf：查库失败降级为跳过该行（best-effort 推进语义同款），不阻断链路（#792 回归测试暴露）
-      const msg = await Promise.resolve(this.deps.queryMessage.getMessageById(messageId)).catch(() => null);
-      if (!msg) continue;
-      const turn = await this.deps.conversationRepo.getTurnById(msg.turnId);
-      if (!turn) continue;
-      // #775：停写旧列（观察项①收尾）——seq 刻度已是唯一写入刻度，旧 turn 刻度冻结在
-      // backfill 值作历史快照。Why 不删调用方接口：updateLastActiveTurnNumber（发言活跃度）
-      // 仍用 turn 刻度，与游标无关；读路径 NULL 回退保留（防御极端脏数据，非功能依赖）。
-      // F20260902sgp2 S4c：游标 seq 写入（唯一刻度）。
-      if (this.deps.conversationRepo.updateLastReadSeq) {
-        this.deps.conversationRepo.updateLastReadSeq(conversationId, msg.senderId, msg.sequenceNum);
-      }
-
-      // F20260819idnw：更新最后活跃轮次（小獭发言时）
-      if (msg.senderType === 'otter') {
-        await this.deps.conversationRepo.updateLastActiveTurnNumber(
-          conversationId,
-          msg.senderId,
-          turn.turnNumber
-        );
-      }
-    }
-  }
+  // F20260908rlcp: markBatchRead 已删除——游标推进上移到启动成功回调（pi-session-factory）
+  // 原方法职责：invoke 完成后推进 lastReadSeq + lastActiveTurnNumber
+  // 新语义：prompt 启动成功即推进（推进到启动时读到的最新 seq），启动失败不推进
 }
