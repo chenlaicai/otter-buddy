@@ -270,5 +270,33 @@ describe("Otter API", () => {
       expect(res.status).toBe(201);
       expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", undefined, undefined);
     });
+
+    it("F20260908efmd: restart 带合法 modelAlias → 201 + modelAlias 传入 restartSession", async () => {
+      const newSession = makeSession({ id: "model-switch-session" });
+      deps.manageSession.restartSession.mockResolvedValue(newSession);
+
+      const res = await app.request("/api/otters/otter-1/restart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ summary: "模型切换", modelAlias: "main" }),
+      });
+
+      expect(res.status).toBe(201);
+      expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", "模型切换", "main");
+    });
+
+    it("F20260908efmd: restart 带非法 modelAlias → 400 附可用列表", async () => {
+      const res = await app.request("/api/otters/otter-1/restart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ summary: "测试", modelAlias: "nonexistent-model" }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await json(res);
+      expect(body.error).toContain("未知的模型别名");
+      expect(body.error).toContain("main");
+      expect(deps.manageSession.restartSession).not.toHaveBeenCalled();
+    });
   });
 });

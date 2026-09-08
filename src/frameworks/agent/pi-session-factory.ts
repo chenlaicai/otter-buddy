@@ -456,9 +456,12 @@ export class PiSessionFactory implements AgentGateway {
     // system role 是空的。身份信息必须每次都注入，否则 invoke 2+ 起的 LLM 不知道自己的身份。
     // （旧代码拼在 user message 里被持久化，但 system role 方案不持久化——改为每次都构建）
     const conversationId = options?.conversationId ?? "";
-    // F20260824aibd: 传递 modelAlias 给身份构建，让海獭知道自己运行在什么模型上
-    const modelAlias = this.getModelAliasForLog(otterId);
-    const identityPrefix = await this.identityBuilder.buildIdentityPrefix(otterId, otterType, conversationId, modelAlias);
+    // F20260824aibd: 传递 raw config 的 modelAlias（可能 undefined）给身份构建，
+    // 让 buildModelIdentity 正确判定 isDefault（未显式指定 = 默认）。
+    // getModelAliasForLog 返回解析后的非空值，此处用 config 裸值。
+    const rawConfig = this.cfg.otterConfigProvider?.getConfig(otterId);
+    const rawModelAlias = rawConfig?.modelAlias;
+    const identityPrefix = await this.identityBuilder.buildIdentityPrefix(otterId, otterType, conversationId, rawModelAlias);
     // F20260903cmpk（#770 检视发现 2）：压缩钩子合成 prompt 的 meta 行要显示名而非 UUID。
     // 查询失败不影响链路（catch 降级 undefined，钩子用"海獭"兜底）。
     const displayName = await this.identityBuilder.getOtterName(otterId).catch(() => undefined);

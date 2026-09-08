@@ -143,8 +143,7 @@ export function mapOtterDTO(dto: OtterDTO): LocalOtter {
     role: dto.role ? { name: dto.role.name, resp: dto.role.responsibilities } : undefined,
     parentOtterId: dto.parentOtterId ?? undefined,
     ...(dto.modelAlias !== undefined && { modelAlias: dto.modelAlias }),
-    // F20260908efmd: modelIsDefault 当前未在 OtterDTO 中声明（仅 ParticipantDTO/OtterProfileDTO 有），运行时可能透传
-    ...('modelIsDefault' in dto && { modelIsDefault: (dto as Record<string, unknown>).modelIsDefault as boolean }),
+    ...(dto.modelIsDefault !== undefined && { modelIsDefault: dto.modelIsDefault }),
   }
 }
 

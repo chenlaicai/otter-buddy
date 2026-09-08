@@ -37,7 +37,11 @@ export class OtterController {
       if (!otter) {
         return c.json({ error: "Otter not found" }, 404);
       }
-      return c.json(toOtterDTO(otter, this.configProvider?.getConfig(id)?.modelAlias));
+      const config = this.configProvider?.getConfig(id);
+      // F20260908efmd: 有效模型解析 + isDefault 标注
+      const modelAlias = config?.modelAlias;
+      const modelIsDefault = config ? !config.modelAlias : undefined;
+      return c.json(toOtterDTO(otter, modelAlias, modelIsDefault));
     } catch (err) {
       return handleError(c, err, this.logger);
     }
@@ -69,7 +73,8 @@ export class OtterController {
         context: body.context,
       };
       const otter = await this.createOtterUseCase.execute(input);
-      return c.json(toOtterDTO(otter, this.configProvider?.getConfig(otter.id)?.modelAlias), 201);
+      const config = this.configProvider?.getConfig(otter.id);
+      return c.json(toOtterDTO(otter, config?.modelAlias, config ? !config.modelAlias : undefined), 201);
     } catch (err) {
       return handleError(c, err, this.logger);
     }

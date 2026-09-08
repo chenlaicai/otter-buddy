@@ -325,3 +325,15 @@ modelAlias: string | null  // null = 存量历史数据未快照
 - 运行时日志点位不改（已有等效语义），避免过度建设
 
 **废弃资源清理**：不适用（无旧路径/旧文件替换）。
+
+## 检视发现处置（检视獭-848-v2，kimi，第 1 轮 delta）
+
+| 发现 | 级别 | 处置 | 更好/更差判断 |
+|------|------|------|---------------|
+| 1. 装配断链：UseCaseDeps 缺 modelPool，3 个构造点未传新依赖 | 严重 | **接受修复**：`usecases.ts` 增 `modelPool` 到 `UseCaseDeps`，装配点显式传入 | 改了更好——不修则 T1/T2/T3 生产全部静默失效 |
+| 2. identity-builder `isDefault = !alias` 死代码（上游恒传非空值） | 严重 | **接受修复**：`pi-session-factory.ts` 改传 raw config 的 `modelAlias`（可 undefined），身份注入正确判定 isDefault | 改了更好——「（默认）」标注此前永远不显示 |
+| 3. 方案承诺的新增测试全部未兑现 | 严重 | **接受修复**：新增 `resolve-effective-model.test.ts`（5 条）+ restart modelAlias API 测试（2 条）+ 顺序守护测试（1 条） | 改了更好——测试缺失正是发现 1 穿过 CI 的根因 |
+| 4. schema.ts ALTER TABLE 与规约漂移 | 建议 | **接受修复**：ALTER TABLE 移至 migration.ts，schema.ts 的 CREATE TABLE 含 model_alias | 改了更好——遵循「新库建全表，老库补列走迁移」双路径 |
+| 5. restartSession usecase 层无 hasModel 兜底 | 建议 | **部分接受**：目前 HTTP + tool 层均有校验，usecase 层加需注入 ModelPool（侵入性）。后续有新入口再补 | 暂不改——过度防御 = 依赖膨胀，已知入口全覆盖 |
+| 6. mapOtterDTO `in`+强转偷渡 modelIsDefault | 建议 | **接受修复**：OtterDTO 正式声明 modelIsDefault 字段，toOtterDTO 签名扩展 | 改了更好——类型安全 |
+| 7. 与 #847 合并顺序 | 建议 | **记录**：#847 仍 OPEN，合并时按先到先得处理 | 无需代码动作 |

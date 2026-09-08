@@ -19,6 +19,8 @@ export interface OtterDTO {
   role: { name: string; responsibilities: string[] } | null;
   /** 模型别名（多模型路由，如 "mimo"）；未配置（大獭/老数据/默认模型）时不返回 */
   modelAlias?: string;
+  /** F20260908efmd: true = 配置未显式指定，跟随默认 */
+  modelIsDefault?: boolean;
   parentOtterId: string | null;
   createdAt: string;
   dissolvedAt: string | null;
