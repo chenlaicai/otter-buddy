@@ -321,7 +321,7 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
       },
       required: ["name", "systemPrompt"],
     },
-    // eslint-disable-next-line complexity -- #543：+配额前置提示分支（校验链顺序内聚，拆分无增益）
+  // eslint-disable-next-line complexity -- #543：+配额前置提示分支（校验链顺序内聚，拆分无增益）+ F20260908efmd modelAlias 校验
     execute: async (_id: string, params: Record<string, unknown>) => {
       // 校验 modelAlias
       const modelAlias = params.modelAlias as string | undefined;
@@ -442,12 +442,18 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
           type: "string",
           description: "前情摘要，将作为新一世的上下文注入。简要说明重启原因。",
         },
+        modelAlias: {
+          type: "string",
+          description: "F20260908efmd: 新模型别名（可选）。配额耗尽时可切换到其他模型。不传则保持当前模型。可选值见身份提示中的模型列表。",
+        },
       },
       required: [],
     },
+    // eslint-disable-next-line complexity -- F20260908efmd: +modelAlias 校验 + hasModel 前置检查
     execute: async (_id: string, params: Record<string, unknown>) => {
       const targetOtterId = (params.otterId as string) || ctx.otterId;
       const summary = params.summary as string | undefined;
+      const modelAlias = params.modelAlias as string | undefined;
 
       // 访问控制：获取调用者类型
       const self = await ctx.client.otter.getById(ctx.otterId);
@@ -464,6 +470,12 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
         return errorResponse(`[错误] 目标 Otter ${targetOtterId} 不存在或已解散。`);
       }
 
+      // F20260908efmd: 校验 modelAlias 合法性
+      if (modelAlias && modelAlias.trim().length > 0 && ctx.modelPool && !ctx.modelPool.hasModel(modelAlias)) {
+        const available = ctx.modelPool.describeModels().map(m => m.alias).join(", ");
+        return errorResponse(`[错误] 未知的模型别名「${modelAlias}」。可用模型：${available}`);
+      }
+
       // F20260824srst: 自重启循环防护（第一道防线）。
       // Why 在 tool 层拦截而非 agent-invoker 层：LLM 调用 restart_otter(self) 时立即返回错误，
       // 避免设置 pendingRestart 后再由 invoker 层拦截——tool 层拦截更早、更省 token。
@@ -474,16 +486,17 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
       // F20260815rstrt: 自重启时延迟执行——session.prompt() 是原子的，
       // 中途 restart 会打断 LLM 生成。标记 pending，prompt 完成后由 PiSessionFactory 执行。
       if (targetOtterId === ctx.otterId) {
-        ctx.pendingRestart = { summary };
+        ctx.pendingRestart = { summary, modelAlias };
         return textResponse(
           `已标记重启当前獭生。当前发言完成后将自动执行。` +
-          (summary ? ` 前情摘要：${summary}` : '')
+          (summary ? ` 前情摘要：${summary}` : '') +
+          (modelAlias ? ` 切换模型至：${modelAlias}` : '')
         );
       }
 
       // 重启别人：直接执行（不涉及自身 session）
-      const session = await ctx.client.otter.restart(targetOtterId, summary);
-      return textResponse(`Otter ${targetOtterId} 已重启獭生。新 Session ID: ${session.id}`);
+      const session = await ctx.client.otter.restart(targetOtterId, summary, modelAlias);
+      return textResponse(`Otter ${targetOtterId} 已重启獭生。新 Session ID: ${session.id}` + (modelAlias ? `，模型切换至：${modelAlias}` : ''));
     },
   };
 }

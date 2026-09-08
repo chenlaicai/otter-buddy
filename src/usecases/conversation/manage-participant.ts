@@ -10,6 +10,8 @@ import { DomainError } from "@entities/errors";
 import type { ConversationRepository } from "./conversation-repository";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { OtterConfig, OtterConfigProvider } from "@usecases/ports/otter-config-provider";
+import { resolveEffectiveModel } from "@usecases/ports/otter-config-provider";
+import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
 import { tryCloseTurn } from "./turn-utils";
 
 export interface ParticipantWithOtter {
@@ -17,8 +19,10 @@ export interface ParticipantWithOtter {
   otterName: string;
   otterType?: string;
   roleName?: string;
-  /** 模型别名（多模型路由）；未配置时不返回 */
+  /** 模型别名（有效模型解析后，恒非空——默认模型回退后也有值） */
   modelAlias?: string;
+  /** F20260908efmd: true = 配置未显式指定，跟随默认 */
+  modelIsDefault?: boolean;
 }
 
 export class ManageParticipant {
@@ -27,6 +31,8 @@ export class ManageParticipant {
     private readonly otterRepo: OtterRepository,
     /** 可选：老数据/测试场景无 config 注入时 modelAlias 缺省不返回 */
     private readonly configProvider?: OtterConfigProvider,
+    /** F20260908efmd: 可选——用于有效模型解析。未注入时 modelAlias 降级为配置裸值（旧行为） */
+    private readonly modelPool?: ModelPoolLike,
   ) {}
 
   /**
@@ -200,6 +206,7 @@ export class ManageParticipant {
   }
 
   /** 获取当前在场的所有 Otter（UA-7） */
+  // eslint-disable-next-line complexity -- F20260908efmd: 有效模型解析分支增加（configProvider + modelPool 可选组合）
   async getActiveParticipants(
     conversationId: string,
   ): Promise<ParticipantWithOtter[]> {
@@ -213,8 +220,16 @@ export class ManageParticipant {
     for (const participant of participants) {
       const otter = ottersById.get(participant.otterId);
       const otterName = otter?.name ?? `Otter ${participant.otterId.slice(0, 8)}`;
-      const modelAlias = configsByOtterId.get(participant.otterId)?.modelAlias;
-      result.push({ participant, otterName, otterType: otter?.type, roleName: otter?.role?.name, modelAlias });
+      const config = configsByOtterId.get(participant.otterId);
+      // F20260908efmd: 有效模型解析——空配置回退默认并标注
+      if (this.configProvider && this.modelPool) {
+        const effective = resolveEffectiveModel(config, this.modelPool);
+        result.push({ participant, otterName, otterType: otter?.type, roleName: otter?.role?.name, modelAlias: effective.alias, modelIsDefault: effective.isDefault });
+      } else {
+        // 降级：旧行为（configProvider/modelPool 未注入）
+        const modelAlias = config?.modelAlias;
+        result.push({ participant, otterName, otterType: otter?.type, roleName: otter?.role?.name, modelAlias });
+      }
     }
     return result;
   }

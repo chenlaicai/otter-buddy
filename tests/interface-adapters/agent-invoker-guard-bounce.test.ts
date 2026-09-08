@@ -29,6 +29,7 @@ function makeSession(overrides: Partial<OtterSession> = {}): OtterSession {
     previousSessionId: null, startedAt: "2026-09-01T00:00:00Z",
     archivedAt: null, archiveReason: null, isNegativeCase: false,
     summary: null,
+    modelAlias: null,
     ...overrides,
   };
 }

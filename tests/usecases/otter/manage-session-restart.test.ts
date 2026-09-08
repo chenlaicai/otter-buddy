@@ -124,6 +124,7 @@ describe("ManageSession.restartSession（F20260810rstart）", () => {
         archiveReason: null,
         isNegativeCase: false,
         summary: null,
+        modelAlias: null,
       });
     });
 

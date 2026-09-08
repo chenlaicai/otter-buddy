@@ -4,6 +4,10 @@ import type { OtterRepository } from "./otter-repository";
 import type { AgentGateway } from "./agent-gateway";
 import type { Logger } from "@usecases/ports/logger";
 import type { OtterPromptConfig } from "@contract/api/otter";
+// F20260908efmd: 首世建账时快照有效模型
+import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
+import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
+import { resolveEffectiveModel } from "@usecases/ports/otter-config-provider";
 
 export interface CreateOtterInput {
   name: string;
@@ -22,6 +26,10 @@ export class CreateOtter {
     private readonly repo: OtterRepository,
     private readonly agentGateway: AgentGateway,
     private readonly logger: Logger,
+    /** F20260908efmd: 可选——用于首世建账时解析有效模型。未注入时首世 modelAlias 不快照 */
+    private readonly otterConfigProvider?: OtterConfigProvider,
+    /** F20260908efmd: 可选——用于首世建账时解析有效模型。未注入时首世 modelAlias 不快照 */
+    private readonly modelPool?: ModelPoolLike,
   ) {}
 
   async execute(params: CreateOtterInput): Promise<Otter> {
@@ -61,9 +69,12 @@ export class CreateOtter {
      * restart/dissolve 的 archive 前置条件（存在 active session）恒真。
      * 直接用 repo + 实体工厂而非注入 ManageSession——避免
      * CreateOtter → ManageSession → ManageConversation → CreateOtter 组装环。
+     * F20260908efmd: 首世建账时快照有效模型（params.modelAlias ?? 默认模型）。
      */
     try {
-      await this.repo.createSession(buildNewSession(id, null));
+      // F20260908efmd: 首世必须显式传值——解析后的 effective model alias
+      const sessionModelAlias = this.resolveModelForFirstSession(otter.id, params.modelAlias);
+      await this.repo.createSession(buildNewSession(id, null, null, sessionModelAlias));
       this.logger.info('Session created', { otterId: id, action: 'create' });
     } catch (err) {
       /**
@@ -80,5 +91,17 @@ export class CreateOtter {
     }
 
     return otter;
+  }
+
+  /**
+   * F20260908efmd: 解析首世建账的有效模型。
+   * 与 ManageSession.resolveModelForSession 逻辑一致，但调用方自行解析
+   * （避免组装环 CreateOtter → ManageSession）。
+   */
+  private resolveModelForFirstSession(otterId: string, explicitAlias?: string): string | null {
+    if (explicitAlias) return explicitAlias;
+    if (!this.otterConfigProvider || !this.modelPool) return null;
+    const config = this.otterConfigProvider.getConfig(otterId);
+    return resolveEffectiveModel(config, this.modelPool).alias;
   }
 }

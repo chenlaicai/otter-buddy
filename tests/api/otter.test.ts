@@ -245,7 +245,7 @@ describe("Otter API", () => {
       expect(res.status).toBe(201);
       const body = await json(res);
       expect(body.id).toBe("new-session");
-      expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", "Restarting");
+      expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", "Restarting", undefined);
     });
 
     it("F20260805rsto：小獭不支持重启（重启是大獭专属，小獭用解散），返回 400", async () => {
@@ -268,7 +268,7 @@ describe("Otter API", () => {
       });
 
       expect(res.status).toBe(201);
-      expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", undefined);
+      expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", undefined, undefined);
     });
   });
 });

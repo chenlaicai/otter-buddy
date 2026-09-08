@@ -182,6 +182,7 @@ export function makeSession(overrides: Partial<{
   archiveReason: string | null;
   isNegativeCase: boolean;
   summary: string | null;
+  modelAlias: string | null;
 }> = {}) {
   return {
     id: overrides.id ?? "session-1",
@@ -193,6 +194,7 @@ export function makeSession(overrides: Partial<{
     archiveReason: overrides.archiveReason ?? null,
     isNegativeCase: overrides.isNegativeCase ?? false,
     summary: overrides.summary ?? null,
+    modelAlias: overrides.modelAlias ?? null,
   };
 }
 

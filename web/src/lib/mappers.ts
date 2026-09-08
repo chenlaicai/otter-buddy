@@ -8,8 +8,10 @@ export interface LocalOtter {
   createdAt: string
   role?: { name: string; resp: string[] }
   parentOtterId?: string
-  /** 模型别名（多模型路由，如 "mimo"）；未配置时不展示 */
+  /** 模型别名（有效模型解析后，恒非空——默认模型回退后也有值） */
   modelAlias?: string
+  /** F20260908efmd: true = 配置未显式指定，跟随默认 */
+  modelIsDefault?: boolean
 }
 
 /** 前端本地 Conversation 类型 */
@@ -128,6 +130,8 @@ export interface LocalOtterSession {
   archiveReason: string | null
   isNegativeCase: boolean
   summary: string | null
+  /** F20260908efmd: 该世生效的模型 alias（null = 存量历史数据未快照） */
+  modelAlias?: string | null
 }
 
 export function mapOtterDTO(dto: OtterDTO): LocalOtter {
@@ -139,6 +143,8 @@ export function mapOtterDTO(dto: OtterDTO): LocalOtter {
     role: dto.role ? { name: dto.role.name, resp: dto.role.responsibilities } : undefined,
     parentOtterId: dto.parentOtterId ?? undefined,
     ...(dto.modelAlias !== undefined && { modelAlias: dto.modelAlias }),
+    // F20260908efmd: modelIsDefault 当前未在 OtterDTO 中声明（仅 ParticipantDTO/OtterProfileDTO 有），运行时可能透传
+    ...('modelIsDefault' in dto && { modelIsDefault: (dto as Record<string, unknown>).modelIsDefault as boolean }),
   }
 }
 
@@ -191,6 +197,7 @@ export function mapParticipantDTO(p: ParticipantDTO): LocalOtter {
     createdAt: '',
     role: p.roleName ? { name: p.roleName, resp: [] } : undefined,
     ...(p.modelAlias !== undefined && { modelAlias: p.modelAlias }),
+    ...(p.modelIsDefault !== undefined && { modelIsDefault: p.modelIsDefault }),
   }
 }
 
@@ -218,6 +225,8 @@ export function mapSessionDTO(dto: OtterSessionDTO): LocalOtterSession {
     archiveReason: dto.archiveReason,
     isNegativeCase: dto.isNegativeCase,
     summary: dto.summary,
+    // F20260908efmd: 透传 session 快照的 modelAlias（null = 存量未快照）
+    modelAlias: dto.modelAlias,
   }
 }
 

@@ -248,7 +248,8 @@ export class AgentInvoker implements AgentTurnPort {
     // F20260814mtrc：messageId 进 trace scope（onEvent 回调与收尾日志自动携带）
     return runWithTrace({ messageId: message.id }, async () => {
       // F20260819rscn: 用闭包捕获自重启信号（orchestrator 不透传未知字段）
-      let pendingSelfRestart: { otterId: string; summary?: string } | undefined;
+      // F20260908efmd: 扩展 modelAlias 字段——配额耗尽时应急切模型
+      let pendingSelfRestart: { otterId: string; summary?: string; modelAlias?: string } | undefined;
 
       // 创建 AttemptDriver 和 TurnCallbacks
       const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, { otterName: otter?.name, onSelfRestart: (signal) => { pendingSelfRestart = signal; }, images });
@@ -959,7 +960,7 @@ export class AgentInvoker implements AgentTurnPort {
    */
   // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- Phase 2: 手动重启+四件套注入+补偿删除
   private async handleSelfRestartSignal(
-    signal: { otterId: string; summary?: string },
+    signal: { otterId: string; summary?: string; modelAlias?: string },
     params: {
       otterId: string;
       conversationId: string;
@@ -1023,7 +1024,7 @@ export class AgentInvoker implements AgentTurnPort {
     }
 
     try {
-      const newSession = await this.manageSession.restartSession(otterId, summary);
+      const newSession = await this.manageSession.restartSession(otterId, summary, signal.modelAlias);
       newSessionId = newSession.id;
       this.logger.info('Self-restart completed, re-invoking with new session', { otterId, newSessionId });
     } catch (restartErr) {

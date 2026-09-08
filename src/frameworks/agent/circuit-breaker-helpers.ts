@@ -88,7 +88,7 @@ export interface BuildInvokeResultResult {
   circuitBreakerMetadata?: { totalCalls: number; circuitReason?: string };
   outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number };
   modelAlias?: string;
-  _selfRestart?: { otterId: string; summary?: string };
+  _selfRestart?: { otterId: string; summary?: string; modelAlias?: string };
   /** LLM 直出文本（未通过 speak 输出，对其他人不可见）。用于检测"旁白流失"失败形态 */
   directText?: string;
   /** 末条 assistant 消息的 stopReason（F20260903lngth：length=生成被 token 上限截断）。

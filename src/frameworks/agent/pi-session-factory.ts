@@ -87,7 +87,7 @@ export interface AgentRunResult {
   /** 本次 invoke 重建了全新 session（文件丢失/损坏/重启；F20260814mtrc） */
   sessionRebuilt?: boolean;
   /** F20260819rscn: LLM 调用 restart_otter(self) 时标记，由 agent-invoker 执行 restart + 全新 invoke */
-  _selfRestart?: { otterId: string; summary?: string };
+  _selfRestart?: { otterId: string; summary?: string; modelAlias?: string };
   /** 末条 assistant 消息的 stopReason（F20260903lngth：length=生成被 token 上限截断） */
   lastStopReason?: string;
 }
@@ -507,7 +507,7 @@ export class PiSessionFactory implements AgentGateway {
           // Why 在 try 内、return 前：finally 的 dispose 清理当前 session，
           // 信号必须在 session 生命周期内捕获。
           if (toolContext.pendingRestart) {
-            result._selfRestart = { otterId, summary: toolContext.pendingRestart.summary };
+            result._selfRestart = { otterId, summary: toolContext.pendingRestart.summary, modelAlias: toolContext.pendingRestart.modelAlias };
             this.logger.info('Self-restart signal set on result', { otterId });
           }
           return result;

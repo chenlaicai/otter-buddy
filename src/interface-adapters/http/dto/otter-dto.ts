@@ -33,5 +33,7 @@ export function toOtterSessionDTO(session: OtterSession): OtterSessionDTO {
     archiveReason: session.archiveReason,
     isNegativeCase: session.isNegativeCase,
     summary: session.summary,
+    // F20260908efmd: 透传 session 快照的 modelAlias（null = 存量未快照）
+    ...(session.modelAlias !== undefined && { modelAlias: session.modelAlias }),
   };
 }

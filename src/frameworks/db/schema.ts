@@ -424,6 +424,14 @@ function createOtterTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_otter_sessions_negative ON otter_sessions(is_negative_case);
     CREATE INDEX IF NOT EXISTS idx_otter_sessions_previous ON otter_sessions(previous_session_id);
   `);
+
+  // F20260908efmd: otter_sessions 加 model_alias 列（幂等迁移）
+  // ALTER TABLE ADD COLUMN 幂等：列已存在时 SQLite 抛错，try/catch 静默处理
+  try {
+    db.exec(`ALTER TABLE otter_sessions ADD COLUMN model_alias TEXT`);
+  } catch {
+    // 列已存在，忽略
+  }
 }
 
 /** Turn 表（Turn 实体，F20260715b8c6 新增） */

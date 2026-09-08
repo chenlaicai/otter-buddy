@@ -104,8 +104,16 @@ export class OtterController {
       if (otter?.type === "small") {
         throw new DomainError("小獭不支持重启獭生，请使用解散", "validation");
       }
-      const body: { summary?: string } = await c.req.json().catch(() => ({}));
-      const session = await this.manageSession.restartSession(id, body.summary);
+      const body: { summary?: string; modelAlias?: string } = await c.req.json().catch(() => ({}));
+      // F20260908efmd: restart body 增 modelAlias + hasModel 校验
+      if (this.modelPool && body.modelAlias && !this.modelPool.hasModel(body.modelAlias)) {
+        const available = this.modelPool.describeModels().map(m => m.alias).join(", ");
+        throw new DomainError(
+          `[错误] 未知的模型别名「${body.modelAlias}」。可用模型：${available}`,
+          "validation",
+        );
+      }
+      const session = await this.manageSession.restartSession(id, body.summary, body.modelAlias);
       return c.json(toOtterSessionDTO(session), 201);
     } catch (err) {
       return handleError(c, err, this.logger);
