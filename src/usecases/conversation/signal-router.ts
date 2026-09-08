@@ -143,6 +143,9 @@ export class SignalRouter {
       dispatchAttemptRepo: DispatchAttemptRepo;
       /** 多模态 Phase 1 收口（#826）：附件注入服务——invokeTarget 从触发消息 attachments 重建 InjectionPayload。可选：未装配时降级纯文本 */
       attachmentInjection?: AttachmentInjectionService;
+      /** P3a ① URGENT steer 注入：最小接口（可选；未装配时 URGENT+busy 走 busyQueue 降级）。
+       *  用窄接口而非 AgentGateway——signal-router 只需 steerSession，不依赖整个 AgentGateway 实现面。 */
+      agentGateway?: { steerSession?: (otterId: string, text: string) => boolean };
     },
   ) {}
 
@@ -394,6 +397,7 @@ export class SignalRouter {
    * | URGENT  | 点火 invoke              | 入 busyQueue（同上；steer 归 P3） |
    * | HALT    | 点火 invoke（处理停机请求）| 大獭：入 busyQueue 优先消化；小獭：丢弃 + healing 留痕 |
    */
+  // eslint-disable-next-line complexity, max-statements -- P3a ① URGENT steer 分支在原档位矩阵路由逻辑上+1 个条件分支，拆分会割裂路由语义
   private async routeTarget(conversationId: string, targetId: string, signal: Message, source: "chain" | "retry" | "router" = "chain"): Promise<RouteAction> {
     const level = (signal.signalLevel ?? "NORMAL").toUpperCase();
     const otter = await this.deps.queryOtter.getById(targetId).catch(() => null);
@@ -426,6 +430,12 @@ export class SignalRouter {
     const busy = this.inFlight.has(key) || await this.isOtterActive(conversationId, targetId);
     if (!busy) {
       return invoke();
+    }
+
+    // P3a ①：URGENT + busy → 试 steer 注入打断询问（steer 成功即销账，防双投递）
+    if (level === "URGENT") {
+      const steerResult = this.trySteerInjection(conversationId, targetId, signal);
+      if (steerResult) return steerResult;
     }
 
     // busy：入队保内容（HALT 到 busy 大獭置队首——停机请求优先于普通排队信号消化）
@@ -464,6 +474,50 @@ export class SignalRouter {
     } catch {
       return "";
     }
+  }
+
+  /** P3a ①：URGENT steer 打断询问文案构造（纯函数，#841 建议②：从 trySteerInjection 提取回线内） */
+  private buildSteerPrompt(signal: Message): string {
+    const meta = signal.signalMeta ? JSON.parse(signal.signalMeta) as { reason?: string } : null;
+    const reason = meta?.reason ?? "（未说明原因）";
+    const sender = signal.senderName?.trim() || signal.senderId;
+    return (
+      `【URGENT 打断询问】来自 ${sender} 的急迫信号：${reason}\n` +
+      `建议：你可以在完成当前工具调用后选择：继续手头工作（新信号留箱，完成后处理）或转向处理（读取箱内新消息）。不需要显式回答，你的下一个行动就是答案。`
+    );
+  }
+
+  /** P3a ①：URGENT + busy → 尝试 steer 注入打断询问。返回 RouteAction 则路由已完成（steer 成功+销账），null 则未处理（降级 busyQueue）。 */
+  private trySteerInjection(conversationId: string, targetId: string, signal: Message): RouteAction | null {
+    if (!this.deps.agentGateway?.steerSession) return null;
+    try {
+      const steered = this.deps.agentGateway.steerSession(targetId, this.buildSteerPrompt(signal));
+      if (steered) {
+        // 销账：写 completed 行——否则 pendingClause 仍判 pending，invoke 完成检查会二次路由 = 双投递
+        try {
+          this.deps.dispatchAttemptRepo.recordStart({
+            id: crypto.randomUUID(),
+            conversationId,
+            messageId: signal.id,
+            targetOtterId: targetId,
+            status: "completed",
+            source: "router",
+            attemptStartedAt: new Date().toISOString(),
+            note: "steered",
+          });
+          this.deps.logger.info("[signal-router] URGENT steer 注入成功+销账", { conversationId, messageId: signal.id, targetId });
+        } catch (e) {
+          this.deps.logger.warn("[signal-router] URGENT steer 销账写入失败（不影响注入）", { conversationId, messageId: signal.id, targetId, error: e instanceof Error ? e.message : String(e) });
+        }
+        return "invoked";
+      }
+      // steer 返回 false = session 不活跃，降级入 busyQueue
+      this.deps.logger.info("[signal-router] URGENT steer 不可达（session 非活跃），降级 busyQueue", { conversationId, messageId: signal.id, targetId });
+    } catch (e) {
+      // steer 解析/调用异常，降级入 busyQueue（安全侧）
+      this.deps.logger.warn("[signal-router] URGENT steer 异常，降级 busyQueue", { conversationId, messageId: signal.id, targetId, error: e instanceof Error ? e.message : String(e) });
+    }
+    return null;
   }
 
   /**
