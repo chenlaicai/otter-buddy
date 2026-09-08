@@ -970,31 +970,7 @@ export class SchedulerService {
     // 未达 3 次阈值，台账零记录，根因悬置 6 天）。healing 是问题发现第一入口，
     // 单次失败也值得分析视野；定时任务按天/周低频触发，等 3 次可能要 3 天。
     // best-effort：落账失败不阻断失败处理主路径。
-    if (this.healingRepo) {
-      try {
-        const task = await this.taskRepo.getById(taskId).catch(() => null);
-        await this.healingRepo.create({
-          id: crypto.randomUUID(),
-          messageId: '',
-          conversationId: task?.conversationId ?? '',
-          otterId: task?.talkingStonePassedTo[0] ?? '',
-          errorType: 'performance',
-          severity: 'medium',
-          description: `定时任务「${task?.name ?? taskId}」执行失败（#754）`,
-          suggestion: `查看 execution ${executionId} 的 errorMessage 定位根因`,
-          context: { taskId, executionId, executionError: errorMessage },
-          status: 'open',
-          resolution: null,
-          createdAt: now,
-          resolvedAt: null,
-        });
-      } catch (err) {
-        this.logger.warn('handleExecutionFailure: healing event write failed (non-fatal)', {
-          taskId, executionId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
+    await this.recordSingleFailureHealing(taskId, executionId, errorMessage, now);
 
     const failures = await this.taskRepo.incrementConsecutiveFailures(taskId, now);
     if (failures >= 3) {
@@ -1061,6 +1037,37 @@ export class SchedulerService {
     }
   }
 
+  /** #754：单次执行失败落 healing 台账（medium）。#847 检视建议 1 扩展：once 重试路径
+   *  （skipConsecutiveFailureTracking 分支）同样调用——重试中间失败也值得台账可见。
+   *  errorMessage 截断 2000 字符防御（#847 检视建议 2：context JSON 无大小限制）。 */
+  private async recordSingleFailureHealing(taskId: string, executionId: string, errorMessage: string, now: string): Promise<void> {
+    if (!this.healingRepo) return;
+    try {
+      const task = await this.taskRepo.getById(taskId).catch(() => null);
+      const truncated = errorMessage.length > 2000 ? errorMessage.slice(0, 2000) + '…[truncated]' : errorMessage;
+      await this.healingRepo.create({
+        id: crypto.randomUUID(),
+        messageId: '',
+        conversationId: task?.conversationId ?? '',
+        otterId: task?.talkingStonePassedTo[0] ?? '',
+        errorType: 'performance',
+        severity: 'medium',
+        description: `定时任务「${task?.name ?? taskId}」执行失败（#754）`,
+        suggestion: `查看 execution ${executionId} 的 errorMessage 定位根因`,
+        context: { taskId, executionId, executionError: truncated },
+        status: 'open',
+        resolution: null,
+        createdAt: now,
+        resolvedAt: null,
+      });
+    } catch (err) {
+      this.logger.warn('recordSingleFailureHealing: healing event write failed (non-fatal)', {
+        taskId, executionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   /** #246: 统一执行失败处理入口，根据 skipConsecutiveFailureTracking 选择路径。
    *  once 任务重试时只更新 execution record，不走 consecutiveFailures/status 标记，
    *  让 triggerOnceWithRetry 独立控制重试/error 语义。 */
@@ -1084,6 +1091,8 @@ export class SchedulerService {
           error: updateErr instanceof Error ? updateErr.message : String(updateErr),
         });
       }
+      // #847 检视建议 1：once 重试中间失败同样落 healing 台账（与单次失败同语义）
+      await this.recordSingleFailureHealing(taskId, executionId, errorMessage, new Date().toISOString());
     } else {
       await this.handleExecutionFailure(executionId, taskId, error);
     }
