@@ -53,6 +53,17 @@ describe('mapOtterDTO modelAlias（web-model-display）', () => {
     const o = mapOtterDTO(makeOtterDTO())
     expect('modelAlias' in o).toBe(false)
   })
+
+  it('DTO 带 modelIsDefault 时映射到 LocalOtter（F20260908efmd）', () => {
+    const o = mapOtterDTO(makeOtterDTO({ modelAlias: 'kimi', modelIsDefault: true }))
+    expect(o.modelIsDefault).toBe(true)
+  })
+
+  it('旧 DTO（无 modelIsDefault 字段）兼容不炸，LocalOtter 不携带该字段', () => {
+    const o = mapOtterDTO(makeOtterDTO({ modelAlias: 'kimi' }))
+    expect(o.modelAlias).toBe('kimi')
+    expect('modelIsDefault' in o).toBe(false)
+  })
 })
 
 describe('mapParticipantDTO modelAlias（web-model-display）', () => {
@@ -73,5 +84,11 @@ describe('mapParticipantDTO modelAlias（web-model-display）', () => {
   it('DTO 无 modelAlias 时 LocalOtter 不携带该字段', () => {
     const o = mapParticipantDTO(makeParticipantDTO())
     expect('modelAlias' in o).toBe(false)
+  })
+
+  it('旧 ParticipantDTO（无 modelIsDefault 字段）兼容不炸（F20260908efmd）', () => {
+    const o = mapParticipantDTO(makeParticipantDTO({ modelAlias: 'mimo' }))
+    expect(o.modelAlias).toBe('mimo')
+    expect('modelIsDefault' in o).toBe(false)
   })
 })

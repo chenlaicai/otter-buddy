@@ -219,6 +219,18 @@ describe('OtterParticipantCard 模型标签（web-model-display）', () => {
     expect(badge!.textContent).toBe('claude-future')
   })
 
+  it('isDefault=true 时 badge 追加「（默认）」标注（F20260908efmd 有效模型）', () => {
+    renderPanel([], [makeOtter({ modelAlias: 'kimi', modelIsDefault: true })])
+    const badge = container.querySelector('[data-testid="model-badge"]')
+    expect(badge!.textContent).toBe('kimi（默认）')
+  })
+
+  it('isDefault=false/缺省时 badge 不带默认标注', () => {
+    renderPanel([], [makeOtter({ modelAlias: 'kimi', modelIsDefault: false })])
+    const badge = container.querySelector('[data-testid="model-badge"]')
+    expect(badge!.textContent).toBe('kimi')
+  })
+
   it('大獭卡不再渲染冗余「大獭」badge（名字行已固定显示名字，副行有「大獭 · 持久」），但模型 badge 正常展示', () => {
     renderPanel([], [makeOtter({ id: 'big-1', name: '大獭', type: 'big', modelAlias: 'glm' })])
     // 名字与副行身份信息仍在
