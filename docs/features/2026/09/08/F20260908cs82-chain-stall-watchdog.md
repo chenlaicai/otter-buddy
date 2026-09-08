@@ -4,7 +4,7 @@ doc_type: feature
 change_type: feature
 capability_test: "n/a: 纯 A 类代码逻辑（确定性检测器 + Worker 轮询），无 LLM 行为依赖"
 title: "编排链中断悬置告警（#822）：进程内看门狗 + RHI critical 信号"
-summary: "新增 ChainStallWatchdogWorker：60s 轮询检测会话尾部中断型终态消息（30min 阈值），触发对话内系统告警 + RHI critical 信号 + 台账备注；熔断重启、搭档主动中断、429 限流终态排除在外。"
+summary: "新增 ChainStallWatchdogWorker：60s 轮询检测会话尾部中断型终态消息（30min 阈值），触发对话内系统告警 + RHI critical 信号 + 台账备注；熔断重启、搭档主动中断排除在外；429 限流终态（exhausted 文案）已纳入检测。"
 feature_id: F20260908cs82
 created_in_conversation: 449d8f5d-e91e-49c0-ade5-0fbd9b3d0fcb
 created_at: 2026-09-08
@@ -68,6 +68,7 @@ Issue #822（母票 #695 终局批次 ③）要求：编排链中断后，30min 
 - `[搭档中断]`：用户主动停
 - `自动继续执行中`：熔断重启恢复中
 - `请手动重试` / `请人工介入`：已有明确人工指引
+- 瞬时限流（medium 级，`[系统提示]…可稍后重试或改派`）：刻意排除——宁漏勿扰，含 resetHint 且短时恢复概率高，告警收益低于噪音风险
 
 ### 去重机制
 
