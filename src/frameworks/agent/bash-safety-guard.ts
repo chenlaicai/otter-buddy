@@ -68,7 +68,12 @@ export function normalizeForDetection(command: string): string {
     .replace(/""/g, "");  // 空双引号对
   // 字母间反斜杠（k\ill → kill）。lookbehind/lookahead 只匹配反斜杠本身、前后字母不消耗——
   // 单遍即可处理连续转义 k\i\ll → kill（检视 R1 发现2：贪婪消耗式正则会漏连续转义形态）
-  return stripped.replace(/(?<=[a-zA-Z])\\(?=[a-zA-Z])/g, "");
+  const deEscaped = stripped.replace(/(?<=[a-zA-Z])\\(?=[a-zA-Z])/g, "");
+  // #850 严重 1：全词引号包裹等价裸命令（'kill' 42877 / "kill" 42877）——剥词周引号
+  // #850 严重 2：词首反斜杠是 no-op（\kill ≡ kill，bash 引用单字符语义）——剥字母前反斜杠
+  return deEscaped
+    .replace(/(["'])([a-zA-Z][a-zA-Z0-9]*)\1/g, "$2") // 'kill' → kill（全词引号）
+    .replace(/\\(?=[a-zA-Z])/g, ""); // \k → k（词首反斜杠；字母间已在上一步处理）
 }
 
 /**
@@ -90,7 +95,7 @@ const VALID_CMD_PRECEDERS = new Set(["|", ";", "&", "\n", "\r", "\f", "(", "`"])
 
 /** #777：命令位置前缀词剥除——这些词的语义是「执行后面的命令」，循环剥除直到词元抵段首。
  *  覆盖 #698 攻击链 wrapper 变体（sudo/env/nohup/timeout/xargs/nice/command + 赋值前缀）。 */
-const COMMAND_PREFIX_WORD = /^(?:sudo|env|nohup|command|xargs|nice|watch|exec|time|timeout|do)\s+/;
+const COMMAND_PREFIX_WORD = /^(?:sudo|env|nohup|command|xargs|nice|watch|exec|time|timeout|do)\b\s+/;
 /** 前缀词的参数（-n1 / -I{} / 5 / VAR=val 等，timeout 的时长、nice 的优先级、赋值） */
 const PREFIX_ARG = /^(?:-\S+|\d+|[A-Za-z_]\w*=\S+)\s+/;
 
