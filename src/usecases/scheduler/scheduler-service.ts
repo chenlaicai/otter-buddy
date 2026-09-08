@@ -966,6 +966,36 @@ export class SchedulerService {
       errorMessage,
     });
 
+    // #754：单次失败即落 healing 台账（此前仅 ≥3 次熔断停跑才落——9/2 健康检查单次失败
+    // 未达 3 次阈值，台账零记录，根因悬置 6 天）。healing 是问题发现第一入口，
+    // 单次失败也值得分析视野；定时任务按天/周低频触发，等 3 次可能要 3 天。
+    // best-effort：落账失败不阻断失败处理主路径。
+    if (this.healingRepo) {
+      try {
+        const task = await this.taskRepo.getById(taskId).catch(() => null);
+        await this.healingRepo.create({
+          id: crypto.randomUUID(),
+          messageId: '',
+          conversationId: task?.conversationId ?? '',
+          otterId: task?.talkingStonePassedTo[0] ?? '',
+          errorType: 'performance',
+          severity: 'medium',
+          description: `定时任务「${task?.name ?? taskId}」执行失败（#754）`,
+          suggestion: `查看 execution ${executionId} 的 errorMessage 定位根因`,
+          context: { taskId, executionId, executionError: errorMessage },
+          status: 'open',
+          resolution: null,
+          createdAt: now,
+          resolvedAt: null,
+        });
+      } catch (err) {
+        this.logger.warn('handleExecutionFailure: healing event write failed (non-fatal)', {
+          taskId, executionId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     const failures = await this.taskRepo.incrementConsecutiveFailures(taskId, now);
     if (failures >= 3) {
       await this.taskRepo.updateStatus(taskId, 'error', now);
