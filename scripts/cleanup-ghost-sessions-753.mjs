@@ -95,14 +95,17 @@ const tx = dbw.transaction(() => {
   const now = new Date().toISOString();
   for (const g of ghostSessions) archiveStmt.run(now, g.id);
 
-  // B：failed 消息物理删除（segments / events 级联）
+  // B：failed 消息物理删除（级联清理，顺序按 FK 依赖）
+  // - message_segments：ON DELETE CASCADE（schema.ts:171），随 messages 删除自动清理，无需手动
+  // - message_events：FK 无 CASCADE（schema.ts:157）→ 手动删除
+  // - dispatch_attempts：FK 无 CASCADE（schema.ts:782）→ 手动删除（#847 检视严重发现 1：漏了它 --apply 会抛 FOREIGN KEY constraint failed）
   const msgIds = failedMsgs.map(m => m.id);
-  const delSeg = dbw.prepare(`DELETE FROM message_segments WHERE message_id = ?`);
   const delEvt = dbw.prepare(`DELETE FROM message_events WHERE message_id = ?`);
+  const delDisp = dbw.prepare(`DELETE FROM dispatch_attempts WHERE message_id = ?`);
   const delMsg = dbw.prepare(`DELETE FROM messages WHERE id = ? AND status = 'failed'`);
   for (const id of msgIds) {
-    delSeg.run(id);
     delEvt.run(id);
+    delDisp.run(id);
     delMsg.run(id);
   }
   return { archived: ghostSessions.length, deleted: msgIds.length };
