@@ -12,6 +12,8 @@ export interface OtterSession {
   archiveReason: string | null;
   isNegativeCase: boolean;
   summary: string | null;
+  /** F20260908efmd: 该世生效的模型 alias（默认解析后的真实值，非配置裸值）。null = 存量历史数据未快照 */
+  modelAlias: string | null;
 }
 
 /**
@@ -27,11 +29,13 @@ export function canArchiveSession(status: SessionStatus): boolean {
  * 构造新 active Session 的纯工厂（F20260805rsto）。
  * CreateOtter（首世建账）与 ManageSession.createSession（重启/交接建链）共用，
  * 避免两处各自拼装 session 对象导致字段漂移。
+ * @param modelAlias F20260908efmd: 可选——该世生效的模型 alias（默认解析后的真实值）。传 null 表示不快照（存量迁移用）。
  */
 export function buildNewSession(
   otterId: string,
   previousSessionId: string | null,
   summary: string | null = null,
+  modelAlias: string | null = null,
 ): OtterSession {
   return {
     id: crypto.randomUUID(),
@@ -43,6 +47,7 @@ export function buildNewSession(
     archiveReason: null,
     isNegativeCase: false,
     summary,
+    modelAlias,
   };
 }
 

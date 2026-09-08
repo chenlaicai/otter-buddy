@@ -109,10 +109,13 @@ export class IdentityBuilder {
 
     const strengths = target.strengths?.length ? target.strengths.join('、') : '未指定';
     const weaknesses = target.weaknesses?.length ? target.weaknesses.join('、') : '未指定';
+    // F20260908efmd: 空配置回退默认时标注「（默认）」——区分显式指定与默认回退
+    const isDefault = !alias;
+    const modelLabel = isDefault ? `${target.alias}（默认）` : target.alias;
 
     return [
       '## 你的运行时模型',
-      `- 模型：${target.alias}——${target.description ?? '无描述'}`,
+      `- 模型：${modelLabel}——${target.description ?? '无描述'}`,
       `- 优势：${strengths}`,
       `- 劣势：${weaknesses}`,
       '- 以上信息由系统注入，以此为准判断自己的能力边界，不要凭预训练记忆推测或声称其他模型身份',

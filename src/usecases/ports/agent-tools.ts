@@ -126,10 +126,11 @@ export interface ToolContext {
   /**
    * F20260815rstrt: 自重启时由 restart_otter 工具设置。
    * PiSessionFactory 在 session.prompt() 返回后检查并执行重启。
+   * F20260908efmd: 扩展 modelAlias 字段——配额耗尽时应急切模型，透传到 agent-invoker。
    * Why: session.prompt() 是原子的，中途无法替换 session；
    * 延迟到 prompt 完成后执行，消息生命周期不受影响。
    */
-  pendingRestart?: { summary?: string };
+  pendingRestart?: { summary?: string; modelAlias?: string };
   /**
    * F20260813actk C9：本轮待派工票据（otterId → otterName）。
    * create_otter 创建后注册；speak 派工后清除已覆盖的；未清空时 speak 给一次软提醒（非阻断）。

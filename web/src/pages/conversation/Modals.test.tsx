@@ -147,6 +147,24 @@ describe('OtterDetailModal 世数链摘要折叠', () => {
     const summaries = querySummaries()
     expect(summaries[1].textContent).toBe('前情：第二世正在进行的剧情')
   })
+
+  it('转世履历：session 带 modelAlias 快照时显示该世武器（F20260908efmd）', () => {
+    renderDetailModal([
+      makeSession({ id: 's1', status: 'restarted', previousSessionId: null, modelAlias: 'kimi', archivedAt: '2026-08-25 12:00:00' }),
+      makeSession({ id: 's2', status: 'active', previousSessionId: 's1', modelAlias: 'glm-flash' }),
+    ])
+    const generations = document.querySelector('[data-testid="detail-column-generations"]') as HTMLElement
+    expect(generations.textContent).toContain('⚔️ kimi')
+    expect(generations.textContent).toContain('⚔️ glm-flash')
+  })
+
+  it('转世履历：存量 session 无 modelAlias（null）时省略武器行（如实省略，不回填）', () => {
+    renderDetailModal([
+      makeSession({ id: 's1', status: 'active', previousSessionId: null }),
+    ])
+    const generations = document.querySelector('[data-testid="detail-column-generations"]') as HTMLElement
+    expect(generations.textContent).not.toContain('⚔️')
+  })
 })
 
 // ═══ F20260827ucrt：CreateOtterModal 重做测试 ═══

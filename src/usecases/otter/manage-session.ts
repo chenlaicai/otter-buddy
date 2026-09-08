@@ -10,6 +10,10 @@ import type { OtterRepository } from "./otter-repository";
 import type { AgentGateway } from "./agent-gateway";
 import type { Logger } from "@usecases/ports/logger";
 import { redactSecrets } from "@usecases/security/redact-secrets";
+// F20260908efmd: 有效模型解析（createSession/restartSession 快照用）
+import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
+import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
+import { resolveEffectiveModel } from "@usecases/ports/otter-config-provider";
 
 /** Gateway: 查询 otter 关联的对话 ID（由 main.ts 装配 ManageConversation 实现） */
 export interface ConversationQueryGateway {
@@ -32,12 +36,17 @@ export interface ArchiveSessionInput {
 }
 
 export class ManageSession {
+  /* eslint-disable max-params -- F20260908efmd: 新增 otterConfigProvider + modelPool 用于有效模型解析 */
   constructor(
     private readonly repo: OtterRepository,
     private readonly agentGateway: AgentGateway,
     private readonly conversationQuery: ConversationQueryGateway,
     private readonly memoryLayer: MemoryLayerGateway,
     private readonly logger: Logger,
+    /** F20260908efmd: 可选——用于有效模型解析（createSession/restartSession 快照）。未注入时 session.modelAlias 不写入 */
+    private readonly otterConfigProvider?: OtterConfigProvider,
+    /** F20260908efmd: 可选——用于有效模型解析。未注入时 session.modelAlias 不写入 */
+    private readonly modelPool?: ModelPoolLike,
   ) {}
 
   /**
@@ -64,8 +73,10 @@ export class ManageSession {
     const history = await this.repo.getSessionHistory(otterId);
     const previousSessionId = history.length > 0 ? history[0].id : null;
 
+    // F20260908efmd: 解析有效模型作为 session 快照
+    const resolvedModel = this.resolveModelForSession(otterId);
     // F20260821scrt: 前情摘要是 LLM 自由文本（restart_session 工具），写入前脱敏
-    const session = buildNewSession(otterId, previousSessionId, params?.summary ? redactSecrets(params.summary) : null);
+    const session = buildNewSession(otterId, previousSessionId, params?.summary ? redactSecrets(params.summary) : null, resolvedModel);
 
     await this.repo.createSession(session);
 
@@ -189,8 +200,11 @@ export class ManageSession {
    * 撞 conflict 不是用户错误——认领既有新行、补写 summary，按成功处理。
    *
    * F20260810rstart: 从 controller 提取，供 agent tool 和 HTTP API 共用。
+   * F20260908efmd: 增可选 modelAlias 参数——配额耗尽时应急切模型。
+   * 硬约束：archive 成功后 → 写 config → createSession，顺序不可调换。
    */
-  async restartSession(otterId: string, summary?: string): Promise<OtterSession> {
+  // eslint-disable-next-line complexity -- F20260908efmd: restartSession 增 config 写回逻辑（硬约束顺序内聚，拆分降低可读性）
+  async restartSession(otterId: string, summary?: string, modelAlias?: string): Promise<OtterSession> {
     // 1. 归档当前 active session（含 agent session reset，确保旧 agent 会话被清理）
     // F20260821scrt：summary 是 LLM 自由文本，入口统一脱敏（archive/create/adopt 各路径与返回值一致）
     const safeSummary = summary ? redactSecrets(summary) : undefined;
@@ -203,17 +217,28 @@ export class ManageSession {
       });
     }
 
-    // 2. 创建新 session（写入前情摘要）
+    // 2. F20260908efmd 硬约束：archive 成功后 → 写 config → createSession
+    // 写回 config 必须在 archive 成功之后，否则 archive 失败会导致当前世下一次 invoke 偷换模型
+    if (modelAlias && this.otterConfigProvider) {
+      const existingConfig = this.otterConfigProvider.getConfig(otterId);
+      this.otterConfigProvider.setConfig(otterId, {
+        ...(existingConfig ?? { otterType: "big" }),
+        modelAlias,
+      });
+    }
+
+    // 3. 创建新 session（写入前情摘要 + 解析后的新模型快照）
     try {
       const session = await this.createSession(otterId, { summary: safeSummary });
       this.logger.info("Session restarted", {
         otterId,
         sessionId: session.id,
         action: "restart",
+        ...(modelAlias && { newModelAlias: modelAlias }),
       });
       return session;
     } catch (err) {
-      // 3. 竞态认领
+      // 4. 竞态认领
       if (err instanceof DomainError && err.kind === "conflict") {
         const adopted = await this.repo.getActiveSession(otterId);
         if (adopted) {
@@ -230,5 +255,15 @@ export class ManageSession {
       }
       throw err;
     }
+  }
+
+  /**
+   * F20260908efmd: 解析 otter 的有效模型用于 session 快照。
+   * 未注入依赖时返回 null（不写入快照）。
+   */
+  private resolveModelForSession(otterId: string): string | null {
+    if (!this.otterConfigProvider || !this.modelPool) return null;
+    const config = this.otterConfigProvider.getConfig(otterId);
+    return resolveEffectiveModel(config, this.modelPool).alias;
   }
 }

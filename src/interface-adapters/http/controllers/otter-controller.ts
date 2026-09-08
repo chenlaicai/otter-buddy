@@ -37,7 +37,11 @@ export class OtterController {
       if (!otter) {
         return c.json({ error: "Otter not found" }, 404);
       }
-      return c.json(toOtterDTO(otter, this.configProvider?.getConfig(id)?.modelAlias));
+      const config = this.configProvider?.getConfig(id);
+      // F20260908efmd: 有效模型解析 + isDefault 标注
+      const modelAlias = config?.modelAlias;
+      const modelIsDefault = config ? !config.modelAlias : undefined;
+      return c.json(toOtterDTO(otter, modelAlias, modelIsDefault));
     } catch (err) {
       return handleError(c, err, this.logger);
     }
@@ -69,7 +73,8 @@ export class OtterController {
         context: body.context,
       };
       const otter = await this.createOtterUseCase.execute(input);
-      return c.json(toOtterDTO(otter, this.configProvider?.getConfig(otter.id)?.modelAlias), 201);
+      const config = this.configProvider?.getConfig(otter.id);
+      return c.json(toOtterDTO(otter, config?.modelAlias, config ? !config.modelAlias : undefined), 201);
     } catch (err) {
       return handleError(c, err, this.logger);
     }
@@ -104,8 +109,16 @@ export class OtterController {
       if (otter?.type === "small") {
         throw new DomainError("小獭不支持重启獭生，请使用解散", "validation");
       }
-      const body: { summary?: string } = await c.req.json().catch(() => ({}));
-      const session = await this.manageSession.restartSession(id, body.summary);
+      const body: { summary?: string; modelAlias?: string } = await c.req.json().catch(() => ({}));
+      // F20260908efmd: restart body 增 modelAlias + hasModel 校验
+      if (this.modelPool && body.modelAlias && !this.modelPool.hasModel(body.modelAlias)) {
+        const available = this.modelPool.describeModels().map(m => m.alias).join(", ");
+        throw new DomainError(
+          `[错误] 未知的模型别名「${body.modelAlias}」。可用模型：${available}`,
+          "validation",
+        );
+      }
+      const session = await this.manageSession.restartSession(id, body.summary, body.modelAlias);
       return c.json(toOtterSessionDTO(session), 201);
     } catch (err) {
       return handleError(c, err, this.logger);

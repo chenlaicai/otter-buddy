@@ -248,7 +248,8 @@ export class AgentInvoker implements AgentTurnPort {
     // F20260814mtrc：messageId 进 trace scope（onEvent 回调与收尾日志自动携带）
     return runWithTrace({ messageId: message.id }, async () => {
       // F20260819rscn: 用闭包捕获自重启信号（orchestrator 不透传未知字段）
-      let pendingSelfRestart: { otterId: string; summary?: string } | undefined;
+      // F20260908efmd: 扩展 modelAlias 字段——配额耗尽时应急切模型
+      let pendingSelfRestart: { otterId: string; summary?: string; modelAlias?: string } | undefined;
 
       // 创建 AttemptDriver 和 TurnCallbacks
       const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, { otterName: otter?.name, onSelfRestart: (signal) => { pendingSelfRestart = signal; }, images });
@@ -534,7 +535,18 @@ export class AgentInvoker implements AgentTurnPort {
          * 保证「有 agent 会话 ⟹ 有 active domain session」，restart/dissolve 不再空操作。
          * 挂在这是因此处每次 invoke 本来就查一次 getActiveSession，零额外读放大，
          * 且 web/飞书/定时任务全部汇入本 invoker。
+         *
+         * #753 源头堵漏：backfill 前查 otter 状态——dissolved 獭不得建行。
+         * PR #749 修的是路由器不再点火 dissolved，但本兜底是另一入口：任何触达 dissolved
+         * 獭的 invoke 路径都会在此产生幽灵 otter_sessions 行（S2 事故实证，6b1042ae）。
+         * dissolved 獭 invoke 本身就是异常，让后续路径因无 session 自然报错，不静默补账。
          */
+        const otter = await this.queryOtter.getById(otterId).catch(() => null);
+        if (otter && otter.status !== 'active') {
+          this.logger.warn('Skip domain session backfill for non-active otter', {
+            otterId, otterStatus: otter.status, action: 'session_backfill_rejected',
+          });
+        } else {
         try {
           session = await this.manageSession.createSession(otterId);
           this.logger.info('Backfilled missing domain session on invoke', { otterId, action: 'session_backfill' });
@@ -548,6 +560,7 @@ export class AgentInvoker implements AgentTurnPort {
             error: backfillErr instanceof Error ? backfillErr.message : String(backfillErr),
           });
           session = await this.manageSession.getActiveSession(otterId).catch(() => null);
+        }
         }
       }
       if (session?.summary) {
@@ -959,7 +972,7 @@ export class AgentInvoker implements AgentTurnPort {
    */
   // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- Phase 2: 手动重启+四件套注入+补偿删除
   private async handleSelfRestartSignal(
-    signal: { otterId: string; summary?: string },
+    signal: { otterId: string; summary?: string; modelAlias?: string },
     params: {
       otterId: string;
       conversationId: string;
@@ -1023,7 +1036,7 @@ export class AgentInvoker implements AgentTurnPort {
     }
 
     try {
-      const newSession = await this.manageSession.restartSession(otterId, summary);
+      const newSession = await this.manageSession.restartSession(otterId, summary, signal.modelAlias);
       newSessionId = newSession.id;
       this.logger.info('Self-restart completed, re-invoking with new session', { otterId, newSessionId });
     } catch (restartErr) {

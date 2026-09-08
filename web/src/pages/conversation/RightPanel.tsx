@@ -356,12 +356,13 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
             </div>
           )}
         </div>
-        {/* 模型标签（F20260825vrqh）：未配置不渲染。
-            F20260903：加 whitespace-nowrap shrink-0——长 alias（glm-flash 等）在窄卡内被压缩逐字换行，
-            卡片竖向变长变形；同名「大獭」badge 移除——名字行固定显示海獭名，副行已有「大獭 · 持久」，
-            名字后再挂一个「大獭」tag 是纯冗余（F20260903 搭档反馈） */}
+        {/* F20260908efmd: 有效模型——始终渲染 badge（配置缺失回退默认）。
+            modelAlias 恒非空（有效模型解析后），默认来源时显示「(默认)」。
+            原 F20260825vrqh 设计：未配置不渲染 → 本特性推翻——每只獭必须有模型。 */}
         {o.modelAlias && (
-          <span data-testid="model-badge" className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-stone-400/15 text-stone-500 whitespace-nowrap shrink-0">{o.modelAlias}</span>
+          <span data-testid="model-badge" className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-stone-400/15 text-stone-500 whitespace-nowrap shrink-0">
+            {o.modelAlias}{o.modelIsDefault && <span className="text-stone-400">（默认）</span>}
+          </span>
         )}
         {!isBig && (
           <span
