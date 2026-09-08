@@ -231,7 +231,7 @@ function createMockAgentInvoke() {
 }
 
 /** 创建 CronParser 的状态化 mock */
-function createMockCronParser(nextTime: Date) {
+function createMockCronParser(nextTime: Date, prevTime?: Date | null) {
   const callCount = { value: 0 };
   return {
     _callCount: callCount,
@@ -239,6 +239,8 @@ function createMockCronParser(nextTime: Date) {
       callCount.value++;
       return nextTime;
     }),
+    // #814：调度完整性对账（可选——undefined 表示不支持，start() 跳过对账）
+    ...(prevTime !== undefined ? { getPrevTime: vi.fn(() => prevTime) } : {}),
   };
 }
 
@@ -786,6 +788,107 @@ describe('SchedulerService - error handling', () => {
       const errorUpdate = taskRepo._statusUpdates.find(u => u.status === 'error');
       expect(errorUpdate).toBeUndefined();
     });
+  });
+});
+
+describe('#814: 调度完整性对账（启动时错过窗口落 healing）', () => {
+  function makeHealingRepo() {
+    const events: Array<Record<string, unknown>> = [];
+    return {
+      _events: events,
+      create: vi.fn(async (e: Record<string, unknown>) => { events.push(e); }),
+      autoStaleDismiss: vi.fn(async () => 0),
+    };
+  }
+
+  it('lastTriggeredAt 落后于应触发时间 → 落 low 级 healing 事件', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    // 应触发时间 = 今天 09:00；任务 lastTriggeredAt = 昨天（错过窗口）
+    const prevDue = new Date('2026-09-06T01:00:00.000Z'); // 09:00 CST
+    const cronParser = createMockCronParser(new Date('2026-09-07T01:00:00.000Z'), prevDue);
+    const healingRepo = makeHealingRepo();
+
+    taskRepo._store.set('task-missed', makeTask({
+      id: 'task-missed',
+      scheduleType: 'cron',
+      cron: '0 9 * * *',
+      lastTriggeredAt: '2026-09-05T01:00:00.000Z', // 9/5 09:00 CST——早于 prevDue（9/6）
+    } as never));
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+      healingRepo: healingRepo as never,
+    });
+    await service.start();
+    await service.stop();
+
+    expect(healingRepo._events).toHaveLength(1);
+    const e = healingRepo._events[0]!;
+    expect(e.severity).toBe('low');
+    expect(e.errorType).toBe('other');
+    expect((e.context as Record<string, unknown>).taskId).toBe('task-missed');
+    expect((e.context as Record<string, unknown>).missedWindowAt).toBe(prevDue.toISOString());
+  });
+
+  it('lastTriggeredAt 不落后 → 零事件（无错过）', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const prevDue = new Date('2026-09-06T01:00:00.000Z');
+    const cronParser = createMockCronParser(new Date('2026-09-07T01:00:00.000Z'), prevDue);
+    const healingRepo = makeHealingRepo();
+
+    taskRepo._store.set('task-ok', makeTask({
+      id: 'task-ok',
+      scheduleType: 'cron',
+      cron: '0 9 * * *',
+      lastTriggeredAt: '2026-09-06T01:00:01.000Z', // 已触发当次窗口
+    } as never));
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: createMockSendMessage() as unknown as SendMessage,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+      healingRepo: healingRepo as never,
+    });
+    await service.start();
+    await service.stop();
+
+    expect(healingRepo._events).toHaveLength(0);
+  });
+
+  it('cronParser 不支持 getPrevTime（旧实现）→ 跳过对账不报错', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const healingRepo = makeHealingRepo();
+    taskRepo._store.set('task-legacy', makeTask({ id: 'task-legacy' }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: createMockSendMessage() as unknown as SendMessage,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(new Date()) as unknown as CronParser, // 无 getPrevTime
+      logger: mockLogger,
+      healingRepo: healingRepo as never,
+    });
+    await service.start();
+    await service.stop();
+
+    expect(healingRepo._events).toHaveLength(0);
   });
 });
 

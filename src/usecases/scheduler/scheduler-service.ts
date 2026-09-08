@@ -51,6 +51,8 @@ const SINGLE_INVOKE_TIMEOUT_MS = 5 * 60 * 1000;
  *  #640: 支持 referenceTime 参数用于轮询模式下计算从某时间点起的下次触发时间 */
 export interface CronParser {
   getNextTime(cron: string, timezone: string, referenceTime?: Date): Date;
+  /** #814：取 referenceTime 之前最近一次应触发时间（调度完整性对账用）。无实现时返回 null。 */
+  getPrevTime?(cron: string, timezone: string, referenceTime?: Date): Date | null;
 }
 
 export interface SchedulerServiceOptions {
@@ -189,6 +191,16 @@ export class SchedulerService {
       this.logger.warn('启动对账失败（不阻塞启动）', { error: err instanceof Error ? err.message : String(err) });
     }
     const tasks = await this.getAllActiveTasks();
+    // #814：调度完整性对账——active cron 任务的 last_triggered_at 落后于 cron 应触发时间时，
+    // 落 healing event（errorType='other'，severity='low'）让静默日在台账可见。
+    // 服务停机期间无进程可写，重启后对账是唯一可见性窗口；对账失败不阻塞启动。
+    if (this.healingRepo && this.cronParser.getPrevTime) {
+      try {
+        await this.reconcileMissedWindows(tasks);
+      } catch (err) {
+        this.logger.warn('调度完整性对账失败（不阻塞启动）', { error: err instanceof Error ? err.message : String(err) });
+      }
+    }
     if (this.metrics) {
       const counts: Record<string, number> = { cron: 0, once: 0 };
       for (const t of tasks) counts[t.scheduleType]++;
@@ -388,6 +400,60 @@ export class SchedulerService {
     }, delay);
 
     this.timers.set(task.id, timer);
+  }
+
+  /** #814：单任务错过窗口落账（best-effort，失败仅日志） */
+  private async recordMissedWindow(task: ScheduledTask, prevDue: Date, now: Date): Promise<void> {
+    try {
+      await this.healingRepo!.create({
+        id: crypto.randomUUID(),
+        messageId: '',
+        conversationId: task.conversationId,
+        otterId: task.talkingStonePassedTo[0] ?? '',
+        errorType: 'other',
+        severity: 'low',
+        description: `定时任务「${task.name}」错过触发窗口（#814 调度完整性对账）`,
+        suggestion: '检查服务停机时段；如需补跑手动触发',
+        context: {
+          taskId: task.id,
+          cron: task.cron,
+          missedWindowAt: prevDue.toISOString(),
+          lastTriggeredAt: task.lastTriggeredAt,
+          reconciledAt: now.toISOString(),
+        },
+        status: 'open',
+        resolution: null,
+        createdAt: now.toISOString(),
+        resolvedAt: null,
+      });
+      this.logger.warn('调度完整性对账：任务错过触发窗口', {
+        taskId: task.id, cron: task.cron, missedWindowAt: prevDue.toISOString(),
+      });
+    } catch (err) {
+      this.logger.warn('错过窗口 healing 落账失败（继续其他任务）', {
+        taskId: task.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /** #814：调度完整性对账——active cron 任务的 lastTriggeredAt 落后于应触发时间 → 落 healing。
+   *  判定：getPrevTime(cron, tz, now) 为 now 之前最近一次应触发时间；若参照点（lastTriggeredAt
+   *  ?? createdAt）早于该时间，则该窗口被错过。
+   *  每个任务只报最近一次错过窗口（服务停机可能跨多个窗口，逐窗口报会刷屏；最近一次已含
+   *  「有静默」的全部信息，更早窗口在日报对账时由 cron 表人工/LLM 核对）。 */
+  private async reconcileMissedWindows(tasks: ScheduledTask[]): Promise<void> {
+    const now = new Date();
+    for (const task of tasks) {
+      if (task.scheduleType !== 'cron' || !task.cron) continue;
+      const prevDue = this.cronParser.getPrevTime!(task.cron, task.timezone, now);
+      if (!prevDue) continue;
+      const reference = task.lastTriggeredAt ? new Date(task.lastTriggeredAt)
+        : task.createdAt ? new Date(task.createdAt) : null;
+      // 已触发过且 reference >= prevDue → 无错过；从未触发但 createdAt >= prevDue → 未到首个窗口
+      if (!reference || reference.getTime() >= prevDue.getTime()) continue;
+      await this.recordMissedWindow(task, prevDue, now);
+    }
   }
 
   /** once 任务专用重试：失败后延迟重试，最多 maxRetries 次 */
