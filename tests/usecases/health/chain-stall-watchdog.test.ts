@@ -96,6 +96,14 @@ describe("classifyInterruption", () => {
   it("普通系统消息（非中断型）→ null", () => {
     expect(classifyInterruption("[链滞留告警] 链 abc12345 已滞留 60 分钟")).toBeNull();
   });
+
+  it("#845 严重发现 1：429 配额耗尽限流告警 → 判定中断", () => {
+    const result = classifyInterruption(
+      "[系统告警] otter-abc 的模型 glm-flash 配额耗尽（429 限流终态），本轮发言已终止（2026-09-10 12:46:05 重置）。该模型在配额恢复前无法执行任务——编排者请改派其他模型的獭，或等待配额重置。详情可查 healing 台账（errorType: rate_limit）。"
+    );
+    expect(result).toBeTruthy();
+    expect(result).toContain("配额耗尽");
+  });
 });
 
 describe("detectChainStallFromRows", () => {
@@ -339,6 +347,60 @@ describe("ChainStallWatchdogWorker.scanOnce", () => {
 
     expect(result.alerts).toBe(0);
     expect(sentMessages).toHaveLength(0);
+
+    await worker.stop();
+  });
+
+  it("#845 严重发现 1：429 配额耗尽限流 → 告警", async () => {
+    const now = new Date("2026-09-08T10:00:00Z");
+    insertTailRow(db, {
+      conversationId: "conv-429-1",
+      messageId: "msg-429-1",
+      senderType: "system",
+      senderId: "system",
+      body: "[系统告警] otter-abc 的模型 glm-flash 配额耗尽（429 限流终态），本轮发言已终止（2026-09-10 12:46:05 重置）。该模型在配额恢复前无法执行任务——编排者请改派其他模型的獭，或等待配额重置。",
+      createdAt: "2026-09-08T08:00:00Z", // 2h 前
+    });
+
+    const { worker, signalRepo, sentMessages } = createWorker({ now });
+    const result = await worker.scanOnce();
+
+    expect(result.alerts).toBe(1);
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0]!.body).toContain("[链滞留告警]");
+
+    const open = signalRepo.findOpen().filter(s => s.signal_type === CHAIN_STALL_WATCHDOG_SIGNAL_TYPE);
+    expect(open).toHaveLength(1);
+    expect(open[0]!.feature_id).toBe("conv-429-1");
+
+    await worker.stop();
+  });
+
+  it("#845 建议 1：sendSystem 失败时信号不翻转（reconcile 跳过 notifyFailed）", async () => {
+    const now = new Date("2026-09-08T10:00:00Z");
+    insertTailRow(db, {
+      conversationId: "conv-flip-1",
+      messageId: "msg-flip-1",
+      senderType: "system",
+      senderId: "system",
+      body: "[系统保护] 输出异常，已自动中断。",
+      createdAt: "2026-09-08T09:00:00Z",
+    });
+
+    // 创建一个 sendSystem 会抛错的 worker
+    const signalRepo = new SignalRepository(db);
+    const sendSystem = async () => { throw new Error("sendSystem failed"); };
+    const worker = new ChainStallWatchdogWorker(db, signalRepo, sendSystem, createTestLogger(), { now: () => now });
+
+    // 第一轮：sendSystem 失败 → 信号已 upsert（open）
+    await worker.scanOnce();
+    const open1 = signalRepo.findOpen().filter(s => s.signal_type === CHAIN_STALL_WATCHDOG_SIGNAL_TYPE);
+    expect(open1).toHaveLength(1);
+
+    // 第二轮：尾部仍是中断型（sendSystem 失败 → 没有新尾行）→ reconcile 不 resolve
+    await worker.scanOnce();
+    const open2 = signalRepo.findOpen().filter(s => s.signal_type === CHAIN_STALL_WATCHDOG_SIGNAL_TYPE);
+    expect(open2).toHaveLength(1); // 不翻转
 
     await worker.stop();
   });

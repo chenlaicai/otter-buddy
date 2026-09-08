@@ -4,7 +4,7 @@ doc_type: feature
 change_type: feature
 capability_test: "n/a: 纯 A 类代码逻辑（确定性检测器 + Worker 轮询），无 LLM 行为依赖"
 title: "编排链中断悬置告警（#822）：进程内看门狗 + RHI critical 信号"
-summary: "新增 ChainStallWatchdogWorker：10min 轮询检测会话尾部中断型终态消息（30min 阈值），触发对话内系统告警 + RHI critical 信号 + 台账备注；熔断重启和搭档主动中断排除在外。"
+summary: "新增 ChainStallWatchdogWorker：60s 轮询检测会话尾部中断型终态消息（30min 阈值），触发对话内系统告警 + RHI critical 信号 + 台账备注；熔断重启、搭档主动中断、429 限流终态排除在外。"
 feature_id: F20260908cs82
 created_in_conversation: 449d8f5d-e91e-49c0-ade5-0fbd9b3d0fcb
 created_at: 2026-09-08
@@ -38,7 +38,7 @@ Issue #822（母票 #695 终局批次 ③）要求：编排链中断后，30min 
 | 维度 | RHI chain_stall | 本看门狗 |
 |---|---|---|
 | 对象 | F 文档 PR 停滞（天级） | 编排链会话消息滞留（分钟级） |
-| 节拍 | RhiScanWorker 1h | ChainStallWatchdogWorker 10min（误配60s，见设计） |
+| 节拍 | RhiScanWorker 1h | ChainStallWatchdogWorker 60s |
 | 数据源 | git log + F 文档 | messages 表尾行 SQL |
 | 信号类型 | `chain_stall` | `chain_stall_watchdog` |
 
@@ -58,10 +58,11 @@ Issue #822（母票 #695 终局批次 ③）要求：编排链中断后，30min 
 
 ### 判据
 
-**中断型终态识别**（封闭集，文案来源 retry-policy.ts / orchestrator.ts 单一来源）：
+**中断型终态识别**（封闭集，文案来源 retry-policy.ts / orchestrator.ts / rate-limit-error.ts 单一来源）：
 - `[系统保护] ...已自动中断`（各类 guard abort）
 - `[系统保护] 该獭...已达熔断上限`（circuit break 终态）
 - `[服务重启，发言中断]`（进程重启残留）
+- `配额耗尽（429 限流终态），本轮发言已终止`（#845 严重发现 1 修复：429 限流终态尾部形态）
 
 **排除项**（设计内行为或自动恢复路径）：
 - `[搭档中断]`：用户主动停
@@ -71,7 +72,7 @@ Issue #822（母票 #695 终局批次 ③）要求：编排链中断后，30min 
 ### 去重机制
 
 - 对话内告警消息发出后成为该会话新尾行（非中断型）→ 下一轮天然 skip（幂等自带，无需去重表）
-- signals 表 upsert occurrences 累加 + 同会话对话内消息节流（`N 会话每 60min 一条`自律，无独立表）
+- signals 表 upsert occurrences 累加即去重（同会话同类型信号合并，无独立表）
 
 ### 信号生命周期
 
@@ -104,7 +105,8 @@ A 类（时间可控注入）：四种场景全部通过
 | `src/usecases/health/signal-registry.ts` | 新增 `chain_stall_watchdog` 信号类型 |
 | `src/usecases/health/signal-pipeline.ts` | `EXTERNALLY_MANAGED_SIGNAL_TYPES` 排除集合 |
 | `src/app.ts` | 装配 + 启停生命周期 |
-| `tests/usecases/health/chain-stall-watchdog.test.ts` | 新增：A 类四场景 |
+| `tests/usecases/health/chain-stall-watchdog.test.ts` | 新增：A 类四场景 + #845 修复覆盖 |
+| `tests/usecases/health/signal-pipeline.test.ts` | #845 建议 2：EXTERNALLY_MANAGED 排除回归测试 |
 
 ## 验证
 

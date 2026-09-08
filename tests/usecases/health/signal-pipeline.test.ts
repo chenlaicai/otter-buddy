@@ -123,4 +123,28 @@ describe("SignalPipeline", () => {
     expect(pipeline.listOpen()).toHaveLength(1);
     expect(pipeline.listOpen()[0].signal_type).toBe("hotspot");
   });
+
+  it("#845 建议 2：EXTERNALLY_MANAGED 信号不被 auto-resolve 误关", async () => {
+    const { pipeline } = makePipeline();
+    // chain_stall_watchdog 信号由 ChainStallWatchdogWorker 外部写入，不经过 pipeline.process
+    // 直接用 SignalRepository upsert（与 watchdog 行为一致）
+    const db = (pipeline as unknown as { signalRepo: { upsert: (s: unknown) => { id: number }; findOpen: () => Array<{id:number;signal_type:string;feature_id:string|null}>; resolve: (id:number) => boolean } }).signalRepo;
+    db.upsert({
+      signalType: "chain_stall_watchdog",
+      severity: "critical",
+      featureId: "conv-test-1",
+      filePath: null,
+      evidence: "test stall",
+      suggestedAction: "test",
+    });
+
+    // pipeline 处理一个无关信号（hotspot）——chain_stall_watchdog 不在 detectedKeys 中
+    await pipeline.process([signal("warning", "hotspot")]);
+
+    // chain_stall_watchdog 信号应保持 open（不被 auto-resolve 误关）
+    const open = pipeline.listOpen();
+    const watchdogSignal = open.find(s => s.signal_type === "chain_stall_watchdog");
+    expect(watchdogSignal).toBeDefined();
+    expect(watchdogSignal!.feature_id).toBe("conv-test-1");
+  });
 });
