@@ -62,6 +62,9 @@ const INTERRUPTION_PHRASES = [
   "[系统保护] 输出异常，已自动中断",
   "[系统保护] 该獭连续输出退化且已达熔断上限，发言已中断。如需恢复请重启该獭。",
   "[服务重启，发言中断]",
+  // #845 严重发现 1：429 限流终态尾部形态（orchestrator.handleApiError 先 sendSystem 告警
+  // 后 failTerminal → 尾部恒为限流告警消息，不在封闭集内则永不告警）。#543 事故同型实证。
+  "配额耗尽（429 限流终态），本轮发言已终止", // [系统告警] 配额耗尽（buildRateLimitSystemMsg）
 ];
 
 /**
@@ -215,10 +218,11 @@ export class ChainStallWatchdogWorker {
     const now = this.options.now ? this.options.now() : new Date();
     const rows = this.fetchTailRows();
     const alerts = detectChainStallFromRows(rows, now, this.options.thresholdMs ?? CHAIN_STALL_THRESHOLD_MS);
+    const notifyFailed = new Set<string>();
     for (const a of alerts) {
-      await this.raiseAlert(a, now);
+      if (!(await this.raiseAlert(a, now))) notifyFailed.add(a.conversationId);
     }
-    this.reconcileWatchdogSignals(alerts);
+    this.reconcileWatchdogSignals(alerts, notifyFailed);
     return { alerts: alerts.length };
   }
 
@@ -238,14 +242,18 @@ export class ChainStallWatchdogWorker {
   }
 
   /** 单条告警：对话内系统消息 + RHI critical 信号 + 台账 in_progress 行备注。
-   *  三路各自 try/catch（传感器分离）：任一路失败不影响其余两路，单轮失败不停摆。 */
-  private async raiseAlert(a: ChainStallAlert, now: Date): Promise<void> {
+   *  三路各自 try/catch（传感器分离）：任一路失败不影响其余两路，单轮失败不停摆。
+   *  返回 false = sendSystem 失败（对话内去重依赖告警消息成为新尾行——注入失败时
+   *  尾行仍是中断型，下轮会重复检出，reconcile 必须跳过该会话防信号翻转，#845 建议发现 1）。 */
+  private async raiseAlert(a: ChainStallAlert, now: Date): Promise<boolean> {
     const chainLabel = a.conversationId.slice(0, 8);
     const body = buildStallAlertBody(a, chainLabel);
 
+    let notifyOk = true;
     try {
       await this.sendSystem(a.conversationId, body);
     } catch (e) {
+      notifyOk = false;
       this.logger.warn("[chain-watchdog] 告警系统消息注入失败（其余通路继续）", {
         action: "chain_watchdog_notify_error", conversationId: a.conversationId,
         error: e instanceof Error ? e.message : String(e),
@@ -272,7 +280,7 @@ export class ChainStallWatchdogWorker {
     }
 
     const repo = this.options.dispatchAttemptRepo;
-    if (!repo) return;
+    if (!repo) return notifyOk;
     try {
       const rows = this.db.prepare(
         "SELECT message_id AS messageId, target_otter_id AS targetOtterId FROM dispatch_attempts WHERE status = 'in_progress' AND conversation_id = ?",
@@ -286,16 +294,19 @@ export class ChainStallWatchdogWorker {
         error: e instanceof Error ? e.message : String(e),
       });
     }
+    return notifyOk;
   }
 
   /** 本轮未复现的会话 → resolve 其 open 信号（watchdog 信号生命周期自管，
-   *  与 SignalPipeline.auto-resolve 同语义但键空间独立，见 pipeline 的排除注释） */
-  private reconcileWatchdogSignals(alerts: ChainStallAlert[]): void {
+   *  与 SignalPipeline.auto-resolve 同语义但键空间独立，见 pipeline 的排除注释）。
+   *  notifyFailed：本轮 sendSystem 失败的会话不参与 reconcile——对话内去重未生效，
+   *  会话下轮必然重复检出，此时 resolve 只会造成 open/resolved 每 60s 翻转（#845）。 */
+  private reconcileWatchdogSignals(alerts: ChainStallAlert[], notifyFailed: ReadonlySet<string>): void {
     try {
       const detected = new Set(alerts.map(a => a.conversationId));
       const open = this.signalRepo.findOpen().filter(s => s.signal_type === CHAIN_STALL_WATCHDOG_SIGNAL_TYPE);
       for (const s of open) {
-        if (s.feature_id && detected.has(s.feature_id)) continue;
+        if (s.feature_id && (detected.has(s.feature_id) || notifyFailed.has(s.feature_id))) continue;
         this.signalRepo.resolve(s.id);
       }
     } catch (e) {
