@@ -444,6 +444,23 @@ export class SchedulerService {
    *  「有静默」的全部信息，更早窗口在日报对账时由 cron 表人工/LLM 核对）。 */
   private async reconcileMissedWindows(tasks: ScheduledTask[]): Promise<void> {
     const now = new Date();
+    // #853 检视严重 1：去重——同一错过窗口重复重启不得重复落账。一次性取 open 的 other
+    // 事件，按 (taskId, missedWindowAt) 建集合；落账前查重。错过窗口的 lastTriggeredAt
+    // 不会因对账而更新（对账不触发任务），不去重则每次重启都重落同一窗口事件。
+    let existingKeys: Set<string>;
+    try {
+      const openOther = await this.healingRepo!.findOpen();
+      existingKeys = new Set(
+        openOther
+          .filter(e => e.errorType === 'other')
+          .map(e => {
+            const ctx = e.context as Record<string, unknown> | null;
+            return `${ctx?.taskId ?? ''}\0${ctx?.missedWindowAt ?? ''}`;
+          }),
+      );
+    } catch {
+      existingKeys = new Set(); // 查重失败降级为不去重（多落一条优于不落）
+    }
     for (const task of tasks) {
       if (task.scheduleType !== 'cron' || !task.cron) continue;
       const prevDue = this.cronParser.getPrevTime!(task.cron, task.timezone, now);
@@ -452,7 +469,10 @@ export class SchedulerService {
         : task.createdAt ? new Date(task.createdAt) : null;
       // 已触发过且 reference >= prevDue → 无错过；从未触发但 createdAt >= prevDue → 未到首个窗口
       if (!reference || reference.getTime() >= prevDue.getTime()) continue;
+      const dedupKey = `${task.id}\0${prevDue.toISOString()}`;
+      if (existingKeys.has(dedupKey)) continue; // 已落账过该窗口，跳过
       await this.recordMissedWindow(task, prevDue, now);
+      existingKeys.add(dedupKey); // 同轮多任务同窗口的后续不再重复
     }
   }
 

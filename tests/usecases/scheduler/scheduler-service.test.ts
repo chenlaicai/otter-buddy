@@ -797,6 +797,7 @@ describe('#814: 调度完整性对账（启动时错过窗口落 healing）', ()
     return {
       _events: events,
       create: vi.fn(async (e: Record<string, unknown>) => { events.push(e); }),
+      findOpen: vi.fn(async () => events.map(e => ({ errorType: e.errorType, context: e.context }))),
       autoStaleDismiss: vi.fn(async () => 0),
     };
   }
@@ -867,6 +868,46 @@ describe('#814: 调度完整性对账（启动时错过窗口落 healing）', ()
     await service.stop();
 
     expect(healingRepo._events).toHaveLength(0);
+  });
+
+  it('重复重启去重：同一错过窗口已落 open 事件 → 不重复落账', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const prevDue = new Date('2026-09-06T01:00:00.000Z');
+    const cronParser = createMockCronParser(new Date('2026-09-07T01:00:00.000Z'), prevDue);
+    const healingRepo = makeHealingRepo();
+
+    taskRepo._store.set('task-missed', makeTask({
+      id: 'task-missed',
+      scheduleType: 'cron',
+      cron: '0 9 * * *',
+      lastTriggeredAt: '2026-09-05T01:00:00.000Z',
+    } as never));
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: createMockSendMessage() as unknown as SendMessage,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+      healingRepo: healingRepo as never,
+    });
+
+    // 第一次 start → 落账 1 条
+    await service.start();
+    await service.stop();
+    expect(healingRepo._events).toHaveLength(1);
+
+    // 第二次 start（模拟重启）→ 去重命中，不再落账
+    // mock findOpen 返回第一次落的事件（errorType=other + context.taskId/missedWindowAt）
+    healingRepo.findOpen = vi.fn(async () => healingRepo._events.map(e => ({
+      errorType: e.errorType, context: e.context,
+    })));
+    await service.start();
+    await service.stop();
+    expect(healingRepo._events).toHaveLength(1);
   });
 
   it('cronParser 不支持 getPrevTime（旧实现）→ 跳过对账不报错', async () => {
