@@ -119,6 +119,18 @@ function mockQueryOtter(): QueryOtter {
   return { getById: async () => null } as unknown as QueryOtter;
 }
 
+/** #753：可配置 otter 状态的 QueryOtter mock（backfill 堵漏测试用） */
+function mockQueryOtterWithStatus(status: "active" | "dissolved"): QueryOtter {
+
+  return {
+    getById: async (id: string) => ({
+      id, name: "Test Otter", type: "small", status,
+      role: null, parentOtterId: null,
+      createdAt: "2026-07-16T00:00:00Z", dissolvedAt: status === "dissolved" ? "2026-08-01T00:00:00Z" : null,
+    }),
+  } as unknown as QueryOtter;
+}
+
 /** 创建 SdkInvokePort mock（R20260817arnt PR-A 改名），可在指定事件后完成或抛出异常 */
 function mockAgentInvoke(options: {
   events?: AgentStreamEvent[];
@@ -387,6 +399,76 @@ describe("AgentInvoker", () => {
     expect(eventTypes).toContain("message.start");
     expect(eventTypes).toContain("error");
     expect(eventTypes).not.toContain("message.aborted");
+  });
+
+  it("#753: backfill 兜底——active 獭无 session 时补登记", async () => {
+    const created: string[] = [];
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({ events: [{ type: "turn_end" }], result: { text: "ok" } }),
+      mockSendMessage(),
+      mockQueryMessage(),
+      mockManageSession({
+        getActiveSession: async () => null,
+        createSession: async (otterId: string) => { created.push(otterId); return makeSession({ id: "sess-backfill", otterId }); },
+      }),
+      mockQueryOtterWithStatus("active"),
+      createTestLogger(),
+    );
+
+    const result = await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "Hi", senderId: "user-1",
+    });
+
+    expect(result.messageId).toBe("msg-streaming");
+    expect(created).toEqual(["otter-1"]);
+  });
+
+  it("#753: backfill 堵漏——dissolved 獭不建 domain session（幽灵行源头）", async () => {
+    const created: string[] = [];
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({ events: [{ type: "turn_end" }], result: { text: "ok" } }),
+      mockSendMessage(),
+      mockQueryMessage(),
+      mockManageSession({
+        getActiveSession: async () => null,
+        createSession: async (otterId: string) => { created.push(otterId); return makeSession({ id: "sess-backfill", otterId }); },
+      }),
+      mockQueryOtterWithStatus("dissolved"),
+      createTestLogger(),
+    );
+
+    const result = await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "Hi", senderId: "user-1",
+    });
+
+    // 主流程不因 backfill 跳过而中断；但 createSession 不得被调用
+    expect(result.messageId).toBe("msg-streaming");
+    expect(created).toEqual([]);
+  });
+
+  it("#753: backfill 放行——otter 查询失败（null）时仍走原 backfill 逻辑（不误拦 F20260805rsto 意图）", async () => {
+    const created: string[] = [];
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({ events: [{ type: "turn_end" }], result: { text: "ok" } }),
+      mockSendMessage(),
+      mockQueryMessage(),
+      mockManageSession({
+        getActiveSession: async () => null,
+        createSession: async (otterId: string) => { created.push(otterId); return makeSession({ id: "sess-backfill", otterId }); },
+      }),
+      mockQueryOtter(), // getById → null（查询失败/獭不存在）
+      createTestLogger(),
+    );
+
+    const result = await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "Hi", senderId: "user-1",
+    });
+
+    expect(result.messageId).toBe("msg-streaming");
+    expect(created).toEqual(["otter-1"]); // null 不误拦：backfill 兜底照常
   });
 
   it("clears stale abort flag when invoke succeeds (race condition)", async () => {
