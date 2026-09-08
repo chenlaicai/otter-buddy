@@ -57,6 +57,7 @@ import type { Logger as LoggerType } from "@usecases/ports/logger";
 import type { RhiScanWorker as RhiScanWorkerType } from "@usecases/health/rhi-scan-worker";
 import { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import { SignalPipeline } from "@usecases/health/signal-pipeline";
+import { ChainStallWatchdogWorker } from "@usecases/health/chain-stall-watchdog";
 import { collectHealingEvents } from "@usecases/health/healing-collector";
 import type { AgentSessionSource } from "@usecases/health/cost-output-collector";
 import type { CreateSnapshotRow } from "@usecases/health/snapshot-rows";
@@ -102,6 +103,8 @@ export interface BuildAppOptions {
   startScheduler?: boolean;
   /** F20260825sgnw 审视发现 1：RHI 扫描 worker 启动开关（对齐 startScheduler 模式；测试/CI 可关） */
   startRhiWorker?: boolean;
+  /** #822：编排链滞留看门狗启动开关（对齐 startRhiWorker 模式；测试/CI 可关） */
+  startChainStallWatchdog?: boolean;
   /** F20260826rsme：重启自动恢复启动开关（对齐 startScheduler 模式；测试/CI 可关）。
    *  只在 resume 层生效，reconcile 侧不联动——reconcile 在 postInitDatabase 调用无 options 上下文，
    *  且统一入队在测试库中无副作用（记录不触发任何行为），行为开关收敛一处。 */
@@ -260,6 +263,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     },
   }));
   resolveManageScheduledTask(uc.manageScheduledTask);
+
+  // #822：编排链滞留看门狗（分钟级轮询）——独立于 RHI 1h 扫描，检测器与生命周期自管。
+  // Why 装配在 uc 之后：sendSystem 端口取自 usecases；对齐 startRhiWorker 开关模式（测试/CI 可关）
+  const chainStallWatchdog = new ChainStallWatchdogWorker(
+    db, repos.rhiSignal, uc.sendMessage.sendSystem.bind(uc.sendMessage), logger, {
+      dispatchAttemptRepo: repos.dispatchAttempt,
+    },
+  );
+  if (options.startChainStallWatchdog ?? true) {
+    chainStallWatchdog.start();
+  }
 
   // ── Metric 框架（prom-client + JSONL 文件持久化）──
   const metricsRegistry = initMetricsRegistry(logger, { dir: path.join(dataDir, "metrics") });
@@ -522,6 +536,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       retryWorker?.stopSync();
       // F20260825sgnw（#401）：RHI worker 同样先停再关 DB
       await rhiScanWorker.stop();
+      // #822：看门狗同样先停再关 DB
+      await chainStallWatchdog.stop();
       // await metric flush 到文件，确保进程退出前数据落盘
       try {
         await metricsRegistry.dispose();

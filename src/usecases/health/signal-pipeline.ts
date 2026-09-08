@@ -22,6 +22,16 @@ export interface CriticalSignalWakeup {
   (signal: DetectedSignal, signalRecordId: number): Promise<void>;
 }
 
+/** #822：生命周期由外部生产者自管的信号类型——本管道的 auto-resolve 不碰它们。
+ * Why：resolveStaleSignals 的契约是「本轮检测器未复现 → resolve」，只对与本管道
+ * 扫描器同键空间（detectSignals 每轮全量重算覆盖）的信号成立。chain_stall_watchdog
+ * 由独立的 ChainStallWatchdogWorker 分钟级轮询 + 自带 reconcile，若管道 1h 扫描一轮
+ * 未检出就把它 resolve，open 状态会在 1h 粒度上被反复误关（watchdog 下一轮才 re-upsert）。
+ * 新增外部管理信号时在实现方文件声明并加到此集合。 */
+export const EXTERNALLY_MANAGED_SIGNAL_TYPES: ReadonlySet<string> = new Set([
+  "chain_stall_watchdog",
+]);
+
 export interface SignalPipelineResult {
   stored: number;
   memoryIndexed: number;
@@ -133,7 +143,9 @@ export class SignalPipeline {
    * 信号生命周期应与实际问题状态一致——问题消失后信号应自动关闭，而非永久 open。
    */
   private resolveStaleSignals(detectedKeys: Set<string>): number {
-    const openSignals = this.signalRepo.findOpen();
+    // #822：外部管理类型不进 auto-resolve 视野（见 EXTERNALLY_MANAGED_SIGNAL_TYPES 注释）
+    const openSignals = this.signalRepo.findOpen()
+      .filter(s => !EXTERNALLY_MANAGED_SIGNAL_TYPES.has(s.signal_type));
     let resolvedCount = 0;
     for (const open of openSignals) {
       const key = `${open.signal_type}\u0000${open.feature_id ?? ""}\u0000${open.file_path ?? ""}`;

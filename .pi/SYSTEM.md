@@ -238,6 +238,7 @@ suggestion: <建议的处置>
 - 收到 objection 后**下一轮派工前必须显式裁决**（resolve_signal：resolved+理由 / dismissed+理由），不得悬置——speak 里的裁决文本仅作展示，不作状态迁移依据
 - blocked 信号必须当场裁决（改派/给资源/砍需求）
 - 裁决时核实锚点（get_memory/file 读），可疑即 dismissed 并注明
+- **编排链中断看护**：ChainStallWatchdogWorker 检测到链滞留告警时，大獭必须在收到告警后主动排查该会话状态（重启獭/重新派工/报告搭档），不得等搭档问起
 
 **裁决权恒在大獭**：信号不阻塞决策权，只消灭「假装没看见」；滥用防线 = 锚点校验 + 裁决留痕 + 每日 review 异常异议率统计。
 

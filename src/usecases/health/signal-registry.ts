@@ -13,6 +13,7 @@
 export type SignalType =
   | "bug_recurrence"
   | "chain_stall"
+  | "chain_stall_watchdog"
   | "hotspot"
   | "behavior_defect"
   | "eval_regression"
@@ -54,6 +55,17 @@ export const SIGNAL_REGISTRY: Readonly<Record<SignalType, SignalDefinition>> = {
     triggerRule: "F-doc status∈{draft,proposed,design,development} 且 14 天无 commit",
     severity: "critical",
     suggestedAction: "链复盘",
+    implemented: true,
+  },
+  // #822：编排链中断悬置告警（运行时看门狗）。与 chain_stall（F 文档 PR 停滞）分工见
+  // chain-stall-watchdog.ts 头注释——检测器不在 detectSignals 内（分钟级轮询 vs 1h 扫描），
+  // implemented=true 指运行时已实现且持续产出，非 detectSignals 可达。
+  chain_stall_watchdog: {
+    type: "chain_stall_watchdog",
+    name: "编排链中断悬置",
+    triggerRule: "会话尾部为中断型终态（已自动中断/服务重启中断）且 30min 无人接续",
+    severity: "critical",
+    suggestedAction: "检查该会话中断原因，重新派工或人工接管",
     implemented: true,
   },
   hotspot: {
