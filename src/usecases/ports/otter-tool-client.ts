@@ -121,8 +121,9 @@ export interface OtterToolClient {
     getById(id: string): Promise<Otter | null>;
     /** F20260824srst：获取当前 active session（自重启循环防护 tool 层拦截用） */
     getActiveSession(otterId: string): Promise<OtterSession | null>;
-    /** 重启獭生：归档当前 session + 创建新 session（含前情摘要）。F20260810rstart */
-    restart(otterId: string, summary?: string): Promise<OtterSession>;
+    /** 重启獭生：归档当前 session + 创建新 session（含前情摘要）。F20260810rstart
+     *  F20260908efmd: 增可选 modelAlias 参数——配额耗尽时应急切模型 */
+    restart(otterId: string, summary?: string, modelAlias?: string): Promise<OtterSession>;
   };
   context: {
     get(otterId: string, key?: string): Promise<Record<string, string>>;

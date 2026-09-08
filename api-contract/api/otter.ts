@@ -19,6 +19,8 @@ export interface OtterDTO {
   role: { name: string; responsibilities: string[] } | null;
   /** 模型别名（多模型路由，如 "mimo"）；未配置（大獭/老数据/默认模型）时不返回 */
   modelAlias?: string;
+  /** F20260908efmd: true = 配置未显式指定，跟随默认 */
+  modelIsDefault?: boolean;
   parentOtterId: string | null;
   createdAt: string;
   dissolvedAt: string | null;
@@ -52,6 +54,8 @@ export interface OtterSessionDTO {
   archiveReason: string | null;
   isNegativeCase: boolean;
   summary: string | null;
+  /** F20260908efmd: 该世生效的模型 alias（null = 存量历史数据未快照） */
+  modelAlias?: string | null;
 }
 
 /** Otter 面板 Profile DTO（聚合端点 GET /api/otters/:id/profile） */
@@ -61,6 +65,8 @@ export interface OtterProfileDTO {
   type: 'big' | 'small';
   roleName: string | null;
   modelAlias: string | null;
+  /** F20260908efmd: true = 配置未显式指定，跟随默认 */
+  modelIsDefault?: boolean;
   modelDescriptor: {
     alias: string;
     description?: string;

@@ -12,7 +12,7 @@ import { tokenizeWithJieba } from "@frameworks/db/jieba-tokenizer";
 import { FID_ANCHOR_REGEX } from "@entities/document/fid-format";
 
 /** 数据库迁移：添加 session_file 字段和 otter_configs 表 */
-// eslint-disable-next-line max-statements -- 补丁集合，语句数由历史补丁数决定
+// eslint-disable-next-line max-statements, max-lines-per-function -- 补丁集合，语句数和行数由历史补丁数决定（#848: +otter_sessions.model_alias）
 export function migrateDatabase(db: Database.Database, logger: Logger): void {
   ensureAgentSessionFileColumn(db, logger);
   ensureMessagesSourceAndSenderNameColumns(db, logger);
@@ -38,6 +38,14 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   if (!hasModelAlias) {
     db.prepare("ALTER TABLE otter_configs ADD COLUMN model_alias TEXT").run();
     logger.info('Added model_alias column to otter_configs table');
+  }
+
+  // F20260908efmd: otter_sessions 加 model_alias 列（该世生效的模型 alias 快照）
+  const otterSessionColumns = db.prepare("PRAGMA table_info(otter_sessions)").all() as Array<{ name: string }>;
+  const hasSessionModelAlias = otterSessionColumns.some(col => col.name === 'model_alias');
+  if (!hasSessionModelAlias) {
+    db.prepare("ALTER TABLE otter_sessions ADD COLUMN model_alias TEXT").run();
+    logger.info('Added model_alias column to otter_sessions table');
   }
 
   // 检查 last_read_turn_number 字段是否存在

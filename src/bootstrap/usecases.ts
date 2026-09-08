@@ -6,6 +6,7 @@ import type { MemoryIndexGateway } from "@usecases/conversation/memory-index-gat
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
+import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
 import type { Repositories, UseCases } from "./types";
 import { SearchEngine } from "@usecases/memory/search-engine";
 import { ManageMemory } from "@usecases/memory/manage-memory";
@@ -43,10 +44,12 @@ export interface UseCaseDeps {
   workspaceGateway?: WorkspaceGateway;
   /** Otter 配置提供方（ManageParticipant 读 modelAlias 注入 ParticipantDTO） */
   otterConfigProvider?: OtterConfigProvider;
+  /** F20260908efmd: 模型池（有效模型解析 / session 快照 / restart 切模型）。未注入时 T1/T2/T3 降级 */
+  modelPool?: ModelPoolLike;
 }
 
 export function initUseCases(deps: UseCaseDeps): UseCases {
-  const { repos, agentGateway, embeddingService, memoryIndex, appConfig, logger, workspaceGateway, otterConfigProvider } = deps;
+  const { repos, agentGateway, embeddingService, memoryIndex, appConfig, logger, workspaceGateway, otterConfigProvider, modelPool } = deps;
   const memoryUcs = buildMemoryUseCases(repos, embeddingService, appConfig, logger);
   const { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries } = memoryUcs;
   const sendMessage = new SendMessage(repos.conversation, repos.otter, memoryIndex, logger, repos.attachment);
@@ -56,13 +59,15 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const manageReadState = new ManageReadState(repos.conversation);
   // 信号轨迹查询（F20260902u5tr → sgp2 S1b）：判据切台账（dispatch_attempts），可选注入降级 PENDING
   const querySignalTrail = new QuerySignalTrail({ conversationRepo: repos.conversation, queryMessage, dispatchAttemptRepo: repos.dispatchAttempt });
-  const manageParticipant = new ManageParticipant(repos.conversation, repos.otter, otterConfigProvider);
+  const manageParticipant = new ManageParticipant(repos.conversation, repos.otter, otterConfigProvider, modelPool);
   const manageKeyInfo = new ManageKeyInfo(repos.conversation, memoryIndex);
   const queryOtter = new QueryOtter(repos.otter);
-  const createOtter = new CreateOtter(repos.otter, agentGateway, logger);
+  // F20260908efmd: 注入 configProvider + modelPool，首世建账快照有效模型
+  const createOtter = new CreateOtter(repos.otter, agentGateway, logger, otterConfigProvider, modelPool);
   const manageConversation = new ManageConversation(repos.conversation, createOtter, workspaceGateway);
+  // F20260908efmd: 注入 configProvider + modelPool，createSession/restartSession 快照有效模型
   const manageSession = new ManageSession(
-    repos.otter, agentGateway, manageConversation, manageMemory, logger,
+    repos.otter, agentGateway, manageConversation, manageMemory, logger, otterConfigProvider, modelPool,
   );
   // F20260903dmpe 阻尼#4（S4 补丁批）：dissolve 事务内销账名下 in_progress 派发
   // F20260904schf P2（#792）：dissolve 出站清算——未派发的出站信号补 aborted 墓碑

@@ -415,6 +415,7 @@ function createOtterTables(db: Database.Database): void {
       is_negative_case INTEGER NOT NULL DEFAULT 0,
       summary TEXT,
       previous_session_id TEXT,
+      model_alias TEXT,
       FOREIGN KEY (otter_id) REFERENCES otters(id),
       FOREIGN KEY (previous_session_id) REFERENCES otter_sessions(id)
     );

@@ -571,14 +571,13 @@ function OtterDetailModal(props: ModalsProps) {
             </div>
           ) : profile && (
             <div className="space-y-3">
-              {/* ⚔️ 武器：模型描述 + 强项 */}
-              {profile.modelAlias && (
-                <EquipmentSlot
-                  icon="⚔️"
-                  label="武器"
-                  helpText={HELP_TEXT.weapon}
-                >
-                  <div className="text-sm font-medium text-stone-800">{profile.modelAlias}</div>
+              {/* ⚔️ 武器：模型描述 + 强项。F20260908efmd: 始终渲染（有效模型恒非空） */}
+              <EquipmentSlot
+                icon="⚔️"
+                label="武器"
+                helpText={HELP_TEXT.weapon}
+              >
+                <div className="text-sm font-medium text-stone-800">{profile.modelAlias}{profile.modelIsDefault && <span className="text-stone-400">（默认）</span>}</div>
                   {profile.modelDescriptor?.description && (
                     <div className="text-xs text-stone-500 mt-0.5">{profile.modelDescriptor.description}</div>
                   )}
@@ -590,8 +589,6 @@ function OtterDetailModal(props: ModalsProps) {
                     </div>
                   )}
                 </EquipmentSlot>
-              )}
-
               {/* ✨ 技能槽：skills chips 云 */}
               {profile.skills.length > 0 && (
                 <EquipmentSlot
@@ -723,6 +720,12 @@ function OtterDetailModal(props: ModalsProps) {
                   <div className="text-[11px] text-stone-500 mt-1">
                     开始 {s.startedAt}{s.archivedAt ? ` · 归档 ${s.archivedAt}` : ''}
                   </div>
+                  {/* F20260908efmd: 转世履历每世行显示武器（session 快照的 modelAlias） */}
+                  {s.modelAlias && (
+                    <div className="text-[11px] text-stone-500 mt-0.5">
+                      ⚔️ {s.modelAlias}
+                    </div>
+                  )}
                   {s.archiveReason && (
                     <div className="text-xs text-stone-600 mt-1">归档原因：{s.archiveReason}</div>
                   )}

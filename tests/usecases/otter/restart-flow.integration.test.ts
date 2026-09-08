@@ -173,6 +173,7 @@ describe("重启獭生全链路（F20260805rsto 集成）", () => {
         previousSessionId: firstSession.id, startedAt: new Date().toISOString(),
         archivedAt: null, archiveReason: null, isNegativeCase: false,
         summary: null,
+        modelAlias: null,
       });
     });
 
