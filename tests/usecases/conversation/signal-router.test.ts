@@ -39,18 +39,21 @@ function makeDeps(overrides: Partial<{
   lastMsg: Message | null;
   lastMsgFn?: (...args: unknown[]) => Promise<Message | null>;
   chainError: Error | null;
+  agentGateway?: { steerSession?: (otterId: string, text: string) => boolean };
 }> = {}) {
-  const { pending = [{ messageId: "sig-1", targetOtterId: "otter-1" }], messageById = makeMsg(), otterType = "big", lastMsg = null, lastMsgFn, chainError = null } = overrides;
+  const { pending = [{ messageId: "sig-1", targetOtterId: "otter-1" }], messageById = makeMsg(), otterType = "big", lastMsg = null, lastMsgFn, chainError = null, agentGateway } = overrides;
   const executeChain = vi.fn().mockImplementation(() => chainError ? Promise.reject(chainError) : Promise.resolve({}));
   const healingCreate = vi.fn().mockResolvedValue(undefined);
   const getLast = lastMsgFn ? vi.fn().mockImplementation(lastMsgFn) : vi.fn().mockResolvedValue(lastMsg);
   const getMessageById = vi.fn().mockResolvedValue(messageById);
   const listPending = vi.fn().mockResolvedValue(pending);
+  const recordStart = vi.fn();
   return {
     executeChain,
     healingCreate,
     listPending,
     getMessageById,
+    recordStart,
     router: new SignalRouter({
       conversationRepo: {
         getAllIds: vi.fn().mockResolvedValue(["conv-1"]),
@@ -64,7 +67,8 @@ function makeDeps(overrides: Partial<{
       invokeFn: vi.fn().mockResolvedValue({ messageId: "m-out" }),
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger,
       healingRepo: { create: healingCreate } as unknown as HealingEventRepository,
-      dispatchAttemptRepo: { listPendingSignals: listPending, shouldThrottle: vi.fn().mockReturnValue(false) } as unknown as DispatchAttemptRepo,
+      dispatchAttemptRepo: { listPendingSignals: listPending, shouldThrottle: vi.fn().mockReturnValue(false), recordStart } as unknown as DispatchAttemptRepo,
+      agentGateway,
     }),
     mocks: { getLast, getMessageById, listPending },
   };
@@ -367,5 +371,117 @@ describe("#826 多模态注入收口：invokeTarget 从附件重建 InjectionPay
     await vi.waitFor(() => expect(executeChain).toHaveBeenCalled());
     const chainCall = executeChain.mock.calls[0][0];
     expect(chainCall.images).toEqual([{ type: "image", data: "base64data", mimeType: "image/jpeg" }]);
+  });
+});
+
+describe("P3a ①：URGENT steer 注入（防双投递销账）", () => {
+  it("URGENT + busy → 调 steerSession 并写销账行（返回 invoked）", async () => {
+    let capturedText = "";
+    const steerSession = vi.fn().mockImplementation((_id: string, text: string) => { capturedText = text; return true; });
+    const deps = makeDeps({
+      lastMsg: streamingMsg(),
+      messageById: makeMsg({ signalLevel: "URGENT", signalMeta: JSON.stringify({ level: "URGENT", reason: "紧急变更" }), senderName: "大獭" }),
+      agentGateway: { steerSession },
+    });
+    const results = await deps.router.routePendingSignals("conv-1");
+    expect(results[0].action).toBe("invoked");
+    // steerSession 被调用，文案含 reason 和 sender 名
+    expect(steerSession).toHaveBeenCalled();
+    expect(capturedText).toContain("紧急变更");
+    expect(capturedText).toContain("来自 大獭 的急迫信号");
+    // 销账行：recordStart 写 status=completed, note=steered
+    expect(deps.recordStart).toHaveBeenCalled();
+    const attemptArg = deps.recordStart.mock.calls[0][0];
+    expect(attemptArg.conversationId).toBe("conv-1");
+    expect(attemptArg.messageId).toBe("sig-1");
+    expect(attemptArg.targetOtterId).toBe("otter-1");
+    expect(attemptArg.status).toBe("completed");
+    expect(attemptArg.note).toBe("steered");
+  });
+
+  it("URGENT + busy + steer 返回 false → 降级 busyQueue（不销账）", async () => {
+    const steerSession = vi.fn().mockReturnValue(false);
+    const deps = makeDeps({
+      lastMsg: streamingMsg(),
+      messageById: makeMsg({ signalLevel: "URGENT", signalMeta: JSON.stringify({ level: "URGENT" }), senderName: "大獭" }),
+      agentGateway: { steerSession },
+    });
+    const results = await deps.router.routePendingSignals("conv-1");
+    expect(results[0].action).toBe("queued_busy");
+    expect(steerSession).toHaveBeenCalled();
+    // 销账行不写（steer 失败走 busyQueue）
+    expect(deps.recordStart).not.toHaveBeenCalled();
+  });
+
+  it("URGENT + busy + 无 agentGateway → 直接入 busyQueue（安全降级）", async () => {
+    const deps = makeDeps({
+      lastMsg: streamingMsg(),
+      messageById: makeMsg({ signalLevel: "URGENT", signalMeta: JSON.stringify({ level: "URGENT", reason: "紧急" }), senderName: "大獭" }),
+    });
+    const results = await deps.router.routePendingSignals("conv-1");
+    expect(results[0].action).toBe("queued_busy");
+    expect(deps.recordStart).not.toHaveBeenCalled();
+  });
+
+  it("NORMAL + busy → 不调 steerSession（不误伤）", async () => {
+    const steerSession = vi.fn().mockReturnValue(true);
+    const deps = makeDeps({
+      lastMsg: streamingMsg(),
+      messageById: makeMsg({ signalLevel: "NORMAL" }),
+      agentGateway: { steerSession },
+    });
+    const results = await deps.router.routePendingSignals("conv-1");
+    expect(results[0].action).toBe("queued_busy");
+    expect(steerSession).not.toHaveBeenCalled();
+  });
+
+  it("URGENT + busy + steerSession 抛异常 → 降级 busyQueue（安全侧）", async () => {
+    const steerSession = vi.fn().mockImplementation(() => { throw new Error("session exploded"); });
+    const deps = makeDeps({
+      lastMsg: streamingMsg(),
+      messageById: makeMsg({ signalLevel: "URGENT", signalMeta: JSON.stringify({ level: "URGENT" }), senderName: "大獭" }),
+      agentGateway: { steerSession },
+    });
+    const results = await deps.router.routePendingSignals("conv-1");
+    expect(results[0].action).toBe("queued_busy");
+    expect(deps.recordStart).not.toHaveBeenCalled();
+  });
+
+  it("URGENT + idle → 正常点火（不走 steer 路径）", async () => {
+    const steerSession = vi.fn().mockReturnValue(true);
+    const deps = makeDeps({
+      messageById: makeMsg({ signalLevel: "URGENT" }),
+      agentGateway: { steerSession },
+    });
+    const results = await deps.router.routePendingSignals("conv-1");
+    expect(results[0].action).toBe("invoked");
+    expect(steerSession).not.toHaveBeenCalled();
+  });
+
+  it("URGENT + busy + 无 signalMeta → reason 默认值，steer 正常", async () => {
+    let capturedText = "";
+    const steerSessionCapture = vi.fn().mockImplementation((_id: string, text: string) => { capturedText = text; return true; });
+    const deps = makeDeps({
+      lastMsg: streamingMsg(),
+      messageById: makeMsg({ signalLevel: "URGENT", signalMeta: null, senderName: "大獭" }),
+      agentGateway: { steerSession: steerSessionCapture },
+    });
+    const results = await deps.router.routePendingSignals("conv-1");
+    expect(results[0].action).toBe("invoked");
+    expect(capturedText).toContain("（未说明原因）");
+  });
+
+  it("URGENT + busy + 销账写入异常 → 仍返回 invoked（注入成功，记账失败不阻断）", async () => {
+    const steerSession = vi.fn().mockReturnValue(true);
+    const deps = makeDeps({
+      lastMsg: streamingMsg(),
+      messageById: makeMsg({ signalLevel: "URGENT", signalMeta: JSON.stringify({ level: "URGENT", reason: "紧急" }), senderName: "大獭" }),
+      agentGateway: { steerSession },
+    });
+    deps.recordStart.mockImplementation(() => { throw new Error("db write failed"); });
+    const results = await deps.router.routePendingSignals("conv-1");
+    // 注入成功仍返回 invoked（记账失败仅 warn，不阻断——硬约束 1）
+    expect(results[0].action).toBe("invoked");
+    expect(steerSession).toHaveBeenCalled();
   });
 });
