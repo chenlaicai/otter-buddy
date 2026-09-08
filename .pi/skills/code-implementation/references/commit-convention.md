@@ -11,6 +11,22 @@
 - `type`: One of `New Feature`, `Feature Update`, `BugFix`, `Refactor`, `Design`（与 Type Tags 表及 .githooks/commit-msg 白名单一致；`Feature` 为 `New Feature` 的历史别名，2026-08-25 起不再收录，存量提交见 #432）
 - `描述`: Chinese description of the change
 
+## Modification-Class Declaration (F20260908pgrd)
+
+Commit message body 必须含一行修改类别声明（与 troubleshooting 修法排序对应）：
+
+```
+Modification-Class: narrow-fix | scope-reduction | deletion | mechanism-addition | docs-config
+```
+
+- `narrow-fix`：修法排序① 既有机制语义内修（缺啥补啥）
+- `scope-reduction`：修法排序② 收窄问题机制的管辖边界
+- `deletion`：修法排序③ 删除机制
+- `mechanism-addition`：修法排序④ 新增机制（须经重对抗门通过）
+- `docs-config`：纯文档/配置微调，不经修法排序
+
+声明进 git 记录，每日全局回看验证声明与实际 diff 一致性——声明非 `mechanism-addition` 但 diff 实增机制 = 高严重度补丁证据。P0 紧急修复可先修后补审：声明值后标注 `(P0-emergency, post-review pending)`。
+
 ## Type Tags
 
 | Tag | When to Use |
