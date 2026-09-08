@@ -43,7 +43,17 @@ category: technique
    - **放弃认领**：发 `<!-- otter-claim-release: conversation=<对话短ID> -->` + 原因说明。
    - **双 PR 仲裁**（最坏情况已并存）：时间序优先（PR createdAt 不可伪造）；质量明显更优可升级搭档裁决；被弃方 close 并在关闭评论留判定依据（#665 先例模板）。
 3. **创建 worktree**：`git worktree add .claude/worktrees/<name> -b <branch-name> origin/main`。失败时报告搭档，由搭档决定继续或中止。worktree 是特性开发的独立空间，特性文档（`docs/features/`）也在这里。
-4. **在 worktree 内提交**：所有改动和验证在 worktree 内进行，主目录只读。生成特性 ID 前必须先跑 `date` 取当前日期，禁止凭印象标日期（#422）；**新 ID 必须先查重**：`grep -rl '<title 或主题关键词>' docs/features/ docs/research/`，存在同 title 或语义相同的文档则复用原 ID——自编新 ID 会让旧 ID 的 chunk 残留 memory 库形成重复污染（#524）。标题搜不到时改用主题关键词重试，仍无命中才可自编新 ID。按提交模板 commit，署名按 signature-convention skill。**特性文档（docs/features/F*.md）是默认交付物**（#443）：与改动同 worktree 提交。**特性文档约定**（原 _shared/ 全局约定，拆解后内联，F20260903）：特性文档是特性开发的全流程载体，贯穿探索、分析、设计、实现、审视各阶段——
+4. **在 worktree 内提交**：所有改动和验证在 worktree 内进行，主目录只读。生成特性 ID 前必须先跑 `date` 取当前日期，禁止凭印象标日期（#422）；**新 ID 必须先查重**：`grep -rl '<title 或主题关键词>' docs/features/ docs/research/`，存在同 title 或语义相同的文档则复用原 ID——自编新 ID 会让旧 ID 的 chunk 残留 memory 库形成重复污染（#524）。标题搜不到时改用主题关键词重试，仍无命中才可自编新 ID。按提交模板 commit，署名按 signature-convention skill。**Modification-Class 声明**（F20260908pgrd）：commit message body 必须含一行声明，取值与修法排序对应——
+
+   | 修改类型 | 声明值 |
+   |---|---|
+   | 修法排序① 既有语义内修 | `narrow-fix` |
+   | 修法排序② 收窄管辖 | `scope-reduction` |
+   | 修法排序③ 删除机制 | `deletion` |
+   | 修法排序④ 新增机制（重对抗通过后） | `mechanism-addition` |
+   | 纯文档/配置微调（不经修法排序） | `docs-config` |
+
+   声明进 git 记录，每日全局回看会验证声明与实际 diff 一致性（声明非 `mechanism-addition` 但 diff 实增机制 = 🔴 高严重度补丁证据）。P0 紧急修复可先修后补审，声明值后标注 `(P0-emergency, post-review pending)`。**特性文档（docs/features/F*.md）是默认交付物**（#443）：与改动同 worktree 提交。**特性文档约定**（原 _shared/ 全局约定，拆解后内联，F20260903）：特性文档是特性开发的全流程载体，贯穿探索、分析、设计、实现、审视各阶段——
    - **位置**：worktree 中（`<worktree>/docs/features/<yyyy>/<mm>/<dd>/F<date><id>-<title>.md`），随代码一起提交到 PR
    - **协调**：首次写入时用 `create_linked_resource(type: "file", groupId: "<特性ID>")` 注册（groupId 可选），所有参与者通过 `list_artifacts` 发现并追加
    - **时机**：当有需要记录的内容时就记录——各 skill 中的「写入特性文档」步骤是建议性的，不是强制检查点
