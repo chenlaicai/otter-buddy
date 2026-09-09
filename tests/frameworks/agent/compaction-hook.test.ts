@@ -27,11 +27,14 @@ function makePreparation(overrides?: Partial<CompactionPreparationLike>): Compac
   };
 }
 
-function makeDeps(summary: string, fail = false): CompactionHookDeps & { prompts: string[] } {
+function makeDeps(summary: string, fail = false): CompactionHookDeps & { prompts: string[]; otterIds: string[] } {
   const prompts: string[] = [];
+  const otterIds: string[] = [];
   return {
     prompts,
-    synthesize: async (prompt: string) => {
+    otterIds,
+    synthesize: async (otterId: string, prompt: string) => {
+      otterIds.push(otterId);
       prompts.push(prompt);
       if (fail) throw new Error("synthesis exploded");
       return summary;
@@ -47,6 +50,7 @@ describe("handleSessionBeforeCompact（F20260903cmpk）", () => {
       { reason: "threshold", preparation: makePreparation() },
       deps,
       "大獭",
+      "otter-1",
     );
     expect(result).toBeDefined();
     expect(result!.compaction.summary).toContain("七段");
@@ -55,6 +59,8 @@ describe("handleSessionBeforeCompact（F20260903cmpk）", () => {
     // prompt 携带历史消息
     expect(deps.prompts[0]).toContain("帮我修登录 bug");
     expect(deps.prompts[0]).toContain("auth.ts:42");
+    // F20260909csfx：otterId 必须透传到合成闭包（bootstrap 写死 "current" 曾致 100% 降级）
+    expect(deps.otterIds).toEqual(["otter-1"]);
   });
 
   it("overflow → 放行 Pi 默认（救急场景不赌合成速度）", async () => {
@@ -63,6 +69,7 @@ describe("handleSessionBeforeCompact（F20260903cmpk）", () => {
       { reason: "overflow", preparation: makePreparation() },
       deps,
       "大獭",
+      "otter-1",
     );
     expect(result).toBeUndefined();
     expect(deps.prompts).toHaveLength(0);
@@ -74,6 +81,7 @@ describe("handleSessionBeforeCompact（F20260903cmpk）", () => {
       { reason: "manual", preparation: makePreparation() },
       deps,
       "大獭",
+      "otter-1",
     );
     expect(result).toBeUndefined();
     expect(deps.prompts).toHaveLength(0);
@@ -84,6 +92,7 @@ describe("handleSessionBeforeCompact（F20260903cmpk）", () => {
       { reason: "threshold", preparation: makePreparation() },
       null,
       "大獭",
+      "otter-1",
     );
     expect(result).toBeUndefined();
   });
@@ -94,6 +103,7 @@ describe("handleSessionBeforeCompact（F20260903cmpk）", () => {
       { reason: "threshold", preparation: makePreparation() },
       deps,
       "大獭",
+      "otter-1",
     );
     expect(result).toBeUndefined();
   });
@@ -104,23 +114,38 @@ describe("handleSessionBeforeCompact（F20260903cmpk）", () => {
       { reason: "threshold", preparation: makePreparation() },
       deps,
       "大獭",
+      "otter-1",
     );
     expect(result).toBeUndefined();
   });
 
   it("合成超时 → 降级放行 Pi 默认（不吊死主循环）", async () => {
     const deps: CompactionHookDeps = {
-      synthesize: () => new Promise<string>((resolve) => setTimeout(() => resolve("太慢了"), 500)),
+      synthesize: Function.prototype as unknown as CompactionHookDeps["synthesize"], // 永不 resolve——测超时分支
       logger: { info: () => {}, warn: () => {} },
     };
     const result = await handleSessionBeforeCompact(
       { reason: "threshold", preparation: makePreparation() },
       deps,
       "大獭",
+      "otter-1",
       50,
     );
     expect(result).toBeUndefined();
   }, 10_000);
+
+  it("otterId 为 null（invoke store 缺失的异常态）→ 降级放行 Pi 默认，不调合成（F20260909csfx）", async () => {
+    const deps = makeDeps("不该被用");
+    const result = await handleSessionBeforeCompact(
+      { reason: "threshold", preparation: makePreparation() },
+      deps,
+      "大獭",
+      null,
+    );
+    expect(result).toBeUndefined();
+    expect(deps.prompts).toHaveLength(0);
+    expect(deps.otterIds).toHaveLength(0);
+  });
 
   it("previousSummary 存在时 prompt 要求谱系逐代追加", async () => {
     const deps = makeDeps("x");
@@ -128,6 +153,7 @@ describe("handleSessionBeforeCompact（F20260903cmpk）", () => {
       { reason: "threshold", preparation: makePreparation({ previousSummary: "gen3: 前情" }) },
       deps,
       "大獭",
+      "otter-1",
     );
     expect(deps.prompts[0]).toContain("gen3: 前情");
     expect(deps.prompts[0]).toContain("逐代追加");
