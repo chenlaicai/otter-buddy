@@ -41,8 +41,7 @@ llm:
       # 思考深度（可选，F20260909mthl）：minimal / low / medium / high / xhigh / max
       # 不配则用 SDK 默认链（默认 medium，按模型支持档位自动映射——如 kimi k3 落 high）。
       # 配了则覆写默认链：模型不支持的档位会自动钳到最近可用档（启动日志可见，不会报错）。
-      # 当前内置模型（kimi k3 / mimo / glm / claude）全是推理模型，本配置对它们均有效；
-      # 万一接入非推理模型，配了也安全无效（SDK 自动钳为 off）。
+      # 对推理模型（如 kimi k3 / mimo / glm / claude）有效；非推理模型（如 gpt-4o）配了安全无效。
       # 注意：与温度互斥——推理模型 thinking 开启时温度不生效。
       # thinkingLevel: "high"
 
