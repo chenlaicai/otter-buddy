@@ -118,16 +118,17 @@ export class SignalRouter {
     filter?: { otterId?: string; triggerMessageId?: string },
   ): Promise<Array<{ signal: Message; action: RouteAction }>> {
     // F20260908rlcp 整合修复（实测双触发根因）：
-    // ① 必须只处理「本次触发的消息」——triggerMessageId 传入时只路由该消息；
-    //    未传入（resume 补扫路径）才扫全部历史（且只取每个目标的最新一条）。
-    //    旧实现扫 getMessages 全部历史逐条点火：已处理的獭产出消息（tsp 指回）
-    //    会被反复重燃，同一条用户消息触发 N 次 invoke（09-09 实测：说一句话大獭被点 3 次）。
-    // ② 獭的产出消息（senderType='otter'）绝不作为路由信号源——链引擎的 hop 续跑
-    //    （nextTargets）已承载 yield 路由，此处再扫 = 与链引擎双跑。
-    if (filter?.triggerMessageId) {
-      return this.routeTriggerMessage(conversationId, filter.triggerMessageId, filter.otterId);
+    // 必须只处理「本次触发的消息」——triggerMessageId 传入时只路由该消息。
+    // 旧实现扫 getMessages 全部历史逐条点火：已处理的獭产出消息（tsp 指回）
+    // 会被反复重燃，同一条用户消息触发 N 次 invoke（09-09 实测：说一句话大獭被点 3 次）。
+    // 獭的产出消息（senderType='otter'）绝不作为路由信号源——链引擎的 hop 续跑
+    // （nextTargets）已承载 yield 路由，此处再扫 = 与链引擎双跑。
+    if (!filter?.triggerMessageId) {
+      // F20260908rlcp：routeAllPending 已退役，无 triggerMessageId 的调用是残留路径——拒绝
+      this.deps.logger.warn("[signal-router] routeSignals 无 triggerMessageId 调用（残留路径），拒绝", { conversationId });
+      return [];
     }
-    return this.routeLatestPending(conversationId, filter?.otterId);
+    return this.routeTriggerMessage(conversationId, filter.triggerMessageId, filter.otterId);
   }
 
   /** 路由本轮触发消息（事件 A 主路径：web/IM 消息落库后） */
@@ -145,46 +146,6 @@ export class SignalRouter {
       results.push({ signal: msg, action: await this.routeSignalForTarget(conversationId, targetId, msg) });
     }
     return results;
-  }
-
-  /** resume 补扫路径：扫全部消息（getMessages 返回 seq DESC 倒序），
-   *  每目标只取最新一条非獭信号（倒序遍历时首次命中即最新，防存量重燃） */
-  private async routeLatestPending(
-    conversationId: string,
-    otterIdFilter?: string,
-  ): Promise<Array<{ signal: Message; action: RouteAction }>> {
-    const messages = await this.deps.conversationRepo.getMessages(conversationId, { limit: 200 });
-    const latestByTarget = new Map<string, Message>();
-    for (const msg of messages) {
-      const targetId = this.pickLatestTarget(msg, otterIdFilter, latestByTarget);
-      if (targetId) latestByTarget.set(targetId, msg); // DESC 序首次命中=最新
-    }
-    const results: Array<{ signal: Message; action: RouteAction }> = [];
-    for (const [targetId, msg] of latestByTarget) {
-      results.push({ signal: msg, action: await this.routeSignalForTarget(conversationId, targetId, msg) });
-    }
-    // 销账：注入成功（followUp/steer）的信号打 consumed 标记，防 resume 补扫重燃
-    for (const r of results) {
-      if (r.action !== "followed_up" && r.action !== "steered") continue;
-      await this.markSignalConsumed(r.signal, r.action).catch(() => {});
-    }
-    return results;
-  }
-
-  /** 从消息 tsp 中挑一个「该补扫且未被跳过」的目标——已选中的不再重复。 */
-  private pickLatestTarget(
-    msg: Message,
-    otterIdFilter: string | undefined,
-    latestByTarget: Map<string, Message>,
-  ): string | null {
-    if (msg.status !== "completed" || msg.senderType === "otter") return null;
-    if (this.isSignalConsumed(msg)) return null; // 已销账信号跳过
-    const targets = (msg.talkingStonePassedTo ?? []).filter(t => t !== "user");
-    for (const targetId of targets) {
-      if (otterIdFilter && targetId !== otterIdFilter) continue;
-      if (!latestByTarget.has(targetId)) return targetId;
-    }
-    return null;
   }
 
   /** 信号销账：注入成功（followUp/steer）后给消息打 consumed 标记，

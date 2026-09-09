@@ -39,8 +39,8 @@ export class ResumeInterruptedService {
       dispatchChainEngine: DispatchChainEngine;
       /** invokeFn 在装配处闭包捕获 agentInvoker（审视发现 1 修复） */
       invokeFn: (params: { otterId: string; conversationId: string; userMessageContent: string; senderId: string }) => Promise<{ messageId: string; aggregatedTargets?: string[] }>;
-      /** F20260901sgpv P1：信号路由器（可选）——注入后启动补扫含信号补路由
-       *  （崩溃窗口内未点火信号的克星）；恢复链本身仍走链引擎 */
+      /** F20260908rlcp：routeAllPending 已退役——signalRouter 不再被 resume 使用，
+       *  保留注入位兼容旧装配，实际不读。 */
       signalRouter?: SignalRouter;
       /** F202609048840 F4：派发台账（可选）——done 语义判定的真相源。
        *  链引擎对 invoke 拒绝是吞错语义，executeChain 正常返回 ≠ invoke 成功；
