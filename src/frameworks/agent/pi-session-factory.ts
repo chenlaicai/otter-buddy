@@ -616,6 +616,22 @@ export class PiSessionFactory implements AgentGateway {
     });
     this.logger.debug('[createSession] createAgentSession returned', { otterId });
 
+    // F20260909mthl：按模型配置设置思考深度（session 每次 invoke 重建，故每次创建后都设）。
+    // SDK setThinkingLevel 内部按模型 thinkingLevelMap clamp 到最近可用档（getAvailableThinkingLevels → clampThinkingLevel），
+    // 非 reasoning 模型 available=["off"]，任何档位被安全钳为 off。clamp 发生时打 info 日志（配置与模型能力不一致的信号）。
+    if (this.cfg.modelPool) {
+      const configuredLevel = this.cfg.modelPool.getThinkingLevel(resolvedAlias);
+      if (configuredLevel) {
+        session.setThinkingLevel(configuredLevel);
+        const applied = session.thinkingLevel;
+        if (applied !== configuredLevel) {
+          this.logger.info('Thinking level clamped to model-supported level', { otterId, modelAlias: resolvedAlias, configured: configuredLevel, applied });
+        } else {
+          this.logger.debug('Thinking level applied', { otterId, modelAlias: resolvedAlias, thinkingLevel: applied });
+        }
+      }
+    }
+
     const sessionKey = messageId ? `${otterId}:${messageId}` : otterId;
     this.activeSessions.set(sessionKey, { abort: () => session.abort(), steer: (text: string) => session.steer?.(text) ?? Promise.resolve(), toolCallCount: 0 });
 

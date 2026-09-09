@@ -9,6 +9,7 @@
  */
 
 import type { ModelConfig } from "@frameworks/config";
+import type { ThinkingLevel } from "@frameworks/config-service";
 import type { Model, Api } from "@earendil-works/pi-ai";
 
 /** 模型描述（供 prompt 注入） */
@@ -94,6 +95,13 @@ export class ModelPool implements ModelPoolLike {
   getContextWindow(alias: string | null | undefined): number | undefined {
     if (!alias) return this.entries.get(this.defaultAlias)?.config.contextWindow;
     return this.entries.get(alias)?.config.contextWindow;
+  }
+
+  /** 获取模型的思考深度配置（F20260909mthl）。alias 缺省/不存在时回退默认模型，与 getModel 同语义 */
+  getThinkingLevel(alias: string | null | undefined): ThinkingLevel | undefined {
+    // Why 无 alias 回退：resolvedAlias 恒非空（调用点已解析），未配置 thinkingLevel 时 entries.get() 返回 undefined 即跳过设置，无需 fallback
+    if (!alias) return this.entries.get(this.defaultAlias)?.config.thinkingLevel;
+    return this.entries.get(alias)?.config.thinkingLevel;
   }
 
   /** 返回所有模型描述，供 prompt 注入 */

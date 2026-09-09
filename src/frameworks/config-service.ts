@@ -30,7 +30,15 @@ export interface ModelConfig {
    *  显式声明后经 models-factory 覆盖 provider 模板默认值（消除隐式继承的静默变更风险）。
    *  SDK downgradeUnsupportedImages 按 Model.input 自动降级非 vision 模型的图片。 */
   input?: Array<"text" | "image">;
+  /** 每模型思考深度（F20260909mthl）：session 创建后经 setThinkingLevel 生效。
+   *  "off"（默认）= 关闭 thinking；档位映射按模型目录 thinkingLevelMap 决定（如 kimi k3 支持 low/high/max），
+   *  配置了映射为 null 的档位时 SDK 自动向上/向下 clamp 到最近可用档。 */
+  thinkingLevel?: ThinkingLevel;
 }
+
+/** SDK ThinkingLevel 枚举（pi-ai types.d.ts）——配置校验用 */
+const VALID_THINKING_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export type ThinkingLevel = typeof VALID_THINKING_LEVELS[number];
 
 /** 应用配置结构（与原 config.ts 同构） */
 export interface AppConfig {
@@ -215,6 +223,7 @@ interface RawConfig {
       contextWindow?: number;
       maxTokens?: number;
       input?: Array<"text" | "image">;
+      thinkingLevel?: ThinkingLevel;
     }>;
   };
   memory?: {
@@ -316,6 +325,10 @@ function validateModels(raw: RawConfig): void {
     if (!m.model) throw new Error(`配置校验失败: llm.models["${m.alias}"].model 为必填字段`);
     if (!VALID_PROVIDERS.includes(m.provider)) {
       throw new Error(`配置校验失败: llm.models["${m.alias}"].provider 必须是 ${VALID_PROVIDERS.join(" / ")}，当前值: ${m.provider}`);
+    }
+    // F20260909mthl：thinkingLevel 枚举校验（档位→模型的实际映射交给 SDK thinkingLevelMap clamp，配置层只挡非法词）
+    if (m.thinkingLevel !== undefined && !VALID_THINKING_LEVELS.includes(m.thinkingLevel)) {
+      throw new Error(`配置校验失败: llm.models["${m.alias}"].thinkingLevel 必须是 ${VALID_THINKING_LEVELS.join(" / ")}，当前值: ${m.thinkingLevel}`);
     }
   }
 
@@ -522,6 +535,7 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelC
         contextWindow: m.contextWindow ?? undefined,
         maxTokens: m.maxTokens ?? undefined,
         input: m.input ?? undefined,
+        thinkingLevel: m.thinkingLevel ?? undefined,
       })),
       // F20260829cach: 缺省 true（实测 GLM anthropic 兼容端点接受 ttl 字段）
       cacheLongRetention: raw.llm.cacheLongRetention ?? true,
