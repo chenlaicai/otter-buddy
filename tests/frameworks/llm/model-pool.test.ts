@@ -117,6 +117,42 @@ describe('ModelPool', () => {
     });
   });
 
+  describe('getThinkingLevel (F20260909mthl)', () => {
+    it('returns configured thinkingLevel for alias', () => {
+      const pool = buildModelPool('default', [
+        { config: makeConfig('default'), model: makeModel('default') },
+        { config: makeConfig('kimi', { thinkingLevel: 'high' }), model: makeModel('kimi') },
+      ]);
+
+      expect(pool.getThinkingLevel('kimi')).toBe('high');
+    });
+
+    it('returns undefined when not configured（跳过设置，SDK 默认 off）', () => {
+      const pool = buildModelPool('default', [
+        { config: makeConfig('default'), model: makeModel('default') },
+      ]);
+
+      expect(pool.getThinkingLevel('default')).toBeUndefined();
+    });
+
+    it('falls back to default alias when alias is null/undefined', () => {
+      const pool = buildModelPool('default', [
+        { config: makeConfig('default', { thinkingLevel: 'low' }), model: makeModel('default') },
+      ]);
+
+      expect(pool.getThinkingLevel(null)).toBe('low');
+      expect(pool.getThinkingLevel(undefined)).toBe('low');
+    });
+
+    it('returns undefined for unknown alias（不回退默认——调用点 resolvedAlias 恒非空，fallback 会覆盖未知 alias 的未配置语义）', () => {
+      const pool = buildModelPool('default', [
+        { config: makeConfig('default', { thinkingLevel: 'low' }), model: makeModel('default') },
+      ]);
+
+      expect(pool.getThinkingLevel('nonexistent')).toBeUndefined();
+    });
+  });
+
   describe('describeModels', () => {
     it('returns all model descriptors', () => {
       const pool = buildModelPool('default', [
