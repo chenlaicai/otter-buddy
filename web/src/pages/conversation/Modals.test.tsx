@@ -334,6 +334,13 @@ describe('F20260909rmpx RestartModal 模型切换', () => {
     expect(captured).toEqual({ summary: '换个模型继续干', modelAlias: 'glm' })
   })
 
+  it('otter.modelAlias 为空时默认项显示纯「不换模型」无括号段（特性文档契约：空值省略括号）', async () => {
+    renderRestartModal(() => {}, { modelAlias: undefined })
+    await act(async () => { await Promise.resolve() })
+    const select = document.querySelector('select') as HTMLSelectElement
+    expect(select.options[0].textContent).toBe('不换模型')
+  })
+
   it('保持「不换模型」时确认不携带 modelAlias（undefined）', async () => {
     let captured: { summary: string; modelAlias?: string } | null = null
     renderRestartModal((summary, modelAlias) => { captured = { summary, modelAlias } })
