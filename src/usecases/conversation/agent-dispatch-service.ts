@@ -33,6 +33,9 @@ export class AgentDispatchService {
     userMessageContent: string,
     senderId: string,
     injection?: InjectionPayload,
+    /** F20260908rlcp：本条触发消息的 ID（feishu/weixin 调用点在消息落库后传入）。
+     *  只路由本轮触发，不扫历史。 */
+    messageId?: string,
   ): Promise<AgentDispatchResult> {
     try {
       // F20260901sgpv P1：IM 入口换轨——信号路由（消息自带 talkingStonePassedTo 是
@@ -40,9 +43,10 @@ export class AgentDispatchService {
       // 消息定目标在并发时有竞态，隐式查询必须删而非双轨——注入路由器后旧路径不可达。
       // #826 多模态收口：带附件消息从此过信号路由器闸门+台账（注入载荷由路由器从 attachments 重建）
       if (this.deps.signalRouter) {
-        // F20260903ihlt：IM 用户发言 = 显式恢复动作——解除中断停机后再路由
-        // F20260908rlcp: clearUserHalt retired
-        await this.deps.signalRouter.routeSignals(conversationId);
+        // F20260908rlcp：IM 入口路由——dispatch 调用点（feishu/weixin message-processor）
+        // 传 triggerMessageId 只路由本轮触发消息（不扫历史，防已处理信号重燃）。
+        // messageId 缺省（老调用点）时降级为「每目标最新一条」补扫语义。
+        await this.deps.signalRouter.routeSignals(conversationId, messageId ? { triggerMessageId: messageId } : undefined);
         return {};
       }
 

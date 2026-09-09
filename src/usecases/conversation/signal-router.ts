@@ -115,21 +115,57 @@ export class SignalRouter {
    */
   async routeSignals(
     conversationId: string,
-    filter?: { otterId?: string },
+    filter?: { otterId?: string; triggerMessageId?: string },
+  ): Promise<Array<{ signal: Message; action: RouteAction }>> {
+    // F20260908rlcp 整合修复（实测双触发根因）：
+    // ① 必须只处理「本次触发的消息」——triggerMessageId 传入时只路由该消息；
+    //    未传入（resume 补扫路径）才扫全部历史（且只取每个目标的最新一条）。
+    //    旧实现扫 getMessages 全部历史逐条点火：已处理的獭产出消息（tsp 指回）
+    //    会被反复重燃，同一条用户消息触发 N 次 invoke（09-09 实测：说一句话大獭被点 3 次）。
+    // ② 獭的产出消息（senderType='otter'）绝不作为路由信号源——链引擎的 hop 续跑
+    //    （nextTargets）已承载 yield 路由，此处再扫 = 与链引擎双跑。
+    if (filter?.triggerMessageId) {
+      return this.routeTriggerMessage(conversationId, filter.triggerMessageId, filter.otterId);
+    }
+    return this.routeLatestPending(conversationId, filter?.otterId);
+  }
+
+  /** 路由本轮触发消息（事件 A 主路径：web/IM 消息落库后） */
+  private async routeTriggerMessage(
+    conversationId: string,
+    triggerMessageId: string,
+    otterIdFilter?: string,
+  ): Promise<Array<{ signal: Message; action: RouteAction }>> {
+    const msg = await this.loadSignalMessage(triggerMessageId);
+    if (!msg || msg.status !== "completed" || msg.senderType === "otter") return [];
+    const targets = (msg.talkingStonePassedTo ?? []).filter(t => t !== "user");
+    const results: Array<{ signal: Message; action: RouteAction }> = [];
+    for (const targetId of targets) {
+      if (otterIdFilter && targetId !== otterIdFilter) continue;
+      results.push({ signal: msg, action: await this.routeSignalForTarget(conversationId, targetId, msg) });
+    }
+    return results;
+  }
+
+  /** resume 补扫路径：扫全部消息（getMessages 返回 seq DESC 倒序），
+   *  每目标只取最新一条非獭信号（倒序遍历时首次命中即最新，防存量重燃） */
+  private async routeLatestPending(
+    conversationId: string,
+    otterIdFilter?: string,
   ): Promise<Array<{ signal: Message; action: RouteAction }>> {
     const messages = await this.deps.conversationRepo.getMessages(conversationId, { limit: 200 });
-    const results: Array<{ signal: Message; action: RouteAction }> = [];
-
+    const latestByTarget = new Map<string, Message>();
     for (const msg of messages) {
-      if (msg.status !== "completed") continue;
+      if (msg.status !== "completed" || msg.senderType === "otter") continue;
       const targets = (msg.talkingStonePassedTo ?? []).filter(t => t !== "user");
-      if (targets.length === 0) continue;
-
       for (const targetId of targets) {
-        if (filter?.otterId && targetId !== filter.otterId) continue;
-        const action = await this.routeSignalForTarget(conversationId, targetId, msg);
-        results.push({ signal: msg, action });
+        if (otterIdFilter && targetId !== otterIdFilter) continue;
+        if (!latestByTarget.has(targetId)) latestByTarget.set(targetId, msg); // DESC 序首次命中=最新
       }
+    }
+    const results: Array<{ signal: Message; action: RouteAction }> = [];
+    for (const [targetId, msg] of latestByTarget) {
+      results.push({ signal: msg, action: await this.routeSignalForTarget(conversationId, targetId, msg) });
     }
     return results;
   }

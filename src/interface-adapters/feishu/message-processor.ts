@@ -168,7 +168,8 @@ export class FeishuMessageProcessor {
 
     // 异步触发 Agent 派发（多模态 Phase 2：带附件注入载荷——图片真图 + 文档文本块）
     // #608：dispatchText 为原始正文（降级提示不进 agent 上下文，与微信侧同款）
-    this.triggerAgentDispatch(ids.conversationId, dispatchText, ids.senderId, payload.injection);
+    // F20260908rlcp：传入 message.id 供路由层只处理本轮触发（防历史信号重燃）
+    this.triggerAgentDispatch(ids.conversationId, dispatchText, ids.senderId, payload.injection, message.id);
   }
 
   /** 多模态 Phase 2：媒体消息处理——下载 → 上传管线 → 附件 id + 注入载荷。
@@ -305,6 +306,7 @@ export class FeishuMessageProcessor {
     userMessageContent: string,
     senderId: string,
     injection?: FeishuAttachmentOutcome["injection"],
+    messageId?: string,
   ): void {
     // 异步执行，不阻塞消息处理
     // Agent 事件通过 AgentInvoker.broadcastEvent 统一推送给所有订阅者
@@ -314,6 +316,7 @@ export class FeishuMessageProcessor {
       userMessageContent,
       senderId,
       injection,
+      messageId,
     ).then(result => {
       if (result.error) {
         this.deps.logger.error("Agent dispatch failed", undefined, {

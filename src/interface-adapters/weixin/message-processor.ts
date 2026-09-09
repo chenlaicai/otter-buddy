@@ -115,7 +115,8 @@ export class WeixinMessageProcessor {
 
     // Agent 派发用原始 body（不含降级提示——运维文本不进 agent 上下文，检视建议 1；
     // 飞书同位置存在同样问题，独立 issue 跟踪）
-    await this.dispatchAgent(conversation.id, body.trim(), fromUserId, outcome.injection);
+    // F20260908rlcp：传入 message.id 供路由层只处理本轮触发（防历史信号重燃）
+    await this.dispatchAgent(conversation.id, body.trim(), fromUserId, outcome.injection, message.id);
     return true;
   }
 
@@ -173,8 +174,8 @@ export class WeixinMessageProcessor {
     }
   }
 
-  private async dispatchAgent(conversationId: string, bodyText: string, senderId: string, injection?: WeixinMediaOutcome["injection"]): Promise<void> {
-    const result = await this.deps.agentDispatchService.dispatch(conversationId, bodyText, senderId, injection);
+  private async dispatchAgent(conversationId: string, bodyText: string, senderId: string, injection?: WeixinMediaOutcome["injection"], messageId?: string): Promise<void> {
+    const result = await this.deps.agentDispatchService.dispatch(conversationId, bodyText, senderId, injection, messageId);
     if (result.error) {
       this.deps.logger.error("Weixin agent dispatch failed", undefined, { conversationId, error: result.error });
     }

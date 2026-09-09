@@ -236,7 +236,9 @@ export class MessageController {
     // F20260901sgpv P1：主入口火车头换轨——调度收敛到信号路由器（投递即点火）。
     // K3（F20260908rlcp）：SSE 生命周期挂消息终态——本轮信号到终态或超时才关流。
     if (this.signalRouter) {
-      this.signalRouter.routeSignals(conversationId)
+      // F20260908rlcp 整合修复：传入 triggerMessageId 只路由本轮触发消息——
+      // 不扫历史（历史已处理信号的重复点火是 09-09 实测双触发根因）
+      this.signalRouter.routeSignals(conversationId, { triggerMessageId: userMessage.id })
         .then(async (results) => {
           return results.length > 0 && results.every(r => r.action.startsWith("skipped"))
             ? undefined
