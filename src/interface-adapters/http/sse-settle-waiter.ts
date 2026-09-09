@@ -29,10 +29,9 @@ export function awaitTriggerAttemptsSettled(
 
       // 检查每个目标是否有在 streaming/speaking 状态的消息
       for (const targetId of targets) {
-        const last = await queryMessage.getMessages(conversationId, { senderType: "otter", limit: 1 });
-        // 该目标最新消息若仍在 streaming/speaking → 未 settle
-        const targetMsgs = last.filter(m => m.senderId === targetId);
-        if (targetMsgs.length > 0 && (targetMsgs[0]!.status === "streaming" || targetMsgs[0]!.status === "speaking")) return false;
+        // S4 修复：per-target 查询（而非全局 limit:1 再 filter）——多獭场景避免误判
+        const last = await queryMessage.getLastMessageBySender(conversationId, targetId);
+        if (last && (last.status === "streaming" || last.status === "speaking")) return false;
       }
       return true;
     } catch {

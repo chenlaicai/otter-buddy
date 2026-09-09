@@ -235,12 +235,12 @@ interface SessionPoolConfig {
 
 ### 改动 4：台账退役（全链路）
 
-- 删除：dispatch_attempts 表（migration drop + 归档说明）、DispatchAttemptRepo
+- 删除：dispatch_attempts 表（migration drop）、DispatchAttemptRepo
   实体与实现、recordStart/recordFinish 插桩（链引擎+路由器）、pendingClause、
   shouldThrottle、listPendingSignals、countPendingForTarget、allAnchorAttemptsSettled
 - retry：显式重传语义保留（原消息内容作「当前任务」重传，游标不动）；
   retryViaRouterPath 的台账覆盖记账删除
-- 迁移：存量 dispatch_attempts 表数据导出 data/archive/ 后 drop
+- 迁移：存量 dispatch_attempts 表 migration drop（运行时台账，无审计价值，不归档）
 
 ### 改动 5：429 整改（rate-limit-error.ts + orchestrator.ts + message-controller.ts）
 
