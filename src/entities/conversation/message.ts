@@ -101,7 +101,9 @@ export function canAppendEvent(status: MessageStatus): boolean {
  * 仅 streaming 状态的消息可进入 speaking 状态。
  */
 export function canStartSpeaking(status: MessageStatus): boolean {
-  return status === "streaming";
+  // F20260908rlcp：speaking 状态下的重复 yield 合法——以最后一次 tsp 为准（覆盖写）
+  // 允许「交棒后改派」（create_otter 后 yield 给新獭的场景）
+  return status === "streaming" || status === "speaking";
 }
 
 /**

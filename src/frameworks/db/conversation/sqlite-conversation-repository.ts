@@ -321,12 +321,14 @@ export class SqliteConversationRepository implements ConversationRepository {
         const maxSeq = this.db.prepare("SELECT COALESCE(MAX(sequence_num), 0) AS max_seq FROM message_segments WHERE message_id = ?").get(messageId) as { max_seq: number };
         this.db.prepare("INSERT INTO message_segments (id, message_id, body, sequence_num, created_at) VALUES (?, ?, ?, ?, datetime('now'))").run(`seg-${messageId}-${maxSeq.max_seq + 1}`, messageId, body, maxSeq.max_seq + 1);
       }
+      // F20260908rlcp：speaking 状态下的重复 yield 合法——覆盖写 tsp（以最后一次为准）
+      // WHERE 条件放宽：streaming（首次 yield）或 speaking（改派）都允许
       const result = this.db.prepare(`
         UPDATE messages SET status = 'speaking', talking_stone_passed_to = ?,
           signal_level = ?, signal_meta = ?
-        WHERE id = ? AND status = 'streaming'
+        WHERE id = ? AND status IN ('streaming', 'speaking')
       `).run(JSON.stringify(talkingStonePassedTo), signalLevel ?? null, signalMeta ?? null, messageId);
-      if (result.changes === 0) throw new DomainError(`Message ${messageId} not found or not in streaming status`, "conflict");
+      if (result.changes === 0) throw new DomainError(`Message ${messageId} not found or not in streaming/speaking status`, "conflict");
       this.refreshMessageFts(messageId);
     })();
   }

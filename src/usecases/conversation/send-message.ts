@@ -326,7 +326,9 @@ export class SendMessage {
   }
 
   /** 开始发言（yield 工具调用）：streaming → speaking，设置发言石目标；可选 body 时附带插入 segment（同一事务）。
-   *  speak+yield 拆分后内容由 speak 的 appendSegment 落库，yield 调用时 body 为空——只设路由与状态。 */
+   *  speak+yield 拆分后内容由 speak 的 appendSegment 落库，yield 调用时 body 为空——只设路由与状态。
+   *  F20260908rlcp：speaking 状态下的重复 yield 以最后一次 tsp 为准（覆盖写）——允许「交棒后改派」
+   *  （create_otter 后 yield 给新獭的场景）。 */
   async startSpeaking(messageId: string, input: StartSpeakingInput): Promise<Message> {
     const message = await this._repo.getMessageById(messageId);
     if (!message) {

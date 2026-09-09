@@ -489,7 +489,9 @@ function ConversationPage() {
         batchUpdateMessages(activeId!, (current) => {
           if (current.some(m => m.id === message.id)) return current
           // tmp 去重：乐观消息（tmp-）按 st|si|content 匹配后替换为真实消息
-          const tmpIdx = current.findIndex(m => m.id.startsWith('tmp-') && m.st === message.st && m.si === message.si && m.content === message.content)
+          // F20260908rlcp：tmp 去重加 seq 匹配——同内容并发消息（如快速连发两条相同文本）
+          // 按 seq 精确定位，避免第一条 tmp 被错误替换后第二条无处安放
+          const tmpIdx = current.findIndex(m => m.id.startsWith('tmp-') && m.st === message.st && m.si === message.si && m.content === message.content && (m.seq == null || m.seq === message.seq))
           if (tmpIdx >= 0) {
             const next = [...current]
             next[tmpIdx] = message

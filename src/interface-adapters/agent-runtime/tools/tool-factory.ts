@@ -112,9 +112,9 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
       const { resolvedIds, error } = validateAndResolve(recipients, active);
       if (error) return errorResponse(error);
 
-      // F20260908rlcp：档位概念退役——signalLevel/signalMeta 写 null
       try {
-        /** 拆分后 startSpeaking 只设路由 + 状态（内容已由 speak 的 segments 落库） */
+        /** 拆分后 startSpeaking 只设路由 + 状态（内容已由 speak 的 segments 落库）
+         *  F20260908rlcp：speaking 状态下的重复 yield 合法（覆盖写 tsp）——允许「交棒后改派」 */
         await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { talkingStonePassedTo: resolvedIds });
       } catch (err) {
         if (err instanceof DomainError && err.kind === "conflict") {
