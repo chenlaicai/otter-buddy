@@ -3,7 +3,7 @@ id: F20260909debr
 title: 决策分级与终审简报——消灭盲签拍板
 summary: 搭档反馈「讨论完方案让我拍板，但我不知道你们讨论了些啥、最终方案是啥，只看到几个问题描述，很难给出准确决策」。根因是终审时刻的信息不对等：讨论发生在獭间、方案收敛在文档里，但呈给搭档的只有待决策清单（裸奔拍板）。本特性在 prompt/skill 层落地两件事——决策分级（L0 獭自治 / L1 獭拍板+留痕可否决 / L2 搭档拍板必附简报，新增默认通过模式）+ 终审简报硬规则（凡 yield to user 请求拍板必须附六要素简报，模板真相源在 review-protocol/references/decision-briefing.md），写入 SYSTEM.md R8 并绑定到 review-protocol / code-implementation / worktree-isolation / adversarial-review 四个终审出口 + BIG_OTTER.md。
 change_type: prompt
-capability_test: "n/a: 简报格式与分级边界依赖情景判断，适合纳入每日 review 观察项（裸奔拍板次数统计）而非 golden 断言；后续若发现可采样的消息轨迹判据（如 yield to user 的前置 speak 必须含六要素关键词），再沉淀 golden 场景"
+capability_test: "n/a: 简报格式与分级边界依赖情景判断，适合纳入每日 review 观察项（裸奔拍板次数统计）而非 golden 断言；后续若发现可采样的消息轨迹判据（如 yield to user 的前置 speak 必须含六要素关键词），再沉淀 golden 场景。Golden Gate 记录：本特性为纯 prompt/skill 改动但无新增 golden 场景，gate 跑存量套件（CI golden-selftest 通过，断言判别力未退化）——无 per-PR 门控记录属设计内状态"
 created_in_conversation: 8a076a50-19b5-49fc-91a1-dcdc1cd5d38b
 tags: [prompt, big-otter, decision, briefing, ux, interaction]
 intent:
@@ -80,3 +80,16 @@ modules:
 
 - `npm run lint:skills` 通过（11 warnings 均为既有类别 + 2 条新增「引用未内联」建议，属预期取舍）
 - 行为验证：本 PR 自身的呈终审发言即按新简报格式输出（自举验证）
+
+## 对抗审视处置记录（简报审视獭 / mimo，PR #864）
+
+| # | 发现 | 分级 | 处置 | 理由 |
+|---|------|------|------|------|
+| 1 | B7 Golden Gate 记录缺失 | 严重 | 接受并修复 | capability_test 段补充 Golden Gate 显式豁免声明（无新增场景，CI golden-selftest 跑存量套件保判别力）；`test:capability` 本地跑实測超时（真 LLM 调用 >5min），以 CI 结果为准 |
+| 2 | L2 中低风险判定标准缺失，默认通过模式可被滥用 | 严重 | 接受并修复 | decision-briefing.md 与 SYSTEM.md R8 同步补三判据（无不可逆后果/不涉对外承诺/否决成本 <1 天工时）+ 正反例 + 「拿不准就往高风险归——宁问不默」保守默认 |
+| 3 | requirement-analysis 未绑定 R8 | 建议 | 接受并修复 | 产出表新增「方案审视通过 → 呈搭档终审定稿（附简报）」行——纯方案类任务（不进 code-implementation）确有 yield to user 时刻，绑定消除覆盖死角 |
+| 4 | R8「必须」缺 A4 弹性逃生舱口 | 建议 | 接受并修复 | R8 补「搭档显式要求跳过简报时，记录决策后放行」——与 R2/R3 措辞模式对齐，UX 层规则不应与安全红线同级绝对硬 |
+| 5 | 「今天内无异议」沉默窗口边界未定义 | 建议 | 建 issue 跟踪 | 响应窗口定义（12h？下一个工作时段？）涉及产品交互取舍，采纳檢视獭建议作为 R8 迭代项，不在本 PR 一步到位 |
+| - | B5 与 #861 撞车 | - | 采纳合入顺序建议 | 先 #861 后 #864，本 PR rebase 后重跑 CI |
+
+本轮焦点（实现者视角补充）：发现 2 是最有价值的一条——「默认通过模式」若无判据，LLM 执行者倾向把多数 L2 项归为中低风险以走默许路径，R8 会被自己新增的机制掏空。三判据+正反例把主观判断压成可核对清单。
