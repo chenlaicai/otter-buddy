@@ -72,7 +72,9 @@ class TestRepo {
 }
 
 /** cost_output 测试夹具：session JSONL + otter/session/message 行 + sink，返回 worker 与按日查询函数。
- *  提取动机（F20260909csdt 补充 PR）：describe 主体突破 max-lines-per-function 上限（220 行）。 */
+ *  提取动机（F20260909csdt 补充 PR）：describe 主体突破 max-lines-per-function 上限（220 行）。
+ *  sink 说明：同时注入 snapshotSink（overview）与 costOutputSink——保留 #583 原用例的
+ * 「两 sink 共存」组合覆盖（PR #866 检视发现 2，移除会丢该场景）。 */
 interface CostOutputFixtureIds { sessionFile: string; sessionId: string; otterId: string; otterName: string; convId: string; turnId: string; msgId: string }
 async function setupCostOutputFixture(
   repoDir: string,
@@ -102,11 +104,14 @@ async function setupCostOutputFixture(
 
   const { HealthSnapshotRepository } = await import("@usecases/health/health-snapshot-repository");
   const snapshotRepo = new HealthSnapshotRepository(db);
+  const overviewSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>) =>
+    snapshotRepo.replaceForDate(snapshotDate, rows);
   const costOutputSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>, metricType?: string) =>
     snapshotRepo.replaceForDate(snapshotDate, rows, metricType);
 
   const worker = new RhiScanWorker(repoDir, makePipeline(db), async () => [], console as never, {
     prSource: async () => [],
+    snapshotSink: overviewSink,
     costOutputSink,
     sessionsDir,
     agentSessionSource: async () => [
@@ -356,6 +361,8 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     // 本用例是「per-otter 行按真实日期落库」修复（PR #860）的回归保险：
     // 验证 scanOnce 连跑两次后，历史日期行仍在（replaceForDate 逐日幂等）
     // 且数值与单次扫描一致（不随扫描次数重复累计）。
+    // 覆盖 per-otter 行 + 全局行混合场景（PR #866 检视发现 1）：fixture 仓库的 seed
+    // 含 F 文档（F20260801wwww，2026-08-01），fdoc_count 全局行随每轮扫描落库。
     const { worker, queryDay } = await setupCostOutputFixture(repoDir, db, {
       sessionFile: "2026-08-28T10-00-00-000Z_test-sess-002.jsonl",
       sessionId: "test-sess-002",
@@ -366,14 +373,23 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
       msgId: "msg-out-2",
     });
 
-    // 第一轮扫描：历史日期落库
+    const queryGlobalDay = (date: string) => db.prepare(
+      "SELECT metric_key, metric_value FROM health_snapshots WHERE metric_type = 'cost_output' AND snapshot_date = ? AND metadata = '{}' ORDER BY metric_key",
+    ).all(date) as Array<{ metric_key: string; metric_value: number }>;
+
+    // 第一轮扫描：历史日期落库（per-otter 行 + 全局行）
     await worker.scanOnce();
     const firstPass = queryDay("2026-08-28");
     expect(firstPass.length).toBeGreaterThan(0);
+    // 全局行：seed 的 F 文档创建于 2026-08-01，fdoc_count 落在该日
+    const firstGlobal = queryGlobalDay("2026-08-01");
+    expect(firstGlobal.some(r => r.metric_key === "fdoc_count" && r.metric_value === 1)).toBe(true);
 
     // 第二轮扫描：同 fixture 重扫——历史日期行存活 + 数值与首轮完全一致（幂等，不重复累计）
     await worker.scanOnce();
     expect(queryDay("2026-08-28")).toEqual(firstPass);
+    // 全局行同样幂等：不随扫描轮次重复累计
+    expect(queryGlobalDay("2026-08-01")).toEqual(firstGlobal);
   });
   it("costOutputSink 未注入时快照跳过且不报错（向后兼容，#583）", async () => {
     const pipeline = makePipeline(db);
