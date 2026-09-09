@@ -69,7 +69,7 @@ category: technique
 | 产出 | 下一步 | 执行者 |
 |------|--------|--------|
 | 特性文档（docs/features/F*.md，与改动同 worktree 提交） | 随 PR 接受对抗审视 B2 文档完整性检核 | 检视獭 |
-| PR（小改动） | 搭档终审 | 搭档 |
+| PR（小改动） | 搭档终审（附决策简报，`../review-protocol/references/decision-briefing.md`） | 搭档 |
 | PR（功能开发） | 对抗审视 | 检视獭 |
 | commit 失败 | 诊断修复 | 当前獭 |
 

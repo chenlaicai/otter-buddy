@@ -268,7 +268,7 @@ category: technique
 |------|--------|--------|
 | PR review comment | 作者按处置协议回应 | 实现者 |
 | Otter 轻量通知 | 作者去 PR 上处置 | 实现者 |
-| 审视通过 | 搭档终审 | 搭档 |
+| 审视通过 | 搭档终审（呈终审发言必须附决策简报，`../review-protocol/references/decision-briefing.md`，SYSTEM.md R8） | 搭档 |
 
 ### 行动权路由（talkingStonePassedTo）
 
@@ -279,7 +279,7 @@ category: technique
 | PR review comment 发布后 | 传 [实现者/大獭] 处置 |
 | 实现者修复完成 | 传 [审视者] 做 delta 复核 |
 | 复核通过 | 传 [实现者/大獭]，由大獭决定是否传 'user' 终审 |
-| 整个任务终审 | 传 'user' |
+| 整个任务终审 | 传 'user'（附决策简报） |
 
 **修复≠签收**：实现者处置完检视意见后，必须把行动权传回审视者做 delta 复核，不能自己宣布完成。
 
