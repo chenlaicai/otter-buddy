@@ -255,19 +255,6 @@ export class SignalRouter {
     return "retry_invoked";
   }
 
-  /** 补扫全部会话的未消费信号（resume 专用） */
-  async routeAllPending(): Promise<void> {
-    const conversationIds = await this.deps.conversationRepo.getAllIds({ limit: 200 });
-    for (const conversationId of conversationIds) {
-      await this.routeSignals(conversationId).catch(err => {
-        this.deps.logger.warn("routeAllPending 单会话失败，继续其余", {
-          conversationId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
-    }
-  }
-
   /** 按 ID 加载信号消息原文 */
   private async loadSignalMessage(messageId: string): Promise<Message | null> {
     try {

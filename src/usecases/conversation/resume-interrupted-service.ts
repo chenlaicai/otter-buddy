@@ -65,15 +65,10 @@ export class ResumeInterruptedService {
     try {
       const pending = await this.deps.conversationRepo.getPendingResumes();
 
-      // F20260901sgpv P1：信号补扫（崩溃窗口兑底）——无论是否有中断发言，都扫一遍
-      // 信号未消费积压：服务崩溃时写路径没能点火的信号在此补路由。放在恢复链之前，
-      // 让补扫信号与恢复链在同一竞争面（路由器串行化）内消化，不与恢复 invoke 撞车
-      if (this.deps.signalRouter) {
-        await this.deps.signalRouter.routeAllPending().catch((err: unknown) => {
-          this.deps.logger.warn("signal rescan on resume failed", { error: err instanceof Error ? err.message : String(err) });
-        });
-      }
-
+      // F20260908rlcp：routeAllPending 退役——旧游标语义（完成才推进）的残留补丁。
+      // 新游标语义（启动成功即推进）下，运行期新到消息恒保持未读，崩溃后无需补扫点火。
+      // 唯一需恢复的是「跑到一半被进程死亡打断的 invoke」——由 restart_pending_resumes
+      // + resumeOne 承载（标 failed + retry 系统消息），与信号补扫无关。
       if (pending.length === 0) return;
       this.deps.logger.info(`Resuming interrupted messages after restart`, { count: pending.length });
       // #613：服务重启事件落 healing 台账（severity 按中断发言数分级）
