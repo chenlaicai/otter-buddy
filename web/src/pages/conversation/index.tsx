@@ -1277,11 +1277,11 @@ function ConversationPage() {
     } catch { showToast('解散失败', 'error') }
   }
 
-  async function confirmRestart(summary: string) {
+  async function confirmRestart(summary: string, modelAlias?: string) {
     if (modal.type !== 'restart') return
     const otterId = modal.otterId
     try {
-      await api.restartOtter(otterId, summary)
+      await api.restartOtter(otterId, summary, modelAlias)
       /** F20260805rsto：重启后重拉 session 链——加载 effect 有 `!sessions[id]` 守卫，
        *  不主动重拉的话弹窗/卡片一直显示旧数据直到刷新页面 */
       const dtos = await api.getSessionHistory(otterId)
