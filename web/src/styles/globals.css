@@ -242,9 +242,17 @@ body {
  *  与 index.tsx 的渲染冻结（SSE batch/轮询暂停）配合，使 scrim 采样源准静态 */
 body.modal-open .stream-shimmer::after { animation: none; }
 
-/* F20260825scrf 降级开关：若 backdrop 路线在目标环境回归失败，取消下行注释
- *  切纯色遮罩（reduced-transparency 同款），永久消除闪烁（视觉降级 ~70%） */
-/* body.modal-open .scrim { backdrop-filter: none; -webkit-backdrop-filter: none; } */
+/* F20260909scrf6：弹窗期模糊语义切换——从「scrim 实时采样下层位图」改为「内容自模糊」。
+ *  backdrop-filter 的采样是每帧实时的：下层任何像素变化（流式计时器 100ms 跳字、
+ *  animate-dot、未来的新动画源）都会使采样失效，产生「清晰帧↔模糊帧」高频交替——
+ *  视觉刺眼的元凶是跳变而非模糊本身（白名单冻结已补 5 轮仍漏网，结构性不治本）。
+ *  filter:blur 挂在内容自己身上：内容怎么动，模糊状态连续跟随，无清晰帧跳变，
+ *  等效于「隔着真毛玻璃看活内容」。闪动根治后，原降级开关（纯色遮罩）退役。 */
+body.modal-open [data-testid='app-content-scroll'] { filter: var(--scrim-blur); }
+body.modal-open .scrim { backdrop-filter: none; -webkit-backdrop-filter: none; }
+@media (prefers-reduced-transparency: reduce) {
+  body.modal-open [data-testid='app-content-scroll'] { filter: none; }
+}
 
 /* 嵌套激活态：面板玻璃里的选中项，半透纯色不叠玻璃 */
 .conv-active {
