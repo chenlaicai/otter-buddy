@@ -216,13 +216,11 @@ export class DispatchChainEngine {
     /** F20260908rlcp：恢复侧 steer 去重——已消化的 msg id 从未读注入剔除 */
     excludeMessageIds?: Set<string>;
   }): Promise<ChainHopResult> {
-    const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder, triggerMessageId, ledgerSource, chainSourceMessageIds, steerText } = params;
+    const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder, triggerMessageId: _triggerMessageId, ledgerSource: _ledgerSource, chainSourceMessageIds: _chainSourceMessageIds, steerText } = params;
     const roster = await this.buildRoster(conversationId, senderId);
 
     const promises = targets.map(async otterId => {
-      // F20260902sgp2 S1：起跑记账（§4.2）——失败仅日志，绝不阻断链路（硬约束 1）。
-      // hop 取源修复：hop 2+ 从链级多源列表取全部触发消息（一条 per (msg,target) 记账）
-      this.recordAttemptStart(conversationId, otterId, triggerMessageId, chainSourceMessageIds?.get(otterId), ledgerSource);
+      // F20260908rlcp：台账退役——起跑记账删除
       const messageWithContext = await this.buildMessageWithContext(
         conversationId, otterId, userMessageContent, senderId, roster, params.excludeMessageIds
       );
@@ -266,22 +264,11 @@ export class DispatchChainEngine {
     // F20260904ldgr（#798 发现 2）保留：降级槽位（fetchProducedMessage 查库失败）补账面备注——
     // 追加「出处降级」标记，只改 note 不改 status（反连接不变量完好）。槽位键 = 记账键。
     // F20260907ylfs ②：degraded 随 resolveHopOutcomes 预判产出，此处批量收集（拆出控行数）。
-    const degradedSlots = this.collectDegradedSlots(outcomes, targets);
-    // F20260902sgp2 S1：settle 记账（§4.2）——终态回写 + 链级出处回填
-    // F20260904schf：出处回填改读行级 tsp，方法变 async（行级查库在 try 内，异常仍不阻断链路）
-    // 审视建议 1：调用点再隔一层 try/catch——防方法内部 try 块之外的理论异常阻断 markBatchRead
-    try {
-      await this.recordAttemptSettle({ conversationId, targets, results, triggerMessageId, chainSourceMessageIds, outcomes });
-    } catch { /* 记账面异常不阻断链路（硬约束 1） */ }
-    // F20260908rlcp：markBatchRead 已删除——游标推进上移到启动成功回调（pi-session-factory）
-
-    // F20260904ldgr（#798 发现 2）：降级槽位补账面备注——追加「出处降级」标记，
-    // 只改 note 不改 status（反连接不变量完好）。槽位键 = 记账键（triggerMessageId
-    // 或 chainSource[target]，与 settle 同源）——产出消息 ID 不是记账键，用错 appendNote 无靶。
+    // F20260908rlcp：台账退役——settle 记账和降级备注删除
     try {
       return await this.processHopResults(results, senderId, outcomes, conversationId, targets);
     } finally {
-      this.appendDegradedNotes(degradedSlots, triggerMessageId, chainSourceMessageIds);
+      // no-op
     }
   }
 

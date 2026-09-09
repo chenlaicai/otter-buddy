@@ -10,7 +10,6 @@ import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { SSEEvent } from "@contract/sse/events";
 import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import type { SignalRouter } from "@usecases/conversation/signal-router";
-import type { QuerySignalTrail } from "@usecases/conversation/query-signal-trail";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 import { handleError, param } from "../http-error";
@@ -19,11 +18,11 @@ import { buildMessageDTOs, decorateWithSignals, resolveSenderNames, type Message
 import type { SendMessageRequestDTO, MarkReadRequestDTO } from "../dto/message-dto";
 import { streamEvents } from "../sse-streamer";
 import { awaitTriggerAttemptsSettled } from "../sse-settle-waiter";
-import type { DispatchAttemptRepo } from "@entities/conversation/dispatch-attempt";
 /** 多模态 Phase 1（审视修复 R4/R7）：附件注入策略归位 usecases 层——controller 只透传调用 */
+/* eslint-disable max-lines -- F20260908rlcp: after removing ledger/trail/gate lines, file complexity still drives line count */
 import type { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
 
-/* eslint-disable max-lines -- K3（F20260903k23）注入 dispatchAttemptRepo 后 458>450；行数由 DI 参数与入口数量决定，拆分会降低内聚（platforms.ts 同款先例） */
+
 export class MessageController {
   // eslint-disable-next-line max-params -- 依赖由 DI 装配，参数数量由依赖决定
   constructor(
@@ -42,10 +41,6 @@ export class MessageController {
     /** F20260901sgpv P1：信号路由器——主入口调度收敛（火车头换轨）。可选注入：
      *  未注入时降级田直连链（旧装配/存量测试不变，灰度回滚面） */
     private readonly signalRouter?: SignalRouter,
-    /** 信号轨迹查询（F20260902u5tr）；可选装配，未注入时端点降级 */
-    private readonly signalTrail?: QuerySignalTrail,
-    /** K3（F20260903k23）：派发台账读——POST SSE 等本轮信号到 attempt 终态再关流（未注入回退旧语义） */
-    private readonly dispatchAttemptRepo?: DispatchAttemptRepo,
   ) {}
 
   /** 批量解析 otter 消息的发送者显示名（dissolve 不删行，永远可解析） */
@@ -230,9 +225,6 @@ export class MessageController {
     /** 首轮立即派发（以持久化后的消息目标为准，含默认解析结果） */
     const firstTurnTargets = userMessage.talkingStonePassedTo ?? [];
 
-    // F20260903ihlt：用户发新消息 = 显式恢复动作——解除中断停机（多模态直连链分支同样覆盖）
-    this.signalRouter?.clearUserHalt(conversationId);
-
     /** SSE 流（长连接贯穿多轮）。客户端断开不中止 Agent——发言生命周期由后端状态机管理（UA-刷新续跑） */
     const allTargets = new Set(firstTurnTargets);
     const { response, push, close } = streamEvents(c);
@@ -242,31 +234,13 @@ export class MessageController {
 
     const injection = payload && typeof payload !== "string" ? payload : undefined;
     // F20260901sgpv P1：主入口火车头换轨——调度收敛到信号路由器（投递即点火）。
-    // Why 路由器优先：四入口各自直调 executeChain 是旧架构的核心痛点（T1），“插话撞
-    // 锁超时”的根因即在此；未注入路由器时降级直连链（灰度回滚面，行为与现状等价）。
-    // K3（F20260903k23）：SSE 生命周期挂台账终态——本轮信号 attempt 全部到终态或超时才关流。
-    // #826 多模态收口：带附件消息从此过信号路由器闸门+台账（注入载荷由路由器从 attachments 重建，请求内存临时载荷退役）
+    // K3（F20260908rlcp）：SSE 生命周期挂消息终态——本轮信号到终态或超时才关流。
     if (this.signalRouter) {
-      this.signalRouter.routePendingSignals(conversationId)
+      this.signalRouter.routeSignals(conversationId)
         .then(async (results) => {
-          // S3.5（F20260903s35u，G6）：熔断/停机导致本轮信号全部被闸门挡下时，
-          // 落一条系统消息告知用户——HTTP 200 + 零反馈是最差交互组合；「已排队待恢复」
-          // 要说清楚（信号保留，闸门解除后自动处理）。
-          if (results.length > 0 && results.some(r => r.action === "skipped_rate_limited" || r.action === "skipped_halted")) {
-            const gate = await this.signalRouter!.getGateState(conversationId);
-            const reason = gate.halted
-              ? "会话已停机（你按过中断），发新消息即恢复调度"
-              : gate.rateLimitedUntil
-                ? `模型限流冷却中（至 ${new Date(gate.rateLimitedUntil).toLocaleTimeString('sv-SE', { hour12: false })}），消息已排队、恢复后自动处理`
-                : "调度闸门暂缓，消息已排队";
-            await this.sendMessageUseCase.sendSystem(conversationId, reason).catch(() => {});
-          }
-          // K3 审视焦点 3（#757）：全部 skipped（如 HALT 到小獭被丢弃、dissolved 目标）
-          // 时永不产生 attempt 行——等 settle 只会白等满 30s。直接关流（signal 在消息表
-          // 持久，状态由轨迹 UI 承载）；混合场景（有 invoked/queued_busy）仍走终态等待。
           return results.length > 0 && results.every(r => r.action.startsWith("skipped"))
             ? undefined
-            : awaitTriggerAttemptsSettled(this.dispatchAttemptRepo, this.logger, conversationId, userMessage.id)
+            : awaitTriggerAttemptsSettled(this.queryMessage, this.logger, conversationId, userMessage.id)
                 .catch(e => this.logger.warn("[k3] settle 轮询异常（兜底关流）", { conversationId, error: e instanceof Error ? e.message : String(e) }));
         })
         .finally(() => {
@@ -337,10 +311,8 @@ export class MessageController {
   }): Response {
     const { conversationId, otterId, messageId, signal, retryAttachmentIds, unsubscribe, push, close, response } = args;
     void this.signalRouter!.retrySignal(conversationId, messageId, otterId, signal, retryAttachmentIds)
-      .then((action) => {
-        if (action === "retry_gated") {
-          push({ event: "system.message", data: { content: "调度闸门暂缓：限流冷却中或会话已停机，重试将在恢复后可再次执行", messageId, otterId } });
-        }
+      .then(() => {
+        // F20260908rlcp: retry completed
       })
       .catch((err: unknown) => {
         const errMsg = err instanceof Error ? err.message : String(err);
@@ -362,7 +334,7 @@ export class MessageController {
 
   /** S3：retry 换轨后的 SSE settle 等待（与 K3 同语义——attempt 终态驱动关流） */
   private async settleRetrySse(conversationId: string, messageId: string): Promise<void> {
-    await awaitTriggerAttemptsSettled(this.dispatchAttemptRepo, this.logger, conversationId, messageId);
+    await awaitTriggerAttemptsSettled(this.queryMessage, this.logger, conversationId, messageId);
   }
 
   private startRetryChain(
@@ -373,7 +345,6 @@ export class MessageController {
     const { response, push, close } = streamEvents(c);
 
     // F20260903ihlt：手动 retry = 用户显式恢复动作——解除中断停机，冻结的 pending 随链收尾重扫恢复
-    this.signalRouter?.clearUserHalt(conversationId);
 
     let unsubscribe: (() => void) | undefined;
     if (this.messageBroadcaster) {
@@ -543,9 +514,6 @@ export class MessageController {
       }
       this.agentInvoker.abort(msg.senderId, id);
       // F20260903ihlt：中断 = 会话级停机——只 abort 本条消息的 SDK session 时，
-      // 路由器 50ms 去抖重扫会立刻点火下一只 pending 獭（09-03 现场：中断 a 弹出 b）。
-      // 置 halt 冻结本会话全部 pending 点火，用户发新消息/手动 retry 时解除。
-      this.signalRouter?.markUserHalt(msg.conversationId);
       return c.json({ status: "aborted" }, 202);
     } catch (err) {
       return handleError(c, err, this.logger);
@@ -604,38 +572,6 @@ export class MessageController {
       const userId = c.req.query("userId") ?? "web-user";
       const state = await this.queryMessage.getUnreadState(conversationId, userId);
       return c.json(state);
-    } catch (err) {
-      return handleError(c, err, this.logger);
-    }
-  }
-
-  /** 信号轨迹（F20260902u5tr）：投石信号对目标 otter 的投递状态（服务端持久层推导） */
-  async getSignalTrail(c: Context): Promise<Response> {
-    try {
-      if (!this.signalTrail) {
-        return c.json({ error: "signal trail not configured" }, 501);
-      }
-      const conversationId = param(c, "id");
-      const trail = await this.signalTrail.list(conversationId);
-      // S3.5（F20260903s35u）：附带会话调度闸门状态（横幅数据源，与轨迹同端点一次取全，
-      // 前端轮询无需新增请求）。路由器未注入（降级直连链）时 gate 为 null——横幅不渲染。
-      const gate = this.signalRouter ? await this.signalRouter.getGateState(conversationId) : null;
-      return c.json({ ...trail, gate });
-    } catch (err) {
-      return handleError(c, err, this.logger);
-    }
-  }
-
-  /** F20260902sgp2 S1 观测端点：pending 计数裸探针（机器可读，监控/核查用；
-   *  与 /signal-trail 分离——那是给人的投影，这是账面的数字） */
-  async getPendingCount(c: Context): Promise<Response> {
-    try {
-      if (!this.dispatchAttemptRepo) {
-        return c.json({ error: "dispatch attempt repo not configured" }, 501);
-      }
-      const conversationId = param(c, "id");
-      const count = this.dispatchAttemptRepo.countPendingSignals(conversationId);
-      return c.json({ conversationId, pending: count });
     } catch (err) {
       return handleError(c, err, this.logger);
     }

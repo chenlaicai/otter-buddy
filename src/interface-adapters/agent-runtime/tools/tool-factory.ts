@@ -6,7 +6,7 @@ import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool, createGetTurnHistoryTool } from "./message-tools";
 import { validateSpeakBody } from "./tool-helpers";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
-import type { HealingErrorType, HealingSeverity, HealingEventStatus } from "@entities/healing/healing-event";
+
 import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE, GROUP_ID_REQUIRED_TYPES, GROUP_ID_REQUIRED_MESSAGE_PREFIX } from "@usecases/conversation/manage-key-info";
 import type { Logger } from "@usecases/ports/logger";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
@@ -24,7 +24,7 @@ import type { Ledger } from "@usecases/paper-trading/ledger";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 // R20260817arnt PR-B：领域规则下沉到 usecases 层
 import { validateAndResolve } from "@usecases/conversation/talking-stone";
-import { checkPendingDispatches, confirmDispatchesClear } from "@usecases/conversation/dispatch-guard";
+
 
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
@@ -73,64 +73,6 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
   };
 }
 
-/** F20260821i336：更新派工台账状态（yield 成功后批量更新） */
-async function updateDispatchLedgerOnYield(ctx: ToolContext, resolvedIds: string[]): Promise<void> {
-  for (const id of resolvedIds) {
-    await ctx.client.dispatch.updateRecord({
-      otterId: id,
-      conversationId: ctx.conversationId,
-      status: 'in_progress',
-    });
-  }
-}
-
-/** F20260901sgp0 P0: HALT 权限校验 + 信号元数据构建（从 yield execute 中提取，降低 cyclomatic complexity） */
-const VALID_SIGNAL_LEVELS = new Set(['NORMAL', 'URGENT', 'HALT']);
-
-/** F20260901sgp0 P0: HALT 权限校验 + 信号元数据构建（从 yield execute 中提取，降低 cyclomatic complexity） */
-async function resolveSignalLevel(
-  ctx: ToolContext,
-  levelParam: string | undefined,
-  reasonParam: unknown,
-  healingRepo?: HealingEventRepository
-): Promise<{ signalLevel: string; signalMeta: string | undefined; haltError: string | null }> {
-  const signalLevel = levelParam?.toUpperCase() ?? 'NORMAL';
-  if (!VALID_SIGNAL_LEVELS.has(signalLevel)) {
-    return { signalLevel, signalMeta: undefined, haltError: `[错误] 无效信号档位 "${signalLevel}"，合法值：NORMAL / URGENT / HALT` };
-  }
-  if (signalLevel === 'HALT') {
-    const self = await ctx.client.otter.getById(ctx.otterId);
-    if (self?.type === 'small') {
-      if (healingRepo) {
-        healingRepo.create({
-          id: crypto.randomUUID(),
-          messageId: ctx.currentMessageId ?? '',
-          conversationId: ctx.conversationId,
-          otterId: ctx.otterId,
-          errorType: 'permission_denied' as HealingErrorType,
-          severity: 'medium' as HealingSeverity,
-          description: `小獭 ${ctx.otterId} 尝试投递 HALT 档信号，已拒绝`,
-          suggestion: '需要中止任务请 yield(NORMAL) 回大獭说明情况',
-          context: null,
-          status: 'open' as HealingEventStatus,
-          resolution: null,
-          createdAt: new Date().toISOString(),
-          resolvedAt: null,
-        });
-      }
-      return {
-        signalLevel,
-        signalMeta: undefined,
-        haltError: "[错误] 小獭不允许投递 HALT 档信号（仅用户/大獭可投，沿用 F20260826mwrd C2 裁决）。需要中止任务请 yield(NORMAL) 回大獭说明情况。",
-      };
-    }
-  }
-  const signalMeta = signalLevel !== 'NORMAL'
-    ? JSON.stringify({ level: signalLevel, reason: reasonParam as string | undefined })
-    : undefined;
-  return { signalLevel, signalMeta, haltError: null };
-}
-
 /** 消息非空校验（从 yield execute 中提取，降低 cyclomatic complexity） */
 async function validateMessageHasContent(ctx: ToolContext): Promise<string | null> {
   if (!ctx.currentMessageId) return "[错误] 系统错误：当前消息 ID 未设置，无法交棒。";
@@ -139,7 +81,7 @@ async function validateMessageHasContent(ctx: ToolContext): Promise<string | nul
   return null;
 }
 
-function createYieldTool(ctx: ToolContext, healingRepo?: HealingEventRepository): AgentTool {
+function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository): AgentTool {
   return {
     name: "yield",
     description: "交棒工具——结束你的本轮行动，把行动权交给指定的参与者。接到行动权的人会被立即唤醒执行。调用前应先用 speak 输出你的结论/成果（yield 不会携带内容）。GOTCHA: yield 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。WORKFLOW: 路由规则——子任务完成时传回召唤你的海獭或工作流下一步执行者；整个任务终审才传 'user'。不确定在场成员时先调 get_active_participants。⚠️ yield 给自己（F20260907ylfs ②）——合法：任务未完成、需要下轮继续时 yield 给自己，等于把任务锚点入箱（「这个任务我还没干完，下轮继续」）；下一轮你会被重新唤醒续跑（连续自链受梯度护栏保护：第 3 次警示、第 5 次链停）。禁止用它逃避交棒义务：长期占用行动权不产出才是滥用。\n\n⚠️ yield to 'user' 反思检查点：当 to 包含 'user' 时，请先暂停想一想——为什么需要用户介入？如果你自己能处理、或有其他人应该先确认，就不要 yield 给 user。建议通过 reason 参数说明你的理由。",
@@ -154,11 +96,6 @@ function createYieldTool(ctx: ToolContext, healingRepo?: HealingEventRepository)
         reason: {
           type: "string",
           description: "（to 包含 'user' 时建议提供）说明为什么需要用户介入。生成理由的过程就是暂停思考的过程。",
-        },
-        level: {
-          type: "string",
-          enum: ["NORMAL", "URGENT", "HALT"],
-          description: "信号档位：NORMAL（默认，必处理）/ URGENT（必决策）/ HALT（物理停，仅用户/大獭可投）",
         },
       },
       required: ["to"],
@@ -175,21 +112,10 @@ function createYieldTool(ctx: ToolContext, healingRepo?: HealingEventRepository)
       const { resolvedIds, error } = validateAndResolve(recipients, active);
       if (error) return errorResponse(error);
 
-      /** F20260813actk C9：软守卫——未派工票据未清空时给一次提醒（非阻断，二次放行；此处不清除票据） */
-      const dispatchWarning = checkPendingDispatches(ctx, resolvedIds, recipients);
-      if (dispatchWarning) return textResponse(dispatchWarning);
-
-      // F20260901sgp0 P0: 信号档位解析 + HALT 权限校验
-      const { signalLevel, signalMeta, haltError } = await resolveSignalLevel(ctx, params.level as string | undefined, params.reason, healingRepo);
-      if (haltError) return errorResponse(haltError);
-
+      // F20260908rlcp：档位概念退役——signalLevel/signalMeta 写 null
       try {
         /** 拆分后 startSpeaking 只设路由 + 状态（内容已由 speak 的 segments 落库） */
-        await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { talkingStonePassedTo: resolvedIds, signalLevel, signalMeta });
-        /** F20260813actk C9：提交成功后才确认清除已派工票据 */
-        confirmDispatchesClear(ctx, resolvedIds);
-        /** F20260821i336：更新派工台账状态（小獭 yield 回来时标记为 in_progress） */
-        await updateDispatchLedgerOnYield(ctx, resolvedIds);
+        await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { talkingStonePassedTo: resolvedIds });
       } catch (err) {
         if (err instanceof DomainError && err.kind === "conflict") {
           return { ...textResponse("[系统控制信号] 本回合行动已交棒，无需重复调用 yield。请停止调用任何工具。"), terminate: true };
@@ -351,15 +277,6 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
       });
       /** 创建后自动加入当前对话参与者 */
       await ctx.client.conversation.participant.join(ctx.conversationId, otter.id);
-      /** F20260813actk C9：注册待派工票据，供 speak 软守卫检测 */
-      ctx.pendingDispatches?.set(otter.id, otter.name);
-      /** F20260821i336：创建派工台账记录 */
-      await ctx.client.dispatch.createRecord({
-        conversationId: ctx.conversationId,
-        otterId: otter.id,
-        otterName: otter.name,
-        task: (params.systemPrompt as string).substring(0, 200), // 截取前 200 字符作为任务摘要
-      });
       /** F20260824aibd: 回包含模型信息，让大獭对模型分配有即时反馈 */
       const config = ctx.otterConfigProvider?.getConfig(otter.id);
       const modelLabel = config?.modelAlias ? `，模型：${config.modelAlias}` : '';

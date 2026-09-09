@@ -116,7 +116,7 @@ export class SchedulerService {
     this.cronParser = options.cronParser;
     this.logger = options.logger;
     this.healingRepo = options.healingRepo;
-    this.dispatchAttemptRepo = options.dispatchAttemptRepo;
+    this.dispatchAttemptRepo = undefined; // F20260908rlcp：台账退役
     this.signalRouter = options.signalRouter;
     this.metrics = options.metrics;
     this.dispatchChainEngine = options.dispatchChainEngine;
@@ -716,25 +716,42 @@ export class SchedulerService {
    *  Why 含探测失败判死：链消息流不可读（DB 故障等）时链产出无从验证，继续等待只会永远占位。 */
   /** #775 S4a：执行级台账判活看门狗（换轨路径专用）。
    *  与 watchChainWithActivity（静默窗判死）的本质区别：链路径握着 chainPromise 能等 settle；
-   *  换轨后点火是路由器 fire-and-forget，无法握 promise——判活只能靠持久台账：
-   *  - 锚点 attempt 全部到终态 → 执行收工（allAnchorAttemptsSettled，S4b 复用）
-   *  - 有 in_progress 在途 → 活着，续期（#516 教训：静默 ≠ 死亡）
-   *  - 无任何行（目标 busy 排队中 / 待点火）→ 保守等下一轮，硬上限兕底
-   *  busy 排队语义（检视发现 1 处置说明）：routeDirectSignal 返回 queued_busy 时信号在
-   *  busyQueue，无 attempt 行 → 本看门狗持续轮询。Why 正确：①排队会被目标 idle 后的
-   *  debounce 重扫自动消化（分钟级），消化后 attempt 行出现，收敛到真实 completed；
-   *  ②triggerTask 是 fire-and-forget，等待只挂起本任务的 Promise，不阻塞其他任务调度；
-   *  ③若此时跳过等待记 completed = 任务未执行却记账完成（账面谎报，违 #517）。
-   *  24h 硬上限即病态场景（目标持续 busy 一整天）的兕底。 */
+   *  换轨后点火是路由器 fire-and-forget，无法握 promise——判活只能靠消息终态：
+   *  - 锚点目标全部有终态消息 → 执行收工
+   *  - 仍有目标 streaming → 活着，续期
+   *  - 无产出 → 保守等下一轮，硬上限兜底 */
   private async watchExecutionByLedger(task: ScheduledTask, anchorMessageId: string): Promise<void> {
     const deadline = this.now() + LEDGER_WATCH_HARD_LIMIT_MS;
     while (this.now() < deadline) {
       await new Promise(r => setTimeout(r, LEDGER_WATCH_POLL_MS));
-      const settled = this.dispatchAttemptRepo?.allAnchorAttemptsSettled(anchorMessageId);
-      if (settled === true) return;
-      // false（在途）或 undefined（repo 未注入/查询失败）：保守续期
+      // F20260908rlcp：从 dispatch_attempts 台账改为消息终态判定
+      const settled = await this.isMessageSettled(task.conversationId, anchorMessageId);
+      if (settled) return;
     }
     throw new Error(`Agent invocation timeout (ledger watch exceeded hard limit ${LEDGER_WATCH_HARD_LIMIT_MS / 3_600_000}h)`);
+  }
+
+  /** F20260908rlcp：消息终态判定——锚点目标是否全部有终态消息（替代 allAnchorAttemptsSettled） */
+  private async isMessageSettled(conversationId: string, anchorMessageId: string): Promise<boolean> {
+    try {
+      const anchor = await this.convRepo.getMessageById(anchorMessageId);
+      if (!anchor) return true; // 消息不存在 = 无需等待
+      const targets = (anchor.talkingStonePassedTo ?? []).filter(t => t !== "user");
+      if (targets.length === 0) return true;
+
+      // 检查锚点后是否有新消息（任何状态都算链活跃）
+      const after = await this.convRepo.getMessagesAfter(anchorMessageId, targets.length + 1);
+      if (!Array.isArray(after) || after.length === 0) return false; // 无产出 = 等待
+
+      // 检查所有目标是否已有终态消息
+      for (const targetId of targets) {
+        const hasTerminal = after.some(m => m.senderId === targetId && m.status !== "streaming");
+        if (!hasTerminal) return false; // 某个目标还没有终态消息
+      }
+      return true;
+    } catch {
+      return false; // 查询失败 = 保守等待
+    }
   }
 
   private async watchChainWithActivity(
@@ -837,10 +854,11 @@ export class SchedulerService {
    *  @returns true=锚点 attempt 全终态（收工→alive=false 语义由调用方取反——注意本方法返回
    *           「链活跃与否」：true=有 in_progress 活跃；false=全终态收工；undefined=回退） */
   private async isChainAliveByLedger(anchorMessageId: string | undefined): Promise<boolean | undefined> {
-    if (!anchorMessageId || !this.dispatchAttemptRepo) return undefined;
+    if (!anchorMessageId) return undefined;
     try {
-      const allSettled = await this.dispatchAttemptRepo.allAnchorAttemptsSettled(anchorMessageId);
-      return !allSettled;
+      // F20260908rlcp：从 dispatch_attempts 改为消息存在性判定
+      const after = await this.convRepo.getMessagesAfter(anchorMessageId, 5);
+      return Array.isArray(after) && after.length > 0;
     } catch {
       return undefined;
     }

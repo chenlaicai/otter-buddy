@@ -69,7 +69,7 @@ export class ResumeInterruptedService {
       // 信号未消费积压：服务崩溃时写路径没能点火的信号在此补路由。放在恢复链之前，
       // 让补扫信号与恢复链在同一竞争面（路由器串行化）内消化，不与恢复 invoke 撞车
       if (this.deps.signalRouter) {
-        await this.deps.signalRouter.routeAllPending().catch(err => {
+        await this.deps.signalRouter.routeAllPending().catch((err: unknown) => {
           this.deps.logger.warn("signal rescan on resume failed", { error: err instanceof Error ? err.message : String(err) });
         });
       }

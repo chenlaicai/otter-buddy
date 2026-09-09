@@ -18,7 +18,6 @@ import type { HealingEventRepository } from "@usecases/healing/healing-event-rep
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
-import type { DispatchAttemptRepo } from "@entities/conversation/dispatch-attempt";
 import type { AttachmentRepository } from "@usecases/conversation/attachment-repository";
 import type { ManageConversation } from "@usecases/conversation/manage-conversation";
 import type { ManageMemory } from "@usecases/memory/manage-memory";
@@ -32,7 +31,6 @@ import type { GetDocProvenance } from "@usecases/memory/get-doc-provenance";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageReadState } from "@usecases/conversation/manage-read-state";
-import type { QuerySignalTrail } from "@usecases/conversation/query-signal-trail";
 import type { ManageParticipant } from "@usecases/conversation/manage-participant";
 import type { ManageKeyInfo } from "@usecases/conversation/manage-key-info";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -69,9 +67,7 @@ export interface Repositories {
   rhiSignal: SignalRepository;
   /** RHI 指标快照（health_snapshots 表，issue #447） */
   healthSnapshot: HealthSnapshotRepository;
-  /** F20260902sgp2 S1：派发台账（信号协议 v2）——pending := 已投递 ∧ 无派发记录 */
-  dispatchAttempt: DispatchAttemptRepo;
-  /** 多模态 Phase 1：附件 repo（上传管线 + 消息组装共用） */
+  /** F20260908rlcp：派发台账退役 */
   attachment: AttachmentRepository;
 }
 
@@ -90,8 +86,6 @@ export interface UseCases {
   /** F20260826rcmm Phase 0：检索埋点（评估基线数据源） */
   recordSearchQuery: RecordSearchQuery;
   manageReadState: ManageReadState;
-  /** 信号轨迹查询（F20260902u5tr） */
-  querySignalTrail: QuerySignalTrail;
   manageParticipant: ManageParticipant;
   manageKeyInfo: ManageKeyInfo;
   queryOtter: QueryOtter;

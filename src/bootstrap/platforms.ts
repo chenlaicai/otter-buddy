@@ -1,4 +1,4 @@
-/* eslint-disable max-lines -- sgp2 S1 注入 dispatchAttemptRepo 后 451>450；装配文件行数由注入项决定，拆分降低可读性（同 tool-factory.ts 先例） */
+/* eslint-disable max-lines -- F20260908rlcp: dispatchAttemptRepo 退役后行数仍超 450（装配文件由注入项决定） */
 import { buildContextTokenWarnConfig, type AppConfig } from "@frameworks/config";
 import fsSync from "node:fs";
 import path from "node:path";
@@ -148,7 +148,6 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     partnerResolver: new PartnerResolver(appConfig.feishu?.partnerOpenId),
     // F20260902sgp2 S1：派发台账注入——所有入口每次派发都记账（链引擎是必经之路，§4.2）。
     // 记账失败仅日志不阻断（硬约束 1）；不注入时链路行为与 sgpv 回滚基线一致。
-    dispatchAttemptRepo: repos.dispatchAttempt,
     // #530 梯度护栏：abort 回调注入（可选——不注入时降级为纯日志）。
     // F20260907ylfs ②：steer 回调已删（③ 检视修复后 steer 注入改走 ChainHopResult.steerText
     // 进程级传递，回调零调用点成死装配——检视-838 移交件 A）；steerSession 保留在
@@ -250,7 +249,6 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
     manageSession: uc.manageSession,
     healingRepo: repos.healingEvent,
     // F20260902sgp2 S4b：派发台账——看门狗台账终态判活（可选语义，未注入回退消息判定）
-    dispatchAttemptRepo: repos.dispatchAttempt,
     metrics,
     dispatchChainEngine,
     functionRegistry: db ? paperTradingFunctionRegistry : undefined,

@@ -23,7 +23,6 @@ import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invok
 import type { SchedulerService } from "@usecases/scheduler/scheduler-service";
 import { ResumeInterruptedService } from "@usecases/conversation/resume-interrupted-service";
 import { SignalRouter } from "@usecases/conversation/signal-router";
-import { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
 
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
 
@@ -293,11 +292,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // 恢复的入口范围：web MC / 飞书 ADS / 微信 / RIS 启动补扫（scheduler/retry 仍直连，
   // 其派发经链引擎记账，无双触发账面歧义——F20260902sgp2 §4.2）。
   // #826 多模态收口：附件注入服务——路由器 invokeTarget 从 attachments 重建 InjectionPayload
-  const attachmentInjection = new AttachmentInjectionService({
-    attachmentRepo: repos.attachment,
-    storageRoot: config.attachments?.storageRoot ?? "./data/attachments",
-    logger,
-  });
+  // F20260908rlcp: attachmentInjection not needed in app.ts (signal-router no longer uses it,
+  // message-controller gets its own from controllers.ts bootstrap)
+  // const attachmentInjection = new AttachmentInjectionService({
+  //   attachmentRepo: repos.attachment,
+  //   storageRoot: config.attachments?.storageRoot ?? "./data/attachments",
+  //   logger,
+  // });
   const signalRouter = new SignalRouter({
     conversationRepo: repos.conversation,
     queryMessage: uc.queryMessage,
@@ -306,10 +307,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     invokeFn: (params) => agentInvoker.invokeConversation(params),
     logger,
     healingRepo: repos.healingEvent,
-    dispatchAttemptRepo: repos.dispatchAttempt,
-    attachmentInjection,
-    // P3a ①：URGENT steer 注入——signal-router 直调 agentGateway.steerSession
-    agentGateway,
+    // F20260908rlcp: dispatchAttemptRepo/attachmentInjection/agentGateway 退役，改用 factory
+    // eslint-disable-next-line @typescript-eslint/consistent-type-imports
+    factory: agentGateway as unknown as import("@usecases/conversation/signal-router").SignalRouterSessionFactory,
   });
   // #775 S4a：scheduler 换轨接线——路由器晚于 scheduler 诞生（initAgentAndScheduler
   // 内部依赖链更长），构造后注入；scheduler 触发从此过闸门+台账，与五入口同一调度纪律。
@@ -489,9 +489,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     healingRepo: repos.healingEvent,
     // F20260902sgp2 S2：启动补扫含信号补路由（崩溃窗口兜底，台账判据）
     signalRouter,
-    // F202609048840 F4：done 语义判定的真相源——链引擎对 invoke 拒绝是吞错语义，
-    // executeChain 正常返回 ≠ invoke 成功，台账 settle 终态才是准确判据
-    dispatchAttemptRepo: repos.dispatchAttempt,
+    // F20260908rlcp: dispatchAttemptRepo retired
   });
   if (options.startResume ?? true) {
     // fire-and-forget：resume 内部自带延迟，不阻塞也不吞启动错误

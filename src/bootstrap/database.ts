@@ -93,29 +93,8 @@ export async function postInitDatabase(db: Database.Database, repos: Repositorie
     //    tryInsertIfAbsent 先到先得；老库已跑过墓碑（无守卫期）的处理见下方 comment。
   // 两者失败均仅日志——台账是记账面不是控制面，任何失败不阻断启动（硬约束 1）。
   try {
-    const stale = repos.dispatchAttempt.markStaleInProgressFailed();
-    if (stale > 0) logger.info('[signal-ledger] 死亡证明：重启翻篇 in_progress 派发记录', { count: stale });
-    // 墓碑守卫：CAS 抢锁成功才跑。老库在无守卫期已跑过墓碑的判定：
-    // 表内有 source='backfill' 行 = 墓碑已执行过（幂等 OR IGNORE 语义下行数只会增）。
-    // 三者（锁 + 历史行检查）构成完整一次性语义，无需 settings 追加额外 key。
-    const legacyTombstones = db.prepare(
-      "SELECT count(*) AS n FROM dispatch_attempts WHERE source = 'backfill'"
-    ).get() as { n: number };
-    if (legacyTombstones.n > 0) {
-      logger.info('[signal-ledger] backfill 墓碑已执行过（存量墓碑行），跳过', { existing: legacyTombstones.n });
-    } else {
-      const gotLock = await repos.settings.tryInsertIfAbsent(
-        'sgp2:backfill-legacy-attempted', new Date().toISOString(),
-      );
-      if (gotLock) {
-        const backfilled = repos.dispatchAttempt.backfillLegacyAttempted();
-        logger.info('[signal-ledger] backfill 墓碑：存量已投递消息标记 legacy-attempted（一次性）', { count: backfilled });
-      } else {
-        logger.info('[signal-ledger] backfill 墓碑：另一进程已抢锁，跳过');
-      }
-    }
-    const pendingCount = repos.dispatchAttempt.countPendingSignals();
-    logger.info('[signal-ledger] 启动完成，当前 pending 计数', { pending: pendingCount });
+    // F20260908rlcp: dispatch_attempts ledger retired
+    logger.info('[signal-ledger] 台账已退役，跳过启动记账');
     // #775：seq 刻度存量回填（观察项①收尾前置）。守卫 = NULL 行计数（幂等：只更新 NULL 行，
     // 全量覆盖后计数恒 0，重复启动零代价）；回填后 markBatchRead 停写旧列，读路径 NULL
     // 回退保留（seq 列不会因停写回 NULL，回退分支只服务极端脏数据）。

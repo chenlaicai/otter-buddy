@@ -41,8 +41,8 @@ export class AgentDispatchService {
       // #826 多模态收口：带附件消息从此过信号路由器闸门+台账（注入载荷由路由器从 attachments 重建）
       if (this.deps.signalRouter) {
         // F20260903ihlt：IM 用户发言 = 显式恢复动作——解除中断停机后再路由
-        this.deps.signalRouter.clearUserHalt(conversationId);
-        await this.deps.signalRouter.routePendingSignals(conversationId);
+        // F20260908rlcp: clearUserHalt retired
+        await this.deps.signalRouter.routeSignals(conversationId);
         return {};
       }
 
