@@ -3,8 +3,8 @@
  * F20260907itri: Issue 看板合规审计脚本（事后审计型，不卡生成）。
  *
  * 扫描 open issue 的标签与标题合规性，输出不合规清单 + 大盘统计。
- * 规范单源：.pi/SYSTEM.md R2「Issue 标签与标题规范」——改标签体系时同步该文件
- * 与 prompts/scheduled/daily-health-check.md、每日-issue-处理.md。
+ * 规范单源：prompts/scheduled/daily-health-check.md「issue 产出规范」节——改标签体系时同步该文件
+ * 与 prompts/scheduled/每日-issue-处理.md。（SYSTEM.md R2 只留一行行为层兜底，F20260909sentr）
  *
  * 规则：
  *   1. type 必有且仅 1 个：bug / enhancement / tech-debt / question
