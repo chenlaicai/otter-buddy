@@ -137,7 +137,9 @@ export class ModelRuntimeRegistry {
               pi.on("session_before_compact", async (event: { reason: "manual" | "threshold" | "overflow"; preparation: CompactionPreparationLike }) => {
                 const store = otterInvokeStorage.getStore();
                 const otterName = store?.displayName ?? "海獭";
-                return await handleSessionBeforeCompact(event, compactionHookDeps, otterName);
+                // F20260909csfx：合成链路需要真实 otterId（session restore 依赖），
+                // 从 invoke store 取——压缩必在 invoke 中途触发，store 必有值；缺失时钩子内降级。
+                return await handleSessionBeforeCompact(event, compactionHookDeps, otterName, store?.otterId ?? null);
               });
             },
           }],

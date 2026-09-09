@@ -226,9 +226,11 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
 
   // F20260903cmpk：压缩钩子合成注入——时机归 Pi（session_before_compact），
   // 算法归七段合成（复用 handoff 的 readOnly invocation 链路）。
-  // otterId 占位：钩子在 session 内触发时经 otterInvokeStorage 拿不到 conversationId，
-  // 合成闭包仅用它记日志；产物/搭档消息预取在压缩场景由 previousSummary 承担。
-  agentGateway.setCompactionSynthesis((prompt) => agentInvoker.buildCompactionSynthesisFn("current")(prompt));
+  // F20260909csfx 修复：otterId 不得写死——钩子在 invoke 中途触发时从
+  // otterInvokeStorage 取真实 otterId 传入（合成走完整 invoke 链路，
+  // session restore 依赖真实 otterId；写死 "current" 会抛 No session or config
+  // 导致自定义算法 100% 降级 Pi 默认，2026-09-09 首次真实触发实测踩中）。
+  agentGateway.setCompactionSynthesis((otterId, prompt) => agentInvoker.buildCompactionSynthesisFn(otterId)(prompt));
 
   // F20260827he2f：启动时探针——验证 healing_repo 可达，熔断事件落库能力正常
   // 失败仅 warn（不阻塞启动），但日志可作为诊断入口

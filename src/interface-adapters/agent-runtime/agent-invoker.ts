@@ -852,7 +852,9 @@ export class AgentInvoker implements AgentTurnPort {
   /** F20260903cmpk：压缩钩子合成函数（readOnly invocation，与 handoff 合成同源）。
    *  bootstrap 拿它注入 agentGateway.setCompactionSynthesis——压缩时机归 Pi，
    *  算法归七段合成。conversationId 在压缩时不可知（钩子在 session 内触发），
-   *  故以空串占位（合成闭包仅用它记日志 + 产物预取，压缩场景预取走钩子外的机械数据）。 */
+   *  故以空串占位（合成闭包仅用它记日志 + 产物预取，压缩场景预取走钩子外的机械数据）。
+   *  F20260909csfx：otterId 必须真实（钩子经 invoke store 传入）——
+   *  session restore / 模型解析 / 工具装配全链路依赖它，占位符会必现降级。 */
   buildCompactionSynthesisFn(otterId: string): (prompt: string) => Promise<string> {
     return this.buildSynthesisFunction(otterId, "");
   }

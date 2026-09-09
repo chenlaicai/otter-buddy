@@ -200,8 +200,9 @@ export class PiSessionFactory implements AgentGateway {
 
   /** F20260903cmpk：压缩钩子合成函数（延迟注入，同 setOtterToolClient 模式——
    *  合成依赖 agentInvoke，而 agentInvoke 依赖本工厂，只能后置）。
-   *  注入后 session_before_compact 钩子在 threshold 触发时用七段合成替换 Pi 默认摘要。 */
-  setCompactionSynthesis(synthesize: ((prompt: string) => Promise<string>) | null): void {
+   *  注入后 session_before_compact 钩子在 threshold 触发时用七段合成替换 Pi 默认摘要。
+   *  F20260909csfx：签名 (otterId, prompt)——otterId 由钩子在触发时从 invoke store 取真实值。 */
+  setCompactionSynthesis(synthesize: ((otterId: string, prompt: string) => Promise<string>) | null): void {
     setCompactionHookDeps(synthesize ? { synthesize, logger: this.logger } : null);
   }
 
