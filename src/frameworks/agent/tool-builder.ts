@@ -69,6 +69,8 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
     orchestrationWarningShown: false,
     /** F20260826mwrd C1：signal 仓库（halt_otter/query_signals 注册条件） */
     signalRepo,
+    /** F20260909smsp：speak message 跟踪（invoke 级生命周期） */
+    lastSpeakMessageId: undefined,
   };
   const otterTools = createTools(toolContext, healingRepo, logger);
 

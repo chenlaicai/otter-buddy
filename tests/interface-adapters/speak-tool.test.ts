@@ -23,12 +23,20 @@ function makeTools(
 ) {
   const segmentCalls: string[] = [];
   const speakingCalls: Array<{ talkingStonePassedTo: string[] }> = [];
+  let speakMsgCounter = 0;
   const client = {
     conversation: {
       participant: {
         getActive: async () => participants.map(p => ({ otterId: p.otterId, otterName: p.otterName })),
       },
       message: {
+        // F20260909smsp：创建独立 speak message
+        createSpeakMessage: async (_convId: string, _senderId: string, invokeGroupId: string) => {
+          speakMsgCounter++;
+          return { id: `speak-msg-${speakMsgCounter}`, conversationId: _convId, turnId: 'turn-1', senderType: 'otter' as const, senderId: _senderId, talkingStonePassedTo: null, status: 'speaking' as const, segments: [], sequenceNum: speakMsgCounter + 10, contextTokens: null, contextTokensMax: null, source: null, senderName: '', createdAt: new Date().toISOString(), completedAt: null, metadata: { invokeGroupId } };
+        },
+        // F20260909smsp：完成 speak message
+        completeSpeakMessage: async () => { /* no-op in test */ },
         appendSegment: async (_id: string, body: string) => {
           if (options.appendSegmentError) throw options.appendSegmentError;
           segmentCalls.push(body);

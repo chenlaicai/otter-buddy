@@ -57,14 +57,29 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       if (bodyError) return errorResponse(bodyError);
 
       try {
-        /** 拆分后 speak 只落内容（每次一条 segment，原子事务），行动权移交由 yield 负责 */
-        const seg = await ctx.client.conversation.message.appendSegment(ctx.currentMessageId, cleanBody);
+        // F20260909smsp：speak 创建独立 message（而非 append segment 到首个 message）
+        // 1. 完结上一次 speak message（若有）
+        if (ctx.lastSpeakMessageId) {
+          try {
+            await ctx.client.conversation.message.completeSpeakMessage(ctx.lastSpeakMessageId);
+          } catch { /* 已终态或不存在，忽略 */ }
+        }
+
+        // 2. 创建新的 speak message（senderType=otter，status=speaking，metadata.invokeGroupId=首个 message id）
+        const speakMsg = await ctx.client.conversation.message.createSpeakMessage(
+          ctx.conversationId, ctx.otterId, ctx.currentMessageId,
+        );
+        ctx.lastSpeakMessageId = speakMsg.id;
+
+        // 3. 追加 segment
+        const seg = await ctx.client.conversation.message.appendSegment(speakMsg.id, cleanBody);
+
         return {
           ...textResponse("[系统控制信号] 已记录发言，继续工作。"),
           terminate: false,
           /** agent-invoker 检测此标记并广播 speak.intermediate SSE（前端实时展示中间发言）
-           *  segmentId + sequenceNum 用于前端分段渲染（F-multi-speak-bubble） */
-          details: { __speakIntermediate: true, body: cleanBody, segmentId: seg.id, sequenceNum: seg.sequenceNum },
+           *  F20260909smsp：messageId 指向新 speak message（独立气泡） */
+          details: { __speakIntermediate: true, body: cleanBody, segmentId: seg.id, sequenceNum: seg.sequenceNum, speakMessageId: speakMsg.id },
         };
       } catch (err) {
         return errorResponse(`[错误] 发言落库失败：${err instanceof Error ? err.message : String(err)}。请重试。`);
@@ -73,9 +88,11 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
   };
 }
 
-/** 消息非空校验（从 yield execute 中提取，降低 cyclomatic complexity） */
+/** 消息非空校验（F20260909smsp：检查是否有 speak message 产出内容） */
 async function validateMessageHasContent(ctx: ToolContext): Promise<string | null> {
   if (!ctx.currentMessageId) return "[错误] 系统错误：当前消息 ID 未设置，无法交棒。";
+  // F20260909smsp：有 speak message 即视为有内容（首个 message 不再承载 segment）
+  if (ctx.lastSpeakMessageId) return null;
   const msg = await ctx.client.conversation.message.getById(ctx.currentMessageId);
   if (!msg || msg.segments.length === 0) return "[错误] 你还没有用 speak 输出任何内容。请先调用 speak(body) 输出结论，再调用 yield 交棒。";
   return null;
@@ -113,7 +130,15 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
       if (error) return errorResponse(error);
 
       try {
-        /** 拆分后 startSpeaking 只设路由 + 状态（内容已由 speak 的 segments 落库）
+        // F20260909smsp：yield 前先完结打开的 speak message（若有）
+        if (ctx.lastSpeakMessageId) {
+          try {
+            await ctx.client.conversation.message.completeSpeakMessage(ctx.lastSpeakMessageId);
+            ctx.lastSpeakMessageId = undefined;
+          } catch { /* 已终态或不存在，忽略 */ }
+        }
+
+        /** F20260909smsp：startSpeaking 只设路由 + 状态（首个 message 承载 tsp 路由语义）
          *  F20260908rlcp：speaking 状态下的重复 yield 合法（覆盖写 tsp）——允许「交棒后改派」 */
         await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { talkingStonePassedTo: resolvedIds });
       } catch (err) {

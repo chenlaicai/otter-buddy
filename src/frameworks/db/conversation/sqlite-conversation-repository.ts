@@ -314,6 +314,26 @@ export class SqliteConversationRepository implements ConversationRepository {
     })();
   }
 
+  /** F20260909smsp：创建 speak message（status='speaking'，含 invokeGroupId metadata） */
+  async createSpeakingMessage(message: Message): Promise<void> {
+    this.db.transaction(() => {
+      const cols = `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status,
+            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, metadata, sender_name, created_at)
+          VALUES (?, ?, ?, ?, 'speaking', ?, ?, ?, ?, ?, ?, ?, ?)`;
+      const params = [
+        message.id, message.conversationId, message.senderType, message.senderId,
+        message.sequenceNum, message.turnId,
+        message.talkingStonePassedTo ? JSON.stringify(message.talkingStonePassedTo) : null,
+        message.contextTokens, message.contextTokensMax,
+        message.metadata ? JSON.stringify(message.metadata) : null,
+        message.senderName ?? '',
+        message.createdAt,
+      ];
+      this.db.prepare(cols).run(...params);
+      this.upsertMessageFts(message.id, "");
+    })();
+  }
+
   async startSpeaking(messageId: string, body: string | undefined, talkingStonePassedTo: string[], signalLevel?: string | null, signalMeta?: string | null): Promise<void> {
     this.db.transaction(() => {
       // 状态变更 + FTS 刷新同一事务；body 非空时附带插入 segment（speak+yield 拆分后 yield 调用不传 body）
@@ -864,6 +884,22 @@ export class SqliteConversationRepository implements ConversationRepository {
     const message = rowToMessage(row);
     await this.attachSegments([message]);
     return message;
+  }
+
+  /** F20260909smsp：按 invokeGroupId 查询 invoke 消息链（首个 message + speak messages） */
+  async getMessagesByInvokeGroupId(conversationId: string, invokeGroupId: string): Promise<Message[]> {
+    const rows = this.db.prepare(`
+      SELECT * FROM messages
+      WHERE conversation_id = ?
+        AND (
+          id = ?
+          OR JSON_EXTRACT(metadata, '$.invokeGroupId') = ?
+        )
+      ORDER BY sequence_num ASC
+    `).all(conversationId, invokeGroupId, invokeGroupId) as MessageRow[];
+    const messages = rows.map(rowToMessage);
+    await this.attachSegments(messages);
+    return messages;
   }
 
   // ── Turn 历史 ──

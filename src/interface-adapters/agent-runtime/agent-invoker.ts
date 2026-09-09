@@ -328,6 +328,7 @@ export class AgentInvoker implements AgentTurnPort {
             }
             if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
               this.logger.debug('speak tool executed', { messageId: input.messageId });
+              // F20260909smsp：speak message 的 SSE 事件带 speakMessageId（独立气泡）
               this.emitSpeakIntermediate(e, input.messageId, otterId, opts?.otterName, emitEvent);
             }
             /** 所有事件如实持久化（event 就是 event，不抑制） */
@@ -372,7 +373,7 @@ export class AgentInvoker implements AgentTurnPort {
     abortFn?: () => void,
   ): TurnCallbacks {
     return {
-      completeMessage: async (messageId: string, input?: { contextTokens?: number; contextTokensMax?: number }) => {
+      completeMessage: async (messageId: string, input?: { contextTokens?: number; contextTokensMax?: number; skipSegmentValidation?: boolean }) => {
         const cr = await this.sendMessage.complete(messageId, input);
         return { turnClose: { aggregatedTargets: cr.turnClose?.aggregatedTargets } };
       },
@@ -407,7 +408,7 @@ export class AgentInvoker implements AgentTurnPort {
 
       getMessageById: async (messageId: string) => {
         const msg = await this.queryMessage.getMessageById(messageId);
-        return msg ? { status: msg.status, segments: msg.segments ?? [], turnId: msg.turnId } : null;
+        return msg ? { status: msg.status, segments: msg.segments ?? [], turnId: msg.turnId, metadata: msg.metadata ?? undefined } : null;
       },
 
       sendSystem: async (convId: string, body: string) => {
@@ -442,6 +443,17 @@ export class AgentInvoker implements AgentTurnPort {
       },
 
       emitEvent,
+
+      // F20260909smsp：invoke group 消息链查询（orchestrator fail/abort 时遍历终态化）
+      getMessagesByInvokeGroupId: async (conversationId: string, invokeGroupId: string) => {
+        const msgs = await this.sendMessage.getMessagesByInvokeGroupId(conversationId, invokeGroupId);
+        return msgs.map(m => ({ id: m.id, status: m.status, segments: m.segments ?? [], turnId: m.turnId }));
+      },
+
+      // F20260909smsp：完成 speak message（speaking → completed + memory index）
+      completeSpeakMessage: async (messageId: string) => {
+        await this.sendMessage.completeSpeakMessage(messageId);
+      },
 
       logger: this.logger,
 
@@ -503,7 +515,9 @@ export class AgentInvoker implements AgentTurnPort {
     if (e.isError === true) this.metrics?.recordToolError(tool);
   }
 
-  /** speak 落库成功后广播中间发言（前端实时展示，无需等 yield 交棒） */
+  /** speak 落库成功后广播中间发言（前端实时展示，无需等 yield 交棒）
+   *  F20260909smsp：speak message 创建时先广播 message.start（前端插入新气泡），
+   *  再广播 speak.intermediate（带 speak message 的 messageId） */
   private emitSpeakIntermediate(
     e: AgentStreamEvent,
     messageId: string,
@@ -513,9 +527,14 @@ export class AgentInvoker implements AgentTurnPort {
   ): void {
     const details = (e.result as { details?: Record<string, unknown> } | undefined)?.details;
     if (details?.__speakIntermediate === true) {
-      // ?? otterId: null/undefined 时兜底到 otterId（UUID），避免空串被前端 || 跳过显示 'Otter'
-      // F-multi-speak-bubble: 传递 segmentId + sequenceNum 用于前端分段渲染
-      emitEvent({ event: "speak.intermediate", data: { messageId, body: String(details.body ?? ""), otterId, otterName: resolveSpeakerName("otter", otterId, otterName) ?? otterId, segmentId: details.segmentId as string, sequenceNum: details.sequenceNum as number } });
+      // F20260909smsp：speak message 的 messageId（独立气泡标识）
+      const speakMsgId = (details.speakMessageId as string) ?? messageId;
+      const resolvedName = resolveSpeakerName("otter", otterId, otterName) ?? otterId;
+
+      // 广播 message.start 让前端插入新气泡（仅首次——通过 liveEventsMap 检测）
+      emitEvent({ event: "message.start", data: { messageId: speakMsgId, otterId, otterName: resolvedName } });
+      // 广播 speak.intermediate（带 segment 内容）
+      emitEvent({ event: "speak.intermediate", data: { messageId: speakMsgId, body: String(details.body ?? ""), otterId, otterName: resolvedName, segmentId: details.segmentId as string, sequenceNum: details.sequenceNum as number } });
     }
   }
 

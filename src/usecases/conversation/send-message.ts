@@ -71,6 +71,8 @@ export interface CompleteMessageInput {
   talkingStonePassedTo: string[];
   contextTokens?: number;
   contextTokensMax?: number;
+  /** F20260909smsp：跳过 segment 校验（首个 message 在拆分后无 segment，作为 routing container 完成） */
+  skipSegmentValidation?: boolean;
 }
 
 /** 开始发言输入 */
@@ -300,6 +302,75 @@ export class SendMessage {
     return message;
   }
 
+  /** F20260909smsp：创建 speak message（status='speaking'，每次 speak 调用创建独立 message）
+   *  invokeGroupId = 首个 message id，用于 invoke 消息链归组。 */
+  async createSpeakMessage(
+    conversationId: string,
+    senderId: string,
+    turnId: string,
+    invokeGroupId: string,
+  ): Promise<Message> {
+    const otter = await this.otterRepo.getById(senderId);
+    if (!otter) {
+      throw new DomainError(`createSpeakMessage: senderId 不存在于 otters 表: ${senderId}`, "not_found");
+    }
+    const senderName = resolveSpeakerName("otter", senderId, otter.name) ?? otter.name;
+
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const sequenceNum = (await this._repo.getMaxSequenceNum(conversationId)) + 1;
+
+    const message: Message = {
+      id,
+      conversationId,
+      turnId,
+      senderType: "otter",
+      senderId,
+      talkingStonePassedTo: [senderId], // F20260909smsp：非空以通过终态校验（不路由，仅校验）
+      status: "speaking",
+      segments: [],
+      sequenceNum,
+      contextTokens: null,
+      contextTokensMax: null,
+      source: null,
+      senderName,
+      createdAt: now,
+      completedAt: null,
+      metadata: { invokeGroupId },
+    };
+
+    await this._repo.createSpeakingMessage(message);
+    return message;
+  }
+
+  /** F20260909smsp：完成 speak message（speaking → completed，更新 FTS + memory index） */
+  async completeSpeakMessage(messageId: string): Promise<void> {
+    const message = await this._repo.getMessageById(messageId);
+    if (!message) throw new DomainError(`Message not found: ${messageId}`, "not_found");
+    if (message.status !== "speaking") {
+      throw new DomainError(`Cannot complete speak message with status: ${message.status}`, "validation");
+    }
+
+    const now = new Date().toISOString();
+    await this._repo.completeMessage({
+      messageId,
+      talkingStonePassedTo: message.talkingStonePassedTo ?? [message.senderId],
+      completedAt: now,
+    });
+
+    const segments = message.segments.length > 0
+      ? message.segments
+      : await this._repo.getSegments(messageId);
+    const body = aggregateBody(segments);
+    await this.memoryIndex.indexMessage(message.id, message.conversationId, stripHtmlCardFences(body));
+    await tryCloseTurn(this._repo, message.turnId);
+  }
+
+  /** F20260909smsp：按 invokeGroupId 查询 invoke 消息链 */
+  async getMessagesByInvokeGroupId(conversationId: string, invokeGroupId: string): Promise<Message[]> {
+    return this._repo.getMessagesByInvokeGroupId(conversationId, invokeGroupId);
+  }
+
   /** 追加流式事件（streaming/speaking 状态可追加） */
   async appendEvent(input: MessageEventInput): Promise<MessageEvent> {
     const message = await this._repo.getMessageById(input.messageId);
@@ -401,7 +472,7 @@ export class SendMessage {
     if (!talkingStonePassedTo || !isValidTalkingStonePass(talkingStonePassedTo, "completed", message.senderType)) {
       throw new DomainError("talkingStonePassedTo must be non-empty for completed messages", "validation");
     }
-    if (!isValidCompletedMessage(message.segments)) {
+    if (!isValidCompletedMessage(message.segments) && !input?.skipSegmentValidation) {
       throw new DomainError("message must have non-empty segments to complete", "validation");
     }
     return { talkingStonePassedTo };

@@ -68,12 +68,19 @@ export interface OtterToolClient {
       complete(messageId: string, params?: {
         talkingStonePassedTo?: string[];
       }): Promise<{ message: Message; turnClose: { closed: boolean; /** @deprecated F20260904schf：turn 级并集（#792），链引擎已改读行级 tsp */ aggregatedTargets: string[] } }>;
+      /** F20260909smsp：创建 speak message（独立 message，senderType=otter，status=speaking）。
+       *  talkingStonePassedTo 用 senderId 保证终态校验通过（speak message 不路由但校验要求非空）。 */
+      createSpeakMessage(conversationId: string, senderId: string, invokeGroupId: string): Promise<Message>;
+      /** F20260909smsp：完成 speak message（speaking → completed，更新 FTS + memory index） */
+      completeSpeakMessage(messageId: string): Promise<void>;
       getById(id: string): Promise<Message | null>;
       list(conversationId: string, opts?: { limit?: number; before?: string }): Promise<Message[]>;
       search(conversationId: string, query: string, limit?: number): Promise<Message[]>;
       getTurnHistory(conversationId: string, opts?: { includeMessages?: boolean }): Promise<TurnHistoryEntry[]>;
       /** F20260906srst（#811）：指定 senderType 的最新消息——自重启防循环的用户介入检测用（只读） */
       getLastBySenderType(conversationId: string, senderType: "user" | "otter" | "system"): Promise<Message | null>;
+      /** F20260909smsp：按 invokeGroupId 查询 invoke 消息链 */
+      getByInvokeGroupId(conversationId: string, invokeGroupId: string): Promise<Message[]>;
     };
     participant: {
       join(conversationId: string, otterId: string): Promise<ConversationParticipant>;

@@ -143,5 +143,7 @@ export interface ToolContext {
   orchestrationWarningShown?: boolean;
   /** F20260826mwrd C1：signal_events 仓库（halt_otter/query_signals 注册条件；invoke 级注入） */
   signalRepo?: SignalEventRepository;
+  /** F20260909smsp：当前打开的 speak message ID（每次 speak 创建独立 message，ToolContext 跟踪最新一个） */
+  lastSpeakMessageId?: string;
 
 }

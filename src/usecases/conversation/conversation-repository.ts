@@ -56,6 +56,8 @@ export interface ConversationRepository {
   // Message 生命周期
   createCompletedMessage(message: Message): Promise<void>;
   createStreamingMessage(message: Message): Promise<void>;
+  /** F20260909smsp：创建 speak message（status='speaking'，含 invokeGroupId） */
+  createSpeakingMessage(message: Message): Promise<void>;
   /** 开始发言（yield 交棒）：streaming → speaking，设置发言石目标；body 可选（拆分后内容由 speak 的 appendSegment 落库） */
   startSpeaking(messageId: string, body: string | undefined, talkingStonePassedTo: string[], signalLevel?: string | null, signalMeta?: string | null): Promise<void>;
   completeMessage(input: {
@@ -132,6 +134,8 @@ export interface ConversationRepository {
 
   /** F20260805rbrg：按 metadata.externalId 查重（招聘桥接去重用） */
   findByExternalId(externalId: string): Promise<Message | null>;
+  /** F20260909smsp：按 invokeGroupId 查询 invoke 消息链（首个 message + speak messages） */
+  getMessagesByInvokeGroupId(conversationId: string, invokeGroupId: string): Promise<Message[]>;
 
   // Turn 历史（含消息）
   getTurnHistory(conversationId: string, includeMessages?: boolean): Promise<TurnHistoryEntry[]>;

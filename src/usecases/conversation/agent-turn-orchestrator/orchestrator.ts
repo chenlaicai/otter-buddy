@@ -24,6 +24,7 @@ import { matchRateLimitError, buildRateLimitSystemMsg, buildRateLimitDescription
 // 与 interceptHealingReport 同模式；usecase 内部互引无跨层问题）
 import { healingAlertRegistry } from "@usecases/healing/healing-alert-registry";
 import { aggregateBody } from "@entities/conversation/message";
+import type { MessageSegment } from "@entities/conversation/message";
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
 import type { ErrorWithToolCallCount, InvokeResultShape, TurnInput, TurnResult, AttemptDriver, TurnCallbacks, RouteContext, RetryContext, TerminalContext, RetryWithNewMessageSignal } from "./types";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
@@ -162,6 +163,7 @@ export class AgentTurnOrchestrator {
   }
 
   /** Try to complete a speaking message */
+  // eslint-disable-next-line max-lines-per-function -- F20260909smsp: invoke group completion adds 2 lines to existing logic
   private async tryCompleteSpeaking(
     input: TurnInput,
     result: InvokeResultShape,
@@ -178,6 +180,7 @@ export class AgentTurnOrchestrator {
       const cr = await ctx.callbacks.completeMessage(input.messageId, {
         contextTokens: result.ctxTokens,
         contextTokensMax: result.ctxMax,
+        skipSegmentValidation: true, // F20260909smsp：首个 message 在拆分后无 segment
       });
 
       void this.recordAttempt({
@@ -217,6 +220,9 @@ export class AgentTurnOrchestrator {
           ctxMax: result.ctxMax,
         },
       });
+
+      // F20260909smsp：完成 invoke 消息链中的 speak messages（独立气泡）
+      await this.completeInvokeGroupSpeakMessages(input, duration, ctx.callbacks);
 
       // 发送 turn.complete 事件
       this.safeEmitEvent(ctx.callbacks, { event: "turn.complete", data: {} });
@@ -375,7 +381,7 @@ export class AgentTurnOrchestrator {
     const msg = await ctx.callbacks.getMessageById(ctx.input.messageId);
     if (msg?.status === 'speaking') {
       try {
-        const cr = await ctx.callbacks.completeMessage(ctx.input.messageId);
+        const cr = await ctx.callbacks.completeMessage(ctx.input.messageId, { skipSegmentValidation: true });
 
         // 发送 message.complete 事件
         const duration = Date.now() - ctx.startTime;
@@ -988,6 +994,9 @@ export class AgentTurnOrchestrator {
       data: { messageId, body, otterId, otterName: resolveSpeakerName("otter", otterId, otter?.name) ?? otterId },
     });
 
+    // F20260909smsp：终态化 invoke 消息链中的 speak messages
+    await this.terminateInvokeGroupSpeakMessages(ctx.input.conversationId, messageId, ctx.callbacks, 'aborted', body);
+
     return { messageId, duration: Date.now() - ctx.startTime };
   }
 
@@ -1015,6 +1024,9 @@ export class AgentTurnOrchestrator {
       data: { message: errorMessage, messageId, otterId },
     });
 
+    // F20260909smsp：终态化 invoke 消息链中的 speak messages
+    await this.terminateInvokeGroupSpeakMessages(input.conversationId, messageId, callbacks, 'failed', errorMessage);
+
     return { messageId, duration: Date.now() - startTime };
   }
 
@@ -1022,6 +1034,74 @@ export class AgentTurnOrchestrator {
   private recordStreamEventMetrics(_e: AgentStreamEvent, _callbacks: TurnCallbacks): void {
     // Metrics recording is handled by the invoker's onEvent callback.
     // This method is intentionally a no-op to avoid double-counting.
+  }
+
+  /** F20260909smsp：获取 invoke group 中的 speak messages（排除首个 message） */
+  private async getInvokeGroupSpeakMessages(
+    conversationId: string,
+    firstMessageId: string,
+    callbacks: TurnCallbacks,
+  ): Promise<Array<{ id: string; status: string; segments: MessageSegment[]; turnId?: string }>> {
+    if (!callbacks.getMessagesByInvokeGroupId) return [];
+    const firstMsg = await callbacks.getMessageById(firstMessageId);
+    const invokeGroupId = firstMsg?.metadata?.invokeGroupId;
+    if (!invokeGroupId) return [];
+    try {
+      const all = await callbacks.getMessagesByInvokeGroupId(conversationId, invokeGroupId);
+      return all.filter(m => m.id !== firstMessageId);
+    } catch { return []; }
+  }
+
+  /** F20260909smsp：完成 invoke 消息链中的 speak messages（正常完成路径） */
+  // eslint-disable-next-line max-params -- 四参数为 invoke group 广播所需（otterId/duration/callbacks/msgs）
+  private async completeInvokeGroupSpeakMessages(
+    input: TurnInput,
+    duration: number,
+    callbacks: TurnCallbacks,
+  ): Promise<void> {
+    if (!callbacks.completeSpeakMessage) return;
+    const speakMsgs = await this.getInvokeGroupSpeakMessages(input.conversationId, input.messageId, callbacks);
+    if (speakMsgs.length === 0) return;
+
+    const otter = await callbacks.getOtterById(input.otterId);
+    const otterName = resolveSpeakerName("otter", input.otterId, otter?.name) ?? input.otterId;
+    const dur = `${(duration / 1000).toFixed(1)}s`;
+
+    for (const gm of speakMsgs) {
+      if (gm.status !== 'speaking') continue;
+      try {
+        await callbacks.completeSpeakMessage(gm.id);
+        this.safeEmitEvent(callbacks, {
+          event: "message.complete",
+          data: { messageId: gm.id, otterId: input.otterId, otterName, body: aggregateBody(gm.segments), segments: gm.segments.map(s => ({ id: s.id, body: s.body, sequenceNum: s.sequenceNum })), turnId: gm.turnId ?? '', duration: dur },
+        });
+      } catch { /* already terminal */ }
+    }
+  }
+
+  /** F20260909smsp：终态化 invoke 消息链中的 speak messages（fail/abort 路径） */
+  private async terminateInvokeGroupSpeakMessages(
+    conversationId: string,
+    firstMessageId: string,
+    callbacks: TurnCallbacks,
+    terminalStatus: 'failed' | 'aborted',
+    body: string,
+  ): Promise<void> {
+    const speakMsgs = await this.getInvokeGroupSpeakMessages(conversationId, firstMessageId, callbacks);
+    if (speakMsgs.length === 0) return;
+
+    const terminateFn = terminalStatus === 'failed'
+      ? (id: string) => callbacks.failMessage(id, body)
+      : (id: string) => callbacks.abortMessage(id, { body, talkingStonePassedTo: [] });
+    const event = terminalStatus === 'failed' ? 'message.failed' : 'message.aborted';
+
+    for (const gm of speakMsgs) {
+      if (gm.status === 'completed' || gm.status === 'failed' || gm.status === 'aborted') continue;
+      try {
+        await terminateFn(gm.id);
+        this.safeEmitEvent(callbacks, { event, data: { messageId: gm.id, body } });
+      } catch { /* already terminal */ }
+    }
   }
 
   /** 构建重试时的系统提醒消息（按退出原因匹配文案） */

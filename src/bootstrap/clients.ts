@@ -23,6 +23,16 @@ export function buildMessageClient(uc: UseCases) {
       uc.queryMessage.getTurnHistory(convId, opts),
     getLastBySenderType: (convId: string, senderType: "user" | "otter" | "system") =>
       uc.queryMessage.getLastMessageBySenderType(convId, senderType),
+    createSpeakMessage: async (conversationId: string, senderId: string, invokeGroupId: string) => {
+      // turnId 从首个 message（invokeGroupId）获取
+      const firstMsg = await uc.queryMessage.getMessageById(invokeGroupId);
+      const turnId = firstMsg?.turnId ?? '';
+      return uc.sendMessage.createSpeakMessage(conversationId, senderId, turnId, invokeGroupId);
+    },
+    completeSpeakMessage: (messageId: string) =>
+      uc.sendMessage.completeSpeakMessage(messageId),
+    getByInvokeGroupId: (convId: string, invokeGroupId: string) =>
+      uc.sendMessage.getMessagesByInvokeGroupId(convId, invokeGroupId),
   };
 }
 

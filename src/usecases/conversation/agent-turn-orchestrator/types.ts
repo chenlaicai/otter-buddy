@@ -115,7 +115,7 @@ export interface HealingEventInput {
 /** TurnCallbacks - orchestrator 回调 adapter 的接口 */
 export interface TurnCallbacks {
   /** 消息生命周期回调 */
-  completeMessage(messageId: string, input?: { contextTokens?: number; contextTokensMax?: number }): Promise<{ turnClose: { /** @deprecated F20260904schf：turn 级并集（#792），链引擎已改读行级 tsp */ aggregatedTargets?: string[] } }>;
+  completeMessage(messageId: string, input?: { contextTokens?: number; contextTokensMax?: number; skipSegmentValidation?: boolean }): Promise<{ turnClose: { /** @deprecated F20260904schf：turn 级并集（#792），链引擎已改读行级 tsp */ aggregatedTargets?: string[] } }>;
   failMessage(messageId: string, body?: string, talkingStonePassedTo?: string[]): Promise<void>;
   abortMessage(messageId: string, input: { body: string; talkingStonePassedTo?: string[] }): Promise<void>;
   /** F20260818cbkr：写 healing 事件（degenerate guard 触发点数据源） */
@@ -131,8 +131,9 @@ export interface TurnCallbacks {
   isCircuitBreakerEnabled(): boolean;
   /** 广播消息到 Web 和飞书 */
   broadcastMessage(messageId: string): Promise<void>;
-  /** 查询消息状态。segments 是消息内容的唯一载体（messages.body 列已移除，SSE body 由 aggregateBody 计算） */
-  getMessageById(messageId: string): Promise<{ status: string; segments: MessageSegment[]; turnId?: string } | null>;
+  /** 查询消息状态。segments 是消息内容的唯一载体（messages.body 列已移除，SSE body 由 aggregateBody 计算）。
+   *  F20260909smsp：扩展返回 metadata 以支持 invokeGroupId 查询 */
+  getMessageById(messageId: string): Promise<{ status: string; segments: MessageSegment[]; turnId?: string; metadata?: { invokeGroupId?: string; [key: string]: unknown } } | null>;
   /** 发送系统消息 */
   sendSystem(conversationId: string, body: string): Promise<{ id: string; body: string | null; sequenceNum: number }>;
   /** 创建新消息（重试用） */
@@ -150,6 +151,10 @@ export interface TurnCallbacks {
   logger: Logger;
   /** metrics（可选） */
   metrics?: AgentMetricsPort;
+  /** F20260909smsp：按 invokeGroupId 查询 invoke 消息链（可选，未注入时 invoke group 终态化降级为仅首个 message） */
+  getMessagesByInvokeGroupId?(conversationId: string, invokeGroupId: string): Promise<Array<{ id: string; status: string; segments: MessageSegment[]; turnId?: string }>>;
+  /** F20260909smsp：完成 speak message（speaking → completed + memory index，可选） */
+  completeSpeakMessage?(messageId: string): Promise<void>;
 }
 
 /** 路由上下文（封装路由方法的共享参数） */

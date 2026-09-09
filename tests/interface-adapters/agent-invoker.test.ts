@@ -206,7 +206,7 @@ describe("AgentInvoker", () => {
 
     /** 上下文窗口占用随 complete 落库（口径：末次 LLM 调用窗口占用 ctxTokens，F20260808ctxw），保证刷新后历史消息仍能展示上下文使用率 */
     expect(sendMessage._completeCalls).toHaveLength(1);
-    expect(sendMessage._completeCalls[0].input).toEqual({ contextTokens: 42000, contextTokensMax: 200000 });
+    expect(sendMessage._completeCalls[0].input).toEqual({ contextTokens: 42000, contextTokensMax: 200000, skipSegmentValidation: true });
   });
 
   it("calls sendMessage.abort() with synthetic body on abort (B-Abort-1, B-Abort-2)", async () => {

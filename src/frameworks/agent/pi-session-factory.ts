@@ -73,6 +73,7 @@ const EMPTY_TOOL_CONTEXT_BASE: ToolContext = {
   otterId: "",
   conversationId: "",
   currentMessageId: "",
+  lastSpeakMessageId: undefined,
 };
 
 /** Agent 执行结果 */

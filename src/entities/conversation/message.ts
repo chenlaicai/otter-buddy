@@ -26,6 +26,8 @@ export interface MessageMetadata {
   eventType?: string;
   /** 严重度（status kind 时填）：warning | critical */
   severity?: "warning" | "critical";
+  /** F20260909smsp：invoke 消息链归组 ID（= 首个 message id）。speak message 用此字段归属到 invoke。 */
+  invokeGroupId?: string;
   /** 其他自定义键 */
   [key: string]: unknown;
 }
