@@ -616,6 +616,24 @@ export class PiSessionFactory implements AgentGateway {
     });
     this.logger.debug('[createSession] createAgentSession returned', { otterId });
 
+    // F20260909mthl：按模型配置设置思考深度（session 每次 invoke 重建，故每次创建后都设）。
+    // SDK 默认链：createAgentSession 未显式传 thinkingLevel 时落到 DEFAULT_THINKING_LEVEL="medium"（sdk.js:115-138），
+    // 再经 clampThinkingLevel 按模型 thinkingLevelMap 映射（如 k3 medium=null → clamp 向上到 high）。
+    // 本处覆写 SDK 默认链：配置了就用配置值；未配置跳过（保持 SDK 解析链结果）。
+    // 非 reasoning 模型 available=["off"]，任何档位被安全钳为 off。clamp 发生时打 info 日志（配置与模型能力不一致的信号）。
+    if (this.cfg.modelPool) {
+      const configuredLevel = this.cfg.modelPool.getThinkingLevel(resolvedAlias);
+      if (configuredLevel) {
+        session.setThinkingLevel(configuredLevel);
+        const applied = session.thinkingLevel;
+        if (applied !== configuredLevel) {
+          this.logger.info('Thinking level clamped to model-supported level', { otterId, modelAlias: resolvedAlias, configured: configuredLevel, applied });
+        } else {
+          this.logger.debug('Thinking level applied', { otterId, modelAlias: resolvedAlias, thinkingLevel: applied });
+        }
+      }
+    }
+
     const sessionKey = messageId ? `${otterId}:${messageId}` : otterId;
     this.activeSessions.set(sessionKey, { abort: () => session.abort(), steer: (text: string) => session.steer?.(text) ?? Promise.resolve(), toolCallCount: 0 });
 
