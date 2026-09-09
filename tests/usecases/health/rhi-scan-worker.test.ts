@@ -71,6 +71,62 @@ class TestRepo {
   }
 }
 
+/** cost_output 测试夹具：session JSONL + otter/session/message 行 + sink，返回 worker 与按日查询函数。
+ *  提取动机（F20260909csdt 补充 PR）：describe 主体突破 max-lines-per-function 上限（220 行）。
+ *  sink 说明：同时注入 snapshotSink（overview）与 costOutputSink——保留 #583 原用例的
+ * 「两 sink 共存」组合覆盖（PR #866 检视发现 2，移除会丢该场景）。 */
+interface CostOutputFixtureIds { sessionFile: string; sessionId: string; otterId: string; otterName: string; convId: string; turnId: string; msgId: string }
+async function setupCostOutputFixture(
+  repoDir: string,
+  db: Database.Database,
+  ids: CostOutputFixtureIds,
+): Promise<{ worker: RhiScanWorker; queryDay: (date: string) => Array<{ metric_key: string; metric_value: number; metadata: string }> }> {
+  const sessionsDir = path.join(repoDir, "data", "sessions");
+  await mkdir(sessionsDir, { recursive: true });
+  await writeFile(
+    path.join(sessionsDir, ids.sessionFile),
+    [
+      `{"type":"session","version":3,"id":"${ids.sessionId}","timestamp":"2026-08-28T10:00:00.000Z"}`,
+      `{"type":"model_change","id":"mc1","parentId":null,"timestamp":"2026-08-28T10:00:01.000Z","provider":"mimo","modelId":"mimo-v2.5-pro"}`,
+      `{"type":"message","id":"msg1","parentId":"mc1","timestamp":"2026-08-28T10:01:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"hi"},{"type":"toolCall","id":"tc1","name":"speak","arguments":"{}"}],"model":"mimo-v2.5-pro","usage":{"input":1000,"output":100,"cacheRead":500,"cacheWrite":0,"totalTokens":1600,"cost":{"input":0.01,"output":0.005,"cacheRead":0.0005,"cacheWrite":0,"total":0.0155},"cacheWrite1h":0},"stopReason":"stop","timestamp":1724839260000,"responseId":"r1"}}`,
+    ].join("\n"),
+    "utf-8",
+  );
+
+  db.prepare("INSERT INTO otters (id, name, type) VALUES (?, ?, ?)").run(ids.otterId, ids.otterName, "big");
+  db.prepare("INSERT INTO agent_sessions (otter_id, pi_session_id) VALUES (?, ?)").run(ids.otterId, ids.sessionId);
+  db.prepare("INSERT INTO conversations (id, title) VALUES (?, ?)").run(ids.convId, "test");
+  db.prepare("INSERT INTO turns (id, conversation_id, turn_number) VALUES (?, ?, ?)").run(ids.turnId, ids.convId, 1);
+  db.prepare(`
+    INSERT INTO messages (id, conversation_id, sender_type, sender_id, sequence_num, turn_id, sender_name, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(ids.msgId, ids.convId, "otter", ids.otterId, 1, ids.turnId, ids.otterName, "2026-08-28 10:05:00");
+
+  const { HealthSnapshotRepository } = await import("@usecases/health/health-snapshot-repository");
+  const snapshotRepo = new HealthSnapshotRepository(db);
+  const overviewSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>) =>
+    snapshotRepo.replaceForDate(snapshotDate, rows);
+  const costOutputSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>, metricType?: string) =>
+    snapshotRepo.replaceForDate(snapshotDate, rows, metricType);
+
+  const worker = new RhiScanWorker(repoDir, makePipeline(db), async () => [], console as never, {
+    prSource: async () => [],
+    snapshotSink: overviewSink,
+    costOutputSink,
+    sessionsDir,
+    agentSessionSource: async () => [
+      { piSessionId: ids.sessionId, otterId: ids.otterId, otterName: ids.otterName, otterType: "big" },
+    ],
+    costOutputDb: db,
+  });
+
+  const queryDay = (date: string) => db.prepare(
+    "SELECT metric_key, metric_value, metadata FROM health_snapshots WHERE metric_type = 'cost_output' AND snapshot_date = ? ORDER BY metric_key",
+  ).all(date) as Array<{ metric_key: string; metric_value: number; metadata: string }>;
+
+  return { worker, queryDay };
+}
+
 describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
   let repo: TestRepo;
   let repoDir: string;
@@ -268,50 +324,14 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
   });
 
   it("costOutputSink 注入后 scanOnce 写入成本/产出快照（#583）", async () => {
-    // 准备 session JSONL fixture
-    const sessionsDir = path.join(repoDir, "data", "sessions");
-    await mkdir(sessionsDir, { recursive: true });
-    const sessionFile = `2026-08-28T10-00-00-000Z_test-sess-001.jsonl`;
-    await writeFile(
-      path.join(sessionsDir, sessionFile),
-      [
-        `{"type":"session","version":3,"id":"test-sess-001","timestamp":"2026-08-28T10:00:00.000Z"}`,
-        `{"type":"model_change","id":"mc1","parentId":null,"timestamp":"2026-08-28T10:00:01.000Z","provider":"mimo","modelId":"mimo-v2.5-pro"}`,
-        `{"type":"message","id":"msg1","parentId":"mc1","timestamp":"2026-08-28T10:01:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"hi"},{"type":"toolCall","id":"tc1","name":"speak","arguments":"{}"}],"model":"mimo-v2.5-pro","usage":{"input":1000,"output":100,"cacheRead":500,"cacheWrite":0,"totalTokens":1600,"cost":{"input":0.01,"output":0.005,"cacheRead":0.0005,"cacheWrite":0,"total":0.0155},"cacheWrite1h":0},"stopReason":"stop","timestamp":1724839260000,"responseId":"r1"}}`,
-      ].join("\n"),
-      "utf-8",
-    );
-
-    // 插入 otter 数据
-    db.prepare("INSERT INTO otters (id, name, type) VALUES (?, ?, ?)").run("test-otter-id", "测试獭", "big");
-    db.prepare("INSERT INTO agent_sessions (otter_id, pi_session_id) VALUES (?, ?)").run("test-otter-id", "test-sess-001");
-    // 插入 messages 数据（for OtterOutputCollector）
-    db.prepare("INSERT INTO conversations (id, title) VALUES (?, ?)").run("conv-test", "test");
-    db.prepare("INSERT INTO turns (id, conversation_id, turn_number) VALUES (?, ?, ?)").run("turn-test", "conv-test", 1);
-    db.prepare(`
-      INSERT INTO messages (id, conversation_id, sender_type, sender_id, sequence_num, turn_id, sender_name, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run("msg-out-1", "conv-test", "otter", "test-otter-id", 1, "turn-test", "测试獭", "2026-08-28 10:05:00");
-
-    // 准备快照 repo + sinks
-    const { HealthSnapshotRepository } = await import("@usecases/health/health-snapshot-repository");
-    const snapshotRepo = new HealthSnapshotRepository(db);
-    const overviewSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>) =>
-      snapshotRepo.replaceForDate(snapshotDate, rows);
-    const costOutputSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>, metricType?: string) =>
-      snapshotRepo.replaceForDate(snapshotDate, rows, metricType);
-
-    const pipeline = makePipeline(db);
-
-    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
-      prSource: async () => [],
-      snapshotSink: overviewSink,
-      costOutputSink,
-      sessionsDir,
-      agentSessionSource: async () => [
-        { piSessionId: "test-sess-001", otterId: "test-otter-id", otterName: "测试獭", otterType: "big" },
-      ],
-      costOutputDb: db,
+    const { worker, queryDay } = await setupCostOutputFixture(repoDir, db, {
+      sessionFile: "2026-08-28T10-00-00-000Z_test-sess-001.jsonl",
+      sessionId: "test-sess-001",
+      otterId: "test-otter-id",
+      otterName: "测试獭",
+      convId: "conv-test",
+      turnId: "turn-test",
+      msgId: "msg-out-1",
     });
 
     const result = await worker.scanOnce();
@@ -319,8 +339,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
 
     // 验证数据写入 health_snapshots——按记录真实日期落库（2026-08-28 fixture），
     // 不再全部覆盖到扫描日（趋势数据修复：快照日期 = 数据日期）
-    const costRows = db.prepare("SELECT * FROM health_snapshots WHERE metric_type = 'cost_output' AND snapshot_date = ?")
-      .all("2026-08-28") as Array<{ metric_key: string; metric_value: number; metadata: string }>;
+    const costRows = queryDay("2026-08-28");
     expect(costRows.length).toBeGreaterThan(0);
 
     // 验证含 expected 指标键
@@ -336,6 +355,41 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     const meta = JSON.parse(firstRow.metadata);
     expect(meta.otterId).toBe("test-otter-id");
     expect(meta.otterName).toBe("测试獭");
+  });
+
+  it("多轮扫描后历史日期 cost_output 行存活且数值不重复累计（F20260909csdt 回归保险）", async () => {
+    // 本用例是「per-otter 行按真实日期落库」修复（PR #860）的回归保险：
+    // 验证 scanOnce 连跑两次后，历史日期行仍在（replaceForDate 逐日幂等）
+    // 且数值与单次扫描一致（不随扫描次数重复累计）。
+    // 覆盖 per-otter 行 + 全局行混合场景（PR #866 检视发现 1）：fixture 仓库的 seed
+    // 含 F 文档（F20260801wwww，2026-08-01），fdoc_count 全局行随每轮扫描落库。
+    const { worker, queryDay } = await setupCostOutputFixture(repoDir, db, {
+      sessionFile: "2026-08-28T10-00-00-000Z_test-sess-002.jsonl",
+      sessionId: "test-sess-002",
+      otterId: "test-otter-id-2",
+      otterName: "测试獭乙",
+      convId: "conv-test-2",
+      turnId: "turn-test-2",
+      msgId: "msg-out-2",
+    });
+
+    const queryGlobalDay = (date: string) => db.prepare(
+      "SELECT metric_key, metric_value FROM health_snapshots WHERE metric_type = 'cost_output' AND snapshot_date = ? AND metadata = '{}' ORDER BY metric_key",
+    ).all(date) as Array<{ metric_key: string; metric_value: number }>;
+
+    // 第一轮扫描：历史日期落库（per-otter 行 + 全局行）
+    await worker.scanOnce();
+    const firstPass = queryDay("2026-08-28");
+    expect(firstPass.length).toBeGreaterThan(0);
+    // 全局行：seed 的 F 文档创建于 2026-08-01，fdoc_count 落在该日
+    const firstGlobal = queryGlobalDay("2026-08-01");
+    expect(firstGlobal.some(r => r.metric_key === "fdoc_count" && r.metric_value === 1)).toBe(true);
+
+    // 第二轮扫描：同 fixture 重扫——历史日期行存活 + 数值与首轮完全一致（幂等，不重复累计）
+    await worker.scanOnce();
+    expect(queryDay("2026-08-28")).toEqual(firstPass);
+    // 全局行同样幂等：不随扫描轮次重复累计
+    expect(queryGlobalDay("2026-08-01")).toEqual(firstGlobal);
   });
   it("costOutputSink 未注入时快照跳过且不报错（向后兼容，#583）", async () => {
     const pipeline = makePipeline(db);

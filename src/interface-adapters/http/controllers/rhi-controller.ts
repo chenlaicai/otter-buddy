@@ -163,7 +163,12 @@ function judgeTrends(
 
 /** cost_output 趋势序列构建（#583）
  *  cacheHitRate 从 cache_read_tokens + input_tokens 求和推导（真加权平均），
- *  不对 per-record cache_hit_rate 做简单平均（#583 第二轮审视修复：三处口径统一）。 */
+ *  不对 per-record cache_hit_rate 做简单平均（#583 第二轮审视修复：三处口径统一）。
+ *
+ *  混合求和说明（F20260909csdt 补充）：同一 snapshot_date 下 per-otter 行与全局行
+ * （pr_count/fdoc_count/dispatch_count）混在一起按 metric_key 求和是安全的——
+ *  两类行的指标键集合不相交：per-otter 指标（token/cost/call/message/tool_call）
+ *  只存在于 per-otter 行，全局指标只存在于全局行，互不污染、无重复计数风险。 */
 function buildCostTrendSeries(
   costRows: Array<{ snapshot_date: string; metric_key: string; metric_value: number }>,
 ): Array<Record<string, number | string>> {
