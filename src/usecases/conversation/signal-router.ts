@@ -145,6 +145,11 @@ export class SignalRouter {
       if (otterIdFilter && targetId !== otterIdFilter) continue;
       results.push({ signal: msg, action: await this.routeSignalForTarget(conversationId, targetId, msg) });
     }
+    // 销账：注入成功（followed_up/steered）的信号打 consumed 标记，防重燃
+    for (const r of results) {
+      if (r.action !== "followed_up" && r.action !== "steered") continue;
+      await this.markSignalConsumed(r.signal, r.action).catch(() => {});
+    }
     return results;
   }
 
@@ -180,6 +185,9 @@ export class SignalRouter {
     if (this.deps.factory.isRunning(targetId)) {
       const text = this.buildSignalText(signal);
       const isSteer = this.isSteerSignal(signal);
+      // F20260908rlcp 实测修复：followUp/steer 注入成功后必须销账（consumed 标记）——
+      // 否则 resume 补扫与历史扫描会把已注入的信号当成「待处理」再次点火（09-09 实测三句回复根因）。
+      // 销账动作与注入动作同事务语义：注入成功即写 consumed，失败则不写（下次重试）。
 
       if (isSteer) {
         const steered = this.deps.factory.steer(targetId, this.buildSteerText(signal));
