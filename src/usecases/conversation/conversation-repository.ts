@@ -70,6 +70,9 @@ export interface ConversationRepository {
    *  F20260826rsme：skipNoticeIds 内的消息只置 failed 不插 notice（恢复流程会重置回 streaming 续写，
    *  notice 会污染续写内容）；其余消息保留现状语义。 */
   failInFlightMessages(failedAt: string, noticeBody: string, skipNoticeIds?: ReadonlySet<string>): Promise<number>;
+  /** F20260908rlcp：信号销账——更新消息的 signal_meta（consumed 标记）。
+   *  注入成功（followUp/steer）后调用，resume 补扫跳过 consumed 防重燃。 */
+  updateMessageSignalMeta(messageId: string, signalMeta: string): Promise<void>;
   /** 服务重启兜底：关闭不再有进行中消息的 open turn（配合 failInFlightMessages），返回关闭条数 */
   closeOrphanedTurns(closedAt: string): Promise<number>;
   /** 重置 failed 消息为 streaming（yield 重试专用）。默认清空 segments。preserveSegments=true 时保留 segments（no_yield 重试专用：speak 内容有效，不应被删除）。status 非 failed 时抛 DomainError。 */

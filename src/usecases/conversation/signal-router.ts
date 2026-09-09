@@ -156,18 +156,42 @@ export class SignalRouter {
     const messages = await this.deps.conversationRepo.getMessages(conversationId, { limit: 200 });
     const latestByTarget = new Map<string, Message>();
     for (const msg of messages) {
-      if (msg.status !== "completed" || msg.senderType === "otter") continue;
-      const targets = (msg.talkingStonePassedTo ?? []).filter(t => t !== "user");
-      for (const targetId of targets) {
-        if (otterIdFilter && targetId !== otterIdFilter) continue;
-        if (!latestByTarget.has(targetId)) latestByTarget.set(targetId, msg); // DESC 序首次命中=最新
-      }
+      const targetId = this.pickLatestTarget(msg, otterIdFilter, latestByTarget);
+      if (targetId) latestByTarget.set(targetId, msg); // DESC 序首次命中=最新
     }
     const results: Array<{ signal: Message; action: RouteAction }> = [];
     for (const [targetId, msg] of latestByTarget) {
       results.push({ signal: msg, action: await this.routeSignalForTarget(conversationId, targetId, msg) });
     }
+    // 销账：注入成功（followUp/steer）的信号打 consumed 标记，防 resume 补扫重燃
+    for (const r of results) {
+      if (r.action !== "followed_up" && r.action !== "steered") continue;
+      await this.markSignalConsumed(r.signal, r.action).catch(() => {});
+    }
     return results;
+  }
+
+  /** 从消息 tsp 中挑一个「该补扫且未被跳过」的目标——已选中的不再重复。 */
+  private pickLatestTarget(
+    msg: Message,
+    otterIdFilter: string | undefined,
+    latestByTarget: Map<string, Message>,
+  ): string | null {
+    if (msg.status !== "completed" || msg.senderType === "otter") return null;
+    if (this.isSignalConsumed(msg)) return null; // 已销账信号跳过
+    const targets = (msg.talkingStonePassedTo ?? []).filter(t => t !== "user");
+    for (const targetId of targets) {
+      if (otterIdFilter && targetId !== otterIdFilter) continue;
+      if (!latestByTarget.has(targetId)) return targetId;
+    }
+    return null;
+  }
+
+  /** 信号销账：注入成功（followUp/steer）后给消息打 consumed 标记，
+   *  resume 补扫与历史扫描跳过 consumed——防重燃。写 messages.signal_meta。 */
+  private async markSignalConsumed(signal: Message, action: "followed_up" | "steered"): Promise<void> {
+    const meta = { ...(signal.signalMeta ? JSON.parse(signal.signalMeta) as Record<string, unknown> : {}), consumed: action, consumedAt: new Date().toISOString() };
+    await this.deps.conversationRepo.updateMessageSignalMeta(signal.id, JSON.stringify(meta));
   }
 
   /**
@@ -260,6 +284,17 @@ export class SignalRouter {
     try {
       const meta = JSON.parse(signal.signalMeta) as { level?: string };
       return meta.level === "URGENT";
+    } catch {
+      return false;
+    }
+  }
+
+  /** F20260908rlcp：信号是否已销账（consumed 标记存在=已注入成功，补扫跳过） */
+  private isSignalConsumed(signal: Message): boolean {
+    if (!signal.signalMeta) return false;
+    try {
+      const meta = JSON.parse(signal.signalMeta) as { consumed?: string };
+      return !!meta.consumed;
     } catch {
       return false;
     }

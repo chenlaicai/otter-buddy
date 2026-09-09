@@ -204,6 +204,12 @@ export class SqliteConversationRepository implements ConversationRepository {
       .run(pinned ? 1 : 0, id);
   }
 
+  /** F20260908rlcp：信号销账——更新消息 signal_meta（consumed 标记） */
+  async updateMessageSignalMeta(messageId: string, signalMeta: string): Promise<void> {
+    this.db.prepare("UPDATE messages SET signal_meta = ? WHERE id = ?")
+      .run(signalMeta, messageId);
+  }
+
   // ── Participants (static association) ──
 
   async getOtterIds(conversationId: string): Promise<string[]> {
