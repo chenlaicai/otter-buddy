@@ -36,8 +36,8 @@ function fakeOutputRecord(overrides?: Partial<OtterOutputRecord>): OtterOutputRe
 }
 
 describe("buildCostOutputSnapshotRows", () => {
-  it("每条 cost 记录生成 11 行（#602 删 cache_hit_rate 后 11 个指标键）", () => {
-    const rows = buildCostOutputSnapshotRows("2026-08-28", [fakeCostRecord()], []);
+  it("每条 cost 记录生成 11 行（#602 删 cache_hit_rate 后 11 个指标键），日期取记录真实日期", () => {
+    const rows = buildCostOutputSnapshotRows([fakeCostRecord()], []);
     expect(rows.length).toBe(11);
     for (const r of rows) {
       expect(r.metricType).toBe("cost_output");
@@ -45,11 +45,26 @@ describe("buildCostOutputSnapshotRows", () => {
     }
   });
 
+  it("跨日记录按各自日期生成行（趋势数据不被覆盖到扫描日）", () => {
+    const costs = [fakeCostRecord(), fakeCostRecord({ date: "2026-08-27", costTotal: 0.5 })];
+    const outputs = [fakeOutputRecord(), fakeOutputRecord({ date: "2026-08-26", messageCount: 7 })];
+    const rows = buildCostOutputSnapshotRows(costs, outputs);
+    const dates = new Set(rows.map(r => r.snapshotDate));
+    expect(dates).toEqual(new Set(["2026-08-26", "2026-08-27", "2026-08-28"]));
+    // 8-27 的 cost 行值来自当天记录
+    const aug27Cost = rows.find(r => r.snapshotDate === "2026-08-27" && r.metricKey === "cost_total")!;
+    expect(aug27Cost.metricValue).toBe(0.5);
+    // 8-26 的 output 行值来自当天记录
+    const aug26Msg = rows.find(r => r.snapshotDate === "2026-08-26" && r.metricKey === "message_count")!;
+    expect(aug26Msg.metricValue).toBe(7);
+  });
+
   it("每条 output 记录生成 2 行（message_count + tool_call_count）", () => {
-    const rows = buildCostOutputSnapshotRows("2026-08-28", [], [fakeOutputRecord()]);
+    const rows = buildCostOutputSnapshotRows([], [fakeOutputRecord()]);
     expect(rows.length).toBe(2);
     const msgRow = rows.find(r => r.metricKey === "message_count")!;
     expect(msgRow.metricValue).toBe(42);
+    expect(msgRow.snapshotDate).toBe("2026-08-28");
     const toolRow = rows.find(r => r.metricKey === "tool_call_count")!;
     expect(toolRow.metricValue).toBe(15);
   });
@@ -57,13 +72,13 @@ describe("buildCostOutputSnapshotRows", () => {
   it("多条 cost + 多条 output 记录的总行数", () => {
     const costs = [fakeCostRecord(), fakeCostRecord({ otterId: "otter-bbb", otterName: "小獭甲" })];
     const outputs = [fakeOutputRecord(), fakeOutputRecord({ otterId: "otter-bbb", otterName: "小獭甲", messageCount: 10, toolCallCount: 3 })];
-    const rows = buildCostOutputSnapshotRows("2026-08-28", costs, outputs);
+    const rows = buildCostOutputSnapshotRows(costs, outputs);
     // 2 cost × 11（#602 删 cache_hit_rate）+ 2 output × 2 = 26
     expect(rows.length).toBe(26);
   });
 
   it("metadata 是合法 JSON 且含 otter 标识", () => {
-    const rows = buildCostOutputSnapshotRows("2026-08-28", [fakeCostRecord()], [fakeOutputRecord()]);
+    const rows = buildCostOutputSnapshotRows([fakeCostRecord()], [fakeOutputRecord()]);
     for (const r of rows) {
       const meta = JSON.parse(r.metadata!);
       expect(meta.otterId).toBe("otter-aaa");
@@ -72,7 +87,7 @@ describe("buildCostOutputSnapshotRows", () => {
   });
 
   it("cost 行的 metadata 含 model 字段", () => {
-    const rows = buildCostOutputSnapshotRows("2026-08-28", [fakeCostRecord()], []);
+    const rows = buildCostOutputSnapshotRows([fakeCostRecord()], []);
     for (const r of rows) {
       const meta = JSON.parse(r.metadata!);
       expect(meta.model).toBe("mimo-v2.5-pro");
@@ -82,7 +97,7 @@ describe("buildCostOutputSnapshotRows", () => {
 
   it("指标值正确映射", () => {
     const rec = fakeCostRecord();
-    const rows = buildCostOutputSnapshotRows("2026-08-28", [rec], []);
+    const rows = buildCostOutputSnapshotRows([rec], []);
     const byKey = new Map(rows.map(r => [r.metricKey, r.metricValue]));
     expect(byKey.get("input_tokens")).toBe(10000);
     expect(byKey.get("output_tokens")).toBe(500);
@@ -98,7 +113,7 @@ describe("buildCostOutputSnapshotRows", () => {
       { date: "2026-08-27", prCount: 3 },
       { date: "2026-08-28", prCount: 5 },
     ];
-    const rows = buildCostOutputSnapshotRows("2026-08-28", [], [], { prRecords });
+    const rows = buildCostOutputSnapshotRows([], [], { prRecords });
     expect(rows.length).toBe(2);
     expect(rows[0]!.metricKey).toBe("pr_count");
     expect(rows[0]!.metricValue).toBe(3);
@@ -112,7 +127,7 @@ describe("buildCostOutputSnapshotRows", () => {
       { date: "2026-08-28", fdocCount: 2 },
       { date: "2026-08-29", fdocCount: 1 },
     ];
-    const rows = buildCostOutputSnapshotRows("2026-08-28", [], [], { fdocRecords });
+    const rows = buildCostOutputSnapshotRows([], [], { fdocRecords });
     expect(rows.length).toBe(2);
     expect(rows[0]!.metricKey).toBe("fdoc_count");
     expect(rows[0]!.metricValue).toBe(2);
@@ -124,7 +139,7 @@ describe("buildCostOutputSnapshotRows", () => {
       { date: "2026-08-28", dispatchCount: 3 },
       { date: "2026-08-29", dispatchCount: 1 },
     ];
-    const rows = buildCostOutputSnapshotRows("2026-08-28", [], [], { dispatchRecords });
+    const rows = buildCostOutputSnapshotRows([], [], { dispatchRecords });
     expect(rows.length).toBe(2);
     expect(rows[0]!.metricKey).toBe("dispatch_count");
     expect(rows[0]!.metricValue).toBe(3);
@@ -134,7 +149,7 @@ describe("buildCostOutputSnapshotRows", () => {
   });
 
   it("空输入返回空数组", () => {
-    const rows = buildCostOutputSnapshotRows("2026-08-28", [], [], {});
+    const rows = buildCostOutputSnapshotRows([], [], {});
     expect(rows).toEqual([]);
   });
 });
