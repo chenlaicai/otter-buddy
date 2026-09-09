@@ -4,7 +4,7 @@ title: '协作机制 v2：信号轨迹 UI — 状态盒与投递状态原位展�
 summary: '信号协议展示层落地（母方案 F20260901sgpx §7）：新增 /signal-trail 只读端点（服务端从游标/streaming 持久层推导投递状态 PENDING/CONSUMING/CONSUMED），消息原位渲染「谁→谁·档位·状态」轨迹条，措辞约束固化（排队只说「待消化」，不说「正在忙」/队列位置）。'
 change_type: feature
 status: draft
-capability_test: "tests/usecases/conversation/query-signal-trail.test.ts"
+capability_test: "n/a: 功能已被 F20260908rlcp 退役（信号轨迹 UI 与端点删除），原测试文件随退役移除"
 created_in_conversation: 52bfdd91-a61e-4323-b1f7-1fe3daaadc32
 ---
 

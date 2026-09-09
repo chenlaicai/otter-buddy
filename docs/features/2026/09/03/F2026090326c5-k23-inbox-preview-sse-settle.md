@@ -11,7 +11,7 @@ status: implemented
 change_type: feature
 tags: [signal-protocol, dispatch-ledger, sse-lifecycle, inbox-preview, sgp2-k23]
 modules: [src/usecases/conversation/, src/interface-adapters/http/, src/frameworks/db/conversation/]
-capability_test: tests/usecases/conversation/k23-inbox-preview.test.ts
+capability_test: "n/a: 功能已被 F20260908rlcp 退役（K2 收件箱预告改未读计数、K3 SSE 关流改消息终态），原测试文件随退役移除"
 created_in_conversation: 52bfdd91-a61e-4323-b1f7-1fe3daaadc32
 causal_links:
   from:

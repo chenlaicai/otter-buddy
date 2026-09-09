@@ -198,12 +198,12 @@ export class PiSessionFactory implements AgentGateway {
     };
     // Why(#423 方案1): 注入 logger，锁获取超时时落结构化诊断日志（持有者、持有时长、队列深度）
     this.lockManager = new SimpleLockManager(undefined, logger);
-    // F20260908rlcp：初始化 LRU 热池
-    const poolConfig = getConfig().llm;
+    // F20260908rlcp：初始化 LRU 热池（getConfig().llm 在测试环境可能未初始化或缺段，防御性缺省）
+    const poolConfig = (() => { try { return getConfig().llm; } catch { return undefined; } })();
     this.pool = new SessionPool(
       {
-        maxSize: poolConfig.sessionPoolSize ?? 50,
-        idleTtlMs: (poolConfig.sessionPoolIdleTtlMinutes ?? 30) * 60 * 1000,
+        maxSize: poolConfig?.sessionPoolSize ?? 50,
+        idleTtlMs: (poolConfig?.sessionPoolIdleTtlMinutes ?? 30) * 60 * 1000,
       },
       logger,
     );
