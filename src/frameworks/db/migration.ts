@@ -129,8 +129,10 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
    *  schema.ts 新库已含；老库 CHECK (running/completed/failed) 无 skipped，需四步重建。 */
   rebuildExecutionsStatusCheck(db, logger);
 
-  /** F20260904schf P2（#792）：dispatch_attempts.source CHECK 扩展 dissolve 枚举值（存量库重建）。 */
-  rebuildDispatchAttemptsSourceCheck(db, logger);
+  /** F20260908rlcp：dispatch_attempts 存量表 drop（退役时已从 schema.ts 删除，此处清理旧库残留）。
+   *  执行条件：表存在即 drop（表已在 F20260908rlcp 退役，无业务方消费）。
+   *  注：归档导出由 PR 描述的 data/archive/ 流程负责，此处只做 schema 清理。 */
+  dropDispatchAttemptsTable(db, logger);
 
   /** 幽灵 sender 回填：sender_type 与 sender_id 语义错位的存量数据修复（2026-09-04 排查）。 */
   backfillGhostSenders(db, logger);
@@ -797,51 +799,23 @@ function rebuildExecutionsStatusCheck(db: Database.Database, logger: Logger): vo
   logger.info('Rebuilt scheduled_task_executions table to add skipped status (#654)');
 }
 
-/** F20260904schf P2（#792）：dispatch_attempts.source CHECK 约束扩展 dissolve 枚举值。
- *  Why 表重建而非 ALTER：SQLite 无法修改已有 CHECK 约束，只能重建表替换（#608/#654 同模式）。
- *  检测 sqlite_master 的旧 CHECK 文本判存量；幂等：新库宽约束（含 dissolve）不命中直接返回。
- *  表含两个 FK（message_id/conversation_id → messages/conversations），与 #608 同理：
- *  PRAGMA foreign_keys 事务外关闭、重建后恢复；DROP+RENAME 在事务内完成。 */
-function rebuildDispatchAttemptsSourceCheck(db: Database.Database, logger: Logger): void {
-  const schema = db.prepare(
-    "SELECT sql FROM sqlite_master WHERE type='table' AND name='dispatch_attempts'",
-  ).get() as { sql: string } | undefined;
-  // 检测旧窄约束（不含 dissolve）——新库宽约束不命中
-  if (!schema?.sql || schema.sql.includes("'dissolve'")) return;
+/** F20260908rlcp：dispatch_attempts 存量表 drop。
+ *  表已在 F20260908rlcp 退役（schema.ts 删除），此处清理旧库残留。
+ *  幂等：表不存在时跳过。PRAGMA foreign_keys 事务外关闭、drop 后恢复。 */
+function dropDispatchAttemptsTable(db: Database.Database, logger: Logger): void {
+  const tableExists = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='dispatch_attempts'",
+  ).get() as { name: string } | undefined;
+  if (!tableExists) return;
 
-  logger.info('Rebuilding dispatch_attempts table to widen source CHECK constraint (add dissolve)');
+  logger.info('Dropping retired dispatch_attempts table');
   db.pragma("foreign_keys = OFF");
   try {
-    db.transaction(() => {
-      db.exec(`
-        CREATE TABLE dispatch_attempts_new (
-          id TEXT PRIMARY KEY,
-          conversation_id TEXT NOT NULL,
-          message_id TEXT NOT NULL,
-          target_otter_id TEXT NOT NULL,
-          status TEXT NOT NULL CHECK (status IN ('in_progress','completed','failed','aborted')),
-          source TEXT NOT NULL DEFAULT 'chain' CHECK (source IN ('chain','router','retry','backfill','dissolve')),
-          attempt_started_at TEXT NOT NULL DEFAULT (datetime('now')),
-          attempt_finished_at TEXT,
-          note TEXT,
-          UNIQUE(message_id, target_otter_id),
-          FOREIGN KEY (message_id) REFERENCES messages(id),
-          FOREIGN KEY (conversation_id) REFERENCES conversations(id)
-        );
-        INSERT INTO dispatch_attempts_new
-          (id, conversation_id, message_id, target_otter_id, status, source, attempt_started_at, attempt_finished_at, note)
-        SELECT id, conversation_id, message_id, target_otter_id, status, source, attempt_started_at, attempt_finished_at, note
-        FROM dispatch_attempts;
-        DROP TABLE dispatch_attempts;
-        ALTER TABLE dispatch_attempts_new RENAME TO dispatch_attempts;
-        CREATE INDEX IF NOT EXISTS idx_dispatch_attempts_conv ON dispatch_attempts(conversation_id, status);
-        CREATE INDEX IF NOT EXISTS idx_dispatch_attempts_message ON dispatch_attempts(message_id);
-      `);
-    })();
+    db.exec('DROP TABLE IF EXISTS dispatch_attempts');
   } finally {
     db.pragma("foreign_keys = ON");
   }
-  logger.info('Rebuilt dispatch_attempts table to add dissolve source (F20260904schf P2)');
+  logger.info('Dropped dispatch_attempts table (F20260908rlcp retirement)');
 }
 
 /** F202609048840 F4：restart_pending_resumes.status CHECK 扩展 failed（存量库重建）。

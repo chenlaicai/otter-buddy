@@ -208,6 +208,6 @@ speak execute 内：
 ### 关键设计决策
 
 1. **ToolContext.lastSpeakMessageId**：存 ToolContext 上（invoke 级生命周期），非 send-message 内部状态（send-message 无状态用例层）
-2. **speak message talkingStonePassedTo**：传 null（不承载发言石路由语义）
+2. **speak message talkingStonePassedTo**：传 [senderId]（过终态校验，无路由语义）
 3. **invokeGroupId 查询**：`JSON_EXTRACT(metadata, '$.invokeGroupId')` + 首个 message ID 匹配，覆盖两个方向
 4. **前端无需改动**：speak message 走标准 message.start/speak.intermediate/message.complete 生命周期，前端按 messageId 平铺渲染

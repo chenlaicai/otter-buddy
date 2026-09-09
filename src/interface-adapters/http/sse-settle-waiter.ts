@@ -27,12 +27,12 @@ export function awaitTriggerAttemptsSettled(
       const targets = (triggerMsg.talkingStonePassedTo ?? []).filter(t => t !== "user");
       if (targets.length === 0) return true;
 
-      // 检查每个目标是否有在 streaming 状态的消息
+      // 检查每个目标是否有在 streaming/speaking 状态的消息
       for (const targetId of targets) {
         const last = await queryMessage.getMessages(conversationId, { senderType: "otter", limit: 1 });
-        // 取该目标最新消息看是否还在 streaming
+        // 该目标最新消息若仍在 streaming/speaking → 未 settle
         const targetMsgs = last.filter(m => m.senderId === targetId);
-        if (targetMsgs.length > 0 && targetMsgs[0]!.status === "streaming") return false;
+        if (targetMsgs.length > 0 && (targetMsgs[0]!.status === "streaming" || targetMsgs[0]!.status === "speaking")) return false;
       }
       return true;
     } catch {

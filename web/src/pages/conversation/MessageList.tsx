@@ -262,7 +262,7 @@ export function MessageList({
    *   （不可观测滚动容器：容器 contentRect.height 是视口布局高度，内容变化不触发——
    *   首版实现踩过的坑，jsdom 测试手动 fire 回调掩盖了这一点）
    * - viewportObserver 观测滚动容器（scrollRef）：contentRect.height = 视口高度（flex-1
-   *   布局）。GateBanner 出现/loadingMore 指示条/窗口缩小会压缩视口，底部内容被推出
+   *   布局）。loadingMore 指示条/窗口缩小会压缩视口，底部内容被推出
    *   视口下缘 → 视口减小且在底部 → 贴底拉回。
    *
    * 边界处理：
@@ -303,7 +303,7 @@ export function MessageList({
       prevViewportHeightRef.current = h
       if (!shrank) return // 视口增大：底部内容更可见，不补
       if (!isAtBottomRef.current) return
-      rafPinToBottom() // 视口被压缩（GateBanner 出现等）：底部内容被推出视口，拉回
+      rafPinToBottom() // 视口被压缩（loadingMore 等）：底部内容被推出视口，拉回
     }) : null
     if (content && contentObserver) contentObserver.observe(content)
     if (viewport && viewportObserver) viewportObserver.observe(viewport)

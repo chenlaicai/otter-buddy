@@ -741,7 +741,7 @@ export class SchedulerService {
 
       // 检查所有目标是否已有终态消息
       for (const targetId of targets) {
-        const hasTerminal = after.some(m => m.senderId === targetId && m.status !== "streaming");
+        const hasTerminal = after.some(m => m.senderId === targetId && m.status !== "streaming" && m.status !== "speaking");
         if (!hasTerminal) return false; // 某个目标还没有终态消息
       }
       return true;

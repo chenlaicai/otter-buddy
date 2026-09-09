@@ -12,7 +12,7 @@ status: implemented
 change_type: feature
 tags: [signal-protocol, gate-visibility, ux, sgp2-s35]
 modules: [src/usecases/conversation/, src/interface-adapters/http/, web/src/pages/conversation/, web/src/lib/]
-capability_test: web/src/pages/conversation/GateBanner.test.tsx
+capability_test: "n/a: GateBanner 组件已随 F20260908rlcp 信号收敛整体退役（PR #886），组件与测试文件均已删除。更正记录见 F20260909gbrm"
 created_in_conversation: 52bfdd91-a61e-4323-b1f7-1fe3daaadc32
 causal_links:
   from:

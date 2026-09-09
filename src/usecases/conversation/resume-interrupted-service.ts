@@ -401,9 +401,9 @@ export class ResumeInterruptedService {
       if (!sessionFile) return result;
       const fs = await import('fs');
       if (!fs.existsSync(sessionFile)) return result;
-      // 读取文件最后 4KB（覆盖最近的 steer 消息）
+      // 读取文件最后 64KB（覆盖最近的 steer 消息）
       const stat = fs.statSync(sessionFile);
-      const readSize = Math.min(4096, stat.size);
+      const readSize = Math.min(65536, stat.size);
       const buffer = Buffer.alloc(readSize);
       const fd = fs.openSync(sessionFile, 'r');
       try {

@@ -611,8 +611,8 @@ describe("migrateDatabase - #654 补丁: rebuildExecutionsStatusCheck", () => {
   });
 });
 
-describe("migrateDatabase - F20260904schf P2 补丁: rebuildDispatchAttemptsSourceCheck", () => {
-  /** 模拟旧库：dispatch_attempts 带 source 窄枚举 CHECK（含 FK 父表） */
+describe("migrateDatabase - F20260908rlcp: dispatch_attempts table drop", () => {
+  /** 模拟旧库：dispatch_attempts 存在（存量库） */
   function createOldSchemaDb(): Database.Database {
     const db = new Database(":memory:");
     db.pragma("foreign_keys = ON");
@@ -625,72 +625,37 @@ describe("migrateDatabase - F20260904schf P2 补丁: rebuildDispatchAttemptsSour
     db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, created_at)
       VALUES ('msg-m', 'conv-m', 'otter', 'otter-1', 'completed', 1, 'turn-m', '2026-09-01T00:01:00Z')`).run();
     db.prepare(`INSERT INTO otters (id, name, type, created_at) VALUES ('otter-1', 'o1', 'big', '2026-09-01T00:00:00Z')`).run();
-    db.prepare(`INSERT INTO otters (id, name, type, created_at) VALUES ('otter-2', 'o2', 'small', '2026-09-01T00:00:00Z')`).run();
-    // DROP 新表，用旧窄 CHECK 定义重建（模拟升级前存量库）
-    db.exec("DROP TABLE dispatch_attempts");
-    db.exec(`
-      CREATE TABLE dispatch_attempts (
-        id TEXT PRIMARY KEY,
-        conversation_id TEXT NOT NULL,
-        message_id TEXT NOT NULL,
-        target_otter_id TEXT NOT NULL,
-        status TEXT NOT NULL CHECK (status IN ('in_progress','completed','failed','aborted')),
-        source TEXT NOT NULL DEFAULT 'chain' CHECK (source IN ('chain','router','retry','backfill')),
-        attempt_started_at TEXT NOT NULL DEFAULT (datetime('now')),
-        attempt_finished_at TEXT,
-        note TEXT,
-        UNIQUE(message_id, target_otter_id),
-        FOREIGN KEY (message_id) REFERENCES messages(id),
-        FOREIGN KEY (conversation_id) REFERENCES conversations(id)
-      );
-    `);
     db.prepare(`INSERT INTO dispatch_attempts (id, conversation_id, message_id, target_otter_id, status, source, attempt_started_at, note)
       VALUES ('att-m', 'conv-m', 'msg-m', 'otter-1', 'failed', 'chain', '2026-09-01T00:02:00Z', '旧账')`).run();
     return db;
   }
 
-  it("存量库：source=dissolve 可入库（旧 CHECK 拒收），旧数据与 FK 完整保留", () => {
+  it("存量库：dispatch_attempts 表被 drop（退役清理）", () => {
     const db = createOldSchemaDb();
     try {
-      // 迁移前：旧 CHECK 拒收 dissolve
-      expect(() =>
-        db.prepare(`INSERT INTO dispatch_attempts (id, conversation_id, message_id, target_otter_id, status, source, attempt_started_at)
-          VALUES ('att-x', 'conv-m', 'msg-m', 'otter-1', 'aborted', 'dissolve', '2026-09-01T00:03:00Z')`).run()
-      ).toThrow();
+      // 迁移前：表存在
+      const before = db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name='dispatch_attempts'").get() as { n: number };
+      expect(before.n).toBe(1);
 
       migrateDatabase(db, createTestLogger());
 
-      // 迁移后：dissolve 可入（att-y 用 otter-2 槽位，避开 att-m 的 UNIQUE 占位）
-      expect(() =>
-        db.prepare(`INSERT INTO dispatch_attempts (id, conversation_id, message_id, target_otter_id, status, source, attempt_started_at)
-          VALUES ('att-y', 'conv-m', 'msg-m', 'otter-2', 'aborted', 'dissolve', '2026-09-01T00:03:00Z')`).run()
-      ).not.toThrow();
-
-      // 旧数据完整迁移（note/finish_at 等字段不丢）
-      const row = db.prepare("SELECT status, source, note, attempt_finished_at FROM dispatch_attempts WHERE id = 'att-m'").get() as { status: string; source: string; note: string | null; attempt_finished_at: string | null };
-      expect(row.status).toBe("failed");
-      expect(row.source).toBe("chain");
-      expect(row.note).toBe("旧账");
-      // FK 仍生效（指向不存在消息的插入被拒）
-      expect(() =>
-        db.prepare(`INSERT INTO dispatch_attempts (id, conversation_id, message_id, target_otter_id, status, source, attempt_started_at)
-          VALUES ('att-z', 'conv-m', 'msg-ghost', 'otter-1', 'failed', 'chain', '2026-09-01T00:04:00Z')`).run()
-      ).toThrow();
-      // 索引仍在
-      const idx = db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='index' AND tbl_name='dispatch_attempts' AND name LIKE 'idx_%'").get() as { n: number };
-      expect(idx.n).toBe(2);
+      // 迁移后：表被 drop
+      const after = db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name='dispatch_attempts'").get() as { n: number };
+      expect(after.n).toBe(0);
     } finally {
       db.close();
     }
   });
 
-  it("幂等：二次迁移不报错不重复重建", () => {
+  it("幂等：二次迁移不报错（表不存在时跳过 drop）", () => {
     const db = createOldSchemaDb();
     try {
       migrateDatabase(db, createTestLogger());
+      // 第二次迁移：表已不存在，dropDispatchAttemptsTable 幂等跳过
       expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
-      const row = db.prepare("SELECT count(*) AS n FROM dispatch_attempts WHERE id = 'att-m'").get() as { n: number };
-      expect(row.n).toBe(1);
+      // 验证表仍不存在
+      const after = db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name='dispatch_attempts'").get() as { n: number };
+      expect(after.n).toBe(0);
     } finally {
       db.close();
     }
@@ -701,7 +666,7 @@ describe("migrateDatabase - F20260904schf P2 补丁: rebuildDispatchAttemptsSour
     try {
       initSchema(db);
       // 全新库无 dispatch_attempts 表（F20260908rlcp 退役）
-      // 迁移中的 rebuildDispatchAttemptsSourceCheck 检测表不存在后返回
+      // 迁移中的 dropDispatchAttemptsTable 检测表不存在后跳过
       expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
       // 验证表不存在（退役后新库不建此表）
       const row = db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name='dispatch_attempts'").get() as { n: number };

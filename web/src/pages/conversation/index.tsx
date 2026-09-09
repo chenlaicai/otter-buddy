@@ -4,7 +4,7 @@ import { PanelLeft, PanelRight } from 'lucide-react'
 import '../../styles/globals.css'
 
 import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask, LocalMessageSegment } from '../../lib/mappers'
-import type { GateState } from './GateBanner'
+
 import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
 import { useSpeakSegments } from '../../lib/use-speak-segments'
 import { isInFlight, upsertMessage, insertBySeq, findStaleInFlight, upsertTerminalMessage } from '../../lib/message-stream'
@@ -312,17 +312,6 @@ function ConversationPage() {
 
   /** 静默刷新消息列表（轮询用，失败不打扰用户，下轮重试） */
   /** 增量刷新：只拉比当前最新消息更新的消息（after 游标），不触碰 prepend 的历史 */
-  /** S3.5（F20260903s35u）：会话调度闸门状态（横幅数据源）——与轨迹同端点随轮询刷新 */
-  const [gateState, setGateState] = useState<GateState | null>(null)
-  const refreshGate = useCallback(async (convId: string) => {
-    try {
-      const resp = await api.getSignalTrail(convId)
-      setGateState(resp.gate ?? null)
-    } catch {
-      // 闸门状态是增强信息：失败静默，不影响主消息流
-    }
-  }, [])
-
   const refreshMessages = useCallback(async (convId: string) => {
     /** F20260825scrf 检视 S-1 修复：弹窗打开期间冻结——本函数直接 setAllMessages（绕过
      *  batcher defer），SSE onError 等调用点会驱动 scrim 背后像素变化。关窗后由轮询
@@ -444,10 +433,7 @@ function ConversationPage() {
     const scheduleNext = () => {
       timer = setTimeout(() => {
         void refreshMessages(activeId).finally(() => {
-          // F20260903s35u：闸门状态随轮询链刷新（停机/限流冷却可见）
-          void refreshGate(activeId).finally(() => {
             if (!cancelled) scheduleNext()
-          })
         })
       }, 2000)
     }
@@ -456,7 +442,7 @@ function ConversationPage() {
     /** 依赖含 modalOpen（F20260825scrf 检视 S-1）：关窗时无条件重跑恢复轮询链——
      *  否则"弹窗期播种被跳 + 关窗 flush 无暂存"时 allMessages 不变，effect 不重跑，
      *  in-flight 续看断链 */
-  }, [activeId, allMessages, refreshMessages, refreshGate, modalOpen])
+  }, [activeId, allMessages, refreshMessages, modalOpen])
 
   /** 订阅消息广播（支持飞书消息实时同步到 Web，含 agent streaming 事件） */
   useEffect(() => {
@@ -741,8 +727,6 @@ function ConversationPage() {
 
   const handleSend = useCallback(async (text: string, mentionOtterIds?: string[], attachments?: import('./hooks/useAttachmentStaging').StagedAttachment[]) => {
     if (!activeId) return
-    // S3.5（G3）：发新消息 = 恢复动作（后端 clearUserHalt）——此前停机态时告知调度已恢复
-    if (gateState?.halted) showToast('调度已恢复', 'info')
     /** F20260904smsj：发言 = 已看完全部（聊天通用语义）——立即标记已读到当前最新 +
      *  强制回底部 + 清未读分隔线，消除「分隔线定位 × 自动滚底门控」竞争导致的视口上跳。
      *  此前：发言时若上一轮獭回复未读，轮询刷新会让视口跳向未读消息位置；
@@ -998,7 +982,7 @@ function ConversationPage() {
       removeTmpMsg()
       showToast('发送失败', 'error')
     }
-  }, [activeId, refreshMessages, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment, upsertOtterIfAbsentDeferred, gateState])
+  }, [activeId, refreshMessages, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment, upsertOtterIfAbsentDeferred])
 
   /** 卡片提交 → 强制预览 → 回执复用 handleSend 整条 SSE 管线（显式路由卡片作者） */
   const { cardPreview, confirmCardPreview, rejectCardPreview } = useCardBridge({
@@ -1428,7 +1412,7 @@ function ConversationPage() {
         >
           <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
         </div>
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} onReachBottom={handleMarkRead} gateState={gateState} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} onReachBottom={handleMarkRead} />
         {/* 右栏：≥lg 常驻；<lg 抽屉化。md~lg 区间聊天区 = 全宽 - 左栏(224px)，不再被右栏挤 <500px */}
         <div
           id="right-panel-drawer"
