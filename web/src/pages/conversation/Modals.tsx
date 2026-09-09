@@ -56,7 +56,7 @@ interface ModalsProps {
   onConfirmArchive: () => void
   onConfirmCreateOtter: (form: CreateOtterFormValue) => void
   onConfirmDissolve: (summary: string) => void
-  onConfirmRestart: (summary: string) => void
+  onConfirmRestart: (summary: string, modelAlias?: string) => void
   onConfirmLinkResource: (type: string, url: string, title: string) => void
   onOpenRestart: (otterId: string) => void
   onOpenDissolve: (otterId: string) => void
@@ -312,6 +312,19 @@ function RestartModal(props: ModalsProps) {
   const { modal } = props
   const otter = modal.type === 'restart' ? props.otters.find(o => o.id === modal.otterId) : null
   const [summary, setSummary] = useState('')
+  /** F20260909rmpx: restart 切模型——模型下拉数据源 GET /api/settings；
+   *  空串 = 不换模型（沿用当前生效模型），与后端 modelAlias 可选语义对齐 */
+  const [models, setModels] = useState<ModelInfoDTO[]>([])
+  const [selectedModel, setSelectedModel] = useState('')
+
+  useEffect(() => {
+    getSettings()
+      .then((s: import('@contract/api').SettingsDTO) => {
+        setModels(s.models)
+        setSelectedModel('')
+      })
+      .catch(() => console.warn('[RestartModal] Failed to load models for dropdown'))
+  }, [])
 
   return (
     <Modal
@@ -322,13 +335,25 @@ function RestartModal(props: ModalsProps) {
       footer={
         <>
           <ModalButton onClick={props.onClose}>取消</ModalButton>
-          <ModalButton variant="danger" onClick={() => { if (summary.trim()) { props.onConfirmRestart(summary); setSummary('') } }}>确认重启</ModalButton>
+          <ModalButton variant="danger" onClick={() => { if (summary.trim()) { props.onConfirmRestart(summary, selectedModel || undefined); setSummary('') } }}>确认重启</ModalButton>
         </>
       }
     >
       <p className="text-sm text-stone-600">
         重启 <strong className="text-otter-500">{otter?.name}</strong> 的獭生将封存当前 Session（前世），以全新上下文开启新一世。前世记录可在详情的 Session Chain 中查看。
       </p>
+      <div className="mt-3">
+        <label className="block text-xs font-medium text-stone-600 mb-1.5">模型</label>
+        <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)} className="form-input w-full">
+          <option value="">不换模型{otter?.modelAlias ? `（当前：${otter.modelAlias}）` : ''}</option>
+          {models.map(m => (
+            <option key={m.alias} value={m.alias}>
+              {m.alias}{m.description ? ` — ${m.description}` : ''}
+            </option>
+          ))}
+        </select>
+        <p className="text-[11px] text-stone-400 mt-1">模型配额耗尽时可在此应急换武器，新一世以新模型启动</p>
+      </div>
       <div className="mt-3">
         <label className="block text-xs font-medium text-stone-600 mb-1.5">前情摘要（可编辑）</label>
         <textarea

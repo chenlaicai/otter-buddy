@@ -172,8 +172,11 @@ export function getSessionHistory(otterId: string): Promise<OtterSessionDTO[]> {
   return request(`/otters/${otterId}/sessions`)
 }
 
-export function restartOtter(otterId: string, summary?: string): Promise<OtterSessionDTO> {
-  return request(`/otters/${otterId}/restart`, { method: 'POST', body: summary ? JSON.stringify({ summary }) : undefined })
+export function restartOtter(otterId: string, summary?: string, modelAlias?: string): Promise<OtterSessionDTO> {
+  const body: { summary?: string; modelAlias?: string } = {}
+  if (summary) body.summary = summary
+  if (modelAlias) body.modelAlias = modelAlias
+  return request(`/otters/${otterId}/restart`, { method: 'POST', body: Object.keys(body).length ? JSON.stringify(body) : undefined })
 }
 
 /** PR-2: Otter 面板 profile（聚合端点） */
