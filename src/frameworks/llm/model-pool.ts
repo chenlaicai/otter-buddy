@@ -97,9 +97,8 @@ export class ModelPool implements ModelPoolLike {
     return this.entries.get(alias)?.config.contextWindow;
   }
 
-  /** 获取模型的思考深度配置（F20260909mthl）。alias 缺省/不存在时回退默认模型，与 getModel 同语义 */
+  /** 获取模型的思考深度配置（F20260909mthl）。alias 缺省回退默认模型；未知 alias 返回 undefined（不回退默认——「未配置」与「配置了默认模型的档位」是两个语义，调用点 resolvedAlias 恒为有效 alias） */
   getThinkingLevel(alias: string | null | undefined): ThinkingLevel | undefined {
-    // Why 无 alias 回退：resolvedAlias 恒非空（调用点已解析），未配置 thinkingLevel 时 entries.get() 返回 undefined 即跳过设置，无需 fallback
     if (!alias) return this.entries.get(this.defaultAlias)?.config.thinkingLevel;
     return this.entries.get(alias)?.config.thinkingLevel;
   }

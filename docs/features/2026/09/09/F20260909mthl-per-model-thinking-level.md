@@ -41,6 +41,7 @@ modules:
 | 决策 | 结论 | 理由 |
 |------|------|------|
 | 档位 clamp 谁做 | SDK（setThinkingLevel 内部） | SDK 有完整 clamp 链（getSupportedThinkingLevels → clampThinkingLevel，先向上再向下），otter 层重复实现只会漂移 |
+| 未配置时的行为 | 保持 SDK 默认解析链 | createAgentSession 默认 medium → clampThinkingLevel（k3 medium=null → 落 high），与改动前完全一致，零行为变化 |
 | 非 reasoning 模型配了档位 | 安全 no-op | available=["off"]，clamp 到 off，不报错 |
 | clamp 发生时可观测性 | info 日志（applied !== configured） | 配置与模型能力不一致是运维信号，不该静默 |
 | 映射为 null 的档位（如 k3 的 medium） | SDK 侧不发给端点 | thinkingLevelMap 为 null 的档位被 getSupportedThinkingLevels 过滤，clamp 自动避开 |
@@ -51,8 +52,8 @@ modules:
 - `npx tsc --noEmit` 通过
 - 全量测试 3122 通过（新增 7：config 校验 3 + ModelPool 查询 4）
 - 已过最简检查：机制完全复用 SDK setThinkingLevel/clamp 链，otter 层只做「配置读取 + 一次 setter 调用」；无新增依赖
-- 现状兼容：config.yaml 未配任何 thinkingLevel → getThinkingLevel 返回 undefined → 不调 setThinkingLevel → 行为与改动前完全一致
+- 现状兼容：config.yaml 未配任何 thinkingLevel → getThinkingLevel 返回 undefined → 不调 setThinkingLevel → 保持 SDK 默认解析链（medium→clamp），行为与改动前完全一致
 
 ## 运营项（合入后）
 
-config.yaml（非 git 追踪）可按需给 kimi 配 `thinkingLevel: high`（k3 支持 low/high/max 三档，其余档映射 null 会被 clamp）。本次未改搭档本地 config——开不开档、开哪档由搭档实测体感决定。
+config.yaml（非 git 追踪）可按需给 kimi 配 `thinkingLevel`（k3 支持 low/high/max 三档，其余档映射 null 会被 clamp；现状 SDK 默认链下 k3 已落 high）。本次未改搭档本地 config——调不调、调哪档由搭档实测体感决定（想提速可试 `low`）。
