@@ -102,7 +102,7 @@ category: technique
    - 相关 + 数量 > 5 → PR 描述 Discovered Issues 节记录，审查者决定是否拆分 PR
 3. 问题与当前变更无关？ → 不能静默丢失：执行 `gh issue create`，按 SYSTEM.md R2 Issue 标签与标题规范打标（type=bug 或 tech-debt + priority P0/P1/P2，标题 `[模块] 摘要`），issue 链接写入 PR 描述 Discovered Issues 节（格式见 `references/commit-convention.md`）
 
-检视獭报上来的发现不适用上述规则 → 走 review-protocol 作者处置协议，带证据的反驳是合法处置。
+检视獭报上来的发现不适用上述规则 → 走 review-protocol 作者处置协议（`../adversarial-review/references/author-response-protocol.md`），带证据的反驳是合法处置。走「建 issue」子路径前必须过**关联度前置闸**（F20260909ugd8）：与本 PR 语义强关联的发现（守护本 PR 行为不回退 / 澄清本 PR 刚改的口径）默认当场修——原 PR 未合入修在原 PR，已合入立即开补充 PR；建 issue 的举证责任在作者，须论证为什么**不能**现在修且理由命中合法清单（依赖未就绪 / 需产品决策 / 增量 >300 行或 >3 个新模块），「需搭 fixture」「非本 PR 文件」不构成承载障碍。
 
 ## 产出
 
