@@ -317,9 +317,10 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     const result = await worker.scanOnce();
     expect(result.costOutputStored).toBeGreaterThan(0);
 
-    // 验证数据写入 health_snapshots
+    // 验证数据写入 health_snapshots——按记录真实日期落库（2026-08-28 fixture），
+    // 不再全部覆盖到扫描日（趋势数据修复：快照日期 = 数据日期）
     const costRows = db.prepare("SELECT * FROM health_snapshots WHERE metric_type = 'cost_output' AND snapshot_date = ?")
-      .all(new Date().toISOString().slice(0, 10)) as Array<{ metric_key: string; metric_value: number; metadata: string }>;
+      .all("2026-08-28") as Array<{ metric_key: string; metric_value: number; metadata: string }>;
     expect(costRows.length).toBeGreaterThan(0);
 
     // 验证含 expected 指标键

@@ -270,7 +270,6 @@ export class RhiScanWorker {
     if (!sink || !sessionsDir || !agentSource || !db) return 0;
 
     try {
-      const snapshotDate = new Date().toISOString().slice(0, 10);
       const since = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
       const [costRecords, toolCallCounts, prRecords, fdocRecords] = await Promise.all([
@@ -282,11 +281,11 @@ export class RhiScanWorker {
       const dispatchRecords = collectDispatchTaskCounts(db, { since });
 
       const outputRecords = collectOtterOutput(db, toolCallCounts, { since });
-      const rows = buildCostOutputSnapshotRows(snapshotDate, costRecords, outputRecords, { prRecords, fdocRecords, dispatchRecords });
+      const rows = buildCostOutputSnapshotRows(costRecords, outputRecords, { prRecords, fdocRecords, dispatchRecords });
       if (rows.length > 0) {
-        // 按日期分批写入，每批用 metricType="cost_output" 限定删除范围
-        // 修复 S1：全局行（pr/fdoc/dispatch）按历史日期入库，replaceForDate 需逐日删除再插入
-        // metricType 参数避免误删同日 overview 行
+        // 按真实日期分批写入，每批用 metricType="cost_output" 限定删除范围
+        // 所有行（per-otter + 全局）均以记录自带日期为 snapshot_date，逐日 replaceForDate 幂等覆盖
+        // ——60 天滚动窗口每次全量重扫，历史日期自动回填，无需独立回填脚本
         const rowsByDate = new Map<string, CreateCostOutputRow[]>();
         for (const row of rows) {
           const dateRows = rowsByDate.get(row.snapshotDate) ?? [];
