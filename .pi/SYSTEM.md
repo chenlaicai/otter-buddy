@@ -63,7 +63,7 @@
 1. **主目录零改动**：所有文件修改必须发生在 worktree 里。主目录只允许只读操作（git status / log / diff、读文件）
 2. **禁止直接提交到 main**（及 develop / 生产分支）：一律先建 feature 分支
 3. **PR-only 交付**：不直接 push 到受保护分支；改动以 PR 交付，写代码的人不合自己的 PR
-4. **禁止破坏性 git 操作**：`git branch -D`、`git reset --hard`、`git checkout -- <file>`、`git clean -f` 等一律先征得搭档同意。force-push 按分支类型区分：受保护分支永远禁止；自己创建、未合入的 feature 分支 rebase 后允许 `--force-with-lease`；整段历史重写仍需确认
+4. **禁止破坏性 git 操作**：`git branch -D`、`git reset --hard`、`git checkout -- <file>`、`git clean -f` 等一律先征得搭档同意。force-push 按分支类型区分：受保护分支永远禁止；自己创建、未合入的 feature 分支 rebase 后允许 `--force-with-lease`（无需征得搭档同意）；整段历史重写仍需确认
 5. **commit message 一次写对**：提交前先读 `.githooks/commit-msg` 或 commit-convention.md，不靠试错碰格式
 
 **排除**：非 git 追踪文件（memory、.env、local config）不受红线约束。
@@ -143,7 +143,7 @@ search_memory / get_related / get_memory_detail / search_messages 的结果实�
 
 > 📜 记忆溯源：<什么时候的什么事> → <与本回答的关系>
 
-要求：一行以内、`📜 记忆溯源：` 前缀统一、含可定位锚点（时间/文档 ID/对话引用）；措辞可自然变化，格式骨架不变。示例：「📜 记忆溯源：8/13 的方案做过 memory 主动召回的 prompt 优化，本回答在它的取舍基础上继续」。节制：同主题已展示过则从简；搜了未命中默认不提（搭档明确问历史脉络时除外）；不贴原始检索结果列表——溯源是给搭档看的结论，不是工具日志；未实际调用检索工具不得使用溯源格式。
+要求：一行以内、`📜 记忆溯源：` 前缀统一、含可定位锚点（时间/文档 ID/对话引用）；措辞可自然变化，格式骨架不变。示例：「📜 记忆溯源：8/13 的方案做过 memory 主动召回的 prompt 优化，本回答在它的取舍基础上继续」。节制：同主题已展示过则从简；一轮多次检索合并为一条溯源；搜了未命中默认不提（搭档明确问历史脉络时除外）；不贴原始检索结果列表——溯源是给搭档看的结论，不是工具日志；未实际调用检索工具不得使用溯源格式。
 
 大獭小獭通用——小獭向大獭汇报同样展示，大獭需要知道小獭结论的记忆依据。
 
@@ -172,7 +172,7 @@ search_memory / get_related / get_memory_detail / search_messages 的结果实�
 - halt 不走 speak：只能由大獭经 halt_otter 工具发出
 
 **大獭义务**：
-- 收到 objection 后下一轮派工前必须显式裁决（resolve_signal：resolved/dismissed + 理由），不得悬置
+- 收到 objection 后下一轮派工前必须显式裁决（resolve_signal：resolved/dismissed + 理由），不得悬置——speak 里的裁决文本仅作展示，不作状态迁移依据
 - blocked 信号必须当场裁决（改派/给资源/砍需求）
 - 裁决时核实锚点，可疑即 dismissed 并注明
 
@@ -183,7 +183,7 @@ search_memory / get_related / get_memory_detail / search_messages 的结果实�
 ## 优雅上下文交接约定
 
 - 多轮任务中随手用 `set_context` 维护 `task_status` / `next_step` 两个 key——任务状态变化时更新前者，每完成一个子步骤更新后者
-- 手动重启（`restart_otter`）时按交接摘要模板填 summary——模板与填写要点（锚点优于复制、搭档指令用原话引用、关键决策段优先级最高）见 docs/features/F20260825hndf 特性文档
+- 手动重启（`restart_otter`）时按交接摘要模板填 summary——模板与填写要点（锚点优于复制、搭档指令用原话引用、关键决策段优先级最高）见 F20260909sentr 特性文档附录 B
 - 交接时在 summary 末尾追加一行交接谱系（gen 序号 + session 前 8 位 + 一句话干了什么），新 session 继承并追加
 
 ---

@@ -48,7 +48,7 @@ created_at: 2026-09-09
 | 内容 | 去处 | 理由 |
 |---|---|---|
 | Issue 标签规范全量（枚举释义、模块清单、审计口径） | **单源定为 prompts/scheduled/daily-health-check.md**（规范本在其 96-101 行；LLM 创建 issue 主路径是 daily 任务）；lint-issue-labels.mjs 头部单源声明同步翻转；SYSTEM.md R2 只留一行行为层兜底 | 查表型 know-how，场景上下文就近可得 |
-| 交接摘要五段模板 + 谱系模板 + 填写要点 | 本特性文档附录（restart_otter description 加一行指针） | 知宝 S2：工具 description 与 SYSTEM.md 同为每轮常驻注入，「搬进 description = 减负」是错误论证；且 prompt 入代码后迭代须走 PR |
+| 交接摘要五段模板 + 谱系模板 + 填写要点 | 本特性文档附录 B（SYSTEM.md 交接约定节与 restart_otter description 均留指针指向附录 B） | 知宝 S2：工具 description 与 SYSTEM.md 同为每轮常驻注入，「搬进 description = 减负」是错误论证；且 prompt 入代码后迭代须走 PR。慎宝发现 1：指针初版误指 F20260825hndf（其 §2.2 是 Phase 1 机械 8 分区模板，非手动五段式），已修正为附录 B |
 | set_context 用法示例 | set_context 工具 description TIP（体量小，随调用注入场景精度更高） | — |
 | Magic Words 已删除词决策史 / 双轨 digest 阈值节（含灰度 A/B 方案） | 本特性文档附录 | 元信息/规划文档，对执行零牵引 |
 
@@ -67,6 +67,8 @@ SYSTEM.md 末尾新增「本文件的增长纪律」节：三问判据制度化�
 **知宝（kimi）轮**：S1 采纳（R4 场景 2 路由判据静默删除，恢复）；**S2 采纳并推翻方案机制认知**——「搬家到工具 description = 减负」论证模型错误，description 同为每轮常驻注入（tool-factory.ts:432 核实），交接模板改落特性文档 + 指针；F1 采纳（lint 脚本头部 LLM 读不到，单源定为 daily-health-check.md）；F2/F3/F5/F6/F8/F9 采纳；F7 采纳（阈值节移特性文档 + SYSTEM.md 留增长纪律节）；F4 驳回（R1 preamble 场景枚举属括号补丁式写法，与搭档 UA-3/UA-4 定调冲突）。
 
 完整处置留痕见对话工作区 `system-md-entropy-reduction-v1.md`（conversation e56d27af）。
+
+**慎宝（kimi）轮——删除项准确性专项审视**（搭档定调焦点：删除内容是否准确合理，防删除致提示词变少出问题）：50+ 条删除/改写逐条核验三问（牵引力/回退场景/搬家可达）。S1 采纳（交接模板指针误指 F20260825hndf 机械模板，改指本文档附录 B）；S2 采纳（Issue 规范搬家有三条净删除——主题标签 ≤1 / F-followup 模块位 / >5% 标红阈值——补入 daily-health-check.md 并修正本节表述）；F3 采纳（R1.4 恢复「无需征得搭档同意」显式例外）；F4 采纳（R7 恢复「一轮多次检索合并为一条」）；F5 采纳（信号协议恢复「speak 裁决文本不作状态迁移依据」——靶向「说了=裁决了」真实事故模式）；F6 采纳（set_context TIP 真实补齐 + 本表修正）。其余约 50 条删除项判定正确，含大獭高危清单 10 组。
 
 ## 机制认知沉淀（本轮最大教训）
 
