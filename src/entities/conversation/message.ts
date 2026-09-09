@@ -63,7 +63,9 @@ export interface Message {
    *  附件要流到 egress 通道可及处，实体须挂此字段（repository 加载/send 内存构造/发送入库三处回填）。
    *  声明可选避免测试 fixture 编译波及。 */
   attachments?: AttachmentRef[];
-  /** F20260901sgp0 P0: 信号协议元数据。signalLevel: yield 档位 (NORMAL/URGENT/HALT)；signalMeta: JSON 额外元数据。 */
+  /** F20260901sgp0 P0: 信号协议元数据（已退役）。
+   *  - signalLevel: 档位 (NORMAL/URGENT/HALT) 已退役，列保留 null 不读。
+   *  - signalMeta: 现仅承载 consumed 销账标记（内部用，不透出）。 */
   signalLevel?: string | null;
   signalMeta?: string | null;
 }

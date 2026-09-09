@@ -45,7 +45,6 @@ export class ResumeInterruptedService {
       /** F202609048840 F4：派发台账（可选）——done 语义判定的真相源。
        *  链引擎对 invoke 拒绝是吞错语义，executeChain 正常返回 ≠ invoke 成功；
        *  台账 settle 终态（completed/failed）才是准确判据。未注入时保守判成功。 */
-      dispatchAttemptRepo?: { getAttempt: (messageId: string, targetOtterId: string) => { status: string; note: string | null } | null };
       logger: Logger;
       /** #613：healing 台账写入（服务重启事件落账，观测层闭环） */
       healingRepo?: HealingEventRepository;
@@ -57,6 +56,7 @@ export class ResumeInterruptedService {
       getOtterSessionFile?: (otterId: string) => string | null;
     },
   ) {}
+
 
   /** 入口：延迟后逐条恢复。fire-and-forget 调用（不阻塞服务就绪）。 */
   async resume(): Promise<void> {
@@ -290,7 +290,7 @@ export class ResumeInterruptedService {
       } catch (chainErr) {
         // 检视发现 1 处置（F2 死路径修复）：可重试错误（429/网络类）必须重抛交
         // resumeOneWithRetry 退避重试——内层不得吞（旧内层 catch 吞 429 致重试层死路径，回归）。
-        // settleResumedOutcome 对台账 failed+网络类 note 也抛可重试错误，同为重试入口。
+        // settleResumedOutcome 对消息终态 failed+网络类 note 也抛可重试错误，同为重试入口。
         if (this.isRetryableNetworkError(chainErr)) {
           throw chainErr;
         }
@@ -328,29 +328,12 @@ export class ResumeInterruptedService {
   }
 
   /**
-   * F202609048840 F4：链正常返回后的终态判定（提取控复杂度）。
-   * 判据真相源 = 派发台账 settle 终态：executeChain 正常返回 ≠ invoke 成功（链引擎对
-   * invoke 拒绝是 allSettled 吞错语义，#599）。台账无行（记账链路异常）保守判成功——
-   * 不因观测缺失误标 failed。invoke 失败标 failed（可手动重试）+ 终态文案如实。
-   *
-   * 检视发现 1 处置（F2 真实落点）：台账 failed 且 note 匹配网络类可重试错误时抛出，
-   * 交 resumeOneWithRetry 退避重试——这是链吞错语义下网络错误重试的唯一真实路径。
+   * F20260908rlcp：链正常返回后的终态判定（提取控复杂度）。
+   * 判据从台账改为简化语义：executeChain 正常返回 = done（链引擎对 invoke 拒绝是
+   * allSettled 吞错语义，#599；无台账时无法区分「链返回但 invoke 失败」场景）。
+   * 不可重试异常由调用方 catch 路径处理（settleChainError → failed）。
    */
   private async settleResumedOutcome(item: { messageId: string; conversationId: string; otterId: string }): Promise<"done" | "failed"> {
-    const attempt = this.deps.dispatchAttemptRepo?.getAttempt(item.messageId, item.otterId) ?? null;
-    if (attempt && attempt.status === "failed") {
-      const note = attempt.note ?? "";
-      // F2 真实落点：网络类失败（链吞错返回，note 来自 settle 记账的拒绝原因）→ 抛可重试错误
-      if (this.isRetryableNetworkErrorMessage(note)) {
-        throw new Error(`invoke failed (retryable network error): ${note}`);
-      }
-      this.deps.logger.warn("Resume chain returned but invoke failed (ledger settle = failed)", {
-        messageId: item.messageId, conversationId: item.conversationId, otterId: item.otterId, note,
-      });
-      await this.deps.conversationRepo.updateResumeStatus(item.messageId, "failed", new Date().toISOString());
-      await this.deps.sendMessage.sendSystem(item.conversationId, buildRestartResumeFailedInvokeMsg());
-      return "failed";
-    }
     await this.deps.conversationRepo.updateResumeStatus(item.messageId, "done", new Date().toISOString());
     return "done";
   }

@@ -2449,7 +2449,6 @@ describe('#775 S4a: scheduler 换轨', () => {
     sendMessage: ReturnType<typeof createMockSendMessage>;
     agentInvoke: ReturnType<typeof createMockAgentInvoke>;
     router: { routeDirectSignal: ReturnType<typeof vi.fn>; watchHint?: string };
-    dispatchAttemptRepo?: { allAnchorAttemptsSettled: (id: string) => boolean };
   }) {
     const nextTime = new Date('2025-06-15T09:00:00.000Z');
     return new SchedulerService({
@@ -2459,7 +2458,6 @@ describe('#775 S4a: scheduler 换轨', () => {
       agentInvokePort: opts.agentInvoke as unknown as AgentTurnPort,
       cronParser: createMockCronParser(nextTime) as unknown as CronParser,
       logger: mockLogger,
-      dispatchAttemptRepo: opts.dispatchAttemptRepo as never,
       signalRouter: opts.router as never,
     });
   }
@@ -2483,7 +2481,6 @@ describe('#775 S4a: scheduler 换轨', () => {
         taskRepo, convRepo, sendMessage, agentInvoke,
         router: { routeDirectSignal },
         // 看门狗首轮轮询即判收工（attempt 全终态）
-        dispatchAttemptRepo: { allAnchorAttemptsSettled: () => true },
       });
 
       const triggerPromise = service.trigger('task-1');

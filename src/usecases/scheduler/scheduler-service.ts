@@ -1,7 +1,6 @@
 /* eslint-disable max-lines -- 调度核心路径（触发/重试/healing 注入/指标/链看门狗）聚合于本文件，
    拆分需新建模块并移动多个私有方法，引入间接层而降低可读性；#516/#517 增加活跃看门狗与记账校验已尽量精简 */
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
-import type { DispatchAttemptRepo } from '@entities/conversation/dispatch-attempt';
 import type { SendMessage } from '@usecases/conversation/send-message';
 import type { AgentTurnPort } from '@usecases/ports/agent-turn-port';
 import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled-task-repository';
@@ -64,7 +63,6 @@ export interface SchedulerServiceOptions {
   manageSession?: ManageSession;
   healingRepo?: HealingEventRepository;
   /** F20260902sgp2 S4b：派发台账（可选）——看门狗台账终态判活 */
-  dispatchAttemptRepo?: DispatchAttemptRepo;
   /** #775 S4a 换轨：信号路由器（可选注入）。注入后定时任务触发 = 投信号 → 路由器点火
    *  （过闸门+台账记账）；未注入回退直连链（回滚面，与 sgpv 降级基线同语义）。 */
   signalRouter?: SignalRouter;
@@ -95,7 +93,6 @@ export class SchedulerService {
   private readonly logger: Logger;
   private readonly healingRepo?: HealingEventRepository;
   /** F20260902sgp2 S4b：派发台账——看门狗台账终态判活的数据源（可选，未注入回退消息判定） */
-  private readonly dispatchAttemptRepo?: DispatchAttemptRepo;
   /** #775 S4a 换轨：信号路由器（可选）——注入后触发走投信号路径 */
   private signalRouter?: SignalRouter;
   /** #775 S4a：装配顺序注入点（路由器晚于 scheduler 诞生，构造期互指会循环依赖） */
@@ -116,7 +113,6 @@ export class SchedulerService {
     this.cronParser = options.cronParser;
     this.logger = options.logger;
     this.healingRepo = options.healingRepo;
-    this.dispatchAttemptRepo = undefined; // F20260908rlcp：台账退役
     this.signalRouter = options.signalRouter;
     this.metrics = options.metrics;
     this.dispatchChainEngine = options.dispatchChainEngine;

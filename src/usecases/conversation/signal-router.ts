@@ -226,7 +226,8 @@ export class SignalRouter {
     }
   }
 
-  /** 判断信号是否为「标急」（steer 语义）：signalMeta 包含 level=URGENT */
+  /** 判断信号是否为「标急」（steer 语义）：signalMeta 包含 level=URGENT
+   *  F20260908rlcp：signal_meta.level 当前无写入方（档位已退役），分支不可达，属 URGENT 树化下版预留 */
   private isSteerSignal(signal: Message): boolean {
     if (!signal.signalMeta) return false;
     try {

@@ -12,7 +12,6 @@ import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import { runWithTrace, newTraceId } from "@usecases/ports/trace-context";
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import type { PartnerResolver } from "@usecases/im/partner-resolver";
-import type { DispatchAttemptRepo } from "@entities/conversation/dispatch-attempt";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import { randomUUID } from "node:crypto";
 // F20260826mwrd C3（Part 6）：L2 安全词扫描
@@ -89,9 +88,6 @@ export class DispatchChainEngine {
       metrics?: AgentMetricsPort;
       /** F20260826fpbd：搭档身份静态判定（未注入/未配置时降级动态推断） */
       partnerResolver?: PartnerResolver;
-      /** F20260902sgp2 S1：派发台账（可选注入——不注入时链路行为与 sgpv 回滚基线完全一致）。
-       *  记账失败仅日志不阻断（硬约束 1）。 */
-      dispatchAttemptRepo?: DispatchAttemptRepo;
       /** #530 梯度护栏：abort 回调（可选——不注入时 abort 降级为纯日志）。
        *  ⚠️ 生产链路中 session 已在 finally 块 dispose，此回调恒为 no-op。
        *  链停能力实际由 processHopResults 清空 nextTargets 实现。 */
@@ -283,20 +279,13 @@ export class DispatchChainEngine {
   }
 
   /** F20260907ylfs ②：降级槽位补账面备注（自 executeOneHop 的 finally 拆出，控 max-lines）。
-   *  #798 发现 2 语义不变：槽位键 = 记账键（triggerMessageId 或 chainSource[target]）。 */
+   *  F20260908rlcp：dispatchAttemptRepo 退役——appendNote 已废弃，方法保留为空壳。 */
   private appendDegradedNotes(
-    degradedSlots: Array<{ target: string }>,
-    triggerMessageId: string | undefined,
-    chainSourceMessageIds: Map<string, string[]> | undefined,
+    _degradedSlots: Array<{ target: string }>,
+    _triggerMessageId: string | undefined,
+    _chainSourceMessageIds: Map<string, string[]> | undefined,
   ): void {
-    for (const slot of degradedSlots) {
-      const ledgerMsgIds = triggerMessageId ? [triggerMessageId] : (chainSourceMessageIds?.get(slot.target) ?? []);
-      for (const ledgerMsgId of ledgerMsgIds) {
-        try {
-          this.deps.dispatchAttemptRepo?.appendNote(ledgerMsgId, slot.target, '出处降级：invoke 完成但行级出处查库失败，yield 路由信息丢失（#798）');
-        } catch { /* 备注失败不影响链路（硬约束 1） */ }
-      }
-    }
+    // F20260908rlcp：dispatchAttemptRepo 退役——appendNote 已废弃
   }
 
   /** F20260907ylfs ②（P3a 批次 2）：护栏决策单点化——本 hop 全部 fulfilled 目标的产出判定。
@@ -348,97 +337,14 @@ export class DispatchChainEngine {
     return !!(target && conversationId && tsp.includes(target));
   }
 
-  /** F20260902sgp2 S1：起跑记账——首 hop 用 triggerMessageId，hop 2+ 用 yield 出处
-   *  （每 hop 的 targets 来自上一 hop 各自的聚合目标，出处消息不同，按 target 配对取源）。
-   *  无 repo / 无 messageId 时静默跳过（S1 观察面零侵入）；失败仅日志不阻断（硬约束 1）。 */
-  private recordAttemptStart(
-    conversationId: string,
-    target: string,
-    triggerMessageId: string | undefined,
-    chainSourceMessageIds: string[] | undefined,
-    ledgerSource: "chain" | "router" | "retry" = "chain",
-  ): void {
-    // hop 取源修复：首 hop 用 triggerMessageId；hop 2+ 用链级多源列表——
-    // A、B 同 hop 都 yield 给 C 时，C 需为每条触发消息各记一条 attempt（消费义务逐条销账）
-    const ledgerMsgIds = triggerMessageId ? [triggerMessageId] : (chainSourceMessageIds ?? []);
-    if (ledgerMsgIds.length === 0 || !this.deps.dispatchAttemptRepo) return;
-    for (const ledgerMsgId of ledgerMsgIds) {
-      try {
-        this.deps.dispatchAttemptRepo.recordStart({
-          id: randomUUID(),
-          conversationId,
-          messageId: ledgerMsgId,
-          targetOtterId: target,
-          status: "in_progress",
-          source: ledgerSource,
-          attemptStartedAt: new Date().toISOString(),
-          note: null,
-        });
-        this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: ledgerMsgId, otter: target, status: 'in_progress', source: ledgerSource });
-      } catch (e) {
-        this.deps.logger.warn('[signal-ledger] 起跑记账失败（不影响链路）', { conversationId, messageId: ledgerMsgId, otterId: target, error: e instanceof Error ? e.message : String(e) });
-      }
-    }
-  }
+  /** F20260902sgp2 S1：起跑记账——退役（dispatchAttemptRepo 已退役，F20260908rlcp） */
+
+  /** F20260902sgp2 S1：settle 记账——退役（dispatchAttemptRepo 已退役，F20260908rlcp） */
 
   /** F20260902sgp2 S1：settle 记账——终态回写 + 产出消息追加进链级出处列表（hop 记账取源）。
    *  F20260904schf：出处回填改读行级 tsp（#792：aggregatedTargets turn 级并集是共栖污染源，
    *  chainSource[自己]=自己消息 → 自链循环）。行级事实依据：completeMessage 先落库后关 turn，
-   *  invoke 返回时消息行已含最终 yield——行级读数因果局部，无 turn 共存窗口竞态。
-   *  F20260907ylfs ②（P3a 批次 2）：出处回填改读 resolveHopOutcomes 的门控结果（本方法旧版
-   *  「tsp 不含 sender 自己」领域不变量随 ② 合法化退役）——护栏放行的 self hop 记 chainSource
-   *  （自→自：下轮重跑自己时对产出消息销账），拒入（≥5）不记；与路由同源，账面不说谎。 */
-  // eslint-disable-next-line complexity -- 多源记账双层循环 + 逐源 try/catch 兜底（硬约束 1：记账失败不阻断链路），拆分反而损可读性
-  private async recordAttemptSettle(
-    params: {
-      conversationId: string;
-      targets: string[];
-      results: PromiseSettledResult<InvokeFnResult>[];
-      triggerMessageId: string | undefined;
-      chainSourceMessageIds: Map<string, string[]> | undefined;
-      /** F20260907ylfs ②：护栏门控后的产出判定（resolveHopOutcomes 预算）——chainSource 回填依据 */
-      outcomes: Map<number, HopOutcome>;
-    },
-  ): Promise<void> {
-    const { conversationId, targets, results, triggerMessageId, chainSourceMessageIds, outcomes } = params;
-    if (!this.deps.dispatchAttemptRepo) return;
-    for (let i = 0; i < results.length; i++) {
-      const r = results[i];
-      const target = targets[i];
-      const ledgerMsgIds = triggerMessageId ? [triggerMessageId] : (chainSourceMessageIds?.get(target) ?? []);
-      for (const ledgerMsgId of ledgerMsgIds) {
-        try {
-          if (r.status === "fulfilled") {
-            this.deps.dispatchAttemptRepo.recordFinish(ledgerMsgId, target, "completed");
-            this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: ledgerMsgId, otter: target, status: 'completed', source: 'chain' });
-          } else {
-            const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
-            this.deps.dispatchAttemptRepo.recordFinish(ledgerMsgId, target, "failed", reason.slice(0, 300));
-            this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: ledgerMsgId, otter: target, status: 'failed', source: 'chain', reason: reason.slice(0, 200) });
-          }
-        } catch (e) {
-          this.deps.logger.warn('[signal-ledger] settle 记账失败（不影响链路）', { conversationId, target, error: e instanceof Error ? e.message : String(e) });
-        }
-      }
-      // 链级出处回填（hop 取源修复核心）：该目标的产出消息是【它 yield 给的下一跳目标】的
-      // 触发源——按 resolveHopOutcomes 门控后的 allowedNext 落位（F20260907ylfs ②：护栏决策
-      // 与路由同源，两处 filter 分叉在结构上不可能），而非记在自己名下。例：worker 产出 m-work
-      // 并 yield owner → allowedNext=[owner]，记入 chainSource[owner]，下 hop owner 起跑时用它
-      // 记账 (m-work, owner)。多源追加不去重（A、B 都 yield C 时 C 名下两条触发消息各记一次）；
-      // 同目标重复 yield 只留最新产出（去重 + 截尾防膨胀）。
-      if (r.status === "fulfilled" && chainSourceMessageIds) {
-        const outcome = outcomes.get(i);
-        if (!outcome) continue;
-        const produced = r.value.messageId;
-        // 护栏拒入（abort）时 allowedNext 清空是门控决策非降级，不误报污染日志——
-        // 共栖污染 warn 判定下沉 warnIfCoexistPollution（F20260904schf 语义保留，拆出控语句数）
-        this.warnIfCoexistPollution(outcome, r.value, conversationId, produced);
-        for (const next of outcome.allowedNext) {
-          this.appendChainSource(chainSourceMessageIds, next, produced, conversationId);
-        }
-      }
-    }
-  }
+  /** F20260902sgp2 S1：settle 记账——退役（dispatchAttemptRepo 已退役，F20260908rlcp） */
 
   /** rejected 结果日志（自 processHopResults 拆出控复杂度） */
   private logRejectedTarget(
@@ -783,13 +689,8 @@ export class DispatchChainEngine {
     const now = new Date();
     const timeAnchor = now.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
 
-    // K2 收件箱预告（F20260903k23）：本獭名下还有 N 条待消化信号（台账 pending 推导，
-    // 排除本轮触发消息自身）。让獭能主动告知用户「我看到你插了话，跑完就处理」
-    // （flash 提案缺口 1）。失败不影响主流程；本轮正在记账的信号不算在内（它就是本任务）。
-    // 注：本方法自身无 messageId 参数——路由器/调度器点火路径的触发消息由调用侧语境确定，
-    // 这里统一排除规则：buildMessageWithContext 不知道本轮消息时退化为「全量 pending 计数」，
-    // 而本轮信号经 recordStart 已写入 in_progress 行，pendingClause 的 NOT EXISTS 天然排除它。
-    const pendingPreview = this.buildPendingPreview(conversationId, otterId);
+    // K2 收件箱预告已退役（台账退役后数据源不存在，F20260908rlcp）
+    const pendingPreview: string | null = null;
 
     const unreadMessages = await this.deps.conversationRepo.getUnreadMessages(conversationId, otterId);
     // F20260908rlcp：恢复侧 steer 去重——已消化的 msg id 剔除
@@ -841,26 +742,7 @@ export class DispatchChainEngine {
     return { message: result, batchMaxSeq };
   }
 
-  /** K2 收件箱预告（F20260903k23）：本獭名下台账 pending 计数 > 0 时注入一行预告。
-   *  数据源 = listPendingSignals（pendingClause 同一真相源）——天然含 busyQueue 排队中
-   *  的信号（排队不写账 = 仍 pending），无需另查路由器内存态。
-   *  本轮触发信号已被 recordStart 写入 in_progress 行，NOT EXISTS 天然排除它。
-   *  HALT 在列时特别注明（用户停机请求优先级最高，獭应最先处理）。
-   *  措辞纪律（#695 裁决）：只说「待消化」，不说「正在忙」/队列位置。
-   *  台账未注入/查询失败 → null（纯增强，零侵入）。 */
-  private buildPendingPreview(conversationId: string, otterId: string): string | null {
-    if (!this.deps.dispatchAttemptRepo) return null;
-    try {
-      // 精确计数（#757 审视焦点 1：listPendingSignals+limit=50 会双重封顶漏报——
-      // 全会话 50 条上界截断 + per-target 超 50 不诚实。count 无 limit，数字必须诚实）
-      const { total, halt } = this.deps.dispatchAttemptRepo.countPendingForTarget(conversationId, otterId);
-      if (total === 0) return null;
-      const haltNote = halt > 0 ? `（含 ${halt} 条 HALT 停机请求，优先处理）` : "";
-      return `> 收件箱预告：你名下还有 ${total} 条信号待消化${haltNote}（当前任务完成后按序处理即可）`;
-    } catch {
-      return null; // 预告失败不影响主流程
-    }
-  }
+  /** buildPendingPreview 已退役（F20260908rlcp：台账退役后数据源不存在） */
 
   /** 多模态 Phase 1：未读历史统一文本投影（不按目标獭分叉——last_read 保证未读皆近，
    *  历史图"知道是什么"即可；分叉只发生在当前任务消息的真图注入） */

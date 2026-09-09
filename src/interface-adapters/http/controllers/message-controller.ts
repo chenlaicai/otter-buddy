@@ -302,7 +302,7 @@ export class MessageController {
 
   /** retry 链启动（自 retry 拆出控复杂度）：SSE 流 + broadcaster 订阅 + executeChain */
   /** F20260902sgp2 S3：retry 换轨路径——过路由器闸门（限流熔断中被挡如实反馈 retry_gated），
-   *  记账 source='retry'，与自动点火共用 invokeTarget（busyQueue 排队语义一致）。
+   *  记账 source='retry'，与自动点火共用 invokeTarget。
    *  修复的漏洞：retry 曾直连 executeChain 绕过全部调度闸门——限流熔断期间手动 retry
    *  照跑撞 429 → 熔断窗口重置 → 自动点火继续冻结（09-03 会议定性，搭档实锤）。 */
   private retryViaRouterPath(args: {

@@ -617,6 +617,8 @@ describe("migrateDatabase - F20260904schf P2 补丁: rebuildDispatchAttemptsSour
     const db = new Database(":memory:");
     db.pragma("foreign_keys = ON");
     initSchema(db);
+    // F20260908rlcp：dispatch_attempts 已从 initSchema 退役，手动创建模拟存量库
+    db.exec(`CREATE TABLE IF NOT EXISTS dispatch_attempts (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, target_otter_id TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('in_progress','completed','failed','aborted')), source TEXT NOT NULL DEFAULT 'chain' CHECK (source IN ('chain','router','retry','backfill')), attempt_started_at TEXT NOT NULL DEFAULT (datetime('now')), attempt_finished_at TEXT, note TEXT, UNIQUE(message_id, target_otter_id), FOREIGN KEY (message_id) REFERENCES messages(id), FOREIGN KEY (conversation_id) REFERENCES conversations(id))`);
     // 父表先 seed（FK 验证用）
     db.prepare(`INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-m', 't', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`).run();
     db.prepare(`INSERT INTO turns (id, conversation_id, turn_number, created_at) VALUES ('turn-m', 'conv-m', 1, '2026-09-01T00:00:00Z')`).run();
@@ -694,21 +696,16 @@ describe("migrateDatabase - F20260904schf P2 补丁: rebuildDispatchAttemptsSour
     }
   });
 
-  it("全新库（schema 已含 dissolve 宽约束）：直接通过，无重建", () => {
+  it("全新库（dispatch_attempts 不存在）：迁移直接通过，不报错", () => {
     const db = new Database(":memory:");
     try {
       initSchema(db);
-      migrateDatabase(db, createTestLogger());
-      // 宽约束直接可入 dissolve
-      db.prepare(`INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-f', 't', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`).run();
-      db.prepare(`INSERT INTO turns (id, conversation_id, turn_number, created_at) VALUES ('turn-f', 'conv-f', 1, '2026-09-01T00:00:00Z')`).run();
-      db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, created_at)
-        VALUES ('msg-f', 'conv-f', 'otter', 'otter-1', 'completed', 1, 'turn-f', '2026-09-01T00:01:00Z')`).run();
-      db.prepare(`INSERT INTO otters (id, name, type, created_at) VALUES ('otter-1', 'o1', 'big', '2026-09-01T00:00:00Z')`).run();
-      expect(() =>
-        db.prepare(`INSERT INTO dispatch_attempts (id, conversation_id, message_id, target_otter_id, status, source, attempt_started_at)
-          VALUES ('att-f', 'conv-f', 'msg-f', 'otter-1', 'aborted', 'dissolve', '2026-09-01T00:02:00Z')`).run()
-      ).not.toThrow();
+      // 全新库无 dispatch_attempts 表（F20260908rlcp 退役）
+      // 迁移中的 rebuildDispatchAttemptsSourceCheck 检测表不存在后返回
+      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
+      // 验证表不存在（退役后新库不建此表）
+      const row = db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name='dispatch_attempts'").get() as { n: number };
+      expect(row.n).toBe(0);
     } finally {
       db.close();
     }

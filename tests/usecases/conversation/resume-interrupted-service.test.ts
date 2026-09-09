@@ -121,11 +121,6 @@ async function seedStandardConversation(db: Database.Database, repo: SqliteConve
   `).run(crypto.randomUUID());
 }
 
-/** 台账 stub 工厂：F202609048840 F4 判据注入用 */
-function stubLedger(getAttemptImpl: () => { status: string; note: string | null } | null): { getAttempt: (messageId: string, targetOtterId: string) => { status: string; note: string | null } | null } {
-  return { getAttempt: getAttemptImpl };
-}
-
 describe("ResumeInterruptedService（F20260826rsme）", () => {
   let db: Database.Database;
   let repo: SqliteConversationRepository;
@@ -729,18 +724,14 @@ describe("#613 方案 B：healing 台账落账", () => {
     expect(rows[0]?.status).toBe("done");
   });
 
-  // ── F202609048840 F4：done 语义判据（台账真相源）专项 ──
-  describe("F202609048840 F4 done 语义判据", () => {
-  // F202609048840 F4：现场实证场景——链引擎对 invoke 拒绝是 allSettled 吞错语义，
-  // executeChain 正常返回但台账 settle=failed（2026-09-04 17:58 实景：恢复 invoke 秒败，
-  // 旧判据漏判 → done 说谎）。台账判据必须在此场景标 failed。
-  it("链吞错返回但台账 settle=failed：标 failed 不说谎，用户可手动重试", async () => {
+  // ── F20260908rlcp：done 语义（台账退役，链正常返回 = done）──
+  describe("F20260908rlcp done 语义", () => {
+  // F20260908rlcp：台账退役后，链正常返回始终标 done（无法区分链吞错场景）
+  it("链正常返回标 done（台账退役后无法区分 invoke 失败）", async () => {
     await otterRepo.createOtter(otterFixture("otter-big"));
     await repo.createParticipant(participantFixture("otter-big"));
     const msgId = await seedInterrupted(db, repo, { withSegments: "半截" });
     const chain = stubChainEngine(); // executeChain 正常返回（不抛）
-    // note 用非网络类：网络类已升级为可重试（F2 真实落点），本用例锁"不可重试 failed 标 failed"
-    const ledger = stubLedger(() => ({ status: "failed", note: "invoke aborted by guard" }));
 
     const service = new ResumeInterruptedService({
       conversationRepo: repo,
@@ -748,7 +739,6 @@ describe("#613 方案 B：healing 台账落账", () => {
       sendMessage: sm,
       dispatchChainEngine: chain,
       invokeFn: async () => ({ messageId: "invoked-msg" }),
-      dispatchAttemptRepo: ledger,
       logger: createTestLogger(),
       delayMs: 0,
     });
@@ -756,17 +746,14 @@ describe("#613 方案 B：healing 台账落账", () => {
     await service.resume();
 
     const rows = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").all(msgId) as Array<{ status: string }>;
-    expect(rows[0]?.status).toBe("failed"); // 不再 done 说谎
-    const sysMsgs = await new QueryMessage(repo).getMessages("conv-1", { senderType: "system", limit: 5 });
-    expect(sysMsgs.some(m => m.segments.some(seg => seg.body.includes("恢复过程中 invoke 失败")))).toBe(true);
+    expect(rows[0]?.status).toBe("done"); // 台账退役后链正常返回 = done
   });
 
-  it("台账判据保守降级：无台账行（记账链路异常）时链正常返回仍标 done", async () => {
+  it("链抛不可重试异常时标 failed", async () => {
     await otterRepo.createOtter(otterFixture("otter-big"));
     await repo.createParticipant(participantFixture("otter-big"));
     const msgId = await seedInterrupted(db, repo, { withSegments: "半截" });
-    const chain = stubChainEngine();
-    const ledger = stubLedger(() => null); // 无行：保守判成功
+    const chain = stubChainEngine({ throwError: true }); // executeChain 抛错
 
     const service = new ResumeInterruptedService({
       conversationRepo: repo,
@@ -774,7 +761,6 @@ describe("#613 方案 B：healing 台账落账", () => {
       sendMessage: sm,
       dispatchChainEngine: chain,
       invokeFn: async () => ({ messageId: "invoked-msg" }),
-      dispatchAttemptRepo: ledger,
       logger: createTestLogger(),
       delayMs: 0,
     });
@@ -782,7 +768,9 @@ describe("#613 方案 B：healing 台账落账", () => {
     await service.resume();
 
     const rows = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").all(msgId) as Array<{ status: string }>;
-    expect(rows[0]?.status).toBe("done"); // 观测缺失不误判
+    expect(rows[0]?.status).toBe("failed");
+    const sysMsgs = await new QueryMessage(repo).getMessages("conv-1", { senderType: "system", limit: 5 });
+    expect(sysMsgs.some(m => m.segments.some(seg => seg.body.includes("恢复过程中 invoke 失败")))).toBe(true);
   });
   });
 });
@@ -882,52 +870,33 @@ describe("F202609048840 恢复修复专项（F1/F2/F5）", () => {
     });
   });
 
-  describe("F202609048840 F2 网络类重试（真实落点：台账 note）", () => {
-    it("链吞错返回 + 台账 note=Connection error：触发 3 次退避重试后标 failed", async () => {
+  describe("F20260908rlcp 链正常返回语义（台账退役）", () => {
+    it("链正常返回标 done（台账退役后无 retry 机制）", async () => {
       await otterRepo.createOtter(otterFixture("otter-big"));
       await repo.createParticipant(participantFixture("otter-big"));
       const msgId = await seedInterrupted(db, repo, { withSegments: "半截" });
-      const chain = stubChainEngine(); // 正常返回（吞错语义）
-      let calls = 0;
-      const ledger = {
-        getAttempt: () => {
-          calls++;
-          return { status: "failed", note: "Connection error: fetch failed" };
-        },
-      };
+      const chain = stubChainEngine(); // 正常返回
       const service = new ResumeInterruptedService({
         conversationRepo: repo, queryMessage: new QueryMessage(repo), sendMessage: sm,
         dispatchChainEngine: chain, invokeFn: async () => ({ messageId: "m" }),
-        dispatchAttemptRepo: ledger as never,
-        logger: createTestLogger(), delayMs: 0, rateLimitBaseDelayMs: 1,
+        logger: createTestLogger(), delayMs: 0,
       });
       await service.resume();
-      // 判定 4 次 = 初始 1 + 重试 3（重试层真实可达性锁定——检视发现 1 修复的验收）
-      expect(calls).toBe(4);
       const row = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").get(msgId) as { status: string };
-      expect(row.status).toBe("failed");
+      expect(row.status).toBe("done"); // 台账退役后链正常返回 = done
     });
 
-    it("台账 note 非网络类（如内部错误）：不重试快速终态", async () => {
+    it("链抛错标 failed（可手动重试）", async () => {
       await otterRepo.createOtter(otterFixture("otter-big"));
       await repo.createParticipant(participantFixture("otter-big"));
       const msgId = await seedInterrupted(db, repo);
-      const chain = stubChainEngine();
-      let calls = 0;
-      const ledger = {
-        getAttempt: () => {
-          calls++;
-          return { status: "failed", note: "some internal logic error" };
-        },
-      };
+      const chain = stubChainEngine({ throwError: true }); // 链抛错
       const service = new ResumeInterruptedService({
         conversationRepo: repo, queryMessage: new QueryMessage(repo), sendMessage: sm,
         dispatchChainEngine: chain, invokeFn: async () => ({ messageId: "m" }),
-        dispatchAttemptRepo: ledger as never,
-        logger: createTestLogger(), delayMs: 0, rateLimitBaseDelayMs: 1,
+        logger: createTestLogger(), delayMs: 0,
       });
       await service.resume();
-      expect(calls).toBe(1); // 零重试
       const row = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").get(msgId) as { status: string };
       expect(row.status).toBe("failed");
     });
