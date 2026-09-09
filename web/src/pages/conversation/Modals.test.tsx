@@ -274,3 +274,74 @@ describe('F20260827ucrt CreateOtterModal', () => {
     expect(textarea.value).toContain('你是高级獭')
   })
 })
+
+// ═══ F20260909rmpx：RestartModal 模型切换下拉测试 ═══
+// restart 弹窗补 UI 模型选择（后端 restart modelAlias 已在 F20260908efmd 实现，UI 遗漏）
+function renderRestartModal(onConfirm: (summary: string, modelAlias?: string) => void, otter?: Partial<Otter>) {
+  const noop = () => {}
+  const target = { id: 'o1', name: '测试獭', type: 'big', createdAt: '2026-08-25', modelAlias: 'kimi', ...otter } as Otter
+  act(() => {
+    root.render(
+      <ConversationModals
+        modal={{ type: 'restart', otterId: 'o1' }}
+        otters={[target]}
+        sessions={{}}
+        onClose={noop}
+        onConfirmNewConv={noop}
+        onConfirmArchive={noop}
+        onConfirmCreateOtter={noop}
+        onConfirmDissolve={noop}
+        onConfirmRestart={onConfirm}
+        onConfirmLinkResource={noop}
+        onOpenRestart={noop}
+        onOpenDissolve={noop}
+      />
+    )
+  })
+}
+
+describe('F20260909rmpx RestartModal 模型切换', () => {
+  beforeEach(() => {
+    getSettingsMock.mockReset()
+    getSettingsMock.mockResolvedValue({
+      models: [
+        { alias: 'glm', provider: 'zhipu', model: 'glm-5' },
+        { alias: 'kimi', provider: 'moonshot', model: 'kimi-k3' },
+      ],
+      defaultModelAlias: 'glm',
+      userName: '',
+      port: 3000,
+    } as unknown as Parameters<typeof getSettingsMock.mockResolvedValue>[0])
+  })
+
+  it('渲染模型下拉，默认项为「不换模型（当前：alias）」，选中模型后确认携带 modelAlias', async () => {
+    let captured: { summary: string; modelAlias?: string } | null = null
+    renderRestartModal((summary, modelAlias) => { captured = { summary, modelAlias } })
+    await act(async () => { await Promise.resolve() })
+    const select = document.querySelector('select') as HTMLSelectElement
+    expect(select).toBeTruthy()
+    // 默认「不换模型」项 + 2 个模型项
+    expect(select.options.length).toBe(3)
+    expect(select.options[0].textContent).toContain('不换模型')
+    expect(select.options[0].textContent).toContain('kimi')
+    // 选中 glm（React 受控组件走 fireEvent.change）
+    act(() => { fireEvent.change(select, { target: { value: 'glm' } }) })
+    // 填摘要 + 点确认
+    const textarea = document.querySelector('textarea') as HTMLTextAreaElement
+    act(() => { fireEvent.change(textarea, { target: { value: '换个模型继续干' } }) })
+    const confirmBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent === '确认重启')!
+    act(() => { confirmBtn.click() })
+    expect(captured).toEqual({ summary: '换个模型继续干', modelAlias: 'glm' })
+  })
+
+  it('保持「不换模型」时确认不携带 modelAlias（undefined）', async () => {
+    let captured: { summary: string; modelAlias?: string } | null = null
+    renderRestartModal((summary, modelAlias) => { captured = { summary, modelAlias } })
+    await act(async () => { await Promise.resolve() })
+    const textarea = document.querySelector('textarea') as HTMLTextAreaElement
+    act(() => { fireEvent.change(textarea, { target: { value: '原模型重启' } }) })
+    const confirmBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent === '确认重启')!
+    act(() => { confirmBtn.click() })
+    expect(captured).toEqual({ summary: '原模型重启', modelAlias: undefined })
+  })
+})
