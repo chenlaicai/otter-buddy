@@ -3,7 +3,13 @@ id: F20260909ugd8
 title: 检视处置「建 issue」前置闸：强关联发现默认当场修
 summary: 修订检视发现处置决策树——「建 issue 留后续」从默认出口变为被举证责任锁住的例外。新增关联度判据（守护本 PR 行为不回退 / 澄清本 PR 刚改口径的发现 = 强关联，默认当场修），「本 PR 无法承载」收敛为穷尽式合法清单（依赖未就绪 / 需产品决策 / 增量 >300 行或 >3 个新模块），「需搭 fixture」「非本 PR 文件」列为伪理由。源自搭档对 #860 处置的批评（#865）。
 change_type: prompt
-capability_test: "n/a: skill 文档行为契约修订，机械可测面为文档内容本身（lint:skills 校验）；行为生效依赖 LLM 遵循协议"
+capability_test: "n/a: prompt 契约文档行为契约修订，机械可测面为文档内容本身（lint 校验）；行为生效依赖 LLM 遵循协议"
+intent:
+  problem: "检视发现的「建 issue」子路径举证责任方向反了——缺关联度维度导致与本 PR 语义强关联的发现（守护修复不回退/澄清刚改口径）也走挂起，「需搭 fixture」「非本 PR 文件」等伪理由可通过「无法承载」论证，建 issue 成为阻力最小路径（#860 实证，搭档批评「都在偷懒提 issue 去了」）"
+  expected_effect: "强关联发现默认当场修（原 PR 或补充 PR）；建 issue 成为被举证责任锁住的例外——作者必须论证为什么不能现在修，且理由命中穷尽式合法清单（依赖未就绪/需产品决策先裁决/增量超阈值），伪理由被点名拦截"
+  verify_by:
+    type: behavior_check
+    detail: "下次 PR 处置出现「强关联发现想建 issue」场景时，处置回应必含关联度判断（强/弱+依据）与合法清单命中论证；delta 审视核对新增两项（关联度判断给出、论证命中清单）；每日 review 可统计「建 issue 处置」中缺关联度论证的次数"
 tags: [skill, adversarial-review, disposition-tree, issue-governance]
 modules:
   - .pi/skills/adversarial-review/references/author-response-protocol.md
