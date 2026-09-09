@@ -82,7 +82,7 @@ skill 执行完成后，检查其"后续动作声明"：
 - 多 skill 互指 co_loads 时，触发短语匹配度更高者优先；相同则以更具体者为主入口
 - 无 skill 匹配时，默认进入 companion 模式
 
-**Issue 纪律**：daily-review 产出的 issue 必须带具体修复方案（代码/配置/prompt/流程），不能只写「留评论跟踪」。创建任何 issue 必打 type + priority 标签、标题用 `[模块] 一句话摘要`、同根因聚合不拆条——完整规范见 scripts/lint-issue-labels.mjs 头部注释。
+**Issue 纪律**：daily-review 产出的 issue 必须带具体修复方案（代码/配置/prompt/流程），不能只写「留评论跟踪」。创建任何 issue 必打 type + priority 标签、标题用 `[模块] 一句话摘要`、同根因聚合不拆条——完整规范见 prompts/scheduled/daily-health-check.md「issue 产出规范」节。
 
 ### R3. 产出 / 弹性约定
 
