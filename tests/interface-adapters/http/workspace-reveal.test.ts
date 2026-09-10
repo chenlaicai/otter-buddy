@@ -171,4 +171,17 @@ describe("POST /api/conversations/:id/workspace/reveal", () => {
     // Why: 非法 JSON 应走 catch(() => ({})) → path 缺失 → 400，不泄漏 V8 解析器错误
     expect(res.status).toBe(400);
   });
+
+  it("JSON null body 返回 400（非 500）", async () => {
+    const res = await app.request(
+      `/api/conversations/${VALID_CONV_ID}/workspace/reveal`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "null",
+      },
+    );
+    // Why: json() 解析 "null" 成功不走 catch，null.path 解引用崩溃——用 ?? {} 兜底
+    expect(res.status).toBe(400);
+  });
 });

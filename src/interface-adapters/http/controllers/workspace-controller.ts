@@ -79,7 +79,7 @@ export class WorkspaceController {
   async reveal(c: Context): Promise<Response> {
     try {
       const conversationId = this.validateConversationId(param(c, "id"));
-      const body: { path?: unknown } = await c.req.json().catch(() => ({}));
+      const body: { path?: unknown } = (await c.req.json().catch(() => ({}))) ?? {};
 
       if (typeof body.path !== 'string' || !body.path) {
         return c.json({ error: "path 参数必填" }, 400);
