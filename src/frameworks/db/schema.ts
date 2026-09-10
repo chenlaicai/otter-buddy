@@ -41,6 +41,9 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createRestartPendingResumesTable(db);
     createAttachmentTables(db);
     createPaperTradingTables(db);
+    createInvokeTables(db);
+    createEntryTables(db);
+    createEntryFtsTable(db);
 
     db.exec("COMMIT");
 
@@ -952,5 +955,105 @@ function createAttachmentTables(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_message_attachments_attachment ON message_attachments(attachment_id);
+  `);
+}
+
+/** Invoke 表：invokes + invoke_events（F20260910ctlv） */
+function createInvokeTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS invokes (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      otter_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('running','completed','failed','aborted')),
+      trigger_entry_id TEXT,
+      talking_stone_passed_to TEXT,
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      tool_call_count INTEGER DEFAULT 0,
+      token_usage_input INTEGER,
+      token_usage_output INTEGER,
+      metadata TEXT,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id),
+      FOREIGN KEY (otter_id) REFERENCES otters(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_invokes_conversation ON invokes(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_invokes_otter ON invokes(otter_id);
+    CREATE INDEX IF NOT EXISTS idx_invokes_status ON invokes(status);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS invoke_events (
+      id TEXT PRIMARY KEY,
+      invoke_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      sequence_num INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (invoke_id) REFERENCES invokes(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_invoke_events_invoke_seq ON invoke_events(invoke_id, sequence_num);
+    CREATE INDEX IF NOT EXISTS idx_invoke_events_type ON invoke_events(event_type);
+  `);
+}
+
+/** Entries 表（F20260910ctlv：取代 messages + message_segments） */
+function createEntryTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS entries (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      sequence_num INTEGER NOT NULL,
+      entry_type TEXT NOT NULL CHECK(entry_type IN ('speak','user','invoke_start','invoke_end','yield','system')),
+      sender_type TEXT,
+      sender_id TEXT,
+      body TEXT,
+      invoke_id TEXT,
+      yield_targets TEXT,
+      turn_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'completed',
+      source TEXT,
+      metadata TEXT,
+      sender_name TEXT NOT NULL DEFAULT '',
+      context_tokens INTEGER,
+      context_tokens_max INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id),
+      FOREIGN KEY (invoke_id) REFERENCES invokes(id),
+      FOREIGN KEY (turn_id) REFERENCES turns(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_entries_conversation_seq ON entries(conversation_id, sequence_num);
+    CREATE INDEX IF NOT EXISTS idx_entries_invoke ON entries(invoke_id);
+    CREATE INDEX IF NOT EXISTS idx_entries_type ON entries(entry_type);
+    CREATE INDEX IF NOT EXISTS idx_entries_status ON entries(status);
+    CREATE INDEX IF NOT EXISTS idx_entries_created_at ON entries(created_at);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS entry_attachments (
+      entry_id TEXT NOT NULL,
+      attachment_id TEXT NOT NULL,
+      sequence_num INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (entry_id, attachment_id),
+      FOREIGN KEY (entry_id) REFERENCES entries(id) ON DELETE CASCADE,
+      FOREIGN KEY (attachment_id) REFERENCES attachments(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_entry_attachments_attachment ON entry_attachments(attachment_id);
+  `);
+}
+
+/** Entries 全文搜索（F20260910ctlv：取代 messages_fts） */
+function createEntryFtsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
+      entry_id UNINDEXED,
+      body,
+      tokenize = 'trigram'
+    );
   `);
 }
