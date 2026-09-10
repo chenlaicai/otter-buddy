@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { canAbortMessage, aggregateBody, type Message } from "@entities/conversation/message";
+import { type Message } from "@entities/conversation/message";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageReadState } from "@usecases/conversation/manage-read-state";
@@ -14,13 +14,13 @@ import type { SendEntry } from "@usecases/conversation/send-entry";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 import { handleError, param } from "../http-error";
-import { toMessageDTO, toMessageEventDTO } from "../dto/message-dto";
-import { buildMessageDTOs, decorateWithSignals, resolveSenderNames, type MessageDtoBuilderDeps } from "../dto/message-dto-builder";
+import { toMessageDTO } from "../dto/message-dto";
+import { decorateWithSignals, type MessageDtoBuilderDeps } from "../dto/message-dto-builder";
 import type { SendMessageRequestDTO, MarkReadRequestDTO } from "../dto/message-dto";
 import { streamEvents } from "../sse-streamer";
 import { awaitTriggerAttemptsSettled } from "../sse-settle-waiter";
 /** 多模态 Phase 1（审视修复 R4/R7）：附件注入策略归位 usecases 层——controller 只透传调用 */
-/* eslint-disable max-lines -- F20260908rlcp: after removing ledger/trail/gate lines, file complexity still drives line count */
+ 
 import type { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
 
 
@@ -123,44 +123,6 @@ export class MessageController {
     });
 
     return response;
-  }
-
-  async list(c: Context): Promise<Response> {
-    try {
-      const conversationId = param(c, "id");
-      const rawLimit = Number(c.req.query("limit") ?? "50");
-      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 50;
-      const before = c.req.query("before");
-      const messages = await this.queryMessage.getMessages(conversationId, {
-        limit,
-        before,
-      });
-      const dtos = await buildMessageDTOs(messages, this.dtoBuilder);
-      const hasMore = messages.length === limit
-        && messages.length > 0
-        && messages[messages.length - 1].sequenceNum > 1;
-      return c.json({ messages: dtos, hasMore });
-    } catch (err) {
-      return handleError(c, err, this.logger);
-    }
-  }
-
-  /** after 游标向下分页：加载比 after 消息更新的历史消息（升序） */
-  async listAfter(c: Context): Promise<Response> {
-    try {
-      const rawLimit = Number(c.req.query("limit") ?? "50");
-      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 50;
-      const after = c.req.query("after");
-      if (!after) {
-        return c.json({ error: "after parameter is required" }, 400);
-      }
-      const messages = await this.queryMessage.getMessagesAfter(after, limit);
-      const dtos = await buildMessageDTOs(messages, this.dtoBuilder);
-      const hasMore = messages.length === limit;
-      return c.json({ messages: dtos, hasMore });
-    } catch (err) {
-      return handleError(c, err, this.logger);
-    }
   }
 
   /** 多模态附件前置校验（#826 收口：路由器在位时仅校验不组装——路由器消费信号时从 attachments 重建） */
@@ -289,7 +251,7 @@ export class MessageController {
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
         this.logger.error('发言链调度异常', err instanceof Error ? err : new Error(msg), { conversationId });
-        push({ event: "error", data: { message: `发言链调度失败: ${msg}`, messageId: "", otterId: "" } });
+        push({ event: "error", data: { message: `发言链调度失败: ${msg}`, otterId: "" } });
       })
       .finally(() => {
         // 清理订阅，防止内存泄漏
@@ -347,7 +309,7 @@ export class MessageController {
       .catch((err: unknown) => {
         const errMsg = err instanceof Error ? err.message : String(err);
         this.logger.error('retrySignal 调度异常', err instanceof Error ? err : new Error(errMsg), { conversationId, messageId });
-        push({ event: "error", data: { message: `重试失败: ${errMsg}`, messageId, otterId } });
+        push({ event: "error", data: { message: `重试失败: ${errMsg}`, otterId } });
       })
       .finally(() => {
         unsubscribe?.();
@@ -415,7 +377,7 @@ export class MessageController {
       .catch((err: unknown) => {
         const errMsg = err instanceof Error ? err.message : String(err);
         this.logger.error('重试调度异常', err instanceof Error ? err : new Error(errMsg), { conversationId, messageId });
-        push({ event: "error", data: { message: `重试失败: ${errMsg}`, messageId, otterId } });
+        push({ event: "error", data: { message: `重试失败: ${errMsg}`, otterId } });
       })
       .finally(() => {
         unsubscribe?.();
@@ -505,98 +467,6 @@ export class MessageController {
     }
   }
 
-  async getById(c: Context): Promise<Response> {
-    try {
-      const id = param(c, "id");
-      const msg = await this.queryMessage.getMessageById(id);
-      if (!msg) {
-        return c.json({ error: "Message not found" }, 404);
-      }
-      const senderNames = await resolveSenderNames([msg], this.queryOtter);
-      return c.json(toMessageDTO(msg, senderNames.get(msg.senderId)));
-    } catch (err) {
-      return handleError(c, err, this.logger);
-    }
-  }
-
-  async getEvents(c: Context): Promise<Response> {
-    try {
-      const id = param(c, "id");
-      const events = await this.queryMessage.getMessageEvents(id);
-      return c.json(events.map(toMessageEventDTO));
-    } catch (err) {
-      return handleError(c, err, this.logger);
-    }
-  }
-
-  async abort(c: Context): Promise<Response> {
-    try {
-      const id = param(c, "id");
-      const msg = await this.queryMessage.getMessageById(id);
-      if (!msg) {
-        return c.json({ error: "Message not found" }, 404);
-      }
-      /** 仅 Otter 消息可被中止（用户消息已完成，无 Agent 在运行） */
-      if (msg.senderType !== "otter") {
-        return c.json({ error: "Can only abort otter messages" }, 400);
-      }
-      /** 仅进行中的消息可被中止——终态消息 abort 会留下 stale abort 标记，污染该消息后续的错误分类 */
-      if (!canAbortMessage(msg.status)) {
-        return c.json({ error: `Message is already in terminal status: ${msg.status}` }, 409);
-      }
-      this.agentInvoker.abort(msg.senderId, id);
-      // F20260903ihlt：中断 = 会话级停机——只 abort 本条消息的 SDK session 时，
-      return c.json({ status: "aborted" }, 202);
-    } catch (err) {
-      return handleError(c, err, this.logger);
-    }
-  }
-
-  /** 手动重试：对 failed/aborted 的 otter 消息重新触发 agent 执行 */
-  async retry(c: Context): Promise<Response> {
-    try {
-      const id = param(c, "id");
-      const msg = await this.queryMessage.getMessageById(id);
-      if (!msg) {
-        return c.json({ error: "Message not found" }, 404);
-      }
-      const precheck = this.precheckRetryTarget(msg);
-      if (precheck) return precheck;
-
-      const conversationId = msg.conversationId;
-      const otterId = msg.senderId;
-
-      // 原始用户消息内容：从同 turn 的 user 消息中取
-      // turn 关系由 turnId 关联，但 QueryMessage 无 getMessagesByTurnId；
-      // 用 body 中保留的原始 prompt 或兜底空串（session 上下文已完整）
-      const userMessageContent = aggregateBody(msg.segments);
-
-      // 获取原始 user senderId（发言石应传回给用户，不能用 otterId）
-      const turnUserMsgs = await this.queryMessage.getMessages(conversationId, { turnId: msg.turnId, senderType: "user", limit: 1 });
-      const senderId = turnUserMsgs[0]?.senderId ?? "user";
-
-      /** 多模态 Phase 1（审视修复 R9）：重试路径从原 user 消息 attachments 重新组装注入载荷——
-       *  session 历史未重启时图仍在，但 self-restart/换 session 后当前任务图不缺席。
-       *  #826 收尾处置（检视建议发现 1）：换轨路径的 signal 是被重试的 otter 消息
-       *  （attachments 恒空——message_attachments 只挂 user 消息），附件 ID 由
-       *  retryViaRouterPath 显式传递，不再静默丢弃 */
-      const retryPayload = await this.loadRetryInjection(turnUserMsgs[0]?.attachments);
-      const contentWithDocs = this.withDocumentBlock(userMessageContent, retryPayload?.documentBlock);
-      const retryAttachmentIds = turnUserMsgs[0]?.attachments?.map(a => a.id);
-
-      return this.startRetryChain(c, {
-        conversationId, otterId, messageId: id,
-        userMessageContent: contentWithDocs, senderId,
-        images: retryPayload?.images,
-        retryAttachmentIds,
-        // S3：retry 信号实体（档位/内容/发送者）——路由器 retrySignal 的闸门与记账输入
-        signal: msg,
-      });
-    } catch (err) {
-      return handleError(c, err, this.logger);
-    }
-  }
-
   /** 未读状态（消息级，基于 last_read_message_seq） */
   async getUnreadState(c: Context): Promise<Response> {
     try {
@@ -625,18 +495,4 @@ export class MessageController {
     }
   }
 
-  /** 加载目标消息上下文（搜索跳转 / 未读窗口加载用） */
-  async expand(c: Context): Promise<Response> {
-    try {
-      const messageId = param(c, "id");
-      const direction = (c.req.query("direction") ?? "both") as "before" | "after" | "both";
-      const rawCount = Number(c.req.query("count") ?? "25");
-      const count = Number.isFinite(rawCount) && rawCount > 0 ? rawCount : 25;
-      const messages = await this.queryMessage.expandMessage(messageId, direction, count);
-      const dtos = await buildMessageDTOs(messages, this.dtoBuilder);
-      return c.json(dtos);
-    } catch (err) {
-      return handleError(c, err, this.logger);
-    }
-  }
 }

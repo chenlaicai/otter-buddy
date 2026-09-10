@@ -43,7 +43,7 @@ export type SSEEventMap = {
   "agent.compaction_start": { reason: "manual" | "threshold" | "overflow" };
   "agent.compaction_end": { reason: "manual" | "threshold" | "overflow"; aborted: boolean; willRetry: boolean; errorMessage?: string };
   "stream.end": Record<string, never>;
-  "error": { message: string; invokeId?: string; messageId?: string; otterId: string };
+  "error": { message: string; invokeId?: string; otterId: string };
   "mention.feedback": { feedback: string };
 };
 

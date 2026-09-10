@@ -2,11 +2,8 @@ import type {
   ConversationDTO,
   ConversationListItemDTO,
   CreateConversationRequestDTO,
-  MessageDTO,
-  MessageListResponseDTO,
   UnreadStateDTO,
   MarkReadResponseDTO,
-  MessageEventDTO,
   SendMessageRequestDTO,
   OtterDTO,
   CreateOtterRequestDTO,
@@ -82,19 +79,7 @@ export function getParticipants(conversationId: string): Promise<ParticipantDTO[
   return request(`/conversations/${conversationId}/participants`)
 }
 
-// ── Messages ──
-
-export function listMessages(conversationId: string, limit = 50, before?: string): Promise<MessageListResponseDTO> {
-  const qs = new URLSearchParams({ limit: String(limit) })
-  if (before) qs.set('before', before)
-  return request(`/conversations/${conversationId}/messages?${qs}`)
-}
-
-/** after 游标向下分页（加载比 after 消息更新的历史消息） */
-export function listMessagesAfter(conversationId: string, after: string, limit = 50): Promise<MessageListResponseDTO> {
-  const qs = new URLSearchParams({ after, limit: String(limit) })
-  return request(`/conversations/${conversationId}/messages/after?${qs}`)
-}
+// ── Messages（F20260910ctlv 彻底切换：只保留发言/未读/已读，历史读取/事件/中止/重试已迁 entries+invokes）──
 
 /** 未读状态 */
 export function getUnreadState(conversationId: string): Promise<UnreadStateDTO> {
@@ -104,20 +89,6 @@ export function getUnreadState(conversationId: string): Promise<UnreadStateDTO> 
 /** 标记已读 */
 export function markRead(conversationId: string, messageSeq: number): Promise<MarkReadResponseDTO> {
   return request(`/conversations/${conversationId}/read`, { method: 'POST', body: JSON.stringify({ messageSeq }) })
-}
-
-/** 加载目标消息上下文（搜索跳转 / 未读窗口加载） */
-export function expandMessage(messageId: string, direction: 'before' | 'after' | 'both' = 'both', count = 25): Promise<MessageDTO[]> {
-  const qs = new URLSearchParams({ direction, count: String(count) })
-  return request(`/messages/${messageId}/expand?${qs}`)
-}
-
-export function getMessageEvents(messageId: string): Promise<MessageEventDTO[]> {
-  return request(`/messages/${messageId}/events`)
-}
-
-export function getMessage(messageId: string): Promise<MessageDTO> {
-  return request(`/messages/${messageId}`)
 }
 
 export function sendMessage(conversationId: string, body: SendMessageRequestDTO): Promise<Response> {
@@ -137,17 +108,6 @@ export function uploadAttachments(conversationId: string, files: File[], uploade
     method: 'POST',
     body: form,
     headers: {}, // 覆盖默认 Content-Type，让浏览器带 boundary
-  })
-}
-
-export function abortMessage(messageId: string): Promise<{ status: string }> {
-  return request(`/messages/${messageId}/abort`, { method: 'POST' })
-}
-
-export function retryMessage(messageId: string): Promise<Response> {
-  return fetch(`${BASE}/messages/${messageId}/retry`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
   })
 }
 
