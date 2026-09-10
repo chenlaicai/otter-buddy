@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, type ComponentProps } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { ChevronRight, FileText, Folder, FolderOpen, Loader2 } from 'lucide-react'
+import { ChevronRight, ExternalLink, FileText, Folder, FolderOpen, Loader2 } from 'lucide-react'
 // Why: Workspace DTO 单一真相源在 api-contract（issue #558）——本文件曾是手工同步副本，
 // 迁移后直接引用契约，与后端靠 web tsc --noEmit 锁死漂移
 import type { WorkspaceEntry, WorkspaceFileContent, WorkspaceListDirResponse } from '@contract/api/workspace'
@@ -69,13 +69,14 @@ interface TreeNodeProps {
   dirErrorMap: Map<string, string>
   onToggleDir: (path: string) => void
   onSelectFile: (entry: WorkspaceEntry) => void
+  onContextMenu?: (e: React.MouseEvent, entry: WorkspaceEntry) => void
   selectedPath: string | null
   loadingPath: string | null
 }
 
 /** 文件夹节点：点击展开/收起，懒加载子目录 */
 function TreeFolderNode({
-  entry, depth, conversationId, expandedSet, dirCache, dirErrorMap, onToggleDir, onSelectFile, selectedPath, loadingPath,
+  entry, depth, conversationId, expandedSet, dirCache, dirErrorMap, onToggleDir, onSelectFile, onContextMenu, selectedPath, loadingPath,
 }: TreeNodeProps) {
   const isExpanded = expandedSet.has(entry.path)
   const children = dirCache.get(entry.path)
@@ -113,6 +114,7 @@ function TreeFolderNode({
               dirErrorMap={dirErrorMap}
               onToggleDir={onToggleDir}
               onSelectFile={onSelectFile}
+              onContextMenu={onContextMenu}
               selectedPath={selectedPath}
               loadingPath={loadingPath}
             />
@@ -141,18 +143,20 @@ function TreeFolderNode({
 
 /** 文件节点 */
 function TreeFileNode({
-  entry, depth, selectedPath, onSelectFile,
+  entry, depth, selectedPath, onSelectFile, onContextMenu,
 }: {
   entry: WorkspaceEntry
   depth: number
   selectedPath: string | null
   onSelectFile: (entry: WorkspaceEntry) => void
+  onContextMenu?: (e: React.MouseEvent, entry: WorkspaceEntry) => void
 }) {
   const isSelected = selectedPath === entry.path
   return (
     <button
       data-testid={`file-${entry.path}`}
       onClick={() => onSelectFile(entry)}
+      onContextMenu={(e) => onContextMenu?.(e, entry)}
       className={`w-full flex items-center gap-1.5 px-2 py-1 rounded-lg text-left transition ${
         isSelected ? 'bg-otter-400/15 text-otter-600' : 'hover:bg-white/30 text-stone-600'
       }`}
@@ -175,6 +179,7 @@ function TreeNode(props: TreeNodeProps) {
       depth={props.depth}
       selectedPath={props.selectedPath}
       onSelectFile={props.onSelectFile}
+      onContextMenu={props.onContextMenu}
     />
   )
 }
@@ -284,6 +289,9 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
   const [loadingFile, setLoadingFile] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // ── 右键菜单状态 ──
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; entry: WorkspaceEntry } | null>(null)
+
   /** 加载根目录（仅初次） */
   useEffect(() => {
     let cancelled = false
@@ -338,6 +346,33 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
     }
   }, [conversationId])
 
+  /** 右键菜单：在文件管理器中显示 */
+  const handleReveal = useCallback(async (entry: WorkspaceEntry) => {
+    setCtxMenu(null)
+    try {
+      const res = await fetch(`/api/conversations/${conversationId}/workspace/reveal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: entry.path }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: '操作失败' }))
+        setError(err.error || '打开失败')
+      }
+    } catch {
+      setError('打开失败')
+    }
+  }, [conversationId])
+
+  /** 右键菜单：弹出定位 */
+  const handleContextMenu = useCallback((e: React.MouseEvent, _entry: WorkspaceEntry) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const x = Math.min(e.clientX, window.innerWidth - 160)
+    const y = Math.min(e.clientY, window.innerHeight - 90)
+    setCtxMenu({ x, y, entry: _entry })
+  }, [])
+
   const sortedRoot = useMemo(() => sortEntries(rootEntries), [rootEntries])
   const selectedPath = selectedFile?.path ?? null
 
@@ -380,6 +415,7 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
                 dirErrorMap={dirErrorMap}
                 onToggleDir={handleToggleDir}
                 onSelectFile={handleSelectFile}
+                onContextMenu={handleContextMenu}
                 selectedPath={selectedPath}
                 loadingPath={loadingPath}
               />
@@ -399,6 +435,29 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
           <FileContentViewer file={selectedFile} />
         )}
       </div>
+
+      {/* 右键菜单：fixed 蒙层 + 玻璃卡片（仿 index.tsx ctxMenu 模式） */}
+      {ctxMenu && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setCtxMenu(null)}
+          />
+          <div
+            className="fixed glass-overlay rounded-2xl p-1 z-50 min-w-[150px]"
+            style={{ left: ctxMenu.x, top: ctxMenu.y }}
+            data-testid="workspace-ctx-menu"
+          >
+            <button
+              onClick={() => handleReveal(ctxMenu.entry)}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-white/40 text-stone-600 text-left"
+            >
+              <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+              在文件管理器中显示
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
 }
