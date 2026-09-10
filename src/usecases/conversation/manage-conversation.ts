@@ -20,6 +20,12 @@ export class ManageConversation {
   ) {}
 
   async create(params: CreateConversationInput): Promise<Conversation> {
+    // #891 对抗审视发现 2：null body 经 safeJsonBody 兜底 {} 后 title 为 undefined，
+    // 无校验落库会撞 DB NOT NULL 约束 → 500 且回显表结构（conversations.title）
+    if (typeof params.title !== "string" || params.title.trim().length === 0) {
+      throw new DomainError("title 必填且为非空字符串", "validation");
+    }
+
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
 
