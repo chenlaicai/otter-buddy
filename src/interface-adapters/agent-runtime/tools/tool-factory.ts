@@ -73,9 +73,15 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
             conversationId: ctx.conversationId,
             invokeId: ctx.currentInvokeId,
             otterId: ctx.otterId,
-            turnId: "", // TODO: 从 ToolContext 获取 turnId
+            turnId: "", // TODO: 从 ToolContext 获取 turnId（send-entry 内部兑底 ensureActiveTurn）
             body: cleanBody,
           });
+          // F20260910ctlv 实测修复：新路径也登记 lastSpeakMessageId（= speak entry id）——
+          // validateMessageHasContent 靠它短路「已发言」判定；不设的话 yield 反复报
+          // 「你还没有用 speak 输出任何内容」，獭误以为 speak 失败反复重试 → 死循环（test08）。
+          // 复用现有字段作「本轮已发言」标记：yield 新路径对 entry id 调 completeSpeakMessage
+          // 会 throw（非 message id）但已被 try/catch 兑底，不影响交棒。
+          ctx.lastSpeakMessageId = speakEntry.id;
 
           return {
             ...textResponse("[系统控制信号] 已记录发言，继续工作。"),

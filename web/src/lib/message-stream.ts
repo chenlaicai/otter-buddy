@@ -57,7 +57,11 @@ export function insertCenteredByTs(list: LocalMessage[], msg: LocalMessage): Loc
   const ts = msg.ts || ''
   for (let i = list.length - 1; i >= 0; i--) {
     const m = list[i]
-    if (m.id.startsWith('tmp-') || m.id.startsWith('err-')) continue
+    // F20260910ctlv 实测修复：tmp 乐观消息参与 ts 比较（不跳过）——用户刚发的 tmp 在列表尾，
+    // 后续居中条目（invoke_start）ts 更晚，应插在 tmp 之后；旧逻辑 continue 跳过 tmp 后
+    // 插到更早的条目前，导致「开始行动」排到用户发言上方。
+    // ts 为空的 tmp 无时序语义，越过（与历史行为兼容）；err- 投影同越过。
+    if (!m.ts || m.id.startsWith('err-')) continue
     if ((m.ts || '') <= ts) {
       return [...list.slice(0, i + 1), msg, ...list.slice(i + 1)]
     }

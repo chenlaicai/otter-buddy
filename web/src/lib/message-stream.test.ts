@@ -198,10 +198,15 @@ describe('insertCenteredByTs', () => {
     msg({ id: 'm1', ts: '2026-09-10T06:00:00Z', seq: 1 }),
     msg({ id: 'm2', ts: '2026-09-10T06:00:10Z', seq: 2 }),
   ]
-  it('插到最后一条真实条目之后（tmp 消息之后越过）', () => {
+  it('插到最后一条真实条目之后（ts 为空的 tmp 越过，与历史行为兼容）', () => {
     const withTmp = [...base, msg({ id: 'tmp-1', ts: '', seq: undefined })]
     const next = insertCenteredByTs(withTmp, msg({ id: 'b1', ts: '2026-09-10T06:00:20Z', entryType: 'invoke_start' }))
     expect(next.map(m => m.id)).toEqual(['m1', 'm2', 'b1', 'tmp-1'])
+  })
+  it('F20260910ctlv 实测修复：有 ts 的乐观 tmp 参与比较——后到的 invoke_start 排在用户发言之后', () => {
+    const withTmp = [...base, msg({ id: 'tmp-1', ts: '2026-09-10T06:00:15Z', seq: undefined })]
+    const next = insertCenteredByTs(withTmp, msg({ id: 'b1', ts: '2026-09-10T06:00:20Z', entryType: 'invoke_start' }))
+    expect(next.map(m => m.id)).toEqual(['m1', 'm2', 'tmp-1', 'b1'])
   })
   it('同 id 幂等替换', () => {
     const once = insertCenteredByTs(base, msg({ id: 'b1', ts: '2026-09-10T06:00:20Z' }))

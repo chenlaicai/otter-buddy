@@ -785,6 +785,12 @@ function ConversationPage() {
       'entry.speak': (data) => {
         const d = data as { entryId: string }
         handlers['speak.intermediate']?.({ ...data, messageId: d.entryId } as { messageId: string; body: string; otterName?: string; segmentId?: string; sequenceNum?: number })
+        // F20260910ctlv 实测修复：speak entry 创建即 completed 终态（无后续 complete 事件）。
+        // 不置终态的话气泡永远停在 streaming —— 挂着「停止生成」按钮 + 「正在回复...」占位。
+        // （旧路径 speak.intermediate 仍保持 streaming，由 message.complete 收尾——不受影响）
+        batchUpdateMessages(activeId!, (list) => list.map(m => m.id === d.entryId
+          ? { ...m, status: 'completed' as const }
+          : m))
       },
       'entry.complete': (data) => {
         const d = data as { entryId: string }
