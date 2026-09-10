@@ -19,6 +19,8 @@ import type { SignalEventRepository } from "@usecases/signal/signal-event-reposi
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
 import type { AttachmentRepository } from "@usecases/conversation/attachment-repository";
+import type { EntryRepository } from "@usecases/conversation/entry-repository";
+import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
 import type { ManageConversation } from "@usecases/conversation/manage-conversation";
 import type { ManageMemory } from "@usecases/memory/manage-memory";
 import type { ManageTerminology } from "@usecases/memory/manage-terminology";
@@ -29,6 +31,7 @@ import type { GetRelated } from "@usecases/memory/get-related";
 import type { DeleteEdge } from "@usecases/memory/delete-edge";
 import type { GetDocProvenance } from "@usecases/memory/get-doc-provenance";
 import type { SendMessage } from "@usecases/conversation/send-message";
+import type { SendEntry } from "@usecases/conversation/send-entry";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageReadState } from "@usecases/conversation/manage-read-state";
 import type { ManageParticipant } from "@usecases/conversation/manage-participant";
@@ -69,6 +72,10 @@ export interface Repositories {
   healthSnapshot: HealthSnapshotRepository;
   /** F20260908rlcp：派发台账退役 */
   attachment: AttachmentRepository;
+  /** F20260910ctlv：条目仓库（取代 messages + message_segments） */
+  entry: EntryRepository;
+  /** F20260910ctlv：invoke 生命周期仓库 */
+  invoke: InvokeRepository;
 }
 
 export interface UseCases {
@@ -82,6 +89,7 @@ export interface UseCases {
   deleteEdge: DeleteEdge;
   getDocProvenance: GetDocProvenance;
   sendMessage: SendMessage;
+  sendEntry: SendEntry;
   queryMessage: QueryMessage;
   /** F20260826rcmm Phase 0：检索埋点（评估基线数据源） */
   recordSearchQuery: RecordSearchQuery;

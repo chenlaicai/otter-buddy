@@ -30,6 +30,8 @@ export interface BuildCustomToolsParams {
   /** F20260826mwrd C1：signal 工具（halt_otter/query_signals）的仓库 */
   signalRepo?: SignalEventRepository;
   logger: Logger;
+  /** F20260910ctlv：当前 invoke ID（invoke 级上下文，由 agent-invoker 注入） */
+  currentInvokeId?: string;
 }
 
 /** buildCustomTools 返回类型 */
@@ -71,6 +73,8 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
     signalRepo,
     /** F20260909smsp：speak message 跟踪（invoke 级生命周期） */
     lastSpeakMessageId: undefined,
+    /** F20260910ctlv：当前 invoke ID（invoke 级上下文，由 agent-invoker 注入） */
+    currentInvokeId: params.currentInvokeId,
   };
   const otterTools = createTools(toolContext, healingRepo, logger);
 

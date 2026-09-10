@@ -145,5 +145,7 @@ export interface ToolContext {
   signalRepo?: SignalEventRepository;
   /** F20260909smsp：当前打开的 speak message ID（每次 speak 创建独立 message，ToolContext 跟踪最新一个） */
   lastSpeakMessageId?: string;
+  /** F20260910ctlv：当前 invoke ID（invoke 级上下文，由 agent-invoker 注入） */
+  currentInvokeId?: string;
 
 }

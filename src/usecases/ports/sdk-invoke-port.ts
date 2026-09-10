@@ -78,6 +78,8 @@ export interface InvokeOptions {
   readOnly?: boolean;
   /** F20260908rlcp：本批未读消息的最大 sequence_num（启动成功后推进游标用） */
   batchMaxSeq?: number;
+  /** F20260910ctlv：当前 invoke ID（invoke 级上下文，由 agent-invoker 注入） */
+  currentInvokeId?: string;
 }
 
 export interface SdkInvokePort {

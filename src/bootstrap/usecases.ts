@@ -33,9 +33,14 @@ import { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-t
 import { ManageConnection } from "@usecases/im/manage-connection";
 import { AttachmentUploadService } from "@usecases/conversation/attachment-upload-service";
 import { ManageWorkspace } from "@usecases/conversation/manage-workspace";
+import { SendEntry } from "@usecases/conversation/send-entry";
+import type { EntryRepository } from "@usecases/conversation/entry-repository";
+import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
 
 export interface UseCaseDeps {
   repos: Repositories;
+  entryRepo: EntryRepository;
+  invokeRepo: InvokeRepository;
   agentGateway: PiSessionFactory;
   embeddingService: EmbeddingGateway;
   memoryIndex: MemoryIndexGateway;
@@ -49,7 +54,7 @@ export interface UseCaseDeps {
 }
 
 export function initUseCases(deps: UseCaseDeps): UseCases {
-  const { repos, agentGateway, embeddingService, memoryIndex, appConfig, logger, workspaceGateway, otterConfigProvider, modelPool } = deps;
+  const { repos, entryRepo, invokeRepo, agentGateway, embeddingService, memoryIndex, appConfig, logger, workspaceGateway, otterConfigProvider, modelPool } = deps;
   const memoryUcs = buildMemoryUseCases(repos, embeddingService, appConfig, logger);
   const { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries } = memoryUcs;
   const sendMessage = new SendMessage(repos.conversation, repos.otter, memoryIndex, logger, repos.attachment);
@@ -79,6 +84,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const attachmentUpload = buildAttachmentUploadService(repos, appConfig, logger);
   // 工作区文件浏览（只读）——workspaceGateway 可选注入
   const manageWorkspace = workspaceGateway ? new ManageWorkspace(workspaceGateway) : undefined;
+  const sendEntry = new SendEntry(entryRepo, invokeRepo, repos.otter, repos.conversation, logger);
   return {
     manageConversation, manageMemory, manageTerminology, searchMemory, scanDarkEntries,
     sendMessage, queryMessage, manageReadState, manageParticipant, manageKeyInfo, recordSearchQuery,
@@ -88,6 +94,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
     createEdge, getRelated, deleteEdge, getDocProvenance,
     attachmentUpload,
     manageWorkspace,
+    sendEntry,
   };
 }
 

@@ -26,6 +26,7 @@ import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 import { validateAndResolve } from "@usecases/conversation/talking-stone";
 
 
+// eslint-disable-next-line max-lines-per-function -- F20260910ctlv 双路径迁移期（新 entry + 旧 message 并行），fallback 删除后回归
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
     name: "speak",
@@ -40,6 +41,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       },
       required: ["body"],
     },
+    // eslint-disable-next-line complexity -- F20260910ctlv 双路径迁移期
     execute: async (_id: string, params: Record<string, unknown>) => {
       if (!ctx.currentMessageId) return errorResponse("[错误] 系统错误：当前消息 ID 未设置，无法发言。");
 
@@ -57,7 +59,32 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       if (bodyError) return errorResponse(bodyError);
 
       try {
-        // F20260909smsp：speak 创建独立 message（而非 append segment 到首个 message）
+        // F20260910ctlv：新路径优先（invoke 级上下文存在时）
+        if (ctx.currentInvokeId) {
+          // 1. 完结上一次 speak entry（若有）
+          if (ctx.lastSpeakMessageId) {
+            try {
+              await ctx.client.conversation.message.completeSpeakMessage(ctx.lastSpeakMessageId);
+            } catch { /* 已终态或不存在，忽略 */ }
+          }
+
+          // 2. 创建新的 speak entry（invoke 级上下文）
+          const speakEntry = await ctx.client.conversation.entry.createSpeakEntry({
+            conversationId: ctx.conversationId,
+            invokeId: ctx.currentInvokeId,
+            otterId: ctx.otterId,
+            turnId: "", // TODO: 从 ToolContext 获取 turnId
+            body: cleanBody,
+          });
+
+          return {
+            ...textResponse("[系统控制信号] 已记录发言，继续工作。"),
+            terminate: false,
+            details: { __speakIntermediate: true, body: cleanBody, entryId: speakEntry.id, entryType: speakEntry.entryType },
+          };
+        }
+
+        // F20260909smsp 旧路径 fallback（invoke 级上下文不存在时）
         // 1. 完结上一次 speak message（若有）
         if (ctx.lastSpeakMessageId) {
           try {
@@ -98,6 +125,7 @@ async function validateMessageHasContent(ctx: ToolContext): Promise<string | nul
   return null;
 }
 
+// eslint-disable-next-line max-lines-per-function -- F20260910ctlv 双路径迁移期（新 entry + 旧 message 并行），fallback 删除后回归
 function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository): AgentTool {
   return {
     name: "yield",
@@ -117,6 +145,7 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
       },
       required: ["to"],
     },
+    // eslint-disable-next-line complexity -- F20260910ctlv 双路径迁移期
     execute: async (_id: string, params: Record<string, unknown>) => {
       // 消息非空校验
       const msgError = await validateMessageHasContent(ctx);
@@ -130,7 +159,30 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
       if (error) return errorResponse(error);
 
       try {
-        // F20260909smsp：yield 前先完结打开的 speak message（若有）
+        // F20260910ctlv：新路径优先（invoke 级上下文存在时）
+        if (ctx.currentInvokeId) {
+          // 1. 完结上一次 speak entry（若有）
+          if (ctx.lastSpeakMessageId) {
+            try {
+              await ctx.client.conversation.message.completeSpeakMessage(ctx.lastSpeakMessageId);
+              ctx.lastSpeakMessageId = undefined;
+            } catch { /* 已终态或不存在，忽略 */ }
+          }
+
+          // 2. 创建 yield entry + invoke_end entry + 更新 invoke 记录
+          await ctx.client.conversation.entry.createYieldEntry({
+            conversationId: ctx.conversationId,
+            invokeId: ctx.currentInvokeId,
+            otterId: ctx.otterId,
+            turnId: "", // TODO: 从 orchestrator 注入
+            yieldTargets: resolvedIds,
+          });
+
+          return { ...textResponse("[系统控制信号] 交棒成功，回合结束。"), terminate: true };
+        }
+
+        // F20260909smsp 旧路径 fallback
+        // 1. 完结上一次 speak message（若有）
         if (ctx.lastSpeakMessageId) {
           try {
             await ctx.client.conversation.message.completeSpeakMessage(ctx.lastSpeakMessageId);

@@ -12,6 +12,7 @@
 
 import type { SdkInvokePort, AgentStreamEvent, DynamicContext } from "@usecases/ports/sdk-invoke-port";
 import type { SendMessage } from "@usecases/conversation/send-message";
+import type { SendEntry } from "@usecases/conversation/send-entry";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import { aggregateBody } from "@entities/conversation/message";
 import type { ManageSession } from "@usecases/otter/manage-session";
@@ -138,6 +139,8 @@ export class AgentInvoker implements AgentTurnPort {
     private readonly healthySessionThresholdMs?: number,
     /** F20260901cxmw：可选注入，otter 实际模型 contextWindow 解析（缺省回退 128k，兼容旧测试） */
     private readonly ctxWindowProvider?: OtterContextWindowProvider,
+    /** F20260910ctlv：可选注入，invoke 生命周期管理（新模型） */
+    private readonly sendEntry?: SendEntry,
   ) {
     this.orchestrator = new AgentTurnOrchestrator(logger, metrics);
     this.circuitBreak = healingRepo
@@ -176,6 +179,7 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
   // eslint-disable-next-line max-lines-per-function -- 触发链路+熔断+自重启集成点（F20260826mwrd C3：+healing 高危路由消费），拆分降低可读性（F20260901cxmw：getCtxMax 改同步后 complexity 已降至限内，无需 disable）
+  // eslint-disable-next-line complexity, max-statements, max-lines-per-function -- F20260910ctlv 双路径迁移期（新 invoke + 旧 message 并行），fallback 删除后回归
   private async invokeConversationInner(params: {
     otterId: string;
     conversationId: string;
@@ -243,6 +247,24 @@ export class AgentInvoker implements AgentTurnPort {
     this.logger.debug('Streaming message created', { otterId, messageId: message.id });
 
     const otter = await this.queryOtter.getById(otterId);
+
+    // F20260910ctlv：创建 invoke 记录 + invoke_start 条目（新模型，与消息并行）
+    let currentInvokeId: string | undefined;
+    if (this.sendEntry) {
+      try {
+        const { invoke, invokeStartEntry: _invokeStartEntry } = await this.sendEntry.createInvoke({
+          conversationId,
+          otterId,
+          triggerEntryId: message.id,
+        });
+        currentInvokeId = invoke.id;
+        // SSE: invoke.start
+        emitEvent({ event: "invoke.start", data: { invokeId: invoke.id, otterId, otterName: otter?.name ?? otterId, triggerEntryId: message.id } });
+        this.logger.info('Invoke created', { invokeId: invoke.id, otterId, conversationId });
+      } catch (err) {
+        this.logger.warn('Failed to create invoke record (fallback to message-only)', { error: err instanceof Error ? err.message : String(err) });
+      }
+    }
     /** seq 带给前端：进行中消息按服务端 sequence 插入消息流（M5：保证跨 otter 时序正确）。
      *  otterName 用 snapshot-first 策略：message.senderName（层 1 持久化快照）优先于运行时查询——
      *  自重启/熔断场景下快照在 SendMessage.start() 时已解析，不依赖运行时 otter 查询。 */
@@ -255,12 +277,12 @@ export class AgentInvoker implements AgentTurnPort {
       let pendingSelfRestart: { otterId: string; summary?: string; modelAlias?: string } | undefined;
 
       // 创建 AttemptDriver 和 TurnCallbacks
-      const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, { otterName: otter?.name, onSelfRestart: (signal) => { pendingSelfRestart = signal; }, images, batchMaxSeq });
+      const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, { otterName: otter?.name, onSelfRestart: (signal) => { pendingSelfRestart = signal; }, images, batchMaxSeq, currentInvokeId });
       // F20260830fabt: failMessage 必须同时 abort SDK session——消息标 failed 后 LLM 不能继续跑
       // 注意：不走 driver.abort() 以免触发 userAbortedMessages 标记（那是用户中断的语义）
       const callbacks = this.createTurnCallbacks(emitEvent, () => this.agentInvoke.abort(otterId, message.id));
 
-      const turnInput = this.buildTurnInput(params, message.id, startTime);
+      const turnInput = this.buildTurnInput(params, message.id, startTime, currentInvokeId);
 
       // 委托给 orchestrator 执行
       const turnResult = await this.orchestrator.executeTurn(turnInput, driver, callbacks);
@@ -301,7 +323,7 @@ export class AgentInvoker implements AgentTurnPort {
     conversationId: string,
     dynamicContext: DynamicContext,
     emitEvent: (event: SSEEvent) => void,
-    opts?: { otterName?: string; onSelfRestart?: (signal: { otterId: string; summary?: string }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }>; batchMaxSeq?: number },
+    opts?: { otterName?: string; onSelfRestart?: (signal: { otterId: string; summary?: string }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }>; batchMaxSeq?: number; currentInvokeId?: string },
   ): AttemptDriver {
     return {
       invoke: async (input: TurnInput, onEvent: (event: AgentStreamEvent) => void) => {
@@ -313,6 +335,7 @@ export class AgentInvoker implements AgentTurnPort {
           dynamicContext,
           conversationId: input.conversationId,
           messageId: input.messageId,
+          ...(opts?.currentInvokeId && { currentInvokeId: opts.currentInvokeId }),
           ...(opts?.images && { images: opts.images }),
           batchMaxSeq: opts?.batchMaxSeq,
           onEvent: (e: AgentStreamEvent) => {
@@ -453,6 +476,28 @@ export class AgentInvoker implements AgentTurnPort {
       // F20260909smsp：完成 speak message（speaking → completed + memory index）
       completeSpeakMessage: async (messageId: string) => {
         await this.sendMessage.completeSpeakMessage(messageId);
+      },
+
+      // F20260910ctlv：invoke 生命周期回调
+      updateInvokeStatus: this.sendEntry ? async (invokeId: string, status: 'completed' | 'failed' | 'aborted') => {
+        await this.sendEntry!.updateInvokeStatus(invokeId, status);
+      } : undefined,
+
+      createInvokeEndEntry: this.sendEntry ? async (invokeId: string, status: 'completed' | 'failed' | 'aborted', body?: string) => {
+        const invoke = await this.sendEntry!.getInvokeById(invokeId);
+        if (!invoke) return;
+        await this.sendEntry!.createInvokeEndEntry({
+          conversationId: invoke.conversationId,
+          invokeId,
+          otterId: invoke.otterId,
+          turnId: '', // TODO: 从 invoke 关联的 entry 获取
+          status,
+          body,
+        });
+      } : undefined,
+
+      emitInvokeEnd: (invokeId: string, status: string, duration: number) => {
+        emitEvent({ event: 'invoke.end', data: { invokeId, status, duration } });
       },
 
       logger: this.logger,
@@ -606,6 +651,7 @@ export class AgentInvoker implements AgentTurnPort {
     params: { otterId: string; conversationId: string; userMessageContent: string; senderId: string; retryCount?: number; manualRetry?: boolean },
     messageId: string,
     startTime: number,
+    invokeId?: string,
   ): TurnInput {
     const { otterId, conversationId, userMessageContent, senderId, retryCount = 0, manualRetry = false } = params;
     return {
@@ -618,6 +664,7 @@ export class AgentInvoker implements AgentTurnPort {
       retryCount,
       manualRetry,
       attemptStartTime: startTime,
+      invokeId,
     };
   }
 

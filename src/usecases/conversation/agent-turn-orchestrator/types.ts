@@ -50,6 +50,8 @@ export interface TurnInput {
   retryCount: number;
   manualRetry: boolean;
   attemptStartTime: number;
+  /** F20260910ctlv：当前 invoke ID（新模型，可选） */
+  invokeId?: string;
 }
 
 /**
@@ -155,6 +157,12 @@ export interface TurnCallbacks {
   getMessagesByInvokeGroupId?(conversationId: string, invokeGroupId: string): Promise<Array<{ id: string; status: string; segments: MessageSegment[]; turnId?: string }>>;
   /** F20260909smsp：完成 speak message（speaking → completed + memory index，可选） */
   completeSpeakMessage?(messageId: string): Promise<void>;
+  /** F20260910ctlv：更新 invoke 状态（可选，新模型） */
+  updateInvokeStatus?(invokeId: string, status: 'completed' | 'failed' | 'aborted'): Promise<void>;
+  /** F20260910ctlv：创建 invoke_end entry（可选，新模型） */
+  createInvokeEndEntry?(invokeId: string, status: 'completed' | 'failed' | 'aborted', body?: string): Promise<void>;
+  /** F20260910ctlv：发送 invoke.end SSE 事件（可选，新模型） */
+  emitInvokeEnd?(invokeId: string, status: string, duration: number): void;
 }
 
 /** 路由上下文（封装路由方法的共享参数） */

@@ -164,6 +164,7 @@ export class AgentTurnOrchestrator {
 
   /** Try to complete a speaking message */
   // eslint-disable-next-line max-lines-per-function -- F20260909smsp: invoke group completion adds 2 lines to existing logic
+  // eslint-disable-next-line complexity, max-lines-per-function -- F20260910ctlv invoke 生命周期增加分支，fallback 删除后回归
   private async tryCompleteSpeaking(
     input: TurnInput,
     result: InvokeResultShape,
@@ -223,6 +224,13 @@ export class AgentTurnOrchestrator {
 
       // F20260909smsp：完成 invoke 消息链中的 speak messages（独立气泡）
       await this.completeInvokeGroupSpeakMessages(input, duration, ctx.callbacks);
+
+      // F20260910ctlv：invoke 生命周期（成功路径）
+      if (input.invokeId) {
+        const invokeDuration = Date.now() - ctx.startTime;
+        await ctx.callbacks.updateInvokeStatus?.(input.invokeId, 'completed');
+        ctx.callbacks.emitInvokeEnd?.(input.invokeId, 'completed', invokeDuration);
+      }
 
       // 发送 turn.complete 事件
       this.safeEmitEvent(ctx.callbacks, { event: "turn.complete", data: {} });
@@ -953,6 +961,7 @@ export class AgentTurnOrchestrator {
   }
 
   /** Abort terminal: build body → sendMessage.abort → emit message.aborted */
+  // eslint-disable-next-line complexity -- F20260910ctlv invoke 生命周期增加分支，fallback 删除后回归
   private async abortTerminal(ctx: TerminalContext): Promise<TurnResult> {
     const { messageId, otterId } = ctx.input;
 
@@ -997,6 +1006,14 @@ export class AgentTurnOrchestrator {
     // F20260909smsp：终态化 invoke 消息链中的 speak messages
     await this.terminateInvokeGroupSpeakMessages(ctx.input.conversationId, messageId, ctx.callbacks, 'aborted', body);
 
+    // F20260910ctlv：invoke 生命周期（中断路径）
+    if (ctx.input.invokeId) {
+      const invokeDuration = Date.now() - ctx.startTime;
+      await ctx.callbacks.updateInvokeStatus?.(ctx.input.invokeId, 'aborted');
+      await ctx.callbacks.createInvokeEndEntry?.(ctx.input.invokeId, 'aborted', body);
+      ctx.callbacks.emitInvokeEnd?.(ctx.input.invokeId, 'aborted', invokeDuration);
+    }
+
     return { messageId, duration: Date.now() - ctx.startTime };
   }
 
@@ -1026,6 +1043,14 @@ export class AgentTurnOrchestrator {
 
     // F20260909smsp：终态化 invoke 消息链中的 speak messages
     await this.terminateInvokeGroupSpeakMessages(input.conversationId, messageId, callbacks, 'failed', errorMessage);
+
+    // F20260910ctlv：invoke 生命周期（失败路径）
+    if (input.invokeId) {
+      const invokeDuration = Date.now() - startTime;
+      await callbacks.updateInvokeStatus?.(input.invokeId, 'failed');
+      await callbacks.createInvokeEndEntry?.(input.invokeId, 'failed', `[错误] ${errorMessage}`);
+      callbacks.emitInvokeEnd?.(input.invokeId, 'failed', invokeDuration);
+    }
 
     return { messageId, duration: Date.now() - startTime };
   }

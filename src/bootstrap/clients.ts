@@ -177,6 +177,60 @@ export function buildOtterToolClient(
         },
         leave: (convId, otterId) => uc.manageParticipant.markLeft(convId, otterId),
       },
+      // F20260910ctlv：entry 和 invoke 子命名空间（新模型，渐进迁移）
+      // 旧路径继续工作，新路径优先，失败时 fallback 到旧路径
+      entry: {
+        createSpeakEntry: async (params) => {
+          // 创建 speak 条目（新模型）
+          const entry = await uc.sendEntry.createSpeakEntry({
+            conversationId: params.conversationId,
+            invokeId: params.invokeId,
+            otterId: params.otterId,
+            turnId: params.turnId,
+            body: params.body,
+          });
+          return { id: entry.entry.id, entryType: entry.entry.entryType, body: entry.entry.body ?? '' };
+        },
+        createYieldEntry: async (params) => {
+          // 创建 yield 条目 + invoke_end 条目 + 更新 invoke 记录
+          const result = await uc.sendEntry.createYieldEntry({
+            conversationId: params.conversationId,
+            invokeId: params.invokeId,
+            otterId: params.otterId,
+            turnId: params.turnId,
+            yieldTargets: params.yieldTargets,
+          });
+          return {
+            yieldEntry: { id: result.yieldEntry.id, entryType: result.yieldEntry.entryType, yieldTargets: result.yieldEntry.yieldTargets ?? [] },
+            invokeEndEntry: { id: result.invokeEndEntry.id, entryType: result.invokeEndEntry.entryType },
+            invoke: {
+              id: result.invoke.id,
+              status: result.invoke.status,
+              endedAt: result.invoke.endedAt,
+              toolCallCount: result.invoke.toolCallCount,
+              tokenUsageInput: result.invoke.tokenUsageInput,
+              tokenUsageOutput: result.invoke.tokenUsageOutput,
+            },
+          };
+        },
+        getEntries: async (convId, opts) => {
+          const entries = await uc.sendEntry.getEntries(convId, opts);
+          return entries.map(e => ({ id: e.id, entryType: e.entryType, body: e.body }));
+        },
+      },
+      invoke: {
+        appendInvokeEvent: async (invokeId, eventType, payload) => {
+          await uc.sendEntry.appendInvokeEvent(invokeId, eventType as "assistant_text" | "assistant_toolcall" | "tool_result" | "error" | "speak", payload);
+        },
+        getInvokeById: async (invokeId) => {
+          const invoke = await uc.sendEntry.getInvokeById(invokeId);
+          if (!invoke) return null;
+          return { id: invoke.id, status: invoke.status, toolCallCount: invoke.toolCallCount };
+        },
+        incrementToolCallCount: async (invokeId) => {
+          await uc.sendEntry.incrementInvokeToolCallCount(invokeId);
+        },
+      },
       getActiveTurnNumber: (convId) => uc.manageConversation.getActiveTurnNumber(convId),
     },
     memory: buildMemoryClient(uc),

@@ -82,6 +82,39 @@ export interface OtterToolClient {
       /** F20260909smsp：按 invokeGroupId 查询 invoke 消息链 */
       getByInvokeGroupId(conversationId: string, invokeGroupId: string): Promise<Message[]>;
     };
+    // F20260910ctlv：entry 和 invoke 子命名空间（新模型，渐进迁移）
+    entry: {
+      /** 创建 speak 条目 */
+      createSpeakEntry(params: {
+        conversationId: string;
+        invokeId: string;
+        otterId: string;
+        turnId: string;
+        body: string;
+      }): Promise<{ id: string; entryType: string; body: string }>;
+      /** 创建 yield 条目 + invoke_end 条目 + 更新 invoke 记录 */
+      createYieldEntry(params: {
+        conversationId: string;
+        invokeId: string;
+        otterId: string;
+        turnId: string;
+        yieldTargets: string[];
+      }): Promise<{
+        yieldEntry: { id: string; entryType: string; yieldTargets: string[] };
+        invokeEndEntry: { id: string; entryType: string };
+        invoke: { id: string; status: string; endedAt: string | null; toolCallCount: number; tokenUsageInput: number | null; tokenUsageOutput: number | null };
+      }>;
+      /** 查询条目列表 */
+      getEntries(conversationId: string, opts?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; entryType: string; body: string | null }>>;
+    };
+    invoke: {
+      /** 追加 invoke 事件 */
+      appendInvokeEvent(invokeId: string, eventType: string, payload: Record<string, unknown>): Promise<void>;
+      /** 获取 invoke 信息 */
+      getInvokeById(invokeId: string): Promise<{ id: string; status: string; toolCallCount: number } | null>;
+      /** 更新 invoke 工具调用计数 */
+      incrementToolCallCount(invokeId: string): Promise<void>;
+    };
     participant: {
       join(conversationId: string, otterId: string): Promise<ConversationParticipant>;
       /** modelAlias 由 ManageParticipant.getActiveParticipants 批量预取后透传（#446） */
