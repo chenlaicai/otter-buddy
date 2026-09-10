@@ -39,7 +39,7 @@ import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 import { healingAlertRegistry, renderHealingAlerts } from "@usecases/healing/healing-alert-registry";
 import { HandoffState, recordPostTurnTokens, restoreHandoffContext, DEFAULT_CTX_MAX } from "./handoff-support";
 import { MIN_SENSIBLE_CTX_WINDOW, type OtterContextWindowProvider } from "@usecases/ports/otter-context-window-provider";
-import { mapToSSEEvent, mapToMessageEventInput } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
+import { mapToSSEEvent, mapToMessageEventInput, mapToInvokeEventInput } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
 import { CircuitBreakSupport } from "./circuit-break-support";
 import type { TurnInput, AttemptDriver, TurnCallbacks, InvokeResultShape, CircuitBreakInfo, HealingEventInput } from "@usecases/conversation/agent-turn-orchestrator/types";
@@ -365,6 +365,8 @@ export class AgentInvoker implements AgentTurnPort {
               const m = err instanceof Error ? err.message : String(err);
               this.logger.warn(`Failed to persist message event for ${input.messageId}: ${m}`);
             });
+            // F20260910ctlv：流式过程同步落 invoke_events（Session 弹窗数据源）
+            this.persistInvokeEvent(e, opts?.currentInvokeId);
             // 传递事件给 orchestrator
             onEvent(e);
           },
@@ -566,6 +568,20 @@ export class AgentInvoker implements AgentTurnPort {
     }
     /** 错误标志在事件顶层（result.isError 成功路径被 SDK 硬编码 false） */
     if (e.isError === true) this.metrics?.recordToolError(tool);
+  }
+
+  /** F20260910ctlv：流式事件同步落 invoke_events（Session 弹窗数据源）+ 工具计数递增 */
+  private persistInvokeEvent(e: AgentStreamEvent, invokeId?: string): void {
+    if (!invokeId || !this.sendEntry) return;
+    const sendEntry = this.sendEntry;
+    const ievt = mapToInvokeEventInput(e);
+    if (ievt) sendEntry.appendInvokeEvent(invokeId, ievt.eventType, ievt.payload).catch((err: unknown) => {
+      const m = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed to persist invoke event for ${invokeId}: ${m}`);
+    });
+    if (e.type === "tool_execution_start") {
+      sendEntry.incrementInvokeToolCallCount(invokeId).catch(() => {});
+    }
   }
 
   /** speak 落库成功后广播中间发言（前端实时展示，无需等 yield 交棒）

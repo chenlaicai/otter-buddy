@@ -7,6 +7,7 @@
 
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
 import type { MessageEventInput } from "@usecases/conversation/send-message";
+import type { InvokeEventType } from "@entities/conversation/invoke";
 import type { SSEEvent } from "@contract/sse/events";
 
 /** 从 message_end 事件提取 assistant 内容块（过滤 user/toolResult） */
@@ -90,6 +91,37 @@ export function mapToMessageEventInput(
     default:
       if (String(e.type).includes("error")) {
         return { messageId, eventType: "error", payload: { message: String(e.error ?? e.message ?? "Unknown error") } };
+      }
+      return null;
+  }
+}
+
+/** F20260910ctlv：Pi 事件 → InvokeEvent 映射（持久化到 invoke_events 表，Session 弹窗数据源）。
+ *  与 mapToMessageEventInput 平行——旧表保留（兼容期），新表是展示真相源。 */
+// eslint-disable-next-line complexity -- 事件类型分发表，拆分降低可读性
+export function mapToInvokeEventInput(
+  e: AgentStreamEvent,
+): { eventType: InvokeEventType; payload: Record<string, unknown> } | null {
+  switch (e.type) {
+    case "tool_execution_start":
+      return { eventType: "assistant_toolcall", payload: { name: e.name ?? e.toolName, arguments: (e as Record<string, unknown>).args ?? (e as Record<string, unknown>).input } };
+    case "tool_execution_end": {
+      const details = (e.result as { details?: Record<string, unknown> } | undefined)?.details;
+      // speak 工具的落库结果单独归类（Session 弹窗里发言与工具调用分样式展示）
+      if ((e.name ?? e.toolName) === "speak" && details?.__speakIntermediate === true) {
+        return { eventType: "speak", payload: { body: String(details.body ?? ""), segmentId: details.segmentId, sequenceNum: details.sequenceNum } };
+      }
+      return { eventType: "tool_result", payload: { name: e.name ?? e.toolName, result: e.result } };
+    }
+    case "message_end": {
+      const extracted = extractAssistantContent(e);
+      if (!extracted) return null;
+      const eventType: InvokeEventType = extracted.type === "toolcall" ? "assistant_toolcall" : "assistant_text";
+      return { eventType, payload: { content: extracted.blocks } };
+    }
+    default:
+      if (String(e.type).includes("error")) {
+        return { eventType: "error", payload: { message: String(e.error ?? e.message ?? "Unknown error") } };
       }
       return null;
   }

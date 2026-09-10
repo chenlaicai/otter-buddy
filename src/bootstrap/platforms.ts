@@ -221,6 +221,8 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
     appConfig?.circuitBreaker.healthySessionThresholdMs,
     // F20260901cxmw：otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
     ctxWindowProvider,
+    // F20260910ctlv：invoke 生命周期管理（新模型——缺此注入时 invoke/entry 全部静默禁用，审视未覆盖 DI 层）
+    uc.sendEntry,
   );
 
   // F20260903cmpk：压缩钩子合成注入——时机归 Pi（session_before_compact），
