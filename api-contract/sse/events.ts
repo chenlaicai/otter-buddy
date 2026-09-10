@@ -12,8 +12,8 @@ export type SSEEventMap = {
   // ── 新事件（F20260910ctlv timeline 模型） ──
   /** invoke 开始（invoke 记录创建） */
   "invoke.start": { invokeId: string; otterId: string; otterName: string; conversationId: string; startedAt: string };
-  /** invoke 结束（completed/failed/aborted） */
-  "invoke.end": { invokeId: string; otterId: string; status: "completed" | "failed" | "aborted"; endedAt: string; toolCallCount?: number; tokenUsage?: { input: number; output: number } };
+  /** invoke 结束（completed/failed/aborted）。duration 为 invoke 耗时（ms，number），前端可直接消费 */
+  "invoke.end": { invokeId: string; otterId: string; status: "completed" | "failed" | "aborted"; endedAt: string; duration?: number; toolCallCount?: number; tokenUsage?: { input: number; output: number } };
   /** speak entry 创建（取代 message.start） */
   "entry.start": { entryId: string; invokeId: string; otterId: string; otterName: string; seq?: number; createdAt: string };
   /** speak entry body 增量（取代 speak.intermediate） */

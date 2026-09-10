@@ -503,7 +503,7 @@ export class AgentInvoker implements AgentTurnPort {
         });
       } : undefined,
 
-      emitInvokeEnd: (invokeId: string, status: string, duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number } }) => {
+      emitInvokeEnd: (invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number } }) => {
         // F20260910ctlv：payload 对齐契约——otterId/endedAt/toolCallCount/tokenUsage 补齐
         emitEvent({ event: 'invoke.end', data: { invokeId, otterId: otterId ?? '', status, duration, endedAt: new Date().toISOString(), toolCallCount: stats?.toolCallCount, tokenUsage: stats?.tokenUsage } });
       },

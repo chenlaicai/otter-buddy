@@ -162,7 +162,7 @@ export interface TurnCallbacks {
   /** F20260910ctlv：创建 invoke_end entry（可选，新模型） */
   createInvokeEndEntry?(invokeId: string, status: 'completed' | 'failed' | 'aborted', body?: string): Promise<void>;
   /** F20260910ctlv：发送 invoke.end SSE 事件（可选，新模型） */
-  emitInvokeEnd?(invokeId: string, status: string, duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number } }): void;
+  emitInvokeEnd?(invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number } }): void;
 }
 
 /** 路由上下文（封装路由方法的共享参数） */

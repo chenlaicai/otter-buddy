@@ -126,7 +126,6 @@ function ConversationPage() {
   useEffect(() => { invokeStatesRef.current = invokeStates }, [invokeStates])
   const ottersRef = useRef<Record<string, LocalOtter[]>>({})
   useEffect(() => { ottersRef.current = allOtters }, [allOtters])
-  useEffect(() => { ottersRef.current = allOtters }, [allOtters])
   useEffect(() => () => {
     if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current)
   }, [])
@@ -660,26 +659,29 @@ function ConversationPage() {
       // ── F20260910ctlv：invoke/entry 新事件（entry.* 优先消费；旧 message.* handler 保留兜底，
       //    同 id 幂等替换保证双投递安全）──
       'invoke.start': (data) => {
-        const d = data as { invokeId: string; otterId: string; otterName?: string; triggerEntryId?: string }
+        const d = data as { invokeId: string; otterId: string; otterName?: string; triggerEntryId?: string; startedAt?: string }
+        // F20260910ctlv（审视发现 7）：优先用后端 startedAt，保持与 Session 弹窗 API 数据源一致
+        const startTs = d.startedAt || nowTs()
         syncInvokeState(prev => applyInvokeStart(prev, {
           invokeId: d.invokeId, otterId: d.otterId, otterName: d.otterName || '',
-          conversationId: activeId, startedAt: nowTs(),
+          conversationId: activeId, startedAt: startTs,
         }))
         /** 獭可能在 chain 中新建，保证右栏参与者列表能见（同 message.start 的 upsert 链） */
         if (d.otterId) upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId)
         /** 时间线插入 invoke_start 居中条目（确定性 ID invoke-{id}-start，重放幂等） */
         batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, invokeBoundaryEntry({
           invokeId: d.invokeId, otterId: d.otterId, otterName: d.otterName,
-          kind: 'start', ts: nowTs(),
+          kind: 'start', ts: startTs,
         })))
       },
       'invoke.end': (data) => {
-        const d = data as { invokeId: string; status: 'completed' | 'failed' | 'aborted'; duration?: string }
-        const otterId = findOtterByInvokeId(invokeStatesRef.current, d.invokeId)
-        if (!otterId) return /** 状态未知（页面加载前已结束）——不补插条目，刷新时由历史查询回归 */
+        // F20260910ctlv（审视发现 4）：直接用后端发送的 otterId——消除线性扫描 + 修复 invoke.start 丢失时的静默丢弃
+        const d = data as { invokeId: string; otterId?: string; status: 'completed' | 'failed' | 'aborted'; duration?: number; endedAt?: string; toolCallCount?: number; tokenUsage?: { input: number; output: number } }
+        const otterId = d.otterId || findOtterByInvokeId(invokeStatesRef.current, d.invokeId)
+        if (!otterId) return /** 状态未知（页面加载前已结束且事件无 otterId）——不补插条目，刷新时由历史查询回归 */
         const prev = invokeStatesRef.current[otterId]
         const otterName = prev?.otterName
-        const endedAt = nowTs()
+        const endedAt = d.endedAt || nowTs()
         syncInvokeState(prevStates => applyInvokeEnd(prevStates, {
           invokeId: d.invokeId, otterId, status: d.status, endedAt,
         }))
@@ -690,8 +692,8 @@ function ConversationPage() {
       },
       'entry.yield': (data) => {
         const d = data as { entryId: string; invokeId: string; otterId?: string; otterName?: string; yieldTargets?: string[] }
-        /** 后端尚未发射 entry.yield（落库未广播，验证于 Phase 3 代码）：handler 注册做
-         *  前向兼容；等后端补发射后自然生效。targets 解析 otter 名展示 */
+        /** F20260910ctlv Phase 3 补遗：后端已补发射 entry.yield（tool-factory createYieldEntry 后广播），
+         *  本 handler 正式生效。targets 解析 otter 名展示 */
         const targets = (d.yieldTargets || []).map((t: string) => ottersRef.current[activeId]?.find(o => o.id === t)?.name || t)
         batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, {
           id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,

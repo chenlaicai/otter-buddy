@@ -110,6 +110,8 @@ export class AgentTurnOrchestrator {
       } finally {
         // 清理当前 attempt 的去重键，防止内存泄漏
         this.recordedAttempts.delete(attemptKey);
+        // F20260910ctlv（审视发现 2）：turn 结束后清理 invokeId——防止实例复用时残留投射
+        this.currentInvokeId = undefined;
       }
 
       // Speaking guard: content delivery takes priority (unless user aborted)
