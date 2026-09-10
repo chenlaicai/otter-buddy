@@ -223,6 +223,9 @@ export class SendEntry {
       throw new DomainError(`createSpeakEntry: otterId 不存在: ${input.otterId}`, "not_found");
     }
 
+    // F20260910ctlv 实测修复：调用方传空 turnId 时兜底 ensureActiveTurn（entries.turn_id FK 引用 turns.id）
+    const turnId = input.turnId || (await this.ensureActiveTurn(input.conversationId)).id;
+
     const sequenceNum = await this.entryRepo.getMaxSequenceNum(input.conversationId) + 1;
     const now = new Date().toISOString();
 
@@ -236,7 +239,7 @@ export class SendEntry {
       body: input.body,
       invokeId: input.invokeId,
       yieldTargets: null,
-      turnId: input.turnId,
+      turnId,
       status: "completed",
       source: null,
       metadata: null,
@@ -268,6 +271,8 @@ export class SendEntry {
 
     const now = new Date().toISOString();
     const baseSequenceNum = await this.entryRepo.getMaxSequenceNum(input.conversationId) + 1;
+    // F20260910ctlv 实测修复：空 turnId 兜底 ensureActiveTurn（entries.turn_id FK 引用 turns.id）
+    const turnId = input.turnId || (await this.ensureActiveTurn(input.conversationId)).id;
 
     // 更新 invoke 记录：设置 tsp + status=completed
     await this.invokeRepo.updateInvokeTalkingStonePassedTo(input.invokeId, input.yieldTargets);
@@ -290,7 +295,7 @@ export class SendEntry {
       body: `→ 交给 ${input.yieldTargets.join(", ")}`,
       invokeId: input.invokeId,
       yieldTargets: input.yieldTargets,
-      turnId: input.turnId,
+      turnId,
       status: "completed",
       source: null,
       metadata: null,
@@ -312,7 +317,7 @@ export class SendEntry {
       body: `🦦 ${otter.name}先休息一下～`,
       invokeId: input.invokeId,
       yieldTargets: null,
-      turnId: input.turnId,
+      turnId,
       status: "completed",
       source: null,
       metadata: null,
@@ -343,6 +348,8 @@ export class SendEntry {
 
     const now = new Date().toISOString();
     const sequenceNum = await this.entryRepo.getMaxSequenceNum(input.conversationId) + 1;
+    // F20260910ctlv 实测修复：空 turnId 兜底 ensureActiveTurn
+    const turnId = input.turnId || (await this.ensureActiveTurn(input.conversationId)).id;
 
     // 更新 invoke 记录状态
     await this.invokeRepo.updateInvokeStatus(input.invokeId, input.status, now);
@@ -380,7 +387,7 @@ export class SendEntry {
       body,
       invokeId: input.invokeId,
       yieldTargets: null,
-      turnId: input.turnId,
+      turnId,
       status: "completed",
       source: null,
       metadata: null,
@@ -406,6 +413,8 @@ export class SendEntry {
   async createSystemEntry(input: CreateSystemEntryInput): Promise<{ entry: Entry }> {
     const sequenceNum = await this.entryRepo.getMaxSequenceNum(input.conversationId) + 1;
     const now = new Date().toISOString();
+    // F20260910ctlv 实测修复：空 turnId 兜底 ensureActiveTurn
+    const turnId = input.turnId || (await this.ensureActiveTurn(input.conversationId)).id;
 
     const entry: Entry = {
       id: crypto.randomUUID(),
@@ -417,7 +426,7 @@ export class SendEntry {
       body: input.body,
       invokeId: null,
       yieldTargets: null,
-      turnId: input.turnId,
+      turnId,
       status: "completed",
       source: null,
       metadata: null,

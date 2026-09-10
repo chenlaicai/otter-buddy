@@ -505,7 +505,7 @@ describe("AgentInvoker", () => {
     expect(eventTypes).not.toContain("message.aborted");
   });
 
-  it("maps tool execution events to SSE + persists (B8)", async () => {
+  it("F20260910ctlv：流式过程不再广播 SSE（只落 invoke_events），Session 弹窗按需加载", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const invoker = new AgentInvoker(
       mockAgentInvoke({
@@ -531,7 +531,10 @@ describe("AgentInvoker", () => {
     });
 
     const eventTypes = events.map((e) => e.event);
-    expect(eventTypes).toContain("tool.result");
+    // 流式过程事件（tool.result / assistant_text / assistant_toolcall）不进消息气泡，只在 Session 弹窗展示
+    expect(eventTypes).not.toContain("tool.result");
+    expect(eventTypes).not.toContain("assistant_toolcall");
+    expect(eventTypes).not.toContain("assistant_text");
   });
 });
 

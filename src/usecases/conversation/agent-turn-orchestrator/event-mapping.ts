@@ -53,14 +53,12 @@ export function mapToSSEEvent(e: AgentStreamEvent): SSEEvent | null {
     return { event: sseEventName, data: extractSdkEventFields(e) };
   }
   switch (e.type) {
+    // F20260910ctlv：流式过程不进 SSE（从消息气泡挪出，只在 Session 弹窗展示）——
+    // tool.result / assistant_text / assistant_toolcall 不再广播，仅落 invoke_events
     case "tool_execution_end":
-      return { event: "tool.result", data: { toolName: e.name ?? e.toolName ?? "", result: e.result } };
-    case "message_end": {
-      const extracted = extractAssistantContent(e);
-      if (!extracted) return null;
-      const event = extracted.type === "toolcall" ? "assistant_toolcall" : "assistant_text";
-      return { event, data: { content: extracted.blocks } };
-    }
+      return null;
+    case "message_end":
+      return null;
     case "turn_end":
       return null;
     case "agent_end":

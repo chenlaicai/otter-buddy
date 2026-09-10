@@ -332,8 +332,9 @@ export class AgentInvoker implements AgentTurnPort {
   ): AttemptDriver {
     return {
       invoke: async (input: TurnInput, onEvent: (event: AgentStreamEvent) => void) => {
-        let toolCallCount = 0;
         const toolStarts = new Map<string, number>();
+        /** toolCallCount 透传盒——handleStreamEvent 提取后闭包直改外部 let 不再可行，改盒式引用 */
+        const countBox = { count: 0 };
 
         this.logger.debug('Calling agentInvoke.invoke', { otterId: input.otterId, messageId: input.messageId });
         const result = await this.agentInvoke.invoke(input.otterId, input.userMessageContent, {
@@ -343,37 +344,11 @@ export class AgentInvoker implements AgentTurnPort {
           ...(opts?.currentInvokeId && { currentInvokeId: opts.currentInvokeId, emitEvent }),
           ...(opts?.images && { images: opts.images }),
           batchMaxSeq: opts?.batchMaxSeq,
-          onEvent: (e: AgentStreamEvent) => {
-            this.logger.debug('Agent event received', { messageId: input.messageId, eventType: e.type, toolName: e.name ?? e.toolName });
-            this.recordStreamEventMetrics(e, toolStarts);
-            if (e.type === "tool_execution_start") {
-              toolCallCount++;
-            }
-            /** 所有事件如实推送到订阅者（event 就是 event，不抑制） */
-            const sse = mapToSSEEvent(e);
-            if (sse) {
-              emitEvent({ event: sse.event, data: { ...sse.data, messageId: input.messageId } });
-            }
-            if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
-              this.logger.debug('speak tool executed', { messageId: input.messageId });
-              // F20260909smsp：speak message 的 SSE 事件带 speakMessageId（独立气泡）
-              this.emitSpeakIntermediate(e, input.messageId, otterId, opts?.otterName, emitEvent, opts?.currentInvokeId);
-            }
-            /** 所有事件如实持久化（event 就是 event，不抑制） */
-            const evt = mapToMessageEventInput(e, input.messageId);
-            if (evt) this.sendMessage.appendEvent(evt).catch((err: unknown) => {
-              const m = err instanceof Error ? err.message : String(err);
-              this.logger.warn(`Failed to persist message event for ${input.messageId}: ${m}`);
-            });
-            // F20260910ctlv：流式过程同步落 invoke_events（Session 弹窗数据源）
-            this.persistInvokeEvent(e, opts?.currentInvokeId);
-            // 传递事件给 orchestrator
-            onEvent(e);
-          },
+          onEvent: (e: AgentStreamEvent) => this.handleStreamEvent(e, input, otterId, emitEvent, opts, toolStarts, countBox, onEvent),
         });
         // F20260819rscn: SDK 标记了自重启信号时，通知调用方（闭包捕获）
         if (result._selfRestart) opts?.onSelfRestart?.(result._selfRestart);
-        return { result: result as unknown as InvokeResultShape, toolCallCount };
+        return { result: result as unknown as InvokeResultShape, toolCallCount: countBox.count };
       },
 
       abort: (otterId: string, messageId?: string) => {
@@ -568,6 +543,49 @@ export class AgentInvoker implements AgentTurnPort {
     }
     /** 错误标志在事件顶层（result.isError 成功路径被 SDK 硬编码 false） */
     if (e.isError === true) this.metrics?.recordToolError(tool);
+  }
+
+  /** F20260910ctlv：流式事件处理（SSE 转发 + speak 中间发言 + 双表持久化 + 计数）
+   *  从 createAttemptDriver 的 onEvent 内联闭包提取——控制函数行数与复杂度。 */
+  // eslint-disable-next-line max-params, complexity -- 事件管线需要完整上下文；事件分发本质是多分支
+  private handleStreamEvent(
+    e: AgentStreamEvent,
+    input: { messageId: string },
+    otterId: string,
+    emitEvent: (event: SSEEvent) => void,
+    opts: { otterName?: string; currentInvokeId?: string } | undefined,
+    toolStarts: Map<string, number>,
+    toolCallCountBox: { count: number },
+    onEvent: (e: AgentStreamEvent) => void,
+  ): void {
+    this.logger.debug('Agent event received', { messageId: input.messageId, eventType: e.type, toolName: e.name ?? e.toolName });
+    this.recordStreamEventMetrics(e, toolStarts);
+    if (e.type === "tool_execution_start") {
+      toolCallCountBox.count++;
+    }
+    /** 所有事件如实推送到订阅者（event 就是 event，不抑制） */
+    const sse = mapToSSEEvent(e);
+    if (sse) {
+      emitEvent({ event: sse.event, data: { ...sse.data, messageId: input.messageId } });
+    }
+    if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
+      this.logger.debug('speak tool executed', { messageId: input.messageId });
+      // F20260909smsp：speak message 的 SSE 事件带 speakMessageId（独立气泡）
+      // F20260910ctlv：新 invoke 路径下 speak 无独立 message（entry 承载），跳过旧 message.start 广播防空气泡
+      if (!opts?.currentInvokeId || (e.result as { details?: { speakMessageId?: string } } | undefined)?.details?.speakMessageId) {
+        this.emitSpeakIntermediate(e, input.messageId, otterId, opts?.otterName, emitEvent, opts?.currentInvokeId);
+      }
+    }
+    /** 所有事件如实持久化（event 就是 event，不抑制） */
+    const evt = mapToMessageEventInput(e, input.messageId);
+    if (evt) this.sendMessage.appendEvent(evt).catch((err: unknown) => {
+      const m = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed to persist message event for ${input.messageId}: ${m}`);
+    });
+    // F20260910ctlv：流式过程同步落 invoke_events（Session 弹窗数据源）
+    this.persistInvokeEvent(e, opts?.currentInvokeId);
+    // 传递事件给 orchestrator
+    onEvent(e);
   }
 
   /** F20260910ctlv：流式事件同步落 invoke_events（Session 弹窗数据源）+ 工具计数递增 */
