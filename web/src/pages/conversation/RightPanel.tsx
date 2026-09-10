@@ -9,11 +9,16 @@ import { OtterProfileCard } from '../../components/OtterProfileCard'
 import { fmtTime } from '../../lib/utils'
 import { ScheduledTaskSection } from './ScheduledTaskSection'
 import { WorkspacePanel } from './WorkspacePanel'
+import { fmtInvokeElapsed, fmtTokens, type OtterInvokeState } from '../../lib/invoke-tracker'
 
 interface RightPanelProps {
   conversation: Conversation
   otters: Otter[]
   sessions: Record<string, OtterSession[]>
+  /** F20260910ctlv：獭 invoke 实时状态（streaming/休眠 + 当前 invoke 统计） */
+  invokeStates?: import('../../lib/invoke-tracker').InvokeStates
+  /** F20260910ctlv：点击獭头像 → Session 弹窗（invoke 历史 + 流式过程） */
+  onOpenSession?: (otterId: string) => void
   linkedResources: LinkedResource[]
   onCreateSmallOtter: () => void
   onDissolveOtter: (otterId: string) => void
@@ -98,7 +103,9 @@ export function RightPanel(props: RightPanelProps) {
                   key={o.id}
                   otter={o}
                   sessions={props.sessions[o.id] || []}
+                  invokeState={props.invokeStates?.[o.id]}
                   onClick={() => props.onOpenOtterDetail(o.id)}
+                  onOpenSession={props.onOpenSession ? () => props.onOpenSession?.(o.id) : undefined}
                   onDissolve={props.onDissolveOtter}
                   onRestart={props.onRestartOtter}
                 />
@@ -299,13 +306,19 @@ function useResourceHover() {
 const OtterParticipantCard = memo(function OtterParticipantCard({
   otter: o,
   sessions,
+  invokeState,
   onClick,
+  onOpenSession,
   onDissolve,
   onRestart,
 }: {
   otter: Otter
   sessions: OtterSession[]
+  /** F20260910ctlv：invoke 实时状态（undefined = 本会话无 invoke，显示休眠） */
+  invokeState?: OtterInvokeState
   onClick: () => void
+  /** F20260910ctlv：点击头像 → Session 弹窗 */
+  onOpenSession?: () => void
   onDissolve: (id: string) => void
   onRestart: (id: string) => void
 }) {
@@ -346,13 +359,36 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
         onClick={onClick}
         className="flex items-center gap-2 px-2.5 py-2 rounded-xl cursor-pointer glass-card mb-1.5 transition hover:shadow-bubble hover:-translate-y-0.5 group"
       >
-        <OtterAvatar otterId={o.id} name={o.name} size={28} type={o.type} />
+        <button
+          type="button"
+          onClick={e => { e.stopPropagation(); if (onOpenSession) onOpenSession() }}
+          className="relative flex-shrink-0 rounded-full"
+          aria-label={`查看 ${o.name} 的 session 记录`}
+        >
+          <OtterAvatar otterId={o.id} name={o.name} size={28} type={o.type} />
+          {/* F20260910ctlv：streaming 呼吸点（活跃 invoke 指示，叠加在头像右下角） */}
+          {invokeState?.status === 'running' && (
+            <span className="absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full bg-teal-400 border border-white animate-pulse" data-testid="invoke-streaming-dot" />
+          )}
+        </button>
         <div className="flex-1 min-w-0">
           <div className="text-xs font-semibold text-stone-700">{o.name}</div>
           <div className="text-[10px] text-stone-400 whitespace-nowrap truncate">{isBig ? '大獭 · 持久' : (o.role?.name || '')}</div>
           {activeS && (
             <div className="text-[9px] text-stone-400 whitespace-nowrap truncate">
               第{activeGen}世 · {fmtTime(activeS.startedAt)}
+            </div>
+          )}
+          {/* F20260910ctlv：invoke 实时状态行（streaming：耗时+工具计数；终态：上轮统计） */}
+          {invokeState && (
+            <div className="text-[9px] whitespace-nowrap truncate" data-testid="invoke-state-line">
+              {invokeState.status === 'running' ? (
+                <span className="text-teal-500">● 行动中 · {fmtInvokeElapsed(invokeState)} · 🛠 {invokeState.toolCallCount ?? '—'}</span>
+              ) : (
+                <span className="text-stone-400">
+                  {invokeState.status === 'completed' ? '已完成' : invokeState.status === 'failed' ? '失败' : '中断'} · {fmtInvokeElapsed(invokeState)} · 🛠 {invokeState.toolCallCount ?? '—'} · {fmtTokens(invokeState.tokenUsage?.input)}→{fmtTokens(invokeState.tokenUsage?.output)} tok
+                </span>
+              )}
             </div>
           )}
         </div>

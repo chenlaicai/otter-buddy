@@ -12,6 +12,7 @@ import { MessageBroadcaster } from "../../src/usecases/im/message-broadcaster";
 import { createRouter, type Controllers } from "../../src/interface-adapters/http/router";
 import { ConversationController } from "../../src/interface-adapters/http/controllers/conversation-controller";
 import { MessageController } from "../../src/interface-adapters/http/controllers/message-controller";
+import { InvokeController } from "../../src/interface-adapters/http/controllers/invoke-controller";
 import { OtterController } from "../../src/interface-adapters/http/controllers/otter-controller";
 import { MemoryController } from "../../src/interface-adapters/http/controllers/memory-controller";
 import { SkillController } from "../../src/interface-adapters/http/controllers/skill-controller";
@@ -380,6 +381,8 @@ export interface TestDeps {
   manageParticipant: any;
   sendMessageUseCase: any;
   conversationRepo: any;
+  /** F20260910ctlv Phase 4：invoke repo（只读查询端点；缺省用内存 stub） */
+  invokeRepo?: any;
   queryMessage: any;
   agentInvoker: any;
   manageReadState: any;
@@ -440,6 +443,15 @@ export function createTestApp(deps: TestDeps): Hono {
     dispatchChainEngine,
     broadcaster,
   );
+  // F20260910ctlv Phase 4：invoke 只读查询端点——默认内存 stub（测试可用 deps.invokeRepo 覆写）
+  const invokeCtrl = new InvokeController(
+    (deps.invokeRepo ?? {
+      getInvokes: async () => [],
+      getInvokeById: async () => null,
+      getInvokeEvents: async () => [],
+    }) as unknown as ConstructorParameters<typeof InvokeController>[0],
+    logger,
+  );
   const otterCtrl = new OtterController(
     deps.createOtterUseCase,
     deps.dissolveOtterUseCase,
@@ -474,6 +486,7 @@ export function createTestApp(deps: TestDeps): Hono {
     conversation: conversationCtrl,
     otter: otterCtrl,
     message: messageCtrl,
+    invoke: invokeCtrl,
     memory: memoryCtrl,
     keyInfo: keyInfoCtrl,
     settings: settingsCtrl,

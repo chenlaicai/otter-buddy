@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { mapSessionDTO, mapOtterDTO, mapParticipantDTO } from './mappers'
+import type { LocalMessage } from './mappers'
 import type { OtterSessionDTO, OtterDTO, ParticipantDTO } from '@contract/api'
 
 function makeDTO(overrides: Partial<OtterSessionDTO> = {}): OtterSessionDTO {
@@ -90,5 +91,35 @@ describe('mapParticipantDTO modelAlias（web-model-display）', () => {
     const o = mapParticipantDTO(makeParticipantDTO({ modelAlias: 'mimo' }))
     expect(o.modelAlias).toBe('mimo')
     expect('modelIsDefault' in o).toBe(false)
+  })
+})
+/** F20260910ctlv：时间线条目类型（deriveEntryType 历史回退 + 居中条目文案） */
+import { deriveEntryType, isCenteredEntry, centeredEntryText } from './mappers'
+
+describe('deriveEntryType', () => {
+  it('旧消息按 st 回退推导（无 entryType 字段）', () => {
+    expect(deriveEntryType({ id: 'a', st: 'user', si: 'u', content: 'x', ts: '', dur: null })).toBe('user')
+    expect(deriveEntryType({ id: 'b', st: 'system', si: 'sys', content: 'x', ts: '', dur: null })).toBe('system')
+    expect(deriveEntryType({ id: 'c', st: 'otter', si: 'o', content: 'x', ts: '', dur: null })).toBe('speak')
+  })
+  it('entryType 显式携带时优先', () => {
+    expect(deriveEntryType({ id: 'd', st: 'otter', si: 'o', content: '', ts: '', dur: null, entryType: 'invoke_start' })).toBe('invoke_start')
+  })
+})
+
+describe('isCenteredEntry / centeredEntryText', () => {
+  const base: LocalMessage = { id: 'e', st: 'otter', si: 'o1', content: '', ts: '', dur: null }
+  it('invoke 边界/yield/system 居中，speak/user 气泡', () => {
+    expect(isCenteredEntry({ ...base, entryType: 'invoke_start' })).toBe(true)
+    expect(isCenteredEntry({ ...base, entryType: 'invoke_end' })).toBe(true)
+    expect(isCenteredEntry({ ...base, entryType: 'yield' })).toBe(true)
+    expect(isCenteredEntry({ ...base, entryType: 'speak' })).toBe(false)
+    expect(isCenteredEntry({ ...base, st: 'user', entryType: 'user' })).toBe(false)
+    expect(isCenteredEntry(base)).toBe(false) // 旧数据 speak 回退
+  })
+  it('yield 文案带目标名；body 非空时优先 body', () => {
+    expect(centeredEntryText({ ...base, entryType: 'yield', yieldTargets: ['大獭', '小獭'] })).toBe('→ 交给 大獭、小獭')
+    expect(centeredEntryText({ ...base, entryType: 'yield', content: '→ 交给 user', yieldTargets: ['user'] })).toBe('→ 交给 user')
+    expect(centeredEntryText({ ...base, entryType: 'invoke_start', sn: '小獭' })).toBe('小獭 开始行动～')
   })
 })

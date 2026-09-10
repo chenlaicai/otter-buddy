@@ -4,8 +4,9 @@ import remarkGfm from 'remark-gfm'
 import type { Element as HastElement } from 'hast'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { AlertTriangle, Square, Copy, Check, Clock, RotateCcw, FileText } from 'lucide-react'
+import { AlertTriangle, Square, Copy, Check, Clock, RotateCcw, FileText, Zap, Moon, ArrowRight } from 'lucide-react'
 import type { LocalMessage as Message, LocalOtter as Otter, LocalMessageEvent, LocalAttachment } from '../../lib/mappers'
+import { deriveEntryType, centeredEntryText } from '../../lib/mappers'
 import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
 import { getUserAvatar } from '../../lib/otter-avatars'
 import { OtterAvatar } from '../../components/OtterAvatar'
@@ -540,6 +541,28 @@ function groupReasonLabel(reason: 'conversation-start' | 'user-message' | 'gap')
 }
 
 function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlighted, userName }: { message: Message; otters: Otter[]; onStopStream: (messageId: string) => void; onRetryMessage: (messageId: string) => void; highlighted?: boolean; userName?: string }) {
+  // F20260910ctlv：invoke 边界/yield 居中条目（无气泡，图标+文字；与 system 同层但更轻量）
+  const entryKind = deriveEntryType(m)
+  if (entryKind === 'invoke_start' || entryKind === 'invoke_end' || entryKind === 'yield') {
+    const isYield = entryKind === 'yield'
+    const text = centeredEntryText(m)
+    return (
+      <div className="flex justify-center my-1.5 animate-slideIn">
+        <div className="glass-card px-3 py-1 rounded-full flex items-center gap-1.5 text-[11px] text-stone-500 max-w-[80%]">
+          {isYield ? (
+            <ArrowRight className="w-3 h-3 flex-shrink-0 text-otter-400" />
+          ) : entryKind === 'invoke_start' ? (
+            <Zap className="w-3 h-3 flex-shrink-0 text-otter-400" />
+          ) : (
+            <Moon className="w-3 h-3 flex-shrink-0 text-stone-400" />
+          )}
+          <span className="truncate" title={text}>{text}</span>
+          <span className="msg-meta text-[10px] flex-shrink-0">{fmtTime(m.ts)}</span>
+        </div>
+      </div>
+    )
+  }
+
   // System 消息：居中显示，特殊样式，支持 markdown 渲染
   if (m.st === 'system') {
     return (

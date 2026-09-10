@@ -7,7 +7,8 @@ import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, 
 
 import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
 import { useSpeakSegments } from '../../lib/use-speak-segments'
-import { isInFlight, upsertMessage, insertBySeq, findStaleInFlight, upsertTerminalMessage } from '../../lib/message-stream'
+import { isInFlight, upsertMessage, insertBySeq, findStaleInFlight, upsertTerminalMessage, insertCenteredByTs } from '../../lib/message-stream'
+import { applyInvokeStart, applyInvokeEnd, invokeBoundaryEntry, findOtterByInvokeId, type InvokeStates } from '../../lib/invoke-tracker'
 import { MessageBatcher } from '../../lib/batch-update'
 import { nowTs } from '../../lib/utils'
 import { AppLayout } from '../../components/AppLayout'
@@ -23,6 +24,7 @@ import { useConversationListPolling } from '../../hooks/use-conversation-list-po
 import { useDeferredOps } from './hooks/useDeferredOps'
 import { ScheduledTaskModal } from './ScheduledTaskModal'
 import { ExecutionHistoryModal } from './ExecutionHistoryModal'
+import { SessionModal } from './SessionModal'
 import { useScheduledTasks } from './hooks/useScheduledTasks'
 import { useCardBridge } from './hooks/useCardBridge'
 import * as api from '../../api/client'
@@ -73,6 +75,8 @@ function ConversationPage() {
   const [conversations, setConversations] = useState<LocalConversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [allMessages, setAllMessages] = useState<Record<string, LocalMessage[]>>({})
+  /** F20260910ctlv：獭 invoke 实时状态（右侧栏面板数据源；invoke.start/end 事件驱动） */
+  const [invokeStates, setInvokeStates] = useState<InvokeStates>({})
   const [allOtters, setAllOtters] = useState<Record<string, LocalOtter[]>>({})
   const [sessions, setSessions] = useState<Record<string, LocalOtterSession[]>>({})
   const [allLinkedRes, setAllLinkedRes] = useState<Record<string, LocalLinkedResource[]>>({})
@@ -116,6 +120,13 @@ function ConversationPage() {
   useEffect(() => {
     allMessagesRef.current = allMessages
   }, [allMessages])
+  /** F20260910ctlv：invokeStates / otters 镜像 ref——SSE handler 闭包读最新值
+   *  （handler 在 activeId effect 内创建，若直接读 state 会闭包性过期） */
+  const invokeStatesRef = useRef<InvokeStates>({})
+  useEffect(() => { invokeStatesRef.current = invokeStates }, [invokeStates])
+  const ottersRef = useRef<Record<string, LocalOtter[]>>({})
+  useEffect(() => { ottersRef.current = allOtters }, [allOtters])
+  useEffect(() => { ottersRef.current = allOtters }, [allOtters])
   useEffect(() => () => {
     if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current)
   }, [])
@@ -172,6 +183,8 @@ function ConversationPage() {
     task?: LocalScheduledTask
   }>({ type: 'none' })
   const [executionHistoryTaskId, setExecutionHistoryTaskId] = useState<string | null>(null)
+  /** F20260910ctlv：Session 弹窗（点击獭头像弹出，展示该獭 invoke 历史与流式过程） */
+  const [sessionModalOtter, setSessionModalOtter] = useState<LocalOtter | null>(null)
   /** F20260825scrf：modalOpen 派生（8 种 ConversationModals + 定时任务/执行历史 modal）。
    *  下沉到 index 顶层供 batcher/轮询冻结用；setModalOpen 仅在此处同步 */
   const isAnyModalOpen = modal.type !== 'none' || scheduledTaskModal.type !== 'none' || executionHistoryTaskId !== null
@@ -457,6 +470,11 @@ function ConversationPage() {
      *  快照之上再追加会造成文本重复，set 语义天然幂等、重放/快照安全 */
     const liveText = new Map<string, string>()
 
+    // F20260910ctlv：invoke 生命周期跟踪（invokeStates 独立 reducer，不进消息列表）
+    const syncInvokeState = (updater: (prev: InvokeStates) => InvokeStates) => {
+      setInvokeStates(prev => updater(prev))
+    }
+
     const syncLiveEvents = (messageId: string) => {
       const liveEvents = liveEventsMap.get(messageId)
       if (!liveEvents) return
@@ -639,6 +657,70 @@ function ConversationPage() {
         batchUpdateMessages(activeId!, (list) => messageId ? upsertTerminalMessage(list, errMsg) : upsertMessage(list, errMsg))
         showToast(`Agent 错误: ${data.message}`, 'error')
       },
+      // ── F20260910ctlv：invoke/entry 新事件（entry.* 优先消费；旧 message.* handler 保留兜底，
+      //    同 id 幂等替换保证双投递安全）──
+      'invoke.start': (data) => {
+        const d = data as { invokeId: string; otterId: string; otterName?: string; triggerEntryId?: string }
+        syncInvokeState(prev => applyInvokeStart(prev, {
+          invokeId: d.invokeId, otterId: d.otterId, otterName: d.otterName || '',
+          conversationId: activeId, startedAt: nowTs(),
+        }))
+        /** 獭可能在 chain 中新建，保证右栏参与者列表能见（同 message.start 的 upsert 链） */
+        if (d.otterId) upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId)
+        /** 时间线插入 invoke_start 居中条目（确定性 ID invoke-{id}-start，重放幂等） */
+        batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, invokeBoundaryEntry({
+          invokeId: d.invokeId, otterId: d.otterId, otterName: d.otterName,
+          kind: 'start', ts: nowTs(),
+        })))
+      },
+      'invoke.end': (data) => {
+        const d = data as { invokeId: string; status: 'completed' | 'failed' | 'aborted'; duration?: string }
+        const otterId = findOtterByInvokeId(invokeStatesRef.current, d.invokeId)
+        if (!otterId) return /** 状态未知（页面加载前已结束）——不补插条目，刷新时由历史查询回归 */
+        const prev = invokeStatesRef.current[otterId]
+        const otterName = prev?.otterName
+        const endedAt = nowTs()
+        syncInvokeState(prevStates => applyInvokeEnd(prevStates, {
+          invokeId: d.invokeId, otterId, status: d.status, endedAt,
+        }))
+        batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, invokeBoundaryEntry({
+          invokeId: d.invokeId, otterId, otterName,
+          kind: 'end', ts: endedAt, endStatus: d.status,
+        })))
+      },
+      'entry.yield': (data) => {
+        const d = data as { entryId: string; invokeId: string; otterId?: string; otterName?: string; yieldTargets?: string[] }
+        /** 后端尚未发射 entry.yield（落库未广播，验证于 Phase 3 代码）：handler 注册做
+         *  前向兼容；等后端补发射后自然生效。targets 解析 otter 名展示 */
+        const targets = (d.yieldTargets || []).map((t: string) => ottersRef.current[activeId]?.find(o => o.id === t)?.name || t)
+        batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, {
+          id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+          content: '', ts: nowTs(), dur: null,
+          entryType: 'yield', invokeId: d.invokeId, yieldTargets: targets,
+        }))
+      },
+      'entry.system': (data) => {
+        const d = data as { entryId: string; content: string; seq?: number }
+        const sysMsg: LocalMessage = {
+          id: d.entryId, st: 'system', si: 'system', content: d.content,
+          status: 'completed', seq: d.seq, ts: nowTs(), dur: null, entryType: 'system',
+        }
+        batchUpdateMessages(activeId!, (list) => upsertMessage(list, sysMsg))
+      },
+      'entry.start': (data) => {
+        /** 与 message.start 同型（entryId = messageId）；旧 handler 已处理同 id 消息时
+         *  insertBySeq 幂等替换，双通道安全 */
+        handlers['message.start']?.(data as { messageId: string; otterId: string; otterName: string })
+      },
+      'entry.speak': (data) => {
+        handlers['speak.intermediate']?.(data as { messageId: string; body: string; otterName?: string; segmentId?: string; sequenceNum?: number })
+      },
+      'entry.complete': (data) => {
+        handlers['message.complete']?.(data as { messageId: string; otterId?: string; otterName?: string; body?: string; turnId?: string; duration?: string; ctx?: number; ctxMax?: number; segments?: LocalMessageSegment[] })
+      },
+      'entry.failed': (data) => { handlers['message.failed']?.(data) },
+      'entry.retry': (data) => { handlers['message.retry']?.(data) },
+      'entry.aborted': (data) => { handlers['message.aborted']?.(data) },
     }
 
     // SSE 订阅：用 XMLHttpRequest 流式读取，带指数退避重连
@@ -1422,6 +1504,11 @@ function ConversationPage() {
           conversation={activeConv || conversations[0]}
           otters={activeOtters}
           sessions={sessions}
+          invokeStates={invokeStates}
+          onOpenSession={(otterId) => {
+            const otter = (allOtters[activeId || ''] || []).find(o => o.id === otterId)
+            if (otter) setSessionModalOtter(otter)
+          }}
           linkedResources={activeLinkedRes}
           onCreateSmallOtter={() => setModal({ type: 'create-otter' })}
           onDissolveOtter={(oid) => setModal({ type: 'dissolve', otterId: oid })}
@@ -1485,6 +1572,11 @@ function ConversationPage() {
           onClose={() => setExecutionHistoryTaskId(null)}
           onJumpToMessage={handleJumpToMessage}
         />
+      )}
+
+      {/* F20260910ctlv：Session 弹窗（獭 invoke 历史 + 流式过程） */}
+      {sessionModalOtter && (
+        <SessionModal otter={sessionModalOtter} conversationId={activeId || ''} onClose={() => setSessionModalOtter(null)} />
       )}
     </AppLayout>
   )

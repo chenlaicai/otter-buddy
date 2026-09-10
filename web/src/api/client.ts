@@ -20,6 +20,8 @@ import type {
   ParticipantDTO,
   OtterProfileDTO,
   UploadAttachmentResponseDTO,
+  InvokeListResponseDTO,
+  InvokeEventsResponseDTO,
 } from '@contract/api'
 
 const BASE = '/api'
@@ -146,6 +148,21 @@ export function retryMessage(messageId: string): Promise<Response> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   })
+}
+
+// ── Invokes（F20260910ctlv：Session 弹窗 + 獭状态面板数据源）──
+
+/** 拉取会话内 invoke 记录列表（before 游标分页，otterId 可选过滤单獭） */
+export function listInvokes(conversationId: string, options?: { limit?: number; before?: string; otterId?: string }): Promise<InvokeListResponseDTO> {
+  const qs = new URLSearchParams({ limit: String(options?.limit ?? 50) })
+  if (options?.before) qs.set('before', options.before)
+  if (options?.otterId) qs.set('otterId', options.otterId)
+  return request(`/conversations/${conversationId}/invokes?${qs}`)
+}
+
+/** 拉取单次 invoke 的全部流式过程事件（Session 弹窗展开态数据源） */
+export function getInvokeEvents(invokeId: string): Promise<InvokeEventsResponseDTO> {
+  return request(`/invokes/${invokeId}/events`)
 }
 
 // ── Otters ──

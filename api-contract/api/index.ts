@@ -1,5 +1,6 @@
 export type * from "./conversation";
 export type * from "./message";
+export type * from "./invoke";
 export type * from "./otter";
 export type * from "./memory";
 export type * from "./skill";

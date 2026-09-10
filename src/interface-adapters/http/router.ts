@@ -5,6 +5,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { ConversationController } from "./controllers/conversation-controller";
 import type { OtterController } from "./controllers/otter-controller";
 import type { MessageController } from "./controllers/message-controller";
+import type { InvokeController } from "./controllers/invoke-controller";
 import type { MemoryController } from "./controllers/memory-controller";
 import type { KeyInfoController } from "./controllers/key-info-controller";
 import type { SettingsController } from "./controllers/settings-controller";
@@ -23,6 +24,8 @@ export interface Controllers {
   conversation: ConversationController;
   otter: OtterController;
   message: MessageController;
+  /** F20260910ctlv Phase 4：invoke 只读查询端点（Session 弹窗数据源） */
+  invoke: InvokeController;
   memory: MemoryController;
   keyInfo: KeyInfoController;
   settings: SettingsController;
@@ -66,6 +69,9 @@ function registerMsgRoutes(app: Hono, c: Controllers): void {
   app.get("/api/messages/:id/expand", (ctx) => c.message.expand(ctx));
   app.post("/api/messages/:id/abort", (ctx) => c.message.abort(ctx));
   app.post("/api/messages/:id/retry", (ctx) => c.message.retry(ctx));
+  // F20260910ctlv Phase 4：invoke 只读查询（Session 弹窗 + 獭状态面板）
+  app.get("/api/conversations/:id/invokes", (ctx) => c.invoke.list(ctx));
+  app.get("/api/invokes/:id/events", (ctx) => c.invoke.getEvents(ctx));
 }
 
 function registerOtterRoutes(app: Hono, c: Controllers): void {

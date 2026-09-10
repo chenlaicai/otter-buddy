@@ -43,6 +43,28 @@ export function insertBySeq(list: LocalMessage[], msg: LocalMessage): LocalMessa
   return [...list.slice(0, pos), msg, ...list.slice(pos)]
 }
 
+/** F20260910ctlv：invoke 边界/yield/system 居中条目插入（无 seq，按 ts 时序）。
+ *  从尾部向前找最后一个 ts <= msg.ts 的真实条目，插其后；越过 tmp-/err- 前缀的
+ *  乐观/错误条目（它们无 seq 但时间上先于本次獭行动）；全部更新则插头部。
+ *  幂等：同 id 已存在时原位替换 */
+export function insertCenteredByTs(list: LocalMessage[], msg: LocalMessage): LocalMessage[] {
+  const idx = list.findIndex(m => m.id === msg.id)
+  if (idx !== -1) {
+    const next = [...list]
+    next[idx] = msg
+    return next
+  }
+  const ts = msg.ts || ''
+  for (let i = list.length - 1; i >= 0; i--) {
+    const m = list[i]
+    if (m.id.startsWith('tmp-') || m.id.startsWith('err-')) continue
+    if ((m.ts || '') <= ts) {
+      return [...list.slice(0, i + 1), msg, ...list.slice(i + 1)]
+    }
+  }
+  return [msg, ...list]
+}
+
 /**
  * 终态消息 upsert（F20260805abpp 第四轮检视 S4-1）：与已有投影合并保留字段。
  * MPA 新页面的 live 状态为空，终态事件（complete/failed/aborted）构造的消息缺

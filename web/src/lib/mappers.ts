@@ -104,6 +104,55 @@ export interface LocalMessage {
   tsp?: string[] | null
   /** 多模态 Phase 1：随消息携带的附件 */
   atts?: LocalAttachment[]
+  /** F20260910ctlv：时间线条目类型（speak/user 气泡渲染，其余居中特殊渲染）。
+   *  旧 messages 表数据无此字段（undefined）——按 st 回退推导，历史兼容零迁移 */
+  entryType?: TimelineEntryType
+  /** F20260910ctlv：invoke 关联（SSE entry.* 事件携带；旧数据无） */
+  invokeId?: string
+  /** F20260910ctlv：yield 条目专有——行动权传递目标 */
+  yieldTargets?: string[] | null
+}
+
+// ── F20260910ctlv：时间线条目类型 ──
+
+/** 时间线条目类型（与后端 EntryType 对齐） */
+export type TimelineEntryType =
+  | 'speak'
+  | 'user'
+  | 'invoke_start'
+  | 'invoke_end'
+  | 'yield'
+  | 'system'
+
+/** TimelineEntry：时间线渲染视角的条目（LocalMessage 超集，向后兼容）。
+ *  实现采用「字段下沉」而非新类型替换——LocalMessage 全链路（batcher/insertBySeq/
+ *  乐观消息/轮询）不动，entryType 驱动 MessageList 的渲染分収；特性文档 D7：
+ *  历史数据兼容优先，旧 messages 数据原样可读 */
+export type TimelineEntry = LocalMessage
+
+/** 旧消息按 st 回退推导 entryType（历史兼容：无 entryType 字段的旧数据） */
+export function deriveEntryType(m: LocalMessage): TimelineEntryType {
+  if (m.entryType) return m.entryType
+  return m.st === 'user' ? 'user' : m.st === 'system' ? 'system' : 'speak'
+}
+
+/** invoke 边界/yield/system 条目是否居中特殊渲染（非气泡） */
+export function isCenteredEntry(m: LocalMessage): boolean {
+  const t = deriveEntryType(m)
+  return t === 'invoke_start' || t === 'invoke_end' || t === 'yield' || t === 'system'
+}
+
+/** F20260910ctlv：invoke 边界条目文案（entry.body 为空时按约定文案渲染） */
+export function centeredEntryText(m: LocalMessage): string {
+  const t = deriveEntryType(m)
+  const name = m.sn || m.si || '獭'
+  if (m.content) return m.content
+  switch (t) {
+    case 'invoke_start': return `${name} 开始行动～`
+    case 'invoke_end': return `${name} 先休息一下～`
+    case 'yield': return '→ 交给 ' + (m.yieldTargets?.length ? m.yieldTargets.join('、') : '…')
+    default: return m.content || ''
+  }
 }
 
 /** 前端本地 LinkedResource 类型（统一产物模型）
