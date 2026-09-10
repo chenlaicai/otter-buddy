@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import type { ManageConnection } from "@usecases/im/manage-connection";
 import type { Logger } from "@usecases/ports/logger";
 import { handleError, param } from "../http-error";
+import { safeJsonBody } from "../parse-json-body";
 import {
   toConnectionDTO,
   toConnectionSessionDTO,
@@ -26,7 +27,7 @@ export class ConnectionController {
 
   async create(c: Context): Promise<Response> {
     try {
-      const body = await c.req.json<CreateConnectionRequestDTO>();
+      const body = await safeJsonBody<CreateConnectionRequestDTO>(c);
       const connection = await this.manageConnection.createConnection(body.name, body.externalId);
       return c.json(toConnectionDTO(connection), 201);
     } catch (err) {
@@ -63,7 +64,7 @@ export class ConnectionController {
   async enterConversation(c: Context): Promise<Response> {
     try {
       const id = param(c, "id");
-      const body = await c.req.json<EnterConversationRequestDTO>();
+      const body = await safeJsonBody<EnterConversationRequestDTO>(c);
       const session = await this.manageConnection.enterConversation(id, body.conversationId);
       return c.json(toConnectionSessionDTO(session));
     } catch (err) {

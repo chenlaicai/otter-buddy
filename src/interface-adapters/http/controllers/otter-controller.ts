@@ -50,7 +50,7 @@ export class OtterController {
 
   async create(c: Context): Promise<Response> {
     try {
-      const body = await c.req.json<CreateOtterRequestDTO>();
+      const body = await safeJsonBody<CreateOtterRequestDTO>(c);
 
       /** F20260827ucrt T1：UI 入口 modelAlias 校验（400 附可用列表，措辞与大獭工具链 tool-factory 一致）。
        *  未注入 modelPool 时跳过校验（测试/降级场景），usecase 层缺省走默认模型 */

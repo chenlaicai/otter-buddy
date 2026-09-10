@@ -14,6 +14,7 @@ import type { QuerySignalTrail } from "@usecases/conversation/query-signal-trail
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 import { handleError, param } from "../http-error";
+import { safeJsonBody } from "../parse-json-body";
 import { toMessageDTO, toMessageEventDTO } from "../dto/message-dto";
 import { buildMessageDTOs, decorateWithSignals, resolveSenderNames, type MessageDtoBuilderDeps } from "../dto/message-dto-builder";
 import type { SendMessageRequestDTO, MarkReadRequestDTO } from "../dto/message-dto";
@@ -168,7 +169,7 @@ export class MessageController {
   async sendMessage(c: Context): Promise<Response> {
     try {
       const conversationId = param(c, "id");
-      const body = await c.req.json<SendMessageRequestDTO>();
+      const body = await safeJsonBody<SendMessageRequestDTO>(c);
 
       /** 1. 校验请求体（在写入 DB 之前，避免孤儿消息）。
        *  talkingStonePassedTo 允许为空：无 @ 时由 usecase 层按领域规则解析默认目标 */
@@ -646,7 +647,7 @@ export class MessageController {
     try {
       const conversationId = param(c, "id");
       const userId = c.req.query("userId") ?? "web-user";
-      const body = await c.req.json<MarkReadRequestDTO>();
+      const body = await safeJsonBody<MarkReadRequestDTO>(c);
       if (typeof body.messageSeq !== "number" || body.messageSeq < 0) {
         return c.json({ error: "messageSeq must be a non-negative number" }, 400);
       }
