@@ -116,6 +116,8 @@ export interface InvokeOptions {
   batchMaxSeq?: number;
   /** F20260910ctlv：当前 invoke ID（invoke 级上下文，由 agent-invoker 注入） */
   currentInvokeId?: string;
+  /** F20260910ctlv：SSE 发射通道（invoke 级注入，工具层发 entry.yield 等事件用） */
+  emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
 }
 
 /** 多模态 Phase 1：把 InvokeOptions 折叠成 SDK PromptOptions（images 缺省返回 undefined，保持纯文本路径行为等价） */
@@ -657,7 +659,7 @@ export class PiSessionFactory implements AgentGateway {
     const conversationId = options?.conversationId ?? "";
     const messageId = options?.messageId;
     const otterToolNames = this.buildOtterToolWhitelist(otterType);
-    const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, allowedNames: otterToolNames, messageId, turnText, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, signalRepo: this.cfg.signalRepo, logger: this.logger, currentInvokeId: options?.currentInvokeId });
+    const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, allowedNames: otterToolNames, messageId, turnText, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, signalRepo: this.cfg.signalRepo, logger: this.logger, currentInvokeId: options?.currentInvokeId, emitEvent: options?.emitEvent });
     const codingTools = getCodingToolsForOtterType(otterType);
     // F20260825hndf Phase 2：readOnly 模式只保留 read 工具，排除 write/edit/bash
     const filteredCodingTools = readOnly ? codingTools.filter(t => t === 'read') : codingTools;

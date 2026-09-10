@@ -32,6 +32,8 @@ export interface BuildCustomToolsParams {
   logger: Logger;
   /** F20260910ctlv：当前 invoke ID（invoke 级上下文，由 agent-invoker 注入） */
   currentInvokeId?: string;
+  /** F20260910ctlv：SSE 发射通道（invoke 级注入，工具层发 entry.yield 等事件用） */
+  emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
 }
 
 /** buildCustomTools 返回类型 */
@@ -75,6 +77,8 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
     lastSpeakMessageId: undefined,
     /** F20260910ctlv：当前 invoke ID（invoke 级上下文，由 agent-invoker 注入） */
     currentInvokeId: params.currentInvokeId,
+    /** F20260910ctlv：SSE 发射通道（工具层发 entry.yield 等事件用） */
+    emitEvent: params.emitEvent,
   };
   const otterTools = createTools(toolContext, healingRepo, logger);
 

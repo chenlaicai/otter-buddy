@@ -145,7 +145,7 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
       },
       required: ["to"],
     },
-    // eslint-disable-next-line complexity -- F20260910ctlv 双路径迁移期
+    // eslint-disable-next-line complexity, max-statements -- F20260910ctlv 双路径迁移期
     execute: async (_id: string, params: Record<string, unknown>) => {
       // 消息非空校验
       const msgError = await validateMessageHasContent(ctx);
@@ -170,12 +170,25 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
           }
 
           // 2. 创建 yield entry + invoke_end entry + 更新 invoke 记录
-          await ctx.client.conversation.entry.createYieldEntry({
+          const yieldResult = await ctx.client.conversation.entry.createYieldEntry({
             conversationId: ctx.conversationId,
             invokeId: ctx.currentInvokeId,
             otterId: ctx.otterId,
             turnId: "", // TODO: 从 orchestrator 注入
             yieldTargets: resolvedIds,
+          });
+
+          // F20260910ctlv：SSE entry.yield（前端时间线 yield 条目依赖此事件）
+          const yieldOtter = await ctx.client.otter.getById(ctx.otterId).catch(() => null);
+          ctx.emitEvent?.({
+            event: "entry.yield",
+            data: {
+              entryId: yieldResult.yieldEntry.id,
+              invokeId: ctx.currentInvokeId,
+              otterId: ctx.otterId,
+              otterName: yieldOtter?.name ?? ctx.otterId,
+              yieldTargets: resolvedIds,
+            },
           });
 
           return { ...textResponse("[系统控制信号] 交棒成功，回合结束。"), terminate: true };

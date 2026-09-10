@@ -471,7 +471,10 @@ export class MessageController {
       `行动权接力已达系统安全上限（${depth} 跳），行动权交还给你。直接回复即可继续——所有参与者会看到未读消息。`,
     );
     if (this.messageBroadcaster) {
-      this.messageBroadcaster.broadcastEvent(conversationId, { event: "system.message", data: { messageId: sysMsg.id, content: aggregateBody(sysMsg.segments), seq: sysMsg.sequenceNum } });
+      const sysContent = aggregateBody(sysMsg.segments);
+      this.messageBroadcaster.broadcastEvent(conversationId, { event: "system.message", data: { messageId: sysMsg.id, content: sysContent, seq: sysMsg.sequenceNum } });
+      // F20260910ctlv：并行广播 entry.system（常驻 SSE 通道的 entry.system handler 依赖此事件）
+      this.messageBroadcaster.broadcastEvent(conversationId, { event: "entry.system", data: { entryId: sysMsg.id, content: sysContent, seq: sysMsg.sequenceNum } });
     }
   }
 

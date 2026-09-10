@@ -114,7 +114,7 @@ export class AgentTurnOrchestrator {
 
       // Speaking guard: content delivery takes priority (unless user aborted)
       const speakingResult = await this.tryCompleteSpeaking(
-        currentInput, result, driver, { callbacks, startTime, attemptStartTime },
+        currentInput, result, driver, { callbacks, startTime, attemptStartTime, toolCallCount },
       );
       if (speakingResult) return speakingResult;
 
@@ -189,7 +189,7 @@ export class AgentTurnOrchestrator {
     input: TurnInput,
     result: InvokeResultShape,
     driver: AttemptDriver,
-    ctx: { callbacks: TurnCallbacks; startTime: number; attemptStartTime: number },
+    ctx: { callbacks: TurnCallbacks; startTime: number; attemptStartTime: number; toolCallCount: number },
   ): Promise<TurnResult | undefined> {
     const msg = await ctx.callbacks.getMessageById(input.messageId);
     if (msg?.status !== 'speaking') return undefined;
@@ -249,7 +249,7 @@ export class AgentTurnOrchestrator {
       if (input.invokeId) {
         const invokeDuration = Date.now() - ctx.startTime;
         await ctx.callbacks.updateInvokeStatus?.(input.invokeId, 'completed');
-        ctx.callbacks.emitInvokeEnd?.(input.invokeId, 'completed', invokeDuration);
+        ctx.callbacks.emitInvokeEnd?.(input.invokeId, 'completed', invokeDuration, { toolCallCount: ctx.toolCallCount, tokenUsage: result.tokenUsage });
       }
 
       // 发送 turn.complete 事件
@@ -1031,7 +1031,7 @@ export class AgentTurnOrchestrator {
       const invokeDuration = Date.now() - ctx.startTime;
       await ctx.callbacks.updateInvokeStatus?.(ctx.input.invokeId, 'aborted');
       await ctx.callbacks.createInvokeEndEntry?.(ctx.input.invokeId, 'aborted', body);
-      ctx.callbacks.emitInvokeEnd?.(ctx.input.invokeId, 'aborted', invokeDuration);
+      ctx.callbacks.emitInvokeEnd?.(ctx.input.invokeId, 'aborted', invokeDuration, { toolCallCount: ctx.toolCallCount });
     }
 
     return { messageId, duration: Date.now() - ctx.startTime };
@@ -1069,7 +1069,7 @@ export class AgentTurnOrchestrator {
       const invokeDuration = Date.now() - startTime;
       await callbacks.updateInvokeStatus?.(input.invokeId, 'failed');
       await callbacks.createInvokeEndEntry?.(input.invokeId, 'failed', `[错误] ${errorMessage}`);
-      callbacks.emitInvokeEnd?.(input.invokeId, 'failed', invokeDuration);
+      callbacks.emitInvokeEnd?.(input.invokeId, 'failed', invokeDuration, {});
     }
 
     return { messageId, duration: Date.now() - startTime };

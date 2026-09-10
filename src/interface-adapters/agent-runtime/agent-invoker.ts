@@ -258,8 +258,8 @@ export class AgentInvoker implements AgentTurnPort {
           triggerEntryId: message.id,
         });
         currentInvokeId = invoke.id;
-        // SSE: invoke.start
-        emitEvent({ event: "invoke.start", data: { invokeId: invoke.id, otterId, otterName: otter?.name ?? otterId, triggerEntryId: message.id } });
+        // SSE: invoke.start（payload 对齐 api-contract/sse/events.ts 契约）
+        emitEvent({ event: "invoke.start", data: { invokeId: invoke.id, otterId, otterName: otter?.name ?? otterId, conversationId, startedAt: invoke.startedAt, triggerEntryId: message.id } });
         this.logger.info('Invoke created', { invokeId: invoke.id, otterId, conversationId });
       } catch (err) {
         this.logger.warn('Failed to create invoke record (fallback to message-only)', { error: err instanceof Error ? err.message : String(err) });
@@ -285,7 +285,7 @@ export class AgentInvoker implements AgentTurnPort {
       const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, { otterName: otter?.name, onSelfRestart: (signal) => { pendingSelfRestart = signal; }, images, batchMaxSeq, currentInvokeId });
       // F20260830fabt: failMessage 必须同时 abort SDK session——消息标 failed 后 LLM 不能继续跑
       // 注意：不走 driver.abort() 以免触发 userAbortedMessages 标记（那是用户中断的语义）
-      const callbacks = this.createTurnCallbacks(emitEvent, () => this.agentInvoke.abort(otterId, message.id));
+      const callbacks = this.createTurnCallbacks(emitEvent, () => this.agentInvoke.abort(otterId, message.id), otterId);
 
       const turnInput = this.buildTurnInput(params, message.id, startTime, currentInvokeId);
 
@@ -340,7 +340,7 @@ export class AgentInvoker implements AgentTurnPort {
           dynamicContext,
           conversationId: input.conversationId,
           messageId: input.messageId,
-          ...(opts?.currentInvokeId && { currentInvokeId: opts.currentInvokeId }),
+          ...(opts?.currentInvokeId && { currentInvokeId: opts.currentInvokeId, emitEvent }),
           ...(opts?.images && { images: opts.images }),
           batchMaxSeq: opts?.batchMaxSeq,
           onEvent: (e: AgentStreamEvent) => {
@@ -399,6 +399,8 @@ export class AgentInvoker implements AgentTurnPort {
     emitEvent: (event: SSEEvent) => void,
     /** F20260830fabt: failMessage 后 abort SDK session，防止 dead message 僵尸运行 */
     abortFn?: () => void,
+    /** F20260910ctlv：invoke.end SSE 事件的 otterId 数据源 */
+    otterId?: string,
   ): TurnCallbacks {
     return {
       completeMessage: async (messageId: string, input?: { contextTokens?: number; contextTokensMax?: number; skipSegmentValidation?: boolean }) => {
@@ -501,8 +503,9 @@ export class AgentInvoker implements AgentTurnPort {
         });
       } : undefined,
 
-      emitInvokeEnd: (invokeId: string, status: string, duration: number) => {
-        emitEvent({ event: 'invoke.end', data: { invokeId, status, duration } });
+      emitInvokeEnd: (invokeId: string, status: string, duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number } }) => {
+        // F20260910ctlv：payload 对齐契约——otterId/endedAt/toolCallCount/tokenUsage 补齐
+        emitEvent({ event: 'invoke.end', data: { invokeId, otterId: otterId ?? '', status, duration, endedAt: new Date().toISOString(), toolCallCount: stats?.toolCallCount, tokenUsage: stats?.tokenUsage } });
       },
 
       logger: this.logger,
