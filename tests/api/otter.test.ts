@@ -189,6 +189,19 @@ describe("Otter API", () => {
       expect(deps.dissolveOtterUseCase.execute).toHaveBeenCalledWith("otter-1", "Done with work");
     });
 
+    it("#889: JSON null body → 200 + summary 为 undefined（不崩溃 500）", async () => {
+      deps.dissolveOtterUseCase.execute.mockResolvedValue(undefined);
+
+      const res = await app.request("/api/otters/otter-1", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: "null",
+      });
+
+      expect(res.status).toBe(200);
+      expect(deps.dissolveOtterUseCase.execute).toHaveBeenCalledWith("otter-1", undefined);
+    });
+
     it("returns error when dissolve fails", async () => {
       deps.dissolveOtterUseCase.execute.mockRejectedValue(
         new DomainError("Otter not found: missing", "not_found"),
@@ -265,6 +278,21 @@ describe("Otter API", () => {
 
       const res = await app.request("/api/otters/otter-1/restart", {
         method: "POST",
+      });
+
+      expect(res.status).toBe(201);
+      expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", undefined, undefined);
+    });
+
+    it("#889: JSON null body → 201 + summary/modelAlias 为 undefined（不崩溃 500）", async () => {
+      const newSession = makeSession({ id: "null-body-session" });
+      deps.queryOtter.getById.mockResolvedValue(makeOtter({ type: "big" }));
+      deps.manageSession.restartSession.mockResolvedValue(newSession);
+
+      const res = await app.request("/api/otters/otter-1/restart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "null",
       });
 
       expect(res.status).toBe(201);
