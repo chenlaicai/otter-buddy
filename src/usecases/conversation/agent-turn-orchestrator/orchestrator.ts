@@ -38,6 +38,9 @@ export class AgentTurnOrchestrator {
    */
   private readonly recordedAttempts = new Set<string>();
 
+  /** F20260910ctlv：当前 turn 的 invokeId——safeEmitEvent 自动并行发射 entry.* 事件时注入 */
+  private currentInvokeId?: string;
+
   constructor(
     private readonly logger: Logger,
     private readonly metrics?: AgentMetricsPort,
@@ -50,6 +53,21 @@ export class AgentTurnOrchestrator {
     } catch {
       // Ignore SSE downstream failures - non-fatal
     }
+    // F20260910ctlv：自动并行发射 entry.* 事件（零改动覆盖所有19个发射点）
+    if (!this.currentInvokeId) return;
+    const ENTRY_MAP: Record<string, string> = {
+      'message.complete': 'entry.complete',
+      'message.failed': 'entry.failed',
+      'message.retry': 'entry.retry',
+      'message.aborted': 'entry.aborted',
+      'system.message': 'entry.system',
+    };
+    const newEvent = ENTRY_MAP[event.event];
+    if (!newEvent) return;
+    const { messageId, ...rest } = event.data;
+    try {
+      callbacks.emitEvent({ event: newEvent, data: { entryId: messageId, invokeId: this.currentInvokeId, ...rest } });
+    } catch { /* non-fatal */ }
   }
 
   /**
@@ -65,6 +83,8 @@ export class AgentTurnOrchestrator {
     callbacks: TurnCallbacks,
   ): Promise<TurnResult> {
     const startTime = Date.now();
+    // F20260910ctlv：invokeId 落实例字段，safeEmitEvent 据此自动并行发射 entry.* 事件
+    this.currentInvokeId = input.invokeId;
     let currentInput = input;
 
     // 主循环：重试时更新 currentInput 继续

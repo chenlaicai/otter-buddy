@@ -1,33 +1,48 @@
-/** SSE 事件类型映射 */
+/** SSE 事件类型映射（F20260910ctlv：新增 invoke/entry 事件） */
 export type SSEEventMap = {
+  // ── 旧事件（向后兼容，新前端走 entry.* 路径） ──
   "message.start": { messageId: string; otterId: string; otterName: string; seq?: number; createdAt: string };
-  "assistant_toolcall": { messageId: string; content: Array<Record<string, unknown>> };
-  "tool.result": { messageId: string; toolName: string; result: unknown };
-  "assistant_text": { messageId: string; content: Array<Record<string, unknown>> };
-  /** speak 中间发言：agent 继续工作时的增量内容（speak+yield 拆分——speak 即时呈现，不结束回合）
-   *  F-multi-speak-bubble: segmentId + sequenceNum 用于前端分段渲染
-   */
   "speak.intermediate": { messageId: string; body: string; otterId?: string; otterName?: string; segmentId?: string; sequenceNum?: number };
   "message.complete": { messageId: string; otterId: string; otterName: string; body: string; turnId: string; duration: string; ctx?: number; ctxMax?: number; segments?: Array<{ id: string; body: string; sequenceNum: number }> };
   "message.failed": { messageId: string; otterId: string; otterName: string; body?: string };
-  /** #440: 消息级自动重试中通知——紧跟 message.failed 发出，告知前端「failed 是暂态，重试内容将流回同一条消息」。
-   *  与 agent.retry_*（SDK 层 LLM 网络重试）分属不同层级；不感兴趣的客户端可安全忽略 */
   "message.retry": { messageId: string; otterId: string; otterName: string; reason: string; attempt: number };
   "message.aborted": { messageId: string; body?: string; otterId?: string; otterName?: string };
   "system.message": { messageId: string; content: string; seq: number };
+
+  // ── 新事件（F20260910ctlv timeline 模型） ──
+  /** invoke 开始（invoke 记录创建） */
+  "invoke.start": { invokeId: string; otterId: string; otterName: string; conversationId: string; startedAt: string };
+  /** invoke 结束（completed/failed/aborted） */
+  "invoke.end": { invokeId: string; otterId: string; status: "completed" | "failed" | "aborted"; endedAt: string; toolCallCount?: number; tokenUsage?: { input: number; output: number } };
+  /** speak entry 创建（取代 message.start） */
+  "entry.start": { entryId: string; invokeId: string; otterId: string; otterName: string; seq?: number; createdAt: string };
+  /** speak entry body 增量（取代 speak.intermediate） */
+  "entry.speak": { entryId: string; invokeId: string; body: string; otterName?: string; segmentId?: string; sequenceNum?: number };
+  /** speak entry 完成（取代 message.complete） */
+  "entry.complete": { entryId: string; invokeId: string; otterId: string; otterName: string; body: string; turnId: string; duration: string; ctx?: number; ctxMax?: number; segments?: Array<{ id: string; body: string; sequenceNum: number }> };
+  /** entry 失败（取代 message.failed） */
+  "entry.failed": { entryId: string; invokeId: string; otterId: string; otterName: string; body?: string };
+  /** entry 重试（取代 message.retry） */
+  "entry.retry": { entryId: string; invokeId: string; otterId: string; otterName: string; reason: string; attempt: number };
+  /** entry 中止（取代 message.aborted） */
+  "entry.aborted": { entryId: string; invokeId: string; body?: string; otterId?: string; otterName?: string };
+  /** 系统条目（取代 system.message） */
+  "entry.system": { entryId: string; content: string; seq: number };
+  /** yield 条目（行动权传递） */
+  "entry.yield": { entryId: string; invokeId: string; otterId: string; otterName: string; yieldTargets: string[] };
+
+  // ── 通用事件（保留） ──
+  "assistant_toolcall": { messageId: string; content: Array<Record<string, unknown>> };
+  "tool.result": { messageId: string; toolName: string; result: unknown };
+  "assistant_text": { messageId: string; content: Array<Record<string, unknown>> };
   "turn.complete": Record<string, never>;
   "agent.idle": Record<string, never>;
-  /** SDK auto-retry 进行中（R20260810piab 遗漏 1：透传 SDK 结构化事件） */
   "agent.retry_start": { attempt: number; maxAttempts: number; delayMs: number; errorMessage: string };
-  /** SDK auto-retry 结束 */
   "agent.retry_end": { success: boolean; attempt: number; finalError?: string };
-  /** SDK 上下文压缩进行中 */
   "agent.compaction_start": { reason: "manual" | "threshold" | "overflow" };
-  /** SDK 上下文压缩结束 */
   "agent.compaction_end": { reason: "manual" | "threshold" | "overflow"; aborted: boolean; willRetry: boolean; errorMessage?: string };
   "stream.end": Record<string, never>;
   "error": { message: string; messageId: string; otterId: string };
-  /** @提及解析 feedback：目标退场或解析失败时通知用户 */
   "mention.feedback": { feedback: string };
 };
 

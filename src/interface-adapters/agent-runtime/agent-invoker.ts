@@ -268,7 +268,12 @@ export class AgentInvoker implements AgentTurnPort {
     /** seq 带给前端：进行中消息按服务端 sequence 插入消息流（M5：保证跨 otter 时序正确）。
      *  otterName 用 snapshot-first 策略：message.senderName（层 1 持久化快照）优先于运行时查询——
      *  自重启/熔断场景下快照在 SendMessage.start() 时已解析，不依赖运行时 otter 查询。 */
-    emitEvent({ event: "message.start", data: { messageId: message.id, otterId, otterName: resolveSpeakerName("otter", otterId, message.senderName || otter?.name) ?? otterId, seq: message.sequenceNum, createdAt: message.createdAt } });
+    const resolvedOtterName = resolveSpeakerName("otter", otterId, message.senderName || otter?.name) ?? otterId;
+    emitEvent({ event: "message.start", data: { messageId: message.id, otterId, otterName: resolvedOtterName, seq: message.sequenceNum, createdAt: message.createdAt } });
+    // F20260910ctlv：并行发射 entry.start（新前端走此路径）
+    if (currentInvokeId) {
+      emitEvent({ event: "entry.start", data: { entryId: message.id, invokeId: currentInvokeId, otterId, otterName: resolvedOtterName, seq: message.sequenceNum, createdAt: message.createdAt } });
+    }
 
     // F20260814mtrc：messageId 进 trace scope（onEvent 回调与收尾日志自动携带）
     return runWithTrace({ messageId: message.id }, async () => {
@@ -352,7 +357,7 @@ export class AgentInvoker implements AgentTurnPort {
             if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
               this.logger.debug('speak tool executed', { messageId: input.messageId });
               // F20260909smsp：speak message 的 SSE 事件带 speakMessageId（独立气泡）
-              this.emitSpeakIntermediate(e, input.messageId, otterId, opts?.otterName, emitEvent);
+              this.emitSpeakIntermediate(e, input.messageId, otterId, opts?.otterName, emitEvent, opts?.currentInvokeId);
             }
             /** 所有事件如实持久化（event 就是 event，不抑制） */
             const evt = mapToMessageEventInput(e, input.messageId);
@@ -563,12 +568,14 @@ export class AgentInvoker implements AgentTurnPort {
   /** speak 落库成功后广播中间发言（前端实时展示，无需等 yield 交棒）
    *  F20260909smsp：speak message 创建时先广播 message.start（前端插入新气泡），
    *  再广播 speak.intermediate（带 speak message 的 messageId） */
+  // eslint-disable-next-line max-params -- 事件桥接器需要完整上下文；改 options 对象反而更绕
   private emitSpeakIntermediate(
     e: AgentStreamEvent,
     messageId: string,
     otterId: string,
     otterName: string | undefined,
     emitEvent: (event: SSEEvent) => void,
+    invokeId?: string,
   ): void {
     const details = (e.result as { details?: Record<string, unknown> } | undefined)?.details;
     if (details?.__speakIntermediate === true) {
@@ -580,6 +587,11 @@ export class AgentInvoker implements AgentTurnPort {
       emitEvent({ event: "message.start", data: { messageId: speakMsgId, otterId, otterName: resolvedName } });
       // 广播 speak.intermediate（带 segment 内容）
       emitEvent({ event: "speak.intermediate", data: { messageId: speakMsgId, body: String(details.body ?? ""), otterId, otterName: resolvedName, segmentId: details.segmentId as string, sequenceNum: details.sequenceNum as number } });
+      // F20260910ctlv：并行发射 entry.* 事件（新前端走此路径）
+      if (invokeId) {
+        emitEvent({ event: "entry.start", data: { entryId: speakMsgId, invokeId, otterId, otterName: resolvedName } });
+        emitEvent({ event: "entry.speak", data: { entryId: speakMsgId, invokeId, body: String(details.body ?? ""), otterName: resolvedName, segmentId: details.segmentId as string, sequenceNum: details.sequenceNum as number } });
+      }
     }
   }
 
