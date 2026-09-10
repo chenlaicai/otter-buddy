@@ -269,10 +269,12 @@ export class AgentInvoker implements AgentTurnPort {
      *  otterName 用 snapshot-first 策略：message.senderName（层 1 持久化快照）优先于运行时查询——
      *  自重启/熔断场景下快照在 SendMessage.start() 时已解析，不依赖运行时 otter 查询。 */
     const resolvedOtterName = resolveSpeakerName("otter", otterId, message.senderName || otter?.name) ?? otterId;
-    emitEvent({ event: "message.start", data: { messageId: message.id, otterId, otterName: resolvedOtterName, seq: message.sequenceNum, createdAt: message.createdAt } });
-    // F20260910ctlv：并行发射 entry.start（新前端走此路径）
-    if (currentInvokeId) {
-      emitEvent({ event: "entry.start", data: { entryId: message.id, invokeId: currentInvokeId, otterId, otterName: resolvedOtterName, seq: message.sequenceNum, createdAt: message.createdAt } });
+    // F20260910ctlv 修复：新 invoke 路径下主消息只是 invoke 生命周期容器，内容在各 speak entry 里——
+    // 不发射 message.start/entry.start，否则前端先插空气泡、message.complete 又渲染聚合气泡，
+    // 出现「同时两个獭气泡」。气泡唯一来源 = speak entry 的 entry.start/entry.speak。
+    // 旧路径兕底（sendEntry 失败、currentInvokeId 为空）保留 message.start，前端行为不变。
+    if (!currentInvokeId) {
+      emitEvent({ event: "message.start", data: { messageId: message.id, otterId, otterName: resolvedOtterName, seq: message.sequenceNum, createdAt: message.createdAt } });
     }
 
     // F20260814mtrc：messageId 进 trace scope（onEvent 回调与收尾日志自动携带）

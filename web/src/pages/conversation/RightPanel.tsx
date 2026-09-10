@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, memo } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Star, X, MoreHorizontal, RotateCcw, Check, Copy, Users, Folder, FileText, Timer } from 'lucide-react'
+import { Plus, Star, X, MoreHorizontal, RotateCcw, Check, Copy, Users, Folder, FileText, Timer, Activity } from 'lucide-react'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalLinkedResource as LinkedResource, LocalOtterSession as OtterSession, LocalScheduledTask } from '../../lib/mappers'
 import { sortSessionChain } from '../../lib/session-chain'
@@ -392,6 +392,20 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
             </div>
           )}
         </div>
+        {/* F20260910ctlv 实测修复：流式过程主入口按钮——点击弹 Session 弹窗（invoke 流式过程内容），
+            与点头像同回调（onOpenSession），作为独立可见入口降低可发现性成本 */}
+        {onOpenSession && (
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); onOpenSession() }}
+            className="flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center text-stone-400 hover:text-otter-500 hover:bg-white/40 transition"
+            aria-label={`查看 ${o.name} 的流式过程`}
+            title="流式过程"
+            data-testid="invoke-stream-button"
+          >
+            <Activity className="w-3.5 h-3.5" />
+          </button>
+        )}
         {/* F20260908efmd: 有效模型——始终渲染 badge（配置缺失回退默认）。
             modelAlias 恒非空（有效模型解析后），默认来源时显示「(默认)」。
             原 F20260825vrqh 设计：未配置不渲染 → 本特性推翻——每只獭必须有模型。 */}
