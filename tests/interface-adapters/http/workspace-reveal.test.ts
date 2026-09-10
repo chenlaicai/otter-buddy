@@ -158,4 +158,17 @@ describe("POST /api/conversations/:id/workspace/reveal", () => {
     );
     expect(res.status).toBe(404);
   });
+
+  it("非法 JSON body 返回 400（非 500）", async () => {
+    const res = await app.request(
+      `/api/conversations/${VALID_CONV_ID}/workspace/reveal`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "not-json{{",
+      },
+    );
+    // Why: 非法 JSON 应走 catch(() => ({})) → path 缺失 → 400，不泄漏 V8 解析器错误
+    expect(res.status).toBe(400);
+  });
 });

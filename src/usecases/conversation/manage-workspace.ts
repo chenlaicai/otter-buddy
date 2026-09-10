@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, execSync } from "node:child_process";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { Logger } from "@usecases/ports/logger";
 import { DomainError } from "@entities/errors";
@@ -195,6 +195,15 @@ export class ManageWorkspace {
     const args = isMac ? ['-R', resolved]
       : isWin ? ['/select,', resolved]
       : [path.dirname(resolved)];
+
+    // Why: Linux 无 xdg-open 时 fail-fast —— headless server 常态，503 诚实失败优于静默吞错
+    if (!isMac && !isWin) {
+      try {
+        execSync('which xdg-open', { stdio: 'ignore' });
+      } catch {
+        throw new DomainError('当前环境不支持打开文件管理器（缺少 xdg-open）', 'validation');
+      }
+    }
 
     // Why: detached + unref —— 不阻塞 Node 进程，子进程生命周期独立
     try {

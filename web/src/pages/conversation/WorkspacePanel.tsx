@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import { ChevronRight, ExternalLink, FileText, Folder, FolderOpen, Loader2 } from 'lucide-react'
 // Why: Workspace DTO 单一真相源在 api-contract（issue #558）——本文件曾是手工同步副本，
 // 迁移后直接引用契约，与后端靠 web tsc --noEmit 锁死漂移
-import type { WorkspaceEntry, WorkspaceFileContent, WorkspaceListDirResponse } from '@contract/api/workspace'
+import type { WorkspaceEntry, WorkspaceFileContent, WorkspaceListDirResponse, WorkspaceRevealRequest, WorkspaceRevealResponse } from '@contract/api/workspace'
 
 interface WorkspacePanelProps {
   conversationId: string
@@ -350,14 +350,17 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
   const handleReveal = useCallback(async (entry: WorkspaceEntry) => {
     setCtxMenu(null)
     try {
+      const reqBody: WorkspaceRevealRequest = { path: entry.path }
       const res = await fetch(`/api/conversations/${conversationId}/workspace/reveal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: entry.path }),
+        body: JSON.stringify(reqBody),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: '操作失败' }))
         setError(err.error || '打开失败')
+      } else {
+        const _resp: WorkspaceRevealResponse = await res.json()
       }
     } catch {
       setError('打开失败')
