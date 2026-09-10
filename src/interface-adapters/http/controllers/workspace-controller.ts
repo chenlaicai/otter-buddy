@@ -5,6 +5,7 @@ import type { Logger } from "@usecases/ports/logger";
 // 类型漂移会在 tsc 阶段暴露而非运行时
 import type { WorkspaceFileContent, WorkspaceListDirResponse, WorkspaceRevealResponse } from "@contract/api/workspace";
 import { HttpError, handleError, param } from "../http-error";
+import { safeJsonBody } from "../parse-json-body";
 
 /** 合法 conversationId 的正则：UUID 格式，杜绝路径分隔符和 .. 逃逸 */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -79,7 +80,7 @@ export class WorkspaceController {
   async reveal(c: Context): Promise<Response> {
     try {
       const conversationId = this.validateConversationId(param(c, "id"));
-      const body: { path?: unknown } = (await c.req.json().catch(() => ({}))) ?? {};
+      const body = await safeJsonBody<{ path?: unknown }>(c);
 
       if (typeof body.path !== 'string' || !body.path) {
         return c.json({ error: "path 参数必填" }, 400);

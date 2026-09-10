@@ -53,6 +53,9 @@ function validateCreateInput(input: CreateScheduledTaskInput): string | null {
 
   const timezone = input.timezone ?? 'Asia/Shanghai';
   if (!isValidTimezone(timezone)) return `Invalid timezone: ${timezone}`;
+  // #891：null body 经 safeJsonBody 兜底 {} 后 body 为 undefined——undefined.length 会
+  // 抛 TypeError 逃逸成 500，先判类型再比长度（真实 usecase 路径，非仅测试）
+  if (typeof input.body !== 'string') return 'body is required';
   if (input.body.length > 10000) return 'body must be 10000 characters or less';
   if (!input.talkingStonePassedTo || input.talkingStonePassedTo.length === 0) {
     return 'talkingStonePassedTo must be non-empty';

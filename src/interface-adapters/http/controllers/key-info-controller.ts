@@ -3,6 +3,7 @@ import type { ManageKeyInfo } from "@usecases/conversation/manage-key-info";
 import type { LinkedResourceInput } from "@usecases/conversation/manage-key-info";
 import type { Logger } from "@usecases/ports/logger";
 import { handleError, param } from "../http-error";
+import { safeJsonBody } from "../parse-json-body";
 import { toKeyInfoDTO, toLinkedResourceDTO } from "../dto/key-info-dto";
 import type { LinkResourceRequestDTO } from "../dto/key-info-dto";
 
@@ -26,7 +27,7 @@ export class KeyInfoController {
   async linkResource(c: Context): Promise<Response> {
     try {
       const conversationId = param(c, "id");
-      const body = await c.req.json<LinkResourceRequestDTO>();
+      const body = await safeJsonBody<LinkResourceRequestDTO>(c);
       const input: LinkedResourceInput = {
         conversationId,
         resourceType: body.resourceType,
@@ -50,7 +51,7 @@ export class KeyInfoController {
   async flagResource(c: Context): Promise<Response> {
     try {
       const resourceId = param(c, "resourceId");
-      const body = await c.req.json<{ flagged: boolean }>();
+      const body = await safeJsonBody<{ flagged: boolean }>(c);
       await this.manageKeyInfo.flagResource(resourceId, body.flagged);
       return c.json({ status: "ok" });
     } catch (err) {
