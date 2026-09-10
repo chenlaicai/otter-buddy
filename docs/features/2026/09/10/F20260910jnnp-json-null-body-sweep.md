@@ -1,7 +1,7 @@
 ---
 id: F20260910jnnp
 title: 全仓 controller JSON null body 防御补全（13 端点）
-summary: '#890 审视全仓扫描发现 13 处裸 c.req.json() 无任何防御，JSON null body 全部崩 500（11 处回显 V8 错误文本）。本特性将 13 端点统一迁移到 safeJsonBody，修复随之暴露的 3 处真实 usecase/entity 层缺省值崩溃（connection name.trim、scheduled-task body.length、connection enterConversation），并迁移 workspace-controller 的 #888 内联写法到 helper——null body 类缺口全仓清零。'
+summary: '#890 审视全仓扫描发现 13 处裸 c.req.json() 无任何防御，JSON null body 全部崩 500（11 处回显 V8 错误文本）。本特性将 13 端点统一迁移到 safeJsonBody，修复随之暴露的真实下游崩溃（otter/conversation NOT NULL 约束、connection name.trim、scheduled-task body 类型），并迁移 workspace-controller 的 #888 内联写法到 helper——13 端点 null body 均不再 500、不再泄漏内部错误文本。'
 change_type: fix
 capability_test: "n/a: 纯后端 A 类代码变更，无 prompt/skill/协议层改动"
 created_in_conversation: acf4e2d3-d0ae-4e93-90d8-a9d1f1f602b1
@@ -40,15 +40,17 @@ T4: 13 端点各配「JSON null body 不 500」回归断言
 
 13 处 `await c.req.json<T>()` → `await safeJsonBody<T>(c)`；workspace-controller.ts:82 的 `(await c.req.json().catch(() => ({}))) ?? {}` 内联写法 → safeJsonBody。迁移后 null body 统一变 {}，流入各 usecase 的既有 validation（缺字段 → DomainError validation → 400）。
 
-### 迁移暴露的下游崩溃链（测试现形，均为真实路径缺陷）
+### 迁移暴露的下游崩溃链（测试+真实链路现形）
 
 | 位置 | 崩溃 | 修复 |
 |---|---|---|
+| usecases/otter/create-otter.ts | name/type 无校验透传 → DB NOT NULL 约束 → 500 回显 `otters.name` 表结构（检视獭glm三号真实 sqlite 实测） | CreateOtter.execute 前置 name/type validation → 400 |
+| usecases/conversation/manage-conversation.ts | title 无校验落库 → NOT NULL → 500 回显 `conversations.title`（同上实测） | ManageConversation.create 前置 title validation → 400 |
 | entities/im/connection.ts isValidConnectionName/isValidExternalId | `undefined.trim()` TypeError → 500 | 加 `typeof === "string"` 守卫 → usecase 抛 validation → 400 |
-| usecases/scheduled-task validateCreateInput | `undefined.length` TypeError → 500 | 先判 `typeof body !== 'string'` 返回 'body is required' → 400 |
-| scheduled-task controller getNextTriggerAt | usecase mock 返回形状不含 scheduleType（测试侧问题） | 测试 mock 修正：create 抛 DomainError（贴近真实 validation 路径）+ cronParser.getNextTime 返 Date |
+| usecases/scheduled-task validateCreateInput | `undefined.length` TypeError → 500（**触发场景是「有 cron 缺 body」的部分缺失 JSON；null body 路径走不到此行**——首行 cron 校验已拦，对抗审视更正月因） | 先判 `typeof body !== 'string'` 返回 'body is required' → 400 |
+| scheduled-task controller getNextTriggerAt | usecase mock 返回形状不含 scheduleType（纯测试侧问题） | 测试 mock 修正：create 抛 DomainError（贴近真实 validation 路径）+ cronParser.getNextTime 返 Date |
 
-**判断依据**：前两个崩溃不是 mock 假象——真实 usecase 收到空 input 时同样会走这些代码路径（connection 真实 app 实测复现 `reading 'trim'` 500），属 null body 防线的自然延伸，不修则「不 500」目标在 connection/scheduled-task 两端点不成立。
+**判断依据**：前四个崩溃不是 mock 假象——检视獭以真实 sqlite app 对 otter/conversation 实测复现 500（NOT NULL 约束回显表结构），connection 亦真实 app 复现。初版实现误判崩溃链只有 connection/scheduled-task 两处（scheduled-task 的归因还错了），导致 otter/conversation 被 mock 测试掩盖漏修——对抗审视第一轮抓回。
 
 ## 影响范围
 
@@ -65,10 +67,10 @@ T4: 13 端点各配「JSON null body 不 500」回归断言
 
 ## 验证
 
-- 新增 tests/api/json-null-body.test.ts：13 端点逐一实测 `body: "null"` 不返 500（connection 两端点走真实 sqlite app，其余走 createTestApp 全 mock）
+- tests/api/json-null-body.test.ts：13 端点逐一实测 `body: "null"`——**otter/conversation/connection 四端点走真实 sqlite app**（真实 repo + 真实 usecase，仅 agent 层 fake seam），断言具体业务码（400/404）而非仅「不 500」（对抗审视建议 1：not.toBe(500) 防不住 mock 假绿）
 - 全量测试 251 files / 3152 tests 全绿；tsc --noEmit 0 error；eslint 0 error
-- 测试调试中发现并修正 mock 假象 3 处（详见「方案设计」下游崩溃链表，其中 2 处确证为真实缺陷）
-- 最简实现检查：已过——核心改动是 13 处单行替换 + 2 处 typeof 守卫 + 1 处判空，无新依赖新抽象
+- 对抗审视第一轮发现 3 严重 2 建议，全部本 PR 处置：otter/conversation 真实链路补 validation、文档归因更正、注释归因更正、测试断言强化
+- 最简实现检查：已过——核心改动是 13 处单行替换 + 3 处 validation 前置 + 1 处判空，无新依赖新抽象
 
 ## 改动范围
 
@@ -76,9 +78,11 @@ T4: 13 端点各配「JSON null body 不 500」回归断言
 |---|---|---|
 | src/interface-adapters/http/controllers/{connection,conversation,key-info,memory,message,otter,scheduled-task,settings}-controller.ts | 修改 | 13 处 req.json() → safeJsonBody |
 | src/interface-adapters/http/controllers/workspace-controller.ts | 修改 | #888 内联写法迁移 safeJsonBody |
+| src/usecases/otter/create-otter.ts | 修改 | name/type 前置 validation（400） |
+| src/usecases/conversation/manage-conversation.ts | 修改 | title 前置 validation（400） |
 | src/entities/im/connection.ts | 修改 | name/externalId 校验加 typeof 守卫 |
 | src/usecases/scheduled-task/manage-scheduled-task.ts | 修改 | validateCreateInput body 先判类型 |
-| tests/api/json-null-body.test.ts | 新增 | 13 端点 null body 回归 |
+| tests/api/json-null-body.test.ts | 新增 | 13 端点 null body 回归（4 端点真实 sqlite 链路） |
 
 ## 遗留
 
