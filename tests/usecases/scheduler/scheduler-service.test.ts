@@ -1959,11 +1959,16 @@ describe('#516: 任务进入 error 状态时落通知（消灭静默死亡）', 
     expect(notifyCall).toBeTruthy();
     expect(notifyCall![0].conversationId).toBe('conv-1');
     expect(notifyCall![0].body).toContain('每日问候');
-    // healing event 已落（open、high、含 taskId）
-    expect(healingEvents.length).toBe(1);
-    expect(healingEvents[0].status).toBe('open');
-    expect(healingEvents[0].severity).toBe('high');
-    expect(healingEvents[0].context).toMatchObject({ taskId: 'task-notify' });
+    // healing event 已落：#754 起单次失败即落 medium + 熔断停跑落 high（共 4 条）
+    expect(healingEvents.length).toBe(4);
+    const errorEvent = healingEvents.find(e => e.severity === 'high')!;
+    expect(errorEvent).toBeTruthy();
+    expect(errorEvent.status).toBe('open');
+    expect(errorEvent.context).toMatchObject({ taskId: 'task-notify' });
+    // #754：单次失败事件（medium，含 executionId 与完整错误文本）
+    const singleFailures = healingEvents.filter(e => e.severity === 'medium');
+    expect(singleFailures.length).toBe(3);
+    expect((singleFailures[0]!.context as Record<string, unknown>).executionError).toBeTruthy();
   });
 
   it('通知失败（sendMessage 抛错）不阻塞 error 状态变更', async () => {
