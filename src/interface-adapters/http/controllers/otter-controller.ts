@@ -10,6 +10,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import { handleError, param } from "../http-error";
+import { safeJsonBody } from "../parse-json-body";
 import { toOtterDTO, toOtterSessionDTO } from "../dto/otter-dto";
 import type { CreateOtterRequestDTO } from "../dto/otter-dto";
 
@@ -83,7 +84,8 @@ export class OtterController {
   async dissolve(c: Context): Promise<Response> {
     try {
       const id = param(c, "id");
-      const body: { summary?: string } = await c.req.json().catch(() => ({}));
+      // #889：safeJsonBody 兜底非法 JSON 与 JSON null，防 body.summary on null 崩溃
+      const body = await safeJsonBody<{ summary?: string }>(c);
       await this.dissolveOtterUseCase.execute(id, body.summary);
       return c.json({ status: "dissolved" });
     } catch (err) {
@@ -109,7 +111,8 @@ export class OtterController {
       if (otter?.type === "small") {
         throw new DomainError("小獭不支持重启獭生，请使用解散", "validation");
       }
-      const body: { summary?: string; modelAlias?: string } = await c.req.json().catch(() => ({}));
+      // #889：safeJsonBody 兜底非法 JSON 与 JSON null，防 body.summary on null 崩溃
+      const body = await safeJsonBody<{ summary?: string; modelAlias?: string }>(c);
       // F20260908efmd: restart body 增 modelAlias + hasModel 校验
       if (this.modelPool && body.modelAlias && !this.modelPool.hasModel(body.modelAlias)) {
         const available = this.modelPool.describeModels().map(m => m.alias).join(", ");
