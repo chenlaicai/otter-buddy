@@ -68,7 +68,12 @@ export function normalizeForDetection(command: string): string {
     .replace(/""/g, "");  // 空双引号对
   // 字母间反斜杠（k\ill → kill）。lookbehind/lookahead 只匹配反斜杠本身、前后字母不消耗——
   // 单遍即可处理连续转义 k\i\ll → kill（检视 R1 发现2：贪婪消耗式正则会漏连续转义形态）
-  return stripped.replace(/(?<=[a-zA-Z])\\(?=[a-zA-Z])/g, "");
+  const deEscaped = stripped.replace(/(?<=[a-zA-Z])\\(?=[a-zA-Z])/g, "");
+  // #850 严重 1：全词引号包裹等价裸命令（'kill' 42877 / "kill" 42877）——剥词周引号
+  // #850 严重 2：词首反斜杠是 no-op（\kill ≡ kill，bash 引用单字符语义）——剥字母前反斜杠
+  return deEscaped
+    .replace(/(["'])([a-zA-Z][a-zA-Z0-9]*)\1/g, "$2") // 'kill' → kill（全词引号）
+    .replace(/\\(?=[a-zA-Z])/g, ""); // \k → k（词首反斜杠；字母间已在上一步处理）
 }
 
 /**
@@ -77,20 +82,56 @@ export function normalizeForDetection(command: string): string {
  */
 /**
  * F20260903gh698：位置感知匹配——regex match 必须出现在命令位置（段首或 shell 操作符后）。
- * 若匹配被字母或连字符前缀（如 eval-skill / guard-kill / t-skill）包围则跳过。
+ * #777 语义反转：#760 的 default 分支 `return true` 与位置感知目标相反——一切非白名单
+ * 前导字符（/ 引号 空格 中文 数字……）都误判命令位置，字符串字面量/路径恰好含词元即误拦
+ * （9/3-9/4 四组事故实证）。修正为白名单语义：
+ *   - pos 0（段首，调用方已 trim）
+ *   - shell 操作符后（| ; & \n \r \f）
+ *   - $( 命令替换 / ` 反引号内 / ( 子 shell 内——这些位置是真实命令执行位
+ * 其余一律 continue（视为数据：路径中段、引号内字面量、中文语境等）。
  * Why 不用全局 matchAll：\b 零宽断言在 g 模式下会产生重叠误匹配。
  */
+const VALID_CMD_PRECEDERS = new Set(["|", ";", "&", "\n", "\r", "\f", "(", "`"]);
+
+/** #777：命令位置前缀词剥除——这些词的语义是「执行后面的命令」，循环剥除直到词元抵段首。
+ *  覆盖 #698 攻击链 wrapper 变体（sudo/env/nohup/timeout/xargs/nice/command + 赋值前缀）。 */
+const COMMAND_PREFIX_WORD = /^(?:sudo|env|nohup|command|xargs|nice|watch|exec|time|timeout|do)\b\s+/;
+/** 前缀词的参数（-n1 / -I{} / 5 / VAR=val 等，timeout 的时长、nice 的优先级、赋值） */
+const PREFIX_ARG = /^(?:-\S+|\d+|[A-Za-z_]\w*=\S+)\s+/;
+
+/** 循环剥除命令前缀词及其参数；返回剥除后的剩余串（空串 = 词元前只有前缀词序列） */
+function stripCommandPrefixes(text: string): string {
+  let rest = text.trimStart();
+  for (let i = 0; i < 8; i++) { // 循环上限防御：前缀词嵌套深度有界（sudo env timeout 5 nice -n3 ...）
+    const wordMatch = rest.match(COMMAND_PREFIX_WORD);
+    if (!wordMatch) break;
+    rest = rest.slice(wordMatch[0].length);
+    while (true) { // 剥该前缀词的参数（timeout 5 / nice -n3 / xargs -n1 -I{} / FOO=1）
+      const argMatch = rest.match(PREFIX_ARG);
+      if (!argMatch) break;
+      rest = rest.slice(argMatch[0].length);
+    }
+  }
+  return rest;
+}
+
 function isKillAtCommandPosition(text: string, pattern: RegExp): boolean {
   const re = new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g");
-  const VALID_CMD_PRECEDERS = new Set(["|", ";", "&", "\n", "\r", "\f"]);
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     const pos = m.index;
     if (pos === 0) return true;
     const prev = text[pos - 1];
     if (VALID_CMD_PRECEDERS.has(prev)) return true;
-    if (prev === "-" || /[a-zA-Z]/.test(prev)) continue;
-    return true;
+    // 前缀词剥除：词元前的文本整体是「前缀词+参数」序列（如 xargs -n1 / sudo FOO=1）→ 命令位置
+    const before = text.slice(0, pos);
+    if (stripCommandPrefixes(before) === "") return true;
+    // 路径穿透：词元前导 '/' 且该路径表达式是段首第一个词（如 ~/bin/<词元>、/usr/bin/<词元>）
+    if (prev === "/") {
+      const segStart = before.trimStart();
+      if (/^(?:~|\/)[^\s]*$/.test(segStart)) return true;
+    }
+    continue; // #777 反转：非白名单前导 = 数据位置（路径中段/引号内/中文语境），放行
   }
   return false;
 }
@@ -104,15 +145,25 @@ function isKillAtCommandPosition(text: string, pattern: RegExp): boolean {
  */
 function findKillSegments(command: string): { segment: string; isPkill: boolean }[] {
   const results: { segment: string; isPkill: boolean }[] = [];
-  // 按 shell 操作符分段（不含 | 管道——管道到 kill 是间接攻击向量，由 hasIndirectPidTarget 整体拦截）
-  const segments = command.split(/&&|\|\||[;&\n]/);
+  // 按 shell 操作符分段。#777 起含 | 管道：F20260903gh698 不含 | 的理由（管道到 kill 是
+  // 间接攻击向量整体拦截）在白名单语义下变成漏拦——xargs 前缀词判定依赖段首上下文，
+  // 管道右段被吞进左段时剥除失败。| 右段首恒为命令位置（shell 语义），分段代价为零。
+  //  || 先于 |：split 交替语义下单 | 会把 || 拆成两个空段，
+  //  长操作符必须在前（否则 `a || kill` 被拆成 `a |` `| kill` 三段，段首位置错乱）。
+  const segments = command.split(/&&|\|\||[;&|\n]/);
   for (const seg of segments) {
     const trimmed = seg.trim();
     if (!trimmed) continue;
     if (isKillAtCommandPosition(trimmed, PKILL_COMMANDS)) {
       results.push({ segment: trimmed, isPkill: true });
     } else if (isKillAtCommandPosition(trimmed, KILL_COMMANDS)) {
-      results.push({ segment: trimmed, isPkill: false });
+      // #777：bash -c 分支（KILL_COMMANDS 右支）可内嵌 pkill/killall 词元——
+      // 主支的 isKillAtCommandPosition 对该段返回 false（词元在引号内数据位），
+      // 但 bash -c 分支的语义是「引号内整串是独立命令」。内嵌词元为 pkill/killall
+      // 族时按 pkill 语义检查目标进程名（否则 'pkill -f otter-buddy' 走 kill 语义
+      // 解析不到字面量 PID 而漏拦，#698 攻击链回归实证）。
+      const innerPkill = /(?:bash|sh)\s*-c\s*[\s'"]?[^|;&]*\b(?:pkill|killall|killall5)\b/i.test(trimmed);
+      results.push({ segment: trimmed, isPkill: innerPkill });
     }
   }
   return results;
@@ -138,7 +189,8 @@ function extractLiteralPids(segment: string): number[] {
   const words = afterCmd.split(/\s+/).filter(Boolean);
   for (const w of words) {
     if (w.startsWith("-")) continue; // 跳过信号参数
-    const stripped = w.replace(/^["']|["']$/g, ""); // 去掉首尾引号（bash -c 'kill N' 场景）
+    // #777：去引号外再去子 shell 括号（`(kill 42877)` 的 PID 带右括号尾，parseInt 前剥除）
+    const stripped = w.replace(/^["']|["']$/g, "").replace(/^[()]+|[()]+$/g, "");
     const pid = parseInt(stripped, 10);
     if (!isNaN(pid) && pid > 0 && String(pid) === stripped) pids.push(pid);
   }
