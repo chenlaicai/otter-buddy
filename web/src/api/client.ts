@@ -22,6 +22,7 @@ import type {
   UploadAttachmentResponseDTO,
   InvokeListResponseDTO,
   InvokeEventsResponseDTO,
+  EntriesResponseDTO,
 } from '@contract/api'
 
 const BASE = '/api'
@@ -163,6 +164,13 @@ export function listInvokes(conversationId: string, options?: { limit?: number; 
 /** 拉取单次 invoke 的全部流式过程事件（Session 弹窗展开态数据源） */
 export function getInvokeEvents(invokeId: string): Promise<InvokeEventsResponseDTO> {
   return request(`/invokes/${invokeId}/events`)
+}
+
+/** F20260910ctlv 切换清扫：拉取会话时间线条目（entries 历史数据源，替代 messages 渲染路径） */
+export function listEntries(conversationId: string, limit = 50, before?: string): Promise<EntriesResponseDTO> {
+  const qs = new URLSearchParams({ limit: String(limit) })
+  if (before) qs.set('before', before)
+  return request(`/conversations/${conversationId}/entries?${qs}`)
 }
 
 // ── Otters ──

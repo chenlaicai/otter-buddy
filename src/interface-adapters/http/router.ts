@@ -6,6 +6,7 @@ import type { ConversationController } from "./controllers/conversation-controll
 import type { OtterController } from "./controllers/otter-controller";
 import type { MessageController } from "./controllers/message-controller";
 import type { InvokeController } from "./controllers/invoke-controller";
+import type { EntryController } from "./controllers/entry-controller";
 import type { MemoryController } from "./controllers/memory-controller";
 import type { KeyInfoController } from "./controllers/key-info-controller";
 import type { SettingsController } from "./controllers/settings-controller";
@@ -26,6 +27,8 @@ export interface Controllers {
   message: MessageController;
   /** F20260910ctlv Phase 4：invoke 只读查询端点（Session 弹窗数据源） */
   invoke: InvokeController;
+  /** F20260910ctlv 切换清扫：entries 时间线只读查询端点 */
+  entry: EntryController;
   memory: MemoryController;
   keyInfo: KeyInfoController;
   settings: SettingsController;
@@ -72,6 +75,8 @@ function registerMsgRoutes(app: Hono, c: Controllers): void {
   // F20260910ctlv Phase 4：invoke 只读查询（Session 弹窗 + 獭状态面板）
   app.get("/api/conversations/:id/invokes", (ctx) => c.invoke.list(ctx));
   app.get("/api/invokes/:id/events", (ctx) => c.invoke.getEvents(ctx));
+  // F20260910ctlv 切换清扫：entries 时间线历史（前端渲染数据源）
+  app.get("/api/conversations/:id/entries", (ctx) => c.entry.list(ctx));
 }
 
 function registerOtterRoutes(app: Hono, c: Controllers): void {

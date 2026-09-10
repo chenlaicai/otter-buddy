@@ -1,4 +1,4 @@
-import type { OtterDTO, ConversationDTO, ConversationListItemDTO, MessageDTO, OtterSessionDTO, LinkedResourceDTO, ParticipantDTO } from '@contract/api'
+import type { OtterDTO, ConversationDTO, ConversationListItemDTO, MessageDTO, OtterSessionDTO, LinkedResourceDTO, ParticipantDTO, EntryDTO } from '@contract/api'
 
 /** 前端本地 Otter 类型（UI 渲染用） */
 export interface LocalOtter {
@@ -233,6 +233,31 @@ export function mapMessageDTO(dto: MessageDTO): LocalMessage {
     signals: dto.signals?.map(s => ({ ...s })),
     // 多模态 Phase 1：附件透出（仅非空时携带）
     ...(dto.atts && { atts: dto.atts }),
+  }
+}
+
+/** F20260910ctlv 切换清扫：EntryDTO → LocalMessage（时间线历史数据源）。
+ *  entryType 直接携带（speak/user/invoke_start/invoke_end/yield/system），驱动 MessageList 渲染分流；
+ *  居中条目（invoke 边界/yield）的 content 用 entry.body（后端已填约定文案）。 */
+export function mapEntryDTO(dto: EntryDTO): LocalMessage {
+  const isCentered = dto.entryType === 'invoke_start' || dto.entryType === 'invoke_end' || dto.entryType === 'yield'
+  return {
+    id: dto.id,
+    st: dto.senderType ?? (isCentered ? 'system' : 'otter'),
+    si: dto.senderId ?? '',
+    sn: dto.senderName || undefined,
+    content: dto.body ?? '',
+    status: dto.status as LocalMessageStatus,
+    seq: dto.sequenceNum,
+    ts: dto.createdAt,
+    dur: null,
+    ctx: dto.contextTokens ?? undefined,
+    ctxMax: dto.contextTokensMax ?? undefined,
+    turnId: dto.turnId,
+    src: (dto.source ?? undefined) as 'web' | 'feishu' | undefined,
+    entryType: dto.entryType,
+    invokeId: dto.invokeId ?? undefined,
+    yieldTargets: dto.yieldTargets ?? undefined,
   }
 }
 

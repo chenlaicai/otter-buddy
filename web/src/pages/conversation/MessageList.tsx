@@ -5,7 +5,7 @@ import type { Element as HastElement } from 'hast'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { AlertTriangle, Square, Copy, Check, Clock, RotateCcw, FileText, Zap, Moon, ArrowRight } from 'lucide-react'
-import type { LocalMessage as Message, LocalOtter as Otter, LocalMessageEvent, LocalAttachment } from '../../lib/mappers'
+import type { LocalMessage as Message, LocalOtter as Otter, LocalAttachment } from '../../lib/mappers'
 import { deriveEntryType, centeredEntryText } from '../../lib/mappers'
 import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
 import { getUserAvatar } from '../../lib/otter-avatars'
@@ -638,7 +638,9 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
           } ${!isUser && inFlight ? 'bubble-live' : ''} ${highlighted ? 'highlight-message' : ''}`}
           style={sideBar}
         >
-          {!isUser && m.events && m.events.length > 0 && <StreamingProcess events={m.events} duration={m.dur || ''} status={m.status} />}
+          {/* F20260910ctlv 切换清扫：StreamingProcess 气泡内流式折叠区已退役——
+              流式过程不再嵌在消息气泡，统一在 Session 弹窗（点獭头像）展示。
+              后端已停发流式 SSE（1970b43b），历史 messages.events 不再渲染。 */}
           {/* F20260826mwrd C4: 獭间信号徽章（消息原位渲染，<signal> 块剥离后的视觉表达） */}
           {!isUser && m.signals && m.signals.length > 0 && (
             <div className="mb-1.5">
@@ -708,175 +710,3 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
   )
 }
 
-function StreamingProcess({ events, duration, status }: { events: LocalMessageEvent[]; duration: string; status?: Message['status'] }) {
-  const inFlight = status === 'streaming' || status === 'speaking'
-  /** 进行中的流式过程默认展开（实时可见），终态默认折叠 */
-  const [collapsed, setCollapsed] = useState(!inFlight)
-  /** Why: 只在 streaming→completed 的瞬间自动折叠，之后不干预用户展开操作。
-   *  PR#206 的旧实现（if !inFlight && !collapsed → setCollapsed(true)）会
-   *  无条件拦截用户的展开点击，导致终态后流式过程面板永远无法展开。 */
-  const prevInFlightRef = useRef(inFlight)
-  useEffect(() => {
-    if (prevInFlightRef.current && !inFlight) {
-      setCollapsed(true)
-    }
-    prevInFlightRef.current = inFlight
-  }, [inFlight])
-  /** 流式进行中：实时计时 */
-  const [elapsed, setElapsed] = useState<string | null>(null)
-  useEffect(() => {
-    if (!inFlight || events.length === 0) { setElapsed(null); return }
-    const startTs = new Date(events[0].ts).getTime()
-    const tick = () => setElapsed(`${((Date.now() - startTs) / 1000).toFixed(1)}s`)
-    tick()
-    const timer = setInterval(tick, 100)
-    return () => clearInterval(timer)
-  }, [inFlight, events])
-  const statusLabel = inFlight
-    ? `进行中 · ${elapsed || '...'}`
-    : status === 'failed'
-      ? '失败'
-      : status === 'aborted'
-        ? '已中断'
-        : `已完成${duration ? ` · ${duration}` : ''}`
-
-  return (
-    <div className={`streaming-section mb-2 rounded-xl overflow-hidden ${inFlight ? 'stream-shimmer' : ''}`} style={{ background: 'var(--surface-inset)', border: '1px solid var(--inset-border)' }}>
-      <div
-        className="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer hover:bg-white/30 transition"
-        onClick={() => setCollapsed(!collapsed)}
-      >
-        <span className={`streaming-icon text-[8px] text-stone-400 transition ${collapsed ? '' : 'rotate-180'}`}>▼</span>
-        <span className="text-[11px] text-stone-500 font-medium flex-1">流式过程 · {events.length} 个事件</span>
-        <span className="text-[10px] text-stone-400 flex items-center gap-1">
-          {inFlight && (
-            <span className="flex gap-0.5">
-              <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" />
-              <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" style={{ animationDelay: '0.15s' }} />
-              <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" style={{ animationDelay: '0.3s' }} />
-            </span>
-          )}
-          {statusLabel}
-        </span>
-      </div>
-      {!collapsed && (
-        <div className="streaming-body border-t border-otter-200/20 max-h-[var(--list-scroll-max-h)] overflow-y-auto">
-          {events.map((evt, i) => <EventItem key={i} event={evt} prevTs={i > 0 ? events[i - 1].ts : undefined} />)}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function EventItem({ event, prevTs }: { event: LocalMessageEvent; prevTs?: string }) {
-  const { eventType, payload } = event
-  const [expanded, setExpanded] = useState(false)
-  const elapsed = prevTs ? `+${((new Date(event.ts).getTime() - new Date(prevTs).getTime()) / 1000).toFixed(1)}s` : null
-
-  /** assistant_toolcall：展示 event_type + 工具名 + 参数 */
-  if (eventType === 'assistant_toolcall') {
-    const content = payload.content as Array<Record<string, unknown>> | undefined
-    const toolCall = content?.find(c => c.type === 'toolCall') as Record<string, unknown> | undefined
-    const toolName = (toolCall?.name as string) || ''
-    const params = toolCall?.arguments
-    const paramsStr = params ? JSON.stringify(params) : ''
-    const paramsPreview = paramsStr.length > 60 ? paramsStr.slice(0, 60) + '...' : paramsStr
-
-    return (
-      <div className="border-b border-stone-100 last:border-0">
-        <div
-          className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-white/40 transition"
-          onClick={() => setExpanded(!expanded)}
-        >
-          <span className={`text-[8px] text-stone-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
-          <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-amber-50 text-amber-700">{eventType}</span>
-          <span className="text-[11px] text-stone-600 truncate flex-1">{toolName} {paramsPreview}</span>
-          {elapsed && <span className="text-[10px] text-stone-400 flex-shrink-0">{elapsed}</span>}
-          <CopyButton text={paramsStr} />
-        </div>
-        {expanded && paramsStr && (
-          <div className="px-3 pb-2 pl-8">
-            <div className="text-[11px] text-stone-500 bg-stone-50 rounded-lg px-3 py-2 max-h-[var(--compact-scroll-max-h)] overflow-y-auto whitespace-pre-wrap break-all">
-              {paramsStr}
-            </div>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  /** tool_result：展示 event_type + 工具名 + 结果预览 */
-  if (eventType === 'tool_result') {
-    const name = payload.name as string
-    const result = payload.result as Record<string, unknown> | undefined
-    const resultContent = result?.content as Array<{ text?: string }> | undefined
-    const resultText = resultContent?.[0]?.text || (result ? JSON.stringify(result) : '')
-    const resultPreview = resultText.length > 80 ? resultText.slice(0, 80) + '...' : resultText
-
-    return (
-      <div className="border-b border-stone-100 last:border-0">
-        <div
-          className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-white/40 transition"
-          onClick={() => setExpanded(!expanded)}
-        >
-          <span className={`text-[8px] text-stone-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
-          <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-teal-100 text-teal-700">{eventType}</span>
-          <span className="text-[11px] text-stone-600 truncate flex-1">{name} {resultPreview}</span>
-          {elapsed && <span className="text-[10px] text-stone-400 flex-shrink-0">{elapsed}</span>}
-          <CopyButton text={resultText} />
-        </div>
-        {expanded && resultText && (
-          <div className="px-3 pb-2 pl-8">
-            <div className="text-[11px] text-stone-500 bg-stone-50 rounded-lg px-3 py-2 max-h-[var(--compact-scroll-max-h)] overflow-y-auto whitespace-pre-wrap break-all">
-              {resultText}
-            </div>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  /** assistant_text：展示 event_type + 文本预览 */
-  if (eventType === 'assistant_text') {
-    const content = payload.content as Array<Record<string, unknown>> | undefined
-    const text = content?.find(c => c.type === 'text')
-    const str = (text?.text as string) || ''
-    const preview = str.length > 100 ? str.slice(0, 100) + '...' : str
-
-    return (
-      <div className="border-b border-stone-100 last:border-0">
-        <div
-          className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-white/40 transition"
-          onClick={() => setExpanded(!expanded)}
-        >
-          <span className={`text-[8px] text-stone-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
-          <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-blue-50 text-blue-700">{eventType}</span>
-          <span className="text-[11px] text-stone-600 truncate flex-1">{preview}</span>
-          {elapsed && <span className="text-[10px] text-stone-400 flex-shrink-0">{elapsed}</span>}
-          <CopyButton text={str} />
-        </div>
-        {expanded && str && (
-          <div className="px-3 pb-2 pl-8">
-            <div className="text-[11px] text-stone-500 bg-stone-50 rounded-lg px-3 py-2 max-h-[var(--list-scroll-max-h)] overflow-y-auto prose prose-xs max-w-none">
-              <MarkdownContent variant="event-log">{str}</MarkdownContent>
-            </div>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  /** error */
-  if (eventType === 'error') {
-    return (
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-stone-100 last:border-0">
-        <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-red-50 text-red-700">{eventType}</span>
-        <span className="text-[11px] text-red-600">{payload.message as string}</span>
-        {elapsed && <span className="text-[10px] text-stone-400 flex-shrink-0">{elapsed}</span>}
-        <CopyButton text={payload.message as string} />
-      </div>
-    )
-  }
-
-  return null
-}

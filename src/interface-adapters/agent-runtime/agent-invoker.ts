@@ -419,7 +419,15 @@ export class AgentInvoker implements AgentTurnPort {
       },
 
       sendSystem: async (convId: string, body: string) => {
-        const msg = await this.sendMessage.sendSystem(convId, body); return { id: msg.id, body: aggregateBody(msg.segments), sequenceNum: msg.sequenceNum };
+        const msg = await this.sendMessage.sendSystem(convId, body);
+        const content = aggregateBody(msg.segments);
+        // F20260910ctlv 切换清扫：system 消息双写 entries（时间线真相源；失败不阻断主链路）
+        if (this.sendEntry) {
+          this.sendEntry.createSystemEntry({ conversationId: convId, turnId: "", body: content }).catch((err: unknown) => {
+            this.logger.warn('Failed to write system entry (entries)', { error: err instanceof Error ? err.message : String(err) });
+          });
+        }
+        return { id: msg.id, body: content, sequenceNum: msg.sequenceNum };
       },
 
       startNewMessage: async (conversationId: string, senderId: string, talkingStonePassedTo: string[]) => {
@@ -570,10 +578,19 @@ export class AgentInvoker implements AgentTurnPort {
     }
     if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
       this.logger.debug('speak tool executed', { messageId: input.messageId });
-      // F20260909smsp：speak message 的 SSE 事件带 speakMessageId（独立气泡）
-      // F20260910ctlv：新 invoke 路径下 speak 无独立 message（entry 承载），跳过旧 message.start 广播防空气泡
-      if (!opts?.currentInvokeId || (e.result as { details?: { speakMessageId?: string } } | undefined)?.details?.speakMessageId) {
-        this.emitSpeakIntermediate(e, input.messageId, otterId, opts?.otterName, emitEvent, opts?.currentInvokeId);
+      // F20260910ctlv：新 invoke 路径（有真实 entryId）只发 entry.*，跳过旧 message.start/speak.intermediate（防空气泡 + id 对齐）
+      const speakDetails = (e.result as { details?: { speakMessageId?: string; entryId?: string } } | undefined)?.details;
+      const isNewPath = !!opts?.currentInvokeId && !!speakDetails?.entryId;
+      if (!isNewPath) {
+        // 旧路径（F20260909smsp speak message 独立气泡）
+        this.emitSpeakIntermediate(e, input.messageId, otterId, opts?.otterName, emitEvent, undefined);
+      } else {
+        // 新路径：entry.start + entry.speak 用真实 entryId（对齐 entries 表）
+        const resolvedName = resolveSpeakerName("otter", otterId, opts?.otterName) ?? otterId;
+        const entryId = speakDetails.entryId as string;
+        const body = String((speakDetails as { body?: unknown }).body ?? "");
+        emitEvent({ event: "entry.start", data: { entryId, invokeId: opts!.currentInvokeId, otterId, otterName: resolvedName } });
+        emitEvent({ event: "entry.speak", data: { entryId, invokeId: opts!.currentInvokeId, body, otterName: resolvedName } });
       }
     }
     /** 所有事件如实持久化（event 就是 event，不抑制） */

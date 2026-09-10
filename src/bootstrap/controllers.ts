@@ -27,6 +27,7 @@ import { ConversationController } from "@interface-adapters/http/controllers/con
 import { OtterController } from "@interface-adapters/http/controllers/otter-controller";
 import { MessageController } from "@interface-adapters/http/controllers/message-controller";
 import { InvokeController } from "@interface-adapters/http/controllers/invoke-controller";
+import { EntryController } from "@interface-adapters/http/controllers/entry-controller";
 import { MemoryController } from "@interface-adapters/http/controllers/memory-controller";
 import { SkillController, type SkillDirectory } from "@interface-adapters/http/controllers/skill-controller";
 import { HealthController } from "@interface-adapters/http/controllers/health-controller";
@@ -151,9 +152,12 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
       signalEventRepo,
       attachmentInjection,
       signalRouter,
+      uc.sendEntry,
     ),
     // F20260910ctlv Phase 4：invoke 只读查询端点（repos.invoke 为 Phase 1 新建 repository）
     invoke: new InvokeController(repos.invoke, logger),
+    // F20260910ctlv 切换清扫：entries 时间线只读查询端点（前端历史数据源）
+    entry: new EntryController(repos.entry, logger),
     memory: new MemoryController(uc.searchMemory, uc.manageMemory, uc.scanDarkEntries, embeddingGateway, { repo: repos.memory, logger }),
     keyInfo: new KeyInfoController(uc.manageKeyInfo, logger),
     settings: new SettingsController(settings, settingsRepo, modelPool, logger, updateDefaultModelInYaml),

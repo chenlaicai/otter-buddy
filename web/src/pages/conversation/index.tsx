@@ -5,7 +5,7 @@ import '../../styles/globals.css'
 
 import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask, LocalMessageSegment } from '../../lib/mappers'
 
-import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
+import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapEntryDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
 import { useSpeakSegments } from '../../lib/use-speak-segments'
 import { isInFlight, upsertMessage, insertBySeq, findStaleInFlight, upsertTerminalMessage, insertCenteredByTs } from '../../lib/message-stream'
 import { applyInvokeStart, applyInvokeEnd, invokeBoundaryEntry, findOtterByInvokeId, type InvokeStates } from '../../lib/invoke-tracker'
@@ -275,16 +275,30 @@ function ConversationPage() {
 
   const loadConversationDetail = useCallback(async (convId: string) => {
     try {
-      const [listResp, keyInfo, participants] = await Promise.all([
+      const [listResp, keyInfo, participants, entriesResp] = await Promise.all([
         api.listMessages(convId, 30),
         api.getKeyResources(convId),
         api.getParticipants(convId),
+        // F20260910ctlv 切换清扫：entries 时间线历史（invoke 边界/yield/system 居中条目数据源）；
+        // 失败降级为空（旧对话无 entries 不阻断）
+        api.listEntries(convId, 50).catch(() => ({ entries: [], hasMore: false })),
       ])
       // 未读状态独立加载，失败不阻塞会话展示（降级为无未读）
       const unread = await api.getUnreadState(convId).catch(() => ({
         lastReadSeq: 0, unreadCount: 0, firstUnreadMessageId: null, firstUnreadSeq: null,
       }))
       let msgs = mapMessageDTOs(listResp.messages)
+      // F20260910ctlv 切换清扫：entries 居中条目（invoke 边界/yield/system）合并进时间线。
+      // 去重键 = entry.id（SSE 已插入的同 id 条目被历史覆盖，保证刷新后一致）；
+      // speak/user 条目仍以 messages 为准（entries 双写刚起步，messages 是全量真相源）
+      const centeredEntries = (entriesResp.entries || [])
+        .filter(e => e.entryType === 'invoke_start' || e.entryType === 'invoke_end' || e.entryType === 'yield')
+        .map(mapEntryDTO)
+      if (centeredEntries.length > 0) {
+        const existingIds = new Set(msgs.map(m => m.id))
+        const fresh = centeredEntries.filter(e => !existingIds.has(e.id))
+        msgs = [...msgs, ...fresh].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0) || a.ts.localeCompare(b.ts))
+      }
       setHasMoreBefore(listResp.hasMore)
       setUnreadState(unread)
       // 首次访问（无已读记录）：初始化已读到最新，避免下次进入显示全部未读

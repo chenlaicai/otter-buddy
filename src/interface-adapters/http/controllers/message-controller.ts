@@ -10,6 +10,7 @@ import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { SSEEvent } from "@contract/sse/events";
 import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import type { SignalRouter } from "@usecases/conversation/signal-router";
+import type { SendEntry } from "@usecases/conversation/send-entry";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 import { handleError, param } from "../http-error";
@@ -41,6 +42,8 @@ export class MessageController {
     /** F20260901sgpv P1：信号路由器——主入口调度收敛（火车头换轨）。可选注入：
      *  未注入时降级田直连链（旧装配/存量测试不变，灰度回滚面） */
     private readonly signalRouter?: SignalRouter,
+    /** F20260910ctlv 切换清扫：user 消息双写 entries（时间线真相源） */
+    private readonly sendEntry?: SendEntry,
   ) {}
 
   /** 批量解析 otter 消息的发送者显示名（dissolve 不删行，永远可解析） */
@@ -187,6 +190,18 @@ export class MessageController {
         body: body.body,
         ...(body.attachmentIds && body.attachmentIds.length > 0 && { attachmentIds: body.attachmentIds }),
       });
+
+      // F20260910ctlv 切换清扫：user 消息双写 entries（时间线真相源；失败不阻断主链路）
+      if (this.sendEntry) {
+        this.sendEntry.sendUserEntry({
+          conversationId,
+          senderId: body.senderId,
+          body: body.body,
+          source: "web",
+        }).catch((err: unknown) => {
+          this.logger.warn('Failed to write user entry (entries)', { error: err instanceof Error ? err.message : String(err) });
+        });
+      }
 
       // 广播用户消息到外部渠道（飞书等）
       this.broadcastUserMessage(userMessage, conversationId);
