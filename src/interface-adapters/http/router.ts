@@ -67,15 +67,13 @@ function registerMsgRoutes(app: Hono, c: Controllers): void {
   app.post("/api/conversations/:id/messages", (ctx) => c.message.sendMessage(ctx));
   app.get("/api/conversations/:id/unread", (ctx) => c.message.getUnreadState(ctx));
   app.post("/api/conversations/:id/read", (ctx) => c.message.markRead(ctx));
-  app.get("/api/messages/:id", (ctx) => c.message.getById(ctx));
-  app.get("/api/messages/:id/events", (ctx) => c.message.getEvents(ctx));
-  app.get("/api/messages/:id/expand", (ctx) => c.message.expand(ctx));
-  app.post("/api/messages/:id/abort", (ctx) => c.message.abort(ctx));
-  app.post("/api/messages/:id/retry", (ctx) => c.message.retry(ctx));
   // F20260910ctlv Phase 4：invoke 只读查询（Session 弹窗 + 獭状态面板）
   app.get("/api/conversations/:id/invokes", (ctx) => c.invoke.list(ctx));
   app.get("/api/invokes/:id/events", (ctx) => c.invoke.getEvents(ctx));
-  // F20260910ctlv 切换清扫：entries 时间线历史（前端渲染数据源）
+  // F20260910ctlv 彻底切换：invoke 中止/重试（UI 停止与重试按钮唯一后端；messages abort/retry 退役）
+  app.post("/api/invokes/:id/abort", (ctx) => c.invoke.abort(ctx));
+  app.post("/api/invokes/:id/retry", (ctx) => c.invoke.retry(ctx));
+  // F20260910ctlv 彻底切换：entries 时间线唯一渲染数据源（messages 只读端点退役）
   app.get("/api/conversations/:id/entries", (ctx) => c.entry.list(ctx));
 }
 

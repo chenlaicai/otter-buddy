@@ -173,6 +173,29 @@ export function listEntries(conversationId: string, limit = 50, before?: string)
   return request(`/conversations/${conversationId}/entries?${qs}`)
 }
 
+/** F20260910ctlv 彻底切换：after 游标向下分页（增量刷新用，升序） */
+export function listEntriesAfter(conversationId: string, after: string, limit = 100): Promise<EntriesResponseDTO> {
+  const qs = new URLSearchParams({ limit: String(limit), after })
+  return request(`/conversations/${conversationId}/entries?${qs}`)
+}
+
+/** F20260910ctlv 彻底切换：中止运行中 invoke（Session 弹窗/右栏停止按钮） */
+export function abortInvoke(invokeId: string, otterId: string): Promise<{ status: string }> {
+  return request(`/invokes/${invokeId}/abort`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ otterId }),
+  })
+}
+
+/** F20260910ctlv 彻底切换：重试失败 invoke（前端气泡重试按钮；返回 SSE 流） */
+export function retryInvoke(invokeId: string): Promise<Response> {
+  return fetch(`${BASE}/invokes/${invokeId}/retry`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
 // ── Otters ──
 
 export function getOtter(id: string): Promise<OtterDTO> {

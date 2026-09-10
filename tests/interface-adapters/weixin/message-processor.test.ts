@@ -29,7 +29,8 @@ function makeProcessor(overrides: Record<string, unknown> = {}) {
   } as any;
   const partnerResolver = { configured: false, isPartner: vi.fn().mockReturnValue(false) } as any;
   const agentDispatchService = {
-    dispatch: vi.fn(async (conversationId: string, content: string, senderId: string) => {
+    dispatch: vi.fn(async (input: { conversationId: string; userMessageContent: string; senderId: string }) => {
+      const { conversationId, userMessageContent: content, senderId } = input;
       dispatched.push({ conversationId, content, senderId });
       return {};
     }),

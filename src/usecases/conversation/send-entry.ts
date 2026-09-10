@@ -1,10 +1,13 @@
 /**
- * SendEntry - 条目发送与 invoke 生命周期管理（F20260910ctlv）
+ * SendEntry - 条目发送与 invoke 生命周期管理（F20260910ctlv 彻底切换）
  *
- * 职责：
- * - 创建各类 entry（speak/user/system/invoke_start/invoke_end/yield）
- * - 管理 invoke 生命周期（创建/更新/结束）
- * - 取代 SendMessage 中的消息管理逻辑
+ * 切换后唯一时间线真相源：
+ * - entries 表 = 时间线唯一数据源（user/speak/system/invoke_start/invoke_end/yield）
+ * - invokes 表 = invoke 生命周期唯一状态机
+ * - invoke_events 表 = 流式过程唯一存储
+ * - messages 表停写 UI 消息（memory/FTS/飞书依赖后续迁移，本轮不管）
+ *
+ * user 消息目标解析（路由点火前置依赖）已从 SendMessage 搬到 resolveSendTargets。
  */
 
 import { DomainError } from "@entities/errors";
@@ -25,15 +28,20 @@ import type { ConversationRepository } from "./conversation-repository";
 import type { Logger } from "@usecases/ports/logger";
 import { resolveSpeakerName } from "./speaker-resolver";
 import { tryCloseTurn } from "./turn-utils";
+import { resolveSendTargets, type ResolveTargetsDeps } from "./resolve-send-targets";
 
 /** 用户发送条目输入 */
 export interface SendUserEntryInput {
   conversationId: string;
   senderId: string;
   body: string;
+  /** 空 = 默认派发解析；显式 = @点名/卡片路由 */
+  talkingStonePassedTo?: string[];
   source?: EntrySource;
   metadata?: EntryMetadata | null;
   attachmentIds?: string[];
+  /** F20260826fuid：飞书群聊多人识别的发送者显示名快照（存 metadata.senderDisplayName） */
+  senderDisplayName?: string | null;
 }
 
 /** 创建 invoke 输入 */
@@ -41,14 +49,6 @@ export interface CreateInvokeInput {
   conversationId: string;
   otterId: string;
   triggerEntryId?: string;
-}
-
-/** 创建 invoke_start 条目输入 */
-export interface CreateInvokeStartEntryInput {
-  conversationId: string;
-  invokeId: string;
-  otterId: string;
-  turnId: string;
 }
 
 /** 创建 speak 条目输入 */
@@ -110,18 +110,39 @@ export class SendEntry {
     private readonly invokeRepo: InvokeRepository,
     private readonly otterRepo: OtterRepository,
     private readonly conversationRepo: ConversationRepository,
-    private readonly logger: Logger,
-  ) {}
+    /** F20260910ctlv 彻底切换：logger + 目标解析依赖（未注入 resolveDeps 时 sendUserEntry
+     *  不解析目标，由入口预解析；logger 独立成字段以保持构造 ≤5 参） */
+    private readonly aux: { logger: Logger; resolveDeps?: ResolveTargetsDeps },
+  ) {
+    this.logger = aux.logger;
+  }
 
-  /** 用户发送条目（立即 completed） */
-  async sendUserEntry(input: SendUserEntryInput): Promise<{ entry: Entry }> {
+  private readonly logger: Logger;
+
+  /**
+   * 用户发送条目（立即 completed）。
+   * 彻底切换：user 消息唯一落点（messages 表不再写入）。
+   * 未预解析目标时在此解析（默认派发 / @提及），路由点火方消费返回的 talkingStonePassedTo。
+   */
+  async sendUserEntry(input: SendUserEntryInput): Promise<{ entry: Entry; talkingStonePassedTo: string[]; mentionFeedback?: string }> {
     const turn = await this.ensureActiveTurn(input.conversationId);
-    const sequenceNum = await this.entryRepo.getMaxSequenceNum(input.conversationId) + 1;
 
+    /** 目标解析：显式目标直用；空则走默认派发链（resolveDeps 未注入时空数组——入口必须预解析） */
+    let talkingStonePassedTo = input.talkingStonePassedTo ?? [];
+    let mentionFeedback: string | undefined;
+    if (talkingStonePassedTo.length === 0 && this.aux.resolveDeps) {
+      const resolved = await resolveSendTargets({
+        deps: this.aux.resolveDeps, logger: this.logger, conversationId: input.conversationId, explicit: [], body: input.body, senderType: "user",
+      });
+      talkingStonePassedTo = resolved.targets;
+      mentionFeedback = resolved.feedback;
+    }
+
+    const now = new Date().toISOString();
     const entry: Entry = {
       id: crypto.randomUUID(),
       conversationId: input.conversationId,
-      sequenceNum,
+      sequenceNum: 0, // 原子分配（createEntryAtomic 忽略入参）
       entryType: "user",
       senderType: "user",
       senderId: input.senderId,
@@ -131,30 +152,31 @@ export class SendEntry {
       turnId: turn.id,
       status: "completed",
       source: input.source ?? "web",
-      metadata: input.metadata ?? null,
-      senderName: "",
+      metadata: input.metadata ?? (input.senderDisplayName?.trim() ? { senderDisplayName: input.senderDisplayName.trim() } as EntryMetadata : null),
+      senderName: input.senderDisplayName?.trim() ?? "",
       contextTokens: null,
       contextTokensMax: null,
-      createdAt: new Date().toISOString(),
-      completedAt: new Date().toISOString(),
+      createdAt: now,
+      completedAt: now,
     };
 
-    await this.entryRepo.createEntry(entry);
+    const created = await this.entryRepo.createEntryAtomic(entry);
 
-    // 尝试关闭 Turn
-    await tryCloseTurn(this.conversationRepo, turn.id);
+    // 尝试关闭 Turn（user entry 已是终态；同 turn 内无 running invoke 时关闭）
+    await tryCloseTurn(this.conversationRepo, turn.id, { invokeRepo: this.invokeRepo, entryRepo: this.entryRepo });
 
     this.logger.info('User entry sent', {
       conversationId: input.conversationId,
-      entryId: entry.id,
+      entryId: created.id,
       senderId: input.senderId,
       bodyLength: input.body.length,
+      talkingStonePassedTo,
     });
 
-    return { entry };
+    return { entry: created, talkingStonePassedTo, mentionFeedback };
   }
 
-  /** 创建 invoke 记录 + invoke_start 条目 */
+  /** 创建 invoke 记录 + invoke_start 条目（invoke 生命周期唯一入口） */
   async createInvoke(input: CreateInvokeInput): Promise<InvokeResult> {
     const otter = await this.otterRepo.getById(input.otterId);
     if (!otter) {
@@ -162,7 +184,6 @@ export class SendEntry {
     }
 
     const turn = await this.ensureActiveTurn(input.conversationId);
-    const sequenceNum = await this.entryRepo.getMaxSequenceNum(input.conversationId) + 1;
     const now = new Date().toISOString();
 
     // 创建 invoke 记录
@@ -187,7 +208,7 @@ export class SendEntry {
     const invokeStartEntry: Entry = {
       id: crypto.randomUUID(),
       conversationId: input.conversationId,
-      sequenceNum,
+      sequenceNum: 0,
       entryType: "invoke_start",
       senderType: null,
       senderId: null,
@@ -205,7 +226,7 @@ export class SendEntry {
       completedAt: now,
     };
 
-    await this.entryRepo.createEntry(invokeStartEntry);
+    const createdEntry = await this.entryRepo.createEntryAtomic(invokeStartEntry);
 
     this.logger.info('Invoke created', {
       invokeId: invoke.id,
@@ -213,26 +234,25 @@ export class SendEntry {
       conversationId: input.conversationId,
     });
 
-    return { invoke, invokeStartEntry };
+    return { invoke, invokeStartEntry: createdEntry };
   }
 
-  /** 创建 speak 条目（speak 工具调用时） */
+  /** 创建 speak 条目（speak 工具调用时——獭气泡唯一来源） */
   async createSpeakEntry(input: CreateSpeakEntryInput): Promise<SpeakEntryResult> {
     const otter = await this.otterRepo.getById(input.otterId);
     if (!otter) {
       throw new DomainError(`createSpeakEntry: otterId 不存在: ${input.otterId}`, "not_found");
     }
 
-    // F20260910ctlv 实测修复：调用方传空 turnId 时兜底 ensureActiveTurn（entries.turn_id FK 引用 turns.id）
+    // 空 turnId 时兜底 ensureActiveTurn（entries.turn_id FK 引用 turns.id）
     const turnId = input.turnId || (await this.ensureActiveTurn(input.conversationId)).id;
 
-    const sequenceNum = await this.entryRepo.getMaxSequenceNum(input.conversationId) + 1;
     const now = new Date().toISOString();
 
     const entry: Entry = {
       id: crypto.randomUUID(),
       conversationId: input.conversationId,
-      sequenceNum,
+      sequenceNum: 0,
       entryType: "speak",
       senderType: "otter",
       senderId: input.otterId,
@@ -250,18 +270,19 @@ export class SendEntry {
       completedAt: now,
     };
 
-    await this.entryRepo.createEntry(entry);
+    const created = await this.entryRepo.createEntryAtomic(entry);
 
     this.logger.info('Speak entry created', {
-      entryId: entry.id,
+      entryId: created.id,
       invokeId: input.invokeId,
       otterId: input.otterId,
     });
 
-    return { entry };
+    return { entry: created };
   }
 
-  /** 创建 yield 条目 + invoke_end 条目 + 更新 invoke 记录 */
+  /** 创建 yield 条目 + invoke_end 条目 + 更新 invoke 记录（yield 工具调用时）
+   *  彻底切换：yield = invoke 正常完成的唯一信号（成功检测判据） */
   // eslint-disable-next-line max-lines-per-function -- invoke 生命周期管理需要多步骤
   async createYieldEntry(input: CreateYieldEntryInput): Promise<YieldEntryResult> {
     const otter = await this.otterRepo.getById(input.otterId);
@@ -270,8 +291,7 @@ export class SendEntry {
     }
 
     const now = new Date().toISOString();
-    const baseSequenceNum = await this.entryRepo.getMaxSequenceNum(input.conversationId) + 1;
-    // F20260910ctlv 实测修复：空 turnId 兜底 ensureActiveTurn（entries.turn_id FK 引用 turns.id）
+    // 空 turnId 兜底 ensureActiveTurn（entries.turn_id FK 引用 turns.id）
     const turnId = input.turnId || (await this.ensureActiveTurn(input.conversationId)).id;
 
     // 更新 invoke 记录：设置 tsp + status=completed
@@ -284,11 +304,11 @@ export class SendEntry {
       throw new DomainError(`createYieldEntry: invoke 不存在: ${input.invokeId}`, "not_found");
     }
 
-    // 创建 yield 条目
+    // 创建 yield 条目 + invoke_end 条目（原子序号批量插入，天然连续递增）
     const yieldEntry: Entry = {
       id: crypto.randomUUID(),
       conversationId: input.conversationId,
-      sequenceNum: baseSequenceNum,
+      sequenceNum: 0,
       entryType: "yield",
       senderType: null,
       senderId: null,
@@ -306,11 +326,10 @@ export class SendEntry {
       completedAt: now,
     };
 
-    // 创建 invoke_end 条目
     const invokeEndEntry: Entry = {
       id: crypto.randomUUID(),
       conversationId: input.conversationId,
-      sequenceNum: baseSequenceNum + 1,
+      sequenceNum: 0,
       entryType: "invoke_end",
       senderType: null,
       senderId: null,
@@ -328,7 +347,10 @@ export class SendEntry {
       completedAt: now,
     };
 
-    await this.entryRepo.createEntries([yieldEntry, invokeEndEntry]);
+    const created = await this.entryRepo.createEntriesAtomic([yieldEntry, invokeEndEntry]);
+
+    // 尝试关闭 Turn（本 invoke 已终态；同 turn 无 running invoke 时关闭）
+    await tryCloseTurn(this.conversationRepo, turnId, { invokeRepo: this.invokeRepo, entryRepo: this.entryRepo });
 
     this.logger.info('Yield entry created', {
       invokeId: input.invokeId,
@@ -336,7 +358,7 @@ export class SendEntry {
       otterId: input.otterId,
     });
 
-    return { yieldEntry, invokeEndEntry, invoke };
+    return { yieldEntry: created[0]!, invokeEndEntry: created[1]!, invoke };
   }
 
   /** 创建 invoke_end 条目（fail/abort 时） */
@@ -347,8 +369,7 @@ export class SendEntry {
     }
 
     const now = new Date().toISOString();
-    const sequenceNum = await this.entryRepo.getMaxSequenceNum(input.conversationId) + 1;
-    // F20260910ctlv 实测修复：空 turnId 兜底 ensureActiveTurn
+    // 空 turnId 兜底 ensureActiveTurn
     const turnId = input.turnId || (await this.ensureActiveTurn(input.conversationId)).id;
 
     // 更新 invoke 记录状态
@@ -380,7 +401,7 @@ export class SendEntry {
     const invokeEndEntry: Entry = {
       id: crypto.randomUUID(),
       conversationId: input.conversationId,
-      sequenceNum,
+      sequenceNum: 0,
       entryType: "invoke_end",
       senderType: null,
       senderId: null,
@@ -398,7 +419,10 @@ export class SendEntry {
       completedAt: now,
     };
 
-    await this.entryRepo.createEntry(invokeEndEntry);
+    const created = await this.entryRepo.createEntryAtomic(invokeEndEntry);
+
+    // 尝试关闭 Turn（fail/abort 也是终态）
+    await tryCloseTurn(this.conversationRepo, turnId, { invokeRepo: this.invokeRepo, entryRepo: this.entryRepo });
 
     this.logger.info('Invoke end entry created', {
       invokeId: input.invokeId,
@@ -406,20 +430,19 @@ export class SendEntry {
       otterId: input.otterId,
     });
 
-    return { invokeEndEntry, invoke };
+    return { invokeEndEntry: created, invoke };
   }
 
   /** 创建系统条目 */
   async createSystemEntry(input: CreateSystemEntryInput): Promise<{ entry: Entry }> {
-    const sequenceNum = await this.entryRepo.getMaxSequenceNum(input.conversationId) + 1;
     const now = new Date().toISOString();
-    // F20260910ctlv 实测修复：空 turnId 兜底 ensureActiveTurn
+    // 空 turnId 兜底 ensureActiveTurn
     const turnId = input.turnId || (await this.ensureActiveTurn(input.conversationId)).id;
 
     const entry: Entry = {
       id: crypto.randomUUID(),
       conversationId: input.conversationId,
-      sequenceNum,
+      sequenceNum: 0,
       entryType: "system",
       senderType: "system",
       senderId: "system",
@@ -437,14 +460,14 @@ export class SendEntry {
       completedAt: now,
     };
 
-    await this.entryRepo.createEntry(entry);
+    const created = await this.entryRepo.createEntryAtomic(entry);
 
     this.logger.info('System entry created', {
-      entryId: entry.id,
+      entryId: created.id,
       conversationId: input.conversationId,
     });
 
-    return { entry };
+    return { entry: created };
   }
 
   /** 追加 invoke 事件（流式过程记录） */
@@ -499,9 +522,21 @@ export class SendEntry {
     return this.invokeRepo.getInvokeById(invokeId);
   }
 
-  /** 更新 invoke 状态（公共方法，供 orchestrator 回调使用） */
+  /** 更新 invoke 状态（orchestrator 终态回调） */
   async updateInvokeStatus(invokeId: string, status: 'completed' | 'failed' | 'aborted'): Promise<void> {
     await this.invokeRepo.updateInvokeStatus(invokeId, status, new Date().toISOString());
+  }
+
+  /** 更新 invoke 发言石去向（abort/no_yield 耗尽时回传触发者） */
+  async updateInvokeTalkingStonePassedTo(invokeId: string, targets: string[]): Promise<void> {
+    await this.invokeRepo.updateInvokeTalkingStonePassedTo(invokeId, targets);
+  }
+
+  /** F20260910ctlv 彻底切换：user entry 挂附件（多模态 Phase 1 接线） */
+  async attachEntryAttachments(entryId: string, attachmentIds: string[]): Promise<void> {
+    for (let i = 0; i < attachmentIds.length; i++) {
+      await this.entryRepo.attachAttachment(entryId, attachmentIds[i]!, i);
+    }
   }
 
   /** 确保存在活跃 Turn */

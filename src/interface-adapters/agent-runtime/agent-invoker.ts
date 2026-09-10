@@ -37,12 +37,13 @@ import type { SynthesisPrefetch } from "@frameworks/agent/synthesis-prompt-build
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 // F20260826mwrd C3：高危 healing 事件提醒（Part 4 高危路由消费侧）
 import { healingAlertRegistry, renderHealingAlerts } from "@usecases/healing/healing-alert-registry";
-import { HandoffState, recordPostTurnTokens, restoreHandoffContext, DEFAULT_CTX_MAX } from "./handoff-support";
+import { HandoffState, restoreHandoffContext, DEFAULT_CTX_MAX } from "./handoff-support";
 import { MIN_SENSIBLE_CTX_WINDOW, type OtterContextWindowProvider } from "@usecases/ports/otter-context-window-provider";
-import { mapToSSEEvent, mapToMessageEventInput, mapToInvokeEventInput } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
+import { mapToSSEEvent, mapToInvokeEventInput } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
 import { CircuitBreakSupport } from "./circuit-break-support";
 import type { TurnInput, AttemptDriver, TurnCallbacks, InvokeResultShape, CircuitBreakInfo, HealingEventInput } from "@usecases/conversation/agent-turn-orchestrator/types";
+import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
 import type { AgentTurnPort, AgentTurnResult } from "@usecases/ports/agent-turn-port";
 
 /**
@@ -139,12 +140,26 @@ export class AgentInvoker implements AgentTurnPort {
     private readonly healthySessionThresholdMs?: number,
     /** F20260901cxmw：可选注入，otter 实际模型 contextWindow 解析（缺省回退 128k，兼容旧测试） */
     private readonly ctxWindowProvider?: OtterContextWindowProvider,
-    /** F20260910ctlv：可选注入，invoke 生命周期管理（新模型） */
+    /** F20260910ctlv：invoke 生命周期管理（彻底切换后必注入——invoke/entries 唯一写入面） */
     private readonly sendEntry?: SendEntry,
+    /** F20260910ctlv 彻底切换：invoke 仓库（熔断摘要读 invoke_events） */
+    private readonly invokeRepo?: InvokeRepository,
   ) {
     this.orchestrator = new AgentTurnOrchestrator(logger, metrics);
-    this.circuitBreak = healingRepo
-      ? new CircuitBreakSupport({ manageSession, queryMessage, sendMessage, healingRepo, logger, healthySessionThresholdMs })
+    this.circuitBreak = healingRepo && sendEntry
+      ? new CircuitBreakSupport({
+        manageSession,
+        queryMessage,
+        // F20260910ctlv 彻底切换：sendSystem 走 entries（system entry），不再写 messages
+        sendSystem: async (convId, body) => {
+          const { entry } = await sendEntry.createSystemEntry({ conversationId: convId, turnId: "", body });
+          return { id: entry.id, body: entry.body, sequenceNum: entry.sequenceNum };
+        },
+        healingRepo,
+        invokeRepo,
+        logger,
+        healthySessionThresholdMs,
+      })
       : null;
   }
 
@@ -178,8 +193,8 @@ export class AgentInvoker implements AgentTurnPort {
     return runWithTrace({ traceId: newTraceId(), source: "direct" }, () => this.invokeConversationInner(params));
   }
 
-  // eslint-disable-next-line max-lines-per-function -- 触发链路+熔断+自重启集成点（F20260826mwrd C3：+healing 高危路由消费），拆分降低可读性（F20260901cxmw：getCtxMax 改同步后 complexity 已降至限内，无需 disable）
-  // eslint-disable-next-line complexity, max-statements, max-lines-per-function -- F20260910ctlv 双路径迁移期（新 invoke + 旧 message 并行），fallback 删除后回归
+   
+  // eslint-disable-next-line max-lines-per-function -- F20260910ctlv 双路径迁移期（新 invoke + 旧 message 并行），fallback 删除后回归
   private async invokeConversationInner(params: {
     otterId: string;
     conversationId: string;
@@ -191,7 +206,7 @@ export class AgentInvoker implements AgentTurnPort {
     images?: Array<{ type: "image"; data: string; mimeType: string }>;
     batchMaxSeq?: number;
   }): Promise<AgentTurnResult> {
-    const { otterId, conversationId, userMessageContent, senderId, onSSEEvent, retryCount = 0, images, batchMaxSeq } = params;
+    const { otterId, conversationId, userMessageContent, onSSEEvent, retryCount = 0, images, batchMaxSeq } = params;
     const startTime = Date.now();
 
     // 统一事件推送：优先用 onSSEEvent 覆盖（测试），默认走 broadcastEvent
@@ -238,64 +253,36 @@ export class AgentInvoker implements AgentTurnPort {
     await this.injectWorkspacePath(dynamicContext, conversationId);
     this.logger.debug('Dynamic context built', { otterId, hasSummary: !!dynamicContext.sessionSummary, hasWorkspace: !!dynamicContext.workspacePath });
 
-    this.logger.debug('Creating streaming message', { otterId, conversationId });
-    const message = await this.sendMessage.start({
-      conversationId,
-      senderId: otterId,
-      talkingStonePassedTo: [senderId],
-    });
-    this.logger.debug('Streaming message created', { otterId, messageId: message.id });
-
+    this.logger.debug('Creating invoke (timeline model)', { otterId, conversationId });
     const otter = await this.queryOtter.getById(otterId);
 
-    // F20260910ctlv：创建 invoke 记录 + invoke_start 条目（新模型，与消息并行）
-    let currentInvokeId: string | undefined;
-    if (this.sendEntry) {
-      try {
-        const { invoke, invokeStartEntry: _invokeStartEntry } = await this.sendEntry.createInvoke({
-          conversationId,
-          otterId,
-          triggerEntryId: message.id,
-        });
-        currentInvokeId = invoke.id;
-        // SSE: invoke.start（payload 对齐 api-contract/sse/events.ts 契约）
-        emitEvent({ event: "invoke.start", data: { invokeId: invoke.id, otterId, otterName: otter?.name ?? otterId, conversationId, startedAt: invoke.startedAt, triggerEntryId: message.id } });
-        this.logger.info('Invoke created', { invokeId: invoke.id, otterId, conversationId });
-      } catch (err) {
-        this.logger.warn('Failed to create invoke record (fallback to message-only)', { error: err instanceof Error ? err.message : String(err) });
-      }
-    }
-    /** seq 带给前端：进行中消息按服务端 sequence 插入消息流（M5：保证跨 otter 时序正确）。
-     *  otterName 用 snapshot-first 策略：message.senderName（层 1 持久化快照）优先于运行时查询——
-     *  自重启/熔断场景下快照在 SendMessage.start() 时已解析，不依赖运行时 otter 查询。 */
-    const resolvedOtterName = resolveSpeakerName("otter", otterId, message.senderName || otter?.name) ?? otterId;
-    // F20260910ctlv 修复：新 invoke 路径下主消息只是 invoke 生命周期容器，内容在各 speak entry 里——
-    // 不发射 message.start/entry.start，否则前端先插空气泡、message.complete 又渲染聚合气泡，
-    // 出现「同时两个獭气泡」。气泡唯一来源 = speak entry 的 entry.start/entry.speak。
-    // 旧路径兕底（sendEntry 失败、currentInvokeId 为空）保留 message.start，前端行为不变。
-    if (!currentInvokeId) {
-      emitEvent({ event: "message.start", data: { messageId: message.id, otterId, otterName: resolvedOtterName, seq: message.sequenceNum, createdAt: message.createdAt } });
-    }
+    // F20260910ctlv 彻底切换：不再创建 streaming 主 message（messages 表停写 UI 消息）。
+    // invoke 开始 = createInvoke + invoke_start entry + invoke.start SSE（唯一路径，失败硬抛）
+    const { invoke, invokeStartEntry } = await this.sendEntry!.createInvoke({
+      conversationId,
+      otterId,
+    });
+    const currentInvokeId = invoke.id;
+    const resolvedOtterName = resolveSpeakerName("otter", otterId, otter?.name) ?? otterId;
+    // SSE: invoke.start（triggerEntryId = invoke_start entry id——时间线居中条目与 invoke 关联）
+    emitEvent({ event: "invoke.start", data: { invokeId: invoke.id, otterId, otterName: resolvedOtterName, conversationId, startedAt: invoke.startedAt, triggerEntryId: invokeStartEntry.id } });
+    this.logger.info('Invoke created', { invokeId: invoke.id, otterId, conversationId });
 
-    // F20260814mtrc：messageId 进 trace scope（onEvent 回调与收尾日志自动携带）
-    return runWithTrace({ messageId: message.id }, async () => {
+    // F20260814mtrc：invokeId 进 trace scope（onEvent 回调与收尾日志自动携带）
+    return runWithTrace({ messageId: currentInvokeId }, async () => {
       // F20260819rscn: 用闭包捕获自重启信号（orchestrator 不透传未知字段）
       // F20260908efmd: 扩展 modelAlias 字段——配额耗尽时应急切模型
       let pendingSelfRestart: { otterId: string; summary?: string; modelAlias?: string } | undefined;
 
       // 创建 AttemptDriver 和 TurnCallbacks
       const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, { otterName: otter?.name, onSelfRestart: (signal) => { pendingSelfRestart = signal; }, images, batchMaxSeq, currentInvokeId });
-      // F20260830fabt: failMessage 必须同时 abort SDK session——消息标 failed 后 LLM 不能继续跑
-      // 注意：不走 driver.abort() 以免触发 userAbortedMessages 标记（那是用户中断的语义）
-      const callbacks = this.createTurnCallbacks(emitEvent, () => this.agentInvoke.abort(otterId, message.id), otterId);
+      // F20260910ctlv 彻底切换：invoke 态回调（无 failMessage→abort SDK 联动——handleAutoRetry 同 invoke 重试不再杀 session）
+      const callbacks = this.createTurnCallbacks(emitEvent, otterId);
 
-      const turnInput = this.buildTurnInput(params, message.id, startTime, currentInvokeId);
+      const turnInput = this.buildTurnInput(params, currentInvokeId, startTime);
 
       // 委托给 orchestrator 执行
       const turnResult = await this.orchestrator.executeTurn(turnInput, driver, callbacks);
-
-      /** F20260825hndf Post-turn 记录 */
-      await recordPostTurnTokens(otterId, message.id, this.queryMessage, this.handoffState, this.logger);
 
       /**
        * F20260818cbkr 一级熔断：orchestrator 上抛熔断信号（executeTurn 循环内不消费）→
@@ -311,26 +298,26 @@ export class AgentInvoker implements AgentTurnPort {
        * 新 session 的 summary 仅在入口 buildDynamicContext 注入一次。
        */
       if (pendingSelfRestart) {
-        const selfRestarted = await this.handleSelfRestartSignal(pendingSelfRestart, params, message.id);
+        const selfRestarted = await this.handleSelfRestartSignal(pendingSelfRestart, params, currentInvokeId);
         if (selfRestarted) return selfRestarted;
       }
 
       return {
-        messageId: turnResult.messageId,
+        invokeId: turnResult.invokeId,
+        messageId: turnResult.invokeId, // F20260910ctlv：兼容字段——链引擎过渡期仍读 messageId，值 = invokeId
         duration: turnResult.duration,
         tokenUsage: turnResult.tokenUsage,
-        aggregatedTargets: turnResult.aggregatedTargets,
       };
     });
   }
 
-  /** 创建 AttemptDriver：包装 SdkInvokePort */
+  /** 创建 AttemptDriver：包装 SdkInvokePort（F20260910ctlv：currentInvokeId 必传） */
   private createAttemptDriver(
     otterId: string,
     conversationId: string,
     dynamicContext: DynamicContext,
     emitEvent: (event: SSEEvent) => void,
-    opts?: { otterName?: string; onSelfRestart?: (signal: { otterId: string; summary?: string }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }>; batchMaxSeq?: number; currentInvokeId?: string },
+    opts: { otterName?: string; onSelfRestart?: (signal: { otterId: string; summary?: string }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }>; batchMaxSeq?: number; currentInvokeId: string },
   ): AttemptDriver {
     return {
       invoke: async (input: TurnInput, onEvent: (event: AgentStreamEvent) => void) => {
@@ -338,12 +325,13 @@ export class AgentInvoker implements AgentTurnPort {
         /** toolCallCount 透传盒——handleStreamEvent 提取后闭包直改外部 let 不再可行，改盒式引用 */
         const countBox = { count: 0 };
 
-        this.logger.debug('Calling agentInvoke.invoke', { otterId: input.otterId, messageId: input.messageId });
+        this.logger.debug('Calling agentInvoke.invoke', { otterId: input.otterId, invokeId: input.invokeId });
         const result = await this.agentInvoke.invoke(input.otterId, input.userMessageContent, {
           dynamicContext,
           conversationId: input.conversationId,
-          messageId: input.messageId,
-          ...(opts?.currentInvokeId && { currentInvokeId: opts.currentInvokeId, emitEvent }),
+          messageId: input.invokeId, // SDK 层 messageId 语义 = abort/guard 键控（invokeId 承担）
+          currentInvokeId: opts.currentInvokeId,
+          emitEvent,
           ...(opts?.images && { images: opts.images }),
           batchMaxSeq: opts?.batchMaxSeq,
           onEvent: (e: AgentStreamEvent) => this.handleStreamEvent(e, input, otterId, emitEvent, opts, toolStarts, countBox, onEvent),
@@ -353,48 +341,73 @@ export class AgentInvoker implements AgentTurnPort {
         return { result: result as unknown as InvokeResultShape, toolCallCount: countBox.count };
       },
 
-      abort: (otterId: string, messageId?: string) => {
-        this.userAbortedMessages.add(messageId ?? '');
-        this.agentInvoke.abort(otterId, messageId);
+      abort: (otterId: string, invokeId?: string) => {
+        this.userAbortedMessages.add(invokeId ?? '');
+        this.agentInvoke.abort(otterId, invokeId);
       },
 
-      getInternalAbortReason: (messageId: string) => {
-        return this.agentInvoke.getInternalAbortReason(messageId);
+      getInternalAbortReason: (invokeId: string) => {
+        return this.agentInvoke.getInternalAbortReason(invokeId);
       },
 
-      getToolCallCount: (otterId: string, messageId: string) => {
-        return this.agentInvoke.getToolCallCount(otterId, messageId);
+      getToolCallCount: (otterId: string, invokeId: string) => {
+        return this.agentInvoke.getToolCallCount(otterId, invokeId);
       },
 
-      isUserAborted: (messageId: string) => {
-        return this.userAbortedMessages.has(messageId);
+      isUserAborted: (invokeId: string) => {
+        return this.userAbortedMessages.has(invokeId);
       },
     };
   }
 
-  /** 创建 TurnCallbacks：消息生命周期 + SSE 事件推送 */
-  // eslint-disable-next-line max-lines-per-function -- 回调装配表（#731：+getRecentGuardBounces）
+  /** F20260910ctlv 彻底切换：系统消息唯一落点 = entries（system entry），messages 停写 */
+  private async sendSystemEntry(convId: string, body: string) {
+    const sendEntry = this.sendEntry!;
+    const { entry } = await sendEntry.createSystemEntry({ conversationId: convId, turnId: "", body });
+    this.logger.debug('System entry sent', { entryId: entry.id, conversationId: convId });
+    return { id: entry.id, body: entry.body, sequenceNum: entry.sequenceNum };
+  }
+
+  /** 创建 TurnCallbacks：invoke 生命周期 + SSE 事件推送（F20260910ctlv 彻底切换：全部 invoke 化） */
   private createTurnCallbacks(
     emitEvent: (event: SSEEvent) => void,
-    /** F20260830fabt: failMessage 后 abort SDK session，防止 dead message 僵尸运行 */
-    abortFn?: () => void,
     /** F20260910ctlv：invoke.end SSE 事件的 otterId 数据源 */
     otterId?: string,
   ): TurnCallbacks {
+    const sendEntry = this.sendEntry!;
     return {
-      completeMessage: async (messageId: string, input?: { contextTokens?: number; contextTokensMax?: number; skipSegmentValidation?: boolean }) => {
-        const cr = await this.sendMessage.complete(messageId, input);
-        return { turnClose: { aggregatedTargets: cr.turnClose?.aggregatedTargets } };
+      getInvokeById: async (invokeId: string) => {
+        const invoke = await sendEntry.getInvokeById(invokeId);
+        return invoke ? { status: invoke.status, toolCallCount: invoke.toolCallCount, talkingStonePassedTo: invoke.talkingStonePassedTo } : null;
       },
 
-      failMessage: async (messageId: string, body?: string, talkingStonePassedTo?: string[]) => {
-        await this.sendMessage.fail(messageId, body, talkingStonePassedTo);
-        // F20260830fabt: 消息标 failed 后立即 abort SDK session，阻止 LLM 在 dead message 上继续运行
-        abortFn?.();
+      updateInvokeStatus: async (invokeId: string, status: 'completed' | 'failed' | 'aborted') => {
+        await sendEntry.updateInvokeStatus(invokeId, status);
       },
 
-      abortMessage: async (messageId: string, input: { body: string; talkingStonePassedTo?: string[] }) => {
-        await this.sendMessage.abort(messageId, { body: input.body, talkingStonePassedTo: input.talkingStonePassedTo ?? [] });
+      updateInvokeTalkingStonePassedTo: async (invokeId: string, targets: string[]) => {
+        await sendEntry.updateInvokeTalkingStonePassedTo(invokeId, targets);
+      },
+
+      updateInvokeTokenUsage: async (invokeId: string, input: number, output: number) => {
+        await sendEntry.updateInvokeTokenUsage(invokeId, input, output);
+      },
+
+      createInvokeEndEntry: async (invokeId: string, status: 'failed' | 'aborted', body?: string) => {
+        const invoke = await sendEntry.getInvokeById(invokeId);
+        if (!invoke) return;
+        await sendEntry.createInvokeEndEntry({
+          conversationId: invoke.conversationId,
+          invokeId,
+          otterId: invoke.otterId,
+          turnId: '', // createInvokeEndEntry 内部空 turnId 时 ensureActiveTurn 兜底
+          status,
+          body,
+        });
+      },
+
+      emitInvokeEnd: (invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number } }) => {
+        emitEvent({ event: 'invoke.end', data: { invokeId, otterId: otterId ?? '', status, duration, endedAt: new Date().toISOString(), toolCallCount: stats?.toolCallCount, tokenUsage: stats?.tokenUsage } });
       },
 
       recordHealingEvent: async (input: HealingEventInput) => {
@@ -415,40 +428,7 @@ export class AgentInvoker implements AgentTurnPort {
         return this.circuitBreak ? this.circuitBreak.isSessionCircuitBreakCreated(otterId) : false;
       },
 
-      getMessageById: async (messageId: string) => {
-        const msg = await this.queryMessage.getMessageById(messageId);
-        return msg ? { status: msg.status, segments: msg.segments ?? [], turnId: msg.turnId, metadata: msg.metadata ?? undefined } : null;
-      },
-
-      sendSystem: async (convId: string, body: string) => {
-        const msg = await this.sendMessage.sendSystem(convId, body);
-        const content = aggregateBody(msg.segments);
-        // F20260910ctlv 切换清扫：system 消息双写 entries（时间线真相源；失败不阻断主链路）
-        if (this.sendEntry) {
-          this.sendEntry.createSystemEntry({ conversationId: convId, turnId: "", body: content }).catch((err: unknown) => {
-            this.logger.warn('Failed to write system entry (entries)', { error: err instanceof Error ? err.message : String(err) });
-          });
-        }
-        return { id: msg.id, body: content, sequenceNum: msg.sequenceNum };
-      },
-
-      startNewMessage: async (conversationId: string, senderId: string, talkingStonePassedTo: string[]) => {
-        const msg = await this.sendMessage.start({ conversationId, senderId, talkingStonePassedTo });
-        return { id: msg.id, sequenceNum: msg.sequenceNum, createdAt: msg.createdAt };
-      },
-
-      prepareForRetry: async (messageId: string, preserveSegments?: boolean) => {
-        await this.sendMessage.prepareForRetry(messageId, preserveSegments);
-      },
-
-      broadcastMessage: async (messageId: string) => {
-        if (this.messageBroadcaster) {
-          const msg = await this.queryMessage.getMessageById(messageId);
-          if (msg) {
-            await this.messageBroadcaster.broadcast(msg);
-          }
-        }
-      },
+      sendSystem: (convId: string, body: string) => this.sendSystemEntry(convId, body),
 
       getOtterById: async (otterId: string) => {
         const otter = await this.queryOtter.getById(otterId);
@@ -460,40 +440,6 @@ export class AgentInvoker implements AgentTurnPort {
       },
 
       emitEvent,
-
-      // F20260909smsp：invoke group 消息链查询（orchestrator fail/abort 时遍历终态化）
-      getMessagesByInvokeGroupId: async (conversationId: string, invokeGroupId: string) => {
-        const msgs = await this.sendMessage.getMessagesByInvokeGroupId(conversationId, invokeGroupId);
-        return msgs.map(m => ({ id: m.id, status: m.status, segments: m.segments ?? [], turnId: m.turnId }));
-      },
-
-      // F20260909smsp：完成 speak message（speaking → completed + memory index）
-      completeSpeakMessage: async (messageId: string) => {
-        await this.sendMessage.completeSpeakMessage(messageId);
-      },
-
-      // F20260910ctlv：invoke 生命周期回调
-      updateInvokeStatus: this.sendEntry ? async (invokeId: string, status: 'completed' | 'failed' | 'aborted') => {
-        await this.sendEntry!.updateInvokeStatus(invokeId, status);
-      } : undefined,
-
-      createInvokeEndEntry: this.sendEntry ? async (invokeId: string, status: 'completed' | 'failed' | 'aborted', body?: string) => {
-        const invoke = await this.sendEntry!.getInvokeById(invokeId);
-        if (!invoke) return;
-        await this.sendEntry!.createInvokeEndEntry({
-          conversationId: invoke.conversationId,
-          invokeId,
-          otterId: invoke.otterId,
-          turnId: '', // TODO: 从 invoke 关联的 entry 获取
-          status,
-          body,
-        });
-      } : undefined,
-
-      emitInvokeEnd: (invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number } }) => {
-        // F20260910ctlv：payload 对齐契约——otterId/endedAt/toolCallCount/tokenUsage 补齐
-        emitEvent({ event: 'invoke.end', data: { invokeId, otterId: otterId ?? '', status, duration, endedAt: new Date().toISOString(), toolCallCount: stats?.toolCallCount, tokenUsage: stats?.tokenUsage } });
-      },
 
       logger: this.logger,
 
@@ -555,62 +501,50 @@ export class AgentInvoker implements AgentTurnPort {
     if (e.isError === true) this.metrics?.recordToolError(tool);
   }
 
-  /** F20260910ctlv：流式事件处理（SSE 转发 + speak 中间发言 + 双表持久化 + 计数）
-   *  从 createAttemptDriver 的 onEvent 内联闭包提取——控制函数行数与复杂度。 */
+  /** F20260910ctlv 彻底切换：流式事件处理（SSE 转发 + speak entry 发射 + invoke_events 持久化 + 计数） */
   // eslint-disable-next-line max-params, complexity -- 事件管线需要完整上下文；事件分发本质是多分支
   private handleStreamEvent(
     e: AgentStreamEvent,
-    input: { messageId: string },
+    input: { invokeId: string },
     otterId: string,
     emitEvent: (event: SSEEvent) => void,
-    opts: { otterName?: string; currentInvokeId?: string } | undefined,
+    opts: { otterName?: string; currentInvokeId: string },
     toolStarts: Map<string, number>,
     toolCallCountBox: { count: number },
     onEvent: (e: AgentStreamEvent) => void,
   ): void {
-    this.logger.debug('Agent event received', { messageId: input.messageId, eventType: e.type, toolName: e.name ?? e.toolName });
+    this.logger.debug('Agent event received', { invokeId: input.invokeId, eventType: e.type, toolName: e.name ?? e.toolName });
     this.recordStreamEventMetrics(e, toolStarts);
     if (e.type === "tool_execution_start") {
       toolCallCountBox.count++;
     }
-    /** 所有事件如实推送到订阅者（event 就是 event，不抑制） */
+    /** 结构化事件如实推送（agent.retry / compaction）；流式过程事件已停发（只落 invoke_events） */
     const sse = mapToSSEEvent(e);
     if (sse) {
-      emitEvent({ event: sse.event, data: { ...sse.data, messageId: input.messageId } });
+      emitEvent({ event: sse.event, data: { ...sse.data, invokeId: input.invokeId } });
     }
     if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
-      this.logger.debug('speak tool executed', { messageId: input.messageId });
-      // F20260910ctlv：新 invoke 路径（有真实 entryId）只发 entry.*，跳过旧 message.start/speak.intermediate（防空气泡 + id 对齐）
-      const speakDetails = (e.result as { details?: { speakMessageId?: string; entryId?: string } } | undefined)?.details;
-      const isNewPath = !!opts?.currentInvokeId && !!speakDetails?.entryId;
-      if (!isNewPath) {
-        // 旧路径（F20260909smsp speak message 独立气泡）
-        this.emitSpeakIntermediate(e, input.messageId, otterId, opts?.otterName, emitEvent, undefined);
-      } else {
-        // 新路径：entry.start + entry.speak 用真实 entryId（对齐 entries 表）
+      this.logger.debug('speak tool executed', { invokeId: input.invokeId });
+      // F20260910ctlv 彻底切换：唯一路径——speak 工具已落 speak entry，此处发射 entry.start + entry.speak（真实 entryId）
+      const speakDetails = (e.result as { details?: { entryId?: string } } | undefined)?.details;
+      if (speakDetails?.entryId) {
         const resolvedName = resolveSpeakerName("otter", otterId, opts?.otterName) ?? otterId;
         const entryId = speakDetails.entryId as string;
         const body = String((speakDetails as { body?: unknown }).body ?? "");
-        emitEvent({ event: "entry.start", data: { entryId, invokeId: opts!.currentInvokeId, otterId, otterName: resolvedName } });
-        emitEvent({ event: "entry.speak", data: { entryId, invokeId: opts!.currentInvokeId, body, otterName: resolvedName } });
+        emitEvent({ event: "entry.start", data: { entryId, invokeId: opts.currentInvokeId, otterId, otterName: resolvedName } });
+        emitEvent({ event: "entry.speak", data: { entryId, invokeId: opts.currentInvokeId, body, otterName: resolvedName } });
       }
     }
-    /** 所有事件如实持久化（event 就是 event，不抑制） */
-    const evt = mapToMessageEventInput(e, input.messageId);
-    if (evt) this.sendMessage.appendEvent(evt).catch((err: unknown) => {
-      const m = err instanceof Error ? err.message : String(err);
-      this.logger.warn(`Failed to persist message event for ${input.messageId}: ${m}`);
-    });
-    // F20260910ctlv：流式过程同步落 invoke_events（Session 弹窗数据源）
-    this.persistInvokeEvent(e, opts?.currentInvokeId);
+    // F20260910ctlv 彻底切换：流式过程唯一存储 = invoke_events（message_events 停写）
+    this.persistInvokeEvent(e, opts.currentInvokeId);
     // 传递事件给 orchestrator
     onEvent(e);
   }
 
   /** F20260910ctlv：流式事件同步落 invoke_events（Session 弹窗数据源）+ 工具计数递增 */
-  private persistInvokeEvent(e: AgentStreamEvent, invokeId?: string): void {
-    if (!invokeId || !this.sendEntry) return;
+  private persistInvokeEvent(e: AgentStreamEvent, invokeId: string): void {
     const sendEntry = this.sendEntry;
+    if (!sendEntry) return;
     const ievt = mapToInvokeEventInput(e);
     if (ievt) sendEntry.appendInvokeEvent(invokeId, ievt.eventType, ievt.payload).catch((err: unknown) => {
       const m = err instanceof Error ? err.message : String(err);
@@ -621,40 +555,10 @@ export class AgentInvoker implements AgentTurnPort {
     }
   }
 
-  /** speak 落库成功后广播中间发言（前端实时展示，无需等 yield 交棒）
-   *  F20260909smsp：speak message 创建时先广播 message.start（前端插入新气泡），
-   *  再广播 speak.intermediate（带 speak message 的 messageId） */
-  // eslint-disable-next-line max-params -- 事件桥接器需要完整上下文；改 options 对象反而更绕
-  private emitSpeakIntermediate(
-    e: AgentStreamEvent,
-    messageId: string,
-    otterId: string,
-    otterName: string | undefined,
-    emitEvent: (event: SSEEvent) => void,
-    invokeId?: string,
-  ): void {
-    const details = (e.result as { details?: Record<string, unknown> } | undefined)?.details;
-    if (details?.__speakIntermediate === true) {
-      // F20260909smsp：speak message 的 messageId（独立气泡标识）
-      const speakMsgId = (details.speakMessageId as string) ?? messageId;
-      const resolvedName = resolveSpeakerName("otter", otterId, otterName) ?? otterId;
-
-      // 广播 message.start 让前端插入新气泡（仅首次——通过 liveEventsMap 检测）
-      emitEvent({ event: "message.start", data: { messageId: speakMsgId, otterId, otterName: resolvedName } });
-      // 广播 speak.intermediate（带 segment 内容）
-      emitEvent({ event: "speak.intermediate", data: { messageId: speakMsgId, body: String(details.body ?? ""), otterId, otterName: resolvedName, segmentId: details.segmentId as string, sequenceNum: details.sequenceNum as number } });
-      // F20260910ctlv：并行发射 entry.* 事件（新前端走此路径）
-      if (invokeId) {
-        emitEvent({ event: "entry.start", data: { entryId: speakMsgId, invokeId, otterId, otterName: resolvedName } });
-        emitEvent({ event: "entry.speak", data: { entryId: speakMsgId, invokeId, body: String(details.body ?? ""), otterName: resolvedName, segmentId: details.segmentId as string, sequenceNum: details.sequenceNum as number } });
-      }
-    }
-  }
-
-  /** 中断 Agent 生成（UA-2: 调用 SdkInvokePort.abort()）；标记按 messageId 键控 */
-  abort(otterId: string, messageId: string): void {
-    this.userAbortedMessages.add(messageId);
-    this.agentInvoke.abort(otterId, messageId);
+  /** 中断 Agent 生成（UA-2: 调用 SdkInvokePort.abort()）；F20260910ctlv：标记按 invokeId 键控 */
+  abort(otterId: string, invokeId: string): void {
+    this.userAbortedMessages.add(invokeId);
+    this.agentInvoke.abort(otterId, invokeId);
   }
 
   /** 构建 DynamicContext：会话摘要（前情）。记忆召回由 agent 通过 search_memory tool 主动触发 */
@@ -717,22 +621,20 @@ export class AgentInvoker implements AgentTurnPort {
   /** 构建 TurnInput。F20260818cbkr：originalUserMessage 单独保留——retry 会覆写 userMessageContent 为系统提醒文案，熔断摘要必须取原始消息 */
   private buildTurnInput(
     params: { otterId: string; conversationId: string; userMessageContent: string; senderId: string; retryCount?: number; manualRetry?: boolean },
-    messageId: string,
+    invokeId: string,
     startTime: number,
-    invokeId?: string,
   ): TurnInput {
     const { otterId, conversationId, userMessageContent, senderId, retryCount = 0, manualRetry = false } = params;
     return {
       otterId,
       conversationId,
-      messageId,
+      invokeId,
       userMessageContent,
       originalUserMessage: params.userMessageContent,
       senderId,
       retryCount,
       manualRetry,
       attemptStartTime: startTime,
-      invokeId,
     };
   }
 

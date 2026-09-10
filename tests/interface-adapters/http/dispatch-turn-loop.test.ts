@@ -85,17 +85,24 @@ describe("dispatchTurnLoop 深度上限", () => {
     const agentInvoker = {
       invokeConversation: async ({ otterId }: { otterId: string }) => {
         dispatchCount++;
-        return { messageId: `m-${otterId}`, aggregatedTargets: ["otter-x"] };
+        const invokeId = `inv-${otterId}-${dispatchCount}`;
+        (agentInvoker as unknown as { _invokeRows: Map<string, unknown> })._invokeRows.set(invokeId, { id: invokeId, status: "completed", otterId, talkingStonePassedTo: ["otter-x"], endedAt: new Date().toISOString() });
+        return { invokeId, messageId: invokeId, aggregatedTargets: ["otter-x"] };
       },
     } as unknown as AgentInvoker;
 
+    // F20260910ctlv 彻底切换：hop 产出判定读 invoke 行（tsp = invoke 的交棒目标）
+    const invokeRows = new Map<string, { id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null }>();
     const dispatchChainEngine = new DispatchChainEngine({
       conversationRepo,
       queryMessage: queryMessageStub,
       queryOtter: queryOtterStub,
       logger: logger as never,
       maxChainDepth: 2,
+      invokeRepo: { getInvokeById: async (id: string) => invokeRows.get(id) ?? null },
+      entryRepo: { getEntries: async () => [], getUnreadEntries: async () => [] },
     });
+    (agentInvoker as { _invokeRows?: unknown })._invokeRows = invokeRows;
 
     // 创建 mock broadcaster，捕获 broadcastEvent 调用
     const broadcastEventCalls: Array<{ event: string; data: Record<string, unknown> }> = [];
@@ -105,6 +112,17 @@ describe("dispatchTurnLoop 深度上限", () => {
       subscribe: () => () => {},
     };
 
+    const sendEntryStub = {
+      sendUserEntry: async (input: { conversationId: string; senderId: string; body: string; talkingStonePassedTo?: string[] }) => ({
+        entry: { id: "user-entry-1", sequenceNum: 1, body: input.body, createdAt: "2026-07-16T00:00:00Z" },
+        talkingStonePassedTo: input.talkingStonePassedTo ?? [],
+        mentionFeedback: undefined,
+      }),
+      createSystemEntry: async (input: { body: string }) => {
+        systemBodies.push(input.body);
+        return { entry: { id: "sys-entry-1", sequenceNum: 99, body: input.body } };
+      },
+    };
     const ctrl = new MessageController(
       useCase as unknown as SendMessage,
       queryMessageStub,
@@ -114,6 +132,10 @@ describe("dispatchTurnLoop 深度上限", () => {
       queryOtterStub,
       dispatchChainEngine,
       mockBroadcaster as unknown as MessageBroadcaster,
+      undefined,
+      undefined,
+      undefined,
+      sendEntryStub as never,
     );
     const res = await postMessage(createApp(ctrl));
     const sseText = await res.text();
@@ -128,8 +150,8 @@ describe("dispatchTurnLoop 深度上限", () => {
     expect(depthWarn!.data).toMatchObject({ depth: 2, pendingTargets: ["otter-x"] });
     expect(systemBodies).toHaveLength(1);
     expect(systemBodies[0]).toContain("2 跳");
-    // system.message 现在通过 broadcastEvent 推送（不在 POST SSE 流中）
-    expect(broadcastEventCalls.some(e => e.event === "system.message")).toBe(true);
+    // F20260910ctlv 彻底切换：链深通知发 entry.system（messages system.message 已退役）
+    expect(broadcastEventCalls.some(e => e.event === "entry.system")).toBe(true);
     expect(sseText).toContain("stream.end");
   });
 
@@ -147,14 +169,25 @@ describe("dispatchTurnLoop 深度上限", () => {
     // F20260904schf：本测试场景 = 消息行无行级 yield → 链一轮终止。
     // 不能与触顶测试共享带互传 tsp 的 stub（那会让本场景变 2 跳，测试失真）。
     const noYieldMessageStub = { getMessageById: async () => null } as unknown as QueryMessage;
+    // F20260910ctlv 彻底切换：invoke 行无 tsp（无 yield）→ 链一轮终止
     const dispatchChainEngine = new DispatchChainEngine({
       conversationRepo,
       queryMessage: noYieldMessageStub,
       queryOtter: queryOtterStub,
       logger: logger as never,
       maxChainDepth: 2,
+      invokeRepo: { getInvokeById: async () => ({ id: "inv-1", status: "completed", otterId: "otter-x", talkingStonePassedTo: [], endedAt: new Date().toISOString() }) },
+      entryRepo: { getEntries: async () => [], getUnreadEntries: async () => [] },
     });
 
+    const sendEntryStub2 = {
+      sendUserEntry: async (input: { conversationId: string; senderId: string; body: string; talkingStonePassedTo?: string[] }) => ({
+        entry: { id: "user-entry-2", sequenceNum: 1, body: input.body, createdAt: "2026-07-16T00:00:00Z" },
+        talkingStonePassedTo: input.talkingStonePassedTo ?? [],
+        mentionFeedback: undefined,
+      }),
+      createSystemEntry: async () => ({ entry: { id: "sys-entry-2", sequenceNum: 2 } }),
+    };
     const ctrl = new MessageController(
       useCase as unknown as SendMessage,
       noYieldMessageStub,
@@ -163,12 +196,16 @@ describe("dispatchTurnLoop 深度上限", () => {
       logger as never,
       queryOtterStub,
       dispatchChainEngine,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sendEntryStub2 as never,
     );
     const res = await postMessage(createApp(ctrl));
     await res.text();
+    await new Promise(r => setTimeout(r, 50));
 
-    // F20260904schf：invoke 返回空 aggregatedTargets 且消息行无行级 yield（stub 查不到 m-otter-x
-    // 时返回 null）→ 行级出处为空 → 链一轮终止。若 stub 泄漏了互传 tsp，这里会变 2+ 跳（测试失真）。
     expect(dispatchCount).toBe(1);
     expect(systemBodies).toHaveLength(0);
     expect(warns).toHaveLength(0);
@@ -193,14 +230,30 @@ describe("dispatchTurnLoop 深度上限", () => {
       },
     } as unknown as AgentInvoker;
 
+    // F20260910ctlv 彻底切换：未读注入读 entries（user/speak/system 条目）
     const dispatchChainEngine = new DispatchChainEngine({
       conversationRepo,
       queryMessage: queryMessageStub,
       queryOtter,
       logger: logger as never,
       maxChainDepth: 2,
+      invokeRepo: { getInvokeById: async () => ({ id: "inv-1", status: "completed", otterId: "otter-x", talkingStonePassedTo: [], endedAt: new Date().toISOString() }) },
+      entryRepo: {
+        getEntries: async () => [],
+        getUnreadEntries: async () => [
+          { id: "e-1", entryType: "speak", senderType: "otter", senderId: "otter-x", senderName: "Test Otter", body: "万象更新", sequenceNum: 1, invokeId: null, yieldTargets: null },
+        ],
+      },
     });
 
+    const sendEntryStub3 = {
+      sendUserEntry: async (input: { conversationId: string; senderId: string; body: string; talkingStonePassedTo?: string[] }) => ({
+        entry: { id: "user-entry-3", sequenceNum: 1, body: input.body, createdAt: "2026-07-16T00:00:00Z" },
+        talkingStonePassedTo: input.talkingStonePassedTo ?? [],
+        mentionFeedback: undefined,
+      }),
+      createSystemEntry: async () => ({ entry: { id: "sys-entry-3", sequenceNum: 2 } }),
+    };
     const ctrl = new MessageController(
       useCase as unknown as SendMessage,
       queryMessageStub,
@@ -209,9 +262,15 @@ describe("dispatchTurnLoop 深度上限", () => {
       logger as never,
       queryOtter,
       dispatchChainEngine,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sendEntryStub3 as never,
     );
     const res = await postMessage(createApp(ctrl));
     await res.text();
+    await new Promise(r => setTimeout(r, 50));
 
     expect(contexts).toHaveLength(1);
     /** 名册：name 映射在场（F20260803trrf: 去 otterId，speak 改用名字） */

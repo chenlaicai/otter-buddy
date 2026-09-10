@@ -154,8 +154,8 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
       signalRouter,
       uc.sendEntry,
     ),
-    // F20260910ctlv Phase 4：invoke 只读查询端点（repos.invoke 为 Phase 1 新建 repository）
-    invoke: new InvokeController(repos.invoke, logger),
+    // F20260910ctlv 彻底切换：invoke 查询 + 中止 + 重试（自足调度链）
+    invoke: new InvokeController(repos.invoke, logger, agentInvoker, dispatchChainEngine, messageBroadcaster),
     // F20260910ctlv 切换清扫：entries 时间线只读查询端点（前端历史数据源）
     entry: new EntryController(repos.entry, logger),
     memory: new MemoryController(uc.searchMemory, uc.manageMemory, uc.scanDarkEntries, embeddingGateway, { repo: repos.memory, logger }),

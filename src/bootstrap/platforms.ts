@@ -154,6 +154,9 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     // pi-session-factory（① URGENT steer 注入的依赖，signal-router 直调不经链引擎 deps）。
     abort: options?.agentGateway ? (otterId) => options.agentGateway!.abort(otterId) : undefined,
     healingRepo: repos.healingEvent,
+    // F20260910ctlv 彻底切换：未读注入/hop 产出判定/self-yield 护栏数据源（entries + invokes）
+    entryRepo: repos.entry,
+    invokeRepo: repos.invoke,
   });
 }
 
@@ -221,8 +224,10 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
     appConfig?.circuitBreaker.healthySessionThresholdMs,
     // F20260901cxmw：otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
     ctxWindowProvider,
-    // F20260910ctlv：invoke 生命周期管理（新模型——缺此注入时 invoke/entry 全部静默禁用，审视未覆盖 DI 层）
+    // F20260910ctlv 彻底切换：invoke 生命周期管理（唯一写入面）
     uc.sendEntry,
+    // F20260910ctlv 彻底切换：invoke 仓库（熔断摘要读 invoke_events）
+    repos.invoke,
   );
 
   // F20260903cmpk：压缩钩子合成注入——时机归 Pi（session_before_compact），
@@ -320,6 +325,8 @@ export function setupFeishu(options: {
   const messageProcessor = new FeishuMessageProcessor({
     manageConnection: uc.manageConnection,
     sendMessage: uc.sendMessage,
+    // F20260910ctlv 彻底切换：飞书用户消息写 entries
+    sendEntry: uc.sendEntry,
     commandDispatcher,
     feishuGateway: feishu.client,
     // F20260826fuid：飞书群聊多人识别——open_id → 姓名快照

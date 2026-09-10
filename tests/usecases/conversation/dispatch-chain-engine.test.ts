@@ -5,6 +5,8 @@ import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
+import type { EntryRepository } from "@usecases/conversation/entry-repository";
+import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
 import { PartnerResolver } from "@usecases/im/partner-resolver";
 import type { Turn } from "@entities/conversation/conversation";
 import type { Message } from "@entities/conversation/message";
@@ -49,8 +51,18 @@ function makeMocks() {
   const queryMessage = { getMessageById, getLastMessageBySender } as unknown as QueryMessage;
   const queryOtter = { getById: vi.fn().mockResolvedValue(null) } as unknown as QueryOtter;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger;
+  // F20260910ctlv 彻底切换：未读注入读 entries——mock entryRepo（entry 形状）
+  const entryRepo = {
+    getUnreadEntries: vi.fn().mockResolvedValue([]),
+    getEntries: vi.fn().mockResolvedValue([]),
+  } as unknown as EntryRepository;
+  const getInvokeById = vi.fn(async (id: string) => ({ id, status: 'completed' as const, otterId: 'otter-x', talkingStonePassedTo: [] as string[], endedAt: '2026-09-10T00:00:00Z' }));
+  const invokeRepo = {
+    getInvokeById,
+    getInvokesByTurnId: vi.fn().mockResolvedValue([]),
+  } as unknown as InvokeRepository;
 
-  return { sendMessage, conversationRepo, queryMessage, queryOtter, logger, updateLastReadTurnNumber, updateLastReadSeq, updateLastActiveTurnNumber, getTurnById, getMessageById, getLastMessageBySender, getActiveTurn, getMaxTurnNumber: conversationRepo.getMaxTurnNumber as ReturnType<typeof vi.fn> };
+  return { sendMessage, conversationRepo, queryMessage, queryOtter, logger, entryRepo, invokeRepo, getInvokeById, updateLastReadTurnNumber, updateLastReadSeq, updateLastActiveTurnNumber, getTurnById, getMessageById, getLastMessageBySender, getActiveTurn, getMaxTurnNumber: conversationRepo.getMaxTurnNumber as ReturnType<typeof vi.fn> };
 }
 
 describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒失效）", () => {
@@ -72,10 +84,12 @@ describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒�
 
   it("scheduler 路径：小獭 yield 回任务属主 otter，属主应被唤醒（不再被 senderId 过滤吞掉）", async () => {
     const { m, invoked, invokeFn } = makeChainMocks();
-    // F20260904schf：行级出处——m-work 行的 tsp 携带 yield 目标（生产中 completeMessage 落库）
-    m.getMessageById.mockImplementation(async (id: string) =>
-      id === "m-work" ? makeMsg({ id, talkingStonePassedTo: ["owner-otter"] }) : makeMsg({ id }));
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    // F20260910ctlv 彻底切换：行级出处 = invoke 行 tsp（生产中 yield 工具落 invokes.talkingStonePassedTo）
+    (m.getInvokeById as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) =>
+      id === "m-work"
+        ? { id, status: "completed", otterId: "otter-worker", talkingStonePassedTo: ["owner-otter"], endedAt: "2026-09-10T00:00:00Z" }
+        : { id, status: "completed", otterId: "owner-otter", talkingStonePassedTo: [], endedAt: "2026-09-10T00:00:00Z" });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
 
     await engine.executeChain({
       conversationId: "conv-1", userMessageContent: "hi", senderId: "owner-otter",
@@ -89,9 +103,11 @@ describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒�
 
   it("web 路径：senderId=user 时 yield to user 仍被滤除（人类不参与链调度）", async () => {
     const { m, invoked } = makeChainMocks();
-    m.getMessageById.mockImplementation(async (id: string) =>
-      id === "m-work" ? makeMsg({ id, talkingStonePassedTo: ["user"] }) : makeMsg({ id }));
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    (m.getInvokeById as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) =>
+      id === "m-work"
+        ? { id, status: "completed", otterId: "otter-worker", talkingStonePassedTo: ["user"], endedAt: "2026-09-10T00:00:00Z" }
+        : { id, status: "completed", otterId: "owner-otter", talkingStonePassedTo: [], endedAt: "2026-09-10T00:00:00Z" });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
 
     await engine.executeChain({
       conversationId: "conv-1", userMessageContent: "hi", senderId: "user",
@@ -107,11 +123,14 @@ describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒�
 
   it("F20260907ylfs ②：yield 回自己 = 任务锚点入箱，护栏放行链续跑（无消息表服务时降级 0 永放行，maxChainDepth 兜底）", async () => {
     const { m } = makeChainMocks();
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, maxChainDepth: 10 });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, maxChainDepth: 10, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const invoked: string[] = [];
 
-    m.getMessageById.mockImplementation(async (id: string) =>
-      id === "m-work" ? makeMsg({ id, talkingStonePassedTo: ["otter-worker"] }) : makeMsg({ id }));
+    // F20260910ctlv 彻底切换：self-yield 出处 = invoke 行 tsp（yield 回自己）
+    (m.getInvokeById as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) =>
+      id === "m-work"
+        ? { id, status: "completed", otterId: "otter-worker", talkingStonePassedTo: ["otter-worker"], endedAt: "2026-09-10T00:00:00Z" }
+        : { id, status: "completed", otterId: "owner-otter", talkingStonePassedTo: [], endedAt: "2026-09-10T00:00:00Z" });
 
     await engine.executeChain({
       conversationId: "conv-1", userMessageContent: "hi", senderId: "owner-otter",
@@ -154,7 +173,7 @@ describe("buildIdleOttersWarning", () => {
       return null;
     });
     m.getMaxTurnNumber.mockResolvedValue(25);
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const result = await engine.buildIdleOttersWarning("conv-1", "otter-current");
     expect(result).toContain("闲置獭");
     expect(result).toContain("24 轮");
@@ -168,7 +187,7 @@ describe("buildIdleOttersWarning", () => {
     ]);
     (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "活跃獭" });
     m.getMaxTurnNumber.mockResolvedValue(25);
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const result = await engine.buildIdleOttersWarning("conv-1", "user-1");
     expect(result).toBeNull();
   });
@@ -176,7 +195,7 @@ describe("buildIdleOttersWarning", () => {
   it("getMaxTurnNumber 返回 0 时返回 null", async () => {
     const m = makeMocks();
     (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     m.getMaxTurnNumber.mockResolvedValue(0);
     const result = await engine.buildIdleOttersWarning("conv-1", "user-1");
     expect(result).toBeNull();
@@ -190,7 +209,7 @@ describe("buildIdleOttersWarning", () => {
     (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "獭" });
     m.getMaxTurnNumber.mockResolvedValue(10);
     const settingsRepo = { get: vi.fn().mockResolvedValue("5") };
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, settingsRepo: settingsRepo as never });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, settingsRepo: settingsRepo as never, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     // idleTurns = 10 - 1 = 9, threshold = 5 → 超过
     const result = await engine.buildIdleOttersWarning("conv-1", "user-1");
     expect(result).toContain("獭");
@@ -204,7 +223,7 @@ describe("buildIdleOttersWarning", () => {
     ]);
     (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "獭" });
     m.getMaxTurnNumber.mockResolvedValue(25);
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     // idleTurns = 25 - 1 = 24, threshold = 20 → 超过
     const result = await engine.buildIdleOttersWarning("conv-1", "user-1");
     expect(result).toContain("24 轮");
@@ -218,7 +237,7 @@ describe("buildIdleOttersWarning", () => {
     (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "獭" });
     m.getMaxTurnNumber.mockResolvedValue(25);
     const settingsRepo = { get: vi.fn().mockResolvedValue("abc") };
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, settingsRepo: settingsRepo as never });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, settingsRepo: settingsRepo as never, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     // idleTurns = 24, threshold fallback 20 → 超过
     const result = await engine.buildIdleOttersWarning("conv-1", "user-1");
     expect(result).toContain("24 轮");
@@ -234,9 +253,9 @@ describe("buildMessageWithContext 闲置预警集成", () => {
     m.getMaxTurnNumber.mockResolvedValue(25);
     (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "闲置獭" });
     // 无未读消息
-    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const { message: result } = await engine.buildMessageWithContext("conv-1", "user-1", "hi", "user-1", "## 在场成员\n- user'");
 
     expect(result).toContain("闲置獭");
@@ -246,18 +265,18 @@ describe("buildMessageWithContext 闲置预警集成", () => {
 
   it("F20260829cach: 两条路径都注入分钟级当前时间（补偿 system prompt 日粒度锚点）", async () => {
     const m = makeMocks();
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
 
     // 路径 1：无未读消息（早返回）
-    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     const noUnread = await engine.buildMessageWithContext("conv-1", "user-1", "hi", "user-1", "## 在场成员");
     expect(noUnread.message).toMatch(/## 当前时间\n- \d{4}-\d{2}-\d{2} \d{2}:\d{2}（Asia\/Shanghai）/);
     expect(noUnread.message.indexOf("## 当前时间")).toBeGreaterThan(noUnread.message.indexOf("## 在场成员"));
     expect(noUnread.message.indexOf("## 当前任务")).toBeGreaterThan(noUnread.message.indexOf("## 当前时间"));
 
     // 路径 2：有未读消息
-    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { senderType: "otter", senderId: "otter-1", senderName: "Test Otter", segments: [{ body: "msg" }], sequenceNum: 1 },
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "e-otter-otter-1", entryType: "otter", senderType: "otter", senderId: "otter-1", senderName: "Test Otter", body: "msg", sequenceNum: 1, invokeId: null, yieldTargets: null },
     ]);
     const withUnread = await engine.buildMessageWithContext("conv-1", "user-1", "hi", "user-1", "## 在场成员");
     expect(withUnread.message).toMatch(/## 当前时间\n- \d{4}-\d{2}-\d{2} \d{2}:\d{2}（Asia\/Shanghai）/);
@@ -268,11 +287,11 @@ describe("buildMessageWithContext 闲置预警集成", () => {
     const m = makeMocks();
     // getMaxTurnNumber 抛异常触发 buildIdleOttersWarning 的 try-catch
     (m.conversationRepo as unknown as { getMaxTurnNumber: ReturnType<typeof vi.fn> }).getMaxTurnNumber.mockRejectedValue(new Error("db error"));
-    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { senderType: "otter", senderId: "otter-1", senderName: "Test Otter", segments: [{ body: "msg" }] },
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "e-otter-otter-1", entryType: "otter", senderType: "otter", senderId: "otter-1", senderName: "Test Otter", body: "msg", sequenceNum: 1, invokeId: null, yieldTargets: null },
     ]);
 
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const { message: result } = await engine.buildMessageWithContext("conv-1", "user-1", "hi", "user-1", "## 在场成员");
 
     // 预警失败不影响主流程，结果仍包含对话历史和当前任务
@@ -285,11 +304,11 @@ describe("buildMessageWithContext 闲置预警集成", () => {
 describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群聊多人识别）", () => {
   it("user 消息带 senderName 快照时用快照名渲染", async () => {
     const m = makeMocks();
-    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { senderType: "user", senderId: "ou_zhangsan", senderName: "张三", segments: [{ body: "我是张三的消息" }] },
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "e-user-ou_zhangsan", entryType: "user", senderType: "user", senderId: "ou_zhangsan", senderName: "张三", body: "我是张三的消息", sequenceNum: 1, invokeId: null, yieldTargets: null },
     ]);
 
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
     expect(result).toContain("[张三] 我是张三的消息");
@@ -297,12 +316,12 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
 
   it("多条 user 消息不同快照名可区分", async () => {
     const m = makeMocks();
-    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { senderType: "user", senderId: "ou_zhangsan", senderName: "张三", segments: [{ body: "第一条" }] },
-      { senderType: "user", senderId: "ou_lisi", senderName: "李四", segments: [{ body: "第二条" }] },
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "e-user-ou_zhangsan", entryType: "user", senderType: "user", senderId: "ou_zhangsan", senderName: "张三", body: "第一条", sequenceNum: 1, invokeId: null, yieldTargets: null },
+      { id: "e-user-ou_lisi", entryType: "user", senderType: "user", senderId: "ou_lisi", senderName: "李四", body: "第二条", sequenceNum: 1, invokeId: null, yieldTargets: null },
     ]);
 
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
     expect(result).toContain("[张三] 第一条");
@@ -311,11 +330,11 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
 
   it("当前 sender 无快照时回退「搭档」标签", async () => {
     const m = makeMocks();
-    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { senderType: "user", senderId: "ou_lisi", senderName: "", segments: [{ body: "在吗" }] },
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "e-user-ou_lisi", entryType: "user", senderType: "user", senderId: "ou_lisi", senderName: "", body: "在吗", sequenceNum: 1, invokeId: null, yieldTargets: null },
     ]);
 
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
     expect(result).toContain("[搭档] 在吗");
@@ -323,11 +342,11 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
 
   it("其他 user 发言者无快照时保留裸 open_id（不冒充搭档）", async () => {
     const m = makeMocks();
-    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { senderType: "user", senderId: "ou_zhangsan", senderName: "", segments: [{ body: "我是谁" }] },
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "e-user-ou_zhangsan", entryType: "user", senderType: "user", senderId: "ou_zhangsan", senderName: "", body: "我是谁", sequenceNum: 1, invokeId: null, yieldTargets: null },
     ]);
 
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
     expect(result).toContain("[ou_zhangsan] 我是谁");
@@ -336,11 +355,11 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
 
   it("快照名仅空白时视为无快照", async () => {
     const m = makeMocks();
-    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { senderType: "user", senderId: "ou_lisi", senderName: "   ", segments: [{ body: "在吗" }] },
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "e-user-ou_lisi", entryType: "user", senderType: "user", senderId: "ou_lisi", senderName: "   ", body: "在吗", sequenceNum: 1, invokeId: null, yieldTargets: null },
     ]);
 
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
     expect(result).toContain("[搭档] 在吗");
@@ -355,13 +374,15 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
       queryOtter: m.queryOtter,
       logger: m.logger,
       partnerResolver: new PartnerResolver(partnerOpenId),
+      entryRepo: m.entryRepo,
+      invokeRepo: m.invokeRepo,
     });
   }
 
   it("静态模式：配置的搭档 open_id → partnerLabel，即使非本次 sender", async () => {
     const m = makeMocks();
-    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { senderType: "user", senderId: "ou_chen", senderName: "", segments: [{ body: "看看这个" }] },
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "e-user-ou_chen", entryType: "user", senderType: "user", senderId: "ou_chen", senderName: "", body: "看看这个", sequenceNum: 1, invokeId: null, yieldTargets: null },
     ]);
 
     // joy 触发本次派发，但历史里 chen 的消息仍标搭档（静态锚定，不随说话者变）
@@ -373,8 +394,8 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
 
   it("静态模式：访客触发本次派发也无 partnerLabel（动态推断旧病修复）", async () => {
     const m = makeMocks();
-    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { senderType: "user", senderId: "ou_joy", senderName: "", segments: [{ body: "我也觉得行" }] },
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "e-user-ou_joy", entryType: "user", senderType: "user", senderId: "ou_joy", senderName: "", body: "我也觉得行", sequenceNum: 1, invokeId: null, yieldTargets: null },
     ]);
 
     const engine = makeEngine(m, "ou_chen");
@@ -386,8 +407,8 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
 
   it("静态模式：访客有快照名时显示真名", async () => {
     const m = makeMocks();
-    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { senderType: "user", senderId: "ou_joy", senderName: "Joy", segments: [{ body: "哈哈" }] },
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "e-user-ou_joy", entryType: "user", senderType: "user", senderId: "ou_joy", senderName: "Joy", body: "哈哈", sequenceNum: 1, invokeId: null, yieldTargets: null },
     ]);
 
     const engine = makeEngine(m, "ou_chen");
@@ -398,8 +419,8 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
 
   it("静态模式：Web 'user' 恒为搭档", async () => {
     const m = makeMocks();
-    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { senderType: "user", senderId: "user", senderName: "", segments: [{ body: "Web 来的" }] },
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "e-user-user", entryType: "user", senderType: "user", senderId: "user", senderName: "", body: "Web 来的", sequenceNum: 1, invokeId: null, yieldTargets: null },
     ]);
 
     const engine = makeEngine(m, "ou_chen");
@@ -410,8 +431,8 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
 
   it("降级（未配置）：维持 #488 行为——当前 sender 无快照仍标搭档", async () => {
     const m = makeMocks();
-    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { senderType: "user", senderId: "ou_joy", senderName: "", segments: [{ body: "在吗" }] },
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "e-user-ou_joy", entryType: "user", senderType: "user", senderId: "ou_joy", senderName: "", body: "在吗", sequenceNum: 1, invokeId: null, yieldTargets: null },
     ]);
 
     const engine = makeEngine(m, undefined);
@@ -455,7 +476,7 @@ describe("L2 安全词扫描接线（F20260826mwrd C3 Part 6）", () => {
   /** executeChain 集成：用户消息命中「停下」→ invokeFn 收到的消息带 reminder 后缀 */
   async function runChain(userMessage: string) {
     const m = makeMocks();
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const received: string[] = [];
     await engine.executeChain({
       conversationId: "conv-1",

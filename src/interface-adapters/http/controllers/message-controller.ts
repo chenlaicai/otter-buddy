@@ -163,64 +163,74 @@ export class MessageController {
     }
   }
 
+  /** 多模态附件前置校验（#826 收口：路由器在位时仅校验不组装——路由器消费信号时从 attachments 重建） */
+  private async validateAttachmentPayload(attachmentIds?: string[]): Promise<Response | Awaited<ReturnType<AttachmentInjectionService["validateAndBuild"]>>> {
+    const payload = this.signalRouter
+      ? await this.attachmentInjection?.validateForSendOnly(attachmentIds) ?? undefined
+      : await this.attachmentInjection?.validateAndBuild(attachmentIds);
+    if (typeof payload === "string") {
+      return Response.json({ error: payload }, { status: 400 });
+    }
+    return payload;
+  }
+
   async sendMessage(c: Context): Promise<Response> {
     try {
       const conversationId = param(c, "id");
       const body = await c.req.json<SendMessageRequestDTO>();
 
       /** 1. 校验请求体（在写入 DB 之前，避免孤儿消息）。
-       *  talkingStonePassedTo 允许为空：无 @ 时由 usecase 层按领域规则解析默认目标 */
+     *  talkingStonePassedTo 允许为空：无 @ 时由 usecase 层按领域规则解析默认目标 */
       const requestError = this.validateSendMessageRequest(body);
       if (requestError) return requestError;
 
-      /** 多模态 Phase 1：附件前置校验（usecases 层策略：存在性 + 每轮 ≤2 图硬限制）。
-       *  #826 收尾处置（检视建议发现 2）：路由器在位时仅校验、不组装内存载荷
-       *  （路由器消费信号时从 attachments 重建——controller 侧组装的载荷无人消费，
-       *  每条带附件消息双读盘×base64 白建）；降级路径（无路由器直连链）才组装 */
-      const payload = this.signalRouter
-        ? await this.attachmentInjection?.validateForSendOnly(body.attachmentIds) ?? undefined
-        : await this.attachmentInjection?.validateAndBuild(body.attachmentIds);
-      if (typeof payload === "string") return c.json({ error: payload }, 400);
+      /** 多模态 Phase 1：附件前置校验（usecases 层策略：存在性 + 每轮 ≤2 图硬限制） */
+      const payloadResult = await this.validateAttachmentPayload(body.attachmentIds);
+      if (payloadResult instanceof Response) return payloadResult;
+      const payload = payloadResult;
 
-      /** 2. 创建用户消息（completed 状态），空目标会被解析为默认派发对象 */
-      const { message: userMessage, mentionFeedback } = await this.sendMessageUseCase.send({
+      /** 2. F20260910ctlv 彻底切换：user 消息唯一落点 = entries（messages 表停写）。
+       *  目标解析（默认派发/@提及）在 SendEntry 内完成；显式目标透传；talkingStonePassedTo 是点火依据 */
+      const { entry: userEntry, talkingStonePassedTo, mentionFeedback } = await this.sendEntry!.sendUserEntry({
         conversationId,
         senderId: body.senderId,
-        talkingStonePassedTo: body.talkingStonePassedTo ?? [],
         body: body.body,
+        source: "web",
+        talkingStonePassedTo: body.talkingStonePassedTo ?? [],
         ...(body.attachmentIds && body.attachmentIds.length > 0 && { attachmentIds: body.attachmentIds }),
       });
 
-      // F20260910ctlv 切换清扫：user 消息双写 entries（时间线真相源；失败不阻断主链路）
-      if (this.sendEntry) {
-        this.sendEntry.sendUserEntry({
-          conversationId,
-          senderId: body.senderId,
-          body: body.body,
-          source: "web",
-        }).catch((err: unknown) => {
-          this.logger.warn('Failed to write user entry (entries)', { error: err instanceof Error ? err.message : String(err) });
+      /** 附件关联（多模态）：user entry 挂附件（内存载荷仅降级直连链用） */
+      if (body.attachmentIds && body.attachmentIds.length > 0) {
+        await this.sendEntry!.attachEntryAttachments(userEntry.id, body.attachmentIds).catch((err: unknown) => {
+          this.logger.warn('Failed to attach entry attachments', { entryId: userEntry.id, error: err instanceof Error ? err.message : String(err) });
         });
       }
 
-      // 广播用户消息到外部渠道（飞书等）
-      this.broadcastUserMessage(userMessage, conversationId);
+      /** 广播 entry 事件（user 气泡，前端 entry 通道消费；旧 message 广播已退役） */
+      if (this.messageBroadcaster) {
+        this.messageBroadcaster.broadcastEvent(conversationId, {
+          event: "entry.user",
+          data: { entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: body.senderId, body: body.body, createdAt: userEntry.createdAt },
+        });
+      }
 
-      return this.streamDispatchResponse(c, { conversationId, body, userMessage, mentionFeedback, payload });
+      /** 兼容路由器：routeSignals 读 messages 行的 tsp——构造轻量 message 视图（不入库） */
+      const userMessage = {
+        id: userEntry.id,
+        conversationId,
+        senderType: "user" as const,
+        senderId: body.senderId,
+        talkingStonePassedTo,
+        status: "completed" as const,
+        segments: [],
+        sequenceNum: userEntry.sequenceNum,
+      };
+
+      return this.streamDispatchResponse(c, { conversationId, body, userMessage, mentionFeedback, payload, entryId: userEntry.id });
     } catch (err) {
       return handleError(c, err, this.logger);
     }
-  }
-
-  /** 广播用户消息到外部渠道（fire-and-forget，自 sendMessage 拆出） */
-  private broadcastUserMessage(userMessage: Message, conversationId: string): void {
-    if (!this.messageBroadcaster) return;
-    this.messageBroadcaster.broadcast(userMessage).catch(err => {
-      this.logger.error("Failed to broadcast user message", err instanceof Error ? err : undefined, {
-        conversationId,
-        messageId: userMessage.id,
-      });
-    });
   }
 
   /** POST SSE 流 + 调度循环启动（自 sendMessage 拆出）。
@@ -231,13 +241,16 @@ export class MessageController {
     ctx: {
       conversationId: string;
       body: SendMessageRequestDTO;
-      userMessage: Message;
+      /** F20260910ctlv 彻底切换：路由器信号视图（轻量内存对象，不入库） */
+      userMessage: { id: string; conversationId: string; senderType: "user"; senderId: string; talkingStonePassedTo: string[]; status: "completed"; segments: never[]; sequenceNum: number };
       mentionFeedback?: string;
       payload?: Awaited<ReturnType<AttachmentInjectionService["validateAndBuild"]>>;
+      /** F20260910ctlv：user entry id（触发锚） */
+      entryId: string;
     },
   ): Response {
     const { conversationId, body, userMessage, mentionFeedback, payload } = ctx;
-    /** 首轮立即派发（以持久化后的消息目标为准，含默认解析结果） */
+    /** 首轮立即派发（以解析后的目标为准，含默认解析结果） */
     const firstTurnTargets = userMessage.talkingStonePassedTo ?? [];
 
     /** SSE 流（长连接贯穿多轮）。客户端断开不中止 Agent——发言生命周期由后端状态机管理（UA-刷新续跑） */
@@ -481,15 +494,14 @@ export class MessageController {
     depth: number,
   ): Promise<void> {
     this.logger.warn('发言链达到深度上限，交还用户', { depth, pendingTargets, conversationId });
-    const sysMsg = await this.sendMessageUseCase.sendSystem(
+    // F20260910ctlv 彻底切换：链深通知只写 entries（system entry）
+    const { entry: sysEntry } = await this.sendEntry!.createSystemEntry({
       conversationId,
-      `行动权接力已达系统安全上限（${depth} 跳），行动权交还给你。直接回复即可继续——所有参与者会看到未读消息。`,
-    );
+      turnId: "",
+      body: `行动权接力已达系统安全上限（${depth} 跳），行动权交还给你。直接回复即可继续——所有参与者会看到未读消息。`,
+    });
     if (this.messageBroadcaster) {
-      const sysContent = aggregateBody(sysMsg.segments);
-      this.messageBroadcaster.broadcastEvent(conversationId, { event: "system.message", data: { messageId: sysMsg.id, content: sysContent, seq: sysMsg.sequenceNum } });
-      // F20260910ctlv：并行广播 entry.system（常驻 SSE 通道的 entry.system handler 依赖此事件）
-      this.messageBroadcaster.broadcastEvent(conversationId, { event: "entry.system", data: { entryId: sysMsg.id, content: sysContent, seq: sysMsg.sequenceNum } });
+      this.messageBroadcaster.broadcastEvent(conversationId, { event: "entry.system", data: { entryId: sysEntry.id, content: sysEntry.body, seq: sysEntry.sequenceNum } });
     }
   }
 

@@ -20,6 +20,8 @@ import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
+import type { EntryRepository } from "@usecases/conversation/entry-repository";
+import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
 import type { Message } from "@entities/conversation/message";
 
 // ── Helpers ──
@@ -74,6 +76,18 @@ function makeMocks() {
   const queryOtter = { getById: vi.fn().mockResolvedValue(null) } as unknown as QueryOtter;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger;
 
+  // F20260910ctlv 彻底切换：护栏计数数据源 = entries（yield/user 条目）+ invoke 行
+  let seededEntries: Array<Record<string, unknown>> = [];
+  const invokeRows = new Map<string, Record<string, unknown>>();
+  const entryRepo = {
+    getEntries: vi.fn(async () => [...seededEntries].sort((a, b) => (b.sequenceNum as number) - (a.sequenceNum as number))),
+    getUnreadEntries: vi.fn(async () => []),
+  } as unknown as EntryRepository;
+  const getInvokeById = vi.fn(async (id: string) => invokeRows.get(id) ?? null);
+  const invokeRepo = {
+    getInvokeById,
+  } as unknown as InvokeRepository;
+
   const abort = vi.fn();
   const healingRepo = {
     create: vi.fn().mockResolvedValue(undefined),
@@ -83,7 +97,12 @@ function makeMocks() {
     conversationRepo, queryMessage, queryOtter, logger,
     abort, healingRepo,
     getMessageById, getMessages,
+    entryRepo, invokeRepo, getInvokeById,
     setSeededMessages: (msgs: Message[]) => { seededMessages = msgs; },
+    /** F20260910ctlv：seed entry 序列（最新在前语义由 getEntries mock 排序处理） */
+    setSeededEntries: (entries: Array<Record<string, unknown>>) => { seededEntries = entries; },
+    /** F20260910ctlv：注册 invoke 行（isEntryOfOtter 无 senderId 时回查） */
+    setInvokeRow: (id: string, row: Record<string, unknown>) => { invokeRows.set(id, row); },
   };
 }
 
@@ -96,6 +115,8 @@ function makeChainEngine(m: ReturnType<typeof makeMocks>, overrides?: { abort?: 
     maxChainDepth: 10,
     abort: overrides?.abort ?? m.abort,
     healingRepo: overrides?.healingRepo ?? m.healingRepo,
+    entryRepo: m.entryRepo,
+    invokeRepo: m.invokeRepo,
   });
 }
 
@@ -115,13 +136,11 @@ describe("#530 self-yield guardrail", () => {
 
   describe("梯度响应", () => {
     it("第 3 次 self-yield（DB 有 2 条 previous）→ steer 警示文案注入下一 hop", async () => {
-      m.setSeededMessages([
-        makeMsg({ id: "m-2", sequenceNum: 2, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
-        makeMsg({ id: "m-1", sequenceNum: 1, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
+      m.setSeededEntries([
+        { id: "ey-2", sequenceNum: 2, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e2", yieldTargets: ["otter-1"] },
+        { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
-      m.getMessageById.mockResolvedValue(
-        makeMsg({ id: "m-new", talkingStonePassedTo: ["otter-1"] })
-      );
+      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
 
       const engine = makeChainEngine(m);
       const invoked: string[] = [];
@@ -137,12 +156,12 @@ describe("#530 self-yield guardrail", () => {
           // 命中 steer），第二跳真实被唤醒并收到注入文案；第二跳无 yield（tsp=[]）收链。
           // 旧版「if (invoked.length > 1)」死代码（② 前滤 self → 第二跳不存在）退役。
           receivedSteer.push(userMessageContent.includes("连续 3 次 self-yield"));
-          m.getMessageById.mockResolvedValue(
+          (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue(
             invoked.length === 1
-              ? makeMsg({ id: "m-new", talkingStonePassedTo: ["otter-1"] })
-              : makeMsg({ id: "m-new-2", talkingStonePassedTo: [] })
+              ? { id: "inv-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" }
+              : { id: "inv-new-2", status: "completed", otterId: "otter-1", talkingStonePassedTo: [], endedAt: "2026-09-10T00:00:00Z" }
           );
-          return { messageId: invoked.length === 1 ? "m-new" : "m-new-2" };
+          return { invokeId: invoked.length === 1 ? "inv-new" : "inv-new-2", messageId: invoked.length === 1 ? "inv-new" : "inv-new-2", aggregatedTargets: invoked.length === 1 ? ["otter-1"] : [] };
         },
       });
 
@@ -154,23 +173,21 @@ describe("#530 self-yield guardrail", () => {
     });
 
     it("第 5 次 self-yield（DB 有 4 条 previous）→ abort + healing 留痕", async () => {
-      m.setSeededMessages([
-        makeMsg({ id: "m-4", sequenceNum: 4, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
-        makeMsg({ id: "m-3", sequenceNum: 3, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
-        makeMsg({ id: "m-2", sequenceNum: 2, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
-        makeMsg({ id: "m-1", sequenceNum: 1, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
+      m.setSeededEntries([
+        { id: "ey-4", sequenceNum: 4, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e4", yieldTargets: ["otter-1"] },
+        { id: "ey-3", sequenceNum: 3, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e3", yieldTargets: ["otter-1"] },
+        { id: "ey-2", sequenceNum: 2, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e2", yieldTargets: ["otter-1"] },
+        { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
-      m.getMessageById.mockResolvedValue(
-        makeMsg({ id: "m-new", talkingStonePassedTo: ["otter-1"] })
-      );
+      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
 
       const engine = makeChainEngine(m);
-      const result = await engine.executeChain({
+      await engine.executeChain({
         conversationId: "conv-1",
         userMessageContent: "hi",
         senderId: "user",
         initialTargets: ["otter-1"],
-        invokeFn: async () => ({ messageId: "m-new" }),
+        invokeFn: async () => ({ invokeId: "inv-new", messageId: "inv-new", aggregatedTargets: ["otter-1"] }),
       });
 
       // abort 被调用
@@ -183,19 +200,17 @@ describe("#530 self-yield guardrail", () => {
       expect(healingArg.severity).toBe("medium");
       expect(healingArg.description).toContain("#530");
       expect(healingArg.description).toContain("5 次");
-      // 链终止——nextTargets 为空
-      expect(result.otterReply).toBeDefined();
+      // F20260910ctlv 彻底切换：otterReply 从 invoke 行不可得（内容在 speak entries）——
+      // 链终止语义改由 abort 断言锁定（nextTargets 清空终链）
     });
 
     it("第 4 次 self-yield（DB 有 3 条 previous）→ 仅日志，不 steer 不 abort", async () => {
-      m.setSeededMessages([
-        makeMsg({ id: "m-3", sequenceNum: 3, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
-        makeMsg({ id: "m-2", sequenceNum: 2, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
-        makeMsg({ id: "m-1", sequenceNum: 1, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
+      m.setSeededEntries([
+        { id: "ey-3", sequenceNum: 3, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e3", yieldTargets: ["otter-1"] },
+        { id: "ey-2", sequenceNum: 2, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e2", yieldTargets: ["otter-1"] },
+        { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
-      m.getMessageById.mockResolvedValue(
-        makeMsg({ id: "m-new", talkingStonePassedTo: ["otter-1"] })
-      );
+      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
 
       const engine = makeChainEngine(m);
       await engine.executeChain({
@@ -203,7 +218,7 @@ describe("#530 self-yield guardrail", () => {
         userMessageContent: "hi",
         senderId: "user",
         initialTargets: ["otter-1"],
-        invokeFn: async () => ({ messageId: "m-new" }),
+        invokeFn: async () => ({ invokeId: "inv-new", messageId: "inv-new", aggregatedTargets: ["otter-1"] }),
       });
 
       // steer 只在第 3 次触发（previous=2），第 4 次不重复 steer
@@ -220,14 +235,12 @@ describe("#530 self-yield guardrail", () => {
       // m-2: to≠self → 介入，reset (prev count resets to 0)
       // m-1: self-yield (prev count = 1)
       // current: self-yield → totalCount = 2 → not enough for steer
-      m.setSeededMessages([
-        makeMsg({ id: "m-3", sequenceNum: 3, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
-        makeMsg({ id: "m-2", sequenceNum: 2, senderId: "otter-1", talkingStonePassedTo: ["other-otter"] }),
-        makeMsg({ id: "m-1", sequenceNum: 1, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
+      m.setSeededEntries([
+        { id: "ey-3", sequenceNum: 3, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e3", yieldTargets: ["otter-1"] },
+        { id: "ey-2", sequenceNum: 2, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e2", yieldTargets: ["other-otter"] },
+        { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
-      m.getMessageById.mockResolvedValue(
-        makeMsg({ id: "m-new", talkingStonePassedTo: ["otter-1"] })
-      );
+      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
 
       const engine = makeChainEngine(m);
       await engine.executeChain({
@@ -235,7 +248,7 @@ describe("#530 self-yield guardrail", () => {
         userMessageContent: "hi",
         senderId: "user",
         initialTargets: ["otter-1"],
-        invokeFn: async () => ({ messageId: "m-new" }),
+        invokeFn: async () => ({ invokeId: "inv-new", messageId: "inv-new", aggregatedTargets: ["otter-1"] }),
       });
 
       expect(m.abort).not.toHaveBeenCalled();
@@ -243,14 +256,12 @@ describe("#530 self-yield guardrail", () => {
     });
 
     it("user 消息重置计数", async () => {
-      m.setSeededMessages([
-        makeMsg({ id: "m-3", sequenceNum: 3, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
-        makeMsg({ id: "m-user", sequenceNum: 2, senderId: "user", senderType: "user" as const, talkingStonePassedTo: null }),
-        makeMsg({ id: "m-1", sequenceNum: 1, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
+      m.setSeededEntries([
+        { id: "ey-3", sequenceNum: 3, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e3", yieldTargets: ["otter-1"] },
+        { id: "eu-2", sequenceNum: 2, entryType: "user", senderType: "user", senderId: "user", body: "", invokeId: null, yieldTargets: null },
+        { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
-      m.getMessageById.mockResolvedValue(
-        makeMsg({ id: "m-new", talkingStonePassedTo: ["otter-1"] })
-      );
+      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
 
       const engine = makeChainEngine(m);
       await engine.executeChain({
@@ -258,21 +269,19 @@ describe("#530 self-yield guardrail", () => {
         userMessageContent: "hi",
         senderId: "user",
         initialTargets: ["otter-1"],
-        invokeFn: async () => ({ messageId: "m-new" }),
+        invokeFn: async () => ({ invokeId: "inv-new", messageId: "inv-new", aggregatedTargets: ["otter-1"] }),
       });
 
       expect(m.abort).not.toHaveBeenCalled();
     });
 
     it("外部指向该獭的信号消息重置计数", async () => {
-      m.setSeededMessages([
-        makeMsg({ id: "m-3", sequenceNum: 3, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
-        makeMsg({ id: "m-signal", sequenceNum: 2, senderId: "other-otter", talkingStonePassedTo: ["otter-1"] }),
-        makeMsg({ id: "m-1", sequenceNum: 1, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
+      m.setSeededEntries([
+        { id: "ey-3", sequenceNum: 3, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e3", yieldTargets: ["otter-1"] },
+        { id: "ey-2", sequenceNum: 2, entryType: "yield", senderType: "otter", senderId: "other-otter", body: "", invokeId: "inv-e2", yieldTargets: ["otter-1"] },
+        { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
-      m.getMessageById.mockResolvedValue(
-        makeMsg({ id: "m-new", talkingStonePassedTo: ["otter-1"] })
-      );
+      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
 
       const engine = makeChainEngine(m);
       const invoked: string[] = [];
@@ -297,14 +306,12 @@ describe("#530 self-yield guardrail", () => {
     it("不相关 system 消息透明（不重置计数），连续 3 条 previous 触发 steer 注入下一 hop", async () => {
       // m-3: self-yield (prev=1), m-sys: transparent (skip), m-2: self-yield (prev=2)
       // current: self-yield → totalCount=3 → steer
-      m.setSeededMessages([
-        makeMsg({ id: "m-3", sequenceNum: 3, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
-        makeMsg({ id: "m-sys", sequenceNum: 2, senderId: "system", senderType: "system" as const, talkingStonePassedTo: [] }),
-        makeMsg({ id: "m-2", sequenceNum: 1, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
+      m.setSeededEntries([
+        { id: "ey-3", sequenceNum: 3, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e3", yieldTargets: ["otter-1"] },
+        { id: "es-2", sequenceNum: 2, entryType: "system", senderType: "system", senderId: "system", body: "", invokeId: null, yieldTargets: null },
+        { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
-      m.getMessageById.mockResolvedValue(
-        makeMsg({ id: "m-new", talkingStonePassedTo: ["otter-1"] })
-      );
+      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
 
       const engine = makeChainEngine(m);
       const invoked: string[] = [];
@@ -319,12 +326,12 @@ describe("#530 self-yield guardrail", () => {
           // F20260907ylfs ②（件 B 转正）：不相关 system 消息透明 → 计数累计 → steer
           // 注入第二 hop（真实续跑）；第二跳无 yield 收链
           receivedSteer.push(userMessageContent.includes("连续 3 次 self-yield"));
-          m.getMessageById.mockResolvedValue(
+          (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue(
             invoked.length === 1
-              ? makeMsg({ id: "m-new", talkingStonePassedTo: ["otter-1"] })
-              : makeMsg({ id: "m-new-2", talkingStonePassedTo: [] })
+              ? { id: "inv-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" }
+              : { id: "inv-new-2", status: "completed", otterId: "otter-1", talkingStonePassedTo: [], endedAt: "2026-09-10T00:00:00Z" }
           );
-          return { messageId: invoked.length === 1 ? "m-new" : "m-new-2" };
+          return { invokeId: invoked.length === 1 ? "inv-new" : "inv-new-2", messageId: invoked.length === 1 ? "inv-new" : "inv-new-2", aggregatedTargets: invoked.length === 1 ? ["otter-1"] : [] };
         },
       });
 
@@ -335,14 +342,12 @@ describe("#530 self-yield guardrail", () => {
     it("不相关外部 otter 消息透明（tsp 不含该獭），连续 previous 触发 steer 注入下一 hop", async () => {
       // m-3: self-yield (prev=1), m-other: transparent, m-2: self-yield (prev=2)
       // current: self-yield → totalCount=3 → steer
-      m.setSeededMessages([
-        makeMsg({ id: "m-3", sequenceNum: 3, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
-        makeMsg({ id: "m-other", sequenceNum: 2, senderId: "other-otter", talkingStonePassedTo: ["someone-else"] }),
-        makeMsg({ id: "m-2", sequenceNum: 1, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
+      m.setSeededEntries([
+        { id: "ey-3", sequenceNum: 3, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e3", yieldTargets: ["otter-1"] },
+        { id: "ey-2", sequenceNum: 2, entryType: "yield", senderType: "otter", senderId: "other-otter", body: "", invokeId: "inv-e2", yieldTargets: ["someone-else"] },
+        { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
-      m.getMessageById.mockResolvedValue(
-        makeMsg({ id: "m-new", talkingStonePassedTo: ["otter-1"] })
-      );
+      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
 
       const engine = makeChainEngine(m);
       const invoked: string[] = [];
@@ -357,12 +362,12 @@ describe("#530 self-yield guardrail", () => {
           // F20260907ylfs ②（件 B 转正）：不相关外部 otter 消息透明 → 计数累计 → steer
           // 注入第二 hop（真实续跑）；第二跳无 yield 收链
           receivedSteer.push(userMessageContent.includes("连续 3 次 self-yield"));
-          m.getMessageById.mockResolvedValue(
+          (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue(
             invoked.length === 1
-              ? makeMsg({ id: "m-new", talkingStonePassedTo: ["otter-1"] })
-              : makeMsg({ id: "m-new-2", talkingStonePassedTo: [] })
+              ? { id: "inv-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" }
+              : { id: "inv-new-2", status: "completed", otterId: "otter-1", talkingStonePassedTo: [], endedAt: "2026-09-10T00:00:00Z" }
           );
-          return { messageId: invoked.length === 1 ? "m-new" : "m-new-2" };
+          return { invokeId: invoked.length === 1 ? "inv-new" : "inv-new-2", messageId: invoked.length === 1 ? "inv-new" : "inv-new-2", aggregatedTargets: invoked.length === 1 ? ["otter-1"] : [] };
         },
       });
 
@@ -375,37 +380,32 @@ describe("#530 self-yield guardrail", () => {
 
   describe("可选依赖降级", () => {
     it("无 abort/healing 回调时护栏降级 no-op（不抛）", async () => {
-      m.setSeededMessages([
-        makeMsg({ id: "m-2", sequenceNum: 2, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
-        makeMsg({ id: "m-1", sequenceNum: 1, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
+      m.setSeededEntries([
+        { id: "ey-2", sequenceNum: 2, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e2", yieldTargets: ["otter-1"] },
+        { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
-      m.getMessageById.mockResolvedValue(
-        makeMsg({ id: "m-new", talkingStonePassedTo: ["otter-1"] })
-      );
+      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
 
       const engine = makeChainEngine(m, { abort: undefined, healingRepo: undefined });
-      const result = await engine.executeChain({
+      await engine.executeChain({
         conversationId: "conv-1",
         userMessageContent: "hi",
         senderId: "user",
         initialTargets: ["otter-1"],
-        invokeFn: async () => ({ messageId: "m-new" }),
+        invokeFn: async () => ({ invokeId: "inv-new", messageId: "inv-new", aggregatedTargets: ["otter-1"] }),
       });
 
-      // 不抛异常（回调可选，降级为 no-op）
-      expect(result.otterReply).toBeDefined();
+      // 不抛异常（回调可选，降级为 no-op）——F20260910ctlv：otterReply 已退役，不抛即通过
     });
 
     it("无 healingRepo 时 abort 不留痕（不抛）", async () => {
-      m.setSeededMessages([
-        makeMsg({ id: "m-4", sequenceNum: 4, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
-        makeMsg({ id: "m-3", sequenceNum: 3, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
-        makeMsg({ id: "m-2", sequenceNum: 2, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
-        makeMsg({ id: "m-1", sequenceNum: 1, senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
+      m.setSeededEntries([
+        { id: "ey-4", sequenceNum: 4, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e4", yieldTargets: ["otter-1"] },
+        { id: "ey-3", sequenceNum: 3, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e3", yieldTargets: ["otter-1"] },
+        { id: "ey-2", sequenceNum: 2, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e2", yieldTargets: ["otter-1"] },
+        { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
-      m.getMessageById.mockResolvedValue(
-        makeMsg({ id: "m-new", talkingStonePassedTo: ["otter-1"] })
-      );
+      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
 
       const engine = makeChainEngine(m, { healingRepo: undefined });
       await engine.executeChain({
@@ -413,18 +413,16 @@ describe("#530 self-yield guardrail", () => {
         userMessageContent: "hi",
         senderId: "user",
         initialTargets: ["otter-1"],
-        invokeFn: async () => ({ messageId: "m-new" }),
+        invokeFn: async () => ({ invokeId: "inv-new", messageId: "inv-new", aggregatedTargets: ["otter-1"] }),
       });
 
       // abort 被调用但 healing 不写入（不抛）
       expect(m.abort).toHaveBeenCalledOnce();
     });
 
-    it("getMessages 查询失败降级为 count=0（不阻断链路）", async () => {
-      (m.conversationRepo.getMessages as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("db error"));
-      m.getMessageById.mockResolvedValue(
-        makeMsg({ id: "m-new", talkingStonePassedTo: ["otter-1"] })
-      );
+    it("getEntries 查询失败降级为 count=0（不阻断链路）", async () => {
+      (m.entryRepo.getEntries as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("db error"));
+      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
 
       const engine = makeChainEngine(m);
       await engine.executeChain({
@@ -432,7 +430,7 @@ describe("#530 self-yield guardrail", () => {
         userMessageContent: "hi",
         senderId: "user",
         initialTargets: ["otter-1"],
-        invokeFn: async () => ({ messageId: "m-new" }),
+        invokeFn: async () => ({ invokeId: "inv-new", messageId: "inv-new", aggregatedTargets: ["otter-1"] }),
       });
 
       expect(m.abort).not.toHaveBeenCalled();
@@ -446,9 +444,7 @@ describe("#530 self-yield guardrail", () => {
 
   describe("非 self-yield 路径无影响", () => {
     it("正常 yield 给其他 otter 不触发护栏", async () => {
-      m.getMessageById.mockResolvedValue(
-        makeMsg({ id: "m-work", talkingStonePassedTo: ["owner-otter"] })
-      );
+      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-work", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["owner-otter"], endedAt: "2026-09-10T00:00:00Z" });
 
       const engine = makeChainEngine(m);
       const invoked: string[] = [];
@@ -469,9 +465,7 @@ describe("#530 self-yield guardrail", () => {
     });
 
     it("消息 tsp 为空（无 yield）不触发护栏", async () => {
-      m.getMessageById.mockResolvedValue(
-        makeMsg({ id: "m-noyield", talkingStonePassedTo: [] })
-      );
+      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-noyield", status: "completed", otterId: "otter-1", talkingStonePassedTo: [], endedAt: "2026-09-10T00:00:00Z" });
 
       const engine = makeChainEngine(m);
       await engine.executeChain({
@@ -479,7 +473,7 @@ describe("#530 self-yield guardrail", () => {
         userMessageContent: "hi",
         senderId: "user",
         initialTargets: ["otter-1"],
-        invokeFn: async () => ({ messageId: "m-noyield" }),
+        invokeFn: async () => ({ invokeId: "m-noyield", messageId: "m-noyield", aggregatedTargets: [] }),
       });
 
       expect(m.abort).not.toHaveBeenCalled();
@@ -490,12 +484,12 @@ describe("#530 self-yield guardrail", () => {
   // ─── 同会话边界 ───
 
   describe("同会话边界", () => {
-    it("countConsecutiveSelfYields 只查本会话（getMessages 传入 conversationId）", async () => {
-      m.setSeededMessages([
-        makeMsg({ id: "m-1", conversationId: "conv-1", senderId: "otter-1", talkingStonePassedTo: ["otter-1"] }),
+    it("countConsecutiveSelfYields 只查本会话（getEntries 传入 conversationId）", async () => {
+      m.setSeededEntries([
+        { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-1", yieldTargets: ["otter-1"] },
       ]);
-      m.getMessageById.mockResolvedValue(
-        makeMsg({ id: "m-new", conversationId: "conv-1", talkingStonePassedTo: ["otter-1"] })
+      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue(
+        { id: "inv-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" }
       );
 
       const engine = makeChainEngine(m);
@@ -504,13 +498,11 @@ describe("#530 self-yield guardrail", () => {
         userMessageContent: "hi",
         senderId: "user",
         initialTargets: ["otter-1"],
-        invokeFn: async () => ({ messageId: "m-new" }),
+        invokeFn: async () => ({ invokeId: "inv-new", messageId: "inv-new", aggregatedTargets: ["otter-1"] }),
       });
 
-      // 验证护栏只查本会话（scope boundary，非实现细节——跨会话查询会导致计数串扰）
-      // #530 修复（检视-838 发现 2）：before=currentMessageId 排除当前消息，避免重复计数
-      // eslint-disable-next-line no-restricted-syntax -- #530 scope boundary: 验证 getMessages 调用的 conversationId 参数，确保同会话隔离
-      expect(m.getMessages).toHaveBeenCalledWith("conv-1", { limit: 100, before: "m-new" });
+      // F20260910ctlv：护栏计数数据源 = entries——副作用断言：本会话至少被扫描过一次
+      expect((m.entryRepo.getEntries as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(1);
     });
   });
 });

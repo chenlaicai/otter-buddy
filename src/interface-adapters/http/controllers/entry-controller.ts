@@ -6,8 +6,8 @@ import type { EntryDTO } from "@contract/api/entry";
 import { handleError, param } from "../http-error";
 
 /**
- * F20260910ctlv 切换清扫：entries 时间线只读查询端点。
- * 前端时间线历史数据源（替代旧 GET /messages 渲染路径）。
+ * F20260910ctlv 彻底切换：entries 时间线唯一读端点。
+ * 前端历史/分页/增量刷新/未读定位全部走这里（messages 渲染端点退役）。
  * 只读——entry 写入由 agent-invoker/tool-factory/send-entry 负责。
  */
 
@@ -17,13 +17,24 @@ export class EntryController {
     private readonly logger: Logger,
   ) {}
 
-  /** GET /api/conversations/:id/entries?limit=&before= */
+  /** GET /api/conversations/:id/entries?limit=&before=&after=
+   *  before：向上翻页（DESC 取再反转为 ASC）；after：增量刷新（ASC）
+   */
   async list(c: Context): Promise<Response> {
     try {
       const conversationId = param(c, "id");
       const limitRaw = c.req.query("limit");
       const limit = limitRaw ? Math.min(Math.max(Number(limitRaw) || 50, 1), 200) : 50;
       const before = c.req.query("before") || undefined;
+      const after = c.req.query("after") || undefined;
+
+      if (after) {
+        // after 游标：取该 entry 之后的新条目（升序）
+        const entries = await this.entryRepo.getEntriesAfter(after, limit);
+        const hasMore = entries.length === limit;
+        return c.json({ entries: entries.map(toEntryDTO), hasMore });
+      }
+
       const entries = await this.entryRepo.getEntries(conversationId, {
         limit: limit + 1, // 多取 1 条判 hasMore
         before,

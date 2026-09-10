@@ -9,8 +9,9 @@
  */
 import type { SSEEvent } from "@contract/sse/events";
 
-/** Agent 发言轮结果 */
+/** Agent 发言轮结果（F20260910ctlv 彻底切换：invokeId 主体；messageId 为兼容别名=invokeId） */
 export interface AgentTurnResult {
+  invokeId: string;
   messageId: string;
   duration: number;
   tokenUsage?: { input: number; output: number };

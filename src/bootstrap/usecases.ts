@@ -8,6 +8,7 @@ import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
 import type { Repositories, UseCases } from "./types";
+import { buildResolveTargetsDeps } from "@usecases/conversation/resolve-send-targets";
 import { SearchEngine } from "@usecases/memory/search-engine";
 import { ManageMemory } from "@usecases/memory/manage-memory";
 import { ManageTerminology } from "@usecases/memory/manage-terminology";
@@ -58,10 +59,11 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const memoryUcs = buildMemoryUseCases(repos, embeddingService, appConfig, logger);
   const { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries } = memoryUcs;
   const sendMessage = new SendMessage(repos.conversation, repos.otter, memoryIndex, logger, repos.attachment);
-  const queryMessage = new QueryMessage(repos.conversation);
+  // F20260910ctlv 彻底切换：未读状态读 entries
+  const queryMessage = new QueryMessage(repos.conversation, entryRepo);
   // F20260826rcmm Phase 0：检索埋点（评估基线数据源）
   const recordSearchQuery = new RecordSearchQuery(repos.searchQueryLog, queryMessage, logger);
-  const manageReadState = new ManageReadState(repos.conversation);
+  const manageReadState = new ManageReadState(repos.conversation, entryRepo);
   // 信号轨迹查询退役（F20260908rlcp）
   const manageParticipant = new ManageParticipant(repos.conversation, repos.otter, otterConfigProvider, modelPool);
   const manageKeyInfo = new ManageKeyInfo(repos.conversation, memoryIndex);
@@ -84,7 +86,13 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const attachmentUpload = buildAttachmentUploadService(repos, appConfig, logger);
   // 工作区文件浏览（只读）——workspaceGateway 可选注入
   const manageWorkspace = workspaceGateway ? new ManageWorkspace(workspaceGateway) : undefined;
-  const sendEntry = new SendEntry(entryRepo, invokeRepo, repos.otter, repos.conversation, logger);
+  // F20260910ctlv 彻底切换：目标解析依赖（默认派发数据源 = entries.speak）
+  const resolveDeps = buildResolveTargetsDeps(
+    (conversationId) => repos.conversation.getActiveParticipants(conversationId),
+    entryRepo,
+    repos.otter,
+  );
+  const sendEntry = new SendEntry(entryRepo, invokeRepo, repos.otter, repos.conversation, { logger, resolveDeps });
   return {
     manageConversation, manageMemory, manageTerminology, searchMemory, scanDarkEntries,
     sendMessage, queryMessage, manageReadState, manageParticipant, manageKeyInfo, recordSearchQuery,

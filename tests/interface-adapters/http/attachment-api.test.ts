@@ -195,8 +195,12 @@ describe("sendMessage 附件前置校验 + FTS 时序（R3）", () => {
   let uploadedImageIds: string[] = [];
   let uploadedDocIds: string[] = [];
   let invokeParams: Array<{ images?: unknown[]; content?: string }> = [];
+  let sendEntryCalls: Array<{ body: string; attachmentIds?: string[] }>;
+  let attachCalls: Array<{ entryId: string; attachmentIds: string[] }>;
 
   beforeEach(async () => {
+    sendEntryCalls = [];
+    attachCalls = [];
     db = createTestDb();
     attachmentRepo = new SqliteAttachmentRepository(db);
     convRepo = new SqliteConversationRepository(db, createTestLogger());
@@ -280,10 +284,26 @@ describe("sendMessage 附件前置校验 + FTS 时序（R3）", () => {
       { getById: async () => null } as unknown as QueryOtter,
       dispatchChainEngine,
       new MessageBroadcaster(logger) as never,
-      // F20260826mwrd C4 合并适配：MessageController 新增 signalRepo 位（signals 徽章数据源），
-// 本测试不涉信号，传 undefined 占位，attachmentInjection 仍在末位
+      // F20260826mwrd C4 合并适配：signalRepo 位占位
       undefined,
       injection,
+      undefined,
+      // F20260910ctlv 彻底切换：sendEntry（user 消息唯一落点 = entries）——记录调用面供断言
+      Object.assign({
+        sendUserEntry: async (input: { conversationId: string; senderId: string; body: string; talkingStonePassedTo?: string[]; attachmentIds?: string[] }) => {
+          sendEntryCalls.push(input);
+          return {
+            entry: { id: "user-entry-att", sequenceNum: 1, body: input.body, createdAt: new Date().toISOString() },
+            talkingStonePassedTo: input.talkingStonePassedTo ?? ["otter-1"],
+            mentionFeedback: undefined,
+          };
+        },
+        attachEntryAttachments: async (entryId: string, attachmentIds: string[]) => { attachCalls.push({ entryId, attachmentIds }); },
+        createSystemEntry: async () => ({ entry: { id: "sys-att", sequenceNum: 2 } }),
+      }, {
+        _sendEntryCalls: sendEntryCalls,
+        _attachCalls: attachCalls,
+      }) as never
     );
 
     app = new Hono();
@@ -347,12 +367,10 @@ describe("sendMessage 附件前置校验 + FTS 时序（R3）", () => {
     expect(res.status).toBe(200);
     await res.text();
 
-    // 直接查 FTS 表（真 sqlite 断言，非 mock）
-    const ftsRows = db.prepare(
-      "SELECT f.message_id, f.body FROM messages_fts f JOIN messages m ON m.id = f.message_id WHERE m.sender_type = 'user' ORDER BY m.sequence_num DESC LIMIT 1",
-    ).all() as Array<{ message_id: string; body: string }>;
-    expect(ftsRows).toHaveLength(1);
-    expect(ftsRows[0].body).toContain("看图");
-    expect(ftsRows[0].body).toContain("[图片: img0.png]");
+    // F20260910ctlv 彻底切换：messages 表停写——附件语义 = entry 收到 attachmentIds + 关联挂载
+    expect(sendEntryCalls).toHaveLength(1);
+    expect(sendEntryCalls[0]!.attachmentIds).toEqual(uploadedImageIds.slice(0, 1));
+    expect(attachCalls).toHaveLength(1);
+    expect(attachCalls[0]!.attachmentIds).toEqual(uploadedImageIds.slice(0, 1));
   });
 });

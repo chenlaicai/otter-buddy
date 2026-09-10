@@ -1,40 +1,41 @@
-/** SSE 事件类型映射（F20260910ctlv：新增 invoke/entry 事件） */
+/**
+ * SSE 事件类型映射
+ *
+ * F20260910ctlv 彻底切换：时间线模型唯一事件集。
+ * - entry.*：时间线条目（speak/user/system/invoke 边界/yield/终态投影）
+ * - invoke.*：invoke 生命周期（右栏状态面板数据源）
+ * - agent.*：SDK 结构化事件（自动重试/压缩）
+ * - 旧 message.* / speak.intermediate / assistant_text / assistant_toolcall / tool.result 已退役
+ *   （流式过程数据源 = invoke_events 表，Session 弹窗经 GET /api/invokes/:id/events 拉取）
+ */
 export type SSEEventMap = {
-  // ── 旧事件（向后兼容，新前端走 entry.* 路径） ──
-  "message.start": { messageId: string; otterId: string; otterName: string; seq?: number; createdAt: string };
-  "speak.intermediate": { messageId: string; body: string; otterId?: string; otterName?: string; segmentId?: string; sequenceNum?: number };
-  "message.complete": { messageId: string; otterId: string; otterName: string; body: string; turnId: string; duration: string; ctx?: number; ctxMax?: number; segments?: Array<{ id: string; body: string; sequenceNum: number }> };
-  "message.failed": { messageId: string; otterId: string; otterName: string; body?: string };
-  "message.retry": { messageId: string; otterId: string; otterName: string; reason: string; attempt: number };
-  "message.aborted": { messageId: string; body?: string; otterId?: string; otterName?: string };
-  "system.message": { messageId: string; content: string; seq: number };
-
-  // ── 新事件（F20260910ctlv timeline 模型） ──
-  /** invoke 开始（invoke 记录创建） */
-  "invoke.start": { invokeId: string; otterId: string; otterName: string; conversationId: string; startedAt: string };
-  /** invoke 结束（completed/failed/aborted）。duration 为 invoke 耗时（ms，number），前端可直接消费 */
-  "invoke.end": { invokeId: string; otterId: string; status: "completed" | "failed" | "aborted"; endedAt: string; duration?: number; toolCallCount?: number; tokenUsage?: { input: number; output: number } };
-  /** speak entry 创建（取代 message.start） */
+  // ── 时间线条目事件（entries 表投影） ──
+  /** user entry（用户发言气泡） */
+  "entry.user": { entryId: string; sequenceNum: number; senderId: string; body: string; createdAt: string };
+  /** speak entry 创建（獭气泡唯一来源） */
   "entry.start": { entryId: string; invokeId: string; otterId: string; otterName: string; seq?: number; createdAt: string };
-  /** speak entry body 增量（取代 speak.intermediate） */
-  "entry.speak": { entryId: string; invokeId: string; body: string; otterName?: string; segmentId?: string; sequenceNum?: number };
-  /** speak entry 完成（取代 message.complete） */
-  "entry.complete": { entryId: string; invokeId: string; otterId: string; otterName: string; body: string; turnId: string; duration: string; ctx?: number; ctxMax?: number; segments?: Array<{ id: string; body: string; sequenceNum: number }> };
-  /** entry 失败（取代 message.failed） */
-  "entry.failed": { entryId: string; invokeId: string; otterId: string; otterName: string; body?: string };
-  /** entry 重试（取代 message.retry） */
-  "entry.retry": { entryId: string; invokeId: string; otterId: string; otterName: string; reason: string; attempt: number };
-  /** entry 中止（取代 message.aborted） */
-  "entry.aborted": { entryId: string; invokeId: string; body?: string; otterId?: string; otterName?: string };
-  /** 系统条目（取代 system.message） */
+  /** speak entry body（气泡内容——speak entry 创建即全量 body） */
+  "entry.speak": { entryId: string; invokeId: string; body: string; otterName?: string };
+  /** speak entry 终态投影（成功路径；气泡在 entry.speak 已呈现，此事件用于终态收敛） */
+  "entry.complete": { entryId: string; invokeId: string; otterId: string; otterName: string; body: string; turnId: string; duration: string; ctx?: number; ctxMax?: number };
+  /** invoke 终态失败（invoke_end entry 对应投影） */
+  "entry.failed": { entryId: string; invokeId: string; otterId: string; otterName?: string; body?: string };
+  /** invoke 内自动重试（系统提醒 + 前端状态回退） */
+  "entry.retry": { entryId: string; invokeId: string; otterId: string; otterName?: string; reason: string; attempt: number };
+  /** invoke 被中止（invoke_end entry 对应投影） */
+  "entry.aborted": { entryId: string; invokeId: string; otterId?: string; otterName?: string; body?: string };
+  /** 系统条目（居中 system entry） */
   "entry.system": { entryId: string; content: string; seq: number };
-  /** yield 条目（行动权传递） */
+  /** yield 条目（行动权传递，居中显示） */
   "entry.yield": { entryId: string; invokeId: string; otterId: string; otterName: string; yieldTargets: string[] };
 
+  // ── invoke 生命周期事件（invokes 表投影） ──
+  /** invoke 开始（invoke 记录创建 + invoke_start entry） */
+  "invoke.start": { invokeId: string; otterId: string; otterName: string; conversationId: string; startedAt: string; triggerEntryId?: string };
+  /** invoke 结束（completed/failed/aborted）。duration 为 invoke 耗时（ms，number） */
+  "invoke.end": { invokeId: string; otterId: string; status: "completed" | "failed" | "aborted"; endedAt: string; duration?: number; toolCallCount?: number; tokenUsage?: { input: number; output: number } };
+
   // ── 通用事件（保留） ──
-  "assistant_toolcall": { messageId: string; content: Array<Record<string, unknown>> };
-  "tool.result": { messageId: string; toolName: string; result: unknown };
-  "assistant_text": { messageId: string; content: Array<Record<string, unknown>> };
   "turn.complete": Record<string, never>;
   "agent.idle": Record<string, never>;
   "agent.retry_start": { attempt: number; maxAttempts: number; delayMs: number; errorMessage: string };
@@ -42,7 +43,7 @@ export type SSEEventMap = {
   "agent.compaction_start": { reason: "manual" | "threshold" | "overflow" };
   "agent.compaction_end": { reason: "manual" | "threshold" | "overflow"; aborted: boolean; willRetry: boolean; errorMessage?: string };
   "stream.end": Record<string, never>;
-  "error": { message: string; messageId: string; otterId: string };
+  "error": { message: string; invokeId?: string; messageId?: string; otterId: string };
   "mention.feedback": { feedback: string };
 };
 

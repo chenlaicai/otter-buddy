@@ -26,7 +26,7 @@ import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 import { validateAndResolve } from "@usecases/conversation/talking-stone";
 
 
-// eslint-disable-next-line max-lines-per-function -- F20260910ctlv 双路径迁移期（新 entry + 旧 message 并行），fallback 删除后回归
+ 
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
     name: "speak",
@@ -41,9 +41,9 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       },
       required: ["body"],
     },
-    // eslint-disable-next-line complexity -- F20260910ctlv 双路径迁移期
+     
     execute: async (_id: string, params: Record<string, unknown>) => {
-      if (!ctx.currentMessageId) return errorResponse("[错误] 系统错误：当前消息 ID 未设置，无法发言。");
+      if (!ctx.currentInvokeId) return errorResponse("[错误] 系统错误：当前 invoke ID 未设置，无法发言。");
 
       const rawBody = params.body as string;
       // F20260826mwrd C2：信号块拦截（仿 healing 先例，在 cleanBody 入库前剥离+落账）
@@ -59,60 +59,24 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       if (bodyError) return errorResponse(bodyError);
 
       try {
-        // F20260910ctlv：新路径优先（invoke 级上下文存在时）
-        if (ctx.currentInvokeId) {
-          // 1. 完结上一次 speak entry（若有）
-          if (ctx.lastSpeakMessageId) {
-            try {
-              await ctx.client.conversation.message.completeSpeakMessage(ctx.lastSpeakMessageId);
-            } catch { /* 已终态或不存在，忽略 */ }
-          }
-
-          // 2. 创建新的 speak entry（invoke 级上下文）
-          const speakEntry = await ctx.client.conversation.entry.createSpeakEntry({
-            conversationId: ctx.conversationId,
-            invokeId: ctx.currentInvokeId,
-            otterId: ctx.otterId,
-            turnId: "", // TODO: 从 ToolContext 获取 turnId（send-entry 内部兑底 ensureActiveTurn）
-            body: cleanBody,
-          });
-          // F20260910ctlv 实测修复：新路径也登记 lastSpeakMessageId（= speak entry id）——
-          // validateMessageHasContent 靠它短路「已发言」判定；不设的话 yield 反复报
-          // 「你还没有用 speak 输出任何内容」，獭误以为 speak 失败反复重试 → 死循环（test08）。
-          // 复用现有字段作「本轮已发言」标记：yield 新路径对 entry id 调 completeSpeakMessage
-          // 会 throw（非 message id）但已被 try/catch 兑底，不影响交棒。
-          ctx.lastSpeakMessageId = speakEntry.id;
-
-          return {
-            ...textResponse("[系统控制信号] 已记录发言，继续工作。"),
-            terminate: false,
-            details: { __speakIntermediate: true, body: cleanBody, entryId: speakEntry.id, entryType: speakEntry.entryType },
-          };
-        }
-
-        // F20260909smsp 旧路径 fallback（invoke 级上下文不存在时）
-        // 1. 完结上一次 speak message（若有）
-        if (ctx.lastSpeakMessageId) {
-          try {
-            await ctx.client.conversation.message.completeSpeakMessage(ctx.lastSpeakMessageId);
-          } catch { /* 已终态或不存在，忽略 */ }
-        }
-
-        // 2. 创建新的 speak message（senderType=otter，status=speaking，metadata.invokeGroupId=首个 message id）
-        const speakMsg = await ctx.client.conversation.message.createSpeakMessage(
-          ctx.conversationId, ctx.otterId, ctx.currentMessageId,
-        );
-        ctx.lastSpeakMessageId = speakMsg.id;
-
-        // 3. 追加 segment
-        const seg = await ctx.client.conversation.message.appendSegment(speakMsg.id, cleanBody);
+        // F20260910ctlv 彻底切换：唯一路径——speak entry（entries 表，獭气泡唯一来源）。
+        // 旧 speak message（messages 表）路径已删除。
+        const speakEntry = await ctx.client.conversation.entry.createSpeakEntry({
+          conversationId: ctx.conversationId,
+          invokeId: ctx.currentInvokeId,
+          otterId: ctx.otterId,
+          turnId: "", // send-entry 内部空 turnId 时 ensureActiveTurn 兜底
+          body: cleanBody,
+        });
+        // 已发言标记（validateMessageHasContent 短路「已发言」判定；yield 后重置）。
+        // 复用 lastSpeakMessageId 字段存 entry id。
+        ctx.lastSpeakMessageId = speakEntry.id;
 
         return {
           ...textResponse("[系统控制信号] 已记录发言，继续工作。"),
           terminate: false,
-          /** agent-invoker 检测此标记并广播 speak.intermediate SSE（前端实时展示中间发言）
-           *  F20260909smsp：messageId 指向新 speak message（独立气泡） */
-          details: { __speakIntermediate: true, body: cleanBody, segmentId: seg.id, sequenceNum: seg.sequenceNum, speakMessageId: speakMsg.id },
+          /** agent-invoker 检测此标记并发射 entry.start/entry.speak SSE（真实 entryId） */
+          details: { __speakIntermediate: true, body: cleanBody, entryId: speakEntry.id, entryType: speakEntry.entryType },
         };
       } catch (err) {
         return errorResponse(`[错误] 发言落库失败：${err instanceof Error ? err.message : String(err)}。请重试。`);
@@ -121,17 +85,14 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
   };
 }
 
-/** 消息非空校验（F20260909smsp：检查是否有 speak message 产出内容） */
+/** F20260910ctlv 彻底切换：消息非空校验——有 speak entry 即视为有内容（lastSpeakMessageId = entry id） */
 async function validateMessageHasContent(ctx: ToolContext): Promise<string | null> {
-  if (!ctx.currentMessageId) return "[错误] 系统错误：当前消息 ID 未设置，无法交棒。";
-  // F20260909smsp：有 speak message 即视为有内容（首个 message 不再承载 segment）
+  if (!ctx.currentInvokeId) return "[错误] 系统错误：当前 invoke ID 未设置，无法交棒。";
   if (ctx.lastSpeakMessageId) return null;
-  const msg = await ctx.client.conversation.message.getById(ctx.currentMessageId);
-  if (!msg || msg.segments.length === 0) return "[错误] 你还没有用 speak 输出任何内容。请先调用 speak(body) 输出结论，再调用 yield 交棒。";
-  return null;
+  return "[错误] 你还没有用 speak 输出任何内容。请先调用 speak(body) 输出结论，再调用 yield 交棒。";
 }
 
-// eslint-disable-next-line max-lines-per-function -- F20260910ctlv 双路径迁移期（新 entry + 旧 message 并行），fallback 删除后回归
+ 
 function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository): AgentTool {
   return {
     name: "yield",
@@ -151,9 +112,9 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
       },
       required: ["to"],
     },
-    // eslint-disable-next-line complexity, max-statements -- F20260910ctlv 双路径迁移期
+     
     execute: async (_id: string, params: Record<string, unknown>) => {
-      // 消息非空校验
+      // 消息非空校验（有 speak entry 才能交棒）
       const msgError = await validateMessageHasContent(ctx);
       if (msgError) return errorResponse(msgError);
 
@@ -165,60 +126,39 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
       if (error) return errorResponse(error);
 
       try {
-        // F20260910ctlv：新路径优先（invoke 级上下文存在时）
-        if (ctx.currentInvokeId) {
-          // 1. 完结上一次 speak entry（若有）
-          if (ctx.lastSpeakMessageId) {
-            try {
-              await ctx.client.conversation.message.completeSpeakMessage(ctx.lastSpeakMessageId);
-              ctx.lastSpeakMessageId = undefined;
-            } catch { /* 已终态或不存在，忽略 */ }
-          }
+        // F20260910ctlv 彻底切换：唯一路径——yield entry + invoke_end entry + invoke 置 completed。
+        // speak entry 创建即 completed，无需完结动作。旧 startSpeaking 路径已删除。
+        const yieldResult = await ctx.client.conversation.entry.createYieldEntry({
+          conversationId: ctx.conversationId,
+          invokeId: ctx.currentInvokeId!,
+          otterId: ctx.otterId,
+          turnId: "", // send-entry 内部空 turnId 时 ensureActiveTurn 兜底
+          yieldTargets: resolvedIds,
+        });
 
-          // 2. 创建 yield entry + invoke_end entry + 更新 invoke 记录
-          const yieldResult = await ctx.client.conversation.entry.createYieldEntry({
-            conversationId: ctx.conversationId,
-            invokeId: ctx.currentInvokeId,
+        // 已发言标记重置（下次 speak 重新登记）
+        ctx.lastSpeakMessageId = undefined;
+
+        // SSE entry.yield（前端时间线 yield 条目依赖此事件）
+        const yieldOtter = await ctx.client.otter.getById(ctx.otterId).catch(() => null);
+        ctx.emitEvent?.({
+          event: "entry.yield",
+          data: {
+            entryId: yieldResult.yieldEntry.id,
+            invokeId: ctx.currentInvokeId!,
             otterId: ctx.otterId,
-            turnId: "", // TODO: 从 orchestrator 注入
+            otterName: yieldOtter?.name ?? ctx.otterId,
             yieldTargets: resolvedIds,
-          });
+          },
+        });
 
-          // F20260910ctlv：SSE entry.yield（前端时间线 yield 条目依赖此事件）
-          const yieldOtter = await ctx.client.otter.getById(ctx.otterId).catch(() => null);
-          ctx.emitEvent?.({
-            event: "entry.yield",
-            data: {
-              entryId: yieldResult.yieldEntry.id,
-              invokeId: ctx.currentInvokeId,
-              otterId: ctx.otterId,
-              otterName: yieldOtter?.name ?? ctx.otterId,
-              yieldTargets: resolvedIds,
-            },
-          });
-
-          return { ...textResponse("[系统控制信号] 交棒成功，回合结束。"), terminate: true };
-        }
-
-        // F20260909smsp 旧路径 fallback
-        // 1. 完结上一次 speak message（若有）
-        if (ctx.lastSpeakMessageId) {
-          try {
-            await ctx.client.conversation.message.completeSpeakMessage(ctx.lastSpeakMessageId);
-            ctx.lastSpeakMessageId = undefined;
-          } catch { /* 已终态或不存在，忽略 */ }
-        }
-
-        /** F20260909smsp：startSpeaking 只设路由 + 状态（首个 message 承载 tsp 路由语义）
-         *  F20260908rlcp：speaking 状态下的重复 yield 合法（覆盖写 tsp）——允许「交棒后改派」 */
-        await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { talkingStonePassedTo: resolvedIds });
+        return { ...textResponse("[系统控制信号] 交棒成功，回合结束。"), terminate: true };
       } catch (err) {
         if (err instanceof DomainError && err.kind === "conflict") {
           return { ...textResponse("[系统控制信号] 本回合行动已交棒，无需重复调用 yield。请停止调用任何工具。"), terminate: true };
         }
         return errorResponse(`[错误] 交棒失败：${err instanceof Error ? err.message : String(err)}。请重试。`);
       }
-      return { ...textResponse("[系统控制信号] 交棒成功，回合结束。"), terminate: true };
     },
   };
 }

@@ -407,3 +407,13 @@ invoke_events 内的流式过程事件（assistant_text/tool_call/tool_result）
 | web/src/pages/conversation/RightPanel.tsx | 獭状态面板重写 |
 | web/src/pages/conversation/SessionModal.tsx | 新建（Session 弹窗） |
 | tests/ | 全链路测试更新 |
+
+## 彻底切换施工记录（2026-09-11）
+
+结构性迁移说明（BYPASS_HISTORICAL_DOC_LINT 触发的记录）：
+
+- 依赖旧 messages UI 路径的测试文件已删除或重写；其中
+  `tests/interface-adapters/agent-invoker-guard-bounce.test.ts`（F20260902gbnc 的 capability_test 指向）
+  按 invoke 状态机语义重写（GB-1~GB-5 能力断言保持，mock 面从 SendMessage 切到 SendEntry）。
+- 熔断/重试族新增 `tests/interface-adapters/agent-invoker-circuit-retry.test.ts`（invoke 状态机语义）。
+- 历史文档 F20260902gbnc 保持原样不改（快照原则）；capability_test 指针经重写后继续有效。

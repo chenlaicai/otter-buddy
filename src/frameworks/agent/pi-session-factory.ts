@@ -513,6 +513,10 @@ export class PiSessionFactory implements AgentGateway {
           // 刷新 toolContext 可变字段（工具闭包持有的是同一引用）
           toolContext.conversationId = conversationId;
           toolContext.currentMessageId = options?.messageId ?? "";
+          // F20260910ctlv 彻底切换：池命中时必须刷新 invokeId——不刷新则第二次 invoke 复用
+          // 旧 invoke 的 ID，speak/yield entry 会挂错 invoke（Session 弹窗与时间线结错链）
+          toolContext.currentInvokeId = options?.currentInvokeId;
+          toolContext.lastSpeakMessageId = undefined; // 新 invoke 从零开始计数发言
           toolContext.pendingDispatches = new Map();
           toolContext.dispatchWarningShown = false;
           toolContext.orchestrationWarningShown = false;

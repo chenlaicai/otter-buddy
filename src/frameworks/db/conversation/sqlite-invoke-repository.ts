@@ -186,6 +186,22 @@ export class SqliteInvokeRepository implements InvokeRepository {
     return row ? rowToInvoke(row) : null;
   }
 
+  /** F20260910ctlv 彻底切换：按 turn 查 invokes（tryCloseTurn 判据） */
+  async getInvokesByTurnId(turnId: string): Promise<Invoke[]> {
+    const rows = this.db.prepare(
+      "SELECT DISTINCT i.* FROM invokes i JOIN entries e ON e.invoke_id = i.id WHERE e.turn_id = ?",
+    ).all(turnId) as InvokeRow[];
+    return rows.map(rowToInvoke);
+  }
+
+  /** F20260910ctlv 彻底切换：重启 reconcile——running invokes 全部置 failed */
+  async failRunningInvokes(failedAt: string): Promise<number> {
+    const result = this.db.prepare(
+      "UPDATE invokes SET status = 'failed', ended_at = ? WHERE status = 'running'",
+    ).run(failedAt);
+    return result.changes;
+  }
+
   async appendInvokeEvent(event: InvokeEvent): Promise<void> {
     this.db.prepare(`
       INSERT INTO invoke_events (id, invoke_id, event_type, payload, sequence_num, created_at)

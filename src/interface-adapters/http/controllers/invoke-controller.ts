@@ -4,6 +4,11 @@ import type { Logger } from "@usecases/ports/logger";
 import type { Invoke, InvokeEvent } from "@entities/conversation/invoke";
 import type { InvokeDTO, InvokeEventDTO } from "@contract/api/invoke";
 import { handleError, param } from "../http-error";
+import type { AgentInvoker } from "../../agent-runtime/agent-invoker";
+import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
+import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
+import { streamEvents } from "../sse-streamer";
+import type { SSEEvent } from "@contract/sse/events";
 
 /**
  * F20260910ctlv Phase 4：invoke 只读查询端点。
@@ -15,6 +20,12 @@ export class InvokeController {
   constructor(
     private readonly invokeRepo: InvokeRepository,
     private readonly logger: Logger,
+    /** F20260910ctlv 彻底切换：invoke 中止（AgentInvoker） */
+    private readonly agentInvoker?: AgentInvoker,
+    /** F20260910ctlv 彻底切换：重试调度链（链引擎） */
+    private readonly dispatchChainEngine?: DispatchChainEngine,
+    /** F20260910ctlv 彻底切换：重试 SSE 流订阅（broadcaster） */
+    private readonly messageBroadcaster?: MessageBroadcaster,
   ) {}
 
   /** GET /api/conversations/:id/invokes?limit=&before=&otterId= */
@@ -48,6 +59,89 @@ export class InvokeController {
       }
       const events = await this.invokeRepo.getInvokeEvents(invokeId);
       return c.json({ invoke: toInvokeDTO(invoke), events: events.map(toInvokeEventDTO) });
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
+  /** POST /api/invokes/:id/abort——中止运行中 invoke（F20260910ctlv 彻底切换：停止按钮唯一后端） */
+  async abort(c: Context): Promise<Response> {
+    try {
+      const invokeId = param(c, "id");
+      const invoke = await this.invokeRepo.getInvokeById(invokeId);
+      if (!invoke) {
+        return c.json({ error: "invoke not found" }, 404);
+      }
+      if (invoke.status !== "running") {
+        return c.json({ error: `invoke already in terminal status: ${invoke.status}` }, 409);
+      }
+      if (!this.agentInvoker) {
+        return c.json({ error: "agent invoker not configured" }, 500);
+      }
+      // invokeId 兼任 SDK session 键控（agent-invoker 已把 messageId 语义切到 invokeId）
+      this.agentInvoker.abort(invoke.otterId, invokeId);
+      return c.json({ status: "aborted" }, 202);
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
+  /** POST /api/invokes/:id/retry
+   *  F20260910ctlv 彻底切换：invoke 重试 = 对该獭重新 invoke 一次（新 invoke 行 + 新时间线）。
+   *  session 上下文已完整（原 invoke 的过程都在 session 里），重试 prompt 用简短续跑指令。
+   *  SSE 流与正常发言链一致（entry.* / invoke.* 事件经 broadcaster 推送）。 */
+  async retry(c: Context): Promise<Response> {
+    try {
+      const invokeId = param(c, "id");
+      const invoke = await this.invokeRepo.getInvokeById(invokeId);
+      if (!invoke) {
+        return c.json({ error: "invoke not found" }, 404);
+      }
+      if (invoke.status !== "failed" && invoke.status !== "aborted") {
+        return c.json({ error: `invoke is not in a retryable status: ${invoke.status}` }, 409);
+      }
+      if (!this.agentInvoker || !this.dispatchChainEngine) {
+        return c.json({ error: "retry pipeline not configured" }, 500);
+      }
+
+      const { response, push, close } = streamEvents(c);
+      let unsubscribe: (() => void) | undefined;
+      if (this.messageBroadcaster) {
+        unsubscribe = this.messageBroadcaster.subscribe(invoke.conversationId, () => {}, (event: SSEEvent) => { push(event); });
+      }
+
+      // 链引擎续跑：目标 = 原獭；prompt = 重试续跑指令（session 上下文承载原始任务）
+      const retryPrompt = "[系统] 上一次执行中断了。请基于会话中的上下文继续完成任务，用 speak 输出结论后 yield 交棒。";
+      this.dispatchChainEngine.executeChain({
+        conversationId: invoke.conversationId,
+        userMessageContent: retryPrompt,
+        senderId: "user",
+        initialTargets: [invoke.otterId],
+        triggerMessageId: invokeId,
+        invokeFn: async (params) => {
+          const r = await this.agentInvoker!.invokeConversation({
+            otterId: params.otterId,
+            conversationId: params.conversationId,
+            userMessageContent: params.userMessageContent,
+            senderId: params.senderId,
+            retryCount: 1,
+            manualRetry: true,
+            ...(params.images && { images: params.images }),
+          });
+          return { messageId: r.invokeId };
+        },
+      })
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.logger.error("invoke retry 调度异常", err instanceof Error ? err : new Error(msg), { invokeId });
+          push({ event: "error", data: { message: `重试失败: ${msg}`, invokeId, otterId: invoke.otterId } });
+        })
+        .finally(() => {
+          unsubscribe?.();
+          setTimeout(() => { push({ event: "stream.end", data: {} }); close(); }, 100);
+        });
+
+      return response;
     } catch (err) {
       return handleError(c, err, this.logger);
     }

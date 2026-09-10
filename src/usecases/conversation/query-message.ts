@@ -1,9 +1,14 @@
 import type { Message, MessageEvent } from "@entities/conversation/message";
 import { DomainError } from "@entities/errors";
 import type { ConversationRepository, GetMessagesOptions, TurnHistoryEntry } from "./conversation-repository";
+import type { EntryRepository } from "./entry-repository";
 
 export class QueryMessage {
-  constructor(private readonly repo: ConversationRepository) {}
+  constructor(
+    private readonly repo: ConversationRepository,
+    /** F20260910ctlv 彻底切换：entries 数据源（未注入时降级旧 messages 语义） */
+    private readonly entryRepo?: EntryRepository,
+  ) {}
 
   async getMessageById(id: string): Promise<Message | null> {
     return this.repo.getMessageById(id);
@@ -92,6 +97,32 @@ export class QueryMessage {
     firstUnreadMessageId: string | null;
     firstUnreadSeq: number | null;
   }> {
+    // F20260910ctlv 彻底切换：未读状态读 entries（游标列复用，语义 = entries.sequence_num）
+    if (this.entryRepo) {
+      const state = await this.repo.getUserReadState(conversationId, userId);
+      if (!state) {
+        return { lastReadSeq: 0, unreadCount: 0, firstUnreadMessageId: null, firstUnreadSeq: null };
+      }
+      const lastReadSeq = state.lastReadSeq;
+      const entries = await this.entryRepo.getEntries(conversationId, { limit: 200 });
+      // getEntries DESC：从最新往回找到第一条 <= lastReadSeq 的位置
+      const newer = [] as typeof entries;
+      for (const e of entries) {
+        if (e.sequenceNum <= lastReadSeq) break;
+        newer.push(e);
+      }
+      const unread = newer.filter(e => e.entryType !== "user").reverse();
+      if (unread.length === 0) {
+        return { lastReadSeq, unreadCount: 0, firstUnreadMessageId: null, firstUnreadSeq: null };
+      }
+      const first = unread[0]!;
+      return {
+        lastReadSeq,
+        unreadCount: unread.length,
+        firstUnreadMessageId: first.id,
+        firstUnreadSeq: first.sequenceNum,
+      };
+    }
     const state = await this.repo.getUserReadState(conversationId, userId);
     if (!state) {
       // 首次访问（无已读记录）：不视为全部未读，前端加载后初始化已读到最新

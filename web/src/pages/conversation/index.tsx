@@ -3,12 +3,11 @@ import { createRoot } from 'react-dom/client'
 import { PanelLeft, PanelRight } from 'lucide-react'
 import '../../styles/globals.css'
 
-import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask, LocalMessageSegment } from '../../lib/mappers'
+import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask } from '../../lib/mappers'
 
-import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapEntryDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
-import { useSpeakSegments } from '../../lib/use-speak-segments'
-import { isInFlight, upsertMessage, insertBySeq, findStaleInFlight, upsertTerminalMessage, insertCenteredByTs } from '../../lib/message-stream'
-import { applyInvokeStart, applyInvokeEnd, invokeBoundaryEntry, findOtterByInvokeId, type InvokeStates } from '../../lib/invoke-tracker'
+import { mapOtterDTO, mapConversationDTO, mapEntryDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
+import { isInFlight, upsertMessage, insertBySeq, upsertTerminalMessage, insertCenteredByTs } from '../../lib/message-stream'
+import { applyInvokeStart, applyInvokeEnd, findOtterByInvokeId, type InvokeStates } from '../../lib/invoke-tracker'
 import { MessageBatcher } from '../../lib/batch-update'
 import { nowTs } from '../../lib/utils'
 import { AppLayout } from '../../components/AppLayout'
@@ -30,7 +29,6 @@ import { useCardBridge } from './hooks/useCardBridge'
 import * as api from '../../api/client'
 import { ApiError } from '../../api/client'
 import { consumeSSE } from '../../api/sse'
-import { type MessageDTO } from '@contract/api'
 
 async function loadInitialData(): Promise<{
   conversations: LocalConversation[]
@@ -39,37 +37,6 @@ async function loadInitialData(): Promise<{
   const conversations = convDTOs.map(mapConversationDTO)
   return { conversations }
 }
-
-/** listMessages DTO → LocalMessage（events 已嵌入响应，无需额外请求） */
-function mapMessageDTOs(msgs: MessageDTO[]): LocalMessage[] {
-  return msgs.map((msg) => {
-    const local = mapMessageDTO(msg)
-    if (local.st === 'otter' && msg.events && msg.events.length > 0) {
-      local.events = msg.events.map((e: { eventType: string; payload: Record<string, unknown>; createdAt?: string }) => ({
-        ts: e.createdAt || local.ts,
-        eventType: e.eventType,
-        payload: e.payload,
-      }))
-    }
-    return local
-  }).reverse()
-}
-
-/** MessageDTO[] -> LocalMessage[]（核心映射，不反转；用于 after 分页返回的 ASC 数据） */
-function mapMessagesCore(msgs: MessageDTO[]): LocalMessage[] {
-  return msgs.map((msg) => {
-    const local = mapMessageDTO(msg)
-    if (local.st === 'otter' && msg.events && msg.events.length > 0) {
-      local.events = msg.events.map((e: { eventType: string; payload: Record<string, unknown>; createdAt?: string }) => ({
-        ts: e.createdAt || local.ts,
-        eventType: e.eventType,
-        payload: e.payload,
-      }))
-    }
-    return local
-  })
-}
-
 
 function ConversationPage() {
   const [conversations, setConversations] = useState<LocalConversation[]>([])
@@ -113,8 +80,6 @@ function ConversationPage() {
    *  message.aborted 会双通道投递；不能用 updater 闭包标志——React 有 pending update 时
    *  updater 延迟执行，同步读取恒为 false（零 toast）。ref Set 绕开调度时序 */
   const abortNotifiedRef = useRef<Set<string>>(new Set())
-  // F-multi-speak-bubble: 分段状态管理
-  const { upsertSegment, clearSegments } = useSpeakSegments()
   const allMessagesRef = useRef<Record<string, LocalMessage[]>>({})
   // 同步 allMessages 到 ref，供回调函数读取（解除闭包依赖）
   useEffect(() => {
@@ -124,10 +89,6 @@ function ConversationPage() {
    *  （handler 在 activeId effect 内创建，若直接读 state 会闭包性过期） */
   const invokeStatesRef = useRef<InvokeStates>({})
   useEffect(() => { invokeStatesRef.current = invokeStates }, [invokeStates])
-  /** F20260910ctlv 实测修复：invoke 容器消息 id 集合（invoke.start 的 triggerEntryId = 主消息 id）。
-   *  新体系主消息只是 invoke 生命周期容器（内容在各 speak entry），不渲染气泡——
-   *  message.complete/failed/aborted 命中此集合时跳过气泡插入，只做 live 状态清理 */
-  const invokeContainerIdsRef = useRef<Set<string>>(new Set())
   const ottersRef = useRef<Record<string, LocalOtter[]>>({})
   useEffect(() => { ottersRef.current = allOtters }, [allOtters])
   useEffect(() => () => {
@@ -279,42 +240,19 @@ function ConversationPage() {
 
   const loadConversationDetail = useCallback(async (convId: string) => {
     try {
-      const [listResp, keyInfo, participants, entriesResp] = await Promise.all([
-        api.listMessages(convId, 30),
+      // F20260910ctlv 彻底切换：时间线唯一数据源 = entries（messages 渲染路径退役）
+      const [entriesResp, keyInfo, participants] = await Promise.all([
+        api.listEntries(convId, 50),
         api.getKeyResources(convId),
         api.getParticipants(convId),
-        // F20260910ctlv 切换清扫：entries 时间线历史（invoke 边界/yield/system 居中条目数据源）；
-        // 失败降级为空（旧对话无 entries 不阻断）
-        api.listEntries(convId, 50).catch(() => ({ entries: [], hasMore: false })),
       ])
       // 未读状态独立加载，失败不阻塞会话展示（降级为无未读）
       const unread = await api.getUnreadState(convId).catch(() => ({
         lastReadSeq: 0, unreadCount: 0, firstUnreadMessageId: null, firstUnreadSeq: null,
       }))
-      let msgs = mapMessageDTOs(listResp.messages)
-      // F20260910ctlv 实测修复：invoke 容器主消息不渲染气泡（新体系内容在各 speak entry 里，
-      // messages 表里的主消息只是生命周期容器）——按 invokes 的 triggerEntryId 过滤。
-      // 失败降级为不过滤（旧对话无 invoke 不受影响）
-      const invokesResp = await api.listInvokes(convId, { limit: 200 }).catch(() => ({ invokes: [], hasMore: false }))
-      const containerIds = new Set((invokesResp.invokes || []).map(inv => inv.triggerEntryId).filter((x): x is string => !!x))
-      if (containerIds.size > 0) {
-        msgs = msgs.filter(m => !containerIds.has(m.id))
-      }
-      // F20260910ctlv 实测修复：speak entries 也是时间线气泡源（新路径 speak 只落 entries 表不落
-      // messages 表，不过滤合并的话刷新后 speak 气泡会丢失）；居中条目（invoke 边界/yield）同合并。
-      // 去重键 = entry.id（SSE 已插入的同 id 条目被历史覆盖，保证刷新后一致）；
-      // user 条目仍以 messages 为准（双写 user entry 无独立渲染语义）
-      const timelineEntries = (entriesResp.entries || [])
-        .filter(e => e.entryType === 'speak' || e.entryType === 'invoke_start' || e.entryType === 'invoke_end' || e.entryType === 'yield')
-        .map(mapEntryDTO)
-      if (timelineEntries.length > 0) {
-        const existingIds = new Set(msgs.map(m => m.id))
-        const fresh = timelineEntries.filter(e => !existingIds.has(e.id))
-        // F20260910ctlv 修复：entries 与 messages 是两套独立 seq 计数（各自从 1 起），
-        // 跨表 seq 比较会把 invoke_start 错排到用户发言上方——统一按 ISO 时间戳 ts 排序
-        msgs = [...msgs, ...fresh].sort((a, b) => a.ts.localeCompare(b.ts))
-      }
-      setHasMoreBefore(listResp.hasMore)
+      // entries 全量映射（ASC；单一 sequenceNum 排序天然单调——跨表排序问题消失）
+      const msgs = entriesResp.entries.map(mapEntryDTO)
+      setHasMoreBefore(entriesResp.hasMore)
       setUnreadState(unread)
       // 首次访问（无已读记录）：初始化已读到最新，避免下次进入显示全部未读
       if (unread.lastReadSeq === 0 && unread.unreadCount === 0 && msgs.length > 0) {
@@ -322,18 +260,9 @@ function ConversationPage() {
         if (maxSeq != null) api.markRead(convId, maxSeq).catch(() => {})
       }
       setUnreadSeparatorSeq(null)
-      // 未读定位：第一条未读消息
-      if (unread.firstUnreadSeq != null && unread.firstUnreadMessageId) {
-        const unreadIdx = msgs.findIndex(m => m.seq === unread.firstUnreadSeq)
-        if (unreadIdx >= 0) {
-          setUnreadSeparatorSeq(unread.firstUnreadSeq)
-        } else {
-          // 未读不在窗口（大量未读）：expand 加载未读附近
-          const expanded = await api.expandMessage(unread.firstUnreadMessageId, 'both', 25)
-          msgs = mapMessagesCore(expanded)
-          setHasMoreBefore(true)
-          setUnreadSeparatorSeq(unread.firstUnreadSeq)
-        }
+      // 未读定位：第一条未读条目
+      if (unread.firstUnreadSeq != null) {
+        setUnreadSeparatorSeq(unread.firstUnreadSeq)
       }
       setAllMessages(prev => ({
         ...prev,
@@ -352,51 +281,31 @@ function ConversationPage() {
   }, [])
 
   /** 静默刷新消息列表（轮询用，失败不打扰用户，下轮重试） */
-  /** 增量刷新：只拉比当前最新消息更新的消息（after 游标），不触碰 prepend 的历史 */
+  /** F20260910ctlv 彻底切换：增量刷新（entries after 游标）——SSE 断连兜底。
+   *  时间线实体全部终态（user/speak/居中条目 completed），无 in-flight 轮询需求；
+   *  invoke 运行态由 invoke.start/end 事件驱动 + 刷新时经右栏 API 收敛。 */
   const refreshMessages = useCallback(async (convId: string) => {
-    /** F20260825scrf 检视 S-1 修复：弹窗打开期间冻结——本函数直接 setAllMessages（绕过
-     *  batcher defer），SSE onError 等调用点会驱动 scrim 背后像素变化。关窗后由轮询
-     *  effect（依赖含 modalOpen，见下）无条件恢复续看，不依赖本次被跳过的播种 */
     if (modalOpenRef.current) return
     try {
       const list = allMessagesRef.current[convId] || []
-      const realMsgs = list.filter(m => !m.id.startsWith('tmp-') && !m.id.startsWith('err-'))
-      const newest = realMsgs[realMsgs.length - 1]
+      const realEntries = list.filter(m => !m.id.startsWith('tmp-') && !m.id.startsWith('err-') && m.seq != null)
+      const newest = realEntries[realEntries.length - 1]
       if (!newest?.id) return
-      const resp = await api.listMessagesAfter(convId, newest.id, 100)
-      const newerMsgs = mapMessagesCore(resp.messages) // ASC
-      if (newerMsgs.length > 0) {
+      const resp = await api.listEntriesAfter(convId, newest.id, 100)
+      if (resp.entries.length > 0) {
+        const newer = resp.entries.map(mapEntryDTO)
         setAllMessages(prev => {
           const current = prev[convId] || []
-          let merged = current
-          for (const msg of newerMsgs) {
-            merged = insertBySeq(merged, msg) // 同 id 替换（in-flight 终态），新消息按 seq 有序插入
-          }
-          return { ...prev, [convId]: merged }
+          const existingIds = new Set(current.map(m => m.id))
+          const fresh = newer.filter(e => !existingIds.has(e.id))
+          if (fresh.length === 0) return prev
+          return { ...prev, [convId]: [...current, ...fresh] }
         })
       }
-      /** 增量结果未含的 in-flight 消息：定点拉取收敛（SSE 断连兜底）。
-       *  不能在增量为空时提前返回——in-flight 恰好是最新消息时 /after 恒为空，
-       *  其状态迁移（streaming→aborted/completed）只能靠定点拉取收敛（F20260805abpp） */
-      const outOfWindow = findStaleInFlight(list, new Set(newerMsgs.map(m => m.id)))
-      for (const m of outOfWindow) {
-        try {
-          const serverMsg = mapMessageDTO(await api.getMessage(m.id))
-          setAllMessages(prev => {
-            const l = prev[convId]
-            const existing = l?.find(x => x.id === m.id)
-            if (!existing) return prev
-            /** 仍在生成且内容未变：跳过替换，避免引用抖动触发轮询 effect 空转重排 */
-            if (existing.status === serverMsg.status && existing.content === serverMsg.content) return prev
-            /** 用 || 而非 ??：空串也视为缺失，回退到 SSE 设置的 sn（同 stopStream 注释） */
-            return { ...prev, [convId]: l.map(x => x.id === m.id ? { ...serverMsg, events: m.events, sn: serverMsg.sn || m.sn } : x) }
-          })
-        } catch { /* 下轮重试 */ }
-      }
     } catch (err) {
-      console.error('Failed to refresh messages:', err)
+      console.error('Failed to refresh entries:', err)
     }
-  }, []) // 依赖为空，通过 allMessagesRef 读取最新值
+  }, [])
 
   /** 点击"新消息 N 条"浮窗：滚到底部 + 清零计数 */
   const handleJumpToBottom = useCallback(() => {
@@ -408,7 +317,7 @@ function ConversationPage() {
     setNewMessagesCount(0)
   }, [])
 
-  /** 向上加载更旧的历史消息（startReached 触发，before 游标） */
+  /** F20260910ctlv 彻底切换：向上加载更旧历史（entries before 游标） */
   const loadMoreBefore = useCallback(async () => {
     if (!activeId || loadingMoreRef.current || !hasMoreBefore) return
     const list = allMessagesRef.current[activeId] || []
@@ -417,9 +326,9 @@ function ConversationPage() {
     loadingMoreRef.current = true
     setLoadingMore(true)
     try {
-      const resp = await api.listMessages(activeId, 20, oldest.id)
-      if (resp.messages.length === 0) { setHasMoreBefore(false); return }
-      const olderMsgs = mapMessageDTOs(resp.messages) // DESC -> 升序
+      const resp = await api.listEntries(activeId, 20, oldest.id)
+      if (resp.entries.length === 0) { setHasMoreBefore(false); return }
+      const olderMsgs = resp.entries.map(mapEntryDTO) // ASC
       setHasMoreBefore(resp.hasMore)
       setAllMessages(prev => ({
         ...prev,
@@ -431,9 +340,7 @@ function ConversationPage() {
       loadingMoreRef.current = false
       setLoadingMore(false)
     }
-  }, [activeId, hasMoreBefore]) // 依赖为空，通过 allMessagesRef 读取最新值
-
-
+  }, [activeId, hasMoreBefore])
 
   /** 跳转到消息：已加载则滚动定位，未加载则 expand 加载后定位；高亮 2s */
   const handleJumpToMessage = useCallback((messageId: string) => {
@@ -457,308 +364,133 @@ function ConversationPage() {
     }
   }, [activeId, allMessages, loadConversationDetail])
 
-  /** 刷新页面后若有仍在生成的消息（SSE 已断），轮询续看直到全部进入终态。
-   *  自续期（F20260805abpp）：空转（增量为空、状态未变）不改变 allMessages，
-   *  若依赖 effect 重跑来排下一轮，轮询链在首次无变化后永久停转——故循环自我排期，
-   *  直到 allMessages 变化触发重跑时由入口条件（是否仍有 in-flight）决定去留 */
-  useEffect(() => {
-    if (!activeId) return
-    const msgs = allMessages[activeId]
-    if (!msgs || !msgs.some(isInFlight)) return
-    /** F20260825scrf：弹窗打开期间冻结轮询——refreshMessages 直接 setAllMessages（绕过
-     *  batcher），轮询快照同样会驱动 scrim 背后像素变化。关窗后 allMessages 变化自然
-     *  重跑本 effect，轮询链自动接续，不漏终态收敛 */
-    if (modalOpenRef.current) return
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const scheduleNext = () => {
-      timer = setTimeout(() => {
-        void refreshMessages(activeId).finally(() => {
-            if (!cancelled) scheduleNext()
-        })
-      }, 2000)
-    }
-    scheduleNext()
-    return () => { cancelled = true; if (timer) clearTimeout(timer) }
-    /** 依赖含 modalOpen（F20260825scrf 检视 S-1）：关窗时无条件重跑恢复轮询链——
-     *  否则"弹窗期播种被跳 + 关窗 flush 无暂存"时 allMessages 不变，effect 不重跑，
-     *  in-flight 续看断链 */
-  }, [activeId, allMessages, refreshMessages, modalOpen])
-
   /** 订阅消息广播（支持飞书消息实时同步到 Web，含 agent streaming 事件） */
   useEffect(() => {
     if (!activeId) return
-
-    // streaming 生命周期状态
-    const liveEventsMap = new Map<string, Array<{ ts: string; eventType: string; payload: Record<string, unknown> }>>()
-    const liveMeta = new Map<string, { otterId: string; otterName?: string; createdAt: string }>()
-    /** F20260814qswp 三轮：按 messageId 累积的流式文本。assistant_text 的 content 更新
-     *  用"累积 + 全量 set"幂等语义（不再 content += text）——服务端 startSpeaking 在 speak
-     *  开始即持久化全文，轮询快照会以全文替换 content；+= 语义（含 batcher 重放路径）在
-     *  快照之上再追加会造成文本重复，set 语义天然幂等、重放/快照安全 */
-    const liveText = new Map<string, string>()
 
     // F20260910ctlv：invoke 生命周期跟踪（invokeStates 独立 reducer，不进消息列表）
     const syncInvokeState = (updater: (prev: InvokeStates) => InvokeStates) => {
       setInvokeStates(prev => updater(prev))
     }
 
-    const syncLiveEvents = (messageId: string) => {
-      const liveEvents = liveEventsMap.get(messageId)
-      if (!liveEvents) return
-      batchUpdateMessages(activeId!, (list) => {
-        if (!list.some(m => m.id === messageId)) return list
-        return list.map(m => m.id === messageId ? { ...m, events: [...liveEvents] } : m)
-      })
-    }
-
-    // 事件分发器
+    // F20260910ctlv 彻底切换：事件分发器——单通道（entry.* / invoke.*；message.* 已退役）
     const handlers: Record<string, (data: Record<string, unknown>) => void> = {
-      'message': (data) => {
-        const message = mapMessageDTO(data as unknown as Parameters<typeof mapMessageDTO>[0])
-        // MessageBatcher 的 updater 在 update() 调用时同步执行（F20260814qswp），added 在回调内设置、回调外读取是可靠的
+      'entry.user': (data) => {
+        const d = data as { entryId: string; sequenceNum?: number; senderId?: string; body?: string; createdAt?: string }
+        const userMsg: LocalMessage = {
+          id: d.entryId, st: 'user', si: d.senderId || 'user',
+          content: d.body ?? '', status: 'completed', seq: d.sequenceNum, ts: d.createdAt || nowTs(), dur: null,
+        }
         let added = false
         batchUpdateMessages(activeId!, (current) => {
-          if (current.some(m => m.id === message.id)) return current
-          // tmp 去重：乐观消息（tmp-）按 st|si|content 匹配后替换为真实消息
-          // F20260908rlcp：tmp 去重加 seq 匹配——同内容并发消息（如快速连发两条相同文本）
-          // 按 seq 精确定位，避免第一条 tmp 被错误替换后第二条无处安放
-          const tmpIdx = current.findIndex(m => m.id.startsWith('tmp-') && m.st === message.st && m.si === message.si && m.content === message.content && (m.seq == null || m.seq === message.seq))
-          if (tmpIdx >= 0) {
-            const next = [...current]
-            next[tmpIdx] = message
-            return next
-          }
+          if (current.some(m => m.id === userMsg.id)) return current
           added = true
-          return [...current, message]
+          return [...current, userMsg]
         })
-        // BUG-FIX: 仅在消息确实新增（非重复/去重替换）时计数，防止重复广播事件虚增
-        /** F20260827scrf2：捕获事件时刻的 isAtBottom（defer 重放时用户可能已滚到底，
-         *  按到达时刻判断与原语义一致） */
         if (added) { const atBottom = isAtBottomRef.current; runOrDefer(() => { if (!atBottom) setNewMessagesCount(c => c + 1) }) }
       },
-      'message.start': (data) => {
-        const { messageId, otterId, otterName } = data as { messageId: string; otterId: string; otterName: string }
-        // F20260910ctlv 实测修复：invoke 容器主消息不出气泡（重连重放防御——新路径后端已停发容器 message.start）
-        if (invokeContainerIdsRef.current.has(messageId)) return
-        liveEventsMap.set(messageId, [])
-        liveMeta.set(messageId, { otterId, otterName, createdAt: (data.createdAt as string) || nowTs() })
+      'entry.start': (data) => {
+        /** speak entry 创建——插入獭气泡占位（content 由 entry.speak 填充） */
+        const d = data as { entryId: string; invokeId?: string; otterId: string; otterName?: string; createdAt?: string }
         const placeholder: LocalMessage = {
-          id: messageId, st: 'otter', si: otterId, sn: otterName,
-          content: '', status: 'streaming', seq: data.seq as number, ts: (data.createdAt as string) || nowTs(), dur: null, events: [],
+          id: d.entryId, st: 'otter', si: d.otterId, sn: d.otterName,
+          content: '', status: 'streaming', ts: d.createdAt || nowTs(), dur: null, events: [],
+          invokeId: d.invokeId,
         }
-        // MessageBatcher 的 updater 同步执行（同 message handler 的 added 模式）
         let added = false
         batchUpdateMessages(activeId!, (current) => {
-          if (current.some(m => m.id === messageId)) return current
+          if (current.some(m => m.id === d.entryId)) return current
           added = true
-          return insertBySeq(current, placeholder)
+          return [...current, placeholder]
         })
-        if (otterId && activeId) {
-          upsertOtterIfAbsentDeferred(otterId, otterName, activeId)
+        if (d.otterId) {
+          upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId)
         }
-        /** F20260827scrf2：捕获事件时刻的 isAtBottom（defer 重放时用户可能已滚到底，
-         *  按到达时刻判断与原语义一致） */
         if (added) { const atBottom = isAtBottomRef.current; runOrDefer(() => { if (!atBottom) setNewMessagesCount(c => c + 1) }) }
       },
-      'assistant_text': (data) => {
-        const liveEvents = liveEventsMap.get(data.messageId as string)
-        if (!liveEvents) return
-        liveEvents.push({ ts: nowTs(), eventType: 'assistant_text', payload: { content: data.content } })
-        syncLiveEvents(data.messageId as string)
-        /** F20260819spyd：assistant 文本不再累积进气泡——speak 之外的输出不进入最终消息，
-         *  且与 speak.intermediate 双通道累积会造成同内容重复渲染。
-         *  气泡内容只由 speak.intermediate（真实落库内容的实时投影）累积。 */
-      },
-      'speak.intermediate': (data) => {
-        const { messageId, body, otterName, segmentId, sequenceNum } = data as { messageId: string; body: string; otterName?: string; segmentId?: string; sequenceNum?: number }
-        if (!body) return
-        // F-multi-speak-bubble: 使用 segmentId upsert（天然幂等，重放安全）
-        if (segmentId && sequenceNum != null) {
-          upsertSegment(messageId, segmentId, body, sequenceNum)
-        } else {
-          // 向后兼容：旧服务端无 segmentId，fallback 到字符串追加
-          const acc = (liveText.get(messageId) || '') + (liveText.has(messageId) ? '\n\n' : '') + body
-          liveText.set(messageId, acc)
-        }
-        // 从 liveText 或 segment 构建 content
-        const content = liveText.get(messageId) || body
+      'entry.speak': (data) => {
+        /** speak entry body——speak entry 创建即全量 body（无流式分片） */
+        const d = data as { entryId: string; body?: string; otterName?: string }
+        if (!d.body) return
         batchUpdateMessages(activeId!, (list) => {
-          if (!list.some(m => m.id === messageId)) return list
-          return list.map(m => m.id === messageId ? { ...m, content, sn: m.sn || otterName || '' } : m)
+          if (!list.some(m => m.id === d.entryId)) return list
+          return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, sn: m.sn || d.otterName || '' } : m)
         })
       },
-      'assistant_toolcall': (data) => {
-        const liveEvents = liveEventsMap.get(data.messageId as string)
-        if (!liveEvents) return
-        liveEvents.push({ ts: nowTs(), eventType: 'assistant_toolcall', payload: { content: data.content } })
-        syncLiveEvents(data.messageId as string)
-      },
-      'tool.result': (data) => {
-        const liveEvents = liveEventsMap.get(data.messageId as string)
-        if (!liveEvents) return
-        liveEvents.push({ ts: nowTs(), eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
-        syncLiveEvents(data.messageId as string)
-        refreshParticipantsAfterDissolve(data.toolName as string)
-      },
-      'message.complete': (data) => {
-        const { messageId, otterId: dataOtterId, otterName: dataOtterName } = data as { messageId: string; otterId?: string; otterName?: string }
-        const liveEvents = liveEventsMap.get(messageId) || []
-        const meta = liveMeta.get(messageId)
-        // F20260910ctlv 实测修复：invoke 容器主消息不渲染气泡（内容在各 speak entry）——
-        // 命中容器 id 时移除可能残留的占位投影（重连重放防御）+ live 状态清理，跳过聚合气泡插入
-        if (invokeContainerIdsRef.current.has(messageId)) {
-          batchUpdateMessages(activeId!, (list) => list.filter(m => m.id !== messageId))
-          liveEventsMap.delete(messageId)
-          liveMeta.delete(messageId)
-          liveText.delete(messageId)
-          clearSegments(messageId)
-          return
-        }
-        // F-multi-speak-bubble: 优先使用 segments 数组，fallback 到 body 单段
-        const segments = (data.segments as LocalMessageSegment[] | undefined)?.map(s => ({
-          id: s.id, body: s.body, sequenceNum: s.sequenceNum
-        })) ?? []
-        const finalMsg: LocalMessage = {
-          id: messageId, st: 'otter', si: meta?.otterId || dataOtterId || '', sn: meta?.otterName || dataOtterName,
-          content: (data.body as string) ?? '', status: 'completed', ts: meta?.createdAt || '', dur: data.duration as string,
-          events: liveEvents.length > 0 ? liveEvents : undefined,
-          ctx: data.ctx as number, ctxMax: data.ctxMax as number, turnId: (data.turnId as string) || undefined,
-          segments: segments.length > 0 ? segments : undefined,
-        }
-        batchUpdateMessages(activeId!, (list) => upsertTerminalMessage(list, finalMsg))
-        liveEventsMap.delete(messageId)
-        liveMeta.delete(messageId)
-        liveText.delete(messageId)
-        clearSegments(messageId)
-      },
-      'message.failed': (data) => {
-        const { messageId, otterId: dataOtterId, otterName: dataOtterName } = data as { messageId: string; otterId?: string; otterName?: string }
-        const liveEvents = liveEventsMap.get(messageId) || []
-        const meta = liveMeta.get(messageId)
-        // F20260910ctlv 实测修复：invoke 容器主消息不渲染失败气泡（移除残留占位 + live 清理）
-        if (invokeContainerIdsRef.current.has(messageId)) {
-          batchUpdateMessages(activeId!, (list) => list.filter(m => m.id !== messageId))
-          liveEventsMap.delete(messageId)
-          liveMeta.delete(messageId)
-          liveText.delete(messageId)
-          clearSegments(messageId)
-          return
-        }
-        const failedMsg: LocalMessage = {
-          id: messageId, st: 'otter', si: meta?.otterId || dataOtterId || '', sn: meta?.otterName || dataOtterName,
-          content: (data.body as string) ?? '[未完成]', status: 'failed', ts: meta?.createdAt || '', dur: null,
-          events: liveEvents.length > 0 ? liveEvents : undefined,
-        }
-        batchUpdateMessages(activeId!, (list) => upsertTerminalMessage(list, failedMsg))
-        liveEventsMap.delete(messageId)
-        liveMeta.delete(messageId)
-        liveText.delete(messageId)
-        clearSegments(messageId)
-      },
-      /** #440: 暂态 failed 后自动重试——回退 streaming 投影，重建 live 跟踪（同常驻通道 handler） */
-      'message.retry': (data) => {
-        const { messageId } = data as { messageId: string }
-        // F20260910ctlv 实测修复：invoke 容器主消息不重建 live 跟踪（不渲染气泡，重试期间无占位需要）
-        if (invokeContainerIdsRef.current.has(messageId)) return
-        if (!liveEventsMap.has(messageId)) {
-          liveEventsMap.set(messageId, [])
-          liveMeta.set(messageId, { otterId: (data as { otterId?: string }).otterId || '', otterName: (data as { otterName?: string }).otterName || '', createdAt: nowTs() })
-        }
-        batchUpdateMessages(activeId!, (list) => list.map(m => m.id === messageId
-          ? { ...m, status: 'streaming' as const, dur: null }
+      'entry.complete': (data) => {
+        /** speak entry 终态投影——气泡已在 entry.start/speak 呈现，此处收敛终态（completed） */
+        const d = data as { entryId: string; duration?: string; ctx?: number; ctxMax?: number; turnId?: string }
+        batchUpdateMessages(activeId!, (list) => list.map(m => m.id === d.entryId
+          ? { ...m, status: 'completed' as const, dur: d.duration ?? m.dur, ctx: d.ctx, ctxMax: d.ctxMax, turnId: d.turnId || m.turnId }
           : m))
       },
-      /** F20260805abpp：常驻通道必须处理 message.aborted——MPA 整页刷新后随发送请求建立的
-       *  SSE 流已死，abort 终态只能经此通道到达；缺失时 streaming 占位消息永久卡在生成中 */
-      'message.aborted': (data) => {
-        const { messageId, otterId: dataOtterId, otterName: dataOtterName } = data as { messageId: string; otterId?: string; otterName?: string }
-        const liveEvents = liveEventsMap.get(messageId) || []
-        const meta = liveMeta.get(messageId)
-        /** 身份以 SSE 事件为准（服务端已携带），liveMeta 作回退——与发送流处理器一致 */
-        const otterId = dataOtterId || meta?.otterId || ''
-        const otterName = dataOtterName ?? meta?.otterName
-        /** 确保 otter 在 allOtters 中（chain 创建的新 otter 可能还没加入） */
+      'entry.failed': (data) => {
+        const d = data as { entryId: string; invokeId?: string; body?: string; otterId?: string; otterName?: string }
+        /** invoke 级失败（invokeId 锚）——刷新后由 invoke_end entry 呈现，实时阶段：
+         *  无对应 speak 气泡时插一条 failed 消息（重试按钮数据源）；有则置 failed */
+        const failedMsg: LocalMessage = {
+          id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+          content: d.body ?? '[未完成]', status: 'failed', ts: nowTs(), dur: null,
+          invokeId: d.invokeId,
+        }
+        batchUpdateMessages(activeId!, (list) => upsertTerminalMessage(list, failedMsg))
+        showToast(d.body ? `执行失败: ${String(d.body).slice(0, 60)}` : '执行失败', 'error')
+      },
+      'entry.retry': (data) => {
+        /** invoke 内自动重试——前端提示（invokeStates 仍 running；右栏「思考中」持续） */
+        const d = data as { invokeId?: string; reason?: string; attempt?: number }
+        showToast(`第 ${d.attempt ?? '?'} 次自动重试：${d.reason ?? ''}`, 'info')
+      },
+      'entry.aborted': (data) => {
+        const d = data as { entryId: string; invokeId?: string; body?: string; otterId?: string; otterName?: string }
+        const otterId = d.otterId || ''
+        const otterName = d.otterName
         if (otterId && otterName && activeId) {
           upsertOtterIfAbsentDeferred(otterId, otterName, activeId)
         }
-        // F20260910ctlv 实测修复：invoke 容器主消息不渲染中断气泡（移除残留占位 + live 清理）
-        if (invokeContainerIdsRef.current.has(messageId)) {
-          batchUpdateMessages(activeId!, (list) => list.filter(m => m.id !== messageId))
-          liveEventsMap.delete(messageId)
-          liveMeta.delete(messageId)
-          liveText.delete(messageId)
-          clearSegments(messageId)
-          return
-        }
-        /** upsertTerminalMessage 与已有投影合并保留 events/seq/ts 等字段（第四轮检视 S4-1） */
+        /** invoke 级中止——失败气泡（可重试）；speak entry 若已存在则保留（发言有效） */
         const abortedMsg: LocalMessage = {
-          id: messageId, st: 'otter', si: otterId, sn: otterName,
-          content: (data.body as string) ?? '[中断]', status: 'aborted', ts: meta?.createdAt || '', dur: null,
-          events: liveEvents.length > 0 ? liveEvents : undefined,
+          id: d.entryId, st: 'otter', si: otterId, sn: otterName,
+          content: d.body ?? '[中断]', status: 'aborted', ts: nowTs(), dur: null,
+          invokeId: d.invokeId,
         }
         batchUpdateMessages(activeId!, (list) => upsertTerminalMessage(list, abortedMsg))
-        if (!abortNotifiedRef.current.has(messageId)) {
-          abortNotifiedRef.current.add(messageId)
+        if (!abortNotifiedRef.current.has(d.entryId)) {
+          abortNotifiedRef.current.add(d.entryId)
           showToast('回复已中断', 'info')
         }
-        liveEventsMap.delete(messageId)
-        liveMeta.delete(messageId)
-        liveText.delete(messageId)
-        clearSegments(messageId)
       },
       'error': (data) => {
-        const messageId = data.messageId as string | undefined
+        const d = data as { message?: string; invokeId?: string; otterId?: string }
         const errMsg: LocalMessage = {
-          id: messageId || `err-${crypto.randomUUID()}`, st: 'otter', si: (data.otterId as string) || 'unknown',
-          content: `[错误] ${data.message}`, status: 'failed', ts: nowTs(), dur: null,
+          id: d.invokeId || `err-${crypto.randomUUID()}`, st: 'otter', si: (d.otterId as string) || 'unknown',
+          content: `[错误] ${d.message}`, status: 'failed', ts: nowTs(), dur: null,
         }
-        /** messageId 存在时走 upsertTerminalMessage 保留投影字段（F20260805abpp S4-1 同类） */
-        batchUpdateMessages(activeId!, (list) => messageId ? upsertTerminalMessage(list, errMsg) : upsertMessage(list, errMsg))
-        showToast(`Agent 错误: ${data.message}`, 'error')
+        batchUpdateMessages(activeId!, (list) => upsertMessage(list, errMsg))
+        showToast(`Agent 错误: ${d.message}`, 'error')
       },
-      // ── F20260910ctlv：invoke/entry 新事件（entry.* 优先消费；旧 message.* handler 保留兜底，
-      //    同 id 幂等替换保证双投递安全）──
+      // ── invoke 生命周期（右栏状态面板数据源）──
       'invoke.start': (data) => {
         const d = data as { invokeId: string; otterId: string; otterName?: string; triggerEntryId?: string; startedAt?: string }
-        // F20260910ctlv（审视发现 7）：优先用后端 startedAt，保持与 Session 弹窗 API 数据源一致
         const startTs = d.startedAt || nowTs()
         syncInvokeState(prev => applyInvokeStart(prev, {
           invokeId: d.invokeId, otterId: d.otterId, otterName: d.otterName || '',
           conversationId: activeId, startedAt: startTs,
         }))
-        /** 獭可能在 chain 中新建，保证右栏参与者列表能见（同 message.start 的 upsert 链） */
+        /** 獭可能在 chain 中新建，保证右栏参与者列表能见 */
         if (d.otterId) upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId)
-        /** F20260910ctlv 实测修复：登记 invoke 容器主消息 id（triggerEntryId = sendMessage.start 建的主消息 id）。
-         *  后续 message.complete/failed/aborted 命中此 id 时跳过气泡渲染（容器无内容，
-         *  气泡唯一来源 = speak entry），只做 live 状态清理 */
-        if (d.triggerEntryId) invokeContainerIdsRef.current.add(d.triggerEntryId)
-        /** 时间线插入 invoke_start 居中条目（确定性 ID invoke-{id}-start，重放幂等） */
-        batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, invokeBoundaryEntry({
-          invokeId: d.invokeId, otterId: d.otterId, otterName: d.otterName,
-          kind: 'start', ts: startTs,
-        })))
       },
       'invoke.end': (data) => {
-        // F20260910ctlv（审视发现 4）：直接用后端发送的 otterId——消除线性扫描 + 修复 invoke.start 丢失时的静默丢弃
         const d = data as { invokeId: string; otterId?: string; status: 'completed' | 'failed' | 'aborted'; duration?: number; endedAt?: string; toolCallCount?: number; tokenUsage?: { input: number; output: number } }
         const otterId = d.otterId || findOtterByInvokeId(invokeStatesRef.current, d.invokeId)
-        if (!otterId) return /** 状态未知（页面加载前已结束且事件无 otterId）——不补插条目，刷新时由历史查询回归 */
-        const prev = invokeStatesRef.current[otterId]
-        const otterName = prev?.otterName
+        if (!otterId) return
         const endedAt = d.endedAt || nowTs()
         syncInvokeState(prevStates => applyInvokeEnd(prevStates, {
           invokeId: d.invokeId, otterId, status: d.status, endedAt,
         }))
-        batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, invokeBoundaryEntry({
-          invokeId: d.invokeId, otterId, otterName,
-          kind: 'end', ts: endedAt, endStatus: d.status,
-        })))
       },
       'entry.yield': (data) => {
-        const d = data as { entryId: string; invokeId: string; otterId?: string; otterName?: string; yieldTargets?: string[] }
-        /** F20260910ctlv Phase 3 补遗：后端已补发射 entry.yield（tool-factory createYieldEntry 后广播），
-         *  本 handler 正式生效。targets 解析 otter 名展示 */
+        const d = data as { entryId: string; invokeId?: string; otterId?: string; otterName?: string; yieldTargets?: string[] }
         const targets = (d.yieldTargets || []).map((t: string) => ottersRef.current[activeId]?.find(o => o.id === t)?.name || t)
         batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, {
           id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
@@ -774,40 +506,8 @@ function ConversationPage() {
         }
         batchUpdateMessages(activeId!, (list) => upsertMessage(list, sysMsg))
       },
-      'entry.start': (data) => {
-        /** 与 message.start 同型（entryId = messageId）；旧 handler 已处理同 id 消息时
-         *  insertBySeq 幂等替换，双通道安全。
-         *  F20260910ctlv 实测修复：委托时 entryId → messageId 字段重映射——payload 字段名是
-         *  entryId，直接 cast 会让 handler 解构出 messageId = undefined（speak 气泡落在野 id 上） */
-        const d = data as { entryId: string; otterId: string; otterName: string }
-        handlers['message.start']?.({ ...data, messageId: d.entryId, otterId: d.otterId, otterName: d.otterName } as { messageId: string; otterId: string; otterName: string })
-      },
-      'entry.speak': (data) => {
-        const d = data as { entryId: string }
-        handlers['speak.intermediate']?.({ ...data, messageId: d.entryId } as { messageId: string; body: string; otterName?: string; segmentId?: string; sequenceNum?: number })
-        // F20260910ctlv 实测修复：speak entry 创建即 completed 终态（无后续 complete 事件）。
-        // 不置终态的话气泡永远停在 streaming —— 挂着「停止生成」按钮 + 「正在回复...」占位。
-        // （旧路径 speak.intermediate 仍保持 streaming，由 message.complete 收尾——不受影响）
-        batchUpdateMessages(activeId!, (list) => list.map(m => m.id === d.entryId
-          ? { ...m, status: 'completed' as const }
-          : m))
-      },
-      'entry.complete': (data) => {
-        const d = data as { entryId: string }
-        handlers['message.complete']?.({ ...data, messageId: d.entryId } as { messageId: string; otterId?: string; otterName?: string; body?: string; turnId?: string; duration?: string; ctx?: number; ctxMax?: number; segments?: LocalMessageSegment[] })
-      },
-      'entry.failed': (data) => {
-        const d = data as { entryId: string }
-        handlers['message.failed']?.({ ...data, messageId: d.entryId } as { messageId: string })
-      },
-      'entry.retry': (data) => {
-        const d = data as { entryId: string }
-        handlers['message.retry']?.({ ...data, messageId: d.entryId } as { messageId: string })
-      },
-      'entry.aborted': (data) => {
-        const d = data as { entryId: string }
-        handlers['message.aborted']?.({ ...data, messageId: d.entryId } as { messageId: string })
-      },
+      // ── 通用事件 ──
+      'agent.idle': () => { /* 信息性事件，不做处理 */ },
     }
 
     // SSE 订阅：用 XMLHttpRequest 流式读取，带指数退避重连
@@ -877,7 +577,7 @@ function ConversationPage() {
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (xhr) xhr.abort()
     }
-  }, [activeId, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment, upsertOtterIfAbsentDeferred])
+  }, [activeId, batchUpdateMessages, upsertOtterIfAbsentDeferred])
 
   useEffect(() => {
     for (const otter of Object.values(allOtters).flat()) {
@@ -936,226 +636,79 @@ function ConversationPage() {
       })
       if (!response.ok) { removeTmpMsg(); showToast('发送失败', 'error'); return }
 
-      /** 按 messageId 隔离的 liveEvents 与 otter 元信息（每个 otter 独立，仅本次发送流程内使用） */
-      const liveEventsMap = new Map<string, Array<{ ts: string; eventType: string; payload: Record<string, unknown> }>>()
-      const liveMeta = new Map<string, { otterId: string; otterName?: string; createdAt: string }>()
-      /** F20260814qswp 三轮：累积+全量 set 幂等语义（见常驻通道 liveText 声明处注释） */
-      const liveText = new Map<string, string>()
-
-      /** SSE 事件就地更新 allMessages 中的进行中消息（统一渲染通道：消息流只有 allMessages 一条；
-       *  F20260814qswp：改走 batchUpdateMessages，与批量暂存副本单轨，避免双轨覆盖） */
-      const syncLiveEvents = (messageId: string) => {
-        const liveEvents = liveEventsMap.get(messageId)
-        if (!liveEvents) return
-        batchUpdateMessages(activeId!, (list) => {
-          if (!list.some(m => m.id === messageId)) return list
-          return list.map(m => m.id === messageId ? { ...m, events: [...liveEvents] } : m)
-        })
-      }
-
-      consumeSSE(response, {        'message.start': (data) => {
-          const { messageId, otterId, otterName } = data
-          liveEventsMap.set(messageId, [])
-          liveMeta.set(messageId, { otterId, otterName, createdAt: data.createdAt || nowTs() })
-          /** 进行中消息按服务端 sequence 插入消息流（M5：跨 otter 并发时序正确；同 id 原位替换兼容轮询快照） */
+      // F20260910ctlv 彻底切换：POST 发送流——单通道（entry.* / invoke.*；与常驻通道共用 handler 逻辑）
+      // tmp 乐观消息由 entry.user 事件替换（同 id 幂等由后端保证——entryId 与 tmp id 不同，
+      // 用户气泡以 tmp 呈现直到刷新；invoke 过程气泡走 entry.start/speak）
+      const postHandlers: Record<string, (data: Record<string, unknown>) => void> = {
+        'entry.user': () => { /* 用户气泡已由 tmp 乐观呈现；不重复插入 */ },
+        'entry.start': (data) => {
+          const d = data as { entryId: string; invokeId?: string; otterId: string; otterName?: string; createdAt?: string }
           const placeholder: LocalMessage = {
-            id: messageId, st: 'otter', si: otterId, sn: otterName,
-            content: '', status: 'streaming', seq: data.seq, ts: data.createdAt || nowTs(), dur: null, events: [],
+            id: d.entryId, st: 'otter', si: d.otterId, sn: d.otterName,
+            content: '', status: 'streaming', ts: d.createdAt || nowTs(), dur: null, events: [],
+            invokeId: d.invokeId,
           }
           batchUpdateMessages(activeId!, (list) => insertBySeq(list, placeholder))
-          /** 确保发言者在参与者列表中（流中途 create_otter 的新獭）；fill-only，不覆盖已有条目 */
-          if (otterId && activeId) {
-            upsertOtterIfAbsentDeferred(otterId, otterName, activeId)
+          if (d.otterId && activeId) {
+            upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId)
           }
-          // message.start 计数由 GET 订阅统一处理，POST 流不重复计数
         },
-        'assistant_toolcall': (data) => {
-          const { messageId } = data
-          const liveEvents = liveEventsMap.get(messageId)
-          if (!liveEvents) return
-          liveEvents.push({ ts: nowTs(), eventType: 'assistant_toolcall', payload: { content: data.content } })
-          syncLiveEvents(messageId)
-        },
-        'tool.result': (data) => {
-          const { messageId } = data
-          const liveEvents = liveEventsMap.get(messageId)
-          if (!liveEvents) return
-          liveEvents.push({ ts: nowTs(), eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
-          syncLiveEvents(messageId)
-          refreshParticipantsAfterDissolve(data.toolName as string)
-        },
-        'assistant_text': (data) => {
-          const { messageId } = data
-          const liveEvents = liveEventsMap.get(messageId)
-          if (!liveEvents) return
-          liveEvents.push({ ts: nowTs(), eventType: 'assistant_text', payload: { content: data.content } })
-          syncLiveEvents(messageId)
-          /** F20260819spyd：assistant 文本不进气泡（同常驻通道注释——避免与 speak.intermediate 重复） */
-        },
-        'speak.intermediate': (data) => {
-          const { messageId, body, otterName, segmentId, sequenceNum } = data as { messageId: string; body: string; otterName?: string; segmentId?: string; sequenceNum?: number }
-          if (!body) return
-          // F-multi-speak-bubble: 使用 segmentId upsert（天然幂等，重放安全）
-          if (segmentId && sequenceNum != null) {
-            upsertSegment(messageId, segmentId, body, sequenceNum)
-          } else {
-            // 向后兼容：旧服务端无 segmentId，fallback 到字符串追加
-            const acc = (liveText.get(messageId) || '') + (liveText.has(messageId) ? '\n\n' : '') + body
-            liveText.set(messageId, acc)
-          }
-          // 从 liveText 构建 content
-          const content = liveText.get(messageId) || body
+        'entry.speak': (data) => {
+          const d = data as { entryId: string; body?: string; otterName?: string }
+          if (!d.body) return
           batchUpdateMessages(activeId!, (list) => {
-            if (!list.some(m => m.id === messageId)) return list
-            return list.map(m => m.id === messageId ? { ...m, content, sn: m.sn || otterName || '' } : m)
+            if (!list.some(m => m.id === d.entryId)) return list
+            return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, sn: m.sn || d.otterName || '' } : m)
           })
         },
-        'message.complete': (data) => {
-          const { messageId } = data
-          const liveEvents = liveEventsMap.get(messageId) || []
-          const meta = liveMeta.get(messageId)
-          const otterId = meta?.otterId || data.otterId || ''
-          // F20260910ctlv 实测修复：invoke 容器主消息不渲染气泡——移除残留占位 + live 状态清理
-          if (invokeContainerIdsRef.current.has(messageId)) {
-            batchUpdateMessages(activeId!, (list) => list.filter(m => m.id !== messageId))
-            liveEventsMap.delete(messageId)
-            liveMeta.delete(messageId)
-            liveText.delete(messageId)
-            clearSegments(messageId)
-            return
-          }
-          // F-multi-speak-bubble: 优先使用 segments 数组，fallback 到 body 单段
-          const segments = (data.segments as LocalMessageSegment[] | undefined)?.map(s => ({
-            id: s.id, body: s.body, sequenceNum: s.sequenceNum
-          })) ?? []
-          /** body 来自 SSE 事件（后端 speak 完成后从 DB 取出），与 assistant_text 事件无关 */
-          const finalMsg: LocalMessage = {
-            id: messageId, st: 'otter', si: otterId, sn: meta?.otterName || data.otterName,
-            content: data.body ?? '', status: 'completed', ts: meta?.createdAt || '', dur: data.duration,
-            events: liveEvents.length > 0 ? liveEvents : undefined,
-            ctx: data.ctx, ctxMax: data.ctxMax,
-            turnId: data.turnId || undefined,
-            segments: segments.length > 0 ? segments : undefined,
-          }
-          /** upsertTerminalMessage 原位替换 message.start 插入的占位消息并保留投影字段；
-           *  M6：恰好一条未戳 tmp 时补戳 turnId（分隔线立即正确）；
-           *  多条并发 tmp 时不戳（到达顺序未必等于发送顺序），留给轮询快照纠正 */
-          batchUpdateMessages(activeId!, (list) => {
-            const updated = upsertTerminalMessage(list, finalMsg)
-            if (!data.turnId) return updated
-            const unstamped = updated.filter(m => m.id.startsWith('tmp-') && !m.turnId)
-            if (unstamped.length !== 1) return updated
-            const tmpId = unstamped[0].id
-            return updated.map(m => m.id === tmpId ? { ...m, turnId: data.turnId } : m)
-          })
-          liveEventsMap.delete(messageId)
-          liveMeta.delete(messageId)
-          liveText.delete(messageId)
-          clearSegments(messageId)
-        },
-        'error': (data) => {
-          const { messageId, otterId } = data
-          const meta = messageId ? liveMeta.get(messageId) : undefined
-          const errMsg: LocalMessage = {
-            id: messageId || `err-${crypto.randomUUID()}`, st: 'otter', si: otterId || 'unknown',
-            content: `[错误] ${data.message}`, status: 'failed', ts: meta?.createdAt || nowTs(), dur: null,
-          }
-          /** messageId 存在时走 upsertTerminalMessage 保留投影字段（F20260805abpp S4-1 同类） */
-          batchUpdateMessages(activeId!, (list) => messageId ? upsertTerminalMessage(list, errMsg) : upsertMessage(list, errMsg))
-          showToast(`Agent 错误: ${data.message}`, 'error')
-          if (messageId) {
-            liveEventsMap.delete(messageId)
-            liveMeta.delete(messageId)
-            liveText.delete(messageId)
-          }
-        },
-        'message.aborted': (data) => {
-          /** abort 后保留已有事件到 allMessages（与 message.failed 一致） */
-          const { messageId } = data
-          const liveEvents = liveEventsMap.get(messageId) || []
-          const meta = liveMeta.get(messageId)
-          /** 身份以 SSE 事件为准（服务端已携带），liveMeta 作回退 */
-          const otterId = data.otterId || meta?.otterId || ''
-          const otterName = data.otterName ?? meta?.otterName
-          /** 确保 otter 在 allOtters 中（chain 创建的新 otter 可能还没加入） */
-          if (otterId && otterName && activeId) {
-            upsertOtterIfAbsentDeferred(otterId, otterName, activeId)
-          }
-          // F20260910ctlv 实测修复：invoke 容器主消息不渲染中断气泡（移除残留占位 + live 清理）
-          if (invokeContainerIdsRef.current.has(messageId)) {
-            batchUpdateMessages(activeId!, (list) => list.filter(m => m.id !== messageId))
-            liveEventsMap.delete(messageId)
-            liveMeta.delete(messageId)
-            liveText.delete(messageId)
-            return
-          }
-          const abortedMsg: LocalMessage = {
-            id: messageId, st: 'otter', si: otterId, sn: otterName,
-            content: data.body ?? '[中断]', status: 'aborted', ts: meta?.createdAt || '', dur: null,
-            events: liveEvents.length > 0 ? liveEvents : undefined,
-          }
-          /** upsertTerminalMessage 与已有投影合并保留 events/seq/ts 等字段（第四轮检视 S4-1） */
-          batchUpdateMessages(activeId!, (list) => upsertTerminalMessage(list, abortedMsg))
-          if (!abortNotifiedRef.current.has(messageId)) {
-            abortNotifiedRef.current.add(messageId)
-            showToast('回复已中断', 'info')
-          }
-          liveEventsMap.delete(messageId)
-          liveMeta.delete(messageId)
-          liveText.delete(messageId)
-        },
-        'message.failed': (data) => {
-          /** 失败消息：body 来自 SSE 事件（服务端 sendMessage.fail 存储的失败原因） */
-          const { messageId } = data
-          const liveEvents = liveEventsMap.get(messageId) || []
-          const meta = liveMeta.get(messageId)
-          const otterId = meta?.otterId || data.otterId || ''
-          // F20260910ctlv 实测修复：invoke 容器主消息不渲染失败气泡（移除残留占位 + live 清理）
-          if (invokeContainerIdsRef.current.has(messageId)) {
-            batchUpdateMessages(activeId!, (list) => list.filter(m => m.id !== messageId))
-            liveEventsMap.delete(messageId)
-            liveMeta.delete(messageId)
-            liveText.delete(messageId)
-            return
-          }
-          const failedMsg: LocalMessage = {
-            id: messageId, st: 'otter', si: otterId, sn: meta?.otterName || data.otterName,
-            content: data.body ?? '[未完成]', status: 'failed', ts: meta?.createdAt || '', dur: null,
-            events: liveEvents.length > 0 ? liveEvents : undefined,
-          }
-          batchUpdateMessages(activeId!, (list) => upsertTerminalMessage(list, failedMsg))
-          liveEventsMap.delete(messageId)
-          liveMeta.delete(messageId)
-          liveText.delete(messageId)
-        },
-        /** #440: timeout 类自动重试通知——failed 是暂态，重试内容将流回同一条消息。
-         *  回退 streaming 投影 + 重建 live 跟踪状态，后续 speak.intermediate / message.complete 照常接管。
-         *  无此 handler 时靠轮询才能感知状态回退（体验跳变），处理时长尾消息会长时间停留 failed 观感 */
-        'message.retry': (data) => {
-          const { messageId } = data as { messageId: string }
-          if (!liveEventsMap.has(messageId)) {
-            liveEventsMap.set(messageId, [])
-            liveMeta.set(messageId, { otterId: (data as { otterId?: string }).otterId || '', otterName: (data as { otterName?: string }).otterName || '', createdAt: nowTs() })
-          }
-          batchUpdateMessages(activeId!, (list) => list.map(m => m.id === messageId
-            ? { ...m, status: 'streaming' as const, dur: null }
+        'entry.complete': (data) => {
+          const d = data as { entryId: string; duration?: string; ctx?: number; ctxMax?: number }
+          batchUpdateMessages(activeId!, (list) => list.map(m => m.id === d.entryId
+            ? { ...m, status: 'completed' as const, dur: d.duration ?? m.dur, ctx: d.ctx, ctxMax: d.ctxMax }
             : m))
         },
-        'system.message': (data) => {
+        'entry.failed': (data) => {
+          const d = data as { entryId: string; invokeId?: string; body?: string; otterId?: string; otterName?: string }
+          const failedMsg: LocalMessage = {
+            id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+            content: d.body ?? '[未完成]', status: 'failed', ts: nowTs(), dur: null,
+            invokeId: d.invokeId,
+          }
+          batchUpdateMessages(activeId!, (list) => upsertTerminalMessage(list, failedMsg))
+        },
+        'entry.aborted': (data) => {
+          const d = data as { entryId: string; invokeId?: string; body?: string; otterId?: string; otterName?: string }
+          const abortedMsg: LocalMessage = {
+            id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+            content: d.body ?? '[中断]', status: 'aborted', ts: nowTs(), dur: null,
+            invokeId: d.invokeId,
+          }
+          batchUpdateMessages(activeId!, (list) => upsertTerminalMessage(list, abortedMsg))
+          if (!abortNotifiedRef.current.has(d.entryId)) {
+            abortNotifiedRef.current.add(d.entryId)
+            showToast('回复已中断', 'info')
+          }
+        },
+        'error': (data) => {
+          const d = data as { message?: string; invokeId?: string; otterId?: string }
+          showToast(`Agent 错误: ${d.message}`, 'error')
+        },
+        'entry.system': (data) => {
+          const d = data as { entryId: string; content: string; seq?: number }
           const sysMsg: LocalMessage = {
-            id: data.messageId, st: 'system', si: 'system',
-            content: data.content, seq: data.seq as number, ts: nowTs(), dur: null,
+            id: d.entryId, st: 'system', si: 'system', content: d.content,
+            status: 'completed', seq: d.seq, ts: nowTs(), dur: null, entryType: 'system',
           }
           batchUpdateMessages(activeId!, (list) => insertBySeq(list, sysMsg))
         },
-        // F20260820i333: @提及解析 feedback 显示为 toast
         'mention.feedback': (data) => {
-          if (data.feedback) {
-            showToast(data.feedback, 'info')
+          if ((data as { feedback?: string }).feedback) {
+            showToast((data as { feedback: string }).feedback, 'info')
           }
         },
-        'agent.idle': () => { /* 信息性事件，不做处理 */ },
-      }, { onError: () => {
+        'agent.idle': () => { /* 信息性事件 */ },
+      }
+      consumeSSE(response, postHandlers, { onError: () => {
         showToast('SSE 连接中断', 'error')
         /** SSE 中断不代表发言停止（刷新≠停止）：拉取快照播种进行中消息，让轮询续看接管 */
         if (activeId) refreshMessages(activeId)
@@ -1176,7 +729,7 @@ function ConversationPage() {
       removeTmpMsg()
       showToast('发送失败', 'error')
     }
-  }, [activeId, refreshMessages, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment, upsertOtterIfAbsentDeferred])
+  }, [activeId, refreshMessages, batchUpdateMessages, refreshParticipantsAfterDissolve, upsertOtterIfAbsentDeferred])
 
   /** 卡片提交 → 强制预览 → 回执复用 handleSend 整条 SSE 管线（显式路由卡片作者） */
   const { cardPreview, confirmCardPreview, rejectCardPreview } = useCardBridge({
@@ -1185,44 +738,30 @@ function ConversationPage() {
     onSendReply: (body, authorId) => { handleSend(body, authorId ? [authorId] : undefined) },
   })
 
+  /** F20260910ctlv 彻底切换：停止按钮——abort invoke（invokeId 锚）。
+   *  流式中的 speak 气泡保留（发言有效）；invoke 置 aborted 后右栏收敛。 */
   const stopStream = useCallback((messageId: string) => {
     if (!activeId) return
-    /** 乐观更新为已中断（即时反馈）；随后以服务端为该消息的权威状态收敛 */
+    const msgs = allMessagesRef.current[activeId] || []
+    const target = msgs.find(m => m.id === messageId)
+    const invokeId = target?.invokeId
+    if (!invokeId) {
+      showToast('找不到对应的执行记录，无法中断', 'error')
+      return
+    }
+    /** 乐观置 aborted（即时反馈；服务端 invoke.end aborted 事件会收敛） */
     setAllMessages(prev => {
       const list = prev[activeId]
       if (!list?.some(m => m.id === messageId)) return prev
-      return {
-        ...prev,
-        [activeId]: list.map(m => m.id === messageId && isInFlight(m)
-          ? { ...m, status: 'aborted' as const, content: m.content || '[中断]' }
-          : m),
-      }
+      return { ...prev, [activeId]: list.map(m => m.id === messageId && isInFlight(m)
+        ? { ...m, status: 'aborted' as const, content: m.content || '[中断]' }
+        : m) }
     })
-    /** 收敛失败时回退为进行中，让轮询接管（abort 生效/丢失/已终态/拉取失败四条路径均可收敛） */
-    const revertToInFlight = () => setAllMessages(prev => {
-      const list = prev[activeId]
-      if (!list?.some(m => m.id === messageId)) return prev
-      return { ...prev, [activeId]: list.map(m => m.id === messageId ? { ...m, status: 'streaming' as const } : m) }
-    })
-    api.abortMessage(messageId)
+    api.abortInvoke(invokeId, target?.si || '')
       .then(() => {
-        // S3.5（F20260903s35u，G3）：中断已升级为会话级停机——显式告知效果与恢复路径
         showToast('已暂停本会话新任务，发新消息即恢复', 'info')
       })
-      .catch((err) => console.error('Failed to abort message:', err))
-      .finally(async () => {
-        try {
-          const serverMsg = mapMessageDTO(await api.getMessage(messageId))
-          setAllMessages(prev => {
-            const list = prev[activeId]
-            if (!list?.some(m => m.id === messageId)) return prev
-            /** getMessage 不含 events，保留本地已有事件；sn 可能缺失（服务端降级），保留本地已有的。用 || 而非 ??：空串也视为缺失，回退到 SSE 设置的 sn */
-            return { ...prev, [activeId]: list.map(m => m.id === messageId ? { ...serverMsg, events: m.events, sn: serverMsg.sn || m.sn } : m) }
-          })
-        } catch {
-          revertToInFlight()
-        }
-      })
+      .catch((err) => console.error('Failed to abort invoke:', err))
   }, [activeId])
 
   /** 标记已读防抖（避免滚动时频繁调用 API） */
@@ -1245,135 +784,67 @@ function ConversationPage() {
     }, 500)
   }, [activeId])
 
-  /** 手动重试：对 failed/aborted 的 otter 消息重新触发 agent */
+  /** F20260910ctlv 彻底切换：手动重试——invoke retry（invokeId 锚）。
+   *  重试产生全新 invoke（新时间线），流内 entry.* 事件插入新气泡。 */
   const handleRetryMessage = useCallback(async (messageId: string) => {
     if (!activeId) return
+    const msgs = allMessagesRef.current[activeId] || []
+    const target = msgs.find(m => m.id === messageId)
+    const invokeId = target?.invokeId
+    if (!invokeId) {
+      showToast('找不到对应的执行记录，无法重试', 'error')
+      return
+    }
     try {
-      const response = await api.retryMessage(messageId)
+      const response = await api.retryInvoke(invokeId)
       if (!response.ok) { showToast('重试失败', 'error'); return }
 
-      const liveEventsMap = new Map<string, Array<{ ts: string; eventType: string; payload: Record<string, unknown> }>>()
-      const liveMeta = new Map<string, { otterId: string; otterName?: string; createdAt: string }>()
-      /** F20260814qswp 三轮：累积+全量 set 幂等语义（见常驻通道 liveText 声明处注释） */
-      const liveText = new Map<string, string>()
-
-      const syncLiveEvents = (msgId: string) => {
-        const liveEvents = liveEventsMap.get(msgId)
-        if (!liveEvents) return
-        batchUpdateMessages(activeId, (list) => {
-          if (!list.some(m => m.id === msgId)) return list
-          return list.map(m => m.id === msgId ? { ...m, events: [...liveEvents] } : m)
-        })
-      }
-
-      consumeSSE(response, {
-        'message.start': (data) => {
-          const { messageId: newMsgId, otterId, otterName } = data
-          liveEventsMap.set(newMsgId, [])
-          liveMeta.set(newMsgId, { otterId, otterName, createdAt: data.createdAt || nowTs() })
+      // 重试流：单通道 entry.*（与发送流同型；新 invoke 的气泡经 entry.start 插入）
+      const retryHandlers: Record<string, (data: Record<string, unknown>) => void> = {
+        'entry.start': (data) => {
+          const d = data as { entryId: string; invokeId?: string; otterId: string; otterName?: string; createdAt?: string }
           const placeholder: LocalMessage = {
-            id: newMsgId, st: 'otter', si: otterId, sn: otterName,
-            content: '', status: 'streaming', seq: data.seq, ts: data.createdAt || nowTs(), dur: null, events: [],
+            id: d.entryId, st: 'otter', si: d.otterId, sn: d.otterName,
+            content: '', status: 'streaming', ts: d.createdAt || nowTs(), dur: null, events: [],
+            invokeId: d.invokeId,
           }
           batchUpdateMessages(activeId, (list) => insertBySeq(list, placeholder))
         },
-        'assistant_toolcall': (data) => {
-          const { messageId: msgId } = data
-          const liveEvents = liveEventsMap.get(msgId)
-          if (!liveEvents) return
-          liveEvents.push({ ts: nowTs(), eventType: 'assistant_toolcall', payload: { content: data.content } })
-          syncLiveEvents(msgId)
-        },
-        'tool.result': (data) => {
-          const { messageId: msgId } = data
-          const liveEvents = liveEventsMap.get(msgId)
-          if (!liveEvents) return
-          liveEvents.push({ ts: nowTs(), eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
-          syncLiveEvents(msgId)
-          refreshParticipantsAfterDissolve(data.toolName as string)
-        },
-        'assistant_text': (data) => {
-          const { messageId: msgId, content } = data
-          const liveEvents = liveEventsMap.get(msgId)
-          if (!liveEvents) return
-          /** F20260814qswp：事件形状对齐常驻/发送流（eventType:'assistant_text' + payload.content）。
-           *  旧实现用 eventType:'text'/payload:{text}，MessageList 的 EventItem 只识别 'assistant_text'，
-           *  重试消息的流式文本事件全部静默丢失（落入 return null） */
-          liveEvents.push({ ts: nowTs(), eventType: 'assistant_text', payload: { content } })
-          syncLiveEvents(msgId)
-          /** F20260819spyd：assistant 文本不进气泡（同常驻通道注释——避免与 speak.intermediate 重复） */
-        },
-        'speak.intermediate': (data) => {
-          const { messageId, body, otterName, segmentId, sequenceNum } = data as { messageId: string; body: string; otterName?: string; segmentId?: string; sequenceNum?: number }
-          if (!body) return
-          // F-multi-speak-bubble: 使用 segmentId upsert（天然幂等，重放安全）
-          if (segmentId && sequenceNum != null) {
-            upsertSegment(messageId, segmentId, body, sequenceNum)
-          } else {
-            // 向后兼容：旧服务端无 segmentId，fallback 到字符串追加
-            const acc = (liveText.get(messageId) || '') + (liveText.has(messageId) ? '\n\n' : '') + body
-            liveText.set(messageId, acc)
-          }
-          // 从 liveText 构建 content
-          const content = liveText.get(messageId) || body
-          batchUpdateMessages(activeId!, (list) => {
-            if (!list.some(m => m.id === messageId)) return list
-            return list.map(m => m.id === messageId ? { ...m, content, sn: m.sn || otterName || '' } : m)
+        'entry.speak': (data) => {
+          const d = data as { entryId: string; body?: string; otterName?: string }
+          if (!d.body) return
+          batchUpdateMessages(activeId, (list) => {
+            if (!list.some(m => m.id === d.entryId)) return list
+            return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, sn: m.sn || d.otterName || '' } : m)
           })
         },
-        'message.complete': (data) => {
-          const { messageId: msgId } = data
-          const liveEvents = liveEventsMap.get(msgId) || []
-          const meta = liveMeta.get(msgId)
-          const otterId = meta?.otterId || data.otterId || ''
-          // F20260910ctlv 实测修复：invoke 容器主消息不渲染气泡（移除残留占位；重试流仅 complete 可插入）
-          if (invokeContainerIdsRef.current.has(msgId)) {
-            batchUpdateMessages(activeId, (list) => list.filter(m => m.id !== msgId))
-            clearSegments(msgId)
-            return
-          }
-          // F-multi-speak-bubble: 优先使用 segments 数组，fallback 到 body 单段
-          const segments = (data.segments as LocalMessageSegment[] | undefined)?.map(s => ({
-            id: s.id, body: s.body, sequenceNum: s.sequenceNum
-          })) ?? []
-          const finalMsg: LocalMessage = {
-            id: msgId, st: 'otter', si: otterId, sn: meta?.otterName || data.otterName,
-            content: data.body ?? '', status: 'completed', ts: meta?.createdAt || '', dur: data.duration,
-            events: liveEvents.length > 0 ? liveEvents : undefined,
-            ctx: data.ctx, ctxMax: data.ctxMax,
-            turnId: data.turnId || undefined,
-            segments: segments.length > 0 ? segments : undefined,
-          }
-          batchUpdateMessages(activeId, (list) => upsertTerminalMessage(list, finalMsg))
-          clearSegments(msgId)
-        },
-        'message.failed': (data) => {
-          const { messageId: msgId } = data
-          const meta = liveMeta.get(msgId)
-          batchUpdateMessages(activeId, (list) =>
-            list.map(m => m.id === msgId ? { ...m, status: 'failed' as const, content: data.body || m.content || '[未完成]', sn: m.sn || meta?.otterName || data.otterName } : m))
-        },
-        /** #440: 手动重试流内也可能再遇自动重试（如同一条消息二次超时），同样回退 streaming */
-        'message.retry': (data) => {
-          const { messageId: msgId } = data
-          batchUpdateMessages(activeId, (list) => list.map(m => m.id === msgId
-            ? { ...m, status: 'streaming' as const, dur: null }
+        'entry.complete': (data) => {
+          const d = data as { entryId: string; duration?: string }
+          batchUpdateMessages(activeId, (list) => list.map(m => m.id === d.entryId
+            ? { ...m, status: 'completed' as const, dur: d.duration ?? m.dur }
             : m))
         },
-        'message.aborted': (data) => {
-          const { messageId: msgId } = data
-          const meta = liveMeta.get(msgId)
-          batchUpdateMessages(activeId, (list) =>
-            list.map(m => m.id === msgId ? { ...m, status: 'aborted' as const, content: data.body || m.content || '[中断]', sn: m.sn || meta?.otterName || data.otterName } : m))
+        'entry.failed': (data) => {
+          const d = data as { entryId: string; invokeId?: string; body?: string; otterId?: string; otterName?: string }
+          batchUpdateMessages(activeId, (list) => list.map(m => m.id === d.entryId
+            ? { ...m, status: 'failed' as const, content: d.body || m.content || '[未完成]' }
+            : m))
+        },
+        'entry.aborted': (data) => {
+          const d = data as { entryId: string; invokeId?: string; body?: string }
+          batchUpdateMessages(activeId, (list) => list.map(m => m.id === d.entryId
+            ? { ...m, status: 'aborted' as const, content: d.body || m.content || '[中断]' }
+            : m))
         },
         'error': (data) => {
-          showToast(data.message || '重试出错', 'error')
+          showToast((data as { message?: string }).message || '重试出错', 'error')
         },
-      })
+      }
+      consumeSSE(response, retryHandlers)
     } catch {
       showToast('重试请求失败', 'error')
     }
-  }, [activeId, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment, upsertOtterIfAbsentDeferred])
+  }, [activeId, batchUpdateMessages])
 
   const handleSelectConv = useCallback((id: string) => {
     // 混合架构：切换对话时整页刷新

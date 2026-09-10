@@ -175,7 +175,7 @@ export class WeixinMessageProcessor {
   }
 
   private async dispatchAgent(conversationId: string, bodyText: string, senderId: string, injection?: WeixinMediaOutcome["injection"], messageId?: string): Promise<void> {
-    const result = await this.deps.agentDispatchService.dispatch(conversationId, bodyText, senderId, injection, messageId);
+    const result = await this.deps.agentDispatchService.dispatch({ conversationId, userMessageContent: bodyText, senderId, injection, messageId });
     if (result.error) {
       this.deps.logger.error("Weixin agent dispatch failed", undefined, { conversationId, error: result.error });
     }

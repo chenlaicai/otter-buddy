@@ -81,6 +81,16 @@ export function initRepositoriesWithDb(db: Database.Database, logger?: Logger): 
 export async function postInitDatabase(db: Database.Database, repos: Repositories, logger: Logger): Promise<void> {
   await seedTerminologyData(db, logger);
   await reconcileOrphans(repos.conversation, logger);
+  // F20260910ctlv 彻底切换：重启 reconcile——running invokes 全部置 failed
+  // （进程死亡时在跑的 invoke，页面刷新后不残留「运行中」假象；自动恢复队列已退役）
+  try {
+    const failedInvokes = await repos.invoke.failRunningInvokes(new Date().toISOString());
+    if (failedInvokes > 0) {
+      logger.warn(`Reconciled running invokes on restart: ${failedInvokes} marked failed`);
+    }
+  } catch (err) {
+    logger.warn("Failed to reconcile running invokes (non-fatal)", { error: err instanceof Error ? err.message : String(err) });
+  }
   await backfillSessionLedger(db, repos.otter, logger);
 
   // ── F20260902sgp2 S1：派发台账启动任务（顺序固定：死亡证明 → backfill 墓碑）──

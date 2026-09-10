@@ -84,7 +84,7 @@ function makeMocks(): { mocks: MockState; depSet: ProcessInboundRecruitCtorArgs;
   } as unknown as DispatchChainEngine;
 
   const agentInvokePort: AgentTurnPort = {
-    invokeConversation: vi.fn(async () => ({ messageId: 'm1', duration: 0 })),
+    invokeConversation: vi.fn(async () => ({ invokeId: 'inv1', messageId: 'inv1', duration: 0 })),
     abort: vi.fn(),
   };
 
