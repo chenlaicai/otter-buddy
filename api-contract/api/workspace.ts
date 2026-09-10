@@ -36,3 +36,14 @@ export interface WorkspaceListDirResponse {
   /** 请求的 path 参数（缺省为根目录时为空串） */
   basePath: string;
 }
+
+/** POST /api/conversations/:id/workspace/reveal 请求体 */
+export interface WorkspaceRevealRequest {
+  /** 相对于工作区根目录的文件或目录路径 */
+  path: string;
+}
+
+/** POST /api/conversations/:id/workspace/reveal 响应体 */
+export interface WorkspaceRevealResponse {
+  ok: true;
+}
