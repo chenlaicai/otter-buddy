@@ -257,6 +257,7 @@ export function mapEntryDTO(dto: EntryDTO): LocalMessage {
     src: (dto.source ?? undefined) as 'web' | 'feishu' | undefined,
     entryType: dto.entryType,
     invokeId: dto.invokeId ?? undefined,
+    // yieldTargets 双用途：yield 条目的传递目标 + user entry 的发言石目标（传递行数据源）
     yieldTargets: dto.yieldTargets ?? undefined,
   }
 }

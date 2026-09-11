@@ -10,14 +10,14 @@
  */
 export type SSEEventMap = {
   // ── 时间线条目事件（entries 表投影） ──
-  /** user entry（用户发言气泡） */
-  "entry.user": { entryId: string; sequenceNum: number; senderId: string; body: string; createdAt: string };
+  /** user entry（用户发言气泡）。yieldTargets = 发言石目标（渲染「→ 目标」传递行） */
+  "entry.user": { entryId: string; sequenceNum: number; senderId: string; body: string; createdAt: string; yieldTargets?: string[] };
   /** speak entry 创建（獭气泡唯一来源） */
   "entry.start": { entryId: string; invokeId: string; otterId: string; otterName: string; seq?: number; createdAt: string };
-  /** speak entry body（气泡内容——speak entry 创建即全量 body） */
+  /** speak entry body（气泡内容——speak entry 创建即全量 body）。speak entry 落库即 completed，
+   *  气泡终态收敛由 invoke.end 驱动（invoke 结束时该 invoke 名下 streaming 气泡置 completed）——
+   *  旧 entry.complete 事件已随发射点退役删除（无后端发射路径，前端 handler 同步清除） */
   "entry.speak": { entryId: string; invokeId: string; body: string; otterName?: string };
-  /** speak entry 终态投影（成功路径；气泡在 entry.speak 已呈现，此事件用于终态收敛） */
-  "entry.complete": { entryId: string; invokeId: string; otterId: string; otterName: string; body: string; turnId: string; duration: string; ctx?: number; ctxMax?: number };
   /** invoke 终态失败（invoke_end entry 对应投影） */
   "entry.failed": { entryId: string; invokeId: string; otterId: string; otterName?: string; body?: string };
   /** invoke 内自动重试（系统提醒 + 前端状态回退） */

@@ -178,11 +178,12 @@ export class MessageController {
         });
       }
 
-      /** 广播 entry 事件（user 气泡，前端 entry 通道消费；旧 message 广播已退役） */
+      /** 广播 entry 事件（user 气泡，前端 entry 通道消费；旧 message 广播已退役）。
+       *  yieldTargets = 发言石目标（前端时间线 user 氙底「→ 目标」传递行数据源） */
       if (this.messageBroadcaster) {
         this.messageBroadcaster.broadcastEvent(conversationId, {
           event: "entry.user",
-          data: { entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: body.senderId, body: body.body, createdAt: userEntry.createdAt },
+          data: { entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: body.senderId, body: body.body, createdAt: userEntry.createdAt, yieldTargets: talkingStonePassedTo },
         });
       }
 

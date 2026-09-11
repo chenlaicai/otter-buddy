@@ -162,9 +162,10 @@ export class FeishuMessageProcessor {
 
     // 广播飞书消息到 Web 端（实时同步；entry.user 事件，前端单通道消费）
     // broadcastEvent 同步推送（void 返回；订阅者异常已在 broadcaster 内部消化）
+    // yieldTargets = 发言石目标（前端 user 氙底「→ 目标」传递行数据源）
     this.deps.messageBroadcaster.broadcastEvent(ids.conversationId, {
       event: "entry.user",
-      data: { entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: ids.senderId, body: payload.bodyText, createdAt: userEntry.createdAt },
+      data: { entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: ids.senderId, body: payload.bodyText, createdAt: userEntry.createdAt, yieldTargets: talkingStonePassedTo },
     });
 
     // 异步触发 Agent 派发（多模态 Phase 2：带附件注入载荷——图片真图 + 文档文本块）

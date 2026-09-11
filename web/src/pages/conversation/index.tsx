@@ -376,10 +376,12 @@ function ConversationPage() {
     // F20260910ctlv 彻底切换：事件分发器——单通道（entry.* / invoke.*；message.* 已退役）
     const handlers: Record<string, (data: Record<string, unknown>) => void> = {
       'entry.user': (data) => {
-        const d = data as { entryId: string; sequenceNum?: number; senderId?: string; body?: string; createdAt?: string }
+        const d = data as { entryId: string; sequenceNum?: number; senderId?: string; body?: string; createdAt?: string; yieldTargets?: string[] }
         const userMsg: LocalMessage = {
           id: d.entryId, st: 'user', si: d.senderId || 'user',
           content: d.body ?? '', status: 'completed', seq: d.sequenceNum, ts: d.createdAt || nowTs(), dur: null,
+          // F20260910ctlv 收尾：yieldTargets = 发言石目标（user 气泡「→ 目标」传递行）
+          yieldTargets: d.yieldTargets ?? null,
         }
         let added = false
         batchUpdateMessages(activeId!, (current) => {
@@ -428,13 +430,7 @@ function ConversationPage() {
           return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, sn: m.sn || d.otterName || '' } : m)
         })
       },
-      'entry.complete': (data) => {
-        /** speak entry 终态投影——气泡已在 entry.start/speak 呈现，此处收敛终态（completed） */
-        const d = data as { entryId: string; duration?: string; ctx?: number; ctxMax?: number; turnId?: string }
-        batchUpdateMessages(activeId!, (list) => list.map(m => m.id === d.entryId
-          ? { ...m, status: 'completed' as const, dur: d.duration ?? m.dur, ctx: d.ctx, ctxMax: d.ctxMax, turnId: d.turnId || m.turnId }
-          : m))
-      },
+      // F20260910ctlv 收尾：entry.complete 事件已退役（后端无发射点；speak 气泡终态由 invoke.end 收敛）
       'entry.failed': (data) => {
         const d = data as { entryId: string; invokeId?: string; body?: string; otterId?: string; otterName?: string }
         /** invoke 级失败（invokeId 锚）——刷新后由 invoke_end entry 呈现，实时阶段：
@@ -480,7 +476,7 @@ function ConversationPage() {
         batchUpdateMessages(activeId!, (list) => upsertMessage(list, errMsg))
         showToast(`Agent 错误: ${d.message}`, 'error')
       },
-      // ── invoke 生命周期（右栏状态面板数据源）──
+      // ── invoke 生命周期（右栏状态面板数据源；同时驱动时间线居中条目与 speak 气泡终态）──
       'invoke.start': (data) => {
         const d = data as { invokeId: string; otterId: string; otterName?: string; triggerEntryId?: string; startedAt?: string }
         const startTs = d.startedAt || nowTs()
@@ -488,17 +484,35 @@ function ConversationPage() {
           invokeId: d.invokeId, otterId: d.otterId, otterName: d.otterName || '',
           conversationId: activeId, startedAt: startTs,
         }))
+        /** F20260910ctlv 收尾：invoke_start 居中条目（DB 已落，前端实时插入——id 锚 triggerEntryId）。
+         *  entry.body（如「🦦 大獭开始行动～」）不在事件载荷里，前端用约定文案回退，
+         *  刷新后走 entries 历史接口拿到真实 body */
+        const triggerEntryId = d.triggerEntryId
+        if (triggerEntryId) {
+          batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, {
+            id: triggerEntryId, st: 'otter', si: d.otterId, sn: d.otterName,
+            content: '', ts: startTs, dur: null,
+            entryType: 'invoke_start', invokeId: d.invokeId, status: 'completed',
+          }))
+        }
         /** 獭可能在 chain 中新建，保证右栏参与者列表能见 */
         if (d.otterId) upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId)
       },
       'invoke.end': (data) => {
-        const d = data as { invokeId: string; otterId?: string; status: 'completed' | 'failed' | 'aborted'; duration?: number; endedAt?: string; toolCallCount?: number; tokenUsage?: { input: number; output: number } }
+        const d = data as { invokeId: string; otterId?: string; status: 'completed' | 'failed' | 'aborted'; endedAt?: string }
         const otterId = d.otterId || findOtterByInvokeId(invokeStatesRef.current, d.invokeId)
         if (!otterId) return
         const endedAt = d.endedAt || nowTs()
         syncInvokeState(prevStates => applyInvokeEnd(prevStates, {
           invokeId: d.invokeId, otterId, status: d.status, endedAt,
         }))
+        /** F20260910ctlv 收尾（问题 3 根因）：invoke 结束 = 该 invoke 名下 speak 气泡终态收敛。
+         *  后端无 entry.complete 发射点（speak entry 落库即 completed）——此前气泡 status
+         *  停留 streaming，「停止生成」按钮永久残留。invokeId 驱动批量收敛（非 entryId 逐条）。 */
+        batchUpdateMessages(activeId!, (list) => list.map(m =>
+          m.invokeId === d.invokeId && isInFlight(m)
+            ? { ...m, status: d.status === 'completed' ? 'completed' as const : d.status === 'aborted' ? 'aborted' as const : 'failed' as const, content: m.content || (d.status === 'completed' ? '' : d.status === 'aborted' ? '[中断]' : '[未完成]') }
+            : m))
       },
       'entry.yield': (data) => {
         const d = data as { entryId: string; invokeId?: string; otterId?: string; otterName?: string; yieldTargets?: string[] }
@@ -520,7 +534,6 @@ function ConversationPage() {
       // ── 通用事件 ──
       'agent.idle': () => { /* 信息性事件，不做处理 */ },
     }
-
     // SSE 订阅：用 XMLHttpRequest 流式读取，带指数退避重连
     let xhr: XMLHttpRequest | null = null
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -654,12 +667,14 @@ function ConversationPage() {
         'entry.user': (data) => {
           // F20260910ctlv 补漏：POST 流收到的 entry.user = 后端确认落库——替换 tmp 气泡
           //（真实 entryId + seq 接管排序；常驻通道同款去重逻辑幂等）
-          const d = data as { entryId: string; sequenceNum?: number; senderId?: string; body?: string; createdAt?: string }
+          const d = data as { entryId: string; sequenceNum?: number; senderId?: string; body?: string; createdAt?: string; yieldTargets?: string[] }
           batchUpdateMessages(activeId!, (current) => {
             if (current.some(m => m.id === d.entryId)) return current
             const realMsg: LocalMessage = {
               id: d.entryId, st: 'user', si: d.senderId || 'user',
               content: d.body ?? '', status: 'completed', seq: d.sequenceNum, ts: d.createdAt || nowTs(), dur: null,
+              // F20260910ctlv 收尾：yieldTargets = 发言石目标（user 气泡「→ 目标」传递行）
+              yieldTargets: d.yieldTargets ?? null,
             }
             const tmpIdx = [...current].reverse().findIndex(m =>
               m.id.startsWith('tmp-') && m.st === 'user' && m.content === realMsg.content)
@@ -692,11 +707,34 @@ function ConversationPage() {
             return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, sn: m.sn || d.otterName || '' } : m)
           })
         },
-        'entry.complete': (data) => {
-          const d = data as { entryId: string; duration?: string; ctx?: number; ctxMax?: number }
-          batchUpdateMessages(activeId!, (list) => list.map(m => m.id === d.entryId
-            ? { ...m, status: 'completed' as const, dur: d.duration ?? m.dur, ctx: d.ctx, ctxMax: d.ctxMax }
-            : m))
+        // F20260910ctlv 收尾：entry.complete 事件已退役（后端无发射点；speak 气泡终态由 invoke.end 收敛）
+        'invoke.start': (data) => {
+          const d = data as { invokeId: string; otterId: string; otterName?: string; triggerEntryId?: string; startedAt?: string }
+          const startTs = d.startedAt || nowTs()
+          const triggerEntryId = d.triggerEntryId
+          if (triggerEntryId) {
+            batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, {
+              id: triggerEntryId, st: 'otter', si: d.otterId, sn: d.otterName,
+              content: '', ts: startTs, dur: null,
+              entryType: 'invoke_start', invokeId: d.invokeId, status: 'completed',
+            }))
+          }
+        },
+        'invoke.end': (data) => {
+          const d = data as { invokeId: string; status: 'completed' | 'failed' | 'aborted' }
+          batchUpdateMessages(activeId!, (list) => list.map(m =>
+            m.invokeId === d.invokeId && isInFlight(m)
+              ? { ...m, status: d.status === 'completed' ? 'completed' as const : d.status === 'aborted' ? 'aborted' as const : 'failed' as const, content: m.content || (d.status === 'completed' ? '' : d.status === 'aborted' ? '[中断]' : '[未完成]') }
+              : m))
+        },
+        'entry.yield': (data) => {
+          const d = data as { entryId: string; invokeId?: string; otterId?: string; otterName?: string; yieldTargets?: string[] }
+          const targets = (d.yieldTargets || []).map((t: string) => ottersRef.current[activeId!]?.find(o => o.id === t)?.name || t)
+          batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, {
+            id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+            content: '', ts: nowTs(), dur: null,
+            entryType: 'yield', invokeId: d.invokeId, yieldTargets: targets,
+          }))
         },
         'entry.failed': (data) => {
           const d = data as { entryId: string; invokeId?: string; body?: string; otterId?: string; otterName?: string }
@@ -849,11 +887,34 @@ function ConversationPage() {
             return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, sn: m.sn || d.otterName || '' } : m)
           })
         },
-        'entry.complete': (data) => {
-          const d = data as { entryId: string; duration?: string }
-          batchUpdateMessages(activeId, (list) => list.map(m => m.id === d.entryId
-            ? { ...m, status: 'completed' as const, dur: d.duration ?? m.dur }
-            : m))
+        // F20260910ctlv 收尾：entry.complete 事件已退役（后端无发射点；speak 气泡终态由 invoke.end 收敛）
+        'invoke.start': (data) => {
+          const d = data as { invokeId: string; otterId: string; otterName?: string; triggerEntryId?: string; startedAt?: string }
+          const startTs = d.startedAt || nowTs()
+          const triggerEntryId = d.triggerEntryId
+          if (triggerEntryId) {
+            batchUpdateMessages(activeId, (list) => insertCenteredByTs(list, {
+              id: triggerEntryId, st: 'otter', si: d.otterId, sn: d.otterName,
+              content: '', ts: startTs, dur: null,
+              entryType: 'invoke_start', invokeId: d.invokeId, status: 'completed',
+            }))
+          }
+        },
+        'invoke.end': (data) => {
+          const d = data as { invokeId: string; status: 'completed' | 'failed' | 'aborted' }
+          batchUpdateMessages(activeId, (list) => list.map(m =>
+            m.invokeId === d.invokeId && isInFlight(m)
+              ? { ...m, status: d.status === 'completed' ? 'completed' as const : d.status === 'aborted' ? 'aborted' as const : 'failed' as const, content: m.content || (d.status === 'completed' ? '' : d.status === 'aborted' ? '[中断]' : '[未完成]') }
+              : m))
+        },
+        'entry.yield': (data) => {
+          const d = data as { entryId: string; invokeId?: string; otterId?: string; otterName?: string; yieldTargets?: string[] }
+          const targets = (d.yieldTargets || []).map((t: string) => ottersRef.current[activeId]?.find(o => o.id === t)?.name || t)
+          batchUpdateMessages(activeId, (list) => insertCenteredByTs(list, {
+            id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+            content: '', ts: nowTs(), dur: null,
+            entryType: 'yield', invokeId: d.invokeId, yieldTargets: targets,
+          }))
         },
         'entry.failed': (data) => {
           const d = data as { entryId: string; invokeId?: string; body?: string; otterId?: string; otterName?: string }

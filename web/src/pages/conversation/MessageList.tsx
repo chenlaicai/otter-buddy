@@ -681,6 +681,14 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
           )}
           {/* 多模态 Phase 1：附件块（图片网格 + 文件卡），正文后渲染 */}
           {m.atts && m.atts.length > 0 && <AttachmentBlock atts={m.atts} isUser={isUser} />}
+          {/* F20260910ctlv 收尾：user 气泡发言石传递行（→ 目标；实时路径由 SSE entry.user 携带
+              /历史路径由 EntryDTO.yieldTargets 透出，otterId 在此映射显示名） */}
+          {isUser && m.yieldTargets && m.yieldTargets.length > 0 && (
+            <div className="mt-1 flex justify-end items-center gap-1 text-[10px] msg-meta">
+              <ArrowRight className="w-2.5 h-2.5 text-stone-300 flex-shrink-0" />
+              <span>{m.yieldTargets.map(t => otters.find(o => o.id === t)?.name || t).join('、')}</span>
+            </div>
+          )}
           {/* 进行中的消息（实时或刷新后重新进入）保留停止能力 */}
           {inFlight && (
             <div className="mt-1.5">
