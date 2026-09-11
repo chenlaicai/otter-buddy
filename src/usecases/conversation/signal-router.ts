@@ -205,27 +205,22 @@ export class SignalRouter {
 
     // 2. 目标是否在热池且运行中
     if (this.deps.factory.isRunning(targetId)) {
-      const text = this.buildSignalText(signal);
-      const isSteer = this.isSteerSignal(signal);
       // F20260908rlcp 实测修复：followUp/steer 注入成功后必须销账（consumed 标记）——
       // 否则 resume 补扫与历史扫描会把已注入的信号当成「待处理」再次点火（09-09 实测三句回复根因）。
       // 销账动作与注入动作同事务语义：注入成功即写 consumed，失败则不写（下次重试）。
 
-      if (isSteer) {
-        const steered = this.deps.factory.steer(targetId, this.buildSteerText(signal));
-        if (steered) {
-          this.deps.logger.info("[signal-router] steer 注入成功", { conversationId, messageId: signal.id, targetId });
-          return "steered";
-        }
-      } else {
-        const followed = this.deps.factory.followUp(targetId, text);
-        if (followed) {
-          this.deps.logger.info("[signal-router] followUp 注入成功", { conversationId, messageId: signal.id, targetId });
-          return "followed_up";
-        }
+      /** F20260910ctlv test13（搭档拍板）：用户发言默认 steer——「插话」的本质是
+       *  「我现在就有新信息要你考虑」，须立即注入当前生成（steer 打断语义），
+       *  而非 followUp 排队等当前轮结束（test13 实测：followUp 注入时 LLM 生成已基于
+       *  旧 prompt 进行，插话成下轮残留，獭没接住）。原 isSteerSignal（signalMeta.level=URGENT）
+       *  分支不可达（档位已退役无写入方）——反转为默认 steer，followUp 退役。 */
+      const steered = this.deps.factory.steer(targetId, this.buildSteerText(signal));
+      if (steered) {
+        this.deps.logger.info("[signal-router] steer 注入成功", { conversationId, messageId: signal.id, targetId });
+        return "steered";
       }
-      // followUp/steer 返回 false = 未在池等，降级 invokeFn
-      this.deps.logger.info("[signal-router] followUp/steer 不可达，降级 invoke", { conversationId, messageId: signal.id, targetId });
+      // steer 返回 false = 未在池/已停流，降级 invokeFn
+      this.deps.logger.info("[signal-router] steer 不可达，降级 invoke", { conversationId, messageId: signal.id, targetId });
     }
 
     // 3. 空闲/不在池 → invokeFn 点火
@@ -298,18 +293,6 @@ export class SignalRouter {
   private async markEntrySignalConsumed(entry: Entry, action: "followed_up" | "steered"): Promise<void> {
     const meta = { ...(entry.metadata ?? {}), signalMeta: JSON.stringify({ consumed: action, consumedAt: new Date().toISOString() }) };
     await this.deps.entryRepo.updateEntryMetadata(entry.id, meta);
-  }
-
-  /** 判断信号是否为「标急」（steer 语义）：signalMeta 包含 level=URGENT
-   *  F20260908rlcp：signal_meta.level 当前无写入方（档位已退役），分支不可达，属 URGENT 树化下版预留 */
-  private isSteerSignal(signal: SignalView): boolean {
-    if (!signal.signalMeta) return false;
-    try {
-      const meta = JSON.parse(signal.signalMeta) as { level?: string };
-      return meta.level === "URGENT";
-    } catch {
-      return false;
-    }
   }
 
   /** F20260908rlcp：信号是否已销账（consumed 标记存在=已注入成功，补扫跳过） */

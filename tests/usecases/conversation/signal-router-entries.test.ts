@@ -135,11 +135,11 @@ describe("SignalRouter 数据源（F20260910ctlv 彻底切换补漏）", () => {
     expect(chainCalls).toHaveLength(0);
   });
 
-  it("followed_up 后 entry 销账：metadata.signalMeta 写 consumed", async () => {
+  it("steered 后 entry 销账：metadata.signalMeta 写 consumed（默认 steer 口径）", async () => {
     const entry = createEntry({ yieldTargets: ["otter-big"] });
     const entryUpdates: Array<{ entryId: string; metadata: EntryMetadata }> = [];
-    // 目标 running → followUp 注入成功 → 销账
-    const factory = { isRunning: () => true, followUp: () => true, steer: () => false };
+    // 目标 running → 默认 steer 注入成功 → 销账（F20260910ctlv test13：用户发言默认 steer）
+    const factory = { isRunning: () => true, followUp: () => false, steer: () => true };
     const routerRunning = new SignalRouter({
       conversationRepo: {} as never, queryMessage: { getMessageById: async () => null } as never,
       entryRepo: { getEntryById: async () => entry, updateEntryMetadata: async (id: string, meta: EntryMetadata) => entryUpdates.push({ entryId: id, metadata: meta }) } as never,
@@ -151,10 +151,10 @@ describe("SignalRouter 数据源（F20260910ctlv 彻底切换补漏）", () => {
 
     const results = await routerRunning.routeSignals("conv-1", { triggerMessageId: "entry-u1" });
 
-    expect(results[0]!.action).toBe("followed_up");
+    expect(results[0]!.action).toBe("steered");
     expect(entryUpdates).toHaveLength(1);
     const meta = JSON.parse(entryUpdates[0]!.metadata.signalMeta as string) as { consumed: string };
-    expect(meta.consumed).toBe("followed_up");
+    expect(meta.consumed).toBe("steered");
   });
 
   it("目标 inactive → skipped_inactive", async () => {
