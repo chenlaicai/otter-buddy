@@ -139,7 +139,7 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
         // 已发言标记重置（下次 speak 重新登记）
         ctx.lastSpeakMessageId = undefined;
 
-        // SSE entry.yield（前端时间线 yield 条目依赖此事件）
+        // SSE entry.yield（前端时间线 yield 条目依赖此事件；invokeEndEntryId 供前端同插入 invoke_end 居中条目）
         const yieldOtter = await ctx.client.otter.getById(ctx.otterId).catch(() => null);
         ctx.emitEvent?.({
           event: "entry.yield",
@@ -149,6 +149,7 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
             otterId: ctx.otterId,
             otterName: yieldOtter?.name ?? ctx.otterId,
             yieldTargets: resolvedIds,
+            invokeEndEntryId: yieldResult.invokeEndEntry.id,
           },
         });
 

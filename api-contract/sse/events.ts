@@ -24,13 +24,13 @@ export type SSEEventMap = {
   /** 系统条目（居中 system entry） */
   "entry.system": { entryId: string; content: string; seq: number };
   /** yield 条目（行动权传递，居中显示） */
-  "entry.yield": { entryId: string; invokeId: string; otterId: string; otterName: string; yieldTargets: string[] };
+  "entry.yield": { entryId: string; invokeId: string; otterId: string; otterName: string; yieldTargets: string[]; invokeEndEntryId?: string };
 
   // ── invoke 生命周期事件（invokes 表投影） ──
   /** invoke 开始（invoke 记录创建 + invoke_start entry） */
   "invoke.start": { invokeId: string; otterId: string; otterName: string; conversationId: string; startedAt: string; triggerEntryId?: string };
   /** invoke 结束（completed/failed/aborted）。duration 为 invoke 耗时（ms，number） */
-  "invoke.end": { invokeId: string; otterId: string; status: "completed" | "failed" | "aborted"; endedAt: string; duration?: number; toolCallCount?: number; tokenUsage?: { input: number; output: number } };
+  "invoke.end": { invokeId: string; otterId: string; otterName?: string; status: "completed" | "failed" | "aborted"; endedAt: string; duration?: number; toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string };
 
   // ── 通用事件（保留） ──
   "turn.complete": Record<string, never>;

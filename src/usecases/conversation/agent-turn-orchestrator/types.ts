@@ -113,7 +113,7 @@ export interface TurnCallbacks {
   /** 创建 invoke_end entry（fail/abort 终态条目） */
   createInvokeEndEntry(invokeId: string, status: 'failed' | 'aborted', body?: string): Promise<void>;
   /** 发送 invoke.end SSE 事件 */
-  emitInvokeEnd(invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number } }): void;
+  emitInvokeEnd(invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string; otterName?: string }): void;
   /** F20260818cbkr：写 healing 事件（degenerate guard 触发点数据源） */
   recordHealingEvent(input: HealingEventInput): Promise<void>;
   /**

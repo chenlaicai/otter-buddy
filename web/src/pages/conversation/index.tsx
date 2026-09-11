@@ -512,13 +512,25 @@ function ConversationPage() {
             : m))
       },
       'entry.yield': (data) => {
-        const d = data as { entryId: string; invokeId?: string; otterId?: string; otterName?: string; yieldTargets?: string[] }
+        const d = data as { entryId: string; invokeId?: string; otterId?: string; otterName?: string; yieldTargets?: string[]; invokeEndEntryId?: string }
         const targets = (d.yieldTargets || []).map((t: string) => ottersRef.current[activeId]?.find(o => o.id === t)?.name || t)
-        batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, {
-          id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
-          content: '', ts: nowTs(), dur: null,
-          entryType: 'yield', invokeId: d.invokeId, yieldTargets: targets,
-        }))
+        batchUpdateMessages(activeId!, (list) => {
+          let next = insertCenteredByTs(list, {
+            id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+            content: '', ts: nowTs(), dur: null,
+            entryType: 'yield', invokeId: d.invokeId, yieldTargets: targets,
+          })
+          /** F20260910ctlv：yield 与 invoke_end 同批原子创建——entry.yield 顺带 invokeEndEntryId，
+           *  此处同插「休息」居中条目（实时可见，刷新后由 entries 历史接口接管真实 body）。 */
+          if (d.invokeEndEntryId) {
+            next = insertCenteredByTs(next, {
+              id: d.invokeEndEntryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+              content: '', ts: nowTs(), dur: null,
+              entryType: 'invoke_end', invokeId: d.invokeId, status: 'completed',
+            })
+          }
+          return next
+        })
       },
       'entry.system': (data) => {
         const d = data as { entryId: string; content: string; seq?: number }
@@ -725,13 +737,23 @@ function ConversationPage() {
               : m))
         },
         'entry.yield': (data) => {
-          const d = data as { entryId: string; invokeId?: string; otterId?: string; otterName?: string; yieldTargets?: string[] }
+          const d = data as { entryId: string; invokeId?: string; otterId?: string; otterName?: string; yieldTargets?: string[]; invokeEndEntryId?: string }
           const targets = (d.yieldTargets || []).map((t: string) => ottersRef.current[activeId!]?.find(o => o.id === t)?.name || t)
-          batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, {
-            id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
-            content: '', ts: nowTs(), dur: null,
-            entryType: 'yield', invokeId: d.invokeId, yieldTargets: targets,
-          }))
+          batchUpdateMessages(activeId!, (list) => {
+            let next = insertCenteredByTs(list, {
+              id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+              content: '', ts: nowTs(), dur: null,
+              entryType: 'yield', invokeId: d.invokeId, yieldTargets: targets,
+            })
+            if (d.invokeEndEntryId) {
+              next = insertCenteredByTs(next, {
+                id: d.invokeEndEntryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+                content: '', ts: nowTs(), dur: null,
+                entryType: 'invoke_end', invokeId: d.invokeId, status: 'completed',
+              })
+            }
+            return next
+          })
         },
         'entry.failed': (data) => {
           const d = data as { entryId: string; invokeId?: string; body?: string; otterId?: string; otterName?: string }
@@ -905,13 +927,23 @@ function ConversationPage() {
               : m))
         },
         'entry.yield': (data) => {
-          const d = data as { entryId: string; invokeId?: string; otterId?: string; otterName?: string; yieldTargets?: string[] }
+          const d = data as { entryId: string; invokeId?: string; otterId?: string; otterName?: string; yieldTargets?: string[]; invokeEndEntryId?: string }
           const targets = (d.yieldTargets || []).map((t: string) => ottersRef.current[activeId]?.find(o => o.id === t)?.name || t)
-          batchUpdateMessages(activeId, (list) => insertCenteredByTs(list, {
-            id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
-            content: '', ts: nowTs(), dur: null,
-            entryType: 'yield', invokeId: d.invokeId, yieldTargets: targets,
-          }))
+          batchUpdateMessages(activeId, (list) => {
+            let next = insertCenteredByTs(list, {
+              id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+              content: '', ts: nowTs(), dur: null,
+              entryType: 'yield', invokeId: d.invokeId, yieldTargets: targets,
+            })
+            if (d.invokeEndEntryId) {
+              next = insertCenteredByTs(next, {
+                id: d.invokeEndEntryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+                content: '', ts: nowTs(), dur: null,
+                entryType: 'invoke_end', invokeId: d.invokeId, status: 'completed',
+              })
+            }
+            return next
+          })
         },
         'entry.failed': (data) => {
           const d = data as { entryId: string; invokeId?: string; body?: string; otterId?: string; otterName?: string }
