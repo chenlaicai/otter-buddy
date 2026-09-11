@@ -77,6 +77,8 @@ describe("sendUserEntry 点火依据落库（F20260910ctlv 补漏）", () => {
       getActiveParticipants: async () => [{ otterId: "otter-big" }],
       getOtterById: async (id: string) => ({ id, status: "active", name: "大獭", type: "big" }),
       getLastSpeakEntry: async () => ({ senderId: "otter-big" }),
+      getRecentSpeakSenders: async () => ["otter-big"],
+      getRunningOtterIds: async () => [],
     };
     const { sendEntry, repos } = makeSendEntry(resolveDeps);
     const { entry } = await sendEntry.sendUserEntry({

@@ -678,6 +678,17 @@ function ConversationPage() {
       })
       if (!response.ok) { removeTmpMsg(); showToast('发送失败', 'error'); return }
 
+      // F20260910ctlv test12：Magic Word「停下」全场急停——后端 202 { status: 'halted', halted }
+      //（不落库不点火）；前端移除 tmp 气泡 + 提示，被停 invoke 的终态条目经常驻通道到达
+      if (response.status === 202) {
+        removeTmpMsg()
+        try {
+          const r = await response.clone().json() as { halted?: number }
+          showToast(r.halted != null && r.halted > 0 ? `已急停 ${r.halted} 只海獭` : '场上无运行中的海獭', 'info')
+        } catch { showToast('已急停', 'info') }
+        return
+      }
+
       // F20260910ctlv 彻底切换：POST 发送流——单通道（entry.* / invoke.*；与常驻通道共用 handler 逻辑）
       // tmp 乐观消息由 entry.user 事件替换（同 id 幂等由后端保证——entryId 与 tmp id 不同，
       // 用户气泡以 tmp 呈现直到刷新；invoke 过程气泡走 entry.speak）

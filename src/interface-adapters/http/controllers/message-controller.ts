@@ -18,6 +18,16 @@ import { decorateWithSignals, type MessageDtoBuilderDeps } from "../dto/message-
 import type { SendMessageRequestDTO, MarkReadRequestDTO } from "../dto/message-dto";
 import { streamEvents } from "../sse-streamer";
 import { awaitTriggerAttemptsSettled } from "../sse-settle-waiter";
+
+/** F20260910ctlv test12：Magic Word 系统级急停判定（宽于 L2 扫描）。
+ *  大獭指令：user 消息 body 含「停下」即触发全场 halt，语境判断留给人。
+ *  为何不用 scanStopWords：L2 扫描为防误伤收窄了形态（「停下吧」后接语气词不命中、
+ *  只生成 reminder 不硬拦）——但那是给 LLM 的软提醒；系统级 halt 是硬动作，
+ *  test12 案发原话「哎，你们停下吧」必须命中。子串包含即可，误报损失 =
+ *  一次可重试的中断（fail-safe 方向：多停一次好过停不下来）。 */
+function matchesSystemHaltWord(body: string): boolean {
+  return body.includes("停下");
+}
 import type { EntryRepository } from "@usecases/conversation/entry-repository";
 import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
 /** 多模态 Phase 1（审视修复 R4/R7）：附件注入策略归位 usecases 层——controller 只透传调用 */
@@ -145,6 +155,28 @@ export class MessageController {
     return payload;
   }
 
+  /** F20260910ctlv test12：全场急停——abort 会话内全部 running invoke。
+   *  agentInvoker.abort 内部走 SDK session abort（userAborted 标记 + invoke 终态化
+   *  aborted 的完整链路由 orchestrator abortTerminal 接管：invoke_end entry + SSE）。 */
+  private async haltAllRunningInvokes(c: Context, conversationId: string, matchedWords: string[]): Promise<Response> {
+    let halted = 0;
+    try {
+      if (!this.settleInvokeRepo) {
+        this.logger.warn('[magic-word] 停下：invokeRepo 未注入，无法查询 running invokes', { conversationId });
+      } else {
+        const running = await this.settleInvokeRepo.getInvokes(conversationId, { status: "running", limit: 200 });
+        for (const inv of running) {
+          this.agentInvoker.abort(inv.otterId, inv.id);
+          halted++;
+        }
+      }
+    } catch (err) {
+      this.logger.error('全场急停查询/中断异常', err instanceof Error ? err : new Error(String(err)), { conversationId });
+    }
+    this.logger.warn('[magic-word] 停下：全场急停', { conversationId, matchedWords, halted });
+    return c.json({ status: "halted", halted, matched: matchedWords }, 202);
+  }
+
   async sendMessage(c: Context): Promise<Response> {
     try {
       const conversationId = param(c, "id");
@@ -159,6 +191,16 @@ export class MessageController {
       const payloadResult = await this.validateAttachmentPayload(body.attachmentIds);
       if (payloadResult instanceof Response) return payloadResult;
       const payload = payloadResult;
+
+      /** F20260910ctlv test12：Magic Word「停下」系统级全场急停。
+       *  搭档拍板：用户消息命中（含「停下」即触发，大獭指令口径）时直接 halt 所有
+       *  running invoke（system 级，不依赖大獭 LLM 自觉）——在落库/点火前执行，急停优先。
+       *  误报而 abort 的损失 = 一次可重试的中断，可接受（fail-safe 方向）。
+       *  返回 202 语义：消息不落库不点火（「停下」无需回应）；被 halt 的 invoke
+       *  各自走 abort 终态链路（invoke_end entry + SSE） */
+      if (matchesSystemHaltWord(body.body ?? "")) {
+        return this.haltAllRunningInvokes(c, conversationId, ["停下"]);
+      }
 
       /** 2. F20260910ctlv 彻底切换：user 消息唯一落点 = entries（messages 表停写）。
        *  目标解析（默认派发/@提及）在 SendEntry 内完成；显式目标透传；talkingStonePassedTo 是点火依据 */

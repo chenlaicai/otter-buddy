@@ -90,11 +90,12 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const attachmentUpload = buildAttachmentUploadService(repos, appConfig, logger);
   // 工作区文件浏览（只读）——workspaceGateway 可选注入
   const manageWorkspace = workspaceGateway ? new ManageWorkspace(workspaceGateway) : undefined;
-  // F20260910ctlv 彻底切换：目标解析依赖（默认派发数据源 = entries.speak）
+  // F20260910ctlv 彻底切换：目标解析依赖（默认派发数据源 = entries.speak + invokes running）
   const resolveDeps = buildResolveTargetsDeps(
     (conversationId) => repos.conversation.getActiveParticipants(conversationId),
     entryRepo,
     repos.otter,
+    invokeRepo,
   );
   const sendEntry = new SendEntry(entryRepo, invokeRepo, repos.otter, repos.conversation, { logger, resolveDeps });
   return {
