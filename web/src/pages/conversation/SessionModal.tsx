@@ -5,7 +5,6 @@ import type { InvokeDTO, InvokeEventDTO } from '@contract/api'
 import { OtterAvatar } from '../../components/OtterAvatar'
 import { fmtTime } from '../../lib/utils'
 import { fmtInvokeElapsed, fmtTokens } from '../../lib/invoke-tracker'
-import { groupInvokeEvents } from '../../lib/invoke-events-group'
 import * as api from '../../api/client'
 
 /**
@@ -124,12 +123,9 @@ export function SessionModal({ otter, conversationId, onClose }: SessionModalPro
                     {!loading && (expandedEvents[inv.id]?.length ?? 0) === 0 && (
                       <div className="py-3 text-[11px] text-stone-400">无流式过程记录</div>
                     )}
-                    {/* F20260910ctlv 收尾：按工具调用聚合渲染（同一次调用不再拆 3 条） */}
-                    {!loading && groupInvokeEvents(expandedEvents[inv.id] ?? []).map(g =>
-                      g.kind === 'toolcall'
-                        ? <ToolCallGroupItem key={`tc-${g.startSeq}`} g={g} />
-                        : <InvokeEventItem key={g.event.id} ev={g.event} />)
-                    }
+                    {/* F20260910ctlv：忠实原始流——逐条渲染 invoke_events（搭档拍板选项 A）。
+                        同一次调用的 start 快照/结果/message_end 快照分列，可溯源 */}
+                    {!loading && (expandedEvents[inv.id] ?? []).map(ev => <InvokeEventItem key={ev.id} ev={ev} />)}
                   </div>
                 )}
               </div>
@@ -167,49 +163,7 @@ function toTrackerState(inv: InvokeDTO): Parameters<typeof fmtInvokeElapsed>[0] 
   }
 }
 
-/** F20260910ctlv 收尾：工具调用聚合条目（assistant_toolcall 入参 + tool_result 结果合一条，
- *  折叠展示——标题行「工具名(入参摘要)」，展开看入参与结果） */
-function ToolCallGroupItem({ g }: { g: Extract<import('../../lib/invoke-events-group').InvokeEventGroup, { kind: 'toolcall' }> }) {
-  const [open, setOpen] = useState(false)
-  const argsText = formatArgs(g.args)
-  const resultText = g.result !== undefined ? formatResult(g.result) : '（无结果记录）'
-  return (
-    <div className="py-1.5 border-b border-white/20 last:border-0">
-      <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 text-left">
-        <span className="flex-shrink-0"><Wrench className="w-3 h-3 text-amber-500" /></span>
-        <span className="text-[10px] font-medium text-stone-500 flex-shrink-0">工具调用</span>
-        <span className={`text-[10px] truncate flex-1 text-left ${g.resultError ? 'text-red-400' : 'text-stone-500'}`} title={`${g.name}(${argsText})`}>{g.name}({argsText})</span>
-        <span className="text-[9px] text-stone-400 flex-shrink-0">{open ? '▾' : '▸'}</span>
-      </button>
-      {open && (
-        <div className="mt-1 ml-5 space-y-1">
-          <pre className="text-[10px] text-stone-500 bg-stone-50/70 rounded-lg px-2.5 py-1.5 whitespace-pre-wrap break-all">{argsText}</pre>
-          <div className={`text-[10px] whitespace-pre-wrap break-all leading-relaxed ${g.resultError ? 'text-red-400' : 'text-stone-500'}`}>
-            <span className="font-medium">结果：</span>{resultText}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function formatArgs(args: unknown): string {
-  if (args === undefined || args === null) return ''
-  if (typeof args === 'string') return args
-  try { return JSON.stringify(args) } catch { return String(args) }
-}
-
-function formatResult(result: unknown): string {
-  if (typeof result === 'string') return result
-  const r = result as Record<string, unknown> | null
-  // 工具结果的 details 标记（如 speak 的 __speakIntermediate）不进展示
-  if (r && typeof r === 'object' && typeof r.text === 'string') {
-    return r.text.slice(0, 500)
-  }
-  try { return JSON.stringify(result).slice(0, 500) } catch { return String(result) }
-}
-
-/** 流式过程事件条目（assistant_text/speak/error 按时间序；toolcall/tool_result 已聚合） */
+/** 流式过程事件条目（assistant_text/tool_call/tool_result/error/speak 按时间序） */
 function InvokeEventItem({ ev }: { ev: InvokeEventDTO }) {
   const icon = ev.eventType === 'speak' ? <MessageSquare className="w-3 h-3 text-otter-400" />
     : ev.eventType === 'assistant_toolcall' ? <Wrench className="w-3 h-3 text-amber-500" />

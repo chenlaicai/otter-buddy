@@ -117,9 +117,11 @@ describe('isCenteredEntry / centeredEntryText', () => {
     expect(isCenteredEntry({ ...base, st: 'user', entryType: 'user' })).toBe(false)
     expect(isCenteredEntry(base)).toBe(false) // 旧数据 speak 回退
   })
-  it('yield 文案带目标名；body 非空时优先 body', () => {
-    expect(centeredEntryText({ ...base, entryType: 'yield', yieldTargets: ['大獭', '小獭'] })).toBe('→ 交给 大獭、小獭')
-    expect(centeredEntryText({ ...base, entryType: 'yield', content: '→ 交给 user', yieldTargets: ['user'] })).toBe('→ 交给 user')
+  it('yield 文案带来源獭与目标名；yield 不回退 content（DB body 无来源，统一构造）', () => {
+    expect(centeredEntryText({ ...base, sn: '大獭', entryType: 'yield', yieldTargets: ['user'] })).toBe('大獭 → 交给 user')
+    expect(centeredEntryText({ ...base, entryType: 'yield', yieldTargets: ['大獭', '小獭'] })).toBe('o1 → 交给 大獭、小獭')
+    // content 落库是「→ 交给 user」（无来源）——强制走构造文案，不用旧 body
+    expect(centeredEntryText({ ...base, sn: '大獭', entryType: 'yield', content: '→ 交给 user', yieldTargets: ['user'] })).toBe('大獭 → 交给 user')
     expect(centeredEntryText({ ...base, entryType: 'invoke_start', sn: '小獭' })).toBe('小獭 开始行动～')
   })
 })

@@ -545,7 +545,10 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
   const entryKind = deriveEntryType(m)
   if (entryKind === 'invoke_start' || entryKind === 'invoke_end' || entryKind === 'yield') {
     const isYield = entryKind === 'yield'
-    const text = centeredEntryText(m)
+    // yield targets 历史路径是 otterId（mapEntryDTO 原样透出），渲染前映射显示名；
+    // 实时路径已由 index.tsx 映射，双重 map 幂等（名字不是 otterId 时原样返回）
+    const mappedTargets = m.yieldTargets?.map(t => otters.find(o => o.id === t)?.name || t)
+    const text = centeredEntryText(mappedTargets ? { ...m, yieldTargets: mappedTargets } : m)
     return (
       <div className="flex justify-center my-1.5 animate-slideIn">
         <div className="glass-card px-3 py-1 rounded-full flex items-center gap-1.5 text-[11px] text-stone-500 max-w-[80%]">
@@ -681,14 +684,6 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
           )}
           {/* 多模态 Phase 1：附件块（图片网格 + 文件卡），正文后渲染 */}
           {m.atts && m.atts.length > 0 && <AttachmentBlock atts={m.atts} isUser={isUser} />}
-          {/* F20260910ctlv 收尾：user 气泡发言石传递行（→ 目标；实时路径由 SSE entry.user 携带
-              /历史路径由 EntryDTO.yieldTargets 透出，otterId 在此映射显示名） */}
-          {isUser && m.yieldTargets && m.yieldTargets.length > 0 && (
-            <div className="mt-1 flex justify-end items-center gap-1 text-[10px] msg-meta">
-              <ArrowRight className="w-2.5 h-2.5 text-stone-300 flex-shrink-0" />
-              <span>{m.yieldTargets.map(t => otters.find(o => o.id === t)?.name || t).join('、')}</span>
-            </div>
-          )}
           {/* 进行中的消息（实时或刷新后重新进入）保留停止能力 */}
           {inFlight && (
             <div className="mt-1.5">
@@ -713,6 +708,15 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
             </div>
           )}
         </div>
+        {/* F20260910ctlv 收尾：user 气泡传递行在气泡外（下方一行小字）——气泡内只放说话内容。
+             yieldTargets = 发言石目标（实时路径 SSE entry.user 携带 / 历史路径 EntryDTO 透出，
+             otterId 在此映射显示名） */}
+        {isUser && m.yieldTargets && m.yieldTargets.length > 0 && (
+          <div className="mt-0.5 flex justify-end items-center gap-1 text-[10px] msg-meta pr-1">
+            <ArrowRight className="w-2.5 h-2.5 text-stone-300 flex-shrink-0" />
+            <span>{m.yieldTargets.map(t => otters.find(o => o.id === t)?.name || t).join('、')}</span>
+          </div>
+        )}
       </div>
     </div>
   )

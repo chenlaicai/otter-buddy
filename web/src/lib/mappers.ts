@@ -142,15 +142,18 @@ export function isCenteredEntry(m: LocalMessage): boolean {
   return t === 'invoke_start' || t === 'invoke_end' || t === 'yield' || t === 'system'
 }
 
-/** F20260910ctlv：invoke 边界条目文案（entry.body 为空时按约定文案渲染） */
+/** F20260910ctlv：invoke 边界/yield/system 条目文案（entry.body 为空时按约定文案渲染）。
+ *  yield 带来源獭名（senderName）：「大獭 → 交给 user」——多獭并发时能区分是谁交的棒 */
 export function centeredEntryText(m: LocalMessage): string {
   const t = deriveEntryType(m)
   const name = m.sn || m.si || '獭'
-  if (m.content) return m.content
+  // yield 不回退 content：DB 落库 body 是「→ 交给 xxx」（无来源），历史数据同样缺来源——
+  // 统一用 sn（senderName 透出）+ yieldTargets 构造「来源 → 交给 目标」
+  if (m.content && t !== 'yield') return m.content
   switch (t) {
     case 'invoke_start': return `${name} 开始行动～`
     case 'invoke_end': return `${name} 先休息一下～`
-    case 'yield': return '→ 交给 ' + (m.yieldTargets?.length ? m.yieldTargets.join('、') : '…')
+    case 'yield': return `${name} → 交给 ` + (m.yieldTargets?.length ? m.yieldTargets.join('、') : '…')
     default: return m.content || ''
   }
 }
