@@ -157,9 +157,7 @@ export class SendEntry {
       status: "completed",
       source: input.source ?? "web",
       // F20260910ctlv：注入方式落 metadata（与 senderDisplayName 合并——两者可同时存在）
-      metadata: input.injectionMode
-        ? { ...(input.metadata ?? (input.senderDisplayName?.trim() ? { senderDisplayName: input.senderDisplayName.trim() } as EntryMetadata : null)), injectionMode: input.injectionMode }
-        : input.metadata ?? (input.senderDisplayName?.trim() ? { senderDisplayName: input.senderDisplayName.trim() } as EntryMetadata : null),
+      metadata: this.buildUserEntryMetadata(input),
       senderName: input.senderDisplayName?.trim() ?? "",
       contextTokens: null,
       contextTokensMax: null,
@@ -181,6 +179,15 @@ export class SendEntry {
     });
 
     return { entry: created, talkingStonePassedTo, mentionFeedback };
+  }
+
+  /** 组装 user entry metadata：显式 metadata / senderDisplayName / injectionMode 三者合并（可同存） */
+  private buildUserEntryMetadata(input: SendUserEntryInput): EntryMetadata | null {
+    const displayName = input.senderDisplayName?.trim();
+    const base: EntryMetadata | null = input.metadata
+      ?? (displayName ? { senderDisplayName: displayName } as EntryMetadata : null);
+    if (!input.injectionMode) return base;
+    return { ...(base ?? {}), injectionMode: input.injectionMode };
   }
 
   /** 创建 invoke 记录 + invoke_start 条目（invoke 生命周期唯一入口） */
