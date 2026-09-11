@@ -1,10 +1,11 @@
 /**
  * Magic Word「停下」全场急停测试（F20260910ctlv test12：系统级 halt，不依赖 LLM 自觉）。
  *
- * 行为（大獭指令口径）：user 消息 body 含「停下」→ POST sendMessage 返回
+ * 行为（搭档拍板严格口径「单用才生效」）：user 消息 body 去除句首语气/称呼
+ * （哎/你们/快…）与句末语气词（吧/了…）后核心恰好是「停下」→ POST sendMessage 返回
  * 202 { status: 'halted', halted }，对全部 running invoke 调 agentInvoker.abort，
- * 消息不落库不点火。子串包含即命中（宽于 L2 reminder 扫描——系统级 halt 是
- * 硬动作，test12 案发原话「哎，你们停下吧」必须命中；误报损失 = 可重试的中断）。
+ * 消息不落库不点火。整句即停手命令才命中；粘连文字/引用/片段不命中
+ * （SYSTEM.md「引用/复述不触发」；系统级 halt 是硬动作，必须排除误伤）。
  */
 import { describe, it, expect, vi } from "vitest";
 import { Hono } from "hono";
@@ -112,5 +113,31 @@ describe("Magic Word「停下」全场急停", () => {
     expect(res.status).not.toBe(202);
     expect(abortCalls).toEqual([]);
     expect(sendUserEntry).toHaveBeenCalled();
+  });
+
+  it("严格口径：粘连文字/引用/片段不命中（单用才生效）", async () => {
+    const { ctrl, abortCalls, sendUserEntry } = makeHarness([{ id: "inv-1", otterId: "a", status: "running" }]);
+    const app = new Hono();
+    app.post("/api/conversations/:id/messages", (c) => ctrl.sendMessage(c));
+    // 「停下」粘连其他文字或作引用——非整句停手命令，不触发急停
+    for (const text of ["别停下手头工作", "我们讨论停下一词", "停下来的感觉", "先停下再说话", "这个词叫停下", "请你们停下手里的活"]) {
+      const res = await post(app, text);
+      expect(res.status, `「${text}」不应命中`).not.toBe(202);
+    }
+    expect(abortCalls).toEqual([]);
+    // 副作用断言：6 条引用/粘连消息全部走了正常发言路径（未触发 202 急停）
+    expect(sendUserEntry).toHaveBeenCalled();
+    expect(sendUserEntry.mock.calls.length).toBe(6);
+  });
+
+  it("严格口径：语气/称呼包装后仍命中（整句即停手命令）", async () => {
+    for (const text of ["快停下", "都停下。", "喂，快停下！", "大家停下吧"]) {
+      const { ctrl, abortCalls } = makeHarness([{ id: "inv-1", otterId: "a", status: "running" }]);
+      const app = new Hono();
+      app.post("/api/conversations/:id/messages", (c) => ctrl.sendMessage(c));
+      const res = await post(app, text);
+      expect(res.status, `「${text}」应命中`).toBe(202);
+      expect(abortCalls.length).toBeGreaterThan(0);
+    }
   });
 });

@@ -19,14 +19,25 @@ import type { SendMessageRequestDTO, MarkReadRequestDTO } from "../dto/message-d
 import { streamEvents } from "../sse-streamer";
 import { awaitTriggerAttemptsSettled } from "../sse-settle-waiter";
 
-/** F20260910ctlv test12：Magic Word 系统级急停判定（宽于 L2 扫描）。
- *  大獭指令：user 消息 body 含「停下」即触发全场 halt，语境判断留给人。
- *  为何不用 scanStopWords：L2 扫描为防误伤收窄了形态（「停下吧」后接语气词不命中、
- *  只生成 reminder 不硬拦）——但那是给 LLM 的软提醒；系统级 halt 是硬动作，
- *  test12 案发原话「哎，你们停下吧」必须命中。子串包含即可，误报损失 =
- *  一次可重试的中断（fail-safe 方向：多停一次好过停不下来）。 */
+/** F20260910ctlv test12：Magic Word 系统级急停判定（严格口径——搭档拍板「单用才生效」）。
+ *  规则：消息去除「首尾标点/空白 + 句首称呼（你们/大家/各位/给我/快/都）+ 句末语气词（吧/了/啊/呢/嘛/呀）」后，
+ *  剩余核心恰好是停手指令词「停下」——整句就是停手命令才命中。
+ *  命中：「停下」「停下吧」「你们停下吧！」「快停下」「都停下。」
+ *  不命中：「别停下手头工作」（粘连文字）、「我们讨论停下一词」（引用）、「停下来的感觉」（片段）。
+ *  引用/复述不触发（SYSTEM.md Magic Words 口径）；系统级 halt 是硬动作，必须排除误伤。 */
+const HALT_WORD = "停下";
+/** 句首可剥离：语气词（哎/喂/嗯/那个）+ 称呼/限定（你们/大家/各位/给我/快/都/请/麻烦）——不构成词义的纯语气与称呼。
+ *  允许多段组合（「哎，你们」「喂，快」），段间可夹标点空白。 */
+const HALT_PREFIX_RE = /^(?:(?:哎|喂|嗯|那个|你们|大家|各位|给我|快|都|请|麻烦)[\p{P}\p{Zs}\s]*)*/u;
+const HALT_SUFFIX_RE = /(?:吧|了|啊|呢|嘛|呀|啦|哦)?[\p{P}\p{Zs}\s]*$/u;
+
 function matchesSystemHaltWord(body: string): boolean {
-  return body.includes("停下");
+  if (!body) return false;
+  const trimmed = body.trim().replace(/^[\p{P}\p{Zs}\s]+|[\p{P}\p{Zs}\s]+$/gu, "");
+  if (trimmed === HALT_WORD) return true;
+  // 去句首语气/称呼 + 句末语气词后，核心须恰好等于指令词（整句即命令，无其他粘连文字）
+  const core = trimmed.replace(HALT_PREFIX_RE, "").replace(HALT_SUFFIX_RE, "");
+  return core === HALT_WORD;
 }
 import type { EntryRepository } from "@usecases/conversation/entry-repository";
 import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
