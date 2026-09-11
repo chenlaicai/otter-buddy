@@ -425,7 +425,9 @@ export class SendEntry {
       turnId,
       status: "completed",
       source: null,
-      metadata: null,
+      /** F20260910ctlv test17：invoke 真实终态记 metadata.invokeStatus——entries.status
+       *  是死字段（全部 completed），历史渲染靠它识别可重试条目（重试按钮数据源） */
+      metadata: input.status !== "completed" ? { invokeStatus: input.status } : null,
       senderName: otter.name,
       contextTokens: null,
       contextTokensMax: null,

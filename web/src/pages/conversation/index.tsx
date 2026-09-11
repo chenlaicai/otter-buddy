@@ -496,7 +496,7 @@ function ConversationPage() {
         if (d.otterId) upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId)
       },
       'invoke.end': (data) => {
-        const d = data as { invokeId: string; otterId?: string; status: 'completed' | 'failed' | 'aborted'; endedAt?: string; invokeEndEntryId?: string }
+        const d = data as { invokeId: string; otterId?: string; status: 'completed' | 'failed' | 'aborted'; endedAt?: string; invokeEndEntryId?: string; endBody?: string }
         const otterId = d.otterId || findOtterByInvokeId(invokeStatesRef.current, d.invokeId)
         if (!otterId) return
         const endedAt = d.endedAt || nowTs()
@@ -510,13 +510,16 @@ function ConversationPage() {
           m.invokeId === d.invokeId && isInFlight(m)
             ? { ...m, status: d.status === 'completed' ? 'completed' as const : d.status === 'aborted' ? 'aborted' as const : 'failed' as const, content: m.content || (d.status === 'completed' ? '' : d.status === 'aborted' ? '[中断]' : '[未完成]') }
             : m))
-        /** F20260910ctlv：fail/abort 终态的 invoke_end 居中条目（正常 yield 路径由 entry.yield 顺带插入）。 */
+        /** F20260910ctlv test17：fail/abort 终态的 invoke_end 居中条目（正常 yield 路径由
+         *  entry.yield 顺带插入）。endBody = invoke_end entry 真实 body（如「[搭档中断]…」），
+         *  实时渲染与历史渲染同源同文案 */
         if (d.invokeEndEntryId && d.status !== 'completed') {
           const otterName = ottersRef.current[activeId!]?.find(o => o.id === otterId)?.name
           batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, {
             id: d.invokeEndEntryId!, st: 'otter', si: otterId, sn: otterName,
-            content: '', ts: endedAt, dur: null,
+            content: d.endBody ?? '', ts: endedAt, dur: null,
             entryType: 'invoke_end', invokeId: d.invokeId, status: 'completed',
+            invokeStatus: d.status === 'failed' || d.status === 'aborted' ? d.status : undefined,
           }))
         }
       },
@@ -938,7 +941,9 @@ function ConversationPage() {
     if (!activeId) return
     const msgs = allMessagesRef.current[activeId] || []
     const target = msgs.find(m => m.id === messageId)
-    const invokeId = target?.invokeId
+    // F20260910ctlv test17：居中 invoke_end 条目直传 invokeId（与 entryId 不同链路），
+    // 气泡路径仍走 entryId → invokeId 查找
+    const invokeId = target?.invokeId ?? (msgs.some(m => m.invokeId === messageId) ? messageId : undefined)
     if (!invokeId) {
       showToast('找不到对应的执行记录，无法重试', 'error')
       return

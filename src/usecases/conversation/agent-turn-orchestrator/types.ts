@@ -110,10 +110,10 @@ export interface TurnCallbacks {
   updateInvokeTalkingStonePassedTo?(invokeId: string, targets: string[]): Promise<void>;
   /** 更新 invoke token 用量（成功路径终态快照） */
   updateInvokeTokenUsage?(invokeId: string, input: number, output: number): Promise<void>;
-  /** 创建 invoke_end entry（fail/abort 终态条目）。返回 invoke_end entry id（供 emitInvokeEnd 前端实时居中条目） */
-  createInvokeEndEntry(invokeId: string, status: 'failed' | 'aborted', body?: string): Promise<string | undefined>;
+  /** 创建 invoke_end entry（fail/abort 终态条目）。返回 entry id + body（供前端实时居中条目同源渲染） */
+  createInvokeEndEntry(invokeId: string, status: 'failed' | 'aborted', body?: string): Promise<{ entryId: string; body: string } | undefined>;
   /** 发送 invoke.end SSE 事件 */
-  emitInvokeEnd(invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string; otterName?: string }): void;
+  emitInvokeEnd(invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string; endBody?: string; otterName?: string }): void;
   /** F20260818cbkr：写 healing 事件（degenerate guard 触发点数据源） */
   recordHealingEvent(input: HealingEventInput): Promise<void>;
   /**

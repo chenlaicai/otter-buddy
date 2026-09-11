@@ -525,6 +525,18 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
           )}
           <span className="truncate" title={text}>{text}</span>
           <span className="msg-meta text-[10px] flex-shrink-0">{fmtTime(m.ts)}</span>
+          {/* F20260910ctlv test17：失败/中断的 invoke_end 居中条目挂重试（invokeStatus 来自
+              entry.metadata，实时/历史同源——刷新后入口仍在） */}
+          {entryKind === 'invoke_end' && m.invokeStatus && m.invokeId && (
+            <button
+              onClick={() => onRetryMessage(m.invokeId!)}
+              className="text-[10px] text-otter-500 hover:text-otter-600 px-1 rounded transition flex items-center gap-0.5"
+              title={`重试该獭的上次行动（${m.invokeStatus === 'failed' ? '失败' : '中断'}后重跑）`}
+            >
+              <RotateCcw className="w-2.5 h-2.5" />
+              重试
+            </button>
+          )}
         </div>
       </div>
     )
@@ -552,8 +564,10 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
   const userDisplayName = userName?.trim() || '我'
   // F20260826fuid：user 消息优先用快照名（飞书群聊多人识别），无快照回退全局名（单聊不变）
   // F20260826fpbd：远程消息（飞书等）无快照时显示中性标签，不回退全局名——避免快照缺失时把访客冒充成搭档
+  // F20260910ctlv test17：web 来源不算「外部」——remoteFallbackName 只对明确的外部 IM 来源生效，
+  // web/空 source 回退全局名（「我」）
   const snapshotName = isUser ? (m.sn || '').trim() : ''
-  const remoteFallbackName = m.src === 'feishu' ? '飞书成员' : m.src ? '外部成员' : ''
+  const remoteFallbackName = m.src === 'feishu' ? '飞书成员' : ''
   const name = isUser ? (snapshotName || remoteFallbackName || userDisplayName) : resolveDisplayName(m, otters)
   const color = isUser ? null : getOtterColor(m.si)
   const nameColor = isUser ? 'text-stone-600' : color?.nameClass || 'text-otter-500'

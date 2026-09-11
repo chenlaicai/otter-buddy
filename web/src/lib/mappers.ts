@@ -109,6 +109,9 @@ export interface LocalMessage {
   entryType?: TimelineEntryType
   /** F20260910ctlv：invoke 关联（SSE entry.* 事件携带；旧数据无） */
   invokeId?: string
+  /** F20260910ctlv test17：invoke 真实终态（invoke_end entry 的 metadata.invokeStatus 透出；
+   *  entries.status 是死字段全部 completed，重试按钮等终态 UI 靠它判断） */
+  invokeStatus?: 'failed' | 'aborted'
   /** F20260910ctlv：yield 条目专有——行动权传递目标 */
   yieldTargets?: string[] | null
 }
@@ -151,8 +154,8 @@ export function centeredEntryText(m: LocalMessage): string {
   // 统一用 sn（senderName 透出）+ yieldTargets 构造「来源 → 交给 目标」
   if (m.content && t !== 'yield') return m.content
   switch (t) {
-    case 'invoke_start': return `${name} 开始行动～`
-    case 'invoke_end': return `${name} 先休息一下～`
+    case 'invoke_start': return `🦦 ${name}开始行动～`
+    case 'invoke_end': return `🦦 ${name}先休息一下～`
     case 'yield': return `${name} → 交给 ` + (m.yieldTargets?.length ? m.yieldTargets.join('、') : '…')
     default: return m.content || ''
   }
@@ -260,6 +263,8 @@ export function mapEntryDTO(dto: EntryDTO): LocalMessage {
     src: (dto.source ?? undefined) as 'web' | 'feishu' | undefined,
     entryType: dto.entryType,
     invokeId: dto.invokeId ?? undefined,
+    // F20260910ctlv test17：invoke_end 的 metadata.invokeStatus 透出（重试按钮数据源）
+    ...(dto.metadata?.invokeStatus === 'failed' || dto.metadata?.invokeStatus === 'aborted' ? { invokeStatus: dto.metadata.invokeStatus } : {}),
     // yieldTargets 双用途：yield 条目的传递目标 + user entry 的发言石目标（传递行数据源）
     yieldTargets: dto.yieldTargets ?? undefined,
   }

@@ -97,9 +97,12 @@ export class InvokeController {
       if (!invoke) {
         return c.json({ error: "invoke not found" }, 404);
       }
-      if (invoke.status !== "failed" && invoke.status !== "aborted") {
+      if (invoke.status === "completed") {
         return c.json({ error: `invoke is not in a retryable status: ${invoke.status}` }, 409);
       }
+      // F20260910ctlv test17：running（用户刚点中断、abort 终态化异步收敛中）也放行——
+      // retry 直接派发新 invoke（原 invoke 的 aborted 终态由 abort 流程闭环），
+      // 消除「中断后立即重试撞 409」的窗口竞态
       if (!this.agentInvoker || !this.dispatchChainEngine) {
         return c.json({ error: "retry pipeline not configured" }, 500);
       }

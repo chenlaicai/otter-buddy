@@ -122,6 +122,6 @@ describe('isCenteredEntry / centeredEntryText', () => {
     expect(centeredEntryText({ ...base, entryType: 'yield', yieldTargets: ['大獭', '小獭'] })).toBe('o1 → 交给 大獭、小獭')
     // content 落库是「→ 交给 user」（无来源）——强制走构造文案，不用旧 body
     expect(centeredEntryText({ ...base, sn: '大獭', entryType: 'yield', content: '→ 交给 user', yieldTargets: ['user'] })).toBe('大獭 → 交给 user')
-    expect(centeredEntryText({ ...base, entryType: 'invoke_start', sn: '小獭' })).toBe('小獭 开始行动～')
+    expect(centeredEntryText({ ...base, entryType: 'invoke_start', sn: '小獭' })).toBe('🦦 小獭开始行动～')
   })
 })

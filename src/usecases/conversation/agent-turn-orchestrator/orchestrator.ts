@@ -527,8 +527,8 @@ export class AgentTurnOrchestrator {
     this.terminalInvokes.add(input.invokeId);
     try {
       await callbacks.updateInvokeStatus(input.invokeId, 'failed');
-      const invokeEndEntryId = await callbacks.createInvokeEndEntry(input.invokeId, 'failed', failBody);
-      callbacks.emitInvokeEnd(input.invokeId, 'failed', Date.now() - startTime, { toolCallCount: 0, invokeEndEntryId });
+      const endEntry = await callbacks.createInvokeEndEntry(input.invokeId, 'failed', failBody);
+      callbacks.emitInvokeEnd(input.invokeId, 'failed', Date.now() - startTime, { toolCallCount: 0, invokeEndEntryId: endEntry?.entryId, endBody: endEntry?.body });
     } catch { /* already terminal */ }
   }
 
@@ -713,8 +713,8 @@ export class AgentTurnOrchestrator {
     try {
       await callbacks.updateInvokeStatus(input.invokeId, 'failed');
       await callbacks.updateInvokeTalkingStonePassedTo?.(input.invokeId, talkingStonePassedTo);
-      const invokeEndEntryId = await callbacks.createInvokeEndEntry(input.invokeId, 'failed', failBody);
-      callbacks.emitInvokeEnd(input.invokeId, 'failed', Date.now() - startTime, { invokeEndEntryId });
+      const endEntry = await callbacks.createInvokeEndEntry(input.invokeId, 'failed', failBody);
+      callbacks.emitInvokeEnd(input.invokeId, 'failed', Date.now() - startTime, { invokeEndEntryId: endEntry?.entryId, endBody: endEntry?.body });
     } catch { /* already terminal */ }
   }
 
@@ -728,8 +728,7 @@ export class AgentTurnOrchestrator {
   }
 
   /** Abort terminal: invoke 终态化 aborted + invoke_end entry + SSE */
-   
-  private async abortTerminal(ctx: TerminalContext): Promise<TurnResult> {
+   private async abortTerminal(ctx: TerminalContext): Promise<TurnResult> {
     const { invokeId, otterId } = ctx.input;
 
     if (this.terminalInvokes.has(invokeId)) {
@@ -739,34 +738,51 @@ export class AgentTurnOrchestrator {
     this.terminalInvokes.add(invokeId);
 
     // F20260831aksp T3：编排层 high——同 invoke 二拦终态（retry>0）＝ LLM 无视首次引导自纠失败的前兆（事故 C 形态）
-    if (ctx.kind === 'guard' && ctx.guardReason?.startsWith('bash_safety:') && ctx.input.retryCount > 0) {
-      ctx.callbacks.recordHealingEvent({
-        invokeId,
-        conversationId: ctx.input.conversationId,
-        otterId,
-        errorType: "guard_intercept",
-        severity: "high",
-        description: `bash 守卫同消息二拦终态（retry=${ctx.input.retryCount}）：LLM 无视首次引导再次尝试，自纠失败`,
-        suggestion: "查看对话定位该 otter 的任务是否涉及进程管理；必要时人工介入",
-        context: { layer: "orchestrator", guardReason: ctx.guardReason },
-      }).catch(() => { /* 观测写入非致命，失败不阻断终态 */ });
+    if (this.isGuardBounceTerminal(ctx)) {
+      this.recordGuardBounceTerminal(invokeId, otterId, ctx);
     }
 
     const actualToolCallCount = ctx.toolCallCount || 0;
-    const body = ctx.kind === 'guard'
-      ? buildGuardAbortBody(ctx.guardReason)
-      : buildUserAbortBody(actualToolCallCount, await ctx.callbacks.getPartnerLabel(), ctx.underlyingError);
+    const body = await this.buildAbortBody(ctx, actualToolCallCount);
 
     let invokeEndEntryId: string | undefined;
+    let endBody: string | undefined;
     try {
       await ctx.callbacks.updateInvokeStatus(invokeId, 'aborted');
       await ctx.callbacks.updateInvokeTalkingStonePassedTo?.(invokeId, ctx.input.senderId ? [ctx.input.senderId] : []);
-      invokeEndEntryId = await ctx.callbacks.createInvokeEndEntry(invokeId, 'aborted', body);
+      const endEntry = await ctx.callbacks.createInvokeEndEntry(invokeId, 'aborted', body);
+      invokeEndEntryId = endEntry?.entryId;
+      endBody = endEntry?.body;
     } catch { /* ignore */ }
 
-    ctx.callbacks.emitInvokeEnd(invokeId, 'aborted', Date.now() - ctx.startTime, { toolCallCount: actualToolCallCount, invokeEndEntryId });
+    ctx.callbacks.emitInvokeEnd(invokeId, 'aborted', Date.now() - ctx.startTime, { toolCallCount: actualToolCallCount, invokeEndEntryId, endBody });
 
     return { invokeId, duration: Date.now() - ctx.startTime };
+  }
+
+  /** F20260831aksp T3：bash 守卫二拦终态判定（自 abortTerminal 拆出控复杂度） */
+  private isGuardBounceTerminal(ctx: TerminalContext): boolean {
+    return ctx.kind === 'guard' && !!ctx.guardReason?.startsWith('bash_safety:') && ctx.input.retryCount > 0;
+  }
+
+  /** abort body 构造（自 abortTerminal 拆出控复杂度）：guard 原因 / 用户中断 */
+  private async buildAbortBody(ctx: TerminalContext, actualToolCallCount: number): Promise<string> {
+    if (ctx.kind === 'guard') return buildGuardAbortBody(ctx.guardReason);
+    return buildUserAbortBody(actualToolCallCount, await ctx.callbacks.getPartnerLabel(), ctx.underlyingError);
+  }
+
+  /** F20260831aksp T3：bash 守卫二拦终态观测写入（自 abortTerminal 拆出控复杂度；非致命） */
+  private recordGuardBounceTerminal(invokeId: string, otterId: string, ctx: TerminalContext): void {
+    ctx.callbacks.recordHealingEvent({
+      invokeId,
+      conversationId: ctx.input.conversationId,
+      otterId,
+      errorType: "guard_intercept",
+      severity: "high",
+      description: `bash 守卫同消息二拦终态（retry=${ctx.input.retryCount}）：LLM 无视首次引导再次尝试，自纠失败`,
+      suggestion: "查看对话定位该 otter 的任务是否涉及进程管理；必要时人工介入",
+      context: { layer: "orchestrator", guardReason: ctx.guardReason },
+    }).catch(() => { /* 观测写入非致命，失败不阻断终态 */ });
   }
 
   /** Fail terminal: invoke 终态化 failed + invoke_end entry + SSE error */
@@ -785,12 +801,15 @@ export class AgentTurnOrchestrator {
     this.terminalInvokes.add(invokeId);
 
     let invokeEndEntryId: string | undefined;
+    let endBody: string | undefined;
     try {
       await callbacks.updateInvokeStatus(invokeId, 'failed');
-      invokeEndEntryId = await callbacks.createInvokeEndEntry(invokeId, 'failed', `[错误] ${errorMessage}`);
+      const endEntry = await callbacks.createInvokeEndEntry(invokeId, 'failed', `[错误] ${errorMessage}`);
+      invokeEndEntryId = endEntry?.entryId;
+      endBody = endEntry?.body;
     } catch { /* ignore */ }
 
-    callbacks.emitInvokeEnd(invokeId, 'failed', Date.now() - startTime, { invokeEndEntryId });
+    callbacks.emitInvokeEnd(invokeId, 'failed', Date.now() - startTime, { invokeEndEntryId, endBody });
 
     this.safeEmitEvent(callbacks, {
       event: 'error',

@@ -30,7 +30,7 @@ export type SSEEventMap = {
   /** invoke 开始（invoke 记录创建 + invoke_start entry） */
   "invoke.start": { invokeId: string; otterId: string; otterName: string; conversationId: string; startedAt: string; triggerEntryId?: string };
   /** invoke 结束（completed/failed/aborted）。duration 为 invoke 耗时（ms，number） */
-  "invoke.end": { invokeId: string; otterId: string; otterName?: string; status: "completed" | "failed" | "aborted"; endedAt: string; duration?: number; toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string };
+  "invoke.end": { invokeId: string; otterId: string; otterName?: string; status: "completed" | "failed" | "aborted"; endedAt: string; duration?: number; toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string; endBody?: string };
 
   // ── 通用事件（保留） ──
   "turn.complete": Record<string, never>;

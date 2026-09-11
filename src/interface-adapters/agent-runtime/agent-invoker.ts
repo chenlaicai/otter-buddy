@@ -393,7 +393,7 @@ export class AgentInvoker implements AgentTurnPort {
         await sendEntry.updateInvokeTokenUsage(invokeId, input, output);
       },
 
-      createInvokeEndEntry: async (invokeId: string, status: 'failed' | 'aborted', body?: string): Promise<string | undefined> => {
+      createInvokeEndEntry: async (invokeId: string, status: 'failed' | 'aborted', body?: string): Promise<{ entryId: string; body: string } | undefined> => {
         const invoke = await sendEntry.getInvokeById(invokeId);
         if (!invoke) return undefined;
         const { invokeEndEntry } = await sendEntry.createInvokeEndEntry({
@@ -404,11 +404,11 @@ export class AgentInvoker implements AgentTurnPort {
           status,
           body,
         });
-        return invokeEndEntry.id;
+        return { entryId: invokeEndEntry.id, body: invokeEndEntry.body ?? '' };
       },
 
-      emitInvokeEnd: (invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string; otterName?: string }) => {
-        emitEvent({ event: 'invoke.end', data: { invokeId, otterId: otterId ?? '', status, duration, endedAt: new Date().toISOString(), toolCallCount: stats?.toolCallCount, tokenUsage: stats?.tokenUsage, invokeEndEntryId: stats?.invokeEndEntryId, otterName: stats?.otterName } });
+      emitInvokeEnd: (invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string; endBody?: string; otterName?: string }) => {
+        emitEvent({ event: 'invoke.end', data: { invokeId, otterId: otterId ?? '', status, duration, endedAt: new Date().toISOString(), toolCallCount: stats?.toolCallCount, tokenUsage: stats?.tokenUsage, invokeEndEntryId: stats?.invokeEndEntryId, endBody: stats?.endBody, otterName: stats?.otterName } });
       },
 
       recordHealingEvent: async (input: HealingEventInput) => {
