@@ -525,14 +525,15 @@ export class AgentInvoker implements AgentTurnPort {
     }
     if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
       this.logger.debug('speak tool executed', { invokeId: input.invokeId });
-      // F20260910ctlv 彻底切换：唯一路径——speak 工具已落 speak entry，此处发射 entry.start + entry.speak（真实 entryId）
+      // F20260910ctlv 彻底切换 + 语义清理：speak 是原子工具调用（无流式生命周期）——
+      // 落库即 completed，单事件 entry.speak 携带全量 body 一次性渲染完整气泡。
+      // entry.start 伪事件已退役（原与 entry.speak 背靠背同数据发射，纯为模拟不存在的占位生命周期）。
       const speakDetails = (e.result as { details?: { entryId?: string } } | undefined)?.details;
       if (speakDetails?.entryId) {
         const resolvedName = resolveSpeakerName("otter", otterId, opts?.otterName) ?? otterId;
         const entryId = speakDetails.entryId as string;
         const body = String((speakDetails as { body?: unknown }).body ?? "");
-        emitEvent({ event: "entry.start", data: { entryId, invokeId: opts.currentInvokeId, otterId, otterName: resolvedName } });
-        emitEvent({ event: "entry.speak", data: { entryId, invokeId: opts.currentInvokeId, body, otterName: resolvedName } });
+        emitEvent({ event: "entry.speak", data: { entryId, invokeId: opts.currentInvokeId, otterId, body, otterName: resolvedName } });
       }
     }
     // F20260910ctlv 彻底切换：流式过程唯一存储 = invoke_events（message_events 停写）

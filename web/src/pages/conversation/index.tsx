@@ -402,35 +402,30 @@ function ConversationPage() {
         })
         if (added) { const atBottom = isAtBottomRef.current; runOrDefer(() => { if (!atBottom) setNewMessagesCount(c => c + 1) }) }
       },
-      'entry.start': (data) => {
-        /** speak entry 创建——插入獭气泡占位（content 由 entry.speak 填充） */
-        const d = data as { entryId: string; invokeId?: string; otterId: string; otterName?: string; createdAt?: string }
-        const placeholder: LocalMessage = {
-          id: d.entryId, st: 'otter', si: d.otterId, sn: d.otterName,
-          content: '', status: 'streaming', ts: d.createdAt || nowTs(), dur: null, events: [],
-          invokeId: d.invokeId,
-        }
+      'entry.speak': (data) => {
+        /** speak entry 全量 body——speak 是原子工具调用（无流式生命周期），落库即 completed。
+         *  F20260910ctlv 语义清理：entry.start 伪事件已退役，entry.speak 自包含——
+         *  气泡不存在则插入 completed 完整气泡（无占位、无 streaming 中间态），存在则填 body 收敛终态。 */
+        const d = data as { entryId: string; invokeId?: string; otterId?: string; body?: string; otterName?: string; createdAt?: string }
+        if (!d.body) return
+        const body = d.body
         let added = false
-        batchUpdateMessages(activeId!, (current) => {
-          if (current.some(m => m.id === d.entryId)) return current
-          added = true
-          return [...current, placeholder]
+        batchUpdateMessages(activeId!, (list) => {
+          if (!list.some(m => m.id === d.entryId)) {
+            added = true
+            const msg: LocalMessage = {
+              id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+              content: body, status: 'completed', ts: d.createdAt || nowTs(), dur: null,
+              invokeId: d.invokeId,
+            }
+            return insertBySeq(list, msg)
+          }
+          return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, status: 'completed' as const, sn: m.sn || d.otterName || '' } : m)
         })
         if (d.otterId) {
           upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId)
         }
         if (added) { const atBottom = isAtBottomRef.current; runOrDefer(() => { if (!atBottom) setNewMessagesCount(c => c + 1) }) }
-      },
-      'entry.speak': (data) => {
-        /** speak entry body——speak entry 创建即全量 body（无流式分片）。
-         *  F20260910ctlv：speak entry 落库即 completed——拿到全量 body 时直接收敛终态，
-        不依赖 invoke.end 兜底时序（实测残留「停止」按钮的根因） */
-        const d = data as { entryId: string; body?: string; otterName?: string }
-        if (!d.body) return
-        batchUpdateMessages(activeId!, (list) => {
-          if (!list.some(m => m.id === d.entryId)) return list
-          return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, status: 'completed' as const, sn: m.sn || d.otterName || '' } : m)
-        })
       },
       // F20260910ctlv 收尾：entry.complete 事件已退役（后端无发射点；speak 气泡终态由 invoke.end 收敛）
       'entry.failed': (data) => {
@@ -664,7 +659,7 @@ function ConversationPage() {
 
       // F20260910ctlv 彻底切换：POST 发送流——单通道（entry.* / invoke.*；与常驻通道共用 handler 逻辑）
       // tmp 乐观消息由 entry.user 事件替换（同 id 幂等由后端保证——entryId 与 tmp id 不同，
-      // 用户气泡以 tmp 呈现直到刷新；invoke 过程气泡走 entry.start/speak）
+      // 用户气泡以 tmp 呈现直到刷新；invoke 过程气泡走 entry.speak）
       const postHandlers: Record<string, (data: Record<string, unknown>) => void> = {
         'entry.user': (data) => {
           // F20260910ctlv 补漏：POST 流收到的 entry.user = 后端确认落库——替换 tmp 气泡
@@ -689,26 +684,25 @@ function ConversationPage() {
             return [...current, realMsg]
           })
         },
-        'entry.start': (data) => {
-          const d = data as { entryId: string; invokeId?: string; otterId: string; otterName?: string; createdAt?: string }
-          const placeholder: LocalMessage = {
-            id: d.entryId, st: 'otter', si: d.otterId, sn: d.otterName,
-            content: '', status: 'streaming', ts: d.createdAt || nowTs(), dur: null, events: [],
-            invokeId: d.invokeId,
-          }
-          batchUpdateMessages(activeId!, (list) => insertBySeq(list, placeholder))
+        'entry.speak': (data) => {
+          /** 同常驻通道：entry.speak 自包含（entry.start 已退役）——不存在则插入 completed 完整气泡 */
+          const d = data as { entryId: string; invokeId?: string; otterId?: string; body?: string; otterName?: string; createdAt?: string }
+          if (!d.body) return
+          const body = d.body
+          batchUpdateMessages(activeId!, (list) => {
+            if (!list.some(m => m.id === d.entryId)) {
+              const msg: LocalMessage = {
+                id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+                content: body, status: 'completed', ts: d.createdAt || nowTs(), dur: null,
+                invokeId: d.invokeId,
+              }
+              return insertBySeq(list, msg)
+            }
+            return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, status: 'completed' as const, sn: m.sn || d.otterName || '' } : m)
+          })
           if (d.otterId && activeId) {
             upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId)
           }
-        },
-        'entry.speak': (data) => {
-          /** 同常驻通道：拿到全量 body 即收敛终态（speak entry 落库即 completed） */
-          const d = data as { entryId: string; body?: string; otterName?: string }
-          if (!d.body) return
-          batchUpdateMessages(activeId!, (list) => {
-            if (!list.some(m => m.id === d.entryId)) return list
-            return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, status: 'completed' as const, sn: m.sn || d.otterName || '' } : m)
-          })
         },
         // F20260910ctlv 收尾：entry.complete 事件已退役（后端无发射点；speak 气泡终态由 invoke.end 收敛）
         'invoke.start': (data) => {
@@ -871,23 +865,22 @@ function ConversationPage() {
       const response = await api.retryInvoke(invokeId)
       if (!response.ok) { showToast('重试失败', 'error'); return }
 
-      // 重试流：单通道 entry.*（与发送流同型；新 invoke 的气泡经 entry.start 插入）
+      // 重试流：单通道 entry.*（与发送流同型；新 invoke 的气泡经 entry.speak 插入）
       const retryHandlers: Record<string, (data: Record<string, unknown>) => void> = {
-        'entry.start': (data) => {
-          const d = data as { entryId: string; invokeId?: string; otterId: string; otterName?: string; createdAt?: string }
-          const placeholder: LocalMessage = {
-            id: d.entryId, st: 'otter', si: d.otterId, sn: d.otterName,
-            content: '', status: 'streaming', ts: d.createdAt || nowTs(), dur: null, events: [],
-            invokeId: d.invokeId,
-          }
-          batchUpdateMessages(activeId, (list) => insertBySeq(list, placeholder))
-        },
         'entry.speak': (data) => {
-          /** 同常驻通道：拿到全量 body 即收敛终态（speak entry 落库即 completed） */
-          const d = data as { entryId: string; body?: string; otterName?: string }
+          /** 同常驻通道：entry.speak 自包含（entry.start 已退役）——不存在则插入 completed 完整气泡 */
+          const d = data as { entryId: string; invokeId?: string; otterId?: string; body?: string; otterName?: string; createdAt?: string }
           if (!d.body) return
+          const body = d.body
           batchUpdateMessages(activeId, (list) => {
-            if (!list.some(m => m.id === d.entryId)) return list
+            if (!list.some(m => m.id === d.entryId)) {
+              const msg: LocalMessage = {
+                id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+                content: body, status: 'completed', ts: d.createdAt || nowTs(), dur: null,
+                invokeId: d.invokeId,
+              }
+              return insertBySeq(list, msg)
+            }
             return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, status: 'completed' as const, sn: m.sn || d.otterName || '' } : m)
           })
         },
