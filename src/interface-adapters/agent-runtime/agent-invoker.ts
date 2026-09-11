@@ -393,10 +393,10 @@ export class AgentInvoker implements AgentTurnPort {
         await sendEntry.updateInvokeTokenUsage(invokeId, input, output);
       },
 
-      createInvokeEndEntry: async (invokeId: string, status: 'failed' | 'aborted', body?: string) => {
+      createInvokeEndEntry: async (invokeId: string, status: 'failed' | 'aborted', body?: string): Promise<string | undefined> => {
         const invoke = await sendEntry.getInvokeById(invokeId);
-        if (!invoke) return;
-        await sendEntry.createInvokeEndEntry({
+        if (!invoke) return undefined;
+        const { invokeEndEntry } = await sendEntry.createInvokeEndEntry({
           conversationId: invoke.conversationId,
           invokeId,
           otterId: invoke.otterId,
@@ -404,6 +404,7 @@ export class AgentInvoker implements AgentTurnPort {
           status,
           body,
         });
+        return invokeEndEntry.id;
       },
 
       emitInvokeEnd: (invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string; otterName?: string }) => {

@@ -527,8 +527,8 @@ export class AgentTurnOrchestrator {
     this.terminalInvokes.add(input.invokeId);
     try {
       await callbacks.updateInvokeStatus(input.invokeId, 'failed');
-      await callbacks.createInvokeEndEntry(input.invokeId, 'failed', failBody);
-      callbacks.emitInvokeEnd(input.invokeId, 'failed', Date.now() - startTime, { toolCallCount: 0 });
+      const invokeEndEntryId = await callbacks.createInvokeEndEntry(input.invokeId, 'failed', failBody);
+      callbacks.emitInvokeEnd(input.invokeId, 'failed', Date.now() - startTime, { toolCallCount: 0, invokeEndEntryId });
     } catch { /* already terminal */ }
   }
 
@@ -713,8 +713,8 @@ export class AgentTurnOrchestrator {
     try {
       await callbacks.updateInvokeStatus(input.invokeId, 'failed');
       await callbacks.updateInvokeTalkingStonePassedTo?.(input.invokeId, talkingStonePassedTo);
-      await callbacks.createInvokeEndEntry(input.invokeId, 'failed', failBody);
-      callbacks.emitInvokeEnd(input.invokeId, 'failed', Date.now() - startTime, {});
+      const invokeEndEntryId = await callbacks.createInvokeEndEntry(input.invokeId, 'failed', failBody);
+      callbacks.emitInvokeEnd(input.invokeId, 'failed', Date.now() - startTime, { invokeEndEntryId });
     } catch { /* already terminal */ }
   }
 
@@ -757,13 +757,14 @@ export class AgentTurnOrchestrator {
       ? buildGuardAbortBody(ctx.guardReason)
       : buildUserAbortBody(actualToolCallCount, await ctx.callbacks.getPartnerLabel(), ctx.underlyingError);
 
+    let invokeEndEntryId: string | undefined;
     try {
       await ctx.callbacks.updateInvokeStatus(invokeId, 'aborted');
       await ctx.callbacks.updateInvokeTalkingStonePassedTo?.(invokeId, ctx.input.senderId ? [ctx.input.senderId] : []);
-      await ctx.callbacks.createInvokeEndEntry(invokeId, 'aborted', body);
+      invokeEndEntryId = await ctx.callbacks.createInvokeEndEntry(invokeId, 'aborted', body);
     } catch { /* ignore */ }
 
-    ctx.callbacks.emitInvokeEnd(invokeId, 'aborted', Date.now() - ctx.startTime, { toolCallCount: actualToolCallCount });
+    ctx.callbacks.emitInvokeEnd(invokeId, 'aborted', Date.now() - ctx.startTime, { toolCallCount: actualToolCallCount, invokeEndEntryId });
 
     return { invokeId, duration: Date.now() - ctx.startTime };
   }
@@ -783,12 +784,13 @@ export class AgentTurnOrchestrator {
 
     this.terminalInvokes.add(invokeId);
 
+    let invokeEndEntryId: string | undefined;
     try {
       await callbacks.updateInvokeStatus(invokeId, 'failed');
-      await callbacks.createInvokeEndEntry(invokeId, 'failed', `[错误] ${errorMessage}`);
+      invokeEndEntryId = await callbacks.createInvokeEndEntry(invokeId, 'failed', `[错误] ${errorMessage}`);
     } catch { /* ignore */ }
 
-    callbacks.emitInvokeEnd(invokeId, 'failed', Date.now() - startTime, {});
+    callbacks.emitInvokeEnd(invokeId, 'failed', Date.now() - startTime, { invokeEndEntryId });
 
     this.safeEmitEvent(callbacks, {
       event: 'error',

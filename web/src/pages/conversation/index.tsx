@@ -496,7 +496,7 @@ function ConversationPage() {
         if (d.otterId) upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId)
       },
       'invoke.end': (data) => {
-        const d = data as { invokeId: string; otterId?: string; status: 'completed' | 'failed' | 'aborted'; endedAt?: string }
+        const d = data as { invokeId: string; otterId?: string; status: 'completed' | 'failed' | 'aborted'; endedAt?: string; invokeEndEntryId?: string }
         const otterId = d.otterId || findOtterByInvokeId(invokeStatesRef.current, d.invokeId)
         if (!otterId) return
         const endedAt = d.endedAt || nowTs()
@@ -510,6 +510,15 @@ function ConversationPage() {
           m.invokeId === d.invokeId && isInFlight(m)
             ? { ...m, status: d.status === 'completed' ? 'completed' as const : d.status === 'aborted' ? 'aborted' as const : 'failed' as const, content: m.content || (d.status === 'completed' ? '' : d.status === 'aborted' ? '[中断]' : '[未完成]') }
             : m))
+        /** F20260910ctlv：fail/abort 终态的 invoke_end 居中条目（正常 yield 路径由 entry.yield 顺带插入）。 */
+        if (d.invokeEndEntryId && d.status !== 'completed') {
+          const otterName = ottersRef.current[activeId!]?.find(o => o.id === otterId)?.name
+          batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, {
+            id: d.invokeEndEntryId!, st: 'otter', si: otterId, sn: otterName,
+            content: '', ts: endedAt, dur: null,
+            entryType: 'invoke_end', invokeId: d.invokeId, status: 'completed',
+          }))
+        }
       },
       'entry.yield': (data) => {
         const d = data as { entryId: string; invokeId?: string; otterId?: string; otterName?: string; yieldTargets?: string[]; invokeEndEntryId?: string }
@@ -730,11 +739,20 @@ function ConversationPage() {
           }
         },
         'invoke.end': (data) => {
-          const d = data as { invokeId: string; status: 'completed' | 'failed' | 'aborted' }
+          const d = data as { invokeId: string; otterId?: string; status: 'completed' | 'failed' | 'aborted'; endedAt?: string; invokeEndEntryId?: string }
           batchUpdateMessages(activeId!, (list) => list.map(m =>
             m.invokeId === d.invokeId && isInFlight(m)
               ? { ...m, status: d.status === 'completed' ? 'completed' as const : d.status === 'aborted' ? 'aborted' as const : 'failed' as const, content: m.content || (d.status === 'completed' ? '' : d.status === 'aborted' ? '[中断]' : '[未完成]') }
               : m))
+          if (d.invokeEndEntryId && d.status !== 'completed') {
+            const otterId = d.otterId || findOtterByInvokeId(invokeStatesRef.current, d.invokeId)
+            const otterName = ottersRef.current[activeId!]?.find(o => o.id === otterId)?.name
+            batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, {
+              id: d.invokeEndEntryId!, st: 'otter', si: otterId || '', sn: otterName,
+              content: '', ts: d.endedAt || nowTs(), dur: null,
+              entryType: 'invoke_end', invokeId: d.invokeId, status: 'completed',
+            }))
+          }
         },
         'entry.yield': (data) => {
           const d = data as { entryId: string; invokeId?: string; otterId?: string; otterName?: string; yieldTargets?: string[]; invokeEndEntryId?: string }
@@ -920,11 +938,20 @@ function ConversationPage() {
           }
         },
         'invoke.end': (data) => {
-          const d = data as { invokeId: string; status: 'completed' | 'failed' | 'aborted' }
+          const d = data as { invokeId: string; otterId?: string; status: 'completed' | 'failed' | 'aborted'; endedAt?: string; invokeEndEntryId?: string }
           batchUpdateMessages(activeId, (list) => list.map(m =>
             m.invokeId === d.invokeId && isInFlight(m)
               ? { ...m, status: d.status === 'completed' ? 'completed' as const : d.status === 'aborted' ? 'aborted' as const : 'failed' as const, content: m.content || (d.status === 'completed' ? '' : d.status === 'aborted' ? '[中断]' : '[未完成]') }
               : m))
+          if (d.invokeEndEntryId && d.status !== 'completed') {
+            const otterId = d.otterId || findOtterByInvokeId(invokeStatesRef.current, d.invokeId)
+            const otterName = ottersRef.current[activeId]?.find(o => o.id === otterId)?.name
+            batchUpdateMessages(activeId, (list) => insertCenteredByTs(list, {
+              id: d.invokeEndEntryId!, st: 'otter', si: otterId || '', sn: otterName,
+              content: '', ts: d.endedAt || nowTs(), dur: null,
+              entryType: 'invoke_end', invokeId: d.invokeId, status: 'completed',
+            }))
+          }
         },
         'entry.yield': (data) => {
           const d = data as { entryId: string; invokeId?: string; otterId?: string; otterName?: string; yieldTargets?: string[]; invokeEndEntryId?: string }
