@@ -904,7 +904,7 @@ function ConversationPage() {
   /** F20260910ctlv：右栏重试按钮——复用 retry 端点，重试流事件经 broadcaster 到达
    *  常驻通道（retryHandlers 逻辑同型，右栏入口不接 POST 流——新 invoke 事件由
    *  常驻 SSE 订阅处理，切页/断连由轮询兑底） */
-  const handleRetryInvoke = useCallback(async (invokeId: string) => {
+  const handleRetryInvoke = useCallback(async (_otterId: string, invokeId: string) => {
     try {
       const response = await api.retryInvoke(invokeId)
       if (!response.ok) { showToast('重试失败', 'error'); return }
