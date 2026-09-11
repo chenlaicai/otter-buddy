@@ -86,9 +86,7 @@ export class PiSessionPool {
   evict(key: string): boolean {
     const entry = this.entries.get(key);
     if (!entry) return false;
-    this.entries.delete(key);
-    try { entry.session.dispose(); } catch { /* dispose 失败不阻塞驱逐 */ }
-    this.onEvict?.(key, "manual");
+    this.removeEntry(key, entry, "manual");
     return true;
   }
 
@@ -120,8 +118,21 @@ export class PiSessionPool {
   }
 
   private busy(entry: PoolEntry): boolean {
-    if (this.isBusy) return this.isBusy(entry.session);
-    return entry.session.isStreaming;
+    // 异常防护：isBusy 谓词与 isStreaming getter 均为宿主可控代码，sweep 由 setInterval 驱动，
+    // 抛错 = uncaughtException → 进程 crash（检视发现 1）。抛错保守视为 running（不杀活会话）。
+    try {
+      if (this.isBusy) return this.isBusy(entry.session);
+      return entry.session.isStreaming;
+    } catch {
+      return true;
+    }
+  }
+
+  /** 驱逐出池 + dispose 容错 + onEvict 通知（回调异常不阻塞——同样是宿主可控代码） */
+  private removeEntry(key: string, entry: PoolEntry, reason: "ttl" | "lru" | "manual"): void {
+    this.entries.delete(key);
+    try { entry.session.dispose(); } catch { /* dispose 失败不阻塞驱逐 */ }
+    try { this.onEvict?.(key, reason); } catch { /* 观测回调失败不阻塞驱逐 */ }
   }
 
   private sweep(): void {
@@ -129,9 +140,7 @@ export class PiSessionPool {
     for (const [key, entry] of this.entries) {
       if (this.busy(entry)) continue; // running 不释放
       if (now - entry.lastTouched > this.ttlMs) {
-        this.entries.delete(key);
-        try { entry.session.dispose(); } catch { /* dispose 失败不阻塞驱逐 */ }
-        this.onEvict?.(key, "ttl");
+        this.removeEntry(key, entry, "ttl");
       }
     }
   }
@@ -147,10 +156,7 @@ export class PiSessionPool {
         if (entry.lastTouched < victimTouched) { victimTouched = entry.lastTouched; victimKey = key; }
       }
       if (victimKey === null) return; // 全部 running，放弃容量驱逐
-      const victim = this.entries.get(victimKey)!;
-      this.entries.delete(victimKey);
-      try { victim.session.dispose(); } catch { /* dispose 失败不阻塞驱逐 */ }
-      this.onEvict?.(victimKey, "lru");
+      this.removeEntry(victimKey, this.entries.get(victimKey)!, "lru");
     }
   }
 }

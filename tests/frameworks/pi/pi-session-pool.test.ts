@@ -4,7 +4,9 @@
  * 覆盖：acquire 命中/重建、LRU touch 刷新、TTL 驱逐、running 豁免（isBusy 注入与
  * isStreaming 回退两条路径）、容量驱逐、inflight 并发去重、factory 失败不入池、
  * disposeAll/dispose 容错。
- * 断言风格：状态/副作用断言（pool.has/size、dispose 副作用标志），不断言调用次数/参数。
+ * 断言风格：以状态/副作用断言为主（pool.has/size、disposed 标志）；仅「防重复拉起」
+ * 场景保留 factory 调用次数断言——被验证的恰是「factory 只执行一次」这一外部行为本身，
+ * lint 禁止的是 mock API 断言（toHaveBeenCalledWith 等绑定实现细节的写法）。
  */
 import { describe, it, expect } from "vitest";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
@@ -53,7 +55,7 @@ describe("PiSessionPool.acquire", () => {
 
     expect(a).toBe(session);
     expect(b).toBe(session);
-    expect(factoryCalls).toBe(1); // 状态断言：factory 只拉起一次
+    expect(factoryCalls).toBe(1); // 防重复拉起是外部可观察行为，断言计数即断言行为本身
     expect(pool.has("k1")).toBe(true);
     expect(pool.size).toBe(1);
   });
@@ -167,6 +169,50 @@ describe("PiSessionPool 驱逐", () => {
     t = 200;
     expect(() => sweep(pool)).not.toThrow();
     expect(pool.has("k1")).toBe(false);
+  });
+
+  it("异常防护：isBusy 谓词抛错保守视为 running（不驱逐、不 crash）", async () => {
+    let t = 0;
+    const pool = makePool({
+      ttlMs: 100,
+      now: () => t,
+      isBusy: () => { throw new Error("host predicate broken"); },
+    });
+
+    await pool.acquire("k1");
+    t = 200;
+    expect(() => sweep(pool)).not.toThrow();
+    expect(pool.has("k1")).toBe(true); // 抛错 = 保守不杀
+  });
+
+  it("异常防护：损坏 session 的 isStreaming getter 抛错同样视为 running", async () => {
+    let t = 0;
+    const brokenObj = {
+      get isStreaming(): boolean { throw new TypeError("session corrupted"); },
+      disposed: false,
+      dispose() { brokenObj.disposed = true; },
+    };
+    const broken = brokenObj as unknown as AgentSession;
+    const pool = makePool({ factory: async () => broken, ttlMs: 100, now: () => t });
+
+    await pool.acquire("k1");
+    t = 200;
+    expect(() => sweep(pool)).not.toThrow();
+    expect(pool.has("k1")).toBe(true);
+    expect(brokenObj.disposed).toBe(false);
+  });
+
+  it("异常防护：onEvict 回调抛错不阻塞驱逐流程", async () => {
+    let t = 0;
+    const session = fakeSession();
+    const pool = makePool({ factory: async () => session, ttlMs: 100, now: () => t });
+    pool.onEvict = () => { throw new Error("observer broken"); };
+
+    await pool.acquire("k1");
+    t = 200;
+    expect(() => sweep(pool)).not.toThrow();
+    expect(pool.has("k1")).toBe(false); // 驱逐仍然完成
+    expect(session.disposed).toBe(true);
   });
 });
 
