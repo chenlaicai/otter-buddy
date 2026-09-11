@@ -111,10 +111,15 @@ export function flagResource(db: Database.Database, id: string, flagged: boolean
 }
 
 export function createParticipant(db: Database.Database, participant: ConversationParticipant): void {
+  // F20260910ctlv test15：进场游标显式写 0（= 读全部历史，含进场前的大獭发言）。
+  // 旧实现 INSERT 不含该列 → NULL → getUnreadEntries 返回空（读不到任何历史，
+  // 小獭进场后仍在问「问题是什么」）；重启 backfill 又把 NULL 填成 max seq（读到最新，
+  // 同样读不到进场前）。搭档拍板口径：进场游标与进场 system entry 一致——能看到
+  // 进场那一刻为止的全部对话。
   db.prepare(`
     INSERT INTO conversation_participants (id, conversation_id, otter_id, joined_at_turn_id,
-      joined_at_turn_number, status, created_at, last_read_turn_number)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      joined_at_turn_number, status, created_at, last_read_turn_number, last_read_seq)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
   `).run(
     participant.id, participant.conversationId, participant.otterId,
     participant.joinedAtTurnId, participant.joinedAtTurnNumber,
@@ -127,10 +132,11 @@ export function createParticipants(db: Database.Database, participants: Conversa
   if (participants.length === 0) return;
   db.exec("BEGIN");
   try {
+    // F20260910ctlv test15：同 createParticipant——进场游标显式写 0（读全部历史）
     const stmt = db.prepare(`
       INSERT INTO conversation_participants (id, conversation_id, otter_id, joined_at_turn_id,
-        joined_at_turn_number, status, created_at, last_read_turn_number)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        joined_at_turn_number, status, created_at, last_read_turn_number, last_read_seq)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
     `);
     for (const p of participants) {
       stmt.run(p.id, p.conversationId, p.otterId, p.joinedAtTurnId, p.joinedAtTurnNumber, p.status, p.createdAt, p.lastReadTurnNumber ?? 0);
