@@ -157,6 +157,35 @@ describe("SignalRouter 数据源（F20260910ctlv 彻底切换补漏）", () => {
     expect(meta.consumed).toBe("steered");
   });
 
+  it("injectionMode=followUp（副按钮排队）→ followUp 注入 + consumed=followed_up（F20260910ctlv followUp 按钮）", async () => {
+    const entry = createEntry({ yieldTargets: ["otter-big"], metadata: { injectionMode: "followUp" } });
+    const entryUpdates: Array<{ entryId: string; metadata: EntryMetadata }> = [];
+    const followCalls: string[] = [];
+    const steerCalls: string[] = [];
+    // 目标 running + 用户显式选 followUp → 排队注入（不打断）
+    const factory = {
+      isRunning: () => true,
+      followUp: (_id: string, text: string) => { followCalls.push(text); return true; },
+      steerSession: (id: string, text: string) => { steerCalls.push(`${id}:${text}`); return true; },
+    };
+    const routerF = new SignalRouter({
+      conversationRepo: {} as never, queryMessage: { getMessageById: async () => null } as never,
+      entryRepo: { getEntryById: async () => entry, updateEntryMetadata: async (id: string, meta: EntryMetadata) => entryUpdates.push({ entryId: id, metadata: meta }) } as never,
+      queryOtter: { getById: async (id: string) => ({ id, status: "active" }) } as never,
+      dispatchChainEngine: { executeChain: async () => ({}) } as never,
+      invokeFn: async () => ({ messageId: "inv" }),
+      logger: createLogger(), factory,
+    });
+
+    const results = await routerF.routeSignals("conv-1", { triggerMessageId: "entry-u1" });
+
+    expect(results[0]!.action).toBe("followed_up");
+    expect(followCalls).toHaveLength(1);
+    expect(steerCalls).toHaveLength(0); // 显式 followUp 不走 steer（不打断）
+    const meta = JSON.parse(entryUpdates[0]!.metadata.signalMeta as string) as { consumed: string };
+    expect(meta.consumed).toBe("followed_up");
+  });
+
   it("目标 inactive → skipped_inactive", async () => {
     const entry = createEntry({ yieldTargets: ["otter-gone"] });
     const { router, chainCalls } = makeDeps({ entryRepo: { getEntryById: vi.fn(async () => entry) } });

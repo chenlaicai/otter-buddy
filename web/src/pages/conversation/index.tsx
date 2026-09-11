@@ -636,7 +636,7 @@ function ConversationPage() {
   const activeLinkedRes = useMemo(() => activeId ? (allLinkedRes[activeId] || []) : [], [activeId, allLinkedRes])
   const activeOtters: LocalOtter[] = useMemo(() => activeId ? (allOtters[activeId] || []) : [], [activeId, allOtters])
 
-  const handleSend = useCallback(async (text: string, mentionOtterIds?: string[], attachments?: import('./hooks/useAttachmentStaging').StagedAttachment[]) => {
+  const handleSend = useCallback(async (text: string, mentionOtterIds?: string[], attachments?: import('./hooks/useAttachmentStaging').StagedAttachment[], mode?: 'steer' | 'followUp') => {
     if (!activeId) return
     /** F20260904smsj：发言 = 已看完全部（聊天通用语义）——立即标记已读到当前最新 +
      *  强制回底部 + 清未读分隔线，消除「分隔线定位 × 自动滚底门控」竞争导致的视口上跳。
@@ -674,6 +674,7 @@ function ConversationPage() {
     try {
       const response = await api.sendMessage(activeId, {
         senderId: 'user', talkingStonePassedTo: targetOtterIds, body: text,
+        ...(mode && { mode }),
         ...(attachmentIds && attachmentIds.length > 0 && { attachmentIds }),
       })
       if (!response.ok) { removeTmpMsg(); showToast('发送失败', 'error'); return }
@@ -880,6 +881,36 @@ function ConversationPage() {
       })
       .catch((err) => console.error('Failed to abort invoke:', err))
   }, [activeId])
+
+  /** F20260910ctlv：右栏中断按钮——invokeId 直锚（无气泡依赖），乐观收敛该 invoke 名下
+   *  in-flight 气泡，服务端 invoke.end aborted 事件会接管终态 + 中断条目实时到达 */
+  const handleAbortInvoke = useCallback((otterId: string, invokeId: string) => {
+    if (!activeId) return
+    setAllMessages(prev => {
+      const list = prev[activeId]
+      if (!list) return prev
+      return { ...prev, [activeId]: list.map(m => m.invokeId === invokeId && isInFlight(m)
+        ? { ...m, status: 'aborted' as const, content: m.content || '[中断]' }
+        : m) }
+    })
+    api.abortInvoke(invokeId, otterId)
+      .then(() => showToast('已中断该獭当前行动', 'info'))
+      .catch((err) => { console.error('Failed to abort invoke:', err); showToast('中断失败', 'error') })
+  }, [activeId])
+
+  /** F20260910ctlv：右栏重试按钮——复用 retry 端点，重试流事件经 broadcaster 到达
+   *  常驻通道（retryHandlers 逻辑同型，右栏入口不接 POST 流——新 invoke 事件由
+   *  常驻 SSE 订阅处理，切页/断连由轮询兑底） */
+  const handleRetryInvoke = useCallback(async (invokeId: string) => {
+    try {
+      const response = await api.retryInvoke(invokeId)
+      if (!response.ok) { showToast('重试失败', 'error'); return }
+      showToast('已重新派发该獭行动', 'info')
+      response.body?.cancel()
+    } catch {
+      showToast('重试请求失败', 'error')
+    }
+  }, [])
 
   /** 标记已读防抖（避免滚动时频繁调用 API） */
   const markReadDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1257,6 +1288,8 @@ function ConversationPage() {
             const otter = (allOtters[activeId || ''] || []).find(o => o.id === otterId)
             if (otter) setSessionModalOtter(otter)
           }}
+          onAbortInvoke={handleAbortInvoke}
+          onRetryInvoke={handleRetryInvoke}
           linkedResources={activeLinkedRes}
           onCreateSmallOtter={() => setModal({ type: 'create-otter' })}
           onDissolveOtter={(oid) => setModal({ type: 'dissolve', otterId: oid })}

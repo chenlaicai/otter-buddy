@@ -47,6 +47,9 @@ export interface SignalView {
   signalMeta: string | null;
   status: string;
   senderType: string;
+  /** F20260910ctlv：注入方式（目标 running 时）——steer=打断默认/followUp=排队；
+   *  入口 sendMessage 按 body.mode 落 entry.metadata.injectionMode，路由时消费 */
+  injectionMode?: "steer" | "followUp";
   /** 销账写回通道（entry metadata 或 message signal_meta） */
   markConsumed: (action: "followed_up" | "steered") => Promise<void>;
 }
@@ -211,18 +214,25 @@ export class SignalRouter {
       // 否则 resume 补扫与历史扫描会把已注入的信号当成「待处理」再次点火（09-09 实测三句回复根因）。
       // 销账动作与注入动作同事务语义：注入成功即写 consumed，失败则不写（下次重试）。
 
-      /** F20260910ctlv test13（搭档拍板）：用户发言默认 steer——「插话」的本质是
-       *  「我现在就有新信息要你考虑」，须立即注入当前生成（steer 打断语义），
-       *  而非 followUp 排队等当前轮结束（test13 实测：followUp 注入时 LLM 生成已基于
-       *  旧 prompt 进行，插话成下轮残留，獭没接住）。原 isSteerSignal（signalMeta.level=URGENT）
-       *  分支不可达（档位已退役无写入方）——反转为默认 steer，followUp 退役。 */
-      const steered = this.deps.factory.steerSession(targetId, this.buildSteerText(signal));
-      if (steered) {
-        this.deps.logger.info("[signal-router] steer 注入成功", { conversationId, messageId: signal.id, targetId });
-        return "steered";
+      /** F20260910ctlv（test13 拍板 + followUp 按钮）：默认 steer（插话即时生效，打断
+       *  当前生成）；用户显式选 followUp（副按钮「排队」）时排队等当前轮说完再接。
+       *  mode 来自 entry.metadata.injectionMode（sendMessage 请求体透传落库） */
+      if (signal.injectionMode === "followUp") {
+        const followed = this.deps.factory.followUp(targetId, this.buildSignalText(signal));
+        if (followed) {
+          this.deps.logger.info("[signal-router] followUp 注入成功（用户显式排队）", { conversationId, messageId: signal.id, targetId });
+          return "followed_up";
+        }
+        this.deps.logger.info("[signal-router] followUp 不可达，降级 invoke", { conversationId, messageId: signal.id, targetId });
+      } else {
+        const steered = this.deps.factory.steerSession(targetId, this.buildSteerText(signal));
+        if (steered) {
+          this.deps.logger.info("[signal-router] steer 注入成功", { conversationId, messageId: signal.id, targetId });
+          return "steered";
+        }
+        // steer 返回 false = 未在池/已停流，降级 invokeFn
+        this.deps.logger.info("[signal-router] steer 不可达，降级 invoke", { conversationId, messageId: signal.id, targetId });
       }
-      // steer 返回 false = 未在池/已停流，降级 invokeFn
-      this.deps.logger.info("[signal-router] steer 不可达，降级 invoke", { conversationId, messageId: signal.id, targetId });
     }
 
     // 3. 空闲/不在池 → invokeFn 点火
@@ -266,6 +276,7 @@ export class SignalRouter {
       signalMeta: entry.metadata?.signalMeta ?? null,
       status: entry.status ?? "completed",
       senderType: entry.senderType ?? "",
+      injectionMode: entry.metadata?.injectionMode,
       markConsumed: async (action) => this.markEntrySignalConsumed(entry, action),
     };
   }

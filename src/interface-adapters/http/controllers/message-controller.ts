@@ -188,39 +188,55 @@ export class MessageController {
     return c.json({ status: "halted", halted, matched: matchedWords }, 202);
   }
 
+  /** F20260910ctlv：发送前置校验（自 sendMessage 拆出控复杂度）——
+   *  请求体合法性 + 附件校验 + Magic Word「停下」全场急停（落库/点火前，急停优先）。
+   *  返回 response 非 null = 短路返回它；payload = 附件注入载荷（通过校验时） */
+  private async precheckSend(
+    c: Context,
+    conversationId: string,
+    body: SendMessageRequestDTO,
+  ): Promise<{ response: Response | null; payload: Awaited<ReturnType<AttachmentInjectionService["validateAndBuild"]>> }> {
+    /** 请求体校验（在写入 DB 之前，避免孤儿消息）。talkingStonePassedTo 允许为空：
+     *  无 @ 时由 usecase 层按领域规则解析默认目标 */
+    const requestError = this.validateSendMessageRequest(body);
+    if (requestError) return { response: requestError, payload: undefined };
+
+    /** 多模态 Phase 1：附件前置校验（usecases 层策略：存在性 + 每轮 ≤2 图硬限制） */
+    const payloadResult = await this.validateAttachmentPayload(body.attachmentIds);
+    if (payloadResult instanceof Response) return { response: payloadResult, payload: undefined };
+
+    /** F20260910ctlv test12：Magic Word「停下」系统级全场急停。
+     *  搭档拍板：用户消息命中（含「停下」即触发，大獭指令口径）时直接 halt 所有
+     *  running invoke（system 级，不依赖大獭 LLM 自觉）——在落库/点火前执行，急停优先。
+     *  误报而 abort 的损失 = 一次可重试的中断，可接受（fail-safe 方向）。
+     *  返回 202 语义：消息不落库不点火（「停下」无需回应）；被 halt 的 invoke
+     *  各自走 abort 终态链路（invoke_end entry + SSE） */
+    if (matchesSystemHaltWord(body.body ?? "")) {
+      return { response: await this.haltAllRunningInvokes(c, conversationId, ["停下"]), payload: undefined };
+    }
+    return { response: null, payload: payloadResult };
+  }
+
   async sendMessage(c: Context): Promise<Response> {
     try {
       const conversationId = param(c, "id");
       const body = await c.req.json<SendMessageRequestDTO>();
 
-      /** 1. 校验请求体（在写入 DB 之前，避免孤儿消息）。
-     *  talkingStonePassedTo 允许为空：无 @ 时由 usecase 层按领域规则解析默认目标 */
-      const requestError = this.validateSendMessageRequest(body);
-      if (requestError) return requestError;
-
-      /** 多模态 Phase 1：附件前置校验（usecases 层策略：存在性 + 每轮 ≤2 图硬限制） */
-      const payloadResult = await this.validateAttachmentPayload(body.attachmentIds);
-      if (payloadResult instanceof Response) return payloadResult;
-      const payload = payloadResult;
-
-      /** F20260910ctlv test12：Magic Word「停下」系统级全场急停。
-       *  搭档拍板：用户消息命中（含「停下」即触发，大獭指令口径）时直接 halt 所有
-       *  running invoke（system 级，不依赖大獭 LLM 自觉）——在落库/点火前执行，急停优先。
-       *  误报而 abort 的损失 = 一次可重试的中断，可接受（fail-safe 方向）。
-       *  返回 202 语义：消息不落库不点火（「停下」无需回应）；被 halt 的 invoke
-       *  各自走 abort 终态链路（invoke_end entry + SSE） */
-      if (matchesSystemHaltWord(body.body ?? "")) {
-        return this.haltAllRunningInvokes(c, conversationId, ["停下"]);
-      }
+      /** 1. 前置校验（请求体 + 附件 + Magic Word 全场急停）——response 非 null 即短路 */
+      const early = await this.precheckSend(c, conversationId, body);
+      if (early.response) return early.response;
+      const payload = early.payload;
 
       /** 2. F20260910ctlv 彻底切换：user 消息唯一落点 = entries（messages 表停写）。
-       *  目标解析（默认派发/@提及）在 SendEntry 内完成；显式目标透传；talkingStonePassedTo 是点火依据 */
+       *  目标解析（默认派发/@提及）在 SendEntry 内完成；显式目标透传；talkingStonePassedTo 是点火依据。
+       *  mode 透传（injectionMode）：目标 running 时 steer=打断（默认）/followUp=排队 */
       const { entry: userEntry, talkingStonePassedTo, mentionFeedback } = await this.sendEntry!.sendUserEntry({
         conversationId,
         senderId: body.senderId,
         body: body.body,
         source: "web",
         talkingStonePassedTo: body.talkingStonePassedTo ?? [],
+        ...(body.mode && { injectionMode: body.mode }),
         ...(body.attachmentIds && body.attachmentIds.length > 0 && { attachmentIds: body.attachmentIds }),
       });
 

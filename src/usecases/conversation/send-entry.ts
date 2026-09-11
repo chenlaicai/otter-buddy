@@ -42,6 +42,9 @@ export interface SendUserEntryInput {
   attachmentIds?: string[];
   /** F20260826fuid：飞书群聊多人识别的发送者显示名快照（存 metadata.senderDisplayName） */
   senderDisplayName?: string | null;
+  /** F20260910ctlv：注入方式（目标 running 时）——落 metadata.injectionMode，
+   *  signal-router running 分支消费（steer=打断默认/followUp=排队） */
+  injectionMode?: "steer" | "followUp";
 }
 
 /** 创建 invoke 输入 */
@@ -153,7 +156,10 @@ export class SendEntry {
       turnId: turn.id,
       status: "completed",
       source: input.source ?? "web",
-      metadata: input.metadata ?? (input.senderDisplayName?.trim() ? { senderDisplayName: input.senderDisplayName.trim() } as EntryMetadata : null),
+      // F20260910ctlv：注入方式落 metadata（与 senderDisplayName 合并——两者可同时存在）
+      metadata: input.injectionMode
+        ? { ...(input.metadata ?? (input.senderDisplayName?.trim() ? { senderDisplayName: input.senderDisplayName.trim() } as EntryMetadata : null)), injectionMode: input.injectionMode }
+        : input.metadata ?? (input.senderDisplayName?.trim() ? { senderDisplayName: input.senderDisplayName.trim() } as EntryMetadata : null),
       senderName: input.senderDisplayName?.trim() ?? "",
       contextTokens: null,
       contextTokensMax: null,

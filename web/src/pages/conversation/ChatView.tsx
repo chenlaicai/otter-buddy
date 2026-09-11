@@ -10,7 +10,7 @@ interface ChatViewProps {
   conversation: Conversation | null
   messages: Message[]
   state: 'normal' | 'empty' | 'loading' | 'error' | 'no-llm'
-  onSend: (text: string, mentionOtterIds?: string[], attachments?: StagedAttachment[]) => void
+  onSend: (text: string, mentionOtterIds?: string[], attachments?: StagedAttachment[], mode?: 'steer' | 'followUp') => void
   onStopStream: (messageId: string) => void
   onRetryMessage: (messageId: string) => void
   onRetry: () => void

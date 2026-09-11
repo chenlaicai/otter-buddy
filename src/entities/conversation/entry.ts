@@ -27,6 +27,8 @@ export interface EntryMetadata {
   severity?: "warning" | "critical";
   /** signal 销账标记（consumed） */
   signalMeta?: string;
+  /** F20260910ctlv：注入方式（目标 running 时 steer=打断/followUp=排队；signal-router 消费） */
+  injectionMode?: "steer" | "followUp";
   [key: string]: unknown;
 }
 

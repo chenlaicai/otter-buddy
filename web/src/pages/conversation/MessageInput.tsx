@@ -8,7 +8,7 @@ import type { StagedAttachment, UploadErrorInfo } from './hooks/useAttachmentSta
 import { MagicWordHelp } from './MagicWordHelp'
 
 interface MessageInputProps {
-  onSend: (text: string, mentionOtterIds?: string[], attachments?: StagedAttachment[]) => void
+  onSend: (text: string, mentionOtterIds?: string[], attachments?: StagedAttachment[], mode?: 'steer' | 'followUp') => void
   disabled: boolean
   placeholder?: string
   otters: Otter[]
@@ -78,7 +78,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
     return mentions
   }
 
-  function handleSend() {
+  function handleSend(mode: 'steer' | 'followUp' = 'steer') {
     if (!canSend) return
 
     // Check for @mention（支持多 @、末尾无空格、标点分隔）
@@ -88,7 +88,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
       .filter((id): id is string => !!id)
 
     const readyAttachments = staged.filter(s => !s.uploading)
-    onSend(draft, mentionIds.length > 0 ? mentionIds : undefined, readyAttachments.length > 0 ? readyAttachments : undefined)
+    onSend(draft, mentionIds.length > 0 ? mentionIds : undefined, readyAttachments.length > 0 ? readyAttachments : undefined, mode)
     clearDraft()
     setMentionQuery(null)
     requestAnimationFrame(() => {
@@ -248,17 +248,29 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
             className="flex-1 bg-transparent text-sm text-stone-700 placeholder-stone-400 resize-none outline-none min-h-[24px] max-h-[var(--input-scroll-max-h)] leading-relaxed disabled:opacity-50 overflow-y-auto"
           />
           <MagicWordHelp />
+          {/* F20260910ctlv：双发送模式——主=steer（打断插话，默认）/ 副=followUp（排队等这轮
+              说完再接，不打断）。mode 经 onSend 透传 sendMessage 请求体，signal-router
+              running 分支按 injectionMode 选择注入方式 */}
           <button
-            onClick={handleSend}
+            onClick={() => handleSend('followUp')}
+            disabled={!canSend}
+            className="h-9 px-2.5 rounded-2xl glass-card text-stone-500 text-[11px] font-medium flex items-center justify-center gap-1 transition flex-shrink-0 disabled:opacity-50 hover:bg-white/50 hover:text-otter-500"
+            title="followUp 发送：目标獭正在行动时不打断——消息排队，等它这轮说完再接（主按钮=steer 插话，立即打断当前生成注入）"
+          >
+            排队
+          </button>
+          <button
+            onClick={() => handleSend('steer')}
             disabled={!canSend}
             className="w-9 h-9 rounded-2xl text-white flex items-center justify-center shadow-glow transition flex-shrink-0 disabled:opacity-50"
             style={{ background: OTTER_GRADIENT }}
+            title="发送（steer 插话）：目标獭正在行动时立即打断当前生成，注入你的消息"
           >
             <ArrowUp className="w-4 h-4" />
           </button>
         </div>
         <p className="text-[10px] text-stone-400 text-center mt-1.5">
-          Enter 发送 · Shift+Enter 换行 · @ 提及小獭{stagedImageCount > 0 ? ` · 已选图片 ${stagedImageCount}/${MAX_IMAGES_PER_SEND}` : ''}
+          Enter 发送（steer 插话） · 排队按钮 = followUp · Shift+Enter 换行 · @ 提及小獭{stagedImageCount > 0 ? ` · 已选图片 ${stagedImageCount}/${MAX_IMAGES_PER_SEND}` : ''}
         </p>
       </div>
     </div>

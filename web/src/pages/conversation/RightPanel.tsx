@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, memo } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Star, X, MoreHorizontal, RotateCcw, Check, Copy, Users, Folder, FileText, Timer, Activity } from 'lucide-react'
+import { Plus, Star, X, MoreHorizontal, RotateCcw, Check, Copy, Users, Folder, FileText, Timer, Activity, Square } from 'lucide-react'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalLinkedResource as LinkedResource, LocalOtterSession as OtterSession, LocalScheduledTask } from '../../lib/mappers'
 import { sortSessionChain } from '../../lib/session-chain'
@@ -19,6 +19,10 @@ interface RightPanelProps {
   invokeStates?: import('../../lib/invoke-tracker').InvokeStates
   /** F20260910ctlv：点击獭头像 → Session 弹窗（invoke 历史 + 流式过程） */
   onOpenSession?: (otterId: string) => void
+  /** F20260910ctlv：中断獭当前 running invoke（右栏按钮；POST /api/invokes/:id/abort） */
+  onAbortInvoke?: (otterId: string, invokeId: string) => void
+  /** F20260910ctlv：重试失败/中断 invoke（右栏按钮；POST /api/invokes/:id/retry） */
+  onRetryInvoke?: (otterId: string, invokeId: string) => void
   linkedResources: LinkedResource[]
   onCreateSmallOtter: () => void
   onDissolveOtter: (otterId: string) => void
@@ -106,6 +110,8 @@ export function RightPanel(props: RightPanelProps) {
                   invokeState={props.invokeStates?.[o.id]}
                   onClick={() => props.onOpenOtterDetail(o.id)}
                   onOpenSession={props.onOpenSession ? () => props.onOpenSession?.(o.id) : undefined}
+                  onAbortInvoke={props.onAbortInvoke ? (invokeId) => props.onAbortInvoke?.(o.id, invokeId) : undefined}
+                  onRetryInvoke={props.onRetryInvoke ? (invokeId) => props.onRetryInvoke?.(o.id, invokeId) : undefined}
                   onDissolve={props.onDissolveOtter}
                   onRestart={props.onRestartOtter}
                 />
@@ -309,6 +315,8 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
   invokeState,
   onClick,
   onOpenSession,
+  onAbortInvoke,
+  onRetryInvoke,
   onDissolve,
   onRestart,
 }: {
@@ -319,6 +327,10 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
   onClick: () => void
   /** F20260910ctlv：点击头像 → Session 弹窗 */
   onOpenSession?: () => void
+  /** F20260910ctlv：中断当前 running invoke（右栏按钮） */
+  onAbortInvoke?: (invokeId: string) => void
+  /** F20260910ctlv：重试失败/中断 invoke（右栏按钮） */
+  onRetryInvoke?: (invokeId: string) => void
   onDissolve: (id: string) => void
   onRestart: (id: string) => void
 }) {
@@ -413,6 +425,32 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
           <span data-testid="model-badge" className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-stone-400/15 text-stone-500 whitespace-nowrap shrink-0">
             {o.modelAlias}{o.modelIsDefault && <span className="text-stone-400">（默认）</span>}
           </span>
+        )}
+        {/* F20260910ctlv：invoke 控制按钮（恢复旧 UX）——running 时「中断」（红），
+            failed/aborted 时「重试」；状态经 SSE invoke.end 实时收敛，无需手动刷新 */}
+        {invokeState?.status === 'running' && invokeState.invokeId && onAbortInvoke && (
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); onAbortInvoke(invokeState.invokeId) }}
+            className="flex-shrink-0 text-[10px] text-red-400 px-1.5 py-0.5 rounded hover:bg-red-400/10 transition flex items-center gap-0.5"
+            title="中断：停止该獭当前行动（可从 Session 弹窗/时间线查看已产出内容）"
+            data-testid="invoke-abort-button"
+          >
+            <Square className="w-2.5 h-2.5 fill-current" />
+            中断
+          </button>
+        )}
+        {(invokeState?.status === 'failed' || invokeState?.status === 'aborted') && invokeState.invokeId && onRetryInvoke && (
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); onRetryInvoke(invokeState.invokeId) }}
+            className="flex-shrink-0 text-[10px] text-otter-500 px-1.5 py-0.5 rounded hover:bg-otter-400/10 transition flex items-center gap-0.5"
+            title="重试：重新执行该獭的上次行动（session 上下文保留，新 invoke 接续跑）"
+            data-testid="invoke-retry-button"
+          >
+            <RotateCcw className="w-2.5 h-2.5" />
+            重试
+          </button>
         )}
         {!isBig && (
           <span
