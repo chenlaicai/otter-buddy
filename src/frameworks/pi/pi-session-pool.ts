@@ -49,7 +49,7 @@ export class PiSessionPool {
   private readonly now: () => number;
   private timer: ReturnType<typeof setInterval> | null = null;
   /** 驱逐/处置事件回调（观测用，可选） */
-  onEvict?: (key: string, reason: "ttl" | "lru" | "manual") => void;
+  onEvict?: (key: string, reason: "ttl" | "lru" | "manual" | "stale") => void;
 
   constructor(
     private readonly factory: PiSessionFactory,
@@ -87,6 +87,19 @@ export class PiSessionPool {
     const entry = this.entries.get(key);
     if (!entry) return false;
     this.removeEntry(key, entry, "manual");
+    return true;
+  }
+
+  /**
+   * 标记 stale 出池（不 dispose）——用于「session 仍在运行但宿主已放弃它」的场景
+   * （如 stale steal 后新 invoke 需冷启动）：从池摘除使后续不再命中，旧 session
+   * 由运行中的 invoke 生命周期托管（终有终点：完成/abort/超时），GC 兜底。
+   */
+  markStale(key: string): boolean {
+    const entry = this.entries.get(key);
+    if (!entry) return false;
+    this.entries.delete(key);
+    this.onEvict?.(key, "stale");
     return true;
   }
 

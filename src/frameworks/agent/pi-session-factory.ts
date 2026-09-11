@@ -384,7 +384,7 @@ export class PiSessionFactory implements AgentGateway {
     // 1. 池化获取 session（F20260911pspl：命中 = 重置 invoke 级寄存器后直接复用；未命中 = 冷启动重建入池）
     //    身份注入判定：池命中 = session 已有身份上下文（上轮注入过），不再重复注入；
     //    冷启动 createdNew / pendingIdentity 场景与现状一致。
-    const { session, sessionKey, toolContext, turnText, isPooled } = await this._acquirePooled(otterId, options);
+    const { session, sessionKey, toolContext, turnText, isPooled, createdNew } = await this._acquirePooled(otterId, options);
 
     // 2. 判定身份注入：池命中跳过（身份已在 session 上下文里）；冷启动走原判定
     const needsIdentity = !isPooled && this.pendingIdentity.has(otterId);
@@ -397,6 +397,8 @@ export class PiSessionFactory implements AgentGateway {
 
     // 4. 注入成功后才消费标记（invoke 失败时保留，下次重试仍会注入）
     this.pendingIdentity.delete(otterId);
+    /** F20260814mtrc：session 重建事实随结果透传（metrics 用，orchestrator recordSessionRebuild） */
+    if (createdNew) result.sessionRebuilt = true;
     return result;
   }
 
@@ -404,14 +406,26 @@ export class PiSessionFactory implements AgentGateway {
   private async _acquirePooled(
     otterId: string,
     options: InvokeOptions | undefined,
-  ): Promise<{ session: AgentSession; sessionKey: string; toolContext: ToolContext; turnText: { text: string }; isPooled: boolean }> {
+  ): Promise<{ session: AgentSession; sessionKey: string; toolContext: ToolContext; turnText: { text: string }; isPooled: boolean; createdNew: boolean }> {
     const existing = this.poolMeta.get(otterId);
     if (existing) {
-      resetInvokeRegister(existing.register, options?.messageId);
-      const turnText = existing.register.turnText;
-      const sessionKey = options?.messageId ? `${otterId}:${options.messageId}` : otterId;
-      this.activeSessions.set(sessionKey, { abort: () => existing.session.abort(), steer: (text: string) => existing.session.steer?.(text) ?? Promise.resolve(), toolCallCount: 0 });
-      return { session: existing.session, sessionKey, toolContext: existing.toolContext, turnText, isPooled: true };
+      // 并发防御（检视发现 3）：stale steal（#599，300s 超时）后旧 invoke 仍挂 streaming，
+      // 直接复用会让新 invoke 被 SDK 拒绝且寄存器已 reset 致旧 invoke speak 落错消息。
+      // ⚠️ 不能立即 dispose：旧 invoke 正在执行中，dispose → agent.abort() 会撕裂旧 invoke。
+      // 策略：标记 stale 出池（不再被命中），不 dispose——旧 invoke 终有终点（完成/abort/超时），
+      // 其 finally 的 activeSessions.delete 后 session 无引用，GC 兜底；jsonl 早已持久。
+      if (existing.session.isStreaming) {
+        this.logger.warn('[acquire] pooled session still streaming (stale steal), marking stale and cold-starting', { otterId });
+        // 出池（不 dispose）：从池和 meta 摘除，旧 session 成为孤儿由旧 invoke 生命周期托管
+        this.pool.markStale(otterId);
+        this.poolMeta.delete(otterId);
+      } else {
+        resetInvokeRegister(existing.register, options?.messageId);
+        const turnText = existing.register.turnText;
+        const sessionKey = options?.messageId ? `${otterId}:${options.messageId}` : otterId;
+        this.activeSessions.set(sessionKey, { abort: () => existing.session.abort(), steer: (text: string) => existing.session.steer?.(text) ?? Promise.resolve(), toolCallCount: 0 });
+        return { session: existing.session, sessionKey, toolContext: existing.toolContext, turnText, isPooled: true, createdNew: false };
+      }
     }
 
     // 冷启动：恢复 SessionManager → 全量创建 → 入池
@@ -429,7 +443,7 @@ export class PiSessionFactory implements AgentGateway {
     this.poolMeta.set(otterId, { session, toolContext, register, otterType: otterConfig.otterType });
     // 入池：adopt（宿主自建的 session 由池接管驱逐生命周期）
     this.pool.adopt(otterId, session);
-    return { session, sessionKey, toolContext, turnText: register.turnText, isPooled: false };
+    return { session, sessionKey, toolContext, turnText: register.turnText, isPooled: false, createdNew };
   }
 
   /** 恢复或创建 session；createdNew 表示本次重建了全新 session（需要重新注入身份） */

@@ -250,6 +250,52 @@ describe("PiSessionPool 容量驱逐（maxSize）", () => {
   });
 });
 
+describe("PiSessionPool.adopt（宿主自建入池）", () => {
+  it("adopt 后池接管驱逐生命周期：TTL 超期 dispose 出池", () => {
+    let t = 0;
+    const session = fakeSession();
+    const pool = makePool({ ttlMs: 100, now: () => t });
+
+    pool.adopt("k1", session); // 不经 factory
+    expect(pool.has("k1")).toBe(true);
+
+    t = 200;
+    sweep(pool);
+    expect(pool.has("k1")).toBe(false);
+    expect(session.disposed).toBe(true);
+  });
+
+  it("adopt 同 key 已存在条目时先驱逐旧的（防双对象挂同一 jsonl）", () => {
+    const s1 = fakeSession();
+    const s2 = fakeSession();
+    const pool = makePool();
+    const evicted: string[] = [];
+    pool.onEvict = (key) => { evicted.push(key); };
+
+    pool.adopt("k1", s1);
+    pool.adopt("k1", s2);
+
+    expect(s1.disposed).toBe(true);
+    expect(evicted).toEqual(["k1"]);
+    expect(pool.has("k1")).toBe(true);
+  });
+
+  it("adopt 参与容量驱逐（超出 maxSize 时最久未触者出池）", async () => {
+    let t = 0;
+    const sessions = new Map<string, AgentSession & { disposed: boolean }>();
+    const pool = makePool({ maxSize: 2, now: () => t });
+    const mk = (key: string) => { const s = fakeSession(); sessions.set(key, s); return s; };
+
+    pool.adopt("a", mk("a")); t = 1;
+    pool.adopt("b", mk("b")); t = 2;
+    await pool.acquire("c"); // factory 拉起，触发容量驱逐
+    t = 3;
+    pool.adopt("d", mk("d")); // adopt 也触发容量驱逐
+
+    expect(pool.size).toBeLessThanOrEqual(2);
+  });
+});
+
 describe("PiSessionPool 手动驱逐与全量释放", () => {
   it("evict(key)：存在则 dispose 出池返回 true；不存在返回 false", async () => {
     const session = fakeSession();

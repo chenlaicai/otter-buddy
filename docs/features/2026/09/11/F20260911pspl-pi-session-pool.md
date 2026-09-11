@@ -89,9 +89,13 @@ class PiSessionPool {
 
 ### 验证
 
-- 池单测 16/16（含 adopt 路径）；全量 vitest 252 文件 3168 用例通过
+- 池单测 19/19（含 adopt 三路径 + stale streaming 防御）；池命中集成测试 5/5（pool-hit-path.test.ts：二次 invoke 复用/寄存器重置/stale 防御/身份注入判定/寄存器单点重置）
 - 身份注入链路测试适配池化（_acquirePooled mock 层），11/11 绿
-- tsc 0 错；eslint clean
+- 全量 vitest 253 文件 3176 用例通过；tsc 0 错；eslint clean
+
+### 已知声明
+
+- **compaction 七段合成在 per-otter 锁下死锁（非本 PR 回归）**：压缩钩子在 session.prompt() 中途触发（外层持锁），合成 invoke 再取同一把锁 → 30s 超时降级。自 9/3（F20260903cmpk 上线）起存在，池化前后行为等价。已建 issue #896（P1）跟踪，修复需方案设计（锁旁路/窄通道/可重入三候选）。
 
 ### 风险与缓解
 
