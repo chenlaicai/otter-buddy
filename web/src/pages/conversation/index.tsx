@@ -422,12 +422,14 @@ function ConversationPage() {
         if (added) { const atBottom = isAtBottomRef.current; runOrDefer(() => { if (!atBottom) setNewMessagesCount(c => c + 1) }) }
       },
       'entry.speak': (data) => {
-        /** speak entry body——speak entry 创建即全量 body（无流式分片） */
+        /** speak entry body——speak entry 创建即全量 body（无流式分片）。
+         *  F20260910ctlv：speak entry 落库即 completed——拿到全量 body 时直接收敛终态，
+        不依赖 invoke.end 兜底时序（实测残留「停止」按钮的根因） */
         const d = data as { entryId: string; body?: string; otterName?: string }
         if (!d.body) return
         batchUpdateMessages(activeId!, (list) => {
           if (!list.some(m => m.id === d.entryId)) return list
-          return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, sn: m.sn || d.otterName || '' } : m)
+          return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, status: 'completed' as const, sn: m.sn || d.otterName || '' } : m)
         })
       },
       // F20260910ctlv 收尾：entry.complete 事件已退役（后端无发射点；speak 气泡终态由 invoke.end 收敛）
@@ -700,11 +702,12 @@ function ConversationPage() {
           }
         },
         'entry.speak': (data) => {
+          /** 同常驻通道：拿到全量 body 即收敛终态（speak entry 落库即 completed） */
           const d = data as { entryId: string; body?: string; otterName?: string }
           if (!d.body) return
           batchUpdateMessages(activeId!, (list) => {
             if (!list.some(m => m.id === d.entryId)) return list
-            return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, sn: m.sn || d.otterName || '' } : m)
+            return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, status: 'completed' as const, sn: m.sn || d.otterName || '' } : m)
           })
         },
         // F20260910ctlv 收尾：entry.complete 事件已退役（后端无发射点；speak 气泡终态由 invoke.end 收敛）
@@ -880,11 +883,12 @@ function ConversationPage() {
           batchUpdateMessages(activeId, (list) => insertBySeq(list, placeholder))
         },
         'entry.speak': (data) => {
+          /** 同常驻通道：拿到全量 body 即收敛终态（speak entry 落库即 completed） */
           const d = data as { entryId: string; body?: string; otterName?: string }
           if (!d.body) return
           batchUpdateMessages(activeId, (list) => {
             if (!list.some(m => m.id === d.entryId)) return list
-            return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, sn: m.sn || d.otterName || '' } : m)
+            return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, status: 'completed' as const, sn: m.sn || d.otterName || '' } : m)
           })
         },
         // F20260910ctlv 收尾：entry.complete 事件已退役（后端无发射点；speak 气泡终态由 invoke.end 收敛）

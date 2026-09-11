@@ -11,12 +11,36 @@
 import type { ConversationRepository } from "./conversation-repository";
 import type { InvokeRepository } from "./invoke-repository";
 import type { EntryRepository } from "./entry-repository";
+import type { Turn } from "@entities/conversation/conversation";
 
 /** Turn 关闭结果 */
 export interface TurnCloseResult {
   closed: boolean;
   /** 聚合的发言石目标（去重后的 yieldTargets） */
   aggregatedTargets: string[];
+}
+
+/** F20260910ctlv：ensureActiveTurn 共享实现（无 open turn 时创建，否则复用）。
+ *  manage-participant join 进场也用它——旧「必须 open turn」硬校验在 invokes 状态机下
+ *  已无意义（turns 不再长期维持 open，send-entry 体系全部走 ensureActiveTurn 兜底） */
+export async function ensureActiveTurn(
+  conversationRepo: ConversationRepository,
+  conversationId: string,
+): Promise<Turn> {
+  const turn = await conversationRepo.getActiveTurn(conversationId);
+  if (turn) return turn;
+
+  const maxTurnNumber = await conversationRepo.getMaxTurnNumber(conversationId);
+  const newTurn: Turn = {
+    id: crypto.randomUUID(),
+    conversationId,
+    turnNumber: maxTurnNumber + 1,
+    status: "open",
+    createdAt: new Date().toISOString(),
+    closedAt: null,
+  };
+  await conversationRepo.createTurn(newTurn);
+  return newTurn;
 }
 
 /**

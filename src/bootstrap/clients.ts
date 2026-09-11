@@ -165,9 +165,14 @@ export function buildOtterToolClient(
         join: async (convId, otterId) => {
           const otter = await uc.queryOtter.getById(otterId);
           const name = otter?.name ?? otterId;
-          const { participant } = await uc.manageParticipant.join(
+          const { participant, systemMessage } = await uc.manageParticipant.join(
             convId, otterId, `${name} 加入了对话`,
           );
+          // F20260910ctlv：进场 system entry 投影透出（create_otter 广播 entry.system SSE 用；
+          // 旧降级路径返回 Message，无投影）
+          if (systemMessage && "entryType" in systemMessage) {
+            return { ...participant, systemEntry: { id: systemMessage.id, body: systemMessage.body, sequenceNum: systemMessage.sequenceNum } };
+          }
           return participant;
         },
         getActive: async (convId) => {

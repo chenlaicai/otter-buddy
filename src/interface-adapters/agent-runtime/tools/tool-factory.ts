@@ -312,7 +312,15 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
         modelAlias: modelAlias?.trim() || undefined,
       });
       /** 创建后自动加入当前对话参与者 */
-      await ctx.client.conversation.participant.join(ctx.conversationId, otter.id);
+      const joined = await ctx.client.conversation.participant.join(ctx.conversationId, otter.id);
+      /** F20260910ctlv：进场 system entry 广播（前端时间线居中系统条目实时可见）。
+       *  joined 可能为 void（旧 mock/降级装配）——广播是增强，不阻断创建流程 */
+      if (joined?.systemEntry) {
+        ctx.emitEvent?.({
+          event: "entry.system",
+          data: { entryId: joined.systemEntry.id, content: joined.systemEntry.body ?? '', seq: joined.systemEntry.sequenceNum },
+        });
+      }
       /** F20260824aibd: 回包含模型信息，让大獭对模型分配有即时反馈 */
       const config = ctx.otterConfigProvider?.getConfig(otter.id);
       const modelLabel = config?.modelAlias ? `，模型：${config.modelAlias}` : '';

@@ -65,7 +65,11 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const recordSearchQuery = new RecordSearchQuery(repos.searchQueryLog, queryMessage, logger);
   const manageReadState = new ManageReadState(repos.conversation, entryRepo);
   // 信号轨迹查询退役（F20260908rlcp）
-  const manageParticipant = new ManageParticipant(repos.conversation, repos.otter, otterConfigProvider, modelPool);
+  const manageParticipant = new ManageParticipant(
+    repos.conversation, repos.otter, otterConfigProvider, modelPool,
+    // F20260910ctlv 彻底切换：进场/退场系统消息走 system entry（messages 停写）
+    { entryRepo, invokeRepo },
+  );
   const manageKeyInfo = new ManageKeyInfo(repos.conversation, memoryIndex);
   const queryOtter = new QueryOtter(repos.otter);
   // F20260908efmd: 注入 configProvider + modelPool，首世建账快照有效模型

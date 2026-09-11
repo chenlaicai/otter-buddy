@@ -27,7 +27,7 @@ import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { ConversationRepository } from "./conversation-repository";
 import type { Logger } from "@usecases/ports/logger";
 import { resolveSpeakerName } from "./speaker-resolver";
-import { tryCloseTurn } from "./turn-utils";
+import { tryCloseTurn, ensureActiveTurn } from "./turn-utils";
 import { resolveSendTargets, type ResolveTargetsDeps } from "./resolve-send-targets";
 
 /** 用户发送条目输入 */
@@ -542,20 +542,7 @@ export class SendEntry {
 
   /** 确保存在活跃 Turn */
   private async ensureActiveTurn(conversationId: string) {
-    const turn = await this.conversationRepo.getActiveTurn(conversationId);
-    if (turn) return turn;
-
-    // 创建新 Turn
-    const maxTurnNumber = await this.conversationRepo.getMaxTurnNumber(conversationId);
-    const newTurn = {
-      id: crypto.randomUUID(),
-      conversationId,
-      turnNumber: maxTurnNumber + 1,
-      status: "open" as const,
-      createdAt: new Date().toISOString(),
-      closedAt: null,
-    };
-    await this.conversationRepo.createTurn(newTurn);
-    return newTurn;
+    // 共享实现上提至 turn-utils（manage-participant join 同源复用）
+    return ensureActiveTurn(this.conversationRepo, conversationId);
   }
 }
