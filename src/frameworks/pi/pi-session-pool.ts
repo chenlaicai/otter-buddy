@@ -90,6 +90,18 @@ export class PiSessionPool {
     return true;
   }
 
+  /**
+   * 宿主自建的 session 入池（F20260911pspl v1 接入）。
+   * v1 的 session 创建需 otterConfig/工具装配，无法经池 factory 路径——
+   * 宿主创建后 adopt 进来，池接管驱逐生命周期。已存在同 key 条目时先驱逐旧的。
+   */
+  adopt(key: string, session: AgentSession): void {
+    const old = this.entries.get(key);
+    if (old) this.removeEntry(key, old, "manual");
+    this.entries.set(key, { session, lastTouched: this.now() });
+    this.evictOverflow();
+  }
+
   /** 池状态查询（名册/观测用） */
   has(key: string): boolean { return this.entries.has(key); }
   get size(): number { return this.entries.size; }

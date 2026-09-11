@@ -32,7 +32,7 @@ T4: 可观测：onEvict 回调（ttl/lru/manual 三种原因）；has/size/keys 
 
 ## 非目标
 
-- **宿主接入**：v1 pi-session-factory 改造、v2 Executor 解耦均不在本 PR（各自另起 PR，池先行确立接口）
+- ~~**宿主接入**：v1 pi-session-factory 改造、v2 Executor 解耦均不在本 PR（各自另起 PR，池先行确立接口）~~ **变更（2026-09-11 搭档拍板）**：「不接入 v1，池没地方验证」——本 PR 扩展为「池本体 + v1 真实接入」一个 PR 交付。v2 侧仍不动（另一对话资产）。
 - 跨进程共享（池是单进程内存设施；jsonl 是跨进程持久层）
 - 预拉热/大 jsonl 恢复延迟优化（v2 文档 R-1 已列，待实测后单独立项）
 
@@ -72,11 +72,31 @@ class PiSessionPool {
 | running 判定 | Executor.state 字段（自维护） | isBusy 注入 或 isStreaming 回退 |
 | 泄漏点 | executors Map 只增不减（已发现，待修） | 池自持有，驱逐即清 |
 
-## 验证
+## v1 接入设计（2026-09-11 实证后定稿）
 
-- 单测 13 用例全绿（acquire 命中/并发去重/失败重试、TTL 驱逐 + touch 刷新、running 豁免双路径、容量驱逐 + running 豁免、手动驱逐、disposeAll、dispose 容错、start/stop 幂等）
-- `tsc --noEmit` 0 错；eslint 0 问题；全量 vitest 252 文件 3165 用例通过（无回归）
-- **已过最简实现检查**：池为纯内存 Map + setInterval，无新依赖；SDK 未提供等价设施（AgentSessionRuntime 是单 session 替换器，非多 session 池），仓库无既有实现可复用
+### 架构事实（实证钉死）
+
+- **每个对话的獭是独立实体**（manage-conversation.ts「为每个对话创建独立的大獭」，otterId 为 crypto.randomUUID()）——池 key 直接用 otterId，天然对话级粒度，无需拼接。
+- **SDK customTools 创建时一次成型**（agent-session.js:144 `_customTools` 仅构造时赋值），`setActiveToolsByName` 只能开关不能新增——「每 invoke 重建工具」被 SDK 堵死。但与「池 key = 对话内獭实例」抵消：一个常驻 session 终身只服务一个对话，工具的 conversationId 永远正确。
+
+### 接入方案
+
+- **PiSessionPool 增加 `adopt(key, session)`**：v1 的 session 创建需 otterConfig/工具装配（无法走池 factory），宿主创建后 adopt 入池，池接管驱逐生命周期。
+- **invoke 级字段寄存器化**（tool-builder.ts `InvokeRegister`）：currentMessageId / turnText / pendingDispatches / warning 标志 / pendingRestart 从「每 invoke 新建的 ctx 值字段」改为「invoke 入口重置的寄存器」，工具经 getter 引用读取。池命中时 `resetInvokeRegister(register, messageId)` 一次重置。
+- **生命周期对接**：reset（重启獭生）/ destroy（解散）→ `pool.evict(otterId)`；pendingRestart 消费点（invoke finally）→ evict 旧 session，下轮 invoke 重建。
+- **退役**：pendingAborts（session 常驻后 abort 可直接调池内对象）；finally dispose（改为归还池）。
+- **保留**：per-otter 锁（invoke 串行护栏，防同獭并发 prompt 同一 session——SDK 层无此保护）；activeSessions（运行期 abort/steer 通道）。
+
+### 验证
+
+- 池单测 16/16（含 adopt 路径）；全量 vitest 252 文件 3168 用例通过
+- 身份注入链路测试适配池化（_acquirePooled mock 层），11/11 绿
+- tsc 0 错；eslint clean
+
+### 风险与缓解
+
+- **内存 profile**：长对话 jsonl 全量在内存（`AgentState.messages`），10min TTL 是初始值——生产观察后调参。
+- **invoke 级字段漏重置**：寄存器 getter 化后，漏重置 = 跨 invoke 串数据（幽灵 bug 温床）。缓解：resetInvokeRegister 单点重置 + 字段清单收在 InvokeRegister 接口（新增 invoke 级字段必须进寄存器，lint 无法机械拦截，靠审视）。
 
 ## 影响范围
 
