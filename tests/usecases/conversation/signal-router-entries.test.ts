@@ -77,7 +77,7 @@ function makeDeps(overrides?: {
   } as unknown as DispatchChainEngine;
   const invokeFn = vi.fn(async () => ({ messageId: "inv-mock" }));
   const logger = createLogger();
-  const factory = { isRunning: () => false, followUp: () => false, steer: () => false };
+  const factory = { isRunning: () => false, followUp: () => false, steerSession: () => false };
   const router = new SignalRouter({
     conversationRepo, queryMessage, entryRepo, queryOtter, dispatchChainEngine, invokeFn, logger, factory,
   });
@@ -139,7 +139,7 @@ describe("SignalRouter 数据源（F20260910ctlv 彻底切换补漏）", () => {
     const entry = createEntry({ yieldTargets: ["otter-big"] });
     const entryUpdates: Array<{ entryId: string; metadata: EntryMetadata }> = [];
     // 目标 running → 默认 steer 注入成功 → 销账（F20260910ctlv test13：用户发言默认 steer）
-    const factory = { isRunning: () => true, followUp: () => false, steer: () => true };
+    const factory = { isRunning: () => true, followUp: () => false, steerSession: () => true };
     const routerRunning = new SignalRouter({
       conversationRepo: {} as never, queryMessage: { getMessageById: async () => null } as never,
       entryRepo: { getEntryById: async () => entry, updateEntryMetadata: async (id: string, meta: EntryMetadata) => entryUpdates.push({ entryId: id, metadata: meta }) } as never,

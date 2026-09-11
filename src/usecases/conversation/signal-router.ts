@@ -65,8 +65,10 @@ export interface SignalRouterSessionFactory {
   isRunning(otterId: string): boolean;
   /** 向运行中的 session 队列追加 followUp 消息 */
   followUp(otterId: string, text: string): boolean;
-  /** 向运行中的 session 队列追加 steer（急讯）消息 */
-  steer(otterId: string, text: string): boolean;
+  /** 向运行中的 session 队列追加 steer（急讯）消息。
+   *  方法名 steerSession（对齐 pi-session-factory 实现——原名 steer 与实现不一致，
+   *  test14 实测 factory.steer is not a function 崩进程） */
+  steerSession(otterId: string, text: string): boolean;
 }
 
 /** #775 S4a：routeDirectSignal 无法进行执行时抛出——携带不可路由原因 */
@@ -214,7 +216,7 @@ export class SignalRouter {
        *  而非 followUp 排队等当前轮结束（test13 实测：followUp 注入时 LLM 生成已基于
        *  旧 prompt 进行，插话成下轮残留，獭没接住）。原 isSteerSignal（signalMeta.level=URGENT）
        *  分支不可达（档位已退役无写入方）——反转为默认 steer，followUp 退役。 */
-      const steered = this.deps.factory.steer(targetId, this.buildSteerText(signal));
+      const steered = this.deps.factory.steerSession(targetId, this.buildSteerText(signal));
       if (steered) {
         this.deps.logger.info("[signal-router] steer 注入成功", { conversationId, messageId: signal.id, targetId });
         return "steered";
