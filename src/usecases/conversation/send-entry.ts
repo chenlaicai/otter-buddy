@@ -148,7 +148,8 @@ export class SendEntry {
       senderId: input.senderId,
       body: input.body,
       invokeId: null,
-      yieldTargets: null,
+      /** F20260910ctlv 补漏：user entry 的发言石目标 = 点火依据（信号路由读此字段） */
+      yieldTargets: talkingStonePassedTo,
       turnId: turn.id,
       status: "completed",
       source: input.source ?? "web",

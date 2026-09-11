@@ -153,6 +153,8 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
       attachmentInjection,
       signalRouter,
       uc.sendEntry,
+      repos.entry,
+      repos.invoke,
     ),
     // F20260910ctlv 彻底切换：invoke 查询 + 中止 + 重试（自足调度链）
     invoke: new InvokeController(repos.invoke, logger, agentInvoker, dispatchChainEngine, messageBroadcaster),

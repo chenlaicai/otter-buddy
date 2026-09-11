@@ -15,6 +15,8 @@
  * - 档位概念移除：NORMAL/URGENT/HALT → followUp（默认）/ steer（标急）/ abort（session 方法调用）
  */
 import type { Message } from "@entities/conversation/message";
+import type { Entry } from "@entities/conversation/entry";
+import type { EntryRepository } from "./entry-repository";
 import type { ConversationRepository } from "./conversation-repository";
 import type { QueryMessage } from "./query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -30,6 +32,24 @@ export type SignalRouterInvokeFn = (params: {
   userMessageContent: string;
   senderId: string;
 }) => Promise<{ messageId: string; aggregatedTargets?: string[] }>;
+
+/** F20260910ctlv 彻底切换补漏：统一信号视图。
+ *  数据源优先级：entries（user 信号，新真相源）→ messages（scheduler 内部系统信号，
+ *  范围外决策仍写 messages）。消费面：id/senderId/senderName/body/tsp/signalMeta。 */
+export interface SignalView {
+  id: string;
+  senderId: string;
+  senderName?: string | null;
+  body: string;
+  /** 发言石目标（entry.yieldTargets 或 message.talkingStonePassedTo） */
+  talkingStonePassedTo: string[] | null;
+  /** 销账标记（entry.metadata.signalMeta 或 message.signalMeta） */
+  signalMeta: string | null;
+  status: string;
+  senderType: string;
+  /** 销账写回通道（entry metadata 或 message signal_meta） */
+  markConsumed: (action: "followed_up" | "steered") => Promise<void>;
+}
 
 export type RouteAction =
   | "invoked"
@@ -62,6 +82,8 @@ export class SignalRouter {
     private readonly deps: {
       conversationRepo: ConversationRepository;
       queryMessage: QueryMessage;
+      /** F20260910ctlv 彻底切换补漏：entries 数据源（user 信号唯一真相源） */
+      entryRepo: EntryRepository;
       queryOtter: QueryOtter;
       dispatchChainEngine: DispatchChainEngine;
       invokeFn: SignalRouterInvokeFn;
@@ -81,7 +103,7 @@ export class SignalRouter {
    * @throws DirectChainGatedError 消息缺失/目标不可路由
    */
   async routeDirectSignal(conversationId: string, messageId: string, otterId: string): Promise<"invoked"> {
-    const signal = await this.loadSignalMessage(messageId);
+    const signal = await this.loadSignalView(messageId);
     if (!signal) {
       this.deps.logger.warn("[signal-router] 直投信号消息缺失", { conversationId, messageId });
       throw new DirectChainGatedError("skipped_no_signal");
@@ -116,7 +138,7 @@ export class SignalRouter {
   async routeSignals(
     conversationId: string,
     filter?: { otterId?: string; triggerMessageId?: string },
-  ): Promise<Array<{ signal: Message; action: RouteAction }>> {
+  ): Promise<Array<{ signal: SignalView; action: RouteAction }>> {
     // F20260908rlcp 整合修复（实测双触发根因）：
     // 必须只处理「本次触发的消息」——triggerMessageId 传入时只路由该消息。
     // 旧实现扫 getMessages 全部历史逐条点火：已处理的獭产出消息（tsp 指回）
@@ -136,11 +158,11 @@ export class SignalRouter {
     conversationId: string,
     triggerMessageId: string,
     otterIdFilter?: string,
-  ): Promise<Array<{ signal: Message; action: RouteAction }>> {
-    const msg = await this.loadSignalMessage(triggerMessageId);
+  ): Promise<Array<{ signal: SignalView; action: RouteAction }>> {
+    const msg = await this.loadSignalView(triggerMessageId);
     if (!msg || msg.status !== "completed" || msg.senderType === "otter") return [];
     const targets = (msg.talkingStonePassedTo ?? []).filter(t => t !== "user");
-    const results: Array<{ signal: Message; action: RouteAction }> = [];
+    const results: Array<{ signal: SignalView; action: RouteAction }> = [];
     for (const targetId of targets) {
       if (otterIdFilter && targetId !== otterIdFilter) continue;
       results.push({ signal: msg, action: await this.routeSignalForTarget(conversationId, targetId, msg) });
@@ -148,7 +170,7 @@ export class SignalRouter {
     // 销账：注入成功（followed_up/steered）的信号打 consumed 标记，防重燃
     for (const r of results) {
       if (r.action !== "followed_up" && r.action !== "steered") continue;
-      await this.markSignalConsumed(r.signal, r.action).catch(() => {});
+      await r.signal.markConsumed(r.action).catch(() => {});
     }
     return results;
   }
@@ -172,7 +194,7 @@ export class SignalRouter {
   private async routeSignalForTarget(
     conversationId: string,
     targetId: string,
-    signal: Message,
+    signal: SignalView,
   ): Promise<RouteAction> {
     // 1. dissolved/inactive 目标过滤
     const otter = await this.deps.queryOtter.getById(targetId).catch(() => null);
@@ -217,26 +239,70 @@ export class SignalRouter {
     conversationId: string,
     _messageId: string,
     targetOtterId: string,
-    signal: Message,
+    signal: SignalView,
     _retryAttachmentIds?: string[],
   ): Promise<"retry_invoked"> {
     await this.invokeTarget(conversationId, targetOtterId, signal);
     return "retry_invoked";
   }
 
-  /** 按 ID 加载信号消息原文 */
-  private async loadSignalMessage(messageId: string): Promise<Message | null> {
+  /** F20260910ctlv 彻底切换补漏：按 ID 加载信号视图。
+   *  优先查 entries（user 信号唯一真相源——sendUserEntry 落 yieldTargets=tsp）；
+   *  查不到再回落 messages（scheduler 内部系统信号仍写 messages，范围外决策）。
+   *  entry id 与 message id 无冲突（uuid 交集≈0；scheduler 锚点只在 messages 侧）。 */
+  private async loadSignalView(messageId: string): Promise<SignalView | null> {
+    try {
+      const entry = await this.deps.entryRepo.getEntryById(messageId);
+      if (entry) return this.entryToSignalView(entry);
+    } catch { /* entries 查询失败降级 messages 侧 */ }
+    return this.loadMessageSignalView(messageId);
+  }
+
+  /** entry → 信号视图（user 信号主路径） */
+  private entryToSignalView(entry: Entry): SignalView {
+    return {
+      id: entry.id,
+      senderId: entry.senderId ?? "",
+      senderName: entry.senderName ?? null,
+      body: entry.body ?? "",
+      talkingStonePassedTo: entry.yieldTargets,
+      signalMeta: entry.metadata?.signalMeta ?? null,
+      status: entry.status ?? "completed",
+      senderType: entry.senderType ?? "",
+      markConsumed: async (action) => this.markEntrySignalConsumed(entry, action),
+    };
+  }
+
+  /** messages 兜底信号视图（scheduler 内部系统信号，范围外决策仍写 messages） */
+  private async loadMessageSignalView(messageId: string): Promise<SignalView | null> {
     try {
       const msg = await this.deps.queryMessage.getMessageById(messageId);
-      return msg ?? null;
+      if (!msg) return null;
+      return {
+        id: msg.id,
+        senderId: msg.senderId,
+        senderName: msg.senderName,
+        body: msg.segments.map(seg => seg.body).join("\n"),
+        talkingStonePassedTo: msg.talkingStonePassedTo,
+        signalMeta: msg.signalMeta ?? null,
+        status: msg.status,
+        senderType: msg.senderType,
+        markConsumed: async (action) => this.markSignalConsumed(msg, action),
+      };
     } catch {
       return null;
     }
   }
 
+  /** entry 信号销账：consumed 标记写 metadata.signalMeta */
+  private async markEntrySignalConsumed(entry: Entry, action: "followed_up" | "steered"): Promise<void> {
+    const meta = { ...(entry.metadata ?? {}), signalMeta: JSON.stringify({ consumed: action, consumedAt: new Date().toISOString() }) };
+    await this.deps.entryRepo.updateEntryMetadata(entry.id, meta);
+  }
+
   /** 判断信号是否为「标急」（steer 语义）：signalMeta 包含 level=URGENT
    *  F20260908rlcp：signal_meta.level 当前无写入方（档位已退役），分支不可达，属 URGENT 树化下版预留 */
-  private isSteerSignal(signal: Message): boolean {
+  private isSteerSignal(signal: SignalView): boolean {
     if (!signal.signalMeta) return false;
     try {
       const meta = JSON.parse(signal.signalMeta) as { level?: string };
@@ -247,7 +313,7 @@ export class SignalRouter {
   }
 
   /** F20260908rlcp：信号是否已销账（consumed 标记存在=已注入成功，补扫跳过） */
-  private isSignalConsumed(signal: Message): boolean {
+  private isSignalConsumed(signal: SignalView): boolean {
     if (!signal.signalMeta) return false;
     try {
       const meta = JSON.parse(signal.signalMeta) as { consumed?: string };
@@ -258,24 +324,20 @@ export class SignalRouter {
   }
 
   /** 构建信号注入文本（followUp 路径：常规排队） */
-  private buildSignalText(signal: Message): string {
+  private buildSignalText(signal: SignalView): string {
     const sender = signal.senderName?.trim() || signal.senderId;
     const content = this.extractContent(signal);
     return `[${sender}] ${content}`;
   }
 
   /** 构建 steer 文本（急讯路径：下一思考点注入） */
-  private buildSteerText(signal: Message): string {
+  private buildSteerText(signal: SignalView): string {
     return `【急讯 msg:${signal.id}】来自 ${signal.senderName?.trim() || signal.senderId}：${this.extractContent(signal)}`;
   }
 
-  /** 提取消息内容（segments 聚合） */
-  private extractContent(signal: Message): string {
-    try {
-      return signal.segments.map(s => s.body).join("\n").trim();
-    } catch {
-      return "";
-    }
+  /** 提取信号内容（SignalView.body 单字段） */
+  private extractContent(signal: SignalView): string {
+    return signal.body.trim();
   }
 
   /**
@@ -285,7 +347,7 @@ export class SignalRouter {
   private async invokeTarget(
     conversationId: string,
     otterId: string,
-    signal: Message,
+    signal: SignalView,
   ): Promise<"invoked"> {
     const userMessageContent = this.buildSignalText(signal);
     // fire-and-forget

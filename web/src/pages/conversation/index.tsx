@@ -384,6 +384,17 @@ function ConversationPage() {
         let added = false
         batchUpdateMessages(activeId!, (current) => {
           if (current.some(m => m.id === userMsg.id)) return current
+          // F20260910ctlv 补漏：tmp 乐观气泡替换（同会话末尾同内容 user tmp → 真实 entryId）——
+          // POST 流与常驻通道都会收到 entry.user，不替换则同一句话渲染两条
+          const tmpIdx = [...current].reverse().findIndex(m =>
+            m.id.startsWith('tmp-') && m.st === 'user' && m.content === userMsg.content)
+          if (tmpIdx !== -1) {
+            const idx = current.length - 1 - tmpIdx
+            added = true
+            const next = [...current]
+            next[idx] = userMsg
+            return next
+          }
           added = true
           return [...current, userMsg]
         })
@@ -640,7 +651,27 @@ function ConversationPage() {
       // tmp 乐观消息由 entry.user 事件替换（同 id 幂等由后端保证——entryId 与 tmp id 不同，
       // 用户气泡以 tmp 呈现直到刷新；invoke 过程气泡走 entry.start/speak）
       const postHandlers: Record<string, (data: Record<string, unknown>) => void> = {
-        'entry.user': () => { /* 用户气泡已由 tmp 乐观呈现；不重复插入 */ },
+        'entry.user': (data) => {
+          // F20260910ctlv 补漏：POST 流收到的 entry.user = 后端确认落库——替换 tmp 气泡
+          //（真实 entryId + seq 接管排序；常驻通道同款去重逻辑幂等）
+          const d = data as { entryId: string; sequenceNum?: number; senderId?: string; body?: string; createdAt?: string }
+          batchUpdateMessages(activeId!, (current) => {
+            if (current.some(m => m.id === d.entryId)) return current
+            const realMsg: LocalMessage = {
+              id: d.entryId, st: 'user', si: d.senderId || 'user',
+              content: d.body ?? '', status: 'completed', seq: d.sequenceNum, ts: d.createdAt || nowTs(), dur: null,
+            }
+            const tmpIdx = [...current].reverse().findIndex(m =>
+              m.id.startsWith('tmp-') && m.st === 'user' && m.content === realMsg.content)
+            if (tmpIdx !== -1) {
+              const idx = current.length - 1 - tmpIdx
+              const next = [...current]
+              next[idx] = realMsg
+              return next
+            }
+            return [...current, realMsg]
+          })
+        },
         'entry.start': (data) => {
           const d = data as { entryId: string; invokeId?: string; otterId: string; otterName?: string; createdAt?: string }
           const placeholder: LocalMessage = {

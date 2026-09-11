@@ -1,40 +1,41 @@
-import type { QueryMessage } from "@usecases/conversation/query-message";
+import type { EntryRepository } from "@usecases/conversation/entry-repository";
+import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
 import type { Logger } from "@usecases/ports/logger";
 
-/** K3（F20260903k23 → F20260908rlcp）：POST SSE 等消息终态的超时兜底与轮询间隔。
- *  F20260908rlcp：从 dispatch_attempts 台账改为消息状态机。
- *  超时 30s 覆盖正常链路；更长的排队/补扫场景由 GET SSE 承载流式。 */
+/** K3（F20260903k23 → F20260908rlcp → F20260910ctlv）：POST SSE 等触发信号产出终态的超时兜底与轮询。
+ *  F20260910ctlv 彻底切换补漏：判据从 messages 行改到 invokes 行——
+ *  触发 entry 的 tsp 目标獭是否还有 running invoke（无 → 本轮产出已终态）。
+ *  30s 超时覆盖正常链路；更长排队由常驻 GET SSE 承载流式。 */
 export const SSE_SETTLE_TIMEOUT_MS = 30_000;
 const SSE_SETTLE_POLL_MS = 500;
 
 /**
- * F20260908rlcp：等待本轮触发信号对应的产出消息到达终态（POST SSE 关流判据）。
+ * 等待本轮触发信号的产出到达终态（POST SSE 关流判据）。
  *
- * 判据：triggerMessageId 的 tsp 指向的 otter 目标是否全部有终态消息
- * （completed/failed/aborted，即不再 streaming）。30s 超时兜底保留。
+ * 判据：触发 entry 的 yieldTargets 指向的 otter 目标是否全部无 running invoke。
+ * entry 查不到（异常）→ 视为 settled（不挂流）。
  */
 export function awaitTriggerAttemptsSettled(
-  queryMessage: QueryMessage | undefined,
+  repos: { entryRepo?: EntryRepository; invokeRepo?: InvokeRepository },
   logger: Logger,
   conversationId: string,
-  triggerMessageId: string,
+  triggerEntryId: string,
 ): Promise<void> {
-  if (!queryMessage) return Promise.resolve();
   const settled = async (): Promise<boolean> => {
     try {
-      const triggerMsg = await queryMessage.getMessageById(triggerMessageId);
-      if (!triggerMsg) return true;
-      const targets = (triggerMsg.talkingStonePassedTo ?? []).filter(t => t !== "user");
+      const entry = await repos.entryRepo?.getEntryById(triggerEntryId);
+      if (!entry) return true;
+      const targets = (entry.yieldTargets ?? []).filter(t => t !== "user");
       if (targets.length === 0) return true;
 
-      // 检查每个目标是否有在 streaming/speaking 状态的消息
+      // 检查每个目标是否还有 running invoke
       for (const targetId of targets) {
-        // S4 修复：per-target 查询（而非全局 limit:1 再 filter）——多獭场景避免误判
-        const last = await queryMessage.getLastMessageBySender(conversationId, targetId);
-        if (last && (last.status === "streaming" || last.status === "speaking")) return false;
+        const active = await repos.invokeRepo?.getActiveInvokeByOtterId(conversationId, targetId);
+        if (active) return false;
       }
       return true;
-    } catch {
+    } catch (err) {
+      logger.warn("[k3] settle 轮询异常（兜底关流）", { conversationId, triggerEntryId, error: err instanceof Error ? err.message : String(err) });
       return true;
     }
   };

@@ -1,5 +1,4 @@
 import type { Context } from "hono";
-import { type Message } from "@entities/conversation/message";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageReadState } from "@usecases/conversation/manage-read-state";
@@ -19,6 +18,8 @@ import { decorateWithSignals, type MessageDtoBuilderDeps } from "../dto/message-
 import type { SendMessageRequestDTO, MarkReadRequestDTO } from "../dto/message-dto";
 import { streamEvents } from "../sse-streamer";
 import { awaitTriggerAttemptsSettled } from "../sse-settle-waiter";
+import type { EntryRepository } from "@usecases/conversation/entry-repository";
+import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
 /** 多模态 Phase 1（审视修复 R4/R7）：附件注入策略归位 usecases 层——controller 只透传调用 */
  
 import type { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
@@ -44,10 +45,18 @@ export class MessageController {
     private readonly signalRouter?: SignalRouter,
     /** F20260910ctlv 切换清扫：user 消息双写 entries（时间线真相源） */
     private readonly sendEntry?: SendEntry,
+    /** F20260910ctlv 补漏：settle 判据数据源（K3 关流读 entries/invokes） */
+    private readonly settleEntryRepo?: EntryRepository,
+    private readonly settleInvokeRepo?: InvokeRepository,
   ) {}
 
   /** 批量解析 otter 消息的发送者显示名（dissolve 不删行，永远可解析） */
   /** DTO 组装 helper 依赖包（F20260828c4sg 合并适配：从本类拆出，见 message-dto-builder.ts） */
+  /** F20260910ctlv：settle 判据数据源（entries tsp + invokes running） */
+  private settleRepos(): { entryRepo?: EntryRepository; invokeRepo?: InvokeRepository } {
+    return { entryRepo: this.settleEntryRepo, invokeRepo: this.settleInvokeRepo };
+  }
+
   private get dtoBuilder(): MessageDtoBuilderDeps {
     return { queryOtter: this.queryOtter, queryMessage: this.queryMessage, signalRepo: this.signalRepo, logger: this.logger };
   }
@@ -232,7 +241,7 @@ export class MessageController {
         .then(async (results) => {
           return results.length > 0 && results.every(r => r.action.startsWith("skipped"))
             ? undefined
-            : awaitTriggerAttemptsSettled(this.queryMessage, this.logger, conversationId, userMessage.id)
+            : awaitTriggerAttemptsSettled(this.settleRepos(), this.logger, conversationId, userMessage.id)
                 .catch(e => this.logger.warn("[k3] settle 轮询异常（兜底关流）", { conversationId, error: e instanceof Error ? e.message : String(e) }));
         })
         .finally(() => {
@@ -277,121 +286,6 @@ export class MessageController {
   /** document 提取块追加在正文之后（多模态 Phase 1 审视修复 R9：方案 §3.4① 注入格式） */
   private withDocumentBlock(body: string, documentBlock?: string): string {
     return documentBlock ? `${body}\n\n${documentBlock}` : body;
-  }
-
-  /** retry 目标前置校验（自 retry 拆出控复杂度）：otter 消息 + 可重试状态（存在性已查） */
-  private precheckRetryTarget(msg: { status: string; senderType: string }): Response | null {
-    if (msg.senderType !== "otter") {
-      return Response.json({ error: "Can only retry otter messages" }, { status: 400 });
-    }
-    if (msg.status !== "failed" && msg.status !== "aborted") {
-      return Response.json({ error: `Message is not in a retryable status: ${msg.status}` }, { status: 409 });
-    }
-    return null;
-  }
-
-  /** retry 链启动（自 retry 拆出控复杂度）：SSE 流 + broadcaster 订阅 + executeChain */
-  /** F20260902sgp2 S3：retry 换轨路径——过路由器闸门（限流熔断中被挡如实反馈 retry_gated），
-   *  记账 source='retry'，与自动点火共用 invokeTarget。
-   *  修复的漏洞：retry 曾直连 executeChain 绕过全部调度闸门——限流熔断期间手动 retry
-   *  照跑撞 429 → 熔断窗口重置 → 自动点火继续冻结（09-03 会议定性，搭档实锤）。 */
-  private retryViaRouterPath(args: {
-    conversationId: string; otterId: string; messageId: string; senderId: string;
-    signal: Message; retryAttachmentIds?: string[]; unsubscribe: (() => void) | undefined;
-    push: (event: { event: string; data: Record<string, unknown> }) => void;
-    close: () => void; response: Response;
-  }): Response {
-    const { conversationId, otterId, messageId, signal, retryAttachmentIds, unsubscribe, push, close, response } = args;
-    void this.signalRouter!.retrySignal(conversationId, messageId, otterId, signal, retryAttachmentIds)
-      .then(() => {
-        // F20260908rlcp: retry completed
-      })
-      .catch((err: unknown) => {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        this.logger.error('retrySignal 调度异常', err instanceof Error ? err : new Error(errMsg), { conversationId, messageId });
-        push({ event: "error", data: { message: `重试失败: ${errMsg}`, otterId } });
-      })
-      .finally(() => {
-        unsubscribe?.();
-        // retry 的 settle 等待：与 K3 同语义——attempt 终态驱动关流（失败也是终态）
-        void this.settleRetrySse(conversationId, messageId).finally(() => {
-          // 与主路径 K3 一致：settle 已等 attempt 终态，直接关流（无 100ms 缓冲——
-          // 那是「路由器未注入降级路径」的旧语义，settle 语义下无必要）
-          push({ event: "stream.end", data: {} });
-          close();
-        });
-      });
-    return response;
-  }
-
-  /** S3：retry 换轨后的 SSE settle 等待（与 K3 同语义——attempt 终态驱动关流） */
-  private async settleRetrySse(conversationId: string, messageId: string): Promise<void> {
-    await awaitTriggerAttemptsSettled(this.queryMessage, this.logger, conversationId, messageId);
-  }
-
-  private startRetryChain(
-    c: Context,
-    ctx: { conversationId: string; otterId: string; messageId: string; userMessageContent: string; senderId: string; images?: Array<{ type: "image"; data: string; mimeType: string }>; retryAttachmentIds?: string[]; signal?: Message },
-  ): Response {
-    const { conversationId, otterId, messageId, userMessageContent, senderId, images, retryAttachmentIds, signal } = ctx;
-    const { response, push, close } = streamEvents(c);
-
-    // F20260903ihlt：手动 retry = 用户显式恢复动作——解除中断停机，冻结的 pending 随链收尾重扫恢复
-
-    let unsubscribe: (() => void) | undefined;
-    if (this.messageBroadcaster) {
-      unsubscribe = this.messageBroadcaster.subscribe(
-        conversationId,
-        () => {},
-        (event) => { push(event); },
-      );
-    }
-
-    // F20260902sgp2 S3（09-03 会议整改，堵闸门绕过漏洞）：路由器在位且带信号实体 → 换轨；
-    // 降级（未注入/直写库无信号实体）→ 保留直连链。见 retryViaRouterPath。
-    if (this.signalRouter && signal) {
-      return this.retryViaRouterPath({ conversationId, otterId, messageId, senderId, signal, retryAttachmentIds, unsubscribe, push, close, response });
-    }
-
-    // Why: 通过 DispatchChainEngine 执行而非直接 invoke——
-    // 链引擎读产出消息行级 tsp 续跑发言链，直接 invoke 会丢弃 yield 传递目标（#332；
-    // F20260904schf 起链引擎不再消费 turn 级 aggregatedTargets）
-    this.dispatchChainEngine.executeChain({
-      conversationId,
-      userMessageContent,
-      senderId,
-      initialTargets: [otterId],
-      ...(images && { images }),
-      // S1：retry 的触发消息 = 被重试的 otter 消息（记账目标为该 otter）
-      triggerMessageId: messageId,
-      invokeFn: async (params) => this.agentInvoker.invokeConversation({
-        otterId: params.otterId,
-        conversationId: params.conversationId,
-        userMessageContent: params.userMessageContent,
-        senderId: params.senderId,
-        ...(params.images && { images: params.images }),
-        retryCount: 1,
-        manualRetry: true,
-      }),
-    })
-      .catch((err: unknown) => {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        this.logger.error('重试调度异常', err instanceof Error ? err : new Error(errMsg), { conversationId, messageId });
-        push({ event: "error", data: { message: `重试失败: ${errMsg}`, otterId } });
-      })
-      .finally(() => {
-        unsubscribe?.();
-        setTimeout(() => { push({ event: "stream.end", data: {} }); close(); }, 100);
-      });
-
-    return response;
-  }
-
-  /** 重试路径注入载荷：从原 user 消息 attachments 重新组装（审视修复 R9；无附件/未装配时 undefined） */
-  private async loadRetryInjection(attachments?: Array<{ id: string }>): Promise<Awaited<ReturnType<AttachmentInjectionService["buildInjectionPayload"]>>> {
-    if (!attachments || attachments.length === 0) return undefined;
-    if (!this.attachmentInjection?.available) return undefined;
-    return this.attachmentInjection.buildInjectionPayload(attachments.map(a => a.id));
   }
 
   /** POST SSE 流的 broadcaster 订阅 + mentionFeedback 推送（自 sendMessage 拆出） */

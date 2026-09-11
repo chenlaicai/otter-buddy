@@ -1,4 +1,5 @@
 import type {
+  EntryMetadata,
   Entry,
   EntryStatus,
   EntryType,
@@ -26,6 +27,8 @@ export interface EntryRepository {
   createEntryAtomic(entry: Entry): Promise<Entry>;
   /** 原子序号批量插入（事务内逐条 MAX+1，天然连续递增）；返回携带真实序号的 Entry 列表 */
   createEntriesAtomic(entries: Entry[]): Promise<Entry[]>;
+  /** F20260910ctlv 信号销账：consumed 标记写 metadata */
+  updateEntryMetadata(entryId: string, metadata: EntryMetadata): Promise<void>;
   updateEntryStatus(
     entryId: string,
     status: EntryStatus,

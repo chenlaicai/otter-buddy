@@ -195,6 +195,11 @@ export class SqliteEntryRepository implements EntryRepository {
     this.upsertEntryFts(entryId, body);
   }
 
+  /** F20260910ctlv 信号销账：consumed 标记写 metadata */
+  async updateEntryMetadata(entryId: string, metadata: EntryMetadata): Promise<void> {
+    this.db.prepare("UPDATE entries SET metadata = ? WHERE id = ?").run(JSON.stringify(metadata), entryId);
+  }
+
   async updateEntryInvokeId(entryId: string, invokeId: string): Promise<void> {
     this.db.prepare("UPDATE entries SET invoke_id = ? WHERE id = ?").run(invokeId, entryId);
   }
