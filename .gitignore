@@ -86,6 +86,9 @@ data/metrics/
 # Per-conversation workspace dirs (runtime scratch area for agent tools)
 data/workspaces/
 
+# Otter agent runtime artifacts — git worktree isolation (F20260912wdsp)
+.otter/
+
 # Local model weights (large, downloaded separately)
 # Layout: models/<model-name>/onnx/*.onnx[+_data]
 models/
