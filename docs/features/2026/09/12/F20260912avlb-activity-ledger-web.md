@@ -153,7 +153,7 @@ Part 2: web 活动页 → GET /api/activity/* → controller →
 - dispatch 状态从「永远 in_progress 的假数据」变为「客观生命周期」——agent 工具与 cost-output 指标消费到真数据，**这是行为修正**（原 in_progress 语义本就无人依赖其真实性）
 - otter_context 表 dispatch key 清空（470 条迁移后删除）——context 读写路径无感知（key 前缀本就由 dispatch client 独占）
 - router.ts +4 路由；web 导航 +1 入口；无既有页面改动
-- dissolve_otter 工具新增台账钩子（失败不影响解散主流程，记 healing 事件）
+- dissolve_otter 工具新增台账钩子（失败仅 warn 日志不阻断主流程——与既有 4.5/4.6/4.7 清账钩子同模式，保持一致性；原方案写「记 healing 事件」，实现时按模式一致性采纳 warn，见对抗审视记录）
 
 ## 风险与约束
 
@@ -179,7 +179,7 @@ Part 2: web 活动页 → GET /api/activity/* → controller →
 
 - **① 谁需要它**：搭档——原话锚「我现在只是想更深入了解你们所看到的东西而已，保证我和你们的认知是一致的」。次级受益（非立项依据）：大獭与每日健康检查从假数据切真数据。
 - **② 失败后果**：不做 → 假状态继续毒害三个消费者（认知对齐失败 + agent 决策失真）；做了页面无人看不构成失败（按需消费，不承诺打开率）。
-- **③ 后续机制**：新状态可能出错处——三钩子漏挂或失败（dissolve 钩子失败记 healing 事件不阻塞主流程；created/dispatched 钩子在既有代码路径上改造，失败会使工具主调用也失败，天然同生共死）；迁移双源残留（事务+计数核对）；未来若要求「完成」语义（对话汇报结构化后可加终态事件，留演进口）。
+- **③ 后续机制**：新状态可能出错处——三钩子漏挂或失败（dissolve 钩子失败仅 warn 不阻断，与既有清账钩子同模式；created/dispatched 钩子在既有代码路径上改造，失败会使工具主调用也失败，天然同生共死）；迁移双源残留（事务+计数核对）；未来若要求「完成」语义（对话汇报结构化后可加终态事件，留演进口）。
 - **④ 退役条件**：搭档连续 30 天未打开该页（无埋点，以口头/观察为准）或对话页未来内嵌同等信息；dispatch 表本身不退役（消费方是 agent 工具与 health 指标，页面只是第三消费者）。
 
 **重对抗门**：**`确认治本`**（检视-avlb 第一轮，2026-09-12，针对初版方案）——初版判定理由（可见性层缺失是根因，最薄视图层）继续适用；本版在此之上把「假数据源头」一并根治（搭档原则驱动）。**修订后机制实质变化（视图层 → 数据层重建+视图层），delta 复审待检视-avlb。**
@@ -234,6 +234,13 @@ Part 2: web 活动页 → GET /api/activity/* → controller →
 
 Delta 复核结论：**通过**（严重 1 修正后可进实现——已修正）。
 
+**第三轮（代码对抗审视，检视-avlb，2026-09-12 深夜，针对 PR #903）**：0 严重 + 2 建议，B1-B7 全过，变更完整性清单全勾。处置：
+
+| 发现 | 处置 | 判断依据 |
+|---|---|---|
+| 建议1 query_dispatch_ledger 工具未暴露全对话查询（repo/端口已支持，仅缺 tool 参数） | **接受并当场修**（不建 issue） | 关联度前置闸检验：该工具是本 PR 三消费者之一，能力升级与本 PR 语义强关联；增量约 30 行，不命中建 issue 合法清单（依赖未就绪/需产品决策/增量>300 行）任何一条——检朒建议建 issue 被大獭驳回，改为修在原 PR |
+| 建议2 dissolve 钩子失败仅 warn 与方案「记 healing」字面差异 | **接受，文档对齐实现** | 检视自评当前行为可接受；warn 不阻断与既有 4.5/4.6/4.7 清账钩子模式一致（一致性优先于单点最优），方案文档已同步订正（影响范围节 + 四问③） |
+
 ---
 
 ## 实现记录（2026-09-12，开发獭-avlb）
@@ -248,7 +255,7 @@ Delta 复核结论：**通过**（严重 1 修正后可进实现——已修正�
 |---|---|---|---|
 | dissolve 钩子 | 「dissolve 工具执行路径新增钩子」 | DissolveOtter usecase 注入 `markDispatchDissolved` 依赖（dissolve-otter.ts 步骤 4.45） | 结构性优化：与既有 4.5/4.6/4.7 清账钩子（settlePendingForOtter 等）完全同模式——usecase 层统一收口 dissolve 的全部台账副作用，tool 层保持薄。失败记日志不阻断主流程（方案要求的行为语义不变） |
 | dispatch client 改造 | 「updateRecord 收窄为 markDispatched 语义（对外签名不变）」 | 端口直接改名 `updateRecord` → `markDispatched`（签名收窄），clients.ts 实现直调新 repo | 方案说「对外签名不变」指 tool-factory 调用点改动最小化；实际 tool-factory 只有一处调用 updateRecord（yield 钩子），改名后调用点同步更新、无其他消费者——直接改名更干净（无兼容桥代码，coding-principles 禁止 shim） |
-| query_dispatch_ledger | 参数新增可选 conversationId | 同方案；另将工具 description 同步更新为新三态语义 | description 是 agent 消费的行为契约，旧四态枚举描述会误导 |
+| query_dispatch_ledger | 参数新增可选 conversationId | 同方案；另将工具 description 同步更新为新三态语义；**delta 修正（三轮建议 1）**：conversationId 缺省不再兑底当前对话——不传 = 全表（与 web 端 controller 口径一致，跨对话巡检能力对齐） | description 是 agent 消费的行为契约，旧四态枚举描述会误导；初版实现的「缺省当前对话」兑底使全表能力对 agent 不可达，检朒发现属实，已修 |
 | summary 端点 | 可选可裁，一期建议裁掉 | 已裁（controller 只有 3 个方法，测试有架构断言锁死「无写端点」） | 方案建议采纳 |
 | 迁移防重跑 | 「查一下 migration 框架怎么防重跑」 | settings 表键 `dispatch_records_migrated=done`（与 fts_jieba_double_write/chunking_v1_migrated 同模式），createTestDb 每次跑 migrateDatabase 天然覆盖幂等路径 | 项目惯例 |
 | otters active 集覆盖 | dissolved 判定以全局 otters 表为准 | 同方案（migrateFromContext 内 SELECT id FROM otters WHERE status='active'） | — |
@@ -270,6 +277,7 @@ Delta 复核结论：**通过**（严重 1 修正后可进实现——已修正�
 | tests/frameworks/db/dispatch-record-repo.test.ts（新增，13 用例） | 生命周期三路径 + markDispatched 批量语义/时间戳保留/不跨对话 + markDissolved 全局/幂等 + findByFilter + 迁移映射（pending→created、in_progress→dispatched+updatedAt、全局 dissolved 覆盖）+ 迁移事务回滚（坏 JSON）+ migration settings 键防重跑 + 老库真实串联（initSchema 后插伪存量再 migrateDatabase） |
 | tests/api/activity.test.ts（新增，9 用例） | 三读端点返回结构 + 过滤参数（healing status/conversationId、signals status/type、dispatch status/present join）+ 架构断言：controller 仅 3 只读方法、路由表无写端点 |
 | tests/usecases/health/cost-output-collector.test.ts（改写 4 用例） | 新口径：dispatched_at 聚合（含 dissolved）、created/NULL 不计、since 过滤、空表 |
+| tests/interface-adapters/query-dispatch-ledger-tool.test.ts（新增，3 用例，三轮建议 1 修复伴生） | 不传 conversationId → undefined 透传（全表口径，不兑底当前对话）；传则限定单对话；status/otterId 透传 |
 | 既有测试更新 | create-otter-tool / yield-level / speak-tool 三处 mock 从 updateRecord 改 markDispatched |
 
 ### 自检清单
