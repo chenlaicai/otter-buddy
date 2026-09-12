@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { FeishuMessageProcessor } from "@interface-adapters/feishu/message-processor";
 import type { ManageConnection } from "@usecases/im/manage-connection";
-import type { SendMessage } from "@usecases/conversation/send-message";
 import type { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
 import type { FeishuGateway } from "@usecases/im/feishu-gateway";
 import type { FeishuUserInfoGateway } from "@usecases/im/feishu-user-info-gateway";
@@ -23,7 +22,6 @@ function makeMocks() {
       ensureConnection: vi.fn().mockResolvedValue({ id: "conn-1" }),
       getCurrentConversation: vi.fn().mockResolvedValue({ id: "conv-1", title: "测试" }),
     } as unknown as ManageConnection,
-    sendMessage: { send } as unknown as SendMessage,
     sendEntry: {
       sendUserEntry: async (input: { body: string; senderId: string; attachmentIds?: string[]; senderDisplayName?: string | null }) => {
         send({ conversationId: "conv-1", senderId: input.senderId, senderType: "user", talkingStonePassedTo: [], body: input.body, senderDisplayName: input.senderDisplayName ?? null, ...(input.attachmentIds ? { attachmentIds: input.attachmentIds } : {}) });

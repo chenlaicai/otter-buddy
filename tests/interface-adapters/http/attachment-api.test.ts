@@ -256,7 +256,6 @@ describe("sendMessage 附件前置校验 + FTS 时序（R3）", () => {
 
     const dispatchChainEngine = new DispatchChainEngine({
       conversationRepo: convRepo,
-      queryMessage: { getMessageById: async () => null, getLastMessageBySender: async () => null } as unknown as QueryMessage,
       queryOtter: { getById: async () => ({ name: "大獭" }) } as unknown as QueryOtter,
       logger: logger as never,
     });

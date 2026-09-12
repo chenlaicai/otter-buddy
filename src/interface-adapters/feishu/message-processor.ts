@@ -1,5 +1,4 @@
 import type { ManageConnection } from "@usecases/im/manage-connection";
-import type { SendMessage } from "@usecases/conversation/send-message";
 import type { SendEntry } from "@usecases/conversation/send-entry";
 import type { CommandDispatcher } from "./command-dispatcher";
 import type { FeishuGateway } from "@usecases/im/feishu-gateway";
@@ -37,7 +36,6 @@ export class FeishuMessageProcessor {
   constructor(
     private readonly deps: {
       manageConnection: ManageConnection;
-      sendMessage: SendMessage;
       /** F20260910ctlv 彻底切换：entries 写入面（用户消息唯一落点） */
       sendEntry: SendEntry;
       commandDispatcher: CommandDispatcher;

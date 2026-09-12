@@ -139,7 +139,6 @@ export async function createAgentGateway(options: {
 export function createDispatchChainEngine(repos: Repositories, uc: UseCases, appConfig: AppConfig, logger: Logger, options?: { agentMetrics?: AgentMetricsPort; agentGateway?: PiSessionFactory }): DispatchChainEngine {
   return new DispatchChainEngine({
     conversationRepo: repos.conversation,
-    queryMessage: uc.queryMessage,
     queryOtter: uc.queryOtter,
     logger,
     maxChainDepth: appConfig.circuitBreaker.maxChainDepth,
@@ -185,7 +184,7 @@ function buildAgentInvoker(o: {
   agentMetrics?: AgentMetricsPort; appConfig?: AppConfig; ctxWindowProvider?: OtterContextWindowProvider;
 }): AgentInvoker {
   return new AgentInvoker(
-    o.agentGateway, o.uc.sendMessage,
+    o.agentGateway,
     o.uc.queryMessage, o.uc.manageSession, o.uc.queryOtter, o.logger,
     o.messageBroadcaster, o.workspaceGateway, o.repos.settings, o.agentMetrics,
     o.repos.healingEvent,
@@ -328,7 +327,6 @@ export function setupFeishu(options: {
   const partnerResolver = new PartnerResolver(appConfig.feishu?.partnerOpenId);
   const agentDispatchService = new AgentDispatchService({
     dispatchChainEngine: feishu.dispatchChainEngine,
-    queryMessage: uc.queryMessage,
     entryRepo: repos.entry,
     agentInvokePort: agentInvoker,
     logger,
@@ -347,7 +345,6 @@ export function setupFeishu(options: {
 
   const messageProcessor = new FeishuMessageProcessor({
     manageConnection: uc.manageConnection,
-    sendMessage: uc.sendMessage,
     // F20260910ctlv 彻底切换：飞书用户消息写 entries
     sendEntry: uc.sendEntry,
     commandDispatcher,
@@ -498,7 +495,7 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
         partnerResolver: new PartnerResolver(weixinConfig.partnerUserId),
         // F20260901sgpv P1：微信入口换轨（与飞书同构）
         agentDispatchService: new AgentDispatchService({
-          dispatchChainEngine, queryMessage: uc.queryMessage, entryRepo: repos.entry, agentInvokePort: agentInvoker, logger,
+          dispatchChainEngine, entryRepo: repos.entry, agentInvokePort: agentInvoker, logger,
           ...(options.signalRouter && { signalRouter: options.signalRouter }),
         }),        messageBroadcaster,
         logger,

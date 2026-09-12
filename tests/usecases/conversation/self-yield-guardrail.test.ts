@@ -109,7 +109,6 @@ function makeMocks() {
 function makeChainEngine(m: ReturnType<typeof makeMocks>, overrides?: { abort?: typeof m.abort; healingRepo?: typeof m.healingRepo }) {
   return new DispatchChainEngine({
     conversationRepo: m.conversationRepo,
-    queryMessage: m.queryMessage,
     queryOtter: m.queryOtter,
     logger: m.logger,
     maxChainDepth: 10,

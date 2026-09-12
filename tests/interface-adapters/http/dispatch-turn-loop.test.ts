@@ -94,7 +94,6 @@ describe("dispatchTurnLoop 深度上限", () => {
     const invokeRows = new Map<string, { id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null }>();
     const dispatchChainEngine = new DispatchChainEngine({
       conversationRepo,
-      queryMessage: queryMessageStub,
       queryOtter: queryOtterStub,
       logger: logger as never,
       maxChainDepth: 2,
@@ -170,7 +169,6 @@ describe("dispatchTurnLoop 深度上限", () => {
     // F20260910ctlv 彻底切换：invoke 行无 tsp（无 yield）→ 链一轮终止
     const dispatchChainEngine = new DispatchChainEngine({
       conversationRepo,
-      queryMessage: noYieldMessageStub,
       queryOtter: queryOtterStub,
       logger: logger as never,
       maxChainDepth: 2,
@@ -213,9 +211,6 @@ describe("dispatchTurnLoop 深度上限", () => {
     conversationRepo.getActiveParticipants = async () => [
       { otterId: "otter-x" },
     ] as never;
-    conversationRepo.getUnreadMessages = async () => [
-      { senderType: "otter", senderId: "otter-x", senderName: "Test Otter", segments: [{ id: "seg-1", messageId: "msg-1", body: "万象更新", sequenceNum: 0, createdAt: "2026-07-16T00:00:00Z" }] },
-    ] as never;
     const { logger } = makeLogger();
     const queryOtter = { getById: async () => ({ name: "小獭" }) } as unknown as QueryOtter;
 
@@ -230,7 +225,6 @@ describe("dispatchTurnLoop 深度上限", () => {
     // F20260910ctlv 彻底切换：未读注入读 entries（user/speak/system 条目）
     const dispatchChainEngine = new DispatchChainEngine({
       conversationRepo,
-      queryMessage: queryMessageStub,
       queryOtter,
       logger: logger as never,
       maxChainDepth: 2,

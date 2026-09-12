@@ -1,7 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
-import type { SendMessage } from "@usecases/conversation/send-message";
-import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
@@ -47,8 +45,6 @@ function makeMocks() {
     getParticipant: vi.fn().mockResolvedValue(null),
   } as unknown as ConversationRepository;
 
-  const sendMessage = {} as unknown as SendMessage;
-  const queryMessage = { getMessageById, getLastMessageBySender } as unknown as QueryMessage;
   const queryOtter = { getById: vi.fn().mockResolvedValue(null) } as unknown as QueryOtter;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger;
   // F20260910ctlv 彻底切换：未读注入读 entries——mock entryRepo（entry 形状）
@@ -62,7 +58,7 @@ function makeMocks() {
     getInvokesByTurnId: vi.fn().mockResolvedValue([]),
   } as unknown as InvokeRepository;
 
-  return { sendMessage, conversationRepo, queryMessage, queryOtter, logger, entryRepo, invokeRepo, getInvokeById, updateLastReadTurnNumber, updateLastReadSeq, updateLastActiveTurnNumber, getTurnById, getMessageById, getLastMessageBySender, getActiveTurn, getMaxTurnNumber: conversationRepo.getMaxTurnNumber as ReturnType<typeof vi.fn> };
+  return { conversationRepo, queryOtter, logger, entryRepo, invokeRepo, getInvokeById, updateLastReadTurnNumber, updateLastReadSeq, updateLastActiveTurnNumber, getTurnById, getMessageById, getLastMessageBySender, getActiveTurn, getMaxTurnNumber: conversationRepo.getMaxTurnNumber as ReturnType<typeof vi.fn> };
 }
 
 describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒失效）", () => {
@@ -89,7 +85,7 @@ describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒�
       id === "m-work"
         ? { id, status: "completed", otterId: "otter-worker", talkingStonePassedTo: ["owner-otter"], endedAt: "2026-09-10T00:00:00Z" }
         : { id, status: "completed", otterId: "owner-otter", talkingStonePassedTo: [], endedAt: "2026-09-10T00:00:00Z" });
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
 
     await engine.executeChain({
       conversationId: "conv-1", userMessageContent: "hi", senderId: "owner-otter",
@@ -107,7 +103,7 @@ describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒�
       id === "m-work"
         ? { id, status: "completed", otterId: "otter-worker", talkingStonePassedTo: ["user"], endedAt: "2026-09-10T00:00:00Z" }
         : { id, status: "completed", otterId: "owner-otter", talkingStonePassedTo: [], endedAt: "2026-09-10T00:00:00Z" });
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
 
     await engine.executeChain({
       conversationId: "conv-1", userMessageContent: "hi", senderId: "user",
@@ -123,7 +119,7 @@ describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒�
 
   it("F20260907ylfs ②：yield 回自己 = 任务锚点入箱，护栏放行链续跑（无消息表服务时降级 0 永放行，maxChainDepth 兜底）", async () => {
     const { m } = makeChainMocks();
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, maxChainDepth: 10, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, maxChainDepth: 10, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const invoked: string[] = [];
 
     // F20260910ctlv 彻底切换：self-yield 出处 = invoke 行 tsp（yield 回自己）
@@ -173,7 +169,7 @@ describe("buildIdleOttersWarning", () => {
       return null;
     });
     m.getMaxTurnNumber.mockResolvedValue(25);
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const result = await engine.buildIdleOttersWarning("conv-1", "otter-current");
     expect(result).toContain("闲置獭");
     expect(result).toContain("24 轮");
@@ -187,7 +183,7 @@ describe("buildIdleOttersWarning", () => {
     ]);
     (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "活跃獭" });
     m.getMaxTurnNumber.mockResolvedValue(25);
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const result = await engine.buildIdleOttersWarning("conv-1", "user-1");
     expect(result).toBeNull();
   });
@@ -195,7 +191,7 @@ describe("buildIdleOttersWarning", () => {
   it("getMaxTurnNumber 返回 0 时返回 null", async () => {
     const m = makeMocks();
     (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     m.getMaxTurnNumber.mockResolvedValue(0);
     const result = await engine.buildIdleOttersWarning("conv-1", "user-1");
     expect(result).toBeNull();
@@ -209,7 +205,7 @@ describe("buildIdleOttersWarning", () => {
     (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "獭" });
     m.getMaxTurnNumber.mockResolvedValue(10);
     const settingsRepo = { get: vi.fn().mockResolvedValue("5") };
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, settingsRepo: settingsRepo as never, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, settingsRepo: settingsRepo as never, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     // idleTurns = 10 - 1 = 9, threshold = 5 → 超过
     const result = await engine.buildIdleOttersWarning("conv-1", "user-1");
     expect(result).toContain("獭");
@@ -223,7 +219,7 @@ describe("buildIdleOttersWarning", () => {
     ]);
     (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "獭" });
     m.getMaxTurnNumber.mockResolvedValue(25);
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     // idleTurns = 25 - 1 = 24, threshold = 20 → 超过
     const result = await engine.buildIdleOttersWarning("conv-1", "user-1");
     expect(result).toContain("24 轮");
@@ -237,7 +233,7 @@ describe("buildIdleOttersWarning", () => {
     (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "獭" });
     m.getMaxTurnNumber.mockResolvedValue(25);
     const settingsRepo = { get: vi.fn().mockResolvedValue("abc") };
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, settingsRepo: settingsRepo as never, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, settingsRepo: settingsRepo as never, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     // idleTurns = 24, threshold fallback 20 → 超过
     const result = await engine.buildIdleOttersWarning("conv-1", "user-1");
     expect(result).toContain("24 轮");
@@ -255,7 +251,7 @@ describe("buildMessageWithContext 闲置预警集成", () => {
     // 无未读消息
     (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const { message: result } = await engine.buildMessageWithContext("conv-1", "user-1", "hi", "user-1", "## 在场成员\n- user'");
 
     expect(result).toContain("闲置獭");
@@ -265,7 +261,7 @@ describe("buildMessageWithContext 闲置预警集成", () => {
 
   it("F20260829cach: 两条路径都注入分钟级当前时间（补偿 system prompt 日粒度锚点）", async () => {
     const m = makeMocks();
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
 
     // 路径 1：无未读消息（早返回）
     (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([]);
@@ -291,7 +287,7 @@ describe("buildMessageWithContext 闲置预警集成", () => {
       { id: "e-otter-otter-1", entryType: "otter", senderType: "otter", senderId: "otter-1", senderName: "Test Otter", body: "msg", sequenceNum: 1, invokeId: null, yieldTargets: null },
     ]);
 
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const { message: result } = await engine.buildMessageWithContext("conv-1", "user-1", "hi", "user-1", "## 在场成员");
 
     // 预警失败不影响主流程，结果仍包含对话历史和当前任务
@@ -308,7 +304,7 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
       { id: "e-user-ou_zhangsan", entryType: "user", senderType: "user", senderId: "ou_zhangsan", senderName: "张三", body: "我是张三的消息", sequenceNum: 1, invokeId: null, yieldTargets: null },
     ]);
 
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
     expect(result).toContain("[张三] 我是张三的消息");
@@ -321,7 +317,7 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
       { id: "e-user-ou_lisi", entryType: "user", senderType: "user", senderId: "ou_lisi", senderName: "李四", body: "第二条", sequenceNum: 1, invokeId: null, yieldTargets: null },
     ]);
 
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
     expect(result).toContain("[张三] 第一条");
@@ -334,7 +330,7 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
       { id: "e-user-ou_lisi", entryType: "user", senderType: "user", senderId: "ou_lisi", senderName: "", body: "在吗", sequenceNum: 1, invokeId: null, yieldTargets: null },
     ]);
 
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
     expect(result).toContain("[搭档] 在吗");
@@ -346,7 +342,7 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
       { id: "e-user-ou_zhangsan", entryType: "user", senderType: "user", senderId: "ou_zhangsan", senderName: "", body: "我是谁", sequenceNum: 1, invokeId: null, yieldTargets: null },
     ]);
 
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
     expect(result).toContain("[ou_zhangsan] 我是谁");
@@ -359,7 +355,7 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
       { id: "e-user-ou_lisi", entryType: "user", senderType: "user", senderId: "ou_lisi", senderName: "   ", body: "在吗", sequenceNum: 1, invokeId: null, yieldTargets: null },
     ]);
 
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
     expect(result).toContain("[搭档] 在吗");
@@ -370,8 +366,7 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
   function makeEngine(m: ReturnType<typeof makeMocks>, partnerOpenId: string | undefined) {
     return new DispatchChainEngine({
       conversationRepo: m.conversationRepo,
-      queryMessage: m.queryMessage,
-      queryOtter: m.queryOtter,
+            queryOtter: m.queryOtter,
       logger: m.logger,
       partnerResolver: new PartnerResolver(partnerOpenId),
       entryRepo: m.entryRepo,
@@ -476,7 +471,7 @@ describe("L2 安全词扫描接线（F20260826mwrd C3 Part 6）", () => {
   /** executeChain 集成：用户消息命中「停下」→ invokeFn 收到的消息带 reminder 后缀 */
   async function runChain(userMessage: string) {
     const m = makeMocks();
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const received: string[] = [];
     await engine.executeChain({
       conversationId: "conv-1",

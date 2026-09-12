@@ -30,7 +30,6 @@ import type { CreateEdge } from "@usecases/memory/create-edge";
 import type { GetRelated } from "@usecases/memory/get-related";
 import type { DeleteEdge } from "@usecases/memory/delete-edge";
 import type { GetDocProvenance } from "@usecases/memory/get-doc-provenance";
-import type { SendMessage } from "@usecases/conversation/send-message";
 import type { SendEntry } from "@usecases/conversation/send-entry";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageReadState } from "@usecases/conversation/manage-read-state";
@@ -88,7 +87,6 @@ export interface UseCases {
   getRelated: GetRelated;
   deleteEdge: DeleteEdge;
   getDocProvenance: GetDocProvenance;
-  sendMessage: SendMessage;
   sendEntry: SendEntry;
   queryMessage: QueryMessage;
   /** F20260826rcmm Phase 0：检索埋点（评估基线数据源） */

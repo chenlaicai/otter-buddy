@@ -1,4 +1,3 @@
-import type { QueryMessage } from "./query-message";
 import type { EntryRepository } from "./entry-repository";
 import type { AgentTurnPort } from "@usecases/ports/agent-turn-port";
 import type { InjectionPayload } from "./attachment-injection-service";
@@ -16,7 +15,6 @@ export class AgentDispatchService {
   constructor(
     private readonly deps: {
       dispatchChainEngine: DispatchChainEngine;
-      queryMessage: QueryMessage;
       /** F20260910ctlv 收尾批1：entries 数据源（最新 user entry 的 yieldTargets / 触发锚） */
       entryRepo: EntryRepository;
       agentInvokePort: AgentTurnPort;

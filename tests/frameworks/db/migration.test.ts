@@ -18,13 +18,6 @@ function createTestDb(): Database.Database {
   return db;
 }
 
-function seedMessage(db: Database.Database, id: string, body: string): void {
-  db.prepare(`INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 't', '2026-07-28T00:00:00Z', '2026-07-28T00:00:00Z')`).run();
-  db.prepare(`INSERT INTO turns (id, conversation_id, turn_number, created_at) VALUES ('turn-1', 'conv-1', 1, '2026-07-28T00:00:00Z')`).run();
-  db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, created_at)
-    VALUES (?, 'conv-1', 'otter', 'otter-1', 'completed', 1, 'turn-1', '2026-07-28T00:01:00Z')`).run(id);
-  db.prepare(`INSERT INTO message_segments (id, message_id, body, sequence_num, created_at) VALUES (?, ?, ?, 0, '2026-07-28T00:01:00Z')`).run(`seg-${id}`, id, body);
-}
 
 describe("migrateDatabase - F20260728htar 补丁", () => {
   let db: Database.Database;
@@ -35,72 +28,6 @@ describe("migrateDatabase - F20260728htar 补丁", () => {
 
   afterEach(() => {
     db.close();
-  });
-
-  describe("messages_fts_stripped_rebuild", () => {
-    it("存量 FTS 原文重建为剥离投影，并写入幂等键", () => {
-      const body = '前言\n```html-card title="旧卡"\n<div>噪声</div>\n```\n后记';
-      seedMessage(db, "msg-1", body);
-      /** 模拟触发器时代的存量：FTS 里是未剥离的原文 */
-      db.prepare("INSERT INTO messages_fts (message_id, body) VALUES ('msg-1', ?)").run(body);
-
-      migrateDatabase(db, createTestLogger());
-
-      const fts = db.prepare("SELECT body FROM messages_fts WHERE message_id = 'msg-1'").get() as { body: string };
-      expect(fts.body).toBe("前言\n[html-card: 旧卡]\n后记");
-      /** message_segments.body 原文不动 */
-      const seg = db.prepare("SELECT body FROM message_segments WHERE message_id = 'msg-1'").get() as { body: string };
-      expect(seg.body).toBe(body);
-      /** 幂等键已写入 */
-      const key = db.prepare("SELECT value FROM settings WHERE key = 'messages_fts_stripped_rebuild'").get() as { value: string };
-      expect(key.value).toBe("done");
-    });
-
-    it("幂等：二次启动不重复 rebuild", () => {
-      seedMessage(db, "msg-1", "普通消息");
-      migrateDatabase(db, createTestLogger());
-
-      /** rebuild 后人为改一行，第二次迁移不应触碰（证明幂等跳过） */
-      db.prepare("UPDATE messages_fts SET body = '手动标记' WHERE message_id = 'msg-1'").run();
-      migrateDatabase(db, createTestLogger());
-
-      const fts = db.prepare("SELECT body FROM messages_fts WHERE message_id = 'msg-1'").get() as { body: string };
-      expect(fts.body).toBe("手动标记");
-    });
-
-    it("body 为 null 的存量消息 rebuild 后 FTS 为空串", () => {
-      db.prepare(`INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 't', '2026-07-28T00:00:00Z', '2026-07-28T00:00:00Z')`).run();
-      db.prepare(`INSERT INTO turns (id, conversation_id, turn_number, created_at) VALUES ('turn-1', 'conv-1', 1, '2026-07-28T00:00:00Z')`).run();
-      db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, created_at)
-        VALUES ('msg-null', 'conv-1', 'otter', 'otter-1', 'streaming', 1, 'turn-1', '2026-07-28T00:01:00Z')`).run();
-      /** streaming 消息无 segment，FTS 应为空串 */
-
-      migrateDatabase(db, createTestLogger());
-
-      const fts = db.prepare("SELECT body FROM messages_fts WHERE message_id = 'msg-null'").get() as { body: string } | undefined;
-      /** 无 segment 的消息（streaming）在 segments 重建路径中不生成 FTS 条目 */
-      expect(fts).toBeUndefined();
-    });
-  });
-
-  describe("attachments_drop_column", () => {
-    it("旧库的 attachments 列被 DROP", () => {
-      /** 模拟旧库：initSchema 建的表已无该列，手动加回 */
-      db.prepare("ALTER TABLE messages ADD COLUMN attachments TEXT").run();
-
-      migrateDatabase(db, createTestLogger());
-
-      const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
-      expect(columns.some(c => c.name === "attachments")).toBe(false);
-    });
-
-    it("列不存在时跳过（天然幂等），二次执行不报错", () => {
-      migrateDatabase(db, createTestLogger());
-      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
-
-      const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
-      expect(columns.some(c => c.name === "attachments")).toBe(false);
-    });
   });
 
   describe("addPinnedColumn", () => {
@@ -293,56 +220,6 @@ describe("#506 initSchema 补建：embedding_meta 表", () => {
 });
 
 /**
- * F20260827mtbl：signal_events（F20260826mwrd）+ restart_pending_resumes（F20260826rsme）
- * 表老库补建（#506 后由无条件 initSchema 承担，等价性由守卫测试整体覆盖）。
- */
-describe("#506 initSchema 补建：signal_events + restart_pending_resumes 表", () => {
-  it("老库缺两表：升级序列补建后可读写", () => {
-    const db = new Database(":memory:");
-    try {
-      initSchema(db);
-      migrateDatabase(db, createTestLogger());
-      // 模拟早于 F20260826 两特性时代的存量库
-      db.exec("DROP TABLE signal_events");
-      db.exec("DROP TABLE restart_pending_resumes");
-
-      // 老库升级路径：幂等 initSchema 无条件重跑
-      initSchema(db, createTestLogger());
-      migrateDatabase(db, createTestLogger());
-
-      // restart_pending_resumes 可读写（claimResume 语义）
-      db.prepare(
-        "INSERT INTO restart_pending_resumes (message_id, conversation_id, otter_id, attempts, status, created_at) VALUES ('msg-1', 'conv-1', 'otter-1', 0, 'pending', '2026-08-27T00:00:00Z')"
-      ).run();
-      const claimed = db.prepare(
-        "UPDATE restart_pending_resumes SET attempts = attempts + 1 WHERE message_id = 'msg-1' AND attempts < 1"
-      ).run();
-      expect(claimed.changes).toBe(1);
-
-      // signal_events 可读写
-      db.prepare(
-        "INSERT INTO signal_events (id, conversation_id, message_id, from_otter_id, type, severity, payload, status, created_at) VALUES ('se-1', 'conv-1', 'msg-1', 'otter-1', 'halt', 'high', '{}', 'pending', '2026-08-27T00:00:00Z')"
-      ).run();
-      const se = db.prepare("SELECT type FROM signal_events WHERE id = 'se-1'").get() as { type: string };
-      expect(se.type).toBe("halt");
-    } finally {
-      db.close();
-    }
-  });
-
-  it("幂等：已有表的库重跑不报错", () => {
-    const db = new Database(":memory:");
-    try {
-      initSchema(db);
-      expect(() => initSchema(db, createTestLogger())).not.toThrow();
-      initSchema(db, createTestLogger());
-    } finally {
-      db.close();
-    }
-  });
-});
-
-/**
  * F20260827he2f：healing_events 表添加 introduced_by_pr 列（存量库迁移）。
  * PR #386 的迁移写在 initSchema 中，存量库永远跑不到——导致 INSERT 时 100% 抛「no such column」。
  * 此处用 PRAGMA table_info 检测列存在性作幂等，与 session_file 等历史补丁列一致。
@@ -394,141 +271,6 @@ describe("migrateDatabase - F20260827he2f healing_events.introduced_by_pr 列", 
   });
 });
 
-/**
- * F20260901sgp0 P0：signal_level / signal_meta 列迁移幂等性 + 索引查询验证。
- * 从独立的 signal-metadata-migration.test.ts 合并入 migration.test.ts，
- * 避免增加 allow-ddl 豁免文件数（ratchet 上限 6）。
- */
-describe("migrateDatabase - F20260901sgp0 signal metadata 列", () => {
-  let db: Database.Database;
-
-  // 专用 seed（与顶层 seedMessage 签名不同：支持 overrides + 自增 seq）
-  let seqCounter = 0;
-  function seedSignalMessage(db: Database.Database, id: string, overrides?: Record<string, unknown>): void {
-    db.prepare(`INSERT OR IGNORE INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 't', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`).run();
-    db.prepare(`INSERT OR IGNORE INTO turns (id, conversation_id, turn_number, created_at) VALUES ('turn-1', 'conv-1', 1, '2026-09-01T00:00:00Z')`).run();
-    seqCounter++;
-    db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, created_at)
-      VALUES (?, 'conv-1', 'otter', 'otter-1', 'completed', ?, 'turn-1', '2026-09-01T00:01:00Z')`).run(id, seqCounter);
-    if (overrides) {
-      const sets = Object.entries(overrides).map(([k]) => `${k} = ?`).join(', ');
-      db.prepare(`UPDATE messages SET ${sets} WHERE id = ?`).run(...Object.values(overrides), id);
-    }
-  }
-
-  beforeEach(() => {
-    db = createTestDb();
-    seqCounter = 0;
-  });
-
-  afterEach(() => {
-    db.close();
-  });
-
-  describe("new database (initSchema)", () => {
-    it("messages 表包含 signal_level 和 signal_meta 列", () => {
-      const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
-      const colNames = columns.map(c => c.name);
-      expect(colNames).toContain("signal_level");
-      expect(colNames).toContain("signal_meta");
-    });
-
-    it("新列默认为 null（存量行无信号语义）", () => {
-      seedSignalMessage(db, "msg-1");
-      const row = db.prepare("SELECT signal_level, signal_meta FROM messages WHERE id = 'msg-1'").get() as { signal_level: string | null; signal_meta: string | null };
-      expect(row.signal_level).toBeNull();
-      expect(row.signal_meta).toBeNull();
-    });
-
-    it("可写入和读取 signal_level / signal_meta", () => {
-      seedSignalMessage(db, "msg-1");
-      db.prepare("UPDATE messages SET signal_level = ?, signal_meta = ? WHERE id = ?").run("URGENT", '{"level":"URGENT","reason":"方向反了"}', "msg-1");
-      const row = db.prepare("SELECT signal_level, signal_meta FROM messages WHERE id = 'msg-1'").get() as { signal_level: string; signal_meta: string };
-      expect(row.signal_level).toBe("URGENT");
-      expect(JSON.parse(row.signal_meta)).toEqual({ level: "URGENT", reason: "方向反了" });
-    });
-  });
-
-  describe("existing database (migrateDatabase)", () => {
-    it("存量库迁移添加 signal_level 和 signal_meta 列 + 索引（幂等）", () => {
-      migrateDatabase(db, createTestLogger());
-      const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
-      const colNames = columns.map(c => c.name);
-      expect(colNames).toContain("signal_level");
-      expect(colNames).toContain("signal_meta");
-      // 索引在列之后由 migrateDatabase 创建（非 initSchema，存量库 initSchema 时列不存在）
-      const indexes = db.prepare("PRAGMA index_list(messages)").all() as Array<{ name: string }>;
-      expect(indexes.map(i => i.name)).toContain("idx_messages_signal_level");
-    });
-
-    it("存量库迁移添加 signal_level 和 signal_meta 列（幂等）", () => {
-      migrateDatabase(db, createTestLogger());
-      const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
-      const colNames = columns.map(c => c.name);
-      expect(colNames).toContain("signal_level");
-      expect(colNames).toContain("signal_meta");
-    });
-
-    it("迁移幂等：多次运行不报错", () => {
-      migrateDatabase(db, createTestLogger());
-      migrateDatabase(db, createTestLogger()); // 第二次不应报错
-      const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
-      expect(columns.map(c => c.name)).toContain("signal_level");
-    });
-
-    it("迁移后存量消息 signal_level 为 null", () => {
-      seedSignalMessage(db, "msg-old");
-      migrateDatabase(db, createTestLogger());
-      const row = db.prepare("SELECT signal_level, signal_meta FROM messages WHERE id = 'msg-old'").get() as { signal_level: string | null; signal_meta: string | null };
-      expect(row.signal_level).toBeNull();
-      expect(row.signal_meta).toBeNull();
-    });
-
-    it("真·旧库路径：initSchema 后 DROP COLUMN 模拟存量库，migrateDatabase 补列+索引不抛错（幂等）", () => {
-      // body_hash 范式：initSchema 建全表（含 signal_level/signal_meta），再 DROP 模拟旧库
-      db.close();
-      db = createTestDb(); // initSchema 已含 signal_level/signal_meta
-      db.exec("ALTER TABLE messages DROP COLUMN signal_level");
-      db.exec("ALTER TABLE messages DROP COLUMN signal_meta");
-      const before = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
-      expect(before.some(c => c.name === "signal_level")).toBe(false);
-      expect(before.some(c => c.name === "signal_meta")).toBe(false);
-
-      // migrateDatabase 应补列 + 建索引，不抛错
-      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
-      const after = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
-      expect(after.some(c => c.name === "signal_level")).toBe(true);
-      expect(after.some(c => c.name === "signal_meta")).toBe(true);
-      const indexes = db.prepare("PRAGMA index_list(messages)").all() as Array<{ name: string }>;
-      expect(indexes.map(i => i.name)).toContain("idx_messages_signal_level");
-
-      // 第二次不报错（幂等）
-      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
-    });
-  });
-
-  describe("signal_level index queries", () => {
-    it("可通过 signal_level 索引查询 URGENT 消息", () => {
-      seedSignalMessage(db, "msg-1", { signal_level: "NORMAL" });
-      seedSignalMessage(db, "msg-2", { signal_level: "URGENT" });
-      seedSignalMessage(db, "msg-3", { signal_level: null });
-
-      const urgent = db.prepare("SELECT id FROM messages WHERE signal_level = 'URGENT'").all() as Array<{ id: string }>;
-      expect(urgent).toHaveLength(1);
-      expect(urgent[0].id).toBe("msg-2");
-    });
-
-    it("可查询无信号语义的消息（NULL）", () => {
-      seedSignalMessage(db, "msg-1", { signal_level: "NORMAL" });
-      seedSignalMessage(db, "msg-2", { signal_level: null });
-
-      const noSignal = db.prepare("SELECT id FROM messages WHERE signal_level IS NULL").all() as Array<{ id: string }>;
-      expect(noSignal).toHaveLength(1);
-      expect(noSignal[0].id).toBe("msg-2");
-    });
-});
-  });
-
 describe("migrateDatabase - #654 补丁: rebuildExecutionsStatusCheck", () => {
   /** 模拟旧库：scheduled_task_executions 表带旧 CHECK（无 skipped） */
   function createOldExecutionsDb(): Database.Database {
@@ -545,7 +287,7 @@ describe("migrateDatabase - #654 补丁: rebuildExecutionsStatusCheck", () => {
         completed_at TEXT,
         status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed')),
         error_message TEXT,
-        message_id TEXT REFERENCES messages(id),
+        message_id TEXT,
         turn_id TEXT REFERENCES turns(id)
       );
     `);
@@ -618,12 +360,9 @@ describe("migrateDatabase - F20260908rlcp: dispatch_attempts table drop", () => 
     db.pragma("foreign_keys = ON");
     initSchema(db);
     // F20260908rlcp：dispatch_attempts 已从 initSchema 退役，手动创建模拟存量库
-    db.exec(`CREATE TABLE IF NOT EXISTS dispatch_attempts (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, target_otter_id TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('in_progress','completed','failed','aborted')), source TEXT NOT NULL DEFAULT 'chain' CHECK (source IN ('chain','router','retry','backfill')), attempt_started_at TEXT NOT NULL DEFAULT (datetime('now')), attempt_finished_at TEXT, note TEXT, UNIQUE(message_id, target_otter_id), FOREIGN KEY (message_id) REFERENCES messages(id), FOREIGN KEY (conversation_id) REFERENCES conversations(id))`);
-    // 父表先 seed（FK 验证用）
+    db.exec(`CREATE TABLE IF NOT EXISTS dispatch_attempts (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, target_otter_id TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('in_progress','completed','failed','aborted')), source TEXT NOT NULL DEFAULT 'chain' CHECK (source IN ('chain','router','retry','backfill')), attempt_started_at TEXT NOT NULL DEFAULT (datetime('now')), attempt_finished_at TEXT, note TEXT, UNIQUE(message_id, target_otter_id), FOREIGN KEY (conversation_id) REFERENCES conversations(id))`);
+    // 父表先 seed（FK 验证用）——messages 已退役（F20260910ctlv 批4c），message_id 为弱引用文本
     db.prepare(`INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-m', 't', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`).run();
-    db.prepare(`INSERT INTO turns (id, conversation_id, turn_number, created_at) VALUES ('turn-m', 'conv-m', 1, '2026-09-01T00:00:00Z')`).run();
-    db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, created_at)
-      VALUES ('msg-m', 'conv-m', 'otter', 'otter-1', 'completed', 1, 'turn-m', '2026-09-01T00:01:00Z')`).run();
     db.prepare(`INSERT INTO otters (id, name, type, created_at) VALUES ('otter-1', 'o1', 'big', '2026-09-01T00:00:00Z')`).run();
     db.prepare(`INSERT INTO dispatch_attempts (id, conversation_id, message_id, target_otter_id, status, source, attempt_started_at, note)
       VALUES ('att-m', 'conv-m', 'msg-m', 'otter-1', 'failed', 'chain', '2026-09-01T00:02:00Z', '旧账')`).run();
@@ -677,178 +416,3 @@ describe("migrateDatabase - F20260908rlcp: dispatch_attempts table drop", () => 
   });
 });
 
-/** 幽灵 sender 回填（2026-09-04 排查）：两类身份错位的存量修复 */
-describe("migrateDatabase - backfillGhostSenders", () => {
-  let db: Database.Database;
-
-  beforeEach(() => {
-    db = createTestDb();
-  });
-
-  afterEach(() => {
-    db.close();
-  });
-
-  function seedOtter(db: Database.Database, id: string, name: string): void {
-    db.prepare(`INSERT INTO otters (id, name, type, status, created_at) VALUES (?, ?, 'big', 'active', '2026-01-01T00:00:00Z')`).run(id, name);
-  }
-
-  function seedMsg(db: Database.Database, id: string, senderType: string, senderId: string, seq: number, createdAt: string): void {
-    db.prepare(`INSERT OR IGNORE INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 't', '2026-08-19T00:00:00Z', '2026-08-19T00:00:00Z')`).run();
-    db.prepare(`INSERT OR IGNORE INTO turns (id, conversation_id, turn_number, created_at) VALUES ('turn-1', 'conv-1', 1, '2026-08-19T00:00:00Z')`).run();
-    db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, created_at)
-      VALUES (?, 'conv-1', ?, ?, 'completed', ?, 'turn-1', ?)`).run(id, senderType, senderId, seq, createdAt);
-  }
-
-  it("症状A：otter+user 幽灵回填为同会话最近的正常獭（含 sender_name）", () => {
-    seedMessage(db, "msg-1", "大獭正常发言"); // seq=1, sender=otter-1
-    seedOtter(db, "otter-1", "大獭");
-    seedMsg(db, "msg-ghost", "otter", "user", 2, "2026-08-19T03:00:00Z");
-
-    migrateDatabase(db, createTestLogger());
-
-    const row = db.prepare("SELECT sender_id, sender_name FROM messages WHERE id = 'msg-ghost'").get() as { sender_id: string; sender_name: string };
-    expect(row.sender_id).toBe("otter-1");
-    expect(row.sender_name).toBe("大獭");
-    // 正常消息不受影响
-    const normal = db.prepare("SELECT sender_id FROM messages WHERE id = 'msg-1'").get() as { sender_id: string };
-    expect(normal.sender_id).toBe("otter-1");
-  });
-
-  it("症状B：system+UUID 归一为 'system'", () => {
-    seedOtter(db, "87f172c6-uuid-of-big-otter", "大獭");
-    seedMsg(db, "msg-sys", "system", "87f172c6-uuid-of-big-otter", 3, "2026-08-19T04:00:00Z");
-
-    migrateDatabase(db, createTestLogger());
-
-    const row = db.prepare("SELECT sender_id FROM messages WHERE id = 'msg-sys'").get() as { sender_id: string };
-    expect(row.sender_id).toBe("system");
-  });
-
-  it("无同会话正常獭消息时跳过不误伤（保持原样）", () => {
-    seedMsg(db, "msg-lone-ghost", "otter", "user", 1, "2026-08-19T05:00:00Z");
-
-    migrateDatabase(db, createTestLogger());
-
-    const row = db.prepare("SELECT sender_id FROM messages WHERE id = 'msg-lone-ghost'").get() as { sender_id: string };
-    expect(row.sender_id).toBe("user"); // 不误伤：无法判定真身时不改
-  });
-
-  it("级联：同会话连续多条幽灵收敛到同一作者（双次重试场景防御锚）", () => {
-    seedMessage(db, "msg-1", "大獭正常发言"); // seq=1
-    seedOtter(db, "otter-1", "大獭");
-    seedMsg(db, "msg-ghost-a", "otter", "user", 2, "2026-08-19T03:00:00Z");
-    seedMsg(db, "msg-ghost-b", "otter", "user", 3, "2026-08-19T03:30:00Z");
-
-    migrateDatabase(db, createTestLogger());
-
-    // 事务内后一条溯源命中前一条已回填的行——收敛到同一作者，不跳过
-    const rows = db.prepare("SELECT id, sender_id, sender_name FROM messages WHERE id IN ('msg-ghost-a', 'msg-ghost-b') ORDER BY id").all() as Array<{ id: string; sender_id: string; sender_name: string }>;
-    expect(rows).toHaveLength(2);
-    for (const r of rows) {
-      expect(r.sender_id).toBe("otter-1");
-      expect(r.sender_name).toBe("大獭");
-    }
-  });
-
-  it("幂等：二次迁移零写入", () => {
-    seedMessage(db, "msg-1", "大獭正常发言");
-    seedOtter(db, "otter-1", "大獭");
-    seedMsg(db, "msg-ghost", "otter", "user", 2, "2026-08-19T03:00:00Z");
-    seedMsg(db, "msg-sys", "system", "some-uuid", 3, "2026-08-19T04:00:00Z");
-
-    migrateDatabase(db, createTestLogger());
-    migrateDatabase(db, createTestLogger()); // 二次
-
-    const ghosts = db.prepare("SELECT COUNT(*) AS c FROM messages WHERE sender_type = 'otter' AND sender_id = 'user'").get() as { c: number };
-    const sysBad = db.prepare("SELECT COUNT(*) AS c FROM messages WHERE sender_type = 'system' AND sender_id != 'system'").get() as { c: number };
-    expect(ghosts.c).toBe(0);
-    expect(sysBad.c).toBe(0);
-  });
-});
-
-/**
- * F202609048840 F4：restart_pending_resumes.status CHECK 扩展 failed（存量库重建）。
- * 恢复链 invoke 失败需标 failed（可手动重试）——老库 CHECK (pending/done/exhausted)
- * 写 failed 被 SQLite 拒绝，迁移四步重建（#608/#654/#804 同模式）。
- */
-describe("migrateDatabase - F202609048840: rebuildRestartPendingResumesStatusCheck", () => {
-  /** 模拟旧库：restart_pending_resumes 表带旧 CHECK（无 failed） */
-  function createOldResumesDb(): Database.Database {
-    const db = new Database(":memory:");
-    db.pragma("foreign_keys = ON");
-    initSchema(db);
-    db.exec("DROP TABLE restart_pending_resumes");
-    db.exec(`
-      CREATE TABLE restart_pending_resumes (
-        message_id TEXT PRIMARY KEY,
-        conversation_id TEXT NOT NULL,
-        otter_id TEXT NOT NULL,
-        attempts INTEGER NOT NULL DEFAULT 0,
-        status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'done', 'exhausted')),
-        created_at TEXT NOT NULL,
-        updated_at TEXT
-      );
-    `);
-    db.prepare(
-      "INSERT INTO restart_pending_resumes (message_id, conversation_id, otter_id, attempts, status, created_at) VALUES ('msg-old', 'conv-x', 'otter-1', 1, 'done', '2026-09-04T00:00:00Z')"
-    ).run();
-    return db;
-  }
-
-  it("老库重建：failed 可入库，旧数据完整保留", () => {
-    const db = createOldResumesDb();
-    try {
-      // 重建前：failed 被 CHECK 拒收
-      expect(() =>
-        db.prepare(
-          "INSERT INTO restart_pending_resumes (message_id, conversation_id, otter_id, attempts, status, created_at) VALUES ('msg-new', 'conv-x', 'otter-1', 1, 'failed', '2026-09-04T12:00:00Z')"
-        ).run()
-      ).toThrow();
-
-      migrateDatabase(db, createTestLogger());
-
-      // 重建后：failed 可入
-      expect(() =>
-        db.prepare(
-          "INSERT INTO restart_pending_resumes (message_id, conversation_id, otter_id, attempts, status, created_at) VALUES ('msg-new', 'conv-x', 'otter-1', 1, 'failed', '2026-09-04T12:00:00Z')"
-        ).run()
-      ).not.toThrow();
-
-      // 旧数据完整保留
-      const row = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = 'msg-old'").get() as { status: string };
-      expect(row.status).toBe("done");
-
-      // 索引重建
-      const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_restart_pending_resumes_status'").get();
-      expect(idx).toBeTruthy();
-    } finally {
-      db.close();
-    }
-  });
-
-  it("幂等：二次迁移不报错不重复重建", () => {
-    const db = createOldResumesDb();
-    try {
-      migrateDatabase(db, createTestLogger());
-      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
-    } finally {
-      db.close();
-    }
-  });
-
-  it("全新库（initSchema 已含 failed）：无需重建，直接通过", () => {
-    const db = new Database(":memory:");
-    try {
-      initSchema(db);
-      migrateDatabase(db, createTestLogger());
-      expect(() =>
-        db.prepare(
-          "INSERT INTO restart_pending_resumes (message_id, conversation_id, otter_id, attempts, status, created_at) VALUES ('msg-fresh', 'conv-x', 'otter-1', 1, 'failed', '2026-09-04T12:00:00Z')"
-        ).run()
-      ).not.toThrow();
-    } finally {
-      db.close();
-    }
-  });
-});

@@ -12,7 +12,6 @@
 import { describe, it, expect } from "vitest";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { SdkInvokePort } from "@usecases/ports/sdk-invoke-port";
-import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -22,9 +21,6 @@ import type { HealingEvent } from "@entities/healing/healing-event";
 import { createTestLogger } from "../helpers/logger";
 import { mockSendEntry } from "../helpers/mock-send-entry";
 
-function mockSendMessage(): SendMessage {
-  return {} as unknown as SendMessage;
-}
 function mockQueryMessage(): QueryMessage {
   return { getMessageById: async () => null, getMessages: async () => [], getLastMessageBySenderType: async () => null } as unknown as QueryMessage;
 }
@@ -69,7 +65,7 @@ function makeInvoker(
   opts?: { manageSession?: ManageSession; healingRepo?: HealingEventRepository },
 ): AgentInvoker {
   return new AgentInvoker(
-    sdk, mockSendMessage(), mockQueryMessage(), opts?.manageSession ?? mockManageSession(), mockQueryOtter(), createTestLogger(),
+    sdk, mockQueryMessage(), opts?.manageSession ?? mockManageSession(), mockQueryOtter(), createTestLogger(),
     undefined, undefined, undefined, undefined,
     opts?.healingRepo,
     undefined, undefined, undefined, undefined, undefined, undefined, undefined,

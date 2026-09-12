@@ -2,7 +2,6 @@ import { stripHtmlCardsOnly } from "@entities/conversation/message-body-projecti
 import { projectAttachments } from "@entities/conversation/attachment-projection";
 import type { AttachmentRef } from "@entities/conversation/attachment";
 import type { ConversationRepository } from "./conversation-repository";
-import type { QueryMessage } from "./query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
   /* eslint-disable max-lines -- F20260904ldgr 注入降级备注后 461>450；#530 护栏 +11 行；拆文件会切断 hop 取源与记账的紧耦合内聚 */
@@ -78,7 +77,6 @@ export class DispatchChainEngine {
   constructor(
     private readonly deps: {
       conversationRepo: ConversationRepository;
-      queryMessage: QueryMessage;
       queryOtter: QueryOtter;
       logger: Logger;
       maxChainDepth?: number;

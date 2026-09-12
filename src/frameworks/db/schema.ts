@@ -29,7 +29,6 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createAgentSessionsTable(db);
     createSettingsTable(db);
     createOtterContextTable(db);
-    createMessagesFtsTable(db);
     createDocumentTables(db);
     createScheduledTaskTables(db);
     createConnectionTables(db);
@@ -38,7 +37,6 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createHealthSnapshotsTable(db);
     createSignalsTable(db);
     createSignalEventsTable(db);
-    createRestartPendingResumesTable(db);
     createAttachmentTables(db);
     createPaperTradingTables(db);
     createInvokeTables(db);
@@ -99,8 +97,6 @@ function createConversationTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_conversations_status ON conversations(status);
   `);
 
-  createMessageTables(db);
-
   db.exec(`
     CREATE TABLE IF NOT EXISTS conversation_otters (
       conversation_id TEXT NOT NULL,
@@ -115,67 +111,6 @@ function createConversationTables(db: Database.Database): void {
   `);
 }
 
-/** 消息表：messages + message_events */
-function createMessageTables(db: Database.Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS messages (
-      id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      sender_type TEXT NOT NULL,
-      sender_id TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'completed',
-      sequence_num INTEGER NOT NULL,
-      turn_id TEXT NOT NULL,
-      talking_stone_passed_to TEXT,
-      context_tokens INTEGER,
-      context_tokens_max INTEGER,
-      source TEXT,
-      metadata TEXT,
-      sender_name TEXT NOT NULL DEFAULT '',
-      signal_level TEXT,
-      signal_meta TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      completed_at TEXT,
-      FOREIGN KEY (conversation_id) REFERENCES conversations(id),
-      FOREIGN KEY (turn_id) REFERENCES turns(id)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
-    CREATE INDEX IF NOT EXISTS idx_messages_seq ON messages(conversation_id, sequence_num);
-    CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status);
-    CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
-    CREATE INDEX IF NOT EXISTS idx_messages_turn_id ON messages(turn_id);
-    CREATE INDEX IF NOT EXISTS idx_messages_sender_id ON messages(sender_id);
-  `);
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS message_events (
-      id TEXT PRIMARY KEY,
-      message_id TEXT NOT NULL,
-      event_type TEXT NOT NULL,
-      payload TEXT NOT NULL,
-      sequence_num INTEGER NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (message_id) REFERENCES messages(id)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_message_events_message_seq ON message_events(message_id, sequence_num);
-    CREATE INDEX IF NOT EXISTS idx_message_events_type ON message_events(event_type);
-  `);
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS message_segments (
-      id TEXT PRIMARY KEY,
-      message_id TEXT NOT NULL,
-      body TEXT NOT NULL,
-      sequence_num INTEGER NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_message_segments_message_seq ON message_segments(message_id, sequence_num);
-  `);
-}
 
 /** 记忆上下文：memory_entries + memory_weights + FTS5 + vec0 */
 /* eslint-disable max-lines-per-function -- F20260811mrpy 加入 embedding_meta 后表增多 */
@@ -517,23 +452,6 @@ function createOtterContextTable(db: Database.Database): void {
   `);
 }
 
-/** 消息全文搜索（search_messages 工具支撑，trigram 分词）。
- *  F20260728htar：FTS 写入改应用层（repository 写剥离投影），触发器废弃。
- *  保留 DROP TRIGGER IF EXISTS：老库 sqlite_master 里已存在的触发器必须卸掉，
- *  否则"触发器写原文 + 应用层写剥离文本"双写。 */
-function createMessagesFtsTable(db: Database.Database): void {
-  db.exec(`
-    CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
-      message_id UNINDEXED,
-      body,
-      tokenize = 'trigram'
-    );
-
-    DROP TRIGGER IF EXISTS messages_fts_insert;
-    DROP TRIGGER IF EXISTS messages_fts_delete;
-    DROP TRIGGER IF EXISTS messages_fts_update;
-  `);
-}
 
 /** 文档表：features + research（F20260721qh74 文档数据模型）
  *  F20260803mval: 移除 change_type/status/exploration_type 的 CHECK 约束，
@@ -623,7 +541,7 @@ function createScheduledTaskTables(db: Database.Database): void {
       completed_at TEXT,
       status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed', 'skipped')),
       error_message TEXT,
-      message_id TEXT REFERENCES messages(id),
+      message_id TEXT,
       turn_id TEXT REFERENCES turns(id)
     );
 
@@ -800,24 +718,6 @@ function createSignalEventsTable(db: Database.Database): void {
   `);
 }
 
-/** 服务重启自动恢复队列（F20260826rsme）：
- *  reconcile 阶段识别可恢复中断写入，启动完成后 ResumeInterruptedService 消费。
- *  message_id 主键幂等；attempts 原子自增守卫防二次重启循环恢复（8/24 自重启循环教训）。 */
-function createRestartPendingResumesTable(db: Database.Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS restart_pending_resumes (
-      message_id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      otter_id TEXT NOT NULL,
-      attempts INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'done', 'exhausted', 'failed')),
-      created_at TEXT NOT NULL,
-      updated_at TEXT
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_restart_pending_resumes_status ON restart_pending_resumes(status);
-  `);
-}
 
 /** 纸面交易账户表（PR4 账本引擎） */
 function createPaperTradingTables(db: Database.Database): void {
@@ -922,7 +822,7 @@ function createPaperTradingTables(db: Database.Database): void {
 
 
 
-/** 附件表（多模态 Phase 1）：attachments + message_attachments。
+/** 附件表（多模态 Phase 1）：attachments（message_attachments 已随批4c 删除，关联走 entry_attachments）。
  *  附件与消息解耦（先上传拿 ID 再随消息引用）；sha256+uploader 唯一索引支持去重
  *  （撞唯一索引返回已有行 id）。F20260728htar 死字段教训：每字段消费方见特性文档。 */
 function createAttachmentTables(db: Database.Database): void {
@@ -944,17 +844,6 @@ function createAttachmentTables(db: Database.Database): void {
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_sha ON attachments(sha256, uploader_id);
     CREATE INDEX IF NOT EXISTS idx_attachments_uploader ON attachments(uploader_id);
-
-    CREATE TABLE IF NOT EXISTS message_attachments (
-      message_id TEXT NOT NULL,
-      attachment_id TEXT NOT NULL,
-      sequence_num INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (message_id, attachment_id),
-      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
-      FOREIGN KEY (attachment_id) REFERENCES attachments(id)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_message_attachments_attachment ON message_attachments(attachment_id);
   `);
 }
 

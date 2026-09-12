@@ -6,7 +6,6 @@
  */
 
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
-import type { MessageEventInput } from "@usecases/conversation/send-message";
 import type { InvokeEventType } from "@entities/conversation/invoke";
 import type { SSEEvent } from "@contract/sse/events";
 
@@ -64,32 +63,6 @@ export function mapToSSEEvent(e: AgentStreamEvent): SSEEvent | null {
     case "agent_end":
       return { event: "agent.idle", data: {} };
     default:
-      return null;
-  }
-}
-
-/** 从 message_end 事件提取可存储的 MessageEventInput */
-export function mapMessageEndEvent(e: AgentStreamEvent, messageId: string): MessageEventInput | null {
-  const extracted = extractAssistantContent(e);
-  if (!extracted) return null;
-  const eventType = extracted.type === "toolcall" ? "assistant_toolcall" : "assistant_text";
-  return { messageId, eventType, payload: { content: extracted.blocks } };
-}
-
-/** Pi 事件 -> MessageEventInput 映射（持久化到 DB） */
-export function mapToMessageEventInput(
-  e: AgentStreamEvent,
-  messageId: string,
-): MessageEventInput | null {
-  switch (e.type) {
-    case "tool_execution_end":
-      return { messageId, eventType: "tool_result", payload: { name: e.name ?? e.toolName, result: e.result } };
-    case "message_end":
-      return mapMessageEndEvent(e, messageId);
-    default:
-      if (String(e.type).includes("error")) {
-        return { messageId, eventType: "error", payload: { message: String(e.error ?? e.message ?? "Unknown error") } };
-      }
       return null;
   }
 }

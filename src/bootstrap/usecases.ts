@@ -17,7 +17,6 @@ import { CreateEdge } from "@usecases/memory/create-edge";
 import { GetRelated } from "@usecases/memory/get-related";
 import { DeleteEdge } from "@usecases/memory/delete-edge";
 import { GetDocProvenance } from "@usecases/memory/get-doc-provenance";
-import { SendMessage } from "@usecases/conversation/send-message";
 import { QueryMessage } from "@usecases/conversation/query-message";
 import { RecordSearchQuery } from "@usecases/memory/record-search-query";
 import { ManageReadState } from "@usecases/conversation/manage-read-state";
@@ -58,7 +57,6 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const { repos, entryRepo, invokeRepo, agentGateway, embeddingService, memoryIndex, appConfig, logger, workspaceGateway, otterConfigProvider, modelPool } = deps;
   const memoryUcs = buildMemoryUseCases(repos, embeddingService, appConfig, logger);
   const { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries } = memoryUcs;
-  const sendMessage = new SendMessage(repos.conversation, repos.otter, memoryIndex, logger, repos.attachment);
   // F20260910ctlv 彻底切换：未读状态读 entries
   const queryMessage = new QueryMessage(repos.conversation, entryRepo);
   // F20260826rcmm Phase 0：检索埋点（评估基线数据源）
@@ -67,9 +65,10 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const manageReadState = new ManageReadState(repos.conversation, entryRepo);
   // 信号轨迹查询退役（F20260908rlcp）
   const manageParticipant = new ManageParticipant(
-    repos.conversation, repos.otter, otterConfigProvider, modelPool,
-    // F20260910ctlv 彻底切换：进场/退场系统消息走 system entry（messages 停写）
+    repos.conversation, repos.otter,
+    // F20260910ctlv 批4c：进场/退场 system entry（必注入）
     { entryRepo, invokeRepo },
+    otterConfigProvider, modelPool,
   );
   const manageKeyInfo = new ManageKeyInfo(repos.conversation, memoryIndex);
   const queryOtter = new QueryOtter(repos.otter);
@@ -101,7 +100,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const sendEntry = new SendEntry(entryRepo, invokeRepo, repos.otter, repos.conversation, { logger, resolveDeps });
   return {
     manageConversation, manageMemory, manageTerminology, searchMemory, scanDarkEntries,
-    sendMessage, queryMessage, manageReadState, manageParticipant, manageKeyInfo, recordSearchQuery,
+    queryMessage, manageReadState, manageParticipant, manageKeyInfo, recordSearchQuery,
     // querySignalTrail 退役（F20260908rlcp）
     queryOtter, createOtter, manageSession, dissolveOtter, manageContext,
     manageScheduledTask, manageConnection,

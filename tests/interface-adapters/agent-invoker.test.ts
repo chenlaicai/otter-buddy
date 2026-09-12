@@ -14,7 +14,6 @@
 import { describe, it, expect } from "vitest";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { SdkInvokePort, AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
-import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -23,11 +22,6 @@ import type { HealingEventRepository } from "@usecases/healing/healing-event-rep
 import { createTestLogger } from "../helpers/logger";
 import { mockSendEntry } from "../helpers/mock-send-entry";
 
-function mockSendMessage(): SendMessage {
-  return {
-    sendSystem: async () => { throw new Error("sendMessage.sendSystem should not be called (entries era)"); },
-  } as unknown as SendMessage;
-}
 
 function mockQueryMessage(): QueryMessage {
   return { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage;
@@ -91,7 +85,6 @@ function makeInvoker(
 ): AgentInvoker {
   return new AgentInvoker(
     sdk,
-    mockSendMessage(),
     mockQueryMessage(),
     opts?.manageSession ?? mockManageSession(),
     mockQueryOtter(),

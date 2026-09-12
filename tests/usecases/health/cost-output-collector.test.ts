@@ -100,28 +100,21 @@ describe("collectOtterOutput", () => {
     // 插入消息数据（用 conversation 的依赖数据）
     db.prepare("INSERT INTO conversations (id, title) VALUES (?, ?)").run("conv-1", "test");
     db.prepare("INSERT INTO turns (id, conversation_id, turn_number) VALUES (?, ?, ?)").run("turn-1", "conv-1", 1);
-    // 插入不同日期的 otter 消息
-    db.prepare(`
-      INSERT INTO messages (id, conversation_id, sender_type, sender_id, sequence_num, turn_id, sender_name, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run("m1", "conv-1", "otter", "otter-aaa", 1, "turn-1", "大獭", "2026-08-28 10:00:00");
-    db.prepare(`
-      INSERT INTO messages (id, conversation_id, sender_type, sender_id, sequence_num, turn_id, sender_name, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run("m2", "conv-1", "otter", "otter-aaa", 2, "turn-1", "大獭", "2026-08-28 11:00:00");
-    db.prepare(`
-      INSERT INTO messages (id, conversation_id, sender_type, sender_id, sequence_num, turn_id, sender_name, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run("m3", "conv-1", "otter", "otter-bbb", 3, "turn-1", "小獭甲", "2026-08-28 12:00:00");
-    db.prepare(`
-      INSERT INTO messages (id, conversation_id, sender_type, sender_id, sequence_num, turn_id, sender_name, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run("m4", "conv-1", "otter", "otter-aaa", 4, "turn-1", "大獭", "2026-08-29 09:00:00");
+    // 插入不同日期的獭 speak entries（F20260910ctlv 批4c：messages 表已 drop）
+    const seedEntry = (id: string, seq: number, senderId: string, senderName: string, createdAt: string) =>
+      db.prepare(`
+        INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, turn_id, status, sender_name, created_at, completed_at)
+        VALUES (?, 'conv-1', ?, 'speak', 'otter', ?, '气泡', NULL, NULL, 'turn-1', 'completed', ?, ?, ?)
+      `).run(id, seq, senderId, senderName, createdAt, createdAt);
+    seedEntry("m1", 1, "otter-aaa", "大獭", "2026-08-28 10:00:00");
+    seedEntry("m2", 2, "otter-aaa", "大獭", "2026-08-28 11:00:00");
+    seedEntry("m3", 3, "otter-bbb", "小獭甲", "2026-08-28 12:00:00");
+    seedEntry("m4", 4, "otter-aaa", "大獭", "2026-08-29 09:00:00");
     // user 消息不应被计入
     db.prepare(`
-      INSERT INTO messages (id, conversation_id, sender_type, sender_id, sequence_num, turn_id, sender_name, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run("m5", "conv-1", "user", "user-1", 5, "turn-1", "搭档", "2026-08-28 09:00:00");
+      INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, turn_id, status, sender_name, created_at, completed_at)
+      VALUES ('m5', 'conv-1', 5, 'user', 'user', 'user-1', '用户发言', NULL, NULL, 'turn-1', 'completed', '搭档', '2026-08-28 09:00:00', '2026-08-28 09:00:00')
+    `).run();
   });
 
   afterEach(() => {

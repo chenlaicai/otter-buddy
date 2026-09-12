@@ -29,7 +29,6 @@ describe("ManageParticipant（真 sqlite）", () => {
   let db: Database.Database;
   let repo: SqliteConversationRepository;
   let otterRepo: SqliteOtterRepository;
-  let mp: ManageParticipant;
   /** entry 路径实例（F20260910ctlv：进场/退场 system entry） */
   let mpEntry: ManageParticipant;
   let entryRepo: SqliteEntryRepository;
@@ -39,8 +38,7 @@ describe("ManageParticipant（真 sqlite）", () => {
     repo = new SqliteConversationRepository(db);
     otterRepo = new SqliteOtterRepository(db);
     entryRepo = new SqliteEntryRepository(db);
-    mp = new ManageParticipant(repo, otterRepo);
-    mpEntry = new ManageParticipant(repo, otterRepo, undefined, undefined, {
+    mpEntry = new ManageParticipant(repo, otterRepo, {
       entryRepo,
       invokeRepo: new SqliteInvokeRepository(db),
     });
@@ -96,24 +94,13 @@ describe("ManageParticipant（真 sqlite）", () => {
       expect(entry.entryType).toBe("system");
       expect(entry.body).toBe("小獭进场了");
       expect(entry.status).toBe("completed");
-      // entry 路径不写 messages
-      const messages = await repo.getMessages("conv-1", {});
-      expect(messages).toHaveLength(0);
+      // entry 路径写 entries（messages 表已 drop）
+      const sysEntries = await entryRepo.getEntries("conv-1", { entryType: "system", limit: 5 });
+      expect(sysEntries.some(e => e.body === "小獭进场了")).toBe(true);
 
       /** 真 DB 断言 */
       const stored = await repo.getParticipant("conv-1", "otter-1");
       expect(stored).not.toBeNull();
-    });
-
-    it("未注入 entryDeps 时降级 messages 路径（旧装配兼容）", async () => {
-      const result = await mp.join("conv-1", "otter-1", "小獭进场了");
-
-      expect(result.participant.status).toBe("active");
-      // 降级路径返回 Message
-      expect("segments" in result.systemMessage).toBe(true);
-      const messages = await repo.getMessages("conv-1", {});
-      expect(messages).toHaveLength(1);
-      expect(messages[0].senderType).toBe("system");
     });
 
     it("已进场的 Otter 再次进场抛出 conflict 错误", async () => {
@@ -161,11 +148,11 @@ describe("ManageParticipant（真 sqlite）", () => {
 
   describe("getActiveParticipants", () => {
     it("返回带 Otter 名称的参与者列表", async () => {
-      await mp.join("conv-1", "otter-1", "A 进场");
+      await mpEntry.join("conv-1", "otter-1", "A 进场");
       await newTurn();
-      await mp.join("conv-1", "otter-2", "B 进场");
+      await mpEntry.join("conv-1", "otter-2", "B 进场");
 
-      const result = await mp.getActiveParticipants("conv-1");
+      const result = await mpEntry.getActiveParticipants("conv-1");
 
       expect(result).toHaveLength(2);
       const byOtter = new Map(result.map((r) => [r.participant.otterId, r.otterName]));
@@ -174,14 +161,14 @@ describe("ManageParticipant（真 sqlite）", () => {
     });
 
     it("Otter 行被删除后使用回退名称", async () => {
-      await mp.join("conv-1", "otter-missing-abc12345", "幽灵进场");
+      await mpEntry.join("conv-1", "otter-missing-abc12345", "幽灵进场");
       /** 生产 foreignKeys 由配置决定（可 OFF）：孤儿参与者真实存在（如 otter 被硬删）。
        *  此处关 FK 复现该场景 */
       db.pragma("foreign_keys = OFF");
       await otterRepo.deleteOtter("otter-missing-abc12345");
       db.pragma("foreign_keys = ON");
 
-      const result = await mp.getActiveParticipants("conv-1");
+      const result = await mpEntry.getActiveParticipants("conv-1");
 
       expect(result).toHaveLength(1);
       /** 回退名称格式：Otter {id.slice(0,8)} */
@@ -192,7 +179,7 @@ describe("ManageParticipant（真 sqlite）", () => {
       const configProvider = new SqliteOtterConfigProvider(db);
       configProvider.setConfig("otter-1", { otterType: "small", modelAlias: "mimo" });
       configProvider.setConfig("otter-2", { otterType: "small" });
-      const mpWithConfig = new ManageParticipant(repo, otterRepo, configProvider);
+      const mpWithConfig = new ManageParticipant(repo, otterRepo, { entryRepo, invokeRepo: new SqliteInvokeRepository(db) }, configProvider);
       await mpWithConfig.join("conv-1", "otter-1", "A 进场");
       await newTurn();
       await mpWithConfig.join("conv-1", "otter-2", "B 进场");
@@ -205,9 +192,9 @@ describe("ManageParticipant（真 sqlite）", () => {
     });
 
     it("不注入 configProvider 时 modelAlias 为 undefined（老数据兼容）", async () => {
-      await mp.join("conv-1", "otter-1", "A 进场");
+      await mpEntry.join("conv-1", "otter-1", "A 进场");
 
-      const result = await mp.getActiveParticipants("conv-1");
+      const result = await mpEntry.getActiveParticipants("conv-1");
 
       expect(result).toHaveLength(1);
       expect(result[0].modelAlias).toBeUndefined();

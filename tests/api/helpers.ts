@@ -386,6 +386,7 @@ export interface TestDeps {
   invokeRepo?: any;
   /** F20260910ctlv 切换清扫：entry repo（时间线只读查询端点；缺省用内存 stub） */
   entryRepo?: any;
+  /** F20260910ctlv 批4c：QueryMessage 收缩后仅 getUnreadState + getTurnsForTool（MessageController GET 路由用） */
   queryMessage: any;
   agentInvoker: any;
   manageReadState: any;
@@ -426,7 +427,6 @@ export function createTestApp(deps: TestDeps): Hono {
 
   const dispatchChainEngine = new DispatchChainEngine({
     conversationRepo: deps.conversationRepo,
-    queryMessage: deps.queryMessage,
     queryOtter: deps.queryOtter,
     logger,
     maxChainDepth: 20,
@@ -553,7 +553,7 @@ export function createMockDeps(): TestDeps {
       updateLastReadTurnNumber: vi.fn().mockResolvedValue(undefined),
       getActiveParticipants: vi.fn().mockResolvedValue([]),
     },
-    queryMessage: mockMethods(["getMessageById", "getMessages", "getMessageEvents", "searchMessages", "getTurnHistory", "expandMessage"]),
+    queryMessage: mockMethods(["getUnreadState", "getTurnsForTool"]),
     agentInvoker: mockMethods(["invokeConversation", "abort"]),
     manageReadState: { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) },
     createOtterUseCase: mockMethods(["execute"]),

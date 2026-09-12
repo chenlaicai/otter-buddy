@@ -132,7 +132,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
       return inv as never;
     };
     const invoker = new AgentInvoker(
-      invoke, {} as never, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
+      invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       mockManageSession, queryOtter, createTestLogger(),
       undefined, undefined, undefined, undefined, healing.repo,
       undefined, undefined, undefined, undefined, undefined, undefined, undefined,
@@ -181,7 +181,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     ]);
     const invoke = mockAgentInvoke([{ guard: 2 }]);
     const invoker = new AgentInvoker(
-      invoke, {} as never, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
+      invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       mockManageSession, queryOtter, createTestLogger(),
       undefined, undefined, undefined, undefined, healing.repo,
       undefined, undefined, undefined, undefined, undefined, undefined, undefined,
@@ -219,7 +219,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     ]);
     const invoke = mockAgentInvoke([{ guard: 2 }, { done: true }]);
     const invoker = new AgentInvoker(
-      invoke, {} as never, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
+      invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       mockManageSession, queryOtter, createTestLogger(),
       undefined, undefined, undefined, undefined, healing.repo,
       undefined, undefined, undefined, undefined, undefined, undefined, undefined,
@@ -244,7 +244,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     const healing = mockHealingRepo([], { failQuery: true });
     const invoke = mockAgentInvoke([{ guard: 2 }]);
     const invoker = new AgentInvoker(
-      invoke, {} as never, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
+      invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       mockManageSession, queryOtter, createTestLogger(),
       undefined, undefined, undefined, undefined, healing.repo,
       undefined, undefined, undefined, undefined, undefined, undefined, undefined,
@@ -272,7 +272,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     ]);
     const invoke = mockAgentInvoke([{ guard: 2 }]);
     const invoker = new AgentInvoker(
-      invoke, {} as never, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
+      invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       mockManageSession, queryOtter, createTestLogger(),
       undefined, undefined, undefined, undefined, healing.repo,
       undefined, undefined, undefined, undefined, undefined, undefined, undefined,

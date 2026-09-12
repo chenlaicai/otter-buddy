@@ -1,3 +1,4 @@
+// lint-tests:allow-ddl —— 迁移测试需手工补建 messages 族旧表 DDL（模拟存量库形态——生产 schema 已删除旧表，迁移函数仍须可跑）
 /**
  * F20260910ctlv 收尾批4b：messages → entries 幂等回填迁移测试（真 sqlite）。
  *
@@ -15,7 +16,56 @@ let db: Database.Database;
 
 beforeEach(() => {
   db = createTestDb();
+  ensureLegacyTables();
 });
+
+/** F20260910ctlv 批4c：新库已无 messages 族表——本测试模拟「存量库」形态：
+ *  手工补建旧表 DDL（生产 schema 已删），让迁移有对象可迁。 */
+function ensureLegacyTables(): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      sender_type TEXT NOT NULL,
+      sender_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      sequence_num INTEGER NOT NULL,
+      turn_id TEXT,
+      talking_stone_passed_to TEXT,
+      source TEXT NOT NULL DEFAULT 'web',
+      metadata TEXT,
+      signal_level TEXT,
+      signal_meta TEXT,
+      sender_name TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      completed_at TEXT,
+      context_tokens INTEGER,
+      context_tokens_max INTEGER,
+      invoke_group_id TEXT,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+    );
+    CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(message_id UNINDEXED, body);
+    CREATE TABLE IF NOT EXISTS message_attachments (
+      message_id TEXT NOT NULL,
+      attachment_id TEXT NOT NULL,
+      sequence_num INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (message_id, attachment_id),
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS message_segments (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      body TEXT NOT NULL,
+      sequence_num INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+    );
+  `);
+  // 幂等键也一并清掉（新库首启时标了 done 且表为空）
+  db.prepare("DELETE FROM settings WHERE key = 'messages_to_entries_migrated'").run();
+  db.prepare("DELETE FROM settings WHERE key = 'messages_fts_stripped_rebuild'").run();
+}
+
 
 afterEach(() => {
   db.close();
@@ -56,6 +106,7 @@ function seedConversation(convId: string): void {
  *  seed 数据后需清幂等键重跑（模拟存量库首启） */
 function runMigration(): void {
   db.prepare("DELETE FROM settings WHERE key = 'messages_to_entries_migrated'").run();
+  db.prepare("DELETE FROM settings WHERE key = 'messages_fts_stripped_rebuild'").run();
   migrateDatabase(db, createTestLogger());
 }
 
@@ -137,9 +188,9 @@ describe("migrateMessagesToEntries（F20260910ctlv 批4b）", () => {
 
     runMigration();
 
-    // messages 原行被置 failed（非破坏表的状态修正——reconcile 同语义）
-    const msg = db.prepare("SELECT status FROM messages WHERE id = 'm-s'").get() as { status: string };
-    expect(msg.status).toBe("failed");
+    // F20260910ctlv 批4c：迁移通过后旧表直接 drop——streaming 语义只体现在 entry 的 invokeStatus
+    const hasMsgTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get();
+    expect(hasMsgTable).toBeUndefined();
     const entry = getEntries("conv-4")[0];
     expect(JSON.parse(entry.metadata as string).invokeStatus).toBe("failed");
   });

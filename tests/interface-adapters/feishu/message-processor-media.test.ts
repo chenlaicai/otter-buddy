@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Readable } from "node:stream";
 import { FeishuMessageProcessor } from "@interface-adapters/feishu/message-processor";
 import type { ManageConnection } from "@usecases/im/manage-connection";
-import type { SendMessage } from "@usecases/conversation/send-message";
 import type { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
 import type { FeishuGateway } from "@usecases/im/feishu-gateway";
 import type { FeishuResourceGateway } from "@usecases/im/feishu-resource-gateway";
@@ -36,7 +35,6 @@ function makeDeps(overrides?: {
       ensureConnection: vi.fn().mockResolvedValue({ id: "conn-1" }),
       getCurrentConversation: vi.fn().mockResolvedValue({ id: "conv-1", title: "测试" }),
     } as unknown as ManageConnection,
-    sendMessage: { send } as unknown as SendMessage,
     sendEntry: {
       sendUserEntry: async (input: { body: string; senderId: string; attachmentIds?: string[] }) => {
         send({ conversationId: "conv-1", senderId: input.senderId, senderType: "user", talkingStonePassedTo: [], body: input.body, ...(input.attachmentIds ? { attachmentIds: input.attachmentIds } : {}) });

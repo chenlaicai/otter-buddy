@@ -142,9 +142,13 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
    *  老库 CHECK (pending/done/exhausted) 写 failed 会被 SQLite 拒绝，四步重建（#608/#654/#804 同模式）。 */
   rebuildRestartPendingResumesStatusCheck(db, logger);
 
-  /** F20260910ctlv 收尾批4b：messages → entries 幂等回填迁移（非破坏；drop 归批 4c）。
-   *  主库线上服务跑旧码（无 entries 表写入），合并重启后首启在此执行一次性迁移。 */
+  /** F20260910ctlv 收尾批4b：messages → entries 幂等回填迁移（先迁后 drop——4c）。 */
   migrateMessagesToEntries(db, logger);
+
+  /** F20260910ctlv 收尾批4c：messages 族六张表 drop（迁移完成 + 对账通过才执行）。
+   *  保险丝：逐对话对账 entries ≥ 原 messages 数（yield 合成行只增不减），
+   *  任一对话对不上即中止 drop 并 warn（备份可回放，服务继续跑——只留死数据不炸）。 */
+  dropLegacyMessagesTables(db, logger);
 }
 
 /** 幽灵 sender 回填（2026-09-04 排查）：修复两类发言者身份错位。
@@ -159,6 +163,11 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
  *  - 症状 B：sender_id 归一 'system'（与修复后的 createSystemMessage 一致）。
  *  幂等：症状命中才 UPDATE；重跑无命中即无写入。 */
 function backfillGhostSenders(db: Database.Database, logger: Logger): void {
+  if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
+    // F20260910ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    return;
+  }
+
   // 症状 B：system + 非 'system' UUID → 'system'（scheduler 修正前的存量）
   const sysResult = db.prepare(
     "UPDATE messages SET sender_id = 'system' WHERE sender_type = 'system' AND sender_id != 'system'",
@@ -291,6 +300,11 @@ function addBodyHashColumns(db: Database.Database, logger: Logger): void {
 
 /** F20260805rbrg：messages.metadata TEXT 列存外部 ID 等查重信息。PRAGMA 探测幂等。 */
 function addMessagesMetadataColumn(db: Database.Database, logger: Logger): void {
+  if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
+    // F20260910ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    return;
+  }
+
   const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
   if (!columns.some(col => col.name === 'metadata')) {
     db.prepare("ALTER TABLE messages ADD COLUMN metadata TEXT").run();
@@ -355,6 +369,11 @@ function addDocProvenanceColumns(db: Database.Database, logger: Logger): void {
  * 注：html-card 是本特性新语法，历史消息本无此类围栏，rebuild 实为防御性一致性措施。
  */
 function rebuildMessagesFtsStripped(db: Database.Database, logger: Logger): void {
+  if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
+    // F20260910ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    return;
+  }
+
   const done = db.prepare("SELECT value FROM settings WHERE key = 'messages_fts_stripped_rebuild'")
     .get() as { value: string } | undefined;
   if (done?.value === 'done') return;
@@ -428,6 +447,11 @@ function rows_count_hint(db: Database.Database): number {
  * 以 PRAGMA 探测列存在性作天然幂等（DROP COLUMN 需 SQLite 3.35+，better-sqlite3 捆绑版本满足）。
  */
 function dropMessagesAttachmentsColumn(db: Database.Database, logger: Logger): void {
+  if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
+    // F20260910ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    return;
+  }
+
   const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
   const hasAttachments = columns.some(col => col.name === 'attachments');
   if (!hasAttachments) return;
@@ -672,6 +696,11 @@ function ensureHealingEventsIntroducedByPrColumn(db: Database.Database, logger: 
 /** F20260901sgp0 P0: messages 表添加 signal_level / signal_meta 列（信号协议铺轨）。
  *  存量行 NULL = 无信号语义（向后兼容）。PRAGMA 探测幂等。 */
 function ensureMessagesSignalColumns(db: Database.Database, logger: Logger): void {
+  if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
+    // F20260910ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    return;
+  }
+
   const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
   if (!columns.some(col => col.name === 'signal_level')) {
     db.prepare("ALTER TABLE messages ADD COLUMN signal_level TEXT").run();
@@ -698,6 +727,11 @@ function ensureMessagesSignalColumns(db: Database.Database, logger: Logger): voi
  *  2. 移除 messages.body 列（SQLite 3.35+ DROP COLUMN，降级时跳过））
  */
 export function migrateMessageSegments(db: Database.Database, logger: Logger): void {
+  if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
+    // F20260910ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    return;
+  }
+
   const done = db.prepare("SELECT value FROM settings WHERE key = 'message_segments_migrated'").get() as { value: string } | undefined;
   if (done?.value === 'done') return;
 
@@ -748,6 +782,11 @@ function ensureAgentSessionFileColumn(db: Database.Database, logger: Logger): vo
 /** messages 表补 source + sender_name 列（PRAGMA 探测幂等，自 migrateDatabase 拆出；
  *  sender_name 为 F20260824snrs 发送者显示名快照） */
 function ensureMessagesSourceAndSenderNameColumns(db: Database.Database, logger: Logger): void {
+  if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
+    // F20260910ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    return;
+  }
+
   const msgColumns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
   if (!msgColumns.some(col => col.name === 'source')) {
     db.prepare("ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT 'web'").run();
@@ -787,7 +826,7 @@ function rebuildExecutionsStatusCheck(db: Database.Database, logger: Logger): vo
         completed_at TEXT,
         status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed', 'skipped')),
         error_message TEXT,
-        message_id TEXT REFERENCES messages(id),
+        message_id TEXT,
         turn_id TEXT REFERENCES turns(id)
       );
       INSERT INTO scheduled_task_executions_new (id, task_id, triggered_at, completed_at, status, error_message, message_id, turn_id)
@@ -981,13 +1020,10 @@ function messageToEntryRows(
  *  不直接沿用原 message.sequence_num——yield 合成行需要独立序号，
  *  与重叠路径同构的重排保证单调且无空洞。 */
 /** 写入工具包（entry 行 + FTS 行——迁移子函数共享） */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 interface MigrationWriters {
   insertEntry: { run: (params: any) => unknown };
   insertFts: { run: (...args: any[]) => unknown };
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
-
 /** segments 预载（10224 条量级，一次拉全量进内存 Map） */
 function preloadSegments(db: Database.Database): Map<string, Array<{ body: string }>> {
   const rows = db.prepare(
@@ -1106,11 +1142,15 @@ function makeConversationMigrator(deps: {
       renumbered = { conversationId, from: existingInConv.length, to: mergedCount };
     }
 
-    const attRows = db.prepare(
-      "SELECT message_id, attachment_id, sequence_num FROM message_attachments WHERE message_id IN (SELECT id FROM messages WHERE conversation_id = ?)",
-    ).all(conversationId) as Array<{ message_id: string; attachment_id: string; sequence_num: number }>;
-    for (const att of attRows) {
-      insertEntryAttachment.run(att.message_id, att.attachment_id, att.sequence_num);
+    // F20260910ctlv 批4c：message_attachments 可能已 drop（防御守卫）
+    const hasMsgAtt = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='message_attachments'").get();
+    if (hasMsgAtt) {
+      const attRows = db.prepare(
+        "SELECT message_id, attachment_id, sequence_num FROM message_attachments WHERE message_id IN (SELECT id FROM messages WHERE conversation_id = ?)",
+      ).all(conversationId) as Array<{ message_id: string; attachment_id: string; sequence_num: number }>;
+      for (const att of attRows) {
+        insertEntryAttachment.run(att.message_id, att.attachment_id, att.sequence_num);
+      }
     }
 
     onStats({ inserted: pendingRows.length, yield: pendingRows.filter(r => r.entry_type === 'yield').length, skipped, renumbered });
@@ -1203,4 +1243,49 @@ function remapReadCursors(db: Database.Database, conversationId: string, maxNew:
   for (const row of partRows) {
     updatePart.run(Math.min(row.last_read_seq, maxNew), conversationId, row.otter_id);
   }
+}
+
+
+/** F20260910ctlv 收尾批4c：messages 族旧表 drop（六张 + 对账保险丝）。
+ *  前置：migrateMessagesToEntries 已标 done（幂等键）；messages 表不存在（新库/已 drop）
+ *  直接过。对账：逐对话 entries 条数 ≥ messages 条数——迁移只会增行（yield 合成），
+ *  少于即迁移遗漏，中止 drop。 */
+function dropLegacyMessagesTables(db: Database.Database, logger: Logger): void {
+  const tableExists = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='messages'",
+  ).get() as { name: string } | undefined;
+  if (!tableExists) return;
+
+  /** 对账：任一对话 entries < messages → 迁移遗漏，中止 */
+  const mismatches = db.prepare(`
+    SELECT m.conversation_id, COUNT(DISTINCT m.id) AS msg_count,
+      (SELECT COUNT(*) FROM entries e WHERE e.conversation_id = m.conversation_id) AS entry_count
+    FROM messages m
+    GROUP BY m.conversation_id
+    HAVING entry_count < msg_count
+  `).all() as Array<{ conversation_id: string; msg_count: number; entry_count: number }>;
+  if (mismatches.length > 0) {
+    logger.warn(
+      `[messages→entries] Reconciliation FAILED: ${mismatches.length} conversation(s) have fewer entries than messages — aborting legacy table drop (backup & replay path applies)`,
+      { firstCases: mismatches.slice(0, 5) },
+    );
+    return;
+  }
+
+  const msgCount = (db.prepare("SELECT COUNT(*) AS c FROM messages").get() as { c: number }).c;
+  logger.info(`[messages→entries] Reconciliation passed — dropping legacy tables (migrated ${msgCount} messages)`, {});
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.exec(`
+      DROP TABLE IF EXISTS messages;
+      DROP TABLE IF EXISTS message_events;
+      DROP TABLE IF EXISTS message_segments;
+      DROP TABLE IF EXISTS message_attachments;
+      DROP TABLE IF EXISTS messages_fts;
+      DROP TABLE IF EXISTS restart_pending_resumes;
+    `);
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+  logger.info('[messages→entries] Dropped legacy tables: messages / message_events / message_segments / message_attachments / messages_fts / restart_pending_resumes (F20260910ctlv 批4c)', {});
 }

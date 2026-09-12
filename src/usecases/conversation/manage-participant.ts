@@ -30,13 +30,12 @@ export class ManageParticipant {
   constructor(
     private readonly repo: ConversationRepository,
     private readonly otterRepo: OtterRepository,
+    /** F20260910ctlv 批4c：系统消息写入依赖（进场/退场 system entry + turn 关闭判据）——必注入 */
+    private readonly entryDeps: { entryRepo: EntryRepository; invokeRepo: InvokeRepository },
     /** 可选：老数据/测试场景无 config 注入时 modelAlias 缺省不返回 */
     private readonly configProvider?: OtterConfigProvider,
     /** F20260908efmd: 可选——用于有效模型解析。未注入时 modelAlias 降级为配置裸值（旧行为） */
     private readonly modelPool?: ModelPoolLike,
-    /** F20260910ctlv：系统消息写入依赖（进场/退场 system entry + turn 关闭判据）。
-     *  未注入时降级旧 messages 路径（兼容旧装配/测试桩） */
-    private readonly entryDeps?: { entryRepo: EntryRepository; invokeRepo: InvokeRepository },
   ) {}
 
   /**
@@ -100,9 +99,9 @@ export class ManageParticipant {
     otterId: string,
     body: string,
     now: string,
-  ): Promise<Message | Entry> {
-    if (this.entryDeps) {
-      const entry: Entry = {
+  ): Promise<Entry> {
+    // F20260910ctlv 批4c：messages 降级路径删除（entryDeps 必注入——装配唯一路径）
+    const entry: Entry = {
         id: crypto.randomUUID(),
         conversationId,
         sequenceNum: 0, // 原子分配（createEntryAtomic 忽略入参）
@@ -119,36 +118,12 @@ export class ManageParticipant {
         senderName: "system",
         contextTokens: null,
         contextTokensMax: null,
-        createdAt: now,
-        completedAt: now,
-      };
-      return this.entryDeps.entryRepo.createEntryAtomic(entry);
-    }
-    // 旧降级路径：messages 表（未注入 entryDeps 的旧装配/测试）
-    const messageId = crypto.randomUUID();
-    const sequenceNum = (await this.repo.getMaxSequenceNum(conversationId)) + 1;
-    const systemMessage: Message = {
-      id: messageId,
-      conversationId,
-      turnId,
-      senderType: "system",
-      senderId: otterId,
-      talkingStonePassedTo: [],
-      status: "completed",
-      segments: [],
-      sequenceNum,
-      contextTokens: null,
-      contextTokensMax: null,
-      source: "web",
-      senderName: '',
       createdAt: now,
       completedAt: now,
     };
-    await this.repo.createCompletedMessage(systemMessage);
-    const seg = await this.repo.appendSegment(messageId, body);
-    systemMessage.segments = [seg];
-    return systemMessage;
+    return this.entryDeps.entryRepo.createEntryAtomic(entry);
   }
+
 
   /** F20260910ctlv 批4a：turn 关闭（invokes 判据；messages 降级分支已删） */
   private async closeTurnAfterRecord(turnId: string): Promise<void> {

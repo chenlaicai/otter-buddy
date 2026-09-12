@@ -355,17 +355,18 @@ export function collectOtterOutput(
 ): OtterOutputRecord[] {
   const since = options?.since ?? new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
+  // F20260910ctlv 批4c：数据源切 entries（speak = 獭气泡产出；messages 表已 drop）
   const rows = db.prepare(`
     SELECT
-      DATE(m.created_at) AS date,
-      m.sender_id AS otterId,
-      COALESCE(o.name, m.sender_name, m.sender_id) AS otterName,
+      DATE(e.created_at) AS date,
+      e.sender_id AS otterId,
+      COALESCE(o.name, e.sender_name, e.sender_id) AS otterName,
       COUNT(*) AS messageCount
-    FROM messages m
-    LEFT JOIN otters o ON o.id = m.sender_id
-    WHERE m.sender_type = 'otter'
-      AND DATE(m.created_at) >= ?
-    GROUP BY DATE(m.created_at), m.sender_id
+    FROM entries e
+    LEFT JOIN otters o ON o.id = e.sender_id
+    WHERE e.entry_type = 'speak'
+      AND DATE(e.created_at) >= ?
+    GROUP BY DATE(e.created_at), e.sender_id
     ORDER BY date, otterId
   `).all(since) as Array<{ date: string; otterId: string; otterName: string; messageCount: number }>;
 

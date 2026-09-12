@@ -40,7 +40,8 @@ describe("initSchema", () => {
     // 表数量与首次一致
     const tableNames = getTableNames(db);
     expect(tableNames).toContain("conversations");
-    expect(tableNames).toContain("messages");
+    // F20260910ctlv 批4c：messages 族表已删除
+    expect(tableNames).not.toContain("messages");
   });
 
   it("CHECK 约束生效：features 表 id 必须以 F 开头", () => {

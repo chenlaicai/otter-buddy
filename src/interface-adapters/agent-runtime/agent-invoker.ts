@@ -11,7 +11,6 @@
  */
 
 import type { SdkInvokePort, AgentStreamEvent, DynamicContext } from "@usecases/ports/sdk-invoke-port";
-import type { SendMessage } from "@usecases/conversation/send-message";
 import type { SendEntry } from "@usecases/conversation/send-entry";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageSession } from "@usecases/otter/manage-session";
@@ -113,7 +112,6 @@ export class AgentInvoker implements AgentTurnPort {
   // eslint-disable-next-line max-params -- AgentInvoker 依赖较多，参数数量由 DI 框架决定
   constructor(
     private readonly agentInvoke: SdkInvokePort,
-    private readonly sendMessage: SendMessage,
     private readonly queryMessage: QueryMessage,
     private readonly manageSession: ManageSession,
     private readonly queryOtter: QueryOtter,
