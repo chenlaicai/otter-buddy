@@ -362,6 +362,17 @@ export class PiSessionFactory implements AgentGateway {
     message: string,
     options?: InvokeOptions,
   ): Promise<AgentRunResult> {
+    // #896：ALS 嵌套检测锁旁路。session_before_compact 钩子在 session.prompt() 的 agent loop
+    // 内部触发（SDK agent-session.js _checkCompaction 每轮 LLM 响应后跑），此时外层 invoke
+    // 持有 per-otter 锁；钩子里的合成走完整 invoke 链路，若再取同一把锁 → 30s 超时降级。
+    // 判定：同 otterId 的 store 存在 = 同一 async context 内的嵌套 invoke（压缩合成正是这种），
+    // 外层已持锁，直接执行。真并发来自不同 async context（store 为 undefined），照常取锁。
+    // 嵌套串行安全由 ALS 链保证（外层 await 内层，不存在并行执行）。
+    const nestedStore = otterInvokeStorage.getStore();
+    if (nestedStore && nestedStore.otterId === otterId) {
+      this.logger.debug('[invoke] nested invoke within ALS context, bypassing lock', { otterId, readOnly: options?.readOnly ?? false });
+      return await this._invokeInternal(otterId, message, options);
+    }
     const release = await this.lockManager.acquire(`session:${otterId}`);
     try {
       return await this._invokeInternal(otterId, message, options);
