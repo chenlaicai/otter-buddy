@@ -101,3 +101,11 @@ if (nestedStore && nestedStore.otterId === otterId) {
 
 - nested-invoke-lock-bypass.test.ts 扩至 5 用例：锁层 3（旁路/真并发排队/异獭不旁路）+ 池层 2（嵌套撞 streaming 抛错不出池不顶替 / 真并发 stale 出池不变）
 - 全量 254 文件 3181 用例通过；tsc/eslint clean
+
+### delta 复核（第 2 轮）处置
+
+复核结论：严重 1 处置成立，独立验证通过（含影子 session 复用 resourceLoader 是否递归触发压缩的排查——SDK findCutPoint 语义下单轮影子会话数学上必不触发）。遗留 2 建议级：
+
+- **发现 A（影子通道本体零测试）→ 接受并修复**：新增 compaction-synthesis-shadow.test.ts（3 用例：inMemory 创建+空工具集+prompt 关模板展开+结果组装+dispose 清理 / 模型解析同链 / prompt 异常透传+finally 清理）。mock 边界为 piCodingAgent 模块面，驱动真实 runCompactionSynthesis 本体。
+- **发现 B（旁路注释动机失效）→ 接受并修复**：invoke 入口注释更正为「防御性保留，当前无活触发路径」（压缩合成已走影子通道；handoff pre-invoke 路径已退役，唯一调用点被注释）。保留理由如实写：为未来嵌套 invoke 场景兜底 + 与池层 ALS 判定语义同源。
+- B3 如实标注：真实 threshold 压缩全链路未端到端验证，合入后首次真实压缩时 grep `[compaction-synthesis]` 日志确认闭环（低成本路径：调大 compactionReserveTokens 拉低触发线）。

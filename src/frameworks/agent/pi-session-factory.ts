@@ -422,11 +422,14 @@ export class PiSessionFactory implements AgentGateway {
     message: string,
     options?: InvokeOptions,
   ): Promise<AgentRunResult> {
-    // #896：ALS 嵌套检测锁旁路。session_before_compact 钩子在 session.prompt() 的 agent loop
-    // 内部触发（SDK agent-session.js _checkCompaction 每轮 LLM 响应后跑），此时外层 invoke
-    // 持有 per-otter 锁；钩子里的合成走完整 invoke 链路，若再取同一把锁 → 30s 超时降级。
-    // 判定：同 otterId 的 store 存在 = 同一 async context 内的嵌套 invoke（压缩合成正是这种），
-    // 外层已持锁，直接执行。真并发来自不同 async context（store 为 undefined），照常取锁。
+    // #896：ALS 嵌套检测锁旁路。**防御性保留，当前无活触发路径**——压缩合成已改走
+    // 影子通道（runCompactionSynthesis，不走 invoke）；handoff 合成的 pre-invoke 自动触发
+    // 路径已退役（agent-invoker.ts F20260903cmpk 注释块，唯一调用点被注释）。
+    // 保留理由：同 otterId 的嵌套 invoke 若再取同一把 per-otter 锁必死锁（原 #896 机制），
+    // 未来新增任何「invoke 内嵌套 invoke」路径（如新钩子/新合成场景）由此层兜底免疫；
+    // 且嵌套撞 streaming 的池层保护（_acquirePooled）依赖同一份 ALS 判定，两处语义同源。
+    // 判定：同 otterId 的 store 存在 = 同一 async context 内的嵌套 invoke，外层已持锁，直接执行。
+    // 真并发来自不同 async context（store 为 undefined），照常取锁。
     // 嵌套串行安全由 ALS 链保证（外层 await 内层，不存在并行执行）。
     const nestedStore = otterInvokeStorage.getStore();
     if (nestedStore && nestedStore.otterId === otterId) {
