@@ -666,12 +666,12 @@ describe("SqliteConversationRepository - 重启兜底与未读过滤（F20260724
     });
   });
 
-  describe("getUnreadMessages（F5：排除进行中半成品）", () => {
-    it("不返回 streaming/speaking 消息（半成品不应注入其它 otter 上下文）", async () => {
+  describe("getUnreadMessages（F5：排除进行中半成品，F20260910ctlv 批3 切 entries）", () => {
+    it("只返回 user/system/speak 对话类条目（invoke_start/invoke_end/yield 边界条目不注入）", async () => {
       await repo.create(conversationFixture());
       await repo.createTurn(turnFixture());
-      /** conversation_participants 有 otter_id 外键，需先插入 otter */
       db.prepare(`INSERT INTO otters (id, name, type) VALUES (?, ?, ?)`).run("otter-reader", "Reader", "small");
+      db.prepare(`INSERT INTO otters (id, name, type) VALUES (?, ?, ?)`).run("otter-1", "Speaker", "small");
       await repo.createParticipant({
         id: "part-1", conversationId: "conv-1", otterId: "otter-reader",
         joinedAtTurnId: null, joinedAtTurnNumber: 0,
@@ -680,21 +680,19 @@ describe("SqliteConversationRepository - 重启兜底与未读过滤（F20260724
         lastReadTurnNumber: 0,
         lastActiveTurnNumber: 0,
       });
-      await repo.createCompletedMessage(messageFixture({ senderId: "otter-1" }));
-      await repo.createStreamingMessage(messageFixture({
-        id: "msg-inflight", senderId: "otter-1", sequenceNum: 2,
-        segments: [], talkingStonePassedTo: null, source: "web",
-      completedAt: null, status: "streaming",
-      }));
+      // entries 造数：speak 对话条目 + invoke_start 边界条目（后者不应注入上下文）
+      const ins = db.prepare(`INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, turn_id, status, source, metadata, sender_name, context_tokens, context_tokens_max, created_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      ins.run("entry-speak-1", "conv-1", 1, "speak", "otter", "otter-1", "已完成发言", null, null, "turn-1", "completed", "web", null, "Speaker", null, null, "2026-07-22T00:00:01Z", "2026-07-22T00:00:01Z");
+      ins.run("entry-invoke-start", "conv-1", 2, "invoke_start", "otter", "otter-1", null, null, null, "turn-1", "completed", "web", null, "Speaker", null, null, "2026-07-22T00:00:02Z", "2026-07-22T00:00:02Z");
 
       const unread = await repo.getUnreadMessages("conv-1", "otter-reader");
-      expect(unread.map(m => m.id)).toEqual(["msg-1"]);
+      expect(unread.map(m => m.id)).toEqual(["entry-speak-1"]);
     });
 
     /** F20260902uspr 回归：SignalRouter 收件箱（未读视图 × talkingStonePassedTo 判别）依赖。
      *  病史：投影曾硬编码 talkingStonePassedTo: null，signal-router 单测 mock 了仓储带真值，
      *  真实路径 pendingSignalsFor 恒空——web/IM/补扫全入口静默哑火且无日志。 */
-    it("携带 talkingStonePassedTo 真值（SignalRouter 收件箱判别依赖）", async () => {
+    it("携带 talkingStonePassedTo 真值（user entry 的 yieldTargets 投影——SignalRouter 收件箱判别依赖）", async () => {
       await repo.create(conversationFixture());
       await repo.createTurn(turnFixture());
       db.prepare(`INSERT INTO otters (id, name, type) VALUES (?, ?, ?)`).run("otter-reader", "Reader", "small");
@@ -706,19 +704,15 @@ describe("SqliteConversationRepository - 重启兜底与未读过滤（F20260724
         lastReadTurnNumber: 0,
         lastActiveTurnNumber: 0,
       });
-      await repo.createCompletedMessage(messageFixture({
-        id: "msg-targeted", senderId: "user-1", sequenceNum: 1,
-        talkingStonePassedTo: ["otter-reader", "user"],
-      }));
-      await repo.createCompletedMessage(messageFixture({
-        id: "msg-notarget", senderId: "user-1", sequenceNum: 2,
-        talkingStonePassedTo: null,
-      }));
+      // entries 造数：user entry 带 yieldTargets（投影为 talkingStonePassedTo）
+      const ins = db.prepare(`INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, turn_id, status, source, metadata, sender_name, context_tokens, context_tokens_max, created_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      ins.run("entry-targeted", "conv-1", 1, "user", "user", "user-1", "点名发言", null, JSON.stringify(["otter-reader", "user"]), "turn-1", "completed", "web", null, "", null, null, "2026-07-22T00:00:01Z", "2026-07-22T00:00:01Z");
+      ins.run("entry-notarget", "conv-1", 2, "user", "user", "user-1", "普通发言", null, null, "turn-1", "completed", "web", null, "", null, null, "2026-07-22T00:00:02Z", "2026-07-22T00:00:02Z");
 
       const unread = await repo.getUnreadMessages("conv-1", "otter-reader");
       expect(unread.map(m => m.talkingStonePassedTo)).toEqual([
         ["otter-reader", "user"],  // 指向判别命中：router.pendingSignalsFor 可见
-        null,                       // 无目标：与 conversation-mapper 同约定
+        null,                       // 无目标：与 getUnreadEntries 同约定
       ]);
     });
   });
@@ -740,16 +734,18 @@ describe("SqliteConversationRepository - 重启兜底与未读过滤（F20260724
     });
   });
 
-  describe("getLastMessageBySender（F20260803trrf: rejected 路径用）", () => {
-    it("返回指定 sender 的最新消息（按 sequence_num desc）", async () => {
+  describe("getLastMessageBySender（F20260803trrf: rejected 路径用；批3 切 entries）", () => {
+    it("返回指定 sender 的最新条目（按 sequence_num desc）", async () => {
       await repo.create(conversationFixture());
       await repo.createTurn(turnFixture());
-      await repo.createCompletedMessage(messageFixture({ senderId: "otter-1", sequenceNum: 1 }));
-      await repo.createCompletedMessage(messageFixture({ id: "msg-2", senderId: "otter-1", sequenceNum: 2 }));
-      await repo.createCompletedMessage(messageFixture({ id: "msg-3", senderId: "otter-2", sequenceNum: 3 }));
+      // entries 造数（数据源已切 entries；返回 Message 兼容形状）
+      const ins = db.prepare(`INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, turn_id, status, source, metadata, sender_name, context_tokens, context_tokens_max, created_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      ins.run("entry-1", "conv-1", 1, "speak", "otter", "otter-1", "第一条", null, null, "turn-1", "completed", "web", null, "O1", null, null, "2026-07-22T00:00:01Z", "2026-07-22T00:00:01Z");
+      ins.run("entry-2", "conv-1", 2, "speak", "otter", "otter-1", "第二条", null, null, "turn-1", "completed", "web", null, "O1", null, null, "2026-07-22T00:00:02Z", "2026-07-22T00:00:02Z");
+      ins.run("entry-3", "conv-1", 3, "speak", "otter", "otter-2", "别獭的", null, null, "turn-1", "completed", "web", null, "O2", null, null, "2026-07-22T00:00:03Z", "2026-07-22T00:00:03Z");
 
       const msg = await repo.getLastMessageBySender("conv-1", "otter-1");
-      expect(msg!.id).toBe("msg-2");
+      expect(msg!.id).toBe("entry-2");
     });
 
     it("无消息时返回 null", async () => {

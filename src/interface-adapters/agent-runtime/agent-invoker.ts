@@ -148,7 +148,11 @@ export class AgentInvoker implements AgentTurnPort {
     this.circuitBreak = healingRepo && sendEntry
       ? new CircuitBreakSupport({
         manageSession,
-        queryMessage,
+        // F20260910ctlv 收尾批3：历史读取切 entries（user entry 唯一真相源）
+        entryReader: {
+          getEntries: async (convId: string, opts?: { entryType?: string; limit?: number }) =>
+            sendEntry.getEntries(convId, opts),
+        },
         // F20260910ctlv 彻底切换：sendSystem 走 entries（system entry），不再写 messages
         sendSystem: async (convId, body) => {
           const { entry } = await sendEntry.createSystemEntry({ conversationId: convId, turnId: "", body });

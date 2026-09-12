@@ -11,13 +11,11 @@
  * healingRepo 未注入（降级配置）时本模块不创建，熔断整体禁用，退化为旧 abort 语义。
  */
 
-import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageSession } from "@usecases/otter/manage-session";
 import type { Logger } from "@usecases/ports/logger";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { HealingEvent } from "@entities/healing/healing-event";
 import type { OtterSession } from "@entities/otter/otter-session";
-import { aggregateBody } from "@entities/conversation/message";
 import type { SSEEvent } from "@contract/sse/events";
 import { HEALING_PROBE_SENTINEL } from "@usecases/healing/constants";
 import {
@@ -66,7 +64,8 @@ export async function hasUserMessageSince(
 export class CircuitBreakSupport {
   constructor(private readonly deps: {
     manageSession: ManageSession;
-    queryMessage: QueryMessage;
+    /** F20260910ctlv 收尾批3：历史读取切 entries（messages 停写，user 消息唯一真相源 = user entry） */
+    entryReader: { getEntries(conversationId: string, options?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; senderId: string | null; senderType: string | null; body: string | null; createdAt: string }>> };
     /** F20260910ctlv 彻底切换：系统消息写入（entries 语义）——旧 sendMessage.sendSystem 退役 */
     sendSystem: (conversationId: string, body: string) => Promise<{ id: string; body: string | null; sequenceNum: number }>;
     healingRepo: HealingEventRepository;
@@ -277,9 +276,9 @@ export class CircuitBreakSupport {
       const inWindow = await this.countDegenerateInTurnWindow(otterId, session);
       if (inWindow.count < 2) return;
 
-      /** senderType 口径（sender_id 字面量仅 web 路径成立，scheduler/桥接路径会落空） */
-      const userMsgs = await this.deps.queryMessage.getMessages(conversationId, { senderType: 'user', limit: 1 }).catch(() => []);
-      const lastUserMessage = userMsgs[0] ? aggregateBody(userMsgs[0].segments) : '';
+      /** F20260910ctlv 批3：最新 user entry body（entries 唯一真相源） */
+      const userEntries = await this.deps.entryReader.getEntries(conversationId, { entryType: 'user', limit: 1 }).catch(() => []);
+      const lastUserMessage = userEntries[0]?.body ?? '';
       const summary = lastUserMessage
         ? buildSecondaryCircuitBreakSummary({ lastUserMessage })
         : buildCircuitBreakFallbackSummary();
@@ -385,7 +384,7 @@ export class CircuitBreakSupport {
     // 判据：最新 user 消息 createdAt >= session.startedAt（continuation message 不落库，不污染判据）。
     if (conversationId) {
       const intervened = await hasUserMessageSince(
-        () => this.deps.queryMessage.getLastMessageBySenderType(conversationId, 'user'),
+        async () => (await this.deps.entryReader.getEntries(conversationId, { entryType: 'user', limit: 1 }))[0] ?? null,
         session.startedAt,
       );
       if (intervened) return false;

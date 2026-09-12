@@ -13,7 +13,11 @@ import { createTestLogger } from "../../../helpers/logger";
 
 let db: DatabaseType.Database;
 let repo: SqliteSearchQueryLogRepository;
-let queryMessage: { getMessages: (convId: string, opts: { limit: number; before?: string }) => Promise<Array<{ id: string; senderId: string; senderType: string; segments: Array<{ body: string }> }>> };
+/** F20260910ctlv 批3：上下文快照数据源切 entries（speak 模拟——时间线条目） */
+let entryRepo: {
+  getEntries: (convId: string, opts: { entryType?: string; limit?: number }) => Promise<Array<{ id: string; senderId: string | null; senderType: string | null; body: string | null; sequenceNum: number }>>;
+  getEntryById: (id: string) => Promise<{ id: string; sequenceNum: number } | null>;
+};
 
 const logger = createTestLogger();
 
@@ -28,20 +32,21 @@ afterAll(() => {
 });
 
 function makeRecorder(contextMessages: Array<{ id: string; body: string }>) {
-  queryMessage = {
-    getMessages: async (_convId, opts) => {
-      // 模拟 repo 行为：DESC 取最近 N 条；before 存在时只取该消息之前的（kimi 发现 1：快照不含触发消息）
-      const sorted = [...contextMessages]
-        .filter((m) => !opts.before || m.id !== opts.before)
-        .reverse()
-        .slice(0, opts.limit);
-      return sorted.map((m) => ({
-        id: m.id, senderId: "otter-1", senderType: "assistant",
-        segments: [{ body: m.body }],
-      }));
+  const pool = contextMessages.map((m, i) => ({
+    id: m.id, senderId: "otter-1", senderType: "otter", body: m.body,
+    sequenceNum: i + 1, // 传入顺序即 seq 序（旧测试数据 m1..m6 按时间正序）
+  }));
+  entryRepo = {
+    // 模拟 repo 行为：speak/user 各拉 2N 再由调用方合并排序取最近 N
+    getEntries: async (_convId, opts) => {
+      if (opts.entryType === "speak") {
+        return [...pool].reverse().slice(0, opts.limit ?? 10);
+      }
+      return []; // user 池空——上下文全部走 speak
     },
+    getEntryById: async (id) => pool.find(e => e.id === id) ?? null,
   };
-  return new RecordSearchQuery(repo, queryMessage as never, logger);
+  return new RecordSearchQuery(repo, entryRepo as never, logger);
 }
 
 describe("SqliteSearchQueryLogRepository.insert", () => {
@@ -119,7 +124,7 @@ describe("RecordSearchQuery.record", () => {
     const failingRepo = { insert: async () => { throw new Error("db down"); } };
     const recorder = new RecordSearchQuery(
       failingRepo as never,
-      queryMessage as never,
+      entryRepo as never,
       logger,
     );
     await expect(recorder.record({

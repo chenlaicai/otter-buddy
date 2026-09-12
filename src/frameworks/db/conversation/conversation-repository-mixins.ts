@@ -8,11 +8,9 @@ import type {
 import type { Message } from "@entities/conversation/message";
 import {
   rowToLinkedResource,
-  rowToMessage,
   rowToParticipant,
   rowToTurn,
   type LinkedResourceRow,
-  type MessageRow,
   type ParticipantRow,
   type TurnRow,
 } from "./conversation-mapper";
@@ -194,12 +192,14 @@ export function updateLastReadTurnNumber(
 /** #775：seq 刻度存量回填（一次性，停写旧列的前置）。以同会话最大 sequence_num 为
  *  基线回填 last_read_seq=NULL 的行——「读到最新」是双写过渡期 NULL 行的事实状态
  *  （这些行从未走过新路径，若回填 0 会把全部历史当未读，属 rbsg 形态误判）。
- *  幂等：只更新 NULL 行；回滚面 = 回填值与旧列独立，读路径 NULL 回退逻辑保留。 */
+ *  幂等：只更新 NULL 行；回滚面 = 回填值与旧列独立，读路径 NULL 回退逻辑保留。
+ *  F20260910ctlv 收尾批3：游标刻度切 entries（entries.sequence_num 是新时间线唯一序列；
+ *  messages 停写后 MAX(messages.sequence_num) 恒停摆，回填值会错）。 */
 export function backfillLastReadSeq(db: Database.Database): number {
   const result = db.prepare(`
     UPDATE conversation_participants
     SET last_read_seq = (
-      SELECT COALESCE(MAX(m.sequence_num), 0) FROM messages m WHERE m.conversation_id = conversation_participants.conversation_id
+      SELECT COALESCE(MAX(e.sequence_num), 0) FROM entries e WHERE e.conversation_id = conversation_participants.conversation_id
     )
     WHERE last_read_seq IS NULL
   `).run();
@@ -251,24 +251,29 @@ export function getUnreadMessages(
    *  F20260826fuid：携带 sender_name（user 消息的飞书姓名快照，群聊多人识别用）。
    *  F20260902uspr：携带 talking_stone_passed_to（SignalRouter 收件箱判别依赖——
    *  此前投影硬编码 null，信号路由器 pendingSignalsFor 恒空，全部入口静默哑火） */
+  // F20260910ctlv 收尾批3：读路径切 entries（时间线唯一真相源）。
+  // 消费方（dispatch-chain-engine）已走 getUnreadEntries；本方法保留接口兼容，
+  // 数据源从 messages 换成 entries——口径与 sqlite-entry-repository.getUnreadEntries 一致。
   if (participant.last_read_seq != null) {
-    // seq 刻度（S4c 新路径）
+    // seq 刻度（entries.sequence_num 单调序列）
     return db.prepare(`
-      SELECT m.id, m.sender_id, m.sender_type, m.sequence_num, m.sender_name, m.talking_stone_passed_to
-      FROM messages m
-      WHERE m.conversation_id = ? AND m.sequence_num > ? AND m.sender_id != ?
-        AND m.status NOT IN ('streaming', 'speaking')
-      ORDER BY m.sequence_num ASC
+      SELECT e.id, e.sender_id, e.sender_type, e.sequence_num, e.sender_name, e.yield_targets AS talking_stone_passed_to
+      FROM entries e
+      WHERE e.conversation_id = ? AND e.sequence_num > ? AND (e.sender_id IS NULL OR e.sender_id != ?)
+        AND e.entry_type IN ('user', 'system', 'speak')
+        AND e.status = 'completed'
+      ORDER BY e.sequence_num ASC
     `).all(conversationId, participant.last_read_seq, otterId) as Array<{ id: string; sender_id: string; sender_type: string; sequence_num: number; sender_name: string | null; talking_stone_passed_to: string | null }>;
   }
-  // turn 刻度（存量回退路径）
+  // turn 刻度（存量回退路径；entries.turn_id 关联）
   return db.prepare(`
-    SELECT m.id, m.sender_id, m.sender_type, m.sequence_num, m.sender_name, m.talking_stone_passed_to
-    FROM messages m
-    JOIN turns t ON m.turn_id = t.id
-    WHERE m.conversation_id = ? AND t.turn_number >= ? AND m.sender_id != ?
-      AND m.status NOT IN ('streaming', 'speaking')
-    ORDER BY m.sequence_num ASC
+    SELECT e.id, e.sender_id, e.sender_type, e.sequence_num, e.sender_name, e.yield_targets AS talking_stone_passed_to
+    FROM entries e
+    JOIN turns t ON e.turn_id = t.id
+    WHERE e.conversation_id = ? AND t.turn_number >= ? AND (e.sender_id IS NULL OR e.sender_id != ?)
+      AND e.entry_type IN ('user', 'system', 'speak')
+      AND e.status = 'completed'
+    ORDER BY e.sequence_num ASC
   `).all(conversationId, participant.last_read_turn_number, otterId) as Array<{ id: string; sender_id: string; sender_type: string; sequence_num: number; sender_name: string | null; talking_stone_passed_to: string | null }>;
 }
 
@@ -278,20 +283,54 @@ export function getTurnById(db: Database.Database, turnId: string): Turn | null 
   return row ? rowToTurn(row) : null;
 }
 
-/** F20260803trrf: 指定 sender 的最新消息（markBatchRead rejected 路径用） */
+/** F20260803trrf: 指定 sender 的最新条目（F20260910ctlv 批3 切 entries；markBatchRead rejected 路径用）。
+ *  兼容返回 Message 形状（消费方只读 id/senderId/createdAt/sequenceNum）——
+ *  body 从 entry.body 投影为 segments，aggregateBody 还原。 */
 export function getLastMessageBySender(db: Database.Database, conversationId: string, senderId: string): Message | null {
   const row = db.prepare(
-    `SELECT * FROM messages WHERE conversation_id = ? AND sender_id = ? ORDER BY sequence_num DESC LIMIT 1`,
-  ).get(conversationId, senderId) as MessageRow | undefined;
-  return row ? rowToMessage(row) : null;
+    `SELECT * FROM entries WHERE conversation_id = ? AND sender_id = ? ORDER BY sequence_num DESC LIMIT 1`,
+  ).get(conversationId, senderId) as (EntryAsMessageRow & { body: string | null }) | undefined;
+  return row ? entryRowToMessageLike(row) : null;
 }
 
-/** F20260826rsme：指定 senderType 的最新消息（恢复前并发窗口检查用） */
+/** F20260826rsme：指定 senderType 的最新条目（批3 切 entries；circuit-break 用户介入检测用） */
 export function getLastMessageBySenderType(db: Database.Database, conversationId: string, senderType: string): Message | null {
   const row = db.prepare(
-    `SELECT * FROM messages WHERE conversation_id = ? AND sender_type = ? ORDER BY sequence_num DESC LIMIT 1`,
-  ).get(conversationId, senderType) as MessageRow | undefined;
-  return row ? rowToMessage(row) : null;
+    `SELECT * FROM entries WHERE conversation_id = ? AND sender_type = ? ORDER BY sequence_num DESC LIMIT 1`,
+  ).get(conversationId, senderType) as (EntryAsMessageRow & { body: string | null }) | undefined;
+  return row ? entryRowToMessageLike(row) : null;
+}
+
+/** entry 行 → Message 兼容形状（批3：mixins 读路径切 entries 的适配层。
+ *  消费方（circuit-break/tool-factory/resume）只读 id/senderId/senderType/createdAt/
+ *  sequenceNum/status；body 投影进 segments 供 aggregateBody。 */
+type EntryAsMessageRow = {
+  id: string; conversation_id: string; turn_id: string | null;
+  sender_type: string | null; sender_id: string | null;
+  entry_type: string; sequence_num: number; sender_name: string | null;
+  created_at: string; completed_at: string | null; status: string;
+  invoke_id: string | null; source: string | null;
+};
+function entryRowToMessageLike(row: EntryAsMessageRow & { body: string | null }): Message {
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    turnId: row.turn_id ?? "",
+    senderType: (row.sender_type ?? "system") as Message["senderType"],
+    senderId: row.sender_id ?? "",
+    talkingStonePassedTo: null,
+    status: "completed",
+    segments: row.body != null ? [{ id: `${row.id}-seg`, messageId: row.id, body: row.body, sequenceNum: 0, createdAt: row.created_at }] : [],
+    sequenceNum: row.sequence_num,
+    contextTokens: null,
+    contextTokensMax: null,
+    source: (row.source ?? "web") as Message["source"],
+    senderName: row.sender_name ?? "",
+    createdAt: row.created_at,
+    completedAt: row.completed_at,
+    signalMeta: null,
+    metadata: null,
+  };
 }
 
 /** F20260803trrf: 标记 participant 已离开（dissolve_otter 顺带修，不要求 active turn） */

@@ -526,6 +526,11 @@ export class SendEntry {
     await this.invokeRepo.updateInvokeTokenUsage(invokeId, input, output);
   }
 
+  /** F20260910ctlv 收尾批3：全文搜索（entries_fts——search_messages 工具数据源） */
+  async searchEntries(conversationId: string, query: string, limit?: number): Promise<Entry[]> {
+    return this.entryRepo.searchEntries(conversationId, query, limit);
+  }
+
   /** 查询条目列表 */
   async getEntries(
     conversationId: string,

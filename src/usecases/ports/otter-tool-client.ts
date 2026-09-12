@@ -104,8 +104,10 @@ export interface OtterToolClient {
         invokeEndEntry: { id: string; entryType: string };
         invoke: { id: string; status: string; endedAt: string | null; toolCallCount: number; tokenUsageInput: number | null; tokenUsageOutput: number | null };
       }>;
-      /** 查询条目列表 */
-      getEntries(conversationId: string, opts?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; entryType: string; body: string | null }>>;
+      /** 查询条目列表（F20260910ctlv 批3：返回 createdAt/senderId——自重启用户介入检测等只读消费） */
+      getEntries(conversationId: string, opts?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; entryType: string; body: string | null; senderId: string | null; senderType: string | null; createdAt: string }>>;
+      /** F20260910ctlv 批3：全文搜索（entries_fts，时间线唯一真相源） */
+      searchEntries(conversationId: string, query: string, limit?: number): Promise<Array<{ id: string; entryType: string; senderId: string | null; senderType: string | null; body: string | null; sequenceNum: number; createdAt: string }>>;
     };
     invoke: {
       /** 追加 invoke 事件 */

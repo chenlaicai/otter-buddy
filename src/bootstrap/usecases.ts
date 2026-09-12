@@ -62,7 +62,8 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   // F20260910ctlv 彻底切换：未读状态读 entries
   const queryMessage = new QueryMessage(repos.conversation, entryRepo);
   // F20260826rcmm Phase 0：检索埋点（评估基线数据源）
-  const recordSearchQuery = new RecordSearchQuery(repos.searchQueryLog, queryMessage, logger);
+  // F20260910ctlv 收尾批3：上下文快照数据源切 entries
+  const recordSearchQuery = new RecordSearchQuery(repos.searchQueryLog, entryRepo, logger);
   const manageReadState = new ManageReadState(repos.conversation, entryRepo);
   // 信号轨迹查询退役（F20260908rlcp）
   const manageParticipant = new ManageParticipant(

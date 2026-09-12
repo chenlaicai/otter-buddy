@@ -220,7 +220,13 @@ export function buildOtterToolClient(
         },
         getEntries: async (convId, opts) => {
           const entries = await uc.sendEntry.getEntries(convId, opts);
-          return entries.map(e => ({ id: e.id, entryType: e.entryType, body: e.body }));
+          // F20260910ctlv 批3：投影带 createdAt/senderId（自重启用户介入检测等只读消费）
+          return entries.map(e => ({ id: e.id, entryType: e.entryType, body: e.body, senderId: e.senderId, senderType: e.senderType, createdAt: e.createdAt }));
+        },
+        // F20260910ctlv 批3：全文搜索（entries_fts，search_messages 工具数据源切换）
+        searchEntries: async (convId: string, query: string, limit?: number) => {
+          const entries = await uc.sendEntry.searchEntries(convId, query, limit);
+          return entries.map(e => ({ id: e.id, entryType: e.entryType, senderId: e.senderId, senderType: e.senderType, body: e.body, sequenceNum: e.sequenceNum, createdAt: e.createdAt }));
         },
       },
       invoke: {

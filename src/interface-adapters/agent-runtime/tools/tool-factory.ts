@@ -378,9 +378,11 @@ async function isSelfRestartLoop(ctx: ToolContext, healingRepo?: HealingEventRep
     return ectx?.newSessionId === activeSession.id;
   });
   if (!selfRestartCreated) return false;
-  // 用户消息介入检测：查询失败或客户端缺方法时降级为 false（维持拦截，保守）
+  // 用户消息介入检测：查询失败或客户端缺方法时降级为 false（维持拦截，保守）。
+  // F20260910ctlv 收尾批3：数据源切 entries（最新 user entry；messages 停写）
   try {
-    const last = await ctx.client.conversation.message.getLastBySenderType(ctx.conversationId, 'user');
+    const lastUsers = await ctx.client.conversation.entry.getEntries(ctx.conversationId, { entryType: 'user', limit: 1 });
+    const last = lastUsers[0];
     if (last && Date.parse(last.createdAt) >= Date.parse(activeSession.startedAt)) return false;
   } catch {
     // 降级：视为无介入，维持拦截

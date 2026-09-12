@@ -184,10 +184,10 @@ describe("ResumeInterruptedService（F20260826rsme）", () => {
     await otterRepo.createOtter(otterFixture("otter-big"));
     await repo.createParticipant(participantFixture("otter-big"));
     const msgId = await seedInterrupted(db, repo, { withSegments: "半截" });
-    // 窗口内的最新 user 消息（now 时刻）
+    // 窗口内的最新 user entry（now 时刻；F20260910ctlv 批3：并发检查数据源切 entries）
     db.prepare(`
-      INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, talking_stone_passed_to, sender_name, created_at, completed_at)
-      VALUES (?, 'conv-1', 'user', 'chen', 'completed', 5, 'turn-1', '["otter-big"]', '搭档', ?, ?)
+      INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, turn_id, status, source, metadata, sender_name, context_tokens, context_tokens_max, created_at, completed_at)
+      VALUES (?, 'conv-1', 5, 'user', 'user', 'chen', '并发窗口内的新消息', null, '["otter-big"]', 'turn-1', 'completed', 'web', null, '搭档', null, null, ?, ?)
     `).run(crypto.randomUUID(), new Date().toISOString(), new Date().toISOString());
 
     const chain = stubChainEngine();
