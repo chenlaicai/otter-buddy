@@ -11,16 +11,16 @@
 import { describe, it, expect, vi } from "vitest";
 import { buildHandoffPackage } from "@frameworks/agent/handoff-package-builder";
 import type { StateInventoryDeps } from "@frameworks/agent/state-inventory";
-import type { QueryMessage } from "@usecases/conversation/query-message";
+import type { HandoffEntryReader } from "@frameworks/agent/handoff-package-builder";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
 import { createTestLogger, createCapturingLogger } from "../../helpers/logger";
 
-function mockQueryMessage(overrides?: Partial<QueryMessage>) {
+/** F20260910ctlv 收尾批1：entries 读取 mock（空时间线） */
+function mockEntryReader(overrides?: Partial<HandoffEntryReader>): HandoffEntryReader {
   return {
-    getMessageById: vi.fn().mockResolvedValue(null),
-    getMessages: vi.fn().mockResolvedValue([]),
+    getEntries: vi.fn().mockResolvedValue([]),
     ...overrides,
-  } as unknown as QueryMessage;
+  };
 }
 
 function mockConversationRepo() {
@@ -32,7 +32,7 @@ function mockConversationRepo() {
 
 function makeStateInventoryDeps(overrides?: Partial<StateInventoryDeps>): StateInventoryDeps {
   return {
-    queryMessage: mockQueryMessage(),
+    entryReader: mockEntryReader(),
     conversationRepo: mockConversationRepo(),
     listArtifacts: vi.fn().mockResolvedValue([]),
     workspacePath: undefined,
@@ -46,7 +46,7 @@ describe("buildHandoffPackage - LLM 合成", () => {
     const synthesize = vi.fn().mockResolvedValue("## 交接摘要\nmimo2 的叙事摘要内容");
     const pkg = await buildHandoffPackage("conv-1", "otter-1", {
       stateInventoryDeps: makeStateInventoryDeps(),
-      queryMessage: mockQueryMessage(),
+      entryReader: mockEntryReader(),
       synthesize,
       otterName: "mimo2",
       trigger: "70%阈值",
@@ -63,7 +63,7 @@ describe("buildHandoffPackage - LLM 合成", () => {
     const synthesize = vi.fn().mockResolvedValue("");
     const pkg = await buildHandoffPackage("conv-1", "otter-1", {
       stateInventoryDeps: makeStateInventoryDeps(),
-      queryMessage: mockQueryMessage(),
+      entryReader: mockEntryReader(),
       synthesize,
       logger,
       otterName: "mimo2",
@@ -81,7 +81,7 @@ describe("buildHandoffPackage - LLM 合成", () => {
     const synthesize = vi.fn().mockRejectedValue(new Error("API timeout"));
     const pkg = await buildHandoffPackage("conv-1", "otter-1", {
       stateInventoryDeps: makeStateInventoryDeps(),
-      queryMessage: mockQueryMessage(),
+      entryReader: mockEntryReader(),
       synthesize,
       logger,
       otterName: "mimo2",
@@ -100,7 +100,7 @@ describe("buildHandoffPackage - LLM 合成", () => {
     const synthesize = vi.fn().mockRejectedValue(new Error('Synthesis timeout'));
     const pkg = await buildHandoffPackage("conv-1", "otter-1", {
       stateInventoryDeps: makeStateInventoryDeps(),
-      queryMessage: mockQueryMessage(),
+      entryReader: mockEntryReader(),
       synthesize,
       logger,
       otterName: "mimo2",
@@ -115,7 +115,7 @@ describe("buildHandoffPackage - LLM 合成", () => {
   it("防线③：无 synthesize 时直接走机械转储", async () => {
     const pkg = await buildHandoffPackage("conv-1", "otter-1", {
       stateInventoryDeps: makeStateInventoryDeps(),
-      queryMessage: mockQueryMessage(),
+      entryReader: mockEntryReader(),
       otterName: "mimo2",
       trigger: "手动",
     });
@@ -128,7 +128,7 @@ describe("buildHandoffPackage - LLM 合成", () => {
     const synthesize = vi.fn().mockResolvedValue("LLM 摘要");
     const pkg = await buildHandoffPackage("conv-1", "otter-1", {
       stateInventoryDeps: makeStateInventoryDeps(),
-      queryMessage: mockQueryMessage(),
+      entryReader: mockEntryReader(),
       synthesize,
       otterName: "mimo2",
       trigger: "70%阈值",
@@ -144,7 +144,7 @@ describe("buildHandoffPackage - LLM 合成", () => {
     const synthesize = vi.fn().mockResolvedValue("a".repeat(4000)); // ~1000 tokens
     const pkg = await buildHandoffPackage("conv-1", "otter-1", {
       stateInventoryDeps: makeStateInventoryDeps(),
-      queryMessage: mockQueryMessage(),
+      entryReader: mockEntryReader(),
       synthesize,
       otterName: "mimo2",
       trigger: "70%阈值",
@@ -158,7 +158,7 @@ describe("buildHandoffPackage - LLM 合成", () => {
   it("触发原因透传到机械转储", async () => {
     const pkg = await buildHandoffPackage("conv-1", "otter-1", {
       stateInventoryDeps: makeStateInventoryDeps(),
-      queryMessage: mockQueryMessage(),
+      entryReader: mockEntryReader(),
       trigger: "熔断",
     });
 

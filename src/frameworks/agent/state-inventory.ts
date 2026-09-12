@@ -7,7 +7,6 @@
  * 零 LLM 成本——全部是 DB 查询或目录列举。
  */
 
-import type { QueryMessage } from '@usecases/conversation/query-message';
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
 import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled-task-repository';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
@@ -31,9 +30,12 @@ export interface StateInventory {
   activity: { status: string; waitingFor?: string };
 }
 
-/** 盘点依赖（由 DI 注入） */
+/** 盘点依赖（由 DI 注入）。
+ *  F20260910ctlv 收尾批1：历史读取切 entries——queryMessage（messages 表）退役，
+ *  改用 entryRepo 窄接口（getEntries，sequence_num DESC） */
 export interface StateInventoryDeps {
-  queryMessage: QueryMessage;
+  /** F20260910ctlv：entries 读取（发言石状态 = 最新 user entry 的 yieldTargets） */
+  entryReader: { getEntries(conversationId: string, options?: { entryType?: string; limit?: number }): Promise<Array<{ senderId: string | null; senderType: string | null; yieldTargets: string[] | null; createdAt: string }>> };
   conversationRepo: ConversationRepository;
   scheduledTaskRepo?: ScheduledTaskRepository;
   healingRepo?: HealingEventRepository;
@@ -72,17 +74,17 @@ export async function collectStateInventory(
   };
 }
 
-/** B1: 发言石/悬置 yield */
+/** B1: 发言石/悬置 yield（F20260910ctlv：读最新 user entry 的 yieldTargets） */
 async function collectTalkingStone(
   conversationId: string,
   deps: StateInventoryDeps,
 ): Promise<{ holders: string[]; from?: string } | null> {
-  const msgs = await deps.queryMessage.getMessages(conversationId, { limit: 1 });
-    const lastMsg = msgs.length > 0 ? msgs[0] : null;
-  if (!lastMsg?.talkingStonePassedTo?.length) return null;
+  const entries = await deps.entryReader.getEntries(conversationId, { entryType: "user", limit: 1 });
+    const lastEntry = entries.length > 0 ? entries[0] : null;
+  if (!lastEntry?.yieldTargets?.length) return null;
   return {
-    holders: lastMsg.talkingStonePassedTo,
-    from: lastMsg.senderId,
+    holders: lastEntry.yieldTargets,
+    from: lastEntry.senderId ?? undefined,
   };
 }
 
@@ -176,12 +178,12 @@ async function collectActivity(
     const status = (conv as { activityStatus?: string }).activityStatus ?? 'unknown';
     return { status };
   } catch {
-    // 降级：查最近消息的状态
+    // 降级：查最新 user entry 的发言石去向（F20260910ctlv：entries）
     try {
-      const msgs = await deps.queryMessage.getMessages(conversationId, { limit: 1 });
-    const lastMsg = msgs.length > 0 ? msgs[0] : null;
-      if (lastMsg?.talkingStonePassedTo?.length) {
-        return { status: 'awaiting', waitingFor: lastMsg.talkingStonePassedTo.join(', ') };
+      const entries = await deps.entryReader.getEntries(conversationId, { entryType: "user", limit: 1 });
+    const lastEntry = entries.length > 0 ? entries[0] : null;
+      if (lastEntry?.yieldTargets?.length) {
+        return { status: 'awaiting', waitingFor: lastEntry.yieldTargets.join(', ') };
       }
     } catch { /* 忽略 */ }
     return { status: 'idle' };

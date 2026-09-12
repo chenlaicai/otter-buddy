@@ -307,6 +307,7 @@ export function setupFeishu(options: {
   const agentDispatchService = new AgentDispatchService({
     dispatchChainEngine: feishu.dispatchChainEngine,
     queryMessage: uc.queryMessage,
+    entryRepo: repos.entry,
     agentInvokePort: agentInvoker,
     logger,
     // F20260901sgpv P1：飞书入口换轨（隐式传石查询停用，四入口勘测硬约束 1）
@@ -474,7 +475,7 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
         partnerResolver: new PartnerResolver(weixinConfig.partnerUserId),
         // F20260901sgpv P1：微信入口换轨（与飞书同构）
         agentDispatchService: new AgentDispatchService({
-          dispatchChainEngine, queryMessage: uc.queryMessage, agentInvokePort: agentInvoker, logger,
+          dispatchChainEngine, queryMessage: uc.queryMessage, entryRepo: repos.entry, agentInvokePort: agentInvoker, logger,
           ...(options.signalRouter && { signalRouter: options.signalRouter }),
         }),        messageBroadcaster,
         logger,

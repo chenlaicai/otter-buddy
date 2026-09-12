@@ -1,4 +1,5 @@
 import type { QueryMessage } from "./query-message";
+import type { EntryRepository } from "./entry-repository";
 import type { AgentTurnPort } from "@usecases/ports/agent-turn-port";
 import type { InjectionPayload } from "./attachment-injection-service";
 import type { Logger } from "@usecases/ports/logger";
@@ -16,6 +17,8 @@ export class AgentDispatchService {
     private readonly deps: {
       dispatchChainEngine: DispatchChainEngine;
       queryMessage: QueryMessage;
+      /** F20260910ctlv 收尾批1：entries 数据源（最新 user entry 的 yieldTargets / 触发锚） */
+      entryRepo: EntryRepository;
       agentInvokePort: AgentTurnPort;
       logger: Logger;
       /** F20260901sgpv P1：信号路由器（可选注入）——注入后 IM 入口走信号路由，
@@ -80,8 +83,9 @@ export class AgentDispatchService {
     }
 
     // F20260902sgp2 S1：首 hop 记账用触发消息（与 resolveFirstTurnTargets 同源——
-    // 最新 user 消息；旧路径已知竞态下两者至少自洽，目标与消息 ID 来自同一次读取）
-    const triggerMessage = await this.deps.queryMessage.getMessages(conversationId, { limit: 1, senderType: "user" });
+    // 最新 user entry；旧路径已知竞态下两者至少自洽，目标与消息 ID 来自同一次读取）
+    // F20260910ctlv 收尾批1：切 entries（user entry id = 触发锚）
+    const triggerEntries = await this.deps.entryRepo.getEntries(conversationId, { entryType: "user", limit: 1 });
 
     let lastMessageId: string | undefined;
 
@@ -90,7 +94,7 @@ export class AgentDispatchService {
       userMessageContent: this.withDocumentBlock(userMessageContent, injection?.documentBlock),
       senderId,
       initialTargets: firstTurnTargets,
-      triggerMessageId: triggerMessage[0]?.id,
+      triggerMessageId: triggerEntries[0]?.id,
       ...(injection?.images && { images: injection.images }),
       invokeFn: async (params) => {
         const invokeResult = await this.deps.agentInvokePort.invokeConversation({
@@ -149,16 +153,16 @@ export class AgentDispatchService {
   }
 
   private async resolveFirstTurnTargets(conversationId: string): Promise<string[]> {
-    // 获取最新用户消息的 talkingStonePassedTo
-    const messages = await this.deps.queryMessage.getMessages(conversationId, { limit: 1, senderType: "user" });
-    if (messages.length === 0) return [];
+    // 获取最新 user entry 的 yieldTargets（F20260910ctlv：发言石目标 = entry.yieldTargets）
+    const entries = await this.deps.entryRepo.getEntries(conversationId, { entryType: "user", limit: 1 });
+    if (entries.length === 0) return [];
 
-    const lastUserMsg = messages[0];
-    const targets = lastUserMsg.talkingStonePassedTo ?? [];
+    const lastUserEntry = entries[0];
+    const targets = lastUserEntry.yieldTargets ?? [];
 
     this.deps.logger.info('resolveFirstTurnTargets', {
       conversationId,
-      messageId: lastUserMsg.id,
+      entryId: lastUserEntry.id,
       talkingStonePassedTo: targets,
     });
 

@@ -6,12 +6,9 @@
  *
  * Phase 1 降级声明（仍有效）：
  * - 件②文件轨迹：仅包含工作区存量文件列表（SDK session entries 不可直接访问）
- * - 件③近期原文：通过 queryMessage 拉取应用层消息做近似
+ * - 件③近期原文：F20260910ctlv 收尾批1 切 entries（speak/user/system 拉取）
  */
 
-import type { QueryMessage } from '@usecases/conversation/query-message';
-import type { Message } from '@entities/conversation/message';
-import { aggregateBody } from '@entities/conversation/message';
 import { scanWorkspaceFiles, renderFileTrail } from './file-trail-extractor';
 import type { FileTrail } from './file-trail-extractor';
 import { renderRecencyWindow, estimateRecencyTokens } from './recency-window';
@@ -36,12 +33,26 @@ export interface HandoffPackage {
 /** LLM 合成函数类型 */
 export type SynthesisFunction = (prompt: string) => Promise<string>;
 
+/** entries 读取窄接口（F20260910ctlv 收尾批1：替代 queryMessage，时间线唯一真相源）。
+ *  同时供 handoff 近期原文与 state-inventory 发言石盘点（yieldTargets）使用 */
+export interface HandoffEntryReader {
+  getEntries(conversationId: string, options?: { entryType?: string; limit?: number }): Promise<Array<{
+    senderId: string | null;
+    senderType: string | null;
+    entryType: string;
+    body: string | null;
+    yieldTargets: string[] | null;
+    createdAt: string;
+  }>>;
+}
+
 /** 编排选项 */
 export interface HandoffPackageOptions {
   fileTrailMaxEntries?: number;
   recencyTokens?: number;
   stateInventoryDeps: StateInventoryDeps;
-  queryMessage: QueryMessage;
+  /** F20260910ctlv：近期原文数据源（entries） */
+  entryReader: HandoffEntryReader;
   logger?: Logger;
   /** Phase 2：LLM 合成函数（readOnly invocation）。未提供时降级为机械转储。 */
   synthesize?: SynthesisFunction;
@@ -74,7 +85,7 @@ export async function buildHandoffPackage(
   const {
     recencyTokens = 8000,
     stateInventoryDeps,
-    queryMessage,
+    entryReader,
     logger,
     synthesize,
     otterName = otterId,
@@ -104,8 +115,8 @@ export async function buildHandoffPackage(
       const trail: FileTrail = { modified: [], readOnly: [], workspaceFiles };
       return renderFileTrail(trail);
     }),
-    // 件③：近期原文
-    fetchRecentMessages(queryMessage, conversationId, recencyTokens)
+    // 件③：近期原文（F20260910ctlv：entries）
+    fetchRecentEntries(entryReader, conversationId, recencyTokens)
       .then(w => renderRecencyWindow(w))
       .catch(err => {
         logger?.warn('[handoff-package] Recency window failed', { error: String(err) });
@@ -239,22 +250,30 @@ async function generateSummary(
 }
 
 /**
- * 通过 queryMessage 获取近期消息并转换为 RecencyWindow。
+ * F20260910ctlv 收尾批1：拉取近期 entries 并转换为 RecencyWindow。
+ *  数据源 = 时间线唯一真相源（speak/user/system 三类，sequence_num DESC）；
+ *  分三次拉取后按 createdAt 合并取最新 N 条（每次单类型查询，避免新增复合查询接口）。
  */
-async function fetchRecentMessages(
-  queryMessage: QueryMessage,
+async function fetchRecentEntries(
+  entryReader: HandoffEntryReader,
   conversationId: string,
   tokenBudget: number,
 ): Promise<RecencyWindow> {
-  const messages = await queryMessage.getMessages(conversationId, { limit: 20 });
+  const [speaks, users, systems] = await Promise.all([
+    entryReader.getEntries(conversationId, { entryType: 'speak', limit: 20 }),
+    entryReader.getEntries(conversationId, { entryType: 'user', limit: 20 }),
+    entryReader.getEntries(conversationId, { entryType: 'system', limit: 20 }),
+  ]);
+  const merged = [...speaks, ...users, ...systems]
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 
   const turns: TurnFragment[] = [];
   let totalTokens = 0;
   let timeFrom: string | undefined;
   let timeTo: string | undefined;
 
-  for (const msg of messages) {
-    const fragment = messageToFragment(msg);
+  for (const entry of merged) {
+    const fragment = entryToFragment(entry);
     if (!fragment) continue;
 
     const fragTokens = estimateRecencyTokens(fragment.content) +
@@ -282,17 +301,17 @@ async function fetchRecentMessages(
 }
 
 /** 将 Message 转换为 TurnFragment */
-function messageToFragment(msg: Message): TurnFragment | null {
-  const content = aggregateBody(msg.segments);
-  if (!content.trim()) return null;
-
-  if (msg.senderType === 'user') {
-    return { role: 'user', content, timestamp: msg.createdAt };
+/** F20260910ctlv：entry → 对话片段（user→user 角色；speak→assistant；system 跳过——
+ *  系统条目是状态记录非对话内容，不进近期原文；居中 yield/boundary 同理不在拉取范围） */
+type RecentEntry = Awaited<ReturnType<HandoffEntryReader['getEntries']>>[number];
+function entryToFragment(entry: RecentEntry): TurnFragment | null {
+  const content = (entry.body ?? '').trim();
+  if (!content) return null;
+  if (entry.entryType === 'user') {
+    return { role: 'user', content, timestamp: entry.createdAt };
   }
-
-  if (msg.senderType === 'otter') {
-    return { role: 'assistant', content, timestamp: msg.createdAt };
+  if (entry.entryType === 'speak') {
+    return { role: 'assistant', content, timestamp: entry.createdAt };
   }
-
   return null;
 }

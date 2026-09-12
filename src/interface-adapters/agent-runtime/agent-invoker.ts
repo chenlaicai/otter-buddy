@@ -14,7 +14,6 @@ import type { SdkInvokePort, AgentStreamEvent, DynamicContext } from "@usecases/
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { SendEntry } from "@usecases/conversation/send-entry";
 import type { QueryMessage } from "@usecases/conversation/query-message";
-import { aggregateBody } from "@entities/conversation/message";
 import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
@@ -31,7 +30,7 @@ import type { ScheduledTaskRepository } from "@usecases/scheduled-task/scheduled
 import type { ManageContext } from "@usecases/otter/manage-context";
 import type { LinkedResource } from "@entities/conversation/conversation";
 // eslint-disable-next-line no-restricted-imports -- F20260825hndf: type-only import for DI injection
-import type { buildHandoffPackage, HandoffPackageOptions, StateInventoryDeps } from "@frameworks/agent/handoff-package-builder";
+import type { buildHandoffPackage, HandoffPackageOptions, StateInventoryDeps, HandoffEntryReader } from "@frameworks/agent/handoff-package-builder";
 // eslint-disable-next-line no-restricted-imports -- F20260901mbfx: type-only import（SynthesisPrefetch 机械预取数据，DI 注入同源）
 import type { SynthesisPrefetch } from "@frameworks/agent/synthesis-prompt-builder";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
@@ -54,7 +53,7 @@ import type { AgentTurnPort, AgentTurnResult } from "@usecases/ports/agent-turn-
  */
 function buildAutoHandoffOptions(input: {
   inventoryDeps: StateInventoryDeps;
-  queryMessage: QueryMessage;
+  entryReader: HandoffEntryReader;
   logger: Logger;
   synthesize: (prompt: string) => Promise<string>;
   trigger: HandoffPackageOptions["trigger"];
@@ -70,7 +69,7 @@ function buildAutoHandoffOptions(input: {
   return {
     recencyTokens: 8000,
     stateInventoryDeps: input.inventoryDeps,
-    queryMessage: input.queryMessage,
+    entryReader: input.entryReader,
     logger: input.logger,
     synthesize: input.synthesize,
     oldSessionId: input.oldSessionId,
@@ -83,7 +82,7 @@ function buildAutoHandoffOptions(input: {
 
 function buildManualHandoffOptions(input: {
   inventoryDeps: StateInventoryDeps;
-  queryMessage: QueryMessage;
+  entryReader: HandoffEntryReader;
   logger: Logger;
   trigger: HandoffPackageOptions["trigger"];
 }): HandoffPackageOptions {
@@ -91,7 +90,7 @@ function buildManualHandoffOptions(input: {
   return {
     recencyTokens: 8000,
     stateInventoryDeps: input.inventoryDeps,
-    queryMessage: input.queryMessage,
+    entryReader: input.entryReader,
     logger: input.logger,
     trigger: input.trigger,
   };
@@ -725,10 +724,11 @@ export class AgentInvoker implements AgentTurnPort {
 
   /**
    * 审视 P2/P1：stateInventoryDeps 的统一构造（三条路径共用，消除重复）。
+   *  F20260910ctlv 收尾批1：历史读取切 entries（entryReader = sendEntry.getEntries 窄面）。
    */
   private buildStateInventoryDeps(conversationId: string, workspacePath?: string): StateInventoryDeps {
     return {
-      queryMessage: this.queryMessage,
+      entryReader: this.sendEntry ?? this.queryMessageCompatEntryReader(),
       conversationRepo: this.conversationRepo!,
       scheduledTaskRepo: this.scheduledTaskRepo,
       healingRepo: this.healingRepo ?? undefined,
@@ -736,6 +736,18 @@ export class AgentInvoker implements AgentTurnPort {
       workspacePath,
       logger: this.logger,
     };
+  }
+
+  /** F20260910ctlv：entries 读取器（sendEntry 注入时直接用；旧装配降级空读——不回 messages） */
+  private handoffEntryReader(): HandoffEntryReader {
+    return this.sendEntry ?? {
+      getEntries: async () => [],
+    };
+  }
+
+  /** state-inventory 降级兼容：sendEntry 缺失时返回空读（历史 reading 已全部切 entries） */
+  private queryMessageCompatEntryReader(): HandoffEntryReader {
+    return { getEntries: async () => [] };
   }
 
   /**
@@ -754,7 +766,7 @@ export class AgentInvoker implements AgentTurnPort {
     const { oldSessionId, lineage } = await this.resolveHandoffLineage(otterId);
     return buildAutoHandoffOptions({
       inventoryDeps: this.buildStateInventoryDeps(conversationId, workspacePath),
-      queryMessage: this.queryMessage,
+      entryReader: this.handoffEntryReader(),
       logger: this.logger,
       synthesize,
       trigger: '70%阈值',
@@ -826,9 +838,10 @@ export class AgentInvoker implements AgentTurnPort {
    */
   private async fetchRecentUserMessages(conversationId: string, limit = 6): Promise<string[]> {
     try {
-      const messages = await this.queryMessage.getMessages(conversationId, { limit, senderType: 'user' });
-      return messages
-        .map(m => aggregateBody(m.segments).trim())
+      // F20260910ctlv 收尾批1：切 entries（user entry body 即全文，无 segments 聚合）
+      const entries = await this.handoffEntryReader().getEntries(conversationId, { entryType: 'user', limit });
+      return entries
+        .map(e => (e.body ?? '').trim())
         .filter(t => t.length > 0 && t.length <= 500)
         .reverse();
     } catch {
@@ -958,7 +971,7 @@ export class AgentInvoker implements AgentTurnPort {
           params.otterId,
           buildManualHandoffOptions({
             inventoryDeps: this.buildStateInventoryDeps(params.conversationId, workspacePath),
-            queryMessage: this.queryMessage,
+            entryReader: this.handoffEntryReader(),
             logger: this.logger,
             trigger: '熔断',
           }),
@@ -1056,7 +1069,7 @@ export class AgentInvoker implements AgentTurnPort {
           otterId,
           buildManualHandoffOptions({
             inventoryDeps: this.buildStateInventoryDeps(params.conversationId, workspacePath),
-            queryMessage: this.queryMessage,
+            entryReader: this.handoffEntryReader(),
             logger: this.logger,
             trigger: '手动',
           }),
