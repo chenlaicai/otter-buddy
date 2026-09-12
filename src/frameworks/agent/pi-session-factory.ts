@@ -27,6 +27,8 @@ import type { Model, Api } from "@earendil-works/pi-ai";
 import { createAgentSessionStore } from "./agent-session-store";
 import type { AgentSessionStore } from "./agent-session-store";
 import type { DynamicContext } from "@usecases/ports/sdk-invoke-port";
+import type { SynthesisRunResult } from "@usecases/ports/sdk-invoke-port";
+import { getLastStopReason } from "./context-tokens";
 import { DEFAULT_CIRCUIT_BREAKER_CONFIG } from "./tool-call-circuit-breaker";
 import type { CircuitBreakerConfig } from "./tool-call-circuit-breaker";
 import { getConfig } from "@frameworks/config";
@@ -356,12 +358,84 @@ export class PiSessionFactory implements AgentGateway {
     this.pendingIdentity.add(otterId);
   }
 
+  /**
+   * F20260912nlb896（#896 + PR #897 检视严重 1）：压缩合成影子通道——临时 inMemory session 直调 LLM。
+   *
+   * Why 不走 invoke（原 #896 修复的 ALS 锁旁路方案被检视推翻）：
+   * ①锁：session_before_compact 钩子在 prompt 中途触发，外层持有 per-otter 锁，嵌套 invoke 再取同锁死锁；
+   * ②池：锁旁路后嵌套 invoke 在 _acquirePooled 必判外层 streaming session 为 stale 出池、
+   *   冷启动 SessionManager.open 同一 jsonl 顶替池条目——压缩摘要 entry 与外层后续消息全部丢失，
+   *   压缩永远不生效且上下文逐轮膨胀（比死锁更隐蔽，每次看起来都「成功」）。
+   *
+   * Why 影子通道安全：
+   * - 合成 prompt 自包含（完整待压缩历史序列化进 prompt），无需会话历史 → inMemory session 语义等价；
+   * - 不入池、不触锁、不写共享 jsonl → 与外层 streaming session 零交互；
+   * - 合成纯文本直出（speak 等副作用工具在压缩中途触发必错消息归属）→ 不挂 customTools；
+   *   readOnly 工具白名单（F20260901mbfx）本就是零信任防御（合成 prompt 无工具引导），不提供工具不影响合成质量。
+   *
+   * 已知妥协：无熔断/outputGuard 守卫（60s 超时防线在 compaction-hook 层，COMPACTION_SYNTHESIS_TIMEOUT_MS）。
+   */
+  async runCompactionSynthesis(otterId: string, prompt: string): Promise<SynthesisRunResult> {
+    await this.ensurePiCodingAgent();
+    const piCodingAgent = this.modelRuntimeRegistry.getPiCodingAgent()!;
+
+    // 模型解析：与 _createSessionWithTools 同链（otter 显式 alias → 池默认）
+    let resolvedModel = this.cfg.model;
+    if (this.cfg.modelPool) {
+      const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
+      const modelAlias = otterConfig?.modelAlias;
+      resolvedModel = this.cfg.modelPool.getModel(modelAlias);
+    }
+
+    const SessionManagerClass = getSessionManagerClass(piCodingAgent);
+    const sessionManager = SessionManagerClass.inMemory();
+    const { session } = await piCodingAgent.createAgentSession({
+      model: resolvedModel,
+      sessionManager,
+      tools: [],
+      customTools: [],
+      resourceLoader: this.modelRuntimeRegistry.getResourceLoader() ?? undefined,
+      modelRuntime: this.modelRuntimeRegistry.getModelRuntime() ?? undefined,
+      settingsManager: this.modelRuntimeRegistry.getSettingsManager() ?? undefined,
+    });
+
+    // 收集 LLM 直出文本（合成不挂 customTools，turnText 经 subscribe 捕获旁白）
+    const turnText = { text: "" };
+    const unsubscribe = session.subscribe(createEventHandler(undefined, undefined, turnText));
+    try {
+      this.logger.info('[compaction-synthesis] shadow channel starting', { otterId, modelAlias: this.getModelAliasForLog(otterId), promptLength: prompt.length });
+      await session.prompt(prompt, { expandPromptTemplates: false });
+      checkSessionError(session, otterId, this.logger);
+      const lastStopReason = getLastStopReason(session.sessionManager.getBranch());
+      this.logger.info('[compaction-synthesis] shadow channel completed', { otterId, length: turnText.text.length, lastStopReason });
+      return { directText: turnText.text, lastStopReason };
+    } finally {
+      unsubscribe();
+      // inMemory session 无文件资源；dispose 释放内部状态（abort 进行中的流——影子 session 在 prompt 返回后已无活动流）
+      try { session.dispose?.(); } catch { /* 清理失败不阻塞 */ }
+    }
+  }
+
   /** invoke() 外部版本（带锁） */
   async invoke(
     otterId: string,
     message: string,
     options?: InvokeOptions,
   ): Promise<AgentRunResult> {
+    // #896：ALS 嵌套检测锁旁路。**防御性保留，当前无活触发路径**——压缩合成已改走
+    // 影子通道（runCompactionSynthesis，不走 invoke）；handoff 合成的 pre-invoke 自动触发
+    // 路径已退役（agent-invoker.ts F20260903cmpk 注释块，唯一调用点被注释）。
+    // 保留理由：同 otterId 的嵌套 invoke 若再取同一把 per-otter 锁必死锁（原 #896 机制），
+    // 未来新增任何「invoke 内嵌套 invoke」路径（如新钩子/新合成场景）由此层兜底免疫；
+    // 且嵌套撞 streaming 的池层保护（_acquirePooled）依赖同一份 ALS 判定，两处语义同源。
+    // 判定：同 otterId 的 store 存在 = 同一 async context 内的嵌套 invoke，外层已持锁，直接执行。
+    // 真并发来自不同 async context（store 为 undefined），照常取锁。
+    // 嵌套串行安全由 ALS 链保证（外层 await 内层，不存在并行执行）。
+    const nestedStore = otterInvokeStorage.getStore();
+    if (nestedStore && nestedStore.otterId === otterId) {
+      this.logger.debug('[invoke] nested invoke within ALS context, bypassing lock', { otterId, readOnly: options?.readOnly ?? false });
+      return await this._invokeInternal(otterId, message, options);
+    }
     const release = await this.lockManager.acquire(`session:${otterId}`);
     try {
       return await this._invokeInternal(otterId, message, options);
@@ -409,12 +483,20 @@ export class PiSessionFactory implements AgentGateway {
   ): Promise<{ session: AgentSession; sessionKey: string; toolContext: ToolContext; turnText: { text: string }; isPooled: boolean; createdNew: boolean }> {
     const existing = this.poolMeta.get(otterId);
     if (existing) {
-      // 并发防御（检视发现 3）：stale steal（#599，300s 超时）后旧 invoke 仍挂 streaming，
-      // 直接复用会让新 invoke 被 SDK 拒绝且寄存器已 reset 致旧 invoke speak 落错消息。
-      // ⚠️ 不能立即 dispose：旧 invoke 正在执行中，dispose → agent.abort() 会撕裂旧 invoke。
-      // 策略：标记 stale 出池（不再被命中），不 dispose——旧 invoke 终有终点（完成/abort/超时），
-      // 其 finally 的 activeSessions.delete 后 session 无引用，GC 兜底；jsonl 早已持久。
       if (existing.session.isStreaming) {
+        // F20260912nlb896（PR #897 检视严重 1）：嵌套 invoke（ALS store 同 otterId）遇到 streaming
+        // = 合成/handoff 类嵌套调用撞上外层 prompt 中途——**绝不能走下方 stale 出池**：
+        // 出池会让外层活 session 被顶替（压缩摘要 entry 与外层后续消息全部丢失，压缩永不生效）。
+        // 嵌套场景没有「外层异常」的可能（外层正活着在跑），直接抛错由调用方降级（压缩钩子 catch → Pi 默认）。
+        const nestedStore = otterInvokeStorage.getStore();
+        if (nestedStore && nestedStore.otterId === otterId) {
+          throw new Error(`nested invoke while outer invoke is streaming (otter=${otterId})——外层 session 活跃，嵌套调用不得顶替，由调用方降级`);
+        }
+        // 并发防御（检视发现 3）：stale steal（#599，300s 超时）后旧 invoke 仍挂 streaming，
+        // 直接复用会让新 invoke 被 SDK 拒绝且寄存器已 reset 致旧 invoke speak 落错消息。
+        // ⚠️ 不能立即 dispose：旧 invoke 正在执行中，dispose → agent.abort() 会撕裂旧 invoke。
+        // 策略：标记 stale 出池（不再被命中），不 dispose——旧 invoke 终有终点（完成/abort/超时），
+        // 其 finally 的 activeSessions.delete 后 session 无引用，GC 兜底；jsonl 早已持久。
         this.logger.warn('[acquire] pooled session still streaming (stale steal), marking stale and cold-starting', { otterId });
         // 出池（不 dispose）：从池和 meta 摘除，旧 session 成为孤儿由旧 invoke 生命周期托管
         this.pool.markStale(otterId);
