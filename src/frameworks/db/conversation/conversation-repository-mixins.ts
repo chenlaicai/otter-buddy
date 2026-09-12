@@ -219,6 +219,23 @@ export function updateLastReadSeq(
   `).run(seq, conversationId, otterId);
 }
 
+/** F20260910ctlv 批4c 修复：按 invokeId 反查 turn_number（新模型链：invokes.trigger_entry_id → entries.turn_id → turns.turn_number）。
+ *  旧链查 messages 表且收到的 ID 实为 invokeId（批4a 语义换轨）——永远 miss。
+ *  trigger_entry_id 为空（旧 invoke/边界）时 JOIN 天然 miss，返回 null（调用方跳过推进，不抛错）。 */
+export function getTurnNumberByInvokeId(
+  db: Database.Database,
+  invokeId: string,
+): number | null {
+  const row = db.prepare(`
+    SELECT t.turn_number AS turn_number
+    FROM invokes i
+    JOIN entries e ON e.id = i.trigger_entry_id
+    JOIN turns t ON t.id = e.turn_id
+    WHERE i.id = ?
+  `).get(invokeId) as { turn_number: number } | undefined;
+  return row?.turn_number ?? null;
+}
+
 /** F20260819idnw：更新最后活跃轮次（小獭发言时） */
 export function updateLastActiveTurnNumber(
   db: Database.Database,
@@ -233,49 +250,6 @@ export function updateLastActiveTurnNumber(
   `).run(turnNumber, conversationId, otterId);
 }
 
-export function getUnreadMessages(
-  db: Database.Database,
-  conversationId: string,
-  otterId: string,
-): Array<{ id: string; sender_id: string; sender_type: string; sequence_num: number; sender_name: string | null; talking_stone_passed_to: string | null }> {
-  // F20260902sgp2 S4c 读路径切换：seq 刻度优先（last_read_seq 非空 = 已迁移），
-  // NULL 回退 turn 刻度（存量 participants / 双写前的旧行）。回滚面 = 旧列原样保留。
-  const participant = db.prepare(`
-    SELECT last_read_turn_number, last_read_seq FROM conversation_participants
-    WHERE conversation_id = ? AND otter_id = ? AND status = 'active'
-  `).get(conversationId, otterId) as { last_read_turn_number: number; last_read_seq: number | null } | undefined;
-
-  if (!participant) return [];
-
-  /** 排除 streaming/speaking 半成品（不应注入其它 otter 上下文，F5）。
-   *  F20260826fuid：携带 sender_name（user 消息的飞书姓名快照，群聊多人识别用）。
-   *  F20260902uspr：携带 talking_stone_passed_to（SignalRouter 收件箱判别依赖——
-   *  此前投影硬编码 null，信号路由器 pendingSignalsFor 恒空，全部入口静默哑火） */
-  // F20260910ctlv 收尾批3：读路径切 entries（时间线唯一真相源）。
-  // 消费方（dispatch-chain-engine）已走 getUnreadEntries；本方法保留接口兼容，
-  // 数据源从 messages 换成 entries——口径与 sqlite-entry-repository.getUnreadEntries 一致。
-  if (participant.last_read_seq != null) {
-    // seq 刻度（entries.sequence_num 单调序列）
-    return db.prepare(`
-      SELECT e.id, e.sender_id, e.sender_type, e.sequence_num, e.sender_name, e.yield_targets AS talking_stone_passed_to
-      FROM entries e
-      WHERE e.conversation_id = ? AND e.sequence_num > ? AND (e.sender_id IS NULL OR e.sender_id != ?)
-        AND e.entry_type IN ('user', 'system', 'speak')
-        AND e.status = 'completed'
-      ORDER BY e.sequence_num ASC
-    `).all(conversationId, participant.last_read_seq, otterId) as Array<{ id: string; sender_id: string; sender_type: string; sequence_num: number; sender_name: string | null; talking_stone_passed_to: string | null }>;
-  }
-  // turn 刻度（存量回退路径；entries.turn_id 关联）
-  return db.prepare(`
-    SELECT e.id, e.sender_id, e.sender_type, e.sequence_num, e.sender_name, e.yield_targets AS talking_stone_passed_to
-    FROM entries e
-    JOIN turns t ON e.turn_id = t.id
-    WHERE e.conversation_id = ? AND t.turn_number >= ? AND (e.sender_id IS NULL OR e.sender_id != ?)
-      AND e.entry_type IN ('user', 'system', 'speak')
-      AND e.status = 'completed'
-    ORDER BY e.sequence_num ASC
-  `).all(conversationId, participant.last_read_turn_number, otterId) as Array<{ id: string; sender_id: string; sender_type: string; sequence_num: number; sender_name: string | null; talking_stone_passed_to: string | null }>;
-}
 
 /** F20260803trrf: 按 id 查 turn（不论 status，markBatchRead 在 turn 关闭后反查 turn_number） */
 export function getTurnById(db: Database.Database, turnId: string): Turn | null {

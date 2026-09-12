@@ -39,7 +39,7 @@ import type { SettingsRepository } from "@usecases/settings/settings-repository"
 import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildMessageWithContext } from "./session-helpers";
 import { SessionPool } from "./session-pool";
 import type { PooledSession } from "./session-pool";
-import { updateLastReadSeq, updateLastActiveTurnNumber } from "@frameworks/db/conversation/conversation-repository-mixins";
+import { updateLastReadSeq, updateLastActiveTurnNumber, getTurnNumberByInvokeId } from "@frameworks/db/conversation/conversation-repository-mixins";
 import { attachGuards, checkSessionError, buildPromptResult } from "./circuit-breaker-helpers";
 import { checkOrchestrationGuard } from "@usecases/conversation/dispatch-guard";
 import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
@@ -551,7 +551,7 @@ export class PiSessionFactory implements AgentGateway {
         const wrappedHandler = (event: { type: string }) => {
           if (!startupCursorPushed && batchMaxSeq !== undefined && event.type !== 'queue_update') {
             startupCursorPushed = true;
-            this.pushCursorOnStartup(conversationId, otterId, batchMaxSeq, options?.messageId);
+            this.pushCursorOnStartup(conversationId, otterId, batchMaxSeq, options?.messageId); // messageId 参数承载 invokeId（批4a 键控语义）
           }
           baseHandler(event as never);
         };
@@ -620,18 +620,18 @@ export class PiSessionFactory implements AgentGateway {
     conversationId: string,
     otterId: string,
     batchMaxSeq: number,
-    messageId?: string,
+    invokeId?: string,
   ): void {
     try {
       updateLastReadSeq(this.cfg.db, conversationId, otterId, batchMaxSeq);
-      // F20260908rlcp：活跃度同点迁移——查当前消息的 turn_number
-      if (messageId) {
-        const msgRow = this.cfg.db.prepare('SELECT turn_id FROM messages WHERE id = ?').get(messageId) as { turn_id: string } | undefined;
-        if (msgRow) {
-          const turnRow = this.cfg.db.prepare('SELECT turn_number FROM turns WHERE id = ?').get(msgRow.turn_id) as { turn_number: number } | undefined;
-          if (turnRow) {
-            updateLastActiveTurnNumber(this.cfg.db, conversationId, otterId, turnRow.turn_number);
-          }
+      // F20260908rlcp：活跃度同点迁移——查本 invoke 的 turn_number。
+      // F20260910ctlv 批4c 修复：invokeId 语义自批4a 起承担（agent-invoker.ts:333），
+      // 旧 SQL 查 messages 表（该 ID 是 invokeId）永远 miss → lastActiveTurnNumber 停摆。
+      // 新链在 mixin（getTurnNumberByInvokeId）：trigger_entry_id 为空时返回 null，跳过推进（lastReadSeq 照推，不抛错）。
+      if (invokeId) {
+        const turnNumber = getTurnNumberByInvokeId(this.cfg.db, invokeId);
+        if (turnNumber !== null) {
+          updateLastActiveTurnNumber(this.cfg.db, conversationId, otterId, turnNumber);
         }
       }
     } catch (cursorErr) {
