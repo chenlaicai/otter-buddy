@@ -27,7 +27,7 @@ category: technique
 
 ## 工作流
 
-1. **验证环境**：`git rev-parse --show-toplevel` + `pwd`，确认是否已在 `.claude/worktrees/` 下。已在则跳到 step 2。
+1. **验证环境**：`git rev-parse --show-toplevel` + `pwd`，确认是否已在 `.otter/worktrees/` 下。已在则跳到 step 2。
 2. **认领协议（防跨对话撞车）**：任务对应 GitHub issue 编号时，创建 worktree 前必须执行——多条对话线（定时任务/手动对话/派工）可能同时盯上同一 issue（#665/#679 撞车实证）。
    - **开工三问**（按序检查，任一命中即停手核实）：
      1. 认领检查：`gh issue view <N> --json comments` 搜 `otter-claim` 标记——已有他人认领且无 release → 换目标，不抢
@@ -42,7 +42,8 @@ category: technique
    - **回读退场**（协议核心，不可省略）：发完认领评论后**立即回读全部评论**——存在更早的他人 otter-claim 且无 release → 自己输，直接退场换目标，不发难。回读是把「评论无原子性」补成秒级可裁决的关键一步（两线几秒内并发认领，靠 GitHub 服务端时间戳定胜负）。**回读硬门（PR #690 检视发现 1/2）**：回读工具调用失败或结果异常 → 不得继续开工，停手报告大獭处置（跳过回读 = 协议失效，等效无协议开工）；回读时发现自身认领评论缺失 → 同样停手核实，禁止当作「无认领」继续（评论被删 = 审计轨迹被破坏）。
    - **放弃认领**：发 `<!-- otter-claim-release: conversation=<对话短ID> -->` + 原因说明。
    - **双 PR 仲裁**（最坏情况已并存）：时间序优先（PR createdAt 不可伪造）；质量明显更优可升级搭档裁决；被弃方 close 并在关闭评论留判定依据（#665 先例模板）。
-3. **创建 worktree**：`git worktree add .claude/worktrees/<name> -b <branch-name> origin/main`。失败时报告搭档，由搭档决定继续或中止。worktree 是特性开发的独立空间，特性文档（`docs/features/`）也在这里。
+3. **创建 worktree**：`git worktree add .otter/worktrees/<name> -b <branch-name> origin/main`。失败时报告搭档，由搭档决定继续或中止。worktree 是特性开发的独立空间，特性文档（`docs/features/`）也在这里。
+   **目录位置规范（F20260912wdsp）**：worktree 一律创建在 `<被处理项目根>/.otter/worktrees/<name>`（`.otter/` 属运行时产物，已 gitignore）。生命周期跟 PR/项目走、**不跟对话走**——对话工作区（`data/workspaces/`）在对话归档时会被 removeWorkspace 整体删除，只可放可丢弃草稿，禁止存放 worktree 等交付中资产。存量 `.claude/worktrees/` 下的旧 worktree 不迁移（搭档决策 2026-09-12：避免影响其他对话在途工作），随各自 PR 合入由 post-merge-cleanup 自然衰减；认领协议与清理流程均以 `git worktree list` 为准，位置无关。
 4. **在 worktree 内提交**：所有改动和验证在 worktree 内进行，主目录只读。生成特性 ID 前必须先跑 `date` 取当前日期，禁止凭印象标日期（#422）；**新 ID 必须先查重**：`grep -rl '<title 或主题关键词>' docs/features/ docs/research/`，存在同 title 或语义相同的文档则复用原 ID——自编新 ID 会让旧 ID 的 chunk 残留 memory 库形成重复污染（#524）。标题搜不到时改用主题关键词重试，仍无命中才可自编新 ID。按提交模板 commit，署名按 signature-convention skill。**Modification-Class 声明**：commit message body 必须含一行声明，取值与修法排序对应——
 
    | 修改类型 | 声明值 |
