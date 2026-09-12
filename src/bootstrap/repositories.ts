@@ -13,6 +13,7 @@ import { SqliteScheduledTaskRepository } from "@frameworks/db/scheduled-task/sql
 import { SqliteConnectionRepository } from "@frameworks/db/im/sqlite-connection-repository";
 import { SqliteHealingEventRepository } from "@frameworks/db/healing/sqlite-healing-event-repository";
 import { SqliteSignalEventRepository } from "@frameworks/db/signal/sqlite-signal-repository";
+import { SqliteDispatchRecordRepository } from "@frameworks/db/dispatch/sqlite-dispatch-record-repository";
 import { SignalRepository } from "@usecases/health/signal-repository";
 import { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
 import { SqliteAttachmentRepository } from "@frameworks/db/attachment/sqlite-attachment-repository";
@@ -43,6 +44,8 @@ export function initRepositories(db: Database.Database, logger?: Logger): Reposi
     healthSnapshot: new HealthSnapshotRepository(db),
     /** F20260902sgp2 S1：派发台账（信号协议 v2） */
     dispatchAttempt: new SqliteDispatchAttemptRepo(db),
+    /** F20260912avlb：派工台账正式表（取代 otter_context 伪存储） */
+    dispatchRecord: new SqliteDispatchRecordRepository(db),
     /** 多模态 Phase 1：附件 repo */
     attachment: new SqliteAttachmentRepository(db),
   };

@@ -506,18 +506,20 @@ export interface FdocCountRecord {
   fdocCount: number;
 }
 
-// ── Dispatch 任务完成数采集（otter_context 统计） ──
+// ── 每日派工数采集（dispatch_records 统计） ──
 
-/** per-date 的 dispatch 任务完成数 */
+/** per-date 的派工数 */
 export interface DispatchCountRecord {
   date: string;
   dispatchCount: number;
 }
 
 /**
- * 从 otter_context 表采集 per-date 的 dispatch 任务完成数。
- * dispatch 记录存储在 otter_context 中，key 以 'dispatch:' 开头，value 为 JSON 字符串。
- * 只统计 status='completed' 的记录，按 completedAt 日期聚合。
+ * F20260912avlb：从 dispatch_records 表采集 per-date 的每日派工数。
+ * 口径：按 dispatched_at 日期聚合（有 dispatched_at 的记录数 = 当日实际派出的工）。
+ * 旧口径（「任务完成数」：只认 completed/failed 终态）自上线以来一直静默归零——
+ * 终态从未有写入路径（见特性文档「数据层真相」），是死口径；本切换为客观可判定的
+ * 「派工」事件。存量 in_progress 迁移时用原 updatedAt 填充 dispatched_at，历史不丢。
  */
 export function collectDispatchTaskCounts(
   db: Database.Database,
@@ -526,31 +528,13 @@ export function collectDispatchTaskCounts(
   const since = options?.since ?? new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   const rows = db.prepare(`
-    SELECT value
-    FROM otter_context
-    WHERE key LIKE 'dispatch:%'
-  `).all() as Array<{ value: string }>;
+    SELECT substr(dispatched_at, 1, 10) AS date, COUNT(*) AS count
+    FROM dispatch_records
+    WHERE dispatched_at IS NOT NULL AND substr(dispatched_at, 1, 10) >= ?
+    GROUP BY substr(dispatched_at, 1, 10)
+  `).all(since) as Array<{ date: string; count: number }>;
 
-  const counts = new Map<string, number>();
-  for (const row of rows) {
-    try {
-      const record = JSON.parse(row.value) as {
-        status?: string;
-        completedAt?: string;
-        createdAt?: string;
-      };
-      // 只统计已完成/失败的任务
-      if (record.status !== 'completed' && record.status !== 'failed') continue;
-      // 使用完成日期，如果没有则使用创建日期
-      const date = (record.completedAt ?? record.createdAt ?? '').slice(0, 10);
-      if (!date || date < since) continue;
-      counts.set(date, (counts.get(date) ?? 0) + 1);
-    } catch {
-      // JSON 解析失败，跳过
-    }
-  }
-
-  return [...counts.entries()].map(([date, dispatchCount]) => ({ date, dispatchCount }));
+  return rows.map(r => ({ date: r.date, dispatchCount: r.count }));
 }
 
 /**

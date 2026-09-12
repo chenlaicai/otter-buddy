@@ -44,6 +44,15 @@ export class SqliteSignalEventRepository implements SignalEventRepository {
     return rows.map(rowToSignalEvent);
   }
 
+  /** F20260912avlb：全表查询（可选过滤），created_at 倒序——复用 mapper 的过滤子句拼装 */
+  async findAll(filter?: SignalQueryFilter, limit = 200): Promise<SignalEvent[]> {
+    const { clause, params } = buildSignalFilterClause(filter);
+    const rows = this.db.prepare(
+      `SELECT * FROM signal_events WHERE 1=1${clause} ORDER BY created_at DESC LIMIT ?`,
+    ).all(...params, limit) as SignalEventRow[];
+    return rows.map(rowToSignalEvent);
+  }
+
   async resolve(id: string, status: 'resolved' | 'dismissed', resolution: string, resolvedBy: string): Promise<SignalEvent | null> {
     const now = new Date().toISOString();
     const result = this.db.prepare(

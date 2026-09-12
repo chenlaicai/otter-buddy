@@ -16,6 +16,7 @@ import type { ScheduledTaskRepository } from "@usecases/scheduled-task/scheduled
 import type { ConnectionRepository } from "@usecases/im/connection-repository";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
+import type { DispatchRecordRepository } from "@usecases/dispatch/dispatch-record-repository";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
 import type { DispatchAttemptRepo } from "@entities/conversation/dispatch-attempt";
@@ -71,6 +72,8 @@ export interface Repositories {
   healthSnapshot: HealthSnapshotRepository;
   /** F20260902sgp2 S1：派发台账（信号协议 v2）——pending := 已投递 ∧ 无派发记录 */
   dispatchAttempt: DispatchAttemptRepo;
+  /** F20260912avlb：派工台账正式表（客观生命周期 created/dispatched/dissolved） */
+  dispatchRecord: DispatchRecordRepository;
   /** 多模态 Phase 1：附件 repo（上传管线 + 消息组装共用） */
   attachment: AttachmentRepository;
 }

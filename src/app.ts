@@ -258,6 +258,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       const r = await syncDocuments(repos, memoryIndex, logger, rootDir ?? options.rootDir ?? process.cwd());
       return { synced: r.synced, updated: r.updated, skipped: r.skipped, archived: r.archived, errors: r.errors.length };
     },
+    /** F20260912avlb：dispatch 工具指向派工台账正式表 */
+    dispatchRepo: repos.dispatchRecord,
   }));
   resolveManageScheduledTask(uc.manageScheduledTask);
 

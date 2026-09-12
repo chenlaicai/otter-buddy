@@ -17,6 +17,7 @@ import type { WorkspaceController } from "./controllers/workspace-controller";
 import type { WeixinConnectionController } from "./controllers/weixin-connection-controller";
 import type { ChannelController } from "./controllers/channel-controller";
 import type { SkillController } from "./controllers/skill-controller";
+import type { ActivityController } from "./controllers/activity-controller";
 
 
 export interface Controllers {
@@ -40,6 +41,8 @@ export interface Controllers {
   channel?: ChannelController;
   /** #576（F20260901emps）：能力库真数据源端点 */
   skills?: SkillController;
+  /** F20260912avlb：活动页三域台账只读端点 */
+  activity: ActivityController;
   inbound: { optionsEvents: (c: Context) => Response | Promise<Response>; receiveEvents: (c: Context) => Response | Promise<Response>; getStatus: (c: Context) => Response | Promise<Response> };
 }
 
@@ -81,8 +84,17 @@ function registerOtterRoutes(app: Hono, c: Controllers): void {
   app.get("/api/otters/:id/profile", (ctx) => c.otter.getProfile(ctx));
 }
 
+/** F20260912avlb：活动页三域台账（全只读，无写端点——纯展示承诺） */
+function registerActivityRoutes(app: Hono, c: Controllers): void {
+  app.get("/api/activity/healing", (ctx) => c.activity.healing(ctx));
+  app.get("/api/activity/signals", (ctx) => c.activity.signals(ctx));
+  app.get("/api/activity/dispatch", (ctx) => c.activity.dispatch(ctx));
+}
+
 function registerDataRoutes(app: Hono, c: Controllers): void {
   app.get("/api/health/memory", (ctx) => c.health.memory(ctx));
+
+  registerActivityRoutes(app, c);
 
   // #576（F20260901emps）：能力库页面真数据。未注入（测试环境）时 503，前端降级静态清单
   if (c.skills) {

@@ -30,6 +30,7 @@ export const MPA_PAGES: readonly MpaPage[] = [
   { entry: "skills", pattern: "/skills", label: "能力库" },
   { entry: "im", pattern: "/im", label: "IM" },
   { entry: "health", pattern: "/health", label: "健康面板" },
+  { entry: "activity", pattern: "/activity", label: "活动" },
   { entry: "settings", pattern: "/settings", label: "设置" },
 ];
 

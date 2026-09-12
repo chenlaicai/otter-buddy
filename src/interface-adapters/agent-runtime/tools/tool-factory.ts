@@ -73,13 +73,13 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
   };
 }
 
-/** F20260821i336：更新派工台账状态（yield 成功后批量更新） */
+/** F20260821i336（F20260912avlb 改造）：yield 成功后记账派工——行动权首次/再次交给目标獭。
+ *  markDispatched 只刷 created 状态行：首次派工时间戳不被后续多轮交棒刷新。 */
 async function updateDispatchLedgerOnYield(ctx: ToolContext, resolvedIds: string[]): Promise<void> {
   for (const id of resolvedIds) {
-    await ctx.client.dispatch.updateRecord({
+    await ctx.client.dispatch.markDispatched({
       otterId: id,
       conversationId: ctx.conversationId,
-      status: 'in_progress',
     });
   }
 }
@@ -353,7 +353,7 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
       await ctx.client.conversation.participant.join(ctx.conversationId, otter.id);
       /** F20260813actk C9：注册待派工票据，供 speak 软守卫检测 */
       ctx.pendingDispatches?.set(otter.id, otter.name);
-      /** F20260821i336：创建派工台账记录 */
+      /** F20260821i336（F20260912avlb）：创建派工台账记录（created：獭就位待命） */
       await ctx.client.dispatch.createRecord({
         conversationId: ctx.conversationId,
         otterId: otter.id,
@@ -856,29 +856,38 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** F20260821i336：query_dispatch_ledger — 查询派工台账，大獭汇报前核对 */
+/** F20260821i336（F20260912avlb 改造）：query_dispatch_ledger — 查询派工台账，大獭汇报前核对。
+ *  状态为客观生命周期三态：created（就位待命）/ dispatched（已派工）/ dissolved（獭已解散）。
+ *  delta 复审建议 1：conversationId 不再兑底当前对话——缺省全表（与 web 端一致），
+ *  大獭跨对话巡检用；传指定 ID 则限定单对话。 */
 function createQueryDispatchLedgerTool(ctx: ToolContext): AgentTool {
   return {
     name: "query_dispatch_ledger",
-    description: "查询派工台账. When: 大獭汇报任务状态前核对实际派工记录，消灭状态虚报. Output: 派工记录列表（otterName/task/status/PR/时间戳）. BOUNDARY: 只读不修改状态. conversationId 由系统注入.",
+    description: "查询派工台账. When: 大獭汇报任务状态前核对实际派工记录，消灭状态虚报；跨对话巡检时不传 conversationId 查全表. Output: 派工记录列表（otterName/task/状态/时间戳；状态为客观生命周期：created=就位待命、dispatched=已派工、dissolved=獭已解散，不含「任务完成」判断——完成真相看对话汇报）. BOUNDARY: 只读不修改状态.",
     parameters: {
       type: "object",
       properties: {
         status: {
           type: "string",
-          enum: ["pending", "in_progress", "completed", "failed"],
+          enum: ["created", "dispatched", "dissolved"],
           description: "按状态过滤（可选）",
         },
         otterId: {
           type: "string",
           description: "按小獭 ID 过滤（可选）",
         },
+        conversationId: {
+          type: "string",
+          description: "按对话 ID 过滤（可选，缺省查全部对话——跨对话巡检用）",
+        },
       },
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
       const records = await ctx.client.dispatch.queryRecords({
-        conversationId: ctx.conversationId,
-        status: params.status as "pending" | "in_progress" | "completed" | "failed" | undefined,
+        // 缺省 undefined = 全表（repo findByFilter 语义）；不兑底当前对话——
+        // 与 web 端 controller 口径一致，大獭跨对话巡检能力对齐（delta 复审建议 1）
+        conversationId: params.conversationId as string | undefined,
+        status: params.status as "created" | "dispatched" | "dissolved" | undefined,
         otterId: params.otterId as string | undefined,
       });
       return textResponse(JSON.stringify(records));
