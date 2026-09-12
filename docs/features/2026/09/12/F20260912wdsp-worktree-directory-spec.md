@@ -11,7 +11,7 @@ intent:
   expected_effect: "worktree-isolation skill 与工具描述中的路径统一为 <项目根>/.otter/worktrees/，约定成文；新 worktree 开在新路径，存量自然衰减"
   verify_by:
     type: behavior_check
-    detail: "新创建的 worktree 出现在 <项目根>/.otter/worktrees/ 下；.gitignore 含 .otter/；grep 全仓 .pi/prompts 无 .claude/worktrees 活引用残留（历史文档与测试数据除外）"
+    detail: "新创建的 worktree 出现在 <项目根>/.otter/worktrees/ 下；.gitignore 含 .otter/；grep .pi/ src/ prompts/ 无 .claude/worktrees 活引用残留（历史文档与测试数据除外）"
 modules:
   - .pi/skills/worktree-isolation/SKILL.md
   - src/interface-adapters/agent-runtime/tools/tool-factory.ts
