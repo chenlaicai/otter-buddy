@@ -70,3 +70,34 @@ if (nestedStore && nestedStore.otterId === otterId) {
 
 - 池化后（F20260911pspl）嵌套 readOnly invoke 走 `_acquirePooled` 会命中池并 reset 寄存器——与外层共享 session/寄存器。9/3 起 handoff 合成同形态嵌套（池化前共享 sessionMap 条目）已在生产运行，此形态非本 PR 新增风险；极端边界（合成 LLM 调 speak 落错消息）属低概率已知形态，不在本修复范围
 - stale 双活下 pendingRestart 误逐新 session（#894 检视边缘观察）：与本修复同族（锁/会话语义治理），概率极低，后续一并加固
+
+---
+
+## 附录：PR #897 第 1 轮检视处置（2026-09-12，方案修正）
+
+### 检视发现与裁决
+
+**严重 1（正确性，接受并修复——方案推翻重写）**：ALS 锁旁路判定正确，但旁路后嵌套合成 invoke 在 `_acquirePooled` **必命中 stale-steal 分支**——压缩钩子在外层 `session.prompt()` agent loop 内触发，SDK `_isAgentRunActive` 恒为 true（agent-session.js:773/348）。后果：每次 threshold 压缩都把外层活 session 判 stale 出池、冷启动 `SessionManager.open` 同一 jsonl 顶替池条目——**压缩摘要 entry 与外层后续消息全部丢失，压缩永不生效且上下文逐轮膨胀**，比死锁降级更隐蔽。裁决：发现成立（我核实了 SDK `_runAgentPrompt` 在 prompt 全程置 `_isAgentRunActive=true`，`_checkCompaction` 在其内部跑——每环都核实过）。原「嵌套共享池 session」方案不可行，推翻。
+
+**建议 2（测试 mock 缺口，接受）**：3 用例全 mock `_invokeInternal`，旁路后与池的真实交互零覆盖——严重 1 正从此缺口漏入。修复：补不 mock `_acquirePooled` 的池层用例。
+
+**建议 3（注释/文档口径，接受）**：ALS 旁路的隐式安全契约补全；handoff 论证更新。
+
+### 修正后方案（双管）
+
+**① 压缩合成改走影子通道**（检视推荐方向的落地）：
+- `SdkInvokePort` 新增 `runCompactionSynthesis(otterId, prompt)`：`SessionManager.inMemory()` 临时 session 直调 LLM——自包含合成 prompt 无需会话历史，**不入池、不触锁、不写共享 jsonl**，与外层 streaming session 零交互
+- 不挂 customTools：合成纯文本直出（speak 等副作用工具在压缩中途触发必错消息归属）；readOnly 白名单（F20260901mbfx）本就是零信任防御，不提供工具不影响合成质量
+- `buildCompactionSynthesisFn` 改调影子通道（保留空结果/截断 fail-closed 防线）
+- 已知妥协：无熔断/outputGuard 守卫（60s 超时防线在 compaction-hook 层）
+
+**② `_acquirePooled` streaming 分支增加嵌套保护**：
+- 嵌套 invoke（ALS store 同 otterId）遇 streaming session → **抛错降级**（调用方 catch → Pi 默认），**不得 stale 出池顶替外层活 session**
+- 真并发（无 store / 异 otterId）遇 streaming → stale 出池语义不变（#599 防御保留）
+
+**保留**：invoke 入口 ALS 锁旁路（判定本身正确，且为 handoff 合成等嵌套 readOnly 场景提供死锁免疫——handoff 嵌套若撞上 streaming 现在走②的抛错降级，行为正确）。
+
+### 验证（修正后）
+
+- nested-invoke-lock-bypass.test.ts 扩至 5 用例：锁层 3（旁路/真并发排队/异獭不旁路）+ 池层 2（嵌套撞 streaming 抛错不出池不顶替 / 真并发 stale 出池不变）
+- 全量 254 文件 3181 用例通过；tsc/eslint clean

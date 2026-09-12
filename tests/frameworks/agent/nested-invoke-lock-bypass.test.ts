@@ -1,14 +1,15 @@
 /**
- * #896：嵌套 invoke 锁旁路（ALS 检测）。
+ * #896：嵌套 invoke 锁旁路 + streaming 保护。
  *
- * 守护的行为：session_before_compact 钩子在 session.prompt() 的 agent loop 内部触发，
- * 此时外层 invoke 持有 per-otter 锁；钩子里的合成（readOnly invoke）走完整 invoke 链路——
- * 若再取同一把锁必死锁（30s 超时降级 Pi 默认摘要）。修复：invoke 入口检测
- * otterInvokeStorage 中同 otterId 的 store，命中 = 同 async context 嵌套 invoke，跳过取锁。
+ * 守护的行为链（PR #897 检视后修正版）：
+ * 1. 锁层：同 async context 嵌套 invoke（ALS store 同 otterId）旁路 per-otter 锁——
+ *    压缩钩子在 prompt 中途触发，外层持锁，嵌套再取锁必死锁（原 #896）。
+ * 2. 池层：嵌套 invoke 遇到 streaming session **抛错降级**（不得 stale 出池顶替外层活 session——
+ *    出池会丢压缩摘要 entry + 外层后续消息，压缩永不生效，PR #897 检视严重 1）。
+ * 3. 真并发（不同 async context / stale steal）遇 streaming 照常走 stale 出池冷启动（#599 语义不变）。
  *
- * 测试策略：mock SDK 接触的两侧（restore/createSession），_invokeInternal 用可控 barrier
- * 挂起外层，嵌套 invoke 若误取锁必在 held 锁上超时（可观察副作用）；旁路则立即通过。
- * 锁状态通过 lockManager.locks 的 held 位断言（状态断言，非调用次数）。
+ * 测试策略：锁层用 barrier 挂起外层模拟 prompt 中途；池层直接测 _acquirePooled 的
+ * streaming 分支（与 pool-hit-path.test.ts 同构的 mock 边界）。
  */
 import { describe, it, expect, vi } from "vitest";
 
@@ -20,6 +21,25 @@ import { createTestLogger } from "../../helpers/logger";
 import { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import { otterInvokeStorage } from "@frameworks/agent/model-runtime-registry";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
+
+type FakeSession = {
+  isStreaming: boolean;
+  disposed: boolean;
+  dispose(): void;
+  abort(): Promise<void>;
+  steer(text: string): Promise<void>;
+};
+
+function fakeSession(): FakeSession {
+  const s: FakeSession = {
+    isStreaming: false,
+    disposed: false,
+    dispose() { s.disposed = true; },
+    abort: async () => {},
+    steer: async () => {},
+  };
+  return s;
+}
 
 /** 可控 barrier：外层 _invokeInternal 挂起直到 release，模拟压缩钩子触发时外层仍在 prompt */
 function makeBarrier() {
@@ -52,37 +72,67 @@ function makeFactory(internalImpl: (id: string, msg: string) => Promise<{ text: 
   return { factory, internals, db };
 }
 
+/** 构造池化编排可测的工厂（mock SDK 接触的两侧，与 pool-hit-path.test.ts 同构） */
+function makePoolFactory() {
+  const db = createTestDb();
+  const factory = new PiSessionFactory({
+    db,
+    sessionDir: ":memory:",
+    otterToolClient: {} as never,
+    model: null as never,
+    createTools: () => [],
+    otterConfigProvider: {
+      getConfig: () => ({ systemPrompt: undefined, otterType: "big", modelAlias: null }),
+      setConfig: () => {},
+      deleteConfig: () => {},
+    } as never,
+    otterRepo: new SqliteOtterRepository(db),
+  }, createTestLogger());
+
+  const sessions = new Map<string, FakeSession>();
+  let createCount = 0;
+  const internals = factory as unknown as {
+    _restoreOrCreateSession: (id: string) => Promise<{ sessionManager: unknown; createdNew: boolean }>;
+    _createSessionWithTools: (...args: unknown[]) => Promise<{ session: unknown; sessionKey: string; toolContext: unknown }>;
+    _acquirePooled: (id: string, opts: unknown) => Promise<{
+      session: FakeSession; sessionKey: string; toolContext: { register?: unknown };
+      turnText: { text: string }; isPooled: boolean; createdNew: boolean;
+    }>;
+    poolMeta: Map<string, { session: FakeSession }>;
+  };
+
+  internals._restoreOrCreateSession = async () => ({ sessionManager: {}, createdNew: false });
+  internals._createSessionWithTools = async (otterId: unknown) => {
+    createCount++;
+    const session = fakeSession();
+    sessions.set(otterId as string, session);
+    return { session, sessionKey: otterId as string, toolContext: {} };
+  };
+  return { factory, internals, sessions, db, getCreateCount: () => createCount };
+}
+
 describe("#896 嵌套 invoke 锁旁路", () => {
   it("外层持锁期间，同 otterId 的嵌套 invoke（压缩合成）旁路锁立即执行", async () => {
     const barrier = makeBarrier();
     const { factory, internals, db } = makeFactory(async (_id, msg) => {
-      // 外层 invoke 挂起（模拟 prompt 中途）；嵌套 invoke 直接返回
       if (msg === "外层用户消息") await barrier.gate;
       return { text: `done:${msg}` };
     });
 
-    // 外层 invoke：不在 ALS context（store 在 _executeWithSession 内才建立）→ 正常取锁，挂起
     const outerPromise = factory.invoke("o1", "外层用户消息", { conversationId: "c1" });
-
-    // 等外层进入 _invokeInternal（锁已持有）
     await new Promise((r) => setTimeout(r, 20));
     expect(internals.lockManager.locks.get("session:o1")?.held).toBe(true);
 
-    // 嵌套 invoke：携带同 otterId store（模拟压缩钩子在 prompt 中途触发合成）。
-    // 若误取锁 → 在 held 锁上等待 30s 超时；旁路 → 立即完成。
     const nestedResult = await otterInvokeStorage.run(
       { otterPromptConfig: undefined, identityPrefix: "", otterId: "o1" },
       () => factory.invoke("o1", "压缩合成 prompt", { conversationId: "", readOnly: true }),
     );
-    // 嵌套立即完成（未等外层 barrier）= 旁路的可观察证据
     expect(nestedResult.text).toBe("done:压缩合成 prompt");
-    // 嵌套完成后外层锁仍持有（嵌套没有 release 不属于自己的锁）
     expect(internals.lockManager.locks.get("session:o1")?.held).toBe(true);
 
     barrier.release();
     const outerResult = await outerPromise;
     expect(outerResult.text).toBe("done:外层用户消息");
-    // 外层释放后锁归还（release 删除条目，get 返回 undefined = 未持有）
     expect(internals.lockManager.locks.get("session:o1")?.held ?? false).toBe(false);
     db.close();
   });
@@ -98,12 +148,10 @@ describe("#896 嵌套 invoke 锁旁路", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(internals.lockManager.locks.get("session:o1")?.held).toBe(true);
 
-    // 裸调用（无 store）→ 取锁 → 在 held 锁上排队。给它 50ms 窗口：若排队则必然未完成。
     let secondSettled = false;
     const secondPromise = factory.invoke("o1", "并发消息", { conversationId: "c2" })
       .then((r) => { secondSettled = true; return r; });
     await new Promise((r) => setTimeout(r, 50));
-    // 锁被外层持有，第二个 invoke 排队中（未 settle）= 真并发走锁的可观察证据
     expect(secondSettled).toBe(false);
 
     barrier.release();
@@ -126,7 +174,6 @@ describe("#896 嵌套 invoke 锁旁路", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(internals.lockManager.locks.get("session:otter-A")?.held).toBe(true);
 
-    // store 里是 otter-B，invoke 目标是 otter-A —— 不是同獭嵌套，必须走锁排队
     let settled = false;
     const promise = otterInvokeStorage.run(
       { otterPromptConfig: undefined, identityPrefix: "", otterId: "otter-B" },
@@ -134,12 +181,52 @@ describe("#896 嵌套 invoke 锁旁路", () => {
         .then((r) => { settled = true; return r; }),
     );
     await new Promise((r) => setTimeout(r, 50));
-    expect(settled).toBe(false); // 排队中 = 未旁路
+    expect(settled).toBe(false);
 
     barrier.release();
     const result = await promise;
     expect(result.text).toBe("done:其他獭上下文中的调用");
     await outerPromise;
+    db.close();
+  });
+});
+
+describe("#896 池层 streaming 保护（PR #897 检视严重 1）", () => {
+  it("嵌套 invoke（ALS 同 otterId）遇 streaming session 抛错降级——不出池、不顶替外层 session", async () => {
+    const { internals, sessions, db, getCreateCount } = makePoolFactory();
+    const first = await internals._acquirePooled("o1", { messageId: "m1" });
+    expect(getCreateCount()).toBe(1);
+
+    // 外层 invoke 进行中：session streaming
+    sessions.get("o1")!.isStreaming = true;
+
+    // 嵌套 invoke（ALS store 同 otterId）撞上 streaming → 必须抛错（由钩子 catch 降级），
+    // 且不得出池/顶替（外层 session 仍是池条目）
+    await expect(
+      otterInvokeStorage.run(
+        { otterPromptConfig: undefined, identityPrefix: "", otterId: "o1" },
+        () => internals._acquirePooled("o1", { messageId: "nested" }),
+      ),
+    ).rejects.toThrow(/nested invoke while outer invoke is streaming/);
+
+    // 外层 session 未被顶替：池条目仍是原 session，未重建，未 dispose
+    expect(internals.poolMeta.get("o1")?.session).toBe(first.session);
+    expect(sessions.get("o1")!.disposed).toBe(false);
+    expect(getCreateCount()).toBe(1);
+    db.close();
+  });
+
+  it("真并发（无 ALS store）遇 streaming session 照常 stale 出池冷启动（#599 语义不变）", async () => {
+    const { internals, sessions, db, getCreateCount } = makePoolFactory();
+    const first = await internals._acquirePooled("o1", { messageId: "m1" });
+    sessions.get("o1")!.isStreaming = true;
+
+    // 裸调用（无 store）→ stale steal 场景：出池 + 冷启动
+    const second = await internals._acquirePooled("o1", { messageId: "m2" });
+    expect(second.isPooled).toBe(false);
+    expect(getCreateCount()).toBe(2);
+    expect(sessions.get("o1")!.disposed).toBe(false); // 出池不 dispose（旧 invoke 生命周期托管）
+    expect(second.session).not.toBe(first.session);
     db.close();
   });
 });
