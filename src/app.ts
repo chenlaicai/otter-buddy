@@ -22,6 +22,7 @@ import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { SchedulerService } from "@usecases/scheduler/scheduler-service";
 import { SignalRouter } from "@usecases/conversation/signal-router";
+import type { SignalRouterSessionFactory } from "@usecases/conversation/signal-router";
 
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
 
@@ -301,9 +302,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     invokeFn: (params) => agentInvoker.invokeConversation(params),
     logger,
     healingRepo: repos.healingEvent,
-    // F20260908rlcp: dispatchAttemptRepo/attachmentInjection/agentGateway 退役，改用 factory
-    // eslint-disable-next-line @typescript-eslint/consistent-type-imports
-    factory: agentGateway as unknown as import("@usecases/conversation/signal-router").SignalRouterSessionFactory,
+    // F20260908rlcp: dispatchAttemptRepo/attachmentInjection/agentGateway 退役，改用 factory。
+    // F20260910ctlv 整合轮修复：显式 adapter 替代 as unknown as 双重绕过——三个方法
+    // 编译期可见，再丢（如合并误删）tsc 直接报错（steerSession 曾被合并丢过，靠运行时才发现）
+    factory: {
+      isRunning: (otterId: string) => agentGateway.isRunning(otterId),
+      followUp: (otterId: string, text: string) => agentGateway.followUp(otterId, text),
+      steerSession: (otterId: string, text: string) => agentGateway.steerSession(otterId, text),
+    } satisfies SignalRouterSessionFactory,
   });
   // #775 S4a：scheduler 换轨接线——路由器晚于 scheduler 诞生（initAgentAndScheduler
   // 内部依赖链更长），构造后注入；scheduler 触发从此过闸门+台账，与五入口同一调度纪律。

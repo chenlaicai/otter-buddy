@@ -722,9 +722,9 @@ export class PiSessionFactory implements AgentGateway {
             this.pool.evict(otterId);
             this.poolMeta.delete(otterId);
           }
-          // F20260910ctlv 整合移植：readOnly session 不入池（_acquirePooled 守卫），
-          // 本方法也不 dispose 它——readOnly 调用方（合成/handoff）自管生命周期，
-          // 此处 dispose 会撕裂外层 streaming session（#897 语义）
+          // F20260910ctlv 整合移植：readOnly session 不入池（_acquirePooled 守卫，
+          // 独立冷启动路径，不是池内 session），此处 dispose 释放资源——
+          // 不涉及外层 streaming session（#897 语义由 _acquirePooled 的嵌套抛错保护）
           if (options?.readOnly) {
             session.dispose();
           }
@@ -917,6 +917,48 @@ export class PiSessionFactory implements AgentGateway {
       this.logger.warn(`[followUp] followUp 调用失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
     });
     return true;
+  }
+
+  /** #530 梯度护栏：向活跃 session 注入 steer 文案（链引擎调用）。
+   *  复用 circuit-breaker-helpers 的 session.steer 通道。
+   *  键格式：生产链路 sessionKey 恒为 ${otterId}:${messageId}，需前缀扫描匹配。
+   *  返回 true=找到活跃 session 并发出注入请求，false=session 不活跃或无 steer 能力。
+   *  ⚠️ 竞态窗口（F20260907usti 严重 1）：fire-and-forget 语义下 true ≠ 送达确认——
+   *  session 收尾 finally 块 delete 前的窗口内，steer 可能抛错（session dispose 中）。
+   *  此时返回 true + 路由器写 completed/steered 销账行 → URGENT 零投递且台账说已消费。
+   *  最小修复：catch 内落 healing event（可观测），重启补扫不补（设计显式声明此窗口）。
+   *  F20260910ctlv 整合轮修复：合并时误删，从 main（b4c4e4db）原样恢复。 */
+  steerSession(otterId: string, text: string): boolean {
+    // 遍历 activeSessions 查找 otterId 前缀匹配（键格式 ${otterId}:${messageId}）
+    for (const [key, entry] of this.activeSessions) {
+      if ((key === otterId || key.startsWith(`${otterId}:`)) && entry.steer) {
+        void entry.steer(text).catch((err: unknown) => {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          this.logger.warn(`[steer] steer 调用失败 otter=${otterId}: ${errMsg}`);
+          // F20260907usti 严重 1 修复：steer 失败时落 healing event（可观测）
+          if (this.cfg.healingRepo) {
+            this.cfg.healingRepo.create({
+              id: crypto.randomUUID(),
+              messageId: "",
+              conversationId: "",
+              otterId,
+              errorType: "other",
+              severity: "medium",
+              description: `URGENT steer 注入失败（session 收尾竞态窗口）：${errMsg}`,
+              suggestion: "注入未送达且已销账=零投递，需补救时人工重投；链引擎护栏调用则仅警示缺失",
+              context: { layer: "framework", method: "steerSession" },
+              status: "open",
+              resolution: null,
+              createdAt: new Date().toISOString(),
+              resolvedAt: null,
+            }).catch(() => {/* healing 落账失败不阻断 */});
+          }
+        });
+        return true;
+      }
+    }
+    this.logger.warn(`[steer] session 不活跃或无 steer 能力 otter=${otterId}`);
+    return false;
   }
 
 
