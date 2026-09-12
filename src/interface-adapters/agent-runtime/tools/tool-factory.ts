@@ -634,7 +634,7 @@ function createSyncDocsTool(ctx: ToolContext): AgentTool {
     parameters: {
       type: "object",
       properties: {
-        root_dir: { type: "string", description: "扫描根目录绝对路径。在 worktree 中写文档时传 worktree 路径（如 /path/to/.claude/worktrees/xxx）；不传默认主仓根" },
+        root_dir: { type: "string", description: "扫描根目录绝对路径。在 worktree 中写文档时传 worktree 路径（如 /path/to/.otter/worktrees/xxx）；不传默认主仓根" },
       },
     },
     execute: async (_id: string, params: Record<string, unknown>) => {

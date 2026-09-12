@@ -1,4 +1,7 @@
+import * as path from "node:path";
+import { spawn, execSync } from "node:child_process";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
+import type { Logger } from "@usecases/ports/logger";
 import { DomainError } from "@entities/errors";
 // Why: Workspace DTO 单一真相源在 api-contract（issue #558）——本文件曾是定义处，
 // 迁移后此处仅消费契约，与 controller / web 三侧靠双端 tsc 锁死漂移
@@ -15,7 +18,10 @@ const MAX_DISPLAY_FILE_SIZE_BYTES = 100 * 1024; // 100KB
  * 写操作仍由海獭 agent 工具（workspace_write）处理，不在本用例范围内。
  */
 export class ManageWorkspace {
-  constructor(private readonly workspaceGateway: WorkspaceGateway) {}
+  constructor(
+    private readonly workspaceGateway: WorkspaceGateway,
+    private readonly logger?: Logger,
+  ) {}
 
   /**
    * 列出工作区指定目录的条目
@@ -142,5 +148,72 @@ export class ManageWorkspace {
    */
   getWorkspacePath(conversationId: string): string {
     return this.workspaceGateway.getWorkspacePath(conversationId);
+  }
+
+  /**
+   * 在本机文件管理器中显示指定文件/目录。
+   * macOS: `open -R <path>`（Reveal in Finder）
+   * Windows: `explorer /select,<path>`
+   * Linux: `xdg-open <parentDir>`（无原生 reveal，退化为打开所在目录）
+   */
+  async revealInFileManager(conversationId: string, relativePath: string): Promise<void> {
+    this.validateRelativePath(relativePath);
+
+    const exists = await this.workspaceGateway.exists(conversationId);
+    if (!exists) {
+      throw new DomainError('工作区不存在', 'not_found');
+    }
+
+    // Why: statFile 内部走 gateway 的 resolveSafe（含 symlink 逃逸检测），
+    // 不存在则抛异常——用例层不重复做 path.resolve + realpath 校验
+    try {
+      await this.workspaceGateway.statFile(conversationId, relativePath);
+    } catch {
+      throw new DomainError('文件或目录不存在', 'not_found');
+    }
+
+    const root = this.workspaceGateway.getWorkspacePath(conversationId);
+    const resolved = path.resolve(root, relativePath);
+    this.spawnReveal(resolved, conversationId);
+  }
+
+  private validateRelativePath(relativePath: string): void {
+    if (path.isAbsolute(relativePath)) {
+      throw new DomainError('路径不允许为绝对路径', 'validation');
+    }
+    if (relativePath.split('/').some(p => p === '..' || p === '.')) {
+      throw new DomainError('路径不允许包含 .. 或 . 段', 'validation');
+    }
+  }
+
+  /** Why: 平台分发 + spawn 逻辑抽出，控 revealInFileManager 语句数 */
+  private spawnReveal(resolved: string, conversationId: string): void {
+    const platform = process.platform;
+    const isWin = platform === 'win32';
+    const isMac = platform === 'darwin';
+    const cmd = isMac ? 'open' : isWin ? 'explorer' : 'xdg-open';
+    const args = isMac ? ['-R', resolved]
+      : isWin ? ['/select,', resolved]
+      : [path.dirname(resolved)];
+
+    // Why: Linux 无 xdg-open 时 fail-fast —— headless server 常态，503 诚实失败优于静默吞错
+    if (!isMac && !isWin) {
+      try {
+        execSync('which xdg-open', { stdio: 'ignore' });
+      } catch {
+        throw new DomainError('当前环境不支持打开文件管理器（缺少 xdg-open）', 'validation');
+      }
+    }
+
+    // Why: detached + unref —— 不阻塞 Node 进程，子进程生命周期独立
+    try {
+      const child = spawn(cmd, args, { detached: true, stdio: 'ignore' });
+      child.unref();
+      child.on('error', (err) => {
+        this.logger?.error('revealInFileManager: 子进程启动失败', err, { cmd, args, conversationId });
+      });
+    } catch (err) {
+      this.logger?.error('revealInFileManager: spawn 失败', err instanceof Error ? err : undefined, { cmd, args, conversationId });
+    }
   }
 }

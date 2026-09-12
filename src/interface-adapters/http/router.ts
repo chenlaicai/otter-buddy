@@ -152,6 +152,7 @@ function registerWorkspaceRoutes(app: Hono, c: Controllers): void {
     app.get("/api/conversations/:id/workspace", (ctx) => c.workspace!.listDir(ctx));
     app.get("/api/conversations/:id/workspace/stats", (ctx) => c.workspace!.getStats(ctx));
     app.get("/api/conversations/:id/workspace/file", (ctx) => c.workspace!.readFile(ctx));
+    app.post("/api/conversations/:id/workspace/reveal", (ctx) => c.workspace!.reveal(ctx));
   }
 
   // 微信连接管理（issue #566）：扫码登录 + 多账号

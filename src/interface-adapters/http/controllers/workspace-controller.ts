@@ -3,8 +3,9 @@ import type { ManageWorkspace } from "@usecases/conversation/manage-workspace";
 import type { Logger } from "@usecases/ports/logger";
 // Why: Workspace DTO 单一真相源在 api-contract（issue #558）——HTTP 响应体按契约类型序列化，
 // 类型漂移会在 tsc 阶段暴露而非运行时
-import type { WorkspaceFileContent, WorkspaceListDirResponse } from "@contract/api/workspace";
+import type { WorkspaceFileContent, WorkspaceListDirResponse, WorkspaceRevealResponse } from "@contract/api/workspace";
 import { HttpError, handleError, param } from "../http-error";
+import { safeJsonBody } from "../parse-json-body";
 
 /** 合法 conversationId 的正则：UUID 格式，杜绝路径分隔符和 .. 逃逸 */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -66,6 +67,28 @@ export class WorkspaceController {
         isNaN(topN) ? 10 : Math.max(0, Math.min(topN, 50)),
       );
       return c.json(stats);
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
+  /**
+   * POST /api/conversations/:id/workspace/reveal
+   * 在本机文件管理器中显示指定文件/目录
+   * Body: { path: string } — 相对于工作区根目录的路径
+   */
+  async reveal(c: Context): Promise<Response> {
+    try {
+      const conversationId = this.validateConversationId(param(c, "id"));
+      const body = await safeJsonBody<{ path?: unknown }>(c);
+
+      if (typeof body.path !== 'string' || !body.path) {
+        return c.json({ error: "path 参数必填" }, 400);
+      }
+
+      await this.manageWorkspace.revealInFileManager(conversationId, body.path);
+      const resp: WorkspaceRevealResponse = { ok: true };
+      return c.json(resp);
     } catch (err) {
       return handleError(c, err, this.logger);
     }

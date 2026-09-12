@@ -11,6 +11,9 @@ import type { SignalRouter } from "@usecases/conversation/signal-router";
 import type { SendEntry } from "@usecases/conversation/send-entry";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import { handleError, param } from "../http-error";
+// F20260910ctlv 整合：safeJsonBody 取 main 版（#891/#893 JSON null body 防御）；
+// dto-builder/toMessageDTO 族随 messages 视图退役（本 PR 删除），只保留请求 DTO
+import { safeJsonBody } from "../parse-json-body";
 import type { SendMessageRequestDTO, MarkReadRequestDTO } from "../dto/message-dto";
 import { streamEvents } from "../sse-streamer";
 import { awaitTriggerAttemptsSettled } from "../sse-settle-waiter";
@@ -173,7 +176,7 @@ export class MessageController {
   async sendMessage(c: Context): Promise<Response> {
     try {
       const conversationId = param(c, "id");
-      const body = await c.req.json<SendMessageRequestDTO>();
+      const body = await safeJsonBody<SendMessageRequestDTO>(c);
 
       /** 1. 前置校验（请求体 + 附件 + Magic Word 全场急停）——response 非 null 即短路 */
       const early = await this.precheckSend(c, conversationId, body);
@@ -400,7 +403,7 @@ export class MessageController {
     try {
       const conversationId = param(c, "id");
       const userId = c.req.query("userId") ?? "web-user";
-      const body = await c.req.json<MarkReadRequestDTO>();
+      const body = await safeJsonBody<MarkReadRequestDTO>(c);
       if (typeof body.messageSeq !== "number" || body.messageSeq < 0) {
         return c.json({ error: "messageSeq must be a non-negative number" }, 400);
       }

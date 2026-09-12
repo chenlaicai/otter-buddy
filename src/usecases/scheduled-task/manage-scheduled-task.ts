@@ -53,6 +53,10 @@ function validateCreateInput(input: CreateScheduledTaskInput): string | null {
 
   const timezone = input.timezone ?? 'Asia/Shanghai';
   if (!isValidTimezone(timezone)) return `Invalid timezone: ${timezone}`;
+  // #891：缺 body 字段的合法 JSON（如有 cron 无 body）会在此处 undefined.length 抛 TypeError
+  // 逃逸成 500——先判类型再比长度。注：null body 路径走不到这里（首行 cron 校验已拦），
+  // 本防御针对「字段部分缺失」场景（对抗审视更正月因）
+  if (typeof input.body !== 'string') return 'body is required';
   if (input.body.length > 10000) return 'body must be 10000 characters or less';
   if (!input.talkingStonePassedTo || input.talkingStonePassedTo.length === 0) {
     return 'talkingStonePassedTo must be non-empty';

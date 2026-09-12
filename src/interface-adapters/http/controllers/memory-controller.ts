@@ -8,6 +8,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import type { MemoryRepository } from "@usecases/memory/memory-repository";
 import { handleError, param } from "../http-error";
+import { safeJsonBody } from "../parse-json-body";
 import { toMemoryEntryDTO } from "../dto/memory-dto";
 import type { SearchSimilarRequestDTO, FlagMemoryRequestDTO } from "../dto/memory-dto";
 import type { RecentMemoryDTO } from "@contract/api/memory";
@@ -127,7 +128,7 @@ export class MemoryController {
 
   async searchSimilar(c: Context): Promise<Response> {
     try {
-      const body = await c.req.json<SearchSimilarRequestDTO>();
+      const body = await safeJsonBody<SearchSimilarRequestDTO>(c);
       const limit = body.limit ?? 10;
       const result = await this.searchMemory.searchSimilar(body.memoryEntryId, limit);
       return c.json({
@@ -207,7 +208,7 @@ export class MemoryController {
   async flag(c: Context): Promise<Response> {
     try {
       const id = param(c, "id");
-      const body = await c.req.json<FlagMemoryRequestDTO>();
+      const body = await safeJsonBody<FlagMemoryRequestDTO>(c);
       await this.manageMemory.flagMemory(id, body.flagged);
       return c.json({ status: "flagged", flagged: body.flagged });
     } catch (err) {

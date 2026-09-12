@@ -15,13 +15,66 @@ import type { SignalEventRepository } from "@usecases/signal/signal-event-reposi
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 
+/**
+ * Invoke 级寄存器（F20260911pspl session 池化）。
+ * 池化后工具闭包跨 invoke 复用，「每 invoke 必变」的字段集中在此，
+ * invoke 入口统一重置；工具经 getter 引用读取（读取时机 = 工具执行时）。
+ */
+export interface InvokeRegister {
+  currentMessageId: string;
+  /** speak 检测「卡片写在 speak 外」用的本轮 assistant 文本缓冲 */
+  turnText: { text: string };
+  pendingDispatches: Map<string, string>;
+  dispatchWarningShown: boolean;
+  orchestrationWarningShown: boolean;
+  pendingRestart?: { summary?: string; modelAlias?: string };
+  /** F20260910ctlv：当前 invoke ID（invoke 级上下文——池命中不刷新则第二次 invoke 复用旧 ID，
+   *  speak/yield entry 会挂错 invoke；随寄存器 invoke 入口重置） */
+  currentInvokeId?: string;
+  /** F20260910ctlv：SSE 发射通道（工具层发 entry.yield 等事件用；invoke 级注入） */
+  emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
+  /** F20260910ctlv：当前打开的 speak entry ID（speak/yield 检测「本轮已发言」用；
+   *  新 invoke 重置为 undefined） */
+  lastSpeakEntryId?: string;
+}
+
+export function createInvokeRegister(): InvokeRegister {
+  return {
+    currentMessageId: "",
+    turnText: { text: "" },
+    pendingDispatches: new Map<string, string>(),
+    dispatchWarningShown: false,
+    orchestrationWarningShown: false,
+    pendingRestart: undefined,
+    currentInvokeId: undefined,
+    emitEvent: undefined,
+    lastSpeakEntryId: undefined,
+  };
+}
+
+/** invoke 入口重置（新 invoke 开始 = 寄存器回初值；pendingRestart 由消费点清除）。
+ *  F20260910ctlv 扩展：currentInvokeId/emitEvent 每次刷新（池命中不刷新则第二次
+ *  invoke 复用旧 invoke ID，speak/yield entry 挂错 invoke）；lastSpeakEntryId
+ *  重置 undefined（新 invoke 从零开始计发言）。 */
+export function resetInvokeRegister(reg: InvokeRegister, messageId?: string, invokeDeps?: { currentInvokeId?: string; emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void }): void {
+  reg.currentMessageId = messageId ?? "";
+  reg.turnText.text = "";
+  reg.pendingDispatches.clear();
+  reg.dispatchWarningShown = false;
+  reg.orchestrationWarningShown = false;
+  reg.pendingRestart = undefined;
+  reg.currentInvokeId = invokeDeps?.currentInvokeId;
+  reg.emitEvent = invokeDeps?.emitEvent;
+  reg.lastSpeakEntryId = undefined;
+}
+
 /** buildCustomTools 所需的参数类型 */
 export interface BuildCustomToolsParams {
   otterId: string;
   conversationId: string;
   allowedNames: string[];
-  messageId?: string;
-  turnText?: { text: string };
+  /** F20260911pspl：invoke 级寄存器（getter 绑定的读取目标） */
+  register: InvokeRegister;
   otterToolClient: OtterToolClient;
   modelPool?: ModelPool;
   otterConfigProvider?: OtterConfigProvider;
@@ -30,10 +83,6 @@ export interface BuildCustomToolsParams {
   /** F20260826mwrd C1：signal 工具（halt_otter/query_signals）的仓库 */
   signalRepo?: SignalEventRepository;
   logger: Logger;
-  /** F20260910ctlv：当前 invoke ID（invoke 级上下文，由 agent-invoker 注入） */
-  currentInvokeId?: string;
-  /** F20260910ctlv：SSE 发射通道（invoke 级注入，工具层发 entry.yield 等事件用） */
-  emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
 }
 
 /** buildCustomTools 返回类型 */
@@ -54,31 +103,34 @@ export interface BuildCustomToolsResult {
  * onUpdate/ctx SDK 特有，Otter 工具不需要，忽略。
  */
 export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToolsResult {
-  const { otterId, conversationId, allowedNames, messageId, turnText, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, signalRepo, logger } = params;
+  const { otterId, conversationId, allowedNames, register, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, signalRepo, logger } = params;
   // F20260826mwrd C1：signalRepo 挂 ToolContext（tool-factory 从 ctx 读，避免 createTools 参数膨胀）
 
   // F20260815rstrt: 返回 toolContext 引用，供 PiSessionFactory 检查 pendingRestart
+  // F20260911pspl：invoke 级字段 getter 化——闭包捕获 ctx 对象，字段读取时
+  // 穿透到寄存器当前值（池化后闭包跨 invoke 复用，寄存器在 invoke 入口重置）。
   const toolContext: ToolContext = {
     client: otterToolClient,
     otterId,
     conversationId,
-    currentMessageId: messageId ?? "",
     modelPool,
     otterConfigProvider,
-    getTurnAssistantText: turnText ? () => turnText.text : undefined,
-    /** F20260813actk C9：每次 invoke 新建待派工票据 Map（agent turn 级生命周期） */
-    pendingDispatches: new Map<string, string>(),
-    dispatchWarningShown: false,
-    /** F20260821i336：编排守卫提醒标志（agent turn 级生命周期） */
-    orchestrationWarningShown: false,
-    /** F20260826mwrd C1：signal 仓库（halt_otter/query_signals 注册条件） */
     signalRepo,
-    /** F20260909smsp：speak message 跟踪（invoke 级生命周期） */
-    lastSpeakMessageId: undefined,
-    /** F20260910ctlv：当前 invoke ID（invoke 级上下文，由 agent-invoker 注入） */
-    currentInvokeId: params.currentInvokeId,
-    /** F20260910ctlv：SSE 发射通道（工具层发 entry.yield 等事件用） */
-    emitEvent: params.emitEvent,
+    get currentMessageId() { return register.currentMessageId; },
+    getTurnAssistantText: () => register.turnText.text,
+    get pendingDispatches() { return register.pendingDispatches; },
+    get dispatchWarningShown() { return register.dispatchWarningShown; },
+    set dispatchWarningShown(v: boolean) { register.dispatchWarningShown = v; },
+    get orchestrationWarningShown() { return register.orchestrationWarningShown; },
+    set orchestrationWarningShown(v: boolean) { register.orchestrationWarningShown = v; },
+    get pendingRestart() { return register.pendingRestart; },
+    set pendingRestart(v: { summary?: string; modelAlias?: string } | undefined) { register.pendingRestart = v; },
+    // F20260910ctlv：invoke 级字段 getter 化（与 #894 模式合流——池命中经 resetInvokeRegister 刷新）
+    get currentInvokeId() { return register.currentInvokeId; },
+    set currentInvokeId(v: string | undefined) { register.currentInvokeId = v; },
+    get emitEvent() { return register.emitEvent; },
+    get lastSpeakMessageId() { return register.lastSpeakEntryId; },
+    set lastSpeakMessageId(v: string | undefined) { register.lastSpeakEntryId = v; },
   };
   const otterTools = createTools(toolContext, healingRepo, logger);
 

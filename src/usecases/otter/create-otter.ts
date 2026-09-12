@@ -1,4 +1,5 @@
 import type { Otter, OtterType, OtterRole } from "@entities/otter/otter";
+import { DomainError } from "@entities/errors";
 import { buildNewSession } from "@entities/otter/otter-session";
 import type { OtterRepository } from "./otter-repository";
 import type { AgentGateway } from "./agent-gateway";
@@ -33,6 +34,15 @@ export class CreateOtter {
   ) {}
 
   async execute(params: CreateOtterInput): Promise<Otter> {
+    // #891 对抗审视发现 1：null body 经 safeJsonBody 兜底 {} 后 name/type 为 undefined，
+    // 无校验透传会撞 DB NOT NULL 约束 → 500 且回显表结构（otters.name）——此处前置 validation
+    if (typeof params.name !== "string" || params.name.trim().length === 0) {
+      throw new DomainError("name 必填且为非空字符串", "validation");
+    }
+    if (typeof params.type !== "string" || params.type.trim().length === 0) {
+      throw new DomainError("type 必填且为非空字符串", "validation");
+    }
+
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
 

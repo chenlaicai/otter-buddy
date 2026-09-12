@@ -42,14 +42,16 @@ export function isActiveSession(status: ConnectionSessionStatus): boolean {
 
 /**
  * 验证 Connection 名称是否合法。
+ * #891：非字符串输入（null body 经 safeJsonBody 兜底 {} 后 name 为 undefined）
+ * 返回 false 而非崩溃，由 usecase 抛 validation → 400
  */
 export function isValidConnectionName(name: string): boolean {
-  return name.trim().length > 0 && name.length <= 200;
+  return typeof name === "string" && name.trim().length > 0 && name.length <= 200;
 }
 
 /**
- * 验证 externalId 是否合法。
+ * 验证 externalId 是否合法。（#891 同上）
  */
 export function isValidExternalId(externalId: string): boolean {
-  return externalId.trim().length > 0;
+  return typeof externalId === "string" && externalId.trim().length > 0;
 }

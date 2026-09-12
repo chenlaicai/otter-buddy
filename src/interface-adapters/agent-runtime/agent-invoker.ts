@@ -906,14 +906,36 @@ export class AgentInvoker implements AgentTurnPort {
     return this.circuitBreak ? this.circuitBreak.probeHealingRepo() : false;
   }
 
-  /** F20260903cmpk：压缩钩子合成函数（readOnly invocation，与 handoff 合成同源）。
-   *  bootstrap 拿它注入 agentGateway.setCompactionSynthesis——压缩时机归 Pi，
-   *  算法归七段合成。conversationId 在压缩时不可知（钩子在 session 内触发），
-   *  故以空串占位（合成闭包仅用它记日志 + 产物预取，压缩场景预取走钩子外的机械数据）。
-   *  F20260909csfx：otterId 必须真实（钩子经 invoke store 传入）——
-   *  session restore / 模型解析 / 工具装配全链路依赖它，占位符会必现降级。 */
+  /** F20260903cmpk：压缩钩子合成函数。
+   *  F20260912nlb896（#896 + PR #897 检视严重 1）：合成**不走 invoke**——invoke 路径双重不可行：
+   *  ①锁：钩子在 prompt 中途触发，外层持有 per-otter 锁，嵌套 invoke 再取同锁死锁（原 #896）；
+   *  ②池：锁旁路后嵌套 invoke 在 `_acquirePooled` 必判外层 streaming session 为 stale 出池、
+   *  冷启动 SessionManager.open 同一 jsonl 顶替池条目——压缩摘要 entry 与外层后续消息全部丢失，
+   *  压缩永远不生效且上下文逐轮膨胀（比死锁更隐蔽）。
+   *  影子通道：临时 inMemory session 直调 LLM——自包含合成 prompt 无需会话历史，
+   *  不入池、不触锁、不写共享 jsonl，天然规避①②。
+   *  与 handoff 合成同款的空结果/截断 fail-closed 防线保留（防线②机械转储降级）。 */
   buildCompactionSynthesisFn(otterId: string): (prompt: string) => Promise<string> {
-    return this.buildSynthesisFunction(otterId, "");
+    return async (prompt: string): Promise<string> => {
+      this.logger.info('[compaction-synthesis] Starting shadow synthesis', { otterId });
+      // 影子通道缺省（mock/测试注入的 port 未实现）→ 抛错由钩子降级 Pi 默认（fail-closed，与合成失败同路径）
+      if (!this.agentInvoke.runCompactionSynthesis) {
+        throw new Error('runCompactionSynthesis not available on SdkInvokePort');
+      }
+      const result = await this.agentInvoke.runCompactionSynthesis(otterId, prompt);
+      const synthesisText = result.directText?.trim() ?? '';
+      if (result.lastStopReason === 'length') {
+        this.metrics?.recordSynthesis('truncated');
+        throw new Error('LLM synthesis truncated (stopReason=length), refusing to persist incomplete summary');
+      }
+      if (synthesisText.length === 0) {
+        this.metrics?.recordSynthesis('empty');
+        throw new Error('LLM synthesis returned empty result');
+      }
+      this.metrics?.recordSynthesis('success');
+      this.logger.info('[compaction-synthesis] Completed', { otterId, length: synthesisText.length });
+      return synthesisText;
+    };
   }
 
   /**

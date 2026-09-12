@@ -89,7 +89,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   // 多模态 Phase 1：附件上传服务（storageRoot 等来自 config.attachments）
   const attachmentUpload = buildAttachmentUploadService(repos, appConfig, logger);
   // 工作区文件浏览（只读）——workspaceGateway 可选注入
-  const manageWorkspace = workspaceGateway ? new ManageWorkspace(workspaceGateway) : undefined;
+  const manageWorkspace = workspaceGateway ? new ManageWorkspace(workspaceGateway, logger) : undefined;
   // F20260910ctlv 彻底切换：目标解析依赖（默认派发数据源 = entries.speak + invokes running）
   const resolveDeps = buildResolveTargetsDeps(
     (conversationId) => repos.conversation.getActiveParticipants(conversationId),

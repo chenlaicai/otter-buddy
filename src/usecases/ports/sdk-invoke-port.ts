@@ -47,6 +47,14 @@ export interface AgentRunResult {
   lastStopReason?: string;
 }
 
+/** F20260912nlb896：压缩合成影子通道结果（直调 LLM，不经 invoke/锁/池） */
+export interface SynthesisRunResult {
+  /** LLM 直出文本 */
+  directText: string;
+  /** stopReason（length = 截断，调用方 fail-closed） */
+  lastStopReason?: string;
+}
+
 /** 动态上下文（与 Pi 的 DynamicContext 结构匹配） */
 export interface DynamicContext {
   sessionSummary?: string;
@@ -86,6 +94,10 @@ export interface InvokeOptions {
 
 export interface SdkInvokePort {
   invoke(otterId: string, message: string, options?: InvokeOptions): Promise<AgentRunResult>;
+  /** F20260912nlb896（#896）：压缩合成影子通道——临时 inMemory session 直调 LLM。
+   *  不走 invoke/锁/池/共享 jsonl（钩子在 prompt 中途触发，走 invoke 必然死锁或撕裂外层 session）。
+   *  可选：mock 场景缺省时调用方降级（走 Pi 默认摘要兜底）。 */
+  runCompactionSynthesis?(otterId: string, prompt: string): Promise<SynthesisRunResult>;
   /** 中断指定 Otter 的 Agent 生成（messageId 用于定位并发 session） */
   abort(otterId: string, messageId?: string): void;
   /** 获取指定 Otter 当前 session 的工具调用次数 */
