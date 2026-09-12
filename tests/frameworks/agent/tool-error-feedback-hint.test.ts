@@ -11,7 +11,7 @@
  * 3. speak 工具自身报错不追加（反馈动作发生在 speak 内，避免循环暗示）
  */
 import { describe, it, expect } from "vitest";
-import { buildCustomTools } from "@frameworks/agent/tool-builder";
+import { buildCustomTools, createInvokeRegister } from "@frameworks/agent/tool-builder";
 import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
 import { errorResponse, textResponse } from "@usecases/ports/agent-tools";
 
@@ -20,6 +20,7 @@ function makeTools(createToolsImpl: (ctx: ToolContext) => AgentTool[]) {
     otterId: "test-otter",
     conversationId: "test-conv",
     allowedNames: ["search_memory", "speak"],
+    register: createInvokeRegister(),
     otterToolClient: {} as never,
     createTools: (ctx: ToolContext) => createToolsImpl(ctx),
     logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as never,
