@@ -145,7 +145,7 @@ export class InvokeController {
       const { response, push, close } = streamEvents(c);
       let unsubscribe: (() => void) | undefined;
       if (this.messageBroadcaster) {
-        unsubscribe = this.messageBroadcaster.subscribe(conversationId, () => {}, (event: SSEEvent) => { push(event); });
+        unsubscribe = this.messageBroadcaster.subscribeEvents(conversationId, (event: SSEEvent) => { push(event); });
       }
 
       // 链引擎续跑：目标 = 原獭；prompt = 重试续跑指令（session 上下文承载原始任务）

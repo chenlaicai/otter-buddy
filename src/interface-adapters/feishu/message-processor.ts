@@ -163,7 +163,7 @@ export class FeishuMessageProcessor {
     // yieldTargets = 发言石目标（前端 user 氙底「→ 目标」传递行数据源）
     this.deps.messageBroadcaster.broadcastEvent(ids.conversationId, {
       event: "entry.user",
-      data: { entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: ids.senderId, body: payload.bodyText, createdAt: userEntry.createdAt, yieldTargets: talkingStonePassedTo },
+      data: { entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: ids.senderId, body: payload.bodyText, createdAt: userEntry.createdAt, yieldTargets: talkingStonePassedTo, source: "feishu" },
     });
 
     // 异步触发 Agent 派发（多模态 Phase 2：带附件注入载荷——图片真图 + 文档文本块）

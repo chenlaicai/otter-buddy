@@ -299,7 +299,7 @@ export function createFeishuBundle(options: {
   const { feishuConfig, uc, dispatchChainEngine, logger, webBaseUrl, messageBroadcaster, settingsRepo } = options;
   const tokenManager = new FeishuAccessTokenManager(feishuConfig, logger);
   const client = new FeishuClient(feishuConfig, logger, tokenManager);
-  messageBroadcaster.registerOutboundChannel("feishu", new FeishuMessageChannel(uc.manageConnection, client, uc.queryOtter, logger, webBaseUrl, settingsRepo));
+  messageBroadcaster.registerOutboundChannel("feishu", new FeishuMessageChannel(uc.manageConnection, client, logger, webBaseUrl, settingsRepo));
   if (!webBaseUrl) {
     logger.info("web.baseUrl not configured, feishu html-card placeholders will show without clickable links");
   }

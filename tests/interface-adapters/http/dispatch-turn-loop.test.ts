@@ -108,6 +108,7 @@ describe("dispatchTurnLoop 深度上限", () => {
       broadcastEvent: (_convId: string, event: { event: string; data: Record<string, unknown> }) => { broadcastEventCalls.push(event); },
       broadcast: async () => {},
       subscribe: () => () => {},
+      subscribeEvents: () => () => {},
     };
 
     const sendEntryStub = {

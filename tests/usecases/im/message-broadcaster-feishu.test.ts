@@ -1,29 +1,22 @@
 import { describe, it, expect, vi } from "vitest";
 import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import { FeishuMessageChannel } from "@usecases/im/feishu-message-channel";
-import type { Message } from "@entities/conversation/message";
+import type { SSEEvent } from "@contract/sse/events";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 
+/** F20260910ctlv 处置轮重写：消息级 broadcast 链路已删——出站全走事件通道。
+ *  user 出站用例改走 entry.user 事件（source 防回环闸），语义断言沿用。 */
 
-function mockMessage(overrides: Partial<Message> = {}): Message {
+function userEntryEvent(overrides: Partial<{ body: string; source: string }> = {}): SSEEvent {
   return {
-    id: "msg-1",
-    conversationId: "conv-1",
-    turnId: "turn-1",
-    senderType: "otter",
-    senderId: "otter-1",
-    talkingStonePassedTo: null,
-    status: "completed",
-    segments: [{ id: "seg-1", messageId: "msg-1", body: "hello", sequenceNum: 0, createdAt: "2026-07-31T00:00:00Z" }],
-    sequenceNum: 1,
-    contextTokens: null,
-    contextTokensMax: null,
-    source: "web",
-    senderName: "Test Otter",
-    createdAt: "2026-07-31T00:00:00Z",
-    completedAt: "2026-07-31T00:00:01Z",
-    ...overrides,
-  };
+    event: "entry.user",
+    data: {
+      entryId: "entry-1", sequenceNum: 1, senderId: "user",
+      body: overrides.body ?? "hello", createdAt: new Date().toISOString(),
+      yieldTargets: undefined,
+      source: overrides.source ?? "web",
+    },
+  } as never;
 }
 
 /** issue #281：broadcaster 拆为纯总线 + FeishuMessageChannel 出站通道。
@@ -37,14 +30,13 @@ function createBroadcaster(webBaseUrl?: string, settingsRepo?: Pick<SettingsRepo
     replyText: vi.fn(),
     replyMarkdown: vi.fn(),
   } as any;
-  const queryOtter = { getById: vi.fn().mockResolvedValue({ id: "otter-1", name: "大獭" }) } as any;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as any;
   const broadcaster = new MessageBroadcaster(logger);
   broadcaster.registerOutboundChannel(
     "feishu",
-    new FeishuMessageChannel(manageConnection, feishuGateway, queryOtter, logger, webBaseUrl, settingsRepo),
+    new FeishuMessageChannel(manageConnection, feishuGateway, logger, webBaseUrl, settingsRepo),
   );
-  return { broadcaster, manageConnection, feishuGateway, queryOtter, logger };
+  return { broadcaster, manageConnection, feishuGateway, logger };
 }
 
 /** 把 manageConnection mock 设置为有飞书绑定（#591 重构后出站通道存 Map，
@@ -55,8 +47,8 @@ function bindFeishu(broadcaster: MessageBroadcaster, externalId = "chat-123", ex
   manageConnection.getConnection.mockResolvedValue({ externalId, externalType });
 }
 
-describe("MessageBroadcaster 飞书 replyMarkdown 路径(F20260812fmdr)", () => {
-  it("otter 消息走 replyMarkdown,senderLabel 为 otter 名", async () => {
+describe("Web→飞书用户消息同步（F20260828fsyc 恢复；entry.user 事件链）", () => {
+  it("source=web 的 user entry 走 replyMarkdown", async () => {
     const { broadcaster, feishuGateway } = createBroadcaster("https://otter.app");
     bindFeishu(broadcaster);
     const sent: Array<{ chatId: string; senderLabel: string; markdown: string }> = [];
@@ -64,15 +56,15 @@ describe("MessageBroadcaster 飞书 replyMarkdown 路径(F20260812fmdr)", () => 
       sent.push({ chatId, senderLabel, markdown });
     });
 
-    await broadcaster.broadcast(mockMessage({ senderType: "otter", senderId: "otter-1", segments: [{ id: "seg-1", messageId: "msg-1", body: "你好", sequenceNum: 0, createdAt: "2026-07-31T00:00:00Z" }] }));
+    broadcaster.broadcastEvent("conv-1", userEntryEvent({ body: "你好" }));
+    await new Promise((r) => setTimeout(r, 10));
 
     expect(sent).toHaveLength(1);
     expect(sent[0].chatId).toBe("chat-123");
-    expect(sent[0].senderLabel).toBe("大獭");
     expect(sent[0].markdown).toBe("你好");
   });
 
-  it("user 消息 senderLabel 为 [用户]（无 settingsRepo 注入时保持原行为）", async () => {
+  it("user 消息 senderLabel 为「用户」（无 settingsRepo 注入时保持原行为）", async () => {
     const { broadcaster, feishuGateway } = createBroadcaster();
     bindFeishu(broadcaster);
     const sent: Array<{ senderLabel: string }> = [];
@@ -80,7 +72,8 @@ describe("MessageBroadcaster 飞书 replyMarkdown 路径(F20260812fmdr)", () => 
       sent.push({ senderLabel });
     });
 
-    await broadcaster.broadcast(mockMessage({ senderType: "user", senderId: "user-1", senderName: "", source: "web", segments: [{ id: "seg-1", messageId: "msg-1", body: "hi", sequenceNum: 0, createdAt: "2026-07-31T00:00:00Z" }] }));
+    broadcaster.broadcastEvent("conv-1", userEntryEvent({ body: "hi" }));
+    await new Promise((r) => setTimeout(r, 10));
 
     expect(sent[0].senderLabel).toBe("用户");
   });
@@ -94,7 +87,8 @@ describe("MessageBroadcaster 飞书 replyMarkdown 路径(F20260812fmdr)", () => 
     });
 
     const body = '前文\n\n```html-card title="薪资对比"\n<div/>\n```\n\n后文';
-    await broadcaster.broadcast(mockMessage({ segments: [{ id: "seg-1", messageId: "msg-1", body, sequenceNum: 0, createdAt: "2026-07-31T00:00:00Z" }] }));
+    broadcaster.broadcastEvent("conv-1", userEntryEvent({ body }));
+    await new Promise((r) => setTimeout(r, 10));
 
     expect(sent[0]).toBe(
       "前文\n\n【交互卡片:薪资对比】\n👉 https://otter.app/conversations/conv-1\n\n后文",
@@ -109,27 +103,41 @@ describe("MessageBroadcaster 飞书 replyMarkdown 路径(F20260812fmdr)", () => 
       sent.push(markdown);
     });
 
-    const body = '```html-card title="卡"\n<x/>\n```';
-    await broadcaster.broadcast(mockMessage({ segments: [{ id: "seg-1", messageId: "msg-1", body, sequenceNum: 0, createdAt: "2026-07-31T00:00:00Z" }] }));
+    broadcaster.broadcastEvent("conv-1", userEntryEvent({ body: '```html-card title="卡"\n<x/>\n```' }));
+    await new Promise((r) => setTimeout(r, 10));
 
     expect(sent[0]).toBe("【交互卡片:卡】");
   });
 
-  it("飞书来源消息不同步(防回环)", async () => {
+  it("飞书来源消息不同步（source=feishu 防回环闸）", async () => {
     const { broadcaster, feishuGateway } = createBroadcaster();
     bindFeishu(broadcaster);
 
-    await broadcaster.broadcast(mockMessage({ source: "feishu" }));
+    broadcaster.broadcastEvent("conv-1", userEntryEvent({ source: "feishu" }));
+    await new Promise((r) => setTimeout(r, 10));
 
     expect(feishuGateway.replyMarkdown).not.toHaveBeenCalled();
     expect(feishuGateway.replyText).not.toHaveBeenCalled();
   });
 
-  it("system 消息不广播到飞书", async () => {
+  it("微信来源消息不同步（source=weixin 防回环闸）", async () => {
     const { broadcaster, feishuGateway } = createBroadcaster();
     bindFeishu(broadcaster);
 
-    await broadcaster.broadcast(mockMessage({ senderType: "system" as const }));
+    broadcaster.broadcastEvent("conv-1", userEntryEvent({ source: "weixin" }));
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(feishuGateway.replyMarkdown).not.toHaveBeenCalled();
+  });
+
+  it("source 缺失（旧事件形态）不投递——保守防回环", async () => {
+    const { broadcaster, feishuGateway } = createBroadcaster();
+    bindFeishu(broadcaster);
+
+    const evt = userEntryEvent();
+    delete (evt.data as Record<string, unknown>).source;
+    broadcaster.broadcastEvent("conv-1", evt);
+    await new Promise((r) => setTimeout(r, 10));
 
     expect(feishuGateway.replyMarkdown).not.toHaveBeenCalled();
   });
@@ -138,16 +146,14 @@ describe("MessageBroadcaster 飞书 replyMarkdown 路径(F20260812fmdr)", () => 
     const { broadcaster, feishuGateway } = createBroadcaster();
     // manageConnection.getSessionByConversation 默认返回 null
 
-    await broadcaster.broadcast(mockMessage());
+    broadcaster.broadcastEvent("conv-1", userEntryEvent());
+    await new Promise((r) => setTimeout(r, 10));
 
     expect(feishuGateway.replyMarkdown).not.toHaveBeenCalled();
   });
 });
 
-describe("MessageBroadcaster 飞书出站 user 标签（F20260828fsyc）", () => {
-  /** 防回环（shouldBroadcastToFeishu）保证飞书出站的 user 消息只来自 Web——
-   *  故标签语义 = 快照名（防御性,当前 web 消息恒无快照）> 搭档全局名 > 「用户」。
-   *  飞书消息不出站（已有防回环用例覆盖），无渠道分叉分支 */
+describe("Web→飞书 user 标签（F20260828fsyc）", () => {
   function bindAndCapture(broadcaster: MessageBroadcaster, feishuGateway: any): Array<{ senderLabel: string; markdown: string }> {
     bindFeishu(broadcaster);
     const sent: Array<{ senderLabel: string; markdown: string }> = [];
@@ -156,19 +162,13 @@ describe("MessageBroadcaster 飞书出站 user 标签（F20260828fsyc）", () =>
     });
     return sent;
   }
-  const seg = (body: string) => [{ id: "seg-fsyc", messageId: "msg-fsyc", body, sequenceNum: 0, createdAt: "2026-07-31T00:00:00Z" }];
-  /** #241 幂等去重：broadcast 用 mockMessage 默认 id="msg-1" 会被 LRU 撞掉——每条用例给唯一 id */
-  let dedupSeq = 0;
-  function nextMock(overrides: Partial<Message> = {}): Message {
-    dedupSeq += 1;
-    return mockMessage({ id: `msg-fsyc-${dedupSeq}`, ...overrides });
-  }
 
   it("Web user 消息 → 显示搭档全局名（原硬编码「用户」）", async () => {
     const { broadcaster, feishuGateway } = createBroadcaster("https://otter.app", { get: vi.fn().mockResolvedValue("chen") });
     const sent = bindAndCapture(broadcaster, feishuGateway);
 
-    await broadcaster.broadcast(nextMock({ senderType: "user", senderId: "user", source: "web", senderName: "", segments: seg("网页发的") }));
+    broadcaster.broadcastEvent("conv-1", userEntryEvent({ body: "网页发的" }));
+    await new Promise((r) => setTimeout(r, 10));
 
     expect(sent[0].senderLabel).toBe("chen");
     expect(sent[0].markdown).toBe("网页发的");
@@ -178,7 +178,8 @@ describe("MessageBroadcaster 飞书出站 user 标签（F20260828fsyc）", () =>
     const { broadcaster, feishuGateway } = createBroadcaster("https://otter.app", { get: vi.fn().mockResolvedValue(null) });
     const sent = bindAndCapture(broadcaster, feishuGateway);
 
-    await broadcaster.broadcast(nextMock({ senderType: "user", senderId: "user", source: "web", senderName: "", segments: seg("网页发的") }));
+    broadcaster.broadcastEvent("conv-1", userEntryEvent({ body: "网页发的" }));
+    await new Promise((r) => setTimeout(r, 10));
 
     expect(sent[0].senderLabel).toBe("用户");
   });
@@ -187,28 +188,21 @@ describe("MessageBroadcaster 飞书出站 user 标签（F20260828fsyc）", () =>
     const { broadcaster, feishuGateway } = createBroadcaster("https://otter.app");
     const sent = bindAndCapture(broadcaster, feishuGateway);
 
-    await broadcaster.broadcast(nextMock({ senderType: "user", senderId: "user", source: "web", senderName: "", segments: seg("网页发的") }));
+    broadcaster.broadcastEvent("conv-1", userEntryEvent({ body: "网页发的" }));
+    await new Promise((r) => setTimeout(r, 10));
 
     expect(sent[0].senderLabel).toBe("用户");
   });
 
-  it("审视修复 R1：settings 读取抛异常 → 降级「用户」且广播不中断（标签解析失败不应吞掉投递）", async () => {
+  it("审视修复 R1：settings 读取抛异常 → 降级「用户」且投递不中断（标签解析失败不应吞掉投递）", async () => {
     const { broadcaster, feishuGateway } = createBroadcaster("https://otter.app", { get: vi.fn().mockRejectedValue(new Error("db down")) });
     const sent = bindAndCapture(broadcaster, feishuGateway);
 
-    await broadcaster.broadcast(nextMock({ senderType: "user", senderId: "user", source: "web", senderName: "", segments: seg("正文不应丢") }));
+    broadcaster.broadcastEvent("conv-1", userEntryEvent({ body: "正文不应丢" }));
+    await new Promise((r) => setTimeout(r, 10));
 
     expect(sent[0].senderLabel).toBe("用户");
     expect(sent[0].markdown).toBe("正文不应丢");
-  });
-
-  it("user 消息带快照名 → 快照优先（防御性分支,当前链路 web 消息恒无快照）", async () => {
-    const { broadcaster, feishuGateway } = createBroadcaster("https://otter.app", { get: vi.fn().mockResolvedValue("chen") });
-    const sent = bindAndCapture(broadcaster, feishuGateway);
-
-    await broadcaster.broadcast(nextMock({ senderType: "user", senderId: "user", source: "web", senderName: "自定义名", segments: seg("x") }));
-
-    expect(sent[0].senderLabel).toBe("自定义名");
   });
 });
 
@@ -238,7 +232,7 @@ describe("MessageBroadcaster invoke.start 触发飞书思考中消息(F20260812f
 
     broadcaster.broadcastEvent("conv-1", {
       event: "invoke.start",
-      data: { otterName: "大獭" },
+      data: { invokeId: "inv-1", otterId: "otter-1", otterName: "大獭", startedAt: new Date().toISOString() },
     });
     await new Promise((r) => setTimeout(r, 10));
 
@@ -249,10 +243,7 @@ describe("MessageBroadcaster invoke.start 触发飞书思考中消息(F20260812f
     const { broadcaster, feishuGateway } = createBroadcaster();
     bindFeishu(broadcaster);
 
-    broadcaster.broadcastEvent("conv-1", {
-      event: "tool.result",
-      data: { toolName: "x" },
-    });
+    broadcaster.broadcastEvent("conv-1", userEntryEvent());
     await new Promise((r) => setTimeout(r, 10));
 
     expect(feishuGateway.replyText).not.toHaveBeenCalled();
@@ -264,29 +255,27 @@ describe("MessageBroadcaster invoke.start 触发飞书思考中消息(F20260812f
 
     broadcaster.broadcastEvent("conv-1", {
       event: "invoke.start",
-      data: { messageId: "m1", otterId: "otter-1" }, // 无 otterName
+      data: { invokeId: "inv-1", otterId: "otter-1", startedAt: new Date().toISOString() },
     });
     await new Promise((r) => setTimeout(r, 10));
 
     expect(feishuGateway.replyText).not.toHaveBeenCalled();
   });
 
-  it("createdAt 距今 >3s 时跳过(审视 R5 乱序 gate)", async () => {
+  it("startedAt 距今 >3s 时跳过(审视 R5 乱序 gate)", async () => {
     const { broadcaster, feishuGateway } = createBroadcaster();
     bindFeishu(broadcaster);
 
-    // createdAt 设为 5s 前,超过 THINKING_MESSAGE_MAX_DELAY_MS
-    const staleCreatedAt = new Date(Date.now() - 5000).toISOString();
     broadcaster.broadcastEvent("conv-1", {
       event: "invoke.start",
-      data: { messageId: "m1", otterId: "otter-1", otterName: "大獭", createdAt: staleCreatedAt },
+      data: { invokeId: "inv-1", otterId: "otter-1", otterName: "大獭", startedAt: new Date(Date.now() - 4000).toISOString() },
     });
     await new Promise((r) => setTimeout(r, 10));
 
     expect(feishuGateway.replyText).not.toHaveBeenCalled();
   });
 
-  it("createdAt 距今 <3s 时正常发送", async () => {
+  it("startedAt 距今 <3s 时正常发送", async () => {
     const { broadcaster, feishuGateway } = createBroadcaster();
     bindFeishu(broadcaster);
     const sent: string[] = [];
@@ -294,18 +283,16 @@ describe("MessageBroadcaster invoke.start 触发飞书思考中消息(F20260812f
       sent.push(text);
     });
 
-    // createdAt 设为 100ms 前,在阈值内
-    const freshCreatedAt = new Date(Date.now() - 100).toISOString();
     broadcaster.broadcastEvent("conv-1", {
       event: "invoke.start",
-      data: { messageId: "m1", otterId: "otter-1", otterName: "大獭", createdAt: freshCreatedAt },
+      data: { invokeId: "inv-1", otterId: "otter-1", otterName: "大獭", startedAt: new Date().toISOString() },
     });
     await new Promise((r) => setTimeout(r, 10));
 
     expect(sent).toEqual(["[大獭] 正在思考..."]);
   });
 
-  it("createdAt 缺失时仍发送(向后兼容,旧事件无 createdAt)", async () => {
+  it("startedAt 缺失时仍发送(向后兼容,旧事件无时间戳)", async () => {
     const { broadcaster, feishuGateway } = createBroadcaster();
     bindFeishu(broadcaster);
     const sent: string[] = [];
@@ -315,14 +302,14 @@ describe("MessageBroadcaster invoke.start 触发飞书思考中消息(F20260812f
 
     broadcaster.broadcastEvent("conv-1", {
       event: "invoke.start",
-      data: { messageId: "m1", otterId: "otter-1", otterName: "大獭" },
+      data: { invokeId: "inv-1", otterId: "otter-1", otterName: "大獭" },
     });
     await new Promise((r) => setTimeout(r, 10));
 
     expect(sent).toEqual(["[大獭] 正在思考..."]);
   });
 
-  it("createdAt 非法字符串(NaN)时仍发送(审视 R6 NaN 语义)", async () => {
+  it("startedAt 非法字符串(NaN)时仍发送(审视 R6 NaN 语义)", async () => {
     const { broadcaster, feishuGateway } = createBroadcaster();
     bindFeishu(broadcaster);
     const sent: string[] = [];
@@ -332,11 +319,10 @@ describe("MessageBroadcaster invoke.start 触发飞书思考中消息(F20260812f
 
     broadcaster.broadcastEvent("conv-1", {
       event: "invoke.start",
-      data: { messageId: "m1", otterId: "otter-1", otterName: "大獭", createdAt: "not-a-date" },
+      data: { invokeId: "inv-1", otterId: "otter-1", otterName: "大獭", startedAt: "not-a-date" },
     });
     await new Promise((r) => setTimeout(r, 10));
 
-    // NaN 应被当作"无 gate 信息",继续发送
     expect(sent).toEqual(["[大獭] 正在思考..."]);
   });
 });
@@ -346,7 +332,8 @@ describe("FeishuMessageChannel 按 externalType 路由（F20260831xtrt）", () =
     const { broadcaster, feishuGateway } = createBroadcaster();
     bindFeishu(broadcaster, "wx-user-1", "weixin");
 
-    await broadcaster.broadcast(mockMessage({ senderType: "otter" }));
+    broadcaster.broadcastEvent("conv-1", userEntryEvent());
+    await new Promise((r) => setTimeout(r, 10));
 
     expect(feishuGateway.replyMarkdown).not.toHaveBeenCalled();
     expect(feishuGateway.replyText).not.toHaveBeenCalled();
@@ -360,7 +347,8 @@ describe("FeishuMessageChannel 按 externalType 路由（F20260831xtrt）", () =
       sent.push({ chatId, markdown });
     });
 
-    await broadcaster.broadcast(mockMessage({ senderType: "otter" }));
+    broadcaster.broadcastEvent("conv-1", userEntryEvent({ body: "你好" }));
+    await new Promise((r) => setTimeout(r, 10));
 
     expect(sent).toHaveLength(1);
     expect(sent[0].chatId).toBe("chat-123");
@@ -372,7 +360,7 @@ describe("FeishuMessageChannel 按 externalType 路由（F20260831xtrt）", () =
 
     broadcaster.broadcastEvent("conv-1", {
       event: "invoke.start",
-      data: { messageId: "m1", otterId: "otter-1", otterName: "大獭" },
+      data: { invokeId: "inv-1", otterId: "otter-1", otterName: "大獭", startedAt: new Date().toISOString() },
     });
     await new Promise((r) => setTimeout(r, 10));
 
@@ -389,7 +377,7 @@ describe("FeishuMessageChannel 按 externalType 路由（F20260831xtrt）", () =
 
     broadcaster.broadcastEvent("conv-1", {
       event: "invoke.start",
-      data: { messageId: "m1", otterId: "otter-1", otterName: "大獭" },
+      data: { invokeId: "inv-1", otterId: "otter-1", otterName: "大獭", startedAt: new Date().toISOString() },
     });
     await new Promise((r) => setTimeout(r, 10));
 

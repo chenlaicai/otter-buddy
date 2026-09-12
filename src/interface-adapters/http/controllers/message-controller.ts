@@ -205,7 +205,8 @@ export class MessageController {
       if (this.messageBroadcaster) {
         this.messageBroadcaster.broadcastEvent(conversationId, {
           event: "entry.user",
-          data: { entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: body.senderId, body: body.body, createdAt: userEntry.createdAt, yieldTargets: talkingStonePassedTo },
+          // source 显式标 web：IM 出站通道消费 entry.user 时的防回环闸（只投 Web 来源）
+          data: { entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: body.senderId, body: body.body, createdAt: userEntry.createdAt, yieldTargets: talkingStonePassedTo, source: "web" },
         });
       }
 
@@ -322,12 +323,10 @@ export class MessageController {
       push({ event: 'mention.feedback', data: { feedback: mentionFeedback } });
     }
     if (!this.messageBroadcaster) return undefined;
-    return this.messageBroadcaster.subscribe(
+    // F20260910ctlv 处置轮：消息回调链路死面删除——POST SSE 流只订阅事件流
+    // （当前请求触发的 agent 事件；其他消息通过 GET SSE 订阅接收，避免重复推送）
+    return this.messageBroadcaster.subscribeEvents(
       conversationId,
-      // onMessage 为空：POST SSE 流仅接收当前请求触发的 agent 事件（通过 onEvent）。
-      // 其他消息（飞书用户消息等）通过 GET SSE 订阅接收，避免重复推送。
-      () => {},
-      // onEvent：streaming 事件 → 推送到 POST SSE 流
       (event) => { push(event); },
     );
   }

@@ -10,8 +10,10 @@
  */
 export type SSEEventMap = {
   // ── 时间线条目事件（entries 表投影） ──
-  /** user entry（用户发言气泡）。yieldTargets = 发言石目标（渲染「→ 目标」传递行） */
-  "entry.user": { entryId: string; sequenceNum: number; senderId: string; body: string; createdAt: string; yieldTargets?: string[] };
+  /** user entry（用户发言气泡）。yieldTargets = 发言石目标（渲染「→ 目标」传递行）。
+   *  source（F20260910ctlv 处置轮）：消息接入面（web/feishu/weixin）——IM 出站通道
+   *  只投 source=web 的 user 消息（Web→IM 同步），IM 来源的消息不回投（防回环） */
+  "entry.user": { entryId: string; sequenceNum: number; senderId: string; body: string; createdAt: string; yieldTargets?: string[]; source?: "web" | "feishu" | "weixin" | null };
   /** speak entry（獭气泡唯一来源）——speak 是原子工具调用（无流式生命周期），落库即 completed，
    *  单事件携带全量 body 一次性渲染完整气泡。原 entry.start 伪事件已退役（与 entry.speak 背靠背同数据，纯冗余）。 */
   "entry.speak": { entryId: string; invokeId: string; otterId?: string; body: string; otterName?: string; createdAt?: string };

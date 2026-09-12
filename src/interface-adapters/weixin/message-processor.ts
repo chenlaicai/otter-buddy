@@ -120,7 +120,7 @@ export class WeixinMessageProcessor {
     // 广播到 Web 端（实时同步；entry.user 事件，前端单通道消费）
     this.deps.messageBroadcaster.broadcastEvent(conversation.id, {
       event: "entry.user",
-      data: { entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: fromUserId, body: bodyText, createdAt: userEntry.createdAt, yieldTargets: talkingStonePassedTo },
+      data: { entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: fromUserId, body: bodyText, createdAt: userEntry.createdAt, yieldTargets: talkingStonePassedTo, source: "weixin" },
     });
 
     // Agent 派发用原始 body（不含降级提示——运维文本不进 agent 上下文，检视建议 1；
