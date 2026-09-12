@@ -2,7 +2,6 @@ import type { ManageConnection } from "./manage-connection";
 import type { WeixinGateway } from "./weixin-gateway";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
-import type { AttachmentRepository } from "@usecases/conversation/attachment-repository";
 import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import type { Logger } from "@usecases/ports/logger";
 import type { SSEEvent } from "@contract/sse/events";
@@ -27,8 +26,6 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     private readonly logger: Logger,
     private readonly webBaseUrl?: string,
     private readonly settingsRepo?: Pick<SettingsRepository, "get">,
-    /** 附件仓储（issue #567 媒体出站：AttachmentRef 无 filePath，查实体拿存储路径） */
-    private readonly attachmentRepo?: Pick<AttachmentRepository, "getById">,
   ) {}
 
 

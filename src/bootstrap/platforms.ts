@@ -473,12 +473,12 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
       const cdn = new WeixinCdnClient({ api, logger });
       const mediaGateway = new WeixinMediaClient({ cdn, logger });
       const gateway = new WeixinGatewayAdapter({ api, accountStore, accountId: account.id, logger, cdn });
-      // 出站：广播总线注册（与飞书同模式；attachmentRepo 供媒体出站查存储路径）
+      // 出站：广播总线注册（与飞书同模式；F20260910ctlv 处置轮：attachmentRepo 死参数已删，媒体出站恢复待独立 issue）
       // #591：键控注册（"weixin-<accountId>"）——同账号重登录时替换旧通道而非追加，
       // 防止重复投递；停轮询/删账号时 unregisterOutboundChannel 成对清理
       messageBroadcaster.registerOutboundChannel(
         `weixin-${account.id}`,
-        new WeixinMessageChannel(uc.manageConnection, gateway, uc.queryOtter, logger, appConfig.web?.baseUrl, repos.settings, repos.attachment),
+        new WeixinMessageChannel(uc.manageConnection, gateway, uc.queryOtter, logger, appConfig.web?.baseUrl, repos.settings),
       );
       // ingress：入站处理器 + 轮询循环（媒体三项与飞书同构：注入服务与 controllers.ts 同一块装配）
       const attachmentInjection = new AttachmentInjectionService({
