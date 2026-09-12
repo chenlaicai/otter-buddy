@@ -18,12 +18,13 @@ export function isRetryableGuardAbort(reason: string): boolean {
   return false;
 }
 
-/** 构造自动重试的过渡态消息 */
+/** 构造自动重试的过渡态消息。
+ *  F20260910ctlv 口径：只写确证内容——「超时」有计时证据；「模型」是归因不确证，统一去「模型」字样。 */
 export function buildRetryFailBody(reason: string): string {
   if (reason === "streaming_timeout") return "生成过程超时";
-  if (reason === "first_byte_timeout") return "模型响应超时";
+  if (reason === "first_byte_timeout") return "生成超时（长时间无输出）";
   if (reason.startsWith("circuit_break:")) return "工具调用异常";
-  if (reason === "api_error") return "模型服务异常";
+  if (reason === "api_error") return "底层调用错误";
   // F20260831aksp T2：对话流可见文案——事实而非误导（修复前显示通用「执行异常」）
   if (reason.startsWith("bash_safety:")) return "检测到针对主进程的不允许命令，已拦截并引导海獭重新分析任务";
   return "执行异常";
@@ -46,7 +47,7 @@ export function buildAutoRetryMsg(reason: string): string {
     return '[系统提醒] 你上一轮生成过程超时，已被系统自动重试。请从中断处继续完成你的发言，不需要重新开始。';
   }
   if (reason === 'first_byte_timeout') {
-    return '[系统提醒] 你上一轮模型响应超时，已被系统自动重试。请重新生成你的发言。';
+    return '[系统提醒] 你上一轮生成超时（长时间无输出），已被系统自动重试。请重新生成你的发言。';
   }
   if (reason.startsWith('circuit_break:')) {
     return '[系统提醒] 你上一轮工具调用异常，已被系统自动重试。请检查工具调用策略后继续。';
@@ -135,7 +136,7 @@ export function buildGuardBounceEscalationMsg(otterName: string): string {
 export function buildGuardAbortBody(guardReason: string | undefined): string {
   if (guardReason === 'degenerate_output') return '[系统保护] 检测到输出内容异常重复，已自动中断。';
   if (guardReason === 'streaming_timeout') return '[系统保护] 生成过程超时，已自动中断。';
-  if (guardReason === 'first_byte_timeout') return '[系统保护] 模型响应超时，已自动中断。';
+  if (guardReason === 'first_byte_timeout') return '[系统保护] 生成超时（长时间无输出），已自动中断。';
   if (guardReason?.startsWith('circuit_break:')) {
     if (guardReason.includes('event_timeout')) return '[系统保护] 单次工具调用超时，已自动中断。';
     return '[系统保护] 检测到工具调用异常循环，已自动中断。';
@@ -144,25 +145,25 @@ export function buildGuardAbortBody(guardReason: string | undefined): string {
   return '[系统保护] 输出异常，已自动中断。';
 }
 
-/** Build user abort body with partner label. #752: enhanced with underlying error attribution */
+/** Build user abort body with partner label.
+ *  F20260910ctlv 搭档拍板口径：只写确证内容——中断不一定有底层错误，可能就是主动中断；
+ *  系统无法确证错误根因归类，不写「模型服务异常」这类断言，改为确证事实 + 附错误原文。 */
 export function buildUserAbortBody(
   toolCallCount: number,
   partnerLabel: string,
   underlyingError?: AbortUnderlyingError,
 ): string {
-  const base = `[${partnerLabel}中断] 经过 ${toolCallCount} 次工具调用后，${partnerLabel}强制中断了当前发言。`;
-  // #752：0 次工具调用 + 底层有 API 错误 → 归因到系统问题而非纯用户中断
-  if (toolCallCount === 0 && underlyingError) {
-    if (underlyingError.kind === 'api_error') {
-      const isRateLimit = /429|rate.?limit|too many/i.test(underlyingError.errorMessage);
-      const hint = isRateLimit ? '模型服务限流（429）' : '模型服务异常';
-      return `[${partnerLabel}中断] 当前发言因${hint}未能开始（0 次工具调用），${partnerLabel}中断了等待。`;
-    }
-    if (underlyingError.kind === 'guard_abort') {
-      return `[${partnerLabel}中断] 当前发言因安全守卫拦截未能开始（0 次工具调用），${partnerLabel}中断了等待。`;
-    }
+  // 有确证的非 abort 底层错误：陈述事实 + 附原文（不断言根因）
+  if (underlyingError && underlyingError.kind === 'api_error' && underlyingError.errorMessage.trim()) {
+    const err = underlyingError.errorMessage.trim().slice(0, 200);
+    return `[${partnerLabel}中断] 当前发言未能开始（${toolCallCount} 次工具调用），底层错误：${err}，${partnerLabel}中断了等待。`;
   }
-  return base;
+  // guard 拦截：确证（有拦截记录）
+  if (underlyingError && underlyingError.kind === 'guard_abort') {
+    return `[${partnerLabel}中断] 当前发言因安全守卫拦截未能开始（${toolCallCount} 次工具调用），${partnerLabel}中断了等待。`;
+  }
+  // 纯主动中断（无底层错误）：简洁陈述，不暗示异常
+  return `[${partnerLabel}中断] ${toolCallCount > 0 ? `经过 ${toolCallCount} 次工具调用后，` : ''}${partnerLabel}中断了当前发言。`;
 }
 
 /**

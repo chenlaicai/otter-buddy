@@ -73,9 +73,10 @@ describe("buildAutoRetryMsg", () => {
     expect(msg).not.toContain("yield");
   });
 
-  it("first_byte_timeout 返回响应超时提醒", () => {
+  it("first_byte_timeout 返回生成超时提醒（F20260910ctlv：去「模型」归因，只说确证的超时）", () => {
     const msg = buildAutoRetryMsg('first_byte_timeout');
-    expect(msg).toContain("响应超时");
+    expect(msg).toContain("生成超时");
+    expect(msg).not.toContain("模型");
     expect(msg).toContain("重新生成");
   });
 
@@ -147,33 +148,35 @@ describe("#731 guard bounce 文案与常量", () => {
   });
 });
 
-describe("buildUserAbortBody (#752: 中断归因增强)", () => {
-  it("无 underlyingError 时保持原有文案（纯用户中断）", () => {
+describe("buildUserAbortBody（F20260910ctlv：只写确证内容，不写根因断言）", () => {
+  it("无 underlyingError（纯主动中断）→ 简洁陈述，不暗示异常", () => {
     const msg = buildUserAbortBody(5, "搭档");
-    expect(msg).toBe("[搭档中断] 经过 5 次工具调用后，搭档强制中断了当前发言。");
+    expect(msg).toBe("[搭档中断] 经过 5 次工具调用后，搭档中断了当前发言。");
   });
 
-  it("有工具调用时 underlyingError 不影响文案（中断发生在执行过程中）", () => {
-    const msg = buildUserAbortBody(3, "chen", { kind: 'api_error', errorMessage: '429 Too Many Requests' });
-    expect(msg).toBe("[chen中断] 经过 3 次工具调用后，chen强制中断了当前发言。");
+  it("0 次工具调用的纯主动中断 → 不提工具次数，不暗示异常", () => {
+    const msg = buildUserAbortBody(0, "搭档");
+    expect(msg).toBe("[搭档中断] 搭档中断了当前发言。");
+    expect(msg).not.toContain("未能开始");
+    expect(msg).not.toContain("异常");
   });
 
-  it("0 次工具调用 + api_error（429 限流）→ 归因到模型限流", () => {
+  it("有确证 api_error → 陈述事实 + 附错误原文，不断言根因（不写「模型服务异常/限流」）", () => {
     const msg = buildUserAbortBody(0, "chen", { kind: 'api_error', errorMessage: 'LLM API error: 429 Too Many Requests' });
-    expect(msg).toContain("模型服务限流（429）");
     expect(msg).toContain("未能开始");
+    expect(msg).toContain("底层错误：LLM API error: 429 Too Many Requests");
     expect(msg).toContain("chen中断了等待");
-    expect(msg).not.toContain("强制中断了当前发言");
+    // 根因断言被移除：不再出现「模型服务异常」「模型服务限流」这类无法确证的归类
+    expect(msg).not.toContain("模型服务");
   });
 
-  it("0 次工具调用 + api_error（非 429）→ 归因到模型服务异常", () => {
-    const msg = buildUserAbortBody(0, "chen", { kind: 'api_error', errorMessage: 'LLM API error: Connection refused' });
-    expect(msg).toContain("模型服务异常");
-    expect(msg).toContain("未能开始");
-    expect(msg).toContain("chen中断了等待");
+  it("执行中（有工具调用）的 api_error → 同样附原文（不再只报工具次数）", () => {
+    const msg = buildUserAbortBody(3, "chen", { kind: 'api_error', errorMessage: 'LLM API error: Connection refused' });
+    expect(msg).toContain("3 次工具调用");
+    expect(msg).toContain("底层错误：LLM API error: Connection refused");
   });
 
-  it("0 次工具调用 + guard_abort → 归因到安全守卫拦截", () => {
+  it("guard_abort → 确证的守卫拦截（保留归因，有拦截记录）", () => {
     const msg = buildUserAbortBody(0, "搭档", { kind: 'guard_abort', guardReason: 'bash_safety:kill detected' });
     expect(msg).toContain("安全守卫拦截");
     expect(msg).toContain("未能开始");
