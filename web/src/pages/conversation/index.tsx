@@ -252,18 +252,21 @@ function ConversationPage() {
       }))
       // entries 全量映射（ASC；单一 sequenceNum 排序天然单调——跨表排序问题消失）
       const msgs = entriesResp.entries.map(mapEntryDTO)
-      /** F20260910ctlv test17：刷新恢复 invokeStates——右栏中断按钮依赖 running 状态。
-       *  刷新前 invokeStates 由 invoke.start/end 事件驱动，刷新后内存态丢失；
-       *  此处从 invokes 表拉 running invoke 重建（终态不需恢复——右栏只认 running 显中断按钮）。 */
+      /** F20260910ctlv test17：刷新恢复 invokeStates——右栏中断/重试按钮依赖该獭最新 invoke 状态。
+       *  刷新前 invokeStates 由 invoke.start/end 事件驱动，刷新后内存态丢失。
+       *  每只獭取最新一次 invoke 恢复完整状态（running→中断按钮，aborted/failed→重试按钮）。 */
       const invokesResp = await api.listInvokes(convId, { limit: 50 }).catch(() => null)
       if (invokesResp) {
         setInvokeStates(prev => {
           const next = { ...prev }
           for (const inv of invokesResp.invokes) {
-            if (inv.status === 'running') {
-              next[inv.otterId] = {
-                invokeId: inv.id, otterId: inv.otterId, status: 'running', startedAt: inv.startedAt,
-              }
+            // listInvokes 按 started_at DESC，同一只獭首次出现即最新——跳过后续旧记录
+            if (next[inv.otterId]) continue
+            next[inv.otterId] = {
+              invokeId: inv.id, otterId: inv.otterId, status: inv.status, startedAt: inv.startedAt,
+              ...(inv.endedAt && { endedAt: inv.endedAt }),
+              toolCallCount: inv.toolCallCount,
+              ...(inv.tokenUsageInput != null && inv.tokenUsageOutput != null && { tokenUsage: { input: inv.tokenUsageInput, output: inv.tokenUsageOutput } }),
             }
           }
           return next
