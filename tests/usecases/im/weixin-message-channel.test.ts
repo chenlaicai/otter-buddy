@@ -123,7 +123,7 @@ describe("WeixinMessageChannel onEvent thinking 按 externalType 路由（F20260
     bindWeixin(ctx.manageConnection, "chat-123", "feishu");
 
     ctx.broadcaster.broadcastEvent("conv-1", {
-      event: "message.start",
+      event: "invoke.start",
       data: { messageId: "m1", otterId: "otter-1", otterName: "大獭" },
     });
     await new Promise((r) => setTimeout(r, 10));
@@ -140,7 +140,7 @@ describe("WeixinMessageChannel onEvent thinking 按 externalType 路由（F20260
     });
 
     ctx.broadcaster.broadcastEvent("conv-1", {
-      event: "message.start",
+      event: "invoke.start",
       data: { messageId: "m1", otterId: "otter-1", otterName: "大獭" },
     });
     await new Promise((r) => setTimeout(r, 10));

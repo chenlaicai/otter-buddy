@@ -321,6 +321,20 @@ export class SqliteEntryRepository implements EntryRepository {
     return row.max_seq ?? 0;
   }
 
+  /** F20260910ctlv 批4a：metadata.externalId(s) 查重（招聘桥接入站去重） */
+  async findByExternalId(externalId: string): Promise<Entry | null> {
+    const row = this.db.prepare(`
+      SELECT * FROM entries WHERE
+        JSON_EXTRACT(metadata, '$.externalId') = ?
+        OR EXISTS (SELECT 1 FROM JSON_EACH(JSON_EXTRACT(metadata, '$.externalIds')) WHERE value = ?)
+      LIMIT 1
+    `).get(externalId, externalId) as EntryRow | undefined;
+    if (!row) return null;
+    const entry = rowToEntry(row);
+    await this.attachAttachments([entry]);
+    return entry;
+  }
+
   async searchEntries(
     conversationId: string,
     query: string,

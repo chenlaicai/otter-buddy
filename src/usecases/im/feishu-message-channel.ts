@@ -85,24 +85,58 @@ export class FeishuMessageChannel implements OutboundMessageChannel, OutboundEve
    * 超过阈值(3s)说明 IO 慢且 agent 可能已完成、最终消息可能已到达 —— 此时发
    * "正在思考..." 会晚于最终消息造成乱序,跳过。
    */
+  /** F20260910ctlv 批4a：SSE 事件出站——invoke.start 触发"正在思考..."
+   *  （message.start 已无生产者）；entry.speak = speak 气泡出站投递
+   *  （替代已死的 onMessage/broadcaster.broadcast 链路） */
   onEvent(conversationId: string, event: SSEEvent): void {
-    if (event.event !== "message.start") return;
-    this.maybeSendFeishuThinkingMessage(conversationId, event).catch((err) => {
-      this.logger.error("Failed to send feishu thinking message", err instanceof Error ? err : undefined, {
-        conversationId,
+    if (event.event === "invoke.start") {
+      this.maybeSendFeishuThinkingMessage(conversationId, event).catch((err) => {
+        this.logger.error("Failed to send feishu thinking message", err instanceof Error ? err : undefined, {
+          conversationId,
+        });
       });
+      return;
+    }
+    if (event.event === "entry.speak") {
+      this.deliverSpeakToFeishu(conversationId, event).catch((err) => {
+        this.logger.error("Failed to deliver speak entry to Feishu", err instanceof Error ? err : undefined, { conversationId });
+      });
+    }
+  }
+
+  /** entry.speak 出站：speak body 投影 + markdown 投递（web 端发言之外唯一气泡来源） */
+  private async deliverSpeakToFeishu(conversationId: string, event: SSEEvent): Promise<void> {
+    const data = event.data as { body?: string; otterName?: string };
+    if (!data.body) return;
+
+    const session = await this.manageConnection.getSessionByConversation(conversationId);
+    if (!session) return;
+    const connection = await this.manageConnection.getConnection(session.connectionId);
+    if (!connection) return;
+    if (connection.externalType !== "feishu") return;
+
+    const markdown = projectForChannel(data.body, {
+      webBaseUrl: this.webBaseUrl,
+      conversationId,
     });
+    try {
+      await this.feishuGateway.replyMarkdown(connection.externalId, data.otterName ?? "海獭", markdown);
+    } catch (err) {
+      this.logger.error("Failed to broadcast speak to Feishu (degradation also failed)", err instanceof Error ? err : undefined, { conversationId });
+    }
   }
 
   private async maybeSendFeishuThinkingMessage(conversationId: string, event: SSEEvent): Promise<void> {
-    const data = event.data as { otterName?: string; createdAt?: string };
+    // invoke.start 数据面：otterName/startedAt（批4a 换轨）
+    const data = event.data as { otterName?: string; startedAt?: string; createdAt?: string };
     const otterName = data.otterName;
     if (!otterName) return;
 
-    // 时间戳 gate:createdAt 是 ISO string,转 ms 比对
+    // 时间戳 gate:startedAt 是 ISO string,转 ms 比对
     const THINKING_MESSAGE_MAX_DELAY_MS = 3000;
-    if (data.createdAt) {
-      const elapsedMs = Date.now() - new Date(data.createdAt).getTime();
+    const gateTs = data.startedAt ?? data.createdAt;
+    if (gateTs) {
+      const elapsedMs = Date.now() - new Date(gateTs).getTime();
       // 非法 createdAt → NaN:显式当作"无 gate 信息",继续发送(与 createdAt 缺失同语义)
       if (!Number.isNaN(elapsedMs) && elapsedMs > THINKING_MESSAGE_MAX_DELAY_MS) {
         this.logger.info("Skip feishu thinking message: too slow, final message likely already sent", {

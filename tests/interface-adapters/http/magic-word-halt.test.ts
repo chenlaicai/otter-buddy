@@ -9,7 +9,6 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { Hono } from "hono";
-import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageReadState } from "@usecases/conversation/manage-read-state";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -33,7 +32,6 @@ function makeHarness(runningInvokes: Array<{ id: string; otterId: string; status
 
   const sendUserEntry = vi.fn();
   const ctrl = new MessageController(
-    {} as unknown as SendMessage,
     {} as unknown as QueryMessage,
     {} as unknown as ManageReadState,
     agentInvoker,

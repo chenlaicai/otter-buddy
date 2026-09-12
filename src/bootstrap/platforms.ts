@@ -323,7 +323,7 @@ export function setupFeishu(options: {
   const { appConfig, uc, repos, agentInvoker, feishu, messageBroadcaster, logger, registry, signalRouter } = options;
   if (!appConfig.feishu) return undefined;
 
-  const commandDispatcher = new CommandDispatcher(uc.manageConnection, uc.queryMessage, feishu.client, logger);
+  const commandDispatcher = new CommandDispatcher(uc.manageConnection, repos.entry, feishu.client, logger);
   // F20260826fpbd：命令门禁（方案B）——setupFeishu 入口有 !appConfig.feishu 早退，此处必存在；partnerOpenId 仍可选
   const partnerResolver = new PartnerResolver(appConfig.feishu?.partnerOpenId);
   const agentDispatchService = new AgentDispatchService({
@@ -562,7 +562,7 @@ export function ensureWeixinConfig(opts: { configPath?: string; stateDir?: strin
 
 export async function initPlatforms(options: { appConfig: AppConfig; repos: Repositories; uc: UseCases; agentInvoker: AgentInvoker; dispatchChainEngine: DispatchChainEngine; messageBroadcaster: MessageBroadcaster; logger: Logger; signalRouter?: SignalRouter }): Promise<PlatformBootstrapResult> {
   const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, logger, signalRouter } = options;
-  const healingInit = ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, otterRepo: repos.otter, settings: repos.settings, sendMessage: uc.sendMessage, logger })
+  const healingInit = ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, otterRepo: repos.otter, settings: repos.settings, sendEntry: uc.sendEntry, logger })
     .then(({ conversationId, bigOtterId }) => ensureHealingScheduler({ manageScheduledTask: uc.manageScheduledTask, scheduledTaskRepo: repos.scheduledTask, healingConversationId: conversationId, bigOtterId }))
     .then(() => undefined)
     .catch(err => logger.warn("Self-Healing init failed", { error: err instanceof Error ? err.message : String(err) }));
@@ -575,8 +575,8 @@ export async function initPlatforms(options: { appConfig: AppConfig; repos: Repo
     inboundApiKey = appConfig.inbound.recruiting.apiKey;
     processInboundRecruit = new ProcessInboundRecruit(
       repos.settings,
-      uc.queryMessage,
-      uc.sendMessage,
+      uc.sendEntry,
+      repos.entry,
       dispatchChainEngine,
       agentInvoker,
       logger,
@@ -590,7 +590,7 @@ export async function initPlatforms(options: { appConfig: AppConfig; repos: Repo
       otterRepo: repos.otter,
       createOtter: uc.createOtter,
       settings: repos.settings,
-      sendMessage: uc.sendMessage,
+      sendEntry: uc.sendEntry,
       logger,
     })
       .then(({ conversationId, bigOtterId }) => ensureRecruitingScheduler({

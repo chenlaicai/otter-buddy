@@ -5,7 +5,7 @@ import { DomainError } from '@entities/errors';
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
 import type { ManageConversation } from '@usecases/conversation/manage-conversation';
 import type { SettingsRepository } from '@usecases/settings/settings-repository';
-import type { SendMessage } from '@usecases/conversation/send-message';
+import type { SendEntry } from '@usecases/conversation/send-entry';
 import type { OtterRepository } from '@usecases/otter/otter-repository';
 import type { CreateOtter } from '@usecases/otter/create-otter';
 import type { Logger } from '@usecases/ports/logger';
@@ -105,14 +105,16 @@ async function createConversationAndParticipant(
   return conversationId;
 }
 
-/** 发欢迎系统消息（仅作为对话起点上下文，不期望大獭回复） */
+/** 发欢迎系统消息（仅作为对话起点上下文，不期望大獭回复）。
+ *  F20260910ctlv 批4a：sendSystem 退役，落 system entry（时间线唯一真相源） */
 async function sendWelcomeMessage(
-  sendMessage: SendMessage,
+  sendEntry: SendEntry,
   conversationId: string,
 ): Promise<void> {
-  await sendMessage.sendSystem(
+  await sendEntry.createSystemEntry({
     conversationId,
-    `💼 **求职助手对话已创建**
+    turnId: "",
+    body: `💼 **求职助手对话已创建**
 
 这是你的求职助手对话。BOSS 直聘扩展（boss-zhipin-bridge）会把新收到的招聘消息批量转发到这里，你将：
 - 按 5 类（寒暄/要简历/面试邀请/拒信/其他）分类
@@ -146,7 +148,7 @@ async function sendWelcomeMessage(
 完整指南见：\`docs/user-guide/recruiting-bridge.md\`
 
 如果搭档问"为什么没消息进来"或"扩展怎么配"，请引用上面步骤。`,
-  );
+  });
 }
 
 /**
@@ -172,7 +174,8 @@ export async function ensureRecruitingConversation(deps: {
   otterRepo: OtterRepository;
   createOtter: CreateOtter;
   settings: SettingsRepository;
-  sendMessage: SendMessage;
+  /** F20260910ctlv 批4a：welcome 切 entries */
+  sendEntry: SendEntry;
   logger: Logger;
   /** 覆盖 prompt 文件路径（测试用） */
   promptPathOverride?: string;
@@ -213,7 +216,7 @@ export async function ensureRecruitingConversation(deps: {
     await deps.settings.update(RECRUITING_BIG_OTTER_ID_KEY, bigOtter.id);
 
     // 3.5 发欢迎消息
-    await sendWelcomeMessage(deps.sendMessage, conversationId);
+    await sendWelcomeMessage(deps.sendEntry, conversationId);
 
     deps.logger.info('Recruiting conversation created', { conversationId, bigOtterId: bigOtter.id });
 

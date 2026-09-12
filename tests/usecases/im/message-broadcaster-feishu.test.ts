@@ -212,8 +212,8 @@ describe("MessageBroadcaster 飞书出站 user 标签（F20260828fsyc）", () =>
   });
 });
 
-describe("MessageBroadcaster message.start 触发飞书思考中消息(F20260812fmdr)", () => {
-  it("message.start 事件触发 replyText 发思考中消息", async () => {
+describe("MessageBroadcaster invoke.start 触发飞书思考中消息(F20260812fmdr；F20260910ctlv 批4a 换轨)", () => {
+  it("invoke.start 事件触发 replyText 发思考中消息", async () => {
     const { broadcaster, feishuGateway } = createBroadcaster();
     bindFeishu(broadcaster);
     const sent: string[] = [];
@@ -222,8 +222,8 @@ describe("MessageBroadcaster message.start 触发飞书思考中消息(F20260812
     });
 
     broadcaster.broadcastEvent("conv-1", {
-      event: "message.start",
-      data: { messageId: "msg-1", otterId: "otter-1", otterName: "大獭" },
+      event: "invoke.start",
+      data: { invokeId: "inv-1", otterId: "otter-1", otterName: "大獭", startedAt: new Date().toISOString() },
     });
 
     // replyText 是异步触发,等微任务
@@ -232,12 +232,12 @@ describe("MessageBroadcaster message.start 触发飞书思考中消息(F20260812
     expect(sent).toEqual(["[大獭] 正在思考..."]);
   });
 
-  it("无飞书绑定时,message.start 不触发思考中消息", async () => {
+  it("无飞书绑定时,invoke.start 不触发思考中消息", async () => {
     const { broadcaster, feishuGateway } = createBroadcaster();
     // 默认无绑定
 
     broadcaster.broadcastEvent("conv-1", {
-      event: "message.start",
+      event: "invoke.start",
       data: { otterName: "大獭" },
     });
     await new Promise((r) => setTimeout(r, 10));
@@ -245,7 +245,7 @@ describe("MessageBroadcaster message.start 触发飞书思考中消息(F20260812
     expect(feishuGateway.replyText).not.toHaveBeenCalled();
   });
 
-  it("非 message.start 事件不触发思考中消息", async () => {
+  it("非 invoke.start 事件不触发思考中消息", async () => {
     const { broadcaster, feishuGateway } = createBroadcaster();
     bindFeishu(broadcaster);
 
@@ -263,7 +263,7 @@ describe("MessageBroadcaster message.start 触发飞书思考中消息(F20260812
     bindFeishu(broadcaster);
 
     broadcaster.broadcastEvent("conv-1", {
-      event: "message.start",
+      event: "invoke.start",
       data: { messageId: "m1", otterId: "otter-1" }, // 无 otterName
     });
     await new Promise((r) => setTimeout(r, 10));
@@ -278,7 +278,7 @@ describe("MessageBroadcaster message.start 触发飞书思考中消息(F20260812
     // createdAt 设为 5s 前,超过 THINKING_MESSAGE_MAX_DELAY_MS
     const staleCreatedAt = new Date(Date.now() - 5000).toISOString();
     broadcaster.broadcastEvent("conv-1", {
-      event: "message.start",
+      event: "invoke.start",
       data: { messageId: "m1", otterId: "otter-1", otterName: "大獭", createdAt: staleCreatedAt },
     });
     await new Promise((r) => setTimeout(r, 10));
@@ -297,7 +297,7 @@ describe("MessageBroadcaster message.start 触发飞书思考中消息(F20260812
     // createdAt 设为 100ms 前,在阈值内
     const freshCreatedAt = new Date(Date.now() - 100).toISOString();
     broadcaster.broadcastEvent("conv-1", {
-      event: "message.start",
+      event: "invoke.start",
       data: { messageId: "m1", otterId: "otter-1", otterName: "大獭", createdAt: freshCreatedAt },
     });
     await new Promise((r) => setTimeout(r, 10));
@@ -314,7 +314,7 @@ describe("MessageBroadcaster message.start 触发飞书思考中消息(F20260812
     });
 
     broadcaster.broadcastEvent("conv-1", {
-      event: "message.start",
+      event: "invoke.start",
       data: { messageId: "m1", otterId: "otter-1", otterName: "大獭" },
     });
     await new Promise((r) => setTimeout(r, 10));
@@ -331,7 +331,7 @@ describe("MessageBroadcaster message.start 触发飞书思考中消息(F20260812
     });
 
     broadcaster.broadcastEvent("conv-1", {
-      event: "message.start",
+      event: "invoke.start",
       data: { messageId: "m1", otterId: "otter-1", otterName: "大獭", createdAt: "not-a-date" },
     });
     await new Promise((r) => setTimeout(r, 10));
@@ -371,7 +371,7 @@ describe("FeishuMessageChannel 按 externalType 路由（F20260831xtrt）", () =
     bindFeishu(broadcaster, "wx-user-1", "weixin");
 
     broadcaster.broadcastEvent("conv-1", {
-      event: "message.start",
+      event: "invoke.start",
       data: { messageId: "m1", otterId: "otter-1", otterName: "大獭" },
     });
     await new Promise((r) => setTimeout(r, 10));
@@ -388,7 +388,7 @@ describe("FeishuMessageChannel 按 externalType 路由（F20260831xtrt）", () =
     });
 
     broadcaster.broadcastEvent("conv-1", {
-      event: "message.start",
+      event: "invoke.start",
       data: { messageId: "m1", otterId: "otter-1", otterName: "大獭" },
     });
     await new Promise((r) => setTimeout(r, 10));

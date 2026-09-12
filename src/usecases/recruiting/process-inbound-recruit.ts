@@ -1,14 +1,13 @@
-import type { MessageMetadata } from '@entities/conversation/message';
 import {
   RECRUITING_CONVERSATION_KEY,
   RECRUITING_BIG_OTTER_ID_KEY,
   RECRUITING_LAST_BRIDGE_EVENT_AT_KEY,
 } from './constants';
 import type { SettingsRepository } from '@usecases/settings/settings-repository';
-import type { QueryMessage } from '@usecases/conversation/query-message';
-import type { SendMessage } from '@usecases/conversation/send-message';
 import type { DispatchChainEngine, InvokeFn } from '@usecases/conversation/dispatch-chain-engine';
 import type { SignalRouter } from '@usecases/conversation/signal-router';
+import type { SendEntry } from '@usecases/conversation/send-entry';
+import type { EntryRepository } from '@usecases/conversation/entry-repository';
 import { DirectChainGatedError } from '@usecases/conversation/signal-router';
 import type { AgentTurnPort } from '@usecases/ports/agent-turn-port';
 import type { Logger } from '@usecases/ports/logger';
@@ -66,8 +65,9 @@ export class ProcessInboundRecruit {
   // eslint-disable-next-line max-params -- 7+1 个 DI 依赖均为必需
   constructor(
     private readonly settings: SettingsRepository,
-    private readonly queryMessage: QueryMessage,
-    private readonly sendMessage: SendMessage,
+    /** F20260910ctlv 批4a：入站信号切 entries（system entry + yieldTargets；messages 退役） */
+    private readonly sendEntry: SendEntry,
+    private readonly entryRepo: EntryRepository,
     private readonly dispatchChainEngine: DispatchChainEngine,
     private readonly agentInvokePort: AgentTurnPort,
     private readonly logger: Logger,
@@ -111,7 +111,7 @@ export class ProcessInboundRecruit {
         deduplicated++;
         continue;
       }
-      const existing = await this.queryMessage.findByExternalId(m.externalId);
+      const existing = await this.entryRepo.findByExternalId(m.externalId);
       if (existing) {
         deduplicated++;
         continue;
@@ -128,33 +128,31 @@ export class ProcessInboundRecruit {
     // 2. 组装批量系统消息 body
     const body = formatRecruitBatch(fresh);
 
-    // 3. 入库：metadata 标记 externalIds（JSON 数组，便于查重），单条系统消息
+    // 3. 入库：metadata 标记 externalIds（JSON 数组，便于查重），单条 system entry
+    //    F20260910ctlv 批4a：messages 退役——yieldTargets 即信号目标（与 scheduler 同构）
     const externalIds = fresh.map(m => m.externalId);
-    const metadata: MessageMetadata = {
-      externalIds,
-    };
-    const { message } = await this.sendMessage.send({
+    const { entry: signalEntry } = await this.sendEntry.createSystemEntry({
       conversationId,
-      senderType: 'system',
-      senderId: 'boss-zhipin-bridge',
-      talkingStonePassedTo: [bigOtterId],
+      turnId: "",
       body,
-      metadata,
+      yieldTargets: [bigOtterId],
+      senderName: 'boss-zhipin-bridge',
     });
+    await this.entryRepo.updateEntryMetadata(signalEntry.id, { externalIds });
 
     this.logger.info('inbound recruit: batch inserted', {
       conversationId,
-      messageId: message.id,
+      messageId: signalEntry.id,
       accepted: fresh.length,
       deduplicated,
     });
 
     // 4. 触发大獭一次 invoke（fire-and-forget，错误不影响响应）
-    void this.triggerDispatch(conversationId, bigOtterId, body, message.id).catch(err => {
+    void this.triggerDispatch(conversationId, bigOtterId, body, signalEntry.id).catch(err => {
       this.logger.error(
         'inbound recruit: dispatch failed',
         err instanceof Error ? err : new Error(String(err)),
-        { conversationId, messageId: message.id },
+        { conversationId, messageId: signalEntry.id },
       );
     });
 
@@ -177,31 +175,28 @@ export class ProcessInboundRecruit {
       // 状态事件无 externalId 查重（30 分钟去重在扩展端做）。每个事件一条系统消息
       try {
         const body = formatStatusEvent(event);
-        const metadata: MessageMetadata = {
-          eventType: event.type,
-          severity: event.severity,
-        };
-        const { message } = await this.sendMessage.send({
+        // F20260910ctlv 批4a：状态事件落 system entry（eventType/severity 进 metadata）
+        const { entry: statusEntry } = await this.sendEntry.createSystemEntry({
           conversationId,
-          senderType: 'system',
-          senderId: 'boss-zhipin-bridge',
-          talkingStonePassedTo: [bigOtterId],
+          turnId: "",
           body,
-          metadata,
+          yieldTargets: [bigOtterId],
+          senderName: 'boss-zhipin-bridge',
         });
+        await this.entryRepo.updateEntryMetadata(statusEntry.id, { eventType: event.type, severity: event.severity });
 
         this.logger.info('inbound status: event inserted', {
           conversationId,
-          messageId: message.id,
+          messageId: statusEntry.id,
           type: event.type,
           severity: event.severity,
         });
 
-        void this.triggerDispatch(conversationId, bigOtterId, body, message.id).catch(err => {
+        void this.triggerDispatch(conversationId, bigOtterId, body, statusEntry.id).catch(err => {
           this.logger.error(
             'inbound status: dispatch failed',
             err instanceof Error ? err : new Error(String(err)),
-            { conversationId, messageId: message.id, type: event.type },
+            { conversationId, messageId: statusEntry.id, type: event.type },
           );
         });
 

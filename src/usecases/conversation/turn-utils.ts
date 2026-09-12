@@ -55,9 +55,11 @@ export async function tryCloseTurn(
   turnId: string,
   deps?: { invokeRepo?: InvokeRepository; entryRepo?: EntryRepository },
 ): Promise<TurnCloseResult> {
-  // F20260910ctlv 彻底切换：invokeRepo 未注入时（旧装配/测试）降级查 messages 行（兼容测试桩）
+  // F20260910ctlv 批4a：messages 降级分支删除（invokeRepo 是必注入依赖——
+  // 唯一旧调用方 sendMessage 已无 UI 消费；未注入时视为无 invoke 可判，直接关闭）
   if (!deps?.invokeRepo) {
-    return closeTurnFromMessages(conversationRepo, turnId);
+    await conversationRepo.closeTurn(turnId, new Date().toISOString());
+    return { closed: true, aggregatedTargets: [] };
   }
 
   const invokes = await deps.invokeRepo.getInvokesByTurnId(turnId);
@@ -95,24 +97,3 @@ async function aggregateTurnTargets(
   return [...targets];
 }
 
-/** messages 行降级路径（invokeRepo 未注入的旧装配） */
-async function closeTurnFromMessages(
-  conversationRepo: ConversationRepository,
-  turnId: string,
-): Promise<TurnCloseResult> {
-  const { isTerminalMessageStatus } = await import("@entities/conversation/message");
-  const { canCloseTurn } = await import("@entities/conversation/conversation");
-  const messages = await conversationRepo.getMessagesByTurnId(turnId);
-  const allTerminal = messages.every((m) => isTerminalMessageStatus(m.status));
-  if (!canCloseTurn(allTerminal)) {
-    return { closed: false, aggregatedTargets: [] };
-  }
-  await conversationRepo.closeTurn(turnId, new Date().toISOString());
-  const targets = new Set<string>();
-  for (const msg of messages) {
-    if (msg.talkingStonePassedTo) {
-      for (const id of msg.talkingStonePassedTo) targets.add(id);
-    }
-  }
-  return { closed: true, aggregatedTargets: [...targets] };
-}

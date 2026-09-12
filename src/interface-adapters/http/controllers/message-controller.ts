@@ -1,5 +1,4 @@
 import type { Context } from "hono";
-import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageReadState } from "@usecases/conversation/manage-read-state";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -11,10 +10,7 @@ import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-
 import type { SignalRouter } from "@usecases/conversation/signal-router";
 import type { SendEntry } from "@usecases/conversation/send-entry";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
-import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 import { handleError, param } from "../http-error";
-import { toMessageDTO } from "../dto/message-dto";
-import { decorateWithSignals, type MessageDtoBuilderDeps } from "../dto/message-dto-builder";
 import type { SendMessageRequestDTO, MarkReadRequestDTO } from "../dto/message-dto";
 import { streamEvents } from "../sse-streamer";
 import { awaitTriggerAttemptsSettled } from "../sse-settle-waiter";
@@ -49,7 +45,6 @@ import type { AttachmentInjectionService } from "@usecases/conversation/attachme
 export class MessageController {
   // eslint-disable-next-line max-params -- 依赖由 DI 装配，参数数量由依赖决定
   constructor(
-    private readonly sendMessageUseCase: SendMessage,
     private readonly queryMessage: QueryMessage,
     private readonly manageReadState: ManageReadState,
     private readonly agentInvoker: AgentInvoker,
@@ -78,10 +73,6 @@ export class MessageController {
     return { entryRepo: this.settleEntryRepo, invokeRepo: this.settleInvokeRepo };
   }
 
-  private get dtoBuilder(): MessageDtoBuilderDeps {
-    return { queryOtter: this.queryOtter, queryMessage: this.queryMessage, signalRepo: this.signalRepo, logger: this.logger };
-  }
-
   /** 订阅消息广播（SSE 长连接） */
   async subscribe(c: Context): Promise<Response> {
     const conversationId = param(c, "id");
@@ -94,48 +85,10 @@ export class MessageController {
 
     const { response, push, close } = streamEvents(c, undefined, this.logger);
 
-    // 订阅消息广播（消息 + streaming 事件）
-    const unsubscribe = this.messageBroadcaster.subscribe(
+    // F20260910ctlv 批4a：只订阅事件流（entry.*/invoke.*）——消息回调链路删除：
+    // broadcaster.broadcast 已无调用方（messages 停写），前端只消费 entry.* 事件
+    const unsubscribe = this.messageBroadcaster.subscribeEvents(
       conversationId,
-      // 消息回调：已完成消息（用户消息、飞书消息等）
-      async (message) => {
-        try {
-          this.logger.info("[subscribe] Broadcasting message to SSE", {
-            conversationId,
-            messageId: message.id,
-            senderType: message.senderType,
-          });
-          // 解析发送者名称（与 list/getById 一致，避免 subscribe 遗漏 sn 导致前端显示 "Otter"）
-          let senderName: string | undefined;
-          if (message.senderType === "otter") {
-            const otter = await this.queryOtter.getById(message.senderId);
-            senderName = resolveSpeakerName("otter", message.senderId, otter?.name) ?? undefined;
-          } else if (message.senderType === "user") {
-            senderName = "我";
-          } else {
-            senderName = "系统";
-          }
-          push({
-            event: "message",
-            data: (await decorateWithSignals(toMessageDTO(message, senderName), message, this.dtoBuilder)) as unknown as Record<string, unknown>,
-          });
-        } catch (err) {
-          this.logger.error("[subscribe] Failed to broadcast message", err instanceof Error ? err : undefined, { messageId: message.id });
-          // 降级：名称解析失败也要推送消息（前端回退到 otterId/其他名称解析）；信号挂载失败不阻断推送（徽章缺失可由前端刷新拉齐）
-          try {
-            push({
-              event: "message",
-              data: (await decorateWithSignals(toMessageDTO(message), message, this.dtoBuilder)) as unknown as Record<string, unknown>,
-            });
-          } catch {
-            push({
-              event: "message",
-              data: toMessageDTO(message) as unknown as Record<string, unknown>,
-            });
-          }
-        }
-      },
-      // 事件回调：agent streaming 事件（message.start, assistant_text, message.complete 等）
       (event) => {
         this.logger.info("[subscribe] Forwarding streaming event to SSE", {
           conversationId,

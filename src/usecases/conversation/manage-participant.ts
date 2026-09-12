@@ -150,13 +150,9 @@ export class ManageParticipant {
     return systemMessage;
   }
 
-  /** F20260910ctlv：turn 关闭（entry 路径用 invokes 判据，降级路径用 messages 判据） */
+  /** F20260910ctlv 批4a：turn 关闭（invokes 判据；messages 降级分支已删） */
   private async closeTurnAfterRecord(turnId: string): Promise<void> {
-    if (this.entryDeps) {
-      await tryCloseTurn(this.repo, turnId, this.entryDeps);
-    } else {
-      await tryCloseTurn(this.repo, turnId);
-    }
+    await tryCloseTurn(this.repo, turnId, this.entryDeps);
   }
 
   /**

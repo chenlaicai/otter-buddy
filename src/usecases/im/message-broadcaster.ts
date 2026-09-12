@@ -54,6 +54,24 @@ export class MessageBroadcaster {
    * Web 端订阅消息和事件
    * 返回取消订阅函数(同时清理消息和事件订阅)
    */
+  /** F20260910ctlv 批4a：纯事件订阅（entry 与 invoke 事件；消息回调链路已删） */
+  subscribeEvents(conversationId: string, onEvent: (event: SSEEvent) => void): () => void {
+    if (!this.eventSubscribers.has(conversationId)) {
+      this.eventSubscribers.set(conversationId, new Set());
+    }
+    this.eventSubscribers.get(conversationId)!.add(onEvent);
+    this.logger.info("Event subscriber added", {
+      conversationId,
+      subscriberCount: this.eventSubscribers.get(conversationId)!.size,
+    });
+    return () => {
+      this.eventSubscribers.get(conversationId)?.delete(onEvent);
+      if (this.eventSubscribers.get(conversationId)?.size === 0) {
+        this.eventSubscribers.delete(conversationId);
+      }
+    };
+  }
+
   subscribe(
     conversationId: string,
     onMessage: (message: Message) => void,

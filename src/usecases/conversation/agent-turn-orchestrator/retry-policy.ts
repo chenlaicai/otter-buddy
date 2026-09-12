@@ -59,45 +59,6 @@ export function buildAutoRetryMsg(reason: string): string {
   return '[系统提醒] 你上一轮执行异常，已被系统自动重试。请继续完成你的发言。';
 }
 
-/**
- * F20260826rsme：服务重启自动恢复的系统提醒（注入给被恢复的 otter）。
- * Why: pi session 延迟落盘（首条 assistant 消息后才写文件）可能丢失上下文尾部几步——
- * 末句引导 otter 主动查阅消息历史，把恢复质量从「依赖 session 记忆」拉到「基于可见证据续写」。
- */
-export function buildRestartResumeMsg(): string {
-  return '[系统提醒] 服务重启导致你的发言中断，系统已自动恢复。你之前 speak 的内容已保留在本条消息中，请基于已有进度继续完成发言，然后 yield 交棒。如果对任务上下文记忆不完整，先查阅消息历史再继续。';
-}
-
-/** F20260906rsts：恢复失败/跳过时的用户可见提示（成功路径静默——触发重跑即结束，不宣告）
- *  #818：invoke_error 分支已由 buildRestartResumeFailedInvokeMsg 独占（F202609048840 F4），
- *  本函数仅剩 skipped_concurrent 一条路径，签名收紧。 */
-export function buildRestartResumeFailedMsg(reason: "skipped_concurrent"): string {
-  void reason; // 保留参数以维持调用方签名兼容
-  return "[系统] 检测到恢复窗口内有新消息进入，跳过自动恢复，请手动重试该消息。";
-}
-
-/** F202609048840 F4: 新增失败状态的提示消息 */
-export function buildRestartResumeFailedInvokeMsg(): string {
-  return "[系统] 恢复过程中 invoke 失败，已标记为失败，请手动重试该消息。";
-}
-
-/* F20260906rsts：#613 方案 A「恢复完成」终态宣告已移除——搭档裁决（2026-09-06）：
- * 恢复的职责边界 = 重启后重新触发被中断的发言，触发即结束；成功的恢复是透明的
- * （海獭把话说完本身就是结果），不再向对话流发任何成功宣告。失败路径提示保留。
- * buildRestartResumeCompletedMsg 随之删除。 */
-
-/**
- * #599：恢复收尾消息（终态守卫用）。
- * Why: 恢复路径 invoke 创建的是新消息（新 messageId），prepareForRetry 复位的旧消息
- * 在链结束后不再有写入者。收尾为 failed + 明确指引，把「悬挂 streaming 等用户中断」
- * 变成「已归档 + 可在原条目上手动重试」。
- */
-export function buildRestartResumeTerminalMsg(outcome: "done" | "failed"): string {
-  return outcome === "done"
-    ? "[系统] 本条发言因服务重启中断（半截内容已保留），后续内容见新发言。"
-    : "[系统] 恢复未完成：本条发言已中止（半截内容已保留），可在本条上手动重试。";
-}
-
 // ─── #731：bash 守卫二拦终态自动回发控制信号（guard bounce）───
 
 /**

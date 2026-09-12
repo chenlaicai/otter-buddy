@@ -4,7 +4,7 @@ import type { ConversationRepository } from '@usecases/conversation/conversation
 import type { ManageConversation } from '@usecases/conversation/manage-conversation';
 import type { OtterRepository } from '@usecases/otter/otter-repository';
 import type { SettingsRepository } from '@usecases/settings/settings-repository';
-import type { SendMessage } from '@usecases/conversation/send-message';
+import type { SendEntry } from '@usecases/conversation/send-entry';
 import type { CreateOtter } from '@usecases/otter/create-otter';
 import type { Logger } from '@usecases/ports/logger';
 import type { Otter } from '@entities/otter/otter';
@@ -30,7 +30,7 @@ describe('ensureRecruitingConversation', () => {
   let createOtter: CreateOtter;
   let manageConversation: ManageConversation;
   let settings: SettingsRepository;
-  let sendMessage: SendMessage;
+  let sendEntry: SendEntry;
   let logger: Logger;
 
   beforeEach(() => {
@@ -61,9 +61,10 @@ describe('ensureRecruitingConversation', () => {
       tryDeleteIfValueMatches: vi.fn(async () => true),
     } as unknown as SettingsRepository;
 
-    sendMessage = {
-      sendSystem: vi.fn(),
-    } as unknown as SendMessage;
+    // F20260910ctlv 批4a：welcome 切 entries
+    sendEntry = {
+      createSystemEntry: vi.fn(async () => ({ entry: { id: 'sys-entry-1', sequenceNum: 1 } })),
+    } as unknown as SendEntry;
 
     logger = createTestLogger();
   });
@@ -99,7 +100,7 @@ describe('ensureRecruitingConversation', () => {
       otterRepo,
       createOtter,
       settings,
-      sendMessage,
+      sendEntry,
       logger,
     });
 
@@ -144,7 +145,7 @@ describe('ensureRecruitingConversation', () => {
       otterRepo,
       createOtter,
       settings,
-      sendMessage,
+      sendEntry,
       logger,
     });
 
@@ -165,13 +166,13 @@ describe('ensureRecruitingConversation', () => {
       otterRepo,
       createOtter,
       settings,
-      sendMessage,
+      sendEntry,
       logger,
     });
 
     expect(result.created).toBe(true);
     expect(manageConversation.pin).toHaveBeenCalled();
-    expect(sendMessage.sendSystem).toHaveBeenCalled();
+    expect(sendEntry.createSystemEntry).toHaveBeenCalled();
   });
 
   it('pin 失败不中断 ensure：pin 抛错时主流程仍正常返回', async () => {
@@ -202,7 +203,7 @@ describe('ensureRecruitingConversation', () => {
       otterRepo,
       createOtter,
       settings,
-      sendMessage,
+      sendEntry,
       logger: capturingLogger,
     });
 
@@ -225,7 +226,7 @@ describe('ensureRecruitingConversation', () => {
       otterRepo,
       createOtter,
       settings,
-      sendMessage,
+      sendEntry,
       logger,
     })).rejects.toThrow('Database error');
 

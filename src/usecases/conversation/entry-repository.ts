@@ -52,6 +52,9 @@ export interface EntryRepository {
   // FTS 搜索
   searchEntries(conversationId: string, query: string, limit?: number): Promise<Entry[]>;
 
+  /** F20260910ctlv 批4a：按 metadata.externalId(s) 查重（招聘桥接入站去重，原 messages.findByExternalId） */
+  findByExternalId(externalId: string): Promise<Entry | null>;
+
   // 附件关联
   attachAttachment(entryId: string, attachmentId: string, sequenceNum?: number): Promise<void>;
   getAttachments(entryId: string): Promise<Array<{ attachmentId: string; sequenceNum: number }>>;

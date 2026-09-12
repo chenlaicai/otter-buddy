@@ -437,7 +437,6 @@ export function createTestApp(deps: TestDeps): Hono {
   const broadcaster = new MessageBroadcaster(logger);
 
   const messageCtrl = new MessageController(
-    deps.sendMessageUseCase,
     deps.queryMessage,
     deps.manageReadState,
     deps.agentInvoker,

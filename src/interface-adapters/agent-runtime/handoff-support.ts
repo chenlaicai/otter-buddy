@@ -10,7 +10,6 @@ import type { ManageContext } from "@usecases/otter/manage-context";
 import type { Logger } from "@usecases/ports/logger";
 
 /** handoff 阈值常量 */
-export const HANDOFF_THRESHOLD = 0.7;
 export const DEFAULT_CTX_MAX = 128_000;
 
 /** handoff 状态管理 */
@@ -42,35 +41,6 @@ export class HandoffState {
 /**
  * Pre-invoke 检查：上轮 ctxTokens 超阈值时返回 true。
  */
-export function shouldTriggerHandoff(
-  otterId: string,
-  state: HandoffState,
-  ctxMax: number,
-): boolean {
-  const prevTokens = state.getLastCtxTokens(otterId);
-  return prevTokens !== undefined && prevTokens > 0 && prevTokens >= ctxMax * HANDOFF_THRESHOLD;
-}
-
-/**
- * Post-turn 记录：保存本轮 ctxTokens。
- */
-export async function recordPostTurnTokens(
-  otterId: string,
-  messageId: string,
-  queryMessage: { getMessageById: (id: string) => Promise<{ contextTokens?: number | null } | null> },
-  state: HandoffState,
-  _logger?: Logger,
-): Promise<void> {
-  try {
-    const msg = await queryMessage.getMessageById(messageId);
-    if (msg?.contextTokens && msg.contextTokens > 0) {
-      state.setLastCtxTokens(otterId, msg.contextTokens);
-    }
-  } catch {
-    // 非致命
-  }
-}
-
 /**
  * 从 otter_context 恢复交接上下文（借用式，消费即删）。
  */

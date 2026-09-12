@@ -25,13 +25,11 @@ import { AttachmentInjectionService } from "@usecases/conversation/attachment-in
 import { AttachmentController } from "@interface-adapters/http/controllers/attachment-controller";
 import { MessageController } from "@interface-adapters/http/controllers/message-controller";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
-import { SendMessage } from "@usecases/conversation/send-message";
 import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { ManageReadState } from "@usecases/conversation/manage-read-state";
-import type { MemoryIndexGateway } from "@usecases/conversation/memory-index-gateway";
 import type { Conversation, Turn, ConversationParticipant } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
 import { vi } from "vitest";
@@ -255,12 +253,6 @@ describe("sendMessage 附件前置校验 + FTS 时序（R3）", () => {
     });
     uploadedDocIds.push(doc.id);
 
-    // stub：memory index（旁路）
-    const memoryIndex: MemoryIndexGateway = {
-      indexMessage: vi.fn(async () => {}), indexLinkedResource: vi.fn(),
-      indexFeature: vi.fn(), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(), indexResearchChunks: vi.fn(),
-    };
-    const sendMessage = new SendMessage(convRepo, otterRepo, memoryIndex, logger, attachmentRepo);
 
     const dispatchChainEngine = new DispatchChainEngine({
       conversationRepo: convRepo,
@@ -276,7 +268,6 @@ describe("sendMessage 附件前置校验 + FTS 时序（R3）", () => {
     } as unknown as AgentInvoker;
 
     const messageController = new MessageController(
-      sendMessage,
       { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) } as unknown as ManageReadState,
       agentInvoker,

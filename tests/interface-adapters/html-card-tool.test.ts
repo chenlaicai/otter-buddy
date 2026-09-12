@@ -13,36 +13,29 @@ import type { ToolContext } from "@usecases/ports/agent-tools";
 import { HTML_CARD_CONTRACT } from "@interface-adapters/agent-runtime/tools/html-card-contract-tool";
 import { getOtterToolNamesForType } from "@frameworks/agent/session-helpers";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
-import type { Message } from "@entities/conversation/message";
 
 const CARD_BODY = '前言\n```html-card title="方案对比"\n<table/>\n```\n后记';
 const REPLY_BODY = '选择了方案 B\n```html-card-reply card="m1:0"\n{"choice":"B"}\n```';
 
-function makeMessage(overrides: Partial<Message> = {}): Message {
+function makeEntry(overrides: Partial<{ id: string; entryType: string; senderType: string | null; senderId: string | null; body: string | null; sequenceNum: number; createdAt: string }> = {}) {
   return {
-    id: "msg-1", conversationId: "conv-1", turnId: "turn-1",
-    senderType: "otter", senderId: "otter-1",
-    talkingStonePassedTo: ["user-1"], status: "completed",
-    segments: [{ id: "seg-1", messageId: "msg-1", body: CARD_BODY, sequenceNum: 0, createdAt: "2026-07-28T00:00:00Z" }],
-    sequenceNum: 1,
-    contextTokens: null, contextTokensMax: null,
-    source: "web",
-    senderName: "Test Otter",
-      createdAt: "2026-07-28T00:00:00Z", completedAt: "2026-07-28T00:01:00Z",
+    id: "entry-1", entryType: "speak", senderType: "otter", senderId: "otter-1",
+    body: CARD_BODY, sequenceNum: 1, createdAt: "2026-07-28T00:00:00Z",
     ...overrides,
   };
 }
 
+/** F20260910ctlv 批4a：SDK 工具切 entries——mock 面同步 */
 function makeCtx(clientOverrides: Partial<OtterToolClient> = {}): ToolContext {
   const client = {
     conversation: {
-      message: {
-        list: async () => [makeMessage()],
-        getTurnHistory: async () => [{
-          turn: { id: "turn-1", conversationId: "conv-1", turnNumber: 1, status: "closed", createdAt: "2026-07-28T00:00:00Z", closedAt: "2026-07-28T00:02:00Z" },
-          messages: [makeMessage()],
-        }],
+      entry: {
+        listEntries: async () => [makeEntry()],
+        getEntriesByTurnId: async () => [makeEntry()],
       },
+      getTurns: async () => [
+        { id: "turn-1", turnNumber: 1, status: "closed", createdAt: "2026-07-28T00:00:00Z", closedAt: "2026-07-28T00:02:00Z" },
+      ],
     },
     ...clientOverrides,
   } as unknown as OtterToolClient;
@@ -129,16 +122,16 @@ describe("消息工具注入出口剥离投影（只剥 html-card，回执 JSON 
   it("list_messages：卡片剥离为占位符，其他字段不变", async () => {
     const tool = createTools(makeCtx()).find(t => t.name === "list_messages")!;
     const res = await tool.execute("c1", {});
-    const [msg] = JSON.parse(res.content[0].text) as Array<{ id: string; body: string; status: string }>;
+    const [msg] = JSON.parse(res.content[0].text) as Array<{ id: string; body: string | null; entryType: string }>;
     expect(msg.body).toBe("前言\n[html-card: 方案对比]\n后记");
-    expect(msg.id).toBe("msg-1");
-    expect(msg.status).toBe("completed");
+    expect(msg.id).toBe("entry-1");
+    expect(msg.entryType).toBe("speak");
   });
 
   it("list_messages：html-card-reply 不剥离（回执 JSON 直接可见）", async () => {
     const ctx = makeCtx();
-    ctx.client.conversation.message.list = async () => [
-      makeMessage({ senderType: "user", senderId: "user-1", segments: [{ id: "seg-1", messageId: "msg-1", body: REPLY_BODY, sequenceNum: 0, createdAt: "2026-07-28T00:00:00Z" }] }),
+    ctx.client.conversation.entry.listEntries = async () => [
+      makeEntry({ senderType: "user", senderId: "user-1", body: REPLY_BODY }),
     ];
     const tool = createTools(ctx).find(t => t.name === "list_messages")!;
     const res = await tool.execute("c1", {});
@@ -146,10 +139,10 @@ describe("消息工具注入出口剥离投影（只剥 html-card，回执 JSON 
     expect(msg.body).toBe(REPLY_BODY);
   });
 
-  it("list_messages：body 为 null 的 streaming 消息保持 null", async () => {
+  it("list_messages：body 为 null 的边界条目（invoke_start）保持 null", async () => {
     const ctx = makeCtx();
-    ctx.client.conversation.message.list = async () => [
-      makeMessage({ segments: [], status: "streaming", talkingStonePassedTo: null, completedAt: null }),
+    ctx.client.conversation.entry.listEntries = async () => [
+      makeEntry({ entryType: "invoke_start", body: null }),
     ];
     const tool = createTools(ctx).find(t => t.name === "list_messages")!;
     const res = await tool.execute("c1", {});
@@ -159,14 +152,14 @@ describe("消息工具注入出口剥离投影（只剥 html-card，回执 JSON 
 
   it("get_turn_history：消息体剥离卡片、保留回执", async () => {
     const ctx = makeCtx();
-    ctx.client.conversation.message.getTurnHistory = async () => [{
-      turn: { id: "turn-1", conversationId: "conv-1", turnNumber: 1, status: "closed", createdAt: "2026-07-28T00:00:00Z", closedAt: "2026-07-28T00:02:00Z" },
-      messages: [makeMessage(), makeMessage({ id: "msg-2", senderType: "user", senderId: "user-1", segments: [{ id: "seg-2", messageId: "msg-2", body: REPLY_BODY, sequenceNum: 0, createdAt: "2026-07-28T00:00:00Z" }], sequenceNum: 2 })],
-    }];
+    ctx.client.conversation.entry.getEntriesByTurnId = async () => [
+      makeEntry(),
+      makeEntry({ id: "entry-2", senderType: "user", senderId: "user-1", body: REPLY_BODY, sequenceNum: 2 }),
+    ];
     const tool = createTools(ctx).find(t => t.name === "get_turn_history")!;
     const res = await tool.execute("c1", { includeMessages: true });
-    const [entry] = JSON.parse(res.content[0].text) as Array<{ messages: Array<{ body: string }> }>;
-    expect(entry.messages[0].body).toBe("前言\n[html-card: 方案对比]\n后记");
-    expect(entry.messages[1].body).toBe(REPLY_BODY);
+    const [entry] = JSON.parse(res.content[0].text) as Array<{ entries: Array<{ body: string | null }> }>;
+    expect(entry.entries[0].body).toBe("前言\n[html-card: 方案对比]\n后记");
+    expect(entry.entries[1].body).toBe(REPLY_BODY);
   });
 });

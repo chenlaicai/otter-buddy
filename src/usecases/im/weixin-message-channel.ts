@@ -115,20 +115,51 @@ export class WeixinMessageChannel implements OutboundMessageChannel, OutboundEve
     }
   }
 
-  /** message.start 触发"正在思考..."（与飞书同语义：消除 IM 静默期） */
+  /** F20260910ctlv 批4a：SSE 事件出站——invoke.start 触发"正在思考..."
+   *  （与飞书同语义；message.start 已无生产者）；entry.speak = speak 气泡出站投递 */
   onEvent(conversationId: string, event: SSEEvent): void {
-    if (event.event !== "message.start") return;
-    this.maybeSendThinkingMessage(conversationId, event).catch((err) => {
-      this.logger.error("Failed to send Weixin thinking message", err instanceof Error ? err : undefined, {
-        conversationId,
+    if (event.event === "invoke.start") {
+      this.maybeSendThinkingMessage(conversationId, event).catch((err) => {
+        this.logger.error("Failed to send Weixin thinking message", err instanceof Error ? err : undefined, {
+          conversationId,
+        });
       });
+      return;
+    }
+    if (event.event === "entry.speak") {
+      this.deliverSpeakToWeixin(conversationId, event).catch((err) => {
+        this.logger.error("Failed to deliver speak entry to Weixin", err instanceof Error ? err : undefined, { conversationId });
+      });
+    }
+  }
+
+  /** entry.speak 出站：speak body 投影 + 纯文本投递（与飞书同构） */
+  private async deliverSpeakToWeixin(conversationId: string, event: SSEEvent): Promise<void> {
+    const data = event.data as { body?: string; otterName?: string };
+    if (!data.body) return;
+
+    const session = await this.manageConnection.getSessionByConversation(conversationId);
+    if (!session) return;
+    const connection = await this.manageConnection.getConnection(session.connectionId);
+    if (!connection) return;
+    if (connection.externalType !== "weixin") return;
+
+    const projected = projectForChannel(data.body, {
+      webBaseUrl: this.webBaseUrl,
+      conversationId,
     });
+    try {
+      await this.weixinGateway.replyMarkdown(connection.externalId, data.otterName ?? "海獭", projected);
+    } catch (err) {
+      this.logger.error("Failed to broadcast speak to Weixin", err instanceof Error ? err : undefined, { conversationId });
+    }
   }
 
   private async maybeSendThinkingMessage(conversationId: string, event: SSEEvent): Promise<void> {
-    // 时间戳 gate（同飞书审视 R5 语义）：message.start 延迟超 3s 说明 IO 慢，
-    // 最终消息可能已在路上——此时发"正在思考..."会乱序，跳过
-    const startedAt = (event.data as { createdAt?: string } | undefined)?.createdAt;
+    // 时间戳 gate（同飞书审视 R5 语义）：invoke.start 延迟超 3s 说明 IO 慢，
+    // 最终发言可能已在路上——此时发"正在思考..."会乱序，跳过
+    const d = event.data as { startedAt?: string; createdAt?: string } | undefined;
+    const startedAt = d?.startedAt ?? d?.createdAt;
     if (startedAt && Date.now() - new Date(startedAt).getTime() > 3000) return;
 
     const session = await this.manageConnection.getSessionByConversation(conversationId);

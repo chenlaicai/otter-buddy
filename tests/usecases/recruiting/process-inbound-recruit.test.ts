@@ -1,13 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ProcessInboundRecruit } from '@usecases/recruiting/process-inbound-recruit';
-import type { MessageMetadata } from '@entities/conversation/message';
 import type { Logger } from '@usecases/ports/logger';
-import type { SendMessage } from '@usecases/conversation/send-message';
-import type { QueryMessage } from '@usecases/conversation/query-message';
+import type { SendEntry } from '@usecases/conversation/send-entry';
+import type { EntryRepository } from '@usecases/conversation/entry-repository';
 import type { DispatchChainEngine } from '@usecases/conversation/dispatch-chain-engine';
 import type { AgentTurnPort } from '@usecases/ports/agent-turn-port';
 import type { SettingsRepository } from '@usecases/settings/settings-repository';
-import type { Message } from '@entities/conversation/message';
 
 const CONV_ID = 'conv-recruiting';
 const BIG_OTTER_ID = 'otter-big';
@@ -23,7 +21,7 @@ function makeLogger(): Logger {
 }
 
 interface MockState {
-  sentMessages: Array<{ conversationId: string; body: string; metadata: MessageMetadata | null; talkingStonePassedTo: string[]; senderType: string }>;
+  sentMessages: Array<{ conversationId: string; body: string; metadata: unknown; yieldTargets: string[] | null; senderName: string }>;
   executeChainCalls: Array<{ initialTargets: string[]; conversationId: string }>;
   findByExternalIdCalls: string[];
 }
@@ -47,31 +45,35 @@ function makeMocks(): { mocks: MockState; depSet: ProcessInboundRecruitCtorArgs;
     update: vi.fn(async () => {}),
   } as unknown as SettingsRepository;
 
-  const queryMessage = {
+  // F20260910ctlv 批4a：入站信号切 entries（entryRepo 查重 + sendEntry.createSystemEntry）
+  const entryRepo = {
     findByExternalId: vi.fn(async (id: string) => {
       state.findByExternalIdCalls.push(id);
       return null;
     }),
-  } as unknown as QueryMessage;
+    updateEntryMetadata: vi.fn(async () => {}),
+  } as unknown as EntryRepository;
 
-  const sendMessage = {
-    send: vi.fn(async (input) => {
+  const sendEntry = {
+    createSystemEntry: vi.fn(async (input: { conversationId: string; body: string; yieldTargets?: string[]; senderName?: string }) => {
+      const entry = {
+        id: 'entry-' + Math.random().toString(36).slice(2),
+        conversationId: input.conversationId,
+        body: input.body,
+        sequenceNum: 1,
+        yieldTargets: input.yieldTargets ?? null,
+        senderName: input.senderName ?? 'system',
+      };
       state.sentMessages.push({
         conversationId: input.conversationId,
         body: input.body,
-        metadata: input.metadata ?? null,
-        talkingStonePassedTo: input.talkingStonePassedTo,
-        senderType: input.senderType,
+        yieldTargets: input.yieldTargets ?? null,
+        senderName: input.senderName ?? 'system',
+        metadata: null,
       });
-      return { message: {
-        id: 'msg-' + Math.random().toString(36).slice(2),
-        conversationId: input.conversationId,
-        segments: [],
-        metadata: input.metadata ?? null,
-      } as unknown as Message };
+      return { entry };
     }),
-    sendSystem: vi.fn(),
-  } as unknown as SendMessage;
+  } as unknown as SendEntry;
 
   const dispatchChainEngine = {
     executeChain: vi.fn(async (params) => {
@@ -90,8 +92,8 @@ function makeMocks(): { mocks: MockState; depSet: ProcessInboundRecruitCtorArgs;
 
   return {
     mocks: state,
-    depSet: [settingsRepo, queryMessage, sendMessage, dispatchChainEngine, agentInvokePort, makeLogger()] as ProcessInboundRecruitCtorArgs,
-    instances: { settingsRepo, queryMessage, sendMessage, dispatchChainEngine, agentInvokePort },
+    depSet: [settingsRepo, sendEntry, entryRepo, dispatchChainEngine, agentInvokePort, makeLogger()] as ProcessInboundRecruitCtorArgs,
+    instances: { settingsRepo, sendEntry, entryRepo, dispatchChainEngine, agentInvokePort },
   };
 }
 
@@ -136,17 +138,16 @@ describe('ProcessInboundRecruit', () => {
       expect(sent.body).toContain('共 2 条新消息');
       expect(sent.body).toContain('字节');
       expect(sent.body).toContain('美团');
-      expect(sent.metadata?.externalIds).toEqual(['boss:b1:m1', 'boss:b2:m2']);
-      expect(sent.talkingStonePassedTo).toEqual([BIG_OTTER_ID]);
-      expect(sent.senderType).toBe('system');
+      expect(sent.yieldTargets).toEqual([BIG_OTTER_ID]);
+      expect(sent.senderName).toBe('boss-zhipin-bridge');
       await flushAsync();
       expect(state.executeChainCalls.length).toBe(1);
       expect(state.executeChainCalls[0].initialTargets).toEqual([BIG_OTTER_ID]);
     });
 
     it('externalId 查重：已存在的消息被跳过', async () => {
-      instances.queryMessage.findByExternalId = vi.fn(async (id: string) =>
-        id === 'boss:b1:m1' ? ({} as Message) : null,
+      instances.entryRepo.findByExternalId = vi.fn(async (id: string) =>
+        id === 'boss:b1:m1' ? ({} as never) : null,
       );
       const messages = [
         { externalId: 'boss:b1:m1', bossId: 'b1', hrName: '王', company: '字节', position: '前端', content: '旧', time: 1 },

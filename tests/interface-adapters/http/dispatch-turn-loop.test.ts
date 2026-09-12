@@ -3,7 +3,6 @@ import { Hono } from "hono";
 import { MessageController } from "@interface-adapters/http/controllers/message-controller";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
-import type { SendMessage } from "@usecases/conversation/send-message";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -78,7 +77,7 @@ function postMessage(app: Hono) {
 
 describe("dispatchTurnLoop 深度上限", () => {
   it("触顶时停止派发、warn 日志、sendSystem 并推 system.message", async () => {
-    const { useCase, conversationRepo, systemBodies } = makeSendMessageUseCase();
+    const { conversationRepo, systemBodies } = makeSendMessageUseCase();
     const { logger, warns } = makeLogger();
     /** 发言石永远互传 → 死循环，必须由 maxChainDepth 截断 */
     let dispatchCount = 0;
@@ -124,7 +123,6 @@ describe("dispatchTurnLoop 深度上限", () => {
       },
     };
     const ctrl = new MessageController(
-      useCase as unknown as SendMessage,
       queryMessageStub,
       { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) } as unknown as ManageReadState,
       agentInvoker,
@@ -156,7 +154,7 @@ describe("dispatchTurnLoop 深度上限", () => {
   });
 
   it("发言石无目标时正常结束，不发系统消息", async () => {
-    const { useCase, conversationRepo, systemBodies } = makeSendMessageUseCase();
+    const { conversationRepo, systemBodies } = makeSendMessageUseCase();
     const { logger, warns } = makeLogger();
     let dispatchCount = 0;
     const agentInvoker = {
@@ -189,7 +187,6 @@ describe("dispatchTurnLoop 深度上限", () => {
       createSystemEntry: async () => ({ entry: { id: "sys-entry-2", sequenceNum: 2 } }),
     };
     const ctrl = new MessageController(
-      useCase as unknown as SendMessage,
       noYieldMessageStub,
       { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) } as unknown as ManageReadState,
       agentInvoker,
@@ -212,7 +209,7 @@ describe("dispatchTurnLoop 深度上限", () => {
   });
 
   it("派发上下文包含在场成员名册与具名历史", async () => {
-    const { useCase, conversationRepo } = makeSendMessageUseCase();
+    const { conversationRepo } = makeSendMessageUseCase();
     conversationRepo.getActiveParticipants = async () => [
       { otterId: "otter-x" },
     ] as never;
@@ -255,7 +252,6 @@ describe("dispatchTurnLoop 深度上限", () => {
       createSystemEntry: async () => ({ entry: { id: "sys-entry-3", sequenceNum: 2 } }),
     };
     const ctrl = new MessageController(
-      useCase as unknown as SendMessage,
       queryMessageStub,
       { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) } as unknown as ManageReadState,
       agentInvoker,

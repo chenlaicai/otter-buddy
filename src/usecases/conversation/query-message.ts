@@ -24,6 +24,13 @@ export class QueryMessage {
     return this.repo.getLastMessageBySender(conversationId, senderId);
   }
 
+  /** F20260910ctlv 批4a：turn 骨架（get_turn_history 工具用——turns 表保留，
+   *  只取 turn 不带 messages；条目从 entries 按需取） */
+  async getTurnsForTool(conversationId: string): Promise<Array<{ id: string; turnNumber: number; status: string; createdAt: string; closedAt: string | null }>> {
+    const history = await this.repo.getTurnHistory(conversationId, false);
+    return history.map(h => h.turn);
+  }
+
   async getMessages(
     conversationId: string,
     options: GetMessagesOptions,

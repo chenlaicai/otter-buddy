@@ -67,17 +67,7 @@ describe("tryCloseTurn（真 sqlite）", () => {
     expect(turn!.closedAt).not.toBeNull();
   });
 
-  it("存在 streaming 消息时不关闭 Turn", async () => {
-    await repo.createCompletedMessage(messageFixture({ id: "msg-1", status: "completed" }));
-    await repo.createStreamingMessage(messageFixture({ id: "msg-2", status: "streaming", sequenceNum: 2, completedAt: null }));
-
-    await tryCloseTurn(repo, "turn-1");
-
-    const turn = await repo.getTurnById("turn-1");
-    expect(turn!.closedAt).toBeNull();
-  });
-
-  it("无消息时关闭 Turn（空数组 every 为 true 的空真逻辑）", async () => {
+  it("F20260910ctlv 批4a：无 invokeRepo（降级装配）直接关闭 Turn——messages 判据已退役", async () => {
     await tryCloseTurn(repo, "turn-1");
 
     const turn = await repo.getTurnById("turn-1");

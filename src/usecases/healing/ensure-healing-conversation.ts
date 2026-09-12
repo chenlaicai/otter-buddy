@@ -1,7 +1,7 @@
 import type { ManageConversation } from '@usecases/conversation/manage-conversation';
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
 import type { SettingsRepository } from '@usecases/settings/settings-repository';
-import type { SendMessage } from '@usecases/conversation/send-message';
+import type { SendEntry } from '@usecases/conversation/send-entry';
 import type { OtterRepository } from '@usecases/otter/otter-repository';
 import type { Logger } from '@usecases/ports/logger';
 import { HEALING_CONVERSATION_KEY, HEALING_BIG_OTTER_ID_KEY } from '@usecases/healing/constants';
@@ -30,7 +30,8 @@ async function createHealingConversation(
     convRepo: ConversationRepository;
     otterRepo: OtterRepository;
     settings: SettingsRepository;
-    sendMessage: SendMessage;
+    /** F20260910ctlv 批4a：welcome 系统消息切 entries（system entry） */
+    sendEntry: SendEntry;
     logger: Logger;
   },
 ): Promise<HealingConversationResult> {
@@ -49,8 +50,11 @@ async function createHealingConversation(
   await deps.settings.update(HEALING_CONVERSATION_KEY, conversation.id);
   await deps.settings.update(HEALING_BIG_OTTER_ID_KEY, bigOtterId);
 
-  await deps.sendMessage.sendSystem(conversation.id,
-    `🩺 **Self-Healing 对话已创建**
+  // F20260910ctlv 批4a：sendSystem 退役，welcome 落 system entry（时间线唯一真相源）
+  await deps.sendEntry.createSystemEntry({
+    conversationId: conversation.id,
+    turnId: "",
+    body: `🩺 **Self-Healing 对话已创建**
 
 这是系统的自愈对话。系统会自动收集日常使用中发现的问题（如工具报错、检索不准等），并定期在此对话中汇报分析结果。
 
@@ -60,8 +64,8 @@ async function createHealingConversation(
 - 对修复建议说"驳回"标记为已忽略
 - 随时在这里说"分析最近的问题"触发即时分析
 
-**定时分析**：每天上午 10 点自动触发。`
-  );
+**定时分析**：每天上午 10 点自动触发。`,
+  });
 
   return { conversationId: conversation.id, bigOtterId };
 }
@@ -87,7 +91,7 @@ export async function ensureHealingConversation(deps: {
   convRepo: ConversationRepository;
   otterRepo: OtterRepository;
   settings: SettingsRepository;
-  sendMessage: SendMessage;
+  sendEntry: SendEntry;
   logger: Logger;
 }): Promise<HealingConversationResult> {
   // 1. 检查已有
