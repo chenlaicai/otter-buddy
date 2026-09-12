@@ -22,7 +22,7 @@ interface RightPanelProps {
   /** F20260910ctlv：中断獭当前 running invoke（右栏按钮；POST /api/invokes/:id/abort） */
   onAbortInvoke?: (otterId: string, invokeId: string) => void
   /** F20260910ctlv：重试失败/中断 invoke（右栏按钮；POST /api/invokes/:id/retry） */
-  onRetryInvoke?: (otterId: string, invokeId: string) => void
+  onRetryInvoke?: (otterId: string) => void
   linkedResources: LinkedResource[]
   onCreateSmallOtter: () => void
   onDissolveOtter: (otterId: string) => void
@@ -111,7 +111,7 @@ export function RightPanel(props: RightPanelProps) {
                   onClick={() => props.onOpenOtterDetail(o.id)}
                   onOpenSession={props.onOpenSession ? () => props.onOpenSession?.(o.id) : undefined}
                   onAbortInvoke={props.onAbortInvoke ? (invokeId) => props.onAbortInvoke?.(o.id, invokeId) : undefined}
-                  onRetryInvoke={props.onRetryInvoke ? (invokeId) => props.onRetryInvoke?.(o.id, invokeId) : undefined}
+                  onRetryInvoke={props.onRetryInvoke ? () => props.onRetryInvoke?.(o.id) : undefined}
                   onDissolve={props.onDissolveOtter}
                   onRestart={props.onRestartOtter}
                 />
@@ -330,7 +330,7 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
   /** F20260910ctlv：中断当前 running invoke（右栏按钮） */
   onAbortInvoke?: (invokeId: string) => void
   /** F20260910ctlv：重试失败/中断 invoke（右栏按钮） */
-  onRetryInvoke?: (invokeId: string) => void
+  onRetryInvoke?: () => void
   onDissolve: (id: string) => void
   onRestart: (id: string) => void
 }) {
@@ -440,10 +440,10 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
               中断
             </button>
           )}
-          {(invokeState?.status === 'failed' || invokeState?.status === 'aborted') && invokeState.invokeId && onRetryInvoke && (
+          {(invokeState?.status === 'failed' || invokeState?.status === 'aborted') && onRetryInvoke && (
             <button
               type="button"
-              onClick={e => { e.stopPropagation(); onRetryInvoke(invokeState.invokeId) }}
+              onClick={e => { e.stopPropagation(); onRetryInvoke() }}
               className="h-6 px-2 rounded-lg text-[10px] text-otter-500 hover:bg-otter-400/10 transition flex items-center gap-1 flex-shrink-0"
               title="重试：重新执行该獭的上次行动（session 上下文保留，新 invoke 接续跑）"
               data-testid="invoke-retry-button"

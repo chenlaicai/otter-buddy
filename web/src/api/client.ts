@@ -156,6 +156,15 @@ export function retryInvoke(invokeId: string): Promise<Response> {
   })
 }
 
+/** F20260910ctlv test17（搭档拍板）：獭锚重试——重试的是獭的 session（上下文载体），
+ *  invoke 只是执行记录。右栏重试按钮用此（无需 invokeId，天然避开 otterId/invokeId 错位坑） */
+export function retryOtter(otterId: string, conversationId: string): Promise<Response> {
+  return fetch(`${BASE}/otters/${otterId}/retry?conversationId=${encodeURIComponent(conversationId)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
 // ── Otters ──
 
 export function getOtter(id: string): Promise<OtterDTO> {

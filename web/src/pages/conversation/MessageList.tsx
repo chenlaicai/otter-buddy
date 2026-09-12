@@ -525,18 +525,6 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
           )}
           <span className="truncate" title={text}>{text}</span>
           <span className="msg-meta text-[10px] flex-shrink-0">{fmtTime(m.ts)}</span>
-          {/* F20260910ctlv test17：失败/中断的 invoke_end 居中条目挂重试（invokeStatus 来自
-              entry.metadata，实时/历史同源——刷新后入口仍在） */}
-          {entryKind === 'invoke_end' && m.invokeStatus && m.invokeId && (
-            <button
-              onClick={() => onRetryMessage(m.invokeId!)}
-              className="text-[10px] text-otter-500 hover:text-otter-600 px-1 rounded transition flex items-center gap-0.5"
-              title={`重试该獭的上次行动（${m.invokeStatus === 'failed' ? '失败' : '中断'}后重跑）`}
-            >
-              <RotateCcw className="w-2.5 h-2.5" />
-              重试
-            </button>
-          )}
         </div>
       </div>
     )

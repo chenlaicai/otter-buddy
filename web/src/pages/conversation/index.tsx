@@ -252,6 +252,23 @@ function ConversationPage() {
       }))
       // entries 全量映射（ASC；单一 sequenceNum 排序天然单调——跨表排序问题消失）
       const msgs = entriesResp.entries.map(mapEntryDTO)
+      /** F20260910ctlv test17：刷新恢复 invokeStates——右栏中断按钮依赖 running 状态。
+       *  刷新前 invokeStates 由 invoke.start/end 事件驱动，刷新后内存态丢失；
+       *  此处从 invokes 表拉 running invoke 重建（终态不需恢复——右栏只认 running 显中断按钮）。 */
+      const invokesResp = await api.listInvokes(convId, { limit: 50 }).catch(() => null)
+      if (invokesResp) {
+        setInvokeStates(prev => {
+          const next = { ...prev }
+          for (const inv of invokesResp.invokes) {
+            if (inv.status === 'running') {
+              next[inv.otterId] = {
+                invokeId: inv.id, otterId: inv.otterId, status: 'running', startedAt: inv.startedAt,
+              }
+            }
+          }
+          return next
+        })
+      }
       setHasMoreBefore(entriesResp.hasMore)
       setUnreadState(unread)
       // 首次访问（无已读记录）：初始化已读到最新，避免下次进入显示全部未读
@@ -904,16 +921,19 @@ function ConversationPage() {
   /** F20260910ctlv：右栏重试按钮——复用 retry 端点，重试流事件经 broadcaster 到达
    *  常驻通道（retryHandlers 逻辑同型，右栏入口不接 POST 流——新 invoke 事件由
    *  常驻 SSE 订阅处理，切页/断连由轮询兑底） */
-  const handleRetryInvoke = useCallback(async (_otterId: string, invokeId: string) => {
+  /** F20260910ctlv test17（搭档拍板）：右栏重试改獭锚——重试的是獭的 session（上下文载体），
+   *  无需 invokeId（天然避开 otterId/invokeId 双参错位坑）。RightPanel prop 简化为单参 otterId。 */
+  const handleRetryInvoke = useCallback(async (otterId: string) => {
+    if (!activeId) return
     try {
-      const response = await api.retryInvoke(invokeId)
+      const response = await api.retryOtter(otterId, activeId)
       if (!response.ok) { showToast('重试失败', 'error'); return }
       showToast('已重新派发该獭行动', 'info')
       response.body?.cancel()
     } catch {
       showToast('重试请求失败', 'error')
     }
-  }, [])
+  }, [activeId])
 
   /** 标记已读防抖（避免滚动时频繁调用 API） */
   const markReadDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -941,15 +961,14 @@ function ConversationPage() {
     if (!activeId) return
     const msgs = allMessagesRef.current[activeId] || []
     const target = msgs.find(m => m.id === messageId)
-    // F20260910ctlv test17：居中 invoke_end 条目直传 invokeId（与 entryId 不同链路），
-    // 气泡路径仍走 entryId → invokeId 查找
-    const invokeId = target?.invokeId ?? (msgs.some(m => m.invokeId === messageId) ? messageId : undefined)
-    if (!invokeId) {
-      showToast('找不到对应的执行记录，无法重试', 'error')
+    // F20260910ctlv test17（搭档拍板）：气泡重试改獭锚——si=otterId，重试该獭 session（无需 invokeId）
+    const otterId = target?.si
+    if (!otterId) {
+      showToast('找不到对应的獭，无法重试', 'error')
       return
     }
     try {
-      const response = await api.retryInvoke(invokeId)
+      const response = await api.retryOtter(otterId, activeId)
       if (!response.ok) { showToast('重试失败', 'error'); return }
 
       // 重试流：单通道 entry.*（与发送流同型；新 invoke 的气泡经 entry.speak 插入）
