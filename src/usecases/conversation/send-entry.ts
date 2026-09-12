@@ -87,6 +87,10 @@ export interface CreateSystemEntryInput {
   conversationId: string;
   turnId: string;
   body: string;
+  /** F20260910ctlv 收尾批2：scheduler 内部信号——yieldTargets 即信号目标（原 messages.talkingStonePassedTo）。
+   *  仅 scheduler 生产者使用；无目标的居中系统条目不传 */
+  yieldTargets?: string[];
+  senderName?: string;
 }
 
 /** invoke 结果 */
@@ -464,12 +468,12 @@ export class SendEntry {
       senderId: "system",
       body: input.body,
       invokeId: null,
-      yieldTargets: null,
+      yieldTargets: input.yieldTargets ?? null,
       turnId,
       status: "completed",
       source: null,
       metadata: null,
-      senderName: "system",
+      senderName: input.senderName ?? "system",
       contextTokens: null,
       contextTokensMax: null,
       createdAt: now,

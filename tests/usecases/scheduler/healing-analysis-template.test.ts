@@ -3,7 +3,8 @@ import * as fs from 'node:fs';
 import { SchedulerService, HEALING_FALLBACK_PROMPT, type CronParser } from '@usecases/scheduler/scheduler-service';
 import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled-task-repository';
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
-import type { SendMessage } from '@usecases/conversation/send-message';
+import type { SendEntry } from '@usecases/conversation/send-entry';
+import type { EntryRepository } from '@usecases/conversation/entry-repository';
 import type { AgentTurnPort } from '@usecases/ports/agent-turn-port';
 import type { ManageScheduledTask } from '@usecases/scheduled-task/manage-scheduled-task';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
@@ -96,14 +97,14 @@ function createMockTaskRepo(task: ScheduledTask) {
   } as unknown as ScheduledTaskRepository;
 }
 
-/** 状态化捕获：sendMessage.send 发送过的 body 列表（副作用断言，避免 mock 调用断言） */
-function createCapturingSendMessage() {
+/** 状态化捕获：sendEntry.createSystemEntry 创建过的 body 列表（F20260910ctlv 批2 切 entries） */
+function createCapturingSendEntry() {
   const sentBodies: string[] = [];
-  const send = vi.fn(async ({ body }: { body: string }) => {
+  const createSystemEntry = vi.fn(async ({ body }: { body: string }) => {
     sentBodies.push(body);
-    return { message: { id: `msg-${sentBodies.length}`, body } };
+    return { entry: { id: `entry-${sentBodies.length}`, body, sequenceNum: sentBodies.length } };
   });
-  return { send, sentBodies };
+  return { createSystemEntry, sentBodies };
 }
 
 const baseDeps = {
@@ -111,7 +112,11 @@ const baseDeps = {
     getById: vi.fn(async () => ({ id: 'conv-1', status: 'active' })),
     getActiveTurn: vi.fn(async () => ({ id: 'turn-1' })),
   } as unknown as ConversationRepository,
-  sendMessage: { send: vi.fn(async ({ body }: { body: string }) => ({ message: { id: 'msg-1', body } })) } as unknown as SendMessage,
+  sendEntry: { createSystemEntry: vi.fn(async ({ body }: { body: string }) => ({ entry: { id: 'entry-1', body, sequenceNum: 1 } })) } as unknown as SendEntry,
+  entryRepo: {
+    getEntryById: vi.fn(async () => null),
+    getEntriesAfter: vi.fn(async () => []),
+  } as unknown as EntryRepository,
   agentInvokePort: { invokeConversation: vi.fn(async () => ({ messageId: 'agent-msg-1', duration: 0 })), abort: vi.fn() } as unknown as AgentTurnPort,
   cronParser: { getNextTime: vi.fn(() => new Date(Date.now() + 3600_000)) } as unknown as CronParser,
   logger: mockLogger,
@@ -150,10 +155,10 @@ describe('SchedulerService - self-healing-analysis 模板化（issue #416）', (
   });
 
   it('任务 body 含占位符时：触发 body = 模板静态文案 + 动态 healing 数据', async () => {
-    const capturing = createCapturingSendMessage();
+    const capturing = createCapturingSendEntry();
     const service = new SchedulerService({
       ...baseDeps,
-      sendMessage: capturing as unknown as SendMessage,
+      sendEntry: capturing as unknown as SendEntry,
       taskRepo: createMockTaskRepo(makeHealingTask()),
       healingRepo: createMockHealingRepo(2),
     });
@@ -176,12 +181,12 @@ describe('SchedulerService - self-healing-analysis 模板化（issue #416）', (
   });
 
   it('无待处理 healing events 时：跳过触发，不发送消息', async () => {
-    const capturing = createCapturingSendMessage();
+    const capturing = createCapturingSendEntry();
     const healingRepo = createMockHealingRepo(0);
     (healingRepo.findOpen as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     const service = new SchedulerService({
       ...baseDeps,
-      sendMessage: capturing as unknown as SendMessage,
+      sendEntry: capturing as unknown as SendEntry,
       taskRepo: createMockTaskRepo(makeHealingTask()),
       healingRepo,
     });
@@ -203,10 +208,10 @@ describe('SchedulerService - self-healing-analysis 模板化（issue #416）', (
     const origCwd = process.cwd();
     process.chdir('/tmp');
     try {
-    const capturing = createCapturingSendMessage();
+    const capturing = createCapturingSendEntry();
     const service = new SchedulerService({
       ...baseDeps,
-      sendMessage: capturing as unknown as SendMessage,
+      sendEntry: capturing as unknown as SendEntry,
       taskRepo: createMockTaskRepo(makeHealingTask()),
       healingRepo: createMockHealingRepo(1),
     });
@@ -225,13 +230,13 @@ describe('SchedulerService - self-healing-analysis 模板化（issue #416）', (
   });
 
   it('普通任务（不含占位符）：body 原样透传，不读模板', async () => {
-    const capturing = createCapturingSendMessage();
+    const capturing = createCapturingSendEntry();
     const task = makeHealingTask();
     task.name = '每日问候';
     task.body = '早上好！';
     const service = new SchedulerService({
       ...baseDeps,
-      sendMessage: capturing as unknown as SendMessage,
+      sendEntry: capturing as unknown as SendEntry,
       taskRepo: createMockTaskRepo(task),
       healingRepo: createMockHealingRepo(1),
     });

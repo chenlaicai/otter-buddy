@@ -17,13 +17,14 @@ function makeProcessor(overrides: Record<string, unknown> = {}) {
     enterConversation: vi.fn().mockResolvedValue(undefined),
     leaveConversation: vi.fn().mockResolvedValue(undefined),
   } as any;
-  const sendMessage = {
-    send: vi.fn(async (input: Record<string, unknown>) => {
+  // F20260910ctlv 收尾批2：微信消息唯一落点 = entries（sendUserEntry）
+  const sendEntry = {
+    sendUserEntry: vi.fn(async (input: Record<string, unknown>) => {
       sentMessages.push(input);
-      return { message: { id: "msg-1", conversationId: "conv-1", senderType: "user" }, mentionFeedback: null };
+      return { entry: { id: "entry-1", conversationId: "conv-1", sequenceNum: 1, createdAt: "2026-09-12T00:00:00Z" }, talkingStonePassedTo: ["otter-1"], mentionFeedback: undefined };
     }),
   } as any;
-  const queryMessage = { getMessages: vi.fn().mockResolvedValue([]) } as any;
+  const entryRepo = { getEntries: vi.fn().mockResolvedValue([]) } as any;
   const weixinGateway = {
     replyText: vi.fn(async (_u: string, text: string) => { replies.push(text); }),
   } as any;
@@ -35,13 +36,13 @@ function makeProcessor(overrides: Record<string, unknown> = {}) {
       return {};
     }),
   } as any;
-  const messageBroadcaster = { broadcast: vi.fn().mockResolvedValue(undefined) } as any;
+  const messageBroadcaster = { broadcastEvent: vi.fn() } as any;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as any;
 
   const processor = new WeixinMessageProcessor({
     manageConnection,
-    sendMessage,
-    queryMessage,
+    sendEntry,
+    entryRepo,
     weixinGateway,
     partnerResolver,
     agentDispatchService,

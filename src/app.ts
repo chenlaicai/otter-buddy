@@ -301,7 +301,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // });
   const signalRouter = new SignalRouter({
     conversationRepo: repos.conversation,
-    queryMessage: uc.queryMessage,
     entryRepo: repos.entry,
     queryOtter: uc.queryOtter,
     dispatchChainEngine,

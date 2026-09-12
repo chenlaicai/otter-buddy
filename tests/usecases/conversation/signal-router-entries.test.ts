@@ -11,7 +11,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { SignalRouter } from "@usecases/conversation/signal-router";
 import type { EntryRepository } from "@usecases/conversation/entry-repository";
-import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
@@ -48,7 +47,6 @@ function createEntry(overrides: Partial<Entry> = {}): Entry {
 
 function makeDeps(overrides?: {
   entryRepo?: Partial<EntryRepository>;
-  queryMessage?: Record<string, unknown>;
 }) {
   const entryUpdates: Array<{ entryId: string; metadata: EntryMetadata }> = [];
   const entryRepo = {
@@ -58,10 +56,6 @@ function makeDeps(overrides?: {
     }),
     ...overrides?.entryRepo,
   } as unknown as EntryRepository;
-  const queryMessage = {
-    getMessageById: vi.fn(async () => null),
-    ...overrides?.queryMessage,
-  } as unknown as QueryMessage;
   const conversationRepo = {
     updateMessageSignalMeta: vi.fn(async () => {}),
   } as unknown as ConversationRepository;
@@ -79,9 +73,9 @@ function makeDeps(overrides?: {
   const logger = createLogger();
   const factory = { isRunning: () => false, followUp: () => false, steerSession: () => false };
   const router = new SignalRouter({
-    conversationRepo, queryMessage, entryRepo, queryOtter, dispatchChainEngine, invokeFn, logger, factory,
+    conversationRepo, entryRepo, queryOtter, dispatchChainEngine, invokeFn, logger, factory,
   });
-  return { router, entryRepo, queryMessage, chainCalls, entryUpdates, invokeFn, logger };
+  return { router, entryRepo, chainCalls, entryUpdates, invokeFn, logger };
 }
 
 describe("SignalRouter 数据源（F20260910ctlv 彻底切换补漏）", () => {
@@ -100,18 +94,22 @@ describe("SignalRouter 数据源（F20260910ctlv 彻底切换补漏）", () => {
     expect(chainCalls[0]!.triggerMessageId).toBe("entry-u1");
   });
 
-  it("entries 未命中 → messages 兜底（scheduler 内部系统信号）", async () => {
+  it("system entry 信号（scheduler 内部信号，收尾批2 切 entries）：yieldTargets → 点火", async () => {
+    // F20260910ctlv 收尾批2：scheduler createSystemSignalEntry 落 system entry（yieldTargets=tsp），
+    // routeDirectSignal 经 loadSignalView 读 entries——messages 兜底分支已删
     const { router, chainCalls } = makeDeps({
-      queryMessage: {
-        getMessageById: vi.fn(async () => ({
-          id: "sys-msg-1", status: "completed", senderType: "system", senderId: "system",
-          senderName: null, talkingStonePassedTo: ["otter-big"], signalMeta: null,
-          segments: [{ id: "s1", messageId: "sys-msg-1", body: "定时任务触发", sequenceNum: 0, createdAt: "" }],
+      entryRepo: {
+        getEntryById: vi.fn<(id: string) => Promise<Entry | null>>(async () => ({
+          id: "sys-entry-1", conversationId: "conv-1", sequenceNum: 5, entryType: "system" as const,
+          senderType: "system", senderId: "system", body: "定时任务触发",
+          invokeId: null, yieldTargets: ["otter-big"], turnId: "t1", status: "completed",
+          source: null, metadata: null, senderName: "system",
+          contextTokens: null, contextTokensMax: null, createdAt: "", completedAt: "",
         })),
       },
     });
 
-    const results = await router.routeSignals("conv-1", { triggerMessageId: "sys-msg-1" });
+    const results = await router.routeSignals("conv-1", { triggerMessageId: "sys-entry-1" });
 
     expect(results).toHaveLength(1);
     expect(results[0]!.action).toBe("invoked");
@@ -141,7 +139,7 @@ describe("SignalRouter 数据源（F20260910ctlv 彻底切换补漏）", () => {
     // 目标 running → 默认 steer 注入成功 → 销账（F20260910ctlv test13：用户发言默认 steer）
     const factory = { isRunning: () => true, followUp: () => false, steerSession: () => true };
     const routerRunning = new SignalRouter({
-      conversationRepo: {} as never, queryMessage: { getMessageById: async () => null } as never,
+      conversationRepo: {} as never,
       entryRepo: { getEntryById: async () => entry, updateEntryMetadata: async (id: string, meta: EntryMetadata) => entryUpdates.push({ entryId: id, metadata: meta }) } as never,
       queryOtter: { getById: async (id: string) => ({ id, status: "active" }) } as never,
       dispatchChainEngine: { executeChain: async () => ({}) } as never,
@@ -169,7 +167,7 @@ describe("SignalRouter 数据源（F20260910ctlv 彻底切换补漏）", () => {
       steerSession: (id: string, text: string) => { steerCalls.push(`${id}:${text}`); return true; },
     };
     const routerF = new SignalRouter({
-      conversationRepo: {} as never, queryMessage: { getMessageById: async () => null } as never,
+      conversationRepo: {} as never,
       entryRepo: { getEntryById: async () => entry, updateEntryMetadata: async (id: string, meta: EntryMetadata) => entryUpdates.push({ entryId: id, metadata: meta }) } as never,
       queryOtter: { getById: async (id: string) => ({ id, status: "active" }) } as never,
       dispatchChainEngine: { executeChain: async () => ({}) } as never,

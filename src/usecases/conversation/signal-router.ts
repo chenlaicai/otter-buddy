@@ -14,11 +14,9 @@
  * - routePendingSignals → routeSignal（事件驱动路由）
  * - 档位概念移除：NORMAL/URGENT/HALT → followUp（默认）/ steer（标急）/ abort（session 方法调用）
  */
-import type { Message } from "@entities/conversation/message";
 import type { Entry } from "@entities/conversation/entry";
 import type { EntryRepository } from "./entry-repository";
 import type { ConversationRepository } from "./conversation-repository";
-import type { QueryMessage } from "./query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { DispatchChainEngine } from "./dispatch-chain-engine";
 import type { Logger } from "@usecases/ports/logger";
@@ -86,8 +84,7 @@ export class SignalRouter {
   constructor(
     private readonly deps: {
       conversationRepo: ConversationRepository;
-      queryMessage: QueryMessage;
-      /** F20260910ctlv 彻底切换补漏：entries 数据源（user 信号唯一真相源） */
+      /** F20260910ctlv 收尾批2：entries 数据源（user/system 信号唯一真相源；messages 兜底已删） */
       entryRepo: EntryRepository;
       queryOtter: QueryOtter;
       dispatchChainEngine: DispatchChainEngine;
@@ -180,13 +177,6 @@ export class SignalRouter {
     return results;
   }
 
-  /** 信号销账：注入成功（followUp/steer）后给消息打 consumed 标记，
-   *  resume 补扫与历史扫描跳过 consumed——防重燃。写 messages.signal_meta。 */
-  private async markSignalConsumed(signal: Message, action: "followed_up" | "steered"): Promise<void> {
-    const meta = { ...(signal.signalMeta ? JSON.parse(signal.signalMeta) as Record<string, unknown> : {}), consumed: action, consumedAt: new Date().toISOString() };
-    await this.deps.conversationRepo.updateMessageSignalMeta(signal.id, JSON.stringify(meta));
-  }
-
   /**
    * 路由单个信号到单个目标（核心路由逻辑）。
    *
@@ -253,16 +243,16 @@ export class SignalRouter {
     return "retry_invoked";
   }
 
-  /** F20260910ctlv 彻底切换补漏：按 ID 加载信号视图。
-   *  优先查 entries（user 信号唯一真相源——sendUserEntry 落 yieldTargets=tsp）；
-   *  查不到再回落 messages（scheduler 内部系统信号仍写 messages，范围外决策）。
-   *  entry id 与 message id 无冲突（uuid 交集≈0；scheduler 锚点只在 messages 侧）。 */
+  /** F20260910ctlv 收尾批2：按 ID 加载信号视图（entries 唯一真相源）。
+   *  scheduler 内部信号已切 system entry（原 messages 兜底分支删除——无消费方）。
+   *  传入 id 兼容历史调用面：entries 查不到即 null（不回 messages）。 */
   private async loadSignalView(messageId: string): Promise<SignalView | null> {
     try {
       const entry = await this.deps.entryRepo.getEntryById(messageId);
-      if (entry) return this.entryToSignalView(entry);
-    } catch { /* entries 查询失败降级 messages 侧 */ }
-    return this.loadMessageSignalView(messageId);
+      return entry ? this.entryToSignalView(entry) : null;
+    } catch {
+      return null;
+    }
   }
 
   /** entry → 信号视图（user 信号主路径） */
@@ -279,27 +269,6 @@ export class SignalRouter {
       injectionMode: entry.metadata?.injectionMode,
       markConsumed: async (action) => this.markEntrySignalConsumed(entry, action),
     };
-  }
-
-  /** messages 兜底信号视图（scheduler 内部系统信号，范围外决策仍写 messages） */
-  private async loadMessageSignalView(messageId: string): Promise<SignalView | null> {
-    try {
-      const msg = await this.deps.queryMessage.getMessageById(messageId);
-      if (!msg) return null;
-      return {
-        id: msg.id,
-        senderId: msg.senderId,
-        senderName: msg.senderName,
-        body: msg.segments.map(seg => seg.body).join("\n"),
-        talkingStonePassedTo: msg.talkingStonePassedTo,
-        signalMeta: msg.signalMeta ?? null,
-        status: msg.status,
-        senderType: msg.senderType,
-        markConsumed: async (action) => this.markSignalConsumed(msg, action),
-      };
-    } catch {
-      return null;
-    }
   }
 
   /** entry 信号销账：consumed 标记写 metadata.signalMeta */

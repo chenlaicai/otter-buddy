@@ -30,6 +30,7 @@ import type { SignalRouter } from "@usecases/conversation/signal-router";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 import { SchedulerService } from "@usecases/scheduler/scheduler-service";
+import type { SchedulerServiceOptions } from "@usecases/scheduler/scheduler-service";
 import type { SchedulerMetrics } from "@frameworks/metrics/scheduler-metrics";
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import type { FeishuConfig } from "@frameworks/feishu/types";
@@ -177,6 +178,34 @@ function buildCtxWindowProvider(
   };
 }
 
+/** 控 max-lines-per-function：AgentInvoker 构造拆行（initAgentAndScheduler 子步骤） */
+function buildAgentInvoker(o: {
+  agentGateway: PiSessionFactory; uc: UseCases; repos: Repositories; logger: Logger;
+  messageBroadcaster: MessageBroadcaster | undefined; workspaceGateway?: WorkspaceGateway;
+  agentMetrics?: AgentMetricsPort; appConfig?: AppConfig; ctxWindowProvider?: OtterContextWindowProvider;
+}): AgentInvoker {
+  return new AgentInvoker(
+    o.agentGateway, o.uc.sendMessage,
+    o.uc.queryMessage, o.uc.manageSession, o.uc.queryOtter, o.logger,
+    o.messageBroadcaster, o.workspaceGateway, o.repos.settings, o.agentMetrics,
+    o.repos.healingEvent,
+    // F20260825hndf：优雅上下交接依赖注入
+    o.repos.conversation,
+    o.repos.scheduledTask,
+    (conversationId) => o.repos.conversation.getLinkedResources(conversationId, { status: "active" }),
+    o.uc.manageContext,
+    buildHandoffPackage,
+    // F20260831cbkw：熔断 session 年龄窗口阈值（从 config 读取，缺省 2h）
+    o.appConfig?.circuitBreaker.healthySessionThresholdMs,
+    // F20260901cxmw：otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
+    o.ctxWindowProvider,
+    // F20260910ctlv 彻底切换：invoke 生命周期管理（唯一写入面）
+    o.uc.sendEntry,
+    // F20260910ctlv 彻底切换：invoke 仓库（熔断摘要读 invoke_events）
+    o.repos.invoke,
+  );
+}
+
 export async function initAgentAndScheduler(options: { repos: Repositories; uc: UseCases; agentGateway: PiSessionFactory; messageBroadcaster: MessageBroadcaster | undefined; logger: Logger; workspaceGateway?: WorkspaceGateway; metrics?: SchedulerMetrics; agentMetrics?: AgentMetricsPort; dispatchChainEngine?: DispatchChainEngine; db?: Database.Database; appConfig?: AppConfig; modelPool?: ModelPool; otterConfigProvider?: OtterConfigProvider }) {
   const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics, agentMetrics, dispatchChainEngine, db, appConfig, modelPool, otterConfigProvider } = options;
   await agentGateway.warmup();
@@ -209,26 +238,10 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
   // F20260901cxmw：otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
   const ctxWindowProvider = modelPool ? buildCtxWindowProvider(modelPool, otterConfigProvider) : undefined;
 
-  const agentInvoker = new AgentInvoker(
-    agentGateway, uc.sendMessage,
-    uc.queryMessage, uc.manageSession, uc.queryOtter, logger,
-    messageBroadcaster, workspaceGateway, repos.settings, agentMetrics,
-    repos.healingEvent,
-    // F20260825hndf：优雅上下交接依赖注入
-    repos.conversation,
-    repos.scheduledTask,
-    (conversationId) => repos.conversation.getLinkedResources(conversationId, { status: "active" }),
-    uc.manageContext,
-    buildHandoffPackage,
-    // F20260831cbkw：熔断 session 年龄窗口阈值（从 config 读取，缺省 2h）
-    appConfig?.circuitBreaker.healthySessionThresholdMs,
-    // F20260901cxmw：otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
-    ctxWindowProvider,
-    // F20260910ctlv 彻底切换：invoke 生命周期管理（唯一写入面）
-    uc.sendEntry,
-    // F20260910ctlv 彻底切换：invoke 仓库（熔断摘要读 invoke_events）
-    repos.invoke,
-  );
+  const agentInvoker = buildAgentInvoker({
+    agentGateway, uc, repos, logger, messageBroadcaster, workspaceGateway, agentMetrics,
+    appConfig, ctxWindowProvider,
+  });
 
   // F20260903cmpk：压缩钩子合成注入——时机归 Pi（session_before_compact），
   // 算法归七段合成（复用 handoff 的 readOnly invocation 链路）。
@@ -245,23 +258,32 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
   });
 
   const cronParser = new SimpleCronParser();
-  const schedulerService = new SchedulerService({
-    taskRepo: repos.scheduledTask,
-    convRepo: repos.conversation,
-    sendMessage: uc.sendMessage,
-    agentInvokePort: agentInvoker,
-    cronParser,
-    logger,
-    manageScheduledTask: uc.manageScheduledTask,
-    manageSession: uc.manageSession,
-    healingRepo: repos.healingEvent,
-    // F20260902sgp2 S4b：派发台账——看门狗台账终态判活（可选语义，未注入回退消息判定）
-    metrics,
-    dispatchChainEngine,
-    functionRegistry: db ? paperTradingFunctionRegistry : undefined,
-  });
+  const schedulerService = new SchedulerService(
+    // F20260910ctlv 收尾批2：内部信号唯一落点 = entries（system entry + entry.system 广播）
+    buildSchedulerServiceOptions({
+      taskRepo: repos.scheduledTask,
+      convRepo: repos.conversation,
+      sendEntry: uc.sendEntry,
+      entryRepo: repos.entry,
+      messageBroadcaster: options.messageBroadcaster,
+      agentInvokePort: agentInvoker,
+      cronParser,
+      logger,
+      manageScheduledTask: uc.manageScheduledTask,
+      manageSession: uc.manageSession,
+      healingRepo: repos.healingEvent,
+      metrics,
+      dispatchChainEngine,
+      functionRegistry: db ? paperTradingFunctionRegistry : undefined,
+    }),
+  );
 
   return { agentInvoker, cronParser, schedulerService };
+}
+
+/** 控 max-lines-per-function：SchedulerServiceOptions 透传（initAgentAndScheduler 拆行） */
+function buildSchedulerServiceOptions(o: SchedulerServiceOptions): SchedulerServiceOptions {
+  return o;
 }
 
 /** issue #281：broadcaster 由 app.ts 无条件创建（平台无关总线），飞书出站作为 channel 注册 */
@@ -469,8 +491,9 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
       });
       const processor = new WeixinMessageProcessor({
         manageConnection: uc.manageConnection,
-        sendMessage: uc.sendMessage,
-        queryMessage: uc.queryMessage,
+        // F20260910ctlv 收尾批2：微信消息唯一落点 = entries（与飞书同构）
+        sendEntry: uc.sendEntry,
+        entryRepo: repos.entry,
         weixinGateway: gateway,
         partnerResolver: new PartnerResolver(weixinConfig.partnerUserId),
         // F20260901sgpv P1：微信入口换轨（与飞书同构）

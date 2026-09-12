@@ -1,13 +1,15 @@
 /* eslint-disable max-lines -- 调度核心路径（触发/重试/healing 注入/指标/链看门狗）聚合于本文件，
    拆分需新建模块并移动多个私有方法，引入间接层而降低可读性；#516/#517 增加活跃看门狗与记账校验已尽量精简 */
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
-import type { SendMessage } from '@usecases/conversation/send-message';
+import type { SendEntry } from '@usecases/conversation/send-entry';
+import type { EntryRepository } from '@usecases/conversation/entry-repository';
+import type { MessageBroadcaster } from '@usecases/im/message-broadcaster';
 import type { AgentTurnPort } from '@usecases/ports/agent-turn-port';
 import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled-task-repository';
 import type { ManageScheduledTask } from '@usecases/scheduled-task/manage-scheduled-task';
 import type { ManageSession } from '@usecases/otter/manage-session';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
-import type { Message } from '@entities/conversation/message';
+import type { Entry } from '@entities/conversation/entry';
 import type { Logger } from '@usecases/ports/logger';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
 import type { SchedulerMetricsPort } from './scheduler-metrics-port';
@@ -55,10 +57,15 @@ export interface CronParser {
 export interface SchedulerServiceOptions {
   taskRepo: ScheduledTaskRepository;
   convRepo: ConversationRepository;
-  sendMessage: SendMessage;
+  /** F20260910ctlv 收尾批2：scheduler 内部信号唯一落点 = entries（system entry）。
+   *  sendMessage（messages 表）退役；看门狗/记账校验同步改 entries */
+  sendEntry: SendEntry;
+  entryRepo: EntryRepository;
   agentInvokePort: AgentTurnPort;
   cronParser: CronParser;
   logger: Logger;
+  /** F20260910ctlv 收尾批2：system entry 广播（entry.system SSE，前端时间线实时可见） */
+  messageBroadcaster?: MessageBroadcaster;
   manageScheduledTask?: ManageScheduledTask;
   manageSession?: ManageSession;
   healingRepo?: HealingEventRepository;
@@ -87,7 +94,10 @@ export class SchedulerService {
   private nextExpectedTrigger = new Map<string, Date>();
   private readonly taskRepo: ScheduledTaskRepository;
   private readonly convRepo: ConversationRepository;
-  private readonly sendMessage: SendMessage;
+  /** F20260910ctlv 收尾批2：entries 唯一写入面（system entry）+ 读取面（看门狗/记账） */
+  private readonly sendEntry: SendEntry;
+  private readonly entryRepo: EntryRepository;
+  private readonly messageBroadcaster?: MessageBroadcaster;
   private readonly agentInvokePort: AgentTurnPort;
   private readonly cronParser: CronParser;
   private readonly logger: Logger;
@@ -108,7 +118,9 @@ export class SchedulerService {
   constructor(options: SchedulerServiceOptions) {
     this.taskRepo = options.taskRepo;
     this.convRepo = options.convRepo;
-    this.sendMessage = options.sendMessage;
+    this.sendEntry = options.sendEntry;
+    this.entryRepo = options.entryRepo;
+    this.messageBroadcaster = options.messageBroadcaster;
     this.agentInvokePort = options.agentInvokePort;
     this.cronParser = options.cronParser;
     this.logger = options.logger;
@@ -513,16 +525,16 @@ export class SchedulerService {
 
       executionStartMs = this.now();
       try {
-        const message = await this.createSystemMessage(task, effectiveBody);
-        // Why 传入 anchor 消息 id：链看门狗用它探测链活性（#516），记账校验用它圈定执行窗口（#517）
-        await this.invokeAgentWithTimeout(task, effectiveBody, message.id);
+        const anchor = await this.createSystemSignalEntry(task, effectiveBody);
+        // Why 传入锚点 entry id：链看门狗用它探测链活性（#516），记账校验用它圈定执行窗口（#517）
+        await this.invokeAgentWithTimeout(task, effectiveBody, anchor.id);
         // #517: invoke 正常 resolve 不代表 agent 成功——orchestrator 的 failTerminal/abortTerminal
-        // 将消息置 failed 后正常返回 TurnResult，链引擎 allSettled 消化 rejection，
+        // 将 invoke 置 failed 后正常返回 TurnResult，链引擎 allSettled 消化 rejection，
         // 锁超时/agent 异常无法经由 reject 传递到 scheduler 层。
-        // 以最终消息状态为唯一事实源：anchor 后出现 status='failed' 的 otter 消息 → 抛错走 failure 记账，
+        // 以最终 invoke 状态为唯一事实源：锚点后出现 failed 的 otter 产出 → 抛错走 failure 记账，
         // 不再盲目记 completed。
-        await this.assertNoFailedMessages(task.conversationId, message.id);
-        await this.completeExecution(executionId, task.conversationId, message.id);
+        await this.assertNoFailedInvokes(task.conversationId, anchor.id);
+        await this.completeExecution(executionId, task.conversationId, anchor.id);
         // #251: resetConsecutiveFailures 在 completeExecution 之后执行，
         // 如果抛 DB 错不应覆写已 completed 的 execution record。
         // 吞掉错误，记录 warning 而不 throw。
@@ -623,18 +635,27 @@ export class SchedulerService {
     });
   }
 
-  private async createSystemMessage(task: ScheduledTask, body?: string) {
-    // 身份修复：system 消息 senderId 归一为 'system'。曾透传 task.senderId（大獭 UUID），
-    // 落地为 system+UUID 杂交态（700+ 条，查询按 sender_id='system' 全部漏检）。
-    // scheduled_tasks.sender_id 保留原值不动——它是「任务归谁」的业务字段，不是消息发言者。
-    const { message } = await this.sendMessage.send({
+  /** F20260910ctlv 收尾批2：内部信号落 entries（system entry，yieldTargets 即目标）。
+   *  原 createSystemMessage 写 messages（senderType='system'）已退役。
+   *  广播 entry.system SSE（前端时间线居中系统条目实时可见；无 broadcaster 时静默降级）。
+   *  scheduled_tasks.sender_id 保留原值不动——它是「任务归谁」的业务字段，不是信号发出者。 */
+  private async createSystemSignalEntry(task: ScheduledTask, body?: string): Promise<{ id: string; body: string | null }> {
+    const effectiveBody = body ?? task.body;
+    const { entry } = await this.sendEntry.createSystemEntry({
       conversationId: task.conversationId,
-      senderType: 'system',
-      senderId: 'system',
-      body: body ?? task.body,
-      talkingStonePassedTo: task.talkingStonePassedTo,
+      turnId: "",
+      body: effectiveBody,
+      yieldTargets: task.talkingStonePassedTo,
+      senderName: `scheduler:${task.name}`,
     });
-    return message;
+    // 广播（best-effort，不阻塞触发链）
+    try {
+      this.messageBroadcaster?.broadcastEvent(task.conversationId, {
+        event: "entry.system",
+        data: { entryId: entry.id, content: entry.body, seq: entry.sequenceNum },
+      });
+    } catch { /* 广播失败不影响触发 */ }
+    return { id: entry.id, body: entry.body };
   }
 
   private async invokeAgentWithTimeout(task: ScheduledTask, body?: string, anchorMessageId?: string): Promise<void> {
@@ -727,22 +748,25 @@ export class SchedulerService {
     throw new Error(`Agent invocation timeout (ledger watch exceeded hard limit ${LEDGER_WATCH_HARD_LIMIT_MS / 3_600_000}h)`);
   }
 
-  /** F20260908rlcp：消息终态判定——锚点目标是否全部有终态消息（替代 allAnchorAttemptsSettled） */
+  /** F20260908rlcp：信号终态判定（F20260910ctlv 批2 切 entries）——锚点目标是否全部有终态产出。
+   *  新模型判据：锚点后每个目标獭的产出 = invoke_end entry（invokeId 关联）或 speak entry。
+   *  invoke 终态真相源在 invokes 表，这里用「锚点后有该目标任一产出 entry」近似——
+   *  精确终态由 watchExecutionByLedger 外层轮询兜底。 */
   private async isMessageSettled(conversationId: string, anchorMessageId: string): Promise<boolean> {
     try {
-      const anchor = await this.convRepo.getMessageById(anchorMessageId);
-      if (!anchor) return true; // 消息不存在 = 无需等待
-      const targets = (anchor.talkingStonePassedTo ?? []).filter(t => t !== "user");
+      const anchor = await this.entryRepo.getEntryById(anchorMessageId);
+      if (!anchor) return true; // 信号不存在 = 无需等待
+      const targets = (anchor.yieldTargets ?? []).filter(t => t !== "user");
       if (targets.length === 0) return true;
 
-      // 检查锚点后是否有新消息（任何状态都算链活跃）
-      const after = await this.convRepo.getMessagesAfter(anchorMessageId, targets.length + 1);
+      // 检查锚点后是否有新 entry（任何类型都算链活跃）
+      const after = await this.entryRepo.getEntriesAfter(anchorMessageId, targets.length + 1);
       if (!Array.isArray(after) || after.length === 0) return false; // 无产出 = 等待
 
-      // 检查所有目标是否已有终态消息
+      // 检查所有目标是否已有产出（speak entry = 该獭的发言产出锚）
       for (const targetId of targets) {
-        const hasTerminal = after.some(m => m.senderId === targetId && m.status !== "streaming" && m.status !== "speaking");
-        if (!hasTerminal) return false; // 某个目标还没有终态消息
+        const hasOutput = after.some(e => e.senderId === targetId);
+        if (!hasOutput) return false; // 某个目标还没有产出
       }
       return true;
     } catch {
@@ -852,8 +876,8 @@ export class SchedulerService {
   private async isChainAliveByLedger(anchorMessageId: string | undefined): Promise<boolean | undefined> {
     if (!anchorMessageId) return undefined;
     try {
-      // F20260908rlcp：从 dispatch_attempts 改为消息存在性判定
-      const after = await this.convRepo.getMessagesAfter(anchorMessageId, 5);
+      // F20260910ctlv 批2：entries 存在性判定（锚点后有产出 entry 即活）
+      const after = await this.entryRepo.getEntriesAfter(anchorMessageId, 5);
       return Array.isArray(after) && after.length > 0;
     } catch {
       return undefined;
@@ -862,24 +886,25 @@ export class SchedulerService {
 
   private async isChainStillActive(anchorMessageId: string): Promise<boolean> {
     try {
-      const msgs = await this.convRepo.getMessagesAfter(anchorMessageId, 1);
-      return Array.isArray(msgs) && msgs.length > 0;
+      const entries = await this.entryRepo.getEntriesAfter(anchorMessageId, 1);
+      return Array.isArray(entries) && entries.length > 0;
     } catch {
       return false;
     }
   }
 
   /** #642: 检测链是否卡在 429 重试循环。
-   *  429/rate_limit 类错误的特征：错误消息包含429/status_code/配额/limit 等关键词。
-   *  链活跃但最近消息全是429重试 → 返回 true（应判死）；否则返回 false（真活跃）。
-   *  使用 DESC 查询取最新消息——ASC 只能检测链开头 429，中途撞 429 永远漏检。 */
+   *  429/rate_limit 类错误的特征：错误文本包含429/status_code/配额/limit 等关键词。
+   *  链活跃但最近产出全是 429 重试 → 返回 true（应判死）；否则返回 false（真活跃）。
+   *  F20260910ctlv 批2 切 entries：判据 = 锚点后最近 entries 的 body（speak/invoke_end
+   *  的错误文本均落在 body）；最近全部含 429 特征 → 卡死。 */
   private async isChainStuckOn429(anchorMessageId: string): Promise<boolean> {
     try {
-      // 获取锚点后的最近几条消息（DESC，最新在前）
-      const msgs = await this.convRepo.getLatestMessagesAfter(anchorMessageId, 3);
-      if (!Array.isArray(msgs) || msgs.length === 0) return false;
+      // 获取锚点后的最近几条 entry（DESC，最新在前）
+      const entries = await this.entryRepo.getEntriesAfter(anchorMessageId, 3);
+      if (!Array.isArray(entries) || entries.length === 0) return false;
 
-      // 检查最近消息是否包含 429/rate_limit 特征
+      // 检查最近 entry 是否包含 429/rate_limit 特征（body 为空的居中条目不算卡 429）
       const rateLimitPatterns = [
         /429/i,
         /rate.?limit/i,
@@ -888,9 +913,12 @@ export class SchedulerService {
         /too many requests/i,
       ];
 
-      // 最近消息全是 429 相关 → 卡在 429 循环
-      return msgs.every(msg => {
-        const content = msg.segments.map(s => s.body).join('');
+      const recent = entries.slice(-3);
+      // 全部为空 body（无产出纯居中条目）不判 429；含文本且全部命中 429 特征 → 卡死
+      const textual = recent.filter(e => (e.body ?? "").trim().length > 0);
+      if (textual.length === 0) return false;
+      return textual.every(e => {
+        const content = e.body ?? "";
         return rateLimitPatterns.some(pattern => pattern.test(content));
       });
     } catch {
@@ -903,33 +931,41 @@ export class SchedulerService {
     return (task.timeoutMinutes ?? 15) * 60 * 1000;
   }
 
-  /** #517: 执行窗口记账校验。anchor 消息之后存在 status='failed' 的 otter 消息时抛错，
-   *  将「agent 真失败但 execution 记 completed」的记账错位纠正为 failed。
-   *  Why 只看 otter 消息：failed 的发出者必为执行链上的獭；用户消息不存在 failed 生命周期。
-   *  Why 局限于锚点之后：同一会话旧轮次的 failed 消息（已熔断/已人工处理）不应牵连本次执行。 */
-  private async assertNoFailedMessages(conversationId: string, anchorMessageId: string): Promise<void> {
+  /** #517: 执行窗口记账校验（F20260910ctlv 批2 切 entries）。
+   *  锚点 entry 之后存在 failed 的 invoke（invoke_end entry 带 metadata.invokeStatus='failed'，
+   *  或链路写入的失败 system entry）时抛错，将「agent 真失败但 execution 记 completed」
+   *  的记账错位纠正为 failed。
+   *  Why 局限于锚点之后：同一会话旧轮次的 failed（已熔断/已人工处理）不应牵连本次执行。 */
+  private async assertNoFailedInvokes(conversationId: string, anchorMessageId: string): Promise<void> {
     // 防御：查询抛错/返回异常值不阻塞记账（校验失败视为通过，交给既有 failure 路径兜底）
-    let after: Message[] = [];
+    let after: Entry[] = [];
     try {
-      after = await this.fetchMessagesAfterPaged(anchorMessageId);
+      after = await this.fetchEntriesAfterPaged(anchorMessageId);
     } catch { /* best-effort */ }
-    const failed = after.find(m => m.senderType === 'otter' && m.status === 'failed');
+    const failed = after.find(e => {
+      // invoke 终态真相源：invoke_end 的 metadata.invokeStatus
+      if (e.entryType === "invoke_end" && e.metadata?.invokeStatus === "failed") return true;
+      // 链路写入的失败 system entry（错误文本落入 body）
+      if (e.entryType === "system" && (e.body ?? "").includes("失败")) return true;
+      return false;
+    });
     if (failed) {
-      const preview = failed.segments.map(s => s.body).join('').slice(0, 200);
-      throw new Error(`Agent invocation failed: otter message ${failed.id} terminated as failed${preview ? ` (${preview})` : ''}`);
+      const preview = (failed.body ?? "").slice(0, 200);
+      throw new Error(`Agent invocation failed: entry ${failed.id} indicates failure${preview ? ` (${preview})` : ""}`);
     }
   }
 
-  /** #517: 分页拉取锚点后全部消息。对抗审视发现 2（审砚）：单页 100 条上限
-   *  会漏检深层失败（消息量 >100 且 failed 在 100 条之后时误记 completed）。
-   *  getMessagesAfter 按 sequence_num 升序返回，以最后一条消息 id 为游标推进直到取空。 */
-  private async fetchMessagesAfterPaged(anchorMessageId: string): Promise<Message[]> {
-    const out: Message[] = [];
+  /** #517: 分页拉取锚点后全部 entries（F20260910ctlv 批2：messages → entries）。
+   *  对抗审视发现 2（审砚）：单页 100 条上限会漏检深层失败（entry 量 >100 且 failed
+   *  在 100 条之后时误记 completed）。getEntriesAfter 按 sequence_num 升序返回，
+   *  以最后一条 entry id 为游标推进直到取空。 */
+  private async fetchEntriesAfterPaged(anchorMessageId: string): Promise<Entry[]> {
+    const out: Entry[] = [];
     let cursorId = anchorMessageId;
     const pageSize = 100;
-    // 防御性硬上限 100 页（1 万条）：链受 24h 硬上限约束，单窗口消息量远低于此，超限属异常现场
+    // 防御性硬上限 100 页（1 万条）：链受 24h 硬上限约束，单窗口 entry 量远低于此，超限属异常现场
     for (let page = 0; page < 100; page++) {
-      const res = await this.convRepo.getMessagesAfter(cursorId, pageSize);
+      const res = await this.entryRepo.getEntriesAfter(cursorId, pageSize);
       if (!Array.isArray(res) || res.length === 0) break;
       out.push(...res);
       const next = res[res.length - 1].id;
@@ -989,9 +1025,7 @@ export class SchedulerService {
     }
   }
 
-  /** #516: 任务进入 error 状态的通知（系统消息 + healing event，均 best-effort）。
-   *  Why sendMessage.send 而非 sendSystem：sendSystem 不支持指定 conversationId 的 sender 参数组，
-   *  而 scheduler 的 createSystemMessage 一直走 sendMessage.send（senderType='system'），保持一致。 */
+  /** #516: 任务进入 error 状态的通知（F20260910ctlv 批2：system entry + healing event，均 best-effort） */
   private async notifyTaskErrored(taskId: string, failures: number, errorMessage: string): Promise<void> {
     const task = await this.taskRepo.getById(taskId).catch(() => null);
     if (!task) {
@@ -1001,18 +1035,19 @@ export class SchedulerService {
     const now = new Date().toISOString();
     const body = `[定时任务错误] 「${task.name}」连续 ${failures} 次执行失败，已自动停跑（status=error）。最近错误：${errorMessage}。请检查任务配置或手动恢复（update status='active'）后重试。`;
 
-    // 1) 系统消息注入任务所属对话（senderId 归一 'system'，同 createSystemMessage 身份修复）
+    // 1) 系统条目注入任务所属对话（F20260910ctlv 批2：entries 唯一落点；错误通知无目标，居中系统条目）
     try {
-      await this.sendMessage.send({
+      const { entry } = await this.sendEntry.createSystemEntry({
         conversationId: task.conversationId,
-        senderType: 'system',
-        senderId: 'system',
+        turnId: "",
         body,
-        // 系统消息豁免发言石校验，但接口要求必填——传空数组占位（createSystemMessage 同款语义）
-        talkingStonePassedTo: [],
+      });
+      this.messageBroadcaster?.broadcastEvent(task.conversationId, {
+        event: "entry.system",
+        data: { entryId: entry.id, content: entry.body, seq: entry.sequenceNum },
       });
     } catch (err) {
-      this.logger.warn('notifyTaskErrored: system message failed (non-fatal)', {
+      this.logger.warn('notifyTaskErrored: system entry failed (non-fatal)', {
         taskId,
         error: err instanceof Error ? err.message : String(err),
       });
