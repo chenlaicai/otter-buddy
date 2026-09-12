@@ -225,134 +225,57 @@ describe("collectFdocCounts", () => {
   });
 });
 
-describe("collectDispatchTaskCounts", () => {
+describe("collectDispatchTaskCounts（F20260912avlb 新口径：每日派工数，按 dispatched_at 聚合）", () => {
   let db: Database.Database;
 
   beforeEach(() => {
     db = createTestDb();
-    // 插入 otter 数据
-    db.prepare("INSERT INTO otters (id, name, type) VALUES (?, ?, ?)").run("otter-aaa", "大獭", "big");
-    db.prepare("INSERT INTO otters (id, name, type) VALUES (?, ?, ?)").run("otter-bbb", "小獭甲", "small");
   });
 
   afterEach(() => {
     db.close();
   });
 
-  it("统计已完成的 dispatch 任务（按 completedAt 日期聚合）", () => {
-    // 插入 dispatch 记录
-    db.prepare("INSERT INTO otter_context (otter_id, key, value, updated_at) VALUES (?, ?, ?, ?)").run(
-      "otter-aaa",
-      "dispatch:dispatch-001",
-      JSON.stringify({
-        id: "dispatch-001",
-        conversationId: "conv-1",
-        otterId: "otter-aaa",
-        otterName: "大獭",
-        task: "修复 bug",
-        status: "completed",
-        createdAt: "2026-08-28T10:00:00.000Z",
-        completedAt: "2026-08-28T12:00:00.000Z",
-      }),
-      "2026-08-28T12:00:00.000Z"
-    );
-    db.prepare("INSERT INTO otter_context (otter_id, key, value, updated_at) VALUES (?, ?, ?, ?)").run(
-      "otter-bbb",
-      "dispatch:dispatch-002",
-      JSON.stringify({
-        id: "dispatch-002",
-        conversationId: "conv-1",
-        otterId: "otter-bbb",
-        otterName: "小獭甲",
-        task: "写文档",
-        status: "failed",
-        createdAt: "2026-08-28T14:00:00.000Z",
-        completedAt: "2026-08-28T15:00:00.000Z",
-      }),
-      "2026-08-28T15:00:00.000Z"
-    );
-    db.prepare("INSERT INTO otter_context (otter_id, key, value, updated_at) VALUES (?, ?, ?, ?)").run(
-      "otter-aaa",
-      "dispatch:dispatch-003",
-      JSON.stringify({
-        id: "dispatch-003",
-        conversationId: "conv-1",
-        otterId: "otter-aaa",
-        otterName: "大獭",
-        task: "测试功能",
-        status: "completed",
-        createdAt: "2026-08-29T09:00:00.000Z",
-        completedAt: "2026-08-29T11:00:00.000Z",
-      }),
-      "2026-08-29T11:00:00.000Z"
-    );
+  function insertDispatch(id: string, otterId: string, status: string, dispatchedAt: string | null, createdAt = "2026-08-28T09:00:00.000Z") {
+    db.prepare(
+      "INSERT INTO dispatch_records (id, conversation_id, otter_id, otter_name, task, status, created_at, dispatched_at, dissolved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(id, "conv-1", otterId, "测试獭", "任务", status, createdAt, dispatchedAt, null);
+  }
+
+  it("按 dispatched_at 日期聚合派工数（含 dissolved 记录——被派过工是事实）", () => {
+    insertDispatch("dr-1", "otter-aaa", "dispatched", "2026-08-28T10:00:00.000Z");
+    insertDispatch("dr-2", "ot-bbb", "dispatched", "2026-08-28T14:00:00.000Z");
+    insertDispatch("dr-3", "otter-aaa", "dissolved", "2026-08-29T09:00:00.000Z", "2026-08-29T08:00:00.000Z");
 
     const results = collectDispatchTaskCounts(db, { since: "2026-08-01" });
-    expect(results.length).toBe(2); // 8/28 和 8/29
+    expect(results.length).toBe(2);
 
     const aug28 = results.find(r => r.date === "2026-08-28")!;
-    expect(aug28.dispatchCount).toBe(2); // completed + failed
+    expect(aug28.dispatchCount).toBe(2);
 
     const aug29 = results.find(r => r.date === "2026-08-29")!;
     expect(aug29.dispatchCount).toBe(1);
   });
 
-  it("不计入 pending/in_progress 的任务", () => {
-    db.prepare("INSERT INTO otter_context (otter_id, key, value, updated_at) VALUES (?, ?, ?, ?)").run(
-      "otter-aaa",
-      "dispatch:dispatch-004",
-      JSON.stringify({
-        id: "dispatch-004",
-        status: "pending",
-        createdAt: "2026-08-28T10:00:00.000Z",
-      }),
-      "2026-08-28T10:00:00.000Z"
-    );
-    db.prepare("INSERT INTO otter_context (otter_id, key, value, updated_at) VALUES (?, ?, ?, ?)").run(
-      "otter-aaa",
-      "dispatch:dispatch-005",
-      JSON.stringify({
-        id: "dispatch-005",
-        status: "in_progress",
-        createdAt: "2026-08-28T11:00:00.000Z",
-      }),
-      "2026-08-28T11:00:00.000Z"
-    );
+  it("created（未派工）与 NULL dispatched_at 不计入", () => {
+    insertDispatch("dr-4", "otter-aaa", "created", null);
+    // 边界：dispatched 状态但 dispatched_at 为 NULL（防御性验证：不炸不计数）
+    insertDispatch("dr-5", "otter-aaa", "dispatched", null, "2026-08-29T07:00:00.000Z");
 
     const results = collectDispatchTaskCounts(db, { since: "2026-08-01" });
-    expect(results.length).toBe(0);
+    expect(results).toEqual([]);
   });
 
   it("since 过滤", () => {
-    db.prepare("INSERT INTO otter_context (otter_id, key, value, updated_at) VALUES (?, ?, ?, ?)").run(
-      "otter-aaa",
-      "dispatch:dispatch-006",
-      JSON.stringify({
-        id: "dispatch-006",
-        status: "completed",
-        createdAt: "2026-08-28T10:00:00.000Z",
-        completedAt: "2026-08-28T12:00:00.000Z",
-      }),
-      "2026-08-28T12:00:00.000Z"
-    );
-    db.prepare("INSERT INTO otter_context (otter_id, key, value, updated_at) VALUES (?, ?, ?, ?)").run(
-      "otter-aaa",
-      "dispatch:dispatch-007",
-      JSON.stringify({
-        id: "dispatch-007",
-        status: "completed",
-        createdAt: "2026-08-29T10:00:00.000Z",
-        completedAt: "2026-08-29T12:00:00.000Z",
-      }),
-      "2026-08-29T12:00:00.000Z"
-    );
+    insertDispatch("dr-6", "otter-aaa", "dispatched", "2026-08-28T10:00:00.000Z");
+    insertDispatch("dr-7", "otter-aaa", "dispatched", "2026-08-29T10:00:00.000Z", "2026-08-29T09:30:00.000Z");
 
     const results = collectDispatchTaskCounts(db, { since: "2026-08-29" });
     expect(results.length).toBe(1);
     expect(results[0]!.date).toBe("2026-08-29");
   });
 
-  it("无 dispatch 记录返回空数组", () => {
+  it("空表返回空数组", () => {
     const results = collectDispatchTaskCounts(db, { since: "2026-08-01" });
     expect(results).toEqual([]);
   });

@@ -1,4 +1,4 @@
-import { MessageCircle, Search, Package, Settings, Link2, Activity, QrCode, type LucideIcon } from 'lucide-react'
+import { MessageCircle, Search, Package, Settings, Link2, Activity, QrCode, ClipboardList, type LucideIcon } from 'lucide-react'
 import { MPA_PAGES } from '@contract/web/pages'
 
 /** #487（F20260827mpss）：ViewKey 从清单派生（编译期穷尽），不再手写 union */
@@ -14,6 +14,7 @@ const ICONS: Record<string, LucideIcon> = {
   connections: Link2,
   weixin: QrCode,
   health: Activity,
+  activity: ClipboardList,
 }
 
 /** #487：tabs 从单一清单派生。

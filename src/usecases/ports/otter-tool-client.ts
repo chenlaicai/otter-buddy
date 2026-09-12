@@ -149,16 +149,18 @@ export interface OtterToolClient {
     sync(rootDir?: string): Promise<{ synced: number; updated: number; skipped: number; archived: number; errors: number }>;
   };
   /**
-   * F20260821i336：派工台账工具。
-   * 大獭派工时创建记录，小獭完成时更新状态，汇报前可核对。
+   * F20260821i336：派工台账工具（F20260912avlb：数据源切 dispatch_records 正式表）。
+   * 状态只记客观生命周期三态 created/dispatched/dissolved——不设完成终态
+   * （「完成」真相在对话汇报里，无系统可判定信号；详见特性文档）。
    */
   dispatch: {
     createRecord(params: { conversationId: string; otterId: string; otterName: string; task: string }): Promise<{ id: string }>;
-    updateRecord(params: { otterId: string; conversationId: string; status: 'pending' | 'in_progress' | 'completed' | 'failed'; resultPr?: string; resultSummary?: string }): Promise<void>;
-    queryRecords(params: { conversationId: string; status?: 'pending' | 'in_progress' | 'completed' | 'failed'; otterId?: string }): Promise<Array<{
+    /** 该獭在该对话全部 created 记录 → dispatched（创建到首派窗口闭合，批量语义） */
+    markDispatched(params: { otterId: string; conversationId: string }): Promise<void>;
+    queryRecords(params: { conversationId?: string; status?: 'created' | 'dispatched' | 'dissolved'; otterId?: string }): Promise<Array<{
       id: string; conversationId: string; otterId: string; otterName: string; task: string;
-      status: 'pending' | 'in_progress' | 'completed' | 'failed';
-      createdAt: string; updatedAt: string; completedAt?: string; resultPr?: string; resultSummary?: string;
+      status: 'created' | 'dispatched' | 'dissolved';
+      createdAt: string; dispatchedAt: string | null; dissolvedAt: string | null;
     }>>;
   };
 }

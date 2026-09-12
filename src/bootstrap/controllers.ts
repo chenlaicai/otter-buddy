@@ -40,6 +40,7 @@ import { WorkspaceController } from "@interface-adapters/http/controllers/worksp
 import { WeixinConnectionController } from "@interface-adapters/http/controllers/weixin-connection-controller";
 import type { WeixinLoginSessionPort, WeixinAccountStorePort } from "@interface-adapters/http/controllers/weixin-connection-controller";
 import { ChannelController } from "@interface-adapters/http/controllers/channel-controller";
+import { ActivityController } from "@interface-adapters/http/controllers/activity-controller";
 import type { ChannelStatusRegistry } from "@usecases/channel/channel-status";
 import type { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import type { SignalRepository } from "@usecases/health/signal-repository";
@@ -120,6 +121,17 @@ function buildSettingsConfig(appConfig: AppConfig): SettingsConfig {
   };
 }
 
+/** F20260912avlb：活动页控制器（三域台账只读；拆出降 initControllers 行数） */
+function buildActivityController(repos: Repositories, logger: Logger) {
+  return new ActivityController(
+    repos.healingEvent,
+    repos.signalEvent,
+    repos.dispatchRecord,
+    repos.conversation,
+    logger,
+  );
+}
+
 export function initControllers(deps: ControllerDeps, logger: Logger) {
   const { uc, repos, agentInvoker, appConfig, modelPool, settingsRepo, otterConfigProvider, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus, rhiScanWorker, signalRepo, healthSnapshotRepo, signalEventRepo, signalRouter } = deps;
 
@@ -187,5 +199,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
     channel: buildChannelController(deps),
     // #576（F20260901emps）：能力库真数据源。测试环境（无 ResourceLoader）可省略，路由层优雅降级
     skills: deps.skillDirectory ? new SkillController(deps.skillDirectory, logger) : undefined,
+    // F20260912avlb：活动页三域台账只读（三 repo + conversation 表 join 在场态）
+    activity: buildActivityController(repos, logger),
   };
 }

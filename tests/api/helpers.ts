@@ -494,6 +494,8 @@ export function createTestApp(deps: TestDeps): Hono {
     skills: deps.skillDirectory
       ? new SkillController(deps.skillDirectory as never, createTestLogger())
       : new SkillController({ list: async () => [] }, createTestLogger()),
+    /* F20260912avlb：活动页三域台账只读（默认空实现，activity 专项测试另建真 sqlite） */
+    activity: {} as any,
   };
 
   const app = createRouter(controllers, createTestLogger());

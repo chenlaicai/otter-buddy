@@ -21,6 +21,9 @@ import type {
   ParticipantDTO,
   OtterProfileDTO,
   UploadAttachmentResponseDTO,
+  HealingEventsResponseDTO,
+  SignalEventsResponseDTO,
+  DispatchRecordsResponseDTO,
 } from '@contract/api'
 
 const BASE = '/api'
@@ -690,4 +693,37 @@ export interface ChannelStatusResponseDTO {
 
 export function getChannelStatus(): Promise<ChannelStatusResponseDTO> {
   return request('/channels/status')
+}
+
+// ── 活动页三域台账（F20260912avlb，全只读）──
+
+/** healing 事件列表（status 默认 open） */
+export function getActivityHealing(params?: { status?: string; errorType?: string; conversationId?: string; limit?: number }, signal?: AbortSignal): Promise<HealingEventsResponseDTO> {
+  const q = new URLSearchParams()
+  if (params?.status) q.set('status', params.status)
+  if (params?.errorType) q.set('errorType', params.errorType)
+  if (params?.conversationId) q.set('conversationId', params.conversationId)
+  if (params?.limit) q.set('limit', String(params.limit))
+  const qs = q.toString()
+  return request(`/activity/healing${qs ? `?${qs}` : ''}`, { signal })
+}
+
+/** 獭间信号列表 */
+export function getActivitySignals(params?: { status?: string; type?: string; limit?: number }, signal?: AbortSignal): Promise<SignalEventsResponseDTO> {
+  const q = new URLSearchParams()
+  if (params?.status) q.set('status', params.status)
+  if (params?.type) q.set('type', params.type)
+  if (params?.limit) q.set('limit', String(params.limit))
+  const qs = q.toString()
+  return request(`/activity/signals${qs ? `?${qs}` : ''}`, { signal })
+}
+
+/** 派工台账列表 */
+export function getActivityDispatch(params?: { conversationId?: string; status?: string; limit?: number }, signal?: AbortSignal): Promise<DispatchRecordsResponseDTO> {
+  const q = new URLSearchParams()
+  if (params?.conversationId) q.set('conversationId', params.conversationId)
+  if (params?.status) q.set('status', params.status)
+  if (params?.limit) q.set('limit', String(params.limit))
+  const qs = q.toString()
+  return request(`/activity/dispatch${qs ? `?${qs}` : ''}`, { signal })
 }

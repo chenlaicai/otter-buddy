@@ -3,6 +3,7 @@ import type { EdgeType } from "@entities/memory/memory-edge";
 import type { ArtifactStatus } from "@entities/conversation/conversation";
 import type { UseCases } from "./types";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
+import type { DispatchRecordRepository } from "@usecases/dispatch/dispatch-record-repository";
 
 export function buildMessageClient(uc: UseCases) {
   return {
@@ -144,6 +145,8 @@ export function buildOtterToolClient(
   deps?: {
     /** F20260813mren 审视二轮：文档同步（sync_docs 工具）。由 app.ts 装配时注入。 */
     syncDocs?: (rootDir?: string) => Promise<{ synced: number; updated: number; skipped: number; archived: number; errors: number }>;
+    /** F20260912avlb：派工台账正式表 repo（dispatch client 数据源） */
+    dispatchRepo?: DispatchRecordRepository;
   },
 ): OtterToolClient {
   // 审视三轮：sync_docs 并发互斥标志（模块级——client 单例，全进程共享）
@@ -214,88 +217,39 @@ export function buildOtterToolClient(
         }
       },
     },
-    // F20260821i336：派工台账工具
+    // F20260821i336：派工台账工具。F20260912avlb：实现切 dispatch_records 正式表
+    // （原 otter_context 伪存储状态 100% 失真，见特性文档「数据层真相」）
     dispatch: {
       createRecord: async (params) => {
         const id = `dispatch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        const now = new Date().toISOString();
-        // 使用 manageContext 存储派工记录（简化实现，避免新增 DB 表）
-        const key = `dispatch:${id}`;
-        const value = JSON.stringify({
+        await deps?.dispatchRepo?.create({
           id,
           conversationId: params.conversationId,
           otterId: params.otterId,
           otterName: params.otterName,
           task: params.task,
-          status: 'pending',
-          createdAt: now,
-          updatedAt: now,
+          status: 'created',
+          createdAt: new Date().toISOString(),
+          dispatchedAt: null,
+          dissolvedAt: null,
         });
-        await uc.manageContext.set(params.otterId, key, value);
         return { id };
       },
-      updateRecord: async (params) => {
-        // 查询所有 dispatch 记录，找到匹配的并更新
-        const context = await uc.manageContext.get(params.otterId);
-        for (const [key, value] of Object.entries(context)) {
-          if (key.startsWith('dispatch:') && typeof value === 'string') {
-            try {
-              const record = JSON.parse(value);
-              if (record.conversationId === params.conversationId && record.status !== 'completed' && record.status !== 'failed') {
-                const now = new Date().toISOString();
-                const updated = {
-                  ...record,
-                  status: params.status,
-                  updatedAt: now,
-                  completedAt: params.status === 'completed' || params.status === 'failed' ? now : undefined,
-                  resultPr: params.resultPr,
-                  resultSummary: params.resultSummary,
-                };
-                await uc.manageContext.set(params.otterId, key, JSON.stringify(updated));
-              }
-            } catch {
-              // 解析失败，跳过
-            }
-          }
-        }
+      markDispatched: async (params) => {
+        await deps?.dispatchRepo?.markDispatched(params.otterId, params.conversationId);
       },
       queryRecords: async (params) => {
-        // 查询所有 otter 的 dispatch 记录
-        // 从 manageContext 获取所有 otter 的 context，筛选 dispatch 记录
-        const records: Array<{
-          id: string; conversationId: string; otterId: string; otterName: string; task: string;
-          status: 'pending' | 'in_progress' | 'completed' | 'failed';
-          createdAt: string; updatedAt: string; completedAt?: string; resultPr?: string; resultSummary?: string;
-        }> = [];
-        
-        // 获取所有活跃参与者
-        const participants = await uc.manageParticipant.getActiveParticipants(params.conversationId);
-        
-        // 遍历所有参与者，提取 dispatch 记录
-        const extractRecords = async (otterId: string) => {
-          try {
-            const context = await uc.manageContext.get(otterId);
-            for (const [key, value] of Object.entries(context)) {
-              if (!key.startsWith('dispatch:') || typeof value !== 'string') continue;
-              try {
-                const record = JSON.parse(value);
-                // 过滤条件
-                if (params.status && record.status !== params.status) continue;
-                if (params.otterId && record.otterId !== params.otterId) continue;
-                records.push(record);
-              } catch {
-                // 解析失败，跳过
-              }
-            }
-          } catch {
-            // 获取 context 失败，跳过该 otter
-          }
-        };
-        
-        await Promise.all(participants.map(p => extractRecords(p.participant.otterId)));
-        
-        // 按创建时间倒序排序
-        return records.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        const records = await deps?.dispatchRepo?.findByFilter({
+          conversationId: params.conversationId,
+          otterId: params.otterId,
+          status: params.status,
+          limit: 200,
+        });
+        return (records ?? []).map(r => ({
+          id: r.id, conversationId: r.conversationId, otterId: r.otterId,
+          otterName: r.otterName, task: r.task, status: r.status,
+          createdAt: r.createdAt, dispatchedAt: r.dispatchedAt, dissolvedAt: r.dissolvedAt,
+        }));
       },
     },
   };

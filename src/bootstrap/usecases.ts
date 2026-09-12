@@ -75,6 +75,8 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
     settlePendingForOtter: async (otterId: string) => repos.dispatchAttempt.failAllInProgressForOtter(otterId),
     abortUnattemptedOutgoing: async (otterId: string) => repos.dispatchAttempt.abortUnattemptedOutgoingForOtter(otterId),
     abortUnattemptedIncoming: async (otterId: string) => repos.dispatchAttempt.abortUnattemptedIncomingForOtter(otterId),
+    /** F20260912avlb：派工台账 dissolve 记账钩子 */
+    markDispatchDissolved: async (otterId: string) => repos.dispatchRecord.markDissolved(otterId),
     logger,
   });
   const manageContext = new ManageContext(repos.otterContext);
