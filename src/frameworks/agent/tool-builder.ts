@@ -15,13 +15,49 @@ import type { SignalEventRepository } from "@usecases/signal/signal-event-reposi
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 
+/**
+ * Invoke 级寄存器（F20260911pspl session 池化）。
+ * 池化后工具闭包跨 invoke 复用，「每 invoke 必变」的字段集中在此，
+ * invoke 入口统一重置；工具经 getter 引用读取（读取时机 = 工具执行时）。
+ */
+export interface InvokeRegister {
+  currentMessageId: string;
+  /** speak 检测「卡片写在 speak 外」用的本轮 assistant 文本缓冲 */
+  turnText: { text: string };
+  pendingDispatches: Map<string, string>;
+  dispatchWarningShown: boolean;
+  orchestrationWarningShown: boolean;
+  pendingRestart?: { summary?: string; modelAlias?: string };
+}
+
+export function createInvokeRegister(): InvokeRegister {
+  return {
+    currentMessageId: "",
+    turnText: { text: "" },
+    pendingDispatches: new Map<string, string>(),
+    dispatchWarningShown: false,
+    orchestrationWarningShown: false,
+    pendingRestart: undefined,
+  };
+}
+
+/** invoke 入口重置（新 invoke 开始 = 寄存器回初值；pendingRestart 由消费点清除） */
+export function resetInvokeRegister(reg: InvokeRegister, messageId?: string): void {
+  reg.currentMessageId = messageId ?? "";
+  reg.turnText.text = "";
+  reg.pendingDispatches.clear();
+  reg.dispatchWarningShown = false;
+  reg.orchestrationWarningShown = false;
+  reg.pendingRestart = undefined;
+}
+
 /** buildCustomTools 所需的参数类型 */
 export interface BuildCustomToolsParams {
   otterId: string;
   conversationId: string;
   allowedNames: string[];
-  messageId?: string;
-  turnText?: { text: string };
+  /** F20260911pspl：invoke 级寄存器（getter 绑定的读取目标） */
+  register: InvokeRegister;
   otterToolClient: OtterToolClient;
   modelPool?: ModelPool;
   otterConfigProvider?: OtterConfigProvider;
@@ -50,25 +86,28 @@ export interface BuildCustomToolsResult {
  * onUpdate/ctx SDK 特有，Otter 工具不需要，忽略。
  */
 export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToolsResult {
-  const { otterId, conversationId, allowedNames, messageId, turnText, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, signalRepo, logger } = params;
+  const { otterId, conversationId, allowedNames, register, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, signalRepo, logger } = params;
   // F20260826mwrd C1：signalRepo 挂 ToolContext（tool-factory 从 ctx 读，避免 createTools 参数膨胀）
 
   // F20260815rstrt: 返回 toolContext 引用，供 PiSessionFactory 检查 pendingRestart
+  // F20260911pspl：invoke 级字段 getter 化——闭包捕获 ctx 对象，字段读取时
+  // 穿透到寄存器当前值（池化后闭包跨 invoke 复用，寄存器在 invoke 入口重置）。
   const toolContext: ToolContext = {
     client: otterToolClient,
     otterId,
     conversationId,
-    currentMessageId: messageId ?? "",
     modelPool,
     otterConfigProvider,
-    getTurnAssistantText: turnText ? () => turnText.text : undefined,
-    /** F20260813actk C9：每次 invoke 新建待派工票据 Map（agent turn 级生命周期） */
-    pendingDispatches: new Map<string, string>(),
-    dispatchWarningShown: false,
-    /** F20260821i336：编排守卫提醒标志（agent turn 级生命周期） */
-    orchestrationWarningShown: false,
-    /** F20260826mwrd C1：signal 仓库（halt_otter/query_signals 注册条件） */
     signalRepo,
+    get currentMessageId() { return register.currentMessageId; },
+    getTurnAssistantText: () => register.turnText.text,
+    get pendingDispatches() { return register.pendingDispatches; },
+    get dispatchWarningShown() { return register.dispatchWarningShown; },
+    set dispatchWarningShown(v: boolean) { register.dispatchWarningShown = v; },
+    get orchestrationWarningShown() { return register.orchestrationWarningShown; },
+    set orchestrationWarningShown(v: boolean) { register.orchestrationWarningShown = v; },
+    get pendingRestart() { return register.pendingRestart; },
+    set pendingRestart(v: { summary?: string; modelAlias?: string } | undefined) { register.pendingRestart = v; },
   };
   const otterTools = createTools(toolContext, healingRepo, logger);
 

@@ -107,13 +107,21 @@ export interface AgentTool {
 
 /**
  * 工具上下文：invoke 时由系统注入，闭包捕获。
- * otterId、conversationId、currentMessageId 由系统注入，LLM 不传。
+ * otterId、conversationId 由系统注入，LLM 不传。
+ *
+ * F20260911pspl（session 池化）：session 常驻后工具闭包跨 invoke 复用，
+ * 「每 invoke 必变」的字段从值捕获改为 getter 引用（invoke 入口统一重置寄存器）。
+ * conversationId 保持值捕获——池 key = 对话内獭实例（每个对话的獭是独立实体，
+ * manage-conversation.ts「为每个对话创建独立的大獭」），一个常驻 session 终身
+ * 只服务一个对话，conversationId 在池条目生命周期内恒定。
  */
 export interface ToolContext {
   client: OtterToolClient;
   otterId: string;
   conversationId: string;
-  currentMessageId: string;
+  /** F20260911pspl：getter 化（池化后跨 invoke 复用，invoke 入口重置寄存器）。
+   *  读取时机 = 工具执行时（invoke 运行期内），寄存器必有值。 */
+  readonly currentMessageId: string;
   /** 模型池（多模型路由，可选，用于校验 modelAlias） */
   modelPool?: ToolModelPool;
   /** F20260824aibd: Otter 配置提供者（用于查询其他獭的 modelAlias） */
