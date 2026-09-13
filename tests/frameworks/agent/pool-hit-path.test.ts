@@ -128,6 +128,42 @@ describe("F20260911pspl 池命中路径（_acquirePooled）", () => {
     db.close();
   });
 
+  it("F20260913ctlv 整合移植：readOnly 绕过池——不复用/不入池（修 main #894 潜在回归）", async () => {
+    const { internals, db, getCreateCount } = makeFactory();
+    // 先普通 invoke 入池
+    const first = await internals._acquirePooled("o1", { messageId: "m1" });
+    expect(getCreateCount()).toBe(1);
+
+    // readOnly invoke：即使池有命中条目也不复用（工具集是全量的，readOnly 需过滤）
+    const ro = await internals._acquirePooled("o1", { messageId: "m2", readOnly: true });
+    expect(ro.isPooled).toBe(false);
+    expect(getCreateCount()).toBe(2); // 重建（带工具过滤）
+    expect(ro.session).not.toBe(first.session);
+    // readOnly session 不入池：poolMeta 仍指向首个 session（mock 的 sessions Map 按 otterId 键控被 ro 重建覆盖，不作断言面）
+    expect(internals.poolMeta.get("o1")!.session).toBe(first.session);
+    db.close();
+  });
+
+  it("F20260913ctlv 整合移植：池命中刷新 currentInvokeId/emitEvent/lastSpeakEntryId（不刷新则挂错 invoke）", async () => {
+    const { internals, db } = makeFactory();
+    await internals._acquirePooled("o1", { messageId: "m1", currentInvokeId: "inv-1" });
+    const meta = internals.poolMeta.get("o1")!;
+    expect(meta.register.currentInvokeId).toBe("inv-1");
+
+    // 模拟上轮 invoke 残留
+    meta.register.lastSpeakEntryId = "speak-1";
+    meta.register.emitEvent = () => {};
+
+    const emit2 = () => {};
+    const second = await internals._acquirePooled("o1", { messageId: "m2", currentInvokeId: "inv-2", emitEvent: emit2 });
+    expect(second.isPooled).toBe(true);
+    // ctlv 三字段全部刷新为本轮值
+    expect(meta.register.currentInvokeId).toBe("inv-2");
+    expect(meta.register.lastSpeakEntryId).toBeUndefined();
+    expect(meta.register.emitEvent).toBe(emit2);
+    db.close();
+  });
+
   it("池命中跳过身份注入（needsIdentity=false）；冷启动 createdNew 时注入", async () => {
     const { factory, internals, db } = makeFactory();
     // 冷启动 createdNew=true → 身份标记

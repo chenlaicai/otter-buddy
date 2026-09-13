@@ -252,44 +252,4 @@ describe("SqliteAttachmentRepository CRUD", () => {
     expect(got.map(a => a.id).sort()).toEqual([a1.id, a2.id].sort());
   });
 
-  it("linkMessageAttachments + getAttachmentRefsByMessageIds（按 sequence_num 排序）", async () => {
-    // 建消息行（FK 约束需要 messages 存在）
-    const convId = "conv-att";
-    const turnId = "turn-att";
-    const msgId = "msg-att";
-    db.prepare("INSERT INTO conversations (id, title, status) VALUES (?, 't', 'active')").run(convId);
-    db.prepare("INSERT INTO turns (id, conversation_id, turn_number, status) VALUES (?, ?, 1, 'open')").run(turnId, convId);
-    db.prepare("INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id) VALUES (?, ?, 'user', 'u', 'completed', 1, ?)").run(msgId, convId, turnId);
-
-    const a1 = fixture({ sha256: "d".repeat(64), originalName: "first.png" });
-    const a2 = fixture({ sha256: "e".repeat(64), originalName: "second.png" });
-    await repo.insert(a1);
-    await repo.insert(a2);
-
-    await repo.linkMessageAttachments(msgId, [a2.id, a1.id]); // 故意倒序传
-    const map = await repo.getAttachmentRefsByMessageIds([msgId]);
-    const refs = map.get(msgId)!;
-    expect(refs.map(r => r.originalName)).toEqual(["second.png", "first.png"]); // 按插入序 = sequence_num
-    // ref 投影不含 filePath/sha256（最小投影）
-    expect(refs[0]).not.toHaveProperty("filePath");
-  });
-
-  it("消息删除级联清理 message_attachments（FK CASCADE）", async () => {
-    const convId = "conv-att2";
-    const turnId = "turn-att2";
-    const msgId = "msg-att2";
-    db.prepare("INSERT INTO conversations (id, title, status) VALUES (?, 't', 'active')").run(convId);
-    db.prepare("INSERT INTO turns (id, conversation_id, turn_number, status) VALUES (?, ?, 1, 'open')").run(turnId, convId);
-    db.prepare("INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id) VALUES (?, ?, 'user', 'u', 'completed', 1, ?)").run(msgId, convId, turnId);
-
-    const a1 = fixture({ sha256: "f".repeat(64) });
-    await repo.insert(a1);
-    await repo.linkMessageAttachments(msgId, [a1.id]);
-
-    db.prepare("DELETE FROM messages WHERE id = ?").run(msgId);
-    const rows = db.prepare("SELECT COUNT(*) AS c FROM message_attachments").get() as { c: number };
-    expect(rows.c).toBe(0); // 级联清理
-    // attachments 行保留（附件生命周期独立于消息）
-    expect(await repo.getById(a1.id)).not.toBeNull();
-  });
 });

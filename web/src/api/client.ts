@@ -2,12 +2,8 @@ import type {
   ConversationDTO,
   ConversationListItemDTO,
   CreateConversationRequestDTO,
-  MessageDTO,
-  MessageListResponseDTO,
   UnreadStateDTO,
   MarkReadResponseDTO,
-  SignalTrailResponseDTO,
-  MessageEventDTO,
   SendMessageRequestDTO,
   OtterDTO,
   CreateOtterRequestDTO,
@@ -21,6 +17,9 @@ import type {
   ParticipantDTO,
   OtterProfileDTO,
   UploadAttachmentResponseDTO,
+  InvokeListResponseDTO,
+  InvokeEventsResponseDTO,
+  EntriesResponseDTO,
 } from '@contract/api'
 
 const BASE = '/api'
@@ -80,19 +79,7 @@ export function getParticipants(conversationId: string): Promise<ParticipantDTO[
   return request(`/conversations/${conversationId}/participants`)
 }
 
-// ── Messages ──
-
-export function listMessages(conversationId: string, limit = 50, before?: string): Promise<MessageListResponseDTO> {
-  const qs = new URLSearchParams({ limit: String(limit) })
-  if (before) qs.set('before', before)
-  return request(`/conversations/${conversationId}/messages?${qs}`)
-}
-
-/** after 游标向下分页（加载比 after 消息更新的历史消息） */
-export function listMessagesAfter(conversationId: string, after: string, limit = 50): Promise<MessageListResponseDTO> {
-  const qs = new URLSearchParams({ after, limit: String(limit) })
-  return request(`/conversations/${conversationId}/messages/after?${qs}`)
-}
+// ── Messages（F20260913ctlv 彻底切换：只保留发言/未读/已读，历史读取/事件/中止/重试已迁 entries+invokes）──
 
 /** 未读状态 */
 export function getUnreadState(conversationId: string): Promise<UnreadStateDTO> {
@@ -100,27 +87,8 @@ export function getUnreadState(conversationId: string): Promise<UnreadStateDTO> 
 }
 
 /** 标记已读 */
-/** 信号轨迹（F20260902u5tr）：投石信号对目标 otter 的投递状态 */
-export function getSignalTrail(conversationId: string): Promise<SignalTrailResponseDTO> {
-  return request(`/conversations/${conversationId}/signal-trail`)
-}
-
 export function markRead(conversationId: string, messageSeq: number): Promise<MarkReadResponseDTO> {
   return request(`/conversations/${conversationId}/read`, { method: 'POST', body: JSON.stringify({ messageSeq }) })
-}
-
-/** 加载目标消息上下文（搜索跳转 / 未读窗口加载） */
-export function expandMessage(messageId: string, direction: 'before' | 'after' | 'both' = 'both', count = 25): Promise<MessageDTO[]> {
-  const qs = new URLSearchParams({ direction, count: String(count) })
-  return request(`/messages/${messageId}/expand?${qs}`)
-}
-
-export function getMessageEvents(messageId: string): Promise<MessageEventDTO[]> {
-  return request(`/messages/${messageId}/events`)
-}
-
-export function getMessage(messageId: string): Promise<MessageDTO> {
-  return request(`/messages/${messageId}`)
 }
 
 export function sendMessage(conversationId: string, body: SendMessageRequestDTO): Promise<Response> {
@@ -143,12 +111,55 @@ export function uploadAttachments(conversationId: string, files: File[], uploade
   })
 }
 
-export function abortMessage(messageId: string): Promise<{ status: string }> {
-  return request(`/messages/${messageId}/abort`, { method: 'POST' })
+// ── Invokes（F20260913ctlv：Session 弹窗 + 獭状态面板数据源）──
+
+/** 拉取会话内 invoke 记录列表（before 游标分页，otterId 可选过滤单獭） */
+export function listInvokes(conversationId: string, options?: { limit?: number; before?: string; otterId?: string }): Promise<InvokeListResponseDTO> {
+  const qs = new URLSearchParams({ limit: String(options?.limit ?? 50) })
+  if (options?.before) qs.set('before', options.before)
+  if (options?.otterId) qs.set('otterId', options.otterId)
+  return request(`/conversations/${conversationId}/invokes?${qs}`)
 }
 
-export function retryMessage(messageId: string): Promise<Response> {
-  return fetch(`${BASE}/messages/${messageId}/retry`, {
+/** 拉取单次 invoke 的全部流式过程事件（Session 弹窗展开态数据源） */
+export function getInvokeEvents(invokeId: string): Promise<InvokeEventsResponseDTO> {
+  return request(`/invokes/${invokeId}/events`)
+}
+
+/** F20260913ctlv 切换清扫：拉取会话时间线条目（entries 历史数据源，替代 messages 渲染路径） */
+export function listEntries(conversationId: string, limit = 50, before?: string): Promise<EntriesResponseDTO> {
+  const qs = new URLSearchParams({ limit: String(limit) })
+  if (before) qs.set('before', before)
+  return request(`/conversations/${conversationId}/entries?${qs}`)
+}
+
+/** F20260913ctlv 彻底切换：after 游标向下分页（增量刷新用，升序） */
+export function listEntriesAfter(conversationId: string, after: string, limit = 100): Promise<EntriesResponseDTO> {
+  const qs = new URLSearchParams({ limit: String(limit), after })
+  return request(`/conversations/${conversationId}/entries?${qs}`)
+}
+
+/** F20260913ctlv 彻底切换：中止运行中 invoke（Session 弹窗/右栏停止按钮） */
+export function abortInvoke(invokeId: string, otterId: string): Promise<{ status: string }> {
+  return request(`/invokes/${invokeId}/abort`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ otterId }),
+  })
+}
+
+/** F20260913ctlv 彻底切换：重试失败 invoke（前端气泡重试按钮；返回 SSE 流） */
+export function retryInvoke(invokeId: string): Promise<Response> {
+  return fetch(`${BASE}/invokes/${invokeId}/retry`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+/** F20260913ctlv test17（搭档拍板）：獭锚重试——重试的是獭的 session（上下文载体），
+ *  invoke 只是执行记录。右栏重试按钮用此（无需 invokeId，天然避开 otterId/invokeId 错位坑） */
+export function retryOtter(otterId: string, conversationId: string): Promise<Response> {
+  return fetch(`${BASE}/otters/${otterId}/retry?conversationId=${encodeURIComponent(conversationId)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   })

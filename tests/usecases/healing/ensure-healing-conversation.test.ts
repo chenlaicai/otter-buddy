@@ -4,7 +4,7 @@ import type { ManageConversation } from "@usecases/conversation/manage-conversat
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
-import type { SendMessage } from "@usecases/conversation/send-message";
+import type { SendEntry } from "@usecases/conversation/send-entry";
 import type { Conversation, ConversationParticipant } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
 import { HEALING_CONVERSATION_KEY, HEALING_BIG_OTTER_ID_KEY } from "@usecases/healing/constants";
@@ -106,8 +106,8 @@ describe("ensureHealingConversation - pin 行为", () => {
     } as unknown as SettingsRepository;
 
     const sendMessage = {
-      sendSystem: vi.fn(),
-    } as unknown as SendMessage;
+      createSystemEntry: vi.fn(async () => ({ entry: { id: 'sys-entry-1', sequenceNum: 1 } })),
+    } as unknown as SendEntry;
 
     const logger = createTestLogger();
 
@@ -116,7 +116,7 @@ describe("ensureHealingConversation - pin 行为", () => {
       convRepo,
       otterRepo,
       settings,
-      sendMessage,
+      sendEntry: sendMessage,
       logger,
     });
 
@@ -153,8 +153,8 @@ describe("ensureHealingConversation - pin 行为", () => {
     } as unknown as SettingsRepository;
 
     const sendMessage = {
-      sendSystem: vi.fn(),
-    } as unknown as SendMessage;
+      createSystemEntry: vi.fn(async () => ({ entry: { id: 'sys-entry-1', sequenceNum: 1 } })),
+    } as unknown as SendEntry;
 
     const logger = createTestLogger();
 
@@ -163,7 +163,7 @@ describe("ensureHealingConversation - pin 行为", () => {
       convRepo,
       otterRepo,
       settings,
-      sendMessage,
+      sendEntry: sendMessage,
       logger,
     });
 
@@ -172,7 +172,7 @@ describe("ensureHealingConversation - pin 行为", () => {
     expect(manageConversation.pin).toHaveBeenCalled();
     expect(manageConversation.create).toHaveBeenCalled();
     expect(settings.update).toHaveBeenCalled();
-    expect(sendMessage.sendSystem).toHaveBeenCalled();
+    expect(sendMessage.createSystemEntry).toHaveBeenCalled();
   });
 
   it("pin 失败不中断 ensure：manageConversation.pin 抛错时，ensure 仍正常返回，logger.warn 被调用", async () => {
@@ -208,8 +208,8 @@ describe("ensureHealingConversation - pin 行为", () => {
     } as unknown as SettingsRepository;
 
     const sendMessage = {
-      sendSystem: vi.fn(),
-    } as unknown as SendMessage;
+      createSystemEntry: vi.fn(async () => ({ entry: { id: 'sys-entry-1', sequenceNum: 1 } })),
+    } as unknown as SendEntry;
 
     const logger = createCapturingLogger();
 
@@ -218,7 +218,7 @@ describe("ensureHealingConversation - pin 行为", () => {
       convRepo,
       otterRepo,
       settings,
-      sendMessage,
+      sendEntry: sendMessage,
       logger,
     });
 
@@ -259,8 +259,8 @@ describe("ensureHealingConversation - pin 行为", () => {
     } as unknown as SettingsRepository;
 
     const sendMessage = {
-      sendSystem: vi.fn(),
-    } as unknown as SendMessage;
+      createSystemEntry: vi.fn(async () => ({ entry: { id: 'sys-entry-1', sequenceNum: 1 } })),
+    } as unknown as SendEntry;
 
     const logger = createTestLogger();
 
@@ -269,7 +269,7 @@ describe("ensureHealingConversation - pin 行为", () => {
       convRepo,
       otterRepo,
       settings,
-      sendMessage,
+      sendEntry: sendMessage,
       logger,
     });
 
@@ -307,8 +307,8 @@ describe("ensureHealingConversation - pin 行为", () => {
     } as unknown as SettingsRepository;
 
     const sendMessage = {
-      sendSystem: vi.fn(),
-    } as unknown as SendMessage;
+      createSystemEntry: vi.fn(async () => ({ entry: { id: 'sys-entry-1', sequenceNum: 1 } })),
+    } as unknown as SendEntry;
 
     const logger = createTestLogger();
 
@@ -317,7 +317,7 @@ describe("ensureHealingConversation - pin 行为", () => {
       convRepo,
       otterRepo,
       settings,
-      sendMessage,
+      sendEntry: sendMessage,
       logger,
     })).rejects.toThrow('Database error');
 

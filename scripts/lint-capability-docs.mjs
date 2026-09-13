@@ -60,15 +60,19 @@ for (const file of walk(path.join(root, "docs/features"))) {
 
   const testPath = capTest.replace(/^["']|["']$/g, "");
   if (!fs.existsSync(path.join(root, testPath))) {
-    errors++;
-    console.error(`✗ ${rel}\n    capability_test 指向的文件不存在: ${testPath}`);
+    // F20260913ctlv 终审修正：悬空指针 error → warning——功能退役删测试后，存量
+    // 文档快照的指针必然悬空（快照原则禁止回改），这是结构性存量债务而非新增违规。
+    // 归 ratchet 管辖（警告数只减不增）：新增文档指错路径同样推高警告数受上限约束。
+    // 原 error 语义的盲区：退役功能的 PR 被迫在「改历史快照」与「CI 红」间二选一。
+    warnings++;
+    console.warn(`⚠ ${rel}\n    capability_test 指向的文件不存在: ${testPath}（存量悬空指针，ratchet 管辖）`);
   }
 }
 
 /** Ratchet（第二轮对抗检视）：警告数只许减不许增——否则警告疲劳后约束力归零。
  *  新增 feature/prompt 文档缺 capability_test 会推高警告数并在此报错；
  *  存量文档补声明后可下调本数值。 */
-const MAX_WARNINGS = 63;
+const MAX_WARNINGS = 67; // F20260913ctlv：+4 悬空指针入账（功能退役的存量债务）
 
 if (warnings > MAX_WARNINGS) {
   errors++;

@@ -1,33 +1,48 @@
-/** SSE 事件类型映射 */
+/**
+ * SSE 事件类型映射
+ *
+ * F20260913ctlv 彻底切换：时间线模型唯一事件集。
+ * - entry.*：时间线条目（speak/user/system/invoke 边界/yield/终态投影）
+ * - invoke.*：invoke 生命周期（右栏状态面板数据源）
+ * - agent.*：SDK 结构化事件（自动重试/压缩）
+ * - 旧 message.* / speak.intermediate / assistant_text / assistant_toolcall / tool.result 已退役
+ *   （流式过程数据源 = invoke_events 表，Session 弹窗经 GET /api/invokes/:id/events 拉取）
+ */
 export type SSEEventMap = {
-  "message.start": { messageId: string; otterId: string; otterName: string; seq?: number; createdAt: string };
-  "assistant_toolcall": { messageId: string; content: Array<Record<string, unknown>> };
-  "tool.result": { messageId: string; toolName: string; result: unknown };
-  "assistant_text": { messageId: string; content: Array<Record<string, unknown>> };
-  /** speak 中间发言：agent 继续工作时的增量内容（speak+yield 拆分——speak 即时呈现，不结束回合）
-   *  F-multi-speak-bubble: segmentId + sequenceNum 用于前端分段渲染
-   */
-  "speak.intermediate": { messageId: string; body: string; otterId?: string; otterName?: string; segmentId?: string; sequenceNum?: number };
-  "message.complete": { messageId: string; otterId: string; otterName: string; body: string; turnId: string; duration: string; ctx?: number; ctxMax?: number; segments?: Array<{ id: string; body: string; sequenceNum: number }> };
-  "message.failed": { messageId: string; otterId: string; otterName: string; body?: string };
-  /** #440: 消息级自动重试中通知——紧跟 message.failed 发出，告知前端「failed 是暂态，重试内容将流回同一条消息」。
-   *  与 agent.retry_*（SDK 层 LLM 网络重试）分属不同层级；不感兴趣的客户端可安全忽略 */
-  "message.retry": { messageId: string; otterId: string; otterName: string; reason: string; attempt: number };
-  "message.aborted": { messageId: string; body?: string; otterId?: string; otterName?: string };
-  "system.message": { messageId: string; content: string; seq: number };
+  // ── 时间线条目事件（entries 表投影） ──
+  /** user entry（用户发言气泡）。yieldTargets = 发言石目标（渲染「→ 目标」传递行）。
+   *  source（F20260913ctlv 处置轮）：消息接入面（web/feishu/weixin）——IM 出站通道
+   *  只投 source=web 的 user 消息（Web→IM 同步），IM 来源的消息不回投（防回环） */
+  "entry.user": { entryId: string; sequenceNum: number; senderId: string; body: string; createdAt: string; yieldTargets?: string[]; source?: "web" | "feishu" | "weixin" | null; senderName?: string; attachments?: import("../api/entry").EntryAttachmentDTO[] };
+  /** speak entry（獭气泡唯一来源）——speak 是原子工具调用（无流式生命周期），落库即 completed，
+   *  单事件携带全量 body 一次性渲染完整气泡。原 entry.start 伪事件已退役（与 entry.speak 背靠背同数据，纯冗余）。 */
+  "entry.speak": { entryId: string; invokeId: string; otterId?: string; body: string; otterName?: string; createdAt?: string };
+  /** invoke 终态失败（invoke_end entry 对应投影） */
+  "entry.failed": { entryId: string; invokeId: string; otterId: string; otterName?: string; body?: string };
+  /** invoke 内自动重试（系统提醒 + 前端状态回退） */
+  "entry.retry": { entryId: string; invokeId: string; otterId: string; otterName?: string; reason: string; attempt: number };
+  /** invoke 被中止（invoke_end entry 对应投影） */
+  "entry.aborted": { entryId: string; invokeId: string; otterId?: string; otterName?: string; body?: string };
+  /** 系统条目（居中 system entry） */
+  "entry.system": { entryId: string; content: string; seq: number };
+  /** yield 条目（行动权传递，居中显示） */
+  "entry.yield": { entryId: string; invokeId: string; otterId: string; otterName: string; yieldTargets: string[]; invokeEndEntryId?: string };
+
+  // ── invoke 生命周期事件（invokes 表投影） ──
+  /** invoke 开始（invoke 记录创建 + invoke_start entry） */
+  "invoke.start": { invokeId: string; otterId: string; otterName: string; conversationId: string; startedAt: string; triggerEntryId?: string };
+  /** invoke 结束（completed/failed/aborted）。duration 为 invoke 耗时（ms，number） */
+  "invoke.end": { invokeId: string; otterId: string; otterName?: string; status: "completed" | "failed" | "aborted"; endedAt: string; duration?: number; toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string; endBody?: string };
+
+  // ── 通用事件（保留） ──
   "turn.complete": Record<string, never>;
   "agent.idle": Record<string, never>;
-  /** SDK auto-retry 进行中（R20260810piab 遗漏 1：透传 SDK 结构化事件） */
   "agent.retry_start": { attempt: number; maxAttempts: number; delayMs: number; errorMessage: string };
-  /** SDK auto-retry 结束 */
   "agent.retry_end": { success: boolean; attempt: number; finalError?: string };
-  /** SDK 上下文压缩进行中 */
   "agent.compaction_start": { reason: "manual" | "threshold" | "overflow" };
-  /** SDK 上下文压缩结束 */
   "agent.compaction_end": { reason: "manual" | "threshold" | "overflow"; aborted: boolean; willRetry: boolean; errorMessage?: string };
   "stream.end": Record<string, never>;
-  "error": { message: string; messageId: string; otterId: string };
-  /** @提及解析 feedback：目标退场或解析失败时通知用户 */
+  "error": { message: string; invokeId?: string; otterId: string };
   "mention.feedback": { feedback: string };
 };
 

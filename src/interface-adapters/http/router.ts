@@ -5,6 +5,8 @@ import type { Logger } from "@usecases/ports/logger";
 import type { ConversationController } from "./controllers/conversation-controller";
 import type { OtterController } from "./controllers/otter-controller";
 import type { MessageController } from "./controllers/message-controller";
+import type { InvokeController } from "./controllers/invoke-controller";
+import type { EntryController } from "./controllers/entry-controller";
 import type { MemoryController } from "./controllers/memory-controller";
 import type { KeyInfoController } from "./controllers/key-info-controller";
 import type { SettingsController } from "./controllers/settings-controller";
@@ -23,6 +25,10 @@ export interface Controllers {
   conversation: ConversationController;
   otter: OtterController;
   message: MessageController;
+  /** F20260913ctlv Phase 4：invoke 只读查询端点（Session 弹窗数据源） */
+  invoke: InvokeController;
+  /** F20260913ctlv 切换清扫：entries 时间线只读查询端点 */
+  entry: EntryController;
   memory: MemoryController;
   keyInfo: KeyInfoController;
   settings: SettingsController;
@@ -55,21 +61,20 @@ function registerConvRoutes(app: Hono, c: Controllers): void {
 }
 
 function registerMsgRoutes(app: Hono, c: Controllers): void {
-  app.get("/api/conversations/:id/messages", (ctx) => c.message.list(ctx));
-  app.get("/api/conversations/:id/messages/after", (ctx) => c.message.listAfter(ctx));
   app.get("/api/conversations/:id/subscribe", (ctx) => c.message.subscribe(ctx));
   app.post("/api/conversations/:id/messages", (ctx) => c.message.sendMessage(ctx));
   app.get("/api/conversations/:id/unread", (ctx) => c.message.getUnreadState(ctx));
-  app.get("/api/conversations/:id/signal-trail", (ctx) => c.message.getSignalTrail(ctx));
-  // F20260902sgp2 S1 观测端点（§7 观察窗口承诺）：pending 计数裸探针——
-  // 机器可读（curl/监控），与轨迹 UI 的 /signal-trail 分离（那是给人的）
-  app.get("/api/conversations/:id/pending-count", (ctx) => c.message.getPendingCount(ctx));
   app.post("/api/conversations/:id/read", (ctx) => c.message.markRead(ctx));
-  app.get("/api/messages/:id", (ctx) => c.message.getById(ctx));
-  app.get("/api/messages/:id/events", (ctx) => c.message.getEvents(ctx));
-  app.get("/api/messages/:id/expand", (ctx) => c.message.expand(ctx));
-  app.post("/api/messages/:id/abort", (ctx) => c.message.abort(ctx));
-  app.post("/api/messages/:id/retry", (ctx) => c.message.retry(ctx));
+  // F20260913ctlv Phase 4：invoke 只读查询（Session 弹窗 + 獭状态面板）
+  app.get("/api/conversations/:id/invokes", (ctx) => c.invoke.list(ctx));
+  app.get("/api/invokes/:id/events", (ctx) => c.invoke.getEvents(ctx));
+  // F20260913ctlv 彻底切换：invoke 中止/重试（UI 停止与重试按钮唯一后端；messages abort/retry 退役）
+  app.post("/api/invokes/:id/abort", (ctx) => c.invoke.abort(ctx));
+  app.post("/api/invokes/:id/retry", (ctx) => c.invoke.retry(ctx));
+  // F20260913ctlv test17（搭档拍板）：獭锚重试——重试的是獭的 session（上下文载体），invoke 只是执行记录
+  app.post("/api/otters/:id/retry", (ctx) => c.invoke.retryByOtter(ctx));
+  // F20260913ctlv 彻底切换：entries 时间线唯一渲染数据源（messages 只读端点退役）
+  app.get("/api/conversations/:id/entries", (ctx) => c.entry.list(ctx));
 }
 
 function registerOtterRoutes(app: Hono, c: Controllers): void {
