@@ -12,15 +12,15 @@ summary: |
 
 causal_links:
   from:
-    - F20260909smsp   # speak 消息模型重构（数据层分离的前身）
-    - F20260908rlcp   # 信号机制收敛（steer/followUp/abort 三动作）
+    # F20260908rlcp / F20260909smsp 已收编为本档「前身与演进」章节（编号合拢，2026-09-13）
     - F20260901sgpx   # 协作机制 v2 母方案（信号协议目标态）
   supersedes:
-    - F20260909smsp   # 首 message 空壳方案被本方案的 invoke 实体取代
+    - F20260909smsp   # speak 多 message 模型被 entries 模型取代（收编见前身章节）
+    - F20260908rlcp   # 信号机制收敛（含 session 热池）收编——热池部分由 F20260911pspl 取代
 
 status: draft
 change_type: refactor
-tags: [data-model, ui-architecture, timeline, invoke-entity, session-panel, entry-model, invoke-events]
+tags: [data-model, ui-architecture, timeline, invoke-entity, session-panel, entry-model, invoke-events, signal-protocol, architecture-convergence, cursor-semantics, rate-limit]
 modules:
   - src/entities/conversation/
   - src/usecases/conversation/
@@ -38,6 +38,56 @@ intent:
 ---
 
 # F20260910ctlv: 对话视图重构——时间线 + 獭实时状态面板 + Session 弹窗
+
+## 前身与演进（F20260908rlcp + F20260909smsp 收编，2026-09-13 编号合拢）
+
+本 PR 曾以三个特性编号推进（rlcp / smsp / ctlv），终审拍板合拢为本档。
+两个前身特性的完整施工记录见 git 历史（commit 前缀 `[F20260908rlcp]` /
+`[F20260909smsp]`）——本章节只保留演进脉络与关键决策。
+
+### 前身一：F20260908rlcp 信号机制收敛（9/8 八轮过堂）
+
+**问题**：信号机制补丁堆叠——一条游标偏差催生五层补丁（busyQueue → 60s 阻尼 →
+点火记账 → 用户停机闸门 → 限流熔断），外加 dispatch_attempts 台账独立记账。
+搭档「破而后立」拍板整体重构。
+
+**终态模型**（收编后仍为现行语义）：
+- 三动作统一：followUp（默认）/ steer（调用方标急）/ abort（session 方法调用）；
+  NORMAL/URGENT/HALT 档位概念全系统移除
+- 游标新语义：prompt 启动成功即推进到启动时读到的位置（唯一推进点），
+  运行期新到消息恒保持未读；markBatchRead 删除
+- 退役清单（11 项）：dispatch_attempts 台账、busyQueue、双闸门、60s 阻尼、
+  isOtterActive 墙钟窗、50ms 重扫、事件 B、per-otter 锁、GateBanner、
+  /signal-trail 端点、steer 销账
+- 429 整改：无冻结、快速 failed + 诚实告知；exhausted 分类器补智谱「使用上限」
+  文案，告警分态（transient/exhausted）
+- steer 崩溃安全（出路 A）：恢复后首次 invoke 前读 jsonl 尾部匹配 msg id 去重
+
+**热池部分已被取代**：rlcp 的 LRU 热池（session-pool.ts，容量 50 + TTL 30min）
+被 main 侧 F20260911pspl（PiSessionPool）取代——本 PR 整合轮（a777f3dd）完成
+两池合流：以 PiSessionPool 为基座，rlcp 的游标推进/invoke 级语义移植进
+InvokeRegister 寄存器，session-pool.ts 删除。整合细节见 git（merge commit）。
+
+**关键取舍**（详见 git 历史中的原 rlcp 文档）：游标启动即推（D1）、台账整体
+退役（D2）、SDK followUp 原生排队（D3）、档位移除（D4）、中断纯 abort（D5）、
+steer 恢复侧去重（D6）、三因子驱逐（D7）、防重单层化（D8）。
+
+### 前身二：F20260909smsp speak 消息模型重构（9/9 拍板）
+
+**问题**：一次 invoke 的多次 speak 全 append 为同一 message 的 segments，
+UI 按 message.created_at 排序——运行期 steer/用户插话时间序失真
+（大獭 speak A → 用户插话 → 大獭 speak B，视觉上 B 永远排在插话后一条 message 里）。
+
+**当时的方案**（多 message 模型）：每次 speak 创建独立 message
+（metadata.invokeGroupId 逻辑归组），时间序由 message.created_at 自然承载。
+
+**被 entries 模型取代**：本特性（ctlv）的 entries 表以更彻底的方式实现了同一
+目标——speak 本身就是一条独立 entry（invoke_id 关联），时间序由 sequence_num
+承载，invokeGroupId 归组不再需要。smsp 上线即被 supersedes，其「speak 时间序
+真实呈现」的目标由 entries 模型完整继承（前端时间线按序平铺）。
+
+**保留的决策脉络**：speak 幂等终结语义（F20260810cb01 熔断护栏沿用）、
+yield 前完结打开的 speak（窗口状态不外泄）——两者在 entries 语义下继续有效。
 
 ## 背景
 
