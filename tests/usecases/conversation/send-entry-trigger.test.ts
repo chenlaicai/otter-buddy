@@ -108,6 +108,27 @@ describe("sendUserEntry 点火依据落库（F20260913ctlv 补漏）", () => {
     expect(entry.attachments).toBeUndefined();
   });
 
+  it("F20260913ctlv delta 回修：attach 抛错不阻断发送（非阻断语义——幽灵消息回归锚）", async () => {
+    const repos = makeRepos();
+    // attachAttachment 抛错（模拟悬空引用/DB 异常）
+    (repos.entryRepo.attachAttachment as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("attach boom"));
+    const sendEntry = new SendEntry(repos.entryRepo, repos.invokeRepo, repos.otterRepo, repos.conversationRepo, {
+      logger: createLogger(),
+    });
+    // entry 落库成功 + attach 失败 → 仍正常返回（不抛）——文字消息优先送达，
+    // 附件投影为空由前端 tmp 保留兜底（大獭裁决：原 controller 语义 F20260826fsyc）
+    const { entry } = await sendEntry.sendUserEntry({
+      conversationId: "conv-1",
+      senderId: "user-1",
+      body: "attach 会失败的消息",
+      source: "web",
+      talkingStonePassedTo: ["otter-big"],
+      attachmentIds: ["att-will-fail"],
+    });
+    expect(entry.id).toBeTruthy();
+    expect(entry.attachments).toBeUndefined(); // 重查未发生（attach 失败即跳过），返回原子创建结果
+  });
+
 
   it("无显式目标 + resolveDeps 注入 → 解析结果同样落 entry.yieldTargets", async () => {
     const resolveDeps = {

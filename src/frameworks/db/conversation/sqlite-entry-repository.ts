@@ -433,25 +433,31 @@ export class SqliteEntryRepository implements EntryRepository {
     if (entries.length === 0) return;
     for (const entry of entries) {
       if (entry.entryType === "speak" || entry.entryType === "user") {
+        // F20260913ctlv delta 回修：全列查询——此前只查 4 列，id/mimeType/width/height
+        // 为硬编码占位（id:"" 拼出 /api/attachments/ 破图 404；透出层修复后成毒数据）
         const attRows = this.db.prepare(`
-          SELECT a.kind, a.original_name, a.size_bytes, a.caption
+          SELECT a.id, a.kind, a.original_name, a.mime_type, a.size_bytes, a.width, a.height, a.caption
           FROM entry_attachments ea JOIN attachments a ON a.id = ea.attachment_id
           WHERE ea.entry_id = ? ORDER BY ea.sequence_num ASC
         `).all(entry.id) as Array<{
+          id: string;
           kind: string;
           original_name: string;
+          mime_type: string;
           size_bytes: number;
+          width: number | null;
+          height: number | null;
           caption: string | null;
         }>;
         if (attRows.length > 0) {
           entry.attachments = attRows.map(r => ({
-            id: "",
+            id: r.id,
             kind: r.kind as "image" | "document" | "audio" | "video",
             originalName: r.original_name,
-            mimeType: "",
+            mimeType: r.mime_type,
             sizeBytes: r.size_bytes,
-            width: null,
-            height: null,
+            width: r.width,
+            height: r.height,
             caption: r.caption,
           }));
         }

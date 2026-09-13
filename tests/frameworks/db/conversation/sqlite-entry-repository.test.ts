@@ -63,6 +63,18 @@ function entryFixture(overrides: Partial<Entry> = {}): Entry {
   };
 }
 
+/** 插入 attachments + entry_attachments 种子（delta 回修：真 sqlite 投影断言） */
+function insertAttachment(db: Database.Database, attId: string, entryId: string, seq: number): void {
+  db.prepare(`
+    INSERT INTO attachments (id, sha256, file_path, original_name, mime_type, kind, size_bytes, width, height, caption, uploader_id)
+    VALUES (?, ?, ?, ?, ?, 'image', 123, 800, 600, NULL, 'user-1')
+  `).run(attId, `sha-${attId}`, `/tmp/${attId}.png`, `${attId}.png`, "image/png");
+  db.prepare(`
+    INSERT INTO entry_attachments (entry_id, attachment_id, sequence_num)
+    VALUES (?, ?, ?)
+  `).run(entryId, attId, seq);
+}
+
 /** 创建测试用 invoke */
 async function createTestInvoke(repo: SqliteInvokeRepository, id: string): Promise<void> {
   return repo.createInvoke({
@@ -232,3 +244,59 @@ describe("SqliteEntryRepository - 条目基础操作", () => {
     });
   });
 });
+
+describe("SqliteEntryRepository - 附件投影（F20260913ctlv delta 回修：真 sqlite，堵 mock 盲区）", () => {
+  let db: Database.Database;
+  let repo: SqliteEntryRepository;
+
+  beforeEach(() => {
+    db = createTestDb();
+    repo = new SqliteEntryRepository(db);
+    insertOtter(db, "otter-1");
+    insertConversation(db, "conv-1");
+    insertTurn(db, "turn-1", "conv-1");
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("getEntryById 投影含真实附件 id/mimeType/width/height（非占位空值）", async () => {
+    // 落一条 user entry + 两个附件关联
+    await repo.createEntry(entryFixture({ id: "entry-att", entryType: "user", senderType: "user", senderId: "user-1" }));
+    insertAttachment(db, "att-real-1", "entry-att", 0);
+    insertAttachment(db, "att-real-2", "entry-att", 1);
+
+    const entry = await repo.getEntryById("entry-att");
+    expect(entry).not.toBeNull();
+    expect(entry!.attachments).toHaveLength(2);
+    // 核心断言：投影真值（回修前 id:""/mimeType:""/width:null 占位 → 破图 404）
+    expect(entry!.attachments![0]!.id).toBe("att-real-1");
+    expect(entry!.attachments![0]!.mimeType).toBe("image/png");
+    expect(entry!.attachments![0]!.width).toBe(800);
+    expect(entry!.attachments![0]!.height).toBe(600);
+    expect(entry!.attachments![0]!.originalName).toBe("att-real-1.png");
+    expect(entry!.attachments![0]!.sizeBytes).toBe(123);
+    // 按挂载序排列
+    expect(entry!.attachments![1]!.id).toBe("att-real-2");
+  });
+
+  it("getEntries 批量路径投影同真值（历史端点数据源）", async () => {
+    await repo.createEntry(entryFixture({ id: "entry-att2", entryType: "user", senderType: "user", senderId: "user-1" }));
+    insertAttachment(db, "att-real-3", "entry-att2", 0);
+
+    const entries = await repo.getEntries("conv-1", { limit: 50 });
+    const withAtt = entries.find(e => e.id === "entry-att2");
+    expect(withAtt?.attachments).toHaveLength(1);
+    expect(withAtt!.attachments![0]!.id).toBe("att-real-3");
+    expect(withAtt!.attachments![0]!.mimeType).toBe("image/png");
+    expect(withAtt!.attachments![0]!.width).toBe(800);
+  });
+
+  it("无附件条目 attachments 字段不携带（undefined 而非空数组）", async () => {
+    await repo.createEntry(entryFixture({ id: "entry-plain" }));
+    const entry = await repo.getEntryById("entry-plain");
+    expect(entry!.attachments).toBeUndefined();
+  });
+});
+

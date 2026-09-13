@@ -173,12 +173,22 @@ export class SendEntry {
 
     // F20260913ctlv 终审修复：附件绑定下沉 usecases（三入口统一——此前仅 Web 路径
     // 由 controller 手动 attach，IM 路径 attachmentIds 传入但从未消费，附件悬空）。
-    // attach 后重查，返回的 entry 带 attachments 投影（SSE 载荷数据源）
+    // attach 后重查，返回的 entry 带 attachments 投影（SSE 载荷数据源）。
+    // delta 回修（大獭裁决）：非阻断语义——attach 失败不阻断发送（原 controller
+    // 语义，F20260826fsyc）：entry 已落库，抛错 = 幽灵消息（500+刷新复活+不点火）；
+    // 文字消息优先送达，附件投影为空由前端 tmp 保留逻辑兑底（本地预览）
     let result: Entry = created;
     if (input.attachmentIds && input.attachmentIds.length > 0) {
-      await this.attachEntryAttachments(created.id, input.attachmentIds);
-      const withAttachments = await this.entryRepo.getEntryById(created.id);
-      if (withAttachments) result = withAttachments;
+      try {
+        await this.attachEntryAttachments(created.id, input.attachmentIds);
+        const withAttachments = await this.entryRepo.getEntryById(created.id);
+        if (withAttachments) result = withAttachments;
+      } catch (err) {
+        this.logger.warn('Failed to attach entry attachments (non-fatal)', {
+          entryId: created.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
 
     // 尝试关闭 Turn（user entry 已是终态；同 turn 内无 running invoke 时关闭）
