@@ -267,6 +267,8 @@ export function mapEntryDTO(dto: EntryDTO): LocalMessage {
     ...(dto.metadata?.invokeStatus === 'failed' || dto.metadata?.invokeStatus === 'aborted' ? { invokeStatus: dto.metadata.invokeStatus } : {}),
     // yieldTargets 双用途：yield 条目的传递目标 + user entry 的发言石目标（传递行数据源）
     yieldTargets: dto.yieldTargets ?? undefined,
+    // F20260913ctlv 终审修复：附件透出（与 mapMessageDTO 的 atts 映射同款）
+    ...(dto.attachments && { atts: dto.attachments }),
   }
 }
 

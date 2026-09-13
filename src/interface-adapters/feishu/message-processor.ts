@@ -163,7 +163,13 @@ export class FeishuMessageProcessor {
     // yieldTargets = 发言石目标（前端 user 氙底「→ 目标」传递行数据源）
     this.deps.messageBroadcaster.broadcastEvent(ids.conversationId, {
       event: "entry.user",
-      data: { entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: ids.senderId, body: payload.bodyText, createdAt: userEntry.createdAt, yieldTargets: talkingStonePassedTo, source: "feishu" },
+      // senderName（终审修复）：飞书实时消息身份链——前端 remoteFallbackName 依赖 source，
+      // senderName 透传避免实时窗口显示「我」；attachments 带附件消息实时不丢缩略图
+      data: {
+        entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: ids.senderId, body: payload.bodyText, createdAt: userEntry.createdAt, yieldTargets: talkingStonePassedTo, source: "feishu",
+        ...(senderDisplayName ? { senderName: senderDisplayName } : {}),
+        ...(userEntry.attachments && userEntry.attachments.length > 0 && { attachments: userEntry.attachments }),
+      },
     });
 
     // 异步触发 Agent 派发（多模态 Phase 2：带附件注入载荷——图片真图 + 文档文本块）

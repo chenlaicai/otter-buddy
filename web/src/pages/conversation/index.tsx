@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { PanelLeft, PanelRight } from 'lucide-react'
 import '../../styles/globals.css'
 
-import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask } from '../../lib/mappers'
+import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask, LocalAttachment } from '../../lib/mappers'
 
 import { mapOtterDTO, mapConversationDTO, mapEntryDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
 import { isInFlight, upsertMessage, insertBySeq, upsertTerminalMessage, insertCenteredByTs } from '../../lib/message-stream'
@@ -396,12 +396,15 @@ function ConversationPage() {
     // F20260913ctlv 彻底切换：事件分发器——单通道（entry.* / invoke.*；message.* 已退役）
     const handlers: Record<string, (data: Record<string, unknown>) => void> = {
       'entry.user': (data) => {
-        const d = data as { entryId: string; sequenceNum?: number; senderId?: string; body?: string; createdAt?: string; yieldTargets?: string[] }
+        const d = data as { entryId: string; sequenceNum?: number; senderId?: string; body?: string; createdAt?: string; yieldTargets?: string[]; senderName?: string; attachments?: LocalAttachment[] }
         const userMsg: LocalMessage = {
           id: d.entryId, st: 'user', si: d.senderId || 'user',
           content: d.body ?? '', status: 'completed', seq: d.sequenceNum, ts: d.createdAt || nowTs(), dur: null,
           // F20260913ctlv 收尾：yieldTargets = 发言石目标（user 气泡「→ 目标」传递行）
           yieldTargets: d.yieldTargets ?? null,
+          // 终审修复：senderName（IM 用户身份链，防实时窗口显示「我」）+ atts（附件实时投影）
+          sn: d.senderName || undefined,
+          ...(d.attachments && d.attachments.length > 0 && { atts: d.attachments }),
         }
         let added = false
         batchUpdateMessages(activeId!, (current) => {
@@ -720,7 +723,7 @@ function ConversationPage() {
         'entry.user': (data) => {
           // F20260913ctlv 补漏：POST 流收到的 entry.user = 后端确认落库——替换 tmp 气泡
           //（真实 entryId + seq 接管排序；常驻通道同款去重逻辑幂等）
-          const d = data as { entryId: string; sequenceNum?: number; senderId?: string; body?: string; createdAt?: string; yieldTargets?: string[] }
+          const d = data as { entryId: string; sequenceNum?: number; senderId?: string; body?: string; createdAt?: string; yieldTargets?: string[]; senderName?: string; attachments?: LocalAttachment[] }
           batchUpdateMessages(activeId!, (current) => {
             if (current.some(m => m.id === d.entryId)) return current
             const realMsg: LocalMessage = {
@@ -728,13 +731,19 @@ function ConversationPage() {
               content: d.body ?? '', status: 'completed', seq: d.sequenceNum, ts: d.createdAt || nowTs(), dur: null,
               // F20260913ctlv 收尾：yieldTargets = 发言石目标（user 气泡「→ 目标」传递行）
               yieldTargets: d.yieldTargets ?? null,
+              // 终审修复：载荷可能不带 attachments（发送时未带附件）——保留 tmp 已有 atts，
+              // 服务端带回则覆盖（tmp 本地预览字段被剥离前先合并服务端投影）
+              ...(d.attachments && d.attachments.length > 0 ? { atts: d.attachments } : {}),
             }
             const tmpIdx = [...current].reverse().findIndex(m =>
               m.id.startsWith('tmp-') && m.st === 'user' && m.content === realMsg.content)
             if (tmpIdx !== -1) {
               const idx = current.length - 1 - tmpIdx
               const next = [...current]
-              next[idx] = realMsg
+              // 终审修复：服务端未回附件投影时保留 tmp 附件（本地已上传完成的服务端 id +
+              // 预览 URL——刷新后历史路径由 entries DTO 补齐）
+              const tmpMsg = current[idx]!
+              next[idx] = realMsg.atts ? realMsg : { ...realMsg, atts: tmpMsg.atts }
               return next
             }
             return [...current, realMsg]

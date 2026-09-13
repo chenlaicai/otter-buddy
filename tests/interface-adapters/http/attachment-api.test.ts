@@ -352,15 +352,16 @@ describe("sendMessage 附件前置校验 + FTS 时序（R3）", () => {
     expect(res.status).toBe(400);
   });
 
-  it("R3 FTS 时序：带附件消息落库后 messages_fts.body 含附件占位", async () => {
+  it("R3 FTS 时序：带附件消息 attachmentIds 传 SendEntry（终审修复：attach 下沉 usecases）", async () => {
     const res = await postMessage(uploadedImageIds.slice(0, 1));
     expect(res.status).toBe(200);
     await res.text();
 
-    // F20260913ctlv 彻底切换：messages 表停写——附件语义 = entry 收到 attachmentIds + 关联挂载
+    // F20260913ctlv 终审修复：attach 下沉 sendUserEntry 内部（三入口统一）——
+    // controller 不再手动调 attachEntryAttachments，attachmentIds 即绑定凭证
     expect(sendEntryCalls).toHaveLength(1);
     expect(sendEntryCalls[0]!.attachmentIds).toEqual(uploadedImageIds.slice(0, 1));
-    expect(attachCalls).toHaveLength(1);
-    expect(attachCalls[0]!.attachmentIds).toEqual(uploadedImageIds.slice(0, 1));
+    // controller 手动 attach 已删（下沉后冗余）——attachCalls 保持空
+    expect(attachCalls).toHaveLength(0);
   });
 });

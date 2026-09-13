@@ -650,7 +650,7 @@ export class PiSessionFactory implements AgentGateway {
     return await otterInvokeStorage.run(
       // F20260826mwrd C1：otterId 进 store——tool_call handler 查 halt 标用
       { otterPromptConfig, identityPrefix, otterId, displayName },
-      // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- F20260908rlcp: pool hit/miss 两条路径 + startup cursor push；F20260815rstrt pendingRestart 检查增加语句数；F20260831aksp 守卫拦截 hook 增加分支
+      // eslint-disable-next-line max-statements, complexity -- F20260908rlcp: pool hit/miss 两条路径 + startup cursor push；F20260815rstrt pendingRestart 检查增加语句数；F20260831aksp 守卫拦截 hook 增加分支
       async () => {
         // 1. session 已由 _acquirePooled 提供（池化：命中复用 / 未命中冷启动入池）
         this.logger.debug('[execute] Using pooled session', { otterId, sessionKey });
@@ -909,7 +909,10 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /** F20260908rlcp→F20260911pspl 合流：向运行中的 session 队列追加 followUp 消息。
-   *  Part A signal-router 依赖（followUp 注入语义）。 */
+   *  Part A signal-router 依赖（followUp 注入语义）。
+   *  双路径设计（终审 B4）：本方法从 poolMeta 取池级 session（idle 期队列追加，
+   *  SDK 原生排队）；steerSession 走 activeSessions 前缀扫描（invoke 运行期实时
+   *  打断）——两条注入路径的 session 取源不同是设计意图，非遗漏 */
   followUp(otterId: string, text: string): boolean {
     const pooled = this.poolMeta.get(otterId);
     if (!pooled || !pooled.session.isStreaming) return false;

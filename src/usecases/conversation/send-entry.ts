@@ -171,6 +171,16 @@ export class SendEntry {
 
     const created = await this.entryRepo.createEntryAtomic(entry);
 
+    // F20260913ctlv 终审修复：附件绑定下沉 usecases（三入口统一——此前仅 Web 路径
+    // 由 controller 手动 attach，IM 路径 attachmentIds 传入但从未消费，附件悬空）。
+    // attach 后重查，返回的 entry 带 attachments 投影（SSE 载荷数据源）
+    let result: Entry = created;
+    if (input.attachmentIds && input.attachmentIds.length > 0) {
+      await this.attachEntryAttachments(created.id, input.attachmentIds);
+      const withAttachments = await this.entryRepo.getEntryById(created.id);
+      if (withAttachments) result = withAttachments;
+    }
+
     // 尝试关闭 Turn（user entry 已是终态；同 turn 内无 running invoke 时关闭）
     await tryCloseTurn(this.conversationRepo, turn.id, { invokeRepo: this.invokeRepo, entryRepo: this.entryRepo });
 
@@ -182,7 +192,7 @@ export class SendEntry {
       talkingStonePassedTo,
     });
 
-    return { entry: created, talkingStonePassedTo, mentionFeedback };
+    return { entry: result, talkingStonePassedTo, mentionFeedback };
   }
 
   /** 组装 user entry metadata：显式 metadata / senderDisplayName / injectionMode 三者合并（可同存） */

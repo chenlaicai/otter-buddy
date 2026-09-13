@@ -118,9 +118,10 @@ export class WeixinMessageProcessor {
     });
 
     // 广播到 Web 端（实时同步；entry.user 事件，前端单通道消费）
+    // senderName/attachments（终审修复）：微信侧同飞书——身份链 + 附件实时投影
     this.deps.messageBroadcaster.broadcastEvent(conversation.id, {
       event: "entry.user",
-      data: { entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: fromUserId, body: bodyText, createdAt: userEntry.createdAt, yieldTargets: talkingStonePassedTo, source: "weixin" },
+      data: this.buildUserEntryPayload(userEntry, fromUserId, bodyText, talkingStonePassedTo, "weixin"),
     });
 
     // Agent 派发用原始 body（不含降级提示——运维文本不进 agent 上下文，检视建议 1；
@@ -285,5 +286,21 @@ export class WeixinMessageProcessor {
   private joinNotes(notes: string[], extra: string | null): string | null {
     const all = extra ? [...notes, extra] : notes;
     return all.length > 0 ? all.join("\n") : null;
+  }
+
+  /** F20260913ctlv 终审修复：entry.user 载荷组装（身份链 + 附件投影；飞书/微信同构） */
+  private buildUserEntryPayload(
+    entry: { id: string; sequenceNum: number; createdAt: string; senderName: string; attachments?: Array<{ id: string }> | null },
+    senderId: string,
+    body: string,
+    yieldTargets: string[],
+    source: "weixin",
+  ): Record<string, unknown> {
+    return {
+      entryId: entry.id, sequenceNum: entry.sequenceNum, senderId, body, createdAt: entry.createdAt,
+      yieldTargets, source,
+      ...(entry.senderName ? { senderName: entry.senderName } : {}),
+      ...(entry.attachments && entry.attachments.length > 0 && { attachments: entry.attachments }),
+    };
   }
 }

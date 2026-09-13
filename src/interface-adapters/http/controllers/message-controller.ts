@@ -197,19 +197,21 @@ export class MessageController {
       });
 
       /** 附件关联（多模态）：user entry 挂附件（内存载荷仅降级直连链用） */
-      if (body.attachmentIds && body.attachmentIds.length > 0) {
-        await this.sendEntry!.attachEntryAttachments(userEntry.id, body.attachmentIds).catch((err: unknown) => {
-          this.logger.warn('Failed to attach entry attachments', { entryId: userEntry.id, error: err instanceof Error ? err.message : String(err) });
-        });
-      }
+      // F20260913ctlv 终审修复：附件绑定已下沉 sendUserEntry（三入口统一）——
+      // 此处手动 attach 删除（冗余）；返回的 userEntry 已带 attachments 投影
 
       /** 广播 entry 事件（user 气泡，前端 entry 通道消费；旧 message 广播已退役）。
-       *  yieldTargets = 发言石目标（前端时间线 user 氙底「→ 目标」传递行数据源） */
+       *  yieldTargets = 发言石目标（前端时间线 user 氙底「→ 目标」传递行数据源）
+       *  attachments/senderName（终审修复）：带附件消息实时不丢缩略图；显示名防误示 */
       if (this.messageBroadcaster) {
         this.messageBroadcaster.broadcastEvent(conversationId, {
           event: "entry.user",
           // source 显式标 web：IM 出站通道消费 entry.user 时的防回环闸（只投 Web 来源）
-          data: { entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: body.senderId, body: body.body, createdAt: userEntry.createdAt, yieldTargets: talkingStonePassedTo, source: "web" },
+          data: {
+            entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: body.senderId, body: body.body, createdAt: userEntry.createdAt, yieldTargets: talkingStonePassedTo, source: "web",
+            ...(userEntry.senderName ? { senderName: userEntry.senderName } : {}),
+            ...(userEntry.attachments && userEntry.attachments.length > 0 && { attachments: userEntry.attachments }),
+          },
         });
       }
 

@@ -70,5 +70,17 @@ function toEntryDTO(e: Entry): EntryDTO {
     contextTokensMax: e.contextTokensMax,
     createdAt: e.createdAt,
     completedAt: e.completedAt,
+    // F20260913ctlv 终审修复：附件读出链补通（repo attachAttachments 已填充 Entry 实体）
+    ...(e.attachments && e.attachments.length > 0 && {
+      attachments: e.attachments.map(a => ({
+        id: a.id,
+        kind: a.kind,
+        originalName: a.originalName,
+        mimeType: a.mimeType,
+        sizeBytes: a.sizeBytes,
+        width: a.width,
+        height: a.height,
+      })),
+    }),
   };
 }

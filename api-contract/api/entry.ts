@@ -6,6 +6,17 @@
 export type EntryTypeDTO = "speak" | "user" | "invoke_start" | "invoke_end" | "yield" | "system";
 export type EntryStatusDTO = "streaming" | "speaking" | "completed" | "failed" | "aborted";
 
+/** 附件引用 DTO（多模态 Phase 1；终审修复：entry 读出链透出，与 MessageDTO.atts 同形） */
+export interface EntryAttachmentDTO {
+  id: string;
+  kind: "image" | "document" | "audio" | "video";
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  width?: number | null;
+  height?: number | null;
+}
+
 /** 时间线条目 DTO */
 export interface EntryDTO {
   id: string;
@@ -26,6 +37,8 @@ export interface EntryDTO {
   contextTokensMax: number | null;
   createdAt: string;
   completedAt: string | null;
+  /** 附件引用（仅 speak/user 条目；非空时携带——entry_attachments JOIN 投影） */
+  attachments?: EntryAttachmentDTO[];
 }
 
 /** GET /api/conversations/:id/entries 响应 */

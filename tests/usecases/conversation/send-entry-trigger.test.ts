@@ -27,6 +27,10 @@ function makeRepos() {
       return entry;
     }),
     getEntryById: vi.fn(async (id: string) => entries.get(id) ?? null),
+    attachAttachment: vi.fn(async (entryId: string, attachmentId: string) => {
+      const e = entries.get(entryId);
+      if (e) e.attachments = [...(e.attachments ?? []), { id: attachmentId, kind: "image", originalName: "a.png", mimeType: "image/png", sizeBytes: 1, width: null, height: null, caption: null }];
+    }),
     getEntriesByTurnId: vi.fn(async () => [...entries.values()]),
     updateEntryMetadata: vi.fn(async () => {}),
     getMaxSequenceNum: vi.fn(async () => entries.size),
@@ -53,6 +57,11 @@ function makeSendEntry(resolveDeps?: ResolveTargetsDeps) {
   return { sendEntry, repos };
 }
 
+/** 终审修复测试用：独立实例（避免与上例 mock 状态串扰） */
+function makeRepos2() {
+  return makeSendEntry();
+}
+
 describe("sendUserEntry 点火依据落库（F20260913ctlv 补漏）", () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
@@ -71,6 +80,34 @@ describe("sendUserEntry 点火依据落库（F20260913ctlv 补漏）", () => {
     expect(entry.yieldTargets).toEqual(["otter-big"]);
     expect(repos.entries.get(entry.id)?.yieldTargets).toEqual(["otter-big"]);
   });
+  it("F20260913ctlv 终审修复：attachmentIds 下沉 attach + 重查返回带投影（IM 路径附件不再悬空）", async () => {
+    const { sendEntry, repos } = makeSendEntry();
+    const { entry } = await sendEntry.sendUserEntry({
+      conversationId: "conv-1",
+      senderId: "user-1",
+      body: "带图",
+      source: "feishu",
+      talkingStonePassedTo: ["otter-big"],
+      attachmentIds: ["att-1", "att-2"],
+    });
+
+    // attach 被调用（每个附件一次，带序号语义由 repo 承载）
+    expect(repos.entryRepo.attachAttachment).toHaveBeenCalled();
+    // 返回的 entry 重查后带 attachments 投影（SSE 载荷数据源）
+    expect(entry.attachments?.map(a => a.id)).toEqual(["att-1", "att-2"]);
+  });
+
+  it("F20260913ctlv 终审修复：无附件时不重查（返回原子创建结果）", async () => {
+    const { sendEntry } = makeRepos2();
+    const { entry } = await sendEntry.sendUserEntry({
+      conversationId: "conv-1",
+      senderId: "user-1",
+      body: "纯文本",
+      source: "web",
+    });
+    expect(entry.attachments).toBeUndefined();
+  });
+
 
   it("无显式目标 + resolveDeps 注入 → 解析结果同样落 entry.yieldTargets", async () => {
     const resolveDeps = {

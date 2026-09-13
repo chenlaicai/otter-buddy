@@ -67,8 +67,7 @@ export function mapToSSEEvent(e: AgentStreamEvent): SSEEvent | null {
   }
 }
 
-/** F20260913ctlv：Pi 事件 → InvokeEvent 映射（持久化到 invoke_events 表，Session 弹窗数据源）。
- *  与 mapToMessageEventInput 平行——旧表保留（兼容期），新表是展示真相源。 */
+/** F20260913ctlv：Pi 事件 → InvokeEvent 映射（持久化到 invoke_events 表，Session 弹窗数据源）。 */
 // eslint-disable-next-line complexity -- 事件类型分发表，拆分降低可读性
 export function mapToInvokeEventInput(
   e: AgentStreamEvent,
