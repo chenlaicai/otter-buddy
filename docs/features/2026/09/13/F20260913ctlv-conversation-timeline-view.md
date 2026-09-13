@@ -72,6 +72,10 @@ InvokeRegister 寄存器，session-pool.ts 删除。整合细节见 git（merge 
 退役（D2）、SDK followUp 原生排队（D3）、档位移除（D4）、中断纯 abort（D5）、
 steer 恢复侧去重（D6）、三因子驱逐（D7）、防重单层化（D8）。
 
+**随退役功能删除的测试**（历史文档快照不回改，指针悬空归 ratchet 管辖——
+2026-09-13 终审定案）：F2026090211v4/F20260902u5tr 的 signal-trail 测试、
+F2026090326c5 的 K2/K3 收件箱预览测试、F20260903ah68 的 GateBanner 测试。
+
 ### 前身二：F20260909smsp speak 消息模型重构（9/9 拍板）
 
 **问题**：一次 invoke 的多次 speak 全 append 为同一 message 的 segments，

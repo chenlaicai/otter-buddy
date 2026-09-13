@@ -11,7 +11,7 @@ status: implemented
 change_type: feature
 tags: [signal-protocol, dispatch-ledger, signal-trail-ui, sgp2-s1b]
 modules: [src/usecases/conversation/, src/frameworks/db/conversation/, web/src/lib/, web/src/pages/conversation/]
-capability_test: "n/a: 功能已被 F20260908rlcp 退役（signal-trail 端点与 query-signal-trail 删除），原测试文件随退役移除"
+capability_test: tests/usecases/conversation/query-signal-trail.test.ts
 created_in_conversation: 52bfdd91-a61e-4323-b1f7-1fe3daaadc32
 causal_links:
   from:
