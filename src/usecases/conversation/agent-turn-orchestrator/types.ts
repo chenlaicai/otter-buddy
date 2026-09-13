@@ -1,7 +1,7 @@
 /**
  * AgentTurnOrchestrator 类型定义
  *
- * F20260910ctlv 彻底切换：turn 生命周期从 messages 行剥离到 invokes 行。
+ * F20260913ctlv 彻底切换：turn 生命周期从 messages 行剥离到 invokes 行。
  * - TurnInput.invokeId 必填（invoke 是行动主体，messageId 退役）
  * - TurnCallbacks 全部 invoke 化（completeMessage/failMessage/... 已删除）
  */
@@ -37,11 +37,11 @@ export interface AttemptResult {
   toolCallCount: number;
 }
 
-/** 发言轮输入（F20260910ctlv：invokeId 必填——invoke 是行动主体） */
+/** 发言轮输入（F20260913ctlv：invokeId 必填——invoke 是行动主体） */
 export interface TurnInput {
   otterId: string;
   conversationId: string;
-  /** F20260910ctlv：invoke ID（状态机主体。yield 工具置 completed = 成功信号） */
+  /** F20260913ctlv：invoke ID（状态机主体。yield 工具置 completed = 成功信号） */
   invokeId: string;
   userMessageContent: string;
   /** F20260818cbkr：用户原始消息。retry 会覆写 userMessageContent 为系统提醒文案，熔断摘要必须取此字段 */
@@ -65,7 +65,7 @@ export interface CircuitBreakInfo {
   toolCallCount: number;
 }
 
-/** 发言轮结果（F20260910ctlv：invokeId 主体，messageId 退役） */
+/** 发言轮结果（F20260913ctlv：invokeId 主体，messageId 退役） */
 export interface TurnResult {
   invokeId: string;
   duration: number;
@@ -100,7 +100,7 @@ export interface HealingEventInput {
   context?: Record<string, unknown>;
 }
 
-/** TurnCallbacks - orchestrator 回调 adapter 的接口（F20260910ctlv：全部 invoke 化） */
+/** TurnCallbacks - orchestrator 回调 adapter 的接口（F20260913ctlv：全部 invoke 化） */
 export interface TurnCallbacks {
   /** 查询 invoke 状态（成功检测判据：status 离开 running = 已 yield） */
   getInvokeById(invokeId: string): Promise<{ status: string; toolCallCount: number; talkingStonePassedTo?: string[] | null } | null>;
@@ -125,7 +125,7 @@ export interface TurnCallbacks {
   isSessionCircuitBreakCreated(otterId: string): Promise<boolean>;
   /** F20260818cbkr：熔断是否可用。上限/二级判定依赖 healing_events 状态载体，repo 缺失时禁用并降级为旧 abort 语义 */
   isCircuitBreakerEnabled(): boolean;
-  /** 发送系统消息（F20260910ctlv：只写 entries + entry.system SSE，实现方负责） */
+  /** 发送系统消息（F20260913ctlv：只写 entries + entry.system SSE，实现方负责） */
   sendSystem(conversationId: string, body: string): Promise<{ id: string; body: string | null; sequenceNum: number }>;
   /** 查询 otter */
   getOtterById(otterId: string): Promise<{ name: string; type?: string } | null>;

@@ -59,7 +59,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       if (bodyError) return errorResponse(bodyError);
 
       try {
-        // F20260910ctlv 彻底切换：唯一路径——speak entry（entries 表，獭气泡唯一来源）。
+        // F20260913ctlv 彻底切换：唯一路径——speak entry（entries 表，獭气泡唯一来源）。
         // 旧 speak message（messages 表）路径已删除。
         const speakEntry = await ctx.client.conversation.entry.createSpeakEntry({
           conversationId: ctx.conversationId,
@@ -85,7 +85,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
   };
 }
 
-/** F20260910ctlv 彻底切换：消息非空校验——有 speak entry 即视为有内容（lastSpeakMessageId = entry id） */
+/** F20260913ctlv 彻底切换：消息非空校验——有 speak entry 即视为有内容（lastSpeakMessageId = entry id） */
 async function validateMessageHasContent(ctx: ToolContext): Promise<string | null> {
   if (!ctx.currentInvokeId) return "[错误] 系统错误：当前 invoke ID 未设置，无法交棒。";
   if (ctx.lastSpeakMessageId) return null;
@@ -126,7 +126,7 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
       if (error) return errorResponse(error);
 
       try {
-        // F20260910ctlv 彻底切换：唯一路径——yield entry + invoke_end entry + invoke 置 completed。
+        // F20260913ctlv 彻底切换：唯一路径——yield entry + invoke_end entry + invoke 置 completed。
         // speak entry 创建即 completed，无需完结动作。旧 startSpeaking 路径已删除。
         const yieldResult = await ctx.client.conversation.entry.createYieldEntry({
           conversationId: ctx.conversationId,
@@ -314,7 +314,7 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
       });
       /** 创建后自动加入当前对话参与者 */
       const joined = await ctx.client.conversation.participant.join(ctx.conversationId, otter.id);
-      /** F20260910ctlv：进场 system entry 广播（前端时间线居中系统条目实时可见）。
+      /** F20260913ctlv：进场 system entry 广播（前端时间线居中系统条目实时可见）。
        *  joined 可能为 void（旧 mock/降级装配）——广播是增强，不阻断创建流程 */
       if (joined?.systemEntry) {
         ctx.emitEvent?.({
@@ -379,7 +379,7 @@ async function isSelfRestartLoop(ctx: ToolContext, healingRepo?: HealingEventRep
   });
   if (!selfRestartCreated) return false;
   // 用户消息介入检测：查询失败或客户端缺方法时降级为 false（维持拦截，保守）。
-  // F20260910ctlv 收尾批3：数据源切 entries（最新 user entry；messages 停写）
+  // F20260913ctlv 收尾批3：数据源切 entries（最新 user entry；messages 停写）
   try {
     const lastUsers = await ctx.client.conversation.entry.getEntries(ctx.conversationId, { entryType: 'user', limit: 1 });
     const last = lastUsers[0];

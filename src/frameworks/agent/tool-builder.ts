@@ -28,12 +28,12 @@ export interface InvokeRegister {
   dispatchWarningShown: boolean;
   orchestrationWarningShown: boolean;
   pendingRestart?: { summary?: string; modelAlias?: string };
-  /** F20260910ctlv：当前 invoke ID（invoke 级上下文——池命中不刷新则第二次 invoke 复用旧 ID，
+  /** F20260913ctlv：当前 invoke ID（invoke 级上下文——池命中不刷新则第二次 invoke 复用旧 ID，
    *  speak/yield entry 会挂错 invoke；随寄存器 invoke 入口重置） */
   currentInvokeId?: string;
-  /** F20260910ctlv：SSE 发射通道（工具层发 entry.yield 等事件用；invoke 级注入） */
+  /** F20260913ctlv：SSE 发射通道（工具层发 entry.yield 等事件用；invoke 级注入） */
   emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
-  /** F20260910ctlv：当前打开的 speak entry ID（speak/yield 检测「本轮已发言」用；
+  /** F20260913ctlv：当前打开的 speak entry ID（speak/yield 检测「本轮已发言」用；
    *  新 invoke 重置为 undefined） */
   lastSpeakEntryId?: string;
 }
@@ -53,7 +53,7 @@ export function createInvokeRegister(): InvokeRegister {
 }
 
 /** invoke 入口重置（新 invoke 开始 = 寄存器回初值；pendingRestart 由消费点清除）。
- *  F20260910ctlv 扩展：currentInvokeId/emitEvent 每次刷新（池命中不刷新则第二次
+ *  F20260913ctlv 扩展：currentInvokeId/emitEvent 每次刷新（池命中不刷新则第二次
  *  invoke 复用旧 invoke ID，speak/yield entry 挂错 invoke）；lastSpeakEntryId
  *  重置 undefined（新 invoke 从零开始计发言）。 */
 export function resetInvokeRegister(reg: InvokeRegister, messageId?: string, invokeDeps?: { currentInvokeId?: string; emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void }): void {
@@ -125,7 +125,7 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
     set orchestrationWarningShown(v: boolean) { register.orchestrationWarningShown = v; },
     get pendingRestart() { return register.pendingRestart; },
     set pendingRestart(v: { summary?: string; modelAlias?: string } | undefined) { register.pendingRestart = v; },
-    // F20260910ctlv：invoke 级字段 getter 化（与 #894 模式合流——池命中经 resetInvokeRegister 刷新）
+    // F20260913ctlv：invoke 级字段 getter 化（与 #894 模式合流——池命中经 resetInvokeRegister 刷新）
     get currentInvokeId() { return register.currentInvokeId; },
     set currentInvokeId(v: string | undefined) { register.currentInvokeId = v; },
     get emitEvent() { return register.emitEvent; },

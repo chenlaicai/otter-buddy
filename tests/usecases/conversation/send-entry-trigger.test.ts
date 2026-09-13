@@ -1,5 +1,5 @@
 /**
- * F20260910ctlv 补漏回归：sendUserEntry 的点火依据落库测试。
+ * F20260913ctlv 补漏回归：sendUserEntry 的点火依据落库测试。
  *
  * test09 阻断问题回归锚：user entry 必须把解析后的 talkingStonePassedTo 写进
  * entry.yieldTargets——信号路由（SignalRouter.loadSignalView）读此字段点火。
@@ -53,7 +53,7 @@ function makeSendEntry(resolveDeps?: ResolveTargetsDeps) {
   return { sendEntry, repos };
 }
 
-describe("sendUserEntry 点火依据落库（F20260910ctlv 补漏）", () => {
+describe("sendUserEntry 点火依据落库（F20260913ctlv 补漏）", () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
   it("显式目标落 entry.yieldTargets（信号路由点火依据）", async () => {

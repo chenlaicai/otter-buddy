@@ -192,7 +192,7 @@ describe('upsertTerminalMessage（F20260805abpp 第四轮检视 S4-1：终态事
   })
 })
 
-/** F20260910ctlv：invoke 边界/yield 居中条目插入（无 seq，按 ts 时序） */
+/** F20260913ctlv：invoke 边界/yield 居中条目插入（无 seq，按 ts 时序） */
 describe('insertCenteredByTs', () => {
   const base = [
     msg({ id: 'm1', ts: '2026-09-10T06:00:00Z', seq: 1 }),
@@ -203,7 +203,7 @@ describe('insertCenteredByTs', () => {
     const next = insertCenteredByTs(withTmp, msg({ id: 'b1', ts: '2026-09-10T06:00:20Z', entryType: 'invoke_start' }))
     expect(next.map(m => m.id)).toEqual(['m1', 'm2', 'b1', 'tmp-1'])
   })
-  it('F20260910ctlv 实测修复：有 ts 的乐观 tmp 参与比较——后到的 invoke_start 排在用户发言之后', () => {
+  it('F20260913ctlv 实测修复：有 ts 的乐观 tmp 参与比较——后到的 invoke_start 排在用户发言之后', () => {
     const withTmp = [...base, msg({ id: 'tmp-1', ts: '2026-09-10T06:00:15Z', seq: undefined })]
     const next = insertCenteredByTs(withTmp, msg({ id: 'b1', ts: '2026-09-10T06:00:20Z', entryType: 'invoke_start' }))
     expect(next.map(m => m.id)).toEqual(['m1', 'm2', 'tmp-1', 'b1'])

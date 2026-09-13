@@ -28,7 +28,7 @@ export interface ConversationRepository {
   // 对话参与者
   getOtterIds(conversationId: string): Promise<string[]>;
 
-  // Turn 管理（F20260910ctlv 批4c：消息生命周期/查询接口随 messages 表 drop 退役，时间线读写走 EntryRepository）
+  // Turn 管理（F20260913ctlv 批4c：消息生命周期/查询接口随 messages 表 drop 退役，时间线读写走 EntryRepository）
   createTurn(turn: Turn): Promise<void>;
   getActiveTurn(conversationId: string): Promise<Turn | null>;
   /** 按 id 查 turn（不论 status，用于 markBatchRead 在 turn 关闭后反查 turn_number） */

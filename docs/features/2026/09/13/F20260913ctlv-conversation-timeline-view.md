@@ -1,5 +1,5 @@
 ---
-id: F20260910ctlv
+id: F20260913ctlv
 title: 对话视图重构：时间线（Timeline）+ 獭实时状态面板 + Session 弹窗
 doc_type: feature
 
@@ -37,7 +37,7 @@ intent:
     type: behavior_check
 ---
 
-# F20260910ctlv: 对话视图重构——时间线 + 獭实时状态面板 + Session 弹窗
+# F20260913ctlv: 对话视图重构——时间线 + 獭实时状态面板 + Session 弹窗
 
 ## 前身与演进（F20260908rlcp + F20260909smsp 收编，2026-09-13 编号合拢）
 

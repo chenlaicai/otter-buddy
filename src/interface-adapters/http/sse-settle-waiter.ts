@@ -2,8 +2,8 @@ import type { EntryRepository } from "@usecases/conversation/entry-repository";
 import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
 import type { Logger } from "@usecases/ports/logger";
 
-/** K3（F20260903k23 → F20260908rlcp → F20260910ctlv）：POST SSE 等触发信号产出终态的超时兜底与轮询。
- *  F20260910ctlv 彻底切换补漏：判据从 messages 行改到 invokes 行——
+/** K3（F20260903k23 → F20260908rlcp → F20260913ctlv）：POST SSE 等触发信号产出终态的超时兜底与轮询。
+ *  F20260913ctlv 彻底切换补漏：判据从 messages 行改到 invokes 行——
  *  触发 entry 的 tsp 目标獭是否还有 running invoke（无 → 本轮产出已终态）。
  *  30s 超时覆盖正常链路；更长排队由常驻 GET SSE 承载流式。 */
 export const SSE_SETTLE_TIMEOUT_MS = 30_000;

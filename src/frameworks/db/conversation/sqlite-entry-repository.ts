@@ -110,7 +110,7 @@ export class SqliteEntryRepository implements EntryRepository {
     })();
   }
 
-  /** F20260910ctlv 彻底切换：原子序号插入（INSERT ... SELECT MAX+1，消灭读后写竞态） */
+  /** F20260913ctlv 彻底切换：原子序号插入（INSERT ... SELECT MAX+1，消灭读后写竞态） */
   async createEntryAtomic(entry: Entry): Promise<Entry> {
     const insertSql = `
       INSERT INTO entries (
@@ -139,7 +139,7 @@ export class SqliteEntryRepository implements EntryRepository {
     return created ?? entry;
   }
 
-  /** F20260910ctlv 彻底切换：原子序号批量插入（事务内逐条 MAX+1） */
+  /** F20260913ctlv 彻底切换：原子序号批量插入（事务内逐条 MAX+1） */
   async createEntriesAtomic(entries: Entry[]): Promise<Entry[]> {
     if (entries.length === 0) return [];
     const insertSql = `
@@ -195,7 +195,7 @@ export class SqliteEntryRepository implements EntryRepository {
     this.upsertEntryFts(entryId, body);
   }
 
-  /** F20260910ctlv 信号销账：consumed 标记写 metadata */
+  /** F20260913ctlv 信号销账：consumed 标记写 metadata */
   async updateEntryMetadata(entryId: string, metadata: EntryMetadata): Promise<void> {
     this.db.prepare("UPDATE entries SET metadata = ? WHERE id = ?").run(JSON.stringify(metadata), entryId);
   }
@@ -250,7 +250,7 @@ export class SqliteEntryRepository implements EntryRepository {
     }
   }
 
-  /** F20260910ctlv 彻底切换：按 turn 查 entries（turn 聚合目标/self-yield 护栏数据源） */
+  /** F20260913ctlv 彻底切换：按 turn 查 entries（turn 聚合目标/self-yield 护栏数据源） */
   async getEntriesByTurnId(turnId: string, entryType?: EntryType): Promise<Entry[]> {
     const sql = entryType
       ? "SELECT * FROM entries WHERE turn_id = ? AND entry_type = ? ORDER BY sequence_num ASC"
@@ -290,7 +290,7 @@ export class SqliteEntryRepository implements EntryRepository {
   }
 
   /**
-   * F20260910ctlv 彻底切换：獭未读注入数据源——entries 表。
+   * F20260913ctlv 彻底切换：獭未读注入数据源——entries 表。
    * 游标：conversation_participants.last_read_seq（语义切到 entries.sequence_num）。
    * 注入内容：user / system / speak entries（排除自己）——未终态条目排除。
    */
@@ -321,7 +321,7 @@ export class SqliteEntryRepository implements EntryRepository {
     return row.max_seq ?? 0;
   }
 
-  /** F20260910ctlv 批4a：metadata.externalId(s) 查重（招聘桥接入站去重） */
+  /** F20260913ctlv 批4a：metadata.externalId(s) 查重（招聘桥接入站去重） */
   async findByExternalId(externalId: string): Promise<Entry | null> {
     const row = this.db.prepare(`
       SELECT * FROM entries WHERE

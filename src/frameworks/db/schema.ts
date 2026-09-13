@@ -847,7 +847,7 @@ function createAttachmentTables(db: Database.Database): void {
   `);
 }
 
-/** Invoke 表：invokes + invoke_events（F20260910ctlv） */
+/** Invoke 表：invokes + invoke_events（F20260913ctlv） */
 function createInvokeTables(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS invokes (
@@ -888,7 +888,7 @@ function createInvokeTables(db: Database.Database): void {
   `);
 }
 
-/** Entries 表（F20260910ctlv：取代 messages + message_segments） */
+/** Entries 表（F20260913ctlv：取代 messages + message_segments） */
 function createEntryTables(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS entries (
@@ -936,7 +936,7 @@ function createEntryTables(db: Database.Database): void {
   `);
 }
 
-/** Entries 全文搜索（F20260910ctlv：取代 messages_fts） */
+/** Entries 全文搜索（F20260913ctlv：取代 messages_fts） */
 function createEntryFtsTable(db: Database.Database): void {
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(

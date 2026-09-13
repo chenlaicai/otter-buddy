@@ -11,7 +11,7 @@ import { streamEvents } from "../sse-streamer";
 import type { SSEEvent } from "@contract/sse/events";
 
 /**
- * F20260910ctlv Phase 4：invoke 只读查询端点。
+ * F20260913ctlv Phase 4：invoke 只读查询端点。
  * Session 弹窗（invoke 列表 + 流式过程展开）与右侧栏状态面板刷新的数据源。
  * 只读——invoke 生命周期写入由 agent-invoker/orchestrator 负责（Phase 2 已建）。
  */
@@ -20,11 +20,11 @@ export class InvokeController {
   constructor(
     private readonly invokeRepo: InvokeRepository,
     private readonly logger: Logger,
-    /** F20260910ctlv 彻底切换：invoke 中止（AgentInvoker） */
+    /** F20260913ctlv 彻底切换：invoke 中止（AgentInvoker） */
     private readonly agentInvoker?: AgentInvoker,
-    /** F20260910ctlv 彻底切换：重试调度链（链引擎） */
+    /** F20260913ctlv 彻底切换：重试调度链（链引擎） */
     private readonly dispatchChainEngine?: DispatchChainEngine,
-    /** F20260910ctlv 彻底切换：重试 SSE 流订阅（broadcaster） */
+    /** F20260913ctlv 彻底切换：重试 SSE 流订阅（broadcaster） */
     private readonly messageBroadcaster?: MessageBroadcaster,
   ) {}
 
@@ -64,7 +64,7 @@ export class InvokeController {
     }
   }
 
-  /** POST /api/invokes/:id/abort——中止运行中 invoke（F20260910ctlv 彻底切换：停止按钮唯一后端） */
+  /** POST /api/invokes/:id/abort——中止运行中 invoke（F20260913ctlv 彻底切换：停止按钮唯一后端） */
   async abort(c: Context): Promise<Response> {
     try {
       const invokeId = param(c, "id");
@@ -87,7 +87,7 @@ export class InvokeController {
   }
 
   /** POST /api/invokes/:id/retry
-   *  F20260910ctlv 彻底切换：invoke 重试 = 对该獭重新 invoke 一次（新 invoke 行 + 新时间线）。
+   *  F20260913ctlv 彻底切换：invoke 重试 = 对该獭重新 invoke 一次（新 invoke 行 + 新时间线）。
    *  session 上下文已完整（原 invoke 的过程都在 session 里），重试 prompt 用简短续跑指令。
    *  SSE 流与正常发言链一致（entry.* / invoke.* 事件经 broadcaster 推送）。 */
   async retry(c: Context): Promise<Response> {
@@ -107,7 +107,7 @@ export class InvokeController {
   }
 
   /** POST /api/otters/:id/retry?conversationId=xxx
-   *  F20260910ctlv test17（搭档拍板）：獭锚重试——重试的是「该獭的 session」（上下文载体），
+   *  F20260913ctlv test17（搭档拍板）：獭锚重试——重试的是「该獭的 session」（上下文载体），
    *  invoke 只是 session 上的一次执行记录。invokeId 锚的「重试哪次」是伪精度（triggerMessageId
    *  在链引擎未被消费、retry prompt 不引用旧 invoke），故改为獭锚简化链路。
    *  定位：该獭最近一次非 completed invoke（无可重试目标 409）；session 上下文承载原始任务。 */
@@ -134,7 +134,7 @@ export class InvokeController {
   }
 
   /** 重试核心：对指定獭重新 invoke 一次（session 上下文承载原始任务，SSE 流同正常发言链）。
-   *  F20260910ctlv test17：running（用户刚点中断、abort 终态化异步收敛中）也放行——
+   *  F20260913ctlv test17：running（用户刚点中断、abort 终态化异步收敛中）也放行——
    *  消除「中断后立即重试撞 409」的窗口竞态。triggerAnchor 仅作链引擎记账原点（非差异化逻辑）。 */
   private retryOtter(c: Context, conversationId: string, otterId: string, triggerAnchor: string): Response {
     try {

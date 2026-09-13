@@ -12,7 +12,7 @@ import type { Logger } from "@usecases/ports/logger";
 import { Readable } from "node:stream";
 import { parseCommand, formatConversationList, HELP_TEXT } from "@usecases/im/feishu-command-parser";
 
-/** F20260910ctlv 收尾批2：entries 版历史格式化（原 formatMessageHistory 消费 messages.segments） */
+/** F20260913ctlv 收尾批2：entries 版历史格式化（原 formatMessageHistory 消费 messages.segments） */
 function formatEntryHistory(entries: Array<{ senderType: string; body: string; createdAt: string }>): string {
   if (entries.length === 0) return "暂无历史消息";
   const lines = entries.map(e => {
@@ -53,7 +53,7 @@ export class WeixinMessageProcessor {
   constructor(
     private readonly deps: {
       manageConnection: ManageConnection;
-      /** F20260910ctlv 收尾批2：微信消息唯一落点 = entries（messages 表停写，与飞书同构） */
+      /** F20260913ctlv 收尾批2：微信消息唯一落点 = entries（messages 表停写，与飞书同构） */
       sendEntry: SendEntry;
       entryRepo: EntryRepository;
       weixinGateway: WeixinGateway;
@@ -107,7 +107,7 @@ export class WeixinMessageProcessor {
     if (outcome.degradeNote) bodyText = bodyText ? `${bodyText}\n${outcome.degradeNote}` : outcome.degradeNote;
     if (outcome.attachmentIds.length === 0 && !bodyText.trim()) bodyText = "[媒体消息处理失败]";
 
-    // F20260910ctlv 收尾批2：微信 user 消息唯一落点 = entries（与飞书同构——
+    // F20260913ctlv 收尾批2：微信 user 消息唯一落点 = entries（与飞书同构——
     // sendUserEntry 落库 + 目标解析；messages 表停写 UI 消息）
     const { entry: userEntry, talkingStonePassedTo } = await this.deps.sendEntry.sendUserEntry({
       conversationId: conversation.id,
@@ -125,7 +125,7 @@ export class WeixinMessageProcessor {
 
     // Agent 派发用原始 body（不含降级提示——运维文本不进 agent 上下文，检视建议 1；
     // 飞书同位置存在同样问题，独立 issue 跟踪）
-    // F20260910ctlv：直连链点火（entries 目标显式传）——与飞书同构
+    // F20260913ctlv：直连链点火（entries 目标显式传）——与飞书同构
     await this.dispatchAgent(conversation.id, body.trim(), fromUserId, { messageId: userEntry.id, resolvedTargets: talkingStonePassedTo, injection: outcome.injection });
     return true;
   }
@@ -174,7 +174,7 @@ export class WeixinMessageProcessor {
         if (!conversation) {
           return "当前未进入任何对话，请先使用 /in <对话ID> 进入对话";
         }
-        // F20260910ctlv 收尾批2：/history 切 entries（时间线唯一真相源；取对话类条目）
+        // F20260913ctlv 收尾批2：/history 切 entries（时间线唯一真相源；取对话类条目）
         const [speaks, users] = await Promise.all([
           this.deps.entryRepo.getEntries(conversation.id, { entryType: "speak", limit: 20 }),
           this.deps.entryRepo.getEntries(conversation.id, { entryType: "user", limit: 20 }),
@@ -197,7 +197,7 @@ export class WeixinMessageProcessor {
     }
   }
 
-  /** F20260910ctlv 收尾批2：触发锚（entry id + entries 目标解析结果，直连链点火） */
+  /** F20260913ctlv 收尾批2：触发锚（entry id + entries 目标解析结果，直连链点火） */
   private async dispatchAgent(
     conversationId: string,
     bodyText: string,

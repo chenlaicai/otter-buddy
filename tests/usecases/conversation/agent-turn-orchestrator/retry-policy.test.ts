@@ -73,7 +73,7 @@ describe("buildAutoRetryMsg", () => {
     expect(msg).not.toContain("yield");
   });
 
-  it("first_byte_timeout 返回生成超时提醒（F20260910ctlv：去「模型」归因，只说确证的超时）", () => {
+  it("first_byte_timeout 返回生成超时提醒（F20260913ctlv：去「模型」归因，只说确证的超时）", () => {
     const msg = buildAutoRetryMsg('first_byte_timeout');
     expect(msg).toContain("生成超时");
     expect(msg).not.toContain("模型");
@@ -148,7 +148,7 @@ describe("#731 guard bounce 文案与常量", () => {
   });
 });
 
-describe("buildUserAbortBody（F20260910ctlv：只写确证内容，不写根因断言）", () => {
+describe("buildUserAbortBody（F20260913ctlv：只写确证内容，不写根因断言）", () => {
   it("无 underlyingError（纯主动中断）→ 简洁陈述，不暗示异常", () => {
     const msg = buildUserAbortBody(5, "搭档");
     expect(msg).toBe("[搭档中断] 经过 5 次工具调用后，搭档中断了当前发言。");

@@ -45,7 +45,7 @@ function makeMocks(): { mocks: MockState; depSet: ProcessInboundRecruitCtorArgs;
     update: vi.fn(async () => {}),
   } as unknown as SettingsRepository;
 
-  // F20260910ctlv 批4a：入站信号切 entries（entryRepo 查重 + sendEntry.createSystemEntry）
+  // F20260913ctlv 批4a：入站信号切 entries（entryRepo 查重 + sendEntry.createSystemEntry）
   const entryRepo = {
     findByExternalId: vi.fn(async (id: string) => {
       state.findByExternalIdCalls.push(id);

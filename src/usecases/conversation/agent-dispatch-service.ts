@@ -15,7 +15,7 @@ export class AgentDispatchService {
   constructor(
     private readonly deps: {
       dispatchChainEngine: DispatchChainEngine;
-      /** F20260910ctlv 收尾批1：entries 数据源（最新 user entry 的 yieldTargets / 触发锚） */
+      /** F20260913ctlv 收尾批1：entries 数据源（最新 user entry 的 yieldTargets / 触发锚） */
       entryRepo: EntryRepository;
       agentInvokePort: AgentTurnPort;
       logger: Logger;
@@ -36,13 +36,13 @@ export class AgentDispatchService {
     injection?: InjectionPayload;
     /** F20260908rlcp：本条触发消息的 ID（feishu/weixin 调用点在消息落库后传入）。只路由本轮触发，不扫历史。 */
     messageId?: string;
-    /** F20260910ctlv 彻底切换：entries 解析的目标——传入时直连链点火（IM 入口不再写 messages 信号行，
+    /** F20260913ctlv 彻底切换：entries 解析的目标——传入时直连链点火（IM 入口不再写 messages 信号行，
      *  路由器的 messages 扫描路径对 IM 失效；显式目标直连链是唯一点火路径） */
     resolvedTargets?: string[];
   }): Promise<AgentDispatchResult> {
     const { conversationId, userMessageContent, senderId, injection, messageId, resolvedTargets } = input;
     try {
-      // F20260910ctlv 彻底切换：IM 入口带显式目标时直连链（entries 目标）
+      // F20260913ctlv 彻底切换：IM 入口带显式目标时直连链（entries 目标）
       if (this.deps.signalRouter && resolvedTargets && resolvedTargets.length > 0) {
         this.fireDirectChain(conversationId, userMessageContent, senderId, resolvedTargets, injection);
         return {};
@@ -82,7 +82,7 @@ export class AgentDispatchService {
 
     // F20260902sgp2 S1：首 hop 记账用触发消息（与 resolveFirstTurnTargets 同源——
     // 最新 user entry；旧路径已知竞态下两者至少自洽，目标与消息 ID 来自同一次读取）
-    // F20260910ctlv 收尾批1：切 entries（user entry id = 触发锚）
+    // F20260913ctlv 收尾批1：切 entries（user entry id = 触发锚）
     const triggerEntries = await this.deps.entryRepo.getEntries(conversationId, { entryType: "user", limit: 1 });
 
     let lastMessageId: string | undefined;
@@ -118,7 +118,7 @@ export class AgentDispatchService {
   /** resolveFirstTurnTargets：读库最新 user 消息的 talkingStonePassedTo 定目标（旧路径，路由器未注入时降级）。
    *  F20260901sgpv P1 已知竞态（四入口勘测硬约束 1）：并发两条 user 消息时可能读到错误目标——
    *  信号路由路径（消息自带目标）不受此影响；旧路径随 P2 链驱动替换一并退役 */
-  /** F20260910ctlv：IM 显式目标直连链（fire-and-forget，与 invokeTarget 同款语义） */
+  /** F20260913ctlv：IM 显式目标直连链（fire-and-forget，与 invokeTarget 同款语义） */
   private fireDirectChain(
     conversationId: string,
     userMessageContent: string,
@@ -151,7 +151,7 @@ export class AgentDispatchService {
   }
 
   private async resolveFirstTurnTargets(conversationId: string): Promise<string[]> {
-    // 获取最新 user entry 的 yieldTargets（F20260910ctlv：发言石目标 = entry.yieldTargets）
+    // 获取最新 user entry 的 yieldTargets（F20260913ctlv：发言石目标 = entry.yieldTargets）
     const entries = await this.deps.entryRepo.getEntries(conversationId, { entryType: "user", limit: 1 });
     if (entries.length === 0) return [];
 

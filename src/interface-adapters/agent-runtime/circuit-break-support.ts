@@ -34,7 +34,7 @@ import type { CircuitBreakInfo, HealingEventInput } from "@usecases/conversation
  */
 const HEALTHY_SESSION_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
 
-/** 二级触发的窗口推导结果（F20260910ctlv：messages 停写后按 session 时间窗口计，无 turn 推导） */
+/** 二级触发的窗口推导结果（F20260913ctlv：messages 停写后按 session 时间窗口计，无 turn 推导） */
 interface TurnWindowCount {
   count: number;
   /** 最新一条退化事件的 invokeId（DESC 排序 recent[0]），用于 secondary 路径 failedInvokeId */
@@ -64,13 +64,13 @@ export async function hasUserMessageSince(
 export class CircuitBreakSupport {
   constructor(private readonly deps: {
     manageSession: ManageSession;
-    /** F20260910ctlv 收尾批3：历史读取切 entries（messages 停写，user 消息唯一真相源 = user entry） */
+    /** F20260913ctlv 收尾批3：历史读取切 entries（messages 停写，user 消息唯一真相源 = user entry） */
     entryReader: { getEntries(conversationId: string, options?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; senderId: string | null; senderType: string | null; body: string | null; createdAt: string }>> };
-    /** F20260910ctlv 彻底切换：系统消息写入（entries 语义）——旧 sendMessage.sendSystem 退役 */
+    /** F20260913ctlv 彻底切换：系统消息写入（entries 语义）——旧 sendMessage.sendSystem 退役 */
     sendSystem: (conversationId: string, body: string) => Promise<{ id: string; body: string | null; sequenceNum: number }>;
     healingRepo: HealingEventRepository;
     logger: Logger;
-    /** F20260910ctlv 彻底切换：invoke_events 查询（熔断摘要工具链数据源，可选——未注入降级空序列） */
+    /** F20260913ctlv 彻底切换：invoke_events 查询（熔断摘要工具链数据源，可选——未注入降级空序列） */
     invokeRepo?: { getInvokeEvents(invokeId: string): Promise<Array<{ eventType: string; payload: Record<string, unknown> }>> };
     /** F20260831cbkw：熔断 session 年龄窗口阈值（ms），缺省取硬编码 2h */
     healthySessionThresholdMs?: number;
@@ -172,7 +172,7 @@ export class CircuitBreakSupport {
     try {
       await this.deps.healingRepo.create({
         id: crypto.randomUUID(),
-        // F20260910ctlv：healing_events.messageId 列存 invokeId（表结构不动，语义锚 = invoke）
+        // F20260913ctlv：healing_events.messageId 列存 invokeId（表结构不动，语义锚 = invoke）
         messageId: input.invokeId,
         conversationId: input.conversationId,
         otterId: input.otterId,
@@ -276,7 +276,7 @@ export class CircuitBreakSupport {
       const inWindow = await this.countDegenerateInTurnWindow(otterId, session);
       if (inWindow.count < 2) return;
 
-      /** F20260910ctlv 批3：最新 user entry body（entries 唯一真相源） */
+      /** F20260913ctlv 批3：最新 user entry body（entries 唯一真相源） */
       const userEntries = await this.deps.entryReader.getEntries(conversationId, { entryType: 'user', limit: 1 }).catch(() => []);
       const lastUserMessage = userEntries[0]?.body ?? '';
       const summary = lastUserMessage
@@ -314,7 +314,7 @@ export class CircuitBreakSupport {
     }
   }
 
-  /** F20260910ctlv 彻底切换：统计本 session 生命周期内的退化事件数。
+  /** F20260913ctlv 彻底切换：统计本 session 生命周期内的退化事件数。
    *  messages 停写后 turn 推导链（healing messageId → messages.turn_id）失效；
    *  二级触发的本质是「同一 session 反复退化」——直接按 session startedAt 过滤计数即可。 */
   private async countDegenerateInTurnWindow(otterId: string, session: OtterSession): Promise<TurnWindowCount> {
@@ -442,7 +442,7 @@ export class CircuitBreakSupport {
     }
   }
 
-  /** F20260910ctlv 彻底切换：从 invoke_events 提取失败 invoke 的 tool_call 工具名序列（按事件顺序）
+  /** F20260913ctlv 彻底切换：从 invoke_events 提取失败 invoke 的 tool_call 工具名序列（按事件顺序）
    *  注：未注入 invokeRepo 时降级空序列（摘要缺工具链但不阻断熔断） */
   private async extractToolNames(invokeId: string): Promise<string[]> {
     if (!this.deps.invokeRepo) return [];

@@ -54,9 +54,9 @@ export interface LinkResourceInput {
  */
 export interface OtterToolClient {
   conversation: {
-    // F20260910ctlv 批4a：message 命名空间删除——tool 层全切 entry/participant 命名空间，
+    // F20260913ctlv 批4a：message 命名空间删除——tool 层全切 entry/participant 命名空间，
     // messages 客户端方法（getById/list/search/expand/getTurnHistory/...）零消费。
-    // F20260910ctlv：entry 和 invoke 子命名空间（新模型，渐进迁移）
+    // F20260913ctlv：entry 和 invoke 子命名空间（新模型，渐进迁移）
     entry: {
       /** 创建 speak 条目 */
       createSpeakEntry(params: {
@@ -78,23 +78,23 @@ export interface OtterToolClient {
         invokeEndEntry: { id: string; entryType: string };
         invoke: { id: string; status: string; endedAt: string | null; toolCallCount: number; tokenUsageInput: number | null; tokenUsageOutput: number | null };
       }>;
-      /** 查询条目列表（F20260910ctlv 批3：返回 createdAt/senderId——自重启用户介入检测等只读消费） */
+      /** 查询条目列表（F20260913ctlv 批3：返回 createdAt/senderId——自重启用户介入检测等只读消费） */
       getEntries(conversationId: string, opts?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; entryType: string; body: string | null; senderId: string | null; senderType: string | null; createdAt: string }>>;
-      /** F20260910ctlv 批3：全文搜索（entries_fts，时间线唯一真相源） */
+      /** F20260913ctlv 批3：全文搜索（entries_fts，时间线唯一真相源） */
       searchEntries(conversationId: string, query: string, limit?: number): Promise<Array<{ id: string; entryType: string; senderId: string | null; senderType: string | null; body: string | null; sequenceNum: number; createdAt: string }>>;
-      /** F20260910ctlv 批4a：按 ID 取条目（get_message 工具——卡片全文回看源） */
+      /** F20260913ctlv 批4a：按 ID 取条目（get_message 工具——卡片全文回看源） */
       getEntryById(entryId: string): Promise<{
         id: string; conversationId: string; entryType: string;
         senderType: string | null; senderId: string | null; body: string | null;
         turnId: string; status: string; sequenceNum: number;
         createdAt: string; completedAt: string | null;
       } | null>;
-      /** F20260910ctlv 批4a：时间线倒序分页（list_messages 工具） */
+      /** F20260913ctlv 批4a：时间线倒序分页（list_messages 工具） */
       listEntries(conversationId: string, opts?: { entryType?: string; limit?: number }): Promise<Array<{
         id: string; entryType: string; senderType: string | null; senderId: string | null;
         body: string | null; sequenceNum: number; createdAt: string;
       }>>;
-      /** F20260910ctlv 批4a：按 turn 取条目（get_turn_history 工具） */
+      /** F20260913ctlv 批4a：按 turn 取条目（get_turn_history 工具） */
       getEntriesByTurnId(turnId: string): Promise<Array<{
         id: string; entryType: string; senderType: string | null; senderId: string | null;
         body: string | null; sequenceNum: number; createdAt: string;
@@ -109,7 +109,7 @@ export interface OtterToolClient {
       incrementToolCallCount(invokeId: string): Promise<void>;
     };
     participant: {
-      /** 返回 participant + 进场 system entry 投影（F20260910ctlv：create_otter 广播 entry.system SSE 用） */
+      /** 返回 participant + 进场 system entry 投影（F20260913ctlv：create_otter 广播 entry.system SSE 用） */
       join(conversationId: string, otterId: string): Promise<ConversationParticipant & { systemEntry?: { id: string; body: string | null; sequenceNum: number } }>;
       /** modelAlias 由 ManageParticipant.getActiveParticipants 批量预取后透传（#446） */
       getActive(conversationId: string): Promise<Array<ConversationParticipant & { otterName: string; modelAlias?: string }>>;
@@ -117,7 +117,7 @@ export interface OtterToolClient {
       leave(conversationId: string, otterId: string): Promise<void>;
     };
     getActiveTurnNumber(conversationId: string): Promise<number>;
-    /** F20260910ctlv 批4a：turn 骨架列表（get_turn_history 工具；turns 表保留不动） */
+    /** F20260913ctlv 批4a：turn 骨架列表（get_turn_history 工具；turns 表保留不动） */
     getTurns(conversationId: string): Promise<Array<{
       id: string; turnNumber: number; status: string; createdAt: string; closedAt: string | null;
     }>>;

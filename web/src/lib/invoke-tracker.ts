@@ -1,7 +1,7 @@
 import type { LocalMessage } from './mappers'
 
 /**
- * F20260910ctlv：獭 invoke 状态追踪（右侧栏獭状态面板数据源）。
+ * F20260913ctlv：獭 invoke 状态追踪（右侧栏獭状态面板数据源）。
  * 红线：只根据 invoke.start / invoke.end SSE 事件维护状态——
  * entry.*（speak 粒度）不参与，避免流式 speak 事件驱动右栏高频 re-render；
  * toolCallCount/tokenUsage 仅 invoke.end 携带（终态快照，页面加载后刷新即恢复）。

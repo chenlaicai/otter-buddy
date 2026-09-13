@@ -47,7 +47,7 @@ function makeMocks() {
 
   const queryOtter = { getById: vi.fn().mockResolvedValue(null) } as unknown as QueryOtter;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger;
-  // F20260910ctlv 彻底切换：未读注入读 entries——mock entryRepo（entry 形状）
+  // F20260913ctlv 彻底切换：未读注入读 entries——mock entryRepo（entry 形状）
   const entryRepo = {
     getUnreadEntries: vi.fn().mockResolvedValue([]),
     getEntries: vi.fn().mockResolvedValue([]),
@@ -80,7 +80,7 @@ describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒�
 
   it("scheduler 路径：小獭 yield 回任务属主 otter，属主应被唤醒（不再被 senderId 过滤吞掉）", async () => {
     const { m, invoked, invokeFn } = makeChainMocks();
-    // F20260910ctlv 彻底切换：行级出处 = invoke 行 tsp（生产中 yield 工具落 invokes.talkingStonePassedTo）
+    // F20260913ctlv 彻底切换：行级出处 = invoke 行 tsp（生产中 yield 工具落 invokes.talkingStonePassedTo）
     (m.getInvokeById as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) =>
       id === "m-work"
         ? { id, status: "completed", otterId: "otter-worker", talkingStonePassedTo: ["owner-otter"], endedAt: "2026-09-10T00:00:00Z" }
@@ -122,7 +122,7 @@ describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒�
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, maxChainDepth: 10, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const invoked: string[] = [];
 
-    // F20260910ctlv 彻底切换：self-yield 出处 = invoke 行 tsp（yield 回自己）
+    // F20260913ctlv 彻底切换：self-yield 出处 = invoke 行 tsp（yield 回自己）
     (m.getInvokeById as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) =>
       id === "m-work"
         ? { id, status: "completed", otterId: "otter-worker", talkingStonePassedTo: ["otter-worker"], endedAt: "2026-09-10T00:00:00Z" }

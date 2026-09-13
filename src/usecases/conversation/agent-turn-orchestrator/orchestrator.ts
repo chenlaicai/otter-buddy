@@ -1,7 +1,7 @@
 /**
  * AgentTurnOrchestrator - 发言轮编排（usecase 层）
  *
- * F20260910ctlv 彻底切换：turn 生命周期从 messages 行剥离到 invokes 行。
+ * F20260913ctlv 彻底切换：turn 生命周期从 messages 行剥离到 invokes 行。
  * - invoke 是行动主体：TurnInput.invokeId 必填；成功检测 = invoke.status 离开 running（yield 工具置 completed）
  * - 状态机操作对象：updateInvokeStatus / createInvokeEndEntry（无 message 态回调）
  * - SSE 只发 entry / invoke 事件（message 类事件已退役）
@@ -32,7 +32,7 @@ import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 export class AgentTurnOrchestrator {
   /**
    * 已进入终态的 invoke 集合（abort/fail 防重入——同 invoke 不得二次终态化）。
-   * F20260910ctlv：键从 messageId 换成 invokeId。
+   * F20260913ctlv：键从 messageId 换成 invokeId。
    */
   private readonly terminalInvokes = new Set<string>();
   /**
@@ -86,7 +86,7 @@ export class AgentTurnOrchestrator {
         this.recordedAttempts.delete(attemptKey);
       }
 
-      // F20260910ctlv：invoke 成功检测——yield 工具置 invoke completed（离开 running 即成功）
+      // F20260913ctlv：invoke 成功检测——yield 工具置 invoke completed（离开 running 即成功）
       const completedResult = await this.tryCompleteInvoke(
         currentInput, result, driver, { callbacks, startTime, attemptStartTime, toolCallCount },
       );
@@ -135,7 +135,7 @@ export class AgentTurnOrchestrator {
 
       // If routeByReason returns null, retry with updated input
       // F20260825rtmx: 按退出原因使用匹配的重试文案（timeout 用超时提醒，no_yield 用 yield 提醒）
-      // F20260910ctlv：同 invoke 内重试——retryMsg 走 userMessageContent，不再建新 message
+      // F20260913ctlv：同 invoke 内重试——retryMsg 走 userMessageContent，不再建新 message
       currentInput = {
         ...currentInput,
         retryCount: 1,
@@ -145,7 +145,7 @@ export class AgentTurnOrchestrator {
   }
 
   /**
-   * F20260910ctlv：invoke 成功检测（取代 tryCompleteSpeaking 的 messages speaking 判据）。
+   * F20260913ctlv：invoke 成功检测（取代 tryCompleteSpeaking 的 messages speaking 判据）。
    *
    * 判据：invoke.status 离开 running——yield 工具调 createYieldEntry 时置 completed。
    * user abort 时不抢先完成（让 abort 路径收尾）。
@@ -516,7 +516,7 @@ export class AgentTurnOrchestrator {
     };
   }
 
-  /** F20260910ctlv：invoke 终态化 failed（invoke_end entry + 行状态 + SSE）——熔断/degenerate 路径共用 */
+  /** F20260913ctlv：invoke 终态化 failed（invoke_end entry + 行状态 + SSE）——熔断/degenerate 路径共用 */
   private async finalizeInvokeFailed(
     input: TurnInput,
     failBody: string,
@@ -533,7 +533,7 @@ export class AgentTurnOrchestrator {
   }
 
   /** Handle auto-retry: fail 过渡 + 系统提醒 + 同 invoke 重试
-   *  F20260910ctlv：不再 failMessage/prepareForRetry（messages 状态机已退役）——
+   *  F20260913ctlv：不再 failMessage/prepareForRetry（messages 状态机已退役）——
    *  发系统提醒 entry + 返回 null 让主循环重试 */
   private async handleAutoRetry(ctx: RouteContext, reason: string): Promise<TurnResult | null> {
     const failBody = `[系统] ${buildRetryFailBody(reason)}, 正在自动重试`;
@@ -549,7 +549,7 @@ export class AgentTurnOrchestrator {
       });
     }
 
-    // F20260910ctlv：entry.retry SSE（前端唯一重试信号；message.retry 已退役）
+    // F20260913ctlv：entry.retry SSE（前端唯一重试信号；message.retry 已退役）
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
     this.safeEmitEvent(ctx.callbacks, {
       event: 'entry.retry',
@@ -656,7 +656,7 @@ export class AgentTurnOrchestrator {
       return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'guard', guardReason });
     }
 
-    // F20260910ctlv：entry.retry SSE + 返回 null 主循环同 invoke 重试
+    // F20260913ctlv：entry.retry SSE + 返回 null 主循环同 invoke 重试
     this.safeEmitEvent(ctx.callbacks, {
       event: 'entry.retry',
       data: { entryId: ctx.input.invokeId, invokeId: ctx.input.invokeId, otterId: ctx.input.otterId, otterName, reason: buildGuardBounceFailBody(), attempt },
@@ -700,7 +700,7 @@ export class AgentTurnOrchestrator {
     };
   }
 
-  /** F20260910ctlv：invoke 终态化 failed + 发言石回传（no_yield 耗尽路径） */
+  /** F20260913ctlv：invoke 终态化 failed + 发言石回传（no_yield 耗尽路径） */
   private async finalizeInvokeFailedWithTsp(
     input: TurnInput,
     failBody: string,

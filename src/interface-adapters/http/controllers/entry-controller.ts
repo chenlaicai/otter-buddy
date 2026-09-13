@@ -6,7 +6,7 @@ import type { EntryDTO } from "@contract/api/entry";
 import { handleError, param } from "../http-error";
 
 /**
- * F20260910ctlv 彻底切换：entries 时间线唯一读端点。
+ * F20260913ctlv 彻底切换：entries 时间线唯一读端点。
  * 前端历史/分页/增量刷新/未读定位全部走这里（messages 渲染端点退役）。
  * 只读——entry 写入由 agent-invoker/tool-factory/send-entry 负责。
  */

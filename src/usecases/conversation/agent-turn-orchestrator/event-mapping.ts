@@ -52,7 +52,7 @@ export function mapToSSEEvent(e: AgentStreamEvent): SSEEvent | null {
     return { event: sseEventName, data: extractSdkEventFields(e) };
   }
   switch (e.type) {
-    // F20260910ctlv：流式过程不进 SSE（从消息气泡挪出，只在 Session 弹窗展示）——
+    // F20260913ctlv：流式过程不进 SSE（从消息气泡挪出，只在 Session 弹窗展示）——
     // tool.result / assistant_text / assistant_toolcall 不再广播，仅落 invoke_events
     case "tool_execution_end":
       return null;
@@ -67,7 +67,7 @@ export function mapToSSEEvent(e: AgentStreamEvent): SSEEvent | null {
   }
 }
 
-/** F20260910ctlv：Pi 事件 → InvokeEvent 映射（持久化到 invoke_events 表，Session 弹窗数据源）。
+/** F20260913ctlv：Pi 事件 → InvokeEvent 映射（持久化到 invoke_events 表，Session 弹窗数据源）。
  *  与 mapToMessageEventInput 平行——旧表保留（兼容期），新表是展示真相源。 */
 // eslint-disable-next-line complexity -- 事件类型分发表，拆分降低可读性
 export function mapToInvokeEventInput(

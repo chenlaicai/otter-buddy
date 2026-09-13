@@ -6,7 +6,7 @@
  *
  * Phase 1 降级声明（仍有效）：
  * - 件②文件轨迹：仅包含工作区存量文件列表（SDK session entries 不可直接访问）
- * - 件③近期原文：F20260910ctlv 收尾批1 切 entries（speak/user/system 拉取）
+ * - 件③近期原文：F20260913ctlv 收尾批1 切 entries（speak/user/system 拉取）
  */
 
 import { scanWorkspaceFiles, renderFileTrail } from './file-trail-extractor';
@@ -33,7 +33,7 @@ export interface HandoffPackage {
 /** LLM 合成函数类型 */
 export type SynthesisFunction = (prompt: string) => Promise<string>;
 
-/** entries 读取窄接口（F20260910ctlv 收尾批1：替代 queryMessage，时间线唯一真相源）。
+/** entries 读取窄接口（F20260913ctlv 收尾批1：替代 queryMessage，时间线唯一真相源）。
  *  同时供 handoff 近期原文与 state-inventory 发言石盘点（yieldTargets）使用 */
 export interface HandoffEntryReader {
   getEntries(conversationId: string, options?: { entryType?: string; limit?: number }): Promise<Array<{
@@ -51,7 +51,7 @@ export interface HandoffPackageOptions {
   fileTrailMaxEntries?: number;
   recencyTokens?: number;
   stateInventoryDeps: StateInventoryDeps;
-  /** F20260910ctlv：近期原文数据源（entries） */
+  /** F20260913ctlv：近期原文数据源（entries） */
   entryReader: HandoffEntryReader;
   logger?: Logger;
   /** Phase 2：LLM 合成函数（readOnly invocation）。未提供时降级为机械转储。 */
@@ -115,7 +115,7 @@ export async function buildHandoffPackage(
       const trail: FileTrail = { modified: [], readOnly: [], workspaceFiles };
       return renderFileTrail(trail);
     }),
-    // 件③：近期原文（F20260910ctlv：entries）
+    // 件③：近期原文（F20260913ctlv：entries）
     fetchRecentEntries(entryReader, conversationId, recencyTokens)
       .then(w => renderRecencyWindow(w))
       .catch(err => {
@@ -250,7 +250,7 @@ async function generateSummary(
 }
 
 /**
- * F20260910ctlv 收尾批1：拉取近期 entries 并转换为 RecencyWindow。
+ * F20260913ctlv 收尾批1：拉取近期 entries 并转换为 RecencyWindow。
  *  数据源 = 时间线唯一真相源（speak/user/system 三类，sequence_num DESC）；
  *  分三次拉取后按 createdAt 合并取最新 N 条（每次单类型查询，避免新增复合查询接口）。
  */
@@ -301,7 +301,7 @@ async function fetchRecentEntries(
 }
 
 /** 将 Message 转换为 TurnFragment */
-/** F20260910ctlv：entry → 对话片段（user→user 角色；speak→assistant；system 跳过——
+/** F20260913ctlv：entry → 对话片段（user→user 角色；speak→assistant；system 跳过——
  *  系统条目是状态记录非对话内容，不进近期原文；居中 yield/boundary 同理不在拉取范围） */
 type RecentEntry = Awaited<ReturnType<HandoffEntryReader['getEntries']>>[number];
 function entryToFragment(entry: RecentEntry): TurnFragment | null {

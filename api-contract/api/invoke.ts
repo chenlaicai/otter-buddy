@@ -1,5 +1,5 @@
 /**
- * F20260910ctlv: Invoke DTO（Session 弹窗 + 右侧栏獭状态面板数据源）
+ * F20260913ctlv: Invoke DTO（Session 弹窗 + 右侧栏獭状态面板数据源）
  * 对应后端 Invoke/InvokeEvent 实体（src/entities/conversation/invoke.ts）
  */
 

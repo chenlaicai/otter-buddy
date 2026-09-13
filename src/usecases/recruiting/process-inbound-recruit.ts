@@ -65,7 +65,7 @@ export class ProcessInboundRecruit {
   // eslint-disable-next-line max-params -- 7+1 个 DI 依赖均为必需
   constructor(
     private readonly settings: SettingsRepository,
-    /** F20260910ctlv 批4a：入站信号切 entries（system entry + yieldTargets；messages 退役） */
+    /** F20260913ctlv 批4a：入站信号切 entries（system entry + yieldTargets；messages 退役） */
     private readonly sendEntry: SendEntry,
     private readonly entryRepo: EntryRepository,
     private readonly dispatchChainEngine: DispatchChainEngine,
@@ -129,7 +129,7 @@ export class ProcessInboundRecruit {
     const body = formatRecruitBatch(fresh);
 
     // 3. 入库：metadata 标记 externalIds（JSON 数组，便于查重），单条 system entry
-    //    F20260910ctlv 批4a：messages 退役——yieldTargets 即信号目标（与 scheduler 同构）
+    //    F20260913ctlv 批4a：messages 退役——yieldTargets 即信号目标（与 scheduler 同构）
     const externalIds = fresh.map(m => m.externalId);
     const { entry: signalEntry } = await this.sendEntry.createSystemEntry({
       conversationId,
@@ -175,7 +175,7 @@ export class ProcessInboundRecruit {
       // 状态事件无 externalId 查重（30 分钟去重在扩展端做）。每个事件一条系统消息
       try {
         const body = formatStatusEvent(event);
-        // F20260910ctlv 批4a：状态事件落 system entry（eventType/severity 进 metadata）
+        // F20260913ctlv 批4a：状态事件落 system entry（eventType/severity 进 metadata）
         const { entry: statusEntry } = await this.sendEntry.createSystemEntry({
           conversationId,
           turnId: "",

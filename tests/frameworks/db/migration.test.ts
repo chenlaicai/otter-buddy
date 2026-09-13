@@ -361,7 +361,7 @@ describe("migrateDatabase - F20260908rlcp: dispatch_attempts table drop", () => 
     initSchema(db);
     // F20260908rlcp：dispatch_attempts 已从 initSchema 退役，手动创建模拟存量库
     db.exec(`CREATE TABLE IF NOT EXISTS dispatch_attempts (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, target_otter_id TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('in_progress','completed','failed','aborted')), source TEXT NOT NULL DEFAULT 'chain' CHECK (source IN ('chain','router','retry','backfill')), attempt_started_at TEXT NOT NULL DEFAULT (datetime('now')), attempt_finished_at TEXT, note TEXT, UNIQUE(message_id, target_otter_id), FOREIGN KEY (conversation_id) REFERENCES conversations(id))`);
-    // 父表先 seed（FK 验证用）——messages 已退役（F20260910ctlv 批4c），message_id 为弱引用文本
+    // 父表先 seed（FK 验证用）——messages 已退役（F20260913ctlv 批4c），message_id 为弱引用文本
     db.prepare(`INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-m', 't', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`).run();
     db.prepare(`INSERT INTO otters (id, name, type, created_at) VALUES ('otter-1', 'o1', 'big', '2026-09-01T00:00:00Z')`).run();
     db.prepare(`INSERT INTO dispatch_attempts (id, conversation_id, message_id, target_otter_id, status, source, attempt_started_at, note)

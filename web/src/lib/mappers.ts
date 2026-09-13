@@ -104,19 +104,19 @@ export interface LocalMessage {
   tsp?: string[] | null
   /** 多模态 Phase 1：随消息携带的附件 */
   atts?: LocalAttachment[]
-  /** F20260910ctlv：时间线条目类型（speak/user 气泡渲染，其余居中特殊渲染）。
+  /** F20260913ctlv：时间线条目类型（speak/user 气泡渲染，其余居中特殊渲染）。
    *  旧 messages 表数据无此字段（undefined）——按 st 回退推导，历史兼容零迁移 */
   entryType?: TimelineEntryType
-  /** F20260910ctlv：invoke 关联（SSE entry.* 事件携带；旧数据无） */
+  /** F20260913ctlv：invoke 关联（SSE entry.* 事件携带；旧数据无） */
   invokeId?: string
-  /** F20260910ctlv test17：invoke 真实终态（invoke_end entry 的 metadata.invokeStatus 透出；
+  /** F20260913ctlv test17：invoke 真实终态（invoke_end entry 的 metadata.invokeStatus 透出；
    *  entries.status 是死字段全部 completed，重试按钮等终态 UI 靠它判断） */
   invokeStatus?: 'failed' | 'aborted'
-  /** F20260910ctlv：yield 条目专有——行动权传递目标 */
+  /** F20260913ctlv：yield 条目专有——行动权传递目标 */
   yieldTargets?: string[] | null
 }
 
-// ── F20260910ctlv：时间线条目类型 ──
+// ── F20260913ctlv：时间线条目类型 ──
 
 /** 时间线条目类型（与后端 EntryType 对齐） */
 export type TimelineEntryType =
@@ -145,7 +145,7 @@ export function isCenteredEntry(m: LocalMessage): boolean {
   return t === 'invoke_start' || t === 'invoke_end' || t === 'yield' || t === 'system'
 }
 
-/** F20260910ctlv：invoke 边界/yield/system 条目文案（entry.body 为空时按约定文案渲染）。
+/** F20260913ctlv：invoke 边界/yield/system 条目文案（entry.body 为空时按约定文案渲染）。
  *  yield 带来源獭名（senderName）：「大獭 → 交给 user」——多獭并发时能区分是谁交的棒 */
 export function centeredEntryText(m: LocalMessage): string {
   const t = deriveEntryType(m)
@@ -242,7 +242,7 @@ export function mapMessageDTO(dto: MessageDTO): LocalMessage {
   }
 }
 
-/** F20260910ctlv 切换清扫：EntryDTO → LocalMessage（时间线历史数据源）。
+/** F20260913ctlv 切换清扫：EntryDTO → LocalMessage（时间线历史数据源）。
  *  entryType 直接携带（speak/user/invoke_start/invoke_end/yield/system），驱动 MessageList 渲染分流；
  *  居中条目（invoke 边界/yield）的 content 用 entry.body（后端已填约定文案）。 */
 export function mapEntryDTO(dto: EntryDTO): LocalMessage {
@@ -263,7 +263,7 @@ export function mapEntryDTO(dto: EntryDTO): LocalMessage {
     src: (dto.source ?? undefined) as 'web' | 'feishu' | undefined,
     entryType: dto.entryType,
     invokeId: dto.invokeId ?? undefined,
-    // F20260910ctlv test17：invoke_end 的 metadata.invokeStatus 透出（重试按钮数据源）
+    // F20260913ctlv test17：invoke_end 的 metadata.invokeStatus 透出（重试按钮数据源）
     ...(dto.metadata?.invokeStatus === 'failed' || dto.metadata?.invokeStatus === 'aborted' ? { invokeStatus: dto.metadata.invokeStatus } : {}),
     // yieldTargets 双用途：yield 条目的传递目标 + user entry 的发言石目标（传递行数据源）
     yieldTargets: dto.yieldTargets ?? undefined,

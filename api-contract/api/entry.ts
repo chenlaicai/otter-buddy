@@ -1,5 +1,5 @@
 /**
- * F20260910ctlv: Entry DTO（时间线历史数据源）
+ * F20260913ctlv: Entry DTO（时间线历史数据源）
  * 对应后端 Entry 实体（src/entities/conversation/entry.ts）
  */
 

@@ -30,7 +30,7 @@ async function createHealingConversation(
     convRepo: ConversationRepository;
     otterRepo: OtterRepository;
     settings: SettingsRepository;
-    /** F20260910ctlv 批4a：welcome 系统消息切 entries（system entry） */
+    /** F20260913ctlv 批4a：welcome 系统消息切 entries（system entry） */
     sendEntry: SendEntry;
     logger: Logger;
   },
@@ -50,7 +50,7 @@ async function createHealingConversation(
   await deps.settings.update(HEALING_CONVERSATION_KEY, conversation.id);
   await deps.settings.update(HEALING_BIG_OTTER_ID_KEY, bigOtterId);
 
-  // F20260910ctlv 批4a：sendSystem 退役，welcome 落 system entry（时间线唯一真相源）
+  // F20260913ctlv 批4a：sendSystem 退役，welcome 落 system entry（时间线唯一真相源）
   await deps.sendEntry.createSystemEntry({
     conversationId: conversation.id,
     turnId: "",

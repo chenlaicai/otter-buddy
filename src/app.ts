@@ -303,7 +303,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     logger,
     healingRepo: repos.healingEvent,
     // F20260908rlcp: dispatchAttemptRepo/attachmentInjection/agentGateway 退役，改用 factory。
-    // F20260910ctlv 整合轮修复：显式 adapter 替代 as unknown as 双重绕过——三个方法
+    // F20260913ctlv 整合轮修复：显式 adapter 替代 as unknown as 双重绕过——三个方法
     // 编译期可见，再丢（如合并误删）tsc 直接报错（steerSession 曾被合并丢过，靠运行时才发现）
     factory: {
       isRunning: (otterId: string) => agentGateway.isRunning(otterId),
@@ -477,7 +477,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     });
   }
 
-  // F20260910ctlv 批4a：重启自动恢复（ResumeInterruptedService）整删——
+  // F20260913ctlv 批4a：重启自动恢复（ResumeInterruptedService）整删——
   // messages 停写 UI 消息后无 streaming 残留可恢复（重启 reconcile 已把 running
   // invokes 置 failed，见 bootstrap/database.ts），恢复队列概念随旧模型退役。
 

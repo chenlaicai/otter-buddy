@@ -1,5 +1,5 @@
 /**
- * resolveDefaultTargets 优先级测试（F20260910ctlv test12：steer 目标解析优先 running 獭）。
+ * resolveDefaultTargets 优先级测试（F20260913ctlv test12：steer 目标解析优先 running 獭）。
  *
  * 搭档拍板优先级：
  * 1. 当前 running 的獭（单只 → 选它；多只 → 用户发言前最新一次 speak 的那只）

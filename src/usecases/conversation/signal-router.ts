@@ -31,7 +31,7 @@ export type SignalRouterInvokeFn = (params: {
   senderId: string;
 }) => Promise<{ messageId: string; aggregatedTargets?: string[] }>;
 
-/** F20260910ctlv 彻底切换补漏：统一信号视图。
+/** F20260913ctlv 彻底切换补漏：统一信号视图。
  *  数据源优先级：entries（user 信号，新真相源）→ messages（scheduler 内部系统信号，
  *  范围外决策仍写 messages）。消费面：id/senderId/senderName/body/tsp/signalMeta。 */
 export interface SignalView {
@@ -45,7 +45,7 @@ export interface SignalView {
   signalMeta: string | null;
   status: string;
   senderType: string;
-  /** F20260910ctlv：注入方式（目标 running 时）——steer=打断默认/followUp=排队；
+  /** F20260913ctlv：注入方式（目标 running 时）——steer=打断默认/followUp=排队；
    *  入口 sendMessage 按 body.mode 落 entry.metadata.injectionMode，路由时消费 */
   injectionMode?: "steer" | "followUp";
   /** 销账写回通道（entry metadata 或 message signal_meta） */
@@ -84,7 +84,7 @@ export class SignalRouter {
   constructor(
     private readonly deps: {
       conversationRepo: ConversationRepository;
-      /** F20260910ctlv 收尾批2：entries 数据源（user/system 信号唯一真相源；messages 兜底已删） */
+      /** F20260913ctlv 收尾批2：entries 数据源（user/system 信号唯一真相源；messages 兜底已删） */
       entryRepo: EntryRepository;
       queryOtter: QueryOtter;
       dispatchChainEngine: DispatchChainEngine;
@@ -204,7 +204,7 @@ export class SignalRouter {
       // 否则 resume 补扫与历史扫描会把已注入的信号当成「待处理」再次点火（09-09 实测三句回复根因）。
       // 销账动作与注入动作同事务语义：注入成功即写 consumed，失败则不写（下次重试）。
 
-      /** F20260910ctlv（test13 拍板 + followUp 按钮）：默认 steer（插话即时生效，打断
+      /** F20260913ctlv（test13 拍板 + followUp 按钮）：默认 steer（插话即时生效，打断
        *  当前生成）；用户显式选 followUp（副按钮「排队」）时排队等当前轮说完再接。
        *  mode 来自 entry.metadata.injectionMode（sendMessage 请求体透传落库） */
       if (signal.injectionMode === "followUp") {
@@ -243,7 +243,7 @@ export class SignalRouter {
     return "retry_invoked";
   }
 
-  /** F20260910ctlv 收尾批2：按 ID 加载信号视图（entries 唯一真相源）。
+  /** F20260913ctlv 收尾批2：按 ID 加载信号视图（entries 唯一真相源）。
    *  scheduler 内部信号已切 system entry（原 messages 兜底分支删除——无消费方）。
    *  传入 id 兼容历史调用面：entries 查不到即 null（不回 messages）。 */
   private async loadSignalView(messageId: string): Promise<SignalView | null> {

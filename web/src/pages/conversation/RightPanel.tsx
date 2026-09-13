@@ -15,13 +15,13 @@ interface RightPanelProps {
   conversation: Conversation
   otters: Otter[]
   sessions: Record<string, OtterSession[]>
-  /** F20260910ctlv：獭 invoke 实时状态（streaming/休眠 + 当前 invoke 统计） */
+  /** F20260913ctlv：獭 invoke 实时状态（streaming/休眠 + 当前 invoke 统计） */
   invokeStates?: import('../../lib/invoke-tracker').InvokeStates
-  /** F20260910ctlv：点击獭头像 → Session 弹窗（invoke 历史 + 流式过程） */
+  /** F20260913ctlv：点击獭头像 → Session 弹窗（invoke 历史 + 流式过程） */
   onOpenSession?: (otterId: string) => void
-  /** F20260910ctlv：中断獭当前 running invoke（右栏按钮；POST /api/invokes/:id/abort） */
+  /** F20260913ctlv：中断獭当前 running invoke（右栏按钮；POST /api/invokes/:id/abort） */
   onAbortInvoke?: (otterId: string, invokeId: string) => void
-  /** F20260910ctlv：重试失败/中断 invoke（右栏按钮；POST /api/invokes/:id/retry） */
+  /** F20260913ctlv：重试失败/中断 invoke（右栏按钮；POST /api/invokes/:id/retry） */
   onRetryInvoke?: (otterId: string) => void
   linkedResources: LinkedResource[]
   onCreateSmallOtter: () => void
@@ -322,14 +322,14 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
 }: {
   otter: Otter
   sessions: OtterSession[]
-  /** F20260910ctlv：invoke 实时状态（undefined = 本会话无 invoke，显示休眠） */
+  /** F20260913ctlv：invoke 实时状态（undefined = 本会话无 invoke，显示休眠） */
   invokeState?: OtterInvokeState
   onClick: () => void
-  /** F20260910ctlv：点击头像 → Session 弹窗 */
+  /** F20260913ctlv：点击头像 → Session 弹窗 */
   onOpenSession?: () => void
-  /** F20260910ctlv：中断当前 running invoke（右栏按钮） */
+  /** F20260913ctlv：中断当前 running invoke（右栏按钮） */
   onAbortInvoke?: (invokeId: string) => void
-  /** F20260910ctlv：重试失败/中断 invoke（右栏按钮） */
+  /** F20260913ctlv：重试失败/中断 invoke（右栏按钮） */
   onRetryInvoke?: () => void
   onDissolve: (id: string) => void
   onRestart: (id: string) => void
@@ -371,7 +371,7 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
         onClick={onClick}
         className="px-2.5 py-2 rounded-xl cursor-pointer glass-card mb-1.5 transition hover:shadow-bubble hover:-translate-y-0.5 group"
       >
-        {/* F20260910ctlv test17 排版：主行只放身份信息（头像+名/模型+类型/世数+状态行），
+        {/* F20260913ctlv test17 排版：主行只放身份信息（头像+名/模型+类型/世数+状态行），
             操作按钮独立一行（Session / 中断 / 重试 + hover 管理动作）——不再全挤一行 */}
         <div className="flex items-center gap-2">
           <button
@@ -381,7 +381,7 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
             aria-label={`查看 ${o.name} 的 session 记录`}
           >
             <OtterAvatar otterId={o.id} name={o.name} size={28} type={o.type} />
-            {/* F20260910ctlv：streaming 呼吸点（活跃 invoke 指示，叠加在头像右下角） */}
+            {/* F20260913ctlv：streaming 呼吸点（活跃 invoke 指示，叠加在头像右下角） */}
             {invokeState?.status === 'running' && (
               <span className="absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full bg-teal-400 border border-white animate-pulse" data-testid="invoke-streaming-dot" />
             )}
@@ -399,7 +399,7 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
             <div className="text-[10px] text-stone-400 whitespace-nowrap truncate">
               {isBig ? '大獭 · 持久' : (o.role?.name || '小獭')}{activeS ? ` · 第${activeGen}世 ${fmtTime(activeS.startedAt)}` : ''}
             </div>
-            {/* F20260910ctlv：invoke 实时状态行（streaming：耗时+工具计数；终态：上轮统计） */}
+            {/* F20260913ctlv：invoke 实时状态行（streaming：耗时+工具计数；终态：上轮统计） */}
             {invokeState && (
               <div className="text-[9px] whitespace-nowrap truncate" data-testid="invoke-state-line">
                 {invokeState.status === 'running' ? (

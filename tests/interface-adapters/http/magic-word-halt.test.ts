@@ -1,5 +1,5 @@
 /**
- * Magic Word「停下」全场急停测试（F20260910ctlv test12：系统级 halt，不依赖 LLM 自觉）。
+ * Magic Word「停下」全场急停测试（F20260913ctlv test12：系统级 halt，不依赖 LLM 自觉）。
  *
  * 行为（搭档拍板严格口径「单用才生效」）：user 消息 body 去除句首语气/称呼
  * （哎/你们/快…）与句末语气词（吧/了…）后核心恰好是「停下」→ POST sendMessage 返回

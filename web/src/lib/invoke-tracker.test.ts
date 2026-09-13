@@ -10,7 +10,7 @@ import {
   type InvokeStates,
 } from './invoke-tracker'
 
-/** F20260910ctlv Phase 4：invoke 状态追踪纯函数（右侧栏面板 + 时间线边界条目） */
+/** F20260913ctlv Phase 4：invoke 状态追踪纯函数（右侧栏面板 + 时间线边界条目） */
 
 const startPayload = (overrides: Partial<Parameters<typeof applyInvokeStart>[1]> = {}) => ({
   invokeId: 'inv-1',

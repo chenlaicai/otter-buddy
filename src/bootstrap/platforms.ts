@@ -154,7 +154,7 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     // pi-session-factory（① URGENT steer 注入的依赖，signal-router 直调不经链引擎 deps）。
     abort: options?.agentGateway ? (otterId) => options.agentGateway!.abort(otterId) : undefined,
     healingRepo: repos.healingEvent,
-    // F20260910ctlv 彻底切换：未读注入/hop 产出判定/self-yield 护栏数据源（entries + invokes）
+    // F20260913ctlv 彻底切换：未读注入/hop 产出判定/self-yield 护栏数据源（entries + invokes）
     entryRepo: repos.entry,
     invokeRepo: repos.invoke,
   });
@@ -198,9 +198,9 @@ function buildAgentInvoker(o: {
     o.appConfig?.circuitBreaker.healthySessionThresholdMs,
     // F20260901cxmw：otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
     o.ctxWindowProvider,
-    // F20260910ctlv 彻底切换：invoke 生命周期管理（唯一写入面）
+    // F20260913ctlv 彻底切换：invoke 生命周期管理（唯一写入面）
     o.uc.sendEntry,
-    // F20260910ctlv 彻底切换：invoke 仓库（熔断摘要读 invoke_events）
+    // F20260913ctlv 彻底切换：invoke 仓库（熔断摘要读 invoke_events）
     o.repos.invoke,
   );
 }
@@ -258,7 +258,7 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
 
   const cronParser = new SimpleCronParser();
   const schedulerService = new SchedulerService(
-    // F20260910ctlv 收尾批2：内部信号唯一落点 = entries（system entry + entry.system 广播）
+    // F20260913ctlv 收尾批2：内部信号唯一落点 = entries（system entry + entry.system 广播）
     buildSchedulerServiceOptions({
       taskRepo: repos.scheduledTask,
       convRepo: repos.conversation,
@@ -345,7 +345,7 @@ export function setupFeishu(options: {
 
   const messageProcessor = new FeishuMessageProcessor({
     manageConnection: uc.manageConnection,
-    // F20260910ctlv 彻底切换：飞书用户消息写 entries
+    // F20260913ctlv 彻底切换：飞书用户消息写 entries
     sendEntry: uc.sendEntry,
     commandDispatcher,
     feishuGateway: feishu.client,
@@ -473,7 +473,7 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
       const cdn = new WeixinCdnClient({ api, logger });
       const mediaGateway = new WeixinMediaClient({ cdn, logger });
       const gateway = new WeixinGatewayAdapter({ api, accountStore, accountId: account.id, logger, cdn });
-      // 出站：广播总线注册（与飞书同模式；F20260910ctlv 处置轮：attachmentRepo 死参数已删，媒体出站恢复待独立 issue）
+      // 出站：广播总线注册（与飞书同模式；F20260913ctlv 处置轮：attachmentRepo 死参数已删，媒体出站恢复待独立 issue）
       // #591：键控注册（"weixin-<accountId>"）——同账号重登录时替换旧通道而非追加，
       // 防止重复投递；停轮询/删账号时 unregisterOutboundChannel 成对清理
       messageBroadcaster.registerOutboundChannel(
@@ -488,7 +488,7 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
       });
       const processor = new WeixinMessageProcessor({
         manageConnection: uc.manageConnection,
-        // F20260910ctlv 收尾批2：微信消息唯一落点 = entries（与飞书同构）
+        // F20260913ctlv 收尾批2：微信消息唯一落点 = entries（与飞书同构）
         sendEntry: uc.sendEntry,
         entryRepo: repos.entry,
         weixinGateway: gateway,

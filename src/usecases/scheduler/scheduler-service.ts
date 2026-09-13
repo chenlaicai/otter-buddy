@@ -57,14 +57,14 @@ export interface CronParser {
 export interface SchedulerServiceOptions {
   taskRepo: ScheduledTaskRepository;
   convRepo: ConversationRepository;
-  /** F20260910ctlv 收尾批2：scheduler 内部信号唯一落点 = entries（system entry）。
+  /** F20260913ctlv 收尾批2：scheduler 内部信号唯一落点 = entries（system entry）。
    *  sendMessage（messages 表）退役；看门狗/记账校验同步改 entries */
   sendEntry: SendEntry;
   entryRepo: EntryRepository;
   agentInvokePort: AgentTurnPort;
   cronParser: CronParser;
   logger: Logger;
-  /** F20260910ctlv 收尾批2：system entry 广播（entry.system SSE，前端时间线实时可见） */
+  /** F20260913ctlv 收尾批2：system entry 广播（entry.system SSE，前端时间线实时可见） */
   messageBroadcaster?: MessageBroadcaster;
   manageScheduledTask?: ManageScheduledTask;
   manageSession?: ManageSession;
@@ -94,7 +94,7 @@ export class SchedulerService {
   private nextExpectedTrigger = new Map<string, Date>();
   private readonly taskRepo: ScheduledTaskRepository;
   private readonly convRepo: ConversationRepository;
-  /** F20260910ctlv 收尾批2：entries 唯一写入面（system entry）+ 读取面（看门狗/记账） */
+  /** F20260913ctlv 收尾批2：entries 唯一写入面（system entry）+ 读取面（看门狗/记账） */
   private readonly sendEntry: SendEntry;
   private readonly entryRepo: EntryRepository;
   private readonly messageBroadcaster?: MessageBroadcaster;
@@ -635,7 +635,7 @@ export class SchedulerService {
     });
   }
 
-  /** F20260910ctlv 收尾批2：内部信号落 entries（system entry，yieldTargets 即目标）。
+  /** F20260913ctlv 收尾批2：内部信号落 entries（system entry，yieldTargets 即目标）。
    *  原 createSystemMessage 写 messages（senderType='system'）已退役。
    *  广播 entry.system SSE（前端时间线居中系统条目实时可见；无 broadcaster 时静默降级）。
    *  scheduled_tasks.sender_id 保留原值不动——它是「任务归谁」的业务字段，不是信号发出者。 */
@@ -748,7 +748,7 @@ export class SchedulerService {
     throw new Error(`Agent invocation timeout (ledger watch exceeded hard limit ${LEDGER_WATCH_HARD_LIMIT_MS / 3_600_000}h)`);
   }
 
-  /** F20260908rlcp：信号终态判定（F20260910ctlv 批2 切 entries）——锚点目标是否全部有终态产出。
+  /** F20260908rlcp：信号终态判定（F20260913ctlv 批2 切 entries）——锚点目标是否全部有终态产出。
    *  新模型判据：锚点后每个目标獭的产出 = invoke_end entry（invokeId 关联）或 speak entry。
    *  invoke 终态真相源在 invokes 表，这里用「锚点后有该目标任一产出 entry」近似——
    *  精确终态由 watchExecutionByLedger 外层轮询兜底。 */
@@ -876,7 +876,7 @@ export class SchedulerService {
   private async isChainAliveByLedger(anchorMessageId: string | undefined): Promise<boolean | undefined> {
     if (!anchorMessageId) return undefined;
     try {
-      // F20260910ctlv 批2：entries 存在性判定（锚点后有产出 entry 即活）
+      // F20260913ctlv 批2：entries 存在性判定（锚点后有产出 entry 即活）
       const after = await this.entryRepo.getEntriesAfter(anchorMessageId, 5);
       return Array.isArray(after) && after.length > 0;
     } catch {
@@ -896,7 +896,7 @@ export class SchedulerService {
   /** #642: 检测链是否卡在 429 重试循环。
    *  429/rate_limit 类错误的特征：错误文本包含429/status_code/配额/limit 等关键词。
    *  链活跃但最近产出全是 429 重试 → 返回 true（应判死）；否则返回 false（真活跃）。
-   *  F20260910ctlv 批2 切 entries：判据 = 锚点后最近 entries 的 body（speak/invoke_end
+   *  F20260913ctlv 批2 切 entries：判据 = 锚点后最近 entries 的 body（speak/invoke_end
    *  的错误文本均落在 body）；最近全部含 429 特征 → 卡死。 */
   private async isChainStuckOn429(anchorMessageId: string): Promise<boolean> {
     try {
@@ -931,7 +931,7 @@ export class SchedulerService {
     return (task.timeoutMinutes ?? 15) * 60 * 1000;
   }
 
-  /** #517: 执行窗口记账校验（F20260910ctlv 批2 切 entries）。
+  /** #517: 执行窗口记账校验（F20260913ctlv 批2 切 entries）。
    *  锚点 entry 之后存在 failed 的 invoke（invoke_end entry 带 metadata.invokeStatus='failed'，
    *  或链路写入的失败 system entry）时抛错，将「agent 真失败但 execution 记 completed」
    *  的记账错位纠正为 failed。
@@ -955,7 +955,7 @@ export class SchedulerService {
     }
   }
 
-  /** #517: 分页拉取锚点后全部 entries（F20260910ctlv 批2：messages → entries）。
+  /** #517: 分页拉取锚点后全部 entries（F20260913ctlv 批2：messages → entries）。
    *  对抗审视发现 2（审砚）：单页 100 条上限会漏检深层失败（entry 量 >100 且 failed
    *  在 100 条之后时误记 completed）。getEntriesAfter 按 sequence_num 升序返回，
    *  以最后一条 entry id 为游标推进直到取空。 */
@@ -1025,7 +1025,7 @@ export class SchedulerService {
     }
   }
 
-  /** #516: 任务进入 error 状态的通知（F20260910ctlv 批2：system entry + healing event，均 best-effort） */
+  /** #516: 任务进入 error 状态的通知（F20260913ctlv 批2：system entry + healing event，均 best-effort） */
   private async notifyTaskErrored(taskId: string, failures: number, errorMessage: string): Promise<void> {
     const task = await this.taskRepo.getById(taskId).catch(() => null);
     if (!task) {
@@ -1035,7 +1035,7 @@ export class SchedulerService {
     const now = new Date().toISOString();
     const body = `[定时任务错误] 「${task.name}」连续 ${failures} 次执行失败，已自动停跑（status=error）。最近错误：${errorMessage}。请检查任务配置或手动恢复（update status='active'）后重试。`;
 
-    // 1) 系统条目注入任务所属对话（F20260910ctlv 批2：entries 唯一落点；错误通知无目标，居中系统条目）
+    // 1) 系统条目注入任务所属对话（F20260913ctlv 批2：entries 唯一落点；错误通知无目标，居中系统条目）
     try {
       const { entry } = await this.sendEntry.createSystemEntry({
         conversationId: task.conversationId,

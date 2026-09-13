@@ -31,10 +31,10 @@ export interface StateInventory {
 }
 
 /** 盘点依赖（由 DI 注入）。
- *  F20260910ctlv 收尾批1：历史读取切 entries——queryMessage（messages 表）退役，
+ *  F20260913ctlv 收尾批1：历史读取切 entries——queryMessage（messages 表）退役，
  *  改用 entryRepo 窄接口（getEntries，sequence_num DESC） */
 export interface StateInventoryDeps {
-  /** F20260910ctlv：entries 读取（发言石状态 = 最新 user entry 的 yieldTargets） */
+  /** F20260913ctlv：entries 读取（发言石状态 = 最新 user entry 的 yieldTargets） */
   entryReader: { getEntries(conversationId: string, options?: { entryType?: string; limit?: number }): Promise<Array<{ senderId: string | null; senderType: string | null; yieldTargets: string[] | null; createdAt: string }>> };
   conversationRepo: ConversationRepository;
   scheduledTaskRepo?: ScheduledTaskRepository;
@@ -74,7 +74,7 @@ export async function collectStateInventory(
   };
 }
 
-/** B1: 发言石/悬置 yield（F20260910ctlv：读最新 user entry 的 yieldTargets） */
+/** B1: 发言石/悬置 yield（F20260913ctlv：读最新 user entry 的 yieldTargets） */
 async function collectTalkingStone(
   conversationId: string,
   deps: StateInventoryDeps,
@@ -178,7 +178,7 @@ async function collectActivity(
     const status = (conv as { activityStatus?: string }).activityStatus ?? 'unknown';
     return { status };
   } catch {
-    // 降级：查最新 user entry 的发言石去向（F20260910ctlv：entries）
+    // 降级：查最新 user entry 的发言石去向（F20260913ctlv：entries）
     try {
       const entries = await deps.entryReader.getEntries(conversationId, { entryType: "user", limit: 1 });
     const lastEntry = entries.length > 0 ? entries[0] : null;

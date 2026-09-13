@@ -40,7 +40,7 @@ describe("initSchema", () => {
     // 表数量与首次一致
     const tableNames = getTableNames(db);
     expect(tableNames).toContain("conversations");
-    // F20260910ctlv 批4c：messages 族表已删除
+    // F20260913ctlv 批4c：messages 族表已删除
     expect(tableNames).not.toContain("messages");
   });
 

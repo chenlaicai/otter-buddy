@@ -42,10 +42,10 @@ export interface InvokeRepository {
     otterId: string,
   ): Promise<Invoke | null>;
   getInvokeByTriggerEntryId(triggerEntryId: string): Promise<Invoke | null>;
-  /** F20260910ctlv 彻底切换：按 turn 查 invokes（tryCloseTurn 判据——turn 生命周期从 messages 剥离） */
+  /** F20260913ctlv 彻底切换：按 turn 查 invokes（tryCloseTurn 判据——turn 生命周期从 messages 剥离） */
   getInvokesByTurnId(turnId: string): Promise<Invoke[]>;
   /**
-   * F20260910ctlv 彻底切换：重启 reconcile——running invokes 全部置 failed。
+   * F20260913ctlv 彻底切换：重启 reconcile——running invokes 全部置 failed。
    * 返回置 failed 的条数（进程死亡时在跑的 invoke，页面刷新后不残留「运行中」假象）。
    */
   failRunningInvokes(failedAt: string): Promise<number>;

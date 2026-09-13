@@ -135,7 +135,7 @@ export function buildOtterToolClient(
           const { participant, systemMessage } = await uc.manageParticipant.join(
             convId, otterId, `${name} 加入了对话`,
           );
-          // F20260910ctlv：进场 system entry 投影透出（create_otter 广播 entry.system SSE 用；
+          // F20260913ctlv：进场 system entry 投影透出（create_otter 广播 entry.system SSE 用；
           // 旧降级路径返回 Message，无投影）
           if (systemMessage && "entryType" in systemMessage) {
             return { ...participant, systemEntry: { id: systemMessage.id, body: systemMessage.body, sequenceNum: systemMessage.sequenceNum } };
@@ -149,7 +149,7 @@ export function buildOtterToolClient(
         },
         leave: (convId, otterId) => uc.manageParticipant.markLeft(convId, otterId),
       },
-      // F20260910ctlv：entry 和 invoke 子命名空间（新模型，渐进迁移）
+      // F20260913ctlv：entry 和 invoke 子命名空间（新模型，渐进迁移）
       // 旧路径继续工作，新路径优先，失败时 fallback 到旧路径
       entry: {
         createSpeakEntry: async (params) => {
@@ -187,15 +187,15 @@ export function buildOtterToolClient(
         },
         getEntries: async (convId, opts) => {
           const entries = await uc.sendEntry.getEntries(convId, opts);
-          // F20260910ctlv 批3：投影带 createdAt/senderId（自重启用户介入检测等只读消费）
+          // F20260913ctlv 批3：投影带 createdAt/senderId（自重启用户介入检测等只读消费）
           return entries.map(e => ({ id: e.id, entryType: e.entryType, body: e.body, senderId: e.senderId, senderType: e.senderType, createdAt: e.createdAt }));
         },
-        // F20260910ctlv 批3：全文搜索（entries_fts，search_messages 工具数据源切换）
+        // F20260913ctlv 批3：全文搜索（entries_fts，search_messages 工具数据源切换）
         searchEntries: async (convId: string, query: string, limit?: number) => {
           const entries = await uc.sendEntry.searchEntries(convId, query, limit);
           return entries.map(e => ({ id: e.id, entryType: e.entryType, senderId: e.senderId, senderType: e.senderType, body: e.body, sequenceNum: e.sequenceNum, createdAt: e.createdAt }));
         },
-        // F20260910ctlv 批4a：SDK 三工具切 entries（get_message/list_messages/get_turn_history）
+        // F20260913ctlv 批4a：SDK 三工具切 entries（get_message/list_messages/get_turn_history）
         getEntryById: async (entryId: string) => {
           const e = await uc.sendEntry.getEntryById(entryId);
           if (!e) return null;
@@ -224,7 +224,7 @@ export function buildOtterToolClient(
         },
       },
       getActiveTurnNumber: (convId) => uc.manageConversation.getActiveTurnNumber(convId),
-      // F20260910ctlv 批4a：turn 骨架（get_turn_history 工具；turns 表保留）
+      // F20260913ctlv 批4a：turn 骨架（get_turn_history 工具；turns 表保留）
       getTurns: async (convId: string) => (await uc.queryMessage.getTurnsForTool(convId)),
     },
     memory: buildMemoryClient(uc),

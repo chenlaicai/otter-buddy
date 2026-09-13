@@ -1,7 +1,7 @@
 /**
  * SSE 事件类型映射
  *
- * F20260910ctlv 彻底切换：时间线模型唯一事件集。
+ * F20260913ctlv 彻底切换：时间线模型唯一事件集。
  * - entry.*：时间线条目（speak/user/system/invoke 边界/yield/终态投影）
  * - invoke.*：invoke 生命周期（右栏状态面板数据源）
  * - agent.*：SDK 结构化事件（自动重试/压缩）
@@ -11,7 +11,7 @@
 export type SSEEventMap = {
   // ── 时间线条目事件（entries 表投影） ──
   /** user entry（用户发言气泡）。yieldTargets = 发言石目标（渲染「→ 目标」传递行）。
-   *  source（F20260910ctlv 处置轮）：消息接入面（web/feishu/weixin）——IM 出站通道
+   *  source（F20260913ctlv 处置轮）：消息接入面（web/feishu/weixin）——IM 出站通道
    *  只投 source=web 的 user 消息（Web→IM 同步），IM 来源的消息不回投（防回环） */
   "entry.user": { entryId: string; sequenceNum: number; senderId: string; body: string; createdAt: string; yieldTargets?: string[]; source?: "web" | "feishu" | "weixin" | null };
   /** speak entry（獭气泡唯一来源）——speak 是原子工具调用（无流式生命周期），落库即 completed，

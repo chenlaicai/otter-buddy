@@ -5,7 +5,7 @@ import type { SSEEvent } from "@contract/sse/events";
 
 /**
  * issue #565：微信出站通道测试。
- * F20260910ctlv 处置轮重写：消息级 broadcast 链路已删——出站走事件通道
+ * F20260913ctlv 处置轮重写：消息级 broadcast 链路已删——出站走事件通道
  * （entry.speak 獭气泡 / entry.user Web 用户消息同步，source 防回环闸）。
  * 副作用断言风格：记录 gateway 实际出站内容。
  */

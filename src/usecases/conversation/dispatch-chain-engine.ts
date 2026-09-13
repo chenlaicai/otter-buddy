@@ -25,7 +25,7 @@ export interface ChainHopResult {
 /** F20260907ylfs ②（P3a 批次 2）：单目标 hop 产出判定——护栏决策单点化的载体。
  *  settle 记账（chainSource 回填）与路由（nextTargets）共享同一实例，两处不再各滤各的。 */
 export interface HopOutcome {
-  /** F20260910ctlv 彻底切换：行级取数 = invoke 行（含 talkingStonePassedTo 终值）；查库失败/degraded 时 null */
+  /** F20260913ctlv 彻底切换：行级取数 = invoke 行（含 talkingStonePassedTo 终值）；查库失败/degraded 时 null */
   producedMsg: { id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null } | null;
   /** 取数降级标记（#798 发现 2）：账面补「出处降级」备注用 */
   degraded: boolean;
@@ -91,7 +91,7 @@ export class DispatchChainEngine {
       abort?: (otterId: string) => void;
       /** #530 梯度护栏：healing 事件仓库（可选——不注入时 healing 留痕降级为纯日志）。 */
       healingRepo?: HealingEventRepository;
-      /** F20260910ctlv 彻底切换：entries/invoke 仓库（未读注入 + hop 产出判定数据源）。
+      /** F20260913ctlv 彻底切换：entries/invoke 仓库（未读注入 + hop 产出判定数据源）。
        *  未注入时（旧装配/测试桩）降级读 messages——生产装配必注入。 */
       entryRepo?: { getUnreadEntries(conversationId: string, otterId: string): Promise<Array<{ id: string; entryType: string; senderType: string | null; senderId: string | null; body: string | null; senderName: string; sequenceNum: number; invokeId: string | null; yieldTargets: string[] | null; attachments?: Array<{ kind: string; originalName: string }> }>>; getEntries(conversationId: string, options?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; entryType: string; senderType: string | null; senderId: string | null; body: string | null; senderName: string; sequenceNum: number; invokeId: string | null; yieldTargets: string[] | null }>> };
       invokeRepo?: { getInvokeById(invokeId: string): Promise<{ id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null } | null> };
@@ -408,7 +408,7 @@ export class DispatchChainEngine {
     invokeId: string,
     conversationId?: string,
   ): Promise<[{ id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null } | null, boolean]> {
-    // F20260910ctlv 彻底切换：产出判定读 invokes 行（messages 停写后旧数据源只见历史）
+    // F20260913ctlv 彻底切换：产出判定读 invokes 行（messages 停写后旧数据源只见历史）
     if (!this.deps.invokeRepo) return [null, true];
     try {
       const data = await Promise.resolve(this.deps.invokeRepo.getInvokeById(invokeId));
@@ -436,7 +436,7 @@ export class DispatchChainEngine {
    *  方向上由 maxChainDepth=100 兜底，可接受。 */
    
   private async countConsecutiveSelfYields(conversationId: string, otterId: string, currentInvokeId: string): Promise<number> {
-    // F20260910ctlv 彻底切换：数据源 = yield entries + invoke 行（messages 停写后旧扫描恒 0 → 护栏失明）。
+    // F20260913ctlv 彻底切换：数据源 = yield entries + invoke 行（messages 停写后旧扫描恒 0 → 护栏失明）。
     // 判定口径保持：从当前 invoke 之前倒序扫描，遇介入即停。
     // 介入三类：①该獭自己的 to≠self yield ②user entry ③外部 invoke（otter≠该獭）的 tsp 含该獭。
     try {
@@ -464,7 +464,7 @@ export class DispatchChainEngine {
     }
   }
 
-  /** F20260910ctlv：yield entry 是否属于该獭（senderName 无法判 id——查 invoke 行的 otterId） */
+  /** F20260913ctlv：yield entry 是否属于该獭（senderName 无法判 id——查 invoke 行的 otterId） */
   /** #530 单条目三态分类：intervene（介入停扫）/ self（自 yield 计数）/ transparent（透明跳过） */
   private async classifyEntryForSelfYield(
     e: { entryType: string; senderId: string | null; invokeId: string | null; yieldTargets: string[] | null },
@@ -573,7 +573,7 @@ export class DispatchChainEngine {
       const outcome = outcomes.get(i);
       if (!outcome) continue; // resolveHopOutcomes 跳过（无 target 等降级）——无产出可路由
       const { allowedNext, aborted, steerText: hopSteerText } = outcome;
-      // F20260910ctlv 彻底切换：otterReply/producedMsg 从 invoke 行不可得（内容在 speak entries）——
+      // F20260913ctlv 彻底切换：otterReply/producedMsg 从 invoke 行不可得（内容在 speak entries）——
       // 回复预览已无消费方依赖 segments；otterReply 字段退役
 
       // F20260907ylfs ②（P3a 批次 2）：旧版「自指守卫（行级 tsp 不含 sender 自己，滤 self → 链终止）」
@@ -704,7 +704,7 @@ export class DispatchChainEngine {
     // K2 收件箱预告已退役（台账退役后数据源不存在，F20260908rlcp）
     const pendingPreview: string | null = null;
 
-    // F20260910ctlv 彻底切换：未读注入读 entries（user/system/speak），messages 停写后旧数据源只会读到空集
+    // F20260913ctlv 彻底切换：未读注入读 entries（user/system/speak），messages 停写后旧数据源只会读到空集
     const unreadAll = this.deps.entryRepo
       ? await this.deps.entryRepo.getUnreadEntries(conversationId, otterId)
       : [];

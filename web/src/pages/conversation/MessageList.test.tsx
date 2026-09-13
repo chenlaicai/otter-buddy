@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * MessageList 渲染测试。
- * （F20260910ctlv 切换清扫：流式过程面板 StreamingProcess 已退役——流式只在 Session 弹窗展示，
+ * （F20260913ctlv 切换清扫：流式过程面板 StreamingProcess 已退役——流式只在 Session 弹窗展示，
  *  原「流式过程面板事件渲染」describe 块随组件一并移除）
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -269,7 +269,7 @@ describe('F20260826fpbd user 消息发送者名回退（Web/飞书同步）', ()
   })
 
   it('未知渠道（src 非 web/feishu）无快照 → 回退全局名（test17：仅飞书算外部，防御性「外部成员」已收窄）', () => {
-    // F20260910ctlv test17：web 来源不再算「外部」（「外部成员」误标自己人）；
+    // F20260913ctlv test17：web 来源不再算「外部」（「外部成员」误标自己人）；
     // 仅 feishu 显式显示中性标签，其他未知渠道也回退全局名
     const future: LocalMessage = msg({ st: 'user', si: 'ding_user', sn: undefined, src: 'feishu' })
     ;(future as { src?: string }).src = 'dingtalk'

@@ -61,7 +61,7 @@ describe('ensureRecruitingConversation', () => {
       tryDeleteIfValueMatches: vi.fn(async () => true),
     } as unknown as SettingsRepository;
 
-    // F20260910ctlv 批4a：welcome 切 entries
+    // F20260913ctlv 批4a：welcome 切 entries
     sendEntry = {
       createSystemEntry: vi.fn(async () => ({ entry: { id: 'sys-entry-1', sequenceNum: 1 } })),
     } as unknown as SendEntry;

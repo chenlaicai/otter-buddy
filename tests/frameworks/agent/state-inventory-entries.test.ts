@@ -1,5 +1,5 @@
 /**
- * F20260910ctlv 收尾批1：state-inventory 历史读取切 entries 回归测试。
+ * F20260913ctlv 收尾批1：state-inventory 历史读取切 entries 回归测试。
  *
  * B1 发言石盘点：读最新 user entry 的 yieldTargets（原 messages.talkingStonePassedTo）；
  * B6 活动状态降级：同样读 user entry。

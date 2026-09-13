@@ -30,7 +30,7 @@ export class ManageParticipant {
   constructor(
     private readonly repo: ConversationRepository,
     private readonly otterRepo: OtterRepository,
-    /** F20260910ctlv 批4c：系统消息写入依赖（进场/退场 system entry + turn 关闭判据）——必注入 */
+    /** F20260913ctlv 批4c：系统消息写入依赖（进场/退场 system entry + turn 关闭判据）——必注入 */
     private readonly entryDeps: { entryRepo: EntryRepository; invokeRepo: InvokeRepository },
     /** 可选：老数据/测试场景无 config 注入时 modelAlias 缺省不返回 */
     private readonly configProvider?: OtterConfigProvider,
@@ -40,7 +40,7 @@ export class ManageParticipant {
 
   /**
    * Otter 进场：创建参与记录 + 进场系统消息。
-   * F20260910ctlv 彻底切换：去掉「必须 open turn」硬校验（invokes 状态机下 turns 不再
+   * F20260913ctlv 彻底切换：去掉「必须 open turn」硬校验（invokes 状态机下 turns 不再
    * 长期 open，test11 实测 getActiveTurn 恒 null → create_otter 全挂）；turn 用
    * ensureActiveTurn 兜底创建，系统消息改写 system entry（messages 停写）。
    */
@@ -92,7 +92,7 @@ export class ManageParticipant {
     return { participant, systemMessage };
   }
 
-  /** F20260910ctlv：进场/退场系统消息写入——entry 新路径 + messages 降级路径 */
+  /** F20260913ctlv：进场/退场系统消息写入——entry 新路径 + messages 降级路径 */
   private async writeSystemRecord(
     conversationId: string,
     turnId: string,
@@ -100,7 +100,7 @@ export class ManageParticipant {
     body: string,
     now: string,
   ): Promise<Entry> {
-    // F20260910ctlv 批4c：messages 降级路径删除（entryDeps 必注入——装配唯一路径）
+    // F20260913ctlv 批4c：messages 降级路径删除（entryDeps 必注入——装配唯一路径）
     const entry: Entry = {
         id: crypto.randomUUID(),
         conversationId,
@@ -125,7 +125,7 @@ export class ManageParticipant {
   }
 
 
-  /** F20260910ctlv 批4a：turn 关闭（invokes 判据；messages 降级分支已删） */
+  /** F20260913ctlv 批4a：turn 关闭（invokes 判据；messages 降级分支已删） */
   private async closeTurnAfterRecord(turnId: string): Promise<void> {
     await tryCloseTurn(this.repo, turnId, this.entryDeps);
   }
@@ -136,7 +136,7 @@ export class ManageParticipant {
    */
   /**
    * Otter 退场：更新参与记录 + 退场系统消息。
-   * F20260910ctlv 彻底切换：与 join 同款去 open-turn 硬校验（ensureActiveTurn 兜底）+
+   * F20260913ctlv 彻底切换：与 join 同款去 open-turn 硬校验（ensureActiveTurn 兜底）+
    * 系统消息改 system entry。生产调用方已退役（clients.ts 走 markLeft），保留供测试/
    * 未来场景使用。
    */

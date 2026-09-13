@@ -76,7 +76,7 @@ function makeMocks() {
   const queryOtter = { getById: vi.fn().mockResolvedValue(null) } as unknown as QueryOtter;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger;
 
-  // F20260910ctlv 彻底切换：护栏计数数据源 = entries（yield/user 条目）+ invoke 行
+  // F20260913ctlv 彻底切换：护栏计数数据源 = entries（yield/user 条目）+ invoke 行
   let seededEntries: Array<Record<string, unknown>> = [];
   const invokeRows = new Map<string, Record<string, unknown>>();
   const entryRepo = {
@@ -99,9 +99,9 @@ function makeMocks() {
     getMessageById, getMessages,
     entryRepo, invokeRepo, getInvokeById,
     setSeededMessages: (msgs: Message[]) => { seededMessages = msgs; },
-    /** F20260910ctlv：seed entry 序列（最新在前语义由 getEntries mock 排序处理） */
+    /** F20260913ctlv：seed entry 序列（最新在前语义由 getEntries mock 排序处理） */
     setSeededEntries: (entries: Array<Record<string, unknown>>) => { seededEntries = entries; },
-    /** F20260910ctlv：注册 invoke 行（isEntryOfOtter 无 senderId 时回查） */
+    /** F20260913ctlv：注册 invoke 行（isEntryOfOtter 无 senderId 时回查） */
     setInvokeRow: (id: string, row: Record<string, unknown>) => { invokeRows.set(id, row); },
   };
 }
@@ -199,7 +199,7 @@ describe("#530 self-yield guardrail", () => {
       expect(healingArg.severity).toBe("medium");
       expect(healingArg.description).toContain("#530");
       expect(healingArg.description).toContain("5 次");
-      // F20260910ctlv 彻底切换：otterReply 从 invoke 行不可得（内容在 speak entries）——
+      // F20260913ctlv 彻底切换：otterReply 从 invoke 行不可得（内容在 speak entries）——
       // 链终止语义改由 abort 断言锁定（nextTargets 清空终链）
     });
 
@@ -394,7 +394,7 @@ describe("#530 self-yield guardrail", () => {
         invokeFn: async () => ({ invokeId: "inv-new", messageId: "inv-new", aggregatedTargets: ["otter-1"] }),
       });
 
-      // 不抛异常（回调可选，降级为 no-op）——F20260910ctlv：otterReply 已退役，不抛即通过
+      // 不抛异常（回调可选，降级为 no-op）——F20260913ctlv：otterReply 已退役，不抛即通过
     });
 
     it("无 healingRepo 时 abort 不留痕（不抛）", async () => {
@@ -500,7 +500,7 @@ describe("#530 self-yield guardrail", () => {
         invokeFn: async () => ({ invokeId: "inv-new", messageId: "inv-new", aggregatedTargets: ["otter-1"] }),
       });
 
-      // F20260910ctlv：护栏计数数据源 = entries——副作用断言：本会话至少被扫描过一次
+      // F20260913ctlv：护栏计数数据源 = entries——副作用断言：本会话至少被扫描过一次
       expect((m.entryRepo.getEntries as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(1);
     });
   });

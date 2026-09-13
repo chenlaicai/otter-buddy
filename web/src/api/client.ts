@@ -79,7 +79,7 @@ export function getParticipants(conversationId: string): Promise<ParticipantDTO[
   return request(`/conversations/${conversationId}/participants`)
 }
 
-// ── Messages（F20260910ctlv 彻底切换：只保留发言/未读/已读，历史读取/事件/中止/重试已迁 entries+invokes）──
+// ── Messages（F20260913ctlv 彻底切换：只保留发言/未读/已读，历史读取/事件/中止/重试已迁 entries+invokes）──
 
 /** 未读状态 */
 export function getUnreadState(conversationId: string): Promise<UnreadStateDTO> {
@@ -111,7 +111,7 @@ export function uploadAttachments(conversationId: string, files: File[], uploade
   })
 }
 
-// ── Invokes（F20260910ctlv：Session 弹窗 + 獭状态面板数据源）──
+// ── Invokes（F20260913ctlv：Session 弹窗 + 獭状态面板数据源）──
 
 /** 拉取会话内 invoke 记录列表（before 游标分页，otterId 可选过滤单獭） */
 export function listInvokes(conversationId: string, options?: { limit?: number; before?: string; otterId?: string }): Promise<InvokeListResponseDTO> {
@@ -126,20 +126,20 @@ export function getInvokeEvents(invokeId: string): Promise<InvokeEventsResponseD
   return request(`/invokes/${invokeId}/events`)
 }
 
-/** F20260910ctlv 切换清扫：拉取会话时间线条目（entries 历史数据源，替代 messages 渲染路径） */
+/** F20260913ctlv 切换清扫：拉取会话时间线条目（entries 历史数据源，替代 messages 渲染路径） */
 export function listEntries(conversationId: string, limit = 50, before?: string): Promise<EntriesResponseDTO> {
   const qs = new URLSearchParams({ limit: String(limit) })
   if (before) qs.set('before', before)
   return request(`/conversations/${conversationId}/entries?${qs}`)
 }
 
-/** F20260910ctlv 彻底切换：after 游标向下分页（增量刷新用，升序） */
+/** F20260913ctlv 彻底切换：after 游标向下分页（增量刷新用，升序） */
 export function listEntriesAfter(conversationId: string, after: string, limit = 100): Promise<EntriesResponseDTO> {
   const qs = new URLSearchParams({ limit: String(limit), after })
   return request(`/conversations/${conversationId}/entries?${qs}`)
 }
 
-/** F20260910ctlv 彻底切换：中止运行中 invoke（Session 弹窗/右栏停止按钮） */
+/** F20260913ctlv 彻底切换：中止运行中 invoke（Session 弹窗/右栏停止按钮） */
 export function abortInvoke(invokeId: string, otterId: string): Promise<{ status: string }> {
   return request(`/invokes/${invokeId}/abort`, {
     method: 'POST',
@@ -148,7 +148,7 @@ export function abortInvoke(invokeId: string, otterId: string): Promise<{ status
   })
 }
 
-/** F20260910ctlv 彻底切换：重试失败 invoke（前端气泡重试按钮；返回 SSE 流） */
+/** F20260913ctlv 彻底切换：重试失败 invoke（前端气泡重试按钮；返回 SSE 流） */
 export function retryInvoke(invokeId: string): Promise<Response> {
   return fetch(`${BASE}/invokes/${invokeId}/retry`, {
     method: 'POST',
@@ -156,7 +156,7 @@ export function retryInvoke(invokeId: string): Promise<Response> {
   })
 }
 
-/** F20260910ctlv test17（搭档拍板）：獭锚重试——重试的是獭的 session（上下文载体），
+/** F20260913ctlv test17（搭档拍板）：獭锚重试——重试的是獭的 session（上下文载体），
  *  invoke 只是执行记录。右栏重试按钮用此（无需 invokeId，天然避开 otterId/invokeId 错位坑） */
 export function retryOtter(otterId: string, conversationId: string): Promise<Response> {
   return fetch(`${BASE}/otters/${otterId}/retry?conversationId=${encodeURIComponent(conversationId)}`, {

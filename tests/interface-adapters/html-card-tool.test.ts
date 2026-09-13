@@ -25,7 +25,7 @@ function makeEntry(overrides: Partial<{ id: string; entryType: string; senderTyp
   };
 }
 
-/** F20260910ctlv 批4a：SDK 工具切 entries——mock 面同步 */
+/** F20260913ctlv 批4a：SDK 工具切 entries——mock 面同步 */
 function makeCtx(clientOverrides: Partial<OtterToolClient> = {}): ToolContext {
   const client = {
     conversation: {

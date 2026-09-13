@@ -106,7 +106,7 @@ async function createConversationAndParticipant(
 }
 
 /** 发欢迎系统消息（仅作为对话起点上下文，不期望大獭回复）。
- *  F20260910ctlv 批4a：sendSystem 退役，落 system entry（时间线唯一真相源） */
+ *  F20260913ctlv 批4a：sendSystem 退役，落 system entry（时间线唯一真相源） */
 async function sendWelcomeMessage(
   sendEntry: SendEntry,
   conversationId: string,
@@ -174,7 +174,7 @@ export async function ensureRecruitingConversation(deps: {
   otterRepo: OtterRepository;
   createOtter: CreateOtter;
   settings: SettingsRepository;
-  /** F20260910ctlv 批4a：welcome 切 entries */
+  /** F20260913ctlv 批4a：welcome 切 entries */
   sendEntry: SendEntry;
   logger: Logger;
   /** 覆盖 prompt 文件路径（测试用） */

@@ -15,7 +15,7 @@ import type { HandoffEntryReader } from "@frameworks/agent/handoff-package-build
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
 import { createTestLogger, createCapturingLogger } from "../../helpers/logger";
 
-/** F20260910ctlv 收尾批1：entries 读取 mock（空时间线） */
+/** F20260913ctlv 收尾批1：entries 读取 mock（空时间线） */
 function mockEntryReader(overrides?: Partial<HandoffEntryReader>): HandoffEntryReader {
   return {
     getEntries: vi.fn().mockResolvedValue([]),

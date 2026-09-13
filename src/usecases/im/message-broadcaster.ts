@@ -2,13 +2,13 @@ import type { Logger } from "@usecases/ports/logger";
 import type { SSEEvent } from "@contract/sse/events";
 
 /**
- * 进程内事件广播总线（issue #281；F20260910ctlv 处置轮收缩）。
+ * 进程内事件广播总线（issue #281；F20260913ctlv 处置轮收缩）。
  *
  * 职责：Web SSE 订阅者的事件分发（entry.* / invoke.*）+ 出站事件通道（IM）的注册与转发。
  * **平台无关**：bootstrap 无条件创建；飞书/微信出站（markdown 投递 / "正在思考..." /
  * Web→IM 用户消息同步）在各 MessageChannel，作为 outbound channel 在对应平台启用时注册。
  *
- * F20260910ctlv：消息级广播面（broadcast/onMessage/三参 subscribe）随 messages 停写
+ * F20260913ctlv：消息级广播面（broadcast/onMessage/三参 subscribe）随 messages 停写
  * 全部退役——出站走事件通道（channel.onEvent 消费 entry.user/entry.speak/invoke.start）。
  */
 export interface OutboundEventChannel {
@@ -41,7 +41,7 @@ export class MessageBroadcaster {
    * Web 端订阅消息和事件
    * 返回取消订阅函数(同时清理消息和事件订阅)
    */
-  /** F20260910ctlv 批4a：纯事件订阅（entry 与 invoke 事件；消息回调链路已删） */
+  /** F20260913ctlv 批4a：纯事件订阅（entry 与 invoke 事件；消息回调链路已删） */
   subscribeEvents(conversationId: string, onEvent: (event: SSEEvent) => void): () => void {
     if (!this.eventSubscribers.has(conversationId)) {
       this.eventSubscribers.set(conversationId, new Set());

@@ -1,5 +1,5 @@
 /**
- * F20260910ctlv 彻底切换：SendEntry mock 助手。
+ * F20260913ctlv 彻底切换：SendEntry mock 助手。
  *
  * 旧 agent-invoker 测试族（circuit-break/guard-bounce/metrics/rate-limit/self-restart）
  * 的状态机 mock 面从 SendMessage（messages 行）切到 SendEntry（invokes + entries）。

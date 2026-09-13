@@ -113,9 +113,9 @@ export interface InvokeOptions {
   readOnly?: boolean;
   /** F20260908rlcp：本批未读消息的最大 sequence_num（启动成功后推进游标用） */
   batchMaxSeq?: number;
-  /** F20260910ctlv：当前 invoke ID（invoke 级上下文，由 agent-invoker 注入） */
+  /** F20260913ctlv：当前 invoke ID（invoke 级上下文，由 agent-invoker 注入） */
   currentInvokeId?: string;
-  /** F20260910ctlv：SSE 发射通道（invoke 级注入，工具层发 entry.yield 等事件用） */
+  /** F20260913ctlv：SSE 发射通道（invoke 级注入，工具层发 entry.yield 等事件用） */
   emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
 }
 
@@ -169,7 +169,7 @@ export class PiSessionFactory implements AgentGateway {
   private otterToolClient: OtterToolClient | null;
 
   /** F20260911pspl：池化后的 session 持有（session + invoke 级寄存器 + 工具上下文）。
-   *  F20260910ctlv 整合（PR #886 merge main）：rlcp 热池退役，本池为唯一基座。 */
+   *  F20260913ctlv 整合（PR #886 merge main）：rlcp 热池退役，本池为唯一基座。 */
   private readonly pool: PiSessionPool;
   private readonly poolMeta = new Map<string, { session: AgentSession; toolContext: ToolContext; register: InvokeRegister; otterType: string }>();
 
@@ -204,7 +204,7 @@ export class PiSessionFactory implements AgentGateway {
     // Why(#423 方案1): 注入 logger，锁获取超时时落结构化诊断日志（持有者、持有时长、队列深度）
     this.lockManager = new SimpleLockManager(undefined, logger);
     // F20260911pspl：session 池（running 豁免用 SDK isStreaming；TTL 默认 10min）。
-    // F20260910ctlv 整合（PR #886 merge main）：rlcp 池退役，以 #894 PiSessionPool 为基座；
+    // F20260913ctlv 整合（PR #886 merge main）：rlcp 池退役，以 #894 PiSessionPool 为基座；
     // ctlv 的 invoke 级语义（currentInvokeId/emitEvent/lastSpeakEntryId）移植进寄存器。
     this.pool = new PiSessionPool(async () => { throw new Error("pool factory must not be called directly"); });
     this.pool.onEvict = (key) => { this.poolMeta.delete(key); };
@@ -492,14 +492,14 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /** 池化 session 获取：命中 → 重置 invoke 级寄存器；未命中 → 冷启动重建入池。
-   *  F20260910ctlv 整合并入 readOnly 绕过分支 + ctlv 寄存器刷新（语句数/复杂度超限——
+   *  F20260913ctlv 整合并入 readOnly 绕过分支 + ctlv 寄存器刷新（语句数/复杂度超限——
    *  池编排是单体内聚逻辑，拆分会让 acquire 状态机跨方法散落，降低可读性） */
   // eslint-disable-next-line max-statements, complexity -- ctlv 合流面并入（readOnly 分支 + invoke 级刷新）
   private async _acquirePooled(
     otterId: string,
     options: InvokeOptions | undefined,
   ): Promise<{ session: AgentSession; sessionKey: string; toolContext: ToolContext; turnText: { text: string }; isPooled: boolean; createdNew: boolean }> {
-    // F20260910ctlv 整合移植（PR #886 merge main）：readOnly 池绕过——readOnly 需要过滤
+    // F20260913ctlv 整合移植（PR #886 merge main）：readOnly 池绕过——readOnly 需要过滤
     // 工具集（只保留 read），池中 session 是全量工具，命中复用会让合成/handoff 类只读
     // 调用拿到越权工具面（越权风险 + 工具行为不一致）。绕过池 = 不复用/不入池，
     // session 用完由调用方处置。此语义同时修掉 main #894 的潜在回归（池命中不看 readOnly）。
@@ -539,7 +539,7 @@ export class PiSessionFactory implements AgentGateway {
         this.pool.markStale(otterId);
         this.poolMeta.delete(otterId);
       } else {
-        // F20260910ctlv 整合移植：池命中时刷新 invoke 级 ctlv 字段——currentInvokeId 不刷新
+        // F20260913ctlv 整合移植：池命中时刷新 invoke 级 ctlv 字段——currentInvokeId 不刷新
         // 则第二次 invoke 复用旧 ID，speak/yield entry 挂错 invoke（时间线结错链）
         resetInvokeRegister(existing.register, options?.messageId, { currentInvokeId: options?.currentInvokeId, emitEvent: options?.emitEvent });
         const turnText = existing.register.turnText;
@@ -616,8 +616,8 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /** 使用 session 执行 invoke（F20260911pspl：session 由 _acquirePooled 获取，本方法不再创建；
-   *  F20260910ctlv：wrappedHandler 启动游标推进 + pushCursorOnStartup 在此） */
-  // eslint-disable-next-line max-params, max-lines-per-function -- F20260911pspl：池化后 session/sessionKey/toolContext/turnText 由 acquire 产出透传（拆对象会切断参数与 acquire 返回值的对应关系）；F20260910ctlv：wrappedHandler 启动游标 + ctlv 合流面
+   *  F20260913ctlv：wrappedHandler 启动游标推进 + pushCursorOnStartup 在此） */
+  // eslint-disable-next-line max-params, max-lines-per-function -- F20260911pspl：池化后 session/sessionKey/toolContext/turnText 由 acquire 产出透传（拆对象会切断参数与 acquire 返回值的对应关系）；F20260913ctlv：wrappedHandler 启动游标 + ctlv 合流面
   private async _executeWithSession(
     otterId: string,
     message: string,
@@ -662,7 +662,7 @@ export class PiSessionFactory implements AgentGateway {
         const fullMessage = buildMessageWithContext("", message, options?.dynamicContext);
         this.logger.info('LLM request', { otterId, conversationId: options?.conversationId, modelAlias: this.getModelAliasForLog(otterId), messageLength: fullMessage.length, messagePreview: fullMessage.substring(0, 300) });
 
-        // F20260908rlcp→F20260910ctlv：包装事件处理器——首次事件时推进游标（启动成功语义）。
+        // F20260908rlcp→F20260913ctlv：包装事件处理器——首次事件时推进游标（启动成功语义）。
         // pushCursorOnStartup 第 4 参为 invokeId（批4a 键控语义，getTurnNumberByInvokeId 新模型链）
         let startupCursorPushed = false;
         const batchMaxSeq = options?.batchMaxSeq;
@@ -722,7 +722,7 @@ export class PiSessionFactory implements AgentGateway {
             this.pool.evict(otterId);
             this.poolMeta.delete(otterId);
           }
-          // F20260910ctlv 整合移植：readOnly session 不入池（_acquirePooled 守卫，
+          // F20260913ctlv 整合移植：readOnly session 不入池（_acquirePooled 守卫，
           // 独立冷启动路径，不是池内 session），此处 dispose 释放资源——
           // 不涉及外层 streaming session（#897 语义由 _acquirePooled 的嵌套抛错保护）
           if (options?.readOnly) {
@@ -749,7 +749,7 @@ export class PiSessionFactory implements AgentGateway {
     try {
       updateLastReadSeq(this.cfg.db, conversationId, otterId, batchMaxSeq);
       // F20260908rlcp：活跃度同点迁移——查本 invoke 的 turn_number。
-      // F20260910ctlv 批4c 修复：invokeId 语义自批4a 起承担（agent-invoker.ts:333），
+      // F20260913ctlv 批4c 修复：invokeId 语义自批4a 起承担（agent-invoker.ts:333），
       // 旧 SQL 查 messages 表（该 ID 是 invokeId）永远 miss → lastActiveTurnNumber 停摆。
       // 新链在 mixin（getTurnNumberByInvokeId）：trigger_entry_id 为空时返回 null，跳过推进（lastReadSeq 照推，不抛错）。
       if (invokeId) {
@@ -927,7 +927,7 @@ export class PiSessionFactory implements AgentGateway {
    *  session 收尾 finally 块 delete 前的窗口内，steer 可能抛错（session dispose 中）。
    *  此时返回 true + 路由器写 completed/steered 销账行 → URGENT 零投递且台账说已消费。
    *  最小修复：catch 内落 healing event（可观测），重启补扫不补（设计显式声明此窗口）。
-   *  F20260910ctlv 整合轮修复：合并时误删，从 main（b4c4e4db）原样恢复。 */
+   *  F20260913ctlv 整合轮修复：合并时误删，从 main（b4c4e4db）原样恢复。 */
   steerSession(otterId: string, text: string): boolean {
     // 遍历 activeSessions 查找 otterId 前缀匹配（键格式 ${otterId}:${messageId}）
     for (const [key, entry] of this.activeSessions) {

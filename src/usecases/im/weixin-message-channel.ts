@@ -30,9 +30,9 @@ export class WeixinMessageChannel implements OutboundEventChannel {
 
 
 
-  /** F20260910ctlv 批4a：SSE 事件出站——invoke.start 触发"正在思考..."
+  /** F20260913ctlv 批4a：SSE 事件出站——invoke.start 触发"正在思考..."
    *  （与飞书同语义；message.start 已无生产者）；entry.speak = speak 气泡出站投递。
-   *  F20260910ctlv 处置轮：entry.user = Web→微信用户消息同步（F20260828fsyc 同步链恢复）——
+   *  F20260913ctlv 处置轮：entry.user = Web→微信用户消息同步（F20260828fsyc 同步链恢复）——
    *  防回环闸 source=web（微信入站链的 entry.user 事件 source=weixin，不回投） */
   onEvent(conversationId: string, event: SSEEvent): void {
     if (event.event === "invoke.start") {

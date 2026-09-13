@@ -59,7 +59,7 @@ function createMockToolContext(overrides: Partial<ToolContext> = {}): ToolContex
         message: {
           getLastBySenderType: vi.fn(async () => null),
         },
-        // F20260910ctlv 批3：entry 命名空间（用户介入检测数据源切 entries）
+        // F20260913ctlv 批3：entry 命名空间（用户介入检测数据源切 entries）
         entry: {
           getEntries: vi.fn(async () => []),
         },

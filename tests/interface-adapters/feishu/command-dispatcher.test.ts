@@ -21,7 +21,7 @@ describe("CommandDispatcher", () => {
       enterConversation: vi.fn().mockResolvedValue({ id: "session-1" }),
       getCurrentConversation: vi.fn().mockResolvedValue(null),
     } as any;
-    // F20260910ctlv 批4a：/history 数据源切 entries
+    // F20260913ctlv 批4a：/history 数据源切 entries
     entryRepo = {
       getEntries: vi.fn().mockResolvedValue([]),
     } as any;

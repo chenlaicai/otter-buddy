@@ -1,5 +1,5 @@
 /**
- * F20260910ctlv 彻底切换：Turn 关闭判据从 messages 行剥离到 invokes 行。
+ * F20260913ctlv 彻底切换：Turn 关闭判据从 messages 行剥离到 invokes 行。
  *
  * Why: messages 停写 UI 消息后，turn 内的「参与者产出」唯一状态机是 invokes 表
  * （running/completed/failed/aborted）。turn 关闭 = turn 内全部 invoke 到终态。
@@ -20,7 +20,7 @@ export interface TurnCloseResult {
   aggregatedTargets: string[];
 }
 
-/** F20260910ctlv：ensureActiveTurn 共享实现（无 open turn 时创建，否则复用）。
+/** F20260913ctlv：ensureActiveTurn 共享实现（无 open turn 时创建，否则复用）。
  *  manage-participant join 进场也用它——旧「必须 open turn」硬校验在 invokes 状态机下
  *  已无意义（turns 不再长期维持 open，send-entry 体系全部走 ensureActiveTurn 兜底） */
 export async function ensureActiveTurn(
@@ -55,7 +55,7 @@ export async function tryCloseTurn(
   turnId: string,
   deps?: { invokeRepo?: InvokeRepository; entryRepo?: EntryRepository },
 ): Promise<TurnCloseResult> {
-  // F20260910ctlv 批4a：messages 降级分支删除（invokeRepo 是必注入依赖——
+  // F20260913ctlv 批4a：messages 降级分支删除（invokeRepo 是必注入依赖——
   // 唯一旧调用方 sendMessage 已无 UI 消费；未注入时视为无 invoke 可判，直接关闭）
   if (!deps?.invokeRepo) {
     await conversationRepo.closeTurn(turnId, new Date().toISOString());

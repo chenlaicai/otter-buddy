@@ -1,5 +1,5 @@
 /**
- * F20260910ctlv 批4c 修复测试：getTurnNumberByInvokeId（新模型链 turn 反查）。
+ * F20260913ctlv 批4c 修复测试：getTurnNumberByInvokeId（新模型链 turn 反查）。
  *
  * 背景：pushCursorOnStartup 旧 SQL 查 messages 表，但收到的 ID 自批4a 起实为
  * invokeId（agent-invoker.ts:333 键控语义换轨）→ 永远 miss → lastActiveTurnNumber
@@ -24,7 +24,7 @@ function createTestDb(): Database.Database {
   return db;
 }
 
-describe("getTurnNumberByInvokeId（F20260910ctlv 批4c 修复：invokeId 语义链）", () => {
+describe("getTurnNumberByInvokeId（F20260913ctlv 批4c 修复：invokeId 语义链）", () => {
   let db: Database.Database;
   let invokeRepo: SqliteInvokeRepository;
   let entryRepo: SqliteEntryRepository;

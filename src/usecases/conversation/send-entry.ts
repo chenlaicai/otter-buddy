@@ -1,5 +1,5 @@
 /**
- * SendEntry - 条目发送与 invoke 生命周期管理（F20260910ctlv 彻底切换）
+ * SendEntry - 条目发送与 invoke 生命周期管理（F20260913ctlv 彻底切换）
  *
  * 切换后唯一时间线真相源：
  * - entries 表 = 时间线唯一数据源（user/speak/system/invoke_start/invoke_end/yield）
@@ -42,7 +42,7 @@ export interface SendUserEntryInput {
   attachmentIds?: string[];
   /** F20260826fuid：飞书群聊多人识别的发送者显示名快照（存 metadata.senderDisplayName） */
   senderDisplayName?: string | null;
-  /** F20260910ctlv：注入方式（目标 running 时）——落 metadata.injectionMode，
+  /** F20260913ctlv：注入方式（目标 running 时）——落 metadata.injectionMode，
    *  signal-router running 分支消费（steer=打断默认/followUp=排队） */
   injectionMode?: "steer" | "followUp";
 }
@@ -87,7 +87,7 @@ export interface CreateSystemEntryInput {
   conversationId: string;
   turnId: string;
   body: string;
-  /** F20260910ctlv 收尾批2：scheduler 内部信号——yieldTargets 即信号目标（原 messages.talkingStonePassedTo）。
+  /** F20260913ctlv 收尾批2：scheduler 内部信号——yieldTargets 即信号目标（原 messages.talkingStonePassedTo）。
    *  仅 scheduler 生产者使用；无目标的居中系统条目不传 */
   yieldTargets?: string[];
   senderName?: string;
@@ -117,7 +117,7 @@ export class SendEntry {
     private readonly invokeRepo: InvokeRepository,
     private readonly otterRepo: OtterRepository,
     private readonly conversationRepo: ConversationRepository,
-    /** F20260910ctlv 彻底切换：logger + 目标解析依赖（未注入 resolveDeps 时 sendUserEntry
+    /** F20260913ctlv 彻底切换：logger + 目标解析依赖（未注入 resolveDeps 时 sendUserEntry
      *  不解析目标，由入口预解析；logger 独立成字段以保持构造 ≤5 参） */
     private readonly aux: { logger: Logger; resolveDeps?: ResolveTargetsDeps },
   ) {
@@ -155,12 +155,12 @@ export class SendEntry {
       senderId: input.senderId,
       body: input.body,
       invokeId: null,
-      /** F20260910ctlv 补漏：user entry 的发言石目标 = 点火依据（信号路由读此字段） */
+      /** F20260913ctlv 补漏：user entry 的发言石目标 = 点火依据（信号路由读此字段） */
       yieldTargets: talkingStonePassedTo,
       turnId: turn.id,
       status: "completed",
       source: input.source ?? "web",
-      // F20260910ctlv：注入方式落 metadata（与 senderDisplayName 合并——两者可同时存在）
+      // F20260913ctlv：注入方式落 metadata（与 senderDisplayName 合并——两者可同时存在）
       metadata: this.buildUserEntryMetadata(input),
       senderName: input.senderDisplayName?.trim() ?? "",
       contextTokens: null,
@@ -429,7 +429,7 @@ export class SendEntry {
       turnId,
       status: "completed",
       source: null,
-      /** F20260910ctlv test17：invoke 真实终态记 metadata.invokeStatus——entries.status
+      /** F20260913ctlv test17：invoke 真实终态记 metadata.invokeStatus——entries.status
        *  是死字段（全部 completed），历史渲染靠它识别可重试条目（重试按钮数据源） */
       metadata: input.status !== "completed" ? { invokeStatus: input.status } : null,
       senderName: otter.name,
@@ -526,17 +526,17 @@ export class SendEntry {
     await this.invokeRepo.updateInvokeTokenUsage(invokeId, input, output);
   }
 
-  /** F20260910ctlv 收尾批3：全文搜索（entries_fts——search_messages 工具数据源） */
+  /** F20260913ctlv 收尾批3：全文搜索（entries_fts——search_messages 工具数据源） */
   async searchEntries(conversationId: string, query: string, limit?: number): Promise<Entry[]> {
     return this.entryRepo.searchEntries(conversationId, query, limit);
   }
 
-  /** F20260910ctlv 批4a：按 ID 取条目（get_message 工具） */
+  /** F20260913ctlv 批4a：按 ID 取条目（get_message 工具） */
   async getEntryById(entryId: string): Promise<Entry | null> {
     return this.entryRepo.getEntryById(entryId);
   }
 
-  /** F20260910ctlv 批4a：按 turn 取条目（get_turn_history 工具） */
+  /** F20260913ctlv 批4a：按 turn 取条目（get_turn_history 工具） */
   async getEntriesByTurnId(turnId: string): Promise<Entry[]> {
     return this.entryRepo.getEntriesByTurnId(turnId);
   }
@@ -567,7 +567,7 @@ export class SendEntry {
     await this.invokeRepo.updateInvokeTalkingStonePassedTo(invokeId, targets);
   }
 
-  /** F20260910ctlv 彻底切换：user entry 挂附件（多模态 Phase 1 接线） */
+  /** F20260913ctlv 彻底切换：user entry 挂附件（多模态 Phase 1 接线） */
   async attachEntryAttachments(entryId: string, attachmentIds: string[]): Promise<void> {
     for (let i = 0; i < attachmentIds.length; i++) {
       await this.entryRepo.attachAttachment(entryId, attachmentIds[i]!, i);

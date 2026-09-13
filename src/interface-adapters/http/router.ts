@@ -25,9 +25,9 @@ export interface Controllers {
   conversation: ConversationController;
   otter: OtterController;
   message: MessageController;
-  /** F20260910ctlv Phase 4：invoke 只读查询端点（Session 弹窗数据源） */
+  /** F20260913ctlv Phase 4：invoke 只读查询端点（Session 弹窗数据源） */
   invoke: InvokeController;
-  /** F20260910ctlv 切换清扫：entries 时间线只读查询端点 */
+  /** F20260913ctlv 切换清扫：entries 时间线只读查询端点 */
   entry: EntryController;
   memory: MemoryController;
   keyInfo: KeyInfoController;
@@ -65,15 +65,15 @@ function registerMsgRoutes(app: Hono, c: Controllers): void {
   app.post("/api/conversations/:id/messages", (ctx) => c.message.sendMessage(ctx));
   app.get("/api/conversations/:id/unread", (ctx) => c.message.getUnreadState(ctx));
   app.post("/api/conversations/:id/read", (ctx) => c.message.markRead(ctx));
-  // F20260910ctlv Phase 4：invoke 只读查询（Session 弹窗 + 獭状态面板）
+  // F20260913ctlv Phase 4：invoke 只读查询（Session 弹窗 + 獭状态面板）
   app.get("/api/conversations/:id/invokes", (ctx) => c.invoke.list(ctx));
   app.get("/api/invokes/:id/events", (ctx) => c.invoke.getEvents(ctx));
-  // F20260910ctlv 彻底切换：invoke 中止/重试（UI 停止与重试按钮唯一后端；messages abort/retry 退役）
+  // F20260913ctlv 彻底切换：invoke 中止/重试（UI 停止与重试按钮唯一后端；messages abort/retry 退役）
   app.post("/api/invokes/:id/abort", (ctx) => c.invoke.abort(ctx));
   app.post("/api/invokes/:id/retry", (ctx) => c.invoke.retry(ctx));
-  // F20260910ctlv test17（搭档拍板）：獭锚重试——重试的是獭的 session（上下文载体），invoke 只是执行记录
+  // F20260913ctlv test17（搭档拍板）：獭锚重试——重试的是獭的 session（上下文载体），invoke 只是执行记录
   app.post("/api/otters/:id/retry", (ctx) => c.invoke.retryByOtter(ctx));
-  // F20260910ctlv 彻底切换：entries 时间线唯一渲染数据源（messages 只读端点退役）
+  // F20260913ctlv 彻底切换：entries 时间线唯一渲染数据源（messages 只读端点退役）
   app.get("/api/conversations/:id/entries", (ctx) => c.entry.list(ctx));
 }
 

@@ -14,7 +14,7 @@ export function createGetMessageTool(ctx: ToolContext): AgentTool {
       required: ["messageId"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      // F20260910ctlv 批4a：数据源切 entries（messages 停写——卡片全文回看源）
+      // F20260913ctlv 批4a：数据源切 entries（messages 停写——卡片全文回看源）
       const e = await ctx.client.conversation.entry.getEntryById(params.messageId as string);
       if (!e) return errorResponse(`[错误] 条目 ${params.messageId} 不存在`);
       return textResponse(JSON.stringify({
@@ -38,7 +38,7 @@ export function createListMessagesTool(ctx: ToolContext): AgentTool {
       },
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      // F20260910ctlv 批4a：数据源切 entries（时间线唯一真相源，sequence_num 倒序）
+      // F20260913ctlv 批4a：数据源切 entries（时间线唯一真相源，sequence_num 倒序）
       const entries = await ctx.client.conversation.entry.listEntries(ctx.conversationId, {
         limit: (params.limit as number | undefined) ?? 50,
         ...(params.entryType ? { entryType: params.entryType as string } : {}),
@@ -66,7 +66,7 @@ export function createSearchMessagesTool(ctx: ToolContext): AgentTool {
       required: ["query"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      // F20260910ctlv 收尾批3：数据源切 entries_fts（时间线唯一真相源；messages_fts 停写）
+      // F20260913ctlv 收尾批3：数据源切 entries_fts（时间线唯一真相源；messages_fts 停写）
       const entries = await ctx.client.conversation.entry.searchEntries(
         ctx.conversationId,
         params.query as string,
@@ -92,7 +92,7 @@ export function createGetTurnHistoryTool(ctx: ToolContext): AgentTool {
       },
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      // F20260910ctlv 批4a：turn 骨架（turns 表）+ 条目内容（entries）
+      // F20260913ctlv 批4a：turn 骨架（turns 表）+ 条目内容（entries）
       const turns = await ctx.client.conversation.getTurns(ctx.conversationId);
       const include = (params.includeMessages as boolean) ?? false;
       const result = await Promise.all(turns.map(async (turn) => ({

@@ -100,7 +100,7 @@ describe("collectOtterOutput", () => {
     // 插入消息数据（用 conversation 的依赖数据）
     db.prepare("INSERT INTO conversations (id, title) VALUES (?, ?)").run("conv-1", "test");
     db.prepare("INSERT INTO turns (id, conversation_id, turn_number) VALUES (?, ?, ?)").run("turn-1", "conv-1", 1);
-    // 插入不同日期的獭 speak entries（F20260910ctlv 批4c：messages 表已 drop）
+    // 插入不同日期的獭 speak entries（F20260913ctlv 批4c：messages 表已 drop）
     const seedEntry = (id: string, seq: number, senderId: string, senderName: string, createdAt: string) =>
       db.prepare(`
         INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, turn_id, status, sender_name, created_at, completed_at)

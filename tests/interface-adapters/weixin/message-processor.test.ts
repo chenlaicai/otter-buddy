@@ -17,7 +17,7 @@ function makeProcessor(overrides: Record<string, unknown> = {}) {
     enterConversation: vi.fn().mockResolvedValue(undefined),
     leaveConversation: vi.fn().mockResolvedValue(undefined),
   } as any;
-  // F20260910ctlv 收尾批2：微信消息唯一落点 = entries（sendUserEntry）
+  // F20260913ctlv 收尾批2：微信消息唯一落点 = entries（sendUserEntry）
   const sendEntry = {
     sendUserEntry: vi.fn(async (input: Record<string, unknown>) => {
       sentMessages.push(input);

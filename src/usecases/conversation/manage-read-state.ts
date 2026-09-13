@@ -1,5 +1,5 @@
 /**
- * F20260910ctlv 彻底切换：Web 用户未读状态（entries 游标）。
+ * F20260913ctlv 彻底切换：Web 用户未读状态（entries 游标）。
  *
  * 切换语义：conversation_user_read_state.last_read_message_seq 列复用为 entries 序号游标
  * （列名不动——schema 不改，双写双读过渡由旧表数据自然沉淀）。
@@ -12,7 +12,7 @@ import type { ConversationRepository } from "./conversation-repository";
 export class ManageReadState {
   constructor(
     private readonly repo: ConversationRepository,
-    /** F20260910ctlv：entries 数据源（未注入时降级旧 messages 语义——测试桩兼容） */
+    /** F20260913ctlv：entries 数据源（未注入时降级旧 messages 语义——测试桩兼容） */
     private readonly entryRepo?: EntryRepository,
   ) {}
 

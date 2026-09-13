@@ -60,7 +60,7 @@ describe('validateCommitDate', () => {
 
     it('should pass when F-type ID date is 3 days before', () => {
       // F20260913ctlv：±2 → ±7 放宽（原 ±2 系时区漂移推导，非特性周期限制——
-      // 长周期 PR 的 commit/PR 标题撞闸是设计盲区，见 F20260910ctlv 收尾）
+      // 长周期 PR 的 commit/PR 标题撞闸是设计盲区，见 F20260913ctlv 收尾）
       const result = validateCommitDate('[F20260822abcd][agent][Feature Update] 测试', NOW);
       expect(result.valid).toBe(true);
       expect(result.diffDays).toBe(3);

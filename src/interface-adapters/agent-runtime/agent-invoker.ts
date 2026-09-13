@@ -137,21 +137,21 @@ export class AgentInvoker implements AgentTurnPort {
     private readonly healthySessionThresholdMs?: number,
     /** F20260901cxmw：可选注入，otter 实际模型 contextWindow 解析（缺省回退 128k，兼容旧测试） */
     private readonly ctxWindowProvider?: OtterContextWindowProvider,
-    /** F20260910ctlv：invoke 生命周期管理（彻底切换后必注入——invoke/entries 唯一写入面） */
+    /** F20260913ctlv：invoke 生命周期管理（彻底切换后必注入——invoke/entries 唯一写入面） */
     private readonly sendEntry?: SendEntry,
-    /** F20260910ctlv 彻底切换：invoke 仓库（熔断摘要读 invoke_events） */
+    /** F20260913ctlv 彻底切换：invoke 仓库（熔断摘要读 invoke_events） */
     private readonly invokeRepo?: InvokeRepository,
   ) {
     this.orchestrator = new AgentTurnOrchestrator(logger, metrics);
     this.circuitBreak = healingRepo && sendEntry
       ? new CircuitBreakSupport({
         manageSession,
-        // F20260910ctlv 收尾批3：历史读取切 entries（user entry 唯一真相源）
+        // F20260913ctlv 收尾批3：历史读取切 entries（user entry 唯一真相源）
         entryReader: {
           getEntries: async (convId: string, opts?: { entryType?: string; limit?: number }) =>
             sendEntry.getEntries(convId, opts),
         },
-        // F20260910ctlv 彻底切换：sendSystem 走 entries（system entry），不再写 messages
+        // F20260913ctlv 彻底切换：sendSystem 走 entries（system entry），不再写 messages
         sendSystem: async (convId, body) => {
           const { entry } = await sendEntry.createSystemEntry({ conversationId: convId, turnId: "", body });
           return { id: entry.id, body: entry.body, sequenceNum: entry.sequenceNum };
@@ -195,7 +195,7 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
    
-  // eslint-disable-next-line max-lines-per-function -- F20260910ctlv 双路径迁移期（新 invoke + 旧 message 并行），fallback 删除后回归
+  // eslint-disable-next-line max-lines-per-function -- F20260913ctlv 双路径迁移期（新 invoke + 旧 message 并行），fallback 删除后回归
   private async invokeConversationInner(params: {
     otterId: string;
     conversationId: string;
@@ -257,7 +257,7 @@ export class AgentInvoker implements AgentTurnPort {
     this.logger.debug('Creating invoke (timeline model)', { otterId, conversationId });
     const otter = await this.queryOtter.getById(otterId);
 
-    // F20260910ctlv 彻底切换：不再创建 streaming 主 message（messages 表停写 UI 消息）。
+    // F20260913ctlv 彻底切换：不再创建 streaming 主 message（messages 表停写 UI 消息）。
     // invoke 开始 = createInvoke + invoke_start entry + invoke.start SSE（唯一路径，失败硬抛）
     const { invoke, invokeStartEntry } = await this.sendEntry!.createInvoke({
       conversationId,
@@ -277,7 +277,7 @@ export class AgentInvoker implements AgentTurnPort {
 
       // 创建 AttemptDriver 和 TurnCallbacks
       const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, { otterName: otter?.name, onSelfRestart: (signal) => { pendingSelfRestart = signal; }, images, batchMaxSeq, currentInvokeId });
-      // F20260910ctlv 彻底切换：invoke 态回调（无 failMessage→abort SDK 联动——handleAutoRetry 同 invoke 重试不再杀 session）
+      // F20260913ctlv 彻底切换：invoke 态回调（无 failMessage→abort SDK 联动——handleAutoRetry 同 invoke 重试不再杀 session）
       const callbacks = this.createTurnCallbacks(emitEvent, otterId);
 
       const turnInput = this.buildTurnInput(params, currentInvokeId, startTime);
@@ -305,14 +305,14 @@ export class AgentInvoker implements AgentTurnPort {
 
       return {
         invokeId: turnResult.invokeId,
-        messageId: turnResult.invokeId, // F20260910ctlv：兼容字段——链引擎过渡期仍读 messageId，值 = invokeId
+        messageId: turnResult.invokeId, // F20260913ctlv：兼容字段——链引擎过渡期仍读 messageId，值 = invokeId
         duration: turnResult.duration,
         tokenUsage: turnResult.tokenUsage,
       };
     });
   }
 
-  /** 创建 AttemptDriver：包装 SdkInvokePort（F20260910ctlv：currentInvokeId 必传） */
+  /** 创建 AttemptDriver：包装 SdkInvokePort（F20260913ctlv：currentInvokeId 必传） */
   private createAttemptDriver(
     otterId: string,
     conversationId: string,
@@ -361,7 +361,7 @@ export class AgentInvoker implements AgentTurnPort {
     };
   }
 
-  /** F20260910ctlv 彻底切换：系统消息唯一落点 = entries（system entry），messages 停写 */
+  /** F20260913ctlv 彻底切换：系统消息唯一落点 = entries（system entry），messages 停写 */
   private async sendSystemEntry(convId: string, body: string) {
     const sendEntry = this.sendEntry!;
     const { entry } = await sendEntry.createSystemEntry({ conversationId: convId, turnId: "", body });
@@ -369,10 +369,10 @@ export class AgentInvoker implements AgentTurnPort {
     return { id: entry.id, body: entry.body, sequenceNum: entry.sequenceNum };
   }
 
-  /** 创建 TurnCallbacks：invoke 生命周期 + SSE 事件推送（F20260910ctlv 彻底切换：全部 invoke 化） */
+  /** 创建 TurnCallbacks：invoke 生命周期 + SSE 事件推送（F20260913ctlv 彻底切换：全部 invoke 化） */
   private createTurnCallbacks(
     emitEvent: (event: SSEEvent) => void,
-    /** F20260910ctlv：invoke.end SSE 事件的 otterId 数据源 */
+    /** F20260913ctlv：invoke.end SSE 事件的 otterId 数据源 */
     otterId?: string,
   ): TurnCallbacks {
     const sendEntry = this.sendEntry!;
@@ -503,7 +503,7 @@ export class AgentInvoker implements AgentTurnPort {
     if (e.isError === true) this.metrics?.recordToolError(tool);
   }
 
-  /** F20260910ctlv 彻底切换：流式事件处理（SSE 转发 + speak entry 发射 + invoke_events 持久化 + 计数） */
+  /** F20260913ctlv 彻底切换：流式事件处理（SSE 转发 + speak entry 发射 + invoke_events 持久化 + 计数） */
   // eslint-disable-next-line max-params, complexity -- 事件管线需要完整上下文；事件分发本质是多分支
   private handleStreamEvent(
     e: AgentStreamEvent,
@@ -527,7 +527,7 @@ export class AgentInvoker implements AgentTurnPort {
     }
     if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
       this.logger.debug('speak tool executed', { invokeId: input.invokeId });
-      // F20260910ctlv 彻底切换 + 语义清理：speak 是原子工具调用（无流式生命周期）——
+      // F20260913ctlv 彻底切换 + 语义清理：speak 是原子工具调用（无流式生命周期）——
       // 落库即 completed，单事件 entry.speak 携带全量 body 一次性渲染完整气泡。
       // entry.start 伪事件已退役（原与 entry.speak 背靠背同数据发射，纯为模拟不存在的占位生命周期）。
       const speakDetails = (e.result as { details?: { entryId?: string } } | undefined)?.details;
@@ -538,13 +538,13 @@ export class AgentInvoker implements AgentTurnPort {
         emitEvent({ event: "entry.speak", data: { entryId, invokeId: opts.currentInvokeId, otterId, body, otterName: resolvedName } });
       }
     }
-    // F20260910ctlv 彻底切换：流式过程唯一存储 = invoke_events（message_events 停写）
+    // F20260913ctlv 彻底切换：流式过程唯一存储 = invoke_events（message_events 停写）
     this.persistInvokeEvent(e, opts.currentInvokeId);
     // 传递事件给 orchestrator
     onEvent(e);
   }
 
-  /** F20260910ctlv：流式事件同步落 invoke_events（Session 弹窗数据源）+ 工具计数递增 */
+  /** F20260913ctlv：流式事件同步落 invoke_events（Session 弹窗数据源）+ 工具计数递增 */
   private persistInvokeEvent(e: AgentStreamEvent, invokeId: string): void {
     const sendEntry = this.sendEntry;
     if (!sendEntry) return;
@@ -558,7 +558,7 @@ export class AgentInvoker implements AgentTurnPort {
     }
   }
 
-  /** 中断 Agent 生成（UA-2: 调用 SdkInvokePort.abort()）；F20260910ctlv：标记按 invokeId 键控 */
+  /** 中断 Agent 生成（UA-2: 调用 SdkInvokePort.abort()）；F20260913ctlv：标记按 invokeId 键控 */
   abort(otterId: string, invokeId: string): void {
     this.userAbortedMessages.add(invokeId);
     this.agentInvoke.abort(otterId, invokeId);
@@ -726,7 +726,7 @@ export class AgentInvoker implements AgentTurnPort {
 
   /**
    * 审视 P2/P1：stateInventoryDeps 的统一构造（三条路径共用，消除重复）。
-   *  F20260910ctlv 收尾批1：历史读取切 entries（entryReader = sendEntry.getEntries 窄面）。
+   *  F20260913ctlv 收尾批1：历史读取切 entries（entryReader = sendEntry.getEntries 窄面）。
    */
   private buildStateInventoryDeps(conversationId: string, workspacePath?: string): StateInventoryDeps {
     return {
@@ -740,7 +740,7 @@ export class AgentInvoker implements AgentTurnPort {
     };
   }
 
-  /** F20260910ctlv：entries 读取器（sendEntry 注入时直接用；旧装配降级空读——不回 messages） */
+  /** F20260913ctlv：entries 读取器（sendEntry 注入时直接用；旧装配降级空读——不回 messages） */
   private handoffEntryReader(): HandoffEntryReader {
     return this.sendEntry ?? {
       getEntries: async () => [],
@@ -840,7 +840,7 @@ export class AgentInvoker implements AgentTurnPort {
    */
   private async fetchRecentUserMessages(conversationId: string, limit = 6): Promise<string[]> {
     try {
-      // F20260910ctlv 收尾批1：切 entries（user entry body 即全文，无 segments 聚合）
+      // F20260913ctlv 收尾批1：切 entries（user entry body 即全文，无 segments 聚合）
       const entries = await this.handoffEntryReader().getEntries(conversationId, { entryType: 'user', limit });
       return entries
         .map(e => (e.body ?? '').trim())

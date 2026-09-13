@@ -1,5 +1,5 @@
 /**
- * F20260910ctlv 整合轮修复锁定测试：steerSession（合并时曾误删，检视发现 1）。
+ * F20260913ctlv 整合轮修复锁定测试：steerSession（合并时曾误删，检视发现 1）。
  *
  * 守护的行为：activeSessions 前缀匹配命中 → entry.steer 注入（fire-and-forget）→
  * 返回 true；未命中（不活跃/无 steer 能力）→ false + warn 日志。
@@ -35,7 +35,7 @@ function makeFactory() {
   }, db };
 }
 
-describe("steerSession（F20260910ctlv 整合轮恢复——main 版语义锁定）", () => {
+describe("steerSession（F20260913ctlv 整合轮恢复——main 版语义锁定）", () => {
   it("activeSessions 前缀匹配命中 → entry.steer 注入并返回 true", async () => {
     const { factory, internals, db } = makeFactory();
     const steered: string[] = [];

@@ -278,7 +278,7 @@ describe("sendMessage 附件前置校验 + FTS 时序（R3）", () => {
       undefined,
       injection,
       undefined,
-      // F20260910ctlv 彻底切换：sendEntry（user 消息唯一落点 = entries）——记录调用面供断言
+      // F20260913ctlv 彻底切换：sendEntry（user 消息唯一落点 = entries）——记录调用面供断言
       Object.assign({
         sendUserEntry: async (input: { conversationId: string; senderId: string; body: string; talkingStonePassedTo?: string[]; attachmentIds?: string[] }) => {
           sendEntryCalls.push(input);
@@ -357,7 +357,7 @@ describe("sendMessage 附件前置校验 + FTS 时序（R3）", () => {
     expect(res.status).toBe(200);
     await res.text();
 
-    // F20260910ctlv 彻底切换：messages 表停写——附件语义 = entry 收到 attachmentIds + 关联挂载
+    // F20260913ctlv 彻底切换：messages 表停写——附件语义 = entry 收到 attachmentIds + 关联挂载
     expect(sendEntryCalls).toHaveLength(1);
     expect(sendEntryCalls[0]!.attachmentIds).toEqual(uploadedImageIds.slice(0, 1));
     expect(attachCalls).toHaveLength(1);

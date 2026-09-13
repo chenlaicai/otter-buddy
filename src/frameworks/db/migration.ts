@@ -142,10 +142,10 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
    *  老库 CHECK (pending/done/exhausted) 写 failed 会被 SQLite 拒绝，四步重建（#608/#654/#804 同模式）。 */
   rebuildRestartPendingResumesStatusCheck(db, logger);
 
-  /** F20260910ctlv 收尾批4b：messages → entries 幂等回填迁移（先迁后 drop——4c）。 */
+  /** F20260913ctlv 收尾批4b：messages → entries 幂等回填迁移（先迁后 drop——4c）。 */
   migrateMessagesToEntries(db, logger);
 
-  /** F20260910ctlv 收尾批4c：messages 族六张表 drop（迁移完成 + 对账通过才执行）。
+  /** F20260913ctlv 收尾批4c：messages 族六张表 drop（迁移完成 + 对账通过才执行）。
    *  保险丝：逐对话对账 entries ≥ 原 messages 数（yield 合成行只增不减），
    *  任一对话对不上即中止 drop 并 warn（备份可回放，服务继续跑——只留死数据不炸）。 */
   dropLegacyMessagesTables(db, logger);
@@ -164,7 +164,7 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
  *  幂等：症状命中才 UPDATE；重跑无命中即无写入。 */
 function backfillGhostSenders(db: Database.Database, logger: Logger): void {
   if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
-    // F20260910ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
     return;
   }
 
@@ -301,7 +301,7 @@ function addBodyHashColumns(db: Database.Database, logger: Logger): void {
 /** F20260805rbrg：messages.metadata TEXT 列存外部 ID 等查重信息。PRAGMA 探测幂等。 */
 function addMessagesMetadataColumn(db: Database.Database, logger: Logger): void {
   if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
-    // F20260910ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
     return;
   }
 
@@ -370,7 +370,7 @@ function addDocProvenanceColumns(db: Database.Database, logger: Logger): void {
  */
 function rebuildMessagesFtsStripped(db: Database.Database, logger: Logger): void {
   if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
-    // F20260910ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
     return;
   }
 
@@ -448,7 +448,7 @@ function rows_count_hint(db: Database.Database): number {
  */
 function dropMessagesAttachmentsColumn(db: Database.Database, logger: Logger): void {
   if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
-    // F20260910ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
     return;
   }
 
@@ -697,7 +697,7 @@ function ensureHealingEventsIntroducedByPrColumn(db: Database.Database, logger: 
  *  存量行 NULL = 无信号语义（向后兼容）。PRAGMA 探测幂等。 */
 function ensureMessagesSignalColumns(db: Database.Database, logger: Logger): void {
   if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
-    // F20260910ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
     return;
   }
 
@@ -728,7 +728,7 @@ function ensureMessagesSignalColumns(db: Database.Database, logger: Logger): voi
  */
 export function migrateMessageSegments(db: Database.Database, logger: Logger): void {
   if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
-    // F20260910ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
     return;
   }
 
@@ -783,7 +783,7 @@ function ensureAgentSessionFileColumn(db: Database.Database, logger: Logger): vo
  *  sender_name 为 F20260824snrs 发送者显示名快照） */
 function ensureMessagesSourceAndSenderNameColumns(db: Database.Database, logger: Logger): void {
   if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
-    // F20260910ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
     return;
   }
 
@@ -900,7 +900,7 @@ function rebuildRestartPendingResumesStatusCheck(db: Database.Database, logger: 
 }
 
 /* ══════════════════════════════════════════════════════════════════
- * F20260910ctlv 收尾批4b：messages → entries 数据迁移（幂等回填，非破坏）
+ * F20260913ctlv 收尾批4b：messages → entries 数据迁移（幂等回填，非破坏）
  *
  * 数据面（生产主库实勘 2026-09-12）：9598 条 messages / 162 对话
  * （user 2301 全 completed / system 1131 / otter 6166 = completed 5262 +
@@ -1142,7 +1142,7 @@ function makeConversationMigrator(deps: {
       renumbered = { conversationId, from: existingInConv.length, to: mergedCount };
     }
 
-    // F20260910ctlv 批4c：message_attachments 可能已 drop（防御守卫）
+    // F20260913ctlv 批4c：message_attachments 可能已 drop（防御守卫）
     const hasMsgAtt = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='message_attachments'").get();
     if (hasMsgAtt) {
       const attRows = db.prepare(
@@ -1246,7 +1246,7 @@ function remapReadCursors(db: Database.Database, conversationId: string, maxNew:
 }
 
 
-/** F20260910ctlv 收尾批4c：messages 族旧表 drop（六张 + 对账保险丝）。
+/** F20260913ctlv 收尾批4c：messages 族旧表 drop（六张 + 对账保险丝）。
  *  前置：migrateMessagesToEntries 已标 done（幂等键）；messages 表不存在（新库/已 drop）
  *  直接过。对账：逐对话 entries 条数 ≥ messages 条数——迁移只会增行（yield 合成），
  *  少于即迁移遗漏，中止 drop。 */
@@ -1287,5 +1287,5 @@ function dropLegacyMessagesTables(db: Database.Database, logger: Logger): void {
   } finally {
     db.pragma("foreign_keys = ON");
   }
-  logger.info('[messages→entries] Dropped legacy tables: messages / message_events / message_segments / message_attachments / messages_fts / restart_pending_resumes (F20260910ctlv 批4c)', {});
+  logger.info('[messages→entries] Dropped legacy tables: messages / message_events / message_segments / message_attachments / messages_fts / restart_pending_resumes (F20260913ctlv 批4c)', {});
 }

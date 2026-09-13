@@ -4,7 +4,7 @@ import type { Logger } from "@usecases/ports/logger";
 /**
  * 服务重启兜底（F20260724cwgn 原始语义：孤儿 open turn 清理）。
  *
- * F20260910ctlv 演进：
+ * F20260913ctlv 演进：
  * - 批4a：自动恢复登记链路（claimResume → ResumeInterruptedService）随 messages 停写退役
  * - 批4c：messages 表 drop——failInFlightMessages（streaming 孤儿置 failed）失去对象，
  *   invoke 侧由 bootstrap/database.ts 的 failRunningInvokes 接管（重启 reconcile 语义）。

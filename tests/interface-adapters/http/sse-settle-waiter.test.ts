@@ -39,7 +39,7 @@ function createEntry(overrides: Partial<Entry> = {}): Entry {
   };
 }
 
-/** F20260910ctlv 补漏：settle 判据 = 触发 entry 的 yieldTargets 目标獭无 running invoke */
+/** F20260913ctlv 补漏：settle 判据 = 触发 entry 的 yieldTargets 目标獭无 running invoke */
 describe("awaitTriggerAttemptsSettled（entries/invokes 判据）", () => {
   let logger: Logger;
 

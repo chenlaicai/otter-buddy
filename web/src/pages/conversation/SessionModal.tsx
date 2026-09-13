@@ -8,7 +8,7 @@ import { fmtInvokeElapsed, fmtTokens } from '../../lib/invoke-tracker'
 import * as api from '../../api/client'
 
 /**
- * F20260910ctlv：Session 弹窗——点击獭头像弹出，展示该獭的完整 session 记录。
+ * F20260913ctlv：Session 弹窗——点击獭头像弹出，展示该獭的完整 session 记录。
  * 数据源：GET /api/conversations/:id/invokes?otterId=（invoke 列表）+
  *        GET /api/invokes/:invokeId/events（流式过程：assistant_text/tool_call/tool_result/speak）
  * 特性文档 D5：流式过程从消息气泡挪出，只在此弹窗展示。
@@ -123,7 +123,7 @@ export function SessionModal({ otter, conversationId, onClose }: SessionModalPro
                     {!loading && (expandedEvents[inv.id]?.length ?? 0) === 0 && (
                       <div className="py-3 text-[11px] text-stone-400">无流式过程记录</div>
                     )}
-                    {/* F20260910ctlv：忠实原始流——逐条渲染 invoke_events（搭档拍板选项 A）。
+                    {/* F20260913ctlv：忠实原始流——逐条渲染 invoke_events（搭档拍板选项 A）。
                         同一次调用的 start 快照/结果/message_end 快照分列，可溯源 */}
                     {!loading && (expandedEvents[inv.id] ?? []).map(ev => <InvokeEventItem key={ev.id} ev={ev} />)}
                   </div>

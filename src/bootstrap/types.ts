@@ -71,9 +71,9 @@ export interface Repositories {
   healthSnapshot: HealthSnapshotRepository;
   /** F20260908rlcp：派发台账退役 */
   attachment: AttachmentRepository;
-  /** F20260910ctlv：条目仓库（取代 messages + message_segments） */
+  /** F20260913ctlv：条目仓库（取代 messages + message_segments） */
   entry: EntryRepository;
-  /** F20260910ctlv：invoke 生命周期仓库 */
+  /** F20260913ctlv：invoke 生命周期仓库 */
   invoke: InvokeRepository;
 }
 

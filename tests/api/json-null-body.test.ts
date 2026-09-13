@@ -175,7 +175,7 @@ function createRealApp(): Hono {
   const logger = createTestLogger() as never;
   const createOtter = new CreateOtter(otterRepo, fakeAgentGateway(), logger);
   const manageConversation = new ManageConversation(convRepo, createOtter);
-  // F20260910ctlv 批4c：entryDeps 必注入（messages 降级路径已删）
+  // F20260913ctlv 批4c：entryDeps 必注入（messages 降级路径已删）
   const manageParticipant = new ManageParticipant(convRepo, otterRepo, {
     entryRepo: new SqliteEntryRepository(db),
     invokeRepo: new SqliteInvokeRepository(db),

@@ -35,10 +35,10 @@ export class FeishuMessageChannel implements OutboundEventChannel {
    * 超过阈值(3s)说明 IO 慢且 agent 可能已完成、最终消息可能已到达 —— 此时发
    * "正在思考..." 会晚于最终消息造成乱序,跳过。
    */
-  /** F20260910ctlv 批4a：SSE 事件出站——invoke.start 触发"正在思考..."
+  /** F20260913ctlv 批4a：SSE 事件出站——invoke.start 触发"正在思考..."
    *  （message.start 已无生产者）；entry.speak = speak 气泡出站投递
    *  （替代已死的 onMessage/broadcaster.broadcast 链路）。
-   *  F20260910ctlv 处置轮：entry.user = Web→飞书用户消息同步（F20260828fsyc 恢复）——
+   *  F20260913ctlv 处置轮：entry.user = Web→飞书用户消息同步（F20260828fsyc 恢复）——
    *  防回环闸 source=web（IM 入站链的 entry.user 事件 source=feishu/weixin，不回投） */
   onEvent(conversationId: string, event: SSEEvent): void {
     if (event.event === "invoke.start") {

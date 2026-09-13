@@ -90,7 +90,7 @@ describe("dispatchTurnLoop 深度上限", () => {
       },
     } as unknown as AgentInvoker;
 
-    // F20260910ctlv 彻底切换：hop 产出判定读 invoke 行（tsp = invoke 的交棒目标）
+    // F20260913ctlv 彻底切换：hop 产出判定读 invoke 行（tsp = invoke 的交棒目标）
     const invokeRows = new Map<string, { id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null }>();
     const dispatchChainEngine = new DispatchChainEngine({
       conversationRepo,
@@ -148,7 +148,7 @@ describe("dispatchTurnLoop 深度上限", () => {
     expect(depthWarn!.data).toMatchObject({ depth: 2, pendingTargets: ["otter-x"] });
     expect(systemBodies).toHaveLength(1);
     expect(systemBodies[0]).toContain("2 跳");
-    // F20260910ctlv 彻底切换：链深通知发 entry.system（messages system.message 已退役）
+    // F20260913ctlv 彻底切换：链深通知发 entry.system（messages system.message 已退役）
     expect(broadcastEventCalls.some(e => e.event === "entry.system")).toBe(true);
     expect(sseText).toContain("stream.end");
   });
@@ -167,7 +167,7 @@ describe("dispatchTurnLoop 深度上限", () => {
     // F20260904schf：本测试场景 = 消息行无行级 yield → 链一轮终止。
     // 不能与触顶测试共享带互传 tsp 的 stub（那会让本场景变 2 跳，测试失真）。
     const noYieldMessageStub = { getMessageById: async () => null } as unknown as QueryMessage;
-    // F20260910ctlv 彻底切换：invoke 行无 tsp（无 yield）→ 链一轮终止
+    // F20260913ctlv 彻底切换：invoke 行无 tsp（无 yield）→ 链一轮终止
     const dispatchChainEngine = new DispatchChainEngine({
       conversationRepo,
       queryOtter: queryOtterStub,
@@ -223,7 +223,7 @@ describe("dispatchTurnLoop 深度上限", () => {
       },
     } as unknown as AgentInvoker;
 
-    // F20260910ctlv 彻底切换：未读注入读 entries（user/speak/system 条目）
+    // F20260913ctlv 彻底切换：未读注入读 entries（user/speak/system 条目）
     const dispatchChainEngine = new DispatchChainEngine({
       conversationRepo,
       queryOtter,

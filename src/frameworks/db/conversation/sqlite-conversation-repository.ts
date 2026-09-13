@@ -140,7 +140,7 @@ export class SqliteConversationRepository implements ConversationRepository {
 
 
   async closeOrphanedTurns(closedAt: string): Promise<number> {
-    // F20260910ctlv 批4c：判据源切 invokes（messages 表已 drop——open = 该 turn 下有 running invoke；
+    // F20260913ctlv 批4c：判据源切 invokes（messages 表已 drop——open = 该 turn 下有 running invoke；
     // turn 归属经 entries.turn_id 关联，invokes 表无 turn_id 列）
     const result = this.db.prepare(`
       UPDATE turns SET status = 'closed', closed_at = ?
@@ -200,7 +200,7 @@ export class SqliteConversationRepository implements ConversationRepository {
   }
 
   async getUnreadCount(conversationId: string, userId: string): Promise<number> {
-    // F20260910ctlv 批4c：数据源切 entries（messages 表 drop）——跳过用户自己的气泡
+    // F20260913ctlv 批4c：数据源切 entries（messages 表 drop）——跳过用户自己的气泡
     const row = this.db.prepare(`
       SELECT COUNT(*) as cnt FROM entries
       WHERE conversation_id = ?
@@ -217,7 +217,7 @@ export class SqliteConversationRepository implements ConversationRepository {
     userId: string,
     options?: { limit?: number; offset?: number },
   ): Promise<Array<Conversation & { otterIds: string[]; unreadCount: number; lastMessagePreview: string | null; lastMessageTs: string | null; activityStatus: 'processing' | 'awaiting_user' | 'idle' }>> {
-    // F20260910ctlv 批4c：数据源切 entries（messages 表 drop）——
+    // F20260913ctlv 批4c：数据源切 entries（messages 表 drop）——
     // unread/activity/last 预览全部从时间线读取；activity 判据 = running invoke（invokes 表）
     const limit = options?.limit ?? 50;
     const offset = options?.offset ?? 0;
@@ -277,7 +277,7 @@ export class SqliteConversationRepository implements ConversationRepository {
   // ── Turn 历史 ──
 
   async getTurnHistory(conversationId: string): Promise<TurnHistoryEntry[]> {
-    // F20260910ctlv 批4c：messages 表 drop——只返回 turns 骨架，entries 由调用方经 EntryRepository.getEntriesByTurnId 装配
+    // F20260913ctlv 批4c：messages 表 drop——只返回 turns 骨架，entries 由调用方经 EntryRepository.getEntriesByTurnId 装配
     const turnRows = this.db.prepare("SELECT * FROM turns WHERE conversation_id = ? ORDER BY turn_number ASC")
       .all(conversationId) as TurnRow[];
     return turnRows.map(rowToTurn).map(turn => ({ turn }));

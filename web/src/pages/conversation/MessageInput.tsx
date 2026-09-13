@@ -248,7 +248,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
             className="flex-1 bg-transparent text-sm text-stone-700 placeholder-stone-400 resize-none outline-none min-h-[24px] max-h-[var(--input-scroll-max-h)] leading-relaxed disabled:opacity-50 overflow-y-auto"
           />
           <MagicWordHelp />
-          {/* F20260910ctlv：双发送模式——主=steer（打断插话，默认）/ 副=followUp（排队等这轮
+          {/* F20260913ctlv：双发送模式——主=steer（打断插话，默认）/ 副=followUp（排队等这轮
               说完再接，不打断）。mode 经 onSend 透传 sendMessage 请求体，signal-router
               running 分支按 injectionMode 选择注入方式 */}
           <button

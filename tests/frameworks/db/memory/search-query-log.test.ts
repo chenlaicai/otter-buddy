@@ -13,7 +13,7 @@ import { createTestLogger } from "../../../helpers/logger";
 
 let db: DatabaseType.Database;
 let repo: SqliteSearchQueryLogRepository;
-/** F20260910ctlv 批3：上下文快照数据源切 entries（speak 模拟——时间线条目） */
+/** F20260913ctlv 批3：上下文快照数据源切 entries（speak 模拟——时间线条目） */
 let entryRepo: {
   getEntries: (convId: string, opts: { entryType?: string; limit?: number }) => Promise<Array<{ id: string; senderId: string | null; senderType: string | null; body: string | null; sequenceNum: number }>>;
   getEntryById: (id: string) => Promise<{ id: string; sequenceNum: number } | null>;

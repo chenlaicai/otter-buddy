@@ -198,7 +198,7 @@ function createMockConvRepo() {
   };
 }
 
-/** 创建 SendEntry 的状态化 mock（F20260910ctlv 批2：scheduler 信号落 entries） */
+/** 创建 SendEntry 的状态化 mock（F20260913ctlv 批2：scheduler 信号落 entries） */
 function createMockSendEntry() {
   /** 已创建 system entry 计数 */
   let entryCount = 0;
@@ -1597,7 +1597,7 @@ describe('#516: 任务级超时配置（timeoutMinutes）', () => {
       taskRepo._store.set(task.id, task);
       convRepo._addConversation('conv-1', { status: 'active' });
 
-      // 每次探测都返回一条新 entry（链活跃；F20260910ctlv 批2 切 entries）
+      // 每次探测都返回一条新 entry（链活跃；F20260913ctlv 批2 切 entries）
       const activeEntry = {
         id: 'e-new', senderId: 'otter-1', entryType: 'speak', body: '产出',
         yieldTargets: null, metadata: null,
@@ -1625,7 +1625,7 @@ describe('#516: 任务级超时配置（timeoutMinutes）', () => {
       expect(result.executionId).toBeTruthy();
       const execution = taskRepo._executions.get(result.executionId);
       expect(execution!.status).toBe('completed');
-      // 至少 3 次活性探测都被续期（F20260910ctlv 批2：探测数据源 = entries）
+      // 至少 3 次活性探测都被续期（F20260913ctlv 批2：探测数据源 = entries）
       expect((entryRepo.getEntriesAfter as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(3);
     } finally {
       vi.useRealTimers();
@@ -1653,7 +1653,7 @@ describe('#516: 任务级超时配置（timeoutMinutes）', () => {
       taskRepo._store.set(task.id, task);
       convRepo._addConversation('conv-1', { status: 'active' });
 
-      // 链 settle 后活性探测才返回（无新 entry）——模拟探测 async 空隙内链 settle（F20260910ctlv 批2 切 entries）
+      // 链 settle 后活性探测才返回（无新 entry）——模拟探测 async 空隙内链 settle（F20260913ctlv 批2 切 entries）
       (entryRepo.getEntriesAfter as ReturnType<typeof vi.fn>).mockImplementation(
         async () => await new Promise<Array<never>>(resolve => {
           resolveChain({ otterReply: 'settled while probing' });
@@ -1839,7 +1839,7 @@ describe('#517: invoke 失败时 execution 不得记 completed', () => {
     convRepo._addConversation('conv-1', { status: 'active' });
 
     // 锚点后有一条 failed 的 invoke_end entry（invoke 失败现场：锁超时 → invoke failed，但链 resolve；
-    // F20260910ctlv 批2 切 entries——invoke 终态记 metadata.invokeStatus）
+    // F20260913ctlv 批2 切 entries——invoke 终态记 metadata.invokeStatus）
     const failedEntry = {
       id: 'e-failed', senderId: null, entryType: 'invoke_end', body: '🦦 小獭行动失败：Lock acquire timeout',
       yieldTargets: null, metadata: { invokeStatus: 'failed' },
@@ -1955,7 +1955,7 @@ describe('#517: invoke 失败时 execution 不得记 completed', () => {
     convRepo._addConversation('conv-1', { status: 'active' });
 
     // 第 1 页 100 条全部正常产出，第 2 页第 101 条是 failed 的 invoke_end entry
-    // 旧实现单页 limit=100 会漏检，分页修复后应检出（F20260910ctlv 批2 切 entries）
+    // 旧实现单页 limit=100 会漏检，分页修复后应检出（F20260913ctlv 批2 切 entries）
     const okEntries = Array.from({ length: 100 }, (_, i) => ({
       id: `e-ok-${i}`, senderId: 'otter-1', entryType: 'speak', body: '产出',
       yieldTargets: null, metadata: null,
@@ -2044,7 +2044,7 @@ describe('#516: 任务进入 error 状态时落通知（消灭静默死亡）', 
 
     // 第 3 次失败后：status=error
     expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(true);
-    // 系统条目已注入任务所属对话（含任务名与停跑提示；F20260910ctlv 批2 切 entries）
+    // 系统条目已注入任务所属对话（含任务名与停跑提示；F20260913ctlv 批2 切 entries）
     const sysCalls = (sendEntry.createSystemEntry as ReturnType<typeof vi.fn>).mock.calls;
     const notifyCall = sysCalls.find(c => typeof c[0]?.body === 'string' && c[0].body.includes('[定时任务错误]'));
     expect(notifyCall).toBeTruthy();
@@ -2311,7 +2311,7 @@ describe('#642: 链看门狗 429 判死', () => {
     taskRepo._store.set('task-1', makeTask({ id: 'task-1', conversationId: 'conv-1' }));
     convRepo._addConversation('conv-1', { status: 'active' });
 
-    // 模拟锚点后 entries 全部含 429 特征（F20260910ctlv 批2 切 entries：判据 = body 文本）
+    // 模拟锚点后 entries 全部含 429 特征（F20260913ctlv 批2 切 entries：判据 = body 文本）
     const rateLimitEntries = [
       { id: 'e-3', senderId: 'otter-1', entryType: 'invoke_end', body: 'Error 429: Too Many Requests', yieldTargets: null, metadata: null },
       { id: 'e-2', senderId: 'otter-1', entryType: 'invoke_end', body: 'rate limit exceeded, retrying...', yieldTargets: null, metadata: null },
@@ -2383,7 +2383,7 @@ describe('#642: 链看门狗 429 判死', () => {
     taskRepo._store.set('task-1', makeTask({ id: 'task-1', conversationId: 'conv-1' }));
     convRepo._addConversation('conv-1', { status: 'active' });
 
-    // F20260910ctlv 批2 切 entries：getEntriesAfter(count=3) 取锚点后最近 entries
+    // F20260913ctlv 批2 切 entries：getEntriesAfter(count=3) 取锚点后最近 entries
     //（实现取 slice(-3) 尾部——语义等同旧 DESC 取最新；本用例构造 >3 条，尾部全 429）
     const mixedEntries = [
       { id: 'e-1', senderId: 'otter-1', entryType: 'speak', body: 'Starting task...', yieldTargets: null, metadata: null },

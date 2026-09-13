@@ -4,7 +4,7 @@ import type Database from "better-sqlite3";
 export class SqliteStatsQuery {
   constructor(private readonly db: Database.Database) {}
 
-  /** 獭发言数（F20260910ctlv 批4c：数据源切 entries——speak entry 即獭气泡，
+  /** 獭发言数（F20260913ctlv 批4c：数据源切 entries——speak entry 即獭气泡，
    *  旧口径 message_segments JOIN messages 随 messages 表 drop 退役） */
   async getMessageCountBySender(senderId: string): Promise<number> {
     const row = this.db.prepare(`

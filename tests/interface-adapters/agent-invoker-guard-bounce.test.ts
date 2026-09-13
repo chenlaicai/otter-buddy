@@ -1,7 +1,7 @@
 /**
  * #731：bash 守卫二拦终态自动回发控制信号（guard bounce）
  *
- * F20260910ctlv 彻底切换重写：mock 面从 SendMessage（messages 行）切到
+ * F20260913ctlv 彻底切换重写：mock 面从 SendMessage（messages 行）切到
  * SendEntry（invokes + entries 状态机），能力断言保持 GB-1~GB-5：
  * - GB-1/GB-2 二拦终态 → 不再 aborted，自动回发：invoke failed 过渡 + sendSystem
  *   （带原因+引导）+ 同 invoke 重试；回发后自纠成功 → 闭环
@@ -73,7 +73,7 @@ function seedBounceEvent(overrides: Partial<HealingEvent> = {}): HealingEvent {
 }
 
 /**
- * SdkInvokePort mock：bash_safety 场景脚本驱动（F20260910ctlv：SDK 会话键 = invokeId）。
+ * SdkInvokePort mock：bash_safety 场景脚本驱动（F20260913ctlv：SDK 会话键 = invokeId）。
  * script 元素：{ guard: n } = 接下来 n 次 invoke 返回 bash_safety 终态（内部 abort reason），
  * 之后 { done: true } 正常完成（含 yield 语义——onYield 置 invoke completed）。
  */
@@ -161,14 +161,14 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
       e.errorType === "guard_intercept" && (e.context as { bounce?: boolean })?.bounce === true);
     expect(bounceEvent).toBeTruthy();
     // 回发后自纠成功：SDK invoke 3 轮（2 撞 + 1 成功闭环）；
-    // 闭环验证 = invoke 终态 completed + yield 目标 user-1（F20260910ctlv：aggregatedTargets 已退役）
+    // 闭环验证 = invoke 终态 completed + yield 目标 user-1（F20260913ctlv：aggregatedTargets 已退役）
     expect(invoke._count()).toBe(3);
     const finalInvoke = yieldRounds.size > 0
       ? [...sendEntry.store.invokes.values()].find(inv => inv.talkingStonePassedTo?.includes("user-1"))
       : undefined;
     expect(finalInvoke?.status).toBe("completed");
     expect(result.invokeId).toBeTruthy();
-    // F20260910ctlv：同 invoke 重试——retry 轮 message = 拦截提醒（buildAutoRetryMsg）；
+    // F20260913ctlv：同 invoke 重试——retry 轮 message = 拦截提醒（buildAutoRetryMsg）；
     // bounce 全文以 system entry 落库（sendSystem 断言已覆盖）
     expect(invoke._contexts[2]).toContain("安全守卫拦截");
   });
@@ -285,7 +285,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
       userMessageContent: "修复任务 X", senderId: "user-1",
     });
 
-    // F20260910ctlv：abort 终态 = createInvokeEndEntry('aborted') + invoke 行 aborted
+    // F20260913ctlv：abort 终态 = createInvokeEndEntry('aborted') + invoke 行 aborted
     // （F20260830fabt 的 sdk abort 接线移至 abort() 显式中断路径——升级路径靠 invoke 终态收口）
     const abortEnds = sendEntry.store.invokeEndCalls.filter(e => e.status === "aborted");
     expect(abortEnds).toHaveLength(1);

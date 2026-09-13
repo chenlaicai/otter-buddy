@@ -128,7 +128,7 @@ describe("F20260911pspl 池命中路径（_acquirePooled）", () => {
     db.close();
   });
 
-  it("F20260910ctlv 整合移植：readOnly 绕过池——不复用/不入池（修 main #894 潜在回归）", async () => {
+  it("F20260913ctlv 整合移植：readOnly 绕过池——不复用/不入池（修 main #894 潜在回归）", async () => {
     const { internals, db, getCreateCount } = makeFactory();
     // 先普通 invoke 入池
     const first = await internals._acquirePooled("o1", { messageId: "m1" });
@@ -144,7 +144,7 @@ describe("F20260911pspl 池命中路径（_acquirePooled）", () => {
     db.close();
   });
 
-  it("F20260910ctlv 整合移植：池命中刷新 currentInvokeId/emitEvent/lastSpeakEntryId（不刷新则挂错 invoke）", async () => {
+  it("F20260913ctlv 整合移植：池命中刷新 currentInvokeId/emitEvent/lastSpeakEntryId（不刷新则挂错 invoke）", async () => {
     const { internals, db } = makeFactory();
     await internals._acquirePooled("o1", { messageId: "m1", currentInvokeId: "inv-1" });
     const meta = internals.poolMeta.get("o1")!;

@@ -109,7 +109,7 @@ export function flagResource(db: Database.Database, id: string, flagged: boolean
 }
 
 export function createParticipant(db: Database.Database, participant: ConversationParticipant): void {
-  // F20260910ctlv test15：进场游标显式写 0（= 读全部历史，含进场前的大獭发言）。
+  // F20260913ctlv test15：进场游标显式写 0（= 读全部历史，含进场前的大獭发言）。
   // 旧实现 INSERT 不含该列 → NULL → getUnreadEntries 返回空（读不到任何历史，
   // 小獭进场后仍在问「问题是什么」）；重启 backfill 又把 NULL 填成 max seq（读到最新，
   // 同样读不到进场前）。搭档拍板口径：进场游标与进场 system entry 一致——能看到
@@ -130,7 +130,7 @@ export function createParticipants(db: Database.Database, participants: Conversa
   if (participants.length === 0) return;
   db.exec("BEGIN");
   try {
-    // F20260910ctlv test15：同 createParticipant——进场游标显式写 0（读全部历史）
+    // F20260913ctlv test15：同 createParticipant——进场游标显式写 0（读全部历史）
     const stmt = db.prepare(`
       INSERT INTO conversation_participants (id, conversation_id, otter_id, joined_at_turn_id,
         joined_at_turn_number, status, created_at, last_read_turn_number, last_read_seq)
@@ -193,7 +193,7 @@ export function updateLastReadTurnNumber(
  *  基线回填 last_read_seq=NULL 的行——「读到最新」是双写过渡期 NULL 行的事实状态
  *  （这些行从未走过新路径，若回填 0 会把全部历史当未读，属 rbsg 形态误判）。
  *  幂等：只更新 NULL 行；回滚面 = 回填值与旧列独立，读路径 NULL 回退逻辑保留。
- *  F20260910ctlv 收尾批3：游标刻度切 entries（entries.sequence_num 是新时间线唯一序列；
+ *  F20260913ctlv 收尾批3：游标刻度切 entries（entries.sequence_num 是新时间线唯一序列；
  *  messages 停写后 MAX(messages.sequence_num) 恒停摆，回填值会错）。 */
 export function backfillLastReadSeq(db: Database.Database): number {
   const result = db.prepare(`
@@ -219,7 +219,7 @@ export function updateLastReadSeq(
   `).run(seq, conversationId, otterId);
 }
 
-/** F20260910ctlv 批4c 修复：按 invokeId 反查 turn_number（新模型链：invokes.trigger_entry_id → entries.turn_id → turns.turn_number）。
+/** F20260913ctlv 批4c 修复：按 invokeId 反查 turn_number（新模型链：invokes.trigger_entry_id → entries.turn_id → turns.turn_number）。
  *  旧链查 messages 表且收到的 ID 实为 invokeId（批4a 语义换轨）——永远 miss。
  *  trigger_entry_id 为空（旧 invoke/边界）时 JOIN 天然 miss，返回 null（调用方跳过推进，不抛错）。 */
 export function getTurnNumberByInvokeId(
@@ -257,7 +257,7 @@ export function getTurnById(db: Database.Database, turnId: string): Turn | null 
   return row ? rowToTurn(row) : null;
 }
 
-/** F20260803trrf: 指定 sender 的最新条目（F20260910ctlv 批3 切 entries；markBatchRead rejected 路径用）。
+/** F20260803trrf: 指定 sender 的最新条目（F20260913ctlv 批3 切 entries；markBatchRead rejected 路径用）。
  *  兼容返回 Message 形状（消费方只读 id/senderId/createdAt/sequenceNum）——
  *  body 从 entry.body 投影为 segments，aggregateBody 还原。 */
 export function getLastMessageBySender(db: Database.Database, conversationId: string, senderId: string): Message | null {

@@ -8,7 +8,7 @@ import {
   HELP_TEXT,
 } from "@usecases/im/feishu-command-parser";
 
-/** F20260910ctlv 批4a：entries 版历史格式化（与微信 formatEntryHistory 同构） */
+/** F20260913ctlv 批4a：entries 版历史格式化（与微信 formatEntryHistory 同构） */
 function formatEntryHistory(entries: Array<{ senderType: string | null; body: string | null; createdAt: string }>): string {
   if (entries.length === 0) return "暂无历史消息";
   const lines = entries.map(e => {
@@ -22,7 +22,7 @@ function formatEntryHistory(entries: Array<{ senderType: string | null; body: st
 export class CommandDispatcher {
   constructor(
     private readonly manageConnection: ManageConnection,
-    /** F20260910ctlv 批4a：/history 切 entries（messages 停写，与微信同构） */
+    /** F20260913ctlv 批4a：/history 切 entries（messages 停写，与微信同构） */
     private readonly entryRepo: EntryRepository,
     private readonly feishuGateway: FeishuGateway,
     private readonly logger: Logger,
@@ -61,7 +61,7 @@ export class CommandDispatcher {
           await this.feishuGateway.replyText(chatId, "当前未进入任何对话，请先使用 /in <对话ID> 进入对话");
           return;
         }
-        // F20260910ctlv 批4a：/history 切 entries（speak+user 合并按 seq 倒取 20 条）
+        // F20260913ctlv 批4a：/history 切 entries（speak+user 合并按 seq 倒取 20 条）
         const [speaks, users] = await Promise.all([
           this.entryRepo.getEntries(conversation.id, { entryType: "speak", limit: 20 }),
           this.entryRepo.getEntries(conversation.id, { entryType: "user", limit: 20 }),

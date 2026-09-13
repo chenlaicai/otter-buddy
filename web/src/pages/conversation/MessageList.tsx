@@ -409,7 +409,7 @@ export function MessageList({
             不可直接观测滚动容器（其 contentRect.height 是视口布局高度，内容变化不触发）。
             普通 block div 高度随内容真实变化；包一层对布局无影响（block 默认占满宽度） */}
         <div ref={contentRef}>
-        {/* F20260910ctlv：活动段分组（「新一轮」分隔线）已退役——彻底切换后无轮次概念，
+        {/* F20260913ctlv：活动段分组（「新一轮」分隔线）已退役——彻底切换后无轮次概念，
             时间线就是 entries 按序流，invoke 边界由居中条目（⚡/🌙/→）表达 */}
         {messages.map(m => (
           <div key={m.id} data-message-id={m.id}>
@@ -505,7 +505,7 @@ function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: bo
 }
 
 function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlighted, userName }: { message: Message; otters: Otter[]; onStopStream: (messageId: string) => void; onRetryMessage: (messageId: string) => void; highlighted?: boolean; userName?: string }) {
-  // F20260910ctlv：invoke 边界/yield 居中条目（无气泡，图标+文字；与 system 同层但更轻量）
+  // F20260913ctlv：invoke 边界/yield 居中条目（无气泡，图标+文字；与 system 同层但更轻量）
   const entryKind = deriveEntryType(m)
   if (entryKind === 'invoke_start' || entryKind === 'invoke_end' || entryKind === 'yield') {
     const isYield = entryKind === 'yield'
@@ -552,7 +552,7 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
   const userDisplayName = userName?.trim() || '我'
   // F20260826fuid：user 消息优先用快照名（飞书群聊多人识别），无快照回退全局名（单聊不变）
   // F20260826fpbd：远程消息（飞书等）无快照时显示中性标签，不回退全局名——避免快照缺失时把访客冒充成搭档
-  // F20260910ctlv test17：web 来源不算「外部」——remoteFallbackName 只对明确的外部 IM 来源生效，
+  // F20260913ctlv test17：web 来源不算「外部」——remoteFallbackName 只对明确的外部 IM 来源生效，
   // web/空 source 回退全局名（「我」）
   const snapshotName = isUser ? (m.sn || '').trim() : ''
   const remoteFallbackName = m.src === 'feishu' ? '飞书成员' : ''
@@ -607,7 +607,7 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
           } ${!isUser && inFlight ? 'bubble-live' : ''} ${highlighted ? 'highlight-message' : ''}`}
           style={sideBar}
         >
-          {/* F20260910ctlv 切换清扫：StreamingProcess 气泡内流式折叠区已退役——
+          {/* F20260913ctlv 切换清扫：StreamingProcess 气泡内流式折叠区已退役——
               流式过程不再嵌在消息气泡，统一在 Session 弹窗（点獭头像）展示。
               后端已停发流式 SSE（1970b43b），历史 messages.events 不再渲染。 */}
           {/* F20260826mwrd C4: 獭间信号徽章（消息原位渲染，<signal> 块剥离后的视觉表达） */}
@@ -674,7 +674,7 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
             </div>
           )}
         </div>
-        {/* F20260910ctlv 收尾：user 气泡传递行在气泡外（下方一行小字）——气泡内只放说话内容。
+        {/* F20260913ctlv 收尾：user 气泡传递行在气泡外（下方一行小字）——气泡内只放说话内容。
              yieldTargets = 发言石目标（实时路径 SSE entry.user 携带 / 历史路径 EntryDTO 透出，
              otterId 在此映射显示名） */}
         {isUser && m.yieldTargets && m.yieldTargets.length > 0 && (

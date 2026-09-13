@@ -93,7 +93,7 @@ describe('mapParticipantDTO modelAlias（web-model-display）', () => {
     expect('modelIsDefault' in o).toBe(false)
   })
 })
-/** F20260910ctlv：时间线条目类型（deriveEntryType 历史回退 + 居中条目文案） */
+/** F20260913ctlv：时间线条目类型（deriveEntryType 历史回退 + 居中条目文案） */
 import { deriveEntryType, isCenteredEntry, centeredEntryText } from './mappers'
 
 describe('deriveEntryType', () => {

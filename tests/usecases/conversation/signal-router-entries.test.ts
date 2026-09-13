@@ -1,5 +1,5 @@
 /**
- * F20260910ctlv 彻底切换补漏：SignalRouter 数据源切换测试。
+ * F20260913ctlv 彻底切换补漏：SignalRouter 数据源切换测试。
  *
  * 覆盖（test09 阻断问题回归锚——user 信号只写 entries 后路由器必须能点火）：
  * - entries 优先：triggerEntryId 命中 entry → tsp = entry.yieldTargets → invoke 点火
@@ -78,7 +78,7 @@ function makeDeps(overrides?: {
   return { router, entryRepo, chainCalls, entryUpdates, invokeFn, logger };
 }
 
-describe("SignalRouter 数据源（F20260910ctlv 彻底切换补漏）", () => {
+describe("SignalRouter 数据源（F20260913ctlv 彻底切换补漏）", () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
   it("user entry 信号：entries 命中 → tsp=entry.yieldTargets → 点火（test09 回归锚）", async () => {
@@ -95,7 +95,7 @@ describe("SignalRouter 数据源（F20260910ctlv 彻底切换补漏）", () => {
   });
 
   it("system entry 信号（scheduler 内部信号，收尾批2 切 entries）：yieldTargets → 点火", async () => {
-    // F20260910ctlv 收尾批2：scheduler createSystemSignalEntry 落 system entry（yieldTargets=tsp），
+    // F20260913ctlv 收尾批2：scheduler createSystemSignalEntry 落 system entry（yieldTargets=tsp），
     // routeDirectSignal 经 loadSignalView 读 entries——messages 兜底分支已删
     const { router, chainCalls } = makeDeps({
       entryRepo: {
@@ -136,7 +136,7 @@ describe("SignalRouter 数据源（F20260910ctlv 彻底切换补漏）", () => {
   it("steered 后 entry 销账：metadata.signalMeta 写 consumed（默认 steer 口径）", async () => {
     const entry = createEntry({ yieldTargets: ["otter-big"] });
     const entryUpdates: Array<{ entryId: string; metadata: EntryMetadata }> = [];
-    // 目标 running → 默认 steer 注入成功 → 销账（F20260910ctlv test13：用户发言默认 steer）
+    // 目标 running → 默认 steer 注入成功 → 销账（F20260913ctlv test13：用户发言默认 steer）
     const factory = { isRunning: () => true, followUp: () => false, steerSession: () => true };
     const routerRunning = new SignalRouter({
       conversationRepo: {} as never,
@@ -155,7 +155,7 @@ describe("SignalRouter 数据源（F20260910ctlv 彻底切换补漏）", () => {
     expect(meta.consumed).toBe("steered");
   });
 
-  it("injectionMode=followUp（副按钮排队）→ followUp 注入 + consumed=followed_up（F20260910ctlv followUp 按钮）", async () => {
+  it("injectionMode=followUp（副按钮排队）→ followUp 注入 + consumed=followed_up（F20260913ctlv followUp 按钮）", async () => {
     const entry = createEntry({ yieldTargets: ["otter-big"], metadata: { injectionMode: "followUp" } });
     const entryUpdates: Array<{ entryId: string; metadata: EntryMetadata }> = [];
     const followCalls: string[] = [];

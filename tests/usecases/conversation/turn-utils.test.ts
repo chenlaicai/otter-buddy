@@ -2,7 +2,7 @@
  * tryCloseTurn 单元测试（真 sqlite）。
  * 从手写 65 方法 mock 转换为真仓库：mock 手写镜像曾导致 fake green
  * （F20260805rsto 教训），真仓库的种子/断言走同一 SQL 路径。
- * F20260910ctlv 批4c：判据源 = invokes 表（messages 已 drop）。
+ * F20260913ctlv 批4c：判据源 = invokes 表（messages 已 drop）。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type Database from "better-sqlite3";

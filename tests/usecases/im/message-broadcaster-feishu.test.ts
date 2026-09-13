@@ -4,7 +4,7 @@ import { FeishuMessageChannel } from "@usecases/im/feishu-message-channel";
 import type { SSEEvent } from "@contract/sse/events";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 
-/** F20260910ctlv 处置轮重写：消息级 broadcast 链路已删——出站全走事件通道。
+/** F20260913ctlv 处置轮重写：消息级 broadcast 链路已删——出站全走事件通道。
  *  user 出站用例改走 entry.user 事件（source 防回环闸），语义断言沿用。 */
 
 function userEntryEvent(overrides: Partial<{ body: string; source: string }> = {}): SSEEvent {
@@ -206,7 +206,7 @@ describe("Web→飞书 user 标签（F20260828fsyc）", () => {
   });
 });
 
-describe("MessageBroadcaster invoke.start 触发飞书思考中消息(F20260812fmdr；F20260910ctlv 批4a 换轨)", () => {
+describe("MessageBroadcaster invoke.start 触发飞书思考中消息(F20260812fmdr；F20260913ctlv 批4a 换轨)", () => {
   it("invoke.start 事件触发 replyText 发思考中消息", async () => {
     const { broadcaster, feishuGateway } = createBroadcaster();
     bindFeishu(broadcaster);

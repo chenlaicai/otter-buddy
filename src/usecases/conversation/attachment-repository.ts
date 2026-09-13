@@ -3,7 +3,7 @@
  *
  * usecases 层 port：上传管线/投影出口都依赖本接口，
  * SQLite 实现在 frameworks/db/attachment/sqlite-attachment-repository.ts。
- * F20260910ctlv 批4c：消息级关联（linkMessageAttachments/getAttachmentRefsByMessageIds）
+ * F20260913ctlv 批4c：消息级关联（linkMessageAttachments/getAttachmentRefsByMessageIds）
  * 随 messages 表退役——entry 级关联走 entry_attachments（sqlite-entry-repository）。
  */
 import type { Attachment } from "@entities/conversation/attachment";

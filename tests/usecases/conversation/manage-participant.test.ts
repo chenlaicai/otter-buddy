@@ -1,7 +1,7 @@
 /**
  * ManageParticipant 单元测试（真 sqlite）。
  * join/leave 状态机 + 错误分支 + 名称回退，全部对真 DB 断言。
- * F20260910ctlv：注入 entryDeps 后进场/退场系统消息写 system entry（entries 表），
+ * F20260913ctlv：注入 entryDeps 后进场/退场系统消息写 system entry（entries 表），
  * 无 open turn 时 ensureActiveTurn 兜底创建（旧硬校验已删）。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -29,7 +29,7 @@ describe("ManageParticipant（真 sqlite）", () => {
   let db: Database.Database;
   let repo: SqliteConversationRepository;
   let otterRepo: SqliteOtterRepository;
-  /** entry 路径实例（F20260910ctlv：进场/退场 system entry） */
+  /** entry 路径实例（F20260913ctlv：进场/退场 system entry） */
   let mpEntry: ManageParticipant;
   let entryRepo: SqliteEntryRepository;
 

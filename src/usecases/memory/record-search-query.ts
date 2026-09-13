@@ -22,7 +22,7 @@ const TOP_ENTRY_IDS_COUNT = 5;
 export class RecordSearchQuery {
   constructor(
     private readonly repo: SearchQueryLogRepository,
-    /** F20260910ctlv 收尾批3：上下文快照切 entries（时间线唯一真相源） */
+    /** F20260913ctlv 收尾批3：上下文快照切 entries（时间线唯一真相源） */
     private readonly entryRepo: EntryRepository,
     private readonly logger: Logger,
   ) {}
@@ -66,7 +66,7 @@ export class RecordSearchQuery {
   }
 
   /** 取查询前最近 5 条对话条目的预览快照（标注者还原查询意图用）。
-   *  F20260910ctlv 收尾批3：数据源切 entries（speak+user 合并按 seq 倒取）。
+   *  F20260913ctlv 收尾批3：数据源切 entries（speak+user 合并按 seq 倒取）。
    *  beforeMessageId 存在时以该条目为上界（不含）——快照 = 查询发起前的上下文。 */
   private async buildContextPreview(
     conversationId: string,

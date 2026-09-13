@@ -97,7 +97,7 @@ async function setupCostOutputFixture(
   db.prepare("INSERT INTO agent_sessions (otter_id, pi_session_id) VALUES (?, ?)").run(ids.otterId, ids.sessionId);
   db.prepare("INSERT INTO conversations (id, title) VALUES (?, ?)").run(ids.convId, "test");
   db.prepare("INSERT INTO turns (id, conversation_id, turn_number) VALUES (?, ?, ?)").run(ids.turnId, ids.convId, 1);
-  // F20260910ctlv 批4c：messages 表已 drop——speak entry 语义种子
+  // F20260913ctlv 批4c：messages 表已 drop——speak entry 语义种子
   db.prepare(`
     INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, turn_id, status, sender_name, created_at, completed_at)
     VALUES (?, ?, 1, 'speak', 'otter', ?, '气泡', NULL, NULL, ?, 'completed', ?, ?, ?)

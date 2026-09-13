@@ -81,7 +81,7 @@ export function initRepositoriesWithDb(db: Database.Database, logger?: Logger): 
 export async function postInitDatabase(db: Database.Database, repos: Repositories, logger: Logger): Promise<void> {
   await seedTerminologyData(db, logger);
   await reconcileOrphans(repos.conversation, logger);
-  // F20260910ctlv 彻底切换：重启 reconcile——running invokes 全部置 failed
+  // F20260913ctlv 彻底切换：重启 reconcile——running invokes 全部置 failed
   // （进程死亡时在跑的 invoke，页面刷新后不残留「运行中」假象；自动恢复队列已退役）
   try {
     const failedInvokes = await repos.invoke.failRunningInvokes(new Date().toISOString());

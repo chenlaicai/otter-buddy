@@ -382,11 +382,11 @@ export interface TestDeps {
   manageParticipant: any;
   sendMessageUseCase: any;
   conversationRepo: any;
-  /** F20260910ctlv Phase 4：invoke repo（只读查询端点；缺省用内存 stub） */
+  /** F20260913ctlv Phase 4：invoke repo（只读查询端点；缺省用内存 stub） */
   invokeRepo?: any;
-  /** F20260910ctlv 切换清扫：entry repo（时间线只读查询端点；缺省用内存 stub） */
+  /** F20260913ctlv 切换清扫：entry repo（时间线只读查询端点；缺省用内存 stub） */
   entryRepo?: any;
-  /** F20260910ctlv 批4c：QueryMessage 收缩后仅 getUnreadState + getTurnsForTool（MessageController GET 路由用） */
+  /** F20260913ctlv 批4c：QueryMessage 收缩后仅 getUnreadState + getTurnsForTool（MessageController GET 路由用） */
   queryMessage: any;
   agentInvoker: any;
   manageReadState: any;
@@ -445,7 +445,7 @@ export function createTestApp(deps: TestDeps): Hono {
     dispatchChainEngine,
     broadcaster,
   );
-  // F20260910ctlv Phase 4：invoke 只读查询端点——默认内存 stub（测试可用 deps.invokeRepo 覆写）
+  // F20260913ctlv Phase 4：invoke 只读查询端点——默认内存 stub（测试可用 deps.invokeRepo 覆写）
   const invokeCtrl = new InvokeController(
     (deps.invokeRepo ?? {
       getInvokes: async () => [],
@@ -454,7 +454,7 @@ export function createTestApp(deps: TestDeps): Hono {
     }) as unknown as ConstructorParameters<typeof InvokeController>[0],
     logger,
   );
-  // F20260910ctlv 切换清扫：entries 时间线只读查询端点——默认内存 stub
+  // F20260913ctlv 切换清扫：entries 时间线只读查询端点——默认内存 stub
   const entryCtrl = new EntryController(
     (deps.entryRepo ?? {
       getEntries: async () => [],

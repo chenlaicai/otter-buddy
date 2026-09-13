@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 
-/** F20260910ctlv 处置轮重写：消息级面（subscribe 三参/broadcast/broadcastToWeb）已删，
+/** F20260913ctlv 处置轮重写：消息级面（subscribe 三参/broadcast/broadcastToWeb）已删，
  *  事件级面（subscribeEvents/broadcastEvent）是唯一通道。 */
 
 function createBroadcaster() {

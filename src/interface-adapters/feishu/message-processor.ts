@@ -36,7 +36,7 @@ export class FeishuMessageProcessor {
   constructor(
     private readonly deps: {
       manageConnection: ManageConnection;
-      /** F20260910ctlv 彻底切换：entries 写入面（用户消息唯一落点） */
+      /** F20260913ctlv 彻底切换：entries 写入面（用户消息唯一落点） */
       sendEntry: SendEntry;
       commandDispatcher: CommandDispatcher;
       feishuGateway: FeishuGateway;
@@ -131,7 +131,7 @@ export class FeishuMessageProcessor {
     payload: { bodyText: string; attachmentIds?: string[]; injection?: FeishuAttachmentOutcome["injection"] },
     dispatchText: string,
   ): Promise<void> {
-    // F20260910ctlv 彻底切换：飞书用户消息唯一落点 = entries（messages 表停写 UI 消息）。
+    // F20260913ctlv 彻底切换：飞书用户消息唯一落点 = entries（messages 表停写 UI 消息）。
     // 目标解析在 SendEntry 内完成；路由点火用 entries 目标。
     const senderDisplayName = await this.resolveSenderName(ids.senderId);
     const { entry: userEntry, talkingStonePassedTo, mentionFeedback } = await this.deps.sendEntry.sendUserEntry({
@@ -168,7 +168,7 @@ export class FeishuMessageProcessor {
 
     // 异步触发 Agent 派发（多模态 Phase 2：带附件注入载荷——图片真图 + 文档文本块）
     // #608：dispatchText 为原始正文（降级提示不进 agent 上下文，与微信侧同款）
-    // F20260910ctlv：直连链点火（targets 显式传）——signalRouter 依赖 messages 信号行，
+    // F20260913ctlv：直连链点火（targets 显式传）——signalRouter 依赖 messages 信号行，
     // IM 入口不再写 messages，改为链引擎直连（目标已由 entries 解析）
     this.triggerAgentDispatch(ids.conversationId, dispatchText, ids.senderId, payload.injection, { entryId: userEntry.id, resolvedTargets: talkingStonePassedTo });
   }
@@ -307,7 +307,7 @@ export class FeishuMessageProcessor {
     userMessageContent: string,
     senderId: string,
     injection?: FeishuAttachmentOutcome["injection"],
-    /** F20260910ctlv 彻底切换：触发锚 entry id + entries 解析目标（直连链点火；无 targets 时交给 dispatch 内部路由） */
+    /** F20260913ctlv 彻底切换：触发锚 entry id + entries 解析目标（直连链点火；无 targets 时交给 dispatch 内部路由） */
     anchor?: { entryId: string; resolvedTargets?: string[] },
   ): void {
     const messageId = anchor?.entryId;

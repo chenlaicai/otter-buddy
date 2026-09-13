@@ -113,7 +113,7 @@ describe("FeishuMessageProcessor 多模态 ingress（Phase 2）", () => {
     });
 
     const dispatchArgs = dispatch.mock.calls.at(-1) ?? [];
-    // F20260910ctlv：dispatch 收参数对象
+    // F20260913ctlv：dispatch 收参数对象
     expect(dispatchArgs[0]?.conversationId).toBe("conv-1");
     expect(dispatchArgs[0]?.senderId).toBe("ou_x");
     const injection = dispatchArgs[0]?.injection as { images?: Array<{ mimeType: string }> } | undefined;

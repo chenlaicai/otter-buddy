@@ -355,7 +355,7 @@ export function collectOtterOutput(
 ): OtterOutputRecord[] {
   const since = options?.since ?? new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-  // F20260910ctlv 批4c：数据源切 entries（speak = 獭气泡产出；messages 表已 drop）
+  // F20260913ctlv 批4c：数据源切 entries（speak = 獭气泡产出；messages 表已 drop）
   const rows = db.prepare(`
     SELECT
       DATE(e.created_at) AS date,

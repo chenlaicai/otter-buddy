@@ -1,5 +1,5 @@
 /**
- * F20260910ctlv：user/system 发言目标解析（独立共享模块）。
+ * F20260913ctlv：user/system 发言目标解析（独立共享模块）。
  *
  * Why: 彻底切换后 user 消息只写 entries（SendEntry.sendUserEntry），
  * 原本挂在 SendMessage.send 内的目标解析链（显式校验 + @提及解析 + 默认派发）
@@ -22,7 +22,7 @@ export interface ResolveTargetsDeps {
   getRecentSpeakSenders(conversationId: string, limit: number): Promise<Array<string | null>>;
   /** otter 实体查询（状态/类型/名字） */
   getOtterById(otterId: string): Promise<{ id: string; name: string; status: string; type: string } | null>;
-  /** F20260910ctlv test12：当前 running invoke 的獭集合（steer/followUp 语义的优先目标源） */
+  /** F20260913ctlv test12：当前 running invoke 的獭集合（steer/followUp 语义的优先目标源） */
   getRunningOtterIds(conversationId: string): Promise<string[]>;
 }
 
@@ -45,7 +45,7 @@ export function buildResolveTargetsDeps(
       return entries.map(e => e.senderId);
     },
     getOtterById: (otterId) => otterRepo.getById(otterId) as Promise<{ id: string; name: string; status: string; type: string } | null>,
-    // F20260910ctlv test12：running 判定用 invokes 表（唯一状态机）；未注入时返回空（退回旧逻辑）
+    // F20260913ctlv test12：running 判定用 invokes 表（唯一状态机）；未注入时返回空（退回旧逻辑）
     getRunningOtterIds: invokeRepo
       ? async (conversationId) => {
           const invokes = await invokeRepo.getInvokes(conversationId, { status: "running", limit: 200 });
@@ -143,7 +143,7 @@ async function validateTargets(
 }
 
 /**
- * 默认派发对象（F20260910ctlv test12 搭档拍板优先级）:
+ * 默认派发对象（F20260913ctlv test12 搭档拍板优先级）:
  * 1. 当前 running 的獭（invokes 表 status=running）——steer/followUp 语义：用户在獭行动中
  *    插话应注入那只 running 的獭，而不是按「最后完成发言」另选目标新开 invoke
  *    （test12 案发：话獭 running 时说「停下」被解析给大獭 → 双大獭 invoke 并发）
@@ -189,7 +189,7 @@ async function resolveDefaultTargets(
 }
 
 /** 优先级 1 子步骤：running 獭选取（单只直选；多只按最近 speak；空集回 null 走下级优先级）。
- *  F20260910ctlv test12 搭档拍板：用户在獭 running 期间插话应 steer 进那只獭 */
+ *  F20260913ctlv test12 搭档拍板：用户在獭 running 期间插话应 steer 进那只獭 */
 async function pickRunningTarget(
   deps: ResolveTargetsDeps,
   conversationId: string,

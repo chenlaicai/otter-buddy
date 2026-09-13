@@ -57,16 +57,16 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const { repos, entryRepo, invokeRepo, agentGateway, embeddingService, memoryIndex, appConfig, logger, workspaceGateway, otterConfigProvider, modelPool } = deps;
   const memoryUcs = buildMemoryUseCases(repos, embeddingService, appConfig, logger);
   const { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries } = memoryUcs;
-  // F20260910ctlv 彻底切换：未读状态读 entries
+  // F20260913ctlv 彻底切换：未读状态读 entries
   const queryMessage = new QueryMessage(repos.conversation, entryRepo);
   // F20260826rcmm Phase 0：检索埋点（评估基线数据源）
-  // F20260910ctlv 收尾批3：上下文快照数据源切 entries
+  // F20260913ctlv 收尾批3：上下文快照数据源切 entries
   const recordSearchQuery = new RecordSearchQuery(repos.searchQueryLog, entryRepo, logger);
   const manageReadState = new ManageReadState(repos.conversation, entryRepo);
   // 信号轨迹查询退役（F20260908rlcp）
   const manageParticipant = new ManageParticipant(
     repos.conversation, repos.otter,
-    // F20260910ctlv 批4c：进场/退场 system entry（必注入）
+    // F20260913ctlv 批4c：进场/退场 system entry（必注入）
     { entryRepo, invokeRepo },
     otterConfigProvider, modelPool,
   );
@@ -90,7 +90,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const attachmentUpload = buildAttachmentUploadService(repos, appConfig, logger);
   // 工作区文件浏览（只读）——workspaceGateway 可选注入
   const manageWorkspace = workspaceGateway ? new ManageWorkspace(workspaceGateway, logger) : undefined;
-  // F20260910ctlv 彻底切换：目标解析依赖（默认派发数据源 = entries.speak + invokes running）
+  // F20260913ctlv 彻底切换：目标解析依赖（默认派发数据源 = entries.speak + invokes running）
   const resolveDeps = buildResolveTargetsDeps(
     (conversationId) => repos.conversation.getActiveParticipants(conversationId),
     entryRepo,

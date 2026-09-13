@@ -97,7 +97,7 @@ function createMockTaskRepo(task: ScheduledTask) {
   } as unknown as ScheduledTaskRepository;
 }
 
-/** 状态化捕获：sendEntry.createSystemEntry 创建过的 body 列表（F20260910ctlv 批2 切 entries） */
+/** 状态化捕获：sendEntry.createSystemEntry 创建过的 body 列表（F20260913ctlv 批2 切 entries） */
 function createCapturingSendEntry() {
   const sentBodies: string[] = [];
   const createSystemEntry = vi.fn(async ({ body }: { body: string }) => {

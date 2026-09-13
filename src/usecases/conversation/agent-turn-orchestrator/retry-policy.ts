@@ -19,7 +19,7 @@ export function isRetryableGuardAbort(reason: string): boolean {
 }
 
 /** 构造自动重试的过渡态消息。
- *  F20260910ctlv 口径：只写确证内容——「超时」有计时证据；「模型」是归因不确证，统一去「模型」字样。 */
+ *  F20260913ctlv 口径：只写确证内容——「超时」有计时证据；「模型」是归因不确证，统一去「模型」字样。 */
 export function buildRetryFailBody(reason: string): string {
   if (reason === "streaming_timeout") return "生成过程超时";
   if (reason === "first_byte_timeout") return "生成超时（长时间无输出）";
@@ -107,7 +107,7 @@ export function buildGuardAbortBody(guardReason: string | undefined): string {
 }
 
 /** Build user abort body with partner label.
- *  F20260910ctlv 搭档拍板口径：只写确证内容——中断不一定有底层错误，可能就是主动中断；
+ *  F20260913ctlv 搭档拍板口径：只写确证内容——中断不一定有底层错误，可能就是主动中断；
  *  系统无法确证错误根因归类，不写「模型服务异常」这类断言，改为确证事实 + 附错误原文。 */
 export function buildUserAbortBody(
   toolCallCount: number,

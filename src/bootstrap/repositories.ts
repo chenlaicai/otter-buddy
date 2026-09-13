@@ -47,9 +47,9 @@ export function initRepositories(db: Database.Database, logger?: Logger): Reposi
     // dispatchAttempt: new SqliteDispatchAttemptRepo(db),
     /** 多模态 Phase 1：附件 repo */
     attachment: new SqliteAttachmentRepository(db),
-    /** F20260910ctlv：条目仓库（取代 messages + message_segments） */
+    /** F20260913ctlv：条目仓库（取代 messages + message_segments） */
     entry: new SqliteEntryRepository(db),
-    /** F20260910ctlv：invoke 生命周期仓库 */
+    /** F20260913ctlv：invoke 生命周期仓库 */
     invoke: new SqliteInvokeRepository(db),
   };
 }

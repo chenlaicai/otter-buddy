@@ -1,7 +1,7 @@
 /**
  * reconcileOrphans 兜底清理测试（真 sqlite）。
  *
- * F20260910ctlv 批4c：messages 表 drop——failInFlightMessages 退役，invoke 侧由
+ * F20260913ctlv 批4c：messages 表 drop——failInFlightMessages 退役，invoke 侧由
  * failRunningInvokes（bootstrap）接管。本测试锁定 closeOrphanedTurns 新判据：
  * open turn = 该 turn 下有 running invoke（经 entries.turn_id 关联）。
  */
@@ -57,7 +57,7 @@ function invokeFixture(overrides: Partial<Invoke> = {}): Invoke {
   };
 }
 
-describe("reconcileOrphans 兜底清理（F20260910ctlv 批4c：invokes 判据版）", () => {
+describe("reconcileOrphans 兜底清理（F20260913ctlv 批4c：invokes 判据版）", () => {
   it("无 running invoke 的 open turn 被关闭", async () => {
     await reconcileOrphans(repo, createTestLogger());
 

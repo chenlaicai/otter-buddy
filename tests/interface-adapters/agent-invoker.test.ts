@@ -1,5 +1,5 @@
 /**
- * F20260910ctlv 彻底切换：AgentInvoker 测试（invoke 状态机语义）。
+ * F20260913ctlv 彻底切换：AgentInvoker 测试（invoke 状态机语义）。
  *
  * 旧测试族的 messages 状态机（speaking 判定/message.retry 事件/segments 聚合）已退役。
  * 新核心覆盖：
@@ -101,7 +101,7 @@ function makeInvoker(
   );
 }
 
-describe("AgentInvoker（F20260910ctlv 彻底切换：invoke 状态机）", () => {
+describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () => {
   it("正常流：yield 置 invoke completed → invoke.end + turn.complete（无 message.* 事件）", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const sendEntry = mockSendEntry();

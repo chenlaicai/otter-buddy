@@ -1,6 +1,6 @@
 // lint-tests:allow-ddl —— 迁移测试需手工补建 messages 族旧表 DDL（模拟存量库形态——生产 schema 已删除旧表，迁移函数仍须可跑）
 /**
- * F20260910ctlv 收尾批4b：messages → entries 幂等回填迁移测试（真 sqlite）。
+ * F20260913ctlv 收尾批4b：messages → entries 幂等回填迁移测试（真 sqlite）。
  *
  * 覆盖：无重叠直迁 / 重叠对话合并重编号+游标重映射 / yield 合成 /
  * externalIds metadata 保留 / attachments 关联 / entries_fts 回填 /
@@ -19,7 +19,7 @@ beforeEach(() => {
   ensureLegacyTables();
 });
 
-/** F20260910ctlv 批4c：新库已无 messages 族表——本测试模拟「存量库」形态：
+/** F20260913ctlv 批4c：新库已无 messages 族表——本测试模拟「存量库」形态：
  *  手工补建旧表 DDL（生产 schema 已删），让迁移有对象可迁。 */
 function ensureLegacyTables(): void {
   db.exec(`
@@ -114,7 +114,7 @@ function getEntries(convId: string): Array<{ id: string; sequence_num: number; e
   return db.prepare("SELECT id, sequence_num, entry_type, body, yield_targets, metadata, sender_name FROM entries WHERE conversation_id = ? ORDER BY sequence_num ASC").all(convId) as never;
 }
 
-describe("migrateMessagesToEntries（F20260910ctlv 批4b）", () => {
+describe("migrateMessagesToEntries（F20260913ctlv 批4b）", () => {
   it("无重叠对话：三类消息直迁 + tsp 映射 + seq 重排 1..N", () => {
     seedConversation("conv-1");
     seedMessage({ id: "m1", conversationId: "conv-1", senderType: "user", senderId: "chen", sequenceNum: 5, turnId: "turn-conv-1", body: "你好", talkingStonePassedTo: ["otter-a"], createdAt: "2026-01-01T00:00:01Z" });
@@ -188,7 +188,7 @@ describe("migrateMessagesToEntries（F20260910ctlv 批4b）", () => {
 
     runMigration();
 
-    // F20260910ctlv 批4c：迁移通过后旧表直接 drop——streaming 语义只体现在 entry 的 invokeStatus
+    // F20260913ctlv 批4c：迁移通过后旧表直接 drop——streaming 语义只体现在 entry 的 invokeStatus
     const hasMsgTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get();
     expect(hasMsgTable).toBeUndefined();
     const entry = getEntries("conv-4")[0];
