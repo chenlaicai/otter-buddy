@@ -1,4 +1,4 @@
-/* eslint-disable max-lines -- sgp2 S1 注入 dispatchAttemptRepo 后 451>450；装配文件行数由注入项决定，拆分降低可读性（同 tool-factory.ts 先例） */
+/* eslint-disable max-lines -- F20260908rlcp: dispatchAttemptRepo 退役后行数仍超 450（装配文件由注入项决定） */
 import { buildContextTokenWarnConfig, type AppConfig } from "@frameworks/config";
 import fsSync from "node:fs";
 import path from "node:path";
@@ -30,6 +30,7 @@ import type { SignalRouter } from "@usecases/conversation/signal-router";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 import { SchedulerService } from "@usecases/scheduler/scheduler-service";
+import type { SchedulerServiceOptions } from "@usecases/scheduler/scheduler-service";
 import type { SchedulerMetrics } from "@frameworks/metrics/scheduler-metrics";
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import type { FeishuConfig } from "@frameworks/feishu/types";
@@ -138,7 +139,6 @@ export async function createAgentGateway(options: {
 export function createDispatchChainEngine(repos: Repositories, uc: UseCases, appConfig: AppConfig, logger: Logger, options?: { agentMetrics?: AgentMetricsPort; agentGateway?: PiSessionFactory }): DispatchChainEngine {
   return new DispatchChainEngine({
     conversationRepo: repos.conversation,
-    queryMessage: uc.queryMessage,
     queryOtter: uc.queryOtter,
     logger,
     maxChainDepth: appConfig.circuitBreaker.maxChainDepth,
@@ -148,13 +148,15 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     partnerResolver: new PartnerResolver(appConfig.feishu?.partnerOpenId),
     // F20260902sgp2 S1：派发台账注入——所有入口每次派发都记账（链引擎是必经之路，§4.2）。
     // 记账失败仅日志不阻断（硬约束 1）；不注入时链路行为与 sgpv 回滚基线一致。
-    dispatchAttemptRepo: repos.dispatchAttempt,
     // #530 梯度护栏：abort 回调注入（可选——不注入时降级为纯日志）。
     // F20260907ylfs ②：steer 回调已删（③ 检视修复后 steer 注入改走 ChainHopResult.steerText
     // 进程级传递，回调零调用点成死装配——检视-838 移交件 A）；steerSession 保留在
     // pi-session-factory（① URGENT steer 注入的依赖，signal-router 直调不经链引擎 deps）。
     abort: options?.agentGateway ? (otterId) => options.agentGateway!.abort(otterId) : undefined,
     healingRepo: repos.healingEvent,
+    // F20260913ctlv 彻底切换：未读注入/hop 产出判定/self-yield 护栏数据源（entries + invokes）
+    entryRepo: repos.entry,
+    invokeRepo: repos.invoke,
   });
 }
 
@@ -173,6 +175,34 @@ function buildCtxWindowProvider(
       return modelPool.getContextWindow(alias);
     },
   };
+}
+
+/** 控 max-lines-per-function：AgentInvoker 构造拆行（initAgentAndScheduler 子步骤） */
+function buildAgentInvoker(o: {
+  agentGateway: PiSessionFactory; uc: UseCases; repos: Repositories; logger: Logger;
+  messageBroadcaster: MessageBroadcaster | undefined; workspaceGateway?: WorkspaceGateway;
+  agentMetrics?: AgentMetricsPort; appConfig?: AppConfig; ctxWindowProvider?: OtterContextWindowProvider;
+}): AgentInvoker {
+  return new AgentInvoker(
+    o.agentGateway,
+    o.uc.queryMessage, o.uc.manageSession, o.uc.queryOtter, o.logger,
+    o.messageBroadcaster, o.workspaceGateway, o.repos.settings, o.agentMetrics,
+    o.repos.healingEvent,
+    // F20260825hndf：优雅上下交接依赖注入
+    o.repos.conversation,
+    o.repos.scheduledTask,
+    (conversationId) => o.repos.conversation.getLinkedResources(conversationId, { status: "active" }),
+    o.uc.manageContext,
+    buildHandoffPackage,
+    // F20260831cbkw：熔断 session 年龄窗口阈值（从 config 读取，缺省 2h）
+    o.appConfig?.circuitBreaker.healthySessionThresholdMs,
+    // F20260901cxmw：otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
+    o.ctxWindowProvider,
+    // F20260913ctlv 彻底切换：invoke 生命周期管理（唯一写入面）
+    o.uc.sendEntry,
+    // F20260913ctlv 彻底切换：invoke 仓库（熔断摘要读 invoke_events）
+    o.repos.invoke,
+  );
 }
 
 export async function initAgentAndScheduler(options: { repos: Repositories; uc: UseCases; agentGateway: PiSessionFactory; messageBroadcaster: MessageBroadcaster | undefined; logger: Logger; workspaceGateway?: WorkspaceGateway; metrics?: SchedulerMetrics; agentMetrics?: AgentMetricsPort; dispatchChainEngine?: DispatchChainEngine; db?: Database.Database; appConfig?: AppConfig; modelPool?: ModelPool; otterConfigProvider?: OtterConfigProvider }) {
@@ -207,22 +237,10 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
   // F20260901cxmw：otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
   const ctxWindowProvider = modelPool ? buildCtxWindowProvider(modelPool, otterConfigProvider) : undefined;
 
-  const agentInvoker = new AgentInvoker(
-    agentGateway, uc.sendMessage,
-    uc.queryMessage, uc.manageSession, uc.queryOtter, logger,
-    messageBroadcaster, workspaceGateway, repos.settings, agentMetrics,
-    repos.healingEvent,
-    // F20260825hndf：优雅上下交接依赖注入
-    repos.conversation,
-    repos.scheduledTask,
-    (conversationId) => repos.conversation.getLinkedResources(conversationId, { status: "active" }),
-    uc.manageContext,
-    buildHandoffPackage,
-    // F20260831cbkw：熔断 session 年龄窗口阈值（从 config 读取，缺省 2h）
-    appConfig?.circuitBreaker.healthySessionThresholdMs,
-    // F20260901cxmw：otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
-    ctxWindowProvider,
-  );
+  const agentInvoker = buildAgentInvoker({
+    agentGateway, uc, repos, logger, messageBroadcaster, workspaceGateway, agentMetrics,
+    appConfig, ctxWindowProvider,
+  });
 
   // F20260903cmpk：压缩钩子合成注入——时机归 Pi（session_before_compact），
   // 算法归七段合成（复用 handoff 的 readOnly invocation 链路）。
@@ -239,24 +257,32 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
   });
 
   const cronParser = new SimpleCronParser();
-  const schedulerService = new SchedulerService({
-    taskRepo: repos.scheduledTask,
-    convRepo: repos.conversation,
-    sendMessage: uc.sendMessage,
-    agentInvokePort: agentInvoker,
-    cronParser,
-    logger,
-    manageScheduledTask: uc.manageScheduledTask,
-    manageSession: uc.manageSession,
-    healingRepo: repos.healingEvent,
-    // F20260902sgp2 S4b：派发台账——看门狗台账终态判活（可选语义，未注入回退消息判定）
-    dispatchAttemptRepo: repos.dispatchAttempt,
-    metrics,
-    dispatchChainEngine,
-    functionRegistry: db ? paperTradingFunctionRegistry : undefined,
-  });
+  const schedulerService = new SchedulerService(
+    // F20260913ctlv 收尾批2：内部信号唯一落点 = entries（system entry + entry.system 广播）
+    buildSchedulerServiceOptions({
+      taskRepo: repos.scheduledTask,
+      convRepo: repos.conversation,
+      sendEntry: uc.sendEntry,
+      entryRepo: repos.entry,
+      messageBroadcaster: options.messageBroadcaster,
+      agentInvokePort: agentInvoker,
+      cronParser,
+      logger,
+      manageScheduledTask: uc.manageScheduledTask,
+      manageSession: uc.manageSession,
+      healingRepo: repos.healingEvent,
+      metrics,
+      dispatchChainEngine,
+      functionRegistry: db ? paperTradingFunctionRegistry : undefined,
+    }),
+  );
 
   return { agentInvoker, cronParser, schedulerService };
+}
+
+/** 控 max-lines-per-function：SchedulerServiceOptions 透传（initAgentAndScheduler 拆行） */
+function buildSchedulerServiceOptions(o: SchedulerServiceOptions): SchedulerServiceOptions {
+  return o;
 }
 
 /** issue #281：broadcaster 由 app.ts 无条件创建（平台无关总线），飞书出站作为 channel 注册 */
@@ -273,7 +299,7 @@ export function createFeishuBundle(options: {
   const { feishuConfig, uc, dispatchChainEngine, logger, webBaseUrl, messageBroadcaster, settingsRepo } = options;
   const tokenManager = new FeishuAccessTokenManager(feishuConfig, logger);
   const client = new FeishuClient(feishuConfig, logger, tokenManager);
-  messageBroadcaster.registerOutboundChannel("feishu", new FeishuMessageChannel(uc.manageConnection, client, uc.queryOtter, logger, webBaseUrl, settingsRepo));
+  messageBroadcaster.registerOutboundChannel("feishu", new FeishuMessageChannel(uc.manageConnection, client, logger, webBaseUrl, settingsRepo));
   if (!webBaseUrl) {
     logger.info("web.baseUrl not configured, feishu html-card placeholders will show without clickable links");
   }
@@ -296,12 +322,12 @@ export function setupFeishu(options: {
   const { appConfig, uc, repos, agentInvoker, feishu, messageBroadcaster, logger, registry, signalRouter } = options;
   if (!appConfig.feishu) return undefined;
 
-  const commandDispatcher = new CommandDispatcher(uc.manageConnection, uc.queryMessage, feishu.client, logger);
+  const commandDispatcher = new CommandDispatcher(uc.manageConnection, repos.entry, feishu.client, logger);
   // F20260826fpbd：命令门禁（方案B）——setupFeishu 入口有 !appConfig.feishu 早退，此处必存在；partnerOpenId 仍可选
   const partnerResolver = new PartnerResolver(appConfig.feishu?.partnerOpenId);
   const agentDispatchService = new AgentDispatchService({
     dispatchChainEngine: feishu.dispatchChainEngine,
-    queryMessage: uc.queryMessage,
+    entryRepo: repos.entry,
     agentInvokePort: agentInvoker,
     logger,
     // F20260901sgpv P1：飞书入口换轨（隐式传石查询停用，四入口勘测硬约束 1）
@@ -319,7 +345,8 @@ export function setupFeishu(options: {
 
   const messageProcessor = new FeishuMessageProcessor({
     manageConnection: uc.manageConnection,
-    sendMessage: uc.sendMessage,
+    // F20260913ctlv 彻底切换：飞书用户消息写 entries
+    sendEntry: uc.sendEntry,
     commandDispatcher,
     feishuGateway: feishu.client,
     // F20260826fuid：飞书群聊多人识别——open_id → 姓名快照
@@ -446,12 +473,12 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
       const cdn = new WeixinCdnClient({ api, logger });
       const mediaGateway = new WeixinMediaClient({ cdn, logger });
       const gateway = new WeixinGatewayAdapter({ api, accountStore, accountId: account.id, logger, cdn });
-      // 出站：广播总线注册（与飞书同模式；attachmentRepo 供媒体出站查存储路径）
+      // 出站：广播总线注册（与飞书同模式；F20260913ctlv 处置轮：attachmentRepo 死参数已删，媒体出站恢复待独立 issue）
       // #591：键控注册（"weixin-<accountId>"）——同账号重登录时替换旧通道而非追加，
       // 防止重复投递；停轮询/删账号时 unregisterOutboundChannel 成对清理
       messageBroadcaster.registerOutboundChannel(
         `weixin-${account.id}`,
-        new WeixinMessageChannel(uc.manageConnection, gateway, uc.queryOtter, logger, appConfig.web?.baseUrl, repos.settings, repos.attachment),
+        new WeixinMessageChannel(uc.manageConnection, gateway, uc.queryOtter, logger, appConfig.web?.baseUrl, repos.settings),
       );
       // ingress：入站处理器 + 轮询循环（媒体三项与飞书同构：注入服务与 controllers.ts 同一块装配）
       const attachmentInjection = new AttachmentInjectionService({
@@ -461,13 +488,14 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
       });
       const processor = new WeixinMessageProcessor({
         manageConnection: uc.manageConnection,
-        sendMessage: uc.sendMessage,
-        queryMessage: uc.queryMessage,
+        // F20260913ctlv 收尾批2：微信消息唯一落点 = entries（与飞书同构）
+        sendEntry: uc.sendEntry,
+        entryRepo: repos.entry,
         weixinGateway: gateway,
         partnerResolver: new PartnerResolver(weixinConfig.partnerUserId),
         // F20260901sgpv P1：微信入口换轨（与飞书同构）
         agentDispatchService: new AgentDispatchService({
-          dispatchChainEngine, queryMessage: uc.queryMessage, agentInvokePort: agentInvoker, logger,
+          dispatchChainEngine, entryRepo: repos.entry, agentInvokePort: agentInvoker, logger,
           ...(options.signalRouter && { signalRouter: options.signalRouter }),
         }),        messageBroadcaster,
         logger,
@@ -531,7 +559,7 @@ export function ensureWeixinConfig(opts: { configPath?: string; stateDir?: strin
 
 export async function initPlatforms(options: { appConfig: AppConfig; repos: Repositories; uc: UseCases; agentInvoker: AgentInvoker; dispatchChainEngine: DispatchChainEngine; messageBroadcaster: MessageBroadcaster; logger: Logger; signalRouter?: SignalRouter }): Promise<PlatformBootstrapResult> {
   const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, logger, signalRouter } = options;
-  const healingInit = ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, otterRepo: repos.otter, settings: repos.settings, sendMessage: uc.sendMessage, logger })
+  const healingInit = ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, otterRepo: repos.otter, settings: repos.settings, sendEntry: uc.sendEntry, logger })
     .then(({ conversationId, bigOtterId }) => ensureHealingScheduler({ manageScheduledTask: uc.manageScheduledTask, scheduledTaskRepo: repos.scheduledTask, healingConversationId: conversationId, bigOtterId }))
     .then(() => undefined)
     .catch(err => logger.warn("Self-Healing init failed", { error: err instanceof Error ? err.message : String(err) }));
@@ -544,8 +572,8 @@ export async function initPlatforms(options: { appConfig: AppConfig; repos: Repo
     inboundApiKey = appConfig.inbound.recruiting.apiKey;
     processInboundRecruit = new ProcessInboundRecruit(
       repos.settings,
-      uc.queryMessage,
-      uc.sendMessage,
+      uc.sendEntry,
+      repos.entry,
       dispatchChainEngine,
       agentInvoker,
       logger,
@@ -559,7 +587,7 @@ export async function initPlatforms(options: { appConfig: AppConfig; repos: Repo
       otterRepo: repos.otter,
       createOtter: uc.createOtter,
       settings: repos.settings,
-      sendMessage: uc.sendMessage,
+      sendEntry: uc.sendEntry,
       logger,
     })
       .then(({ conversationId, bigOtterId }) => ensureRecruitingScheduler({

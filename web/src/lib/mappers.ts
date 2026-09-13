@@ -1,4 +1,4 @@
-import type { OtterDTO, ConversationDTO, ConversationListItemDTO, MessageDTO, OtterSessionDTO, LinkedResourceDTO, ParticipantDTO } from '@contract/api'
+import type { OtterDTO, ConversationDTO, ConversationListItemDTO, MessageDTO, OtterSessionDTO, LinkedResourceDTO, ParticipantDTO, EntryDTO } from '@contract/api'
 
 /** 前端本地 Otter 类型（UI 渲染用） */
 export interface LocalOtter {
@@ -104,6 +104,61 @@ export interface LocalMessage {
   tsp?: string[] | null
   /** 多模态 Phase 1：随消息携带的附件 */
   atts?: LocalAttachment[]
+  /** F20260913ctlv：时间线条目类型（speak/user 气泡渲染，其余居中特殊渲染）。
+   *  旧 messages 表数据无此字段（undefined）——按 st 回退推导，历史兼容零迁移 */
+  entryType?: TimelineEntryType
+  /** F20260913ctlv：invoke 关联（SSE entry.* 事件携带；旧数据无） */
+  invokeId?: string
+  /** F20260913ctlv test17：invoke 真实终态（invoke_end entry 的 metadata.invokeStatus 透出；
+   *  entries.status 是死字段全部 completed，重试按钮等终态 UI 靠它判断） */
+  invokeStatus?: 'failed' | 'aborted'
+  /** F20260913ctlv：yield 条目专有——行动权传递目标 */
+  yieldTargets?: string[] | null
+}
+
+// ── F20260913ctlv：时间线条目类型 ──
+
+/** 时间线条目类型（与后端 EntryType 对齐） */
+export type TimelineEntryType =
+  | 'speak'
+  | 'user'
+  | 'invoke_start'
+  | 'invoke_end'
+  | 'yield'
+  | 'system'
+
+/** TimelineEntry：时间线渲染视角的条目（LocalMessage 超集，向后兼容）。
+ *  实现采用「字段下沉」而非新类型替换——LocalMessage 全链路（batcher/insertBySeq/
+ *  乐观消息/轮询）不动，entryType 驱动 MessageList 的渲染分収；特性文档 D7：
+ *  历史数据兼容优先，旧 messages 数据原样可读 */
+export type TimelineEntry = LocalMessage
+
+/** 旧消息按 st 回退推导 entryType（历史兼容：无 entryType 字段的旧数据） */
+export function deriveEntryType(m: LocalMessage): TimelineEntryType {
+  if (m.entryType) return m.entryType
+  return m.st === 'user' ? 'user' : m.st === 'system' ? 'system' : 'speak'
+}
+
+/** invoke 边界/yield/system 条目是否居中特殊渲染（非气泡） */
+export function isCenteredEntry(m: LocalMessage): boolean {
+  const t = deriveEntryType(m)
+  return t === 'invoke_start' || t === 'invoke_end' || t === 'yield' || t === 'system'
+}
+
+/** F20260913ctlv：invoke 边界/yield/system 条目文案（entry.body 为空时按约定文案渲染）。
+ *  yield 带来源獭名（senderName）：「大獭 → 交给 user」——多獭并发时能区分是谁交的棒 */
+export function centeredEntryText(m: LocalMessage): string {
+  const t = deriveEntryType(m)
+  const name = m.sn || m.si || '獭'
+  // yield 不回退 content：DB 落库 body 是「→ 交给 xxx」（无来源），历史数据同样缺来源——
+  // 统一用 sn（senderName 透出）+ yieldTargets 构造「来源 → 交给 目标」
+  if (m.content && t !== 'yield') return m.content
+  switch (t) {
+    case 'invoke_start': return `🦦 ${name}开始行动～`
+    case 'invoke_end': return `🦦 ${name}先休息一下～`
+    case 'yield': return `${name} → 交给 ` + (m.yieldTargets?.length ? m.yieldTargets.join('、') : '…')
+    default: return m.content || ''
+  }
 }
 
 /** 前端本地 LinkedResource 类型（统一产物模型）
@@ -184,6 +239,36 @@ export function mapMessageDTO(dto: MessageDTO): LocalMessage {
     signals: dto.signals?.map(s => ({ ...s })),
     // 多模态 Phase 1：附件透出（仅非空时携带）
     ...(dto.atts && { atts: dto.atts }),
+  }
+}
+
+/** F20260913ctlv 切换清扫：EntryDTO → LocalMessage（时间线历史数据源）。
+ *  entryType 直接携带（speak/user/invoke_start/invoke_end/yield/system），驱动 MessageList 渲染分流；
+ *  居中条目（invoke 边界/yield）的 content 用 entry.body（后端已填约定文案）。 */
+export function mapEntryDTO(dto: EntryDTO): LocalMessage {
+  const isCentered = dto.entryType === 'invoke_start' || dto.entryType === 'invoke_end' || dto.entryType === 'yield'
+  return {
+    id: dto.id,
+    st: dto.senderType ?? (isCentered ? 'system' : 'otter'),
+    si: dto.senderId ?? '',
+    sn: dto.senderName || undefined,
+    content: dto.body ?? '',
+    status: dto.status as LocalMessageStatus,
+    seq: dto.sequenceNum,
+    ts: dto.createdAt,
+    dur: null,
+    ctx: dto.contextTokens ?? undefined,
+    ctxMax: dto.contextTokensMax ?? undefined,
+    turnId: dto.turnId,
+    src: (dto.source ?? undefined) as 'web' | 'feishu' | undefined,
+    entryType: dto.entryType,
+    invokeId: dto.invokeId ?? undefined,
+    // F20260913ctlv test17：invoke_end 的 metadata.invokeStatus 透出（重试按钮数据源）
+    ...(dto.metadata?.invokeStatus === 'failed' || dto.metadata?.invokeStatus === 'aborted' ? { invokeStatus: dto.metadata.invokeStatus } : {}),
+    // yieldTargets 双用途：yield 条目的传递目标 + user entry 的发言石目标（传递行数据源）
+    yieldTargets: dto.yieldTargets ?? undefined,
+    // F20260913ctlv 终审修复：附件透出（与 mapMessageDTO 的 atts 映射同款）
+    ...(dto.attachments && { atts: dto.attachments }),
   }
 }
 

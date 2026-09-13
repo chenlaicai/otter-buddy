@@ -3,7 +3,7 @@
  * F20260825dva2: commit-msg 钩子 / CI 日期校验的单一真相源。
  *
  * 抽取 .githooks/commit-msg 和 .github/workflows/ci.yml 中重复的
- * 日期校验逻辑（解析 F 类特性 ID 前 8 位、与系统日期比对、偏差 >2 天拒绝），
+ * 日期校验逻辑（解析 F 类特性 ID 前 8 位、与系统日期比对、偏差 >7 天拒绝（F20260913ctlv：±2→±7，原 ±2 系时区漂移推导，误伤长周期特性 PR）），
  * 消灭双处维护。
  *
  * TZ 根除：用 Intl.DateTimeFormat.formatToParts() 替代 toLocaleString 字符串解析，
@@ -15,7 +15,7 @@
  *
  * 退出码：
  *   0 = 通过（ok / skip）
- *   1 = 日期偏差 > 2 天 或 非法日期（bad_date）
+ *   1 = 日期偏差 > 7 天 或 非法日期（bad_date）（F20260913ctlv：±2→±7）
  */
 
 /**
@@ -78,7 +78,7 @@ export function validateCommitDate(firstLine, now = new Date()) {
     Math.abs(idDate.getTime() - today.getTime()) / 86_400_000
   );
 
-  if (diffDays > 2) {
+  if (diffDays > 7) {
     return {
       valid: false,
       status: 'fail',

@@ -18,12 +18,13 @@ export function isRetryableGuardAbort(reason: string): boolean {
   return false;
 }
 
-/** 构造自动重试的过渡态消息 */
+/** 构造自动重试的过渡态消息。
+ *  F20260913ctlv 口径：只写确证内容——「超时」有计时证据；「模型」是归因不确证，统一去「模型」字样。 */
 export function buildRetryFailBody(reason: string): string {
   if (reason === "streaming_timeout") return "生成过程超时";
-  if (reason === "first_byte_timeout") return "模型响应超时";
+  if (reason === "first_byte_timeout") return "生成超时（长时间无输出）";
   if (reason.startsWith("circuit_break:")) return "工具调用异常";
-  if (reason === "api_error") return "模型服务异常";
+  if (reason === "api_error") return "底层调用错误";
   // F20260831aksp T2：对话流可见文案——事实而非误导（修复前显示通用「执行异常」）
   if (reason.startsWith("bash_safety:")) return "检测到针对主进程的不允许命令，已拦截并引导海獭重新分析任务";
   return "执行异常";
@@ -46,7 +47,7 @@ export function buildAutoRetryMsg(reason: string): string {
     return '[系统提醒] 你上一轮生成过程超时，已被系统自动重试。请从中断处继续完成你的发言，不需要重新开始。';
   }
   if (reason === 'first_byte_timeout') {
-    return '[系统提醒] 你上一轮模型响应超时，已被系统自动重试。请重新生成你的发言。';
+    return '[系统提醒] 你上一轮生成超时（长时间无输出），已被系统自动重试。请重新生成你的发言。';
   }
   if (reason.startsWith('circuit_break:')) {
     return '[系统提醒] 你上一轮工具调用异常，已被系统自动重试。请检查工具调用策略后继续。';
@@ -56,45 +57,6 @@ export function buildAutoRetryMsg(reason: string): string {
     return `[系统提醒] 你刚才的 bash 命令被安全守卫拦截：${reason.slice('bash_safety:'.length)} 该命令不允许：主进程是所有海獭（包括你）的运行环境，任何情况下都不得终止——你不存在需要重启或停止主进程的合法场景。若你的目的是验证代码变更：请在 worktree 中用独立端口启动隔离实例验证；若你观察到服务异常：请报告搭档处理。请基于以上约束重新分析当前任务，调整方案继续执行，不要重复原命令。`;
   }
   return '[系统提醒] 你上一轮执行异常，已被系统自动重试。请继续完成你的发言。';
-}
-
-/**
- * F20260826rsme：服务重启自动恢复的系统提醒（注入给被恢复的 otter）。
- * Why: pi session 延迟落盘（首条 assistant 消息后才写文件）可能丢失上下文尾部几步——
- * 末句引导 otter 主动查阅消息历史，把恢复质量从「依赖 session 记忆」拉到「基于可见证据续写」。
- */
-export function buildRestartResumeMsg(): string {
-  return '[系统提醒] 服务重启导致你的发言中断，系统已自动恢复。你之前 speak 的内容已保留在本条消息中，请基于已有进度继续完成发言，然后 yield 交棒。如果对任务上下文记忆不完整，先查阅消息历史再继续。';
-}
-
-/** F20260906rsts：恢复失败/跳过时的用户可见提示（成功路径静默——触发重跑即结束，不宣告）
- *  #818：invoke_error 分支已由 buildRestartResumeFailedInvokeMsg 独占（F202609048840 F4），
- *  本函数仅剩 skipped_concurrent 一条路径，签名收紧。 */
-export function buildRestartResumeFailedMsg(reason: "skipped_concurrent"): string {
-  void reason; // 保留参数以维持调用方签名兼容
-  return "[系统] 检测到恢复窗口内有新消息进入，跳过自动恢复，请手动重试该消息。";
-}
-
-/** F202609048840 F4: 新增失败状态的提示消息 */
-export function buildRestartResumeFailedInvokeMsg(): string {
-  return "[系统] 恢复过程中 invoke 失败，已标记为失败，请手动重试该消息。";
-}
-
-/* F20260906rsts：#613 方案 A「恢复完成」终态宣告已移除——搭档裁决（2026-09-06）：
- * 恢复的职责边界 = 重启后重新触发被中断的发言，触发即结束；成功的恢复是透明的
- * （海獭把话说完本身就是结果），不再向对话流发任何成功宣告。失败路径提示保留。
- * buildRestartResumeCompletedMsg 随之删除。 */
-
-/**
- * #599：恢复收尾消息（终态守卫用）。
- * Why: 恢复路径 invoke 创建的是新消息（新 messageId），prepareForRetry 复位的旧消息
- * 在链结束后不再有写入者。收尾为 failed + 明确指引，把「悬挂 streaming 等用户中断」
- * 变成「已归档 + 可在原条目上手动重试」。
- */
-export function buildRestartResumeTerminalMsg(outcome: "done" | "failed"): string {
-  return outcome === "done"
-    ? "[系统] 本条发言因服务重启中断（半截内容已保留），后续内容见新发言。"
-    : "[系统] 恢复未完成：本条发言已中止（半截内容已保留），可在本条上手动重试。";
 }
 
 // ─── #731：bash 守卫二拦终态自动回发控制信号（guard bounce）───
@@ -135,7 +97,7 @@ export function buildGuardBounceEscalationMsg(otterName: string): string {
 export function buildGuardAbortBody(guardReason: string | undefined): string {
   if (guardReason === 'degenerate_output') return '[系统保护] 检测到输出内容异常重复，已自动中断。';
   if (guardReason === 'streaming_timeout') return '[系统保护] 生成过程超时，已自动中断。';
-  if (guardReason === 'first_byte_timeout') return '[系统保护] 模型响应超时，已自动中断。';
+  if (guardReason === 'first_byte_timeout') return '[系统保护] 生成超时（长时间无输出），已自动中断。';
   if (guardReason?.startsWith('circuit_break:')) {
     if (guardReason.includes('event_timeout')) return '[系统保护] 单次工具调用超时，已自动中断。';
     return '[系统保护] 检测到工具调用异常循环，已自动中断。';
@@ -144,25 +106,25 @@ export function buildGuardAbortBody(guardReason: string | undefined): string {
   return '[系统保护] 输出异常，已自动中断。';
 }
 
-/** Build user abort body with partner label. #752: enhanced with underlying error attribution */
+/** Build user abort body with partner label.
+ *  F20260913ctlv 搭档拍板口径：只写确证内容——中断不一定有底层错误，可能就是主动中断；
+ *  系统无法确证错误根因归类，不写「模型服务异常」这类断言，改为确证事实 + 附错误原文。 */
 export function buildUserAbortBody(
   toolCallCount: number,
   partnerLabel: string,
   underlyingError?: AbortUnderlyingError,
 ): string {
-  const base = `[${partnerLabel}中断] 经过 ${toolCallCount} 次工具调用后，${partnerLabel}强制中断了当前发言。`;
-  // #752：0 次工具调用 + 底层有 API 错误 → 归因到系统问题而非纯用户中断
-  if (toolCallCount === 0 && underlyingError) {
-    if (underlyingError.kind === 'api_error') {
-      const isRateLimit = /429|rate.?limit|too many/i.test(underlyingError.errorMessage);
-      const hint = isRateLimit ? '模型服务限流（429）' : '模型服务异常';
-      return `[${partnerLabel}中断] 当前发言因${hint}未能开始（0 次工具调用），${partnerLabel}中断了等待。`;
-    }
-    if (underlyingError.kind === 'guard_abort') {
-      return `[${partnerLabel}中断] 当前发言因安全守卫拦截未能开始（0 次工具调用），${partnerLabel}中断了等待。`;
-    }
+  // 有确证的非 abort 底层错误：陈述事实 + 附原文（不断言根因）
+  if (underlyingError && underlyingError.kind === 'api_error' && underlyingError.errorMessage.trim()) {
+    const err = underlyingError.errorMessage.trim().slice(0, 200);
+    return `[${partnerLabel}中断] 当前发言未能开始（${toolCallCount} 次工具调用），底层错误：${err}，${partnerLabel}中断了等待。`;
   }
-  return base;
+  // guard 拦截：确证（有拦截记录）
+  if (underlyingError && underlyingError.kind === 'guard_abort') {
+    return `[${partnerLabel}中断] 当前发言因安全守卫拦截未能开始（${toolCallCount} 次工具调用），${partnerLabel}中断了等待。`;
+  }
+  // 纯主动中断（无底层错误）：简洁陈述，不暗示异常
+  return `[${partnerLabel}中断] ${toolCallCount > 0 ? `经过 ${toolCallCount} 次工具调用后，` : ''}${partnerLabel}中断了当前发言。`;
 }
 
 /**

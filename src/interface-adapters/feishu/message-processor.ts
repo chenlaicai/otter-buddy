@@ -1,5 +1,5 @@
 import type { ManageConnection } from "@usecases/im/manage-connection";
-import type { SendMessage } from "@usecases/conversation/send-message";
+import type { SendEntry } from "@usecases/conversation/send-entry";
 import type { CommandDispatcher } from "./command-dispatcher";
 import type { FeishuGateway } from "@usecases/im/feishu-gateway";
 import type { FeishuUserInfoGateway } from "@usecases/im/feishu-user-info-gateway";
@@ -36,7 +36,8 @@ export class FeishuMessageProcessor {
   constructor(
     private readonly deps: {
       manageConnection: ManageConnection;
-      sendMessage: SendMessage;
+      /** F20260913ctlv 彻底切换：entries 写入面（用户消息唯一落点） */
+      sendEntry: SendEntry;
       commandDispatcher: CommandDispatcher;
       feishuGateway: FeishuGateway;
       /** F20260826fuid：可选注入。未注入或解析失败时 senderName 快照为空，不影响主链路 */
@@ -130,23 +131,22 @@ export class FeishuMessageProcessor {
     payload: { bodyText: string; attachmentIds?: string[]; injection?: FeishuAttachmentOutcome["injection"] },
     dispatchText: string,
   ): Promise<void> {
-    // 存消息（F20260826fuid：飞书消息带 senderDisplayName 快照，群聊多人可识别）
+    // F20260913ctlv 彻底切换：飞书用户消息唯一落点 = entries（messages 表停写 UI 消息）。
+    // 目标解析在 SendEntry 内完成；路由点火用 entries 目标。
     const senderDisplayName = await this.resolveSenderName(ids.senderId);
-    const { message, mentionFeedback } = await this.deps.sendMessage.send({
+    const { entry: userEntry, talkingStonePassedTo, mentionFeedback } = await this.deps.sendEntry.sendUserEntry({
       conversationId: ids.conversationId,
       senderId: ids.senderId,
-      senderType: "user",
-      talkingStonePassedTo: [],
       body: payload.bodyText,
       source: "feishu",
       senderDisplayName,
       ...(payload.attachmentIds && { attachmentIds: payload.attachmentIds }),
     });
 
-    this.deps.logger.info("Message saved to conversation", {
+    this.deps.logger.info("User entry saved to conversation", {
       connectionId: ids.connectionId,
       conversationId: ids.conversationId,
-      messageId: message.id,
+      entryId: userEntry.id,
     });
 
     // F20260820i333: @提及解析失败时发送 feedback 给用户
@@ -158,17 +158,25 @@ export class FeishuMessageProcessor {
       });
     }
 
-    // 广播飞书消息到 Web 端（实时同步）
-    this.deps.messageBroadcaster.broadcast(message).catch(err => {
-      this.deps.logger.error("Failed to broadcast feishu message", err instanceof Error ? err : undefined, {
-        conversationId: ids.conversationId,
-        messageId: message.id,
-      });
+    // 广播飞书消息到 Web 端（实时同步；entry.user 事件，前端单通道消费）
+    // broadcastEvent 同步推送（void 返回；订阅者异常已在 broadcaster 内部消化）
+    // yieldTargets = 发言石目标（前端 user 氙底「→ 目标」传递行数据源）
+    this.deps.messageBroadcaster.broadcastEvent(ids.conversationId, {
+      event: "entry.user",
+      // senderName（终审修复）：飞书实时消息身份链——前端 remoteFallbackName 依赖 source，
+      // senderName 透传避免实时窗口显示「我」；attachments 带附件消息实时不丢缩略图
+      data: {
+        entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: ids.senderId, body: payload.bodyText, createdAt: userEntry.createdAt, yieldTargets: talkingStonePassedTo, source: "feishu",
+        ...(senderDisplayName ? { senderName: senderDisplayName } : {}),
+        ...(userEntry.attachments && userEntry.attachments.length > 0 && { attachments: userEntry.attachments }),
+      },
     });
 
     // 异步触发 Agent 派发（多模态 Phase 2：带附件注入载荷——图片真图 + 文档文本块）
     // #608：dispatchText 为原始正文（降级提示不进 agent 上下文，与微信侧同款）
-    this.triggerAgentDispatch(ids.conversationId, dispatchText, ids.senderId, payload.injection);
+    // F20260913ctlv：直连链点火（targets 显式传）——signalRouter 依赖 messages 信号行，
+    // IM 入口不再写 messages，改为链引擎直连（目标已由 entries 解析）
+    this.triggerAgentDispatch(ids.conversationId, dispatchText, ids.senderId, payload.injection, { entryId: userEntry.id, resolvedTargets: talkingStonePassedTo });
   }
 
   /** 多模态 Phase 2：媒体消息处理——下载 → 上传管线 → 附件 id + 注入载荷。
@@ -305,16 +313,22 @@ export class FeishuMessageProcessor {
     userMessageContent: string,
     senderId: string,
     injection?: FeishuAttachmentOutcome["injection"],
+    /** F20260913ctlv 彻底切换：触发锚 entry id + entries 解析目标（直连链点火；无 targets 时交给 dispatch 内部路由） */
+    anchor?: { entryId: string; resolvedTargets?: string[] },
   ): void {
+    const messageId = anchor?.entryId;
+    const resolvedTargets = anchor?.resolvedTargets;
     // 异步执行，不阻塞消息处理
     // Agent 事件通过 AgentInvoker.broadcastEvent 统一推送给所有订阅者
     // Agent 完成消息通过 AgentInvoker.broadcast 统一推送到外部渠道
-    this.deps.agentDispatchService.dispatch(
+    this.deps.agentDispatchService.dispatch({
       conversationId,
       userMessageContent,
       senderId,
       injection,
-    ).then(result => {
+      messageId,
+      resolvedTargets,
+    }).then(result => {
       if (result.error) {
         this.deps.logger.error("Agent dispatch failed", undefined, {
           conversationId,

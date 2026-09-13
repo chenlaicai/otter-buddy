@@ -1,36 +1,27 @@
 /**
- * F20260901sgpv（母方案 F20260901sgpx P1）：信号路由器。
+ * F20260908rlcp：信号路由器（事件驱动终态）。
  *
- * 职责：把「消息表里的信号」点火为 invoke——入口（web sendMessage / IM / resume
- * 补扫 / scheduler·招聘直投 routeDirectSignal）的调度收敛点。路由动作由
- * DispatchChainEngine 承载（链引擎 hop 驱动的替代是 P2 的灰度战场），P1 的核心增量：
- * ① pending 真相源 = 派发台账（F20260902sgp2 S2 起）：未消费信号 = 已投递 ∧
- *    无 (message,target) attempt 记录。v1 的「收件箱 = 游标视图」判据已退役
- *    （09-02 事故根因：未读 ≠ 待行动，F20260902rbsg）——已读游标回归上下文注入
- *    本职，不参与点火决策；「消费」= 链引擎派发记账（点火即销账）
- * ② 档位选通道（NORMAL / URGENT / HALT，见 routeTarget 的 P1 档位矩阵）
- * ③ 同 otter 串行：busy 目标入 busyQueue 保内容，invoke 完成后去抖重扫消化
- *    ——插话不再撞锁超时（P1 验收标准），内容不丢（见 busyQueue Why 注释）
- * ④ 消费失败可见：invoke 异常落 healing 台账（七刀之七——现状锁超时被 allSettled
- *    吞掉用户不可见，是「不可见的坏」）
+ * 职责：把「消息表里的信号」路由为 invoke 或 followUp/steer——入口（web sendMessage / IM / resume
+ * 补扫 / scheduler·招聘直投 routeDirectSignal）的调度收敛点。
  *
- * P1 边界的历史注记（#775 已消解）：原「scheduler/retry 入口仍走直连链」的边界在
- * S3（retry，#768）与 #775（scheduler/招聘直投通道 routeDirectSignal）后已全部收窄——
- * 五入口全部经路由器闸门+台账；system 排除防波堤随 S4a 判据清零删除
- * （F20260902sgp2 修订，前提即本文件旧边界）。URGENT 的 steer 直注入 / HALT 的
- * abort 物理停依赖打断决策协议，仍归 P3。
+ * F20260908rlcp 改动摘要（与 F20260901sgpv 对比）：
+ * - 退役：busyQueue / QueuedSignal / drainBusyQueue / signalContent / rebuildInjection
+ *   / userHalted / markUserHalt / clearUserHalt / isRateLimited / RATE_LIMIT_BLOCK_*
+ *   / shouldThrottle / isOtterActive / DEBOUNCE_MS / ACTIVE_WINDOW_MS / MIN_INVOKE_INTERVAL_SEC
+ *   / getGateState / routeAllPending / haltToSmallOtterGuard / buildSteerPrompt / trySteerInjection
+ *   / scheduleDebounceRescan / attachachmentInjection / DispatchAttemptRepo / agentGateway
+ * - 新增：factory（PiSessionFactory 窄接口：isRunning/followUp/steerSession）
+ * - routePendingSignals → routeSignal（事件驱动路由）
+ * - 档位概念移除：NORMAL/URGENT/HALT → followUp（默认）/ steer（标急）/ abort（session 方法调用）
  */
-import type { Message } from "@entities/conversation/message";
-import type { DispatchAttemptRepo, PendingSignalRow } from "@entities/conversation/dispatch-attempt";
+import type { Entry } from "@entities/conversation/entry";
+import type { EntryRepository } from "./entry-repository";
 import type { ConversationRepository } from "./conversation-repository";
-import type { QueryMessage } from "./query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { DispatchChainEngine } from "./dispatch-chain-engine";
 import type { Logger } from "@usecases/ports/logger";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { HealingErrorType, HealingEventStatus, HealingEvent, HealingSeverity } from "@entities/healing/healing-event";
-import type { AttachmentInjectionService } from "./attachment-injection-service";
-import type { AttachmentKind } from "@entities/conversation/attachment";
 
 /** invoke 函数签名（与 AgentInvoker.invokeConversation 对齐的最小面；装配处闭包捕获 agentInvoker） */
 export type SignalRouterInvokeFn = (params: {
@@ -40,653 +31,319 @@ export type SignalRouterInvokeFn = (params: {
   senderId: string;
 }) => Promise<{ messageId: string; aggregatedTargets?: string[] }>;
 
+/** F20260913ctlv 彻底切换补漏：统一信号视图。
+ *  数据源优先级：entries（user 信号，新真相源）→ messages（scheduler 内部系统信号，
+ *  范围外决策仍写 messages）。消费面：id/senderId/senderName/body/tsp/signalMeta。 */
+export interface SignalView {
+  id: string;
+  senderId: string;
+  senderName?: string | null;
+  body: string;
+  /** 发言石目标（entry.yieldTargets 或 message.talkingStonePassedTo） */
+  talkingStonePassedTo: string[] | null;
+  /** 销账标记（entry.metadata.signalMeta 或 message.signalMeta） */
+  signalMeta: string | null;
+  status: string;
+  senderType: string;
+  /** F20260913ctlv：注入方式（目标 running 时）——steer=打断默认/followUp=排队；
+   *  入口 sendMessage 按 body.mode 落 entry.metadata.injectionMode，路由时消费 */
+  injectionMode?: "steer" | "followUp";
+  /** 销账写回通道（entry metadata 或 message signal_meta） */
+  markConsumed: (action: "followed_up" | "steered") => Promise<void>;
+}
+
 export type RouteAction =
   | "invoked"
-  | "queued_busy"
+  | "followed_up"
+  | "steered"
   | "skipped_no_target"
   | "skipped_inactive"
-  /** F20260903ihlt：用户中断停机中——信号保留（pending 不动），等用户显式恢复 */
-  | "retry_gated"
-  | "retry_invoked"
-  | "skipped_halted"
-  /** F20260903ihlt：会话限流熔断中——rate_limit healing 事件窗口内拒点火，信号保留 */
-  | "skipped_rate_limited";
+  | "retry_invoked";
 
-/** busyQueue 条目：busy 目标的待消化信号（内容保全，见 routeTarget 内 Why 注释） */
-interface QueuedSignal {
-  signalId: string;
-  content: string;
-  senderId: string;
-  level: string;
-  /** #826：busyQueue 入队时快照附件 ID，消化时重建注入载荷 */
-  attachmentIds?: string[];
+/** F20260908rlcp：PiSessionFactory 窄接口（信号路由只需要这三个方法） */
+export interface SignalRouterSessionFactory {
+  /** otter 是否在热池且正在运行 */
+  isRunning(otterId: string): boolean;
+  /** 向运行中的 session 队列追加 followUp 消息 */
+  followUp(otterId: string, text: string): boolean;
+  /** 向运行中的 session 队列追加 steer（急讯）消息。
+   *  方法名 steerSession（对齐 pi-session-factory 实现——原名 steer 与实现不一致，
+   *  test14 实测 factory.steer is not a function 崩进程） */
+  steerSession(otterId: string, text: string): boolean;
 }
 
-/** #826 多模态收口：invokeTarget 的注入载荷重建结果（从附件重建，复用 loadRetryInjection 同款模式） */
-interface RebuiltInjection {
-  content: string;
-  images: Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-}
-
-/** #826：提取 signal 的附件 ID 列表（routeTarget 两处消费，兼降 routeTarget 复杂度） */
-function attachmentIdsOf(signal: Message): string[] | undefined {
-  const ids = signal.attachments?.map(a => a.id);
-  return ids && ids.length > 0 ? ids : undefined;
-}
-
-/** #775 S4a：routeDirectSignal 无法进行执行时抛出——携带不可路由原因，scheduler 据此记 skipped（非 failed，不触发连败熔断）。gate 取值：调度闸门两态 / skipped_no_signal（消息已删）/ skipped_inactive（目标不可路由） */
+/** #775 S4a：routeDirectSignal 无法进行执行时抛出——携带不可路由原因 */
 export class DirectChainGatedError extends Error {
-  constructor(public readonly gate: "skipped_halted" | "skipped_rate_limited" | "skipped_no_signal" | "skipped_inactive" | "skipped_no_target") {
+  constructor(public readonly gate: "skipped_no_signal" | "skipped_inactive" | "skipped_no_target") {
     super(`调度闸门/不可路由拦截：${gate}`);
     this.name = "DirectChainGatedError";
   }
 }
 
-/** 去抖重扫窗口：invoke 结束后等待迟到的信号写入事务提交（母方案 §2 竞态兜底，50ms 语义） */
-const DEBOUNCE_MS = 50;
-/** 活跃判定窗口：最新 streaming 消息 5min 内视为在干（P4 拆 turn 前的会话级近似）。
- *  F20260902sgp2 S2：仅用于 busy 判定（isOtterActive）——不再参与 pending/消费判定
- *  （那已全面切台账真相源）。 */
-const ACTIVE_WINDOW_MS = 5 * 60_000;
-/** 未读扫描上界：单次路由的候选消息数（信号风暴护栏；强制中断归 P3 梯度护栏） */
-const SCAN_LIMIT = 200;
-/** F20260903damp 阻尼#1：同 (message,target) 最小点火间隔（秒）。
- *  「无自动重试」的机制化：即使台账意外出现同信号可路由窗口（记账缺失/竞态），
- *  60s 内第二次点火被硬性拒绝——热循环的最坏频率被压到 1 次/分钟而非 15 次/秒。
- *  失败信号的重试语义不变：仅用户手动 retry（source='retry' 不受此限，走覆盖记账）。 */
-const MIN_INVOKE_INTERVAL_SEC = 60;
-/** F20260903ihlt 限流熔断窗口：会话内出现 rate_limit healing 事件后，暂停该会话全部
- *  pending 点火（429 是模型级故障——继续排空收件箱 = 逐条撞墙的机枪风暴，09-03 12:45 实证）。
- *  瞬时限流（SDK 重试耗尽）10 分钟；配额耗尽（exhausted）1 小时——窗口过后恢复点火，
- *  若限流仍在，第一发撞墙会再落一条事件、再熔断（最坏频率 1 次/窗口，哑火侧失效模式）。
- *  手动 retry 不经路由器（直连链），不受此闸影响。 */
-const RATE_LIMIT_BLOCK_TRANSIENT_MS = 10 * 60_000;
-const RATE_LIMIT_BLOCK_EXHAUSTED_MS = 60 * 60_000;
-
 export class SignalRouter {
-  /** 同 otter 串行：key = `${conversationId}:${otterId}`。invoke 进行中不重复点火，
-   *  完成后经去抖重扫补路由——信号在消息表/busyQueue 持久，不因跳过而丢失。 */
-  private readonly inFlight = new Set<string>();
-
-  /**
-   * F20260903ihlt：用户中断停机（会话级）。web「中断」按钮此前只 abort 单条消息的
-   * SDK session——被中断 invoke 的 50ms 去抖重扫会立刻点火下一只 pending 獭
-   * （09-03 现场：中断小獭 a 弹出小獭 b）。用户中断是最高优先级停机语义：
-   * 置位后本会话 pending/busyQueue 全部冻结（信号保留不丢），直到用户显式恢复
-   * （发新消息 / IM 发言 / 手动 retry 均视为恢复动作，由入口侧调 clearUserHalt）。
-   * 内存态与 busyQueue 同生命周期（崩溃即丢，可接受——重启后无 halt 是安全侧：
-   * 最坏回到无闸门现状）。HALT 信号档位（P3 物理停）与本机制正交：那是消息级
-   * 停机请求，这是调度级用户停机。
-   */
-  private readonly userHalted = new Set<string>();
-
-  /**
-   * busyQueue：busy 目标的待消化信号（内存态，崩溃即丢——与现状崩溃等价，可接受）。
-   * Why 必须保内容：busy 獭的链结束时 markBatchRead 会把游标推进到自己的 turn，
-   * 同 turn 内中途到达的消息（插话主场景！）会被「消费但未注入」——只靠台账重扫
-   * 拿不回内容。入队时快照内容，消化时作为「当前任务」显式注入（与现状第二条链的
-   * userMessageContent 传参同语义），插话语义从「锁超时报错」升级为「排队必达」。
-   */
-  private readonly busyQueue = new Map<string, QueuedSignal[]>();
-
   constructor(
     private readonly deps: {
       conversationRepo: ConversationRepository;
-      queryMessage: QueryMessage;
+      /** F20260913ctlv 收尾批2：entries 数据源（user/system 信号唯一真相源；messages 兜底已删） */
+      entryRepo: EntryRepository;
       queryOtter: QueryOtter;
       dispatchChainEngine: DispatchChainEngine;
       invokeFn: SignalRouterInvokeFn;
       logger: Logger;
       healingRepo?: HealingEventRepository;
-      /** F20260902sgp2 S2：派发台账——pending 真相源（已投递 ∧ 无派发记录）。
-       *  必注入：路由器无台账不构成 v2 语义（装配层保证）。 */
-      dispatchAttemptRepo: DispatchAttemptRepo;
-      /** 多模态 Phase 1 收口（#826）：附件注入服务——invokeTarget 从触发消息 attachments 重建 InjectionPayload。可选：未装配时降级纯文本 */
-      attachmentInjection?: AttachmentInjectionService;
-      /** P3a ① URGENT steer 注入：最小接口（可选；未装配时 URGENT+busy 走 busyQueue 降级）。
-       *  用窄接口而非 AgentGateway——signal-router 只需 steerSession，不依赖整个 AgentGateway 实现面。 */
-      agentGateway?: { steerSession?: (otterId: string, text: string) => boolean };
+      /** F20260908rlcp：LRU 热池窄接口（isRunning/followUp/steerSession） */
+      factory: SignalRouterSessionFactory;
     },
   ) {}
 
   /**
-   * #775 S4a 真换轨：scheduler·招聘直投通道（原点独占点火权）。
+   * #775 S4a：scheduler·招聘直投通道。
    *
-   * Why 不走 routePendingSignals：行动类 system 消息落库后、链引擎记账前存在扫描
-   * 窗口（判据清零后 system 带 tsp 消息对路由器可见），常规路由会产生「入口
-   * 直连派发 + 路由器重复点火」的双跑面——入口必须从原点独占点火权，路由器
-   * 只服务「重启后无主信号」的补扫（彼时执行记录已判死，无并发写者，恢复台账判据安全）。
+   * Why 不走 routeSignal：行动类 system 消息落库后可能存在扫描窗口，常规路由会产生
+   * 「入口直连派发 + 路由器重复点火」的双跑面——入口必须从原点独占点火权。
    *
-   * 闸门与 busyQueue 语义与 routeTarget 完全一致：用户 halt / 限流熔断期间信号保留
-   * （本方法抛 DirectChainGatedError，调用方记 skipped 不触发熔断）；busy 目标入队消化。
-   * 等待链 settle 是调用方（scheduler watchExecutionByLedger）的职责——路由器只管点火。
-   *
-   * @param messageId 触发消息 ID（= scheduler anchor，点火即记账的账面键）
-   * @throws DirectChainGatedError 闸门拦截/消息缺失/目标不可路由——调用方记 skipped
+   * @throws DirectChainGatedError 消息缺失/目标不可路由
    */
-  async routeDirectSignal(conversationId: string, messageId: string, otterId: string): Promise<"invoked" | "queued_busy"> {
-    const signal = await this.loadSignalMessage(messageId);
+  async routeDirectSignal(conversationId: string, messageId: string, otterId: string): Promise<"invoked"> {
+    const signal = await this.loadSignalView(messageId);
     if (!signal) {
-      // 消息已删等脏数据：执行无从进行，按 skipped 记账（返回会让调用方空转等待）
       this.deps.logger.warn("[signal-router] 直投信号消息缺失", { conversationId, messageId });
       throw new DirectChainGatedError("skipped_no_signal");
     }
-    const gate = await this.checkDispatchGates(conversationId);
-    if (gate === "skipped_halted" || gate === "skipped_rate_limited") {
-      throw new DirectChainGatedError(gate);
-    }
-    // 直投也是路由器点火：source 标 'router'（账面可审计，S2 标签失真修复）。
-    // retry 态理论不可达——直投不走 retry 源；防御归入不可路由，按 skipped 记账
-    const action = await this.routeTarget(conversationId, otterId, signal, "router");
+    const action = await this.routeSignalForTarget(conversationId, otterId, signal);
     switch (action) {
       case "invoked":
-      case "queued_busy":
-        return action;
-      case "retry_gated":
+      case "followed_up":
+      case "steered":
       case "retry_invoked":
-        // retry 态理论不可达——直投不走 retry 源；防御归入不可路由，按 skipped 记账
+        return "invoked";
+      case "skipped_inactive":
+        throw new DirectChainGatedError("skipped_inactive");
+      case "skipped_no_target":
         throw new DirectChainGatedError("skipped_no_target");
       default:
-        // 目标已解散等不可路由态：执行无从进行，按 skipped 记账（原因即 action）
-        throw new DirectChainGatedError(action);
+        throw new DirectChainGatedError("skipped_no_target");
     }
   }
 
   /**
-   * 路由一个会话内的未消费信号。
+   * 事件驱动路由：信号到达时路由一个目标。
    *
-   * 触发时机（F20260901sgpv）：
+   * 触发时机：
    * - web sendMessage：user 消息落库后（信号 = talkingStonePassedTo 指向的每个獭）
-   * - IM（飞书）：消息入库后经 AgentDispatchService 调用（隐式目标查询随之退役）
-   * - resume：启动补扫（崩溃窗口兜底——写路径回调没能执行的信号在此补路由）
-   *
-   * 幂等性（F20260902sgp2 S2）：消费判定 = 派发台账（pending := 已投递 ∧
-   * 无 (message,target) 记录）——不再依赖游标视图。链引擎每次派发即销账
-   * （recordStart），重复调用最坏代价是空扫描。
+   * - IM（飞书）：消息入库后经 AgentDispatchService 调用
+   * - resume：启动补扫（崩溃窗口兜底）
    *
    * @param filter.otterId 仅路由发往该 otter 的信号（单目标场景）
-   * @returns 各信号的路由结果（记日志/测试断言用，不用于流程控制）
+   * @returns 各信号的路由结果
    */
-  async routePendingSignals(
+  async routeSignals(
     conversationId: string,
-    filter?: { otterId?: string },
-  ): Promise<Array<{ signal: Message; action: RouteAction }>> {
-    // S2：一次台账查询取全部 pending (message,target) 对，按目标分组——
-    // 替代 v1 的「先候选后逐目标未读视图」两段式（游标判据已退役）
-    const pendingRows = await this.deps.dispatchAttemptRepo.listPendingSignals(conversationId, SCAN_LIMIT);
-    const byTarget = new Map<string, PendingSignalRow[]>();
-    for (const row of pendingRows) {
-      if (filter?.otterId && row.targetOtterId !== filter.otterId) continue;
-      const list = byTarget.get(row.targetOtterId) ?? [];
-      list.push(row);
-      byTarget.set(row.targetOtterId, list);
+    filter?: { otterId?: string; triggerMessageId?: string },
+  ): Promise<Array<{ signal: SignalView; action: RouteAction }>> {
+    // F20260908rlcp 整合修复（实测双触发根因）：
+    // 必须只处理「本次触发的消息」——triggerMessageId 传入时只路由该消息。
+    // 旧实现扫 getMessages 全部历史逐条点火：已处理的獭产出消息（tsp 指回）
+    // 会被反复重燃，同一条用户消息触发 N 次 invoke（09-09 实测：说一句话大獭被点 3 次）。
+    // 獭的产出消息（senderType='otter'）绝不作为路由信号源——链引擎的 hop 续跑
+    // （nextTargets）已承载 yield 路由，此处再扫 = 与链引擎双跑。
+    if (!filter?.triggerMessageId) {
+      // F20260908rlcp：routeAllPending 已退役，无 triggerMessageId 的调用是残留路径——拒绝
+      this.deps.logger.warn("[signal-router] routeSignals 无 triggerMessageId 调用（残留路径），拒绝", { conversationId });
+      return [];
     }
-    const results: Array<{ signal: Message; action: RouteAction }> = [];
+    return this.routeTriggerMessage(conversationId, filter.triggerMessageId, filter.otterId);
+  }
 
-    // F20260903ihlt：调度闸门（用户停机 > 限流熔断 > 档位路由）——中断是最高优先级。
-    // 扫描级求值一次：命中即整轮零点火，信号保留（pending 不动）等恢复窗口。
-    const gate = await this.checkDispatchGates(conversationId);
-
-    for (const [targetId, rows] of byTarget) {
-      // 每目标取最新一条信号驱动路由决策（档位以最新为准；同批多条由同一次 invoke 的未读注入统一消化）
-      const newest = rows[rows.length - 1];
-      const signal = await this.loadSignalMessage(newest.messageId);
-      if (!signal) {
-        this.deps.logger.warn("[signal-router] pending 信号消息缺失，跳过", { conversationId, messageId: newest.messageId, targetId });
-        continue;
-      }
-      if (gate) {
-        results.push({ signal, action: gate });
-        continue;
-      }
-      const action = await this.routeTarget(conversationId, targetId, signal);
-      results.push({ signal, action });
+  /** 路由本轮触发消息（事件 A 主路径：web/IM 消息落库后） */
+  private async routeTriggerMessage(
+    conversationId: string,
+    triggerMessageId: string,
+    otterIdFilter?: string,
+  ): Promise<Array<{ signal: SignalView; action: RouteAction }>> {
+    const msg = await this.loadSignalView(triggerMessageId);
+    if (!msg || msg.status !== "completed" || msg.senderType === "otter") return [];
+    const targets = (msg.talkingStonePassedTo ?? []).filter(t => t !== "user");
+    const results: Array<{ signal: SignalView; action: RouteAction }> = [];
+    for (const targetId of targets) {
+      if (otterIdFilter && targetId !== otterIdFilter) continue;
+      results.push({ signal: msg, action: await this.routeSignalForTarget(conversationId, targetId, msg) });
+    }
+    // 销账：注入成功（followed_up/steered）的信号打 consumed 标记，防重燃
+    for (const r of results) {
+      if (r.action !== "followed_up" && r.action !== "steered") continue;
+      await r.signal.markConsumed(r.action).catch(() => {});
     }
     return results;
   }
 
-  /** 按 ID 加载信号消息原文（台账行只有 ID；档位/内容/发送者需要完整实体）。 */
-  private async loadSignalMessage(messageId: string): Promise<Message | null> {
+  /**
+   * 路由单个信号到单个目标（核心路由逻辑）。
+   *
+   * 决策树：
+   * 1. 目标 dissolved/inactive → 跳过（防幽灵点火）
+   * 2. factory.isRunning(target) = true → 默认 followUp；标急 steer
+   * 3. 否则（空闲/不在池）→ invokeFn 点火（现状路径）
+   * 4. followUp/steer 返回 false → 降级 invokeFn
+   */
+  private async routeSignalForTarget(
+    conversationId: string,
+    targetId: string,
+    signal: SignalView,
+  ): Promise<RouteAction> {
+    // 1. dissolved/inactive 目标过滤
+    const otter = await this.deps.queryOtter.getById(targetId).catch(() => null);
+    if (!otter || otter.status !== "active") {
+      this.deps.logger.info("[signal-router] 目标不在场或非 active，跳过", { targetId, status: otter?.status });
+      return "skipped_inactive";
+    }
+
+    // 2. 目标是否在热池且运行中
+    if (this.deps.factory.isRunning(targetId)) {
+      // F20260908rlcp 实测修复：followUp/steer 注入成功后必须销账（consumed 标记）——
+      // 否则 resume 补扫与历史扫描会把已注入的信号当成「待处理」再次点火（09-09 实测三句回复根因）。
+      // 销账动作与注入动作同事务语义：注入成功即写 consumed，失败则不写（下次重试）。
+
+      /** F20260913ctlv（test13 拍板 + followUp 按钮）：默认 steer（插话即时生效，打断
+       *  当前生成）；用户显式选 followUp（副按钮「排队」）时排队等当前轮说完再接。
+       *  mode 来自 entry.metadata.injectionMode（sendMessage 请求体透传落库） */
+      if (signal.injectionMode === "followUp") {
+        const followed = this.deps.factory.followUp(targetId, this.buildSignalText(signal));
+        if (followed) {
+          this.deps.logger.info("[signal-router] followUp 注入成功（用户显式排队）", { conversationId, messageId: signal.id, targetId });
+          return "followed_up";
+        }
+        this.deps.logger.info("[signal-router] followUp 不可达，降级 invoke", { conversationId, messageId: signal.id, targetId });
+      } else {
+        const steered = this.deps.factory.steerSession(targetId, this.buildSteerText(signal));
+        if (steered) {
+          this.deps.logger.info("[signal-router] steer 注入成功", { conversationId, messageId: signal.id, targetId });
+          return "steered";
+        }
+        // steer 返回 false = 未在池/已停流，降级 invokeFn
+        this.deps.logger.info("[signal-router] steer 不可达，降级 invoke", { conversationId, messageId: signal.id, targetId });
+      }
+    }
+
+    // 3. 空闲/不在池 → invokeFn 点火
+    return this.invokeTarget(conversationId, targetId, signal);
+  }
+
+  /**
+   * retry 信号（手动重试路径）：过路由+点火。与 routeSignalForTarget 同路径。
+   */
+  async retrySignal(
+    conversationId: string,
+    _messageId: string,
+    targetOtterId: string,
+    signal: SignalView,
+    _retryAttachmentIds?: string[],
+  ): Promise<"retry_invoked"> {
+    await this.invokeTarget(conversationId, targetOtterId, signal);
+    return "retry_invoked";
+  }
+
+  /** F20260913ctlv 收尾批2：按 ID 加载信号视图（entries 唯一真相源）。
+   *  scheduler 内部信号已切 system entry（原 messages 兜底分支删除——无消费方）。
+   *  传入 id 兼容历史调用面：entries 查不到即 null（不回 messages）。 */
+  private async loadSignalView(messageId: string): Promise<SignalView | null> {
     try {
-      const msg = await this.deps.queryMessage.getMessageById(messageId);
-      return msg ?? null;
+      const entry = await this.deps.entryRepo.getEntryById(messageId);
+      return entry ? this.entryToSignalView(entry) : null;
     } catch {
       return null;
     }
   }
 
-  /** F20260903ihlt：用户中断停机置位（中断端点调用）。幂等。 */
-  /**
-   * F20260903ihlt 遗留漏洞修复（S3）：手动 retry 的调度入口——与自动点火同一套闸门与记账。
-   *
-   * Why 必须存在：retry 曾走直连链（executeChain 直调），绕过路由器的全部调度闸门——
-   * 限流熔断期间手动 retry 照跑撞 429 → orchestrator 落新 rate_limit 事件 →
-   * 熔断窗口被重置 → 自动点火继续冻结（09-03 搭档实锤的调度漏洞）。
-   *
-   * 语义：
-   * - 过闸门（用户停机/限流熔断）：被挡时返回 retry_gated，调用方应向用户反馈
-   *   「重试被调度闸门暂缓」而非静默失败——retry 是用户显式动作，不诚实反馈 = 体验黑洞
-   * - 记账：source='retry' 覆盖同 (message,target) 槽位（§8.2 折中，前情压缩进 note）
-   * - 点火：与 routeTarget 同路径（invokeTarget，含 busyQueue 排队语义）
-   *
-   * 与 clearUserHalt 的关系：调用方（message-controller）在 retry 前已解除用户停机
-   * （显式恢复动作）；本方法内的限流熔断闸门**不受 clearUserHalt 影响**——
-   * 「用户想重试」不能解除「模型配额还没恢复」的客观事实。
-   */
-  /**
-   * #826 收尾处置（检视建议发现 1）：retrySignal 可选携带附件 ID——被重试的是 otter 消息
-   *  （message_attachments 只挂 user 消息，signal.attachments 恒空），原始 user 消息的
-   *  附件由调用方反查同 turn user 消息后显式传入，invokeTarget 消费时重建注入载荷
-   *  （修复：带图/文档消息的 otter 回复 failed 后重试，当前任务图/文档静默丢失）。
-   */
-  async retrySignal(conversationId: string, messageId: string, targetOtterId: string, signal: Message, retryAttachmentIds?: string[]): Promise<"retry_invoked" | "retry_gated"> {
-    // 闸门 1：用户停机——retry 是显式恢复动作，理论不会同时 halted；防御性兜底
-    // （调用方已 clearUserHalt，此处 double-check 防竞态：halt 置位与 retry 并发）
-    if (this.userHalted.has(conversationId)) return "retry_gated";
-    // 闸门 2：限流熔断——用户显式 retry 不能重置熔断窗口（否则「点一下重试」=
-    // 「把全会话恢复推后一小时」，09-03 实锤漏洞面）。被挡即如实反馈。
-    if (await this.isRateLimited(conversationId)) return "retry_gated";
-
-    // #826：retry 的附件优先用显式传入的 retryAttachmentIds（otter 消息自身无附件）；
-    // 未传时退回 signal.attachments（与 router 直投路径同语义，防御未来直接调用的场景）。
-    // 注意：此处仅填充 id 供 attachmentIdsOf 提取——kind 等元数据占位，真图重建
-    // 在 invokeTarget.rebuildInjection（按 id 读 attachments 表全量行）
-    const retrySignalMsg = retryAttachmentIds && retryAttachmentIds.length > 0 && !(signal.attachments?.length)
-      ? { ...signal, attachments: retryAttachmentIds.map(id => ({ id, kind: "image" as AttachmentKind, originalName: "", mimeType: "", sizeBytes: 0, width: null, height: null, caption: null })) }
-      : signal;
-    const action = await this.routeTarget(conversationId, targetOtterId, retrySignalMsg, "retry");
-    // invoked = 直接点火；queued_busy = 目标忙入队（受理成功，等消化）——两者都是 retry 成功受理
-    return action === "invoked" || action === "queued_busy" ? "retry_invoked" : "retry_gated";
+  /** entry → 信号视图（user 信号主路径） */
+  private entryToSignalView(entry: Entry): SignalView {
+    return {
+      id: entry.id,
+      senderId: entry.senderId ?? "",
+      senderName: entry.senderName ?? null,
+      body: entry.body ?? "",
+      talkingStonePassedTo: entry.yieldTargets,
+      signalMeta: entry.metadata?.signalMeta ?? null,
+      status: entry.status ?? "completed",
+      senderType: entry.senderType ?? "",
+      injectionMode: entry.metadata?.injectionMode,
+      markConsumed: async (action) => this.markEntrySignalConsumed(entry, action),
+    };
   }
 
-  markUserHalt(conversationId: string): void {
-    if (this.userHalted.has(conversationId)) return;
-    this.userHalted.add(conversationId);
-    this.deps.logger.warn("[signal-router] 用户中断停机：冻结本会话全部 pending 点火，直到用户发新消息/手动重试恢复", { conversationId });
+  /** entry 信号销账：consumed 标记写 metadata.signalMeta */
+  private async markEntrySignalConsumed(entry: Entry, action: "followed_up" | "steered"): Promise<void> {
+    const meta = { ...(entry.metadata ?? {}), signalMeta: JSON.stringify({ consumed: action, consumedAt: new Date().toISOString() }) };
+    await this.deps.entryRepo.updateEntryMetadata(entry.id, meta);
   }
 
-  /** F20260903ihlt：用户停机解除（用户发新消息 / IM 发言 / 手动 retry 时由入口侧调用）。 */
-  clearUserHalt(conversationId: string): void {
-    if (this.userHalted.delete(conversationId)) {
-      this.deps.logger.info("[signal-router] 用户停机解除：恢复本会话信号点火", { conversationId });
-    }
-  }
-
-  /** S3.5 交互投影（F20260903s35u，会议第四要素「闸门状态用户可见」）：
-   *  会话调度闸门状态的只读快照——会话级横幅 / 轨迹冻结措辞的数据源。
-   *  halted：用户停机（显式意志，重启后持久化策略见 G5 裁决——当前内存态）。
-   *  rateLimitedUntil：熔断窗口截止时间（从 healing 事件推导，取窗口最晚的一个）。
-   *  两者同时存在时 UI 优先显示 halted（用户意志 > 系统推导）。 */
-  async getGateState(conversationId: string): Promise<{
-    halted: boolean;
-    rateLimitedUntil: string | null;
-  }> {
-    let rateLimitedUntil: string | null = null;
-    if (this.deps.healingRepo) {
-      try {
-        const events = await this.deps.healingRepo.findByConversation(conversationId, "rate_limit");
-        const now = Date.now();
-        for (const e of events) {
-          const exhausted = (e.context as { exhausted?: boolean } | null)?.exhausted === true;
-          const windowMs = exhausted ? RATE_LIMIT_BLOCK_EXHAUSTED_MS : RATE_LIMIT_BLOCK_TRANSIENT_MS;
-          const createdAt = Date.parse(e.createdAt);
-          if (!Number.isFinite(createdAt) || now - createdAt >= windowMs) continue;
-          const until = createdAt + windowMs;
-          if (!rateLimitedUntil || until > Date.parse(rateLimitedUntil)) {
-            rateLimitedUntil = new Date(until).toISOString();
-          }
-        }
-      } catch { /* 查询失败 = 投影不可用，闸门判定不受影响 */ }
-    }
-    return { halted: this.userHalted.has(conversationId), rateLimitedUntil };
-  }
-
-  /**
-   * F20260903ihlt：会话限流熔断判定。数据源 = healing 台账 rate_limit 事件
-   * （orchestrator #543 在 429 终态时落账，含 exhausted 分级）——路由器自身看不到
-   * invoke 内部的 429，台账是既有的事实汇聚点，不新增真相源。
-   * 会话级（非模型级）：otter 实体无 model 字段，模型映射不在路由器可及范围；
-   * 宁可整会话停（哑火侧）也不要逐獭撞墙（危险侧）。判定失败按不熔断（降级=现状）。
-   */
-  private async isRateLimited(conversationId: string): Promise<boolean> {
-    if (!this.deps.healingRepo) return false;
+  /** F20260908rlcp：信号是否已销账（consumed 标记存在=已注入成功，补扫跳过） */
+  private isSignalConsumed(signal: SignalView): boolean {
+    if (!signal.signalMeta) return false;
     try {
-      const events = await this.deps.healingRepo.findByConversation(conversationId, "rate_limit");
-      const now = Date.now();
-      return events.some(e => {
-        const exhausted = (e.context as { exhausted?: boolean } | null)?.exhausted === true;
-        const windowMs = exhausted ? RATE_LIMIT_BLOCK_EXHAUSTED_MS : RATE_LIMIT_BLOCK_TRANSIENT_MS;
-        const createdAt = Date.parse(e.createdAt);
-        return Number.isFinite(createdAt) && now - createdAt < windowMs;
-      });
+      const meta = JSON.parse(signal.signalMeta) as { consumed?: string };
+      return !!meta.consumed;
     } catch {
       return false;
     }
   }
 
-  /** F20260903ihlt：调度闸门——用户停机 / 限流熔断。命中返回跳过动作，放行返回 null。 */
-  private async checkDispatchGates(conversationId: string): Promise<RouteAction | null> {
-    if (this.userHalted.has(conversationId)) return "skipped_halted";
-    if (await this.isRateLimited(conversationId)) return "skipped_rate_limited";
-    return null;
-  }
-
-  /** 路由全部会话的未消费信号（启动补扫专用，RIS 调用）。
-   *  Why 全会话扫描而非记录式队列：崩溃前哪些会话有待消费信号不可知（内存态丢失），
-   *  扫描是唯一可靠真相源；每会话独立 catch——单个会话异常不阻塞其余。
-   *  status 过滤不在此做：非 active 会话的信号点火后 invoke 层自会拒绝
-   *  （复用 scheduler claimAndValidateTask 的同型守卫语义） */
-  async routeAllPending(): Promise<void> {
-    const conversationIds = await this.deps.conversationRepo.getAllIds({ limit: 200 });
-    for (const conversationId of conversationIds) {
-      await this.routePendingSignals(conversationId).catch(err => {
-        this.deps.logger.warn("routeAllPending 单会话失败，继续其余", {
-          conversationId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
-    }
-  }
-
-  /**
-   * P1 档位矩阵（母方案 §1 三档频谱的 P1 落地面；steer/abort 物理通道归 P3）：
-   *
-   * | 档位    | 目标 idle                | 目标 busy                        |
-   * |---------|--------------------------|----------------------------------|
-   * | NORMAL  | 点火 invoke（未读注入）  | 入 busyQueue（完成时消化，内容保全） |
-   * | URGENT  | 点火 invoke              | 入 busyQueue（同上；steer 归 P3） |
-   * | HALT    | 点火 invoke（处理停机请求）| 大獭：入 busyQueue 优先消化；小獭：丢弃 + healing 留痕 |
-   */
-  // eslint-disable-next-line complexity, max-statements -- P3a ① URGENT steer 分支在原档位矩阵路由逻辑上+1 个条件分支，拆分会割裂路由语义
-  private async routeTarget(conversationId: string, targetId: string, signal: Message, source: "chain" | "retry" | "router" = "chain"): Promise<RouteAction> {
-    const level = (signal.signalLevel ?? "NORMAL").toUpperCase();
-    const otter = await this.deps.queryOtter.getById(targetId).catch(() => null);
-    // F20260903damp：dissolved 目标不点火——getById 不过滤 status（sqlite-otter-repository
-    // 全量 SELECT），过滤责任在此落地。09-03 事故：dissolved 检视獭被启动补扫点火 →
-    // No session or config found × 50ms 重扫热循环（614 次/42s）。判据 SQL 已同步过滤，
-    // 此处是 SQL 求值与 otters 状态变更之间的竞态兜底（双层独立成立）。
-    // #827：dissolve 时刻的入站清算墓碑已覆盖存量；此处是清算后新写入的边角
-    // （dissolve 与本路由的竞态窗口）——healing 留痕让「为什么这条没跑」排查可见
-    if (!otter || otter.status !== "active") {
-      await this.recordHealing({ conversationId, messageId: signal.id, otterId: targetId, level, errorType: "other", severity: "low", description: `信号目标 ${targetId} 不在场或非 active，路由跳过（#827 可观测性）` });
-      return "skipped_inactive";
-    }
-
-    if (await this.haltToSmallOtterGuard(conversationId, level, signal, targetId)) {
-      return "skipped_no_target";
-    }
-
-    const key = `${conversationId}:${targetId}`;
-    // #826 多模态收口：附件 ID 快照（invokeTarget 消费 / busyQueue 入队）
-    const attachmentIds = attachmentIdsOf(signal);
-    const invoke = () => this.invokeTarget(conversationId, targetId, "", signal.senderId, { triggerMessageId: signal.id, source, attachmentIds });
-
-    // F20260903damp 阻尼#1：同 (message,target) 最小点火间隔——重复信号/记账缺失/
-    // 重扫竞态下的第二次点火在此硬性拒绝（失效模式落哑火侧，宁漏不燃）
-    if (this.deps.dispatchAttemptRepo.shouldThrottle(signal.id, targetId, MIN_INVOKE_INTERVAL_SEC)) {
-      this.deps.logger.warn("[signal-router] 阻尼：同信号最小点火间隔内拒绝重复点火", { conversationId, messageId: signal.id, targetId, intervalSec: MIN_INVOKE_INTERVAL_SEC });
-      return "queued_busy"; // 归队语义：等下个触发窗口，不丢失
-    }
-    const busy = this.inFlight.has(key) || await this.isOtterActive(conversationId, targetId);
-    if (!busy) {
-      return invoke();
-    }
-
-    // P3a ①：URGENT + busy → 试 steer 注入打断询问（steer 成功即销账，防双投递）
-    if (level === "URGENT") {
-      const steerResult = this.trySteerInjection(conversationId, targetId, signal);
-      if (steerResult) return steerResult;
-    }
-
-    // busy：入队保内容（HALT 到 busy 大獭置队首——停机请求优先于普通排队信号消化）
-    const queued: QueuedSignal = {
-      signalId: signal.id,
-      content: this.signalContent(signal),
-      senderId: signal.senderId,
-      level,
-      attachmentIds,
-    };
-    const queue = this.busyQueue.get(key) ?? [];
-    if (level === "HALT") {
-      queue.unshift(queued);
-    } else {
-      queue.push(queued);
-    }
-    this.busyQueue.set(key, queue);
-    return "queued_busy";
-  }
-
-  /** F20260903damp：HALT 投往小獭拦截（C2 权限绕过路径防线）。
-   *  @returns true = 已拦截（调用方返回 skipped_no_target） */
-  private async haltToSmallOtterGuard(conversationId: string, level: string, signal: Message, targetId: string): Promise<boolean> {
-    if (level !== "HALT") return false;
-    const otter = await this.deps.queryOtter.getById(targetId).catch(() => null);
-    if (!otter || otter.type !== "small") return false;
-    // P0 在 yield 写入层已拒绝小獭投 HALT；此处拦截绕过路径（历史遗留/直写库）
-    await this.recordHealing({ conversationId, messageId: signal.id, otterId: targetId, level: signal.signalLevel ?? null, errorType: "permission_denied" as HealingErrorType, severity: "medium", description: `HALT 信号投往小獭 ${targetId}，路由器已丢弃（仅用户/大獭可投，F20260826mwrd C2）` });
-    return true;
-  }
-
-  /** 信号内容快照：segments 聚合（入 busyQueue 时调用——游标推进后原文将不可再得） */
-  private signalContent(signal: Message): string {
-    try {
-      return signal.segments.map(s => s.body).join("\n").trim();
-    } catch {
-      return "";
-    }
-  }
-
-  /** P3a ①：URGENT steer 打断询问文案构造（纯函数，#841 建议②：从 trySteerInjection 提取回线内） */
-  private buildSteerPrompt(signal: Message): string {
-    const meta = signal.signalMeta ? JSON.parse(signal.signalMeta) as { reason?: string } : null;
-    const reason = meta?.reason ?? "（未说明原因）";
+  /** 构建信号注入文本（followUp 路径：常规排队） */
+  private buildSignalText(signal: SignalView): string {
     const sender = signal.senderName?.trim() || signal.senderId;
-    return (
-      `【URGENT 打断询问】来自 ${sender} 的急迫信号：${reason}\n` +
-      `建议：你可以在完成当前工具调用后选择：继续手头工作（新信号留箱，完成后处理）或转向处理（读取箱内新消息）。不需要显式回答，你的下一个行动就是答案。`
-    );
+    const content = this.extractContent(signal);
+    return `[${sender}] ${content}`;
   }
 
-  /** P3a ①：URGENT + busy → 尝试 steer 注入打断询问。返回 RouteAction 则路由已完成（steer 成功+销账），null 则未处理（降级 busyQueue）。 */
-  private trySteerInjection(conversationId: string, targetId: string, signal: Message): RouteAction | null {
-    if (!this.deps.agentGateway?.steerSession) return null;
-    try {
-      const steered = this.deps.agentGateway.steerSession(targetId, this.buildSteerPrompt(signal));
-      if (steered) {
-        // 销账：写 completed 行——否则 pendingClause 仍判 pending，invoke 完成检查会二次路由 = 双投递
-        try {
-          this.deps.dispatchAttemptRepo.recordStart({
-            id: crypto.randomUUID(),
-            conversationId,
-            messageId: signal.id,
-            targetOtterId: targetId,
-            status: "completed",
-            source: "router",
-            attemptStartedAt: new Date().toISOString(),
-            note: "steered",
-          });
-          this.deps.logger.info("[signal-router] URGENT steer 注入成功+销账", { conversationId, messageId: signal.id, targetId });
-        } catch (e) {
-          this.deps.logger.warn("[signal-router] URGENT steer 销账写入失败（不影响注入）", { conversationId, messageId: signal.id, targetId, error: e instanceof Error ? e.message : String(e) });
-        }
-        return "invoked";
-      }
-      // steer 返回 false = session 不活跃，降级入 busyQueue
-      this.deps.logger.info("[signal-router] URGENT steer 不可达（session 非活跃），降级 busyQueue", { conversationId, messageId: signal.id, targetId });
-    } catch (e) {
-      // steer 解析/调用异常，降级入 busyQueue（安全侧）
-      this.deps.logger.warn("[signal-router] URGENT steer 异常，降级 busyQueue", { conversationId, messageId: signal.id, targetId, error: e instanceof Error ? e.message : String(e) });
-    }
-    return null;
+  /** 构建 steer 文本（急讯路径：下一思考点注入） */
+  private buildSteerText(signal: SignalView): string {
+    return `【急讯 msg:${signal.id}】来自 ${signal.senderName?.trim() || signal.senderId}：${this.extractContent(signal)}`;
+  }
+
+  /** 提取信号内容（SignalView.body 单字段） */
+  private extractContent(signal: SignalView): string {
+    return signal.body.trim();
   }
 
   /**
-   * 点火一次 invoke（链引擎承载，读产出消息行级 tsp 续跑发言链——#332 语义；
-   * F20260904schf 起链引擎不再消费 turn 级 aggregatedTargets）。
-   * fire-and-forget：入口（HTTP 请求 / scheduler tick / resume）不被 invoke 时长阻塞。
-   * @param content busyQueue 消化路径传入快照内容（显式「当前任务」）；未读路径传空
-   *                （链内 buildMessageWithContext 注入完整未读）
-   * @param triggerMessageId 触发信号的消息 ID——F20260903damp：点火即记账的账面键。
-   *        路由器在调链【前】先写 attempt 行（in_progress），不依赖链引擎可选参数到达：
-   *        triggerMessageId 漏传 / 链前段抛错都会让账面空转 → pending 永生 →
-   *        50ms 重扫热循环（09-03 事故 614 次/42s 的直接根因）。
-   *        链引擎 recordStart 对同 (message,target) INSERT OR REPLACE 覆盖（幂等），
-   *        settle 终态由链按 triggerMessageId 落；链整体抛错时由本方法 catch 兜底 failed。
+   * 点火一次 invoke（链引擎承载）。
+   * fire-and-forget：入口不被 invoke 时长阻塞。
    */
-  /** 点火即记账（in_progress）：从 invokeTarget 提取（complexity 拆分），语义不变 */
-  private recordRouterStart(conversationId: string, otterId: string, triggerMessageId: string, source: "chain" | "router" | "retry"): void {
-    try {
-      this.deps.dispatchAttemptRepo.recordStart({
-        id: crypto.randomUUID(),
-        conversationId,
-        messageId: triggerMessageId,
-        targetOtterId: otterId,
-        status: "in_progress",
-        source,
-        attemptStartedAt: new Date().toISOString(),
-        note: null,
-      });
-      this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: triggerMessageId, otter: otterId, status: 'in_progress', source });
-    } catch (e) {
-      this.deps.logger.warn('[signal-ledger] 路由器点火记账失败（不影响链路）', { conversationId, messageId: triggerMessageId, otterId, error: e instanceof Error ? e.message : String(e) });
-    }
-  }
-
-  /** #826 多模态收口：invokeTarget 可从附件重建注入载荷。ledger 携带记账与可选附件 ID。 */
-  private async invokeTarget(conversationId: string, otterId: string, content: string, senderId: string, ledger: { triggerMessageId: string; source: "chain" | "router" | "retry"; attachmentIds?: string[] }): Promise<"invoked"> {
-    const key = `${conversationId}:${otterId}`;
-    if (this.inFlight.has(key)) return "invoked"; // 去抖窗口内的重复触发，静默合并
-
-    this.inFlight.add(key);
-    // ledger 在新签名下必填（五个调用点均显式传递），消除可选链分支降低闭包复杂度
-    const { triggerMessageId, source, attachmentIds } = ledger;
+  private async invokeTarget(
+    conversationId: string,
+    otterId: string,
+    signal: SignalView,
+  ): Promise<"invoked"> {
+    const userMessageContent = this.buildSignalText(signal);
+    // fire-and-forget
     void (async () => {
-      // 点火即记账（in_progress 即非 pending）：写入义务收敛在点火原点，
-      // 不随链引擎参数传递的完整性而变。失败仅日志（台账不阻断链路，硬约束 1）。
-      if (triggerMessageId) this.recordRouterStart(conversationId, otterId, triggerMessageId, source);
-      // #826 多模态收口：从附件重建注入载荷（复用 loadRetryInjection 同款模式）
-      const injected = await this.rebuildInjection(conversationId, otterId, content, attachmentIds);
       try {
         await this.deps.dispatchChainEngine.executeChain({
           conversationId,
-          userMessageContent: injected.content,
-          senderId,
+          userMessageContent,
+          senderId: signal.senderId,
           initialTargets: [otterId],
-          ...(injected.images && { images: injected.images }),
           invokeFn: (params) => this.deps.invokeFn(params),
-          triggerMessageId,
-          // #775：账面来源穿透——链引擎 recordStart 会覆写路由器预写行，不穿透则
-          // 终态行恒标 'chain'（S2 观察期发现的标签失真：路由器点火无法从终态行审计）
-          ledgerSource: source,
+          triggerMessageId: signal.id,
         });
       } catch (err) {
-        // 消费失败可见性（七刀之七）：healing 留痕（消息终态由链/orchestrator 侧管理）
-        this.deps.logger.error("SignalRouter 消费失败", err instanceof Error ? err : new Error(String(err)), {
-          conversationId, otterId, contentPreview: content.substring(0, 100),
+        this.deps.logger.error("SignalRouter invoke 失败", err instanceof Error ? err : new Error(String(err)), {
+          conversationId, otterId,
         });
-        await this.recordHealing({ conversationId, messageId: "", otterId, level: "NORMAL", errorType: "other", severity: "high", description: `信号消费失败：${err instanceof Error ? err.message : String(err)}` });
-        // 终态兜底：链在自身 settle 之前抛错（buildRoster 前置失败等）时由路由器销账，
-        // 防该 (message,target) 以无账状态回到重扫视野（热循环回归防线）
-        if (triggerMessageId) {
-          try {
-            const reason = err instanceof Error ? err.message : String(err);
-            this.deps.dispatchAttemptRepo.recordFinish(triggerMessageId, otterId, "failed", `router catch: ${reason}`.slice(0, 300));
-          } catch { /* 记账失败不阻断（硬约束 1） */ }
-        }
-      } finally {
-        this.inFlight.delete(key);
-        this.scheduleDebounceRescan(conversationId);
+        await this.recordHealing({
+          conversationId, messageId: signal.id, otterId,
+          errorType: "other", severity: "high",
+          description: `信号消费失败：${err instanceof Error ? err.message : String(err)}`,
+        });
       }
     })();
     return "invoked";
-  }
-
-  /** #826 多模态收口：从附件重建注入载荷（documentBlock 追加 content；重建失败降级纯文本不阻断）。
-   *  复杂度拆分：mergeDocument 负责拼接、pickImages 负责筛选，主方法只留分支骨架 */
-  private async rebuildInjection(conversationId: string, otterId: string, content: string, attachmentIds?: string[]): Promise<RebuiltInjection> {
-    if (!attachmentIds || attachmentIds.length === 0 || !this.deps.attachmentInjection?.available) {
-      return { content, images: undefined };
-    }
-    try {
-      const injection = await this.deps.attachmentInjection.buildInjectionPayload(attachmentIds);
-      // 建议发现 4：附件被删/读取为空的静默降级留痕——「为什么图没进去」排查可循
-      if (!injection) {
-        this.deps.logger.info("[signal-router] #826 附件重建为空（可能已删除），降级纯文本", { conversationId, otterId, attachmentIds });
-        return { content, images: undefined };
-      }
-      return {
-        content: this.mergeDocument(content, injection.documentBlock),
-        images: injection.images && injection.images.length > 0 ? injection.images : undefined,
-      };
-    } catch (e) {
-      this.deps.logger.warn("[signal-router] #826 注入载荷重建失败，降级纯文本", { conversationId, otterId, error: e instanceof Error ? e.message : String(e) });
-      return { content, images: undefined };
-    }
-  }
-
-  /** documentBlock 拼接：content 非空追加，空则直接用 block；都空回 content（与 withDocumentBlock 同语义） */
-  private mergeDocument(content: string, documentBlock?: string): string {
-    if (!documentBlock) return content;
-    return content ? `${content}\n\n${documentBlock}` : documentBlock;
-  }
-
-  /** 完成时检查（母方案 §2）：去抖窗口内先消化 busyQueue 快照（内容显式注入），
-   *  再扫台账 pending（覆盖「检查后瞬间写入」竞态）。失败仅记日志——重扫自身幂等。 */
-  private scheduleDebounceRescan(conversationId: string): void {
-    setTimeout(() => {
-      void this.drainBusyQueue(conversationId).then(() => this.routePendingSignals(conversationId)).catch(e => {
-        this.deps.logger.error("SignalRouter debounce rescan failed", e instanceof Error ? e : new Error(String(e)), { conversationId });
-      });
-    }, DEBOUNCE_MS).unref?.();
-  }
-
-  /** 消化 busyQueue：每会话取队首一条点火（一信号一 invoke，保持对话粒度；
-   *  后续条目由该 invoke 的完成重扫接力；中途 HALT 可插队——routeTarget 置队首）。
-   *  目标仍 busy（外部路径在跑，如 P1 期 scheduler 直连链）则留队等下次触发。 */
-  private async drainBusyQueue(conversationId: string): Promise<void> {
-    // F20260903ihlt：停机/熔断期间不消化排队信号（内容已快照在队，不丢；恢复后接力）
-    if (this.userHalted.has(conversationId)) return;
-    if (await this.isRateLimited(conversationId)) return;
-    for (const [key, queue] of this.busyQueue) {
-      if (!key.startsWith(`${conversationId}:`)) continue;
-      const item = queue.shift();
-      if (!item) {
-        this.busyQueue.delete(key);
-        continue;
-      }
-      // key 结构 `${conversationId}:${otterId}`——UUID 不含冒号，split 安全
-      const otterId = key.split(":")[1];
-      if (this.inFlight.has(key) || await this.isOtterActive(conversationId, otterId)) {
-        queue.unshift(item); // 放回队首，保序
-        continue; // 该目标仍 busy（外部路径在跑）：跳过，不终止——同会话其他 idle 目标的队列不被饿死
-      }
-      this.invokeTarget(conversationId, otterId, item.content, item.senderId, { triggerMessageId: item.signalId, source: "router", attachmentIds: item.attachmentIds });
-      return; // 单条点火即止，接力交给完成重扫
-    }
-  }
-
-  /**
-   * 獭活跃判定：该獭最新消息为 streaming 且在窗口内（按 sender 精确查询，
-   * 会话级近似——P4 游标换 seq 粒度后此判定随之精确化）。
-   * Why 近似可接受：误判 busy = 信号入队等下次触发（延迟一拍）；误判 idle =
-   * 同獭第二个链并发，底层 per-otter 锁仍串行化写路径（I1 不变量未动）——
-   * P1 阶段信号排队是软层、锁是既有硬层，双层防护。
-   */
-  private async isOtterActive(conversationId: string, otterId: string): Promise<boolean> {
-    try {
-      const last = await this.deps.queryMessage.getLastMessageBySender(conversationId, otterId);
-      if (!last || last.status !== "streaming") return false;
-      return Date.now() - Date.parse(last.createdAt) < ACTIVE_WINDOW_MS;
-    } catch {
-      return false; // 判定失败按 idle：宁可多点火（幂等兜底），不可让信号滞留
-    }
   }
 
   private async recordHealing(input: {
     conversationId: string;
     messageId: string;
     otterId: string;
-    level: string | null;
     errorType: HealingErrorType;
     severity: HealingSeverity;
     description: string;
@@ -700,8 +357,8 @@ export class SignalRouter {
       errorType: input.errorType,
       severity: input.severity,
       description: input.description,
-      suggestion: "检查信号投递路径（档位/目标）；消费失败请查 invoke 日志与消息终态",
-      context: { signalLevel: input.level },
+      suggestion: "检查信号投递路径；消费失败请查 invoke 日志与消息终态",
+      context: null,
       status: "open" as HealingEventStatus,
       resolution: null,
       createdAt: new Date().toISOString(),

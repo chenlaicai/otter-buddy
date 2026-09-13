@@ -1,31 +1,31 @@
 import { describe, it, expect, vi } from "vitest";
 import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import { WeixinMessageChannel } from "@usecases/im/weixin-message-channel";
-import type { Message } from "@entities/conversation/message";
+import type { SSEEvent } from "@contract/sse/events";
 
 /**
- * issue #565：微信出站通道测试（照 message-broadcaster-feishu.test.ts 模式）。
+ * issue #565：微信出站通道测试。
+ * F20260913ctlv 处置轮重写：消息级 broadcast 链路已删——出站走事件通道
+ * （entry.speak 獭气泡 / entry.user Web 用户消息同步，source 防回环闸）。
  * 副作用断言风格：记录 gateway 实际出站内容。
  */
-function mockMessage(overrides: Partial<Message> = {}): Message {
+function userEntryEvent(overrides: Partial<{ body: string; source: string }> = {}): SSEEvent {
   return {
-    id: "msg-1",
-    conversationId: "conv-1",
-    turnId: "turn-1",
-    senderType: "otter",
-    senderId: "otter-1",
-    talkingStonePassedTo: null,
-    status: "completed",
-    segments: [{ id: "seg-1", messageId: "msg-1", body: "你好呀", sequenceNum: 0, createdAt: "2026-08-29T00:00:00Z" }],
-    sequenceNum: 1,
-    contextTokens: null,
-    contextTokensMax: null,
-    source: "web",
-    senderName: "",
-    createdAt: "2026-08-29T00:00:00Z",
-    completedAt: "2026-08-29T00:00:01Z",
-    ...overrides,
-  };
+    event: "entry.user",
+    data: {
+      entryId: "entry-1", sequenceNum: 1, senderId: "user",
+      body: overrides.body ?? "你好呀", createdAt: new Date().toISOString(),
+      yieldTargets: undefined,
+      source: overrides.source ?? "web",
+    },
+  } as never;
+}
+
+function speakEvent(overrides: Partial<{ body: string; otterName: string }> = {}): SSEEvent {
+  return {
+    event: "entry.speak",
+    data: { body: overrides.body ?? "你好呀", otterName: overrides.otterName ?? "大獭" },
+  } as never;
 }
 
 function createBroadcaster() {
@@ -55,43 +55,61 @@ function bindWeixin(manageConnection: any, externalId = "wx-user-1", externalTyp
   manageConnection.getConnection.mockResolvedValue({ id: "conn-1", externalId, externalType });
 }
 
-describe("WeixinMessageChannel（broadcaster 出站）", () => {
-  it("agent 完成消息广播到绑定的微信会话", async () => {
+describe("WeixinMessageChannel（事件出站）", () => {
+  it("entry.speak（獭气泡）广播到绑定的微信会话", async () => {
     const ctx = createBroadcaster();
     bindWeixin(ctx.manageConnection, "wx-user-1");
-    await ctx.broadcaster.broadcast(mockMessage());
+    ctx.broadcaster.broadcastEvent("conv-1", speakEvent());
+    await new Promise((r) => setTimeout(r, 10));
     expect(ctx.replies).toHaveLength(1);
     expect(ctx.replies[0].to).toBe("wx-user-1");
     expect(ctx.replies[0].label).toBe("大獭");
     expect(ctx.replies[0].text).toContain("你好呀");
   });
 
-  it("source=weixin 的消息不回投（防回环）", async () => {
+  it("source=web 的 user entry 同步到微信（Web→IM 补链）", async () => {
+    const ctx = createBroadcaster();
+    bindWeixin(ctx.manageConnection, "wx-user-1");
+    ctx.broadcaster.broadcastEvent("conv-1", userEntryEvent({ body: "网页发的" }));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(ctx.replies).toHaveLength(1);
+    expect(ctx.replies[0].to).toBe("wx-user-1");
+    expect(ctx.replies[0].label).toBe("用户");
+    expect(ctx.replies[0].text).toContain("网页发的");
+  });
+
+  it("source=weixin 的 user entry 不回投（防回环闸）", async () => {
     const ctx = createBroadcaster();
     bindWeixin(ctx.manageConnection);
-    await ctx.broadcaster.broadcast(mockMessage({ source: "weixin" }));
+    ctx.broadcaster.broadcastEvent("conv-1", userEntryEvent({ source: "weixin" }));
+    await new Promise((r) => setTimeout(r, 10));
     expect(ctx.replies).toHaveLength(0);
   });
 
-  it("user 消息不广播到微信（用户自己可见）", async () => {
+  it("source 缺失（旧事件形态）不投递——保守防回环", async () => {
     const ctx = createBroadcaster();
     bindWeixin(ctx.manageConnection);
-    await ctx.broadcaster.broadcast(mockMessage({ senderType: "user", senderId: "u-1" }));
+    const evt = userEntryEvent();
+    delete (evt.data as Record<string, unknown>).source;
+    ctx.broadcaster.broadcastEvent("conv-1", evt);
+    await new Promise((r) => setTimeout(r, 10));
     expect(ctx.replies).toHaveLength(0);
   });
 
   it("无绑定会话时静默跳过", async () => {
     const ctx = createBroadcaster();
-    await ctx.broadcaster.broadcast(mockMessage());
+    ctx.broadcaster.broadcastEvent("conv-1", userEntryEvent());
+    await new Promise((r) => setTimeout(r, 10));
     expect(ctx.replies).toHaveLength(0);
   });
 
-  it("出站失败不阻塞（通道隔离）", async () => {
+  it("出站失败不阻塞（fire-and-forget catch）", async () => {
     const ctx = createBroadcaster();
     bindWeixin(ctx.manageConnection);
     ctx.weixinGateway.replyMarkdown.mockRejectedValueOnce(new Error("weixin down"));
-    // 不应抛错（broadcaster 逐通道 catch）
-    await expect(ctx.broadcaster.broadcast(mockMessage())).resolves.toBeUndefined();
+    // 不应抛错（onEvent 内部 catch）
+    expect(() => ctx.broadcaster.broadcastEvent("conv-1", userEntryEvent())).not.toThrow();
+    await new Promise((r) => setTimeout(r, 10));
   });
 });
 
@@ -100,7 +118,8 @@ describe("WeixinMessageChannel 按 externalType 路由（F20260831xtrt）", () =
     const ctx = createBroadcaster();
     bindWeixin(ctx.manageConnection, "chat-123", "feishu");
 
-    await ctx.broadcaster.broadcast(mockMessage({ senderType: "otter" }));
+    ctx.broadcaster.broadcastEvent("conv-1", userEntryEvent());
+    await new Promise((r) => setTimeout(r, 10));
 
     expect(ctx.replies).toHaveLength(0);
     expect(ctx.weixinGateway.replyText).not.toHaveBeenCalled();
@@ -110,7 +129,8 @@ describe("WeixinMessageChannel 按 externalType 路由（F20260831xtrt）", () =
     const ctx = createBroadcaster();
     bindWeixin(ctx.manageConnection, "wx-user-1", "weixin");
 
-    await ctx.broadcaster.broadcast(mockMessage({ senderType: "otter" }));
+    ctx.broadcaster.broadcastEvent("conv-1", userEntryEvent());
+    await new Promise((r) => setTimeout(r, 10));
 
     expect(ctx.replies).toHaveLength(1);
     expect(ctx.replies[0].to).toBe("wx-user-1");
@@ -123,8 +143,8 @@ describe("WeixinMessageChannel onEvent thinking 按 externalType 路由（F20260
     bindWeixin(ctx.manageConnection, "chat-123", "feishu");
 
     ctx.broadcaster.broadcastEvent("conv-1", {
-      event: "message.start",
-      data: { messageId: "m1", otterId: "otter-1", otterName: "大獭" },
+      event: "invoke.start",
+      data: { invokeId: "inv-1", otterId: "otter-1", otterName: "大獭", startedAt: new Date().toISOString() },
     });
     await new Promise((r) => setTimeout(r, 10));
 
@@ -140,8 +160,8 @@ describe("WeixinMessageChannel onEvent thinking 按 externalType 路由（F20260
     });
 
     ctx.broadcaster.broadcastEvent("conv-1", {
-      event: "message.start",
-      data: { messageId: "m1", otterId: "otter-1", otterName: "大獭" },
+      event: "invoke.start",
+      data: { invokeId: "inv-1", otterId: "otter-1", otterName: "大獭", startedAt: new Date().toISOString() },
     });
     await new Promise((r) => setTimeout(r, 10));
 

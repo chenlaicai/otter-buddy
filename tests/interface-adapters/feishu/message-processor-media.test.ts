@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Readable } from "node:stream";
 import { FeishuMessageProcessor } from "@interface-adapters/feishu/message-processor";
 import type { ManageConnection } from "@usecases/im/manage-connection";
-import type { SendMessage } from "@usecases/conversation/send-message";
 import type { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
 import type { FeishuGateway } from "@usecases/im/feishu-gateway";
 import type { FeishuResourceGateway } from "@usecases/im/feishu-resource-gateway";
@@ -36,7 +35,13 @@ function makeDeps(overrides?: {
       ensureConnection: vi.fn().mockResolvedValue({ id: "conn-1" }),
       getCurrentConversation: vi.fn().mockResolvedValue({ id: "conv-1", title: "测试" }),
     } as unknown as ManageConnection,
-    sendMessage: { send } as unknown as SendMessage,
+    sendEntry: {
+      sendUserEntry: async (input: { body: string; senderId: string; attachmentIds?: string[] }) => {
+        send({ conversationId: "conv-1", senderId: input.senderId, senderType: "user", talkingStonePassedTo: [], body: input.body, ...(input.attachmentIds ? { attachmentIds: input.attachmentIds } : {}) });
+        return { entry: { id: `entry-${Date.now()}`, sequenceNum: 1, createdAt: new Date().toISOString() }, talkingStonePassedTo: ["otter-1"], mentionFeedback: null };
+      },
+      createSystemEntry: async () => ({ entry: { id: "sys-entry", sequenceNum: 2 } }),
+    } as unknown as import("@usecases/conversation/send-entry").SendEntry,
     commandDispatcher: {} as unknown as CommandDispatcher,
     feishuGateway: { replyText: vi.fn() } as unknown as FeishuGateway,
     feishuResource: {
@@ -55,7 +60,7 @@ function makeDeps(overrides?: {
       }),
     } as unknown as AttachmentInjectionService,
     agentDispatchService: { dispatch } as unknown as AgentDispatchService,
-    messageBroadcaster: { broadcast: vi.fn().mockResolvedValue(undefined) } as unknown as MessageBroadcaster,
+    messageBroadcaster: { broadcast: vi.fn().mockResolvedValue(undefined), broadcastEvent: vi.fn() } as unknown as MessageBroadcaster,
     logger: makeLogger(),
   };
   return { deps, send, dispatch };
@@ -108,10 +113,10 @@ describe("FeishuMessageProcessor 多模态 ingress（Phase 2）", () => {
     });
 
     const dispatchArgs = dispatch.mock.calls.at(-1) ?? [];
-    // dispatch(conversationId, userMessageContent, senderId, injection)
-    expect(dispatchArgs[0]).toBe("conv-1");
-    expect(dispatchArgs[2]).toBe("ou_x");
-    const injection = dispatchArgs[3] as { images?: Array<{ mimeType: string }> } | undefined;
+    // F20260913ctlv：dispatch 收参数对象
+    expect(dispatchArgs[0]?.conversationId).toBe("conv-1");
+    expect(dispatchArgs[0]?.senderId).toBe("ou_x");
+    const injection = dispatchArgs[0]?.injection as { images?: Array<{ mimeType: string }> } | undefined;
     expect(injection?.images).toHaveLength(1);
     expect(injection?.images?.[0].mimeType).toBe("image/png");
   });
@@ -208,7 +213,7 @@ describe("FeishuMessageProcessor 多模态 ingress（Phase 2）", () => {
     expect(input.attachmentIds).toBeUndefined();
     // 纯文本 dispatch 不带 injection（第四参 undefined）
     const dispatchArgs = dispatch.mock.calls.at(-1) ?? [];
-    expect(dispatchArgs[3]).toBeUndefined();
+    expect(dispatchArgs[0]?.injection).toBeUndefined();
   });
 
   // ── #608：降级提示不进 agent dispatch 上下文（PR #603 检视建议 1 同款）──
@@ -230,6 +235,6 @@ describe("FeishuMessageProcessor 多模态 ingress（Phase 2）", () => {
     expect(input.body).toContain("下载失败");
     // dispatch：原始正文，不含降级提示（运维文本不进 agent 上下文）
     const dispatchArgs = dispatch.mock.calls.at(-1) ?? [];
-    expect(dispatchArgs[1]).toBe("看这图");
+    expect(dispatchArgs[0]?.userMessageContent).toBe("看这图");
   });
 });

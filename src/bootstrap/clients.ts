@@ -4,28 +4,6 @@ import type { ArtifactStatus } from "@entities/conversation/conversation";
 import type { UseCases } from "./types";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 
-export function buildMessageClient(uc: UseCases) {
-  return {
-    startSpeaking: (messageId: string, params: { body: string; talkingStonePassedTo: string[]; signalLevel?: string; signalMeta?: string }) =>
-      uc.sendMessage.startSpeaking(messageId, params),
-    appendSegment: (messageId: string, body: string) =>
-      uc.sendMessage.appendSegment(messageId, body),
-    complete: (messageId: string, params?: { talkingStonePassedTo?: string[] }) =>
-      uc.sendMessage.complete(messageId, params),
-    getById: (id: string) => uc.queryMessage.getMessageById(id),
-    list: (convId: string, opts?: { limit?: number; before?: string }) =>
-      uc.queryMessage.getMessages(convId, { limit: opts?.limit, before: opts?.before }),
-    search: (convId: string, query: string, limit?: number) =>
-      uc.queryMessage.searchMessages(convId, query, limit),
-    expand: (messageId: string, direction: "before" | "after" | "both", count: number) =>
-      uc.queryMessage.expandMessage(messageId, direction, count),
-    getTurnHistory: (convId: string, opts?: { includeMessages?: boolean }) =>
-      uc.queryMessage.getTurnHistory(convId, opts),
-    getLastBySenderType: (convId: string, senderType: "user" | "otter" | "system") =>
-      uc.queryMessage.getLastMessageBySenderType(convId, senderType),
-  };
-}
-
 export function buildMemoryClient(uc: UseCases) {
   return {
     getById: async (id: string) => {
@@ -150,14 +128,18 @@ export function buildOtterToolClient(
   let syncInFlight = false;
   return {
     conversation: {
-      message: buildMessageClient(uc),
       participant: {
         join: async (convId, otterId) => {
           const otter = await uc.queryOtter.getById(otterId);
           const name = otter?.name ?? otterId;
-          const { participant } = await uc.manageParticipant.join(
+          const { participant, systemMessage } = await uc.manageParticipant.join(
             convId, otterId, `${name} 加入了对话`,
           );
+          // F20260913ctlv：进场 system entry 投影透出（create_otter 广播 entry.system SSE 用；
+          // 旧降级路径返回 Message，无投影）
+          if (systemMessage && "entryType" in systemMessage) {
+            return { ...participant, systemEntry: { id: systemMessage.id, body: systemMessage.body, sequenceNum: systemMessage.sequenceNum } };
+          }
           return participant;
         },
         getActive: async (convId) => {
@@ -167,7 +149,83 @@ export function buildOtterToolClient(
         },
         leave: (convId, otterId) => uc.manageParticipant.markLeft(convId, otterId),
       },
+      // F20260913ctlv：entry 和 invoke 子命名空间（新模型，渐进迁移）
+      // 旧路径继续工作，新路径优先，失败时 fallback 到旧路径
+      entry: {
+        createSpeakEntry: async (params) => {
+          // 创建 speak 条目（新模型）
+          const entry = await uc.sendEntry.createSpeakEntry({
+            conversationId: params.conversationId,
+            invokeId: params.invokeId,
+            otterId: params.otterId,
+            turnId: params.turnId,
+            body: params.body,
+          });
+          return { id: entry.entry.id, entryType: entry.entry.entryType, body: entry.entry.body ?? '' };
+        },
+        createYieldEntry: async (params) => {
+          // 创建 yield 条目 + invoke_end 条目 + 更新 invoke 记录
+          const result = await uc.sendEntry.createYieldEntry({
+            conversationId: params.conversationId,
+            invokeId: params.invokeId,
+            otterId: params.otterId,
+            turnId: params.turnId,
+            yieldTargets: params.yieldTargets,
+          });
+          return {
+            yieldEntry: { id: result.yieldEntry.id, entryType: result.yieldEntry.entryType, yieldTargets: result.yieldEntry.yieldTargets ?? [] },
+            invokeEndEntry: { id: result.invokeEndEntry.id, entryType: result.invokeEndEntry.entryType },
+            invoke: {
+              id: result.invoke.id,
+              status: result.invoke.status,
+              endedAt: result.invoke.endedAt,
+              toolCallCount: result.invoke.toolCallCount,
+              tokenUsageInput: result.invoke.tokenUsageInput,
+              tokenUsageOutput: result.invoke.tokenUsageOutput,
+            },
+          };
+        },
+        getEntries: async (convId, opts) => {
+          const entries = await uc.sendEntry.getEntries(convId, opts);
+          // F20260913ctlv 批3：投影带 createdAt/senderId（自重启用户介入检测等只读消费）
+          return entries.map(e => ({ id: e.id, entryType: e.entryType, body: e.body, senderId: e.senderId, senderType: e.senderType, createdAt: e.createdAt }));
+        },
+        // F20260913ctlv 批3：全文搜索（entries_fts，search_messages 工具数据源切换）
+        searchEntries: async (convId: string, query: string, limit?: number) => {
+          const entries = await uc.sendEntry.searchEntries(convId, query, limit);
+          return entries.map(e => ({ id: e.id, entryType: e.entryType, senderId: e.senderId, senderType: e.senderType, body: e.body, sequenceNum: e.sequenceNum, createdAt: e.createdAt }));
+        },
+        // F20260913ctlv 批4a：SDK 三工具切 entries（get_message/list_messages/get_turn_history）
+        getEntryById: async (entryId: string) => {
+          const e = await uc.sendEntry.getEntryById(entryId);
+          if (!e) return null;
+          return { id: e.id, conversationId: e.conversationId, entryType: e.entryType, senderType: e.senderType, senderId: e.senderId, body: e.body, turnId: e.turnId, status: e.status, sequenceNum: e.sequenceNum, createdAt: e.createdAt, completedAt: e.completedAt };
+        },
+        listEntries: async (convId: string, opts?: { entryType?: string; limit?: number }) => {
+          const entries = await uc.sendEntry.getEntries(convId, opts);
+          return entries.map(e => ({ id: e.id, entryType: e.entryType, senderType: e.senderType, senderId: e.senderId, body: e.body, sequenceNum: e.sequenceNum, createdAt: e.createdAt }));
+        },
+        getEntriesByTurnId: async (turnId: string) => {
+          const entries = await uc.sendEntry.getEntriesByTurnId(turnId);
+          return entries.map(e => ({ id: e.id, entryType: e.entryType, senderType: e.senderType, senderId: e.senderId, body: e.body, sequenceNum: e.sequenceNum, createdAt: e.createdAt }));
+        },
+      },
+      invoke: {
+        appendInvokeEvent: async (invokeId, eventType, payload) => {
+          await uc.sendEntry.appendInvokeEvent(invokeId, eventType as "assistant_text" | "assistant_toolcall" | "tool_result" | "error" | "speak", payload);
+        },
+        getInvokeById: async (invokeId) => {
+          const invoke = await uc.sendEntry.getInvokeById(invokeId);
+          if (!invoke) return null;
+          return { id: invoke.id, status: invoke.status, toolCallCount: invoke.toolCallCount };
+        },
+        incrementToolCallCount: async (invokeId) => {
+          await uc.sendEntry.incrementInvokeToolCallCount(invokeId);
+        },
+      },
       getActiveTurnNumber: (convId) => uc.manageConversation.getActiveTurnNumber(convId),
+      // F20260913ctlv 批4a：turn 骨架（get_turn_history 工具；turns 表保留）
+      getTurns: async (convId: string) => (await uc.queryMessage.getTurnsForTool(convId)),
     },
     memory: buildMemoryClient(uc),
     terminology: {

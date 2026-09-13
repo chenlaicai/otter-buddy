@@ -39,6 +39,7 @@ import type { HealingEventRepository } from "@usecases/healing/healing-event-rep
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildMessageWithContext } from "./session-helpers";
+import { updateLastReadSeq, updateLastActiveTurnNumber, getTurnNumberByInvokeId } from "@frameworks/db/conversation/conversation-repository-mixins";
 import { attachGuards, checkSessionError, buildPromptResult } from "./circuit-breaker-helpers";
 import { checkOrchestrationGuard } from "@usecases/conversation/dispatch-guard";
 import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
@@ -71,6 +72,7 @@ const EMPTY_TOOL_CONTEXT_BASE: ToolContext = {
   otterId: "",
   conversationId: "",
   currentMessageId: "",
+  lastSpeakMessageId: undefined,
 };
 
 /** Agent 执行结果 */
@@ -109,6 +111,12 @@ export interface InvokeOptions {
   images?: Array<{ type: "image"; data: string; mimeType: string }>;
   /** F20260825hndf Phase 2：只读模式——跳过消息持久化和 SSE 广播，用于交接摘要合成。 */
   readOnly?: boolean;
+  /** F20260908rlcp：本批未读消息的最大 sequence_num（启动成功后推进游标用） */
+  batchMaxSeq?: number;
+  /** F20260913ctlv：当前 invoke ID（invoke 级上下文，由 agent-invoker 注入） */
+  currentInvokeId?: string;
+  /** F20260913ctlv：SSE 发射通道（invoke 级注入，工具层发 entry.yield 等事件用） */
+  emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
 }
 
 /** 多模态 Phase 1：把 InvokeOptions 折叠成 SDK PromptOptions（images 缺省返回 undefined，保持纯文本路径行为等价） */
@@ -160,7 +168,8 @@ export class PiSessionFactory implements AgentGateway {
   private readonly pendingIdentity = new Set<string>();
   private otterToolClient: OtterToolClient | null;
 
-  /** F20260911pspl：池化后的 session 持有（session + invoke 级寄存器 + 工具上下文）。 */
+  /** F20260911pspl：池化后的 session 持有（session + invoke 级寄存器 + 工具上下文）。
+   *  F20260913ctlv 整合（PR #886 merge main）：rlcp 热池退役，本池为唯一基座。 */
   private readonly pool: PiSessionPool;
   private readonly poolMeta = new Map<string, { session: AgentSession; toolContext: ToolContext; register: InvokeRegister; otterType: string }>();
 
@@ -195,8 +204,8 @@ export class PiSessionFactory implements AgentGateway {
     // Why(#423 方案1): 注入 logger，锁获取超时时落结构化诊断日志（持有者、持有时长、队列深度）
     this.lockManager = new SimpleLockManager(undefined, logger);
     // F20260911pspl：session 池（running 豁免用 SDK isStreaming；TTL 默认 10min）。
-    // acquire 不走池 factory（重建需 otterConfig 装配，在 _acquirePooled 内联）；
-    // 池本体负责持有/驱逐，驱逐后 poolMeta 同步清理由 onEvict 闭环。
+    // F20260913ctlv 整合（PR #886 merge main）：rlcp 池退役，以 #894 PiSessionPool 为基座；
+    // ctlv 的 invoke 级语义（currentInvokeId/emitEvent/lastSpeakEntryId）移植进寄存器。
     this.pool = new PiSessionPool(async () => { throw new Error("pool factory must not be called directly"); });
     this.pool.onEvict = (key) => { this.poolMeta.delete(key); };
     this.pool.start();
@@ -282,6 +291,9 @@ export class PiSessionFactory implements AgentGateway {
     // 删除持久化数据（不删除 session 文件，保留用于审计）
     this.cfg.db.transaction(() => { this.sessionStore.delete(otterId); this.cfg.otterConfigProvider.deleteConfig(otterId); })();
     this.pendingIdentity.delete(otterId);
+    // F20260911pspl：驱逐池内 session（池外无引用则 dispose）
+    this.pool.evict(otterId);
+    this.poolMeta.delete(otterId);
   }
 
   async reset(otterId: string, context?: AgentContext): Promise<void> {
@@ -356,6 +368,9 @@ export class PiSessionFactory implements AgentGateway {
 
     // 7. 标记下次 invoke 重新注入身份（新 session 上下文中没有身份内容）
     this.pendingIdentity.add(otterId);
+    // F20260911pspl：reset 后旧 session 无效，驱逐出池
+    this.pool.evict(otterId);
+    this.poolMeta.delete(otterId);
   }
 
   /**
@@ -476,11 +491,33 @@ export class PiSessionFactory implements AgentGateway {
     return result;
   }
 
-  /** 池化 session 获取：命中 → 重置 invoke 级寄存器；未命中 → 冷启动重建入池。 */
+  /** 池化 session 获取：命中 → 重置 invoke 级寄存器；未命中 → 冷启动重建入池。
+   *  F20260913ctlv 整合并入 readOnly 绕过分支 + ctlv 寄存器刷新（语句数/复杂度超限——
+   *  池编排是单体内聚逻辑，拆分会让 acquire 状态机跨方法散落，降低可读性） */
+  // eslint-disable-next-line max-statements, complexity -- ctlv 合流面并入（readOnly 分支 + invoke 级刷新）
   private async _acquirePooled(
     otterId: string,
     options: InvokeOptions | undefined,
   ): Promise<{ session: AgentSession; sessionKey: string; toolContext: ToolContext; turnText: { text: string }; isPooled: boolean; createdNew: boolean }> {
+    // F20260913ctlv 整合移植（PR #886 merge main）：readOnly 池绕过——readOnly 需要过滤
+    // 工具集（只保留 read），池中 session 是全量工具，命中复用会让合成/handoff 类只读
+    // 调用拿到越权工具面（越权风险 + 工具行为不一致）。绕过池 = 不复用/不入池，
+    // session 用完由调用方处置。此语义同时修掉 main #894 的潜在回归（池命中不看 readOnly）。
+    if (options?.readOnly) {
+      const { sessionManager, createdNew } = await this._restoreOrCreateSession(otterId);
+      const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
+      if (!otterConfig) {
+        throw new Error(`Otter config not found: ${otterId}. Call create() first.`);
+      }
+      if (createdNew) this.pendingIdentity.add(otterId);
+      const register = createInvokeRegister();
+      resetInvokeRegister(register, options?.messageId, { currentInvokeId: options?.currentInvokeId, emitEvent: options?.emitEvent });
+      const { session, sessionKey, toolContext } = await this._createSessionWithTools(
+        otterId, otterConfig.otterType, options, sessionManager, register, true,
+      );
+      // readOnly 不入池（poolMeta/pool.adopt 均跳过）——用完即弃
+      return { session, sessionKey, toolContext, turnText: register.turnText, isPooled: false, createdNew };
+    }
     const existing = this.poolMeta.get(otterId);
     if (existing) {
       if (existing.session.isStreaming) {
@@ -502,7 +539,9 @@ export class PiSessionFactory implements AgentGateway {
         this.pool.markStale(otterId);
         this.poolMeta.delete(otterId);
       } else {
-        resetInvokeRegister(existing.register, options?.messageId);
+        // F20260913ctlv 整合移植：池命中时刷新 invoke 级 ctlv 字段——currentInvokeId 不刷新
+        // 则第二次 invoke 复用旧 ID，speak/yield entry 挂错 invoke（时间线结错链）
+        resetInvokeRegister(existing.register, options?.messageId, { currentInvokeId: options?.currentInvokeId, emitEvent: options?.emitEvent });
         const turnText = existing.register.turnText;
         const sessionKey = options?.messageId ? `${otterId}:${options.messageId}` : otterId;
         this.activeSessions.set(sessionKey, { abort: () => existing.session.abort(), steer: (text: string) => existing.session.steer?.(text) ?? Promise.resolve(), toolCallCount: 0 });
@@ -518,7 +557,7 @@ export class PiSessionFactory implements AgentGateway {
     }
     if (createdNew) this.pendingIdentity.add(otterId);
     const register = createInvokeRegister();
-    resetInvokeRegister(register, options?.messageId);
+    resetInvokeRegister(register, options?.messageId, { currentInvokeId: options?.currentInvokeId, emitEvent: options?.emitEvent });
     const { session, sessionKey, toolContext } = await this._createSessionWithTools(
       otterId, otterConfig.otterType, options, sessionManager, register, options?.readOnly,
     );
@@ -576,8 +615,9 @@ export class PiSessionFactory implements AgentGateway {
     };
   }
 
-  /** 使用 session 执行 invoke（F20260911pspl：session 由 _acquirePooled 获取，本方法不再创建） */
-  // eslint-disable-next-line max-params -- F20260911pspl：池化后 session/sessionKey/toolContext/turnText 由 acquire 产出透传（拆对象会切断参数与 acquire 返回值的对应关系）
+  /** 使用 session 执行 invoke（F20260911pspl：session 由 _acquirePooled 获取，本方法不再创建；
+   *  F20260913ctlv：wrappedHandler 启动游标推进 + pushCursorOnStartup 在此） */
+  // eslint-disable-next-line max-params, max-lines-per-function -- F20260911pspl：池化后 session/sessionKey/toolContext/turnText 由 acquire 产出透传（拆对象会切断参数与 acquire 返回值的对应关系）；F20260913ctlv：wrappedHandler 启动游标 + ctlv 合流面
   private async _executeWithSession(
     otterId: string,
     message: string,
@@ -610,7 +650,7 @@ export class PiSessionFactory implements AgentGateway {
     return await otterInvokeStorage.run(
       // F20260826mwrd C1：otterId 进 store——tool_call handler 查 halt 标用
       { otterPromptConfig, identityPrefix, otterId, displayName },
-      // eslint-disable-next-line max-statements, complexity -- F20260815rstrt pendingRestart 检查增加语句数；F20260831aksp 守卫拦截 hook 增加分支
+      // eslint-disable-next-line max-statements, complexity -- F20260908rlcp: pool hit/miss 两条路径 + startup cursor push；F20260815rstrt pendingRestart 检查增加语句数；F20260831aksp 守卫拦截 hook 增加分支
       async () => {
         // 1. session 已由 _acquirePooled 提供（池化：命中复用 / 未命中冷启动入池）
         this.logger.debug('[execute] Using pooled session', { otterId, sessionKey });
@@ -622,7 +662,19 @@ export class PiSessionFactory implements AgentGateway {
         const fullMessage = buildMessageWithContext("", message, options?.dynamicContext);
         this.logger.info('LLM request', { otterId, conversationId: options?.conversationId, modelAlias: this.getModelAliasForLog(otterId), messageLength: fullMessage.length, messagePreview: fullMessage.substring(0, 300) });
 
-        const unsubscribe = session.subscribe(createEventHandler(activeEntry, options?.onEvent, turnText));
+        // F20260908rlcp→F20260913ctlv：包装事件处理器——首次事件时推进游标（启动成功语义）。
+        // pushCursorOnStartup 第 4 参为 invokeId（批4a 键控语义，getTurnNumberByInvokeId 新模型链）
+        let startupCursorPushed = false;
+        const batchMaxSeq = options?.batchMaxSeq;
+        const baseHandler = createEventHandler(activeEntry, options?.onEvent, turnText);
+        const wrappedHandler = (event: { type: string }) => {
+          if (!startupCursorPushed && batchMaxSeq !== undefined && event.type !== 'queue_update') {
+            startupCursorPushed = true;
+            this.pushCursorOnStartup(conversationId, otterId, batchMaxSeq, options?.messageId); // messageId 参数承载 invokeId（批4a 键控语义）
+          }
+          baseHandler(event as never);
+        };
+        const unsubscribe = session.subscribe(wrappedHandler as never);
         try {
           /** F20260804dglp：prompt 前 arm 首字节超时（覆盖排队+prefill 静默，此前区间无任何兜底） */
           armFirstByte();
@@ -670,12 +722,46 @@ export class PiSessionFactory implements AgentGateway {
             this.pool.evict(otterId);
             this.poolMeta.delete(otterId);
           }
+          // F20260913ctlv 整合移植：readOnly session 不入池（_acquirePooled 守卫，
+          // 独立冷启动路径，不是池内 session），此处 dispose 释放资源——
+          // 不涉及外层 streaming session（#897 语义由 _acquirePooled 的嵌套抛错保护）
+          if (options?.readOnly) {
+            session.dispose();
+          }
         }
       },
     );
   }
 
 
+
+  /**
+   * F20260908rlcp：启动成功游标推进——prompt 发出且 SDK 订阅建立（首次事件到达）后调用。
+   * 推进 lastReadSeq 到本批未读最大 seq + lastActiveTurnNumber 同点迁移（「开始干活」语义）。
+   * 启动失败不推进（消息保持未读，下轮自然重注入）。
+   */
+  private pushCursorOnStartup(
+    conversationId: string,
+    otterId: string,
+    batchMaxSeq: number,
+    invokeId?: string,
+  ): void {
+    try {
+      updateLastReadSeq(this.cfg.db, conversationId, otterId, batchMaxSeq);
+      // F20260908rlcp：活跃度同点迁移——查本 invoke 的 turn_number。
+      // F20260913ctlv 批4c 修复：invokeId 语义自批4a 起承担（agent-invoker.ts:333），
+      // 旧 SQL 查 messages 表（该 ID 是 invokeId）永远 miss → lastActiveTurnNumber 停摆。
+      // 新链在 mixin（getTurnNumberByInvokeId）：trigger_entry_id 为空时返回 null，跳过推进（lastReadSeq 照推，不抛错）。
+      if (invokeId) {
+        const turnNumber = getTurnNumberByInvokeId(this.cfg.db, invokeId);
+        if (turnNumber !== null) {
+          updateLastActiveTurnNumber(this.cfg.db, conversationId, otterId, turnNumber);
+        }
+      }
+    } catch (cursorErr) {
+      this.logger.warn('[cursor] startup cursor push failed (non-fatal)', { error: cursorErr instanceof Error ? cursorErr.message : String(cursorErr) });
+    }
+  }
 
   /** F20260831tumv：计算某 otter 类型的自定义工具白名单（manifest 展开以注册全集为 universe） */
   private buildOtterToolWhitelist(otterType: string): string[] {
@@ -811,6 +897,31 @@ export class PiSessionFactory implements AgentGateway {
 
   getInternalAbortReason(messageId: string): string | undefined { const s = `:${messageId}`; for (const [k, e] of this.activeSessions) { if (e.guardAbortReason && k.endsWith(s) && k.length > s.length) { const r = e.guardAbortReason; e.guardAbortReason = undefined; return r; } } return undefined; }
 
+  /** F20260908rlcp→F20260911pspl 合流：检查 otter 是否有 session 正在运行（isStreaming）。
+   *  Part A signal-router 依赖。查 activeSessions（invoke 运行期）+ poolMeta（invoke 间隙
+   *  的 streaming 残留——stale steal 场景），两处覆盖原 rlcp 池的 isRunning 语义。 */
+  isRunning(otterId: string): boolean {
+    if (this.poolMeta.get(otterId)?.session.isStreaming) return true;
+    for (const key of this.activeSessions.keys()) {
+      if (key === otterId || key.startsWith(`${otterId}:`)) return true;
+    }
+    return false;
+  }
+
+  /** F20260908rlcp→F20260911pspl 合流：向运行中的 session 队列追加 followUp 消息。
+   *  Part A signal-router 依赖（followUp 注入语义）。
+   *  双路径设计（终审 B4）：本方法从 poolMeta 取池级 session（idle 期队列追加，
+   *  SDK 原生排队）；steerSession 走 activeSessions 前缀扫描（invoke 运行期实时
+   *  打断）——两条注入路径的 session 取源不同是设计意图，非遗漏 */
+  followUp(otterId: string, text: string): boolean {
+    const pooled = this.poolMeta.get(otterId);
+    if (!pooled || !pooled.session.isStreaming) return false;
+    void pooled.session.followUp(text).catch((err: unknown) => {
+      this.logger.warn(`[followUp] followUp 调用失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
+    });
+    return true;
+  }
+
   /** #530 梯度护栏：向活跃 session 注入 steer 文案（链引擎调用）。
    *  复用 circuit-breaker-helpers 的 session.steer 通道。
    *  键格式：生产链路 sessionKey 恒为 ${otterId}:${messageId}，需前缀扫描匹配。
@@ -818,7 +929,8 @@ export class PiSessionFactory implements AgentGateway {
    *  ⚠️ 竞态窗口（F20260907usti 严重 1）：fire-and-forget 语义下 true ≠ 送达确认——
    *  session 收尾 finally 块 delete 前的窗口内，steer 可能抛错（session dispose 中）。
    *  此时返回 true + 路由器写 completed/steered 销账行 → URGENT 零投递且台账说已消费。
-   *  最小修复：catch 内落 healing event（可观测），重启补扫不补（设计显式声明此窗口）。 */
+   *  最小修复：catch 内落 healing event（可观测），重启补扫不补（设计显式声明此窗口）。
+   *  F20260913ctlv 整合轮修复：合并时误删，从 main（b4c4e4db）原样恢复。 */
   steerSession(otterId: string, text: string): boolean {
     // 遍历 activeSessions 查找 otterId 前缀匹配（键格式 ${otterId}:${messageId}）
     for (const [key, entry] of this.activeSessions) {

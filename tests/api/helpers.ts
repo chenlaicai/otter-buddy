@@ -12,6 +12,8 @@ import { MessageBroadcaster } from "../../src/usecases/im/message-broadcaster";
 import { createRouter, type Controllers } from "../../src/interface-adapters/http/router";
 import { ConversationController } from "../../src/interface-adapters/http/controllers/conversation-controller";
 import { MessageController } from "../../src/interface-adapters/http/controllers/message-controller";
+import { InvokeController } from "../../src/interface-adapters/http/controllers/invoke-controller";
+import { EntryController } from "../../src/interface-adapters/http/controllers/entry-controller";
 import { OtterController } from "../../src/interface-adapters/http/controllers/otter-controller";
 import { MemoryController } from "../../src/interface-adapters/http/controllers/memory-controller";
 import { SkillController } from "../../src/interface-adapters/http/controllers/skill-controller";
@@ -380,6 +382,11 @@ export interface TestDeps {
   manageParticipant: any;
   sendMessageUseCase: any;
   conversationRepo: any;
+  /** F20260913ctlv Phase 4：invoke repo（只读查询端点；缺省用内存 stub） */
+  invokeRepo?: any;
+  /** F20260913ctlv 切换清扫：entry repo（时间线只读查询端点；缺省用内存 stub） */
+  entryRepo?: any;
+  /** F20260913ctlv 批4c：QueryMessage 收缩后仅 getUnreadState + getTurnsForTool（MessageController GET 路由用） */
   queryMessage: any;
   agentInvoker: any;
   manageReadState: any;
@@ -420,7 +427,6 @@ export function createTestApp(deps: TestDeps): Hono {
 
   const dispatchChainEngine = new DispatchChainEngine({
     conversationRepo: deps.conversationRepo,
-    queryMessage: deps.queryMessage,
     queryOtter: deps.queryOtter,
     logger,
     maxChainDepth: 20,
@@ -431,7 +437,6 @@ export function createTestApp(deps: TestDeps): Hono {
   const broadcaster = new MessageBroadcaster(logger);
 
   const messageCtrl = new MessageController(
-    deps.sendMessageUseCase,
     deps.queryMessage,
     deps.manageReadState,
     deps.agentInvoker,
@@ -439,6 +444,22 @@ export function createTestApp(deps: TestDeps): Hono {
     deps.queryOtter,
     dispatchChainEngine,
     broadcaster,
+  );
+  // F20260913ctlv Phase 4：invoke 只读查询端点——默认内存 stub（测试可用 deps.invokeRepo 覆写）
+  const invokeCtrl = new InvokeController(
+    (deps.invokeRepo ?? {
+      getInvokes: async () => [],
+      getInvokeById: async () => null,
+      getInvokeEvents: async () => [],
+    }) as unknown as ConstructorParameters<typeof InvokeController>[0],
+    logger,
+  );
+  // F20260913ctlv 切换清扫：entries 时间线只读查询端点——默认内存 stub
+  const entryCtrl = new EntryController(
+    (deps.entryRepo ?? {
+      getEntries: async () => [],
+    }) as unknown as ConstructorParameters<typeof EntryController>[0],
+    logger,
   );
   const otterCtrl = new OtterController(
     deps.createOtterUseCase,
@@ -474,6 +495,8 @@ export function createTestApp(deps: TestDeps): Hono {
     conversation: conversationCtrl,
     otter: otterCtrl,
     message: messageCtrl,
+    invoke: invokeCtrl,
+    entry: entryCtrl,
     memory: memoryCtrl,
     keyInfo: keyInfoCtrl,
     settings: settingsCtrl,
@@ -530,7 +553,7 @@ export function createMockDeps(): TestDeps {
       updateLastReadTurnNumber: vi.fn().mockResolvedValue(undefined),
       getActiveParticipants: vi.fn().mockResolvedValue([]),
     },
-    queryMessage: mockMethods(["getMessageById", "getMessages", "getMessageEvents", "searchMessages", "getTurnHistory", "expandMessage"]),
+    queryMessage: mockMethods(["getUnreadState", "getTurnsForTool"]),
     agentInvoker: mockMethods(["invokeConversation", "abort"]),
     manageReadState: { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) },
     createOtterUseCase: mockMethods(["execute"]),

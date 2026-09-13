@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 import { DomainError } from "@entities/errors";
-import type { Attachment, AttachmentRef } from "@entities/conversation/attachment";
+import type { Attachment } from "@entities/conversation/attachment";
 import type { AttachmentRepository } from "@usecases/conversation/attachment-repository";
 
 /** sha256+uploader 撞唯一索引：携带已存在行，上传管线直接返回已有 id（去重语义） */
@@ -46,18 +46,6 @@ function rowToAttachment(row: AttachmentRow): Attachment {
   };
 }
 
-function rowToRef(row: AttachmentRow): AttachmentRef {
-  return {
-    id: row.id,
-    kind: row.kind as Attachment["kind"],
-    originalName: row.original_name,
-    mimeType: row.mime_type,
-    sizeBytes: row.size_bytes,
-    width: row.width,
-    height: row.height,
-    caption: row.caption,
-  };
-}
 
 const SELECT_COLS = "id, sha256, file_path, original_name, mime_type, kind, size_bytes, width, height, caption, uploader_id, created_at";
 
@@ -108,32 +96,4 @@ export class SqliteAttachmentRepository implements AttachmentRepository {
     return rows.map(rowToAttachment);
   }
 
-  async linkMessageAttachments(messageId: string, attachmentIds: string[]): Promise<void> {
-    if (attachmentIds.length === 0) return;
-    this.db.transaction(() => {
-      const stmt = this.db.prepare(
-        "INSERT INTO message_attachments (message_id, attachment_id, sequence_num) VALUES (?, ?, ?)",
-      );
-      attachmentIds.forEach((attachmentId, index) => stmt.run(messageId, attachmentId, index));
-    })();
-  }
-
-  async getAttachmentRefsByMessageIds(messageIds: string[]): Promise<Map<string, AttachmentRef[]>> {
-    const result = new Map<string, AttachmentRef[]>();
-    if (messageIds.length === 0) return result;
-    const placeholders = messageIds.map(() => "?").join(",");
-    const rows = this.db.prepare(`
-      SELECT ma.message_id AS message_id, a.id, a.sha256, a.file_path, a.original_name, a.mime_type, a.kind, a.size_bytes, a.width, a.height, a.caption, a.uploader_id, a.created_at
-      FROM message_attachments ma
-      JOIN attachments a ON a.id = ma.attachment_id
-      WHERE ma.message_id IN (${placeholders})
-      ORDER BY ma.sequence_num ASC
-    `).all(...messageIds) as Array<AttachmentRow & { message_id: string }>;
-    for (const row of rows) {
-      const arr = result.get(row.message_id) ?? [];
-      arr.push(rowToRef(row));
-      result.set(row.message_id, arr);
-    }
-    return result;
-  }
 }

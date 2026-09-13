@@ -4,13 +4,13 @@ import type Database from "better-sqlite3";
 export class SqliteStatsQuery {
   constructor(private readonly db: Database.Database) {}
 
-  /** 消息段数（口径：message_segments JOIN messages，sender_id 匹配） */
+  /** 獭发言数（F20260913ctlv 批4c：数据源切 entries——speak entry 即獭气泡，
+   *  旧口径 message_segments JOIN messages 随 messages 表 drop 退役） */
   async getMessageCountBySender(senderId: string): Promise<number> {
     const row = this.db.prepare(`
       SELECT COUNT(*) as cnt
-      FROM message_segments ms
-      JOIN messages m ON ms.message_id = m.id
-      WHERE m.sender_id = ?
+      FROM entries
+      WHERE entry_type = 'speak' AND sender_id = ?
     `).get(senderId) as { cnt: number } | undefined;
     return row?.cnt ?? 0;
   }

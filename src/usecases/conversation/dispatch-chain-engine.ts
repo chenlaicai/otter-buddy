@@ -1,9 +1,7 @@
-import { aggregateBody } from "@entities/conversation/message";
 import { stripHtmlCardsOnly } from "@entities/conversation/message-body-projection";
 import { projectAttachments } from "@entities/conversation/attachment-projection";
 import type { AttachmentRef } from "@entities/conversation/attachment";
 import type { ConversationRepository } from "./conversation-repository";
-import type { QueryMessage } from "./query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
   /* eslint-disable max-lines -- F20260904ldgr 注入降级备注后 461>450；#530 护栏 +11 行；拆文件会切断 hop 取源与记账的紧耦合内聚 */
@@ -12,7 +10,6 @@ import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import { runWithTrace, newTraceId } from "@usecases/ports/trace-context";
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import type { PartnerResolver } from "@usecases/im/partner-resolver";
-import type { DispatchAttemptRepo } from "@entities/conversation/dispatch-attempt";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import { randomUUID } from "node:crypto";
 // F20260826mwrd C3（Part 6）：L2 安全词扫描
@@ -28,8 +25,8 @@ export interface ChainHopResult {
 /** F20260907ylfs ②（P3a 批次 2）：单目标 hop 产出判定——护栏决策单点化的载体。
  *  settle 记账（chainSource 回填）与路由（nextTargets）共享同一实例，两处不再各滤各的。 */
 export interface HopOutcome {
-  /** 行级取数：产出消息行（fetchProducedMessage，含 talkingStonePassedTo 终值）；查库失败/degraded 时 null */
-  producedMsg: Awaited<ReturnType<QueryMessage["getMessageById"]>> | null;
+  /** F20260913ctlv 彻底切换：行级取数 = invoke 行（含 talkingStonePassedTo 终值）；查库失败/degraded 时 null */
+  producedMsg: { id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null } | null;
   /** 取数降级标记（#798 发现 2）：账面补「出处降级」备注用 */
   degraded: boolean;
   /** 护栏门控后的下一跳目标（已滤 'user'；self 仅护栏放行时含）——记账与路由的唯一口径 */
@@ -59,6 +56,8 @@ export interface InvokeFnParams {
    *  每轮 ≤2 图服务端硬限制（compaction 低估 4.6 倍实测后的预算控制）；
    *  未读历史统一文本投影不按獭分叉，分叉只发生在当前任务消息。 */
   images?: Array<{ type: "image"; data: string; mimeType: string }>;
+  /** F20260908rlcp：本批未读消息的最大 sequence_num（启动成功后推进游标用） */
+  batchMaxSeq?: number;
 }
 
 export interface InvokeFnResult {
@@ -78,7 +77,6 @@ export class DispatchChainEngine {
   constructor(
     private readonly deps: {
       conversationRepo: ConversationRepository;
-      queryMessage: QueryMessage;
       queryOtter: QueryOtter;
       logger: Logger;
       maxChainDepth?: number;
@@ -87,15 +85,16 @@ export class DispatchChainEngine {
       metrics?: AgentMetricsPort;
       /** F20260826fpbd：搭档身份静态判定（未注入/未配置时降级动态推断） */
       partnerResolver?: PartnerResolver;
-      /** F20260902sgp2 S1：派发台账（可选注入——不注入时链路行为与 sgpv 回滚基线完全一致）。
-       *  记账失败仅日志不阻断（硬约束 1）。 */
-      dispatchAttemptRepo?: DispatchAttemptRepo;
       /** #530 梯度护栏：abort 回调（可选——不注入时 abort 降级为纯日志）。
        *  ⚠️ 生产链路中 session 已在 finally 块 dispose，此回调恒为 no-op。
        *  链停能力实际由 processHopResults 清空 nextTargets 实现。 */
       abort?: (otterId: string) => void;
       /** #530 梯度护栏：healing 事件仓库（可选——不注入时 healing 留痕降级为纯日志）。 */
       healingRepo?: HealingEventRepository;
+      /** F20260913ctlv 彻底切换：entries/invoke 仓库（未读注入 + hop 产出判定数据源）。
+       *  未注入时（旧装配/测试桩）降级读 messages——生产装配必注入。 */
+      entryRepo?: { getUnreadEntries(conversationId: string, otterId: string): Promise<Array<{ id: string; entryType: string; senderType: string | null; senderId: string | null; body: string | null; senderName: string; sequenceNum: number; invokeId: string | null; yieldTargets: string[] | null; attachments?: Array<{ kind: string; originalName: string }> }>>; getEntries(conversationId: string, options?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; entryType: string; senderType: string | null; senderId: string | null; body: string | null; senderName: string; sequenceNum: number; invokeId: string | null; yieldTargets: string[] | null }>> };
+      invokeRepo?: { getInvokeById(invokeId: string): Promise<{ id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null } | null> };
     },
   ) {}
 
@@ -120,6 +119,8 @@ export class DispatchChainEngine {
       triggerMessageId?: string;
       /** #775：账面来源穿透（路由器点火的记账原点在路由器；不穿透则终态行恒标 'chain'，S2 观察期标签失真）。 */
       ledgerSource?: "chain" | "router" | "retry";
+      /** F20260908rlcp：恢复侧 steer 去重——已消化的 msg id 从未读注入剔除 */
+      excludeMessageIds?: Set<string>;
     },
   ): Promise<{ otterReply?: string }> {
     return runWithTrace({ traceId: newTraceId(), source: "chain" }, () => this.executeChainInner(params));
@@ -139,9 +140,11 @@ export class DispatchChainEngine {
       triggerMessageId?: string;
       /** #775：台账账面来源（穿透到首 hop 记账行，缺省 'chain'） */
       ledgerSource?: "chain" | "router" | "retry";
+      /** F20260908rlcp：恢复侧 steer 去重 */
+      excludeMessageIds?: Set<string>;
     },
   ): Promise<{ otterReply?: string }> {
-    const { conversationId, userMessageContent, senderId, initialTargets, invokeFn, callbacks, images, triggerMessageId, ledgerSource } = params;
+    const { conversationId, userMessageContent, senderId, initialTargets, invokeFn, callbacks, images, triggerMessageId, ledgerSource, excludeMessageIds } = params;
     let targets = initialTargets;
     let depth = 0;
     let lastOtterReply: string | undefined;
@@ -168,6 +171,7 @@ export class DispatchChainEngine {
         ledgerSource,
         chainSourceMessageIds,
         steerText: pendingSteerText, // #530 注入上一 hop 的 steer 文案
+        excludeMessageIds: depth === 1 ? excludeMessageIds : undefined, // F20260908rlcp：仅首 hop 去重
       });
       lastOtterReply = result.otterReply ?? lastOtterReply;
       pendingSteerText = result.steerText; // 收集本 hop 的 steer 文案，传递到下一 hop
@@ -206,41 +210,43 @@ export class DispatchChainEngine {
     chainSourceMessageIds?: Map<string, string[]>;
     /** #530 护栏 steer 文案：从上一 hop 传递，前置注入到本 hop 消息上下文（解决 session 已 dispose 的生命周期问题） */
     steerText?: string;
+    /** F20260908rlcp：恢复侧 steer 去重——已消化的 msg id 从未读注入剔除 */
+    excludeMessageIds?: Set<string>;
   }): Promise<ChainHopResult> {
-    const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder, triggerMessageId, ledgerSource, chainSourceMessageIds, steerText } = params;
+    const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder, triggerMessageId: _triggerMessageId, ledgerSource: _ledgerSource, chainSourceMessageIds: _chainSourceMessageIds, steerText } = params;
     const roster = await this.buildRoster(conversationId, senderId);
 
     const promises = targets.map(async otterId => {
-      // F20260902sgp2 S1：起跑记账（§4.2）——失败仅日志，绝不阻断链路（硬约束 1）。
-      // hop 取源修复：hop 2+ 从链级多源列表取全部触发消息（一条 per (msg,target) 记账）
-      this.recordAttemptStart(conversationId, otterId, triggerMessageId, chainSourceMessageIds?.get(otterId), ledgerSource);
-      let messageWithContext = await this.buildMessageWithContext(
-        conversationId, otterId, userMessageContent, senderId, roster
+      // F20260908rlcp：台账退役——起跑记账删除
+      const messageWithContext = await this.buildMessageWithContext(
+        conversationId, otterId, userMessageContent, senderId, roster, params.excludeMessageIds
       );
       // #530 护栏 steer 文案前置注入：位置在消息开头，靠近生成点，注意力权重最高。
       // 解决 session 已 dispose 无法通过 session.steer 注入的生命周期问题。
+      let fullMessage = messageWithContext.message;
       if (steerText) {
-        messageWithContext = `${steerText}\n\n${messageWithContext}`;
+        fullMessage = `${steerText}\n\n${fullMessage}`;
         this.deps.logger.info('[self-yield-guard] steer 文案已注入下一 hop 消息', { otterId, steerTextPreview: steerText.substring(0, 100) });
       }
       // F20260826mwrd C3：安全词 reminder 附在消息末尾——链上每个 hop 都能看到，
       // 防注意力稀释漏判（母方案 T6）。位置在末尾：靠近生成点，注意力权重最高。
       if (stopWordReminder) {
-        messageWithContext += `\n\n${stopWordReminder}`;
+        fullMessage += `\n\n${stopWordReminder}`;
       }
 
       this.deps.logger.info('发言链调用', {
         otterId,
-        messageLength: messageWithContext.length,
-        messagePreview: messageWithContext.substring(0, 200),
+        messageLength: fullMessage.length,
+        messagePreview: fullMessage.substring(0, 200),
         ...(images && { imageCount: images.length }),
       });
 
       return invokeFn({
         otterId, conversationId,
-        userMessageContent: messageWithContext,
+        userMessageContent: fullMessage,
         senderId,
         ...(images && { images }),
+        batchMaxSeq: messageWithContext.batchMaxSeq,
       });
     });
 
@@ -255,22 +261,11 @@ export class DispatchChainEngine {
     // F20260904ldgr（#798 发现 2）保留：降级槽位（fetchProducedMessage 查库失败）补账面备注——
     // 追加「出处降级」标记，只改 note 不改 status（反连接不变量完好）。槽位键 = 记账键。
     // F20260907ylfs ②：degraded 随 resolveHopOutcomes 预判产出，此处批量收集（拆出控行数）。
-    const degradedSlots = this.collectDegradedSlots(outcomes, targets);
-    // F20260902sgp2 S1：settle 记账（§4.2）——终态回写 + 链级出处回填
-    // F20260904schf：出处回填改读行级 tsp，方法变 async（行级查库在 try 内，异常仍不阻断链路）
-    // 审视建议 1：调用点再隔一层 try/catch——防方法内部 try 块之外的理论异常阻断 markBatchRead
-    try {
-      await this.recordAttemptSettle({ conversationId, targets, results, triggerMessageId, chainSourceMessageIds, outcomes });
-    } catch { /* 记账面异常不阻断链路（硬约束 1） */ }
-    await this.markBatchRead(conversationId, results, targets);
-
-    // F20260904ldgr（#798 发现 2）：降级槽位补账面备注——追加「出处降级」标记，
-    // 只改 note 不改 status（反连接不变量完好）。槽位键 = 记账键（triggerMessageId
-    // 或 chainSource[target]，与 settle 同源）——产出消息 ID 不是记账键，用错 appendNote 无靶。
+    // F20260908rlcp：台账退役——settle 记账和降级备注删除
     try {
       return await this.processHopResults(results, senderId, outcomes, conversationId, targets);
     } finally {
-      this.appendDegradedNotes(degradedSlots, triggerMessageId, chainSourceMessageIds);
+      // no-op
     }
   }
 
@@ -285,20 +280,13 @@ export class DispatchChainEngine {
   }
 
   /** F20260907ylfs ②：降级槽位补账面备注（自 executeOneHop 的 finally 拆出，控 max-lines）。
-   *  #798 发现 2 语义不变：槽位键 = 记账键（triggerMessageId 或 chainSource[target]）。 */
+   *  F20260908rlcp：dispatchAttemptRepo 退役——appendNote 已废弃，方法保留为空壳。 */
   private appendDegradedNotes(
-    degradedSlots: Array<{ target: string }>,
-    triggerMessageId: string | undefined,
-    chainSourceMessageIds: Map<string, string[]> | undefined,
+    _degradedSlots: Array<{ target: string }>,
+    _triggerMessageId: string | undefined,
+    _chainSourceMessageIds: Map<string, string[]> | undefined,
   ): void {
-    for (const slot of degradedSlots) {
-      const ledgerMsgIds = triggerMessageId ? [triggerMessageId] : (chainSourceMessageIds?.get(slot.target) ?? []);
-      for (const ledgerMsgId of ledgerMsgIds) {
-        try {
-          this.deps.dispatchAttemptRepo?.appendNote(ledgerMsgId, slot.target, '出处降级：invoke 完成但行级出处查库失败，yield 路由信息丢失（#798）');
-        } catch { /* 备注失败不影响链路（硬约束 1） */ }
-      }
-    }
+    // F20260908rlcp：dispatchAttemptRepo 退役——appendNote 已废弃
   }
 
   /** F20260907ylfs ②（P3a 批次 2）：护栏决策单点化——本 hop 全部 fulfilled 目标的产出判定。
@@ -350,97 +338,14 @@ export class DispatchChainEngine {
     return !!(target && conversationId && tsp.includes(target));
   }
 
-  /** F20260902sgp2 S1：起跑记账——首 hop 用 triggerMessageId，hop 2+ 用 yield 出处
-   *  （每 hop 的 targets 来自上一 hop 各自的聚合目标，出处消息不同，按 target 配对取源）。
-   *  无 repo / 无 messageId 时静默跳过（S1 观察面零侵入）；失败仅日志不阻断（硬约束 1）。 */
-  private recordAttemptStart(
-    conversationId: string,
-    target: string,
-    triggerMessageId: string | undefined,
-    chainSourceMessageIds: string[] | undefined,
-    ledgerSource: "chain" | "router" | "retry" = "chain",
-  ): void {
-    // hop 取源修复：首 hop 用 triggerMessageId；hop 2+ 用链级多源列表——
-    // A、B 同 hop 都 yield 给 C 时，C 需为每条触发消息各记一条 attempt（消费义务逐条销账）
-    const ledgerMsgIds = triggerMessageId ? [triggerMessageId] : (chainSourceMessageIds ?? []);
-    if (ledgerMsgIds.length === 0 || !this.deps.dispatchAttemptRepo) return;
-    for (const ledgerMsgId of ledgerMsgIds) {
-      try {
-        this.deps.dispatchAttemptRepo.recordStart({
-          id: randomUUID(),
-          conversationId,
-          messageId: ledgerMsgId,
-          targetOtterId: target,
-          status: "in_progress",
-          source: ledgerSource,
-          attemptStartedAt: new Date().toISOString(),
-          note: null,
-        });
-        this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: ledgerMsgId, otter: target, status: 'in_progress', source: ledgerSource });
-      } catch (e) {
-        this.deps.logger.warn('[signal-ledger] 起跑记账失败（不影响链路）', { conversationId, messageId: ledgerMsgId, otterId: target, error: e instanceof Error ? e.message : String(e) });
-      }
-    }
-  }
+  /** F20260902sgp2 S1：起跑记账——退役（dispatchAttemptRepo 已退役，F20260908rlcp） */
+
+  /** F20260902sgp2 S1：settle 记账——退役（dispatchAttemptRepo 已退役，F20260908rlcp） */
 
   /** F20260902sgp2 S1：settle 记账——终态回写 + 产出消息追加进链级出处列表（hop 记账取源）。
    *  F20260904schf：出处回填改读行级 tsp（#792：aggregatedTargets turn 级并集是共栖污染源，
    *  chainSource[自己]=自己消息 → 自链循环）。行级事实依据：completeMessage 先落库后关 turn，
-   *  invoke 返回时消息行已含最终 yield——行级读数因果局部，无 turn 共存窗口竞态。
-   *  F20260907ylfs ②（P3a 批次 2）：出处回填改读 resolveHopOutcomes 的门控结果（本方法旧版
-   *  「tsp 不含 sender 自己」领域不变量随 ② 合法化退役）——护栏放行的 self hop 记 chainSource
-   *  （自→自：下轮重跑自己时对产出消息销账），拒入（≥5）不记；与路由同源，账面不说谎。 */
-  // eslint-disable-next-line complexity -- 多源记账双层循环 + 逐源 try/catch 兜底（硬约束 1：记账失败不阻断链路），拆分反而损可读性
-  private async recordAttemptSettle(
-    params: {
-      conversationId: string;
-      targets: string[];
-      results: PromiseSettledResult<InvokeFnResult>[];
-      triggerMessageId: string | undefined;
-      chainSourceMessageIds: Map<string, string[]> | undefined;
-      /** F20260907ylfs ②：护栏门控后的产出判定（resolveHopOutcomes 预算）——chainSource 回填依据 */
-      outcomes: Map<number, HopOutcome>;
-    },
-  ): Promise<void> {
-    const { conversationId, targets, results, triggerMessageId, chainSourceMessageIds, outcomes } = params;
-    if (!this.deps.dispatchAttemptRepo) return;
-    for (let i = 0; i < results.length; i++) {
-      const r = results[i];
-      const target = targets[i];
-      const ledgerMsgIds = triggerMessageId ? [triggerMessageId] : (chainSourceMessageIds?.get(target) ?? []);
-      for (const ledgerMsgId of ledgerMsgIds) {
-        try {
-          if (r.status === "fulfilled") {
-            this.deps.dispatchAttemptRepo.recordFinish(ledgerMsgId, target, "completed");
-            this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: ledgerMsgId, otter: target, status: 'completed', source: 'chain' });
-          } else {
-            const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
-            this.deps.dispatchAttemptRepo.recordFinish(ledgerMsgId, target, "failed", reason.slice(0, 300));
-            this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: ledgerMsgId, otter: target, status: 'failed', source: 'chain', reason: reason.slice(0, 200) });
-          }
-        } catch (e) {
-          this.deps.logger.warn('[signal-ledger] settle 记账失败（不影响链路）', { conversationId, target, error: e instanceof Error ? e.message : String(e) });
-        }
-      }
-      // 链级出处回填（hop 取源修复核心）：该目标的产出消息是【它 yield 给的下一跳目标】的
-      // 触发源——按 resolveHopOutcomes 门控后的 allowedNext 落位（F20260907ylfs ②：护栏决策
-      // 与路由同源，两处 filter 分叉在结构上不可能），而非记在自己名下。例：worker 产出 m-work
-      // 并 yield owner → allowedNext=[owner]，记入 chainSource[owner]，下 hop owner 起跑时用它
-      // 记账 (m-work, owner)。多源追加不去重（A、B 都 yield C 时 C 名下两条触发消息各记一次）；
-      // 同目标重复 yield 只留最新产出（去重 + 截尾防膨胀）。
-      if (r.status === "fulfilled" && chainSourceMessageIds) {
-        const outcome = outcomes.get(i);
-        if (!outcome) continue;
-        const produced = r.value.messageId;
-        // 护栏拒入（abort）时 allowedNext 清空是门控决策非降级，不误报污染日志——
-        // 共栖污染 warn 判定下沉 warnIfCoexistPollution（F20260904schf 语义保留，拆出控语句数）
-        this.warnIfCoexistPollution(outcome, r.value, conversationId, produced);
-        for (const next of outcome.allowedNext) {
-          this.appendChainSource(chainSourceMessageIds, next, produced, conversationId);
-        }
-      }
-    }
-  }
+  /** F20260902sgp2 S1：settle 记账——退役（dispatchAttemptRepo 已退役，F20260908rlcp） */
 
   /** rejected 结果日志（自 processHopResults 拆出控复杂度） */
   private logRejectedTarget(
@@ -500,14 +405,16 @@ export class DispatchChainEngine {
    *  Promise.resolve 包装使 mock 返回 undefined 等非 Promise 值时仍安全。
    *  F20260904ldgr（#798 发现 2）：返回 [data, degraded]——degraded 时账面补降级备注。 */
   private async fetchProducedMessage(
-    messageId: string,
+    invokeId: string,
     conversationId?: string,
-  ): Promise<[Awaited<ReturnType<QueryMessage["getMessageById"]>> | null, boolean]> {
+  ): Promise<[{ id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null } | null, boolean]> {
+    // F20260913ctlv 彻底切换：产出判定读 invokes 行（messages 停写后旧数据源只见历史）
+    if (!this.deps.invokeRepo) return [null, true];
     try {
-      const data = await Promise.resolve(this.deps.queryMessage.getMessageById(messageId));
+      const data = await Promise.resolve(this.deps.invokeRepo.getInvokeById(invokeId));
       return [data, false];
     } catch (e) {
-      this.deps.logger.warn('行级出处查库失败，降级为无出处（不阻断链路）', { conversationId, messageId, error: e instanceof Error ? e.message : String(e) });
+      this.deps.logger.warn('行级出处查库失败，降级为无出处（不阻断链路）', { conversationId, invokeId, error: e instanceof Error ? e.message : String(e) });
       return [null, true];
     }
   }
@@ -527,39 +434,26 @@ export class DispatchChainEngine {
    *  真相源=消息表，重启不归零；同会话计数(跨会话留 P3b)。
    *  窗口截断方向：若 95+ 条连续透明消息把介入消息挤出窗口，计数虚低（更难触发），
    *  方向上由 maxChainDepth=100 兜底，可接受。 */
-  // eslint-disable-next-line complexity -- #530 梯度护栏计数：6 类消息分支（self-yield/to≠self/user/system 外部信号/透明）+ try/catch
-  private async countConsecutiveSelfYields(conversationId: string, otterId: string, currentMessageId: string): Promise<number> {
+   
+  private async countConsecutiveSelfYields(conversationId: string, otterId: string, currentInvokeId: string): Promise<number> {
+    // F20260913ctlv 彻底切换：数据源 = yield entries + invoke 行（messages 停写后旧扫描恒 0 → 护栏失明）。
+    // 判定口径保持：从当前 invoke 之前倒序扫描，遇介入即停。
+    // 介入三类：①该獭自己的 to≠self yield ②user entry ③外部 invoke（otter≠该獭）的 tsp 含该獭。
     try {
-      // #530 修复（检视-838 发现 2）：传 before=currentMessageId 排除当前消息，避免重复计数。
-      // 生产时序：completeMessage 先落库后关 turn，invoke 返回时消息行已含最终 yield——
-      // 不排除会导致 count+1 虚高一档（真实阈值 2/4 ≠ 设计 3/5）。
-      const messages = await this.deps.conversationRepo.getMessages(conversationId, {
-        limit: DispatchChainEngine.SELF_YIELD_SCAN_LIMIT,
-        before: currentMessageId,
-      });
+      if (!this.deps.entryRepo) return 0;
+      const recent = await this.deps.entryRepo.getEntries(conversationId, { limit: DispatchChainEngine.SELF_YIELD_SCAN_LIMIT });
+      // getEntries 返回 DESC（最新在前）；跳过当前 invoke 自己的条目再倒序数
       let count = 0;
-      for (const msg of messages) {
-        // ① user 消息（含 retry 触发）→ 介入，停止
-        if (msg.senderType === "user") break;
-        // ② system 消息——检查是否为外部信号（tsp 含该獭）
-        if (msg.senderType === "system") {
-          if (msg.talkingStonePassedTo?.includes(otterId)) break;
-          continue; // 不相关 system 透明
+      let passedCurrent = false;
+      for (const e of recent) {
+        if (!passedCurrent) {
+          if (e.invokeId === currentInvokeId || e.id === currentInvokeId) continue;
+          passedCurrent = true; // 首个非当前 invoke 的条目开始计数窗口
         }
-        // otter 消息
-        if (msg.senderId === otterId) {
-          const tsp = msg.talkingStonePassedTo ?? [];
-          if (tsp.length === 0) continue; // 无 yield = 消息没产出 yield，透明
-          if (tsp.includes(otterId)) {
-            count++; // 自指 yield → 计数
-          } else {
-            break; // to≠self yield → 介入，停止
-          }
-        } else {
-          // 外部 otter 消息——检查 tsp 是否含该獭
-          if (msg.talkingStonePassedTo?.includes(otterId)) break;
-          continue; // 不相关外部消息透明
-        }
+        const verdict = await this.classifyEntryForSelfYield(e, otterId);
+        if (verdict === "intervene") break;
+        if (verdict === "self") count++;
+        // transparent：跳过不重置
       }
       return count;
     } catch (e) {
@@ -568,6 +462,31 @@ export class DispatchChainEngine {
       });
       return 0;
     }
+  }
+
+  /** F20260913ctlv：yield entry 是否属于该獭（senderName 无法判 id——查 invoke 行的 otterId） */
+  /** #530 单条目三态分类：intervene（介入停扫）/ self（自 yield 计数）/ transparent（透明跳过） */
+  private async classifyEntryForSelfYield(
+    e: { entryType: string; senderId: string | null; invokeId: string | null; yieldTargets: string[] | null },
+    otterId: string,
+  ): Promise<"intervene" | "self" | "transparent"> {
+    // ① user 条目 → 介入
+    if (e.entryType === "user") return "intervene";
+    if (e.entryType === "yield") {
+      const tsp = e.yieldTargets ?? [];
+      const own = await this.isEntryOfOtter(e, otterId);
+      if (own) return tsp.includes(otterId) ? "self" : "intervene"; // 自己的 yield：self 计数 / to≠self 介入
+      return tsp.includes(otterId) ? "intervene" : "transparent";   // 外部：指向该獭介入 / 透明
+    }
+    // invoke_end/invoke_start/speak：无 yield 信息，透明
+    return "transparent";
+  }
+
+  private async isEntryOfOtter(entry: { invokeId: string | null; senderId: string | null; entryType: string }, otterId: string): Promise<boolean> {
+    if (entry.senderId) return entry.senderId === otterId;
+    if (!entry.invokeId || !this.deps.invokeRepo) return false;
+    const invoke = await this.deps.invokeRepo.getInvokeById(entry.invokeId).catch(() => null);
+    return invoke?.otterId === otterId;
   }
 
   /** #530 梯度护栏：自 yield 检查 + 梯度响应。
@@ -640,7 +559,6 @@ export class DispatchChainEngine {
     conversationId?: string,
     targets?: string[],
   ): Promise<ChainHopResult> {
-    let otterReply: string | undefined;
     const nextTargets = new Set<string>();
     let shouldAbort = false;
     let steerText: string | undefined; // #530 护栏 steer 文案，进程级传递到下一 hop
@@ -654,10 +572,9 @@ export class DispatchChainEngine {
 
       const outcome = outcomes.get(i);
       if (!outcome) continue; // resolveHopOutcomes 跳过（无 target 等降级）——无产出可路由
-      const { producedMsg, allowedNext, aborted, steerText: hopSteerText } = outcome;
-      if (producedMsg?.segments.length) {
-        otterReply = aggregateBody(producedMsg.segments);
-      }
+      const { allowedNext, aborted, steerText: hopSteerText } = outcome;
+      // F20260913ctlv 彻底切换：otterReply/producedMsg 从 invoke 行不可得（内容在 speak entries）——
+      // 回复预览已无消费方依赖 segments；otterReply 字段退役
 
       // F20260907ylfs ②（P3a 批次 2）：旧版「自指守卫（行级 tsp 不含 sender 自己，滤 self → 链终止）」
       // 的领域不变量随 ② 合法化退役——self-yield 不再滤除，由 resolveHopOutcomes 护栏门控
@@ -684,7 +601,6 @@ export class DispatchChainEngine {
      *  self 目标不滤——护栏放行即链续跑（合法消化路径），allowedNext 已含门控结果。 */
     // #530 梯度护栏：abort 后清空 nextTargets 终链（链停非惩罚，可被外部重新 invoke）
     return {
-      otterReply,
       nextTargets: shouldAbort ? [] : [...nextTargets],
       steerText, // #530 进程级传递，下一 hop 前置注入
     };
@@ -762,14 +678,18 @@ export class DispatchChainEngine {
   /** 组装派发上下文：名册 + 具名对话历史 + 当前任务
    * F20260829cach: 首部注入分钟级当前时间。原分钟级时间戳在 system prompt 身份段（每 invoke
    * 重建即变，打断前缀缓存）；改为：system prompt 日粒度锚点（identity-builder）+ 本处
-   * 消息首部分钟级新鲜时间。本段随 user message 持久化、位于历史末尾，不占缓存前缀。 */
+   * 消息首部分钟级新鲜时间。本段随 user message 持久化、位于历史末尾，不占缓存前缀。
+   * F20260908rlcp: 返回 batchMaxSeq（本批未读最大 seq），启动成功后推进游标。
+   * @param excludeMessageIds 恢复侧 steer 去重：已消化的 msg id 从未读注入剔除 */
+  // eslint-disable-next-line max-params, complexity -- F20260908rlcp: excludeMessageIds 参数 + batchMaxSeq 计算
   async buildMessageWithContext(
     conversationId: string,
     otterId: string,
     userMessageContent: string,
     senderId: string,
     roster: string,
-  ): Promise<string> {
+    excludeMessageIds?: Set<string>,
+  ): Promise<{ message: string; batchMaxSeq: number }> {
     // F20260819idnw：闲置小獭预警（增强功能，失败不影响主流程）
     // 必须在早返回路径之前计算，否则无未读消息时预警会被跳过
     let idleWarning: string | null = null;
@@ -781,21 +701,23 @@ export class DispatchChainEngine {
     const now = new Date();
     const timeAnchor = now.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
 
-    // K2 收件箱预告（F20260903k23）：本獭名下还有 N 条待消化信号（台账 pending 推导，
-    // 排除本轮触发消息自身）。让獭能主动告知用户「我看到你插了话，跑完就处理」
-    // （flash 提案缺口 1）。失败不影响主流程；本轮正在记账的信号不算在内（它就是本任务）。
-    // 注：本方法自身无 messageId 参数——路由器/调度器点火路径的触发消息由调用侧语境确定，
-    // 这里统一排除规则：buildMessageWithContext 不知道本轮消息时退化为「全量 pending 计数」，
-    // 而本轮信号经 recordStart 已写入 in_progress 行，pendingClause 的 NOT EXISTS 天然排除它。
-    const pendingPreview = this.buildPendingPreview(conversationId, otterId);
+    // K2 收件箱预告已退役（台账退役后数据源不存在，F20260908rlcp）
+    const pendingPreview: string | null = null;
 
-    const unreadMessages = await this.deps.conversationRepo.getUnreadMessages(conversationId, otterId);
-    if (unreadMessages.length === 0) {
+    // F20260913ctlv 彻底切换：未读注入读 entries（user/system/speak），messages 停写后旧数据源只会读到空集
+    const unreadAll = this.deps.entryRepo
+      ? await this.deps.entryRepo.getUnreadEntries(conversationId, otterId)
+      : [];
+    // F20260908rlcp：恢复侧 steer 去重——已消化的 entry id 剔除
+    const filtered = excludeMessageIds ? unreadAll.filter(m => !excludeMessageIds.has(m.id)) : unreadAll;
+    // F20260908rlcp：记录本批未读最大 seq（启动成功后推进游标；entries 序号）
+    const batchMaxSeq = filtered.length > 0 ? Math.max(...filtered.map(m => m.sequenceNum)) : 0;
+    if (filtered.length === 0) {
       let result = `${roster}\n\n## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n${pendingPreview ?? ""}\n\n## 当前任务\n${userMessageContent}`;
       if (idleWarning) result += `\n\n${idleWarning}`;
-      return result;
+      return { message: result, batchMaxSeq };
     }
-    const names = await this.resolveSenderNames(unreadMessages);
+    const names = await this.resolveSenderNames(filtered);
     const partnerLabel = this.deps.settingsRepo ? ((await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
     // F20260826fuid：user 消息优先用持久化快照名（飞书群聊多人识别）。
     // F20260826fpbd：搭档判定改静态——partnerLabel 只属于配置锚定的搭档（含 Web 'user'），
@@ -806,55 +728,21 @@ export class DispatchChainEngine {
     //  TS 控制流在回调内自动收窄（if (staticResolver) ⟹ 非空），零非空断言且不把 ?. 分支点
     //  携入 .map 回调（复杂度门禁 12，携入会 13 超限）
     const staticResolver = resolver?.configured ? resolver : undefined;
-    const formatted = unreadMessages
-      .map(m => {
-        let label: string;
-        if (m.senderType === 'system') {
-          label = '系统';
-        } else if (m.senderType === 'user') {
-          if (staticResolver) {
-            label = staticResolver.isPartner(m.senderId)
-              ? partnerLabel
-              : (m.senderName?.trim() || m.senderId);  // 访客：快照名，无则裸 ID 不冒充
-          } else {
-            // 降级（未配置 partnerOpenId）：维持 #488 行为
-            label = m.senderName?.trim()
-              || (m.senderId === senderId ? partnerLabel : m.senderId);
-          }
-        } else {
-          label = (names.get(m.senderId) ?? m.senderId);
-        }
-        return `[${label}] ${m.segments.length ? stripHtmlCardsOnly(aggregateBody(m.segments)) : ''}${this.appendUnreadAttachmentLine(m.attachments)}`;
-      })
-      .join('\n');
+    const formatEntry = (m: typeof filtered[number]): string => {
+      const label = this.resolveUnreadSenderLabel(m, senderId, partnerLabel, staticResolver, names);
+      const text = stripHtmlCardsOnly(m.body ?? '');
+      return `[${label}] ${text}${this.appendUnreadAttachmentLine(m.attachments as AttachmentRef[] | undefined)}`;
+    };
+    const formatted = filtered.map(formatEntry).join('\n');
 
     let result = `${roster}\n\n## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n${pendingPreview ?? ""}\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
     if (idleWarning) {
       result += `\n\n${idleWarning}`;
     }
-    return result;
+    return { message: result, batchMaxSeq };
   }
 
-  /** K2 收件箱预告（F20260903k23）：本獭名下台账 pending 计数 > 0 时注入一行预告。
-   *  数据源 = listPendingSignals（pendingClause 同一真相源）——天然含 busyQueue 排队中
-   *  的信号（排队不写账 = 仍 pending），无需另查路由器内存态。
-   *  本轮触发信号已被 recordStart 写入 in_progress 行，NOT EXISTS 天然排除它。
-   *  HALT 在列时特别注明（用户停机请求优先级最高，獭应最先处理）。
-   *  措辞纪律（#695 裁决）：只说「待消化」，不说「正在忙」/队列位置。
-   *  台账未注入/查询失败 → null（纯增强，零侵入）。 */
-  private buildPendingPreview(conversationId: string, otterId: string): string | null {
-    if (!this.deps.dispatchAttemptRepo) return null;
-    try {
-      // 精确计数（#757 审视焦点 1：listPendingSignals+limit=50 会双重封顶漏报——
-      // 全会话 50 条上界截断 + per-target 超 50 不诚实。count 无 limit，数字必须诚实）
-      const { total, halt } = this.deps.dispatchAttemptRepo.countPendingForTarget(conversationId, otterId);
-      if (total === 0) return null;
-      const haltNote = halt > 0 ? `（含 ${halt} 条 HALT 停机请求，优先处理）` : "";
-      return `> 收件箱预告：你名下还有 ${total} 条信号待消化${haltNote}（当前任务完成后按序处理即可）`;
-    } catch {
-      return null; // 预告失败不影响主流程
-    }
-  }
+  /** buildPendingPreview 已退役（F20260908rlcp：台账退役后数据源不存在） */
 
   /** 多模态 Phase 1：未读历史统一文本投影（不按目标獭分叉——last_read 保证未读皆近，
    *  历史图"知道是什么"即可；分叉只发生在当前任务消息的真图注入） */
@@ -863,9 +751,43 @@ export class DispatchChainEngine {
     return projection ? `\n${projection}` : "";
   }
 
-  private async resolveSenderNames(messages: Array<{ senderType: string; senderId: string }>): Promise<Map<string, string>> {
+  /** 未读条目发送者标签（system/otter/user 三态；user 走 partner 静态绑定 + 快照名降级） */
+  private resolveUnreadSenderLabel(
+    m: { senderType: string | null; senderId: string | null; senderName?: string | null; entryType: string },
+    senderId: string,
+    partnerLabel: string,
+    staticResolver: { isPartner: (id: string) => boolean } | undefined,
+    names: Map<string, string>,
+  ): string {
+    const entrySenderId = m.senderId ?? '';
+    if (m.senderType === 'system' || m.entryType === 'system') return '系统';
+    if (m.senderType === 'user' || m.entryType === 'user') {
+      return this.resolveUserEntryLabel(m, entrySenderId, senderId, partnerLabel, staticResolver);
+    }
+    return names.get(entrySenderId) ?? entrySenderId;
+  }
+
+  /** user 条目标签：静态绑定（搭档/访客快照名/裸 ID）或未配置降级（#488 行为） */
+  private resolveUserEntryLabel(
+    m: { senderName?: string | null },
+    entrySenderId: string,
+    senderId: string,
+    partnerLabel: string,
+    staticResolver: { isPartner: (id: string) => boolean } | undefined,
+  ): string {
+    if (staticResolver) {
+      return staticResolver.isPartner(entrySenderId)
+        ? partnerLabel
+        : (m.senderName?.trim() || entrySenderId);  // 访客：快照名，无则裸 ID 不冒充
+    }
+    // 降级（未配置 partnerOpenId）：维持 #488 行为——当前 sender 无快照 → partnerLabel，
+    // 其他人无快照 → 裸 ID（不冒充搭档）
+    return m.senderName?.trim() || (entrySenderId === senderId ? partnerLabel : entrySenderId);
+  }
+
+  private async resolveSenderNames(messages: Array<{ senderType: string | null; senderId: string | null }>): Promise<Map<string, string>> {
     const names = new Map<string, string>();
-    const otterSenderIds = [...new Set(messages.filter(m => m.senderType === "otter").map(m => m.senderId))];
+    const otterSenderIds = [...new Set(messages.filter(m => (m.senderType ?? "") === "otter").map(m => m.senderId ?? ""))];
     await Promise.all(otterSenderIds.map(async id => {
       const otter = await this.deps.queryOtter.getById(id);
       if (otter) names.set(id, otter.name);
@@ -873,49 +795,7 @@ export class DispatchChainEngine {
     return names;
   }
 
-  private async markBatchRead(
-    conversationId: string,
-    results: PromiseSettledResult<InvokeFnResult>[],
-    targets: string[],
-  ): Promise<void> {
-    /** F20260803trrf: 不依赖 getActiveTurn（turn 已在 complete() 中关闭，返回 null）。
-     *  用 msg.turnId 反查 turn_number；fulfilled + rejected 都推进 last_read。 */
-    for (let i = 0; i < results.length; i++) {
-      const r = results[i];
-      let messageId: string | undefined;
-      if (r.status === 'fulfilled') {
-        messageId = r.value.messageId;
-      } else {
-        /** rejected：invokeFn 抛错（罕见，agent-invoker.invokeConversation 已 catch 大部分）。
-         *  用 targets[i] 反查该 otter 最新消息（发言已 start 但 invoke 失败）。
-         *  限制（review P1）：lastMsg 是该 otter 自己发的最新消息，推进到的是"自己上次发言的 turn"
-         *  而非"应读的最新 turn"。精确修复需在 buildMessageWithContext 时记录注入的最新 turn，
-         *  改动大且 rejected 极罕见，接受此 best-effort 语义。 */
-        const lastMsg = await this.deps.queryMessage.getLastMessageBySender(conversationId, targets[i]);
-        messageId = lastMsg?.id;
-      }
-      if (!messageId) continue;
-      // F20260904schf：查库失败降级为跳过该行（best-effort 推进语义同款），不阻断链路（#792 回归测试暴露）
-      const msg = await Promise.resolve(this.deps.queryMessage.getMessageById(messageId)).catch(() => null);
-      if (!msg) continue;
-      const turn = await this.deps.conversationRepo.getTurnById(msg.turnId);
-      if (!turn) continue;
-      // #775：停写旧列（观察项①收尾）——seq 刻度已是唯一写入刻度，旧 turn 刻度冻结在
-      // backfill 值作历史快照。Why 不删调用方接口：updateLastActiveTurnNumber（发言活跃度）
-      // 仍用 turn 刻度，与游标无关；读路径 NULL 回退保留（防御极端脏数据，非功能依赖）。
-      // F20260902sgp2 S4c：游标 seq 写入（唯一刻度）。
-      if (this.deps.conversationRepo.updateLastReadSeq) {
-        this.deps.conversationRepo.updateLastReadSeq(conversationId, msg.senderId, msg.sequenceNum);
-      }
-
-      // F20260819idnw：更新最后活跃轮次（小獭发言时）
-      if (msg.senderType === 'otter') {
-        await this.deps.conversationRepo.updateLastActiveTurnNumber(
-          conversationId,
-          msg.senderId,
-          turn.turnNumber
-        );
-      }
-    }
-  }
+  // F20260908rlcp: markBatchRead 已删除——游标推进上移到启动成功回调（pi-session-factory）
+  // 原方法职责：invoke 完成后推进 lastReadSeq + lastActiveTurnNumber
+  // 新语义：prompt 启动成功即推进（推进到启动时读到的最新 seq），启动失败不推进
 }

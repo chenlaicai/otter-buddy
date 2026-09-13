@@ -113,6 +113,9 @@ export interface SendMessageRequestDTO {
   body: string;
   /** 多模态 Phase 1：随消息引用的附件 ID（上传 API 先返回；可选，向后兼容） */
   attachmentIds?: string[];
+  /** F20260913ctlv：注入方式（目标 running 时）。steer=打断当前生成立即注入（默认，
+   *  向后兼容）；followUp=排队等当前轮说完再接（不打断） */
+  mode?: "steer" | "followUp";
 }
 
 /** 消息列表响应（包裹对象，含 hasMore 分页标识） */

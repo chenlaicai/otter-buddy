@@ -15,6 +15,8 @@ import { Hono } from "hono";
 import { initSchema } from "@frameworks/db/schema";
 import { SqliteConnectionRepository } from "@frameworks/db/im/sqlite-connection-repository";
 import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
+import { SqliteEntryRepository } from "@frameworks/db/conversation/sqlite-entry-repository";
+import { SqliteInvokeRepository } from "@frameworks/db/conversation/sqlite-invoke-repository";
 import { ManageConnection } from "@usecases/im/manage-connection";
 import { ConnectionController } from "@interface-adapters/http/controllers/connection-controller";
 import { createTestLogger } from "../helpers/logger";
@@ -173,7 +175,11 @@ function createRealApp(): Hono {
   const logger = createTestLogger() as never;
   const createOtter = new CreateOtter(otterRepo, fakeAgentGateway(), logger);
   const manageConversation = new ManageConversation(convRepo, createOtter);
-  const manageParticipant = new ManageParticipant(convRepo, otterRepo);
+  // F20260913ctlv 批4c：entryDeps 必注入（messages 降级路径已删）
+  const manageParticipant = new ManageParticipant(convRepo, otterRepo, {
+    entryRepo: new SqliteEntryRepository(db),
+    invokeRepo: new SqliteInvokeRepository(db),
+  });
   const settingsStub = { get: async () => null, set: async () => {} } as never;
 
   const app = new Hono();

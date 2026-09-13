@@ -84,6 +84,12 @@ export interface InvokeOptions {
   /** F20260825hndf Phase 2：只读模式——跳过消息持久化和 SSE 广播，用于交接摘要合成。
    *  Pi SDK 无原生 read-only 支持，靠 prompt 约束 + 工具白名单实现。 */
   readOnly?: boolean;
+  /** F20260908rlcp：本批未读消息的最大 sequence_num（启动成功后推进游标用） */
+  batchMaxSeq?: number;
+  /** F20260913ctlv：当前 invoke ID（invoke 级上下文，由 agent-invoker 注入） */
+  currentInvokeId?: string;
+  /** F20260913ctlv 彻底切换：SSE 发射通道（invoke 级注入，工具层发 entry.yield 等事件用） */
+  emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
 }
 
 export interface SdkInvokePort {

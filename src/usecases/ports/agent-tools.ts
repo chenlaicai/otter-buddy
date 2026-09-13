@@ -151,5 +151,11 @@ export interface ToolContext {
   orchestrationWarningShown?: boolean;
   /** F20260826mwrd C1：signal_events 仓库（halt_otter/query_signals 注册条件；invoke 级注入） */
   signalRepo?: SignalEventRepository;
-
+  /** F20260909smsp→F20260913ctlv：当前打开的 speak entry ID（speak/yield 检测本轮已发言用）。
+   *  F20260911pspl 池化合流：getter 化穿透寄存器（invoke 入口重置） */
+  lastSpeakMessageId?: string;
+  /** F20260913ctlv：当前 invoke ID（invoke 级上下文）。F20260911pspl 合流：getter 化穿透寄存器 */
+  currentInvokeId?: string;
+  /** F20260913ctlv：SSE 发射通道（工具层发 entry.yield 等事件用）。寄存器穿透 */
+  emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
 }

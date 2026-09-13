@@ -8,6 +8,7 @@ import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
 import type { Repositories, UseCases } from "./types";
+import { buildResolveTargetsDeps } from "@usecases/conversation/resolve-send-targets";
 import { SearchEngine } from "@usecases/memory/search-engine";
 import { ManageMemory } from "@usecases/memory/manage-memory";
 import { ManageTerminology } from "@usecases/memory/manage-terminology";
@@ -16,11 +17,10 @@ import { CreateEdge } from "@usecases/memory/create-edge";
 import { GetRelated } from "@usecases/memory/get-related";
 import { DeleteEdge } from "@usecases/memory/delete-edge";
 import { GetDocProvenance } from "@usecases/memory/get-doc-provenance";
-import { SendMessage } from "@usecases/conversation/send-message";
 import { QueryMessage } from "@usecases/conversation/query-message";
 import { RecordSearchQuery } from "@usecases/memory/record-search-query";
 import { ManageReadState } from "@usecases/conversation/manage-read-state";
-import { QuerySignalTrail } from "@usecases/conversation/query-signal-trail";
+
 import { ManageParticipant } from "@usecases/conversation/manage-participant";
 import { ManageKeyInfo } from "@usecases/conversation/manage-key-info";
 import { QueryOtter } from "@usecases/otter/query-otter";
@@ -33,9 +33,14 @@ import { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-t
 import { ManageConnection } from "@usecases/im/manage-connection";
 import { AttachmentUploadService } from "@usecases/conversation/attachment-upload-service";
 import { ManageWorkspace } from "@usecases/conversation/manage-workspace";
+import { SendEntry } from "@usecases/conversation/send-entry";
+import type { EntryRepository } from "@usecases/conversation/entry-repository";
+import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
 
 export interface UseCaseDeps {
   repos: Repositories;
+  entryRepo: EntryRepository;
+  invokeRepo: InvokeRepository;
   agentGateway: PiSessionFactory;
   embeddingService: EmbeddingGateway;
   memoryIndex: MemoryIndexGateway;
@@ -49,17 +54,22 @@ export interface UseCaseDeps {
 }
 
 export function initUseCases(deps: UseCaseDeps): UseCases {
-  const { repos, agentGateway, embeddingService, memoryIndex, appConfig, logger, workspaceGateway, otterConfigProvider, modelPool } = deps;
+  const { repos, entryRepo, invokeRepo, agentGateway, embeddingService, memoryIndex, appConfig, logger, workspaceGateway, otterConfigProvider, modelPool } = deps;
   const memoryUcs = buildMemoryUseCases(repos, embeddingService, appConfig, logger);
   const { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries } = memoryUcs;
-  const sendMessage = new SendMessage(repos.conversation, repos.otter, memoryIndex, logger, repos.attachment);
-  const queryMessage = new QueryMessage(repos.conversation);
+  // F20260913ctlv 彻底切换：未读状态读 entries
+  const queryMessage = new QueryMessage(repos.conversation, entryRepo);
   // F20260826rcmm Phase 0：检索埋点（评估基线数据源）
-  const recordSearchQuery = new RecordSearchQuery(repos.searchQueryLog, queryMessage, logger);
-  const manageReadState = new ManageReadState(repos.conversation);
-  // 信号轨迹查询（F20260902u5tr → sgp2 S1b）：判据切台账（dispatch_attempts），可选注入降级 PENDING
-  const querySignalTrail = new QuerySignalTrail({ conversationRepo: repos.conversation, queryMessage, dispatchAttemptRepo: repos.dispatchAttempt });
-  const manageParticipant = new ManageParticipant(repos.conversation, repos.otter, otterConfigProvider, modelPool);
+  // F20260913ctlv 收尾批3：上下文快照数据源切 entries
+  const recordSearchQuery = new RecordSearchQuery(repos.searchQueryLog, entryRepo, logger);
+  const manageReadState = new ManageReadState(repos.conversation, entryRepo);
+  // 信号轨迹查询退役（F20260908rlcp）
+  const manageParticipant = new ManageParticipant(
+    repos.conversation, repos.otter,
+    // F20260913ctlv 批4c：进场/退场 system entry（必注入）
+    { entryRepo, invokeRepo },
+    otterConfigProvider, modelPool,
+  );
   const manageKeyInfo = new ManageKeyInfo(repos.conversation, memoryIndex);
   const queryOtter = new QueryOtter(repos.otter);
   // F20260908efmd: 注入 configProvider + modelPool，首世建账快照有效模型
@@ -69,12 +79,8 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const manageSession = new ManageSession(
     repos.otter, agentGateway, manageConversation, manageMemory, logger, otterConfigProvider, modelPool,
   );
-  // F20260903dmpe 阻尼#4（S4 补丁批）：dissolve 事务内销账名下 in_progress 派发
-  // F20260904schf P2（#792）：dissolve 出站清算——未派发的出站信号补 aborted 墓碑
   const dissolveOtter = new DissolveOtter(repos.otter, agentGateway, manageSession, {
-    settlePendingForOtter: async (otterId: string) => repos.dispatchAttempt.failAllInProgressForOtter(otterId),
-    abortUnattemptedOutgoing: async (otterId: string) => repos.dispatchAttempt.abortUnattemptedOutgoingForOtter(otterId),
-    abortUnattemptedIncoming: async (otterId: string) => repos.dispatchAttempt.abortUnattemptedIncomingForOtter(otterId),
+    // F20260908rlcp：台账退役——dissolve 清账不再需要
     logger,
   });
   const manageContext = new ManageContext(repos.otterContext);
@@ -84,15 +90,24 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const attachmentUpload = buildAttachmentUploadService(repos, appConfig, logger);
   // 工作区文件浏览（只读）——workspaceGateway 可选注入
   const manageWorkspace = workspaceGateway ? new ManageWorkspace(workspaceGateway, logger) : undefined;
+  // F20260913ctlv 彻底切换：目标解析依赖（默认派发数据源 = entries.speak + invokes running）
+  const resolveDeps = buildResolveTargetsDeps(
+    (conversationId) => repos.conversation.getActiveParticipants(conversationId),
+    entryRepo,
+    repos.otter,
+    invokeRepo,
+  );
+  const sendEntry = new SendEntry(entryRepo, invokeRepo, repos.otter, repos.conversation, { logger, resolveDeps });
   return {
     manageConversation, manageMemory, manageTerminology, searchMemory, scanDarkEntries,
-    sendMessage, queryMessage, manageReadState, manageParticipant, manageKeyInfo, recordSearchQuery,
-    querySignalTrail,
+    queryMessage, manageReadState, manageParticipant, manageKeyInfo, recordSearchQuery,
+    // querySignalTrail 退役（F20260908rlcp）
     queryOtter, createOtter, manageSession, dissolveOtter, manageContext,
     manageScheduledTask, manageConnection,
     createEdge, getRelated, deleteEdge, getDocProvenance,
     attachmentUpload,
     manageWorkspace,
+    sendEntry,
   };
 }
 

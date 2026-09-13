@@ -59,6 +59,10 @@ function createMockToolContext(overrides: Partial<ToolContext> = {}): ToolContex
         message: {
           getLastBySenderType: vi.fn(async () => null),
         },
+        // F20260913ctlv 批3：entry 命名空间（用户介入检测数据源切 entries）
+        entry: {
+          getEntries: vi.fn(async () => []),
+        },
       },
     },
     logger: createRecordingLogger(),
@@ -286,10 +290,13 @@ describe('restart_otter 自重启循环防护（F20260824srst）', () => {
       id: 'new-session-otter-1', otterId: 'otter-1', status: 'active',
       startedAt: '2026-09-04T12:00:00Z',
     });
-    // 最新 user 消息晚于 session 创建（搭档重启后发过新指令）
-    (ctx.client.conversation.message.getLastBySenderType as ReturnType<typeof vi.fn>) = vi.fn(async () => ({
-      id: 'user-msg-1', createdAt: '2026-09-04T13:30:00Z',
-    }));
+    // 最新 user entry 晚于 session 创建（搭档重启后发过新指令；批3 切 entries 数据源）
+    (ctx.client.conversation.entry.getEntries as ReturnType<typeof vi.fn>) = vi.fn(async (_convId: string, opts?: { entryType?: string }) => {
+      if (opts?.entryType === 'user') {
+        return [{ id: 'user-entry-1', entryType: 'user', body: '新指令', senderId: 'chen', senderType: 'user', createdAt: '2026-09-04T13:30:00Z' }];
+      }
+      return [];
+    });
     const tools = createTools(ctx, healingRepo, createRecordingLogger());
     const restartTool = tools.find(t => t.name === 'restart_otter');
     if (!restartTool) throw new Error('restart_otter tool not found');
@@ -323,10 +330,13 @@ describe('restart_otter 自重启循环防护（F20260824srst）', () => {
       id: 'new-session-otter-1', otterId: 'otter-1', status: 'active',
       startedAt: '2026-09-04T13:00:00Z',
     });
-    // 最新 user 消息早于 session 创建 → 无新介入，维持拦截
-    (ctx.client.conversation.message.getLastBySenderType as ReturnType<typeof vi.fn>) = vi.fn(async () => ({
-      id: 'user-msg-0', createdAt: '2026-09-04T12:00:00Z',
-    }));
+    // 最新 user entry 早于 session 创建 → 无新介入，维持拦截（批3 切 entries 数据源）
+    (ctx.client.conversation.entry.getEntries as ReturnType<typeof vi.fn>) = vi.fn(async (_convId: string, opts?: { entryType?: string }) => {
+      if (opts?.entryType === 'user') {
+        return [{ id: 'user-entry-0', entryType: 'user', body: '旧指令', senderId: 'chen', senderType: 'user', createdAt: '2026-09-04T12:00:00Z' }];
+      }
+      return [];
+    });
     const tools = createTools(ctx, healingRepo, createRecordingLogger());
     const restartTool = tools.find(t => t.name === 'restart_otter');
     if (!restartTool) throw new Error('restart_otter tool not found');

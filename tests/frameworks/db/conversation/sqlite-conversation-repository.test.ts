@@ -3,8 +3,10 @@ import Database from "better-sqlite3";
 import { initSchema } from "@frameworks/db/schema";
 import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
 import type { Conversation, Turn } from "@entities/conversation/conversation";
-import type { Message, MessageEvent } from "@entities/conversation/message";
-import { aggregateBody } from "@entities/conversation/message";
+import type { Entry } from "@entities/conversation/entry";
+import { SqliteEntryRepository } from "@frameworks/db/conversation/sqlite-entry-repository";
+import { SqliteInvokeRepository } from "@frameworks/db/conversation/sqlite-invoke-repository";
+import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
 
 /** 创建内存 SQLite 数据库并初始化 schema */
 function createTestDb(): Database.Database {
@@ -52,41 +54,6 @@ function turnFixture(overrides: Partial<Turn> = {}): Turn {
   };
 }
 
-/** 构造测试用 Message 实体 */
-function messageFixture(overrides: Partial<Message> = {}): Message {
-  const id = overrides.id ?? "msg-1";
-  return {
-    id,
-    conversationId: "conv-1",
-    turnId: "turn-1",
-    senderType: "user",
-    senderId: "user-1",
-    talkingStonePassedTo: ["otter-1"],
-    status: "completed",
-    segments: overrides.segments ?? [{ id: `${id}-seg-0`, messageId: id, body: "你好，请帮我分析一下数据", sequenceNum: 0, createdAt: "2026-07-22T00:01:00Z" }],
-    sequenceNum: 1,
-    contextTokens: null,
-    contextTokensMax: null,
-    source: "web",
-    senderName: '',
-    createdAt: "2026-07-22T00:01:00Z",
-    completedAt: "2026-07-22T00:01:00Z",
-    ...overrides,
-  };
-}
-
-/** 构造测试用 MessageEvent 实体 */
-function messageEventFixture(overrides: Partial<MessageEvent> = {}): MessageEvent {
-  return {
-    id: "event-1",
-    messageId: "msg-1",
-    eventType: "assistant_text",
-    payload: { text: "这是助手的回复" },
-    sequenceNum: 1,
-    createdAt: "2026-07-22T00:01:30Z",
-    ...overrides,
-  };
-}
 
 describe("SqliteConversationRepository - 对话与 Turn 基础操作", () => {
   let db: Database.Database;
@@ -243,654 +210,105 @@ describe("SqliteConversationRepository - 对话与 Turn 基础操作", () => {
   });
 });
 
-describe("SqliteConversationRepository - 消息与事件操作", () => {
+describe("SqliteConversationRepository - listConversationsWithMeta 活动状态派生（F20260805actv；批4c 切 entries/invokes）", () => {
   let db: Database.Database;
   let repo: SqliteConversationRepository;
+  let entryRepo: SqliteEntryRepository;
+  let invokeRepo: SqliteInvokeRepository;
 
   beforeEach(() => {
     db = createTestDb();
     repo = new SqliteConversationRepository(db);
+    entryRepo = new SqliteEntryRepository(db);
+    invokeRepo = new SqliteInvokeRepository(db);
+    new SqliteOtterRepository(db).createOtter({
+      id: "otter-1", name: "小獭", type: "small", status: "active",
+      role: null, parentOtterId: null,
+      createdAt: "2026-01-01T00:00:00Z", dissolvedAt: null,
+    });
   });
 
   afterEach(() => {
     db.close();
   });
 
-  describe("createCompletedMessage + getMessageById", () => {
-    it("创建已完成消息后可查询到", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-
-      const message = messageFixture();
-      await repo.createCompletedMessage(message);
-
-      const result = await repo.getMessageById("msg-1");
-      expect(result).not.toBeNull();
-      expect(result!.id).toBe("msg-1");
-      expect(result!.conversationId).toBe("conv-1");
-      expect(result!.turnId).toBe("turn-1");
-      expect(result!.senderType).toBe("user");
-      expect(result!.senderId).toBe("user-1");
-      expect(result!.status).toBe("completed");
-      expect(aggregateBody(result!.segments)).toBe("你好，请帮我分析一下数据");
-      expect(result!.sequenceNum).toBe(1);
-      expect(result!.talkingStonePassedTo).toEqual(["otter-1"]);
-    });
-
-    it("不存在的消息返回 null", async () => {
-      const result = await repo.getMessageById("nonexistent");
-      expect(result).toBeNull();
-    });
-  });
-
-  describe("createStreamingMessage", () => {
-    it("创建流式消息，状态为 streaming", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-
-      const message = messageFixture({
-        id: "msg-streaming",
-        segments: [],
-        talkingStonePassedTo: null,
-        source: "web",
-      completedAt: null,
-        status: "streaming",
-      });
-      await repo.createStreamingMessage(message);
-
-      const result = await repo.getMessageById("msg-streaming");
-      expect(result).not.toBeNull();
-      expect(result!.status).toBe("streaming");
-      expect(result!.segments).toEqual([]);
-      expect(result!.talkingStonePassedTo).toBeNull();
-    });
-  });
-
-  describe("completeMessage", () => {
-    it("将 speaking 状态的消息转为 completed", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-
-      await repo.createStreamingMessage(messageFixture({
-        id: "msg-streaming",
-        segments: [],
-        talkingStonePassedTo: null,
-        source: "web",
-      completedAt: null,
-        status: "streaming",
-      }));
-
-      // 先调用 startSpeaking 将消息转为 speaking 状态（body 直接传入，startSpeaking 插入 segment）
-      await repo.startSpeaking("msg-streaming", "助手的完整回复内容", ["otter-1"]);
-
-      await repo.completeMessage({
-        messageId: "msg-streaming",
-        talkingStonePassedTo: ["otter-1"],
-        completedAt: "2026-07-22T00:02:00Z",
-        contextTokens: 150,
-        contextTokensMax: 4096,
-      });
-
-      const result = await repo.getMessageById("msg-streaming");
-      expect(result!.status).toBe("completed");
-      expect(aggregateBody(result!.segments)).toBe("助手的完整回复内容");
-      expect(result!.talkingStonePassedTo).toEqual(["otter-1"]);
-      expect(result!.contextTokens).toBe(150);
-      expect(result!.contextTokensMax).toBe(4096);
-    });
-
-    it("对非 speaking 状态的消息调用 completeMessage 抛出异常", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-      await repo.createCompletedMessage(messageFixture());
-
-      await expect(repo.completeMessage({
-        messageId: "msg-1",
-        talkingStonePassedTo: ["otter-1"],
-        completedAt: "2026-07-22T00:02:00Z",
-      })).rejects.toThrow(/not found or not in speaking status/);
-    });
-  });
-});
-
-describe("SqliteConversationRepository - 消息状态转换与查询", () => {
-  let db: Database.Database;
-  let repo: SqliteConversationRepository;
-
-  beforeEach(() => {
-    db = createTestDb();
-    repo = new SqliteConversationRepository(db);
-  });
-
-  afterEach(() => {
-    db.close();
-  });
-
-  describe("failMessage", () => {
-    it("将 streaming 状态的消息标记为 failed", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-      await repo.createStreamingMessage(messageFixture({
-        id: "msg-streaming",
-        segments: [],
-        talkingStonePassedTo: null,
-        source: "web",
-      completedAt: null,
-        status: "streaming",
-      }));
-
-      await repo.failMessage("msg-streaming", "2026-07-22T00:02:00Z", undefined);
-
-      const result = await repo.getMessageById("msg-streaming");
-      expect(result!.status).toBe("failed");
-      expect(result!.completedAt).toBe("2026-07-22T00:02:00Z");
-    });
-
-    it("对非 streaming/speaking 状态的消息调用 failMessage 抛出异常", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-      await repo.createCompletedMessage(messageFixture());
-
-      await expect(repo.failMessage("msg-1", "2026-07-22T00:02:00Z", undefined)).rejects.toThrow(
-        /not found or not in streaming\/speaking status/,
-      );
-    });
-  });
-});
-
-describe("SqliteConversationRepository - 中止/查询/重启兜底（F20260724cwgn）", () => {
-  let db: ReturnType<typeof createTestDb>;
-  let repo: SqliteConversationRepository;
-
-  beforeEach(() => {
-    db = createTestDb();
-    repo = new SqliteConversationRepository(db);
-  });
-
-  afterEach(() => {
-    db.close();
-  });
-
-  describe("abortMessage", () => {
-    it("将 streaming 状态的消息标记为 aborted", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-      await repo.createStreamingMessage(messageFixture({
-        id: "msg-streaming",
-        segments: [],
-        talkingStonePassedTo: null,
-        source: "web",
-      completedAt: null,
-        status: "streaming",
-      }));
-      await repo.appendSegment("msg-streaming", "中止内容");
-
-      await repo.abortMessage("msg-streaming", "", ["otter-1"], "2026-07-22T00:02:00Z");
-
-      const result = await repo.getMessageById("msg-streaming");
-      expect(result!.status).toBe("aborted");
-      expect(aggregateBody(result!.segments)).toBe("中止内容");
-      expect(result!.talkingStonePassedTo).toEqual(["otter-1"]);
-      expect(result!.completedAt).toBe("2026-07-22T00:02:00Z");
-    });
-
-    it("对非 streaming/speaking 状态的消息调用 abortMessage 抛出异常", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-      await repo.createCompletedMessage(messageFixture());
-
-      await expect(repo.abortMessage("msg-1", "", [], "2026-07-22T00:02:00Z")).rejects.toThrow(
-        /not found or not in streaming\/speaking status/,
-      );
-    });
-  });
-
-  describe("getMessages", () => {
-    it("返回指定对话的消息列表", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-
-      await repo.createCompletedMessage(messageFixture({ id: "msg-1", sequenceNum: 1 }));
-      await repo.createCompletedMessage(messageFixture({ id: "msg-2", sequenceNum: 2 }));
-      await repo.createCompletedMessage(messageFixture({ id: "msg-3", sequenceNum: 3 }));
-
-      const results = await repo.getMessages("conv-1", { limit: 10 });
-      // 按 sequence_num DESC 排序
-      expect(results).toHaveLength(3);
-      expect(results[0].id).toBe("msg-3");
-      expect(results[1].id).toBe("msg-2");
-      expect(results[2].id).toBe("msg-1");
-    });
-
-    it("按 status 过滤消息", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-
-      await repo.createCompletedMessage(messageFixture({ id: "msg-completed", sequenceNum: 1, status: "completed" }));
-      await repo.createStreamingMessage(messageFixture({ id: "msg-streaming", sequenceNum: 2, status: "streaming", segments: [], talkingStonePassedTo: null, completedAt: null }));
-
-      const results = await repo.getMessages("conv-1", { limit: 10, status: "completed" });
-      expect(results).toHaveLength(1);
-      expect(results[0].id).toBe("msg-completed");
-    });
-
-    it("按 senderType 过滤消息（取最后一条 otter 消息）", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-
-      await repo.createCompletedMessage(messageFixture({ id: "msg-otter-old", senderType: "otter", senderId: "otter-1", sequenceNum: 1 }));
-      await repo.createCompletedMessage(messageFixture({ id: "msg-user", senderType: "user", senderId: "user-1", sequenceNum: 2 }));
-      await repo.createCompletedMessage(messageFixture({ id: "msg-otter-last", senderType: "otter", senderId: "otter-2", sequenceNum: 3 }));
-      await repo.createCompletedMessage(messageFixture({ id: "msg-system", senderType: "system", senderId: "system", sequenceNum: 4 }));
-
-      const results = await repo.getMessages("conv-1", { limit: 1, senderType: "otter" });
-      expect(results).toHaveLength(1);
-      expect(results[0].id).toBe("msg-otter-last");
-    });
-
-    it("按 turnId 过滤消息", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture({ id: "turn-1" }));
-      await repo.createTurn(turnFixture({ id: "turn-2", turnNumber: 2 }));
-
-      await repo.createCompletedMessage(messageFixture({ id: "msg-t1", turnId: "turn-1", sequenceNum: 1 }));
-      await repo.createCompletedMessage(messageFixture({ id: "msg-t2", turnId: "turn-2", sequenceNum: 2 }));
-
-      const results = await repo.getMessages("conv-1", { limit: 10, turnId: "turn-1" });
-      expect(results).toHaveLength(1);
-      expect(results[0].id).toBe("msg-t1");
-    });
-
-    it("使用 before 参数分页", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-
-      await repo.createCompletedMessage(messageFixture({ id: "msg-1", sequenceNum: 1 }));
-      await repo.createCompletedMessage(messageFixture({ id: "msg-2", sequenceNum: 2 }));
-      await repo.createCompletedMessage(messageFixture({ id: "msg-3", sequenceNum: 3 }));
-
-      // 获取 msg-3 之前的消息
-      const results = await repo.getMessages("conv-1", { limit: 10, before: "msg-3" });
-      expect(results).toHaveLength(2);
-      expect(results[0].id).toBe("msg-2");
-      expect(results[1].id).toBe("msg-1");
-    });
-  });
-
-  describe("appendEvent + getMessageEvents", () => {
-    it("追加事件后可查询到", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-      await repo.createCompletedMessage(messageFixture());
-
-      const event = messageEventFixture();
-      await repo.appendEvent(event);
-
-      const results = await repo.getMessageEvents("msg-1");
-      expect(results).toHaveLength(1);
-      expect(results[0].id).toBe("event-1");
-      expect(results[0].messageId).toBe("msg-1");
-      expect(results[0].eventType).toBe("assistant_text");
-      expect(results[0].payload).toEqual({ text: "这是助手的回复" });
-      expect(results[0].sequenceNum).toBe(1);
-    });
-
-    it("多个事件按 sequence_num 正序返回", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-      await repo.createCompletedMessage(messageFixture());
-
-      await repo.appendEvent(messageEventFixture({
-        id: "event-2",
-        sequenceNum: 2,
-        eventType: "tool_result",
-        payload: { tool: "search", result: "found" },
-      }));
-      await repo.appendEvent(messageEventFixture({
-        id: "event-1",
-        sequenceNum: 1,
-        eventType: "assistant_text",
-        payload: { text: "先执行搜索" },
-      }));
-
-      const results = await repo.getMessageEvents("msg-1");
-      expect(results).toHaveLength(2);
-      // 按 sequence_num ASC 排序
-      expect(results[0].id).toBe("event-1");
-      expect(results[1].id).toBe("event-2");
-    });
-
-    it("无事件时返回空数组", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-      await repo.createCompletedMessage(messageFixture());
-
-      const results = await repo.getMessageEvents("msg-1");
-      expect(results).toEqual([]);
-    });
-  });
-});
-
-describe("SqliteConversationRepository - 重启兜底与未读过滤（F20260724cwgn）", () => {
-  let db: ReturnType<typeof createTestDb>;
-  let repo: SqliteConversationRepository;
-
-  beforeEach(() => {
-    db = createTestDb();
-    repo = new SqliteConversationRepository(db);
-  });
-
-  afterEach(() => {
-    db.close();
-  });
-
-  describe("failInFlightMessages（服务重启兜底）", () => {
-    it("将所有 streaming/speaking 消息标记为 failed，streaming 写入失败说明、speaking 保留已有 body", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-      await repo.createStreamingMessage(messageFixture({
-        id: "msg-streaming",
-        segments: [],
-        talkingStonePassedTo: null,
-        source: "web",
-      completedAt: null,
-        status: "streaming",
-      }));
-      await repo.createStreamingMessage(messageFixture({
-        id: "msg-speaking",
-        segments: [],
-        talkingStonePassedTo: null,
-        source: "web",
-      completedAt: null,
-        status: "streaming",
-        sequenceNum: 2,
-      }));
-      await repo.startSpeaking("msg-speaking", "发言到一半的正文", ["user-1"]);
-      await repo.createCompletedMessage(messageFixture({ id: "msg-done", sequenceNum: 3 }));
-
-      const count = await repo.failInFlightMessages("2026-07-24T00:02:00Z", "[服务重启，发言中断]");
-
-      expect(count).toBe(2);
-      const streaming = await repo.getMessageById("msg-streaming");
-      expect(streaming!.status).toBe("failed");
-      expect(aggregateBody(streaming!.segments)).toBe("[服务重启，发言中断]");
-      expect(streaming!.completedAt).toBe("2026-07-24T00:02:00Z");
-      const speaking = await repo.getMessageById("msg-speaking");
-      expect(speaking!.status).toBe("failed");
-      /** speaking 保留已有 segments 但加中断标记前缀（F5：避免半截 body 被当作完整发言） */
-      expect(aggregateBody(speaking!.segments)).toBe("[服务重启，发言中断]\n\n发言到一半的正文");
-      const done = await repo.getMessageById("msg-done");
-      expect(done!.status).toBe("completed");
-    });
-
-    it("无进行中消息时返回 0", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-      await repo.createCompletedMessage(messageFixture());
-
-      expect(await repo.failInFlightMessages("2026-07-24T00:02:00Z", "[服务重启，发言中断]")).toBe(0);
-    });
-  });
-
-  describe("closeOrphanedTurns（服务重启兜底，F4）", () => {
-    it("关闭不再有进行中消息的 open turn，保留含进行中消息的 turn", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture({ id: "turn-orphan" }));
-      await repo.createCompletedMessage(messageFixture({ turnId: "turn-orphan" }));
-      await repo.createTurn(turnFixture({ id: "turn-active", turnNumber: 2 }));
-      await repo.createStreamingMessage(messageFixture({
-        id: "msg-inflight",
-        turnId: "turn-active",
-        sequenceNum: 2,
-        segments: [],
-        talkingStonePassedTo: null,
-        source: "web",
-      completedAt: null,
-        status: "streaming",
-      }));
-
-      const count = await repo.closeOrphanedTurns("2026-07-24T00:03:00Z");
-
-      expect(count).toBe(1);
-      expect(await repo.getActiveTurn("conv-1")).not.toBeNull();
-      expect((await repo.getActiveTurn("conv-1"))!.id).toBe("turn-active");
-    });
-
-    it("全部 turn 无进行中消息时全部关闭", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-      await repo.createCompletedMessage(messageFixture());
-
-      expect(await repo.closeOrphanedTurns("2026-07-24T00:03:00Z")).toBe(1);
-      expect(await repo.getActiveTurn("conv-1")).toBeNull();
-    });
-  });
-
-  describe("getUnreadMessages（F5：排除进行中半成品）", () => {
-    it("不返回 streaming/speaking 消息（半成品不应注入其它 otter 上下文）", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-      /** conversation_participants 有 otter_id 外键，需先插入 otter */
-      db.prepare(`INSERT INTO otters (id, name, type) VALUES (?, ?, ?)`).run("otter-reader", "Reader", "small");
-      await repo.createParticipant({
-        id: "part-1", conversationId: "conv-1", otterId: "otter-reader",
-        joinedAtTurnId: null, joinedAtTurnNumber: 0,
-        leftAtTurnId: null, leftAtTurnNumber: null,
-        status: "active", createdAt: "2026-07-22T00:00:00Z", leftAt: null,
-        lastReadTurnNumber: 0,
-        lastActiveTurnNumber: 0,
-      });
-      await repo.createCompletedMessage(messageFixture({ senderId: "otter-1" }));
-      await repo.createStreamingMessage(messageFixture({
-        id: "msg-inflight", senderId: "otter-1", sequenceNum: 2,
-        segments: [], talkingStonePassedTo: null, source: "web",
-      completedAt: null, status: "streaming",
-      }));
-
-      const unread = await repo.getUnreadMessages("conv-1", "otter-reader");
-      expect(unread.map(m => m.id)).toEqual(["msg-1"]);
-    });
-
-    /** F20260902uspr 回归：SignalRouter 收件箱（未读视图 × talkingStonePassedTo 判别）依赖。
-     *  病史：投影曾硬编码 talkingStonePassedTo: null，signal-router 单测 mock 了仓储带真值，
-     *  真实路径 pendingSignalsFor 恒空——web/IM/补扫全入口静默哑火且无日志。 */
-    it("携带 talkingStonePassedTo 真值（SignalRouter 收件箱判别依赖）", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-      db.prepare(`INSERT INTO otters (id, name, type) VALUES (?, ?, ?)`).run("otter-reader", "Reader", "small");
-      await repo.createParticipant({
-        id: "part-1", conversationId: "conv-1", otterId: "otter-reader",
-        joinedAtTurnId: null, joinedAtTurnNumber: 0,
-        leftAtTurnId: null, leftAtTurnNumber: null,
-        status: "active", createdAt: "2026-07-22T00:00:00Z", leftAt: null,
-        lastReadTurnNumber: 0,
-        lastActiveTurnNumber: 0,
-      });
-      await repo.createCompletedMessage(messageFixture({
-        id: "msg-targeted", senderId: "user-1", sequenceNum: 1,
-        talkingStonePassedTo: ["otter-reader", "user"],
-      }));
-      await repo.createCompletedMessage(messageFixture({
-        id: "msg-notarget", senderId: "user-1", sequenceNum: 2,
-        talkingStonePassedTo: null,
-      }));
-
-      const unread = await repo.getUnreadMessages("conv-1", "otter-reader");
-      expect(unread.map(m => m.talkingStonePassedTo)).toEqual([
-        ["otter-reader", "user"],  // 指向判别命中：router.pendingSignalsFor 可见
-        null,                       // 无目标：与 conversation-mapper 同约定
-      ]);
-    });
-  });
-
-  describe("getTurnById（F20260803trrf: markBatchRead 时序修复）", () => {
-    it("按 id 查 turn，不论 status（关闭后仍可查）", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-      await repo.closeTurn("turn-1", "2026-07-22T00:01:00Z");
-
-      const turn = await repo.getTurnById("turn-1");
-      expect(turn).not.toBeNull();
-      expect(turn!.id).toBe("turn-1");
-      expect(turn!.status).toBe("closed");
-    });
-
-    it("不存在的 turnId 返回 null", async () => {
-      expect(await repo.getTurnById("nope")).toBeNull();
-    });
-  });
-
-  describe("getLastMessageBySender（F20260803trrf: rejected 路径用）", () => {
-    it("返回指定 sender 的最新消息（按 sequence_num desc）", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-      await repo.createCompletedMessage(messageFixture({ senderId: "otter-1", sequenceNum: 1 }));
-      await repo.createCompletedMessage(messageFixture({ id: "msg-2", senderId: "otter-1", sequenceNum: 2 }));
-      await repo.createCompletedMessage(messageFixture({ id: "msg-3", senderId: "otter-2", sequenceNum: 3 }));
-
-      const msg = await repo.getLastMessageBySender("conv-1", "otter-1");
-      expect(msg!.id).toBe("msg-2");
-    });
-
-    it("无消息时返回 null", async () => {
-      await repo.create(conversationFixture());
-      expect(await repo.getLastMessageBySender("conv-1", "otter-1")).toBeNull();
-    });
-  });
-
-  describe("markParticipantLeft（F20260803trrf: dissolve 顺带修）", () => {
-    it("更新 participant status 为 left，名册不再显示", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-      insertOtter(db, "otter-x");
-      await repo.createParticipant({
-        id: "part-1", conversationId: "conv-1", otterId: "otter-x",
-        joinedAtTurnId: null, joinedAtTurnNumber: 0,
-        leftAtTurnId: null, leftAtTurnNumber: null,
-        status: "active", createdAt: "2026-07-22T00:00:00Z", leftAt: null,
-        lastReadTurnNumber: 0,
-        lastActiveTurnNumber: 0,
-      });
-
-      await repo.markParticipantLeft("conv-1", "otter-x");
-
-      const active = await repo.getActiveParticipants("conv-1");
-      expect(active.find(p => p.otterId === "otter-x")).toBeUndefined();
-    });
-  });
-});
-
-describe("SqliteConversationRepository - listConversationsWithMeta 活动状态派生（F20260805actv）", () => {
-  let db: Database.Database;
-  let repo: SqliteConversationRepository;
-
-  beforeEach(() => {
-    db = createTestDb();
-    repo = new SqliteConversationRepository(db);
-  });
-
-  afterEach(() => {
-    db.close();
-  });
-
-  it("存在 streaming 消息时派生为 processing", async () => {
+  function entryFixture(overrides: Partial<Entry> = {}): Entry {
+    const id = overrides.id ?? "entry-1";
+    return {
+      id, conversationId: "conv-1", sequenceNum: 0,
+      entryType: "speak", senderType: "otter", senderId: "otter-1",
+      body: "气泡内容", invokeId: null, yieldTargets: null,
+      turnId: "turn-1", status: "completed",
+      source: null, metadata: null, senderName: "otter",
+      contextTokens: null, contextTokensMax: null,
+      createdAt: "2026-07-22T00:00:00Z", completedAt: "2026-07-22T00:00:00Z",
+      ...overrides,
+    };
+  }
+
+  it("存在 running invoke 时派生为 processing", async () => {
     await repo.create(conversationFixture());
     await repo.createTurn(turnFixture());
-    await repo.createStreamingMessage(messageFixture({ status: "streaming", segments: [] }));
+    await invokeRepo.createInvoke({
+      id: "inv-1", conversationId: "conv-1", otterId: "otter-1", turnId: "turn-1",
+      status: "running", triggerType: "user_message", triggerSource: "web",
+      toolCallCount: 0, tokenUsage: null, talkingStonePassedTo: null,
+      startedAt: "2026-07-22T00:00:00Z", endedAt: null,
+    } as never);
 
     const [item] = await repo.listConversationsWithMeta("user-1");
     expect(item.activityStatus).toBe("processing");
   });
 
-  it("存在 speaking 消息时派生为 processing", async () => {
+  it("active 对话 + 仅有 completed entries → awaiting_user", async () => {
     await repo.create(conversationFixture());
     await repo.createTurn(turnFixture());
-    await repo.createStreamingMessage(messageFixture({ status: "streaming", segments: [] }));
-    await repo.startSpeaking("msg-1", "test body content", ["user"]);
-
-    const [item] = await repo.listConversationsWithMeta("user-1");
-    expect(item.activityStatus).toBe("processing");
-  });
-
-  it("active 对话 + 仅有 completed 消息（发言石传回用户）→ awaiting_user", async () => {
-    await repo.create(conversationFixture());
-    await repo.createTurn(turnFixture());
-    await repo.createCompletedMessage(messageFixture({ talkingStonePassedTo: ["user"] }));
+    await entryRepo.createEntryAtomic(entryFixture({ yieldTargets: ["user"] }));
 
     const [item] = await repo.listConversationsWithMeta("user-1");
     expect(item.activityStatus).toBe("awaiting_user");
   });
 
-  it("active 对话 + otter 消息发言石传给其他 otter → processing（非 awaiting_user）", async () => {
-    await repo.create(conversationFixture());
-    await repo.createTurn(turnFixture());
-    await repo.createCompletedMessage(messageFixture({
-      senderType: "otter",
-      senderId: "otter-1",
-      talkingStonePassedTo: ["otter-2"],
-    }));
-
-    const [item] = await repo.listConversationsWithMeta("user-1");
-    expect(item.activityStatus).toBe("processing");
-  });
-
-  it("active 对话 + otter 消息发言石同时传给 user 和 otter → awaiting_user", async () => {
-    await repo.create(conversationFixture());
-    await repo.createTurn(turnFixture());
-    await repo.createCompletedMessage(messageFixture({
-      senderType: "otter",
-      senderId: "otter-1",
-      talkingStonePassedTo: ["user", "otter-2"],
-    }));
-
-    const [item] = await repo.listConversationsWithMeta("user-1");
-    expect(item.activityStatus).toBe("awaiting_user");
-  });
-
-  it("active 对话 + 无任何消息 → idle", async () => {
+  it("active 对话 + 无任何 entry → idle", async () => {
     await repo.create(conversationFixture());
 
     const [item] = await repo.listConversationsWithMeta("user-1");
     expect(item.activityStatus).toBe("idle");
   });
 
-  it("completed 对话即使有消息也派生为 idle", async () => {
+  it("completed 对话即使有 entries 也派生为 idle", async () => {
     await repo.create(conversationFixture({ status: "completed", completedAt: "2026-07-22T01:00:00Z" }));
     await repo.createTurn(turnFixture());
-    await repo.createCompletedMessage(messageFixture());
+    await entryRepo.createEntryAtomic(entryFixture());
 
     const [item] = await repo.listConversationsWithMeta("user-1");
     expect(item.activityStatus).toBe("idle");
   });
 
-  it("active 对话 + 仅有 failed 消息 → awaiting_user（failed 不误判为 processing）", async () => {
+  it("未读计数按 speak/system entries 计（跳过 user 气泡）", async () => {
     await repo.create(conversationFixture());
     await repo.createTurn(turnFixture());
-    await repo.createStreamingMessage(messageFixture({ status: "streaming", segments: [], talkingStonePassedTo: ["user"] }));
-    await repo.failMessage("msg-1", "2026-07-22T00:02:00Z", undefined);
+    await entryRepo.createEntryAtomic(entryFixture({ id: "e-1", entryType: "user", senderType: "user", senderId: "user-1", body: "用户发言" }));
+    await entryRepo.createEntryAtomic(entryFixture({ id: "e-2", entryType: "speak" }));
+    await entryRepo.createEntryAtomic(entryFixture({ id: "e-3", entryType: "system", senderType: "system", senderId: "system", body: "系统条目" }));
 
     const [item] = await repo.listConversationsWithMeta("user-1");
-    expect(item.activityStatus).toBe("awaiting_user");
-  });
-
-  it("active 对话 + 有 aborted 消息 → awaiting_user（aborted 不干扰）", async () => {
-    await repo.create(conversationFixture());
-    await repo.createTurn(turnFixture());
-    await repo.createStreamingMessage(messageFixture({ status: "streaming", segments: [] }));
-    await repo.abortMessage("msg-1", "", ["user"], "2026-07-22T00:02:00Z");
-
-    const [item] = await repo.listConversationsWithMeta("user-1");
-    expect(item.activityStatus).toBe("awaiting_user");
+    expect(item.unreadCount).toBe(2);
   });
 
   it("多对话并发时各自独立派生状态", async () => {
     await repo.create(conversationFixture({ id: "conv-a", createdAt: "2026-07-22T00:00:00Z" }));
     await repo.createTurn(turnFixture({ id: "turn-a", conversationId: "conv-a" }));
-    await repo.createStreamingMessage(messageFixture({ id: "msg-a", conversationId: "conv-a", turnId: "turn-a", status: "streaming", segments: [] }));
+    await invokeRepo.createInvoke({
+      id: "inv-a", conversationId: "conv-a", otterId: "otter-1", turnId: "turn-a",
+      status: "running", triggerType: "user_message", triggerSource: "web",
+      toolCallCount: 0, tokenUsage: null, talkingStonePassedTo: null,
+      startedAt: "2026-07-22T00:00:00Z", endedAt: null,
+    } as never);
 
     await repo.create(conversationFixture({ id: "conv-b", createdAt: "2026-07-22T00:01:00Z" }));
     await repo.createTurn(turnFixture({ id: "turn-b", conversationId: "conv-b" }));
-    await repo.createCompletedMessage(messageFixture({ id: "msg-b", conversationId: "conv-b", turnId: "turn-b", talkingStonePassedTo: ["user"] }));
+    await entryRepo.createEntryAtomic(entryFixture({ id: "e-b", conversationId: "conv-b", turnId: "turn-b" }));
 
     await repo.create(conversationFixture({ id: "conv-c", createdAt: "2026-07-22T00:02:00Z" }));
 

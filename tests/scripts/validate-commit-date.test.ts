@@ -58,27 +58,32 @@ describe('validateCommitDate', () => {
       expect(result.diffDays).toBe(2);
     });
 
-    it('should reject when F-type ID date is 3 days before', () => {
+    it('should pass when F-type ID date is 3 days before', () => {
+      // F20260913ctlv：±2 → ±7 放宽（原 ±2 系时区漂移推导，非特性周期限制——
+      // 长周期 PR 的 commit/PR 标题撞闸是设计盲区，见 F20260913ctlv 收尾）
       const result = validateCommitDate('[F20260822abcd][agent][Feature Update] 测试', NOW);
-      expect(result.valid).toBe(false);
-      expect(result.status).toBe('fail');
-      expect(result.diffDays).toBe(3);
-      expect(result.idDate).toBe('20260822');
-      expect(result.systemDate).toBe('20260825');
-    });
-
-    it('should reject when F-type ID date is 3 days after', () => {
-      const result = validateCommitDate('[F20260828abcd][agent][Feature Update] 测试', NOW);
-      expect(result.valid).toBe(false);
-      expect(result.status).toBe('fail');
+      expect(result.valid).toBe(true);
       expect(result.diffDays).toBe(3);
     });
 
-    it('should reject when F-type ID date is 7 days before', () => {
+    it('should pass when F-type ID date is 7 days before', () => {
       const result = validateCommitDate('[F20260818abcd][agent][Feature Update] 测试', NOW);
+      expect(result.valid).toBe(true);
+      expect(result.diffDays).toBe(7);
+    });
+
+    it('should reject when F-type ID date is 8 days before', () => {
+      const result = validateCommitDate('[F20260817abcd][agent][Feature Update] 测试', NOW);
       expect(result.valid).toBe(false);
       expect(result.status).toBe('fail');
-      expect(result.diffDays).toBe(7);
+      expect(result.diffDays).toBe(8);
+    });
+
+    it('should reject when F-type ID date is 8 days after', () => {
+      const result = validateCommitDate('[F20260902abcd][agent][Feature Update] 测试', NOW);
+      expect(result.valid).toBe(false);
+      expect(result.status).toBe('fail');
+      expect(result.diffDays).toBe(8);
     });
   });
 
@@ -154,16 +159,17 @@ describe('validateCommitDate', () => {
       `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(
         d.getDate(),
       ).padStart(2, '0')}`;
-    // 本地时区近似即可：±2 天容忍下 UTC/Shanghai 差 1 天不影响结论
-    const threeDaysAgo = new Date(today.getTime() - 3 * 24 * 3600 * 1000);
+    // 本地时区近似即可：±7 天容忍下 UTC/Shanghai 差 1 天不影响结论
+    // F20260913ctlv：±2 → ±7 放宽，集成测试用 8 天前才应拒绝
+    const eightDaysAgo = new Date(today.getTime() - 8 * 24 * 3600 * 1000);
 
     it('should exit 0 for valid F-type commit', () => {
       const { exitCode } = runCLI([`[F${ymd(today)}abcd][agent][Feature Update] 测试`]);
       expect(exitCode).toBe(0);
     });
 
-    it('should exit 1 for rejected F-type commit (偏差 > 2 天)', () => {
-      const { exitCode, stderr } = runCLI([`[F${ymd(threeDaysAgo)}abcd][agent][Feature Update] 测试`]);
+    it('should exit 1 for rejected F-type commit (偏差 > 7 天)', () => {
+      const { exitCode, stderr } = runCLI([`[F${ymd(eightDaysAgo)}abcd][agent][Feature Update] 测试`]);
       expect(exitCode).toBe(1);
       expect(stderr).toContain('偏差');
     });

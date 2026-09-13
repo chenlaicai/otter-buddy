@@ -1,6 +1,8 @@
 /**
  * ManageParticipant 单元测试（真 sqlite）。
  * join/leave 状态机 + 错误分支 + 名称回退，全部对真 DB 断言。
+ * F20260913ctlv：注入 entryDeps 后进场/退场系统消息写 system entry（entries 表），
+ * 无 open turn 时 ensureActiveTurn 兜底创建（旧硬校验已删）。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type Database from "better-sqlite3";
@@ -8,10 +10,11 @@ import { ManageParticipant } from "@usecases/conversation/manage-participant";
 import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
 import { SqliteOtterConfigProvider } from "@frameworks/db/otter/sqlite-otter-config-provider";
+import { SqliteEntryRepository } from "@frameworks/db/conversation/sqlite-entry-repository";
+import { SqliteInvokeRepository } from "@frameworks/db/conversation/sqlite-invoke-repository";
 import type { Conversation, Turn } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
 import { DomainError } from "@entities/errors";
-import { aggregateBody } from "@entities/conversation/message";
 import { createTestDb } from "../../helpers/db";
 
 function otterFixture(id: string, name: string): Otter {
@@ -26,13 +29,19 @@ describe("ManageParticipant（真 sqlite）", () => {
   let db: Database.Database;
   let repo: SqliteConversationRepository;
   let otterRepo: SqliteOtterRepository;
-  let mp: ManageParticipant;
+  /** entry 路径实例（F20260913ctlv：进场/退场 system entry） */
+  let mpEntry: ManageParticipant;
+  let entryRepo: SqliteEntryRepository;
 
   beforeEach(async () => {
     db = createTestDb();
     repo = new SqliteConversationRepository(db);
     otterRepo = new SqliteOtterRepository(db);
-    mp = new ManageParticipant(repo, otterRepo);
+    entryRepo = new SqliteEntryRepository(db);
+    mpEntry = new ManageParticipant(repo, otterRepo, {
+      entryRepo,
+      invokeRepo: new SqliteInvokeRepository(db),
+    });
 
     const conv: Conversation = {
       id: "conv-1", title: "测试对话", status: "active", summary: null, pinned: false, workspaceDir: null,
@@ -69,91 +78,81 @@ describe("ManageParticipant（真 sqlite）", () => {
   }
 
   describe("join", () => {
-    it("创建参与者记录 + 系统消息，返回两者", async () => {
-      const result = await mp.join("conv-1", "otter-1", "小獭进场了");
+    it("创建参与者记录 + system entry（entryDeps 路径），无 open turn 时兜底创建 turn", async () => {
+      // 关掉唯一预置的 open turn——彻底切换后常态无 open turn，join 仍须成功
+      await repo.closeTurn("turn-1", "2026-01-01T01:00:00Z");
+
+      const result = await mpEntry.join("conv-1", "otter-1", "小獭进场了");
 
       expect(result.participant.otterId).toBe("otter-1");
       expect(result.participant.status).toBe("active");
       expect(result.participant.conversationId).toBe("conv-1");
 
-      expect(result.systemMessage.senderType).toBe("system");
-      expect(aggregateBody(result.systemMessage.segments)).toBe("小獭进场了");
-      expect(result.systemMessage.status).toBe("completed");
-      expect(result.systemMessage.talkingStonePassedTo).toEqual([]);
+      // system entry 断言
+      expect("entryType" in result.systemMessage).toBe(true);
+      const entry = result.systemMessage as import("@entities/conversation/entry").Entry;
+      expect(entry.entryType).toBe("system");
+      expect(entry.body).toBe("小獭进场了");
+      expect(entry.status).toBe("completed");
+      // entry 路径写 entries（messages 表已 drop）
+      const sysEntries = await entryRepo.getEntries("conv-1", { entryType: "system", limit: 5 });
+      expect(sysEntries.some(e => e.body === "小獭进场了")).toBe(true);
 
       /** 真 DB 断言 */
       const stored = await repo.getParticipant("conv-1", "otter-1");
       expect(stored).not.toBeNull();
-      const messages = await repo.getMessages("conv-1", {});
-      expect(messages).toHaveLength(1);
-      expect(messages[0].senderType).toBe("system");
     });
 
     it("已进场的 Otter 再次进场抛出 conflict 错误", async () => {
-      await mp.join("conv-1", "otter-1", "小獭进场");
-      await newTurn();
+      await mpEntry.join("conv-1", "otter-1", "小獭进场");
 
-      await expect(mp.join("conv-1", "otter-1", "小獭又来了")).rejects.toThrow(DomainError);
-      await expect(mp.join("conv-1", "otter-1", "小獭又来了")).rejects.toSatisfy(
+      await expect(mpEntry.join("conv-1", "otter-1", "小獭又来了")).rejects.toThrow(DomainError);
+      await expect(mpEntry.join("conv-1", "otter-1", "小獭又来了")).rejects.toSatisfy(
         (err: DomainError) => err.kind === "conflict",
-      );
-    });
-
-    it("无活跃 Turn 时抛出 validation 错误", async () => {
-      await repo.closeTurn("turn-1", "2026-01-01T01:00:00Z");
-
-      await expect(mp.join("conv-1", "otter-1", "小獭进场")).rejects.toThrow(DomainError);
-      await expect(mp.join("conv-1", "otter-1", "小獭进场")).rejects.toSatisfy(
-        (err: DomainError) => err.kind === "validation",
       );
     });
   });
 
   describe("leave", () => {
-    it("更新参与者状态为 left + 创建系统消息", async () => {
-      const { participant } = await mp.join("conv-1", "otter-1", "小獭进场了");
-      const leaveTurnId = await newTurn();
+    it("更新参与者状态为 left + system entry（entryDeps 路径）", async () => {
+      const { participant } = await mpEntry.join("conv-1", "otter-1", "小獭进场了");
 
-      const result = await mp.leave("conv-1", "otter-1", "小獭退场了");
+      const result = await mpEntry.leave("conv-1", "otter-1", "小獭退场了");
 
       expect(result.participant.status).toBe("left");
-      expect(result.participant.leftAtTurnId).toBe(leaveTurnId);
       expect(result.participant.leftAt).toBeTruthy();
-      expect(aggregateBody(result.systemMessage.segments)).toBe("小獭退场了");
-      expect(result.systemMessage.senderType).toBe("system");
+      const entry = result.systemMessage as import("@entities/conversation/entry").Entry;
+      expect(entry.entryType).toBe("system");
+      expect(entry.body).toBe("小獭退场了");
 
-      /** 真 DB 断言：参与者已 left，系统消息落库 */
+      /** 真 DB 断言：参与者已 left，system entry 落库 */
       const stored = await repo.getParticipant("conv-1", "otter-1");
       expect(stored!.status).toBe("left");
       expect(stored!.id).toBe(participant.id);
-      const messages = await repo.getMessages("conv-1", {});
-      expect(messages).toHaveLength(2);
     });
 
     it("非活跃参与者退场抛出 validation 错误", async () => {
-      await mp.join("conv-1", "otter-1", "小獭进场");
-      await newTurn();
-      await mp.leave("conv-1", "otter-1", "小獭退场");
-      await newTurn();
+      await mpEntry.join("conv-1", "otter-1", "小獭进场");
+      await mpEntry.leave("conv-1", "otter-1", "小獭退场");
 
-      await expect(mp.leave("conv-1", "otter-1", "再次退场")).rejects.toThrow(DomainError);
-      await expect(mp.leave("conv-1", "otter-1", "再次退场")).rejects.toSatisfy(
+      await expect(mpEntry.leave("conv-1", "otter-1", "再次退场")).rejects.toThrow(DomainError);
+      await expect(mpEntry.leave("conv-1", "otter-1", "再次退场")).rejects.toSatisfy(
         (err: DomainError) => err.kind === "validation",
       );
     });
 
     it("不存在的参与者退场抛出 validation 错误", async () => {
-      await expect(mp.leave("conv-1", "otter-unknown", "未知獭退场")).rejects.toThrow(DomainError);
+      await expect(mpEntry.leave("conv-1", "otter-unknown", "未知獭退场")).rejects.toThrow(DomainError);
     });
   });
 
   describe("getActiveParticipants", () => {
     it("返回带 Otter 名称的参与者列表", async () => {
-      await mp.join("conv-1", "otter-1", "A 进场");
+      await mpEntry.join("conv-1", "otter-1", "A 进场");
       await newTurn();
-      await mp.join("conv-1", "otter-2", "B 进场");
+      await mpEntry.join("conv-1", "otter-2", "B 进场");
 
-      const result = await mp.getActiveParticipants("conv-1");
+      const result = await mpEntry.getActiveParticipants("conv-1");
 
       expect(result).toHaveLength(2);
       const byOtter = new Map(result.map((r) => [r.participant.otterId, r.otterName]));
@@ -162,14 +161,14 @@ describe("ManageParticipant（真 sqlite）", () => {
     });
 
     it("Otter 行被删除后使用回退名称", async () => {
-      await mp.join("conv-1", "otter-missing-abc12345", "幽灵进场");
+      await mpEntry.join("conv-1", "otter-missing-abc12345", "幽灵进场");
       /** 生产 foreignKeys 由配置决定（可 OFF）：孤儿参与者真实存在（如 otter 被硬删）。
        *  此处关 FK 复现该场景 */
       db.pragma("foreign_keys = OFF");
       await otterRepo.deleteOtter("otter-missing-abc12345");
       db.pragma("foreign_keys = ON");
 
-      const result = await mp.getActiveParticipants("conv-1");
+      const result = await mpEntry.getActiveParticipants("conv-1");
 
       expect(result).toHaveLength(1);
       /** 回退名称格式：Otter {id.slice(0,8)} */
@@ -180,7 +179,7 @@ describe("ManageParticipant（真 sqlite）", () => {
       const configProvider = new SqliteOtterConfigProvider(db);
       configProvider.setConfig("otter-1", { otterType: "small", modelAlias: "mimo" });
       configProvider.setConfig("otter-2", { otterType: "small" });
-      const mpWithConfig = new ManageParticipant(repo, otterRepo, configProvider);
+      const mpWithConfig = new ManageParticipant(repo, otterRepo, { entryRepo, invokeRepo: new SqliteInvokeRepository(db) }, configProvider);
       await mpWithConfig.join("conv-1", "otter-1", "A 进场");
       await newTurn();
       await mpWithConfig.join("conv-1", "otter-2", "B 进场");
@@ -193,9 +192,9 @@ describe("ManageParticipant（真 sqlite）", () => {
     });
 
     it("不注入 configProvider 时 modelAlias 为 undefined（老数据兼容）", async () => {
-      await mp.join("conv-1", "otter-1", "A 进场");
+      await mpEntry.join("conv-1", "otter-1", "A 进场");
 
-      const result = await mp.getActiveParticipants("conv-1");
+      const result = await mpEntry.getActiveParticipants("conv-1");
 
       expect(result).toHaveLength(1);
       expect(result[0].modelAlias).toBeUndefined();
