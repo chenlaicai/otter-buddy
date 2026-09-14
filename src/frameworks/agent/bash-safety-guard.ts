@@ -110,8 +110,18 @@ function whitelistedPortAllow(
     }
     // 规则 2b：kill 目标变量在同命令内被赋值为白名单端口的 lsof 结果
     const vars = [...seg.matchAll(/\$([A-Za-z_]\w*)/g)].map(m => m[1]);
+    // #918 检视建议 3：多次赋值只认「最后一次」——P=$(lsof :3100); P=别的; kill $P
+    // 不能因首次赋值合法而放行（取最后赋值点，其后不允许再对该变量重赋值）
     const provenance = vars.some(v =>
-      portHits.some(p => new RegExp(`\\b${v}\\s*=\\s*\\$\\(\\s*lsof[^)]*:${p}\\b`).test(command)),
+      portHits.some(p => {
+        const assign = new RegExp(`\\b${v}\\s*=\\s*\\$\\(\\s*lsof[^)]*:${p}\\b`, "g");
+        const matches = [...command.matchAll(assign)];
+        if (matches.length === 0) return false;
+        const last = matches[matches.length - 1];
+        const lastAssignEnd = (last.index ?? 0) + last[0].length;
+        const reassign = new RegExp(`\\b${v}\\s*=`);
+        return !reassign.test(command.slice(lastAssignEnd));
+      }),
     );
     return provenance;
   });
@@ -340,16 +350,18 @@ function checkBashCommandSafetyOnText(
   logger?: Logger,
   allowedServices: AllowedService[] = [],
 ): string | null {
-  // #844 白名单放行：先于一切拦截判定——命中即整体放行（含 diagnostics）
-  const killSegmentsEarly = findKillSegments(text);
-  if (killSegmentsEarly.length > 0 && whitelistedPortAllow(killSegmentsEarly, text, allowedServices, mainPid)) {
-    return null;
-  }
-  // 全命令级高危模式检测（在分段前检查，防止 eval/pipe-to-shell 绕过分段检测）
+  // 全命令级高危模式检测（在分段前检查，防止 eval/pipe-to-shell 绕过分段检测）。
+  // #918 检视严重 1：必须先于白名单放行——否则 `lsof -t -i:3100 | sh -c 'k...'` 类
+  // 形态借白名单端口 lsof 做左段，跳过 pipe-to-shell 检测（defense-in-depth 失效）
   const cmdLevelResult = checkCommandLevelPatterns(text, text.toLowerCase(), mainPid, logger);
   if (cmdLevelResult) return cmdLevelResult;
 
   const killSegments = findKillSegments(text);
+  // #844 白名单放行：cmdLevel 检测之后、分段级检测之前（cmdLevel 是全命令级铁闸，
+  // 白名单只豁免「分段级 kill 目标检测」这一层）
+  if (killSegments.length > 0 && whitelistedPortAllow(killSegments, text, allowedServices, mainPid)) {
+    return null;
+  }
   if (killSegments.length === 0) return null;
 
   // 全命令级：有 kill 段 + 全命令含 .otter-buddy.pid 引用（跨段检测）

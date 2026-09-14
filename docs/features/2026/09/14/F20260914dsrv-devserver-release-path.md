@@ -3,7 +3,7 @@ id: F20260914dsrv
 title: 自有项目 dev server 放行路径：端口白名单 + 受控重启脚本 + 拦截升级
 summary: 解决 #844——外部项目 dev server 重启被 bash 守卫拦死后无正当出路（6 次变体重试实证）。三层交付：方案 A 端口白名单静态放行（lsof 可溯源形态）、方案 B restart-service.mjs 受控脚本（PID/cwd 级校验）、方案 C 同獭 6h 内 ≥3 次拦截自动升 high。
 change_type: feature
-capability_test: "n/a: 守卫为运行时防护层，行为由 19 个新单测锁定（六变体同构命令 + 铁拦不松动 + 升级判定）；受控脚本依赖真实 lsof 环境不进单测"
+capability_test: "n/a: 守卫为运行时防护层，行为由 23 个新单测锁定（六变体同构命令 + 铁拦不松动 + cmdLevel 优先 + 升级判定）；受控脚本依赖真实 lsof 环境不进单测"
 created_in_conversation: c2f347c6-7e59-4e2e-ab48-10f64a5a1258
 created_at: 2026-09-14
 tags: [bash-guard, security, devserver, whitelist, healing, daily-review]
@@ -62,8 +62,10 @@ guard_intercept 落 healing 前经 `classifyGuardIntercept` 判定：同 otter �
 
 ## 验证
 
-- 新增 19 个单测（tests/frameworks/agent/allowed-service-ports.test.ts）：白名单加载 5（合法/缺文件/坏 JSON/热加载/体积上限）+ 放行判定 8（六变体同构 lsof 族放行、ps-grep/pkill 撞名维持拦截、铁拦三件、白名单外端口、未配置退化）+ 端口提取 2 + 升级判定 4；
-- 全量 2919/2919 pass（main 2900 + 19），tsc 0 error，eslint 0 error；
+- #918 检视处置后：白名单放行点后移至 checkCommandLevelPatterns 之后（严重 1：白名单不得豁免 eval/pipe-to-shell/脚本 one-liner 全命令级铁闸）；规则 2b 取最后赋值（建议 3：重赋值盲区）；新增 2 回归测试锁定
+
+- 新增 23 个单测（tests/frameworks/agent/allowed-service-ports.test.ts）：白名单加载 5（合法/缺文件/坏 JSON/热加载/体积上限）+ 放行判定 10（六变体同构 lsof 族放行、ps-grep/pkill 撞名维持拦截、铁拦三件、白名单外端口、未配置退化、#918 严重 1 回归、#918 建议 3 回归）+ 端口提取 2 + 升级判定 4 + 溯源 2；
+- 全量 2921/2921 pass（main 2900 + 21，检视处置后），tsc 0 error，eslint 0 error；
 - 守卫原 91 个用例零回归（含 #850 位置感知白名单全量回归）；
 - restart-service.mjs 冒烟：--help 路径（无参退出码 1）+ 白名单外端口拒绝路径人工验证；
 - 最简实现检查：已过——白名单判定纯函数化挂在现有 checkBashCommandSafety 入口（无新调用链），升级判定独立纯函数模块，未引入任何依赖。

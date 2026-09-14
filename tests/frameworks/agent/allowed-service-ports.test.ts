@@ -134,6 +134,19 @@ describe("#844 白名单放行（方案 A）——六变体同构命令", () => 
     expect(checkBashCommandSafety(cmd, MAIN_PID, undefined, GUARD_OPTS(tmpDir))).toBeTruthy();
   });
 
+  it("#918 严重 1 回归：白名单端口 lsof 做左段接入 shell → 拦截（cmdLevel 检测先于白名单放行）", () => {
+    const cmd = `lsof -t -i:3100 | sh -c 'k''ill 12345'`;
+    expect(checkBashCommandSafety(cmd, MAIN_PID, undefined, GUARD_OPTS(tmpDir))).toBeTruthy();
+  });
+
+  it("#918 建议 3 回归：变量先 lsof 后重赋值再终止 → 拦截（多次赋值只认最后一次）", () => {
+    const cmd = `P=$(lsof -t -i:3100); P="4"2877; k''ill $P`;
+    expect(checkBashCommandSafety(cmd, MAIN_PID, undefined, GUARD_OPTS(tmpDir))).toBeTruthy();
+    // 对照：合法路径不受影响（最后一次赋值就是 lsof）
+    const ok = `P=99999; P=$(lsof -t -i:3100); k''ill $P`;
+    expect(checkBashCommandSafety(ok, MAIN_PID, undefined, GUARD_OPTS(tmpDir))).toBeNull();
+  });
+
   it("白名单外端口不享受放行", () => {
     const cmd = "P=$(lsof -t -i:8080); k''ill $P";
     expect(checkBashCommandSafety(cmd, MAIN_PID, undefined, GUARD_OPTS(tmpDir))).toBeTruthy();
