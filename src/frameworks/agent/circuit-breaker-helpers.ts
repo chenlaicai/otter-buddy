@@ -14,6 +14,28 @@ import type { OutputGuardConfig } from "./output-guard";
 import { attachOutputGuard } from "./output-guard";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { checkBashCommandSafety, readMainProcessPid } from "./bash-safety-guard";
+import { loadAllowedServicePorts } from "./allowed-service-ports";
+
+/**
+ * #844（F20260914dsrv）：拦截文案动态附加 dev server 受控路径引导。
+ * 守卫的静态文案只提供「worktree 隔离/告知搭档」两条路，对外部项目 dev server 重启类
+ * 正当诉求失效（6 次变体重试实证）——本函数在拦截发生时检查端口白名单文件是否存在：
+ *   - 已配置：提示用 restart-service 受控脚本 + 已声明的端口列表；
+ *   - 未配置：提示「搭档创建 .otter/allowed-service-ports.json 后即可走受控路径」。
+ * 静态文案零改动（测试断言友好），追加段动态生成。IO 异常静默退化为原文案。
+ */
+function appendDevServerGuidance(reason: string, projectRoot: string): string {
+  try {
+    const allowed = loadAllowedServicePorts(projectRoot);
+    if (allowed.length > 0) {
+      const ports = allowed.map(s => s.port).join("、");
+      return `${reason}\n【自有项目 dev server】检测到端口白名单（已声明端口：${ports}）。重启自有项目 dev server 请用受控脚本：node scripts/restart-service.mjs <port>（脚本内部做 PID/cwd 校验后终止）。`;
+    }
+    return `${reason}\n【自有项目 dev server】如需重启自有项目的 dev server：请搭档创建 ${projectRoot}/.otter/allowed-service-ports.json（格式见 docs/features/2026/09/14/ 下 F20260914dsrv 文档），然后用受控脚本 node scripts/restart-service.mjs <port>。`;
+  } catch {
+    return reason;
+  }
+}
 
 /** _attachGuards 所需的参数类型 */
 export interface AttachGuardsParams {
@@ -212,11 +234,13 @@ export function attachCircuitBreaker(
       const toolName = e.toolName ?? e.name ?? "unknown";
 
       // F20260830bsgr：bash 安全守卫——拦截针对主进程的 kill 命令（早于工具执行）
+      // #844：guardOptions 传入 projectRoot 供白名单热加载；拦截文案动态附加受控脚本引导
       if (toolName === "bash") {
         const args = (e.args ?? {}) as Record<string, unknown>;
         const command = typeof args.command === "string" ? args.command : "";
         const mainPid = getMainPid();
-        const safetyBlock = checkBashCommandSafety(command, mainPid, logger);
+        const rawSafetyBlock = checkBashCommandSafety(command, mainPid, logger, { projectRoot: options?.projectRoot });
+        const safetyBlock = rawSafetyBlock ? appendDevServerGuidance(rawSafetyBlock, options?.projectRoot ?? process.cwd()) : null;
         if (safetyBlock) {
           logger.warn("[bash-safety-guard] BLOCKED dangerous bash command", {
             otterId,
