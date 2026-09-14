@@ -151,6 +151,14 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
    *  任一对话对不上即中止 drop 并 warn（备份可回放，服务继续跑——只留死数据不炸）。 */
   dropLegacyMessagesTables(db, logger);
 
+  /** F20260914fkx1：scheduled_task_executions 残留 FK REFERENCES messages(id) 清理。
+   *  Why：#886 批4c drop 了 messages 表，但存量库该表的 message_id 列仍挂
+   *  REFERENCES messages(id)——SQLite 在 foreign_keys=ON 时对含 FK 指向已 drop 表的
+   *  INSERT 会在 prepare 阶段抛 "no such table: main.messages"（2026-09-14 生产现场：
+   *  定时任务 catch-up 全部静默失败，日志 887782）。schema.ts 新库建表已无此 FK，
+   *  仅存量库需要补迁移（四步重建，#654 同模式）。幂等：FK 不指向 messages 即返回。 */
+  rebuildExecutionsDropMessagesFk(db, logger);
+
   /** F20260912avlb：otter_context `dispatch:%` 伪存储 → dispatch_records 正式表（一次性搬家）。
    *  为什么放 migrateDatabase 启动路径：settings 键（dispatch_records_migrated=done）
    *  防重跑——一次成功后不再重跑。新库无 dispatch: key，零循环零副作用。 */
@@ -1377,4 +1385,44 @@ function dropLegacyMessagesTables(db: Database.Database, logger: Logger): void {
     db.pragma("foreign_keys = ON");
   }
   logger.info('[messages→entries] Dropped legacy tables: messages / message_events / message_segments / message_attachments / messages_fts / restart_pending_resumes (F20260913ctlv 批4c)', {});
+}
+
+/** F20260914fkx1：scheduled_task_executions 残留 FK 清理（#886 后遗）。
+ *  存量库该表建于 messages 存活期，message_id 列挂 REFERENCES messages(id)；
+ *  批4c drop messages 后 FK 指向空表，foreign_keys=ON 时 INSERT 在 prepare 阶段抛
+ *  SqliteError: no such table: main.messages（2026-09-14 09:21 生产现场，4 个定时任务
+ *  catch-up 全部静默失败——错误发生在 createExecution 且未建 execution 行）。
+ *  四步重建去 FK（#654 同模式）：CREATE 无 FK 新表 → INSERT SELECT → DROP → RENAME。
+ *  幂等：PRAGMA foreign_key_list 无 messages 引用即返回（新库/已迁移）。
+ *  #805 FK 防护：重建本身在 foreign_keys=OFF 下进行，try/finally 恢复 ON。 */
+function rebuildExecutionsDropMessagesFk(db: Database.Database, logger: Logger): void {
+  const fkRows = db.prepare("PRAGMA foreign_key_list(scheduled_task_executions)").all() as Array<{ table: string }>;
+  if (!fkRows.some(fk => fk.table === 'messages')) return;
+
+  logger.info('Rebuilding scheduled_task_executions to drop stale FK REFERENCES messages(id) (F20260914fkx1)');
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.transaction(() => {
+      db.exec(`
+      CREATE TABLE scheduled_task_executions_new (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
+        triggered_at TEXT NOT NULL,
+        completed_at TEXT,
+        status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed', 'skipped')),
+        error_message TEXT,
+        message_id TEXT,
+        turn_id TEXT REFERENCES turns(id)
+      );
+      INSERT INTO scheduled_task_executions_new (id, task_id, triggered_at, completed_at, status, error_message, message_id, turn_id)
+        SELECT id, task_id, triggered_at, completed_at, status, error_message, message_id, turn_id FROM scheduled_task_executions;
+      DROP TABLE scheduled_task_executions;
+      ALTER TABLE scheduled_task_executions_new RENAME TO scheduled_task_executions;
+      CREATE INDEX IF NOT EXISTS idx_executions_task ON scheduled_task_executions(task_id, triggered_at);
+    `);
+    })();
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+  logger.info('Rebuilt scheduled_task_executions: stale messages FK removed (F20260914fkx1)');
 }
