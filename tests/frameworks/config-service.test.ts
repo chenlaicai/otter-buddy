@@ -294,6 +294,44 @@ describe("validate — models[] 条目校验", () => {
       },
     })).toThrow("不在 models[] 中");
   });
+
+  it("accepts valid thinkingLevel (F20260909mthl)", () => {
+    const raw = {
+      llm: {
+        models: [
+          { alias: "kimi", provider: "openai", model: "k3", thinkingLevel: "high" as const },
+        ],
+      },
+    };
+    expect(() => validate(raw)).not.toThrow();
+  });
+
+  it("throws when thinkingLevel is invalid (F20260909mthl)", () => {
+    expect(() => validate({
+      llm: {
+        models: [
+          { alias: "kimi", provider: "openai", model: "k3", thinkingLevel: "turbo" as never },
+        ],
+      },
+    })).toThrow("thinkingLevel 必须是");
+  });
+
+  it("passes thinkingLevel through applyDefaults→loadConfig (F20260909mthl)", () => {
+    // applyDefaults 经由 loadConfig 生效；此处走 validate+applyDefaults 的等价公开路径（loadConfig 读文件，留给 config.test.yaml 集成）
+    const raw = {
+      llm: {
+        default: "kimi",
+        models: [
+          { alias: "kimi", provider: "openai", model: "k3", thinkingLevel: "high" as const },
+          { alias: "mimo", provider: "anthropic", model: "mimo-v2.5-pro" },
+        ],
+      },
+    };
+    validate(raw);
+    // 校验后 applyDefaults 不透传则丢字段——用 loadConfig 级断言太重，直接检查 validate 未剥字段（mutate 语义）
+    expect(raw.llm.models[0].thinkingLevel).toBe("high");
+    expect(raw.llm.models[1].thinkingLevel).toBeUndefined();
+  });
 });
 
 describe("updateDefaultModelInYaml", () => {

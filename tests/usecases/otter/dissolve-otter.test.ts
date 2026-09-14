@@ -35,6 +35,7 @@ function makeActiveSession(overrides: Partial<OtterSession> = {}): OtterSession 
     archiveReason: null,
     isNegativeCase: false,
     summary: null,
+    modelAlias: null,
     ...overrides,
   };
 }

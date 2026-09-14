@@ -26,6 +26,8 @@ import { AttachmentInjectionService } from "@usecases/conversation/attachment-in
 import { ConversationController } from "@interface-adapters/http/controllers/conversation-controller";
 import { OtterController } from "@interface-adapters/http/controllers/otter-controller";
 import { MessageController } from "@interface-adapters/http/controllers/message-controller";
+import { InvokeController } from "@interface-adapters/http/controllers/invoke-controller";
+import { EntryController } from "@interface-adapters/http/controllers/entry-controller";
 import { MemoryController } from "@interface-adapters/http/controllers/memory-controller";
 import { SkillController, type SkillDirectory } from "@interface-adapters/http/controllers/skill-controller";
 import { HealthController } from "@interface-adapters/http/controllers/health-controller";
@@ -145,14 +147,19 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
     conversation: new ConversationController(uc.manageConversation, uc.manageParticipant, settingsRepo, logger),
     otter: new OtterController(uc.createOtter, uc.dissolveOtter, uc.manageSession, uc.queryOtter, logger, otterConfigProvider, deps.queryOtterProfile, modelPool),
     message: new MessageController(
-      uc.sendMessage, uc.queryMessage, uc.manageReadState, agentInvoker, logger, uc.queryOtter,
+      uc.queryMessage, uc.manageReadState, agentInvoker, logger, uc.queryOtter,
       dispatchChainEngine, messageBroadcaster,
       signalEventRepo,
       attachmentInjection,
       signalRouter,
-      uc.querySignalTrail,
-      repos.dispatchAttempt, // K3：POST SSE 等 attempt 终态再关流
+      uc.sendEntry,
+      repos.entry,
+      repos.invoke,
     ),
+    // F20260913ctlv 彻底切换：invoke 查询 + 中止 + 重试（自足调度链）
+    invoke: new InvokeController(repos.invoke, logger, agentInvoker, dispatchChainEngine, messageBroadcaster),
+    // F20260913ctlv 切换清扫：entries 时间线只读查询端点（前端历史数据源）
+    entry: new EntryController(repos.entry, logger),
     memory: new MemoryController(uc.searchMemory, uc.manageMemory, uc.scanDarkEntries, embeddingGateway, { repo: repos.memory, logger }),
     keyInfo: new KeyInfoController(uc.manageKeyInfo, logger),
     settings: new SettingsController(settings, settingsRepo, modelPool, logger, updateDefaultModelInYaml),

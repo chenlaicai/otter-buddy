@@ -8,7 +8,7 @@ import type {
 export type { OtterDTO, OtterSessionDTO };
 export type { CreateOtterRequestDTO } from "@contract/api/otter";
 
-export function toOtterDTO(otter: Otter, modelAlias?: string): OtterDTO {
+export function toOtterDTO(otter: Otter, modelAlias?: string, modelIsDefault?: boolean): OtterDTO {
   return {
     id: otter.id,
     name: otter.name,
@@ -19,6 +19,7 @@ export function toOtterDTO(otter: Otter, modelAlias?: string): OtterDTO {
     createdAt: otter.createdAt,
     dissolvedAt: otter.dissolvedAt,
     ...(modelAlias !== undefined && { modelAlias }),
+    ...(modelIsDefault !== undefined && { modelIsDefault }),
   };
 }
 
@@ -33,5 +34,7 @@ export function toOtterSessionDTO(session: OtterSession): OtterSessionDTO {
     archiveReason: session.archiveReason,
     isNegativeCase: session.isNegativeCase,
     summary: session.summary,
+    // F20260908efmd: 透传 session 快照的 modelAlias（null = 存量未快照）
+    ...(session.modelAlias !== undefined && { modelAlias: session.modelAlias }),
   };
 }

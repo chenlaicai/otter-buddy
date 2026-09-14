@@ -90,8 +90,8 @@ export class ModelRuntimeRegistry {
       if (!this.resourceLoader) {
         const { DefaultResourceLoader, getAgentDir } = piCodingAgent;
         this.resourceLoader = this.resourceLoaderOverride ?? new DefaultResourceLoader({
-          cwd: process.cwd(),
-          agentDir: getAgentDir(),
+          cwd: process.cwd(), agentDir: getAgentDir(),
+          noContextFiles: true, // #496 屏蔽祖先 CLAUDE.md（Claude Code 指令污染 otter agent；.pi/SYSTEM.md 不受影响）
           extensionFactories: [{
             name: "otter-hooks",
             hidden: true,
@@ -137,7 +137,9 @@ export class ModelRuntimeRegistry {
               pi.on("session_before_compact", async (event: { reason: "manual" | "threshold" | "overflow"; preparation: CompactionPreparationLike }) => {
                 const store = otterInvokeStorage.getStore();
                 const otterName = store?.displayName ?? "海獭";
-                return await handleSessionBeforeCompact(event, compactionHookDeps, otterName);
+                // F20260909csfx：合成链路需要真实 otterId（session restore 依赖），
+                // 从 invoke store 取——压缩必在 invoke 中途触发，store 必有值；缺失时钩子内降级。
+                return await handleSessionBeforeCompact(event, compactionHookDeps, otterName, store?.otterId ?? null);
               });
             },
           }],
@@ -156,12 +158,9 @@ export class ModelRuntimeRegistry {
           this.logger.info(`ResourceLoader discovered ${skills.length} skill(s) from .pi/skills`);
         }
       }
-
       /** 创建 ModelRuntime 并注入 config.yaml 的 apiKey（SDK 不读 config.yaml） */
       this.modelRuntime = await piCodingAgent.ModelRuntime.create();
-
-      // M2（R20260810piab）：创建 SettingsManager，retry maxRetries=4 取代 otter 层 API error 重试。
-      // SDK 默认 maxRetries=3；调到 4 后移除了 otter AgentInvoker 的 API error 重试（原最坏 4 次 = SDK 3 + otter 1）。
+      // M2（R20260810piab）：SettingsManager retry maxRetries=4 取代 otter 层 API error 重试（SDK 默认 3）
       this.settingsManager = piCodingAgent.SettingsManager.create(process.cwd());
       // F20260904cq30：compaction 触发线从贴窗才压（窗口−默认 reserve 16K≈1032K）修正为质量线。
       // 触发公式 contextTokens > contextWindow − reserveTokens，1M 窗口下 1048576−700000=348576≈340K。

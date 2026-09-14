@@ -189,6 +189,19 @@ describe("Otter API", () => {
       expect(deps.dissolveOtterUseCase.execute).toHaveBeenCalledWith("otter-1", "Done with work");
     });
 
+    it("#889: JSON null body → 200 + summary 为 undefined（不崩溃 500）", async () => {
+      deps.dissolveOtterUseCase.execute.mockResolvedValue(undefined);
+
+      const res = await app.request("/api/otters/otter-1", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: "null",
+      });
+
+      expect(res.status).toBe(200);
+      expect(deps.dissolveOtterUseCase.execute).toHaveBeenCalledWith("otter-1", undefined);
+    });
+
     it("returns error when dissolve fails", async () => {
       deps.dissolveOtterUseCase.execute.mockRejectedValue(
         new DomainError("Otter not found: missing", "not_found"),
@@ -245,7 +258,7 @@ describe("Otter API", () => {
       expect(res.status).toBe(201);
       const body = await json(res);
       expect(body.id).toBe("new-session");
-      expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", "Restarting");
+      expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", "Restarting", undefined);
     });
 
     it("F20260805rsto：小獭不支持重启（重启是大獭专属，小獭用解散），返回 400", async () => {
@@ -268,7 +281,50 @@ describe("Otter API", () => {
       });
 
       expect(res.status).toBe(201);
-      expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", undefined);
+      expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", undefined, undefined);
+    });
+
+    it("#889: JSON null body → 201 + summary/modelAlias 为 undefined（不崩溃 500）", async () => {
+      const newSession = makeSession({ id: "null-body-session" });
+      deps.queryOtter.getById.mockResolvedValue(makeOtter({ type: "big" }));
+      deps.manageSession.restartSession.mockResolvedValue(newSession);
+
+      const res = await app.request("/api/otters/otter-1/restart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "null",
+      });
+
+      expect(res.status).toBe(201);
+      expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", undefined, undefined);
+    });
+
+    it("F20260908efmd: restart 带合法 modelAlias → 201 + modelAlias 传入 restartSession", async () => {
+      const newSession = makeSession({ id: "model-switch-session" });
+      deps.manageSession.restartSession.mockResolvedValue(newSession);
+
+      const res = await app.request("/api/otters/otter-1/restart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ summary: "模型切换", modelAlias: "main" }),
+      });
+
+      expect(res.status).toBe(201);
+      expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", "模型切换", "main");
+    });
+
+    it("F20260908efmd: restart 带非法 modelAlias → 400 附可用列表", async () => {
+      const res = await app.request("/api/otters/otter-1/restart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ summary: "测试", modelAlias: "nonexistent-model" }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await json(res);
+      expect(body.error).toContain("未知的模型别名");
+      expect(body.error).toContain("main");
+      expect(deps.manageSession.restartSession).not.toHaveBeenCalled();
     });
   });
 });

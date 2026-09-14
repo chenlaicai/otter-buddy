@@ -6,6 +6,7 @@ import type { SettingsRepository } from "@usecases/settings/settings-repository"
 import type { Logger } from "@usecases/ports/logger";
 import { HEALING_CONVERSATION_KEY } from "@usecases/healing/constants";
 import { handleError, param } from "../http-error";
+import { safeJsonBody } from "../parse-json-body";
 import {
   toConversationDTO,
   toConversationListItemDTO,
@@ -50,7 +51,7 @@ export class ConversationController {
 
   async create(c: Context): Promise<Response> {
     try {
-      const body = await c.req.json<CreateConversationRequestDTO>();
+      const body = await safeJsonBody<CreateConversationRequestDTO>(c);
       const input: CreateConversationInput = {
         title: body.title,
       };
@@ -100,8 +101,8 @@ export class ConversationController {
     try {
       const id = param(c, "id");
       const participantsWithOtter = await this.manageParticipant.getActiveParticipants(id);
-      return c.json(participantsWithOtter.map(({ participant, otterName, otterType, roleName, modelAlias }) =>
-        toParticipantDTO(participant, otterName, { otterType, roleName, modelAlias })
+      return c.json(participantsWithOtter.map(({ participant, otterName, otterType, roleName, modelAlias, modelIsDefault }) =>
+        toParticipantDTO(participant, otterName, { otterType, roleName, modelAlias, modelIsDefault })
       ));
     } catch (err) {
       return handleError(c, err, this.logger);

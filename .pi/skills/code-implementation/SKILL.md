@@ -55,7 +55,7 @@ category: technique
    - 推送 PR 后，等待 CI 运行完成：`gh run watch`
    - CI 失败时立即诊断修复——检视也会将 CI 失败标记为严重发现
 
-7. **文档**：将实现要点、变更说明写入本特性的文档——**新建追加，不改历史**（铁律 F20260831dgim）：本特性已有文档（本分支/本 PR 内创建）则追加；否则新建 `docs/features/` 文档记录，包括「本次变更对旧特性做了什么」也写在新文档里，回改已合入的历史文档一律禁止（参见全局约定「特性文档」；pre-commit 的 lint-historical-docs 会机械拦截）。写完/改完文档后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"——让"这文档怎么来的"之后可被 get_related 拼出链。
+7. **文档**：将实现要点、变更说明写入本特性的文档——**新建追加，不改历史**（铁律）：本特性已有文档（本分支/本 PR 内创建）则追加；否则新建 `docs/features/` 文档记录，包括「本次变更对旧特性做了什么」也写在新文档里，回改已合入的历史文档一律禁止（参见全局约定「特性文档」；pre-commit 的 lint-historical-docs 会机械拦截）。写完/改完文档后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"——让"这文档怎么来的"之后可被 get_related 拼出链。
 
    **Intent 块生成（软代码改动必须）**：
    - **触发条件**：本次变更涉及 prompt/skill/协议层（软代码）时，特性文档 frontmatter 必须生成 intent 块
@@ -90,7 +90,7 @@ category: technique
 [逐条处置，含更好/更差判断]"`
    - 修复后更新 PR，重新审视。第 2 轮起是 delta 审视（附上轮发现清单 + 处置（含更好/更差判断）+ 修复 diff + 更新后的 PR 描述，核对 Discovered Issues 节 issue 落实）
    - 收敛判据：修复验证全部通过 + 无严重发现未处置 + 无阻断回归 → 通过；对立僵局 / 移动靶 / 僵尸循环 → 呈搭档裁决
-   - 审视通过 → 呈搭档终审
+   - 审视通过 → 呈搭档终审（**必须附决策简报**，模板见 `../review-protocol/references/decision-briefing.md`，SYSTEM.md R8——只抛问题清单 = 裸奔拍板 = 违规）
 
 ### 问题处理
 
@@ -102,7 +102,7 @@ category: technique
    - 相关 + 数量 > 5 → PR 描述 Discovered Issues 节记录，审查者决定是否拆分 PR
 3. 问题与当前变更无关？ → 不能静默丢失：执行 `gh issue create`，按 SYSTEM.md R2 Issue 标签与标题规范打标（type=bug 或 tech-debt + priority P0/P1/P2，标题 `[模块] 摘要`），issue 链接写入 PR 描述 Discovered Issues 节（格式见 `references/commit-convention.md`）
 
-检视獭报上来的发现不适用上述规则 → 走 review-protocol 作者处置协议，带证据的反驳是合法处置。
+检视獭报上来的发现不适用上述规则 → 走 review-protocol 作者处置协议（`../adversarial-review/references/author-response-protocol.md`），带证据的反驳是合法处置。走「建 issue」子路径前必须过**关联度前置闸**：与本 PR 语义强关联的发现（守护本 PR 行为不回退 / 澄清本 PR 刚改的口径 / 修本 PR 变更直接引入或暴露的问题）默认当场修——原 PR 未合入修在原 PR，已合入立即开补充 PR；建 issue 的举证责任在作者，须论证为什么**不能**现在修且理由命中合法清单（依赖未就绪 / 需产品决策 / 增量 >300 行或 >3 个新模块），「需搭 fixture」「非本 PR 文件」不构成承载障碍。
 
 ## 产出
 
@@ -110,7 +110,7 @@ category: technique
 |------|--------|--------|
 | 特性文档（docs/features/F*.md，步骤 7） | 随 PR 接受对抗审视 B2 文档完整性检核 | 检视獭 |
 | 代码 PR | **对抗审视（必须）** | 检视獭 |
-| 审视通过 | 呈搭档终审 | 搭档 |
+| 审视通过 | 呈搭档终审（附决策简报） | 搭档 |
 | 排查结论（需修复） | worktree-isolation | 当前獭 |
 
 ## 参考（索引）

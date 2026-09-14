@@ -1,9 +1,14 @@
 import type { Otter, OtterType, OtterRole } from "@entities/otter/otter";
+import { DomainError } from "@entities/errors";
 import { buildNewSession } from "@entities/otter/otter-session";
 import type { OtterRepository } from "./otter-repository";
 import type { AgentGateway } from "./agent-gateway";
 import type { Logger } from "@usecases/ports/logger";
 import type { OtterPromptConfig } from "@contract/api/otter";
+// F20260908efmd: 首世建账时快照有效模型
+import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
+import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
+import { resolveEffectiveModel } from "@usecases/ports/otter-config-provider";
 
 export interface CreateOtterInput {
   name: string;
@@ -22,9 +27,22 @@ export class CreateOtter {
     private readonly repo: OtterRepository,
     private readonly agentGateway: AgentGateway,
     private readonly logger: Logger,
+    /** F20260908efmd: 可选——用于首世建账时解析有效模型。未注入时首世 modelAlias 不快照 */
+    private readonly otterConfigProvider?: OtterConfigProvider,
+    /** F20260908efmd: 可选——用于首世建账时解析有效模型。未注入时首世 modelAlias 不快照 */
+    private readonly modelPool?: ModelPoolLike,
   ) {}
 
   async execute(params: CreateOtterInput): Promise<Otter> {
+    // #891 对抗审视发现 1：null body 经 safeJsonBody 兜底 {} 后 name/type 为 undefined，
+    // 无校验透传会撞 DB NOT NULL 约束 → 500 且回显表结构（otters.name）——此处前置 validation
+    if (typeof params.name !== "string" || params.name.trim().length === 0) {
+      throw new DomainError("name 必填且为非空字符串", "validation");
+    }
+    if (typeof params.type !== "string" || params.type.trim().length === 0) {
+      throw new DomainError("type 必填且为非空字符串", "validation");
+    }
+
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
 
@@ -61,9 +79,12 @@ export class CreateOtter {
      * restart/dissolve 的 archive 前置条件（存在 active session）恒真。
      * 直接用 repo + 实体工厂而非注入 ManageSession——避免
      * CreateOtter → ManageSession → ManageConversation → CreateOtter 组装环。
+     * F20260908efmd: 首世建账时快照有效模型（params.modelAlias ?? 默认模型）。
      */
     try {
-      await this.repo.createSession(buildNewSession(id, null));
+      // F20260908efmd: 首世必须显式传值——解析后的 effective model alias
+      const sessionModelAlias = this.resolveModelForFirstSession(otter.id, params.modelAlias);
+      await this.repo.createSession(buildNewSession(id, null, null, sessionModelAlias));
       this.logger.info('Session created', { otterId: id, action: 'create' });
     } catch (err) {
       /**
@@ -80,5 +101,17 @@ export class CreateOtter {
     }
 
     return otter;
+  }
+
+  /**
+   * F20260908efmd: 解析首世建账的有效模型。
+   * 与 ManageSession.resolveModelForSession 逻辑一致，但调用方自行解析
+   * （避免组装环 CreateOtter → ManageSession）。
+   */
+  private resolveModelForFirstSession(otterId: string, explicitAlias?: string): string | null {
+    if (explicitAlias) return explicitAlias;
+    if (!this.otterConfigProvider || !this.modelPool) return null;
+    const config = this.otterConfigProvider.getConfig(otterId);
+    return resolveEffectiveModel(config, this.modelPool).alias;
   }
 }

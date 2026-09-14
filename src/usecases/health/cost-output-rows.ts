@@ -5,7 +5,9 @@
  * health_snapshots 表的 CreateSnapshotRow 格式。
  *
  * metric_type = "cost_output"，metric_key 为指标名，metadata 含 otter 标识。
- * 同一 snapshotDate 的所有行一次 replaceForDate 写入（幂等）。
+ * 所有行的 snapshotDate 一律取记录自带的真实日期（rec.date），逐日 replaceForDate 写入（幂等）。
+ * ⚠️ 不得把「扫描日」当作行日期——否则每次扫描会把 60 天窗口的全部用量覆盖到当天，
+ *   历史日期只剩全局行，趋势图永远只有 1 个点（2026-09-09 搭档报障实证）。
  *
  * 数据边界：usage/统计类字段入库，会话内容不入库。
  * Goodhart 防线：成本/产出只作信号不作 KPI——行内不含任何排名/评分/百分位。
@@ -68,19 +70,19 @@ interface GlobalRecords {
 /**
  * 构建 cost_output 快照行集。
  *
- * 每条 OtterCostRecord 生成 12 行（12 个指标键），
+ * 每条 OtterCostRecord 生成 11 行（11 个指标键），
  * 每条 OtterOutputRecord 生成 2 行（message_count + tool_call_count），
  * PR 数、F 文档数、dispatch 任务数各生成 1 行（全局 per-date，无 per-otter 维度）。
+ * 行日期全部来自记录自身的 date 字段。
  */
 export function buildCostOutputSnapshotRows(
-  snapshotDate: string,
   costRecords: OtterCostRecord[],
   outputRecords: OtterOutputRecord[],
   globalRecords?: GlobalRecords,
 ): CreateCostOutputRow[] {
   const rows: CreateCostOutputRow[] = [];
 
-  // 1. Per-otter per-model cost 行
+  // 1. Per-otter per-model cost 行（日期取记录真实日期）
   for (const rec of costRecords) {
     const meta: OtterMeta = {
       otterId: rec.otterId,
@@ -91,26 +93,26 @@ export function buildCostOutputSnapshotRows(
     const metaStr = JSON.stringify(meta);
 
     rows.push(
-      makeRow(snapshotDate, COST_OUTPUT_KEYS.INPUT_TOKENS, rec.inputTokens, metaStr),
-      makeRow(snapshotDate, COST_OUTPUT_KEYS.OUTPUT_TOKENS, rec.outputTokens, metaStr),
-      makeRow(snapshotDate, COST_OUTPUT_KEYS.CACHE_READ_TOKENS, rec.cacheReadTokens, metaStr),
-      makeRow(snapshotDate, COST_OUTPUT_KEYS.CACHE_WRITE_TOKENS, rec.cacheWriteTokens, metaStr),
-      makeRow(snapshotDate, COST_OUTPUT_KEYS.TOTAL_TOKENS, rec.totalTokens, metaStr),
-      makeRow(snapshotDate, COST_OUTPUT_KEYS.COST_INPUT, rec.costInput, metaStr),
-      makeRow(snapshotDate, COST_OUTPUT_KEYS.COST_OUTPUT, rec.costOutput, metaStr),
-      makeRow(snapshotDate, COST_OUTPUT_KEYS.COST_CACHE_READ, rec.costCacheRead, metaStr),
-      makeRow(snapshotDate, COST_OUTPUT_KEYS.COST_CACHE_WRITE, rec.costCacheWrite, metaStr),
-      makeRow(snapshotDate, COST_OUTPUT_KEYS.COST_TOTAL, rec.costTotal, metaStr),
-      makeRow(snapshotDate, COST_OUTPUT_KEYS.LLM_CALL_COUNT, rec.callCount, metaStr),
+      makeRow(rec.date, COST_OUTPUT_KEYS.INPUT_TOKENS, rec.inputTokens, metaStr),
+      makeRow(rec.date, COST_OUTPUT_KEYS.OUTPUT_TOKENS, rec.outputTokens, metaStr),
+      makeRow(rec.date, COST_OUTPUT_KEYS.CACHE_READ_TOKENS, rec.cacheReadTokens, metaStr),
+      makeRow(rec.date, COST_OUTPUT_KEYS.CACHE_WRITE_TOKENS, rec.cacheWriteTokens, metaStr),
+      makeRow(rec.date, COST_OUTPUT_KEYS.TOTAL_TOKENS, rec.totalTokens, metaStr),
+      makeRow(rec.date, COST_OUTPUT_KEYS.COST_INPUT, rec.costInput, metaStr),
+      makeRow(rec.date, COST_OUTPUT_KEYS.COST_OUTPUT, rec.costOutput, metaStr),
+      makeRow(rec.date, COST_OUTPUT_KEYS.COST_CACHE_READ, rec.costCacheRead, metaStr),
+      makeRow(rec.date, COST_OUTPUT_KEYS.COST_CACHE_WRITE, rec.costCacheWrite, metaStr),
+      makeRow(rec.date, COST_OUTPUT_KEYS.COST_TOTAL, rec.costTotal, metaStr),
+      makeRow(rec.date, COST_OUTPUT_KEYS.LLM_CALL_COUNT, rec.callCount, metaStr),
     );
   }
 
-  // 2. Per-otter output 行（message_count + tool_call_count）
+  // 2. Per-otter output 行（message_count + tool_call_count，日期取记录真实日期）
   for (const rec of outputRecords) {
     const meta: OtterMeta = { otterId: rec.otterId, otterName: rec.otterName };
     rows.push(
-      makeRow(snapshotDate, COST_OUTPUT_KEYS.MESSAGE_COUNT, rec.messageCount, JSON.stringify(meta)),
-      makeRow(snapshotDate, COST_OUTPUT_KEYS.TOOL_CALL_COUNT, rec.toolCallCount, JSON.stringify(meta)),
+      makeRow(rec.date, COST_OUTPUT_KEYS.MESSAGE_COUNT, rec.messageCount, JSON.stringify(meta)),
+      makeRow(rec.date, COST_OUTPUT_KEYS.TOOL_CALL_COUNT, rec.toolCallCount, JSON.stringify(meta)),
     );
   }
 

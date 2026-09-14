@@ -44,7 +44,7 @@ category: technique
    | 文档完整性 | 特性文档是否存在？是否与实现一致？（通过 `list_artifacts` 查找特性文档）**特性文档缺失 = 严重发现，不可降级** |
    | 全链路验证 | 功能是否端到端可用？不只是单元测试通过 |
    | 变更标识一致性 | 特性编号在 commit/PR/文档间一致？（详见 `references/review-dimensions.md` B4） |
-   | 撞车检查（B5，F20260901cimp） | 是否有其他 open PR 引用同一 issue 或重叠文件域？`gh pr list --state open` 后比对 Closes/Fixes 引用与 files 列表；命中 = 严重发现，立即通知大獭仲裁（时间序优先，见 worktree-isolation 步骤 2） |
+   | 撞车检查（B5） | 是否有其他 open PR 引用同一 issue 或重叠文件域？`gh pr list --state open` 后比对 Closes/Fixes 引用与 files 列表；命中 = 严重发现，立即通知大獭仲裁（时间序优先，见 worktree-isolation 步骤 2） |
    | Intent 块存在性（B6，软代码改动） | 本次变更涉及 prompt/skill/协议层时，特性文档 frontmatter 是否有 intent 块？**intent 块缺失 = 严重发现**（v6.3，P0-a） |
    | Golden Gate 记录（B7，软代码改动） | 本次变更涉及 prompt/skill/协议层时，results.jsonl 是否有该 PR 的执行记录？**记录缺失 = 严重发现**；记录存在但有 fail 行未处置 = 严重发现（v6.3，P0-a——fail 行悬置会让止损线条件 3 永久失明） |
 
@@ -268,7 +268,7 @@ category: technique
 |------|--------|--------|
 | PR review comment | 作者按处置协议回应 | 实现者 |
 | Otter 轻量通知 | 作者去 PR 上处置 | 实现者 |
-| 审视通过 | 搭档终审 | 搭档 |
+| 审视通过 | 搭档终审（呈终审发言必须附决策简报，`../review-protocol/references/decision-briefing.md`，SYSTEM.md R8） | 搭档 |
 
 ### 行动权路由（talkingStonePassedTo）
 
@@ -279,7 +279,7 @@ category: technique
 | PR review comment 发布后 | 传 [实现者/大獭] 处置 |
 | 实现者修复完成 | 传 [审视者] 做 delta 复核 |
 | 复核通过 | 传 [实现者/大獭]，由大獭决定是否传 'user' 终审 |
-| 整个任务终审 | 传 'user' |
+| 整个任务终审 | 传 'user'（附决策简报） |
 
 **修复≠签收**：实现者处置完检视意见后，必须把行动权传回审视者做 delta 复核，不能自己宣布完成。
 

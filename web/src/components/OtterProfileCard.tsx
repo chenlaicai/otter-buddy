@@ -53,7 +53,7 @@ export function OtterProfileCard({
       <div className="flex gap-3 text-[11px] text-stone-500 mb-2">
         <span>{isBig ? '族群长老' : '任务专员'}</span>
         <span>Lv.{activeGen}</span>
-        {modelAlias && <span className="truncate">{modelAlias}</span>}
+        {modelAlias && <span className="truncate">{modelAlias}{otter.modelIsDefault && <span className="text-stone-400">（默认）</span>}</span>}
       </div>
       <div className="flex items-center gap-2 text-[11px] text-stone-500">
         <span>{statusEmoji} {statusText}</span>

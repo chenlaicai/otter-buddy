@@ -1,5 +1,6 @@
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
+import { resolveEffectiveModel } from "@usecases/ports/otter-config-provider";
 import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
 import type { Logger } from "@usecases/ports/logger";
 import type { OtterProfileDTO } from "@contract/api/otter";
@@ -71,7 +72,10 @@ export class QueryOtterProfile {
     if (otter.status === "dissolved") throw new DomainError("Otter dissolved", "not_found");
 
     const config = this.configProvider.getConfig(otterId);
-    const modelAlias = config?.modelAlias ?? null;
+    // F20260908efmd: 有效模型解析——恒非空 + 来源标注
+    const effective = resolveEffectiveModel(config, this.modelPool);
+    const modelAlias = effective.alias;
+    const modelIsDefault = effective.isDefault;
 
     return {
       id: otter.id,
@@ -79,6 +83,7 @@ export class QueryOtterProfile {
       type: otter.type as "big" | "small",
       roleName: otter.role?.name ?? null,
       modelAlias,
+      modelIsDefault,
       modelDescriptor: this.resolveModelDescriptor(modelAlias),
       systemPrompt: this.resolveSystemPrompt(config),
       skills: this.resolveSkills(otterId),

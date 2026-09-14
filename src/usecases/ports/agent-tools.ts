@@ -107,13 +107,21 @@ export interface AgentTool {
 
 /**
  * 工具上下文：invoke 时由系统注入，闭包捕获。
- * otterId、conversationId、currentMessageId 由系统注入，LLM 不传。
+ * otterId、conversationId 由系统注入，LLM 不传。
+ *
+ * F20260911pspl（session 池化）：session 常驻后工具闭包跨 invoke 复用，
+ * 「每 invoke 必变」的字段从值捕获改为 getter 引用（invoke 入口统一重置寄存器）。
+ * conversationId 保持值捕获——池 key = 对话内獭实例（每个对话的獭是独立实体，
+ * manage-conversation.ts「为每个对话创建独立的大獭」），一个常驻 session 终身
+ * 只服务一个对话，conversationId 在池条目生命周期内恒定。
  */
 export interface ToolContext {
   client: OtterToolClient;
   otterId: string;
   conversationId: string;
-  currentMessageId: string;
+  /** F20260911pspl：getter 化（池化后跨 invoke 复用，invoke 入口重置寄存器）。
+   *  读取时机 = 工具执行时（invoke 运行期内），寄存器必有值。 */
+  readonly currentMessageId: string;
   /** 模型池（多模型路由，可选，用于校验 modelAlias） */
   modelPool?: ToolModelPool;
   /** F20260824aibd: Otter 配置提供者（用于查询其他獭的 modelAlias） */
@@ -126,10 +134,11 @@ export interface ToolContext {
   /**
    * F20260815rstrt: 自重启时由 restart_otter 工具设置。
    * PiSessionFactory 在 session.prompt() 返回后检查并执行重启。
+   * F20260908efmd: 扩展 modelAlias 字段——配额耗尽时应急切模型，透传到 agent-invoker。
    * Why: session.prompt() 是原子的，中途无法替换 session；
    * 延迟到 prompt 完成后执行，消息生命周期不受影响。
    */
-  pendingRestart?: { summary?: string };
+  pendingRestart?: { summary?: string; modelAlias?: string };
   /**
    * F20260813actk C9：本轮待派工票据（otterId → otterName）。
    * create_otter 创建后注册；speak 派工后清除已覆盖的；未清空时 speak 给一次软提醒（非阻断）。
@@ -142,5 +151,11 @@ export interface ToolContext {
   orchestrationWarningShown?: boolean;
   /** F20260826mwrd C1：signal_events 仓库（halt_otter/query_signals 注册条件；invoke 级注入） */
   signalRepo?: SignalEventRepository;
-
+  /** F20260909smsp→F20260913ctlv：当前打开的 speak entry ID（speak/yield 检测本轮已发言用）。
+   *  F20260911pspl 池化合流：getter 化穿透寄存器（invoke 入口重置） */
+  lastSpeakMessageId?: string;
+  /** F20260913ctlv：当前 invoke ID（invoke 级上下文）。F20260911pspl 合流：getter 化穿透寄存器 */
+  currentInvokeId?: string;
+  /** F20260913ctlv：SSE 发射通道（工具层发 entry.yield 等事件用）。寄存器穿透 */
+  emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
 }

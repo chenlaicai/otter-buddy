@@ -10,6 +10,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import { handleError, param } from "../http-error";
+import { safeJsonBody } from "../parse-json-body";
 import { toOtterDTO, toOtterSessionDTO } from "../dto/otter-dto";
 import type { CreateOtterRequestDTO } from "../dto/otter-dto";
 
@@ -37,7 +38,11 @@ export class OtterController {
       if (!otter) {
         return c.json({ error: "Otter not found" }, 404);
       }
-      return c.json(toOtterDTO(otter, this.configProvider?.getConfig(id)?.modelAlias));
+      const config = this.configProvider?.getConfig(id);
+      // F20260908efmd: 有效模型解析 + isDefault 标注
+      const modelAlias = config?.modelAlias;
+      const modelIsDefault = config ? !config.modelAlias : undefined;
+      return c.json(toOtterDTO(otter, modelAlias, modelIsDefault));
     } catch (err) {
       return handleError(c, err, this.logger);
     }
@@ -45,7 +50,7 @@ export class OtterController {
 
   async create(c: Context): Promise<Response> {
     try {
-      const body = await c.req.json<CreateOtterRequestDTO>();
+      const body = await safeJsonBody<CreateOtterRequestDTO>(c);
 
       /** F20260827ucrt T1：UI 入口 modelAlias 校验（400 附可用列表，措辞与大獭工具链 tool-factory 一致）。
        *  未注入 modelPool 时跳过校验（测试/降级场景），usecase 层缺省走默认模型 */
@@ -69,7 +74,8 @@ export class OtterController {
         context: body.context,
       };
       const otter = await this.createOtterUseCase.execute(input);
-      return c.json(toOtterDTO(otter, this.configProvider?.getConfig(otter.id)?.modelAlias), 201);
+      const config = this.configProvider?.getConfig(otter.id);
+      return c.json(toOtterDTO(otter, config?.modelAlias, config ? !config.modelAlias : undefined), 201);
     } catch (err) {
       return handleError(c, err, this.logger);
     }
@@ -78,7 +84,8 @@ export class OtterController {
   async dissolve(c: Context): Promise<Response> {
     try {
       const id = param(c, "id");
-      const body: { summary?: string } = await c.req.json().catch(() => ({}));
+      // #889：safeJsonBody 兜底非法 JSON 与 JSON null，防 body.summary on null 崩溃
+      const body = await safeJsonBody<{ summary?: string }>(c);
       await this.dissolveOtterUseCase.execute(id, body.summary);
       return c.json({ status: "dissolved" });
     } catch (err) {
@@ -104,8 +111,17 @@ export class OtterController {
       if (otter?.type === "small") {
         throw new DomainError("小獭不支持重启獭生，请使用解散", "validation");
       }
-      const body: { summary?: string } = await c.req.json().catch(() => ({}));
-      const session = await this.manageSession.restartSession(id, body.summary);
+      // #889：safeJsonBody 兜底非法 JSON 与 JSON null，防 body.summary on null 崩溃
+      const body = await safeJsonBody<{ summary?: string; modelAlias?: string }>(c);
+      // F20260908efmd: restart body 增 modelAlias + hasModel 校验
+      if (this.modelPool && body.modelAlias && !this.modelPool.hasModel(body.modelAlias)) {
+        const available = this.modelPool.describeModels().map(m => m.alias).join(", ");
+        throw new DomainError(
+          `[错误] 未知的模型别名「${body.modelAlias}」。可用模型：${available}`,
+          "validation",
+        );
+      }
+      const session = await this.manageSession.restartSession(id, body.summary, body.modelAlias);
       return c.json(toOtterSessionDTO(session), 201);
     } catch (err) {
       return handleError(c, err, this.logger);

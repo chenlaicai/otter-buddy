@@ -52,10 +52,13 @@ fi
 
 # F20260825dva2: 日期语义校验——单一实现（scripts/validate-commit-date.mjs），
 # 消灭钩子/CI 双处维护。R 类跳过、F 类 ±2 天容忍、bad_date fail-closed。
-if ! echo "$first_line" | grep -q '^\[F'; then
+# F20260914prdb: 偏差降为警告（--warn-on-drift）——squash 合入模型下 PR 内中间
+# commit 标题会被抹掉，只有 PR 标题进 main 历史，阻断是纯摩擦（#789 处置被误拦实证）；
+# bad_date（非法日期）仍硬拦，凭印象编日期的笔误仍会被拦下。
+if ! echo "$first_line" | grep -q '^\\[F'; then
   exit 0
 fi
-date_check=$(node scripts/validate-commit-date.mjs "$first_line" 2>&1)
+date_check=$(node scripts/validate-commit-date.mjs --warn-on-drift "$first_line" 2>&1)
 date_exit=$?
 if [ $date_exit -ne 0 ]; then
   echo "$date_check"
