@@ -855,7 +855,8 @@ describe('#814: 调度完整性对账（启动时错过窗口落 healing）', ()
   it('lastTriggeredAt 落后于应触发时间 → 落 low 级 healing 事件', async () => {
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+    const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     // 应触发时间 = 今天 09:00；任务 lastTriggeredAt = 昨天（错过窗口）
     const prevDue = new Date('2026-09-06T01:00:00.000Z'); // 09:00 CST
@@ -873,7 +874,8 @@ describe('#814: 调度完整性对账（启动时错过窗口落 healing）', ()
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -893,6 +895,8 @@ describe('#814: 调度完整性对账（启动时错过窗口落 healing）', ()
   it('lastTriggeredAt 不落后 → 零事件（无错过）', async () => {
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
+    const sendEntry = createMockSendEntry();
+    const entryRepo = createMockEntryRepo();
     const prevDue = new Date('2026-09-06T01:00:00.000Z');
     const cronParser = createMockCronParser(new Date('2026-09-07T01:00:00.000Z'), prevDue);
     const healingRepo = makeHealingRepo();
@@ -908,7 +912,8 @@ describe('#814: 调度完整性对账（启动时错过窗口落 healing）', ()
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: createMockSendMessage() as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -923,6 +928,8 @@ describe('#814: 调度完整性对账（启动时错过窗口落 healing）', ()
   it('重复重启去重：同一错过窗口已落 open 事件 → 不重复落账', async () => {
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
+    const sendEntry = createMockSendEntry();
+    const entryRepo = createMockEntryRepo();
     const prevDue = new Date('2026-09-06T01:00:00.000Z');
     const cronParser = createMockCronParser(new Date('2026-09-07T01:00:00.000Z'), prevDue);
     const healingRepo = makeHealingRepo();
@@ -938,7 +945,8 @@ describe('#814: 调度完整性对账（启动时错过窗口落 healing）', ()
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: createMockSendMessage() as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -963,6 +971,8 @@ describe('#814: 调度完整性对账（启动时错过窗口落 healing）', ()
   it('cronParser 不支持 getPrevTime（旧实现）→ 跳过对账不报错', async () => {
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
+    const sendEntry = createMockSendEntry();
+    const entryRepo = createMockEntryRepo();
     const healingRepo = makeHealingRepo();
     taskRepo._store.set('task-legacy', makeTask({ id: 'task-legacy' }));
     convRepo._addConversation('conv-1', { status: 'active' });
@@ -970,7 +980,8 @@ describe('#814: 调度完整性对账（启动时错过窗口落 healing）', ()
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: createMockSendMessage() as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
       cronParser: createMockCronParser(new Date()) as unknown as CronParser, // 无 getPrevTime
       logger: mockLogger,

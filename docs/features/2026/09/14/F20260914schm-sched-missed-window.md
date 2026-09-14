@@ -1,5 +1,5 @@
 ---
-id: F20260908schm
+id: F20260914schm
 title: "调度完整性对账：启动时错过触发窗口落 healing 台账（closes #814）"
 summary: "9/5 全天静默：3 个 cron 任务触发窗口整体错过且零记录——healing 无事件、consecutive_failures 不计数、重启后无补扫。修复：scheduler start() 对 active cron 任务做对账——cronParser.getPrevTime（croner previousRuns）取最近一次应触发时间，lastTriggeredAt 落后即落 healing event（errorType=other，severity=low，context 含 cron/错过窗口/lastTriggeredAt），静默日在台账与日报可见。"
 change_type: feature
@@ -55,3 +55,10 @@ created_at: 2026-09-08
 ## Discovered Issues
 
 无。
+
+## 定稿改名与适配记录（2026-09-14）
+
+- 原 ID F20260908schm（9-08 创建），按「合入当天日期」定稿规则改名 F20260914schm（F20260914prdb 三配套）
+- 分支重建：原分支尾叠有已合入的 #850 两 commit，cherry-pick 本特性 2 commit（66d9b07e+4a2eb81e）到最新 main
+- **#886 适配**（重建暴露的真冲突，非自动可解）：SchedulerService 构造签名已从 sendMessage+convRepo 换为 sendEntry+entryRepo（F20260913ctlv 收尾批2）。#814 describe 的 4 个用例手动适配新 API（对账逻辑本身零改动——reconcileMissedWindows 不触碰信号发送）。适配后全量 2856/2856 + tsc 0 错
+- 审视闭环回顾：r1 1 严重（重启重复落账）→ 修复 4a2eb81e；r2 delta 通过；建议 2 建了 issue #854
