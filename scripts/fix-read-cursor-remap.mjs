@@ -4,23 +4,26 @@
  *
  * 问题：F20260913ctlv 批4c（messages→entries）迁移对每个对话的 entries
  * 重新编号 1..N（为 yield 合成行腾独立序号），但无重叠路径漏调
- * remapReadCursors——conversation_user_read_state.last_read_message_seq
- * 仍停留在旧 messages seq 空间，而未读统计已切到 entries 序号空间。
- * 结果：所有存量对话出现大量虚假未读（实测 151 对话 / 2052 条，其中
- * 2050 条是迁移前已读过的老条目）。
+ * remapReadCursors——两张读游标表滞留旧 messages seq 空间：
+ *   A. conversation_user_read_state.last_read_message_seq（Web 用户游标）
+ *   B. conversation_participants.last_read_seq（otter 獭游标，getUnreadEntries 注入依据）
+ * 而未读统计已切到 entries 序号空间 → 存量游标之后的已读老条目全部被误判未读
+ * （生产实测：用户侧 151 对话 2052 条虚假未读）。
  *
- * 修复：利用「entry id 沿用旧 message id」的不变量，从迁移前备份库
- * 找到旧游标所指消息 id，再查主库 entries 取其新序号，完成游标重映射：
- *   newCursor = MAX(当前游标, 旧游标所指 entry 的新 seq)
- * MAX 保证不回退迁移后用户新推进的已读进度。
+ * 修复：利用「entry id 沿用旧 message id」的不变量，从迁移前备份库找到旧游标
+ * 所指消息 id，再查主库 entries 取其新序号：
+ *   target = MAX(主库当前游标, 旧游标所指 entry 的新序号)
+ * MAX 以主库当前值为基准（不是备份库值）——迁移后用户/獭可能已在新序号空间
+ * 推进过游标，绝不能写回。
  *
  * 前置：需要迁移前备份库（默认 data/backups/otter-buddy-pre-migration-20260913.db，
- * 可用 --backup= 覆盖），且其 messages / conversation_user_read_state 表完好。
+ * 可用 --backup= 覆盖），且其 messages 表完好（防呆：无 messages 表即拒绝）。
  *
  * 安全设计：
  *  - 默认 dry-run：只扫描报告，不写 DB
  *  - --apply 才执行；执行前自动备份主 DB（better-sqlite3 backup API，WAL 一致）
  *  - 全部写操作走单事务，失败整体回滚
+ *  - 幂等：target 以主库当前值为基准，重跑零更新
  *  - 找不到映射目标的游标行：告警跳过，不瞎猜
  *
  * 用法：
@@ -89,70 +92,109 @@ if (migDone?.value !== "done") {
 const cursorRows = backup.prepare(
   "SELECT conversation_id, user_id, last_read_message_seq FROM conversation_user_read_state",
 ).all();
+const backupPartRows = backup.prepare(
+  "SELECT conversation_id, otter_id, last_read_seq FROM conversation_participants WHERE last_read_seq IS NOT NULL",
+).all();
 
 const getOldMsgId = backup.prepare(
   "SELECT id FROM messages WHERE conversation_id = ? AND sequence_num <= ? ORDER BY sequence_num DESC LIMIT 1",
 );
 const getNewSeq = db.prepare("SELECT sequence_num FROM entries WHERE id = ?");
+const getCurUrs = db.prepare(
+  "SELECT last_read_message_seq FROM conversation_user_read_state WHERE conversation_id = ? AND user_id = ?",
+);
+const getCurPart = db.prepare(
+  "SELECT last_read_seq FROM conversation_participants WHERE conversation_id = ? AND otter_id = ?",
+);
 
-const updates = [];   // { conversation_id, user_id, from, to }
-const skipped = [];   // { conversation_id, user_id, reason }
+const updates = [];      // 用户游标 { conversation_id, user_id, from, to }（from/to 均为主库当前空间）
+const partUpdates = [];  // 獭游标 { conversation_id, otter_id, from, to }
+const skipped = [];      // { table, convId, who, reason }
 
+/** 旧游标（备份库空间）→ 旧前缀末条消息 id 所指 entry 的新序号；null = 异常跳过 */
+function mapOldCursor(convId, oldCursor) {
+  const oldMsg = getOldMsgId.get(convId, oldCursor);
+  if (!oldMsg) return { reason: `备份库 seq≤${oldCursor} 无消息行（异常）` };
+  const newEntry = getNewSeq.get(oldMsg.id);
+  if (!newEntry) return { reason: `entry ${oldMsg.id} 主库缺失（异常）` };
+  return { newSeq: newEntry.sequence_num };
+}
+
+// A. 用户游标
 for (const row of cursorRows) {
   const { conversation_id: convId, user_id: userId, last_read_message_seq: oldCursor } = row;
-  if (oldCursor <= 0) {
-    skipped.push({ convId, userId, reason: `旧游标 ${oldCursor} ≤ 0，无需映射` });
-    continue;
-  }
-  const oldMsg = getOldMsgId.get(convId, oldCursor);
-  if (!oldMsg) {
-    skipped.push({ convId, userId, reason: `备份库 seq≤${oldCursor} 无消息行（异常）` });
-    continue;
-  }
-  const newEntry = getNewSeq.get(oldMsg.id);
-  if (!newEntry) {
-    skipped.push({ convId, userId, reason: `entry ${oldMsg.id} 主库缺失（异常）` });
-    continue;
-  }
-  const newCursor = Math.max(oldCursor, newEntry.sequence_num); // 不回退迁移后进度
-  if (newCursor !== oldCursor) {
-    updates.push({ conversation_id: convId, user_id: userId, from: oldCursor, to: newCursor });
-  } else {
-    skipped.push({ convId, userId, reason: `映射后不变（${oldCursor}）` });
-  }
+  if (userId == null) { skipped.push({ table: "urs", convId, who: "NULL", reason: "user_id 为空，无法定位行" }); continue; }
+  if (oldCursor <= 0) continue; // 0 语义两空间等价
+  const m = mapOldCursor(convId, oldCursor);
+  if (m.reason) { skipped.push({ table: "urs", convId, who: userId, reason: m.reason }); continue; }
+  const cur = getCurUrs.get(convId, userId)?.last_read_message_seq ?? 0;
+  const target = Math.max(cur, m.newSeq); // MAX 对主库当前值——迁移后新推进绝不回退
+  if (target !== cur) updates.push({ conversation_id: convId, user_id: userId, from: cur, to: target });
+}
+
+// B. 獭游标（getUnreadEntries 注入依据，漏修则獭重复消费旧消息）
+for (const row of backupPartRows) {
+  const { conversation_id: convId, otter_id: otterId, last_read_seq: oldCursor } = row;
+  if (otterId == null) { skipped.push({ table: "part", convId, who: "NULL", reason: "otter_id 为空，无法定位行" }); continue; }
+  if (oldCursor <= 0) continue;
+  const m = mapOldCursor(convId, oldCursor);
+  if (m.reason) { skipped.push({ table: "part", convId, who: otterId, reason: m.reason }); continue; }
+  const cur = getCurPart.get(convId, otterId)?.last_read_seq ?? 0;
+  const target = Math.max(cur, m.newSeq);
+  if (target !== cur) partUpdates.push({ conversation_id: convId, otter_id: otterId, from: cur, to: target });
 }
 
 // ---------- 报告 ----------
 
-console.log(`扫描 ${cursorRows.length} 条游标行：需更新 ${updates.length}，跳过 ${skipped.length}`);
-for (const u of updates.slice(0, 20)) {
-  console.log(`  ${u.conversation_id.slice(0, 8)} / ${u.user_id}: ${u.from} → ${u.to}`);
+console.log(`扫描：用户游标 ${cursorRows.length} 条（需更新 ${updates.length}），獭游标 ${backupPartRows.length} 条（需更新 ${partUpdates.length}），跳过 ${skipped.length}`);
+for (const u of updates.slice(0, 10)) {
+  console.log(`  [user] ${u.conversation_id.slice(0, 8)} / ${u.user_id}: ${u.from} → ${u.to}`);
 }
-if (updates.length > 20) console.log(`  ...（其余 ${updates.length - 20} 条略）`);
+if (updates.length > 10) console.log(`  ...（其余 user ${updates.length - 10} 条略）`);
+for (const u of partUpdates.slice(0, 10)) {
+  console.log(`  [otter] ${u.conversation_id.slice(0, 8)} / ${u.otter_id.slice(0, 8)}: ${u.from} → ${u.to}`);
+}
+if (partUpdates.length > 10) console.log(`  ...（其余 otter ${partUpdates.length - 10} 条略）`);
 for (const s of skipped.slice(0, 10)) {
-  console.log(`  [跳过] ${s.convId.slice(0, 8)} / ${s.user_id}: ${s.reason}`);
+  console.log(`  [跳过:${s.table}] ${s.convId.slice(0, 8)} / ${s.who}: ${s.reason}`);
 }
 
-// 修复后未读预估（dry-run 也可精确计算）
+// 未读预估（主库当前值 vs 修复后；对齐各消费方真实语义）
 let unreadBefore = 0, unreadAfter = 0;
-const unreadStmt = db.prepare(`
+const userUnreadStmt = db.prepare(`
   SELECT COUNT(*) AS c FROM entries e
   WHERE e.conversation_id = ? AND e.sequence_num > ?
     AND e.entry_type IN ('speak', 'system')
 `);
-const convIds = db.prepare("SELECT id FROM conversations WHERE status != 'archived'").all();
-const cursorMap = new Map(updates.map(u => [`${u.conversation_id}|${u.user_id}`, u.to]));
-for (const { id } of convIds) {
-  const cur = db.prepare(
-    "SELECT user_id, last_read_message_seq FROM conversation_user_read_state WHERE conversation_id = ?",
-  ).all(id);
-  for (const r of cur) {
-    const mapped = cursorMap.get(`${id}|${r.user_id}`) ?? r.last_read_message_seq;
-    unreadBefore += unreadStmt.get(id, r.last_read_message_seq).c;
-    unreadAfter += unreadStmt.get(id, mapped).c;
-  }
+const userCursorMap = new Map(updates.map(u => [`${u.conversation_id}|${u.user_id}`, u.to]));
+for (const r of db.prepare(`
+  SELECT u.conversation_id, u.user_id, u.last_read_message_seq FROM conversation_user_read_state u
+  JOIN conversations c ON c.id = u.conversation_id AND c.status != 'archived'
+`).all()) {
+  const mapped = userCursorMap.get(`${r.conversation_id}|${r.user_id}`) ?? r.last_read_message_seq;
+  unreadBefore += userUnreadStmt.get(r.conversation_id, r.last_read_message_seq).c;
+  unreadAfter += userUnreadStmt.get(r.conversation_id, mapped).c;
 }
-console.log(`未读预估（speak/system，非 archived）：修复前 ${unreadBefore} → 修复后 ${unreadAfter}`);
+console.log(`用户未读预估（speak/system，非 archived）：修复前 ${unreadBefore} → 修复后 ${unreadAfter}`);
+
+let otterBefore = 0, otterAfter = 0;
+const otterUnreadStmt = db.prepare(`
+  SELECT COUNT(*) AS c FROM entries e
+  WHERE e.conversation_id = ? AND e.sequence_num > ?
+    AND e.sender_id != ?
+    AND e.entry_type IN ('user', 'system', 'speak') AND e.status = 'completed'
+`);
+const partCursorMap = new Map(partUpdates.map(u => [`${u.conversation_id}|${u.otter_id}`, u.to]));
+for (const r of db.prepare(`
+  SELECT p.conversation_id, p.otter_id, p.last_read_seq FROM conversation_participants p
+  JOIN conversations c ON c.id = p.conversation_id AND c.status != 'archived'
+  WHERE p.status = 'active' AND p.last_read_seq IS NOT NULL
+`).all()) {
+  const mapped = partCursorMap.get(`${r.conversation_id}|${r.otter_id}`) ?? r.last_read_seq;
+  otterBefore += otterUnreadStmt.get(r.conversation_id, r.last_read_seq, r.otter_id).c;
+  otterAfter += otterUnreadStmt.get(r.conversation_id, mapped, r.otter_id).c;
+}
+console.log(`獭未读预估（getUnreadEntries 语义）：修复前 ${otterBefore} → 修复后 ${otterAfter}`);
 
 // ---------- 执行 ----------
 
@@ -161,7 +203,7 @@ if (!args.apply) {
   process.exit(0);
 }
 
-if (updates.length === 0) {
+if (updates.length === 0 && partUpdates.length === 0) {
   console.log("无需更新，退出");
   process.exit(0);
 }
@@ -172,11 +214,15 @@ const backupPath = args.db.replace(/\.db$/, "") + `-pre-read-cursor-fix-${ts}.db
 await db.backup(backupPath);
 console.log(`已备份主 DB → ${backupPath}`);
 
-const applyOne = db.prepare(
+const applyUrs = db.prepare(
   "UPDATE conversation_user_read_state SET last_read_message_seq = ?, updated_at = datetime('now') WHERE conversation_id = ? AND user_id = ?",
 );
+const applyPart = db.prepare(
+  "UPDATE conversation_participants SET last_read_seq = ? WHERE conversation_id = ? AND otter_id = ?",
+);
 const tx = db.transaction(() => {
-  for (const u of updates) applyOne.run(u.to, u.conversation_id, u.user_id);
+  for (const u of updates) applyUrs.run(u.to, u.conversation_id, u.user_id);
+  for (const u of partUpdates) applyPart.run(u.to, u.conversation_id, u.otter_id);
 });
 tx();
-console.log(`✅ 已更新 ${updates.length} 条游标`);
+console.log(`✅ 已更新：用户游标 ${updates.length} 条，獭游标 ${partUpdates.length} 条`);
