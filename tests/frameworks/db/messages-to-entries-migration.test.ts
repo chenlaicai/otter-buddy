@@ -167,6 +167,32 @@ describe("migrateMessagesToEntries（F20260913ctlv 批4b）", () => {
     expect(part.last_read_seq).toBe(2);
   });
 
+  it("无重叠对话：游标按旧前缀映射到新序号，不滞留旧 seq 空间（F20260914rmap）", () => {
+    seedConversation("conv-nr");
+    // 三条旧消息：中间的 otter 消息带 tsp → 迁移时合成 yield 行，新序号空间被右移
+    seedMessage({ id: "m1", conversationId: "conv-nr", senderType: "user", senderId: "chen", sequenceNum: 1, turnId: "turn-conv-nr", body: "一", createdAt: "2026-01-01T00:00:01Z" });
+    seedMessage({ id: "m2", conversationId: "conv-nr", senderType: "otter", senderId: "otter-a", sequenceNum: 2, turnId: "turn-conv-nr", body: "答", talkingStonePassedTo: ["user"], senderName: "A", createdAt: "2026-01-01T00:00:02Z", completedAt: "2026-01-01T00:00:03Z" });
+    seedMessage({ id: "m3", conversationId: "conv-nr", senderType: "user", senderId: "chen", sequenceNum: 3, turnId: "turn-conv-nr", body: "三", createdAt: "2026-01-01T00:00:04Z" });
+    // 用户已读到旧 seq 3（全部）；otter 参与者读到旧 seq 1
+    db.prepare(`INSERT INTO conversation_user_read_state (user_id, conversation_id, last_read_message_seq, updated_at) VALUES ('chen', 'conv-nr', 3, datetime('now'))`).run();
+    db.prepare(`INSERT INTO otters (id, name, type) VALUES ('otter-a', 'A', 'small')`).run();
+    db.prepare(`INSERT INTO conversation_participants (id, conversation_id, otter_id, joined_at_turn_id, joined_at_turn_number, status, created_at, last_read_turn_number, last_active_turn_number, last_read_seq)
+      VALUES ('p-nr', 'conv-nr', 'otter-a', NULL, 0, 'active', '2026-01-01T00:00:00Z', 0, 0, 1)`).run();
+
+    runMigration();
+
+    // 新序号空间：m1=1, m2=2, m2-yield=3, m3=4（yield 合成行占据独立序号）
+    const entries = getEntries("conv-nr");
+    expect(entries.map(e => e.id)).toEqual(["m1", "m2", "m2-yield", "m3"]);
+    expect(entries.map(e => e.sequence_num)).toEqual([1, 2, 3, 4]);
+    // 用户游标 3（旧空间末条 m3）→ 映射到 m3 新序号 4；不映射则 m3 被误判未读
+    const urs = db.prepare(`SELECT last_read_message_seq FROM conversation_user_read_state WHERE user_id='chen' AND conversation_id='conv-nr'`).get() as { last_read_message_seq: number };
+    expect(urs.last_read_message_seq).toBe(4);
+    // otter 游标 1（旧前缀末条 m1）→ 新序号仍 1，不变
+    const part = db.prepare(`SELECT last_read_seq FROM conversation_participants WHERE conversation_id='conv-nr' AND otter_id='otter-a'`).get() as { last_read_seq: number };
+    expect(part.last_read_seq).toBe(1);
+  });
+
   it("failed/aborted 状态保留在 metadata.invokeStatus（entries.status 死字段全 completed）", () => {
     seedConversation("conv-3");
     seedMessage({ id: "m-f", conversationId: "conv-3", senderType: "otter", senderId: "otter-a", status: "failed", sequenceNum: 1, turnId: "turn-conv-3", body: "半截", createdAt: "2026-01-01T00:00:01Z" });
