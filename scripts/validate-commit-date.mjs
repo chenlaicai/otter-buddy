@@ -52,7 +52,7 @@ function getDatePartsInZone(date, timeZone) {
  *
  * @param {string} firstLine - commit message 首行
  * @param {Date} [now] - 基准时间（注入点，测试用；默认当前时间）
- * @returns {{ valid: boolean, status: 'ok'|'skip'|'fail'|'bad_date', idDate?: string, systemDate?: string, diffDays?: number }}
+ * @returns {{ valid: boolean, status: 'ok'|'skip'|'fail'|'bad_date', idDate?: string, baseDate?: string, diffDays?: number }}
  */
 export function validateCommitDate(firstLine, now = new Date()) {
   const match = firstLine.match(/^\[F([0-9]{8})/);
@@ -88,7 +88,7 @@ export function validateCommitDate(firstLine, now = new Date()) {
       valid: false,
       status: 'fail',
       idDate: `${idYear}${String(idMonth).padStart(2, '0')}${String(idDay).padStart(2, '0')}`,
-      systemDate: `${nowYear}${String(nowMonth).padStart(2, '0')}${String(nowDay).padStart(2, '0')}`,
+      baseDate: `${nowYear}${String(nowMonth).padStart(2, '0')}${String(nowDay).padStart(2, '0')}`,
       diffDays,
     };
   }
@@ -129,7 +129,7 @@ if (isDirectRun) {
     const msg = result.status === 'bad_date'
       ? `错误：特性 ID 日期非法（如 13 月/40 日/Feb 30）。请检查特性 ID 日期部分。\n`
       : `错误：特性 ID 日期与基准日期不符（偏差 ${result.diffDays} 天）。\n` +
-        `  ID 日期: ${result.idDate}  基准日期: ${result.systemDate}\n` +
+        `  ID 日期: ${result.idDate}  基准日期: ${result.baseDate}\n` +
         `请跑 date 确认今天日期，修正 F 类特性 ID 后重新提交。\n`;
     process.stderr.write(msg);
     process.exit(1);
