@@ -3,10 +3,10 @@ id: F20260914prdb
 title: PR 标题日期校验基准注入：消灭「PR 放着越久越超窗」的时间漂移误伤
 summary: 日期校验体系适配 squash 模型的特性编号规则（搭档决策 2026-09-14）：PR 标题即 main 历史、特性文档 ID 必须与 PR 标题 ID 统一、定稿时改名为合入当天日期。配套：CLI 双基准（PR 创建时间 + 当前时间任一通过）、CI 加 edited 触发（改名后重验标题）、commit-msg 钩子偏差降级警告（bad_date 仍硬拦）。
 change_type: fix
-capability_test: "n/a: CI 工作流与 CLI 脚本改动，验证走 tests/scripts/validate-commit-date.test.ts（27 用例，含 --at 新用例 + #789 现场复现）"
+capability_test: "n/a: CI 工作流与 CLI 脚本改动，验证走 tests/scripts/validate-commit-date.test.ts（32 用例，含双基准定稿改名/旧 ID/双挂、warn 降级、bad_date 仍拦）"
 created_in_conversation: c2f347c6-7e59-4e2e-ab48-10f64a5a1258
 tags: [ci, date-validation, time-drift, pr-gate]
-modules: [scripts/validate-commit-date.mjs, .github/workflows/ci.yml, tests/scripts/validate-commit-date.test.ts]
+modules: [scripts/validate-commit-date.mjs, .github/workflows/ci.yml, .githooks/commit-msg, tests/scripts/validate-commit-date.test.ts]
 ---
 
 ## 背景
