@@ -26,6 +26,7 @@ import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import { createAgentSessionStore } from "./agent-session-store";
 import type { AgentSessionStore } from "./agent-session-store";
+import { classifyGuardIntercept } from "./guard-intercept-escalation";
 import type { DynamicContext } from "@usecases/ports/sdk-invoke-port";
 import type { SynthesisRunResult } from "@usecases/ports/sdk-invoke-port";
 import { getLastStopReason } from "./context-tokens";
@@ -597,20 +598,28 @@ export class PiSessionFactory implements AgentGateway {
     const healingRepo = this.cfg.healingRepo;
     if (!healingRepo) return undefined;
     return ({ command, reason }) => {
-      healingRepo.create({
-        id: crypto.randomUUID(),
-        messageId: ids.messageId ?? "",
-        conversationId: ids.conversationId ?? "",
-        otterId,
-        errorType: "guard_intercept",
-        severity: "medium",
-        description: `bash 守卫拦截：${reason.substring(0, 200)}（命令前缀：${command.substring(0, 120)}）`,
-        suggestion: "LLM 已收到引导提示；若同一 otter 短时间内多次被拦，先排查是否误拦——误拦率上升会侵蚀 LLM 对引导的信任",
-        context: { layer: "framework" },
-        status: "open",
-        resolution: null,
-        createdAt: new Date().toISOString(),
-        resolvedAt: null,
+      // #844（F20260914dsrv）方案 C：同一 otter 近 6h 内 guard_intercept ≥3 次 → 升级 high
+      // + 建议文本换为「优先排查误拦/升级搭档」——不让高频拦截静默淹没在 medium 池里。
+      // fire-and-forget：查询/落账失败不影响拦截本身。
+      healingRepo.findRecentByOtter(otterId, "guard_intercept", 20).then(recent => {
+        const { repeated, priorCount } = classifyGuardIntercept(recent);
+        return healingRepo.create({
+          id: crypto.randomUUID(),
+          messageId: ids.messageId ?? "",
+          conversationId: ids.conversationId ?? "",
+          otterId,
+          errorType: "guard_intercept",
+          severity: repeated ? "high" : "medium",
+          description: `bash 守卫拦截（近 6h 第 ${priorCount + 1} 次）：${reason.substring(0, 200)}（命令前缀：${command.substring(0, 120)}）`,
+          suggestion: repeated
+            ? "同一 otter 6h 内 ≥3 次被拦——大概率误拦或正当诉求无出路，优先人工排查并考虑白名单/受控脚本（#844），勿再静默批量 resolve"
+            : "LLM 已收到引导提示；若同一 otter 短时间内多次被拦，先排查是否误拦——误拦率上升会侵蚀 LLM 对引导的信任",
+          context: { layer: "framework", ...(repeated ? { repeatedIntercept: priorCount + 1 } : {}) },
+          status: "open",
+          resolution: null,
+          createdAt: new Date().toISOString(),
+          resolvedAt: null,
+        });
       }).catch(err => this.logger.error("guard_intercept healing event write failed (non-fatal)", err instanceof Error ? err : new Error(String(err)), { otterId }));
     };
   }

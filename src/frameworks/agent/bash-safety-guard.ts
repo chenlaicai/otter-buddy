@@ -13,6 +13,14 @@
 import fs from "fs";
 import path from "path";
 import type { Logger } from "@usecases/ports/logger";
+import { loadAllowedServicePorts, extractWhitelistedPortRefs, type AllowedService } from "./allowed-service-ports";
+
+export type { AllowedService };
+
+/** 守卫放行判定输入（#844）：projectRoot 用于定位白名单文件 */
+export interface GuardOptions {
+  projectRoot?: string;
+}
 
 /** 读取主进程 PID 文件，返回 PID 或 null。每次调用都读文件（不缓存）。 */
 export function readMainProcessPid(projectRoot: string): number | null {
@@ -57,6 +65,67 @@ const INDIRECT_PID_PATTERNS = [
 
 /** .otter-buddy.pid 文件引用模式 */
 const PID_FILE_REFERENCE = /\.otter-buddy\.pid/;
+
+/**
+ * #844 白名单放行（方案 A 静态形态）：命令可静态解析为「白名单端口的监听者」为目标时放行。
+ * 判定要素（全过才放行）：
+ *   1. 命令含白名单端口引用（lsof -t -i:PORT / lsof -i :PORT -t 等形态）
+ *   2. 每个 kill 段的目标可溯源到该端口：同段管道含 lsof:PORT（lsof … | xargs kill），
+ *      或 kill 的 $VAR 在同命令内被赋值为白名单端口的 lsof 结果（P=$(lsof …:PORT); kill $P）
+ *   3. 铁拦永不放行：主进程 PID 字面量 / PID 文件引用 / pkill 族 otter 特征名
+ * Why 不放行 ps-grep 类（#844 变体 1）：grep 名字取 PID 无法静态绑定到端口，且模式串
+ * （main.js/node）与 otter 主进程天然撞名——这类诉求引导到 lsof 形态或受控脚本。
+ * 实际终止动作的 cwd/PID 级校验由 scripts/restart-service.mjs 受控执行。
+ */
+function whitelistedPortAllow(
+  segments: { segment: string; isPkill: boolean }[],
+  command: string,
+  allowed: AllowedService[],
+  mainPid: number,
+): boolean {
+  if (allowed.length === 0) return false;
+  // 铁拦 ①：PID 文件引用
+  if (PID_FILE_REFERENCE.test(command)) return false;
+  for (const k of segments) {
+    // 铁拦 ②：字面量主进程 PID
+    if (extractLiteralPids(k.segment).includes(mainPid)) return false;
+    // 铁拦 ③：pkill/killall 族命中 otter 特征名（按名匹配无法区分，永不放行）
+    if (k.isPkill && pkillTargetsOtter(k.segment)) return false;
+  }
+  const portHits = extractWhitelistedPortRefs(command, allowed);
+  if (portHits.length === 0) return false;
+  // 完整分段序列（含非 kill 段）——规则 2c 需要在原始邻接关系中找 lsof 左邻段
+  const allSegments = command.split(/&&|\|\||[;&|\n]/).map(s => s.trim()).filter(Boolean);
+  return segments.every(k => {
+    const seg = k.segment;
+    if (!/\b(?:kill|skill|pkill|killall)\b/.test(seg)) return true; // 非 kill 段不参与
+    // 规则 2a：同段管道含 lsof + 端口引用（lsof -i :3100 -t | xargs -n1 kill 同段形态）
+    if (/\blsof\b/.test(seg) && portHits.some(p => seg.includes(`:${p}`))) return true;
+    // 规则 2c：管道右段 kill 的左邻段是白名单端口 lsof（| 切段后跨段溯源。
+    // killSegments 只含 kill 段，左邻 lsof 段不在其中——必须在完整分段序列里找邻接）
+    const rawIdx = allSegments.indexOf(seg);
+    if (rawIdx > 0) {
+      const prev = allSegments[rawIdx - 1];
+      if (/\blsof\b/.test(prev) && portHits.some(p => prev.includes(`:${p}`))) return true;
+    }
+    // 规则 2b：kill 目标变量在同命令内被赋值为白名单端口的 lsof 结果
+    const vars = [...seg.matchAll(/\$([A-Za-z_]\w*)/g)].map(m => m[1]);
+    // #918 检视建议 3：多次赋值只认「最后一次」——P=$(lsof :3100); P=别的; kill $P
+    // 不能因首次赋值合法而放行（取最后赋值点，其后不允许再对该变量重赋值）
+    const provenance = vars.some(v =>
+      portHits.some(p => {
+        const assign = new RegExp(`\\b${v}\\s*=\\s*\\$\\(\\s*lsof[^)]*:${p}\\b`, "g");
+        const matches = [...command.matchAll(assign)];
+        if (matches.length === 0) return false;
+        const last = matches[matches.length - 1];
+        const lastAssignEnd = (last.index ?? 0) + last[0].length;
+        const reassign = new RegExp(`\\b${v}\\s*=`);
+        return !reassign.test(command.slice(lastAssignEnd));
+      }),
+    );
+    return provenance;
+  });
+}
 
 /**
  * F20260831aksp §2c：检测前归一化——塔死引号拼接/字母间反斜杠的文本规避通道。
@@ -279,12 +348,20 @@ function checkBashCommandSafetyOnText(
   text: string,
   mainPid: number,
   logger?: Logger,
+  allowedServices: AllowedService[] = [],
 ): string | null {
-  // 全命令级高危模式检测（在分段前检查，防止 eval/pipe-to-shell 绕过分段检测）
+  // 全命令级高危模式检测（在分段前检查，防止 eval/pipe-to-shell 绕过分段检测）。
+  // #918 检视严重 1：必须先于白名单放行——否则 `lsof -t -i:3100 | sh -c 'k...'` 类
+  // 形态借白名单端口 lsof 做左段，跳过 pipe-to-shell 检测（defense-in-depth 失效）
   const cmdLevelResult = checkCommandLevelPatterns(text, text.toLowerCase(), mainPid, logger);
   if (cmdLevelResult) return cmdLevelResult;
 
   const killSegments = findKillSegments(text);
+  // #844 白名单放行：cmdLevel 检测之后、分段级检测之前（cmdLevel 是全命令级铁闸，
+  // 白名单只豁免「分段级 kill 目标检测」这一层）
+  if (killSegments.length > 0 && whitelistedPortAllow(killSegments, text, allowedServices, mainPid)) {
+    return null;
+  }
   if (killSegments.length === 0) return null;
 
   // 全命令级：有 kill 段 + 全命令含 .otter-buddy.pid 引用（跨段检测）
@@ -353,15 +430,19 @@ export function checkBashCommandSafety(
   command: string,
   mainPid: number | null,
   logger?: Logger,
+  guardOptions?: GuardOptions,
 ): string | null {
   if (!command.trim() || mainPid === null) return null;
 
-  const result = checkBashCommandSafetyOnText(command, mainPid, logger);
+  // #844：白名单热加载（与 PID 文件同策略：每次判定重读，mtime 缓存去抖）
+  const allowedServices = guardOptions?.projectRoot ? loadAllowedServicePorts(guardOptions.projectRoot) : [];
+
+  const result = checkBashCommandSafetyOnText(command, mainPid, logger, allowedServices);
   if (result) return withDiagnostics(result, command, mainPid);
 
   const normalized = normalizeForDetection(command);
   if (normalized !== command) {
-    const nResult = checkBashCommandSafetyOnText(normalized, mainPid, logger);
+    const nResult = checkBashCommandSafetyOnText(normalized, mainPid, logger, allowedServices);
     return nResult ? withDiagnostics(nResult, normalized, mainPid) : null;
   }
   return null;
