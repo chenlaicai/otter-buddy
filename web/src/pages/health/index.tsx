@@ -176,7 +176,7 @@ function HealthPage() {
               { key: 'overview', label: `总览${overview ? ` · ${overview.openSignals}` : ''}` },
               { key: 'signals', label: `信号${signals.length ? ` · ${signals.length}` : ''}` },
               { key: 'chains', label: `特性链${chains.length ? ` · ${chains.length}` : ''}` },
-              { key: 'cost', label: '成本/产出' },
+              { key: 'cost', label: '用量/效率' },
             ] as { key: Tab; label: string }[]).map(t => (
               <button
                 key={t.key}
@@ -346,37 +346,38 @@ function HealthPage() {
               </div>
             </div>
           )}
-          {/* 成本/产出视图 */}
+          {/* 用量/效率视图（F20260914usgm：模型主维度改版，成本展示撤除） */}
           {tab === 'cost' && (
             <div className="space-y-4">
               {costOutput && costOutput.series.length > 0 ? (
                 <>
                   {/* 汇总指标卡 */}
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                    <MetricCard label="总 Cost" value={`$${costOutput.totals.costTotal.toFixed(2)}`} icon={<TrendingUp className="w-4 h-4" />} />
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
                     <MetricCard label="总 Token" value={fmtLargeNumber(costOutput.totals.totalTokens)} icon={<BarChart3 className="w-4 h-4" />} />
                     <MetricCard label="LLM 调用" value={costOutput.totals.callCount} icon={<RefreshCw className="w-4 h-4" />} />
+                    <MetricCard label="失败调用" value={costOutput.totals.errorCalls} icon={<AlertTriangle className="w-4 h-4 text-amber-500" />} />
                     <MetricCard label="獭发言数" value={costOutput.totals.messageCount} icon={<GitBranch className="w-4 h-4" />} />
                     <MetricCard label="任务完成" value={costOutput.totals.dispatchCount} icon={<Layers className="w-4 h-4" />} />
-                    <MetricCard label="活跃獭数" value={costOutput.totals.otterCount} icon={<Activity className="w-4 h-4" />} />
                   </div>
 
-                  {/* Cost 趋势折线图 */}
-                  <ChartCard title="成本趋势" subtitle="近 30 天 · 日 cost 合计" icon={<TrendingUp className="w-4 h-4 text-otter-500" />}>
-                    <ResponsiveContainer width="100%" height={220}>
-                      <ComposedChart data={costOutput.series} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
-                        <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fontSize: 11, fill: '#78716c' }} />
-                        <YAxis tick={{ fontSize: 11, fill: '#78716c' }} tickFormatter={v => `$${v.toFixed(2)}`} />
-                        <Tooltip labelFormatter={l => `快照 ${fmtDate(String(l))}`} formatter={(v: number) => [`$${v.toFixed(4)}`, 'cost']} />
-                        <Bar dataKey="costTotal" name="日 cost" fill={TEAL[500]} radius={[3, 3, 0, 0]} />
-                      </ComposedChart>
-                    </ResponsiveContainer>
+                  {/* 两个占比图：Token 占比 + 调用次数占比（F20260914usgm 搭档需求②） */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <ChartCard title="Token 占比 · 按模型" subtitle="区间累计 totalTokens" icon={<PieIcon className="w-4 h-4 text-otter-500" />}>
+                      <ModelUsagePie models={costOutput.models} metric="totalTokens" />
+                    </ChartCard>
+                    <ChartCard title="调用次数占比 · 按模型" subtitle="区间累计 llm_call_count" icon={<PieIcon className="w-4 h-4 text-otter-500" />}>
+                      <ModelUsagePie models={costOutput.models} metric="callCount" />
+                    </ChartCard>
+                  </div>
+
+                  {/* 模型明细表：token 四分类/调用/失败/命中率（F20260914usgm 搭档需求①） */}
+                  <ChartCard title="模型用量明细" subtitle={`按 totalTokens 降序 · 失败调用含 403/500 等 LLM 错误`} icon={<Layers className="w-4 h-4 text-otter-500" />}>
+                    <ModelUsageTable models={costOutput.models} />
                   </ChartCard>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Token 趋势折线图 */}
-                    <ChartCard title="Token 消耗" subtitle="日 token 合计（input + output + cache）" icon={<BarChart3 className="w-4 h-4 text-otter-500" />}>
+                    {/* Token 趋势 */}
+                    <ChartCard title="Token 消耗趋势" subtitle="日 token 合计（input + output + cache）" icon={<BarChart3 className="w-4 h-4 text-otter-500" />}>
                       <ResponsiveContainer width="100%" height={220}>
                         <ComposedChart data={costOutput.series} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
@@ -388,66 +389,65 @@ function HealthPage() {
                       </ResponsiveContainer>
                     </ChartCard>
 
-                    {/* 缓存命中率趋势 */}
-                    <ChartCard title="缓存命中率" subtitle="加权平均 · cacheRead / (cacheRead + input)" icon={<Activity className="w-4 h-4 text-otter-500" />}>
+                    {/* 缓存命中率 + 失败调用趋势（双轴） */}
+                    <ChartCard title="缓存命中率 / 失败调用" subtitle="加权平均 hitRate · 日失败调用数" icon={<Activity className="w-4 h-4 text-otter-500" />}>
                       <ResponsiveContainer width="100%" height={220}>
                         <ComposedChart data={costOutput.series.map(p => ({ ...p, cacheHitRatePct: Number((p.cacheHitRate * 100).toFixed(2)) }))} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
                           <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fontSize: 11, fill: '#78716c' }} />
-                          <YAxis tick={{ fontSize: 11, fill: '#78716c' }} domain={[0, 100]} unit="%" />
-                          <Tooltip labelFormatter={l => `快照 ${fmtDate(String(l))}`} formatter={(v: number) => [`${v.toFixed(2)}%`, '命中率']} />
-                          <Line type="monotone" dataKey="cacheHitRatePct" name="命中率" stroke={CARAMEL[500]} strokeWidth={2} dot={false} />
+                          <YAxis yAxisId="left" domain={[0, 100]} unit="%" tick={{ fontSize: 11, fill: '#78716c' }} />
+                          <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: '#78716c' }} />
+                          <Tooltip labelFormatter={l => `快照 ${fmtDate(String(l))}`} />
+                          <Line yAxisId="left" type="monotone" dataKey="cacheHitRatePct" name="命中率%" stroke={CARAMEL[500]} strokeWidth={2} dot={false} />
+                          <Bar yAxisId="right" dataKey="errorCalls" name="失败调用" fill="#f87171" radius={[3, 3, 0, 0]} />
                         </ComposedChart>
                       </ResponsiveContainer>
                     </ChartCard>
                   </div>
 
-                  {/* Per-otter 明细表 */}
-                  <ChartCard title="獭成本明细" subtitle={`最新快照 ${costOutput.latestSnapshotDate ?? '—'} · 按 cost 降序`} icon={<Layers className="w-4 h-4 text-otter-500" />}>
-                    <div className="divide-y divide-stone-100">
-                      {costOutput.otters.map(otter => (
-                        <div key={otter.otterId} className="py-2.5">
-                          <div className="flex items-center gap-3 text-sm">
-                            <span className="font-medium text-stone-700 min-w-[120px]">{otter.otterName}</span>
-                            <span className="px-2 py-0.5 rounded-full text-xs bg-skeleton text-stone-500">{otter.otterType}</span>
-                            <span className="text-stone-500 text-xs ml-auto">
-                              ${otter.costTotal.toFixed(4)} · {fmtLargeNumber(otter.totalTokens)} tok · {otter.callCount} 次
-                            </span>
-                            <span className="text-xs text-amber-600">命中 {(otter.cacheHitRate * 100).toFixed(1)}%</span>
-                            <span className="text-xs text-stone-400">发言 {otter.messageCount}</span>
-                          </div>
-                          {otter.models.length > 1 && (
-                            <div className="flex flex-wrap gap-2 mt-1 ml-2">
-                              {otter.models.map(m => (
-                                <span key={m.model} className="text-xs text-stone-400">
-                                  {m.model}: ${m.costTotal.toFixed(4)} · {fmtLargeNumber(m.totalTokens)} tok
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                      {costOutput.otters.length === 0 && (
-                        <div className="text-center py-12 text-stone-400">
-                          <BarChart3 className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                          无成本/产出数据
-                        </div>
-                      )}
-                    </div>
+                  {/* 单次问答均值：总 + 按模型（F20260914usgm 搭档需求③） */}
+                  <ChartCard title="单次 invoke 均值" subtitle={`最新快照 ${costOutput.latestSnapshotDate ?? '—'} · token 为 session 累计差分口径`} icon={<Activity className="w-4 h-4 text-otter-500" />}>
+                    <InvokeStatsTable stats={costOutput.invokeStats} />
                   </ChartCard>
 
-                  {/* Per-otter 成本占比堆叠条 */}
-                  {costOutput.otters.length > 1 && (
-                    <ChartCard title="獭成本占比" subtitle="各獭 cost 合计占比" icon={<PieIcon className="w-4 h-4 text-otter-500" />}>
-                      <OtterCostBar otters={costOutput.otters} />
-                    </ChartCard>
+                  {/* Per-otter 明细（保留低优先展示，默认折叠） */}
+                  {costOutput.otters.length > 0 && (
+                    <details className="rounded-2xl bg-white/70 border border-stone-200/60">
+                      <summary className="px-4 py-3 text-sm font-semibold text-stone-600 cursor-pointer select-none">
+                        獭明细（辅助视图，{costOutput.otters.length} 只 · 按模型主维度设计的补充）
+                      </summary>
+                      <div className="divide-y divide-stone-100 px-4">
+                        {costOutput.otters.map(otter => (
+                          <div key={otter.otterId} className="py-2.5">
+                            <div className="flex items-center gap-3 text-sm">
+                              <span className="font-medium text-stone-700 min-w-[120px]">{otter.otterName}</span>
+                              <span className="px-2 py-0.5 rounded-full text-xs bg-skeleton text-stone-500">{otter.otterType}</span>
+                              <span className="text-stone-500 text-xs ml-auto">
+                                {fmtLargeNumber(otter.totalTokens)} tok · {otter.callCount} 次
+                              </span>
+                              <span className="text-xs text-amber-600">命中 {(otter.cacheHitRate * 100).toFixed(1)}%</span>
+                              <span className="text-xs text-stone-400">发言 {otter.messageCount}</span>
+                            </div>
+                            {otter.models.length > 1 && (
+                              <div className="flex flex-wrap gap-2 mt-1 ml-2">
+                                {otter.models.map(m => (
+                                  <span key={m.model} className="text-xs text-stone-400">
+                                    {m.model}: {fmtLargeNumber(m.totalTokens)} tok
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
                   )}
                 </>
               ) : (
                 <div className="rounded-2xl bg-white/70 border border-stone-200/60 py-16 text-center">
                   <BarChart3 className="w-10 h-10 mx-auto mb-3 text-stone-300" />
-                  <p className="text-sm text-stone-500">还没有成本/产出数据——点右上角「立即扫描」生成第一份</p>
-                  <p className="text-xs text-stone-400 mt-1">扫描会解析 session JSONL 和消息表，写入 cost_output 快照</p>
+                  <p className="text-sm text-stone-500">还没有用量数据——点右上角「立即扫描」生成第一份</p>
+                  <p className="text-xs text-stone-400 mt-1">扫描会解析 session JSONL 和 invokes 表，写入 cost_output 快照</p>
                 </div>
               )}
             </div>
@@ -735,36 +735,97 @@ function fmtLargeNumber(v: number): string {
   return String(v)
 }
 
-/** 獭成本占比堆叠条（同 ChainStateBar 模式） */
-function OtterCostBar({ otters }: { otters: RhiCostOutputOtterDTO[] }) {
-  const total = otters.reduce((s, o) => s + o.costTotal, 0)
-  if (total === 0) {
-    return <div className="flex items-center justify-center h-14 text-sm text-stone-400">无成本数据</div>
-  }
+/** F20260914usgm：模型占比环形图（token 占比 / 调用次数占比，metric 切换） */
+function ModelUsagePie({ models, metric }: { models: api.RhiModelUsageDTO[]; metric: 'totalTokens' | 'callCount' }) {
+  const data = models.map(m => ({ name: m.model, value: m[metric] })).filter(d => d.value > 0)
+  const total = data.reduce((s, d) => s + d.value, 0)
+  if (total === 0) return <EmptyChart text="无数据" />
   return (
     <div>
-      <div className="flex h-7 rounded-full overflow-hidden bg-skeleton/50">
-        {otters.map((otter, i) => (
-          <div
-            key={otter.otterId}
-            className="flex items-center justify-center transition-all"
-            style={{ width: `${(otter.costTotal / total) * 100}%`, backgroundColor: COST_OUTPUT_COLORS[i % COST_OUTPUT_COLORS.length] }}
-            title={`${otter.otterName}: $${otter.costTotal.toFixed(4)}`}
-          >
-            {(otter.costTotal / total) >= 0.12 && (
-              <span className="text-[11px] font-semibold text-white">${otter.costTotal.toFixed(2)}</span>
-            )}
-          </div>
-        ))}
-      </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
-        {otters.map((otter, i) => (
-          <span key={otter.otterId} className="flex items-center gap-1 text-xs text-stone-500">
-            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: COST_OUTPUT_COLORS[i % COST_OUTPUT_COLORS.length] }} />
-            {otter.otterName} ${otter.costTotal.toFixed(4)}（{((otter.costTotal / total) * 100).toFixed(0)}%）
-          </span>
-        ))}
-      </div>
+      <ResponsiveContainer width="100%" height={200}>
+        <PieChart>
+          <Pie data={data} dataKey="value" nameKey="name" innerRadius={55} outerRadius={80} paddingAngle={2}>
+            {data.map((_, i) => (
+              <Cell key={i} fill={COST_OUTPUT_COLORS[i % COST_OUTPUT_COLORS.length]} />
+            ))}
+          </Pie>
+          <Tooltip formatter={(v: number, name: string) => [`${fmtLargeNumber(v)}（${((v / total) * 100).toFixed(1)}%）`, name]} />
+          <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+        </PieChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+/** F20260914usgm：模型用量明细表（token 四分类/调用/失败/命中率） */
+function ModelUsageTable({ models }: { models: api.RhiModelUsageDTO[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-xs text-stone-400 border-b border-stone-200">
+            <th className="py-2 pr-4 font-medium">模型</th>
+            <th className="py-2 pr-4 font-medium text-right">输入</th>
+            <th className="py-2 pr-4 font-medium text-right">输出</th>
+            <th className="py-2 pr-4 font-medium text-right">缓存读</th>
+            <th className="py-2 pr-4 font-medium text-right">缓存写</th>
+            <th className="py-2 pr-4 font-medium text-right">总计</th>
+            <th className="py-2 pr-4 font-medium text-right">调用</th>
+            <th className="py-2 pr-4 font-medium text-right">失败</th>
+            <th className="py-2 pr-4 font-medium text-right">命中率</th>
+          </tr>
+        </thead>
+        <tbody>
+          {models.map(m => (
+            <tr key={m.model} className="border-b border-stone-100">
+              <td className="py-2 pr-4 font-medium text-stone-700">{m.model}</td>
+              <td className="py-2 pr-4 text-right tabular-nums text-stone-500">{fmtLargeNumber(m.inputTokens)}</td>
+              <td className="py-2 pr-4 text-right tabular-nums text-stone-500">{fmtLargeNumber(m.outputTokens)}</td>
+              <td className="py-2 pr-4 text-right tabular-nums text-stone-500">{fmtLargeNumber(m.cacheReadTokens)}</td>
+              <td className="py-2 pr-4 text-right tabular-nums text-stone-500">{fmtLargeNumber(m.cacheWriteTokens)}</td>
+              <td className="py-2 pr-4 text-right tabular-nums text-stone-600 font-medium">{fmtLargeNumber(m.totalTokens)}</td>
+              <td className="py-2 pr-4 text-right tabular-nums text-stone-500">{m.callCount}</td>
+              <td className={`py-2 pr-4 text-right tabular-nums ${m.errorCalls > 0 ? 'text-amber-600 font-medium' : 'text-stone-400'}`}>{m.errorCalls}</td>
+              <td className="py-2 pr-4 text-right tabular-nums text-stone-500">{(m.cacheHitRate * 100).toFixed(1)}%</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/** F20260914usgm：单次 invoke 均值表（_total 置顶 + per-model） */
+function InvokeStatsTable({ stats }: { stats: api.RhiInvokeStatsDTO[] }) {
+  const sorted = [...stats].sort((a, b) => (a.model === '_total' ? -1 : b.model === '_total' ? 1 : b.invokeCount - a.invokeCount))
+  if (sorted.length === 0) return <EmptyChart text="无 invoke 数据（需有 model 归属的新 invoke）" />
+  const fmtDuration = (sec: number) => (sec >= 90 ? `${(sec / 60).toFixed(1)}m` : `${Math.round(sec)}s`)
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-xs text-stone-400 border-b border-stone-200">
+            <th className="py-2 pr-4 font-medium">模型</th>
+            <th className="py-2 pr-4 font-medium text-right">invoke 数</th>
+            <th className="py-2 pr-4 font-medium text-right">平均工具调用</th>
+            <th className="py-2 pr-4 font-medium text-right">平均耗时</th>
+            <th className="py-2 pr-4 font-medium text-right">平均输入 tok</th>
+            <th className="py-2 pr-4 font-medium text-right">平均输出 tok</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map(s => (
+            <tr key={s.model} className={`border-b border-stone-100 ${s.model === '_total' ? 'bg-stone-50/60' : ''}`}>
+              <td className="py-2 pr-4 font-medium text-stone-700">{s.model === '_total' ? '全部模型' : s.model}</td>
+              <td className="py-2 pr-4 text-right tabular-nums text-stone-500">{s.invokeCount}</td>
+              <td className="py-2 pr-4 text-right tabular-nums text-stone-500">{s.avgToolCalls}</td>
+              <td className="py-2 pr-4 text-right tabular-nums text-stone-500">{fmtDuration(s.avgDurationSec)}</td>
+              <td className="py-2 pr-4 text-right tabular-nums text-stone-500">{fmtLargeNumber(s.avgInputTokens)}</td>
+              <td className="py-2 pr-4 text-right tabular-nums text-stone-500">{fmtLargeNumber(s.avgOutputTokens)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

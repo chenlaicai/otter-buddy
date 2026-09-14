@@ -394,6 +394,10 @@ export class AgentInvoker implements AgentTurnPort {
         await sendEntry.updateInvokeTokenUsage(invokeId, input, output);
       },
 
+      updateInvokeModel: async (invokeId: string, model: string) => {
+        await sendEntry.updateInvokeModel(invokeId, model);
+      },
+
       createInvokeEndEntry: async (invokeId: string, status: 'failed' | 'aborted', body?: string): Promise<{ entryId: string; body: string } | undefined> => {
         const invoke = await sendEntry.getInvokeById(invokeId);
         if (!invoke) return undefined;

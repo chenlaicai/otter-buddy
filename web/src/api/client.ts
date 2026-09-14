@@ -613,10 +613,33 @@ export function triggerRhiScan(): Promise<{ result: Record<string, unknown> }> {
 export interface RhiCostOutputTrendPointDTO {
   date: string
   totalTokens: number
-  costTotal: number
   callCount: number
+  errorCalls: number
   cacheHitRate: number
   messageCount: number
+}
+
+/** F20260914usgm：per-model 汇总（面板主维度） */
+export interface RhiModelUsageDTO {
+  model: string
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  totalTokens: number
+  callCount: number
+  errorCalls: number
+  cacheHitRate: number
+}
+
+/** F20260914usgm：单次问答均值（per-model + _total） */
+export interface RhiInvokeStatsDTO {
+  model: string
+  invokeCount: number
+  avgToolCalls: number
+  avgDurationSec: number
+  avgInputTokens: number
+  avgOutputTokens: number
 }
 
 export interface RhiCostOutputOtterDTO {
@@ -634,11 +657,13 @@ export interface RhiCostOutputOtterDTO {
 export interface RhiCostOutputDTO {
   days: number
   series: RhiCostOutputTrendPointDTO[]
+  models: RhiModelUsageDTO[]
+  invokeStats: RhiInvokeStatsDTO[]
   otters: RhiCostOutputOtterDTO[]
   totals: {
     totalTokens: number
-    costTotal: number
     callCount: number
+    errorCalls: number
     messageCount: number
     otterCount: number
     dispatchCount: number

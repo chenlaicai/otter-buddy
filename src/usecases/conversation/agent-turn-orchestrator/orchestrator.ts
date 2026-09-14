@@ -108,6 +108,12 @@ export class AgentTurnOrchestrator {
 
       // Record failed attempt
       this.recordFailedAttempt(reason, currentInput, result, err, { callbacks, attemptStartTime });
+      // F20260914usgm：model 归属落 invoke metadata（err 路径）——成功路径在 tryCompleteInvoke 写。
+      // err 路径 result 可能为空壳（#543），model 从 errMeta._modelAlias 取；无则不写（归 unknown 桶）
+      const failedModel = result.modelAlias ?? (err as ErrorWithToolCallCount)?._modelAlias;
+      if (failedModel) {
+        void callbacks.updateInvokeModel?.(currentInput.invokeId, failedModel);
+      }
       if (hasOrphanText) {
         this.recordNoYieldWithOrphanText(currentInput.otterId, currentInput, callbacks);
         this.logger.info('Orphan text detected: LLM output direct text without calling speak', {
@@ -170,6 +176,10 @@ export class AgentTurnOrchestrator {
       // token usage 落 invoke 行（终态快照）
       if (result.tokenUsage) {
         await ctx.callbacks.updateInvokeTokenUsage?.(input.invokeId, result.tokenUsage.input, result.tokenUsage.output);
+      }
+      // F20260914usgm：model 归属落 invoke metadata（成功路径）
+      if (result.modelAlias) {
+        await ctx.callbacks.updateInvokeModel?.(input.invokeId, result.modelAlias);
       }
 
       void this.recordAttempt({

@@ -168,11 +168,14 @@ function judgeTrends(
  *  混合求和说明（F20260909csdt 补充）：同一 snapshot_date 下 per-otter 行与全局行
  * （pr_count/fdoc_count/dispatch_count）混在一起按 metric_key 求和是安全的——
  *  两类行的指标键集合不相交：per-otter 指标（token/cost/call/message/tool_call）
- *  只存在于 per-otter 行，全局指标只存在于全局行，互不污染、无重复计数风险。 */
+ *  只存在于 per-otter 行，全局指标只存在于全局行，互不污染、无重复计数风险。
+ *
+ *  F20260914usgm：invoke stats 行（invoke_count/avg_*）带 metadata.model，不进
+ *  AGGREGATE_KEYS 求和——由 buildModelBreakdown / buildInvokeStats 独立消费。 */
 function buildCostTrendSeries(
-  costRows: Array<{ snapshot_date: string; metric_key: string; metric_value: number }>,
+  costRows: Array<{ snapshot_date: string; metric_key: string; metric_value: number; metadata?: string | null }>,
 ): Array<Record<string, number | string>> {
-  const AGGREGATE_KEYS = new Set(["total_tokens", "cost_total", "llm_call_count", "message_count", "cache_read_tokens", "input_tokens"]);
+  const AGGREGATE_KEYS = new Set(["total_tokens", "llm_call_count", "message_count", "cache_read_tokens", "input_tokens", "error_call_count"]);
   const byDate = new Map<string, Record<string, number>>();
   for (const row of costRows) {
     if (!AGGREGATE_KEYS.has(row.metric_key)) continue;
@@ -187,8 +190,8 @@ function buildCostTrendSeries(
       return {
         date,
         totalTokens: p.total_tokens ?? 0,
-        costTotal: p.cost_total ?? 0,
         callCount: p.llm_call_count ?? 0,
+        errorCalls: p.error_call_count ?? 0,
         cacheHitRate: (cacheRead + input) > 0 ? Number((cacheRead / (cacheRead + input)).toFixed(4)) : 0,
         messageCount: p.message_count ?? 0,
       };
@@ -259,6 +262,105 @@ function formatOtterEntry(e: OtterAcc) {
       model, totalTokens: m.totalTokens, costTotal: Number(m.costTotal.toFixed(6)),
     })).sort((a, b) => b.costTotal - a.costTotal),
   };
+}
+
+/** F20260914usgm：按模型聚合（面板主维度）——per-model token 四分类/调用数/失败数/缓存命中率。
+ *  从窗口内全部 cost_output 行聚合（非仅最新日），token 与调用数为区间累计。 */
+function buildModelBreakdown(
+  costRows: Array<{ metric_key: string; metric_value: number; metadata?: string | null }>,
+): Array<{
+  model: string; inputTokens: number; outputTokens: number;
+  cacheReadTokens: number; cacheWriteTokens: number; totalTokens: number;
+  callCount: number; errorCalls: number; cacheHitRate: number;
+}> {
+  const MODEL_KEYS = new Set(["input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "total_tokens", "llm_call_count", "error_call_count"]);
+  interface MAcc {
+    inputTokens: number; outputTokens: number; cacheRead: number; cacheWrite: number;
+    totalTokens: number; callCount: number; errorCalls: number;
+  }
+  const byModel = new Map<string, MAcc>();
+  for (const row of costRows) {
+    if (!MODEL_KEYS.has(row.metric_key)) continue;
+    let model = "unknown";
+    if (row.metadata) {
+      try {
+        const meta = JSON.parse(row.metadata) as { model?: string };
+        if (meta.model) model = meta.model;
+      } catch {
+        // 非法 JSON → unknown
+      }
+    }
+    let m = byModel.get(model);
+    if (!m) {
+      m = { inputTokens: 0, outputTokens: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, callCount: 0, errorCalls: 0 };
+      byModel.set(model, m);
+    }
+    switch (row.metric_key) {
+      case "input_tokens": m.inputTokens += row.metric_value; break;
+      case "output_tokens": m.outputTokens += row.metric_value; break;
+      case "cache_read_tokens": m.cacheRead += row.metric_value; break;
+      case "cache_write_tokens": m.cacheWrite += row.metric_value; break;
+      case "total_tokens": m.totalTokens += row.metric_value; break;
+      case "llm_call_count": m.callCount += row.metric_value; break;
+      case "error_call_count": m.errorCalls += row.metric_value; break;
+    }
+  }
+  return [...byModel.entries()].map(([model, m]) => {
+    const denom = m.cacheRead + m.inputTokens;
+    return {
+      model, inputTokens: m.inputTokens, outputTokens: m.outputTokens,
+      cacheReadTokens: m.cacheRead, cacheWriteTokens: m.cacheWrite, totalTokens: m.totalTokens,
+      callCount: m.callCount, errorCalls: m.errorCalls,
+      cacheHitRate: denom > 0 ? Number((m.cacheRead / denom).toFixed(4)) : 0,
+    };
+  }).sort((a, b) => b.totalTokens - a.totalTokens);
+}
+
+/** F20260914usgm：单次问答均值——per-model（含 _total 合计）从 invoke stats 行取最新日。 */
+function buildInvokeStats(
+  costRows: Array<{ snapshot_date: string; metric_key: string; metric_value: number; metadata?: string | null }>,
+): Array<{
+  model: string; invokeCount: number; avgToolCalls: number;
+  avgDurationSec: number; avgInputTokens: number; avgOutputTokens: number;
+}> {
+  const STATS_KEYS = new Set(["invoke_count", "avg_tool_calls", "avg_duration_sec", "avg_input_tokens", "avg_output_tokens"]);
+  interface SAcc {
+    snapshotDate: string;
+    invokeCount: number; avgToolCalls: number; avgDurationSec: number;
+    avgInputTokens: number; avgOutputTokens: number;
+  }
+  const byModel = new Map<string, SAcc>();
+  for (const row of costRows) {
+    if (!STATS_KEYS.has(row.metric_key)) continue;
+    let model = "_total";
+    if (row.metadata) {
+      try {
+        const meta = JSON.parse(row.metadata) as { model?: string };
+        if (meta.model) model = meta.model;
+      } catch {
+        // 非法 JSON → _total
+      }
+    }
+    let s = byModel.get(model);
+    // 取最新快照日的值（同日多行覆盖后只剩一份；跨日取大）
+    if (!s || row.snapshot_date > s.snapshotDate) {
+      s = { snapshotDate: row.snapshot_date, invokeCount: 0, avgToolCalls: 0, avgDurationSec: 0, avgInputTokens: 0, avgOutputTokens: 0 };
+      byModel.set(model, s);
+    }
+    switch (row.metric_key) {
+      case "invoke_count": s.invokeCount = row.metric_value; break;
+      case "avg_tool_calls": s.avgToolCalls = row.metric_value; break;
+      case "avg_duration_sec": s.avgDurationSec = row.metric_value; break;
+      case "avg_input_tokens": s.avgInputTokens = row.metric_value; break;
+      case "avg_output_tokens": s.avgOutputTokens = row.metric_value; break;
+    }
+  }
+  return [...byModel.entries()]
+    .map(([model, s]) => ({
+      model, invokeCount: s.invokeCount, avgToolCalls: s.avgToolCalls,
+      avgDurationSec: s.avgDurationSec, avgInputTokens: s.avgInputTokens, avgOutputTokens: s.avgOutputTokens,
+    }))
+    .sort((a, b) => b.invokeCount - a.invokeCount);
 }
 
 export class RhiController {
@@ -454,11 +556,13 @@ export class RhiController {
     }
   }
 
-  /** GET /api/health/cost-output?days=30&includeAllOtters=false — 成本/产出趋势序列（#583）
+  /** GET /api/health/cost-output?days=30&includeAllOtters=false — 用量/效率趋势序列（#583 → F20260914usgm 改版）
    *  从 health_snapshots 按日期范围拉取 cost_output 指标，聚合出：
-   *  - per-date 趋势（总 token / 总 cost / 调用数 / 缓存命中率 / 产出数），camelCase 统一响应格式
-   *  - per-otter 明细（最新一天的 per-otter per-model 拆分，默认仅 active 獭）
-   *  - 汇总（最新一天的总计）
+   *  - per-date 趋势（总 token / 调用数 / 失败数 / 缓存命中率），camelCase 统一响应格式
+   *  - models：per-model 汇总（token 四分类/调用数/失败数/缓存命中率，区间累计）
+   *  - invokeStats：单次问答均值（per-model + _total，最新快照日）
+   *  - per-otter 明细（保留，低优先展示；F20260914usgm 搭档决策：獭非统计主维度）
+   *  成本展示已撤（搭档决策 2026-09-14：单价不可靠且多为 plan 无单价，只看用量）。
    *  成本/产出只作信号不作 KPI（Goodhart 防线）。 */
   async costOutput(c: Context): Promise<Response> {
     try {
@@ -469,6 +573,8 @@ export class RhiController {
 
       const costRows = this.snapshotRepo.findByDateRange(startDate, endDate).filter(r => r.metric_type === "cost_output");
       const series = buildCostTrendSeries(costRows);
+      const models = buildModelBreakdown(costRows);
+      const invokeStats = buildInvokeStats(costRows);
 
       const latestDate = costRows.length > 0
         ? [...costRows].sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date))[costRows.length - 1]!.snapshot_date
@@ -482,15 +588,15 @@ export class RhiController {
       }
 
       const totals = {
-        totalTokens: otters.reduce((s, o) => s + o.totalTokens, 0),
-        costTotal: Number(otters.reduce((s, o) => s + o.costTotal, 0).toFixed(6)),
-        callCount: otters.reduce((s, o) => s + o.callCount, 0),
+        totalTokens: models.reduce((s, m) => s + m.totalTokens, 0),
+        callCount: models.reduce((s, m) => s + m.callCount, 0),
+        errorCalls: models.reduce((s, m) => s + m.errorCalls, 0),
         messageCount: otters.reduce((s, o) => s + o.messageCount, 0),
         otterCount: otters.length,
         dispatchCount: costRows.filter(r => r.metric_key === 'dispatch_count').reduce((s, r) => s + r.metric_value, 0),
       };
 
-      return c.json({ days, series, otters, totals, latestSnapshotDate: latestDate });
+      return c.json({ days, series, models, invokeStats, otters, totals, latestSnapshotDate: latestDate });
     } catch (err) {
       return handleError(c, err, this.logger);
     }

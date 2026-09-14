@@ -546,6 +546,16 @@ export class SendEntry {
     await this.invokeRepo.updateInvokeTokenUsage(invokeId, input, output);
   }
 
+  /** F20260914usgm：更新 invoke model 归属（merge 进 metadata，不动其他键） */
+  async updateInvokeModel(invokeId: string, model: string): Promise<void> {
+    const invoke = await this.invokeRepo.getInvokeById(invokeId);
+    if (!invoke) return;
+    await this.invokeRepo.updateInvokeMetadata(invokeId, {
+      ...(invoke.metadata ?? {}),
+      model,
+    });
+  }
+
   /** F20260913ctlv 收尾批3：全文搜索（entries_fts——search_messages 工具数据源） */
   async searchEntries(conversationId: string, query: string, limit?: number): Promise<Entry[]> {
     return this.entryRepo.searchEntries(conversationId, query, limit);
