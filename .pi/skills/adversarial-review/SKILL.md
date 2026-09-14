@@ -78,10 +78,19 @@ category: technique
 
 6. **输出报告到 PR**：先将检视结论 post 到 PR，再在 otter 对话中发轻量通知。报告中的处置栏格式见 `references/author-response-protocol.md`；多轮审视的收敛判据与终止条件见 `references/review-loop.md`。
 
-   **步骤 6a：post PR review comment**：
+   **步骤 6a：post PR review comment（#858：正文必走 body-file，禁止内联）**：
+   审查内容可能含被审查代码的进程终止族词元——内联进 `--body` 会触发 bash 守卫拦截（#858 现场：检视獭被拦 13 起、对抗审视流程在守卫层断裂）。正文一律先落文件（write 工具或工作区），再 `--body-file` 引用：
 
    ```bash
-   gh pr review <PR_NUMBER> --comment --body "## 审查者
+   # 1. 先用 write 工具把报告写入文件（例：/tmp/review-<PR_NUMBER>.md）
+   # 2. 再引用文件提交（命令行不含报告正文）
+   gh pr review <PR_NUMBER> --comment --body-file /tmp/review-<PR_NUMBER>.md
+   ```
+
+   报告文件内容（模板）：
+
+   ```markdown
+   ## 审查者
    [海獭名号]
 
    ## 审查结论

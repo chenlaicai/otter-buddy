@@ -14,6 +14,7 @@ import fs from "fs";
 import path from "path";
 import type { Logger } from "@usecases/ports/logger";
 import { loadAllowedServicePorts, extractWhitelistedPortRefs, type AllowedService } from "./allowed-service-ports";
+import { shouldSanitizeForScan, sanitizeQuotedText } from "./quoted-text-sanitizer";
 
 export type { AllowedService };
 
@@ -436,6 +437,14 @@ export function checkBashCommandSafety(
 
   // #844：白名单热加载（与 PID 文件同策略：每次判定重读，mtime 缓存去抖）
   const allowedServices = guardOptions?.projectRoot ? loadAllowedServicePorts(guardOptions.projectRoot) : [];
+
+  // #858：内嵌文本脱敏——引号内数据文本含敏感词元且无危险通道时，拦截判定在
+  // 脱敏文本上跑。脱敏后干净（纯数据操作）→ 放行；仍命中（引号外有真实命令）
+  // → 继续原文本路径（诊断信息扫原文，回显真实命中点）
+  if (shouldSanitizeForScan(command)) {
+    const sanitizedResult = checkBashCommandSafetyOnText(sanitizeQuotedText(command), mainPid, logger, allowedServices);
+    if (!sanitizedResult) return null;
+  }
 
   const result = checkBashCommandSafetyOnText(command, mainPid, logger, allowedServices);
   if (result) return withDiagnostics(result, command, mainPid);
