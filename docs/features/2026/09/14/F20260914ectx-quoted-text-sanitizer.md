@@ -6,6 +6,11 @@ change_type: feature
 capability_test: "n/a: 守卫运行时防护层，行为由新单测锁定（现场 13 起形态回归 + 真实危险维持拦截）；skill 模板为静态文档变更"
 created_in_conversation: c2f347c6-7e59-4e2e-ab48-10f64a5a1258
 created_at: 2026-09-14
+intent:
+  problem: "bash 守卫把引号内文本提及的进程终止族词元当执行意图误拦，检视/issue/测试三类生态操作被阻断（13 起实证）"
+  expected_effect: "gh --body 引文本/heredoc 正文/测试字符串类纯数据操作零误拦；真实危险（引号外命令位/双引号内命令替换/shell 载荷通道）维持拦截"
+  verify_by:
+    type: behavior_check
 tags: [bash-guard, security, false-positive, review-protocol, daily-review]
 modules:
   - src/frameworks/agent/quoted-text-sanitizer.ts
