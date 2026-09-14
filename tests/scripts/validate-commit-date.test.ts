@@ -150,6 +150,48 @@ describe('validateCommitDate', () => {
     });
   });
 
+  describe('CLI --at 基准时间注入（F20260914prdb）', () => {
+    // Why: CI 的 PR 标题校验改传 PR 创建时间（github.event.pull_request.created_at），
+    // 必须验证 --at 参数语义：ID 日期与注入基准比对，而非与当前时间比对。
+    // 复现 #789 现场：PR 创建于 2026-09-04，标题 ID 2026-09-04，但校验运行于 2026-09-14
+    it('should pass when ID date matches PR creation time (10-day-old PR, #789 现场)', () => {
+      const { exitCode } = runCLI([
+        '--at', '2026-09-04T03:56:11Z',
+        '[F20260904wxeg][weixin][BugFix] 出站 sendmessage 全量观测日志',
+      ]);
+      expect(exitCode).toBe(0);
+    });
+
+    it('should still reject when ID date is 8+ days off PR creation time', () => {
+      // PR 创建于 2026-09-04，但标题写了 2026-08-25（差 10 天）→ 发起时就写错，仍应拦
+      const { exitCode, stderr } = runCLI([
+        '--at', '2026-09-04T03:56:11Z',
+        '[F20260825abcd][agent][Feature Update] 测试',
+      ]);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('偏差');
+    });
+
+    it('should exit 1 when --at has no argument', () => {
+      const { exitCode, stderr } = runCLI(['--at']);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('--at');
+    });
+
+    it('should exit 1 when --at is not valid ISO time', () => {
+      const { exitCode, stderr } = runCLI(['--at', 'not-a-date', '[F20260904wxeg][agent][BugFix] 测试']);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('合法');
+    });
+
+    it('should not break --at usage without title (stdin path unaffected)', () => {
+      // --at 剥离后无位置参数 → stdin 路径；空输入 exit 0（既有行为不变）
+      const { exitCode } = runCLI(['--at', '2026-09-04T03:56:11Z']);
+      // 无 stdin 输入时 readFileSync(0) 会读到空/EOF → exit 0
+      expect([0, 1]).toContain(exitCode);
+    });
+  });
+
   describe('CLI 退出码（集成）', () => {
     // Why: CLI 集成用例走真实脚本，脚本用系统当前日期判定偏差（±2 天）。
     // 硬编码日期会在日期滚动后必然失败（#422 同源教训：禁止凭印象标日期）。

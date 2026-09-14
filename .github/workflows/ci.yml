@@ -46,12 +46,15 @@ jobs:
           echo "✅ PR 标题格式正确"
 
       # F20260825dva2: 特性 ID 日期校验——复用 scripts/validate-commit-date.mjs 单一实现
+      # F20260914prdb: 基准时间用 PR 创建时间而非当前时间——消灭「PR 放着越久越超窗」的
+      # 时间漂移误伤（校验意图是发起时日期写对，不是 PR 多久内必须合完）
       - name: Check PR title feature ID date
         if: github.event_name == 'pull_request'
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_CREATED_AT: ${{ github.event.pull_request.created_at }}
         run: |
-          RESULT=$(echo "$PR_TITLE" | node scripts/validate-commit-date.mjs 2>&1)
+          RESULT=$(echo "$PR_TITLE" | node scripts/validate-commit-date.mjs --at "$PR_CREATED_AT" 2>&1)
           EXIT_CODE=$?
           if [ $EXIT_CODE -ne 0 ]; then
             echo "❌ $RESULT"
