@@ -22,7 +22,7 @@ capability_test: "n/a: 纯依赖升级，无 LLM 参与行为"
 created_in_conversation: a3758263-dfac-4396-93ee-37d89efb5b0e
 ---
 
-# F20260909deps: 统一升级依赖版本（2026-09-09）
+# F20260914deps: 统一升级依赖版本（2026-09-09）
 
 ## 背景与需求
 
