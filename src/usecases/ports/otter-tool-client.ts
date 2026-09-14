@@ -101,8 +101,10 @@ export interface OtterToolClient {
       }>>;
     };
     invoke: {
-      /** 追加 invoke 事件 */
-      appendInvokeEvent(invokeId: string, eventType: string, payload: Record<string, unknown>): Promise<void>;
+      /** 追加 invoke 事件。
+ *  F20260914evdz：返回落库事件标识（id/sequenceNum/createdAt）——agent-invoker
+ *  拿去广播 invoke.event SSE（Session 弹窗实时观察数据源）。落库异常时抛错（调用方 catch） */
+      appendInvokeEvent(invokeId: string, eventType: string, payload: Record<string, unknown>): Promise<{ id: string; sequenceNum: number; createdAt: string } | null>;
       /** 获取 invoke 信息 */
       getInvokeById(invokeId: string): Promise<{ id: string; status: string; toolCallCount: number } | null>;
       /** 更新 invoke 工具调用计数 */

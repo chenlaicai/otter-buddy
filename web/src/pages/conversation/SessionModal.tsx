@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { X, ChevronRight, Loader2, MessageSquare, Wrench, CircleAlert, Braces, Terminal } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef, type MutableRefObject } from 'react'
+import { X, ChevronRight, Loader2, MessageSquare, Wrench, CircleAlert, Braces, Copy, Check } from 'lucide-react'
 import type { LocalOtter } from '../../lib/mappers'
 import type { InvokeDTO, InvokeEventDTO } from '@contract/api'
 import { OtterAvatar } from '../../components/OtterAvatar'
@@ -14,35 +14,83 @@ import * as api from '../../api/client'
  *        GET /api/invokes/:invokeId/events（流式过程：assistant_text/tool_call/tool_result/speak）
  * 特性文档 D5：流式过程从消息气泡挪出，只在此弹窗展示。
  *
- * F20260914rtsp 升级：
- * - 自动展开最新 invoke（running 优先，否则最新一条）——打开即看当前行动，不用手点
- * - running invoke 2s 轮询增量尾随（新事件 append + 自动滚底，上滚暂停跟随）
- * - 事件展示层折叠（invoke-event-fold）：同一次工具调用「调用→结果」一行，点开看原始分列
- * - 终态 invoke 加载 limit 300 兜底（防长 invoke 卡顿；上翻分页留后续迭代）
+ * F20260914rtsp 升级：自动展开最新 invoke + 事件展示层折叠（invoke-event-fold）。
+ * F20260914evdz 升级：
+ * - 实时化改事件驱动（替换 #916 的 2s 轮询）：SSE invoke.event 经 props 注入的
+ *   live 通道（index.tsx 常驻 SSE 连接转发）增量 append——推送节奏 = 獭干活的真实
+ *   节奏，无任何定时器；主界面不渲染该事件（零 re-render）
+ * - invoke.start → 列表自动冒出新行并自动展开；invoke 终态 → 全量拉取收敛（防乱序）
+ * - 事件行展开区找回旧版（#886 前「流式过程」面板）形态：参数/结果/发言/思考全文
+ *   （可滚动 + 复制按钮），替换 #916 的原始 JSON 截断分列
  */
+
+/** 实时通道条目（index.tsx 常驻 SSE 注入；ev=null 表示 invoke 终态 flush） */
+export interface SessionLiveItem {
+  invokeId: string
+  otterId: string
+  ev: InvokeEventDTO | null
+  /** invoke.start 信号（新行动开始） */
+  start?: boolean
+  /** SSE 连接状态变化 */
+  conn?: boolean
+}
 
 interface SessionModalProps {
   otter: LocalOtter
   conversationId: string
   onClose: () => void
+  /** 实时事件 buffer（挂载时回放积压；弹窗关闭期间事件不丢） */
+  liveEvents: MutableRefObject<SessionLiveItem[]>
+  /** 实时事件订阅者集合（挂载注册/卸载注销） */
+  liveListeners: MutableRefObject<Set<(item: SessionLiveItem) => void>>
 }
 
 /** 终态 invoke 事件加载上限（F20260914rtsp D9） */
 const TERMINAL_EVENTS_LIMIT = 300
 
-export function SessionModal({ otter, conversationId, onClose }: SessionModalProps) {
+export function SessionModal({ otter, conversationId, onClose, liveEvents, liveListeners }: SessionModalProps) {
   const [invokes, setInvokes] = useState<InvokeDTO[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   /** 展开态：invokeId → 已加载事件（null = 未加载） */
   const [expandedEvents, setExpandedEvents] = useState<Record<string, InvokeEventDTO[] | null>>({})
   const [eventsLoading, setEventsLoading] = useState<Record<string, boolean>>({})
-  /** call 步原始分列展开态：`${invokeId}:${stepIndex}` → true */
+  /** 折叠步展开态：`${invokeId}:${stepIndex}` → true（展开=全文区） */
   const [rawExpanded, setRawExpanded] = useState<Record<string, boolean>>({})
-  /** 轮询驱动的 invoke 状态镜像（发现终态化即停轮询） */
-  const [polledStatus, setPolledStatus] = useState<Record<string, InvokeDTO['status']>>({})
+  /** 实时通道驱动的 invoke 状态镜像（终态 flush 时更新） */
+  const [liveStatus, setLiveStatus] = useState<Record<string, InvokeDTO['status']>>({})
+  /** SSE 连接状态（断连兜底提示——不静默装实时） */
+  const [connLost, setConnLost] = useState(false)
   const eventsBoxRef = useRef<HTMLDivElement | null>(null)
   /** 自动滚底跟随：用户上滚（距底 > 40px）暂停，回底恢复 */
   const followBottomRef = useRef(true)
+
+  /** 全量拉取收敛（终态 flush / 断连恢复用——落库是真相源） */
+  const refreshEvents = useCallback(async (invokeId: string) => {
+    try {
+      const resp = await api.getInvokeEvents(invokeId)
+      setExpandedEvents(prev => (prev[invokeId] == null ? prev : { ...prev, [invokeId]: resp.events }))
+      setLiveStatus(prev => ({ ...prev, [invokeId]: resp.invoke.status }))
+      setInvokes(prev => prev?.map(i => i.id === resp.invoke.id ? resp.invoke : i) ?? prev)
+    } catch { /* 全量收敛失败静默——live 增量仍在推 */ }
+  }, [])
+
+  /** 刷新 invoke 列表（invoke.start 信号：新行动自动冒行 + 自动展开） */
+  const refreshInvokes = useCallback(async (autoExpandInvokeId?: string) => {
+    try {
+      const resp = await api.listInvokes(conversationId, { otterId: otter.id, limit: 50 })
+      setInvokes(resp.invokes)
+      const target = autoExpandInvokeId ? resp.invokes.find(i => i.id === autoExpandInvokeId) : undefined
+      if (target) {
+        setExpandedEvents(prev => ({ ...prev, [target.id]: null }))
+        setEventsLoading(prev => ({ ...prev, [target.id]: true }))
+        try {
+          const r = await api.getInvokeEvents(target.id)
+          setExpandedEvents(prev => ({ ...prev, [target.id]: r.events }))
+        } catch { setExpandedEvents(prev => ({ ...prev, [target.id]: [] })) }
+        finally { setEventsLoading(prev => ({ ...prev, [target.id]: false })) }
+      }
+    } catch { /* 列表刷新失败静默 */ }
+  }, [conversationId, otter.id])
 
   useEffect(() => {
     let cancelled = false
@@ -50,7 +98,7 @@ export function SessionModal({ otter, conversationId, onClose }: SessionModalPro
       .then(resp => {
         if (cancelled) return
         setInvokes(resp.invokes)
-        /** F20260914rtsp：自动展开最新 invoke（running 优先，否则第一条） */
+        /** 自动展开最新 invoke（running 优先，否则第一条） */
         const target = resp.invokes.find(i => i.status === 'running') ?? resp.invokes[0]
         if (target) {
           setExpandedEvents(prev => ({ ...prev, [target.id]: null }))
@@ -88,37 +136,33 @@ export function SessionModal({ otter, conversationId, onClose }: SessionModalPro
     }
   }, [expandedEvents])
 
-  /** F20260914rtsp：running invoke 2s 轮询增量尾随。
-   *  停止条件：展开态消失（用户收起/关弹窗 unmount）或 invoke 终态化（镜像状态非 running）。 */
-  /** F20260914rtsp：running invoke 2s 轮询增量尾随。停止条件：展开态消失（收起/关弹窗）或终态化。
- *  runningExpanded 布尔锤：轮询自身写 expandedEvents（对象引用必变），若把对象进依赖
- *  每 tick 重建 interval（审视发现 1）——布尔恒稳定，收起/展开仍正确启停 */
-  const runningInvokeId = invokes?.find(i => (polledStatus[i.id] ?? i.status) === 'running')?.id
-  const runningExpanded = runningInvokeId != null && expandedEvents[runningInvokeId] !== undefined
+  /** F20260914evdz：实时通道接线（事件驱动，替换 #916 的 2s 轮询）。
+   *  挂载：注册监听 + 回放积压 buffer（弹窗打开前的事件不丢）；
+   *  收到增量：仅追加到「已展开」的 invoke（seq 单调防乱序）；
+   *  终态 flush（ev=null）：全量拉取收敛；
+   *  invoke.start（start=true）：刷新列表 + 自动展开新行动；
+   *  conn：SSE 连接状态（断连提示）。 */
   useEffect(() => {
-    if (!runningInvokeId || !runningExpanded) return
-    const timer = setInterval(async () => {
-      try {
-        const resp = await api.getInvokeEvents(runningInvokeId)
-        setExpandedEvents(prev => {
-          const cur = prev[runningInvokeId]
-          if (cur == null) return prev
-          if (cur.length >= resp.events.length) return prev
-          return { ...prev, [runningInvokeId]: resp.events }
-        })
-        if (resp.invoke.status !== 'running') {
-          setPolledStatus(prev => ({ ...prev, [runningInvokeId]: resp.invoke.status }))
-          /** 终态化：同步刷新 invoke 列表行（状态/统计） */
-          setInvokes(prev => prev?.map(i => i.id === resp.invoke.id ? resp.invoke : i) ?? prev)
-        }
-      } catch { /* 轮询失败静默（下轮重试）；连续失败由弹窗关闭自然停止 */ }
-    }, 2000)
-    return () => clearInterval(timer)
-    // 审视发现 1 处置：依赖布尔派生值而非 expandedEvents 对象——轮询 append 事件时对象引用
-    // 必变但 runningExpanded 恒 true，interval 不被重建；收起/展开 running invoke 仍正确启停
-    // （直接去掉 expandedEvents 依赖会丢失启停语义：收起再展开后轮询不会重启——故用布尔锚）
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- runningExpanded 已涵盖 expandedEvents 的启停语义
-  }, [runningInvokeId, runningExpanded])
+    const listener = (item: SessionLiveItem) => {
+      if (item.conn !== undefined) { setConnLost(!item.conn); return }
+      if (item.otterId !== otter.id) return
+      if (item.start) { void refreshInvokes(item.invokeId); return }
+      if (item.ev == null) { void refreshEvents(item.invokeId); return }
+      const ev = item.ev
+      setExpandedEvents(prev => {
+        const cur = prev[item.invokeId]
+        if (cur == null) return prev
+        if (cur.some(e => e.id === ev.id)) return prev
+        if (cur.length > 0 && ev.sequenceNum <= cur[cur.length - 1]!.sequenceNum) return prev
+        return { ...prev, [item.invokeId]: [...cur, ev] }
+      })
+    }
+    const listeners = liveListeners.current
+    listeners.add(listener)
+    /** 回放积压（弹窗打开前 buffer 里的本獭事件） */
+    for (const item of [...liveEvents.current]) listener(item)
+    return () => { listeners.delete(listener) }
+  }, [otter.id, liveEvents, liveListeners, refreshEvents, refreshInvokes])
 
   /** 自动滚底（followBottomRef 跟随中才滚） */
   useEffect(() => {
@@ -162,6 +206,12 @@ export function SessionModal({ otter, conversationId, onClose }: SessionModalPro
 
         {/* invoke 列表 */}
         <div className="flex-1 overflow-y-auto px-5 py-4" ref={eventsBoxRef} onScroll={handleScroll}>
+          {/* SSE 断连兜底——不静默装实时 */}
+          {connLost && (
+            <div className="mb-2 px-3 py-1.5 rounded-lg border border-caramel-400/40 text-[10px] text-caramel-600 bg-caramel-400/10" data-testid="conn-lost-banner">
+              实时连接断开，自动重连中…（已显示的内容不受影响）
+            </div>
+          )}
           {loadError && <div className="text-xs text-red-400 py-8 text-center">{loadError}</div>}
           {!loadError && invokes === null && (
             <div className="flex items-center justify-center gap-2 py-8 text-stone-400 text-xs">
@@ -174,7 +224,7 @@ export function SessionModal({ otter, conversationId, onClose }: SessionModalPro
           {invokes?.map(inv => {
             const expanded = expandedEvents[inv.id] != null
             const loading = !!eventsLoading[inv.id]
-            const isRunning = (polledStatus[inv.id] ?? inv.status) === 'running'
+            const isRunning = (liveStatus[inv.id] ?? inv.status) === 'running'
             return (
               <div key={inv.id} className="glass-card rounded-2xl mb-2 overflow-hidden">
                 <button
@@ -208,18 +258,16 @@ export function SessionModal({ otter, conversationId, onClose }: SessionModalPro
                     {!loading && (expandedEvents[inv.id]?.length ?? 0) === 0 && (
                       <div className="py-3 text-[11px] text-stone-400">无流式过程记录</div>
                     )}
-                    {/* F20260914rtsp：折叠视图（invoke-event-fold 归并；原始分列点 call 步展开）。
+                    {/* 折叠视图（invoke-event-fold 归并）+ 展开区全文（F20260914evdz：
+                        找回旧版形态——参数/结果全文 + 复制，替换 #916 原始 JSON 截断分列）。
                         存储忠实保留原始流——折叠仅渲染层，rawEventIds 溯源 */}
                     {!loading && (expandedEvents[inv.id] ?? []).length > TERMINAL_EVENTS_LIMIT && !isRunning && (
                       <div className="py-1 text-[10px] text-stone-400">事件较多，仅展示最近 {TERMINAL_EVENTS_LIMIT} 条（上翻分页见后续迭代）</div>
                     )}
-                    {!loading && foldInvokeEvents(visibleEvents(expandedEvents[inv.id] ?? [], isRunning)).map((step, idx) => (
+                    {!loading && foldInvokeEvents(visibleEvents(expandedEvents[inv.id] ?? [], isRunning), { invokeEnded: !isRunning }).map((step, idx) => (
                       <FoldedStepItem
                         key={`${inv.id}:${idx}`}
-                        invokeId={inv.id}
-                        stepIndex={idx}
                         step={step}
-                        rawEvents={expandedEvents[inv.id] ?? []}
                         rawExpanded={!!rawExpanded[`${inv.id}:${idx}`]}
                         onToggleRaw={() => setRawExpanded(prev => ({ ...prev, [`${inv.id}:${idx}`]: !prev[`${inv.id}:${idx}`] }))}
                       />
@@ -231,7 +279,7 @@ export function SessionModal({ otter, conversationId, onClose }: SessionModalPro
                           <i className="w-0.5 h-2 bg-teal-400 rounded animate-pulse" style={{ animationDelay: '0.2s' }} />
                           <i className="w-0.5 h-2 bg-teal-400 rounded animate-pulse" style={{ animationDelay: '0.4s' }} />
                         </span>
-                        实时尾随中 · 上滚暂停，回底恢复
+                        实时观察中（事件驱动）· 上滚暂停，回底恢复
                       </div>
                     )}
                   </div>
@@ -245,33 +293,31 @@ export function SessionModal({ otter, conversationId, onClose }: SessionModalPro
   )
 }
 
-/** 终态 invoke 事件量兜底：running 全量（轮询需要完整集）；终态截最近 N 条 */
+/** 终态 invoke 事件量兜底：running 全量（实时通道需要完整集）；终态截最近 N 条 */
 function visibleEvents(events: InvokeEventDTO[], isRunning: boolean): InvokeEventDTO[] {
   if (isRunning || events.length <= TERMINAL_EVENTS_LIMIT) return events
   return events.slice(-TERMINAL_EVENTS_LIMIT)
 }
 
-/** 折叠步渲染（call 可展开原始分列） */
-function FoldedStepItem({ step, rawEvents, rawExpanded, onToggleRaw }: {
-  invokeId: string
-  stepIndex: number
+/** 折叠步渲染（点击展开全文区——参数/结果/发言/思考，带复制按钮） */
+function FoldedStepItem({ step, rawExpanded, onToggleRaw }: {
   step: FoldedStep
-  rawEvents: InvokeEventDTO[]
   rawExpanded: boolean
   onToggleRaw: () => void
 }) {
   if (step.kind === 'call') {
-    const statusDot = step.pending
-      ? <span className="w-1.5 h-1.5 rounded-full bg-caramel-400 animate-pulse flex-shrink-0 mt-1" title="执行中" />
-      : step.isError
-        ? <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0 mt-1" title="失败" />
-        : <span className="w-1.5 h-1.5 rounded-full bg-teal-400 flex-shrink-0 mt-1" title="成功" />
+    const statusDot = step.interrupted
+      ? <span className="w-1.5 h-1.5 rounded-full bg-stone-400 flex-shrink-0 mt-1" title="已中断（invoke 终态时未收到结果）" />
+      : step.pending
+        ? <span className="w-1.5 h-1.5 rounded-full bg-caramel-400 animate-pulse flex-shrink-0 mt-1" title="执行中" />
+        : step.isError
+          ? <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0 mt-1" title="失败" />
+          : <span className="w-1.5 h-1.5 rounded-full bg-teal-400 flex-shrink-0 mt-1" title="成功" />
     return (
-      <div className="py-1 border-b border-white/20 last:border-0">
+      <div className="py-1 border-b border-white/20 last:border-0" data-testid="folded-call-step">
         <div
           className="flex gap-2 items-start cursor-pointer hover:bg-white/20 rounded-lg px-1 -mx-1 transition"
           onClick={onToggleRaw}
-          data-testid="folded-call-step"
         >
           {statusDot}
           <div className="min-w-0 flex-1">
@@ -279,22 +325,30 @@ function FoldedStepItem({ step, rawEvents, rawExpanded, onToggleRaw }: {
               <Wrench className="w-3 h-3 text-amber-500 flex-shrink-0" />
               <span className="text-[10px] font-medium text-stone-600">{step.name}</span>
               <span className="text-[9px] text-stone-400 truncate max-w-[280px]">{callArgsSummary(step.args)}</span>
-              {step.pending
-                ? <span className="text-[9px] text-caramel-500">执行中…</span>
-                : <>
-                    {step.tsEnd && <span className="text-[9px] text-stone-400">· {fmtTime(step.tsEnd)}</span>}
-                    <span className="text-[9px] text-stone-400 truncate max-w-[200px]">{resultSummary(step.result)}</span>
-                  </>}
+              {step.interrupted
+                ? <span className="text-[9px] text-stone-400">已中断</span>
+                : step.pending
+                  ? <span className="text-[9px] text-caramel-500">执行中…</span>
+                  : <>
+                      {step.tsEnd && <span className="text-[9px] text-stone-400">· {fmtTime(step.tsEnd)}</span>}
+                      <span className="text-[9px] text-stone-400 truncate max-w-[200px]">{resultSummary(step.result)}</span>
+                    </>}
             </div>
           </div>
           <ChevronRight className={`w-3 h-3 text-stone-300 flex-shrink-0 mt-1 transition-transform ${rawExpanded ? 'rotate-90' : ''}`} />
         </div>
         {rawExpanded && (
-          <div className="ml-4 mt-1 pl-2 border-l-2 border-white/40 space-y-1">
-            {step.rawEventIds.map(id => {
-              const ev = rawEvents.find(e => e.id === id)
-              return ev ? <RawEventLine key={id} ev={ev} /> : null
-            })}
+          <div className="ml-4 mt-1 pl-2 border-l-2 border-white/40 space-y-1.5" data-testid="step-full-text">
+            {step.args != null && (
+              <FullTextBlock label="参数" text={fullText(step.args)} testid="args-full" />
+            )}
+            {step.result != null ? (
+              <FullTextBlock label={`结果${step.isError ? ' · 失败' : ''}`} text={fullText(step.result)} testid="result-full" />
+            ) : step.interrupted ? (
+              <FullTextBlock label="结果" text="（已中断——invoke 终态时未收到结果）" testid="result-full" />
+            ) : (
+              <div className="text-[9px] text-caramel-500">执行中，暂无结果…</div>
+            )}
           </div>
         )}
       </div>
@@ -302,29 +356,53 @@ function FoldedStepItem({ step, rawEvents, rawExpanded, onToggleRaw }: {
   }
   if (step.kind === 'think') {
     return (
-      <div className="flex gap-2 py-1 border-b border-white/20 last:border-0">
-        <Braces className="w-3 h-3 text-stone-400 flex-shrink-0 mt-1" />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-medium text-stone-500 italic">思考</span>
-            <span className="text-[9px] text-stone-400">{fmtTime(step.ts)}</span>
+      <div className="py-1 border-b border-white/20 last:border-0">
+        <div
+          className="flex gap-2 items-start cursor-pointer hover:bg-white/20 rounded-lg px-1 -mx-1 transition"
+          onClick={onToggleRaw}
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-stone-400 flex-shrink-0 mt-1" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <Braces className="w-3 h-3 text-stone-400 flex-shrink-0 mt-0.5" />
+              <span className="text-[10px] font-medium text-stone-500 italic">思考</span>
+              <span className="text-[9px] text-stone-400">{fmtTime(step.ts)}</span>
+            </div>
+            <div className="text-[10px] text-stone-500 italic whitespace-pre-wrap break-all leading-relaxed mt-0.5 line-clamp-6" title={step.text}>{step.text}</div>
           </div>
-          <div className="text-[10px] text-stone-500 italic whitespace-pre-wrap break-all leading-relaxed mt-0.5 line-clamp-6" title={step.text}>{step.text}</div>
+          <ChevronRight className={`w-3 h-3 text-stone-300 flex-shrink-0 mt-1 transition-transform ${rawExpanded ? 'rotate-90' : ''}`} />
         </div>
+        {rawExpanded && (
+          <div className="ml-4 mt-1 pl-2 border-l-2 border-white/40" data-testid="step-full-text">
+            <FullTextBlock label="思考全文" text={step.text} testid="think-full" />
+          </div>
+        )}
       </div>
     )
   }
   if (step.kind === 'speak') {
     return (
-      <div className="flex gap-2 py-1 border-b border-white/20 last:border-0 rounded-lg" style={{ background: 'rgba(180,131,106,0.08)' }}>
-        <MessageSquare className="w-3 h-3 text-otter-400 flex-shrink-0 mt-1 ml-1" />
-        <div className="min-w-0 flex-1 mr-1">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-medium text-otter-600">发言</span>
-            <span className="text-[9px] text-stone-400">{fmtTime(step.ts)}</span>
+      <div className="py-1 border-b border-white/20 last:border-0 rounded-lg" style={{ background: 'rgba(180,131,106,0.08)' }}>
+        <div
+          className="flex gap-2 items-start cursor-pointer hover:bg-white/20 rounded-lg px-1 -mx-1 transition"
+          onClick={onToggleRaw}
+        >
+          <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1" style={{ background: 'var(--otter-600)' }} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <MessageSquare className="w-3 h-3 text-otter-400 flex-shrink-0 mt-0.5" />
+              <span className="text-[10px] font-medium text-otter-600">发言</span>
+              <span className="text-[9px] text-stone-400">{fmtTime(step.ts)}</span>
+            </div>
+            <div className="text-[10px] text-stone-600 whitespace-pre-wrap break-all leading-relaxed mt-0.5 line-clamp-6" title={step.body}>{step.body}</div>
           </div>
-          <div className="text-[10px] text-stone-600 whitespace-pre-wrap break-all leading-relaxed mt-0.5 line-clamp-6" title={step.body}>{step.body}</div>
+          <ChevronRight className={`w-3 h-3 text-stone-300 flex-shrink-0 mt-1 transition-transform ${rawExpanded ? 'rotate-90' : ''}`} />
         </div>
+        {rawExpanded && (
+          <div className="ml-4 mt-1 pl-2 border-l-2 border-white/40" data-testid="step-full-text">
+            <FullTextBlock label="发言全文" text={step.body} testid="speak-full" />
+          </div>
+        )}
       </div>
     )
   }
@@ -342,18 +420,43 @@ function FoldedStepItem({ step, rawEvents, rawExpanded, onToggleRaw }: {
   )
 }
 
-/** 原始分列行（折叠步展开可见——溯源用，忠实原始流） */
-function RawEventLine({ ev }: { ev: InvokeEventDTO }) {
-  const label = ev.eventType === 'assistant_toolcall' ? 'tool_call_start' : ev.eventType === 'tool_result' ? 'tool_result' : ev.eventType
+/** 全文块（旧版「流式过程」面板形态找回——label + 复制按钮 + 可滚动全文） */
+function FullTextBlock({ label, text, testid }: { label: string; text: string; testid?: string }) {
   return (
-    <div className="flex gap-1.5 items-start">
-      <Terminal className="w-2.5 h-2.5 text-stone-300 flex-shrink-0 mt-1" />
-      <div className="min-w-0">
-        <span className="text-[9px] text-stone-400 font-medium">{label}</span>
-        <span className="text-[9px] text-stone-400"> · {fmtTime(ev.createdAt)}</span>
-        <div className="text-[9px] text-stone-400 whitespace-pre-wrap break-all leading-relaxed line-clamp-8">{JSON.stringify(ev.payload).slice(0, 600)}</div>
+    <div>
+      <div className="flex items-center gap-1.5 mb-0.5">
+        <span className="text-[9px] font-medium text-stone-500">{label}</span>
+        <CopyButton text={text} />
+      </div>
+      <div
+        data-testid={testid}
+        className="text-[10px] text-stone-500 bg-stone-50/60 rounded-lg px-2.5 py-1.5 max-h-64 overflow-y-auto whitespace-pre-wrap break-all leading-relaxed"
+      >
+        {text}
       </div>
     </div>
+  )
+}
+
+/** 复制按钮（复刻旧版 MessageList CopyButton——SessionModal 内自持，避免动大文件） */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch { /* clipboard API 不可用时静默忽略 */ }
+  }
+  return (
+    <button
+      onClick={handleCopy}
+      className="p-1 rounded hover:bg-stone-200/60 transition text-stone-400 hover:text-stone-600"
+      title="复制"
+      aria-label="复制"
+    >
+      {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
+    </button>
   )
 }
 
@@ -376,6 +479,18 @@ function resultSummary(result: unknown): string {
     const s = JSON.stringify(result)
     return s.length > 60 ? `${s.slice(0, 60)}…` : s
   } catch { return '' }
+}
+
+/** 展开区全文：SDK 结果 content 块拼接；否则 JSON 美化（防御性） */
+function fullText(v: unknown): string {
+  if (typeof v === 'string') return v
+  if (v && typeof v === 'object' && Array.isArray((v as { content?: unknown }).content)) {
+    const texts = ((v as { content: Array<{ text?: string }> }).content ?? [])
+      .map(c => (typeof c?.text === 'string' ? c.text : ''))
+      .filter(Boolean)
+    if (texts.length > 0) return texts.join('\n')
+  }
+  try { return JSON.stringify(v, null, 2) ?? '' } catch { return String(v) }
 }
 
 /** invoke 状态徽章配色 */

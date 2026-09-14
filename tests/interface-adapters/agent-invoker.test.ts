@@ -21,6 +21,8 @@ import type { OtterSession } from "@entities/otter/otter-session";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import { createTestLogger } from "../helpers/logger";
 import { mockSendEntry } from "../helpers/mock-send-entry";
+import { MessageBroadcaster } from "../../src/usecases/im/message-broadcaster";
+import type { Logger } from "../../src/usecases/ports/logger";
 
 
 function mockQueryMessage(): QueryMessage {
@@ -63,15 +65,16 @@ function mockAgentInvoke(options: {
   internalAbortReason?: string;
   invokeImpl?: (otterId: string, message: string, opts?: { onEvent?: (e: AgentStreamEvent) => void }) => Promise<unknown>;
 }): SdkInvokePort {
-  return {
-    invoke: async (otterId: string, message: string, opts?: { onEvent?: (e: AgentStreamEvent) => void; dynamicContext?: { sessionSummary?: string } }) => {
+  const invokeImpl = async (otterId: string, message: string, opts?: { onEvent?: (e: AgentStreamEvent) => void; dynamicContext?: { sessionSummary?: string } }) => {
       if (options.invokeImpl) return options.invokeImpl(otterId, message, opts);
       if (options.throwOnInvoke) throw options.throwOnInvoke;
       for (const evt of options.events ?? []) {
         opts?.onEvent?.(evt);
       }
       return options.result ?? { text: "Response text" };
-    },
+  };
+  return {
+    invoke: invokeImpl,
     abort: () => {},
     getToolCallCount: () => options.toolCallCount ?? 0,
     getInternalAbortReason: () => options.internalAbortReason,
@@ -81,7 +84,7 @@ function mockAgentInvoke(options: {
 function makeInvoker(
   sdk: SdkInvokePort,
   sendEntry: ReturnType<typeof mockSendEntry>,
-  opts?: { manageSession?: ManageSession; healingRepo?: HealingEventRepository },
+  opts?: { manageSession?: ManageSession; healingRepo?: HealingEventRepository; broadcaster?: MessageBroadcaster },
 ): AgentInvoker {
   return new AgentInvoker(
     sdk,
@@ -89,7 +92,7 @@ function makeInvoker(
     opts?.manageSession ?? mockManageSession(),
     mockQueryOtter(),
     createTestLogger(),
-    undefined, // broadcaster
+    opts?.broadcaster, // broadcaster
     undefined, // workspaceGateway
     undefined, // settingsRepo
     undefined, // metrics
@@ -101,6 +104,7 @@ function makeInvoker(
   );
 }
 
+// eslint-disable-next-line max-lines-per-function -- describe 聚合多特性用例（rtsp tick + evdz 广播），拆 describe 反而割裂
 describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () => {
   /** F20260914rtsp AT-4/AT-11：message_end usage → invoke.tick 发射与降级 */
   it("message_end 带 usage → 发射 invoke.tick（ctxWindowUsed + 工具计数）", async () => {
@@ -123,6 +127,59 @@ describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () =
     expect(tick).toBeTruthy();
     expect(tick?.data.ctxWindowUsed).toBe(30251);
     expect(tick?.data.toolCallCount).toBe(1);
+  });
+
+  /** F20260914evdz：persistInvokeEvent 落库后广播 invoke.event（Session 弹窗实时通道） */
+  it("过程事件落库成功 → 广播 invoke.event（带落库 id/seq）", async () => {
+    const sseEvents: { event: string; data: Record<string, unknown> }[] = [];
+    const logger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as unknown as Logger;
+    const broadcaster = new MessageBroadcaster(logger);
+    broadcaster.registerOutboundChannel("test-capture", {
+      onEvent: (_cid, e) => { if (e.event === "invoke.event") sseEvents.push({ event: e.event, data: e.data }); },
+    });
+    const sendEntry = mockSendEntry();
+    const invoker = makeInvoker(mockAgentInvoke({
+      events: [
+        { type: "tool_execution_start", name: "read" } as AgentStreamEvent,
+        { type: "tool_execution_end", name: "read", result: { content: [{ type: "text", text: "ok" }] } } as AgentStreamEvent,
+      ],
+    }), sendEntry, { broadcaster });
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi",
+      senderId: "user-1",
+    }).catch(() => null);
+    await new Promise(r => setTimeout(r, 50)); // appendInvokeEvent 异步落库后广播
+
+    const evts = sseEvents.map(e => e.data.event as { eventType: string; sequenceNum: number });
+    expect(evts.some(e => e.eventType === "assistant_toolcall")).toBe(true);
+    expect(evts.some(e => e.eventType === "tool_result")).toBe(true);
+    expect(evts.every(e => Number.isFinite(e.sequenceNum))).toBe(true);
+  });
+
+  it("落库失败（appendInvokeEvent 抛错）→ 该事件不广播、不炸主流程", async () => {
+    const logger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as unknown as Logger;
+    const broadcaster = new MessageBroadcaster(logger);
+    /** 记录广播的事件名（invoke.start 等其他事件正常广播——只有失败的落库事件不广播） */
+    const broadcasted: string[] = [];
+    broadcaster.registerOutboundChannel("test-capture2", {
+      onEvent: (_cid, e) => { broadcasted.push(e.event); },
+    });
+    const sendEntry = mockSendEntry();
+    (sendEntry.appendInvokeEvent as unknown as { mockRejectedValue: (v: unknown) => void }).mockRejectedValue(new Error("db down"));
+    const invoker = makeInvoker(mockAgentInvoke({
+      events: [{ type: "tool_execution_start", name: "read" } as AgentStreamEvent],
+    }), sendEntry, { broadcaster });
+
+    const res = await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi",
+      senderId: "user-1",
+    }).catch(() => null);
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(broadcasted).not.toContain("invoke.event"); // 落库全挂 → 0 广播
+    expect(broadcasted).toContain("invoke.start"); // 其他事件不受影响
+    expect(res).toBeTruthy(); // 主流程不受影响
   });
 
   it("message_end 无 usage → 不发射 invoke.tick（AT-11 降级）", async () => {
