@@ -538,11 +538,7 @@ export class SendEntry {
   }
 
   /** 更新 invoke token 使用量 */
-  async updateInvokeTokenUsage(
-    invokeId: string,
-    input: number,
-    output: number,
-  ): Promise<void> {
+  async updateInvokeTokenUsage(invokeId: string, input: number, output: number): Promise<void> {
     await this.invokeRepo.updateInvokeTokenUsage(invokeId, input, output);
   }
 
@@ -550,10 +546,7 @@ export class SendEntry {
   async updateInvokeModel(invokeId: string, model: string): Promise<void> {
     const invoke = await this.invokeRepo.getInvokeById(invokeId);
     if (!invoke) return;
-    await this.invokeRepo.updateInvokeMetadata(invokeId, {
-      ...(invoke.metadata ?? {}),
-      model,
-    });
+    await this.invokeRepo.updateInvokeMetadata(invokeId, { ...(invoke.metadata ?? {}), model });
   }
 
   /** F20260913ctlv 收尾批3：全文搜索（entries_fts——search_messages 工具数据源） */

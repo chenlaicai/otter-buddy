@@ -52,7 +52,7 @@ export class AgentTurnOrchestrator {
    * 核心循环：invoke → classify → route（可能重试 → 再 invoke）。
    * 递归重入改为循环 + driver.invoke，避免栈溢出。
    */
-  // eslint-disable-next-line max-lines-per-function, max-statements -- executeTurn is the core retry loop; splitting would obscure control flow（#543：+rate_limit err 元数据保留分支）
+  // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- executeTurn is the core retry loop; splitting would obscure control flow（#543：+rate_limit err 元数据保留分支；F20260914usgm：+model 归属记录分支）
   async executeTurn(
     input: TurnInput,
     driver: AttemptDriver,
@@ -108,12 +108,8 @@ export class AgentTurnOrchestrator {
 
       // Record failed attempt
       this.recordFailedAttempt(reason, currentInput, result, err, { callbacks, attemptStartTime });
-      // F20260914usgm：model 归属落 invoke metadata（err 路径）——成功路径在 tryCompleteInvoke 写。
-      // err 路径 result 可能为空壳（#543），model 从 errMeta._modelAlias 取；无则不写（归 unknown 桶）
-      const failedModel = result.modelAlias ?? (err as ErrorWithToolCallCount)?._modelAlias;
-      if (failedModel) {
-        void callbacks.updateInvokeModel?.(currentInput.invokeId, failedModel);
-      }
+      // F20260914usgm：model 归属落 invoke metadata（err 路径）——成功路径在 tryCompleteInvoke 写
+      this.recordInvokeModelSafe(callbacks, currentInput.invokeId, result.modelAlias ?? (err as ErrorWithToolCallCount)?._modelAlias);
       if (hasOrphanText) {
         this.recordNoYieldWithOrphanText(currentInput.otterId, currentInput, callbacks);
         this.logger.info('Orphan text detected: LLM output direct text without calling speak', {
@@ -178,9 +174,7 @@ export class AgentTurnOrchestrator {
         await ctx.callbacks.updateInvokeTokenUsage?.(input.invokeId, result.tokenUsage.input, result.tokenUsage.output);
       }
       // F20260914usgm：model 归属落 invoke metadata（成功路径）
-      if (result.modelAlias) {
-        await ctx.callbacks.updateInvokeModel?.(input.invokeId, result.modelAlias);
-      }
+      this.recordInvokeModelSafe(ctx.callbacks, input.invokeId, result.modelAlias);
 
       void this.recordAttempt({
         invokeId: input.invokeId,
@@ -846,6 +840,19 @@ export class AgentTurnOrchestrator {
   /** attempt 记录去重键 */
   private attemptKey(invokeId: string, retryCount: number): string {
     return `${invokeId}:${retryCount}`;
+  }
+
+  /** F20260914usgm：model 归属落 invoke metadata（fire-and-forget，失败仅日志）。
+   *  err 路径 result 可能为空壳（#543），model 从 errMeta._modelAlias 取；无则不写（归 unknown 桶） */
+  private recordInvokeModelSafe(callbacks: TurnCallbacks, invokeId: string, model: string | undefined): void {
+    if (!model || !callbacks.updateInvokeModel) return;
+    callbacks.updateInvokeModel(invokeId, model).catch(err => {
+      callbacks.logger.warn('updateInvokeModel failed (non-fatal)', {
+        invokeId,
+        model,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
   }
 
   /** 记录一次 attempt 的 metrics */

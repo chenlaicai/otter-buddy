@@ -3,8 +3,14 @@ id: F20260914usgm
 title: 健康面板用量看板按模型统计改版
 summary: 撤掉不可靠的成本展示（SDK 单价继承错误且多为 plan 无单价），用量/效率 Tab 以模型为主维度重构——per-model token 四分类/调用数/失败次数/缓存命中率、Token 与调用双占比环形图、单次 invoke 均值（总量 + 按模型）；獭维度降为折叠辅助视图
 change_type: feature
-capability_test: n/a: 数据管道/UI 改版，行为由单元测试断言（tests/usecases/health/cost-output-collector.test.ts + tests/api/rhi-api.test.ts）
+capability_test: "n/a: 数据管道/UI 改版，行为由单元测试断言（tests/usecases/health/cost-output-collector.test.ts + tests/api/rhi-api.test.ts）"
 created_in_conversation: cf698fdc-2cfd-46d1-9afa-d6631e8cef31
+intent:
+  problem: "成本展示用 SDK 模板单价本地估算，自定义端点模型继承错误单价（虚高 4.3-100 倍）且多为 plan 无单价，费用数字不可信；面板缺少搭档需要的模型维度用量统计与单次 invoke 均值"
+  expected_effect: "用量/效率 Tab 以模型为主维度展示 token 四分类/调用/失败/命中率与单次 invoke 均值，无 cost 展示；新指标 error_call_count/invoke_count/avg_* 入库可查"
+  verify_by:
+    type: metric_probe
+    probe: "health_snapshots 出现 metric_key=error_call_count/invoke_count/avg_tool_calls 行；GET /api/health/cost-output 返回 models[] 与 invokeStats[] 且无 cost 字段"
 tags: [health, usage, model-dimension, dashboard, web]
 modules:
   - src/usecases/health/cost-output-collector.ts

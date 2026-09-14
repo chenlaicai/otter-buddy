@@ -13,13 +13,13 @@
  * Goodhart 防线：成本/产出只作信号不作 KPI——行内不含任何排名/评分/百分位。
  */
 
+import type { InvokeStatsRecord } from "./invoke-stats-collector";
 import type {
   OtterCostRecord,
   OtterOutputRecord,
   PrCountRecord,
   FdocCountRecord,
   DispatchCountRecord,
-  InvokeStatsRecord,
 } from "./cost-output-collector";
 
 /** 与 HealthSnapshotRepository.CreateHealthSnapshot 同构 */

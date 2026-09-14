@@ -9,8 +9,8 @@ import {
   collectPrCounts,
   collectFdocCounts,
   collectDispatchTaskCounts,
-  collectInvokeStats,
 } from "@usecases/health/cost-output-collector";
+import { collectInvokeStats } from "@usecases/health/invoke-stats-collector";
 import type { AgentSessionMapping } from "@usecases/health/cost-output-collector";
 
 const FIXTURES_DIR = resolve(__dirname, "../../fixtures/sessions");
