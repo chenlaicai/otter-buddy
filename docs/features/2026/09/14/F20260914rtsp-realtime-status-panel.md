@@ -51,7 +51,7 @@ intent:
 
 | # | 问题 | 根因 | 锚点 |
 |---|------|------|------|
-| P1 | 运行中耗时秒数不走（「行动中 · 45s」定格） | 无任何定时器驱动 re-render；fmtInvokeElapsed 用 Date.now() 但没人触发 | web/src/pages/conversation/RightPanel.tsx:404（invoke-state-line div）、web/src/lib/invoke-tracker.ts:100 |
+| P1 | 运行中耗时秒数不走（「行动中 · 45s」定格） | 无专用定时器驱动——现状仅靠对话列表轮询（F20260805actv，5s 间隔）的间接 re-render 搭便车每 5s 跳一格（2026-09-14 搭档实测追问确认）；页面隐藏时轮询停止则完全定格；fmtInvokeElapsed 用 Date.now() 但无独立驱动 | web/src/hooks/use-conversation-list-polling.ts:23（5s setInterval）、web/src/pages/conversation/RightPanel.tsx:404（invoke-state-line）、web/src/lib/invoke-tracker.ts:100 |
 | P2 | 「当前所用上下文」无数据 | entries.context_tokens 恒写 null，共 7 处（166,261,305,361,382,456,497——后两处属 createInvokeEndEntry/createSystemEntry 路径）；右栏无 ctx 展示 | src/usecases/conversation/send-entry.ts:166,261,305,361,382,456,497 |
 | P3 | Session 弹窗无实时渲染 | 打开时一次拉取，无轮询/无 SSE 订阅；invoke_events 不广播 SSE（F20260913ctlv D5 决策：只落库） | web/src/pages/conversation/SessionModal.tsx:31-37 |
 | P4 | 事件内容重复 | mapToInvokeEventInput 把 tool_execution_start（快照）与 tool_execution_end（结果）各落一条 assistant_toolcall/tool_result + message_end 快照再落一条 assistant_toolcall——同一次工具调用最多出现 3 次 | src/usecases/conversation/agent-turn-orchestrator/event-mapping.ts:72-95（mapToInvokeEventInput 函数体） |
