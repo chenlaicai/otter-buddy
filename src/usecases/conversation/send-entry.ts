@@ -559,14 +559,10 @@ export class SendEntry {
   }
 
   /** F20260913ctlv 批4a：按 ID 取条目（get_message 工具） */
-  async getEntryById(entryId: string): Promise<Entry | null> {
-    return this.entryRepo.getEntryById(entryId);
-  }
+  async getEntryById(entryId: string): Promise<Entry | null> { return this.entryRepo.getEntryById(entryId); }
 
   /** F20260913ctlv 批4a：按 turn 取条目（get_turn_history 工具） */
-  async getEntriesByTurnId(turnId: string): Promise<Entry[]> {
-    return this.entryRepo.getEntriesByTurnId(turnId);
-  }
+  async getEntriesByTurnId(turnId: string): Promise<Entry[]> { return this.entryRepo.getEntriesByTurnId(turnId); }
 
   /** 查询条目列表 */
   async getEntries(
