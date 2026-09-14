@@ -90,9 +90,13 @@ export function SessionModal({ otter, conversationId, onClose }: SessionModalPro
 
   /** F20260914rtsp：running invoke 2s 轮询增量尾随。
    *  停止条件：展开态消失（用户收起/关弹窗 unmount）或 invoke 终态化（镜像状态非 running）。 */
+  /** F20260914rtsp：running invoke 2s 轮询增量尾随。停止条件：展开态消失（收起/关弹窗）或终态化。
+ *  runningExpanded 布尔锤：轮询自身写 expandedEvents（对象引用必变），若把对象进依赖
+ *  每 tick 重建 interval（审视发现 1）——布尔恒稳定，收起/展开仍正确启停 */
   const runningInvokeId = invokes?.find(i => (polledStatus[i.id] ?? i.status) === 'running')?.id
+  const runningExpanded = runningInvokeId != null && expandedEvents[runningInvokeId] !== undefined
   useEffect(() => {
-    if (!runningInvokeId || expandedEvents[runningInvokeId] === undefined) return
+    if (!runningInvokeId || !runningExpanded) return
     const timer = setInterval(async () => {
       try {
         const resp = await api.getInvokeEvents(runningInvokeId)
@@ -110,7 +114,11 @@ export function SessionModal({ otter, conversationId, onClose }: SessionModalPro
       } catch { /* 轮询失败静默（下轮重试）；连续失败由弹窗关闭自然停止 */ }
     }, 2000)
     return () => clearInterval(timer)
-  }, [runningInvokeId, expandedEvents])
+    // 审视发现 1 处置：依赖布尔派生值而非 expandedEvents 对象——轮询 append 事件时对象引用
+    // 必变但 runningExpanded 恒 true，interval 不被重建；收起/展开 running invoke 仍正确启停
+    // （直接去掉 expandedEvents 依赖会丢失启停语义：收起再展开后轮询不会重启——故用布尔锚）
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runningExpanded 已涵盖 expandedEvents 的启停语义
+  }, [runningInvokeId, runningExpanded])
 
   /** 自动滚底（followBottomRef 跟随中才滚） */
   useEffect(() => {

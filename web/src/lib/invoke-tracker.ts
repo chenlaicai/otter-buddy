@@ -43,7 +43,7 @@ export interface InvokeEndPayload {
   tokenUsage?: { input: number; output: number }
 }
 
-/** F20260914rtsp：invoke.tick 事件负载（见 api-contract/sse/events.ts） */
+/** F20260914rtsp：invoke.tick 事件负载（见 api-contract/sse/events.ts；modelAlias 审视发现 2 删——发射端从未携带） */
 export interface InvokeTickPayload {
   invokeId: string
   otterId: string
@@ -51,7 +51,6 @@ export interface InvokeTickPayload {
   /** 末次 LLM 往返 usage.totalTokens（窗口占用快照，含 cache） */
   ctxWindowUsed: number
   ctxMax: number
-  modelAlias?: string
   toolCallCount?: number
 }
 

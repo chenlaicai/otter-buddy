@@ -522,12 +522,11 @@ function ConversationPage() {
       },
       // F20260914rtsp：invoke 过程心跳——ctx 窗口占用 + 工具计数实时化（右栏 xx/xx 数据源）
       'invoke.tick': (data) => {
-        const d = data as { invokeId: string; otterId: string; conversationId?: string; ctxWindowUsed: number; ctxMax: number; modelAlias?: string; toolCallCount?: number }
+        const d = data as { invokeId: string; otterId: string; conversationId?: string; ctxWindowUsed: number; ctxMax: number; toolCallCount?: number }
         syncInvokeState(prev => applyInvokeTick(prev, {
           invokeId: d.invokeId, otterId: d.otterId,
           conversationId: d.conversationId ?? activeId ?? '',
           ctxWindowUsed: d.ctxWindowUsed, ctxMax: d.ctxMax,
-          ...(d.modelAlias && { modelAlias: d.modelAlias }),
           ...(d.toolCallCount != null && { toolCallCount: d.toolCallCount }),
         }))
       },
