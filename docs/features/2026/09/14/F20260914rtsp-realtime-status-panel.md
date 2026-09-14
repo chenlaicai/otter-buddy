@@ -47,14 +47,14 @@ intent:
 前置：F20260913ctlv 已落地 entries/invoke/invoke_events 数据模型与右栏/弹窗初版。
 本次不改数据模型骨架，只做数据补齐与展示层升级。
 
-## 排查结论（实锤，file:line 以 worktree 当前 main 为准）
+## 排查结论（实锤，file:line 已过检视獭核对勘误 2026-09-14）
 
 | # | 问题 | 根因 | 锚点 |
 |---|------|------|------|
-| P1 | 运行中耗时秒数不走（「行动中 · 45s」定格） | 无任何定时器驱动 re-render；fmtInvokeElapsed 用 Date.now() 但没人触发 | web/src/pages/conversation/RightPanel.tsx:254（invoke-state-line）、web/src/lib/invoke-tracker.ts:100 |
-| P2 | 「当前所用上下文」无数据 | entries.context_tokens 恒写 null（send-entry.ts:166 等 8 处）；右栏无 ctx 展示 | src/usecases/conversation/send-entry.ts:166,261,305,361,382 |
+| P1 | 运行中耗时秒数不走（「行动中 · 45s」定格） | 无任何定时器驱动 re-render；fmtInvokeElapsed 用 Date.now() 但没人触发 | web/src/pages/conversation/RightPanel.tsx:404（invoke-state-line div）、web/src/lib/invoke-tracker.ts:100 |
+| P2 | 「当前所用上下文」无数据 | entries.context_tokens 恒写 null，共 7 处（166,261,305,361,382,456,497——后两处属 createInvokeEndEntry/createSystemEntry 路径）；右栏无 ctx 展示 | src/usecases/conversation/send-entry.ts:166,261,305,361,382,456,497 |
 | P3 | Session 弹窗无实时渲染 | 打开时一次拉取，无轮询/无 SSE 订阅；invoke_events 不广播 SSE（F20260913ctlv D5 决策：只落库） | web/src/pages/conversation/SessionModal.tsx:31-37 |
-| P4 | 事件内容重复 | mapToInvokeEventInput 把 tool_execution_start（快照）与 tool_execution_end（结果）各落一条 assistant_toolcall/tool_result + message_end 快照再落一条 assistant_toolcall——同一次工具调用最多出现 3 次 | src/usecases/conversation/agent-turn-orchestrator/event-mapping.ts:94-107 |
+| P4 | 事件内容重复 | mapToInvokeEventInput 把 tool_execution_start（快照）与 tool_execution_end（结果）各落一条 assistant_toolcall/tool_result + message_end 快照再落一条 assistant_toolcall——同一次工具调用最多出现 3 次 | src/usecases/conversation/agent-turn-orchestrator/event-mapping.ts:72-95（mapToInvokeEventInput 函数体） |
 | P5 | 历史回看 ctx 缺失 | invokes 表无 ctx 字段；listInvokes 无法带出历史 ctx | src/frameworks/db/conversation/sqlite-invoke-repository.ts |
 
 ## 目标
@@ -83,9 +83,10 @@ intent:
    - running：`● 行动中 · 2m13s · 🛠 8 · ⬛ 45.2k/200k`（ctx 占用短格式，k 为单位）
    - 终态：`休息中 · 上轮 1m02s · 🛠 5`（用「休息中」替代现在的「已完成」措辞，呼应搭档「运行中/休息中」用语）
 2. **ctx 数据链路**（新增 SSE 事件 invoke.tick）：
-   - 事件源：agent-invoker.handleStreamEvent 收到 message_end 时，从 e.message.usage 提取 `{input, output, cacheRead, cacheWrite}`，算 ctxUsed = input+output+cacheRead+cacheWrite（与 F20260808ctxw ctxTokens 同口径）
-   - 端口定义已有数据源：pi-agent-core AssistantMessage.usage: Usage（pi-ai/dist/types.d.ts），Pi 已在 message_end 事件携带完整 usage——无需 SDK 侧改动，纯消费
-   - 广播：`invoke.tick {invokeId, otterId, ctxTokens, ctxMax, modelAlias, toolCallCount}`——toolCallCount 顺带实时化（现在右栏运行中显示 '—'）
+   - 事件源：agent-invoker.handleStreamEvent 收到 message_end 时，从 e.message.usage 提取 ctx 占用
+   - 端口定义已有数据源：pi-agent-core AssistantMessage.usage: Usage（pi-ai/dist/types.d.ts，worktree 内路径 node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core → pi-ai 传递依赖；Usage 含 input/output/cacheRead/cacheWrite）
+   - **验证已过**（检视发现 2 前置条件，2026-09-14 实测）：pi session 持久化 jsonl（~/.pi/agent/sessions/--Users-orca-ai-otter-buddy--/*.jsonl）中 assistant message 均带完整 usage：`{"input":794,"output":529,"cacheRead":28928,"cacheWrite":0,"reasoning":34,"totalTokens":30251}`——totalTokens = 四项之和，即 F20260808ctxw 的 ctxTokens 同口径，可直接消费无需重算
+   - 广播：`invoke.tick {invokeId, otterId, ctxWindowUsed, ctxMax, modelAlias, toolCallCount}`——ctxWindowUsed 命名显式区分于 invoke.end.tokenUsage（后者是 input+output 成本口径累计值，前者是上下文窗口占用快照，口径说明见 D8）；toolCallCount 顺带实时化（现在右栏运行中显示 '—'）
    - 消费：web invoke-tracker applyInvokeTick 扩展状态；刷新恢复靠 listInvokes 补（见 B）
    - 频率：message_end 粒度（每次 LLM 往返一次），无需节流
 3. **走秒驱动**：右栏容器级 1s setInterval（有任一 running 时激活），setNow(t) 驱动 fmtInvokeElapsed 重算。interval 挂 RightPanel 顶层而非每卡片，避免 N 獭 N 定时器
@@ -106,7 +107,8 @@ invokes 表加列 `ctx_tokens INTEGER`（最近一次 LLM 往返的上下文占�
    - 轮询期间锁定自动滚动到底部（用户上滚则暂停跟随，滚到底部恢复）
    - invoke 终态（下次轮询发现 status 变化 or invoke.end 全局事件）→ 停轮询
    - 节流防御：invoke_events 单 invoke 数量大时（>500 条）轮询带 before 分页参数只拉增量
-3. **弹窗打开期间新 invoke 开始**：右栏 streaming 状态变化或轮询发现列表变化 → 重新拉 invoke 列表（轻量，仅发生时）
+3. **终态 invoke 加载上限**（检视发现 6）：非 running invoke 展开时带 limit 上限（最近 300 条），防止长 invoke（数百事件）一次性拉取卡顿；顶部「加载更早」上翻分页留后续迭代
+4. **弹窗打开期间新 invoke 开始**：右栏 streaming 状态变化或轮询发现列表变化 → 重新拉 invoke 列表（轻量，仅发生时）
 
 ### D. 事件展示折叠模型（T3+P4）
 
@@ -123,13 +125,14 @@ type FoldedStep =
 function foldInvokeEvents(events: InvokeEventDTO[]): FoldedStep[]
 ```
 
-归并规则：
-1. `assistant_toolcall`（tool_execution_start 落库）以 payload.name+arguments 为身份，与后续 `tool_result`（tool_execution_end）按事件顺序配对——同 name 串行配对（工具串行执行，顺序配对即正确）
-2. message_end 落库的 assistant_toolcall（快照，无 toolCallId）——被 1 消费后丢弃（它只是 LLM 侧请求块的复述）
+归并规则（检视发现 5 明确化：**严格顺序遍历 + 同名 FIFO 队列配对**，非 Map 匹配）：
+1. 顺序单遍扫描事件流，维护「待配对调用队列」（Map<toolName, FoldedStep[]>）。遇 assistant_toolcall（tool_execution_start 落库，有 name+arguments）→ 入队尾；遇 tool_result（tool_execution_end 落库，有 name+result，无 arguments）→ 从同名队列头出队配对（FIFO 保证串行顺序正确；同工具连续调用不误配）
+2. message_end 落库的 assistant_toolcall（快照，无工具执行语义）——不入队、不配对，直接丢弃（它只是 LLM 侧请求块的复述，真实调用由 tool_execution_start 承载）
 3. message_end 的 assistant_text——think 步（LLM 思考文本）
 4. speak 事件直通
-5. 无法配对的孤儿（result 无 start）：以 result 独立成 call 步（容错）
+5. 无法配对的孤儿：result 无 start → 以 result 独立成 call 步；start 无 result（invoke 未完/中断）→ call 步待定态（黄点呼吸）——两者均容错不丢弃
 6. 折叠视图每个 call 步可展开看原始分列（保留溯源能力）
+7. invoke-event-fold.ts 实现时在文件头注释本配对策略及依据（检视发现 5）
 
 渲染：一行 = 图标 + 工具名 + 参数摘要（truncate）+ 耗时 + 状态点（成功绿/失败红/进行中黄呼吸）+ 展开箭头。think 步灰字斜体折叠为一行，点开看全文。speak 步 otter 色高亮。
 
@@ -171,6 +174,8 @@ function foldInvokeEvents(events: InvokeEventDTO[]): FoldedStep[]
 | D5 | ctx 历史恢复 | invokes.ctx_tokens 落库 | 不落库（刷新丢失） | 刷新恢复是 ctlv test17 已有的验收面；每 LLM 往返一次 UPDATE 成本可忽略 |
 | D6 | 自动展开最新 invoke | 默认展开第一行 | 保持手点 | 弹窗核心场景是「看这獭现在在干嘛」；点开还要再点一次是多余交互 |
 | D7 | toolCallCount 运行中显示 | invoke.tick 顺带携带 | 前端本地累加 tool_execution SSE | 流式事件不进 SSE（D5 约束）；tick 顺带零成本 |
+| D8 | tick 字段命名：ctxWindowUsed | 直接叫 ctxTokens / tokenUsage | — | invoke.end.tokenUsage 已占用 tokenUsage 语义（input+output 成本口径累计）；ctxWindowUsed = usage.totalTokens 快照（含 cacheRead/cacheWrite 的窗口占用口径）——命名强制区分两口径，避免消费方混淆（检视发现 7） |
+| D9 | 终态 invoke 事件加载 | limit 300 上限（本 PR） | 完整上翻分页 | 长 invoke 一次性拉取卡顿是真实风险（检视发现 6），但上翻分页是低频路径——先上限兑底，分页留后续 |
 
 **机制预算四问**（识别检查点命中：新增 SSE 事件类型 + 新增 schema 字段）：
 
@@ -188,6 +193,23 @@ function foldInvokeEvents(events: InvokeEventDTO[]): FoldedStep[]
 
 **重对抗门结论**：自审判定——本方案是 ctlv 已确立机制的展示层补全（tick 与 start/end 同族、ctx_tokens 是 D5 终态字段的运行中版），非净新增决策机制；四问已答，落库侧零结构变更。呈检视獭复核（审视轮追加门控三问）。
 
+**检视獭独立判断（2026-09-14，mimo 异模型）：确认治本**——start→tick→end 构成完整生命周期三元组，tick 补全的是 ctlv 有意留白的中段；附带条件：SDK usage 假设必须验证（已验证通过，见 A.2 验证记录：pi session jsonl 中 usage 完整、totalTokens 可直接消费）。
+
+## 审视处置记录（2026-09-14，检视獭rtsp 首轮，8 发现）
+
+| # | 发现 | 决策树判断 | 处置 |
+|---|------|-----------|------|
+| 1 | P1 行号 254≠404 | 更好→修订 | ✅ 勘误 404（核实属实） |
+| 2 | SDK usage 假设未验证 | 更好→修订 | ✅ 运行时实测通过（pi jsonl usage 完整，totalTokens 直用）；验证记录写入 A.2 |
+| 3 | P2 「8 处」实为 7 处 | 更好→修订 | ✅ 勘误 7 处，行号列表补齐（含 456/497 及路径语义） |
+| 4 | P4 行号 94-107≠72-95 | 更好→修订 | ✅ 勘误 72-95 |
+| 5 | 配对策略歧义（name+arguments 无法配 result） | 更好→修订 | ✅ 归并规则改为顺序遍历 + 同名 FIFO 队列，明确写入 D 节 |
+| 6 | 终态 invoke 加载无上限 | 更好→部分接受 | ✅ 本 PR 加 limit 300 兑底；上翻分页留后续（D9） |
+| 7 | tick 与 end 的 token 口径混淆 | 更好→修订 | ✅ 字段改名 ctxWindowUsed + D8 口径说明 |
+| 8 | 456/497 语义路径说明 | 更好→修订 | ✅ 随发现 3 一并补齐 |
+
+另：验证表补 AT-11（usage 缺失降级）/ AT-12（同名连调 FIFO 配对）两用例。
+
 ## 验证
 
 | 编号 | 场景 | 预期 |
@@ -202,6 +224,8 @@ function foldInvokeEvents(events: InvokeEventDTO[]): FoldedStep[]
 | AT-8 | 事件折叠视图 | 同一次工具调用显示一行（名称+摘要+耗时+状态）；点开可见原始分列 |
 | AT-9 | 折叠容错 | 孤儿 result 独立成步；message_end 快照被消费不重复 |
 | AT-10 | 弹窗关闭 | 轮询停止，无内存泄漏（unmount 清理） |
+| AT-11 | usage 缺失降级 | message_end 无 usage 字段时不发射 tick、不报错；右栏 ctx 显示 '—'（检视发现 2 降级路径） |
+| AT-12 | 同名工具连续调用折叠 | search_memory 连调 2 次：FIFO 配对正确（第 1 次结果不配给第 2 次），两行各含自己的 result |
 
 ## 改动范围
 
