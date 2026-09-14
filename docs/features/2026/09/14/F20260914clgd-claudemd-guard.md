@@ -1,5 +1,5 @@
 ---
-id: F20260908clgd
+id: F20260914clgd
 title: "ResourceLoader 屏蔽 CLAUDE.md 祖先目录发现（closes #496）"
 summary: "Pi SDK 的 DefaultResourceLoader 从 cwd 逐层向上发现 CLAUDE.md/AGENTS.md 注入 system prompt 的 <project_context> 段，主仓根的 CLAUDE.md（Claude Code 项目指令）属无关指令污染。修复：registry 初始化传 noContextFiles: true。issue 原判断（customPrompt 路径 B 被堵死致 promptSnippet/promptGuidelines 失效）经 SDK 源码核实不成立——tool snippet/guidelines 失效的真实原因是 otter 工具从未注册这两个字段，与 CLAUDE.md 无关。"
 change_type: fix
@@ -52,3 +52,9 @@ Issue #496（P2，8/26 登记）：Pi SDK 的 `ResourceLoader` 会自动发现�
 ## Discovered Issues
 
 无。
+
+## 定稿改名记录（2026-09-14）
+
+- 原 ID F20260908clgd（9-08 创建），按「合入当天日期」定稿规则改名 F20260914clgd（F20260914prdb 三配套支撑）
+- 文档 git mv 09/08/ → 09/14/，frontmatter id 同步
+- 本 PR 审视为「接受并说明」型处置（零代码改动，处置记录见 PR comments），无 delta 需求
