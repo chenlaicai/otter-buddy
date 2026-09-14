@@ -37,6 +37,9 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createHealthSnapshotsTable(db);
     createSignalsTable(db);
     createSignalEventsTable(db);
+    /** F20260912avlb：派工台账正式表（本 PR 核心）。dispatch_attempts 与
+     * restart_pending_resumes 随 main #886 批次（F20260908rlcp/ctlv）退役。 */
+    createDispatchRecordsTable(db);
     createAttachmentTables(db);
     createPaperTradingTables(db);
     createInvokeTables(db);
@@ -48,11 +51,11 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     // 记录 Schema 初始化完成日志
     if (logger) {
       const duration = Date.now() - startTime;
-      // 40 regular tables + 5 virtual tables (FTS/vec) = 45 total
-      // (含多模态 attachments 2表 + PR4 paper trading 9表)
+      // 41 regular tables + 5 virtual tables (FTS/vec) = 46 total
+      // (含多模态 attachments 2表 + PR4 paper trading 9表 + F20260912avlb dispatch_records)
       logger.info('Schema initialized', {
         duration,
-        tables: 45,
+        tables: 46,
       });
       /** #506: 补建差集——新库差集=全部表（与现状等价）；老库无缺表时差集为空不打扰 */
       const created = listTableNames(db).filter(t => !tablesBefore.includes(t));
@@ -688,6 +691,26 @@ function createSignalsTable(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_signals_type ON signals(signal_type);
     CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status);
     CREATE INDEX IF NOT EXISTS idx_signals_feature ON signals(feature_id);
+  `);
+}
+
+function createDispatchRecordsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dispatch_records (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      otter_id TEXT NOT NULL,
+      otter_name TEXT NOT NULL,
+      task TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'created' CHECK(status IN ('created', 'dispatched', 'dissolved')),
+      created_at TEXT NOT NULL,
+      dispatched_at TEXT,
+      dissolved_at TEXT,
+      UNIQUE(otter_id, conversation_id, created_at)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_dispatch_records_conv ON dispatch_records(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_dispatch_records_status ON dispatch_records(status);
   `);
 }
 

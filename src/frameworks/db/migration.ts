@@ -10,6 +10,7 @@ import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider"
 import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
 import { tokenizeWithJieba } from "@frameworks/db/jieba-tokenizer";
 import { FID_ANCHOR_REGEX } from "@entities/document/fid-format";
+import { SqliteDispatchRecordRepository } from "@frameworks/db/dispatch/sqlite-dispatch-record-repository";
 
 /** 数据库迁移：添加 session_file 字段和 otter_configs 表 */
 // eslint-disable-next-line max-statements, max-lines-per-function -- 补丁集合，语句数和行数由历史补丁数决定（#848: +otter_sessions.model_alias）
@@ -157,6 +158,27 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
    *  定时任务 catch-up 全部静默失败，日志 887782）。schema.ts 新库建表已无此 FK，
    *  仅存量库需要补迁移（四步重建，#654 同模式）。幂等：FK 不指向 messages 即返回。 */
   rebuildExecutionsDropMessagesFk(db, logger);
+
+  /** F20260912avlb：otter_context `dispatch:%` 伪存储 → dispatch_records 正式表（一次性搬家）。
+   *  为什么放 migrateDatabase 启动路径：settings 键（dispatch_records_migrated=done）
+   *  防重跑——一次成功后不再重跑。新库无 dispatch: key，零循环零副作用。 */
+  migrateDispatchRecordsFromContext(db, logger);
+}
+
+/** F20260912avlb：dispatch 伪存储 → 正式表的一次性搬家（幂等：settings 键 + 无 key 零循环）。
+ *  状态映射与全局 dissolved 覆盖见 SqliteDispatchRecordRepository.migrateFromContext。 */
+function migrateDispatchRecordsFromContext(db: Database.Database, logger: Logger): void {
+  const done = db.prepare("SELECT value FROM settings WHERE key = 'dispatch_records_migrated'")
+    .get() as { value: string } | undefined;
+  if (done?.value === 'done') return;
+
+  const repo = new SqliteDispatchRecordRepository(db);
+  const counts = repo.migrateFromContext();
+  db.prepare(
+    "INSERT INTO settings (key, value, updated_at) VALUES ('dispatch_records_migrated', 'done', datetime('now')) " +
+    "ON CONFLICT(key) DO UPDATE SET value = 'done', updated_at = datetime('now')",
+  ).run();
+  logger.info('Migrated dispatch records from otter_context to dispatch_records (dispatch_records_migrated=done)', counts);
 }
 
 /** 幽灵 sender 回填（2026-09-04 排查）：修复两类发言者身份错位。

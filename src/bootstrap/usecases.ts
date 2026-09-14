@@ -80,7 +80,9 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
     repos.otter, agentGateway, manageConversation, manageMemory, logger, otterConfigProvider, modelPool,
   );
   const dissolveOtter = new DissolveOtter(repos.otter, agentGateway, manageSession, {
-    // F20260908rlcp：台账退役——dissolve 清账不再需要
+    // F20260908rlcp：旧台账退役——settle/abort 清账随 main #886 批次退役
+    /** F20260912avlb：派工台账 dissolve 记账钩子 */
+    markDispatchDissolved: async (otterId: string) => repos.dispatchRecord.markDissolved(otterId),
     logger,
   });
   const manageContext = new ManageContext(repos.otterContext);
