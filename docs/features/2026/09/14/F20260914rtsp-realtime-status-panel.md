@@ -85,7 +85,7 @@ intent:
 2. **ctx 数据链路**（新增 SSE 事件 invoke.tick）：
    - 事件源：agent-invoker.handleStreamEvent 收到 message_end 时，从 e.message.usage 提取 ctx 占用
    - 端口定义已有数据源：pi-agent-core AssistantMessage.usage: Usage（pi-ai/dist/types.d.ts，worktree 内路径 node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core → pi-ai 传递依赖；Usage 含 input/output/cacheRead/cacheWrite）
-   - **验证已过**（检视发现 2 前置条件，2026-09-14 实测）：pi session 持久化 jsonl（~/.pi/agent/sessions/--Users-orca-ai-otter-buddy--/*.jsonl）中 assistant message 均带完整 usage：`{"input":794,"output":529,"cacheRead":28928,"cacheWrite":0,"reasoning":34,"totalTokens":30251}`——totalTokens = 四项之和，即 F20260808ctxw 的 ctxTokens 同口径，可直接消费无需重算
+   - **验证已过**（检视发现 2 前置条件，2026-09-14 实测）：pi session 持久化 jsonl（~/.pi/agent/sessions/--Users-orca-ai-otter-buddy--/*.jsonl）中 assistant message 均带完整 usage：`{"input":794,"output":529,"cacheRead":28928,"cacheWrite":0,"reasoning":34,"totalTokens":30251}`——totalTokens = input+output+cacheRead+cacheWrite 四项之和（不含 reasoning，实测 794+529+28928+0=30251 吻合），即 F20260808ctxw 的 ctxTokens 同口径，可直接消费无需重算
    - 广播：`invoke.tick {invokeId, otterId, ctxWindowUsed, ctxMax, modelAlias, toolCallCount}`——ctxWindowUsed 命名显式区分于 invoke.end.tokenUsage（后者是 input+output 成本口径累计值，前者是上下文窗口占用快照，口径说明见 D8）；toolCallCount 顺带实时化（现在右栏运行中显示 '—'）
    - 消费：web invoke-tracker applyInvokeTick 扩展状态；刷新恢复靠 listInvokes 补（见 B）
    - 频率：message_end 粒度（每次 LLM 往返一次），无需节流
