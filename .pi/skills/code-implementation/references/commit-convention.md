@@ -56,7 +56,7 @@ Same format as commit message. PR number is appended by GitHub automatically.
 1. **PR-only delivery**: All code changes must be delivered via PR, never direct push
 2. **No direct push to protected branches**: `main`, `develop`, `production` are protected
 3. **Separation of duties**: Developer cannot merge their own PR
-4. **PR description 署名**：PR description 末尾署名行必须填写实际海獭名号（替换 `[海獭名号]`），未署名的 PR 不得创建（完整署名约定见 signature-convention skill）
+4. **PR description 署名**：PR description 末尾署名行必须填写实际海獭名号（格式真相源：signature-convention skill），未署名的 PR 不得创建（完整署名约定见 signature-convention skill）
 
 ### PR Workflow
 
@@ -79,7 +79,7 @@ Same format as commit message. PR number is appended by GitHub automatically.
 
 ### PR Description Template
 
-> 以 `.github/pull_request_template.md` 为权威模板（GitHub 自动加载），此处仅为格式参考。两版结构差异：`.github` 版面向创建者（含 Why / Risks / Verification 等填空），此处版面面向检视者（突出 Discovered Issues 的 issue 链接要求）。
+> 以 `.github/pull_request_template.md` 为权威模板（GitHub 自动加载），此处仅为格式参考。两版结构差异：`.github` 版面向创建者（含 Why / Risks / Verification 等填空），此处版面面向检视者（突出 Discovered Issues 的 issue 链接要求）。**末尾署名行格式不在本文件定义——唯一真相源见 signature-convention skill 的 PR description 署名行（`.github` 模板中同款行为其平台快照）。**
 
 ```markdown
 ## Summary
@@ -100,5 +100,5 @@ Same format as commit message. PR number is appended by GitHub automatically.
 ## Test plan
 - [ ] Verification steps
 
-🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by [海獭名号]
+（末尾附 signature-convention skill 的 PR description 署名行）
 ```

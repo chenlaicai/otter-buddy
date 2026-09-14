@@ -54,6 +54,23 @@ created_at: 2026-09-14T20:44:00+08:00
 
 防呆注释点名禁止 `[海獭名号: xxx]` 填空格式——这正是本次搭档目击的漂移形态。
 
+## 架构升级 v2：单一真相源指针化（搭档决策，PR #921 第二轮追加）
+
+初版合入前搭档两次追问：①「检视獭 skill 里的为什么不删？没全局统一？」②拍板「外部留痕签名单独做一个 skill，其余指针指向它」。
+
+**决策**：署名格式唯一真相源收敛到 `signature-convention/SKILL.md`，其余文件实体全部改指针：
+
+| 文件 | 改造 |
+|---|---|
+| signature-convention/SKILL.md | 升格为唯一真相源：定义 commit author / PR description / review 评论三处格式 + 「平台快照同步义务」节 + 「指针使用方清单」节 |
+| adversarial-review/SKILL.md | 3 处签名行实体 → 指针（身份占位符 [海獭名号]「审查者是谁」保留，非签名格式） |
+| code-implementation/references/commit-convention.md | PR Description 模板尾签名行实体 → 指针 |
+| .github/pull_request_template.md | 保留实体，性质降格为「平台快照」（GitHub 网页创建 PR 自动预填依赖，机制上无法指针化；同步义务成文） |
+
+**架构依据**：物理双源（真相源 + 平台快照）只剩 1 对且同步义务成文；其余 4 处实体→指针，格式漂移面从 5 处降到 1 处。比备选方案「快照清单 + 修改须同步全部」（靠纪律，仍 5 处实体）结构更稳。
+
+**补充事实修正**：`gh pr create --body-file` 不自动附加 PR 模板（CLI 完全替换 body）——对獭而言 .github 模板是权威参照物而非自动注入；真相源中已明文提示。
+
 ## 非目标
 
 - 不回改历史 PR 的署名行（历史留痕也有价值；且旧 PR 已合入，改动无收益）
@@ -63,4 +80,6 @@ created_at: 2026-09-14T20:44:00+08:00
 ## 验证
 
 - [x] 模板尾部署名行与 skill 参考文档格式逐字一致（`🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by [海獭名号]`）
+- [x] v2 指针化后全仓扫描：`Generated with [Otter Buddy]` 实体仅存 signature-convention/SKILL.md（真相源）与 .github/pull_request_template.md（平台快照），其余活文件零残留
+- [x] `npm run lint:skills` 0 error
 - [ ] 合入后新建 PR 页面自动加载含署名行的模板（搭档下次创建 PR 时自然验证）
