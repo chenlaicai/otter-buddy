@@ -208,7 +208,7 @@ export class WeixinApiClient {
     return this.post("ilink/bot/getuploadurl", { ...params, base_info: this.baseInfo() }, timeoutMs);
   }
 
-  /** 发送结构化 item 列表（媒体出站用；文本/媒体各一 item，逐 item 独立请求）。ret≠0 抛错 */
+  /** 发送结构化 item 列表（媒体出站用；文本/媒体各一 item，逐 item 独立请求）。ret/errcode≠0 抛错 */
   async sendMessageItems(params: { toUserId: string; contextToken?: string; items: WeixinMessageItem[] }): Promise<void> {
     for (const item of params.items) {
       const msg: WeixinMessage = {
@@ -225,6 +225,11 @@ export class WeixinApiClient {
         { msg, base_info: this.baseInfo() },
         15000,
       ) as WeixinSendMessageResp;
+      // F20260904wxeg 审视处置（检视獭-789 建议发现 2）：errcode 通道校验与 sendTextMessage
+      // 同构（F137 实证媒体路径同样可能只走 errcode）——两处独立实现，保持一致拦截语义
+      if (resp.errcode !== undefined && resp.errcode !== 0) {
+        throw new Error(`weixin sendmessage errcode=${resp.errcode} errmsg=${resp.errmsg ?? "(none)"}`);
+      }
       if (resp.ret !== undefined && resp.ret !== 0) {
         throw new Error(`weixin sendmessage ret=${resp.ret} errmsg=${resp.errmsg ?? "(none)"}`);
       }

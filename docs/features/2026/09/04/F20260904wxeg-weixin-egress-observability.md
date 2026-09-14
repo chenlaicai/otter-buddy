@@ -21,7 +21,7 @@ modules: [src/frameworks/weixin/api-client.ts, src/frameworks/weixin/types.ts, s
 
 ## 方案设计
 
-三层补强，全部在 `api-client.sendTextMessage`（出站唯一出口）：
+三层补强，全部在 `api-client.sendTextMessage`（文本出站主路径；另 `sendMessageItems`（媒体出站）同打 sendmessage 端点，errcode 校验同构覆盖——检视獭-789 建议发现 2 补齐，两处独立实现保持一致拦截语义）：
 
 1. **传输层**：fetch 抛错（超时/DNS/5xx）显式 `logger.error` 后 rethrow——此前抛错直接上浮，polling 层 catch 会记，但缺出站上下文（clientId/token 有无/耗时）
 2. **成功留痕**：每次 sendmessage 成功返回后 `logger.info` 全量摘要（toUserId/clientId/textLength/hasContextToken/ret/errcode/errmsg/elapsedMs）——消灭「发了没走到说不清」盲区
@@ -44,4 +44,4 @@ modules: [src/frameworks/weixin/api-client.ts, src/frameworks/weixin/types.ts, s
 ## 后续
 
 - 若真机确认「发了 ret=0 但不投递」：问题定位收敛到 iLink 服务端侧，客户端排查线关闭
-- typing（sendTyping）与媒体（sendMessageItems）的观测留待本特性验证后按需补——先钉住文本主路径
+- typing（sendTyping）的观测留待本特性验证后按需补——先钉住文本主路径；媒体路径 errcode 拦截已随审视处置补齐，观测日志（出/入参留痕）仍留待后续
