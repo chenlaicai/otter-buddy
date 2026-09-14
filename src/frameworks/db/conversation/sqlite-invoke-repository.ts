@@ -23,6 +23,7 @@ interface InvokeRow {
   tool_call_count: number;
   token_usage_input: number | null;
   token_usage_output: number | null;
+  ctx_window_used: number | null;
   metadata: string | null;
 }
 
@@ -41,6 +42,7 @@ function rowToInvoke(row: InvokeRow): Invoke {
     toolCallCount: row.tool_call_count,
     tokenUsageInput: row.token_usage_input,
     tokenUsageOutput: row.token_usage_output,
+    ctxWindowUsed: row.ctx_window_used,
     metadata: row.metadata ? (JSON.parse(row.metadata) as Record<string, unknown>) : null,
   };
 }
@@ -73,14 +75,15 @@ export class SqliteInvokeRepository implements InvokeRepository {
       INSERT INTO invokes (
         id, conversation_id, otter_id, status, trigger_entry_id,
         talking_stone_passed_to, started_at, ended_at, tool_call_count,
-        token_usage_input, token_usage_output, metadata
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        token_usage_input, token_usage_output, ctx_window_used, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       invoke.id, invoke.conversationId, invoke.otterId, invoke.status,
       invoke.triggerEntryId,
       invoke.talkingStonePassedTo ? JSON.stringify(invoke.talkingStonePassedTo) : null,
       invoke.startedAt, invoke.endedAt, invoke.toolCallCount,
       invoke.tokenUsageInput, invoke.tokenUsageOutput,
+      invoke.ctxWindowUsed ?? null,
       invoke.metadata ? JSON.stringify(invoke.metadata) : null,
     );
   }
@@ -124,6 +127,13 @@ export class SqliteInvokeRepository implements InvokeRepository {
     this.db.prepare(
       "UPDATE invokes SET token_usage_input = ?, token_usage_output = ? WHERE id = ?",
     ).run(input, output, invokeId);
+  }
+
+  /** F20260914rtsp：更新末次 LLM 往返的上下文窗口占用（invoke.tick 数据落库，右栏刷新恢复用） */
+  async updateInvokeCtxWindowUsed(invokeId: string, ctxWindowUsed: number): Promise<void> {
+    this.db.prepare(
+      "UPDATE invokes SET ctx_window_used = ? WHERE id = ?",
+    ).run(ctxWindowUsed, invokeId);
   }
 
   async updateInvokeMetadata(

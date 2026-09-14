@@ -19,6 +19,9 @@ export interface Invoke {
   toolCallCount: number;
   tokenUsageInput: number | null;
   tokenUsageOutput: number | null;
+  /** F20260914rtsp：末次 LLM 往返的上下文窗口占用（usage.totalTokens 快照，含 cacheRead/cacheWrite）。
+   *  右栏「休息中 · xx/xx」与 Session 弹窗 invoke 摘要的数据源；null = 无数据（usage 缺失或旧数据） */
+  ctxWindowUsed: number | null;
   /** 扩展字段（JSON） */
   metadata: Record<string, unknown> | null;
 }

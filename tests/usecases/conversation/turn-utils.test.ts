@@ -62,7 +62,7 @@ describe("tryCloseTurn（真 sqlite，invokes 判据）", () => {
       status, triggerEntryId: null,
       talkingStonePassedTo: tsp, startedAt: "2026-01-01T00:00:00Z",
       endedAt: status === "running" ? null : "2026-01-01T00:01:00Z",
-      toolCallCount: 0, tokenUsageInput: null, tokenUsageOutput: null, metadata: null,
+      toolCallCount: 0, tokenUsageInput: null, tokenUsageOutput: null, ctxWindowUsed: null, metadata: null,
     });
     await entryRepo.createEntryAtomic({
       id: `entry-${status}`, conversationId: "conv-1", sequenceNum: 0,

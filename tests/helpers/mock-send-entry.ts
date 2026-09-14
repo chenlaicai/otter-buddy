@@ -51,7 +51,7 @@ export function mockSendEntry(options?: {
     endedAt: null,
     toolCallCount: 0,
     tokenUsageInput: null,
-    tokenUsageOutput: null,
+    tokenUsageOutput: null, ctxWindowUsed: null,
     metadata: null,
   });
 
@@ -133,6 +133,11 @@ export function mockSendEntry(options?: {
     },
     updateInvokeTokenUsage: async (invokeId: string, input: number, output: number) => {
       store.tokenUsageUpdates.push({ invokeId, input, output });
+    },
+    /** F20260914rtsp：ctx 窗口占用落库（invoke.tick 数据面） */
+    updateInvokeCtxWindowUsed: async (invokeId: string, ctxWindowUsed: number) => {
+      const inv = store.invokes.get(invokeId);
+      if (inv) inv.ctxWindowUsed = ctxWindowUsed;
     },
     getEntries: async () => store.entries,
     getInvokeById: async (invokeId: string) => {

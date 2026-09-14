@@ -1,0 +1,68 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+import { SessionModal } from './SessionModal'
+import type { LocalOtter } from '../../lib/mappers'
+import * as api from '../../api/client'
+
+/** F20260914rtsp：Session 弹窗升级（自动展开 + 折叠视图）测试 */
+
+vi.mock('../../api/client', () => ({
+  listInvokes: vi.fn(),
+  getInvokeEvents: vi.fn(),
+}))
+
+const otter: LocalOtter = {
+  id: 'otter-1', name: '检视獭', type: 'small', status: 'active',
+  role: null, parentOtterId: null, createdAt: '', dissolvedAt: null,
+  modelAlias: 'mimo', modelIsDefault: false,
+} as unknown as LocalOtter
+
+beforeEach(() => {
+  vi.restoreAllMocks()
+})
+
+describe('SessionModal（F20260914rtsp）', () => {
+  it('打开后自动展开最新 invoke（running 优先）并渲染折叠视图', async () => {
+    vi.mocked(api.listInvokes).mockResolvedValue({
+      invokes: [
+        { id: 'inv-running', status: 'running', startedAt: '2026-09-14T10:00:00Z', toolCallCount: 2, ctxWindowUsed: 45200, tokenUsageInput: null, tokenUsageOutput: null } as never,
+        { id: 'inv-old', status: 'completed', startedAt: '2026-09-14T09:00:00Z', toolCallCount: 1, ctxWindowUsed: null, tokenUsageInput: 100, tokenUsageOutput: 50 } as never,
+      ],
+      hasMore: false,
+    })
+    vi.mocked(api.getInvokeEvents).mockResolvedValue({
+      invoke: {} as never,
+      events: [
+        // 同一次调用 start + result → 折叠为一行；message_end 快照丢弃
+        { id: 'e1', invokeId: 'inv-running', eventType: 'assistant_toolcall', payload: { name: 'read', arguments: { path: 'a' } }, sequenceNum: 1, createdAt: '2026-09-14T10:00:01Z' },
+        { id: 'e2', invokeId: 'inv-running', eventType: 'tool_result', payload: { name: 'read', result: 'content' }, sequenceNum: 2, createdAt: '2026-09-14T10:00:02Z' },
+        { id: 'e3', invokeId: 'inv-running', eventType: 'assistant_toolcall', payload: { content: [{ type: 'toolCall' }] }, sequenceNum: 3, createdAt: '2026-09-14T10:00:03Z' },
+        { id: 'e4', invokeId: 'inv-running', eventType: 'speak', payload: { body: '排查完成' }, sequenceNum: 4, createdAt: '2026-09-14T10:00:04Z' },
+      ],
+    })
+
+    render(<SessionModal otter={otter} conversationId="conv-1" onClose={() => {}} />)
+
+    // running invoke 自动加载事件（无需手点）
+    await waitFor(() => expect(api.getInvokeEvents).toHaveBeenCalledWith('inv-running'))
+    // 折叠视图：read 调用一行 + speak 一行（快照 e3 被丢弃，不再有第三条工具行）
+    await waitFor(() => {
+      const callSteps = screen.getAllByTestId('folded-call-step')
+      expect(callSteps).toHaveLength(1)
+      expect(callSteps[0].textContent).toContain('read')
+    })
+    // speak 步直通渲染（label 精确匹配；body 内容另断言）
+    expect(screen.getByText('发言', { exact: true })).toBeTruthy()
+    expect(screen.getByText('排查完成')).toBeTruthy()
+    // running 指示条
+    expect(screen.getByTestId('live-follow-indicator')).toBeTruthy()
+    // 未展开的旧 invoke 不自动加载
+    expect(api.getInvokeEvents).not.toHaveBeenCalledWith('inv-old')
+  })
+
+  it('无 invoke 时显示空态', async () => {
+    vi.mocked(api.listInvokes).mockResolvedValue({ invokes: [], hasMore: false })
+    render(<SessionModal otter={otter} conversationId="conv-1" onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByText(/暂无 invoke 记录/)).toBeTruthy())
+  })
+})

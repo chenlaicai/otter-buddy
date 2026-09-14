@@ -63,7 +63,7 @@ describe("getTurnNumberByInvokeId（F20260913ctlv 批4c 修复：invokeId 语义
       id: invokeId, conversationId: "conv-1", otterId: "otter-1",
       status: "completed", triggerEntryId,
       talkingStonePassedTo: null, startedAt: "2026-01-01T00:00:00Z", endedAt: "2026-01-01T00:01:00Z",
-      toolCallCount: 0, tokenUsageInput: null, tokenUsageOutput: null, metadata: null,
+      toolCallCount: 0, tokenUsageInput: null, tokenUsageOutput: null, ctxWindowUsed: null, metadata: null,
     });
     if (triggerEntryId) {
       await entryRepo.createEntryAtomic({

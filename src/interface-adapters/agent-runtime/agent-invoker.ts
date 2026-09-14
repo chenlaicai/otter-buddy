@@ -37,7 +37,7 @@ import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 import { healingAlertRegistry, renderHealingAlerts } from "@usecases/healing/healing-alert-registry";
 import { HandoffState, restoreHandoffContext, DEFAULT_CTX_MAX } from "./handoff-support";
 import { MIN_SENSIBLE_CTX_WINDOW, type OtterContextWindowProvider } from "@usecases/ports/otter-context-window-provider";
-import { mapToSSEEvent, mapToInvokeEventInput } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
+import { mapToSSEEvent, mapToInvokeEventInput, extractMessageEndUsage } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
 import { CircuitBreakSupport } from "./circuit-break-support";
 import type { TurnInput, AttemptDriver, TurnCallbacks, InvokeResultShape, CircuitBreakInfo, HealingEventInput } from "@usecases/conversation/agent-turn-orchestrator/types";
@@ -335,7 +335,7 @@ export class AgentInvoker implements AgentTurnPort {
           emitEvent,
           ...(opts?.images && { images: opts.images }),
           batchMaxSeq: opts?.batchMaxSeq,
-          onEvent: (e: AgentStreamEvent) => this.handleStreamEvent(e, input, otterId, emitEvent, opts, toolStarts, countBox, onEvent),
+          onEvent: (e: AgentStreamEvent) => this.handleStreamEvent(e, input, otterId, emitEvent, opts, toolStarts, countBox, onEvent, conversationId),
         });
         // F20260819rscn: SDK 标记了自重启信号时，通知调用方（闭包捕获）
         if (result._selfRestart) opts?.onSelfRestart?.(result._selfRestart);
@@ -503,7 +503,8 @@ export class AgentInvoker implements AgentTurnPort {
     if (e.isError === true) this.metrics?.recordToolError(tool);
   }
 
-  /** F20260913ctlv 彻底切换：流式事件处理（SSE 转发 + speak entry 发射 + invoke_events 持久化 + 计数） */
+  /** F20260913ctlv 彻底切换：流式事件处理（SSE 转发 + speak entry 发射 + invoke_events 持久化 + 计数）
+   *  F20260914rtsp：message_end → invoke.tick（右栏 ctx/工具计数实时化）+ ctx_window_used 落库 */
   // eslint-disable-next-line max-params, complexity -- 事件管线需要完整上下文；事件分发本质是多分支
   private handleStreamEvent(
     e: AgentStreamEvent,
@@ -514,6 +515,7 @@ export class AgentInvoker implements AgentTurnPort {
     toolStarts: Map<string, number>,
     toolCallCountBox: { count: number },
     onEvent: (e: AgentStreamEvent) => void,
+    conversationId?: string,
   ): void {
     this.logger.debug('Agent event received', { invokeId: input.invokeId, eventType: e.type, toolName: e.name ?? e.toolName });
     this.recordStreamEventMetrics(e, toolStarts);
@@ -540,8 +542,34 @@ export class AgentInvoker implements AgentTurnPort {
     }
     // F20260913ctlv 彻底切换：流式过程唯一存储 = invoke_events（message_events 停写）
     this.persistInvokeEvent(e, opts.currentInvokeId);
+    // F20260914rtsp：message_end → invoke.tick（ctx 窗口占用快照 + 工具计数，右栏实时化）
+    if (e.type === "message_end") {
+      this.emitInvokeTick(e, { otterId, conversationId, invokeId: opts.currentInvokeId, toolCallCount: toolCallCountBox.count }, emitEvent);
+    }
     // 传递事件给 orchestrator
     onEvent(e);
+  }
+
+  /** F20260914rtsp：message_end 提取 usage → 发射 invoke.tick + ctx_window_used 落库。
+   *  usage.totalTokens = input+output+cacheRead+cacheWrite（实测 pi session jsonl 验证，不含 reasoning）。
+   *  usage 缺失（SDK 版本差异/部分 provider 不报）→ 静默不发射，右栏显示 '—' 兑底（AT-11）。 */
+  private emitInvokeTick(
+    e: AgentStreamEvent,
+    ctx: { otterId: string; conversationId?: string; invokeId: string; toolCallCount: number },
+    emitEvent: (event: SSEEvent) => void,
+  ): void {
+    const usage = extractMessageEndUsage(e);
+    if (usage == null) return;
+    const ctxWindowUsed = usage.totalTokens ?? (usage.input + usage.output + usage.cacheRead + usage.cacheWrite);
+    if (!Number.isFinite(ctxWindowUsed) || ctxWindowUsed <= 0) return;
+    const ctxMax = this.getCtxMax(ctx.otterId);
+    if (ctx.conversationId) {
+      emitEvent({ event: "invoke.tick", data: { invokeId: ctx.invokeId, otterId: ctx.otterId, conversationId: ctx.conversationId, ctxWindowUsed, ctxMax, toolCallCount: ctx.toolCallCount } });
+    }
+    // 落库（刷新恢复用）：失败静默降级——右栏仅丢实时性，不影响主流程
+    this.sendEntry?.updateInvokeCtxWindowUsed(ctx.invokeId, ctxWindowUsed).catch((err: unknown) => {
+      this.logger.warn(`Failed to persist ctx_window_used for ${ctx.invokeId}: ${err instanceof Error ? err.message : String(err)}`);
+    });
   }
 
   /** F20260913ctlv：流式事件同步落 invoke_events（Session 弹窗数据源）+ 工具计数递增 */

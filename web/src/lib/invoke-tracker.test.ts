@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   applyInvokeStart,
+  applyInvokeTick,
   applyInvokeEnd,
   findOtterByInvokeId,
   isStreaming,
@@ -64,6 +65,37 @@ describe('applyInvokeEnd', () => {
 
   it('无 start 记录时忽略', () => {
     expect(applyInvokeEnd({}, { invokeId: 'inv-x', otterId: 'otter-b', status: 'completed', endedAt: '2026-09-10T06:01:00Z' })).toEqual({})
+  })
+})
+
+describe('applyInvokeTick（F20260914rtsp）', () => {
+  it('running 中更新 ctx 与工具计数', () => {
+    let states = applyInvokeStart({}, startPayload())
+    states = applyInvokeTick(states, {
+      invokeId: 'inv-1', otterId: 'otter-a', conversationId: 'conv-1',
+      ctxWindowUsed: 45200, ctxMax: 200000, toolCallCount: 8,
+    })
+    expect(states['otter-a']).toMatchObject({ ctxWindowUsed: 45200, ctxMax: 200000, toolCallCount: 8, status: 'running' })
+  })
+
+  it('幂等：同值 tick 返回原引用', () => {
+    let states = applyInvokeStart({}, startPayload())
+    const tick = { invokeId: 'inv-1', otterId: 'otter-a', conversationId: 'conv-1', ctxWindowUsed: 45200, ctxMax: 200000, toolCallCount: 8 }
+    states = applyInvokeTick(states, tick)
+    expect(applyInvokeTick(states, tick)).toBe(states)
+  })
+
+  it('乱序防御：无 prev 或 invokeId 不匹配时忽略', () => {
+    expect(applyInvokeTick({}, { invokeId: 'inv-x', otterId: 'otter-a', conversationId: 'c', ctxWindowUsed: 1, ctxMax: 2 })).toEqual({})
+    const states = applyInvokeStart({}, startPayload())
+    expect(applyInvokeTick(states, { invokeId: 'inv-other', otterId: 'otter-a', conversationId: 'c', ctxWindowUsed: 1, ctxMax: 2 })).toBe(states)
+  })
+
+  it('终态保留 tick 已写入的 ctx（休息中 · xx/xx 数据源）', () => {
+    let states = applyInvokeStart({}, startPayload())
+    states = applyInvokeTick(states, { invokeId: 'inv-1', otterId: 'otter-a', conversationId: 'conv-1', ctxWindowUsed: 45200, ctxMax: 200000, toolCallCount: 8 })
+    states = applyInvokeEnd(states, { invokeId: 'inv-1', otterId: 'otter-a', status: 'completed', endedAt: '2026-09-10T06:02:00Z' })
+    expect(states['otter-a']).toMatchObject({ status: 'completed', ctxWindowUsed: 45200, ctxMax: 200000 })
   })
 })
 

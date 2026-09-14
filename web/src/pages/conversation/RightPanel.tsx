@@ -9,7 +9,7 @@ import { OtterProfileCard } from '../../components/OtterProfileCard'
 import { fmtTime } from '../../lib/utils'
 import { ScheduledTaskSection } from './ScheduledTaskSection'
 import { WorkspacePanel } from './WorkspacePanel'
-import { fmtInvokeElapsed, fmtTokens, type OtterInvokeState } from '../../lib/invoke-tracker'
+import { fmtInvokeElapsed, fmtCtx, type OtterInvokeState } from '../../lib/invoke-tracker'
 
 interface RightPanelProps {
   conversation: Conversation
@@ -51,6 +51,16 @@ export function RightPanel(props: RightPanelProps) {
   const [showKfForm, setShowKfForm] = useState(false)
   const [kfContent, setKfContent] = useState('')
   const [kfCategory, setKfCategory] = useState('')
+  /** F20260914rtsp：走秒驱动——有任一 running 时 1s interval 重渲染右栏（无 running 停，AT-3）。
+ *  Why 容器级单定时器：N 獭 N 定时器无意义；现状仅靠对话列表轮询（5s）间接 re-render 搭便车，
+ *  页面隐藏即完全定格（F20260805actv 副作用，见 F20260914rtsp P1） */
+  const [tickNow, setTickNow] = useState(() => Date.now())
+  const anyRunning = Object.values(props.invokeStates ?? {}).some(s => s.status === 'running')
+  useEffect(() => {
+    if (!anyRunning) return
+    const t = setInterval(() => setTickNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [anyRunning])
 
   function handleAddFact() {
     if (!kfContent.trim()) return
@@ -108,6 +118,7 @@ export function RightPanel(props: RightPanelProps) {
                   otter={o}
                   sessions={props.sessions[o.id] || []}
                   invokeState={props.invokeStates?.[o.id]}
+                  tickNow={tickNow}
                   onClick={() => props.onOpenOtterDetail(o.id)}
                   onOpenSession={props.onOpenSession ? () => props.onOpenSession?.(o.id) : undefined}
                   onAbortInvoke={props.onAbortInvoke ? (invokeId) => props.onAbortInvoke?.(o.id, invokeId) : undefined}
@@ -313,6 +324,7 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
   otter: o,
   sessions,
   invokeState,
+  tickNow,
   onClick,
   onOpenSession,
   onAbortInvoke,
@@ -324,6 +336,9 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
   sessions: OtterSession[]
   /** F20260913ctlv：invoke 实时状态（undefined = 本会话无 invoke，显示休眠） */
   invokeState?: OtterInvokeState
+  /** F20260914rtsp：右栏容器级走秒时钟——驱动 fmtInvokeElapsed 重算（running 状态行每秒 +1s）。
+ *  仅作重渲染触发器，卡片内不直接消费其值（耗时函数用默认 Date.now()） */
+  tickNow?: number
   onClick: () => void
   /** F20260913ctlv：点击头像 → Session 弹窗 */
   onOpenSession?: () => void
@@ -397,17 +412,17 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
               )}
             </div>
             <div className="text-[10px] text-stone-400 whitespace-nowrap truncate">
-              {isBig ? '大獭 · 持久' : (o.role?.name || '小獭')}{activeS ? ` · 第${activeGen}世 ${fmtTime(activeS.startedAt)}` : ''}
+              {/* F20260914rtsp：世数时间改「from」格式（搭档拍板）；大獭必然在场，「大獭 · 持久」前缀移除 */}
+              {isBig ? '' : (o.role?.name || '小獭')}{activeS ? ` · 第${activeGen}世 from ${fmtTime(activeS.startedAt)}` : ''}
             </div>
-            {/* F20260913ctlv：invoke 实时状态行（streaming：耗时+工具计数；终态：上轮统计） */}
+            {/* F20260914rtsp：invoke 实时状态行（行动中：状态+走秒+工具数+ctx；休息中：ctx 兜底）。
+ *  走秒由容器 tickNow 驱动重渲染；ctx 缺数据时显 '—'（tick 未发射过/刷新无 ctx_tokens） */}
             {invokeState && (
               <div className="text-[9px] whitespace-nowrap truncate" data-testid="invoke-state-line">
                 {invokeState.status === 'running' ? (
-                  <span className="text-teal-500">● 行动中 · {fmtInvokeElapsed(invokeState)} · 🛠 {invokeState.toolCallCount ?? '—'}</span>
+                  <span className="text-teal-500">● 行动中 · {fmtInvokeElapsed(invokeState, tickNow)} · 🛠 {invokeState.toolCallCount ?? '—'} · {fmtCtx(invokeState.ctxWindowUsed)}/{invokeState.ctxMax != null ? fmtCtx(invokeState.ctxMax) : '—'}</span>
                 ) : (
-                  <span className="text-stone-400">
-                    {invokeState.status === 'completed' ? '已完成' : invokeState.status === 'failed' ? '失败' : '中断'} · {fmtInvokeElapsed(invokeState)} · 🛠 {invokeState.toolCallCount ?? '—'}{invokeState.tokenUsage ? ` · ${fmtTokens(invokeState.tokenUsage.input)}→${fmtTokens(invokeState.tokenUsage.output)}` : ''}
-                  </span>
+                  <span className="text-stone-400">○ 休息中 · {fmtCtx(invokeState.ctxWindowUsed)}/{invokeState.ctxMax != null ? fmtCtx(invokeState.ctxMax) : '—'}</span>
                 )}
               </div>
             )}

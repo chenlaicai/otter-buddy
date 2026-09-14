@@ -237,6 +237,7 @@ export class SendEntry {
       toolCallCount: 0,
       tokenUsageInput: null,
       tokenUsageOutput: null,
+      ctxWindowUsed: null,
       metadata: null,
     };
 
@@ -545,6 +546,9 @@ export class SendEntry {
   ): Promise<void> {
     await this.invokeRepo.updateInvokeTokenUsage(invokeId, input, output);
   }
+
+  /** F20260914rtsp：末次 LLM 往返 ctx 窗口占用（invoke.tick 落库，刷新恢复用） */
+  async updateInvokeCtxWindowUsed(invokeId: string, ctxWindowUsed: number): Promise<void> { await this.invokeRepo.updateInvokeCtxWindowUsed(invokeId, ctxWindowUsed); }
 
   /** F20260913ctlv 收尾批3：全文搜索（entries_fts——search_messages 工具数据源） */
   async searchEntries(conversationId: string, query: string, limit?: number): Promise<Entry[]> {
