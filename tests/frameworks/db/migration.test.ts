@@ -416,3 +416,103 @@ describe("migrateDatabase - F20260908rlcp: dispatch_attempts table drop", () => 
   });
 });
 
+
+// lint-tests:allow-ddl —— 迁移/恢复测试需要手工建旧 schema 的表（模拟存量库形态）
+/**
+ * F20260914fkx1：scheduled_task_executions 残留 FK REFERENCES messages(id) 清理
+ * 现场（2026-09-14 生产）：#886 批4c drop messages 表后，存量库该表 FK 指向已删表，
+ * foreign_keys=ON 时 INSERT 抛 SqliteError: no such table: main.messages，
+ * 定时任务 catch-up 全部静默失败（log 887782）。
+ */
+describe("migrateDatabase - F20260914fkx1: rebuildExecutionsDropMessagesFk", () => {
+  /** 模拟存量库：executions 表挂 messages FK + messages 表已 drop（批4c 后形态）。
+   *  种子数据在 FK 关闭下插入（生产形态：行是 messages 存活期写入的），插完恢复 ON。 */
+  function createStaleFkDb(): Database.Database {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    initSchema(db);
+    // initSchema 新库已无 messages 表且 executions 无该 FK——重建旧形态表（FK 指向 messages）
+    db.exec("DROP TABLE scheduled_task_executions");
+    db.exec(`
+      CREATE TABLE scheduled_task_executions (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
+        triggered_at TEXT NOT NULL,
+        completed_at TEXT,
+        status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed', 'skipped')),
+        error_message TEXT,
+        message_id TEXT REFERENCES messages(id),
+        turn_id TEXT REFERENCES turns(id)
+      );
+    `);
+    db.pragma("foreign_keys = OFF");
+    db.prepare(`INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-fkx', 'FK 测试', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`).run();
+    db.prepare(`INSERT INTO scheduled_tasks (id, conversation_id, name, cron, body, talking_stone_passed_to, sender_id, timezone, created_at, updated_at)
+      VALUES ('task-fkx', 'conv-fkx', 'FK 任务', '0 9 * * *', 'x', '[]', 'otter-1', 'Asia/Shanghai', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`).run();
+    db.prepare(`INSERT INTO scheduled_task_executions (id, task_id, triggered_at, status)
+      VALUES ('exec-fkx-1', 'task-fkx', '2026-09-13T09:00:00Z', 'skipped')`).run();
+    db.pragma("foreign_keys = ON");
+    return db;
+  }
+
+  it("存量库：FK 指向已 drop 的 messages 表 → INSERT 炸 no such table（现场复现）", () => {
+    const db = createStaleFkDb();
+    try {
+      // 迁移前复现生产现场：prepare 阶段抛 no such table: main.messages
+      expect(() =>
+        db.prepare(`INSERT INTO scheduled_task_executions (id, task_id, triggered_at, status) VALUES ('exec-new', 'task-fkx', '2026-09-14T01:21:00Z', 'running')`).run()
+      ).toThrow(/no such table: main\.messages/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("迁移后：残留 FK 被清，INSERT 恢复 + 存量数据保留 + 幂等", () => {
+    const db = createStaleFkDb();
+    try {
+      migrateDatabase(db, createTestLogger());
+
+      // INSERT 不再炸（迁移后 FK 已去）
+      expect(() =>
+        db.prepare(`INSERT INTO scheduled_task_executions (id, task_id, triggered_at, status) VALUES ('exec-new', 'task-fkx', '2026-09-14T01:21:00Z', 'running')`).run()
+      ).not.toThrow();
+
+      // 存量数据完整保留
+      const row = db.prepare("SELECT status FROM scheduled_task_executions WHERE id = 'exec-fkx-1'").get() as { status: string };
+      expect(row.status).toBe("skipped");
+
+      // FK 已不指向 messages
+      const fks = db.prepare("PRAGMA foreign_key_list(scheduled_task_executions)").all() as Array<{ table: string }>;
+      expect(fks.some(fk => fk.table === "messages")).toBe(false);
+
+      // 索引重建
+      const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_executions_task'").get();
+      expect(idx).toBeTruthy();
+
+      // 幂等：二次迁移不报错不重复重建（检视建议 1：另验数据完整——二次迁移后存量行仍在、计数不变）
+      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
+      const row2 = db.prepare("SELECT status FROM scheduled_task_executions WHERE id = 'exec-fkx-1'").get() as { status: string };
+      expect(row2.status).toBe("skipped");
+      const count2 = db.prepare("SELECT COUNT(*) AS c FROM scheduled_task_executions").get() as { c: number };
+      expect(count2.c).toBe(2); // exec-fkx-1 + exec-new（测试 2 前段已插入）
+    } finally {
+      db.close();
+    }
+  });
+
+  it("全新库（无残留 FK）：迁移直接通过，无需重建", () => {
+    const db = new Database(":memory:");
+    try {
+      initSchema(db);
+      migrateDatabase(db, createTestLogger());
+      db.prepare(`INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-fresh-fkx', '新库', '2026-09-14T00:00:00Z', '2026-09-14T00:00:00Z')`).run();
+      db.prepare(`INSERT INTO scheduled_tasks (id, conversation_id, name, cron, body, talking_stone_passed_to, sender_id, timezone, created_at, updated_at)
+        VALUES ('task-fresh-fkx', 'conv-fresh-fkx', '新库任务', '0 9 * * *', 'x', '[]', 'otter-1', 'Asia/Shanghai', '2026-09-14T00:00:00Z', '2026-09-14T00:00:00Z')`).run();
+      expect(() =>
+        db.prepare(`INSERT INTO scheduled_task_executions (id, task_id, triggered_at, status) VALUES ('exec-fresh-fkx', 'task-fresh-fkx', '2026-09-14T00:00:00Z', 'running')`).run()
+      ).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+});
