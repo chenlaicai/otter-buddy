@@ -141,6 +141,51 @@ describe("WeixinApiClient", () => {
     }
   });
 
+  // F20260904wxeg 审视处置（检视獭-789 严重发现 1）：errcode 通道校验零覆盖——
+  // F137 实证 sendmessage 失败可能走 errcode 而非 ret（ret 缺失/为 0 但 errcode≠0），
+  // 仅查 ret 会静默放行。以下三用例锁住该行为。
+  it("sendTextMessage errcode≠0 且 ret 缺失时抛错（F137 假成功场景）", async () => {
+    const { restore } = captureFetch(ok({ errcode: -2, errmsg: "token expired" }));
+    try {
+      const api = new WeixinApiClient({ baseUrl: "https://example.test", token: "t" });
+      await expect(api.sendTextMessage({ toUserId: "u-1", text: "x" })).rejects.toThrow("errcode=-2");
+    } finally {
+      restore();
+    }
+  });
+
+  it("sendTextMessage errcode≠0 且 ret=0 时抛错（双通道不一致，errcode 优先拦截）", async () => {
+    const { restore } = captureFetch(ok({ ret: 0, errcode: -14, errmsg: "session expired" }));
+    try {
+      const api = new WeixinApiClient({ baseUrl: "https://example.test", token: "t" });
+      await expect(api.sendTextMessage({ toUserId: "u-1", text: "x" })).rejects.toThrow("errcode=-14");
+    } finally {
+      restore();
+    }
+  });
+
+  it("sendTextMessage errcode=0 时放行（合法零值不误拦）", async () => {
+    const { restore } = captureFetch(ok({ ret: 0, errcode: 0, errmsg: "ok" }));
+    try {
+      const api = new WeixinApiClient({ baseUrl: "https://example.test", token: "t" });
+      await expect(api.sendTextMessage({ toUserId: "u-1", text: "x" })).resolves.toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+
+  // 检视獭-789 建议发现 2：sendMessageItems 同样打 sendmessage 端点，errcode 拦截同构覆盖
+  it("sendMessageItems errcode≠0 时抛错（媒体出站 F137 同构场景）", async () => {
+    const { restore } = captureFetch(ok({ errcode: -2, errmsg: "token expired" }));
+    try {
+      const api = new WeixinApiClient({ baseUrl: "https://example.test", token: "t" });
+      const items = [{ type: 1, text_item: { text: "media-caption" } }];
+      await expect(api.sendMessageItems({ toUserId: "u-1", items })).rejects.toThrow("errcode=-2");
+    } finally {
+      restore();
+    }
+  });
+
   it("HTTP 非 2xx 抛错", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("nope", { status: 502 })));
     try {
