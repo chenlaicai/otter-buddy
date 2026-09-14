@@ -1,5 +1,5 @@
 ---
-id: F20260909deps
+id: F20260914deps
 title: 统一升级依赖版本（2026-09-09）
 doc_type: feature
 summary: |
@@ -81,3 +81,9 @@ created_in_conversation: a3758263-dfac-4396-93ee-37d89efb5b0e
   @earendil-works/pi-coding-agent（均为补丁/次要版本）
 - 开发依赖：eslint、typescript-eslint、tsc-alias、@types/node
 - CI：actions/cache v6（缓存行为兼容，key 不变）
+
+## 定稿改名记录（2026-09-14）
+
+- 原 ID F20260909deps（9-09 创建），按「合入当天日期」定稿规则改名 F20260914deps（F20260914prdb 三配套）
+- 审视闭环回顾：r1 通过（0 严重 0 建议，检视獭-deps0909，异模型）
+- 定稿时 merge 最新 main（含 #886 重构 + #910/#789/#846/#849/#850/#853 六个 PR），tsc 0 错 + 2869/2869——升级后的依赖与重构后代码兼容性实测确认
