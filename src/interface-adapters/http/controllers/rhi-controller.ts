@@ -18,6 +18,7 @@ import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
 import type { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import { judgeTrend, DIMENSION_NAMES, statusFromScore } from "@usecases/health/health-score";
+import { buildModelBreakdown, buildInvokeStats } from "@usecases/health/usage-model-breakdown";
 import type { DimensionId, TrendDirection } from "@usecases/health/health-score";
 import { aggregateOpenSignalCounts } from "@usecases/health/signal-counts";
 import { computeFanInExclusions } from "@usecases/health/post-merge-fix-density";
@@ -264,104 +265,6 @@ function formatOtterEntry(e: OtterAcc) {
   };
 }
 
-/** F20260914usgm：按模型聚合（面板主维度）——per-model token 四分类/调用数/失败数/缓存命中率。
- *  从窗口内全部 cost_output 行聚合（非仅最新日），token 与调用数为区间累计。 */
-function buildModelBreakdown(
-  costRows: Array<{ metric_key: string; metric_value: number; metadata?: string | null }>,
-): Array<{
-  model: string; inputTokens: number; outputTokens: number;
-  cacheReadTokens: number; cacheWriteTokens: number; totalTokens: number;
-  callCount: number; errorCalls: number; cacheHitRate: number;
-}> {
-  const MODEL_KEYS = new Set(["input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "total_tokens", "llm_call_count", "error_call_count"]);
-  interface MAcc {
-    inputTokens: number; outputTokens: number; cacheRead: number; cacheWrite: number;
-    totalTokens: number; callCount: number; errorCalls: number;
-  }
-  const byModel = new Map<string, MAcc>();
-  for (const row of costRows) {
-    if (!MODEL_KEYS.has(row.metric_key)) continue;
-    let model = "unknown";
-    if (row.metadata) {
-      try {
-        const meta = JSON.parse(row.metadata) as { model?: string };
-        if (meta.model) model = meta.model;
-      } catch {
-        // 非法 JSON → unknown
-      }
-    }
-    let m = byModel.get(model);
-    if (!m) {
-      m = { inputTokens: 0, outputTokens: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, callCount: 0, errorCalls: 0 };
-      byModel.set(model, m);
-    }
-    switch (row.metric_key) {
-      case "input_tokens": m.inputTokens += row.metric_value; break;
-      case "output_tokens": m.outputTokens += row.metric_value; break;
-      case "cache_read_tokens": m.cacheRead += row.metric_value; break;
-      case "cache_write_tokens": m.cacheWrite += row.metric_value; break;
-      case "total_tokens": m.totalTokens += row.metric_value; break;
-      case "llm_call_count": m.callCount += row.metric_value; break;
-      case "error_call_count": m.errorCalls += row.metric_value; break;
-    }
-  }
-  return [...byModel.entries()].map(([model, m]) => {
-    const denom = m.cacheRead + m.inputTokens;
-    return {
-      model, inputTokens: m.inputTokens, outputTokens: m.outputTokens,
-      cacheReadTokens: m.cacheRead, cacheWriteTokens: m.cacheWrite, totalTokens: m.totalTokens,
-      callCount: m.callCount, errorCalls: m.errorCalls,
-      cacheHitRate: denom > 0 ? Number((m.cacheRead / denom).toFixed(4)) : 0,
-    };
-  }).sort((a, b) => b.totalTokens - a.totalTokens);
-}
-
-/** F20260914usgm：单次问答均值——per-model（含 _total 合计）从 invoke stats 行取最新日。 */
-function buildInvokeStats(
-  costRows: Array<{ snapshot_date: string; metric_key: string; metric_value: number; metadata?: string | null }>,
-): Array<{
-  model: string; invokeCount: number; avgToolCalls: number;
-  avgDurationSec: number; avgInputTokens: number; avgOutputTokens: number;
-}> {
-  const STATS_KEYS = new Set(["invoke_count", "avg_tool_calls", "avg_duration_sec", "avg_input_tokens", "avg_output_tokens"]);
-  interface SAcc {
-    snapshotDate: string;
-    invokeCount: number; avgToolCalls: number; avgDurationSec: number;
-    avgInputTokens: number; avgOutputTokens: number;
-  }
-  const byModel = new Map<string, SAcc>();
-  for (const row of costRows) {
-    if (!STATS_KEYS.has(row.metric_key)) continue;
-    let model = "_total";
-    if (row.metadata) {
-      try {
-        const meta = JSON.parse(row.metadata) as { model?: string };
-        if (meta.model) model = meta.model;
-      } catch {
-        // 非法 JSON → _total
-      }
-    }
-    let s = byModel.get(model);
-    // 取最新快照日的值（同日多行覆盖后只剩一份；跨日取大）
-    if (!s || row.snapshot_date > s.snapshotDate) {
-      s = { snapshotDate: row.snapshot_date, invokeCount: 0, avgToolCalls: 0, avgDurationSec: 0, avgInputTokens: 0, avgOutputTokens: 0 };
-      byModel.set(model, s);
-    }
-    switch (row.metric_key) {
-      case "invoke_count": s.invokeCount = row.metric_value; break;
-      case "avg_tool_calls": s.avgToolCalls = row.metric_value; break;
-      case "avg_duration_sec": s.avgDurationSec = row.metric_value; break;
-      case "avg_input_tokens": s.avgInputTokens = row.metric_value; break;
-      case "avg_output_tokens": s.avgOutputTokens = row.metric_value; break;
-    }
-  }
-  return [...byModel.entries()]
-    .map(([model, s]) => ({
-      model, invokeCount: s.invokeCount, avgToolCalls: s.avgToolCalls,
-      avgDurationSec: s.avgDurationSec, avgInputTokens: s.avgInputTokens, avgOutputTokens: s.avgOutputTokens,
-    }))
-    .sort((a, b) => b.invokeCount - a.invokeCount);
-}
 
 export class RhiController {
   constructor(
