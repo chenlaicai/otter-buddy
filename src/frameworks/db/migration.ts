@@ -986,6 +986,23 @@ function speakEntryBaseOf(
   };
 }
 
+/** 收集待迁行（幂等防撞：已在 entries 的 id 跳过） */
+function collectPendingRows(
+  msgs: ReadonlyArray<MigratableMessageRow>,
+  segmentsByMessage: Map<string, Array<{ body: string }>>,
+  existingEntryIds: Set<string>,
+): { pendingRows: ReturnType<typeof messageToEntryRows>; skipped: number } {
+  const pendingRows: ReturnType<typeof messageToEntryRows> = [];
+  let skipped = 0;
+  for (const msg of msgs) {
+    for (const row of messageToEntryRows(msg, segmentsByMessage)) {
+      if (existingEntryIds.has(row.id)) { skipped++; continue; }
+      pendingRows.push(row);
+    }
+  }
+  return { pendingRows, skipped };
+}
+
 /** 迁移单条消息行 → entry 行序列：[基础 entry, (可选)合成 yield entry]。
  *  otter 消息带非空 tsp → yield entry（时间线「→目标」语义；created_at 用 completed_at
  *  回退 created_at——排序落在 speak 之后；senderName 保留，前端「来源 → 交给 目标」依赖） */
@@ -1119,14 +1136,7 @@ function makeConversationMigrator(deps: {
       "SELECT * FROM messages WHERE conversation_id = ? ORDER BY sequence_num ASC",
     ).all(conversationId) as unknown as MigratableMessageRow[];
 
-    const pendingRows: ReturnType<typeof messageToEntryRows> = [];
-    let skipped = 0;
-    for (const msg of msgs) {
-      for (const row of messageToEntryRows(msg, segmentsByMessage)) {
-        if (existingEntryIds.has(row.id)) { skipped++; continue; }
-        pendingRows.push(row);
-      }
-    }
+    const { pendingRows, skipped } = collectPendingRows(msgs, segmentsByMessage, existingEntryIds);
     if (pendingRows.length === 0) { onStats({ inserted: 0, yield: 0, skipped }); return; }
 
     const existingInConv = db.prepare(
@@ -1136,6 +1146,10 @@ function makeConversationMigrator(deps: {
     let renumbered: { conversationId: string; from: number; to: number } | undefined;
     if (existingInConv.length === 0) {
       insertNoOverlap(pendingRows, writers);
+      // F20260914rmap：无重叠路径同样重映射读游标——重排 1..N 后旧游标的
+      // seq 值已指向错误位置（yield 合成行会右移后续 seq），不映射则已读前缀
+      // 之后的存量条目全部被误判未读（生产实例：151 对话 2052 条虚假未读）
+      remapReadCursorsNoOverlap(db, conversationId, msgs);
     } else {
       const mergedCount = insertWithRenumber(db, existingInConv, pendingRows, writers);
       remapReadCursors(db, conversationId, mergedCount);
@@ -1242,6 +1256,59 @@ function remapReadCursors(db: Database.Database, conversationId: string, maxNew:
   );
   for (const row of partRows) {
     updatePart.run(Math.min(row.last_read_seq, maxNew), conversationId, row.otter_id);
+  }
+}
+
+/** F20260914rmap：无重叠路径的读游标重映射。
+ *  旧游标语义 = 「已读旧 messages 前 K 条」，锚点必须按消息 id 定位（不能用
+ *  「新 seq ≤ 旧值」查找——yield 合成行占据序号会把锚点吸到合成行上）。
+ *  映射：旧前缀最后一条消息 id → 该 entry 的新序号（base 行与消息同 id；
+ *  合成 yield 行紧跟其后，未读统计只看 speak/system，锚在 base 或 yield 等价）。
+ *  前缀零行（游标值异常）时保持原值不动，不臆测。
+ *  与重叠路径的 min 钳制不同：这里按 id 精确映射，天然 ≤ 新 max。 */
+function remapReadCursorsNoOverlap(
+  db: Database.Database,
+  conversationId: string,
+  msgs: ReadonlyArray<Pick<MigratableMessageRow, "id" | "sequence_num">>,
+): void {
+  const seqOfEntryId = db.prepare("SELECT sequence_num FROM entries WHERE id = ?");
+  /** 旧前缀（旧 sequence_num ≤ cursor）最后一条消息 id；msgs 按 sequence_num ASC 有序 */
+  const anchorIdOf = (cursor: number): string | null => {
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].sequence_num <= cursor) return msgs[i].id;
+    }
+    return null;
+  };
+  const remapOne = (cursor: number): number | null => {
+    if (cursor <= 0) return null;
+    const anchorId = anchorIdOf(cursor);
+    if (!anchorId) return null;
+    const entry = seqOfEntryId.get(anchorId) as { sequence_num: number } | undefined;
+    return entry?.sequence_num ?? null;
+  };
+
+  const ursRows = db.prepare(
+    "SELECT user_id, last_read_message_seq FROM conversation_user_read_state WHERE conversation_id = ?",
+  ).all(conversationId) as Array<{ user_id: string; last_read_message_seq: number }>;
+  const updateUrs = db.prepare(
+    "UPDATE conversation_user_read_state SET last_read_message_seq = ? WHERE user_id = ? AND conversation_id = ?",
+  );
+  for (const row of ursRows) {
+    const mapped = remapOne(row.last_read_message_seq);
+    if (mapped == null) continue;
+    updateUrs.run(mapped, row.user_id, conversationId);
+  }
+
+  const partRows = db.prepare(
+    "SELECT otter_id, last_read_seq FROM conversation_participants WHERE conversation_id = ? AND last_read_seq IS NOT NULL",
+  ).all(conversationId) as Array<{ otter_id: string; last_read_seq: number }>;
+  const updatePart = db.prepare(
+    "UPDATE conversation_participants SET last_read_seq = ? WHERE conversation_id = ? AND otter_id = ?",
+  );
+  for (const row of partRows) {
+    const mapped = remapOne(row.last_read_seq);
+    if (mapped == null) continue;
+    updatePart.run(mapped, conversationId, row.otter_id);
   }
 }
 
