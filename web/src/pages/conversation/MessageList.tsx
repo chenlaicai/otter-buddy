@@ -571,7 +571,7 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
         <img
           src={getUserAvatar()}
           alt={name}
-          className="w-8 h-8 rounded-full flex-shrink-0 mt-0.5 msg-avatar shadow-bubble object-cover"
+          className="w-9 h-9 rounded-full flex-shrink-0 mt-0.5 msg-avatar shadow-bubble object-cover"
           style={{ border: '2px solid #6B6157' }}
         />
       ) : (

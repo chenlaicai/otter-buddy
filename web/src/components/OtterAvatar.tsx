@@ -10,7 +10,7 @@ import { getOtterAvatar } from '../lib/otter-avatars'
 export function OtterAvatar({
   otterId,
   name,
-  size = 32,
+  size = 36,
   type,
 }: {
   otterId: string

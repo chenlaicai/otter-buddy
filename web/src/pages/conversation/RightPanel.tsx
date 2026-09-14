@@ -395,7 +395,7 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
             className="relative flex-shrink-0 rounded-full"
             aria-label={`查看 ${o.name} 的 session 记录`}
           >
-            <OtterAvatar otterId={o.id} name={o.name} size={28} type={o.type} />
+            <OtterAvatar otterId={o.id} name={o.name} size={32} type={o.type} />
             {/* F20260913ctlv：streaming 呼吸点（活跃 invoke 指示，叠加在头像右下角） */}
             {invokeState?.status === 'running' && (
               <span className="absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full bg-teal-400 border border-white animate-pulse" data-testid="invoke-streaming-dot" />
