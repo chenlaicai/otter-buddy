@@ -67,6 +67,25 @@ export function mapToSSEEvent(e: AgentStreamEvent): SSEEvent | null {
   }
 }
 
+/** F20260914rtsp：从 message_end 事件提取 usage（invoke.tick 数据源）。
+ *  防御性解析：路径兼容 e.message.usage / e.assistantMessageEvent.usage；input/output 非有限数 → null（不发射 tick）。
+ *  实测验证（pi session jsonl）：totalTokens = input+output+cacheRead+cacheWrite（不含 reasoning）——优先重用，缺失时本地求和。 */
+export function extractMessageEndUsage(e: AgentStreamEvent): { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens?: number } | null {
+  if (e.type !== "message_end") return null;
+  const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
+  const msg = inner ?? (e as Record<string, unknown>).message as Record<string, unknown> | undefined;
+  const usage = msg?.usage as Record<string, unknown> | undefined;
+  if (!usage) return null;
+  const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const input = num(usage.input);
+  const output = num(usage.output);
+  const cacheRead = num(usage.cacheRead) ?? 0;
+  const cacheWrite = num(usage.cacheWrite) ?? 0;
+  if (input == null || output == null) return null;
+  const totalTokens = num(usage.totalTokens) ?? undefined;
+  return { input, output, cacheRead, cacheWrite, ...(totalTokens !== undefined && { totalTokens }) };
+}
+
 /** F20260913ctlv：Pi 事件 → InvokeEvent 映射（持久化到 invoke_events 表，Session 弹窗数据源）。 */
 // eslint-disable-next-line complexity -- 事件类型分发表，拆分降低可读性
 export function mapToInvokeEventInput(

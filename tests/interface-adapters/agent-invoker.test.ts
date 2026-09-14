@@ -102,6 +102,47 @@ function makeInvoker(
 }
 
 describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () => {
+  /** F20260914rtsp AT-4/AT-11：message_end usage → invoke.tick 发射与降级 */
+  it("message_end 带 usage → 发射 invoke.tick（ctxWindowUsed + 工具计数）", async () => {
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const sendEntry = mockSendEntry();
+    const invoker = makeInvoker(mockAgentInvoke({
+      events: [
+        { type: "tool_execution_start", name: "read" } as AgentStreamEvent,
+        { type: "message_end", message: { role: "assistant", usage: { input: 794, output: 529, cacheRead: 28928, cacheWrite: 0, totalTokens: 30251 } } } as AgentStreamEvent,
+      ],
+      result: { text: "", tokenUsage: { input: 794, output: 529 } },
+    }), sendEntry);
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi",
+      senderId: "user-1", onSSEEvent: (e) => events.push(e),
+    }).catch(() => null);
+
+    const tick = events.find(e => e.event === "invoke.tick");
+    expect(tick).toBeTruthy();
+    expect(tick?.data.ctxWindowUsed).toBe(30251);
+    expect(tick?.data.toolCallCount).toBe(1);
+  });
+
+  it("message_end 无 usage → 不发射 invoke.tick（AT-11 降级）", async () => {
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const sendEntry = mockSendEntry();
+    const invoker = makeInvoker(mockAgentInvoke({
+      events: [
+        { type: "message_end", message: { role: "assistant" } } as AgentStreamEvent,
+      ],
+      result: { text: "" },
+    }), sendEntry);
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi",
+      senderId: "user-1", onSSEEvent: (e) => events.push(e),
+    }).catch(() => null);
+
+    expect(events.find(e => e.event === "invoke.tick")).toBeUndefined();
+  });
+
   it("正常流：yield 置 invoke completed → invoke.end + turn.complete（无 message.* 事件）", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const sendEntry = mockSendEntry();

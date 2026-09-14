@@ -52,7 +52,7 @@ function invokeFixture(overrides: Partial<Invoke> = {}): Invoke {
     id: "inv-1", conversationId: "conv-1", otterId: "otter-big",
     status: "running", triggerEntryId: null,
     talkingStonePassedTo: null, startedAt: "2026-01-01T00:00:00Z", endedAt: null,
-    toolCallCount: 0, tokenUsageInput: null, tokenUsageOutput: null, metadata: { turnId: "turn-1" },
+    toolCallCount: 0, tokenUsageInput: null, tokenUsageOutput: null, ctxWindowUsed: null, metadata: { turnId: "turn-1" },
     ...overrides,
   };
 }

@@ -7,7 +7,7 @@ import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, 
 
 import { mapOtterDTO, mapConversationDTO, mapEntryDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
 import { isInFlight, upsertMessage, insertBySeq, upsertTerminalMessage, insertCenteredByTs } from '../../lib/message-stream'
-import { applyInvokeStart, applyInvokeEnd, findOtterByInvokeId, type InvokeStates } from '../../lib/invoke-tracker'
+import { applyInvokeStart, applyInvokeEnd, applyInvokeTick, findOtterByInvokeId, type InvokeStates } from '../../lib/invoke-tracker'
 import { MessageBatcher } from '../../lib/batch-update'
 import { nowTs } from '../../lib/utils'
 import { AppLayout } from '../../components/AppLayout'
@@ -267,6 +267,8 @@ function ConversationPage() {
               ...(inv.endedAt && { endedAt: inv.endedAt }),
               toolCallCount: inv.toolCallCount,
               ...(inv.tokenUsageInput != null && inv.tokenUsageOutput != null && { tokenUsage: { input: inv.tokenUsageInput, output: inv.tokenUsageOutput } }),
+              // F20260914rtsp：ctx 窗口占用恢复（右栏「休息中 · xx/xx」数据源）
+              ...(inv.ctxWindowUsed != null && { ctxWindowUsed: inv.ctxWindowUsed }),
             }
           }
           return next
@@ -517,6 +519,16 @@ function ConversationPage() {
         }
         /** 獭可能在 chain 中新建，保证右栏参与者列表能见 */
         if (d.otterId) upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId)
+      },
+      // F20260914rtsp：invoke 过程心跳——ctx 窗口占用 + 工具计数实时化（右栏 xx/xx 数据源）
+      'invoke.tick': (data) => {
+        const d = data as { invokeId: string; otterId: string; conversationId?: string; ctxWindowUsed: number; ctxMax: number; toolCallCount?: number }
+        syncInvokeState(prev => applyInvokeTick(prev, {
+          invokeId: d.invokeId, otterId: d.otterId,
+          conversationId: d.conversationId ?? activeId ?? '',
+          ctxWindowUsed: d.ctxWindowUsed, ctxMax: d.ctxMax,
+          ...(d.toolCallCount != null && { toolCallCount: d.toolCallCount }),
+        }))
       },
       'invoke.end': (data) => {
         const d = data as { invokeId: string; otterId?: string; status: 'completed' | 'failed' | 'aborted'; endedAt?: string; invokeEndEntryId?: string; endBody?: string }

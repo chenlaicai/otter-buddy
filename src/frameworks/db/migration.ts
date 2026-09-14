@@ -143,6 +143,10 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
    *  老库 CHECK (pending/done/exhausted) 写 failed 会被 SQLite 拒绝，四步重建（#608/#654/#804 同模式）。 */
   rebuildRestartPendingResumesStatusCheck(db, logger);
 
+  /** F20260914rtsp：invokes 表添加 ctx_window_used 列（存量库迁移）。
+   *  schema.ts 新库已含；存量库跑不到 CREATE 分支，需 ALTER 补列。幂等：PRAGMA 检测。 */
+  ensureInvokesCtxWindowUsedColumn(db, logger);
+
   /** F20260913ctlv 收尾批4b：messages → entries 幂等回填迁移（先迁后 drop——4c）。 */
   migrateMessagesToEntries(db, logger);
 
@@ -306,6 +310,15 @@ function ensureSignalsEvidenceColumns(db: Database.Database, logger: Logger): vo
   if (!columns.some(col => col.name === 'confidence')) {
     db.prepare("ALTER TABLE signals ADD COLUMN confidence TEXT").run();
     logger.info('Added confidence column to signals table');
+  }
+}
+
+/** F20260914rtsp：invokes 表补 ctx_window_used 列（存量库）。幂等：PRAGMA 检测。 */
+function ensureInvokesCtxWindowUsedColumn(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(invokes)").all() as Array<{ name: string }>;
+  if (!columns.some(col => col.name === 'ctx_window_used')) {
+    db.prepare("ALTER TABLE invokes ADD COLUMN ctx_window_used INTEGER").run();
+    logger.info('Added ctx_window_used column to invokes table');
   }
 }
 
