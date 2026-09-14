@@ -300,6 +300,69 @@ describe("RHI API（真 sqlite）", () => {
       expect(s2).toBeDefined();
       expect(s2!.cacheHitRate).toBeCloseTo(0.1, 2);
     });
+
+    it("F20260914usgm：models 按模型聚合 token/调用/失败/命中率（区间累计）", async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const metaA = JSON.stringify({ model: "model-a" });
+      const metaB = JSON.stringify({ model: "model-b" });
+      snapshotRepo.replaceForDate(today, [
+        { snapshotDate: today, metricType: "cost_output", metricKey: "total_tokens", metricValue: 1000, metadata: metaA },
+        { snapshotDate: today, metricType: "cost_output", metricKey: "input_tokens", metricValue: 900, metadata: metaA },
+        { snapshotDate: today, metricType: "cost_output", metricKey: "cache_read_tokens", metricValue: 100, metadata: metaA },
+        { snapshotDate: today, metricType: "cost_output", metricKey: "llm_call_count", metricValue: 10, metadata: metaA },
+        { snapshotDate: today, metricType: "cost_output", metricKey: "error_call_count", metricValue: 2, metadata: metaA },
+        { snapshotDate: today, metricType: "cost_output", metricKey: "total_tokens", metricValue: 2000, metadata: metaB },
+        { snapshotDate: today, metricType: "cost_output", metricKey: "llm_call_count", metricValue: 5, metadata: metaB },
+        { snapshotDate: today, metricType: "cost_output", metricKey: "error_call_count", metricValue: 0, metadata: metaB },
+      ], "cost_output");
+
+      const res = await makeController().costOutput(makeCostCtx());
+      const body = await res.json() as {
+        models: Array<{ model: string; totalTokens: number; callCount: number; errorCalls: number; cacheHitRate: number }>;
+        totals: { totalTokens: number; callCount: number; errorCalls: number };
+      };
+      expect(body.models).toHaveLength(2);
+      const a = body.models.find(m => m.model === "model-a")!;
+      expect(a.totalTokens).toBe(1000);
+      expect(a.callCount).toBe(10);
+      expect(a.errorCalls).toBe(2);
+      expect(a.cacheHitRate).toBeCloseTo(0.1, 3); // 100/(100+900)
+      const b = body.models.find(m => m.model === "model-b")!;
+      expect(b.totalTokens).toBe(2000);
+      expect(b.cacheHitRate).toBe(0); // 无 cache/input 行
+      // totals 改从 models 汇总（F20260914usgm）
+      expect(body.totals.totalTokens).toBe(3000);
+      expect(body.totals.callCount).toBe(15);
+      expect(body.totals.errorCalls).toBe(2);
+    });
+
+    it("F20260914usgm：invokeStats 从 stats 行取最新日（per-model + _total）", async () => {
+      const d1 = "2026-09-12";
+      const d2 = "2026-09-13";
+      const metaGlm = JSON.stringify({ model: "glm-5.3" });
+      const metaTotal = JSON.stringify({ model: "_total" });
+      snapshotRepo.replaceForDate(d1, [
+        { snapshotDate: d1, metricType: "cost_output", metricKey: "invoke_count", metricValue: 5, metadata: metaGlm },
+        { snapshotDate: d1, metricType: "cost_output", metricKey: "avg_tool_calls", metricValue: 10, metadata: metaGlm },
+      ], "cost_output");
+      snapshotRepo.replaceForDate(d2, [
+        { snapshotDate: d2, metricType: "cost_output", metricKey: "invoke_count", metricValue: 8, metadata: metaGlm },
+        { snapshotDate: d2, metricType: "cost_output", metricKey: "avg_tool_calls", metricValue: 18.6, metadata: metaGlm },
+        { snapshotDate: d2, metricType: "cost_output", metricKey: "avg_duration_sec", metricValue: 329, metadata: metaGlm },
+        { snapshotDate: d2, metricType: "cost_output", metricKey: "invoke_count", metricValue: 9, metadata: metaTotal },
+        { snapshotDate: d2, metricType: "cost_output", metricKey: "avg_tool_calls", metricValue: 16.2, metadata: metaTotal },
+      ], "cost_output");
+
+      const res = await makeController().costOutput(makeCostCtx());
+      const body = await res.json() as { invokeStats: Array<{ model: string; invokeCount: number; avgToolCalls: number; avgDurationSec: number }> };
+      const glm = body.invokeStats.find(s => s.model === "glm-5.3")!;
+      // 取最新日 d2 的值，不被 d1 旧值污染
+      expect(glm.invokeCount).toBe(8);
+      expect(glm.avgToolCalls).toBe(18.6);
+      expect(glm.avgDurationSec).toBe(329);
+      const total = body.invokeStats.find(s => s.model === "_total")!;
+      expect(total.invokeCount).toBe(9);
+    });
   });
 
   describe("score", () => {
