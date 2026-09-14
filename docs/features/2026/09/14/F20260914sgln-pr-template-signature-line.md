@@ -1,5 +1,11 @@
 ---
 id: F20260914sgln
+intent:
+  problem: "大獭 PR 署名行漂移出 6 种写法（含 [海獭名号: 大獭] 占位符误当填空题）：签名格式实体散落 5 处（.github 模板、commit-convention、adversarial-review ×3），无一权威真相源，逐处理改逐处漏"
+  expected_effect: "signature-convention 升格唯一真相源，其余 4 处实体改指针，格式漂移面 5→1；.github 模板降格平台快照 + 同步义务成文；后续 PR/review 署名格式稳定一致"
+  verify_by:
+    type: static_only
+    reason: "纯文档/prompt 改动，无运行时逻辑——lint:skills 0 error + 全仓 grep 实体残留扫描 + lint-docs 验证覆盖"
 title: PR 模板补署名行：GitHub 自动加载治本署名漂移
 summary: "大獭近 10 个 PR 署名行写法漂移出 6 种花样（含把占位符 [海獭名号] 当字段填空），根因是权威模板 .github/pull_request_template.md 从未有署名行、署名规范只藏在 skill 参考文档里。治本修法：模板尾部直接加署名行占位符 + 防呆注释，创建 PR 时 GitHub 自动加载。"
 change_type: fix
