@@ -1,5 +1,5 @@
 ---
-id: F20260908schl
+id: F20260914schl
 title: "定时任务单次执行失败落 healing 台账：消灭「未达 3 次熔断阈值」盲区（closes #754）"
 summary: "9/2 09:00 每日健康检查失败（session lock timeout）未落 healing 台账，根因悬置 6 天——#516 只在连续 3 次失败停跑时才写 healing event，单次失败是盲区。修复：handleExecutionFailure 单次失败即落 healing event（medium，含 executionId + 完整错误文本），熔断停跑的 high 事件保留不变。定时任务按天/周低频触发，等 3 次失败可能 3 天，与「healing 是问题发现第一入口」定位相悖。"
 change_type: fix
@@ -47,3 +47,10 @@ Issue #754：9/2 09:00 每日对话健康检查执行失败，**未落 healing �
 ## Discovered Issues
 
 无。
+
+## 定稿改名记录（2026-09-14）
+
+- 原 ID F20260908schl（9-08 创建），按「合入当天日期」定稿规则改名 F20260914schl（F20260914prdb 三配套）
+- 分支重建：原分支基点叠着已合入的 #847 中间 commit（b63d5098/ead0c5bd），与 main 重放必然假冲突。定稿时仅 cherry-pick 本特性 2 commit（400846f4+cae23eae）到最新 main（2cb96629），历史干净
+- 审视闭环回顾：r1 1 严重（TS 漏提交）+ 2 建议（once 重试路径/错误截断）全处置（cae23eae），r2 delta 复核通过
+- 重建后验证：全量 2849/2849，tsc 0 错
