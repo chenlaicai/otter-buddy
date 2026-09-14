@@ -1,13 +1,14 @@
-import type { MessageMetadata } from '@entities/conversation/message';
 import {
   RECRUITING_CONVERSATION_KEY,
   RECRUITING_BIG_OTTER_ID_KEY,
   RECRUITING_LAST_BRIDGE_EVENT_AT_KEY,
 } from './constants';
 import type { SettingsRepository } from '@usecases/settings/settings-repository';
-import type { QueryMessage } from '@usecases/conversation/query-message';
-import type { SendMessage } from '@usecases/conversation/send-message';
 import type { DispatchChainEngine, InvokeFn } from '@usecases/conversation/dispatch-chain-engine';
+import type { SignalRouter } from '@usecases/conversation/signal-router';
+import type { SendEntry } from '@usecases/conversation/send-entry';
+import type { EntryRepository } from '@usecases/conversation/entry-repository';
+import { DirectChainGatedError } from '@usecases/conversation/signal-router';
 import type { AgentTurnPort } from '@usecases/ports/agent-turn-port';
 import type { Logger } from '@usecases/ports/logger';
 
@@ -61,14 +62,17 @@ export interface ProcessResult {
  * 最近消息，inbound 是系统消息，复用走不通）。
  */
 export class ProcessInboundRecruit {
-  // eslint-disable-next-line max-params -- 7 个 DI 依赖均为必需
+  // eslint-disable-next-line max-params -- 7+1 个 DI 依赖均为必需
   constructor(
     private readonly settings: SettingsRepository,
-    private readonly queryMessage: QueryMessage,
-    private readonly sendMessage: SendMessage,
+    /** F20260913ctlv 批4a：入站信号切 entries（system entry + yieldTargets；messages 退役） */
+    private readonly sendEntry: SendEntry,
+    private readonly entryRepo: EntryRepository,
     private readonly dispatchChainEngine: DispatchChainEngine,
     private readonly agentInvokePort: AgentTurnPort,
     private readonly logger: Logger,
+    /** #775 S4a：信号路由器（可选注入）——注入后触发过闸门+台账，未注入回退直连链 */
+    private readonly signalRouter?: SignalRouter,
   ) {}
 
   async execute(payload: InboundPayload): Promise<ProcessResult> {
@@ -107,7 +111,7 @@ export class ProcessInboundRecruit {
         deduplicated++;
         continue;
       }
-      const existing = await this.queryMessage.findByExternalId(m.externalId);
+      const existing = await this.entryRepo.findByExternalId(m.externalId);
       if (existing) {
         deduplicated++;
         continue;
@@ -124,33 +128,31 @@ export class ProcessInboundRecruit {
     // 2. 组装批量系统消息 body
     const body = formatRecruitBatch(fresh);
 
-    // 3. 入库：metadata 标记 externalIds（JSON 数组，便于查重），单条系统消息
+    // 3. 入库：metadata 标记 externalIds（JSON 数组，便于查重），单条 system entry
+    //    F20260913ctlv 批4a：messages 退役——yieldTargets 即信号目标（与 scheduler 同构）
     const externalIds = fresh.map(m => m.externalId);
-    const metadata: MessageMetadata = {
-      externalIds,
-    };
-    const { message } = await this.sendMessage.send({
+    const { entry: signalEntry } = await this.sendEntry.createSystemEntry({
       conversationId,
-      senderType: 'system',
-      senderId: 'boss-zhipin-bridge',
-      talkingStonePassedTo: [bigOtterId],
+      turnId: "",
       body,
-      metadata,
+      yieldTargets: [bigOtterId],
+      senderName: 'boss-zhipin-bridge',
     });
+    await this.entryRepo.updateEntryMetadata(signalEntry.id, { externalIds });
 
     this.logger.info('inbound recruit: batch inserted', {
       conversationId,
-      messageId: message.id,
+      messageId: signalEntry.id,
       accepted: fresh.length,
       deduplicated,
     });
 
     // 4. 触发大獭一次 invoke（fire-and-forget，错误不影响响应）
-    void this.triggerDispatch(conversationId, bigOtterId, body, message.id).catch(err => {
+    void this.triggerDispatch(conversationId, bigOtterId, body, signalEntry.id).catch(err => {
       this.logger.error(
         'inbound recruit: dispatch failed',
         err instanceof Error ? err : new Error(String(err)),
-        { conversationId, messageId: message.id },
+        { conversationId, messageId: signalEntry.id },
       );
     });
 
@@ -173,31 +175,28 @@ export class ProcessInboundRecruit {
       // 状态事件无 externalId 查重（30 分钟去重在扩展端做）。每个事件一条系统消息
       try {
         const body = formatStatusEvent(event);
-        const metadata: MessageMetadata = {
-          eventType: event.type,
-          severity: event.severity,
-        };
-        const { message } = await this.sendMessage.send({
+        // F20260913ctlv 批4a：状态事件落 system entry（eventType/severity 进 metadata）
+        const { entry: statusEntry } = await this.sendEntry.createSystemEntry({
           conversationId,
-          senderType: 'system',
-          senderId: 'boss-zhipin-bridge',
-          talkingStonePassedTo: [bigOtterId],
+          turnId: "",
           body,
-          metadata,
+          yieldTargets: [bigOtterId],
+          senderName: 'boss-zhipin-bridge',
         });
+        await this.entryRepo.updateEntryMetadata(statusEntry.id, { eventType: event.type, severity: event.severity });
 
         this.logger.info('inbound status: event inserted', {
           conversationId,
-          messageId: message.id,
+          messageId: statusEntry.id,
           type: event.type,
           severity: event.severity,
         });
 
-        void this.triggerDispatch(conversationId, bigOtterId, body, message.id).catch(err => {
+        void this.triggerDispatch(conversationId, bigOtterId, body, statusEntry.id).catch(err => {
           this.logger.error(
             'inbound status: dispatch failed',
             err instanceof Error ? err : new Error(String(err)),
-            { conversationId, messageId: message.id, type: event.type },
+            { conversationId, messageId: statusEntry.id, type: event.type },
           );
         });
 
@@ -219,13 +218,33 @@ export class ProcessInboundRecruit {
     return { accepted, deduplicated: 0 };
   }
 
-  /** bypass AgentDispatchService 直接调 executeChain，invokeFn 内部构造 */
+  /**
+   * #775 S4a 真换轨：触发大獭处理。注入路由器时走直投通道（闸门+台账+busy 语义，
+   * 与 scheduler 同款）——桥接消息不再绕过调度纪律；闸门拦截（用户停机/限流熔断）
+   * 时信号已由 sendMessage 落库，恢复后补扫点燃，此处仅记 warn 不重试。
+   * 未注入时回退直连链（回滚面与装配开关对齐）。
+   */
   private async triggerDispatch(
     conversationId: string,
     bigOtterId: string,
     userMessageContent: string,
     triggerMessageId: string,
   ): Promise<void> {
+    if (this.signalRouter) {
+      try {
+        await this.signalRouter.routeDirectSignal(conversationId, triggerMessageId, bigOtterId);
+        return;
+      } catch (err) {
+        if (err instanceof DirectChainGatedError) {
+          // 信号保留在台账（消息已带 tsp），恢复窗口由补扫消化——非失败，不重试
+          this.logger.warn('inbound recruit: dispatch gated by scheduler gate, signal retained', {
+            conversationId, messageId: triggerMessageId, gate: err.gate,
+          });
+          return;
+        }
+        throw err;
+      }
+    }
     const invokeFn: InvokeFn = async ({ otterId, conversationId, userMessageContent, senderId }) =>
       this.agentInvokePort.invokeConversation({
         otterId,

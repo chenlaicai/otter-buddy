@@ -63,6 +63,7 @@ function mockRepo() {
     getExecutionCount: vi.fn(async (taskId: string) => {
       return (storedExecutions.get(taskId) ?? []).length;
     }),
+    failAllRunningExecutions: vi.fn(async () => 0),
   } satisfies ScheduledTaskRepository & {
     _storedTasks: Map<string, ScheduledTask>;
     _storedExecutions: Map<string, ScheduledTaskExecution[]>;

@@ -209,3 +209,68 @@ describe('FileContentViewer 内容渲染分发（S1 闭环）', () => {
     expect(container.textContent).toContain('已截断')
   })
 })
+
+describe('右键菜单 reveal 端点（F20260910wrev）', () => {
+  const ROOT_FILE_ENTRIES = {
+    entries: [
+      { name: 'hello.txt', isDirectory: false, isFile: true, path: 'hello.txt' },
+      { name: 'subdir', isDirectory: true, isFile: false, path: 'subdir' },
+    ]
+  }
+
+  it('右键文件节点弹出菜单，含“在文件管理器中显示”', async () => {
+    const mock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(ROOT_FILE_ENTRIES), { status: 200 }))
+    vi.stubGlobal('fetch', mock)
+    await act(async () => { root.render(<WorkspacePanel conversationId="test" />) })
+
+    const fileBtn = container.querySelector('[data-testid="file-hello.txt"]') as HTMLButtonElement
+    await act(async () => {
+      fileBtn.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 200 }))
+    })
+
+    const menu = container.querySelector('[data-testid="workspace-ctx-menu"]')
+    expect(menu).not.toBeNull()
+    expect(menu!.textContent).toContain('在文件管理器中显示')
+  })
+
+  it('点击菜单项调用 reveal API（POST + body.path）', async () => {
+    const mock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(ROOT_FILE_ENTRIES), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    vi.stubGlobal('fetch', mock)
+    await act(async () => { root.render(<WorkspacePanel conversationId="test" />) })
+
+    const fileBtn = container.querySelector('[data-testid="file-hello.txt"]') as HTMLButtonElement
+    await act(async () => {
+      fileBtn.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 200 }))
+    })
+
+    const menuItem = container.querySelector('[data-testid="workspace-ctx-menu"] button') as HTMLButtonElement
+    await act(async () => { menuItem.click() })
+
+    // 验证 POST 调用
+    const revealCall = mock.mock.calls.find((c: string[]) =>
+      typeof c[0] === 'string' && c[0].includes('/workspace/reveal')
+    )
+    expect(revealCall).toBeDefined()
+  })
+
+  it('reveal 失败时显示错误横幅', async () => {
+    const mock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(ROOT_FILE_ENTRIES), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: '文件不存在' }), { status: 404 }))
+    vi.stubGlobal('fetch', mock)
+    await act(async () => { root.render(<WorkspacePanel conversationId="test" />) })
+
+    const fileBtn = container.querySelector('[data-testid="file-hello.txt"]') as HTMLButtonElement
+    await act(async () => {
+      fileBtn.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 200 }))
+    })
+
+    const menuItem = container.querySelector('[data-testid="workspace-ctx-menu"] button') as HTMLButtonElement
+    await act(async () => { menuItem.click() })
+
+    expect(container.textContent).toContain('文件不存在')
+  })
+})

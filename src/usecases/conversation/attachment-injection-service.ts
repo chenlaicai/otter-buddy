@@ -62,6 +62,16 @@ export class AttachmentInjectionService {
   }
 
   /**
+   * #826 收尾处置（检视建议发现 2）：仅校验不组装载荷。
+   * 信号路由器在位时 controller 不需要内存载荷（路由器消费信号时从 attachments 重建）
+   * ——避免每条带附件消息双读盘×base64 白建；降级路径（无路由器）仍用 validateAndBuild。
+   * @returns 错误消息（拒绝）或 null（通过，无需组装）
+   */
+  async validateForSendOnly(attachmentIds?: string[]): Promise<string | null> {
+    return this.validateForSend(attachmentIds);
+  }
+
+  /**
    * 前置校验（存在性 + 每轮 ≤2 图硬限制）。
    * @returns 错误消息（拒绝）或 null（通过）
    */

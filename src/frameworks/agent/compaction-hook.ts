@@ -27,8 +27,13 @@ export interface CompactionPreparationLike {
 
 /** 钩子依赖（由 pi-session-factory 在创建 session 时注入，避免 registry 反向依赖高层模块） */
 export interface CompactionHookDeps {
-  /** 七段叙事合成（readOnly LLM invocation；同 handoff 的 synthesize） */
-  synthesize: (prompt: string) => Promise<string>;
+  /**
+   * 七段叙事合成（readOnly LLM invocation；同 handoff 的 synthesize）。
+   * F20260909csfx：签名为 (otterId, prompt)——合成走完整 invoke 链路（session restore
+   * 需要真实 otterId），bootstrap 写死 "current" 会导致 No session or config found 必现降级。
+   * otterId 由钩子在调用时从 otterInvokeStorage 取（压缩必在 invoke 中途触发，store 必有值）。
+   */
+  synthesize: (otterId: string, prompt: string) => Promise<string>;
   /** 拿不到合成函数（如 registry 未注入 deps）时仅记录 */
   logger?: { info(msg: string, ctx?: unknown): void; warn(msg: string, ctx?: unknown): void };
 }
@@ -100,6 +105,19 @@ function extractText(msg: { role: string; content?: unknown }): string {
 }
 
 /**
+ * F20260909csfx：合成前置检查（拆出以控 handleSessionBeforeCompact 复杂度）。
+ * 无真实 otterId 无法走 invoke 合成链路——返回 null 由调用方放行
+ *（正常路径 store 必有 otterId；此分支仅防御 store 缺失的异常态）。
+ */
+function narrowOtterId(deps: CompactionHookDeps, otterId: string | null): string | null {
+  if (!otterId) {
+    deps.logger?.warn("[compaction-hook] otterId unavailable (invoke storage missing), falling back to Pi default", {});
+    return null;
+  }
+  return otterId;
+}
+
+/**
  * session_before_compact handler 本体（纯函数，可独立测试）。
  *
  * 返回 undefined = 放行 Pi 默认算法（overflow/manual 分流 + 合成失败/超时降级都走这里）。
@@ -108,18 +126,20 @@ export async function handleSessionBeforeCompact(
   event: { reason: "manual" | "threshold" | "overflow"; preparation: CompactionPreparationLike },
   deps: CompactionHookDeps | null,
   otterName: string,
+  otterId: string | null,
   timeoutMs: number = COMPACTION_SYNTHESIS_TIMEOUT_MS,
 ): Promise<{ compaction: { summary: string; firstKeptEntryId: string; tokensBefore: number } } | undefined> {
-  // 分流：threshold 才替换，overflow/manual 放行 Pi 默认
-  if (event.reason !== "threshold") return undefined;
-  if (!deps) return undefined;
+  // 分流：threshold 才替换（overflow/manual 放行 Pi 默认）；deps/otterId 缺失降级
+  if (event.reason !== "threshold" || !deps) return undefined;
+  const realOtterId = narrowOtterId(deps, otterId);
+  if (!realOtterId) return undefined;
 
   const { synthesize, logger } = deps;
   const prompt = buildCompactionSynthesisPrompt(event.preparation, otterName);
 
   try {
     const summary = await Promise.race([
-      synthesize(prompt),
+      synthesize(realOtterId, prompt),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("Compaction synthesis timeout")), timeoutMs),
       ),

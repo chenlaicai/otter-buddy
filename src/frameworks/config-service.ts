@@ -6,6 +6,10 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { parseDocument } from "yaml";
+// 双 YAML 库并存说明（#391 审视采纳）：js-yaml 仅用于读路径（loadConfig/validate），
+// 写路径 updateDefaultModelInYaml 用 yaml 包 parseDocument 保留注释——js-yaml 无此 API。
+// 两库对 config.yaml 解析结果逐字段一致（检视獭独立验证）；收敛到单库需另开 issue 评估，暂不动读路径。
 import * as yaml from "js-yaml";
 import type { Logger } from "@usecases/ports/logger";
 
@@ -26,7 +30,15 @@ export interface ModelConfig {
    *  显式声明后经 models-factory 覆盖 provider 模板默认值（消除隐式继承的静默变更风险）。
    *  SDK downgradeUnsupportedImages 按 Model.input 自动降级非 vision 模型的图片。 */
   input?: Array<"text" | "image">;
+  /** 每模型思考深度（F20260909mthl）：session 创建后经 setThinkingLevel 生效。
+   *  "off"（默认）= 关闭 thinking；档位映射按模型目录 thinkingLevelMap 决定（如 kimi k3 支持 low/high/max），
+   *  配置了映射为 null 的档位时 SDK 自动向上/向下 clamp 到最近可用档。 */
+  thinkingLevel?: ThinkingLevel;
 }
+
+/** SDK ThinkingLevel 枚举（pi-ai types.d.ts）——配置校验用 */
+const VALID_THINKING_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export type ThinkingLevel = typeof VALID_THINKING_LEVELS[number];
 
 /** 应用配置结构（与原 config.ts 同构） */
 export interface AppConfig {
@@ -78,6 +90,10 @@ export interface AppConfig {
      *  机制：bootstrap 启动时注入环境变量 PI_CACHE_RETENTION=long，
      *  pi-ai anthropic-messages 适配器读该 env 发 ttl 标记。 */
     cacheLongRetention?: boolean;
+    /** F20260908rlcp：Session 热池容量（per-otter 单对象 LRU 池） */
+    sessionPoolSize?: number;
+    /** F20260908rlcp：Session 热池空闲 TTL（分钟），超过此时间未活跃的条目被驱逐 */
+    sessionPoolIdleTtlMinutes?: number;
   };
   circuitBreaker: {
     maxConsecutiveIdentical: number;
@@ -159,13 +175,22 @@ export function updateDefaultModelInYaml(
     throw new Error(`模型别名 "${alias}" 不存在于 config.yaml models[] 中`);
   }
 
-  const raw = yaml.load(fs.readFileSync(configPath, "utf8")) as RawConfig;
-  if (!raw.llm) raw.llm = {};
+  // Why: parseDocument 而非 yaml.load+dump（#391）——config.yaml 有 52 行注释（约占 40%），
+  // dump 序列化会全部丢失，parseDocument 的 Document 模型保留源注释。
+  // lineWidth: 0 禁止长行折行、flowCollectionPadding: false 保持 flow 序列原格式（["a"] 不变 [ "a" ]），
+  // 对齐原 dump lineWidth: -1 的最小 diff 语义：round-trip 后与变更无关的行逐字节不变。
+  // 此处用 yaml 包（eemeli/yaml）的 parseDocument；js-yaml 仅 loadConfig 读路径继续使用，
+  // 避免扩大解析行为变化面。
+  const doc = parseDocument(fs.readFileSync(configPath, "utf8"));
+  if (doc.errors.length > 0) {
+    throw new Error(`config.yaml 解析失败: ${doc.errors[0]?.message ?? "unknown error"}`);
+  }
 
-  if (raw.llm.default === alias) return; // 无需更新
+  if (doc.getIn(["llm", "default"]) === alias) return; // 无需更新
 
-  raw.llm.default = alias;
-  const content = yaml.dump(raw, { lineWidth: -1, noRefs: true });
+  // setIn 在 llm 块缺失时自动创建中间节点，对齐原 `if (!raw.llm) raw.llm = {}` 语义
+  doc.setIn(["llm", "default"], alias);
+  const content = doc.toString({ lineWidth: 0, flowCollectionPadding: false });
 
   // Why: write-to-temp + rename —— rename 在同文件系统下是原子的，
   // 避免 truncate+write 模式下进程崩溃导致配置文件损坏
@@ -190,6 +215,10 @@ interface RawConfig {
     default?: string;
     /** LLM prompt 缓存长留存开关（F20260829cach，缺省 true） */
     cacheLongRetention?: boolean;
+    /** F20260908rlcp：Session 热池容量 */
+    sessionPoolSize?: number;
+    /** F20260908rlcp：Session 热池空闲 TTL（分钟） */
+    sessionPoolIdleTtlMinutes?: number;
     models?: Array<{
       alias?: string;
       provider?: string;
@@ -202,6 +231,7 @@ interface RawConfig {
       contextWindow?: number;
       maxTokens?: number;
       input?: Array<"text" | "image">;
+      thinkingLevel?: ThinkingLevel;
     }>;
   };
   memory?: {
@@ -303,6 +333,10 @@ function validateModels(raw: RawConfig): void {
     if (!m.model) throw new Error(`配置校验失败: llm.models["${m.alias}"].model 为必填字段`);
     if (!VALID_PROVIDERS.includes(m.provider)) {
       throw new Error(`配置校验失败: llm.models["${m.alias}"].provider 必须是 ${VALID_PROVIDERS.join(" / ")}，当前值: ${m.provider}`);
+    }
+    // F20260909mthl：thinkingLevel 枚举校验（档位→模型的实际映射交给 SDK thinkingLevelMap clamp，配置层只挡非法词）
+    if (m.thinkingLevel !== undefined && !VALID_THINKING_LEVELS.includes(m.thinkingLevel)) {
+      throw new Error(`配置校验失败: llm.models["${m.alias}"].thinkingLevel 必须是 ${VALID_THINKING_LEVELS.join(" / ")}，当前值: ${m.thinkingLevel}`);
     }
   }
 
@@ -509,9 +543,13 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelC
         contextWindow: m.contextWindow ?? undefined,
         maxTokens: m.maxTokens ?? undefined,
         input: m.input ?? undefined,
+        thinkingLevel: m.thinkingLevel ?? undefined,
       })),
       // F20260829cach: 缺省 true（实测 GLM anthropic 兼容端点接受 ttl 字段）
       cacheLongRetention: raw.llm.cacheLongRetention ?? true,
+      // F20260908rlcp: session 热池配置（容量默认 50，空闲 TTL 默认 30min）
+      sessionPoolSize: raw.llm.sessionPoolSize ?? 50,
+      sessionPoolIdleTtlMinutes: raw.llm.sessionPoolIdleTtlMinutes ?? 30,
     },
     circuitBreaker: buildCircuitBreakerConfig(raw),
     feishu: buildFeishuConfig(raw),

@@ -1,18 +1,21 @@
 /* eslint-disable max-lines -- 调度核心路径（触发/重试/healing 注入/指标/链看门狗）聚合于本文件，
    拆分需新建模块并移动多个私有方法，引入间接层而降低可读性；#516/#517 增加活跃看门狗与记账校验已尽量精简 */
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
-import type { DispatchAttemptRepo } from '@entities/conversation/dispatch-attempt';
-import type { SendMessage } from '@usecases/conversation/send-message';
+import type { SendEntry } from '@usecases/conversation/send-entry';
+import type { EntryRepository } from '@usecases/conversation/entry-repository';
+import type { MessageBroadcaster } from '@usecases/im/message-broadcaster';
 import type { AgentTurnPort } from '@usecases/ports/agent-turn-port';
 import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled-task-repository';
 import type { ManageScheduledTask } from '@usecases/scheduled-task/manage-scheduled-task';
 import type { ManageSession } from '@usecases/otter/manage-session';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
-import type { Message } from '@entities/conversation/message';
+import type { Entry } from '@entities/conversation/entry';
 import type { Logger } from '@usecases/ports/logger';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
 import type { SchedulerMetricsPort } from './scheduler-metrics-port';
 import type { DispatchChainEngine } from '@usecases/conversation/dispatch-chain-engine';
+import type { SignalRouter } from '@usecases/conversation/signal-router';
+import { DirectChainGatedError } from '@usecases/conversation/signal-router';
 import type { FunctionRegistry } from '@usecases/paper-trading/function-registry';
 import { DomainError, isSessionLockConflictError } from '@entities/errors';
 import { readFileSync } from 'node:fs';
@@ -24,6 +27,13 @@ const ONCE_RETRY_DELAY_MS = 65_000; // 65 秒（避开 claimTask 60s 窗口）
 
 /** #640: 轮询间隔（30 秒）。quartz/celery beat 模式：定时扫描 active 任务，比对墙钟，迟到即补触发 */
 const POLL_INTERVAL_MS = 30_000;
+/** #775 执行级看门狗轮询：任务触发后按此间隔探测「台账在途尝试 + 产出活性」。
+ *  #516 静默窗是「无产出才判死」的容忍窗；换轨后信号可能被闸门冻结（用户停机/限流熔断），
+ *  静默窗判死会误杀「被闸门保留、等待恢复」的信号——判活优先看台账（in_progress 即活），
+ *  闸门冻结由信号保留语义兜住（恢复后补扫点燃），不靠 scheduler 轮询硬等。 */
+const LEDGER_WATCH_POLL_MS = 15_000;
+/** #775 执行级看门狗硬上限：与链路径 MAX_CHAIN_TIMEOUT_MS 同值。 */
+const LEDGER_WATCH_HARD_LIMIT_MS = 24 * 60 * 60 * 1000;
 
 /** #642: 429/rate_limit 类错误的最大重试次数。超过此次数仍 429 → 判死（配额耗尽不会自愈，续期无意义） */
 const MAX_429_RETRIES = 3;
@@ -47,17 +57,25 @@ export interface CronParser {
 export interface SchedulerServiceOptions {
   taskRepo: ScheduledTaskRepository;
   convRepo: ConversationRepository;
-  sendMessage: SendMessage;
+  /** F20260913ctlv 收尾批2：scheduler 内部信号唯一落点 = entries（system entry）。
+   *  sendMessage（messages 表）退役；看门狗/记账校验同步改 entries */
+  sendEntry: SendEntry;
+  entryRepo: EntryRepository;
   agentInvokePort: AgentTurnPort;
   cronParser: CronParser;
   logger: Logger;
+  /** F20260913ctlv 收尾批2：system entry 广播（entry.system SSE，前端时间线实时可见） */
+  messageBroadcaster?: MessageBroadcaster;
   manageScheduledTask?: ManageScheduledTask;
   manageSession?: ManageSession;
   healingRepo?: HealingEventRepository;
   /** F20260902sgp2 S4b：派发台账（可选）——看门狗台账终态判活 */
-  dispatchAttemptRepo?: DispatchAttemptRepo;
+  /** #775 S4a 换轨：信号路由器（可选注入）。注入后定时任务触发 = 投信号 → 路由器点火
+   *  （过闸门+台账记账）；未注入回退直连链（回滚面，与 sgpv 降级基线同语义）。 */
+  signalRouter?: SignalRouter;
   metrics?: SchedulerMetricsPort;
-  /** Why: 链外 invoke 路径不消费 aggregatedTargets 导致 yield 传递目标丢失（#332）。
+  /** Why: 链外 invoke 路径不消费 yield 传递目标导致 yield 传递目标丢失（#332；
+   *  F20260904schf 起链引擎改读行级 tsp，不再消费 turn 级 aggregatedTargets）。
    *  注入后 invokeAgentWithTimeout 走 DispatchChainEngine.executeChain 续跑发言链。 */
   dispatchChainEngine?: DispatchChainEngine;
   /** 时钟注入（F20260814qswp）：替代对 @frameworks/metrics nowMs 的直接依赖，测试可替换。
@@ -76,13 +94,21 @@ export class SchedulerService {
   private nextExpectedTrigger = new Map<string, Date>();
   private readonly taskRepo: ScheduledTaskRepository;
   private readonly convRepo: ConversationRepository;
-  private readonly sendMessage: SendMessage;
+  /** F20260913ctlv 收尾批2：entries 唯一写入面（system entry）+ 读取面（看门狗/记账） */
+  private readonly sendEntry: SendEntry;
+  private readonly entryRepo: EntryRepository;
+  private readonly messageBroadcaster?: MessageBroadcaster;
   private readonly agentInvokePort: AgentTurnPort;
   private readonly cronParser: CronParser;
   private readonly logger: Logger;
   private readonly healingRepo?: HealingEventRepository;
   /** F20260902sgp2 S4b：派发台账——看门狗台账终态判活的数据源（可选，未注入回退消息判定） */
-  private readonly dispatchAttemptRepo?: DispatchAttemptRepo;
+  /** #775 S4a 换轨：信号路由器（可选）——注入后触发走投信号路径 */
+  private signalRouter?: SignalRouter;
+  /** #775 S4a：装配顺序注入点（路由器晚于 scheduler 诞生，构造期互指会循环依赖） */
+  attachSignalRouter(router: SignalRouter): void {
+    this.signalRouter = router;
+  }
   private readonly metrics?: SchedulerMetricsPort;
   private readonly dispatchChainEngine?: DispatchChainEngine;
   private readonly now: () => number;
@@ -92,12 +118,14 @@ export class SchedulerService {
   constructor(options: SchedulerServiceOptions) {
     this.taskRepo = options.taskRepo;
     this.convRepo = options.convRepo;
-    this.sendMessage = options.sendMessage;
+    this.sendEntry = options.sendEntry;
+    this.entryRepo = options.entryRepo;
+    this.messageBroadcaster = options.messageBroadcaster;
     this.agentInvokePort = options.agentInvokePort;
     this.cronParser = options.cronParser;
     this.logger = options.logger;
     this.healingRepo = options.healingRepo;
-    this.dispatchAttemptRepo = options.dispatchAttemptRepo;
+    this.signalRouter = options.signalRouter;
     this.metrics = options.metrics;
     this.dispatchChainEngine = options.dispatchChainEngine;
     this.now = options.now ?? (() => performance.now());
@@ -158,6 +186,16 @@ export class SchedulerService {
 
   /** 启动调度器 */
   async start(): Promise<void> {
+    // #775：启动对账——僵尸 running 执行翻篇（进程内无存活 running 跨越重启）。
+    // 对账失败不阻塞启动（仅日志）：脏行只影响面板展示，不影响调度正确性。
+    try {
+      const stale = await this.taskRepo.failAllRunningExecutions();
+      if (stale > 0) {
+        this.logger.warn(`启动对账：${stale} 条僵尸 running 执行记录已翻篇为 failed`, { stale });
+      }
+    } catch (err) {
+      this.logger.warn('启动对账失败（不阻塞启动）', { error: err instanceof Error ? err.message : String(err) });
+    }
     const tasks = await this.getAllActiveTasks();
     if (this.metrics) {
       const counts: Record<string, number> = { cron: 0, once: 0 };
@@ -201,6 +239,9 @@ export class SchedulerService {
         this.logger.error('Polling tick failed', error as Error);
       }
     }, POLL_INTERVAL_MS);
+    // #460：轮询 timer unref，不阻止进程自然退出（僵尸进程根因之二）。
+    // unref 只影响"进程能否自然退出"，不影响 tick 触发——主进程生命周期由 HTTP 监听持有。
+    this.pollTimer?.unref?.();
     // 立即执行一次 tick，捕获进程重启后的迟到任务（审视建议2: catch 防 unhandled rejection）
     void this.tick().catch(error => {
       this.logger.error('Initial polling tick failed', error as Error);
@@ -484,16 +525,16 @@ export class SchedulerService {
 
       executionStartMs = this.now();
       try {
-        const message = await this.createSystemMessage(task, effectiveBody);
-        // Why 传入 anchor 消息 id：链看门狗用它探测链活性（#516），记账校验用它圈定执行窗口（#517）
-        await this.invokeAgentWithTimeout(task, effectiveBody, message.id);
+        const anchor = await this.createSystemSignalEntry(task, effectiveBody);
+        // Why 传入锚点 entry id：链看门狗用它探测链活性（#516），记账校验用它圈定执行窗口（#517）
+        await this.invokeAgentWithTimeout(task, effectiveBody, anchor.id);
         // #517: invoke 正常 resolve 不代表 agent 成功——orchestrator 的 failTerminal/abortTerminal
-        // 将消息置 failed 后正常返回 TurnResult，链引擎 allSettled 消化 rejection，
+        // 将 invoke 置 failed 后正常返回 TurnResult，链引擎 allSettled 消化 rejection，
         // 锁超时/agent 异常无法经由 reject 传递到 scheduler 层。
-        // 以最终消息状态为唯一事实源：anchor 后出现 status='failed' 的 otter 消息 → 抛错走 failure 记账，
+        // 以最终 invoke 状态为唯一事实源：锚点后出现 failed 的 otter 产出 → 抛错走 failure 记账，
         // 不再盲目记 completed。
-        await this.assertNoFailedMessages(task.conversationId, message.id);
-        await this.completeExecution(executionId, task.conversationId, message.id);
+        await this.assertNoFailedInvokes(task.conversationId, anchor.id);
+        await this.completeExecution(executionId, task.conversationId, anchor.id);
         // #251: resetConsecutiveFailures 在 completeExecution 之后执行，
         // 如果抛 DB 错不应覆写已 completed 的 execution record。
         // 吞掉错误，记录 warning 而不 throw。
@@ -514,6 +555,14 @@ export class SchedulerService {
         // 从 failed 消息反推，两者 message 均含锁超时前缀）。
         // Why 仍 rethrow：调用方语义各异（once 重试/手动触发者感知），锁冲突不算触发成功。
         if (isSessionLockConflictError(error)) {
+          status = 'skipped';
+          await this.handleExecutionSkipped(executionId, error);
+          throw error;
+        }
+        // #775 S4a：调度闸门拦截（用户 halt / 限流熔断）——与锁冲突同类的「环境冲突
+        // 非任务失败」：execution 记 skipped、不 increment consecutiveFailures、不触发熔断；
+        // 信号已由路由器保留在台账，恢复窗口由补扫消化。Why 仍 rethrow：手动触发者需感知。
+        if (error instanceof DirectChainGatedError) {
           status = 'skipped';
           await this.handleExecutionSkipped(executionId, error);
           throw error;
@@ -586,19 +635,57 @@ export class SchedulerService {
     });
   }
 
-  private async createSystemMessage(task: ScheduledTask, body?: string) {
-    const { message } = await this.sendMessage.send({
+  /** F20260913ctlv 收尾批2：内部信号落 entries（system entry，yieldTargets 即目标）。
+   *  原 createSystemMessage 写 messages（senderType='system'）已退役。
+   *  广播 entry.system SSE（前端时间线居中系统条目实时可见；无 broadcaster 时静默降级）。
+   *  scheduled_tasks.sender_id 保留原值不动——它是「任务归谁」的业务字段，不是信号发出者。 */
+  private async createSystemSignalEntry(task: ScheduledTask, body?: string): Promise<{ id: string; body: string | null }> {
+    const effectiveBody = body ?? task.body;
+    const { entry } = await this.sendEntry.createSystemEntry({
       conversationId: task.conversationId,
-      senderType: 'system',
-      senderId: task.senderId,
-      body: body ?? task.body,
-      talkingStonePassedTo: task.talkingStonePassedTo,
+      turnId: "",
+      body: effectiveBody,
+      yieldTargets: task.talkingStonePassedTo,
+      senderName: `scheduler:${task.name}`,
     });
-    return message;
+    // 广播（best-effort，不阻塞触发链）
+    try {
+      this.messageBroadcaster?.broadcastEvent(task.conversationId, {
+        event: "entry.system",
+        data: { entryId: entry.id, content: entry.body, seq: entry.sequenceNum },
+      });
+    } catch { /* 广播失败不影响触发 */ }
+    return { id: entry.id, body: entry.body };
   }
 
   private async invokeAgentWithTimeout(task: ScheduledTask, body?: string, anchorMessageId?: string): Promise<void> {
-    // Why: 有 dispatchChainEngine 时走链引擎消费 aggregatedTargets 续跑发言链（#332），
+    // #775 S4a 换轨（最优先分支）：注入路由器时投信号 → 路由器点火。
+    // - 闸门生效：用户停机/限流熔断期间信号保留（skipped_halted/skipped_rate_limited），
+    //   等用户显式恢复/窗口过后补扫点燃——不再绕过闸门（09-03 ihlt 同形态盲区封死）。
+    // - 记账即销账：路由器点火即写 attempt（in_progress），与全系统唯一账本对齐；
+    //   判据清零后本条 system 消息（带 tsp）本身就在路由器 pending 判据内，投信号后
+    //   补扫也能兜底——双跑被幂等记账+阻尼挡住（F20260903damp）。
+    // - 看门狗：#516 静默窗判死会误杀「被闸门冻结等待恢复」的信号，改为执行级
+    //   台账判活轮询（in_progress 即活），闸门冻结期不判死（闸门拦截在直投处抛
+    //   DirectChainGatedError 记 skipped，不会进入等待循环）。
+    // 回滚面：摘除 platforms.ts 的 signalRouter 注入即回直连链（降级基线不变）。
+    if (this.signalRouter) {
+      if (anchorMessageId && task.talkingStonePassedTo.length > 0) {
+        // #775 S4a：直投通道（原点独占点火权）。Why 不用 routePendingSignals：
+        // ① 整会话扫描会把任务锚点外的历史 pending 也点爁（触发面失控）；
+        // ② 闸门拦截时静默保留信号会让本方法空转轮询到硬上限（执行假死一天）——
+        //    直投被闸门拒时抛 DirectChainGatedError，调用方记 skipped（非 failed），
+        //    信号保留在台账，恢复后由补扫/下次触发消化。
+        // 补扫兜底：若路由器点火前进程崩溃，锚点消息无账，重启补扫按台账判据点燃（双跑被幂等记账+阻尼挡住）。
+        await this.signalRouter.routeDirectSignal(task.conversationId, anchorMessageId, task.talkingStonePassedTo[0]);
+        await this.watchExecutionByLedger(task, anchorMessageId);
+        return;
+      }
+      // 防御：无锚点/无目标（不应发生——createSystemMessage 必有 id，tsp 创建时必填）回退直连链路径
+      this.logger.warn('scheduler 换轨路径缺少锚点或目标，回退直连链', { taskId: task.id, anchorMessageId: anchorMessageId ?? 'none' });
+    }
+    // Why: 有 dispatchChainEngine 时走链引擎续跑发言链（#332；F20260904schf 起
+    // 链引擎读行级 tsp，不再消费 turn 级 aggregatedTargets），
     // 否则降级为直接 invoke（兼容未注入的旧装配）。超时语义分路径：
     // - 链路径（#516）：静默容忍窗 + 硬上限。窗口内链无新消息才判死；有新消息即续期。
     //   任务级 timeoutMinutes 覆盖静默窗（默认 15 分钟），硬上限恒 24h。链 settle 即返回，
@@ -644,6 +731,49 @@ export class SchedulerService {
    *  - 无（含探测失败）→ 判死，抛 Agent invocation timeout
    *  总时长恒受 MAX_CHAIN_TIMEOUT_MS 硬上限约束，防真死循环占住调度器。
    *  Why 含探测失败判死：链消息流不可读（DB 故障等）时链产出无从验证，继续等待只会永远占位。 */
+  /** #775 S4a：执行级台账判活看门狗（换轨路径专用）。
+   *  与 watchChainWithActivity（静默窗判死）的本质区别：链路径握着 chainPromise 能等 settle；
+   *  换轨后点火是路由器 fire-and-forget，无法握 promise——判活只能靠消息终态：
+   *  - 锚点目标全部有终态消息 → 执行收工
+   *  - 仍有目标 streaming → 活着，续期
+   *  - 无产出 → 保守等下一轮，硬上限兜底 */
+  private async watchExecutionByLedger(task: ScheduledTask, anchorMessageId: string): Promise<void> {
+    const deadline = this.now() + LEDGER_WATCH_HARD_LIMIT_MS;
+    while (this.now() < deadline) {
+      await new Promise(r => setTimeout(r, LEDGER_WATCH_POLL_MS));
+      // F20260908rlcp：从 dispatch_attempts 台账改为消息终态判定
+      const settled = await this.isMessageSettled(task.conversationId, anchorMessageId);
+      if (settled) return;
+    }
+    throw new Error(`Agent invocation timeout (ledger watch exceeded hard limit ${LEDGER_WATCH_HARD_LIMIT_MS / 3_600_000}h)`);
+  }
+
+  /** F20260908rlcp：信号终态判定（F20260913ctlv 批2 切 entries）——锚点目标是否全部有终态产出。
+   *  新模型判据：锚点后每个目标獭的产出 = invoke_end entry（invokeId 关联）或 speak entry。
+   *  invoke 终态真相源在 invokes 表，这里用「锚点后有该目标任一产出 entry」近似——
+   *  精确终态由 watchExecutionByLedger 外层轮询兜底。 */
+  private async isMessageSettled(conversationId: string, anchorMessageId: string): Promise<boolean> {
+    try {
+      const anchor = await this.entryRepo.getEntryById(anchorMessageId);
+      if (!anchor) return true; // 信号不存在 = 无需等待
+      const targets = (anchor.yieldTargets ?? []).filter(t => t !== "user");
+      if (targets.length === 0) return true;
+
+      // 检查锚点后是否有新 entry（任何类型都算链活跃）
+      const after = await this.entryRepo.getEntriesAfter(anchorMessageId, targets.length + 1);
+      if (!Array.isArray(after) || after.length === 0) return false; // 无产出 = 等待
+
+      // 检查所有目标是否已有产出（speak entry = 该獭的发言产出锚）
+      for (const targetId of targets) {
+        const hasOutput = after.some(e => e.senderId === targetId);
+        if (!hasOutput) return false; // 某个目标还没有产出
+      }
+      return true;
+    } catch {
+      return false; // 查询失败 = 保守等待
+    }
+  }
+
   private async watchChainWithActivity(
     task: ScheduledTask,
     anchorMessageId: string | undefined,
@@ -744,10 +874,11 @@ export class SchedulerService {
    *  @returns true=锚点 attempt 全终态（收工→alive=false 语义由调用方取反——注意本方法返回
    *           「链活跃与否」：true=有 in_progress 活跃；false=全终态收工；undefined=回退） */
   private async isChainAliveByLedger(anchorMessageId: string | undefined): Promise<boolean | undefined> {
-    if (!anchorMessageId || !this.dispatchAttemptRepo) return undefined;
+    if (!anchorMessageId) return undefined;
     try {
-      const allSettled = await this.dispatchAttemptRepo.allAnchorAttemptsSettled(anchorMessageId);
-      return !allSettled;
+      // F20260913ctlv 批2：entries 存在性判定（锚点后有产出 entry 即活）
+      const after = await this.entryRepo.getEntriesAfter(anchorMessageId, 5);
+      return Array.isArray(after) && after.length > 0;
     } catch {
       return undefined;
     }
@@ -755,24 +886,25 @@ export class SchedulerService {
 
   private async isChainStillActive(anchorMessageId: string): Promise<boolean> {
     try {
-      const msgs = await this.convRepo.getMessagesAfter(anchorMessageId, 1);
-      return Array.isArray(msgs) && msgs.length > 0;
+      const entries = await this.entryRepo.getEntriesAfter(anchorMessageId, 1);
+      return Array.isArray(entries) && entries.length > 0;
     } catch {
       return false;
     }
   }
 
   /** #642: 检测链是否卡在 429 重试循环。
-   *  429/rate_limit 类错误的特征：错误消息包含429/status_code/配额/limit 等关键词。
-   *  链活跃但最近消息全是429重试 → 返回 true（应判死）；否则返回 false（真活跃）。
-   *  使用 DESC 查询取最新消息——ASC 只能检测链开头 429，中途撞 429 永远漏检。 */
+   *  429/rate_limit 类错误的特征：错误文本包含429/status_code/配额/limit 等关键词。
+   *  链活跃但最近产出全是 429 重试 → 返回 true（应判死）；否则返回 false（真活跃）。
+   *  F20260913ctlv 批2 切 entries：判据 = 锚点后最近 entries 的 body（speak/invoke_end
+   *  的错误文本均落在 body）；最近全部含 429 特征 → 卡死。 */
   private async isChainStuckOn429(anchorMessageId: string): Promise<boolean> {
     try {
-      // 获取锚点后的最近几条消息（DESC，最新在前）
-      const msgs = await this.convRepo.getLatestMessagesAfter(anchorMessageId, 3);
-      if (!Array.isArray(msgs) || msgs.length === 0) return false;
+      // 获取锚点后的最近几条 entry（DESC，最新在前）
+      const entries = await this.entryRepo.getEntriesAfter(anchorMessageId, 3);
+      if (!Array.isArray(entries) || entries.length === 0) return false;
 
-      // 检查最近消息是否包含 429/rate_limit 特征
+      // 检查最近 entry 是否包含 429/rate_limit 特征（body 为空的居中条目不算卡 429）
       const rateLimitPatterns = [
         /429/i,
         /rate.?limit/i,
@@ -781,9 +913,12 @@ export class SchedulerService {
         /too many requests/i,
       ];
 
-      // 最近消息全是 429 相关 → 卡在 429 循环
-      return msgs.every(msg => {
-        const content = msg.segments.map(s => s.body).join('');
+      const recent = entries.slice(-3);
+      // 全部为空 body（无产出纯居中条目）不判 429；含文本且全部命中 429 特征 → 卡死
+      const textual = recent.filter(e => (e.body ?? "").trim().length > 0);
+      if (textual.length === 0) return false;
+      return textual.every(e => {
+        const content = e.body ?? "";
         return rateLimitPatterns.some(pattern => pattern.test(content));
       });
     } catch {
@@ -796,33 +931,41 @@ export class SchedulerService {
     return (task.timeoutMinutes ?? 15) * 60 * 1000;
   }
 
-  /** #517: 执行窗口记账校验。anchor 消息之后存在 status='failed' 的 otter 消息时抛错，
-   *  将「agent 真失败但 execution 记 completed」的记账错位纠正为 failed。
-   *  Why 只看 otter 消息：failed 的发出者必为执行链上的獭；用户消息不存在 failed 生命周期。
-   *  Why 局限于锚点之后：同一会话旧轮次的 failed 消息（已熔断/已人工处理）不应牵连本次执行。 */
-  private async assertNoFailedMessages(conversationId: string, anchorMessageId: string): Promise<void> {
+  /** #517: 执行窗口记账校验（F20260913ctlv 批2 切 entries）。
+   *  锚点 entry 之后存在 failed 的 invoke（invoke_end entry 带 metadata.invokeStatus='failed'，
+   *  或链路写入的失败 system entry）时抛错，将「agent 真失败但 execution 记 completed」
+   *  的记账错位纠正为 failed。
+   *  Why 局限于锚点之后：同一会话旧轮次的 failed（已熔断/已人工处理）不应牵连本次执行。 */
+  private async assertNoFailedInvokes(conversationId: string, anchorMessageId: string): Promise<void> {
     // 防御：查询抛错/返回异常值不阻塞记账（校验失败视为通过，交给既有 failure 路径兜底）
-    let after: Message[] = [];
+    let after: Entry[] = [];
     try {
-      after = await this.fetchMessagesAfterPaged(anchorMessageId);
+      after = await this.fetchEntriesAfterPaged(anchorMessageId);
     } catch { /* best-effort */ }
-    const failed = after.find(m => m.senderType === 'otter' && m.status === 'failed');
+    const failed = after.find(e => {
+      // invoke 终态真相源：invoke_end 的 metadata.invokeStatus
+      if (e.entryType === "invoke_end" && e.metadata?.invokeStatus === "failed") return true;
+      // 链路写入的失败 system entry（错误文本落入 body）
+      if (e.entryType === "system" && (e.body ?? "").includes("失败")) return true;
+      return false;
+    });
     if (failed) {
-      const preview = failed.segments.map(s => s.body).join('').slice(0, 200);
-      throw new Error(`Agent invocation failed: otter message ${failed.id} terminated as failed${preview ? ` (${preview})` : ''}`);
+      const preview = (failed.body ?? "").slice(0, 200);
+      throw new Error(`Agent invocation failed: entry ${failed.id} indicates failure${preview ? ` (${preview})` : ""}`);
     }
   }
 
-  /** #517: 分页拉取锚点后全部消息。对抗审视发现 2（审砚）：单页 100 条上限
-   *  会漏检深层失败（消息量 >100 且 failed 在 100 条之后时误记 completed）。
-   *  getMessagesAfter 按 sequence_num 升序返回，以最后一条消息 id 为游标推进直到取空。 */
-  private async fetchMessagesAfterPaged(anchorMessageId: string): Promise<Message[]> {
-    const out: Message[] = [];
+  /** #517: 分页拉取锚点后全部 entries（F20260913ctlv 批2：messages → entries）。
+   *  对抗审视发现 2（审砚）：单页 100 条上限会漏检深层失败（entry 量 >100 且 failed
+   *  在 100 条之后时误记 completed）。getEntriesAfter 按 sequence_num 升序返回，
+   *  以最后一条 entry id 为游标推进直到取空。 */
+  private async fetchEntriesAfterPaged(anchorMessageId: string): Promise<Entry[]> {
+    const out: Entry[] = [];
     let cursorId = anchorMessageId;
     const pageSize = 100;
-    // 防御性硬上限 100 页（1 万条）：链受 24h 硬上限约束，单窗口消息量远低于此，超限属异常现场
+    // 防御性硬上限 100 页（1 万条）：链受 24h 硬上限约束，单窗口 entry 量远低于此，超限属异常现场
     for (let page = 0; page < 100; page++) {
-      const res = await this.convRepo.getMessagesAfter(cursorId, pageSize);
+      const res = await this.entryRepo.getEntriesAfter(cursorId, pageSize);
       if (!Array.isArray(res) || res.length === 0) break;
       out.push(...res);
       const next = res[res.length - 1].id;
@@ -882,9 +1025,7 @@ export class SchedulerService {
     }
   }
 
-  /** #516: 任务进入 error 状态的通知（系统消息 + healing event，均 best-effort）。
-   *  Why sendMessage.send 而非 sendSystem：sendSystem 不支持指定 conversationId 的 sender 参数组，
-   *  而 scheduler 的 createSystemMessage 一直走 sendMessage.send（senderType='system'），保持一致。 */
+  /** #516: 任务进入 error 状态的通知（F20260913ctlv 批2：system entry + healing event，均 best-effort） */
   private async notifyTaskErrored(taskId: string, failures: number, errorMessage: string): Promise<void> {
     const task = await this.taskRepo.getById(taskId).catch(() => null);
     if (!task) {
@@ -894,18 +1035,19 @@ export class SchedulerService {
     const now = new Date().toISOString();
     const body = `[定时任务错误] 「${task.name}」连续 ${failures} 次执行失败，已自动停跑（status=error）。最近错误：${errorMessage}。请检查任务配置或手动恢复（update status='active'）后重试。`;
 
-    // 1) 系统消息注入任务所属对话
+    // 1) 系统条目注入任务所属对话（F20260913ctlv 批2：entries 唯一落点；错误通知无目标，居中系统条目）
     try {
-      await this.sendMessage.send({
+      const { entry } = await this.sendEntry.createSystemEntry({
         conversationId: task.conversationId,
-        senderType: 'system',
-        senderId: task.senderId,
+        turnId: "",
         body,
-        // 系统消息豁免发言石校验，但接口要求必填——传空数组占位（createSystemMessage 同款语义）
-        talkingStonePassedTo: [],
+      });
+      this.messageBroadcaster?.broadcastEvent(task.conversationId, {
+        event: "entry.system",
+        data: { entryId: entry.id, content: entry.body, seq: entry.sequenceNum },
       });
     } catch (err) {
-      this.logger.warn('notifyTaskErrored: system message failed (non-fatal)', {
+      this.logger.warn('notifyTaskErrored: system entry failed (non-fatal)', {
         taskId,
         error: err instanceof Error ? err.message : String(err),
       });
@@ -994,7 +1136,16 @@ export const HEALING_FALLBACK_PROMPT = `## Self-Healing 定期分析任务
 1. 分析上述问题的根因，识别是否有重复/聚类模式
 2. 对于你有能力直接修复的（术语、记忆类），提出具体建议
 3. 对于需要修改 prompt 或代码的，生成清晰的修复描述
-4. 与搭档讨论，达成共识后记录决策`;
+4. 与搭档讨论，达成共识后记录决策
+
+## 工具使用感受反馈（F20260904tflp）
+
+error_type 为 \`tool_use_feedback\` 的事件是海獭主动报的工具痛点（description 以 \`[tool:工具名]\` 前缀标识）。处理规则：
+
+- 按 \`[tool:<name>]\` 前缀聚合
+- **独立判定**：不同 otter_id 的反馈视为独立；同一 otter 对同一工具的多条反馈取最新一条参与判定
+- 同工具 **≥2 条独立反馈** → 自动建 GitHub issue（标签 tool-feedback），body 引用事件证据（messageId/description），并在 resolutionNotes 引用 issue 编号后 resolve 对应事件
+- 单条/低质量反馈（如把任务失败归咎工具）→ 可 dismiss（resolutionNotes 写明驳回理由）或保留 open 等更多证据`;
 
 /** 读取模板文件，去掉 frontmatter。文件缺失时返回 null（调用方回退到内置文案）。 */
 function loadHealingTemplate(): string | null {

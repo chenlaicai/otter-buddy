@@ -3,7 +3,6 @@ import { Hono } from "hono";
 import { MessageController } from "@interface-adapters/http/controllers/message-controller";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
-import type { SendMessage } from "@usecases/conversation/send-message";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -51,7 +50,22 @@ function makeSendMessageUseCase() {
 }
 
 const queryOtterStub = { getById: async () => null } as unknown as QueryOtter;
-const queryMessageStub = { getMessageById: async () => null } as unknown as QueryMessage;
+// F20260904schf：行级出处语义下，链引擎从消息行读 yield 目标——stub 按 messageId 返回带 tsp 的行
+//（模拟生产事实：completeMessage 先落库 tsp）；「互传死循环」测试意图因此得以保留。
+const queryMessageStub = {
+  getMessageById: async (id: string) => {
+    // F20260904schf：行级出处语义下，链引擎从消息行读 yield 目标（生产事实：completeMessage 先落库 tsp）。
+    // 测试意图升级：旧版用「自指 yield」制造死循环（恰是 #792 要杀的病态，自指守卫下已一轮终止），
+    // 改为真互传乒乓 otter-x ↔ otter-y——合法信号流仍需 maxChainDepth 截断保护。
+    if (id === "m-otter-x") {
+      return { id, conversationId: "conv-1", turnId: "turn-1", senderId: "otter-x", senderType: "otter", status: "completed", segments: [], sequenceNum: 2, talkingStonePassedTo: ["otter-y"], contextTokens: null, contextTokensMax: null, source: "web", senderName: "Otter X", createdAt: "", completedAt: "" };
+    }
+    if (id === "m-otter-y") {
+      return { id, conversationId: "conv-1", turnId: "turn-1", senderId: "otter-y", senderType: "otter", status: "completed", segments: [], sequenceNum: 3, talkingStonePassedTo: ["otter-x"], contextTokens: null, contextTokensMax: null, source: "web", senderName: "Otter Y", createdAt: "", completedAt: "" };
+    }
+    return null;
+  },
+} as unknown as QueryMessage;
 
 function postMessage(app: Hono) {
   return app.request("/api/conversations/conv-1/messages", {
@@ -63,24 +77,30 @@ function postMessage(app: Hono) {
 
 describe("dispatchTurnLoop 深度上限", () => {
   it("触顶时停止派发、warn 日志、sendSystem 并推 system.message", async () => {
-    const { useCase, conversationRepo, systemBodies } = makeSendMessageUseCase();
+    const { conversationRepo, systemBodies } = makeSendMessageUseCase();
     const { logger, warns } = makeLogger();
     /** 发言石永远互传 → 死循环，必须由 maxChainDepth 截断 */
     let dispatchCount = 0;
     const agentInvoker = {
       invokeConversation: async ({ otterId }: { otterId: string }) => {
         dispatchCount++;
-        return { messageId: `m-${otterId}`, aggregatedTargets: ["otter-x"] };
+        const invokeId = `inv-${otterId}-${dispatchCount}`;
+        (agentInvoker as unknown as { _invokeRows: Map<string, unknown> })._invokeRows.set(invokeId, { id: invokeId, status: "completed", otterId, talkingStonePassedTo: ["otter-x"], endedAt: new Date().toISOString() });
+        return { invokeId, messageId: invokeId, aggregatedTargets: ["otter-x"] };
       },
     } as unknown as AgentInvoker;
 
+    // F20260913ctlv 彻底切换：hop 产出判定读 invoke 行（tsp = invoke 的交棒目标）
+    const invokeRows = new Map<string, { id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null }>();
     const dispatchChainEngine = new DispatchChainEngine({
       conversationRepo,
-      queryMessage: queryMessageStub,
       queryOtter: queryOtterStub,
       logger: logger as never,
       maxChainDepth: 2,
+      invokeRepo: { getInvokeById: async (id: string) => invokeRows.get(id) ?? null },
+      entryRepo: { getEntries: async () => [], getUnreadEntries: async () => [] },
     });
+    (agentInvoker as { _invokeRows?: unknown })._invokeRows = invokeRows;
 
     // 创建 mock broadcaster，捕获 broadcastEvent 调用
     const broadcastEventCalls: Array<{ event: string; data: Record<string, unknown> }> = [];
@@ -88,10 +108,21 @@ describe("dispatchTurnLoop 深度上限", () => {
       broadcastEvent: (_convId: string, event: { event: string; data: Record<string, unknown> }) => { broadcastEventCalls.push(event); },
       broadcast: async () => {},
       subscribe: () => () => {},
+      subscribeEvents: () => () => {},
     };
 
+    const sendEntryStub = {
+      sendUserEntry: async (input: { conversationId: string; senderId: string; body: string; talkingStonePassedTo?: string[] }) => ({
+        entry: { id: "user-entry-1", sequenceNum: 1, body: input.body, createdAt: "2026-07-16T00:00:00Z" },
+        talkingStonePassedTo: input.talkingStonePassedTo ?? [],
+        mentionFeedback: undefined,
+      }),
+      createSystemEntry: async (input: { body: string }) => {
+        systemBodies.push(input.body);
+        return { entry: { id: "sys-entry-1", sequenceNum: 99, body: input.body } };
+      },
+    };
     const ctrl = new MessageController(
-      useCase as unknown as SendMessage,
       queryMessageStub,
       { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) } as unknown as ManageReadState,
       agentInvoker,
@@ -99,11 +130,16 @@ describe("dispatchTurnLoop 深度上限", () => {
       queryOtterStub,
       dispatchChainEngine,
       mockBroadcaster as unknown as MessageBroadcaster,
+      undefined,
+      undefined,
+      undefined,
+      sendEntryStub as never,
     );
     const res = await postMessage(createApp(ctrl));
     const sseText = await res.text();
 
-    /** depth=2：只派发 2 跳，第 3 跳被截断 */
+    /** depth=2：只派发 2 跳（x→y→x），第 3 跳被截断。深度截断验证改为合法互传乒乓后，
+     *  行动权触顶时还持有 yield 方（x）的目标 */
     expect(dispatchCount).toBe(2);
     // DispatchChainEngine 和 MessageController 都会记录 warn 日志
     expect(warns.length).toBeGreaterThanOrEqual(1);
@@ -112,13 +148,13 @@ describe("dispatchTurnLoop 深度上限", () => {
     expect(depthWarn!.data).toMatchObject({ depth: 2, pendingTargets: ["otter-x"] });
     expect(systemBodies).toHaveLength(1);
     expect(systemBodies[0]).toContain("2 跳");
-    // system.message 现在通过 broadcastEvent 推送（不在 POST SSE 流中）
-    expect(broadcastEventCalls.some(e => e.event === "system.message")).toBe(true);
+    // F20260913ctlv 彻底切换：链深通知发 entry.system（messages system.message 已退役）
+    expect(broadcastEventCalls.some(e => e.event === "entry.system")).toBe(true);
     expect(sseText).toContain("stream.end");
   });
 
   it("发言石无目标时正常结束，不发系统消息", async () => {
-    const { useCase, conversationRepo, systemBodies } = makeSendMessageUseCase();
+    const { conversationRepo, systemBodies } = makeSendMessageUseCase();
     const { logger, warns } = makeLogger();
     let dispatchCount = 0;
     const agentInvoker = {
@@ -128,25 +164,43 @@ describe("dispatchTurnLoop 深度上限", () => {
       },
     } as unknown as AgentInvoker;
 
+    // F20260904schf：本测试场景 = 消息行无行级 yield → 链一轮终止。
+    // 不能与触顶测试共享带互传 tsp 的 stub（那会让本场景变 2 跳，测试失真）。
+    const noYieldMessageStub = { getMessageById: async () => null } as unknown as QueryMessage;
+    // F20260913ctlv 彻底切换：invoke 行无 tsp（无 yield）→ 链一轮终止
     const dispatchChainEngine = new DispatchChainEngine({
       conversationRepo,
-      queryMessage: queryMessageStub,
       queryOtter: queryOtterStub,
       logger: logger as never,
       maxChainDepth: 2,
+      invokeRepo: { getInvokeById: async () => ({ id: "inv-1", status: "completed", otterId: "otter-x", talkingStonePassedTo: [], endedAt: new Date().toISOString() }) },
+      entryRepo: { getEntries: async () => [], getUnreadEntries: async () => [] },
     });
 
+    const sendEntryStub2 = {
+      sendUserEntry: async (input: { conversationId: string; senderId: string; body: string; talkingStonePassedTo?: string[] }) => ({
+        entry: { id: "user-entry-2", sequenceNum: 1, body: input.body, createdAt: "2026-07-16T00:00:00Z" },
+        talkingStonePassedTo: input.talkingStonePassedTo ?? [],
+        mentionFeedback: undefined,
+      }),
+      createSystemEntry: async () => ({ entry: { id: "sys-entry-2", sequenceNum: 2 } }),
+    };
     const ctrl = new MessageController(
-      useCase as unknown as SendMessage,
-      queryMessageStub,
+      noYieldMessageStub,
       { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) } as unknown as ManageReadState,
       agentInvoker,
       logger as never,
       queryOtterStub,
       dispatchChainEngine,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sendEntryStub2 as never,
     );
     const res = await postMessage(createApp(ctrl));
     await res.text();
+    await new Promise(r => setTimeout(r, 50));
 
     expect(dispatchCount).toBe(1);
     expect(systemBodies).toHaveLength(0);
@@ -154,12 +208,9 @@ describe("dispatchTurnLoop 深度上限", () => {
   });
 
   it("派发上下文包含在场成员名册与具名历史", async () => {
-    const { useCase, conversationRepo } = makeSendMessageUseCase();
+    const { conversationRepo } = makeSendMessageUseCase();
     conversationRepo.getActiveParticipants = async () => [
       { otterId: "otter-x" },
-    ] as never;
-    conversationRepo.getUnreadMessages = async () => [
-      { senderType: "otter", senderId: "otter-x", senderName: "Test Otter", segments: [{ id: "seg-1", messageId: "msg-1", body: "万象更新", sequenceNum: 0, createdAt: "2026-07-16T00:00:00Z" }] },
     ] as never;
     const { logger } = makeLogger();
     const queryOtter = { getById: async () => ({ name: "小獭" }) } as unknown as QueryOtter;
@@ -172,25 +223,45 @@ describe("dispatchTurnLoop 深度上限", () => {
       },
     } as unknown as AgentInvoker;
 
+    // F20260913ctlv 彻底切换：未读注入读 entries（user/speak/system 条目）
     const dispatchChainEngine = new DispatchChainEngine({
       conversationRepo,
-      queryMessage: queryMessageStub,
       queryOtter,
       logger: logger as never,
       maxChainDepth: 2,
+      invokeRepo: { getInvokeById: async () => ({ id: "inv-1", status: "completed", otterId: "otter-x", talkingStonePassedTo: [], endedAt: new Date().toISOString() }) },
+      entryRepo: {
+        getEntries: async () => [],
+        getUnreadEntries: async () => [
+          { id: "e-1", entryType: "speak", senderType: "otter", senderId: "otter-x", senderName: "Test Otter", body: "万象更新", sequenceNum: 1, invokeId: null, yieldTargets: null },
+        ],
+      },
     });
 
+    const sendEntryStub3 = {
+      sendUserEntry: async (input: { conversationId: string; senderId: string; body: string; talkingStonePassedTo?: string[] }) => ({
+        entry: { id: "user-entry-3", sequenceNum: 1, body: input.body, createdAt: "2026-07-16T00:00:00Z" },
+        talkingStonePassedTo: input.talkingStonePassedTo ?? [],
+        mentionFeedback: undefined,
+      }),
+      createSystemEntry: async () => ({ entry: { id: "sys-entry-3", sequenceNum: 2 } }),
+    };
     const ctrl = new MessageController(
-      useCase as unknown as SendMessage,
       queryMessageStub,
       { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) } as unknown as ManageReadState,
       agentInvoker,
       logger as never,
       queryOtter,
       dispatchChainEngine,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sendEntryStub3 as never,
     );
     const res = await postMessage(createApp(ctrl));
     await res.text();
+    await new Promise(r => setTimeout(r, 50));
 
     expect(contexts).toHaveLength(1);
     /** 名册：name 映射在场（F20260803trrf: 去 otterId，speak 改用名字） */

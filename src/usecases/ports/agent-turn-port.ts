@@ -9,11 +9,13 @@
  */
 import type { SSEEvent } from "@contract/sse/events";
 
-/** Agent 发言轮结果 */
+/** Agent 发言轮结果（F20260913ctlv 彻底切换：invokeId 主体；messageId 为兼容别名=invokeId） */
 export interface AgentTurnResult {
+  invokeId: string;
   messageId: string;
   duration: number;
   tokenUsage?: { input: number; output: number };
+  /** @deprecated F20260904schf：turn 级并集，链引擎已改读行级 tsp（#792），新代码禁止消费 */
   aggregatedTargets?: string[];
 }
 

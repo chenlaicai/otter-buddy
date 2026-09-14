@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { LocalMessage } from './mappers'
-import { isInFlight, isTerminal, upsertMessage, insertBySeq, mergeMessages, findStaleInFlight, upsertTerminalMessage } from './message-stream'
+import { isInFlight, isTerminal, upsertMessage, insertBySeq, mergeMessages, findStaleInFlight, upsertTerminalMessage, insertCenteredByTs } from './message-stream'
 
 function msg(overrides: Partial<LocalMessage> = {}): LocalMessage {
   return {
@@ -189,5 +189,33 @@ describe('upsertTerminalMessage（F20260805abpp 第四轮检视 S4-1：终态事
     const next = upsertTerminalMessage([], msg({ id: 'x', status: 'completed', ts: '' }))
     expect(next).toHaveLength(1)
     expect(next[0].ts).not.toBe('')
+  })
+})
+
+/** F20260913ctlv：invoke 边界/yield 居中条目插入（无 seq，按 ts 时序） */
+describe('insertCenteredByTs', () => {
+  const base = [
+    msg({ id: 'm1', ts: '2026-09-10T06:00:00Z', seq: 1 }),
+    msg({ id: 'm2', ts: '2026-09-10T06:00:10Z', seq: 2 }),
+  ]
+  it('插到最后一条真实条目之后（ts 为空的 tmp 越过，与历史行为兼容）', () => {
+    const withTmp = [...base, msg({ id: 'tmp-1', ts: '', seq: undefined })]
+    const next = insertCenteredByTs(withTmp, msg({ id: 'b1', ts: '2026-09-10T06:00:20Z', entryType: 'invoke_start' }))
+    expect(next.map(m => m.id)).toEqual(['m1', 'm2', 'b1', 'tmp-1'])
+  })
+  it('F20260913ctlv 实测修复：有 ts 的乐观 tmp 参与比较——后到的 invoke_start 排在用户发言之后', () => {
+    const withTmp = [...base, msg({ id: 'tmp-1', ts: '2026-09-10T06:00:15Z', seq: undefined })]
+    const next = insertCenteredByTs(withTmp, msg({ id: 'b1', ts: '2026-09-10T06:00:20Z', entryType: 'invoke_start' }))
+    expect(next.map(m => m.id)).toEqual(['m1', 'm2', 'tmp-1', 'b1'])
+  })
+  it('同 id 幂等替换', () => {
+    const once = insertCenteredByTs(base, msg({ id: 'b1', ts: '2026-09-10T06:00:20Z' }))
+    const twice = insertCenteredByTs(once, msg({ id: 'b1', ts: '2026-09-10T06:00:20Z', content: 'v2' }))
+    expect(twice.filter(m => m.id === 'b1')).toHaveLength(1)
+    expect(twice.find(m => m.id === 'b1')?.content).toBe('v2')
+  })
+  it('早于全部条目时插头部', () => {
+    const next = insertCenteredByTs(base, msg({ id: 'b0', ts: '2026-09-10T05:59:00Z' }))
+    expect(next[0].id).toBe('b0')
   })
 })

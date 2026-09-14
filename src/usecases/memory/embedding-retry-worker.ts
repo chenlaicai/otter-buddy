@@ -49,6 +49,8 @@ export class EmbeddingRetryWorker {
         this.logger.error(`EmbeddingRetryWorker tick failed: ${e}`),
       );
     }, this.intervalMs);
+    // #460：30s 重试轮询 timer unref，不阻止进程自然退出（僵尸进程根因之二）
+    this.timer?.unref?.();
   }
 
   /**

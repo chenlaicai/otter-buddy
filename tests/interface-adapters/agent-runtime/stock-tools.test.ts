@@ -70,6 +70,30 @@ describe("stock_data tool", () => {
     expect(result.content[0].text).toContain("未知命令");
   });
 
+  it("#802：quote 收录进合法命令清单，需 code 且透传参数", async () => {
+    const tool = createStockDataTool(createMockCtx());
+    // 与「venv 探测优先级」用例同模式：首次 spawn = akshare 探测（exit 0），二次 = 真实调用
+    let spawnCalls = 0;
+    mockSpawn.mockImplementation(() => {
+      spawnCalls++;
+      if (spawnCalls === 1) return createMockProcess("", "", 0);
+      return createMockProcess(JSON.stringify({ price: 1330.0, name: "贵州茅台" }), "", 0);
+    });
+    const result = await tool.execute("id", { command: "quote", code: "600519" });
+    expect(result.isError ?? false).toBe(false);
+    expect(result.content[0].text).toContain("贵州茅台");
+    // 参数数组末尾应为 ["quote", "600519"]——命令与代码正确透传给 stock-cli.py
+    const callArgs = mockSpawn.mock.calls[mockSpawn.mock.calls.length - 1];
+    expect(callArgs?.[1]?.slice(-2)).toEqual(["quote", "600519"]);
+  });
+
+  it("#802：quote 未提供 code 时拒绝（需 code 命令集）", async () => {
+    const tool = createStockDataTool(createMockCtx());
+    const result = await tool.execute("id", { command: "quote" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("需要 code 参数");
+  });
+
   it("返回错误：需要 code 但未提供", async () => {
     const tool = createStockDataTool(createMockCtx());
     const result = await tool.execute("id", { command: "kline" });
@@ -139,7 +163,7 @@ describe("stock_data tool", () => {
     expect(spawnArgs[1]).not.toContain("600519");
   });
 
-  it("no_cache 参数透传", async () => {
+  it("no_cache 参数透传（顶层位置，子命令之前）", async () => {
     const tool = createStockDataTool(createMockCtx());
 
     let spawnCalls = 0;
@@ -151,8 +175,16 @@ describe("stock_data tool", () => {
 
     await tool.execute("id", { command: "selftest", no_cache: true });
 
+    // F20260904pptq：--no-cache 是 argparse 顶层参数，必须出现在子命令之前，
+    // 否则 CLI 报 unrecognized arguments（旧 bug：拼在子命令后导致 no_cache=true 必报错）
     const spawnArgs = mockSpawn.mock.calls[1];
-    expect(spawnArgs[1]).toContain("--no-cache");
+    const cliArgs = spawnArgs[1] as string[];
+    expect(cliArgs).toContain("--no-cache");
+    const selftestIdx = cliArgs.indexOf("selftest");
+    const noCacheIdx = cliArgs.indexOf("--no-cache");
+    expect(selftestIdx).toBeGreaterThan(-1);
+    expect(noCacheIdx).toBeGreaterThan(-1);
+    expect(noCacheIdx).toBeLessThan(selftestIdx);
   });
 
   it("spawn 失败返回错误", async () => {

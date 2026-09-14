@@ -4,6 +4,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
 import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import { handleError } from "../http-error";
+import { safeJsonBody } from "../parse-json-body";
 import type { SettingsDTO, UpdateSettingsRequestDTO } from "@contract/api/settings";
 
 /** Settings 系统信息（由 main.ts 注入，只读基线） */
@@ -48,7 +49,7 @@ export class SettingsController {
 
   async updateSettings(c: Context): Promise<Response> {
     try {
-      const body = await c.req.json<UpdateSettingsRequestDTO>();
+      const body = await safeJsonBody<UpdateSettingsRequestDTO>(c);
       if (body.defaultModelAlias) {
         if (!this.modelPool.hasModel(body.defaultModelAlias)) {
           return c.json({ error: `未知模型 alias: ${body.defaultModelAlias}` }, 400);

@@ -4,8 +4,9 @@ import remarkGfm from 'remark-gfm'
 import type { Element as HastElement } from 'hast'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { AlertTriangle, Square, Copy, Check, Clock, RotateCcw, FileText } from 'lucide-react'
-import type { LocalMessage as Message, LocalOtter as Otter, LocalMessageEvent, LocalAttachment } from '../../lib/mappers'
+import { AlertTriangle, Square, Copy, Check, Clock, RotateCcw, FileText, Zap, Moon, ArrowRight } from 'lucide-react'
+import type { LocalMessage as Message, LocalOtter as Otter, LocalAttachment } from '../../lib/mappers'
+import { deriveEntryType, centeredEntryText } from '../../lib/mappers'
 import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
 import { getUserAvatar } from '../../lib/otter-avatars'
 import { OtterAvatar } from '../../components/OtterAvatar'
@@ -15,11 +16,7 @@ import { parseCardTitle } from '../../lib/html-card'
 import { remarkHtmlCardIndex } from '../../lib/remark-html-card-index'
 import { HtmlCard } from './HtmlCard'
 import { SignalBadge } from './SignalBadge'
-import { SignalTrailChip } from './SignalTrailChip'
-import { isSignalMessage, type TrailItem } from '../../lib/signal-trail'
 import { resolveDisplayName } from './display-name'
-import { groupByActivity } from '../../lib/activity-group'
-
 
 /** 复制按钮 */
 function CopyButton({ text }: { text: string }) {
@@ -186,7 +183,6 @@ interface MessageListProps {
   /** 用户滚动到底部时调用，用于标记已读 */
   onReachBottom?: () => void
   /** 信号轨迹（F20260902u5tr）：服务端推导的投石信号投递状态（可选，未加载时不渲染轨迹） */
-  trailItems?: TrailItem[]
 }
 
 /** 判断是否在底部（阈值 100px） */
@@ -200,14 +196,20 @@ export function MessageList({
   loadingMore, onAtBottomChange,
   unreadSeparatorSeq, highlightMessageId,
   userName, onReachBottom,
-  trailItems,
 }: MessageListProps) {
   /** F20260814qswp：全部 hooks 前置于任何条件 return——旧实现 no-llm/loading/empty 分支
    *  的早退位于 hooks 声明之前，同一挂载实例上 state 切换会导致 hooks 数量变化而崩溃 */
   const scrollRef = useRef<HTMLDivElement>(null)
+  /** F20260907sgpt：内容包裹 div 的 ref——ResizeObserver 观测目标。
+   * 不可观测滚动容器本身：容器的 contentRect.height 是视口布局高度（flex-1 决定），
+   * 内容变化不触发回调（检视发现 1，mimo）；包裹 div 是普通 block，高度随内容真实变化 */
+  const contentRef = useRef<HTMLDivElement>(null)
   const prevMessagesLenRef = useRef(messages.length)
   /** 上翻加载历史时，记录需要恢复的滚动位置差值 */
   const pendingScrollRestoreRef = useRef<number | null>(null)
+  /** F20260907sgpt：上次采样的内容高度 / 视口高度（两个 observer 各自记各自的） */
+  const prevContentHeightRef = useRef(0)
+  const prevViewportHeightRef = useRef(0)
 
   /** 滚动到底部 */
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
@@ -244,6 +246,71 @@ export function MessageList({
       requestAnimationFrame(() => scrollToBottom())
     }
   }, [messages.length, scrollToBottom, isAtBottomRef])
+
+  /** F20260907sgpt：高度贴底补偿（双 ResizeObserver，检视发现 1 修正版）。
+   *
+   * 背景：自 virtuoso→原生滚动迁移（F20260818nscp）起 overflowAnchor:'none'，原生滚动
+   * 锚定关闭，且「messages.length effect」只对条数变化补偿——而信号轨迹 chip（trailItems
+   * 2s 轮询异步到达）、信号徽标（SSE 终态替换 tmp- 消息，条数不变）等都只在视口内增减
+   * 内容高度，条数不变 → 无补偿 → 用户在底部时视口周期性上跳（#790 只修了发言时刻未读
+   * 分隔线那一条路）。
+   *
+   * 修法：两个 observer 分工——
+   * - contentObserver 观测内容包裹 div（contentRef）：contentRect.height = 内容总高度，
+   *   chip 弹出/徽标出现/流式增长时真实变化。内容高度增大且在底部 → 贴底。
+   *   （不可观测滚动容器：容器 contentRect.height 是视口布局高度，内容变化不触发——
+   *   首版实现踩过的坑，jsdom 测试手动 fire 回调掩盖了这一点）
+   * - viewportObserver 观测滚动容器（scrollRef）：contentRect.height = 视口高度（flex-1
+   *   布局）。loadingMore 指示条/窗口缩小会压缩视口，底部内容被推出
+   *   视口下缘 → 视口减小且在底部 → 贴底拉回。
+   *
+   * 边界处理：
+   * - 内容高度减小（流式面板折叠等）：scrollHeight 缩短自然把视口推近底部，
+   *   isNearBottom 重判，无需补偿；视口增大（banner 消失/窗口拉大）同理不补
+   * - requestAnimationFrame 合帧：高频 resize（流式渲染）下每帧至多补偿一次
+   * - 上翻加载历史的 preserve-scroll（pendingScrollRestoreRef 路径）互斥：用户上翻中
+   *   isAtBottomRef=false，本机制不动作
+   * - 依赖 [conversationId]：滚动容器带 key={conversationId}，切会话时容器重建，
+   *   mount-only 会观测已卸载元素而失效——切会话时重挂 observer 并重置采样基线 */
+  useEffect(() => {
+    const content = contentRef.current
+    const viewport = scrollRef.current
+    if (typeof ResizeObserver === 'undefined' || (!content && !viewport)) return
+    prevContentHeightRef.current = 0
+    prevViewportHeightRef.current = 0
+    const rafPinToBottom = () => {
+      requestAnimationFrame(() => {
+        const sc = scrollRef.current
+        if (sc && isAtBottomRef.current) sc.scrollTop = sc.scrollHeight
+      })
+    }
+    const contentObserver = content ? new ResizeObserver(entries => {
+      const entry = entries[entries.length - 1]
+      const h = entry?.contentRect?.height ?? 0
+      if (h === prevContentHeightRef.current) return // 高度没变（width-only 等）
+      const grew = h > prevContentHeightRef.current
+      prevContentHeightRef.current = h
+      if (!grew) return // 内容缩短：scrollHeight 缩短自然贴底，不补
+      if (!isAtBottomRef.current) return // 用户不在底部：任何高度变化都不打扰
+      rafPinToBottom()
+    }) : null
+    const viewportObserver = viewport ? new ResizeObserver(entries => {
+      const entry = entries[entries.length - 1]
+      const h = entry?.contentRect?.height ?? 0
+      if (h === prevViewportHeightRef.current) return
+      const shrank = h < prevViewportHeightRef.current
+      prevViewportHeightRef.current = h
+      if (!shrank) return // 视口增大：底部内容更可见，不补
+      if (!isAtBottomRef.current) return
+      rafPinToBottom() // 视口被压缩（loadingMore 等）：底部内容被推出视口，拉回
+    }) : null
+    if (content && contentObserver) contentObserver.observe(content)
+    if (viewport && viewportObserver) viewportObserver.observe(viewport)
+    return () => { contentObserver?.disconnect(); viewportObserver?.disconnect() }
+    // Why: 依赖 conversationId——容器带 key 切会话时重建，需重挂 observer；
+    // 其余状态经 ref 读取，无需重订阅
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId])
 
   /** 滚动事件处理：检测是否在底部 + 触发加载更多 */
   const handleScroll = useCallback(() => {
@@ -286,21 +353,6 @@ export function MessageList({
     isAtBottomRef.current = true
     prevMessagesLenRef.current = 0
   }, [conversationId, isAtBottomRef])
-
-  /** F20260901uiag 检视处置（mimo 发现 1）：groupByActivity 缓存——分页 prepend/流式追加时
-   *  group 数组引用稳定，配合 React key 只挂载新增段，避免全列表重渲染。
-   *  位置在 hooks 区末尾：条件 return 之后调用会违反 hooks 规则（F20260814qswp 同款教训）。 */
-  const activityGroups = useMemo(() => groupByActivity(messages), [messages])
-  /** F20260902u5tr：信号轨迹按消息分组（messageId → TrailItem[]），消息原位渲染 */
-  const trailByMessage = useMemo(() => {
-    const map = new Map<string, TrailItem[]>()
-    for (const item of trailItems ?? []) {
-      const list = map.get(item.messageId) ?? []
-      list.push(item)
-      map.set(item.messageId, list)
-    }
-    return map
-  }, [trailItems])
 
   // —— 条件渲染分支（hooks 全部执行完毕后才能 return，见文件内 F20260814qswp 注释）——
   if (state === 'no-llm') {
@@ -353,23 +405,25 @@ export function MessageList({
         className="flex-1 overflow-y-auto"
         style={{ overflowAnchor: 'none' }}
       >
-        {/* F20260901sgpx §7：活动段分组（「一轮」派生视图）——替代按 turnId 的分隔线（P4 turn 退役后读路径不变） */}
-        {activityGroups.map(group => (
-          <ActivityGroupBlock key={group.id} group={group}>
-            {group.messages.map(m => (
-              <div key={m.id} data-message-id={m.id}>
-                {unreadSeparatorSeq != null && m.seq === unreadSeparatorSeq && (
-                  <div className="flex items-center gap-2 my-2 mx-auto" style={{ maxWidth: '72%' }}>
-                    <div className="flex-1 h-px bg-teal-400/40" />
-                    <span className="text-[10px] text-teal-500 font-medium px-2">未读消息</span>
-                    <div className="flex-1 h-px bg-teal-400/40" />
-                  </div>
-                )}
-                <MessageItem message={m} otters={otters} onStopStream={onStopStream} onRetryMessage={onRetryMessage} highlighted={highlightMessageId === m.id} userName={userName} trail={trailByMessage.get(m.id)} />
+        {/* F20260907sgpt 检视发现 1：内容包裹 div——ResizeObserver 观测目标。
+            不可直接观测滚动容器（其 contentRect.height 是视口布局高度，内容变化不触发）。
+            普通 block div 高度随内容真实变化；包一层对布局无影响（block 默认占满宽度） */}
+        <div ref={contentRef}>
+        {/* F20260913ctlv：活动段分组（「新一轮」分隔线）已退役——彻底切换后无轮次概念，
+            时间线就是 entries 按序流，invoke 边界由居中条目（⚡/🌙/→）表达 */}
+        {messages.map(m => (
+          <div key={m.id} data-message-id={m.id}>
+            {unreadSeparatorSeq != null && m.seq === unreadSeparatorSeq && (
+              <div className="flex items-center gap-2 my-2 mx-auto" style={{ maxWidth: '72%' }}>
+                <div className="flex-1 h-px bg-teal-400/40" />
+                <span className="text-[10px] text-teal-500 font-medium px-2">未读消息</span>
+                <div className="flex-1 h-px bg-teal-400/40" />
               </div>
-            ))}
-          </ActivityGroupBlock>
+            )}
+            <MessageItem message={m} otters={otters} onStopStream={onStopStream} onRetryMessage={onRetryMessage} highlighted={highlightMessageId === m.id} userName={userName} />
+          </div>
         ))}
+        </div>
       </div>
       {newMessagesCount > 0 && onJumpToBottom && (
         <button
@@ -450,33 +504,32 @@ function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: bo
   )
 }
 
-/**
- * F20260901sgpx §7：活动段分组容器——段头轻量（时间+段起点语义），替代原 turn 分隔线视觉。
- * 段首无额外边框（首段），后续段用上边距+细分割线区分，视觉密度与原 turn 分隔一致。
- */
-function ActivityGroupBlock({ group, children }: { group: ReturnType<typeof groupByActivity>[number]; children: ComponentProps<'div'>['children'] }) {
-  const idx = groupReasonLabel(group.reason)
-  return (
-    <div className={group.reason === 'conversation-start' ? '' : 'mt-4 pt-3 border-t border-stone-200/50'}>
-      <div className="flex items-center gap-2 mb-2 px-1">
-        <Clock size={11} className="text-stone-300 flex-shrink-0" />
-        <span className="text-[10px] msg-meta">{fmtTime(group.startedAt)}{idx ? ` · ${idx}` : ''}</span>
+function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlighted, userName }: { message: Message; otters: Otter[]; onStopStream: (messageId: string) => void; onRetryMessage: (messageId: string) => void; highlighted?: boolean; userName?: string }) {
+  // F20260913ctlv：invoke 边界/yield 居中条目（无气泡，图标+文字；与 system 同层但更轻量）
+  const entryKind = deriveEntryType(m)
+  if (entryKind === 'invoke_start' || entryKind === 'invoke_end' || entryKind === 'yield') {
+    const isYield = entryKind === 'yield'
+    // yield targets 历史路径是 otterId（mapEntryDTO 原样透出），渲染前映射显示名；
+    // 实时路径已由 index.tsx 映射，双重 map 幂等（名字不是 otterId 时原样返回）
+    const mappedTargets = m.yieldTargets?.map(t => otters.find(o => o.id === t)?.name || t)
+    const text = centeredEntryText(mappedTargets ? { ...m, yieldTargets: mappedTargets } : m)
+    return (
+      <div className="flex justify-center my-1.5 animate-slideIn">
+        <div className="glass-card px-3 py-1 rounded-full flex items-center gap-1.5 text-[11px] text-stone-500 max-w-[80%]">
+          {isYield ? (
+            <ArrowRight className="w-3 h-3 flex-shrink-0 text-otter-400" />
+          ) : entryKind === 'invoke_start' ? (
+            <Zap className="w-3 h-3 flex-shrink-0 text-otter-400" />
+          ) : (
+            <Moon className="w-3 h-3 flex-shrink-0 text-stone-400" />
+          )}
+          <span className="truncate" title={text}>{text}</span>
+          <span className="msg-meta text-[10px] flex-shrink-0">{fmtTime(m.ts)}</span>
+        </div>
       </div>
-      {children}
-    </div>
-  )
-}
-
-/** 段切分依据的 UI 短语（可解释性：为什么这里开新段） */
-function groupReasonLabel(reason: 'conversation-start' | 'user-message' | 'gap'): string {
-  switch (reason) {
-    case 'user-message': return '新一轮'
-    case 'gap': return '新一轮（间隔较久）'
-    default: return ''
+    )
   }
-}
 
-function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlighted, userName, trail }: { message: Message; otters: Otter[]; onStopStream: (messageId: string) => void; onRetryMessage: (messageId: string) => void; highlighted?: boolean; userName?: string; trail?: TrailItem[] }) {
   // System 消息：居中显示，特殊样式，支持 markdown 渲染
   if (m.st === 'system') {
     return (
@@ -499,8 +552,10 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
   const userDisplayName = userName?.trim() || '我'
   // F20260826fuid：user 消息优先用快照名（飞书群聊多人识别），无快照回退全局名（单聊不变）
   // F20260826fpbd：远程消息（飞书等）无快照时显示中性标签，不回退全局名——避免快照缺失时把访客冒充成搭档
+  // F20260913ctlv test17：web 来源不算「外部」——remoteFallbackName 只对明确的外部 IM 来源生效，
+  // web/空 source 回退全局名（「我」）
   const snapshotName = isUser ? (m.sn || '').trim() : ''
-  const remoteFallbackName = m.src === 'feishu' ? '飞书成员' : m.src ? '外部成员' : ''
+  const remoteFallbackName = m.src === 'feishu' ? '飞书成员' : ''
   const name = isUser ? (snapshotName || remoteFallbackName || userDisplayName) : resolveDisplayName(m, otters)
   const color = isUser ? null : getOtterColor(m.si)
   const nameColor = isUser ? 'text-stone-600' : color?.nameClass || 'text-otter-500'
@@ -552,11 +607,9 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
           } ${!isUser && inFlight ? 'bubble-live' : ''} ${highlighted ? 'highlight-message' : ''}`}
           style={sideBar}
         >
-          {!isUser && m.events && m.events.length > 0 && <StreamingProcess events={m.events} duration={m.dur || ''} status={m.status} />}
-          {/* F20260902u5tr: 信号轨迹（投石信号的投递状态，服务端推导，前端零推导） */}
-          {isSignalMessage(m) && trail && trail.length > 0 && (
-            <SignalTrailChip items={trail} otters={otters} />
-          )}
+          {/* F20260913ctlv 切换清扫：StreamingProcess 气泡内流式折叠区已退役——
+              流式过程不再嵌在消息气泡，统一在 Session 弹窗（点獭头像）展示。
+              后端已停发流式 SSE（1970b43b），历史 messages.events 不再渲染。 */}
           {/* F20260826mwrd C4: 獭间信号徽章（消息原位渲染，<signal> 块剥离后的视觉表达） */}
           {!isUser && m.signals && m.signals.length > 0 && (
             <div className="mb-1.5">
@@ -621,180 +674,17 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
             </div>
           )}
         </div>
+        {/* F20260913ctlv 收尾：user 气泡传递行在气泡外（下方一行小字）——气泡内只放说话内容。
+             yieldTargets = 发言石目标（实时路径 SSE entry.user 携带 / 历史路径 EntryDTO 透出，
+             otterId 在此映射显示名） */}
+        {isUser && m.yieldTargets && m.yieldTargets.length > 0 && (
+          <div className="mt-0.5 flex justify-end items-center gap-1 text-[10px] msg-meta pr-1">
+            <ArrowRight className="w-2.5 h-2.5 text-stone-300 flex-shrink-0" />
+            <span>{m.yieldTargets.map(t => otters.find(o => o.id === t)?.name || t).join('、')}</span>
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
-function StreamingProcess({ events, duration, status }: { events: LocalMessageEvent[]; duration: string; status?: Message['status'] }) {
-  const inFlight = status === 'streaming' || status === 'speaking'
-  /** 进行中的流式过程默认展开（实时可见），终态默认折叠 */
-  const [collapsed, setCollapsed] = useState(!inFlight)
-  /** Why: 只在 streaming→completed 的瞬间自动折叠，之后不干预用户展开操作。
-   *  PR#206 的旧实现（if !inFlight && !collapsed → setCollapsed(true)）会
-   *  无条件拦截用户的展开点击，导致终态后流式过程面板永远无法展开。 */
-  const prevInFlightRef = useRef(inFlight)
-  useEffect(() => {
-    if (prevInFlightRef.current && !inFlight) {
-      setCollapsed(true)
-    }
-    prevInFlightRef.current = inFlight
-  }, [inFlight])
-  /** 流式进行中：实时计时 */
-  const [elapsed, setElapsed] = useState<string | null>(null)
-  useEffect(() => {
-    if (!inFlight || events.length === 0) { setElapsed(null); return }
-    const startTs = new Date(events[0].ts).getTime()
-    const tick = () => setElapsed(`${((Date.now() - startTs) / 1000).toFixed(1)}s`)
-    tick()
-    const timer = setInterval(tick, 100)
-    return () => clearInterval(timer)
-  }, [inFlight, events])
-  const statusLabel = inFlight
-    ? `进行中 · ${elapsed || '...'}`
-    : status === 'failed'
-      ? '失败'
-      : status === 'aborted'
-        ? '已中断'
-        : `已完成${duration ? ` · ${duration}` : ''}`
-
-  return (
-    <div className={`streaming-section mb-2 rounded-xl overflow-hidden ${inFlight ? 'stream-shimmer' : ''}`} style={{ background: 'var(--surface-inset)', border: '1px solid var(--inset-border)' }}>
-      <div
-        className="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer hover:bg-white/30 transition"
-        onClick={() => setCollapsed(!collapsed)}
-      >
-        <span className={`streaming-icon text-[8px] text-stone-400 transition ${collapsed ? '' : 'rotate-180'}`}>▼</span>
-        <span className="text-[11px] text-stone-500 font-medium flex-1">流式过程 · {events.length} 个事件</span>
-        <span className="text-[10px] text-stone-400 flex items-center gap-1">
-          {inFlight && (
-            <span className="flex gap-0.5">
-              <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" />
-              <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" style={{ animationDelay: '0.15s' }} />
-              <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" style={{ animationDelay: '0.3s' }} />
-            </span>
-          )}
-          {statusLabel}
-        </span>
-      </div>
-      {!collapsed && (
-        <div className="streaming-body border-t border-otter-200/20 max-h-[var(--list-scroll-max-h)] overflow-y-auto">
-          {events.map((evt, i) => <EventItem key={i} event={evt} prevTs={i > 0 ? events[i - 1].ts : undefined} />)}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function EventItem({ event, prevTs }: { event: LocalMessageEvent; prevTs?: string }) {
-  const { eventType, payload } = event
-  const [expanded, setExpanded] = useState(false)
-  const elapsed = prevTs ? `+${((new Date(event.ts).getTime() - new Date(prevTs).getTime()) / 1000).toFixed(1)}s` : null
-
-  /** assistant_toolcall：展示 event_type + 工具名 + 参数 */
-  if (eventType === 'assistant_toolcall') {
-    const content = payload.content as Array<Record<string, unknown>> | undefined
-    const toolCall = content?.find(c => c.type === 'toolCall') as Record<string, unknown> | undefined
-    const toolName = (toolCall?.name as string) || ''
-    const params = toolCall?.arguments
-    const paramsStr = params ? JSON.stringify(params) : ''
-    const paramsPreview = paramsStr.length > 60 ? paramsStr.slice(0, 60) + '...' : paramsStr
-
-    return (
-      <div className="border-b border-stone-100 last:border-0">
-        <div
-          className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-white/40 transition"
-          onClick={() => setExpanded(!expanded)}
-        >
-          <span className={`text-[8px] text-stone-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
-          <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-amber-50 text-amber-700">{eventType}</span>
-          <span className="text-[11px] text-stone-600 truncate flex-1">{toolName} {paramsPreview}</span>
-          {elapsed && <span className="text-[10px] text-stone-400 flex-shrink-0">{elapsed}</span>}
-          <CopyButton text={paramsStr} />
-        </div>
-        {expanded && paramsStr && (
-          <div className="px-3 pb-2 pl-8">
-            <div className="text-[11px] text-stone-500 bg-stone-50 rounded-lg px-3 py-2 max-h-[var(--compact-scroll-max-h)] overflow-y-auto whitespace-pre-wrap break-all">
-              {paramsStr}
-            </div>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  /** tool_result：展示 event_type + 工具名 + 结果预览 */
-  if (eventType === 'tool_result') {
-    const name = payload.name as string
-    const result = payload.result as Record<string, unknown> | undefined
-    const resultContent = result?.content as Array<{ text?: string }> | undefined
-    const resultText = resultContent?.[0]?.text || (result ? JSON.stringify(result) : '')
-    const resultPreview = resultText.length > 80 ? resultText.slice(0, 80) + '...' : resultText
-
-    return (
-      <div className="border-b border-stone-100 last:border-0">
-        <div
-          className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-white/40 transition"
-          onClick={() => setExpanded(!expanded)}
-        >
-          <span className={`text-[8px] text-stone-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
-          <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-teal-100 text-teal-700">{eventType}</span>
-          <span className="text-[11px] text-stone-600 truncate flex-1">{name} {resultPreview}</span>
-          {elapsed && <span className="text-[10px] text-stone-400 flex-shrink-0">{elapsed}</span>}
-          <CopyButton text={resultText} />
-        </div>
-        {expanded && resultText && (
-          <div className="px-3 pb-2 pl-8">
-            <div className="text-[11px] text-stone-500 bg-stone-50 rounded-lg px-3 py-2 max-h-[var(--compact-scroll-max-h)] overflow-y-auto whitespace-pre-wrap break-all">
-              {resultText}
-            </div>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  /** assistant_text：展示 event_type + 文本预览 */
-  if (eventType === 'assistant_text') {
-    const content = payload.content as Array<Record<string, unknown>> | undefined
-    const text = content?.find(c => c.type === 'text')
-    const str = (text?.text as string) || ''
-    const preview = str.length > 100 ? str.slice(0, 100) + '...' : str
-
-    return (
-      <div className="border-b border-stone-100 last:border-0">
-        <div
-          className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-white/40 transition"
-          onClick={() => setExpanded(!expanded)}
-        >
-          <span className={`text-[8px] text-stone-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
-          <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-blue-50 text-blue-700">{eventType}</span>
-          <span className="text-[11px] text-stone-600 truncate flex-1">{preview}</span>
-          {elapsed && <span className="text-[10px] text-stone-400 flex-shrink-0">{elapsed}</span>}
-          <CopyButton text={str} />
-        </div>
-        {expanded && str && (
-          <div className="px-3 pb-2 pl-8">
-            <div className="text-[11px] text-stone-500 bg-stone-50 rounded-lg px-3 py-2 max-h-[var(--list-scroll-max-h)] overflow-y-auto prose prose-xs max-w-none">
-              <MarkdownContent variant="event-log">{str}</MarkdownContent>
-            </div>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  /** error */
-  if (eventType === 'error') {
-    return (
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-stone-100 last:border-0">
-        <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-red-50 text-red-700">{eventType}</span>
-        <span className="text-[11px] text-red-600">{payload.message as string}</span>
-        {elapsed && <span className="text-[10px] text-stone-400 flex-shrink-0">{elapsed}</span>}
-        <CopyButton text={payload.message as string} />
-      </div>
-    )
-  }
-
-  return null
-}

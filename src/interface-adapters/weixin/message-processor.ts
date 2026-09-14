@@ -1,6 +1,6 @@
 import type { ManageConnection } from "@usecases/im/manage-connection";
-import type { SendMessage } from "@usecases/conversation/send-message";
-import type { QueryMessage } from "@usecases/conversation/query-message";
+import type { SendEntry } from "@usecases/conversation/send-entry";
+import type { EntryRepository } from "@usecases/conversation/entry-repository";
 import type { WeixinGateway } from "@usecases/im/weixin-gateway";
 import type { WeixinMediaGateway, WeixinMediaGatewayItem } from "@usecases/im/weixin-media-gateway";
 import type { PartnerResolver } from "@usecases/im/partner-resolver";
@@ -10,7 +10,18 @@ import type { AttachmentInjectionService } from "@usecases/conversation/attachme
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { Logger } from "@usecases/ports/logger";
 import { Readable } from "node:stream";
-import { parseCommand, formatConversationList, formatMessageHistory, HELP_TEXT } from "@usecases/im/feishu-command-parser";
+import { parseCommand, formatConversationList, HELP_TEXT } from "@usecases/im/feishu-command-parser";
+
+/** F20260913ctlv 收尾批2：entries 版历史格式化（原 formatMessageHistory 消费 messages.segments） */
+function formatEntryHistory(entries: Array<{ senderType: string; body: string; createdAt: string }>): string {
+  if (entries.length === 0) return "暂无历史消息";
+  const lines = entries.map(e => {
+    const sender = e.senderType === "user" ? "用户" : "水獭";
+    const time = new Date(e.createdAt).toLocaleString("zh-CN");
+    return `[${time}] ${sender}: ${e.body || "(空消息)"}`;
+  });
+  return `最近消息:\n${lines.join("\n")}`;
+}
 
 /** 媒体项类型枚举镜像（协议固定值，port 层不引 frameworks） */
 const WeixinItemTypes = { TEXT: 1, IMAGE: 2, VOICE: 3, FILE: 4, VIDEO: 5 } as const;
@@ -42,8 +53,9 @@ export class WeixinMessageProcessor {
   constructor(
     private readonly deps: {
       manageConnection: ManageConnection;
-      sendMessage: SendMessage;
-      queryMessage: QueryMessage;
+      /** F20260913ctlv 收尾批2：微信消息唯一落点 = entries（messages 表停写，与飞书同构） */
+      sendEntry: SendEntry;
+      entryRepo: EntryRepository;
       weixinGateway: WeixinGateway;
       partnerResolver?: PartnerResolver;
       agentDispatchService: AgentDispatchService;
@@ -95,27 +107,27 @@ export class WeixinMessageProcessor {
     if (outcome.degradeNote) bodyText = bodyText ? `${bodyText}\n${outcome.degradeNote}` : outcome.degradeNote;
     if (outcome.attachmentIds.length === 0 && !bodyText.trim()) bodyText = "[媒体消息处理失败]";
 
-    const { message } = await this.deps.sendMessage.send({
+    // F20260913ctlv 收尾批2：微信 user 消息唯一落点 = entries（与飞书同构——
+    // sendUserEntry 落库 + 目标解析；messages 表停写 UI 消息）
+    const { entry: userEntry, talkingStonePassedTo } = await this.deps.sendEntry.sendUserEntry({
       conversationId: conversation.id,
       senderId: fromUserId,
-      senderType: "user",
-      talkingStonePassedTo: [],
       body: bodyText,
       source: "weixin",
       ...(outcome.attachmentIds.length > 0 ? { attachmentIds: outcome.attachmentIds } : {}),
     });
 
-    // 广播到 Web 端（实时同步；微信侧发送者自己可见，无需回投）
-    this.deps.messageBroadcaster.broadcast(message).catch((err) => {
-      this.deps.logger.error("Failed to broadcast weixin message", err instanceof Error ? err : undefined, {
-        conversationId: conversation.id,
-        messageId: message.id,
-      });
+    // 广播到 Web 端（实时同步；entry.user 事件，前端单通道消费）
+    // senderName/attachments（终审修复）：微信侧同飞书——身份链 + 附件实时投影
+    this.deps.messageBroadcaster.broadcastEvent(conversation.id, {
+      event: "entry.user",
+      data: this.buildUserEntryPayload(userEntry, fromUserId, bodyText, talkingStonePassedTo, "weixin"),
     });
 
     // Agent 派发用原始 body（不含降级提示——运维文本不进 agent 上下文，检视建议 1；
     // 飞书同位置存在同样问题，独立 issue 跟踪）
-    await this.dispatchAgent(conversation.id, body.trim(), fromUserId, outcome.injection);
+    // F20260913ctlv：直连链点火（entries 目标显式传）——与飞书同构
+    await this.dispatchAgent(conversation.id, body.trim(), fromUserId, { messageId: userEntry.id, resolvedTargets: talkingStonePassedTo, injection: outcome.injection });
     return true;
   }
 
@@ -163,8 +175,21 @@ export class WeixinMessageProcessor {
         if (!conversation) {
           return "当前未进入任何对话，请先使用 /in <对话ID> 进入对话";
         }
-        const messages = await this.deps.queryMessage.getMessages(conversation.id, { limit: 20 });
-        return formatMessageHistory(messages);
+        // F20260913ctlv 收尾批2：/history 切 entries（时间线唯一真相源；取对话类条目）
+        const [speaks, users] = await Promise.all([
+          this.deps.entryRepo.getEntries(conversation.id, { entryType: "speak", limit: 20 }),
+          this.deps.entryRepo.getEntries(conversation.id, { entryType: "user", limit: 20 }),
+        ]);
+        const recent = [...speaks, ...users]
+          .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+          .slice(0, 20)
+          .map(e => ({
+            senderType: e.entryType === "user" ? "user" : "otter",
+            body: e.body ?? "",
+            createdAt: e.createdAt,
+          }))
+          .reverse();
+        return formatEntryHistory(recent);
       }
       case "help":
         return HELP_TEXT;
@@ -173,8 +198,21 @@ export class WeixinMessageProcessor {
     }
   }
 
-  private async dispatchAgent(conversationId: string, bodyText: string, senderId: string, injection?: WeixinMediaOutcome["injection"]): Promise<void> {
-    const result = await this.deps.agentDispatchService.dispatch(conversationId, bodyText, senderId, injection);
+  /** F20260913ctlv 收尾批2：触发锚（entry id + entries 目标解析结果，直连链点火） */
+  private async dispatchAgent(
+    conversationId: string,
+    bodyText: string,
+    senderId: string,
+    anchor: { messageId: string; resolvedTargets?: string[]; injection?: WeixinMediaOutcome["injection"] },
+  ): Promise<void> {
+    const result = await this.deps.agentDispatchService.dispatch({
+      conversationId,
+      userMessageContent: bodyText,
+      senderId,
+      ...(anchor.injection && { injection: anchor.injection }),
+      messageId: anchor.messageId,
+      ...(anchor.resolvedTargets && { resolvedTargets: anchor.resolvedTargets }),
+    });
     if (result.error) {
       this.deps.logger.error("Weixin agent dispatch failed", undefined, { conversationId, error: result.error });
     }
@@ -248,5 +286,21 @@ export class WeixinMessageProcessor {
   private joinNotes(notes: string[], extra: string | null): string | null {
     const all = extra ? [...notes, extra] : notes;
     return all.length > 0 ? all.join("\n") : null;
+  }
+
+  /** F20260913ctlv 终审修复：entry.user 载荷组装（身份链 + 附件投影；飞书/微信同构） */
+  private buildUserEntryPayload(
+    entry: { id: string; sequenceNum: number; createdAt: string; senderName: string; attachments?: Array<{ id: string }> | null },
+    senderId: string,
+    body: string,
+    yieldTargets: string[],
+    source: "weixin",
+  ): Record<string, unknown> {
+    return {
+      entryId: entry.id, sequenceNum: entry.sequenceNum, senderId, body, createdAt: entry.createdAt,
+      yieldTargets, source,
+      ...(entry.senderName ? { senderName: entry.senderName } : {}),
+      ...(entry.attachments && entry.attachments.length > 0 && { attachments: entry.attachments }),
+    };
   }
 }

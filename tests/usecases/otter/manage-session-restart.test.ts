@@ -11,6 +11,7 @@ import type { ConversationQueryGateway, MemoryLayerGateway } from "@usecases/ott
 import type { AgentGateway } from "@usecases/otter/agent-gateway";
 import { buildNewSession } from "@entities/otter/otter-session";
 import { createTestLogger } from "../../helpers/logger";
+import { createTestDb } from "../../helpers/db";
 
 function fakeAgentGateway() {
   const calls: Array<{ method: string; otterId: string }> = [];
@@ -124,6 +125,7 @@ describe("ManageSession.restartSession（F20260810rstart）", () => {
         archiveReason: null,
         isNegativeCase: false,
         summary: null,
+        modelAlias: null,
       });
     });
 
@@ -193,5 +195,96 @@ describe("ManageSession - 二轮审视#4 archive 路径脱敏", () => {
     expect(String(archived[0].params.summary)).not.toContain("a1b2c3d4e5f6");
     expect(String(archived[0].params.summary)).toContain("[REDACTED]");
     expect(String(result.summary)).toContain("[REDACTED]");
+  });
+});
+
+describe("ManageSession.restartSession modelAlias（F20260908efmd）", () => {
+  let db: Database.Database;
+  let repo: SqliteOtterRepository;
+  let gateway: ReturnType<typeof fakeAgentGateway>;
+  const OTTER_ID = "test-otter";
+
+  beforeEach(() => {
+    db = createTestDb();
+    repo = new SqliteOtterRepository(db);
+    gateway = fakeAgentGateway();
+
+    db.prepare(`INSERT INTO otters (id, name, type, status, created_at) VALUES (?, '测试獭', 'big', 'active', datetime('now'))`).run(OTTER_ID);
+    const firstSession = buildNewSession(OTTER_ID, null, null);
+    repo.createSession(firstSession);
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("restartSession 带 modelAlias → config 写回 + 新世 session 快照含 modelAlias", async () => {
+    db.prepare(`INSERT INTO otter_configs (otter_id, otter_type, updated_at) VALUES (?, 'big', datetime('now'))`).run(OTTER_ID);
+    const otterConfigProvider = {
+      getConfig: (id: string) => {
+        const row = db.prepare("SELECT otter_type, model_alias FROM otter_configs WHERE otter_id = ?").get(id) as { otter_type: string; model_alias: string | null } | undefined;
+        if (!row) return null;
+        return { otterType: row.otter_type, modelAlias: row.model_alias ?? undefined };
+      },
+      getConfigs: () => new Map(),
+      setConfig: (id: string, config: { otterType: string; modelAlias?: string }) => {
+        db.prepare(`INSERT INTO otter_configs (otter_id, otter_type, model_alias, updated_at) VALUES (?, ?, ?, datetime('now')) ON CONFLICT(otter_id) DO UPDATE SET model_alias = excluded.model_alias, updated_at = excluded.updated_at`).run(id, config.otterType, config.modelAlias ?? null);
+      },
+      deleteConfig: () => {},
+      hasConfig: () => false,
+    };
+
+    const sessionWithModel = new ManageSession(
+      repo, gateway,
+      { getIdsByOtterId: async () => [] } as any,
+      { updateLayer: async () => {} } as any,
+      createTestLogger(),
+      otterConfigProvider as any,
+      { getDefaultAlias: () => "default-model" } as any,
+    );
+
+    const result = await sessionWithModel.restartSession(OTTER_ID, "切换模型", "kimi");
+
+    // config 写回
+    const row = db.prepare("SELECT model_alias FROM otter_configs WHERE otter_id = ?").get(OTTER_ID) as { model_alias: string };
+    expect(row.model_alias).toBe("kimi");
+    // 新世 session 快照含 modelAlias
+    expect(result.modelAlias).toBe("kimi");
+  });
+
+  it("顺序守护：archive 失败时 config 不被改写", async () => {
+    db.prepare(`INSERT INTO otter_configs (otter_id, otter_type, model_alias, updated_at) VALUES (?, 'big', 'old-model', datetime('now'))`).run(OTTER_ID);
+
+    const otterConfigProvider = {
+      getConfig: (id: string) => {
+        const row = db.prepare("SELECT otter_type, model_alias FROM otter_configs WHERE otter_id = ?").get(id) as { otter_type: string; model_alias: string | null } | undefined;
+        if (!row) return null;
+        return { otterType: row.otter_type, modelAlias: row.model_alias ?? undefined };
+      },
+      getConfigs: () => new Map(),
+      setConfig: (id: string, config: { otterType: string; modelAlias?: string }) => {
+        db.prepare(`INSERT INTO otter_configs (otter_id, otter_type, model_alias, updated_at) VALUES (?, ?, ?, datetime('now')) ON CONFLICT(otter_id) DO UPDATE SET model_alias = excluded.model_alias, updated_at = excluded.updated_at`).run(id, config.otterType, config.modelAlias ?? null);
+      },
+      deleteConfig: () => {},
+      hasConfig: () => false,
+    };
+
+    // 模拟 archive 失败（active session 的 sessionId 在 DB 不存在）
+    gateway.reset = vi.fn(async () => { throw new Error("session not found"); });
+
+    const brokenSession = new ManageSession(
+      repo, gateway,
+      { getIdsByOtterId: async () => [] } as any,
+      { updateLayer: async () => {} } as any,
+      createTestLogger(),
+      otterConfigProvider as any,
+      { getDefaultAlias: () => "default-model" } as any,
+    );
+
+    await expect(brokenSession.restartSession(OTTER_ID, "", "new-model")).rejects.toThrow();
+
+    // config 不应被改写（archive 失败 → config 写回路径不执行）
+    const row = db.prepare("SELECT model_alias FROM otter_configs WHERE otter_id = ?").get(OTTER_ID) as { model_alias: string };
+    expect(row.model_alias).toBe("old-model");
   });
 });

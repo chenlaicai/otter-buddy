@@ -31,6 +31,8 @@ export interface SessionRow {
   is_negative_case: number;
   summary: string | null;
   previous_session_id: string | null;
+  /** F20260908efmd: 该世生效的模型 alias */
+  model_alias: string | null;
 }
 
 export function rowToOtter(row: OtterRow): Otter {
@@ -67,5 +69,6 @@ export function rowToSession(row: SessionRow): OtterSession {
     archiveReason: row.archive_reason,
     isNegativeCase: row.is_negative_case === 1,
     summary: row.summary,
+    modelAlias: row.model_alias,
   };
 }

@@ -12,7 +12,7 @@ import { tokenizeWithJieba } from "@frameworks/db/jieba-tokenizer";
 import { FID_ANCHOR_REGEX } from "@entities/document/fid-format";
 
 /** 数据库迁移：添加 session_file 字段和 otter_configs 表 */
-// eslint-disable-next-line max-statements -- 补丁集合，语句数由历史补丁数决定
+// eslint-disable-next-line max-statements, max-lines-per-function -- 补丁集合，语句数和行数由历史补丁数决定（#848: +otter_sessions.model_alias）
 export function migrateDatabase(db: Database.Database, logger: Logger): void {
   ensureAgentSessionFileColumn(db, logger);
   ensureMessagesSourceAndSenderNameColumns(db, logger);
@@ -38,6 +38,14 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   if (!hasModelAlias) {
     db.prepare("ALTER TABLE otter_configs ADD COLUMN model_alias TEXT").run();
     logger.info('Added model_alias column to otter_configs table');
+  }
+
+  // F20260908efmd: otter_sessions 加 model_alias 列（该世生效的模型 alias 快照）
+  const otterSessionColumns = db.prepare("PRAGMA table_info(otter_sessions)").all() as Array<{ name: string }>;
+  const hasSessionModelAlias = otterSessionColumns.some(col => col.name === 'model_alias');
+  if (!hasSessionModelAlias) {
+    db.prepare("ALTER TABLE otter_sessions ADD COLUMN model_alias TEXT").run();
+    logger.info('Added model_alias column to otter_sessions table');
   }
 
   // 检查 last_read_turn_number 字段是否存在
@@ -120,6 +128,89 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** #654：scheduled_task_executions 表 CHECK 约束扩展 skipped 枚举值（存量库重建）。
    *  schema.ts 新库已含；老库 CHECK (running/completed/failed) 无 skipped，需四步重建。 */
   rebuildExecutionsStatusCheck(db, logger);
+
+  /** F20260908rlcp：dispatch_attempts 存量表 drop（退役时已从 schema.ts 删除，此处清理旧库残留）。
+   *  执行条件：表存在即 drop（表已在 F20260908rlcp 退役，无业务方消费）。
+   *  注：归档导出由 PR 描述的 data/archive/ 流程负责，此处只做 schema 清理。 */
+  dropDispatchAttemptsTable(db, logger);
+
+  /** 幽灵 sender 回填：sender_type 与 sender_id 语义错位的存量数据修复（2026-09-04 排查）。 */
+  backfillGhostSenders(db, logger);
+
+  /** F202609048840 F4：restart_pending_resumes.status CHECK 扩展 failed 枚举值（存量库重建）。
+   *  Why：恢复链 invoke 失败需标 failed（可手动重试）而非 exhausted（永久放弃）——done 语义拆分。
+   *  老库 CHECK (pending/done/exhausted) 写 failed 会被 SQLite 拒绝，四步重建（#608/#654/#804 同模式）。 */
+  rebuildRestartPendingResumesStatusCheck(db, logger);
+
+  /** F20260913ctlv 收尾批4b：messages → entries 幂等回填迁移（先迁后 drop——4c）。 */
+  migrateMessagesToEntries(db, logger);
+
+  /** F20260913ctlv 收尾批4c：messages 族六张表 drop（迁移完成 + 对账通过才执行）。
+   *  保险丝：逐对话对账 entries ≥ 原 messages 数（yield 合成行只增不减），
+   *  任一对话对不上即中止 drop 并 warn（备份可回放，服务继续跑——只留死数据不炸）。 */
+  dropLegacyMessagesTables(db, logger);
+}
+
+/** 幽灵 sender 回填（2026-09-04 排查）：修复两类发言者身份错位。
+ *  症状 A：sender_type='otter' AND sender_id='user'——重试新消息/服务重启恢复链路误传
+ *         触发者身份为发言者（49 条，最早 2026-08-19）。
+ *  症状 B：sender_type='system' AND sender_id != 'system'——scheduler 定时任务
+ *         透传 task.senderId（大獭 UUID）落库（700+ 条），查询按 sender_id='system' 全漏。
+ *  回填策略：
+ *  - 症状 A：同 conversation 内 sequence 更小的最近一条正常獭消息的 sender——重试场景中
+ *    被恢复/被重试的发言者就是幽灵消息的真正作者；找不到同会话猿消息则跳过不误伤。
+ *    sender_name 同步回填该兽名。
+ *  - 症状 B：sender_id 归一 'system'（与修复后的 createSystemMessage 一致）。
+ *  幂等：症状命中才 UPDATE；重跑无命中即无写入。 */
+function backfillGhostSenders(db: Database.Database, logger: Logger): void {
+  if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
+    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    return;
+  }
+
+  // 症状 B：system + 非 'system' UUID → 'system'（scheduler 修正前的存量）
+  const sysResult = db.prepare(
+    "UPDATE messages SET sender_id = 'system' WHERE sender_type = 'system' AND sender_id != 'system'",
+  ).run();
+  if (sysResult.changes > 0) {
+    logger.info(`Backfilled ${sysResult.changes} system messages with ghost otter sender_id`, {});
+  }
+
+  // 症状 A：otter + 'user' → 同会话最近一条正常獭消息的 sender
+  const ghostRows = db.prepare(
+    "SELECT id, conversation_id, sequence_num FROM messages WHERE sender_type = 'otter' AND sender_id = 'user' ORDER BY created_at",
+  ).all() as Array<{ id: string; conversation_id: string; sequence_num: number }>;
+  if (ghostRows.length === 0) return;
+
+  let fixed = 0, skipped = 0;
+  const fixOne = db.prepare(
+    "UPDATE messages SET sender_id = ?, sender_name = ? WHERE id = ?",
+  );
+  const findNeighbor = db.prepare(`
+    SELECT m.sender_id, o.name AS sender_name
+    FROM messages m
+    JOIN otters o ON o.id = m.sender_id
+    WHERE m.conversation_id = ? AND m.sender_type = 'otter'
+      AND m.sender_id != 'user'
+      AND m.sequence_num < ?
+    ORDER BY m.sequence_num DESC
+    LIMIT 1
+  `);
+
+  db.transaction(() => {
+    for (const ghost of ghostRows) {
+      const neighbor = findNeighbor.get(
+        ghost.conversation_id, ghost.sequence_num,
+      ) as { sender_id: string; sender_name: string } | undefined;
+      if (!neighbor) {
+        skipped++;
+      } else {
+        fixOne.run(neighbor.sender_id, neighbor.sender_name, ghost.id);
+        fixed++;
+      }
+    }
+  })();
+  logger.info(`Backfilled ghost otter senders: fixed=${fixed}, skipped=${skipped}`, {});
 }
 
 /** Issue #608：attachments 表 kind CHECK 约束扩展 audio/video（存量库迁移）。
@@ -140,9 +231,11 @@ function rebuildAttachmentsKindCheck(db: Database.Database, logger: Logger): voi
   // FK 修复：message_attachments.attachment_id 引用 attachments(id)，存量有数据时
   // DROP TABLE attachments 触发 FOREIGN KEY constraint failed。
   // PRAGMA foreign_keys 不能在事务内切换，须在事务外关闭、事务后恢复。
+  // #805：补 try/finally——事务抛异常时 foreign_keys 也能恢复 ON（对齐 #792 P2 模式）。
   db.pragma("foreign_keys = OFF");
-  const rebuild = db.transaction(() => {
-    db.exec(`
+  try {
+    db.transaction(() => {
+      db.exec(`
       CREATE TABLE attachments_new (
         id TEXT PRIMARY KEY,
         sha256 TEXT NOT NULL,
@@ -164,9 +257,10 @@ function rebuildAttachmentsKindCheck(db: Database.Database, logger: Logger): voi
       CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_sha ON attachments(sha256, uploader_id);
       CREATE INDEX IF NOT EXISTS idx_attachments_uploader ON attachments(uploader_id);
     `);
-  });
-  rebuild();
-  db.pragma("foreign_keys = ON");
+    })();
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
   logger.info('attachments kind CHECK widened: audio/video now accepted');
 }
 
@@ -206,6 +300,11 @@ function addBodyHashColumns(db: Database.Database, logger: Logger): void {
 
 /** F20260805rbrg：messages.metadata TEXT 列存外部 ID 等查重信息。PRAGMA 探测幂等。 */
 function addMessagesMetadataColumn(db: Database.Database, logger: Logger): void {
+  if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
+    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    return;
+  }
+
   const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
   if (!columns.some(col => col.name === 'metadata')) {
     db.prepare("ALTER TABLE messages ADD COLUMN metadata TEXT").run();
@@ -270,6 +369,11 @@ function addDocProvenanceColumns(db: Database.Database, logger: Logger): void {
  * 注：html-card 是本特性新语法，历史消息本无此类围栏，rebuild 实为防御性一致性措施。
  */
 function rebuildMessagesFtsStripped(db: Database.Database, logger: Logger): void {
+  if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
+    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    return;
+  }
+
   const done = db.prepare("SELECT value FROM settings WHERE key = 'messages_fts_stripped_rebuild'")
     .get() as { value: string } | undefined;
   if (done?.value === 'done') return;
@@ -343,6 +447,11 @@ function rows_count_hint(db: Database.Database): number {
  * 以 PRAGMA 探测列存在性作天然幂等（DROP COLUMN 需 SQLite 3.35+，better-sqlite3 捆绑版本满足）。
  */
 function dropMessagesAttachmentsColumn(db: Database.Database, logger: Logger): void {
+  if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
+    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    return;
+  }
+
   const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
   const hasAttachments = columns.some(col => col.name === 'attachments');
   if (!hasAttachments) return;
@@ -587,6 +696,11 @@ function ensureHealingEventsIntroducedByPrColumn(db: Database.Database, logger: 
 /** F20260901sgp0 P0: messages 表添加 signal_level / signal_meta 列（信号协议铺轨）。
  *  存量行 NULL = 无信号语义（向后兼容）。PRAGMA 探测幂等。 */
 function ensureMessagesSignalColumns(db: Database.Database, logger: Logger): void {
+  if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
+    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    return;
+  }
+
   const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
   if (!columns.some(col => col.name === 'signal_level')) {
     db.prepare("ALTER TABLE messages ADD COLUMN signal_level TEXT").run();
@@ -613,6 +727,11 @@ function ensureMessagesSignalColumns(db: Database.Database, logger: Logger): voi
  *  2. 移除 messages.body 列（SQLite 3.35+ DROP COLUMN，降级时跳过））
  */
 export function migrateMessageSegments(db: Database.Database, logger: Logger): void {
+  if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
+    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    return;
+  }
+
   const done = db.prepare("SELECT value FROM settings WHERE key = 'message_segments_migrated'").get() as { value: string } | undefined;
   if (done?.value === 'done') return;
 
@@ -663,6 +782,11 @@ function ensureAgentSessionFileColumn(db: Database.Database, logger: Logger): vo
 /** messages 表补 source + sender_name 列（PRAGMA 探测幂等，自 migrateDatabase 拆出；
  *  sender_name 为 F20260824snrs 发送者显示名快照） */
 function ensureMessagesSourceAndSenderNameColumns(db: Database.Database, logger: Logger): void {
+  if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
+    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    return;
+  }
+
   const msgColumns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
   if (!msgColumns.some(col => col.name === 'source')) {
     db.prepare("ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT 'web'").run();
@@ -677,7 +801,8 @@ function ensureMessagesSourceAndSenderNameColumns(db: Database.Database, logger:
 /** #654：scheduled_task_executions 表 CHECK 约束扩展 skipped 枚举值。
  *  老库 CHECK (status IN (running, completed, failed)) 不含 skipped，写入即抛
  *  constraint violation。SQLite 无法 ALTER CHECK，需 CREATE-INSERT-DROP-RENAME 四步重建
- *  （先例：rebuildDocumentTablesDropCheck）。幂等：新库 CHECK 已含 skipped 时直接返回。 */
+ *  （先例：rebuildDocumentTablesDropCheck）。幂等：新库 CHECK 已含 skipped 时直接返回。
+ *  #805：重建补齐 FK 防护（foreign_keys OFF + try/finally + ON，与 #608/#792/#812 统一）。 */
 function rebuildExecutionsStatusCheck(db: Database.Database, logger: Logger): void {
   const schemaRow = db.prepare(
     "SELECT sql FROM sqlite_master WHERE type='table' AND name='scheduled_task_executions'",
@@ -686,8 +811,14 @@ function rebuildExecutionsStatusCheck(db: Database.Database, logger: Logger): vo
   // 新库（initSchema 建表已含 skipped）或已迁移：无需重建
   if (!schemaRow?.sql || schemaRow.sql.includes("'skipped'")) return;
 
-  db.transaction(() => {
-    db.exec(`
+  logger.info('Rebuilding scheduled_task_executions table to add skipped status (#654)');
+  // #805：补 FK 防护——本表含 3 个 FK（scheduled_tasks/messages/turns），同文件先例
+  // （#608/#792 P2/#812 F4）重建时均关 foreign_keys 防 DROP 被引用表时 constraint failed；
+  // PRAGMA 不能在事务内切换，须事务外关闭；try/finally 保证异常时也恢复 ON（#792 P2 模式）。
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.transaction(() => {
+      db.exec(`
       CREATE TABLE scheduled_task_executions_new (
         id TEXT PRIMARY KEY,
         task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
@@ -695,7 +826,7 @@ function rebuildExecutionsStatusCheck(db: Database.Database, logger: Logger): vo
         completed_at TEXT,
         status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed', 'skipped')),
         error_message TEXT,
-        message_id TEXT REFERENCES messages(id),
+        message_id TEXT,
         turn_id TEXT REFERENCES turns(id)
       );
       INSERT INTO scheduled_task_executions_new (id, task_id, triggered_at, completed_at, status, error_message, message_id, turn_id)
@@ -704,6 +835,524 @@ function rebuildExecutionsStatusCheck(db: Database.Database, logger: Logger): vo
       ALTER TABLE scheduled_task_executions_new RENAME TO scheduled_task_executions;
       CREATE INDEX IF NOT EXISTS idx_executions_task ON scheduled_task_executions(task_id, triggered_at);
     `);
-  })();
+    })();
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
   logger.info('Rebuilt scheduled_task_executions table to add skipped status (#654)');
+}
+
+/** F20260908rlcp：dispatch_attempts 存量表 drop。
+ *  表已在 F20260908rlcp 退役（schema.ts 删除），此处清理旧库残留。
+ *  幂等：表不存在时跳过。PRAGMA foreign_keys 事务外关闭、drop 后恢复。 */
+function dropDispatchAttemptsTable(db: Database.Database, logger: Logger): void {
+  const tableExists = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='dispatch_attempts'",
+  ).get() as { name: string } | undefined;
+  if (!tableExists) return;
+
+  logger.info('Dropping retired dispatch_attempts table');
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.exec('DROP TABLE IF EXISTS dispatch_attempts');
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+  logger.info('Dropped dispatch_attempts table (F20260908rlcp retirement)');
+}
+
+/** F202609048840 F4：restart_pending_resumes.status CHECK 扩展 failed（存量库重建）。
+ *  SQLite 无法修改已有 CHECK，只能重建表替换。检测 sqlite_master 旧 CHECK 文本判存量；
+ *  幂等：新库宽约束（含 failed）不命中直接返回。表无 FK，重建较简。 */
+function rebuildRestartPendingResumesStatusCheck(db: Database.Database, logger: Logger): void {
+  const schema = db.prepare(
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name='restart_pending_resumes'",
+  ).get() as { sql: string } | undefined;
+  if (!schema?.sql || schema.sql.includes("'failed'")) return;
+
+  logger.info('Rebuilding restart_pending_resumes table to widen status CHECK constraint (add failed)');
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE restart_pending_resumes_new (
+          message_id TEXT PRIMARY KEY,
+          conversation_id TEXT NOT NULL,
+          otter_id TEXT NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'done', 'exhausted', 'failed')),
+          created_at TEXT NOT NULL,
+          updated_at TEXT
+        );
+        INSERT INTO restart_pending_resumes_new
+          (message_id, conversation_id, otter_id, attempts, status, created_at, updated_at)
+        SELECT message_id, conversation_id, otter_id, attempts, status, created_at, updated_at
+        FROM restart_pending_resumes;
+        DROP TABLE restart_pending_resumes;
+        ALTER TABLE restart_pending_resumes_new RENAME TO restart_pending_resumes;
+        CREATE INDEX IF NOT EXISTS idx_restart_pending_resumes_status ON restart_pending_resumes(status);
+      `);
+    })();
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+  logger.info('Rebuilt restart_pending_resumes table to add failed status (F202609048840 F4)');
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ * F20260913ctlv 收尾批4b：messages → entries 数据迁移（幂等回填，非破坏）
+ *
+ * 数据面（生产主库实勘 2026-09-12）：9598 条 messages / 162 对话
+ * （user 2301 全 completed / system 1131 / otter 6166 = completed 5262 +
+ * aborted 266 + failed 637 + streaming 1）。开发库 447 entries / 6 重叠对话。
+ *
+ * 映射规则（特性文档「旧表映射关系」节）：
+ * 1. streaming 消息先置 failed（reconcile 语义）；aborted/failed 原样保留
+ *    ——entries.status 是死字段（全 completed），真实终态记 metadata.invokeStatus
+ *    （仅 aborted/failed 写；与 createInvokeEndEntry 语义对齐）
+ * 2. entry_type：user→user / system→system / otter→speak
+ * 3. body = message_segments 按 sequence_num 聚合（\n\n 连接）
+ * 4. user 消息 talking_stone_passed_to → yield_targets
+ * 5. otter 消息 tsp 非空 → 后追加合成 yield entry（sender_name=otter 快照，
+ *    body 对齐 createYieldEntry 约定「→ 交给 目标」）
+ * 6. metadata 原样（招聘桥 externalIds 查重连续性）
+ * 7. seq：无既有 entries 的对话沿用原 sequence_num；有既有 entries（重叠对话）
+ *    则合并 created_at 排序整体重编号 1..N，同步重映射读游标
+ * 8. message_attachments → entry_attachments；message_events 不迁（无消费方）
+ * 9. entries_fts 回填（stripHtmlCardFences 投影，对齐 sqlite-entry-repository 写入）
+ *
+ * 幂等键：settings messages_to_entries_migrated。逐对话事务。
+ * 非破坏：messages 及关联表一律不动（drop 归批 4c）。
+ * ══════════════════════════════════════════════════════════════════ */
+
+/** 迁移源数据形状（messages 行投影） */
+interface MigratableMessageRow {
+  id: string;
+  conversation_id: string;
+  sender_type: string;
+  sender_id: string;
+  status: string;
+  sequence_num: number;
+  turn_id: string;
+  talking_stone_passed_to: string | null;
+  context_tokens: number | null;
+  context_tokens_max: number | null;
+  source: string | null;
+  metadata: string | null;
+  sender_name: string;
+  created_at: string;
+  completed_at: string | null;
+}
+
+/** 消息 → 基础 entry 行（segments 聚合 + 终态 metadata + tsp 分流） */
+function speakEntryBaseOf(
+  msg: MigratableMessageRow,
+  segmentsByMessage: Map<string, Array<{ body: string }>>,
+): {
+  id: string; conversation_id: string; entry_type: string; sender_type: string | null;
+  sender_id: string | null; body: string | null; invoke_id: null;
+  yield_targets: string | null; turn_id: string; status: string;
+  source: string | null; metadata: string | null; sender_name: string;
+  context_tokens: number | null; context_tokens_max: number | null;
+  created_at: string; completed_at: string | null;
+} {
+  const segments = segmentsByMessage.get(msg.id) ?? [];
+  const body = segments.map(s => s.body).join('\n\n') || null;
+  const metadataObj = msg.metadata ? JSON.parse(msg.metadata) as Record<string, unknown> : null;
+  /** 真实终态记 metadata.invokeStatus（aborted/failed；completed 不记——对齐 createInvokeEndEntry） */
+  const mergedMetadata = (msg.status === 'aborted' || msg.status === 'failed')
+    ? JSON.stringify({ ...(metadataObj ?? {}), invokeStatus: msg.status })
+    : msg.metadata;
+
+  return {
+    id: msg.id,
+    conversation_id: msg.conversation_id,
+    entry_type: msg.sender_type === 'otter' ? 'speak' : msg.sender_type,
+    sender_type: msg.sender_type,
+    sender_id: msg.sender_id,
+    body,
+    invoke_id: null,
+    /** user 信号目标 → yield_targets（新模型 user entry 语义）；otter 的 tsp 落在合成 yield entry */
+    yield_targets: msg.sender_type === 'user' ? msg.talking_stone_passed_to : null,
+    turn_id: msg.turn_id,
+    status: 'completed',
+    source: msg.source,
+    metadata: mergedMetadata,
+    sender_name: msg.sender_name,
+    context_tokens: msg.context_tokens,
+    context_tokens_max: msg.context_tokens_max,
+    created_at: msg.created_at,
+    completed_at: msg.completed_at,
+  };
+}
+
+/** 收集待迁行（幂等防撞：已在 entries 的 id 跳过） */
+function collectPendingRows(
+  msgs: ReadonlyArray<MigratableMessageRow>,
+  segmentsByMessage: Map<string, Array<{ body: string }>>,
+  existingEntryIds: Set<string>,
+): { pendingRows: ReturnType<typeof messageToEntryRows>; skipped: number } {
+  const pendingRows: ReturnType<typeof messageToEntryRows> = [];
+  let skipped = 0;
+  for (const msg of msgs) {
+    for (const row of messageToEntryRows(msg, segmentsByMessage)) {
+      if (existingEntryIds.has(row.id)) { skipped++; continue; }
+      pendingRows.push(row);
+    }
+  }
+  return { pendingRows, skipped };
+}
+
+/** 迁移单条消息行 → entry 行序列：[基础 entry, (可选)合成 yield entry]。
+ *  otter 消息带非空 tsp → yield entry（时间线「→目标」语义；created_at 用 completed_at
+ *  回退 created_at——排序落在 speak 之后；senderName 保留，前端「来源 → 交给 目标」依赖） */
+function messageToEntryRows(
+  msg: MigratableMessageRow,
+  segmentsByMessage: Map<string, Array<{ body: string }>>,
+): Array<ReturnType<typeof speakEntryBaseOf>> {
+  const base = speakEntryBaseOf(msg, segmentsByMessage);
+  const needsYield = msg.sender_type === 'otter' && msg.talking_stone_passed_to && msg.talking_stone_passed_to !== '[]';
+  if (!needsYield) return [base];
+
+  const targets = JSON.parse(msg.talking_stone_passed_to!) as string[];
+  const ts = msg.completed_at ?? msg.created_at;
+  return [base, {
+    ...base,
+    id: `${msg.id}-yield`,
+    entry_type: 'yield',
+    sender_type: null,
+    sender_id: null,
+    body: `→ 交给 ${targets.join(', ')}`,
+    yield_targets: msg.talking_stone_passed_to,
+    source: null,
+    metadata: null,
+    context_tokens: null,
+    context_tokens_max: null,
+    created_at: ts,
+    completed_at: ts,
+  }];
+}
+
+/** 无重叠路径：消息行序（sequence_num ASC）即时间序，顺次编号 1..N。
+ *  不直接沿用原 message.sequence_num——yield 合成行需要独立序号，
+ *  与重叠路径同构的重排保证单调且无空洞。 */
+/** 写入工具包（entry 行 + FTS 行——迁移子函数共享） */
+interface MigrationWriters {
+  insertEntry: { run: (params: any) => unknown };
+  insertFts: { run: (...args: any[]) => unknown };
+}
+/** segments 预载（10224 条量级，一次拉全量进内存 Map） */
+function preloadSegments(db: Database.Database): Map<string, Array<{ body: string }>> {
+  const rows = db.prepare(
+    "SELECT message_id, body FROM message_segments ORDER BY message_id, sequence_num ASC",
+  ).all() as Array<{ message_id: string; body: string }>;
+  const map = new Map<string, Array<{ body: string }>>();
+  for (const seg of rows) {
+    if (!map.has(seg.message_id)) map.set(seg.message_id, []);
+    map.get(seg.message_id)!.push({ body: seg.body });
+  }
+  return map;
+}
+
+/** 已迁 entry id 集（幂等防撞：重跑时跳过已存在行） */
+function preloadEntryIds(db: Database.Database): Set<string> {
+  return new Set((db.prepare("SELECT id FROM entries").all() as Array<{ id: string }>).map(r => r.id));
+}
+
+function insertNoOverlap(
+  pendingRows: ReadonlyArray<{ id: string; body: string | null }>,
+  w: MigrationWriters,
+): void {
+  pendingRows.forEach((row, idx) => {
+    w.insertEntry.run({ ...row, sequence_num: idx + 1 });
+    w.insertFts.run(row.id, stripHtmlCardFences(row.body ?? ''));
+  });
+}
+
+/** 重叠路径：既有 entries + 新 entry 行按 created_at 合并整体重编号 1..N；
+ *  返回合并后总数。同刻（yield 合成与 speak 同 completed_at）保持插入序（stable sort）。 */
+function insertWithRenumber(
+  db: Database.Database,
+  existingInConv: Array<{ id: string; created_at: string }>,
+  pendingRows: ReadonlyArray<{ id: string; created_at: string; body: string | null }>,
+  w: MigrationWriters,
+): number {
+  const merged = [
+    ...existingInConv.map(e => ({ id: e.id, created_at: e.created_at, isNew: false, row: null as unknown })),
+    ...pendingRows.map(r => ({ id: r.id, created_at: r.created_at, isNew: true, row: r as unknown })),
+  ];
+  merged.sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
+
+  const oldToNew = new Map<string, number>();
+  merged.forEach((m, idx) => oldToNew.set(m.id, idx + 1));
+
+  const updateSeq = db.prepare("UPDATE entries SET sequence_num = ? WHERE id = ?");
+  for (const m of merged) {
+    if (m.isNew) {
+      w.insertEntry.run({ ...(m.row as object), sequence_num: oldToNew.get(m.id)! });
+      w.insertFts.run(m.id, stripHtmlCardFences((m.row as { body: string | null }).body ?? ''));
+    } else {
+      updateSeq.run(oldToNew.get(m.id)!, m.id);
+    }
+  }
+  return merged.length;
+}
+
+/** 写入语句包（entry 行 + FTS 行 + 附件关联） */
+function buildMigrationWriters(db: Database.Database): {
+  writers: MigrationWriters;
+  insertEntryAttachment: { run: (...args: any[]) => unknown };
+} {
+  return {
+    writers: {
+      insertEntry: db.prepare(`
+        INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id,
+          body, invoke_id, yield_targets, turn_id, status, source, metadata, sender_name,
+          context_tokens, context_tokens_max, created_at, completed_at)
+        VALUES (@id, @conversation_id, @sequence_num, @entry_type, @sender_type, @sender_id,
+          @body, @invoke_id, @yield_targets, @turn_id, @status, @source, @metadata, @sender_name,
+          @context_tokens, @context_tokens_max, @created_at, @completed_at)
+      `),
+      insertFts: db.prepare("INSERT INTO entries_fts (entry_id, body) VALUES (?, ?)"),
+    },
+    insertEntryAttachment: db.prepare(
+      "INSERT INTO entry_attachments (entry_id, attachment_id, sequence_num) VALUES (?, ?, ?)",
+    ),
+  };
+}
+
+/** 逐对话迁移器（事务边界内：entry 行 + FTS + 附件 + 重编号 + 游标） */
+function makeConversationMigrator(deps: {
+  db: Database.Database;
+  writers: MigrationWriters;
+  insertEntryAttachment: { run: (...args: any[]) => unknown };
+  segmentsByMessage: Map<string, Array<{ body: string }>>;
+  existingEntryIds: Set<string>;
+  onStats: (stats: { inserted: number; yield: number; skipped: number; renumbered?: { conversationId: string; from: number; to: number } }) => void;
+}): (conversationId: string) => void {
+  const { db, writers, insertEntryAttachment, segmentsByMessage, existingEntryIds, onStats } = deps;
+  return db.transaction((conversationId: string) => {
+    const msgs = db.prepare(
+      "SELECT * FROM messages WHERE conversation_id = ? ORDER BY sequence_num ASC",
+    ).all(conversationId) as unknown as MigratableMessageRow[];
+
+    const { pendingRows, skipped } = collectPendingRows(msgs, segmentsByMessage, existingEntryIds);
+    if (pendingRows.length === 0) { onStats({ inserted: 0, yield: 0, skipped }); return; }
+
+    const existingInConv = db.prepare(
+      "SELECT id, sequence_num, created_at FROM entries WHERE conversation_id = ?",
+    ).all(conversationId) as Array<{ id: string; sequence_num: number; created_at: string }>;
+
+    let renumbered: { conversationId: string; from: number; to: number } | undefined;
+    if (existingInConv.length === 0) {
+      insertNoOverlap(pendingRows, writers);
+      // F20260914rmap：无重叠路径同样重映射读游标——重排 1..N 后旧游标的
+      // seq 值已指向错误位置（yield 合成行会右移后续 seq），不映射则已读前缀
+      // 之后的存量条目全部被误判未读（生产实例：151 对话 2052 条虚假未读）
+      remapReadCursorsNoOverlap(db, conversationId, msgs);
+    } else {
+      const mergedCount = insertWithRenumber(db, existingInConv, pendingRows, writers);
+      remapReadCursors(db, conversationId, mergedCount);
+      renumbered = { conversationId, from: existingInConv.length, to: mergedCount };
+    }
+
+    // F20260913ctlv 批4c：message_attachments 可能已 drop（防御守卫）
+    const hasMsgAtt = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='message_attachments'").get();
+    if (hasMsgAtt) {
+      const attRows = db.prepare(
+        "SELECT message_id, attachment_id, sequence_num FROM message_attachments WHERE message_id IN (SELECT id FROM messages WHERE conversation_id = ?)",
+      ).all(conversationId) as Array<{ message_id: string; attachment_id: string; sequence_num: number }>;
+      for (const att of attRows) {
+        insertEntryAttachment.run(att.message_id, att.attachment_id, att.sequence_num);
+      }
+    }
+
+    onStats({ inserted: pendingRows.length, yield: pendingRows.filter(r => r.entry_type === 'yield').length, skipped, renumbered });
+  });
+}
+
+export function migrateMessagesToEntries(db: Database.Database, logger: Logger): void {
+  const done = db.prepare("SELECT value FROM settings WHERE key = 'messages_to_entries_migrated'").get() as { value: string } | undefined;
+  if (done?.value === 'done') return;
+
+  /** messages 表不存在（未来新库，批 4c drop 后）→ 直接标 done 跳过 */
+  const hasMessages = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined) != null;
+  if (!hasMessages) {
+    db.prepare(
+      "INSERT INTO settings (key, value, updated_at) VALUES ('messages_to_entries_migrated', 'done', datetime('now')) " +
+      "ON CONFLICT(key) DO UPDATE SET value = 'done', updated_at = datetime('now')",
+    ).run();
+    return;
+  }
+
+  /** 步骤 0：streaming 残留置 failed（reconcile 语义——重启后不可能再有写入者） */
+  const streamingFixed = db.prepare(
+    "UPDATE messages SET status = 'failed' WHERE status IN ('streaming', 'speaking')",
+  ).run();
+  if (streamingFixed.changes > 0) {
+    logger.info(`[messages→entries] Reconciled ${streamingFixed.changes} streaming message(s) to failed before migration`, {});
+  }
+
+  const segmentsByMessage = preloadSegments(db);
+
+  const existingEntryIds = preloadEntryIds(db);
+
+  const { writers, insertEntryAttachment } = buildMigrationWriters(db);
+
+  const conversationIds = (db.prepare(
+    "SELECT DISTINCT conversation_id FROM messages ORDER BY conversation_id",
+  ).all() as Array<{ conversation_id: string }>).map(r => r.conversation_id);
+
+  let totalEntries = 0, totalYield = 0, totalRenum = 0, totalSkipped = 0;
+  const renumberSummary: Array<{ conversationId: string; from: number; to: number }> = [];
+
+  const migrateOneConversation = makeConversationMigrator({
+    db, writers, insertEntryAttachment, segmentsByMessage, existingEntryIds,
+    onStats: (stats) => {
+      totalEntries += stats.inserted; totalYield += stats.yield; totalSkipped += stats.skipped;
+      if (stats.renumbered) {
+        totalRenum++;
+        if (renumberSummary.length < 10) renumberSummary.push(stats.renumbered);
+      }
+    },
+  });
+
+  for (const conversationId of conversationIds) {
+    migrateOneConversation(conversationId);
+  }
+
+  /** 标记 done（末尾——任一对话失败则下次重跑，幂等防撞保证不重复插） */
+  db.prepare(
+    "INSERT INTO settings (key, value, updated_at) VALUES ('messages_to_entries_migrated', 'done', datetime('now')) " +
+    "ON CONFLICT(key) DO UPDATE SET value = 'done', updated_at = datetime('now')",
+  ).run();
+
+  logger.info(
+    `[messages→entries] Migration complete: ${totalEntries} entries inserted (${totalYield} yield synthesized), ` +
+    `${totalSkipped} skipped (already migrated), ${totalRenum} conversation(s) renumbered` +
+    (renumberSummary.length > 0 ? `, first renumber cases: ${JSON.stringify(renumberSummary)}` : ''),
+    {},
+  );
+}
+
+/** 读游标重映射（重叠重编号路径）：旧游标按「已读前缀」语义钳制到新序列长度。
+ *  旧值 ≤ 新 max 时语义保真（读到的前缀仍是前缀）；超限时取新 max（读完）。 */
+function remapReadCursors(db: Database.Database, conversationId: string, maxNew: number): void {
+  const ursRows = db.prepare(
+    "SELECT user_id, last_read_message_seq FROM conversation_user_read_state WHERE conversation_id = ?",
+  ).all(conversationId) as Array<{ user_id: string; last_read_message_seq: number }>;
+  const updateUrs = db.prepare(
+    "UPDATE conversation_user_read_state SET last_read_message_seq = ? WHERE user_id = ? AND conversation_id = ?",
+  );
+  for (const row of ursRows) {
+    updateUrs.run(Math.min(row.last_read_message_seq, maxNew), row.user_id, conversationId);
+  }
+
+  const partRows = db.prepare(
+    "SELECT otter_id, last_read_seq FROM conversation_participants WHERE conversation_id = ? AND last_read_seq IS NOT NULL",
+  ).all(conversationId) as Array<{ otter_id: string; last_read_seq: number }>;
+  const updatePart = db.prepare(
+    "UPDATE conversation_participants SET last_read_seq = ? WHERE conversation_id = ? AND otter_id = ?",
+  );
+  for (const row of partRows) {
+    updatePart.run(Math.min(row.last_read_seq, maxNew), conversationId, row.otter_id);
+  }
+}
+
+/** F20260914rmap：无重叠路径的读游标重映射。
+ *  旧游标语义 = 「已读旧 messages 前 K 条」，锚点必须按消息 id 定位（不能用
+ *  「新 seq ≤ 旧值」查找——yield 合成行占据序号会把锚点吸到合成行上）。
+ *  映射：旧前缀最后一条消息 id → 该 entry 的新序号（base 行与消息同 id；
+ *  合成 yield 行紧跟其后，未读统计只看 speak/system，锚在 base 或 yield 等价）。
+ *  前缀零行（游标值异常）时保持原值不动，不臆测。
+ *  与重叠路径的 min 钳制不同：这里按 id 精确映射，天然 ≤ 新 max。 */
+function remapReadCursorsNoOverlap(
+  db: Database.Database,
+  conversationId: string,
+  msgs: ReadonlyArray<Pick<MigratableMessageRow, "id" | "sequence_num">>,
+): void {
+  const seqOfEntryId = db.prepare("SELECT sequence_num FROM entries WHERE id = ?");
+  /** 旧前缀（旧 sequence_num ≤ cursor）最后一条消息 id；msgs 按 sequence_num ASC 有序 */
+  const anchorIdOf = (cursor: number): string | null => {
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].sequence_num <= cursor) return msgs[i].id;
+    }
+    return null;
+  };
+  const remapOne = (cursor: number): number | null => {
+    if (cursor <= 0) return null;
+    const anchorId = anchorIdOf(cursor);
+    if (!anchorId) return null;
+    const entry = seqOfEntryId.get(anchorId) as { sequence_num: number } | undefined;
+    return entry?.sequence_num ?? null;
+  };
+
+  const ursRows = db.prepare(
+    "SELECT user_id, last_read_message_seq FROM conversation_user_read_state WHERE conversation_id = ?",
+  ).all(conversationId) as Array<{ user_id: string; last_read_message_seq: number }>;
+  const updateUrs = db.prepare(
+    "UPDATE conversation_user_read_state SET last_read_message_seq = ? WHERE user_id = ? AND conversation_id = ?",
+  );
+  for (const row of ursRows) {
+    const mapped = remapOne(row.last_read_message_seq);
+    if (mapped == null) continue;
+    updateUrs.run(mapped, row.user_id, conversationId);
+  }
+
+  const partRows = db.prepare(
+    "SELECT otter_id, last_read_seq FROM conversation_participants WHERE conversation_id = ? AND last_read_seq IS NOT NULL",
+  ).all(conversationId) as Array<{ otter_id: string; last_read_seq: number }>;
+  const updatePart = db.prepare(
+    "UPDATE conversation_participants SET last_read_seq = ? WHERE conversation_id = ? AND otter_id = ?",
+  );
+  for (const row of partRows) {
+    const mapped = remapOne(row.last_read_seq);
+    if (mapped == null) continue;
+    updatePart.run(mapped, conversationId, row.otter_id);
+  }
+}
+
+
+/** F20260913ctlv 收尾批4c：messages 族旧表 drop（六张 + 对账保险丝）。
+ *  前置：migrateMessagesToEntries 已标 done（幂等键）；messages 表不存在（新库/已 drop）
+ *  直接过。对账：逐对话 entries 条数 ≥ messages 条数——迁移只会增行（yield 合成），
+ *  少于即迁移遗漏，中止 drop。 */
+function dropLegacyMessagesTables(db: Database.Database, logger: Logger): void {
+  const tableExists = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='messages'",
+  ).get() as { name: string } | undefined;
+  if (!tableExists) return;
+
+  /** 对账：任一对话 entries < messages → 迁移遗漏，中止 */
+  const mismatches = db.prepare(`
+    SELECT m.conversation_id, COUNT(DISTINCT m.id) AS msg_count,
+      (SELECT COUNT(*) FROM entries e WHERE e.conversation_id = m.conversation_id) AS entry_count
+    FROM messages m
+    GROUP BY m.conversation_id
+    HAVING entry_count < msg_count
+  `).all() as Array<{ conversation_id: string; msg_count: number; entry_count: number }>;
+  if (mismatches.length > 0) {
+    logger.warn(
+      `[messages→entries] Reconciliation FAILED: ${mismatches.length} conversation(s) have fewer entries than messages — aborting legacy table drop (backup & replay path applies)`,
+      { firstCases: mismatches.slice(0, 5) },
+    );
+    return;
+  }
+
+  const msgCount = (db.prepare("SELECT COUNT(*) AS c FROM messages").get() as { c: number }).c;
+  logger.info(`[messages→entries] Reconciliation passed — dropping legacy tables (migrated ${msgCount} messages)`, {});
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.exec(`
+      DROP TABLE IF EXISTS messages;
+      DROP TABLE IF EXISTS message_events;
+      DROP TABLE IF EXISTS message_segments;
+      DROP TABLE IF EXISTS message_attachments;
+      DROP TABLE IF EXISTS messages_fts;
+      DROP TABLE IF EXISTS restart_pending_resumes;
+    `);
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+  logger.info('[messages→entries] Dropped legacy tables: messages / message_events / message_segments / message_attachments / messages_fts / restart_pending_resumes (F20260913ctlv 批4c)', {});
 }

@@ -1,7 +1,38 @@
 import type { OtterPromptConfig } from "@contract/api/otter";
+import type { ModelPoolLike } from "./model-pool-like";
 
 /** F20260820a4rt: 从联合类型改为 string，运行时校验交由 manifest loader + lint 处理 */
 export type OtterType = string;
+
+/**
+ * F20260908efmd: 有效模型解析结果。
+ * 所有展示面显示真实生效模型（空配置回退默认并标注）；
+ * 「默认」是一种配置来源标注，不是「无模型」。
+ */
+export interface EffectiveModel {
+  /** 恒非空（默认解析后的真实 alias） */
+  alias: string;
+  /** true = 配置未显式指定，跟随默认 */
+  isDefault: boolean;
+}
+
+/**
+ * F20260908efmd: 统一有效模型解析 helper。
+ * 用于 ManageParticipant / QueryOtterProfile / createSession / restartSession 等需要展示面的点位，
+ * 不重复造逻辑。
+ * @param config 配置（null = 该 otter 无配置记录）
+ * @param modelPool 模型池（用于获取默认 alias）
+ */
+export function resolveEffectiveModel(
+  config: OtterConfig | null | undefined,
+  modelPool: Pick<ModelPoolLike, "getDefaultAlias">,
+): EffectiveModel {
+  const explicitAlias = config?.modelAlias;
+  if (explicitAlias) {
+    return { alias: explicitAlias, isDefault: false };
+  }
+  return { alias: modelPool.getDefaultAlias(), isDefault: true };
+}
 
 export interface OtterConfig {
   systemPrompt?: string | OtterPromptConfig;

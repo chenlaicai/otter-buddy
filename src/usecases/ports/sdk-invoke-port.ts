@@ -47,6 +47,14 @@ export interface AgentRunResult {
   lastStopReason?: string;
 }
 
+/** F20260912nlb896：压缩合成影子通道结果（直调 LLM，不经 invoke/锁/池） */
+export interface SynthesisRunResult {
+  /** LLM 直出文本 */
+  directText: string;
+  /** stopReason（length = 截断，调用方 fail-closed） */
+  lastStopReason?: string;
+}
+
 /** 动态上下文（与 Pi 的 DynamicContext 结构匹配） */
 export interface DynamicContext {
   sessionSummary?: string;
@@ -76,10 +84,20 @@ export interface InvokeOptions {
   /** F20260825hndf Phase 2：只读模式——跳过消息持久化和 SSE 广播，用于交接摘要合成。
    *  Pi SDK 无原生 read-only 支持，靠 prompt 约束 + 工具白名单实现。 */
   readOnly?: boolean;
+  /** F20260908rlcp：本批未读消息的最大 sequence_num（启动成功后推进游标用） */
+  batchMaxSeq?: number;
+  /** F20260913ctlv：当前 invoke ID（invoke 级上下文，由 agent-invoker 注入） */
+  currentInvokeId?: string;
+  /** F20260913ctlv 彻底切换：SSE 发射通道（invoke 级注入，工具层发 entry.yield 等事件用） */
+  emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
 }
 
 export interface SdkInvokePort {
   invoke(otterId: string, message: string, options?: InvokeOptions): Promise<AgentRunResult>;
+  /** F20260912nlb896（#896）：压缩合成影子通道——临时 inMemory session 直调 LLM。
+   *  不走 invoke/锁/池/共享 jsonl（钩子在 prompt 中途触发，走 invoke 必然死锁或撕裂外层 session）。
+   *  可选：mock 场景缺省时调用方降级（走 Pi 默认摘要兜底）。 */
+  runCompactionSynthesis?(otterId: string, prompt: string): Promise<SynthesisRunResult>;
   /** 中断指定 Otter 的 Agent 生成（messageId 用于定位并发 session） */
   abort(otterId: string, messageId?: string): void;
   /** 获取指定 Otter 当前 session 的工具调用次数 */

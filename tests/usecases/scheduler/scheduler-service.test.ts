@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SchedulerService, type CronParser } from '@usecases/scheduler/scheduler-service';
 import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled-task-repository';
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
-import type { SendMessage } from '@usecases/conversation/send-message';
+import type { SendEntry } from '@usecases/conversation/send-entry';
+import type { EntryRepository } from '@usecases/conversation/entry-repository';
 import type { AgentTurnPort } from '@usecases/ports/agent-turn-port';
 import type { ManageScheduledTask, TaskChangeCallback } from '@usecases/scheduled-task/manage-scheduled-task';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
@@ -129,6 +130,7 @@ function createMockTaskRepo() {
     }),
     getExecutions: vi.fn(async () => []),
     getExecutionCount: vi.fn(async () => 0),
+    failAllRunningExecutions: vi.fn(async () => 0),
   };
 }
 
@@ -196,17 +198,39 @@ function createMockConvRepo() {
   };
 }
 
-/** 创建 SendMessage 的状态化 mock */
-function createMockSendMessage() {
-  /** 已发送消息计数 */
-  let messageCount = 0;
+/** 创建 SendEntry 的状态化 mock（F20260913ctlv 批2：scheduler 信号落 entries） */
+function createMockSendEntry() {
+  /** 已创建 system entry 计数 */
+  let entryCount = 0;
 
   return {
-    /** 获取已发送消息数 */
-    _getMessageCount: () => messageCount,
-    send: vi.fn(async () => {
-      messageCount += 1;
-      return { message: { id: `msg-${messageCount}`, body: '早上好！' } };
+    /** 获取已创建 entry 数 */
+    _getEntryCount: () => entryCount,
+    createSystemEntry: vi.fn(async () => {
+      entryCount += 1;
+      return { entry: { id: `entry-${entryCount}`, body: '早上好！', sequenceNum: entryCount } };
+    }),
+  };
+}
+
+/** 创建 EntryRepository 的状态化 mock（看门狗/记账校验数据源） */
+function createMockEntryRepo() {
+  /** entry 存储：id → entry（测试可预置锚点后产出） */
+  const entries = new Map<string, { id: string; senderId: string | null; entryType: string; body: string | null; yieldTargets: string[] | null; metadata: Record<string, unknown> | null }>();
+
+  return {
+    _entries: entries,
+    /** 预置一条 entry */
+    _addEntry: (e: { id: string; senderId?: string | null; entryType?: string; body?: string | null; yieldTargets?: string[] | null; metadata?: Record<string, unknown> | null }) => {
+      entries.set(e.id, { id: e.id, senderId: e.senderId ?? null, entryType: e.entryType ?? 'speak', body: e.body ?? null, yieldTargets: e.yieldTargets ?? null, metadata: e.metadata ?? null });
+    },
+    getEntryById: vi.fn(async (id: string) => entries.get(id) ?? null),
+    getEntriesAfter: vi.fn(async (id: string, count: number) => {
+      // 简化实现：锚点在 Map 中不存在时返回空（测试里按需 _addEntry 组装序列）
+      const all = [...entries.values()];
+      const idx = all.findIndex(e => e.id === id);
+      if (idx === -1) return [];
+      return all.slice(idx + 1, idx + 1 + count);
     }),
   };
 }
@@ -285,7 +309,8 @@ describe('SchedulerService - start/stop', () => {
 
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
 
       // 下次触发时间设为 1 小时后
@@ -303,7 +328,8 @@ describe('SchedulerService - start/stop', () => {
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
@@ -329,7 +355,8 @@ describe('SchedulerService - start/stop', () => {
 
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
 
       // 下次触发时间设为 72 小时后（远超 24h 限制）
@@ -342,7 +369,8 @@ describe('SchedulerService - start/stop', () => {
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
@@ -369,7 +397,8 @@ describe('SchedulerService - start/stop', () => {
 
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
 
       // 下次触发时间设为 72 小时后
@@ -382,7 +411,8 @@ describe('SchedulerService - start/stop', () => {
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
@@ -399,7 +429,8 @@ describe('SchedulerService - start/stop', () => {
     it('没有 active 任务时，不调度任何定时器', async () => {
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
       const nextTime = new Date('2025-06-15T09:00:00.000Z');
       const cronParser = createMockCronParser(nextTime);
@@ -407,7 +438,8 @@ describe('SchedulerService - start/stop', () => {
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
@@ -428,7 +460,8 @@ describe('SchedulerService - start/stop', () => {
 
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
       const nextTime = new Date('2025-06-15T09:00:00.000Z');
       const cronParser = createMockCronParser(nextTime);
@@ -439,7 +472,8 @@ describe('SchedulerService - start/stop', () => {
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
@@ -470,7 +504,8 @@ describe('SchedulerService - trigger', () => {
     it('任务存在且 active -> 创建执行记录、发送系统消息、调用 agent，最终执行完成', async () => {
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
       const nextTime = new Date('2025-06-15T09:00:00.000Z');
       const cronParser = createMockCronParser(nextTime);
@@ -482,7 +517,8 @@ describe('SchedulerService - trigger', () => {
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
@@ -503,7 +539,7 @@ describe('SchedulerService - trigger', () => {
       expect(execution!.status).toBe('completed');
 
       // 验证发送了系统消息（消息计数从 0 变为 1）
-      expect(sendMessage._getMessageCount()).toBe(1);
+      expect(sendEntry._getEntryCount()).toBe(1);
 
       // 验证连续失败计数被重置（说明成功流程执行了 resetConsecutiveFailures）
       expect(taskRepo._getResetCallCount()).toBe(1);
@@ -512,7 +548,8 @@ describe('SchedulerService - trigger', () => {
     it('任务不存在 -> 抛出 DomainError（kind=not_found）', async () => {
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
       const nextTime = new Date('2025-06-15T09:00:00.000Z');
       const cronParser = createMockCronParser(nextTime);
@@ -520,7 +557,8 @@ describe('SchedulerService - trigger', () => {
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
@@ -535,7 +573,8 @@ describe('SchedulerService - trigger', () => {
     it('任务非 active 状态 -> 抛出 DomainError（kind=validation）', async () => {
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
       const nextTime = new Date('2025-06-15T09:00:00.000Z');
       const cronParser = createMockCronParser(nextTime);
@@ -546,7 +585,8 @@ describe('SchedulerService - trigger', () => {
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
@@ -563,7 +603,8 @@ describe('SchedulerService - trigger', () => {
     it('claimTask 返回 false -> 抛出 validation 错误，不创建执行记录，不发送消息', async () => {
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
       const nextTime = new Date('2025-06-15T09:00:00.000Z');
       const cronParser = createMockCronParser(nextTime);
@@ -577,7 +618,8 @@ describe('SchedulerService - trigger', () => {
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
@@ -593,7 +635,7 @@ describe('SchedulerService - trigger', () => {
       expect(taskRepo._executions.size).toBe(0);
 
       // 不应发送消息（计数应为 0）
-      expect(sendMessage._getMessageCount()).toBe(0);
+      expect(sendEntry._getEntryCount()).toBe(0);
     });
   });
 
@@ -601,7 +643,8 @@ describe('SchedulerService - trigger', () => {
     it('对话不存在 -> 自动禁用任务并抛出 validation 错误', async () => {
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
       const nextTime = new Date('2025-06-15T09:00:00.000Z');
       const cronParser = createMockCronParser(nextTime);
@@ -612,7 +655,8 @@ describe('SchedulerService - trigger', () => {
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
@@ -635,7 +679,8 @@ describe('SchedulerService - trigger', () => {
     it('对话状态非 active -> 自动禁用任务并抛出 validation 错误', async () => {
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
       const nextTime = new Date('2025-06-15T09:00:00.000Z');
       const cronParser = createMockCronParser(nextTime);
@@ -647,7 +692,8 @@ describe('SchedulerService - trigger', () => {
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
@@ -681,7 +727,8 @@ describe('SchedulerService - error handling', () => {
     it('agent 调用失败 -> 记录失败执行并增加连续失败计数', async () => {
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
       const nextTime = new Date('2025-06-15T09:00:00.000Z');
       const cronParser = createMockCronParser(nextTime);
@@ -695,7 +742,8 @@ describe('SchedulerService - error handling', () => {
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
@@ -721,7 +769,8 @@ describe('SchedulerService - error handling', () => {
     it('连续 3 次失败 -> 任务状态变为 error', async () => {
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
       const nextTime = new Date('2025-06-15T09:00:00.000Z');
       const cronParser = createMockCronParser(nextTime);
@@ -735,7 +784,8 @@ describe('SchedulerService - error handling', () => {
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
@@ -755,7 +805,8 @@ describe('SchedulerService - error handling', () => {
     it('失败次数未达 3 次 -> 任务保持 active 状态', async () => {
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
       const nextTime = new Date('2025-06-15T09:00:00.000Z');
       const cronParser = createMockCronParser(nextTime);
@@ -769,7 +820,8 @@ describe('SchedulerService - error handling', () => {
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
@@ -803,7 +855,8 @@ describe('SchedulerService - onChange', () => {
 
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
       const nextTime = new Date('2025-06-15T09:00:00.000Z');
       const cronParser = createMockCronParser(nextTime);
@@ -816,7 +869,8 @@ describe('SchedulerService - onChange', () => {
       new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
@@ -842,7 +896,8 @@ describe('SchedulerService - onChange', () => {
 
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
       const nextTime = new Date('2025-06-15T09:00:00.000Z');
       const cronParser = createMockCronParser(nextTime);
@@ -854,7 +909,8 @@ describe('SchedulerService - onChange', () => {
       new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
@@ -880,7 +936,8 @@ describe('SchedulerService - onChange', () => {
 
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
 
       // 第一次（created）触发时间在 2 小时后
@@ -904,7 +961,8 @@ describe('SchedulerService - onChange', () => {
       new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
@@ -944,7 +1002,8 @@ describe('SchedulerService - once 任务调度', () => {
 
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
 
       taskRepo._store.set('task-1', makeTask({
@@ -957,7 +1016,8 @@ describe('SchedulerService - once 任务调度', () => {
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: { getNextTime: () => new Date() } as unknown as CronParser,
         logger: mockLogger,
@@ -980,7 +1040,8 @@ describe('SchedulerService - once 任务调度', () => {
 
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
 
       // triggerAt 在过去
@@ -994,7 +1055,8 @@ describe('SchedulerService - once 任务调度', () => {
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: { getNextTime: () => new Date() } as unknown as CronParser,
         logger: mockLogger,
@@ -1019,7 +1081,8 @@ describe('SchedulerService - once 任务调度', () => {
 
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
 
       taskRepo._store.set('task-1', makeTask({
@@ -1040,7 +1103,8 @@ describe('SchedulerService - once 任务调度', () => {
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: { getNextTime: () => new Date() } as unknown as CronParser,
         logger: mockLogger,
@@ -1064,7 +1128,8 @@ describe('SchedulerService - once 任务调度', () => {
 
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
 
       taskRepo._store.set('task-1', makeTask({
@@ -1082,7 +1147,8 @@ describe('SchedulerService - once 任务调度', () => {
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: { getNextTime: () => new Date() } as unknown as CronParser,
         logger: mockLogger,
@@ -1109,7 +1175,8 @@ describe('SchedulerService - once 任务调度', () => {
       // 不应走 handleExecutionFailure 覆写已 completed 的 execution record。
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
 
       taskRepo._store.set('task-1', makeTask());
@@ -1123,7 +1190,8 @@ describe('SchedulerService - once 任务调度', () => {
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: { getNextTime: () => new Date('2025-06-15T09:00:00.000Z') } as unknown as CronParser,
         logger: mockLogger,
@@ -1159,7 +1227,8 @@ describe('SchedulerService - restartBeforeInvoke', () => {
     const convRepo = createMockConvRepo();
     taskRepo._store.set('task-1', makeTask({ restartBeforeInvoke: true, cron: '0 9 * * *' }));
     convRepo._addConversation('conv-1', { status: 'active' });
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     let restartCalled = false;
     let invokeCalled = false;
@@ -1177,7 +1246,8 @@ describe('SchedulerService - restartBeforeInvoke', () => {
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: { getNextTime: () => new Date('2025-01-15T09:00:00.000Z') } as unknown as CronParser,
       logger: mockLogger,
@@ -1198,7 +1268,8 @@ describe('SchedulerService - restartBeforeInvoke', () => {
     const convRepo = createMockConvRepo();
     taskRepo._store.set('task-1', makeTask({ restartBeforeInvoke: false, cron: '0 9 * * *' }));
     convRepo._addConversation('conv-1', { status: 'active' });
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     let restartCalled = false;
     const mockManageSession = {
@@ -1211,7 +1282,8 @@ describe('SchedulerService - restartBeforeInvoke', () => {
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: { getNextTime: () => new Date('2025-01-15T09:00:00.000Z') } as unknown as CronParser,
       logger: mockLogger,
@@ -1231,13 +1303,15 @@ describe('SchedulerService - restartBeforeInvoke', () => {
     const convRepo = createMockConvRepo();
     taskRepo._store.set('task-1', makeTask({ restartBeforeInvoke: true, cron: '0 9 * * *' }));
     convRepo._addConversation('conv-1', { status: 'active' });
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
 
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: { getNextTime: () => new Date('2025-01-15T09:00:00.000Z') } as unknown as CronParser,
       logger: mockLogger,
@@ -1261,7 +1335,8 @@ describe('SchedulerService - restartBeforeInvoke', () => {
     taskRepo._store.set('task-1', task1);
     taskRepo._store.set('task-2', task2);
     convRepo._addConversation('conv-1', { status: 'active' });
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const restartCallIds: string[] = [];
     const mockManageSession = {
@@ -1274,7 +1349,8 @@ describe('SchedulerService - restartBeforeInvoke', () => {
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: { getNextTime: () => new Date('2025-01-15T09:00:00.000Z') } as unknown as CronParser,
       logger: mockLogger,
@@ -1306,7 +1382,8 @@ describe('#332: dispatchChainEngine 注入后 invokeAgentWithTimeout 走链引�
   it('注入 dispatchChainEngine 后，触发任务走 executeChain 而非直接 invoke', async () => {
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const cronParser = createMockCronParser(new Date());
     const dispatchChainEngine = createMockDispatchChainEngine();
@@ -1324,7 +1401,8 @@ describe('#332: dispatchChainEngine 注入后 invokeAgentWithTimeout 走链引�
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -1354,7 +1432,8 @@ describe('#332: dispatchChainEngine 注入后 invokeAgentWithTimeout 走链引�
   it('未注入 dispatchChainEngine 时，降级为直接 invoke（兼容旧行为）', async () => {
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const cronParser = createMockCronParser(new Date());
 
@@ -1371,7 +1450,8 @@ describe('#332: dispatchChainEngine 注入后 invokeAgentWithTimeout 走链引�
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -1394,7 +1474,8 @@ describe('#332: dispatchChainEngine 注入后 invokeAgentWithTimeout 走链引�
   it('dispatchChainEngine.executeChain 失败时 execution 标记为 failed', async () => {
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const cronParser = createMockCronParser(new Date());
 
@@ -1416,7 +1497,8 @@ describe('#332: dispatchChainEngine 注入后 invokeAgentWithTimeout 走链引�
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -1447,7 +1529,8 @@ describe('#516: 任务级超时配置（timeoutMinutes）', () => {
     // 此处验证 scheduler 链路取值：timeoutMinutes=1 → 静默窗 1 分钟
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const cronParser = createMockCronParser(new Date());
 
@@ -1470,7 +1553,8 @@ describe('#516: 任务级超时配置（timeoutMinutes）', () => {
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -1498,7 +1582,8 @@ describe('#516: 任务级超时配置（timeoutMinutes）', () => {
     try {
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
       const cronParser = createMockCronParser(new Date());
 
@@ -1512,19 +1597,18 @@ describe('#516: 任务级超时配置（timeoutMinutes）', () => {
       taskRepo._store.set(task.id, task);
       convRepo._addConversation('conv-1', { status: 'active' });
 
-      // 每次探测都返回一条新消息（链活跃）
-      const activeMsg = {
-        id: 'm-new', conversationId: 'conv-1', turnId: 't1', senderType: 'otter',
-        senderId: 'otter-1', talkingStonePassedTo: null, status: 'completed',
-        segments: [], sequenceNum: 2, contextTokens: null, contextTokensMax: null,
-        source: 'web', senderName: '', createdAt: '2025-01-01T00:00:00Z', completedAt: null,
+      // 每次探测都返回一条新 entry（链活跃；F20260913ctlv 批2 切 entries）
+      const activeEntry = {
+        id: 'e-new', senderId: 'otter-1', entryType: 'speak', body: '产出',
+        yieldTargets: null, metadata: null,
       };
-      (convRepo.getMessagesAfter as ReturnType<typeof vi.fn>).mockResolvedValue([activeMsg]);
+      (entryRepo.getEntriesAfter as ReturnType<typeof vi.fn>).mockResolvedValue([activeEntry]);
 
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
@@ -1541,8 +1625,8 @@ describe('#516: 任务级超时配置（timeoutMinutes）', () => {
       expect(result.executionId).toBeTruthy();
       const execution = taskRepo._executions.get(result.executionId);
       expect(execution!.status).toBe('completed');
-      // 至少 3 次活性探测都被续期
-      expect((convRepo.getMessagesAfter as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(3);
+      // 至少 3 次活性探测都被续期（F20260913ctlv 批2：探测数据源 = entries）
+      expect((entryRepo.getEntriesAfter as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(3);
     } finally {
       vi.useRealTimers();
     }
@@ -1555,7 +1639,8 @@ describe('#516: 任务级超时配置（timeoutMinutes）', () => {
     try {
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
-      const sendMessage = createMockSendMessage();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
       const agentInvoke = createMockAgentInvoke();
       const cronParser = createMockCronParser(new Date());
 
@@ -1568,9 +1653,9 @@ describe('#516: 任务级超时配置（timeoutMinutes）', () => {
       taskRepo._store.set(task.id, task);
       convRepo._addConversation('conv-1', { status: 'active' });
 
-      // 链 settle 后活性探测才返回（无新消息）——模拟探测 async 空隙内链 settle
-      (convRepo.getMessagesAfter as ReturnType<typeof vi.fn>).mockImplementation(
-        async () => await new Promise<boolean[]>(resolve => {
+      // 链 settle 后活性探测才返回（无新 entry）——模拟探测 async 空隙内链 settle（F20260913ctlv 批2 切 entries）
+      (entryRepo.getEntriesAfter as ReturnType<typeof vi.fn>).mockImplementation(
+        async () => await new Promise<Array<never>>(resolve => {
           resolveChain({ otterReply: 'settled while probing' });
           // 微任务清空后再返回探测结果，确保 chainSettled 已赋值
           setTimeout(() => resolve([]), 10);
@@ -1580,7 +1665,8 @@ describe('#516: 任务级超时配置（timeoutMinutes）', () => {
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
-        sendMessage: sendMessage as unknown as SendMessage,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
         agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
@@ -1624,7 +1710,8 @@ describe('PR4: function executor 执行记账', () => {
   it('函数执行成功 -> execution 记 completed，messageId/turnId 留 NULL（不走 completeExecution 的 FK 路径）', async () => {
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const cronParser = createMockCronParser(new Date());
 
@@ -1644,7 +1731,8 @@ describe('PR4: function executor 执行记账', () => {
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -1662,7 +1750,7 @@ describe('PR4: function executor 执行记账', () => {
     expect(execution!.messageId ?? null).toBe(null);
     expect(execution!.turnId ?? null).toBe(null);
     // 不发系统消息、不 invoke agent（纯代码执行）
-    expect(sendMessage._getMessageCount()).toBe(0);
+    expect(sendEntry._getEntryCount()).toBe(0);
     expect(agentInvoke.invokeConversation).not.toHaveBeenCalled();
     // 连续失败计数被重置（成功路径）
     expect(taskRepo._getResetCallCount()).toBe(1);
@@ -1671,7 +1759,8 @@ describe('PR4: function executor 执行记账', () => {
   it('函数抛错 -> execution 记 failed + errorMessage，连续失败计数走起', async () => {
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const cronParser = createMockCronParser(new Date());
 
@@ -1688,7 +1777,8 @@ describe('PR4: function executor 执行记账', () => {
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -1706,7 +1796,8 @@ describe('PR4: function executor 执行记账', () => {
   it('functionRegistry 未注入 -> validation 错误（不静默降级）', async () => {
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const cronParser = createMockCronParser(new Date());
 
@@ -1717,7 +1808,8 @@ describe('PR4: function executor 执行记账', () => {
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -1732,7 +1824,8 @@ describe('#517: invoke 失败时 execution 不得记 completed', () => {
   it('链正常 resolve 但 anchor 后存在 failed 的 otter 消息 → execution 记 failed', async () => {
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const cronParser = createMockCronParser(new Date());
 
@@ -1745,20 +1838,19 @@ describe('#517: invoke 失败时 execution 不得记 completed', () => {
     taskRepo._store.set(task.id, task);
     convRepo._addConversation('conv-1', { status: 'active' });
 
-    // 锚点后有一条 failed 的 otter 消息（invoke 失败现场：锁超时 → 消息 failed，但链 resolve）
-    const failedMsg = {
-      id: 'm-failed', conversationId: 'conv-1', turnId: 't1', senderType: 'otter',
-      senderId: 'otter-1', talkingStonePassedTo: null, status: 'failed',
-      segments: [{ id: 's1', messageId: 'm-failed', body: 'Lock acquire timeout', sequenceNum: 1, createdAt: '2025-01-01T00:00:00Z' }],
-      sequenceNum: 2, contextTokens: null, contextTokensMax: null,
-      source: 'web', senderName: '', createdAt: '2025-01-01T00:00:00Z', completedAt: null,
+    // 锚点后有一条 failed 的 invoke_end entry（invoke 失败现场：锁超时 → invoke failed，但链 resolve；
+    // F20260913ctlv 批2 切 entries——invoke 终态记 metadata.invokeStatus）
+    const failedEntry = {
+      id: 'e-failed', senderId: null, entryType: 'invoke_end', body: '🦦 小獭行动失败：Lock acquire timeout',
+      yieldTargets: null, metadata: { invokeStatus: 'failed' },
     };
-    (convRepo.getMessagesAfter as ReturnType<typeof vi.fn>).mockResolvedValue([failedMsg]);
+    (entryRepo.getEntriesAfter as ReturnType<typeof vi.fn>).mockResolvedValue([failedEntry]);
 
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -1781,7 +1873,8 @@ describe('#517: invoke 失败时 execution 不得记 completed', () => {
   it('锚点前（旧轮次）的 failed 消息不牵连本次执行', async () => {
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const cronParser = createMockCronParser(new Date());
     const dispatchChainEngine = {
@@ -1798,7 +1891,8 @@ describe('#517: invoke 失败时 execution 不得记 completed', () => {
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -1814,7 +1908,8 @@ describe('#517: invoke 失败时 execution 不得记 completed', () => {
   it('非链降级路径同样记账校验：invoke 后 anchor 有 failed 消息 → failed', async () => {
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const cronParser = createMockCronParser(new Date());
 
@@ -1822,18 +1917,17 @@ describe('#517: invoke 失败时 execution 不得记 completed', () => {
     taskRepo._store.set(task.id, task);
     convRepo._addConversation('conv-1', { status: 'active' });
 
-    const failedMsg = {
-      id: 'm-failed-2', conversationId: 'conv-1', turnId: 't1', senderType: 'otter',
-      senderId: 'otter-1', talkingStonePassedTo: null, status: 'failed',
-      segments: [], sequenceNum: 2, contextTokens: null, contextTokensMax: null,
-      source: 'web', senderName: '', createdAt: '2025-01-01T00:00:00Z', completedAt: null,
+    const failedEntry2 = {
+      id: 'e-failed-2', senderId: null, entryType: 'invoke_end', body: '🦦 小獭行动失败',
+      yieldTargets: null, metadata: { invokeStatus: 'failed' },
     };
-    (convRepo.getMessagesAfter as ReturnType<typeof vi.fn>).mockResolvedValue([failedMsg]);
+    (entryRepo.getEntriesAfter as ReturnType<typeof vi.fn>).mockResolvedValue([failedEntry2]);
 
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -1848,7 +1942,8 @@ describe('#517: invoke 失败时 execution 不得记 completed', () => {
   it('消息量超过 100 条分页拉取：failed 在 100 条之后 → 仍被检出（对抗审视发现 2）', async () => {
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const cronParser = createMockCronParser(new Date());
     const dispatchChainEngine = {
@@ -1859,26 +1954,21 @@ describe('#517: invoke 失败时 execution 不得记 completed', () => {
     taskRepo._store.set(task.id, task);
     convRepo._addConversation('conv-1', { status: 'active' });
 
-    // 第 1 页 100 条全部 completed，第 2 页第 101 条是 failed 的 otter 消息
-    // 旧实现单页 limit=100 会漏检，分页修复后应检出
-    const completedMsgs = Array.from({ length: 100 }, (_, i) => ({
-      id: `m-ok-${i}`, conversationId: 'conv-1', turnId: 't1', senderType: 'otter',
-      senderId: 'otter-1', talkingStonePassedTo: null, status: 'completed',
-      segments: [], sequenceNum: i + 2, contextTokens: null, contextTokensMax: null,
-      source: 'web', senderName: '', createdAt: '2025-01-01T00:00:00Z', completedAt: null,
+    // 第 1 页 100 条全部正常产出，第 2 页第 101 条是 failed 的 invoke_end entry
+    // 旧实现单页 limit=100 会漏检，分页修复后应检出（F20260913ctlv 批2 切 entries）
+    const okEntries = Array.from({ length: 100 }, (_, i) => ({
+      id: `e-ok-${i}`, senderId: 'otter-1', entryType: 'speak', body: '产出',
+      yieldTargets: null, metadata: null,
     }));
-    const deepFailedMsg = {
-      id: 'm-deep-failed', conversationId: 'conv-1', turnId: 't1', senderType: 'otter',
-      senderId: 'otter-1', talkingStonePassedTo: null, status: 'failed',
-      segments: [{ id: 's-deep', messageId: 'm-deep-failed', body: 'deep failure', sequenceNum: 1, createdAt: '2025-01-01T00:00:00Z' }],
-      sequenceNum: 102, contextTokens: null, contextTokensMax: null,
-      source: 'web', senderName: '', createdAt: '2025-01-01T00:00:00Z', completedAt: null,
+    const deepFailedEntry = {
+      id: 'e-deep-failed', senderId: null, entryType: 'invoke_end', body: '🦦 小獭行动失败：deep failure',
+      yieldTargets: null, metadata: { invokeStatus: 'failed' },
     };
-    // getMessagesAfter(cursor, count)：第 1 次（锚点=msg-1）返回满页 100 条，第 2 次（游标=末条 id）返回第 101 条 failed，第 3 次返回空
-    (convRepo.getMessagesAfter as ReturnType<typeof vi.fn>).mockImplementation(
+    // getEntriesAfter(cursor, count)：第 1 次（锚点=entry-1）返回满页 100 条，第 2 次（游标=末条 id）返回第 101 条 failed，第 3 次返回空
+    (entryRepo.getEntriesAfter as ReturnType<typeof vi.fn>).mockImplementation(
       async (cursor: string) => {
-        if (cursor === 'msg-1') return completedMsgs;
-        if (cursor === 'm-ok-99') return [deepFailedMsg];
+        if (cursor === 'entry-1') return okEntries;
+        if (cursor === 'e-ok-99') return [deepFailedEntry];
         return [];
       },
     );
@@ -1886,7 +1976,8 @@ describe('#517: invoke 失败时 execution 不得记 completed', () => {
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -1895,11 +1986,11 @@ describe('#517: invoke 失败时 execution 不得记 completed', () => {
 
     const err = await service.trigger('task-deepfail').catch(e => e);
     expect(err).toBeInstanceOf(Error);
-    expect(err.message).toContain('m-deep-failed');
+    expect(err.message).toContain('e-deep-failed');
     const execs = [...taskRepo._executions.values()];
     expect(execs[execs.length - 1].status).toBe('failed');
     // 分页推进被触发（至少 3 次查询：满页→failed 页→空页）
-    expect((convRepo.getMessagesAfter as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect((entryRepo.getEntriesAfter as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(3);
   });
 });
 
@@ -1907,7 +1998,8 @@ describe('#516: 任务进入 error 状态时落通知（消灭静默死亡）', 
   it('第 3 次连续失败 → status=error + 系统消息 + healing event', async () => {
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const cronParser = createMockCronParser(new Date());
 
@@ -1935,7 +2027,8 @@ describe('#516: 任务进入 error 状态时落通知（消灭静默死亡）', 
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -1951,8 +2044,8 @@ describe('#516: 任务进入 error 状态时落通知（消灭静默死亡）', 
 
     // 第 3 次失败后：status=error
     expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(true);
-    // 系统消息已注入任务所属对话（含任务名与停跑提示）
-    const sysCalls = (sendMessage.send as ReturnType<typeof vi.fn>).mock.calls;
+    // 系统条目已注入任务所属对话（含任务名与停跑提示；F20260913ctlv 批2 切 entries）
+    const sysCalls = (sendEntry.createSystemEntry as ReturnType<typeof vi.fn>).mock.calls;
     const notifyCall = sysCalls.find(c => typeof c[0]?.body === 'string' && c[0].body.includes('[定时任务错误]'));
     expect(notifyCall).toBeTruthy();
     expect(notifyCall![0].conversationId).toBe('conv-1');
@@ -1964,16 +2057,17 @@ describe('#516: 任务进入 error 状态时落通知（消灭静默死亡）', 
     expect(healingEvents[0].context).toMatchObject({ taskId: 'task-notify' });
   });
 
-  it('通知失败（sendMessage 抛错）不阻塞 error 状态变更', async () => {
+  it('通知失败（createSystemEntry 抛错）不阻塞 error 状态变更', async () => {
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const cronParser = createMockCronParser(new Date());
 
     agentInvoke._setShouldFail(true);
-    // 系统消息发送失败
-    (sendMessage.send as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('db down'));
+    // 系统条目发送失败
+    (sendEntry.createSystemEntry as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('db down'));
 
     const task = makeTask({ id: 'task-notify2' });
     taskRepo._store.set(task.id, task);
@@ -1982,7 +2076,8 @@ describe('#516: 任务进入 error 状态时落通知（消灭静默死亡）', 
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -1993,7 +2088,7 @@ describe('#516: 任务进入 error 状态时落通知（消灭静默死亡）', 
       await service.trigger('task-notify2').catch(() => {});
     }
 
-    // sendMessage.send 抛错不阻塞：status 仍然 error
+    // createSystemEntry 抛错不阻塞：status 仍然 error
     expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(true);
   });
 });
@@ -2016,7 +2111,8 @@ describe('#640: 轮询补触发（tick polling catch-up）', () => {
 
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     // cronParser 返回的时间是1小时前 → 任务 overdue
     const overdueTime = new Date('2026-09-01T09:00:00.000Z');
@@ -2028,7 +2124,8 @@ describe('#640: 轮询补触发（tick polling catch-up）', () => {
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -2051,7 +2148,8 @@ describe('#640: 轮询补触发（tick polling catch-up）', () => {
 
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     // cronParser 返回 1 小时前（overdue）— 但因为 lastTriggeredAt 在窗口内，tick 应跳过
     const overdueTime = new Date('2026-09-01T09:00:00.000Z');
@@ -2074,7 +2172,8 @@ describe('#640: 轮询补触发（tick polling catch-up）', () => {
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser,
       logger: mockLogger,
@@ -2106,7 +2205,8 @@ describe('#641: claim 前检查 running execution', () => {
 
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const cronParser = createMockCronParser(new Date('2026-09-01T09:00:00.000Z'));
 
@@ -2128,7 +2228,8 @@ describe('#641: claim 前检查 running execution', () => {
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -2148,7 +2249,8 @@ describe('#641: claim 前检查 running execution', () => {
 
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const cronParser = createMockCronParser(new Date('2026-09-01T09:00:00.000Z'));
 
@@ -2170,7 +2272,8 @@ describe('#641: claim 前检查 running execution', () => {
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -2200,25 +2303,27 @@ describe('#642: 链看门狗 429 判死', () => {
 
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const cronParser = createMockCronParser(new Date('2026-09-01T11:00:00.000Z'));
 
     taskRepo._store.set('task-1', makeTask({ id: 'task-1', conversationId: 'conv-1' }));
     convRepo._addConversation('conv-1', { status: 'active' });
 
-    // 模拟 getLatestMessagesAfter 返回429特征消息（DESC，最新在前）
-    const rateLimitMessages = [
-      { id: 'msg-3', segments: [{ body: 'Error 429: Too Many Requests' }], senderType: 'otter', status: 'failed' },
-      { id: 'msg-2', segments: [{ body: 'rate limit exceeded, retrying...' }], senderType: 'otter', status: 'failed' },
-      { id: 'msg-1', segments: [{ body: 'quota exceeded' }], senderType: 'otter', status: 'failed' },
+    // 模拟锚点后 entries 全部含 429 特征（F20260913ctlv 批2 切 entries：判据 = body 文本）
+    const rateLimitEntries = [
+      { id: 'e-3', senderId: 'otter-1', entryType: 'invoke_end', body: 'Error 429: Too Many Requests', yieldTargets: null, metadata: null },
+      { id: 'e-2', senderId: 'otter-1', entryType: 'invoke_end', body: 'rate limit exceeded, retrying...', yieldTargets: null, metadata: null },
+      { id: 'e-1', senderId: 'otter-1', entryType: 'invoke_end', body: 'quota exceeded', yieldTargets: null, metadata: null },
     ];
-    convRepo.getLatestMessagesAfter = vi.fn(async () => rateLimitMessages);
+    (entryRepo.getEntriesAfter as ReturnType<typeof vi.fn>).mockResolvedValue(rateLimitEntries);
 
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -2235,23 +2340,25 @@ describe('#642: 链看门狗 429 判死', () => {
 
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const cronParser = createMockCronParser(new Date('2026-09-01T11:00:00.000Z'));
 
     taskRepo._store.set('task-1', makeTask({ id: 'task-1', conversationId: 'conv-1' }));
     convRepo._addConversation('conv-1', { status: 'active' });
 
-    // 模拟 getLatestMessagesAfter 返回正常消息
-    const normalMessages = [
-      { id: 'msg-3', segments: [{ body: 'Task completed successfully' }], senderType: 'otter', status: 'completed' },
+    // 模拟锚点后 entries 为正常产出（非 429 特征）
+    const normalEntries = [
+      { id: 'e-3', senderId: 'otter-1', entryType: 'speak', body: 'Task completed successfully', yieldTargets: null, metadata: null },
     ];
-    convRepo.getLatestMessagesAfter = vi.fn(async () => normalMessages);
+    (entryRepo.getEntriesAfter as ReturnType<typeof vi.fn>).mockResolvedValue(normalEntries);
 
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -2268,33 +2375,30 @@ describe('#642: 链看门狗 429 判死', () => {
 
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const cronParser = createMockCronParser(new Date('2026-09-01T11:00:00.000Z'));
 
     taskRepo._store.set('task-1', makeTask({ id: 'task-1', conversationId: 'conv-1' }));
     convRepo._addConversation('conv-1', { status: 'active' });
 
-    // getLatestMessagesAfter（DESC）返回最新3条全是429
-    const latestRateLimit = [
-      { id: 'msg-5', segments: [{ body: '429 Too Many Requests' }], senderType: 'otter', status: 'failed' },
-      { id: 'msg-4', segments: [{ body: 'rate limit exceeded' }], senderType: 'otter', status: 'failed' },
-      { id: 'msg-3', segments: [{ body: '配额耗尽' }], senderType: 'otter', status: 'failed' },
+    // F20260913ctlv 批2 切 entries：getEntriesAfter(count=3) 取锚点后最近 entries
+    //（实现取 slice(-3) 尾部——语义等同旧 DESC 取最新；本用例构造 >3 条，尾部全 429）
+    const mixedEntries = [
+      { id: 'e-1', senderId: 'otter-1', entryType: 'speak', body: 'Starting task...', yieldTargets: null, metadata: null },
+      { id: 'e-2', senderId: 'otter-1', entryType: 'speak', body: 'Processing...', yieldTargets: null, metadata: null },
+      { id: 'e-3', senderId: 'otter-1', entryType: 'invoke_end', body: '配额耗尽', yieldTargets: null, metadata: null },
+      { id: 'e-4', senderId: 'otter-1', entryType: 'invoke_end', body: 'rate limit exceeded', yieldTargets: null, metadata: null },
+      { id: 'e-5', senderId: 'otter-1', entryType: 'invoke_end', body: '429 Too Many Requests', yieldTargets: null, metadata: null },
     ];
-    convRepo.getLatestMessagesAfter = vi.fn(async () => latestRateLimit);
-
-    // getMessagesAfter（ASC）返回最早3条是正常消息
-    const earliestNormal = [
-      { id: 'msg-1', segments: [{ body: 'Starting task...' }], senderType: 'otter', status: 'completed' },
-      { id: 'msg-2', segments: [{ body: 'Processing...' }], senderType: 'otter', status: 'completed' },
-      { id: 'msg-3', segments: [{ body: '配额耗尽' }], senderType: 'otter', status: 'failed' },
-    ];
-    convRepo.getMessagesAfter = vi.fn(async () => earliestNormal);
+    (entryRepo.getEntriesAfter as ReturnType<typeof vi.fn>).mockResolvedValue(mixedEntries);
 
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -2325,7 +2429,8 @@ describe('#654: session 锁冲突记 skipped（非 failed），不计 consecutiv
 
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const cronParser = createMockCronParser(new Date('2026-09-01T11:00:00.000Z'));
 
@@ -2338,7 +2443,8 @@ describe('#654: session 锁冲突记 skipped（非 failed），不计 consecutiv
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -2405,7 +2511,8 @@ describe('#654: session 锁冲突记 skipped（非 failed），不计 consecutiv
 
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
-    const sendMessage = createMockSendMessage();
+    const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
     const cronParser = createMockCronParser(new Date('2026-09-01T11:00:00.000Z'));
 
@@ -2419,7 +2526,8 @@ describe('#654: session 锁冲突记 skipped（非 failed），不计 consecutiv
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
-      sendMessage: sendMessage as unknown as SendMessage,
+      sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
@@ -2435,5 +2543,84 @@ describe('#654: session 锁冲突记 skipped（非 failed），不计 consecutiv
     expect(statuses).toEqual(['failed', 'failed', 'failed']);
     expect(taskRepo._getFailureCount()).toBe(3);
     expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #775 S4a：scheduler 换轨（routeDirectSignal 直投 + 执行级台账看门狗 + 闸门 skipped）
+// ─────────────────────────────────────────────────────────────────────────────
+describe('#775 S4a: scheduler 换轨', () => {
+  function makeSwappedService(opts: {
+    taskRepo: ReturnType<typeof createMockTaskRepo>;
+    convRepo: ReturnType<typeof createMockConvRepo>;
+    sendEntry: ReturnType<typeof createMockSendEntry>;
+    entryRepo: ReturnType<typeof createMockEntryRepo>;
+    agentInvoke: ReturnType<typeof createMockAgentInvoke>;
+    router: { routeDirectSignal: ReturnType<typeof vi.fn>; watchHint?: string };
+  }) {
+    const nextTime = new Date('2025-06-15T09:00:00.000Z');
+    return new SchedulerService({
+      taskRepo: opts.taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: opts.convRepo as unknown as ConversationRepository,
+      sendEntry: opts.sendEntry as unknown as SendEntry,
+      entryRepo: opts.entryRepo as unknown as EntryRepository,
+      agentInvokePort: opts.agentInvoke as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(nextTime) as unknown as CronParser,
+      logger: mockLogger,
+      signalRouter: opts.router as never,
+    });
+  }
+
+  function seedReadyTask(taskRepo: ReturnType<typeof createMockTaskRepo>, convRepo: ReturnType<typeof createMockConvRepo>): void {
+    taskRepo._store.set('task-1', makeTask());
+    convRepo._addConversation('conv-1', { status: 'active' });
+  }
+
+  it('A1 换轨生效：trigger 走 routeDirectSignal（不再直连 executeChain/agentInvokePort）', async () => {
+    vi.useFakeTimers();
+    try {
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
+      const agentInvoke = createMockAgentInvoke();
+      const routeDirectSignal = vi.fn().mockResolvedValue('invoked');
+      seedReadyTask(taskRepo, convRepo);
+
+      const service = makeSwappedService({
+        taskRepo, convRepo, sendEntry, entryRepo, agentInvoke,
+        router: { routeDirectSignal },
+        // 看门狗首轮轮询即判收工（attempt 全终态）
+      });
+
+      const triggerPromise = service.trigger('task-1');
+      // 推进看门狗首轮 15s 轮询 sleep（watchExecutionByLedger 先 sleep 后查台账）
+      await vi.advanceTimersByTimeAsync(15_000);
+      const result = await triggerPromise;
+      expect(result.executionId).toBeTruthy();
+      expect(routeDirectSignal.mock.calls).toHaveLength(1);
+      expect(routeDirectSignal.mock.calls[0][0]).toBe('conv-1');
+      // 目标 = tsp[0]（第三参数）
+      expect(routeDirectSignal.mock.calls[0][2]).toBe('otter-1');
+      const execution = taskRepo._executions.get(result.executionId);
+      expect(execution?.status).toBe('completed');
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 15_000);
+
+  it('A3 启动对账：start() 把僵尸 running 执行翻篇为 failed', async () => {
+    const taskRepo = createMockTaskRepo();
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: createMockConvRepo() as unknown as ConversationRepository,
+      sendEntry: createMockSendEntry() as unknown as SendEntry,
+      entryRepo: createMockEntryRepo() as unknown as EntryRepository,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(new Date('2025-06-15T09:00:00.000Z')) as unknown as CronParser,
+      logger: mockLogger,
+    });
+    await service.start();
+    expect(taskRepo.failAllRunningExecutions.mock.calls).toHaveLength(1);
   });
 });

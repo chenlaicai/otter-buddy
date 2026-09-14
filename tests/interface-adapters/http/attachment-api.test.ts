@@ -25,13 +25,11 @@ import { AttachmentInjectionService } from "@usecases/conversation/attachment-in
 import { AttachmentController } from "@interface-adapters/http/controllers/attachment-controller";
 import { MessageController } from "@interface-adapters/http/controllers/message-controller";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
-import { SendMessage } from "@usecases/conversation/send-message";
 import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { ManageReadState } from "@usecases/conversation/manage-read-state";
-import type { MemoryIndexGateway } from "@usecases/conversation/memory-index-gateway";
 import type { Conversation, Turn, ConversationParticipant } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
 import { vi } from "vitest";
@@ -195,8 +193,12 @@ describe("sendMessage 附件前置校验 + FTS 时序（R3）", () => {
   let uploadedImageIds: string[] = [];
   let uploadedDocIds: string[] = [];
   let invokeParams: Array<{ images?: unknown[]; content?: string }> = [];
+  let sendEntryCalls: Array<{ body: string; attachmentIds?: string[] }>;
+  let attachCalls: Array<{ entryId: string; attachmentIds: string[] }>;
 
   beforeEach(async () => {
+    sendEntryCalls = [];
+    attachCalls = [];
     db = createTestDb();
     attachmentRepo = new SqliteAttachmentRepository(db);
     convRepo = new SqliteConversationRepository(db, createTestLogger());
@@ -251,16 +253,9 @@ describe("sendMessage 附件前置校验 + FTS 时序（R3）", () => {
     });
     uploadedDocIds.push(doc.id);
 
-    // stub：memory index（旁路）
-    const memoryIndex: MemoryIndexGateway = {
-      indexMessage: vi.fn(async () => {}), indexLinkedResource: vi.fn(),
-      indexFeature: vi.fn(), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(), indexResearchChunks: vi.fn(),
-    };
-    const sendMessage = new SendMessage(convRepo, otterRepo, memoryIndex, logger, attachmentRepo);
 
     const dispatchChainEngine = new DispatchChainEngine({
       conversationRepo: convRepo,
-      queryMessage: { getMessageById: async () => null, getLastMessageBySender: async () => null } as unknown as QueryMessage,
       queryOtter: { getById: async () => ({ name: "大獭" }) } as unknown as QueryOtter,
       logger: logger as never,
     });
@@ -272,7 +267,6 @@ describe("sendMessage 附件前置校验 + FTS 时序（R3）", () => {
     } as unknown as AgentInvoker;
 
     const messageController = new MessageController(
-      sendMessage,
       { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) } as unknown as ManageReadState,
       agentInvoker,
@@ -280,10 +274,26 @@ describe("sendMessage 附件前置校验 + FTS 时序（R3）", () => {
       { getById: async () => null } as unknown as QueryOtter,
       dispatchChainEngine,
       new MessageBroadcaster(logger) as never,
-      // F20260826mwrd C4 合并适配：MessageController 新增 signalRepo 位（signals 徽章数据源），
-// 本测试不涉信号，传 undefined 占位，attachmentInjection 仍在末位
+      // F20260826mwrd C4 合并适配：signalRepo 位占位
       undefined,
       injection,
+      undefined,
+      // F20260913ctlv 彻底切换：sendEntry（user 消息唯一落点 = entries）——记录调用面供断言
+      Object.assign({
+        sendUserEntry: async (input: { conversationId: string; senderId: string; body: string; talkingStonePassedTo?: string[]; attachmentIds?: string[] }) => {
+          sendEntryCalls.push(input);
+          return {
+            entry: { id: "user-entry-att", sequenceNum: 1, body: input.body, createdAt: new Date().toISOString() },
+            talkingStonePassedTo: input.talkingStonePassedTo ?? ["otter-1"],
+            mentionFeedback: undefined,
+          };
+        },
+        attachEntryAttachments: async (entryId: string, attachmentIds: string[]) => { attachCalls.push({ entryId, attachmentIds }); },
+        createSystemEntry: async () => ({ entry: { id: "sys-att", sequenceNum: 2 } }),
+      }, {
+        _sendEntryCalls: sendEntryCalls,
+        _attachCalls: attachCalls,
+      }) as never
     );
 
     app = new Hono();
@@ -342,17 +352,16 @@ describe("sendMessage 附件前置校验 + FTS 时序（R3）", () => {
     expect(res.status).toBe(400);
   });
 
-  it("R3 FTS 时序：带附件消息落库后 messages_fts.body 含附件占位", async () => {
+  it("R3 FTS 时序：带附件消息 attachmentIds 传 SendEntry（终审修复：attach 下沉 usecases）", async () => {
     const res = await postMessage(uploadedImageIds.slice(0, 1));
     expect(res.status).toBe(200);
     await res.text();
 
-    // 直接查 FTS 表（真 sqlite 断言，非 mock）
-    const ftsRows = db.prepare(
-      "SELECT f.message_id, f.body FROM messages_fts f JOIN messages m ON m.id = f.message_id WHERE m.sender_type = 'user' ORDER BY m.sequence_num DESC LIMIT 1",
-    ).all() as Array<{ message_id: string; body: string }>;
-    expect(ftsRows).toHaveLength(1);
-    expect(ftsRows[0].body).toContain("看图");
-    expect(ftsRows[0].body).toContain("[图片: img0.png]");
+    // F20260913ctlv 终审修复：attach 下沉 sendUserEntry 内部（三入口统一）——
+    // controller 不再手动调 attachEntryAttachments，attachmentIds 即绑定凭证
+    expect(sendEntryCalls).toHaveLength(1);
+    expect(sendEntryCalls[0]!.attachmentIds).toEqual(uploadedImageIds.slice(0, 1));
+    // controller 手动 attach 已删（下沉后冗余）——attachCalls 保持空
+    expect(attachCalls).toHaveLength(0);
   });
 });
