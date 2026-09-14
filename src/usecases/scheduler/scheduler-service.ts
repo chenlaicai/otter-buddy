@@ -530,6 +530,16 @@ export class SchedulerService {
     //   不含 claim/resolve/createExecution 前置操作（更准确反映 agent 执行耗时）。
     let executionStartMs = 0;
 
+    // #913：claim 成功后、execution 行建立前的失败窗口标记。
+    // Why：前置阶段（resolveEffectiveBody/createExecution）炸时 execution 行不存在，
+    // 无法走 handleTaskExecutionFailure（它要 update execution 状态）——此前这段
+    // 失败完全静默（外层 try 无 catch，异常直抛调用方只 logger.error），2026-09-14
+    // 生产现场 4 任务 catch-up 连炸零痕迹（搭档体感「对话几天没跑」但无告警）。
+    // 修复：窗口内炸点落 healing event 后 rethrow，self-healing 分析至少能现形。
+    // Why 不计入 consecutiveFailures：前置炸点未产生 execution，失败计数器挂在
+    // execution 生命周期上；且 #912 已修 FK 主因，此处是兑底可见性不是重试治理。
+    let executionEstablished = false;
+
     try {
       await this.claimAndValidateTask(task, now).catch(err => {
         status = 'skipped';
@@ -544,6 +554,7 @@ export class SchedulerService {
 
       const executionId = crypto.randomUUID();
       await this.createExecution(executionId, task.id, now);
+      executionEstablished = true;
 
       // PR4: function executor 分支——纯代码执行，无 LLM 会话
       if (task.executorType === 'function') {
@@ -656,6 +667,15 @@ export class SchedulerService {
         await this.handleTaskExecutionFailure(executionId, task.id, error, options?.skipConsecutiveFailureTracking);
         throw error;
       }
+    } catch (error) {
+      // #913：claim 成功后、execution 行建立前的前置炸点（见 executionEstablished 声明处注释）。
+      // claim 被拒（status='skipped'）与 resolveEffectiveBody 返回 null 属正常跳过，
+      // 不走此分支（它们不抛错或已 return）。
+      if (!executionEstablished && status !== 'skipped') {
+        status = 'failed';
+        await this.recordPreExecutionFailureHealing(task, error);
+      }
+      throw error;
     } finally {
       this.metrics?.recordTrigger(task.scheduleType, status);
       // executionStartMs=0 表示前置阶段就抛错，不计入 histogram（无可观测的执行耗时）
@@ -1175,6 +1195,36 @@ export class SchedulerService {
   /** #754：单次执行失败落 healing 台账（medium）。#847 检视建议 1 扩展：once 重试路径
    *  （skipConsecutiveFailureTracking 分支）同样调用——重试中间失败也值得台账可见。
    *  errorMessage 截断 2000 字符防御（#847 检视建议 2：context JSON 无大小限制）。 */
+  /** #913：claim 成功后、execution 建立前的前置炸点落 healing（与 recordSingleFailureHealing
+   *  同语义但不依赖 executionId——前置失败时 execution 行不存在）。best-effort：落账失败不阻断 rethrow。 */
+  private async recordPreExecutionFailureHealing(task: ScheduledTask, error: unknown): Promise<void> {
+    if (!this.healingRepo) return;
+    try {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const truncated = errorMessage.length > 2000 ? errorMessage.slice(0, 2000) + '…[truncated]' : errorMessage;
+      await this.healingRepo.create({
+        id: crypto.randomUUID(),
+        messageId: '',
+        conversationId: task.conversationId,
+        otterId: task.talkingStonePassedTo[0] ?? '',
+        errorType: 'other',
+        severity: 'medium',
+        description: `定时任务「${task.name}」触发前置阶段失败（#913：claim 后 execution 建立前，无 execution 行）`,
+        suggestion: '检查 scheduled_task_executions 是否无行而 last_triggered_at 已更新；错误摘要见 context.triggerError',
+        context: { taskId: task.id, stage: 'pre-execution', triggerError: truncated },
+        status: 'open',
+        resolution: null,
+        createdAt: new Date().toISOString(),
+        resolvedAt: null,
+      });
+    } catch (err) {
+      this.logger.warn('recordPreExecutionFailureHealing: healing event write failed (non-fatal)', {
+        taskId: task.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   private async recordSingleFailureHealing(taskId: string, executionId: string, errorMessage: string, now: string): Promise<void> {
     if (!this.healingRepo) return;
     try {
