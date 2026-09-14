@@ -6,20 +6,18 @@
  */
 import { describe, it, expect } from 'vitest';
 import { validateCommitDate } from '../../scripts/validate-commit-date.mjs';
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.resolve(__dirname, '../../scripts/validate-commit-date.mjs');
 
+// F20260914prdb: execFileSync 换 spawnSync——成功路径（exit 0）也要能收 stderr，
+// 否则 --warn-on-drift 的警告文本无法断言（#789 定稿改名模型测试需要）
 function runCLI(args: string[]): { exitCode: number; stdout: string; stderr: string } {
-  try {
-    const stdout = execFileSync('node', [SCRIPT, ...args], { encoding: 'utf-8' });
-    return { exitCode: 0, stdout, stderr: '' };
-  } catch (err: any) {
-    return { exitCode: err.status ?? 1, stdout: err.stdout ?? '', stderr: err.stderr ?? '' };
-  }
+  const r = spawnSync('node', [SCRIPT, ...args], { encoding: 'utf-8' });
+  return { exitCode: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
 }
 
 // 固定基准时间：2026-08-25 12:00 Asia/Shanghai（正午，避开午夜边界干扰）
@@ -189,6 +187,55 @@ describe('validateCommitDate', () => {
       const { exitCode } = runCLI(['--at', '2026-09-04T03:56:11Z']);
       // 无 stdin 输入时 readFileSync(0) 会读到空/EOF → exit 0
       expect([0, 1]).toContain(exitCode);
+    });
+  });
+
+  describe('CLI 双基准与 --warn-on-drift（F20260914prdb 定稿改名模型）', () => {
+    // 搭档决策 2026-09-14：squash 模型下 PR 标题即 main 历史，特性文档 ID ≡ PR 标题 ID；
+    // PR 定稿改名（创建日→合入日）后，双基准任一通过：创建基准覆盖旧 ID，当前基准覆盖新 ID
+    it('dual-base: 定稿改名合入日后，--at 创建时间基准被当前时间基准救回（PR 标题改名场景）', () => {
+      // #789 现场：创建 9-04，定稿改名 F20260914wxeg。与创建基准差 10 天，但与当前（9-14）差 0 天 → 通过
+      const { exitCode } = runCLI([
+        '--at', '2026-09-04T03:56:11Z',
+        '[F20260914wxeg][weixin][BugFix] 出站 sendmessage 全量观测日志',
+      ]);
+      expect(exitCode).toBe(0);
+    });
+
+    it('dual-base: 创建日 ID 持续肠通（--at 基准通过，与当前时间无关）', () => {
+      const { exitCode } = runCLI([
+        '--at', '2026-09-04T03:56:11Z',
+        '[F20260904wxeg][weixin][BugFix] 出站 sendmessage 全量观测日志',
+      ]);
+      expect(exitCode).toBe(0);
+    });
+
+    it('dual-base: 两基准都不在窗内仍拦（发起时就写错且未改名）', () => {
+      // 创建 9-04，标题写 8-25（差 10 天）且与今天也超窗 → 拦
+      const { exitCode, stderr } = runCLI([
+        '--at', '2026-09-04T03:56:11Z',
+        '[F20260825abcd][agent][Feature Update] 测试',
+      ]);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('偏差');
+    });
+
+    it('--warn-on-drift: 偏差超窗降为警告 exit 0（钩子场景）', () => {
+      const { exitCode, stderr } = runCLI([
+        '--warn-on-drift',
+        '[F20260801abcd][agent][Feature Update] 测试',
+      ]);
+      expect(exitCode).toBe(0);
+      expect(stderr).toContain('警告');
+    });
+
+    it('--warn-on-drift: bad_date 非法日期仍硬拦（凭印象编日期笔误仍被拦下）', () => {
+      const { exitCode, stderr } = runCLI([
+        '--warn-on-drift',
+        '[F20261325abcd][agent][Feature Update] 测试',
+      ]);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('非法');
     });
   });
 

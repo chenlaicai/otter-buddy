@@ -4,7 +4,10 @@ on:
   push:
     branches:
       - main
+  # F20260914prdb: 加 edited——PR 标题改名（定稿改合入日）必须重跑标题校验，
+  # 否则 checks 停留在旧标题的结果，新标题从未被验过
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 jobs:
   check:
@@ -46,8 +49,8 @@ jobs:
           echo "✅ PR 标题格式正确"
 
       # F20260825dva2: 特性 ID 日期校验——复用 scripts/validate-commit-date.mjs 单一实现
-      # F20260914prdb: 基准时间用 PR 创建时间而非当前时间——消灭「PR 放着越久越超窗」的
-      # 时间漂移误伤（校验意图是发起时日期写对，不是 PR 多久内必须合完）
+      # F20260914prdb: 基准时间双基准任一通过——PR 创建时间（创建日 ID 合法）与
+      # 当前时间（定稿改名合入日后合法）均肠通，PR 全生命周期不撞墙
       - name: Check PR title feature ID date
         if: github.event_name == 'pull_request'
         env:

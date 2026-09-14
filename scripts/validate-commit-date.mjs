@@ -10,12 +10,16 @@
  * 消除 PR #435 检视时发现的 ~0.3s/roundtrip 理论漂移。
  *
  * F20260914prdb: 基准时间可注入——CLI 支持 `--at <ISO>`。CI 的 PR 标题校验传 PR
- * 创建时间（github.event.pull_request.created_at），消灭「PR 放着越久越超窗」的
- * 时间漂移误伤：校验意图是「发起时日期写对没有」，不是「PR 多久内必须合完」。
+ * 创建时间（github.event.pull_request.created_at）+ 当前时间双基准任一通过：
+ * PR 全生命周期（创建日 ID → 定稿改名合入日）均肠通——squash 模型下 PR 标题即 main
+ * 历史，特性文档 ID 必须 ≡ PR 标题 ID（搭档决策 2026-09-14），定稿改名不再被拦。
+ * 另支持 `--warn-on-drift`（commit-msg 钩子用）：偏差超窗降为警告 exit 0（中间 commit
+ * 标题会被 squash 抹掉，阻断是纯摩擦）；bad_date 非法日期仍硬拦。
  *
  * 用法：
  *   CLI: node scripts/validate-commit-date.mjs "[F20260825abcd]..."
  *        node scripts/validate-commit-date.mjs --at "2026-09-04T03:56:11Z" "[F20260904wxeg]..."
+ *        node scripts/validate-commit-date.mjs --warn-on-drift "[F20260801abcd]..."  # 钩子用
  *   或:  echo "[F20260825abcd]..." | node scripts/validate-commit-date.mjs
  *
  * 退出码：
@@ -102,10 +106,13 @@ import { pathToFileURL } from 'node:url';
 
 const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectRun) {
-  // F20260914prdb: --at <ISO> 注入基准时间（CI 传 PR 创建时间用）
+  // F20260914prdb: --at <ISO> 注入基准时间（CI 传 PR 创建时间，与当前时间双基准任一通过）
+  // F20260914prdb: --warn-on-drift 偏差超窗降为警告（commit-msg 钩子用，bad_date 仍硬拦）
   const args = process.argv.slice(2);
   const atIdx = args.indexOf('--at');
-  let now = new Date();
+  const warnOnDrift = args.includes('--warn-on-drift');
+  if (warnOnDrift) args.splice(args.indexOf('--warn-on-drift'), 1);
+  let atDate = null;
   if (atIdx !== -1) {
     const at = args[atIdx + 1];
     if (!at) {
@@ -117,20 +124,36 @@ if (isDirectRun) {
       process.stderr.write(`错误：--at 参数不是合法的 ISO 时间：${at}\n`);
       process.exit(1);
     }
-    now = parsed;
+    atDate = parsed;
     args.splice(atIdx, 2);
   }
   const input = args[0] || readFileSync(0, 'utf-8');
   const firstLine = input.split('\n')[0].trim();
   if (!firstLine) process.exit(0);
 
-  const result = validateCommitDate(firstLine, now);
+  // 双基准判定（--at 存在时）：创建基准与当前基准任一通过即过；bad_date 任一命中即拦
+  let result = validateCommitDate(firstLine, new Date());
+  if (atDate) {
+    const atResult = validateCommitDate(firstLine, atDate);
+    if (atResult.status === 'bad_date') {
+      result = atResult;
+    } else if (atResult.valid) {
+      result = atResult;
+    }
+  }
+
   if (!result.valid) {
-    const msg = result.status === 'bad_date'
-      ? `错误：特性 ID 日期非法（如 13 月/40 日/Feb 30）。请检查特性 ID 日期部分。\n`
-      : `错误：特性 ID 日期与基准日期不符（偏差 ${result.diffDays} 天）。\n` +
-        `  ID 日期: ${result.idDate}  基准日期: ${result.baseDate}\n` +
-        `请跑 date 确认今天日期，修正 F 类特性 ID 后重新提交。\n`;
+    if (result.status === 'bad_date') {
+      process.stderr.write('错误：特性 ID 日期非法（如 13 月/40 日/Feb 30）。请检查特性 ID 日期部分。\n');
+      process.exit(1);
+    }
+    const msg = `错误：特性 ID 日期与基准日期不符（偏差 ${result.diffDays} 天）。\n` +
+      `  ID 日期: ${result.idDate}  基准日期: ${result.baseDate}\n` +
+      `请跑 date 确认今天日期，修正 F 类特性 ID 后重新提交。\n`;
+    if (warnOnDrift) {
+      process.stderr.write(`警告（不阻断）：${msg}`);
+      process.exit(0);
+    }
     process.stderr.write(msg);
     process.exit(1);
   }
