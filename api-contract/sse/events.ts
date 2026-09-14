@@ -31,6 +31,11 @@ export type SSEEventMap = {
   // ── invoke 生命周期事件（invokes 表投影） ──
   /** invoke 开始（invoke 记录创建 + invoke_start entry） */
   "invoke.start": { invokeId: string; otterId: string; otterName: string; conversationId: string; startedAt: string; triggerEntryId?: string };
+  /** invoke 过程心跳（F20260914rtsp）：每次 LLM 往返（message_end）发射一次。
+   *  ctxWindowUsed = 末次往返 usage.totalTokens（上下文窗口占用快照，含 cacheRead/cacheWrite），
+   *  与 invoke.end.tokenUsage（input+output 成本口径累计）语义不同——勿混用（见 F20260914rtsp D8）。
+   *  usage 缺失时不发射（右栏显示 '—' 兑底）。 */
+  "invoke.tick": { invokeId: string; otterId: string; conversationId: string; ctxWindowUsed: number; ctxMax: number; modelAlias?: string; toolCallCount?: number };
   /** invoke 结束（completed/failed/aborted）。duration 为 invoke 耗时（ms，number） */
   "invoke.end": { invokeId: string; otterId: string; otterName?: string; status: "completed" | "failed" | "aborted"; endedAt: string; duration?: number; toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string; endBody?: string };
 

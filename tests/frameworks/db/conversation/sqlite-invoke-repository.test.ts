@@ -42,6 +42,7 @@ function invokeFixture(overrides: Partial<Invoke> = {}): Invoke {
     toolCallCount: 0,
     tokenUsageInput: null,
     tokenUsageOutput: null,
+    ctxWindowUsed: null,
     metadata: null,
     ...overrides,
   };

@@ -22,6 +22,8 @@ export interface InvokeDTO {
   toolCallCount: number;
   tokenUsageInput: number | null;
   tokenUsageOutput: number | null;
+  /** F20260914rtsp：末次 LLM 往返上下文窗口占用（含 cache），右栏「休息中 · xx/xx」数据源 */
+  ctxWindowUsed: number | null;
 }
 
 /** invoke 事件类型（流式过程记录） */

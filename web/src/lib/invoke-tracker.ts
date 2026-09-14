@@ -18,6 +18,10 @@ export interface OtterInvokeState {
   /** invoke.end 携带（终态快照） */
   toolCallCount?: number
   tokenUsage?: { input: number; output: number }
+  /** F20260914rtsp：末次 LLM 往返 ctx 窗口占用（invoke.tick 携带；右栏 xx/xx 数据源） */
+  ctxWindowUsed?: number
+  /** F20260914rtsp：模型 ctx 上限（invoke.tick 携带） */
+  ctxMax?: number
 }
 
 /** invoke.start 事件负载（见 api-contract/sse/events.ts） */
@@ -37,6 +41,18 @@ export interface InvokeEndPayload {
   endedAt: string
   toolCallCount?: number
   tokenUsage?: { input: number; output: number }
+}
+
+/** F20260914rtsp：invoke.tick 事件负载（见 api-contract/sse/events.ts） */
+export interface InvokeTickPayload {
+  invokeId: string
+  otterId: string
+  conversationId: string
+  /** 末次 LLM 往返 usage.totalTokens（窗口占用快照，含 cache） */
+  ctxWindowUsed: number
+  ctxMax: number
+  modelAlias?: string
+  toolCallCount?: number
 }
 
 export type InvokeStates = Record<string, OtterInvokeState>
@@ -68,6 +84,9 @@ export function applyInvokeEnd(states: InvokeStates, data: InvokeEndPayload): In
     endedAt: data.endedAt,
     toolCallCount: data.toolCallCount,
     tokenUsage: data.tokenUsage,
+    // F20260914rtsp：终态保留 tick 已写入的 ctx（「休息中 · xx/xx」数据源——上轮末次往返占用）
+    ctxWindowUsed: prev.ctxWindowUsed,
+    ctxMax: prev.ctxMax,
   }
   if (prev.status === next.status && prev.endedAt === next.endedAt) return states
   return { ...states, [data.otterId]: next }
@@ -76,6 +95,32 @@ export function applyInvokeEnd(states: InvokeStates, data: InvokeEndPayload): In
 /** 该獭是否 streaming（有 running invoke） */
 export function isStreaming(states: InvokeStates, otterId: string): boolean {
   return states[otterId]?.status === 'running'
+}
+
+/** F20260914rtsp：invoke.tick → 更新 ctx/工具计数（running 期间实时化）。
+ *  幂等：同 invokeId 同值返回原引用（避免高频 tick 触发无谓 re-render）。
+ *  乱序防御：无 prev 或 invokeId 不匹配则忽略（重连重放场景）。 */
+export function applyInvokeTick(states: InvokeStates, data: InvokeTickPayload): InvokeStates {
+  const prev = states[data.otterId]
+  if (!prev || prev.invokeId !== data.invokeId) return states
+  const next: OtterInvokeState = {
+    ...prev,
+    toolCallCount: data.toolCallCount ?? prev.toolCallCount,
+    ctxWindowUsed: data.ctxWindowUsed,
+    ctxMax: data.ctxMax,
+  }
+  if (
+    prev.toolCallCount === next.toolCallCount &&
+    prev.ctxWindowUsed === next.ctxWindowUsed &&
+    prev.ctxMax === next.ctxMax
+  ) return states
+  return { ...states, [data.otterId]: next }
+}
+
+/** F20260914rtsp：ctx 占用短格式（45200 → 45.2k；null/undefined → '—'） */
+export function fmtCtx(n: number | undefined | null): string {
+  if (n == null) return '—'
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
 }
 
 /** invokeId → otterId 反查（invoke.end 事件实际发射不带 otterId，从状态表反查） */

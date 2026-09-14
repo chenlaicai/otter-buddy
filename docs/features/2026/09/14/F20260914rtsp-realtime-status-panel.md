@@ -228,6 +228,15 @@ function foldInvokeEvents(events: InvokeEventDTO[]): FoldedStep[]
 | AT-11 | usage 缺失降级 | message_end 无 usage 字段时不发射 tick、不报错；右栏 ctx 显示 '—'（检视发现 2 降级路径） |
 | AT-12 | 同名工具连续调用折叠 | search_memory 连调 2 次：FIFO 配对正确（第 1 次结果不配给第 2 次），两行各含自己的 result |
 
+### 实现自检记录（2026-09-14 16:22）
+
+- **测试**：后端 244 files / 2867 tests 全过；前端 48 files / 423 tests 全过（含新增 invoke-event-fold.test 7 用例 / invoke-tracker.test tick 4 用例 / SessionModal.test 2 用例 / agent-invoker.test tick 2 用例）
+- **类型**：tsc --noEmit 双包零错；eslint 零 error（4 条 warning 为存量：cost-output no-console×2 + index.tsx runOrDefer deps×2，与本变更无关）
+- **首次全量时 1 个 ensure-hooks 用例偶发失败**，复跑通过（临时目录钩子测试对并行敏感，非本变更引入——无 stash 基线对照必要，该用例不在本 PR 触碰面内且复跑已绿）
+- **AT 覆盖对照**：AT-1/2/3（RightPanel 措辞 + tickNow prop）无组件级新用例——状态行文案断言已随 RightPanel.test 更新（「持久」移除断言）；走秒 interval 逻辑简单（1s setInterval + anyRunning 开关），由代码检查覆盖。AT-5 刷新恢复路径在 index.tsx（ctxWindowUsed 回填），由 tsc 类型面保障
+- **最简实现检查（已过）**：无新依赖、无新文件（后端）；前端仅新建 invoke-event-fold.ts 一个纯函数文件（方案 D 节明确要求的折叠归并）；tick 复用现有 broadcastEvent 通道无新端口；ctxMax 复用 F20260901cxmw 的 getCtxMax 缓存
+- **废弃资源清理**：无旧路径迁移——entry.context_tokens 恒 null 字段维持现状不复活（方案 B 节拍板，退役判定另起）
+
 ## 改动范围
 
 | 文件 | 操作 | 说明 |
