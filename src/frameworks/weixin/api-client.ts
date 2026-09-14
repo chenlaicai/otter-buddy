@@ -29,7 +29,7 @@ export class WeixinApiClient {
 
   private readonly baseUrl: string;
   private readonly token?: string;
-  /** F20260904wxeg：出站观测依赖（可选——不影响既有调用方，无 logger 时静默降级） */
+  /** F20260914wxeg（原 F20260904wxeg，定稿改名）：出站观测依赖（可选——不影响既有调用方，无 logger 时静默降级） */
   private readonly logger?: { info: (msg: string, ctx?: Record<string, unknown>) => void; error: (msg: string, err?: Error, ctx?: Record<string, unknown>) => void };
 
   constructor(options: { baseUrl: string; token?: string; logger?: WeixinApiClient["logger"] }) {
@@ -157,7 +157,7 @@ export class WeixinApiClient {
       item_list: [{ type: 1, text_item: { text: params.text } }],
       context_token: params.contextToken,
     };
-    // F20260904wxeg：出站全量观测——sendmessage 是 iLink「假成功」重灾区（ret=0 但微信侧
+    // F20260914wxeg（原 F20260904wxeg，定稿改名）：出站全量观测——sendmessage 是 iLink「假成功」重灾区（ret=0 但微信侧
     // 不投递），入参/响应逐字段留痕，排查不再依赖「无错误日志」的反推（#213 教训）
     const startedAt = Date.now();
     let resp: WeixinSendMessageResp;

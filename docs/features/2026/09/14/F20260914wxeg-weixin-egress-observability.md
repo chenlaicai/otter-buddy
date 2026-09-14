@@ -1,5 +1,5 @@
 ---
-id: F20260904wxeg
+id: F20260914wxeg
 title: 微信出站 sendmessage 全量观测日志
 summary: 微信出站全黑洞排查（ret=0 假成功但微信侧不投递）中暴露的观测盲区——sendTextMessage 无成功日志，排查只能靠「无错误日志」反推（#213 教训重演）。本特性给出站 sendmessage 补全量观测：入参摘要（clientId/textLength/hasContextToken）+ 响应留痕（ret/errcode/errmsg/elapsedMs）+ 传输层异常显式记错；同时补 errcode 通道校验（relay-claw F137 实证 sendmessage 失败可能走 errcode 而非 ret，仅查 ret 会静默放行）。
 change_type: fix
@@ -45,3 +45,9 @@ modules: [src/frameworks/weixin/api-client.ts, src/frameworks/weixin/types.ts, s
 
 - 若真机确认「发了 ret=0 但不投递」：问题定位收敛到 iLink 服务端侧，客户端排查线关闭
 - typing（sendTyping）的观测留待本特性验证后按需补——先钉住文本主路径；媒体路径 errcode 拦截已随审视处置补齐，观测日志（出/入参留痕）仍留待后续
+
+## 定稿改名记录（2026-09-14）
+
+- 原 ID F20260904wxeg（9-04 创建），按搭档定稿的「合入当天日期」规则改名 F20260914wxeg（F20260914prdb 三配套支撑：双基准 CI + edited 触发 + 钩子降级）
+- 文档从 09/04/ 迁移至 09/14/，git mv 保留重命名血缘
+- **BYGATE 说明**：本次 commit 携带 BYPASS_HISTORICAL_DOC_LINT=1——lint-historical-docs 的 isAddedOnBranch 对「重命名 + 定稿改名 + merge main」组合链路误判（--follow 跨 09/04→09/14 路径与 merge 基线交互后，新路径的 Add 记录未被识别）。该文档从未合入 main（git log origin/main 无记录），不属于「已合入快照不可变」铁律的保护对象。结构性迁移合法使用 BYPASS 出口，理由记录于此。
