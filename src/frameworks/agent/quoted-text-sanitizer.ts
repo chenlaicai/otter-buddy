@@ -33,10 +33,17 @@ const SENSITIVE_TOKENS: RegExp[] = [
 ];
 
 /**
- * 引号内「多词文本」——含至少一个非词字符（空格/中文/标点），排除 'kill' 这类
+ * 引号内「多词文本」——含至少一个非词字符（空格/中文/标点），排除 'k' 这类
  * 单词全引号（那是 #850 归一化的领地）。非贪婪成对匹配，不跨行。
+ * #923 处置重构：单引号段与双引号段分开处理——shell 语义上单引号内是 100%
+ * 字面量（$() / 反引号都不展开），有资格无条件脱敏；双引号内 $() / 反引号
+ * 会展开（是执行），命中即整体跳过脱敏。
  */
-const QUOTED_TEXT = /"[^"\n]*[^\w"\n][^"\n]*"|'[^'\n]*[^\w'\n][^'\n]*'/g;
+const SINGLE_QUOTED_TEXT = /'[^'\n]*[^\w'\n][^'\n]*'/g;
+const DOUBLE_QUOTED_TEXT = /"[^"\n]*[^\w"\n][^"\n]*"/g;
+
+/** #923 处置 c：shell 执行载荷通道——命中时命令里的引号段是「要执行的命令」本体 */
+const SHELL_PAYLOAD_CHANNEL = /\b(?:bash|sh|zsh)\s+-c\b|\|\s*(?:sh|bash|zsh)\b|\b(?:perl|ruby|python\d?)\s+.*(?:-e|-c)\s|<<</;
 
 /** 文本中是否含敏感词元（重置 lastIndex 防全局正则状态泄漏） */
 function containsSensitiveToken(text: string): boolean {
@@ -55,12 +62,20 @@ function sanitizeSegment(segment: string): string {
   return out;
 }
 
-/** 危险通道检测：引号内是执行内容（非纯数据）的形态，禁止脱敏 */
+/** 危险通道检测：引号内是执行内容（非纯数据）的形态，禁止脱敏。
+ * #923 检视建议 1 修复：双引号内的 $() / 反引号 / ${...} 是 shell 真实展开
+ * （执行）——存在即整体跳过脱敏。单引号内的这些形态是字面文本（永不展开），
+ * 不在此判定范围（单引号段无条件可脱敏，shell 语义背书）。 */
 function hasExecutionChannel(command: string): boolean {
   if (/\b(?:bash|sh|zsh)\s+-c\b/.test(command)) return true; // shell -c 内嵌执行
   if (/\|\s*(?:sh|bash|zsh)\b/.test(command)) return true; // 管道进 shell
   if (/\b(?:perl|ruby|python\d?)\s+.*(?:-e|-c)\s/.test(command)) return true; // 脚本 one-liner
   if (/<<</.test(command)) return true; // heredoc（skill 层 body-file 是正道）
+  // 展开特征检查范围：单引号段之外（双引号段 + 裸露部分）——单引号内永不展开
+  const outsideSingle = command.replace(SINGLE_QUOTED_TEXT, "");
+  if (/\$\(/.test(outsideSingle)) return true; // 命令替换
+  if (/`/.test(outsideSingle)) return true; // 反引号命令替换
+  if (/\$\{[^}]*\}/.test(outsideSingle)) return true; // ${...} 参数展开（展开语义保守归通道）
   return false;
 }
 
@@ -81,11 +96,18 @@ function stripEmptyQuotePairs(command: string): string {
  */
 export function shouldSanitizeForScan(command: string): boolean {
   const basis = stripEmptyQuotePairs(command);
-  QUOTED_TEXT.lastIndex = 0;
-  const matches = basis.match(QUOTED_TEXT) ?? [];
-  if (matches.length === 0) return false;
-  if (!matches.some(containsSensitiveToken)) return false;
-  return !hasExecutionChannel(basis);
+  SINGLE_QUOTED_TEXT.lastIndex = 0;
+  DOUBLE_QUOTED_TEXT.lastIndex = 0;
+  const singleMatches = basis.match(SINGLE_QUOTED_TEXT) ?? [];
+  const doubleMatches = basis.match(DOUBLE_QUOTED_TEXT) ?? [];
+  if (singleMatches.length === 0 && doubleMatches.length === 0) return false;
+  // #923 处置 c：shell 执行载荷通道（bash -c / pipe-to-shell / 脚本 one-liner /
+  // heredoc）存在时，单引号是其载荷容器（引号内是要执行的命令，不是数据）——
+  // 一律不脱敏，回到保守路径。此判定先行，无载荷通道时才谈引号分治。
+  if (SHELL_PAYLOAD_CHANNEL.test(basis)) return false;
+  if (singleMatches.some(containsSensitiveToken)) return true; // 单引号段 100% 字面量，命中即够
+  if (doubleMatches.some(containsSensitiveToken) && !hasExecutionChannel(basis)) return true;
+  return false;
 }
 
 /**
@@ -95,6 +117,7 @@ export function shouldSanitizeForScan(command: string): boolean {
  */
 export function sanitizeQuotedText(command: string): string {
   const basis = stripEmptyQuotePairs(command);
-  QUOTED_TEXT.lastIndex = 0;
-  return basis.replace(QUOTED_TEXT, sanitizeSegment);
+  SINGLE_QUOTED_TEXT.lastIndex = 0;
+  DOUBLE_QUOTED_TEXT.lastIndex = 0;
+  return basis.replace(SINGLE_QUOTED_TEXT, sanitizeSegment).replace(DOUBLE_QUOTED_TEXT, sanitizeSegment);
 }

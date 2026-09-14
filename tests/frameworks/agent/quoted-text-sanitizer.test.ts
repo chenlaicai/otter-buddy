@@ -34,6 +34,12 @@ describe("#858 shouldSanitizeForScan 判定", () => {
     expect(shouldSanitizeForScan(`cat <<< "heredoc with ${K}"`)).toBe(false);
   });
 
+  it("#923 建议 1 回归：双引号内 $() 命令替换 → 不脱敏（真实执行，拦截路径不变）", () => {
+    expect(shouldSanitizeForScan(`echo "result: $( ${K} 42877 )"`)).toBe(false);
+    expect(shouldSanitizeForScan(`echo "pid: \`ps aux\` and ${K} desc"`)).toBe(false); // 反引号
+    expect(shouldSanitizeForScan(`echo "var: ${K} of ${'${'}HOME}"`)).toBe(false); // 参数展开保守
+  });
+
   it("单词全引号（无空格）不匹配 QUOTED_TEXT（归一化路径领地）", () => {
     expect(shouldSanitizeForScan(`'${K}' 42877`)).toBe(false);
   });
@@ -93,7 +99,12 @@ describe("#858 守卫集成（现场 13 起形态回归）", () => {
     expect(checkBashCommandSafety(cmd, MAIN_PID)).toBeTruthy();
   });
 
-  it("危险词元与描述混合：描述引号放行但引号外仍有命令位 → 拦截（脱敏后仍命中）", () => {
+  it("#923 建议 1 回归（守卫集成）：双引号内 $() 终止主进程 → 拦截", () => {
+    const cmd = `echo "result: $( ${K} ${MAIN_PID} )"`;
+    expect(checkBashCommandSafety(cmd, MAIN_PID)).toBeTruthy();
+  });
+
+  it("混合形态：描述引号放行但引号外仍有命令位 → 拦截（脱敏后仍命中）", () => {
     // 引号内是描述（脱敏），引号外 xargs 形态的终止命令仍要拦
     const cmd = `echo "desc of ${K}" ; P=$(lsof -t -i:8080); ${K} $P`;
     expect(checkBashCommandSafety(cmd, MAIN_PID)).toBeTruthy();

@@ -40,7 +40,7 @@ modules:
 ## 验证
 
 - 新增 15 单测：shouldSanitizeForScan 判定 5 + sanitizeQuotedText 替换 3 + 守卫集成 7（现场 13 起的形态回归：gh --body 引 review 文本/issue 正文/测试字符串放行；真实危险维持：引号外命令位主进程 PID/bash -c/pipe-to-shell/混合形态/#850 单词全引号语义）；
-- 全量 2941/2941 pass（含 #844 全部 23 用例、#858 假边界回归），tsc 0 error，eslint 0 error；
+- 全量 2943/2943 pass（含 #844 全部用例、#850 全部 89 用例、#858 假边界回归），tsc 0 error，eslint 0 error；
 - 最简实现检查：已过——脱敏是独立纯函数模块（~90 行），接入点单一（checkBashCommandSafety 入口 5 行），未引入依赖。
 
 ## 边界与已知限制

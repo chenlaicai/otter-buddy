@@ -191,7 +191,13 @@ function isKillAtCommandPosition(text: string, pattern: RegExp): boolean {
   while ((m = re.exec(text)) !== null) {
     const pos = m.index;
     if (pos === 0) return true;
-    const prev = text[pos - 1];
+    // #923 检视建议 1 处置：跳过紧邻空白找真实前导字符——`$( k... )` / `( k... )`
+    // 的词元前是空格、空格前才是命令替换/子 shell 边界。只看 pos-1 会把命令位
+    // 误判为数据位（#777 既有缺口，引号内 $() 真实执行逃逸）。空白跳过不改变
+    // 数据位判定（路径中段/引号内/中文语境的非空白前导仍在白名单外）
+    let i = pos - 1;
+    while (i >= 0 && /\s/.test(text[i])) i--;
+    const prev = i >= 0 ? text[i] : "";
     if (VALID_CMD_PRECEDERS.has(prev)) return true;
     // 前缀词剥除：词元前的文本整体是「前缀词+参数」序列（如 xargs -n1 / sudo FOO=1）→ 命令位置
     const before = text.slice(0, pos);
