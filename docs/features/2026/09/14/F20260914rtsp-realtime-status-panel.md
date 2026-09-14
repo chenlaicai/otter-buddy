@@ -80,8 +80,9 @@ intent:
 
 改动：
 1. **invoke 状态行增强**（RightPanel.tsx OtterParticipantCard）：
-   - running：`● 行动中 · 2m13s · 🛠 8 · ⬛ 45.2k/200k`（ctx 占用短格式，k 为单位）
-   - 终态：`休息中 · 上轮 1m02s · 🛠 5`（用「休息中」替代现在的「已完成」措辞，呼应搭档「运行中/休息中」用语）
+   - running：`● 行动中 · 2m13s · 🛠 8 · 45.2k/200k`（纯文本 ctx 占用，不加迷你条；搭档 9/15:05-15:17 三轮视觉对齐定稿）
+   - 终态：`○ 休息中 · 45.2k/200k`——ctx 是上轮最后一次 LLM 往返的窗口占用（invokes.ctx_tokens 落库值；休息中上下文不变，即「当前上下文」）；不带耗时/工具数/时间戳（搭档拍板：歧义措辞全删，上轮详情去 Session 弹窗 invoke 摘要行看）
+   - 身份行：移除「大獭 · 持久」前缀（大獭必然在场，不需重申——搭档拍板）；世数时间格式改「第N世 from 14:02」（搭档提议原话采纳）
 2. **ctx 数据链路**（新增 SSE 事件 invoke.tick）：
    - 事件源：agent-invoker.handleStreamEvent 收到 message_end 时，从 e.message.usage 提取 ctx 占用
    - 端口定义已有数据源：pi-agent-core AssistantMessage.usage: Usage（pi-ai/dist/types.d.ts，worktree 内路径 node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core → pi-ai 传递依赖；Usage 含 input/output/cacheRead/cacheWrite）
@@ -214,11 +215,11 @@ function foldInvokeEvents(events: InvokeEventDTO[]): FoldedStep[]
 
 | 编号 | 场景 | 预期 |
 |------|------|------|
-| AT-1 | 獭 running，右栏免点开 | 状态行显示：● 行动中 · 走秒耗时 · 🛠 计数 · ⬛ ctx/上限 |
+| AT-1 | 獭 running，右栏免点开 | 状态行显示：● 行动中 · 走秒耗时 · 🛠 计数 · ctx/上限 |
 | AT-2 | 耗时走秒 | running 期间每秒 +1s，无卡顿；终态定格 |
-| AT-3 | 无 running 獭 | 定时器停；状态行显示「休息中」 |
+| AT-3 | 无 running 獭 | 定时器停；状态行显示「○ 休息中 · 45.2k/200k」；身份行无「大獭 · 持久」前缀，「第N世 from 时间」格式 |
 | AT-4 | message_end 携带 usage | invoke.tick 发射，右栏 ctx 更新；usage 缺失时不发射不报错 |
-| AT-5 | 刷新页面 | running invoke 状态 + ctx + toolCallCount 从 listInvokes 恢复 |
+| AT-5 | 刷新页面 | running invoke 状态 + ctx + toolCallCount 从 listInvokes 恢复；终态獭的 ctx 同样从 ctx_tokens 恢复 |
 | AT-6 | Session 弹窗自动展开 | 打开即展开最新 invoke（running 优先） |
 | AT-7 | running invoke 实时尾随 | 弹窗开着，新事件 2s 内出现；自动滚动跟随；上滚暂停跟随 |
 | AT-8 | 事件折叠视图 | 同一次工具调用显示一行（名称+摘要+耗时+状态）；点开可见原始分列 |
