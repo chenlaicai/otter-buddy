@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- conversation repo 含 message/turn/participant/read-state 等多域操作 */
 import type Database from "better-sqlite3";
 import type {
   ArtifactStatus,
@@ -8,36 +7,22 @@ import type {
   LinkedResource,
   Turn,
 } from "@entities/conversation/conversation";
-import type { Message, MessageEvent, MessageSegment } from "@entities/conversation/message";
-import { DomainError } from "@entities/errors";
-import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
-import { projectAttachments } from "@entities/conversation/attachment-projection";
 import type {
   ConversationRepository,
-  GetMessagesOptions,
   TurnHistoryEntry,
 } from "@usecases/conversation/conversation-repository";
 import {
   rowToConversation,
-  rowToMessage,
-  rowToMessageEvent,
-  rowToSegment,
   rowToTurn,
   type ConversationRow,
-  type MessageEventRow,
-  type MessageRow,
-  type SegmentRow,
   type TurnRow,
 } from "./conversation-mapper";
 import * as mixins from "./conversation-repository-mixins";
 
-import { escapeFtsQuery } from "../fts-utils";
-import { SqliteAttachmentRepository } from "../attachment/sqlite-attachment-repository";
 import type { Logger } from "@usecases/ports/logger";
 
 export class SqliteConversationRepository implements ConversationRepository {
   /** 多模态 Phase 1：附件 repo（消息组装点①——repository 加载回填 attachments） */
-  private readonly attachmentRepo: SqliteAttachmentRepository;
   /** 审视修复 R8：附件 JOIN 降级时留痕（不再吞错——真实 DB 故障须可观测） */
   private readonly logger?: Logger;
 
@@ -45,95 +30,10 @@ export class SqliteConversationRepository implements ConversationRepository {
     private readonly db: Database.Database,
     logger?: Logger,
   ) {
-    this.attachmentRepo = new SqliteAttachmentRepository(db);
     this.logger = logger;
   }
 
-  /**
-   * 应用层 FTS upsert（F20260728htar：废触发器后由 repository 接管）。
-   * messages_fts.body 存 html-card 剥离投影 + 附件占位投影（多模态 Phase 1）。
-   * 调用方必须在 db.transaction() 内使用（写消息 + FTS 同事务，中间崩溃不漂移）。
-   */
-  private upsertMessageFts(messageId: string, body: string): void {
-    this.db.prepare("DELETE FROM messages_fts WHERE message_id = ?").run(messageId);
-    this.db.prepare("INSERT INTO messages_fts (message_id, body) VALUES (?, ?)")
-      .run(messageId, stripHtmlCardFences(body));
-  }
 
-  /** 从 segments 聚合 body 并刷新 FTS（调用方须在事务内）。
-   *  多模态 Phase 1：附件占位投影追加进 FTS body（出口统一调用 projectAttachments）。 */
-  private refreshMessageFts(messageId: string): void {
-    const rows = this.db.prepare(
-      "SELECT body FROM message_segments WHERE message_id = ? ORDER BY sequence_num ASC",
-    ).all(messageId) as { body: string }[];
-    const body = rows.map(r => r.body).join("\n\n");
-    this.upsertMessageFts(messageId, this.appendAttachmentProjection(messageId, body));
-  }
-
-  /** 多模态 Phase 1：按 message_attachments 组装附件投影行，追加在 body 之后（同步读，可在事务内） */
-  private appendAttachmentProjection(messageId: string, body: string): string {
-    try {
-      const attRows = this.db.prepare(`
-        SELECT a.kind, a.original_name, a.size_bytes, a.caption
-        FROM message_attachments ma JOIN attachments a ON a.id = ma.attachment_id
-        WHERE ma.message_id = ? ORDER BY ma.sequence_num ASC
-      `).all(messageId) as Array<{ kind: string; original_name: string; size_bytes: number; caption: string | null }>;
-      if (attRows.length === 0) return body;
-      const projection = projectAttachments(attRows.map(r => ({
-        id: "", kind: r.kind as "image" | "document" | "audio" | "video", originalName: r.original_name,
-        mimeType: "", sizeBytes: r.size_bytes, width: null, height: null, caption: r.caption,
-      })));
-      return projection ? `${body}\n${projection}` : body;
-    } catch (err) {
-      // 审视修复 R8：降级留痕（migrate 启动即补表，此处异常几乎必为真实 DB 故障）
-      this.logger?.warn("Attachment projection join failed, FTS body degraded to no-attachment", {
-        messageId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return body;
-    }
-  }
-
-  /** 批量加载 segments 并挂载到已映射的 messages（多模态 Phase 1 起 async：附件挂载 await 在内） */
-  private async attachSegments(messages: Message[]): Promise<void> {
-    if (messages.length === 0) return;
-    const ids = messages.map(m => m.id);
-    const placeholders = ids.map(() => "?").join(",");
-    const rows = this.db.prepare(
-      `SELECT * FROM message_segments WHERE message_id IN (${placeholders}) ORDER BY sequence_num ASC`,
-    ).all(...ids) as SegmentRow[];
-    const byMsgId = new Map<string, MessageSegment[]>();
-    for (const row of rows) {
-      const seg = rowToSegment(row);
-      const arr = byMsgId.get(seg.messageId) ?? [];
-      arr.push(seg);
-      byMsgId.set(seg.messageId, arr);
-    }
-    for (const msg of messages) {
-      msg.segments = byMsgId.get(msg.id) ?? [];
-    }
-    await this.attachAttachments(messages);
-  }
-
-  /** 多模态 Phase 1：批量加载附件引用并挂载到已映射的 messages（JOIN message_attachments）。
-   *  await 而非 fire-and-forget：消息读路径是 async 方法，必须保证返回时附件已挂上
-   *  （否则 egress 广播/未读注入拿到的是竞态中的空附件）。 */
-  private async attachAttachments(messages: Message[]): Promise<void> {
-    if (messages.length === 0) return;
-    try {
-      const byMsgId = await this.attachmentRepo.getAttachmentRefsByMessageIds(messages.map(m => m.id));
-      for (const msg of messages) {
-        const atts = byMsgId.get(msg.id);
-        if (atts && atts.length > 0) msg.attachments = atts;
-      }
-    } catch (err) {
-      // 审视修复 R8：降级留痕（同上——不再静默吞错）
-      this.logger?.warn("Attachment refs load failed, message degraded to no-attachment", {
-        messageCount: messages.length,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
 
   // ── Conversation CRUD ──
 
@@ -238,407 +138,21 @@ export class SqliteConversationRepository implements ConversationRepository {
     return result.max_num ?? 0;
   }
 
-  async getMessagesByTurnId(turnId: string): Promise<Message[]> {
-    const rows = this.db.prepare("SELECT * FROM messages WHERE turn_id = ? ORDER BY sequence_num ASC")
-      .all(turnId) as MessageRow[];
-    const messages = rows.map(rowToMessage);
-    await this.attachSegments(messages);
-    return messages;
-  }
-
-  // ── Message 生命周期 ──
-
-  async createCompletedMessage(message: Message): Promise<void> {
-    this.db.transaction(() => {
-      const includeSource = message.source != null;
-      const cols = includeSource
-        ? `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status,
-            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, source, metadata, sender_name, created_at)
-          VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        : `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status,
-            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, metadata, sender_name, created_at)
-          VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?)`;
-      const params = [
-        message.id, message.conversationId, message.senderType, message.senderId,
-        message.sequenceNum, message.turnId,
-        message.talkingStonePassedTo ? JSON.stringify(message.talkingStonePassedTo) : null,
-        message.contextTokens, message.contextTokensMax,
-        ...(includeSource ? [message.source] : []),
-        message.metadata ? JSON.stringify(message.metadata) : null,
-        message.senderName ?? '',
-        message.createdAt,
-      ];
-      this.db.prepare(cols).run(...params);
-      // Insert segments if provided
-      if (message.segments.length > 0) {
-        const segStmt = this.db.prepare(
-          "INSERT INTO message_segments (id, message_id, body, sequence_num, created_at) VALUES (?, ?, ?, ?, ?)",
-        );
-        for (const seg of message.segments) {
-          segStmt.run(seg.id, seg.messageId, seg.body, seg.sequenceNum, seg.createdAt);
-        }
-        this.refreshMessageFts(message.id);
-      }
-    })();
-  }
-
-  async createStreamingMessage(message: Message): Promise<void> {
-    this.db.transaction(() => {
-      const includeSource = message.source != null;
-      const cols = includeSource
-        ? `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status,
-            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, source, metadata, sender_name, created_at)
-          VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        : `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status,
-            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, metadata, sender_name, created_at)
-          VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?, ?)`;
-      const params = [
-        message.id, message.conversationId, message.senderType, message.senderId,
-        message.sequenceNum, message.turnId,
-        message.talkingStonePassedTo ? JSON.stringify(message.talkingStonePassedTo) : null,
-        message.contextTokens, message.contextTokensMax,
-        ...(includeSource ? [message.source] : []),
-        message.metadata ? JSON.stringify(message.metadata) : null,
-        message.senderName ?? '',
-        message.createdAt,
-      ];
-      this.db.prepare(cols).run(...params);
-      /** 无 segments 时 FTS 写空串 */
-      this.upsertMessageFts(message.id, "");
-    })();
-  }
-
-  async startSpeaking(messageId: string, body: string | undefined, talkingStonePassedTo: string[], signalLevel?: string | null, signalMeta?: string | null): Promise<void> {
-    this.db.transaction(() => {
-      // 状态变更 + FTS 刷新同一事务；body 非空时附带插入 segment（speak+yield 拆分后 yield 调用不传 body）
-      if (body !== undefined) {
-        const maxSeq = this.db.prepare("SELECT COALESCE(MAX(sequence_num), 0) AS max_seq FROM message_segments WHERE message_id = ?").get(messageId) as { max_seq: number };
-        this.db.prepare("INSERT INTO message_segments (id, message_id, body, sequence_num, created_at) VALUES (?, ?, ?, ?, datetime('now'))").run(`seg-${messageId}-${maxSeq.max_seq + 1}`, messageId, body, maxSeq.max_seq + 1);
-      }
-      const result = this.db.prepare(`
-        UPDATE messages SET status = 'speaking', talking_stone_passed_to = ?,
-          signal_level = ?, signal_meta = ?
-        WHERE id = ? AND status = 'streaming'
-      `).run(JSON.stringify(talkingStonePassedTo), signalLevel ?? null, signalMeta ?? null, messageId);
-      if (result.changes === 0) throw new DomainError(`Message ${messageId} not found or not in streaming status`, "conflict");
-      this.refreshMessageFts(messageId);
-    })();
-  }
-
-  async completeMessage(input: {
-    messageId: string; talkingStonePassedTo: string[];
-    completedAt: string;
-    contextTokens?: number; contextTokensMax?: number;
-  }): Promise<void> {
-    this.db.transaction(() => {
-      const result = this.db.prepare(`
-        UPDATE messages SET status = 'completed', talking_stone_passed_to = ?,
-          context_tokens = ?, context_tokens_max = ?, completed_at = ?
-        WHERE id = ? AND status = 'speaking'
-      `).run(
-        JSON.stringify(input.talkingStonePassedTo),
-        input.contextTokens ?? null, input.contextTokensMax ?? null,
-        input.completedAt, input.messageId,
-      );
-      if (result.changes === 0) throw new DomainError(`Message ${input.messageId} not found or not in speaking status`, "conflict");
-      this.refreshMessageFts(input.messageId);
-    })();
-  }
-
-  async failMessage(messageId: string, failedAt: string, body?: string, talkingStonePassedTo?: string[]): Promise<void> {
-    this.db.transaction(() => {
-      // 插入 fail body segment（原子）
-      if (body) {
-        const maxSeq = this.db.prepare("SELECT COALESCE(MAX(sequence_num), 0) AS max_seq FROM message_segments WHERE message_id = ?").get(messageId) as { max_seq: number };
-        this.db.prepare("INSERT INTO message_segments (id, message_id, body, sequence_num, created_at) VALUES (?, ?, ?, ?, datetime('now'))").run(`seg-${messageId}-fail-${maxSeq.max_seq + 1}`, messageId, body, maxSeq.max_seq + 1);
-      }
-      const updates: string[] = ["status = 'failed'", "completed_at = ?"];
-      const params: unknown[] = [failedAt];
-      if (talkingStonePassedTo !== undefined) { updates.push("talking_stone_passed_to = ?"); params.push(JSON.stringify(talkingStonePassedTo)); }
-      params.push(messageId);
-      const result = this.db.prepare(`UPDATE messages SET ${updates.join(", ")} WHERE id = ? AND status IN ('streaming', 'speaking')`).run(...params);
-      if (result.changes === 0) throw new DomainError(`Message ${messageId} not found or not in streaming/speaking status`, "conflict");
-      if (body) this.refreshMessageFts(messageId);
-    })();
-  }
-
-  async failInFlightMessages(failedAt: string, noticeBody: string, skipNoticeIds?: ReadonlySet<string>): Promise<number> {
-    /** streaming 无 segments 时插入中断说明 segment；speaking 已有 segments 则追加中断标记前缀。
-     *  避免半截内容被其它 otter 当作完整发言读入上下文（F5）。
-     *  F20260826rsme：skipNoticeIds 内的消息即将被自动恢复重置回 streaming，不插 notice——
-     *  notice 会成为 segments 前缀混入续写内容。 */
-    return this.db.transaction(() => {
-      const rows = this.db.prepare(
-        "SELECT id FROM messages WHERE status IN ('streaming', 'speaking')",
-      ).all() as { id: string }[];
-      const update = this.db.prepare(`
-        UPDATE messages SET status = 'failed', completed_at = ?
-        WHERE id = ? AND status IN ('streaming', 'speaking')
-      `);
-      const segStmt = this.db.prepare(
-        "INSERT INTO message_segments (id, message_id, body, sequence_num, created_at) VALUES (?, ?, ?, ?, ?)",
-      );
-      const bumpSeq = this.db.prepare(
-        "UPDATE message_segments SET sequence_num = sequence_num + 1 WHERE message_id = ?",
-      );
-      for (const row of rows) {
-        if (!skipNoticeIds?.has(row.id)) {
-          // Insert notice as prefix (sequence_num=0): bump existing segments first
-          bumpSeq.run(row.id);
-          segStmt.run(crypto.randomUUID(), row.id, noticeBody, 0, failedAt);
-        }
-        update.run(failedAt, row.id);
-        this.refreshMessageFts(row.id);
-      }
-      return rows.length;
-    })();
-  }
 
   async closeOrphanedTurns(closedAt: string): Promise<number> {
+    // F20260913ctlv 批4c：判据源切 invokes（messages 表已 drop——open = 该 turn 下有 running invoke；
+    // turn 归属经 entries.turn_id 关联，invokes 表无 turn_id 列）
     const result = this.db.prepare(`
       UPDATE turns SET status = 'closed', closed_at = ?
       WHERE status = 'open' AND id NOT IN (
-        SELECT DISTINCT turn_id FROM messages WHERE status IN ('streaming', 'speaking')
+        SELECT DISTINCT e.turn_id FROM invokes i
+        JOIN entries e ON e.invoke_id = i.id
+        WHERE i.status = 'running'
       )
     `).run(closedAt);
     return result.changes;
   }
 
-  /**
-   * 重置 failed 消息为 streaming（yield 重试专用）。
-   * Why: SQL 层面做状态守卫（AND status = 'failed'），防止并发 abort 将终态消息重置回 streaming。
-   * Why: 默认清空 segments 和 FTS 索引，避免重试期间搜索命中旧 fail 内容。
-   * Why: preserveSegments=true 时保留 segments 并重建 FTS 索引（no_yield 重试专用：speak 内容有效，不应被删除）。
-   */
-  async resetForStreaming(messageId: string, turnId: string, preserveSegments: boolean = false): Promise<void> {
-    this.db.transaction(() => {
-      // F20260821fix: no_yield 重试时保留 segments（speak 内容有效，不应被删除）
-      if (!preserveSegments) {
-        this.db.prepare("DELETE FROM message_segments WHERE message_id = ?").run(messageId);
-      }
-      const result = this.db.prepare(`
-        UPDATE messages
-        SET status = 'streaming', turn_id = ?, completed_at = NULL,
-            talking_stone_passed_to = NULL
-        WHERE id = ? AND status = 'failed'
-      `).run(turnId, messageId);
-      if (result.changes === 0) {
-        throw new DomainError(`resetForStreaming failed: message ${messageId} is not in failed status`, 'conflict');
-      }
-      if (!preserveSegments) {
-        this.upsertMessageFts(messageId, '');
-      } else {
-        this.refreshMessageFts(messageId);
-      }
-    })();
-  }
-
-  /** F20260826rsme：指定 senderType 的最新消息（恢复前并发窗口检查） */
-  async getLastMessageBySenderType(conversationId: string, senderType: "user" | "otter" | "system"): Promise<Message | null> {
-    const message = mixins.getLastMessageBySenderType(this.db, conversationId, senderType);
-    if (!message) return null;
-    await this.attachSegments([message]);
-    return message;
-  }
-
-  /** F20260826rsme：遗留的 otter streaming/speaking 消息，reconcile 恢复资格判定用。
-   *  Why: 只查 otter 消息——用户消息原子写入无中间态，system 消息即时 completed，均不存在恢复语义。 */
-  async listInFlightOtterMessages(): Promise<Array<{ id: string; conversationId: string; senderId: string }>> {
-    const rows = this.db.prepare(
-      "SELECT id, conversation_id, sender_id FROM messages WHERE status IN ('streaming', 'speaking') AND sender_type = 'otter'",
-    ).all() as Array<{ id: string; conversation_id: string; sender_id: string }>;
-    return rows.map(r => ({ id: r.id, conversationId: r.conversation_id, senderId: r.sender_id }));
-  }
-
-  // ── 重启自动恢复队列（F20260826rsme）──
-
-  /** Why: 原子守卫用 UPDATE ... WHERE attempts < MAX 而非读后写——
-   *  恢复进行中再次重启时（并发窗口），读后写会把 attempts=1 当作 0 再恢复一次，
-   *  复刻 8/24 自重启无限循环。SQL 层单语句原子性消除该竞态。 */
-  private static readonly MAX_RESUME_ATTEMPTS = 1;
-
-  async claimResume(messageId: string, conversationId: string, otterId: string, now: string): Promise<boolean> {
-    return this.db.transaction(() => {
-      this.db.prepare(
-        `INSERT OR IGNORE INTO restart_pending_resumes (message_id, conversation_id, otter_id, attempts, status, created_at)
-         VALUES (?, ?, ?, 0, 'pending', ?)`,
-      ).run(messageId, conversationId, otterId, now);
-      const result = this.db.prepare(
-        `UPDATE restart_pending_resumes SET attempts = attempts + 1, updated_at = ?
-         WHERE message_id = ? AND attempts < ?`,
-      ).run(now, messageId, SqliteConversationRepository.MAX_RESUME_ATTEMPTS);
-      return result.changes === 1;
-    })();
-  }
-
-  async getPendingResumes(): Promise<Array<{ messageId: string; conversationId: string; otterId: string }>> {
-    const rows = this.db.prepare(
-      "SELECT message_id, conversation_id, otter_id FROM restart_pending_resumes WHERE status = 'pending' ORDER BY created_at ASC",
-    ).all() as Array<{ message_id: string; conversation_id: string; otter_id: string }>;
-    return rows.map(r => ({ messageId: r.message_id, conversationId: r.conversation_id, otterId: r.otter_id }));
-  }
-
-  async updateResumeStatus(messageId: string, status: "done" | "exhausted" | "failed", now: string): Promise<void> {
-    this.db.prepare(
-      "UPDATE restart_pending_resumes SET status = ?, updated_at = ? WHERE message_id = ?",
-    ).run(status, now, messageId);
-  }
-
-  async updateMessageTurnId(messageId: string, turnId: string): Promise<void> {
-    this.db.prepare(
-      "UPDATE messages SET turn_id = ? WHERE id = ?",
-    ).run(turnId, messageId);
-  }
-
-  async updateTokenUsage(messageId: string, contextTokens: number, contextTokensMax: number): Promise<void> {
-    this.db.prepare(`UPDATE messages SET context_tokens = ?, context_tokens_max = ? WHERE id = ?`).run(
-      contextTokens, contextTokensMax, messageId,
-    );
-  }
-
-  async abortMessage(messageId: string, body: string, talkingStonePassedTo: string[], abortedAt: string): Promise<void> {
-    this.db.transaction(() => {
-      // 插入 abort body segment（原子，非空 body 才插入）
-      if (body) {
-        const maxSeq = this.db.prepare("SELECT COALESCE(MAX(sequence_num), 0) AS max_seq FROM message_segments WHERE message_id = ?").get(messageId) as { max_seq: number };
-        this.db.prepare("INSERT INTO message_segments (id, message_id, body, sequence_num, created_at) VALUES (?, ?, ?, ?, datetime('now'))").run(`seg-${messageId}-abort-${maxSeq.max_seq + 1}`, messageId, body, maxSeq.max_seq + 1);
-      }
-      const result = this.db.prepare(`
-        UPDATE messages SET status = 'aborted', talking_stone_passed_to = ?, completed_at = ?
-        WHERE id = ? AND status IN ('streaming', 'speaking')
-      `).run(JSON.stringify(talkingStonePassedTo), abortedAt, messageId);
-      if (result.changes === 0) throw new DomainError(`Message ${messageId} not found or not in streaming/speaking status`, "conflict");
-      if (body) this.refreshMessageFts(messageId);
-    })();
-  }
-
-  async getMaxSequenceNum(conversationId: string): Promise<number> {
-    const result = this.db.prepare("SELECT MAX(sequence_num) as max_seq FROM messages WHERE conversation_id = ?")
-      .get(conversationId) as { max_seq: number | null };
-    return result.max_seq ?? 0;
-  }
-
-  // ── Message Segments ──
-
-  async appendSegment(messageId: string, body: string): Promise<MessageSegment> {
-    return this.db.transaction(() => {
-      const maxSeq = this.db.prepare(
-        "SELECT COALESCE(MAX(sequence_num), 0) AS max_seq FROM message_segments WHERE message_id = ?",
-      ).get(messageId) as { max_seq: number };
-      const seg: MessageSegment = {
-        id: crypto.randomUUID(),
-        messageId,
-        body,
-        sequenceNum: maxSeq.max_seq + 1,
-        createdAt: new Date().toISOString(),
-      };
-      this.db.prepare(
-        "INSERT INTO message_segments (id, message_id, body, sequence_num, created_at) VALUES (?, ?, ?, ?, ?)",
-      ).run(seg.id, seg.messageId, seg.body, seg.sequenceNum, seg.createdAt);
-      this.refreshMessageFts(messageId);
-      return seg;
-    })();
-  }
-
-  async getSegments(messageId: string): Promise<MessageSegment[]> {
-    const rows = this.db.prepare(
-      "SELECT * FROM message_segments WHERE message_id = ? ORDER BY sequence_num ASC",
-    ).all(messageId) as SegmentRow[];
-    return rows.map(rowToSegment);
-  }
-
-  // ── Message 查询 ──
-
-  async getMessageById(id: string): Promise<Message | null> {
-    const row = this.db.prepare("SELECT * FROM messages WHERE id = ?").get(id) as MessageRow | undefined;
-    if (!row) return null;
-    const message = rowToMessage(row);
-    await this.attachSegments([message]);
-    return message;
-  }
-
-  async getMessages(conversationId: string, options: GetMessagesOptions): Promise<Message[]> {
-    const limit = options.limit ?? 50;
-    const params: (string | number)[] = [conversationId];
-    let sql = "SELECT * FROM messages WHERE conversation_id = ?";
-    if (options.before) { sql += " AND sequence_num < (SELECT sequence_num FROM messages WHERE id = ?)"; params.push(options.before); }
-    if (options.status) { sql += " AND status = ?"; params.push(options.status); }
-    if (options.senderType) { sql += " AND sender_type = ?"; params.push(options.senderType); }
-    if (options.turnId) { sql += " AND turn_id = ?"; params.push(options.turnId); }
-    sql += " ORDER BY sequence_num DESC LIMIT ?";
-    params.push(limit);
-    const rows = this.db.prepare(sql).all(...params) as MessageRow[];
-    const messages = rows.map(rowToMessage);
-    await this.attachSegments(messages);
-    return messages;
-  }
-
-  async getMessagesBefore(messageId: string, count: number): Promise<Message[]> {
-    const rows = this.db.prepare(`
-      SELECT * FROM messages
-      WHERE conversation_id = (SELECT conversation_id FROM messages WHERE id = ?)
-        AND sequence_num < (SELECT sequence_num FROM messages WHERE id = ?)
-      ORDER BY sequence_num DESC LIMIT ?
-    `).all(messageId, messageId, count) as MessageRow[];
-    const messages = rows.map(rowToMessage);
-    await this.attachSegments(messages);
-    return messages;
-  }
-
-  async getMessagesAfter(messageId: string, count: number): Promise<Message[]> {
-    const rows = this.db.prepare(`
-      SELECT * FROM messages
-      WHERE conversation_id = (SELECT conversation_id FROM messages WHERE id = ?)
-        AND sequence_num > (SELECT sequence_num FROM messages WHERE id = ?)
-      ORDER BY sequence_num ASC LIMIT ?
-    `).all(messageId, messageId, count) as MessageRow[];
-    const messages = rows.map(rowToMessage);
-    await this.attachSegments(messages);
-    return messages;
-  }
-
-  /** #642: 获取锚点后的最近 N 条消息（DESC），用于检测链末尾是否卡在429循环 */
-  async getLatestMessagesAfter(messageId: string, count: number): Promise<Message[]> {
-    const rows = this.db.prepare(`
-      SELECT * FROM messages
-      WHERE conversation_id = (SELECT conversation_id FROM messages WHERE id = ?)
-        AND sequence_num > (SELECT sequence_num FROM messages WHERE id = ?)
-      ORDER BY sequence_num DESC LIMIT ?
-    `).all(messageId, messageId, count) as MessageRow[];
-    const messages = rows.map(rowToMessage);
-    await this.attachSegments(messages);
-    return messages;
-  }
-
-  // ── MessageEvent ──
-
-  async appendEvent(event: MessageEvent): Promise<void> {
-    this.db.prepare(`
-      INSERT INTO message_events (id, message_id, event_type, payload, sequence_num, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(event.id, event.messageId, event.eventType, JSON.stringify(event.payload), event.sequenceNum, event.createdAt);
-  }
-
-  async getMessageEvents(messageId: string): Promise<MessageEvent[]> {
-    const rows = this.db.prepare("SELECT * FROM message_events WHERE message_id = ? ORDER BY sequence_num ASC")
-      .all(messageId) as MessageEventRow[];
-    return rows.map(rowToMessageEvent);
-  }
-
-  async getMessageEventsByMessageIds(messageIds: string[]): Promise<MessageEvent[]> {
-    if (messageIds.length === 0) return [];
-    const placeholders = messageIds.map(() => "?").join(",");
-    const rows = this.db.prepare(
-      `SELECT * FROM message_events WHERE message_id IN (${placeholders}) ORDER BY sequence_num ASC`,
-    ).all(...messageIds) as MessageEventRow[];
-    return rows.map(rowToMessageEvent);
-  }
-
-  async getMaxEventSequenceNum(messageId: string): Promise<number> {
-    const result = this.db.prepare("SELECT MAX(sequence_num) as max_seq FROM message_events WHERE message_id = ?")
-      .get(messageId) as { max_seq: number | null };
-    return result.max_seq ?? 0;
-  }
 
   // ── Key Resources（委托给 mixin） ──
 
@@ -664,29 +178,6 @@ export class SqliteConversationRepository implements ConversationRepository {
   async updateLastReadTurnNumber(conversationId: string, otterId: string, turnNumber: number): Promise<void> { mixins.updateLastReadTurnNumber(this.db, conversationId, otterId, turnNumber); }
   async updateLastActiveTurnNumber(conversationId: string, otterId: string, turnNumber: number): Promise<void> { mixins.updateLastActiveTurnNumber(this.db, conversationId, otterId, turnNumber); }
   async markParticipantLeft(conversationId: string, otterId: string): Promise<void> { mixins.markParticipantLeft(this.db, conversationId, otterId); }
-  async getUnreadMessages(conversationId: string, otterId: string): Promise<Message[]> {
-    const messages = mixins.getUnreadMessages(this.db, conversationId, otterId).map(row => ({
-      id: row.id, conversationId, senderType: row.sender_type as 'user' | 'otter' | 'system',
-      senderId: row.sender_id, status: 'completed' as const, segments: [] as MessageSegment[],
-      sequenceNum: row.sequence_num, turnId: '',
-      // F20260902uspr：解析真实值（SignalRouter 收件箱判别依赖，与 conversation-mapper 同约定）
-      talkingStonePassedTo: row.talking_stone_passed_to
-        ? (JSON.parse(row.talking_stone_passed_to) as string[])
-        : null,
-      contextTokens: null, contextTokensMax: null, source: 'web' as const,
-      senderName: row.sender_name ?? '',
-      createdAt: '', completedAt: null,
-    }));
-    await this.attachSegments(messages);
-    return messages;
-  }
-
-  async getLastMessageBySender(conversationId: string, senderId: string): Promise<Message | null> {
-    const message = mixins.getLastMessageBySender(this.db, conversationId, senderId);
-    if (!message) return null;
-    await this.attachSegments([message]);
-    return message;
-  }
 
   // ── Web 用户已读状态（消息级，与 otter 的 turn 级独立） ──
 
@@ -708,119 +199,71 @@ export class SqliteConversationRepository implements ConversationRepository {
     `).run(userId, conversationId, lastReadSeq);
   }
 
-  async getFirstUnreadMessage(conversationId: string, userId: string): Promise<Message | null> {
-    const row = this.db.prepare(`
-      SELECT m.* FROM messages m
-      WHERE m.conversation_id = ?
-        AND m.sequence_num > COALESCE(
-          (SELECT last_read_message_seq FROM conversation_user_read_state WHERE user_id = ? AND conversation_id = ?), 0
-        )
-        AND m.status NOT IN ('streaming', 'speaking')
-      ORDER BY m.sequence_num ASC LIMIT 1
-    `).get(conversationId, userId, conversationId) as MessageRow | undefined;
-    if (!row) return null;
-    const message = rowToMessage(row);
-    await this.attachSegments([message]);
-    return message;
-  }
-
   async getUnreadCount(conversationId: string, userId: string): Promise<number> {
+    // F20260913ctlv 批4c：数据源切 entries（messages 表 drop）——跳过用户自己的气泡
     const row = this.db.prepare(`
-      SELECT COUNT(*) as cnt FROM messages
+      SELECT COUNT(*) as cnt FROM entries
       WHERE conversation_id = ?
         AND sequence_num > COALESCE(
           (SELECT last_read_message_seq FROM conversation_user_read_state WHERE user_id = ? AND conversation_id = ?), 0
         )
-        AND status NOT IN ('streaming', 'speaking')
+        AND entry_type IN ('speak', 'system')
     `).get(conversationId, userId, conversationId) as { cnt: number };
     return row.cnt;
   }
 
-  async getLastMessage(conversationId: string): Promise<Message | null> {
-    const row = this.db.prepare(
-      "SELECT * FROM messages WHERE conversation_id = ? AND status NOT IN ('streaming', 'speaking') ORDER BY sequence_num DESC LIMIT 1",
-    ).get(conversationId) as MessageRow | undefined;
-    if (!row) return null;
-    const message = rowToMessage(row);
-    await this.attachSegments([message]);
-    return message;
-  }
 
-  // eslint-disable-next-line max-lines-per-function -- F20260818segs segments 聚合逻辑增加行数
   async listConversationsWithMeta(
     userId: string,
     options?: { limit?: number; offset?: number },
   ): Promise<Array<Conversation & { otterIds: string[]; unreadCount: number; lastMessagePreview: string | null; lastMessageTs: string | null; activityStatus: 'processing' | 'awaiting_user' | 'idle' }>> {
+    // F20260913ctlv 批4c：数据源切 entries（messages 表 drop）——
+    // unread/activity/last 预览全部从时间线读取；activity 判据 = running invoke（invokes 表）
     const limit = options?.limit ?? 50;
     const offset = options?.offset ?? 0;
     const rows = this.db.prepare(`
       SELECT c.*,
         COALESCE(u.last_read_message_seq, 0) AS last_read_seq,
-        (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id
-          AND m.sequence_num > COALESCE(u.last_read_message_seq, 0)
-          AND m.status NOT IN ('streaming', 'speaking')) AS unread_count,
-        lm.id AS last_message_id,
-        lm.created_at AS last_message_ts,
+        (SELECT COUNT(*) FROM entries e WHERE e.conversation_id = c.id
+          AND e.sequence_num > COALESCE(u.last_read_message_seq, 0)
+          AND e.entry_type IN ('speak', 'system')) AS unread_count,
+        le.id AS last_entry_id,
+        le.created_at AS last_entry_ts,
+        le.body AS last_entry_body,
         (SELECT GROUP_CONCAT(otter_id, ',') FROM conversation_otters WHERE conversation_id = c.id) AS otter_ids_flat,
         CASE
-          WHEN EXISTS (SELECT 1 FROM messages WHERE conversation_id = c.id AND status IN ('streaming', 'speaking'))
+          WHEN EXISTS (SELECT 1 FROM invokes WHERE conversation_id = c.id AND status = 'running')
             THEN 'processing'
-          WHEN EXISTS (
-            SELECT 1 FROM messages m2
-            WHERE m2.conversation_id = c.id
-              AND m2.sender_type = 'otter'
-              AND m2.talking_stone_passed_to IS NOT NULL
-              AND m2.talking_stone_passed_to != '[]'
-              AND m2.talking_stone_passed_to NOT LIKE '%user%'  -- 用户在目标列表中时应为 awaiting_user
-              AND m2.talking_stone_passed_to LIKE '%otter%'
-              AND m2.id = (
-                SELECT id FROM messages WHERE conversation_id = c.id
-                ORDER BY sequence_num DESC LIMIT 1
-              )
-          ) THEN 'processing'
-          WHEN c.status = 'active' AND EXISTS (SELECT 1 FROM messages WHERE conversation_id = c.id)
+          WHEN c.status = 'active' AND EXISTS (SELECT 1 FROM entries WHERE conversation_id = c.id)
             THEN 'awaiting_user'
           ELSE 'idle'
         END AS activity_status
       FROM conversations c
       LEFT JOIN conversation_user_read_state u ON u.conversation_id = c.id AND u.user_id = ?
-      LEFT JOIN messages lm ON lm.id = (
-        SELECT id FROM messages WHERE conversation_id = c.id AND status NOT IN ('streaming', 'speaking')
+      LEFT JOIN entries le ON le.id = (
+        SELECT id FROM entries WHERE conversation_id = c.id
+          AND entry_type IN ('user', 'speak', 'system')
         ORDER BY sequence_num DESC LIMIT 1
       )
       WHERE c.status != 'archived'
-      ORDER BY c.pinned DESC, COALESCE(lm.created_at, c.created_at) DESC LIMIT ? OFFSET ?
+      ORDER BY c.pinned DESC, COALESCE(le.created_at, c.created_at) DESC LIMIT ? OFFSET ?
     `).all(userId, limit, offset) as Array<ConversationRow & {
       last_read_seq: number; unread_count: number;
-      last_message_id: string | null; last_message_ts: string | null;
+      last_entry_id: string | null; last_entry_ts: string | null; last_entry_body: string | null;
       otter_ids_flat: string | null;
       activity_status: 'processing' | 'awaiting_user' | 'idle';
     }>;
-    // Batch-load segments for all last messages
-    const lastMsgIds = rows.map(r => r.last_message_id).filter((id): id is string => id != null);
-    const segMap = new Map<string, string>();
-    if (lastMsgIds.length > 0) {
-      const placeholders = lastMsgIds.map(() => "?").join(",");
-      const segRows = this.db.prepare(
-        `SELECT message_id, body FROM message_segments WHERE message_id IN (${placeholders}) ORDER BY sequence_num ASC`,
-      ).all(...lastMsgIds) as Array<{ message_id: string; body: string }>;
-      for (const sr of segRows) {
-        const prev = segMap.get(sr.message_id);
-        segMap.set(sr.message_id, prev ? `${prev}\n\n${sr.body}` : sr.body);
-      }
-    }
     return rows.map(row => {
       const conv = rowToConversation(row);
-      const aggregated = row.last_message_id ? (segMap.get(row.last_message_id) ?? "") : "";
-      const preview = aggregated
-        ? aggregated.replace(/<[^>]*>/g, "").slice(0, 50)
+      const preview = row.last_entry_body
+        ? (row.last_entry_body as string).replace(/<[^>]*>/g, "").slice(0, 50)
         : null;
       return {
         ...conv,
         otterIds: row.otter_ids_flat ? row.otter_ids_flat.split(",") : [],
         unreadCount: row.unread_count,
         lastMessagePreview: preview,
-        lastMessageTs: row.last_message_ts,
+        lastMessageTs: row.last_entry_ts,
         activityStatus: row.activity_status,
       };
     });
@@ -828,52 +271,15 @@ export class SqliteConversationRepository implements ConversationRepository {
 
   // ── Message 全文搜索（FTS5） ──
 
-  async searchMessages(conversationId: string, query: string, limit = 10): Promise<Message[]> {
-    const escaped = escapeFtsQuery(query);
-    /** FTS 匹配后加载 segments（FTS body 是剥离投影，回看源码走 getMessageById）。 */
-    const rows = this.db.prepare(`
-      SELECT m.* FROM messages m
-      INNER JOIN messages_fts fts ON fts.message_id = m.id
-      WHERE m.conversation_id = ? AND messages_fts MATCH ?
-      ORDER BY rank LIMIT ?
-    `).all(conversationId, escaped, limit) as MessageRow[];
-    const messages = rows.map(rowToMessage);
-    await this.attachSegments(messages);
-    return messages;
-  }
-
   /** F20260805rbrg：按 metadata 查重。支持单条（externalId）和批量（externalIds 数组）两种格式。 */
-  async findByExternalId(externalId: string): Promise<Message | null> {
-    // 单条消息：externalId 字段精确匹配
-    // 批量消息：externalIds JSON 数组中包含该值（用 JSON_EACH 展开）
-    const row = this.db.prepare(`
-      SELECT * FROM messages WHERE
-        JSON_EXTRACT(metadata, '$.externalId') = ?
-        OR EXISTS (SELECT 1 FROM JSON_EACH(JSON_EXTRACT(metadata, '$.externalIds')) WHERE value = ?)
-      LIMIT 1
-    `).get(externalId, externalId) as MessageRow | undefined;
-    if (!row) return null;
-    const message = rowToMessage(row);
-    await this.attachSegments([message]);
-    return message;
-  }
 
+  /** F20260909smsp：按 invokeGroupId 查询 invoke 消息链（首个 message + speak messages） */
   // ── Turn 历史 ──
 
-  async getTurnHistory(conversationId: string, includeMessages = false): Promise<TurnHistoryEntry[]> {
+  async getTurnHistory(conversationId: string): Promise<TurnHistoryEntry[]> {
+    // F20260913ctlv 批4c：messages 表 drop——只返回 turns 骨架，entries 由调用方经 EntryRepository.getEntriesByTurnId 装配
     const turnRows = this.db.prepare("SELECT * FROM turns WHERE conversation_id = ? ORDER BY turn_number ASC")
       .all(conversationId) as TurnRow[];
-    // 多模态 Phase 1：附件挂载需要 await（异步 JOIN），map 改两段式；turn history 非广播主路径，
-    // 但 get_turn_history 工具会透出消息——保持附件回填一致性
-    const result: TurnHistoryEntry[] = [];
-    for (const row of turnRows) {
-      const turn = rowToTurn(row);
-      if (!includeMessages) { result.push({ turn, messages: [] }); continue; }
-      const messages = (this.db.prepare("SELECT * FROM messages WHERE turn_id = ? ORDER BY sequence_num ASC")
-        .all(turn.id) as MessageRow[]).map(rowToMessage);
-      await this.attachSegments(messages);
-      result.push({ turn, messages });
-    }
-    return result;
+    return turnRows.map(rowToTurn).map(turn => ({ turn }));
   }
 }

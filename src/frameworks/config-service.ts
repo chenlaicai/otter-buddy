@@ -90,6 +90,10 @@ export interface AppConfig {
      *  机制：bootstrap 启动时注入环境变量 PI_CACHE_RETENTION=long，
      *  pi-ai anthropic-messages 适配器读该 env 发 ttl 标记。 */
     cacheLongRetention?: boolean;
+    /** F20260908rlcp：Session 热池容量（per-otter 单对象 LRU 池） */
+    sessionPoolSize?: number;
+    /** F20260908rlcp：Session 热池空闲 TTL（分钟），超过此时间未活跃的条目被驱逐 */
+    sessionPoolIdleTtlMinutes?: number;
   };
   circuitBreaker: {
     maxConsecutiveIdentical: number;
@@ -211,6 +215,10 @@ interface RawConfig {
     default?: string;
     /** LLM prompt 缓存长留存开关（F20260829cach，缺省 true） */
     cacheLongRetention?: boolean;
+    /** F20260908rlcp：Session 热池容量 */
+    sessionPoolSize?: number;
+    /** F20260908rlcp：Session 热池空闲 TTL（分钟） */
+    sessionPoolIdleTtlMinutes?: number;
     models?: Array<{
       alias?: string;
       provider?: string;
@@ -539,6 +547,9 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelC
       })),
       // F20260829cach: 缺省 true（实测 GLM anthropic 兼容端点接受 ttl 字段）
       cacheLongRetention: raw.llm.cacheLongRetention ?? true,
+      // F20260908rlcp: session 热池配置（容量默认 50，空闲 TTL 默认 30min）
+      sessionPoolSize: raw.llm.sessionPoolSize ?? 50,
+      sessionPoolIdleTtlMinutes: raw.llm.sessionPoolIdleTtlMinutes ?? 30,
     },
     circuitBreaker: buildCircuitBreakerConfig(raw),
     feishu: buildFeishuConfig(raw),

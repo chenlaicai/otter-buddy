@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
 import type { ManageConnection } from "@usecases/im/manage-connection";
-import type { QueryMessage } from "@usecases/conversation/query-message";
+import type { EntryRepository } from "@usecases/conversation/entry-repository";
 import type { FeishuGateway } from "@usecases/im/feishu-gateway";
 import type { Logger } from "@usecases/ports/logger";
 import { createTestLogger } from "../../helpers/logger";
@@ -9,7 +9,7 @@ import { createTestLogger } from "../../helpers/logger";
 describe("CommandDispatcher", () => {
   let dispatcher: CommandDispatcher;
   let manageConnection: ManageConnection;
-  let queryMessage: QueryMessage;
+  let entryRepo: EntryRepository;
   let feishuGateway: FeishuGateway;
   let logger: Logger;
   let replyTextMock: ReturnType<typeof vi.fn>;
@@ -21,15 +21,16 @@ describe("CommandDispatcher", () => {
       enterConversation: vi.fn().mockResolvedValue({ id: "session-1" }),
       getCurrentConversation: vi.fn().mockResolvedValue(null),
     } as any;
-    queryMessage = {
-      getMessages: vi.fn().mockResolvedValue([]),
+    // F20260913ctlv 批4a：/history 数据源切 entries
+    entryRepo = {
+      getEntries: vi.fn().mockResolvedValue([]),
     } as any;
     feishuGateway = {
       replyText: replyTextMock as any,
       replyMarkdown: vi.fn(),
     };
     logger = createTestLogger();
-    dispatcher = new CommandDispatcher(manageConnection, queryMessage, feishuGateway, logger);
+    dispatcher = new CommandDispatcher(manageConnection, entryRepo, feishuGateway, logger);
   });
 
   describe("/list 命令", () => {
@@ -104,24 +105,27 @@ describe("CommandDispatcher", () => {
         id: "conv-1",
         title: "测试对话",
       });
-      vi.mocked(queryMessage.getMessages).mockResolvedValue([
+      vi.mocked(entryRepo.getEntries).mockResolvedValue([
         {
-          id: "msg-1",
+          id: "entry-1",
           conversationId: "conv-1",
-          turnId: "turn-1",
+          sequenceNum: 1,
+          entryType: "user",
           senderType: "user",
           senderId: "user-1",
-          talkingStonePassedTo: ["otter-1"],
+          body: "你好",
+          invokeId: null,
+          yieldTargets: null,
+          turnId: "turn-1",
           status: "completed",
-          segments: [{ id: "seg-1", messageId: "msg-1", body: "你好", sequenceNum: 0, createdAt: "2026-07-30T10:00:00Z" }],
-          sequenceNum: 1,
+          source: "feishu",
+          metadata: null,
+          senderName: "",
           contextTokens: null,
           contextTokensMax: null,
-          source: "web",
-          senderName: '',
           createdAt: "2026-07-30T10:00:00Z",
           completedAt: "2026-07-30T10:00:00Z",
-        },
+        } as never,
       ]);
 
       await dispatcher.dispatch("conn-1", "/history", "chat-1");

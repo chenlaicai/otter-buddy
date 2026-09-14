@@ -12,9 +12,8 @@
 
 import type { SearchQueryContextMessage } from "@entities/memory/search-query-log";
 import type { SearchQueryLogRepository } from "./search-query-log-repository";
-import type { QueryMessage } from "@usecases/conversation/query-message";
+import type { EntryRepository } from "@usecases/conversation/entry-repository";
 import type { Logger } from "@usecases/ports/logger";
-import { aggregateBody } from "@entities/conversation/message";
 
 const CONTEXT_MESSAGE_COUNT = 5;
 const PREVIEW_MAX_CHARS = 160;
@@ -23,7 +22,8 @@ const TOP_ENTRY_IDS_COUNT = 5;
 export class RecordSearchQuery {
   constructor(
     private readonly repo: SearchQueryLogRepository,
-    private readonly queryMessage: QueryMessage,
+    /** F20260913ctlv 收尾批3：上下文快照切 entries（时间线唯一真相源） */
+    private readonly entryRepo: EntryRepository,
     private readonly logger: Logger,
   ) {}
 
@@ -65,24 +65,37 @@ export class RecordSearchQuery {
     }
   }
 
-  /** 取查询前最近 5 条消息的预览快照（标注者还原查询意图用）。
-   * beforeMessageId 存在时排除该消息及之后的消息——快照 = 查询发起前的上下文。 */
+  /** 取查询前最近 5 条对话条目的预览快照（标注者还原查询意图用）。
+   *  F20260913ctlv 收尾批3：数据源切 entries（speak+user 合并按 seq 倒取）。
+   *  beforeMessageId 存在时以该条目为上界（不含）——快照 = 查询发起前的上下文。 */
   private async buildContextPreview(
     conversationId: string,
     beforeMessageId?: string | null,
   ): Promise<SearchQueryContextMessage[]> {
-    // DESC 取最近 5 条再正序还原（上下文阅读顺序）
-    const messages = await this.queryMessage.getMessages(conversationId, {
-      limit: CONTEXT_MESSAGE_COUNT,
-      ...(beforeMessageId ? { before: beforeMessageId } : {}),
-    });
-    return messages
+    const [speaks, users] = await Promise.all([
+      this.entryRepo.getEntries(conversationId, { entryType: "speak", limit: CONTEXT_MESSAGE_COUNT * 2 }),
+      this.entryRepo.getEntries(conversationId, { entryType: "user", limit: CONTEXT_MESSAGE_COUNT * 2 }),
+    ]);
+    let pool = [...speaks, ...users];
+
+    // 上界过滤（beforeMessageId 命中时取其 sequenceNum 为界，不含锚点本身）
+    if (beforeMessageId) {
+      const anchor = await this.entryRepo.getEntryById(beforeMessageId).catch(() => null);
+      if (anchor) {
+        pool = pool.filter(e => e.sequenceNum < anchor.sequenceNum);
+      }
+    }
+
+    // seq 倒序取最近 5 条再正序还原（上下文阅读顺序）
+    return pool
+      .sort((a, b) => b.sequenceNum - a.sequenceNum)
+      .slice(0, CONTEXT_MESSAGE_COUNT)
       .reverse()
-      .map((m) => ({
-        id: m.id,
-        senderId: m.senderId,
-        role: m.senderType,
-        preview: aggregateBody(m.segments).slice(0, PREVIEW_MAX_CHARS),
+      .map((e) => ({
+        id: e.id,
+        senderId: e.senderId ?? "",
+        role: e.senderType ?? "",
+        preview: (e.body ?? "").slice(0, PREVIEW_MAX_CHARS),
       }));
   }
 }

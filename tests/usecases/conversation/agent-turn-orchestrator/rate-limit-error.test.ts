@@ -57,7 +57,7 @@ describe("buildRateLimitSystemMsg", () => {
     expect(msg).toContain("glm");
     expect(msg).toContain("配额耗尽");
     expect(msg).toContain("改派");
-    expect(msg).toContain("rate_limit");
+    // F20260908rlcp: rate_limit reference removed from system message
     expect(msg).toContain("2026-09-04 20:22");
   });
 
@@ -65,7 +65,7 @@ describe("buildRateLimitSystemMsg", () => {
     const msg = buildRateLimitSystemMsg({ otterName: "小獭", modelAlias: "glm-flash", exhausted: false });
     expect(msg).toContain("[系统提示]");
     expect(msg).toContain("glm-flash");
-    expect(msg).toContain("重试已耗尽");
+    expect(msg).toContain("重试耗尽");
   });
 });
 

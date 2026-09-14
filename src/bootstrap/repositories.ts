@@ -17,7 +17,9 @@ import { SqliteDispatchRecordRepository } from "@frameworks/db/dispatch/sqlite-d
 import { SignalRepository } from "@usecases/health/signal-repository";
 import { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
 import { SqliteAttachmentRepository } from "@frameworks/db/attachment/sqlite-attachment-repository";
-import { SqliteDispatchAttemptRepo } from "@frameworks/db/conversation/sqlite-dispatch-attempt-repo";
+import { SqliteEntryRepository } from "@frameworks/db/conversation/sqlite-entry-repository";
+import { SqliteInvokeRepository } from "@frameworks/db/conversation/sqlite-invoke-repository";
+
 import type { Logger } from "@usecases/ports/logger";
 
 export function initRepositories(db: Database.Database, logger?: Logger): Repositories {
@@ -42,11 +44,14 @@ export function initRepositories(db: Database.Database, logger?: Logger): Reposi
     /** RHI 健康池两 repo（issue #447）：此前 app.ts 4 处直实例化，绕过注册惯例 */
     rhiSignal: new SignalRepository(db),
     healthSnapshot: new HealthSnapshotRepository(db),
-    /** F20260902sgp2 S1：派发台账（信号协议 v2） */
-    dispatchAttempt: new SqliteDispatchAttemptRepo(db),
-    /** F20260912avlb：派工台账正式表（取代 otter_context 伪存储） */
+    /** F20260908rlcp：派发台账退役（dispatchAttempt 随 main #886 批次退役）；
+     * F20260912avlb：派工台账正式表（取代 otter_context 伪存储）——本 PR 核心，保留 */
     dispatchRecord: new SqliteDispatchRecordRepository(db),
     /** 多模态 Phase 1：附件 repo */
     attachment: new SqliteAttachmentRepository(db),
+    /** F20260913ctlv：条目仓库（取代 messages + message_segments） */
+    entry: new SqliteEntryRepository(db),
+    /** F20260913ctlv：invoke 生命周期仓库 */
+    invoke: new SqliteInvokeRepository(db),
   };
 }

@@ -6,7 +6,7 @@
  */
 
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
-import type { MessageEventInput } from "@usecases/conversation/send-message";
+import type { InvokeEventType } from "@entities/conversation/invoke";
 import type { SSEEvent } from "@contract/sse/events";
 
 /** 从 message_end 事件提取 assistant 内容块（过滤 user/toolResult） */
@@ -52,14 +52,12 @@ export function mapToSSEEvent(e: AgentStreamEvent): SSEEvent | null {
     return { event: sseEventName, data: extractSdkEventFields(e) };
   }
   switch (e.type) {
+    // F20260913ctlv：流式过程不进 SSE（从消息气泡挪出，只在 Session 弹窗展示）——
+    // tool.result / assistant_text / assistant_toolcall 不再广播，仅落 invoke_events
     case "tool_execution_end":
-      return { event: "tool.result", data: { toolName: e.name ?? e.toolName ?? "", result: e.result } };
-    case "message_end": {
-      const extracted = extractAssistantContent(e);
-      if (!extracted) return null;
-      const event = extracted.type === "toolcall" ? "assistant_toolcall" : "assistant_text";
-      return { event, data: { content: extracted.blocks } };
-    }
+      return null;
+    case "message_end":
+      return null;
     case "turn_end":
       return null;
     case "agent_end":
@@ -69,27 +67,31 @@ export function mapToSSEEvent(e: AgentStreamEvent): SSEEvent | null {
   }
 }
 
-/** 从 message_end 事件提取可存储的 MessageEventInput */
-export function mapMessageEndEvent(e: AgentStreamEvent, messageId: string): MessageEventInput | null {
-  const extracted = extractAssistantContent(e);
-  if (!extracted) return null;
-  const eventType = extracted.type === "toolcall" ? "assistant_toolcall" : "assistant_text";
-  return { messageId, eventType, payload: { content: extracted.blocks } };
-}
-
-/** Pi 事件 -> MessageEventInput 映射（持久化到 DB） */
-export function mapToMessageEventInput(
+/** F20260913ctlv：Pi 事件 → InvokeEvent 映射（持久化到 invoke_events 表，Session 弹窗数据源）。 */
+// eslint-disable-next-line complexity -- 事件类型分发表，拆分降低可读性
+export function mapToInvokeEventInput(
   e: AgentStreamEvent,
-  messageId: string,
-): MessageEventInput | null {
+): { eventType: InvokeEventType; payload: Record<string, unknown> } | null {
   switch (e.type) {
-    case "tool_execution_end":
-      return { messageId, eventType: "tool_result", payload: { name: e.name ?? e.toolName, result: e.result } };
-    case "message_end":
-      return mapMessageEndEvent(e, messageId);
+    case "tool_execution_start":
+      return { eventType: "assistant_toolcall", payload: { name: e.name ?? e.toolName, arguments: (e as Record<string, unknown>).args ?? (e as Record<string, unknown>).input } };
+    case "tool_execution_end": {
+      const details = (e.result as { details?: Record<string, unknown> } | undefined)?.details;
+      // speak 工具的落库结果单独归类（Session 弹窗里发言与工具调用分样式展示）
+      if ((e.name ?? e.toolName) === "speak" && details?.__speakIntermediate === true) {
+        return { eventType: "speak", payload: { body: String(details.body ?? ""), segmentId: details.segmentId, sequenceNum: details.sequenceNum } };
+      }
+      return { eventType: "tool_result", payload: { name: e.name ?? e.toolName, result: e.result } };
+    }
+    case "message_end": {
+      const extracted = extractAssistantContent(e);
+      if (!extracted) return null;
+      const eventType: InvokeEventType = extracted.type === "toolcall" ? "assistant_toolcall" : "assistant_text";
+      return { eventType, payload: { content: extracted.blocks } };
+    }
     default:
       if (String(e.type).includes("error")) {
-        return { messageId, eventType: "error", payload: { message: String(e.error ?? e.message ?? "Unknown error") } };
+        return { eventType: "error", payload: { message: String(e.error ?? e.message ?? "Unknown error") } };
       }
       return null;
   }
