@@ -20,4 +20,16 @@ export class SimpleCronParser implements CronParser {
       throw new Error('Invalid cron expression: unable to parse', { cause: error });
     }
   }
+
+  /** #814：referenceTime 之前最近一次应触发时间（调度完整性对账）。
+   *  croner previousRuns(1, ref) 返回 ref 之前最近一次匹配；无匹配返回 null。 */
+  getPrevTime(cron: string, timezone: string, referenceTime?: Date): Date | null {
+    try {
+      const job = new Cron(cron, { timezone });
+      const prevs = referenceTime ? job.previousRuns(1, referenceTime) : job.previousRuns(1);
+      return prevs && prevs.length > 0 ? prevs[0]! : null;
+    } catch (error) {
+      throw new Error('Invalid cron expression: unable to parse', { cause: error });
+    }
+  }
 }

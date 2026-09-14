@@ -1,11 +1,12 @@
 /**
  * AgentTurnOrchestrator 类型定义
  *
- * Why: 将接口定义从 orchestrator.ts 中分离，减少主文件行数。
+ * F20260913ctlv 彻底切换：turn 生命周期从 messages 行剥离到 invokes 行。
+ * - TurnInput.invokeId 必填（invoke 是行动主体，messageId 退役）
+ * - TurnCallbacks 全部 invoke 化（completeMessage/failMessage/... 已删除）
  */
 
 import type { Logger } from "@usecases/ports/logger";
-import type { MessageSegment } from "@entities/conversation/message";
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
 import type { AbortUnderlyingError } from "./exit-classifier";
@@ -36,16 +37,15 @@ export interface AttemptResult {
   toolCallCount: number;
 }
 
-/** 发言轮输入 */
+/** 发言轮输入（F20260913ctlv：invokeId 必填——invoke 是行动主体） */
 export interface TurnInput {
   otterId: string;
   conversationId: string;
-  messageId: string;
+  /** F20260913ctlv：invoke ID（状态机主体。yield 工具置 completed = 成功信号） */
+  invokeId: string;
   userMessageContent: string;
   /** F20260818cbkr：用户原始消息。retry 会覆写 userMessageContent 为系统提醒文案，熔断摘要必须取此字段 */
   originalUserMessage: string;
-  /** F20260818cbkr：degenerate retry 前的首条消息 id（工作进度主要在此，熔断摘要合并取用） */
-  preRetryMessageId?: string;
   senderId: string;
   retryCount: number;
   manualRetry: boolean;
@@ -54,36 +54,24 @@ export interface TurnInput {
 
 /**
  * F20260818cbkr 熔断信号载荷。挂在 TurnResult 上跨层上抛——
- * executeTurn 不在循环内消费（区别于 RetryWithNewMessageSignal），
+ * executeTurn 不在循环内消费（区别于重试），
  * 由 agent-invoker 检测后执行 restartSession + 全新 invoke。
  */
 export interface CircuitBreakInfo {
   otterId: string;
   conversationId: string;
   originalUserMessage: string;
-  failedMessageId: string;
-  /** retry 前首条消息 id（摘要合并工具序列用；无 retry 时等同 failedMessageId） */
-  firstMessageId: string;
+  failedInvokeId: string;
   toolCallCount: number;
 }
 
-/** 发言轮结果 */
+/** 发言轮结果（F20260913ctlv：invokeId 主体，messageId 退役） */
 export interface TurnResult {
-  messageId: string;
+  invokeId: string;
   duration: number;
   tokenUsage?: { input: number; output: number };
-  /** @deprecated F20260904schf：turn 级并集，链引擎已改读行级 tsp（#792），新代码禁止消费 */
-  aggregatedTargets?: string[];
   /** F20260818cbkr：degenerate 二次退化时携带，agent-invoker 执行熔断重启 */
   _circuitBreak?: CircuitBreakInfo;
-}
-
-/** 重试信号（degenerate_output 创建新消息重试） */
-export interface RetryWithNewMessageSignal {
-  _retryWithNewMessage: true;
-  newMessageId: string;
-  retryMsg: string;
-  toolCallCount: number;
 }
 
 /** AttemptDriver - orchestrator 驱动 adapter 的执行面（仅限重执行当前轮） */
@@ -91,18 +79,18 @@ export interface AttemptDriver {
   /** 执行一次 agent invoke，返回结果 + toolCallCount */
   invoke(input: TurnInput, onEvent: (event: AgentStreamEvent) => void): Promise<AttemptResult>;
   /** 中止 agent 生成 */
-  abort(otterId: string, messageId?: string): void;
+  abort(otterId: string, invokeId?: string): void;
   /** 获取内部 abort 原因（outputGuard 等） */
-  getInternalAbortReason(messageId: string): string | undefined;
+  getInternalAbortReason(invokeId: string): string | undefined;
   /** 获取工具调用计数 */
-  getToolCallCount(otterId: string, messageId: string): number;
-  /** 检查消息是否被用户中止 */
-  isUserAborted(messageId: string): boolean;
+  getToolCallCount(otterId: string, invokeId: string): number;
+  /** 检查 invoke 是否被用户中止 */
+  isUserAborted(invokeId: string): boolean;
 }
 
 /** F20260818cbkr：healing 事件写入回调入参（完整实体由 invoker 层组装） */
 export interface HealingEventInput {
-  messageId: string;
+  invokeId: string;
   conversationId: string;
   otterId: string;
   errorType: "degenerate" | "circuit_break" | "self_restart" | "guard_intercept" | "rate_limit";
@@ -112,12 +100,20 @@ export interface HealingEventInput {
   context?: Record<string, unknown>;
 }
 
-/** TurnCallbacks - orchestrator 回调 adapter 的接口 */
+/** TurnCallbacks - orchestrator 回调 adapter 的接口（F20260913ctlv：全部 invoke 化） */
 export interface TurnCallbacks {
-  /** 消息生命周期回调 */
-  completeMessage(messageId: string, input?: { contextTokens?: number; contextTokensMax?: number }): Promise<{ turnClose: { /** @deprecated F20260904schf：turn 级并集（#792），链引擎已改读行级 tsp */ aggregatedTargets?: string[] } }>;
-  failMessage(messageId: string, body?: string, talkingStonePassedTo?: string[]): Promise<void>;
-  abortMessage(messageId: string, input: { body: string; talkingStonePassedTo?: string[] }): Promise<void>;
+  /** 查询 invoke 状态（成功检测判据：status 离开 running = 已 yield） */
+  getInvokeById(invokeId: string): Promise<{ status: string; toolCallCount: number; talkingStonePassedTo?: string[] | null } | null>;
+  /** 更新 invoke 状态（终态化） */
+  updateInvokeStatus(invokeId: string, status: 'completed' | 'failed' | 'aborted'): Promise<void>;
+  /** 更新 invoke 发言石去向（abort/no_yield 耗尽时回传触发者） */
+  updateInvokeTalkingStonePassedTo?(invokeId: string, targets: string[]): Promise<void>;
+  /** 更新 invoke token 用量（成功路径终态快照） */
+  updateInvokeTokenUsage?(invokeId: string, input: number, output: number): Promise<void>;
+  /** 创建 invoke_end entry（fail/abort 终态条目）。返回 entry id + body（供前端实时居中条目同源渲染） */
+  createInvokeEndEntry(invokeId: string, status: 'failed' | 'aborted', body?: string): Promise<{ entryId: string; body: string } | undefined>;
+  /** 发送 invoke.end SSE 事件 */
+  emitInvokeEnd(invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string; endBody?: string; otterName?: string }): void;
   /** F20260818cbkr：写 healing 事件（degenerate guard 触发点数据源） */
   recordHealingEvent(input: HealingEventInput): Promise<void>;
   /**
@@ -129,22 +125,13 @@ export interface TurnCallbacks {
   isSessionCircuitBreakCreated(otterId: string): Promise<boolean>;
   /** F20260818cbkr：熔断是否可用。上限/二级判定依赖 healing_events 状态载体，repo 缺失时禁用并降级为旧 abort 语义 */
   isCircuitBreakerEnabled(): boolean;
-  /** 广播消息到 Web 和飞书 */
-  broadcastMessage(messageId: string): Promise<void>;
-  /** 查询消息状态。segments 是消息内容的唯一载体（messages.body 列已移除，SSE body 由 aggregateBody 计算） */
-  getMessageById(messageId: string): Promise<{ status: string; segments: MessageSegment[]; turnId?: string } | null>;
-  /** 发送系统消息 */
+  /** 发送系统消息（F20260913ctlv：只写 entries + entry.system SSE，实现方负责） */
   sendSystem(conversationId: string, body: string): Promise<{ id: string; body: string | null; sequenceNum: number }>;
-  /** 创建新消息（重试用） */
-  startNewMessage(conversationId: string, senderId: string, talkingStonePassedTo: string[]): Promise<{ id: string; sequenceNum: number; createdAt: string }>;
-  /** 重试准备 */
-  // F20260821fix: no_yield 重试时保留 segments（speak 内容有效，不应被删除）
-  prepareForRetry(messageId: string, preserveSegments?: boolean): Promise<void>;
   /** 查询 otter */
   getOtterById(otterId: string): Promise<{ name: string; type?: string } | null>;
   /** 查询用户显示名 */
   getPartnerLabel(): Promise<string>;
-  /** SSE 事件推送 */
+  /** SSE 事件推送（只允许 entry.x / invoke.x / turn.complete / error 等——message.x 已退役） */
   emitEvent(event: { event: string; data: Record<string, unknown> }): void;
   /** 日志 */
   logger: Logger;

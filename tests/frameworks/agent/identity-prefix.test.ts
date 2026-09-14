@@ -130,7 +130,7 @@ describe("buildIdentityPrefix 分支", () => {
 describe("身份注入触发链路（pendingIdentity / createdNew）", () => {
   type FactoryInternals = {
     pendingIdentity: Set<string>;
-    _restoreOrCreateSession: (id: string) => Promise<{ sessionManager: unknown; createdNew: boolean }>;
+    _acquirePooled: (id: string, opts: unknown) => Promise<unknown>;
     _executeWithSession: (...args: unknown[]) => Promise<unknown>;
     _invokeInternal: (id: string, msg: string, opts: unknown) => Promise<unknown>;
   };
@@ -155,7 +155,12 @@ describe("身份注入触发链路（pendingIdentity / createdNew）", () => {
     const captured: { invokeOptions: unknown } = { invokeOptions: undefined };
     const executeShouldFail = { value: false };
     const internals = factory as unknown as FactoryInternals;
-    internals._restoreOrCreateSession = async () => ({ sessionManager: {}, createdNew });
+    // F20260911pspl 池化后身份判定在 _acquirePooled：mock 掉它，直接返回池外场景
+    // （isPooled=false + createdNew 语义由测试参数控制，经 pendingIdentity 标记传递）
+    internals._acquirePooled = async (otterId: string) => {
+      if (createdNew) internals.pendingIdentity.add(otterId);
+      return { session: {}, sessionKey: otterId, toolContext: {}, turnText: { text: "" }, isPooled: false } as never;
+    };
     internals._executeWithSession = async (...args: unknown[]) => {
       captured.invokeOptions = args[2];
       if (executeShouldFail.value) throw new Error("invoke failed");

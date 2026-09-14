@@ -4,6 +4,7 @@ import type { SchedulerService } from '@usecases/scheduler/scheduler-service';
 import type { CronParser } from '@usecases/scheduler/scheduler-service';
 import type { Logger } from "@usecases/ports/logger";
 import { handleError, param } from '../http-error';
+import { safeJsonBody } from '../parse-json-body';
 import {
   toScheduledTaskDTO,
   toExecutionDTO,
@@ -32,7 +33,7 @@ export class ScheduledTaskController {
   async create(c: Context): Promise<Response> {
     try {
       const conversationId = param(c, 'id');
-      const body = await c.req.json<CreateScheduledTaskRequestDTO>();
+      const body = await safeJsonBody<CreateScheduledTaskRequestDTO>(c);
 
       const task = await this.manageScheduledTask.create({
         conversationId,
@@ -87,7 +88,7 @@ export class ScheduledTaskController {
   async update(c: Context): Promise<Response> {
     try {
       const taskId = param(c, 'taskId');
-      const body = await c.req.json<UpdateScheduledTaskRequestDTO>();
+      const body = await safeJsonBody<UpdateScheduledTaskRequestDTO>(c);
 
       const task = await this.manageScheduledTask.update(taskId, {
         name: body.name,

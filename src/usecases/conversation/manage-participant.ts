@@ -2,17 +2,18 @@ import type { ConversationParticipant } from "@entities/conversation/conversatio
 import {
   canJoinConversation,
   canLeaveConversation,
-  canAddMessageToTurn,
 } from "@entities/conversation/conversation";
 import type { Message } from "@entities/conversation/message";
-import { isValidTalkingStonePass } from "@entities/conversation/message";
 import { DomainError } from "@entities/errors";
 import type { ConversationRepository } from "./conversation-repository";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { OtterConfig, OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import { resolveEffectiveModel } from "@usecases/ports/otter-config-provider";
 import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
-import { tryCloseTurn } from "./turn-utils";
+import { tryCloseTurn, ensureActiveTurn } from "./turn-utils";
+import type { EntryRepository } from "./entry-repository";
+import type { InvokeRepository } from "./invoke-repository";
+import type { Entry } from "@entities/conversation/entry";
 
 export interface ParticipantWithOtter {
   participant: ConversationParticipant;
@@ -29,6 +30,8 @@ export class ManageParticipant {
   constructor(
     private readonly repo: ConversationRepository,
     private readonly otterRepo: OtterRepository,
+    /** F20260913ctlv 批4c：系统消息写入依赖（进场/退场 system entry + turn 关闭判据）——必注入 */
+    private readonly entryDeps: { entryRepo: EntryRepository; invokeRepo: InvokeRepository },
     /** 可选：老数据/测试场景无 config 注入时 modelAlias 缺省不返回 */
     private readonly configProvider?: OtterConfigProvider,
     /** F20260908efmd: 可选——用于有效模型解析。未注入时 modelAlias 降级为配置裸值（旧行为） */
@@ -36,18 +39,18 @@ export class ManageParticipant {
   ) {}
 
   /**
-   * Otter 进场：创建参与记录 + 系统消息。
-   * 前置条件：当前有活跃 Turn（后进场者必须有 Turn）。
-   * 系统消息 body 由调用方传入（A1：ManageParticipant 不依赖 OtterRepository）。
+   * Otter 进场：创建参与记录 + 进场系统消息。
+   * F20260913ctlv 彻底切换：去掉「必须 open turn」硬校验（invokes 状态机下 turns 不再
+   * 长期 open，test11 实测 getActiveTurn 恒 null → create_otter 全挂）；turn 用
+   * ensureActiveTurn 兜底创建，系统消息改写 system entry（messages 停写）。
    */
-  // eslint-disable-next-line max-lines-per-function -- F20260818segs segment 创建逻辑增加行数
   async join(
     conversationId: string,
     otterId: string,
     systemMessageBody: string,
   ): Promise<{
     participant: ConversationParticipant;
-    systemMessage: Message;
+    systemMessage: Message | Entry;
   }> {
     /** 1. UA-10: 无已有参与记录才可进场 */
     const existing = await this.repo.getParticipant(conversationId, otterId);
@@ -55,14 +58,8 @@ export class ManageParticipant {
       throw new DomainError(`Otter ${otterId} already joined conversation ${conversationId}`, "conflict");
     }
 
-    /** 2. 进场需要活跃 Turn */
-    const turn = await this.repo.getActiveTurn(conversationId);
-    if (!turn) {
-      throw new DomainError(`No active turn in conversation ${conversationId}`, "validation");
-    }
-    if (!canAddMessageToTurn(turn.status)) {
-      throw new DomainError(`Turn ${turn.id} is not active`, "validation");
-    }
+    /** 2. turn 锚点：ensureActiveTurn 兜底（无 open turn 时创建）*/
+    const turn = await ensureActiveTurn(this.repo, conversationId);
 
     const now = new Date().toISOString();
 
@@ -83,46 +80,65 @@ export class ManageParticipant {
     };
     await this.repo.createParticipant(participant);
 
-    /** 4. 创建系统消息（B18: senderType="system", 豁免发言石校验） */
-    if (!isValidTalkingStonePass([], "completed", "system")) {
-      throw new DomainError("System message talking stone validation failed", "validation");
-    }
-
-    const messageId = crypto.randomUUID();
-    const sequenceNum = (await this.repo.getMaxSequenceNum(conversationId)) + 1;
-    const systemMessage: Message = {
-      id: messageId,
-      conversationId,
-      turnId: turn.id,
-      senderType: "system",
-      senderId: otterId,
-      talkingStonePassedTo: [],
-      status: "completed",
-      segments: [],
-      sequenceNum,
-      contextTokens: null,
-      contextTokensMax: null,
-      source: "web",
-      senderName: '',
-      createdAt: now,
-      completedAt: now,
-    };
-    await this.repo.createCompletedMessage(systemMessage);
-    const seg = await this.repo.appendSegment(messageId, systemMessageBody);
-    systemMessage.segments = [seg];
+    /** 4. 进场系统消息：新路径 system entry / 旧路径降级 messages */
+    const systemMessage = await this.writeSystemRecord(conversationId, turn.id, otterId, systemMessageBody, now);
 
     /** 5. 更新已读位置到当前 turn（小獭能看到整个 turn 的所有消息） */
     await this.repo.updateLastReadTurnNumber(conversationId, otterId, turn.turnNumber);
 
-    /** 6. 尝试关闭 Turn */
-    await tryCloseTurn(this.repo, turn.id);
+    /** 6. 尝试关闭 Turn（system entry 已终态；invoke 状态机判据） */
+    await this.closeTurnAfterRecord(turn.id);
 
     return { participant, systemMessage };
+  }
+
+  /** F20260913ctlv：进场/退场系统消息写入——entry 新路径 + messages 降级路径 */
+  private async writeSystemRecord(
+    conversationId: string,
+    turnId: string,
+    otterId: string,
+    body: string,
+    now: string,
+  ): Promise<Entry> {
+    // F20260913ctlv 批4c：messages 降级路径删除（entryDeps 必注入——装配唯一路径）
+    const entry: Entry = {
+        id: crypto.randomUUID(),
+        conversationId,
+        sequenceNum: 0, // 原子分配（createEntryAtomic 忽略入参）
+        entryType: "system",
+        senderType: "system",
+        senderId: otterId,
+        body,
+        invokeId: null,
+        yieldTargets: null,
+        turnId,
+        status: "completed",
+        source: null,
+        metadata: null,
+        senderName: "system",
+        contextTokens: null,
+        contextTokensMax: null,
+      createdAt: now,
+      completedAt: now,
+    };
+    return this.entryDeps.entryRepo.createEntryAtomic(entry);
+  }
+
+
+  /** F20260913ctlv 批4a：turn 关闭（invokes 判据；messages 降级分支已删） */
+  private async closeTurnAfterRecord(turnId: string): Promise<void> {
+    await tryCloseTurn(this.repo, turnId, this.entryDeps);
   }
 
   /**
    * Otter 退场：更新参与记录 + 系统消息。
    * 前置条件：当前有活跃 Turn。
+   */
+  /**
+   * Otter 退场：更新参与记录 + 退场系统消息。
+   * F20260913ctlv 彻底切换：与 join 同款去 open-turn 硬校验（ensureActiveTurn 兜底）+
+   * 系统消息改 system entry。生产调用方已退役（clients.ts 走 markLeft），保留供测试/
+   * 未来场景使用。
    */
   async leave(
     conversationId: string,
@@ -130,7 +146,7 @@ export class ManageParticipant {
     systemMessageBody: string,
   ): Promise<{
     participant: ConversationParticipant;
-    systemMessage: Message;
+    systemMessage: Message | Entry;
   }> {
     /** 1. 当前状态为 active 才可退场 */
     const participant = await this.repo.getParticipant(conversationId, otterId);
@@ -138,14 +154,8 @@ export class ManageParticipant {
       throw new DomainError(`Otter ${otterId} is not an active participant`, "validation");
     }
 
-    /** 2. 退场需要活跃 Turn */
-    const turn = await this.repo.getActiveTurn(conversationId);
-    if (!turn) {
-      throw new DomainError(`No active turn in conversation ${conversationId}`, "validation");
-    }
-    if (!canAddMessageToTurn(turn.status)) {
-      throw new DomainError(`Turn ${turn.id} is not active`, "validation");
-    }
+    /** 2. turn 锚点：ensureActiveTurn 兜底 */
+    const turn = await ensureActiveTurn(this.repo, conversationId);
 
     const now = new Date().toISOString();
 
@@ -157,32 +167,11 @@ export class ManageParticipant {
       now,
     );
 
-    /** 4. 创建系统消息 */
-    const messageId = crypto.randomUUID();
-    const sequenceNum = (await this.repo.getMaxSequenceNum(conversationId)) + 1;
-    const systemMessage: Message = {
-      id: messageId,
-      conversationId,
-      turnId: turn.id,
-      senderType: "system",
-      senderId: otterId,
-      talkingStonePassedTo: [],
-      status: "completed",
-      segments: [],
-      sequenceNum,
-      contextTokens: null,
-      contextTokensMax: null,
-      source: "web",
-      senderName: '',
-      createdAt: now,
-      completedAt: now,
-    };
-    await this.repo.createCompletedMessage(systemMessage);
-    const seg = await this.repo.appendSegment(messageId, systemMessageBody);
-    systemMessage.segments = [seg];
+    /** 4. 退场系统消息：新路径 system entry / 旧路径降级 messages */
+    const systemMessage = await this.writeSystemRecord(conversationId, turn.id, otterId, systemMessageBody, now);
 
     /** 5. 尝试关闭 Turn */
-    await tryCloseTurn(this.repo, turn.id);
+    await this.closeTurnAfterRecord(turn.id);
 
     return {
       participant: {

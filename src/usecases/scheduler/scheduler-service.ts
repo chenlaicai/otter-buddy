@@ -1,14 +1,15 @@
 /* eslint-disable max-lines -- 调度核心路径（触发/重试/healing 注入/指标/链看门狗）聚合于本文件，
    拆分需新建模块并移动多个私有方法，引入间接层而降低可读性；#516/#517 增加活跃看门狗与记账校验已尽量精简 */
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
-import type { DispatchAttemptRepo } from '@entities/conversation/dispatch-attempt';
-import type { SendMessage } from '@usecases/conversation/send-message';
+import type { SendEntry } from '@usecases/conversation/send-entry';
+import type { EntryRepository } from '@usecases/conversation/entry-repository';
+import type { MessageBroadcaster } from '@usecases/im/message-broadcaster';
 import type { AgentTurnPort } from '@usecases/ports/agent-turn-port';
 import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled-task-repository';
 import type { ManageScheduledTask } from '@usecases/scheduled-task/manage-scheduled-task';
 import type { ManageSession } from '@usecases/otter/manage-session';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
-import type { Message } from '@entities/conversation/message';
+import type { Entry } from '@entities/conversation/entry';
 import type { Logger } from '@usecases/ports/logger';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
 import type { SchedulerMetricsPort } from './scheduler-metrics-port';
@@ -51,20 +52,26 @@ const SINGLE_INVOKE_TIMEOUT_MS = 5 * 60 * 1000;
  *  #640: 支持 referenceTime 参数用于轮询模式下计算从某时间点起的下次触发时间 */
 export interface CronParser {
   getNextTime(cron: string, timezone: string, referenceTime?: Date): Date;
+  /** #814：取 referenceTime 之前最近一次应触发时间（调度完整性对账用）。无实现时返回 null。 */
+  getPrevTime?(cron: string, timezone: string, referenceTime?: Date): Date | null;
 }
 
 export interface SchedulerServiceOptions {
   taskRepo: ScheduledTaskRepository;
   convRepo: ConversationRepository;
-  sendMessage: SendMessage;
+  /** F20260913ctlv 收尾批2：scheduler 内部信号唯一落点 = entries（system entry）。
+   *  sendMessage（messages 表）退役；看门狗/记账校验同步改 entries */
+  sendEntry: SendEntry;
+  entryRepo: EntryRepository;
   agentInvokePort: AgentTurnPort;
   cronParser: CronParser;
   logger: Logger;
+  /** F20260913ctlv 收尾批2：system entry 广播（entry.system SSE，前端时间线实时可见） */
+  messageBroadcaster?: MessageBroadcaster;
   manageScheduledTask?: ManageScheduledTask;
   manageSession?: ManageSession;
   healingRepo?: HealingEventRepository;
   /** F20260902sgp2 S4b：派发台账（可选）——看门狗台账终态判活 */
-  dispatchAttemptRepo?: DispatchAttemptRepo;
   /** #775 S4a 换轨：信号路由器（可选注入）。注入后定时任务触发 = 投信号 → 路由器点火
    *  （过闸门+台账记账）；未注入回退直连链（回滚面，与 sgpv 降级基线同语义）。 */
   signalRouter?: SignalRouter;
@@ -89,13 +96,15 @@ export class SchedulerService {
   private nextExpectedTrigger = new Map<string, Date>();
   private readonly taskRepo: ScheduledTaskRepository;
   private readonly convRepo: ConversationRepository;
-  private readonly sendMessage: SendMessage;
+  /** F20260913ctlv 收尾批2：entries 唯一写入面（system entry）+ 读取面（看门狗/记账） */
+  private readonly sendEntry: SendEntry;
+  private readonly entryRepo: EntryRepository;
+  private readonly messageBroadcaster?: MessageBroadcaster;
   private readonly agentInvokePort: AgentTurnPort;
   private readonly cronParser: CronParser;
   private readonly logger: Logger;
   private readonly healingRepo?: HealingEventRepository;
   /** F20260902sgp2 S4b：派发台账——看门狗台账终态判活的数据源（可选，未注入回退消息判定） */
-  private readonly dispatchAttemptRepo?: DispatchAttemptRepo;
   /** #775 S4a 换轨：信号路由器（可选）——注入后触发走投信号路径 */
   private signalRouter?: SignalRouter;
   /** #775 S4a：装配顺序注入点（路由器晚于 scheduler 诞生，构造期互指会循环依赖） */
@@ -111,12 +120,13 @@ export class SchedulerService {
   constructor(options: SchedulerServiceOptions) {
     this.taskRepo = options.taskRepo;
     this.convRepo = options.convRepo;
-    this.sendMessage = options.sendMessage;
+    this.sendEntry = options.sendEntry;
+    this.entryRepo = options.entryRepo;
+    this.messageBroadcaster = options.messageBroadcaster;
     this.agentInvokePort = options.agentInvokePort;
     this.cronParser = options.cronParser;
     this.logger = options.logger;
     this.healingRepo = options.healingRepo;
-    this.dispatchAttemptRepo = options.dispatchAttemptRepo;
     this.signalRouter = options.signalRouter;
     this.metrics = options.metrics;
     this.dispatchChainEngine = options.dispatchChainEngine;
@@ -189,6 +199,16 @@ export class SchedulerService {
       this.logger.warn('启动对账失败（不阻塞启动）', { error: err instanceof Error ? err.message : String(err) });
     }
     const tasks = await this.getAllActiveTasks();
+    // #814：调度完整性对账——active cron 任务的 last_triggered_at 落后于 cron 应触发时间时，
+    // 落 healing event（errorType='other'，severity='low'）让静默日在台账可见。
+    // 服务停机期间无进程可写，重启后对账是唯一可见性窗口；对账失败不阻塞启动。
+    if (this.healingRepo && this.cronParser.getPrevTime) {
+      try {
+        await this.reconcileMissedWindows(tasks);
+      } catch (err) {
+        this.logger.warn('调度完整性对账失败（不阻塞启动）', { error: err instanceof Error ? err.message : String(err) });
+      }
+    }
     if (this.metrics) {
       const counts: Record<string, number> = { cron: 0, once: 0 };
       for (const t of tasks) counts[t.scheduleType]++;
@@ -390,6 +410,80 @@ export class SchedulerService {
     this.timers.set(task.id, timer);
   }
 
+  /** #814：单任务错过窗口落账（best-effort，失败仅日志） */
+  private async recordMissedWindow(task: ScheduledTask, prevDue: Date, now: Date): Promise<void> {
+    try {
+      await this.healingRepo!.create({
+        id: crypto.randomUUID(),
+        messageId: '',
+        conversationId: task.conversationId,
+        otterId: task.talkingStonePassedTo[0] ?? '',
+        errorType: 'other',
+        severity: 'low',
+        description: `定时任务「${task.name}」错过触发窗口（#814 调度完整性对账）`,
+        suggestion: '检查服务停机时段；如需补跑手动触发',
+        context: {
+          taskId: task.id,
+          cron: task.cron,
+          missedWindowAt: prevDue.toISOString(),
+          lastTriggeredAt: task.lastTriggeredAt,
+          reconciledAt: now.toISOString(),
+        },
+        status: 'open',
+        resolution: null,
+        createdAt: now.toISOString(),
+        resolvedAt: null,
+      });
+      this.logger.warn('调度完整性对账：任务错过触发窗口', {
+        taskId: task.id, cron: task.cron, missedWindowAt: prevDue.toISOString(),
+      });
+    } catch (err) {
+      this.logger.warn('错过窗口 healing 落账失败（继续其他任务）', {
+        taskId: task.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /** #814：调度完整性对账——active cron 任务的 lastTriggeredAt 落后于应触发时间 → 落 healing。
+   *  判定：getPrevTime(cron, tz, now) 为 now 之前最近一次应触发时间；若参照点（lastTriggeredAt
+   *  ?? createdAt）早于该时间，则该窗口被错过。
+   *  每个任务只报最近一次错过窗口（服务停机可能跨多个窗口，逐窗口报会刷屏；最近一次已含
+   *  「有静默」的全部信息，更早窗口在日报对账时由 cron 表人工/LLM 核对）。 */
+  private async reconcileMissedWindows(tasks: ScheduledTask[]): Promise<void> {
+    const now = new Date();
+    // #853 检视严重 1：去重——同一错过窗口重复重启不得重复落账。一次性取 open 的 other
+    // 事件，按 (taskId, missedWindowAt) 建集合；落账前查重。错过窗口的 lastTriggeredAt
+    // 不会因对账而更新（对账不触发任务），不去重则每次重启都重落同一窗口事件。
+    let existingKeys: Set<string>;
+    try {
+      const openOther = await this.healingRepo!.findOpen();
+      existingKeys = new Set(
+        openOther
+          .filter(e => e.errorType === 'other')
+          .map(e => {
+            const ctx = e.context as Record<string, unknown> | null;
+            return `${ctx?.taskId ?? ''}\0${ctx?.missedWindowAt ?? ''}`;
+          }),
+      );
+    } catch {
+      existingKeys = new Set(); // 查重失败降级为不去重（多落一条优于不落）
+    }
+    for (const task of tasks) {
+      if (task.scheduleType !== 'cron' || !task.cron) continue;
+      const prevDue = this.cronParser.getPrevTime!(task.cron, task.timezone, now);
+      if (!prevDue) continue;
+      const reference = task.lastTriggeredAt ? new Date(task.lastTriggeredAt)
+        : task.createdAt ? new Date(task.createdAt) : null;
+      // 已触发过且 reference >= prevDue → 无错过；从未触发但 createdAt >= prevDue → 未到首个窗口
+      if (!reference || reference.getTime() >= prevDue.getTime()) continue;
+      const dedupKey = `${task.id}\0${prevDue.toISOString()}`;
+      if (existingKeys.has(dedupKey)) continue; // 已落账过该窗口，跳过
+      await this.recordMissedWindow(task, prevDue, now);
+      existingKeys.add(dedupKey); // 同轮多任务同窗口的后续不再重复
+    }
+  }
+
   /** once 任务专用重试：失败后延迟重试，最多 maxRetries 次 */
   private async triggerOnceWithRetry(task: ScheduledTask, retriesLeft: number): Promise<void> {
     if (retriesLeft <= 0) {
@@ -517,16 +611,16 @@ export class SchedulerService {
 
       executionStartMs = this.now();
       try {
-        const message = await this.createSystemMessage(task, effectiveBody);
-        // Why 传入 anchor 消息 id：链看门狗用它探测链活性（#516），记账校验用它圈定执行窗口（#517）
-        await this.invokeAgentWithTimeout(task, effectiveBody, message.id);
+        const anchor = await this.createSystemSignalEntry(task, effectiveBody);
+        // Why 传入锚点 entry id：链看门狗用它探测链活性（#516），记账校验用它圈定执行窗口（#517）
+        await this.invokeAgentWithTimeout(task, effectiveBody, anchor.id);
         // #517: invoke 正常 resolve 不代表 agent 成功——orchestrator 的 failTerminal/abortTerminal
-        // 将消息置 failed 后正常返回 TurnResult，链引擎 allSettled 消化 rejection，
+        // 将 invoke 置 failed 后正常返回 TurnResult，链引擎 allSettled 消化 rejection，
         // 锁超时/agent 异常无法经由 reject 传递到 scheduler 层。
-        // 以最终消息状态为唯一事实源：anchor 后出现 status='failed' 的 otter 消息 → 抛错走 failure 记账，
+        // 以最终 invoke 状态为唯一事实源：锚点后出现 failed 的 otter 产出 → 抛错走 failure 记账，
         // 不再盲目记 completed。
-        await this.assertNoFailedMessages(task.conversationId, message.id);
-        await this.completeExecution(executionId, task.conversationId, message.id);
+        await this.assertNoFailedInvokes(task.conversationId, anchor.id);
+        await this.completeExecution(executionId, task.conversationId, anchor.id);
         // #251: resetConsecutiveFailures 在 completeExecution 之后执行，
         // 如果抛 DB 错不应覆写已 completed 的 execution record。
         // 吞掉错误，记录 warning 而不 throw。
@@ -627,18 +721,27 @@ export class SchedulerService {
     });
   }
 
-  private async createSystemMessage(task: ScheduledTask, body?: string) {
-    // 身份修复：system 消息 senderId 归一为 'system'。曾透传 task.senderId（大獭 UUID），
-    // 落地为 system+UUID 杂交态（700+ 条，查询按 sender_id='system' 全部漏检）。
-    // scheduled_tasks.sender_id 保留原值不动——它是「任务归谁」的业务字段，不是消息发言者。
-    const { message } = await this.sendMessage.send({
+  /** F20260913ctlv 收尾批2：内部信号落 entries（system entry，yieldTargets 即目标）。
+   *  原 createSystemMessage 写 messages（senderType='system'）已退役。
+   *  广播 entry.system SSE（前端时间线居中系统条目实时可见；无 broadcaster 时静默降级）。
+   *  scheduled_tasks.sender_id 保留原值不动——它是「任务归谁」的业务字段，不是信号发出者。 */
+  private async createSystemSignalEntry(task: ScheduledTask, body?: string): Promise<{ id: string; body: string | null }> {
+    const effectiveBody = body ?? task.body;
+    const { entry } = await this.sendEntry.createSystemEntry({
       conversationId: task.conversationId,
-      senderType: 'system',
-      senderId: 'system',
-      body: body ?? task.body,
-      talkingStonePassedTo: task.talkingStonePassedTo,
+      turnId: "",
+      body: effectiveBody,
+      yieldTargets: task.talkingStonePassedTo,
+      senderName: `scheduler:${task.name}`,
     });
-    return message;
+    // 广播（best-effort，不阻塞触发链）
+    try {
+      this.messageBroadcaster?.broadcastEvent(task.conversationId, {
+        event: "entry.system",
+        data: { entryId: entry.id, content: entry.body, seq: entry.sequenceNum },
+      });
+    } catch { /* 广播失败不影响触发 */ }
+    return { id: entry.id, body: entry.body };
   }
 
   private async invokeAgentWithTimeout(task: ScheduledTask, body?: string, anchorMessageId?: string): Promise<void> {
@@ -716,25 +819,45 @@ export class SchedulerService {
    *  Why 含探测失败判死：链消息流不可读（DB 故障等）时链产出无从验证，继续等待只会永远占位。 */
   /** #775 S4a：执行级台账判活看门狗（换轨路径专用）。
    *  与 watchChainWithActivity（静默窗判死）的本质区别：链路径握着 chainPromise 能等 settle；
-   *  换轨后点火是路由器 fire-and-forget，无法握 promise——判活只能靠持久台账：
-   *  - 锚点 attempt 全部到终态 → 执行收工（allAnchorAttemptsSettled，S4b 复用）
-   *  - 有 in_progress 在途 → 活着，续期（#516 教训：静默 ≠ 死亡）
-   *  - 无任何行（目标 busy 排队中 / 待点火）→ 保守等下一轮，硬上限兕底
-   *  busy 排队语义（检视发现 1 处置说明）：routeDirectSignal 返回 queued_busy 时信号在
-   *  busyQueue，无 attempt 行 → 本看门狗持续轮询。Why 正确：①排队会被目标 idle 后的
-   *  debounce 重扫自动消化（分钟级），消化后 attempt 行出现，收敛到真实 completed；
-   *  ②triggerTask 是 fire-and-forget，等待只挂起本任务的 Promise，不阻塞其他任务调度；
-   *  ③若此时跳过等待记 completed = 任务未执行却记账完成（账面谎报，违 #517）。
-   *  24h 硬上限即病态场景（目标持续 busy 一整天）的兕底。 */
+   *  换轨后点火是路由器 fire-and-forget，无法握 promise——判活只能靠消息终态：
+   *  - 锚点目标全部有终态消息 → 执行收工
+   *  - 仍有目标 streaming → 活着，续期
+   *  - 无产出 → 保守等下一轮，硬上限兜底 */
   private async watchExecutionByLedger(task: ScheduledTask, anchorMessageId: string): Promise<void> {
     const deadline = this.now() + LEDGER_WATCH_HARD_LIMIT_MS;
     while (this.now() < deadline) {
       await new Promise(r => setTimeout(r, LEDGER_WATCH_POLL_MS));
-      const settled = this.dispatchAttemptRepo?.allAnchorAttemptsSettled(anchorMessageId);
-      if (settled === true) return;
-      // false（在途）或 undefined（repo 未注入/查询失败）：保守续期
+      // F20260908rlcp：从 dispatch_attempts 台账改为消息终态判定
+      const settled = await this.isMessageSettled(task.conversationId, anchorMessageId);
+      if (settled) return;
     }
     throw new Error(`Agent invocation timeout (ledger watch exceeded hard limit ${LEDGER_WATCH_HARD_LIMIT_MS / 3_600_000}h)`);
+  }
+
+  /** F20260908rlcp：信号终态判定（F20260913ctlv 批2 切 entries）——锚点目标是否全部有终态产出。
+   *  新模型判据：锚点后每个目标獭的产出 = invoke_end entry（invokeId 关联）或 speak entry。
+   *  invoke 终态真相源在 invokes 表，这里用「锚点后有该目标任一产出 entry」近似——
+   *  精确终态由 watchExecutionByLedger 外层轮询兜底。 */
+  private async isMessageSettled(conversationId: string, anchorMessageId: string): Promise<boolean> {
+    try {
+      const anchor = await this.entryRepo.getEntryById(anchorMessageId);
+      if (!anchor) return true; // 信号不存在 = 无需等待
+      const targets = (anchor.yieldTargets ?? []).filter(t => t !== "user");
+      if (targets.length === 0) return true;
+
+      // 检查锚点后是否有新 entry（任何类型都算链活跃）
+      const after = await this.entryRepo.getEntriesAfter(anchorMessageId, targets.length + 1);
+      if (!Array.isArray(after) || after.length === 0) return false; // 无产出 = 等待
+
+      // 检查所有目标是否已有产出（speak entry = 该獭的发言产出锚）
+      for (const targetId of targets) {
+        const hasOutput = after.some(e => e.senderId === targetId);
+        if (!hasOutput) return false; // 某个目标还没有产出
+      }
+      return true;
+    } catch {
+      return false; // 查询失败 = 保守等待
+    }
   }
 
   private async watchChainWithActivity(
@@ -837,10 +960,11 @@ export class SchedulerService {
    *  @returns true=锚点 attempt 全终态（收工→alive=false 语义由调用方取反——注意本方法返回
    *           「链活跃与否」：true=有 in_progress 活跃；false=全终态收工；undefined=回退） */
   private async isChainAliveByLedger(anchorMessageId: string | undefined): Promise<boolean | undefined> {
-    if (!anchorMessageId || !this.dispatchAttemptRepo) return undefined;
+    if (!anchorMessageId) return undefined;
     try {
-      const allSettled = await this.dispatchAttemptRepo.allAnchorAttemptsSettled(anchorMessageId);
-      return !allSettled;
+      // F20260913ctlv 批2：entries 存在性判定（锚点后有产出 entry 即活）
+      const after = await this.entryRepo.getEntriesAfter(anchorMessageId, 5);
+      return Array.isArray(after) && after.length > 0;
     } catch {
       return undefined;
     }
@@ -848,24 +972,25 @@ export class SchedulerService {
 
   private async isChainStillActive(anchorMessageId: string): Promise<boolean> {
     try {
-      const msgs = await this.convRepo.getMessagesAfter(anchorMessageId, 1);
-      return Array.isArray(msgs) && msgs.length > 0;
+      const entries = await this.entryRepo.getEntriesAfter(anchorMessageId, 1);
+      return Array.isArray(entries) && entries.length > 0;
     } catch {
       return false;
     }
   }
 
   /** #642: 检测链是否卡在 429 重试循环。
-   *  429/rate_limit 类错误的特征：错误消息包含429/status_code/配额/limit 等关键词。
-   *  链活跃但最近消息全是429重试 → 返回 true（应判死）；否则返回 false（真活跃）。
-   *  使用 DESC 查询取最新消息——ASC 只能检测链开头 429，中途撞 429 永远漏检。 */
+   *  429/rate_limit 类错误的特征：错误文本包含429/status_code/配额/limit 等关键词。
+   *  链活跃但最近产出全是 429 重试 → 返回 true（应判死）；否则返回 false（真活跃）。
+   *  F20260913ctlv 批2 切 entries：判据 = 锚点后最近 entries 的 body（speak/invoke_end
+   *  的错误文本均落在 body）；最近全部含 429 特征 → 卡死。 */
   private async isChainStuckOn429(anchorMessageId: string): Promise<boolean> {
     try {
-      // 获取锚点后的最近几条消息（DESC，最新在前）
-      const msgs = await this.convRepo.getLatestMessagesAfter(anchorMessageId, 3);
-      if (!Array.isArray(msgs) || msgs.length === 0) return false;
+      // 获取锚点后的最近几条 entry（DESC，最新在前）
+      const entries = await this.entryRepo.getEntriesAfter(anchorMessageId, 3);
+      if (!Array.isArray(entries) || entries.length === 0) return false;
 
-      // 检查最近消息是否包含 429/rate_limit 特征
+      // 检查最近 entry 是否包含 429/rate_limit 特征（body 为空的居中条目不算卡 429）
       const rateLimitPatterns = [
         /429/i,
         /rate.?limit/i,
@@ -874,9 +999,12 @@ export class SchedulerService {
         /too many requests/i,
       ];
 
-      // 最近消息全是 429 相关 → 卡在 429 循环
-      return msgs.every(msg => {
-        const content = msg.segments.map(s => s.body).join('');
+      const recent = entries.slice(-3);
+      // 全部为空 body（无产出纯居中条目）不判 429；含文本且全部命中 429 特征 → 卡死
+      const textual = recent.filter(e => (e.body ?? "").trim().length > 0);
+      if (textual.length === 0) return false;
+      return textual.every(e => {
+        const content = e.body ?? "";
         return rateLimitPatterns.some(pattern => pattern.test(content));
       });
     } catch {
@@ -889,33 +1017,41 @@ export class SchedulerService {
     return (task.timeoutMinutes ?? 15) * 60 * 1000;
   }
 
-  /** #517: 执行窗口记账校验。anchor 消息之后存在 status='failed' 的 otter 消息时抛错，
-   *  将「agent 真失败但 execution 记 completed」的记账错位纠正为 failed。
-   *  Why 只看 otter 消息：failed 的发出者必为执行链上的獭；用户消息不存在 failed 生命周期。
-   *  Why 局限于锚点之后：同一会话旧轮次的 failed 消息（已熔断/已人工处理）不应牵连本次执行。 */
-  private async assertNoFailedMessages(conversationId: string, anchorMessageId: string): Promise<void> {
+  /** #517: 执行窗口记账校验（F20260913ctlv 批2 切 entries）。
+   *  锚点 entry 之后存在 failed 的 invoke（invoke_end entry 带 metadata.invokeStatus='failed'，
+   *  或链路写入的失败 system entry）时抛错，将「agent 真失败但 execution 记 completed」
+   *  的记账错位纠正为 failed。
+   *  Why 局限于锚点之后：同一会话旧轮次的 failed（已熔断/已人工处理）不应牵连本次执行。 */
+  private async assertNoFailedInvokes(conversationId: string, anchorMessageId: string): Promise<void> {
     // 防御：查询抛错/返回异常值不阻塞记账（校验失败视为通过，交给既有 failure 路径兜底）
-    let after: Message[] = [];
+    let after: Entry[] = [];
     try {
-      after = await this.fetchMessagesAfterPaged(anchorMessageId);
+      after = await this.fetchEntriesAfterPaged(anchorMessageId);
     } catch { /* best-effort */ }
-    const failed = after.find(m => m.senderType === 'otter' && m.status === 'failed');
+    const failed = after.find(e => {
+      // invoke 终态真相源：invoke_end 的 metadata.invokeStatus
+      if (e.entryType === "invoke_end" && e.metadata?.invokeStatus === "failed") return true;
+      // 链路写入的失败 system entry（错误文本落入 body）
+      if (e.entryType === "system" && (e.body ?? "").includes("失败")) return true;
+      return false;
+    });
     if (failed) {
-      const preview = failed.segments.map(s => s.body).join('').slice(0, 200);
-      throw new Error(`Agent invocation failed: otter message ${failed.id} terminated as failed${preview ? ` (${preview})` : ''}`);
+      const preview = (failed.body ?? "").slice(0, 200);
+      throw new Error(`Agent invocation failed: entry ${failed.id} indicates failure${preview ? ` (${preview})` : ""}`);
     }
   }
 
-  /** #517: 分页拉取锚点后全部消息。对抗审视发现 2（审砚）：单页 100 条上限
-   *  会漏检深层失败（消息量 >100 且 failed 在 100 条之后时误记 completed）。
-   *  getMessagesAfter 按 sequence_num 升序返回，以最后一条消息 id 为游标推进直到取空。 */
-  private async fetchMessagesAfterPaged(anchorMessageId: string): Promise<Message[]> {
-    const out: Message[] = [];
+  /** #517: 分页拉取锚点后全部 entries（F20260913ctlv 批2：messages → entries）。
+   *  对抗审视发现 2（审砚）：单页 100 条上限会漏检深层失败（entry 量 >100 且 failed
+   *  在 100 条之后时误记 completed）。getEntriesAfter 按 sequence_num 升序返回，
+   *  以最后一条 entry id 为游标推进直到取空。 */
+  private async fetchEntriesAfterPaged(anchorMessageId: string): Promise<Entry[]> {
+    const out: Entry[] = [];
     let cursorId = anchorMessageId;
     const pageSize = 100;
-    // 防御性硬上限 100 页（1 万条）：链受 24h 硬上限约束，单窗口消息量远低于此，超限属异常现场
+    // 防御性硬上限 100 页（1 万条）：链受 24h 硬上限约束，单窗口 entry 量远低于此，超限属异常现场
     for (let page = 0; page < 100; page++) {
-      const res = await this.convRepo.getMessagesAfter(cursorId, pageSize);
+      const res = await this.entryRepo.getEntriesAfter(cursorId, pageSize);
       if (!Array.isArray(res) || res.length === 0) break;
       out.push(...res);
       const next = res[res.length - 1].id;
@@ -966,6 +1102,12 @@ export class SchedulerService {
       errorMessage,
     });
 
+    // #754：单次失败即落 healing 台账（此前仅 ≥3 次熔断停跑才落——9/2 健康检查单次失败
+    // 未达 3 次阈值，台账零记录，根因悬置 6 天）。healing 是问题发现第一入口，
+    // 单次失败也值得分析视野；定时任务按天/周低频触发，等 3 次可能要 3 天。
+    // best-effort：落账失败不阻断失败处理主路径。
+    await this.recordSingleFailureHealing(taskId, executionId, errorMessage, now);
+
     const failures = await this.taskRepo.incrementConsecutiveFailures(taskId, now);
     if (failures >= 3) {
       await this.taskRepo.updateStatus(taskId, 'error', now);
@@ -975,9 +1117,7 @@ export class SchedulerService {
     }
   }
 
-  /** #516: 任务进入 error 状态的通知（系统消息 + healing event，均 best-effort）。
-   *  Why sendMessage.send 而非 sendSystem：sendSystem 不支持指定 conversationId 的 sender 参数组，
-   *  而 scheduler 的 createSystemMessage 一直走 sendMessage.send（senderType='system'），保持一致。 */
+  /** #516: 任务进入 error 状态的通知（F20260913ctlv 批2：system entry + healing event，均 best-effort） */
   private async notifyTaskErrored(taskId: string, failures: number, errorMessage: string): Promise<void> {
     const task = await this.taskRepo.getById(taskId).catch(() => null);
     if (!task) {
@@ -987,18 +1127,19 @@ export class SchedulerService {
     const now = new Date().toISOString();
     const body = `[定时任务错误] 「${task.name}」连续 ${failures} 次执行失败，已自动停跑（status=error）。最近错误：${errorMessage}。请检查任务配置或手动恢复（update status='active'）后重试。`;
 
-    // 1) 系统消息注入任务所属对话（senderId 归一 'system'，同 createSystemMessage 身份修复）
+    // 1) 系统条目注入任务所属对话（F20260913ctlv 批2：entries 唯一落点；错误通知无目标，居中系统条目）
     try {
-      await this.sendMessage.send({
+      const { entry } = await this.sendEntry.createSystemEntry({
         conversationId: task.conversationId,
-        senderType: 'system',
-        senderId: 'system',
+        turnId: "",
         body,
-        // 系统消息豁免发言石校验，但接口要求必填——传空数组占位（createSystemMessage 同款语义）
-        talkingStonePassedTo: [],
+      });
+      this.messageBroadcaster?.broadcastEvent(task.conversationId, {
+        event: "entry.system",
+        data: { entryId: entry.id, content: entry.body, seq: entry.sequenceNum },
       });
     } catch (err) {
-      this.logger.warn('notifyTaskErrored: system message failed (non-fatal)', {
+      this.logger.warn('notifyTaskErrored: system entry failed (non-fatal)', {
         taskId,
         error: err instanceof Error ? err.message : String(err),
       });
@@ -1031,6 +1172,37 @@ export class SchedulerService {
     }
   }
 
+  /** #754：单次执行失败落 healing 台账（medium）。#847 检视建议 1 扩展：once 重试路径
+   *  （skipConsecutiveFailureTracking 分支）同样调用——重试中间失败也值得台账可见。
+   *  errorMessage 截断 2000 字符防御（#847 检视建议 2：context JSON 无大小限制）。 */
+  private async recordSingleFailureHealing(taskId: string, executionId: string, errorMessage: string, now: string): Promise<void> {
+    if (!this.healingRepo) return;
+    try {
+      const task = await this.taskRepo.getById(taskId).catch(() => null);
+      const truncated = errorMessage.length > 2000 ? errorMessage.slice(0, 2000) + '…[truncated]' : errorMessage;
+      await this.healingRepo.create({
+        id: crypto.randomUUID(),
+        messageId: '',
+        conversationId: task?.conversationId ?? '',
+        otterId: task?.talkingStonePassedTo[0] ?? '',
+        errorType: 'performance',
+        severity: 'medium',
+        description: `定时任务「${task?.name ?? taskId}」执行失败（#754）`,
+        suggestion: `查看 execution ${executionId} 的 errorMessage 定位根因`,
+        context: { taskId, executionId, executionError: truncated },
+        status: 'open',
+        resolution: null,
+        createdAt: now,
+        resolvedAt: null,
+      });
+    } catch (err) {
+      this.logger.warn('recordSingleFailureHealing: healing event write failed (non-fatal)', {
+        taskId, executionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   /** #246: 统一执行失败处理入口，根据 skipConsecutiveFailureTracking 选择路径。
    *  once 任务重试时只更新 execution record，不走 consecutiveFailures/status 标记，
    *  让 triggerOnceWithRetry 独立控制重试/error 语义。 */
@@ -1054,6 +1226,8 @@ export class SchedulerService {
           error: updateErr instanceof Error ? updateErr.message : String(updateErr),
         });
       }
+      // #847 检视建议 1：once 重试中间失败同样落 healing 台账（与单次失败同语义）
+      await this.recordSingleFailureHealing(taskId, executionId, errorMessage, new Date().toISOString());
     } else {
       await this.handleExecutionFailure(executionId, taskId, error);
     }

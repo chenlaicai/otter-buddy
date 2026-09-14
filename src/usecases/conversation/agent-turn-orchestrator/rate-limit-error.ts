@@ -27,6 +27,8 @@ const QUOTA_EXHAUSTED_PATTERNS: readonly RegExp[] = [
   /配额[^\n]{0,8}(耗尽|用尽|超限)/, // 智谱中文文案
   /(insufficient[^\n]{0,10}balance|balance[^\n]{0,10}insufficient)/i, // 余额不足（智谱 arrearage 族）
   /arrearage/i,
+  /(使用|用量)[^\n]{0,6}上限/, // 智谱「使用上限」文案
+  /(每周|每月)[^\n]{0,12}(上限|限额|重置)/, // 智谱每周/每月上限文案
 ];
 
 /** 瞬时限流：SDK 重试耗尽后上抛（含裸 429 status 码） */
@@ -61,7 +63,8 @@ export function matchRateLimitError(errorMessage: string): RateLimitMatch | null
   return { exhausted, resetHint };
 }
 
-/** 告警系统消息文案（会话内可见：搭档 + 在场獭） */
+/** 告警系统消息文案（会话内可见：搭档 + 在场獭）
+ *  F20260908rlcp：告警文案分态——transient/exhausted 两套 */
 export function buildRateLimitSystemMsg(p: {
   otterName: string;
   modelAlias: string;
@@ -70,12 +73,11 @@ export function buildRateLimitSystemMsg(p: {
 }): string {
   const reset = p.resetHint ? `（${p.resetHint}）` : '';
   if (p.exhausted) {
-    return `[系统告警] ${p.otterName} 的模型 ${p.modelAlias} 配额耗尽（429 限流终态），本轮发言已终止${reset}。` +
-      `该模型在配额恢复前无法执行任务——编排者请改派其他模型的獭，或等待配额重置。` +
-      `详情可查 healing 台账（errorType: rate_limit）。`;
+    return `[系统告警] ${p.otterName} 的模型 ${p.modelAlias} 配额耗尽（429 终态），本轮发言已终止${reset}。` +
+      `该模型在配额恢复前无法执行任务——可改派其他模型的獭，或恢复配额（充值/重置）后手动重试。`;
   }
-  return `[系统提示] ${p.otterName} 的模型 ${p.modelAlias} 触发限流 429，SDK 自动重试已耗尽，本轮发言失败${reset}。` +
-    `通常短时后自行恢复，可稍后重试或改派。`;
+  return `[系统提示] ${p.otterName} 的模型 ${p.modelAlias} 瞬时限流（SDK 重试耗尽），本轮发言已终止${reset}。` +
+    `短时后可重试，或改派其他模型的獭。`;
 }
 
 /** healing 事件 description 文案（台账可 grep） */

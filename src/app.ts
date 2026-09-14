@@ -21,9 +21,8 @@ import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { SchedulerService } from "@usecases/scheduler/scheduler-service";
-import { ResumeInterruptedService } from "@usecases/conversation/resume-interrupted-service";
 import { SignalRouter } from "@usecases/conversation/signal-router";
-import { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
+import type { SignalRouterSessionFactory } from "@usecases/conversation/signal-router";
 
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
 
@@ -102,10 +101,6 @@ export interface BuildAppOptions {
   startScheduler?: boolean;
   /** F20260825sgnw 审视发现 1：RHI 扫描 worker 启动开关（对齐 startScheduler 模式；测试/CI 可关） */
   startRhiWorker?: boolean;
-  /** F20260826rsme：重启自动恢复启动开关（对齐 startScheduler 模式；测试/CI 可关）。
-   *  只在 resume 层生效，reconcile 侧不联动——reconcile 在 postInitDatabase 调用无 options 上下文，
-   *  且统一入队在测试库中无副作用（记录不触发任何行为），行为开关收敛一处。 */
-  startResume?: boolean;
   /** 测试注入预构建模型（如 initFauxModels），跳过 initModels */
   models?: { model: Model<Api>; modelPool?: ModelPool };
 }
@@ -122,7 +117,6 @@ export interface BuiltApp {
   agentGateway: PiSessionFactory;
   agentInvoker: AgentInvoker;
   schedulerService: SchedulerService;
-  resumeService: ResumeInterruptedService;
   embeddingService: EmbeddingGateway;
   modelPool: ModelPool;
   /** F20260812mrcq Part 1：embedding 重试 worker（vec 禁用时为 null） */
@@ -250,7 +244,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     identityPromptDir: options.identityPromptDir,
     workspaceGateway,
   });
-  const uc = initUseCases({ repos, agentGateway, embeddingService, memoryIndex, appConfig: config, logger, workspaceGateway, otterConfigProvider, modelPool });
+  const uc = initUseCases({ repos, entryRepo: repos.entry, invokeRepo: repos.invoke, agentGateway, embeddingService, memoryIndex, appConfig: config, logger, workspaceGateway, otterConfigProvider, modelPool });
   // F20260813mren 审视二轮：sync_docs 工具注入——海獭写完文档可立即触发同步入库
   // 审视三轮 A-10：rootDir 透传——worktree 流程下文槛在 worktree，海獭可传 worktree 绝对路径
   resolveOtterToolClient(buildOtterToolClient(uc, {
@@ -293,23 +287,29 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // 恢复的入口范围：web MC / 飞书 ADS / 微信 / RIS 启动补扫（scheduler/retry 仍直连，
   // 其派发经链引擎记账，无双触发账面歧义——F20260902sgp2 §4.2）。
   // #826 多模态收口：附件注入服务——路由器 invokeTarget 从 attachments 重建 InjectionPayload
-  const attachmentInjection = new AttachmentInjectionService({
-    attachmentRepo: repos.attachment,
-    storageRoot: config.attachments?.storageRoot ?? "./data/attachments",
-    logger,
-  });
+  // F20260908rlcp: attachmentInjection not needed in app.ts (signal-router no longer uses it,
+  // message-controller gets its own from controllers.ts bootstrap)
+  // const attachmentInjection = new AttachmentInjectionService({
+  //   attachmentRepo: repos.attachment,
+  //   storageRoot: config.attachments?.storageRoot ?? "./data/attachments",
+  //   logger,
+  // });
   const signalRouter = new SignalRouter({
     conversationRepo: repos.conversation,
-    queryMessage: uc.queryMessage,
+    entryRepo: repos.entry,
     queryOtter: uc.queryOtter,
     dispatchChainEngine,
     invokeFn: (params) => agentInvoker.invokeConversation(params),
     logger,
     healingRepo: repos.healingEvent,
-    dispatchAttemptRepo: repos.dispatchAttempt,
-    attachmentInjection,
-    // P3a ①：URGENT steer 注入——signal-router 直调 agentGateway.steerSession
-    agentGateway,
+    // F20260908rlcp: dispatchAttemptRepo/attachmentInjection/agentGateway 退役，改用 factory。
+    // F20260913ctlv 整合轮修复：显式 adapter 替代 as unknown as 双重绕过——三个方法
+    // 编译期可见，再丢（如合并误删）tsc 直接报错（steerSession 曾被合并丢过，靠运行时才发现）
+    factory: {
+      isRunning: (otterId: string) => agentGateway.isRunning(otterId),
+      followUp: (otterId: string, text: string) => agentGateway.followUp(otterId, text),
+      steerSession: (otterId: string, text: string) => agentGateway.steerSession(otterId, text),
+    } satisfies SignalRouterSessionFactory,
   });
   // #775 S4a：scheduler 换轨接线——路由器晚于 scheduler 诞生（initAgentAndScheduler
   // 内部依赖链更长），构造后注入；scheduler 触发从此过闸门+台账，与五入口同一调度纪律。
@@ -477,33 +477,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     });
   }
 
-  // ── F20260826rsme 重启自动恢复：装配在 agentInvoker 诞生之后（initAgentAndScheduler），闭包捕获无循环依赖 ──
-  const resumeService = new ResumeInterruptedService({
-    conversationRepo: repos.conversation,
-    queryMessage: uc.queryMessage,
-    sendMessage: uc.sendMessage,
-    dispatchChainEngine,
-    invokeFn: (params) => agentInvoker.invokeConversation(params),
-    logger,
-    // #613：服务重启事件落 healing 台账（观测层闭环，severity 按中断发言数分级）
-    healingRepo: repos.healingEvent,
-    // F20260902sgp2 S2：启动补扫含信号补路由（崩溃窗口兜底，台账判据）
-    signalRouter,
-    // F202609048840 F4：done 语义判定的真相源——链引擎对 invoke 拒绝是吞错语义，
-    // executeChain 正常返回 ≠ invoke 成功，台账 settle 终态才是准确判据
-    dispatchAttemptRepo: repos.dispatchAttempt,
-  });
-  if (options.startResume ?? true) {
-    // fire-and-forget：resume 内部自带延迟，不阻塞也不吞启动错误
-    void resumeService.resume().catch((err) => {
-      logger.error(`Failed to resume interrupted messages: ${err}`);
-    });
-  }
+  // F20260913ctlv 批4a：重启自动恢复（ResumeInterruptedService）整删——
+  // messages 停写 UI 消息后无 streaming 残留可恢复（重启 reconcile 已把 running
+  // invokes 置 failed，见 bootstrap/database.ts），恢复队列概念随旧模型退役。
 
   let disposed = false;
   return {
     app, db, config, logger, controllers,
-    usecases: uc, repos, agentGateway, agentInvoker, schedulerService, resumeService,
+    usecases: uc, repos, agentGateway, agentInvoker, schedulerService,
     embeddingService, modelPool, retryWorker,
     dispose: async () => {
       if (disposed) return;
