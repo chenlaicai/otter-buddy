@@ -1,5 +1,5 @@
 ---
-id: F20260908bsg7
+id: F20260914bsg7
 title: "bash 守卫位置感知白名单语义反转：数据位置词元不再误拦（closes #777）"
 summary: "#760 的 isKillAtCommandPosition default 分支 return true 与位置感知目标语义相反——一切非白名单前导字符（/ 引号 空格 中文 数字）都误判命令位置，9/3-9/4 四组误拦实证。反转：默认 continue（数据位置放行），白名单显式化（段首/操作符后/$(/反引号/子shell）+ 命令前缀词循环剥除（sudo/env/xargs/timeout/赋值）+ 分段含管道 |（前缀词判定依赖段首上下文）+ bash -c 内嵌 pkill 词元按 pkill 语义 + PID 参数剥括号。"
 change_type: fix
@@ -43,3 +43,9 @@ created_at: 2026-09-08
 ## Discovered Issues
 
 无。
+
+## 定稿改名记录（2026-09-14）
+
+- 原 ID F20260908bsg7（9-08 创建），按「合入当天日期」定稿规则改名 F20260914bsg7（F20260914prdb 三配套）
+- 审视闭环回顾：r1 1 严重（全词引号包裹绕过）→ 修复（66dc0d1f，含等价命令绕过三修复 + 回归测试）；r2 delta 复核通过
+- 定稿时 merge 最新 main（含 #886 重构 + #910 + #789 + #846 + #849），2865/2865 + tsc 0 错
