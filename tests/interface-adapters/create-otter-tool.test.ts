@@ -44,7 +44,7 @@ function makeCreateOtterTool(options: {
     // F20260821i336：派工台账 mock
     dispatch: {
       createRecord: async () => ({ id: "dispatch-1" }),
-      updateRecord: async () => {},
+      markDispatched: async () => {},
       queryRecords: async () => [],
     },
   } as unknown as OtterToolClient;

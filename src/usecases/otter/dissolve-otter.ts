@@ -22,7 +22,10 @@ export class DissolveOtter {
        *  aborted 墓碑（目标不存在，信号永不点火；不补则每次补扫被 skipped_inactive
        *  静默跳过，无账无痕且占 SCAN_LIMIT 名额）。可选注入，失败仅日志。 */
       abortUnattemptedIncoming?: (otterId: string) => Promise<number>;
-      logger?: { warn(message: string, context?: Record<string, unknown>): void };
+      /** F20260912avlb：派工台账 dissolve 记账钩子（created/dispatched → dissolved）。
+       *  可选注入，失败仅日志。 */
+      markDispatchDissolved?: (otterId: string) => Promise<number>;
+      logger?: { warn(message: string, context?: Record<string, unknown>): void; info?: (message: string, context?: Record<string, unknown>) => void };
     },
   ) {}
 
@@ -60,13 +63,34 @@ export class DissolveOtter {
     /** 4. 更新状态为 dissolved（B5 回归守护） */
     await this.repo.dissolve(otterId, new Date().toISOString());
 
-    /** 4.5/4.6 信号台账双面清账（均失败仅日志，不阻断主流程） */
+    /** 4.45 F20260912avlb：派工台账记账——该獭名下全部派工记录落 dissolved 终态
+     *  （dissolve 销毁獭本体，全局事件不分对话）。失败仅日志：台账是记账面不是控制面，
+     *  与 4.5/4.6/4.7 清账同模式，不阻断 dissolve 主流程。 */
+    await this.markDispatchRecordsDissolved(otterId);
+
+    /** 4.5/4.6/4.7 信号台账双面清账（均失败仅日志，不阻断主流程） */
+
+    /** 4.5/4.6/4.7 信号台账双面清账（均失败仅日志，不阻断主流程） */
     await this.settlePendingDispatches(otterId);
     await this.abortOutgoingSignals(otterId);
     await this.abortIncomingSignals(otterId);
 
     /** 5. 销毁 Agent（B5 回归守护） */
     await this.agentGateway.destroy(otterId);
+  }
+
+  /** 4.45 F20260912avlb：派工台账 dissolve 记账——该獭名下全部 created/dispatched
+   *  记录落 dissolved（全局事件，不分对话）。失败仅日志：与 4.5/4.6/4.7 清账同模式。 */
+  private async markDispatchRecordsDissolved(otterId: string): Promise<void> {
+    if (!this.deps?.markDispatchDissolved) return;
+    try {
+      const dissolved = await this.deps.markDispatchDissolved(otterId);
+      if (dissolved > 0) {
+        this.deps.logger?.info?.('[dispatch-ledger] dissolve 记账：派工记录落 dissolved', { otterId, dissolved });
+      }
+    } catch (e) {
+      this.deps?.logger?.warn('[dispatch-ledger] dissolve 记账失败（不阻断解散）', { otterId, error: e instanceof Error ? e.message : String(e) });
+    }
   }
 
   /** 4.5 F20260903dmpe 阻尼#4：dissolve 事务内销账名下 in_progress 派发——
