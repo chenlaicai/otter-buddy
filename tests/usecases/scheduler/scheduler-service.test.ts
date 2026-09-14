@@ -841,6 +841,105 @@ describe('SchedulerService - error handling', () => {
   });
 });
 
+describe('#913: catch-up 前置阶段炸点落 healing（claim 后 execution 建立前）', () => {
+  function makeHealingRepo() {
+    const events: Array<Record<string, unknown>> = [];
+    return {
+      _events: events,
+      create: vi.fn(async (e: Record<string, unknown>) => { events.push(e); }),
+      findOpen: vi.fn(async () => []),
+      autoStaleDismiss: vi.fn(async () => 0),
+    };
+  }
+
+  function makePreExecService(healingRepo: ReturnType<typeof makeHealingRepo>, taskRepoOverrides?: Record<string, unknown>) {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendEntry = createMockSendEntry();
+    const entryRepo = createMockEntryRepo();
+    const cronParser = createMockCronParser(new Date('2026-09-14T01:00:00.000Z'));
+    taskRepo._store.set('task-x', makeTask({
+      id: 'task-x',
+      scheduleType: 'cron',
+      cron: '0 9 * * *',
+      lastTriggeredAt: '2026-09-13T01:00:00.000Z',
+    } as never));
+    convRepo._addConversation('conv-1', { status: 'active' });
+    // createExecution 炸点模拟（#912 修复前的 FK 现场同构）：INSERT 抛 SqliteError 型异常
+    const original = taskRepo.createExecution;
+    (taskRepo as Record<string, unknown>).createExecution = vi.fn(async () => {
+      throw new Error('SqliteError: no such table: main.messages');
+    });
+    void original;
+    Object.assign(taskRepo, taskRepoOverrides ?? {});
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+      healingRepo: healingRepo as never,
+    });
+    return { service, taskRepo };
+  }
+
+  it('createExecution 抛错（claim 后、execution 前）→ 落 medium healing 且无 execution 行', async () => {
+    const healingRepo = makeHealingRepo();
+    const { service } = makePreExecService(healingRepo);
+
+    // start 不 rethrow（tick 内 logger.error 消化——这正是 #913 静默问题的形态）；
+    // 等待 tick 微任务链完成后再断言 healing
+    await service.start();
+    await new Promise(r => setTimeout(r, 50));
+    service.stop();
+
+    // 核心断言：前置炸点落 healing（#913 修复前为零痕迹）。mock cronParser 无间隔控制，
+    // 50ms 窗口内 tick 多轮触发多份（每轮独立落账，生产场景由真实 cron 间隔自然隔开）——
+    // 断言「存在且全部为前置炸点形态」而非条数
+    const preEvents = healingRepo._events.filter(ev => (ev.context as Record<string, unknown>)?.stage === 'pre-execution');
+    expect(preEvents.length).toBeGreaterThanOrEqual(1);
+    const e = preEvents[0]!;
+    expect(e.severity).toBe('medium');
+    expect(e.errorType).toBe('other');
+    expect((e.context as Record<string, unknown>).taskId).toBe('task-x');
+    expect((e.context as Record<string, unknown>).stage).toBe('pre-execution');
+    expect(String((e.context as Record<string, unknown>).triggerError)).toContain('no such table');
+  });
+
+  it('claim 被拒（running execution 存在）→ 正常跳过，不落前置 healing', async () => {
+    const healingRepo = makeHealingRepo();
+    const taskRepo = createMockTaskRepo();
+    taskRepo._store.set('task-y', makeTask({
+      id: 'task-y', scheduleType: 'cron', cron: '0 9 * * *',
+      lastTriggeredAt: '2026-09-13T01:00:00.000Z',
+    } as never));
+    // claim 拒绝：已有未超时 running execution
+    (taskRepo as Record<string, unknown>).getExecutions = vi.fn(async () => [
+      { id: 'exec-running', status: 'running', triggeredAt: new Date().toISOString() },
+    ]);
+    const convRepo = createMockConvRepo();
+    convRepo._addConversation('conv-1', { status: 'active' });
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: createMockSendEntry() as unknown as SendEntry,
+      entryRepo: createMockEntryRepo() as unknown as EntryRepository,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(new Date('2026-09-15T01:00:00.000Z')) as unknown as CronParser,
+      logger: mockLogger,
+      healingRepo: healingRepo as never,
+    });
+    await service.start();
+    await new Promise(r => setTimeout(r, 50));
+    service.stop();
+
+    // claim 被拒是正常跳过（skipped），不得落前置 healing
+    expect(healingRepo._events.filter(ev => (ev.context as Record<string, unknown>)?.stage === 'pre-execution')).toHaveLength(0);
+  });
+});
+
 describe('#814: 调度完整性对账（启动时错过窗口落 healing）', () => {
   function makeHealingRepo() {
     const events: Array<Record<string, unknown>> = [];
