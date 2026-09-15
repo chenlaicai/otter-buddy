@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../../styles/globals.css'
 
+import type { ModelInfoDTO } from '@contract/api'
 import type { LocalConversation } from '../../lib/mappers'
 import { mapConversationDTO } from '../../lib/mappers'
 import { showToast } from '../../components/Toast'
@@ -10,9 +11,31 @@ import { Modal, ModalButton } from '../../components/Modal'
 import { LeftPanel } from '../conversation/LeftPanel'
 import { useConversationListPolling } from '../../hooks/use-conversation-list-polling'
 import * as api from '../../api/client'
-import { getSettings } from '../../api/client'
-import { ApiError } from '../../api/client'
-import type { ModelInfoDTO } from '@contract/api'
+import { getSettings, ApiError } from '../../api/client'
+
+/** 新建对话弹窗的「大獭模型」下拉块（检视发现 3 抽取消重）：空列表态/常规态两处 Modal 共用。
+ *  models 为空（settings 未返回/加载失败）时整体不渲染——降级走服务端默认模型 */
+function BigOtterModelDropdown({ models, defaultAlias, selectedModel, onSelect }: {
+  models: ModelInfoDTO[]
+  defaultAlias: string
+  selectedModel: string
+  onSelect: (alias: string) => void
+}) {
+  if (models.length === 0) return null
+  return (
+    <>
+      <label className="block text-xs font-medium text-stone-500 mt-3 mb-1.5">大獭模型</label>
+      <select value={selectedModel} onChange={e => onSelect(e.target.value)} className="form-input w-full">
+        {models.map(m => (
+          <option key={m.alias} value={m.alias}>
+            {m.alias === defaultAlias ? `${m.alias}（默认）` : m.alias}{m.description ? ` — ${m.description}` : ''}
+          </option>
+        ))}
+      </select>
+      <p className="text-[11px] text-stone-400 mt-1">默认取配置文件；某家配额耗尽时可在此换模型</p>
+    </>
+  )
+}
 
 export default function ConversationListPage() {
   const [conversations, setConversations] = useState<LocalConversation[]>([])
@@ -171,19 +194,7 @@ export default function ConversationListPage() {
             placeholder="输入对话标题..."
             autoFocus
           />
-          {models.length > 0 && (
-            <>
-              <label className="block text-xs font-medium text-stone-500 mt-3 mb-1.5">大獭模型</label>
-              <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)} className="form-input w-full">
-                {models.map(m => (
-                  <option key={m.alias} value={m.alias}>
-                    {m.alias === defaultAlias ? `${m.alias}（默认）` : m.alias}{m.description ? ` — ${m.description}` : ''}
-                  </option>
-                ))}
-              </select>
-              <p className="text-[11px] text-stone-400 mt-1">默认取配置文件；某家配额耗尽时可在此换模型</p>
-            </>
-          )}
+          <BigOtterModelDropdown models={models} defaultAlias={defaultAlias} selectedModel={selectedModel} onSelect={setSelectedModel} />
         </Modal>
       </AppLayout>
     )
@@ -229,19 +240,7 @@ export default function ConversationListPage() {
           placeholder="输入对话标题..."
           autoFocus
         />
-        {models.length > 0 && (
-          <>
-            <label className="block text-xs font-medium text-stone-500 mt-3 mb-1.5">大獭模型</label>
-            <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)} className="form-input w-full">
-              {models.map(m => (
-                <option key={m.alias} value={m.alias}>
-                  {m.alias === defaultAlias ? `${m.alias}（默认）` : m.alias}{m.description ? ` — ${m.description}` : ''}
-                </option>
-              ))}
-            </select>
-            <p className="text-[11px] text-stone-400 mt-1">默认取配置文件；某家配额耗尽时可在此换模型</p>
-          </>
-        )}
+        <BigOtterModelDropdown models={models} defaultAlias={defaultAlias} selectedModel={selectedModel} onSelect={setSelectedModel} />
       </Modal>
 
       {ctxMenu && activeConvForMenu && (

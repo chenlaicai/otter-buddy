@@ -86,8 +86,9 @@ describe("ManageConversation（真 sqlite）", () => {
     });
 
     it("新建对话选大獭模型：modelAlias 透传给 CreateOtter", async () => {
-      await mc.create({ title: "新对话", modelAlias: "glm" });
+      const conv = await mc.create({ title: "新对话", modelAlias: "glm" });
 
+      expect(conv.id).toBeTruthy();
       expect(lastCreateOtterParams?.name).toBe("大獭");
       expect(lastCreateOtterParams?.type).toBe("big");
       expect(lastCreateOtterParams?.modelAlias).toBe("glm");

@@ -109,3 +109,16 @@ created_in_conversation: b70b3277-a318-4a66-973e-af1cb3ed526d
 
 无破坏性变更。F20260908efmd 的 model_alias 一等化管道原样复用；F20260827ucrt 的 controller 校验模式
 原样复用。既有调用方（不带 modelAlias 的 POST /conversations）行为不变——字段可选，缺省走默认模型。
+
+## 审视与处置（第 1 轮，检视獭932 mimo）
+
+发现 4 条，处置如下：
+
+| 发现 | 严重度 | 判断 | 处置 |
+|------|--------|------|------|
+| 1. CI 分支落后 main（#922 开工后合入） | 严重 | 更好 | 已修：rebase origin/main，无冲突 |
+| 2. usecase 测试未断言 conv 创建结果 | 建议 | 更好 | 已修：透传用例补 `expect(conv.id).toBeTruthy()` |
+| 3. conversation-list 两处 Modal 下拉模板重复 | 建议 | 更好 | 已修：抽 `BigOtterModelDropdown` 文件内组件（本 PR 引入的重复，按关联度前置闸当场修，不建 issue） |
+| 4. settings 加载期间可创建（无 loading 态） | 建议 | 更差 | 反驳：行为正确（undefined 走服务端默认），100ms 级延迟不可感知，加 loading 态增加复杂度无实质收益 |
+
+复验：rebase + 修复后 tests/usecases/conversation/ 256 绿、web 431 绿、双端 tsc 0 error。
