@@ -143,6 +143,33 @@ describe("ManageScheduledTask", () => {
       expect(err.message).toContain("body");
     });
 
+    it("F20260915desc: description 超过 500 字符 -> 抛出 DomainError（kind='validation'）", async () => {
+      const repo = mockRepo();
+      const manager = new ManageScheduledTask(repo);
+
+      const err = await manager
+        .create(validInput({ description: "x".repeat(501) }))
+        .catch((e) => e);
+
+      expect(err).toBeInstanceOf(DomainError);
+      expect(err.kind).toBe("validation");
+      expect(err.message).toContain("description");
+    });
+
+    it("F20260915desc: description 合法（null/500 以内） -> 创建成功并落库", async () => {
+      const repo = mockRepo();
+      const manager = new ManageScheduledTask(repo);
+
+      const withDesc = await manager.create(validInput({ description: "每个交易日撮合昨日挂单" }));
+      expect(withDesc.description).toBe("每个交易日撮合昨日挂单");
+
+      const withoutDesc = await manager.create(validInput({ description: null }));
+      expect(withoutDesc.description).toBeNull();
+
+      const notProvided = await manager.create(validInput());
+      expect(notProvided.description).toBeNull();
+    });
+
     it("talkingStonePassedTo 为空数组 -> 抛出 DomainError（kind='validation'）", async () => {
       const repo = mockRepo();
       const manager = new ManageScheduledTask(repo);

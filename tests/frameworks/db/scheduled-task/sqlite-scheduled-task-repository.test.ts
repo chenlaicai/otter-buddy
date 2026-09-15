@@ -33,6 +33,7 @@ function createTaskFixture(overrides: Partial<ScheduledTask> = {}): ScheduledTas
     triggerAt: null,
     timezone: "Asia/Shanghai",
     body: "请生成今日对话总结",
+    description: null,
     talkingStonePassedTo: ["otter-1"],
     senderId: "user-1",
     status: "active",
@@ -111,6 +112,16 @@ describe("SqliteScheduledTaskRepository - 任务 CRUD", () => {
       expect(result).not.toBeNull();
       expect(result!.executorType).toBe('function');
       expect(result!.functionName).toBe('match_orders');
+    });
+
+    it("F20260915desc: description 字段写入后读取一致（含 null/有值两路）", async () => {
+      await repo.create(createTaskFixture({ id: "task-1", description: null }));
+      await repo.create(createTaskFixture({ id: "task-2", conversationId: "conv-1", description: "每个交易日撮合昨日挂单" }));
+
+      const t1 = await repo.getById("task-1");
+      const t2 = await repo.getById("task-2");
+      expect(t1!.description).toBeNull();
+      expect(t2!.description).toBe("每个交易日撮合昨日挂单");
     });
 
     it("不存在的 id 返回 null", async () => {

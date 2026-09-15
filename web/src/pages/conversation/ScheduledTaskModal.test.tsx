@@ -83,7 +83,10 @@ function fillRequiredFields() {
     nameInput.dispatchEvent(new Event('change', { bubbles: true }))
   })
 
-  const textarea = document.querySelector('textarea') as HTMLTextAreaElement
+  // F20260915desc: modal 现有两个 textarea（description + body）——用 maxLength=10000 锁定 body
+  const textarea = Array.from(document.querySelectorAll('textarea')).find(
+    t => t.maxLength === 10000
+  ) as HTMLTextAreaElement
   act(() => {
     const nativeTextareaSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
     nativeTextareaSetter.call(textarea, '测试消息内容')

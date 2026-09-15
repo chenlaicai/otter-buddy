@@ -41,6 +41,27 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
+/** F20260915desc: 面板描述文本决策——优先 description；未填时回退。
+ *  agent 型 body 常为 JSON 包装（{"prompt":"..."}），抽出 prompt 前 80 字符；
+ *  非 JSON body 直接预览；function 型 body 常为 '{}'，完全无可读内容，返回 null 由 UI 落「未填写」提示。 */
+function resolveTaskPreview(task: LocalScheduledTask): { text: string; isFallback: boolean } | null {
+  if (task.description && task.description.trim().length > 0) {
+    return { text: task.description, isFallback: false }
+  }
+  const body = (task.body ?? '').trim()
+  if (body.length === 0 || body === '{}') return null
+  try {
+    const parsed = JSON.parse(body) as { prompt?: unknown }
+    if (parsed && typeof parsed === 'object' && typeof parsed.prompt === 'string') {
+      const prompt = parsed.prompt.trim()
+      if (prompt.length > 0) return { text: prompt, isFallback: true }
+    }
+  } catch {
+    // 非 JSON body，直接预览原文
+  }
+  return { text: body, isFallback: true }
+}
+
 export function ScheduledTaskSection({ tasks, onToggle, onEdit, onDelete, onTrigger, onViewHistory }: Props) {
   if (tasks.length === 0) {
     return (
@@ -110,10 +131,29 @@ export function ScheduledTaskSection({ tasks, onToggle, onEdit, onDelete, onTrig
             </div>
           )}
 
-          {/* 消息内容预览 */}
-          <div className="text-xs text-stone-600 mb-3 line-clamp-2 bg-glass-surface rounded-lg px-2 py-1.5">
-            {task.body}
-          </div>
+          {/* 消息内容预览：优先 description，未填则回退 body 提取。F20260915desc */}
+          {(() => {
+            const preview = resolveTaskPreview(task)
+            if (!preview) {
+              return (
+                <div className="text-xs text-stone-400 mb-3 italic bg-glass-surface rounded-lg px-2 py-1.5">
+                  未填写任务描述
+                </div>
+              )
+            }
+            return (
+              <div
+                className={`text-xs mb-3 line-clamp-2 rounded-lg px-2 py-1.5 ${
+                  preview.isFallback
+                    ? 'text-stone-500 bg-glass-surface/60'
+                    : 'text-stone-600 bg-glass-surface'
+                }`}
+                title={preview.isFallback ? '来自消息内容预览（未填写任务描述）' : undefined}
+              >
+                {preview.text}
+              </div>
+            )
+          })()}
 
           {/* 特性标签 */}
           {task.restartBeforeInvoke && (
