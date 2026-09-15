@@ -161,8 +161,9 @@ export async function createAndStartRetryWorker(
 
   const worker = new EmbeddingRetryWorker(repos.memoryReader, repos.memoryWriter, repos.memoryQueue, embeddingService, logger);
   worker.start();
+  // #949：周期 tick 由 PatrolWorker 每 1h 驱动（start() 不再自持定时器）——日志不再打印 intervalMs（原 30_000 为 #948 降频前的残留误导）
   logger.info("EmbeddingRetryWorker started", {
-    intervalMs: 30_000,
+    driver: "patrol-worker",
     migratedExisting: existing.total,
   });
   return worker;
