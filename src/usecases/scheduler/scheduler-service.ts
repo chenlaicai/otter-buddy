@@ -475,8 +475,11 @@ export class SchedulerService {
       if (!prevDue) continue;
       const reference = task.lastTriggeredAt ? new Date(task.lastTriggeredAt)
         : task.createdAt ? new Date(task.createdAt) : null;
-      // 已触发过且 reference >= prevDue → 无错过；从未触发但 createdAt >= prevDue → 未到首个窗口
-      if (!reference || reference.getTime() >= prevDue.getTime()) continue;
+      // 已触发过且 reference >= prevDue - 容差 → 无错过；从未触发但 createdAt >= prevDue - 容差 → 未到首个窗口。
+      // #929：容差 5s 覆盖准时触发的调度抖动（现场 5 条误报 lastTriggeredAt 仅比窗口
+      // 早 0.3-1.6s，毫秒级比较把正常抖动判成「错过」，狼来了效应淹没真实信号 #823）
+      const MISSED_WINDOW_TOLERANCE_MS = 5_000;
+      if (!reference || reference.getTime() >= prevDue.getTime() - MISSED_WINDOW_TOLERANCE_MS) continue;
       const dedupKey = `${task.id}\0${prevDue.toISOString()}`;
       if (existingKeys.has(dedupKey)) continue; // 已落账过该窗口，跳过
       await this.recordMissedWindow(task, prevDue, now);
