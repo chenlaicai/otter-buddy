@@ -18,6 +18,7 @@ import type { ModelPool } from "@frameworks/llm/model-pool";
 import type { OtterPromptConfig } from "@contract/api/otter";
 import { getConfig } from "../config";
 import { buildOtterPrompt } from "./session-helpers";
+import { externalizeHistoricalImages } from "./image-externalizer";
 import { handleSessionBeforeCompact, type CompactionHookDeps, type CompactionPreparationLike } from "./compaction-hook";
 import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
 import { buildHaltBlockReason } from "@usecases/signal/halt-block-reason";
@@ -98,8 +99,9 @@ export class ModelRuntimeRegistry {
             // ExtensionAPI.on 的 overload 不包含 "context"/"before_agent_start"，需要 any 绕过
             factory: (pi: any) => {
               // strip 历史 assistant 消息的 thinking 块（保留最新一条）
+              // + F20260915iext（#779）：历史图片外置（当轮图片保留，上一 turn 及更早文本化）
               pi.on("context", (event: { messages: any[] }) => {
-                return { messages: stripHistoricalThinking(event.messages) };
+                return { messages: externalizeHistoricalImages(stripHistoricalThinking(event.messages)) };
               });
               // F20260826mwrd C1：halt 边界注入。tool_call 扩展事件在每次工具执行前触发，
               // 返回 { block, reason } → SDK agent-loop 对该次调用生成 isError tool result
