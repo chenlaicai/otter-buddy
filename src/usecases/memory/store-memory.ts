@@ -61,7 +61,7 @@ export class StoreMemory {
   async execute(rawInput: MemoryEntryInput): Promise<string> {
     const input = this.redactInput(rawInput);
     this.assertValidContent(input);
-    const id = crypto.randomUUID();
+    const id = this.generateId(input.sourceTable, input.sourceId);
 
     const entry = {
       id,
@@ -86,6 +86,22 @@ export class StoreMemory {
     this.fireAndForgetEmbed(id, input.content);
 
     return id;
+  }
+
+  /**
+   * F20260915midu（#942）：投影条目主键 = 源实体 ID，消灭双 ID。
+   * 此前投影条目另生成 UUID、仅 source_id 回指——link_memory 拿源实体 ID 直查
+   * memory_entries 命中不了投影（entry not found），资源/文档类节点永远没有边。
+   *
+   * 豁免（保持随机 UUID）：
+   * - `signals`：signals 表 INTEGER AUTOINCREMENT 主键 + upsert 复用导致 1:N
+   *   （一条信号记录 critical 次数累计投影多条 fact，实证 13868 条 ↔ 122 个 signal id），
+   *   统一会让不同信号的整数 ID 在 UUID 命名空间里互撞。修根超出本特性边界，
+   *   详见特性文档 F20260915midu「设计」节——有意识的边界，不是漏接。
+   * - chunk 类不走本路径（replaceChunksBySource 独立生成，1:N 共享 source_id 且 D3 禁边）。
+   */
+  private generateId(sourceTable: string, sourceId: string): string {
+    return sourceTable === "signals" ? crypto.randomUUID() : sourceId;
   }
 
   /**
@@ -119,7 +135,7 @@ export class StoreMemory {
   async replaceBySource(rawInput: MemoryEntryInput): Promise<string> {
     const input = this.redactInput(rawInput);
     this.assertValidContent(input);
-    const id = crypto.randomUUID();
+    const id = this.generateId(input.sourceTable, input.sourceId);
     const entry = {
       id,
       layer: input.layer,
@@ -176,6 +192,8 @@ export class StoreMemory {
     });
     if (validInputs.length === 0) return [];
     const now = new Date().toISOString();
+    // F20260915midu（#942）：chunk 保持随机 UUID——1:N 共享 source_id 主键不能直接用，
+    // 且 D3 禁边 + replaceEntriesBySource 每次重建，统一 ID 无收益（见特性文档）。
     const entries = validInputs.map((input) => ({
       id: crypto.randomUUID(),
       layer: input.layer,
