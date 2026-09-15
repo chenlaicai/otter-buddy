@@ -167,6 +167,218 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
    *  为什么放 migrateDatabase 启动路径：settings 键（dispatch_records_migrated=done）
    *  防重跑——一次成功后不再重跑。新库无 dispatch: key，零循环零副作用。 */
   migrateDispatchRecordsFromContext(db, logger);
+
+  /** F20260915midu（#942）：记忆投影条目主键统一为 source_id（存量迁移）。 */
+  rebuildMemoryEntriesUnifyIds(db, logger);
+}
+
+/**
+ * F20260915midu（#942）：记忆投影条目 ID 与源实体 ID 统一（存量迁移）。
+ *
+ * 背景：投影条目曾另生成 UUID 作主键、仅 source_id 回指源实体——同一实体双 ID，
+ * link_memory 拿源实体 ID 直查 memory_entries 命中不了投影，资源/文档类节点永远没有边。
+ * 新数据已由 store-memory.ts generateId 收敛（主键 = source_id，signals/chunk 豁免），
+ * 本函数迁移存量：可统一类（messages / linked_resources / features / research 投影）
+ * 的条目主键替换为 source_id，级联引用同步换键。
+ *
+ * 方案选型：SQLite 无法直接 UPDATE 被 FK（memory_weights/memory_edges）与字符串键
+ * （FTS5/vec0 虚拟表、embedding_tasks）双重引用的主键——PRAGMA defer_foreign_keys
+ * 仅 defer 到 commit 仍撞 immediate 约束。故采用内存表重建（#654/#608 同模式四步重建的
+ * 多表推广）：FOREIGN_KEYS=OFF 单事务内 快照映射 → _new 表复制（换键）→ DROP → RENAME。
+ *
+ * 级联表处理：
+ * - memory_edges：from/to 换键复制（无需去重——UNIQUE(from,to,type) 索引使存量无同键边，
+ *   而 remap 后同键要求两条目映射到同一新 id，该场景已被 dup source 整形先行清掉）
+ * - memory_weights / memory_fts_jieba / memory_vec / embedding_tasks：键替换复制
+ *   （vec 复制现成向量，不走 retry worker——无暗化窗口）
+ *
+ * 幂等：可统一类中无 id != source_id 即返回（重复执行零变化）。
+ * 备份：属调用方职责（主库迁移前手工 cp data/backups/，特性文档已约定）。
+ */
+/** 可统一类投影的源表白名单（chunks/signals-fact 豁免，见 rebuildMemoryEntriesUnifyIds 头注） */
+const UNIFIABLE_SOURCE_TABLES = ["messages", "linked_resources", "features", "research"];
+const CHUNK_CONTENT_TYPES = "('feature_chunk', 'research_chunk')";
+
+function unifiablePlaceholders(): string {
+  return UNIFIABLE_SOURCE_TABLES.map(() => "?").join(",");
+}
+
+/** 迁移前整形：同 (source_table, source_id) 多条目清到恰一行（保留有边行，边 remap 后存活）。
+ *  双 ID 时代 replaceEntryBySource 的边重定向 bug（多旧行时仅重定向第一行的边）会让
+ *  残留旧行存活——不先整形，换键时新表主键互撞。fkx1「先规范化再迁移」先例。 */
+function normalizeDuplicateSources(db: Database.Database, logger: Logger): void {
+  const dupGroups = db.prepare(
+    `SELECT source_table, source_id FROM memory_entries
+     WHERE id != source_id AND source_table IN (${unifiablePlaceholders()})
+       AND content_type NOT IN ${CHUNK_CONTENT_TYPES}
+     GROUP BY source_table, source_id HAVING COUNT(*) > 1`,
+  ).all(...UNIFIABLE_SOURCE_TABLES) as Array<{ source_table: string; source_id: string }>;
+  if (dupGroups.length === 0) return;
+
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.transaction(() => {
+      const edgeTouched = new Set(
+        (db.prepare(
+          "SELECT DISTINCT from_entry_id AS entry_id FROM memory_edges " +
+          "UNION SELECT to_entry_id FROM memory_edges",
+        ).all() as Array<{ entry_id: string }>).map((r) => r.entry_id),
+      );
+      const vecExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memory_vec'").get();
+      for (const g of dupGroups) {
+        const rows = db.prepare(
+          "SELECT id FROM memory_entries WHERE source_table = ? AND source_id = ? ORDER BY created_at",
+        ).all(g.source_table, g.source_id) as Array<{ id: string }>;
+        const keepId = rows.find((r) => edgeTouched.has(r.id))?.id ?? rows[0].id;
+        for (const row of rows) {
+          if (row.id === keepId) continue;
+          db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(row.id);
+          if (vecExists) db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
+          db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
+          db.prepare("DELETE FROM embedding_tasks WHERE entry_id = ?").run(row.id);
+          db.prepare("DELETE FROM memory_entries WHERE id = ?").run(row.id);
+        }
+      }
+    })();
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+  logger.info(`Normalized ${dupGroups.length} duplicate (source_table, source_id) groups before id unification (F20260915midu)`);
+}
+
+/** 卫星表换键复制（_new → swap）。memory_vec 在 sqlite-vec 不可用时表不存在，跳过。 */
+function remapKeyedTable(db: Database.Database, remap: (id: string) => string, table: string, keyColumn: string, extraColumns: string[]): void {
+  const tableExists = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+  ).get(table) as { name: string } | undefined;
+  if (!tableExists) return;
+  const cols = [keyColumn, ...extraColumns];
+  db.exec(`CREATE TABLE ${table}_new AS SELECT ${cols.join(", ")} FROM ${table} WHERE 0`);
+  const rows = db.prepare(`SELECT ${cols.join(", ")} FROM ${table}`).all() as Array<Record<string, unknown>>;
+  const insert = db.prepare(
+    `INSERT INTO ${table}_new (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`,
+  );
+  for (const row of rows) {
+    insert.run(...cols.map((c) => (c === keyColumn ? remap(row[c] as string) : row[c])));
+  }
+  db.exec(`DROP TABLE ${table}; ALTER TABLE ${table}_new RENAME TO ${table};`);
+}
+
+/** 主表 + edges 换键复制（事务内步骤 1-2）。 */
+function rebuildEntriesAndEdges(db: Database.Database, remap: (id: string) => string): void {
+  // memory_entries 表 DDL 从 sqlite_master 提取改名（单一真相源，防与 schema.ts 漂移）
+  const entriesDdl = (db.prepare(
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name='memory_entries'",
+  ).get() as { sql: string }).sql.replace("memory_entries", "memory_entries_new");
+  db.exec(entriesDdl);
+  const insertEntry = db.prepare(
+    `INSERT INTO memory_entries_new (id, layer, content_type, source_id, source_table, conversation_id, granularity, content, metadata, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  const allEntries = db.prepare(
+    "SELECT id, layer, content_type, source_id, source_table, conversation_id, granularity, content, metadata, created_at FROM memory_entries",
+  ).all() as Array<{ id: string; layer: string; content_type: string; source_id: string; source_table: string; conversation_id: string | null; granularity: string; content: string; metadata: string | null; created_at: string }>;
+  for (const e of allEntries) {
+    insertEntry.run(remap(e.id), e.layer, e.content_type, e.source_id, e.source_table, e.conversation_id, e.granularity, e.content, e.metadata, e.created_at);
+  }
+
+  // memory_edges：from/to 换键复制（无需去重——UNIQUE 索引使存量无同键边，
+  // remap 后同键要求两条目映射到同一新 id，已被 normalizeDuplicateSources 先行清掉）
+  db.exec(`CREATE TABLE memory_edges_new (
+    id TEXT PRIMARY KEY,
+    from_entry_id TEXT NOT NULL,
+    to_entry_id TEXT NOT NULL,
+    edge_type TEXT NOT NULL CHECK (edge_type IN ('produced','references','supersedes','relates-to')),
+    metadata TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_by TEXT,
+    CHECK (from_entry_id != to_entry_id),
+    FOREIGN KEY (from_entry_id) REFERENCES memory_entries(id),
+    FOREIGN KEY (to_entry_id) REFERENCES memory_entries(id)
+  )`);
+  const insertEdge = db.prepare(
+    `INSERT INTO memory_edges_new (id, from_entry_id, to_entry_id, edge_type, metadata, created_at, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+  const edges = db.prepare(
+    "SELECT id, from_entry_id, to_entry_id, edge_type, metadata, created_at, created_by FROM memory_edges",
+  ).all() as Array<{ id: string; from_entry_id: string; to_entry_id: string; edge_type: string; metadata: string | null; created_at: string; created_by: string | null }>;
+  for (const e of edges) {
+    insertEdge.run(e.id, remap(e.from_entry_id), remap(e.to_entry_id), e.edge_type, e.metadata, e.created_at, e.created_by);
+  }
+}
+
+/** swap 主表/edges + 重建索引（事务内步骤 4）。 */
+function swapRebuiltTables(db: Database.Database): void {
+  db.exec(`
+    DROP TABLE memory_entries;
+    ALTER TABLE memory_entries_new RENAME TO memory_entries;
+    DROP TABLE memory_edges;
+    ALTER TABLE memory_edges_new RENAME TO memory_edges;
+    CREATE INDEX IF NOT EXISTS idx_memory_entries_layer ON memory_entries(layer);
+    CREATE INDEX IF NOT EXISTS idx_memory_entries_content_type ON memory_entries(content_type);
+    CREATE INDEX IF NOT EXISTS idx_memory_entries_conversation_id ON memory_entries(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_memory_entries_source ON memory_entries(source_table, source_id);
+    CREATE INDEX IF NOT EXISTS idx_memory_entries_created_at ON memory_entries(created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_edges_unique ON memory_edges(from_entry_id, to_entry_id, edge_type);
+    CREATE INDEX IF NOT EXISTS idx_memory_edges_from ON memory_edges(from_entry_id, edge_type);
+    CREATE INDEX IF NOT EXISTS idx_memory_edges_to ON memory_edges(to_entry_id, edge_type);
+    CREATE INDEX IF NOT EXISTS idx_embedding_tasks_status_retry ON embedding_tasks (status, next_retry_at);
+  `);
+}
+
+function rebuildMemoryEntriesUnifyIds(db: Database.Database, logger: Logger): void {
+  normalizeDuplicateSources(db, logger);
+
+  // 快照需迁移的 (oldId → newId=source_id) 映射。
+  // 注意排除 chunk 类：chunk 与 feature/research summary 共享 (source_table, source_id)，
+  // 纳入映射会把 chunk 的 id 也 remap 成 source_id 与 summary 行撞主键（测试首跑实证）。
+  const mappingRows = db.prepare(
+    `SELECT id, source_id FROM memory_entries
+     WHERE id != source_id AND source_table IN (${unifiablePlaceholders()})
+       AND content_type NOT IN ${CHUNK_CONTENT_TYPES}`,
+  ).all(...UNIFIABLE_SOURCE_TABLES) as Array<{ id: string; source_id: string }>;
+  if (mappingRows.length === 0) return; // 幂等：无可迁移行
+
+  // 防御性校验（生产实证为 0，防异常数据时静默毁库）：目标 source_id 已被非自身条目
+  // 占用会在新表主键上互撞——提前炸比留半状态库好（备份可回放）。
+  const occupied = db.prepare(
+    `SELECT COUNT(*) AS c FROM memory_entries me
+     WHERE me.id != me.source_id AND me.source_table IN (${unifiablePlaceholders()})
+       AND EXISTS (SELECT 1 FROM memory_entries x WHERE x.id = me.source_id AND x.id != me.id)`,
+  ).get(...UNIFIABLE_SOURCE_TABLES) as { c: number };
+  if (occupied.c > 0) {
+    throw new Error(
+      `rebuildMemoryEntriesUnifyIds aborted: ${occupied.c} target source_id already occupied by another entry (F20260915midu)`,
+    );
+  }
+
+  logger.info(`Rebuilding memory_entries to unify projection ids with source_id (${mappingRows.length} entries, F20260915midu)`);
+  const idMap = new Map(mappingRows.map((r) => [r.id, r.source_id]));
+  const remap = (oldId: string): string => idMap.get(oldId) ?? oldId;
+
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.transaction(() => {
+      rebuildEntriesAndEdges(db, remap);
+      remapKeyedTable(db, remap, "memory_weights", "memory_entry_id", ["retrieval_count", "last_retrieved_at", "user_flagged"]);
+      remapKeyedTable(db, remap, "memory_fts_jieba", "memory_entry_id", ["content"]);
+      remapKeyedTable(db, remap, "memory_vec", "memory_entry_id", ["embedding"]);
+      remapKeyedTable(db, remap, "embedding_tasks", "entry_id", ["attempts", "last_error", "last_attempt_at", "next_retry_at", "status", "created_at"]);
+      swapRebuiltTables(db);
+    })();
+
+    // 事务提交后 FK 完整性校验：发现不一致抛错（调用方从备份回放，不留半状态库）
+    const violations = db.pragma("foreign_key_check") as unknown[];
+    if (violations.length > 0) {
+      throw new Error(
+        `rebuildMemoryEntriesUnifyIds: foreign_key_check found ${violations.length} violations after migration (F20260915midu)——请从备份回放 DB`,
+      );
+    }
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+  logger.info(`Rebuilt memory_entries: ${mappingRows.length} projection ids unified with source_id (F20260915midu)`);
 }
 
 /** F20260912avlb：dispatch 伪存储 → 正式表的一次性搬家（幂等：settings 键 + 无 key 零循环）。

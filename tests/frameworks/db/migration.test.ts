@@ -516,3 +516,179 @@ describe("migrateDatabase - F20260914fkx1: rebuildExecutionsDropMessagesFk", () 
     }
   });
 });
+
+/** F20260915midu（#942）：记忆投影条目主键统一为 source_id 的存量迁移。
+ *  验证：id 换键、edges 重定向（含重复边去重）、卫星表（weights/FTS/embedding_tasks）
+ *  键复制、豁免类（signals-fact / chunk）不动、幂等。 */
+describe("migrateDatabase - F20260915midu: rebuildMemoryEntriesUnifyIds", () => {
+  /** 模拟迁移前形态：initSchema 建新库结构，再手工把可统一类条目的 id 改成
+   *  与 source_id 不同的旧 UUID（模拟双 ID 存量），并种 edges/weights/FTS/tasks。 */
+  function createLegacyDualIdDb(): Database.Database {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    initSchema(db);
+    db.prepare(`INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 'c', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`).run();
+
+    const insertEntry = db.prepare(`
+      INSERT INTO memory_entries (id, layer, content_type, source_id, source_table, conversation_id, granularity, content, metadata, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    const insertFts = db.prepare("INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)");
+    const insertWeights = db.prepare("INSERT INTO memory_weights (memory_entry_id, retrieval_count, last_retrieved_at, user_flagged) VALUES (?, 0, NULL, 0)");
+
+    // 可统一类（旧双 ID 形态）：id != source_id
+    // linked_resource：资源 ID res-001，投影旧 ID old-proj-res
+    insertEntry.run("old-proj-res", "working", "linked_resource", "res-001", "linked_resources", "conv-1", "coarse", "资源内容", null, "2026-09-01T00:00:00Z");
+    insertFts.run("old-proj-res", "资源 内容");
+    insertWeights.run("old-proj-res");
+    // feature：文档 F20260915aaaa，投影旧 ID old-proj-feat
+    insertEntry.run("old-proj-feat", "document", "feature", "F20260915aaaa", "features", null, "coarse", "文档 summary", null, "2026-09-01T00:00:00Z");
+    insertFts.run("old-proj-feat", "文档 summary");
+    insertWeights.run("old-proj-feat");
+    // message：消息 msg-001，投影旧 ID old-proj-msg
+    insertEntry.run("old-proj-msg", "working", "message", "msg-001", "messages", "conv-1", "fine", "消息内容", null, "2026-09-01T00:00:00Z");
+    insertFts.run("old-proj-msg", "消息 内容");
+    insertWeights.run("old-proj-msg");
+
+    // 豁免类：signals-fact（id != source_id 但不应迁移）
+    insertEntry.run("sig-fact-uuid", "working", "fact", "126", "signals", null, "coarse", "信号内容", null, "2026-09-01T00:00:00Z");
+    insertFts.run("sig-fact-uuid", "信号 内容");
+    insertWeights.run("sig-fact-uuid");
+    // 豁免类：chunk（id != source_id 但不应迁移）
+    // 注：content/FTS 用与 feature 不同的文本——迁移前的 normalize 步会按同 source 组
+    // 清理冗余行，若 chunk 与 feature 共用同文本会被误判（现实库中 chunk 是文档段落，
+    // 与 summary 文本不同；此处对齐现实形态）。
+    insertEntry.run("chunk-uuid-1", "document", "feature_chunk", "F20260915aaaa", "features", null, "fine", "chunk 正文段落", null, "2026-09-01T00:00:00Z");
+    insertFts.run("chunk-uuid-1", "chunk 正文 段落");
+    insertWeights.run("chunk-uuid-1");
+
+    // embedding_tasks 挂在可统一类旧 ID 上
+    db.prepare(`INSERT INTO embedding_tasks (entry_id, attempts, last_error, last_attempt_at, next_retry_at, status, created_at)
+      VALUES ('old-proj-res', 1, 'embed failed', '2026-09-01T00:00:00Z', '2026-09-02T00:00:00Z', 'pending', '2026-09-01T00:00:00Z')`).run();
+
+    // edges：
+    // 1) old-proj-msg -[produced]-> old-proj-res（两端都要重定向）
+    db.prepare(`INSERT INTO memory_edges (id, from_entry_id, to_entry_id, edge_type, metadata, created_at, created_by)
+      VALUES ('edge-1', 'old-proj-msg', 'old-proj-res', 'produced', NULL, '2026-09-01T00:00:00Z', 'test')`).run();
+    // 2) old-proj-res -[references]-> old-proj-feat
+    db.prepare(`INSERT INTO memory_edges (id, from_entry_id, to_entry_id, edge_type, metadata, created_at, created_by)
+      VALUES ('edge-2', 'old-proj-res', 'old-proj-feat', 'references', NULL, '2026-09-01T00:00:00Z', 'test')`).run();
+    // 3) 涉及豁免类的边（signals-fact 端不动，可统一端重定向）
+    db.prepare(`INSERT INTO memory_edges (id, from_entry_id, to_entry_id, edge_type, metadata, created_at, created_by)
+      VALUES ('edge-3', 'sig-fact-uuid', 'old-proj-res', 'relates-to', NULL, '2026-09-01T00:00:00Z', 'test')`).run();
+    return db;
+  }
+
+  it("迁移后：可统一类 id == source_id，豁免类不动", () => {
+    const db = createLegacyDualIdDb();
+    try {
+      migrateDatabase(db, createTestLogger());
+
+      // 可统一类：新主键 = source_id，内容/FTS 不丢
+      const res = db.prepare("SELECT id, source_id, content FROM memory_entries WHERE source_table='linked_resources'").get() as { id: string; source_id: string; content: string };
+      expect(res.id).toBe("res-001");
+      expect(res.content).toBe("资源内容");
+      const feat = db.prepare("SELECT id FROM memory_entries WHERE content_type='feature'").get() as { id: string };
+      expect(feat.id).toBe("F20260915aaaa");
+      const msg = db.prepare("SELECT id FROM memory_entries WHERE source_table='messages'").get() as { id: string };
+      expect(msg.id).toBe("msg-001");
+      // 旧 ID 不再存在
+      const orphans = db.prepare("SELECT COUNT(*) AS c FROM memory_entries WHERE id IN ('old-proj-res','old-proj-feat','old-proj-msg')").get() as { c: number };
+      expect(orphans.c).toBe(0);
+
+      // 豁免类：signals-fact 与 chunk 保持原 ID
+      const sig = db.prepare("SELECT id FROM memory_entries WHERE source_table='signals'").get() as { id: string };
+      expect(sig.id).toBe("sig-fact-uuid");
+      const chunk = db.prepare("SELECT id FROM memory_entries WHERE content_type='feature_chunk'").get() as { id: string };
+      expect(chunk.id).toBe("chunk-uuid-1");
+
+      // FTS 键跟随（新键可检索、旧键清除）
+      const ftsNew = db.prepare("SELECT COUNT(*) AS c FROM memory_fts_jieba WHERE memory_entry_id='res-001'").get() as { c: number };
+      expect(ftsNew.c).toBe(1);
+      const ftsOld = db.prepare("SELECT COUNT(*) AS c FROM memory_fts_jieba WHERE memory_entry_id='old-proj-res'").get() as { c: number };
+      expect(ftsOld.c).toBe(0);
+
+      // weights 键跟随
+      const wNew = db.prepare("SELECT COUNT(*) AS c FROM memory_weights WHERE memory_entry_id='F20260915aaaa'").get() as { c: number };
+      expect(wNew.c).toBe(1);
+
+      // embedding_tasks 键跟随（pending 任务不丢）
+      const task = db.prepare("SELECT entry_id, status FROM embedding_tasks").get() as { entry_id: string; status: string };
+      expect(task.entry_id).toBe("res-001");
+      expect(task.status).toBe("pending");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("迁移后：edges 两端重定向（含豁免类端不动）", () => {
+    const db = createLegacyDualIdDb();
+    try {
+      migrateDatabase(db, createTestLogger());
+
+      const edges = db.prepare("SELECT id, from_entry_id, to_entry_id, edge_type FROM memory_edges ORDER BY id").all() as Array<{ id: string; from_entry_id: string; to_entry_id: string; edge_type: string }>;
+      expect(edges).toHaveLength(3);
+      // edge-1：两端重定向
+      const e1 = edges.find(e => e.id === "edge-1")!;
+      expect([e1.from_entry_id, e1.to_entry_id]).toEqual(["msg-001", "res-001"]);
+      // edge-2：保留，重定向
+      const e2 = edges.find(e => e.id === "edge-2")!;
+      expect([e2.from_entry_id, e2.to_entry_id]).toEqual(["res-001", "F20260915aaaa"]);
+      // edge-3：豁免端不动，可统一端重定向
+      const e3 = edges.find(e => e.id === "edge-3")!;
+      expect([e3.from_entry_id, e3.to_entry_id]).toEqual(["sig-fact-uuid", "res-001"]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("幂等：二次迁移零变化（无可迁移行直接返回）", () => {
+    const db = createLegacyDualIdDb();
+    try {
+      migrateDatabase(db, createTestLogger());
+      const snapshot = (sql: string) => (db.prepare(sql).all() as unknown[]).length;
+      const counts1 = {
+        entries: snapshot("SELECT * FROM memory_entries"),
+        edges: snapshot("SELECT * FROM memory_edges"),
+        weights: snapshot("SELECT * FROM memory_weights"),
+        fts: snapshot("SELECT * FROM memory_fts_jieba"),
+        tasks: snapshot("SELECT * FROM embedding_tasks"),
+      };
+      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
+      expect(snapshot("SELECT * FROM memory_entries")).toBe(counts1.entries);
+      expect(snapshot("SELECT * FROM memory_edges")).toBe(counts1.edges);
+      expect(snapshot("SELECT * FROM memory_weights")).toBe(counts1.weights);
+      expect(snapshot("SELECT * FROM memory_fts_jieba")).toBe(counts1.fts);
+      expect(snapshot("SELECT * FROM embedding_tasks")).toBe(counts1.tasks);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("迁移后：统一 ID 支持 link_memory 语义（资源 ID 直查命中 + 对资源 ID 建边）", () => {
+    const db = createLegacyDualIdDb();
+    try {
+      migrateDatabase(db, createTestLogger());
+      // 资源 ID 直查命中（#942 的核心验收）
+      const hit = db.prepare("SELECT id FROM memory_entries WHERE id = 'res-001'").get();
+      expect(hit).toBeTruthy();
+      // 对资源 ID 建边成功（FK 约束下新边可落）
+      expect(() =>
+        db.prepare(`INSERT INTO memory_edges (id, from_entry_id, to_entry_id, edge_type, created_at)
+          VALUES ('edge-new', 'res-001', 'msg-001', 'references', '2026-09-02T00:00:00Z')`).run()
+      ).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("全新库（无双 ID 存量）：迁移直接通过零副作用", () => {
+    const db = createTestDb();
+    try {
+      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
+      const c = db.prepare("SELECT COUNT(*) AS c FROM memory_entries").get() as { c: number };
+      expect(c.c).toBe(0);
+    } finally {
+      db.close();
+    }
+  });
+});
