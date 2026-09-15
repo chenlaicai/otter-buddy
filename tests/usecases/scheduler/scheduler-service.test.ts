@@ -3163,3 +3163,126 @@ describe('#823: 运行时定期对账（tick 循环死亡时错过窗口仍可�
     }
   });
 });
+
+describe('#823 根修：skip 吞 claim 导致任务饿死（9/6 生产现场）', () => {
+  function makeHealingRepoNullBody(openEvents: Array<Record<string, unknown>>) {
+    return {
+      _events: [] as Array<Record<string, unknown>>,
+      create: vi.fn(async (e: Record<string, unknown>) => { /* 对账事件 */ }),
+      findOpen: vi.fn(async () => openEvents),
+      autoStaleDismiss: vi.fn(async () => 0),
+    };
+  }
+
+  it('resolveEffectiveBody 返回 null（动态 skip）→ 不消耗 claim：下个窗口照常可触发', async () => {
+    // 9/6 现场还原：self-healing-analysis 无 open events → skip
+    // 根修前：claim 已吞（last_triggered_at 更新）→ 下个窗口 claimTask 60s 内被拒 / Polling 不重算 expected → 饿死
+    // 根修后：resolve 先于 claim → skip 不碰 last_triggered_at → 后续窗口正常
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-06T01:59:58.000Z'));
+    try {
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
+      const agentInvoke = createMockAgentInvoke();
+      const prevDue = new Date('2026-09-06T01:00:00.000Z');
+      const cronParser = createMockCronParser(new Date('2026-09-06T02:00:00.000Z'), prevDue);
+      const healingRepo = makeHealingRepoNullBody([]); // 无 open events → buildHealingAnalysisBody 返 null
+
+      taskRepo._store.set('task-heal', makeTask({
+        id: 'task-heal',
+        scheduleType: 'cron',
+        cron: '0 10 * * *',
+        body: '[self-healing-analysis]',
+        lastTriggeredAt: '2026-09-05T02:00:00.000Z',
+      } as never));
+      convRepo._addConversation('conv-1', { status: 'active' });
+
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+        cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
+        healingRepo: healingRepo as never,
+        tickImpl: async () => {},
+      });
+      await service.start();
+
+      const before = taskRepo._store.get('task-heal')!.lastTriggeredAt;
+      // 手动触发（等价 setTimeout 快路径到点）
+      await service.trigger('task-heal').catch(() => undefined);
+      const after = taskRepo._store.get('task-heal')!.lastTriggeredAt;
+
+      // 关键断言：skip 不得消耗 claim（last_triggered_at 不变）
+      expect(after).toBe(before);
+      // 且无 execution 建立
+      expect(taskRepo._executions.size).toBe(0);
+      await service.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Polling tick：expected 已过但 lastTriggeredAt 新近被刷新（无 execution）→ 重算 expected，不静默放过', async () => {
+    // 9/6 饿死机制还原：expected 缓存停在旧窗口，lastTriggeredAt 已被「无 execution 的 trigger」刷新
+    // → tick 必须重算 expected（而不是静默 continue），否则任务永远不再补触发
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-06T02:00:30.000Z'));
+    try {
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
+      const agentInvoke = createMockAgentInvoke();
+      const prevDue = new Date('2026-09-06T01:00:00.000Z');
+      // getNextTime 返 03:00（重算后的下一窗口）
+      const cronParser = createMockCronParser(new Date('2026-09-06T03:00:00.000Z'), prevDue);
+      const healingRepo = {
+        _events: [] as Array<Record<string, unknown>>,
+        create: vi.fn(async (e: Record<string, unknown>) => { healingRepo._events.push(e); }),
+        findOpen: vi.fn(async () => []),
+        autoStaleDismiss: vi.fn(async () => 0),
+      };
+
+      taskRepo._store.set('task-starve', makeTask({
+        id: 'task-starve',
+        scheduleType: 'cron',
+        cron: '0 10 * * *',
+        // lastTriggeredAt 刚刚被刷新（30 秒前，在 POLL_INTERVAL_MS 内）——模拟被无 execution 的 trigger 吞了 claim
+        lastTriggeredAt: new Date(Date.now() - 15_000).toISOString(),
+      } as never));
+      convRepo._addConversation('conv-1', { status: 'active' });
+
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+        cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
+        healingRepo: healingRepo as never,
+      });
+      await service.start();
+      // start() 时 scheduleNext 把 expected 缓存设为 getNextTime=03:00——但我们需要模拟「expected 停在旧窗口」
+      // 直接把缓存打回旧窗口（模拟 start 前缓存/上轮残留）
+      (service as unknown as { nextExpectedTrigger: Map<string, Date> }).nextExpectedTrigger
+        .set('task-starve', new Date('2026-09-06T02:00:00.000Z'));
+
+      // 跑一轮 tick（startPolling 的 initial tick 已跑过；手动调 tickReal 语义）
+      await (service as unknown as { tickReal: () => Promise<void> }).tickReal();
+
+      // 断言：expected 被重算推进到 03:00（不是停在 02:00 静默放过）
+      const expected = (service as unknown as { nextExpectedTrigger: Map<string, Date> }).nextExpectedTrigger
+        .get('task-starve');
+      expect(expected?.toISOString()).toBe('2026-09-06T03:00:00.000Z');
+      await service.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

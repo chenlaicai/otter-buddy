@@ -334,6 +334,21 @@ export class SchedulerService {
         this.nextExpectedTrigger.set(task.id, expected);
       }
 
+      // #823 根修之二：expected 已过但 lastTriggeredAt 已被刷新（无对应 execution 的
+      // trigger——如 claim 后被 skip/前置炸）→ 旧 expected 已失效，必须重算（getNextTime(now)），
+      // 否则本 tick 静默放过、而 expected 缓存永不更新 = 任务永久饿死（9/6 现场主根因）。
+      if (expected.getTime() <= now && task.lastTriggeredAt && now - new Date(task.lastTriggeredAt).getTime() <= POLL_INTERVAL_MS) {
+        // lastTriggeredAt 比 expected 新：有人触发过（无论成败）→ expected 重算推进
+        const refreshed = this.cronParser.getNextTime(task.cron, task.timezone);
+        if (refreshed.getTime() !== expected.getTime()) {
+          this.nextExpectedTrigger.set(task.id, refreshed);
+          expected = refreshed;
+          this.logger.info(`Polling: task ${task.id} expected refreshed after recent trigger`, {
+            taskId: task.id, nextExpectedAt: refreshed.toISOString(),
+          });
+        }
+      }
+
       // 比对墙钟：预期触发时间已过 → 迟到，补触发
       // #640 防重复：lastTriggeredAt 在 POLL_INTERVAL_MS 内 → 已被 setTimeout 快路径触发，跳过
       if (expected.getTime() <= now && (!task.lastTriggeredAt || now - new Date(task.lastTriggeredAt).getTime() > POLL_INTERVAL_MS)) {
@@ -600,16 +615,21 @@ export class SchedulerService {
     let executionEstablished = false;
 
     try {
+      // #823 根修之一：resolveEffectiveBody 先于 claim——动态跳过（如 self-healing-analysis
+      // 无 open events）不再消耗 claim。9/6 现场：skip 吞掉 claim 但不建 execution、不更新
+      // lastTriggeredAt 之外的任何记录 → Polling 下个 tick 看 expected 已过 + lastTriggeredAt
+      // 已新 → 不重算 expected → 永不补触发，任务静默饿死（详见特性文档 F20260915n84u）。
+      const effectiveBody = await this.resolveEffectiveBody(task);
+      if (effectiveBody === null) {
+        status = 'skipped';
+        this.logger.info(`Task ${task.id} skipped before claim (dynamic skip)`, { taskId: task.id });
+        return { executionId: '' };
+      }
+
       await this.claimAndValidateTask(task, now).catch(err => {
         status = 'skipped';
         throw err;
       });
-
-      const effectiveBody = await this.resolveEffectiveBody(task);
-      if (effectiveBody === null) {
-        status = 'skipped';
-        return { executionId: '' };
-      }
 
       const executionId = crypto.randomUUID();
       await this.createExecution(executionId, task.id, now);

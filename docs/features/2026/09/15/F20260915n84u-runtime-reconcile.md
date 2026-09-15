@@ -1,7 +1,7 @@
 ---
 id: F20260915n84u
-title: 运行时定期调度对账：tick 循环死亡时错过窗口仍可见
-summary: 修复 #823——9/6 现场：服务在线但轮询 tick 循环整体死亡（setInterval 异常静默/事件循环假死），self-healing-analysis 错过 18:00 窗口、2 条 healing events 悬置 28h。#814 启动对账只覆盖重启时刻，对「在线但漏触发」盲区。修复：reconcileMissedWindows 挂到独立的 1 小时定时器上（与 pollTimer 冗余隔离），tick 死了对账仍响；复用既有按窗口去重，重复报零成本。另落地 tickImpl 测试注入口子。
+title: 调度饿死根治：skip 不吞 claim + expected 缓存重算 + 运行时对账兜底
+summary: 修复 #823——9/6 现场日志取证实锤：self-healing-analysis 动态 skip（无 open events）吞掉 claim 但不建 execution，Polling tick 的 expected 缓存因此永久停在旧窗口（饿死自锁、零日志），任务错过 18:00 窗口、2 条 healing events 悬置 28h。根修三层：resolveEffectiveBody 移到 claim 前（skip 不吞 claim）+ tick 重算 expected（解锁饿死自锁）+ 运行时 1h 对账降级为兜底。另落地 tickImpl 测试注入口子。
 type: feature
 status: development
 created: 2026-09-15
@@ -12,7 +12,7 @@ intent:
   goal: 服务在线但调度 tick 死亡时，错过触发窗口在 1h 内落 healing 台账，不再依赖次日人肉发现
   why: 9/6 实证现场（#823）：其他任务正常 ≠ 本任务正常——tick 循环整体死亡时 #814 启动对账完全帮不上；2 条 healing events 因此悬置 28h
   non_goals:
-    - 不排查 tick 循环死亡的根因（setInterval 为何静默）——本特性只保证「死了能被发现」，根因排查登记后续
+    - 不处理 cron 级漏触发的补跑策略（错过就错过，落账即可；补跑语义归 #854 运行时对账议题）
     - 不改变补触发语义（#640 轮询补触发逻辑不动）
 ---
 
@@ -24,27 +24,39 @@ intent:
 2. 对账定时器 unref + stop() 清理 + 防重复启动
 3. 落地 `tickImpl` 测试注入口子（隔离轮询补触发，让对账定时器可独立验证）
 
-## 根因分析（#823，代码 + 数据双重证据）
+## 根因分析（#823，日志取证实锤——2026-09-15 下午复核修正）
 
-**现场**（DB 实证）：
-- 9/6 18:00（UTC 10:00）self-healing-analysis 触发窗口**完全缺失**——scheduled_task_executions 无成功/失败/skipped 记录
-- 同日 01:15Z 一批任务触发后，**9/6 全天再无任何任务触发**；9/7 00:04Z 起全部恢复
-- 后果：2 条 healing events（degenerate/circuit_break）悬置 28h 无人消费
+**9/6 完整时间线**（data/logs/otter-buddy.log + DB 交叉取证）：
 
-**根因推断**（置信度：中——现象级证据，无 tick 死亡直接日志）：
-- 排除「单任务异常」：对照组任务同日也全部无触发（与 issue 原始记录「其他任务正常」矛盾——DB 实查纠正）
-- 排除「进程死亡」：服务在线（healing events 持续落账）
-- 指向：**轮询 tick 循环在 9/6 01:15 后整体死亡**（setInterval 异常静默或事件循环假死），进程重启（9/7 00:04 前）后自愈
-- #814 启动对账只在 start() 跑一次——对「在线但 tick 死亡」场景零覆盖
+1. 9/6 01:15:02Z 老进程（pid 92087）Polling tick 判 5 任务 overdue，catch-up 全部 fire-and-forget 触发——任务跑了（01:15 批次 executions 有记录）
+2. 01:23:41Z 老进程收 SIGTERM 死亡；01:24:30Z 新进程（pid 72041）启动，启动对账把 2 条僵尸 running execution 翻篇 failed
+3. 01:30:00Z 新进程 setTimeout 快路径准时触发 backlog digest（execution 落账 completed）——**调度器此时是活的**
+4. 01:59:58Z self-healing-analysis 的 Timer fire → claimTask 成功（last_triggered_at 更新）→ resolveEffectiveBody 返回 null（无 open events）→ **skip：claim 被吞但不建 execution、无痕迹**
+5. 02:00:00Z **第二个 Timer**（Polling catch-up 的 `.then` 里 `scheduleNext(task)` 重复注册的）fire → claim 被拒（60s 窗口）→ 「Failed to trigger task」日志
+6. 此后 Polling tick 每 30s 跑，但对 cc1cfa4f：`expected` 缓存停在 02:00（**claim 被拒后无人重算**），`lastTriggeredAt` 已是 01:59:58（POLL_INTERVAL 内）→ 每轮静默 continue——**任务永久饿死，且饿死状态不触发任何日志**
+7. 9/7 00:04Z 进程重启（又一次 SIGTERM 周期）→ 缓存清零 → 恢复
+
+**三层缺陷（全部实锤）**：
+
+| 层 | 缺陷 | 位置 |
+|---|---|---|
+| D1 | **skip 吞 claim**：resolveEffectiveBody 在 claim 之后执行——动态 skip（无 open events）消耗 claim（last_triggered_at 前进）但不建 execution、不留痕迹 | triggerTask 步骤顺序 |
+| D2 | **expected 缓存不死**：Polling tick 判「expected 已过 + lastTriggeredAt 新近」时静默 continue，从不重算 expected——饿死状态自锁 | tick() 比对分支 |
+| D3 | **双 Timer 竞态**：Polling catch-up `.then` 无条件 scheduleNext(task)，与 setTimeout 快路径既有 Timer 叠加——同任务两个 Timer 互踩 claim（02:00:00.001 的 Failed to trigger 即互踩产物） | tick() catch-up then 块 |
+
+**对 issue 原始记录与上午版的两次修正**：issue 写「只有 self-healing-analysis 缺失、其他任务正常」——DB 实查为「01:15 后全天所有任务零触发」；上午版推断「tick 循环整体死亡」——日志实锤 **tick 一直在跑，是 D1+D2 合谋让饿死在 tick 眼皮底下隐形**。「修分针」就是修 D1/D2/D3，不是再挂一个小闹钟。
 
 ## 方案设计
 
+**根修（本 PR 主体，应 chen 14:05 裁决「修分针，不挂小闹钟」重写）**：
+
 | 决策 | 选择 | 理由 |
 |---|---|---|
-| 对账周期 | 1h | 错过窗口发现时效从「次日健康检查」缩到 1h；对账自带去重，重复报零成本 |
-| 定时器布局 | **独立 setInterval**（非挂在 tick 内） | 对账的意义就是 tick 死亡时仍可见——挂在 tick 上等于没有冗余；双定时器同时死的概率远低于单个 |
-| 落账逻辑 | 复用 `reconcileMissedWindows` 原样 | #814 已实现判定 + #853 去重 + #929 容差，零重复建设 |
-| tick 注入 | `SchedulerServiceOptions.tickImpl`（生产不传） | 测试需隔离 30s 轮询补触发，否则无法断言「落账来自对账定时器」 |
+| D1 修复 | **resolveEffectiveBody 移到 claim 之前**——动态 skip 不再消耗 claim，last_triggered_at 不前进，后续窗口照常可触发 | 顺序调换零新机制；skip 加 info 日志留痕 |
+| D2 修复 | **tick 重算 expected**：expected 已过但 lastTriggeredAt 在 POLL_INTERVAL 内（被无 execution 的 trigger 刷新）→ getNextTime(now) 重算推进缓存 | 饿死自锁状态的唯一解锁点 |
+| D3 修复 | catch-up `.then` 里的 scheduleNext 保留（它本来就先 clearTimeout 旧 Timer——实查 scheduleNext 有 clear 逻辑，双 Timer 实为 01:30 前旧 Timer 与 catch-up 重设 Timer 的交替，非泄漏）；**真正的竞态防护是 D1 修复后 skip 不吞 claim，互踩窗口自然消失** | 不过度设计 |
+| 运行时定期对账（上午版主体） | **保留但降级为兜底**：D1/D2 修好后饿死不再隐形，1h 对账变成双保险（防未来未知饿死形态），不再是主防线 | chen 裁决不卡「多一个机制」——对账复用既有逻辑零新判定，保留成本低 |
+| 验证（发现时效） | 对账 1h 周期从「既有窗口已错过」起算，非从死亡起算——极端情况发现延迟 = 1h（对账周期）+ 窗口间隔 | 任务粒度均分钟级以上，可接受 |
 
 ## 影响范围
 
@@ -61,6 +73,11 @@ intent:
 - scheduler 域 80/80（含 3 新用例）；全量 3023/3023 + tsc 0
 - 新用例覆盖：运行时对账独立落账（tickImpl noop 隔离）/ 同窗口去重（3h 3 次对账仍 1 条）/ stop 后定时器清理
 - 测试反模式防线实证：开发中发现「getNextTime mock 返回固定时间 + 不定系统时间 → setTimeout 负延迟 → Node 钳到 1ms → fake timer 立即触发风暴」假失败形态，用 vi.setSystemTime 根治（此形态值得进 #544 静态扫描规则库）
+
+## 现场勘误（2026-09-15 下午，应 chen「修分针」裁决重查）
+
+- 上午版（d265e765）把根因定为「tick 循环死亡」——**错**。日志实锤 tick 一直在跑；真正机制是 D1（skip 吞 claim）+ D2（expected 缓存自锁）
+- 上午版交付的 1h 对账定时器 + tickImpl 注入 + 3 用例保留（降级为兜底）；下午补 D1/D2 根修 + 2 根修用例
 
 ## 决策史
 
