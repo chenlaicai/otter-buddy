@@ -1,16 +1,17 @@
 /**
- * 消息体投影：HTML 卡片围栏剥离（F20260728htar）。
+ * 消息体投影：HTML 卡片/汇报卡围栏剥离（F20260728htar, F20260915hrpt）。
  *
  * 消息体是唯一事实源（body 原文不动）；检索（FTS/记忆索引）与上下文注入出口
- * 给剥离投影：html-card 围栏整体替换为 `[html-card: {title}]`，
+ * 给剥离投影：html-card / html-report 围栏整体替换为占位符，
  * html-card-reply 围栏整体替换为 `[html-card-reply: {cardId}]`。
  *
  * 剥离粒度按围栏类型分叉：
  * - html-card（卡片源码，体积大）：全路径剥离（索引 + 注入）
+ * - html-report（议题汇报卡，体积大）：全路径剥离
  * - html-card-reply（回执 JSON，≤2KB，本就是交互载荷）：仅索引剥离；
  *   上下文注入出口用 stripHtmlCardsOnly（不剥回执，水獭直接看到 JSON）
  *
- * 解析用 remark（mdast）：walk 找 lang 为 html-card / html-card-reply 的 code 节点，
+ * 解析用 remark（mdast）：walk 找 lang 为 html-card / html-report / html-card-reply 的 code 节点，
  * 用 node.position 的 start/end offset 对原文做切片替换。容器（blockquote/list）场景下
  * 偏移区间自然覆盖中间行的容器前缀，开围栏行的前缀留在区间外，替换为单行占位符后
  * 恰好保留 "> " 类前缀。未闭合围栏 mdast 自然处理到 EOF；
@@ -40,7 +41,7 @@ const parser = () => remark().use(remarkGfm, { singleTilde: false });
  */
 const PLACEHOLDER_MARK = "\u200B";
 
-/** 剥离选项：stripReplies=false 时只剥 html-card，保留 html-card-reply 原文（注入出口） */
+/** 剥离选项：stripReplies=false 时只剥 html-card/html-report，保留 html-card-reply 原文（注入出口） */
 export interface StripHtmlCardOptions {
   stripReplies?: boolean;
   /**
@@ -77,12 +78,15 @@ function collectFenceReplacements(
     if (node.type === "code") {
       const code = node as Code;
       const isCard = code.lang === "html-card";
+      const isReport = code.lang === "html-report";
       const isReply = code.lang === "html-card-reply";
-      if (isCard || (isReply && stripReplies)) {
+      if (isCard || isReport || (isReply && stripReplies)) {
         replacements.push({
           start: code.position!.start.offset!,
           end: code.position!.end.offset!,
-          placeholder: isCard
+          placeholder: isReport
+            ? `${prefix}[html-report: ${extractMetaAttr(code.meta, "title")}]`
+            : isCard
             ? `${prefix}[html-card: ${extractMetaAttr(code.meta, "title")}]`
             : `${prefix}[html-card-reply: ${extractMetaAttr(code.meta, "card")}]`,
         });
@@ -95,7 +99,7 @@ function collectFenceReplacements(
 }
 
 /**
- * 剥离消息体中的 HTML 卡片围栏，返回投影文本。
+ * 剥离消息体中的 HTML 卡片/汇报卡围栏，返回投影文本。
  *
  * @param body 消息原文
  * @param options.stripReplies 是否剥离 html-card-reply 回执围栏（默认 true）。
@@ -104,7 +108,8 @@ function collectFenceReplacements(
 export function stripHtmlCardFences(body: string, options?: StripHtmlCardOptions): string {
   const stripReplies = options?.stripReplies ?? true;
   const markPlaceholders = options?.markPlaceholders ?? false;
-  if (!body.includes("html-card")) return body;
+  // F20260915hrpt: 支持 html-card 和 html-report 两种围栏类型
+  if (!body.includes("html-card") && !body.includes("html-report")) return body;
   /** micromark 在剥离 BOM 后的值上计算 offset，切片落在原串会整体偏移一字符（R9）：先剥 BOM（投影文本无需保留） */
   const src = body.charCodeAt(0) === 0xfeff ? body.slice(1) : body;
   const replacements = collectFenceReplacements(parser().parse(src), stripReplies, markPlaceholders);
@@ -117,7 +122,7 @@ export function stripHtmlCardFences(body: string, options?: StripHtmlCardOptions
 }
 
 /**
- * 只剥 html-card、保留 html-card-reply 的投影（上下文注入出口用）。
+ * 只剥 html-card/html-report、保留 html-card-reply 的投影（上下文注入出口用）。
  * 注入出口：buildMessageWithContext 未读注入、list_messages、get_turn_history。
  */
 export function stripHtmlCardsOnly(body: string): string {
@@ -165,6 +170,12 @@ function humanizePlaceholders(text: string, options: ProjectForChannelOptions): 
   // \u200B[html-card: 标题] → 【交互卡片:标题】(+ 可选链接)
   text = text.replace(new RegExp(`${PLACEHOLDER_MARK}\\[html-card:\\s*([^\\]]*)\\]`, "g"), (_m, title: string) => {
     const label = `【交互卡片:${title}】`;
+    return cardUrl ? `${label}\n👉 ${cardUrl}` : label;
+  });
+
+  // \u200B[html-report: 标题] → 【议题汇报:标题】(+ 可选链接)
+  text = text.replace(new RegExp(`${PLACEHOLDER_MARK}\\[html-report:\\s*([^\\]]*)\\]`, "g"), (_m, title: string) => {
+    const label = `【议题汇报:${title}】`;
     return cardUrl ? `${label}\n👉 ${cardUrl}` : label;
   });
 
@@ -241,7 +252,7 @@ function truncateByBytes(text: string, maxBytes: number, hint: string): string {
  * 截断预算权收投影层：附件块作为受保护尾部，从 maxBytes 中预留预算，
  * 正文按剩余预算截断，附件块强制存活（附件行 ≤几行字节，预留代价可忽略）。
  *
- * @param body 消息原文（Markdown + html-card 围栏）
+ * @param body 消息原文（Markdown + html-card/html-report 围栏）
  * @param options.webBaseUrl Web 端 base URL，缺省时卡片占位符不带链接
  * @param options.conversationId 当前会话 ID
  * @param options.maxBytes 投影文本字节上限，缺省 25000
@@ -252,7 +263,7 @@ export function projectForChannel(body: string, options: ProjectForChannelOption
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
   const truncationHint = options.truncationHint ?? DEFAULT_TRUNCATION_HINT;
 
-  // stripHtmlCardFences 仅在含 "html-card" 时剥 BOM(短路路径保留 BOM);
+  // stripHtmlCardFences 仅在含 "html-card"/"html-report" 时剥 BOM(短路路径保留 BOM);
   // 飞书侧输出对终端用户可见,BOM 会渲染为怪字符,这里统一主动剥
   const bomStripped = body.charCodeAt(0) === 0xfeff ? body.slice(1) : body;
   // markPlaceholders:true 让占位符带零宽前缀,避免误匹配 body 原文里 LLM 手写字面量(审视 R5)

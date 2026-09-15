@@ -10,6 +10,10 @@ import {
   deriveRepliedCardIds,
   countCardFences,
   buildCardReplyBody,
+  REPORT_INITIAL_HEIGHT,
+  REPORT_MIN_HEIGHT,
+  REPORT_MAX_HEIGHT,
+  REPORT_FENCE_TYPE,
 } from './html-card'
 import { HTML_CARD_REPLY_DERIVE_VECTORS } from '../../../src/entities/conversation/html-card-test-vectors'
 
@@ -116,6 +120,13 @@ describe('常量与工具', () => {
     expect(CARD_MAX_BYTES).toBe(8192)
     expect(CARD_SUMMARY_MAX_CHARS).toBe(500)
     expect(CARD_DATA_MAX_BYTES).toBe(2048)
+  })
+
+  it('html-report 常量符合设计文档（F20260915hrpt）', () => {
+    expect(REPORT_INITIAL_HEIGHT).toBe(600)
+    expect(REPORT_MIN_HEIGHT).toBe(400)
+    expect(REPORT_MAX_HEIGHT).toBe(4000)
+    expect(REPORT_FENCE_TYPE).toBe('html-report')
   })
 
   it('byteLength 按 UTF-8 计（中文 3 字节）', () => {

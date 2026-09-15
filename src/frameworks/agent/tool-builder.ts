@@ -116,6 +116,7 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
     otterId,
     conversationId,
     modelPool,
+    currentModelMaxTokens: modelPool?.getMaxTokens(null),
     otterConfigProvider,
     signalRepo,
     get currentMessageId() { return register.currentMessageId; },

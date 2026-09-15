@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Hash, ShieldCheck, AlertTriangle } from 'lucide-react'
-import { CARD_MAX_BYTES, CARD_MAX_PER_MESSAGE, byteLength } from '../../lib/html-card'
+import { CARD_MAX_BYTES, CARD_MAX_PER_MESSAGE, byteLength, REPORT_INITIAL_HEIGHT, REPORT_FENCE_TYPE } from '../../lib/html-card'
 import { registerCard, unregisterCard } from '../../lib/card-registry'
 import { buildCardBridgeScript } from '../../lib/card-bridge'
 
@@ -37,16 +37,19 @@ export interface HtmlCardProps {
   interactive: boolean
   /** 卡片所在消息的 senderId（registry 登记，回执显式路由用） */
   authorId: string
+  /** F20260915hrpt: 围栏类型（html-card 或 html-report） */
+  fenceType?: 'html-card' | 'html-report'
 }
 
 type CardView = 'collapsed' | 'expanded' | 'source' | 'invalid'
 
-function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId }: HtmlCardProps) {
-  const [view, setView] = useState<CardView>('collapsed')
-  const [height, setHeight] = useState(240)
+function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId, fenceType = 'html-card' }: HtmlCardProps) {
+  const isReport = fenceType === REPORT_FENCE_TYPE
+  const [view, setView] = useState<CardView>(isReport ? 'expanded' : 'collapsed')
+  const [height, setHeight] = useState(isReport ? REPORT_INITIAL_HEIGHT : 240)
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const loadCountRef = useRef(0)
-  const oversize = byteLength(code) > CARD_MAX_BYTES
+  const oversize = byteLength(code) > (isReport ? 65536 : CARD_MAX_BYTES)
 
   const srcdoc = useMemo(
     () => (view === 'expanded' ? buildCardSrcdoc(code, cardId, interactive) : ''),
@@ -92,10 +95,10 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId 
       <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-stone-600">
         <Hash className="w-3 h-3 text-stone-400 flex-shrink-0" />
         <span className="font-medium truncate flex-1">{title || '未命名卡片'}</span>
-        <span className="text-[10px] px-1.5 py-0.5 rounded bg-otter-400/15 text-otter-600 flex-shrink-0">HTML 卡片</span>
+        <span className="text-[10px] px-1.5 py-0.5 rounded bg-otter-400/15 text-otter-600 flex-shrink-0">{isReport ? '议题汇报' : 'HTML 卡片'}</span>
         {oversize && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-status-stalled text-amber-700 flex-shrink-0" title={`卡片超出 ${CARD_MAX_BYTES / 1024}KB 体积预算`}>
-            超 {CARD_MAX_BYTES / 1024}KB
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-status-stalled text-amber-700 flex-shrink-0" title={`卡片超出 ${isReport ? 64 : CARD_MAX_BYTES / 1024}KB 体积预算`}>
+            超 {isReport ? 64 : CARD_MAX_BYTES / 1024}KB
           </span>
         )}
         {view === 'invalid' ? (

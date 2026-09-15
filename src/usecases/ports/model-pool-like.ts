@@ -9,6 +9,8 @@ export interface ModelInfo {
   strengths?: string[];
   weaknesses?: string[];
   contextWindow?: number;
+  /** 最大输出 tokens（F20260915hrpt：模型路由决策依赖——maxTokens < 131072 时降级） */
+  maxTokens?: number;
 }
 
 export interface ModelPoolLike {

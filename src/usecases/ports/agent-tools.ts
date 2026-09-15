@@ -124,6 +124,8 @@ export interface ToolContext {
   readonly currentMessageId: string;
   /** 模型池（多模型路由，可选，用于校验 modelAlias） */
   modelPool?: ToolModelPool;
+  /** F20260915hrpt: 当前模型的 maxTokens（html-report 模型路由决策用）。buildCustomTools 从 ModelPool 解析注入。 */
+  currentModelMaxTokens?: number;
   /** F20260824aibd: Otter 配置提供者（用于查询其他獭的 modelAlias） */
   otterConfigProvider?: OtterConfigProvider;
   /**

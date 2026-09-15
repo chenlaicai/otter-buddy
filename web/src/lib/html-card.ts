@@ -23,6 +23,14 @@ export const CARD_DATA_MAX_BYTES = 2048
 export const CARD_MIN_HEIGHT = 100
 export const CARD_MAX_HEIGHT = 2000
 
+/** html-report iframe 高度 clamp 区间（F20260915hrpt） */
+export const REPORT_INITIAL_HEIGHT = 600
+export const REPORT_MIN_HEIGHT = 400
+export const REPORT_MAX_HEIGHT = 4000
+
+/** html-report 围栏类型标识（与 html-card 并行） */
+export const REPORT_FENCE_TYPE = 'html-report'
+
 /** UTF-8 字节长度 */
 export function byteLength(s: string): number {
   return new TextEncoder().encode(s).length

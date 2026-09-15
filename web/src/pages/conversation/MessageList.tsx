@@ -80,7 +80,9 @@ function CardAwareCode({ className, children, node, ...props }: CodeComponentPro
   const ctx = useContext(CardRenderContext)
   const text = String(children).replace(/\n$/, '')
 
-  if (className === 'language-html-card') {
+  // F20260915hrpt: 支持 html-card 和 html-report 两种围栏类型
+  if (className === 'language-html-card' || className === 'language-html-report') {
+    const fenceType = className === 'language-html-report' ? 'html-report' : 'html-card'
     // 事件流文本的 fenceIndex 与 message.body 不对应，一律源码块（不进 registry）
     if (ctx.variant === 'event-log') return highlightSource('html', text)
     // fenceIndex 经 remark 插件 hProperties 通道写入（mdast→hast 不透传任意 data key）。
@@ -100,6 +102,7 @@ function CardAwareCode({ className, children, node, ...props }: CodeComponentPro
         code={text}
         interactive={ctx.variant === 'otter-body'}
         authorId={ctx.authorId}
+        fenceType={fenceType}
       />
     )
   }
@@ -119,7 +122,7 @@ function CardAwarePre({ children, node, ...props }: ComponentProps<'pre'> & { no
   void node
   if (isValidElement(children)) {
     const cls = (children.props as { className?: string }).className
-    if (cls === 'language-html-card' || cls === 'language-html-card-reply') return <>{children}</>
+    if (cls === 'language-html-card' || cls === 'language-html-report' || cls === 'language-html-card-reply') return <>{children}</>
   }
   return <pre {...props}>{children}</pre>
 }

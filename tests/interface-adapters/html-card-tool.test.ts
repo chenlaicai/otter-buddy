@@ -43,9 +43,10 @@ function makeCtx(clientOverrides: Partial<OtterToolClient> = {}): ToolContext {
 }
 
 describe("get_html_card_contract 工具", () => {
-  it("createTools 注册 20 个工具，含 get_html_card_contract", () => {
+  it("createTools 注册 21 个工具，含 get_html_card_contract 和 get_html_report_contract", () => {
     const tools = createTools(makeCtx());
     expect(tools.map(t => t.name)).toContain("get_html_card_contract");
+    expect(tools.map(t => t.name)).toContain("get_html_report_contract");
   });
 
   it("契约文本覆盖关键章节：样式变量 / 交互 API / 禁用清单 / 回执与 id 规则", async () => {

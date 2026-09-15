@@ -19,6 +19,8 @@ export interface ModelDescriptor {
   strengths?: string[];
   weaknesses?: string[];
   contextWindow?: number;
+  /** 最大输出 tokens（F20260915hrpt） */
+  maxTokens?: number;
 }
 
 /** ModelPool 内部条目 */
@@ -97,6 +99,12 @@ export class ModelPool implements ModelPoolLike {
     return this.entries.get(alias)?.config.contextWindow;
   }
 
+  /** F20260915hrpt：获取模型的 maxTokens（html-report 模型路由用） */
+  getMaxTokens(alias: string | null | undefined): number | undefined {
+    if (!alias) return this.entries.get(this.defaultAlias)?.config.maxTokens;
+    return this.entries.get(alias)?.config.maxTokens;
+  }
+
   /** 获取模型的思考深度配置（F20260909mthl）。alias 缺省回退默认模型；未知 alias 返回 undefined（不回退默认——「未配置」与「配置了默认模型的档位」是两个语义，调用点 resolvedAlias 恒为有效 alias） */
   getThinkingLevel(alias: string | null | undefined): ThinkingLevel | undefined {
     if (!alias) return this.entries.get(this.defaultAlias)?.config.thinkingLevel;
@@ -113,6 +121,7 @@ export class ModelPool implements ModelPoolLike {
         strengths: entry.config.strengths,
         weaknesses: entry.config.weaknesses,
         contextWindow: entry.config.contextWindow,
+        maxTokens: entry.config.maxTokens,
       });
     }
     return result;
@@ -139,6 +148,7 @@ export class ModelPool implements ModelPoolLike {
         strengths: entry.config.strengths,
         weaknesses: entry.config.weaknesses,
         contextWindow: entry.config.contextWindow,
+        maxTokens: entry.config.maxTokens,
       });
     }
     return result;

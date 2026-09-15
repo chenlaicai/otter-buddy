@@ -209,3 +209,52 @@ describe("projectForChannel（信道投影出口：飞书 post + md）", () => {
     );
   });
 });
+
+describe("stripHtmlCardFences 对 html-report 的支持", () => {
+  it("html-report 围栏被剥离为 [html-report: title] 占位符", () => {
+    const body = '```html-report title="议题汇报"\n<h1>内容</h1>\n```';
+    expect(stripHtmlCardFences(body)).toBe("[html-report: 议题汇报]");
+  });
+
+  it("html-report 和 html-card 混合时分别剥离", () => {
+    const body = '```html-card title="卡片"\n<x/>\n```\n\n```html-report title="议题"\n<h1>内容</h1>\n```';
+    expect(stripHtmlCardFences(body)).toBe("[html-card: 卡片]\n\n[html-report: 议题]");
+  });
+
+  it("html-report-reply 不剥离（保留原文）", () => {
+    const body = '```html-report-reply card="m1:0"\n{}\n```';
+    expect(stripHtmlCardFences(body)).toBe(body);
+  });
+
+  it("无 title 的 html-report 被剥离为 [html-report: ]", () => {
+    const body = "```html-report\n<h1>内容</h1>\n```";
+    expect(stripHtmlCardFences(body)).toBe("[html-report: ]");
+  });
+});
+
+describe("stripHtmlCardsOnly 对 html-report 的支持", () => {
+  it("html-report 剥离、html-card-reply 保留", () => {
+    const body = '```html-report title="议题"\n<h1>内容</h1>\n```\n\n```html-card-reply card="m1:0"\n{"a":1}\n```';
+    expect(stripHtmlCardsOnly(body)).toBe(
+      '[html-report: 议题]\n\n```html-card-reply card="m1:0"\n{"a":1}\n```',
+    );
+  });
+});
+
+describe("projectForChannel 对 html-report 的支持", () => {
+  it("html-report 占位符带 Web 链接", () => {
+    const body = '前文\n\n```html-report title="议题汇报"\n<h1>内容</h1>\n```\n\n后文';
+    const out = projectForChannel(body, {
+      webBaseUrl: "https://otter.app",
+      conversationId: "conv-abc",
+    });
+    expect(out).toBe(
+      "前文\n\n【议题汇报:议题汇报】\n👉 https://otter.app/conversations/conv-abc\n\n后文",
+    );
+  });
+
+  it("html-report 占位符不带链接（webBaseUrl 缺省）", () => {
+    const body = '```html-report title="议题"\n<h1>内容</h1>\n```';
+    expect(projectForChannel(body)).toBe("【议题汇报:议题】");
+  });
+});
