@@ -51,6 +51,6 @@ describe('remarkHtmlCardIndex（fenceIndex 注解，hProperties 通道）', () =
       if ('children' in node) for (const child of node.children) { const r = visit(child); if (r) return r; }
     }
     const code = visit(tree)
-    expect(code.data?.hProperties?.dataFenceType).toBe('html-report')
+    expect(code?.data?.hProperties?.dataFenceType).toBe('html-report')
   })
 })

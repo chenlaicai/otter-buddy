@@ -15,18 +15,21 @@ const parseMd = (body: string) =>
 
 // Why: 转发共享常量（Issue #360 单一真相源在 @contract/api/html-card）——
 // 保持从 lib/html-card 的既有导入路径不变，避免改动全部消费方
-export { CARD_MAX_PER_MESSAGE, CARD_MAX_BYTES } from '@contract/api/html-card'
+// F20260915hrpt S2': 同时转发 html-report 常量（别名导出保持消费方 REPORT_* 路径不变）
+export {
+  CARD_MAX_PER_MESSAGE,
+  CARD_MAX_BYTES,
+  HTML_REPORT_MAX_BYTES,
+  HTML_REPORT_INITIAL_HEIGHT as REPORT_INITIAL_HEIGHT,
+  HTML_REPORT_MIN_HEIGHT as REPORT_MIN_HEIGHT,
+  HTML_REPORT_MAX_HEIGHT as REPORT_MAX_HEIGHT,
+} from '@contract/api/html-card'
 /** 卡片提交 payload 限制 */
 export const CARD_SUMMARY_MAX_CHARS = 500
 export const CARD_DATA_MAX_BYTES = 2048
 /** 卡片 iframe 高度 clamp 区间 */
 export const CARD_MIN_HEIGHT = 100
 export const CARD_MAX_HEIGHT = 2000
-
-/** html-report iframe 高度 clamp 区间（F20260915hrpt） */
-export const REPORT_INITIAL_HEIGHT = 600
-export const REPORT_MIN_HEIGHT = 400
-export const REPORT_MAX_HEIGHT = 4000
 
 /** html-report 围栏类型标识（与 html-card 并行） */
 export const REPORT_FENCE_TYPE = 'html-report'

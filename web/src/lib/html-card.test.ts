@@ -14,6 +14,7 @@ import {
   REPORT_MIN_HEIGHT,
   REPORT_MAX_HEIGHT,
   REPORT_FENCE_TYPE,
+  HTML_REPORT_MAX_BYTES,
 } from './html-card'
 import { HTML_CARD_REPLY_DERIVE_VECTORS } from '../../../src/entities/conversation/html-card-test-vectors'
 
