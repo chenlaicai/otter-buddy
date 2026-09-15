@@ -66,6 +66,8 @@ import { ProcessInboundRecruit } from "@usecases/recruiting/process-inbound-recr
 import { GetBridgeStatus } from "@usecases/recruiting/get-bridge-status";
 import { ensureRecruitingConversation } from "@usecases/recruiting/ensure-recruiting-conversation";
 import { ensureRecruitingScheduler } from "@usecases/recruiting/ensure-recruiting-scheduler";
+import { ensureDailyReviewConversation, ensureDailyReviewScheduler } from "@usecases/daily-review/ensure-daily-review-scheduler";
+import { resolveFeatureGates } from "./feature-gates";
 import { buildHandoffPackage } from "@frameworks/agent/handoff-package-builder";
 
 export interface FeishuBundle {
@@ -223,15 +225,19 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
       logger.error("Trading calendar sync failed", err instanceof Error ? err : new Error(String(err)));
     });
 
-    // PR5: seed 定时任务（幂等）
-    await seedPaperTradingTasks({
-      manageScheduledTask: uc.manageScheduledTask,
-      manageConversation: uc.manageConversation,
-      convRepo: repos.conversation,
-      otterRepo: repos.otter,
-      settings: repos.settings,
-      logger,
-    });
+    // PR5: seed 定时任务（幂等）——F20260915cfgt：受 features.paperTrading 门控（个人场景默认关）。
+    // registerPaperTradingFunctions / syncTradingCalendar 保持无条件：进程内注册随重启重建
+    // 不持久化，保留不动改动面最小；开关打开后无需关心注册时序
+    if (appConfig?.features.paperTrading) {
+      await seedPaperTradingTasks({
+        manageScheduledTask: uc.manageScheduledTask,
+        manageConversation: uc.manageConversation,
+        convRepo: repos.conversation,
+        otterRepo: repos.otter,
+        settings: repos.settings,
+        logger,
+      });
+    }
   }
 
   // F20260901cxmw：otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
@@ -388,6 +394,8 @@ export interface PlatformBootstrapResult {
   getBridgeStatus?: GetBridgeStatus;
   healingInit: Promise<void>;
   recruitingInit: Promise<void>;
+  /** F20260915cfgt：每日复盘 ensure 链（app.ts 等待后 scheduler 才 start，新建任务才被扫到） */
+  dailyReviewInit: Promise<void>;
   /** 微信通道轮询句柄（app 关停时统一 stop） */
   weixinPollers?: WeixinPollingChannel[];
   /** 通道状态注册表（F20260901chun：统一 IM 页 + 真实健康状态） */
@@ -557,18 +565,62 @@ export function ensureWeixinConfig(opts: { configPath?: string; stateDir?: strin
   }
 }
 
+/** F20260915cfgt：每日复盘 ensure 链拆函数（控 initPlatforms max-lines） */
+function startDailyReviewInit(o: { uc: UseCases; repos: Repositories; logger: Logger }): Promise<void> {
+  return ensureDailyReviewConversation({
+    manageConversation: o.uc.manageConversation,
+    convRepo: o.repos.conversation,
+    otterRepo: o.repos.otter,
+    settings: o.repos.settings,
+    sendEntry: o.uc.sendEntry,
+    logger: o.logger,
+  })
+    .then(({ conversationId, bigOtterId }) => ensureDailyReviewScheduler({
+      manageScheduledTask: o.uc.manageScheduledTask,
+      scheduledTaskRepo: o.repos.scheduledTask,
+      dailyReviewConversationId: conversationId,
+      bigOtterId,
+      logger: o.logger,
+    }))
+    .catch(err => o.logger.warn("Daily-review init failed", { error: err instanceof Error ? err.message : String(err) }));
+}
+
 export async function initPlatforms(options: { appConfig: AppConfig; repos: Repositories; uc: UseCases; agentInvoker: AgentInvoker; dispatchChainEngine: DispatchChainEngine; messageBroadcaster: MessageBroadcaster; logger: Logger; signalRouter?: SignalRouter }): Promise<PlatformBootstrapResult> {
   const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, logger, signalRouter } = options;
-  const healingInit = ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, otterRepo: repos.otter, settings: repos.settings, sendEntry: uc.sendEntry, logger })
-    .then(({ conversationId, bigOtterId }) => ensureHealingScheduler({ manageScheduledTask: uc.manageScheduledTask, scheduledTaskRepo: repos.scheduledTask, healingConversationId: conversationId, bigOtterId }))
-    .then(() => undefined)
-    .catch(err => logger.warn("Self-Healing init failed", { error: err instanceof Error ? err.message : String(err) }));
+
+  // F20260915cfgt：功能开关门控（三态：显式配置 > DB 存量推断 > 缺省值）。
+  // gates 解析必须同步完成后再接 ensure 链——推断依赖 getAllActive，放 Promise 链外保证顺序确定。
+  const gates = await resolveFeatureGates({
+    features: appConfig.features,
+    scheduledTaskRepo: repos.scheduledTask,
+    recruitingApiKey: appConfig.inbound?.recruiting?.apiKey,
+    logger,
+  });
+  logger.info("Feature gates resolved", { gates });
+
+  // F20260915cfgt：每日复盘（工作内容优化，默认体验）——gateOff 时静默不 seed（新功能无存量推断必要）
+  let dailyReviewInit: Promise<void> = Promise.resolve();
+  if (gates.dailyReview) {
+    dailyReviewInit = startDailyReviewInit({ uc, repos, logger });
+  }
+
+  // F20260915cfgt：self-healing 属海獭系统优化（除作者外无人关心），默认关；老部署靠存量推断保持 on
+  let healingInit: Promise<void> = Promise.resolve();
+  if (gates.selfHealing) {
+    healingInit = ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, otterRepo: repos.otter, settings: repos.settings, sendEntry: uc.sendEntry, logger })
+      .then(({ conversationId, bigOtterId }) => ensureHealingScheduler({ manageScheduledTask: uc.manageScheduledTask, scheduledTaskRepo: repos.scheduledTask, healingConversationId: conversationId, bigOtterId }))
+      .then(() => undefined)
+      .catch(err => logger.warn("Self-Healing init failed", { error: err instanceof Error ? err.message : String(err) }));
+  }
 
   let processInboundRecruit: ProcessInboundRecruit | undefined;
   let inboundApiKey: string | undefined;
   let getBridgeStatus: GetBridgeStatus | undefined;
   let recruitingInit: Promise<void> = Promise.resolve();
-  if (appConfig.inbound?.recruiting?.apiKey) {
+  // F20260915cfgt：recruiting 双门（apiKey && features.recruiting）。
+  // 门控边界 = 整个子系统：webhook 处理器/桥接状态/seed 三对象同块创建，关 features 时
+  // processInboundRecruit 留 undefined，initControllers 侧自动降级 NoopInboundController（controllers.ts:182-189）
+  if (appConfig.inbound?.recruiting?.apiKey && gates.recruiting) {
     inboundApiKey = appConfig.inbound.recruiting.apiKey;
     processInboundRecruit = new ProcessInboundRecruit(
       repos.settings,
@@ -605,5 +657,5 @@ export async function initPlatforms(options: { appConfig: AppConfig; repos: Repo
   // ── 微信通道（issue #565）：每个已登录账号拉起轮询 + 出站注册 ──
   const weixinPollers = startWeixinChannels({ ...options, registry });
 
-  return { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, weixinPollers, registry };
+  return { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, dailyReviewInit, weixinPollers, registry };
 }
