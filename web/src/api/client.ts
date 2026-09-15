@@ -301,6 +301,8 @@ export interface CreateScheduledTaskRequestDTO {
   triggerAt?: string
   timezone?: string
   body: string
+  /** F20260915desc: 人类可读任务描述（可选） */
+  description?: string | null
   talkingStonePassedTo: string[]
   senderId?: string
   restartBeforeInvoke?: boolean
@@ -312,6 +314,8 @@ export interface UpdateScheduledTaskRequestDTO {
   cron?: string
   timezone?: string
   body?: string
+  /** F20260915desc: 任务描述。传 null 清除 */
+  description?: string | null
   /** #610: watchlist-only patch——只替换 body JSON 中的 watchlist 字段，无需携带 prompt 全文。与 body 互斥。 */
   watchlist?: string[]
   talkingStonePassedTo?: string[]
@@ -329,6 +333,8 @@ export interface ScheduledTaskDTO {
   triggerAt: string | null
   timezone: string
   body: string
+  /** F20260915desc: 人类可读任务描述（未设置为 null，前端回退渲染 body） */
+  description: string | null
   talkingStonePassedTo: string[]
   senderId: string
   status: string

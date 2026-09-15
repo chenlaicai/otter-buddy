@@ -34,6 +34,7 @@ function makeTask(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
     triggerAt: null,
     timezone: 'Asia/Shanghai',
     body: '早上好！',
+    description: null,
     talkingStonePassedTo: ['otter-1'],
     senderId: 'otter-1',
     status: 'active',
@@ -208,7 +209,8 @@ function createMockSendEntry() {
     _getEntryCount: () => entryCount,
     createSystemEntry: vi.fn(async () => {
       entryCount += 1;
-      return { entry: { id: `entry-${entryCount}`, body: '早上好！', sequenceNum: entryCount } };
+      return { entry: { id: `entry-${entryCount}`, body: '早上好！',
+    description: null, sequenceNum: entryCount } };
     }),
   };
 }

@@ -36,6 +36,7 @@ function makeHealingTask(): ScheduledTask {
     triggerAt: null,
     timezone: 'Asia/Shanghai',
     body: '[self-healing-analysis]',
+    description: null,
     talkingStonePassedTo: ['otter-1'],
     senderId: 'system',
     status: 'active',

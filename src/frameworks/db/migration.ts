@@ -11,6 +11,7 @@ import { stripHtmlCardFences } from "@entities/conversation/message-body-project
 import { tokenizeWithJieba } from "@frameworks/db/jieba-tokenizer";
 import { FID_ANCHOR_REGEX } from "@entities/document/fid-format";
 import { SqliteDispatchRecordRepository } from "@frameworks/db/dispatch/sqlite-dispatch-record-repository";
+import { PAPER_TRADING_TASK_DESCRIPTIONS } from "@usecases/paper-trading/ensure-paper-trading-scheduler";
 
 /** 数据库迁移：添加 session_file 字段和 otter_configs 表 */
 // eslint-disable-next-line max-statements, max-lines-per-function -- 补丁集合，语句数和行数由历史补丁数决定（#848: +otter_sessions.model_alias）
@@ -95,6 +96,7 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   addRestartBeforeInvokeColumn(db, logger);
   addTimeoutMinutesColumn(db, logger);
   addExecutorTypeColumns(db, logger);
+  addDescriptionColumn(db, logger);
 
   /** 对话工作区目录：conversations 表添加 workspace_dir 列 */
   addWorkspaceDirColumn(db, logger);
@@ -846,6 +848,39 @@ function addExecutorTypeColumns(db: Database.Database, logger: Logger): void {
   if (!columns.some(col => col.name === 'function_name')) {
     db.prepare('ALTER TABLE scheduled_tasks ADD COLUMN function_name TEXT').run();
     logger.info('Added function_name column to scheduled_tasks table');
+  }
+}
+
+/** F20260915desc: scheduled_tasks 表添加 description 列（人类可读任务描述）。
+ *  PRAGMA 探测幂等。同时回填 paper-trading 两个 seed 任务（唯一官方 seed 且名字固定），
+ *  其他存量任务留 NULL 由面板回退渲染（body/functionName）。 */
+function addDescriptionColumn(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{ name: string }>;
+  if (!columns.some(col => col.name === 'description')) {
+    db.prepare("ALTER TABLE scheduled_tasks ADD COLUMN description TEXT CHECK (description IS NULL OR length(description) <= 500)").run();
+    logger.info('Added description column to scheduled_tasks table');
+  }
+
+  // 数据回填：seed 任务名字固定，按 name 幂等补描述（不覆盖已有非空描述）
+  // F20260915desc 发现 4：文案从 ensure-paper-trading-scheduler 共享常量取，避免两处硬编码漂移
+  const backfill: Array<{ name: string; description: string }> = [
+    {
+      name: 'paper-trading-match-orders',
+      description: PAPER_TRADING_TASK_DESCRIPTIONS.matchOrders,
+    },
+    {
+      name: 'paper-trading-daily-trading',
+      description: PAPER_TRADING_TASK_DESCRIPTIONS.dailyTrading,
+    },
+  ];
+  const stmt = db.prepare(
+    'UPDATE scheduled_tasks SET description = ? WHERE name = ? AND (description IS NULL OR description = \'\')',
+  );
+  for (const { name, description } of backfill) {
+    const result = stmt.run(description, name);
+    if (result.changes > 0) {
+      logger.info(`Backfilled description for scheduled task: ${name}`);
+    }
   }
 }
 
