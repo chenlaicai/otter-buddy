@@ -62,7 +62,9 @@ export interface CronParser {
 }
 
 export interface SchedulerServiceOptions {
-  /** #823 测试注入：替换轮询 tick 实现（生产不传，默认 tickReal） */
+  /** #823 测试注入：替换轮询 tick 实现（生产不传，默认 tickReal）。
+   *  ⚠ 生产误传将导致 30s 轮询补触发静默失效（tickReal 被整体替换）——与 #823 所修的
+   *  「tick 死亡不可见」同一 failure mode，只是人为注入。仅测试装配使用。 */
   tickImpl?: () => Promise<void>;
   taskRepo: ScheduledTaskRepository;
   convRepo: ConversationRepository;
