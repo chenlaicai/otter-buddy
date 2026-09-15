@@ -258,7 +258,19 @@ describe("stock_data tool", () => {
     expect(result.content[0].text).toContain("无输出");
   });
 
-  // ── 港股命令测试 ──
+  it("hvaluation：缺 code 返回错误", async () => {
+    const tool = createStockDataTool(createMockCtx());
+    const result = await tool.execute("id", { command: "hvaluation" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("需要 code 参数");
+  });
+});
+
+describe("stock_data tool 港股命令", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearAkshareCheckCache();
+  });
 
   it("hkline：5 位代码合法", async () => {
     const tool = createStockDataTool(createMockCtx());
@@ -311,5 +323,67 @@ describe("stock_data tool", () => {
     const result = await tool.execute("id", { command: "hvaluation" });
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("需要 code 参数");
+  });
+});
+
+describe("stock_data tool #952 akshareCheckCache 行为", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearAkshareCheckCache();
+  });
+
+  it("#952：akshare 检查失败不缓存——环境修复后下一次调用立即恢复（无需重启）", async () => {
+    let spawnCalls = 0;
+    mockSpawn.mockImplementation(() => {
+      spawnCalls++;
+      if (spawnCalls === 1) {
+        // 第一次：akshare 未装（环境坏）
+        return createMockProcess("", "ModuleNotFoundError: No module named 'akshare'", 1);
+      }
+      if (spawnCalls === 2) {
+        // 第二次：akshare 已装好（环境修复）——checkAkshare 应重新 spawn 而非返回缓存
+        return createMockProcess("", "", 0);
+      }
+      // 第三次：实际执行 kline 命令
+      return createMockProcess(JSON.stringify({ code: "600519", ohlcv: [] }), "", 0);
+    });
+
+    const tool = createStockDataTool(createMockCtx());
+
+    // 第一次调用：失败（akshare 未装）
+    const result1 = await tool.execute("id1", { command: "kline", code: "600519" });
+    expect(result1.isError).toBe(true);
+    expect(result1.content[0].text).toContain("akshare 未安装");
+    expect(spawnCalls).toBe(1); // checkAkshare 一次
+
+    // 第二次调用：环境已修复——应重新 spawn checkAkshare（不命中缓存）并成功
+    const result2 = await tool.execute("id2", { command: "kline", code: "600519" });
+    expect(result2.isError).toBeUndefined(); // 成功路径 textResponse 不设 isError
+    expect(spawnCalls).toBe(3); // checkAkshare 重试 + kline 执行
+  });
+
+  it("#952：akshare 检查成功保持缓存——避免每次调用重复 spawn 冷启动税", async () => {
+    let spawnCalls = 0;
+    mockSpawn.mockImplementation(() => {
+      spawnCalls++;
+      if (spawnCalls === 1) {
+        // 第一次：checkAkshare 成功
+        return createMockProcess("", "", 0);
+      }
+      // 后续：实际执行 kline 命令
+      return createMockProcess(JSON.stringify({ code: "600519", ohlcv: [] }), "", 0);
+    });
+
+    const tool = createStockDataTool(createMockCtx());
+
+    // 第一次调用：checkAkshare + kline
+    const result1 = await tool.execute("id1", { command: "kline", code: "600519" });
+    expect(result1.isError).toBeUndefined();
+    expect(spawnCalls).toBe(2);
+
+    // 第二次调用：checkAkshare 应命中缓存（不重复 spawn），直接执行 kline
+    const result2 = await tool.execute("id2", { command: "kline", code: "600519" });
+    expect(result2.isError).toBeUndefined();
+    expect(spawnCalls).toBe(3); // 只多一次 kline，checkAkshare 命中缓存
   });
 });
