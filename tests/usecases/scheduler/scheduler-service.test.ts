@@ -2523,7 +2523,7 @@ describe('#640: 轮询补触发（tick polling catch-up）', () => {
 
   it('轮询 tick 不重复触发最近已触发的任务', async () => {
     // 场景：cron 预期时间在 1 小时前（overdue），但 lastTriggeredAt 刚刚更新（10 秒前）
-    // 期望：tick 跳过（lastTriggeredAt 在 POLL_INTERVAL_MS=30s 窗口内），不补触发
+    // 期望：tick 跳过（lastTriggeredAt 在 POLL_INTERVAL_MS=5min 窗口内），不补触发
     const now = new Date('2026-09-01T10:00:00.000Z');
     vi.setSystemTime(now);
 
@@ -2543,7 +2543,7 @@ describe('#640: 轮询补触发（tick polling catch-up）', () => {
       }),
     } as unknown as CronParser;
 
-    // lastTriggeredAt 设为 10 秒前（在 POLL_INTERVAL_MS=30s 内）
+    // lastTriggeredAt 设为 10 秒前（在 POLL_INTERVAL_MS=5min 内）
     taskRepo._store.set('task-1', makeTask({
       id: 'task-1', conversationId: 'conv-1',
       lastTriggeredAt: new Date('2026-09-01T09:59:50.000Z').toISOString(),
@@ -2561,7 +2561,7 @@ describe('#640: 轮询补触发（tick polling catch-up）', () => {
     });
 
     await service.start();
-    // start() 内立即执行一次 tick：lastTriggeredAt=09:59:50, now=10:00:00, 差10s < 30s → 跳过
+    // start() 内立即执行一次 tick：lastTriggeredAt=09:59:50, now=10:00:00, 差10s < POLL_INTERVAL_MS(5min) → 跳过
     await vi.advanceTimersByTimeAsync(100);
 
     // 验证：tick 跳过，不触发（lastTriggeredAt 在窗口内）
@@ -3039,7 +3039,7 @@ describe('#823: 运行时定期对账（tick 循环死亡时错过窗口仍可�
         cron: '0 9 * * *',
         // lastTriggeredAt 在 prevDue 之前且远超 5s 容差 → 真错过
         // 同时 now - lastTriggeredAt > POLL_INTERVAL_MS → 若 tick 活着会补触发；
-        // 本用例不推进 30s 轮询，只推进 1h 对账 → 落账必然来自对账定时器
+        // 本用例不推进轮询（5min），只推进 1h 对账 → 落账必然来自对账定时器
         lastTriggeredAt: '2026-09-05T01:00:00.000Z',
       } as never));
       convRepo._addConversation('conv-1', { status: 'active' });
@@ -3060,7 +3060,7 @@ describe('#823: 运行时定期对账（tick 循环死亡时错过窗口仍可�
       // 用新窗口（prevDue 更新）模拟时间推进后再次错过
       healingRepo._events.length = 0;
       (cronParser as unknown as { prevDue: Date | null }).prevDue = new Date('2026-09-07T01:00:00.000Z'); // 新错过窗口
-      await vi.advanceTimersByTimeAsync(3_600_000 + 1_000); // 推进 1h → 运行时对账 tick（tickImpl 已 noop，30s 轮询空转成本为零）
+      await vi.advanceTimersByTimeAsync(3_600_000 + 1_000); // 推进 1h → 运行时对账 tick（tickImpl 已 noop，轮询空转成本为零）
       await service.stop();
 
       const runtimeEvents = healingRepo._events.filter(
