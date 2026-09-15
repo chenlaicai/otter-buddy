@@ -1,7 +1,7 @@
 ---
 id: F20260915rgte
 title: 审视闭环机械化身：review state 闸门 + main 分支保护
-summary: 修复 #824——检视 review 全为 COMMENTED state（GitHub 机械层不挡合并）且 main 分支保护未开 required reviews，审视闭环纯靠 prompt 纪律（跳环率 8 月 20%→9 月 28%）。修复：检视獭 review 按结论带 state（严重→request-changes / delta 通过→approve / 初轮仅建议→comment）+ main 开 required reviews（1 approval + dismiss stale 机械强制 delta 复核）+ 两检视 skill 体检（3 个真实缺陷已修）。已知限制：同账号自 approve 不可辨（根治需 GitHub App 独立身份，登记后续）。
+summary: 修复 #824——检视 review 全为 COMMENTED state（GitHub 机械层不挡合并）且 main 分支保护未开 required reviews，审视闭环纯靠 prompt 纪律（跳环率 8 月 20%→9 月 28%）。修复：检视獭 review 按结论带 state（严重→request-changes / delta 通过→approve / 初轮仅建议→comment）+ 两检视 skill 体检（3 个真实缺陷已修）。分支保护 required reviews 曾开启，r2 实证 GitHub 拒绝 self-approval（同账号下无人能发 APPROVE），经搭档 9/15 决策「海獭与搭档对外一体、不追求 GitHub 独立身份」后回滚——机械层不设闸，state 留痕保留作可见性，防线回归流程纪律（#941 按决策关闭）。
 type: feature
 status: development
 created: 2026-09-15
@@ -90,7 +90,7 @@ gh api repos/chenlaicai/otter-buddy/branches/main/protection -X PUT \
 ## 已知限制
 
 - **同账号谎报**：开发獭与检视獭共用 chenlaicai 账号，「开发獭自己 approve 自己」机械层不可辨。缓解：每日健康检查可扫「PR author == review author == 唯一账号」恒真无判别力，实际防线是流程纪律 + 大獭编排层不省略检视环节。根治路径：GitHub App 独立身份（#941 跟踪）。
-- **同账号硬边界（r2 实证）**：GitHub 原生拒绝 self-approval（`Review Can not approve your own pull request`）——单一账号下**没有任何獭能发出 APPROVE**，required reviews 闸门在同账号环境完全失灵，合并只能由搭档（人类，owner 权限）手动执行。这与「谎报防不住」是同一根因的两面：GitHub App 独立身份（#941）是唯一根治路径，优先级实际比原估更高。
+- **同账号硬边界（r2 实证 + 搭档终裁）**：GitHub 原生拒绝 self-approval——单一账号下没有任何獭能发出 APPROVE，required reviews 闸门完全失灵。搭档 9/15 终裁不追求独立身份（「海獭和我是一体的」），required reviews 已回滚。state 决策表保留：REQUEST_CHANGES/COMMENTED 物理可达，APPROVE 仅在未来有多账号环境时生效——届时无需改 skill，直接可用。
 - **紧急修复 friction**：无 APPROVE 不可合，包括 hotfix。接受——这正是目的（跳环率 28% 的代价远大于多一道检视的 friction）。
 
 ## 验证
@@ -110,3 +110,4 @@ gh api repos/chenlaicai/otter-buddy/branches/main/protection -X PUT \
 - 2026-09-06 根因分析完成 + 方案设计完成，呈报后悬置（#824 开 issue 跟踪）
 - 2026-09-15 搭档拍板「ok 你来做」+ 附加 skill 体检要求（本对话）
 - 2026-09-15 r2 delta 复核通过（检视獭-940d，mimo），但实证 GitHub 拒绝 self-approval——同账号下 APPROVE 无人能发，闸门实际由搭档手动合并承担（见已知限制）
+- 2026-09-15 **搭档终裁**：「海獭和我是一体的（对外），不要卡 github 不同账号 approve 这一点」——required reviews 仓库层回滚（gh api 实证 reviews:null，CI check 保留）；#941（GitHub App 独立身份）按决策关闭；skill 决策表保留（state 留痕仍有价值：检视结论机械可见，REQUEST_CHANGES/COMMENTED 可正常发，仅 APPROVE 物理不可达）
