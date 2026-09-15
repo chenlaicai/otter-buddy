@@ -89,7 +89,8 @@ gh api repos/chenlaicai/otter-buddy/branches/main/protection -X PUT \
 
 ## 已知限制
 
-- **同账号谎报**：开发獭与检视獭共用 chenlaicai 账号，「开发獭自己 approve 自己」机械层不可辨。缓解：每日健康检查可扫「PR author == review author == 唯一账号」恒真无判别力，实际防线是流程纪律 + 大獭编排层不省略检视环节。根治路径：GitHub App 独立身份（建 issue 跟踪）。
+- **同账号谎报**：开发獭与检视獭共用 chenlaicai 账号，「开发獭自己 approve 自己」机械层不可辨。缓解：每日健康检查可扫「PR author == review author == 唯一账号」恒真无判别力，实际防线是流程纪律 + 大獭编排层不省略检视环节。根治路径：GitHub App 独立身份（#941 跟踪）。
+- **同账号硬边界（r2 实证）**：GitHub 原生拒绝 self-approval（`Review Can not approve your own pull request`）——单一账号下**没有任何獭能发出 APPROVE**，required reviews 闸门在同账号环境完全失灵，合并只能由搭档（人类，owner 权限）手动执行。这与「谎报防不住」是同一根因的两面：GitHub App 独立身份（#941）是唯一根治路径，优先级实际比原估更高。
 - **紧急修复 friction**：无 APPROVE 不可合，包括 hotfix。接受——这正是目的（跳环率 28% 的代价远大于多一道检视的 friction）。
 
 ## 验证
@@ -108,3 +109,4 @@ gh api repos/chenlaicai/otter-buddy/branches/main/protection -X PUT \
 - 2026-09-06 搭档质疑检视有效性并下「事前措施」指令（对话 1b7e2db3）
 - 2026-09-06 根因分析完成 + 方案设计完成，呈报后悬置（#824 开 issue 跟踪）
 - 2026-09-15 搭档拍板「ok 你来做」+ 附加 skill 体检要求（本对话）
+- 2026-09-15 r2 delta 复核通过（检视獭-940d，mimo），但实证 GitHub 拒绝 self-approval——同账号下 APPROVE 无人能发，闸门实际由搭档手动合并承担（见已知限制）
