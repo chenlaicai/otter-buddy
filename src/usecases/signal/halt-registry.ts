@@ -31,6 +31,7 @@ export interface HaltDirective {
   fromOtterName: string;
   conversationId: string;
   reason: string;
+  /** 打标时间戳（ISO）——纯信息性：仅作台账/日志时间戳，不参与任何存活/超时判定（TTL 已废弃，活跃性由 halt_otter 打标前 isOtterRunning 检查保证） */
   issuedAt: string;
 }
 
