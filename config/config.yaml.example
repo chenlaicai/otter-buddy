@@ -219,3 +219,21 @@ circuitBreaker:
 #   maxImageBytes: 10485760
 #   # 文档大小上限（字节，默认 20MB）
 #   maxDocumentBytes: 20971520
+
+# === 功能开关（可选）===
+# 按功能域控制启动时是否自动创建（seed）专属对话与定时任务。
+# 分类原则：工作内容的优化默认开；海獭系统自身的优化与个人场景应用默认关。
+#
+# 三态规则：显式 true/false 永远优先；未配置时按 DB 存量任务自动推断
+# （老部署升级后行为不变，日志会有 info 提示可显式声明）；新库走下方缺省值。
+# 注意：关掉开关只是「不再 seed」，已存在的任务不会被删除（想停用请删任务）。
+# features:
+#   # 每日复盘：每天 8:30 回顾昨日对话与工作，出清晨简报（新用户默认体验）
+#   dailyReview: true
+#   # self-healing 自愈分析：每天 10:00 分析系统自愈事件（作者/系统运维向，普通用户不需要）
+#   selfHealing: false
+#   # 纸面交易：A 股撮合 + 操盘复盘（个人场景，需要时再开）
+#   paperTrading: false
+#   # 招聘桥接：需同时配 inbound.recruiting.apiKey 才生效；
+#   # 关闭时整个子系统下线（含 webhook 收消息，扩展端推送将收不到响应）
+#   recruiting: false
