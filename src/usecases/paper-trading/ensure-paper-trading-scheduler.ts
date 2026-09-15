@@ -88,6 +88,7 @@ export async function seedPaperTradingTasks(deps: {
         cron: '5 15 * * 1-5', // 工作日 15:05
         timezone: 'Asia/Shanghai',
         body: '{}', // 撮合函数参数：accountId/tradeDate 缺省时自动取值（见 register-functions.ts）
+        description: '每个交易日 15:05 撮合昨日挂单：以当日开盘价撮合 pending 订单（涨跌停校验）→ 更新持仓与净值 → 除权检测 → 渲染当日绩效。',
         talkingStonePassedTo: [bigOtterId], // FK 要求非空，function executor 不实际使用
         executorType: 'function',
         functionName: 'match_orders',
@@ -116,6 +117,7 @@ export async function seedPaperTradingTasks(deps: {
         cron: '30 15 * * 1-5', // 工作日 15:30
         timezone: 'Asia/Shanghai',
         body: taskBody,
+        description: '每个交易日 15:30 操盘獭上岗：分析自选池行情/财务/消息，提交当日买卖订单，并撰写日报（引擎数字段 + AI 理由段）。',
         talkingStonePassedTo: [bigOtterId], // F20260829ppta 发现 3 修复：指向真实大獭
         executorType: 'agent',
         restartBeforeInvoke: true, // 每日新 session 防上下文污染

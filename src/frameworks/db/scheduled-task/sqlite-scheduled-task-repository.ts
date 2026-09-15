@@ -29,13 +29,13 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
     const row = taskToRow(task);
     this.db.prepare(`
       INSERT INTO scheduled_tasks (
-        id, conversation_id, name, schedule_type, cron, trigger_at, timezone, body,
+        id, conversation_id, name, schedule_type, cron, trigger_at, timezone, body, description,
         talking_stone_passed_to, sender_id, status, consecutive_failures,
         last_triggered_at, restart_before_invoke, timeout_minutes, executor_type, function_name, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       row.id, row.conversation_id, row.name, row.schedule_type, row.cron, row.trigger_at, row.timezone,
-      row.body, row.talking_stone_passed_to, row.sender_id, row.status,
+      row.body, row.description, row.talking_stone_passed_to, row.sender_id, row.status,
       row.consecutive_failures, row.last_triggered_at, row.restart_before_invoke, row.timeout_minutes,
       row.executor_type, row.function_name, row.created_at, row.updated_at,
     );
@@ -74,13 +74,13 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
     const row = taskToRow(task);
     this.db.prepare(`
       UPDATE scheduled_tasks SET
-        name = ?, schedule_type = ?, cron = ?, trigger_at = ?, timezone = ?, body = ?,
+        name = ?, schedule_type = ?, cron = ?, trigger_at = ?, timezone = ?, body = ?, description = ?,
         talking_stone_passed_to = ?, sender_id = ?, status = ?,
         consecutive_failures = ?, last_triggered_at = ?, restart_before_invoke = ?, timeout_minutes = ?,
         executor_type = ?, function_name = ?, updated_at = ?
       WHERE id = ?
     `).run(
-      row.name, row.schedule_type, row.cron, row.trigger_at, row.timezone, row.body,
+      row.name, row.schedule_type, row.cron, row.trigger_at, row.timezone, row.body, row.description,
       row.talking_stone_passed_to, row.sender_id, row.status,
       row.consecutive_failures, row.last_triggered_at, row.restart_before_invoke, row.timeout_minutes,
       row.executor_type, row.function_name, row.updated_at,

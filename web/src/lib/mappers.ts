@@ -326,6 +326,8 @@ export interface LocalScheduledTask {
   triggerAt: string | null
   timezone: string
   body: string
+  /** F20260915desc: 人类可读任务描述（可选），面板优先显示 */
+  description: string | null
   talkingStonePassedTo: string[]
   senderId: string
   status: 'active' | 'disabled' | 'error'
@@ -359,6 +361,7 @@ export interface ScheduledTaskDTO {
   triggerAt: string | null
   timezone: string
   body: string
+  description: string | null
   talkingStonePassedTo: string[]
   senderId: string
   status: string
@@ -392,6 +395,7 @@ export function mapScheduledTaskDTO(dto: ScheduledTaskDTO): LocalScheduledTask {
     triggerAt: dto.triggerAt,
     timezone: dto.timezone,
     body: dto.body,
+    description: dto.description ?? null,
     talkingStonePassedTo: dto.talkingStonePassedTo,
     senderId: dto.senderId,
     status: dto.status as 'active' | 'disabled' | 'error',

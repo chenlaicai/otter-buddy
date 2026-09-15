@@ -7,6 +7,7 @@ import type {
 import {
   canTransitionTaskStatus,
   isValidCronExpression,
+  isValidDescription,
   isValidTimezone,
   isValidTimeoutMinutes,
   isValidTriggerAt,
@@ -58,6 +59,9 @@ function validateCreateInput(input: CreateScheduledTaskInput): string | null {
   // 本防御针对「字段部分缺失」场景（对抗审视更正月因）
   if (typeof input.body !== 'string') return 'body is required';
   if (input.body.length > 10000) return 'body must be 10000 characters or less';
+  if (input.description !== undefined && input.description !== null && !isValidDescription(input.description)) {
+    return 'description must be 500 characters or less';
+  }
   if (!input.talkingStonePassedTo || input.talkingStonePassedTo.length === 0) {
     return 'talkingStonePassedTo must be non-empty';
   }
@@ -88,6 +92,8 @@ export interface CreateScheduledTaskInput {
   triggerAt?: string;
   timezone?: string;
   body: string;
+  /** F20260915desc: 人类可读任务描述（≤500 字符），给人看的任务说明。可选。 */
+  description?: string | null;
   /** F20260815rstrt: 每次触发前是否重启执行獭的 session（默认 false） */
   restartBeforeInvoke?: boolean;
   /** #516: 任务级链超时配置（分钟）。null/缺省 = 调度器默认（15 分钟）。上限 1440（24h）。 */
@@ -107,6 +113,8 @@ export interface UpdateScheduledTaskInput {
   triggerAt?: string | null;
   timezone?: string;
   body?: string;
+  /** F20260915desc: 任务描述。传 null 清除。 */
+  description?: string | null;
   talkingStonePassedTo?: string[];
   status?: ScheduledTaskStatus;
   /** F20260815rstrt: 每次触发前是否重启执行獭的 session */
@@ -157,6 +165,7 @@ export class ManageScheduledTask {
       triggerAt: scheduleType === 'once' ? input.triggerAt! : null,
       timezone: input.timezone ?? 'Asia/Shanghai',
       body: input.body,
+      description: input.description ?? null,
       talkingStonePassedTo: input.talkingStonePassedTo,
       // F20260903s4fn：任务触发消息是「系统说的」——senderId 归属 system，不偷目标獭。
       // 历史默认值 talkingStonePassedTo[0] 是发送者语义与展示归属的混淆（生产实证：60+ 条
@@ -226,6 +235,7 @@ export class ManageScheduledTask {
       triggerAt: input.triggerAt !== undefined ? input.triggerAt : task.triggerAt,
       timezone: input.timezone ?? task.timezone,
       body: effectiveBody,
+      description: input.description !== undefined ? input.description : task.description,
       talkingStonePassedTo: input.talkingStonePassedTo ?? task.talkingStonePassedTo,
       status: input.status ?? task.status,
       restartBeforeInvoke: input.restartBeforeInvoke ?? task.restartBeforeInvoke,
@@ -260,6 +270,10 @@ export class ManageScheduledTask {
 
     if (input.body && input.body.length > 10000) {
       throw new DomainError('body must be 10000 characters or less', 'validation');
+    }
+
+    if (input.description !== undefined && input.description !== null && !isValidDescription(input.description)) {
+      throw new DomainError('description must be 500 characters or less', 'validation');
     }
 
     // #610: watchlist patch 格式校验——通用通道不做 A 股代码格式假设，只保证结构。

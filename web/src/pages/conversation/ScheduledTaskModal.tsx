@@ -12,6 +12,7 @@ interface Props {
     cron: string
     timezone: string
     body: string
+    description: string
     talkingStonePassedTo: string[]
     restartBeforeInvoke: boolean
   }) => void
@@ -41,6 +42,7 @@ export function ScheduledTaskModal({ mode, task, otters, onSave, onClose }: Prop
   const [cron, setCron] = useState(task?.cron ?? '0 9 * * *')
   const [timezone, setTimezone] = useState(task?.timezone ?? 'Asia/Shanghai')
   const [body, setBody] = useState(task?.body ?? '')
+  const [description, setDescription] = useState(task?.description ?? '')
   const [selectedOtters, setSelectedOtters] = useState<string[]>(
     task?.talkingStonePassedTo ?? (otters.length === 1 ? [otters[0].id] : [])
   )
@@ -67,6 +69,7 @@ export function ScheduledTaskModal({ mode, task, otters, onSave, onClose }: Prop
         cron,
         timezone,
         body: body.trim(),
+        description: description.trim(),
         talkingStonePassedTo: selectedOtters,
         restartBeforeInvoke,
       })
@@ -135,6 +138,24 @@ export function ScheduledTaskModal({ mode, task, otters, onSave, onClose }: Prop
               <option key={tz} value={tz}>{tz}</option>
             ))}
           </select>
+        </div>
+
+        {/* 任务描述（F20260915desc：面板优先显示此字段） */}
+        <div>
+          <label className="block text-sm font-medium text-stone-700 mb-1.5">
+            任务描述
+          </label>
+          <textarea
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            placeholder="一句话说明这个任务干什么，面板优先显示。不填则显示下方消息内容预览。"
+            className="form-input w-full"
+            rows={2}
+            maxLength={500}
+          />
+          <div className="text-xs text-stone-400 mt-1 text-right">
+            {description.length}/500
+          </div>
         </div>
 
         {/* 消息内容 */}

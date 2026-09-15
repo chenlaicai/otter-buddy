@@ -95,6 +95,7 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   addRestartBeforeInvokeColumn(db, logger);
   addTimeoutMinutesColumn(db, logger);
   addExecutorTypeColumns(db, logger);
+  addDescriptionColumn(db, logger);
 
   /** 对话工作区目录：conversations 表添加 workspace_dir 列 */
   addWorkspaceDirColumn(db, logger);
@@ -846,6 +847,38 @@ function addExecutorTypeColumns(db: Database.Database, logger: Logger): void {
   if (!columns.some(col => col.name === 'function_name')) {
     db.prepare('ALTER TABLE scheduled_tasks ADD COLUMN function_name TEXT').run();
     logger.info('Added function_name column to scheduled_tasks table');
+  }
+}
+
+/** F20260915desc: scheduled_tasks 表添加 description 列（人类可读任务描述）。
+ *  PRAGMA 探测幂等。同时回填 paper-trading 两个 seed 任务（唯一官方 seed 且名字固定），
+ *  其他存量任务留 NULL 由面板回退渲染（body/functionName）。 */
+function addDescriptionColumn(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{ name: string }>;
+  if (!columns.some(col => col.name === 'description')) {
+    db.prepare('ALTER TABLE scheduled_tasks ADD COLUMN description TEXT').run();
+    logger.info('Added description column to scheduled_tasks table');
+  }
+
+  // 数据回填：seed 任务名字固定，按 name 幂等补描述（不覆盖已有非空描述）
+  const backfill: Array<{ name: string; description: string }> = [
+    {
+      name: 'paper-trading-match-orders',
+      description: '每个交易日 15:05 撮合昨日挂单：以当日开盘价撮合 pending 订单（涨跌停校验）→ 更新持仓与净值 → 除权检测 → 渲染当日绩效。',
+    },
+    {
+      name: 'paper-trading-daily-trading',
+      description: '每个交易日 15:30 操盘獭上岗：分析自选池行情/财务/消息，提交当日买卖订单，并撰写日报（引擎数字段 + AI 理由段）。',
+    },
+  ];
+  const stmt = db.prepare(
+    'UPDATE scheduled_tasks SET description = ? WHERE name = ? AND (description IS NULL OR description = \'\')',
+  );
+  for (const { name, description } of backfill) {
+    const result = stmt.run(description, name);
+    if (result.changes > 0) {
+      logger.info(`Backfilled description for scheduled task: ${name}`);
+    }
   }
 }
 

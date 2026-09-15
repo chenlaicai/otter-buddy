@@ -749,3 +749,66 @@ describe("migrateDatabase - F20260915midu: post-migration replaceBySource re-ent
     }
   });
 });
+
+describe("migrateDatabase - F20260915desc scheduled_tasks.description 列", () => {
+  it("老库无 description 列：migrate 补列，跑两次不报错（幂等）", () => {
+    const db = new Database(":memory:");
+    try {
+      initSchema(db);
+      db.exec("ALTER TABLE scheduled_tasks DROP COLUMN description");
+      const before = db.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{ name: string }>;
+      expect(before.some(c => c.name === "description")).toBe(false);
+
+      migrateDatabase(db, createTestLogger());
+      const after = db.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{ name: string }>;
+      expect(after.some(c => c.name === "description")).toBe(true);
+      migrateDatabase(db, createTestLogger()); // 幂等
+    } finally {
+      db.close();
+    }
+  });
+
+  it("回填 paper-trading 两个 seed 任务描述（按 name 幂等，不覆盖已有非空描述）", () => {
+    const db = new Database(":memory:");
+    try {
+      initSchema(db);
+
+      // 准备 conversations 行满足 FK
+      db.prepare(
+        "INSERT INTO conversations (id, title, status, created_at, updated_at) VALUES ('conv-1', '纸面交易', 'active', '2026-09-15T00:00:00Z', '2026-09-15T00:00:00Z')",
+      ).run();
+
+      // 插入两条 seed 任务（description 为 NULL 模拟老库）+ 一条已有自定义描述（不应被覆盖）
+      const insert = db.prepare(`
+        INSERT INTO scheduled_tasks (
+          id, conversation_id, name, cron, timezone, body,
+          talking_stone_passed_to, sender_id, status, created_at, updated_at
+        ) VALUES (?, 'conv-1', ?, '5 15 * * 1-5', 'Asia/Shanghai', '{}', '[]', 'system', 'active', '2026-09-15T00:00:00Z', '2026-09-15T00:00:00Z')
+      `);
+      insert.run("task-1", "paper-trading-match-orders");
+      insert.run("task-2", "paper-trading-daily-trading");
+      insert.run("task-3", "unrelated-task");
+
+      // 手工设置 task-3 已有描述，验证不被覆盖
+      db.prepare("UPDATE scheduled_tasks SET description = '自定义描述' WHERE id = 'task-3'").run();
+
+      migrateDatabase(db, createTestLogger());
+
+      const t1 = db.prepare("SELECT description FROM scheduled_tasks WHERE id = 'task-1'").get() as { description: string | null };
+      const t2 = db.prepare("SELECT description FROM scheduled_tasks WHERE id = 'task-2'").get() as { description: string | null };
+      const t3 = db.prepare("SELECT description FROM scheduled_tasks WHERE id = 'task-3'").get() as { description: string | null };
+
+      expect(t1.description).toContain("撮合");
+      expect(t2.description).toContain("操盘獭");
+      expect(t3.description).toBe("自定义描述"); // 已有描述不被覆盖
+
+      // 幂等：二次迁移不覆盖（若用户手工改过描述）
+      db.prepare("UPDATE scheduled_tasks SET description = '用户改过' WHERE id = 'task-1'").run();
+      migrateDatabase(db, createTestLogger());
+      const t1Again = db.prepare("SELECT description FROM scheduled_tasks WHERE id = 'task-1'").get() as { description: string | null };
+      expect(t1Again.description).toBe("用户改过");
+    } finally {
+      db.close();
+    }
+  });
+});
