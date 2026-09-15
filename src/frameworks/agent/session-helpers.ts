@@ -59,7 +59,7 @@ export function getOtterToolNamesForType(
     "sync_docs",
     "query_dispatch_ledger", // F20260821i336：派工台账查询工具
     "query_signals", // F20260826mwrd C1：信号台账查询（halt 是编排动作，仅 big 型）
-    "halt_otter", "resolve_signal", // F20260826mwrd C2：编排/裁决仅 big 型
+    "halt_otter", "unhalt_otter", "resolve_signal", // F20260826mwrd C2：编排/裁决仅 big 型；#927 unhalt 解除同属编排
   ];
 
   // 尝试从 manifest 加载

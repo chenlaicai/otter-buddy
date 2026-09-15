@@ -137,6 +137,54 @@ export function createHaltOtterTool(ctx: ToolContext, signalRepo: SignalEventRep
   };
 }
 
+/**
+ * #927：unhalt_otter 解除工具。大獭误 halt（打错目标/需求撤回）时立即清除打标，
+ * 不等 TTL 自然过期。同时把未消费指令对应的 signal_events 落账从 pending
+ * 迁到 dismissed（解除记录，审计闭环）。已送达（active）的指令无法追回注入文本，
+ * 但清除后目标獭后续工具调用恢复放行。
+ */
+export function createUnhaltOtterTool(ctx: ToolContext, signalRepo: SignalEventRepository, logger?: Logger): AgentTool {
+  const exec = async (_id: string, params: Record<string, unknown>): Promise<ReturnType<typeof textResponse>> => {
+    const otterId = params.otterId as string | undefined;
+    const otterName = params.otterName as string | undefined;
+    const reason = (params.reason as string | undefined)?.trim() || '';
+    if (!reason) return errorResponse("[错误] reason 必填——解除指令也要写台账（为什么解除：打错目标/需求撤回等）。");
+
+    const target = await resolveHaltTargets(ctx, { otterId, otterName });
+    if ('error' in target) return errorResponse(`[错误] ${target.error}`);
+
+    const cleared = haltRegistry.clear(target.otterId);
+    const note = `unhalt 解除（发起者 ${target.fromOtterName}）：${reason}`;
+    for (const d of cleared) {
+      // 未送达的 pending 指令落账 dismissed；fire-and-forget，失败仅日志（内存态已清，台账不固运连续）
+      signalRepo.resolve(d.id, 'dismissed', note, ctx.otterId).catch(err => {
+        logger?.error('Failed to mark unhalted signal as dismissed', err instanceof Error ? err : new Error(String(err)));
+      });
+    }
+    const clearedCount = cleared.length;
+    const activeCleared = clearedCount > 0 ? '' : '\n（注：无 pending 指令被清除——若目标獭正在被持续 block（active），也已一并解除；若两者都无，说明本就无生效打标）';
+    return textResponse(
+      `[unhalt] 已解除对 ${target.otterName}（${target.otterId}）的全部 halt 打标。` +
+      `未消费指令 ${clearedCount} 条已落账 dismissed（解除理由：${reason}）。` +
+      `它的下一个工具调用起恢复正常执行。` + activeCleared,
+    );
+  };
+  return {
+    name: "unhalt_otter",
+    description: "解除指定小獭的 halt 停手指令（#927）. When: halt 打错目标 / 需求变更撤回停手 / 打标残留阻断目标獭干活. Not for: 停自己（无此需求）. Output: 清除确认 + 台账 dismiss 留痕. 语义: 清除 pending（未送达）与 active（已送达持续 block）全部打标，目标獭下一个工具调用起恢复.",
+    parameters: {
+      type: "object",
+      properties: {
+        otterId: { type: "string", description: "目标海獭 ID（与 otterName 二选一）" },
+        otterName: { type: "string", description: "目标海獭名称（与 otterId 二选一）" },
+        reason: { type: "string", description: "解除理由（必填，写入台账）" },
+      },
+      required: ["reason"],
+    },
+    execute: exec,
+  };
+}
+
 /** query_signals：台账查询（C1 只读；大獭复盘 + UI 前的对话内查证） */
 export function createQuerySignalsTool(ctx: ToolContext, signalRepo: SignalEventRepository): AgentTool {
   const exec = async (_id: string, params: Record<string, unknown>): Promise<ReturnType<typeof textResponse>> => {

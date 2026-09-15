@@ -56,6 +56,7 @@ import type { Logger as LoggerType } from "@usecases/ports/logger";
 import type { RhiScanWorker as RhiScanWorkerType } from "@usecases/health/rhi-scan-worker";
 import { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import { SignalPipeline } from "@usecases/health/signal-pipeline";
+import { SignalAgingWorker } from "@usecases/signal/signal-aging-worker";
 import { collectHealingEvents } from "@usecases/health/healing-collector";
 import type { AgentSessionSource } from "@usecases/health/cost-output-collector";
 import type { CreateSnapshotRow } from "@usecases/health/snapshot-rows";
@@ -230,6 +231,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   });
   if (options.startRhiWorker ?? true) {
     rhiScanWorker.start();
+  }
+
+  // #927：獭间信号老化扫描——独立于 daily review 调度链（9/10-9/13 断档期唯一消费方停摆的教训），
+  // pending objection/blocked 悬置 >24h 落 medium healing。挂 app 级 setInterval，随 shutdown 停。
+  const signalAgingWorker = new SignalAgingWorker(
+    () => repos.signalEvent,
+    () => repos.healingEvent,
+    logger,
+  );
+  if (options.startRhiWorker ?? true) {
+    signalAgingWorker.start();
   }
 
   if (modelPool) validateModelAliases(db, modelPool, logger);
@@ -505,6 +517,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       retryWorker?.stopSync();
       // F20260825sgnw（#401）：RHI worker 同样先停再关 DB
       await rhiScanWorker.stop();
+      // #927：信号老化扫描同停
+      await signalAgingWorker.stop();
       // await metric flush 到文件，确保进程退出前数据落盘
       try {
         await metricsRegistry.dispose();
