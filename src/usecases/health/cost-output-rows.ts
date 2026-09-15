@@ -13,6 +13,7 @@
  * Goodhart 防线：成本/产出只作信号不作 KPI——行内不含任何排名/评分/百分位。
  */
 
+import type { InvokeStatsRecord } from "./invoke-stats-collector";
 import type {
   OtterCostRecord,
   OtterOutputRecord,
@@ -51,20 +52,52 @@ export const COST_OUTPUT_KEYS = {
   COST_CACHE_WRITE: "cost_cache_write",
   COST_TOTAL: "cost_total",
   LLM_CALL_COUNT: "llm_call_count",
+  ERROR_CALL_COUNT: "error_call_count",
   // cache_hit_rate 行已删除（#602）：消费端统一从 cache_read_tokens/input_tokens 推导，
   // 该行成为无消费者死数据——保留只会造成口径分裂陷阱（谁再消费它就绕过统一推导口径）
   MESSAGE_COUNT: "message_count",
   TOOL_CALL_COUNT: "tool_call_count",
+  INVOKE_COUNT: "invoke_count",
+  AVG_TOOL_CALLS: "avg_tool_calls",
+  AVG_DURATION_SEC: "avg_duration_sec",
+  AVG_INPUT_TOKENS: "avg_input_tokens",
+  AVG_OUTPUT_TOKENS: "avg_output_tokens",
   PR_COUNT: "pr_count",
   FDOC_COUNT: "fdoc_count",
   DISPATCH_COUNT: "dispatch_count",
 } as const;
+
+/** invoke stats 行的 metadata（per-model 单次问答均值） */
+interface InvokeStatsMeta {
+  model: string;
+}
 
 /** 全局 per-date 行集（PR/F 文档/dispatch） */
 interface GlobalRecords {
   prRecords?: PrCountRecord[];
   fdocRecords?: FdocCountRecord[];
   dispatchRecords?: DispatchCountRecord[];
+}
+
+/**
+ * 构建 invoke stats 快照行集（F20260914usgm）。
+ *
+ * 每条 InvokeStatsRecord 生成 5 行（invoke_count + 4 均值），metadata 携带 model。
+ * model="_total" 为全模型合计行，metadata.model 同值（消费端按需过滤）。
+ */
+export function buildInvokeStatsRows(statsRecords: InvokeStatsRecord[]): CreateCostOutputRow[] {
+  const rows: CreateCostOutputRow[] = [];
+  for (const rec of statsRecords) {
+    const metaStr = JSON.stringify({ model: rec.model } satisfies InvokeStatsMeta);
+    rows.push(
+      makeRow(rec.date, COST_OUTPUT_KEYS.INVOKE_COUNT, rec.invokeCount, metaStr),
+      makeRow(rec.date, COST_OUTPUT_KEYS.AVG_TOOL_CALLS, rec.avgToolCalls, metaStr),
+      makeRow(rec.date, COST_OUTPUT_KEYS.AVG_DURATION_SEC, rec.avgDurationSec, metaStr),
+      makeRow(rec.date, COST_OUTPUT_KEYS.AVG_INPUT_TOKENS, rec.avgInputTokens, metaStr),
+      makeRow(rec.date, COST_OUTPUT_KEYS.AVG_OUTPUT_TOKENS, rec.avgOutputTokens, metaStr),
+    );
+  }
+  return rows;
 }
 
 /**
@@ -104,6 +137,7 @@ export function buildCostOutputSnapshotRows(
       makeRow(rec.date, COST_OUTPUT_KEYS.COST_CACHE_WRITE, rec.costCacheWrite, metaStr),
       makeRow(rec.date, COST_OUTPUT_KEYS.COST_TOTAL, rec.costTotal, metaStr),
       makeRow(rec.date, COST_OUTPUT_KEYS.LLM_CALL_COUNT, rec.callCount, metaStr),
+      makeRow(rec.date, COST_OUTPUT_KEYS.ERROR_CALL_COUNT, rec.errorCalls, metaStr),
     );
   }
 

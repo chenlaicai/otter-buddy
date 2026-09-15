@@ -362,19 +362,11 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
   /** F20260913ctlv 彻底切换：系统消息唯一落点 = entries（system entry），messages 停写 */
-  private async sendSystemEntry(convId: string, body: string) {
-    const sendEntry = this.sendEntry!;
-    const { entry } = await sendEntry.createSystemEntry({ conversationId: convId, turnId: "", body });
-    this.logger.debug('System entry sent', { entryId: entry.id, conversationId: convId });
-    return { id: entry.id, body: entry.body, sequenceNum: entry.sequenceNum };
-  }
-
-  /** 创建 TurnCallbacks：invoke 生命周期 + SSE 事件推送（F20260913ctlv 彻底切换：全部 invoke 化） */
-  private createTurnCallbacks(
-    emitEvent: (event: SSEEvent) => void,
-    /** F20260913ctlv：invoke.end SSE 事件的 otterId 数据源 */
-    otterId?: string,
-  ): TurnCallbacks {
+  /** invoke 持久化回调集（createTurnCallbacks 拆分）：直透 send-entry 用例层 */
+  private makeInvokePersistenceCallbacks(): Pick<TurnCallbacks,
+    'getInvokeById' | 'updateInvokeStatus' | 'updateInvokeTalkingStonePassedTo'
+    | 'updateInvokeTokenUsage' | 'updateInvokeModel' | 'createInvokeEndEntry'
+  > {
     const sendEntry = this.sendEntry!;
     return {
       getInvokeById: async (invokeId: string) => {
@@ -394,6 +386,10 @@ export class AgentInvoker implements AgentTurnPort {
         await sendEntry.updateInvokeTokenUsage(invokeId, input, output);
       },
 
+      updateInvokeModel: async (invokeId: string, model: string) => {
+        await sendEntry.updateInvokeModel(invokeId, model);
+      },
+
       createInvokeEndEntry: async (invokeId: string, status: 'failed' | 'aborted', body?: string): Promise<{ entryId: string; body: string } | undefined> => {
         const invoke = await sendEntry.getInvokeById(invokeId);
         if (!invoke) return undefined;
@@ -407,6 +403,24 @@ export class AgentInvoker implements AgentTurnPort {
         });
         return { entryId: invokeEndEntry.id, body: invokeEndEntry.body ?? '' };
       },
+    };
+  }
+
+  private async sendSystemEntry(convId: string, body: string) {
+    const sendEntry = this.sendEntry!;
+    const { entry } = await sendEntry.createSystemEntry({ conversationId: convId, turnId: "", body });
+    this.logger.debug('System entry sent', { entryId: entry.id, conversationId: convId });
+    return { id: entry.id, body: entry.body, sequenceNum: entry.sequenceNum };
+  }
+
+  /** 创建 TurnCallbacks：invoke 生命周期 + SSE 事件推送（F20260913ctlv 彻底切换：全部 invoke 化）
+   *  invoke 持久化回调收编 makeInvokePersistenceCallbacks（F20260914usgm 拆分守 max-lines） */
+  private createTurnCallbacks(
+    emitEvent: (event: SSEEvent) => void,
+    otterId?: string,
+  ): TurnCallbacks {
+    return {
+      ...this.makeInvokePersistenceCallbacks(),
 
       emitInvokeEnd: (invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string; endBody?: string; otterName?: string }) => {
         emitEvent({ event: 'invoke.end', data: { invokeId, otterId: otterId ?? '', status, duration, endedAt: new Date().toISOString(), toolCallCount: stats?.toolCallCount, tokenUsage: stats?.tokenUsage, invokeEndEntryId: stats?.invokeEndEntryId, endBody: stats?.endBody, otterName: stats?.otterName } });
