@@ -11,6 +11,7 @@ import { stripHtmlCardFences } from "@entities/conversation/message-body-project
 import { tokenizeWithJieba } from "@frameworks/db/jieba-tokenizer";
 import { FID_ANCHOR_REGEX } from "@entities/document/fid-format";
 import { SqliteDispatchRecordRepository } from "@frameworks/db/dispatch/sqlite-dispatch-record-repository";
+import { PAPER_TRADING_TASK_DESCRIPTIONS } from "@usecases/paper-trading/ensure-paper-trading-scheduler";
 
 /** 数据库迁移：添加 session_file 字段和 otter_configs 表 */
 // eslint-disable-next-line max-statements, max-lines-per-function -- 补丁集合，语句数和行数由历史补丁数决定（#848: +otter_sessions.model_alias）
@@ -856,19 +857,20 @@ function addExecutorTypeColumns(db: Database.Database, logger: Logger): void {
 function addDescriptionColumn(db: Database.Database, logger: Logger): void {
   const columns = db.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{ name: string }>;
   if (!columns.some(col => col.name === 'description')) {
-    db.prepare('ALTER TABLE scheduled_tasks ADD COLUMN description TEXT').run();
+    db.prepare("ALTER TABLE scheduled_tasks ADD COLUMN description TEXT CHECK (description IS NULL OR length(description) <= 500)").run();
     logger.info('Added description column to scheduled_tasks table');
   }
 
   // 数据回填：seed 任务名字固定，按 name 幂等补描述（不覆盖已有非空描述）
+  // F20260915desc 发现 4：文案从 ensure-paper-trading-scheduler 共享常量取，避免两处硬编码漂移
   const backfill: Array<{ name: string; description: string }> = [
     {
       name: 'paper-trading-match-orders',
-      description: '每个交易日 15:05 撮合昨日挂单：以当日开盘价撮合 pending 订单（涨跌停校验）→ 更新持仓与净值 → 除权检测 → 渲染当日绩效。',
+      description: PAPER_TRADING_TASK_DESCRIPTIONS.matchOrders,
     },
     {
       name: 'paper-trading-daily-trading',
-      description: '每个交易日 15:30 操盘獭上岗：分析自选池行情/财务/消息，提交当日买卖订单，并撰写日报（引擎数字段 + AI 理由段）。',
+      description: PAPER_TRADING_TASK_DESCRIPTIONS.dailyTrading,
     },
   ];
   const stmt = db.prepare(

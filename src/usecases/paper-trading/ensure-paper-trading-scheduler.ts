@@ -22,6 +22,13 @@ const TASK_NAMES = {
   dailyTrading: 'paper-trading-daily-trading',
 } as const;
 
+/** F20260915desc 发现 4：任务描述文案单一真相源——migration 老库回填与本 seed 新建共用，
+ *  避免两处硬编码同一文案未来改动漏一处（老库显示旧文案 vs 新环境显示新文案）。 */
+export const PAPER_TRADING_TASK_DESCRIPTIONS = {
+  matchOrders: '每个交易日 15:05 撮合昨日挂单：以当日开盘价撮合 pending 订单（涨跌停校验）→ 更新持仓与净值 → 除权检测 → 渲染当日绩效。',
+  dailyTrading: '每个交易日 15:30 操盘獭上岗：分析自选池行情/财务/消息，提交当日买卖订单，并撰写日报（引擎数字段 + AI 理由段）。',
+} as const;
+
 /** ensure paper-trading 对话（幂等）——创建真实 conversation 满足 FK */
 async function ensurePaperTradingConversation(deps: {
   manageConversation: ManageConversation;
@@ -88,7 +95,7 @@ export async function seedPaperTradingTasks(deps: {
         cron: '5 15 * * 1-5', // 工作日 15:05
         timezone: 'Asia/Shanghai',
         body: '{}', // 撮合函数参数：accountId/tradeDate 缺省时自动取值（见 register-functions.ts）
-        description: '每个交易日 15:05 撮合昨日挂单：以当日开盘价撮合 pending 订单（涨跌停校验）→ 更新持仓与净值 → 除权检测 → 渲染当日绩效。',
+        description: PAPER_TRADING_TASK_DESCRIPTIONS.matchOrders,
         talkingStonePassedTo: [bigOtterId], // FK 要求非空，function executor 不实际使用
         executorType: 'function',
         functionName: 'match_orders',
@@ -117,7 +124,7 @@ export async function seedPaperTradingTasks(deps: {
         cron: '30 15 * * 1-5', // 工作日 15:30
         timezone: 'Asia/Shanghai',
         body: taskBody,
-        description: '每个交易日 15:30 操盘獭上岗：分析自选池行情/财务/消息，提交当日买卖订单，并撰写日报（引擎数字段 + AI 理由段）。',
+        description: PAPER_TRADING_TASK_DESCRIPTIONS.dailyTrading,
         talkingStonePassedTo: [bigOtterId], // F20260829ppta 发现 3 修复：指向真实大獭
         executorType: 'agent',
         restartBeforeInvoke: true, // 每日新 session 防上下文污染

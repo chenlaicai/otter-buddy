@@ -811,4 +811,35 @@ describe("migrateDatabase - F20260915desc scheduled_tasks.description 列", () =
       db.close();
     }
   });
+
+  it("老库迁移后 description 列带 CHECK 约束：501 字符落库被拒（发现 1 修复验证）", () => {
+    const db = new Database(":memory:");
+    try {
+      initSchema(db);
+      db.exec("ALTER TABLE scheduled_tasks DROP COLUMN description");
+
+      migrateDatabase(db, createTestLogger());
+
+      db.prepare(
+        "INSERT INTO conversations (id, title, status, created_at, updated_at) VALUES ('conv-1', 't', 'active', '2026-09-15T00:00:00Z', '2026-09-15T00:00:00Z')",
+      ).run();
+      db.prepare(`
+        INSERT INTO scheduled_tasks (id, conversation_id, name, cron, timezone, body,
+          talking_stone_passed_to, sender_id, status, created_at, updated_at)
+        VALUES ('t1', 'conv-1', 'n', '0 9 * * *', 'Asia/Shanghai', 'b', '[]', 'system', 'active', '2026-09-15T00:00:00Z', '2026-09-15T00:00:00Z')
+      `).run();
+
+      // 500 字符合法
+      expect(() => {
+        db.prepare("UPDATE scheduled_tasks SET description = ? WHERE id = 't1'").run('x'.repeat(500));
+      }).not.toThrow();
+
+      // 501 字符被 CHECK 拒绝
+      expect(() => {
+        db.prepare("UPDATE scheduled_tasks SET description = ? WHERE id = 't1'").run('x'.repeat(501));
+      }).toThrow(/CHECK/i);
+    } finally {
+      db.close();
+    }
+  });
 });
