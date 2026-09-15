@@ -34,8 +34,9 @@ interface ToolCallInfo {
 /**
  * 提取文本首句（~150 字截断）。
  *
- * 首句边界：第一个句末标点（。！？.!?；;）或换行——取「第一句」而非「前 150 字」是为了
+ * 首句边界：第一个句末标点（。！？!?；;）或换行——取「第一句」而非「前 150 字」是为了
  * 摘录语义完整（issue 现场：「页面骨架渲染成功但数据全空——API 请求没吃到 mock。」）。
+ * 刻意不含英文句点：中英混排文本（如「没吃到 mock. 查 URL」）会被一切两半。
  * 无标点时按 EXCERPT_MAX_CHARS 硬截断并加省略号。
  */
 function firstSentence(text: string): string {
@@ -125,7 +126,7 @@ function projectMessage(msg: any, idx: number, boundary: number, toolCallInfo: M
   if (idx >= boundary) return msg;
   if (msg?.role !== "toolResult" || !Array.isArray(msg.content)) return msg;
   if (!msg.content.some((c: any) => c?.type === "image")) return msg;
-  const excerpt = findExcerpt(messages, idx);
+  const excerpt = findExcerpt(messages, idx, boundary);
   const info = toolCallInfo.get(msg.toolCallId);
   return {
     ...msg,
@@ -135,9 +136,12 @@ function projectMessage(msg: any, idx: number, boundary: number, toolCallInfo: M
   };
 }
 
-/** 「所见」摘录：该 toolResult 之后（不限紧邻，可能隔着其他工具调用对）首条非空 assistant text 的首句 */
-function findExcerpt(messages: any[], toolResultIdx: number): string {
+/** 「所见」摘录：该 toolResult 之后（不限紧邻，可能隔着其他工具调用对）首条非空 assistant text 的首句。
+ *  不跨越 turn 边界（j > boundary 停扫）——历史图片的摘录若抓到下一 turn 切换话题后的无关 text，
+ *  会把「所见」张冠李戴（检视发现 1 反例：读图 A 无分析 → user 换话题 → 摘录抓到「别的分析」）。 */
+function findExcerpt(messages: any[], toolResultIdx: number, boundary: number): string {
   for (let j = toolResultIdx + 1; j < messages.length; j++) {
+    if (j > boundary) return "";
     const msg = messages[j];
     if (msg?.role !== "assistant" || !Array.isArray(msg.content)) continue;
     for (const c of msg.content) {

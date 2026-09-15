@@ -230,7 +230,8 @@ describe("externalizeHistoricalImages", () => {
   });
 
   it("compactionSummary 也构成 turn 边界：压缩前的图片文本化", () => {
-    const summary = { role: "compactionSummary" as const, content: [{ type: "text" as const, text: "摘要" }] };
+    // SDK createCompactionSummaryMessage 真实结构：{ role, summary, tokensBefore, timestamp }（无 content 字段）
+    const summary = { role: "compactionSummary" as const, summary: "摘要", tokensBefore: 1000, timestamp: Date.now() };
     const messages = [
       user("读图"),
       assistant([readCall("old.png", "tc-1")]),
@@ -286,5 +287,25 @@ describe("externalizeHistoricalImages", () => {
 
     const result = externalizeHistoricalImages(messages);
     expect(result[2].content[1].text).toBe("[图片已外置 | 所见: 真正的分析。 | k.png image/png 18B]");
+  });
+
+  it("检视发现 1 回归：同 turn 无 assistant text 时摘录不跨 turn 抓换话题后的无关 text", () => {
+    const messages = [
+      user("读图 A"),
+      assistant([readCall("a.png", "tc-1")]),
+      toolResult([textBlock("x"), image()], "tc-1"),
+      // 读图后 assistant 只调工具没写分析
+      assistant([readCall("b.png", "tc-2")]),
+      toolResult([textBlock("y"), image()], "tc-2"),
+      user("做别的"), // turn 边界
+      assistant([textBlock("别的分析，与图 A 无关。")]),
+    ];
+
+    const result = externalizeHistoricalImages(messages);
+
+    // 图 A 的摘录不得抓到「别的分析」（跨 turn 张冠李戴）——同 turn 无 text，退化纯元数据
+    expect(result[2].content[1].text).toBe("[图片已外置 | a.png image/png 18B]");
+    // 图 B 同 turn 内仍无 text（其后 user 前无 assistant text）→ 纯元数据
+    expect(result[4].content[1].text).toBe("[图片已外置 | b.png image/png 18B]");
   });
 });

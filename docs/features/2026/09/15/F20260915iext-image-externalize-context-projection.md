@@ -64,7 +64,7 @@ modules:
 
 ## 验证
 
-- 13 新用例全绿：历史图片文本化（三段式完整断言）/ 当轮保留（原引用）/ 同 invoke 多步链属当轮 / 摘录缺失兜底（纯元数据）/ 非紧邻摘录 / 多图（同 toolResult 双 image + 多历史 toolResult）/ file_path 参数形态 + 孤儿 toolCall / 150 字截断 / 无图零拷贝 / 空数组与无边界 / compactionSummary 边界 / 真实 session 结构对照（issue 现场 9 图结构：9 张历史全部文本化、当轮第 10 张保留）/ 空白 text 跳过
+- 14 新用例全绿：历史图片文本化（三段式完整断言）/ 当轮保留（原引用）/ 同 invoke 多步链属当轮 / 摘录缺失兜底（纯元数据）/ 非紧邻摘录 / 多图（同 toolResult 双 image + 多历史 toolResult）/ file_path 参数形态 + 孤儿 toolCall / 150 字截断 / 无图零拷贝 / 空数组与无边界 / compactionSummary 边界 / 真实 session 结构对照（issue 现场 9 图结构：9 张历史全部文本化、当轮第 10 张保留）/ 空白 text 跳过 / 摘录不跨 turn（检视发现 1 回归）
 - thinking-strip.test.ts 11 用例零回归（同钩子串联验证）
 - 全量 252 文件 / 2996 测试全绿；tsc 0 error；eslint 0 error
 - **已过最简检查**：复用现有 context 钩子管线（无新机制）、占位符纯字符串拼接（无模板引擎）、来源路径回溯走 Map 单遍收集（O(n)）。无可再简项
@@ -74,6 +74,16 @@ modules:
 - #776（bash→专用工具）：同属上下文质量主线但独立 issue
 - compaction 阈值修正（200-256K）：issue 明列另行开单
 - 历史 user 消息内联图片（attachment 注入路径）：issue 方案只覆盖 toolResult 图片——现场证据（29.6MB session）全部来自 read 截图，user 附件图未观察到堆积；若后续发现同样问题，同函数扩展 content 扫描范围即可
+
+## 对抗审视处置记录（检视獭-939，mimo 异模型）
+
+审视结论：通过（0 严重 + 3 建议），B1-B7 全绿，独立复跑 13+447 用例全绿。3 条建议全部接受并当场修复（决策树：更好）：
+
+1. **findExcerpt 跨 turn 扫描**（正确性）：反例成立——历史图片同 turn 无 assistant text、下一 turn 换话题时，摘录会抓到无关 text 张冠李戴。修复：`findExcerpt` 增加 `j > boundary` 停扫（+2 行 + 1 回归用例）。取舍说明：修复后「跨 turn 但相关」的摘录场景（turn N 读图未分析、turn N+1 才写「图里看到…」）也会退化为纯元数据——宁缺勿滥，与 issue 兜底语义一致（纯元数据不误导，张冠李戴的「所见」会误导）
+2. **firstSentence JSDoc 列英文句点但正则刻意排除**（可维护性）：注释与代码矛盾属实，注释对齐（不含 `.` 的理由补写入注释）
+3. **compactionSummary fixture 结构不符 SDK**（测试覆盖）：核实 SDK `createCompactionSummaryMessage` 返回 `{ role, summary, tokensBefore, timestamp }` 无 content 字段，fixture 修正为真实结构
+
+修复 commit 与 PR 评论区处置留痕同步。
 
 ## 关联
 
