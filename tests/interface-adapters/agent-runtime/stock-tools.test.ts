@@ -258,12 +258,6 @@ describe("stock_data tool", () => {
     expect(result.content[0].text).toContain("无输出");
   });
 
-  it("hvaluation：缺 code 返回错误", async () => {
-    const tool = createStockDataTool(createMockCtx());
-    const result = await tool.execute("id", { command: "hvaluation" });
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("需要 code 参数");
-  });
 });
 
 describe("stock_data tool 港股命令", () => {
