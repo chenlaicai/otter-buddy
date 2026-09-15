@@ -752,7 +752,11 @@ export class PiSessionFactory implements AgentGateway {
    *  toolContext 必须是本 invoke 的才逐（stale steal 后旧 session 已出池成孤儿，
    *  池内只会是新 invoke 的）；不匹配则跳过——旧孤儿 session 由旧 invoke 生命周期托管。 */
   private _evictPooledIfOwned(otterId: string, toolContext: ToolContext): void {
-    if (this.poolMeta.get(otterId)?.toolContext !== toolContext) return;
+    if (this.poolMeta.get(otterId)?.toolContext !== toolContext) {
+      // #904 可观测性：归属拦截本身留 debug 信号（stale steal 入口已有 warn，此处非异常）
+      this.logger.debug('pendingRestart evict skipped: pooled entry owned by newer invoke', { otterId });
+      return;
+    }
     this.pool.evict(otterId);
     this.poolMeta.delete(otterId);
   }
