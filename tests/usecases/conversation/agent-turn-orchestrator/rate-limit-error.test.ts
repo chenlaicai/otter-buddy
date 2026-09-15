@@ -32,6 +32,17 @@ describe("matchRateLimitError", () => {
     expect(m2!.exhausted).toBe(false);
   });
 
+  it("#926 严重 1 回归：1308（5 小时滑动窗）判瞬时非配额——不触发降级", () => {
+    const m = matchRateLimitError('[1308][已达到 5 小时的使用上限。您的限额将在 2026-09-14 19:31:23 重置。]');
+    expect(m).not.toBeNull();
+    expect(m!.exhausted).toBe(false);
+    // 周月粒度（1310）不受影响
+    const m2 = matchRateLimitError('[1310][已达到每周使用上限。您的限额将在 2026-09-21 12:46:05 重置。]');
+    expect(m2!.exhausted).toBe(true);
+    const m3 = matchRateLimitError('[1310][本月配额已耗尽，将于 2026-09-04 20:22 重置]');
+    expect(m3!.exhausted).toBe(true);
+  });
+
   it("非限流 API 错误返回 null（不误报）", () => {
     expect(matchRateLimitError("LLM API error: connection reset by peer")).toBeNull();
     expect(matchRateLimitError("LLM API error: 500 Internal Server Error")).toBeNull();

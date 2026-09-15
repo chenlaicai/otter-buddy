@@ -49,7 +49,8 @@ modules:
 
 ## 验证
 
-- 新增 12 单测（tests/usecases/scheduler/model-fallback-service.test.ts）：register 3（链取值/链耗尽/幂等）+ resolve 4（显式命中/默认命中/手动换模型不干预/未降级）+ revert 3（幂等/定时回切/清扫兜底）+ resetHint 2（中文解析/缺失回退）
+- #926 检视处置后：严重 1（1308 误判 exhausted）修复——SHORT_WINDOW 复核（「N 小时」粒度且无周/月词 → 改判瞬时），transient 池补「N 小时使用上限」识别保持 medium 告警路径；建议 2/3 修复——过去 resetAt 钳 1 分钟（降级不形同虚设）+ 启动 sweepExpired 装配调用（platforms.ts）
+- 新增 13 单测（tests/usecases/scheduler/model-fallback-service.test.ts）：register 3（链取值/链耗尽/幂等）+ resolve 4（显式命中/默认命中/手动换模型不干预/未降级）+ revert 3（幂等/定时回切/清扫兜底）+ resetHint 2（中文解析/缺失回退）
 - 全量 2955/2955 pass（含 orchestrator/factory 全部既有用例零回归），tsc 0 error，eslint 0 error
 - 装配链（platforms.ts / app.ts）tsc 编译校验通过——modelFallback 单例贯穿 createAgentGateway → initAgentAndScheduler → AgentInvoker → orchestrator
 - 最简实现检查：已过——单文件服务类（~150 行）+ 三处消费点各 1-3 行 + 装配透传，无新依赖无新表

@@ -96,6 +96,8 @@ export async function createAgentGateway(options: {
   // OtterToolClient 循环依赖：先注入空占位，initUseCases 后通过 resolveOtterToolClient 注入真实实例
   // #843：模型限流降级器单例——factory（resolve 消费）与 invoker/orchestrator（register 登记）共享
   const modelFallback = new ModelFallbackService(modelPool, logger);
+  // #926 检视建议 3：启动清扫——内存态启动即空，此调用是语义完备（未来接持久态时立即生效）
+  modelFallback.sweepExpired();
   const agentGateway = await initAgentSessionFactory({
     model, modelPool, db,
     modelFallback,

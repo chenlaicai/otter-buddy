@@ -65,7 +65,12 @@ export class ModelFallbackService {
     const fallback = this.pickFallback(exhaustedAlias);
     if (fallback === null) return null;
 
-    const resetAt = this.parseResetAt(resetHint) ?? Date.now() + 60 * 60 * 1000; // 解析失败 1h 后回切重试
+    // 解析失败 1h 后回切重试；resetAt 已在过去（时钟漂移/测试系统时间）钳到 1 分钟后
+    // ——负 delay 定时器会立即触发回切，降级形同未发生（#926 检视建议 2 连带发现的边界）
+    const parsed = this.parseResetAt(resetHint);
+    const resetAt = parsed === null
+      ? Date.now() + 60 * 60 * 1000
+      : Math.max(parsed, Date.now() + 60 * 1000);
     const existing = this.degradations.get(otterId);
     if (existing?.timer) clearTimeout(existing.timer);
 

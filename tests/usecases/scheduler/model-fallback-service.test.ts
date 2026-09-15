@@ -35,11 +35,14 @@ describe("#843 register", () => {
 
   it("重复登记幂等：更新 resetAt 不叠链", () => {
     const svc = new ModelFallbackService(makePool());
-    svc.register("otter-1", "glm", "2026-09-14 19:31:23 重置");
-    const again = svc.register("otter-1", "glm", "2026-09-15 09:00:00 重置");
+    const t1 = new Date(Date.now() + 8 * 60 * 60 * 1000 + 8 * 60 * 60 * 1000).toISOString().replace("T", " ").slice(0, 19);
+    const t2ms = Date.now() + 3 * 60 * 60 * 1000;
+    const t2 = new Date(t2ms + 8 * 60 * 60 * 1000).toISOString().replace("T", " ").slice(0, 19);
+    svc.register("otter-1", "glm", `${t1} 重置`);
+    const again = svc.register("otter-1", "glm", `${t2} 重置`);
     expect(again).toBe("kimi");
     const deg = svc.getDegradation("otter-1")!;
-    expect(deg.resetAt).toBe(Date.parse("2026-09-15T09:00:00+08:00"));
+    expect(deg.resetAt).toBe(Date.parse(t2.replace(" ", "T") + "+08:00"));
   });
 });
 
@@ -77,15 +80,17 @@ describe("#843 revert / sweep", () => {
     expect(svc.resolve("otter-1", "glm")).toBeNull();
   });
 
-  it("resetAt 到点自动回切（定时器）", () => {
+  it("resetAt 到点自动回切（定时器，东八区时间戳正确构造）", () => {
     vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-15T08:00:00+08:00"));
     const svc = new ModelFallbackService(makePool());
-    const resetAt = Date.now() + 60_000;
-    const hint = new Date(resetAt + 8 * 60 * 60 * 1000).toISOString().replace("T", " ").slice(0, 19) + " 重置";
+    // hint 按东八区构造（parseResetAt 按东八区解析——测试与实现同时区）
+    const hint = "2026-09-15 09:01:00 重置";
     svc.register("otter-1", "glm", hint);
     expect(svc.resolve("otter-1", "glm")).toBe("kimi");
-    vi.advanceTimersByTime(60_000 + 100);
+    vi.advanceTimersByTime(61 * 60 * 1000 + 100); // 过 09:01:00
     expect(svc.resolve("otter-1", "glm")).toBeNull();
+    vi.useRealTimers();
   });
 
   it("sweepExpired 清扫过期项（重启丢定时器的兜底）", () => {
@@ -101,8 +106,21 @@ describe("#843 revert / sweep", () => {
 describe("#843 parseResetAt（间接验证）", () => {
   it("中文 resetHint（智谱东八区）正确解析", () => {
     const svc = new ModelFallbackService(makePool());
-    svc.register("otter-1", "glm", "[1308][已达到 5 小时的使用上限。您的限额将在 2026-09-14 19:31:23 重置。]");
-    expect(svc.getDegradation("otter-1")!.resetAt).toBe(Date.parse("2026-09-14T19:31:23+08:00"));
+    // 相对未来时间构造（东八区字面量）——避免硬编码日期随系统时间推进过期
+    const t = new Date(Date.now() + 2 * 60 * 60 * 1000 + 8 * 60 * 60 * 1000);
+    const ts = t.toISOString().replace("T", " ").slice(0, 19); // 字面时间串
+    const expected = Date.parse(ts.replace(" ", "T") + "+08:00"); // 同串按东八区解析 = now+2h
+    svc.register("otter-1", "glm", `[1308][已达到 5 小时的使用上限。您的限额将在 ${ts}。]`);
+    expect(svc.getDegradation("otter-1")!.resetAt).toBe(expected);
+  });
+
+  it("resetAt 已在过去 → 钳到 1 分钟后（降级不形同虚设，无负 delay 定时器）", () => {
+    const svc = new ModelFallbackService(makePool());
+    const before = Date.now();
+    svc.register("otter-1", "glm", "2026-01-01 00:00:00 重置"); // 远古时间
+    const deg = svc.getDegradation("otter-1")!;
+    expect(deg.resetAt).toBeGreaterThanOrEqual(before + 60 * 1000 - 5);
+    expect(deg.resetAt).toBeLessThanOrEqual(Date.now() + 60 * 1000 + 5);
   });
 
   it("resetHint 缺失/不可解析 → 1h 后回切重试（不挂长定时器）", () => {

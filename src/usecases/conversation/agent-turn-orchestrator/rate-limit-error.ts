@@ -31,10 +31,21 @@ const QUOTA_EXHAUSTED_PATTERNS: readonly RegExp[] = [
   /(每周|每月)[^\n]{0,12}(上限|限额|重置)/, // 智谱每周/每月上限文案
 ];
 
-/** 瞬时限流：SDK 重试耗尽后上抛（含裸 429 status 码） */
+/** #843 检视严重 1：短窗限流排除——「N 小时使用上限」（code 1308，5 小时滑动窗）
+ *  是瞬时型非配额型：重置以小时计，误判 exhausted 会触发模型降级过度反应
+ *  （issue #843 原文：1308 重试/稍后可恢复）。matchRateLimitError 对「使用上限」
+ *  命中做后置复核：错误正文含「N小时」粒度且无周/月粒度词 → 改判瞬时。 */
+const SHORT_WINDOW_HOURS_PATTERN = /\d+\s*(小时|hour)s?/i;
+const LONG_WINDOW_PATTERN = /(每周|每月|本月|当月|monthly|weekly|month|week)/i;
+
+/** 瞬时限流：SDK 重试耗尽后上抛（含裸 429 status 码）。
+ *  #843：含「N 小时使用上限」（code 1308）——它被 SHORT_WINDOW 复核从 exhausted
+ *  改判瞬时后，错误正文可能不含 429/rate limit 字样，靠这条保持限流识别
+ *  （medium healing + 会话告警路径不丢）。 */
 const TRANSIENT_RATE_LIMIT_PATTERNS: readonly RegExp[] = [
   /\b429\b/,
   /\brate[ _-]?limit/i,
+  /\d+\s*(小时|hour)s?[^\n]{0,12}上限/i, // 1308「5 小时的使用上限」族
 ];
 
 /** 重置时间提示（尽力提取，非硬保证） */
@@ -54,7 +65,11 @@ export interface RateLimitMatch {
 
 /** 识别错误消息是否为限流类；非限流返回 null */
 export function matchRateLimitError(errorMessage: string): RateLimitMatch | null {
-  const exhausted = QUOTA_EXHAUSTED_PATTERNS.some(p => p.test(errorMessage));
+  let exhausted = QUOTA_EXHAUSTED_PATTERNS.some(p => p.test(errorMessage));
+  // #843：「N 小时使用上限」（1308）复核——短窗是瞬时型，不降级不误报 high
+  if (exhausted && SHORT_WINDOW_HOURS_PATTERN.test(errorMessage) && !LONG_WINDOW_PATTERN.test(errorMessage)) {
+    exhausted = false;
+  }
   const transient = exhausted || TRANSIENT_RATE_LIMIT_PATTERNS.some(p => p.test(errorMessage));
   if (!exhausted && !transient) return null;
   const resetHint = RESET_HINT_PATTERNS
