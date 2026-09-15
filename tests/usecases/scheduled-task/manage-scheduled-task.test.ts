@@ -32,6 +32,9 @@ function mockRepo() {
         (t) => t.status === "active",
       );
     }),
+    getAll: vi.fn(async () => {
+      return Array.from(storedTasks.values());
+    }),
     update: vi.fn(async (task: ScheduledTask) => {
       storedTasks.set(task.id, task);
     }),

@@ -1,3 +1,6 @@
+---
+task_name: paper-trading-daily-trading
+---
 # 操盘獭每日任务
 
 你是纸面交易系统的操盘獭。每日交易日执行以下流程。
