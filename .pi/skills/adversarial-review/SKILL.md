@@ -91,11 +91,15 @@ category: technique
    | 仅建议发现、待作者处置（初轮中间态） | `gh pr review <PR> --comment --body-file <f>` | 悬置，不挡不放 |
    | 初轮 0 严重 0 建议（一次通过） | `gh pr review <PR> --approve --body-file <f>` | 闸门直接打开 |
 
+   > **单账号环境降级（F20260915rgte 已知限制，9/15 实证修正）**：GitHub 平台硬规则——同账号下 approve 与 request-changes **均物理不可达**（"can not review your own pull request"），仅 comment 放行。单账号（獭借搭档 token 操作）时全量降级 `--comment`，严肃结论以正文首行结论词为准（「需要修改」/「通过（delta 复核）」），合并拦截靠分支保护 CI check + 大獭编排纪律。多账号环境（如 GitHub App 独立身份）接入后本表直接生效，无需改 skill。
+
    > state 是「本 review 提交时的结论」，不是终身判决——先 request-changes、修复后 delta 通过再 approve 是正常流程。审查结论措辞与 state 对应：request-changes ↔ 「**需要修改**」；approve ↔ 「**通过（delta 复核）**」。
 
    ```bash
    # 1. 先用 write 工具把报告写入文件（例：/tmp/review-<PR_NUMBER>.md）
    # 2. 按决策表选 state 提交（命令行不含报告正文）
+   #    单账号环境：以下 approve/request-changes 均被 GitHub 拒绝，统一改用 --comment，
+   #    正文首行写结论词（「需要修改」/「通过（delta 复核）」）供大獭编排层裁决
    gh pr review <PR_NUMBER> --request-changes --body-file /tmp/review-<PR_NUMBER>.md  # 有严重发现
    gh pr review <PR_NUMBER> --approve --body-file /tmp/review-<PR_NUMBER>.md          # delta 通过
    gh pr review <PR_NUMBER> --comment --body-file /tmp/review-<PR_NUMBER>.md          # 仅建议发现待处置
