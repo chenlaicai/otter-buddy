@@ -3,7 +3,7 @@ id: F20260915stck
 title: akshareCheckCache 失败不缓存：环境修复后自愈无需重启
 summary: stock_data 工具的 akshareCheckCache 成功/失败同等对待且永久缓存，导致环境修复后必须重启进程才能恢复。改为失败不缓存（成功保持缓存），环境修好后下一次调用立即恢复。closes #952
 change_type: fix
-capability_test: "n/a: 纯缓存行为修复，由单测覆盖（stock-tools.test.ts 22/22 含 2 个 #952 缓存行为用例）"
+capability_test: tests/interface-adapters/agent-runtime/stock-tools.test.ts（21/21 含 2 个 #952 缓存行为用例；检视发现计数 22 虚高已随重复用例清理一并修正）
 created_in_conversation: 53d775fd-2167-465a-ae2e-c6962d5f4dfb
 doc_type: feature
 tags: [stock, cache, akshare, self-healing, bugfix]
