@@ -33,6 +33,7 @@ function makeTask(overrides: Partial<ScheduledTask>): ScheduledTask {
     triggerAt: null,
     timezone: 'Asia/Shanghai',
     body: 'old body',
+    description: null,
     talkingStonePassedTo: ['otter-1'],
     senderId: 'system',
     status: 'active',

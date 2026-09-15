@@ -519,6 +519,7 @@ function createScheduledTaskTables(db: Database.Database): void {
       trigger_at TEXT,
       timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
       body TEXT NOT NULL CHECK (length(body) <= 10000),
+      description TEXT CHECK (description IS NULL OR length(description) <= 500),
       talking_stone_passed_to TEXT NOT NULL DEFAULT '[]',
       sender_id TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled', 'error')),

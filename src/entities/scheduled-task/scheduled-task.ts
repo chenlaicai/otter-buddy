@@ -22,6 +22,9 @@ export interface ScheduledTask {
   triggerAt: string | null;
   timezone: string;
   body: string;
+  /** F20260915desc: 人类可读任务描述（≤500 字符）。面板优先显示此字段；
+   *  未填时面板回退渲染 body/functionName（executorType=function 时 body 常为 '{}'） */
+  description: string | null;
   talkingStonePassedTo: string[];
   senderId: string;
   status: ScheduledTaskStatus;
@@ -100,4 +103,9 @@ export function isValidTimezone(tz: string): boolean {
 /** #516: 任务级超时配置校验（分钟）。允许 1-1440（1 分钟到 24 小时）。 */
 export function isValidTimeoutMinutes(value: number): boolean {
   return Number.isInteger(value) && value >= 1 && value <= 1440;
+}
+
+/** F20260915desc: 任务描述校验（可选，≤500 字符）。一句话说明任务干什么，给人看。 */
+export function isValidDescription(value: string): boolean {
+  return value.length <= 500;
 }
