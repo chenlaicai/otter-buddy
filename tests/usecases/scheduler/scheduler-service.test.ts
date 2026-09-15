@@ -255,14 +255,17 @@ function createMockAgentInvoke() {
 /** 创建 CronParser 的状态化 mock */
 function createMockCronParser(nextTime: Date, prevTime?: Date | null) {
   const callCount = { value: 0 };
+  const state = { prevTime: prevTime ?? null };
   return {
     _callCount: callCount,
+    /** #823 测试可变窗口：运行时对账用例需要在 start() 后推进 prevDue */
+    set prevDue(v: Date | null) { state.prevTime = v; },
     getNextTime: vi.fn(() => {
       callCount.value++;
       return nextTime;
     }),
     // #814：调度完整性对账（可选——undefined 表示不支持，start() 跳过对账）
-    ...(prevTime !== undefined ? { getPrevTime: vi.fn(() => prevTime) } : {}),
+    ...(prevTime !== undefined ? { getPrevTime: vi.fn(() => state.prevTime) } : {}),
   };
 }
 
@@ -3000,5 +3003,163 @@ describe('#775 S4a: scheduler 换轨', () => {
     });
     await service.start();
     expect(taskRepo.failAllRunningExecutions.mock.calls).toHaveLength(1);
+  });
+});
+
+describe('#823: 运行时定期对账（tick 循环死亡时错过窗口仍可见）', () => {
+  function makeHealingRepo823() {
+    const events: Array<Record<string, unknown>> = [];
+    return {
+      _events: events,
+      create: vi.fn(async (e: Record<string, unknown>) => { events.push(e); }),
+      findOpen: vi.fn(async () => events.map(e => ({ errorType: e.errorType, context: e.context }))),
+      autoStaleDismiss: vi.fn(async () => 0),
+    };
+  }
+
+  it('start() 启动运行时对账定时器：模拟对账 tick 触发时，错过窗口任务落 healing（不依赖轮询 tick）', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-06T08:00:00.000Z')); // #823: 固定系统时间（负延迟 → setTimeout(1) 风暴根因）
+    try {
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
+      const agentInvoke = createMockAgentInvoke();
+      // 应触发时间 = 今天 09:00；任务 lastTriggeredAt = 前天（错过窗口）
+      // 关键：构造「轮询 tick 补触发不覆盖」的场景——lastTriggeredAt 在 POLL_INTERVAL 内不会变，
+      // 这里模拟 tick 循环从未运行（服务在线但 tick 死亡的 9/6 形态），只有对账定时器在跑
+      const prevDue = new Date('2026-09-06T01:00:00.000Z'); // 09:00 CST
+      const cronParser = createMockCronParser(new Date('2026-09-07T01:00:00.000Z'), prevDue);
+      const healingRepo = makeHealingRepo823();
+
+      taskRepo._store.set('task-runtime-missed', makeTask({
+        id: 'task-runtime-missed',
+        scheduleType: 'cron',
+        cron: '0 9 * * *',
+        // lastTriggeredAt 在 prevDue 之前且远超 5s 容差 → 真错过
+        // 同时 now - lastTriggeredAt > POLL_INTERVAL_MS → 若 tick 活着会补触发；
+        // 本用例不推进 30s 轮询，只推进 1h 对账 → 落账必然来自对账定时器
+        lastTriggeredAt: '2026-09-05T01:00:00.000Z',
+      } as never));
+      convRepo._addConversation('conv-1', { status: 'active' });
+
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+        cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
+        healingRepo: healingRepo as never,
+        tickImpl: async () => {}, // #823：隔离轮询补触发，只验证对账定时器
+      });
+      await service.start();
+      // 启动对账已落 1 条；清空模拟「该窗口已处置/已是旧账」，看运行时对账是否独立工作：
+      // 用新窗口（prevDue 更新）模拟时间推进后再次错过
+      healingRepo._events.length = 0;
+      (cronParser as unknown as { prevDue: Date | null }).prevDue = new Date('2026-09-07T01:00:00.000Z'); // 新错过窗口
+      await vi.advanceTimersByTimeAsync(3_600_000 + 1_000); // 推进 1h → 运行时对账 tick（tickImpl 已 noop，30s 轮询空转成本为零）
+      await service.stop();
+
+      const runtimeEvents = healingRepo._events.filter(
+        e => (e.context as Record<string, unknown>).missedWindowAt === '2026-09-07T01:00:00.000Z',
+      );
+      expect(runtimeEvents).toHaveLength(1);
+      expect(runtimeEvents[0]!.errorType).toBe('other');
+      expect(runtimeEvents[0]!.severity).toBe('low');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('运行时对账去重：同一错过窗口已被启动对账落账 → 运行时不重复落', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-06T08:00:00.000Z')); // #823: 固定系统时间——getNextTime mock 返回固定值，不定住 Date.now 会让 setTimeout 拿到负延迟
+    try {
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
+      const agentInvoke = createMockAgentInvoke();
+      const prevDue = new Date('2026-09-06T01:00:00.000Z');
+      const cronParser = createMockCronParser(new Date('2026-09-07T01:00:00.000Z'), prevDue);
+      const healingRepo = makeHealingRepo823();
+
+      taskRepo._store.set('task-dedup', makeTask({
+        id: 'task-dedup',
+        scheduleType: 'cron',
+        cron: '0 9 * * *',
+        lastTriggeredAt: '2026-09-05T01:00:00.000Z',
+      } as never));
+      convRepo._addConversation('conv-1', { status: 'active' });
+
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+        cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
+        healingRepo: healingRepo as never,
+        tickImpl: async () => {}, // #823：隔离轮询补触发，只验证对账定时器
+      });
+      await service.start();
+      const afterStartup = healingRepo._events.length; // 启动对账落 1 条
+      expect(afterStartup).toBe(1);
+      await vi.advanceTimersByTimeAsync(3_600_000 * 3); // 推进 3h → 3 次运行时对账
+      await service.stop();
+
+      // 同一窗口（prevDue 未变）3 次运行时对账后仍只有 1 条——findOpen 去重生效
+      expect(healingRepo._events).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stop() 清理运行时对账定时器：stop 后推进时间不再落账', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-06T08:00:00.000Z'));
+    try {
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
+      const agentInvoke = createMockAgentInvoke();
+      const prevDue = new Date('2026-09-06T01:00:00.000Z');
+      const cronParser = createMockCronParser(new Date('2026-09-07T01:00:00.000Z'), prevDue);
+      const healingRepo = makeHealingRepo823();
+
+      taskRepo._store.set('task-stop', makeTask({
+        id: 'task-stop',
+        scheduleType: 'cron',
+        cron: '0 9 * * *',
+        lastTriggeredAt: '2026-09-05T01:00:00.000Z',
+      } as never));
+      convRepo._addConversation('conv-1', { status: 'active' });
+
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+        cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
+        healingRepo: healingRepo as never,
+        tickImpl: async () => {}, // #823：隔离轮询补触发，只验证对账定时器
+      });
+      await service.start();
+      await service.stop();
+      healingRepo._events.length = 0;
+      (cronParser as unknown as { prevDue: Date | null }).prevDue = new Date('2026-09-07T01:00:00.000Z');
+      await vi.advanceTimersByTimeAsync(3_600_000 * 2);
+
+      expect(healingRepo._events).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

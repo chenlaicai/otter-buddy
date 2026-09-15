@@ -28,6 +28,10 @@ const ONCE_RETRY_DELAY_MS = 65_000; // 65 秒（避开 claimTask 60s 窗口）
 
 /** #640: 轮询间隔（30 秒）。quartz/celery beat 模式：定时扫描 active 任务，比对墙钟，迟到即补触发 */
 const POLL_INTERVAL_MS = 30_000;
+/** #823: 运行时定期对账间隔（1 小时）。启动对账（#814）只覆盖重启时刻——9/6 现场：服务在线
+ *  但轮询 tick 循环整体死亡（setInterval 异常静默/事件循环假死），self-healing-analysis 错过
+ *  18:00 窗口、2 条 healing events 悬置 28h。定期对账独立于 tick 定时器运行，tick 死了对账仍响。 */
+const RUNTIME_RECONCILE_INTERVAL_MS = 3_600_000;
 /** #775 执行级看门狗轮询：任务触发后按此间隔探测「台账在途尝试 + 产出活性」。
  *  #516 静默窗是「无产出才判死」的容忍窗；换轨后信号可能被闸门冻结（用户停机/限流熔断），
  *  静默窗判死会误杀「被闸门保留、等待恢复」的信号——判活优先看台账（in_progress 即活），
@@ -58,6 +62,8 @@ export interface CronParser {
 }
 
 export interface SchedulerServiceOptions {
+  /** #823 测试注入：替换轮询 tick 实现（生产不传，默认 tickReal） */
+  tickImpl?: () => Promise<void>;
   taskRepo: ScheduledTaskRepository;
   convRepo: ConversationRepository;
   /** F20260913ctlv 收尾批2：scheduler 内部信号唯一落点 = entries（system entry）。
@@ -93,6 +99,8 @@ export class SchedulerService {
   private timers = new Map<string, NodeJS.Timeout>();
   /** #640: 轮询定时器（唯一，全局扫描所有 active 任务） */
   private pollTimer: NodeJS.Timeout | undefined;
+  /** #823: 运行时定期对账定时器（独立于 pollTimer——对账的意义就是在 tick 死亡时仍可见） */
+  private reconcileTimer: NodeJS.Timeout | undefined;
   /** #640: 任务下次预期触发时间缓存（内存，避免每次从 cron 重算） */
   private nextExpectedTrigger = new Map<string, Date>();
   private readonly taskRepo: ScheduledTaskRepository;
@@ -132,6 +140,7 @@ export class SchedulerService {
     this.metrics = options.metrics;
     this.dispatchChainEngine = options.dispatchChainEngine;
     this.now = options.now ?? (() => performance.now());
+    if (options.tickImpl) this.tickImpl = options.tickImpl;
     this.manageSession = options.manageSession;
     this.functionRegistry = options.functionRegistry;
 
@@ -211,6 +220,8 @@ export class SchedulerService {
       } catch (err) {
         this.logger.warn('调度完整性对账失败（不阻塞启动）', { error: err instanceof Error ? err.message : String(err) });
       }
+      // #823: 运行时定期对账——独立于轮询 tick 的第二个定时器，tick 循环死亡时错过窗口仍可见
+      this.startRuntimeReconcile();
     }
     if (this.metrics) {
       const counts: Record<string, number> = { cron: 0, once: 0 };
@@ -249,6 +260,11 @@ export class SchedulerService {
       clearInterval(this.pollTimer);
       this.pollTimer = undefined;
     }
+    // #823: 停止运行时对账定时器
+    if (this.reconcileTimer) {
+      clearInterval(this.reconcileTimer);
+      this.reconcileTimer = undefined;
+    }
     // #640: 清理轮询缓存
     this.nextExpectedTrigger.clear();
   }
@@ -257,6 +273,22 @@ export class SchedulerService {
    *  比对 last_triggered_at 与 cron 应触发点，越过即触发（迟到即补跑）。
    *  Why 不依赖 setTimeout：macOS 长延迟 setTimeout 会漂移（App Nap/冻结窗口），
    *  轮询模式用 setInterval + 墙钟比对，迟到即补，不丢触发。 */
+  /** #823: 启动运行时定期对账定时器。每小时复跑 reconcileMissedWindows（自带按窗口去重，
+   *  重复报同一窗口零成本）。Why 独立定时器：9/6 根因是 tick 循环整体死亡而进程在线——
+   *  对账挂在 tick 上等于没有冗余；挂在独立 setInterval 上，两个定时器同时死的概率远低于单个。 */
+  private startRuntimeReconcile(): void {
+    if (this.reconcileTimer) return; // 防重复启动
+    this.reconcileTimer = setInterval(async () => {
+      try {
+        const tasks = await this.getAllActiveTasks();
+        await this.reconcileMissedWindows(tasks);
+      } catch (error) {
+        this.logger.error('Runtime reconcile tick failed', error as Error);
+      }
+    }, RUNTIME_RECONCILE_INTERVAL_MS);
+    this.reconcileTimer?.unref?.();
+  }
+
   private startPolling(): void {
     if (this.pollTimer) return; // 防重复启动
     this.pollTimer = setInterval(async () => {
@@ -277,7 +309,14 @@ export class SchedulerService {
 
   /** #640: 轮询 tick——扫描所有 active 任务，比对预期触发时间与墙钟，
    *  越过即触发（迟到即补跑），记录 drift 值用于可观测性。 */
+  /** #823 可注入 tick（测试替换为 noop，隔离轮询补触发干扰，专注对账定时器验证） */
+  private tickImpl: () => Promise<void> = this.tickReal.bind(this);
+
   private async tick(): Promise<void> {
+    return this.tickImpl();
+  }
+
+  private async tickReal(): Promise<void> {
     const tasks = await this.getAllActiveTasks();
     const now = Date.now();
     for (const task of tasks) {
