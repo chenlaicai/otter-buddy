@@ -4,7 +4,7 @@ description: >-
   Precondition: 实现者不得自行执行审视（异体执行原则——自己审自己等于没审；单 agent 场景下降级为搭档确认）. 审视者与被审视者应使用不同模型（模型分配规则见 otter-summon）；同模型时审视报告须标注降级.
   Use when: 搭档或父 agent 要求对代码变更（PR）或设计文档进行对抗审视.
   Not for: 闲聊评审 → companion.
-  Output: 结构化审视报告（本轮焦点 + 基础维度 B1-B4 + 焦点维度 + 严重发现附 file:line + 建议发现附更好/更差判断），代码审视留痕到 PR review comment.
+  Output: 结构化审视报告（本轮焦点 + 基础维度 B1-B4 + 焦点维度 + 严重发现附 file:line + 建议发现附更好/更差判断），代码审视按 state 决策表留痕到 PR review（严重→request-changes / delta 通过→approve / 初轮仅建议→comment）.
 co_loads: []
 category: technique
 ---
@@ -76,12 +76,36 @@ category: technique
 
 5. **独立核实**：直接运行测试和构建，不只检查开发者的结果。
 
-6. **输出报告到 PR**：先将检视结论 post 到 PR，再在 otter 对话中发轻量通知。报告中的处置栏格式见 `references/author-response-protocol.md`；多轮审视的收敛判据与终止条件见 `references/review-loop.md`。
+6. **输出报告到 PR**：先将检视结论 post 到 PR（按步骤 6a 的 state 决策表带 request-changes/approve/comment），再在 otter 对话中发轻量通知。报告中的处置栏格式见 `references/author-response-protocol.md`；多轮审视的收敛判据与终止条件见 `references/review-loop.md`。
 
-   **步骤 6a：post PR review comment**：
+   **步骤 6a：post PR review（#824：按结论带 state + 正文必走 body-file）**：
+
+   审查内容可能含被审查代码的进程终止族词元——内联进 `--body` 会触发 bash 守卫拦截（#858 现场：检视獭被拦 13 起、对抗审视流程在守卫层断裂）。正文一律先落文件（write 工具或工作区），再 `--body-file` 引用。
+
+   **review state 决策表（F20260915rgte，机械闸门——不可一律 --comment）**：
+
+   | 检视结论 | gh 命令 | 语义 |
+   |---|---|---|
+   | 有严重发现（任何轮次，含 delta） | `gh pr review <PR> --request-changes --body-file <f>` | 机械挡合并 |
+   | delta 复核通过（无严重发现未处置） | `gh pr review <PR> --approve --body-file <f>` | 闸门打开 |
+   | 仅建议发现、待作者处置（初轮中间态） | `gh pr review <PR> --comment --body-file <f>` | 悬置，不挡不放 |
+   | 初轮 0 严重 0 建议（一次通过） | `gh pr review <PR> --approve --body-file <f>` | 闸门直接打开 |
+
+   > state 是「本 review 提交时的结论」，不是终身判决——先 request-changes、修复后 delta 通过再 approve 是正常流程。审查结论措辞与 state 对应：request-changes ↔ 「**需要修改**」；approve ↔ 「**通过（delta 复核）**」。
 
    ```bash
-   gh pr review <PR_NUMBER> --comment --body "## 审查者
+   # 1. 先用 write 工具把报告写入文件（例：/tmp/review-<PR_NUMBER>.md）
+   # 2. 按决策表选 state 提交（命令行不含报告正文）
+   gh pr review <PR_NUMBER> --request-changes --body-file /tmp/review-<PR_NUMBER>.md  # 有严重发现
+   gh pr review <PR_NUMBER> --approve --body-file /tmp/review-<PR_NUMBER>.md          # delta 通过
+   gh pr review <PR_NUMBER> --comment --body-file /tmp/review-<PR_NUMBER>.md          # 仅建议发现待处置
+   gh pr review <PR_NUMBER> --approve --body-file /tmp/review-<PR_NUMBER>.md          # 初轮零发现一次通过
+   ```
+
+   报告文件内容（模板）：
+
+   ```markdown
+   ## 审查者
    [海獭名号]
 
    ## 审查结论
@@ -104,8 +128,8 @@ category: technique
     - 更好 → 本 PR 修复 / 建 issue #N（论证本 PR 无法承载）
     - 更差 → 反驳（必须附证据）]
 
-   🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by [海獭名号]"
-   ```
+   （末尾附 signature-convention skill 的 review 署名行）
+   "```
 
    **步骤 6b：在 otter 对话中发轻量通知**：
 
@@ -120,6 +144,7 @@ category: technique
    - PR 是检视意见的 single source of truth
    - otter 对话中只发轻量通知，不重复输出完整报告
    - PR review comment 放审查者名号、审查结论、基础维度检查、严重发现清单和建议发现，不放审视者自省、维度扫视等内部细节
+   - PR review 按 state 决策表留痕（严重→request-changes / delta 通过→approve / 初轮仅建议→comment）——COMMENT state 不挡合并，发现严重问题却只留 comment = 闸门失效
    - 如果检视獭没有 `gh` 工具或 PR 信息缺失，在 otter 对话中输出完整报告，并声明"未留痕到 PR"
    - 文档审视不需要 PR 留痕，在 otter 对话中输出完整报告
 
@@ -132,7 +157,7 @@ category: technique
 [海獭名号]
 
 ## 审查结论
-**需要修改** / **存在以下问题（决策者判断）**
+**需要修改** / **存在以下问题（决策者判断）** / **通过（delta 复核）**（与 review state 对应：request-changes / comment / approve）
 
 ## 模型多样性
 - 被审查方模型：[模型名]
@@ -165,7 +190,7 @@ category: technique
   - **更好** → 本 PR 修复（diff 可见）/ 建 issue（论证"本 PR 无法承载"成立 + #N 链接 + 登记 Discovered Issues）
   - **更差** → 反驳（必须附证据：file:line、测试结果、文档原文；含事实错误/看错/误解）
 
-🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by [海獭名号]
+报告末尾署名行按 signature-convention skill 的 review 署名格式（PR description 与 review 评论同格式）。
 ```
 
 ### Otter 对话轻量通知模板
@@ -176,6 +201,8 @@ category: technique
 ```
 
 ### Otter 对话完整报告模板（无 gh 工具或文档审视时）
+
+报告末尾署名行同样按 signature-convention skill 的 review 署名格式。
 
 ```markdown
 ## 审查者
@@ -202,7 +229,7 @@ category: technique
 - 我是否用"建议"暗示了可忽略？
 
 ## 审查结论
-**需要修改** / **存在以下问题（决策者判断）**
+**需要修改** / **存在以下问题（决策者判断）** / **通过（delta 复核）**（与 review state 对应：request-changes / comment / approve）
 
 ## 严重发现
 ### 发现 N：[简要描述]
@@ -241,7 +268,7 @@ category: technique
 - [ ] 验收标准 1
 - [ ] 验收标准 2
 
-🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by [海獭名号]
+（末尾附 signature-convention skill 的 review 署名行）
 ```
 
 ### 禁用语

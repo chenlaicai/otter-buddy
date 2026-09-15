@@ -352,3 +352,79 @@ describe('F20260909rmpx RestartModal 模型切换', () => {
     expect(captured).toEqual({ summary: '原模型重启', modelAlias: undefined })
   })
 })
+
+function renderNewConvModal(onConfirm: (title: string, modelAlias?: string) => void) {
+  const noop = () => {}
+  act(() => {
+    root.render(
+      <ConversationModals
+        modal={{ type: 'new-conv' }}
+        otters={[]}
+        sessions={{}}
+        onClose={noop}
+        onConfirmNewConv={onConfirm}
+        onConfirmArchive={noop}
+        onConfirmCreateOtter={noop}
+        onConfirmDissolve={noop}
+        onConfirmRestart={noop}
+        onConfirmLinkResource={noop}
+        onOpenRestart={noop}
+        onOpenDissolve={noop}
+      />
+    )
+  })
+}
+
+describe('新建对话选大獭模型', () => {
+  beforeEach(() => {
+    getSettingsMock.mockReset()
+    getSettingsMock.mockResolvedValue({
+      models: [
+        { alias: 'glm', provider: 'zhipu', model: 'glm-5' },
+        { alias: 'kimi', provider: 'moonshot', model: 'kimi-k3' },
+      ],
+      defaultModelAlias: 'glm',
+      userName: '',
+      port: 3000,
+    } as unknown as Parameters<typeof getSettingsMock.mockResolvedValue>[0])
+  })
+
+  it('渲染模型下拉，默认选中配置文件默认模型（defaultModelAlias）', async () => {
+    renderNewConvModal(() => {})
+    await act(async () => { await Promise.resolve() })
+    const select = document.querySelector('select') as HTMLSelectElement
+    expect(select).toBeTruthy()
+    expect(select.options.length).toBe(2)
+    expect(select.value).toBe('glm')
+    // 默认项带「（默认）」标注
+    expect(select.options[0].textContent).toContain('（默认）')
+  })
+
+  it('选中其他模型后创建携带 modelAlias；默认模型时携带 defaultAlias', async () => {
+    let captured: { title: string; modelAlias?: string } | null = null
+    renderNewConvModal((title, modelAlias) => { captured = { title, modelAlias } })
+    await act(async () => { await Promise.resolve() })
+    const select = document.querySelector('select') as HTMLSelectElement
+    act(() => { fireEvent.change(select, { target: { value: 'kimi' } }) })
+    const input = document.querySelector('input') as HTMLInputElement
+    act(() => { fireEvent.change(input, { target: { value: '测试对话' } }) })
+    const confirmBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent === '创建')!
+    act(() => { confirmBtn.click() })
+    expect(captured).toEqual({ title: '测试对话', modelAlias: 'kimi' })
+  })
+
+  it('settings 加载失败时降级：不渲染下拉，展示「大獭 (默认)」，创建不下发 modelAlias', async () => {
+    getSettingsMock.mockReset()
+    getSettingsMock.mockRejectedValue(new Error('test: settings 不可用'))
+    let captured: { title: string; modelAlias?: string } | null = null
+    renderNewConvModal((title, modelAlias) => { captured = { title, modelAlias } })
+    await act(async () => { await Promise.resolve() })
+    expect(document.querySelector('select')).toBeNull()
+    expect(document.body.textContent).toContain('大獭 (默认)')
+    const input = document.querySelector('input') as HTMLInputElement
+    act(() => { fireEvent.change(input, { target: { value: '降级对话' } }) })
+    const confirmBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent === '创建')!
+    act(() => { confirmBtn.click() })
+    expect(captured).toEqual({ title: '降级对话', modelAlias: undefined })
+  })
+})

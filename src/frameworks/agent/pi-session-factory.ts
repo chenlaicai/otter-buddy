@@ -726,11 +726,12 @@ export class PiSessionFactory implements AgentGateway {
           // F20260911pspl：不再 dispose——session 归还池，等待驱逐或下次 invoke。
           // pendingRestart 的消费（result._selfRestart 已设置）与 restart 后的重建由
           // agent-invoker 层递归 invoke 完成：那时池里还是旧 session——restart 语义
-          // 要求「下轮新 session」，故在消费点同步 evict。
+          // 要求「下轮新 session」，故在消费点同步 evict（#904 归属校验防 stale 双活误逐）。
           if (toolContext.pendingRestart) {
-            this.pool.evict(otterId);
-            this.poolMeta.delete(otterId);
+            this._evictPooledIfOwned(otterId, toolContext);
           }
+
+          // #904：pendingRestart 消费点的归属校验见 _evictPooledIfOwned 方法注释
           // F20260913ctlv 整合移植：readOnly session 不入池（_acquirePooled 守卫，
           // 独立冷启动路径，不是池内 session），此处 dispose 释放资源——
           // 不涉及外层 streaming session（#897 语义由 _acquirePooled 的嵌套抛错保护）
@@ -743,6 +744,22 @@ export class PiSessionFactory implements AgentGateway {
   }
 
 
+
+  /** #904：pendingRestart 消费点的归属校验 evict。
+   *  三条件叠加的误逐场景（issue #904）：旧 invoke 卡死超 300s → stale steal（#599）放行
+   *  新 invoke 冷启动新 session 入池 → 旧 invoke 苏醒收尾时 pendingRestart 已置位 →
+   *  按 otterId 无条件 evict 会逐出新 invoke 的新 session。归属校验：池内条目的
+   *  toolContext 必须是本 invoke 的才逐（stale steal 后旧 session 已出池成孤儿，
+   *  池内只会是新 invoke 的）；不匹配则跳过——旧孤儿 session 由旧 invoke 生命周期托管。 */
+  private _evictPooledIfOwned(otterId: string, toolContext: ToolContext): void {
+    if (this.poolMeta.get(otterId)?.toolContext !== toolContext) {
+      // #904 可观测性：归属拦截本身留 debug 信号（stale steal 入口已有 warn，此处非异常）
+      this.logger.debug('pendingRestart evict skipped: pooled entry owned by newer invoke', { otterId });
+      return;
+    }
+    this.pool.evict(otterId);
+    this.poolMeta.delete(otterId);
+  }
 
   /**
    * F20260908rlcp：启动成功游标推进——prompt 发出且 SDK 订阅建立（首次事件到达）后调用。
@@ -795,7 +812,7 @@ export class PiSessionFactory implements AgentGateway {
   private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, sessionManager: SessionManager, register: InvokeRegister, readOnly?: boolean) {
     const conversationId = options?.conversationId ?? "";
     const otterToolNames = this.buildOtterToolWhitelist(otterType);
-    const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, allowedNames: otterToolNames, register, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, signalRepo: this.cfg.signalRepo, logger: this.logger });
+    const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, allowedNames: otterToolNames, register, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, signalRepo: this.cfg.signalRepo, isOtterRunning: (id: string) => this.isRunning(id), logger: this.logger });
     const codingTools = getCodingToolsForOtterType(otterType);
     // F20260825hndf Phase 2：readOnly 模式只保留 read 工具，排除 write/edit/bash
     const filteredCodingTools = readOnly ? codingTools.filter(t => t === 'read') : codingTools;

@@ -18,6 +18,7 @@ import type { SignalRouter } from '@usecases/conversation/signal-router';
 import { DirectChainGatedError } from '@usecases/conversation/signal-router';
 import type { FunctionRegistry } from '@usecases/paper-trading/function-registry';
 import { DomainError, isSessionLockConflictError } from '@entities/errors';
+import { reconcilePromptTemplates } from './prompt-template-reconciler';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -199,6 +200,8 @@ export class SchedulerService {
       this.logger.warn('启动对账失败（不阻塞启动）', { error: err instanceof Error ? err.message : String(err) });
     }
     const tasks = await this.getAllActiveTasks();
+    // #784：prompt 启动对账（见 reconcilePromptBodies）
+    await this.reconcilePromptBodies();
     // #814：调度完整性对账——active cron 任务的 last_triggered_at 落后于 cron 应触发时间时，
     // 落 healing event（errorType='other'，severity='low'）让静默日在台账可见。
     // 服务停机期间无进程可写，重启后对账是唯一可见性窗口；对账失败不阻塞启动。
@@ -221,6 +224,18 @@ export class SchedulerService {
     }
     // #640: 启动轮询定时器（quartz/celery beat 模式）
     this.startPolling();
+  }
+
+  /** #784：prompt 启动对账——prompts/scheduled/*.md（git 真相源）与 DB body 漂移即同步。
+   *  覆盖全量任务（含 disabled）；dynamic 模板、无模板任务天然豁免。失败不阻塞启动（仅日志）。 */
+  private async reconcilePromptBodies(): Promise<void> {
+    try {
+      await reconcilePromptTemplates({ taskRepo: this.taskRepo, logger: this.logger });
+    } catch (err) {
+      this.logger.warn('prompt 启动对账失败（不阻塞启动）', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   /** 停止调度器（进程退出时调用） */
@@ -475,8 +490,11 @@ export class SchedulerService {
       if (!prevDue) continue;
       const reference = task.lastTriggeredAt ? new Date(task.lastTriggeredAt)
         : task.createdAt ? new Date(task.createdAt) : null;
-      // 已触发过且 reference >= prevDue → 无错过；从未触发但 createdAt >= prevDue → 未到首个窗口
-      if (!reference || reference.getTime() >= prevDue.getTime()) continue;
+      // 已触发过且 reference >= prevDue - 容差 → 无错过；从未触发但 createdAt >= prevDue - 容差 → 未到首个窗口。
+      // #929：容差 5s 覆盖准时触发的调度抖动（现场 5 条误报 lastTriggeredAt 仅比窗口
+      // 早 0.3-1.6s，毫秒级比较把正常抖动判成「错过」，狼来了效应淹没真实信号 #823）
+      const MISSED_WINDOW_TOLERANCE_MS = 5_000;
+      if (!reference || reference.getTime() >= prevDue.getTime() - MISSED_WINDOW_TOLERANCE_MS) continue;
       const dedupKey = `${task.id}\0${prevDue.toISOString()}`;
       if (existingKeys.has(dedupKey)) continue; // 已落账过该窗口，跳过
       await this.recordMissedWindow(task, prevDue, now);

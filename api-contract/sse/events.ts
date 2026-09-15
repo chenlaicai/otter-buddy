@@ -37,6 +37,22 @@ export type SSEEventMap = {
    *  usage 缺失时不发射（右栏显示 '—' 兑底）。（modelAlias 字段审视发现 2 删除：发射端从未携带，
    *  前端用 otter.modelAlias；需要时再加，避免契约与实现不对齐） */
   "invoke.tick": { invokeId: string; otterId: string; conversationId: string; ctxWindowUsed: number; ctxMax: number; toolCallCount?: number };
+  /** F20260914evdz：invoke 过程事件实时广播（Session 弹窗观察模式数据源）。
+ *  发射时机 = persistInvokeEvent 落库成功后——每个落库的流式过程事件顺手广播一帧；
+ *  主界面不渲染（弹窗独享），推送节奏 = 獭干活的真实节奏（无定时器）。
+ *  广播失败静默（落库才是真相源，弹窗重新打开时会全量拉取补齐） */
+  "invoke.event": {
+    invokeId: string;
+    otterId: string;
+    conversationId?: string;
+    event: {
+      id: string;
+      eventType: "assistant_text" | "assistant_toolcall" | "tool_result" | "speak" | "error";
+      payload: Record<string, unknown>;
+      sequenceNum: number;
+      createdAt: string;
+    };
+  };
   /** invoke 结束（completed/failed/aborted）。duration 为 invoke 耗时（ms，number） */
   "invoke.end": { invokeId: string; otterId: string; otterName?: string; status: "completed" | "failed" | "aborted"; endedAt: string; duration?: number; toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string; endBody?: string };
 

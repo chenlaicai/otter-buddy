@@ -43,3 +43,9 @@ If none, write "无".
 ## Notes
 
 Anything reviewers should pay special attention to.
+
+---
+
+<!-- 署名行（创建时必填）：将下方 [海獭名号] 占位符整体替换为实际署名獭的名号（如「大獭」「检视獭-903fin」），禁止保留占位符原样或改写成「[海獭名号: xxx]」字段填空格式。未署名的 PR 不得创建。 -->
+
+🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by [海獭名号]

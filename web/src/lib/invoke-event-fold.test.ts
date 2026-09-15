@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { foldInvokeEvents } from './invoke-event-fold'
+import { foldInvokeEvents, type FoldedStep } from './invoke-event-fold'
 import type { InvokeEventDTO } from '@contract/api'
 
 /** F20260914rtsp AT-8/AT-9/AT-12：折叠归并规则验证 */
@@ -62,7 +62,7 @@ describe('foldInvokeEvents', () => {
     expect((steps[0] as { tsEnd?: unknown }).tsEnd).toBeUndefined()
   })
 
-  it('think / speak / error 直通', () => {
+  it('think / speak / error 直通（无同名 start 时 speak 不吸收）', () => {
     const steps = foldInvokeEvents([
       ev('e1', 'assistant_text', { content: [{ type: 'text', text: '思考中' }] }, 1),
       ev('e2', 'speak', { body: '发言内容' }, 2),
@@ -70,8 +70,59 @@ describe('foldInvokeEvents', () => {
     ])
     expect(steps).toHaveLength(3)
     expect(steps[0]).toMatchObject({ kind: 'think', text: '思考中' })
-    expect(steps[1]).toMatchObject({ kind: 'speak', body: '发言内容' })
+    expect(steps[1]).toMatchObject({ kind: 'speak', body: '发言内容', rawEventIds: ['e2'] })
     expect(steps[2]).toMatchObject({ kind: 'error', message: 'boom' })
+  })
+
+  it('speak 吸收：同名 start 步被发言事件吸收，不再出现假工具行（F20260914evdz）', () => {
+    // 真实落库形态：speak 的 start 落 assistant_toolcall，end 被 event-mapping 特判落 speak 事件
+    const steps = foldInvokeEvents([
+      ev('e1', 'assistant_toolcall', { name: 'speak', arguments: { body: '发言内容' } }, 1),
+      ev('e2', 'speak', { body: '发言内容' }, 2),
+    ])
+    expect(steps).toHaveLength(1)
+    expect(steps[0]).toMatchObject({ kind: 'speak', body: '发言内容', rawEventIds: ['e1', 'e2'] })
+  })
+
+  it('speak 吸收保留前后工具行顺序：被吸收的 start 不占位', () => {
+    const steps = foldInvokeEvents([
+      ev('e1', 'assistant_toolcall', { name: 'read', arguments: { path: 'a' } }, 1),
+      ev('e2', 'tool_result', { name: 'read', result: 'ok' }, 2),
+      ev('e3', 'assistant_toolcall', { name: 'speak', arguments: { body: '完成' } }, 3),
+      ev('e4', 'speak', { body: '完成' }, 4),
+      ev('e5', 'assistant_toolcall', { name: 'write', arguments: { path: 'b' } }, 5),
+      ev('e6', 'tool_result', { name: 'write', result: 'done' }, 6),
+    ])
+    expect(steps).toHaveLength(3)
+    expect(steps[1]).toMatchObject({ kind: 'speak', body: '完成' })
+    expect(steps[0]).toMatchObject({ kind: 'call', name: 'read' })
+    expect(steps[2]).toMatchObject({ kind: 'call', name: 'write' })
+  })
+
+  it('invokeEnded：未配对的 start 步标记 interrupted（已中断非执行中，F20260914evdz）', () => {
+    const steps = foldInvokeEvents(
+      [
+        ev('e1', 'assistant_toolcall', { name: 'bash', arguments: { command: 'ls' } }, 1),
+        ev('e2', 'assistant_toolcall', { name: 'speak', arguments: { body: '被打断' } }, 2),
+        ev('e3', 'tool_result', { name: 'bash', result: 'ok' }, 3),
+      ],
+      { invokeEnded: true },
+    )
+    const speakPending = steps.find((s): s is Extract<FoldedStep, { kind: 'call' }> => s.kind === 'call' && s.name === 'speak')
+    expect(speakPending).toMatchObject({ pending: false, interrupted: true })
+    // bash 正常配对不受影响（无中断标记）
+    const bashStep = steps[0] as Extract<FoldedStep, { kind: 'call' }>
+    expect(bashStep).toMatchObject({ kind: 'call', name: 'bash', pending: false })
+    expect(bashStep.interrupted).toBeUndefined()
+  })
+
+  it('无 invokeEnded：未配对 start 保持 pending（running 中真执行中）', () => {
+    const steps = foldInvokeEvents([
+      ev('e1', 'assistant_toolcall', { name: 'speak', arguments: { body: '还没轮到' } }, 1),
+    ])
+    const speakStep = steps[0] as Extract<FoldedStep, { kind: 'call' }>
+    expect(speakStep).toMatchObject({ kind: 'call', name: 'speak', pending: true })
+    expect(speakStep.interrupted).toBeUndefined()
   })
 
   it('错误结果识别：result.isError === true → isError', () => {

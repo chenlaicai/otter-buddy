@@ -23,7 +23,7 @@ import { useConversationListPolling } from '../../hooks/use-conversation-list-po
 import { useDeferredOps } from './hooks/useDeferredOps'
 import { ScheduledTaskModal } from './ScheduledTaskModal'
 import { ExecutionHistoryModal } from './ExecutionHistoryModal'
-import { SessionModal } from './SessionModal'
+import { SessionModal, type SessionLiveItem } from './SessionModal'
 import { useScheduledTasks } from './hooks/useScheduledTasks'
 import { useCardBridge } from './hooks/useCardBridge'
 import * as api from '../../api/client'
@@ -149,6 +149,14 @@ function ConversationPage() {
   const [executionHistoryTaskId, setExecutionHistoryTaskId] = useState<string | null>(null)
   /** F20260913ctlv：Session 弹窗（点击獭头像弹出，展示该獭 invoke 历史与流式过程） */
   const [sessionModalOtter, setSessionModalOtter] = useState<LocalOtter | null>(null)
+  /** F20260914evdz：Session 弹窗实时事件通道（事件驱动，无定时器）。
+   *  SSE invoke.event 落进 buffer（不直接 setState——避免无关事件驱动主界面 re-render）；
+   *  SessionModal 挂载时拉空 buffer 并注册 onChange 订阅后续增量。
+   *  invoke.end 到达即 flush（防事件乱序覆盖终态前最后几帧） */
+  const sessionLiveEvents = useRef<SessionLiveItem[]>([])
+  const sessionLiveListeners = useRef(new Set<(e: SessionLiveItem) => void>())
+  /** SSE 连接状态（弹窗断连提示数据源） */
+  const sseConnectedRef = useRef(true)
   /** F20260825scrf：modalOpen 派生（8 种 ConversationModals + 定时任务/执行历史 modal）。
    *  下沉到 index 顶层供 batcher/轮询冻结用；setModalOpen 仅在此处同步 */
   const isAnyModalOpen = modal.type !== 'none' || scheduledTaskModal.type !== 'none' || executionHistoryTaskId !== null
@@ -499,6 +507,18 @@ function ConversationPage() {
         showToast(`Agent 错误: ${d.message}`, 'error')
       },
       // ── invoke 生命周期（右栏状态面板数据源；同时驱动时间线居中条目与 speak 气泡终态）──
+      // F20260914evdz：invoke 过程事件实时通道——仅 Session 弹窗消费。事件进 buffer +
+      // 通知已挂载的弹窗；主界面零 setState（弹窗关着时只有 ref push，无 re-render）
+      'invoke.event': (data) => {
+        const d = data as { invokeId: string; otterId: string; event: { id: string; eventType: SessionLiveItem['ev'] extends infer T ? T extends { eventType: infer E } ? E : never : never; payload: Record<string, unknown>; sequenceNum: number; createdAt: string } }
+        const item: SessionLiveItem = {
+          invokeId: d.invokeId, otterId: d.otterId,
+          ev: { id: d.event.id, invokeId: d.invokeId, eventType: d.event.eventType, payload: d.event.payload, sequenceNum: d.event.sequenceNum, createdAt: d.event.createdAt },
+        }
+        sessionLiveEvents.current.push(item)
+        if (sessionLiveEvents.current.length > 400) sessionLiveEvents.current.splice(0, sessionLiveEvents.current.length - 400)
+        for (const fn of sessionLiveListeners.current) fn(item)
+      },
       'invoke.start': (data) => {
         const d = data as { invokeId: string; otterId: string; otterName?: string; triggerEntryId?: string; startedAt?: string }
         const startTs = d.startedAt || nowTs()
@@ -519,6 +539,11 @@ function ConversationPage() {
         }
         /** 獭可能在 chain 中新建，保证右栏参与者列表能见 */
         if (d.otterId) upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId)
+        /** F20260914evdz：Session 弹窗——新行动开始信号（列表自动冒行 + 自动展开） */
+        const startItem: SessionLiveItem = { invokeId: d.invokeId, otterId: d.otterId, ev: null, start: true }
+        sessionLiveEvents.current.push(startItem)
+        if (sessionLiveEvents.current.length > 400) sessionLiveEvents.current.splice(0, sessionLiveEvents.current.length - 400)
+        for (const fn of sessionLiveListeners.current) fn(startItem)
       },
       // F20260914rtsp：invoke 过程心跳——ctx 窗口占用 + 工具计数实时化（右栏 xx/xx 数据源）
       'invoke.tick': (data) => {
@@ -533,6 +558,8 @@ function ConversationPage() {
       'invoke.end': (data) => {
         const d = data as { invokeId: string; otterId?: string; status: 'completed' | 'failed' | 'aborted'; endedAt?: string; invokeEndEntryId?: string; endBody?: string }
         const otterId = d.otterId || findOtterByInvokeId(invokeStatesRef.current, d.invokeId)
+        /** F20260914evdz：invoke 终态即 flush 实时通道（弹窗收到 ev:null 信号后全量拉取收敛，防乱序丢帧） */
+        for (const fn of sessionLiveListeners.current) fn({ invokeId: d.invokeId, otterId: otterId || '', ev: null as never })
         if (!otterId) return
         const endedAt = d.endedAt || nowTs()
         syncInvokeState(prevStates => applyInvokeEnd(prevStates, {
@@ -597,6 +624,13 @@ function ConversationPage() {
     const maxDelay = 30000
     let disposed = false
 
+    function notifyConn(connected: boolean): void {
+      if (sseConnectedRef.current === connected) return
+      sseConnectedRef.current = connected
+      const item: SessionLiveItem = { invokeId: '', otterId: '', ev: null, conn: connected }
+      for (const fn of sessionLiveListeners.current) fn(item)
+    }
+
     function connect() {
       if (disposed) return
       xhr = new XMLHttpRequest()
@@ -634,10 +668,11 @@ function ConversationPage() {
         }
         // 收到数据后重置重连延迟
         reconnectDelay = 1000
+        notifyConn(true)
       }
 
-      xhr.onerror = () => { scheduleReconnect() }
-      xhr.onload = () => { if (!disposed) scheduleReconnect() }
+      xhr.onerror = () => { notifyConn(false); scheduleReconnect() }
+      xhr.onload = () => { if (!disposed) { notifyConn(false); scheduleReconnect() } }
 
       xhr.send()
     }
@@ -1102,9 +1137,9 @@ function ConversationPage() {
   }
   function closeCtxMenu() { setCtxMenu(null) }
 
-  async function confirmNewConv(title: string) {
+  async function confirmNewConv(title: string, modelAlias?: string) {
     try {
-      const dto = await api.createConversation({ title })
+      const dto = await api.createConversation({ title, modelAlias })
       const conv = mapConversationDTO(dto)
       setConversations(prev => [conv, ...prev])
       setModal({ type: 'none' })
@@ -1405,7 +1440,13 @@ function ConversationPage() {
 
       {/* F20260913ctlv：Session 弹窗（獭 invoke 历史 + 流式过程） */}
       {sessionModalOtter && (
-        <SessionModal otter={sessionModalOtter} conversationId={activeId || ''} onClose={() => setSessionModalOtter(null)} />
+        <SessionModal
+          otter={sessionModalOtter}
+          conversationId={activeId || ''}
+          onClose={() => setSessionModalOtter(null)}
+          liveEvents={sessionLiveEvents}
+          liveListeners={sessionLiveListeners}
+        />
       )}
     </AppLayout>
   )

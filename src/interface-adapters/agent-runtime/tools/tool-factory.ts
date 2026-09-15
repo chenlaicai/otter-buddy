@@ -11,7 +11,7 @@ import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE, GROUP_ID_REQUIR
 import type { Logger } from "@usecases/ports/logger";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import { interceptHealingReport, createManageHealingEventsTool } from "./healing-tools";
-import { createHaltOtterTool, createQuerySignalsTool, createResolveSignalTool, interceptSignalReport } from "./signal-tools";
+import { createHaltOtterTool, createQuerySignalsTool, createResolveSignalTool, createUnhaltOtterTool, interceptSignalReport } from "./signal-tools";
 import { DomainError } from "@entities/errors";
 import { createWorkspaceTools } from "./workspace-tools";
 import { createStockDataTool } from "./stock-tools";
@@ -935,8 +935,10 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
   }
   // F20260826mwrd C1：halt 工具（仅 signalRepo 注入时注册；编排大獭用——
   // small 型 whitelist 不含 halt_otter，天然隔离；query_signals 两型均可用）
+  // #927：unhalt_otter 解除工具（仅 big 型，同 halt_otter 编排域）
   if (signalRepo) {
     tools.push(createHaltOtterTool(ctx, signalRepo, logger));
+    tools.push(createUnhaltOtterTool(ctx, signalRepo, logger));
     tools.push(createQuerySignalsTool(ctx, signalRepo));
     // F20260826mwrd C2：裁决写路径——resolve_signal 仅 big 型（裁决权在大獭，
     // 方案 Part 2「程序化裁决义务」的代码落点）

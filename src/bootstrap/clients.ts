@@ -215,7 +215,9 @@ export function buildOtterToolClient(
       },
       invoke: {
         appendInvokeEvent: async (invokeId, eventType, payload) => {
-          await uc.sendEntry.appendInvokeEvent(invokeId, eventType as "assistant_text" | "assistant_toolcall" | "tool_result" | "error" | "speak", payload);
+          const saved = await uc.sendEntry.appendInvokeEvent(invokeId, eventType as "assistant_text" | "assistant_toolcall" | "tool_result" | "error" | "speak", payload);
+          /** F20260914evdz：透传落库事件标识（invoke.event 广播数据面） */
+          return { id: saved.id, sequenceNum: saved.sequenceNum, createdAt: saved.createdAt };
         },
         getInvokeById: async (invokeId) => {
           const invoke = await uc.sendEntry.getInvokeById(invokeId);

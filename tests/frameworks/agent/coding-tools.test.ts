@@ -97,7 +97,8 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("query_dispatch_ledger");
     expect(tools).toContain("query_signals"); // F20260826mwrd C1
     expect(tools).toContain("resolve_signal"); // F20260826mwrd C2：裁决写路径（big）
-    expect(tools).toHaveLength(35);
+    expect(tools).toContain("unhalt_otter"); // #927：halt 解除（big 编排域）
+    expect(tools).toHaveLength(36);
   });
 
   it("small otter 应包含消息/记忆/上下文/术语/产物/参与者/工作区/定时任务/自愈管理/自身重启工具，不含管理类工具", () => {
@@ -134,8 +135,9 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("query_signals"); // F20260826mwrd C1：小獭可查信号台账
     expect(tools).not.toContain("resolve_signal"); // F20260826mwrd C2：裁决仅 big
     expect(tools).toHaveLength(30);
-    // halt_otter / resolve_signal 是编排/裁决动作，仅 big 型
+    // halt_otter / resolve_signal / unhalt_otter 是编排/裁决动作，仅 big 型
     expect(tools).not.toContain("halt_otter");
+    expect(tools).not.toContain("unhalt_otter"); // #927：解除同样仅 big
     expect(tools).not.toContain("resolve_signal"); // F20260826mwrd C2
     // 管理类工具不包含
     expect(tools).not.toContain("create_otter");
@@ -155,6 +157,7 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("stock_data"); // F20260831tumv：small 走 groups 展开，含 stock/paper 块
     expect(tools).toContain("paper_trade");
     expect(tools).not.toContain("halt_otter");
+    expect(tools).not.toContain("unhalt_otter"); // #927：解除同样仅 big
     expect(tools).not.toContain("resolve_signal");
     expect(tools).not.toContain("create_otter");
     expect(tools).not.toContain("dissolve_otter");
@@ -180,6 +183,7 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("yield");
     expect(tools).toContain("query_dispatch_ledger");
     expect(tools).toContain("query_signals"); // F20260826mwrd C1
-    expect(tools).toHaveLength(35);
+    expect(tools).toContain("unhalt_otter"); // #927：halt 解除（big 编排域）
+    expect(tools).toHaveLength(36);
   });
 });

@@ -56,6 +56,7 @@ import type { Logger as LoggerType } from "@usecases/ports/logger";
 import type { RhiScanWorker as RhiScanWorkerType } from "@usecases/health/rhi-scan-worker";
 import { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import { SignalPipeline } from "@usecases/health/signal-pipeline";
+import { SignalAgingWorker } from "@usecases/signal/signal-aging-worker";
 import { collectHealingEvents } from "@usecases/health/healing-collector";
 import type { AgentSessionSource } from "@usecases/health/cost-output-collector";
 import type { CreateSnapshotRow } from "@usecases/health/snapshot-rows";
@@ -232,6 +233,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     rhiScanWorker.start();
   }
 
+  // #927：獭间信号老化扫描——独立于 daily review 调度链（9/10-9/13 断档期唯一消费方停摆的教训），
+  // pending objection/blocked 悬置 >24h 落 medium healing。挂 app 级 setInterval，随 shutdown 停。
+  const signalAgingWorker = new SignalAgingWorker(
+    () => repos.signalEvent,
+    () => repos.healingEvent,
+    logger,
+  );
+  if (options.startRhiWorker ?? true) {
+    signalAgingWorker.start();
+  }
+
   if (modelPool) validateModelAliases(db, modelPool, logger);
   
   // ── 对话工作区 ──
@@ -316,7 +328,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // #775 S4a：scheduler 换轨接线——路由器晚于 scheduler 诞生（initAgentAndScheduler
   // 内部依赖链更长），构造后注入；scheduler 触发从此过闸门+台账，与五入口同一调度纪律。
   schedulerService.attachSignalRouter(signalRouter);
-  const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, weixinPollers, registry } =
+  const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, dailyReviewInit, weixinPollers, registry } =
     await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger, messageBroadcaster, signalRouter });
 
   // ── 微信 web 登录（issue #566）：零配置可用 ──
@@ -471,8 +483,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   }
 
   /** 等待所有 ensure 完成后再启动 scheduler，确保新创建的 scheduled task 被遍历到。
-   *  与旧 main() 的差异：buildApp 会 await 这两个 ensure 再返回（确定性更高，无 LLM 调用、耗时极小）。 */
-  await Promise.allSettled([healingInit, recruitingInit]);
+   *  与旧 main() 的差异：buildApp 会 await 这两个 ensure 再返回（确定性更高，无 LLM 调用、耗时极小）。
+   *  F20260915cfgt：补 dailyReviewInit（每日复盘 seed 同样要赶在 scheduler start 前）。 */
+  await Promise.allSettled([healingInit, recruitingInit, dailyReviewInit]);
   if (options.startScheduler ?? true) {
     schedulerService.start().catch((err) => {
       logger.error(`Failed to start scheduler: ${err}`);
@@ -505,6 +518,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       retryWorker?.stopSync();
       // F20260825sgnw（#401）：RHI worker 同样先停再关 DB
       await rhiScanWorker.stop();
+      // #927：信号老化扫描同停
+      await signalAgingWorker.stop();
       // await metric flush 到文件，确保进程退出前数据落盘
       try {
         await metricsRegistry.dispose();

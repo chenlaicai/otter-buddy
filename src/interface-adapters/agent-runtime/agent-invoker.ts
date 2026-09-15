@@ -362,19 +362,11 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
   /** F20260913ctlv 彻底切换：系统消息唯一落点 = entries（system entry），messages 停写 */
-  private async sendSystemEntry(convId: string, body: string) {
-    const sendEntry = this.sendEntry!;
-    const { entry } = await sendEntry.createSystemEntry({ conversationId: convId, turnId: "", body });
-    this.logger.debug('System entry sent', { entryId: entry.id, conversationId: convId });
-    return { id: entry.id, body: entry.body, sequenceNum: entry.sequenceNum };
-  }
-
-  /** 创建 TurnCallbacks：invoke 生命周期 + SSE 事件推送（F20260913ctlv 彻底切换：全部 invoke 化） */
-  private createTurnCallbacks(
-    emitEvent: (event: SSEEvent) => void,
-    /** F20260913ctlv：invoke.end SSE 事件的 otterId 数据源 */
-    otterId?: string,
-  ): TurnCallbacks {
+  /** invoke 持久化回调集（createTurnCallbacks 拆分）：直透 send-entry 用例层 */
+  private makeInvokePersistenceCallbacks(): Pick<TurnCallbacks,
+    'getInvokeById' | 'updateInvokeStatus' | 'updateInvokeTalkingStonePassedTo'
+    | 'updateInvokeTokenUsage' | 'updateInvokeModel' | 'createInvokeEndEntry'
+  > {
     const sendEntry = this.sendEntry!;
     return {
       getInvokeById: async (invokeId: string) => {
@@ -394,6 +386,10 @@ export class AgentInvoker implements AgentTurnPort {
         await sendEntry.updateInvokeTokenUsage(invokeId, input, output);
       },
 
+      updateInvokeModel: async (invokeId: string, model: string) => {
+        await sendEntry.updateInvokeModel(invokeId, model);
+      },
+
       createInvokeEndEntry: async (invokeId: string, status: 'failed' | 'aborted', body?: string): Promise<{ entryId: string; body: string } | undefined> => {
         const invoke = await sendEntry.getInvokeById(invokeId);
         if (!invoke) return undefined;
@@ -407,6 +403,24 @@ export class AgentInvoker implements AgentTurnPort {
         });
         return { entryId: invokeEndEntry.id, body: invokeEndEntry.body ?? '' };
       },
+    };
+  }
+
+  private async sendSystemEntry(convId: string, body: string) {
+    const sendEntry = this.sendEntry!;
+    const { entry } = await sendEntry.createSystemEntry({ conversationId: convId, turnId: "", body });
+    this.logger.debug('System entry sent', { entryId: entry.id, conversationId: convId });
+    return { id: entry.id, body: entry.body, sequenceNum: entry.sequenceNum };
+  }
+
+  /** 创建 TurnCallbacks：invoke 生命周期 + SSE 事件推送（F20260913ctlv 彻底切换：全部 invoke 化）
+   *  invoke 持久化回调收编 makeInvokePersistenceCallbacks（F20260914usgm 拆分守 max-lines） */
+  private createTurnCallbacks(
+    emitEvent: (event: SSEEvent) => void,
+    otterId?: string,
+  ): TurnCallbacks {
+    return {
+      ...this.makeInvokePersistenceCallbacks(),
 
       emitInvokeEnd: (invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string; endBody?: string; otterName?: string }) => {
         emitEvent({ event: 'invoke.end', data: { invokeId, otterId: otterId ?? '', status, duration, endedAt: new Date().toISOString(), toolCallCount: stats?.toolCallCount, tokenUsage: stats?.tokenUsage, invokeEndEntryId: stats?.invokeEndEntryId, endBody: stats?.endBody, otterName: stats?.otterName } });
@@ -541,7 +555,8 @@ export class AgentInvoker implements AgentTurnPort {
       }
     }
     // F20260913ctlv 彻底切换：流式过程唯一存储 = invoke_events（message_events 停写）
-    this.persistInvokeEvent(e, opts.currentInvokeId);
+    // F20260914evdz：落库后广播 invoke.event（弹窗实时观察）——需 otterId/conversationId 路由上下文
+    this.persistInvokeEvent(e, opts.currentInvokeId, { otterId, conversationId });
     // F20260914rtsp：message_end → invoke.tick（ctx 窗口占用快照 + 工具计数，右栏实时化）
     if (e.type === "message_end") {
       this.emitInvokeTick(e, { otterId, conversationId, invokeId: opts.currentInvokeId, toolCallCount: toolCallCountBox.count }, emitEvent);
@@ -573,11 +588,33 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
   /** F20260913ctlv：流式事件同步落 invoke_events（Session 弹窗数据源）+ 工具计数递增 */
-  private persistInvokeEvent(e: AgentStreamEvent, invokeId: string): void {
+  private persistInvokeEvent(e: AgentStreamEvent, invokeId: string, ctx?: { otterId?: string; conversationId?: string }): void {
     const sendEntry = this.sendEntry;
     if (!sendEntry) return;
     const ievt = mapToInvokeEventInput(e);
-    if (ievt) sendEntry.appendInvokeEvent(invokeId, ievt.eventType, ievt.payload).catch((err: unknown) => {
+    if (ievt) sendEntry.appendInvokeEvent(invokeId, ievt.eventType, ievt.payload).then((saved: unknown) => {
+      /** F20260914evdz：落库成功后广播 invoke.event（Session 弹窗观察模式）。
+ *  广播是 fire-and-forget 增量通道：落库才是真相源，弹窗重新打开时全量拉取补齐。
+ *  主界面不渲染此事件（弹窗独享）——不会引起主界面 re-render */
+      const s = saved as { id?: string; sequenceNum?: number; createdAt?: string } | null;
+      if (s?.id != null && s.sequenceNum != null) {
+        this.messageBroadcaster?.broadcastEvent(ctx?.conversationId ?? "", {
+          event: "invoke.event",
+          data: {
+            invokeId,
+            otterId: ctx?.otterId ?? "",
+            conversationId: ctx?.conversationId,
+            event: {
+              id: s.id,
+              eventType: ievt.eventType,
+              payload: ievt.payload,
+              sequenceNum: s.sequenceNum,
+              createdAt: s.createdAt ?? new Date().toISOString(),
+            },
+          },
+        });
+      }
+    }).catch((err: unknown) => {
       const m = err instanceof Error ? err.message : String(err);
       this.logger.warn(`Failed to persist invoke event for ${invokeId}: ${m}`);
     });
