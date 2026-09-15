@@ -84,7 +84,7 @@ ${HTML_REPORT_MAX_BYTES / 1024}KB ≈ 21K 汉字。复杂议题可在 30 秒层�
 export function createGetHtmlReportContractTool(): AgentTool {
   return {
     name: "get_html_report_contract",
-    description: `获取议题汇报卡（html-report）的完整写作契约（三层结构/样式变量/交互 API/禁用清单）. When: 准备写 \`\`\`html-report\`\`\` 议题汇报卡前必须调用（speak description 只含最小骨架，完整规则在本工具返回值里）. Output: 契约全文. GOTCHA: html-report 单卡 ≤${HTML_REPORT_MAX_BYTES / 1024}KB、单消息 ≤${HTML_REPORT_MAX_PER_MESSAGE} 张；写在 speak 之外的不会进入消息.`,
+    description: `获取议题汇报卡（html-report）的完整写作契约（三层结构/样式变量/交互 API/禁用清单）. When: 准备写 \`\`\`html-report\`\`\` 议题汇报卡前必须调用（speak description 只含最小骨架，完整规则在本工具返回值里）. Output: 契约全文. GOTCHA: html-report 单卡 ≤${HTML_REPORT_MAX_BYTES / 1024}KB、单消息 ≤${HTML_REPORT_MAX_PER_MESSAGE} 张；写在 speak 之外的不会进入消息. GOTCHA: 会话冷启动后需重新调用（结果不持久化进上下文）.`,
     parameters: {
       type: "object",
       properties: {},

@@ -3,6 +3,8 @@ import type { LocalMessage } from '../../../lib/mappers'
 import {
   CARD_MAX_HEIGHT,
   CARD_MIN_HEIGHT,
+  REPORT_MIN_HEIGHT,
+  REPORT_MAX_HEIGHT,
   buildCardReplyBody,
   countCardFences,
   deriveRepliedCardIds,
@@ -105,8 +107,13 @@ export function useCardBridge({ activeId, messages, onSendReply }: UseCardBridge
         const now = Date.now()
         if (now - (lastResizeRef.current.get(cardId) || 0) < RESIZE_THROTTLE_MS) return
         lastResizeRef.current.set(cardId, now)
-        const clamped = Math.min(CARD_MAX_HEIGHT, Math.max(CARD_MIN_HEIGHT, Math.round(h)))
-        getCardEntry(cardId)?.setHeight?.(clamped)
+        // F20260915hrpt Severe 2: 按围栏类型分叉 clamp 区间
+        const entry = getCardEntry(cardId)
+        const isReport = entry?.fenceType === 'html-report'
+        const minH = isReport ? REPORT_MIN_HEIGHT : CARD_MIN_HEIGHT
+        const maxH = isReport ? REPORT_MAX_HEIGHT : CARD_MAX_HEIGHT
+        const clamped = Math.min(maxH, Math.max(minH, Math.round(h)))
+        entry?.setHeight?.(clamped)
         return
       }
 

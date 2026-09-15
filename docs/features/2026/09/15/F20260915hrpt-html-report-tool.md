@@ -108,3 +108,24 @@ capability_test: tests/interface-adapters/html-report-validation.test.ts
 ## 后续
 
 - PR2：决策简报三层改造（decision-briefing.md 重写 + BIG_OTTER/SMALL_OTTER 触发条件 + 模板库）
+
+## 验证
+
+### 测试结果
+- TypeScript 编译：✅ 通过
+- ESLint 检查：✅ 通过（仅存量 warnings）
+- 单元测试：✅ 68 tests passed
+- 围栏解析测试：✅ 通过
+- 字节校验测试（64KB）：✅ 通过
+- 模型路由测试（maxTokens≥131072）：✅ 通过
+- 契约工具测试：✅ 通过
+- 消息投影测试：✅ 通过
+
+### 最简实现检查
+已过最简检查：本方案需要同时修改前后端，且需要新增工具注册、模型路由、消息投影等多处改动，无法用更少代码/文件达成同等效果。
+
+### 截图证据
+无视觉变更（本次改动为基础设施层，不涉及 UI 样式变更）。
+
+### PR 链接
+https://github.com/chenlaicai/otter-buddy/pull/955

@@ -9,6 +9,8 @@ export interface CardEntry {
   contentWindow: Window
   /** resize 消息的高度回写（由 HtmlCard 提供） */
   setHeight?: (px: number) => void
+  /** F20260915hrpt Severe 2: 围栏类型，用于 resize clamp 分叉 */
+  fenceType?: 'html-card' | 'html-report'
 }
 
 const byWindow = new Map<Window, string>()

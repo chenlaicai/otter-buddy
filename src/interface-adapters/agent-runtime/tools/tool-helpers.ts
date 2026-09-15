@@ -10,9 +10,10 @@ import { CARD_MAX_PER_MESSAGE, HTML_REPORT_MAX_BYTES, HTML_REPORT_MAX_PER_MESSAG
 
 /** F20260804hcob: html-card 围栏匹配（``` 与 ~~~ 两种合法围栏，与渲染侧对齐），排除 html-card-reply（回执围栏，不算卡片） */
 const HTML_CARD_FENCE = /(?:```|~~~)html-card(?!-reply)/;
+/** F20260915hrpt S5: html-report 围栏匹配（同样排除 reply） */
+const HTML_REPORT_FENCE = /(?:```|~~~)html-report(?!-reply)/;
 /** 全局匹配版本（用于 countCardFences） */
 const HTML_CARD_FENCE_GLOBAL = /(?:```|~~~)html-card(?!-reply)/g;
-
 const HTML_REPORT_FENCE_GLOBAL = /(?:```|~~~)html-report(?!-reply)/g;
 
 /** 统计 body 中的 html-card 围栏数量（``` 与 ~~~ 两种合法围栏，排除 html-card-reply） */
@@ -27,6 +28,21 @@ function countReportFences(body: string): number {
   if (!body.includes('html-report')) return 0;
   const matches = body.match(HTML_REPORT_FENCE_GLOBAL);
   return matches ? matches.length : 0;
+}
+
+/**
+ * F20260915hrpt Severe 1 修复：提取 html-report 围栏内容的字节数（只量围栏内 HTML，不含正文散文）。
+ * 解析策略：找 ```html-report / ~~~html-report 开围栏到闭围栏之间的内容，累加字节数。
+ */
+function measureReportFenceBytes(body: string): number {
+  // 匹配 ```html-report ... ``` 或 ~~~html-report ... ~~~ 围栏内容
+  const fenceRegex = /(?:```|~~~)html-report[^\n]*\n([\s\S]*?)(?:```|~~~)/g;
+  let totalBytes = 0;
+  let match: RegExpExecArray | null;
+  while ((match = fenceRegex.exec(body)) !== null) {
+    totalBytes += new TextEncoder().encode(match[1]).length;
+  }
+  return totalBytes;
 }
 
 /**
@@ -55,15 +71,23 @@ export function validateSpeakBody(turnAssistantText: string | undefined, cleanBo
     if (reportCount > HTML_REPORT_MAX_PER_MESSAGE) {
       return `[错误] 检测到 ${reportCount} 张 html-report 卡片，但单消息最多 ${HTML_REPORT_MAX_PER_MESSAGE} 张。多份议题请分多次 speak 输出。`;
     }
-    // 3. 体积限制（64KB）
-    const reportBytes = new TextEncoder().encode(cleanBody).length;
+    // 3. 体积限制（64KB）——只量围栏内 HTML 内容，不含正文散文（Severe 1 修复）
+    const reportBytes = measureReportFenceBytes(cleanBody);
     if (reportBytes > HTML_REPORT_MAX_BYTES) {
-      return `[错误] html-report 内容超限：当前 ${(reportBytes / 1024).toFixed(1)}KB，上限 ${HTML_REPORT_MAX_BYTES / 1024}KB。请精简内容或分多次 speak。`;
+      return `[错误] html-report 卡片内容超限：当前 ${(reportBytes / 1024).toFixed(1)}KB，上限 ${HTML_REPORT_MAX_BYTES / 1024}KB。请精简卡片 HTML 内容或分多次 speak。`;
     }
   }
 
-  if (turnAssistantText !== undefined && HTML_CARD_FENCE.test(turnAssistantText) && !HTML_CARD_FENCE.test(cleanBody)) {
-    return "[错误] 检测到你把 ```html-card 卡片写在了 speak 之外的文本里——那段文本不会进入消息，搭档根本看不到卡片。请把完整的 ```html-card 围栏（含全部 HTML）原样移入本次 speak 的 body 参数，重新调用 speak。";
+  // S5 修复：围栏写在 speak 外的检测扩展到 html-report
+  if (turnAssistantText !== undefined) {
+    const hasCardOutside = HTML_CARD_FENCE.test(turnAssistantText) && !HTML_CARD_FENCE.test(cleanBody);
+    const hasReportOutside = HTML_REPORT_FENCE.test(turnAssistantText) && !HTML_REPORT_FENCE.test(cleanBody);
+    if (hasCardOutside) {
+      return "[错误] 检测到你把 ```html-card 卡片写在了 speak 之外的文本里——那段文本不会进入消息，搭档根本看不到卡片。请把完整的 ```html-card 围栏（含全部 HTML）原样移入本次 speak 的 body 参数，重新调用 speak。";
+    }
+    if (hasReportOutside) {
+      return "[错误] 检测到你把 ```html-report 议题汇报卡写在了 speak 之外的文本里——那段文本不会进入消息，搭档根本看不到。请把完整的 ```html-report 围栏（含全部 HTML）原样移入本次 speak 的 body 参数，重新调用 speak。";
+    }
   }
   return null;
 }

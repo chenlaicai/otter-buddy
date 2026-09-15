@@ -127,6 +127,7 @@ describe('常量与工具', () => {
     expect(REPORT_MIN_HEIGHT).toBe(400)
     expect(REPORT_MAX_HEIGHT).toBe(4000)
     expect(REPORT_FENCE_TYPE).toBe('html-report')
+    expect(HTML_REPORT_MAX_BYTES).toBe(65536)
   })
 
   it('byteLength 按 UTF-8 计（中文 3 字节）', () => {

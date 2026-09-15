@@ -111,12 +111,15 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
   // F20260815rstrt: 返回 toolContext 引用，供 PiSessionFactory 检查 pendingRestart
   // F20260911pspl：invoke 级字段 getter 化——闭包捕获 ctx 对象，字段读取时
   // 穿透到寄存器当前值（池化后闭包跨 invoke 复用，寄存器在 invoke 入口重置）。
+  // F20260915hrpt S3: 模型路由取当前獭的 modelAlias 对应 maxTokens（非池默认）
+  const currentConfig = otterConfigProvider?.getConfig(otterId);
+  const currentModelAlias = currentConfig?.modelAlias;
   const toolContext: ToolContext = {
     client: otterToolClient,
     otterId,
     conversationId,
     modelPool,
-    currentModelMaxTokens: modelPool?.getMaxTokens(null),
+    currentModelMaxTokens: modelPool?.getMaxTokens(currentModelAlias ?? null),
     otterConfigProvider,
     signalRepo,
     get currentMessageId() { return register.currentMessageId; },
