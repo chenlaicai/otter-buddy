@@ -46,6 +46,31 @@ function measureReportFenceBytes(body: string): number {
 }
 
 /**
+ * F20260915hrpt: html-report 围栏校验（抽离以降低 validateSpeakBody 复杂度）。
+ * 校验项：张数限制（1张）、体积限制（64KB，只量围栏内 HTML）、模型路由（maxTokens≥131072）。
+ * @returns 错误文案（null 表示通过）
+ */
+function validateHtmlReport(body: string, currentModelMaxTokens?: number): string | null {
+  const reportCount = countReportFences(body);
+  if (reportCount <= 0) return null;
+
+  // 1. 模型路由：maxTokens < 阈值时降级
+  if (currentModelMaxTokens !== undefined && currentModelMaxTokens < HTML_REPORT_MIN_MAX_TOKENS) {
+    return `[错误] 当前模型输出预算（maxTokens=${currentModelMaxTokens}）不足以生成 html-report 议题汇报卡（需 ≥${HTML_REPORT_MIN_MAX_TOKENS}）。建议切换到 K3/GLM-5/MiMo，或降级为 html-card 小卡片。`;
+  }
+  // 2. 张数限制（单消息 1 张）
+  if (reportCount > HTML_REPORT_MAX_PER_MESSAGE) {
+    return `[错误] 检测到 ${reportCount} 张 html-report 卡片，但单消息最多 ${HTML_REPORT_MAX_PER_MESSAGE} 张。多份议题请分多次 speak 输出。`;
+  }
+  // 3. 体积限制（64KB）——只量围栏内 HTML 内容，不含正文散文（Severe 1 修复）
+  const reportBytes = measureReportFenceBytes(body);
+  if (reportBytes > HTML_REPORT_MAX_BYTES) {
+    return `[错误] html-report 卡片内容超限：当前 ${(reportBytes / 1024).toFixed(1)}KB，上限 ${HTML_REPORT_MAX_BYTES / 1024}KB。请精简卡片 HTML 内容或分多次 speak。`;
+  }
+  return null;
+}
+
+/**
  * speak body 校验：返回错误文案（null 表示通过）。
  * F20260804hcob: 除空 body 外，还检测"卡片写在 speak 外"——assistant 文本不持久化，
  * 写在里面的 html-card 搭档根本看不到，必须拒绝并指导模型把围栏移入 body 重试。
@@ -60,23 +85,9 @@ export function validateSpeakBody(turnAssistantText: string | undefined, cleanBo
     return `[错误] 检测到 ${cardCount} 张 html-card 卡片，但单消息最多支持 ${CARD_MAX_PER_MESSAGE} 张（第 3 张起用户会看到降级的源码块，不可读）。请将内容合并为 ${CARD_MAX_PER_MESSAGE} 张卡片，或分多次 speak 输出。`;
   }
 
-  /** F20260915hrpt: html-report 围栏校验 */
-  const reportCount = countReportFences(cleanBody);
-  if (reportCount > 0) {
-    // 1. 模型路由：maxTokens < 阈值时降级
-    if (currentModelMaxTokens !== undefined && currentModelMaxTokens < HTML_REPORT_MIN_MAX_TOKENS) {
-      return `[错误] 当前模型输出预算（maxTokens=${currentModelMaxTokens}）不足以生成 html-report 议题汇报卡（需 ≥${HTML_REPORT_MIN_MAX_TOKENS}）。建议切换到 K3/GLM-5/MiMo，或降级为 html-card 小卡片。`;
-    }
-    // 2. 张数限制（单消息 1 张）
-    if (reportCount > HTML_REPORT_MAX_PER_MESSAGE) {
-      return `[错误] 检测到 ${reportCount} 张 html-report 卡片，但单消息最多 ${HTML_REPORT_MAX_PER_MESSAGE} 张。多份议题请分多次 speak 输出。`;
-    }
-    // 3. 体积限制（64KB）——只量围栏内 HTML 内容，不含正文散文（Severe 1 修复）
-    const reportBytes = measureReportFenceBytes(cleanBody);
-    if (reportBytes > HTML_REPORT_MAX_BYTES) {
-      return `[错误] html-report 卡片内容超限：当前 ${(reportBytes / 1024).toFixed(1)}KB，上限 ${HTML_REPORT_MAX_BYTES / 1024}KB。请精简卡片 HTML 内容或分多次 speak。`;
-    }
-  }
+  /** F20260915hrpt: html-report 围栏校验（抽离函数，降低复杂度） */
+  const reportError = validateHtmlReport(cleanBody, currentModelMaxTokens);
+  if (reportError) return reportError;
 
   // S5 修复：围栏写在 speak 外的检测扩展到 html-report
   if (turnAssistantText !== undefined) {
