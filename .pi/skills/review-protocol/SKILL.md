@@ -37,7 +37,7 @@ PR 创建（或方案落盘）后，交付不算完成——必须经独立审�
    - 附上 worktree 的绝对路径——静态核验（对照测试文件、周边代码）必须以 worktree 内文件为准；主仓是 PR 合入前的旧代码
    - 附上本次测试与构建的运行结果（标注为实现者自报），供其静态核验
    - 附上 PR 描述全文（`gh pr view --json body` 输出）——供检视者了解变更上下文；delta 审视时另需更新后的 PR 描述核对 Discovered Issues 节 issue 落实
-   - **要求按 review state 决策表留痕**（F20260915rgte）：有严重发现 → `gh pr review --request-changes`；delta 复核通过 → `--approve`；初轮仅建议发现待处置 → `--comment`——COMMENT state 不挡合并，发现严重问题却只留 comment = 闸门失效（main 分支保护已开 required reviews + dismiss stale，无 APPROVE 不可合并、推新 commit 后旧 approval 作废）
+   - **要求按 review state 决策表留痕**（F20260915rgte）：有严重发现 → `gh pr review --request-changes`；delta 复核通过 → `--approve`；初轮仅建议发现待处置 → `--comment`。**单账号环境（9/15 实证）**：approve 与 request-changes 均被 GitHub 平台拒绝，全量降级 `--comment`，严肃结论以正文首行结论词为准，合并拦截靠 CI check + 大獭编排纪律（required reviews 已按搭档终裁回滚）；多账号环境接入后决策表直接生效。
 2. **处置审视报告**：收到审视报告后，先校验报告合规性（含"本轮焦点"声明、发现分级、file:line 引用）——不合规直接打回重做，不合规报告不进入处置流程。然后按 `../adversarial-review/references/author-response-protocol.md` 的**作者处置协议**逐条回应（每条发现强制走决策树——回答"改了让系统变好还是变更差"，更好→本 PR 修复/建 issue，更差→带证据反驳；不作为不允许）：
    - 接受并修复
    - 反驳（必须附证据，空驳回等同未处置）
