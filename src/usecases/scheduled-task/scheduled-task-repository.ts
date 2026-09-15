@@ -16,6 +16,9 @@ export interface ScheduledTaskRepository {
   getById(id: string): Promise<ScheduledTask | null>;
   getByConversationId(conversationId: string): Promise<ScheduledTask[]>;
   getAllActive(): Promise<ScheduledTask[]>;
+  /** #784：全量任务（含 disabled）——prompt 启动对账用。disabled 任务 body 漂移同样要治，
+   *  重新启用时该跑新 prompt（实证：每日 issue 处理 disabled 且 body 落后模板 2000+ 字符） */
+  getAll(): Promise<ScheduledTask[]>;
   update(task: ScheduledTask): Promise<void>;
   updateStatus(id: string, status: ScheduledTaskStatus, updatedAt: string): Promise<void>;
   delete(id: string): Promise<void>;
