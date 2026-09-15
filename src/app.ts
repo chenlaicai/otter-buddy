@@ -238,7 +238,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const workspaceGateway = new NodeWorkspaceGateway(dataDir);
 
   // ── Agent + UseCases（解决 OtterToolClient 循环依赖）──
-  const { agentGateway, resolveOtterToolClient, resolveManageScheduledTask } = await createAgentGateway({
+  const { agentGateway, resolveOtterToolClient, resolveManageScheduledTask, modelFallback } = await createAgentGateway({
     repos, otterConfigProvider, model, modelPool, db, logger,
     sessionDir: options.sessionDir ?? path.join(dataDir, "sessions"),
     identityPromptDir: options.identityPromptDir,
@@ -277,7 +277,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     })
     : undefined;
 
-  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics: schedulerMetrics, agentMetrics, dispatchChainEngine, db, appConfig: config, modelPool, otterConfigProvider });
+  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics: schedulerMetrics, agentMetrics, dispatchChainEngine, db, appConfig: config, modelPool, otterConfigProvider, modelFallback });
 
   // ── F20260902sgp2 S2：信号路由器重挂（v2 语义：pending = 派发台账）──
   // rbsg 回滚的两大根因已在 v2 消除：

@@ -28,6 +28,7 @@ import { healingAlertRegistry } from "@usecases/healing/healing-alert-registry";
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
 import type { ErrorWithToolCallCount, InvokeResultShape, TurnInput, TurnResult, AttemptDriver, TurnCallbacks, RouteContext, TerminalContext } from "./types";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
+import type { ModelFallbackService } from "@usecases/scheduler/model-fallback-service";
 
 export class AgentTurnOrchestrator {
   /**
@@ -44,6 +45,8 @@ export class AgentTurnOrchestrator {
   constructor(
     private readonly logger: Logger,
     private readonly metrics?: AgentMetricsPort,
+    /** #843：模型限流降级器（exhausted 429 自动切 fallback；未注入时行为不变） */
+    private readonly modelFallback?: ModelFallbackService,
   ) {}
 
   /**
@@ -258,6 +261,28 @@ export class AgentTurnOrchestrator {
       // 落账 + 通知均非致命：任一失败不阻断 failTerminal 主路径
       await this.recordRateLimitHealingEvent(ctx, match, reason).catch(() => { /* 已在内部记日志 */ });
       await this.notifyRateLimit(ctx, match).catch(() => { /* 通知失败不阻断 */ });
+      // #843：配额型 429 自动降级——登记后下一次 invoke 起用 fallback 模型执行，
+      // 重置时间到自动回切。链耗尽时登记失败（healing 已落 high，本次 failTerminal
+      // 保持可见性）；成功时把降级信息补进 healing context 供后续分析
+      if (match.exhausted && this.modelFallback) {
+        try {
+          const degradedTo = this.modelFallback.register(ctx.input.otterId, this.resolveModelAlias(ctx), match.resetHint);
+          if (degradedTo) {
+            this.logger.info('rate limit: model degraded for next invokes', {
+              otterId: ctx.input.otterId, from: this.resolveModelAlias(ctx), to: degradedTo,
+            });
+          } else {
+            this.logger.warn('rate limit: fallback chain exhausted, no auto-degradation available', {
+              otterId: ctx.input.otterId, model: this.resolveModelAlias(ctx),
+            });
+          }
+        } catch (err) {
+          this.logger.warn('model fallback register failed (non-fatal)', {
+            otterId: ctx.input.otterId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
     }
 
     return this.failTerminal(ctx.input, reason.errorMessage, ctx.callbacks, ctx.startTime);

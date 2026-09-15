@@ -151,11 +151,14 @@ export interface AgentSessionFactoryConfig {
   otterRepo: OtterRepository;
   /** Settings 仓库（读取用户显示名，可选） */
   settingsRepo?: SettingsRepository;
+  /** #843：模型限流降级器（exhausted 429 时自动切 fallback，重置后回切，可选） */
+  modelFallback?: ModelFallbackService;
 }
 
 /** SessionManager 类型（从 pi-coding-agent 导入） */
 import type { SessionManager, AgentSession } from "@earendil-works/pi-coding-agent";
 import { PiSessionPool } from "@frameworks/pi/pi-session-pool";
+import type { ModelFallbackService } from "@usecases/scheduler/model-fallback-service";
 
 export class PiSessionFactory implements AgentGateway {
   private readonly sessionStore: AgentSessionStore;
@@ -190,6 +193,8 @@ export class PiSessionFactory implements AgentGateway {
       otterConfigProvider: OtterConfigProvider;
       otterRepo: OtterRepository;
       settingsRepo?: SettingsRepository;
+      /** #843：模型限流降级器（exhausted 429 自动切 fallback，重置后回切） */
+      modelFallback?: ModelFallbackService;
     },
     private readonly logger: Logger,
   ) {
@@ -396,11 +401,13 @@ export class PiSessionFactory implements AgentGateway {
     const piCodingAgent = this.modelRuntimeRegistry.getPiCodingAgent()!;
 
     // 模型解析：与 _createSessionWithTools 同链（otter 显式 alias → 池默认）
+    // #843：降级器生效时（当前别名 == 被降级别名）用 fallback 替身
     let resolvedModel = this.cfg.model;
     if (this.cfg.modelPool) {
       const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
       const modelAlias = otterConfig?.modelAlias;
-      resolvedModel = this.cfg.modelPool.getModel(modelAlias);
+      const fallbackAlias = this.cfg.modelFallback?.resolve(otterId, modelAlias) ?? null;
+      resolvedModel = this.cfg.modelPool.getModel(fallbackAlias ?? modelAlias);
     }
 
     const SessionManagerClass = getSessionManagerClass(piCodingAgent);
@@ -808,13 +815,15 @@ export class PiSessionFactory implements AgentGateway {
       : customTools;
 
     // 解析模型：多模型模式下按 otterConfig.modelAlias 获取，否则用默认模型
+    // #843：降级器生效时（当前别名 == 被降级别名）用 fallback 替身
     let resolvedModel = this.cfg.model;
     let resolvedAlias = 'default';
     if (this.cfg.modelPool) {
       const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
       const modelAlias = otterConfig?.modelAlias;
-      resolvedModel = this.cfg.modelPool.getModel(modelAlias);
-      resolvedAlias = modelAlias ?? this.cfg.modelPool.getDefaultAlias();
+      const fallbackAlias = this.cfg.modelFallback?.resolve(otterId, modelAlias) ?? null;
+      resolvedModel = this.cfg.modelPool.getModel(fallbackAlias ?? modelAlias);
+      resolvedAlias = fallbackAlias ?? modelAlias ?? this.cfg.modelPool.getDefaultAlias();
     }
 
     this.logger.info('Tools registered for agent session', {
@@ -995,5 +1004,6 @@ export async function initAgentSessionFactory(config: AgentSessionFactoryConfig,
     otterConfigProvider: config.otterConfigProvider,
     otterRepo: config.otterRepo,
     settingsRepo: config.settingsRepo,
+    modelFallback: config.modelFallback,
   }, logger);
 }

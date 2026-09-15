@@ -42,6 +42,7 @@ import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchest
 import { CircuitBreakSupport } from "./circuit-break-support";
 import type { TurnInput, AttemptDriver, TurnCallbacks, InvokeResultShape, CircuitBreakInfo, HealingEventInput } from "@usecases/conversation/agent-turn-orchestrator/types";
 import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
+import type { ModelFallbackService } from "@usecases/scheduler/model-fallback-service";
 import type { AgentTurnPort, AgentTurnResult } from "@usecases/ports/agent-turn-port";
 
 /**
@@ -141,8 +142,10 @@ export class AgentInvoker implements AgentTurnPort {
     private readonly sendEntry?: SendEntry,
     /** F20260913ctlv 彻底切换：invoke 仓库（熔断摘要读 invoke_events） */
     private readonly invokeRepo?: InvokeRepository,
+    /** #843：模型限流降级器（exhausted 429 自动切 fallback；可选） */
+    private readonly modelFallback?: ModelFallbackService,
   ) {
-    this.orchestrator = new AgentTurnOrchestrator(logger, metrics);
+    this.orchestrator = new AgentTurnOrchestrator(logger, metrics, modelFallback);
     this.circuitBreak = healingRepo && sendEntry
       ? new CircuitBreakSupport({
         manageSession,

@@ -8,6 +8,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type Database from "better-sqlite3";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import { initAgentSessionFactory } from "@frameworks/agent/pi-session-factory";
+import { ModelFallbackService } from "@usecases/scheduler/model-fallback-service";
 // F20260826mwrd C3（#534）：createManageHealingEventsTool 改为仅 tool-factory 内注册，此处不再 import
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
@@ -88,13 +89,16 @@ export async function createAgentGateway(options: {
   identityPromptDir?: string;
   /** 对话工作区网关 */
   workspaceGateway?: WorkspaceGateway;
-}): Promise<{ agentGateway: PiSessionFactory; resolveOtterToolClient: (client: OtterToolClient) => void; resolveManageScheduledTask: (mst: ManageScheduledTask) => void }> {
+}): Promise<{ agentGateway: PiSessionFactory; resolveOtterToolClient: (client: OtterToolClient) => void; resolveManageScheduledTask: (mst: ManageScheduledTask) => void; modelFallback: ModelFallbackService }> {
   const { repos, otterConfigProvider, model, modelPool, db, logger } = options;
   // Why: manageScheduledTask 在 initUseCases 之后才可用，用 mutable ref 延迟注入
   let manageScheduledTaskRef: ManageScheduledTask | null = null;
   // OtterToolClient 循环依赖：先注入空占位，initUseCases 后通过 resolveOtterToolClient 注入真实实例
+  // #843：模型限流降级器单例——factory（resolve 消费）与 invoker/orchestrator（register 登记）共享
+  const modelFallback = new ModelFallbackService(modelPool, logger);
   const agentGateway = await initAgentSessionFactory({
     model, modelPool, db,
+    modelFallback,
     otterToolClient: null,
     sessionDir: options.sessionDir,
     identityPromptDir: options.identityPromptDir ?? "./prompts/identity",
@@ -133,6 +137,7 @@ export async function createAgentGateway(options: {
     agentGateway,
     resolveOtterToolClient: (client) => agentGateway.setOtterToolClient(client),
     resolveManageScheduledTask: (mst) => { manageScheduledTaskRef = mst; },
+    modelFallback,
   };
 }
 
@@ -182,6 +187,8 @@ function buildAgentInvoker(o: {
   agentGateway: PiSessionFactory; uc: UseCases; repos: Repositories; logger: Logger;
   messageBroadcaster: MessageBroadcaster | undefined; workspaceGateway?: WorkspaceGateway;
   agentMetrics?: AgentMetricsPort; appConfig?: AppConfig; ctxWindowProvider?: OtterContextWindowProvider;
+  /** #843：模型限流降级器（createAgentGateway 建的单例透传） */
+  modelFallback?: ModelFallbackService;
 }): AgentInvoker {
   return new AgentInvoker(
     o.agentGateway,
@@ -202,10 +209,12 @@ function buildAgentInvoker(o: {
     o.uc.sendEntry,
     // F20260913ctlv 彻底切换：invoke 仓库（熔断摘要读 invoke_events）
     o.repos.invoke,
+    // #843：模型限流降级器（exhausted 429 自动切 fallback）
+    o.modelFallback,
   );
 }
 
-export async function initAgentAndScheduler(options: { repos: Repositories; uc: UseCases; agentGateway: PiSessionFactory; messageBroadcaster: MessageBroadcaster | undefined; logger: Logger; workspaceGateway?: WorkspaceGateway; metrics?: SchedulerMetrics; agentMetrics?: AgentMetricsPort; dispatchChainEngine?: DispatchChainEngine; db?: Database.Database; appConfig?: AppConfig; modelPool?: ModelPool; otterConfigProvider?: OtterConfigProvider }) {
+export async function initAgentAndScheduler(options: { repos: Repositories; uc: UseCases; agentGateway: PiSessionFactory; messageBroadcaster: MessageBroadcaster | undefined; logger: Logger; workspaceGateway?: WorkspaceGateway; metrics?: SchedulerMetrics; agentMetrics?: AgentMetricsPort; dispatchChainEngine?: DispatchChainEngine; db?: Database.Database; appConfig?: AppConfig; modelPool?: ModelPool; otterConfigProvider?: OtterConfigProvider; modelFallback?: ModelFallbackService }) {
   const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics, agentMetrics, dispatchChainEngine, db, appConfig, modelPool, otterConfigProvider } = options;
   await agentGateway.warmup();
 
@@ -240,6 +249,8 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
   const agentInvoker = buildAgentInvoker({
     agentGateway, uc, repos, logger, messageBroadcaster, workspaceGateway, agentMetrics,
     appConfig, ctxWindowProvider,
+    // #843：模型限流降级器——与 agentGateway 共享同一单例（platforms 上层传递）
+    modelFallback: options.modelFallback,
   });
 
   // F20260903cmpk：压缩钩子合成注入——时机归 Pi（session_before_compact），
