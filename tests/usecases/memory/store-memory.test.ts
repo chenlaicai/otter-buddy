@@ -54,7 +54,7 @@ const SAMPLE_INPUT: MemoryEntryInput = {
 };
 
 describe("StoreMemory.execute()", () => {
-  it("存入条目后返回 UUID 格式的 id", async () => {
+  it("存入条目后返回 id（F20260915midu 后 = source_id）", async () => {
     const repo = statefulRepo();
     const embedding: EmbeddingGateway = {
       available: true,
@@ -64,12 +64,33 @@ describe("StoreMemory.execute()", () => {
 
     const id = await store.execute(SAMPLE_INPUT);
 
-    // 返回值应为 UUID 格式（8-4-4-4-12）
-    expect(id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    );
+    // F20260915midu（#942）：投影条目主键 = 源实体 ID，消灭双 ID
+    expect(id).toBe("msg-001");
     // 条目应已被存入 repo
     expect(repo.storedEntries).toHaveLength(1);
+  });
+
+  it("F20260915midu：signals 源豁免统一（INTEGER PK + 1:N upsert 复用，保持随机 UUID）", async () => {
+    const repo = statefulRepo();
+    const embedding: EmbeddingGateway = {
+      available: true,
+      embed: async () => new Float32Array([0.1, 0.2, 0.3]),
+    };
+    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
+
+    const signalInput: MemoryEntryInput = {
+      ...SAMPLE_INPUT,
+      contentType: "fact",
+      sourceId: "126",
+      sourceTable: "signals",
+      conversationId: undefined,
+    };
+    const id1 = await store.execute(signalInput);
+    const id2 = await store.execute(signalInput);
+
+    // 保持随机 UUID：同 source_id 的多次投影各自独立（不会主键互撞）
+    expect(id1).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(id2).not.toBe(id1);
   });
 
   it("存入的条目包含所有正确字段", async () => {
@@ -479,5 +500,63 @@ describe("StoreMemory - issue #509 污染防线", () => {
     ]);
 
     expect(logger.captured.warns).toHaveLength(0);
+  });
+});
+
+/** F20260915midu（#942）：投影条目主键 = 源实体 ID（消灭双 ID）的规则锁定。
+ *  可统一类（messages/linked_resources/features/research）id = source_id；
+ *  豁免类保持随机 UUID：signals（INTEGER PK + 1:N upsert）、chunk（1:N + D3 禁边）。 */
+describe("StoreMemory - F20260915midu 投影 ID 统一", () => {
+  const gateway: EmbeddingGateway = {
+    available: true,
+    embed: async () => new Float32Array([0.1, 0.2]),
+  };
+
+  it("execute：linked_resources / features / research 源的 id = source_id", async () => {
+    for (const [sourceTable, sourceId] of [
+      ["linked_resources", "res-uuid-1"],
+      ["features", "F20260915midu"],
+      ["research", "R20260915test"],
+    ] as const) {
+      const repo = statefulRepo();
+      const store = new StoreMemory(repo, repo, gateway, createTestLogger());
+      const id = await store.execute({
+        ...SAMPLE_INPUT,
+        sourceTable,
+        sourceId,
+      });
+      expect(id).toBe(sourceId);
+      expect(repo.storedEntries[0].id).toBe(sourceId);
+    }
+  });
+
+  it("replaceBySource：文档 summary 投影的 id = source_id", async () => {
+    const repo = statefulRepo();
+    const store = new StoreMemory(repo, repo, gateway, createTestLogger());
+    const id = await store.replaceBySource({
+      ...SAMPLE_INPUT,
+      contentType: "feature",
+      sourceTable: "features",
+      sourceId: "F20260915midu",
+      conversationId: undefined,
+    });
+    expect(id).toBe("F20260915midu");
+  });
+
+  it("replaceChunksBySource：chunk 保持随机 UUID（1:N 共享 source_id，D3 禁边，不统一）", async () => {
+    const repo = statefulRepo();
+    const storedChunks: MemoryEntry[] = [];
+    repo.replaceEntriesBySource = async (entries: MemoryEntry[]) => {
+      storedChunks.push(...entries);
+    };
+    const store = new StoreMemory(repo, repo, gateway, createTestLogger());
+    const ids = await store.replaceChunksBySource([
+      { ...SAMPLE_INPUT, contentType: "feature_chunk", sourceTable: "features", sourceId: "F20260915midu", content: "chunk 内容一，长度足够" },
+      { ...SAMPLE_INPUT, contentType: "feature_chunk", sourceTable: "features", sourceId: "F20260915midu", content: "chunk 内容二，长度足够" },
+    ]);
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).not.toBe("F20260915midu");
+    expect(ids[0]).not.toBe(ids[1]);
+    expect(ids[0]).toMatch(/^[0-9a-f]{8}-/);
   });
 });
