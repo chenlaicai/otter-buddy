@@ -62,6 +62,14 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
     return rows.map(rowToScheduledTask);
   }
 
+  /** #784：全量任务（含 disabled）——prompt 启动对账用 */
+  async getAll(): Promise<ScheduledTask[]> {
+    const rows = this.db.prepare(
+      'SELECT * FROM scheduled_tasks ORDER BY created_at DESC',
+    ).all() as ScheduledTaskRow[];
+    return rows.map(rowToScheduledTask);
+  }
+
   async update(task: ScheduledTask): Promise<void> {
     const row = taskToRow(task);
     this.db.prepare(`
