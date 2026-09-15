@@ -1,7 +1,7 @@
 ---
 id: F20260915rgte
 title: 审视闭环机械化身：review state 闸门 + main 分支保护
-summary: 修复 #824——检视 review 全为 COMMENTED state（GitHub 机械层不挡合并）且 main 分支保护未开 required reviews，审视闭环纯靠 prompt 纪律（跳环率 8 月 20%→9 月 28%）。修复：检视獭 review 按结论带 state（严重→request-changes / delta 通过→approve / 初轮仅建议→comment）+ main 开 required reviews（1 approval + dismiss stale 机械强制 delta 复核）+ 两检视 skill 体检缺陷修复。已知限制：同账号自 approve 不可辨（根治需 GitHub App 独立身份，登记后续）。
+summary: 修复 #824——检视 review 全为 COMMENTED state（GitHub 机械层不挡合并）且 main 分支保护未开 required reviews，审视闭环纯靠 prompt 纪律（跳环率 8 月 20%→9 月 28%）。修复：检视獭 review 按结论带 state（严重→request-changes / delta 通过→approve / 初轮仅建议→comment）+ main 开 required reviews（1 approval + dismiss stale 机械强制 delta 复核）+ 两检视 skill 体检（3 个真实缺陷已修）。已知限制：同账号自 approve 不可辨（根治需 GitHub App 独立身份，登记后续）。
 type: feature
 status: development
 created: 2026-09-15
@@ -65,11 +65,11 @@ gh api repos/chenlaicai/otter-buddy/branches/main/protection -X PUT \
 | D1 | review 留痕一律 `--comment`，无 state 决策——检视结论机械层不可见（本特性根因） | adversarial-review 步骤 6a | 改决策表 |
 | D2 | 产出模板两处「审查结论」枚举（`需要修改`/`存在以下问题（决策者判断）`）缺「通过」表述——delta 复核通过场景无标准措辞，与 APPROVE state 无对应文案 | adversarial-review 两个模板 | 补「**通过（delta 复核）**」枚举，并注明与 review state 的对应关系 |
 | D3 | review-protocol A 节步骤 1 systemPrompt 要求清单未提 review state 要求——编排层不传达，检视獭不知道要带 state | review-protocol A 节步骤 1 | 补一条要求 |
-| D4 | 体检其余维度（报告模板完整性、禁用语、决策树引用、行动权路由表、文档审视路径、delta 材料清单）未发现缺陷 | — | 无需改动 |
+| — | （审计范围说明，非缺陷发现）体检其余维度（报告模板完整性、禁用语、决策树引用、行动权路由表、文档审视路径、delta 材料清单）：无缺陷，审计通过 | — | 无需改动 |
 
 ### 体检范围说明
 
-全量通读：adversarial-review/SKILL.md（含触发/工作流/产出模板/禁用语/路由表）、review-protocol/SKILL.md（A/B 两协议）。references/ 下 4 个文件（review-dimensions/anti-patterns/review-loop/author-response-protocol/decision-briefing）本次未全量审读——若本次改动与其中内容冲突，检视獭会在审视中发现，届时处置。
+全量通读：adversarial-review/SKILL.md（含触发/工作流/产出模板/禁用语/路由表）、review-protocol/SKILL.md（A/B 两协议）。adversarial-review/references/ 下 4 个文件（review-dimensions/anti-patterns/review-loop/author-response-protocol）本次未全量审读——若本次改动与其中内容冲突，检视獭会在审视中发现，届时处置。
 
 ## 影响范围
 

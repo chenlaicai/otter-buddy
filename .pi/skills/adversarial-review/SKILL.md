@@ -89,6 +89,7 @@ category: technique
    | 有严重发现（任何轮次，含 delta） | `gh pr review <PR> --request-changes --body-file <f>` | 机械挡合并 |
    | delta 复核通过（无严重发现未处置） | `gh pr review <PR> --approve --body-file <f>` | 闸门打开 |
    | 仅建议发现、待作者处置（初轮中间态） | `gh pr review <PR> --comment --body-file <f>` | 悬置，不挡不放 |
+   | 初轮 0 严重 0 建议（一次通过） | `gh pr review <PR> --approve --body-file <f>` | 闸门直接打开 |
 
    > state 是「本 review 提交时的结论」，不是终身判决——先 request-changes、修复后 delta 通过再 approve 是正常流程。审查结论措辞与 state 对应：request-changes ↔ 「**需要修改**」；approve ↔ 「**通过（delta 复核）**」。
 
@@ -98,6 +99,7 @@ category: technique
    gh pr review <PR_NUMBER> --request-changes --body-file /tmp/review-<PR_NUMBER>.md  # 有严重发现
    gh pr review <PR_NUMBER> --approve --body-file /tmp/review-<PR_NUMBER>.md          # delta 通过
    gh pr review <PR_NUMBER> --comment --body-file /tmp/review-<PR_NUMBER>.md          # 仅建议发现待处置
+   gh pr review <PR_NUMBER> --approve --body-file /tmp/review-<PR_NUMBER>.md          # 初轮零发现一次通过
    ```
 
    报告文件内容（模板）：
