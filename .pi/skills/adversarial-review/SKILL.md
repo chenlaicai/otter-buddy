@@ -81,6 +81,8 @@ category: technique
    **步骤 6a：post PR review comment（#858：正文必走 body-file，禁止内联）**：
    审查内容可能含被审查代码的进程终止族词元——内联进 `--body` 会触发 bash 守卫拦截（#858 现场：检视獭被拦 13 起、对抗审视流程在守卫层断裂）。正文一律先落文件（write 工具或工作区），再 `--body-file` 引用：
 
+   评论模板（报告末尾署名行格式见 signature-convention skill——`[海獭名号]` 整体替换为实际名号，不内联格式实体）：
+
    ```bash
    # 1. 先用 write 工具把报告写入文件（例：/tmp/review-<PR_NUMBER>.md）
    # 2. 再引用文件提交（命令行不含报告正文）
@@ -113,8 +115,8 @@ category: technique
     - 更好 → 本 PR 修复 / 建 issue #N（论证本 PR 无法承载）
     - 更差 → 反驳（必须附证据）]
 
-   🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by [海獭名号]"
-   ```
+   （末尾附 signature-convention skill 的 review 署名行）
+   "```
 
    **步骤 6b：在 otter 对话中发轻量通知**：
 
@@ -174,7 +176,7 @@ category: technique
   - **更好** → 本 PR 修复（diff 可见）/ 建 issue（论证"本 PR 无法承载"成立 + #N 链接 + 登记 Discovered Issues）
   - **更差** → 反驳（必须附证据：file:line、测试结果、文档原文；含事实错误/看错/误解）
 
-🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by [海獭名号]
+报告末尾署名行按 signature-convention skill 的 review 署名格式（PR description 与 review 评论同格式）。
 ```
 
 ### Otter 对话轻量通知模板
@@ -185,6 +187,8 @@ category: technique
 ```
 
 ### Otter 对话完整报告模板（无 gh 工具或文档审视时）
+
+报告末尾署名行同样按 signature-convention skill 的 review 署名格式。
 
 ```markdown
 ## 审查者
@@ -250,7 +254,7 @@ category: technique
 - [ ] 验收标准 1
 - [ ] 验收标准 2
 
-🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by [海獭名号]
+（末尾附 signature-convention skill 的 review 署名行）
 ```
 
 ### 禁用语
