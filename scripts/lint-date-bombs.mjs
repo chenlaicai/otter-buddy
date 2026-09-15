@@ -61,8 +61,10 @@ function analyzeLine(codePart) {
   const fidMatches = [...codePart.matchAll(FID_DATE_RE)];
   const hasFid = fidMatches.length > 0;
 
-  // 日期校验函数调用模式
-  const validationCallRe = /validateCommitDate|validateDate|checkDate/i;
+  // S2: 日期校验函数调用模式（函数名 + CLI 脚本名）
+  // Why: #541 原始炸弹是 spawnSync CLI 形态（spawnSync('node', ['scripts/validate-commit-date.mjs', '[F20260825abcd]...'])），
+  // 函数名模式不覆盖脚本名 → 历史真炸形态 0 检出。
+  const validationCallRe = /validateCommitDate|validateDate|checkDate|validate-commit-date/i;
   const hasValidationCall = validationCallRe.test(codePart);
 
   // 判断 now 参数是否不安全：
@@ -93,8 +95,19 @@ function analyzeLine(codePart) {
     }
   }
 
+  // S2: 检测 CLI 集成形态（spawnSync/execSync 调用 validate-commit-date 脚本）
+  // Why: #541 原始炸弹是 spawnSync('node', ['scripts/validate-commit-date.mjs', '[F20260825abcd]...'])
+  if (hasFid && !hasUnsafeNow && /validate-commit-date/.test(codePart)) {
+    // CLI 调用中硬编码 FID 且无 --at 注入 → 不安全
+    // --at 参数等同于 now 注入（双基准判定），有则安全
+    if (!/--at/.test(codePart)) {
+      hasUnsafeNow = true;
+    }
+  }
+
   return { hasFid, hasValidationCall, hasUnsafeNow, fidMatches };
 }
+
 
 /**
  * 简单的括号感知参数分割（不处理嵌套括号，足够覆盖 validateCommitDate 的调用场景）。
@@ -117,6 +130,33 @@ function splitArgs(argsStr) {
   }
   if (current.trim()) args.push(current);
   return args;
+}
+
+/**
+ * A3: 从代码行中去除行内注释，保留字符串内的 //（如 URL 中的 https://）。
+ * Why: 简单 `line.split('//')[0]` 会误切字符串内的 //，导致 URL 等场景误报。
+ * 实现：逐字符扫描，跟踪字符串上下文（单引号/双引号/反引号），在非字符串区域遇 // 截断。
+ *
+ * @param {string} line - 代码行
+ * @returns {string} 去除行内注释后的代码部分
+ */
+function stripInlineComment(line) {
+  let inStr = null; // null = 非字符串, '"' / "'" / '`' = 当前字符串类型
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inStr) {
+      // 字符串内：跳过转义字符
+      if (ch === '\\') { i++; continue; }
+      if (ch === inStr) { inStr = null; }
+    } else {
+      if (ch === "'" || ch === '"' || ch === '`') {
+        inStr = ch;
+      } else if (ch === '/' && line[i + 1] === '/') {
+        return line.slice(0, i);
+      }
+    }
+  }
+  return line;
 }
 
 /**
@@ -150,8 +190,8 @@ export function scanFile(filePath, options = {}) {
     // 跳过注释行：行注释、块注释（/*、*/、* 开头）
     if (/^\s*(\/\/|\/\*|\*)/.test(line)) continue;
 
-    // 去除行内注释后扫描
-    const codePart = line.split('//')[0];
+    // 去除行内注释后扫描（A3: 保护字符串内的 //，如 URL 中的 https://）
+    const codePart = stripInlineComment(line);
 
     if (isTestFile) {
       // === 主防线：日期校验函数调用中硬编码 FID 且无安全 now 注入 ===
@@ -259,10 +299,14 @@ const isDirectRun =
 
 if (isDirectRun) {
   const rootDir = resolve(process.argv[2] || process.cwd());
+  const verbose = process.argv.includes('--verbose');
   const { errors, warnings } = scanProject(rootDir);
 
-  for (const w of warnings) {
-    console.warn(`⚠ warning: ${w.file}:${w.line}:${w.column} [${w.pattern}] ${w.message}`);
+  // A4: --verbose 展开逐条 warning；默认只汇总计数，避免873条刷屏训练开发者无视扫描器
+  if (verbose) {
+    for (const w of warnings) {
+      console.warn(`⚠ warning: ${w.file}:${w.line}:${w.column} [${w.pattern}] ${w.message}`);
+    }
   }
   for (const e of errors) {
     console.error(`✖ error: ${e.file}:${e.line}:${e.column} [${e.pattern}] ${e.message}`);
@@ -278,7 +322,7 @@ if (isDirectRun) {
   }
 
   if (warnings.length > 0) {
-    console.warn(`\n${warnings.length} 个日期字面量警告（ISO 日期，不阻断）。`);
+    console.warn(`\n${warnings.length} 个日期字面量警告（ISO 日期，不阻断）。使用 --verbose 查看详情。`);
   }
 
   process.exit(0);

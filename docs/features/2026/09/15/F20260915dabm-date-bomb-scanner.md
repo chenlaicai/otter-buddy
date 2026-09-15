@@ -72,8 +72,9 @@ ISO 日期（`202x-xx-xx`）在测试文件中的使用以 warning 级报告，
 
 ## 自检
 
-- 测试：`tests/scripts/` 全部 88/88 通过（含已有 6 个脚本测试文件）
+- 测试：本 PR 22 用例全通过；全量 `tests/scripts/` 88/88 通过
 - 全仓扫描：0 error（存量 `validateCommitDate` 调用均已注入 now 参数）
+- ISO 日期 warning：873 条（存量测试 fixture 日期，不阻断，默认汇总输出，`--verbose` 展开）
 - 最简检查：已过——扫描器复用现有 lint 脚本模式（walkSync + CLI + 导出测试），无额外依赖
 
 ## 与现有防线的关系

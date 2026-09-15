@@ -168,6 +168,37 @@ describe('scanFile', () => {
     });
   });
 
+  describe('S2: CLI 集成形态检测（#541 原始炸弹形态）', () => {
+    it('应检出 spawnSync CLI 调用中的硬编码 FID（#541 原始形态）', () => {
+      const results = scanFixture(
+        'tests/cli-bomb.test.ts',
+        `const { exitCode } = runCLI(['scripts/validate-commit-date.mjs', '[F20260825abcd]...']);\n`,
+      );
+      const errors = results.filter((r) => r.severity === 'error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].message).toContain('F20260825abcd');
+    });
+
+    it('不应检出有 --at 注入的 CLI 调用', () => {
+      const results = scanFixture(
+        'tests/cli-safe.test.ts',
+        `const { exitCode } = runCLI(['--at', '2026-09-04T03:56:11Z', 'scripts/validate-commit-date.mjs', '[F20260904wxeg]...']);\n`,
+      );
+      const errors = results.filter((r) => r.severity === 'error');
+      expect(errors).toHaveLength(0);
+    });
+  });
+
+  describe('A3: 字符串内 // 不误剥离', () => {
+    it('URL 中的 // 不应被误切', () => {
+      const results = scanFixture(
+        'tests/url-in-string.test.ts',
+        `const url = 'https://example.com';\n`,
+      );
+      expect(results).toHaveLength(0);
+    });
+  });
+
   describe('边界情况', () => {
     it('空文件不应报错', () => {
       const results = scanFixture('tests/empty.test.ts', '');
