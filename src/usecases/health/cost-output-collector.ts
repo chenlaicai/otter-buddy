@@ -52,6 +52,7 @@ interface SessionMessageLine {
     role: string;
     model?: string;
     usage?: SessionUsage;
+    stopReason?: string;
     content?: Array<{ type: string; [k: string]: unknown }>;
   };
 }
@@ -80,6 +81,8 @@ export interface OtterCostRecord {
   costCacheWrite: number;
   costTotal: number;
   callCount: number;
+  /** stopReason=error 的调用数（F20260914usgm：模型失败次数） */
+  errorCalls: number;
   // cacheHitRate 字段已删（#602）：不再单独写入快照，消费端从 cacheReadTokens/inputTokens 推导
 }
 
@@ -224,7 +227,11 @@ async function parseSessionFile(
     toolCallCount += countToolCalls(msg.message.content);
     if (!msg.message.usage) continue;
 
-    costRecords.push(buildCostRecord(date, otterIdentity, msg.message.model ?? currentModel, msg.message.usage));
+    costRecords.push(buildCostRecord(
+      date, otterIdentity,
+      msg.message.model ?? currentModel, msg.message.usage,
+      msg.message.stopReason === "error",
+    ));
   }
   return { costRecords, toolCallCount };
 }
@@ -241,6 +248,7 @@ function buildCostRecord(
   identity: OtterIdentity,
   model: string,
   usage: SessionUsage,
+  isError: boolean,
 ): OtterCostRecord & { _key: string } {
   return {
     _key: `${date}|${identity.otterId}|${model}`,
@@ -260,6 +268,7 @@ function buildCostRecord(
     costCacheWrite: usage.cost.cacheWrite,
     costTotal: usage.cost.total,
     callCount: 1,
+    errorCalls: isError ? 1 : 0,
   };
 }
 
@@ -283,6 +292,7 @@ function aggregateUsageRecords(
       existing.costCacheWrite += rec.costCacheWrite;
       existing.costTotal += rec.costTotal;
       existing.callCount += rec.callCount;
+      existing.errorCalls += rec.errorCalls;
     } else {
       const { _key, ...rest } = rec;
       aggregate.set(_key, rest);
