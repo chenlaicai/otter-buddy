@@ -61,18 +61,24 @@ ISO 日期（`202x-xx-xx`）在测试文件中的使用以 warning 级报告，
 | tests/ (ISO 日期) | warning | 辅助信息，不阻断 |
 | scripts/、src/ | 不扫描 | 非测试文件中的日期字面量多为文档引用 |
 
+### 已知边界
+
+- **逐行解析**：扫描器逐行分析，多行调用（函数名与 FID 不同行）不检出
+- **存量核实**：已遍历 tests/ 全部含 `validateCommitDate` 的文件，跨行调用存量为 0——该边界当前无现实炸弹
+- **过覆盖**：S2 修复后，行内含脚本名字符串 + FID + 无 `--at` 的任意形态均会拦截（略宽于「仅真调用」），属可接受的过覆盖——宁误拦可豁免，不可漏炸
+
 ## 改动范围
 
 | 文件 | 改动 |
 |------|------|
 | `scripts/lint-date-bombs.mjs` | 新增：扫描脚本，CLI + 可测试导出 |
-| `tests/scripts/lint-date-bombs.test.ts` | 新增：22 个测试用例（temp 文件 fixture，全动态日期） |
+| `tests/scripts/lint-date-bombs.test.ts` | 新增：25 个测试用例（temp 文件 fixture，全动态日期） |
 | `package.json` | 新增 `lint:date-bombs` 脚本 |
 | `.githooks/pre-commit` | 末尾追加 `npm run lint:date-bombs` |
 
 ## 自检
 
-- 测试：本 PR 22 用例全通过；全量 `tests/scripts/` 88/88 通过
+- 测试：本 PR 25 用例全通过；全量 `tests/scripts/` 91/91 通过
 - 全仓扫描：0 error（存量 `validateCommitDate` 调用均已注入 now 参数）
 - ISO 日期 warning：873 条（存量测试 fixture 日期，不阻断，默认汇总输出，`--verbose` 展开）
 - 最简检查：已过——扫描器复用现有 lint 脚本模式（walkSync + CLI + 导出测试），无额外依赖
