@@ -57,6 +57,7 @@ import type { RhiScanWorker as RhiScanWorkerType } from "@usecases/health/rhi-sc
 import { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import { SignalPipeline } from "@usecases/health/signal-pipeline";
 import { SignalAgingWorker } from "@usecases/signal/signal-aging-worker";
+import { PatrolWorker } from "@usecases/health/patrol-worker";
 import { collectHealingEvents } from "@usecases/health/healing-collector";
 import type { AgentSessionSource } from "@usecases/health/cost-output-collector";
 import type { CreateSnapshotRow } from "@usecases/health/snapshot-rows";
@@ -221,6 +222,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   postSyncMigrations(db, logger, syncResult);
 
   // F20260812mrcq Part 1：embedding 重试 worker + 存量暗化条目迁移
+  // #949：worker 本体不再自持定时器——由下方 PatrolWorker 统一驱动（tickNow 巡检）
   const retryWorker = await createAndStartRetryWorker(repos, embeddingService, logger);
 
   // F20260825sgnw（#401）：RHI 定时采集 worker——每小时跑一轮 采集→链→信号→记忆通道
@@ -229,19 +231,26 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     db, repos, embeddingService, logger,
     rootDir: options.rootDir ?? process.cwd(),
   });
-  if (options.startRhiWorker ?? true) {
-    rhiScanWorker.start();
-  }
 
   // #927：獭间信号老化扫描——独立于 daily review 调度链（9/10-9/13 断档期唯一消费方停摆的教训），
-  // pending objection/blocked 悬置 >24h 落 medium healing。挂 app 级 setInterval，随 shutdown 停。
+  // pending objection/blocked 悬置 >24h 落 medium healing。
   const signalAgingWorker = new SignalAgingWorker(
     () => repos.signalEvent,
     () => repos.healingEvent,
     logger,
   );
+
+  // #949：四个「扫台账」同构循环合并为单一巡检 worker（8→5 常驻循环）——
+  // 运行时对账（#823）/ Signal Aging（#927）/ RHI Scan（#401）/ Embedding Retry（F20260812mrcq）。
+  // 失败隔离：一家炸了不影响后续家；周期 1h（四家原节奏已对齐，无时钟语义变化）。
+  const patrolWorker = new PatrolWorker([
+    { name: 'scheduler-reconcile', run: () => schedulerService.reconcileMissedWindowsNow() },
+    { name: 'signal-aging', run: async () => { await signalAgingWorker.scanOnce(); } },
+    { name: 'rhi-scan', run: async () => { await rhiScanWorker.scanOnce(); } },
+    ...(retryWorker ? [{ name: 'embedding-retry', run: () => retryWorker.tickNow() }] : []),
+  ], logger);
   if (options.startRhiWorker ?? true) {
-    signalAgingWorker.start();
+    patrolWorker.start();
   }
 
   if (modelPool) validateModelAliases(db, modelPool, logger);
@@ -516,10 +525,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       schedulerService.stop();
       // F20260812mrcq Part 1：先停 retry worker 再关 DB
       retryWorker?.stopSync();
-      // F20260825sgnw（#401）：RHI worker 同样先停再关 DB
-      await rhiScanWorker.stop();
-      // #927：信号老化扫描同停
-      await signalAgingWorker.stop();
+      // #949：巡检 worker 统一停（原 RHI/Signal Aging/运行时对账/Embedding Retry 的定时器）
+      await patrolWorker.stop();
       // await metric flush 到文件，确保进程退出前数据落盘
       try {
         await metricsRegistry.dispose();

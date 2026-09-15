@@ -39,18 +39,12 @@ export class EmbeddingRetryWorker {
     private readonly maxAttempts: number = 3,
   ) {}
 
+  /** #949：启动语义变为「标记可工作」——定时器已由 PatrolWorker 统一持有（扫台账循环合并），
+   *  本 worker 的周期性 tick 由 PatrolWorker 每 1h 调 tickNow() 驱动。
+   *  start/stop 保留（生命周期幂等契约 + dispose 的 stopSync 调用方不动）。 */
   start(): void {
     if (!this.stopped) return;
     this.stopped = false;
-    this.timer = setInterval(() => {
-      // 审视二轮 M6: setInterval 触发前检查 stopped，避免 stop 后还跑 tick
-      if (this.stopped) return;
-      this.inflightTick = this.tick().catch(e =>
-        this.logger.error(`EmbeddingRetryWorker tick failed: ${e}`),
-      );
-    }, this.intervalMs);
-    // #460：30s 重试轮询 timer unref，不阻止进程自然退出（僵尸进程根因之二）
-    this.timer?.unref?.();
   }
 
   /**
