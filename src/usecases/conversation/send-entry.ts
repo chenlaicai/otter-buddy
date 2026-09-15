@@ -539,16 +539,19 @@ export class SendEntry {
   }
 
   /** 更新 invoke token 使用量 */
-  async updateInvokeTokenUsage(
-    invokeId: string,
-    input: number,
-    output: number,
-  ): Promise<void> {
+  async updateInvokeTokenUsage(invokeId: string, input: number, output: number): Promise<void> {
     await this.invokeRepo.updateInvokeTokenUsage(invokeId, input, output);
   }
 
   /** F20260914rtsp：末次 LLM 往返 ctx 窗口占用（invoke.tick 落库，刷新恢复用） */
   async updateInvokeCtxWindowUsed(invokeId: string, ctxWindowUsed: number): Promise<void> { await this.invokeRepo.updateInvokeCtxWindowUsed(invokeId, ctxWindowUsed); }
+
+  /** F20260914usgm：更新 invoke model 归属（merge 进 metadata，不动其他键） */
+  async updateInvokeModel(invokeId: string, model: string): Promise<void> {
+    const invoke = await this.invokeRepo.getInvokeById(invokeId);
+    if (!invoke) return;
+    await this.invokeRepo.updateInvokeMetadata(invokeId, { ...(invoke.metadata ?? {}), model });
+  }
 
   /** F20260913ctlv 收尾批3：全文搜索（entries_fts——search_messages 工具数据源） */
   async searchEntries(conversationId: string, query: string, limit?: number): Promise<Entry[]> {
@@ -556,14 +559,10 @@ export class SendEntry {
   }
 
   /** F20260913ctlv 批4a：按 ID 取条目（get_message 工具） */
-  async getEntryById(entryId: string): Promise<Entry | null> {
-    return this.entryRepo.getEntryById(entryId);
-  }
+  async getEntryById(entryId: string): Promise<Entry | null> { return this.entryRepo.getEntryById(entryId); }
 
   /** F20260913ctlv 批4a：按 turn 取条目（get_turn_history 工具） */
-  async getEntriesByTurnId(turnId: string): Promise<Entry[]> {
-    return this.entryRepo.getEntriesByTurnId(turnId);
-  }
+  async getEntriesByTurnId(turnId: string): Promise<Entry[]> { return this.entryRepo.getEntriesByTurnId(turnId); }
 
   /** 查询条目列表 */
   async getEntries(

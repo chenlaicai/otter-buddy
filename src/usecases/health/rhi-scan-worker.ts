@@ -36,8 +36,9 @@ import type { HealthIndexSnapshot } from "./snapshot-shift";
 import type { SignalRepository } from "./signal-repository";
 import { aggregateOpenSignalCounts } from "./signal-counts";
 import { collectLlmCalls, collectOtterOutput, collectToolCallCounts, collectPrCounts, collectFdocCounts, collectDispatchTaskCounts } from "./cost-output-collector";
+import { collectInvokeStats } from "./invoke-stats-collector";
 import type { AgentSessionSource } from "./cost-output-collector";
-import { buildCostOutputSnapshotRows } from "./cost-output-rows";
+import { buildCostOutputSnapshotRows, buildInvokeStatsRows } from "./cost-output-rows";
 import type { CreateCostOutputRow } from "./cost-output-rows";
 
 /** healing 事件数据源端口（由 bootstrap 注入 DB 查询；worker 不直接依赖 healing repository 细节） */
@@ -279,9 +280,12 @@ export class RhiScanWorker {
         collectFdocCounts(this.repoPath),
       ]);
       const dispatchRecords = collectDispatchTaskCounts(db, { since });
+      // F20260914usgm：单次问答均值（invokes 表，按模型 + 全模型合计）
+      const invokeStatsRecords = collectInvokeStats(db, { since });
 
       const outputRecords = collectOtterOutput(db, toolCallCounts, { since });
       const rows = buildCostOutputSnapshotRows(costRecords, outputRecords, { prRecords, fdocRecords, dispatchRecords });
+      rows.push(...buildInvokeStatsRows(invokeStatsRecords));
       if (rows.length > 0) {
         // 按真实日期分批写入，每批用 metricType="cost_output" 限定删除范围
         // 所有行（per-otter + 全局）均以记录自带日期为 snapshot_date，逐日 replaceForDate 幂等覆盖
