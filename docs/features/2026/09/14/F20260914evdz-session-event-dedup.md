@@ -115,6 +115,18 @@ created_at: 2026-09-14T20:30:00+08:00
 - buffer 上限 400 条（防长行动期间内存增长；弹窗打开时回放后全量拉取兜底）
 - IM 出站通道（feishu/weixin）会收到 invoke.event 但各自过滤不消费（只处理 entry.user/entry.speak/invoke.start）——无额外出站流量
 
+# 审视处置记录（检视獭evdz mimo，2026-09-15）
+
+0 严重 / 4 建议（1🟡 修 / 3🔵 记录不改）：
+
+- 🟡 发现 1（SSE 重连后已展开 invoke 不刷新）：**已修**——conn 恢复信号触发全量收敛：
+  对所有已展开 invoke 调 refreshEvents + refreshInvokes（断连窗口可能丢 invoke.end
+  flush / invoke.start / 增量）。实现经 expandedEventsRef 镜像读最新展开集（listener
+  闭包不进依赖——避免展开/收起重注册 + 重复回放，检视建议的直接写法会引入该副作用）。
+- 🔵 发现 2（CopyButton clipboard 边界）：记录不改（检视自省确认非 bug；极低频）。
+- 🔵 发现 3（index.tsx 条件类型断言）：记录不改（项目既有模式）。
+- 🔵 发现 4（fullText 只提 text 块）：记录不改（与 extractText 口径一致，JSON 兜底）。
+
 # 对 #916 的关系
 
 #916 的折叠骨架（快照丢弃、FIFO 配对、rawEventIds 溯源）全部保留；本特性修它的两个真实数据缺陷，属展示层行为修正。上轮搭档拍板的右栏措辞（「● 行动中 · 走秒 · 🛠 n · ctx/上限」「○ 休息中 · ctx」）不动。

@@ -63,6 +63,10 @@ export function SessionModal({ otter, conversationId, onClose, liveEvents, liveL
   const eventsBoxRef = useRef<HTMLDivElement | null>(null)
   /** 自动滚底跟随：用户上滚（距底 > 40px）暂停，回底恢复 */
   const followBottomRef = useRef(true)
+  /** F20260914evdz 检视发现 1：expandedEvents ref 镜像——listener 闭包读最新展开集
+   *  （不进 effect 依赖，避免展开/收起都重注册 listener + 重复回放） */
+  const expandedEventsRef = useRef(expandedEvents)
+  useEffect(() => { expandedEventsRef.current = expandedEvents }, [expandedEvents])
 
   /** 全量拉取收敛（终态 flush / 断连恢复用——落库是真相源） */
   const refreshEvents = useCallback(async (invokeId: string) => {
@@ -144,7 +148,16 @@ export function SessionModal({ otter, conversationId, onClose, liveEvents, liveL
    *  conn：SSE 连接状态（断连提示）。 */
   useEffect(() => {
     const listener = (item: SessionLiveItem) => {
-      if (item.conn !== undefined) { setConnLost(!item.conn); return }
+      if (item.conn !== undefined) {
+        setConnLost(!item.conn)
+        /** 检视发现 1：断连恢复（conn=true）即全量收敛——断连窗口内可能丢
+         *  invoke.end flush / invoke.start 信号 / 增量事件；ref 镜像读最新展开集 */
+        if (item.conn) {
+          for (const id of Object.keys(expandedEventsRef.current)) void refreshEvents(id)
+          void refreshInvokes()
+        }
+        return
+      }
       if (item.otterId !== otter.id) return
       if (item.start) { void refreshInvokes(item.invokeId); return }
       if (item.ev == null) { void refreshEvents(item.invokeId); return }
