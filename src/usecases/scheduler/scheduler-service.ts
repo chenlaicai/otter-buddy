@@ -26,8 +26,13 @@ import { resolve } from 'node:path';
 const ONCE_MAX_RETRIES = 3;
 const ONCE_RETRY_DELAY_MS = 65_000; // 65 秒（避开 claimTask 60s 窗口）
 
-/** #640: 轮询间隔（30 秒）。quartz/celery beat 模式：定时扫描 active 任务，比对墙钟，迟到即补触发 */
-const POLL_INTERVAL_MS = 30_000;
+/** #640: 轮询间隔（5 分钟，2026-09-15 闹钟瘦身：30s→5min——任务最小粒度 1min 且全为日报/周报级，
+ *  补触发晚 5 分钟无体感，循环频率降 10 倍；chen 15:09「后台循环太多」裁决）。
+ *  ⚠ 本值同时是「快路径触发去重窗」（#640 防重复判据：lastTriggeredAt 在本窗口内视为已被
+ *  setTimeout 快路径触发）——窗口从 30s 涨到 5min 后，setTimeout 快路径触发失败的回补延迟
+ *  同步涨到最多 5min（可接受，见特性文档 timer-diet）。quartz/celery beat 模式：
+ *  定时扫描 active 任务，比对墙钟，迟到即补触发 */
+const POLL_INTERVAL_MS = 300_000;
 /** #823: 运行时定期对账间隔（1 小时）。启动对账（#814）只覆盖重启时刻——9/6 现场：服务在线
  *  但轮询 tick 循环整体死亡（setInterval 异常静默/事件循环假死），self-healing-analysis 错过
  *  18:00 窗口、2 条 healing events 悬置 28h。定期对账独立于 tick 定时器运行，tick 死了对账仍响。 */

@@ -35,7 +35,7 @@ export class EmbeddingRetryWorker {
     private readonly queue: MemoryQueue,
     private readonly embeddingGateway: EmbeddingGateway,
     private readonly logger: Logger,
-    private readonly intervalMs: number = 30_000,
+    private readonly intervalMs: number = 60 * 60 * 1000, // 2026-09-15 闹钟瘦身：30s→1h（暗化条目仅影响语义近邻召回，关键词召回不受影响，1h 延迟可接受）
     private readonly maxAttempts: number = 3,
   ) {}
 
