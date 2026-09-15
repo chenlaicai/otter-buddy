@@ -159,7 +159,12 @@ async function reconcileSingleTemplate(args: {
 
   result.checked += 1;
   const tplBody = stripFrontmatter(content);
-  await applyTemplateBody({ task, tplBody, file, taskRepo, now, result });
+  await applyTemplateBody({ task, tplBody, file, taskRepo, now, result }).catch(err => {
+    // 逐项降级：单任务 DB 写入失败不阻塞其余模板的对账（与 #814 dedup 失败降级同模式）
+    logger.warn(`prompt 对账写入失败，跳过该任务（task=${task.name}）`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
 }
 
 /** 比对任务 body 与模板体，漂移即更新（包装形态对账内层，裸 body 全量比对）。 */

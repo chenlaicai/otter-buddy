@@ -132,6 +132,36 @@ describe('#784 prompt 启动对账', () => {
     expect(result.unmatched).toEqual(['orphan']);
   });
 
+  it('task_name 优先且不 fallback：模板带 task_name 时即使 kebab 能匹配也不走文件名匹配（检视建议 1）', async () => {
+    // 模板文件名 daily-x 可 kebab 匹配任务「Daily X」，但模板 task_name 指向另一个不存在
+    // 的名字——精确键优先，不应 fallback 到文件名匹配误碰该任务
+    fs.writeFileSync(path.join(tmpDir, 'daily-x.md'), `---\ntask_name: 别的任务\n---\n新内容`);
+    const repo = createMockRepo([makeTask({ name: 'Daily X', body: '旧' })]);
+
+    const result = await reconcilePromptTemplates({ taskRepo: repo, logger: mockLogger, templateDir: tmpDir });
+
+    expect(result.updated).toBe(0);
+    expect(result.unmatched).toEqual(['daily-x']);
+    expect(repo.store.get('task-1')?.body).toBe('旧');
+  });
+
+  it('单任务 DB 写入失败：不阻塞其余模板对账（检视建议 2）', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'a-1.md'), `---\ntask_name: 任务A\n---\nA 新`);
+    fs.writeFileSync(path.join(tmpDir, 'b-2.md'), `---\ntask_name: 任务B\n---\nB 新`);
+    const repo = createMockRepo([
+      makeTask({ id: 'task-a', name: '任务A', body: 'A 旧' }),
+      makeTask({ id: 'task-b', name: '任务B', body: 'B 旧' }),
+    ]);
+    // 首个 update 失败，第二个应继续成功
+    repo.update.mockRejectedValueOnce(new Error('db write boom'));
+
+    const result = await reconcilePromptTemplates({ taskRepo: repo, logger: mockLogger, templateDir: tmpDir });
+
+    expect(result.updated).toBe(1);
+    expect(repo.store.get('task-a')?.body).toBe('A 旧');
+    expect(repo.store.get('task-b')?.body).toBe('B 新');
+  });
+
   it('JSON 包装形态：只替换内层 prompt，watchlist 保留（#610 对偶面）', async () => {
     fs.writeFileSync(path.join(tmpDir, 'paper-trading-daily.md'), `---\ntask_name: paper-trading-daily-trading\n---\n操盘新 prompt`);
     const wrapped = JSON.stringify({ prompt: '操盘旧 prompt', watchlist: ['600519', '000001'] });
