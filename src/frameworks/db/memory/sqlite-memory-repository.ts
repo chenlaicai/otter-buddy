@@ -237,6 +237,41 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
         .prepare("SELECT id FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?")
         .all(entry.sourceTable, entry.sourceId, entry.contentType) as Array<{ id: string }>;
 
+      // F20260915midu（#942 检视严重发现 1）：ID 统一后旧行 id = source_id = 新行 id，
+      // 先插新行会撞 UNIQUE 主键（迁移前“新 id 是全新 UUID 不可能冲突”的假设失效）。
+      // 同 id 重入走快路径：UPDATE 本行（不删行——边 FK immediate 约束下删被引用行会炸，
+      // 且边 remap 本就是 no-op 应保留）+ 刷新 fts/vec 卫星 + weights 不动。
+      // embedding_tasks 不清：pending 重试仍指向该条目，条目内容更新不影响重试语义。
+      if (oldRows.length === 1 && oldRows[0].id === entry.id) {
+        this.db.prepare(
+          `UPDATE memory_entries SET layer = ?, content_type = ?, conversation_id = ?,
+             granularity = ?, content = ?, metadata = ?, created_at = ?
+           WHERE id = ?`,
+        ).run(
+          entry.layer,
+          entry.contentType,
+          entry.conversationId ?? null,
+          entry.granularity,
+          entry.content,
+          entry.metadata ? JSON.stringify(entry.metadata) : null,
+          entry.createdAt,
+          entry.id,
+        );
+        // FTS 换内容（与 insertEntryRow 相同的 ftsText 构造逻辑）
+        this.db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(entry.id);
+        const ftsText = (entry.sourceTable === "features" || entry.sourceTable === "research")
+          && FID_ANCHOR_REGEX.test(entry.sourceId)
+          ? `${entry.sourceId} ${entry.content}`
+          : entry.content;
+        this.db.prepare(
+          "INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)",
+        ).run(entry.id, tokenizeWithJieba(ftsText, { doubleWrite: true }));
+        if (this.vecTableExists) {
+          this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(entry.id);
+        }
+        return;
+      }
+
       // 1. 插新（必须在重定向前——FK 要求新行先存在）
       this.insertEntryRow(entry);
 

@@ -91,5 +91,27 @@ private generateId(sourceTable: string, sourceId: string): string {
 
 - 单测（store-memory.test.ts）：execute/replaceBySource 对 messages/linked_resources/features/research 返回并落库 id == source_id；signals 保持随机 UUID；replaceChunksBySource 保持随机 UUID。
 - 迁移测试（migration.test.ts）：构造含 edges/weights/FTS/embedding_tasks 的小库 → 迁移后 id 统一、边重定向、卫星表键复制、幂等（二次执行零变化）。
-- 生产库演练：备份副本上跑迁移，26539 → 0 条 `id != source_id`（可统一类），edges 72→68（4 重复边去重），`foreign_key_check` 通过，召回回归（FTS/vec 双路）不倒退。
+- 生产库演练：备份副本上跑迁移，26539 → 0 条 `id != source_id`（可统一类），edges 72 全保留（重定向正确），卫星表行数无损，`foreign_key_check` 零违例，幂等复跑零变化，资源 ID 直查命中（#942 核心验收），~25s。
 - 已过最简检查：ID 生成收敛为单点函数；迁移复用内存表重建（仓库内 messages→entries 迁移同模式先例），无新依赖。
+
+## 对抗审视记录（检视獭-944）
+
+### 严重发现 1：replaceEntryBySource 同 id 重入撞 UNIQUE（接受并修复）
+
+**发现**：`replaceEntryBySource` 先插新行后删旧行，迁移前新行是全新 UUID 不撞主键；ID 统一后旧行 id = source_id = 新行 id，`insertEntryRow` 的 plain INSERT 撞 UNIQUE——迁移后所有 feature/research 的 sync_docs reindex 永久断裂。检视獭独立复现 100% 命中。
+
+**决策树：更好**——本 PR 自己引入的衔接面断裂，必修。
+
+**修复**（sqlite-memory-repository.ts）：同 id 重入（oldRows 恰 1 行且 id 相同）走快路径——**UPDATE 本行 + 刷新 fts/vec 卫星**。不走「删行 + 插新」的原因（实现中两次修正）：
+1. `cascadeDeleteSatellites` 会连带删边——同 id 时边 remap 是 no-op 必须保留，不能用级联删
+2. 即便手动只删卫星表，删被边引用的行在 FK immediate 约束下直接炸（foreign_keys=ON 时 `FOREIGN KEY constraint failed`）——UPDATE 不删行天然绕开
+
+weights 不动（reindex 不重置检索计数）；embedding_tasks 不清（pending 重试仍指向该条目，语义不受影响）。
+
+**回归测试**（migration.test.ts「post-migration replaceBySource re-entry」）：双 ID 存量 → 迁移 → 同 id replaceEntryBySource 不抛错、内容更新、边保留、FTS/weights 卫星正确——锁死「迁移 → sync_docs reindex」端到端衔接面（正是原单测 gap 让严重发现漏网）。
+
+### 建议发现 2：迁移测试覆盖 gap（接受并修复）
+同严重发现 1 的回归测试一并补上（post-migration 重入场景）。
+
+### 建议发现 3：storeEntry 同 source 重复 execute 撞 UNIQUE（建 issue 留档）
+有意契约（「同 source 唯一投影」），实证无此调用路径。已建 **#945** 留档观察。

@@ -692,3 +692,60 @@ describe("migrateDatabase - F20260915midu: rebuildMemoryEntriesUnifyIds", () => 
     }
   });
 });
+
+/** F20260915midu 检视严重发现 1 回归：post-migration replaceBySource 重入（同 id 快路径）。
+ *  迁移后 feature entry id = source_id，replaceEntryBySource 先插后删会撞 UNIQUE 主键——
+ *  修复为同 id 走快路径（边 remap 是 no-op，直接级联删 + 删旧 + 插新）。
+ *  本用例锁死「迁移 → sync_docs reindex」端到端衔接面。 */
+describe("migrateDatabase - F20260915midu: post-migration replaceBySource re-entry", () => {
+  it("迁移后同 id replaceEntryBySource 不撞 UNIQUE，边与内容正确", async () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    initSchema(db);
+    try {
+      db.prepare(`INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 'c', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`).run();
+      const insertEntry = db.prepare(`INSERT INTO memory_entries (id, layer, content_type, source_id, source_table, conversation_id, granularity, content, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      const insertFts = db.prepare("INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)");
+      const insertWeights = db.prepare("INSERT INTO memory_weights (memory_entry_id, retrieval_count, last_retrieved_at, user_flagged) VALUES (?, 0, NULL, 0)");
+      // 迁移前双 ID 形态：feature 投影旧 id，消息投影旧 id
+      insertEntry.run("old-proj-feat", "document", "feature", "F20260915bbbb", "features", null, "coarse", "文档 v1", null, "2026-09-01T00:00:00Z");
+      insertFts.run("old-proj-feat", "文档 v1");
+      insertWeights.run("old-proj-feat");
+      insertEntry.run("old-proj-msg", "working", "message", "msg-001", "messages", "conv-1", "fine", "讨论", null, "2026-09-01T00:00:00Z");
+      insertFts.run("old-proj-msg", "讨论");
+      insertWeights.run("old-proj-msg");
+      db.prepare(`INSERT INTO memory_edges (id, from_entry_id, to_entry_id, edge_type, created_at) VALUES ('edge-1', 'old-proj-msg', 'old-proj-feat', 'produced', '2026-09-01T00:00:00Z')`).run();
+
+      // 迁移：id 统一（feature id 变为 F20260915bbbb，边重定向）
+      migrateDatabase(db, createTestLogger());
+      expect((db.prepare("SELECT id FROM memory_entries WHERE content_type='feature'").get() as { id: string }).id).toBe("F20260915bbbb");
+
+      // 迁移后 sync_docs reindex：同 id 重入（检视严重发现 1 的 100% 复现路径）
+      const { SqliteMemoryRepository } = await import("@frameworks/db/memory/sqlite-memory-repository");
+      const repo = new SqliteMemoryRepository(db);
+      await repo.replaceEntryBySource({
+        id: "F20260915bbbb",
+        layer: "document",
+        contentType: "feature",
+        sourceId: "F20260915bbbb",
+        sourceTable: "features",
+        conversationId: null,
+        granularity: "coarse",
+        content: "文档 v2",
+        metadata: null,
+        createdAt: "2026-09-15T13:00:00Z",
+      });
+
+      // 内容更新、边保留（重定向到同 id 是 no-op）
+      const feat = db.prepare("SELECT content FROM memory_entries WHERE id = 'F20260915bbbb'").get() as { content: string };
+      expect(feat.content).toBe("文档 v2");
+      const edge = db.prepare("SELECT from_entry_id, to_entry_id FROM memory_edges WHERE id = 'edge-1'").get() as { from_entry_id: string; to_entry_id: string };
+      expect([edge.from_entry_id, edge.to_entry_id]).toEqual(["msg-001", "F20260915bbbb"]);
+      // FTS/weights 卫星表重建
+      expect((db.prepare("SELECT COUNT(*) c FROM memory_fts_jieba WHERE memory_entry_id = 'F20260915bbbb'").get() as { c: number }).c).toBe(1);
+      expect((db.prepare("SELECT COUNT(*) c FROM memory_weights WHERE memory_entry_id = 'F20260915bbbb'").get() as { c: number }).c).toBe(1);
+    } finally {
+      db.close();
+    }
+  });
+});
