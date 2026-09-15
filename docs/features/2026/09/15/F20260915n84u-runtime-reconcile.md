@@ -8,15 +8,16 @@ created: 2026-09-15
 created_in_conversation: c2f347c6-7e59-4e2e-ab48-10f64a5a1258
 modules: [scheduler]
 closes_issue: 823
+capability_test: tests/usecases/scheduler/scheduler-service.test.ts（#814/#823 系列 10 用例：启动对账 5 + 运行时对账 3 + 根修 2）
 intent:
-  goal: 服务在线但调度 tick 死亡时，错过触发窗口在 1h 内落 healing 台账，不再依赖次日人肉发现
-  why: 9/6 实证现场（#823）：其他任务正常 ≠ 本任务正常——tick 循环整体死亡时 #814 启动对账完全帮不上；2 条 healing events 因此悬置 28h
+  goal: 根治调度饿死——动态 skip 不吞 claim（D1）、Polling expected 缓存不自锁（D2），任务不再静默错过窗口；运行时 1h 对账作未知形态的兜底可见性
+  why: 9/6 日志取证实锤（#823）：skip 吞 claim + expected 自锁合谋让任务饿死 22h 零日志，2 条 healing events 悬置 28h；上午版「tick 死亡」误判已勘误
   non_goals:
     - 不处理 cron 级漏触发的补跑策略（错过就错过，落账即可；补跑语义归 #854 运行时对账议题）
     - 不改变补触发语义（#640 轮询补触发逻辑不动）
 ---
 
-# 运行时定期调度对账：tick 循环死亡时错过窗口仍可见
+# 调度饿死根治：skip 不吞 claim + expected 缓存重算 + 运行时对账兜底
 
 ## 目标
 
