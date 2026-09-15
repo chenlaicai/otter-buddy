@@ -47,6 +47,8 @@ interface CardRenderCtx {
   variant: MarkdownVariant
   messageId: string
   authorId: string
+  /** F20260915hcel：html-card schema版本，用于区分新卡（默认展开）与老卡（默认折叠） */
+  cardSchemaVersion?: number
 }
 const CardRenderContext = createContext<CardRenderCtx>({ variant: 'otter-body', messageId: '', authorId: '' })
 
@@ -100,6 +102,7 @@ function CardAwareCode({ className, children, node, ...props }: CodeComponentPro
         code={text}
         interactive={ctx.variant === 'otter-body'}
         authorId={ctx.authorId}
+        cardSchemaVersion={ctx.cardSchemaVersion}
       />
     )
   }
@@ -141,13 +144,15 @@ const REMARK_PLUGINS: NonNullable<ComponentProps<typeof ReactMarkdown>['remarkPl
 ]
 
 /** Markdown 渲染组件（GFM + 代码高亮 + HTML 卡片路由） */
-function MarkdownContent({ children, variant = 'otter-body', messageId = '', authorId = '' }: {
+function MarkdownContent({ children, variant = 'otter-body', messageId = '', authorId = '', cardSchemaVersion }: {
   children: string
   variant?: MarkdownVariant
   messageId?: string
   authorId?: string
+  /** F20260915hcel：html-card schema版本，用于区分新卡（默认展开）与老卡（默认折叠） */
+  cardSchemaVersion?: number
 }) {
-  const ctx = useMemo<CardRenderCtx>(() => ({ variant, messageId, authorId }), [variant, messageId, authorId])
+  const ctx = useMemo<CardRenderCtx>(() => ({ variant, messageId, authorId, cardSchemaVersion }), [variant, messageId, authorId, cardSchemaVersion])
   const components = variant === 'otter-body' ? otterBodyComponents : variant === 'user-body' ? userBodyComponents : eventLogComponents
   return (
     <CardRenderContext.Provider value={ctx}>
@@ -630,7 +635,7 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
                     className="relative group"
                     style={idx > 0 ? { borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: '0.5rem' } : undefined}
                   >
-                    <MarkdownContent variant={isUser ? 'user-body' : 'otter-body'} messageId={m.id} authorId={m.si}>{seg.body}</MarkdownContent>
+                    <MarkdownContent variant={isUser ? 'user-body' : 'otter-body'} messageId={m.id} authorId={m.si} cardSchemaVersion={m.cardSchemaVersion}>{seg.body}</MarkdownContent>
                     <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition">
                       <CopyButton text={seg.body} />
                     </div>
@@ -640,7 +645,7 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
           ) : (
             <div className="relative group">
               {m.content
-                ? <MarkdownContent variant={isUser ? 'user-body' : 'otter-body'} messageId={m.id} authorId={m.si}>{m.content}</MarkdownContent>
+                ? <MarkdownContent variant={isUser ? 'user-body' : 'otter-body'} messageId={m.id} authorId={m.si} cardSchemaVersion={m.cardSchemaVersion}>{m.content}</MarkdownContent>
                 : <span className="text-stone-400">{inFlight ? '正在回复...' : ''}</span>
               }
               <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition">

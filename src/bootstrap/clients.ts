@@ -163,6 +163,7 @@ export function buildOtterToolClient(
             otterId: params.otterId,
             turnId: params.turnId,
             body: params.body,
+            metadata: params.metadata,
           });
           return { id: entry.entry.id, entryType: entry.entry.entryType, body: entry.entry.body ?? '' };
         },
