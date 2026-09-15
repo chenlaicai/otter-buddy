@@ -89,6 +89,18 @@ export function createHaltOtterTool(ctx: ToolContext, signalRepo: SignalEventRep
       return errorResponse("[错误] 不能 halt 自己。需要中断自己的执行请直接收尾（stop 当前动作、汇报、yield）。");
     }
 
+    // #927 架构裁决（chen 终审）：halt 的送达语义是「目标獭下一个工具调用边界」，
+    // 消费对象是进行中的 invoke——endInvoke 挂 invoke finally，行动结束必清 pending。
+    // 因此打标时目标不在执行中 = 指令无消费对象（孤儿），直接拒绝。
+    // 这是根治，不用 TTL 兜底——设计不留模糊区。
+    if (ctx.isOtterRunning && !ctx.isOtterRunning(target.otterId)) {
+      return errorResponse(
+        `[错误] ${target.otterName}（${target.otterId}）当前不在执行中。` +
+        `halt 指令的生效点是「下一个工具调用边界」——它没在跑就没有消费对象，打标只会成为孤儿指令。` +
+        `如需阻止它下次开工，请改派（yield）新 invoke 后再 halt；如已误打标请用 unhalt_otter 解除。`,
+      );
+    }
+
     const now = new Date().toISOString();
     const signalId = crypto.randomUUID();
     const directive: HaltDirective = {
@@ -123,7 +135,7 @@ export function createHaltOtterTool(ctx: ToolContext, signalRepo: SignalEventRep
   };
   return {
     name: "halt_otter",
-    description: "对运行中的小獭发出停手指令（halt）. When: 发现派工方向错误/需求变更/需要中止当前工作但不想丢上下文（restart 是核弹，halt 是刹车）. Not for: 停自己（直接收尾即可）/ 对搭档（无意义）. Output: 打标确认 + 台账 ID. 语义: 目标獭在下一个非 speak 工具调用边界收到指令（speak 豁免供报告进度），收尾当前调用后停止新增副作用，报告进度快照并交回行动权. 上下文完整保留，改派后可续干. GOTCHA: 打标后最坏延迟=单个工具调用时长（如长 bash），期间 UI 显示 halt 待生效.",
+    description: "对运行中的小獭发出停手指令（halt）. When: 发现派工方向错误/需求变更/需要中止当前工作但不想丢上下文（restart 是核弹，halt 是刹车）. Not for: 停自己（直接收尾即可）/ 对搭档（无意义）/ 目标不在执行中（无消费对象，直接拒绝）. Output: 打标确认 + 台账 ID. 语义: 目标獭在下一个非 speak 工具调用边界收到指令（speak 豁免供报告进度），收尾当前调用后停止新增副作用，报告进度快照并交回行动权. 上下文完整保留，改派后可续干. GOTCHA: ①打标前会检查目标是否正在执行中，不在则拒绝（防孤儿指令）；②打标后最坏延迟=单个工具调用时长（如长 bash），期间 UI 显示 halt 待生效.",
     parameters: {
       type: "object",
       properties: {

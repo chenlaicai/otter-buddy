@@ -158,4 +158,7 @@ export interface ToolContext {
   currentInvokeId?: string;
   /** F20260913ctlv：SSE 发射通道（工具层发 entry.yield 等事件用）。寄存器穿透 */
   emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
+  /** #927：目标獭活跃性查询（halt_otter 打标前检查——不在执行中则拒绝打标，从入口杜绝孤儿指令）。
+   *  PiSessionFactory.isRunning 同源（activeSessions 查询），invoke 生命周期语义一致。 */
+  isOtterRunning?: (otterId: string) => boolean;
 }

@@ -2,7 +2,8 @@
  * #927：halt 生命周期加固 + 信号老化扫描单测。
  *
  * 覆盖：
- * - haltRegistry 生命周期语义：endInvoke 清 pending（跨世代残留修复）、pending TTL 惰性过期、clear 解除
+ * - haltRegistry 生命周期语义：endInvoke 清 pending（跨世代残留修复）、clear 解除
+ * - halt_otter 工具：活跃性检查（#927 架构裁决——不在执行中则拒绝打标，根治孤儿指令）
  * - unhalt_otter 工具：解除打标 + pending 落账 dismissed、reason 必填、目标解析
  * - SignalAgingWorker：pending >24h 落 medium healing、halt 类型不扫、已告警去重、repos 未注入静默跳过
  */
@@ -11,8 +12,8 @@ import Database from 'better-sqlite3';
 import { initSchema } from '@frameworks/db/schema';
 import { SqliteSignalEventRepository } from '@frameworks/db/signal/sqlite-signal-repository';
 import { SqliteHealingEventRepository } from '@frameworks/db/healing/sqlite-healing-event-repository';
-import { haltRegistry, HALT_PENDING_TTL_MS, type HaltDirective } from '@usecases/signal/halt-registry';
-import { createUnhaltOtterTool } from '@interface-adapters/agent-runtime/tools/signal-tools';
+import { haltRegistry, type HaltDirective } from '@usecases/signal/halt-registry';
+import { createHaltOtterTool, createUnhaltOtterTool } from '@interface-adapters/agent-runtime/tools/signal-tools';
 import { SignalAgingWorker, SIGNAL_AGING_THRESHOLD_MS } from '@usecases/signal/signal-aging-worker';
 import type { SignalEvent } from '@entities/signal/signal-event';
 import type { ToolContext } from '@usecases/ports/agent-tools';
@@ -32,7 +33,7 @@ function makeDirective(overrides: Partial<HaltDirective> = {}): HaltDirective {
   };
 }
 
-function makeCtx(): ToolContext {
+function makeCtx(isOtterRunning?: (otterId: string) => boolean): ToolContext {
   const client = {
     conversation: {
       participant: {
@@ -43,7 +44,7 @@ function makeCtx(): ToolContext {
       },
     },
   } as unknown as OtterToolClient;
-  return { client, otterId: 'otter-big', conversationId: 'conv-1', currentMessageId: 'msg-1' };
+  return { client, otterId: 'otter-big', conversationId: 'conv-1', currentMessageId: 'msg-1', isOtterRunning };
 }
 
 const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger;
@@ -67,28 +68,6 @@ describe('#927 haltRegistry 生命周期加固', () => {
     expect(haltRegistry.takeForBlock('otter-B')).toHaveLength(1);
   });
 
-  it('pending TTL 惰性过期：issuedAt 超 30min 的指令读取时被丢弃', () => {
-    const stale = new Date(Date.now() - HALT_PENDING_TTL_MS - 1000).toISOString();
-    haltRegistry.mark(makeDirective({ issuedAt: stale }));
-    expect(haltRegistry.takeForBlock('otter-small-1')).toHaveLength(0);
-    expect(haltRegistry.isHalted('otter-small-1')).toBe(false);
-  });
-
-  it('pending TTL 边界：恰好 30min 内的指令仍生效', () => {
-    const fresh = new Date(Date.now() - HALT_PENDING_TTL_MS + 60_000).toISOString();
-    haltRegistry.mark(makeDirective({ issuedAt: fresh }));
-    expect(haltRegistry.takeForBlock('otter-small-1')).toHaveLength(1);
-  });
-
-  it('TTL 过期只影响 pending：active 中的指令不受影响（已送达持续 block 到 invoke 结束）', () => {
-    haltRegistry.mark(makeDirective());
-    // 已消费 → active
-    expect(haltRegistry.takeForBlock('otter-small-1')).toHaveLength(1);
-    // 时间流逝（模拟 issuedAt 已老，但指令已 active）
-    haltRegistry['pending'].set('noop', [makeDirective({ targetOtterId: 'noop', issuedAt: new Date(Date.now() - HALT_PENDING_TTL_MS - 1000).toISOString() })]);
-    expect(haltRegistry.takeForBlock('otter-small-1')).toHaveLength(1);
-  });
-
   it('clear 解除：pending + active 全清，返回两态指令供台账落账', () => {
     haltRegistry.mark(makeDirective({ id: 'sig-p1' }));
     haltRegistry.mark(makeDirective({ targetOtterId: 'otter-A', id: 'sig-p2' }));
@@ -109,6 +88,60 @@ describe('#927 haltRegistry 生命周期加固', () => {
     const cleared = haltRegistry.clear('otter-small-1');
     expect(cleared.pending.map(d => d.id)).toEqual(['sig-unconsumed']);
     expect(cleared.active).toHaveLength(0);
+  });
+});
+
+describe('#927 halt_otter 活跃性检查（架构裁决：根治孤儿指令）', () => {
+  let db: Database.Database;
+  let repo: SqliteSignalEventRepository;
+  let ctx: ToolContext;
+
+  beforeEach(() => {
+    haltRegistry.resetForTest();
+    db = new Database(':memory:');
+    initSchema(db);
+    repo = new SqliteSignalEventRepository(db);
+  });
+
+  it('目标不在执行中：拒绝打标（isOtterRunning 返回 false）', async () => {
+    ctx = makeCtx(() => false);
+    const tool = createHaltOtterTool(ctx, repo, mockLogger);
+    const res = await tool.execute('t1', { otterName: '开发獭-X', reason: '方向反了，停手' });
+    expect(res.content[0].text).toContain('[错误]');
+    expect(res.content[0].text).toContain('当前不在执行中');
+    expect(haltRegistry.isHalted('otter-small-1')).toBe(false);
+  });
+
+  it('目标在执行中：正常打标（isOtterRunning 返回 true）', async () => {
+    ctx = makeCtx(() => true);
+    const tool = createHaltOtterTool(ctx, repo, mockLogger);
+    const res = await tool.execute('t2', { otterName: '开发獭-X', reason: '方向反了，停手' });
+    expect(res.content[0].text).toContain('[halt]');
+    expect(haltRegistry.isHalted('otter-small-1')).toBe(true);
+  });
+
+  it('isOtterRunning 未注入（旧装配路径）：跳过活跃性检查，维持旧行为', async () => {
+    ctx = makeCtx(undefined);
+    const tool = createHaltOtterTool(ctx, repo, mockLogger);
+    const res = await tool.execute('t3', { otterName: '开发獭-X', reason: '方向反了，停手' });
+    expect(res.content[0].text).toContain('[halt]');
+    expect(haltRegistry.isHalted('otter-small-1')).toBe(true);
+  });
+
+  it('目标不存在：拒绝打标（先于活跃性检查）', async () => {
+    ctx = makeCtx(() => true);
+    const tool = createHaltOtterTool(ctx, repo, mockLogger);
+    const res = await tool.execute('t4', { otterName: '幽灵獭', reason: 'x'.repeat(10) });
+    expect(res.content[0].text).toContain('[错误]');
+    expect(res.content[0].text).toContain('找不到');
+  });
+
+  it('自我 halt：拒绝打标', async () => {
+    ctx = makeCtx(() => true);
+    const tool = createHaltOtterTool(ctx, repo, mockLogger);
+    const res = await tool.execute('t5', { otterName: '大獭', reason: 'x'.repeat(10) });
+    expect(res.content[0].text).toContain('[错误]');
+    expect(res.content[0].text).toContain('不能 halt 自己');
   });
 });
 
