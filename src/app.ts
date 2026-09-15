@@ -328,7 +328,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // #775 S4a：scheduler 换轨接线——路由器晚于 scheduler 诞生（initAgentAndScheduler
   // 内部依赖链更长），构造后注入；scheduler 触发从此过闸门+台账，与五入口同一调度纪律。
   schedulerService.attachSignalRouter(signalRouter);
-  const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, weixinPollers, registry } =
+  const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, dailyReviewInit, weixinPollers, registry } =
     await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger, messageBroadcaster, signalRouter });
 
   // ── 微信 web 登录（issue #566）：零配置可用 ──
@@ -483,8 +483,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   }
 
   /** 等待所有 ensure 完成后再启动 scheduler，确保新创建的 scheduled task 被遍历到。
-   *  与旧 main() 的差异：buildApp 会 await 这两个 ensure 再返回（确定性更高，无 LLM 调用、耗时极小）。 */
-  await Promise.allSettled([healingInit, recruitingInit]);
+   *  与旧 main() 的差异：buildApp 会 await 这两个 ensure 再返回（确定性更高，无 LLM 调用、耗时极小）。
+   *  F20260915cfgt：补 dailyReviewInit（每日复盘 seed 同样要赶在 scheduler start 前）。 */
+  await Promise.allSettled([healingInit, recruitingInit, dailyReviewInit]);
   if (options.startScheduler ?? true) {
     schedulerService.start().catch((err) => {
       logger.error(`Failed to start scheduler: ${err}`);

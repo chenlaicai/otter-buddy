@@ -12,6 +12,7 @@ import { parseDocument } from "yaml";
 // 两库对 config.yaml 解析结果逐字段一致（检视獭独立验证）；收敛到单库需另开 issue 评估，暂不动读路径。
 import * as yaml from "js-yaml";
 import type { Logger } from "@usecases/ports/logger";
+import { buildFeaturesConfig, buildRawAttachmentsConfig } from "@frameworks/features-config";
 
 /** 单个模型配置 */
 export interface ModelConfig {
@@ -155,6 +156,18 @@ export interface AppConfig {
     maxImageBytes?: number;
     /** 文档大小上限（字节，默认 20MB） */
     maxDocumentBytes?: number;
+  };
+  /** 功能开关（F20260915cfgt）：三态——true/false 显式生效；undefined=未配置，
+   *  由装配层（feature-gates.ts）按 DB 存量任务推断后再走缺省值 */
+  features: {
+    /** 每日复盘（工作内容优化，缺省 true——新环境默认体验） */
+    dailyReview: boolean | undefined;
+    /** self-healing 自愈分析（海獭系统优化，缺省 false——除作者外无人关心） */
+    selfHealing: boolean | undefined;
+    /** 纸面交易（个人场景，缺省 false） */
+    paperTrading: boolean | undefined;
+    /** 招聘桥接（个人场景，缺省 false；关闭时 webhook 一并下线） */
+    recruiting: boolean | undefined;
   };
 }
 
@@ -306,6 +319,12 @@ interface RawConfig {
     storageRoot?: string;
     maxImageBytes?: number;
     maxDocumentBytes?: number;
+  };
+  features?: {
+    dailyReview?: boolean;
+    selfHealing?: boolean;
+    paperTrading?: boolean;
+    recruiting?: boolean;
   };
 }
 
@@ -503,16 +522,8 @@ function buildWebConfig(raw: RawConfig): AppConfig["web"] {
   return { baseUrl: raw.web.baseUrl };
 }
 
-function buildAttachmentsConfig(raw: RawConfig): AppConfig["attachments"] {
-  return {
-    storageRoot: raw.attachments?.storageRoot ?? "./data/attachments",
-    maxImageBytes: raw.attachments?.maxImageBytes ?? 10 * 1024 * 1024,
-    maxDocumentBytes: raw.attachments?.maxDocumentBytes ?? 20 * 1024 * 1024,
-  };
-}
-
-/** 将 RawConfig 补全默认值，构建 AppConfig */
-function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelConfig[] } }): AppConfig {
+/** 将 RawConfig 补全默认值，构建 AppConfig。F20260915cfgt：features/attachments 归一化拆至 features-config.ts */
+function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelConfig[] } }, logger?: Logger): AppConfig {
   return {
     db: buildDbConfig(raw),
     server: { port: d(raw.server?.port, 3000) },
@@ -556,7 +567,8 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelC
     weixin: buildWeixinConfig(raw),
     inbound: buildInboundConfig(raw),
     web: buildWebConfig(raw),
-    attachments: buildAttachmentsConfig(raw),
+    attachments: buildRawAttachmentsConfig(raw),
+    features: buildFeaturesConfig(raw, logger),
   };
 }
 
@@ -585,7 +597,7 @@ export function loadConfig(logger?: Logger, configPath: string = CONFIG_PATH): A
 
   const raw = yaml.load(fs.readFileSync(configPath, "utf8")) as RawConfig;
   validate(raw);
-  const config = applyDefaults(raw);
+  const config = applyDefaults(raw, logger);
 
   // 记录配置加载成功日志
   if (logger) {
