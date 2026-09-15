@@ -56,7 +56,7 @@ export class PiSessionPool {
     options: PiSessionPoolOptions = {},
   ) {
     this.ttlMs = options.ttlMs ?? 10 * 60 * 1000;
-    this.sweepIntervalMs = options.sweepIntervalMs ?? 60 * 1000;
+    this.sweepIntervalMs = options.sweepIntervalMs ?? 5 * 60 * 1000; // 2026-09-15 闹钟瘦身：1min→5min（池 TTL 10min，过期 session 多躺 ≤5min 无感）
     this.maxSize = options.maxSize ?? 0;
     this.isBusy = options.isBusy;
     this.now = options.now ?? (() => Date.now());
