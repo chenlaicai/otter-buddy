@@ -328,3 +328,11 @@ v2 相对 v1 的变化点（供 delta 审视聚焦）：
 
 1. 生产重启 → 日志应有 `Feature gates resolved` + 三域推断 info + daily-review seed 日志
 2. 空库启动（临时 data 目录）→ 对话列表只有「📖 每日复盘」+ 8:30 任务
+
+### 代码审视记录（PR #936，检视獭-936 / mimo / 2026-09-15）
+
+| # | 严重度 | 发现 | 处置 | 修复 |
+|---|---|---|---|---|
+| S1 | 严重 | initAgentAndScheduler 内 paperTrading 门用 raw 三态值（undefined=未配置直接当 false），与 initPlatforms 的 gates 不同源——老部署存量推断场景（未写配置+DB 有任务）seed 失效，违反 T3 | 接受并修复（更好：保住兼容目标；不修则日志误导+任务丢失） | feature-gates.ts 导出 inferDomainActive 单域推断 helper；initAgentAndScheduler 改走 gateOn(appConfig?.features.paperTrading, infer) 完整三态门；补 3 条 S1 回归测试（16 用例全绿） |
+| A1 | 建议 | 缺 platforms.ts 级装配层集成测试（S1 型接线 bug 单测拦不住） | 建账号跟进 | issue #937（四 seed 点 × 三态断言方案已写入） |
+| A2 | 建议 | ensureDailyReviewScheduler 幂等只查 active，disabled/error 不 warn | 不改（与 healing 先例一致，改了引入不一致反而变差） | 无 |

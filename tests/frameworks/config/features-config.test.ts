@@ -25,6 +25,7 @@ mockReadFileSync.mockReturnValue(MINIMAL_YAML);
 
 let loadConfig: typeof import("../../../src/frameworks/config-service").loadConfig;
 let gateOn: typeof import("../../../src/bootstrap/feature-gates").gateOn;
+let inferDomainActive: typeof import("../../../src/bootstrap/feature-gates").inferDomainActive;
 let resolveFeatureGates: typeof import("../../../src/bootstrap/feature-gates").resolveFeatureGates;
 
 beforeAll(async () => {
@@ -32,6 +33,7 @@ beforeAll(async () => {
   loadConfig = configMod.loadConfig;
   const gatesMod = await import("../../../src/bootstrap/feature-gates");
   gateOn = gatesMod.gateOn;
+  inferDomainActive = gatesMod.inferDomainActive;
   resolveFeatureGates = gatesMod.resolveFeatureGates;
 });
 
@@ -195,5 +197,28 @@ describe("装配层：resolveFeatureGates", () => {
     expect(gates.selfHealing).toBe(false);
     expect(gates.paperTrading).toBe(false);
     expect(gates.recruiting).toBe(true); // 未显式配置，存量推断生效
+  });
+});
+
+describe("S1 回归：initAgentAndScheduler 路径的 paperTrading 完整三态门", () => {
+  // S1（PR #936 审视）：initAgentAndScheduler 在 app.ts:280 先于 initPlatforms 执行，
+  // 不能用 raw features.paperTrading（undefined = 未配置）直接当开关——
+  // 老部署未写配置但 DB 有 active 任务时必须靠推断保活（方案 T3）
+  it("未配置 + DB 有 paper-trading 存量 → gateOn 推断 on（seed 保活）", async () => {
+    const repo = makeTaskRepo(["paper-trading-daily-trading"]);
+    const on = await gateOn(undefined, () => inferDomainActive(repo, "paperTrading"));
+    expect(on).toBe(true);
+  });
+
+  it("未配置 + DB 无存量 → off（新环境默认关）", async () => {
+    const repo = makeTaskRepo([]);
+    const on = await gateOn(undefined, () => inferDomainActive(repo, "paperTrading"));
+    expect(on).toBe(false);
+  });
+
+  it("显式 false 压过 DB 存量推断", async () => {
+    const repo = makeTaskRepo(["paper-trading-match-orders"]);
+    const on = await gateOn(false, () => inferDomainActive(repo, "paperTrading"));
+    expect(on).toBe(false);
   });
 });

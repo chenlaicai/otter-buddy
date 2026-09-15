@@ -27,7 +27,7 @@ export async function gateOn(
 }
 
 /** 各功能域的 DB 存量任务名匹配（推断依据：active 任务存在 = 部署者在用） */
-const DOMAIN_TASK_NAMES: Record<'selfHealing' | 'paperTrading' | 'recruiting', readonly string[]> = {
+export const DOMAIN_TASK_NAMES: Record<'selfHealing' | 'paperTrading' | 'recruiting', readonly string[]> = {
   selfHealing: ['self-healing-analysis'],
   paperTrading: ['paper-trading-match-orders', 'paper-trading-daily-trading'],
   recruiting: ['recruiting-daily-summary'],
@@ -38,6 +38,19 @@ export interface FeatureGates {
   selfHealing: boolean;
   paperTrading: boolean;
   recruiting: boolean;
+}
+
+/**
+ * 单域存量推断（供 initAgentAndScheduler 等装配早期点单独门控用，
+ * 独立于 resolveFeatureGates 全量解析——两个入口各自查一次 getAllActive，
+ * 轻查询可接受；不提前全量解析是因为 gates 语义属于 initPlatforms 装配阶段）
+ */
+export async function inferDomainActive(
+  scheduledTaskRepo: ScheduledTaskRepository,
+  domain: keyof typeof DOMAIN_TASK_NAMES,
+): Promise<boolean> {
+  const tasks = await scheduledTaskRepo.getAllActive();
+  return DOMAIN_TASK_NAMES[domain].some(name => tasks.some(t => t.name === name));
 }
 
 /**

@@ -67,7 +67,7 @@ import { GetBridgeStatus } from "@usecases/recruiting/get-bridge-status";
 import { ensureRecruitingConversation } from "@usecases/recruiting/ensure-recruiting-conversation";
 import { ensureRecruitingScheduler } from "@usecases/recruiting/ensure-recruiting-scheduler";
 import { ensureDailyReviewConversation, ensureDailyReviewScheduler } from "@usecases/daily-review/ensure-daily-review-scheduler";
-import { resolveFeatureGates } from "./feature-gates";
+import { resolveFeatureGates, gateOn, inferDomainActive } from "./feature-gates";
 import { buildHandoffPackage } from "@frameworks/agent/handoff-package-builder";
 
 export interface FeishuBundle {
@@ -226,9 +226,15 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
     });
 
     // PR5: seed 定时任务（幂等）——F20260915cfgt：受 features.paperTrading 门控（个人场景默认关）。
-    // registerPaperTradingFunctions / syncTradingCalendar 保持无条件：进程内注册随重启重建
+    // S1 修复（检视发现）：走完整三态门（显式配置 > DB 存量推断），与 initPlatforms 的
+    // gates 同语义——老部署未写配置但 DB 有 active paper-trading 任务时靠推断保活（T3）。
+    // registerPaperTradingFunctions / syncTradingCalendar 保持无条件：进程内注册随重启重建，
     // 不持久化，保留不动改动面最小；开关打开后无需关心注册时序
-    if (appConfig?.features.paperTrading) {
+    const paperTradingOn = await gateOn(
+      appConfig?.features.paperTrading,
+      () => inferDomainActive(repos.scheduledTask, 'paperTrading'),
+    );
+    if (paperTradingOn) {
       await seedPaperTradingTasks({
         manageScheduledTask: uc.manageScheduledTask,
         manageConversation: uc.manageConversation,
