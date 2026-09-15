@@ -3019,7 +3019,7 @@ describe('#823: 运行时定期对账（tick 循环死亡时错过窗口仍可�
     };
   }
 
-  it('start() 启动运行时对账定时器：模拟对账 tick 触发时，错过窗口任务落 healing（不依赖轮询 tick）', async () => {
+  it('#949：reconcileMissedWindowsNow（巡检单轮）→ 错过窗口任务落 healing（不依赖轮询 tick）', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-06T08:00:00.000Z')); // #823: 固定系统时间（负延迟 → setTimeout(1) 风暴根因）
     try {
@@ -3058,11 +3058,12 @@ describe('#823: 运行时定期对账（tick 循环死亡时错过窗口仍可�
         tickImpl: async () => {}, // #823：隔离轮询补触发，只验证对账定时器
       });
       await service.start();
-      // 启动对账已落 1 条；清空模拟「该窗口已处置/已是旧账」，看运行时对账是否独立工作：
+      // 启动对账已落 1 条；清空模拟「该窗口已处置/已是旧账」，看巡检单轮是否独立工作：
       // 用新窗口（prevDue 更新）模拟时间推进后再次错过
       healingRepo._events.length = 0;
       (cronParser as unknown as { prevDue: Date | null }).prevDue = new Date('2026-09-07T01:00:00.000Z'); // 新错过窗口
-      await vi.advanceTimersByTimeAsync(3_600_000 + 1_000); // 推进 1h → 运行时对账 tick（tickImpl 已 noop，轮询空转成本为零）
+      // #949：定时器已并入 PatrolWorker——直接调公共方法等价「巡检 tick 触发」
+      await service.reconcileMissedWindowsNow();
       await service.stop();
 
       const runtimeEvents = healingRepo._events.filter(
@@ -3111,7 +3112,10 @@ describe('#823: 运行时定期对账（tick 循环死亡时错过窗口仍可�
       await service.start();
       const afterStartup = healingRepo._events.length; // 启动对账落 1 条
       expect(afterStartup).toBe(1);
-      await vi.advanceTimersByTimeAsync(3_600_000 * 3); // 推进 3h → 3 次运行时对账
+      // #949：调三次巡检单轮等价原「3h 三次对账 tick」
+      await service.reconcileMissedWindowsNow();
+      await service.reconcileMissedWindowsNow();
+      await service.reconcileMissedWindowsNow();
       await service.stop();
 
       // 同一窗口（prevDue 未变）3 次运行时对账后仍只有 1 条——findOpen 去重生效
@@ -3121,7 +3125,9 @@ describe('#823: 运行时定期对账（tick 循环死亡时错过窗口仍可�
     }
   });
 
-  it('stop() 清理运行时对账定时器：stop 后推进时间不再落账', async () => {
+  it('#949：运行时对账定时器已并入 PatrolWorker——service 不再自持对账定时器（reconcileTimer 字段移除）', async () => {
+    // 合并后 service 侧无 reconcileTimer/startRuntimeReconcile——对账由 PatrolWorker 驱动。
+    // 本用例锁死「service 不再注册任何 1h 对账定时器」的契约（防未来有人把定时器加回来造成双驱动）。
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-06T08:00:00.000Z'));
     try {
@@ -3151,15 +3157,16 @@ describe('#823: 运行时定期对账（tick 循环死亡时错过窗口仍可�
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
         healingRepo: healingRepo as never,
-        tickImpl: async () => {}, // #823：隔离轮询补触发，只验证对账定时器
+        tickImpl: async () => {},
       });
       await service.start();
-      await service.stop();
-      healingRepo._events.length = 0;
+      const afterStartup = healingRepo._events.length; // 启动对账落 1 条
       (cronParser as unknown as { prevDue: Date | null }).prevDue = new Date('2026-09-07T01:00:00.000Z');
-      await vi.advanceTimersByTimeAsync(3_600_000 * 2);
+      await vi.advanceTimersByTimeAsync(3_600_000 * 2); // 推进 2h——若 service 自持 1h 对账定时器会再落账
+      await service.stop();
 
-      expect(healingRepo._events).toHaveLength(0);
+      // 无自持定时器 → 推进时间不产生新落账（启动对账的 1 条之外）
+      expect(healingRepo._events).toHaveLength(afterStartup);
     } finally {
       vi.useRealTimers();
     }
