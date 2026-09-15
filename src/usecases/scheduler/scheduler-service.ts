@@ -269,10 +269,6 @@ export class SchedulerService {
     this.nextExpectedTrigger.clear();
   }
 
-  /** #640: 启动轮询定时器。每 POLL_INTERVAL_MS 扫描一次 active 任务，
-   *  比对 last_triggered_at 与 cron 应触发点，越过即触发（迟到即补跑）。
-   *  Why 不依赖 setTimeout：macOS 长延迟 setTimeout 会漂移（App Nap/冻结窗口），
-   *  轮询模式用 setInterval + 墙钟比对，迟到即补，不丢触发。 */
   /** #823: 启动运行时定期对账定时器。每小时复跑 reconcileMissedWindows（自带按窗口去重，
    *  重复报同一窗口零成本）。Why 独立定时器：9/6 根因是 tick 循环整体死亡而进程在线——
    *  对账挂在 tick 上等于没有冗余；挂在独立 setInterval 上，两个定时器同时死的概率远低于单个。 */
@@ -289,6 +285,10 @@ export class SchedulerService {
     this.reconcileTimer?.unref?.();
   }
 
+  /** #640: 启动轮询定时器。每 POLL_INTERVAL_MS 扫描一次 active 任务，
+   *  比对 last_triggered_at 与 cron 应触发点，越过即触发（迟到即补跑）。
+   *  Why 不依赖 setTimeout：macOS 长延迟 setTimeout 会漂移（App Nap/冻结窗口），
+   *  轮询模式用 setInterval + 墙钟比对，迟到即补，不丢触发。 */
   private startPolling(): void {
     if (this.pollTimer) return; // 防重复启动
     this.pollTimer = setInterval(async () => {
