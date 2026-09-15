@@ -13,6 +13,8 @@ import {
   toParticipantDTO,
 } from "../dto/conversation-dto";
 import type { CreateConversationRequestDTO } from "../dto/conversation-dto";
+import { DomainError } from "@entities/errors";
+import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
 
 export class ConversationController {
   constructor(
@@ -20,6 +22,9 @@ export class ConversationController {
     private readonly manageParticipant: ManageParticipant,
     private readonly settings: SettingsRepository,
     private readonly logger: Logger,
+    /** 新建对话选大獭模型：modelAlias 校验（otter-controller 同层先例）。
+     *  可选注入保持测试兼容；未注入时跳过校验，usecase 层缺省走默认模型 */
+    private readonly modelPool?: ModelPoolLike,
   ) {}
 
   async list(c: Context): Promise<Response> {
@@ -52,8 +57,18 @@ export class ConversationController {
   async create(c: Context): Promise<Response> {
     try {
       const body = await safeJsonBody<CreateConversationRequestDTO>(c);
+      /** 新建对话选大獭模型：与 otter-controller.create 同款校验（400 附可用列表）。
+       *  未注入 modelPool 时跳过校验（测试/降级场景） */
+      if (this.modelPool && body.modelAlias && !this.modelPool.hasModel(body.modelAlias)) {
+        const available = this.modelPool.describeModels().map(m => m.alias).join(", ");
+        throw new DomainError(
+          `[错误] 未知的模型别名「${body.modelAlias}」。可用模型：${available}`,
+          "validation",
+        );
+      }
       const input: CreateConversationInput = {
         title: body.title,
+        modelAlias: body.modelAlias,
       };
       const conv = await this.manageConversation.create(input);
       const participantsWithOtter = await this.manageParticipant.getActiveParticipants(conv.id);

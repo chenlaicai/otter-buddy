@@ -31,6 +31,8 @@ export interface ConversationListItemDTO extends ConversationDTO {
 export interface CreateConversationRequestDTO {
   title: string;
   otterIds?: string[];
+  /** 新建对话时大獭的模型自选（可选，缺省 = 配置文件默认模型） */
+  modelAlias?: string;
 }
 
 /** 参与者 DTO */

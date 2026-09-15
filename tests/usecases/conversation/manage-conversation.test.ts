@@ -20,7 +20,9 @@ describe("ManageConversation（真 sqlite）", () => {
 
   function stubCreateOtter(otterId = "big-otter-1"): CreateOtter {
     return {
-      execute: async () => {
+      execute: async (params: { name?: string; type?: string; modelAlias?: string }) => {
+        /** 新建对话选大獭模型：记录调用参数供透传断言 */
+        lastCreateOtterParams = params
         const otter: Otter = {
           id: otterId, name: "大獭", type: "big", status: "active",
           role: null, parentOtterId: null,
@@ -34,6 +36,9 @@ describe("ManageConversation（真 sqlite）", () => {
       },
     } as unknown as CreateOtter;
   }
+
+  /** stubCreateOtter 最近一次收到的参数（透传断言用） */
+  let lastCreateOtterParams: { name?: string; type?: string; modelAlias?: string } | undefined;
 
   beforeEach(() => {
     db = createTestDb();
@@ -78,6 +83,20 @@ describe("ManageConversation（真 sqlite）", () => {
       expect(participants[0].joinedAtTurnId).toBeNull();
       expect(participants[0].joinedAtTurnNumber).toBe(0);
       expect(participants[0].status).toBe("active");
+    });
+
+    it("新建对话选大獭模型：modelAlias 透传给 CreateOtter", async () => {
+      await mc.create({ title: "新对话", modelAlias: "glm" });
+
+      expect(lastCreateOtterParams?.name).toBe("大獭");
+      expect(lastCreateOtterParams?.type).toBe("big");
+      expect(lastCreateOtterParams?.modelAlias).toBe("glm");
+    });
+
+    it("不选模型：modelAlias 不下发（undefined，CreateOtter 层走默认模型）", async () => {
+      await mc.create({ title: "新对话" });
+
+      expect(lastCreateOtterParams?.modelAlias).toBeUndefined();
     });
   });
 
