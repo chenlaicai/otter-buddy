@@ -82,6 +82,8 @@ export interface BuildCustomToolsParams {
   healingRepo?: HealingEventRepository;
   /** F20260826mwrd C1：signal 工具（halt_otter/query_signals）的仓库 */
   signalRepo?: SignalEventRepository;
+  /** #927：目标獭活跃性查询（halt_otter 打标前检查），透传到 ToolContext */
+  isOtterRunning?: (otterId: string) => boolean;
   logger: Logger;
 }
 
@@ -103,7 +105,7 @@ export interface BuildCustomToolsResult {
  * onUpdate/ctx SDK 特有，Otter 工具不需要，忽略。
  */
 export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToolsResult {
-  const { otterId, conversationId, allowedNames, register, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, signalRepo, logger } = params;
+  const { otterId, conversationId, allowedNames, register, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, signalRepo, isOtterRunning, logger } = params;
   // F20260826mwrd C1：signalRepo 挂 ToolContext（tool-factory 从 ctx 读，避免 createTools 参数膨胀）
 
   // F20260815rstrt: 返回 toolContext 引用，供 PiSessionFactory 检查 pendingRestart
@@ -131,6 +133,7 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
     get emitEvent() { return register.emitEvent; },
     get lastSpeakMessageId() { return register.lastSpeakEntryId; },
     set lastSpeakMessageId(v: string | undefined) { register.lastSpeakEntryId = v; },
+    isOtterRunning,
   };
   const otterTools = createTools(toolContext, healingRepo, logger);
 

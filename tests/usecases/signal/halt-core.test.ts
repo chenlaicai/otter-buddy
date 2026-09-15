@@ -20,7 +20,8 @@ function makeDirective(overrides: Partial<HaltDirective> = {}): HaltDirective {
     fromOtterName: '大獭',
     conversationId: 'conv-1',
     reason: '方向理解反了，停手等我改派',
-    issuedAt: '2026-08-26T10:00:00.000Z',
+    // #927：fixture 用相对当前时间（issuedAt 供台账/日志，不再做 TTL 存活判定；相对时间是好习惯）
+    issuedAt: new Date().toISOString(),
     ...overrides,
   };
 }

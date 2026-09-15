@@ -89,6 +89,18 @@ export function createHaltOtterTool(ctx: ToolContext, signalRepo: SignalEventRep
       return errorResponse("[错误] 不能 halt 自己。需要中断自己的执行请直接收尾（stop 当前动作、汇报、yield）。");
     }
 
+    // #927 架构裁决（chen 终审）：halt 的送达语义是「目标獭下一个工具调用边界」，
+    // 消费对象是进行中的 invoke——endInvoke 挂 invoke finally，行动结束必清 pending。
+    // 因此打标时目标不在执行中 = 指令无消费对象（孤儿），直接拒绝。
+    // 这是根治，不用 TTL 兜底——设计不留模糊区。
+    if (ctx.isOtterRunning && !ctx.isOtterRunning(target.otterId)) {
+      return errorResponse(
+        `[错误] ${target.otterName}（${target.otterId}）当前不在执行中。` +
+        `halt 指令的生效点是「下一个工具调用边界」——它没在跑就没有消费对象，打标只会成为孤儿指令。` +
+        `如需阻止它下次开工，请改派（yield）新 invoke 后再 halt；如已误打标请用 unhalt_otter 解除。`,
+      );
+    }
+
     const now = new Date().toISOString();
     const signalId = crypto.randomUUID();
     const directive: HaltDirective = {
@@ -123,13 +135,65 @@ export function createHaltOtterTool(ctx: ToolContext, signalRepo: SignalEventRep
   };
   return {
     name: "halt_otter",
-    description: "对运行中的小獭发出停手指令（halt）. When: 发现派工方向错误/需求变更/需要中止当前工作但不想丢上下文（restart 是核弹，halt 是刹车）. Not for: 停自己（直接收尾即可）/ 对搭档（无意义）. Output: 打标确认 + 台账 ID. 语义: 目标獭在下一个非 speak 工具调用边界收到指令（speak 豁免供报告进度），收尾当前调用后停止新增副作用，报告进度快照并交回行动权. 上下文完整保留，改派后可续干. GOTCHA: 打标后最坏延迟=单个工具调用时长（如长 bash），期间 UI 显示 halt 待生效.",
+    description: "对运行中的小獭发出停手指令（halt）. When: 发现派工方向错误/需求变更/需要中止当前工作但不想丢上下文（restart 是核弹，halt 是刹车）. Not for: 停自己（直接收尾即可）/ 对搭档（无意义）/ 目标不在执行中（无消费对象，直接拒绝）. Output: 打标确认 + 台账 ID. 语义: 目标獭在下一个非 speak 工具调用边界收到指令（speak 豁免供报告进度），收尾当前调用后停止新增副作用，报告进度快照并交回行动权. 上下文完整保留，改派后可续干. GOTCHA: ①打标前会检查目标是否正在执行中，不在则拒绝（防孤儿指令）；②打标后最坏延迟=单个工具调用时长（如长 bash），期间 UI 显示 halt 待生效.",
     parameters: {
       type: "object",
       properties: {
         otterId: { type: "string", description: "目标海獭 ID（与 otterName 二选一）" },
         otterName: { type: "string", description: "目标海獭名称（与 otterId 二选一，按在场参与者解析）" },
         reason: { type: "string", description: "停手理由（必填，写入台账，目标獭在 block 消息中可见——写清改派方向或中止原因，它报告进度时会带上）" },
+      },
+      required: ["reason"],
+    },
+    execute: exec,
+  };
+}
+
+/**
+ * #927：unhalt_otter 解除工具。大獭误 halt（打错目标/需求撤回）时立即清除打标，
+ * 不等 TTL 自然过期。同时把未消费指令对应的 signal_events 落账从 pending
+ * 迁到 dismissed（解除记录，审计闭环）。已送达（active）的指令无法追回注入文本，
+ * 但清除后目标獭后续工具调用恢复放行。
+ */
+export function createUnhaltOtterTool(ctx: ToolContext, signalRepo: SignalEventRepository, logger?: Logger): AgentTool {
+  const exec = async (_id: string, params: Record<string, unknown>): Promise<ReturnType<typeof textResponse>> => {
+    const otterId = params.otterId as string | undefined;
+    const otterName = params.otterName as string | undefined;
+    const reason = (params.reason as string | undefined)?.trim() || '';
+    if (!reason) return errorResponse("[错误] reason 必填——解除指令也要写台账（为什么解除：打错目标/需求撤回等）。");
+
+    const target = await resolveHaltTargets(ctx, { otterId, otterName });
+    if ('error' in target) return errorResponse(`[错误] ${target.error}`);
+
+    const cleared = haltRegistry.clear(target.otterId);
+    const note = `unhalt 解除（发起者 ${target.fromOtterName}）：${reason}`;
+    for (const d of cleared.pending) {
+      // 未送达的 pending 指令落账 dismissed；fire-and-forget，失败仅日志（内存态已清，台账不固运连续）
+      signalRepo.resolve(d.id, 'dismissed', note, ctx.otterId).catch(err => {
+        logger?.error('Failed to mark unhalted signal as dismissed', err instanceof Error ? err : new Error(String(err)));
+      });
+    }
+    if (cleared.pending.length === 0 && cleared.active.length === 0) {
+      return textResponse(
+        `[unhalt] 已确认 ${target.otterName}（${target.otterId}）当前无生效 halt 打标（pending 0 / active 0），无需解除。`,
+      );
+    }
+    return textResponse(
+      `[unhalt] 已解除对 ${target.otterName}（${target.otterId}）的全部 halt 打标：` +
+      `未消费（pending）${cleared.pending.length} 条——已落账 dismissed（解除理由：${reason}）；` +
+      `已送达（active）${cleared.active.length} 条——台账号在首次注入时已 resolved，此处仅解除持续 block。` +
+      `它的下一个工具调用起恢复正常执行。`,
+    );
+  };
+  return {
+    name: "unhalt_otter",
+    description: "解除指定小獭的 halt 停手指令（#927）. When: halt 打错目标 / 需求变更撤回停手 / 打标残留阻断目标獭干活. Not for: 停自己（无此需求）. Output: 清除确认 + 台账 dismiss 留痕. 语义: 清除 pending（未送达）与 active（已送达持续 block）全部打标，目标獭下一个工具调用起恢复.",
+    parameters: {
+      type: "object",
+      properties: {
+        otterId: { type: "string", description: "目标海獭 ID（与 otterName 二选一）" },
+        otterName: { type: "string", description: "目标海獭名称（与 otterId 二选一）" },
+        reason: { type: "string", description: "解除理由（必填，写入台账）" },
       },
       required: ["reason"],
     },
