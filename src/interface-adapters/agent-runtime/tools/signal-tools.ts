@@ -155,18 +155,22 @@ export function createUnhaltOtterTool(ctx: ToolContext, signalRepo: SignalEventR
 
     const cleared = haltRegistry.clear(target.otterId);
     const note = `unhalt 解除（发起者 ${target.fromOtterName}）：${reason}`;
-    for (const d of cleared) {
+    for (const d of cleared.pending) {
       // 未送达的 pending 指令落账 dismissed；fire-and-forget，失败仅日志（内存态已清，台账不固运连续）
       signalRepo.resolve(d.id, 'dismissed', note, ctx.otterId).catch(err => {
         logger?.error('Failed to mark unhalted signal as dismissed', err instanceof Error ? err : new Error(String(err)));
       });
     }
-    const clearedCount = cleared.length;
-    const activeCleared = clearedCount > 0 ? '' : '\n（注：无 pending 指令被清除——若目标獭正在被持续 block（active），也已一并解除；若两者都无，说明本就无生效打标）';
+    if (cleared.pending.length === 0 && cleared.active.length === 0) {
+      return textResponse(
+        `[unhalt] 已确认 ${target.otterName}（${target.otterId}）当前无生效 halt 打标（pending 0 / active 0），无需解除。`,
+      );
+    }
     return textResponse(
-      `[unhalt] 已解除对 ${target.otterName}（${target.otterId}）的全部 halt 打标。` +
-      `未消费指令 ${clearedCount} 条已落账 dismissed（解除理由：${reason}）。` +
-      `它的下一个工具调用起恢复正常执行。` + activeCleared,
+      `[unhalt] 已解除对 ${target.otterName}（${target.otterId}）的全部 halt 打标：` +
+      `未消费（pending）${cleared.pending.length} 条——已落账 dismissed（解除理由：${reason}）；` +
+      `已送达（active）${cleared.active.length} 条——台账号在首次注入时已 resolved，此处仅解除持续 block。` +
+      `它的下一个工具调用起恢复正常执行。`,
     );
   };
   return {

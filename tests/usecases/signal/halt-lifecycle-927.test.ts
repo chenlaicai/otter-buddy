@@ -89,14 +89,15 @@ describe('#927 haltRegistry 生命周期加固', () => {
     expect(haltRegistry.takeForBlock('otter-small-1')).toHaveLength(1);
   });
 
-  it('clear 解除：pending + active 全清，返回被清指令供台账落账', () => {
+  it('clear 解除：pending + active 全清，返回两态指令供台账落账', () => {
     haltRegistry.mark(makeDirective({ id: 'sig-p1' }));
     haltRegistry.mark(makeDirective({ targetOtterId: 'otter-A', id: 'sig-p2' }));
     // otter-small-1 消费一条进 active
     haltRegistry.takeForBlock('otter-small-1');
 
     const cleared = haltRegistry.clear('otter-small-1');
-    expect(cleared.map(d => d.id)).toEqual([]); // pending 已被消费进 active，clear 返回 pending 残留
+    expect(cleared.pending).toHaveLength(0); // pending 已被消费进 active
+    expect(cleared.active.map(d => d.id)).toEqual(['sig-p1']); // active 状态可见，供回显计数
     expect(haltRegistry.takeForBlock('otter-small-1')).toHaveLength(0); // active 也清了
     expect(haltRegistry.isHalted('otter-small-1')).toBe(false);
     // 其他獭不受影响
@@ -106,7 +107,8 @@ describe('#927 haltRegistry 生命周期加固', () => {
   it('clear 未消费 pending：返回指令列表（供 dismissed 落账）', () => {
     haltRegistry.mark(makeDirective({ id: 'sig-unconsumed' }));
     const cleared = haltRegistry.clear('otter-small-1');
-    expect(cleared.map(d => d.id)).toEqual(['sig-unconsumed']);
+    expect(cleared.pending.map(d => d.id)).toEqual(['sig-unconsumed']);
+    expect(cleared.active).toHaveLength(0);
   });
 });
 
@@ -144,7 +146,7 @@ describe('#927 unhalt_otter 工具', () => {
     const tool = createUnhaltOtterTool(ctx, repo, mockLogger);
     const res = await tool.execute('t2', { otterName: '开发獭-X', reason: 'halt 错了目标，撤回' });
     expect(res.content[0].text).toContain('已解除');
-    expect(res.content[0].text).toContain('1 条');
+    expect(res.content[0].text).toContain('pending）1 条');
 
     expect(haltRegistry.isHalted('otter-small-1')).toBe(false);
     // 落账迁移 pending → dismissed
@@ -155,11 +157,11 @@ describe('#927 unhalt_otter 工具', () => {
     });
   });
 
-  it('无生效打标时解除：幂等成功，不误报', async () => {
+  it('无生效打标时解除：幂等成功，明确报告两态计数', async () => {
     const tool = createUnhaltOtterTool(ctx, repo, mockLogger);
     const res = await tool.execute('t3', { otterName: '开发獭-X', reason: '例行清理' });
-    expect(res.content[0].text).toContain('已解除');
-    expect(res.content[0].text).toContain('0 条');
+    expect(res.content[0].text).toContain('无生效 halt 打标');
+    expect(res.content[0].text).toContain('pending 0 / active 0');
   });
 
   it('目标不存在给出可操作错误', async () => {

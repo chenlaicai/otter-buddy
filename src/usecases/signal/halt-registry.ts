@@ -105,12 +105,15 @@ class HaltRegistry {
     this.active.delete(targetOtterId);
   }
 
-  /** #927：显式解除（unhalt_otter 工具）。返回被清除的 pending 指令（供台账落账）。 */
-  clear(targetOtterId: string): HaltDirective[] {
-    const clearedPending = this.pending.get(targetOtterId) ?? [];
+  /** #927：显式解除（unhalt_otter 工具）。返回被清除的两态指令（pending 供台账 dismiss 落账，active 供回显计数）。 */
+  clear(targetOtterId: string): { pending: HaltDirective[]; active: HaltDirective[] } {
+    const cleared = {
+      pending: this.pending.get(targetOtterId) ?? [],
+      active: this.active.get(targetOtterId) ?? [],
+    };
     this.pending.delete(targetOtterId);
     this.active.delete(targetOtterId);
-    return clearedPending;
+    return cleared;
   }
 
   /** 首次注入回调注册（extension handler 装配时调用） */

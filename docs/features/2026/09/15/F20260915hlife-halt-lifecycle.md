@@ -3,7 +3,7 @@ id: F20260915hlife
 title: 獭间信号生命周期加固：halt 跨世代残留修复 + unhalt 解除路径 + 悬置老化告警
 summary: 修复 #927——halt 打标跨 invoke/世代残留（endInvoke 只清 active 不清 pending）导致被 halt 獭所有工具调用被拦只能发 blocked 求救；blocked 信号悬置 6 天无人裁决暴露消费方单点。三层修复：机制层 halt invoke 作用域语义 + pending 30min TTL + unhalt_otter 工具；流程层独立老化扫描 worker。
 change_type: fix
-capability_test: "n/a: 生命周期语义由 18 个新单测锁定（halt-lifecycle-927.test.ts：endInvoke 清 pending / TTL 惰性过期 / clear 解除 / aging 落账去重）"
+capability_test: "单测锁定：tests/usecases/signal/halt-lifecycle-927.test.ts 18 用例（endInvoke 清 pending / TTL 惰性过期+边界 / clear 解除 / unhalt 工具 / aging worker 含去重）"
 created_in_conversation: c2f347c6-7e59-4e2e-ab48-10f64a5a1258
 created_at: 2026-09-15
 intent:
@@ -16,8 +16,13 @@ modules:
   - src/usecases/signal/halt-registry.ts
   - src/usecases/signal/signal-aging-worker.ts
   - src/interface-adapters/agent-runtime/tools/signal-tools.ts
+  - src/interface-adapters/agent-runtime/tools/tool-factory.ts
+  - src/frameworks/agent/session-helpers.ts
   - src/app.ts
   - config/tool-manifest.json
+  - tests/usecases/signal/halt-lifecycle-927.test.ts
+  - tests/usecases/signal/halt-core.test.ts
+  - tests/frameworks/agent/coding-tools.test.ts
 ---
 
 # 獭间信号生命周期加固（#927）
