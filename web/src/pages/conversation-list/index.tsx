@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../../styles/globals.css'
 
+import type { ModelInfoDTO } from '@contract/api'
 import type { LocalConversation } from '../../lib/mappers'
 import { mapConversationDTO } from '../../lib/mappers'
 import { showToast } from '../../components/Toast'
@@ -10,13 +11,42 @@ import { Modal, ModalButton } from '../../components/Modal'
 import { LeftPanel } from '../conversation/LeftPanel'
 import { useConversationListPolling } from '../../hooks/use-conversation-list-polling'
 import * as api from '../../api/client'
-import { ApiError } from '../../api/client'
+import { getSettings, ApiError } from '../../api/client'
+
+/** 新建对话弹窗的「大獭模型」下拉块（检视发现 3 抽取消重）：空列表态/常规态两处 Modal 共用。
+ *  models 为空（settings 未返回/加载失败）时整体不渲染——降级走服务端默认模型 */
+function BigOtterModelDropdown({ models, defaultAlias, selectedModel, onSelect }: {
+  models: ModelInfoDTO[]
+  defaultAlias: string
+  selectedModel: string
+  onSelect: (alias: string) => void
+}) {
+  if (models.length === 0) return null
+  return (
+    <>
+      <label className="block text-xs font-medium text-stone-500 mt-3 mb-1.5">大獭模型</label>
+      <select value={selectedModel} onChange={e => onSelect(e.target.value)} className="form-input w-full">
+        {models.map(m => (
+          <option key={m.alias} value={m.alias}>
+            {m.alias === defaultAlias ? `${m.alias}（默认）` : m.alias}{m.description ? ` — ${m.description}` : ''}
+          </option>
+        ))}
+      </select>
+      <p className="text-[11px] text-stone-400 mt-1">默认取配置文件；某家配额耗尽时可在此换模型</p>
+    </>
+  )
+}
 
 export default function ConversationListPage() {
   const [conversations, setConversations] = useState<LocalConversation[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [newTitle, setNewTitle] = useState('')
+  /** 新建对话选大獭模型：与 conversation 页 NewConvModal 同款下拉（默认 = 配置文件默认模型）。
+   *  加载失败降级为不展示下拉，创建请求不下发 modelAlias（走服务端默认） */
+  const [models, setModels] = useState<ModelInfoDTO[]>([])
+  const [defaultAlias, setDefaultAlias] = useState('')
+  const [selectedModel, setSelectedModel] = useState('')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; cid: string } | null>(null)
 
   const activeConvForMenu = ctxMenu ? conversations.find(c => c.id === ctxMenu.cid) : null
@@ -50,6 +80,14 @@ export default function ConversationListPage() {
   const handleNewConversation = useCallback(() => {
     setShowCreate(true)
     setNewTitle('')
+    // 每次打开弹窗拉一次 settings：默认模型可能已被切换，不用陈旧缓存
+    getSettings()
+      .then(s => {
+        setModels(s.models)
+        setDefaultAlias(s.defaultModelAlias)
+        setSelectedModel(s.defaultModelAlias)
+      })
+      .catch(() => console.warn('[ConversationListPage] Failed to load models for dropdown'))
   }, [])
 
   const handleCreateConversation = useCallback(async () => {
@@ -58,7 +96,7 @@ export default function ConversationListPage() {
       return
     }
     try {
-      const dto = await api.createConversation({ title: newTitle })
+      const dto = await api.createConversation({ title: newTitle, modelAlias: selectedModel || undefined })
       const conv = mapConversationDTO(dto)
       setConversations(prev => [conv, ...prev])
       setShowCreate(false)
@@ -68,7 +106,7 @@ export default function ConversationListPage() {
     } catch {
       showToast('创建对话失败', 'error')
     }
-  }, [newTitle])
+  }, [newTitle, selectedModel])
 
   const handleContextMenu = useCallback((e: React.MouseEvent, cid: string) => {
     e.preventDefault()
@@ -156,6 +194,7 @@ export default function ConversationListPage() {
             placeholder="输入对话标题..."
             autoFocus
           />
+          <BigOtterModelDropdown models={models} defaultAlias={defaultAlias} selectedModel={selectedModel} onSelect={setSelectedModel} />
         </Modal>
       </AppLayout>
     )
@@ -201,6 +240,7 @@ export default function ConversationListPage() {
           placeholder="输入对话标题..."
           autoFocus
         />
+        <BigOtterModelDropdown models={models} defaultAlias={defaultAlias} selectedModel={selectedModel} onSelect={setSelectedModel} />
       </Modal>
 
       {ctxMenu && activeConvForMenu && (
