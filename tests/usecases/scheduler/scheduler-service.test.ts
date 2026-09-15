@@ -3168,7 +3168,7 @@ describe('#823 根修：skip 吞 claim 导致任务饿死（9/6 生产现场）'
   function makeHealingRepoNullBody(openEvents: Array<Record<string, unknown>>) {
     return {
       _events: [] as Array<Record<string, unknown>>,
-      create: vi.fn(async (e: Record<string, unknown>) => { /* 对账事件 */ }),
+      create: vi.fn(async () => { /* 对账事件 */ }),
       findOpen: vi.fn(async () => openEvents),
       autoStaleDismiss: vi.fn(async () => 0),
     };
