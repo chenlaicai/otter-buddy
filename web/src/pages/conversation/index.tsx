@@ -1137,9 +1137,9 @@ function ConversationPage() {
   }
   function closeCtxMenu() { setCtxMenu(null) }
 
-  async function confirmNewConv(title: string) {
+  async function confirmNewConv(title: string, modelAlias?: string) {
     try {
-      const dto = await api.createConversation({ title })
+      const dto = await api.createConversation({ title, modelAlias })
       const conv = mapConversationDTO(dto)
       setConversations(prev => [conv, ...prev])
       setModal({ type: 'none' })

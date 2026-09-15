@@ -156,7 +156,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
   const attachmentInjection = buildAttachmentInjection(deps, appConfig, repos, logger);
 
   return {
-    conversation: new ConversationController(uc.manageConversation, uc.manageParticipant, settingsRepo, logger),
+    conversation: new ConversationController(uc.manageConversation, uc.manageParticipant, settingsRepo, logger, modelPool),
     otter: new OtterController(uc.createOtter, uc.dissolveOtter, uc.manageSession, uc.queryOtter, logger, otterConfigProvider, deps.queryOtterProfile, modelPool),
     message: new MessageController(
       uc.queryMessage, uc.manageReadState, agentInvoker, logger, uc.queryOtter,
