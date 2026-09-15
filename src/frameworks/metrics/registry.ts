@@ -39,7 +39,7 @@ export interface MetricsOptions {
   enableDefaultMetrics?: boolean;
 }
 
-const DEFAULT_FLUSH_INTERVAL_MS = 60_000;
+const DEFAULT_FLUSH_INTERVAL_MS = 300_000; // 2026-09-15 闹钟瘦身：1min→5min（指标看趋势，崩溃最多丢 5min 点）
 const DEFAULT_MAX_AGE_DAYS = 7;
 
 export class MetricsRegistry {
