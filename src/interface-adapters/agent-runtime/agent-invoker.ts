@@ -555,7 +555,8 @@ export class AgentInvoker implements AgentTurnPort {
       }
     }
     // F20260913ctlv 彻底切换：流式过程唯一存储 = invoke_events（message_events 停写）
-    this.persistInvokeEvent(e, opts.currentInvokeId);
+    // F20260914evdz：落库后广播 invoke.event（弹窗实时观察）——需 otterId/conversationId 路由上下文
+    this.persistInvokeEvent(e, opts.currentInvokeId, { otterId, conversationId });
     // F20260914rtsp：message_end → invoke.tick（ctx 窗口占用快照 + 工具计数，右栏实时化）
     if (e.type === "message_end") {
       this.emitInvokeTick(e, { otterId, conversationId, invokeId: opts.currentInvokeId, toolCallCount: toolCallCountBox.count }, emitEvent);
@@ -587,11 +588,33 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
   /** F20260913ctlv：流式事件同步落 invoke_events（Session 弹窗数据源）+ 工具计数递增 */
-  private persistInvokeEvent(e: AgentStreamEvent, invokeId: string): void {
+  private persistInvokeEvent(e: AgentStreamEvent, invokeId: string, ctx?: { otterId?: string; conversationId?: string }): void {
     const sendEntry = this.sendEntry;
     if (!sendEntry) return;
     const ievt = mapToInvokeEventInput(e);
-    if (ievt) sendEntry.appendInvokeEvent(invokeId, ievt.eventType, ievt.payload).catch((err: unknown) => {
+    if (ievt) sendEntry.appendInvokeEvent(invokeId, ievt.eventType, ievt.payload).then((saved: unknown) => {
+      /** F20260914evdz：落库成功后广播 invoke.event（Session 弹窗观察模式）。
+ *  广播是 fire-and-forget 增量通道：落库才是真相源，弹窗重新打开时全量拉取补齐。
+ *  主界面不渲染此事件（弹窗独享）——不会引起主界面 re-render */
+      const s = saved as { id?: string; sequenceNum?: number; createdAt?: string } | null;
+      if (s?.id != null && s.sequenceNum != null) {
+        this.messageBroadcaster?.broadcastEvent(ctx?.conversationId ?? "", {
+          event: "invoke.event",
+          data: {
+            invokeId,
+            otterId: ctx?.otterId ?? "",
+            conversationId: ctx?.conversationId,
+            event: {
+              id: s.id,
+              eventType: ievt.eventType,
+              payload: ievt.payload,
+              sequenceNum: s.sequenceNum,
+              createdAt: s.createdAt ?? new Date().toISOString(),
+            },
+          },
+        });
+      }
+    }).catch((err: unknown) => {
       const m = err instanceof Error ? err.message : String(err);
       this.logger.warn(`Failed to persist invoke event for ${invokeId}: ${m}`);
     });
