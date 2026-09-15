@@ -25,3 +25,6 @@ npm run lint:skills
 npm run lint:tool-manifest
 # F20260831dgim: 历史特性文档不可变——已合入的 docs/features|research 文档禁止 M/D
 node scripts/lint-historical-docs.mjs
+# F20260915dabm: 测试日期炸弹静态扫描——检测 validateCommitDate 中
+# 硬编码特性 ID 且未注入 now 参数的日期炸弹模式（#544 防线）
+npm run lint:date-bombs
