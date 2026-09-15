@@ -1,3 +1,4 @@
+import { vi } from "vitest";
 /**
  * F20260913ctlv 彻底切换：SendEntry mock 助手。
  *
@@ -11,6 +12,8 @@ import type { Entry } from "@entities/conversation/entry";
 import type { Invoke } from "@entities/conversation/invoke";
 
 export interface MockInvokeStore {
+  /** F20260914evdz：appendInvokeEvent 序号发生器（invoke.event 广播测试面） */
+  eventSeq: number;
   invokes: Map<string, Invoke>;
   entries: Entry[];
   systemBodies: string[];
@@ -28,6 +31,7 @@ export function mockSendEntry(options?: {
   onGetInvoke?: (invoke: Invoke, store: MockInvokeStore) => void;
 }): SendEntry & { store: MockInvokeStore } {
   const store: MockInvokeStore = {
+    eventSeq: 0,
     invokes: new Map(),
     entries: [],
     systemBodies: [],
@@ -126,7 +130,8 @@ export function mockSendEntry(options?: {
       store.entries.push(entry);
       return { entry };
     },
-    appendInvokeEvent: async () => ({}),
+    /** F20260914evdz：返回落库事件标识（invoke.event 广播数据面；seq 递增近似真实行为） */
+    appendInvokeEvent: vi.fn(async () => ({ id: crypto.randomUUID(), sequenceNum: ++store.eventSeq, createdAt: new Date().toISOString() })),
     incrementInvokeToolCallCount: async (invokeId: string) => {
       const inv = store.invokes.get(invokeId);
       if (inv) inv.toolCallCount++;

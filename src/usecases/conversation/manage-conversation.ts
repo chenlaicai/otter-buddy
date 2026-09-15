@@ -10,6 +10,8 @@ import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 
 export interface CreateConversationInput {
   title: string;
+  /** 新建对话时大獭的模型自选（透传给 CreateOtter，缺省 = 默认模型） */
+  modelAlias?: string;
 }
 
 export class ManageConversation {
@@ -33,6 +35,7 @@ export class ManageConversation {
     const bigOtter = await this.createOtter.execute({
       name: "大獭",
       type: "big",
+      modelAlias: params.modelAlias,
     });
     const otterIds = [bigOtter.id];
 

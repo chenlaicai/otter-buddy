@@ -10,6 +10,7 @@ import {
   collectFdocCounts,
   collectDispatchTaskCounts,
 } from "@usecases/health/cost-output-collector";
+import { collectInvokeStats } from "@usecases/health/invoke-stats-collector";
 import type { AgentSessionMapping } from "@usecases/health/cost-output-collector";
 
 const FIXTURES_DIR = resolve(__dirname, "../../fixtures/sessions");
@@ -200,6 +201,71 @@ describe("collectPrCounts", () => {
   it("空仓库路径返回空数组", async () => {
     const results = await collectPrCounts("/nonexistent/path", 30);
     expect(results).toEqual([]);
+  });
+});
+
+describe("collectInvokeStats（F20260914usgm：单次问答均值）", () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = createTestDb();
+    db.prepare("INSERT INTO otters (id, name, type) VALUES (?, ?, ?)").run("otter-aaa", "大獭", "big");
+    db.prepare("INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', '测试对话', datetime('now'), datetime('now'))").run();
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  function insertInvoke(p: {
+    id: string; otter?: string; status?: string; started: string; ended: string | null;
+    tools?: number; in?: number | null; out?: number | null; metadata?: string;
+  }) {
+    db.prepare(`
+      INSERT INTO invokes (id, conversation_id, otter_id, status, trigger_entry_id,
+        talking_stone_passed_to, started_at, ended_at, tool_call_count,
+        token_usage_input, token_usage_output, metadata)
+      VALUES (?, 'conv-1', ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)
+    `).run(
+      p.id, p.otter ?? "otter-aaa", p.status ?? "completed", p.started, p.ended,
+      p.tools ?? 0, p.in ?? null, p.out ?? null, p.metadata ?? null,
+    );
+  }
+
+  it("token 差分：同 session 连续 invoke 取相邻差值，新 session 回退取全量", () => {
+    insertInvoke({ id: "inv-1", started: "2026-09-14T08:00:00Z", ended: "2026-09-14T08:05:00Z", tools: 10, in: 100000, out: 20000, metadata: JSON.stringify({ model: "glm-5.3" }) });
+    insertInvoke({ id: "inv-2", started: "2026-09-14T09:00:00Z", ended: "2026-09-14T09:06:00Z", tools: 8, in: 160000, out: 26000, metadata: JSON.stringify({ model: "glm-5.3" }) });
+    // 新 session（累计值回退）：in < 前一条 → 取全量
+    insertInvoke({ id: "inv-3", started: "2026-09-14T10:00:00Z", ended: "2026-09-14T10:04:00Z", tools: 5, in: 50000, out: 8000, metadata: JSON.stringify({ model: "k3" }) });
+
+    const stats = collectInvokeStats(db, { since: "2026-09-14" });
+    const glm = stats.find(s => s.model === "glm-5.3")!;
+    expect(glm).toBeDefined();
+    expect(glm.invokeCount).toBe(2);
+    expect(glm.avgToolCalls).toBe(9); // (10+8)/2
+    expect(glm.avgDurationSec).toBe(330); // (300+360)/2
+    // 差分：inv-1=100000（首条全量），inv-2=160000-100000=60000 → 平均 (100000+60000)/2=80000
+    expect(glm.avgInputTokens).toBe(80000);
+    expect(glm.avgOutputTokens).toBe(13000); // (20000+6000)/2 — 差分：inv-1=20000 全量，inv-2=26000-20000=6000
+
+    const k3 = stats.find(s => s.model === "k3")!;
+    expect(k3.avgInputTokens).toBe(50000); // 新 session 全量
+
+    const total = stats.find(s => s.model === "_total")!;
+    expect(total.invokeCount).toBe(3);
+  });
+
+  it("无 metadata.model 归 unknown 桶；running/无终态行不进耗时均值", () => {
+    insertInvoke({ id: "inv-1", started: "2026-09-14T08:00:00Z", ended: "2026-09-14T08:05:00Z", tools: 3, in: 1000, out: 100 });
+    insertInvoke({ id: "inv-2", started: "2026-09-14T08:30:00Z", ended: null, tools: 2, in: null, out: null });
+
+    const stats = collectInvokeStats(db, { since: "2026-09-14" });
+    const unknown = stats.find(s => s.model === "unknown")!;
+    expect(unknown).toBeDefined();
+    expect(unknown.invokeCount).toBe(2);
+    expect(unknown.avgToolCalls).toBe(2.5); // (3+2)/2
+    // 只有 inv-1 有终态 → 耗时均值 = 300s
+    expect(unknown.avgDurationSec).toBe(300);
   });
 });
 

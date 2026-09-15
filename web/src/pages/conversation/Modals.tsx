@@ -52,7 +52,7 @@ interface ModalsProps {
   otters: Otter[]
   sessions: Record<string, OtterSession[]>
   onClose: () => void
-  onConfirmNewConv: (title: string) => void
+  onConfirmNewConv: (title: string, modelAlias?: string) => void
   onConfirmArchive: () => void
   onConfirmCreateOtter: (form: CreateOtterFormValue) => void
   onConfirmDissolve: (summary: string) => void
@@ -80,6 +80,28 @@ export function ConversationModals(props: ModalsProps) {
 
 function NewConvModal(props: ModalsProps) {
   const [title, setTitle] = useState('')
+  /** 模型下拉数据源 GET /api/settings；默认选中 = 配置文件默认模型（s.defaultModelAlias）。
+   *  空串 = 默认模型（不下发字段）；加载失败降级为仅文本展示「大獭（默认）」，不阻断创建 */
+  const [models, setModels] = useState<ModelInfoDTO[]>([])
+  const [defaultAlias, setDefaultAlias] = useState('')
+  const [selectedModel, setSelectedModel] = useState('')
+
+  useEffect(() => {
+    getSettings()
+      .then((s: import('@contract/api').SettingsDTO) => {
+        setModels(s.models)
+        setDefaultAlias(s.defaultModelAlias)
+        setSelectedModel(s.defaultModelAlias)
+      })
+      .catch(() => console.warn('[NewConvModal] Failed to load models for dropdown'))
+  }, [])
+
+  function submit() {
+    if (!title.trim()) return
+    props.onConfirmNewConv(title, selectedModel || undefined)
+    setTitle('')
+  }
+
   return (
     <Modal
       isOpen
@@ -88,9 +110,7 @@ function NewConvModal(props: ModalsProps) {
       footer={
         <>
           <ModalButton onClick={props.onClose}>取消</ModalButton>
-          <ModalButton variant="primary" onClick={() => { if (title.trim()) { props.onConfirmNewConv(title); setTitle('') } }}>
-            创建
-          </ModalButton>
+          <ModalButton variant="primary" onClick={submit} disabled={!title.trim()}>创建</ModalButton>
         </>
       }
     >
@@ -98,14 +118,32 @@ function NewConvModal(props: ModalsProps) {
       <input
         value={title}
         onChange={e => setTitle(e.target.value)}
-        onKeyDown={e => { if (e.key === 'Enter' && title.trim()) { props.onConfirmNewConv(title); setTitle('') } }}
+        onKeyDown={e => { if (e.key === 'Enter' && title.trim()) submit() }}
         className="form-input w-full"
         placeholder="输入对话标题"
         autoFocus
       />
       <div className="mt-3">
         <span className="text-xs font-medium text-stone-600">参与 Otter</span>
-        <div className="text-sm text-stone-500 mt-1">大獭 (默认)</div>
+        <div className="flex items-center gap-2 mt-1">
+          <OtterAvatar otterId="big-otter" name="大獭" type="big" size={28} />
+          <span className="text-sm text-stone-500">大獭</span>
+        </div>
+        {models.length > 0 ? (
+          <>
+            <label className="block text-xs font-medium text-stone-600 mt-3 mb-1.5">大獭模型</label>
+            <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)} className="form-input w-full">
+              {models.map(m => (
+                <option key={m.alias} value={m.alias}>
+                  {m.alias === defaultAlias ? `${m.alias}（默认）` : m.alias}{m.description ? ` — ${m.description}` : ''}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-stone-400 mt-1">默认取配置文件；某家配额耗尽时可在此换模型</p>
+          </>
+        ) : (
+          <div className="text-sm text-stone-500 mt-1">大獭 (默认)</div>
+        )}
       </div>
     </Modal>
   )

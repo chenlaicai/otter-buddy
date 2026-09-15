@@ -13,13 +13,21 @@ import type { InvokeEventDTO } from '@contract/api'
  * 2. tool_result（tool_execution_end 落库，name+result）→ 同名队头出队配对
  * 3. message_end 落库的 assistant_toolcall（LLM 请求块复述，无执行语义）→ 丢弃不配
  * 4. message_end 的 assistant_text → think 步
- * 5. speak 直通；error 直通
- * 6. 孤儿容错：result 无 start → 独立 call 步；start 无 result（running/中断）→ 待定态 call 步
- */
+ * 5. speak 事件吸收同名待配对 start 步（见下「speak 吸收」）
+ * 6. error 直通
+ * 7. 孤儿容错：result 无 start → 独立 call 步；start 无 result（running/中断）→ 待定态 call 步
+ *
+ * speak 吸收（F20260914evdz）：speak 工具的 tool_execution_end 被 event-mapping 特判
+ * 落库为 speak 事件（payload.body）而非 tool_result——start 步永无配对结果。若不吸收，
+ * 一次发言渲染两条：假「执行中」speak 工具行 + 发言行，内容 100% 重复。吸收 = 移除
+ * 假工具行、发言步 rawEventIds 合并溯源（点开仍可看原始分列）。
+ *
+ * 终态中断标记：invokeEnded=true 时，仍未配对的 start 步不再是「执行中」而是「已中断」
+ * （灰点非转圈）——终态 invoke 里的 pending 是假象（回合早已结束）。 */
 
 /** 折叠后的展示步 */
 export type FoldedStep =
-  | { kind: 'call'; name: string; args?: unknown; result?: unknown; isError?: boolean; pending: boolean; ts: string; tsEnd?: string; rawEventIds: string[] }
+  | { kind: 'call'; name: string; args?: unknown; result?: unknown; isError?: boolean; pending: boolean; interrupted?: boolean; ts: string; tsEnd?: string; rawEventIds: string[] }
   | { kind: 'think'; text: string; ts: string; rawEventIds: string[] }
   | { kind: 'speak'; body: string; ts: string; rawEventIds: string[] }
   | { kind: 'error'; message: string; ts: string; rawEventIds: string[] }
@@ -31,7 +39,7 @@ function isMessageEndSnapshot(ev: InvokeEventDTO): boolean {
   return Array.isArray(p.content)
 }
 
-export function foldInvokeEvents(events: InvokeEventDTO[]): FoldedStep[] {
+export function foldInvokeEvents(events: InvokeEventDTO[], opts?: { invokeEnded?: boolean }): FoldedStep[] {
   const steps: FoldedStep[] = []
   /** 同名待配对队列（FIFO） */
   const pendingCalls = new Map<string, Extract<FoldedStep, { kind: 'call' }>[]>()
@@ -92,7 +100,18 @@ export function foldInvokeEvents(events: InvokeEventDTO[]): FoldedStep[] {
       }
       case 'speak': {
         const p = ev.payload ?? {}
-        steps.push({ kind: 'speak', body: String(p.body ?? ''), ts: ev.createdAt, rawEventIds: [ev.id] })
+        // 规则 5：吸收同名待配对 start 步（见文件头「speak 吸收」）——移除假工具行，
+        // rawEventIds 合并保溯源；无 start（旧数据/异常序）则直通成发言步
+        const q = pendingCalls.get('speak')
+        const absorbed = q?.shift()
+        if (q && q.length === 0) pendingCalls.delete('speak')
+        if (absorbed) {
+          const idx = steps.indexOf(absorbed)
+          if (idx >= 0) steps.splice(idx, 1)
+          steps.push({ kind: 'speak', body: String(p.body ?? ''), ts: ev.createdAt, rawEventIds: [...absorbed.rawEventIds, ev.id] })
+        } else {
+          steps.push({ kind: 'speak', body: String(p.body ?? ''), ts: ev.createdAt, rawEventIds: [ev.id] })
+        }
         break
       }
       case 'error': {
@@ -102,6 +121,15 @@ export function foldInvokeEvents(events: InvokeEventDTO[]): FoldedStep[] {
       }
       default:
         break
+    }
+  }
+  // 终态中断标记：仍未配对的 start = 被中断（灰点「已中断」），不再假转圈
+  if (opts?.invokeEnded) {
+    for (const q of pendingCalls.values()) {
+      for (const step of q) {
+        step.pending = false
+        step.interrupted = true
+      }
     }
   }
   return steps

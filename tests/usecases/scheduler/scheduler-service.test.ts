@@ -940,11 +940,50 @@ describe('#913: catch-up 前置阶段炸点落 healing（claim 后 execution 建
   });
 });
 
+// #929 边界系列公共 helper（模块级，避免 describe 回调超 max-lines）：按 offsetMs 构造 lastTriggeredAt 跑一轮对账，返回落账事件数
+async function runReconcileEdge(prevDue: Date, offsetMs: number): Promise<number> {
+  const taskRepo = createMockTaskRepo();
+  const convRepo = createMockConvRepo();
+  const sendEntry = createMockSendEntry();
+  const entryRepo = createMockEntryRepo();
+  const cronParser = createMockCronParser(new Date('2026-09-15T16:09:00.000Z'), prevDue);
+  const events: Array<Record<string, unknown>> = [];
+  const healingRepo = {
+    _events: events,
+    create: vi.fn(async (e: Record<string, unknown>) => { events.push(e); }),
+    findOpen: vi.fn(async () => events.map(e => ({ errorType: e.errorType, context: e.context }))),
+    autoStaleDismiss: vi.fn(async () => 0),
+  };
+
+  taskRepo._store.set(`task-edge-${offsetMs}`, makeTask({
+    id: `task-edge-${offsetMs}`,
+    scheduleType: 'cron',
+    cron: '0 9 * * *',
+    lastTriggeredAt: new Date(prevDue.getTime() - offsetMs).toISOString(),
+  } as never));
+  convRepo._addConversation('conv-1', { status: 'active' });
+
+  const service = new SchedulerService({
+    taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+    convRepo: convRepo as unknown as ConversationRepository,
+    sendEntry: sendEntry as unknown as SendEntry,
+    entryRepo: entryRepo as unknown as EntryRepository,
+    agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+    cronParser: cronParser as unknown as CronParser,
+    logger: mockLogger,
+    healingRepo: healingRepo as never,
+  });
+  await service.start();
+  await service.stop();
+  return healingRepo._events.length;
+}
+
 describe('#814: 调度完整性对账（启动时错过窗口落 healing）', () => {
   function makeHealingRepo() {
     const events: Array<Record<string, unknown>> = [];
     return {
       _events: events,
+
       create: vi.fn(async (e: Record<string, unknown>) => { events.push(e); }),
       findOpen: vi.fn(async () => events.map(e => ({ errorType: e.errorType, context: e.context }))),
       autoStaleDismiss: vi.fn(async () => 0),
@@ -1022,6 +1061,86 @@ describe('#814: 调度完整性对账（启动时错过窗口落 healing）', ()
     await service.stop();
 
     expect(healingRepo._events).toHaveLength(0);
+  });
+
+  it('#929 回归：lastTriggeredAt 比窗口早 0.3-1.6s（准时触发抖动）→ 不误报', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendEntry = createMockSendEntry();
+    const entryRepo = createMockEntryRepo();
+    const prevDue = new Date('2026-09-15T01:30:00.000Z');
+    const cronParser = createMockCronParser(new Date('2026-09-15T16:09:00.000Z'), prevDue);
+    const healingRepo = makeHealingRepo();
+
+    // 现场同构：lastTriggeredAt 仅早窗口 0.645s（9/15 误报 5 条之一）
+    taskRepo._store.set('task-jitter', makeTask({
+      id: 'task-jitter',
+      scheduleType: 'cron',
+      cron: '0 9 * * *',
+      lastTriggeredAt: '2026-09-15T01:29:59.355Z',
+    } as never));
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+      healingRepo: healingRepo as never,
+    });
+    await service.start();
+    await service.stop();
+
+    expect(healingRepo._events).toHaveLength(0); // 抖动在 5s 容差内
+  });
+
+  it('#929 回归：lastTriggeredAt 早窗口超 5s（真错过）→ 仍落账', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendEntry = createMockSendEntry();
+    const entryRepo = createMockEntryRepo();
+    const prevDue = new Date('2026-09-15T01:30:00.000Z');
+    const cronParser = createMockCronParser(new Date('2026-09-15T16:09:00.000Z'), prevDue);
+    const healingRepo = makeHealingRepo();
+
+    taskRepo._store.set('task-real-miss', makeTask({
+      id: 'task-real-miss',
+      scheduleType: 'cron',
+      cron: '0 9 * * *',
+      lastTriggeredAt: '2026-09-14T01:29:00.000Z', // 早超过一天，真错过
+    } as never));
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+      healingRepo: healingRepo as never,
+    });
+    await service.start();
+    await service.stop();
+
+    expect(healingRepo._events).toHaveLength(1);
+  });
+
+  it('#929 边界：精确 5s 边界锁定（4999ms/5000ms 容差内，5001ms 刚出容差）', async () => {
+    // 边界数学：reference >= prevDue - 5_000
+    // - 早 4999ms：(P-4999) >= (P-5000) 成立 → 容差内
+    // - 早 5000ms：(P-5000) >= (P-5000) 成立（>= 含边界）→ 容差内
+    //   （防重构把 >= 改成 > 时，本用例拦截：5000ms 会变误报）
+    // - 早 5001ms：(P-5001) >= (P-5000) 不成立 → 错过（防边界被悄然扩大/缩小）
+    const prevDue = new Date('2026-09-15T01:30:00.000Z');
+
+    expect(await runReconcileEdge(prevDue, 4999)).toBe(0);
+    expect(await runReconcileEdge(prevDue, 5000)).toBe(0);
+    expect(await runReconcileEdge(prevDue, 5001)).toBe(1);
   });
 
   it('重复重启去重：同一错过窗口已落 open 事件 → 不重复落账', async () => {
