@@ -90,6 +90,12 @@ scheduleMarkReadIfAtBottom(convId: string)
 - 不影响：上翻阅读历史（isAtBottomRef=false 时不触发）、未读分隔线定位（loadConversationDetail 的 firstUnreadSeq 逻辑不变）、新消息 N 条浮窗（不在底部时才计数，与本修复互斥）
 - 与 F20260904smsj「发言即已读」同源同语义：用户停留位置=已读
 
+## 对抗审视结论（2026-09-16，检视獭-ubrd / mimo）
+
+**0 严重发现，4 建议发现**（B1-B5 基础维度全过：CI 通过、文档完整、tsc+439 用例全绿、标识一致、无撞车）。初轮 comment 留痕，无代码处置项，检视獭确认无需 delta 复核。
+
+处置：4 个建议发现均判「更好但本 PR 窄修复无法承载」，聚合成 issue #964（tech-debt/P2）后续迭代——统一 markRead scheduler（S2）+ 提取 getRealMessages/getMaxSeq 工具函数（S3+S4）+ scheduler 统一后 S1 时序窗口自然消除。
+
 ## 验证
 
 - `npx tsc --noEmit` 通过
