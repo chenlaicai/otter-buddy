@@ -13,6 +13,7 @@ import type { ManageScheduledTask } from '@usecases/scheduled-task/manage-schedu
 import type { Logger } from '@usecases/ports/logger';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { getRepoRoot } from '@frameworks/repo-root';
 
 const PAPER_TRADING_CONVERSATION_KEY = 'paper-trading-conversation-id';
 const PAPER_TRADING_BIG_OTTER_ID_KEY = 'paper-trading-big-otter-id';
@@ -107,7 +108,8 @@ export async function seedPaperTradingTasks(deps: {
     // 4. 15:30 操盘獭任务（agent executor）
     if (!existingNames.has(TASK_NAMES.dailyTrading)) {
       // fail loud：读不到文件直接 throw（外层 catch 记日志，下次启动重试）
-      const promptPath = resolve(process.cwd(), 'prompts/scheduled/paper-trading-daily.md');
+      // Why: prompt 路径基于代码位置解析（#429），cwd 非项目根也能读到
+      const promptPath = resolve(getRepoRoot(), 'prompts/scheduled/paper-trading-daily.md');
       const promptBody = readFileSync(promptPath, 'utf-8');
 
       // PR5: 自选池管理——存定时任务 body，搭档维护+AI 提议确认

@@ -225,3 +225,34 @@ describe('#784 prompt 启动对账', () => {
     expect(new Date(updated.updatedAt).getTime()).toBeGreaterThan(new Date(task.updatedAt).getTime());
   });
 });
+
+// ─── issue #429：默认 templateDir 不依赖 cwd ──────
+describe('默认 templateDir（#429）', () => {
+  beforeEach(() => {
+    // Why: mockLogger 全文件共享，历史用例的「目录不可读」告警会串台——只看本轮调用
+    vi.clearAllMocks();
+  });
+
+  it('不传 templateDir 且 cwd 非项目根时：仍基于代码位置找到 prompts/scheduled 并完成对账', async () => {
+    // 验证默认路径收口到 getRepoRoot()：cwd 切到临时目录（模拟 systemd WorkingDirectory），
+    // 对账仍能读到真实模板目录而非走「目录不可读跳过」降级分支。
+    const origCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'reconciler-cwd-test-'));
+    process.chdir(tmpDir);
+    try {
+      const repo = createMockRepo([]);
+      const result = await reconcilePromptTemplates({ taskRepo: repo, logger: mockLogger });
+      // 真模板目录可读：不会落入「目录不可读跳过」分支（checked=0 且 warn 打出）。
+      // 真目录模板与空 repo 全不匹配 → 全部进 unmatched，证明确实逐文件读到了真模板。
+      expect(result.unmatched.length).toBeGreaterThan(0);
+      expect(result.checked).toBe(0); // 无匹配任务，无 body 同步
+      // 关键：本轮新增过「目录不可读」告警 = 默认目录解析失败（读到了不存在的路径）
+      const dirWarnedNow = (mockLogger.warn as ReturnType<typeof vi.fn>).mock.calls.some(
+        (args: unknown[]) => String(args[0]).includes('模板目录不可读'),
+      );
+      expect(dirWarnedNow).toBe(false);
+    } finally {
+      process.chdir(origCwd);
+    }
+  });
+});

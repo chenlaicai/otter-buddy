@@ -21,6 +21,7 @@ import { DomainError, isSessionLockConflictError } from '@entities/errors';
 import { reconcilePromptTemplates } from './prompt-template-reconciler';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { getRepoRoot } from '@frameworks/repo-root';
 
 /** once 任务重试参数 */
 const ONCE_MAX_RETRIES = 3;
@@ -1386,7 +1387,8 @@ error_type 为 \`tool_use_feedback\` 的事件是海獭主动报的工具痛点�
 
 /** 读取模板文件，去掉 frontmatter。文件缺失时返回 null（调用方回退到内置文案）。 */
 function loadHealingTemplate(): string | null {
-  const path = resolve(process.cwd(), HEALING_ANALYSIS_TEMPLATE_PATH);
+  // Why: 模板路径基于代码位置解析（#429），cwd 非项目根（systemd/容器）也能读到
+  const path = resolve(getRepoRoot(), HEALING_ANALYSIS_TEMPLATE_PATH);
   try {
     const content = readFileSync(path, 'utf8');
     const fm = content.match(/^---\n([\s\S]*?)\n---\n/);
@@ -1440,7 +1442,7 @@ async function buildHealingAnalysisBody(healingRepo: HealingEventRepository): Pr
     // 回退：模板缺失或无占位符时用内置文案（与模板内容保持一致，守卫测试锁定同步）。
     //  Why 留痕：静默回退会让「模板丢了」无人知晓，git 化目标落空——warn 日志是最低成本的可观测性。
     // #416 审视发现 2：cwd 非项目根时模板会读不到，这条日志是定位线索。
-    const path = resolve(process.cwd(), HEALING_ANALYSIS_TEMPLATE_PATH);
+    const path = resolve(getRepoRoot(), HEALING_ANALYSIS_TEMPLATE_PATH);
     // eslint-disable-next-line no-console -- logger 在类实例上，此处是模块级函数；console.warn 与脚本输出风格一致
     console.warn(`[healing-template] 模板缺失或无占位符（${path}），回退内置文案——若非预期请检查 cwd/部署路径`);
     prompt = HEALING_FALLBACK_PROMPT.replace('{{HEALING_DATA}}', dataSection);
