@@ -488,7 +488,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // #460：捕获 stopFeishu 句柄接入 dispose 链（防 WSClient 重连阻止退出）
   let feishuStop: ReturnType<typeof setupFeishu> | undefined;
   if (feishu) {
-    feishuStop = setupFeishu({ appConfig: config, uc, repos, agentInvoker, feishu, messageBroadcaster, logger, registry });
+    const feishuBundle = setupFeishu({ appConfig: config, uc, repos, agentInvoker, feishu, messageBroadcaster, logger, registry });
+    feishuStop = feishuBundle;
+    // F20260916fst4：首哑信号消费依赖挂接——setupFeishu 内构建的 AgentDispatchService
+    // 晚于 agentInvoker，setter 延迟挂接（bootstrap 时序补偿；web-only 部署无 feishu 时
+    // 首哑降级仅日志，回到现状静默终链）
+    if (feishuBundle) {
+      agentInvoker.attachAgentDispatchService(feishuBundle.agentDispatchService);
+    }
   }
 
   /** 等待所有 ensure 完成后再启动 scheduler，确保新创建的 scheduled task 被遍历到。
