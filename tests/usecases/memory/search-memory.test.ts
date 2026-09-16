@@ -602,7 +602,7 @@ describe("SearchMemory - F20260812mrcq Part 3 anchor 短路", () => {
       content: "F20260812mrcq summary content about memory recall quality",
       metadata: null, createdAt: "2026-08-12T00:00:00Z",
     });
-    await repo.storeEmbedding("anchor-1", new Float32Array([0.1, 0.2, 0.3]));
+    await repo.storeEmbedding("anchor-1", new Float32Array(1024).fill(0.1));
 
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());

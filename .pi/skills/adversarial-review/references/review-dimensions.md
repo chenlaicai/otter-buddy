@@ -36,6 +36,7 @@ Is the feature functional end-to-end, not just unit tests passing?
 Verification depends on PR type:
 - **Prompt changes**: Run the workflow with the new prompt to verify it works
 - **Code changes**: Execute key paths in the actual environment
+- **DB migration changes**（migration.ts 新增/修改迁移函数、或 schema.ts 表结构变更）: **真启动验证**——在生产 DB 副本上执行完整启动路径（迁移 → bootstrap → 服务监听成功、日志无 SqliteError），仅跑迁移函数 + SQL 行数校验不算 B3 通过（#962 事故：崩溃点在启动链路 enqueueRetry 的 ON CONFLICT，SQL 校验触达不到；同类事故 F20260812emgr/F20260916rkct 已踩两次）
 - **Config changes**: Verify the config takes effect
 - **Documentation changes**: Verify docs match implementation
 
@@ -79,6 +80,8 @@ Does the implementation match the design intent?
 - Check error handling — are failures handled or silently swallowed?
 - Verify edge cases in the logic — what happens at boundaries?
 - **F-claim audit (issue #379 ②)**：Cross-check each claim in the feature doc against the code — for every "implemented X" statement in the doc, verify the corresponding symbol/logic exists in code. List claims that run ahead of the code (doc says done, code not wired yet).（F 承诺对账：逐条核对特性文档声称的功能点 vs 代码实现，承诺面跑在代码前面时逐条列出）
+- **迁移结构保持核查（#962 事故，迁移类 PR 必查）**：变更涉及 DB 表重建/复制时，逐表核对结构保持方式——`CREATE TABLE AS SELECT`（CTAS）只拷数据不拷结构（丢 PK/UNIQUE/FK、FTS5/vec0 虚拟表退化为普通表），**任何 CTAS 用法直接标严重发现**；正确姿势是 sqlite_master 提取 DDL 重建或原地 DELETE+INSERT 换键。同一迁移函数内主表与卫星表使用不同严谨度的重建方式（#944 现场：主表从 sqlite_master 提 DDL 防漂移，四张卫星表 CTAS）是**强信号**——必须逐表核实，不接受「卫星表简单所以 CTAS 够了」的隐含假设。
+- **捷径审查（#962 事故，刹车三）**：对 PR 中「替代既有路径的新捷径」专门核验两问——原路径存在的原因是什么？新捷径是否满足了同样的约束？（#944 现场：「vec 复制现成数据替代 retry worker」绕过了既有暗化兑底，若检视维度有此条，CTAS 雷大概率在这层被拦）捷径本身不是罪，答不出「原路径的约束是什么」才是严重发现。
 
 ## 2. Edge Cases
 
