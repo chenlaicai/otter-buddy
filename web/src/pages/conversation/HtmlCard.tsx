@@ -44,7 +44,7 @@ export interface HtmlCardProps {
 
 type CardView = 'collapsed' | 'expanded' | 'source' | 'invalid'
 
-function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId, cardSchemaVersion }: HtmlCardProps) {
+function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId }: HtmlCardProps) {
   /** F20260916hcel：所有卡默认折叠（搭档 9/16 纠正——曾误执行为「新卡默认展开」） */
   const [view, setView] = useState<CardView>('collapsed')
   const [height, setHeight] = useState(() => {
