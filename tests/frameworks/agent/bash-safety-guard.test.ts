@@ -182,6 +182,49 @@ describe("checkBashCommandSafety", () => {
     expect(result).not.toContain("otter-buddy.sh restart");
   });
 
+  // ─── F20260916gsrd：主服务管理脚本自杀命令（9/16 事故：獭 otter-buddy.sh restart 杀主进程 31385） ───
+
+  it("otter-buddy.sh restart（相对路径）→ 拦截", () => {
+    const result = checkBashCommandSafety("./scripts/otter-buddy.sh restart 2>&1 | tail -8", mainPid);
+    expect(result).toContain("主服务管理脚本");
+    expect(result).toContain("主进程");
+  });
+
+  it("otter-buddy.sh stop（相对路径）→ 拦截", () => {
+    const result = checkBashCommandSafety("./scripts/otter-buddy.sh stop", mainPid);
+    expect(result).toContain("主服务管理脚本");
+  });
+
+  it("otter-buddy.sh restart（绝对路径）→ 拦截", () => {
+    const result = checkBashCommandSafety("/Users/orca/ai/otter-buddy/scripts/otter-buddy.sh restart", mainPid);
+    expect(result).toContain("主服务管理脚本");
+  });
+
+  it("bash otter-buddy.sh restart（显式解释器）→ 拦截", () => {
+    const result = checkBashCommandSafety("bash scripts/otter-buddy.sh restart", mainPid);
+    expect(result).toContain("主服务管理脚本");
+  });
+
+  it("组合命令中后段 otter-buddy.sh restart → 拦截", () => {
+    const result = checkBashCommandSafety("npm run build && ./scripts/otter-buddy.sh restart", mainPid);
+    expect(result).toContain("主服务管理脚本");
+  });
+
+  it("otter-buddy.sh start → 放行（start 不杀进程，端口冲突由脚本自行检测）", () => {
+    const result = checkBashCommandSafety("./scripts/otter-buddy.sh start", mainPid);
+    expect(result).toBeNull();
+  });
+
+  it("otter-buddy.sh status → 放行（只读查询）", () => {
+    const result = checkBashCommandSafety("./scripts/otter-buddy.sh status", mainPid);
+    expect(result).toBeNull();
+  });
+
+  it("文本中提到 otter-buddy.sh restart 字样（非命令位置，如 grep 文档）→ 放行", () => {
+    const result = checkBashCommandSafety("grep -rn 'otter-buddy.sh restart' README.md", mainPid);
+    expect(result).toBeNull();
+  });
+
   // ─── 检视 R1 发现1：无法判断型拦截的误拦退出引导 ───
 
   it("无法判断型拦截（间接 PID 目标）含误拦退出引导", () => {
