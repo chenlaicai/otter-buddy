@@ -640,7 +640,10 @@ export class SearchMemory {
     // 排除已在 inTop 的条目（防重复）。
     const inTopIds = new Set(inTop.map(h => h.entryId));
     const candidatePool = preDedupScored ?? sorted;
-    const candidates = candidatePool.filter(h => isDocSummary(h) && !inTopIds.has(h.entryId));
+    // #965 审视修复：preDedupScored 未排序（rerank 不保证顺序）——候选按 finalScore 降序取最优
+    const candidates = candidatePool
+      .filter(h => isDocSummary(h) && !inTopIds.has(h.entryId))
+      .sort((a, b) => b.finalScore - a.finalScore);
     if (candidates.length === 0) return sorted;
 
     const result = [...inTop];
