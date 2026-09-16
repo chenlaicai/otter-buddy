@@ -169,6 +169,13 @@ orchestrator `handleApiError` 内、healing 落账后：查 `getInvokeCount(conv
 - 回归：全量 vitest 既有用例零回归（orchestrator / invoker / chain-engine 全部）；
 - 实演：用配额耗尽的模型新建小獭走一遍真实链路。
 
+## 实现侧记录（2026-09-16，开发獭-首哑 + 大獭）
+
+- 实现：types `_firstDumb`（FirstDumbInfo）+ `getInvokeCount`；orchestrator `detectFirstDumb`（count===1 + type==='small'）；invoker `handleFirstDumbSignal` 三步串行 + `attachAgentDispatchService` setter（bootstrap 时序补偿，幂等）；platforms/app 装配；BIG_OTTER.md 首哑处置决策树。
+- 代码对抗审视（代码检视獭-首哑，mimo）：0 严重 + 3 建议全处置（dispatch 消息补小獭名 / 注释口径核实无需改 / 微信通道挂接）+ 大獭自发现严重隐患修复（web-only 部署非空断言 TypeError → canDispatch 显式降级）。delta 复核通过。
+- 测试：首哑判定 5 用例 + 信号消费 5 用例（含 web-only 显式降级 / dispatch 消息内容）；全量 3121 用例零回归；CI ✅（PR #988）。
+- 最简实现检查：已过——getInvokeCount 复用 getInvokes().length 不新增 repo COUNT 方法；healing-alert-registry 未改（方案标注可省）；setter 挂接避免装配顺序重构。
+
 ## 改动范围
 
 | 文件 | 操作 | 说明 |
