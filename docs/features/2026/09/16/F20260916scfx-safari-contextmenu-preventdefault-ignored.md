@@ -35,9 +35,9 @@ created_in_conversation: acf4e2d3-d0ae-4e93-90d8-a9d1f1f602b1
 在 mousedown 阶段拦截 `button === 2`（右键按下），抢在浏览器默认行为链之前 preventDefault：
 
 - 挂载点：WorkspacePanel 根 div 的原生 listener（useEffect + ref），不用 React 委托
-- 拦截范围收窄：仅当事件 target 在树节点（`[data-testid^="file-"]` / `[data-testid^="folder-"]`）内才 preventDefault，面板其他区域右键不受影响（后续预览区要做右键复制等不冲突）
+- 拦截范围收窄：仅当事件 target 在**文件节点**（`[data-testid^="file-"]`）内才 preventDefault；folder 节点不拦——folder 没挂 onContextMenu，拦了 Safari 上会从「原生菜单」退化为「什么都没有」（检视发现 1 处置）
 - 与现有 onContextMenu 并存：React handler 继续负责弹出我们的菜单；mousedown 拦截只负责压制 Safari 原生菜单，Chromium 上无害（双保险）
-- 文件夹节点一并覆盖（顺手补上 F20260910wrev 时只挂文件节点的缺口——拦截层不分文件/文件夹，菜单弹出仍由 onContextMenu 决定，本 PR 不改菜单挂载范围）
+- 菜单挂载范围不变（仍只有文件节点有菜单）；folder 右键菜单需求留待后续，届时需同步把拦截 selector 加回 folder
 
 ## 改动明细
 
