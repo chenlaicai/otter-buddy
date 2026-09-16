@@ -15,6 +15,12 @@ tags: [prompt, system-prompt, evidence-anchor, fact-verification, trust]
 modules:
   - .pi/SYSTEM.md
 capability_test: "n/a: 纯 prompt 行为规范，无代码逻辑；由每日 review 观察断言锚点覆盖率验证"
+intent:
+  problem: "海獭事实性断言无锚点（LLM 看到片段即推测完整情况），搭档只能凭记忆当人肉校验器，撞上一次信任崩一次（2026-09-16 搭档原话：你们给的证据都是假的）"
+  expected_effect: "事实性断言锚点覆盖率（可验证锚点或显式降级标注 / 总断言）显著提升；搭档验证成本从'凭记忆撞'降为'按锚点当场核对'；由 daily-review 抽查 + 搭档反馈验证"
+  verify_by:
+    type: behavior_check
+    reason: "prompt 行为规范，无静态断言可写；靠 daily-review 采样对话中断言的锚点覆盖情况"
 created_in_conversation: 9798234f-93d1-401a-8abe-f15f2354a0b0
 ---
 
@@ -56,6 +62,14 @@ created_in_conversation: 9798234f-93d1-401a-8abe-f15f2354a0b0
 
 放 A1 而非 R 层的理由：这是事实观的一部分，与「先收集数据再归纳结论」同源——A1 管事实，
 规则条目是行为落点。
+
+## 已知局限（诚实披露）
+
+- **自我监管，无外部强制**（检视发现 2）：四条规则依赖 LLM 自我约束，存在「混合真假锚点」
+  对抗模式——部分真锚点 + 部分编造锚点混合后比全不给更危险（虚假安全感）。外部强制需工具层/
+  评测层配合，超出本 PR 范围，待建 issue 跟进。
+- **A1 膨胀**（检视发现 5）：A1 已有三条互补规则（调查方法论 / 证据锚点 / 来源校准）分散排布，
+  新规则注意力权重可能被稀释。长期可考虑重组 A1 结构，建 issue 延后。
 
 ## 影响范围
 
