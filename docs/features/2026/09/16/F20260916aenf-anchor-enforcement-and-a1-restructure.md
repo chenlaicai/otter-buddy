@@ -8,7 +8,7 @@ summary: |
   a) prompts/scheduled/daily-health-check.md 新增「锚点真实性抽查」段——每日从昨日对话抽 5-10 条
      file:line 锚点断言，read 核对文件/行号/内容实质，编造锚点开 P1 issue、7 日 2 次升 P0；
   b) SYSTEM.md A1 三条规则（先查再说/证据锚点/来源校准）重排为 ①调查流程 ②证据形态 ③来源校准
-     编号子结构，纯排版零语义变更，防新规则注意力稀释。
+     编号子结构（规则文字零变更，仅加结构标注），防新规则注意力稀释。
 
 causal_links:
   from:
