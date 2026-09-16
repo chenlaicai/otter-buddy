@@ -20,7 +20,9 @@
  * body-file 模板是其正道（.pi/skills 同 PR 修改）。
  */
 
-/** 与 bash-safety-guard 检测词表同口径的敏感词元（等长替换用） */
+/** 与 bash-safety-guard 检测词表同口径的敏感词元（等长替换用）
+ *  F20260916gtlr：补 otter-buddy\.sh——#970 守卫新增 SERVICE_SCRIPT_KILL 词元时未同步本表，
+ *  引号数据文本（如 grep 'otter-buddy.sh restart' README.md）被路径限定判定误拦。 */
 const SENSITIVE_TOKENS: RegExp[] = [
   /\bkill\b/gi,
   /\bskill\b/gi,
@@ -30,6 +32,7 @@ const SENSITIVE_TOKENS: RegExp[] = [
   /\bpgrep\b/gi,
   /\beval\b/gi,
   /\.otter-buddy\.pid/g,
+  /otter-buddy\.sh/gi,
 ];
 
 /**

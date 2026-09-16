@@ -593,31 +593,33 @@ describe("#698 攻击链回归：wrapper/赋值/bash -c/xargs 参数/路径变�
   });
 
   // ─── F20260916gsrd：主服务管理脚本自杀命令（9/16 事故：獭 otter-buddy.sh restart 杀主进程 31385） ───
+  // F20260916gtlr：未传 projectRoot 的调用走保守退化（全局拦），以下用例行为不变；
+  // 路径限定行为见 describe("SERVICE_SCRIPT_KILL 路径限定") 分组。
 
   it("otter-buddy.sh restart（相对路径）→ 拦截", () => {
     const result = checkBashCommandSafety("./scripts/otter-buddy.sh restart 2>&1 | tail -8", mainPid);
-    expect(result).toContain("主服务管理脚本");
+    expect(result).toContain("otter-buddy.sh");
     expect(result).toContain("主进程");
   });
 
   it("otter-buddy.sh stop（相对路径）→ 拦截", () => {
     const result = checkBashCommandSafety("./scripts/otter-buddy.sh stop", mainPid);
-    expect(result).toContain("主服务管理脚本");
+    expect(result).toContain("otter-buddy.sh");
   });
 
   it("otter-buddy.sh restart（绝对路径）→ 拦截", () => {
     const result = checkBashCommandSafety("/Users/orca/ai/otter-buddy/scripts/otter-buddy.sh restart", mainPid);
-    expect(result).toContain("主服务管理脚本");
+    expect(result).toContain("otter-buddy.sh");
   });
 
   it("bash otter-buddy.sh restart（显式解释器）→ 拦截", () => {
     const result = checkBashCommandSafety("bash scripts/otter-buddy.sh restart", mainPid);
-    expect(result).toContain("主服务管理脚本");
+    expect(result).toContain("otter-buddy.sh");
   });
 
   it("组合命令中后段 otter-buddy.sh restart → 拦截", () => {
     const result = checkBashCommandSafety("npm run build && ./scripts/otter-buddy.sh restart", mainPid);
-    expect(result).toContain("主服务管理脚本");
+    expect(result).toContain("otter-buddy.sh");
   });
 
   it("otter-buddy.sh start → 放行（start 不杀进程，端口冲突由脚本自行检测）", () => {
@@ -630,6 +632,16 @@ describe("#698 攻击链回归：wrapper/赋值/bash -c/xargs 参数/路径变�
     expect(result).toBeNull();
   });
 
+  it("otter-buddy.sh logs → 放行（只读查询）", () => {
+    const result = checkBashCommandSafety("./scripts/otter-buddy.sh logs", mainPid);
+    expect(result).toBeNull();
+  });
+
+  it("cat otter-buddy.sh → 放行（读脚本内容无间接特征）", () => {
+    const result = checkBashCommandSafety("cat scripts/otter-buddy.sh", mainPid);
+    expect(result).toBeNull();
+  });
+
   it("文本中提到 otter-buddy.sh restart 字样（非命令位置，如 grep 文档）→ 放行", () => {
     const result = checkBashCommandSafety("grep -rn 'otter-buddy.sh restart' README.md", mainPid);
     expect(result).toBeNull();
@@ -639,26 +651,117 @@ describe("#698 攻击链回归：wrapper/赋值/bash -c/xargs 参数/路径变�
 
   it("sudo 句首 + otter-buddy.sh restart → 拦截（检视发现 1：^ 分支原本不含 sudo）", () => {
     const result = checkBashCommandSafety("sudo ./scripts/otter-buddy.sh restart", mainPid);
-    expect(result).toContain("主服务管理脚本");
+    expect(result).toContain("otter-buddy.sh");
   });
 
   it("sudo bash 显式解释器 + otter-buddy.sh stop → 拦截", () => {
     const result = checkBashCommandSafety("sudo bash scripts/otter-buddy.sh stop", mainPid);
-    expect(result).toContain("主服务管理脚本");
+    expect(result).toContain("otter-buddy.sh");
   });
 
   it("$() 命令替换包裹 otter-buddy.sh restart → 拦截（检视发现 2）", () => {
     const result = checkBashCommandSafety("$(./scripts/otter-buddy.sh restart)", mainPid);
-    expect(result).toContain("主服务管理脚本");
+    expect(result).toContain("otter-buddy.sh");
   });
 
   it("反引号命令替换包裹 otter-buddy.sh stop → 拦截（检视发现 2）", () => {
     const result = checkBashCommandSafety("echo `./scripts/otter-buddy.sh stop`", mainPid);
-    expect(result).toContain("主服务管理脚本");
+    expect(result).toContain("otter-buddy.sh");
   });
 
   it("中文语境提及 otter-buddy.sh restart → 放行（非命令位置不误拦）", () => {
     const result = checkBashCommandSafety("echo otter-buddy.sh restart 是危险操作", mainPid);
     expect(result).toBeNull();
+  });
+
+  // ─── F20260916gtlr：间接调用保守拦截（检视严重发现 1：变量/命令替换隐藏 stop/restart） ───
+
+  it("变量隐藏子命令：S=stop && otter-buddy.sh $S → 拦截", () => {
+    const result = checkBashCommandSafety("S=stop && scripts/otter-buddy.sh $S", mainPid);
+    expect(result).toContain("间接调用特征");
+  });
+
+  it("变量隐藏全命令：CMD=... && bash -c \"$CMD\" → 拦截（间接形态）", () => {
+    const result = checkBashCommandSafety('CMD="scripts/otter-buddy.sh stop" && bash -c "$CMD"', mainPid);
+    expect(result).not.toBeNull();
+    expect(result).toContain("主进程");
+  });
+
+  it("命令替换隐藏：bash -c \"$(echo scripts/otter-buddy.sh stop)\" → 拦截", () => {
+    const result = checkBashCommandSafety('bash -c "$(echo scripts/otter-buddy.sh stop)"', mainPid);
+    expect(result).not.toBeNull();
+    expect(result).toContain("主进程");
+  });
+
+  it("bash -c 单引号内嵌：bash -c 'scripts/otter-buddy.sh stop' → 放行（与 #970 语义一致：前导字符类 [;&|`$(] 含反引号 U+0060 但不含单引号 U+0027，故 -c 后的单引号载荷不匹配；行为同旧，非本 PR 引入的缺口）", () => {
+    const result = checkBashCommandSafety("bash -c 'scripts/otter-buddy.sh stop'", mainPid);
+    expect(result).toBeNull();
+  });
+});
+
+describe("SERVICE_SCRIPT_KILL 路径限定（F20260916gtlr）", () => {
+  const mainPid = 42877;
+  const projectRoot = "/Users/orca/ai/otter-buddy";
+  const opts = { projectRoot };
+
+  it("主仓相对路径：scripts/otter-buddy.sh stop → 拦截", () => {
+    const result = checkBashCommandSafety("scripts/otter-buddy.sh stop", mainPid, undefined, opts);
+    expect(result).toContain("解析到主仓");
+  });
+
+  it("主仓相对路径变体：./scripts/otter-buddy.sh restart → 拦截", () => {
+    const result = checkBashCommandSafety("./scripts/otter-buddy.sh restart", mainPid, undefined, opts);
+    expect(result).toContain("解析到主仓");
+  });
+
+  it("主仓绝对路径 → 拦截", () => {
+    const result = checkBashCommandSafety("/Users/orca/ai/otter-buddy/scripts/otter-buddy.sh stop", mainPid, undefined, opts);
+    expect(result).toContain("解析到主仓");
+  });
+
+  it("worktree 绝对路径 → 放行（自管实例，脚本层杀伐校验兜底）", () => {
+    const result = checkBashCommandSafety("/Users/orca/ai/otter-buddy/.otter/worktrees/w1/scripts/otter-buddy.sh stop", mainPid, undefined, opts);
+    expect(result).toBeNull();
+  });
+
+  it("cd + 相对路径（误拦残留形态）→ 拦截并引导绝对路径", () => {
+    const result = checkBashCommandSafety("cd /Users/orca/ai/otter-buddy/.otter/worktrees/w1 && scripts/otter-buddy.sh stop", mainPid, undefined, opts);
+    expect(result).toContain("解析到主仓");
+    expect(result).toContain("绝对路径");
+  });
+
+  it(".. 穿越归一化后指向主仓 scripts → 拦截", () => {
+    const result = checkBashCommandSafety("/Users/orca/ai/otter-buddy/web/../scripts/otter-buddy.sh stop", mainPid, undefined, opts);
+    expect(result).toContain("解析到主仓");
+  });
+
+  it("~ 前缀 → 拦截（保守，不展开）", () => {
+    const result = checkBashCommandSafety("~/scripts/otter-buddy.sh stop", mainPid, undefined, opts);
+    expect(result).not.toBeNull();
+  });
+
+  it("多脚本混合：worktree stop && 主仓 stop → 拦截（任一命中主仓）", () => {
+    const result = checkBashCommandSafety("/Users/orca/ai/otter-buddy/.otter/worktrees/w1/scripts/otter-buddy.sh stop && scripts/otter-buddy.sh stop", mainPid, undefined, opts);
+    expect(result).toContain("解析到主仓");
+  });
+
+  it("多脚本混合：两个 worktree stop → 放行", () => {
+    const result = checkBashCommandSafety("/Users/orca/ai/otter-buddy/.otter/worktrees/w1/scripts/otter-buddy.sh stop && /Users/orca/ai/otter-buddy/.otter/worktrees/w2/scripts/otter-buddy.sh stop", mainPid, undefined, opts);
+    expect(result).toBeNull();
+  });
+
+  it("mainPid=null（PID 文件缺失）+ 主仓脚本 → 仍拦截（不受 mainPid 短路影响）", () => {
+    const result = checkBashCommandSafety("scripts/otter-buddy.sh stop", null, undefined, opts);
+    expect(result).toContain("解析到主仓");
+  });
+
+  it("mainPid=null + 主仓脚本间接形态 → 仍拦截", () => {
+    const result = checkBashCommandSafety("scripts/otter-buddy.sh $S", null, undefined, opts);
+    expect(result).toContain("间接调用特征");
+  });
+
+  it("projectRoot 缺失 → 保守全局拦（退化行为）", () => {
+    const result = checkBashCommandSafety("/anywhere/scripts/otter-buddy.sh stop", mainPid);
+    expect(result).toContain("otter-buddy.sh");
   });
 });
