@@ -175,7 +175,9 @@ export class AgentInvoker implements AgentTurnPort {
   // 对既有构造零侵入（agentDispatchService 为可选参数，缺省降级仅日志）。
   private agentDispatchService?: AgentDispatchService;
 
-  /** F20260916fst4：装配后挂接 AgentDispatchService（bootstrap 时序补偿，见属性注释） */
+  /** F20260916fst4：装配后挂接 AgentDispatchService（bootstrap 时序补偿，见属性注释）。
+   *  幂等：飞书/微信双通道装配时后挂接者覆盖前者——两实例的 dispatch 能力等价
+   *  （同 dispatchChainEngine/entryRepo/agentInvokePort），覆盖无语义差异 */
   attachAgentDispatchService(service: AgentDispatchService): void {
     this.agentDispatchService = service;
   }
@@ -1265,6 +1267,11 @@ export class AgentInvoker implements AgentTurnPort {
    */
   private async handleFirstDumbSignal(signal: FirstDumbInfo): Promise<void> {
     try {
+      // 无 dispatch 能力时提前降级（web-only 部署未挂接）——alert + system entry 仍执行，只跳过 Step 3。
+      // Why 提前判定：原实现在 Step 3 对 undefined 做非空断言 `this.agentDispatchService!`，web-only
+      // 部署首哑时会抛 TypeError 被外层 catch 吞为 error 日志——降级应是显式路径而非意外异常。
+      const canDispatch = !!this.agentDispatchService;
+
       // Step 1：C3 高警入队（同步）——先于 dispatch，保证大獭 invoke 的 buildDynamicContext takeAll 能取到
       healingAlertRegistry.enqueue(signal.conversationId, {
         eventId: crypto.randomUUID(),
@@ -1275,19 +1282,24 @@ export class AgentInvoker implements AgentTurnPort {
         createdAt: new Date().toISOString(),
       });
 
-      // Step 2：system entry 留痕（搭档可见）
+      // Step 2：system entry 留痕（搭档可见）——解析一次名字供本条与 dispatch 消息共用
+      let otterName = signal.otterId;
       if (this.sendEntry) {
         const otter = await this.queryOtter.getById(signal.otterId);
-        const otterName = resolveSpeakerName("otter", signal.otterId, otter?.name) ?? signal.otterId;
+        otterName = resolveSpeakerName("otter", signal.otterId, otter?.name) ?? signal.otterId;
         await this.sendSystemEntry(signal.conversationId, `[首哑告警] 小獭「${otterName}」（模型 ${signal.modelAlias}）首次发言即配额耗尽，已唤醒大獭处置`);
       }
 
       // Step 3：dispatch 大獭——查在场大獭，无则降级仅日志（healing 已落账，告警已发）
+      if (!canDispatch) {
+        this.logger.warn('[first-dumb] dispatch service not attached (web-only deploy?), degraded to alert+log-only', { conversationId: signal.conversationId });
+        return;
+      }
       const bigOtterIds = await this.resolveBigOtterIds(signal.conversationId);
       if (bigOtterIds.length === 0) return;
 
       const resetHintClause = signal.resetHint ? `，重置提示：${signal.resetHint}` : '';
-      const dispatchMessage = `[首哑告警] 你新建的小獭（模型 ${signal.modelAlias}）首次发言即配额耗尽（429 终态${resetHintClause}）。\n原派工任务：${signal.originalUserMessage}\n处置决策树：\n1. 首选 restart_otter(otterId, modelAlias=<可用fallback>, summary=<任务摘要>) 原地复活，然后重新 yield 派工；\n2. 无可用 fallback / restart 失败 → 升级搭档（附决策简报）；\n3. 复活后再次 429 → 走运行中路径，不再升级。`;
+      const dispatchMessage = `[首哑告警] 你新建的小獭「${otterName}」（模型 ${signal.modelAlias}）首次发言即配额耗尽（429 终态${resetHintClause}）。\n原派工任务：${signal.originalUserMessage}\n处置决策树：\n1. 首选 restart_otter(otterId, modelAlias=<可用fallback>, summary=<任务摘要>) 原地复活，然后重新 yield 派工；\n2. 无可用 fallback / restart 失败 → 升级搭档（附决策简报）；\n3. 复活后再次 429 → 走运行中路径，不再升级。`;
       await this.agentDispatchService!.dispatch({
         conversationId: signal.conversationId,
         userMessageContent: dispatchMessage,
@@ -1310,8 +1322,8 @@ export class AgentInvoker implements AgentTurnPort {
 
   /** F20260916fst4：查 conversation 在场大獭（依赖未注入 / 无大獭时降级仅日志，返回空数组） */
   private async resolveBigOtterIds(conversationId: string): Promise<string[]> {
-    if (!this.agentDispatchService || !this.conversationRepo) {
-      this.logger.warn('[first-dumb] dispatch service or conversation repo not injected, skipping wake-up', { conversationId });
+    if (!this.conversationRepo) {
+      this.logger.warn('[first-dumb] conversation repo not injected, skipping wake-up', { conversationId });
       return [];
     }
     const participants = await this.conversationRepo.getActiveParticipants(conversationId);

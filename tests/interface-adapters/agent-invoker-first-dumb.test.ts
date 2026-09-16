@@ -94,11 +94,12 @@ function mockInvokeRepo(count: number) {
   } as never;
 }
 
-/** dispatch mock：记录 resolvedTargets + 调用顺序入 orderLog（行为断言面，非调用次数断言） */
-function mockDispatchService(orderLog: string[]): AgentDispatchService {
+/** dispatch mock：记录 userMessageContent + 调用顺序入 orderLog（行为断言面，非调用次数断言） */
+function mockDispatchService(orderLog: string[], captured?: { message?: string }): AgentDispatchService {
   return {
-    dispatch: async (input: { resolvedTargets?: string[] }) => {
+    dispatch: async (input: { resolvedTargets?: string[]; userMessageContent?: string }) => {
       orderLog.push("dispatch");
+      if (captured) captured.message = input.userMessageContent;
       return { dispatchedTo: input.resolvedTargets ?? [] };
     },
   } as unknown as AgentDispatchService;
@@ -227,6 +228,82 @@ describe("F20260916fst4 agent-invoker 首哑信号消费", () => {
       expect(enqueueIdx).toBeGreaterThanOrEqual(0);
       expect(dispatchIdx).toBeGreaterThanOrEqual(0);
       expect(enqueueIdx).toBeLessThan(dispatchIdx);
+    } finally {
+      healingAlertRegistry.takeAll("conv-1");
+    }
+  });
+
+  it("未挂接 dispatch（web-only 部署）→ 显式降级：alert + system entry 仍发生，不 dispatch 不抛异常", async () => {
+    const sendEntry = mockSendEntry();
+    const orderLog: string[] = [];
+    instrumentAlertEnqueue(orderLog);
+    try {
+      const invoker = new AgentInvoker(
+        sdkThrowingExhausted429(),
+        mockQueryMessage(),
+        mockManageSession(),
+        mockQueryOtter({ "otter-small-1": "small", "otter-big-1": "big" }),
+        createTestLogger(),
+        undefined, undefined, undefined, undefined,
+        undefined,
+        mockConversationRepo(["otter-small-1", "otter-big-1"]),
+        undefined, undefined, undefined, undefined, undefined, undefined,
+        sendEntry,
+        mockInvokeRepo(1),
+        // 故意不挂接 AgentDispatchService（web-only 部署场景）
+      );
+
+      await invoker.invokeConversation({
+        otterId: "otter-small-1",
+        conversationId: "conv-1",
+        userMessageContent: "请审视这份代码",
+        senderId: "otter-big-1",
+      }).catch(() => null);
+
+      await new Promise(r => setTimeout(r, 50));
+
+      // 显式降级路径：不 dispatch（也不应因 undefined dispatch 抛异常——外层 catch 前已提前 return）
+      expect(orderLog).not.toContain("dispatch");
+      expect(orderLog).toContain("enqueue");
+      expect(sendEntry.store.systemBodies.some(b => b.includes("首哑告警"))).toBe(true);
+    } finally {
+      healingAlertRegistry.takeAll("conv-1");
+    }
+  });
+
+  it("dispatch 处置指令含小獭名字（大獭收到可定位的复活对象）", async () => {
+    const sendEntry = mockSendEntry();
+    const orderLog: string[] = [];
+    const captured: { message?: string } = {};
+    instrumentAlertEnqueue(orderLog);
+    try {
+      const invoker = new AgentInvoker(
+        sdkThrowingExhausted429(),
+        mockQueryMessage(),
+        mockManageSession(),
+        mockQueryOtter({ "otter-small-1": "small", "otter-big-1": "big" }),
+        createTestLogger(),
+        undefined, undefined, undefined, undefined,
+        undefined,
+        mockConversationRepo(["otter-small-1", "otter-big-1"]),
+        undefined, undefined, undefined, undefined, undefined, undefined,
+        sendEntry,
+        mockInvokeRepo(1),
+        mockDispatchService(orderLog, captured),
+      );
+
+      await invoker.invokeConversation({
+        otterId: "otter-small-1",
+        conversationId: "conv-1",
+        userMessageContent: "请审视这份代码",
+        senderId: "otter-big-1",
+      }).catch(() => null);
+
+      await new Promise(r => setTimeout(r, 50));
+
+      expect(captured.message).toContain("otter-small-1"); // 小獭名（mockQueryOtter name=id）
+      expect(captured.message).toContain("glm");           // 模型名
+      expect(captured.message).toContain("请审视这份代码"); // 原派工任务
     } finally {
       healingAlertRegistry.takeAll("conv-1");
     }

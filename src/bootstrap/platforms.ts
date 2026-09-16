@@ -517,10 +517,16 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
         weixinGateway: gateway,
         partnerResolver: new PartnerResolver(weixinConfig.partnerUserId),
         // F20260901sgpv P1：微信入口换轨（与飞书同构）
-        agentDispatchService: new AgentDispatchService({
-          dispatchChainEngine, entryRepo: repos.entry, agentInvokePort: agentInvoker, logger,
-          ...(options.signalRouter && { signalRouter: options.signalRouter }),
-        }),        messageBroadcaster,
+        agentDispatchService: (() => {
+          const svc = new AgentDispatchService({
+            dispatchChainEngine, entryRepo: repos.entry, agentInvokePort: agentInvoker, logger,
+            ...(options.signalRouter && { signalRouter: options.signalRouter }),
+          });
+          // F20260916fst4：首哑信号消费依赖挂接——微信通道的 dispatch 实例就地 setter 挂到 agentInvoker
+          // （幂等：与 feishu 实例能力等价，双通道装配时后挂接者覆盖前者无语义差异）
+          agentInvoker.attachAgentDispatchService(svc);
+          return svc;
+        })(),        messageBroadcaster,
         logger,
         mediaGateway,
         attachmentUpload: uc.attachmentUpload,
