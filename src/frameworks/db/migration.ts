@@ -140,10 +140,10 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** 幽灵 sender 回填：sender_type 与 sender_id 语义错位的存量数据修复（2026-09-04 排查）。 */
   backfillGhostSenders(db, logger);
 
-  /** F202609048840 F4：restart_pending_resumes.status CHECK 扩展 failed 枚举值（存量库重建）。
-   *  Why：恢复链 invoke 失败需标 failed（可手动重试）而非 exhausted（永久放弃）——done 语义拆分。
-   *  老库 CHECK (pending/done/exhausted) 写 failed 会被 SQLite 拒绝，四步重建（#608/#654/#804 同模式）。 */
-  rebuildRestartPendingResumesStatusCheck(db, logger);
+  /** F20260916b1ea：restart_pending_resumes 重建（invoke 模型）。
+   *  8/28 旧 messages 模型的同名表已在 F20260913ctlv 批4c drop；此处由 schema.ts
+   *  的 createRestartPendingResumesTable 幂等补建新表形（IF NOT EXISTS 对新旧库
+   *  一视同仁），无需额外迁移函数。 */
 
   /** F20260914rtsp：invokes 表添加 ctx_window_used 列（存量库迁移）。
    *  schema.ts 新库已含；存量库跑不到 CREATE 分支，需 ALTER 补列。幂等：PRAGMA 检测。 */
@@ -1165,43 +1165,10 @@ function dropDispatchAttemptsTable(db: Database.Database, logger: Logger): void 
   logger.info('Dropped dispatch_attempts table (F20260908rlcp retirement)');
 }
 
-/** F202609048840 F4：restart_pending_resumes.status CHECK 扩展 failed（存量库重建）。
- *  SQLite 无法修改已有 CHECK，只能重建表替换。检测 sqlite_master 旧 CHECK 文本判存量；
- *  幂等：新库宽约束（含 failed）不命中直接返回。表无 FK，重建较简。 */
-function rebuildRestartPendingResumesStatusCheck(db: Database.Database, logger: Logger): void {
-  const schema = db.prepare(
-    "SELECT sql FROM sqlite_master WHERE type='table' AND name='restart_pending_resumes'",
-  ).get() as { sql: string } | undefined;
-  if (!schema?.sql || schema.sql.includes("'failed'")) return;
+/** F20260916b1ea：restart_pending_resumes 的 F202609048840 F4 重建函数已删除——
+ *  旧 messages 模型表形随 F20260913ctlv 批4c 整体 drop，新 invoke 模型表形由
+ *  schema.ts createRestartPendingResumesTable 幂等建出（CHECK 含 failed，无需重建）。 */
 
-  logger.info('Rebuilding restart_pending_resumes table to widen status CHECK constraint (add failed)');
-  db.pragma("foreign_keys = OFF");
-  try {
-    db.transaction(() => {
-      db.exec(`
-        CREATE TABLE restart_pending_resumes_new (
-          message_id TEXT PRIMARY KEY,
-          conversation_id TEXT NOT NULL,
-          otter_id TEXT NOT NULL,
-          attempts INTEGER NOT NULL DEFAULT 0,
-          status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'done', 'exhausted', 'failed')),
-          created_at TEXT NOT NULL,
-          updated_at TEXT
-        );
-        INSERT INTO restart_pending_resumes_new
-          (message_id, conversation_id, otter_id, attempts, status, created_at, updated_at)
-        SELECT message_id, conversation_id, otter_id, attempts, status, created_at, updated_at
-        FROM restart_pending_resumes;
-        DROP TABLE restart_pending_resumes;
-        ALTER TABLE restart_pending_resumes_new RENAME TO restart_pending_resumes;
-        CREATE INDEX IF NOT EXISTS idx_restart_pending_resumes_status ON restart_pending_resumes(status);
-      `);
-    })();
-  } finally {
-    db.pragma("foreign_keys = ON");
-  }
-  logger.info('Rebuilt restart_pending_resumes table to add failed status (F202609048840 F4)');
-}
 
 /* ══════════════════════════════════════════════════════════════════
  * F20260913ctlv 收尾批4b：messages → entries 数据迁移（幂等回填，非破坏）

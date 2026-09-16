@@ -23,6 +23,7 @@ import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invok
 import type { SchedulerService } from "@usecases/scheduler/scheduler-service";
 import { SignalRouter } from "@usecases/conversation/signal-router";
 import type { SignalRouterSessionFactory } from "@usecases/conversation/signal-router";
+import { ResumeInterruptedService } from "@usecases/conversation/resume-interrupted-service";
 
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
 
@@ -103,6 +104,8 @@ export interface BuildAppOptions {
   startScheduler?: boolean;
   /** F20260825sgnw 审视发现 1：RHI 扫描 worker 启动开关（对齐 startScheduler 模式；测试/CI 可关） */
   startRhiWorker?: boolean;
+  /** F20260916b1ea：重启自动恢复服务启动开关（对齐 startScheduler 模式；测试/CI 可关） */
+  startResume?: boolean;
   /** 测试注入预构建模型（如 initFauxModels），跳过 initModels */
   models?: { model: Model<Api>; modelPool?: ModelPool };
 }
@@ -182,6 +185,8 @@ function createRhiScanWorker(deps: {
 export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp> {
   const dataDir = options.dataDir ?? "./data";
   const logger = options.logger ?? createLogger(path.join(dataDir, "logs"));
+  /** F20260916b1ea：服务启动时刻——信号补扫只处理早于该时刻的 entry（崩溃窗口界定） */
+  const serviceStartedAt = new Date().toISOString();
 
   /** initConfig 必须先于一切 init：PiSessionFactory 构造时捕获全局 config 单例的 circuitBreaker */
   const config = options.config ?? loadConfig(logger, options.configPath);
@@ -508,9 +513,31 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     });
   }
 
-  // F20260913ctlv 批4a：重启自动恢复（ResumeInterruptedService）整删——
-  // messages 停写 UI 消息后无 streaming 残留可恢复（重启 reconcile 已把 running
-  // invokes 置 failed，见 bootstrap/database.ts），恢复队列概念随旧模型退役。
+  // F20260916b1ea：重启自动恢复服务重建（8/28 同名机制被 #886 误删后按 invoke 模型回归）。
+  // 装配在 signalRouter 之后（补扫依赖其 rescanPending）与 agentInvoker 之后
+  // （invokeFn 闭包捕获，对齐旧装配模式）；fire-and-forget 不阻塞服务就绪。
+  if (options.startResume ?? true) {
+    const resumeService = new ResumeInterruptedService({
+      conversationRepo: repos.conversation,
+      entryRepo: repos.entry,
+      invokeRepo: repos.invoke,
+      resumePendingRepo: repos.resumePending,
+      dispatchChainEngine,
+      invokeFn: (params) => agentInvoker.invokeConversation(params),
+      signalRouter,
+      sendSystemEntry: async (conversationId, body) => {
+        // turnId 空串走 createSystemEntry 内部 ensureActiveTurn 兜底（send-entry.ts:483
+        // 注释「空 turnId 兜底」——自动取/建当前活跃 turn，系统消息落最新轮次）
+        await uc.sendEntry.createSystemEntry({ conversationId, turnId: "", body });
+      },
+      healingRepo: repos.healingEvent,
+      logger,
+      serviceStartedAt,
+    });
+    resumeService.resume().catch((err) => {
+      logger.error("Resume interrupted service failed", err instanceof Error ? err : new Error(String(err)));
+    });
+  }
 
   let disposed = false;
   return {

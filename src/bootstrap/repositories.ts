@@ -19,6 +19,7 @@ import { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repos
 import { SqliteAttachmentRepository } from "@frameworks/db/attachment/sqlite-attachment-repository";
 import { SqliteEntryRepository } from "@frameworks/db/conversation/sqlite-entry-repository";
 import { SqliteInvokeRepository } from "@frameworks/db/conversation/sqlite-invoke-repository";
+import { SqliteResumePendingRepository } from "@frameworks/db/conversation/sqlite-resume-pending-repository";
 
 import type { Logger } from "@usecases/ports/logger";
 
@@ -53,5 +54,7 @@ export function initRepositories(db: Database.Database, logger?: Logger): Reposi
     entry: new SqliteEntryRepository(db),
     /** F20260913ctlv：invoke 生命周期仓库 */
     invoke: new SqliteInvokeRepository(db),
+    /** F20260916b1ea：重启自动恢复队列（restart_pending_resumes 重建） */
+    resumePending: new SqliteResumePendingRepository(db),
   };
 }
