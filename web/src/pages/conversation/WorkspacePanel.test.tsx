@@ -286,6 +286,18 @@ describe('右键菜单 reveal 端点（F20260910wrev）', () => {
     expect(ev.defaultPrevented).toBe(true)
   })
 
+  it('Safari 兑底：folder 节点 mousedown(button=2) 不拦截（folder 无菜单，拦了反而死区）', async () => {
+    const mock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(ROOT_FILE_ENTRIES), { status: 200 }))
+    vi.stubGlobal('fetch', mock)
+    await act(async () => { root.render(<WorkspacePanel conversationId="test" />) })
+
+    const folderBtn = container.querySelector('[data-testid="folder-subdir"]') as HTMLButtonElement
+    const ev = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 2 })
+    await act(async () => { folderBtn.dispatchEvent(ev) })
+    expect(ev.defaultPrevented).toBe(false)
+  })
+
   it('Safari 兑底：非树节点区域的 mousedown(button=2) 不拦截', async () => {
     const mock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify(ROOT_FILE_ENTRIES), { status: 200 }))

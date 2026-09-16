@@ -388,7 +388,8 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
     if (!el) return
     const onMouseDown = (ev: MouseEvent) => {
       if (ev.button !== 2) return
-      const target = (ev.target as HTMLElement).closest('[data-testid^="file-"],[data-testid^="folder-"]')
+      // 只拦文件节点：folder 节点没挂 onContextMenu（本 PR 不加菜单），拦了反而从「原生菜单」退化为「什么都没有」（检视发现 1）
+      const target = (ev.target as HTMLElement).closest('[data-testid^="file-"]')
       if (target) ev.preventDefault()
     }
     el.addEventListener('mousedown', onMouseDown)
