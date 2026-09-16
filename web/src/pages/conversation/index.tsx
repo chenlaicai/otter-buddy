@@ -75,6 +75,12 @@ function ConversationPage() {
   const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null)
   /** 用户在设置中配置的称呼，用于消息气泡旁的名称显示 */
   const [userName, setUserName] = useState('')
+  /** F20260916ubrd：「底部即已读」统一入口——用户停驻底部时新消息到达也推进已读游标。
+   *  背景：修复前游标只有三个推进渠道（首次进入/滚动到底/发言），用户静观底部不动时
+   *  新条目落库后后端 unreadCount>0，左侧栏小红点残留。此处复用既有 markRead 端点 +
+   *  防抖 + 服务端 MAX 钳制；游标越过 invoke_start/invoke_end/yield 安全（未读统计口径
+   *  只数 speak/system）。 */
+  const markReadTimerMapRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** abort toast 同步去重（F20260805abpp 第三轮检视 S-1）：发送流与常驻通道共享广播总线，
    *  message.aborted 会双通道投递；不能用 updater 闭包标志——React 有 pending update 时
@@ -93,6 +99,24 @@ function ConversationPage() {
   useEffect(() => { ottersRef.current = allOtters }, [allOtters])
   useEffect(() => () => {
     if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current)
+    for (const t of markReadTimerMapRef.current.values()) clearTimeout(t)
+    markReadTimerMapRef.current.clear()
+  }, [])
+
+  /** F20260916ubrd：底部即已读调度（500ms 防抖，fire-and-forget）。 */
+  const scheduleMarkReadIfAtBottom = useCallback((convId: string) => {
+    if (!isAtBottomRef.current) return
+    const msgs = allMessagesRef.current[convId] || []
+    const realMsgs = msgs.filter(m => !m.id.startsWith('tmp-') && !m.id.startsWith('err-') && m.seq != null)
+    if (realMsgs.length === 0) return
+    const maxSeq = Math.max(...realMsgs.map(m => m.seq!))
+    const timers = markReadTimerMapRef.current
+    const existing = timers.get(convId)
+    if (existing) clearTimeout(existing)
+    timers.set(convId, setTimeout(() => {
+      api.markRead(convId, maxSeq).catch(() => {})
+      timers.delete(convId)
+    }, 500))
   }, [])
 
   // 批量更新机制：50ms 窗口内的 SSE 事件合并为一次 setAllMessages，减少消息列表重渲染
@@ -331,11 +355,13 @@ function ConversationPage() {
           if (fresh.length === 0) return prev
           return { ...prev, [convId]: [...current, ...fresh] }
         })
+        /** F20260916ubrd：轮询拉到新条目后，若用户在底部则顺手推进已读游标 */
+        scheduleMarkReadIfAtBottom(convId)
       }
     } catch (err) {
       console.error('Failed to refresh entries:', err)
     }
-  }, [])
+  }, [scheduleMarkReadIfAtBottom])
 
   /** 点击"新消息 N 条"浮窗：滚到底部 + 清零计数 */
   const handleJumpToBottom = useCallback(() => {
@@ -708,6 +734,12 @@ function ConversationPage() {
   const activeMessages = useMemo(() => activeId ? (allMessages[activeId] || []) : [], [activeId, allMessages])
   const activeLinkedRes = useMemo(() => activeId ? (allLinkedRes[activeId] || []) : [], [activeId, allLinkedRes])
   const activeOtters: LocalOtter[] = useMemo(() => activeId ? (allOtters[activeId] || []) : [], [activeId, allOtters])
+
+  /** F20260916ubrd：底部即已读——活动对话消息数变化（SSE 常驻通道/POST 流/重试流统一经
+   *  setAllMessages 收拢）且用户在底部时，推进已读游标。上翻阅读历史时不触发。 */
+  useEffect(() => {
+    if (activeId && activeMessages.length > 0) scheduleMarkReadIfAtBottom(activeId)
+  }, [activeId, activeMessages.length, scheduleMarkReadIfAtBottom])
 
   const handleSend = useCallback(async (text: string, mentionOtterIds?: string[], attachments?: import('./hooks/useAttachmentStaging').StagedAttachment[], mode?: 'steer' | 'followUp') => {
     if (!activeId) return
