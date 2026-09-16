@@ -5,6 +5,7 @@ import type { CardPreview } from './hooks/useCardBridge'
 import { MessageList } from './MessageList'
 import { MessageInput } from './MessageInput'
 import { useAttachmentStaging, type StagedAttachment } from './hooks/useAttachmentStaging'
+import { showToast } from '../../components/Toast'
 
 interface ChatViewProps {
   conversation: Conversation | null
@@ -39,6 +40,18 @@ interface ChatViewProps {
 export function ChatView(props: ChatViewProps) {
   const { conversation: c } = props
   const staging = useAttachmentStaging(props.conversationId || null)
+
+  /** F20260916sgcl：发送成功后清空中转区——此前 MessageInput 直接透传 staged 给 onSend，
+   *  没有任何环节调 clearAll/takeForSend，导致悬浮附件发送后不消失、下一条消息还会重复携带。
+   *  失败路径（onSend 抛错）不清空，保留附件供重试。 */
+  function handleSendWithStaging(text: string, mentionOtterIds?: string[], attachments?: StagedAttachment[], mode?: 'steer' | 'followUp') {
+    try {
+      props.onSend(text, mentionOtterIds, attachments, mode)
+      staging.clearAll()
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '发送失败', 'error')
+    }
+  }
 
   return (
     <main className="flex-1 glass rounded-3xl flex flex-col overflow-hidden">
@@ -128,7 +141,7 @@ export function ChatView(props: ChatViewProps) {
 
       {/* Input */}
       <MessageInput
-        onSend={props.onSend}
+        onSend={handleSendWithStaging}
         disabled={c?.status === 'archived'}
         otters={props.otters}
         conversationId={props.conversationId}
