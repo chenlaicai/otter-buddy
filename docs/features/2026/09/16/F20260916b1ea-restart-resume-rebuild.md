@@ -118,7 +118,11 @@ buildApp 完成、服务就绪后（fire-and-forget，不阻塞就绪）
          ├─ done 判定：新 invoke 终态直读（completed → done）
          ├─ 失败路径：标 failed + 系统消息「恢复过程中 invoke 失败，已标记为失败，
          │   请手动重试该消息。」（可手动重试）；超限标 exhausted
-         ├─ 终态守卫（A4 移植）：finally 中兜底写终态，异常不逃逸中断同会话剩余
+         ├─ 终态守卫（invoke 模型语义重映射，PR #994 检视 A2 修正）：旧模型 = finally 兜底
+         │   收尾 prepareForRetry 复位的 streaming 消息；新模型下旧 invoke 已被 reconcile 标
+         │   failed、新 invoke 由链引擎管理生命周期，finally 不再需要——守卫语义变为
+         │   ① 队列行 crash-resilience（pending 状态跨重启可重拾）② resumeItemSafe 外层
+         │   catch 兜底（异常不逃逸中断同会话剩余）③ attempts 上限闭环（S1 修复后）
          └─ healing 台账落账（#613 模式：服务重启事件，severity 按中断数分级）
 ```
 

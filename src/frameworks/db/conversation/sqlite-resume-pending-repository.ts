@@ -49,11 +49,25 @@ export class SqliteResumePendingRepository implements ResumePendingRepository {
     return rows.map(r => r.cid);
   }
 
+  /** S1 修复（PR #994 检视）：attempts 上限防跨重启无限重试——恢复中崩溃则 pending 残留，
+   *  下次重启重拾再崩溃 → 无限循环（配额耗尽型 429 场景每次重启白烧 LLM 调用，#843 实证）。
+   *  上限值 5：每次重启恢复消耗 1 attempts（认领只在恢复入口一次，进程内 429 退避
+   *  不重认领），允许 5 次重启窗口（旧实现 MAX=1 太激进——crash-recovery 只给一次
+   *  机会不够）。 */
+  private static readonly MAX_RESUME_ATTEMPTS = 5;
+
   async claimPendingResume(invokeId: string): Promise<boolean> {
     const result = this.db.prepare(
-      "UPDATE restart_pending_resumes SET attempts = attempts + 1 WHERE invoke_id = ? AND status = 'pending'",
-    ).run(invokeId);
+      "UPDATE restart_pending_resumes SET attempts = attempts + 1 WHERE invoke_id = ? AND status = 'pending' AND attempts < ?",
+    ).run(invokeId, SqliteResumePendingRepository.MAX_RESUME_ATTEMPTS);
     return result.changes > 0;
+  }
+
+  async getByInvokeId(invokeId: string): Promise<PendingResume | null> {
+    const row = this.db.prepare(
+      "SELECT * FROM restart_pending_resumes WHERE invoke_id = ?",
+    ).get(invokeId) as PendingResumeRow | undefined;
+    return row ? rowToPendingResume(row) : null;
   }
 
   async settleResume(

@@ -526,6 +526,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       invokeFn: (params) => agentInvoker.invokeConversation(params),
       signalRouter,
       sendSystemEntry: async (conversationId, body) => {
+        // turnId 空串走 createSystemEntry 内部 ensureActiveTurn 兜底（send-entry.ts:483
+        // 注释「空 turnId 兜底」——自动取/建当前活跃 turn，系统消息落最新轮次）
         await uc.sendEntry.createSystemEntry({ conversationId, turnId: "", body });
       },
       healingRepo: repos.healingEvent,

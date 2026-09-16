@@ -351,6 +351,18 @@ describe("ResumeInterruptedService（F20260916b1ea invoke 模型重建）", () =
     expect(h.queueStatus(invokeId)).toBe("done");
   });
 
+  it("attempts 达上限（跨重启无限重试守卫，S1 修复）：exhausted 闭环不再恢复", async () => {
+    const invokeId = await h.seedInterrupted();
+    // 模拟恢复中崩溃五次：attempts 已自增到上限（MAX_RESUME_ATTEMPTS=5），status 仍 pending
+    h.db.prepare("UPDATE restart_pending_resumes SET attempts = 5 WHERE invoke_id = ?").run(invokeId);
+
+    const chain = stubChainEngine();
+    await h.buildService(chain).resume();
+
+    expect(chain.calls).toHaveLength(0);
+    expect(h.queueStatus(invokeId)).toBe("exhausted");
+  });
+
   it("healing 落账：服务重启事件按中断数分级落账", async () => {
     await h.seedInterrupted();
     await h.seedInterrupted({ otterId: "otter-big", invokeId: crypto.randomUUID() });

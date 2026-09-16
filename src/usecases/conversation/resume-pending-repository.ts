@@ -15,8 +15,11 @@ export interface ResumePendingRepository {
    *  会话集合（invokes.started_at 或 invoke_start entry——崩溃窗口内「entry 落库但
    *  invoke 没建成」的纯信号场景必在其列）。与中断队列的会话集合取并集后逐会话补扫。 */
   listRecentConversationIds(beforeTimestamp: string): Promise<string[]>;
-  /** 原子认领：status='pending' 时 attempts+1；changes=0（已被认领/终态）返回 false */
+  /** 原子认领：status='pending' 时 attempts+1；changes=0（已被认领/终态/超限）返回 false。
+   *  只在恢复入口调用一次（attempts 语义 = 跨重启恢复次数，进程内 429 退避不重认领） */
   claimPendingResume(invokeId: string): Promise<boolean>;
+  /** 按 invokeId 查队列行（认领失败后的原因区分：pending=超限 / 其他=已被认领或已终态） */
+  getByInvokeId(invokeId: string): Promise<PendingResume | null>;
   /** 流转状态到终态（done/failed/exhausted），写 settled_at */
   settleResume(
     invokeId: string,

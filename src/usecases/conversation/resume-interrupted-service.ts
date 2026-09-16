@@ -202,6 +202,20 @@ export class ResumeInterruptedService {
 
   /** 429 限流/网络错误的指数退避重试包装（F20260830rfto 移植） */
   private async resumeOneWithRetry(item: ResumeQueueItem): Promise<"done" | "skipped" | "failed"> {
+    // CAS 认领只在恢复入口一次（attempts 语义 = 跨重启恢复次数）；进程内 429/网络退避
+    // 重试不再重认领——S1 修复轮实证：认领放循环内时，1+3 次重试把 attempts 顶到上限
+    // 与跨重启守卫撞车（「429 重试耗尽」用例 4 次调用只走了 3 次）
+    const claimed = await this.deps.resumePendingRepo.claimPendingResume(item.invokeId);
+    if (!claimed) {
+      // 认领失败两类：① attempts 达上限（pending 残留，跨重启无限重试守卫触发）→ exhausted
+      // 闭环；② 已被其他窗口认领/已终态（status 非 pending）→ 保持现状（那已是正确终态）
+      const row = await this.deps.resumePendingRepo.getByInvokeId(item.invokeId);
+      if (row?.status === "pending") {
+        await this.deps.resumePendingRepo.settleResume(item.invokeId, "exhausted", new Date().toISOString());
+      }
+      return "skipped";
+    }
+
     let lastErr: unknown;
     const baseDelay = this.deps.rateLimitBaseDelayMs ?? ResumeInterruptedService.RATE_LIMIT_BASE_DELAY_MS;
     for (let attempt = 0; attempt <= ResumeInterruptedService.RATE_LIMIT_MAX_RETRIES; attempt++) {
@@ -258,10 +272,8 @@ export class ResumeInterruptedService {
 
   private async resumeOne(item: ResumeQueueItem): Promise<"done" | "skipped" | "failed"> {
     try {
-      // 1. CAS 认领：attempts 原子自增（changes=0 = 已被其他窗口认领/终态 → 跳过）
-      const claimed = await this.deps.resumePendingRepo.claimPendingResume(item.invokeId);
-      if (!claimed) return "skipped";
-
+      // 1. CAS 认领已上提至 resumeOneWithRetry 入口（attempts 语义 = 跨重启恢复次数，
+      //    进程内退避重试不重认领——见 resumeOneWithRetry 注释）
       // 2. 跳过检查：participant 失效（dissolved/inactive）→ exhausted 静默
       const participant = await this.deps.conversationRepo.getParticipant(item.conversationId, item.otterId);
       if (!participant || participant.status !== "active") {
