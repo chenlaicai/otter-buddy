@@ -31,7 +31,9 @@ const SUBDIR_ENTRIES = {
   entries: [
     { name: 'nested-file.html', isDirectory: false, isFile: true, path: 'subdir/nested-file.html' },
     { name: 'deep', isDirectory: true, isFile: false, path: 'subdir/deep' },
-  ]
+  ],
+  basePath: 'subdir',
+  rootPath: '/data/workspaces/test',
 }
 
 function makeFetch(data: unknown): typeof fetch {
