@@ -65,6 +65,22 @@ export interface CircuitBreakInfo {
   toolCallCount: number;
 }
 
+/**
+ * F20260916fst4：首哑信号载荷（first-dumb）。大獭新建小獭后其首次 invoke 即
+ * 配额型 429 终态时挂在 TurnResult 上跨层上抛——对齐 _circuitBreak 同款跨层模式，
+ * 由 agent-invoker 检测后唤醒大獭处置（restart_otter 换模型复活 / 升级搭档）。
+ */
+export interface FirstDumbInfo {
+  otterId: string;
+  conversationId: string;
+  modelAlias: string;
+  resetHint?: string;
+  errorMessage: string;
+  /** 原派工任务（截断 500 字符，复活摘要素材） */
+  originalUserMessage: string;
+  failedInvokeId: string;
+}
+
 /** 发言轮结果（F20260913ctlv：invokeId 主体，messageId 退役） */
 export interface TurnResult {
   invokeId: string;
@@ -72,6 +88,8 @@ export interface TurnResult {
   tokenUsage?: { input: number; output: number };
   /** F20260818cbkr：degenerate 二次退化时携带，agent-invoker 执行熔断重启 */
   _circuitBreak?: CircuitBreakInfo;
+  /** F20260916fst4：首哑 429 信号，agent-invoker 唤醒大獭处置 */
+  _firstDumb?: FirstDumbInfo;
 }
 
 /** AttemptDriver - orchestrator 驱动 adapter 的执行面（仅限重执行当前轮） */
@@ -131,6 +149,12 @@ export interface TurnCallbacks {
   sendSystem(conversationId: string, body: string): Promise<{ id: string; body: string | null; sequenceNum: number }>;
   /** 查询 otter */
   getOtterById(otterId: string): Promise<{ name: string; type?: string } | null>;
+  /**
+   * F20260916fst4：首哑判定数据源——查 otter 在本 conversation 的 invoke 计数。
+   * 当前 failed invoke 已入库（failTerminal 先于计数查询），count==1 即首次；
+   * retry 走同 invoke 不增 count，天然幂等。SELECT COUNT 轻量口径（delta 复核建议 1）。
+   */
+  getInvokeCount(conversationId: string, otterId: string): Promise<number>;
   /** 查询用户显示名 */
   getPartnerLabel(): Promise<string>;
   /** SSE 事件推送（只允许 entry.x / invoke.x / turn.complete / error 等——message.x 已退役） */

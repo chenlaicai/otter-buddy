@@ -179,11 +179,12 @@ function buildCtxWindowProvider(
   };
 }
 
-/** 控 max-lines-per-function：AgentInvoker 构造拆行（initAgentAndScheduler 子步骤） */
+  /** 控 max-lines-per-function：AgentInvoker 构造拆行（initAgentAndScheduler 子步骤） */
 function buildAgentInvoker(o: {
   agentGateway: PiSessionFactory; uc: UseCases; repos: Repositories; logger: Logger;
   messageBroadcaster: MessageBroadcaster | undefined; workspaceGateway?: WorkspaceGateway;
   agentMetrics?: AgentMetricsPort; appConfig?: AppConfig; ctxWindowProvider?: OtterContextWindowProvider;
+  agentDispatchService?: AgentDispatchService;
 }): AgentInvoker {
   return new AgentInvoker(
     o.agentGateway,
@@ -204,6 +205,8 @@ function buildAgentInvoker(o: {
     o.uc.sendEntry,
     // F20260913ctlv 彻底切换：invoke 仓库（熔断摘要读 invoke_events）
     o.repos.invoke,
+    // F20260916fst4：首哑信号消费时 dispatch 大獭（setter 延迟挂接，见 initAgentAndScheduler 注释）
+    o.agentDispatchService,
   );
 }
 
@@ -249,6 +252,10 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
   // F20260901cxmw：otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
   const ctxWindowProvider = modelPool ? buildCtxWindowProvider(modelPool, otterConfigProvider) : undefined;
 
+  // F20260916fst4：首哑信号消费依赖——AgentDispatchService 构建晚于 agentInvoker
+  //（initPlatforms 内 feishu/weixin 分支），时序上无法构造注入。方案选定 setter 延迟挂接：
+  // 延迟到 initPlatforms 各 AgentDispatchService 构建完成后调用（见下方两处），
+  // 对既有构造零侵入（agentDispatchService 为可选参数，缺省降级仅日志）。
   const agentInvoker = buildAgentInvoker({
     agentGateway, uc, repos, logger, messageBroadcaster, workspaceGateway, agentMetrics,
     appConfig, ctxWindowProvider,
@@ -330,7 +337,7 @@ export function setupFeishu(options: {
   /** F20260901sgpv P1：信号路由器（飞书入口换轨） */
   signalRouter?: SignalRouter;
   /** #460：返回飞书 stop 句柄（app dispose 时停 WSClient 重连，防僵尸进程） */
-}): { stopFeishu: () => void } | undefined {
+}): { stopFeishu: () => void; agentDispatchService: AgentDispatchService } | undefined {
   const { appConfig, uc, repos, agentInvoker, feishu, messageBroadcaster, logger, registry, signalRouter } = options;
   if (!appConfig.feishu) return undefined;
 
@@ -391,6 +398,8 @@ export function setupFeishu(options: {
   return {
     stopFeishu: () => void longConnectionClient.stop().catch((err) =>
       logger.error("Feishu long connection stop failed", err instanceof Error ? err : undefined)),
+    // F20260916fst4：首哑信号消费依赖——供 app.ts setter 延迟挂接 agentInvoker
+    agentDispatchService,
   };
 }
 

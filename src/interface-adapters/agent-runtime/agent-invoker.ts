@@ -40,9 +40,10 @@ import { MIN_SENSIBLE_CTX_WINDOW, type OtterContextWindowProvider } from "@useca
 import { mapToSSEEvent, mapToInvokeEventInput, extractMessageEndUsage } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
 import { CircuitBreakSupport } from "./circuit-break-support";
-import type { TurnInput, AttemptDriver, TurnCallbacks, InvokeResultShape, CircuitBreakInfo, HealingEventInput } from "@usecases/conversation/agent-turn-orchestrator/types";
+import type { TurnInput, AttemptDriver, TurnCallbacks, InvokeResultShape, CircuitBreakInfo, FirstDumbInfo, HealingEventInput } from "@usecases/conversation/agent-turn-orchestrator/types";
 import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
 import type { AgentTurnPort, AgentTurnResult } from "@usecases/ports/agent-turn-port";
+import type { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
 
 /**
  * 审视 P1 红线代码化：两条路径的 options 构造函数。
@@ -141,7 +142,11 @@ export class AgentInvoker implements AgentTurnPort {
     private readonly sendEntry?: SendEntry,
     /** F20260913ctlv 彻底切换：invoke 仓库（熔断摘要读 invoke_events） */
     private readonly invokeRepo?: InvokeRepository,
+    /** F20260916fst4：可选注入，首哑信号消费时 dispatch 大獭——正常装配走 attachAgentDispatchService
+     * setter（bootstrap 时序补偿）；构造直传仅供测试（缺省降级仅日志，不破坏既有测试构造调用） */
+    agentDispatchService?: AgentDispatchService,
   ) {
+    this.agentDispatchService = agentDispatchService;
     this.orchestrator = new AgentTurnOrchestrator(logger, metrics);
     this.circuitBreak = healingRepo && sendEntry
       ? new CircuitBreakSupport({
@@ -162,6 +167,17 @@ export class AgentInvoker implements AgentTurnPort {
         healthySessionThresholdMs,
       })
       : null;
+  }
+
+  // F20260916fst4：首哑信号消费依赖——AgentDispatchService 构建晚于 agentInvoker
+  //（initPlatforms / app.ts setupFeishu 内各建一份），时序上无法构造注入。
+  // 选定 setter 延迟挂接：装配完成后由调用方挂接首个可用实例（见 app.ts），
+  // 对既有构造零侵入（agentDispatchService 为可选参数，缺省降级仅日志）。
+  private agentDispatchService?: AgentDispatchService;
+
+  /** F20260916fst4：装配后挂接 AgentDispatchService（bootstrap 时序补偿，见属性注释） */
+  attachAgentDispatchService(service: AgentDispatchService): void {
+    this.agentDispatchService = service;
   }
 
   /**
@@ -291,6 +307,14 @@ export class AgentInvoker implements AgentTurnPort {
        */
       const retried = await this.handleCircuitBreakSignal(turnResult, params, emitEvent);
       if (retried) return retried;
+
+      /**
+       * F20260916fst4：首哑信号消费（_circuitBreak 之后——circuit break 是系统级保护优先于场景级信号）。
+       * fire-and-forget：首哑处置不嵌套当前 invoke（唤醒大獭走独立直连链），失败仅日志不影响当前收尾。
+       */
+      if (turnResult._firstDumb) {
+        void this.handleFirstDumbSignal(turnResult._firstDumb);
+      }
 
       /**
        * F20260819rscn 自重启信号：LLM 调用 restart_otter(self) 后，SDK 标记信号不执行 restart，
@@ -449,6 +473,14 @@ export class AgentInvoker implements AgentTurnPort {
       getOtterById: async (otterId: string) => {
         const otter = await this.queryOtter.getById(otterId);
         return otter ? { name: otter.name, type: otter.type } : null;
+      },
+
+      // F20260916fst4：首哑判定数据源——invokeRepo 缺省时拋错由 orchestrator fail-open
+      // 降级（detectFirstDumb 外层 catch，回到现状静默终链）
+      getInvokeCount: async (conversationId: string, otterId: string) => {
+        if (!this.invokeRepo) throw new Error('invoke count unavailable: invoke repo not configured');
+        const invokes = await this.invokeRepo.getInvokes(conversationId, { otterId });
+        return invokes.length;
       },
 
       getPartnerLabel: async () => {
@@ -1221,5 +1253,76 @@ export class AgentInvoker implements AgentTurnPort {
       });
       return null;
     }
+  }
+
+  /**
+   * F20260916fst4：首哑信号处理——小獭首次 invoke 即配额型 429 终态时唤醒大獭处置。
+   * 严格串行三步（方案时序保证：alert 入队必须先于 dispatch，否则大獭 buildDynamicContext 错过上下文）：
+   * 1. enqueue firstDumb alert（C3 队列，大獭 takeAll 消费）
+   * 2. await 写 system entry（搭档可见留痕）
+   * 3. dispatch resolvedTargets 直连链点火大獭（fireDirectChain fire-and-forget 不嵌当前链）
+   * 处置指令文本自包含——双通道冗余（alert 丢失时 userMessageContent 仍带全量上下文）。
+   */
+  private async handleFirstDumbSignal(signal: FirstDumbInfo): Promise<void> {
+    try {
+      // Step 1：C3 高警入队（同步）——先于 dispatch，保证大獭 invoke 的 buildDynamicContext takeAll 能取到
+      healingAlertRegistry.enqueue(signal.conversationId, {
+        eventId: crypto.randomUUID(),
+        conversationId: signal.conversationId,
+        otterId: signal.otterId,
+        errorType: "first_dumb",
+        description: `[首哑告警] 小獭首次发言即配额耗尽（模型 ${signal.modelAlias}），已唤醒大獭处置`,
+        createdAt: new Date().toISOString(),
+      });
+
+      // Step 2：system entry 留痕（搭档可见）
+      if (this.sendEntry) {
+        const otter = await this.queryOtter.getById(signal.otterId);
+        const otterName = resolveSpeakerName("otter", signal.otterId, otter?.name) ?? signal.otterId;
+        await this.sendSystemEntry(signal.conversationId, `[首哑告警] 小獭「${otterName}」（模型 ${signal.modelAlias}）首次发言即配额耗尽，已唤醒大獭处置`);
+      }
+
+      // Step 3：dispatch 大獭——查在场大獭，无则降级仅日志（healing 已落账，告警已发）
+      const bigOtterIds = await this.resolveBigOtterIds(signal.conversationId);
+      if (bigOtterIds.length === 0) return;
+
+      const resetHintClause = signal.resetHint ? `，重置提示：${signal.resetHint}` : '';
+      const dispatchMessage = `[首哑告警] 你新建的小獭（模型 ${signal.modelAlias}）首次发言即配额耗尽（429 终态${resetHintClause}）。\n原派工任务：${signal.originalUserMessage}\n处置决策树：\n1. 首选 restart_otter(otterId, modelAlias=<可用fallback>, summary=<任务摘要>) 原地复活，然后重新 yield 派工；\n2. 无可用 fallback / restart 失败 → 升级搭档（附决策简报）；\n3. 复活后再次 429 → 走运行中路径，不再升级。`;
+      await this.agentDispatchService!.dispatch({
+        conversationId: signal.conversationId,
+        userMessageContent: dispatchMessage,
+        senderId: 'system',
+        resolvedTargets: bigOtterIds,
+      });
+      this.logger.info('[first-dumb] big otter dispatched for first-dumb recovery', {
+        otterId: signal.otterId,
+        conversationId: signal.conversationId,
+        bigOtterIds,
+      });
+    } catch (err) {
+      // fire-and-forget：首哑处置失败仅日志——回到现状（healing 已落账），不阻断当前 invoke 收尾
+      this.logger.error('[first-dumb] signal handling failed, falling back to silent terminal', err instanceof Error ? err : new Error(String(err)), {
+        otterId: signal.otterId,
+        conversationId: signal.conversationId,
+      });
+    }
+  }
+
+  /** F20260916fst4：查 conversation 在场大獭（依赖未注入 / 无大獭时降级仅日志，返回空数组） */
+  private async resolveBigOtterIds(conversationId: string): Promise<string[]> {
+    if (!this.agentDispatchService || !this.conversationRepo) {
+      this.logger.warn('[first-dumb] dispatch service or conversation repo not injected, skipping wake-up', { conversationId });
+      return [];
+    }
+    const participants = await this.conversationRepo.getActiveParticipants(conversationId);
+    const bigOtterIds: string[] = [];
+    for (const p of participants) {
+      const otter = await this.queryOtter.getById(p.otterId);
+      if (otter?.type === 'big') bigOtterIds.push(p.otterId);
+    }
+    if (bigOtterIds.length === 0) {
+      this.logger.warn('[first-dumb] no big otter in conversation, degraded to log-only', { conversationId });
+    }
+    return bigOtterIds;
   }
 }

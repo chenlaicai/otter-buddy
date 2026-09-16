@@ -155,6 +155,15 @@ orchestrator `handleApiError` 内、healing 落账后：查 `getInvokeCount(conv
 
 ## 验证
 
+### 实现侧记录（开发獭-首哑，2026-09-16）
+
+- 单测全绿：`npx vitest run tests/usecases/conversation/agent-turn-orchestrator tests/interface-adapters/agent-invoker-first-dumb.test.ts`——6 文件 68 用例通过（含首哑判定 5 用例 + 信号消费 3 用例）；
+- 全量回归：`npm test`——258 文件 3111 用例全过，零回归（无需 stash 基线对照，无任何 pre-existing 失败）；
+- `npx tsc` 0 error；`npx eslint <改动文件>` 0 error；
+- 最简实现检查结论：①getInvokeCount 用 `invokeRepo.getInvokes(convId, {otterId}).length`（SELECT 全列后计长——repo 无 COUNT 专用方法，length 口径与 COUNT 等价且复用既有接口，未新增 repo 方法）；②healing-alert-registry.ts 未改（HealingAlert.description 已自包含首哑上下文，方案「可省」分支采纳）；③装配时序用 setter（attachAgentDispatchService）解决——AgentDispatchService 构建晚于 agentInvoker 且 feishu/weixin 各建一份，构造注入不可行，setter 对既有测试构造零侵入。
+
+### 验证计划（方案原定）
+
 - 单测：orchestrator 首哑判定（首次 exhausted 命中挂信号 / 非首次 count>1 不挂 / 瞬时 429 不挂 / 非 small 獭不挂 / `matchRateLimitError` 解析失败 match=null 不挂——delta 复核建议 3）+ invoker 消费（_firstDumb → dispatch 被调且目标为大獭 / 无大獭在场降级不 dispatch / enqueue 先于 dispatch 调用序断言）；
 - 集成：模拟小獭首次 invoke 429 → 断言大獭被 dispatch 且处置指令含小獭名/模型/任务摘要、system entry 落库、alert 入队；
 - 回归：全量 vitest 既有用例零回归（orchestrator / invoker / chain-engine 全部）；

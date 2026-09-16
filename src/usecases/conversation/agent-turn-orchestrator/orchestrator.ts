@@ -26,7 +26,7 @@ import { matchRateLimitError, buildRateLimitSystemMsg, buildRateLimitDescription
 // 与 interceptHealingReport 同模式；usecase 内部互引无跨层问题）
 import { healingAlertRegistry } from "@usecases/healing/healing-alert-registry";
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
-import type { ErrorWithToolCallCount, InvokeResultShape, TurnInput, TurnResult, AttemptDriver, TurnCallbacks, RouteContext, TerminalContext } from "./types";
+import type { ErrorWithToolCallCount, InvokeResultShape, TurnInput, TurnResult, AttemptDriver, TurnCallbacks, RouteContext, TerminalContext, FirstDumbInfo } from "./types";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 
 export class AgentTurnOrchestrator {
@@ -264,7 +264,48 @@ export class AgentTurnOrchestrator {
       await this.notifyRateLimit(ctx, match).catch(() => { /* 通知失败不阻断 */ });
     }
 
-    return this.failTerminal(ctx.input, reason.errorMessage, ctx.callbacks, ctx.startTime);
+    // F20260916fst4：首哑判定（exhausted 分支内、healing 落账后）。
+    // Why 在 failTerminal 之前判定：failTerminal 会把 failed invoke 入库，count 查询须在其后——
+    // 此处 await failTerminal 再查计数语义相同（同 invoke 幂等），先判定可避免 failTerminal
+    // 内部异常导致信号丢失；delta 复核建议 2：先构造 _firstDumb，再 {...result, _firstDumb} 合并返回。
+    const result = await this.failTerminal(ctx.input, reason.errorMessage, ctx.callbacks, ctx.startTime);
+    if (match?.exhausted) {
+      const firstDumb = await this.detectFirstDumb(ctx, match, reason).catch((err: unknown) => {
+        ctx.callbacks.logger.warn('first-dumb detection failed (non-fatal)', {
+          invokeId: ctx.input.invokeId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return undefined;
+      });
+      if (firstDumb) return { ...result, _firstDumb: firstDumb };
+    }
+    return result;
+  }
+
+  /**
+   * F20260916fst4：首哑判定——新建小獭首次 invoke 即配额型 429 终态。
+   * 口径：getInvokeCount(conversationId, otterId) === 1（当前 failed invoke 已入库，
+   * count==1 即首次；retry 走同 invoke 不增 count，天然幂等）+ otter type === 'small'
+   * （undefined 视为非 small 不命中）。判定失败不抛错——回到现状（静默终链）。
+   */
+  private async detectFirstDumb(
+    ctx: RouteContext,
+    match: NonNullable<ReturnType<typeof matchRateLimitError>>,
+    reason: ExitReason & { kind: 'api_error' },
+  ): Promise<FirstDumbInfo | undefined> {
+    const count = await ctx.callbacks.getInvokeCount(ctx.input.conversationId, ctx.input.otterId);
+    if (count !== 1) return undefined;
+    const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
+    if (otter?.type !== 'small') return undefined;
+    return {
+      otterId: ctx.input.otterId,
+      conversationId: ctx.input.conversationId,
+      modelAlias: this.resolveModelAlias(ctx),
+      ...(match.resetHint && { resetHint: match.resetHint }),
+      errorMessage: reason.errorMessage.slice(0, 500),
+      originalUserMessage: ctx.input.originalUserMessage.slice(0, 500),
+      failedInvokeId: ctx.input.invokeId,
+    };
   }
 
   /** #543：rate_limit healing 落账（severity 按配额耗尽/瞬时分级）。
