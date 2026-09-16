@@ -19,10 +19,10 @@ Commit message body 必须含一行修改类别声明（与 troubleshooting 修�
 Modification-Class: narrow-fix | scope-reduction | deletion | mechanism-addition | docs-config
 ```
 
-- `narrow-fix`：修法排序① 既有机制语义内修（缺啥补啥）
+- `narrow-fix`：修法排序① 既有机制语义内修（缺啥补啥）。⚠️ 若机制识别检查点（清单见 troubleshooting 修法排序节）命中任一项却仍判①②③，特性文档必须含一句「为何命中但不涉净新增机制」的论证——论证不出说明实际走④，声明值与文档都要改
 - `scope-reduction`：修法排序② 收窄问题机制的管辖边界
 - `deletion`：修法排序③ 删除机制
-- `mechanism-addition`：修法排序④ 新增机制（须经重对抗门通过）
+- `mechanism-addition`：修法排序④ 新增机制（须经重对抗门通过）。**声明此类 = 承诺本分支特性文档「设计取舍」段已含机制识别检查点判定 + 机制预算四问答案**——检查点清单与四问定义见 troubleshooting skill 修法排序节 / requirement-analysis skill 步骤 5-6；issue 驱动未经方案流程直接实现的特性同样适用，提交前发现没判过 → 先在特性文档补判定（命中则四问当场作答），再提交
 - `docs-config`：纯文档/配置微调，不经修法排序
 
 声明进 git 记录，每日全局回看验证声明与实际 diff 一致性——声明非 `mechanism-addition` 但 diff 实增机制 = 高严重度补丁证据。P0 紧急修复可先修后补审：声明值后标注 `(P0-emergency, post-review pending)`。
