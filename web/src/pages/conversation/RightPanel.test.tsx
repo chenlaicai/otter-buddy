@@ -33,15 +33,16 @@ function makeResource(overrides: Partial<LinkedResource> = {}): LinkedResource {
 
 const noop = () => {}
 
-function renderPanel(resources: LinkedResource[], otters: Otter[] = []) {
+function renderPanel(resources: LinkedResource[], otters: Otter[] = [], extra: { sessions?: Record<string, OtterSession[]>; invokeStates?: import('../../lib/invoke-tracker').InvokeStates } = {}) {
   const conversation = { id: 'c1', title: '测试对话', createdAt: '' } as unknown as Conversation
-  const sessions: Record<string, OtterSession[]> = {}
+  const sessions: Record<string, OtterSession[]> = extra.sessions ?? {}
   act(() => {
     root.render(
       <RightPanel
         conversation={conversation}
         otters={otters}
         sessions={sessions}
+        invokeStates={extra.invokeStates}
         linkedResources={resources}
         onCreateSmallOtter={noop}
         onDissolveOtter={noop}
@@ -257,6 +258,73 @@ describe('OtterParticipantCard 模型标签（web-model-display）', () => {
     expect(badge).not.toBeNull()
     expect(badge.className).toContain('whitespace-nowrap')
     expect(badge.className).toContain('shrink-0')
+  })
+})
+
+describe('OtterParticipantCard invoke 状态行（F20260916rcxa：休息中恒显示上下文使用量）', () => {
+  function makeOtter(overrides: Partial<Otter> = {}): Otter {
+    return {
+      id: 'o1', name: '小獭', type: 'small', createdAt: '2026-08-25',
+      ...overrides,
+    } as Otter
+  }
+
+  function activeSession(otterId: string): OtterSession {
+    return {
+      id: 's1', otterId, status: 'active', previousSessionId: null,
+      startedAt: '2026-09-16T08:00:00Z', archivedAt: null, archiveReason: null,
+      isNegativeCase: false, summary: null,
+    } as OtterSession
+  }
+
+  it('有 activeS 无 invokeState（从未行动但有世）→ 渲染休息中行「○ 休息中 · —/—」', () => {
+    const o = makeOtter()
+    renderPanel([], [o], { sessions: { o1: [activeSession('o1')] } })
+    const line = container.querySelector('[data-testid="invoke-state-line"]')
+    expect(line).not.toBeNull()
+    expect(line!.textContent).toContain('休息中')
+    expect(line!.textContent).toContain('—')
+  })
+
+  it('有 activeS 有 invokeState（终态带 ctx）→ 渲染休息中行并展示真实 ctx 值', () => {
+    const o = makeOtter()
+    renderPanel([], [o], {
+      sessions: { o1: [activeSession('o1')] },
+      invokeStates: {
+        o1: {
+          invokeId: 'inv-1', otterId: 'o1', status: 'completed',
+          startedAt: '2026-09-16T08:00:00Z', endedAt: '2026-09-16T08:01:00Z',
+          ctxWindowUsed: 45200, ctxMax: 200000,
+        },
+      },
+    })
+    const line = container.querySelector('[data-testid="invoke-state-line"]')
+    expect(line).not.toBeNull()
+    expect(line!.textContent).toContain('休息中')
+    expect(line!.textContent).toContain('45.2k')
+    expect(line!.textContent).toContain('200.0k')
+  })
+
+  it('有 invokeState（running）→ 渲染行动中行', () => {
+    const o = makeOtter()
+    renderPanel([], [o], {
+      sessions: { o1: [activeSession('o1')] },
+      invokeStates: {
+        o1: {
+          invokeId: 'inv-2', otterId: 'o1', status: 'running',
+          startedAt: new Date(Date.now() - 5000).toISOString(),
+          ctxWindowUsed: 45200, ctxMax: 200000, toolCallCount: 3,
+        },
+      },
+    })
+    const line = container.querySelector('[data-testid="invoke-state-line"]')
+    expect(line).not.toBeNull()
+    expect(line!.textContent).toContain('行动中')
+  })
+
+  it('无 activeS 无 invokeState（从未搼过的新獭）→ 不渲染状态行', () => {
+    renderPanel([], [makeOtter()])
+    expect(container.querySelector('[data-testid="invoke-state-line"]')).toBeNull()
   })
 })
 
