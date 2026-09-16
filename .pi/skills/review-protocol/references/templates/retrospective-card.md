@@ -39,6 +39,7 @@ code{background:var(--otter-100);padding:2px 6px;border-radius:4px;font-size:11p
   <div class="verdict">开发獭宣称「已 push」实际只 staged——检视空转一轮</div>
   <div class="meta">
     <b>根因</b>：push 无报错 ≠ 成功，缺 headRefOid 验证环节<br>
+    <b>置信度</b>：高（证据链完整：git status + headRefOid 交叉验证）<br>
     <b>要你做什么</b>：拍板是否把「OID 验证」写进 skill 硬约束（下方按钮）
   </div>
 </div>

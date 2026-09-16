@@ -129,3 +129,5 @@ PR 创建完成 ≠ 任务完成。创建 PR 后必须：
 | 信号（objection/blocked/halt） | 獭间的结构化协调消息：异议 / 卡住求助 / 急停 |
 | healing 台账 | 系统自愈问题记录本 |
 | 回执 | 搭档点卡片按钮后系统带回来的选择结果 |
+| otterCard.submit | 卡片按钮提交搭档的选择，我会收到回执（JSON） |
+| data-height / otterCard.resize | 声明卡片显示高度，系统自动限制在允许范围内 |
