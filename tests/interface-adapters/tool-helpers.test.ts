@@ -1,5 +1,82 @@
 import { describe, it, expect } from "vitest";
 import { truncateToolResult, textResponse, MAX_TOOL_RESULT_CHARS } from "@usecases/ports/agent-tools";
+import { validateSpeakBody, hasCardFences } from "../../src/interface-adapters/agent-runtime/tools/tool-helpers";
+
+/** F20260915hcel：validateSpeakBody 新校验逻辑测试 */
+describe("validateSpeakBody（F20260915hcel 弹性化）", () => {
+  it("空 body 被拒绝", () => {
+    expect(validateSpeakBody(undefined, "")).toContain("body 不能为空");
+    expect(validateSpeakBody(undefined, "  ")).toContain("body 不能为空");
+  });
+
+  it("纯文本无卡片通过", () => {
+    expect(validateSpeakBody(undefined, "你好世界")).toBeNull();
+  });
+
+  it("1 张小卡片通过", () => {
+    const body = '前置文本\n```html-card title="测试"\n<div>hello</div>\n```\n后置文本';
+    expect(validateSpeakBody(undefined, body)).toBeNull();
+  });
+
+  it("2 张卡片通过", () => {
+    const body = '```html-card title="A"\n<div>a</div>\n```\n中间\n```html-card title="B"\n<div>b</div>\n```';
+    expect(validateSpeakBody(undefined, body)).toBeNull();
+  });
+
+  it("3 张卡片被拒绝", () => {
+    const body = '```html-card title="A"\n<div>a</div>\n```\n```html-card title="B"\n<div>b</div>\n```\n```html-card title="C"\n<div>c</div>\n```';
+    const result = validateSpeakBody(undefined, body);
+    expect(result).toContain("3 张");
+    expect(result).toContain("最多支持 2 张");
+  });
+
+  it("单卡 64KB 边界通过（恰好 65536 字节）", () => {
+    const content = "x".repeat(65536 - 20); // 留点余量给围栏语法
+    const body = `\`\`\`html-card title="大卡"\n${content}\n\`\`\``;
+    expect(validateSpeakBody(undefined, body)).toBeNull();
+  });
+
+  it("单卡超 64KB 被拒绝（只量围栏内 HTML，不量正文散文）", () => {
+    const content = "x".repeat(65537);
+    const body = `\`\`\`html-card title="超大卡"\n${content}\n\`\`\``;
+    const result = validateSpeakBody(undefined, body);
+    expect(result).toContain("超出");
+    expect(result).toContain("体积限制");
+  });
+
+  it("正文散文不计入体积校验（64KB 卡 + 10KB 正文通过）", () => {
+    const cardContent = "x".repeat(60000); // 60KB 卡片
+    const prose = "y".repeat(10000); // 10KB 正文
+    const body = `${prose}\n\`\`\`html-card title="合规卡"\n${cardContent}\n\`\`\`\n${prose}`;
+    expect(validateSpeakBody(undefined, body)).toBeNull();
+  });
+
+  it("卡片写在 speak 外被拒绝", () => {
+    const turnText = '```html-card title="外"\n<div>outside</div>\n```';
+    const body = "正文没有卡片";
+    const result = validateSpeakBody(turnText, body);
+    expect(result).toContain("speak 之外");
+  });
+
+  it("html-card-reply 不算卡片", () => {
+    const body = '```html-card-reply card="m:0"\n{}\n```';
+    expect(validateSpeakBody(undefined, body)).toBeNull();
+  });
+});
+
+describe("hasCardFences", () => {
+  it("有卡片返回 true", () => {
+    expect(hasCardFences('```html-card title="a"\n<x/>\n```')).toBe(true);
+  });
+
+  it("无卡片返回 false", () => {
+    expect(hasCardFences("纯文本")).toBe(false);
+  });
+
+  it("html-card-reply 不算", () => {
+    expect(hasCardFences('```html-card-reply card="m:0"\n{}\n```')).toBe(false);
+  });
+});
 
 describe("truncateToolResult", () => {
   it("短结果不被截断", () => {

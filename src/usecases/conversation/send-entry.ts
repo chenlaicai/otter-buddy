@@ -61,6 +61,8 @@ export interface CreateSpeakEntryInput {
   otterId: string;
   turnId: string;
   body: string;
+  /** F20260916hcel：可选元数据（如 cardSchemaVersion） */
+  metadata?: Record<string, unknown>;
 }
 
 /** 创建 yield 条目输入 */
@@ -301,7 +303,7 @@ export class SendEntry {
       turnId,
       status: "completed",
       source: null,
-      metadata: null,
+      metadata: input.metadata ?? null,
       senderName: resolveSpeakerName("otter", input.otterId, otter.name) ?? otter.name,
       contextTokens: null,
       contextTokensMax: null,

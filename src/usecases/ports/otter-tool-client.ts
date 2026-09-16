@@ -65,6 +65,7 @@ export interface OtterToolClient {
         otterId: string;
         turnId: string;
         body: string;
+        metadata?: Record<string, unknown>;
       }): Promise<{ id: string; entryType: string; body: string }>;
       /** 创建 yield 条目 + invoke_end 条目 + 更新 invoke 记录 */
       createYieldEntry(params: {

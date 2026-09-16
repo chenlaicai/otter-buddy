@@ -23,12 +23,16 @@ const CARD_RESIZE_SCRIPT = `(function () {
   report();
 })();`
 
-/** submit 段：仅在 cardId 格式合法时注入（fail-closed） */
+/** submit 段：仅在 cardId 格式合法时注入（fail-closed）
+ *  F20260916hcel：新增 otterCard.resize(height)——卡片脚本动态声明高度，系统 clamp [100, 4000] */
 const CARD_SUBMIT_SCRIPT = `(function () {
   var CARD_ID = "__OTTER_CARD_ID__";
   window.otterCard = {
     submit: function (payload) {
       parent.postMessage({ type: 'card:submit', cardId: CARD_ID, payload: payload }, '*');
+    },
+    resize: function (height) {
+      parent.postMessage({ type: 'card:resize', cardId: CARD_ID, height: height }, '*');
     }
   };
 })();`

@@ -15,13 +15,10 @@ const parseMd = (body: string) =>
 
 // Why: 转发共享常量（Issue #360 单一真相源在 @contract/api/html-card）——
 // 保持从 lib/html-card 的既有导入路径不变，避免改动全部消费方
-export { CARD_MAX_PER_MESSAGE, CARD_MAX_BYTES } from '@contract/api/html-card'
+export { CARD_MAX_PER_MESSAGE, CARD_MAX_BYTES, CARD_SCHEMA_VERSION, CARD_MIN_HEIGHT, CARD_MAX_HEIGHT } from '@contract/api/html-card'
 /** 卡片提交 payload 限制 */
 export const CARD_SUMMARY_MAX_CHARS = 500
 export const CARD_DATA_MAX_BYTES = 2048
-/** 卡片 iframe 高度 clamp 区间 */
-export const CARD_MIN_HEIGHT = 100
-export const CARD_MAX_HEIGHT = 2000
 
 /** UTF-8 字节长度 */
 export function byteLength(s: string): number {

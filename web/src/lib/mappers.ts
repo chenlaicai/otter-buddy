@@ -114,6 +114,9 @@ export interface LocalMessage {
   invokeStatus?: 'failed' | 'aborted'
   /** F20260913ctlv：yield 条目专有——行动权传递目标 */
   yieldTargets?: string[] | null
+  /** F20260916hcel：html-card schema版本（保留字段，供未来默认状态变化用；当前所有卡默认折叠）。
+   *  ≥2 → 默认 expanded；缺失 → 默认 collapsed */
+  cardSchemaVersion?: number
 }
 
 // ── F20260913ctlv：时间线条目类型 ──
@@ -265,6 +268,8 @@ export function mapEntryDTO(dto: EntryDTO): LocalMessage {
     invokeId: dto.invokeId ?? undefined,
     // F20260913ctlv test17：invoke_end 的 metadata.invokeStatus 透出（重试按钮数据源）
     ...(dto.metadata?.invokeStatus === 'failed' || dto.metadata?.invokeStatus === 'aborted' ? { invokeStatus: dto.metadata.invokeStatus } : {}),
+    // F20260916hcel：html-card schema版本透出
+    ...(dto.metadata?.cardSchemaVersion != null ? { cardSchemaVersion: Number(dto.metadata.cardSchemaVersion) } : {}),
     // yieldTargets 双用途：yield 条目的传递目标 + user entry 的发言石目标（传递行数据源）
     yieldTargets: dto.yieldTargets ?? undefined,
     // F20260913ctlv 终审修复：附件透出（与 mapMessageDTO 的 atts 映射同款）

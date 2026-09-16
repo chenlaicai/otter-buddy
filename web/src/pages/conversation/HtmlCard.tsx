@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Hash, ShieldCheck, AlertTriangle } from 'lucide-react'
-import { CARD_MAX_BYTES, CARD_MAX_PER_MESSAGE, byteLength } from '../../lib/html-card'
+import { CARD_MAX_BYTES, CARD_MAX_PER_MESSAGE, CARD_MAX_HEIGHT, CARD_MIN_HEIGHT, byteLength } from '../../lib/html-card'
 import { registerCard, unregisterCard } from '../../lib/card-registry'
 import { buildCardBridgeScript } from '../../lib/card-bridge'
 
@@ -37,13 +37,22 @@ export interface HtmlCardProps {
   interactive: boolean
   /** 卡片所在消息的 senderId（registry 登记，回执显式路由用） */
   authorId: string
+  /** F20260916hcel：html-card schema版本，保留为将来可能的默认状态变化留口子。
+   *  当前所有卡默认 collapsed（搭档 9/16 拍板） */
+  cardSchemaVersion?: number
 }
 
 type CardView = 'collapsed' | 'expanded' | 'source' | 'invalid'
 
 function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId }: HtmlCardProps) {
+  /** F20260916hcel：所有卡默认折叠（搭档 9/16 纠正——曾误执行为「新卡默认展开」） */
   const [view, setView] = useState<CardView>('collapsed')
-  const [height, setHeight] = useState(240)
+  const [height, setHeight] = useState(() => {
+    /** F20260916hcel：支持 data-height 属性——AI 在 HTML 根元素上声明高度，系统 clamp [100, 4000] */
+    const dataHeightMatch = code.match(/data-height="(\d+)"/)
+    const declared = dataHeightMatch ? Number(dataHeightMatch[1]) : 240
+    return Math.min(CARD_MAX_HEIGHT, Math.max(CARD_MIN_HEIGHT, declared))
+  })
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const loadCountRef = useRef(0)
   const oversize = byteLength(code) > CARD_MAX_BYTES
