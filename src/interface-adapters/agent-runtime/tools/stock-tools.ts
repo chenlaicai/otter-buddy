@@ -6,7 +6,9 @@
  */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve } from "node:path";
+import { getRepoRoot } from "@frameworks/repo-root";
+import { resolvePython } from "@frameworks/stock/python";
 import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 
@@ -29,17 +31,10 @@ const MAX_OUTPUT_CHARS = 15_000;
 /**
  * 探测 Python 解释器路径。
  * 优先级：STOCK_PYTHON 环境变量 > <repo>/.venv-stock/bin/python > 系统 python3
- * N3 注意：此函数与 stock-quote-gateway-impl.ts 中的实现完全一致，
- * 单边修改时需同步另一处。原因：interface-adapters 层不能导入 frameworks 层（no-restricted-imports 约束）。
- * #952：曾尝试合并双源被 ESLint 拦截，保持现状。
+ * N3 已收敛：此函数移到 @frameworks/stock/python 统一维护，
+ * stock-tools.ts（interface-adapters）与 stock-quote-gateway-impl.ts（frameworks）共用同一实现，
+ * 单边漂移风险已消除。导入豁免见 eslint.config.mjs restrictedFrameworks（#952/#429）。
  */
-function resolvePython(repoRoot: string): string {
-  const envPython = process.env.STOCK_PYTHON;
-  if (envPython && existsSync(envPython)) return envPython;
-  const venvPython = join(repoRoot, ".venv-stock", "bin", "python");
-  if (existsSync(venvPython)) return venvPython;
-  return "python3";
-}
 
 /** akshare 检查缓存——避免每次调用多付 1-2s Python 冷启动税 */
 const akshareCheckCache = new Map<string, string | null>();
@@ -246,8 +241,10 @@ export function createStockDataTool(_ctx: ToolContext): AgentTool {
       const validationError = validateParams(command, code);
       if (validationError) return errorResponse(`[错误] ${validationError}`);
 
-      // Why: ESM 环境无 __dirname，用 import.meta.dirname（Node 21.2+ / 22+）
-      const repoRoot = resolve(import.meta.dirname, "../../../../..");
+      // Why: ESM 环境无 __dirname，用 import.meta.dirname 定位代码位置（Node 21.2+ / 22+）
+      // #429：统一 repoRoot 解析——逐级探测（包名匹配），兼容 src/dist 双布局，
+      // 不再写死相对层级数（原 `resolve(import.meta.dirname, "../../../../..")`）。
+      const repoRoot = getRepoRoot();
       if (!existsSync(resolve(repoRoot, STOCK_CLI_REL))) {
         return errorResponse(`[错误] stock-cli.py 不存在。请确认 scripts/stock-cli.py 已入库。`);
       }

@@ -3,6 +3,7 @@ import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
 import type { Logger } from '@usecases/ports/logger';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { getRepoRoot } from '@frameworks/repo-root';
 
 /** #784：定时任务 prompt 启动对账。
  *
@@ -95,7 +96,8 @@ function replaceWrappedPrompt(taskBody: string, newPrompt: string): string | nul
 
 export async function reconcilePromptTemplates(opts: PromptReconcileOptions): Promise<PromptReconcileResult> {
   const { taskRepo, logger } = opts;
-  const templateDir = opts.templateDir ?? resolve(process.cwd(), 'prompts', 'scheduled');
+  // Why: 默认目录基于代码位置解析（#429）；显式传入的 templateDir override 优先
+  const templateDir = opts.templateDir ?? resolve(getRepoRoot(), 'prompts', 'scheduled');
   const result: PromptReconcileResult = { checked: 0, updated: 0, skippedDynamic: 0, unmatched: [], changes: [] };
 
   let files: string[];

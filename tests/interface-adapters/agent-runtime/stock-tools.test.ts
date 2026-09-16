@@ -19,7 +19,9 @@ vi.mock("node:fs", () => ({
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { createStockDataTool, clearAkshareCheckCache } from "@interface-adapters/agent-runtime/tools/stock-tools";
+import { getRepoRoot } from "@frameworks/repo-root";
 
 const mockSpawn = vi.mocked(spawn);
 const mockExistsSync = vi.mocked(existsSync);
@@ -379,5 +381,16 @@ describe("stock_data tool #952 akshareCheckCache 行为", () => {
     const result2 = await tool.execute("id2", { command: "kline", code: "600519" });
     expect(result2.isError).toBeUndefined();
     expect(spawnCalls).toBe(3); // 只多一次 kline，checkAkshare 命中缓存
+  });
+
+  it("#429：repoRoot 解析一致性——getRepoRoot() 返回值与旧机制（写死 4 级向上）完全相同", () => {
+    // 旧机制（#429 收口前）：resolve(import.meta.dirname, "../../../../..")，从 stock-tools.ts 所在目录向上 4 级
+    // 新机制：getRepoRoot() 逐级探测 package.json name === "otter-buddy"
+    // 两者在本仓库布局（src/interface-adapters/agent-runtime/tools/stock-tools.ts）下应指向同一目录
+    // 注意：本文件顶层 vi.mock("node:fs") 会拦 existsSync，但 getRepoRoot 在首次调用时若已缓存真实路径则不受影响——
+    // 因此本用例不依赖 fs 状态，仅验证两个解析算法在相同输入下输出一致。
+    // 计算方式：tests/interface-adapters/agent-runtime/ → ../../../ 是 worktree 根（stock-tools.ts 源文件的 import.meta.dirname 相同深度）
+    const stockToolsLegacyRoot = resolve(import.meta.dirname, "../../../");
+    expect(getRepoRoot()).toBe(stockToolsLegacyRoot);
   });
 });

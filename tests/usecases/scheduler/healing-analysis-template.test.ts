@@ -203,6 +203,42 @@ describe('SchedulerService - self-healing-analysis 模板化（issue #416）', (
     expect(skipLogged).toBe(true);
   });
 
+  it('cwd 非项目根时：模板仍生效（#429，路径基于代码位置解析）', async () => {
+    // 旧行为：cwd 切走 → readFileSync ENOENT → 回退内置文案。
+    // 新行为：路径基于 import.meta.dirname 定位仓库根（#429），cwd 无关，真模板照常生效。
+    // 区分真模板 vs 回退文案：守卫测试锁定二者内容一致，唯一稳定差异是
+    // 真模板走 includes('{{HEALING_DATA}}') 替换分支——替换后不含字面占位符，
+    // 回退文案 replace 后也同样不含——因此改用 warn 日志副作用区分：真模板生效时
+    // 不会打「模板缺失或无占位符」告警。
+    const origCwd = process.cwd();
+    process.chdir('/tmp');
+    try {
+      const warnBefore = (mockLogger.warn as ReturnType<typeof vi.fn>).mock.calls.length;
+      const capturing = createCapturingSendEntry();
+      const service = new SchedulerService({
+        ...baseDeps,
+        sendEntry: capturing as unknown as SendEntry,
+        taskRepo: createMockTaskRepo(makeHealingTask()),
+        healingRepo: createMockHealingRepo(1),
+      });
+
+      await service.trigger('task-healing');
+
+      expect(capturing.sentBodies).toHaveLength(1);
+      const effectiveBody = capturing.sentBodies[0];
+      // 真模板 + 动态数据都进了 body（模板内容与内置文案一致，守卫测试在别处锁定同步）
+      expect(effectiveBody).toContain('## Self-Healing 定期分析任务');
+      expect(effectiveBody).toContain('mock healing event 0');
+      // 关键断言：未触发「模板缺失回退」告警——证明读到的真模板文件而非 ENOENT 回退
+      const fallbackWarned = (mockLogger.warn as ReturnType<typeof vi.fn>).mock.calls
+        .slice(warnBefore)
+        .some((args: unknown[]) => String(args[0]).includes('[healing-template]'));
+      expect(fallbackWarned).toBe(false);
+    } finally {
+      process.chdir(origCwd);
+    }
+  });
+
   it('模板文件缺失时：回退到内置文案，系统仍可用', async () => {
     // 直接覆盖 loadHealingTemplate 的读取路径不可行（fs 命名空间导入不可 spy），
     // 改为修改 process.cwd 指向不存在模板的目录，让 readFileSync ENOENT

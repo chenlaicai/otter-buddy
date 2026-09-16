@@ -6,6 +6,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { getRepoRoot } from "@frameworks/repo-root";
 import { parseDocument } from "yaml";
 // 双 YAML 库并存说明（#391 审视采纳）：js-yaml 仅用于读路径（loadConfig/validate），
 // 写路径 updateDefaultModelInYaml 用 yaml 包 parseDocument 保留注释——js-yaml 无此 API。
@@ -329,7 +330,8 @@ interface RawConfig {
 }
 
 // eslint env 说明：mjs 无 TS 环境，btoa 在 node 22+ 全局可用
-const CONFIG_PATH = path.resolve(process.cwd(), "config/config.yaml");
+// Why: 配置路径基于代码位置解析（#429），cwd 非项目根（systemd/容器 ENTRYPOINT）也能读到
+const CONFIG_PATH = path.resolve(getRepoRoot(), "config/config.yaml");
 
 const VALID_PROVIDERS = ["openai", "anthropic", "kimi-coding"];
 

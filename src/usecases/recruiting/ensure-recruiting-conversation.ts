@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { getRepoRoot } from '@frameworks/repo-root';
 import type { Conversation, ConversationParticipant } from '@entities/conversation/conversation';
 import { DomainError } from '@entities/errors';
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
@@ -52,8 +53,9 @@ async function tryReuseExisting(
 
 /** 读取 systemPrompt 文件 */
 function readSystemPrompt(promptPathOverride: string | undefined): string {
+  // Why: 默认路径基于代码位置解析（#429）；promptPathOverride 注入参数优先
   const promptPath = promptPathOverride
-    ?? path.resolve(process.cwd(), RECRUITING_SYSTEM_PROMPT_PATH);
+    ?? path.resolve(getRepoRoot(), RECRUITING_SYSTEM_PROMPT_PATH);
   try {
     return fs.readFileSync(promptPath, 'utf8');
   } catch (err) {
