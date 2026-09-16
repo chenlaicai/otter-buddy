@@ -3,7 +3,7 @@ id: F20260916gsrd
 title: 主服务脚本自杀命令封堵：otter-buddy.sh 主仓拒杀 + 守卫识别服务脚本调用
 summary: 9/16 事故——獭 7708a033 验证代码后执行 `otter-buddy.sh restart` 杀掉主进程 31385（kill 族守卫看不到脚本名）。两层封堵：①脚本层主仓拒杀（主仓目录+PID 存活→拒绝 stop/restart）②守卫层识别 otter-buddy.sh stop/restart 调用（与 kill 主进程同级拦截，走 bash_safety 引导通道）。README 同步标注主仓保护。
 change_type: fix
-capability_test: tests/frameworks/agent/bash-safety-guard.test.ts（9 个新用例：脚本 stop/restart 拦截 + start/status 放行 + 非命令位置放行）
+capability_test: tests/frameworks/agent/bash-safety-guard.test.ts（13 个新用例：脚本 stop/restart 拦截 + sudo/命令替换形态 + start/status 放行 + 非命令位置放行）
 created_in_conversation: 12668046-9cc5-4a2a-bf81-da644168b3e7
 tags: [bash-guard, security, suicide-command, otter-buddy.sh, main-process]
 modules: [scripts/otter-buddy.sh, src/frameworks/agent/bash-safety-guard.ts, tests/frameworks/agent/bash-safety-guard.test.ts, README.md]
