@@ -56,7 +56,9 @@ export interface InvokeTickPayload {
 
 export type InvokeStates = Record<string, OtterInvokeState>
 
-/** invoke.start → 记 running 状态（同 invokeId 重放幂等：内容相同返回原引用） */
+/** invoke.start → 记 running 状态（同 invokeId 重放幂等：内容相同返回原引用）。
+ *  保留上一轮终态的 ctxWindowUsed/ctxMax——ctx 表示「当前 session 的上下文占用」，
+ *  新 invoke 刚启动尚未有首条 LLM 往返前，真实占用仍等于上轮末态（上下文只增不减）。 */
 export function applyInvokeStart(states: InvokeStates, data: InvokeStartPayload): InvokeStates {
   const prev = states[data.otterId]
   const next: OtterInvokeState = {
@@ -65,6 +67,8 @@ export function applyInvokeStart(states: InvokeStates, data: InvokeStartPayload)
     otterName: data.otterName,
     status: 'running',
     startedAt: data.startedAt,
+    ...(prev?.ctxWindowUsed != null && { ctxWindowUsed: prev.ctxWindowUsed }),
+    ...(prev?.ctxMax != null && { ctxMax: prev.ctxMax }),
   }
   if (prev && prev.invokeId === next.invokeId && prev.status === next.status && prev.startedAt === next.startedAt) {
     return states

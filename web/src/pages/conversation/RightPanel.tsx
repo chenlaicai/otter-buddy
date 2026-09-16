@@ -416,13 +416,15 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
               {isBig ? '' : (o.role?.name || '小獭')}{activeS ? ` · 第${activeGen}世 from ${fmtTime(activeS.startedAt)}` : ''}
             </div>
             {/* F20260914rtsp：invoke 实时状态行（行动中：状态+走秒+工具数+ctx；休息中：ctx 兜底）。
- *  走秒由容器 tickNow 驱动重渲染；ctx 缺数据时显 '—'（tick 未发射过/刷新无 ctx_tokens） */}
-            {invokeState && (
+ *  走秒由容器 tickNow 驱动重渲染；ctx 缺数据时显 '—'（tick 未发射过/刷新无 ctx_tokens）。
+ *  无 invoke 记录但有世时也显示休息中行——ctx 表示「当前 session 上下文占用」，休息中占用不变，
+ *  属准确数据；从未握过（新建无数据）则显 '—'。 */}
+            {(invokeState || activeS) && (
               <div className="text-[9px] whitespace-nowrap truncate" data-testid="invoke-state-line">
-                {invokeState.status === 'running' ? (
+                {invokeState?.status === 'running' ? (
                   <span className="text-teal-500">● 行动中 · {fmtInvokeElapsed(invokeState, tickNow)} · 🛠 {invokeState.toolCallCount ?? '—'} · {fmtCtx(invokeState.ctxWindowUsed)}/{invokeState.ctxMax != null ? fmtCtx(invokeState.ctxMax) : '—'}</span>
                 ) : (
-                  <span className="text-stone-400">○ 休息中 · {fmtCtx(invokeState.ctxWindowUsed)}/{invokeState.ctxMax != null ? fmtCtx(invokeState.ctxMax) : '—'}</span>
+                  <span className="text-stone-400">○ 休息中 · {fmtCtx(invokeState?.ctxWindowUsed)}/{invokeState?.ctxMax != null ? fmtCtx(invokeState.ctxMax) : '—'}</span>
                 )}
               </div>
             )}
