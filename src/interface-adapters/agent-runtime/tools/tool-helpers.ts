@@ -21,7 +21,7 @@ function countCardFences(body: string): number {
 }
 
 /** 提取 body 中每张 html-card 围栏的内容字节数（UTF-8）。
- *  F20260915hcel：校验口径是「单卡 ≤CARD_MAX_BYTES」，只量围栏内 HTML，不量正文散文。 */
+ *  F20260916hcel：校验口径是「单卡 ≤CARD_MAX_BYTES」，只量围栏内 HTML，不量正文散文。 */
 function measureCardFenceBytes(body: string): number[] {
   if (!body.includes('html-card')) return [];
   const fence = /(?:```|~~~)html-card(?!-reply)[^\n]*\n([\s\S]*?)(?:\n(?:```|~~~))/g;
@@ -47,7 +47,7 @@ export function validateSpeakBody(turnAssistantText: string | undefined, cleanBo
     return `[错误] 检测到 ${cardCount} 张 html-card 卡片，但单消息最多支持 ${CARD_MAX_PER_MESSAGE} 张（第 3 张起用户会看到降级的源码块，不可读）。请将内容合并为 ${CARD_MAX_PER_MESSAGE} 张卡片，或分多次 speak 输出。`;
   }
 
-  /** F20260915hcel：校验单卡体积（只量围栏内 HTML，不量正文散文） */
+  /** F20260916hcel：校验单卡体积（只量围栏内 HTML，不量正文散文） */
   const cardSizes = measureCardFenceBytes(cleanBody);
   for (let i = 0; i < cardSizes.length; i++) {
     if (cardSizes[i] > CARD_MAX_BYTES) {

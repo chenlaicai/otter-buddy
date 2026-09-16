@@ -69,7 +69,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
           otterId: ctx.otterId,
           turnId: "", // send-entry 内部空 turnId 时 ensureActiveTurn 兜底
           body: cleanBody,
-          // F20260915hcel：含 html-card 的条目写入 schemaVersion，前端用于区分新卡（展开）与老卡（折叠）
+          // F20260916hcel：含 html-card 的条目写入 schemaVersion（保留字段）
           ...(hasCardFences(cleanBody) ? { metadata: { cardSchemaVersion: CARD_SCHEMA_VERSION } } : {}),
         });
         // 已发言标记（validateMessageHasContent 短路「已发言」判定；yield 后重置）。

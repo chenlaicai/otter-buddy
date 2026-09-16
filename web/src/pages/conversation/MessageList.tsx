@@ -47,7 +47,7 @@ interface CardRenderCtx {
   variant: MarkdownVariant
   messageId: string
   authorId: string
-  /** F20260915hcel：html-card schema版本，用于区分新卡（默认展开）与老卡（默认折叠） */
+  /** F20260916hcel：html-card schema版本（保留字段，供未来默认状态变化用；当前所有卡默认折叠） */
   cardSchemaVersion?: number
 }
 const CardRenderContext = createContext<CardRenderCtx>({ variant: 'otter-body', messageId: '', authorId: '' })
@@ -149,7 +149,7 @@ function MarkdownContent({ children, variant = 'otter-body', messageId = '', aut
   variant?: MarkdownVariant
   messageId?: string
   authorId?: string
-  /** F20260915hcel：html-card schema版本，用于区分新卡（默认展开）与老卡（默认折叠） */
+  /** F20260916hcel：html-card schema版本（保留字段，供未来默认状态变化用；当前所有卡默认折叠） */
   cardSchemaVersion?: number
 }) {
   const ctx = useMemo<CardRenderCtx>(() => ({ variant, messageId, authorId, cardSchemaVersion }), [variant, messageId, authorId, cardSchemaVersion])

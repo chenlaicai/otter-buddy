@@ -61,7 +61,7 @@ export interface CreateSpeakEntryInput {
   otterId: string;
   turnId: string;
   body: string;
-  /** F20260915hcel：可选元数据（如 cardSchemaVersion） */
+  /** F20260916hcel：可选元数据（如 cardSchemaVersion） */
   metadata?: Record<string, unknown>;
 }
 

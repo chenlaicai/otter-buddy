@@ -9,7 +9,7 @@ describe('buildCardBridgeScript（桥脚本 cardId 注入）', () => {
     expect(script).toContain("card:resize")
     expect(script).toContain("card:submit")
     expect(script).toContain("otterCard")
-    expect(script).toContain("resize") // F20260915hcel: otterCard.resize API
+    expect(script).toContain("resize") // F20260916hcel: otterCard.resize API
   })
 
   it('模板源码本身保留占位符（每次注入独立生成）', () => {

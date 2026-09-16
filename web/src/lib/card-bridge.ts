@@ -24,7 +24,7 @@ const CARD_RESIZE_SCRIPT = `(function () {
 })();`
 
 /** submit 段：仅在 cardId 格式合法时注入（fail-closed）
- *  F20260915hcel：新增 otterCard.resize(height)——卡片脚本动态声明高度，系统 clamp [100, 4000] */
+ *  F20260916hcel：新增 otterCard.resize(height)——卡片脚本动态声明高度，系统 clamp [100, 4000] */
 const CARD_SUBMIT_SCRIPT = `(function () {
   var CARD_ID = "__OTTER_CARD_ID__";
   window.otterCard = {
