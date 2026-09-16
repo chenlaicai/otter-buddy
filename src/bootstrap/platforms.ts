@@ -105,7 +105,7 @@ export async function createAgentGateway(options: {
     createTools: (ctx, repo, log) => {
       // PR4: 创建纸面交易 Ledger 注入到工具
       const paperTradeRepo = new PaperTradeRepositoryImpl(db);
-      const paperGateway = new StockQuoteGatewayImpl(process.cwd());
+      const paperGateway = new StockQuoteGatewayImpl(getRepoRoot());
       const paperLedger = new Ledger(paperTradeRepo, paperGateway);
       const paperLedgerRef = { ledger: paperLedger, getAccountId: () => {
         const accounts = db.prepare('SELECT id FROM paper_accounts LIMIT 1').get() as { id: string } | undefined;
@@ -219,7 +219,7 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
   // PR4: 注册纸面交易函数（function executor 使用）
   if (db) {
     const paperTradeRepo = new PaperTradeRepositoryImpl(db);
-    const paperGateway = new StockQuoteGatewayImpl(process.cwd());
+    const paperGateway = new StockQuoteGatewayImpl(getRepoRoot());
     const paperLedger = new Ledger(paperTradeRepo, paperGateway);
     registerPaperTradingFunctions(paperLedger, paperTradeRepo);
 

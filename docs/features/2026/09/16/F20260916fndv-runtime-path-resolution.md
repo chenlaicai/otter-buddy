@@ -77,12 +77,14 @@ getRepoRoot(): string  // 模块级 memo 缓存
 
 - 新增：`src/frameworks/repo-root.ts`（约 60 行）、`tests/frameworks/repo-root.test.ts`（4 用例）
 - 修改 8 个文件各 1-3 行（import + resolve 调用点 + Why 注释）
+- **r1 修复追加**：stock-tools.ts 收口到 getRepoRoot()（消除与 8 处 prompt/config 收口的机制双轨）；platforms.ts 两处 `StockQuoteGatewayImpl(process.cwd())` 同步改为 `getRepoRoot()`；resolvePython 双源（stock-tools / stock-quote-gateway-impl）收敛到 `@frameworks/stock/python`；repo-root.ts 新增 `findRepoRoot(fromDir)` 依赖注入导出（fail-soft 兜底可测）
 - 修改 `eslint.config.mjs` restrictedFrameworks 正则：负向前瞻加 `repo-root` 豁免——
   repo-root 是纯路径常量模块（零依赖，只读自身代码位置与 package.json），usecases 运行时
   资源定位需在不破坏依赖方向的前提下使用，与 D39 的 `@frameworks/logger` 豁免同性质
   （logger 也是零业务依赖的基础设施工具）。不豁免的替代方案（每层复制一份探测逻辑、
   或经依赖注入从 bootstrap 传入 repoRoot）都引入不必要的复杂度或改动面。
 - 测试新增 3 用例：repo-root 自身 4 条（含 cwd 非项目根）、reconciler 默认 templateDir cwd 非项目根 1 条、healing 模板 cwd 非项目根 1 条
+- r1 修复追加（A1/A2）：repo-root 新增 findRepoRoot 导出（2 条：探测成功 / fail-soft 兜底）、stock-tools 新增 repoRoot 一致性测试 1 条
 
 ## 取舍
 
@@ -92,13 +94,15 @@ getRepoRoot(): string  // 模块级 memo 缓存
 | 文件系统探测 vs createRequire 自引用 | 文件系统探测 | 不依赖包管理器布局，语义可预期 |
 | memo 缓存 vs 每次探测 | memo | 进程生命周期内 repoRoot 不变，逐次探测纯浪费 |
 | fail-soft vs fail-fast | fail-soft | #429 方案决策③显式要求保留降级语义 |
-| 动 stock-tools.ts 先例 | 不动 | 它工作正常且层级写死当前正确，非本 issue 范围（YAGNI） |
+| 动 stock-tools.ts 先例 | **收口（#429 后评估修正）** | 初版留旧机制的理由（YAGNI）被搭档质疑后重新审视——YAGNI 管「要不要加功能」，不管「同类缺陷修一半留一半」。收口后消除双轨机制：stock-tools.ts 与 8 处 prompt/config 共用同一 repoRoot 解析，未来目录结构调整只修一处。额外收敛 stock-tools 与 stock-quote-gateway-impl 的 resolvePython 双源到 @frameworks/stock/python（#952 遗留） |
+| fail-soft 兜底分支测试 | 补测（依赖注入） | 探测逻辑抽成 findRepoRoot(fromDir)，getRepoRoot 是它的薄封装——把探测起点作为参数注入，失败兜底分支（10级无锚 → 返回 null → getRepoRoot 退回 cwd）可测，无需 mock import.meta.dirname |
 
 ## 已知边界
 
 - 仓库被复制到不含 package.json 的目录运行（如只拷 dist/ + prompts/）：逐级探测失败 → 退回 cwd → 行为与改动前一致（fail-soft 兜底）
 - `import.meta.dirname` 需 Node 21.2+/22+——与 stock-tools 既有先例同口径，仓内运行时已要求 Node 22+
 - worktree 场景：worktree 根有独立 package.json（name 相同），getRepoRoot 定位到 worktree 根——测试运行场景下正确（模板/配置就在 worktree 内）
+- **r1 修复追加**：stock-tools.ts（interface-adapters）导入 `@frameworks/repo-root` 和 `@frameworks/stock/python`，突破 Layer 3 不导入 frameworks 的约束——豁免理由与 repo-root 同性质（纯路径/脚本包装，零业务依赖），且 resolvePython 双源收敛消除单边漂移风险（#952 遗留）。eslint.config.mjs restrictedFrameworks 负向前瞻追加 `stock` 豁免。
 
 ## 验证
 

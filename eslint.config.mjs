@@ -30,8 +30,8 @@ const restrictedFrameworks = [{
   // 用负向前瞻实现"除 logger / repo-root 外全限制"（D39 豁免 logger；repo-root 豁免见
   // F20260916fndv/#429——纯路径常量模块零依赖，usecases 运行时资源定位（prompt 模板/
   // seed 数据）需在不破坏依赖方向的前提下使用，与 logger 豁免同性质）
-  regex: "(?:^|@|/)frameworks/(?!logger(?:/|$)|repo-root(?:/|$))",
-  message: "Inner layers cannot import from frameworks (except @frameworks/logger and @frameworks/repo-root per D39/#429)",
+  regex: "(?:^|@|/)frameworks/(?!logger(?:/|$)|repo-root(?:/|$)|stock(?:/|$))",
+  message: "Inner layers cannot import from frameworks (except @frameworks/logger, @frameworks/repo-root per D39/#429, and @frameworks/stock/* shared script wrappers per #952/#429)",
 }];
 
 export default tseslint.config(
@@ -121,14 +121,16 @@ export default tseslint.config(
     }
   },
   // Layer 3: interface-adapters/ — cannot import from frameworks at all
+  // #429 豁免：@frameworks/repo-root（纯路径探测）与 @frameworks/stock/python（脚本包装）
+  // 与 repo-root 同性质（零业务依赖），resolvePython 双源收敛消除单边漂移风险（#952 遗留）
   {
     files: ["src/interface-adapters/**/*.ts"],
     rules: {
       "no-restricted-imports": ["error", {
         patterns: [
           {
-            group: ["@frameworks/**", "**/frameworks/**"],
-            message: "Interface adapters layer cannot import from frameworks"
+            group: ["(?:^|@|/)frameworks/(?!logger(?:/|$)|repo-root(?:/|$)|stock/python(?:/|$))"],
+            message: "Interface adapters layer cannot import from frameworks (except @frameworks/repo-root and @frameworks/stock/python per #429/#952)"
           }
         ]
       }]

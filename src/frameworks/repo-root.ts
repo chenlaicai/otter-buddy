@@ -17,6 +17,10 @@
  *
  * 缓存：模块级 memo——进程生命周期内 repoRoot 不变，逐次探测是纯浪费。
  * 探测上限 10 级防失控（正常最多 4 级）。
+ *
+ * 可测性设计：探测逻辑抽成 findRepoRoot(fromDir)，getRepoRoot() 只是它的薄封装。
+ * 探测起点在测试里难以 mock（import.meta.dirname 是编译期产物），
+ * 改为把起点作为参数注入，失败兜底分支可测。
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -38,24 +42,30 @@ function isPackageRoot(dir: string): boolean {
   }
 }
 
-/** 基于代码位置定位仓库根（含 package.json 且 name === "otter-buddy" 的目录）。
- *  与 process.cwd() 无关，任意 cwd 启动均可正确定位。结果进程内缓存。 */
-export function getRepoRoot(): string {
-  if (cachedRepoRoot) return cachedRepoRoot;
-
-  let dir = dirname(import.meta.dirname);
+/** 从 fromDir 向上逐级探测含 package.json 且 name === "otter-buddy" 的目录。
+ *  探测上限 10 级防失控（正常最多 4 级）。
+ *  失败（无锚或到达文件系统根）返回 null——由调用方决定兜底策略。 */
+export function findRepoRoot(fromDir: string): string | null {
+  let dir = fromDir;
   for (let i = 0; i < MAX_UPWARD_STEPS; i++) {
     if (isPackageRoot(dir)) {
-      cachedRepoRoot = dir;
       return dir;
     }
     const parent = dirname(dir);
     if (parent === dir) break; // 到达文件系统根
     dir = parent;
   }
+  return null;
+}
 
-  // fail-soft：找不到锚点时退回启动目录，保持旧行为（不引入 fail-fast，#429 方案决策）
-  cachedRepoRoot = process.cwd();
+/** 基于代码位置定位仓库根（含 package.json 且 name === "otter-buddy" 的目录）。
+ *  与 process.cwd() 无关，任意 cwd 启动均可正确定位。结果进程内缓存。
+ *  探测失败时退回 process.cwd()（保持旧行为，不引入 fail-fast）。 */
+export function getRepoRoot(): string {
+  if (cachedRepoRoot) return cachedRepoRoot;
+
+  const root = findRepoRoot(dirname(import.meta.dirname));
+  cachedRepoRoot = root ?? process.cwd();
   return cachedRepoRoot;
 }
 
