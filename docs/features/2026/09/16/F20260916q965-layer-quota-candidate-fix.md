@@ -7,7 +7,7 @@ created: 2026-09-16
 created_in_conversation: 9e709aca-dd74-42fa-9fe1-4e7bbaf24bdb
 modules:
   - src/usecases/memory/search-memory.ts
-summary: #723 的层配额自 9/2 合入以来从未触发——管线顺序 scored → dedup（chunk-priority）→ applyLayerQuota(deduped)，dedup 把同源 doc summary 丢掉后配额候选池从 deduped 取永远为空。修复：候选改从 dedup 前 scored 取（含被 chunk 吃掉的 summary），排除已在 top-N 的条目；候选按 finalScore 降序排序（rerank 不保证顺序）。验收：20 条 9/3-9/15 真实查询修复前配额触发 0 → 修复后 13 次，doc summary 进 top 14/20。
+summary: "#723 的层配额自 9/2 合入以来从未触发——管线顺序 scored → dedup（chunk-priority）→ applyLayerQuota(deduped)，dedup 把同源 doc summary 丢掉后配额候选池从 deduped 取永远为空。修复：候选改从 dedup 前 scored 取（含被 chunk 吃掉的 summary），排除已在 top-N 的条目；候选按 finalScore 降序排序（rerank 不保证顺序）。验收：20 条 9/3-9/15 真实查询修复前配额触发 0 → 修复后 13 次，doc summary 进 top 14/20。"
 tags: [memory, retrieval, layer-quota, bug, phase1]
 capability_test: tests/usecases/memory/search-memory.test.ts
 from: [F20260902rcp1]
