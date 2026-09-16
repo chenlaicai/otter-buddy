@@ -114,7 +114,7 @@ export interface ConversationRepository {
   // 会话列表批量查询（含未读计数 + 最后一条 entry 预览，替代 N+1）
   listConversationsWithMeta(
     userId: string,
-    options?: { limit?: number; offset?: number },
+    options?: { limit?: number; offset?: number; search?: string },
   ): Promise<Array<Conversation & {
     otterIds: string[];
     unreadCount: number;

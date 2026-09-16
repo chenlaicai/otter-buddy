@@ -143,3 +143,137 @@ describe('LeftPanel sessionStorage 滚动位置保持', () => {
     expect(scrollContainer).toBeTruthy()
   })
 })
+
+describe('LeftPanel 对话标题搜索（F20260916lpsc）', () => {
+  const searchHit: LocalConversation = { id: 'c9', title: '工作区优化', status: 'active', otterIds: [], pinned: false }
+
+  function mockSearchFetch(dtos: unknown[]) {
+    return vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(dtos), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    )
+  }
+
+  function dtoOf(c: LocalConversation) {
+    return { id: c.id, title: c.title, status: c.status, pinned: c.pinned, otterIds: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }
+  }
+
+  /** Why: React 受控 input 需走 native value setter + input 事件才能触发 onChange（React 16+ 值跟踪机制） */
+  function typeKeyword(input: HTMLInputElement, value: string) {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
+    act(() => {
+      setter.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+
+  it('点击搜索按钮展开搜索框，不再跳转 /memory', () => {
+    renderLeftPanel()
+    // 旧行为是 <a href="/memory">——断言不存在该链接
+    expect(container.querySelector('a[href="/memory"]')).toBeNull()
+
+    const toggle = container.querySelector('[data-testid="leftpanel-search-toggle"]') as HTMLElement
+    act(() => { toggle.click() })
+    expect(container.querySelector('[data-testid="leftpanel-search-bar"]')).not.toBeNull()
+  })
+
+  it('输入关键字防抖后调 search API，列表替换为命中结果', async () => {
+    vi.useFakeTimers()
+    const mock = mockSearchFetch([dtoOf(searchHit)])
+    vi.stubGlobal('fetch', mock)
+
+    renderLeftPanel()
+    act(() => { (container.querySelector('[data-testid="leftpanel-search-toggle"]') as HTMLElement).click() })
+
+    const input = container.querySelector('[data-testid="leftpanel-search-bar"] input') as HTMLInputElement
+    typeKeyword(input, '工作区')
+    // 防抖 300ms 内不请求
+    expect(mock).not.toHaveBeenCalled()
+    await act(async () => { vi.advanceTimersByTime(350) })
+
+    expect(mock).toHaveBeenCalledTimes(1)
+    expect(String(mock.mock.calls[0][0])).toContain('search=%E5%B7%A5%E4%BD%9C%E5%8C%BA')
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain('工作区优化')
+      expect(container.textContent).not.toContain('对话1')
+    })
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('关闭搜索恢复父组件列表', async () => {
+    vi.useFakeTimers()
+    const mock = mockSearchFetch([dtoOf(searchHit)])
+    vi.stubGlobal('fetch', mock)
+
+    renderLeftPanel()
+    act(() => { (container.querySelector('[data-testid="leftpanel-search-toggle"]') as HTMLElement).click() })
+    const input = container.querySelector('[data-testid="leftpanel-search-bar"] input') as HTMLInputElement
+    typeKeyword(input, '工作区')
+    await act(async () => { vi.advanceTimersByTime(350) })
+    await vi.waitFor(() => expect(container.textContent).toContain('工作区优化'))
+
+    act(() => { (container.querySelector('[data-testid="leftpanel-search-close"]') as HTMLElement).click() })
+    expect(container.querySelector('[data-testid="leftpanel-search-bar"]')).toBeNull()
+    expect(container.textContent).toContain('对话1')
+    expect(container.textContent).not.toContain('工作区优化')
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('搜索无命中时展示空态提示', async () => {
+    vi.useFakeTimers()
+    const mock = mockSearchFetch([])
+    vi.stubGlobal('fetch', mock)
+
+    renderLeftPanel()
+    act(() => { (container.querySelector('[data-testid="leftpanel-search-toggle"]') as HTMLElement).click() })
+    const input = container.querySelector('[data-testid="leftpanel-search-bar"] input') as HTMLInputElement
+    typeKeyword(input, '不存在')
+    await act(async () => { vi.advanceTimersByTime(350) })
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-testid="leftpanel-search-empty"]')).not.toBeNull()
+    })
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('Escape 关闭搜索框', () => {
+    renderLeftPanel()
+    act(() => { (container.querySelector('[data-testid="leftpanel-search-toggle"]') as HTMLElement).click() })
+    const input = container.querySelector('[data-testid="leftpanel-search-bar"] input') as HTMLInputElement
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    expect(container.querySelector('[data-testid="leftpanel-search-bar"]')).toBeNull()
+  })
+})
+
+describe('LeftPanel 分页加载更多（F20260916lpsc）', () => {
+  it('hasMore + onLoadMore 时展示按钮并触发回调', () => {
+    const onLoadMore = vi.fn()
+    act(() => {
+      root.render(
+        <LeftPanel
+          conversations={mockConversations}
+          activeId="c1"
+          onSelect={() => {}}
+          onNewConversation={() => {}}
+          onContextMenu={() => {}}
+          otters={mockOtters}
+          hasMore={true}
+          loadingMore={false}
+          onLoadMore={onLoadMore}
+        />
+      )
+    })
+    const btn = container.querySelector('[data-testid="leftpanel-load-more"]') as HTMLElement
+    expect(btn).not.toBeNull()
+    act(() => { btn.click() })
+    expect(onLoadMore).toHaveBeenCalledTimes(1)
+  })
+
+  it('hasMore=false 时不展示加载更多按钮', () => {
+    renderLeftPanel()
+    expect(container.querySelector('[data-testid="leftpanel-load-more"]')).toBeNull()
+  })
+})

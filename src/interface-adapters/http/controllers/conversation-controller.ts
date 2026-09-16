@@ -36,9 +36,11 @@ export class ConversationController {
       if (isNaN(limit) || isNaN(offset) || limit < 0 || offset < 0) {
         return c.json({ error: "Invalid pagination parameters" }, 400);
       }
+      /** search：对话标题关键字过滤（LIKE 子串匹配，仓储层转义通配符） */
+      const search = c.req.query("search") || undefined;
       /** 批量 JOIN 查询（含未读计数 + last_message），替代 N+1 */
       const userId = c.req.query("userId") ?? "web-user";
-      const items = await this.manageConversation.listWithMeta(userId, { limit, offset });
+      const items = await this.manageConversation.listWithMeta(userId, { limit, offset, search });
       return c.json(items.map((item) => toConversationListItemDTO(
         item,
         item.otterIds,

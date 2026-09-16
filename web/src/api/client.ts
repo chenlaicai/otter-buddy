@@ -51,10 +51,11 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 // ── Conversations ──
 
-export function listConversations(options?: { limit?: number; offset?: number }): Promise<ConversationListItemDTO[]> {
+export function listConversations(options?: { limit?: number; offset?: number; search?: string }): Promise<ConversationListItemDTO[]> {
   const qs = new URLSearchParams();
   if (options?.limit) qs.set('limit', String(options.limit));
   if (options?.offset) qs.set('offset', String(options.offset));
+  if (options?.search) qs.set('search', options.search);
   return request(`/conversations?${qs}`)
 }
 

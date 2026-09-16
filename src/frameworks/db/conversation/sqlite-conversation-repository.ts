@@ -215,12 +215,18 @@ export class SqliteConversationRepository implements ConversationRepository {
 
   async listConversationsWithMeta(
     userId: string,
-    options?: { limit?: number; offset?: number },
+    options?: { limit?: number; offset?: number; search?: string },
   ): Promise<Array<Conversation & { otterIds: string[]; unreadCount: number; lastMessagePreview: string | null; lastMessageTs: string | null; activityStatus: 'processing' | 'awaiting_user' | 'idle' }>> {
     // F20260913ctlv 批4c：数据源切 entries（messages 表 drop）——
     // unread/activity/last 预览全部从时间线读取；activity 判据 = running invoke（invokes 表）
     const limit = options?.limit ?? 50;
     const offset = options?.offset ?? 0;
+    // Why: search 参数转义 LIKE 通配符（%/\\_）防误匹配——标题关键字属用户任意输入，
+    // 不转义则搜 "50%" 会命中所有含 "50" 的标题（LIKE 注入的退化形态）
+    const search = options?.search?.trim();
+    const searchCond = search ? "AND c.title LIKE ? ESCAPE '\\'" : "";
+    const searchParam = search ? `%${search.replace(/[%_\\]/g, (ch) => `\\${ch}`)}%` : null;
+    const params: Array<string | number> = searchParam ? [userId, searchParam, limit, offset] : [userId, limit, offset];
     const rows = this.db.prepare(`
       SELECT c.*,
         COALESCE(u.last_read_message_seq, 0) AS last_read_seq,
@@ -246,8 +252,9 @@ export class SqliteConversationRepository implements ConversationRepository {
         ORDER BY sequence_num DESC LIMIT 1
       )
       WHERE c.status != 'archived'
+        ${searchCond}
       ORDER BY c.pinned DESC, COALESCE(le.created_at, c.created_at) DESC LIMIT ? OFFSET ?
-    `).all(userId, limit, offset) as Array<ConversationRow & {
+    `).all(...params) as Array<ConversationRow & {
       last_read_seq: number; unread_count: number;
       last_entry_id: string | null; last_entry_ts: string | null; last_entry_body: string | null;
       otter_ids_flat: string | null;

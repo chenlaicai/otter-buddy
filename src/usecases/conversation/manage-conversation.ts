@@ -139,7 +139,7 @@ export class ManageConversation {
   /** 批量查询会话列表（含未读计数 + last_message，一条 SQL JOIN 替代 N+1） */
   async listWithMeta(
     userId: string,
-    options?: { limit?: number; offset?: number },
+    options?: { limit?: number; offset?: number; search?: string },
   ): Promise<Array<Conversation & {
     otterIds: string[];
     unreadCount: number;

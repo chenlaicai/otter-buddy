@@ -57,6 +57,26 @@ describe("Conversation API", () => {
       const body = await json(res);
       expect(body.error).toContain("Invalid pagination parameters");
     });
+
+    it("search 参数透传到 listWithMeta（F20260916lpsc）", async () => {
+      deps.manageConversation.listWithMeta.mockResolvedValue([]);
+
+      const res = await app.request("/api/conversations?search=%E5%B7%A5%E4%BD%9C%E5%8C%BA");
+      expect(res.status).toBe(200);
+      expect(deps.manageConversation.listWithMeta).toHaveBeenCalledWith("web-user", {
+        limit: 50, offset: 0, search: "工作区",
+      });
+    });
+
+    it("未带 search 参数时传 undefined", async () => {
+      deps.manageConversation.listWithMeta.mockResolvedValue([]);
+
+      const res = await app.request("/api/conversations");
+      expect(res.status).toBe(200);
+      expect(deps.manageConversation.listWithMeta).toHaveBeenCalledWith("web-user", {
+        limit: 50, offset: 0, search: undefined,
+      });
+    });
   });
 
   // ─── POST /api/conversations ───
