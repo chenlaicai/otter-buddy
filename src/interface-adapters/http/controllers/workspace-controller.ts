@@ -44,6 +44,7 @@ export class WorkspaceController {
       const body: WorkspaceListDirResponse = {
         entries,
         basePath: relativePath || "",
+        rootPath: this.manageWorkspace.getWorkspacePath(conversationId),
       };
       return c.json(body);
     } catch (err) {
