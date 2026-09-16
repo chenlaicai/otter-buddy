@@ -41,6 +41,14 @@ describe('applyInvokeStart', () => {
     states = applyInvokeStart(states, startPayload({ invokeId: 'inv-2', startedAt: '2026-09-10T07:00:00Z' }))
     expect(states['otter-a']).toMatchObject({ invokeId: 'inv-2', status: 'running' })
   })
+
+  it('保留上轮 ctx：start 覆盖后仍携带上轮终态的 ctxWindowUsed/ctxMax（右栏休息中/行动间隙一致展示）', () => {
+    let states = applyInvokeStart({}, startPayload())
+    states = applyInvokeTick(states, { invokeId: 'inv-1', otterId: 'otter-a', conversationId: 'conv-1', ctxWindowUsed: 45200, ctxMax: 200000, toolCallCount: 8 })
+    states = applyInvokeEnd(states, { invokeId: 'inv-1', otterId: 'otter-a', status: 'completed', endedAt: '2026-09-10T06:01:00Z' })
+    states = applyInvokeStart(states, startPayload({ invokeId: 'inv-2', startedAt: '2026-09-10T07:00:00Z' }))
+    expect(states['otter-a']).toMatchObject({ invokeId: 'inv-2', status: 'running', ctxWindowUsed: 45200, ctxMax: 200000 })
+  })
 })
 
 describe('applyInvokeEnd', () => {
