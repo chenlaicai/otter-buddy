@@ -35,7 +35,7 @@ function sortEntries(entries: WorkspaceEntry[]): WorkspaceEntry[] {
 }
 
 /** 从 API 加载目录内容 */
-async function fetchDir(conversationId: string, path?: string): Promise<WorkspaceEntry[]> {
+async function fetchDir(conversationId: string, path?: string): Promise<WorkspaceListDirResponse> {
   const url = path
     ? `/api/conversations/${conversationId}/workspace?path=${encodeURIComponent(path)}`
     : `/api/conversations/${conversationId}/workspace`
@@ -44,8 +44,7 @@ async function fetchDir(conversationId: string, path?: string): Promise<Workspac
     const err = await res.json().catch(() => ({ error: '加载失败' }))
     throw new Error(err.error || '加载失败')
   }
-  const data = (await res.json()) as WorkspaceListDirResponse
-  return data.entries
+  return (await res.json()) as WorkspaceListDirResponse
 }
 
 /** 从 API 加载文件内容 */
@@ -292,12 +291,15 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
   // ── 右键菜单状态 ──
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; entry: WorkspaceEntry } | null>(null)
 
+  /** 工作区根目录绝对路径（头部展示，仅根目录加载时更新） */
+  const [rootPath, setRootPath] = useState<string | null>(null)
+
   /** 加载根目录（仅初次） */
   useEffect(() => {
     let cancelled = false
     setLoadingPath('__root__')
     fetchDir(conversationId)
-      .then(entries => { if (!cancelled) { setRootEntries(entries); setDirCache(prev => new Map(prev).set('', entries)) } })
+      .then(data => { if (!cancelled) { setRootEntries(data.entries); setDirCache(prev => new Map(prev).set('', data.entries)); setRootPath(data.rootPath) } })
       .catch(err => { if (!cancelled) setError(err instanceof Error ? err.message : '加载失败') })
       .finally(() => { if (!cancelled) setLoadingPath(null) })
     return () => { cancelled = true }
@@ -317,7 +319,7 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
       setDirErrorMap(prev => { const n = new Map(prev); n.delete(path); return n })
       try {
         const children = await fetchDir(conversationId, path)
-        setDirCache(prev => new Map(prev).set(path, children))
+        setDirCache(prev => new Map(prev).set(path, children.entries))
         setExpandedSet(prev => new Set(prev).add(path))
       } catch (err) {
         setDirErrorMap(prev => new Map(prev).set(path, err instanceof Error ? err.message : '加载失败'))
@@ -402,9 +404,20 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
   return (
     <div className="flex flex-col h-full" ref={panelRef}>
       {/* 头部 */}
-      <div className="flex items-center gap-2 p-2 border-b border-white/20">
-        <Folder className="w-4 h-4 text-stone-400" />
-        <span className="text-xs font-semibold text-stone-500">工作区</span>
+      <div className="p-2 border-b border-white/20">
+        <div className="flex items-center gap-2">
+          <Folder className="w-4 h-4 text-stone-400" />
+          <span className="text-xs font-semibold text-stone-500">工作区</span>
+        </div>
+        {rootPath && (
+          <div
+            data-testid="workspace-root-path"
+            title={rootPath}
+            className="mt-1 text-[10px] text-stone-400 font-mono truncate select-all"
+          >
+            {rootPath}
+          </div>
+        )}
       </div>
 
       {/* 树 + 文件预览 */}

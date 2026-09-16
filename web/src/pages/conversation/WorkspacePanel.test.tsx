@@ -22,14 +22,18 @@ const ROOT_ENTRIES = {
     { name: 'subdir', isDirectory: true, isFile: false, path: 'subdir' },
     { name: 'readme.md', isDirectory: false, isFile: true, path: 'readme.md' },
     { name: 'alpha.txt', isDirectory: false, isFile: true, path: 'alpha.txt' },
-  ]
+  ],
+  basePath: '',
+  rootPath: '/data/workspaces/test',
 }
 
 const SUBDIR_ENTRIES = {
   entries: [
     { name: 'nested-file.html', isDirectory: false, isFile: true, path: 'subdir/nested-file.html' },
     { name: 'deep', isDirectory: true, isFile: false, path: 'subdir/deep' },
-  ]
+  ],
+  basePath: 'subdir',
+  rootPath: '/data/workspaces/test',
 }
 
 function makeFetch(data: unknown): typeof fetch {
@@ -141,6 +145,16 @@ describe('WorkspacePanel 树形渲染', () => {
     const children = container.querySelector('[data-testid="folder-children-subdir"]')
     expect(children).not.toBeNull()
     expect(children!.textContent).toContain('nested-file.html')
+  })
+
+  it('头部展示工作区根目录绝对路径', async () => {
+    globalThis.fetch = makeFetch(ROOT_ENTRIES)
+    await act(async () => { root.render(<WorkspacePanel conversationId="test" />) })
+
+    const pathEl = container.querySelector('[data-testid="workspace-root-path"]')
+    expect(pathEl).not.toBeNull()
+    expect(pathEl!.textContent).toBe('/data/workspaces/test')
+    expect(pathEl!.getAttribute('title')).toBe('/data/workspaces/test')
   })
 })
 

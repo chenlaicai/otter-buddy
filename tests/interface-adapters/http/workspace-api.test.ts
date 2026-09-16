@@ -89,8 +89,16 @@ describe("Workspace HTTP API", () => {
     it("合法 UUID conversationId 正常通过", async () => {
       const res = await app.request(`/api/conversations/${VALID_CONV_ID}/workspace`);
       expect(res.status).toBe(200);
-      const body = await res.json() as { entries: Array<{ name: string }> };
+      const body = await res.json() as { entries: Array<{ name: string }>; rootPath: string };
       expect(body.entries.length).toBeGreaterThan(0);
+    });
+
+    it("listDir 响应体含 rootPath（工作区根绝对路径）", async () => {
+      const res = await app.request(`/api/conversations/${VALID_CONV_ID}/workspace`);
+      expect(res.status).toBe(200);
+      const body = await res.json() as { entries: unknown[]; rootPath: string };
+      expect(typeof body.rootPath).toBe("string");
+      expect(body.rootPath.length).toBeGreaterThan(0);
     });
   });
 

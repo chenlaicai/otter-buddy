@@ -35,6 +35,8 @@ export interface WorkspaceListDirResponse {
   entries: WorkspaceEntry[];
   /** 请求的 path 参数（缺省为根目录时为空串） */
   basePath: string;
+  /** 工作区根目录绝对路径（前端头部展示用） */
+  rootPath: string;
 }
 
 /** POST /api/conversations/:id/workspace/reveal 请求体 */
