@@ -2,25 +2,13 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-PID_FILE="$PROJECT_DIR/.otter-buddy.pid"
-LOG_FILE="$PROJECT_DIR/.otter-buddy.log"
+PID_FILE="${PROJECT_DIR}/.otter-buddy.pid"
+LOG_FILE="${PROJECT_DIR}/.otter-buddy.log"
 PORT="${PORT:-3000}"
 
-# F20260916gsrd：主仓判定——解析符号链接后的真实 git 根。
-# worktree 的 .git 是指向主仓 .git/worktrees/<name> 的文件，
-# git rev-parse --path-format=absolute --git-common-dir 统一返回主仓 .git 目录。
-# 判定不到（非 git 目录等异常）时按主仓处理（保守拦截，宁可误拒不可误杀）。
-main_repo_root() {
-  local common
-  common=$(git -C "$PROJECT_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
-  (cd "$common/.." && pwd)
-}
-
-is_primary_checkout() {
-  local main_root
-  main_root=$(main_repo_root) || return 0  # 判定失败按主仓对待
-  [ "$PROJECT_DIR" = "$main_root" ]
-}
+# F20260916gtlr：本脚本是纯工具——不携带任何防海獭逻辑。
+# 「海獭不得杀主进程」由 agent 运行时守卫在 tool 调用层拦截（bash-safety-guard），
+# 海獭的一切命令必经 tool 管道，人走终端天然不在拦截域内。
 
 # 解析 -p / --port 参数
 while [[ $# -gt 0 ]]; do
@@ -121,22 +109,6 @@ cmd_start() {
 }
 
 cmd_stop() {
-  # F20260916gsrd：主仓生产服务保护——海獭/开发者在本仓（非 worktree）跑 stop/restart
-  # 时，PID 文件指向的很可能是正在运行的生产主服务（9/16 事故：獭验证代码后执行
-  # `otter-buddy.sh restart` 杀掉主进程 31385，全对话停摆）。worktree 内管理自己的
-  # 隔离实例不受影响（PROJECT_DIR 不同）。确需操作主仓服务，由搭档人工执行。
-  if is_primary_checkout; then
-    local my_pid_guard
-    my_pid_guard=$(get_pid)
-    if [ -n "$my_pid_guard" ] && kill -0 "$my_pid_guard" 2>/dev/null; then
-      echo "[error] Refusing to stop: 当前目录是主仓（$PROJECT_DIR），PID 文件指向运行中的主服务 (PID $my_pid_guard)。"
-      echo "        主服务是海獭运行环境，脚本不提供主仓 stop/restart 出口。"
-      echo "        验证代码变更：在 worktree 用独立端口启动隔离实例（见 F20260914dsrv）。"
-      echo "        确需重启主服务：请搭档人工执行（本脚本不为自动化/LLM 提供此通道）。"
-      return 1
-    fi
-  fi
-
   local my_pid
   my_pid=$(get_pid)
 

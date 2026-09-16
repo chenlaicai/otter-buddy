@@ -70,10 +70,10 @@ const PID_FILE_REFERENCE = /\.otter-buddy\.pid/;
 /** F20260916gsrd：主服务管理脚本调用模式（自杀命令清单）。
  *  9/16 事故：獭执行 `./scripts/otter-buddy.sh restart` 杀掉主进程 31385——字面不含
  *  kill 词元，完全在 kill 族检测视野外。脚本内部 stop→kill -15 主 PID，restart 再拉起，
- *  搭档感知为「全场停摆又自恢复」。此类调用与 kill 主进程同级，一律拦截走 bash_safety
- *  引导通道。覆盖形态：相对/绝对/波浪线路径、bash|sh 显式解释器、sudo 包装、
- *  stop|restart 子命令（start/status/logs 不拦）。restart-service.mjs 目标是主服务端口时
- *  由脚本自身白名单校验兜底（F20260914dsrv），此处只拦 otter-buddy.sh。 */
+ *  搭档感知为「全场停摆又自恢复」。覆盖形态：相对/绝对/波浪线路径、bash|sh 显式解释器、
+ *  sudo 包装、stop|restart 子命令（start/status/logs 不拦）。
+ *  F20260916gtlr：判定逻辑迁移至 SCRIPT_PATH_EXTRACT（捕获组版，路径词元口径一致）——
+ *  本常量保留供诊断词表（locateTriggerContext「主服务脚本」）与口径参照使用。 */
 const SERVICE_SCRIPT_KILL = /(?:^|[;&|`$(])\s*(?:sudo\s+)?(?:(?:bash|sh)\s+)?(?:[\w.~/-]*\/)?(?:scripts\/)?otter-buddy\.sh\s+(?:stop|restart)\b/;
 
 /**
@@ -294,11 +294,43 @@ function pkillTargetsOtter(segment: string): boolean {
   );
 }
 
-/** F20260916gsrd：主服务脚本自杀命令检测（独立规则，调用点在 checkBashCommandSafetyOnText） */
-function checkServiceScriptKill(command: string, mainPid: number, logger?: Logger): string | null {
-  if (!SERVICE_SCRIPT_KILL.test(command.toLowerCase())) return null;
-  logger?.warn("[bash-safety-guard] BLOCKED otter-buddy.sh stop/restart (service script suicide)", { mainPid, command: command.substring(0, 200) });
-  return "bash 命令调用了主服务管理脚本（otter-buddy.sh stop/restart），脚本内部会终止主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止——你不存在需要重启或停止主进程的合法场景。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。";
+/** F20260916gtlr：脚本路径提取（捕获组），与 SERVICE_SCRIPT_KILL 路径词元口径 + 前导约束一致，改动需同步。
+ *  前导分组（^/操作符/命令替换位）保证只匹配命令位置——中文语境裸文本提及（echo otter-buddy.sh restart 是危险操作）不误拦。 */
+const SCRIPT_PATH_EXTRACT = /(?:^|[;&|`$(])\s*(?:sudo\s+)?(?:(?:bash|sh)\s+)?((?:[\w.~/-]*\/)?(?:scripts\/)?otter-buddy\.sh)\s+(?:stop|restart)\b/gi;
+/** F20260916gtlr：脚本引用（间接形态检测用） */
+const SCRIPT_REFERENCE = /otter-buddy\.sh/i;
+/** F20260916gtlr：间接调用特征（$VAR / $(...) / ${...} / 反引号），与 INDIRECT_PID_PATTERNS 同族 */
+const INDIRECT_CALL_FEATURE = /\$[{({A-Za-z_]|`/;
+
+/** F20260916gtlr：脚本路径解析——相对路径基于 projectRoot（=主仓根，海獭 bash cwd 恒为主仓）resolve 并归一化。
+ *  返回 true 表示解析到主仓 scripts（目标是进程1 的管理脚本）。projectRoot 缺失时保守按主仓对待。 */
+function resolvesToMainCheckout(scriptPath: string, projectRoot?: string): boolean {
+  if (!projectRoot) return true; // 保守退化
+  if (scriptPath.startsWith("~")) return true; // ~ 不展开，保守拦截
+  const resolved = path.isAbsolute(scriptPath)
+    ? path.normalize(scriptPath)
+    : path.normalize(path.resolve(projectRoot, scriptPath));
+  return path.dirname(resolved) === path.normalize(path.join(projectRoot, "scripts"));
+}
+
+/** F20260916gsrd：主服务脚本自杀命令检测（独立规则，调用点在 checkBashCommandSafetyOnText）
+ *  F20260916gtlr：从全局文本拦改为主仓路径限定拦（worktree 绝对路径调用放行，脚本层兜底已删，
+ *  守卫是唯一防线）+ 间接调用保守拦截（变量/命令替换隐藏 stop/restart 的形态）。 */
+function checkServiceScriptKill(command: string, mainPid: number, logger?: Logger, projectRoot?: string): string | null {
+  // 形态 1：字面 stop/restart——提取全部脚本路径，任一解析到主仓 scripts 即拦；全部不在主仓（worktree 自管实例）放行
+  const matches = [...command.matchAll(SCRIPT_PATH_EXTRACT)];
+  if (matches.length > 0) {
+    const hitsMain = matches.some((m) => resolvesToMainCheckout(m[1], projectRoot));
+    if (!hitsMain) return null;
+    logger?.warn("[bash-safety-guard] BLOCKED otter-buddy.sh stop/restart targeting main checkout", { mainPid, command: command.substring(0, 200) });
+    return "bash 命令调用的 otter-buddy.sh 解析到主仓，其 stop/restart 会终止主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止——你不存在需要重启或停止主进程的合法场景。若需验证代码变更请在 worktree 用独立端口启动隔离实例（使用该 worktree 的绝对路径调用脚本）；服务异常请报告搭档。";
+  }
+  // 形态 2：间接调用——含脚本引用 + 间接特征（$VAR/$()/反引号）但无字面 stop/restart，保守拦截
+  if (SCRIPT_REFERENCE.test(command) && INDIRECT_CALL_FEATURE.test(command)) {
+    logger?.warn("[bash-safety-guard] BLOCKED otter-buddy.sh indirect invocation", { mainPid, command: command.substring(0, 200) });
+    return "bash 命令包含 otter-buddy.sh 引用与间接调用特征（变量/命令替换），无法静态确认是否终止主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。请使用字面命令：脚本绝对路径 + 字面子命令（start/stop/restart/status）；服务异常请报告搭档。";
+  }
+  return null;
 }
 
 function checkCommandLevelPatterns(
@@ -372,10 +404,11 @@ function checkBashCommandSafetyOnText(
   mainPid: number,
   logger?: Logger,
   allowedServices: AllowedService[] = [],
+  projectRoot?: string,
 ): string | null {
   // F20260916gsrd：主服务脚本自杀命令——最优先判定（9/16 事故：otter-buddy.sh restart
   // 杀主进程，kill 族检测看不到脚本名；脚本调用语义明确，无需保守降级）
-  const scriptKill = checkServiceScriptKill(text, mainPid, logger);
+  const scriptKill = checkServiceScriptKill(text, mainPid, logger, projectRoot);
   if (scriptKill) return scriptKill;
   // 全命令级高危模式检测（在分段前检查，防止 eval/pipe-to-shell 绕过分段检测）。
   // #918 检视严重 1：必须先于白名单放行——否则 `lsof -t -i:3100 | sh -c 'k...'` 类
@@ -411,7 +444,7 @@ function locateTriggerContext(command: string, mainPid: number | null): string[]
   const hits: string[] = [];
   const patterns: Array<[string, RegExp]> = [
     ["kill 族命令", /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:p?kill|skill|killall5?|pgrep)\b/gi],
-    ["主服务脚本", /otter-buddy\.sh\s+(?:stop|restart)/gi],
+    ["主服务脚本", new RegExp(SERVICE_SCRIPT_KILL.source, "gi")],
     ["eval 引用", /\beval\b/gi],
     ["PID 文件引用", /\.otter-buddy\.pid/g],
     ["进程名模式", /\b(?:otter-buddy|otter_buddy|dist\/src\/main|main\.js|node)\b/g],
@@ -454,31 +487,56 @@ function withDiagnostics(message: string, scanText: string, mainPid: number | nu
  *
  * @returns null 表示安全；字符串表示危险原因
  */
+/**
+ * F20260916gtlr：入口快速通道——mainPid 为 null（PID 文件缺失/损坏）时只做脚本判定。
+ * 脚本路径判定不依赖 PID 信息，仍需拦截主仓脚本 stop/restart（脚本层兜底已删，
+ * 此处是唯一防线）；kill 族判定无 PID 可比对，保守放行。抽为独立函数控制主入口圈复杂度。
+ */
+function checkWhenMainPidMissing(
+  command: string,
+  logger?: Logger,
+  guardOptions?: GuardOptions,
+): string | null {
+  const scriptKill = checkServiceScriptKill(command, 0, logger, guardOptions?.projectRoot);
+  return scriptKill ? withDiagnostics(scriptKill, command, null) : null;
+}
+
+/** F20260916gtlr：脱敏扫描路径（#858）——抽为独立函数控制主入口圈复杂度。
+ *  脱敏后干净（纯数据操作）→ 返回 null 信号外层直接放行；仍命中 → 继续原文本路径。 */
+function checkSanitizedPath(
+  command: string,
+  mainPid: number,
+  logger: Logger | undefined,
+  allowedServices: AllowedService[],
+  projectRoot: string | undefined,
+): string | null | undefined {
+  if (!shouldSanitizeForScan(command)) return undefined;
+  return checkBashCommandSafetyOnText(sanitizeQuotedText(command), mainPid, logger, allowedServices, projectRoot);
+}
+
 export function checkBashCommandSafety(
   command: string,
   mainPid: number | null,
   logger?: Logger,
   guardOptions?: GuardOptions,
 ): string | null {
-  if (!command.trim() || mainPid === null) return null;
+  if (!command.trim()) return null;
+  if (mainPid === null) return checkWhenMainPidMissing(command, logger, guardOptions);
 
   // #844：白名单热加载（与 PID 文件同策略：每次判定重读，mtime 缓存去抖）
   const allowedServices = guardOptions?.projectRoot ? loadAllowedServicePorts(guardOptions.projectRoot) : [];
+  const projectRoot = guardOptions?.projectRoot;
 
-  // #858：内嵌文本脱敏——引号内数据文本含敏感词元且无危险通道时，拦截判定在
-  // 脱敏文本上跑。脱敏后干净（纯数据操作）→ 放行；仍命中（引号外有真实命令）
-  // → 继续原文本路径（诊断信息扫原文，回显真实命中点）
-  if (shouldSanitizeForScan(command)) {
-    const sanitizedResult = checkBashCommandSafetyOnText(sanitizeQuotedText(command), mainPid, logger, allowedServices);
-    if (!sanitizedResult) return null;
-  }
+  // #858：内嵌文本脱敏——脱敏后干净（纯数据操作）→ 放行；仍命中 → 继续原文本路径
+  const sanitizedResult = checkSanitizedPath(command, mainPid, logger, allowedServices, projectRoot);
+  if (sanitizedResult === null) return null;
 
-  const result = checkBashCommandSafetyOnText(command, mainPid, logger, allowedServices);
+  const result = checkBashCommandSafetyOnText(command, mainPid, logger, allowedServices, projectRoot);
   if (result) return withDiagnostics(result, command, mainPid);
 
   const normalized = normalizeForDetection(command);
   if (normalized !== command) {
-    const nResult = checkBashCommandSafetyOnText(normalized, mainPid, logger, allowedServices);
+    const nResult = checkBashCommandSafetyOnText(normalized, mainPid, logger, allowedServices, projectRoot);
     return nResult ? withDiagnostics(nResult, normalized, mainPid) : null;
   }
   return null;
