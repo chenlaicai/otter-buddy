@@ -693,7 +693,7 @@ describe("#698 攻击链回归：wrapper/赋值/bash -c/xargs 参数/路径变�
     expect(result).toContain("主进程");
   });
 
-  it("bash -c 单引号内嵌：bash -c 'scripts/otter-buddy.sh stop' → 放行（与 #970 语义一致：前导约束不匹配 -c 后的引号，单引号载荷不展开，同旧行为）", () => {
+  it("bash -c 单引号内嵌：bash -c 'scripts/otter-buddy.sh stop' → 放行（与 #970 语义一致：前导字符类 [;&|`$(] 含反引号 U+0060 但不含单引号 U+0027，故 -c 后的单引号载荷不匹配；行为同旧，非本 PR 引入的缺口）", () => {
     const result = checkBashCommandSafety("bash -c 'scripts/otter-buddy.sh stop'", mainPid);
     expect(result).toBeNull();
   });
