@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
+import { load as loadSqliteVec } from "sqlite-vec";
 import { initSchema } from "@frameworks/db/schema";
 import { migrateDatabase } from "@frameworks/db/migration";
 import { createTestLogger } from "../../helpers/logger";
@@ -687,6 +688,66 @@ describe("migrateDatabase - F20260915midu: rebuildMemoryEntriesUnifyIds", () => 
       expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
       const c = db.prepare("SELECT COUNT(*) AS c FROM memory_entries").get() as { c: number };
       expect(c.c).toBe(0);
+    } finally {
+      db.close();
+    }
+  });
+
+  /** 2026-09-16 生产现场回归：卫星表 CTAS 重建丢结构——embedding_tasks 丢 PK 后
+   *  enqueueRetry 的 ON CONFLICT 启动即炸（服务起不来），FTS5/vec0 退化为普通表检索全废。
+   *  修复后改原地 DELETE+INSERT 换键，表结构零改动。 */
+  it("回归：迁移后卫星表结构不丢（PK / FTS5 虚拟表），ON CONFLICT 与 MATCH 可用", () => {
+    const db = createLegacyDualIdDb();
+    try {
+      migrateDatabase(db, createTestLogger());
+
+      // embedding_tasks 保留 PRIMARY KEY（enqueueRetry 的 ON CONFLICT(entry_id) 依赖）
+      const tasksDdl = (db.prepare("SELECT sql FROM sqlite_master WHERE name='embedding_tasks'").get() as { sql: string }).sql;
+      expect(tasksDdl).toContain("PRIMARY KEY");
+      // 功能探针：生产崩溃点的写入路径
+      expect(() => db.prepare(`
+        INSERT INTO embedding_tasks (entry_id, next_retry_at, status, created_at, last_error)
+        VALUES ('res-001', datetime('now'), 'pending', datetime('now'), 'probe')
+        ON CONFLICT(entry_id) DO UPDATE SET last_error = excluded.last_error
+      `).run()).not.toThrow();
+
+      // memory_weights 保留 PRIMARY KEY
+      const weightsDdl = (db.prepare("SELECT sql FROM sqlite_master WHERE name='memory_weights'").get() as { sql: string }).sql;
+      expect(weightsDdl).toContain("PRIMARY KEY");
+
+      // memory_fts_jieba 仍是 FTS5 虚拟表，MATCH 可查（普通表会在 prepare 阶段炸）
+      const ftsDdl = (db.prepare("SELECT sql FROM sqlite_master WHERE name='memory_fts_jieba'").get() as { sql: string }).sql;
+      expect(ftsDdl).toContain("fts5");
+      const hits = db.prepare("SELECT COUNT(*) AS c FROM memory_fts_jieba WHERE memory_fts_jieba MATCH '资源'").get() as { c: number };
+      expect(hits.c).toBe(1);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("回归：加载 sqlite-vec 时 memory_vec 迁移后仍是 vec0 虚拟表，KNN 可查", () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    let vecLoaded = true;
+    try { loadSqliteVec(db); } catch { vecLoaded = false; } // vitest 环境无扩展则跳过
+    if (!vecLoaded) { db.close(); return; }
+    try {
+      initSchema(db);
+      db.prepare(`INSERT INTO memory_entries (id, layer, content_type, source_id, source_table, conversation_id, granularity, content, metadata, created_at)
+        VALUES ('old-proj-res', 'working', 'linked_resource', 'res-001', 'linked_resources', NULL, 'coarse', '资源内容', NULL, '2026-09-01T00:00:00Z')`).run();
+      const embedding = Buffer.from(new Float32Array(1024).fill(0.5).buffer);
+      db.prepare("INSERT INTO memory_vec (memory_entry_id, embedding) VALUES (?, ?)").run("old-proj-res", embedding);
+
+      migrateDatabase(db, createTestLogger());
+
+      const vecDdl = (db.prepare("SELECT sql FROM sqlite_master WHERE name='memory_vec'").get() as { sql: string }).sql;
+      expect(vecDdl).toContain("vec0");
+      // 键跟随 + KNN 可查（虚拟表结构完好的功能探针）
+      const knn = db.prepare(
+        "SELECT memory_entry_id FROM memory_vec WHERE embedding MATCH ? AND k = 1",
+      ).all(embedding) as Array<{ memory_entry_id: string }>;
+      expect(knn).toHaveLength(1);
+      expect(knn[0].memory_entry_id).toBe("res-001");
     } finally {
       db.close();
     }

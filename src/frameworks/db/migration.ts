@@ -191,8 +191,11 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
  * 级联表处理：
  * - memory_edges：from/to 换键复制（无需去重——UNIQUE(from,to,type) 索引使存量无同键边，
  *   而 remap 后同键要求两条目映射到同一新 id，该场景已被 dup source 整形先行清掉）
- * - memory_weights / memory_fts_jieba / memory_vec / embedding_tasks：键替换复制
- *   （vec 复制现成向量，不走 retry worker——无暗化窗口）
+ * - memory_weights / memory_fts_jieba / memory_vec / embedding_tasks：原地 DELETE+INSERT
+ *   换键，只触及换键行，表结构零改动（vec 保留现成向量，不走 retry worker——无暗化窗口）。
+ *   Why 不用 _new 表重建：CREATE TABLE AS SELECT 只拷数据不拷约束——embedding_tasks 丢
+ *   PRIMARY KEY 后 enqueueRetry 的 ON CONFLICT 启动即炸、FTS5/vec0 虚拟表退化为普通表
+ *   检索全废（2026-09-16 生产现场，服务起不来）；vec0 RENAME 还不跟随 shadow 表。
  *
  * 幂等：可统一类中无 id != source_id 即返回（重复执行零变化）。
  * 备份：属调用方职责（主库迁移前手工 cp data/backups/，特性文档已约定）。
@@ -248,22 +251,34 @@ function normalizeDuplicateSources(db: Database.Database, logger: Logger): void 
   logger.info(`Normalized ${dupGroups.length} duplicate (source_table, source_id) groups before id unification (F20260915midu)`);
 }
 
-/** 卫星表换键复制（_new → swap）。memory_vec 在 sqlite-vec 不可用时表不存在，跳过。 */
-function remapKeyedTable(db: Database.Database, remap: (id: string) => string, table: string, keyColumn: string, extraColumns: string[]): void {
+/** 卫星表换键：原地 DELETE+INSERT 只触及换键行，表结构零改动。
+ *  Why 不重建表：CTAS（CREATE TABLE AS SELECT）丢约束、FTS5/vec0 虚拟表退化为普通表，
+ *  vec0 RENAME 不跟随 shadow 表（见 migrateDatabase 头注生产现场）。
+ *  新键与存量行撞主键 → INSERT 抛出、事务回滚（与 occupied 预检同哲学：提前炸不留半状态库）。
+ *  memory_vec 在 sqlite-vec 不可用时表不存在，跳过。 */
+function remapKeyedTable(db: Database.Database, idMap: Map<string, string>, table: string, keyColumn: string, extraColumns: string[]): void {
   const tableExists = db.prepare(
     "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
   ).get(table) as { name: string } | undefined;
   if (!tableExists) return;
   const cols = [keyColumn, ...extraColumns];
-  db.exec(`CREATE TABLE ${table}_new AS SELECT ${cols.join(", ")} FROM ${table} WHERE 0`);
-  const rows = db.prepare(`SELECT ${cols.join(", ")} FROM ${table}`).all() as Array<Record<string, unknown>>;
+  const del = db.prepare(`DELETE FROM ${table} WHERE ${keyColumn} = ?`);
   const insert = db.prepare(
-    `INSERT INTO ${table}_new (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`,
+    `INSERT INTO ${table} (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`,
   );
-  for (const row of rows) {
-    insert.run(...cols.map((c) => (c === keyColumn ? remap(row[c] as string) : row[c])));
+  // 分批 IN 查询，防超 SQLITE_MAX_VARIABLE_NUMBER
+  const oldIds = [...idMap.keys()];
+  const CHUNK = 500;
+  for (let i = 0; i < oldIds.length; i += CHUNK) {
+    const chunk = oldIds.slice(i, i + CHUNK);
+    const rows = db.prepare(
+      `SELECT ${cols.join(", ")} FROM ${table} WHERE ${keyColumn} IN (${chunk.map(() => "?").join(",")})`,
+    ).all(...chunk) as Array<Record<string, unknown>>;
+    for (const row of rows) {
+      del.run(row[keyColumn] as string);
+      insert.run(...cols.map((c) => (c === keyColumn ? idMap.get(row[c] as string) : row[c])));
+    }
   }
-  db.exec(`DROP TABLE ${table}; ALTER TABLE ${table}_new RENAME TO ${table};`);
 }
 
 /** 主表 + edges 换键复制（事务内步骤 1-2）。 */
@@ -325,7 +340,6 @@ function swapRebuiltTables(db: Database.Database): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_edges_unique ON memory_edges(from_entry_id, to_entry_id, edge_type);
     CREATE INDEX IF NOT EXISTS idx_memory_edges_from ON memory_edges(from_entry_id, edge_type);
     CREATE INDEX IF NOT EXISTS idx_memory_edges_to ON memory_edges(to_entry_id, edge_type);
-    CREATE INDEX IF NOT EXISTS idx_embedding_tasks_status_retry ON embedding_tasks (status, next_retry_at);
   `);
 }
 
@@ -363,10 +377,10 @@ function rebuildMemoryEntriesUnifyIds(db: Database.Database, logger: Logger): vo
   try {
     db.transaction(() => {
       rebuildEntriesAndEdges(db, remap);
-      remapKeyedTable(db, remap, "memory_weights", "memory_entry_id", ["retrieval_count", "last_retrieved_at", "user_flagged"]);
-      remapKeyedTable(db, remap, "memory_fts_jieba", "memory_entry_id", ["content"]);
-      remapKeyedTable(db, remap, "memory_vec", "memory_entry_id", ["embedding"]);
-      remapKeyedTable(db, remap, "embedding_tasks", "entry_id", ["attempts", "last_error", "last_attempt_at", "next_retry_at", "status", "created_at"]);
+      remapKeyedTable(db, idMap, "memory_weights", "memory_entry_id", ["retrieval_count", "last_retrieved_at", "user_flagged"]);
+      remapKeyedTable(db, idMap, "memory_fts_jieba", "memory_entry_id", ["content"]);
+      remapKeyedTable(db, idMap, "memory_vec", "memory_entry_id", ["embedding"]);
+      remapKeyedTable(db, idMap, "embedding_tasks", "entry_id", ["attempts", "last_error", "last_attempt_at", "next_retry_at", "status", "created_at"]);
       swapRebuiltTables(db);
     })();
 
