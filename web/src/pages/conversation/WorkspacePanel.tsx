@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type ComponentProps } from 'react'
+import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ChevronRight, ExternalLink, FileText, Folder, FolderOpen, Loader2 } from 'lucide-react'
@@ -473,7 +474,11 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
       </div>
 
       {/* 右键菜单：fixed 蒙层 + 玻璃卡片（仿 index.tsx ctxMenu 模式） */}
-      {ctxMenu && (
+      {/* Why Portal：菜单必须挂 document.body——右栏 aside.glass 带 backdrop-filter，
+          按 CSS 规范会成为 containing block，后代 fixed 元素退化为相对 aside 定位，
+          菜单会按「右键坐标 + aside 偏移」飞出视口（F20260916scfx 探针4 实测：
+          右键 x=1605 时菜单 left=3130，Safari/Chromium 均如此，只是此前未实测右栏场景） */}
+      {ctxMenu && createPortal(
         <>
           <div
             className="fixed inset-0 z-40"
@@ -492,7 +497,8 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
               在文件管理器中显示
             </button>
           </div>
-        </>
+        </>,
+        document.body
       )}
     </div>
   )
