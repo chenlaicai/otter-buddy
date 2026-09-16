@@ -517,15 +517,60 @@ class TestNaNNormalization:
         out = json.loads(json.dumps(cli._normalize_public(data)))
         assert out == {"a": None, "b": [{"c": None}, 1.5]}
 
+    # Issue #879: 原实现用 --no-cache 实调 akshare（无效代码 999999），依赖外网返回
+    # 确定性错误 JSON——CI 偶发 subprocess.TimeoutExpired（30s），判定 flaky。
+    # 现改为 subprocess env 注入 mock akshare（零外网），覆盖更完整：真实走通
+    # 「akshare 返回含 NaN/Inf 的 DataFrame → cmd_finance → main 序列化（_normalize +
+    # allow_nan=False）→ stdout 合法 JSON」全管线，原 sanity check（invalid code 错误
+    # 路径是确定性 JSON）变成本用例的特例。
+    MOCK_AKSHARE = '''"""Mock akshare for #879: 返回含 NaN/Inf 的财务 DataFrame，零外网。"""
+import pandas as pd
+
+
+def stock_financial_abstract(symbol):
+    return pd.DataFrame({
+        "选项": ["每股指标", "每股指标"],
+        "指标": ["每股收益", "每股净资产"],
+        "2026-06-30": [float("nan"), 25.6],
+        "2026-03-31": [float("inf"), 24.9],
+    })
+'''
+
     def test_finance_output_is_valid_json(self):
-        """End-to-end: finance with NaN values produces JSON.parse-able stdout (main path)."""
+        """End-to-end: finance with NaN values produces JSON.parse-able stdout (main path).
+
+        #879: mock akshare 经 env 注入子进程（STOCK_CLI_MOCK_AKSHARE），不碰外网。"""
         import subprocess
         script = Path(__file__).resolve().parent.parent / "scripts" / "stock-cli.py"
-        # Sanity check only: run with an invalid code to get deterministic error JSON
-        proc = subprocess.run(
-            ["python3", str(script), "--no-cache", "finance", "999999"],
-            capture_output=True, text=True, timeout=30,
-        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_path = Path(tmpdir) / "mock_akshare.py"
+            mock_path.write_text(self.MOCK_AKSHARE)
+            env = {**os.environ, "STOCK_CLI_MOCK_AKSHARE": str(mock_path)}
+            proc = subprocess.run(
+                [sys.executable, str(script), "--no-cache", "finance", "600519"],
+                capture_output=True, text=True, timeout=30, env=env,
+            )
+        out = json.loads(proc.stdout)  # must parse without error
+        assert out["code"] == "600519"
+        items = out["sections"]["每股指标"]
+        # NaN/Inf 经 _normalize 已序列化为 null（合法 JSON），不是 bare NaN 字面量
+        assert items[0]["2026-06-30"] is None   # nan → null
+        assert items[0]["2026-03-31"] is None   # inf → null
+        assert items[1]["2026-06-30"] == 25.6
+        assert items[1]["2026-03-31"] == 24.9
+
+    def test_finance_invalid_code_error_json_is_valid(self):
+        """#879: 原 sanity check 保留——invalid code 确定性错误 JSON，同样走 mock 不碰外网。"""
+        import subprocess
+        script = Path(__file__).resolve().parent.parent / "scripts" / "stock-cli.py"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_path = Path(tmpdir) / "mock_akshare.py"
+            mock_path.write_text(self.MOCK_AKSHARE)
+            env = {**os.environ, "STOCK_CLI_MOCK_AKSHARE": str(mock_path)}
+            proc = subprocess.run(
+                [sys.executable, str(script), "--no-cache", "finance", "999999"],
+                capture_output=True, text=True, timeout=30, env=env,
+            )
         assert json.loads(proc.stdout)  # must parse without error
 
 
