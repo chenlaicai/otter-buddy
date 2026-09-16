@@ -1096,4 +1096,13 @@ def main():
 
 
 if __name__ == "__main__":
+    # Issue #879: CI 测试用 mock akshare 注入点（subprocess 无法跨进程 unittest.mock）。
+    # 仅当环境变量显式指向 mock 模块文件时才加载；正常生产路径完全不触发，零副作用。
+    _mock_path = os.environ.get("STOCK_CLI_MOCK_AKSHARE")
+    if _mock_path:
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location("akshare", _mock_path)
+        _mock_ak = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_mock_ak)
+        sys.modules["akshare"] = _mock_ak
     main()
