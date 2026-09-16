@@ -84,3 +84,4 @@ PR 创建（或方案落盘）后，交付不算完成——必须经独立审�
 - `../adversarial-review/references/author-response-protocol.md` — 作者处置协议（决策树 + 四分类）细则
 - `../adversarial-review/references/review-loop.md` — 审视轮次结构与收敛判据
 - `references/decision-briefing.md` — 决策简报模板（呈终审 / 呈裁决 / 一切 yield to user 请求拍板时刻必附，SYSTEM.md R8）
+- `references/templates/` — 议题汇报卡模板库（F20260916rptl）：决策通报卡 / 方案对比卡 / 复盘报告卡——L2 决策出 html-card 时套用，写卡前必调 `get_html_card_contract`
