@@ -125,3 +125,46 @@ describe("resolveDefaultTargets：running 优先（test12 案发现场回归）"
     expect(r.targets).toEqual(["big-1"]);
   });
 });
+
+describe("F20260916ment：无效 @ 静默走默认派发（不再弹「目标不存在」 feedback）", () => {
+  it("body 含无法解析的 @名字 → 静默默认派发，无 feedback", async () => {
+    // 现场回归：「系统还当作是在@功能来触发」——词边界外 @ 本就不解析；
+    // 而「 @不存在的獭 」解析出 invalidNames 但无 resolvedIds 时同样静默默认派发
+    const deps = makeDeps({
+      participants: ["big-1"],
+      otters: { "big-1": { name: "大獭", type: "big", status: "active" } },
+      recentSpeakSenders: ["big-1"],
+      running: [],
+    });
+    const r = await resolveSendTargets({ deps, logger, conversationId: "conv-1", explicit: [], body: "但是系统还当作是在@功能来触发，然后报错" });
+    expect(r.targets).toEqual(["big-1"]);
+    expect(r.feedback).toBeUndefined();
+  });
+
+  it("词边界内但名册无此獭（ @幽灵獭 ）→ 同样静默默认派发，无 feedback", async () => {
+    const deps = makeDeps({
+      participants: ["big-1"],
+      otters: { "big-1": { name: "大獭", type: "big", status: "active" } },
+      recentSpeakSenders: ["big-1"],
+      running: [],
+    });
+    const r = await resolveSendTargets({ deps, logger, conversationId: "conv-1", explicit: [], body: "让 @幽灵獭 看看" });
+    expect(r.targets).toEqual(["big-1"]);
+    expect(r.feedback).toBeUndefined();
+  });
+
+  it("混合：有效 @ + 无效 @ → 派发有效目标，无 feedback（无效名字只记日志）", async () => {
+    const deps = makeDeps({
+      participants: ["big-1", "talk-1"],
+      otters: {
+        "big-1": { name: "大獭", type: "big", status: "active" },
+        "talk-1": { name: "话獭", type: "small", status: "active" },
+      },
+      recentSpeakSenders: ["big-1"],
+      running: [],
+    });
+    const r = await resolveSendTargets({ deps, logger, conversationId: "conv-1", explicit: [], body: "@话獭 和 @幽灵獭 看下" });
+    expect(r.targets).toEqual(["talk-1"]);
+    expect(r.feedback).toBeUndefined();
+  });
+});

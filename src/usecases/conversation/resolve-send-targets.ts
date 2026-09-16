@@ -89,10 +89,13 @@ export async function resolveSendTargets(
   const participants = await deps.getActiveParticipants(conversationId);
   const participantNames = await fetchParticipantNames(deps, participants);
   const { resolvedIds, invalidNames } = parseMentionsFromText(body, participantNames);
-  if (resolvedIds.length === 0 && invalidNames.length === 0) {
+  if (invalidNames.length > 0) logger.info('从文本解析到无效 @提及', { conversationId, invalidNames });
+  /** F20260916ment：无有效解析结果时静默走默认派发——不弹「目标不存在」 feedback 打扰搭档。
+   *  文本里没匹配到任何在场獭名（@npm 包名/普通行文提及/词边界外 @），
+   *  语义等同未 @，静默走默认派发链即可——搭档不需要为「@了不存在的獭」负责。 */
+  if (resolvedIds.length === 0) {
     return { targets: await resolveDefaultTargets(deps, conversationId) };
   }
-  if (invalidNames.length > 0) logger.info('从文本解析到无效 @提及', { conversationId, invalidNames });
   return validateTargets(deps, logger, conversationId, resolvedIds, { participants, participantNames });
 }
 
