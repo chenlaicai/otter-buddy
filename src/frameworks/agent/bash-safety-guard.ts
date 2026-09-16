@@ -74,7 +74,7 @@ const PID_FILE_REFERENCE = /\.otter-buddy\.pid/;
  *  引导通道。覆盖形态：相对/绝对/波浪线路径、bash|sh 显式解释器、sudo 包装、
  *  stop|restart 子命令（start/status/logs 不拦）。restart-service.mjs 目标是主服务端口时
  *  由脚本自身白名单校验兜底（F20260914dsrv），此处只拦 otter-buddy.sh。 */
-const SERVICE_SCRIPT_KILL = /(?:^|[;&|]\s*(?:sudo\s+)?)(?:(?:bash|sh)\s+)?(?:[\w.~/-]*\/)?scripts\/otter-buddy\.sh\s+(?:stop|restart)\b|(?:^|[;&|]\s*(?:sudo\s+)?)(?:(?:bash|sh)\s+)?otter-buddy\.sh\s+(?:stop|restart)\b/;
+const SERVICE_SCRIPT_KILL = /(?:^|[;&|`$(])\s*(?:sudo\s+)?(?:(?:bash|sh)\s+)?(?:[\w.~/-]*\/)?(?:scripts\/)?otter-buddy\.sh\s+(?:stop|restart)\b/;
 
 /**
  * #844 白名单放行（方案 A 静态形态）：命令可静态解析为「白名单端口的监听者」为目标时放行。
