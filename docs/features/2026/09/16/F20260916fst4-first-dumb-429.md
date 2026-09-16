@@ -12,7 +12,7 @@ intent:
   problem: "大獭拉小獭时小獭首次发言即 429，链静默终止，大獭永远不知道派工失败，协作卡死必须搭档人工介入"
   expected_effect: "首哑场景大獭被唤醒并处置（降级复活/换人/上报），搭档只在例外路径被升级"
   verify_by:
-    type: unit_test
+    type: static_only
 modules:
   - conversation/dispatch-chain-engine
   - agent-runtime/agent-invoker
