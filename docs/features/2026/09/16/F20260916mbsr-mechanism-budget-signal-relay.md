@@ -42,7 +42,7 @@ from:
 | PR | commit 声明 | 特性文档 | 性质 |
 |---|---|---|---|
 | rptx / dabm / iext / cnms | mechanism-addition | 零检查点零四问 | **真欠账 ×4** |
-| desc | narrow-fix | 有设计取舍无论证 | 检查点命中走①，漏必写的一句论证 |
+| desc | narrow-fix | 有设计取舍节，但全文零检查点/四问 | 更可能是检查点未触发（扩展已有表的灰色地带，检视-968 独立核实修正），非「触发后漏论证」 |
 | n84u / ushm / rgte | 无声明 | 零检查点 | commit-convention 亦被跳过 |
 | cfgt（对照组） | mechanism-addition | 检查点逐项 + 四问 + 重对抗门 | 全链执行 ✅ |
 
@@ -55,7 +55,7 @@ from:
 ## 改动（3 处 prompt 文本）
 
 1. **commit-convention.md** `mechanism-addition` 条目：补「声明此类 = 承诺特性文档『设计取舍』段已含检查点判定+四问；没判过先补再提交」——唯一定期被读到的文本（commit 模板）把信号接力到终点
-2. **commit-convention.md** `narrow-fix` 条目：补「检查点命中仍判①②③须写一句论证」指向（desc 类缺口）
+2. **commit-convention.md** `narrow-fix` 条目：补「检查点命中仍判①②③须写一句论证」指向（覆盖「检查点命中判①②③须写论证」与「灰色地带未触发检查点」两类缺口——后者正是 desc 实况，指向句让执行者先过检查点再分类，两类都被接住）
 3. **code-implementation SKILL.md 步骤 7**：补「机制判定下沉」段——未经 RA 的特性，文档「设计取舍」段必须含检查点判定（命中 → 四问当场作答）
 
 ## 不做什么
