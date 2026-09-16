@@ -5,13 +5,12 @@ import type { CardPreview } from './hooks/useCardBridge'
 import { MessageList } from './MessageList'
 import { MessageInput } from './MessageInput'
 import { useAttachmentStaging, type StagedAttachment } from './hooks/useAttachmentStaging'
-import { showToast } from '../../components/Toast'
 
 interface ChatViewProps {
   conversation: Conversation | null
   messages: Message[]
   state: 'normal' | 'empty' | 'loading' | 'error' | 'no-llm'
-  onSend: (text: string, mentionOtterIds?: string[], attachments?: StagedAttachment[], mode?: 'steer' | 'followUp') => void
+  onSend: (text: string, mentionOtterIds?: string[], attachments?: StagedAttachment[], mode?: 'steer' | 'followUp') => void | Promise<void>
   onStopStream: (messageId: string) => void
   onRetryMessage: (messageId: string) => void
   onRetry: () => void
@@ -43,13 +42,14 @@ export function ChatView(props: ChatViewProps) {
 
   /** F20260916sgcl：发送成功后清空中转区——此前 MessageInput 直接透传 staged 给 onSend，
    *  没有任何环节调 clearAll/takeForSend，导致悬浮附件发送后不消失、下一条消息还会重复携带。
-   *  失败路径（onSend 抛错）不清空，保留附件供重试。 */
-  function handleSendWithStaging(text: string, mentionOtterIds?: string[], attachments?: StagedAttachment[], mode?: 'steer' | 'followUp') {
+   *  await 到 Promise 落定再 clearAll（S1 修复）：失败路径（sendMessage reject）不清空，
+   *  附件保留在中转区供重试；错误 toast 由 index.tsx handleSend 内部统一出，这里不重复。 */
+  async function handleSendWithStaging(text: string, mentionOtterIds?: string[], attachments?: StagedAttachment[], mode?: 'steer' | 'followUp') {
     try {
-      props.onSend(text, mentionOtterIds, attachments, mode)
+      await props.onSend(text, mentionOtterIds, attachments, mode)
       staging.clearAll()
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : '发送失败', 'error')
+    } catch {
+      // 发送失败：附件保留在中转区供重试（toast 已在 handleSend 内部出过）
     }
   }
 

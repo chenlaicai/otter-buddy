@@ -96,11 +96,12 @@ describe('ChatView 附件中转区发送清空（F20260916sgcl）', () => {
     expect(container.querySelector('img[alt="shot.png"]')).toBeNull()
   })
 
-  it('onSend 抛错（发送失败）→ 中转区保留供重试', async () => {
+  it('onSend 异步 reject（发送失败）→ 中转区保留供重试（S1 回归）', async () => {
     uploadMock.mockResolvedValue({
       attachments: [{ id: 'srv-1', kind: 'image', originalName: 'shot.png', mimeType: 'image/png', sizeBytes: 10, width: 100, height: 100 }],
     })
-    const failingSend = vi.fn(() => { throw new Error('network down') })
+    // 真实失败路径：index.tsx handleSend catch 后 rethrow → Promise reject
+    const failingSend = vi.fn().mockRejectedValue(new Error('network down'))
     const { textarea, container } = renderChatView(failingSend)
 
     await act(async () => { firePaste(textarea, [pngFile()]) })
@@ -108,8 +109,10 @@ describe('ChatView 附件中转区发送清空（F20260916sgcl）', () => {
 
     const sendBtn = container.querySelector('button[title^="发送（steer"]')!
     await act(async () => { (sendBtn as HTMLButtonElement).click() })
+    // 等 await 链落定
+    await act(async () => { await Promise.resolve() })
 
-    // 失败路径：缩略图仍在
+    // 失败路径：缩略图仍在（blob 未被 revoke，用户可重试）
     expect(container.querySelector('img[alt="shot.png"]')).toBeTruthy()
   })
 })

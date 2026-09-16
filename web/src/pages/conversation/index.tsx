@@ -805,7 +805,9 @@ function ConversationPage() {
         ...(mode && { mode }),
         ...(attachmentIds && attachmentIds.length > 0 && { attachmentIds }),
       })
-      if (!response.ok) { removeTmpMsg(); showToast('发送失败', 'error'); return }
+      /** F20260916sgcl S1 修复：失败 rethrow 给调用方（ChatView）——此前失败只 toast 不抛出，
+       *  ChatView 的 clearAll 无法区分成败，会在失败时也清空中转区、附件 blob 被 revoke、用户无法重试。 */
+      if (!response.ok) { removeTmpMsg(); showToast('发送失败', 'error'); throw new Error('sendMessage failed') }
 
       // F20260913ctlv test12：Magic Word「停下」全场急停——后端 202 { status: 'halted', halted }
       //（不落库不点火）；前端移除 tmp 气泡 + 提示，被停 invoke 的终态条目经常驻通道到达
@@ -980,6 +982,7 @@ function ConversationPage() {
       console.error('Failed to send message:', err)
       removeTmpMsg()
       showToast('发送失败', 'error')
+      throw err // F20260916sgcl S1：失败信号传出，ChatView 据此跳过 clearAll、保留附件供重试
     }
   }, [activeId, refreshMessages, batchUpdateMessages, refreshParticipantsAfterDissolve, upsertOtterIfAbsentDeferred])
 
