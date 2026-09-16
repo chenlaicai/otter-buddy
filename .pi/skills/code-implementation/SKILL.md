@@ -57,6 +57,8 @@ category: technique
 
 7. **文档**：将实现要点、变更说明写入本特性的文档——**新建追加，不改历史**（铁律）：本特性已有文档（本分支/本 PR 内创建）则追加；否则新建 `docs/features/` 文档记录，包括「本次变更对旧特性做了什么」也写在新文档里，回改已合入的历史文档一律禁止（参见全局约定「特性文档」；pre-commit 的 lint-historical-docs 会机械拦截）。写完/改完文档后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"——让"这文档怎么来的"之后可被 get_related 拼出链。
 
+   **机制判定下沉（issue 驱动未经 requirement-analysis 的特性必做）**：本特性若未经方案流程（无 RA 产出的方案文档，如 issue 驱动直接实现），特性文档「设计取舍」段必须含**机制识别检查点**判定（清单逐项打勾，清单与四问定义见 troubleshooting skill 修法排序节）——命中任一项 → 机制预算四问当场作答写入同段；全部未命中 → 一行记录「不涉及净新增机制」。经 RA 流程的特性此判定已在方案期完成，不重复。
+
    **Intent 块生成（软代码改动必须）**：
    - **触发条件**：本次变更涉及 prompt/skill/协议层（软代码）时，特性文档 frontmatter 必须生成 intent 块
    - **格式**（⚠️ verify_by 必须是对象不是字符串——#829/#838/#841 三次同型 CI 红的根因就是照旧示例写成字符串；且 golden_gate 不是合法枚举）：在 frontmatter 中添加 `intent` 字段，包含 `problem`（要解决什么问题）、`expected_effect`（可判定的预期效果，字符串）和 `verify_by`（对象，`type` 用合法枚举）
