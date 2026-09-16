@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, type ComponentProps } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, type ComponentProps } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ChevronRight, ExternalLink, FileText, Folder, FolderOpen, Loader2 } from 'lucide-react'
@@ -376,11 +376,30 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
     setCtxMenu({ x, y, entry: _entry })
   }, [])
 
+  /**
+   * Safari 26 兜底：实测（F20260916scfx 排查，搭档 Safari 26.6.2 现场）contextmenu 事件
+   * 能派发、preventDefault 也标记成功（defaultPrevented=true），但原生菜单照弹——
+   * React 19 挂在 root 的委托 handler 拦不住。mousedown 阶段拦截 button===2 可抢在
+   * 浏览器默认行为前生效，Chromium 上同样无害（与 onContextMenu 并存双保险）。
+   */
+  const panelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = panelRef.current
+    if (!el) return
+    const onMouseDown = (ev: MouseEvent) => {
+      if (ev.button !== 2) return
+      const target = (ev.target as HTMLElement).closest('[data-testid^="file-"],[data-testid^="folder-"]')
+      if (target) ev.preventDefault()
+    }
+    el.addEventListener('mousedown', onMouseDown)
+    return () => el.removeEventListener('mousedown', onMouseDown)
+  }, [])
+
   const sortedRoot = useMemo(() => sortEntries(rootEntries), [rootEntries])
   const selectedPath = selectedFile?.path ?? null
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" ref={panelRef}>
       {/* 头部 */}
       <div className="flex items-center gap-2 p-2 border-b border-white/20">
         <Folder className="w-4 h-4 text-stone-400" />

@@ -273,4 +273,27 @@ describe('右键菜单 reveal 端点（F20260910wrev）', () => {
 
     expect(container.textContent).toContain('文件不存在')
   })
+
+  it('Safari 兑底：文件节点上 mousedown(button=2) 被 preventDefault（防 Safari 26 原生菜单）', async () => {
+    const mock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(ROOT_FILE_ENTRIES), { status: 200 }))
+    vi.stubGlobal('fetch', mock)
+    await act(async () => { root.render(<WorkspacePanel conversationId="test" />) })
+
+    const fileBtn = container.querySelector('[data-testid="file-hello.txt"]') as HTMLButtonElement
+    const ev = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 2 })
+    await act(async () => { fileBtn.dispatchEvent(ev) })
+    expect(ev.defaultPrevented).toBe(true)
+  })
+
+  it('Safari 兑底：非树节点区域的 mousedown(button=2) 不拦截', async () => {
+    const mock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(ROOT_FILE_ENTRIES), { status: 200 }))
+    vi.stubGlobal('fetch', mock)
+    await act(async () => { root.render(<WorkspacePanel conversationId="test" />) })
+
+    const ev = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 2 })
+    await act(async () => { container.dispatchEvent(ev) })
+    expect(ev.defaultPrevented).toBe(false)
+  })
 })
