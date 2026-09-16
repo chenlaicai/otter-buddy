@@ -552,8 +552,10 @@ export class SearchMemory {
     /** F20260803chunk: 按 (sourceTable, sourceId) 去重 + 多 chunk 命中加分（dedupAndBoostBySource） */
     const deduped = dedup ? this.dedupAndBoostBySource(scored) : scored;
     deduped.sort((a, b) => b.finalScore - a.finalScore);
-    /** F20260902rcp1: 层配额——doc summary 在 top-N 保底（去重豁免版，Phase 0 根因2） */
-    const top = this.applyLayerQuota(deduped, limit).slice(0, limit);
+    /** F20260902rcp1: 层配额——doc summary 在 top-N 保底。
+     *  #965 修复：候选从 dedup 前的 scored 取——dedup 的 chunk-priority 会把同源 summary 丢掉，
+     *  从 deduped 取候选永远为空，配额形同虚设（9/2 合入至 9/16 从未触发，实测候选为空 5/10）。 */
+    const top = this.applyLayerQuota(deduped, limit, scored).slice(0, limit);
 
     /** S15: 批量递增检索计数 */
     await this.writer.incrementRetrievalCounts(top.map((h) => h.entryId));
@@ -623,7 +625,7 @@ export class SearchMemory {
    * dedupAndBoostBySource 的 chunk-priority 代表选择）。
    * 替换：从尾部向前替换非 doc-summary 条目；limit<6 时配额降 1 席（防小 limit 挢占）。
    */
-  private applyLayerQuota(sorted: ScoredHit[], limit: number): ScoredHit[] {
+  private applyLayerQuota(sorted: ScoredHit[], limit: number, preDedupScored?: ScoredHit[]): ScoredHit[] {
     const DOC_SUMMARY_TYPES = new Set(["feature", "research"]);
     const quota = limit < 6 ? 1 : 2;
     if (sorted.length <= limit) return sorted;
@@ -633,8 +635,15 @@ export class SearchMemory {
     const docCount = inTop.filter(isDocSummary).length;
     if (docCount >= quota) return sorted;
 
-    // 从剩余命中中取 doc summary 候选（去重豁免：不同 source 或同 source 皆可）
-    const candidates = sorted.slice(limit).filter(isDocSummary);
+    // #965：候选从 dedup 前的 scored 取（含被 chunk-priority 吃掉的同源 summary）——
+    // 去重豁免：doc summary 与 chunk 并列返回是预期行为（概览+正文）。
+    // 排除已在 inTop 的条目（防重复）。
+    const inTopIds = new Set(inTop.map(h => h.entryId));
+    const candidatePool = preDedupScored ?? sorted;
+    // #965 审视修复：preDedupScored 未排序（rerank 不保证顺序）——候选按 finalScore 降序取最优
+    const candidates = candidatePool
+      .filter(h => isDocSummary(h) && !inTopIds.has(h.entryId))
+      .sort((a, b) => b.finalScore - a.finalScore);
     if (candidates.length === 0) return sorted;
 
     const result = [...inTop];
