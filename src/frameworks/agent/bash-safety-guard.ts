@@ -67,6 +67,15 @@ const INDIRECT_PID_PATTERNS = [
 /** .otter-buddy.pid 文件引用模式 */
 const PID_FILE_REFERENCE = /\.otter-buddy\.pid/;
 
+/** F20260916gsrd：主服务管理脚本调用模式（自杀命令清单）。
+ *  9/16 事故：獭执行 `./scripts/otter-buddy.sh restart` 杀掉主进程 31385——字面不含
+ *  kill 词元，完全在 kill 族检测视野外。脚本内部 stop→kill -15 主 PID，restart 再拉起，
+ *  搭档感知为「全场停摆又自恢复」。此类调用与 kill 主进程同级，一律拦截走 bash_safety
+ *  引导通道。覆盖形态：相对/绝对/波浪线路径、bash|sh 显式解释器、sudo 包装、
+ *  stop|restart 子命令（start/status/logs 不拦）。restart-service.mjs 目标是主服务端口时
+ *  由脚本自身白名单校验兜底（F20260914dsrv），此处只拦 otter-buddy.sh。 */
+const SERVICE_SCRIPT_KILL = /(?:^|[;&|`$(])\s*(?:sudo\s+)?(?:(?:bash|sh)\s+)?(?:[\w.~/-]*\/)?(?:scripts\/)?otter-buddy\.sh\s+(?:stop|restart)\b/;
+
 /**
  * #844 白名单放行（方案 A 静态形态）：命令可静态解析为「白名单端口的监听者」为目标时放行。
  * 判定要素（全过才放行）：
@@ -285,6 +294,13 @@ function pkillTargetsOtter(segment: string): boolean {
   );
 }
 
+/** F20260916gsrd：主服务脚本自杀命令检测（独立规则，调用点在 checkBashCommandSafetyOnText） */
+function checkServiceScriptKill(command: string, mainPid: number, logger?: Logger): string | null {
+  if (!SERVICE_SCRIPT_KILL.test(command.toLowerCase())) return null;
+  logger?.warn("[bash-safety-guard] BLOCKED otter-buddy.sh stop/restart (service script suicide)", { mainPid, command: command.substring(0, 200) });
+  return "bash 命令调用了主服务管理脚本（otter-buddy.sh stop/restart），脚本内部会终止主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止——你不存在需要重启或停止主进程的合法场景。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。";
+}
+
 function checkCommandLevelPatterns(
   command: string,
   cmdLower: string,
@@ -357,6 +373,10 @@ function checkBashCommandSafetyOnText(
   logger?: Logger,
   allowedServices: AllowedService[] = [],
 ): string | null {
+  // F20260916gsrd：主服务脚本自杀命令——最优先判定（9/16 事故：otter-buddy.sh restart
+  // 杀主进程，kill 族检测看不到脚本名；脚本调用语义明确，无需保守降级）
+  const scriptKill = checkServiceScriptKill(text, mainPid, logger);
+  if (scriptKill) return scriptKill;
   // 全命令级高危模式检测（在分段前检查，防止 eval/pipe-to-shell 绕过分段检测）。
   // #918 检视严重 1：必须先于白名单放行——否则 `lsof -t -i:3100 | sh -c 'k...'` 类
   // 形态借白名单端口 lsof 做左段，跳过 pipe-to-shell 检测（defense-in-depth 失效）
@@ -391,6 +411,7 @@ function locateTriggerContext(command: string, mainPid: number | null): string[]
   const hits: string[] = [];
   const patterns: Array<[string, RegExp]> = [
     ["kill 族命令", /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:p?kill|skill|killall5?|pgrep)\b/gi],
+    ["主服务脚本", /otter-buddy\.sh\s+(?:stop|restart)/gi],
     ["eval 引用", /\beval\b/gi],
     ["PID 文件引用", /\.otter-buddy\.pid/g],
     ["进程名模式", /\b(?:otter-buddy|otter_buddy|dist\/src\/main|main\.js|node)\b/g],
