@@ -87,9 +87,8 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
     // F20260916ment：弹层选中过的獭优先走显式 ID 通道（选中时身份已绑定，不再反解析）；
     // @名字 已被删掉的选中项自动失效（防止幽灵目标）。
     const mentionIds: string[] = []
-    const remaining = new Map(pickedMentions)
     for (const [name, id] of pickedMentions) {
-      if (draft.includes('@' + name)) { mentionIds.push(id); remaining.delete(name) }
+      if (draft.includes('@' + name)) mentionIds.push(id)
     }
     // 手打未走弹层的 @名字 落入文本解析降级通道（Twitter 词边界规则，与服务端同口径）
     const mentionNames = extractMentions(draft)

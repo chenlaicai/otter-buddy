@@ -11,7 +11,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, act, fireEvent } from '@testing-library/react'
 import { MessageInput } from './MessageInput'
-import type { Otter } from '../../lib/types'
+import type { LocalOtter as Otter } from '../../lib/mappers'
 import type { StagedAttachment, UploadErrorInfo } from './hooks/useAttachmentStaging'
 
 // jsdom 下中文 value 经 fireEvent 会被 TextEncoder 截断（@大 → @），
