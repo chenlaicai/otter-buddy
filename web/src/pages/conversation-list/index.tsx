@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../../styles/globals.css'
 
@@ -48,6 +48,10 @@ export default function ConversationListPage() {
   const [defaultAlias, setDefaultAlias] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; cid: string } | null>(null)
+  /** 分页（F20260916lpsc）：服务端每页 50 条，满页即认为可能还有下一页 */
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const PAGE_SIZE = 50
 
   const activeConvForMenu = ctxMenu ? conversations.find(c => c.id === ctxMenu.cid) : null
 
@@ -55,6 +59,7 @@ export default function ConversationListPage() {
     api.listConversations()
       .then(dtos => {
         setConversations(dtos.map(mapConversationDTO))
+        setHasMore(dtos.length >= PAGE_SIZE)
         setLoading(false)
       })
       .catch(() => {
@@ -70,7 +75,24 @@ export default function ConversationListPage() {
   }, [])
 
   // 活动状态轮询：每 5 秒刷新对话列表（仅在页面可见时）
-  useConversationListPolling(!loading, setConversations)
+  // Why: visibleIds 传当前列表 id 集合——分页追加的后续页对话不被首屏轮询结果冲掉
+  const visibleIds = useMemo(() => new Set(conversations.map(c => c.id)), [conversations])
+  useConversationListPolling(!loading, setConversations, visibleIds)
+
+  const handleLoadMore = useCallback(() => {
+    setLoadingMore(true)
+    api.listConversations({ limit: PAGE_SIZE, offset: conversations.length })
+      .then(dtos => {
+        const mapped = dtos.map(mapConversationDTO)
+        setConversations(prev => {
+          const existing = new Set(prev.map(c => c.id))
+          return [...prev, ...mapped.filter(m => !existing.has(m.id))]
+        })
+        setHasMore(dtos.length >= PAGE_SIZE)
+      })
+      .catch(() => showToast('加载更多失败', 'error'))
+      .finally(() => setLoadingMore(false))
+  }, [conversations.length])
 
   const handleSelect = useCallback((id: string) => {
     // 混合架构：切换对话时整页刷新
@@ -210,6 +232,9 @@ export default function ConversationListPage() {
           onNewConversation={handleNewConversation}
           onContextMenu={handleContextMenu}
           otters={[]}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          onLoadMore={handleLoadMore}
         />
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">

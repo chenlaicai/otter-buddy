@@ -32,10 +32,11 @@ import { consumeSSE } from '../../api/sse'
 
 async function loadInitialData(): Promise<{
   conversations: LocalConversation[]
+  hasMore: boolean
 }> {
   const convDTOs = await api.listConversations()
   const conversations = convDTOs.map(mapConversationDTO)
-  return { conversations }
+  return { conversations, hasMore: convDTOs.length >= 50 }
 }
 
 function ConversationPage() {
@@ -243,8 +244,9 @@ function ConversationPage() {
 
   useEffect(() => {
     loadInitialData()
-      .then(({ conversations: convs }) => {
+      .then(({ conversations: convs, hasMore }) => {
         setConversations(convs)
+        setHasMoreConvs(hasMore)
         if (convs.length > 0) {
           // 优先使用 URL 中的对话 ID，否则使用第一个对话
           const targetId = urlConvId && convs.some(c => c.id === urlConvId) ? urlConvId : convs[0].id
@@ -268,7 +270,28 @@ function ConversationPage() {
   // 活动状态轮询：每 5 秒刷新对话列表（仅在页面可见时）。
   // F20260825scrf：弹窗打开期间暂停——mergeConversations 每次产出新引用（流式期间
   //  lastMessagePreview 持续变化），轮询会驱动 scrim 背后像素变化；关窗后 interval 立即重建
-  useConversationListPolling(pageState !== 'loading' && pageState !== 'error' && !modalOpen, setConversations)
+  // F20260916lpsc：visibleIds 传入当前列表 id 集合——分页追加的对话不被首屏轮询冲掉
+  const visibleConvIds = useMemo(() => new Set(conversations.map(c => c.id)), [conversations])
+  useConversationListPolling(pageState !== 'loading' && pageState !== 'error' && !modalOpen, setConversations, visibleConvIds)
+
+  /** 分页（F20260916lpsc）：加载更多对话列表（服务端每页 50 条） */
+  const CONV_PAGE_SIZE = 50
+  const [hasMoreConvs, setHasMoreConvs] = useState(false)
+  const [loadingMoreConvs, setLoadingMoreConvs] = useState(false)
+  const handleLoadMoreConvs = useCallback(() => {
+    setLoadingMoreConvs(true)
+    api.listConversations({ limit: CONV_PAGE_SIZE, offset: conversations.length })
+      .then(dtos => {
+        const mapped = dtos.map(mapConversationDTO)
+        setConversations(prev => {
+          const existing = new Set(prev.map(c => c.id))
+          return [...prev, ...mapped.filter(m => !existing.has(m.id))]
+        })
+        setHasMoreConvs(dtos.length >= CONV_PAGE_SIZE)
+      })
+      .catch(() => showToast('加载更多失败', 'error'))
+      .finally(() => setLoadingMoreConvs(false))
+  }, [conversations.length])
 
   const loadConversationDetail = useCallback(async (convId: string) => {
     try {
@@ -1386,7 +1409,7 @@ function ConversationPage() {
           id="left-panel-drawer"
           className={`${isMdUp ? 'contents' : `${leftDrawerOpen ? '' : 'hidden '}absolute left-3 top-3 bottom-3 z-50`}`}
         >
-          <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
+          <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} hasMore={hasMoreConvs} loadingMore={loadingMoreConvs} onLoadMore={handleLoadMoreConvs} />
         </div>
         <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} onReachBottom={handleMarkRead} />
         {/* 右栏：≥lg 常驻；<lg 抽屉化。md~lg 区间聊天区 = 全宽 - 左栏(224px)，不再被右栏挤 <500px */}

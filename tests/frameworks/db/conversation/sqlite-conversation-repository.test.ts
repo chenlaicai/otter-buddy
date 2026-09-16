@@ -319,3 +319,58 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
     expect(byId["conv-c"]).toBe("idle");
   });
 });
+
+describe("SqliteConversationRepository - listConversationsWithMeta 标题搜索（F20260916lpsc）", () => {
+  let db: Database.Database;
+  let repo: SqliteConversationRepository;
+
+  beforeEach(async () => {
+    db = createTestDb();
+    repo = new SqliteConversationRepository(db);
+    await repo.create(conversationFixture({ id: "conv-1", title: "工作区优化讨论", createdAt: "2026-07-22T00:00:00Z" }));
+    await repo.create(conversationFixture({ id: "conv-2", title: "记忆搜索方案", createdAt: "2026-07-22T00:01:00Z" }));
+    await repo.create(conversationFixture({ id: "conv-3", title: "50% 进度报告", createdAt: "2026-07-22T00:02:00Z" }));
+    await repo.create(conversationFixture({ id: "conv-4", title: "已归档的工作区对话", status: "archived", archivedAt: "2026-07-22T01:00:00Z", createdAt: "2026-07-22T00:03:00Z" }));
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("search 关键字按标题子串过滤", async () => {
+    const items = await repo.listConversationsWithMeta("user-1", { search: "工作区" });
+    expect(items.map(i => i.id)).toEqual(["conv-1"]);
+  });
+
+  it("search 不命中的归档对话不返回", async () => {
+    // conv-4 标题含「工作区」但已归档——archived 排除规则优先
+    const items = await repo.listConversationsWithMeta("user-1", { search: "已归档" });
+    expect(items).toEqual([]);
+  });
+
+  it("search 中的 LIKE 通配符 % 被转义为字面量", async () => {
+    // 「50%」若未转义会命中所有含「50」的标题；转义后仅精确命中 conv-3
+    const items = await repo.listConversationsWithMeta("user-1", { search: "50%" });
+    expect(items.map(i => i.id)).toEqual(["conv-3"]);
+  });
+
+  it("search 中的下划线被转义为字面量", async () => {
+    await repo.create(conversationFixture({ id: "conv-5", title: "a_b 测试", createdAt: "2026-07-22T00:04:00Z" }));
+    const items = await repo.listConversationsWithMeta("user-1", { search: "a_b" });
+    expect(items.map(i => i.id)).toEqual(["conv-5"]);
+  });
+
+  it("search 空白字符串退化为不过滤", async () => {
+    const items = await repo.listConversationsWithMeta("user-1", { search: "   " });
+    expect(items.length).toBe(3);
+  });
+
+  it("search 与 limit/offset 组合", async () => {
+    await repo.create(conversationFixture({ id: "conv-6", title: "工作区二期", createdAt: "2026-07-22T00:05:00Z" }));
+    const page1 = await repo.listConversationsWithMeta("user-1", { search: "工作区", limit: 1, offset: 0 });
+    const page2 = await repo.listConversationsWithMeta("user-1", { search: "工作区", limit: 1, offset: 1 });
+    expect(page1.length).toBe(1);
+    expect(page2.length).toBe(1);
+    expect(page1[0].id).not.toBe(page2[0].id);
+  });
+});
