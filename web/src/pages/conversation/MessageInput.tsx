@@ -24,6 +24,9 @@ interface MessageInputProps {
 export function MessageInput({ onSend, disabled, placeholder = '输入消息... Enter 发送, @ 提及小獭', otters, conversationId, staged, onRemoveAttachment, onPickFiles, uploadError, onDismissUploadError }: MessageInputProps) {
   const { draft, saveDraft, clearDraft } = useDraftCache(conversationId)
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  /** F20260916ment：弹层选中过的獭 ID（Slack 模式——选中即绑定身份，不再从文本反解析）。
+   *  文本被编辑导致 @名字 被删除时，发送前按残留文本自动清理。 */
+  const [pickedMentions, setPickedMentions] = useState<Map<string, string>>(new Map())
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -70,10 +73,10 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
   function extractMentions(text: string): string[] {
     const mentions: string[] = []
     /** 匹配 @名字：名字 = 非空白且非中文标点的连续字符，后接空白/中文标点/字符串结尾 */
-    const regex = /@([^\s，。！？、；：''（）【】《》\u3000]+)(?=[\s，。！？、；：''（）【】《》\u3000]|$)/g
+    const regex = /(?:^|[\s，。！？、；：''（）【】《》\u3000])@([^\s，。！？、；：''（）【】《》\u3000]+)(?=[\s，。！？、；：''（）【】《》\u3000]|$)/g
     let match
     while ((match = regex.exec(text)) !== null) {
-      mentions.push(match[1])
+      mentions.push(match[1]!)
     }
     return mentions
   }
@@ -81,30 +84,40 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
   function handleSend(mode: 'steer' | 'followUp' = 'steer') {
     if (!canSend) return
 
-    // Check for @mention（支持多 @、末尾无空格、标点分隔）
+    // F20260916ment：弹层选中过的獭优先走显式 ID 通道（选中时身份已绑定，不再反解析）；
+    // @名字 已被删掉的选中项自动失效（防止幽灵目标）。
+    const mentionIds: string[] = []
+    for (const [name, id] of pickedMentions) {
+      if (draft.includes('@' + name)) mentionIds.push(id)
+    }
+    // 手打未走弹层的 @名字 落入文本解析降级通道（Twitter 词边界规则，与服务端同口径）
     const mentionNames = extractMentions(draft)
-    const mentionIds = mentionNames
-      .map(name => otters.find(o => o.name === name)?.id)
-      .filter((id): id is string => !!id)
+    for (const name of mentionNames) {
+      if (pickedMentions.has(name)) continue
+      const id = otters.find(o => o.name === name)?.id
+      if (id && !mentionIds.includes(id)) mentionIds.push(id)
+    }
 
     const readyAttachments = staged.filter(s => !s.uploading)
     onSend(draft, mentionIds.length > 0 ? mentionIds : undefined, readyAttachments.length > 0 ? readyAttachments : undefined, mode)
     clearDraft()
     setMentionQuery(null)
+    setPickedMentions(new Map())
     requestAnimationFrame(() => {
       if (textareaRef.current) textareaRef.current.style.height = 'auto'
     })
   }
 
-  function insertMention(name: string) {
+  function insertMention(otter: Otter) {
     const cp = textareaRef.current?.selectionStart ?? draft.length
     const before = draft.substring(0, cp)
     const after = draft.substring(cp)
     const match = before.match(/@(\w*)$/)
     if (match) {
-      const newVal = before.substring(0, match.index) + '@' + name + ' ' + after
+      const newVal = before.substring(0, match.index) + '@' + otter.name + ' ' + after
       saveDraft(newVal)
-      const newPos = (match.index ?? 0) + name.length + 2
+      setPickedMentions(prev => new Map(prev).set(otter.name, otter.id))
+      const newPos = (match.index ?? 0) + otter.name.length + 2
       requestAnimationFrame(() => {
         textareaRef.current?.focus()
         textareaRef.current?.setSelectionRange(newPos, newPos)
@@ -149,7 +162,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
               return (
                 <div
                   key={o.id}
-                  onClick={() => insertMention(o.name)}
+                  onClick={() => insertMention(o)}
                   className="px-2.5 py-1.5 rounded-xl text-xs cursor-pointer hover:bg-white/40 flex items-center gap-2"
                 >
                   <div
