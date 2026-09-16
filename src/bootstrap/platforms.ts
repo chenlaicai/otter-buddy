@@ -2,6 +2,7 @@
 import { buildContextTokenWarnConfig, type AppConfig } from "@frameworks/config";
 import fsSync from "node:fs";
 import path from "node:path";
+import { getRepoRoot } from "@frameworks/repo-root";
 import * as yaml from "js-yaml";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import type { Logger } from "@usecases/ports/logger";
@@ -99,7 +100,8 @@ export async function createAgentGateway(options: {
     model, modelPool, db,
     otterToolClient: null,
     sessionDir: options.sessionDir,
-    identityPromptDir: options.identityPromptDir ?? "./prompts/identity",
+    // Why: 默认目录基于代码位置解析（#429）；注入参数 override 优先
+    identityPromptDir: options.identityPromptDir ?? path.resolve(getRepoRoot(), "prompts/identity"),
     createTools: (ctx, repo, log) => {
       // PR4: 创建纸面交易 Ledger 注入到工具
       const paperTradeRepo = new PaperTradeRepositoryImpl(db);
@@ -560,7 +562,8 @@ export function hotStartWeixinAccount(options: StartWeixinAccountOptions): Weixi
 }
 
 export function ensureWeixinConfig(opts: { configPath?: string; stateDir?: string; ilinkUserId?: string; logger?: Logger }): void {
-  const configPath = opts.configPath ?? path.resolve(process.cwd(), "config/config.yaml");
+  // Why: 默认路径基于代码位置解析（#429）；opts.configPath override 优先
+  const configPath = opts.configPath ?? path.resolve(getRepoRoot(), "config/config.yaml");
   try {
     const text = fsSync.readFileSync(configPath, "utf8");
     const raw = yaml.load(text) as Record<string, unknown> | null;

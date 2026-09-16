@@ -26,10 +26,12 @@ import reactHooks from "eslint-plugin-react-hooks";
  * 新增 frameworks 模块自动被覆盖，无需维护清单。D39 豁免仅 logger。
  */
 const restrictedFrameworks = [{
-  // deny-all-except-logger：ESLint 10 的 patterns 对象不支持 allow 例外字段，
-  // 用负向前瞻实现"除 logger 外全限制"（D39 豁免）
-  regex: "(?:^|@|/)frameworks/(?!logger(?:/|$))",
-  message: "Inner layers cannot import from frameworks (except @frameworks/logger per D39)",
+  // deny-all-except-logger-and-repo-root：ESLint 10 的 patterns 对象不支持 allow 例外字段，
+  // 用负向前瞻实现"除 logger / repo-root 外全限制"（D39 豁免 logger；repo-root 豁免见
+  // F20260916fndv/#429——纯路径常量模块零依赖，usecases 运行时资源定位（prompt 模板/
+  // seed 数据）需在不破坏依赖方向的前提下使用，与 logger 豁免同性质）
+  regex: "(?:^|@|/)frameworks/(?!logger(?:/|$)|repo-root(?:/|$))",
+  message: "Inner layers cannot import from frameworks (except @frameworks/logger and @frameworks/repo-root per D39/#429)",
 }];
 
 export default tseslint.config(

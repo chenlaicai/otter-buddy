@@ -27,6 +27,7 @@ import {
 } from '@usecases/daily-review/constants';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { getRepoRoot } from '@frameworks/repo-root';
 
 export interface DailyReviewConversationResult {
   conversationId: string;
@@ -146,7 +147,8 @@ export async function ensureDailyReviewScheduler(deps: {
   if (existing && existing.status === 'active') return;
 
   // fail loud：读不到模板直接 throw（外层 catch 记日志，下次启动重试——paper-trading 同款）
-  const promptPath = resolve(process.cwd(), DAILY_REVIEW_PROMPT_PATH);
+  // Why: prompt 路径基于代码位置解析（#429），cwd 非项目根也能读到
+  const promptPath = resolve(getRepoRoot(), DAILY_REVIEW_PROMPT_PATH);
   const promptBody = readFileSync(promptPath, 'utf-8');
 
   await deps.manageScheduledTask.create({

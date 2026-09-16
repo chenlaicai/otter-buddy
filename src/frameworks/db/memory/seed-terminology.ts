@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { getRepoRoot } from "@frameworks/repo-root";
 import type Database from "better-sqlite3";
 import type { TerminologyEntry } from "@entities/memory/terminology-entry";
 import { SqliteTerminologyRepository } from "./sqlite-terminology-repository";
@@ -23,7 +24,8 @@ const SEED_TIMESTAMP = "2026-07-09T00:00:00Z";
  * 此处补全为完整的 TerminologyEntry。
  */
 function loadSeedEntries(): TerminologyEntry[] {
-  const filePath = resolve(process.cwd(), "data/terminology/seed-terminology.json");
+  // Why: 种子数据路径基于代码位置解析（#429），cwd 非项目根也能读到
+  const filePath = resolve(getRepoRoot(), "data/terminology/seed-terminology.json");
   const raw = readFileSync(filePath, "utf-8");
   const terms = JSON.parse(raw) as SeedTermData[];
 
