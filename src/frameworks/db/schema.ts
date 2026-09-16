@@ -45,6 +45,10 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createInvokeTables(db);
     createEntryTables(db);
     createEntryFtsTable(db);
+    /** F20260916b1ea：重启自动恢复队列重建（8/28 同名机制被 #886 误删，
+     *  invoke 模型重映射——invoke_id 为 PK 锚点）。schema.ts 单点登记
+     *  （#506 模式：bootstrap 无条件幂等 initSchema，老库自动补建）。 */
+    createRestartPendingResumesTable(db);
 
     db.exec("COMMIT");
 
@@ -910,6 +914,27 @@ function createInvokeTables(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_invoke_events_invoke_seq ON invoke_events(invoke_id, sequence_num);
     CREATE INDEX IF NOT EXISTS idx_invoke_events_type ON invoke_events(event_type);
+  `);
+}
+
+/** 重启自动恢复队列（F20260916b1ea：F20260826rsme 同名机制重建，invoke 模型版）。
+ *  原子 claim（attempts CAS）+ crash-resilience（pending 持久跨重启）+ 上限（exhausted）
+ *  三保障承载体；scheduled 任务来源 invoke 不入队（trigger_entry_id 为 NULL 或
+ *  指向 system entry——reconcile 入队时排除，防定时任务恢复重复产出）。 */
+function createRestartPendingResumesTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS restart_pending_resumes (
+      invoke_id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      otter_id TEXT NOT NULL,
+      trigger_entry_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'done', 'failed', 'exhausted')),
+      attempts INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      settled_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_restart_pending_resumes_status ON restart_pending_resumes(status);
   `);
 }
 

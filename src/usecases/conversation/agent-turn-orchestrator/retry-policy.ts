@@ -59,6 +59,27 @@ export function buildAutoRetryMsg(reason: string): string {
   return '[系统提醒] 你上一轮执行异常，已被系统自动重试。请继续完成你的发言。';
 }
 
+// ─── F20260916b1ea：重启自动恢复文案（9/13 被 #886 误删，invoke 模型重建）───
+
+/**
+ * F20260916b1ea：恢复链续跑引导文案。invoke 模型下被中断獭已落库的
+ * speak entries 追加式保留，文案由旧版「保留在本条消息中」改为「保留在对话中」。
+ */
+export function buildRestartResumeMsg(): string {
+  return '[系统提醒] 服务重启导致你的发言中断，系统已自动恢复。你之前 speak 的内容已保留在对话中，请基于已有进度继续完成发言，然后 yield 交棒。如果对任务上下文记忆不完整，先查阅消息历史再继续。';
+}
+
+/** F20260916b1ea：恢复失败/跳过的用户可见提示（成功路径静默——沿用搭档 9/6 裁决）。 */
+export function buildRestartResumeFailedMsg(reason: "skipped_concurrent"): string {
+  void reason; // 保留参数以维持调用方签名兼容（F202609048840 F4 起仅剩 skipped_concurrent 一条路径）
+  return "[系统] 检测到恢复窗口内有新消息进入，跳过自动恢复，请手动重试该消息。";
+}
+
+/** F20260916b1ea：恢复链 invoke 失败状态提示（failed = 可手动重试，区别于 exhausted 永久放弃） */
+export function buildRestartResumeFailedInvokeMsg(): string {
+  return "[系统] 恢复过程中 invoke 失败，已标记为失败，请手动重试该消息。";
+}
+
 // ─── #731：bash 守卫二拦终态自动回发控制信号（guard bounce）───
 
 /**

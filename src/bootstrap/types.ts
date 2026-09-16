@@ -22,6 +22,7 @@ import type { HealthSnapshotRepository } from "@usecases/health/health-snapshot-
 import type { AttachmentRepository } from "@usecases/conversation/attachment-repository";
 import type { EntryRepository } from "@usecases/conversation/entry-repository";
 import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
+import type { ResumePendingRepository } from "@usecases/conversation/resume-pending-repository";
 import type { ManageConversation } from "@usecases/conversation/manage-conversation";
 import type { ManageMemory } from "@usecases/memory/manage-memory";
 import type { ManageTerminology } from "@usecases/memory/manage-terminology";
@@ -79,6 +80,8 @@ export interface Repositories {
   entry: EntryRepository;
   /** F20260913ctlv：invoke 生命周期仓库 */
   invoke: InvokeRepository;
+  /** F20260916b1ea：重启自动恢复队列（restart_pending_resumes 表） */
+  resumePending: ResumePendingRepository;
 }
 
 export interface UseCases {

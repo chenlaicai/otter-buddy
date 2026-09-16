@@ -77,20 +77,55 @@ export function initRepositoriesWithDb(db: Database.Database, logger?: Logger): 
   return initRepositories(db, logger);
 }
 
+/**
+ * F20260916b1ea 重建：重启 reconcile——running invokes 全部置 failed
+ * （进程死亡时在跑的 invoke，页面刷新后不残留「运行中」假象），
+ * RETURNING 原子取回被标记行详情并逐条入队 restart_pending_resumes
+ * （pending 状态跨重启持久，恢复服务 fire-and-forget 消费）。
+ * A3 处置：scheduler 来源 invoke 排除入队（trigger_entry_id 为 NULL 或
+ * 指向 system entry——定时任务有自己的重触发语义，误恢复会重复产出）。
+ * 失败仅日志不阻断启动（对齐既有 non-fatal 纪律）。
+ */
+async function reconcileRunningInvokes(db: Database.Database, repos: Repositories, logger: Logger): Promise<void> {
+  let failedInvokes: Awaited<ReturnType<typeof repos.invoke.failRunningInvokes>>;
+  try {
+    failedInvokes = await repos.invoke.failRunningInvokes(new Date().toISOString());
+  } catch (err) {
+    logger.warn("Failed to reconcile running invokes (non-fatal)", { error: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+  if (failedInvokes.length === 0) return;
+  logger.warn(`Reconciled running invokes on restart: ${failedInvokes.length} marked failed`);
+  let queued = 0;
+  for (const invoke of failedInvokes) {
+    try {
+      // trigger_entry_id 为 NULL = 无用户 entry 锚点（scheduler 直连链等）——排除。
+      if (!invoke.triggerEntryId) continue;
+      const triggerEntry = await repos.entry.getEntryById(invoke.triggerEntryId);
+      // scheduler 内部信号走 system entry——来源为 system 或查询失败的（迁移间隙）不入队。
+      if (!triggerEntry || triggerEntry.entryType === "system") continue;
+      db.prepare(
+        "INSERT OR IGNORE INTO restart_pending_resumes (invoke_id, conversation_id, otter_id, trigger_entry_id, status, attempts, created_at) VALUES (?, ?, ?, ?, 'pending', 0, ?)",
+      ).run(invoke.id, invoke.conversationId, invoke.otterId, invoke.triggerEntryId, new Date().toISOString());
+      queued++;
+    } catch (enqueueErr) {
+      logger.warn("Failed to enqueue interrupted invoke for resume (non-fatal)", {
+        invokeId: invoke.id,
+        error: enqueueErr instanceof Error ? enqueueErr.message : String(enqueueErr),
+      });
+    }
+  }
+  if (queued > 0) {
+    logger.info("Interrupted invokes queued for auto-resume", { queued });
+  }
+}
+
 /** DB 初始化后的种子数据 + 孤儿修复 + ledger 回填 */
 export async function postInitDatabase(db: Database.Database, repos: Repositories, logger: Logger): Promise<void> {
   await seedTerminologyData(db, logger);
   await reconcileOrphans(repos.conversation, logger);
-  // F20260913ctlv 彻底切换：重启 reconcile——running invokes 全部置 failed
-  // （进程死亡时在跑的 invoke，页面刷新后不残留「运行中」假象；自动恢复队列已退役）
-  try {
-    const failedInvokes = await repos.invoke.failRunningInvokes(new Date().toISOString());
-    if (failedInvokes > 0) {
-      logger.warn(`Reconciled running invokes on restart: ${failedInvokes} marked failed`);
-    }
-  } catch (err) {
-    logger.warn("Failed to reconcile running invokes (non-fatal)", { error: err instanceof Error ? err.message : String(err) });
-  }
+  // F20260916b1ea 重建：重启 reconcile + 恢复入队（提取 reconcileRunningInvokes 控复杂度）
+  await reconcileRunningInvokes(db, repos, logger);
   await backfillSessionLedger(db, repos.otter, logger);
 
   // ── F20260902sgp2 S1：派发台账启动任务（顺序固定：死亡证明 → backfill 墓碑）──

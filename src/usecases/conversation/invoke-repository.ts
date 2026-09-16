@@ -47,10 +47,20 @@ export interface InvokeRepository {
   /** F20260913ctlv 彻底切换：按 turn 查 invokes（tryCloseTurn 判据——turn 生命周期从 messages 剥离） */
   getInvokesByTurnId(turnId: string): Promise<Invoke[]>;
   /**
-   * F20260913ctlv 彻底切换：重启 reconcile——running invokes 全部置 failed。
-   * 返回置 failed 的条数（进程死亡时在跑的 invoke，页面刷新后不残留「运行中」假象）。
+   * F20260916b1ea 重建：重启 reconcile——running invokes 全部置 failed，
+   *  并原子返回被标记行的详情（UPDATE...RETURNING，单条 SQL 消
+   *  SELECT-then-UPDATE 竞态——恢复机制入队的数据源）。
    */
-  failRunningInvokes(failedAt: string): Promise<number>;
+  failRunningInvokes(
+    failedAt: string,
+  ): Promise<
+    Array<{
+      id: string;
+      conversationId: string;
+      otterId: string;
+      triggerEntryId: string | null;
+    }>
+  >;
 
   // InvokeEvent
   appendInvokeEvent(event: InvokeEvent): Promise<void>;

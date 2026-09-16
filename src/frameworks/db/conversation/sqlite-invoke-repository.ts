@@ -204,12 +204,33 @@ export class SqliteInvokeRepository implements InvokeRepository {
     return rows.map(rowToInvoke);
   }
 
-  /** F20260913ctlv 彻底切换：重启 reconcile——running invokes 全部置 failed */
-  async failRunningInvokes(failedAt: string): Promise<number> {
-    const result = this.db.prepare(
-      "UPDATE invokes SET status = 'failed', ended_at = ? WHERE status = 'running'",
-    ).run(failedAt);
-    return result.changes;
+  /** F20260916b1ea 重建：重启 reconcile——running invokes 全部置 failed，
+   *  单条 UPDATE...RETURNING 原子返回被标记行详情（消 SELECT-then-UPDATE 竞态，
+   *  恢复入队的数据源）。SQLite 3.35+ 支持 RETURNING（better-sqlite3 13.0.3 已验证）。 */
+  async failRunningInvokes(
+    failedAt: string,
+  ): Promise<
+    Array<{
+      id: string;
+      conversationId: string;
+      otterId: string;
+      triggerEntryId: string | null;
+    }>
+  > {
+    const rows = this.db.prepare(
+      "UPDATE invokes SET status = 'failed', ended_at = ? WHERE status = 'running' RETURNING id, conversation_id, otter_id, trigger_entry_id",
+    ).all(failedAt) as Array<{
+      id: string;
+      conversation_id: string;
+      otter_id: string;
+      trigger_entry_id: string | null;
+    }>;
+    return rows.map(row => ({
+      id: row.id,
+      conversationId: row.conversation_id,
+      otterId: row.otter_id,
+      triggerEntryId: row.trigger_entry_id,
+    }));
   }
 
   async appendInvokeEvent(event: InvokeEvent): Promise<void> {
