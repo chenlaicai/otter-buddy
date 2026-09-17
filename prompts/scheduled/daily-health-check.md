@@ -43,11 +43,11 @@ task_name: 每日对话健康检查
 告警的终点站是搭档的注意力——全系统最贵的告警预算。本段让观测器自己被观测（HackProbe 教训：误报率比检出率更决定告警系统生死；Google SRE：不可行动的告警是噪音）：
 
 1. **昨日信噪统计**（日报末尾固定段）：
-   - healing 事件处置分布：昨日 resolve X / dismiss Y 条（dismiss 率 = Y/(X+Y)，误报率近似）。**数据源纪律**：用 sqlite3 直查（先按数据源 #1 纪律确认 dbPath）：`SELECT status, COUNT(*) FROM healing_events WHERE resolved_at >= '<昨日 00:00>' GROUP BY status`——dismiss 判定须排除 30 天 stale 自动清理的污染：autoStaleDismiss 写入时 resolution 为 NULL（人工 dismiss 有 resolution JSON），故 dismiss 率只计 `resolution IS NOT NULL` 的人工处置行（否则一批 stale 清理可让某日 dismiss 率瞬间 100%，对无辜观测器误触发降级建议——恰违背本段目的）
+   - healing 事件处置分布：昨日 resolve X / dismiss Y 条（dismiss 率 = Y/(X+Y)，误报率近似）。**数据源纪律**：用 sqlite3 直查（先按数据源 #1 纪律确认 dbPath）：`SELECT status, COUNT(*) FROM healing_events WHERE resolved_at >= '<昨日 00:00>' GROUP BY status`——dismiss 判定须排除 30 天 stale 自动清理的污染：`autoStaleDismiss` 只清理 open 超 30 天的事件（时间差必然 ≥30 天），人工 dismiss 时间差任意——故用**时间差近似**分离：`julianday(resolved_at)-julianday(created_at) < 30` 的 dismissed 行 = 人工 dismiss（误报信号）；≥30 天 = stale 清理（不计入 dismiss 率）。（注意：不能按 resolution IS NULL 判定——updateStatus 路径的人工 dismiss 不写 resolution，生产库实证 5 条人工 dismissed 全 NULL，按 NULL 判会指标死亡）
    - RHI 信号处置分布：昨日 critical 开 issue M / 并入 K / 不处置 L（不处置率 = L/(M+K+L)，低价值率近似）。**M/K/L 取自昨日日报正文的闭环自检行**（检索昨日日报消息），不是 RHI DB——RHI 侧无处置结果存储
    - 产给搭档的物件数：日报 1 + 新 issue N + 告警条数 K_alert（书写用全称，避免与「并入 K」混淆）
 2. **趋势对比**（有历史日报可检索时）：与近 7 日均值比，dismiss 率 / 不处置率突增 → 标注「某信号源可能在劣化」。search_memory 检索近 7 日日报（含「观测器信噪比」段）；检索到不足 4 篇时标注「历史覆盖率 N/7，趋势结论置信低」
-3. **降级建议触发线**：任一信号源/healing 类型「连续两周 dismiss 率或不处置率 > 50%」→ 日报显式给出「建议降级/关停该观测器或调阈值」的建议行（含数据锚点）。**分路径执行**：healing 侧可 sqlite 直查近 14 天自算（resolved_at + resolution IS NOT NULL 分组）；RHI 侧依赖历史日报链——近 14 天日报覆盖率不足 10/14 时，显式记「RHI 侧数据不足无法判定（覆盖率 N/14）」，不得硬给结论。未达线时本段只需一行数字，不占篇幅
+3. **降级建议触发线**：任一信号源/healing 类型「连续两周 dismiss 率或不处置率 > 50%」→ 日报显式给出「建议降级/关停该观测器或调阈值」的建议行（含数据锚点）。**分路径执行**：healing 侧可 sqlite 直查近 14 天自算（`SELECT date(resolved_at), COUNT(*) FROM healing_events WHERE status='dismissed' AND julianday(resolved_at)-julianday(created_at) < 30 AND resolved_at >= date('now','-14 days') GROUP BY date(resolved_at)`）；RHI 侧依赖历史日报链——近 14 天日报覆盖率不足 10/14 时，显式记「RHI 侧数据不足无法判定（覆盖率 N/14）」，不得硬给结论。未达线时本段只需一行数字，不占篇幅
 
 > 信噪比统计是观测（软），降级建议触发线首月试运行后可按实际分布校准。
 

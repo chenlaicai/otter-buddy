@@ -63,6 +63,14 @@ daily-health-check.md 加「观测器信噪比自监控」段（RHI 处置段之
 - issue 验证标准「两周后能看到信噪比排名 + 高误报源自动给降级建议」待运行积累
 - 合入后需跑 update-scheduled-task-body.mjs 同步 DB 副本
 
+## 邻接与后续
+
+- **#1026（RHI 信号处置状态机，OPEN）**：若其合入（处置结果入 DB），本特性 RHI 侧的
+  「依赖历史日报链」路径可硬化为 DB 直查——届时升级触发线判定口径并记 epoch。
+- **dismiss 口径修正史（PR #1027 检视）**：初版按 resolution IS NULL 判人工 dismiss，
+  与代码事实不符（updateStatus 不写 resolution，生产库 5 条人工 dismissed 全 NULL）——
+  按 NULL 判会让 dismiss 率恒 0 指标死亡。现行为时间差近似（<30 天 = 人工）。
+
 ## 负面向条目
 
 无旧契约破坏：RHI 处置段/抽查段原样保留（新段插入其后），checklist 追加第 10 项非替换。
