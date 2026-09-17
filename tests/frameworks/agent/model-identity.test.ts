@@ -60,7 +60,7 @@ describe("buildIdentityPrefix 模型身份段（F20260824aibd）", () => {
   }
 
   function makeBuilder(modelPool?: ModelPool): IdentityBuilder {
-    return new IdentityBuilder(repo, undefined, modelPool, createTestLogger(), REAL_IDENTITY_DIR);
+    return new IdentityBuilder(repo, undefined, undefined, modelPool, createTestLogger(), REAL_IDENTITY_DIR);
   }
 
   it("多模型池 + 指定 modelAlias → 包含对应模型的身份段", async () => {

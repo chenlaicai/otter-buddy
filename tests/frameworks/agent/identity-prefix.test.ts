@@ -18,6 +18,7 @@ vi.mock("@frameworks/config", () => ({ getConfig: () => ({ circuitBreaker: {} })
 
 import { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
+import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
 import { SqliteOtterConfigProvider } from "@frameworks/db/otter/sqlite-otter-config-provider";
 import { createTestDb } from "../../helpers/db";
 import { createTestLogger } from "../../helpers/logger";
@@ -216,5 +217,90 @@ describe("身份注入触发链路（pendingIdentity / createdNew）", () => {
 
     expect(captured.invokeOptions).not.toBeUndefined();
     db.close();
+  });
+});
+
+describe("F20260917cvid: 所在对话身份段（对话标题注入）", () => {
+  let db: Database.Database;
+  let repo: SqliteOtterRepository;
+  let convRepo: SqliteConversationRepository;
+
+  beforeEach(() => {
+    db = createTestDb();
+    repo = new SqliteOtterRepository(db);
+    convRepo = new SqliteConversationRepository(db, createTestLogger());
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  async function seedOtter(id: string): Promise<void> {
+    await repo.createOtter({
+      id, name: "大獭", type: "big", status: "active",
+      role: null, parentOtterId: null, createdAt: new Date().toISOString(), dissolvedAt: null,
+    });
+  }
+
+  async function seedConversation(id: string, title: string): Promise<void> {
+    const now = new Date().toISOString();
+    await convRepo.create({
+      id, title, status: "active", summary: null, pinned: false,
+      workspaceDir: null, createdAt: now, updatedAt: now,
+      completedAt: null, archivedAt: null,
+    });
+  }
+
+  function makeFactoryWithConv(db: Database.Database): PiSessionFactory {
+    return new PiSessionFactory({
+      db,
+      sessionDir: ":memory:",
+      otterToolClient: {} as never,
+      model: null as never,
+      identityPromptDir: REAL_IDENTITY_DIR,
+      createTools: () => [],
+      otterConfigProvider: new SqliteOtterConfigProvider(db),
+      otterRepo: new SqliteOtterRepository(db),
+      conversationRepo: new SqliteConversationRepository(db, createTestLogger()),
+    }, createTestLogger());
+  }
+
+  async function buildWithConv(factory: PiSessionFactory, otterId: string, conversationId: string): Promise<string> {
+    return (factory as unknown as { identityBuilder: { buildIdentityPrefix(id: string, type: string, cid: string): Promise<string> } })
+      .identityBuilder.buildIdentityPrefix(otterId, "big", conversationId);
+  }
+
+  it("对话有标题时注入「你所在的对话」段（含标题）", async () => {
+    await seedOtter("o-big");
+    await seedConversation("conv-1", "echo agent 项目");
+    const prefix = await buildWithConv(makeFactoryWithConv(db), "o-big", "conv-1");
+
+    expect(prefix).toContain("## 你所在的对话");
+    expect(prefix).toContain("对话标题：echo agent 项目");
+    expect(prefix).toContain("检索记忆时本对话来源的条目会被优先加权");
+  });
+
+  it("对话无标题（纯空白）时不注入对话段——搭档明确「没有 summary 就不要乱填」", async () => {
+    await seedOtter("o-big");
+    await seedConversation("conv-2", "   ");
+    const prefix = await buildWithConv(makeFactoryWithConv(db), "o-big", "conv-2");
+
+    expect(prefix).not.toContain("## 你所在的对话");
+  });
+
+  it("conversationRepo 未装配时降级为空段（不影响身份注入主流程）", async () => {
+    await seedOtter("o-big");
+    const prefix = await buildIdentityPrefix(makeFactory(db, REAL_IDENTITY_DIR), "o-big", "big");
+
+    expect(prefix).toContain("名称：大獭");
+    expect(prefix).not.toContain("## 你所在的对话");
+  });
+
+  it("conversationId 不存在时降级为空段", async () => {
+    await seedOtter("o-big");
+    const prefix = await buildWithConv(makeFactoryWithConv(db), "o-big", "nonexistent-conv");
+
+    expect(prefix).toContain("名称：大獭");
+    expect(prefix).not.toContain("## 你所在的对话");
   });
 });

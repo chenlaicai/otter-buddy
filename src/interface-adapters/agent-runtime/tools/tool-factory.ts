@@ -234,6 +234,8 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
         params.created_after as string | undefined,
         contentType,
         params.expand_context as boolean | undefined,
+        // F20260917cvid: 自动注入当前对话 ID——本对话来源记忆排序加成（搭档「本对话历史权重更高」）
+        ctx.conversationId,
       );
       // F20260826rcmm Phase 0：检索埋点（fire-and-forget，失败不影响工具返回）。
       // 挂在 tool 层而非 client 层：此处才有 per-request 的 conversationId/otterId。
