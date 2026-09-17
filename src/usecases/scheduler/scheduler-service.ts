@@ -12,6 +12,7 @@ import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
 import type { Entry } from '@entities/conversation/entry';
 import type { Logger } from '@usecases/ports/logger';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
+import { classifyHealingErrorType, HEALING_ENVIRONMENT_TYPES, HEALING_FEEDBACK_TYPES } from '@entities/healing/healing-event';
 import type { SchedulerMetricsPort } from './scheduler-metrics-port';
 import type { DispatchChainEngine } from '@usecases/conversation/dispatch-chain-engine';
 import type { SignalRouter } from '@usecases/conversation/signal-router';
@@ -1503,12 +1504,27 @@ async function buildHealingAnalysisBody(healingRepo: HealingEventRepository): Pr
     return acc;
   }, {} as Record<string, typeof openEvents>);
 
+  // #998：二维分账（环境/系统 vs 獭能力）——混排会让分析任务把工具故障误读成獭不行。
+  // tool_use_feedback 返回 null 不入分账（主动反馈信号，独立计数）；口径文案从实体清单拼接防漂移
+  const byClass = openEvents.reduce(
+    (acc, e) => {
+      const cls = classifyHealingErrorType(e.errorType);
+      if (cls === null) acc.feedback++;
+      else acc[cls]++;
+      return acc;
+    },
+    { environment: 0, capability: 0, feedback: 0 },
+  );
+  const envList = HEALING_ENVIRONMENT_TYPES.join('/');
+  const fbList = HEALING_FEEDBACK_TYPES.join('/');
+
   let dataSection = `当前系统健康概况：
 - 待处理: ${stats.open} 个
 - 已解决: ${stats.resolved} 个
 - 已忽略: ${stats.dismissed} 个
 - 按类型分布: ${JSON.stringify(stats.byType)}
 - 按严重程度分布: ${JSON.stringify(stats.bySeverity)}
+- 二维分账（#998）: 环境/系统失败 ${byClass.environment} 条 / 獭能力失败 ${byClass.capability} 条 / 主动反馈 ${byClass.feedback} 条（口径：${envList}=环境，${fbList}=反馈独立列，其余=能力）
 
 以下是待处理的 healing events（共 ${openEvents.length} 条，按类型分组）：
 
