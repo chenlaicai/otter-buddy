@@ -114,6 +114,53 @@ category: technique
 
 检视獭报上来的发现不适用上述规则 → 走 review-protocol 作者处置协议（`../adversarial-review/references/author-response-protocol.md`），带证据的反驳是合法处置。走「建 issue」子路径前必须过**关联度前置闸**：与本 PR 语义强关联的发现（守护本 PR 行为不回退 / 澄清本 PR 刚改的口径 / 修本 PR 变更直接引入或暴露的问题）默认当场修——原 PR 未合入修在原 PR，已合入立即开补充 PR；建 issue 的举证责任在作者，须论证为什么**不能**现在修且理由命中合法清单（依赖未就绪 / 需产品决策 / 增量 >300 行或 >3 个新模块），「需搭 fixture」「非本 PR 文件」不构成承载障碍。
 
+## 锚点重放评审（核心 prompt 改动必须）
+
+**触发条件**：本次变更涉及 SYSTEM.md 或核心 skill（adversarial-review / troubleshooting / requirement-analysis / writing-skills / daily-health-check）的文字内容时，必须在 PR 提交前跑一次「锚点重放评审」。
+
+**目的**：验证 prompt 改动没有让好产出变味或让坏产出的同类错再现——fail-closed。
+
+**流程**：
+1. 从 `tests/capability/golden/anchors/` 锚点语料库中抽样（至少坏锚点 5 条 + 好锚点 3 条）
+2. 用改动后的 prompt 版本重放锚点的背景场景，由**异体模型**（不同于实现者的模型）评审产出质量
+3. 评审输出**限带宽**（防评审本身变成另一个不可控产出）：
+   - 输出格式：`VERDICT: YES/NO` + 一句话理由
+   - YES = 产出质量通过（好锚点产出未变味 / 坏锚点同类错未再现）
+   - NO = 产出质量不通过（需说明哪条元规则被违反）
+4. 结果写入 PR Verification 节；NO 不过 = 不得合入
+
+**评审 prompt 模板**（异体模型使用）：
+```
+你是一位严格的质量评审员。以下是海獭系统的一个历史产出锚点：
+
+【锚点 ID】{anchor_id}
+【判定】{verdict}（好/坏）
+【元规则】{meta_rule}
+【背景】{background}
+【獭产出】{otter_output}
+【实际发生】{what_happened}
+【搭档反应】{buddy_reaction}
+
+现在，假设用改动后的系统 prompt 重放这个场景，獭会交出什么样的产出？
+请评估：
+- 如果这是好锚点：新产出的质量是否仍达到或超过原产出？
+- 如果这是坏锚点：同类错误是否仍会发生？
+
+输出格式（严格遵守）：
+VERDICT: YES 或 NO
+REASON: 一句话理由
+```
+
+**元规则门禁检查清单**（评审时可作补充参考，完整来源见 `tests/capability/golden/anchors/README.md`）：
+1. 证据必须真实可核，禁止杜撰/假数据（A1、D4）
+2. 修复要治本想清楚，不补丁叠加（A2）
+3. 交付文档/手册要可实操，不让搭档踩坑排查（A6、C1）
+4. 编排纪律：产出交回大獭，不越权找搭档；流程不跳步（B2、B5）
+5. 状态如实汇报，不虚报「进行中」（C5）
+6. 交接/编号类资产动笔前重跑 date 核实（C3、D1）
+7. 取舍依据/顾虑随结论主动呈现，不等问（D3）
+8. 汇报以搭档为读者组织脉络，信息全 ≠ 讲清楚（D5）
+
 ## 产出
 
 | 产出 | 下一步 | 执行者 |
