@@ -36,4 +36,13 @@ describe('每日健康检查模板纪律锁（#791 P1）', () => {
       expect(tpl).toMatch(new RegExp(`^${n}\\. \\*\\*`, 'm'));
     }
   });
+
+  it('锚点抽查异体模型规则存在（#1000：同模型抽查共享盲区，P0 阈值永不触发）', () => {
+    const tpl = readTemplate();
+    expect(tpl).toContain('异体核对');
+    expect(tpl).toContain('必须不同模型');
+    expect(tpl).toContain('model_alias');
+    expect(tpl).toContain('同模型抽查，置信降级');
+    expect(tpl).toContain('模型对照行');
+  });
 });
