@@ -48,6 +48,8 @@ category: technique
 
 5. **长度预算**：SKILL.md ≤ 200 行。超长内容移到 `references/`，主文件只留触发与工作流骨架。
 
+5b. **教训段验收条**（#1003，EPD 对照）：skill/prompt/SYSTEM.md 中沉淀「#xxx 教训/现场」类段落时，每条教训必须含「不这么做的现场」三要素——**①当时的错误现象 ②导致的后果 ③定位过程**；只有结论没有现场的教训是半成品（「复制结论 ≠ 复制产生它的推理」——字节 EPD 实测：直接 SFT 只保住 3.8% 收益，拟合单步决策保住 64.8%），审视时打回。范本：code-implementation 的「废弃资源清理（#791 教训）」段（错查孤儿库→「零事件」假象→错误结论险胜搭档记忆）。存量教训段不要求回改，新增/修订教训段必须达标。
+
 6. **同步 manifest**：
    - frontmatter 是真相源（SDK 直接消费 name + description）
    - manifest（`prompts/skills/manifest.yaml`）**不写 description 镜像**（D7 决策：双源同步负担不可机器判定）
