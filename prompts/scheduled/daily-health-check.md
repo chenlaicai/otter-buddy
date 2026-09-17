@@ -38,6 +38,19 @@ task_name: 每日对话健康检查
 4. **warning 信号扫视**：发现聚集（同类型 ≥5 条指向同一模块）按 critical 处理；零散 warning 汇总一行即可
 5. **闭环自检**：日报结尾确认「critical N 条 → 开 issue M / 并入 K / dismiss D，M+K+D=N 才算闭环——数字从 triage 数据自动生成（bind_issue 区分新开/并入以 issue 是否本次新建为准；in_progress 不进公式，它是 bind_issue 的后续状态迁移）。数字对不上说明有信号被沉默跳过，补查
 
+## 观测器信噪比自监控（#999，观测器自己也被观测）
+
+告警的终点站是搭档的注意力——全系统最贵的告警预算。本段让观测器自己被观测（HackProbe 教训：误报率比检出率更决定告警系统生死；Google SRE：不可行动的告警是噪音）：
+
+1. **昨日信噪统计**（日报末尾固定段）：
+   - healing 事件处置分布：昨日 resolve X / dismiss Y 条（dismiss 率 = Y/(X+Y)，误报率近似）。**数据源纪律**：用 sqlite3 直查（先按数据源 #1 纪律确认 dbPath）：`SELECT status, COUNT(*) FROM healing_events WHERE resolved_at >= '<昨日 00:00>' GROUP BY status`——dismiss 判定须排除 30 天 stale 自动清理的污染：`autoStaleDismiss` 只清理 open 超 30 天的事件（时间差必然 ≥30 天），人工 dismiss 时间差任意——故用**时间差近似**分离：`julianday(resolved_at)-julianday(created_at) < 30` 的 dismissed 行 = 人工 dismiss（误报信号）；≥30 天 = stale 清理（不计入 dismiss 率）。（注意：不能按 resolution IS NULL 判定——updateStatus 路径的人工 dismiss 不写 resolution，生产库实证 5 条人工 dismissed 全 NULL，按 NULL 判会指标死亡）
+   - RHI 信号处置分布：昨日 critical 开 issue M / 并入 K / 不处置 L（不处置率 = L/(M+K+L)，低价值率近似）。**M/K/L 取自昨日日报正文的闭环自检行**（检索昨日日报消息），不是 RHI DB——RHI 侧无处置结果存储
+   - 产给搭档的物件数：日报 1 + 新 issue N + 告警条数 K_alert（书写用全称，避免与「并入 K」混淆）
+2. **趋势对比**（有历史日报可检索时）：与近 7 日均值比，dismiss 率 / 不处置率突增 → 标注「某信号源可能在劣化」。search_memory 检索近 7 日日报（含「观测器信噪比」段）；检索到不足 4 篇时标注「历史覆盖率 N/7，趋势结论置信低」
+3. **降级建议触发线**：任一信号源/healing 类型「连续两周 dismiss 率或不处置率 > 50%」→ 日报显式给出「建议降级/关停该观测器或调阈值」的建议行（含数据锚点）。**分路径执行**：healing 侧可 sqlite 直查近 14 天自算（`SELECT date(resolved_at), COUNT(*) FROM healing_events WHERE status='dismissed' AND julianday(resolved_at)-julianday(created_at) < 30 AND resolved_at >= date('now','-14 days') GROUP BY date(resolved_at)`）；RHI 侧依赖历史日报链——近 14 天日报覆盖率不足 10/14 时，显式记「RHI 侧数据不足无法判定（覆盖率 N/14）」，不得硬给结论。未达线时本段只需一行数字，不占篇幅
+
+> 信噪比统计是观测（软），降级建议触发线首月试运行后可按实际分布校准。
+
 ## 锚点真实性抽查（#981，证据锚点规则的外部强制）
 
 证据锚点规则（SYSTEM.md A1②）靠 LLM 自觉，存在「真假锚点混合」绕过模式——本段是每日抽查机制，抓编造锚点现形：
@@ -73,6 +86,7 @@ task_name: 每日对话健康检查
 [ ] 7. signal_events — 已查/发现：…（query_signals 对账段，无异常写"无异常"）
 [ ] 8. RHI 信号处置 — 已处置：…（critical N 条 → 开 issue M / 并入 K / dismiss D，M+K+D=N，逐项已调 triage_signal 留痕）
 [ ] 9. 锚点真实性抽查 — 抽查 N 条 file:line 锚点断言 / 通过 M / 失败 K（失败已开 issue #xxx；昨日无锚点断言可写"无样本"）+ 模型对照行（抽查模型 X vs 样本模型分布；同模型样本改派/降级声明）
+[ ] 10. 观测器信噪比 — healing dismiss 率 Y/(X+Y) / RHI 不处置率 L/(M+K+L) / 产给搭档物件数（有异常信号源劣化趋势或达降级触发线时给出建议行，否则一行数字即可）
 ```
 
 每项"发现"注明具体来源（issue 编号/对话 ID/事件 ID），无法定位的数据不上报。清单全部勾选后才写分析结论。

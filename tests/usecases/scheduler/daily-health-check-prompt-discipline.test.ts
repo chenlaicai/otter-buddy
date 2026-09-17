@@ -54,4 +54,12 @@ describe('每日健康检查模板纪律锁（#791 P1）', () => {
     expect(m![0]).toContain('必须不同模型');
     expect(m![0]).toContain('model_alias');
   });
+
+  it('观测器信噪比自监控段存在（#999：观测器自己也被观测——误报率比检出率更决定生死）', () => {
+    const tpl = readTemplate();
+    expect(tpl).toContain('观测器信噪比自监控');
+    expect(tpl).toContain('dismiss');
+    expect(tpl).toContain('不处置率');
+    expect(tpl).toContain('降级');
+  });
 });
