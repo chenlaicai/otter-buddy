@@ -48,6 +48,12 @@ export interface SearchQuery {
   limit: number;
   granularity?: RetrievalGranularity;
   conversationId?: string;
+  /**
+   * F20260917cvid: 当前对话 ID（排序加成，区别于 conversationId 过滤语义）——
+   * 命中条目 conversationId 匹配时乘 SearchEngineConfig.currentConversationBoost。
+   * 由 agent 工具层自动注入（搭档「本对话历史权重更高」），检索结果仍含跨对话条目。
+   */
+  currentConversationId?: string;
   /** 渐进式披露：控制返回内容的详细程度，默认 "snippet" */
   detailLevel?: DetailLevel;
   /** 指定库 key，不传则全库搜索 */
@@ -77,6 +83,8 @@ export interface RetrievalDebugInfo {
   finalScore: number;
   timeDecay: number;
   frequencyBoost: number;
+  /** F20260917cvid: 本对话加成系数（命中=配置值，未命中=1.0） */
+  conversationBoost?: number;
   multiHitCount?: number;
 }
 
@@ -487,7 +495,7 @@ export class SearchMemory {
     }
 
     /** 2. 重排 + 返回（传递 snippet 信息用于降级） */
-    return this.rerankAndReturn(rrfHits, query.limit, detailLevel, snippetMap, true, query.debug ?? false);
+    return this.rerankAndReturn(rrfHits, query.limit, detailLevel, snippetMap, true, query.debug ?? false, query.currentConversationId);
   }
 
   async searchSimilar(
@@ -529,7 +537,7 @@ export class SearchMemory {
    * RRF 融合后的结果重排 + 批量递增计数 + 组装返回值。
    * F20260811mrpy：扩展含 vecCoverage/debug/drillDown，参数数与复杂度合理增加。
    */
-  // eslint-disable-next-line max-params -- F20260811mrpy 三 Part 扩展必要
+  // eslint-disable-next-line max-params, max-lines-per-function -- F20260811mrpy 三 Part 扩展 + F20260917cvid 对话加权必要
   private async rerankAndReturn(
     rrfHits: Map<string, RrfHit>,
     limit: number,
@@ -539,6 +547,8 @@ export class SearchMemory {
     dedup = true,
     /** F20260811mrpy Part 1：debug=true 时注入中间分值 */
     debug = false,
+    /** F20260917cvid: 当前对话 ID（本对话加权），searchSimilar 路径不传 */
+    currentConversationId?: string,
   ): Promise<RetrievalResult> {
     const hitIds = Array.from(rrfHits.keys());
     if (hitIds.length === 0) {
@@ -548,7 +558,7 @@ export class SearchMemory {
     const weights = await this.reader.getWeights(hitIds);
     const weightMap = new Map(weights.map((w) => [w.memoryEntryId, w]));
 
-    const scored = this.searchEngine.rerank(rrfHits, weightMap);
+    const scored = this.searchEngine.rerank(rrfHits, weightMap, currentConversationId);
     /** F20260803chunk: 按 (sourceTable, sourceId) 去重 + 多 chunk 命中加分（dedupAndBoostBySource） */
     const deduped = dedup ? this.dedupAndBoostBySource(scored) : scored;
     deduped.sort((a, b) => b.finalScore - a.finalScore);
@@ -593,6 +603,9 @@ export class SearchMemory {
           frequencyBoost: this.searchEngine.computeFrequencyBoostPublic(
             weightMap.get(h.entryId)?.retrievalCount ?? 0,
           ),
+          conversationBoost: currentConversationId && h.entry.conversationId === currentConversationId
+            ? this.searchEngine.configRef.currentConversationBoost
+            : 1.0,
           multiHitCount: h.multiHitCount,
         } : undefined;
         return {

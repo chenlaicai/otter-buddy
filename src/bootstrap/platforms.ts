@@ -134,6 +134,7 @@ export async function createAgentGateway(options: {
     otterConfigProvider,
     otterRepo: repos.otter,
     settingsRepo: repos.settings,
+    conversationRepo: repos.conversation,
   }, logger);
 
   return {

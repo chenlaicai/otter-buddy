@@ -22,6 +22,7 @@ import type {
 } from "@usecases/otter/agent-gateway";
 // R20260817arnt PR-A：以下四项自 interface-adapters 上移 @usecases/ports——消除 frameworks→interface-adapters 倒穿
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
+import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
 import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import { createAgentSessionStore } from "./agent-session-store";
@@ -154,6 +155,8 @@ export interface AgentSessionFactoryConfig {
   otterRepo: OtterRepository;
   /** Settings 仓库（读取用户显示名，可选） */
   settingsRepo?: SettingsRepository;
+  /** F20260917cvid: 对话仓库（可选）——身份注入读对话标题用 */
+  conversationRepo?: ConversationRepository;
 }
 
 /** SessionManager 类型（从 pi-coding-agent 导入） */
@@ -194,13 +197,15 @@ export class PiSessionFactory implements AgentGateway {
       otterConfigProvider: OtterConfigProvider;
       otterRepo: OtterRepository;
       settingsRepo?: SettingsRepository;
+      /** F20260917cvid: 对话仓库（可选）——身份注入读对话标题用 */
+      conversationRepo?: ConversationRepository;
     },
     private readonly logger: Logger,
   ) {
     this.otterToolClient = cfg.otterToolClient;
     this.sessionStore = createAgentSessionStore(cfg.db);
     this.sessionRestore = new SessionRestore(this.sessionStore, cfg.otterConfigProvider, logger, cfg.db);
-    this.identityBuilder = new IdentityBuilder(cfg.otterRepo, cfg.settingsRepo, cfg.modelPool, logger, cfg.identityPromptDir);
+    this.identityBuilder = new IdentityBuilder(cfg.otterRepo, cfg.settingsRepo, cfg.conversationRepo, cfg.modelPool, logger, cfg.identityPromptDir);
     this.modelRuntimeRegistry = new ModelRuntimeRegistry(cfg.modelPool, logger, cfg.resourceLoader, cfg.onHaltFirstBlock);
     this.circuitBreakerConfig = {
       ...DEFAULT_CIRCUIT_BREAKER_CONFIG,
@@ -1018,5 +1023,6 @@ export async function initAgentSessionFactory(config: AgentSessionFactoryConfig,
     otterConfigProvider: config.otterConfigProvider,
     otterRepo: config.otterRepo,
     settingsRepo: config.settingsRepo,
+    conversationRepo: config.conversationRepo,
   }, logger);
 }

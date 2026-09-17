@@ -9,6 +9,7 @@ import type { MemoryEntry } from "@entities/memory/memory-entry";
 
 const CONFIG: SearchEngineConfig = {
   rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2,
+  currentConversationBoost: 1.5,
   weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90,
   userFlagMultiplier: 2, frequencyBoostFactor: 0.1,
 };
