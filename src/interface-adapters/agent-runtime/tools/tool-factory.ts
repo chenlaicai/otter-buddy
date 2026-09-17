@@ -36,7 +36,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
     // F20260825hcpg 判断标准归位（原设计 F20260728htar L81，在 description 压缩中失传）。
     // 勿再移出：行为触发类引导必须在工具 description（每请求随 tools 参数注入，pi-ai
     // anthropic-messages.js convertTools），references 指针对「要不要用」的决策无效。
-    description: "发言工具——你在聊天室里唯一的发言通道：普通文本输出其他人不可见，只有 speak(body) 的内容会被所有人看到；进展/结论/提问/汇报一律 speak. 纯内容输出不移交行动权，调用后 agent loop 继续，可连续多次 speak（body 按顺序拼接）. TIP: 方案对比/排查结论/结构化数据——正文先 1-2 句结论，html-card 卡片放详情；短问答/代码片段/简单列表用 md. 每条都出卡等于没出卡. GOTCHA: speak≠交棒——说完还需 yield 回合才结束；HTML 卡片（```html-card 围栏）必须完整写在 body 内（写在外面系统会拒绝并指导重试），数量与体积限制以 get_html_card_contract 返回的契约为准；写卡前必调该工具. 搭档回复中的 ```html-card-reply 围栏是卡片回执（内嵌 JSON 可解析）. 系统自愈：见 SYSTEM.md R5——遇系统问题在 body 末尾附 healing 块，顺利则附 no_issue 块. 工具难用也可报：type=tool_use_feedback，description 以 [tool:工具名] 开头写清痛点与建议；该报的时机：调用失败且自行绕路解决/同一意图连试多个工具/参数语义反直觉/疑似与相邻工具职责重叠.",
+    description: "发言工具——你在聊天室里唯一的发言通道：普通文本输出其他人不可见，只有 speak(body) 的内容会被所有人看到；进展/结论/提问/汇报一律 speak. 纯内容输出不移交行动权，调用后 agent loop 继续，可连续多次 speak（body 按顺序拼接）. TIP: 方案对比/设计思路/排查结论/结构化数据——正文先写 1-2 句结论，html-card 卡片放详情；短问答/代码片段/简单列表用 md. 每条都出卡等于没出卡. GOTCHA: speak≠交棒——说完还需 yield 回合才结束；HTML 卡片（```html-card 围栏）必须完整写在 body 内（写在外面系统会拒绝并指导重试），一条消息最多 2 张、单卡体积限制等具体数值以 get_html_card_contract 返回的契约为准；写卡前必调该工具. 搭档回复中的 ```html-card-reply 围栏是卡片回执（内嵌 JSON 可解析）. 系统自愈：见 SYSTEM.md R5——遇系统问题在 body 末尾附 healing 块，顺利则附 no_issue 块. 工具难用也可报：type=tool_use_feedback，description 以 [tool:工具名] 开头写清痛点与建议；该报的时机：调用失败且自行绕路解决/同一意图连试多个工具/参数语义反直觉/疑似与相邻工具职责重叠.",
     parameters: {
       type: "object",
       properties: {
@@ -189,7 +189,7 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
-    description: `检索记忆：跨会话的历史决策、讨论、F/R 文档与事实都在这里，是了解一件事来龙去脉的第一入口。收到新问题时第一把工具先想记忆（grep/bash 翻目录是落空后的第二步；边界见 SYSTEM.md R4）. When: 搭档提到'上次'/问某决策为什么/跨会话续接/术语不明；实质问题先自问'这事有历史脉络吗'，有则先搜再答. 纯新话题/闲聊不必搜. Not for: 当前上下文存取 → get_context/set_context；取全文 → get_memory_detail. Output: 条目列表（detail_level 三级：summary 默认/snippet 看上下文/full 全文）+ vecCoverage 健康度 + contextEntries（expand_context 时）. TIP: 默认 summary → get_memory_detail 两步；结果含 drillDown 按其下钻；输入 F/R 文档 ID 自动短路定位；命中后用 get_related 拼链；发现关联用 link_memory 声明. 命中并实质影响回答时发言开头展示一行记忆溯源（格式见 SYSTEM.md R7）——查了要说. BOUNDARY: 记忆与当前上下文冲突以当前为准；library 路由 / created_after 过滤可用；debug=true 返回中间分值诊断排序.`,
+    description: `检索记忆：跨会话的历史决策、讨论、F/R 文档与事实都在这里，是了解一件事来龙去脉的第一入口。收到新问题时第一把工具先想记忆（grep/bash 翻目录是落空后的第二步；边界见 SYSTEM.md R4）. When: 搭档提到'上次'/问某决策为什么/跨会话续接/术语不明；实质问题先自问'这事有历史脉络吗'，有则先搜再答. 纯新话题/闲聊不必搜. Not for: 当前上下文存取 → get_context/set_context；取全文 → get_memory_detail. Output: 条目列表（detail_level 三级：summary 默认/snippet 看上下文/full 全文）+ vecCoverage 健康度（vecDisabled=true 时降级 FTS-only，语义近邻召回缺失，重要检索提示用户排查）+ contextEntries（expand_context 时）. TIP: 默认 summary → get_memory_detail 两步；结果含 drillDown 按其下钻；输入 F/R 文档 ID 自动短路定位；命中后用 get_related 拼链；发现关联用 link_memory 声明. 命中并实质影响回答时发言开头展示一行记忆溯源（格式见 SYSTEM.md R7）——查了要说. BOUNDARY: 记忆与当前上下文冲突以当前为准；library 路由 / created_after 过滤可用；debug=true 返回中间分值诊断排序.`,
     parameters: {
       type: "object",
       properties: {
