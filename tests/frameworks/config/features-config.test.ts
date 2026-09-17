@@ -5,7 +5,9 @@
  * 1. 配置层 buildFeaturesConfig（经 loadConfig 验证）：三态归一化（显式 true/false、
  *    null 不 warn、非法值 warn 归 undefined、未配置全 undefined）
  * 2. 装配层 gateOn / resolveFeatureGates：显式短路不查 DB、存量推断、
- *    recruiting 双通道（apiKey 或 DB 存量）、dailyReview 缺省 on
+ *    recruiting 双通道（apiKey 或 DB 存量）
+ *
+ * F20260917swsh：dailyReview 开关随每日复盘任务一并移除，相关用例同步删除。
  */
 
 import { describe, it, expect, vi, beforeAll } from "vitest";
@@ -60,7 +62,6 @@ describe("配置层：buildFeaturesConfig 三态归一化", () => {
     mockReadFileSync.mockReturnValue(MINIMAL_YAML);
     const config = loadConfig();
     expect(config.features).toEqual({
-      dailyReview: undefined,
       selfHealing: undefined,
       paperTrading: undefined,
       recruiting: undefined,
@@ -68,18 +69,18 @@ describe("配置层：buildFeaturesConfig 三态归一化", () => {
   });
 
   it("显式 true/false 原样保留", () => {
-    mockReadFileSync.mockReturnValue(MINIMAL_YAML + "\nfeatures:\n  dailyReview: true\n  selfHealing: false\n");
+    mockReadFileSync.mockReturnValue(MINIMAL_YAML + "\nfeatures:\n  selfHealing: false\n  paperTrading: true\n");
     const config = loadConfig();
-    expect(config.features.dailyReview).toBe(true);
+    expect(config.features.paperTrading).toBe(true);
     expect(config.features.selfHealing).toBe(false);
-    expect(config.features.paperTrading).toBeUndefined();
+    expect(config.features.recruiting).toBeUndefined();
   });
 
   it("null（YAML 空值占位）→ undefined 且不 warn", () => {
     const logger = makeLogger();
-    mockReadFileSync.mockReturnValue(MINIMAL_YAML + "\nfeatures:\n  dailyReview: null\n");
+    mockReadFileSync.mockReturnValue(MINIMAL_YAML + "\nfeatures:\n  selfHealing: null\n");
     const config = loadConfig(logger);
-    expect(config.features.dailyReview).toBeUndefined();
+    expect(config.features.selfHealing).toBeUndefined();
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
@@ -112,13 +113,12 @@ describe("装配层：gateOn 三态门", () => {
 
 describe("装配层：resolveFeatureGates", () => {
   const noFeatures = {
-    dailyReview: undefined,
     selfHealing: undefined,
     paperTrading: undefined,
     recruiting: undefined,
   };
 
-  it("空库（无存量任务、无 apiKey）→ 缺省值：dailyReview on 其余 off", async () => {
+  it("空库（无存量任务、无 apiKey）→ 缺省值全 off", async () => {
     const logger = makeLogger();
     const gates = await resolveFeatureGates({
       features: noFeatures,
@@ -126,7 +126,6 @@ describe("装配层：resolveFeatureGates", () => {
       logger,
     });
     expect(gates).toEqual({
-      dailyReview: true,
       selfHealing: false,
       paperTrading: false,
       recruiting: false,
@@ -190,7 +189,7 @@ describe("装配层：resolveFeatureGates", () => {
   it("显式配置压过全部存量推断（老部署显式关停场景）", async () => {
     const logger = makeLogger();
     const gates = await resolveFeatureGates({
-      features: { dailyReview: undefined, selfHealing: false, paperTrading: false, recruiting: undefined },
+      features: { selfHealing: false, paperTrading: false, recruiting: undefined },
       scheduledTaskRepo: makeTaskRepo(["self-healing-analysis", "paper-trading-match-orders", "recruiting-daily-summary"]),
       logger,
     });

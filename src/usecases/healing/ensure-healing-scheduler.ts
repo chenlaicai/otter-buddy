@@ -1,10 +1,10 @@
 import type { ManageScheduledTask } from '@usecases/scheduled-task/manage-scheduled-task';
 import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled-task-repository';
 
-const HEALING_CRON = '0 10 * * *'; // 每天上午 10 点
+const HEALING_CRON = '0 9 * * *'; // 每天上午 9 点（F20260917swsh：三省吾身时间轴 8:30 健康检查 → 9:00 healing 分析）
 const HEALING_TASK_NAME = 'self-healing-analysis';
 
-/** #1004：验证断言回查任务——每日 11:00（错开 9:00 health-check / 10:00 healing 分析） */
+/** #1004：验证断言回查任务——每日 11:00（错开 9:00 healing 分析 / 9:30 issue 处理，F20260917swsh 时间轴） */
 const REGRESSION_VERIFY_CRON = '0 11 * * *';
 const REGRESSION_VERIFY_TASK_NAME = 'regression-verify';
 
