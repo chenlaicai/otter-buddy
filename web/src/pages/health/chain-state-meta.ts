@@ -24,6 +24,19 @@ export const CHAIN_STATE_META: Record<ChainState, { label: string; className: st
   orphan: { label: '孤儿', className: 'text-lavender-500', color: LAVENDER[400] },
 }
 
+/**
+ * 进度语言（issue #1029）：四态翻译成搭档看得懂的进度状态——
+ * 「进行中的事」tab 的状态徽章/分组标题用 progressLabel（人话），
+ * 内部状态名与 CHAIN_STATE_META.label（技术标签）保留在筛选 chips 与 tooltip。
+ */
+// 改 label 文案须同步后端 health-score.ts 的 CHAIN_STATE_ZH（归因句同源文案）
+export const CHAIN_STATE_PROGRESS: Record<ChainState, { label: string; tone: 'ok' | 'warn' | 'danger' }> = {
+  active: { label: '推进中', tone: 'ok' },
+  stalled: { label: '卡住', tone: 'warn' },
+  regressed: { label: '出过回退', tone: 'warn' },
+  orphan: { label: '烂尾风险', tone: 'danger' },
+}
+
 /** 排序权重：状态严重度优先（regressed 最高），同态按最近活动降序由调用方补 */
 export function chainStateRank(state: string): number {
   const order: Record<string, number> = { regressed: 4, stalled: 3, orphan: 2, active: 1 }
