@@ -20,6 +20,39 @@ export type HealingErrorType =
   | 'tool_use_feedback'
   | 'other';
 
+/**
+ * #998：errorType 二维分账——「环境/系统失败」vs「獭能力失败」。
+ * 混排会让 daily-review 把工具故障误读成獭不行、把獭不行误读成工具故障，
+ * 两种误判的处置方向完全相反（Qwen-UI-Agent：环境抖动单列是小团队 RL 不收敛误判的主因）。
+ * 纯映射函数，不改 schema、不动存量数据。
+ */
+export type HealingFailureClass = 'environment' | 'capability';
+
+const ENVIRONMENT_TYPES: ReadonlySet<HealingErrorType> = new Set([
+  'tool_failure',     // 工具故障/超时/429（环境侧）
+  'rate_limit',       // 模型配额耗尽（供应商侧）
+  'circuit_break',    // 熔断执行（系统保护动作）
+  'self_restart',     // 自重启执行（系统保护动作）
+  'guard_intercept',  // 框架守卫拦截（系统侧规则触发）
+]);
+
+const CAPABILITY_TYPES: ReadonlySet<HealingErrorType> = new Set([
+  'missing_context',    // 检索缺失（獭该查没查）
+  'wrong_tool',         // 用错工具
+  'format_violation',   // 格式异常
+  'knowledge_gap',      // 知识缺口
+  'performance',        // 性能/质量退化
+  'degenerate',         // 输出退化（能力表现）
+  'tool_use_feedback',  // 獭主动反馈（獭侧信号）
+]);
+
+/** #998：errorType → 二维分类。other 默认 capability（Unknown 归因于獭，保守不粉饰系统） */
+export function classifyHealingErrorType(t: HealingErrorType): HealingFailureClass {
+  if (ENVIRONMENT_TYPES.has(t)) return 'environment';
+  if (CAPABILITY_TYPES.has(t)) return 'capability';
+  return 'capability'; // other
+}
+
 /** Healing event 严重程度 */
 export type HealingSeverity = 'low' | 'medium' | 'high';
 
