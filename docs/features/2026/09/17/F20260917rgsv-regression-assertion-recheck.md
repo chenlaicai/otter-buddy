@@ -1,5 +1,5 @@
 ---
-id: F20260916rgsv
+id: F20260917rgsv
 title: 验证断言回查机制：daily-review issue 修复的可证伪闭环
 doc_type: feature
 summary: |
@@ -29,7 +29,7 @@ modules:
   - tests/usecases/scheduler/regression-verify.test.ts
 ---
 
-# F20260916rgsv: 验证断言回查机制
+# F20260917rgsv: 验证断言回查机制
 
 ## 背景
 
