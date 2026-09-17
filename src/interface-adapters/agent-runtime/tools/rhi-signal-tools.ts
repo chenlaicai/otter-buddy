@@ -58,7 +58,7 @@ export function createTriageSignalTool(ctx: ToolContext, signalRepo: SignalRepos
   };
   return {
     name: "triage_signal",
-    description: "处置一条 RHI 健康信号（留痕写库）. When: 日报处置段处置完 critical 信号后必须调用留痕（对账公式 M+K+D=N 的数据源）/ 面板一键操作的后端写路径. Not for: 獭间信号 signal_events（那是 query_signals/resolve_signal 的范围）/ 改检测口径（#1012 范围）. Output: 处置确认（状态 + issue 绑定 + note）. 语义: bind_issue=归口到 issue（issueNumber 必填，覆盖式允许换绑）；in_progress=标修复中（前置须已 bind_issue，幂等跳过）；dismiss=终态化（note 必填必写库——「不处置必须是判断结论不能是沉默」）. GOTCHA: ①dismiss 的 note 为空会被拒绝；②in_progress 未先 bind_issue 会被拒绝；③对已终态信号重复调用返回幂等结果无副作用.",
+    description: "处置一条 RHI 健康信号（留痕写库）. When: 日报处置段处置完 critical 信号后必须调用留痕（对账公式 M+K+D=N 的数据源）/ 面板一键操作的后端写路径. Not for: 獭间信号 signal_events（那是 query_signals/resolve_signal 的范围）/ 改检测口径（走特性流程）. Output: 处置确认（状态 + issue 绑定 + note）. 语义: bind_issue=归口到 issue（issueNumber 必填，覆盖式允许换绑）；in_progress=标修复中（前置须已 bind_issue，幂等跳过）；dismiss=终态化（note 必填必写库——「不处置必须是判断结论不能是沉默」）. GOTCHA: ①dismiss 的 note 为空会被拒绝；②in_progress 未先 bind_issue 会被拒绝；③对已终态信号重复调用返回幂等结果无副作用.",
     parameters: {
       type: "object",
       properties: {

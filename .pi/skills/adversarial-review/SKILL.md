@@ -34,7 +34,7 @@ category: technique
 
    > **基础维度不占焦点名额**：基础维度（CI 状态、文档完整性、全链路验证、变更标识一致性）每次都必须检查，不需要声明为焦点。
 
-   > **作者「检视焦点建议」的防锚定规则（#962 事故）**：PR 描述中作者给出的检视焦点建议只能作为输入之一，**不能替代你自己的焦点声明**——作者的盲点会原样写进焦点建议（#944 现场：4 条焦点建议全是 ID 语义，迁移机制 CTAS 不在任何一条里，检视注意力被锚定导致漏检）。正确姿势：先独立判断「什么出错后果最严重」声明自己的焦点，再核对作者焦点清单是否有你没覆盖的项；对「变更机制本身」（如何实现的，而非实现是否符合语义）永远保留一个独立检查动作，无论作者焦点是否提及。
+   > **作者「检视焦点建议」的防锚定规则（事故教训）**：PR 描述中作者给出的检视焦点建议只能作为输入之一，**不能替代你自己的焦点声明**——作者的盲点会原样写进焦点建议（现场：4 条焦点建议全是 ID 语义，迁移机制 CTAS 不在任何一条里，检视注意力被锚定导致漏检）。正确姿势：先独立判断「什么出错后果最严重」声明自己的焦点，再核对作者焦点清单是否有你没覆盖的项；对「变更机制本身」（如何实现的，而非实现是否符合语义）永远保留一个独立检查动作，无论作者焦点是否提及。
 
 3. **逐维度检查**：先检查基础维度，再检查焦点维度。所有维度都要覆盖，无问题的维度也要显式写"无发现"。详见 `references/review-dimensions.md`。
 
@@ -47,8 +47,8 @@ category: technique
    | 全链路验证 | 功能是否端到端可用？不只是单元测试通过 |
    | 变更标识一致性 | 特性编号在 commit/PR/文档间一致？（详见 `references/review-dimensions.md` B4） |
    | 撞车检查（B5） | 是否有其他 open PR 引用同一 issue 或重叠文件域？`gh pr list --state open` 后比对 Closes/Fixes 引用与 files 列表；命中 = 严重发现，立即通知大獭仲裁（时间序优先，见 worktree-isolation 步骤 2） |
-   | Intent 块存在性（B6，软代码改动） | 本次变更涉及 prompt/skill/协议层时，特性文档 frontmatter 是否有 intent 块？**intent 块缺失 = 严重发现**（v6.3，P0-a） |
-   | Golden Gate 记录（B7，软代码改动） | 本次变更涉及 prompt/skill/协议层时，results.jsonl 是否有该 PR 的执行记录？**记录缺失 = 严重发现**；记录存在但有 fail 行未处置 = 严重发现（v6.3，P0-a——fail 行悬置会让止损线条件 3 永久失明）。**豁免核验（#1023）**：verify_by.type 为 static_only/human_judge 时生产方可豁免跑 gate，但 PR Verification 节必须有豁免声明（「Golden Gate: n/a（verify_by=…，无场景可跑）」）——无记录且无豁免声明 = 严重发现 |
+   | Intent 块存在性（B6，软代码改动） | 本次变更涉及 prompt/skill/协议层时，特性文档 frontmatter 是否有 intent 块？**intent 块缺失 = 严重发现** |
+   | Golden Gate 记录（B7，软代码改动） | 本次变更涉及 prompt/skill/协议层时，results.jsonl 是否有该 PR 的执行记录？**记录缺失 = 严重发现**；记录存在但有 fail 行未处置 = 严重发现（fail 行悬置会让止损线条件永久失明）。**豁免核验**：verify_by.type 为 static_only/human_judge 时生产方可豁免跑 gate，但 PR Verification 节必须有豁免声明（「Golden Gate: n/a（verify_by=…，无场景可跑）」）——无记录且无豁免声明 = 严重发现 |
 
    > **基础维度失败 → 严重发现**：任一基础维度失败必须在审视报告的"严重发现"节建对应条目（标明 B1-B7 来源），不可仅在基础维度检查表中标记"失败"就跳过处置队列（详见 `references/review-dimensions.md`）。
 
@@ -56,7 +56,7 @@ category: technique
 
    > **B2 特性文档缺失 = 严重发现**：无论变更类型（代码/prompt/skill/doc），特性文档都是必须的。缺失即为严重发现，不可降级为「可接受」或「完整」。正确做法：在审视报告"严重发现"节建 B2 条目，描述"特性文档缺失"，处置为"本 PR 修复（补充特性文档）"。
 
-   > **B6/B7 软代码改动必须检查**：本次变更涉及 prompt/skill/协议层时，B6（intent 块存在性）和 B7（Golden Gate 记录）是必须检查的基础维度。检视獭不重复跑 gate（生产方职责），只核验记录存在性 + fail 已处置（v6.3，P0-a）。
+   > **B6/B7 软代码改动必须检查**：本次变更涉及 prompt/skill/协议层时，B6（intent 块存在性）和 B7（Golden Gate 记录）是必须检查的基础维度。检视獭不重复跑 gate（生产方职责），只核验记录存在性 + fail 已处置。
 
    **焦点维度（根据 PR 特点选 1-3 个深入）**：
 
@@ -80,11 +80,11 @@ category: technique
 
 6. **输出报告到 PR**：先将检视结论 post 到 PR（按步骤 6a 的 state 决策表带 request-changes/approve/comment），再在 otter 对话中发轻量通知。报告中的处置栏格式见 `references/author-response-protocol.md`；多轮审视的收敛判据与终止条件见 `references/review-loop.md`。
 
-   **步骤 6a：post PR review（#824：按结论带 state + 正文必走 body-file）**：
+   **步骤 6a：post PR review（按结论带 state + 正文必走 body-file）**：
 
-   审查内容可能含被审查代码的进程终止族词元——内联进 `--body` 会触发 bash 守卫拦截（#858 现场：检视獭被拦 13 起、对抗审视流程在守卫层断裂）。正文一律先落文件（write 工具或工作区），再 `--body-file` 引用。
+   审查内容可能含被审查代码的进程终止族词元——内联进 `--body` 会触发 bash 守卫拦截（现场：检视獭被拦 13 起、对抗审视流程在守卫层断裂）。正文一律先落文件（write 工具或工作区），再 `--body-file` 引用。
 
-   **review state 决策表（F20260915rgte，机械闸门——不可一律 --comment）**：
+   **review state 决策表（机械闸门——不可一律 --comment）**：
 
    | 检视结论 | gh 命令 | 语义 |
    |---|---|---|
@@ -93,7 +93,7 @@ category: technique
    | 仅建议发现、待作者处置（初轮中间态） | `gh pr review <PR> --comment --body-file <f>` | 悬置，不挡不放 |
    | 初轮 0 严重 0 建议（一次通过） | `gh pr review <PR> --approve --body-file <f>` | 闸门直接打开 |
 
-   > **单账号环境降级（F20260915rgte 已知限制，9/15 实证修正）**：GitHub 平台硬规则——同账号下 approve 与 request-changes **均物理不可达**（"can not review your own pull request"），仅 comment 放行。单账号（獭借搭档 token 操作）时全量降级 `--comment`，严肃结论以正文首行结论词为准（「需要修改」/「通过（delta 复核）」），合并拦截靠分支保护 CI check + 大獭编排纪律。多账号环境（如 GitHub App 独立身份）接入后本表直接生效，无需改 skill。
+   > **单账号环境降级（实证修正）**：GitHub 平台硬规则——同账号下 approve 与 request-changes **均物理不可达**（"can not review your own pull request"），仅 comment 放行。单账号（獭借搭档 token 操作）时全量降级 `--comment`，严肃结论以正文首行结论词为准（「需要修改」/「通过（delta 复核）」），合并拦截靠分支保护 CI check + 大獭编排纪律。多账号环境（如 GitHub App 独立身份）接入后本表直接生效，无需改 skill。
 
    > state 是「本 review 提交时的结论」，不是终身判决——先 request-changes、修复后 delta 通过再 approve 是正常流程。审查结论措辞与 state 对应：request-changes ↔ 「**需要修改**」；approve ↔ 「**通过（delta 复核）**」。
 

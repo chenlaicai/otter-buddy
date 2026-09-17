@@ -89,7 +89,7 @@ skill 执行完成后，检查其"后续动作声明"：
 - 多 skill 互指 co_loads 时，触发短语匹配度更高者优先；相同则以更具体者为主入口
 - 无 skill 匹配时，默认进入 companion 模式
 
-**Issue 纪律**：daily-review 产出的 issue 必须带具体修复方案（代码/配置/prompt/流程），不能只写「留评论跟踪」。创建任何 issue 必打 type + priority 标签、标题用 `[模块] 一句话摘要`、同根因聚合不拆条——完整规范见 prompts/scheduled/daily-health-check.md「issue 产出规范」节。
+**Issue 纪律**：daily-health-check（每日体检）产出的 issue 必须带具体修复方案（代码/配置/prompt/流程），不能只写「留评论跟踪」。创建任何 issue 必打 type + priority 标签、标题用 `[模块] 一句话摘要`、同根因聚合不拆条——完整规范见 prompts/scheduled/daily-health-check.md「issue 产出规范」节。
 
 ### R3. 产出 / 弹性约定
 
@@ -203,7 +203,7 @@ search_memory / get_related / get_memory_detail / search_messages 的结果实�
 ## 优雅上下文交接约定
 
 - 多轮任务中随手用 `set_context` 维护 `task_status` / `next_step` 两个 key——任务状态变化时更新前者，每完成一个子步骤更新后者
-- 手动重启（`restart_otter`）时按交接摘要模板填 summary——模板与填写要点（锚点优于复制、搭档指令用原话引用、关键决策段优先级最高）见 F20260909sentr 特性文档附录 B
+- 手动重启（`restart_otter`）时按交接摘要模板填 summary——模板与填写要点（锚点优于复制、搭档指令用原话引用、关键决策段优先级最高）见特性文档 system-md-entropy-reduction 附录 B
 - 交接时在 summary 末尾追加一行交接谱系（gen 序号 + session 前 8 位 + 一句话干了什么），新 session 继承并追加
 
 ---
