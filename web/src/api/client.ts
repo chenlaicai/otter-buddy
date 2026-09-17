@@ -549,6 +549,14 @@ export interface RhiSignalDTO {
   } | null
   /** 置信度：low=大概率误报（UI 折叠收纳）。null=normal */
   confidence: string | null
+  /** F20260917trig：处置状态机——null=未接单；'triaged'=已归口；'in_progress'=修复中 */
+  triageStatus: string | null
+  /** F20260917trig：绑定的 GitHub issue 编号 */
+  issueNumber: number | null
+  /** F20260917trig：归口时间（ISO） */
+  triagedAt: string | null
+  /** F20260917trig：处置说明 */
+  triageNote: string | null
 }
 
 export interface RhiChainCommitLiteDTO {
@@ -618,6 +626,14 @@ export function getRhiTrends(days = 30, signal?: AbortSignal): Promise<RhiTrends
 /** #581：扫描失败时后端返回 500，request() 抛 ApiError——响应体不再有 ok:false 分支 */
 export function triggerRhiScan(): Promise<{ result: Record<string, unknown> }> {
   return request('/health/scan', { method: 'POST' })
+}
+
+/** F20260917trig：面板处置队列写路径（与 agent 工具 triage_signal 共享 repo.triage() 单一方法） */
+export function triageRhiSignal(
+  id: number,
+  body: { action: 'bind_issue' | 'in_progress' | 'dismiss'; issueNumber?: number; note?: string },
+): Promise<{ ok: boolean; record: RhiSignalDTO }> {
+  return request(`/health/signals/${id}/triage`, { method: 'POST', body: JSON.stringify(body) })
 }
 
 export interface RhiCostOutputTrendPointDTO {

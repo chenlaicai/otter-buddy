@@ -12,6 +12,7 @@ import { truncateToolResult, type ToolResponse } from "@usecases/ports/agent-too
 import type { Logger } from "@usecases/ports/logger";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
+import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 
@@ -82,6 +83,8 @@ export interface BuildCustomToolsParams {
   healingRepo?: HealingEventRepository;
   /** F20260826mwrd C1：signal 工具（halt_otter/query_signals）的仓库 */
   signalRepo?: SignalEventRepository;
+  /** F20260917trig：RHI 信号工具（triage_signal/list_rhi_signals）的仓库 */
+  rhiSignalRepo?: SignalRepository;
   /** #927：目标獭活跃性查询（halt_otter 打标前检查），透传到 ToolContext */
   isOtterRunning?: (otterId: string) => boolean;
   logger: Logger;
@@ -105,7 +108,7 @@ export interface BuildCustomToolsResult {
  * onUpdate/ctx SDK 特有，Otter 工具不需要，忽略。
  */
 export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToolsResult {
-  const { otterId, conversationId, allowedNames, register, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, signalRepo, isOtterRunning, logger } = params;
+  const { otterId, conversationId, allowedNames, register, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, signalRepo, rhiSignalRepo, isOtterRunning, logger } = params;
   // F20260826mwrd C1：signalRepo 挂 ToolContext（tool-factory 从 ctx 读，避免 createTools 参数膨胀）
 
   // F20260815rstrt: 返回 toolContext 引用，供 PiSessionFactory 检查 pendingRestart
@@ -118,6 +121,7 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
     modelPool,
     otterConfigProvider,
     signalRepo,
+    rhiSignalRepo,
     get currentMessageId() { return register.currentMessageId; },
     getTurnAssistantText: () => register.turnText.text,
     get pendingDispatches() { return register.pendingDispatches; },

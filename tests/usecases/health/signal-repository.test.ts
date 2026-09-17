@@ -183,6 +183,149 @@ describe("Issue #644：evidence_detail + confidence 列", () => {
   });
 });
 
+describe("F20260917trig：triage 状态机 + auto-resolve 抹平语义", () => {
+  function makeRepo(): SignalRepository {
+    const db = new Database(":memory:");
+    initSchema(db);
+    migrateDatabase(db, console as never);
+    return new SignalRepository(db);
+  }
+  const base = {
+    signalType: "bug_recurrence",
+    severity: "critical" as const,
+    featureId: null,
+    filePath: "src/invoker.ts",
+    evidence: "3 次",
+    suggestedAction: "根因分析",
+  };
+
+  it("验证 #2：upsert 后 triage 字段保留（防御边界——检测引擎永不触碰处置进度）", () => {
+    const repo = makeRepo();
+    repo.upsert(base);
+    repo.triage(1, "bind_issue", { issueNumber: 1012, note: "并入 #1012" });
+    // 同键再次 upsert（窗口滑动重算）——triage 字段必须原样保留
+    repo.upsert({ ...base, evidence: "4 次" });
+    const open = repo.findOpen();
+    expect(open[0]!.triage_status).toBe("triaged");
+    expect(open[0]!.issue_number).toBe(1012);
+    expect(open[0]!.triage_note).toBe("并入 #1012");
+    expect(open[0]!.occurrences).toBe(2); // 本体计数照常刷新
+  });
+
+  it("triage bind_issue：写入 triaged + issue_number + triaged_at；覆盖式换绑", () => {
+    const repo = makeRepo();
+    repo.upsert(base);
+    const r1 = repo.triage(1, "bind_issue", { issueNumber: 1012, note: "A", now: new Date("2026-09-01T00:00:00Z") });
+    expect(r1.ok).toBe(true);
+    expect(r1.record!.triage_status).toBe("triaged");
+    expect(r1.record!.issue_number).toBe(1012);
+    expect(r1.record!.triaged_at).toBe("2026-09-01T00:00:00.000Z");
+    // 覆盖式换绑
+    const r2 = repo.triage(1, "bind_issue", { issueNumber: 1020, note: "B" });
+    expect(r2.ok).toBe(true);
+    expect(r2.record!.issue_number).toBe(1020);
+    expect(r2.record!.triage_note).toBe("B");
+  });
+
+  it("triage bind_issue：issueNumber 必填，缺省拒绝", () => {
+    const repo = makeRepo();
+    repo.upsert(base);
+    const r = repo.triage(1, "bind_issue", {});
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain("issueNumber 必填");
+  });
+
+  it("triage in_progress：前置须已 bind_issue，幂等跳过", () => {
+    const repo = makeRepo();
+    repo.upsert(base);
+    // 未 bind 直接 in_progress → 拒绝
+    const r0 = repo.triage(1, "in_progress");
+    expect(r0.ok).toBe(false);
+    expect(r0.reason).toContain("须先 bind_issue");
+    // bind 后 in_progress → 成功
+    repo.triage(1, "bind_issue", { issueNumber: 1012 });
+    const r1 = repo.triage(1, "in_progress");
+    expect(r1.ok).toBe(true);
+    expect(r1.record!.triage_status).toBe("in_progress");
+    // 幂等重复调 → 无副作用
+    const r2 = repo.triage(1, "in_progress");
+    expect(r2.ok).toBe(true);
+    expect(r2.reason).toContain("幂等");
+  });
+
+  it("triage dismiss：note 必填拒绝空 note；写入终态 + note 落库；幂等跳过", () => {
+    const repo = makeRepo();
+    repo.upsert(base);
+    // 空 note 拒绝（§2 参数约束）
+    const r0 = repo.triage(1, "dismiss", { note: "  " });
+    expect(r0.ok).toBe(false);
+    expect(r0.reason).toContain("note 必填");
+    // 正常 dismiss
+    const r1 = repo.triage(1, "dismiss", { note: "误报，阈值问题见 #1012" });
+    expect(r1.ok).toBe(true);
+    expect(r1.record!.status).toBe("dismissed");
+    expect(r1.record!.triage_note).toBe("误报，阈值问题见 #1012");
+    // 幂等：已终态重复调无副作用
+    const r2 = repo.triage(1, "dismiss", { note: " again " });
+    expect(r2.ok).toBe(true);
+    expect(r2.reason).toContain("幂等");
+    expect(r2.record!.triage_note).toBe("误报，阈值问题见 #1012"); // note 未被覆盖
+  });
+
+  it("findByTriageStatus：null 查未接单，triaged/in_progress 分组正确", () => {
+    const repo = makeRepo();
+    repo.upsert(base); // id=1 未接单
+    repo.upsert({ ...base, filePath: "b.ts" }); // id=2
+    repo.triage(1, "bind_issue", { issueNumber: 1012 });
+    repo.triage(2, "bind_issue", { issueNumber: 1012 });
+    repo.triage(2, "in_progress");
+    expect(repo.findByTriageStatus("null")).toHaveLength(0);
+    expect(repo.findByTriageStatus("triaged")).toHaveLength(1);
+    expect(repo.findByTriageStatus("in_progress")).toHaveLength(1);
+  });
+
+  it("验证 #4（§6 抹平语义）：resolve/dismiss/auto-resolve 后 triage_status/issue_number 置 NULL，triage_note 保留", () => {
+    const repo = makeRepo();
+    repo.upsert(base);
+    repo.triage(1, "bind_issue", { issueNumber: 1012, note: "并入 #1012" });
+    // repo.resolve 模拟 auto-resolve 路径（resolveStaleSignals 调的就是它）
+    expect(repo.resolve(1)).toBe(true);
+    const resolved = repo.findByStatus("resolved");
+    expect(resolved[0]!.triage_status).toBeNull();
+    expect(resolved[0]!.issue_number).toBeNull();
+    expect(resolved[0]!.triage_note).toBe("并入 #1012"); // note 保留作历史痕迹
+  });
+
+  it("存量库补列迁移：老库（无四列）跑 migrateDatabase 后可用且幂等", () => {
+    // 模拟 9/16 存量库：有 evidence_detail/confidence 但无 triage 四列
+    const db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE signals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        signal_type TEXT NOT NULL, severity TEXT NOT NULL,
+        feature_id TEXT, file_path TEXT, evidence TEXT,
+        first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
+        occurrences INTEGER DEFAULT 1, status TEXT DEFAULT 'open',
+        suggested_action TEXT, evidence_detail TEXT, confidence TEXT,
+        created_at TEXT DEFAULT (datetime('now')), resolved_at
+      )`);
+    initSchema(db);
+    migrateDatabase(db, console as never);
+    const cols = db.prepare("PRAGMA table_info(signals)").all() as Array<{ name: string }>;
+    for (const name of ["triage_status", "issue_number", "triaged_at", "triage_note"]) {
+      expect(cols.some(c => c.name === name)).toBe(true);
+    }
+    // 幂等：再跑一遍不重复加列
+    migrateDatabase(db, console as never);
+    const cols2 = db.prepare("PRAGMA table_info(signals)").all() as Array<{ name: string }>;
+    expect(cols2.filter(c => c.name === "triage_status")).toHaveLength(1);
+    // 补列后 triage 全链路可用
+    const repo = new SignalRepository(db);
+    repo.upsert(base);
+    expect(repo.triage(1, "bind_issue", { issueNumber: 1012 }).ok).toBe(true);
+  });
+});
+
 describe("Issue #645 审视 S1：severity/suggested_action 档位推进（僵尸阶梯）", () => {
   function makeRepo(): SignalRepository {
     const db = new Database(":memory:");

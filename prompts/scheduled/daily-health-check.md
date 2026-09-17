@@ -24,17 +24,19 @@ task_name: 每日对话健康检查
 6. **RHI 健康信号（F20260825rweb #404）**：用 `curl -s http://localhost:<port>/api/health/overview` 与 `/api/health/signals` 拉取 — critical 信号（bug 反复/链滞留/僵尸链）是日报的优先素材；RHI 的 critical 信号已自动写入记忆系统，也可用 `search_memory` 检索 `[RHI信号]` 前缀条目
 7. **signal_events（F20260826mwrd C4）**：用 `query_signals(status=pending)` 查悬置獭间信号 — 对账细则见下方「signal 对账段」；注意 query_signals 只查当前对话，跨对话统计可用 `sqlite3` 或结合 memory 检索补足（sqlite3 直查先按上方前置纪律确认 dbPath）
 
-## RHI 信号处置段（#406 闭环硬规则，2026-09-04）
+## RHI 信号处置段（#406 闭环硬规则 → F20260917trig 机制化，2026-09-17）
 
-「看见」不等于「处置」。拉取 RHI 信号后，逐条走完下面的处置流程，禁止只列数字不处置：
+「看见」不等于「处置」。拉取 RHI 信号后，逐条走完下面的处置流程，禁止只列数字不处置。
+处置动作**必须调 `triage_signal` 工具留痕写库**——对账公式从 triage 数据自动生成，不再靠自觉：
 
-1. **列出全部 critical 信号**（severity=critical，含 bug_recurrence / chain_stall 等）：每条注明信号 ID、类型、严重度、指向的链/文件
-2. **逐条给出处置动作**（三选一，不许留空）：
-   - **开 issue**：信号指向的问题值得修复 → 提 daily-review issue（body 含信号 ID + 数据锚点），issue 编号回写本条目
-   - **并入既有 issue**：问题已有 open issue 跟踪 → 注明 issue 编号 + 判断该信号是否改变了优先级
-   - **明确不处置**：说明理由（如「误报，规则阈值问题」或「正在修复中，PR #xxx」）——「不处置」必须是判断结论，不能是沉默
-3. **warning 信号扫视**：发现聚集（同类型 ≥5 条指向同一模块）按 critical 处理；零散 warning 汇总一行即可
-4. **闭环自检**：日报结尾确认「critical N 条 → 开 issue M / 并入 K / 不处置 L（均附理由）」，M+K+L=N 才算闭环——数字对不上说明有信号被沉默跳过，补查
+1. **列出全部 critical 信号**（severity=critical，含 bug_recurrence / chain_stall 等）：每条注明信号 ID、类型、严重度、指向的链/文件。可用 `list_rhi_signals(status=open, severity=critical)` 拉清单
+2. **逐条给出处置动作**（三选一，不许留空；每选完一项立即调 `triage_signal` 留痕）：
+   - **开 issue / 并入既有 issue**：调 `triage_signal(signalId, action=bind_issue, issueNumber=N, note=...)`——N 是新开 issue 的编号或既有 issue 的编号；note 写判断依据（如「并入 #1012，口径问题归那边修」）
+   - **明确不处置**：调 `triage_signal(signalId, action=dismiss, note=...)`——**note 必填**（「不处置必须是判断结论，不能是沉默」，空 note 会被工具拒绝）；观察期语义由 note 承载（如「误报嫌疑，观察至 X」）
+   - **已归口进入修复**：对已有 issue 在途 PR 的信号，调 `triage_signal(signalId, action=in_progress)`（前置须已 bind_issue）
+3. **未接单存量清点**（F20260917trig 新增步）：调 `list_rhi_signals(status=open, triageStatus=null)` 拉全部未接单信号（不限 critical），逐条按上面三动作归口。存量出清完成后本步主要兜当日新增
+4. **warning 信号扫视**：发现聚集（同类型 ≥5 条指向同一模块）按 critical 处理；零散 warning 汇总一行即可
+5. **闭环自检**：日报结尾确认「critical N 条 → 开 issue M / 并入 K / dismiss D，M+K+D=N 才算闭环——数字从 triage 数据自动生成（bind_issue 区分新开/并入以 issue 是否本次新建为准；in_progress 不进公式，它是 bind_issue 的后续状态迁移）。数字对不上说明有信号被沉默跳过，补查
 
 ## 锚点真实性抽查（#981，证据锚点规则的外部强制）
 
@@ -69,7 +71,7 @@ task_name: 每日对话健康检查
 [ ] 5. memory — 已查/发现：…
 [ ] 6. RHI 健康信号 — 已查/发现：…（overview 指标 + open signals；critical 信号处置结果见下方「RHI 信号处置段」，无新信号可写"无变化"）
 [ ] 7. signal_events — 已查/发现：…（query_signals 对账段，无异常写"无异常"）
-[ ] 8. RHI 信号处置 — 已处置：…（critical N 条 → 开 issue M / 并入 K / 不处置 L，M+K+L=N）
+[ ] 8. RHI 信号处置 — 已处置：…（critical N 条 → 开 issue M / 并入 K / dismiss D，M+K+D=N，逐项已调 triage_signal 留痕）
 [ ] 9. 锚点真实性抽查 — 抽查 N 条 file:line 锚点断言 / 通过 M / 失败 K（失败已开 issue #xxx；昨日无锚点断言可写"无样本"）+ 模型对照行（抽查模型 X vs 样本模型分布；同模型样本改派/降级声明）
 ```
 

@@ -58,6 +58,7 @@ import type { RhiScanWorker as RhiScanWorkerType } from "@usecases/health/rhi-sc
 import { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import { SignalPipeline } from "@usecases/health/signal-pipeline";
 import { SignalAgingWorker } from "@usecases/signal/signal-aging-worker";
+import { RhiSignalAgingWorker } from "@usecases/health/rhi-signal-aging-worker";
 import { PatrolWorker } from "@usecases/health/patrol-worker";
 import { collectHealingEvents } from "@usecases/health/healing-collector";
 import type { AgentSessionSource } from "@usecases/health/cost-output-collector";
@@ -243,12 +244,23 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     logger,
   );
 
+  // F20260917trig §3：RHI 信号老化扫描——signals 表超龄未接单/归口停滞自动落聚合 healing。
+  // 独立于调度链（与獭间 aging 同教训）；聚合限流（同 signal_type 一轮 1 条）防存量告警风暴。
+  // 编排防线：存量批量出清（§5，大獭合入后执行）先于本 worker 首次 tick 的存量命中。
+  const rhiSignalAgingWorker = new RhiSignalAgingWorker(
+    () => repos.rhiSignal,
+    () => repos.healingEvent,
+    logger,
+  );
+
   // #949：四个「扫台账」同构循环合并为单一巡检 worker（8→5 常驻循环）——
   // 运行时对账（#823）/ Signal Aging（#927）/ RHI Scan（#401）/ Embedding Retry（F20260812mrcq）。
   // 失败隔离：一家炸了不影响后续家；周期 1h（四家原节奏已对齐，无时钟语义变化）。
   const patrolWorker = new PatrolWorker([
     { name: 'scheduler-reconcile', run: () => schedulerService.reconcileMissedWindowsNow() },
     { name: 'signal-aging', run: async () => { await signalAgingWorker.scanOnce(); } },
+    // F20260917trig §3：RHI 信号老化（聚合限流 + 孤儿 healing 清理）——并入巡检循环
+    { name: 'rhi-signal-aging', run: async () => { await rhiSignalAgingWorker.scanOnce(); } },
     { name: 'rhi-scan', run: async () => { await rhiScanWorker.scanOnce(); } },
     ...(retryWorker ? [{ name: 'embedding-retry', run: () => retryWorker.tickNow() }] : []),
   ], logger);

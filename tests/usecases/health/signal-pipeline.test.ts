@@ -3,9 +3,10 @@ import Database from "better-sqlite3";
 import { initSchema } from "@frameworks/db/schema";
 import { migrateDatabase } from "@frameworks/db/migration";
 import { SignalPipeline } from "@usecases/health/signal-pipeline";
+import { SignalRepository } from "@usecases/health/signal-repository";
 import type { DetectedSignal } from "@usecases/health/detect-signals";
 
-function makePipeline(): { pipeline: SignalPipeline; stored: Array<Record<string, unknown>> } {
+function makePipeline(): { pipeline: SignalPipeline; stored: Array<Record<string, unknown>>; db: Database.Database } {
   const db = new Database(":memory:");
   initSchema(db);
   migrateDatabase(db, console as never);
@@ -16,7 +17,7 @@ function makePipeline(): { pipeline: SignalPipeline; stored: Array<Record<string
   // embeddingGateway.available=false，但 fireAndForgetEmbed 仍会调 embed——mock 成抛错走 enqueueRetry 降级路径
   const embedding = { available: false, embed: vi.fn(async () => { throw new Error("mock unavailable"); }) };
 
-  return { pipeline: new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never), stored };
+  return { pipeline: new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never), stored, db };
 }
 
 function signal(severity: "critical" | "warning", type: DetectedSignal["type"] = "bug_recurrence"): DetectedSignal {
@@ -122,5 +123,25 @@ describe("SignalPipeline", () => {
     await pipeline.process([s1]);
     expect(pipeline.listOpen()).toHaveLength(1);
     expect(pipeline.listOpen()[0].signal_type).toBe("hotspot");
+  });
+
+  it("验证 #4（§6 抹平语义）：triaged 信号被 auto-resolve 后 triage_status/issue_number 抹平、note 保留", async () => {
+    const { pipeline, db } = makePipeline();
+    const s1 = signal("warning", "hotspot");
+    const s2 = signal("critical", "chain_stall");
+    await pipeline.process([s1, s2]);
+
+    // s2 归口 issue #1012（经 repo.triage——与生产路径同一方法）
+    const repo = new SignalRepository(db);
+    const s2Record = pipeline.listOpen().find(s => s.signal_type === "chain_stall")!;
+    repo.triage(s2Record.id, "bind_issue", { issueNumber: 1012, note: "并入 #1012" });
+
+    // 下一轮扫描：s2 不再被检测 → auto-resolve → §6 抹平
+    await pipeline.process([s1]);
+    const resolved = repo.findByStatus("resolved");
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]!.triage_status).toBeNull(); // 抹平：无幽灵 triage 状态
+    expect(resolved[0]!.issue_number).toBeNull(); // 抹平：无 closed issue 链接残留
+    expect(resolved[0]!.triage_note).toBe("并入 #1012"); // note 保留作历史痕迹
   });
 });
