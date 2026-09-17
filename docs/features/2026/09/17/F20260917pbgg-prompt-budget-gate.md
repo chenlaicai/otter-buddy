@@ -140,7 +140,7 @@ prompt-template-reconciler.ts：
 - [x] 指针完整性：出清明细内容与被删段落逐段核对（SQL/口径/依据无丢失）
 - [x] 最简实现检查：lint 脚本 95 行无依赖，复用项目既有「exit code 约定
   （0/1/2）+ CI fast gates 接入 + tests/scripts 子进程测试」三惯例，无新框架
-- [x] Golden Gate：a1 场景（verify-data-source-before-query）实测 fail，但 git stash -u 干净基线复跑同样 fail（该场景 9/7 后在 golden-results.jsonl 无 passed 记录）——pre-existing 声明附基线复跑证据（PR #1036 评论），独立排查待 golden 场景维护方跟进
+- [x] Golden Gate：a1 场景（verify-data-source-before-query）实测 fail，但 git stash -u 干净基线复跑同样 fail（golden-results.jsonl 该场景真 LLM 采样记录从未落账：非 selftest 0 条；selftest 12/12 passed——判别力正常但采样链路从未跑通）——pre-existing 声明附基线复跑证据（PR #1036 评论），独立排查待 golden 场景维护方跟进
 
 ## Discovered Issues
 
