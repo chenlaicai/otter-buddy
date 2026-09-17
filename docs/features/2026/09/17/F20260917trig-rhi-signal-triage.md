@@ -74,7 +74,7 @@ ALTER TABLE signals ADD COLUMN triage_note TEXT DEFAULT NULL;
 
 复用既有 `status` 字段做终态，不新建独立状态机表——处置进度是 open 期内的子状态，与终态正交。
 
-**写入边界（防御声明）**：triage 四字段**只能由 `SignalRepository.triage()` 方法写入**，检测引擎的 upsert/INSERT 路径永不触碰它们——upsert 的 UPDATE 分支（signal-repository.ts 既有的 COALESCE 防御模式）不包含新字段，窗口滑动重算不会覆盖处置进度。INSERT 新行时 triage 字段取默认值 NULL（复发新行语义见 §3 末）。
+**写入边界（防御声明，D2 措辞修订）**：检测引擎的 upsert/INSERT 路径**永不触碰** triage 四字段——upsert 的 UPDATE 分支（signal-repository.ts 既有的 COALESCE 防御模式）不包含新字段，窗口滑动重算不会覆盖处置进度；INSERT 新行取默认值 NULL（复发新行语义见 §3 末）。`triage()` 是唯一的**处置进度写入口**；终态化路径（resolve/dismiss/auto-resolve）负责按 §6 语义抹平清理——清理不是写入，不与本边界冲突。
 
 ### 2. 处置写入路径：新增 agent 工具 `triage_signal`
 
@@ -102,7 +102,7 @@ triage_signal(signalId, action, issueNumber?, note?)
 
 **对账口径（R4 修订）**：
 - in_progress 是 bind_issue 的后续状态迁移，**对账只统计首动作**（bind_issue/dismiss 各计一次，in_progress 不进公式）
-- 日报公式扩展为 **M+K+L+D=N**：M=开新 issue、K=并入既有（bind_issue 区分两者以 issue 是否新建为准）、L=不处置留 note（獭 judge 但暂不 dismiss 的过渡态）、D=dismissed（必须附 note）
+- 日报公式为 **M+K+D=N**（D1 修订，砍掉 L 桶）：M=开新 issue、K=并入既有（bind_issue 区分两者以 issue 是否新建为准）、D=dismissed（必须附 note）。原公式 L（不处置留 note）无对应工具 action 可写——獭「想观察两天再定」的语义由 dismiss 的 note 内容承载（如「误报嫌疑，观察期至 X」），不再设无写入路径的纸面桶
 - 存量出清完成后，日报 N=**当日新增** critical（已归口存量显示在「已归口」组，不再进对账）
 
 ### 3. 老化 worker：RhiSignalAgingWorker
@@ -131,7 +131,7 @@ triage_signal(signalId, action, issueNumber?, note?)
 RhiController 的 signals 端点返回数据组装时带上 triage 字段；前端分组从「按 severity」改为「按处置状态」：
 
 - **未接单**（triage_status IS NULL）置顶，按挂了几天降序，每条显示「open N 天」——N 越红越醒目
-- **已归口**折叠为一组，显示绑定 issue 链接与 triage_note
+- **已归口**折叠为一组，显示绑定 issue 链接 + triage_note + **「triaged N 天」**（D3 修订：让 §3 二期触发条件「triaged 超 14d ≥5 条」在面板上可观测，不做纸面条款）
 - **修复中**显示 issue + 在途 PR 状态
 - 每条的操作按钮从「详情」变为「开 issue 处置 / 绑定已有 issue / 忽略（附理由）」——写路径经新后端端点 `POST /api/health/signals/:id/triage`（与 agent 工具共享 `SignalRepository.triage()` 单一方法）
 
@@ -147,7 +147,7 @@ RhiController 的 signals 端点返回数据组装时带上 triage 字段；前�
 1. 按 #1012 第一步做 5 条高频 critical 的根因复盘（同根因 vs 不同 bug）
 2. **复盘结论适用范围声明（R1）**：若结论为「阈值口径过松」（大概率，#1012 已有佐证），批量 triage 适用于全部存量；若结论为「真腐烂」，剩余条目**逐条过一遍再归口**，不一键并入
 3. 批量 triage：全部存量 critical → triage_status='triaged', issue_number=1012——面板从「40 条未接单」变「40 条已归口同一 issue」，数字诚实（已归口≠已解决，#1012 修好口径后检测熄火、auto-resolve 按 §6 语义自然清场）
-4. 日报处置段 prompt 同步更新（调 triage_signal 留痕的硬规则 + M+K+L+D=N 口径）
+4. 日报处置段 prompt 同步更新（调 triage_signal 留痕的硬规则 + M+K+D=N 口径）
 
 ### 6. 与 auto-resolve 的交互语义（S1 修订——机制间防拆解）
 
@@ -167,7 +167,7 @@ signal-pipeline.ts 因此进入改动范围表。
 - signal-pipeline.ts resolveStaleSignals：auto-resolve 同步抹平 triage 字段（§6）
 - SignalRecord 接口扩展 4 字段 + repo 新增 triage()/findByTriageStatus() 方法（改动范围表已列）
 - 面板 signals 端点返回结构扩展（新增字段，前端旧版忽略新字段不炸）
-- daily-health-check prompt 更新（处置段改机制对账口径 M+K+L+D=N）
+- daily-health-check prompt 更新（处置段改机制对账口径 M+K+D=N）
 - 新增 worker（app.ts 装配，与 SignalAgingWorker 并列）+ 孤儿 healing 清理钩子（信号终态化时）
 - 新增 2 个 agent 工具（tool-factory.ts 注册）+ 1 个 http 端点
 
@@ -217,7 +217,7 @@ signal-pipeline.ts 因此进入改动范围表。
 5. aging worker：伪造超龄信号 → 聚合落 1 条 healing（非逐条）；同 signal_type 去重；信号终态化后对应 healing 自动销号；resolve 后复悬置再落
 6. **存量出清执行记录（先于 worker 上线）**：N 条 critical → triaged(issue=1012)，面板未接单清零；复盘结论适用范围声明留痕
 7. 面板端点返回 triage 字段（API 自动化测试）；处置队列分组渲染组件测试（vitest，web/src/pages/health/ 既有测试框架同模式）
-8. 日报处置段新 prompt 首跑对账：M+K+L+D=N 从 triage 数据自动生成，且 N=当日新增
+8. 日报处置段新 prompt 首跑对账：M+K+D=N 从 triage 数据自动生成，且 N=当日新增
 
 ## 改动范围
 
@@ -231,7 +231,7 @@ signal-pipeline.ts 因此进入改动范围表。
 | src/interface-adapters/agent-runtime/tools/tool-factory.ts + 工具文件 | 修改/新增 | triage_signal + list_rhi_signals 注册与实现（实现期） |
 | src/interface-adapters/http/controllers/rhi-controller.ts | 修改 | signals 端点返 triage 字段 + triage POST 端点（实现期） |
 | web/src/pages/health/ | 修改 | 处置队列视图 + 分组组件测试（实现期） |
-| prompts/scheduled/daily-health-check.md | 修改 | 处置段机制对账口径 M+K+L+D=N（实现期） |
+| prompts/scheduled/daily-health-check.md | 修改 | 处置段机制对账口径 M+K+D=N（实现期） |
 
 ## 对抗审视决策史（第一轮）
 
@@ -239,9 +239,17 @@ signal-pipeline.ts 因此进入改动范围表。
 
 严重发现处置（6 条，全部接受并修订）：
 - glm S1 auto-resolve 冲突 → 新增 §6，决策选项 (b)（终态抹平进度字段），signal-pipeline.ts 入改动范围
-- glm S2 dismiss 权限矛盾 → §2 选定语义：獭可 dismiss 但 note 必填必写库 + 对账扩展 M+K+L+D=N；拒绝工具层拦截（会逼出假绑定）
+- glm S2 dismiss 权限矛盾 → §2 选定语义：獭可 dismiss 但 note 必填必写库 + 对账扩展（后经 delta D1 收敛为 M+K+D=N）；拒绝工具层拦截（会逼出假绑定）
 - glm S3 issue 停滞盲区 → 部分接受：一期显式接受风险 + 量化二期触发条件（≥5 条）；孤儿 healing 清理纳入一期
 - glm S4 首扫告警风暴 → §3 聚合限流 + 上线编排顺序（出清先于 worker）
 - mimo S1 SignalRecord 接口遗漏 → §1 写入边界声明 + 改动范围表补全（含 F5 工具注册）
 
 建议发现 13 条（R1-R7 + F1-F6）全部接受，逐条修订落点见正文各节「（编号 修订）」标注。无反驳条目——双报告无一条发现经决策树判断为「改了让系统更差」。
+
+### Delta 复审轮（第二轮，双獭均「通过」）
+
+delta 新发现 3 条（glm D1-D3），全部接受并随终稿修订：
+- D1（L 桶无写入路径）→ 对账公式收敛 M+K+D=N，观察语义由 dismiss note 承载
+- D2（写入边界与 §6 抹平的字面张力）→ 措辞修订：「处置进度写入口」与「终态化清理」职责分离声明
+- D3（二期触发条件无观测主体）→ 面板已归口组补「triaged N 天」显示
+mimo delta 附 2 条实现期注意项（聚合告警 context 字段名 signalId vs signalIds 统一、验证 #2 与 #4 断言差异），不计发现，转入实现 PR 参考。
