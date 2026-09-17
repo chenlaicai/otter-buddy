@@ -253,6 +253,34 @@ describe('lint:intent soft-code verify_by enforcement (F20260917sdpl)', () => {
     expect(result.errors.some((e: string) => e.startsWith('Missing intent.verify_by for soft-code change'))).toBe(false);
     expect(result.warnings.some((w: string) => w.startsWith('Recommended intent.verify_by field for soft-code change'))).toBe(true);
   });
+
+  // 边界防御（检视建议 1）：created_at 含 ISO 时间后缀时的字符串比较行为锁定。
+  // '2026-09-17T…' >= '2026-09-17' 为 true（同日前缀 + 更长字符串）——按界日判定，符合「同日新建一律要求声明」语义。
+  it('should treat created_at with time suffix as on/boundary date (error)', () => {
+    const fm = {
+      ...createBaseFm('feature', {
+        problem: 'prompt 改动无评估机制',
+        expected_effect: 'R4 场景 search_memory 出现率 ≥ 2/3',
+      }),
+      modules: ['.pi/skills/otter-summon/SKILL.md'],
+      created_at: '2026-09-17T08:00:00Z',
+    };
+    const result = validateIntent(fm);
+    expect(result.errors.some((e: string) => e.startsWith('Missing intent.verify_by for soft-code change'))).toBe(true);
+  });
+
+  it('should treat future created_at as new (error)', () => {
+    const fm = {
+      ...createBaseFm('feature', {
+        problem: 'prompt 改动无评估机制',
+        expected_effect: 'R4 场景 search_memory 出现率 ≥ 2/3',
+      }),
+      modules: ['.pi/skills/otter-summon/SKILL.md'],
+      created_at: '2027-01-01',
+    };
+    const result = validateIntent(fm);
+    expect(result.errors.some((e: string) => e.startsWith('Missing intent.verify_by for soft-code change'))).toBe(true);
+  });
 });
 
 // F20260917sdpl 改动 2：golden_replay 声明的执行记录核对（分环境）
