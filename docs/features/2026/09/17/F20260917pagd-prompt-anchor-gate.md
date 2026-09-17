@@ -10,14 +10,14 @@ summary: |
   ④SYSTEM.md R2 daily-review 命名归一为 daily-health-check。daily-review 本体删除由在途
   PR #1017（三省吾身整合）承载，本 PR 不重复。TS 扫描剥注释保字符串——注释是决策史合法归位。
 change_type: prompt
-capability_test: "n/a: 纯 prompt/lint 脚本改动，无 capability 场景可跑；验证走 gate 反向测试（注入锚点 exit=1/清除 exit=0，已跑通）+ lint:skills 0 error + 落地后存量 grep 清零"
+capability_test: "n/a: 纯 lint 脚本+文本剥除改动（verify_by=static_only：gate 正确性由其反向测试静态验证，无行为场景可跑），无 capability 场景可跑；验证走 gate 反向测试（注入锚点 exit=1/清除 exit=0，已跑通）+ lint:skills 0 error + 落地后存量 grep 清零"
 created_in_conversation: 0cb63991-375d-4c5d-89b6-137aa5afd202
 created_at: 2026-09-17
 intent:
   problem: "F 编号/issue 锚点持续写入 prompt/skill/tool 注入面（9/9 清零后 8 天回潮 168 处），修订时刻的熵减判据约束不了写入时刻——无机械 gate 时陈述性原则永远输给写入时刻的程序性压力"
   expected_effect: "pre-commit 注入锚点拦截（exit=1 附处置指引）；存量清零；后续注入锚点合入即被拦，白名单超限（>10）被拦"
   verify_by:
-    type: behavior_check
+    type: static_only
 modules:
   - scripts/
   - .pi/

@@ -117,7 +117,7 @@ category: technique
 
 ## 锚点重放评审（核心 prompt 改动必须）
 
-**触发条件**（规则化，不再是枚举清单——枚举式 gate 的盲区是「被改对象 ≠ 保护对象」的前提被 skill 改动打破）：本次变更涉及**任何 prompt/skill/tool description 的行为触发语义**时，必须在 PR 提交前跑一次「锚点重放评审」。判据一句话：改动会影响獭「什么时候做什么」的判断 → 必跑；纯润色/错别字/格式 → 豁免（豁免声明写入 PR Verification 节）。枚举参考（非穷举）：SYSTEM.md、全部 SKILL.md 工作流段、scheduled prompts、tool description 字符串。
+**触发条件**（规则化，不再是枚举清单——枚举式 gate 的盲区是「被改对象 ≠ 保护对象」的前提被 skill 改动打破）：本次变更涉及**任何 prompt/skill/tool description 的行为触发语义**时，必须在 PR 提交前跑一次「锚点重放评审」。判据一句话：改动会影响獭「什么时候做什么」的判断 → 必跑；纯润色/错别字/格式 → 豁免（豁免声明写入 PR Verification 节）。**拿不准 → 必跑**——判据模糊本身说明触达了行为语义边界。枚举参考（非穷举）：SYSTEM.md、全部 SKILL.md 工作流段、scheduled prompts、tool description 字符串。
 
 **目的**：验证 prompt 改动没有让好产出变味或让坏产出的同类错再现——fail-closed。
 

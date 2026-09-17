@@ -1,4 +1,5 @@
 # prompt-anchor 白名单：指令本身依赖编号语义的出处型内容（逐案评审，上限 10 条）
 # 评审判据：删掉编号后指令是否失去可执行性/可核实性
-prompts/scheduled/依赖升级自动化.md:7
-prompts/scheduled/依赖升级自动化.md:21
+# 格式：path:linenum:token——token 失配（行内容被改）时条目失效并报 error，防豁免静默转移
+prompts/scheduled/依赖升级自动化.md:7:PR #419
+prompts/scheduled/依赖升级自动化.md:21:PR #419
