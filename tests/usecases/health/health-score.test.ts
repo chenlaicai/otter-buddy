@@ -108,7 +108,7 @@ describe("D3 交付活力", () => {
       chainStates: { active: 5, stalled: 3, regressed: 3 },
     });
     const d3 = r.dimensions.find(d => d.dimension === "D3")!;
-    expect(d3.attribution).toContain("regressed");
+    expect(d3.attribution).toContain("出过回退");
   });
 
   it("zombie=0 且 regressed=0 时归因指认 orphan 而非 zombie 0 条（审视发现 1）", () => {
@@ -118,7 +118,13 @@ describe("D3 交付活力", () => {
     });
     const d3 = r.dimensions.find(d => d.dimension === "D3")!;
     expect(d3.score).toBe(80);
-    expect(d3.attribution).toBe("orphan 链 2 条");
+    expect(d3.attribution).toBe("烂尾风险 2 条");
+  });
+
+  it("F20260917hprl S1：综合归因句人话化——大白话维度名 + 分数取整（无浮点裸奔）", () => {
+    const r = computeHealthScore({ ...BASE_INPUT, chainStates: { active: 8, orphan: 2 } });
+    expect(r.attribution).toBe("交付节奏只有 80 分：烂尾风险 2 条——这是主要拖累");
+    expect(r.attribution).not.toMatch(/\d+\.\d{2,}/); // 无长浮点
   });
 
   it("四级优先级：regressed 压过 orphan（数量小于也优先）", () => {
@@ -127,7 +133,7 @@ describe("D3 交付活力", () => {
       chainStates: { active: 7, regressed: 1, orphan: 4 },
     });
     const d3 = r.dimensions.find(d => d.dimension === "D3")!;
-    expect(d3.attribution).toBe("regressed 链 1 条");
+    expect(d3.attribution).toBe("出过回退 1 条");
   });
 
   it("仅 stalled 时归因指认 stalled", () => {
@@ -136,7 +142,7 @@ describe("D3 交付活力", () => {
       chainStates: { active: 8, stalled: 2 },
     });
     const d3 = r.dimensions.find(d => d.dimension === "D3")!;
-    expect(d3.attribution).toBe("stalled 链 2 条");
+    expect(d3.attribution).toBe("卡住 2 条");
   });
 });
 
@@ -206,14 +212,14 @@ describe("综合分与拖累归因", () => {
       bugfixRatio: 0.38, // D1=10
       compliantCommits: 60, // D4=60
     });
-    expect(r.attribution).toContain("质量成本");
+    expect(r.attribution).toContain("修 bug 比例");
     expect(r.attribution).toContain("bugfix");
   });
   it("除 D3 外全满分：stalled（pr-stalled 投影）占 20% → D3=60，综合 90（F20260902sigm 新权重）", () => {
     // 新公式：80 − 0×1.5 − 2/10×100 = 60（stalled 顶上原 zombie 的 ×100 权重位）
     const r = computeHealthScore({ ...BASE_INPUT, compliantCommits: 100 });
     expect(r.overall).toBe(90);
-    expect(r.attribution).toContain("交付活力");
+    expect(r.attribution).toContain("交付节奏");
   });
   it("全链 active + 全合规时归因为 null", () => {
     const r = computeHealthScore({
@@ -226,7 +232,7 @@ describe("综合分与拖累归因", () => {
   });
   it("D4 非满分时归因指向 D4 未规范提交数", () => {
     const r = computeHealthScore({ ...BASE_INPUT, chainStates: { active: 10 } }); // D4=80 最低（D3=100）
-    expect(r.attribution).toContain("流程合规");
+    expect(r.attribution).toContain("流程纪律");
     expect(r.attribution).toContain("20 个提交");
   });
 });
