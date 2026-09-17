@@ -1,7 +1,7 @@
 ---
 name: post-merge-cleanup
 description: >-
-  Use when: 观察到 PR 已合入（gh 命令返回/git fetch 后远程分支消失/搭档提及），或搭档说"已合入"/"合了"/"merged"/"收拾一下"/"善后"等收尾指令，或要求清理堆积的分支/worktree.
+  Use when: 观察到 PR 已合入（gh 命令返回/git fetch 后远程分支消失/开新 worktree 前发现僵尸分支/搭档提及），或搭档说"已合入"/"合了"/"merged"/"收拾一下"/"善后"等收尾指令，或要求清理堆积的分支/worktree.
   Not for: 功能开发 → code-implementation. PR 审视 → adversarial-review. 闲聊讨论 → companion.
   Output: 结构化清理报告（逐项列出 worktree / 分支 / issue / 产物的清理状态，部分失败标注原因）。
 co_loads: []
@@ -15,15 +15,17 @@ PR 合入后的资源回收：worktree、本地分支、远程分支、源头 is
 ## 触发
 
 **触发条件**：
-- **观察到合入即触发**（事件驱动，不依赖搭档开口）：执行任何 git/gh 命令时发现——
-  - `gh pr view/list` 显示自己负责的 PR 已 MERGED → 当场清理该 PR 的 worktree+分支
-  - `git fetch --prune` 后远程分支消失（GitHub 自动删分支）且本地分支残留 → 顺手清理
-  - 开新 worktree 前例行检查时碰到僵尸分支 → 顺手清理
+- **观察到合入即触发**（机会性被动触发，不依赖搭档开口）：执行任何 git/gh 命令时发现以下任一信号 → 当场按本 skill 工作流清理（完整流程，非轻量顺手动作）——
+  - `gh pr view/list` 显示自己负责的 PR 已 MERGED → 清理该 PR 的 worktree+分支
+  - `git fetch --prune` 后远程分支消失（GitHub 自动删分支）且本地分支残留 → 清理对应本地分支/worktree
+  - 开新 worktree 前例行检查时碰到僵尸分支 → 清理后重建
+
+  **机制定性**：本地侧是「机会性被动触发」——依赖獭在常规 git 操作中观察到信号，非真正的系统事件驱动（无 webhook/hook）；远程侧 GitHub `delete_branch_on_merge` 才是真正的事件驱动。本地侧的可靠性来自 git 操作的高频率（每个特性至少一次 worktree add + fetch），而非机制自动性。
 - 搭档说"已合入"/"合了"/"merged"/"收拾一下"/"善后"
 - 搭档说"清理 XXX 分支"（特定分支清理）
 - 搭档说"清理一下过期分支"（批量扫尾模式）
 
-**设计原则**：清理的触发器是「合入」这个事件本身，不是搭档的口令。搭档在 GitHub 上直接点 merge 不通知时，下一个碰到现场的獭负责收尾——出口焊在入口旁边，不需要定时巡检兜底。
+**设计原则**：清理的触发器从搭档口令扩展为「合入信号被观察到」，不依赖搭档开口。搭档在 GitHub 上直接点 merge 不通知时，下一个碰到现场的獭负责收尾——出口焊在入口旁边，不需要定时巡检兜底。
 
 **排除**：功能开发 → `code-implementation`。PR 审视 → `adversarial-review`。
 
