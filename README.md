@@ -125,7 +125,28 @@ llm:
 每个 worktree 独立管理自己的服务，`stop`/`restart` 只影响当前 worktree。
 如果端口被其他 worktree 占用，脚本会提示 PID，由用户决定是否终止。
 
-> 说明（F20260916gtlr）：本脚本是无差别工具——谁调用都只管自己目录的实例。「海獭不得终止主服务进程」由 agent 运行时守卫在 tool 调用层拦截（bash-safety-guard，见 F20260916gtlr）：海獭的一切命令必经 tool 管道，人工终端使用天然不在拦截域内。海獭在 worktree 验证代码变更时，用该 worktree 的绝对路径调用脚本 + 独立端口启动隔离实例（见 F20260914dsrv）。
+> 说明（F20260916gtlr）：本脚本是无差别工具——谁调用都只管自己目录的实例。「海獭不得终止主服务进程」由 agent 运行时守卫在 tool 调用层拦截（bash-safety-guard，见 F20260916gtlr）：海獭的一切命令必经 tool 管道，人工终端使用天然不在拦截域内。海獭在 worktree 验证代码变更的标准做法是 `scripts/alpha.sh start`（见下方「alpha 验证环境」），不手工指定端口起服务。
+
+### alpha 验证环境（端口宪法）
+
+`scripts/alpha.sh` 是 worktree 验证实例的生命周期管理器（F20260917alph，吸收自 tutu-vessel）：
+
+```bash
+scripts/alpha.sh start [--port PORT] [--quick]   # 起隔离实例（3100-3198 偶数段自动分配）
+scripts/alpha.sh status                          # 查看状态
+scripts/alpha.sh stop                            # 停止（只停自己的 PID 树）
+```
+
+端口分配表（宪法）：
+
+| 段 | 用途 | 谁碰 |
+|----|------|------|
+| 3000 | 主服务（搭档的活运行时） | 只有搭档 |
+| 3100-3198 偶数 | alpha 验证实例（worktree 隔离） | 獭自管，无需许可 |
+
+每个 worktree 的 alpha 实例使用独立数据根 `~/.otter/alpha/<worktree-hash>/`（空库、独立 config 副本、共享主仓 embedding 模型只读），与主服务端口/数据/PID 三维不相交。端口分配时自动避让 `.otter/allowed-service-ports.json` 白名单声明的外部项目端口。
+
+> **端口禁令**：主服务 3000 永远不要以任何方式终止它——不以 PID、不以 `kill $(lsof -ti :3000)`、不以任何脚本 stop/restart。端口被占就是答案：不要清它，换一个。需要验证代码时，在 worktree 里跑 `scripts/alpha.sh start`，用完 `scripts/alpha.sh stop`。验证实例的清理正道也是 `alpha.sh stop`，不要用组合杀形态。
 
 ### 从 .env 迁移
 

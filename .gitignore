@@ -62,6 +62,8 @@ temp/
 
 # Runtime files
 .otter-buddy.pid
+# Alpha 验证环境锁文件（F20260917alph，scripts/alpha.sh 写入 worktree 根）
+.otter-alpha.json
 
 # Database files
 data/*.db

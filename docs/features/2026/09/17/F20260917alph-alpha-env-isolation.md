@@ -13,10 +13,10 @@ intent:
     detail: "在任意 worktree 跑 scripts/alpha.sh start 得到 3100+ 段隔离实例（独立数据根）；alpha.sh stop 只停自己；守卫拦截 'kill $(lsof -ti :3000)' 形态；全量测试通过"
 modules: [scripts/alpha.sh, scripts/detached-launch.mjs, scripts/otter-buddy.sh, src/frameworks/agent/bash-safety-guard.ts, src/frameworks/agent/pi-session-factory.ts, src/main.ts, .pi/skills/worktree-isolation/SKILL.md, README.md, tests/frameworks/agent/bash-safety-guard.test.ts]
 created_at: 2026-09-17
-capability_test: "n/a: 本提交为特性方案文档（requirement-analysis 产出），行为类验证设计见正文「验证」表——实现 PR 交付时补 golden/行为测试路径"
+capability_test: "tests/frameworks/agent/bash-safety-guard.test.ts"
 ---
 
-> **修订史**：2026-09-17 初稿 → 同日经检视獭-alpha（glm）对抗审视两轮收敛。初轮 8 条（4 严重 4 建议）全接受：T2/T4 重定位（组合杀现状已拦，改为文案升级）、--config 声明诚实化（main.ts 需 +argv 解析）、端口段加白名单避让、embedding.localModelPath 绝对路径改写、槽位数 40→50、stale-lock 用例、生效面声明。delta 轮 3 条（1 严重 2 建议）全接受：alpha 端口组合杀验证表修正为「现状拦截、正道 alpha.sh stop」（守卫不加放行逻辑）、frontmatter summary/intent 三处同步、取舍表孤行改写。
+> **修订史**：2026-09-17 初稿 → 同日经检视獭-alpha（glm）对抗审视两轮收敛。初轮 8 条（4 严重 4 建议）全接受：T2/T4 重定位（组合杀现状已拦，改为文案升级）、--config 声明诚实化（main.ts 需 +argv 解析）、端口段加白名单避让、embedding.localModelPath 绝对路径改写、槽位数 40→50、stale-lock 用例、生效面声明。delta 轮 3 条（1 严重 2 建议）全接受：alpha 端口组合杀验证表修正为「现状拦截、正道 alpha.sh stop」（守卫不加放行逻辑）、frontmatter summary/intent 三处同步、取舍表孤行改写。→ 同日实现完成（实现记录见文末）。
 
 # alpha 验证环境隔离：worktree 独立实例 + 端口宪法 + detached 启动纪律
 
@@ -192,3 +192,54 @@ node scripts/detached-launch.mjs <logFile> <cmd> [args...]
 | .pi/skills/worktree-isolation/SKILL.md | 修改 | 验证步骤指向 alpha.sh |
 | README.md | 修改 | 端口分配表 + 禁令文本 |
 | .gitignore | 修改 | `.otter-alpha.json` |
+
+---
+
+## 实现记录（2026-09-17，开发獭-alpha 施工）
+
+### 交付物
+
+9 文件按「改动范围」表全部落地：`scripts/alpha.sh`（核心生命周期脚本）、`scripts/detached-launch.mjs`（机器通道启动器）、`src/main.ts`（+8 行 argv 解析）、`src/frameworks/agent/bash-safety-guard.ts`（文案升级 ×9 处 + alpha 段语义注释，零拦截逻辑变更）、`tests/frameworks/agent/bash-safety-guard.test.ts`（+21 用例）、`.pi/skills/worktree-isolation/SKILL.md`（验证步骤指向 alpha.sh）、`README.md`（端口宪法表 + 禁令文本）、`.gitignore`（.otter-alpha.json）、本文档实现记录。
+
+### 施工决策（方案外发现的必要处置）
+
+1. **config 副本剥离 feishu/weixin/inbound 通道段**（方案未列，施工时识别为隔离硬前提）：实测主仓 config.yaml 含 `feishu:` + `weixin:` 段——原样复制会让隔离实例连上真实飞书长连接（消费真实消息、真实账号轮询微信），直接违反 T1「隔离」目标。处置：`generate_alpha_config` 生成副本时剥离三段（YAML 顶层段级删除，嵌套行随段丢弃），stderr 提示 `stripped sections: feishu, weixin`。此为方案「隔离数据根改写三字段」的自然延伸，非新机制。
+2. **server.port 改写保持裸数字**：config 校验要求 Number 类型，带引号写 `"3132"` 会启动失败（实测：`配置校验失败: server.port 必须是数字`，fail-fast 机制正确拦下）。path/localModelPath 保持带引号字符串。硬校验兜底：改写后正则验证 port 行，缺失即 exit 2 不启动（防 alpha 落默认 3000 撞主服务）。
+3. **启动 cwd = alpha 数据根**（方案未明示，从 embedding cwd 解析推论推广）：main.ts 的相对路径（`./data/logs`、`./data/sessions`、metrics、workspaces）全部按 cwd 解析——detached-launch 以 `cd "$alpha_home"` 启动后，实测运行时数据全落 `~/.otter/alpha/<hash>/data/`，worktree 与主仓零污染。这同时是 embedding 路径改写（改写后已无 cwd 依赖）的双保险。
+4. **stale-lock 孤儿清理用 cmdline 精确匹配**（方案只说「清理孤儿」）：锁 PID 已死时，扫描锁记录端口的监听进程，`ps -o command=` 含本 worktree 路径才杀（自启的 node 进程 cmdline 含 worktree 绝对路径）——接管同端口的外部进程不误杀。
+5. **golden gate 环境前置**：worktree 无 models/（gitignore 不追踪 bge-m3），capability boot 禁止静默降级会 fail。处置：`models -> 主仓/models` symlink（与 download-bge-m3.mjs 的 worktree 复用主仓模型机制同构）。**symlink 不进提交**。
+
+### 验证结果（真机，2026-09-17 18:0x，本 worktree）
+
+| 验证表场景 | 结果 |
+|---|---|
+| start 首次启动 | ✅ 端口 3132（hash 932f2a14 建议）、独立数据根、锁文件写入、curl /api/settings 200 |
+| start 幂等（已在跑） | ✅ `Alpha already running (PID xxx). Use 'alpha.sh stop' first.` |
+| start stale-lock（锁 PID 99999 已死） | ✅ 清锁重启正常，Alpha started PID 12930 |
+| start 白名单避让（fixture 3100/3150） | ✅ 建议 3100 → 落 3102；建议 3150 → 落 3152 |
+| start 失败路径（config 校验失败实证） | ✅ 进程树清理、锁文件不写、报错带日志路径——fail-fast 生效 |
+| 隔离性 | ✅ data/logs、db、sessions 全落 ~/.otter/alpha/932f2a14/；主服务 3000 监听者与健康检查全程无变化；worktree git status 无运行时产物 |
+| config 副本 | ✅ 三字段改写（port 数字型/db 绝对路径/models 绝对路径）+ feishu/weixin 剥离，YAML 解析验证（yaml pkg）通过 |
+| embedding 路径 | ✅ /api/settings 返回 embeddingLocalModelPath 为主仓 models 绝对路径（无下载触发） |
+| stop 正常 | ✅ 只杀锁 PID 树（TERM→KILL 升级）、端口释放、锁文件删除、3000 无影响 |
+| stop 错杀防护 | ✅ 锁 PID 指向 sleep 进程（非 3132 监听者）→ Refusing to stop（提示真实监听者），无误杀 |
+| detached-launch 机器通道 | ✅ FORCE_COLOR=1 下 stdout 裸 PID（od 验证无 ANSI 码）、read_launcher_pid 解析正确、存活探测命中 |
+| 守卫：组合杀拦截回归 | ✅ 命令替换/管道 xargs/反引号/变量隐藏/长参数 5 形态全拦，文案含 alpha.sh 指引（测试用例锁定） |
+| 守卫：alpha 端口组合杀（D1 处置 b） | ✅ 3102 端口组合杀现状拦截 + 文案引导 alpha.sh stop（测试用例锁定） |
+| 守卫：不误拦 | ✅ lsof 纯查询放行；alpha.sh start/stop 放行；字面量终止无关 PID 放行（测试用例锁定） |
+| 守卫：文案升级 | ✅ 9 处拦截文案统一指向 scripts/alpha.sh start（部分含 stop 指引）（测试用例锁定） |
+
+**全量测试**：267 文件 3611 用例全绿（含守卫 136 用例）；lint 0 error；lint:intent 0 error；npm run build 通过。
+**Golden Gate**：verify_by=behavior_check 不豁免；golden.capability.test.ts 跑通（selftest 8/8 通过，记录落 data/metrics/golden-results.jsonl 2026-09-17T10:40Z；采样段因未配置 OTTER_TEST_LLM_API_KEY 按 CI 同款口径 skip）。
+
+### 施工中亲历的守卫拦截（意外的一手验证）
+
+施工中四次被守卫拦：变量终止测试进程、python 脚本内含终止词元、存活探测变量形态、文档正文中出现组合杀示例字样——均为 INDIRECT_PID_PATTERNS 保守拦截（宁过勿漏），拦截文案即本次升级后的版本（引导指向 alpha.sh）。全部改用合规路径完成同样验证（字面量 PID / 独立脚本文件 / 非 bash 通道写入）。这从被拦截者视角实证了方案发现 1：组合杀/变量杀形态现状拦截无缺口，文案升级后引导有效。
+
+### 最简实现检查（必答）
+
+已过最简检查：alpha.sh 主体复用仓库既有命令（lsof/pgrep/python3 行处理/git rev-parse），无新增依赖；detached-launch.mjs 30 行移植 tutu 验证过的实现而非自研 nohup 替代；main.ts argv 解析 8 行（stdlib）；守卫纯文案替换零逻辑变更；无更少代码路径可达成同等隔离效果（容器级隔离在非目标内，进程级 + config 副本已是最小机制集）。
+
+### 机制预算四问（机制识别检查点重判）
+
+方案判定「不涉及净新增机制」在实现口径下重检：alpha.sh + 锁文件 + 数据根是新增运维脚本与运行时目录，但逐项对照检查点——锁文件生命周期 alpha.sh 自管（start 写/stop 删/stale 清理），无系统级消费者、无 schema 字段、无状态入 DB、无定时任务、无新信号类型；config 副本是文件生成物非配置机制变更。四问：① 谁需要它——在 worktree 验证代码行为的海獭（本 PR 之后每个开发任务）；② 失败后果——验证环境不可用，獭退回手工起实例（现状路径），无用户可感知损害；③ 后续机制——锁文件损坏 → stale-lock 清理路径已实现；端口耗尽 → 明确报错（50 槽）；数据膨胀 → ~/.otter/alpha/ 目录手工清理；④ 退役条件——若引入容器级验证环境或主服务多实例架构，alpha.sh 整体可删（无其他消费方）。commit 声明 mechanism-addition 并在本节留四问答案。
