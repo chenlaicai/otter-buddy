@@ -118,7 +118,8 @@ function HealthPage() {
   const lowConfidenceSignals = signals.filter(s => s.confidence === 'low')
   const normalSignals = signals.filter(s => s.confidence !== 'low')
   // issue #1029：D5 证据 + 建议动作链路——「警报」页未接单信号数（triage 字段，F20260917trig）
-  const untriagedCount = signals.filter(s => s.triageStatus === null).length
+  // #652 口径同源：low 置信不进未接单计数（与警报 tab 分组一致）
+  const untriagedCount = signals.filter(s => s.triageStatus === null && s.confidence !== 'low').length
 
   return (
     <AppLayout activeView="health">

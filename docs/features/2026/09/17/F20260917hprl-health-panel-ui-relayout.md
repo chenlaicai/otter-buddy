@@ -91,3 +91,14 @@ modules: [web/pages/health]
 - 深链 `?tab=signals|chains` 的 key 未变，旧链接不失效，仅显示名变。
 - 复发模式卡/低置信抽屉/趋势 sparkline/泳道组件/详情抽屉行为不变（既有测试回归全绿）。
 - Golden Gate：n/a（verify_by=human_judge 纯 UI 重组，无 LLM 产出质量场景可跑）。
+
+## 对抗审视决策史（检视獭-relay 第一轮，glm）
+
+2 严重 + 4 建议，处置如下（无反驳条目）：
+
+- **S1 归因句黑话+浮点+英文枚举裸奔** → 接受并修复（归属层：后端 health-score.ts）——attribution 被 JSON 落库进快照 metadata，前端翻译救不了历史快照，后端出人话版让全消费方受益。DIMENSION_PLAIN_NAMES 大白话映射 + 分数 Math.round + D3 链状态枚举翻译（CHAIN_STATE_ZH）。新增测试钉住（44 用例全绿）。「纯前端」声称随之修正：本 PR 含 1 个后端文件（≤15 行 + 测试）
+- **S2 statePlainLabel 文案漂移** → 接受并修复——删手写副本，改从 CHAIN_STATE_PROGRESS（chain-state-meta 单一真相源）取值
+- **R1 D5「处置率见警报页」承诺落空** → 接受——文案改为「逐条处置进度见『警报』页队列」（该页真实存在的概念）
+- **R2 D1 分子分母窗口口径** → 核后无问题——证据层 60 天窗口数字与副标题明示一致，归因句 30 天窗口来自后端快照，两口径各有标注，未混用
+- **R3 untriagedCount 含 low 置信** → 接受——加 `confidence !== 'low'` 过滤，与 #652 口径同源
+- **R4 模块热区数据砍后无消费点** → 部分接受——模块热区（module 聚合条形图）数据为**有意砍除**：它回答「哪里热闹」而非「哪里不健康」，文件级热区（真正有健康语义的）已收编 D2 证据层。本段即边界声明，修正「数据不丢」的过宽表述

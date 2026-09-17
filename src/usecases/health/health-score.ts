@@ -45,6 +45,23 @@ export const DIMENSION_NAMES: Record<DimensionId, string> = {
   D5: "信号压力",
 };
 
+/** 归因句用大白话维度名（F20260917hprl 检视 S1：主标题消费场景不说黑话） */
+export const DIMENSION_PLAIN_NAMES: Record<DimensionId, string> = {
+  D1: "修 bug 比例",
+  D2: "架构晃动",
+  D3: "交付节奏",
+  D4: "流程纪律",
+  D5: "告警处置",
+};
+
+/** D3 链状态枚举 → 中文（归因句不裸奔英文枚举值） */
+const CHAIN_STATE_ZH: Record<string, string> = {
+  active: "推进中",
+  stalled: "卡住",
+  regressed: "出过回退",
+  orphan: "烂尾风险",
+};
+
 /** 走向判定阈值：近 7 天均值 vs 前 7 天均值，差值绝对值超过此值判 ↑/↓ */
 export const TREND_THRESHOLD = 5;
 
@@ -175,7 +192,7 @@ function dimensionD3(input: HealthScoreInput): DimensionScore {
   const score = scoreD3(chainStates);
   const WORST_ORDER = ["regressed", "stalled", "orphan"] as const;
   const worstState = WORST_ORDER.find((s) => (chainStates[s] ?? 0) > 0);
-  const worst = worstState ? `${worstState} 链 ${chainStates[worstState] ?? 0} 条` : null;
+  const worst = worstState ? `${CHAIN_STATE_ZH[worstState] ?? worstState} ${chainStates[worstState] ?? 0} 条` : null;
   return {
     dimension: "D3",
     name: DIMENSION_NAMES.D3,
@@ -243,7 +260,7 @@ export function computeHealthScore(input: HealthScoreInput): HealthScoreResult {
   if (scored.length > 0) {
     const worst = scored.reduce((a, b) => (a.score! <= b.score! ? a : b));
     if (worst.score! < 100 && worst.attribution) {
-      attribution = `${worst.name} ${worst.score} 分：${worst.attribution}是主要拖累`;
+      attribution = `${DIMENSION_PLAIN_NAMES[worst.dimension]}只有 ${Math.round(worst.score!)} 分：${worst.attribution}——这是主要拖累`;
     }
   }
 

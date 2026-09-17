@@ -14,7 +14,7 @@ import { ChevronDown, ChevronRight, AlertTriangle, ArrowRight, CheckCircle2 } fr
 import type { RhiScoreDTO, RhiTrendsDTO, RhiOverviewDTO } from '../../api/client'
 import { SCORE_STATUS_CONFIG } from './score-status'
 import { TrendIcon } from './TrendIcon'
-import { CHANGE_TYPE_LABELS } from './chain-state-meta'
+import { CHANGE_TYPE_LABELS, CHAIN_STATE_PROGRESS, type ChainState } from './chain-state-meta'
 import { hotspotData, HotspotHeatBar } from './HotspotHeat'
 import { TEAL, CARAMEL, OTTER } from './palette'
 
@@ -250,7 +250,7 @@ function DimensionEvidence({ dim, score, trends, overview, untriagedCount }: {
         <div className="space-y-2 text-xs text-stone-600 leading-relaxed" data-testid="evidence-d5">
           <p>未处置告警按手上的事归一——密度越低越好。</p>
           <p className="text-stone-500">
-            当前 open：critical {critical} / warning {warning}。历史告警处置率见「警报」页。
+            当前未处置：critical {critical} / warning {warning}。逐条处置进度见「警报」页队列。
           </p>
           <EvidenceAction to="signals">
             {untriagedCount > 0 ? `去「警报」看 ${untriagedCount} 条未接单警报` : '去「警报」页看处置队列'}
@@ -283,11 +283,8 @@ function BugfixRatioSparkline({ points }: { points: Array<{ date: string; bugfix
 }
 
 function statePlainLabel(state: string): string {
-  // 与「进行中的事」tab 的进度语言一致（chain-state-meta.progressLabel 同源）
-  const map: Record<string, string> = {
-    active: '正常推进', stalled: '卡住', regressed: '出过一次回退', orphan: '烂尾风险',
-  }
-  return map[state] ?? state
+  // 单一真相源：CHAIN_STATE_PROGRESS（chain-state-meta.ts）——检视 S2 修复，不再手写副本
+  return CHAIN_STATE_PROGRESS[state as ChainState]?.label ?? state
 }
 
 /** 证据层底部动作链：跳到对应 tab（原型 action 胶囊） */
