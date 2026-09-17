@@ -25,7 +25,7 @@ Modification-Class: narrow-fix | scope-reduction | deletion | mechanism-addition
 - `mechanism-addition`：修法排序④ 新增机制（须经重对抗门通过）。**声明此类 = 承诺本分支特性文档「设计取舍」段已含机制识别检查点判定 + 机制预算四问答案**——检查点清单与四问定义见 troubleshooting skill 修法排序节 / requirement-analysis skill 步骤 5-6；issue 驱动未经方案流程直接实现的特性同样适用，提交前发现没判过 → 先在特性文档补判定（命中则四问当场作答），再提交
 - `docs-config`：纯文档/配置微调，不经修法排序
 
-声明进 git 记录，每日全局回看验证声明与实际 diff 一致性——声明非 `mechanism-addition` 但 diff 实增机制 = 高严重度补丁证据。P0 紧急修复可先修后补审：声明值后标注 `(P0-emergency, post-review pending)`。
+声明进 git 记录，对抗审视核对声明与实际 diff 一致性——声明非 `mechanism-addition` 但 diff 实增机制 = 高严重度补丁证据。P0 紧急修复可先修后补审：声明值后标注 `(P0-emergency, post-review pending)`。
 
 ## Type Tags
 
