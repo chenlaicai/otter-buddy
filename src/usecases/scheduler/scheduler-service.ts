@@ -754,6 +754,11 @@ export class SchedulerService {
   private async resolveEffectiveBody(task: ScheduledTask): Promise<string | null> {
     if (task.body.includes('[regression-verify]')) {
       const body = await buildRegressionVerifyBody();
+      if (body === REGRESSION_GH_FAILED) {
+        // gh 故障——记 warn（区别于「无到期断言」的正常跳过），本轮跳过但不静默（检视发现 2）
+        this.logger.warn('Regression verify skipped: gh CLI failure (auth/network)——回归验证管道失效，需人工检查 gh 状态');
+        return null;
+      }
       if (body === null) {
         this.logger.info('Regression verify skipped: no due assertions');
       }
@@ -1431,37 +1436,40 @@ export function extractAssertionDueDate(body: string): string | null {
 
 /** #1004：构建 regression-verify 任务的动态 prompt。返回 null 表示无到期断言。
  *  扫描近 62 天 closed 的 daily-review issue（30 天到期 + 32 天余量），提取「验证断言」段到期日期，
- *  只留今天及以前到期的。gh 调用失败（网络/未装 gh）→ 返回 null 跳过（本轮不阻塞调度器）。 */
-export async function buildRegressionVerifyBody(): Promise<string | null> {
+ *  只留今天及以前到期的。
+ *  失败路径区分（检视发现 2）：gh 执行失败 → 返回 'GH_FAILED' 哨兵（调用方记 warn 告警，
+ *  与「真无到期断言」的静默 skip 区分开）；JSON 解析失败同样哨兵。 */
+export const REGRESSION_GH_FAILED = 'GH_FAILED' as const;
+
+interface RegressionIssueRow { number: number; title: string; body: string; closedAt: string }
+
+/** #1004：调 gh 拉近 62 天 closed 的 daily-review issue。任何失败（auth/网络/未装/JSON 坏）→ null。 */
+async function fetchClosedDailyReviewIssues(): Promise<RegressionIssueRow[] | null> {
   const { execFile } = await import('node:child_process');
   const { promisify } = await import('node:util');
   const execFileAsync = promisify(execFile);
-
   const since = new Date(Date.now() - 62 * 24 * 3600 * 1000).toISOString().slice(0, 10);
-  let issuesJson: string;
   try {
     const { stdout } = await execFileAsync('gh', [
       'issue', 'list', '--state', 'closed', '--label', 'daily-review',
       '--search', `closed:>=${since}`, '--limit', '100',
       '--json', 'number,title,body,closedAt',
     ], { maxBuffer: 16 * 1024 * 1024 });
-    issuesJson = stdout;
-  } catch {
-    return null; // gh 不可用/未认证——跳过本轮，不阻塞调度器
-  }
-
-  interface IssueRow { number: number; title: string; body: string; closedAt: string }
-  let issues: IssueRow[];
-  try {
-    issues = JSON.parse(issuesJson) as IssueRow[];
-  } catch {
+    return JSON.parse(stdout) as RegressionIssueRow[];
+  } catch (err) {
+    console.warn('[regression-verify] gh fetch failed:', err instanceof Error ? err.message : String(err));
     return null;
   }
+}
+
+export async function buildRegressionVerifyBody(): Promise<string | null | typeof REGRESSION_GH_FAILED> {
+  const issues = await fetchClosedDailyReviewIssues();
+  if (issues === null) return REGRESSION_GH_FAILED;
 
   const today = new Date().toISOString().slice(0, 10);
   const due = issues
     .map(i => ({ ...i, dueDate: extractAssertionDueDate(i.body ?? '') }))
-    .filter((i): i is IssueRow & { dueDate: string } => i.dueDate !== null && i.dueDate <= today);
+    .filter((i): i is RegressionIssueRow & { dueDate: string } => i.dueDate !== null && i.dueDate <= today);
 
   if (due.length === 0) return null;
 

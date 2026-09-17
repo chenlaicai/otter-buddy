@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { extractAssertionDueDate } from '@usecases/scheduler/scheduler-service';
 
 // ─── #1004：验证断言到期日期提取 ──────
@@ -49,5 +49,27 @@ describe('extractAssertionDueDate', () => {
   it('断言段后的其他段不影响提取', () => {
     const body = '## 验证断言\n- 到期：2026-10-16\n\n## 备注\n到期：2099-01-01\n';
     expect(extractAssertionDueDate(body)).toBe('2026-10-16');
+  });
+});
+
+// ─── 检视发现 2/3：buildRegressionVerifyBody 失败路径与哨兵区分 ──────
+// gh CLI 失败（auth 过期/网络）必须返回 REGRESSION_GH_FAILED 哨兵而非 null——
+// 「gh 故障」与「真无到期断言」在调用方可区分，前者触发 warn 告警。
+// 用 vi.mock 拦截 child_process 的 execFile，确定性模拟 gh 失败。
+
+describe('buildRegressionVerifyBody gh 失败路径', () => {
+  it('gh 执行失败时返回 REGRESSION_GH_FAILED 哨兵（非 null）', async () => {
+    vi.resetModules();
+    vi.doMock('node:child_process', () => ({
+      execFile: (_cmd: string, _args: string[], _opts: unknown, cb?: (err: Error) => void) => {
+        // promisify 包装后回调签名 (err, stdout, stderr)
+        if (cb) cb(new Error('gh: auth token expired'));
+        return { on: () => {} };
+      },
+    }));
+    const { buildRegressionVerifyBody, REGRESSION_GH_FAILED } = await import('@usecases/scheduler/scheduler-service');
+    const result = await buildRegressionVerifyBody();
+    expect(result).toBe(REGRESSION_GH_FAILED);
+    vi.doUnmock('node:child_process');
   });
 });

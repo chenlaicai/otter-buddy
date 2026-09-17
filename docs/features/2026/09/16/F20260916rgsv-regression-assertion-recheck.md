@@ -69,10 +69,18 @@ R20260916rsis（RSI 业界洞察，#997）第二部分缺口 2：daily-review �
 
 ## 验证
 
-- `tests/usecases/scheduler/regression-verify.test.ts`：extractAssertionDueDate 7 条用例（标准段/段在末尾/中文冒号/无段/无到期行/非法格式/后续段干扰）
-- 全量 scheduler+healing 测试 149 通过
+- `tests/usecases/scheduler/regression-verify.test.ts`：extractAssertionDueDate 7 条用例 + gh 失败路径哨兵 1 条（检视发现 2/3）
+- `tests/usecases/healing/ensure-healing-scheduler.test.ts`：seed 独立性 4 条（存量系统不被 early return 阻断/全新系统/幂等/disabled 重 seed——检视发现 1 回归保护）
+- 全量 scheduler+healing 测试 154 通过
 - tsc --noEmit 零错误
 - 已过最简检查：复用 `[占位符]` 动态注入（scheduler-service.ts resolveEffectiveBody）+ ensureHealingScheduler seed 模式 + gh CLI 扫描，无新表无新引擎；曾考虑本地 DB 存断言（否决：重复 GitHub 已有状态，引入同步问题）
+
+### 对抗审视处置（第 1 轮，检视獭-回归验证/mimo）
+
+- 严重 1（seed early return 阻断 regression-verify 永远不创建）——**接受并修复**：regression-verify seed 移到 healing early return 之前，独立成块；补 4 条 seed 测试锁死。属实，是会让整个机制静默失效的真 bug
+- 严重 2（gh 故障被静默吞没，与「无到期断言」不可区分）——**接受并修复**：gh 执行/JSON 解析失败返回 REGRESSION_GH_FAILED 哨兵，调用方记 warn 告警（管道失效可见）；「无到期断言」仍是 info 级正常跳过
+- 建议 3（buildRegressionVerifyBody 零测试覆盖）——**接受**：补 gh 失败路径测试（vi.mock child_process）
+- 建议 4（extractAssertionDueDate 正则健壮性）——**维持现状**：检视者自验证 \s* 覆盖合理变体
 
 ### 验收场景
 

@@ -15,20 +15,9 @@ export async function ensureHealingScheduler(deps: {
   bigOtterId: string;
 }): Promise<void> {
   const tasks = await deps.scheduledTaskRepo.getByConversationId(deps.healingConversationId);
-  const existing = tasks.find(t => t.name === HEALING_TASK_NAME);
-  if (existing && existing.status === 'active') return;
 
-  await deps.manageScheduledTask.create({
-    conversationId: deps.healingConversationId,
-    name: HEALING_TASK_NAME,
-    cron: HEALING_CRON,
-    timezone: 'Asia/Shanghai',
-    body: '[self-healing-analysis]',
-    talkingStonePassedTo: [deps.bigOtterId],
-    senderId: 'system',
-  });
-
-  // #1004：同对话 seed 验证断言回查任务（复用 healing 对话，不新开）
+  // #1004：regression-verify seed 独立于 healing——必须在 healing 的 early return 之前，
+  // 否则存量系统（healing 任务已 active）永远不会 seed regression-verify（检视发现 1）
   const existingRv = tasks.find(t => t.name === REGRESSION_VERIFY_TASK_NAME);
   if (!existingRv || existingRv.status !== 'active') {
     await deps.manageScheduledTask.create({
@@ -41,4 +30,17 @@ export async function ensureHealingScheduler(deps: {
       senderId: 'system',
     });
   }
+
+  const existing = tasks.find(t => t.name === HEALING_TASK_NAME);
+  if (existing && existing.status === 'active') return;
+
+  await deps.manageScheduledTask.create({
+    conversationId: deps.healingConversationId,
+    name: HEALING_TASK_NAME,
+    cron: HEALING_CRON,
+    timezone: 'Asia/Shanghai',
+    body: '[self-healing-analysis]',
+    talkingStonePassedTo: [deps.bigOtterId],
+    senderId: 'system',
+  });
 }
