@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createTestApp, json, createMockDeps, makeOtter, makeSession } from "./helpers";
 import type { TestDeps } from "./helpers";
 import { DomainError } from "../../src/entities/errors";
@@ -255,6 +255,7 @@ describe("Otter API", () => {
         body: JSON.stringify({ summary: "Restarting" }),
       });
 
+      if (res.status !== 201) console.error("DBG2", await res.clone().text());
       expect(res.status).toBe(201);
       const body = await json(res);
       expect(body.id).toBe("new-session");
@@ -325,6 +326,37 @@ describe("Otter API", () => {
       expect(body.error).toContain("未知的模型别名");
       expect(body.error).toContain("main");
       expect(deps.manageSession.restartSession).not.toHaveBeenCalled();
+    });
+
+    // ─── F20260917rsta：手动重启空摘要 → 自动 LLM 交接（controller 接线） ───
+
+    it("F20260917rsta: otterRestartAutoHandoff 注入 → restart 委托给自动交接方法", async () => {
+      const newSession = makeSession({ id: "auto-handoff-session" });
+      const restartWithAutoHandoffIfBlank = vi.fn().mockResolvedValue(newSession);
+      deps.otterRestartAutoHandoff = { restartWithAutoHandoffIfBlank };
+      app = createTestApp(deps);
+
+      const res = await app.request("/api/otters/otter-1/restart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ summary: "  " }),
+      });
+
+      expect(res.status).toBe(201);
+      expect(restartWithAutoHandoffIfBlank).toHaveBeenCalledWith("otter-1", "  ", undefined);
+      expect(deps.manageSession.restartSession).not.toHaveBeenCalled();
+    });
+
+    it("F20260917rsta: otterRestartAutoHandoff 未注入 → 降级原语义（直走 restartSession）", async () => {
+      const newSession = makeSession({ id: "legacy-session" });
+      deps.manageSession.restartSession.mockResolvedValue(newSession);
+
+      const res = await app.request("/api/otters/otter-1/restart", {
+        method: "POST",
+      });
+
+      expect(res.status).toBe(201);
+      expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", undefined, undefined);
     });
   });
 });
