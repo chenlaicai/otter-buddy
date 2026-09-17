@@ -3,7 +3,6 @@ import type { EntryRepository } from "./entry-repository";
 import type { InvokeRepository } from "./invoke-repository";
 import type { ResumePendingRepository } from "./resume-pending-repository";
 import type { DispatchChainEngine, InvokeFn } from "./dispatch-chain-engine";
-import type { SignalRouter } from "./signal-router";
 import type { Logger } from "@usecases/ports/logger";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import {
@@ -32,7 +31,12 @@ interface ResumeQueueItem {
  * - 并发窗口数据源：entries 表（messages 表已退役）
  *
  * 移植旧实现（b1d11c5f^）的成熟逻辑：429/网络指数退避、跨会话并行同会话串行、
- * attempts CAS 认领、终态守卫、healing 台账落账、信号补扫（F20260901sgpv P1）。
+ * attempts CAS 认领、终态守卫、healing 台账落账。
+ *
+ * F20260917rscr：信号补扫（rescanPending/rescanSignals）已删除——9/17 重启风暴
+ * （682 invoke/656 failed）实证「扫历史消息补点火」是净负资产：已读标记在主流
+ * 路径不写入导致全部历史消息误判未处理。恢复机制只认 restart_pending_resumes
+ * 队列（被系统停止打断的 invoke），搭档裁决（修法排序③ deletion）。
  */
 export class ResumeInterruptedService {
   /** 恢复触发前的等待窗口：错开启动尾段的装配/首条用户消息并发 */
@@ -52,8 +56,6 @@ export class ResumeInterruptedService {
       dispatchChainEngine: DispatchChainEngine;
       /** invokeFn 在装配处闭包捕获 agentInvoker（审视发现 1 修复，旧模式沿用） */
       invokeFn: InvokeFn;
-      /** F20260901sgpv P1（移植）：信号路由器（可选）——崩溃窗口未点火信号补扫 */
-      signalRouter?: Pick<SignalRouter, "rescanPending">;
       /** 失败/跳过的用户可见系统消息写入（装配处闭包 uc.sendEntry.createSystemEntry） */
       sendSystemEntry: (conversationId: string, body: string) => Promise<void>;
       /** #613（移植）：healing 台账写入（服务重启事件落账） */
@@ -63,24 +65,15 @@ export class ResumeInterruptedService {
       delayMs?: number;
       /** 429 限流退避基础延迟（ms），测试可注入小值 */
       rateLimitBaseDelayMs?: number;
-      /** 本次服务启动时刻（ISO）——信号补扫只处理早于该时刻的 entry（崩溃窗口） */
-      serviceStartedAt?: string;
     },
   ) {}
 
-  /** 入口：延迟后逐条恢复。fire-and-forget 调用（不阻塞服务就绪）。 */
+  /** 入口：延迟后逐条恢复。fire-and-forget 调用（不阻塞服务就绪）。
+   *  F20260917rscr：只恢复队列里的中断 invoke——不再做任何历史信号扫描。 */
   async resume(): Promise<void> {
     const delay = this.deps.delayMs ?? ResumeInterruptedService.RESUME_DELAY_MS;
     await new Promise(resolve => setTimeout(resolve, delay));
     try {
-      // F20260901sgpv P1（移植）：信号补扫（崩溃窗口兜底）——无论是否有中断 invoke，
-      // 都扫一遍未消费 user 信号。放在恢复链之前，让补扫信号与恢复链在同一竞争面消化。
-      if (this.deps.signalRouter) {
-        await this.rescanSignals().catch(err => {
-          this.deps.logger.warn("signal rescan on resume failed", { error: err instanceof Error ? err.message : String(err) });
-        });
-      }
-
       const pending = await this.deps.resumePendingRepo.getPendingResumes();
       if (pending.length === 0) return;
       this.deps.logger.info("Resuming interrupted invokes after restart", { count: pending.length });
@@ -108,20 +101,6 @@ export class ResumeInterruptedService {
        * 失败/跳过路径的提示在 resumeItemSafe 各出口内发出。 */
     } catch (err) {
       this.deps.logger.error("Resume interrupted invokes failed", err instanceof Error ? err : new Error(String(err)));
-    }
-  }
-
-  /** 信号补扫：中断队列会话 ∪ 启动前有 invoke 活动的会话，逐会话补点火 */
-  private async rescanSignals(): Promise<void> {
-    const pending = await this.deps.resumePendingRepo.getPendingResumes();
-    const before = this.deps.serviceStartedAt ?? new Date().toISOString();
-    const invokeConversations = await this.deps.resumePendingRepo.listRecentConversationIds(before);
-    const conversationIds = new Set<string>([
-      ...pending.map(p => p.conversationId),
-      ...invokeConversations,
-    ]);
-    for (const conversationId of conversationIds) {
-      await this.deps.signalRouter!.rescanPending(conversationId, before);
     }
   }
 
