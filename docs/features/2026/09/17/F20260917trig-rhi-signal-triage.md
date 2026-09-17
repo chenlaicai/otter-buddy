@@ -13,7 +13,7 @@ intent:
   problem: "40 条 critical bug_recurrence 信号最老的挂了 23 天无人处置（#1012 实锤）；搭档反馈「面板是给我看的不是让我干活的，信号应该有自动化处理流程和生命周期」"
   expected_effect: "每条 critical 信号可见处置状态（谁接了/卡了几天/对应哪个 issue）；超龄未处置自动升级可见；面板上不再出现「建议你去看」而是「处置进度」"
   verify_by:
-    type: metric
+    type: metric_probe
     effect_window: 14d
     metrics: "①面板未接单 critical 数（基线 40 → 目标 0）；②aging worker 首月落账数（观察值，用于校准 72h/7d 阈值）；③dismissed 无 note 行数（目标恒 0）"
 created: 2026-09-17
@@ -260,3 +260,74 @@ mimo delta 附 2 条实现期注意项（聚合告警 context 字段名 signalId
 ### 终审轮修订（搭档确认点，2026-09-17 14:15）
 
 搭档确认「一天处理一次节奏认可，不要信号级即时响应」，并指出「今天调整了每日任务，确认定时任务能接上」。核实发现「每日 issue 处理 10:30」已 disabled（9/16 起）——方案原写的第二消费点不存在。修订：① 未接单清点职责并入 09:00 健康检查任务（不依赖 10:30 复活）；② triaged 超 7 天停滞告警从二期提前到一期（纯本地时间戳，零机制膨胀，堵「归口后没人干」尾段）。调度配置零变更，prompt 更新即生效。
+
+---
+
+## 实现（2026-09-17，开发獭-trig / kimi-k28）
+
+实现 PR：按方案 §改动范围表 8 项全部落地。逐文件落点：
+
+| 方案项 | 落点 |
+|---|---|
+| schema 迁移 4 字段 | `src/frameworks/db/schema.ts` createSignalsTable + `src/frameworks/db/migration.ts` ensureSignalsTriageColumns（幂等 PRAGMA 检测，同 #644 模式） |
+| repo triage()/findByTriageStatus | `src/usecases/health/signal-repository.ts`——SignalRecord 接口扩展 4 字段；triage() 拆 triageBindIssue/triageInProgress/triageDismiss 三私有方法（控 complexity）；upsert 路径不含新字段（§1 写入边界，UPDATE 分支 SQL 天然不触碰、INSERT 分支经 insertNew 显式置 NULL） |
+| §6 auto-resolve 抹平 | repo.resolve/dismiss 的 UPDATE 同步 `triage_status=NULL, issue_number=NULL`（`triage_note` 保留作历史痕迹）；signal-pipeline.ts 注释声明语义（resolveStaleSignals 调 repo.resolve 即继承抹平） |
+| RhiSignalAgingWorker | `src/usecases/health/rhi-signal-aging-worker.ts` 新建——扫未接单（critical 72h / warning 7d，按 first_seen）+ triaged 停滞 7d（按 triaged_at，一期纳入 S3）；**聚合限流（S4）：同 signal_type 一轮最多 1 条聚合 healing**，context 带 `signalIds` 数组；**孤儿 healing 清理（S3）**：信号终态化后对应 aging healing 自动销号，`signalIdsFromContext` 兼容单条 `signalId` 与聚合 `signalIds` 两种格式（mimo delta 附言）；app.ts 并入 PatrolWorker（name='rhi-signal-aging'，与獭间 signal-aging 并列） |
+| agent 工具 | `src/interface-adapters/agent-runtime/tools/rhi-signal-tools.ts` 新建（health 域，与獭间 signal-tools.ts 语义池分离）——triage_signal + list_rhi_signals；tool-factory 注册条件 = `ctx.rhiSignalRepo` 注入；注入链 ToolContext → tool-builder → pi-session-factory → platforms.ts（`rhiSignalRepo: repos.rhiSignal`） |
+| http 端点 | rhi-controller signals 端点返回 triage 四字段（camelCase triageStatus/issueNumber/triagedAt/triageNote）+ `POST /api/health/signals/:id/triage`（本机信任域同 POST /api/health/scan 先例 §4 R3）；router 拆 registerRhiWriteRoutes 控语句数 |
+| 前端处置队列 | `web/src/pages/health/TriageQueue.tsx` 新建——按处置状态三分组（未接单置顶按挂龄升序/修复中/已归口 details 折叠显示「triaged N 天」§4 D3）；每条操作按钮（开 issue/绑定/忽略），写路径经 triageRhiSignal → POST 端点与 agent 工具共享 repo.triage() 单一方法（§2 F3）；index.tsx signals tab 换用 TriageQueue（总览/特性链/用量 tab 未动） |
+| daily-health-check prompt | 「RHI 信号处置段」改 M+K+D=N + 处置后必须调 triage_signal 留痕 + 新增「未接单存量清点」步（§2 谁在调） |
+
+### 验证（实现期验收，对照方案「验证」节 9 条）
+
+1. **存量读取不变**：生产副本真启动验证 open=148→149（+1 测试行已清），迁移前后 findOpen 口径不变。✅
+2. **upsert 不覆盖 triage 字段**：回归测试「验证 #2」——bind 后同键 upsert，triage_status/issue_number/triage_note 原样保留、occurrences 照常 +1。✅
+3. **triage_signal 三动作 + 幂等**：signal-repository.test.ts 8 个用例——bind 覆盖换绑 / issueNumber 必填拒绝 / in_progress 前置 + 幂等 / dismiss 空 note 拒绝 + 幂等不改 note / findByTriageStatus 三分组。✅
+4. **auto-resolve 抹平（S1）**：signal-pipeline.test.ts「验证 #4」端到端——triaged 信号不再被检测 → auto-resolve 后 triage_status/issue_number 为 NULL、triage_note 保留。✅
+5. **aging worker 聚合限流 + 孤儿清理 + 去重**：rhi-signal-aging-worker.test.ts 7 个用例——40 条同 type 落 1 条聚合（context.signalIds=40）/ 同 type 去重 / 信号终态化自动销号（组内任一 open 不销）/ warning 7d 与 critical 72h 分阈值 / in_progress 不扫。✅
+6. **存量出清执行记录**：本 PR 不含批量出清执行——按 §5 R5，由大獭合入后一次性操作（note 统一注明「存量出清批量操作 F20260917trig」）。编排防线：出清先于 worker 首次 tick 命中存量（S4）。⏳ 大獭执行
+7. **面板端点 + 分组渲染**：signals 端点自动化测试（repo 层覆盖）+ TriageQueue.test.tsx 5 个组件测试（三分组渲染 / open N 天 + 处置按钮 / 已归口 issue 链接 + triaged N 天 / 空态 / dismiss note 必填 UI disabled）；真机截图亲验渲染（截图：/tmp/rhi-signals.png）。✅
+8. **日报对账口径**：prompt 更新已落地（M+K+D=N + triage_signal 留痕硬规则 + 未接单存量清点步）；首跑对账待明日 09:00 任务实际跑一轮后留痕。⏳ 明日首跑
+9. **triaged 停滞告警**：rhi-signal-aging-worker.test.ts「验证 #9」——triaged_at 超 7 天落聚合 healing、未超龄不落。✅
+
+### 测试输出
+
+- 后端全量：`npx vitest run` → 266 文件 / 3581 测试全绿（含本 PR 新增 20 个用例）
+- 前端全量：`cd web && npx vitest run` → 51 文件 / 467 测试全绿（含 TriageQueue 5 个新用例）
+- `npm run lint` → 0 errors（12 warnings，均 pre-existing）
+- `npm run lint:intent` → 0 errors（修 frontmatter verify_by.type metric→metric_probe 合法枚举——本 PR 内文档，方案期笔误）
+
+### 生产副本真启动验证（#962 硬规则）
+
+备份生产 `data/otter-buddy.db`（884MB）副本到 worktree `.tmp-migration-check/`，在副本上执行完整启动路径的迁移段（initSchema + migrateDatabase × 2 幂等）：
+
+```
+[info] Added triage_status column to signals table
+[info] Added issue_number column to signals table
+[info] Added triaged_at column to signals table
+[info] Added triage_note column to signals table
+OK: open=148→149（+1 测试行已清），四列齐、抹平语义正确
+```
+
+- 服务监听成功等价路径：initSchema + migrateDatabase 无 SqliteError（迁移段是 bootstrap 真启动的必经路径）
+- 存量 148 条 open 信号读取不变；upsert + triage + resolve 抹平全链路在副本上验证通过；测试行已清、临时文件已删
+
+### 自检负面向条目（#962 刹车二）
+
+**本次变更破坏了什么旧契约 / 绕过了什么既有保护**：
+- repo.resolve/dismiss 的 UPDATE 从「只动 status/resolved_at」扩为「同步置 NULL triage_status/issue_number」——破坏了「triage 字段只能由 triage() 写」的字面边界，但 §6 显式声明终态化路径负责抹平清理（D2 修订：「处置进度写入口」与「终态化清理」职责分离）。这是机制间协调的有意行为，非绕过。
+- upsert 的 UPDATE 分支**不触碰** triage 四字段——这是写入边界的核心防御（§1），没有绕过任何既有保护；COALESCE 语义对 evidence_detail/confidence 的防御模式原样保留。
+
+### 最简实现检查（必答）
+
+已过阶梯检查：仓库已有实现优先——
+1. **复刻 SignalAgingWorker 模式**而非新建轮子：RhiSignalAgingWorker 学其 setInterval/unref/启动即扫/tickSafely 结构，但信号池/阈值/聚合语义不同，不共享代码（方案设计取舍③显式决策）。
+2. **复用 repo.triage() 单一方法**双入口共享（F3 架构约束），非各自实现 SQL。
+3. **复用既有 status 字段做终态**而非新建独立状态机表（方案设计取舍①），resolve/dismiss/auto-resolve 路径全部不重写。
+4. **ALTER TABLE 加列**用幂等 PRAGMA 检测（ensureSignalsEvidenceColumns 同模式），未引入 migration 框架外新机制。
+
+结论：**已过最简检查**——无更简实现可达成同等效果（更少代码会牺牲 §6 抹平语义的回归测试锚点或 §1 写入边界的显式性）。
+
+### pre-existing 声明
+
+方案文档 frontmatter `verify_by.type: metric` 非法枚举（合法为 `metric_probe`）为 pre-existing（`git stash -u` 基线复跑确认 stash 后仍报同 1 error）——已在本 PR 修复（本 PR 内创建的文档，合规追加范围）。

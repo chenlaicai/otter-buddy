@@ -96,6 +96,13 @@ function registerActivityRoutes(app: Hono, c: Controllers): void {
   app.get("/api/activity/dispatch", (ctx) => c.activity.dispatch(ctx));
 }
 
+/** RHI 面板写路径（扫描 + 处置队列 triage）——从 registerDataRoutes 拆出控语句数 */
+function registerRhiWriteRoutes(app: Hono, c: Controllers): void {
+  app.post("/api/health/scan", (ctx) => c.rhi.scan(ctx));
+  // F20260917trig：面板处置队列写路径（与 agent 工具共享 repo.triage() 单一方法）
+  app.post("/api/health/signals/:id/triage", (ctx) => c.rhi.triageSignal(ctx));
+}
+
 function registerDataRoutes(app: Hono, c: Controllers): void {
   app.get("/api/health/memory", (ctx) => c.health.memory(ctx));
 
@@ -114,7 +121,7 @@ function registerDataRoutes(app: Hono, c: Controllers): void {
   app.get("/api/health/trends", (ctx) => c.rhi.trends(ctx));
   app.get("/api/health/score", (ctx) => c.rhi.score(ctx));
   app.get("/api/health/cost-output", (ctx) => c.rhi.costOutput(ctx));
-  app.post("/api/health/scan", (ctx) => c.rhi.scan(ctx));
+  registerRhiWriteRoutes(app, c);
   app.get("/api/memory/search", (ctx) => c.memory.search(ctx));
   // #576（F20260901emps）：记忆搜索页初始态数据源（最近记忆，非检索）
   app.get("/api/memory/recent", (ctx) => c.memory.recent(ctx));

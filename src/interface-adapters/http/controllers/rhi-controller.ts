@@ -316,6 +316,11 @@ export class RhiController {
           // evidence_detail 存 JSON 字符串（可空）——解析失败不阻断列表，降级 null
           evidenceDetail: s.evidence_detail ? safeParseJson(s.evidence_detail) : null,
           evidence_detail: undefined,
+          // F20260917trig：处置状态机四字段透传（面板处置队列数据源）
+          triageStatus: s.triage_status,
+          issueNumber: s.issue_number,
+          triagedAt: s.triaged_at,
+          triageNote: s.triage_note,
         })),
         count: rows.length,
       });
@@ -512,6 +517,34 @@ export class RhiController {
     try {
       const result = await this.scanWorker.scanOnce();
       return c.json({ result });
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
+  /** POST /api/health/signals/:id/triage — 面板处置队列写路径（F20260917trig §4）。
+   *  与 agent 工具 triage_signal 共享 SignalRepository.triage() 单一方法（§2 架构约束 F3），
+   *  任何入口不得各自实现 SQL。本机信任域同既有 POST /api/health/scan 先例，不引入鉴权（§4 R3）。
+   *  body: { action: 'bind_issue'|'in_progress'|'dismiss', issueNumber?, note? } */
+  async triageSignal(c: Context): Promise<Response> {
+    try {
+      const id = Number(c.req.param("id"));
+      if (!Number.isInteger(id)) {
+        return c.json({ error: "invalid signal id" }, 400);
+      }
+      const body = await c.req.json<{ action?: string; issueNumber?: number; note?: string }>();
+      const action = body.action;
+      if (action !== "bind_issue" && action !== "in_progress" && action !== "dismiss") {
+        return c.json({ error: "action must be bind_issue / in_progress / dismiss" }, 400);
+      }
+      const result = this.signalRepo.triage(id, action, {
+        issueNumber: body.issueNumber,
+        note: body.note,
+      });
+      if (!result.ok) {
+        return c.json({ error: result.reason }, 422);
+      }
+      return c.json({ ok: true, record: result.record });
     } catch (err) {
       return handleError(c, err, this.logger);
     }

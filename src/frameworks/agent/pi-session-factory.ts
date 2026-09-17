@@ -38,6 +38,7 @@ import type { OtterConfigProvider, OtterType } from "@usecases/ports/otter-confi
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
+import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildMessageWithContext } from "./session-helpers";
 import { updateLastReadSeq, updateLastActiveTurnNumber, getTurnNumberByInvokeId } from "@frameworks/db/conversation/conversation-repository-mixins";
@@ -143,6 +144,8 @@ export interface AgentSessionFactoryConfig {
   healingRepo?: HealingEventRepository;
   /** F20260826mwrd C1：signal_events 仓库（halt 落账） */
   signalRepo?: SignalEventRepository;
+  /** F20260917trig：RHI 健康信号仓库（signals 表——triage_signal/list_rhi_signals 注册条件） */
+  rhiSignalRepo?: SignalRepository;
   /** F20260826mwrd C1：halt 首次注入回调（进程级 ModelRuntimeRegistry 单次注册） */
   onHaltFirstBlock?: (directive: HaltDirective) => void;
   /** Otter 配置持久化（由 Composition Root 注入） */
@@ -185,6 +188,7 @@ export class PiSessionFactory implements AgentGateway {
       createTools: (ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger) => AgentTool[];
       healingRepo?: HealingEventRepository;
       signalRepo?: SignalEventRepository;
+      rhiSignalRepo?: SignalRepository;
       onHaltFirstBlock?: (directive: HaltDirective) => void;
       resourceLoader?: ResourceLoader;
       otterConfigProvider: OtterConfigProvider;
@@ -802,6 +806,7 @@ export class PiSessionFactory implements AgentGateway {
     const ctx: ToolContext = {
       ...EMPTY_TOOL_CONTEXT_BASE,
       signalRepo: this.cfg.signalRepo,
+      rhiSignalRepo: this.cfg.rhiSignalRepo,
     };
     const registeredTools = this.cfg.createTools(ctx, this.cfg.healingRepo, this.logger);
     return getOtterToolNamesForType(otterType, registeredTools.map(t => t.name), process.cwd(), this.logger);
@@ -812,7 +817,7 @@ export class PiSessionFactory implements AgentGateway {
   private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, sessionManager: SessionManager, register: InvokeRegister, readOnly?: boolean) {
     const conversationId = options?.conversationId ?? "";
     const otterToolNames = this.buildOtterToolWhitelist(otterType);
-    const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, allowedNames: otterToolNames, register, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, signalRepo: this.cfg.signalRepo, isOtterRunning: (id: string) => this.isRunning(id), logger: this.logger });
+    const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, allowedNames: otterToolNames, register, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, signalRepo: this.cfg.signalRepo, rhiSignalRepo: this.cfg.rhiSignalRepo, isOtterRunning: (id: string) => this.isRunning(id), logger: this.logger });
     const codingTools = getCodingToolsForOtterType(otterType);
     // F20260825hndf Phase 2：readOnly 模式只保留 read 工具，排除 write/edit/bash
     const filteredCodingTools = readOnly ? codingTools.filter(t => t === 'read') : codingTools;
@@ -1008,6 +1013,7 @@ export async function initAgentSessionFactory(config: AgentSessionFactoryConfig,
     createTools: config.createTools,
     healingRepo: config.healingRepo,
     signalRepo: config.signalRepo,
+    rhiSignalRepo: config.rhiSignalRepo,
     onHaltFirstBlock: config.onHaltFirstBlock,
     otterConfigProvider: config.otterConfigProvider,
     otterRepo: config.otterRepo,

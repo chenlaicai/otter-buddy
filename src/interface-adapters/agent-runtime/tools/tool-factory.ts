@@ -14,6 +14,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import { interceptHealingReport, createManageHealingEventsTool } from "./healing-tools";
 import { createHaltOtterTool, createQuerySignalsTool, createResolveSignalTool, createUnhaltOtterTool, interceptSignalReport } from "./signal-tools";
+import { createTriageSignalTool, createListRhiSignalsTool } from "./rhi-signal-tools";
 import { DomainError } from "@entities/errors";
 import { createWorkspaceTools } from "./workspace-tools";
 import { createStockDataTool } from "./stock-tools";
@@ -947,6 +948,12 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     // F20260826mwrd C2：裁决写路径——resolve_signal 仅 big 型（裁决权在大獭，
     // 方案 Part 2「程序化裁决义务」的代码落点）
     tools.push(createResolveSignalTool(ctx, signalRepo));
+  }
+  // F20260917trig：RHI 信号处置工具（signals 表——triage_signal/list_rhi_signals）。
+  // 注册条件 = rhiSignalRepo 注入；small/big 型均可用（日报獭处置段 + 面板后端都要调）。
+  if (ctx.rhiSignalRepo) {
+    tools.push(createTriageSignalTool(ctx, ctx.rhiSignalRepo));
+    tools.push(createListRhiSignalsTool(ctx, ctx.rhiSignalRepo));
   }
   return tools;
 }

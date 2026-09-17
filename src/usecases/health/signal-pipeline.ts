@@ -131,6 +131,11 @@ export class SignalPipeline {
   /**
    * 自动 resolve 不再触发的信号：
    * 信号生命周期应与实际问题状态一致——问题消失后信号应自动关闭，而非永久 open。
+   *
+   * F20260917trig §6：auto-resolve 不区分 triage 状态（triaged/in_progress 的 open 信号
+   * 若不再被检测同样 auto-resolve），但 repo.resolve() 内部会同步抹平 triage_status/issue_number
+   * （triage_note 保留作历史痕迹）——终态覆盖进度，面板不会出现「resolved 信号挂着 closed
+   * issue 链接」的幽灵行。
    */
   private resolveStaleSignals(detectedKeys: Set<string>): number {
     const openSignals = this.signalRepo.findOpen();

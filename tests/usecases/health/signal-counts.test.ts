@@ -21,6 +21,10 @@ function rec(overrides: Partial<SignalRecord>): SignalRecord {
     resolved_at: null,
     evidence_detail: null,
     confidence: null,
+    triage_status: null,
+    issue_number: null,
+    triaged_at: null,
+    triage_note: null,
     ...overrides,
   };
 }

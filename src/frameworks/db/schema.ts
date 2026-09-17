@@ -689,6 +689,11 @@ function createSignalsTable(db: Database.Database): void {
       suggested_action TEXT,
       evidence_detail TEXT,
       confidence TEXT,
+      -- F20260917trig：处置状态机四字段（全部 nullable/默认值，存量行为零变化）
+      triage_status TEXT DEFAULT NULL,
+      issue_number INTEGER DEFAULT NULL,
+      triaged_at TEXT DEFAULT NULL,
+      triage_note TEXT DEFAULT NULL,
       created_at TEXT DEFAULT (datetime('now')),
       resolved_at TEXT
     );

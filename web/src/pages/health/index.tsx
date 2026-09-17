@@ -23,25 +23,14 @@ import { showToast } from '../../components/Toast'
 import * as api from '../../api/client'
 import type { RhiOverviewDTO, RhiSignalDTO, RhiChainDTO, RhiTrendsDTO, RhiCostOutputDTO, RhiScoreDTO } from '../../api/client'
 import { SERIES_COLORS, CHANGE_TYPE_COLORS, TEAL, CARAMEL, OTTER } from './palette'
-import { RecurrenceSection, LowConfidenceDrawer, FreqBadge, FanInExcludedList } from './RecurrenceCard'
+import { RecurrenceSection, LowConfidenceDrawer, FanInExcludedList } from './RecurrenceCard'
 import { HotspotHeatBar, TrendSparkline, hotspotData } from './HotspotHeat'
 import { SwimlaneTimeline, sortChainsBySeverity, ChainFilterChips } from './SwimlaneTimeline'
 import { ChainDetailDrawer } from './ChainDetailDrawer'
+import { TriageQueue } from './TriageQueue'
 import { CHAIN_STATE_META, CHANGE_TYPE_LABELS, type ChainState } from './chain-state-meta'
 
 type Tab = 'overview' | 'signals' | 'chains' | 'cost'
-
-const SIGNAL_TYPE_LABELS: Record<string, string> = {
-  bug_recurrence: 'bug 反复出现',
-  chain_stall: '特性链滞留',
-  hotspot: '热点文件',
-  behavior_defect: '行为缺陷',
-  eval_regression: '效果回退',
-  intent_drop: '意图兑现率下降',
-  hotspot_imbalance: '热区失衡',
-  review_debt: '审视债务',
-  post_merge_fix_density: '合并后修复密度',
-}
 
 /** 链四态/排序/changeType 标签已收编 chain-state-meta.ts（Issue #649 PR3 单一真相源） */
 
@@ -138,10 +127,10 @@ function HealthPage() {
   }
 
   // Issue #652：置信度三分——low 不进 critical/warning 组（后端计数口径同源），抽屉收纳
+  // F20260917trig：signals tab 改处置队列——按处置状态分组（TriageQueue 内部三分），
+  // severity 分组退居组件内部徽章；low 置信仍折叠（不稀释真警报）
   const lowConfidenceSignals = signals.filter(s => s.confidence === 'low')
   const normalSignals = signals.filter(s => s.confidence !== 'low')
-  const criticalSignals = normalSignals.filter(s => s.severity === 'critical')
-  const warningSignals = normalSignals.filter(s => s.severity !== 'critical')
 
   return (
     <AppLayout activeView="health">
@@ -293,26 +282,21 @@ function HealthPage() {
             </div>
           )}
 
-          {/* 信号视图（列表为主，图表辅助） */}
+          {/* 信号视图（F20260917trig §4：处置队列——按处置状态分组，操作按钮可执行） */}
           {tab === 'signals' && (
             <div className="space-y-4">
-              {/* 信号说明卡 */}
+              {/* 处置队列说明卡 */}
               <div className="rounded-2xl bg-white/70 border border-stone-200/60 px-4 py-3">
-                <p className="text-sm text-stone-600 font-semibold mb-1.5">信号 = 仓库异常模式自动检测</p>
+                <p className="text-sm text-stone-600 font-semibold mb-1.5">信号处置队列</p>
                 <p className="text-xs text-stone-500 leading-relaxed">
-                  系统从提交记录、特性链、文件热区等数据中自动识别 8 种信号类型，反映潜在质量风险。open 状态表示待处置，建议关注 critical 级别信号。
+                  每条警报有处置状态：未接单（置顶，挂越久越红）→ 已归口（绑定 issue）→ 修复中 → 终态。
+                  处置动作会写库留痕，日报獭的对账公式 M+K+D=N 从这些数据自动生成。
                 </p>
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {Object.values(SIGNAL_TYPE_LABELS).map(label => (
-                    <span key={label} className="px-2 py-0.5 rounded-full text-xs bg-stone-100 text-stone-600">{label}</span>
-                  ))}
-                </div>
               </div>
 
-              {criticalSignals.length > 0 && (
-                <SignalGroup title="🔴 严重信号（critical）" signals={criticalSignals} severity="critical" />
+              {normalSignals.length > 0 && (
+                <TriageQueue signals={normalSignals} onChanged={() => void refresh()} />
               )}
-              <SignalGroup title="🟡 警告信号（warning）" signals={warningSignals} severity="warning" />
               {/* Issue #652：低置信单列（不与主警报等权），默认折叠；18 条假警报不稀释真警报 */}
               {lowConfidenceSignals.length > 0 && (
                 <LowConfidenceDrawer signals={lowConfidenceSignals} />
@@ -691,38 +675,6 @@ function ChainStateBar({ counts }: { counts: Record<string, number> }) {
             </span>
           )
         })}
-      </div>
-    </div>
-  )
-}
-
-/** 异常态筛选 chips 已收编 SwimlaneTimeline.tsx（供测试引用；观澜 §3.2 视觉反转） */
-
-function SignalGroup({ title, signals, severity }: {
-  title: string
-  signals: RhiSignalDTO[]
-  severity: 'critical' | 'warning'
-}) {
-  if (signals.length === 0 && severity === 'warning') return null
-  return (
-    <div>
-      <h2 className="text-sm font-semibold text-stone-600 mb-2">{title} · {signals.length}</h2>
-      <div className="rounded-2xl bg-white/70 border border-stone-200/60 divide-y divide-stone-100">
-        {signals.map(s => (
-          <div key={s.id} className="px-4 py-3">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-medium text-sm">{s.signalTypeLabel}</span>
-              {s.feature_id && <span className="font-mono text-xs text-stone-500">{s.feature_id}</span>}
-              {s.file_path && <span className="font-mono text-xs text-stone-500">{s.file_path}</span>}
-              {/* 频次徽章（检视建议 5）：bug_recurrence 走证据序列长度与复发卡同源，rose 退场 */}
-              <FreqBadge signal={s} />
-            </div>
-            <p className="text-xs text-stone-500 mt-1">{s.evidence}</p>
-            {s.suggested_action && (
-              <p className="text-xs text-otter-500 mt-0.5">建议：{s.suggested_action}</p>
-            )}
-          </div>
-        ))}
       </div>
     </div>
   )

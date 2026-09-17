@@ -34,6 +34,10 @@ function recurrenceSignal(overrides: Partial<RhiSignalDTO> = {}): RhiSignalDTO {
       ],
     },
     confidence: null,
+    triageStatus: null,
+    issueNumber: null,
+    triagedAt: null,
+    triageNote: null,
     ...overrides,
   }
 }
@@ -54,6 +58,10 @@ function stallSignal(overrides: Partial<RhiSignalDTO> = {}): RhiSignalDTO {
     signalTypeLabel: '特性链滞留',
     evidenceDetail: null,
     confidence: 'low',
+    triageStatus: null,
+    issueNumber: null,
+    triagedAt: null,
+    triageNote: null,
     ...overrides,
   }
 }
