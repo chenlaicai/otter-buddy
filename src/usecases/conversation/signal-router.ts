@@ -19,6 +19,7 @@ import type { EntryRepository } from "./entry-repository";
 import type { ConversationRepository } from "./conversation-repository";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { DispatchChainEngine } from "./dispatch-chain-engine";
+import type { InvokeRepository } from "./invoke-repository";
 import type { Logger } from "@usecases/ports/logger";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { HealingErrorType, HealingEventStatus, HealingEvent, HealingSeverity } from "@entities/healing/healing-event";
@@ -48,8 +49,8 @@ export interface SignalView {
   /** F20260913ctlv：注入方式（目标 running 时）——steer=打断默认/followUp=排队；
    *  入口 sendMessage 按 body.mode 落 entry.metadata.injectionMode，路由时消费 */
   injectionMode?: "steer" | "followUp";
-  /** 销账写回通道（entry metadata 或 message signal_meta） */
-  markConsumed: (action: "followed_up" | "steered") => Promise<void>;
+  /** 销账写回通道（entry metadata 或 message signal_meta）；action 含 F20260917rfir 新增的 invoked（补扫补销） */
+  markConsumed: (action: "followed_up" | "steered" | "invoked") => Promise<void>;
 }
 
 export type RouteAction =
@@ -81,11 +82,19 @@ export class DirectChainGatedError extends Error {
 }
 
 export class SignalRouter {
+  /** F20260917rfir：补扫崩溃窗口——只扫启动前 2 分钟内的 user 信号（重启风暴实证：
+   *  全量历史补扫会把所有未销账消息重燃；崩溃窗口 = 入口写 entry 后进程死的秒级间隙） */
+  private static readonly RESCAN_LOOKBACK_MS = 120_000;
+  /** F20260917rfir：单会话补扫加载上限（防爆量；窗口内信号通常 ≤ 个位数） */
+  private static readonly RESCAN_MAX_ENTRIES = 50;
+
   constructor(
     private readonly deps: {
       conversationRepo: ConversationRepository;
       /** F20260913ctlv 收尾批2：entries 数据源（user/system 信号唯一真相源；messages 兜底已删） */
       entryRepo: EntryRepository;
+      /** F20260917rfir：invoke 数据源（补扫重燃防护——按 trigger_entry_id 查应答 invoke 存在性） */
+      invokeRepo?: Pick<InvokeRepository, "getInvokeByTriggerEntryId">;
       queryOtter: QueryOtter;
       dispatchChainEngine: DispatchChainEngine;
       invokeFn: SignalRouterInvokeFn;
@@ -177,28 +186,32 @@ export class SignalRouter {
     return results;
   }
 
-  /** F20260916b1ea：启动补扫（崩溃窗口兜底）。扫 created_at 早于 beforeTimestamp 的
-   *  未消费 user 信号（yield_targets 非空 + metadata 无 signalMeta.consumed），
-   *  逐条走 routeTriggerMessage 补点火。返回各条路由结果汇总。
+  /** F20260916b1ea：启动补扫（崩溃窗口兜底）。扫崩溃窗口内（beforeTimestamp 前
+   *  RESCAN_LOOKBACK_MS 内）的未消费 user 信号，逐条走 routeTriggerMessage 补点火。
+   *  F20260917rfir 重燃修复（9/17 重启风暴实证：696 invoke/656 failed）：
+   *  ① invoked 路径从不销账（routeTriggerMessage 只对 followed_up/steered 打 consumed），
+   *     「无 consumed 标记」不能作为「未处理」判据 → 应答 invoke 存在性（trigger_entry_id
+   *     查 invokes 表）才是真语义判据；
+   *  ② 范围收窄到崩溃窗口（RESCAN_LOOKBACK_MS），不再扫全量历史；
+   *  ③ 补点火成功后无论 action 都销账（含 invoked），双保险防下轮重启重燃。
    *  信号视图装配/销账逻辑私有不外泄——本方法是补扫变体入口（routeSignals 的
    *  事件驱动语义拒绝无 triggerMessageId 调用，补扫由此公开方法承载）。 */
   async rescanPending(
     conversationId: string,
     beforeTimestamp: string,
   ): Promise<Array<{ entryId: string; action: RouteAction }>> {
-    const entries = await this.deps.entryRepo.getEntries(conversationId, { entryType: "user" });
+    const lookbackStart = new Date(
+      Date.parse(beforeTimestamp) - SignalRouter.RESCAN_LOOKBACK_MS,
+    ).toISOString();
+    const entries = await this.deps.entryRepo.getEntries(conversationId, {
+      entryType: "user",
+      limit: SignalRouter.RESCAN_MAX_ENTRIES,
+    });
     const results: Array<{ entryId: string; action: RouteAction }> = [];
     for (const entry of entries) {
-      if (entry.createdAt >= beforeTimestamp) continue;
-      if (!entry.yieldTargets || entry.yieldTargets.length === 0) continue;
-      const signalMeta = entry.metadata?.signalMeta;
-      if (signalMeta) {
-        try {
-          if ((JSON.parse(signalMeta) as { consumed?: string }).consumed) continue;
-        } catch {
-          /* 销账字段解析失败按未消费处理（补扫是兜底，宁多点火不丢信号——路由层有去重） */
-        }
-      }
+      // getEntries 按 sequence_num DESC 返回——遇到早于窗口的即可提前终止
+      if (entry.createdAt < lookbackStart) break;
+      if (await this.isRescanSkippable(entry, beforeTimestamp)) continue;
       const routed = await this.routeTriggerMessage(conversationId, entry.id).catch((err: unknown) => {
         this.deps.logger.warn("[signal-router] rescanPending 单条补点火失败", {
           conversationId, entryId: entry.id,
@@ -208,9 +221,36 @@ export class SignalRouter {
       });
       for (const r of routed) {
         results.push({ entryId: entry.id, action: r.action });
+        // 补扫销账（含 invoked）：routeTriggerMessage 内部只对 followed_up/steered 销账，
+        // 补扫在此对 invoked 补销——下轮重启 invoke 存在性判据是主防线，consumed 是双保险。
+        if (r.action === "invoked") {
+          await r.signal.markConsumed("invoked").catch(() => {});
+        }
       }
     }
     return results;
+  }
+
+  /** F20260917rfir：补扫跳过判定（复杂度控制——从 rescanPending 提取）
+   *  跳过条件：① 窗口外（启动后/无目标）② 已销账 ③ 已有应答 invoke（重燃防护主判据） */
+  private async isRescanSkippable(entry: Entry, beforeTimestamp: string): Promise<boolean> {
+    if (entry.createdAt >= beforeTimestamp) return true;
+    if (!entry.yieldTargets || entry.yieldTargets.length === 0) return true;
+    const signalMeta = entry.metadata?.signalMeta;
+    if (signalMeta) {
+      try {
+        if ((JSON.parse(signalMeta) as { consumed?: string }).consumed) return true;
+      } catch {
+        /* 销账字段解析失败按未消费处理（补扫是兜底，宁多点火不丢信号——路由层有去重） */
+      }
+    }
+    // 重燃防护（主判据）：该信号已有应答 invoke（trigger_entry_id 匹配）→ 已被点火过，跳过。
+    // 覆盖正常路径（用户发消息 → 事件驱动路由 invoked → invoke 落库）与上次补扫已点火的信号。
+    if (this.deps.invokeRepo) {
+      const answered = await this.deps.invokeRepo.getInvokeByTriggerEntryId(entry.id).catch(() => null);
+      if (answered) return true;
+    }
+    return false;
   }
 
   /**
@@ -308,7 +348,7 @@ export class SignalRouter {
   }
 
   /** entry 信号销账：consumed 标记写 metadata.signalMeta */
-  private async markEntrySignalConsumed(entry: Entry, action: "followed_up" | "steered"): Promise<void> {
+  private async markEntrySignalConsumed(entry: Entry, action: "followed_up" | "steered" | "invoked"): Promise<void> {
     const meta = { ...(entry.metadata ?? {}), signalMeta: JSON.stringify({ consumed: action, consumedAt: new Date().toISOString() }) };
     await this.deps.entryRepo.updateEntryMetadata(entry.id, meta);
   }

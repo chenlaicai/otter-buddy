@@ -47,6 +47,7 @@ function createEntry(overrides: Partial<Entry> = {}): Entry {
 
 function makeDeps(overrides?: {
   entryRepo?: Partial<EntryRepository>;
+  invokeRepo?: { getInvokeByTriggerEntryId: (id: string) => Promise<unknown> };
 }) {
   const entryUpdates: Array<{ entryId: string; metadata: EntryMetadata }> = [];
   const entryRepo = {
@@ -74,6 +75,7 @@ function makeDeps(overrides?: {
   const factory = { isRunning: () => false, followUp: () => false, steerSession: () => false };
   const router = new SignalRouter({
     conversationRepo, entryRepo, queryOtter, dispatchChainEngine, invokeFn, logger, factory,
+    ...(overrides?.invokeRepo ? { invokeRepo: overrides.invokeRepo as never } : {}),
   });
   return { router, entryRepo, chainCalls, entryUpdates, invokeFn, logger };
 }
@@ -203,5 +205,98 @@ describe("SignalRouter 数据源（F20260913ctlv 彻底切换补漏）", () => {
     const action = await router.routeDirectSignal("conv-1", "entry-u1", "otter-big");
     expect(action).toBe("invoked");
     expect(chainCalls[0]!.initialTargets).toEqual(["otter-big"]);
+  });
+});
+
+// ── F20260917rfir：rescanPending 重燃防护（9/17 重启风暴 696 invoke/656 failed 实证）──
+describe("rescanPending 重燃防护", () => {
+  function makeUserEntry(overrides?: Partial<Entry>) {
+    return {
+      id: "entry-1",
+      conversationId: "conv-1",
+      sequenceNum: 1,
+      entryType: "user",
+      senderType: "user",
+      senderId: "user-1",
+      body: "hello",
+      invokeId: null,
+      yieldTargets: ["otter-1"],
+      turnId: "turn-1",
+      status: "completed",
+      source: "web",
+      metadata: null,
+      senderName: "chen",
+      contextTokens: null,
+      contextTokensMax: null,
+      createdAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      ...overrides,
+    } as Entry;
+  }
+
+  it("已有应答 invoke 的信号跳过（trigger_entry_id 存在性判据）", async () => {
+    const entry = makeUserEntry();
+    const invokeRepo = {
+      getInvokeByTriggerEntryId: vi.fn(async (id: string) =>
+        id === entry.id ? ({ id: "inv-1", triggerEntryId: id } as never) : null),
+    };
+    const { router, chainCalls } = makeDeps({
+      entryRepo: {
+        getEntries: vi.fn(async () => [entry]),
+        getEntryById: vi.fn(async () => entry),
+      },
+      invokeRepo,
+    } as never);
+    const results = await router.rescanPending("conv-1", new Date(Date.now() + 1000).toISOString());
+    expect(results).toEqual([]);
+    expect(chainCalls).toEqual([]);
+  });
+
+  it("窗口外（早于 lookback）的信号不扫", async () => {
+    const before = new Date().toISOString();
+    const oldEntry = makeUserEntry({ id: "entry-old", createdAt: new Date(Date.now() - 10 * 60_000).toISOString() });
+    const invokeRepo = { getInvokeByTriggerEntryId: vi.fn(async () => null) };
+    const { router, chainCalls } = makeDeps({
+      entryRepo: {
+        getEntries: vi.fn(async () => [oldEntry]),
+        getEntryById: vi.fn(async () => oldEntry),
+      },
+      invokeRepo,
+    } as never);
+    const results = await router.rescanPending("conv-1", before);
+    expect(results).toEqual([]);
+    expect(chainCalls).toEqual([]);
+  });
+
+  it("窗口内未应答信号补点火 + invoked 销账", async () => {
+    const entry = makeUserEntry({ createdAt: new Date(Date.now() - 30_000).toISOString() });
+    const invokeRepo = { getInvokeByTriggerEntryId: vi.fn(async () => null) };
+    const { router, entryUpdates } = makeDeps({
+      entryRepo: {
+        getEntries: vi.fn(async () => [entry]),
+        getEntryById: vi.fn(async () => entry),
+      },
+      invokeRepo,
+    } as never);
+    const results = await router.rescanPending("conv-1", new Date().toISOString());
+    expect(results).toEqual([{ entryId: entry.id, action: "invoked" }]);
+    // fire-and-forget 的 executeChain 不等——invokeTarget 内部 void，chainCalls 可能为空；
+    // 销账（markConsumed("invoked") → updateEntryMetadata）在 rescanPending 同步路径内
+    const consumed = entryUpdates.find(u => u.entryId === entry.id);
+    expect(consumed).toBeTruthy();
+    expect(JSON.parse(String(consumed!.metadata.signalMeta)).consumed).toBe("invoked");
+  });
+
+  it("invokeRepo 未注入时降级为旧行为（窗口内无 invoke 判据）", async () => {
+    const entry = makeUserEntry({ createdAt: new Date(Date.now() - 30_000).toISOString() });
+    const { router } = makeDeps({
+      entryRepo: {
+        getEntries: vi.fn(async () => [entry]),
+        getEntryById: vi.fn(async () => entry),
+      },
+    } as never);
+    // 不注入 invokeRepo——不应抛错
+    const results = await router.rescanPending("conv-1", new Date().toISOString());
+    expect(results).toEqual([{ entryId: entry.id, action: "invoked" }]);
   });
 });
