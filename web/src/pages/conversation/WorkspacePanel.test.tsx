@@ -243,9 +243,12 @@ describe('右键菜单 reveal 端点（F20260910wrev）', () => {
       fileBtn.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 200 }))
     })
 
-    const menu = container.querySelector('[data-testid="workspace-ctx-menu"]')
+    // 菜单经 createPortal 挂 document.body（脱离右栏 aside.glass 的 backdrop-filter containing block），断言查 document
+    const menu = document.querySelector('[data-testid="workspace-ctx-menu"]')
     expect(menu).not.toBeNull()
     expect(menu!.textContent).toContain('在文件管理器中显示')
+    // 菜单不应再渲染在面板容器内（回归断言：防止退回 fixed-in-aside 定位）
+    expect(container.querySelector('[data-testid="workspace-ctx-menu"]')).toBeNull()
   })
 
   it('点击菜单项调用 reveal API（POST + body.path）', async () => {
@@ -260,7 +263,7 @@ describe('右键菜单 reveal 端点（F20260910wrev）', () => {
       fileBtn.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 200 }))
     })
 
-    const menuItem = container.querySelector('[data-testid="workspace-ctx-menu"] button') as HTMLButtonElement
+    const menuItem = document.querySelector('[data-testid="workspace-ctx-menu"] button') as HTMLButtonElement
     await act(async () => { menuItem.click() })
 
     // 验证 POST 调用
@@ -282,7 +285,7 @@ describe('右键菜单 reveal 端点（F20260910wrev）', () => {
       fileBtn.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 200 }))
     })
 
-    const menuItem = container.querySelector('[data-testid="workspace-ctx-menu"] button') as HTMLButtonElement
+    const menuItem = document.querySelector('[data-testid="workspace-ctx-menu"] button') as HTMLButtonElement
     await act(async () => { menuItem.click() })
 
     expect(container.textContent).toContain('文件不存在')
