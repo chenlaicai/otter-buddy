@@ -97,7 +97,7 @@ export function createListRhiSignalsTool(_ctx: ToolContext, signalRepo: SignalRe
     if (rows.length === 0) return textResponse("（无匹配 RHI 信号）");
     const lines = rows.map(s =>
       `[#${s.id}] ${s.signal_type} · ${s.severity} · ${s.status}` +
-      (s.triage_status ? ` · ${s.triage_status}` + (s.issue_number ? `→#${s.issue_number}` : '') : ' · 未接单') + '\n' +
+      (s.status !== 'open' ? '' : s.triage_status ? ` · ${s.triage_status}` + (s.issue_number ? `→#${s.issue_number}` : '') : ' · 未接单') + '\n' +
       `  ${s.file_path ?? s.feature_id ?? ''} · first_seen ${s.first_seen.slice(0, 10)} · occurrences ${s.occurrences}` +
       (s.triage_note ? `\n  note: ${s.triage_note}` : ''),
     );

@@ -84,7 +84,10 @@ export class RhiSignalAgingWorker {
     if (!this.stopped) return;
     this.stopped = false;
     // 启动即扫一轮（学 SignalAgingWorker：服务重启后尽快发现悬置存量）。
-    // S4 编排防线：存量批量出清（§5 步骤 3）先于本 worker 上线，首轮扫描不会命中 40 条存量。
+    // 编排现实（检视 S2 修正）：PatrolWorker 启动即扫，存量出清依赖服务在线（http/工具路径），
+    // 出清必然发生在首轮扫描之后——部署后首轮会落 1 条聚合告警（聚合限流兜底，非风暴），
+    // 这是诚实特性：系统确实疼了 23 天，该告警不冤。出清后告警悬置属预期（组内全部终态化才销号），
+    // 待 #1012 闭环 auto-resolve 清场或人工 resolve healing。
     this.inflight = this.tickSafely();
     this.timer = setInterval(() => {
       this.inflight = this.tickSafely();
