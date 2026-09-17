@@ -765,3 +765,100 @@ describe("SERVICE_SCRIPT_KILL 路径限定（F20260916gtlr）", () => {
     expect(result).toContain("otter-buddy.sh");
   });
 });
+
+// ─── F20260917alph：拦截文案升级指向 alpha.sh + 组合杀回归 + 不误拦 ───
+
+describe("F20260917alph 拦截文案指向 alpha.sh + 组合杀回归", () => {
+  const mainPid = 42877;
+
+  // 文案升级：所有主进程相关拦截的引导统一指向 alpha.sh（隔离实例正道）
+  it("字面量主 PID 拦截文案引导 alpha.sh start", () => {
+    const result = checkBashCommandSafety("kill 42877", mainPid);
+    expect(result).toContain("scripts/alpha.sh start");
+  });
+
+  it("pkill otter 拦截文案引导 alpha.sh start", () => {
+    const result = checkBashCommandSafety("pkill -f otter-buddy", mainPid);
+    expect(result).toContain("scripts/alpha.sh start");
+  });
+
+  it("主仓脚本 stop/restart 拦截文案引导 alpha.sh start（gsrd 形态 1）", () => {
+    const result = checkBashCommandSafety("./scripts/otter-buddy.sh restart", mainPid);
+    expect(result).toContain("scripts/alpha.sh start");
+  });
+
+  it("脚本间接调用拦截文案引导 alpha.sh start（gsrd 形态 2）", () => {
+    const result = checkBashCommandSafety("S=stop && scripts/otter-buddy.sh $S", mainPid);
+    expect(result).toContain("scripts/alpha.sh start");
+  });
+
+  it("PID 文件引用拦截文案引导 alpha.sh start", () => {
+    const result = checkBashCommandSafety("kill $(cat .otter-buddy.pid)", mainPid);
+    expect(result).toContain("scripts/alpha.sh start");
+  });
+
+  // 组合杀回归（方案验证表：现状拦截行为不回归，且文案指向 alpha.sh）
+  it("kill $(lsof -ti :3000) 组合杀 → 拦截且文案含 alpha.sh stop 指引", () => {
+    const result = checkBashCommandSafety("kill $(lsof -ti :3000)", mainPid);
+    expect(result).not.toBeNull();
+    expect(result).toContain("alpha.sh stop");
+    expect(result).toContain("scripts/alpha.sh start");
+  });
+
+  it("lsof -ti :3000 | xargs kill 管道组合杀 → 拦截", () => {
+    const result = checkBashCommandSafety("lsof -ti :3000 | xargs kill", mainPid);
+    expect(result).not.toBeNull();
+    expect(result).toContain("alpha.sh stop");
+  });
+
+  it("kill `lsof -ti :3000` 反引号组合杀 → 拦截", () => {
+    const result = checkBashCommandSafety("kill `lsof -ti :3000`", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("kill $(lsof -t -i :3000 -sTCP:LISTEN) 长参数组合杀 → 拦截", () => {
+    const result = checkBashCommandSafety("kill $(lsof -t -i :3000 -sTCP:LISTEN)", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("P=$(lsof -ti :3000) && kill $P 变量隐藏组合杀 → 拦截", () => {
+    const result = checkBashCommandSafety("P=$(lsof -ti :3000) && kill $P", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  // 方案 D1 处置（b 选项）：alpha 端口组合杀现状拦截——正道 alpha.sh stop，兜底字面量 kill
+  it("kill $(lsof -ti :3102)（alpha 端口组合杀，野生形态）→ 现状拦截（引导回脚本正道，不加 alpha 段放行）", () => {
+    const result = checkBashCommandSafety("kill $(lsof -ti :3102)", mainPid);
+    expect(result).not.toBeNull();
+    expect(result).toContain("alpha.sh stop");
+  });
+
+  it("lsof -ti :3102 | xargs kill（alpha 端口管道组合杀）→ 现状拦截", () => {
+    const result = checkBashCommandSafety("lsof -ti :3102 | xargs kill", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  // 不误拦：查询场景保留，正道脚本调用放行
+  it("lsof -ti :3000 纯查询（不带 kill）→ 放行", () => {
+    const result = checkBashCommandSafety("lsof -ti :3000", mainPid);
+    expect(result).toBeNull();
+  });
+
+  it("scripts/alpha.sh stop（正道清理路径）→ 放行（不含主仓 otter-buddy.sh 脚本模式）", () => {
+    const result = checkBashCommandSafety("scripts/alpha.sh stop", mainPid);
+    expect(result).toBeNull();
+  });
+
+  it("worktree 绝对路径 scripts/alpha.sh start → 放行", () => {
+    const result = checkBashCommandSafety(
+      "/Users/orca/ai/otter-buddy/.otter/worktrees/alpha-env/scripts/alpha.sh start",
+      mainPid,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("字面量 kill 无关 PID（alpha 兜底清理形态）→ 放行", () => {
+    const result = checkBashCommandSafety("kill 41234", mainPid);
+    expect(result).toBeNull();
+  });
+});
