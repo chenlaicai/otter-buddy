@@ -15,6 +15,7 @@ import { MessageController } from "../../src/interface-adapters/http/controllers
 import { InvokeController } from "../../src/interface-adapters/http/controllers/invoke-controller";
 import { EntryController } from "../../src/interface-adapters/http/controllers/entry-controller";
 import { OtterController } from "../../src/interface-adapters/http/controllers/otter-controller";
+import type { AgentInvoker } from "../../src/interface-adapters/agent-runtime/agent-invoker";
 import { MemoryController } from "../../src/interface-adapters/http/controllers/memory-controller";
 import { SkillController } from "../../src/interface-adapters/http/controllers/skill-controller";
 import type { MemoryRepository } from "../../src/usecases/memory/memory-repository";
@@ -413,6 +414,8 @@ export interface TestDeps {
   cronParser: any;
   /** 可选：注入后 OtterController 读 modelAlias 写入 OtterDTO（#528: any → OtterConfigProvider，漏方法 mock 编译报错） */
   otterConfigProvider?: OtterConfigProvider;
+  /** F20260917rsta：可选——restart 空摘要自动交接委托（与上方 agentInvoker: any 区分，避免默认 mock 缺方法） */
+  otterRestartAutoHandoff?: Pick<AgentInvoker, "restartWithAutoHandoffIfBlank">;
 }
 
 export function createTestApp(deps: TestDeps): Hono {
@@ -470,6 +473,7 @@ export function createTestApp(deps: TestDeps): Hono {
     deps.otterConfigProvider,
     undefined,
     deps.modelPool,
+    deps.otterRestartAutoHandoff,
   );
   const memoryCtrl = new MemoryController(
     deps.searchMemory,
