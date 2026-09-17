@@ -9,6 +9,7 @@ import type { CreateOtterInput } from "@usecases/otter/create-otter";
 import type { Logger } from "@usecases/ports/logger";
 import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
+import type { AgentInvoker } from "../../agent-runtime/agent-invoker";
 import { handleError, param } from "../http-error";
 import { safeJsonBody } from "../parse-json-body";
 import { toOtterDTO, toOtterSessionDTO } from "../dto/otter-dto";
@@ -29,6 +30,9 @@ export class OtterController {
     /** F20260827ucrt：可选——UI 入口 modelAlias 校验（settings-controller hasModel 同层先例）。
      *  可选注入保持测试兼容；大獭工具链不走此 controller，不受影响 */
     private readonly modelPool?: ModelPoolLike,
+    /** F20260917rsta：可选——手动重启空摘要时走自动 LLM 交接（partner 决策 2026-09-17）
+     *  未注入时降级为原语义（空摘要 = 无摘要重启，测试/旧装配兼容） */
+    private readonly agentInvoker?: Pick<AgentInvoker, "restartWithAutoHandoffIfBlank">,
   ) {}
 
   async getById(c: Context): Promise<Response> {
@@ -121,7 +125,10 @@ export class OtterController {
           "validation",
         );
       }
-      const session = await this.manageSession.restartSession(id, body.summary, body.modelAlias);
+      // F20260917rsta：空摘要 + agentInvoker 已注入 → 自动 LLM 交接（合成失败降级无摘要重启）
+      const session = this.agentInvoker
+        ? await this.agentInvoker.restartWithAutoHandoffIfBlank(id, body.summary, body.modelAlias)
+        : await this.manageSession.restartSession(id, body.summary, body.modelAlias);
       return c.json(toOtterSessionDTO(session), 201);
     } catch (err) {
       return handleError(c, err, this.logger);

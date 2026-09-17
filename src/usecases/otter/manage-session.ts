@@ -40,7 +40,9 @@ export class ManageSession {
   constructor(
     private readonly repo: OtterRepository,
     private readonly agentGateway: AgentGateway,
-    private readonly conversationQuery: ConversationQueryGateway,
+    /** F20260917rsta：可读暴露（agent-invoker 手动重启空摘要自动交接解析对话 ID 用）
+     *  ConversationQueryGateway 是纯查询窄接口，暴露不改变 usecase 写路径 */
+    readonly conversationQuery: ConversationQueryGateway,
     private readonly memoryLayer: MemoryLayerGateway,
     private readonly logger: Logger,
     /** F20260908efmd: 可选——用于有效模型解析（createSession/restartSession 快照）。未注入时 session.modelAlias 不写入 */

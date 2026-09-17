@@ -28,6 +28,7 @@ import type { ConversationRepository } from "@usecases/conversation/conversation
 import type { ScheduledTaskRepository } from "@usecases/scheduled-task/scheduled-task-repository";
 import type { ManageContext } from "@usecases/otter/manage-context";
 import type { LinkedResource } from "@entities/conversation/conversation";
+import type { OtterSession } from "@entities/otter/otter-session";
 // eslint-disable-next-line no-restricted-imports -- F20260825hndf: type-only import for DI injection
 import type { buildHandoffPackage, HandoffPackageOptions, StateInventoryDeps, HandoffEntryReader } from "@frameworks/agent/handoff-package-builder";
 // eslint-disable-next-line no-restricted-imports -- F20260901mbfx: type-only import（SynthesisPrefetch 机械预取数据，DI 注入同源）
@@ -1003,6 +1004,100 @@ export class AgentInvoker implements AgentTurnPort {
   /** F20260827he2f：healing_repo 健康探针——外部健康检查可调用，验证熔断事件落库能力 */
   async probeHealingRepo(): Promise<boolean> {
     return this.circuitBreak ? this.circuitBreak.probeHealingRepo() : false;
+  }
+
+  /**
+   * F20260917rsta：手动重启 + 空摘要 → 自动 LLM 交接（搭档决策 2026-09-17）。
+   *
+   * 语义：手动重启时摘要未提供（undefined/空串）→ 先对当前活着的 session 跑
+   * LLM 交接合成（与退役的 70% 自动链路同款四件套），拿合成摘要重启；
+   * 摘要已提供 → 直透 restartSession（调用者/獭自己写的叙事优先）。
+   *
+   * 红线放宽声明：F20260825hndf 审视 P1 定的「手动路径绝不走 LLM 合成」针对
+   * 熔断场景（已陷复读不做优雅交接）；手动重启的獭不一定是退化状态，搭档点名
+   * 要默认压缩 handoff——此处为手动路径唯一开口，熔断/獭自重启路径不受影响。
+   *
+   * D9 同源原则：任何环节失败（无对话、合成异常、四件套构建失败）→ 降级为
+   * 无摘要重启，永不阻塞 restart。
+   */
+  // eslint-disable-next-line max-statements, complexity -- 交接构建+件②③④注入+降级链+D8补偿同内聚（handleHandoff 同款结构，拆分反而割裂）
+  async restartWithAutoHandoffIfBlank(
+    otterId: string,
+    summary?: string,
+    modelAlias?: string,
+  ): Promise<OtterSession> {
+    if (summary?.trim()) {
+      return this.manageSession.restartSession(otterId, summary, modelAlias);
+    }
+
+    const conversationId = await this.resolveFirstConversationId(otterId);
+    if (!conversationId) {
+      this.logger.warn('[manual-restart-auto] No conversation found, restarting without summary', { otterId });
+      return this.manageSession.restartSession(otterId, undefined, modelAlias);
+    }
+
+    let autoSummary: string | undefined;
+    if (this.buildHandoffPkg && this.conversationRepo) {
+      try {
+        const workspacePath = this.workspaceGateway?.getWorkspacePath(conversationId);
+        const synthesize = this.buildSynthesisFunction(otterId, conversationId);
+        const options = await this.buildAutoHandoffOptionsWithMechanicals(
+          conversationId, otterId, workspacePath, synthesize,
+        );
+        options.trigger = '手动';
+        const pkg = await this.buildHandoffPkg(conversationId, otterId, options);
+
+        // 件②③④写入 otter_context（借用式，首次 invoke 后删除；失败不阻塞）
+        if (this.manageContext) {
+          try {
+            await this.manageContext.set(otterId, 'handoff_file_trail', pkg.fileTrail);
+            await this.manageContext.set(otterId, 'handoff_recency_window', pkg.recencyWindow);
+            await this.manageContext.set(otterId, 'handoff_state_inventory', pkg.stateInventory);
+          } catch (ctxErr) {
+            this.logger.warn('[manual-restart-auto] Context write failed, continuing with summary only', {
+              otterId, error: ctxErr instanceof Error ? ctxErr.message : String(ctxErr),
+            });
+          }
+        }
+        autoSummary = pkg.summary;
+        this.logger.info('[manual-restart-auto] Handoff package built', {
+          otterId, conversationId, totalTokens: pkg.totalTokenEstimate,
+        });
+      } catch (err) {
+        this.logger.warn('[manual-restart-auto] Auto handoff failed, restarting without summary', {
+          otterId, error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    } else {
+      this.logger.warn('[manual-restart-auto] Handoff deps not injected, restarting without summary', { otterId });
+    }
+
+    try {
+      return await this.manageSession.restartSession(otterId, autoSummary, modelAlias);
+    } catch (restartErr) {
+      // D8 补偿删除：restart 失败时清理已写入的借用式 context，防幽灵上下文泄漏
+      if (autoSummary && this.manageContext) {
+        for (const key of ['handoff_file_trail', 'handoff_recency_window', 'handoff_state_inventory']) {
+          await this.manageContext.delete(otterId, key).catch(() => {});
+        }
+      }
+      throw restartErr;
+    }
+  }
+
+  /** F20260917rsta：取 otter 关联的第一个对话 ID（无对话时返回 undefined，不阻塞重启）
+   *  经 manageSession.conversationQuery 窄接口（ConversationQueryGateway.getIdsByOtterId），
+   *  不经 queryOtter（它只管 otter 元数据） */
+  private async resolveFirstConversationId(otterId: string): Promise<string | undefined> {
+    try {
+      const ids = await this.manageSession.conversationQuery.getIdsByOtterId(otterId);
+      return ids[0];
+    } catch (err) {
+      this.logger.warn('[manual-restart-auto] Conversation resolve failed', {
+        otterId, error: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
   }
 
   /** F20260903cmpk：压缩钩子合成函数。

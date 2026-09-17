@@ -11,10 +11,6 @@ import type { PendingResume, ResumePendingStatus } from "@entities/conversation/
 export interface ResumePendingRepository {
   /** 取全部 pending 队列项（恢复服务消费入口） */
   getPendingResumes(): Promise<PendingResume[]>;
-  /** 信号补扫的会话范围数据源：启动前（beforeTimestamp 之前）有 invoke 点火痕迹的
-   *  会话集合（invokes.started_at 或 invoke_start entry——崩溃窗口内「entry 落库但
-   *  invoke 没建成」的纯信号场景必在其列）。与中断队列的会话集合取并集后逐会话补扫。 */
-  listRecentConversationIds(beforeTimestamp: string): Promise<string[]>;
   /** 原子认领：status='pending' 时 attempts+1；changes=0（已被认领/终态/超限）返回 false。
    *  只在恢复入口调用一次（attempts 语义 = 跨重启恢复次数，进程内 429 退避不重认领） */
   claimPendingResume(invokeId: string): Promise<boolean>;

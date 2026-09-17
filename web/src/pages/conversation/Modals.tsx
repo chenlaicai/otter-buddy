@@ -373,7 +373,8 @@ function RestartModal(props: ModalsProps) {
       footer={
         <>
           <ModalButton onClick={props.onClose}>取消</ModalButton>
-          <ModalButton variant="danger" onClick={() => { if (summary.trim()) { props.onConfirmRestart(summary, selectedModel || undefined); setSummary('') } }}>确认重启</ModalButton>
+          {/* F20260917rsta：摘要可选——留空走默认 LLM 交接合成（与压缩 handoff 同算法），填写按搭档的 */}
+          <ModalButton variant="danger" onClick={() => { props.onConfirmRestart(summary, selectedModel || undefined); setSummary('') }}>确认重启</ModalButton>
         </>
       }
     >
@@ -393,11 +394,11 @@ function RestartModal(props: ModalsProps) {
         <p className="text-[11px] text-stone-400 mt-1">模型配额耗尽时可在此应急换武器，新一世以新模型启动</p>
       </div>
       <div className="mt-3">
-        <label className="block text-xs font-medium text-stone-600 mb-1.5">前情摘要（可编辑）</label>
+        <label className="block text-xs font-medium text-stone-600 mb-1.5">前情摘要（可选）</label>
         <textarea
           value={summary}
           onChange={e => setSummary(e.target.value)}
-          placeholder="简要说明重启原因，将作为新一世的前情摘要"
+          placeholder="留空将自动生成交接摘要（走 handoff 压缩合成）；填写则按你的来"
           className="form-input w-full resize-none min-h-[60px]"
         />
       </div>
