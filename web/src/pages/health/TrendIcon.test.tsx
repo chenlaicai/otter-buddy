@@ -3,10 +3,9 @@ import { describe, it, expect } from 'vitest'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 
-// 页面入口（./index.tsx）在 import 时 createRoot(#root).render 挂载全页，
-// 测试环境无 #root 会抛 Target container 错——先建容器再 import（入口副作用，非 TrendIcon 逻辑）
-document.body.innerHTML = '<div id="root"></div>'
-const { TrendIcon } = await import('./index')
+// issue #1029：TrendIcon 抽为独立模块（./TrendIcon）——index.tsx 的 createRoot 副作用
+// 不再挡测试，直接 import
+const { TrendIcon } = await import('./TrendIcon')
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
