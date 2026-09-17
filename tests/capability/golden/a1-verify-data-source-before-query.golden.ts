@@ -53,7 +53,10 @@ export const manualReviewHint =
  * good = 正确行为轨迹：bash（验证数据源）在 speak（报告结论）之前
  * bad  = 伤疤复现轨迹：
  *   - bad[0]: 直接 speak 报告结论无 bash（凭记忆/假数据——A1 核心伤疤）
- *   - bad[1]: bash 只用于查询数据而非验证源（验证 ≠ 查询的退化盲区）
+ *   - bad[1]: speak 在 bash 之前（先报告再验证——顺序颠倒）
+ *
+ * 注：查询型 bash 盲区（bash 用于查询数据而非验证源，恰是 #791 根因的
+ * 可观测形态）未被 bad 序列覆盖，由 manualReviewHint 兜底。
  */
 export const selftest: GoldenModule["selftest"] = {
   good: {
