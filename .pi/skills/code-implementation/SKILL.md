@@ -51,6 +51,7 @@ category: technique
 
    **Golden Gate 自检（软代码改动必须）**：
    - **触发条件**：本次变更涉及 prompt/skill/协议层（软代码）时，必须跑 golden gate
+   - **豁免（#1023 检视修正）**：verify_by.type 为 `static_only` / `human_judge`（纯润色或写作纪律类，golden 无对应场景可跑）时豁免跑 gate——但必须将豁免声明写入 PR Verification 节（「Golden Gate: n/a（verify_by=human_judge，无场景可跑）」），供 B7 核验。记录缺失且 PR 无豁免声明 = 严重发现
    - **执行**：在 worktree 内运行 `npm run test:capability` 或 `npx vitest run --config vitest.capability.config.ts`
    - **记录留存**：results.jsonl 会自动写入主仓根 `data/metrics/golden-results.jsonl`（P0-b 修通后）
    - **fail 处置闭环**（v6.3，glm-flash 发现 5）：

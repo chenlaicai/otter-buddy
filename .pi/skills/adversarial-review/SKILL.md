@@ -48,7 +48,7 @@ category: technique
    | 变更标识一致性 | 特性编号在 commit/PR/文档间一致？（详见 `references/review-dimensions.md` B4） |
    | 撞车检查（B5） | 是否有其他 open PR 引用同一 issue 或重叠文件域？`gh pr list --state open` 后比对 Closes/Fixes 引用与 files 列表；命中 = 严重发现，立即通知大獭仲裁（时间序优先，见 worktree-isolation 步骤 2） |
    | Intent 块存在性（B6，软代码改动） | 本次变更涉及 prompt/skill/协议层时，特性文档 frontmatter 是否有 intent 块？**intent 块缺失 = 严重发现**（v6.3，P0-a） |
-   | Golden Gate 记录（B7，软代码改动） | 本次变更涉及 prompt/skill/协议层时，results.jsonl 是否有该 PR 的执行记录？**记录缺失 = 严重发现**；记录存在但有 fail 行未处置 = 严重发现（v6.3，P0-a——fail 行悬置会让止损线条件 3 永久失明） |
+   | Golden Gate 记录（B7，软代码改动） | 本次变更涉及 prompt/skill/协议层时，results.jsonl 是否有该 PR 的执行记录？**记录缺失 = 严重发现**；记录存在但有 fail 行未处置 = 严重发现（v6.3，P0-a——fail 行悬置会让止损线条件 3 永久失明）。**豁免核验（#1023）**：verify_by.type 为 static_only/human_judge 时生产方可豁免跑 gate，但 PR Verification 节必须有豁免声明（「Golden Gate: n/a（verify_by=…，无场景可跑）」）——无记录且无豁免声明 = 严重发现 |
 
    > **基础维度失败 → 严重发现**：任一基础维度失败必须在审视报告的"严重发现"节建对应条目（标明 B1-B7 来源），不可仅在基础维度检查表中标记"失败"就跳过处置队列（详见 `references/review-dimensions.md`）。
 
