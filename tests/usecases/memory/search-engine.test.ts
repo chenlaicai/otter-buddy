@@ -498,7 +498,8 @@ describe("F20260917cvid: 本对话来源加权（currentConversationBoost）", (
     const score = (arr: ReturnType<SearchEngine["rerank"]>, id: string) =>
       arr.find(r => r.entryId === id)!.finalScore;
 
-    expect(score(boosted, "same")).toBeCloseTo(score(baseline, "same") * 1.5, 10);
+    // toBeCloseTo 默认 10 位精度会被 ×1.5 浮点往返击穿（CI 实证差 5.7e-10），用比例断言
+    expect(score(boosted, "same") / score(baseline, "same")).toBeCloseTo(1.5, 9);
     expect(score(boosted, "other")).toBeCloseTo(score(baseline, "other"), 10);
     expect(score(boosted, "none")).toBeCloseTo(score(baseline, "none"), 10);
   });
