@@ -31,7 +31,7 @@ const FULL_MODE = process.argv.includes("--full");
 function stagedFiles() {
   try {
     if (FULL_MODE) {
-      const out = execFileSync("git", ["ls-files"], { encoding: "utf8" }).trim();
+      const out = execFileSync("git", ["-c", "core.quotepath=off", "ls-files"], { encoding: "utf8" }).trim();
       return out ? out.split("\n") : [];
     }
     const out = execFileSync("git", ["-c", "core.quotepath=off", "diff", "--cached", "--name-only", "--diff-filter=ACMR"], {
