@@ -40,6 +40,8 @@ export interface PromptReconcileResult {
   unmatched: string[];
   /** 每条变更的一句话描述 */
   changes: string[];
+  /** 同步失败明细（#1030：降级不得哑——失败以 error 级暴露，不静默跳过） */
+  failed: string[];
 }
 
 export interface PromptReconcileOptions {
@@ -98,7 +100,7 @@ export async function reconcilePromptTemplates(opts: PromptReconcileOptions): Pr
   const { taskRepo, logger } = opts;
   // Why: 默认目录基于代码位置解析（#429）；显式传入的 templateDir override 优先
   const templateDir = opts.templateDir ?? resolve(getRepoRoot(), 'prompts', 'scheduled');
-  const result: PromptReconcileResult = { checked: 0, updated: 0, skippedDynamic: 0, unmatched: [], changes: [] };
+  const result: PromptReconcileResult = { checked: 0, updated: 0, skippedDynamic: 0, unmatched: [], changes: [], failed: [] };
 
   let files: string[];
   try {
@@ -122,6 +124,12 @@ export async function reconcilePromptTemplates(opts: PromptReconcileOptions): Pr
       checked: result.checked,
       skippedDynamic: result.skippedDynamic,
       unmatched: result.unmatched,
+    });
+  }
+  // #1030：同步失败以 error 级显式暴露（非静默降级）——git 真相源与 DB 副本脱钩必须可见
+  if (result.failed.length > 0) {
+    logger.error(`prompt 启动对账：${result.failed.length} 个任务 body 同步失败，DB 将跑旧版 prompt（需人工处置）`, undefined, {
+      failed: result.failed,
     });
   }
   return result;
@@ -162,7 +170,10 @@ async function reconcileSingleTemplate(args: {
   result.checked += 1;
   const tplBody = stripFrontmatter(content);
   await applyTemplateBody({ task, tplBody, file, taskRepo, now, result }).catch(err => {
-    // 逐项降级：单任务 DB 写入失败不阻塞其余模板的对账（与 #814 dedup 失败降级同模式）
+    // 逐项降级：单任务 DB 写入失败不阻塞其余模板的对账（与 #814 dedup 失败降级同模式）。
+    // 但降级不得哑（#1030 事故：超体积模板同步失败只 warn，无人察觉，DB 跑三周旧版）——
+    // 失败明细累计进 result.failed，调用方（scheduler 启动日志）以 error 级显式暴露
+    result.failed.push(`${file} → 任务「${task.name}」body 同步失败：${err instanceof Error ? err.message : String(err)}`);
     logger.warn(`prompt 对账写入失败，跳过该任务（task=${task.name}）`, {
       error: err instanceof Error ? err.message : String(err),
     });

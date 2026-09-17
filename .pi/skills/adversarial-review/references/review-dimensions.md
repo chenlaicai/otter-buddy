@@ -147,3 +147,14 @@ Does the addition carry its full future cost explicitly? (加法自带全部未�
 - **Net-new mechanism with no four answers → 建议发现**（软维度，走决策树处置；先软后硬，跑熟后再评估升级为 B 维度）
 - ①② 答非所问（如「应该有」「提升健壮性」这类无角色无后果的答案）同视为缺失
 - Context: 病根五条（生成回路/局部有效/前提不死/路径不对称/度是全局属性）见特性文档 mechanism-budget（按标题 grep docs/features/ 定位）
+
+## 8. Prompt Size Budget (B8, 2026-09-17)
+
+> 基础维度（diff 触及 prompts/scheduled/*.md 时必查，不占焦点名额）。防线前移：PR 合入前拦截，取代「DB 写入时静默降级」的末端哑防线。
+
+Does the diff grow scheduled-task prompt templates unchecked?
+
+- Run `npm run lint:prompt-size` — exit 1 (over budget) = severe finding
+- Net growth >500B without PR-description declaration (等量出清 or 净增理由) = severe finding
+- Check frontmatter `budget_bytes` overrides are justified in the feature doc
+- Context: 体积失控事故（2026-09-17 定性重大事故）——daily-health-check.md 23 天 4.6 倍（18 PR +185/-24 纯加法），超 DB CHECK 后同步失败静默降级，DB 跑三周旧版。根因不是文件大，是系统没有控制自己变大的能力。

@@ -256,3 +256,40 @@ describe('默认 templateDir（#429）', () => {
     }
   });
 });
+
+// ─── issue #1030：对账失败不得静默（降级不哑）──────
+describe('#1030 同步失败显式暴露', () => {
+  beforeEach(() => {
+    vi.clearAllMocks(); // mockLogger 全文件共享，防历史用例串台（同 #429 块惯例）
+  });
+
+  it('DB 写入失败：warn 降级跳过，但 failed 明细累计且 error 级汇总打日志', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'daily-x.md'), `---\ntask_name: 每日X\n---\n新版`);
+    const base = createMockRepo([makeTask({ name: '每日X', body: '旧版' })]);
+    // 模拟 CHECK 约束类写入失败（#1030 现场：SqliteError CHECK constraint failed）
+    const failingRepo = { ...base, update: vi.fn(async () => { throw new Error('SqliteError: CHECK constraint failed'); }) };
+
+    const result = await reconcilePromptTemplates({ taskRepo: failingRepo as unknown as typeof base, logger: mockLogger, templateDir: tmpDir });
+
+    // 降级：单任务失败不抛、不阻塞
+    expect(result.updated).toBe(0);
+    expect(mockLogger.warn).toHaveBeenCalled();
+    // 不哑：失败明细进 result.failed，error 级汇总暴露「DB 将跑旧版」
+    expect(result.failed.length).toBe(1);
+    expect(result.failed[0]).toContain('每日X');
+    expect(result.failed[0]).toContain('CHECK constraint failed');
+    const errorCalls = (mockLogger.error as ReturnType<typeof vi.fn>).mock.calls.map((args: unknown[]) => String(args[0]));
+    expect(errorCalls.some(c => c.includes('同步失败') && c.includes('旧版'))).toBe(true);
+  });
+
+  it('全部同步成功：无 failed、不打 error（不制造噪音）', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'daily-x.md'), `---\ntask_name: 每日X\n---\n新版`);
+    const repo = createMockRepo([makeTask({ name: '每日X', body: '旧版' })]);
+
+    const result = await reconcilePromptTemplates({ taskRepo: repo, logger: mockLogger, templateDir: tmpDir });
+
+    expect(result.failed).toEqual([]);
+    expect(result.updated).toBe(1);
+    expect(mockLogger.error).not.toHaveBeenCalled();
+  });
+});

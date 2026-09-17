@@ -30,11 +30,19 @@ describe('每日健康检查模板纪律锁（#791 P1）', () => {
     expect(tpl).toContain('未交叉验证');
   });
 
-  it('数据源清单完整：7 项编号齐全（防误删数据源项）', () => {
+  it('数据源清单完整：6 项编号齐全 + 每项含语义关键词（防误删/防改名保壳）', () => {
     const tpl = readTemplate();
-    for (const n of [1, 2, 3, 4, 5, 6, 7]) {
+    // 编号完整性：1-6 项编号齐全（防误删数据源项）
+    for (const n of [1, 2, 3, 4, 5, 6]) {
       expect(tpl).toMatch(new RegExp(`^${n}\\. \\*\\*`, 'm'));
     }
+    // 语义锚定（#1036 检视：只断言编号锁不住语义，条目改名换内容照样绿）
+    expect(tpl).toMatch(/1\. \*\*对话历史\*\*[\s\S]*?search_memory/);
+    expect(tpl).toMatch(/2\. \*\*GitHub issues \/ PRs\*\*/);
+    expect(tpl).toMatch(/3\. \*\*self-healing events\*\*[\s\S]*?二维分账/);
+    expect(tpl).toMatch(/4\. \*\*memory\*\*[\s\S]*?created_after/);
+    expect(tpl).toMatch(/5\. \*\*RHI 健康信号\*\*[\s\S]*?api\/health\/overview/);
+    expect(tpl).toMatch(/6\. \*\*signal_events\*\*[\s\S]*?query_signals/);
   });
 
   it('锚点抽查异体模型规则存在（#1000：同模型抽查共享盲区，P0 阈值永不触发）', () => {
