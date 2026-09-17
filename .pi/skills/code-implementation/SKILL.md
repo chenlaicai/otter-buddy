@@ -33,28 +33,28 @@ category: technique
 3. **预检查**：动手实现前，先检查相关测试断言和设计意图——尤其是权限白名单、配置约束、接口契约等易冲突区域。用 `grep` 扫描测试文件中的 `expect`/`not.toContain` 断言，识别潜在冲突。发现冲突时自行分析设计意图并给出建议方案，不把问题抛给用户。
 4. **实现**：按方案逐步实现。遵守 `references/coding-principles.md` 中的架构约束和命名规范。匹配项目术语。非显而易见的设计意图加注释。
 
-   **省事声明即触发论证（#962 事故，刹车一）**：方案文档、特性文档、实现说明或 PR 描述中每出现一处「省事/更简/更快/无窗口/零成本」类自评词，**必须同段回答「省掉的是什么？省掉的东西有没有主人（谁会为它付出代价）？」**——答不出「省掉的东西是安全的」就不能用该词。省事不是免费的优点，是需要举证的主张（#944 现场：「vec 复制现成数据，比 issue 原方案更省事」省掉的是 vec0 虚拟表结构保持，无人认领，直接炸生产）。
+   **省事声明即触发论证（事故教训，刹车一）**：方案文档、特性文档、实现说明或 PR 描述中每出现一处「省事/更简/更快/无窗口/零成本」类自评词，**必须同段回答「省掉的是什么？省掉的东西有没有主人（谁会为它付出代价）？」**——答不出「省掉的东西是安全的」就不能用该词。省事不是免费的优点，是需要举证的主张（现场：「vec 复制现成数据，比 issue 原方案更省事」省掉的是 vec0 虚拟表结构保持，无人认领，直接炸生产）。
 5. **写测试**：为新增或修改的行为写测试。见 `references/testing-rules.md`。测试失败时先诊断：是测试错还是实现错？不自动回退业务代码。
 6. **自检**：测试通过、符合项目规范、无方案外变更、无兼容桥代码、视觉变更有截图证据、发现的问题全部修复。
 
-   **UI 视觉变更的真机自查（PR #972→#1005 三轮修复事故硬规则）**：本次变更涉及布局/弹层/定位/样式（含疑似「UI 不生效」类 bug 修复）时，自检必须包含「真实浏览器亲眼看」：①起 dev server 或等价真实实例；②用无头浏览器（Playwright 或等价工具）**复现搭档的真实 UI 状态**（面板展开/收起、窗口尺寸、浏览器类型——无头验证不覆盖真实状态等于没验，#972 右栏关闭验证漏掉右栏 containing block 现场）；③驱动复现路径后截图 + 关键元素 `getBoundingClientRect()` 数值取证，截图存对话工作区并在 PR Verification 节附路径；④弹层「不可见」类问题禁止只用 DOM 存在性断言交付——DOM 存在 ≠ 可见（#1005 现场：菜单渲染成功但 left=3130 飞出视口）。**代码推理猜不出渲染结果**：CSS containing block（祖先含 backdrop-filter/transform/filter/perspective 时 fixed 退化）、 stacking context、视口钳位这类问题只在渲染层现形，单测全绿不能替代亲眼看。依据：F20260916cmpt（搭档原话「你有截图能力也有看图能力，为什么要我猜」）。
+   **UI 视觉变更的真机自查（三轮修复事故硬规则）**：本次变更涉及布局/弹层/定位/样式（含疑似「UI 不生效」类 bug 修复）时，自检必须包含「真实浏览器亲眼看」：①起 dev server 或等价真实实例；②用无头浏览器（Playwright 或等价工具）**复现搭档的真实 UI 状态**（面板展开/收起、窗口尺寸、浏览器类型——无头验证不覆盖真实状态等于没验，此前右栏关闭验证漏掉右栏 containing block 现场）；③驱动复现路径后截图 + 关键元素 `getBoundingClientRect()` 数值取证，截图存对话工作区并在 PR Verification 节附路径；④弹层「不可见」类问题禁止只用 DOM 存在性断言交付——DOM 存在 ≠ 可见（现场：菜单渲染成功但 left=3130 飞出视口）。**代码推理猜不出渲染结果**：CSS containing block（祖先含 backdrop-filter/transform/filter/perspective 时 fixed 退化）、 stacking context、视口钳位这类问题只在渲染层现形，单测全绿不能替代亲眼看。依据：搭档原话「你有截图能力也有看图能力，为什么要我猜」。
 
-   **废弃资源清理（#791 教训）**：本次变更若替换/迁移了旧路径、旧文件、旧默认值（DB 路径、配置 fallback、硬编码常量），自检必须核查四件：①旧代码引用清零；②**旧文件本体删除**——只改代码默认值不删文件，会留下“看起来正常”的孤儿文件（#791 现场：孤儿库 otter.db 残留 6 天，schema 完整、有真实数据痕迹，误导数据核查得出「零事件」错误结论，错误数据差点胜过搭档的正确记忆）；③旧配置/环境变量迁移说明写入特性文档；④DB 等运行时副本与 git 真相源同步（update-scheduled-task-body.mjs 类脚本）。
+   **废弃资源清理（教训）**：本次变更若替换/迁移了旧路径、旧文件、旧默认值（DB 路径、配置 fallback、硬编码常量），自检必须核查四件：①旧代码引用清零；②**旧文件本体删除**——只改代码默认值不删文件，会留下“看起来正常”的孤儿文件（现场：孤儿库 otter.db 残留 6 天，schema 完整、有真实数据痕迹，误导数据核查得出「零事件」错误结论，错误数据差点胜过搭档的正确记忆）；③旧配置/环境变量迁移说明写入特性文档；④DB 等运行时副本与 git 真相源同步（update-scheduled-task-body.mjs 类脚本）。
 
-   **db 迁移类变更的真启动验证（#962 事故硬规则）**：本次变更涉及 migration.ts 新增/修改迁移函数、或 schema.ts 表结构变更时，自检必须包含「生产副本真启动」：①备份生产 DB 副本；②在副本上执行完整启动路径（`scripts/otter-buddy.sh start` 或等价 bootstrap 调用），确认服务监听成功、日志无 SqliteError；③真启动结果（命令 + 关键日志行）写入自检报告与 PR Verification 节。**「跑迁移函数 + SQL 校验行数」不等于真启动**——#944 现场：演练全绿，但崩溃点在 bootstrap enqueueRetry 的 ON CONFLICT，只有真启动能触达，SQL 校验永远摸不到。依据：F20260812emgr（#244 漏迁移致启动 crash）与 F20260916rkct（#962 CTAS 丢结构致启动 crash）——同类事故已踩两次，第三次不可接受。
+   **db 迁移类变更的真启动验证（事故教训硬规则）**：本次变更涉及 migration.ts 新增/修改迁移函数、或 schema.ts 表结构变更时，自检必须包含「生产副本真启动」：①备份生产 DB 副本；②在副本上执行完整启动路径（`scripts/otter-buddy.sh start` 或等价 bootstrap 调用），确认服务监听成功、日志无 SqliteError；③真启动结果（命令 + 关键日志行）写入自检报告与 PR Verification 节。**「跑迁移函数 + SQL 校验行数」不等于真启动**——现场：演练全绿，但崩溃点在 bootstrap enqueueRetry 的 ON CONFLICT，只有真启动能触达，SQL 校验永远摸不到。依据：同类事故已踩两次（漏迁移致启动 crash / CTAS 丢结构致启动 crash），第三次不可接受——出处见 git 历史与特性文档。
 
-   **负面向验收条目（#962 事故，刹车二）**：迁移/破坏性/替换类变更的验收与自检清单必须包含一条负面向条目——「**本次变更破坏了什么旧契约 / 绕过了什么既有保护**」。省事方案的标志就是绕过某个既有保护（#944 现场：绕过 retry worker 兜底，绕过了 sqlite_master 结构保持），逼着作者把「绕过」写出来，很多雷在写的时候就会自己暴露。
+   **负面向验收条目（事故教训，刹车二）**：迁移/破坏性/替换类变更的验收与自检清单必须包含一条负面向条目——「**本次变更破坏了什么旧契约 / 绕过了什么既有保护**」。省事方案的标志就是绕过某个既有保护（现场：绕过 retry worker 兜底，绕过了 sqlite_master 结构保持），逼着作者把「绕过」写出来，很多雷在写的时候就会自己暴露。
 
-   **pre-existing 声明硬门禁（#614）**：自检报告中的任何「pre-existing / 与本次变更无关」的测试失败声明，必须附验证证据——`git stash -u`（含未跟踪文件，防新增测试残留致假验证）后基线复跑输出，或基于 `origin/main` 的基线对照输出。无证据 = 未验证，不得写入自检报告（8/30 #599 现场：5 个自引入失败被误报为与己无关，靠大獭人工核实才兜住）。
+   **pre-existing 声明硬门禁**：自检报告中的任何「pre-existing / 与本次变更无关」的测试失败声明，必须附验证证据——`git stash -u`（含未跟踪文件，防新增测试残留致假验证）后基线复跑输出，或基于 `origin/main` 的基线对照输出。无证据 = 未验证，不得写入自检报告（历史现场：5 个自引入失败被误报为与己无关，靠大獭人工核实才兜住）。
 
    **最简实现检查**（必答，结论记入特性文档「验证」节）：此方案能否用更少代码/文件/依赖达成同等效果？先过一道阶梯——仓库已有实现 → stdlib/平台原生 → 已装依赖 → 才写新代码（思想源 R20260828pntr §0：LLM 天然偏好过度建设，"我要一个函数，它给我一个框架"）。发现更简实现且不改语义 → 采简弃繁；确认已最简 → 在验证节记"已过最简检查"。
 
    **Golden Gate 自检（软代码改动必须）**：
    - **触发条件**：本次变更涉及 prompt/skill/协议层（软代码）时，必须跑 golden gate
-   - **豁免（#1023 检视修正）**：verify_by.type 为 `static_only` / `human_judge`（纯润色或写作纪律类，golden 无对应场景可跑）时豁免跑 gate——但必须将豁免声明写入 PR Verification 节（「Golden Gate: n/a（verify_by=human_judge，无场景可跑）」），供 B7 核验。记录缺失且 PR 无豁免声明 = 严重发现
+   - **豁免（检视修正）**：verify_by.type 为 `static_only` / `human_judge`（纯润色或写作纪律类，golden 无对应场景可跑）时豁免跑 gate——但必须将豁免声明写入 PR Verification 节（「Golden Gate: n/a（verify_by=human_judge，无场景可跑）」），供 B7 核验。记录缺失且 PR 无豁免声明 = 严重发现
    - **执行**：在 worktree 内运行 `npm run test:capability` 或 `npx vitest run --config vitest.capability.config.ts`
    - **记录留存**：results.jsonl 会自动写入主仓根 `data/metrics/golden-results.jsonl`（P0-b 修通后）
-   - **fail 处置闭环**（v6.3，glm-flash 发现 5）：
+   - **fail 处置闭环**：
      - 单场景 fail → 实现者复跑一次，复跑通过则记后续通过记录
      - 连续两次 fail → 修问题再跑，直至通过
      - 无法修复 → 走申诉留痕决议（在 PR 描述中说明理由）
@@ -64,13 +64,13 @@ category: technique
    - 推送 PR 后，等待 CI 运行完成：`gh run watch`
    - CI 失败时立即诊断修复——检视也会将 CI 失败标记为严重发现
 
-7. **文档**：将实现要点、变更说明写入本特性的文档——**新建追加，不改历史**（铁律）：本特性已有文档（本分支/本 PR 内创建）则追加；否则新建 `docs/features/` 文档记录，包括「本次变更对旧特性做了什么」也写在新文档里，回改已合入的历史文档一律禁止（参见全局约定「特性文档」；pre-commit 的 lint-historical-docs 会机械拦截）。写完/改完文档后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"——让"这文档怎么来的"之后可被 get_related 拼出链。
+7. **文档**：将实现要点、变更说明写入本特性的文档——**新建追加，不改历史**（铁律）：本特性已有文档（本分支/本 PR 内创建）则追加；否则新建 `docs/features/` 文档记录，包括「本次变更对旧特性做了什么」也写在新文档里，回改已合入的历史文档一律禁止（特性文档约定见 worktree-isolation skill 步骤 4 内联段；pre-commit 的 lint-historical-docs 会机械拦截）。写完/改完文档后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"——让"这文档怎么来的"之后可被 get_related 拼出链。
 
    **机制判定下沉（issue 驱动未经 requirement-analysis 的特性必做）**：本特性若未经方案流程（无 RA 产出的方案文档，如 issue 驱动直接实现），特性文档「设计取舍」段必须含**机制识别检查点**判定（清单逐项打勾，清单与四问定义见 troubleshooting skill 修法排序节）——命中任一项 → 机制预算四问当场作答写入同段；全部未命中 → 一行记录「不涉及净新增机制」。经 RA 流程的特性此判定已在方案期完成，不重复。
 
    **Intent 块生成（软代码改动必须）**：
    - **触发条件**：本次变更涉及 prompt/skill/协议层（软代码）时，特性文档 frontmatter 必须生成 intent 块
-   - **格式**（⚠️ verify_by 必须是对象不是字符串——#829/#838/#841 三次同型 CI 红的根因就是照旧示例写成字符串；且 golden_gate 不是合法枚举）：在 frontmatter 中添加 `intent` 字段，包含 `problem`（要解决什么问题）、`expected_effect`（可判定的预期效果，字符串）和 `verify_by`（对象，`type` 用合法枚举）
+   - **格式**（⚠️ verify_by 必须是对象不是字符串——三次同型 CI 红的根因就是照旧示例写成字符串；且 golden_gate 不是合法枚举）：在 frontmatter 中添加 `intent` 字段，包含 `problem`（要解决什么问题）、`expected_effect`（可判定的预期效果，字符串）和 `verify_by`（对象，`type` 用合法枚举）
    - **verify_by.type 合法枚举**（真相源 scripts/lint-intent.mjs，读它为准）：`metric_probe` / `behavior_check` / `human_judge` / `capability_test` / `golden_replay` / `static_only`
    - **commit 前本地跑** `npm run lint:intent`，0 error 才算过（CI 的 intent gate 会拦，本地提前拦住不用返工）
    - **n/a 须附理由**：如果 verify_by 填 n/a，必须附理由说明为什么不需要验证
@@ -84,7 +84,7 @@ category: technique
      ```
    - **目的**：让评测机制知道这个变更需要什么验证方式，是 golden gate 的输入信号
 
-8. **提交**：生成特性 ID 前必须先跑 `date` 取当前日期，禁止凭印象标日期（#422）；**新 ID 必须先查重**：`grep -rl '<title 或主题关键词>' docs/features/ docs/research/`，存在同 title/语义相同的文档直接复用原 ID——跨 worktree 自编新 ID 会造成旧 ID chunk 残留、污染 memory 召回（#524）；标题搜不到时改用主题关键词重试，仍无命中才可自编。按 `references/commit-convention.md` 格式 commit，署名按 signature-convention skill。
+8. **提交**：生成特性 ID 前必须先跑 `date` 取当前日期，禁止凭印象标日期；**新 ID 必须先查重**：`grep -rl '<title 或主题关键词>' docs/features/ docs/research/`，存在同 title/语义相同的文档直接复用原 ID——跨 worktree 自编新 ID 会造成旧 ID chunk 残留、污染 memory 召回；标题搜不到时改用主题关键词重试，仍无命中才可自编。按 `references/commit-convention.md` 格式 commit，署名按 signature-convention skill。
 9. **推送 PR**：`git push -u origin <branch>` + `gh pr create`。
 
 > ⚠️ PR 创建 ≠ 交付完成。步骤 9 完成后必须立即进入步骤 10。
@@ -117,7 +117,7 @@ category: technique
 
 ## 锚点重放评审（核心 prompt 改动必须）
 
-**触发条件**：本次变更涉及 SYSTEM.md 或核心 skill（adversarial-review / troubleshooting / requirement-analysis / writing-skills / daily-health-check）的文字内容时，必须在 PR 提交前跑一次「锚点重放评审」。
+**触发条件**（规则化，不再是枚举清单——枚举式 gate 的盲区是「被改对象 ≠ 保护对象」的前提被 skill 改动打破）：本次变更涉及**任何 prompt/skill/tool description 的行为触发语义**时，必须在 PR 提交前跑一次「锚点重放评审」。判据一句话：改动会影响獭「什么时候做什么」的判断 → 必跑；纯润色/错别字/格式 → 豁免（豁免声明写入 PR Verification 节）。枚举参考（非穷举）：SYSTEM.md、全部 SKILL.md 工作流段、scheduled prompts、tool description 字符串。
 
 **目的**：验证 prompt 改动没有让好产出变味或让坏产出的同类错再现——fail-closed。
 

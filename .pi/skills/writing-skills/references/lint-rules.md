@@ -1,6 +1,6 @@
 # lint-rules.md
 
-`scripts/lint-skills.mjs` 的校验项（F20260811sktp）。共 11 项（7 error + 4 warning），按严重程度分 error（阻断）和 warning（不阻断）。
+`scripts/lint-skills.mjs` 的校验项。共 11 项（7 error + 4 warning），按严重程度分 error（阻断）和 warning（不阻断）。
 
 ## error（阻断）
 
@@ -23,7 +23,7 @@
 | W3 | 两个 skill 的 not_for 互指对方 | 提示检查 Use when 是否有足够区分度 |
 | W4 | description 不含三段式 marker（Use when / Not for / Output） | 提示（companion 豁免），不阻断 |
 
-## 不校验的项（已删，F20260811sktp A-R4）
+## 不校验的项（已删）
 
 | 删除项 | 删除理由 |
 |---|---|

@@ -112,7 +112,7 @@ async function validateMessageHasContent(ctx: ToolContext): Promise<string | nul
 function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository): AgentTool {
   return {
     name: "yield",
-    description: "交棒工具——结束你的本轮行动，把行动权交给指定的参与者。接到行动权的人会被立即唤醒执行。调用前应先用 speak 输出你的结论/成果（yield 不会携带内容）。GOTCHA: yield 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。WORKFLOW: 路由规则——子任务完成时传回召唤你的海獭或工作流下一步执行者；整个任务终审才传 'user'。不确定在场成员时先调 get_active_participants。⚠️ yield 给自己（F20260907ylfs ②）——合法：任务未完成、需要下轮继续时 yield 给自己，等于把任务锚点入箱（「这个任务我还没干完，下轮继续」）；下一轮你会被重新唤醒续跑（连续自链受梯度护栏保护：第 3 次警示、第 5 次链停）。禁止用它逃避交棒义务：长期占用行动权不产出才是滥用。\n\n⚠️ yield to 'user' 反思检查点：当 to 包含 'user' 时，请先暂停想一想——为什么需要用户介入？如果你自己能处理、或有其他人应该先确认，就不要 yield 给 user。建议通过 reason 参数说明你的理由。",
+    description: "交棒工具——结束你的本轮行动，把行动权交给指定的参与者。接到行动权的人会被立即唤醒执行。调用前应先用 speak 输出你的结论/成果（yield 不会携带内容）。GOTCHA: yield 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。WORKFLOW: 路由规则——子任务完成时传回召唤你的海獭或工作流下一步执行者；整个任务终审才传 'user'。不确定在场成员时先调 get_active_participants。⚠️ yield 给自己——合法：任务未完成、需要下轮继续时 yield 给自己，等于把任务锚点入箱（「这个任务我还没干完，下轮继续」）；下一轮你会被重新唤醒续跑（连续自链受梯度护栏保护：第 3 次警示、第 5 次链停）。禁止用它逃避交棒义务：长期占用行动权不产出才是滥用。\n\n⚠️ yield to 'user' 反思检查点：当 to 包含 'user' 时，请先暂停想一想——为什么需要用户介入？如果你自己能处理、或有其他人应该先确认，就不要 yield 给 user。建议通过 reason 参数说明你的理由。",
     parameters: {
       type: "object",
       properties: {
@@ -189,7 +189,7 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
-    description: `检索记忆：跨会话的历史决策、讨论、F/R 文档与事实都在这里，是你了解一件事来龙去脉的第一入口。收到新问题时，第一把工具先想记忆（grep/bash 翻目录是记忆落空后的第二步，不是第一步；边界与例外见 SYSTEM.md R4 首响应原则）. When: 需要历史脉络时——显性信号：搭档提到'上次'/问某决策为什么/跨会话续接/术语不明；隐性信号：收到方案/决策/排查类实质问题先自问'这事在本项目有历史脉络吗'（本项目的方案、结论、教训大多沉淀在记忆里），有则先搜再答，答案能站在已有结论上. 纯新话题/闲聊不必搜，不是为了搜而搜. Not for: 当前上下文存取 → get_context/set_context. 取记忆全文 → get_memory_detail. Output: 记忆条目列表（detail_level 三级：summary 默认快速扫描/snippet 匹配上下文/full 完整内容）+ vecCoverage（vec 索引健康度，读法：total=0 → 本路由不走 vec 索引（术语库/锚点短路/空结果），ratio 无意义；0<ratio<1 → 有暗化条目（部分记忆缺向量），召回可能不完整；vecDisabled=true → vec 路径整体降级为 FTS-only（版本锚 mismatch 等），语义近邻召回缺失、仅关键词匹配可用，重要检索可提示用户排查）+ contextEntries（expand_context=true 时的邻域上下文）. TIP: 默认走 summary → get_memory_detail 两步（见 get_memory_detail description）；结果含 drillDown 字段时按其 tool/params 调用下钻；输入 F/R 文档 ID（如 F20260812mrcq）时自动短路定位（source=anchor）；命中条目后调 get_related 沿关系图拼链（怎么读链、怎么顺着链走见其 description）；发现条目间关联用 link_memory 声明，链越拼越完整. 命中并实质影响回答时，在发言开头展示一行记忆溯源（格式见 SYSTEM.md R7）——查了要说，搭档需要感知记忆在干活. BOUNDARY: 记忆与当前上下文冲突时以当前上下文为准；可指定 library 路由 / created_after 过滤时间范围（如定时摘要查今日新增）；debug=true 返回中间分值用于诊断召回排序（F20260811mrpy）；expand_context=true 返回命中条目的前后 chunk/消息邻域（F20260812mrcq）.`,
+    description: `检索记忆：跨会话的历史决策、讨论、F/R 文档与事实都在这里，是你了解一件事来龙去脉的第一入口。收到新问题时，第一把工具先想记忆（grep/bash 翻目录是记忆落空后的第二步，不是第一步；边界与例外见 SYSTEM.md R4 首响应原则）. When: 需要历史脉络时——显性信号：搭档提到'上次'/问某决策为什么/跨会话续接/术语不明；隐性信号：收到方案/决策/排查类实质问题先自问'这事在本项目有历史脉络吗'（本项目的方案、结论、教训大多沉淀在记忆里），有则先搜再答，答案能站在已有结论上. 纯新话题/闲聊不必搜，不是为了搜而搜. Not for: 当前上下文存取 → get_context/set_context. 取记忆全文 → get_memory_detail. Output: 记忆条目列表（detail_level 三级：summary 默认快速扫描/snippet 匹配上下文/full 完整内容）+ vecCoverage（vec 索引健康度，读法：total=0 → 本路由不走 vec 索引（术语库/锚点短路/空结果），ratio 无意义；0<ratio<1 → 有暗化条目（部分记忆缺向量），召回可能不完整；vecDisabled=true → vec 路径整体降级为 FTS-only（版本锚 mismatch 等），语义近邻召回缺失、仅关键词匹配可用，重要检索可提示用户排查）+ contextEntries（expand_context=true 时的邻域上下文）. TIP: 默认走 summary → get_memory_detail 两步（见 get_memory_detail description）；结果含 drillDown 字段时按其 tool/params 调用下钻；输入 F/R 文档 ID（F 开头日期+随机缀格式）时自动短路定位（source=anchor）；命中条目后调 get_related 沿关系图拼链（怎么读链、怎么顺着链走见其 description）；发现条目间关联用 link_memory 声明，链越拼越完整. 命中并实质影响回答时，在发言开头展示一行记忆溯源（格式见 SYSTEM.md R7）——查了要说，搭档需要感知记忆在干活. BOUNDARY: 记忆与当前上下文冲突时以当前上下文为准；可指定 library 路由 / created_after 过滤时间范围（如定时摘要查今日新增）；debug=true 返回中间分值用于诊断召回排序；expand_context=true 返回命中条目的前后 chunk/消息邻域.`,
     parameters: {
       type: "object",
       properties: {
@@ -218,7 +218,7 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
         },
         expand_context: {
           type: "boolean",
-          description: "开启邻域扩展：命中 chunk 时返回前后 chunk（chunk_index ±1），命中 message 时返回前后消息。结果在 contextEntries 字段（不混入 entries）。适用于需要理解命中条目上下文的场景（F20260812mrcq）。",
+          description: "开启邻域扩展：命中 chunk 时返回前后 chunk（chunk_index ±1），命中 message 时返回前后消息。结果在 contextEntries 字段（不混入 entries）。适用于需要理解命中条目上下文的场景。",
         },
       },
       required: ["query"],
@@ -287,7 +287,7 @@ async function checkModelQuotaHint(
         && Date.now() - Date.parse(e.createdAt) < windowMs;
     });
     if (!hit) return '';
-    return `\n⚠️ #543 提示：模型 ${targetAlias} 近 24h 内有配额耗尽记录（${hit.createdAt}）。若配额未恢复，新獭将无法执行任务（首次 invoke 即终态失败）。建议改派其他模型，或坚持创建后用小任务试探。`;
+    return `\n⚠️ 提示：模型 ${targetAlias} 近 24h 内有配额耗尽记录（${hit.createdAt}）。若配额未恢复，新獭将无法执行任务（首次 invoke 即终态失败）。建议改派其他模型，或坚持创建后用小任务试探。`;
   } catch {
     return ''; // 提示性检查，失败静默降级
   }
@@ -426,7 +426,7 @@ async function isSelfRestartLoop(ctx: ToolContext, healingRepo?: HealingEventRep
 function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepository): AgentTool {
   return {
     name: "restart_otter",
-    description: "重启指定 Otter 的獭生——封存当前 Session（前世），以全新上下文开启新一世. When: Otter 上下文污染需要重置 / 退化熔断触发 / 显式要求重启. Not for: 解散 Otter（销毁身份）→ dissolve_otter. Output: 新 Session ID 确认. GOTCHA: **前世 session 封存不可逆**——新世上下文为空，靠 summary 注入；不传 summary 则新世从零开始. TIP: 手动交接时 summary 按交接摘要模板填写——模板与填写要点见 F20260909sentr 特性文档附录 B（docs/features/ 下 system-md-entropy-reduction）. BOUNDARY: 访问控制——小獭只能重启自己，大獭可重启任意 Otter.",
+    description: "重启指定 Otter 的獭生——封存当前 Session（前世），以全新上下文开启新一世. When: Otter 上下文污染需要重置 / 退化熔断触发 / 显式要求重启. Not for: 解散 Otter（销毁身份）→ dissolve_otter. Output: 新 Session ID 确认. GOTCHA: **前世 session 封存不可逆**——新世上下文为空，靠 summary 注入；不传 summary 则新世从零开始. TIP: 手动交接时 summary 按交接摘要模板填写——模板与填写要点见特性文档 system-md-entropy-reduction 附录 B（docs/features/ 下按标题 grep 定位）. BOUNDARY: 访问控制——小獭只能重启自己，大獭可重启任意 Otter.",
     parameters: {
       type: "object",
       properties: {
@@ -440,7 +440,7 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
         },
         modelAlias: {
           type: "string",
-          description: "F20260908efmd: 新模型别名（可选）。配额耗尽时可切换到其他模型。不传则保持当前模型。可选值见身份提示中的模型列表。",
+          description: "新模型别名（可选）。配额耗尽时可切换到其他模型。不传则保持当前模型。可选值见身份提示中的模型列表。",
         },
       },
       required: [],
@@ -500,7 +500,7 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
 function createLinkedResourceTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_linked_resource",
-    description: "创建链接资源（统一产物模型）. When: 记录关键决策/事实/PR/worktree/分支/file/url 等产物. Not for: 普通对话回复 → 直接 speak. Output: 资源 ID + 状态 + group. GOTCHA: fact 类型 ≤ 500 字符；长内容（方案、设计文档）必须先用 write 写文件再创 file 资源指向路径；pr/worktree/branch 类型必须带 groupId=特性文档编号（否则报错，#580）. BOUNDARY: conversationId 和 linkedBy 由系统注入. TIP: 资源只走状态流转不删除——记录类动作完成后不再链式触发后续.",
+    description: "创建链接资源（统一产物模型）. When: 记录关键决策/事实/PR/worktree/分支/file/url 等产物. Not for: 普通对话回复 → 直接 speak. Output: 资源 ID + 状态 + group. GOTCHA: fact 类型 ≤ 500 字符；长内容（方案、设计文档）必须先用 write 写文件再创 file 资源指向路径；pr/worktree/branch 类型必须带 groupId=特性文档编号（否则报错）. BOUNDARY: conversationId 和 linkedBy 由系统注入. TIP: 资源只走状态流转不删除——记录类动作完成后不再链式触发后续.",
     parameters: {
       type: "object",
       properties: {
@@ -509,7 +509,7 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
         content: { type: "string", description: "事实文本内容（fact 必填，≤500 字符的简短摘要）" },
         title: { type: "string", description: "资源标题" },
         category: { type: "string", description: "分类标签（fact 类型可选）" },
-        groupId: { type: "string", description: "特性分组 ID（特性文档编号，如 F20260720xxxx）。pr/worktree/branch 类型必填" },
+        groupId: { type: "string", description: "特性分组 ID（特性文档编号，F 开头格式）。pr/worktree/branch 类型必填" },
       },
       required: ["resourceType"],
     },
@@ -534,7 +534,7 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
       if (GROUP_ID_REQUIRED_TYPES.has(resourceType)) {
         const groupId = params.groupId as string | undefined;
         if (!groupId || groupId.trim().length === 0) {
-          return errorResponse(`[错误] ${GROUP_ID_REQUIRED_MESSAGE_PREFIX}。漏传会让 list_artifacts 按组检索落空（gssf/ptun 两次案例，#580）。请先用 list_artifacts 或 search_memory 查找当前对话对应的特性文档编号。`);
+          return errorResponse(`[错误] ${GROUP_ID_REQUIRED_MESSAGE_PREFIX}。漏传会让 list_artifacts 按组检索落空（已有两次事故案例）。请先用 list_artifacts 或 search_memory 查找当前对话对应的特性文档编号。`);
         }
       }
       const turnNumber = await ctx.client.conversation.getActiveTurnNumber(ctx.conversationId);

@@ -1,0 +1,4 @@
+# prompt-anchor 白名单：指令本身依赖编号语义的出处型内容（逐案评审，上限 10 条）
+# 评审判据：删掉编号后指令是否失去可执行性/可核实性
+prompts/scheduled/依赖升级自动化.md:7
+prompts/scheduled/依赖升级自动化.md:21

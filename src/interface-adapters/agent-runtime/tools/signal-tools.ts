@@ -187,7 +187,7 @@ export function createUnhaltOtterTool(ctx: ToolContext, signalRepo: SignalEventR
   };
   return {
     name: "unhalt_otter",
-    description: "解除指定小獭的 halt 停手指令（#927）. When: halt 打错目标 / 需求变更撤回停手 / 打标残留阻断目标獭干活. Not for: 停自己（无此需求）. Output: 清除确认 + 台账 dismiss 留痕. 语义: 清除 pending（未送达）与 active（已送达持续 block）全部打标，目标獭下一个工具调用起恢复.",
+    description: "解除指定小獭的 halt 停手指令. When: halt 打错目标 / 需求变更撤回停手 / 打标残留阻断目标獭干活. Not for: 停自己（无此需求）. Output: 清除确认 + 台账 dismiss 留痕. 语义: 清除 pending（未送达）与 active（已送达持续 block）全部打标，目标獭下一个工具调用起恢复.",
     parameters: {
       type: "object",
       properties: {
