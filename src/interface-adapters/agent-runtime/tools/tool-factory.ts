@@ -36,7 +36,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
     // F20260825hcpg 判断标准归位（原设计 F20260728htar L81，在 description 压缩中失传）。
     // 勿再移出：行为触发类引导必须在工具 description（每请求随 tools 参数注入，pi-ai
     // anthropic-messages.js convertTools），references 指针对「要不要用」的决策无效。
-    description: "发言工具——你在聊天室里唯一的发言通道。你生成的普通文本对其他参与者不可见（搭档需点开流式过程才能看到，其他海獭完全看不到），只有 speak 输出的内容才会被所有人看到。所有需要传达给他人的内容都必须通过 speak(body) 输出。纯内容输出，不涉及行动权移交。调用后 agent loop 继续（terminate=false），可以继续调工具或再次 speak。多次调用的 body 会作为独立片段按顺序拼接为最终消息。TIP: 面向搭档的方案对比、设计思路、排查结论、结构化数据——正文先写 1-2 句结论，html-card 卡片放结构化详情，搭档更直观；短问答、代码片段、简单列表用 md。每条都出卡等于没出卡。GOTCHA: speak 不等于交棒——说完后还需调 yield 把行动权交给下一位，回合才会结束。GOTCHA: HTML 卡片（```html-card title=\"标题\"``` 围栏）必须完整写在 body 参数内——**一条消息最多 2 张，单卡 ≤64KB；写在 speak 之外文本里的卡片搭档看不到，系统会检测并拒绝该次调用**。写卡片前必须调 get_html_card_contract 获取完整契约；搭档回复中的 ```html-card-reply``` 围栏是卡片回执（内嵌 JSON 可解析）。系统自愈：见 SYSTEM.md R5——调用遇系统问题时在 body 末尾附 healing 块，顺利则附 no_issue 块。工具难用也可报：type 用 tool_use_feedback，description 以 [tool:工具名] 开头写清痛点与建议；该报的时机：调用失败且自行绕路解决 / 同一意图连试多个工具 / 参数语义反直觉 / 疑似与相邻工具职责重叠。",
+    description: "发言工具——你在聊天室里唯一的发言通道：普通文本输出其他人不可见，只有 speak(body) 的内容会被所有人看到；进展/结论/提问/汇报一律 speak. 纯内容输出不移交行动权，调用后 agent loop 继续，可连续多次 speak（body 按顺序拼接）. TIP: 方案对比/设计思路/排查结论/结构化数据——正文先写 1-2 句结论，html-card 卡片放详情；短问答/代码片段/简单列表用 md. 每条都出卡等于没出卡. GOTCHA: speak≠交棒——说完还需 yield 回合才结束；HTML 卡片（```html-card 围栏）必须完整写在 body 内（写在外面系统会拒绝并指导重试），一条消息最多 2 张、单卡体积限制等具体数值以 get_html_card_contract 返回的契约为准；写卡前必调该工具. 搭档回复中的 ```html-card-reply 围栏是卡片回执（内嵌 JSON 可解析）. 系统自愈：见 SYSTEM.md R5——遇系统问题在 body 末尾附 healing 块，顺利则附 no_issue 块. 工具难用也可报：type=tool_use_feedback，description 以 [tool:工具名] 开头写清痛点与建议；该报的时机：调用失败且自行绕路解决/同一意图连试多个工具/参数语义反直觉/疑似与相邻工具职责重叠.",
     parameters: {
       type: "object",
       properties: {
@@ -112,7 +112,7 @@ async function validateMessageHasContent(ctx: ToolContext): Promise<string | nul
 function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository): AgentTool {
   return {
     name: "yield",
-    description: "交棒工具——结束你的本轮行动，把行动权交给指定的参与者。接到行动权的人会被立即唤醒执行。调用前应先用 speak 输出你的结论/成果（yield 不会携带内容）。GOTCHA: yield 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。WORKFLOW: 路由规则——子任务完成时传回召唤你的海獭或工作流下一步执行者；整个任务终审才传 'user'。不确定在场成员时先调 get_active_participants。⚠️ yield 给自己——合法：任务未完成、需要下轮继续时 yield 给自己，等于把任务锚点入箱（「这个任务我还没干完，下轮继续」）；下一轮你会被重新唤醒续跑（连续自链受梯度护栏保护：第 3 次警示、第 5 次链停）。禁止用它逃避交棒义务：长期占用行动权不产出才是滥用。\n\n⚠️ yield to 'user' 反思检查点：当 to 包含 'user' 时，请先暂停想一想——为什么需要用户介入？如果你自己能处理、或有其他人应该先确认，就不要 yield 给 user。建议通过 reason 参数说明你的理由。",
+    description: "交棒工具——结束本轮行动，把行动权交给指定参与者（对方立即被唤醒）。先 speak 再 yield（yield 不携带内容）；yield 必须单独调用（同批 terminate 不生效）。路由：子任务完成传回召唤者或流程下一步执行者；终审才传 'user'；不确定在场成员先调 get_active_participants。yield 给自己=任务锚点入箱下轮续跑（合法但受梯度护栏保护，禁止长期占用不产出）。⚠️ yield to 'user' 前先想：为什么需要用户介入？自己能处理或该先找其他獭就别传，用 reason 说明理由。",
     parameters: {
       type: "object",
       properties: {
@@ -189,7 +189,7 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
-    description: `检索记忆：跨会话的历史决策、讨论、F/R 文档与事实都在这里，是你了解一件事来龙去脉的第一入口。收到新问题时，第一把工具先想记忆（grep/bash 翻目录是记忆落空后的第二步，不是第一步；边界与例外见 SYSTEM.md R4 首响应原则）. When: 需要历史脉络时——显性信号：搭档提到'上次'/问某决策为什么/跨会话续接/术语不明；隐性信号：收到方案/决策/排查类实质问题先自问'这事在本项目有历史脉络吗'（本项目的方案、结论、教训大多沉淀在记忆里），有则先搜再答，答案能站在已有结论上. 纯新话题/闲聊不必搜，不是为了搜而搜. Not for: 当前上下文存取 → get_context/set_context. 取记忆全文 → get_memory_detail. Output: 记忆条目列表（detail_level 三级：summary 默认快速扫描/snippet 匹配上下文/full 完整内容）+ vecCoverage（vec 索引健康度，读法：total=0 → 本路由不走 vec 索引（术语库/锚点短路/空结果），ratio 无意义；0<ratio<1 → 有暗化条目（部分记忆缺向量），召回可能不完整；vecDisabled=true → vec 路径整体降级为 FTS-only（版本锚 mismatch 等），语义近邻召回缺失、仅关键词匹配可用，重要检索可提示用户排查）+ contextEntries（expand_context=true 时的邻域上下文）. TIP: 默认走 summary → get_memory_detail 两步（见 get_memory_detail description）；结果含 drillDown 字段时按其 tool/params 调用下钻；输入 F/R 文档 ID（F 开头日期+随机缀格式）时自动短路定位（source=anchor）；命中条目后调 get_related 沿关系图拼链（怎么读链、怎么顺着链走见其 description）；发现条目间关联用 link_memory 声明，链越拼越完整. 命中并实质影响回答时，在发言开头展示一行记忆溯源（格式见 SYSTEM.md R7）——查了要说，搭档需要感知记忆在干活. BOUNDARY: 记忆与当前上下文冲突时以当前上下文为准；可指定 library 路由 / created_after 过滤时间范围（如定时摘要查今日新增）；debug=true 返回中间分值用于诊断召回排序；expand_context=true 返回命中条目的前后 chunk/消息邻域.`,
+    description: `检索记忆：跨会话的历史决策、讨论、F/R 文档与事实都在这里，是了解一件事来龙去脉的第一入口。收到新问题时第一把工具先想记忆（grep/bash 翻目录是落空后的第二步；边界见 SYSTEM.md R4）. When: 搭档提到'上次'/问某决策为什么/跨会话续接/术语不明；实质问题先自问'这事有历史脉络吗'，有则先搜再答. 纯新话题/闲聊不必搜. Not for: 当前上下文存取 → get_context/set_context；取全文 → get_memory_detail. Output: 条目列表（detail_level 三级：summary 默认/snippet 看上下文/full 全文）+ vecCoverage 健康度（vecDisabled=true 时降级 FTS-only，语义近邻召回缺失，重要检索提示用户排查）+ contextEntries（expand_context 时）. TIP: 默认 summary → get_memory_detail 两步；结果含 drillDown 按其下钻；输入 F/R 文档 ID 自动短路定位；命中后用 get_related 拼链；发现关联用 link_memory 声明. 命中并实质影响回答时发言开头展示一行记忆溯源（格式见 SYSTEM.md R7）——查了要说. BOUNDARY: 记忆与当前上下文冲突以当前为准；library 路由 / created_after 过滤可用；debug=true 返回中间分值诊断排序.`,
     parameters: {
       type: "object",
       properties: {
@@ -619,7 +619,7 @@ function createLinkMemoryTool(ctx: ToolContext): AgentTool {
 function createGetRelatedTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_related",
-    description: `从一个记忆条目出发遍历关系图，拼证据链/因果链/发展链. When: 手里有 entry id 想深挖关联——'这事怎么来的/产出了什么/被什么取代/和什么相关'；id 典型来自 search_memory 命中（刚 sync_docs 的文档也可用文档 ID 经 search_memory 短路定位拿到）. Output: { related: [{entry, edgeType, edgeFromEntryId, depth}], provenance? }. 怎么读链：direction=out（默认）时，每项 = 从 edgeFromEntryId 沿 edgeType 指向 entry，用 edgeFromEntryId ↔ entry.id 把片段对接成链；direction=in 时，entry 就是边的起点（edgeFromEntryId 与 entry.id 相同），含义是 entry --edgeType--> 你的查询起点（depth=1）或上一跳节点（depth>1）；分叉时一个节点可能挂在多条链上. depth=1 直接邻居，depth=2 两跳间接关联. 怎么顺着链走：查'X 怎么来的'（谁催生/产出 X）→ entry_id=X + direction=in + produced；查'X 产出了什么' → direction=out + produced；查'X 被什么取代（找新版）'→ direction=in + supersedes，查'X 取代过什么（找前身）'→ direction=out + supersedes；查同主题关联 → relates-to（恒双向，direction 不影响）. provenance 仅在起点是特性/研究文档且有催生对话记录时出现，含催生对话的消息——读它可以还原'这文档是在哪段讨论里、基于什么讨论出来的'. 发现未声明的关联可用 link_memory 补上.`,
+    description: `从一个记忆条目出发遍历关系图，拼证据链/因果链/发展链. When: 想知道'这事怎么来的/产出了什么/被什么取代/和什么相关'. Output: { related: [{entry, edgeType, edgeFromEntryId, depth}], provenance? }. 读链：direction=out（默认）每项=从 edgeFromEntryId 沿 edgeType 指向 entry；in 时 entry 是边起点（指向你的查询起点）. 顺链走：查'X 怎么来的'→ in+produced；查产出 → out+produced；查被谁取代 → in+supersedes；同主题 → relates-to（恒双向）. 发现未声明的关联用 link_memory 补上.`,
     parameters: {
       type: "object",
       properties: {
