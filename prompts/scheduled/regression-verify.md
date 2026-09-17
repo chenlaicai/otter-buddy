@@ -3,7 +3,7 @@ task_name: regression-verify
 dynamic: true
 ---
 
-## 验证断言回查任务（#1004）
+## 验证断言回查任务
 
 {{REGRESSION_DATA}}
 

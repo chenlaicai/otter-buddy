@@ -141,7 +141,7 @@ export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: Hea
         action: { type: "string", enum: ["query", "resolve", "dismiss", "batch_resolve"], description: "操作类型" },
         status: { type: "string", enum: ["open", "resolved", "dismissed"], description: "按状态筛选" },
         errorType: { type: "string", description: "按错误类型筛选" },
-        includeProbe: { type: "boolean", description: "#751 true 时包含健康探针事件（默认过滤）。仅诊断探针落账时开启" },
+        includeProbe: { type: "boolean", description: "true 时包含健康探针事件（默认过滤）。仅诊断探针落账时开启" },
         eventIds: { type: "array", items: { type: "string" }, description: "event ID 列表" },
         resolutionAction: { type: "string", enum: ["prompt_updated", "memory_added", "tool_fixed", "config_changed", "no_action", "deferred"], description: "修复行动" },
         resolutionNotes: { type: "string", description: "解决方式说明" },

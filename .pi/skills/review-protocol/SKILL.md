@@ -37,7 +37,7 @@ PR 创建（或方案落盘）后，交付不算完成——必须经独立审�
    - 附上 worktree 的绝对路径——静态核验（对照测试文件、周边代码）必须以 worktree 内文件为准；主仓是 PR 合入前的旧代码
    - 附上本次测试与构建的运行结果（标注为实现者自报），供其静态核验
    - 附上 PR 描述全文（`gh pr view --json body` 输出）——供检视者了解变更上下文；delta 审视时另需更新后的 PR 描述核对 Discovered Issues 节 issue 落实
-   - **要求按 review state 决策表留痕**（F20260915rgte）：有严重发现 → `gh pr review --request-changes`；delta 复核通过 → `--approve`；初轮仅建议发现待处置 → `--comment`。**单账号环境（9/15 实证）**：approve 与 request-changes 均被 GitHub 平台拒绝，全量降级 `--comment`，严肃结论以正文首行结论词为准，合并拦截靠 CI check + 大獭编排纪律（required reviews 已按搭档终裁回滚）；多账号环境接入后决策表直接生效。
+   - **要求按 review state 决策表留痕**：有严重发现 → `gh pr review --request-changes`；delta 复核通过 → `--approve`；初轮仅建议发现待处置 → `--comment`。**单账号环境（实证）**：approve 与 request-changes 均被 GitHub 平台拒绝，全量降级 `--comment`，严肃结论以正文首行结论词为准，合并拦截靠 CI check + 大獭编排纪律（required reviews 已按搭档终裁回滚）；多账号环境接入后决策表直接生效。
 2. **处置审视报告**：收到审视报告后，先校验报告合规性（含"本轮焦点"声明、发现分级、file:line 引用）——不合规直接打回重做，不合规报告不进入处置流程。然后按 `../adversarial-review/references/author-response-protocol.md` 的**作者处置协议**逐条回应（每条发现强制走决策树——回答"改了让系统变好还是变更差"，更好→本 PR 修复/建 issue，更差→带证据反驳；不作为不允许）：
    - 接受并修复
    - 反驳（必须附证据，空驳回等同未处置）
@@ -49,7 +49,7 @@ PR 创建（或方案落盘）后，交付不算完成——必须经独立审�
    **批评→测试用例**：处置中发现行为类问题（可描述为消息轨迹/工具调用序列的期望行为，如「召唤前必须先 search_memory」「speak 后必须 yield」）时，优先将其沉淀为 golden 场景（`tests/capability/golden/`，含 good/bad 参考轨迹）——一次性修复只堵当前漏洞，永久场景防的是未来所有版本复发。非行为类发现（纯代码逻辑）走常规单测，不必强转（思想源 R20260828pntr §2.5：把尖锐批评转化为永久测试场景，比十篇反驳文章有价值）。
 3. **复审循环**：修复后更新 PR，重新走审视（systemPrompt 不可更新：在消息中把新 diff 发给检视獭，或 dissolve 后重建）。第 2 轮起是 **delta 审视**——重建材料：上述全部材料 + 上轮发现清单 + 你的逐条处置（含更好/更差判断）+ 修复 diff + **更新后的 PR 描述**（delta 审视需核对 Discovered Issues 节的 issue 落实）（轮次结构与检视者职责定义见 `../adversarial-review/references/review-loop.md`）
 4. **收敛与终止**：审视循环按收敛判据运转（`../adversarial-review/references/review-loop.md`）：不设轮数上限，自然终止于"修复验证全部通过 + 无严重发现未处置 + 无阻断回归"；对立僵局 / 移动靶 / 僵尸循环任一信号 → 停止循环，呈搭档裁决。搭档作为决策者随时可加开检视轮或直接拍板。
-5. **终审**：审视通过 → 呈搭档终审，交付才算完成。**呈终审前确认分支 base 未落后**（F20260915ercv）：`git fetch origin <目标分支>` 后比对分支 base 与 `origin/<目标分支>` 的 commit 差——落后则先 rebase（`--force-with-lease` 推，R1 #468 放行）并重跑关键验证（CI 关键套件 / tsc / 本变更相关测试），再呈终审。Why：审视通过证明的只是「审视那一刻的 base 上没问题」，从审视通过到搭档拍板之间 main 可能又前进——EchoAgent #1173/#1176 正是死在这个窗口（各自 CI 绿、合入后叠加出红）。平台分支保护（up to date before merging）是合并入口的硬闸，本条是 prompt 层双保险，不替代平台机制。**终审发言必须附决策简报**（模板见 `references/decision-briefing.md`，SYSTEM.md R8）——只抛问题清单不附简报 = 裸奔拍板 = 违规。
+5. **终审**：审视通过 → 呈搭档终审，交付才算完成。**呈终审前确认分支 base 未落后**：`git fetch origin <目标分支>` 后比对分支 base 与 `origin/<目标分支>` 的 commit 差——落后则先 rebase（`--force-with-lease` 推，R1 第 4 条放行）并重跑关键验证（CI 关键套件 / tsc / 本变更相关测试），再呈终审。Why：审视通过证明的只是「审视那一刻的 base 上没问题」，从审视通过到搭档拍板之间 main 可能又前进——外部项目「会师红」正是死在这个窗口（各自 CI 绿、合入后叠加出红）。平台分支保护（up to date before merging）是合并入口的硬闸，本条是 prompt 层双保险，不替代平台机制。**终审发言必须附决策简报**（模板见 `references/decision-briefing.md`，SYSTEM.md R8）——只抛问题清单不附简报 = 裸奔拍板 = 违规。
 
 ### B. 方案审视协议
 
@@ -84,4 +84,4 @@ PR 创建（或方案落盘）后，交付不算完成——必须经独立审�
 - `../adversarial-review/references/author-response-protocol.md` — 作者处置协议（决策树 + 四分类）细则
 - `../adversarial-review/references/review-loop.md` — 审视轮次结构与收敛判据
 - `references/decision-briefing.md` — 决策简报模板（呈终审 / 呈裁决 / 一切 yield to user 请求拍板时刻必附，SYSTEM.md R8）
-- `references/templates/` — 议题汇报卡模板库（F20260916rptl）：决策通报卡 / 方案对比卡 / 复盘报告卡——L2 决策出 html-card 时套用，写卡前必调 `get_html_card_contract`
+- `references/templates/` — 议题汇报卡模板库：决策通报卡 / 方案对比卡 / 复盘报告卡——L2 决策出 html-card 时套用，写卡前必调 `get_html_card_contract`

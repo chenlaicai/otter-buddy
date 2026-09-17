@@ -1,6 +1,6 @@
 # description-examples.md
 
-合规与违规 description 示例对照（F20260811sktp 铁律 + 三段式契约）。
+合规与违规 description 示例对照（铁律与三段式契约）。
 
 ## 合规示例
 

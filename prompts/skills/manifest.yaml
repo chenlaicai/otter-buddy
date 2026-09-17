@@ -1,4 +1,4 @@
-# Otter Skill Manifest (F20260811sktp)
+# Otter Skill Manifest
 #
 # 路由契约源——描述 otter skill 集合的结构化关系。
 #
@@ -69,7 +69,7 @@ skills:
     category: technique
     next: []   # 后续动作由被召唤小獭的 skill 决定
     not_for: [companion]
-    notes: "编排层。Precondition: MUST 先 search_memory 检查已有结论——有则用、无则召唤，不重复召唤（F20260811sktp D12）。"
+    notes: "编排层。Precondition: MUST 先 search_memory 检查已有结论——有则用、无则召唤，不重复召唤。"
 
   # ── 领域能力 ──
   - name: stock-analysis
@@ -85,7 +85,7 @@ skills:
     not_for: []
     notes: 关于 skill 的 skill。含铁律 + 三段式契约 + 模板（references/SKILL-TEMPLATE.md）+ lint 规则。
 
-  # ── 查表约定（F20260903 拆解升格，原 _shared/）──
+  # ── 查表约定（原 _shared/ 拆解升格）──
   - name: signature-convention
     category: reference
     next: []   # 查表约定，随宿主流程继续

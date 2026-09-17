@@ -2,12 +2,12 @@
 task_name: 每日 issue 处理
 ---
 
-## Step 0：Intake Triage（每日开工先做，F20260831whfw）
+## Step 0：Intake Triage（每日开工先做）
 
 输入域（三部分，缺一不可）：
 - 今天新建的 daily-review issue（由每日健康检查生成）
 - 昨天新建的**非** daily-review issue（海獭运行中产出：bug / tech-debt / enhancement / 无标签）
-- **任意 open 的标签不完整 issue（F20260907itri）**：缺 type（bug/enhancement/tech-debt/question）或缺 priority（P0/P1/P2）的，按创建时间从早到晚每日补标 ≤5 条——依据标题+body 语义判断，`gh issue edit <N> --add-label` 补齐；拿不准类型的在 issue 评论留问待人工，不强打
+- **任意 open 的标签不完整 issue**：缺 type（bug/enhancement/tech-debt/question）或缺 priority（P0/P1/P2）的，按创建时间从早到晚每日补标 ≤5 条——依据标题+body 语义判断，`gh issue edit <N> --add-label` 补齐；拿不准类型的在 issue 评论留问待人工，不强打
 
 对每条输入做分类分流：
 
@@ -15,13 +15,13 @@ task_name: 每日 issue 处理
 |------|---------|------|
 | **actionable** | 明确系统问题/漏洞的 bugfix，或 ≤2 文件独立可修的 tech-debt 小件 | 当天走开发流程（自行处理，**无需请示**——搭档授权：系统问题必修，加强系统的事不抛给搭档） |
 | **enhancement** | 可有可无的功能增强 | 跳过，留给周一 backlog digest 呈搭档决策 |
-| **rhi-linked** | RHI 总纲/子 issue（特性链，如 #393 下的 phase-3 系列） | 跳过——特性对话自己一步步走，日常任务不抢方向盘（只做下方「链看护」） |
+| **rhi-linked** | RHI 总纲/子 issue（特性链，如总纲 issue 下的 phase 系列） | 跳过——特性对话自己一步步走，日常任务不抢方向盘（只做下方「链看护」） |
 | **unclear** | 拿不准是 bug 还是增强 | issue 评论请求人工判断，不猜 |
 
 红线补充：
 - actionable 每天上限 **3 条**（防爆量，剩余顺延次日；超过 3 条时按以下优先级选前 3：**bug > tech-debt，同级按创建时间从早到晚**）
 - 分流结论（每条归属哪类）写进当日产出，供搭档抽查
-- **认领三问（F20260901cimp，防跨对话撞车）**：每条 actionable 开工前必查（#665/#679 撞车实证）：① issue 是否已有他人 otter-claim 认领且无 release（`gh issue view <N> --json comments`）；② 是否有 open PR 引用（`gh pr list --state open --search "<N>"`）；③ `git worktree list` 有无相关目录且零 commit（**零 commit ≠ 废弃**，只可能是「在途」）。任一命中 → 跳过该条，报告中标注原因。认领动作（发 otter-claim 评论 + 回读退场 + 双 PR 仲裁）详见 worktree-isolation skill 步骤 2——本步骤必读。
+- **认领三问（防跨对话撞车）**：每条 actionable 开工前必查（撞车实证）：① issue 是否已有他人 otter-claim 认领且无 release（`gh issue view <N> --json comments`）；② 是否有 open PR 引用（`gh pr list --state open --search "<N>"`）；③ `git worktree list` 有无相关目录且零 commit（**零 commit ≠ 废弃**，只可能是「在途」）。任一命中 → 跳过该条，报告中标注原因。认领动作（发 otter-claim 评论 + 回读退场 + 双 PR 仲裁）详见 worktree-isolation skill 步骤 2——本步骤必读。
 
 ## 处理今日 issue
 
@@ -34,16 +34,16 @@ task_name: 每日 issue 处理
 
 ## Issue 自动关闭检查（处理完今日 issue 后）
 
-1. **已修复但未关闭的 issue（语义级，F20260831whfw）**：扫描**近 7 天合入的 PR**，对其标题/正文与 open issue 做语义匹配——PR 描述用「issue #N」「修复了 #N」等非关键词行文的也要抓到（#566 案例：PR #586 合入 2 天 issue 未关，关键词检查漏网）。命中即留评论说明后关闭。范围限定近 7 天 PR，不全量扫。工具用法：`gh pr list --state merged --search "merged:>YYYY-MM-DD"`（计算 7 天前日期）获取候选 PR，再与 `gh issue list --state open` 结果逐条语义比对。
-1b. **认领回收（F20260901cimp）**：扫描全部 open issue 的 otter-claim 认领（搜 issue 评论 `otter-claim` 标记）——认领超过 48h 无后续 PR、无评论更新、对应对话无活动的，留问询评论；再过 24h 仍无响应的发 `otter-claim-release` 评论解除认领（防锁孤儿：对话被限流冻结/挂死时释放锁——阈值基准：429 冻结案例 5h，留 10 倍余量）。回收记录写进当日产出。
+1. **已修复但未关闭的 issue（语义级）**：扫描**近 7 天合入的 PR**，对其标题/正文与 open issue 做语义匹配——PR 描述用「issue #N」「修复了 #N」等非关键词行文的也要抓到（历史案例：PR 合入 2 天 issue 未关，关键词检查漏网）。命中即留评论说明后关闭。范围限定近 7 天 PR，不全量扫。工具用法：`gh pr list --state merged --search "merged:>YYYY-MM-DD"`（计算 7 天前日期）获取候选 PR，再与 `gh issue list --state open` 结果逐条语义比对。
+1b. **认领回收**：扫描全部 open issue 的 otter-claim 认领（搜 issue 评论 `otter-claim` 标记）——认领超过 48h 无后续 PR、无评论更新、对应对话无活动的，留问询评论；再过 24h 仍无响应的发 `otter-claim-release` 评论解除认领（防锁孤儿：对话被限流冻结/挂死时释放锁——阈值基准：429 冻结案例 5h，留 10 倍余量）。回收记录写进当日产出。
 2. **daily-review issue 超期关闭**：超过 3 天的 daily-review issue，如果对应问题已在 main 分支修复，留评论后关闭。
 3. **长期无活动的 stale issue**：超过 14 天无任何更新的 issue（非 daily-review、非 tech-debt——tech-debt 阈值放宽到 30 天，它们常等排期），留评论标记为 stale 并关闭。
 
-## RHI 链看护（只提醒不接管，F20260831whfw）
+## RHI 链看护（只提醒不接管）
 
-扫描 RHI 特性链 issue（总纲 + 子 issue，如 #393 系列）：无任何更新超过 **7 天**且非终态的，在 issue 评论提醒，评论模板：
+扫描 RHI 特性链 issue（总纲 + 子 issue 系列）：无任何更新超过 **7 天**且非终态的，在 issue 评论提醒，评论模板：
 
-> 看护提醒（F20260831whfw）：该 RHI 链（#NNN）已 N 天无更新。若对应特性对话已挂，建议重启或由搭档决定去留；若仍在推进可忽略本提醒。
+> 看护提醒：该 RHI 链（#NNN）已 N 天无更新。若对应特性对话已挂，建议重启或由搭档决定去留；若仍在推进可忽略本提醒。
 
 不代为处理、不关闭。
 
@@ -51,7 +51,7 @@ task_name: 每日 issue 处理
 > 自动关闭：[原因说明]
 > 关联 PR/commit：[链接]
 
-## Issue 大盘（F20260907itri，产出末尾必附）
+## Issue 大盘（产出末尾必附）
 
 跑 `node scripts/lint-issue-labels.mjs` 取数，产出末尾固定附一行大盘统计：
 
@@ -59,6 +59,6 @@ task_name: 每日 issue 处理
 issue 大盘：open N | bug:x enhancement:y tech-debt:z question:w | P0:a P1:b P2:c | 无标签:d（目标 <5%）
 ```
 
-- 数字与 `gh issue list` 实测交叉验证后才写入（#791 双源验证教训）
+- 数字与 `gh issue list` 实测交叉验证后才写入（双源验证教训）
 - 标签不完整率（d/N）>5% 时标红并在次日优先补标；lint 脚本不可用（gh CLI 故障）时标注「lint 不可用」，不静默跳过
 - 同日 actionable 配额不变（仍为 3 条，bug > tech-debt，同级按创建时间）——补标不占配额，是额外例行职责
