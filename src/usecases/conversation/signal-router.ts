@@ -177,42 +177,6 @@ export class SignalRouter {
     return results;
   }
 
-  /** F20260916b1ea：启动补扫（崩溃窗口兜底）。扫 created_at 早于 beforeTimestamp 的
-   *  未消费 user 信号（yield_targets 非空 + metadata 无 signalMeta.consumed），
-   *  逐条走 routeTriggerMessage 补点火。返回各条路由结果汇总。
-   *  信号视图装配/销账逻辑私有不外泄——本方法是补扫变体入口（routeSignals 的
-   *  事件驱动语义拒绝无 triggerMessageId 调用，补扫由此公开方法承载）。 */
-  async rescanPending(
-    conversationId: string,
-    beforeTimestamp: string,
-  ): Promise<Array<{ entryId: string; action: RouteAction }>> {
-    const entries = await this.deps.entryRepo.getEntries(conversationId, { entryType: "user" });
-    const results: Array<{ entryId: string; action: RouteAction }> = [];
-    for (const entry of entries) {
-      if (entry.createdAt >= beforeTimestamp) continue;
-      if (!entry.yieldTargets || entry.yieldTargets.length === 0) continue;
-      const signalMeta = entry.metadata?.signalMeta;
-      if (signalMeta) {
-        try {
-          if ((JSON.parse(signalMeta) as { consumed?: string }).consumed) continue;
-        } catch {
-          /* 销账字段解析失败按未消费处理（补扫是兜底，宁多点火不丢信号——路由层有去重） */
-        }
-      }
-      const routed = await this.routeTriggerMessage(conversationId, entry.id).catch((err: unknown) => {
-        this.deps.logger.warn("[signal-router] rescanPending 单条补点火失败", {
-          conversationId, entryId: entry.id,
-          error: err instanceof Error ? err.message : String(err),
-        });
-        return [] as Array<{ signal: SignalView; action: RouteAction }>;
-      });
-      for (const r of routed) {
-        results.push({ entryId: entry.id, action: r.action });
-      }
-    }
-    return results;
-  }
-
   /**
    * 路由单个信号到单个目标（核心路由逻辑）。
    *

@@ -196,6 +196,17 @@ export class SqliteInvokeRepository implements InvokeRepository {
     return row ? rowToInvoke(row) : null;
   }
 
+  async getLatestInvokeByOtter(
+    conversationId: string,
+    otterId: string,
+    afterStartedAt: string,
+  ): Promise<Invoke | null> {
+    const row = this.db.prepare(
+      "SELECT * FROM invokes WHERE conversation_id = ? AND otter_id = ? AND started_at > ? ORDER BY started_at DESC LIMIT 1",
+    ).get(conversationId, otterId, afterStartedAt) as InvokeRow | undefined;
+    return row ? rowToInvoke(row) : null;
+  }
+
   /** F20260913ctlv 彻底切换：按 turn 查 invokes（tryCloseTurn 判据） */
   async getInvokesByTurnId(turnId: string): Promise<Invoke[]> {
     const rows = this.db.prepare(

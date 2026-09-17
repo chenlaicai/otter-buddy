@@ -70,11 +70,6 @@ export function buildRestartResumeMsg(): string {
 }
 
 /** F20260916b1ea：恢复失败/跳过的用户可见提示（成功路径静默——沿用搭档 9/6 裁决）。 */
-export function buildRestartResumeFailedMsg(reason: "skipped_concurrent"): string {
-  void reason; // 保留参数以维持调用方签名兼容（F202609048840 F4 起仅剩 skipped_concurrent 一条路径）
-  return "[系统] 检测到恢复窗口内有新消息进入，跳过自动恢复，请手动重试该消息。";
-}
-
 /** F20260916b1ea：恢复链 invoke 失败状态提示（failed = 可手动重试，区别于 exhausted 永久放弃） */
 export function buildRestartResumeFailedInvokeMsg(): string {
   return "[系统] 恢复过程中 invoke 失败，已标记为失败，请手动重试该消息。";
