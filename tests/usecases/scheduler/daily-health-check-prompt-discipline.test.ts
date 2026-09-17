@@ -36,4 +36,22 @@ describe('每日健康检查模板纪律锁（#791 P1）', () => {
       expect(tpl).toMatch(new RegExp(`^${n}\\. \\*\\*`, 'm'));
     }
   });
+
+  it('锚点抽查异体模型规则存在（#1000：同模型抽查共享盲区，P0 阈值永不触发）', () => {
+    const tpl = readTemplate();
+    expect(tpl).toContain('异体核对');
+    expect(tpl).toContain('必须不同模型');
+    expect(tpl).toContain('model_alias');
+    expect(tpl).toContain('同模型抽查，置信降级');
+    expect(tpl).toContain('模型对照行');
+  });
+
+  it('异体核对规则位于抽查步骤 2 上下文（防内容被移到注释区仍通过——PR #1021 检视建议）', () => {
+    const tpl = readTemplate();
+    // 抽查段内步骤 2 与步骤 3 之间的文本必须含核心约束
+    const m = tpl.match(/2\. \*\*异体核对[\s\S]*?\n3\. \*\*/);
+    expect(m).not.toBeNull();
+    expect(m![0]).toContain('必须不同模型');
+    expect(m![0]).toContain('model_alias');
+  });
 });
