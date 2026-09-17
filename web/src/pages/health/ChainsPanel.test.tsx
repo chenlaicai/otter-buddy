@@ -16,14 +16,19 @@ function chain(featureId: string, state: string, daysSince = 1): RhiChainDTO {
     docTitle: `文档 ${featureId}`,
     state: state as RhiChainDTO['state'],
     commitCount: 3,
+    bugfixCount: 1,
     daysSinceLastCommit: daysSince,
-    commits: [
-      { sha: 'a1', date: '2026-09-10', changeType: 'Feature', message: 'm' },
-      { sha: 'a2', date: '2026-09-12', changeType: 'BugFix', message: 'fix' },
-      { sha: 'a3', date: '2026-09-14', changeType: 'Feature', message: 'm2' },
-    ],
+    firstSeenAt: '2026-08-01T00:00:00Z',
+    lastCommitAt: '2026-09-14T00:00:00Z',
+    docStatus: null,
+    stateReason: 'test',
     signals: [],
-  } as RhiChainDTO
+    commits: [
+      { sha: 'a1', date: '2026-09-10', changeType: 'Feature' },
+      { sha: 'a2', date: '2026-09-12', changeType: 'BugFix' },
+      { sha: 'a3', date: '2026-09-14', changeType: 'Feature' },
+    ],
+  }
 }
 
 const mounted: Root[] = []
