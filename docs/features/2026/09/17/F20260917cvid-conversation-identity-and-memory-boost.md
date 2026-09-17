@@ -88,7 +88,7 @@ intent:
 - eslint 零 error（新增 3 处 disable 均附理由：DI 6 参、rerankAndReturn 超行、config-service 超行——均为既有豁免模式的同型延续）
 - **最简实现检查**：已最简——身份注入复用既有 ConversationRepository.getById；加权复用既有 rerank 系数模式，无新表无新索引无迁移
 - **负面向验收**：本次变更未破坏任何旧契约——rerank 不传第三参时与旧行为逐分一致（测试钉住）；identity-builder 不传 conversationRepo 时行为与旧版一致（测试钉住）；Web 端搜索路径不传 currentConversationId 行为不变
-- Golden Gate: n/a（本变更为代码层排序/注入逻辑，非 prompt/skill/协议层软代码）
+- Golden Gate: n/a（golden 五场景无对话身份认知/记忆加权场景，无可重放场景——身份注入段确属 prompt 层产出，但无对应锚点可跑，豁免理由以此为准）
 - 锚点重放评审：n/a（不涉及 SYSTEM.md 或核心 skill 文字内容）
 
 ## 已知边界与后续

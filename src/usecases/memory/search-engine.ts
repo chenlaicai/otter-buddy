@@ -51,6 +51,7 @@ export interface ScoredHit {
  *     × time_decay          // exp(-ln(2) * age_days / half_life_days)
  *     × frequency_boost     // log(1 + retrieval_count) * factor + 1
  *     × user_flag_multiplier // user_flagged ? userFlagMultiplier : 1.0
+ *     × conversation_boost // F20260917cvid: 本对话来源条目 × currentConversationBoost（rerank 传 currentConversationId 时）
  */
 export class SearchEngine {
   constructor(private readonly config: SearchEngineConfig) {}
@@ -159,7 +160,7 @@ export class SearchEngine {
     return result;
   }
 
-  /** 权重重排：rrfScore × timeDecay × frequencyBoost × userFlagMultiplier
+  /** 权重重排：rrfScore × timeDecay × frequencyBoost × userFlagMultiplier × conversationBoost（F20260917cvid）
    *  F20260902rcp1: document 层（feature/research summary+chunk）按 weightHalfLifeDaysDocument 衰减，
    *  其余层维持 weightHalfLifeDays。 */
   rerank(
