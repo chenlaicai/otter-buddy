@@ -21,6 +21,7 @@ import { TEAL, CARAMEL, OTTER } from './palette'
 export type DimensionId = 'D1' | 'D2' | 'D3' | 'D4' | 'D5'
 
 /** 五维大白话名 + 「这量在量什么」（原型文案，搭档目验） */
+// 改 name 文案须同步后端 health-score.ts 的 DIMENSION_PLAIN_NAMES（归因句同源文案）
 export const DIMENSION_PLAIN: Record<DimensionId, { name: string; plain: string }> = {
   D1: { name: '修 bug 比例', plain: '写新功能 vs 擦屁股的占比' },
   D2: { name: '架构晃动', plain: '少数文件被反复改的次数' },

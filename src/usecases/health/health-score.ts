@@ -45,7 +45,7 @@ export const DIMENSION_NAMES: Record<DimensionId, string> = {
   D5: "信号压力",
 };
 
-/** 归因句用大白话维度名（F20260917hprl 检视 S1：主标题消费场景不说黑话） */
+/** 归因句用大白话维度名（F20260917hprl 检视 S1：主标题消费场景不说黑话）。改此文案须同步前端 web/src/pages/health/VerdictPanel.tsx 的 DIMENSION_PLAIN */
 export const DIMENSION_PLAIN_NAMES: Record<DimensionId, string> = {
   D1: "修 bug 比例",
   D2: "架构晃动",
@@ -54,7 +54,7 @@ export const DIMENSION_PLAIN_NAMES: Record<DimensionId, string> = {
   D5: "告警处置",
 };
 
-/** D3 链状态枚举 → 中文（归因句不裸奔英文枚举值） */
+/** D3 链状态枚举 → 中文（归因句不裸奔英文枚举值）。改此文案须同步前端 chain-state-meta.ts 的 CHAIN_STATE_PROGRESS */
 const CHAIN_STATE_ZH: Record<string, string> = {
   active: "推进中",
   stalled: "卡住",
