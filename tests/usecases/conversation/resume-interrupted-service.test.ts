@@ -4,7 +4,8 @@
  * 验证：pending 消费 → CAS 认领 → 链引擎续跑（引导文案 + initialTargets=[otterId]）
  * → invoke 终态直读 done 流转；并发窗口跳过（entries 数据源）；participant 失效
  * exhausted 静默；链引擎抛错 failed + 失败提示；429 退避重试与耗尽；CAS 认领冲突
- * 跳过；成功零系统消息（静默裁决沿用 9/6）；healing 落账；信号补扫调用。
+ * 跳过；成功零系统消息（静默裁决沿用 9/6）；healing 落账。
+ * F20260917rscr：信号补扫已删除（9/17 重启风暴实证，修法排序③）——恢复只认队列。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type Database from "better-sqlite3";
@@ -77,19 +78,6 @@ function stubChainEngine(behavior: { throwError?: Error } = {}) {
   return engine as unknown as DispatchChainEngine & { calls: typeof calls };
 }
 
-/** 信号补扫 stub */
-function stubSignalRouter() {
-  const calls: Array<{ conversationId: string; beforeTimestamp: string }> = [];
-  const router = {
-    rescanPending: vi.fn(async (conversationId: string, beforeTimestamp: string) => {
-      calls.push({ conversationId, beforeTimestamp });
-      return [];
-    }),
-    calls,
-  };
-  return router;
-}
-
 /** healing repo stub：捕获 create */
 function stubHealingRepo() {
   const created: unknown[] = [];
@@ -152,7 +140,6 @@ interface Harness {
   buildService(
     chain: DispatchChainEngine & { calls: unknown[] },
     opts?: {
-      signalRouter?: ReturnType<typeof stubSignalRouter>;
       healingRepo?: ReturnType<typeof stubHealingRepo>;
       delayMs?: number;
       rateLimitBaseDelayMs?: number;
@@ -203,7 +190,6 @@ function makeHarness(): Harness {
       resumePendingRepo: resumeRepo,
       dispatchChainEngine: chain,
       invokeFn: opts.invokeFn ?? (async () => ({ messageId: "new-invoke-1" })),
-      signalRouter: opts.signalRouter,
       sendSystemEntry: async (conversationId, body) => {
         systemEntries.push({ conversationId, body });
       },
@@ -211,7 +197,6 @@ function makeHarness(): Harness {
       logger: createTestLogger(),
       delayMs: opts.delayMs ?? 0,
       rateLimitBaseDelayMs: opts.rateLimitBaseDelayMs,
-      serviceStartedAt: "2026-01-01T00:10:00Z",
     }),
   };
   return h;
@@ -260,21 +245,31 @@ describe("ResumeInterruptedService（F20260916b1ea invoke 模型重建）", () =
     expect(h.systemEntries).toHaveLength(0);
   });
 
-  it("并发窗口内有新 user entry：跳过恢复 + exhausted + 降级提示", async () => {
+  it("獭已恢复（中断后有新 invoke）：跳过 + exhausted 静默（F20260917rscr 三点裁决③）", async () => {
     const invokeId = await h.seedInterrupted();
-    // now 时刻的新 user entry
+    // 中断时刻（队列行 created_at）之后，同会话同獭已有新 invoke——用户手动接上/cron 重触发
     const now = new Date().toISOString();
     h.db.prepare(`
-      INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, turn_id, status, sender_name, created_at, completed_at)
-      VALUES (?, 'conv-1', 2, 'user', 'user', 'chen', '新消息', NULL, '["otter-big"]', 'turn-1', 'completed', '搭档', ?, ?)
-    `).run(crypto.randomUUID(), now, now);
+      INSERT INTO invokes (id, conversation_id, otter_id, status, trigger_entry_id, talking_stone_passed_to, started_at, tool_call_count)
+      VALUES (?, 'conv-1', 'otter-big', 'running', NULL, NULL, ?, 0)
+    `).run(crypto.randomUUID(), now);
 
     const chain = stubChainEngine();
     await h.buildService(chain).resume();
 
     expect(chain.calls).toHaveLength(0);
     expect(h.queueStatus(invokeId)).toBe("exhausted");
-    expect(h.systemEntries.some(e => e.body.includes("跳过自动恢复"))).toBe(true);
+    // 静默——獭已在跑，恢复目的已达成，不发「请手动重试」干扰
+    expect(h.systemEntries).toHaveLength(0);
+  });
+
+  it("獭未恢复（中断后无新 invoke）：正常触发恢复", async () => {
+    await h.seedInterrupted();
+    const chain = stubChainEngine();
+    await h.buildService(chain).resume();
+
+    expect(chain.calls).toHaveLength(1);
+    expect(chain.calls[0]).toMatchObject({ conversationId: "conv-1", initialTargets: ["otter-big"] });
   });
 
   it("participant 已失效：CAS 认领后 exhausted 静默，不触发链引擎", async () => {
@@ -375,18 +370,6 @@ describe("ResumeInterruptedService（F20260916b1ea invoke 模型重建）", () =
     const event = healing.created[0] as { description: string; severity: string };
     expect(event.description).toContain("2 条 invoke 中断");
     expect(event.severity).toBe("medium");
-  });
-
-  it("信号补扫：恢复链之前调用 router.rescanPending（早于启动时刻的会话）", async () => {
-    await h.seedInterrupted();
-    const signalRouter = stubSignalRouter();
-    const chain = stubChainEngine();
-
-    await h.buildService(chain, { signalRouter }).resume();
-
-    expect(signalRouter.calls.length).toBeGreaterThanOrEqual(1);
-    expect(signalRouter.calls[0]).toMatchObject({ conversationId: "conv-1" });
-    expect(signalRouter.calls[0]!.beforeTimestamp).toBe("2026-01-01T00:10:00Z");
   });
 
   it("invokeFn 拒绝非可重试错误：failed + 失败提示", async () => {
