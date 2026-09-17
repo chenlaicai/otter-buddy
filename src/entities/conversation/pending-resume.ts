@@ -11,7 +11,7 @@ export interface PendingResume {
   invokeId: string;
   conversationId: string;
   otterId: string;
-  /** 触发 entry（续跑记账用；scheduler 来源 invoke 不入队） */
+  /** 触发 entry（续跑记账用；可为 NULL——scheduler 直调路径，F20260917rscr 裁决①后同样入队） */
   triggerEntryId: string | null;
   status: ResumePendingStatus;
   /** 恢复尝试计数（CAS 认领自增；防无限重试——配额耗尽型 429 上限 #843 实证） */
