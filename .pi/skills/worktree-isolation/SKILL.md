@@ -54,7 +54,7 @@ category: technique
    | 修法排序④ 新增机制（重对抗通过后） | `mechanism-addition` |
    | 纯文档/配置微调（不经修法排序） | `docs-config` |
 
-   声明进 git 记录，每日全局回看会验证声明与实际 diff 一致性（声明非 `mechanism-addition` 但 diff 实增机制 = 🔴 高严重度补丁证据）。P0 紧急修复可先修后补审，声明值后标注 `(P0-emergency, post-review pending)`。**特性文档（docs/features/F*.md）是默认交付物**：与改动同 worktree 提交。**特性文档约定**（原 _shared/ 全局约定，拆解后内联）：特性文档是特性开发的全流程载体，贯穿探索、分析、设计、实现、审视各阶段——
+   声明进 git 记录，对抗审视时检视獭核对声明与实际 diff 一致性（声明非 `mechanism-addition` 但 diff 实增机制 = 🔴 高严重度补丁证据）。P0 紧急修复可先修后补审，声明值后标注 `(P0-emergency, post-review pending)`。**特性文档（docs/features/F*.md）是默认交付物**：与改动同 worktree 提交。**特性文档约定**（原 _shared/ 全局约定，拆解后内联）：特性文档是特性开发的全流程载体，贯穿探索、分析、设计、实现、审视各阶段——
    - **位置**：worktree 中（`<worktree>/docs/features/<yyyy>/<mm>/<dd>/F<date><id>-<title>.md`），随代码一起提交到 PR
    - **协调**：首次写入时用 `create_linked_resource(type: "file", groupId: "<特性ID>")` 注册（groupId 可选），所有参与者通过 `list_artifacts` 发现并追加
    - **时机**：当有需要记录的内容时就记录——各 skill 中的「写入特性文档」步骤是建议性的，不是强制检查点
