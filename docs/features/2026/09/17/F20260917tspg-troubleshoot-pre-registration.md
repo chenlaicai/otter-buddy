@@ -16,7 +16,7 @@ intent:
   problem: "排查结论可以事后编故事（HARKing）——看到数据后挑最好看的解释，没有事前对照物可检验"
   expected_effect: "下一个排查任务的特性文档/汇报中出现预注册段（预期根因/验证标准/放弃条件三行）+ 预期 vs 实际对照"
   verify_by:
-    type: behavior_check
+    type: human_judge
 causal_links:
   from: ["R20260916rsis"]
   supersedes: []

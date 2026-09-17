@@ -3,7 +3,7 @@ name: troubleshooting
 description: >-
   Use when: 搭档需要排查问题、调试、分析系统行为、找根因.
   Not for: 简单信息查询（搜记忆、查对话历史）→ core-workflow. 已有方案要写代码 → code-implementation.
-  Output: 结构化排查结论（问题现象 + 根因分析附 file:line + 修复建议 + 影响范围），需要修复时转入 worktree-isolation.
+  Output: 结构化排查结论（预注册段 + 问题现象 + 根因分析附 file:line + 修复建议 + 影响范围 + 预期 vs 实际对照），需要修复时转入 worktree-isolation.
 co_loads: []
 category: technique
 ---
@@ -31,6 +31,8 @@ category: technique
    - 我预期根因方向是 X（一句话，可粗）
    - 验证标准是 Y（什么证据出现 = 预期成立）
    - 若证据指向 Z 则立即放弃原预期（写下最强反例方向）
+   
+   **预期须可证伪**——X/Y/Z 三行必须能被真实证据驳斥；写「根因在代码里」「找到错误代码」这类永远正确的模糊预期等同未预注册。
    
    预注册写入排查结论的开头（特性文档/汇报均带），事后可对照「预期 vs 实际」。依据：Anthropic AAR mini-paper 预注册——看到结果后挑一个最好看的故事（HARKing）比先入为主更隐蔽；「先收集数据再归纳」（#352）管住了先推测后找数据，本条管住另一半。成本近乎零，写不出三行说明问题定义还太模糊——先澄清再动手。
 2. **收集信息**：读取相关文件、日志、配置；查询 memory 中的历史决策和类似问题；确认复现条件和影响范围。
