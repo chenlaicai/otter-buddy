@@ -51,14 +51,17 @@ category: technique
    | 撞车检查（B5） | 是否有其他 open PR 引用同一 issue 或重叠文件域？`gh pr list --state open` 后比对 Closes/Fixes 引用与 files 列表；命中 = 严重发现，立即通知大獭仲裁（时间序优先，见 worktree-isolation 步骤 2） |
    | Intent 块存在性（B6，软代码改动） | 本次变更涉及 prompt/skill/协议层时，特性文档 frontmatter 是否有 intent 块？**intent 块缺失 = 严重发现** |
    | Golden Gate 记录（B7，软代码改动） | 本次变更涉及 prompt/skill/协议层时，results.jsonl 是否有该 PR 的执行记录？**记录缺失 = 严重发现**；记录存在但有 fail 行未处置 = 严重发现（fail 行悬置会让止损线条件永久失明）。**豁免核验**：verify_by.type 为 static_only/human_judge 时生产方可豁免跑 gate，但 PR Verification 节必须有豁免声明（「Golden Gate: n/a（verify_by=…，无场景可跑）」）——无记录且无豁免声明 = 严重发现 |
+   | Prompt 体积预算（B8，2026-09-17） | diff 触及 `prompts/scheduled/*.md` 且净增 >500B？若是，作者须在 PR 描述申报等量出清或净增理由（写入闸：`npm run lint:prompt-size`，超预算 CI 直接红）。**未申报的净增 = 严重发现**（体积失控事故实证：6 PR 连续合入无人拦截，根因是检查维度缺失） |
 
-   > **基础维度失败 → 严重发现**：任一基础维度失败必须在审视报告的"严重发现"节建对应条目（标明 B1-B7 来源），不可仅在基础维度检查表中标记"失败"就跳过处置队列（详见 `references/review-dimensions.md`）。
+   > **基础维度失败 → 严重发现**：任一基础维度失败必须在审视报告的"严重发现"节建对应条目（标明 B1-B8 来源），不可仅在基础维度检查表中标记"失败"就跳过处置队列（详见 `references/review-dimensions.md`）。
 
    > **基础维度必须附验证证据**：每项结论必须附实际验证证据（命令输出 / 工具返回 / 文件路径），不可凭印象填"通过"。详见 `references/review-dimensions.md`。
 
    > **B2 特性文档缺失 = 严重发现**：无论变更类型（代码/prompt/skill/doc），特性文档都是必须的。缺失即为严重发现，不可降级为「可接受」或「完整」。正确做法：在审视报告"严重发现"节建 B2 条目，描述"特性文档缺失"，处置为"本 PR 修复（补充特性文档）"。
 
    > **B6/B7 软代码改动必须检查**：本次变更涉及 prompt/skill/协议层时，B6（intent 块存在性）和 B7（Golden Gate 记录）是必须检查的基础维度。检视獭不重复跑 gate（生产方职责），只核验记录存在性 + fail 已处置。
+
+   > **B8 体积预算（2026-09-17）**：diff 触及 prompts/scheduled/*.md 时必查：跑 `npm run lint:prompt-size`，超预算（或触警告线但 PR 未申报增量纪律处置）→ 严重发现。防线前移到 PR 合入前，取代「DB 写入时静默降级」的末端哑防线。
 
    **焦点维度（根据 PR 特点选 1-3 个深入）**：
 

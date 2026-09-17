@@ -30,9 +30,9 @@ describe('每日健康检查模板纪律锁（#791 P1）', () => {
     expect(tpl).toContain('未交叉验证');
   });
 
-  it('数据源清单完整：7 项编号齐全（防误删数据源项）', () => {
+  it('数据源清单完整：6 项编号齐全（防误删数据源项）', () => {
     const tpl = readTemplate();
-    for (const n of [1, 2, 3, 4, 5, 6, 7]) {
+    for (const n of [1, 2, 3, 4, 5, 6]) {
       expect(tpl).toMatch(new RegExp(`^${n}\\. \\*\\*`, 'm'));
     }
   });
