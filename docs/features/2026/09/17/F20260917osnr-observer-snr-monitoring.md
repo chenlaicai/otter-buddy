@@ -12,13 +12,13 @@ summary: |
   依据：HackProbe 检测器 FPR 0.43 的教训（误报率比检出率更决定告警系统生死）+
   Google SRE（不可行动的告警是噪音）。
 change_type: prompt
-capability_test: tests/usecases/scheduler/daily-health-check-prompt-discipline.test.ts
+capability_test: "n/a: 纯 prompt 文本规则（写作/统计纪律无工具轨迹），纪律锁静态断言覆盖"
 created_in_conversation: 325ef7b7-8e42-4edc-9abf-eae8f332a2c4
 intent:
   problem: "观测器（healing/RHI 信号源）的误报率与低价值率无人统计——观测器自己不在被观测，告警噪音侵蚀搭档注意力预算"
   expected_effect: "日报末尾出现信噪比固定段（dismiss 率 / 不处置率 / 物件数）；任一信号源连续两周误报超 50% 时日报给出降级建议行"
   verify_by:
-    type: behavior_check
+    type: static_only
 causal_links:
   from: ["R20260916rsis"]
   supersedes: []
