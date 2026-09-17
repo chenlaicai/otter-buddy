@@ -98,7 +98,7 @@ triage_signal(signalId, action, issueNumber?, note?)
 
 配套查询工具 `list_rhi_signals(status, severity, triageStatus)`——让处置者（日报獭/搭档/被派工小獭）能拉「未接单清单」。
 
-**谁在调**：daily-health-check 的处置段从「逐条三选一（开 issue/并入/不处置）」升级为「处置后必须调 triage_signal 留痕」——处置动作从此在系统里留结构化记录。
+**谁在调（定时任务接线实况，2026-09-17 核实）**：信号消费链挂在 Self-Healing 对话（conv 3241317b）的定时任务群上——**每日对话健康检查 09:00（active）**是主消费点，处置段从「逐条三选一」升级为「处置后必须调 triage_signal 留痕」+ **新增「未接单存量清点」步**（对 triage_status IS NULL 的存量逐条归口，每日一次）。原设计中的第二消费点「每日 issue 处理 10:30」**当前为 disabled 状态（9/16 起，搭档侧调整）**——本方案不依赖其复活，清点职责并入 09:00 任务；若其日后复活则自动多一个消费点，不冲突。
 
 **对账口径（R4 修订）**：
 - in_progress 是 bind_issue 的后续状态迁移，**对账只统计首动作**（bind_issue/dismiss 各计一次，in_progress 不进公式）
@@ -109,7 +109,7 @@ triage_signal(signalId, action, issueNumber?, note?)
 
 学 SignalAgingWorker 的现成模式（F20260915hlife），独立 app 级 setInterval：
 
-- 扫描：signals 表 status='open' AND triage_status IS NULL（未接单）
+- 扫描：signals 表 status='open' 且【triage_status IS NULL（未接单，按 first_seen 计时）或 triage_status='triaged' 且 triaged_at 超 7 天（归口停滞，按 triaged_at 计时）】——in_progress 不扫（修复节奏由 PR 生命周期管）
 - 阈值：critical 超 72h / warning 超 7d（从 first_seen 计；已 triaged 的不扫——已接单的事项进度由 issue/PR 生命周期自己管）
 - 动作：落 healing event（errorType=other, severity=medium, context 带 signalId+挂了多久），同一 signalId 去重（查 open healing 的 context）
 - 为什么 medium 不是 high：处置延迟是流程问题不是系统故障（与 SignalAgingWorker 同口径）
@@ -120,7 +120,7 @@ triage_signal(signalId, action, issueNumber?, note?)
 
 **上线编排（S4 修订）**：实现期严格按序执行——① schema 迁移 → ② 存量批量 triage 出清（§5，大獭一次性操作）→ ③ aging worker 上线。出清在 worker 之前，避免首轮扫描对存量触发风暴。
 
-**已知缺口（显式接受的风险，S3 处置）**：worker 只扫「未接单」，**「已 triage 但绑定 issue 长期停滞」暂不扫描**——这正是本次事故（#1012 挂 23 天）的同构失败模式，此处显式声明接受而非遗忘。二期触发条件：**orphan triage（绑定 issue 已关闭但信号仍 open）或 triaged 超 14d 的信号数量 ≥5 时启动二期建设**（issue 活动扫描需引入 GitHub API 轮询，机制膨胀不放入一期）。
+**triaged 停滞告警（一期纳入，S3 处置收紧）**：「每日 issue 处理」任务 disabled 后「归口后没人干」的尾段断链风险升高（#1012 挂 23 天正是此模式），故一期即扫描 **triaged 超 7 天** 的 open 信号——纯本地时间戳判断，不引 GitHub API 轮询，机制零膨胀。仍不扫「issue 活动语义」（issue 是否真有 commit/PR 进展需外部 API，保留为二期；触发条件不变：orphan triage 或需活动语义判断的停滞 ≥5 条时启动二期建设）。
 
 **新增决策分支说明**：老化落 healing 后被 resolve 的信号若仍 open，下一轮间隔 ≥24h 会再落一条（与 SignalAgingWorker 同语义——持续悬置本就该持续可见）。
 
@@ -169,6 +169,7 @@ signal-pipeline.ts 因此进入改动范围表。
 - 面板 signals 端点返回结构扩展（新增字段，前端旧版忽略新字段不炸）
 - daily-health-check prompt 更新（处置段改机制对账口径 M+K+D=N）
 - 新增 worker（app.ts 装配，与 SignalAgingWorker 并列）+ 孤儿 healing 清理钩子（信号终态化时）
+- 定时任务接线变更：无新增任务——消费点并入既有「每日对话健康检查 09:00」（prompt 更新即生效，不动调度配置）
 - 新增 2 个 agent 工具（tool-factory.ts 注册）+ 1 个 http 端点
 
 ## 风险与约束
@@ -201,7 +202,8 @@ signal-pipeline.ts 因此进入改动范围表。
 | 阈值 72h/7d | 常量起步，观察校准 | 配置化 | 尚无数据支撑配置价值；常量+后续校准与 D5 权重先例一致。此为初始值声明，非省事主张 |
 | 存量 40 条 | 批量 triage 并入 #1012，不逐条 resolve | 逐条人工处置 | 它们同根因候选已由 #1012 聚合分析接管；逐条 resolve 是把口径问题的债伪装成处置完成。批量 triage 后数字诚实（已归口≠已解决），#1012 修好口径后 auto-resolve 统一清场（§6） |
 | dismiss 权限 | 獭可 dismiss 但 note 必填必写库，无工具层拦截 | 工具层拦截（dismiss 仅 http/搭档） | 拦截会逼日报獭把合法「不处置」塞进 bind_issue 假绑定，污染 triage 数据；note 必填由 repo 层承载，与 #406「不处置必须是判断结论」原则同构 |
-| issue 停滞盲区 | 一期显式接受，量化触发条件（orphan/停滞 ≥5 启动二期） | 一期就建 issue 活动扫描 | issue 活动扫描需引入 GitHub API 轮询与速率管理，机制膨胀；先量化盲区、让盲区可见（数量可观测），再决定二期 |
+| issue 停滞盲区 | 一期扫「triaged 超 7 天」（本地时间戳），issue 活动语义（GitHub API）留二期 | 一期就建 issue 活动扫描 / 完全不扫 | 「每日 issue 处理」disabled 后尾段断链风险升高，纯时间戳扫描零机制膨胀可一期纳入；活动语义判断需 GitHub API 轮询，膨胀留二期（orphan/需语义判断的停滞 ≥5 触发） |
+| 消费点挂接 | 清点职责并入 09:00 健康检查任务，不依赖「每日 issue 处理」复活 | 等 10:30 任务复活 / 新建专用任务 | 10:30 任务 disabled（9/16 搭档侧调整），依赖它等于链断着上线；09:00 任务本来就在拉 signals，顺手清点零新增调度 |
 
 ## 验证
 
@@ -217,7 +219,8 @@ signal-pipeline.ts 因此进入改动范围表。
 5. aging worker：伪造超龄信号 → 聚合落 1 条 healing（非逐条）；同 signal_type 去重；信号终态化后对应 healing 自动销号；resolve 后复悬置再落
 6. **存量出清执行记录（先于 worker 上线）**：N 条 critical → triaged(issue=1012)，面板未接单清零；复盘结论适用范围声明留痕
 7. 面板端点返回 triage 字段（API 自动化测试）；处置队列分组渲染组件测试（vitest，web/src/pages/health/ 既有测试框架同模式）
-8. 日报处置段新 prompt 首跑对账：M+K+D=N 从 triage 数据自动生成，且 N=当日新增
+8. 日报处置段新 prompt 首跑对账：M+K+D=N 从 triage 数据自动生成，且 N=当日新增；未接单存量清点步执行留痕
+9. triaged 停滞告警：伪造 triaged_at 超 7 天的 open 信号 → 落聚合 healing；未超龄不落
 
 ## 改动范围
 
@@ -253,3 +256,7 @@ delta 新发现 3 条（glm D1-D3），全部接受并随终稿修订：
 - D2（写入边界与 §6 抹平的字面张力）→ 措辞修订：「处置进度写入口」与「终态化清理」职责分离声明
 - D3（二期触发条件无观测主体）→ 面板已归口组补「triaged N 天」显示
 mimo delta 附 2 条实现期注意项（聚合告警 context 字段名 signalId vs signalIds 统一、验证 #2 与 #4 断言差异），不计发现，转入实现 PR 参考。
+
+### 终审轮修订（搭档确认点，2026-09-17 14:15）
+
+搭档确认「一天处理一次节奏认可，不要信号级即时响应」，并指出「今天调整了每日任务，确认定时任务能接上」。核实发现「每日 issue 处理 10:30」已 disabled（9/16 起）——方案原写的第二消费点不存在。修订：① 未接单清点职责并入 09:00 健康检查任务（不依赖 10:30 复活）；② triaged 超 7 天停滞告警从二期提前到一期（纯本地时间戳，零机制膨胀，堵「归口后没人干」尾段）。调度配置零变更，prompt 更新即生效。
