@@ -10,8 +10,10 @@ summary: |
   invoked 路径（主流）不成立，全部历史消息被误判重放。搭档裁决（修法排序③
   deletion）：「一直在反对加兜底机制，从没要求过补扫」——防的幽灵场景
   （entry 落库后点火前进程死亡）概率极低且用户可重发，机制维护成本倒挂。
-  恢复机制回归单一语义：只恢复 restart_pending_resumes 队列里被系统停止
-  打断的 invoke。
+  同批三点机制修正（搭档 9/17 逐条裁决）：① 定时任务中断同样入队恢复
+  （中断本质相同，「防重复」由③统一覆盖）；② 同会话多 running 并行恢复
+  （串行是 messages 时代防 seq 竞态的遗留）；③ 跳过判据从「3 秒新 user
+  消息」换成「獭已恢复」（中断后该獭已有新 invoke 即跳过——聚焦本质）。
 
 causal_links:
   from:
@@ -75,6 +77,34 @@ created_in_conversation: 2964fa59-1b25-45c4-9b0c-23afdb952969
 429 退避、终态守卫、healing 落账——恢复「被系统停止打断的 invoke」的主路径
 今天实证正确（08:37 重启时 1 条真中断 invoke 被正确恢复）。
 
+## 同批三点机制修正（搭档 9/17 逐条裁决）
+
+风暴复盘时搭档逐条审问了恢复机制现状，三条裁决同批落地：
+
+### ① 定时任务中断同样入队恢复
+
+旧逻辑：`reconcileRunningInvokes` 排除 trigger_entry_id 为 NULL 或指向 system entry
+的 invoke（怕 scheduler 任务重复产出）。搭档指出：定时任务中断和用户消息中断本质
+相同——都是意外中断的工作该被续上；「防重复」由判据③统一覆盖（cron 重触发后
+该獭已有新 invoke，恢复自然跳过）。改为：所有 running invoke 被标 failed 后一律
+入队，不再按来源排除。
+
+### ② 同会话多 running 并行恢复
+
+旧逻辑：跨会话并行、同会话串行（messages 时代防 seq 竞态的遗留）。生产实证同会话
+同秒不同獭并发 running 真实存在（中断前就是并发）；createEntryAtomic 原子序号后
+并发写不撞号，串行理由失效。串行的实际代价：一只 429 退避堵住同会话其余恢复。
+改为：全部队列项并行恢复。
+
+### ③ 跳过判据：「3 秒新 user 消息」→「獭已恢复」
+
+旧逻辑：恢复前查该会话 3 秒内有无新 user entry（猜测用户是否已接上）。搭档指出
+本质：恢复的目的是让意外中断的 running invoke 重新跑起来——**中断时刻之后该獭
+已有新 invoke（无论来源）即说明已被接上，系统不该再碰**。与用户是否发消息无关。
+实现：`getLatestInvokeByOtter(conversationId, otterId, interruptedAt)` 查中断时刻
+（队列行 created_at）后的最新 invoke，存在即 exhausted 静默跳过（不发「请手动
+重试」——獭已在跑，恢复目的已达成）。
+
 ## 影响范围
 
 - 恢复机制语义收敛为单一判据：队列表里有 pending 就恢复，没有就不动。
@@ -83,13 +113,18 @@ created_in_conversation: 2964fa59-1b25-45c4-9b0c-23afdb952969
   无人理——用户重发即可。
 - signal-router 的事件驱动路由（routeSignals/routeTriggerMessage/routeDirectSignal）
   不受影响——销账逻辑（followed_up/steered 打 consumed）保留，防重燃仍有效。
+- 定时任务中断恢复：cron 周期内被杀死的任务会被续跑一次；若 cron 到点已重触发，
+  判据③ 跳过（不重复产出）。
 
 ## 验证
 
 - `npx tsc --noEmit`：0 错
-- `npx vitest run`：全绿（261 文件 / 3174 用例；净减 5 个补扫相关用例）
+- `npx vitest run`：全绿（263 文件 / 3187 用例；补扫用例删除，新增三点裁决用例：
+  ① scheduler 来源 NULL/system trigger 同样入队 ×2 ③ 獭已恢复跳过静默 + 未恢复
+  正常触发 ×2）
 - `npm run build`（含 eslint）：0 error；`npm run lint:intent` 通过
-- 下次重启预期：就绪后 3 秒只有队列恢复动作（通常为 0~1 条），不再有点火爆发
+- 下次重启预期：就绪后 3 秒只有队列恢复动作（0~n 条中断 invoke），不再有
+  点火爆发；定时任务中断也会被续跑
 
 ## 教训（入记忆）
 

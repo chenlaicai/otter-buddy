@@ -7,7 +7,6 @@ import type { Logger } from "@usecases/ports/logger";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import {
   buildRestartResumeMsg,
-  buildRestartResumeFailedMsg,
   buildRestartResumeFailedInvokeMsg,
 } from "./agent-turn-orchestrator/retry-policy";
 
@@ -41,8 +40,6 @@ interface ResumeQueueItem {
 export class ResumeInterruptedService {
   /** 恢复触发前的等待窗口：错开启动尾段的装配/首条用户消息并发 */
   private static readonly RESUME_DELAY_MS = 3_000;
-  /** 恢复前的并发检查窗口：该窗口内有新 user entry 则跳过（审视发现 4 修复） */
-  private static readonly CONCURRENT_WINDOW_MS = 3_000;
   /** 429 限流重试配置（F20260830rfto 移植） */
   private static readonly RATE_LIMIT_MAX_RETRIES = 3;
   private static readonly RATE_LIMIT_BASE_DELAY_MS = 5_000;
@@ -80,20 +77,17 @@ export class ResumeInterruptedService {
       // #613（移植）：服务重启事件落 healing 台账（severity 按中断数分级）
       await this.recordRestartHealingEvent(pending.length);
 
-      // F202609048840 F1（移植）：跨会话并行——不同会话并行，同会话内串行（防 seq 竞态）
-      const byConversation = new Map<string, ResumeQueueItem[]>();
-      for (const item of pending) {
-        const list = byConversation.get(item.conversationId) ?? [];
-        list.push(item);
-        byConversation.set(item.conversationId, list);
-      }
+      // F20260917rscr 三点裁决②：全并行恢复——同会话多 running 说明中断前就是并发
+      // （生产实证：同会话同秒不同獭 running 真实存在）；串行是 messages 时代防 seq
+      // 竞态的遗留，createEntryAtomic 原子序号后并发写不撞号。串行的实际代价：一只
+      // 429 退避堵住同会话其余恢复。
       await Promise.allSettled(
-        Array.from(byConversation.entries()).map(async ([conversationId, items]) => {
+        pending.map(async (item) => {
           try {
-            await this.resumeConversation(conversationId, items);
+            await this.resumeItemSafe(item);
           } catch (err) {
-            // 单个会话失败不阻塞其他会话
-            this.deps.logger.error(`Resume conversation ${conversationId} failed`, err instanceof Error ? err : new Error(String(err)));
+            // 单条失败不阻塞其余（resumeItemSafe 已内吞异常，此处双保险）
+            this.deps.logger.error(`Resume item ${item.invokeId} failed`, err instanceof Error ? err : new Error(String(err)));
           }
         }),
       );
@@ -128,13 +122,6 @@ export class ResumeInterruptedService {
       this.deps.logger.warn("Resume restart healing event write failed (non-fatal)", {
         error: err instanceof Error ? err.message : String(err),
       });
-    }
-  }
-
-  /** 单会话串行恢复（F20260830rfto 移植：单条失败不阻塞其余） */
-  private async resumeConversation(conversationId: string, items: ResumeQueueItem[]): Promise<void> {
-    for (const item of items) {
-      await this.resumeItemSafe(item);
     }
   }
 
@@ -260,11 +247,13 @@ export class ResumeInterruptedService {
         return "skipped";
       }
 
-      // 3. 并发窗口检查：恢复前 3s 内有新 user entry → exhausted + 系统消息提示手动重试
-      if (await this.isConcurrentSkip(item.conversationId)) {
+      // 3. 「獭已恢复」跳过判据（F20260917rscr 三点裁决③，替换用户消息并发窗口）：
+      //    本质 = 让意外中断的 running invoke 恢复跑起来——该獭在中断时刻之后已有
+      //    新 invoke（无论来源：用户手动接上 / cron 重触发 / 其他恢复路径）→ 它
+      //    已经在跑了，系统不该再碰。与用户是否发新消息无关。
+      if (await this.isOtterAlreadyResumed(item)) {
         await this.deps.resumePendingRepo.settleResume(item.invokeId, "exhausted", new Date().toISOString());
-        await this.sendSystemSafe(item.conversationId, buildRestartResumeFailedMsg("skipped_concurrent"));
-        return "skipped";
+        return "skipped"; // 静默——獭已在跑，恢复目的已达成（成功路径静默语义）
       }
 
       // 4. 链引擎续跑：invokeFn 包装捕获首 hop invokeId + 终态（链 allSettled 吞错语义，
@@ -355,12 +344,18 @@ export class ResumeInterruptedService {
     return "done";
   }
 
-  /** 并发防护检查（F20260913ctlv 语义映射：messages → entries 数据源）。
-   *  getEntries ORDER BY sequence_num DESC——最新一条在首位。 */
-  private async isConcurrentSkip(conversationId: string): Promise<boolean> {
-    const entries = await this.deps.entryRepo.getEntries(conversationId, { entryType: "user", limit: 1 });
-    const lastUserEntry = entries[0];
-    return !!lastUserEntry && Date.now() - Date.parse(lastUserEntry.createdAt) < ResumeInterruptedService.CONCURRENT_WINDOW_MS;
+  /** 「獭已恢复」判据（F20260917rscr 三点裁决③）：中断时刻之后该獭已有新 invoke
+   *  → 已被其他路径（用户手动接上 / cron 重触发 / 恢复链自身）接上，跳过。
+   *  中断时刻 = 队列行 created_at（reconcile 标 failed 并入队的同一时刻）。
+   *  查库失败按未恢复处理（保守点火——恢复是兜底，宁多恢复一次不漏）。 */
+  private async isOtterAlreadyResumed(item: ResumeQueueItem): Promise<boolean> {
+    const queueRow = await this.deps.resumePendingRepo.getByInvokeId(item.invokeId).catch(() => null);
+    const interruptedAt = queueRow?.createdAt;
+    if (!interruptedAt) return false;
+    const newer = await this.deps.invokeRepo
+      .getLatestInvokeByOtter(item.conversationId, item.otterId, interruptedAt)
+      .catch(() => null);
+    return !!newer && newer.id !== item.invokeId;
   }
 
   /** 系统消息发送的安全包装（失败仅日志——提示是增强面不是控制面） */

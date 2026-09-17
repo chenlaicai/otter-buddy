@@ -45,8 +45,8 @@ describe("postInitDatabase 重启 reconcile 入队（F20260916b1ea）", () => {
     `).run(id, triggerEntryId, T0);
   }
 
-  function queueRows(): Array<{ invoke_id: string; status: string }> {
-    return db.prepare("SELECT invoke_id, status FROM restart_pending_resumes").all() as Array<{ invoke_id: string; status: string }>;
+  function queueRows(): Array<{ invoke_id: string; status: string; trigger_entry_id: string | null }> {
+    return db.prepare("SELECT invoke_id, status, trigger_entry_id FROM restart_pending_resumes").all() as Array<{ invoke_id: string; status: string; trigger_entry_id: string | null }>;
   }
 
   it("running invoke（user entry 触发）→ failed + pending 入队", async () => {
@@ -63,24 +63,29 @@ describe("postInitDatabase 重启 reconcile 入队（F20260916b1ea）", () => {
     expect(rows[0]).toMatchObject({ invoke_id: "invoke-1", status: "pending" });
   });
 
-  it("scheduler 来源 invoke（trigger_entry_id 为 NULL）不入队", async () => {
+  it("scheduler 来源 invoke（trigger_entry_id 为 NULL）同样入队（F20260917rscr 裁决①）", async () => {
     insertRunningInvoke("invoke-null", null);
 
     await postInitDatabase(db, repos, createTestLogger());
 
     const invoke = db.prepare("SELECT status FROM invokes WHERE id = 'invoke-null'").get() as { status: string };
     expect(invoke.status).toBe("failed");
-    expect(queueRows()).toHaveLength(0);
+    const rows = queueRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ invoke_id: "invoke-null", status: "pending" });
+    expect(rows[0]!.trigger_entry_id).toBeNull();
   });
 
-  it("scheduler 来源 invoke（trigger entry 为 system）不入队", async () => {
+  it("scheduler 来源 invoke（trigger entry 为 system）同样入队（F20260917rscr 裁决①）", async () => {
     const sysEntryId = "entry-sys-1";
     insertEntry(sysEntryId, "system");
     insertRunningInvoke("invoke-sys", sysEntryId);
 
     await postInitDatabase(db, repos, createTestLogger());
 
-    expect(queueRows()).toHaveLength(0);
+    const rows = queueRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ invoke_id: "invoke-sys", status: "pending" });
   });
 
   it("无 running invoke：空转零副作用", async () => {

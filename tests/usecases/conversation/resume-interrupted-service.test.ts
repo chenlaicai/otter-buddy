@@ -245,21 +245,31 @@ describe("ResumeInterruptedService（F20260916b1ea invoke 模型重建）", () =
     expect(h.systemEntries).toHaveLength(0);
   });
 
-  it("并发窗口内有新 user entry：跳过恢复 + exhausted + 降级提示", async () => {
+  it("獭已恢复（中断后有新 invoke）：跳过 + exhausted 静默（F20260917rscr 三点裁决③）", async () => {
     const invokeId = await h.seedInterrupted();
-    // now 时刻的新 user entry
+    // 中断时刻（队列行 created_at）之后，同会话同獭已有新 invoke——用户手动接上/cron 重触发
     const now = new Date().toISOString();
     h.db.prepare(`
-      INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, turn_id, status, sender_name, created_at, completed_at)
-      VALUES (?, 'conv-1', 2, 'user', 'user', 'chen', '新消息', NULL, '["otter-big"]', 'turn-1', 'completed', '搭档', ?, ?)
-    `).run(crypto.randomUUID(), now, now);
+      INSERT INTO invokes (id, conversation_id, otter_id, status, trigger_entry_id, talking_stone_passed_to, started_at, tool_call_count)
+      VALUES (?, 'conv-1', 'otter-big', 'running', NULL, NULL, ?, 0)
+    `).run(crypto.randomUUID(), now);
 
     const chain = stubChainEngine();
     await h.buildService(chain).resume();
 
     expect(chain.calls).toHaveLength(0);
     expect(h.queueStatus(invokeId)).toBe("exhausted");
-    expect(h.systemEntries.some(e => e.body.includes("跳过自动恢复"))).toBe(true);
+    // 静默——獭已在跑，恢复目的已达成，不发「请手动重试」干扰
+    expect(h.systemEntries).toHaveLength(0);
+  });
+
+  it("獭未恢复（中断后无新 invoke）：正常触发恢复", async () => {
+    await h.seedInterrupted();
+    const chain = stubChainEngine();
+    await h.buildService(chain).resume();
+
+    expect(chain.calls).toHaveLength(1);
+    expect(chain.calls[0]).toMatchObject({ conversationId: "conv-1", initialTargets: ["otter-big"] });
   });
 
   it("participant 已失效：CAS 认领后 exhausted 静默，不触发链引擎", async () => {

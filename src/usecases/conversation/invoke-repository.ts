@@ -44,6 +44,13 @@ export interface InvokeRepository {
     otterId: string,
   ): Promise<Invoke | null>;
   getInvokeByTriggerEntryId(triggerEntryId: string): Promise<Invoke | null>;
+  /** F20260917rscr 三点裁决③：查该獭在指定时刻之后的最新 invoke（「獭已恢复」判据
+   *  数据源——中断后已有新 invoke 则恢复跳过，与来源无关） */
+  getLatestInvokeByOtter(
+    conversationId: string,
+    otterId: string,
+    afterStartedAt: string,
+  ): Promise<Invoke | null>;
   /** F20260913ctlv 彻底切换：按 turn 查 invokes（tryCloseTurn 判据——turn 生命周期从 messages 剥离） */
   getInvokesByTurnId(turnId: string): Promise<Invoke[]>;
   /**
