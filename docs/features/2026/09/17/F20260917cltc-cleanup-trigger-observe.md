@@ -7,8 +7,10 @@ summary: |
   9/17 分支/worktree 盘点发现 23 个僵尸分支 + 9 个僵尸 worktree + 4 个远程残骸。
   根因：post-merge-cleanup skill 的触发条件只有「搭档说已合入」等口令，
   但搭档经常在 GitHub 上直接点 merge 不通知，skill 永不触发（「前提不死」活例证）。
-  本特性将触发条件扩写为事件驱动：观察到合入即触发（gh 返回 MERGED /
+  本特性将触发条件扩写为机会性被动触发：观察到合入即触发（gh 返回 MERGED /
   fetch --prune 后远程分支消失 / 开新 worktree 前碰到僵尸），搭档口令路径保留。
+  机制定性：本地侧无 webhook/hook，可靠性来自 git 操作频率而非机制自动性；
+  远程侧 GitHub delete_branch_on_merge 才是真正的事件驱动。
   设计原则：出口焊在入口旁边，不需要定时巡检兜底（搭档 9/17 否决了定时巡检方案）。
 
 causal_links:
@@ -57,10 +59,10 @@ post-merge-cleanup skill 的触发条件是搭档口令（"已合入"/"合了"/"
 
 触发条件从「搭档口令」扩为「事件驱动 + 搭档口令」双通道：
 
-1. **观察到合入即触发**（新增，主通道）：
+1. **观察到合入即触发**（新增，主通道；机会性被动触发，非系统事件驱动）：
    - `gh pr view/list` 显示自己负责的 PR 已 MERGED → 当场清理该 PR 的 worktree+分支
-   - `git fetch --prune` 后远程分支消失（GitHub 自动删分支）且本地残留 → 顺手清理
-   - 开新 worktree 前例行检查碰到僵尸 → 顺手清理
+   - `git fetch --prune` 后远程分支消失（GitHub 自动删分支）且本地残留 → 当场按 skill 工作流清理
+   - 开新 worktree 前例行检查碰到僵尸 → 当场按 skill 工作流清理
 2. **搭档口令**（保留，原路径不变）
 
 远程侧根治：GitHub `delete_branch_on_merge` 开关已确认开启（9/17 经 `gh api` 核实），
@@ -95,5 +97,7 @@ post-merge-cleanup skill 的触发条件是搭档口令（"已合入"/"合了"/"
      （LLM 仅读 description 场景不漏场景）
   3. 「顺手清理」→「当场按本 skill 工作流清理（完整流程，非轻量顺手动作）」——
      清理是 11 步流程，措辞不得暗示轻量
+- delta 复核（检视-1019）：通过。遗留尾巴：本文档方案/summary 段旧措辞与 SKILL.md
+  不同步 → 本 commit 同步修正（SKILL.md 为行为真相源，文档对齐记录）
 
 Modification-Class: docs-config
