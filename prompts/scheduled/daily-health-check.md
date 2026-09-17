@@ -102,7 +102,7 @@ budget_bytes: 9200
 
 每个 daily-review issue 必须有具体修复方案（不能只写「留评论跟踪」，SYSTEM.md R2）。
 
-**标签/标题/聚合硬规则**（详规与 lint 单一真相源：`scripts/lint-issue-labels.mjs`）：type 一个 + priority 一个 + daily-review；标题 `[模块] 一句话摘要`（模块枚举与聚合红线见 lint 脚本头注）；同根因/同模块同类型合一条不拆条。产出对照自查，不完整率 >5% 日报标红。
+**标签/标题/聚合硬规则**（详规与 lint 单一真相源：`scripts/lint-issue-labels.mjs`）：type 一个 + priority 一个 + daily-review；标题 `[模块] 一句话摘要`（模块枚举/聚合红线/拿不准宁降一级见 lint 头注）；同根因合一条不拆条。产出对照自查，不完整率 >5% 日报标红。
 
 **验证断言必填**：每个 issue body 含「验证断言」段，三字段——`断言`（具体可证伪、含数据源）/ `检查方式`（sqlite / gh / 人工）/ `到期`（创建日 +30 天，YYYY-MM-DD）。写不出断言 = 问题定义不清，重写。回查由 regression-verify 定时任务到期执行，结果回写 issue 评论。
 

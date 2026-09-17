@@ -136,12 +136,11 @@ prompt-template-reconciler.ts：
   生效 / 目录不可读 exit 2（tests/scripts/lint-prompt-size.test.ts 5 用例）
 - [x] reconciler failed 字段 + error 级日志（prompt-template-reconciler.test.ts 16
   用例，含 #1030 两新增）
-- [x] 出清后模板过闸：9236B ≤ 9200B（lint 实测 PASS）
+- [x] 出清后模板过闸：9163B（+宁降一级回补后仍在 9200B 内，lint 实测 PASS）
 - [x] 指针完整性：出清明细内容与被删段落逐段核对（SQL/口径/依据无丢失）
 - [x] 最简实现检查：lint 脚本 95 行无依赖，复用项目既有「exit code 约定
   （0/1/2）+ CI fast gates 接入 + tests/scripts 子进程测试」三惯例，无新框架
-- [ ] Golden Gate：本 PR 涉及 prompt 层改动（daily-health-check.md 瘦身），
-  verify_by=behavior_check 非豁免枚举，PR 内跑 capability 测试留记录
+- [x] Golden Gate：a1 场景（verify-data-source-before-query）实测 fail，但 git stash -u 干净基线复跑同样 fail（该场景 9/7 后在 golden-results.jsonl 无 passed 记录）——pre-existing 声明附基线复跑证据（PR #1036 评论），独立排查待 golden 场景维护方跟进
 
 ## Discovered Issues
 
@@ -152,5 +151,7 @@ prompt-template-reconciler.ts：
 
 - PR 合入后：跑 `node scripts/update-scheduled-task-body.mjs --name "每日对话健康检查"`
   回写 DB（issue #1030 验证断言：DB body 与 git 模板一致）
-- 观察一周：9/24 日报核对「信噪比统计段」在新 prompt 下仍正常产出（指针式引用
-  是否被执行獭正确消费——Kimi 层1 保留条件的后验）
+- 观察一周：9/24 日报核对两件事——①「信噪比统计段」在新 prompt 下仍正常产出；
+  ②指针消费的行为保真：分析纪律（SYSTEM.md A1 指针式）与 issue 规范（lint 头注指针式）
+  是否被执行獭真实遵循（#1036 检视建议 4：指针式瘦身的执行力风险需落地核验，
+  若 9/24 日报出现「跳过双源验证」或「标签不合规范」行为回退，指针形态需复审）
