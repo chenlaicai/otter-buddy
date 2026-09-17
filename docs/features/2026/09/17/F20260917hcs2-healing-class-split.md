@@ -38,9 +38,12 @@ missing_context 3 条」合计 8 条，若不分账，「獭最近老出错」�
 ## 方案设计
 
 1. **实体层**（healing-event.ts）：`classifyHealingErrorType` 纯映射——
-   环境：tool_failure / rate_limit / circuit_break / self_restart / guard_intercept；
+   环境：tool_failure / rate_limit / circuit_break / self_restart；
    能力：missing_context / wrong_tool / format_violation / knowledge_gap / performance /
-   degenerate / tool_use_feedback；other 归能力（保守归因：Unknown 不粉饰系统）
+   degenerate / guard_intercept（检视修正：被拦的是獭的危险动作，守卫工作正常，
+   且生产库实证 guard_intercept 占全库 37% 第一大类，归环境会放大粉饰 145 倍）；
+   tool_use_feedback 不入分账（主动反馈信号独立列，计入分母复刻混读——检视修正）；
+   other 归能力（保守归因）
 2. **消费层**（scheduler-service.ts）：buildHealingAnalysisBody 概况加二维分账行
    （含口径明示，防读者误读）
 3. **规范层**（daily-health-check.md 数据源 4）：统计呈报必须按两列分列 + 口径写明
@@ -52,6 +55,7 @@ missing_context 3 条」合计 8 条，若不分账，「獭最近老出错」�
 | 分账实现 | 纯映射函数 | 加 DB 维度字段 + 历史回标脚本（issue 原方案②） | 分类是纯函数，任何时刻可对存量重算；DB 字段 = 冗余真相源，会漂移（最简检查） |
 | other 归属 | capability | environment / 单列 unknown | 保守原则：未知失败先算獭的，逼系统改进可观测性；归环境会粉饰 |
 | 历史数据 | 不回标 | 脚本扫 description 关键词 | 映射函数对存量即时生效，回标是伪需求 |
+| 口径演进代价 | 接受漂移，显式记录 | DB 快照每版口径 | 纯映射的代价：分类口径一调整，历史统计全量重算、跨期对比无锚（本 PR 的检视修正就是第一次口径调整现场——以此 commit 为 epoch v1 锚点，后续口径调整在本文档追加 epoch 行） |
 
 ## 机制识别检查点判定
 
