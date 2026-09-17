@@ -5,7 +5,7 @@ summary: |
   全局审视整改第二刀（PR-A=F20260917pagd 锚点 gate 已合入）。四问机制第四次修复的差异化：
   前三轮修「有没有信号/谁来答」，本轮修「什么时候想起」——机制识别判定从 code-implementation
   步骤 7（文档，实现后）上提到步骤 3（预检查，动手前），issue 驱动特性的四问与方案同步成形
-  而非补作业。配套：删 3 处「每日验证」虚构承诺（消费者不存在）；writing-skills 5b 补
+  而非补作业。配套：删 4 处「每日验证」虚构承诺（消费者不存在）；writing-skills 5b 补
   「编号不进教训段」显式条款（拔示例教编号的根——示例已于 PR-A 去编号化）；A1 补域边界
   （管对话层不管文件写入）；防锚定规则硬化（载体扩到 systemPrompt+机械化顺序+作者对称义务——
   搭档指出「作者给关注点本身需要被审视」，实证：本对话砺锋三世被锚定但自省兜住）。
@@ -44,6 +44,8 @@ tags: [prompt, mechanism-budget, anti-anchoring, skill]
 | requirement-analysis:46 | 删「供每日清单验证」虚构承诺 → 改指对抗审视核对（真实消费者） |
 | worktree-isolation:57 | 删「每日全局回看会验证」→ 改指对抗审视核对 |
 | commit-convention:28 | 同上 |
+| troubleshooting:52 | 删「供每日清单核验」（审视发现的第 4 处残留，方案漏执行） |
+| adversarial-review 基础维度表 | B4 行扩写：Modification-Class 一致性核对（每次必查——给三处改指承诺补上真实消费者） |
 | writing-skills 5b | 补「编号不进教训段正文」条款（三要素不含编号；A1 管对话层不管文件写入；lint gate 兜底） |
 | SYSTEM.md A1 | 补域边界段（对话层断言 vs 文件写入） |
 | adversarial-review 步骤 2 | 防锚定硬化：载体扩到 systemPrompt/口头 + 机械化三步顺序（先独立→再比对→披露锚定感）+ 作者侧对称义务（给焦点必须标盲区声明） |
@@ -63,4 +65,8 @@ tags: [prompt, mechanism-budget, anti-anchoring, skill]
 
 ## 对抗审视记录
 
-（待填）
+第一轮（砺锋五世 glm，2 严重 1 建议，全部接受）：
+- 严重1 第 4 处虚构承诺残留（troubleshooting:52 方案列了漏执行）→ 已删
+- 严重2 改指「对抗审视核对」但消费者不存在（死机制换皮）→ B4 行扩写补真消费者
+- 建议3 三步顺序缺「已见降级路径」（systemPrompt 物理先见）→ 已补
+- 新规实测样本结论（检视獠按修订版规则执行）：机械化顺序有效且可执行，独立命中作者盲区外发现
