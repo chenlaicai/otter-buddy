@@ -10,6 +10,7 @@ task_name: daily-review
 
 1. `search_memory`（created_after = 昨日 00:00，created_before = 今日 00:00）：跨对话检索昨天的记录——决策、产出、未闭环任务状态
 2. `list_messages` / `get_turn_history`：只对 memory 命中后需要细看的关键对话使用，不要全量遍历
+3. **只读事实核实（白名单）**：`git log`、`gh pr view/list` 等只读命令——核实 PR 状态、commit 事实时直接用，不受「副作用操作」边界约束（边界禁的是写操作）。典型场景：记忆命中 F 文档（F 文档随 PR 合入主仓后才入库，入库即合入信号）但没有对应 PR 号 → 直接 `git log --oneline --all | grep <F-ID>` 补上，不要标「待确认」；简报里的事实性断言（PR 号/合入状态）必须能以 git/gh 为锚，不靠海獭自我登记（可伪造）。
 
 ## 简报结构
 
