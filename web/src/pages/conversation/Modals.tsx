@@ -56,7 +56,7 @@ interface ModalsProps {
   onConfirmArchive: () => void
   onConfirmCreateOtter: (form: CreateOtterFormValue) => void
   onConfirmDissolve: (summary: string) => void
-  onConfirmRestart: (summary: string, modelAlias?: string) => void
+  onConfirmRestart: (summary: string, modelAlias?: string, synthesizePast?: boolean) => void
   onConfirmLinkResource: (type: string, url: string, title: string) => void
   onOpenRestart: (otterId: string) => void
   onOpenDissolve: (otterId: string) => void
@@ -354,6 +354,9 @@ function RestartModal(props: ModalsProps) {
    *  空串 = 不换模型（沿用当前生效模型），与后端 modelAlias 可选语义对齐 */
   const [models, setModels] = useState<ModelInfoDTO[]>([])
   const [selectedModel, setSelectedModel] = useState('')
+  /** F20260918uhuc：生成前世总结勾选（默认勾）；交接态（正在封装前世档案…）+ 防连点 */
+  const [synthesizePast, setSynthesizePast] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     getSettings()
@@ -372,9 +375,20 @@ function RestartModal(props: ModalsProps) {
       width="420px"
       footer={
         <>
-          <ModalButton onClick={props.onClose}>取消</ModalButton>
-          {/* F20260917rsta：摘要可选——留空走默认 LLM 交接合成（与压缩 handoff 同算法），填写按搭档的 */}
-          <ModalButton variant="danger" onClick={() => { props.onConfirmRestart(summary, selectedModel || undefined); setSummary('') }}>确认重启</ModalButton>
+          <ModalButton onClick={props.onClose} disabled={submitting}>取消</ModalButton>
+          {/* F20260918uhuc：交接态反馈 + 防连点——合成期间按钮锁死，文案告知正在封装前世档案 */}
+          <ModalButton
+            variant="danger"
+            disabled={submitting}
+            onClick={() => {
+              if (submitting) return
+              setSubmitting(true)
+              props.onConfirmRestart(summary, selectedModel || undefined, synthesizePast)
+              setSummary('')
+            }}
+          >
+            {submitting ? '正在封装前世档案…（预计 5-15s，最长约 1 分钟）' : '确认重启'}
+          </ModalButton>
         </>
       }
     >
@@ -398,10 +412,26 @@ function RestartModal(props: ModalsProps) {
         <textarea
           value={summary}
           onChange={e => setSummary(e.target.value)}
-          placeholder="留空将自动生成交接摘要（走 handoff 压缩合成）；填写则按你的来"
+          disabled={submitting}
+          placeholder="填写则作为「交接意图书」独立层注入新世（原话保留不转述）；留空仅靠引擎叙事档案"
           className="form-input w-full resize-none min-h-[60px]"
         />
       </div>
+      {/* F20260918uhuc：生成前世总结勾选（默认勾）——取消勾选则新世档案 = 自总结 + 机械供料，零合成秒级换世 */}
+      <label className="flex items-center gap-2 mt-3 cursor-pointer select-none" data-testid="synthesize-past-toggle">
+        <input
+          type="checkbox"
+          checked={synthesizePast}
+          onChange={e => setSynthesizePast(e.target.checked)}
+          disabled={submitting}
+          className="accent-otter-500"
+        />
+        <span className="text-xs text-stone-600">生成前世总结（引擎叙事合成，预计 5-15s）</span>
+      </label>
+      <p className="text-[11px] text-stone-400 mt-1.5">
+        勾选：新世起始档案 = 引擎叙事摘要{summary.trim() ? ' + 你写的意图书' : ''} + 机械供料（近期对话/状态盘点/谱系）；
+        不勾：跳过合成秒级换世，档案 = {summary.trim() ? '你写的意图书 + ' : ''}机械供料。前世记录完整保留（Session Chain 可审计）。
+      </p>
     </Modal>
   )
 }

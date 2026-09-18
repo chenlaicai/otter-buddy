@@ -349,6 +349,8 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
   onDissolve: (id: string) => void
   onRestart: (id: string) => void
 }) {
+  /** F20260918uhuc：忙碌判定——running invoke 存在即置灰重启 */
+  const invokeStateBusy = invokeState?.status === 'running'
   const isBig = o.type === 'big'
   const activeS = sessions.find(s => s.status === 'active')
   /** F20260805dmux：世数与详情弹窗同口径（拉链位置），不用 sessions.length */
@@ -478,11 +480,13 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
               解散
             </span>
           )}
-          {/* F20260920srbtn：重启獭生对小獭开放（与 agent 侧 restart_otter 大獭可重启小獭对齐，取代 F20260805rsto 的 isBig 门） */}
+          {/* F20260920srbtn：重启獭生对小獭开放（与 agent 侧 restart_otter 大獭可重启小獭对齐）；
+              F20260918uhuc：忙碌置灰（running invoke 时禁用） */}
           <button
-            onClick={e => { e.stopPropagation(); onRestart(o.id) }}
-            className="opacity-0 group-hover:opacity-100 h-6 px-1.5 rounded-lg text-[10px] text-stone-400 hover:text-red-400 transition flex items-center"
-            title="重启獭生（封存当前 session，开启新一世）"
+            onClick={e => { e.stopPropagation(); if (!invokeStateBusy) onRestart(o.id) }}
+            disabled={invokeStateBusy}
+            className={`h-6 px-1.5 rounded-lg text-[10px] transition flex items-center ${invokeStateBusy ? 'text-stone-300 cursor-not-allowed opacity-60' : 'opacity-0 group-hover:opacity-100 text-stone-400 hover:text-red-400'}`}
+            title={invokeStateBusy ? '忙碌中，不允许重启（等当前行动结束）' : '重启獭生（封存当前 session，开启新一世）'}
           >
             重启
           </button>

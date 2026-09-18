@@ -203,6 +203,8 @@ describe("SimpleLockManager 交接模式（V3 锁超时对齐）", () => {
       lm.setHandoffMode("session:otter-1", false);
       const release3 = await lm.acquire("session:otter-1");
       const failWaiter = lm.acquire("session:otter-1");
+      // catch 前置挂接：拒绝不浮出为 unhandled rejection（timer 触发即已在等待链上）
+      failWaiter.catch(() => {});
       await vi.advanceTimersByTimeAsync(31_000);
       await expect(failWaiter).rejects.toThrow("Lock acquire timeout");
       release3();

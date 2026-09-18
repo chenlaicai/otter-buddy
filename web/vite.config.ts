@@ -24,7 +24,9 @@ export default defineConfig(() => ({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        // F20260918uhuc：验证隔离——支持 VITE_API_TARGET 指向 alpha 实例（3100+ 段），
+        // 缺省 3000（主服务）保持既有开发行为
+        target: process.env.VITE_API_TARGET ?? 'http://localhost:3000',
         changeOrigin: true,
       },
     },
