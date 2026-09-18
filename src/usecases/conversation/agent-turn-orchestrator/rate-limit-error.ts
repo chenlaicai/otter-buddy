@@ -29,6 +29,8 @@ const QUOTA_EXHAUSTED_PATTERNS: readonly RegExp[] = [
   /arrearage/i,
   /(使用|用量)[^\n]{0,6}上限/, // 智谱「使用上限」文案
   /(每周|每月)[^\n]{0,12}(上限|限额|重置)/, // 智谱每周/每月上限文案
+  /access_terminated_error/i, // kimi 403 配额型终态 type——周配额耗尽报 403 而非 429（实证 .otter-buddy.log 2026-09-18，F20260916fst4 首哑因此未触发）
+  /(reached|hit|exceeded)[^\n]{0,40}usage[ _-]?limit/i, // kimi "You've reached your weekly (7-day) usage limit"
 ];
 
 /** 瞬时限流：SDK 重试耗尽后上抛（含裸 429 status 码） */

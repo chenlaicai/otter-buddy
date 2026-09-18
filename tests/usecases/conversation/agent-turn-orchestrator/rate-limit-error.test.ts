@@ -47,6 +47,22 @@ describe("matchRateLimitError", () => {
     const m = matchRateLimitError("LLM API error: Rate limit hit, max retries exceeded");
     expect(m!.exhausted).toBe(false);
   });
+
+  it("kimi 403 周配额耗尽（实证文本）判配额耗尽", () => {
+    // 实证：2026-09-18 11:50:55 .otter-buddy.log:1483，kimi 配额耗尽报 403 而非 429
+    const msg =
+      'LLM API error: OpenAI API error (403): {"message":"You\'ve reached your weekly (7-day) usage limit. ' +
+      'Your quota will reset when the current 7-day window ends. To continue now, purchase extra usage or upgrade your plan: ' +
+      'https://www.kimi.com/membership/subscription?tab=quota","type":"access_terminated_error"}';
+    const m = matchRateLimitError(msg);
+    expect(m).not.toBeNull();
+    expect(m!.exhausted).toBe(true);
+  });
+
+  it("非配额型 403（permission denied / invalid key）不误报", () => {
+    expect(matchRateLimitError('LLM API error: OpenAI API error (403): {"message":"permission denied for this resource","type":"forbidden"}')).toBeNull();
+    expect(matchRateLimitError("LLM API error: OpenAI API error (403): invalid api key")).toBeNull();
+  });
 });
 
 describe("buildRateLimitSystemMsg", () => {
