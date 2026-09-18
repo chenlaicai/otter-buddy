@@ -410,6 +410,80 @@ function checkKillSegment(
 /**
  * 在单份文本上执行全量检测（原始与归一化文本各调一次）。
  */
+/** #1038：主仓 data/ 破坏性命令检测（rm/rmdir/mv/find -delete 指向主仓运行时数据）。
+ *  9/17 事故：獭在主仓 cwd 执行 `rm -rf data/metrics`（本意删 worktree 内验证数据），
+ *  主仓 metrics + golden 执行历史不可恢复丢失。海獭 bash cwd 恒为主仓，相对路径
+ *  data/… 一伸手就是生产数据。与 alpha 启停同款双重措施：守卫拦截（本函数）+
+ *  正向脚本（alpha.sh 隔离实例，拦截文案引导）。
+ *  放行面：worktree/tmp/alpha 数据根（~/.otter/alpha）等非主仓路径；只读命令不在此检测范围。
+ *  已知局限（第一版，特性文档 Known Limitations 记录）：shell 重定向截断（> data/…）、
+ *  路径前段 glob 变形（dat[glob]…）不覆盖——主流形态覆盖后由对抗审视评估是否补面。 */
+const DATA_DESTRUCTIVE_MSG = "bash 命令对主仓 data/（运行时数据：metrics/logs/workspaces）执行了删除/移动操作。data/ 是主服务运行时数据，海獭不得直接改删：验证类操作请在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根 ~/.otter/alpha/）；需临时数据目录时用 os.tmpdir() 或 worktree 内路径；确需清理主仓数据时报告搭档人工执行（data/backups/ 有定期备份兑底）。";
+
+/** 路径参数解析到主仓 data/ 下（含 data/ 本身）？
+ *  cwd：相对路径的解析基准（跟踪 cd 后的当前目录）；projectRoot：主仓根（data 根的比较基准）。
+ *  两者角色不同——cwd 只影响解析，主仓归属只看 projectRoot。 */
+function resolvesToMainData(target: string, cwd: string, projectRoot?: string): boolean {
+  if (!projectRoot) return true; // projectRoot 缺失时保守拦截（与 resolvesToMainCheckout 同策略）
+  if (target.startsWith("~")) return true; // ~ 不展开，保守拦截（~/…/otter-buddy/data 可能指向主仓）
+  // 尾部 glob 剥除：data/metrics/* → data/metrics（glob 只影响目录内容范围，不影响目录归属）
+  const stripped = target.replace(/\/+$/, "").replace(/\/[*?]+$/, "");
+  if (!stripped) return false;
+  // 相对路径且 cwd 不可知（cd ~ 后）→ 静态无法解析，保守拦截
+  if (!path.isAbsolute(stripped) && !cwd) return true;
+  const resolved = path.isAbsolute(stripped)
+    ? path.normalize(stripped)
+    : path.normalize(path.resolve(cwd, stripped));
+  const dataRoot = path.normalize(path.join(projectRoot, "data"));
+  return resolved === dataRoot || resolved.startsWith(dataRoot + path.sep);
+}
+
+/** 提取段内非 flag 路径参数（去引号，滤 flag） */
+function pathArgsOf(seg: string): string[] {
+  return seg.split(/\s+/).slice(1)
+    .map(a => a.replace(/^["']|["']$/g, ""))
+    .filter(a => a && !a.startsWith("-"));
+}
+
+/** 形态检测：段是否对主仓 data/ 执行删除/移动（cwd 为相对路径解析基准） */
+function segmentDestructive(seg: string, cwd: string, projectRoot?: string): { kind: string; hit: boolean } {
+  if (isKillAtCommandPosition(seg, /\br(?:m|mdir)\b/)) {
+    return { kind: "rm", hit: pathArgsOf(seg).some(a => resolvesToMainData(a, cwd, projectRoot)) };
+  }
+  if (isKillAtCommandPosition(seg, /\bmv\b/)) {
+    const args = pathArgsOf(seg);
+    return { kind: "mv", hit: args.length > 0 && resolvesToMainData(args[0], cwd, projectRoot) };
+  }
+  if (isKillAtCommandPosition(seg, /\bfind\b/) && /(?:^|\s)-delete\b/.test(seg)) {
+    return { kind: "find -delete", hit: pathArgsOf(seg).some(a => resolvesToMainData(a, cwd, projectRoot)) };
+  }
+  return { kind: "", hit: false };
+}
+
+/** #1038：主仓 data/ 破坏性操作检测。返回拦截文案或 null。
+ *  cwd 跟踪：逐段扫 cd <dir> 更新当前目录，相对路径按当前 cwd 解析（
+ *  `cd worktree && rm -rf data/…` 是验证正道，必须放行；子 shell / pushd 不跟踪，
+ *  Known Limitations 记录）。 */
+function checkDataDirDestructive(command: string, logger?: Logger, projectRoot?: string): string | null {
+  const segments = command.split(/&&|\|\||[;&\n]/).map(s => s.trim()).filter(Boolean);
+  let cwd = projectRoot ? path.normalize(projectRoot) : "";
+  for (const seg of segments) {
+    // 形态 0：cd 更新跟踪 cwd（后续段的相对路径基准）
+    if (isKillAtCommandPosition(seg, /\bcd\b/)) {
+      const target = seg.split(/\s+/)[1]?.replace(/^["']|["']$/g, "");
+      if (!target || target.startsWith("~")) { cwd = ""; continue; } // ~ / 无参无法静态解析 → 后续按保守路径处理
+      cwd = path.isAbsolute(target) ? path.normalize(target) : (cwd ? path.normalize(path.resolve(cwd, target)) : "");
+      continue;
+    }
+    const { kind, hit } = segmentDestructive(seg, cwd, projectRoot);
+    if (hit) {
+      logger?.warn(`[bash-safety-guard] BLOCKED ${kind} targeting main-checkout data/`, { command: command.substring(0, 200) });
+      return DATA_DESTRUCTIVE_MSG;
+    }
+  }
+  return null;
+}
+
 function checkBashCommandSafetyOnText(
   text: string,
   mainPid: number,
@@ -421,6 +495,9 @@ function checkBashCommandSafetyOnText(
   // 杀主进程，kill 族检测看不到脚本名；脚本调用语义明确，无需保守降级）
   const scriptKill = checkServiceScriptKill(text, mainPid, logger, projectRoot);
   if (scriptKill) return scriptKill;
+  // 脚本自杀检测之后、kill 族之前（数据破坏不依赖 mainPid，两路调用链都覆盖）
+  const dataBlock = checkDataDirDestructive(text, logger, projectRoot);
+  if (dataBlock) return dataBlock;
   // 全命令级高危模式检测（在分段前检查，防止 eval/pipe-to-shell 绕过分段检测）。
   // #918 检视严重 1：必须先于白名单放行——否则 `lsof -t -i:3100 | sh -c 'k...'` 类
   // 形态借白名单端口 lsof 做左段，跳过 pipe-to-shell 检测（defense-in-depth 失效）
@@ -509,7 +586,11 @@ function checkWhenMainPidMissing(
   guardOptions?: GuardOptions,
 ): string | null {
   const scriptKill = checkServiceScriptKill(command, 0, logger, guardOptions?.projectRoot);
-  return scriptKill ? withDiagnostics(scriptKill, command, null) : null;
+  if (scriptKill) return withDiagnostics(scriptKill, command, null);
+  // #1038：数据破坏检测不依赖 mainPid，PID 缺失时仍拦（与 kill 族保守放行的差异：
+  // data/ 判定只需 projectRoot，无退化理由）
+  const dataBlock = checkDataDirDestructive(command, logger, guardOptions?.projectRoot);
+  return dataBlock ? withDiagnostics(dataBlock, command, null) : null;
 }
 
 /** F20260916gtlr：脱敏扫描路径（#858）——抽为独立函数控制主入口圈复杂度。
