@@ -116,3 +116,8 @@ modules: [prompts/scheduled/, src/usecases/daily-review/, src/usecases/healing/e
 - F20260915cfgt（seed 配置门 v2——dailyReview 开关随本特性移除）
 - F20260908pgrd（补丁清单回看——任务保留，时间不动）
 - F20260824dhck（健康检查数据源门禁——不动）
+
+## 过程教训（非本 PR 范围，git 历史留档）
+
+- **PR 与 main 冲突（DIRTY）时 GitHub 静默丢弃 pull_request 事件**——renamed/synchronize/reopened 全部不触发 CI 且无任何报错，`gh pr checks` 显示 no checks。教训：PR 长开后每次 push 都应确认 CI 真的排上了（`gh run list` 核对 SHA），别只看 push 成功；冲突要第一时间合 main 解决。
+- 本 PR 实证链：00:23 push 582ad8a8 → 无 run → 空提交 be49a670 → 无 run → 检出 mergeStateStatus=DIRTY → 合 main 解决冲突 1367d7cc → CI 立即排队。
