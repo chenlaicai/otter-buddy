@@ -11,6 +11,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { LeftPanel } from './LeftPanel'
 import type { LocalConversation, LocalOtter } from '../../lib/mappers'
+import * as api from '../../api/client'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -25,7 +26,6 @@ const mockConversations: LocalConversation[] = [
   { id: 'c2', title: '对话2', status: 'active', otterIds: [], pinned: false },
 ]
 const mockOtters: LocalOtter[] = []
-
 beforeEach(() => {
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -275,5 +275,92 @@ describe('LeftPanel 分页加载更多（F20260916lpsc）', () => {
   it('hasMore=false 时不展示加载更多按钮', () => {
     renderLeftPanel()
     expect(container.querySelector('[data-testid="leftpanel-load-more"]')).toBeNull()
+  })
+})
+
+describe('LeftPanel IM 助理分组（F20260918imas）', () => {
+  it('kind=assistant 的对话渲染在「IM 助理」分组内，普通对话不进该组', () => {
+    const convs: LocalConversation[] = [
+      { id: 'c1', title: '对话1', status: 'active', otterIds: [], pinned: false },
+      { id: 'a1', title: '微信助理 · x12345', status: 'active', otterIds: [], pinned: false, kind: 'assistant' },
+      { id: 'c2', title: '对话2', status: 'active', otterIds: [], pinned: true },
+    ]
+    act(() => {
+      root.render(
+        <LeftPanel
+          conversations={convs}
+          activeId="a1"
+          onSelect={() => {}}
+          onNewConversation={() => {}}
+          onContextMenu={() => {}}
+          otters={mockOtters}
+        />
+      )
+    })
+    // 分组标签存在
+    const label = container.querySelector('[data-testid="leftpanel-assistant-group-label"]')
+    expect(label?.textContent).toBe('IM 助理')
+    // 助理项与普通项各归各组：按渲染顺序，a1 在 c2（置顶普通）之前。
+    // ConversationItem 是 onClick onSelect 的 div，标题在内部 span
+    const items = [...container.querySelectorAll('div.rounded-xl')].map(i => i.textContent ?? '')
+    const a1Idx = items.findIndex(t => t.includes('微信助理'))
+    const c2Idx = items.findIndex(t => t.includes('对话2'))
+    expect(a1Idx).toBeGreaterThanOrEqual(0)
+    expect(c2Idx).toBeGreaterThan(a1Idx)
+  })
+
+  it('无助理对话时不渲染分组标签', () => {
+    renderLeftPanel()
+    expect(container.querySelector('[data-testid="leftpanel-assistant-group-label"]')).toBeNull()
+  })
+
+  it('置顶的助理对话仍留在 IM 助理分组内（不升入普通置顶组）', () => {
+    const convs: LocalConversation[] = [
+      { id: 'c1', title: '普通对话', status: 'active', otterIds: [], pinned: false },
+      { id: 'a1', title: '微信助理 · x1', status: 'active', otterIds: [], pinned: true, kind: 'assistant' },
+    ]
+    act(() => {
+      root.render(
+        <LeftPanel
+          conversations={convs}
+          activeId="a1"
+          onSelect={() => {}}
+          onNewConversation={() => {}}
+          onContextMenu={() => {}}
+          otters={mockOtters}
+        />
+      )
+    })
+    const items = [...container.querySelectorAll('div.rounded-xl')].map(i => i.textContent ?? '')
+    const a1Idx = items.findIndex(t => t.includes('微信助理'))
+    // 唯一普通项在置顶组；助理项（虽 pinned）仍在助理组且先于普通项渲染
+    expect(a1Idx).toBeGreaterThanOrEqual(0)
+    expect(items.findIndex(t => t.includes('普通对话'))).toBeGreaterThan(a1Idx)
+    // 普通置顶组标签存在，助理组标签也存在（两组共存）
+    expect(container.querySelector('[data-testid="leftpanel-assistant-group-label"]')?.textContent).toBe('IM 助理')
+  })
+
+  it('搜索结果含助理对话时同样分组渲染（searchResults 路径）', async () => {
+    // LeftPanel 内部搜索走 api.listConversations({search})，mock client 返回混合结果
+    const spy = vi.spyOn(api, 'listConversations').mockResolvedValue([
+      { id: 'a1', title: '微信助理 · x1', status: 'active', pinned: false, otterIds: [], kind: 'assistant' },
+      { id: 'c1', title: '普通对话', status: 'active', pinned: false, otterIds: [] },
+    ] as never)
+    renderLeftPanel()
+    const toggle = container.querySelector('[data-testid="leftpanel-search-toggle"]') as HTMLElement
+    act(() => { toggle.click() })
+    const input = container.querySelector('input[placeholder*="搜索"]') as HTMLInputElement
+    act(() => {
+      // 触发 debounced 搜索（300ms）——用原生 setter 确 React onChange 生效
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
+      setter.call(input, '对话')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await new Promise(r => setTimeout(r, 400))
+    expect(spy).toHaveBeenCalled()
+    expect(container.querySelector('[data-testid="leftpanel-assistant-group-label"]')?.textContent).toBe('IM 助理')
+    const items = [...container.querySelectorAll('div.rounded-xl')].map(i => i.textContent ?? '')
+    expect(items.findIndex(t => t.includes('微信助理'))).toBeGreaterThanOrEqual(0)
+    spy.mockRestore()
   })
 })

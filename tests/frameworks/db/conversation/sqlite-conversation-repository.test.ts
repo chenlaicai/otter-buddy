@@ -374,3 +374,39 @@ describe("SqliteConversationRepository - listConversationsWithMeta 标题搜索�
     expect(page1[0].id).not.toBe(page2[0].id);
   });
 });
+
+describe("SqliteConversationRepository - 助理对话排序与分页（F20260918imas）", () => {
+  let db: Database.Database;
+  let repo: SqliteConversationRepository;
+
+  beforeEach(() => {
+    db = createTestDb();
+    repo = new SqliteConversationRepository(db);
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("助理对话沉底：普通在前（含置顶优先），助理在最后", async () => {
+    await repo.create(conversationFixture({ id: "conv-a", title: "微信助理 · x1", pinned: false }));
+    await repo.create(conversationFixture({ id: "conv-n1", title: "普通对话", pinned: false }));
+    await repo.create(conversationFixture({ id: "conv-n2", title: "置顶对话", pinned: true }));
+    await repo.create(conversationFixture({ id: "conv-b", title: "飞书助理 · y2", pinned: true }));
+
+    const items = await repo.listConversationsWithMeta("user-1");
+    // 普通组内 pinned 优先；助理组内同样 pinned 优先（组内排序语义一致）
+    expect(items.map(i => i.id)).toEqual(["conv-n2", "conv-n1", "conv-b", "conv-a"]);
+  });
+
+  it("分页跨页边界：limit 切在助理/普通交界不丢不重", async () => {
+    await repo.create(conversationFixture({ id: "conv-n1", title: "普通一", createdAt: "2026-07-22T00:01:00Z" }));
+    await repo.create(conversationFixture({ id: "conv-n2", title: "普通二", createdAt: "2026-07-22T00:02:00Z" }));
+    await repo.create(conversationFixture({ id: "conv-a", title: "微信助理 · x1", createdAt: "2026-07-22T00:03:00Z" }));
+
+    const page1 = await repo.listConversationsWithMeta("user-1", { limit: 2, offset: 0 });
+    const page2 = await repo.listConversationsWithMeta("user-1", { limit: 2, offset: 2 });
+    expect(page1.map(i => i.id)).toEqual(["conv-n2", "conv-n1"]);
+    expect(page2.map(i => i.id)).toEqual(["conv-a"]);
+  });
+});

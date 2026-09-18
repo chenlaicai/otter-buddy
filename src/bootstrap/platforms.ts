@@ -369,6 +369,8 @@ export function setupFeishu(options: {
 
   const messageProcessor = new FeishuMessageProcessor({
     manageConnection: uc.manageConnection,
+    // F20260918imas：助理态（p2p 自动开户 + 软轮换）；总开关关闭时不注入（回退拒聊）
+    ...(appConfig.im?.assistant?.enabled !== false && { assistantSession: uc.assistantSession }),
     // F20260913ctlv 彻底切换：飞书用户消息写 entries
     sendEntry: uc.sendEntry,
     commandDispatcher,
@@ -514,6 +516,8 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
       });
       const processor = new WeixinMessageProcessor({
         manageConnection: uc.manageConnection,
+        // F20260918imas：助理态（私聊自动开户 + 软轮换）；总开关关闭时不注入（回退拒聊）
+        ...(appConfig.im?.assistant?.enabled !== false && { assistantSession: uc.assistantSession }),
         // F20260913ctlv 收尾批2：微信消息唯一落点 = entries（与飞书同构）
         sendEntry: uc.sendEntry,
         entryRepo: repos.entry,

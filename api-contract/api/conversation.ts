@@ -4,6 +4,8 @@ export interface ConversationDTO {
   title: string;
   status: string;
   pinned: boolean;
+  /** F20260918imas：助理对话标识（微信/飞书 IM 自动开户；缺省 = 普通对话。前端左侧栏分组依据） */
+  kind?: "assistant";
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;

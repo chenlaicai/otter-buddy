@@ -44,6 +44,7 @@ import type { DissolveOtter } from "@usecases/otter/dissolve-otter";
 import type { ManageContext } from "@usecases/otter/manage-context";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 import type { ManageConnection } from "@usecases/im/manage-connection";
+import type { AssistantSessionManager } from "@usecases/im/assistant-session";
 import type { AttachmentUploadService } from "@usecases/conversation/attachment-upload-service";
 import type { ManageWorkspace } from "@usecases/conversation/manage-workspace";
 
@@ -108,6 +109,8 @@ export interface UseCases {
   manageContext: ManageContext;
   manageScheduledTask: ManageScheduledTask;
   manageConnection: ManageConnection;
+  /** F20260918imas：IM 助理会话管理（自动开户 + 软轮换） */
+  assistantSession: AssistantSessionManager;
   /** 多模态 Phase 1：附件上传服务 */
   attachmentUpload: AttachmentUploadService;
   /** 工作区文件浏览（只读） */

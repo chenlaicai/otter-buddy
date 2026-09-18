@@ -34,6 +34,8 @@ export interface FeishuLongConnectionMessage {
   senderId: string;
   senderType: string;
   messageType: string;
+  /** F20260918imas：p2p/group 分流依据（助理态仅 p2p 自动开户；群聊维持显式绑定） */
+  chatType?: "p2p" | "group";
   /** 多模态 Phase 2：image/file 消息携带（text 消息无此字段） */
   media?: FeishuMediaPayload;
 }

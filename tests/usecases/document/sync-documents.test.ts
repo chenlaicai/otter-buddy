@@ -101,7 +101,7 @@ function makeFs(fileMap: Record<string, string>): FileSystemGateway {
 describe("SyncDocuments - F20260803mval", () => {
   it("新文档：insert + indexFeature，synced=1", async () => {
     const featureRepo = makeStatefulFeatureRepo([]);
-    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}), indexAssistantDigest: vi.fn(async () => {}) };
     const fs = makeFs({ "F20260803tst1.md": FEATURE_FM("F20260803tst1", "新摘要") });
     const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, createTestLogger());
 
@@ -114,7 +114,7 @@ describe("SyncDocuments - F20260803mval", () => {
 
   it("F20260803fbit: 新文档索引 body entry，chunkEntriesIndexed=1", async () => {
     const featureRepo = makeStatefulFeatureRepo([]);
-    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}), indexAssistantDigest: vi.fn(async () => {}) };
     const fs = makeFs({ "F20260803tst1.md": FEATURE_FM("F20260803tst1", "新摘要") });
     const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, createTestLogger());
 
@@ -126,7 +126,7 @@ describe("SyncDocuments - F20260803mval", () => {
 
   it("F20260803fbit: body 经 markdown 噪声清理后索引（chunkEntriesIndexed + feature 入库）", async () => {
     const featureRepo = makeStatefulFeatureRepo([]);
-    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}), indexAssistantDigest: vi.fn(async () => {}) };
     const fm = `---\nid: F20260803tst1\ntitle: 测试\nsummary: 摘要\nchange_type: feature\nstatus: draft\ncreated_at: 2026-08-03\n---\n## 标题\n\n\`\`\`ts\nconst x = 1;\n\`\`\`\n`;
     const fs = makeFs({ "F20260803tst1.md": fm });
     const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, createTestLogger());
@@ -141,7 +141,7 @@ describe("SyncDocuments - F20260803mval", () => {
   it("已有文档内容变：updateContent + indexFeature，updated=1", async () => {
     const existing = makeDoc({ summary: "旧摘要" });
     const featureRepo = makeStatefulFeatureRepo([existing]);
-    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}), indexAssistantDigest: vi.fn(async () => {}) };
     const fs = makeFs({ "F20260803tst1.md": FEATURE_FM("F20260803tst1", "新摘要") });
     const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, createTestLogger());
 
@@ -156,7 +156,7 @@ describe("SyncDocuments - F20260803mval", () => {
     // existing 的 bodyHash 对应旧 body "# 旧正文\n"，文件 body 是 "# 新正文\n"
     const existing = makeDoc({ summary: "测试摘要", bodyHash: computeBodyHash("# 旧正文\n") });
     const featureRepo = makeStatefulFeatureRepo([existing]);
-    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}), indexAssistantDigest: vi.fn(async () => {}) };
     const fs = makeFs({ "F20260803tst1.md": FEATURE_FM("F20260803tst1", "测试摘要") });
     const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, createTestLogger());
 
@@ -172,7 +172,7 @@ describe("SyncDocuments - F20260803mval", () => {
     const existing = makeDoc({ summary: "测试摘要", bodyHash: computeBodyHash("# 正文\n这是文档正文内容，用于测试分段索引。\n") });
     const featureRepo = makeStatefulFeatureRepo([existing]);
     const indexFeature = vi.fn(async () => {});
-    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature, indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature, indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}), indexAssistantDigest: vi.fn(async () => {}) };
     const fs = makeFs({ "F20260803tst1.md": FEATURE_FM("F20260803tst1", "测试摘要") });
     const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, createTestLogger());
 
@@ -186,7 +186,7 @@ describe("SyncDocuments - F20260803mval", () => {
 
   it("未知 change_type：warnings 收集，valid=true 继续入库", async () => {
     const featureRepo = makeStatefulFeatureRepo([]);
-    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}), indexAssistantDigest: vi.fn(async () => {}) };
     const fs = makeFs({ "F20260803tst1.md": FEATURE_FM("F20260803tst1", "摘要", "unknown-xyz") });
     const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, createTestLogger());
 
@@ -199,7 +199,7 @@ describe("SyncDocuments - F20260803mval", () => {
   it("reconcileSync：supersedes 悬空引用 -> supersedesDangling", async () => {
     const existing = makeDoc({ summary: "测试摘要", supersedes: ["F20990101xxxx"] });
     const featureRepo = makeStatefulFeatureRepo([existing]);
-    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}), indexAssistantDigest: vi.fn(async () => {}) };
     const fs = makeFs({ "F20260803tst1.md": FEATURE_FM("F20260803tst1", "测试摘要", "feature", "F20990101xxxx") });
     const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, createTestLogger());
 
@@ -217,7 +217,7 @@ describe("SyncDocuments - F20260803mval", () => {
       summary: "旧摘要",
     });
     const featureRepo = makeStatefulFeatureRepo([dbDoc]);
-    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}), indexAssistantDigest: vi.fn(async () => {}) };
     const fs = makeFs({ "F20260803mmr10.md": FEATURE_FM("F20260803mmr10", "新摘要") });
     const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, createTestLogger());
 
@@ -242,7 +242,7 @@ describe("SyncDocuments - F20260803mval", () => {
       status: "archived",
     });
     const featureRepo = makeStatefulFeatureRepo([dbDoc]);
-    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}), indexAssistantDigest: vi.fn(async () => {}) };
     const fs = makeFs({ "F20260803mmr1.md": FEATURE_FM("F20260803mmr1", "新摘要") });
     const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, createTestLogger());
 
