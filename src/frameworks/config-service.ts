@@ -82,8 +82,15 @@ export interface AppConfig {
   /** 上下文质量（F20260904cq30）：compaction 触发线等水位域唯一真相源 */
   contextQuality: {
     /** pi compaction 触发储备（触发公式 contextTokens > contextWindow − reserveTokens）。
-     * 1M 窗口下 700000 → 340K 触发。缺省 700000（搭档拍板 300K 标称线的整数 reserve 实现） */
+     * 1M 窗口下 700000 → 340K 触发。缺省 700000（搭档拍板 300K 标称线的整数 reserve 实现）。
+     * F20260918uhuc：此值现为应用层水位（agent-invoker 轮边界检查用它算交接触发线）；
+     * SDK threshold 平时不触发（reserve 见 sdkOverflowReserveTokens），仅 overflow 救急 */
     compactionReserveTokens: number;
+    /** F20260918uhuc：SDK 兜底 reserve（U1 验证后定稿）——SDK threshold 触发线 = 窗口 − 此值。
+     * 缺省 50000：1M 窗口下 995K 才触发 SDK 原地压缩（贴溢出点，平时永不触发），
+     * 真溢出（overflow，判定独立于 reserve）时 Pi 默认算法救急。
+     * 注意方向：reserve 越小触发线越高——「永不触发」靠小 reserve 而非大 reserve */
+    sdkOverflowReserveTokens: number;
   };
   llm: {
     /** 默认模型 alias（必须在 models[] 中） */
@@ -278,6 +285,8 @@ interface RawConfig {
   };
   contextQuality?: {
     compactionReserveTokens?: number;
+    /** F20260918uhuc：SDK 兜底 reserve（缺省 50_000，见 AppConfig 注释） */
+    sdkOverflowReserveTokens?: number;
   };
   circuitBreaker?: {
     maxToolCalls?: number;
@@ -554,6 +563,7 @@ function buildWebConfig(raw: RawConfig): AppConfig["web"] {
 }
 
 /** 将 RawConfig 补全默认值，构建 AppConfig。F20260915cfgt：features/attachments 归一化拆至 features-config.ts */
+// eslint-disable-next-line complexity -- F20260918uhuc：contextQuality 增 sdkOverflowReserveTokens 顶到 13（既有 12 边界 +1 配置字段）
 function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelConfig[] } }, logger?: Logger): AppConfig {
   return {
     db: buildDbConfig(raw),
@@ -569,6 +579,7 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelC
     contextQuality: {
       // F20260904cq30：compaction 触发线唯一真相源（旧 token 警告假水位线已删，水位域只此一线）
       compactionReserveTokens: d(raw.contextQuality?.compactionReserveTokens, 700_000),
+      sdkOverflowReserveTokens: d(raw.contextQuality?.sdkOverflowReserveTokens, 50_000),
     },
     llm: {
       default: raw.llm.default,

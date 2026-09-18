@@ -28,7 +28,8 @@ export interface InvokeRegister {
   pendingDispatches: Map<string, string>;
   dispatchWarningShown: boolean;
   orchestrationWarningShown: boolean;
-  pendingRestart?: { summary?: string; modelAlias?: string };
+  /** F20260918uhuc：synthesizePast 透传（restart_otter 工具参数→自重启统一交接） */
+  pendingRestart?: { summary?: string; modelAlias?: string; synthesizePast?: boolean };
   /** F20260913ctlv：当前 invoke ID（invoke 级上下文——池命中不刷新则第二次 invoke 复用旧 ID，
    *  speak/yield entry 会挂错 invoke；随寄存器 invoke 入口重置） */
   currentInvokeId?: string;

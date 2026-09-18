@@ -72,7 +72,7 @@ for (const file of walk(path.join(root, "docs/features"))) {
 /** Ratchet（第二轮对抗检视）：警告数只许减不许增——否则警告疲劳后约束力归零。
  *  新增 feature/prompt 文档缺 capability_test 会推高警告数并在此报错；
  *  存量文档补声明后可下调本数值。 */
-const MAX_WARNINGS = 67; // F20260913ctlv：+4 悬空指针入账（功能退役的存量债务）
+const MAX_WARNINGS = 68; // F20260913ctlv：+4 悬空指针入账；F20260918uhuc：+1（compaction-hook 钩子退役删测试，F20260903cmpk 指针悬空——功能退役的存量债务，先例同构）
 
 if (warnings > MAX_WARNINGS) {
   errors++;
