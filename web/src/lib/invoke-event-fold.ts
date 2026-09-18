@@ -31,6 +31,8 @@ export type FoldedStep =
   | { kind: 'think'; text: string; ts: string; rawEventIds: string[] }
   | { kind: 'speak'; body: string; ts: string; rawEventIds: string[] }
   | { kind: 'error'; message: string; ts: string; rawEventIds: string[] }
+  /** F20260918sesp：user 侧注入步（message_start role=user 落库）——触发 prompt / steer / followUp 消费点 */
+  | { kind: 'user'; text: string; ts: string; rawEventIds: string[] }
 
 /** 判定 assistant_toolcall 事件是否 message_end 快照（无执行语义）。
  *  快照 payload.content 是数组（LLM 请求块复述）；真实 start 落库 payload 是 {name, arguments}。 */
@@ -54,6 +56,12 @@ export function foldInvokeEvents(events: InvokeEventDTO[], opts?: { invokeEnded?
 
   for (const ev of events) {
     switch (ev.eventType) {
+      /** F20260918sesp：user 侧注入直通成步（无配对语义） */
+      case 'user_injection': {
+        const p = ev.payload ?? {}
+        steps.push({ kind: 'user', text: String(p.content ?? ''), ts: ev.createdAt, rawEventIds: [ev.id] })
+        break
+      }
       case 'assistant_toolcall': {
         if (isMessageEndSnapshot(ev)) break // 规则 3：message_end 快照丢弃（溯源 id 不丢——见 call 步 rawEventIds 注记）
         const p = ev.payload ?? {}

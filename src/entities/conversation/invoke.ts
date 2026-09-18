@@ -27,7 +27,7 @@ export interface Invoke {
 }
 
 /** Invoke 事件类型 */
-export type InvokeEventType = "assistant_text" | "assistant_toolcall" | "tool_result" | "error" | "speak";
+export type InvokeEventType = "assistant_text" | "assistant_toolcall" | "tool_result" | "error" | "speak" | "user_injection";
 
 /** Invoke 事件实体（流式过程记录） */
 export interface InvokeEvent {
