@@ -181,6 +181,27 @@ describe('SchedulerService - self-healing-analysis 模板化（issue #416）', (
     expect(effectiveBody).not.toContain('{{HEALING_DATA}}');
   });
 
+  it('#998 二维分账行：三列计数与口径清单从实体层拼接（R1/R2 残留处置）', async () => {
+    const capturing = createCapturingSendEntry();
+    const service = new SchedulerService({
+      ...baseDeps,
+      sendEntry: capturing as unknown as SendEntry,
+      taskRepo: createMockTaskRepo(makeHealingTask()),
+      healingRepo: createMockHealingRepo(2),
+    });
+
+    await service.trigger('task-healing');
+    const effectiveBody = capturing.sentBodies[0];
+
+    // mock 的 errorType 是中文「工具故障」→ 不在环境清单 → 归能力（开放式兜底）
+    expect(effectiveBody).toContain('环境/系统失败 0 条');
+    expect(effectiveBody).toContain('獭能力失败 2 条');
+    expect(effectiveBody).toContain('主动反馈 0 条');
+    // 口径文案从实体清单拼接（非硬编码字面量）
+    expect(effectiveBody).toContain('tool_failure/rate_limit/circuit_break/self_restart=环境');
+    expect(effectiveBody).toContain('tool_use_feedback=反馈独立列');
+  });
+
   it('无待处理 healing events 时：跳过触发，不发送消息', async () => {
     const capturing = createCapturingSendEntry();
     const healingRepo = createMockHealingRepo(0);

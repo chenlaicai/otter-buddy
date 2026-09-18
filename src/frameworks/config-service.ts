@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- F20260917cvid 加 currentConversationBoost 后 453>450；配置字段聚合本文件是设计使然 */
 /**
  * 统一配置读取模块。
  * 从 config/config.yaml 读取配置，进行校验，导出不可变配置对象。
@@ -60,6 +61,8 @@ export interface AppConfig {
     vecSimilarityThreshold: number;
     /** 两路命中（source=both）的加成系数，默认 1.2 */
     bothBoost: number;
+    /** F20260917cvid: 本对话来源条目排序加成系数，默认 1.5 */
+    currentConversationBoost: number;
     weightHalfLifeDays: number;
     /** F20260902rcp1: document 层（feature/research）专用半衰期，默认 90 天 */
     weightHalfLifeDaysDocument: number;
@@ -251,6 +254,8 @@ interface RawConfig {
     alpha?: number;
     vecSimilarityThreshold?: number;
     bothBoost?: number;
+    /** F20260917cvid: 本对话来源条目排序加成系数（默认 1.5） */
+    currentConversationBoost?: number;
     weightHalfLifeDays?: number;
     /** F20260902rcp1: document 层专用半衰期（天），默认 90 */
     weightHalfLifeDaysDocument?: number;
@@ -434,6 +439,7 @@ function buildMemoryConfig(raw: RawConfig): AppConfig["memory"] {
     alpha: d(raw.memory?.alpha, 0.4),
     vecSimilarityThreshold: d(raw.memory?.vecSimilarityThreshold, 0.3),
     bothBoost: d(raw.memory?.bothBoost, 1.2),
+    currentConversationBoost: d(raw.memory?.currentConversationBoost, 1.5),
     weightHalfLifeDays: d(raw.memory?.weightHalfLifeDays, 7),
     weightHalfLifeDaysDocument: d(raw.memory?.weightHalfLifeDaysDocument, 90),
     userFlagMultiplier: d(raw.memory?.userFlagMultiplier, 2.0),

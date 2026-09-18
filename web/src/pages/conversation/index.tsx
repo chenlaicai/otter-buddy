@@ -1269,12 +1269,14 @@ function ConversationPage() {
     if (modal.type !== 'restart') return
     const otterId = modal.otterId
     try {
-      await api.restartOtter(otterId, summary, modelAlias)
+      // F20260917rsta：摘要可选——空串透传 undefined，后端走自动 LLM 交接合成
+      await api.restartOtter(otterId, summary.trim() || undefined, modelAlias)
+      const hasSummary = Boolean(summary.trim())
       /** F20260805rsto：重启后重拉 session 链——加载 effect 有 `!sessions[id]` 守卫，
        *  不主动重拉的话弹窗/卡片一直显示旧数据直到刷新页面 */
       const dtos = await api.getSessionHistory(otterId)
       setSessions(prev => ({ ...prev, [otterId]: dtos.map(mapSessionDTO) }))
-      setModal({ type: 'none' }); showToast('前世已封存，新一世獭生已开始', 'success')
+      setModal({ type: 'none' }); showToast(hasSummary ? '前世已封存，新一世獭生已开始' : '前世已封存，交接摘要自动生成中，新一世獭生已开始', 'success')
     } catch { showToast('重启失败', 'error') }
   }
 

@@ -30,10 +30,44 @@ describe('每日健康检查模板纪律锁（#791 P1）', () => {
     expect(tpl).toContain('未交叉验证');
   });
 
-  it('数据源清单完整：7 项编号齐全（防误删数据源项）', () => {
+  it('数据源清单完整：6 项编号齐全 + 每项含语义关键词（防误删/防改名保壳）', () => {
     const tpl = readTemplate();
-    for (const n of [1, 2, 3, 4, 5, 6, 7]) {
+    // 编号完整性：1-6 项编号齐全（防误删数据源项）
+    for (const n of [1, 2, 3, 4, 5, 6]) {
       expect(tpl).toMatch(new RegExp(`^${n}\\. \\*\\*`, 'm'));
     }
+    // 语义锚定（#1036 检视：只断言编号锁不住语义，条目改名换内容照样绿）
+    expect(tpl).toMatch(/1\. \*\*对话历史\*\*[\s\S]*?search_memory/);
+    expect(tpl).toMatch(/2\. \*\*GitHub issues \/ PRs\*\*/);
+    expect(tpl).toMatch(/3\. \*\*self-healing events\*\*[\s\S]*?二维分账/);
+    expect(tpl).toMatch(/4\. \*\*memory\*\*[\s\S]*?created_after/);
+    expect(tpl).toMatch(/5\. \*\*RHI 健康信号\*\*[\s\S]*?api\/health\/overview/);
+    expect(tpl).toMatch(/6\. \*\*signal_events\*\*[\s\S]*?query_signals/);
+  });
+
+  it('锚点抽查异体模型规则存在（#1000：同模型抽查共享盲区，P0 阈值永不触发）', () => {
+    const tpl = readTemplate();
+    expect(tpl).toContain('异体核对');
+    expect(tpl).toContain('必须不同模型');
+    expect(tpl).toContain('model_alias');
+    expect(tpl).toContain('同模型抽查，置信降级');
+    expect(tpl).toContain('模型对照行');
+  });
+
+  it('异体核对规则位于抽查步骤 2 上下文（防内容被移到注释区仍通过——PR #1021 检视建议）', () => {
+    const tpl = readTemplate();
+    // 抽查段内步骤 2 与步骤 3 之间的文本必须含核心约束
+    const m = tpl.match(/2\. \*\*异体核对[\s\S]*?\n3\. \*\*/);
+    expect(m).not.toBeNull();
+    expect(m![0]).toContain('必须不同模型');
+    expect(m![0]).toContain('model_alias');
+  });
+
+  it('观测器信噪比自监控段存在（#999：观测器自己也被观测——误报率比检出率更决定生死）', () => {
+    const tpl = readTemplate();
+    expect(tpl).toContain('观测器信噪比自监控');
+    expect(tpl).toContain('dismiss');
+    expect(tpl).toContain('不处置率');
+    expect(tpl).toContain('降级');
   });
 });

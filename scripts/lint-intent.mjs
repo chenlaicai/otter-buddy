@@ -3,6 +3,8 @@
  * F20260824ax376: PR 评估体系 - intent 字段校验脚本（commit-time gate）。
  * F20260825evgl: 扩展软代码域三值 + 联动可判定检查；validateIntent 导出供测试 import 真实现
  *               （检视发现 1：测试副本与实现分叉导致假阳性，改为单一真相源）。
+ * F20260917sdpl: 软代码 verify_by 声明时间界收口（≥2026-09-17 error）+ golden_replay 执行
+ *               记录弱核对（分环境：本地 error / CI 缺文件降 warning）。
  *
  * 检查 F 文档 frontmatter 的 intent 字段，确保每次合入都有明确目标。
  * 依赖：pre-commit hook 已跑 `npm run check`（= build）产出 dist/。
@@ -15,6 +17,10 @@ import { execSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 const root = process.cwd();
+// F20260917sdpl：golden_replay 执行核对读此路径。测试通过临时切 cwd 覆盖。
+// 注：root 在模块加载时求值；validateIntent 内用 getter 重新读 process.cwd()，
+// 使测试的 withTempCwd 切目录生效（脚本主流程仍用上面的 root，行为不变）。
+const goldenResultsPath = () => path.join(process.cwd(), "data", "metrics", "golden-results.jsonl");
 const distRoot = pathToFileURL(path.join(root, "dist/src")).href;
 
 function walk(dir) {
@@ -53,6 +59,16 @@ function isSoftCodeChange(fm) {
   const modules = fm.modules;
   if (!Array.isArray(modules)) return false;
   return modules.some((m) => typeof m === "string" && (m.startsWith("prompts/") || m.startsWith(".pi/")));
+}
+
+// F20260917sdpl：软代码 verify_by 声明收口时间界——created_at ≥ 此日期的新文档缺声明是 error。
+// 可伪造性：lint 不防（回填旧日期可降回 warning），由检视獭按 git 首提交时间对照打回（PR 核对点④）。
+const SOFT_CODE_ENFORCE_DATE = "2026-09-17";
+
+/** 时间界判定：文档 created_at ≥ 收口日期（created_at 缺失按存量处理，不追诉） */
+function isNewEnough(fm) {
+  if (typeof fm.created_at !== "string") return false;
+  return fm.created_at >= SOFT_CODE_ENFORCE_DATE;
 }
 
 /**
@@ -202,13 +218,53 @@ function validateIntent(fm) {
     }
   } else {
     // verify_by 缺失：软代码改动（modules 含 prompts/ 或 .pi/）提示必须显式声明。
-    // 存量宽容：统一警告不阻断（沿用阶段一策略，与 F20260824ax376 一致）——新规则靠后续
-    // PR 检视流程约束（检视獭按 verify_by.type 跑场景），不靠 lint 硬阻断存量文档。
+    // F20260824ax376 存量宽容：2026-09-17 之前的文档统一 warning 不阻断。
+    // F20260917sdpl 收口：created_at ≥ ENFORCE_DATE 的新软代码文档缺 verify_by → error
+    // （时间界增量收口：新规则管新文档，不追诉存量）。
     const changeType = fm.change_type;
     if (isSoftCodeChange(fm)) {
-      warnings.push("Recommended intent.verify_by field for soft-code change (modules 含 prompts/ 或 .pi/)——软代码 PR 应显式声明 capability_test/golden_replay/human_judge/static_only 四选一");
+      if (isNewEnough(fm)) {
+        errors.push(
+          `Missing intent.verify_by for soft-code change (modules 含 prompts/ 或 .pi/, created_at ≥ ${SOFT_CODE_ENFORCE_DATE})——新软代码 PR 必须显式声明 verify_by（推荐 capability_test/golden_replay/human_judge/static_only，metric_probe 在指标验证场景亦合法），纯润色类可用 static_only`,
+        );
+      } else {
+        warnings.push("Recommended intent.verify_by field for soft-code change (modules 含 prompts/ 或 .pi/)——软代码 PR 应显式声明 capability_test/golden_replay/human_judge/static_only 四选一");
+      }
     } else if (INTENT_REQUIRED_CHANGE_TYPES.has(changeType)) {
       warnings.push("Recommended intent.verify_by field for feature");
+    }
+  }
+
+  // F20260917sdpl 改动 2：golden_replay 声明的执行核对（弱机械核对，分环境）。
+  // 文件存在（本地）：无 ts ≥ created_at 记录 → error；文件不存在（CI 干净环境）→ warning
+  // 提示不阻断（真实闸门在本地 lint 时机，CI 只兜底提醒——假红与假绿同为伪门禁）。
+  // created_at 缺失的文档（存量无此字段）无时间界锚点，跳过核对——与声明收口的
+  // 「missing created_at 按存量宽容」同口径，不追诉（实测：F20260902gact/F20260917asgv
+  // 声明 golden_replay 但无 created_at，不跳过会在主仓本地必误伤）。
+  if (intent.verify_by && typeof intent.verify_by === "object" &&
+      intent.verify_by.type === "golden_replay" && isSoftCodeChange(fm) &&
+      typeof fm.created_at === "string") {
+    const resultsPath = goldenResultsPath();
+    const createdAt = fm.created_at;
+    if (fs.existsSync(resultsPath)) {
+      const hasRecordAfterCreation = fs.readFileSync(resultsPath, "utf8")
+        .split("\n")
+        .filter((line) => line.trim().length > 0)
+        .some((line) => {
+          try {
+            const rec = JSON.parse(line);
+            return typeof rec.ts === "string" && rec.ts.slice(0, 10) >= createdAt;
+          } catch { return false; }
+        });
+      if (!hasRecordAfterCreation) {
+        errors.push(
+          `intent.verify_by.type=golden_replay 但 data/metrics/golden-results.jsonl 无 created_at(${createdAt})之后的执行记录——先跑 npm run test:capability:only，fail 行按 PR 模板 Golden Gate 条款处置`,
+        );
+      }
+    } else {
+      warnings.push(
+        "golden_replay 执行记录文件 data/metrics/golden-results.jsonl 不存在（CI 干净环境无本地记录）——本核对的真实闸门在本地 lint 时机（文档创建后、PR 前），请确认本地已跑 golden 并留痕",
+      );
     }
   }
 
@@ -227,7 +283,7 @@ function validateIntent(fm) {
   return { errors, warnings };
 }
 
-export { validateIntent, isSoftCodeChange, VALID_VERIFY_BY_TYPES };
+export { validateIntent, isSoftCodeChange, isNewEnough, VALID_VERIFY_BY_TYPES, SOFT_CODE_ENFORCE_DATE };
 
 /** 仅作为脚本直接运行时执行 lint 主流程；被测试 import 时只取纯函数，不触发 dist 依赖与文件遍历 */
 const isMain = process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;

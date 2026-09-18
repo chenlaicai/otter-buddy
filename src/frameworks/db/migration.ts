@@ -121,6 +121,10 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
    *  schema.ts 新库已含两列；存量库跑不到 initSchema 的 CREATE 分支，需 ALTER 补列。幂等：PRAGMA 检测。 */
   ensureSignalsEvidenceColumns(db, logger);
 
+  /** F20260917trig：signals 表添加 triage_status / issue_number / triaged_at / triage_note 四列（存量库迁移）。
+   *  schema.ts 新库已含四列；存量库跑不到 initSchema 的 CREATE 分支，需 ALTER 补列。幂等：PRAGMA 检测。 */
+  ensureSignalsTriageColumns(db, logger);
+
   /** F20260901sgp0 P0：messages 表添加 signal_level + signal_meta 列（信号协议铺轨）。
    *  schema.ts 新库已含两列；存量库需 ALTER 补列。幂等：PRAGMA 检测。 */
   ensureMessagesSignalColumns(db, logger);
@@ -539,6 +543,23 @@ function ensureSignalsEvidenceColumns(db: Database.Database, logger: Logger): vo
     db.prepare("ALTER TABLE signals ADD COLUMN confidence TEXT").run();
     logger.info('Added confidence column to signals table');
   }
+}
+
+/** F20260917trig：signals 表补处置状态机四列（幂等，PRAGMA 检测）。
+ *  同 ensureSignalsEvidenceColumns 模式——存量库列补丁不进 initSchema 的 CREATE，
+ *  只在这里 ALTER 补旧库。四列全部 nullable/默认值，存量行为零变化。 */
+function ensureSignalsTriageColumns(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(signals)").all() as Array<{ name: string }>;
+  const add = (name: string, ddl: string) => {
+    if (!columns.some(col => col.name === name)) {
+      db.prepare(`ALTER TABLE signals ADD COLUMN ${ddl}`).run();
+      logger.info(`Added ${name} column to signals table`);
+    }
+  };
+  add('triage_status', 'triage_status TEXT DEFAULT NULL');
+  add('issue_number', 'issue_number INTEGER DEFAULT NULL');
+  add('triaged_at', 'triaged_at TEXT DEFAULT NULL');
+  add('triage_note', 'triage_note TEXT DEFAULT NULL');
 }
 
 /** F20260914rtsp：invokes 表补 ctx_window_used 列（存量库）。幂等：PRAGMA 检测。 */

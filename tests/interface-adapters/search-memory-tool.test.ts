@@ -92,3 +92,18 @@ describe("search_memory 埋点接线（F20260826rcmp 审视补充）", () => {
     expect(parsed.entries).toHaveLength(1);
   });
 });
+
+describe("F20260917cvid: 本对话加权自动注入", () => {
+  it("search_memory 自动把 ctx.conversationId 传给检索层（第 8 个参数）", async () => {
+    const seenArgs: unknown[][] = [];
+    const ctx = makeCtx(async (...args: unknown[]) => {
+      seenArgs.push(args);
+      return { entries: [] } as never;
+    });
+    await getSearchTool(ctx).execute("tc-1", { query: "echo agent" });
+
+    expect(seenArgs).toHaveLength(1);
+    // search(query, limit, detailLevel, library, createdAfter, contentType, expandContext, currentConversationId)
+    expect(seenArgs[0][7]).toBe("conv-1");
+  });
+});

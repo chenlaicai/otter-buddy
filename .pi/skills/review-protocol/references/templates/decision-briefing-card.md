@@ -71,7 +71,7 @@ code{background:var(--otter-100);padding:2px 6px;border-radius:4px;font-size:11p
   <ul>
     <li>9/15 01:26「发电机」卡：决策请求埋最后一段</li>
     <li>9/11 07:18 session 池化：400+ 字技术细节，决策点塞末行</li>
-    <li>锚点：<code>analysis/2026-09-15-shuorenhua-failure-analysis.md</code> · F20260916rptl</li>
+    <li>锚点：<code>analysis/&lt;分析文档路径&gt;</code> · &lt;特性编号&gt;</li>
   </ul>
 </details>
 

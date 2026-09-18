@@ -64,7 +64,7 @@ code{background:var(--otter-100);padding:2px 6px;border-radius:4px;font-size:11p
   <summary>📂 完整版：案发现场 / 锚点</summary>
   <ul>
     <li>证据链：<code>gh pr view 955 --json headRefOid</code> = 560a93e6（rebase 版）vs worktree git status 9 文件 staged</li>
-    <li>锚点：对话 9/16 17:05 检视獭 blocked 信号 · PR #955</li>
+    <li>锚点：对话 <时间> <事件> · PR #<编号></li>
   </ul>
 </details>
 

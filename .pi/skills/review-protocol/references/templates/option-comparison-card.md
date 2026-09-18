@@ -54,7 +54,7 @@ code{background:var(--otter-100);padding:2px 6px;border-radius:4px;font-size:11p
   <summary>📂 完整版：压测数据 / 锚点</summary>
   <ul>
     <li>压测：10 万条记忆，A 建索引 42min / B 增量单次 &lt;200ms</li>
-    <li>锚点：<code>R20260910xxxx</code> 调研报告 · issue #623</li>
+    <li>锚点：<code>&lt;R 编号&gt;</code> 调研报告 · issue #&lt;编号&gt;</li>
   </ul>
 </details>
 

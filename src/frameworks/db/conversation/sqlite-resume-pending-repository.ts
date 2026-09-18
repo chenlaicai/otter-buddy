@@ -40,15 +40,6 @@ export class SqliteResumePendingRepository implements ResumePendingRepository {
     return rows.map(rowToPendingResume);
   }
 
-  async listRecentConversationIds(beforeTimestamp: string): Promise<string[]> {
-    const rows = this.db.prepare(
-      "SELECT conversation_id AS cid FROM invokes WHERE started_at < ? " +
-        "UNION SELECT conversation_id AS cid FROM entries " +
-        "WHERE entry_type = 'invoke_start' AND created_at < ?",
-    ).all(beforeTimestamp, beforeTimestamp) as Array<{ cid: string }>;
-    return rows.map(r => r.cid);
-  }
-
   /** S1 修复（PR #994 检视）：attempts 上限防跨重启无限重试——恢复中崩溃则 pending 残留，
    *  下次重启重拾再崩溃 → 无限循环（配额耗尽型 429 场景每次重启白烧 LLM 调用，#843 实证）。
    *  上限值 5：每次重启恢复消耗 1 attempts（认领只在恢复入口一次，进程内 429 退避

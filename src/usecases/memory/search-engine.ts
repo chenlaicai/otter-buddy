@@ -12,6 +12,11 @@ export interface SearchEngineConfig {
   vecSimilarityThreshold: number;
   /** 两路命中（source=both）的加成系数，默认 1.2 */
   bothBoost: number;
+  /** F20260917cvid: 本对话来源记忆条目的排序加成系数（>1），默认 1.5——
+   *  搭档「本对话的历史消息权重应该更高」：长对话几十世同一主题，本对话来源
+   *  的记忆与当前语境天然强相关。乘法加成（与 userFlagMultiplier 同型），
+   *  作用于 rerank 阶段（RRF 之后），保留跨对话知识可见只是排序下沉。 */
+  currentConversationBoost: number;
   weightHalfLifeDays: number;
   /** F20260902rcp1: document 层（feature/research summary+chunk）专用半衰期，默认 90 天——
    *  7 天半衰期下一个月前的文档权重只剩 5%，「找历史特性」类查询永久出局（Phase 0 根因3） */
@@ -46,6 +51,7 @@ export interface ScoredHit {
  *     × time_decay          // exp(-ln(2) * age_days / half_life_days)
  *     × frequency_boost     // log(1 + retrieval_count) * factor + 1
  *     × user_flag_multiplier // user_flagged ? userFlagMultiplier : 1.0
+ *     × conversation_boost // F20260917cvid: 本对话来源条目 × currentConversationBoost（rerank 传 currentConversationId 时）
  */
 export class SearchEngine {
   constructor(private readonly config: SearchEngineConfig) {}
@@ -154,12 +160,14 @@ export class SearchEngine {
     return result;
   }
 
-  /** 权重重排：rrfScore × timeDecay × frequencyBoost × userFlagMultiplier
+  /** 权重重排：rrfScore × timeDecay × frequencyBoost × userFlagMultiplier × conversationBoost（F20260917cvid）
    *  F20260902rcp1: document 层（feature/research summary+chunk）按 weightHalfLifeDaysDocument 衰减，
    *  其余层维持 weightHalfLifeDays。 */
   rerank(
     hits: Map<string, RrfHit>,
     weights: Map<string, MemoryWeight>,
+    /** F20260917cvid: 当前对话 ID——命中条目 conversationId 匹配时乘 currentConversationBoost */
+    currentConversationId?: string,
   ): ScoredHit[] {
     const result: ScoredHit[] = [];
     for (const [id, hit] of hits) {
@@ -176,7 +184,10 @@ export class SearchEngine {
         hit.rrfScore *
         this.computeTimeDecay(hit.entry.createdAt, halfLifeDays) *
         this.computeFrequencyBoost(weight.retrievalCount) *
-        (weight.userFlagged ? this.config.userFlagMultiplier : 1.0);
+        (weight.userFlagged ? this.config.userFlagMultiplier : 1.0) *
+        (currentConversationId && hit.entry.conversationId === currentConversationId
+          ? this.config.currentConversationBoost
+          : 1.0);
       result.push({
         entryId: id,
         finalScore,

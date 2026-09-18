@@ -67,6 +67,8 @@ memory:
   # 用户标记记忆的加权倍数（默认 2.0）
   # 用户主动标记的记忆在检索排名中获得此倍数加成
   userFlagMultiplier: 2.0
+  # F20260917cvid: 本对话来源记忆条目排序加成（>1 上浮，1.0 关闭），默认 1.5
+  # currentConversationBoost: 1.5
   # 检索频次加成系数（默认 0.1）
   # 每次记忆被检索，其分数增加此值，实现"越用越强"的效果
   frequencyBoostFactor: 0.1

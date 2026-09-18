@@ -99,11 +99,11 @@ async function reconcileRunningInvokes(db: Database.Database, repos: Repositorie
   let queued = 0;
   for (const invoke of failedInvokes) {
     try {
-      // trigger_entry_id 为 NULL = 无用户 entry 锚点（scheduler 直连链等）——排除。
-      if (!invoke.triggerEntryId) continue;
-      const triggerEntry = await repos.entry.getEntryById(invoke.triggerEntryId);
-      // scheduler 内部信号走 system entry——来源为 system 或查询失败的（迁移间隙）不入队。
-      if (!triggerEntry || triggerEntry.entryType === "system") continue;
+      // F20260917rscr 三点裁决：① 不再排除 scheduler 来源——定时任务中断与用户消息
+      // 中断本质相同（意外中断的工作该续上）；「防重复产出」由恢复侧的「獭已恢复」
+      // 判据统一覆盖（中断后该獭已有新 invoke 即跳过——cron 重触发场景自然被挡）。
+      // trigger_entry_id 为 NULL 的直调路径（无锚 invokeConversation）同样入队——
+      // 队列只存 invoke 自身信息，恢复不依赖 trigger entry。
       db.prepare(
         "INSERT OR IGNORE INTO restart_pending_resumes (invoke_id, conversation_id, otter_id, trigger_entry_id, status, attempts, created_at) VALUES (?, ?, ?, ?, 'pending', 0, ?)",
       ).run(invoke.id, invoke.conversationId, invoke.otterId, invoke.triggerEntryId, new Date().toISOString());

@@ -58,6 +58,7 @@ import type { RhiScanWorker as RhiScanWorkerType } from "@usecases/health/rhi-sc
 import { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import { SignalPipeline } from "@usecases/health/signal-pipeline";
 import { SignalAgingWorker } from "@usecases/signal/signal-aging-worker";
+import { RhiSignalAgingWorker } from "@usecases/health/rhi-signal-aging-worker";
 import { PatrolWorker } from "@usecases/health/patrol-worker";
 import { collectHealingEvents } from "@usecases/health/healing-collector";
 import type { AgentSessionSource } from "@usecases/health/cost-output-collector";
@@ -185,8 +186,6 @@ function createRhiScanWorker(deps: {
 export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp> {
   const dataDir = options.dataDir ?? "./data";
   const logger = options.logger ?? createLogger(path.join(dataDir, "logs"));
-  /** F20260916b1ea：服务启动时刻——信号补扫只处理早于该时刻的 entry（崩溃窗口界定） */
-  const serviceStartedAt = new Date().toISOString();
 
   /** initConfig 必须先于一切 init：PiSessionFactory 构造时捕获全局 config 单例的 circuitBreaker */
   const config = options.config ?? loadConfig(logger, options.configPath);
@@ -245,12 +244,23 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     logger,
   );
 
+  // F20260917trig §3：RHI 信号老化扫描——signals 表超龄未接单/归口停滞自动落聚合 healing。
+  // 独立于调度链（与獭间 aging 同教训）；聚合限流（同 signal_type 一轮 1 条）防存量告警风暴。
+  // 编排防线：存量批量出清（§5，大獭合入后执行）先于本 worker 首次 tick 的存量命中。
+  const rhiSignalAgingWorker = new RhiSignalAgingWorker(
+    () => repos.rhiSignal,
+    () => repos.healingEvent,
+    logger,
+  );
+
   // #949：四个「扫台账」同构循环合并为单一巡检 worker（8→5 常驻循环）——
   // 运行时对账（#823）/ Signal Aging（#927）/ RHI Scan（#401）/ Embedding Retry（F20260812mrcq）。
   // 失败隔离：一家炸了不影响后续家；周期 1h（四家原节奏已对齐，无时钟语义变化）。
   const patrolWorker = new PatrolWorker([
     { name: 'scheduler-reconcile', run: () => schedulerService.reconcileMissedWindowsNow() },
     { name: 'signal-aging', run: async () => { await signalAgingWorker.scanOnce(); } },
+    // F20260917trig §3：RHI 信号老化（聚合限流 + 孤儿 healing 清理）——并入巡检循环
+    { name: 'rhi-signal-aging', run: async () => { await rhiSignalAgingWorker.scanOnce(); } },
     { name: 'rhi-scan', run: async () => { await rhiScanWorker.scanOnce(); } },
     ...(retryWorker ? [{ name: 'embedding-retry', run: () => retryWorker.tickNow() }] : []),
   ], logger);
@@ -513,8 +523,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   }
 
   // F20260916b1ea：重启自动恢复服务重建（8/28 同名机制被 #886 误删后按 invoke 模型回归）。
-  // 装配在 signalRouter 之后（补扫依赖其 rescanPending）与 agentInvoker 之后
-  // （invokeFn 闭包捕获，对齐旧装配模式）；fire-and-forget 不阻塞服务就绪。
+  // F20260917rscr：补扫已删除（9/17 重启风暴实证）——只恢复队列里的中断 invoke。
+  // 装配在 agentInvoker 之后（invokeFn 闭包捕获）；fire-and-forget 不阻塞服务就绪。
   if (options.startResume ?? true) {
     const resumeService = new ResumeInterruptedService({
       conversationRepo: repos.conversation,
@@ -523,7 +533,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       resumePendingRepo: repos.resumePending,
       dispatchChainEngine,
       invokeFn: (params) => agentInvoker.invokeConversation(params),
-      signalRouter,
       sendSystemEntry: async (conversationId, body) => {
         // turnId 空串走 createSystemEntry 内部 ensureActiveTurn 兜底（send-entry.ts:483
         // 注释「空 turnId 兜底」——自动取/建当前活跃 turn，系统消息落最新轮次）
@@ -531,7 +540,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       },
       healingRepo: repos.healingEvent,
       logger,
-      serviceStartedAt,
     });
     resumeService.resume().catch((err) => {
       logger.error("Resume interrupted service failed", err instanceof Error ? err : new Error(String(err)));

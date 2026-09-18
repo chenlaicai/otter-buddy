@@ -157,7 +157,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
 
   return {
     conversation: new ConversationController(uc.manageConversation, uc.manageParticipant, settingsRepo, logger, modelPool),
-    otter: new OtterController(uc.createOtter, uc.dissolveOtter, uc.manageSession, uc.queryOtter, logger, otterConfigProvider, deps.queryOtterProfile, modelPool),
+    otter: new OtterController(uc.createOtter, uc.dissolveOtter, uc.manageSession, uc.queryOtter, logger, otterConfigProvider, deps.queryOtterProfile, modelPool, agentInvoker),
     message: new MessageController(
       uc.queryMessage, uc.manageReadState, agentInvoker, logger, uc.queryOtter,
       dispatchChainEngine, messageBroadcaster,

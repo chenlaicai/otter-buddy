@@ -21,12 +21,12 @@ Does relevant feature documentation exist and match the implementation?
 - Check if feature documentation exists for the changes
 - Verify documentation matches actual implementation
 - Missing or inconsistent documentation must be reported as a 严重发现 in the review report
-- **历史文档不可变核查（F20260831dgim）**：PR 中对 `docs/features/`、`docs/research/` 已在 main 出现过的文档的 M/D 修改，直接标严重发现（结构性迁移除外：PR 描述或特性文档中记录了 BYPASS 理由）——正确姿势是新建文档记录变更，frontmatter from/supersedes 关联前文
+- **历史文档不可变核查**：PR 中对 `docs/features/`、`docs/research/` 已在 main 出现过的文档的 M/D 修改，直接标严重发现（结构性迁移除外：PR 描述或特性文档中记录了 BYPASS 理由）——正确姿势是新建文档记录变更，frontmatter from/supersedes 关联前文
 
 **判断标准（硬规则，不可降级）**：
 - 特性文档存在 → read 文档，检查与实现一致性
 - 特性文档缺失 → **严重发现（B2）**，无论变更类型（代码/prompt/skill/doc），不可降级为「可接受」或「完整」
-- **历史文档被修改 → 严重发现（B2，F20260831dgim）**：`git diff origin/main...HEAD --name-status -- docs/features/ docs/research/` 出现非 A 状态的历史文件（已在 main 出现过），除非 PR 明确声明结构性迁移（BYPASS 留痕）——正确姿势是新文档记录变更
+- **历史文档被修改 → 严重发现（B2）**：`git diff origin/main...HEAD --name-status -- docs/features/ docs/research/` 出现非 A 状态的历史文件（已在 main 出现过），除非 PR 明确声明结构性迁移（BYPASS 留痕）——正确姿势是新文档记录变更
 - 检查步骤：`list_artifacts` 查找特性文档 → 不存在则直接标记严重发现 → 存在则 read 核对一致性
 
 ### B3. End-to-End Verification
@@ -36,13 +36,15 @@ Is the feature functional end-to-end, not just unit tests passing?
 Verification depends on PR type:
 - **Prompt changes**: Run the workflow with the new prompt to verify it works
 - **Code changes**: Execute key paths in the actual environment
-- **DB migration changes**（migration.ts 新增/修改迁移函数、或 schema.ts 表结构变更）: **真启动验证**——在生产 DB 副本上执行完整启动路径（迁移 → bootstrap → 服务监听成功、日志无 SqliteError），仅跑迁移函数 + SQL 行数校验不算 B3 通过（#962 事故：崩溃点在启动链路 enqueueRetry 的 ON CONFLICT，SQL 校验触达不到；同类事故 F20260812emgr/F20260916rkct 已踩两次）
+- **DB migration changes**（migration.ts 新增/修改迁移函数、或 schema.ts 表结构变更）: **真启动验证**——在生产 DB 副本上执行完整启动路径（迁移 → bootstrap → 服务监听成功、日志无 SqliteError），仅跑迁移函数 + SQL 行数校验不算 B3 通过（事故教训：崩溃点在启动链路 enqueueRetry 的 ON CONFLICT，SQL 校验触达不到；同类事故已踩两次（出处见 git 历史））
 - **Config changes**: Verify the config takes effect
 - **Documentation changes**: Verify docs match implementation
 
 End-to-end verification failure must be reported as a 严重发现 in the review report.
 
-**pre-existing 声明核验（#614）**：作者自检报告中的「pre-existing / 与本次变更无关」失败声明，若未附 `git stash -u` 复跑或 `origin/main` 基线对照证据，直接打回——无证据 = 未验证（8/30 #599 现场：5 个自引入失败被误报为与己无关）。检视者可自行抽查：`git stash -u` 或 checkout 基线单跑，验证声明是否成立。
+**pre-existing 声明核验**：作者自检报告中的「pre-existing / 与本次变更无关」失败声明，若未附 `git stash -u` 复跑或 `origin/main` 基线对照证据，直接打回——无证据 = 未验证（历史现场：5 个自引入失败被误报为与己无关）。检视者可自行抽查：`git stash -u` 或 checkout 基线单跑，验证声明是否成立。
+
+**教训段三要素核查（含教训段的 PR 必查）**：PR 新增/修订了「#xxx 教训/现场」类段落（skill/prompt/SYSTEM.md/特性文档）时，逐段核对「不这么做的现场」三要素——①当时的错误现象 ②导致的后果 ③定位过程；缺任一要素 = 建议发现打回（半成品教训是 3.8% 形态，EPD 对照）。判定示例与模糊地带（流水账/多行分布）见 writing-skills SKILL.md 5b 节。存量教训段不回改，只管本 PR 新增/修订。
 
 ### B4. Change Identity Consistency
 
@@ -79,9 +81,9 @@ Does the implementation match the design intent?
 - Trace the logic flow — are there paths that produce wrong results?
 - Check error handling — are failures handled or silently swallowed?
 - Verify edge cases in the logic — what happens at boundaries?
-- **F-claim audit (issue #379 ②)**：Cross-check each claim in the feature doc against the code — for every "implemented X" statement in the doc, verify the corresponding symbol/logic exists in code. List claims that run ahead of the code (doc says done, code not wired yet).（F 承诺对账：逐条核对特性文档声称的功能点 vs 代码实现，承诺面跑在代码前面时逐条列出）
-- **迁移结构保持核查（#962 事故，迁移类 PR 必查）**：变更涉及 DB 表重建/复制时，逐表核对结构保持方式——`CREATE TABLE AS SELECT`（CTAS）只拷数据不拷结构（丢 PK/UNIQUE/FK、FTS5/vec0 虚拟表退化为普通表），**任何 CTAS 用法直接标严重发现**；正确姿势是 sqlite_master 提取 DDL 重建或原地 DELETE+INSERT 换键。同一迁移函数内主表与卫星表使用不同严谨度的重建方式（#944 现场：主表从 sqlite_master 提 DDL 防漂移，四张卫星表 CTAS）是**强信号**——必须逐表核实，不接受「卫星表简单所以 CTAS 够了」的隐含假设。
-- **捷径审查（#962 事故，刹车三）**：对 PR 中「替代既有路径的新捷径」专门核验两问——原路径存在的原因是什么？新捷径是否满足了同样的约束？（#944 现场：「vec 复制现成数据替代 retry worker」绕过了既有暗化兑底，若检视维度有此条，CTAS 雷大概率在这层被拦）捷径本身不是罪，答不出「原路径的约束是什么」才是严重发现。
+- **F-claim audit（承诺对账）**：Cross-check each claim in the feature doc against the code — for every "implemented X" statement in the doc, verify the corresponding symbol/logic exists in code. List claims that run ahead of the code (doc says done, code not wired yet).（F 承诺对账：逐条核对特性文档声称的功能点 vs 代码实现，承诺面跑在代码前面时逐条列出）
+- **迁移结构保持核查（事故教训，迁移类 PR 必查）**：变更涉及 DB 表重建/复制时，逐表核对结构保持方式——`CREATE TABLE AS SELECT`（CTAS）只拷数据不拷结构（丢 PK/UNIQUE/FK、FTS5/vec0 虚拟表退化为普通表），**任何 CTAS 用法直接标严重发现**；正确姿势是 sqlite_master 提取 DDL 重建或原地 DELETE+INSERT 换键。同一迁移函数内主表与卫星表使用不同严谨度的重建方式（现场：主表从 sqlite_master 提 DDL 防漂移，四张卫星表 CTAS）是**强信号**——必须逐表核实，不接受「卫星表简单所以 CTAS 够了」的隐含假设。
+- **捷径审查（事故教训，刹车三）**：对 PR 中「替代既有路径的新捷径」专门核验两问——原路径存在的原因是什么？新捷径是否满足了同样的约束？（现场：「vec 复制现成数据替代 retry worker」绕过了既有暗化兑底，若检视维度有此条，CTAS 雷大概率在这层被拦）捷径本身不是罪，答不出「原路径的约束是什么」才是严重发现。
 
 ## 2. Edge Cases
 
@@ -144,4 +146,15 @@ Does the addition carry its full future cost explicitly? (加法自带全部未�
   ① 谁需要它（具体角色，不是「应该有」）② 失败后果（用户可感知，还是仅内部指标异常）③ 后续机制（它创造的新状态里哪些可能出错、会被怎么修）④ 退役条件（什么信号出现时该删它）
 - **Net-new mechanism with no four answers → 建议发现**（软维度，走决策树处置；先软后硬，跑熟后再评估升级为 B 维度）
 - ①② 答非所问（如「应该有」「提升健壮性」这类无角色无后果的答案）同视为缺失
-- Context: 病根五条（生成回路/局部有效/前提不死/路径不对称/度是全局属性）见 F20260907cmpx 特性文档
+- Context: 病根五条（生成回路/局部有效/前提不死/路径不对称/度是全局属性）见特性文档 mechanism-budget（按标题 grep docs/features/ 定位）
+
+## 8. Prompt Size Budget (B8, 2026-09-17)
+
+> 基础维度（diff 触及 prompts/scheduled/*.md 时必查，不占焦点名额）。防线前移：PR 合入前拦截，取代「DB 写入时静默降级」的末端哑防线。
+
+Does the diff grow scheduled-task prompt templates unchecked?
+
+- Run `npm run lint:prompt-size` — exit 1 (over budget) = severe finding
+- Net growth >500B without PR-description declaration (等量出清 or 净增理由) = severe finding
+- Check frontmatter `budget_bytes` overrides are justified in the feature doc
+- Context: 体积失控事故（2026-09-17 定性重大事故）——daily-health-check.md 23 天 4.6 倍（18 PR +185/-24 纯加法），超 DB CHECK 后同步失败静默降级，DB 跑三周旧版。根因不是文件大，是系统没有控制自己变大的能力。

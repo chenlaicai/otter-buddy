@@ -10,6 +10,7 @@ const TEST_CONFIG: SearchEngineConfig = {
   alpha: 0.4,
   vecSimilarityThreshold: 0.3,
   bothBoost: 1.2,
+  currentConversationBoost: 1.5,
   weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90,
   userFlagMultiplier: 2,
   frequencyBoostFactor: 0.5,
@@ -471,5 +472,45 @@ describe("SearchEngine - rerank 用户标记与时间衰减", () => {
       // 较老条目的 timeDecay 更小，因此 finalScore 更低
       expect(oldScore).toBeLessThan(recentScore);
     });
+  });
+});
+
+describe("F20260917cvid: 本对话来源加权（currentConversationBoost）", () => {
+  let engine: SearchEngine;
+
+  beforeEach(() => {
+    engine = new SearchEngine(TEST_CONFIG);
+  });
+
+  it("rerank 传入 currentConversationId 时，本对话条目分数 ×1.5，其他对话条目不变", () => {
+    const sameConv = makeEntry({ id: "same", conversationId: "conv-A" });
+    const otherConv = makeEntry({ id: "other", conversationId: "conv-B" });
+    const noConv = makeEntry({ id: "none", conversationId: null });
+    const hits = new Map<string, import("@usecases/memory/search-engine").RrfHit>([
+      ["same", { entryId: "same", rrfScore: 0.5, source: "fts", entry: sameConv }],
+      ["other", { entryId: "other", rrfScore: 0.5, source: "fts", entry: otherConv }],
+      ["none", { entryId: "none", rrfScore: 0.5, source: "fts", entry: noConv }],
+    ]);
+
+    const boosted = engine.rerank(hits, new Map(), "conv-A");
+    const baseline = engine.rerank(hits, new Map());
+
+    const score = (arr: ReturnType<SearchEngine["rerank"]>, id: string) =>
+      arr.find(r => r.entryId === id)!.finalScore;
+
+    // toBeCloseTo 默认 10 位精度会被 ×1.5 浮点往返击穿（CI 实证差 5.7e-10），用比例断言
+    expect(score(boosted, "same") / score(baseline, "same")).toBeCloseTo(1.5, 9);
+    expect(score(boosted, "other")).toBeCloseTo(score(baseline, "other"), 10);
+    expect(score(boosted, "none")).toBeCloseTo(score(baseline, "none"), 10);
+  });
+
+  it("不传 currentConversationId 时排序与旧行为一致（零影响）", () => {
+    const e1 = makeEntry({ id: "a", conversationId: "conv-A" });
+    const hits = new Map<string, import("@usecases/memory/search-engine").RrfHit>([
+      ["a", { entryId: "a", rrfScore: 0.5, source: "fts", entry: e1 }],
+    ]);
+    const withUndef = engine.rerank(hits, new Map(), undefined);
+    const plain = engine.rerank(hits, new Map());
+    expect(withUndef[0].finalScore).toBeCloseTo(plain[0].finalScore, 10);
   });
 });

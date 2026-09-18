@@ -24,10 +24,12 @@
     "test:all": "npm test && npm run test:capability",
     "lint:capability": "node scripts/lint-capability-docs.mjs",
     "lint:tests": "node scripts/lint-tests.mjs",
+    "lint:prompt-size": "node scripts/lint-prompt-size.mjs",
     "lint:skills": "node scripts/lint-skills.mjs",
     "lint:tool-manifest": "node scripts/lint-tool-manifest.mjs",
     "lint:intent": "node scripts/lint-intent.mjs",
-    "lint:date-bombs": "node scripts/lint-date-bombs.mjs"
+    "lint:date-bombs": "node scripts/lint-date-bombs.mjs",
+    "lint:prompt-anchors": "node scripts/lint-prompt-anchors.mjs"
   },
   "keywords": [],
   "author": "",

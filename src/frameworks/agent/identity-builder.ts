@@ -10,6 +10,7 @@
 
 import type { Logger } from "@usecases/ports/logger";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
+import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import { loadPromptFile } from "./prompt-loader";
@@ -21,9 +22,12 @@ export class IdentityBuilder {
   /** 小獭身份文案（首次 invoke 时注入，从 identityPromptDir 加载） */
   private smallOtterIdentity = "";
 
+  // eslint-disable-next-line max-params -- F20260917cvid 加 conversationRepo 后 6 参；DI 装配参数，拆 options 对象无增益
   constructor(
     private readonly otterRepo: OtterRepository,
     private readonly settingsRepo: SettingsRepository | undefined,
+    /** F20260917cvid: 对话仓库（可选）——读取对话标题注入「所在对话」身份段 */
+    private readonly conversationRepo: ConversationRepository | undefined,
     private readonly modelPool: ModelPool | undefined,
     private readonly logger: Logger,
     identityPromptDir?: string,
@@ -75,6 +79,11 @@ export class IdentityBuilder {
     // F20260824aibd: 注入模型身份段——海獭知道自己运行在什么模型上，对抗性协作场景据此选择异模型
     const modelIdentity = this.buildModelIdentity(modelAlias);
 
+    // F20260917cvid: 所在对话身份段——海獭知道自己身处哪个对话（标题是搭档起的语义锚，
+    // 几十世长对话下「我在处理 echo agent 项目」不再依赖搭档每次口头告知）。
+    // 查不到/无标题时降级为空段（新对话无标题是正常态），不影响身份注入主流程。
+    const conversationIdentity = await this.buildConversationIdentity(conversationId);
+
     // F20260825m422a: 注入当前日期时间——干净 session 无日期锚点导致特性 ID 日期臆断（#422）
     // F20260829cach: 锚点改日粒度。原分钟级字符串每次 invoke 都变，而本段拼在 system prompt
     // 前部（身份文案/工具定义之前），一变即打断整个 prompt 前缀缓存（实测 invoke 边界命中率
@@ -86,6 +95,7 @@ export class IdentityBuilder {
 
     return [
       `## 你的身份\n- 名称：${otter.name}\n- 名号：${otter.name}\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}${conversationId ? `\n- 当前对话 ID：${conversationId}（创建特性文档时写入 frontmatter 的 created_in_conversation 字段）` : ''}`,
+      conversationIdentity,
       userIdentity,
       summonerIdentity,
       dateAnchor,
@@ -93,6 +103,22 @@ export class IdentityBuilder {
       modelIdentity,
       modelGuidance,
     ].filter(Boolean).join("\n\n");
+  }
+
+  /** F20260917cvid: 构建所在对话身份段。对话无标题（空串/纯空白）时返回空——
+   *  搭档明确「没有 summary 就不要乱填」，标题是唯一注入的对话语义。 */
+  private async buildConversationIdentity(conversationId: string): Promise<string> {
+    if (!this.conversationRepo || !conversationId) return '';
+    try {
+      const conv = await this.conversationRepo.getById(conversationId);
+      const title = conv?.title?.trim();
+      if (!title) return '';
+      const sanitized = title.replace(/[\r\n]/g, ' ');
+      return `## 你所在的对话\n- 对话标题：${sanitized}\n- 你正身处这个对话中——本对话的历史讨论与长期记忆中的一样有效，检索记忆时本对话来源的条目会被优先加权`;
+    } catch (err) {
+      this.logger.warn('对话身份段注入降级：查询对话标题失败', { conversationId, error: String(err) });
+      return '';
+    }
   }
 
   /** F20260824aibd: 构建模型身份段——告诉海獭自己是什么模型、擅长什么，用于对抗性协作时选择异模型 */

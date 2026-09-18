@@ -127,7 +127,7 @@ export interface OtterToolClient {
   };
   memory: {
     getById(id: string): Promise<MemorySearchEntry | null>;
-    search(query: string, limit?: number, detailLevel?: DetailLevel, library?: string, createdAfter?: string, contentType?: MemoryContentType[], expandContext?: boolean): Promise<{ entries: MemorySearchEntry[]; total: number; contextEntries?: MemorySearchEntry[]; vecCoverage?: VecCoverage }>;
+    search(query: string, limit?: number, detailLevel?: DetailLevel, library?: string, createdAfter?: string, contentType?: MemoryContentType[], expandContext?: boolean, currentConversationId?: string): Promise<{ entries: MemorySearchEntry[]; total: number; contextEntries?: MemorySearchEntry[]; vecCoverage?: VecCoverage }>;
     /**
      * F20260826rcmm Phase 0：检索埋点（fire-and-forget）。
      * search_memory 工具 execute 后调用——记录查询 + top 命中 + 对话上下文，供评估基线标注。

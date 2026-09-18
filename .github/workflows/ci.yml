@@ -99,7 +99,9 @@ jobs:
           npm run lint:tool-manifest
           node scripts/lint-tests.mjs
           node scripts/lint-capability-docs.mjs
+          node scripts/lint-prompt-size.mjs
           npm run lint:date-bombs
+          node scripts/lint-prompt-anchors.mjs --full
 
       - name: Run full project checks
         run: npm run check

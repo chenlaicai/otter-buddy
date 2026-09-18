@@ -116,6 +116,9 @@ export async function createAgentGateway(options: {
     },
     healingRepo: repos.healingEvent,
     signalRepo: repos.signalEvent,
+    // F20260917trig：RHI 健康信号仓库注入——triage_signal/list_rhi_signals 注册条件
+    // （signals 表，与獭间 signal_events 语义池分离）
+    rhiSignalRepo: repos.rhiSignal,
     // F20260826mwrd C1：halt 首次注入时把 signal_events 从 pending 迁到 resolved
     // （resolvedBy=系统，resolution=指令已到达目标獭——halt 无待裁决事项，落账即闭环）。
     // 回调在 tool_call handler 栈内执行（同步语义），resolve 走 fire-and-forget + catch。
@@ -130,6 +133,7 @@ export async function createAgentGateway(options: {
     otterConfigProvider,
     otterRepo: repos.otter,
     settingsRepo: repos.settings,
+    conversationRepo: repos.conversation,
   }, logger);
 
   return {

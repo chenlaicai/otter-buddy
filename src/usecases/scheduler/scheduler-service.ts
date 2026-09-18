@@ -12,6 +12,7 @@ import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
 import type { Entry } from '@entities/conversation/entry';
 import type { Logger } from '@usecases/ports/logger';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
+import { classifyHealingErrorType, HEALING_ENVIRONMENT_TYPES, HEALING_FEEDBACK_TYPES } from '@entities/healing/healing-event';
 import type { SchedulerMetricsPort } from './scheduler-metrics-port';
 import type { DispatchChainEngine } from '@usecases/conversation/dispatch-chain-engine';
 import type { SignalRouter } from '@usecases/conversation/signal-router';
@@ -468,7 +469,7 @@ export class SchedulerService {
         otterId: task.talkingStonePassedTo[0] ?? '',
         errorType: 'other',
         severity: 'low',
-        description: `定时任务「${task.name}」错过触发窗口（#814 调度完整性对账）`,
+        description: `定时任务「${task.name}」错过触发窗口（调度完整性对账）`,
         suggestion: '检查服务停机时段；如需补跑手动触发',
         context: {
           taskId: task.id,
@@ -1251,7 +1252,7 @@ export class SchedulerService {
           otterId: task.talkingStonePassedTo[0] ?? '',
           errorType: 'performance',
           severity: 'high',
-          description: `定时任务「${task.name}」连续 ${failures} 次失败停跑（#516）`,
+          description: `定时任务「${task.name}」连续 ${failures} 次失败停跑`,
           suggestion: `检查任务执行日志与错误「${errorMessage}」，修复后手动恢复 active`,
           context: { taskId, executionError: errorMessage, consecutiveFailures: failures },
           status: 'open',
@@ -1285,7 +1286,7 @@ export class SchedulerService {
         otterId: task.talkingStonePassedTo[0] ?? '',
         errorType: 'other',
         severity: 'medium',
-        description: `定时任务「${task.name}」触发前置阶段失败（#913：claim 后 execution 建立前，无 execution 行）`,
+        description: `定时任务「${task.name}」触发前置阶段失败（claim 后 execution 建立前，无 execution 行）`,
         suggestion: '检查 scheduled_task_executions 是否无行而 last_triggered_at 已更新；错误摘要见 context.triggerError',
         context: { taskId: task.id, stage: 'pre-execution', triggerError: truncated },
         status: 'open',
@@ -1313,7 +1314,7 @@ export class SchedulerService {
         otterId: task?.talkingStonePassedTo[0] ?? '',
         errorType: 'performance',
         severity: 'medium',
-        description: `定时任务「${task?.name ?? taskId}」执行失败（#754）`,
+        description: `定时任务「${task?.name ?? taskId}」执行失败`,
         suggestion: `查看 execution ${executionId} 的 errorMessage 定位根因`,
         context: { taskId, executionId, executionError: truncated },
         status: 'open',
@@ -1372,11 +1373,14 @@ export const HEALING_ANALYSIS_TEMPLATE_PATH = 'prompts/scheduled/self-healing-an
 
 /** 回退文案（模板缺失时用）。必须与模板静态部分保持一致——
  *  守卫测试 tests/usecases/scheduler/healing-analysis-template.test.ts 锁定同步，改任一处须同步另一处。 */
+// ⚠️ 双源同步：本常量与 prompts/scheduled/self-healing-analysis.md 静态部分逐字节一致
+// （守卫测试 tests/usecases/scheduler/healing-analysis-template.test.ts 机械校验）。
+// 改任一侧必须同步另一侧——本次锚点剥除即因漏同步被守卫抓住。
 export const HEALING_FALLBACK_PROMPT = `## Self-Healing 定期分析任务
 
 {{HEALING_DATA}}
 
-## 处置权检查（前置，#600 口径协议 F20260831whfw）
+## 处置权检查（前置，口径协议）
 
 处置任何 open 事件前，先检查其是否已被其他任务处置过口径：
 - 事件关联了 daily-review issue（resolutionNotes 引用 issue 编号 / issue body 内含该事件证据）→ **不重复处置、不推翻**——首个消费它的任务（通常是 9:00 健康检查）拥有处置权；发现其处置存疑时，在对应 issue 评论说明，**不改事件状态**
@@ -1389,7 +1393,7 @@ export const HEALING_FALLBACK_PROMPT = `## Self-Healing 定期分析任务
 3. 对于需要修改 prompt 或代码的，生成清晰的修复描述
 4. 与搭档讨论，达成共识后记录决策
 
-## 工具使用感受反馈（F20260904tflp）
+## 工具使用感受反馈
 
 error_type 为 \`tool_use_feedback\` 的事件是海獭主动报的工具痛点（description 以 \`[tool:工具名]\` 前缀标识）。处理规则：
 
@@ -1484,7 +1488,7 @@ export async function buildRegressionVerifyBody(): Promise<string | null | typeo
     return template.replace('{{REGRESSION_DATA}}', dataSection);
   }
   // 模板缺失时的最小回退（保证机制可用，静态文案的完整真相源在模板文件）
-  return `## 验证断言回查任务（#1004）\n\n${dataSection}\n\n逐条：gh issue view 读断言段 → 执行检查方式 → 判定 ✅/❌/⚠️ → 评论回写（含 <!-- regression-verify: ... --> 标记）；❌ 已关闭的重开并升级优先级。`;
+  return `## 验证断言回查任务\n\n${dataSection}\n\n逐条：gh issue view 读断言段 → 执行检查方式 → 判定 ✅/❌/⚠️ → 评论回写（含 <!-- regression-verify: ... --> 标记）；❌ 已关闭的重开并升级优先级。`;
 }
 
 /** 构建 healing 分析任务的动态 prompt。返回 null 表示无待处理事件。
@@ -1503,12 +1507,27 @@ async function buildHealingAnalysisBody(healingRepo: HealingEventRepository): Pr
     return acc;
   }, {} as Record<string, typeof openEvents>);
 
+  // #998：二维分账（环境/系统 vs 獭能力）——混排会让分析任务把工具故障误读成獭不行。
+  // tool_use_feedback 返回 null 不入分账（主动反馈信号，独立计数）；口径文案从实体清单拼接防漂移
+  const byClass = openEvents.reduce(
+    (acc, e) => {
+      const cls = classifyHealingErrorType(e.errorType);
+      if (cls === null) acc.feedback++;
+      else acc[cls]++;
+      return acc;
+    },
+    { environment: 0, capability: 0, feedback: 0 },
+  );
+  const envList = HEALING_ENVIRONMENT_TYPES.join('/');
+  const fbList = HEALING_FEEDBACK_TYPES.join('/');
+
   let dataSection = `当前系统健康概况：
 - 待处理: ${stats.open} 个
 - 已解决: ${stats.resolved} 个
 - 已忽略: ${stats.dismissed} 个
 - 按类型分布: ${JSON.stringify(stats.byType)}
 - 按严重程度分布: ${JSON.stringify(stats.bySeverity)}
+- 二维分账: 环境/系统失败 ${byClass.environment} 条 / 獭能力失败 ${byClass.capability} 条 / 主动反馈 ${byClass.feedback} 条（口径：${envList}=环境，${fbList}=反馈独立列，其余=能力）
 
 以下是待处理的 healing events（共 ${openEvents.length} 条，按类型分组）：
 
