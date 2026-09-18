@@ -55,3 +55,21 @@ describe("mapToSSEEvent · user 侧事件不广播（F20260918sesp）", () => {
     ).toBeNull();
   });
 });
+
+describe("mapToInvokeEventInput · message_start 边界（检视建议 1）", () => {
+  it("message_start role=toolResult → null", () => {
+    const r = mapToInvokeEventInput({
+      type: "message_start",
+      message: { role: "toolResult", content: [{ type: "toolResult", toolCallId: "t1" }] },
+    } as never);
+    expect(r).toBeNull();
+  });
+
+  it("message_start role=user content=[] → 空字符串（防御性，不崩）", () => {
+    const r = mapToInvokeEventInput({
+      type: "message_start",
+      message: { role: "user", content: [] },
+    } as never);
+    expect(r).toMatchObject({ eventType: "user_injection", payload: { content: "" } });
+  });
+});

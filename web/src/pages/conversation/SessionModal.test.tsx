@@ -160,3 +160,15 @@ describe('SessionModal（F20260918sesp 主从双栏）', () => {
     })
   })
 })
+
+describe('visibleEvents 截断（检视建议 2）', () => {
+  it('终态 invoke 超限截最近 300 条；running 全量', async () => {
+    const { visibleEvents } = await import('./SessionModal')
+    const mk = (i: number) => ({ id: `e${i}`, invokeId: 'x', eventType: 'assistant_text', payload: {}, sequenceNum: i, createdAt: '2026-09-18T00:00:00Z' }) as never
+    const events = Array.from({ length: 301 }, (_, i) => mk(i + 1))
+    const truncated = visibleEvents(events, false)
+    expect(truncated).toHaveLength(300)
+    expect((truncated[0] as { id: string }).id).toBe('e2') // 保留尾部，首条 e1 被截
+    expect(visibleEvents(events, true)).toHaveLength(301) // running 全量
+  })
+})

@@ -323,8 +323,9 @@ export function SessionModal({ otter, conversationId, onClose, liveEvents, liveL
   )
 }
 
-/** 终态 invoke 事件量兜底：running 全量（实时通道需要完整集）；终态截最近 N 条 */
-function visibleEvents(events: InvokeEventDTO[], isRunning: boolean): InvokeEventDTO[] {
+/** 终态 invoke 事件量兜底：running 全量（实时通道需要完整集）；终态截最近 N 条。
+ *  导出供单元测试验证截断行为（检视建议 2） */
+export function visibleEvents(events: InvokeEventDTO[], isRunning: boolean): InvokeEventDTO[] {
   if (isRunning || events.length <= TERMINAL_EVENTS_LIMIT) return events
   return events.slice(-TERMINAL_EVENTS_LIMIT)
 }
