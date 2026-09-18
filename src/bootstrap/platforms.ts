@@ -67,7 +67,6 @@ import { ProcessInboundRecruit } from "@usecases/recruiting/process-inbound-recr
 import { GetBridgeStatus } from "@usecases/recruiting/get-bridge-status";
 import { ensureRecruitingConversation } from "@usecases/recruiting/ensure-recruiting-conversation";
 import { ensureRecruitingScheduler } from "@usecases/recruiting/ensure-recruiting-scheduler";
-import { ensureDailyReviewConversation, ensureDailyReviewScheduler } from "@usecases/daily-review/ensure-daily-review-scheduler";
 import { resolveFeatureGates, gateOn, inferDomainActive } from "./feature-gates";
 import { buildHandoffPackage } from "@frameworks/agent/handoff-package-builder";
 
@@ -415,8 +414,6 @@ export interface PlatformBootstrapResult {
   getBridgeStatus?: GetBridgeStatus;
   healingInit: Promise<void>;
   recruitingInit: Promise<void>;
-  /** F20260915cfgt：每日复盘 ensure 链（app.ts 等待后 scheduler 才 start，新建任务才被扫到） */
-  dailyReviewInit: Promise<void>;
   /** 微信通道轮询句柄（app 关停时统一 stop） */
   weixinPollers?: WeixinPollingChannel[];
   /** 通道状态注册表（F20260901chun：统一 IM 页 + 真实健康状态） */
@@ -593,26 +590,6 @@ export function ensureWeixinConfig(opts: { configPath?: string; stateDir?: strin
   }
 }
 
-/** F20260915cfgt：每日复盘 ensure 链拆函数（控 initPlatforms max-lines） */
-function startDailyReviewInit(o: { uc: UseCases; repos: Repositories; logger: Logger }): Promise<void> {
-  return ensureDailyReviewConversation({
-    manageConversation: o.uc.manageConversation,
-    convRepo: o.repos.conversation,
-    otterRepo: o.repos.otter,
-    settings: o.repos.settings,
-    sendEntry: o.uc.sendEntry,
-    logger: o.logger,
-  })
-    .then(({ conversationId, bigOtterId }) => ensureDailyReviewScheduler({
-      manageScheduledTask: o.uc.manageScheduledTask,
-      scheduledTaskRepo: o.repos.scheduledTask,
-      dailyReviewConversationId: conversationId,
-      bigOtterId,
-      logger: o.logger,
-    }))
-    .catch(err => o.logger.warn("Daily-review init failed", { error: err instanceof Error ? err.message : String(err) }));
-}
-
 export async function initPlatforms(options: { appConfig: AppConfig; repos: Repositories; uc: UseCases; agentInvoker: AgentInvoker; dispatchChainEngine: DispatchChainEngine; messageBroadcaster: MessageBroadcaster; logger: Logger; signalRouter?: SignalRouter }): Promise<PlatformBootstrapResult> {
   const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, logger, signalRouter } = options;
 
@@ -625,12 +602,6 @@ export async function initPlatforms(options: { appConfig: AppConfig; repos: Repo
     logger,
   });
   logger.info("Feature gates resolved", { gates });
-
-  // F20260915cfgt：每日复盘（工作内容优化，默认体验）——gateOff 时静默不 seed（新功能无存量推断必要）
-  let dailyReviewInit: Promise<void> = Promise.resolve();
-  if (gates.dailyReview) {
-    dailyReviewInit = startDailyReviewInit({ uc, repos, logger });
-  }
 
   // F20260915cfgt：self-healing 属海獭系统优化（除作者外无人关心），默认关；老部署靠存量推断保持 on
   let healingInit: Promise<void> = Promise.resolve();
@@ -685,5 +656,5 @@ export async function initPlatforms(options: { appConfig: AppConfig; repos: Repo
   // ── 微信通道（issue #565）：每个已登录账号拉起轮询 + 出站注册 ──
   const weixinPollers = startWeixinChannels({ ...options, registry });
 
-  return { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, dailyReviewInit, weixinPollers, registry };
+  return { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, weixinPollers, registry };
 }

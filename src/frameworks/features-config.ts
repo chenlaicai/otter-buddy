@@ -11,14 +11,12 @@ import type { Logger } from "@usecases/ports/logger";
 
 /** features 段的原始（未归一化）输入形状，与 config-service.RawConfig.features 同构 */
 export interface RawFeatures {
-  dailyReview?: boolean;
   selfHealing?: boolean;
   paperTrading?: boolean;
   recruiting?: boolean;
 }
 
 export interface NormalizedFeatures {
-  dailyReview: boolean | undefined;
   selfHealing: boolean | undefined;
   paperTrading: boolean | undefined;
   recruiting: boolean | undefined;
@@ -45,7 +43,6 @@ export function buildRawAttachmentsConfig(raw: { attachments?: { storageRoot?: s
 
 export function buildFeaturesConfig(raw: { features?: RawFeatures }, logger?: Logger): NormalizedFeatures {
   return {
-    dailyReview: norm("dailyReview", raw.features?.dailyReview, logger),
     selfHealing: norm("selfHealing", raw.features?.selfHealing, logger),
     paperTrading: norm("paperTrading", raw.features?.paperTrading, logger),
     recruiting: norm("recruiting", raw.features?.recruiting, logger),

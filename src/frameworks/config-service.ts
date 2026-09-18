@@ -164,8 +164,6 @@ export interface AppConfig {
   /** 功能开关（F20260915cfgt）：三态——true/false 显式生效；undefined=未配置，
    *  由装配层（feature-gates.ts）按 DB 存量任务推断后再走缺省值 */
   features: {
-    /** 每日复盘（工作内容优化，缺省 true——新环境默认体验） */
-    dailyReview: boolean | undefined;
     /** self-healing 自愈分析（海獭系统优化，缺省 false——除作者外无人关心） */
     selfHealing: boolean | undefined;
     /** 纸面交易（个人场景，缺省 false） */
@@ -327,7 +325,6 @@ interface RawConfig {
     maxDocumentBytes?: number;
   };
   features?: {
-    dailyReview?: boolean;
     selfHealing?: boolean;
     paperTrading?: boolean;
     recruiting?: boolean;

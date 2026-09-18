@@ -6,9 +6,11 @@
  * - 本层 gateOn()：显式 true/false 短路；未配置（undefined）时执行存量推断
  *
  * 分类原则（搭档 2026-09-15 定调）：
- * - 工作内容优化（每日复盘）→ 默认开
  * - 海獭系统优化（self-healing）→ 默认关，除作者外无人关心
  * - 个人场景（paper-trading / recruiting）→ 默认关，显式启用
+ *
+ * F20260917swsh：dailyReview 开关随每日复盘任务一并移除（三省吾身整合——
+ * 复盘产出的「未闭环事项」改由 7:30 未闭环扫描开 issue 承接，晨报形态废弃）。
  *
  * 兼容策略：老部署未写 features 段时按 DB 存量 active 任务推断（行为不变），
  * 推断命中 warn 提醒可显式声明。显式配置永远优先，推断不覆盖用户意愿。
@@ -34,7 +36,6 @@ export const DOMAIN_TASK_NAMES: Record<'selfHealing' | 'paperTrading' | 'recruit
 };
 
 export interface FeatureGates {
-  dailyReview: boolean;
   selfHealing: boolean;
   paperTrading: boolean;
   recruiting: boolean;
@@ -85,8 +86,6 @@ export async function resolveFeatureGates(deps: {
   };
 
   return {
-    // dailyReview 是新功能，无存量可推断，缺省 on（工作复习是通用默认体验）
-    dailyReview: await gateOn(features.dailyReview, async () => true),
     selfHealing: await gateOn(features.selfHealing, async () => inferFromDb('selfHealing', 'selfHealing')),
     paperTrading: await gateOn(features.paperTrading, async () => inferFromDb('paperTrading', 'paperTrading')),
     recruiting: await gateOn(features.recruiting, recruitingInfer),
