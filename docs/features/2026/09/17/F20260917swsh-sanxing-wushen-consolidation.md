@@ -4,6 +4,13 @@ title: 三省吾身整合：定时任务收拢单对话 + 统一 issue 产生源
 summary: 搭档拍板把 5 个「每日三省吾身」类定时任务（健康检查/healing 分析/补丁清单/issue 处理/未闭环扫描）收拢到单一对话《三省吾身》，全部产出统一走 issue；每日 issue 处理从「自动干」改为「出清单等搭档勾选才开工」；删除每日复盘与 backlog digest 任务，归档三个旧对话。
 doc_type: feature
 change_type: feature
+intent:
+  problem: "5~6 个置顶系统对话各自每日产出消息，需要搭档介入的决策信息被后续自动消息顶走沉底；飞轮消费端（每日 issue 处理）disabled 形成真空，backlog digest 只读空转。"
+  why_now: "搭档 2026-09-17 主动提出边界重复疑问并当场拍板终态（统一 issue 产生源 + 勾选式 issue 处理），是明确的布局重构窗口。"
+  expected_effect: "置顶系统对话从 5~6 收敛到 1 个《三省吾身》；每日所有待决事项在 9:30 单一清单呈搭档勾选；无勾选不动工（已接受的取舍）。"
+verify_by:
+  type: human_judge
+  note: "布局重构效果由搭档日常体验判定；迁移脚本正确性经 --dry-run 预览 + 执行后 DB 状态核对"
 capability_test: "tests/frameworks/config/features-config.test.ts"
 created_in_conversation: 7fbc015a-9d23-4dac-ae6c-1ccf0289c3d6
 created_at: 2026-09-17
@@ -70,7 +77,7 @@ modules: [prompts/scheduled/, src/usecases/daily-review/, src/usecases/healing/e
 
 **执行时机：PR 合入后由搭档执行一次**（`node scripts/migrate-sanxing-wushen.mjs`）。服务重启后 prompt-template-reconciler 会自动把 每日-issue-处理 新 body 同步进 DB。
 
-注意：补丁清单（每日 8:00）是 DB 内 runtime 任务、无 git 模板，本次不动其 body，只随对话改名生效。
+注意：补丁清单（每日 8:00）是 DB 内 runtime 任务、无 git 模板，本次不动其 body；但它原在架构整洁对话（a344e752）中，该对话将被归档——迁移脚本 step 4 已将其与依赖升级/上下文观察一併挪入三省吾身对话（检视发现 1，缺此步则归档后 scheduler 会自动 disable 它）。
 
 ## 设计取舍
 
@@ -82,6 +89,19 @@ modules: [prompts/scheduled/, src/usecases/daily-review/, src/usecases/healing/e
 | digest 任务 | 删除，D 类勾选并进 9:30 | 降频每周一 | 与 9:30 清单同一动作（列出待拍板 issue 等勾选），无独立存在理由（搭档确认） |
 | dailyReview 开关 | 代码层移除 | 保留开关只关默认 | 机制预算：开关服务一个已删除的任务，留着是纯腐化 |
 | 迁移方式 | 脚本随 PR、合入后搭档执行 | 代码启动迁移 | 存量布局调整是一次性动作，非常驻代码——启动迁移机制是新增机制，违背本特性自己推行的机制预算 |
+
+## 检视处置记录（检视獭-swsh，2026-09-17 首轮意见全量处置）
+
+| # | 发现 | 严重度 | 处置 |
+|---|---|---|---|
+| 1 | 迁移脚本遗漏补丁清单任务（归档后会被 scheduler 自动 disable） | 严重 | 已修：step 4 任务列表追加「每日补丁清单回看（F20260908pgrd）」；文档第 80 行失实陈述同步改正 |
+| 2 | PR 标题缺 `[F20260917swsh]` ID 前缀，CI 失败 | 严重 | 已修：PR 标题改为 `[F20260917swsh][scheduler] ...` |
+| 3 | 特性文档 frontmatter 无 intent 块（B6） | 严重 | 已修：补 intent（problem/why_now/expected_effect）+ verify_by: human_judge |
+| 4 | results.jsonl 无本 PR Golden Gate 记录（B7） | 严重 | 豁免留痕：5 个 golden 场景全部锚定主对话行为（boot+sendUserMessage 真实采样，见 r4-summon/yield-handoff/talking-stone/mfrc/seriousness 各场景 originTest），输入域与定时任务 body 无交集，跑无判别力。走 PR 描述申诉留痕（v6.3 fail 处置三出口之「申诉留痕决议」） |
+| 5 | B5 撞车：#1010 修改本 PR 删除的 daily-review.md | 严重 | 已修：#1010 的只读事实核实白名单条款吸收进 每日-issue-处理.md 数据源节（认领三问/自动关闭检查正是 gh 只读核实密集区）；#1010 待本 PR 合入后关闭，其特性文档 F20260917drvy 指向本 PR 吸收记录 |
+| 6 | parseArgs() 双调用冗余 | 建议 | 已修：合并为单次调用 |
+| 7 | 未闭环扫描引用不存在的 created_before 参数 | 建议 | 已修：改为 created_after + 人工过滤上界说明 |
+| 8 | 测试 fixture 残留 daily-review 任务名 | 建议 | 已修：顺手改（一行 fixture，不值得开 issue 跟踪）→ 改为 self-healing-analysis |
 
 ## 验证
 

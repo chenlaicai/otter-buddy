@@ -61,9 +61,8 @@ async function resolveDbPath(explicit) {
   return join(repoRoot, 'data', 'otter-buddy.db');
 }
 
-const { dryRun } = parseArgs();
-const argsParsed = parseArgs();
-const dbPath = await resolveDbPath(argsParsed.dbPath);
+const { dryRun, dbPath: explicitDbPath } = parseArgs();
+const dbPath = await resolveDbPath(explicitDbPath);
 console.log(`[migrate] db = ${dbPath}${dryRun ? '（dry-run，不写库）' : ''}`);
 
 const db = new Database(dbPath);
@@ -123,7 +122,7 @@ if (existing) {
 }
 
 // 4. 任务挪入三省吾身对话
-for (const name of ['依赖升级自动化', '上下文管理机制观察（每周一）']) {
+for (const name of ['依赖升级自动化', '上下文管理机制观察（每周一）', '每日补丁清单回看（F20260908pgrd）']) {
   run(`UPDATE scheduled_tasks SET conversation_id = ?, updated_at = datetime('now') WHERE name = ? AND conversation_id != ?`,
     [SANXING_CONV_ID, name, SANXING_CONV_ID], `任务挪入三省吾身：${name}`);
 }

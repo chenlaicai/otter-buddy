@@ -33,6 +33,13 @@ task_name: 每日 issue 处理
 - actionable 每天上限 **3 条**（防爆量；超过时按 bug > tech-debt、同级按创建时间从早到晚排序，剩余顺延）
 - **认领三问（F20260901cimp，防跨对话撞车）**：每条开工前必查（#665/#679 撞车实证）：① issue 是否已有他人 otter-claim 认领且无 release；② 是否有 open PR 引用；③ `git worktree list` 有无相关目录且零 commit。任一命中 → 跳过并标注原因。认领动作详见 worktree-isolation skill 步骤 2——开工前必读
 
+## 数据源（含只读事实核实，F20260917drvy 吸收）
+
+简报中的事实性断言（PR 状态/合入状态/issue 认领状态）必须以 git/gh 只读查询为锚，不靠海獭自我登记（自证可伪造——9/17 晨简报实证：#994 已合入却标「待确认」）：
+
+- `git log`、`gh pr view/list`、`gh issue view/list` 等只读命令直接用，不受「副作用操作」边界约束（边界禁的是写操作）
+- 典型场景：记忆命中 F 文档但无 PR 号 → `git log --oneline --all | grep <F-ID>` 补上，不标「待确认」；认领三问的「open PR 引用」检查同理走 `gh pr list`
+
 ## 处理搭档勾选的 issue
 
 判断如何处理：自己干 / 派开发獭并行。参考 otter-summon skill 的判断示例。不确定的不改，在 issue 中评论请求人工判断。

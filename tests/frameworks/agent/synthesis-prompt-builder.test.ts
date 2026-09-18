@@ -10,7 +10,7 @@ import type { StateInventory } from "@frameworks/agent/state-inventory";
 
 const mockInventory: StateInventory = {
   talkingStone: { holders: ["otter-1"], from: "user-1" },
-  scheduledTasks: [{ name: "daily-review", schedule: "0 10 * * *", nextTrigger: "2026-09-01T02:00:00Z" }],
+  scheduledTasks: [{ name: "self-healing-analysis", schedule: "0 9 * * *", nextTrigger: "2026-09-01T02:00:00Z" }],
   workspaceFiles: ["file1.ts", "file2.md"],
   artifacts: { active: 3, superseded: 1, flagged: 0, latestTitle: "F20260825hndf" },
   healingOpen: { count: 1, latestDesc: "test healing event" },
