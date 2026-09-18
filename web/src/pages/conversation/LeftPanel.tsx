@@ -6,6 +6,9 @@ import { getOtterColor } from '../../lib/otter-colors'
 import { fmtRelativeTime } from '../../lib/utils'
 import * as api from '../../api/client'
 
+/** F20260918imas：助理分组标题（与后端 DTO kind 标识同步出现） */
+const ASSISTANT_GROUP_LABEL = 'IM 助理'
+
 interface LeftPanelProps {
   conversations: Conversation[]
   activeId: string
@@ -61,8 +64,11 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
   }, [keyword, searchOpen])
 
   const displayConvs = searchResults ?? conversations
-  const displayPinned = displayConvs.filter(c => c.pinned)
-  const displayNormal = displayConvs.filter(c => !c.pinned)
+  // F20260918imas：助理对话固定独立分组（不与普通对话混排）；组内仍保留置顶优先
+  const displayAssistant = displayConvs.filter(c => c.kind === 'assistant')
+  const displayNonAssistant = displayConvs.filter(c => c.kind !== 'assistant')
+  const displayPinned = displayNonAssistant.filter(c => c.pinned)
+  const displayNormal = displayNonAssistant.filter(c => !c.pinned)
 
   // 恢复上次保存的滚动位置（整页刷新后）
   useEffect(() => {
@@ -129,6 +135,22 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
         </div>
       )}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-2">
+        {displayAssistant.length > 0 && (
+          <>
+            <div className="px-2.5 pt-1 pb-0.5 text-[10px] font-medium text-stone-400 uppercase tracking-wide" data-testid="leftpanel-assistant-group-label">{ASSISTANT_GROUP_LABEL}</div>
+            {displayAssistant.map(c => (
+              <ConversationItem
+                key={c.id}
+                conversation={c}
+                isActive={c.id === activeId}
+                onSelect={onSelect}
+                onContextMenu={onContextMenu}
+                otters={otters}
+              />
+            ))}
+            <div className="my-1 border-t border-white/30" />
+          </>
+        )}
         {displayPinned.length > 0 && (
           <div className="px-2.5 pt-1 pb-0.5 text-[10px] font-medium text-stone-400 uppercase tracking-wide">置顶</div>
         )}

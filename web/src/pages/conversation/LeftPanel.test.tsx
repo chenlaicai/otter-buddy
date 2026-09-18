@@ -25,7 +25,6 @@ const mockConversations: LocalConversation[] = [
   { id: 'c2', title: '对话2', status: 'active', otterIds: [], pinned: false },
 ]
 const mockOtters: LocalOtter[] = []
-
 beforeEach(() => {
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -275,5 +274,42 @@ describe('LeftPanel 分页加载更多（F20260916lpsc）', () => {
   it('hasMore=false 时不展示加载更多按钮', () => {
     renderLeftPanel()
     expect(container.querySelector('[data-testid="leftpanel-load-more"]')).toBeNull()
+  })
+})
+
+describe('LeftPanel IM 助理分组（F20260918imas）', () => {
+  it('kind=assistant 的对话渲染在「IM 助理」分组内，普通对话不进该组', () => {
+    const convs: LocalConversation[] = [
+      { id: 'c1', title: '对话1', status: 'active', otterIds: [], pinned: false },
+      { id: 'a1', title: '微信助理 · x12345', status: 'active', otterIds: [], pinned: false, kind: 'assistant' },
+      { id: 'c2', title: '对话2', status: 'active', otterIds: [], pinned: true },
+    ]
+    act(() => {
+      root.render(
+        <LeftPanel
+          conversations={convs}
+          activeId="a1"
+          onSelect={() => {}}
+          onNewConversation={() => {}}
+          onContextMenu={() => {}}
+          otters={mockOtters}
+        />
+      )
+    })
+    // 分组标签存在
+    const label = container.querySelector('[data-testid="leftpanel-assistant-group-label"]')
+    expect(label?.textContent).toBe('IM 助理')
+    // 助理项与普通项各归各组：按渲染顺序，a1 在 c2（置顶普通）之前。
+    // ConversationItem 是 onClick onSelect 的 div，标题在内部 span
+    const items = [...container.querySelectorAll('div.rounded-xl')].map(i => i.textContent ?? '')
+    const a1Idx = items.findIndex(t => t.includes('微信助理'))
+    const c2Idx = items.findIndex(t => t.includes('对话2'))
+    expect(a1Idx).toBeGreaterThanOrEqual(0)
+    expect(c2Idx).toBeGreaterThan(a1Idx)
+  })
+
+  it('无助理对话时不渲染分组标签', () => {
+    renderLeftPanel()
+    expect(container.querySelector('[data-testid="leftpanel-assistant-group-label"]')).toBeNull()
   })
 })

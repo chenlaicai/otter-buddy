@@ -14,11 +14,18 @@ export function toConversationDTO(conv: Conversation): ConversationDTO {
     title: conv.title,
     status: conv.status,
     pinned: conv.pinned,
+    /** F20260918imas：助理对话标识（前端分组依据；title 前缀单一真相源，解析函数见前端 isAssistantTitle） */
+    ...(isAssistantConversationTitle(conv.title) && { kind: "assistant" }),
     createdAt: conv.createdAt,
     updatedAt: conv.updatedAt,
     completedAt: conv.completedAt,
     archivedAt: conv.archivedAt,
   };
+}
+
+/** F20260918imas：助理对话标题判定（与 AssistantSessionManager 的开户命名同源；供 DTO 标识与前端分组用） */
+export function isAssistantConversationTitle(title: string): boolean {
+  return title.startsWith("微信助理 · ") || title.startsWith("飞书助理 · ");
 }
 
 export function toConversationListItemDTO(

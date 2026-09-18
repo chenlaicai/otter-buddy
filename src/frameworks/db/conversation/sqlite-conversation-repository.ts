@@ -259,7 +259,8 @@ export class SqliteConversationRepository implements ConversationRepository {
       )
       WHERE c.status != 'archived'
         ${searchCond}
-      ORDER BY c.pinned DESC, COALESCE(le.created_at, c.created_at) DESC LIMIT ? OFFSET ?
+      ORDER BY CASE WHEN c.title LIKE '微信助理 · %' OR c.title LIKE '飞书助理 · %' THEN 1 ELSE 0 END,
+        c.pinned DESC, COALESCE(le.created_at, c.created_at) DESC LIMIT ? OFFSET ?
     `).all(...params) as Array<ConversationRow & {
       last_read_seq: number; unread_count: number;
       last_entry_id: string | null; last_entry_ts: string | null; last_entry_body: string | null;

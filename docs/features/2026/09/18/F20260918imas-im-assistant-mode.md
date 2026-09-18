@@ -266,3 +266,14 @@ im:
 | 4 | 测试 mock 未按 entryType 过滤 | 接受并修复：mock 按真实仓库语义，分类逻辑真实覆盖 |
 
 第二轮 Delta 复核：**通过**——4 条全部修订到位（相关 14 文件 / 156 用例全绿）。可呈搭档终审。
+
+### 补丁：UI 分组（搭档终审反馈，2026-09-18 11:54）
+
+搭档指出：IM 助理对话需固定在独立分组，不与普通对话混排（「ui也都改好了吗；左侧栏得加一层分组」）。
+
+实现：
+- 后端：ConversationDTO 增可选 `kind: "assistant"`（api-contract + toConversationDTO 按标题前缀判定）；列表 SQL 排序助理沉底（ORDER BY 前置 CASE）
+- 前端：LocalConversation 透传 kind；LeftPanel 渲染三段——「IM 助理」分组（固定最上）→ 置顶 → 普通；无助理对话时不渲染分组标签
+- 标识真相源：开户命名前缀（AssistantSessionManager）单一真相，DTO 层 isAssistantConversationTitle 解析，前端不自行匹配标题
+
+UI 真机自查（alpha 隔离实例 3152 + headless chromium）：分组标签 bbox y=138、助理项 y=159、普通项 y=227/276——分组视觉隔离成立；截图存对话工作区 leftpanel-detail.png。web vitest 53 文件/483 用例全绿，后端全量 3662 全绿，web build 通过。

@@ -20,6 +20,8 @@ export interface LocalConversation {
   title: string
   status: 'active' | 'completed' | 'archived'
   pinned: boolean
+  /** F20260918imas：助理对话标识（IM 自动开户；缺省 = 普通对话。左侧栏分组依据） */
+  kind?: 'assistant'
   otterIds: string[]
   /** 未读消息计数（消息级） */
   unreadCount?: number
@@ -211,6 +213,7 @@ export function mapConversationDTO(dto: ConversationListItemDTO | ConversationDT
     title: dto.title,
     status: dto.status as 'active' | 'completed' | 'archived',
     pinned: dto.pinned,
+    ...(dto.kind === 'assistant' && { kind: 'assistant' as const }),
     otterIds: 'otterIds' in dto ? dto.otterIds : [],
     ...('unreadCount' in dto && { unreadCount: dto.unreadCount }),
     ...('lastMessagePreview' in dto && { lastMessagePreview: dto.lastMessagePreview }),
