@@ -9,6 +9,23 @@
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error 真实现是 .mjs 脚本（无类型声明），运行时 import 纯函数
 import { validateIntent } from '../../scripts/lint-intent.mjs';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
+// F20260917sdpl：golden_replay 执行核对读 process.cwd() 下的相对路径（data/metrics/）。
+// 测试用临时目录切 cwd，避免读到仓库真实记录干扰断言，测完恢复。
+function withTempCwd<T>(fn: () => T): T {
+  const orig = process.cwd();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lint-intent-'));
+  process.chdir(tmp);
+  try { return fn(); } finally { process.chdir(orig); fs.rmSync(tmp, { recursive: true, force: true }); }
+}
+function writeGoldenResults(records: unknown[]) {
+  const dir = path.join(process.cwd(), 'data', 'metrics');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'golden-results.jsonl'), records.map(r => JSON.stringify(r)).join('\n') + '\n');
+}
 
 // Helper function to create a base feature frontmatter
 function createBaseFm(changeType: string, intent?: Record<string, unknown>) {
@@ -177,5 +194,166 @@ describe('lint:intent', () => {
       const result = validateIntent(fm);
       expect(result.errors).toHaveLength(0);
     }
+  });
+});
+
+// F20260917sdpl 改动 1：软代码 verify_by 声明时间界收口
+describe('lint:intent soft-code verify_by enforcement (F20260917sdpl)', () => {
+  it('should error on new soft-code doc (created_at ≥ 2026-09-17) missing verify_by', () => {
+    const fm = {
+      ...createBaseFm('feature', {
+        problem: 'prompt 改动无评估机制',
+        expected_effect: 'R4 场景 search_memory 出现率 ≥ 2/3',
+      }),
+      modules: ['.pi/skills/otter-summon/SKILL.md'],
+      created_at: '2026-09-17',
+    };
+    const result = validateIntent(fm);
+    expect(result.errors.some((e: string) => e.startsWith('Missing intent.verify_by for soft-code change'))).toBe(true);
+  });
+
+  it('should keep warning for legacy soft-code doc (created_at < 2026-09-17) missing verify_by', () => {
+    const fm = {
+      ...createBaseFm('feature', {
+        problem: 'prompt 改动无评估机制',
+        expected_effect: 'R4 场景 search_memory 出现率 ≥ 2/3',
+      }),
+      modules: ['.pi/skills/otter-summon/SKILL.md'],
+      created_at: '2026-09-16',
+    };
+    const result = validateIntent(fm);
+    expect(result.errors.some((e: string) => e.startsWith('Missing intent.verify_by for soft-code change'))).toBe(false);
+    expect(result.warnings.some((w: string) => w.startsWith('Recommended intent.verify_by field for soft-code change'))).toBe(true);
+  });
+
+  it('should pass when new soft-code doc declares verify_by', () => {
+    const fm = {
+      ...createBaseFm('feature', {
+        problem: 'prompt 改动无评估机制',
+        expected_effect: 'R4 场景 search_memory 出现率 ≥ 2/3',
+        verify_by: { type: 'behavior_check' },
+      }),
+      modules: ['.pi/skills/otter-summon/SKILL.md'],
+      created_at: '2026-09-17',
+    };
+    const result = validateIntent(fm);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('should treat missing created_at as legacy (warning, not error)', () => {
+    const fm = {
+      ...createBaseFm('feature', {
+        problem: 'prompt 改动无评估机制',
+        expected_effect: 'R4 场景 search_memory 出现率 ≥ 2/3',
+      }),
+      modules: ['prompts/identity/BIG_OTTER.md'],
+      // created_at 缺失 → 存量宽容（lint 不追诉，完整性由 lint-docs 兜底）
+    };
+    const result = validateIntent(fm);
+    expect(result.errors.some((e: string) => e.startsWith('Missing intent.verify_by for soft-code change'))).toBe(false);
+    expect(result.warnings.some((w: string) => w.startsWith('Recommended intent.verify_by field for soft-code change'))).toBe(true);
+  });
+
+  // 边界防御（检视建议 1）：created_at 含 ISO 时间后缀时的字符串比较行为锁定。
+  // '2026-09-17T…' >= '2026-09-17' 为 true（同日前缀 + 更长字符串）——按界日判定，符合「同日新建一律要求声明」语义。
+  it('should treat created_at with time suffix as on/boundary date (error)', () => {
+    const fm = {
+      ...createBaseFm('feature', {
+        problem: 'prompt 改动无评估机制',
+        expected_effect: 'R4 场景 search_memory 出现率 ≥ 2/3',
+      }),
+      modules: ['.pi/skills/otter-summon/SKILL.md'],
+      created_at: '2026-09-17T08:00:00Z',
+    };
+    const result = validateIntent(fm);
+    expect(result.errors.some((e: string) => e.startsWith('Missing intent.verify_by for soft-code change'))).toBe(true);
+  });
+
+  it('should treat future created_at as new (error)', () => {
+    const fm = {
+      ...createBaseFm('feature', {
+        problem: 'prompt 改动无评估机制',
+        expected_effect: 'R4 场景 search_memory 出现率 ≥ 2/3',
+      }),
+      modules: ['.pi/skills/otter-summon/SKILL.md'],
+      created_at: '2027-01-01',
+    };
+    const result = validateIntent(fm);
+    expect(result.errors.some((e: string) => e.startsWith('Missing intent.verify_by for soft-code change'))).toBe(true);
+  });
+});
+
+// F20260917sdpl 改动 2：golden_replay 声明的执行记录核对（分环境）
+describe('lint:intent golden_replay record check (F20260917sdpl)', () => {
+  const baseGoldenFm = () => ({
+    ...createBaseFm('feature', {
+      problem: 'skill 行为回归需验证',
+      expected_effect: '对应场景采样通过率 ≥ 8/10',
+      verify_by: { type: 'golden_replay' },
+    }),
+    modules: ['.pi/skills/code-implementation/SKILL.md'],
+    created_at: '2026-09-17',
+  });
+
+  it('should error when golden_replay declared but no record after created_at (file exists)', () => {
+    withTempCwd(() => {
+      writeGoldenResults([
+        { ts: '2026-09-01T00:00:00Z', golden_id: 'r4-summon-search-first', passed: true },
+      ]);
+      const result = validateIntent(baseGoldenFm());
+      expect(result.errors.some((e: string) => e.startsWith('intent.verify_by.type=golden_replay 但'))).toBe(true);
+    });
+  });
+
+  it('should pass when record exists after created_at', () => {
+    withTempCwd(() => {
+      writeGoldenResults([
+        { ts: '2026-09-01T00:00:00Z', golden_id: 'old-run', passed: true },
+        { ts: '2026-09-18T10:00:00Z', golden_id: 'r4-summon-search-first', passed: true },
+      ]);
+      const result = validateIntent(baseGoldenFm());
+      expect(result.errors).toHaveLength(0);
+    });
+  });
+
+  it('should warn (not error) when results file missing (CI clean env)', () => {
+    withTempCwd(() => {
+      const result = validateIntent(baseGoldenFm());
+      expect(result.errors.some((e: string) => e.startsWith('intent.verify_by.type=golden_replay 但'))).toBe(false);
+      expect(result.warnings.some((w: string) => w.includes('golden-results.jsonl 不存在'))).toBe(true);
+    });
+  });
+
+  it('should skip record check for non-golden_replay types', () => {
+    withTempCwd(() => {
+      const fm = {
+        ...createBaseFm('feature', {
+          problem: '纯文字纪律改动',
+          expected_effect: 'skill 文本包含固化失败条款',
+          verify_by: { type: 'static_only' },
+        }),
+        modules: ['.pi/skills/troubleshooting/SKILL.md'],
+        created_at: '2026-09-17',
+      };
+      const result = validateIntent(fm);
+      expect(result.errors).toHaveLength(0);
+      expect(result.warnings.some((w: string) => w.includes('golden-results.jsonl 不存在'))).toBe(false);
+    });
+  });
+
+  it('should skip record check for non-soft-code golden_replay declaration', () => {
+    withTempCwd(() => {
+      const fm = {
+        ...createBaseFm('feature', {
+          problem: '硬代码能力验证',
+          expected_effect: 'runner 记录字段含 ts ≥ 8/10',
+          verify_by: { type: 'golden_replay' },
+        }),
+        modules: ['src/frameworks/'],
+        created_at: '2026-09-17',
+      };
+      const result = validateIntent(fm);
+      expect(result.errors).toHaveLength(0);
+    });
   });
 });

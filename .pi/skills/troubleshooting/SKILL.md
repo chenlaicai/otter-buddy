@@ -56,6 +56,13 @@ category: technique
    - 选 ①②③ → **轻对抗**：不召獭，后续 commit 须含 Modification-Class 声明行，取值对应：①→`narrow-fix` / ②→`scope-reduction` / ③→`deletion`（声明细则见 worktree-isolation 步骤 4）
 4. **形成结论**：输出结构化结论（预注册段 + 问题现象 + 根因分析附 file:line + 修复建议 + 影响范围 + **预期 vs 实际对照**——预期命中/偏离/反转，偏离时一句话说明哪一步证据改变了方向）。将排查结论写入 worktree 中的特性文档（特性文档约定见 worktree-isolation skill 步骤 4 内联段），首次写入时用 `create_linked_resource(type: "file", groupId: "<特性ID>")` 注册（groupId 可选）。写完后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"——让"这文档怎么来的"之后可被 get_related 拼出链。
 5. **需要修复时**：转入 `worktree-isolation` 流程创建 worktree，在 worktree 内修复并提交。
+
+   5a. **固化失败（动手修之前）**：根因确认后、写修复代码之前，先把「失败证据」固化成可重跑的形态：
+   - 可测：失败测试（先跑一遍确认因预期原因失败，再修）
+   - 难测（时序/环境/外部依赖）：最小复现脚本或诊断命令 + 预期输出（修复前 vs 修复后对照）
+   - 均不可行：豁免理由一句话（为何两者都不可行）写入特性文档，检视獭核对豁免合理性
+
+   修复过程不得改动已固化的失败用例本体（断言变了 = 验证变了）——需调整用例时，在特性文档记录调整理由，与修复分属不同 commit。依据：agent 的「自证通过」动机比人强（改断言是最短路径），修复前存在的、agent 改不动的失败用例才是「bug 已修」的证据。
 6. **排查中需改文件验证假设时**：立即转入 worktree，验证完成后决定提交或 revert，继续排查。
 
 > 约束：先读文件/数据再分析，不凭印象。结论必须附 file:line 引用。修复建议必须具体可执行。
