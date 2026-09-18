@@ -26,13 +26,15 @@ export interface InvokeDTO {
   ctxWindowUsed: number | null;
 }
 
-/** invoke 事件类型（流式过程记录） */
+/** invoke 事件类型（流式过程记录）。F20260918sesp：+user_injection——pi 的
+ *  message_start(role=user) 事件（触发 invoke 的首条 prompt + steer/followUp 注入消费点） */
 export type InvokeEventTypeDTO =
   | "assistant_text"
   | "assistant_toolcall"
   | "tool_result"
   | "error"
-  | "speak";
+  | "speak"
+  | "user_injection";
 
 /** invoke 事件 DTO（Session 弹窗展开后的流式过程条目） */
 export interface InvokeEventDTO {
