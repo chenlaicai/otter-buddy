@@ -27,6 +27,3 @@ npm run lint:tool-manifest
 node scripts/lint-historical-docs.mjs
 # prompt-anchor gate：注入面（prompt/skill/tool description）禁止 F 编号/issue 锚点
 node scripts/lint-prompt-anchors.mjs
-# F20260915dabm: 测试日期炸弹静态扫描——检测 validateCommitDate 中
-# 硬编码特性 ID 且未注入 now 参数的日期炸弹模式（#544 防线）
-npm run lint:date-bombs

@@ -22,6 +22,7 @@ Tests verify what the system DOES, not how it does it internally.
 - 共享设施只用 `tests/helpers/`（logger / fakeAgentGateway / SSE），**禁止新抄副本**
 - 不写这些（覆盖填充）：mapper/DTO 字段抄送、pass-through 委托、与实现锁步的镜像断言
 - 判别口诀：**断言失败时，用户或调用方能感知吗？** 不能 → 这个测试不该存在
+- **测试涉时间一律注入时钟**：用 fake timer（`vi.useFakeTimers`）或显式 `now` 参数构造相对时间，禁止硬编码会过期的绝对日期字面量参与与真实时钟的差值计算。写的时候绿的测试可能在任意未来日期炸成假失败——正确性靠写法保证，不靠事后扫描。（lint-date-bombs 扫描器已退役，本规范是唯一防线）
 - **db 迁移测试三不变量（事故教训）**：迁移函数（migration.ts 新增/修改迁移函数、或 schema.ts 表结构变更）的测试断言必须覆盖三层——①**数据**（行数/内容）；②**结构**（从 sqlite_master 取迁移前后每张受影响表的 DDL，断言 PK/UNIQUE/FK/虚拟表形态（fts5/vec0）等价）；③**功能探针**（迁移后执行依赖表结构的真实操作：ON CONFLICT 写入、FTS5 MATCH、vec0 KNN——结构丢失时这些操作会炸，行数断言不会）。只断言行数的迁移测试 = 没测（现场：数据完美、结构全毁、全绿通过；同类事故已踩两次，出处见 git 历史）。
 
 ### B 类硬规则

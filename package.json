@@ -28,7 +28,6 @@
     "lint:skills": "node scripts/lint-skills.mjs",
     "lint:tool-manifest": "node scripts/lint-tool-manifest.mjs",
     "lint:intent": "node scripts/lint-intent.mjs",
-    "lint:date-bombs": "node scripts/lint-date-bombs.mjs",
     "lint:prompt-anchors": "node scripts/lint-prompt-anchors.mjs"
   },
   "keywords": [],

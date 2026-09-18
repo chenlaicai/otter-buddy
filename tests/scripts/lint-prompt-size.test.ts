@@ -6,7 +6,7 @@ import * as os from 'node:os';
 
 /**
  * F20260917pbgg: prompt 体积预算闸 lint 的行为测试（issue #1030 层A）。
- * 子进程方式跑真脚本（与 lint-date-bombs.test.ts 同模式），验证三个语义：
+ * 子进程方式跑真脚本，验证三个语义：
  * 1. 超预算 exit 1 + 报文件名
  * 2. 预算内 exit 0；触警告线打警告
  * 3. per-file budget_bytes override 生效
