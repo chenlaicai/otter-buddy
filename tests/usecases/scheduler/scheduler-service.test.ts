@@ -862,12 +862,12 @@ describe('#913: catch-up 前置阶段炸点落 healing（claim 后 execution 建
     const convRepo = createMockConvRepo();
     const sendEntry = createMockSendEntry();
     const entryRepo = createMockEntryRepo();
-    const cronParser = createMockCronParser(new Date('2026-09-14T01:00:00.000Z'));
+    const cronParser = createMockCronParser(new Date(Date.now()));
     taskRepo._store.set('task-x', makeTask({
       id: 'task-x',
       scheduleType: 'cron',
       cron: '0 9 * * *',
-      lastTriggeredAt: '2026-09-13T01:00:00.000Z',
+      lastTriggeredAt: new Date(Date.now() - 24 * 3600_000).toISOString(),
     } as never));
     convRepo._addConversation('conv-1', { status: 'active' });
     // createExecution 炸点模拟（#912 修复前的 FK 现场同构）：INSERT 抛 SqliteError 型异常
@@ -918,7 +918,7 @@ describe('#913: catch-up 前置阶段炸点落 healing（claim 后 execution 建
     const taskRepo = createMockTaskRepo();
     taskRepo._store.set('task-y', makeTask({
       id: 'task-y', scheduleType: 'cron', cron: '0 9 * * *',
-      lastTriggeredAt: '2026-09-13T01:00:00.000Z',
+      lastTriggeredAt: new Date(Date.now() - 24 * 3600_000).toISOString(),
     } as never));
     // claim 拒绝：已有未超时 running execution
     (taskRepo as Record<string, unknown>).getExecutions = vi.fn(async () => [
@@ -932,7 +932,7 @@ describe('#913: catch-up 前置阶段炸点落 healing（claim 后 execution 建
       sendEntry: createMockSendEntry() as unknown as SendEntry,
       entryRepo: createMockEntryRepo() as unknown as EntryRepository,
       agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
-      cronParser: createMockCronParser(new Date('2026-09-15T01:00:00.000Z')) as unknown as CronParser,
+      cronParser: createMockCronParser(new Date(Date.now())) as unknown as CronParser,
       logger: mockLogger,
       healingRepo: healingRepo as never,
     });
@@ -951,7 +951,7 @@ async function runReconcileEdge(prevDue: Date, offsetMs: number): Promise<number
   const convRepo = createMockConvRepo();
   const sendEntry = createMockSendEntry();
   const entryRepo = createMockEntryRepo();
-  const cronParser = createMockCronParser(new Date('2026-09-15T16:09:00.000Z'), prevDue);
+  const cronParser = createMockCronParser(new Date(Date.now()), prevDue);
   const events: Array<Record<string, unknown>> = [];
   const healingRepo = {
     _events: events,
@@ -1073,8 +1073,8 @@ describe('#814: 调度完整性对账（启动时错过窗口落 healing）', ()
     const convRepo = createMockConvRepo();
     const sendEntry = createMockSendEntry();
     const entryRepo = createMockEntryRepo();
-    const prevDue = new Date('2026-09-15T01:30:00.000Z');
-    const cronParser = createMockCronParser(new Date('2026-09-15T16:09:00.000Z'), prevDue);
+    const prevDue = new Date(Date.now() - 3600_000);
+    const cronParser = createMockCronParser(new Date(Date.now()), prevDue);
     const healingRepo = makeHealingRepo();
 
     // 现场同构：lastTriggeredAt 仅早窗口 0.645s（9/15 误报 5 条之一）
@@ -1082,7 +1082,7 @@ describe('#814: 调度完整性对账（启动时错过窗口落 healing）', ()
       id: 'task-jitter',
       scheduleType: 'cron',
       cron: '0 9 * * *',
-      lastTriggeredAt: '2026-09-15T01:29:59.355Z',
+      lastTriggeredAt: new Date(prevDue.getTime() - 645).toISOString(),
     } as never));
     convRepo._addConversation('conv-1', { status: 'active' });
 
@@ -1107,15 +1107,15 @@ describe('#814: 调度完整性对账（启动时错过窗口落 healing）', ()
     const convRepo = createMockConvRepo();
     const sendEntry = createMockSendEntry();
     const entryRepo = createMockEntryRepo();
-    const prevDue = new Date('2026-09-15T01:30:00.000Z');
-    const cronParser = createMockCronParser(new Date('2026-09-15T16:09:00.000Z'), prevDue);
+    const prevDue = new Date(Date.now() - 3600_000);
+    const cronParser = createMockCronParser(new Date(Date.now()), prevDue);
     const healingRepo = makeHealingRepo();
 
     taskRepo._store.set('task-real-miss', makeTask({
       id: 'task-real-miss',
       scheduleType: 'cron',
       cron: '0 9 * * *',
-      lastTriggeredAt: '2026-09-14T01:29:00.000Z', // 早超过一天，真错过
+      lastTriggeredAt: new Date(Date.now() - 48 * 3600_000).toISOString(), // 早超过一天，真错过
     } as never));
     convRepo._addConversation('conv-1', { status: 'active' });
 
@@ -1141,7 +1141,7 @@ describe('#814: 调度完整性对账（启动时错过窗口落 healing）', ()
     // - 早 5000ms：(P-5000) >= (P-5000) 成立（>= 含边界）→ 容差内
     //   （防重构把 >= 改成 > 时，本用例拦截：5000ms 会变误报）
     // - 早 5001ms：(P-5001) >= (P-5000) 不成立 → 错过（防边界被悄然扩大/缩小）
-    const prevDue = new Date('2026-09-15T01:30:00.000Z');
+    const prevDue = new Date(Date.now() - 3600_000);
 
     expect(await runReconcileEdge(prevDue, 4999)).toBe(0);
     expect(await runReconcileEdge(prevDue, 5000)).toBe(0);
