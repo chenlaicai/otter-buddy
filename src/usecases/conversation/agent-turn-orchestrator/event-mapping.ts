@@ -92,6 +92,21 @@ export function mapToInvokeEventInput(
   e: AgentStreamEvent,
 ): { eventType: InvokeEventType; payload: Record<string, unknown> } | null {
   switch (e.type) {
+    /** F20260918sesp：user 消息进入模型上下文的时点（含触发 invoke 的首条 prompt +
+     *  steer/followUp 注入的消费点，pi agent-session._handleAgentEvent 发射）。
+     *  数据源保持纯 pi 流（搭档拍板：不自造注入事件），落库后 Session 弹窗可见
+     *  「steer 插在哪」——与模型实际看到的时序一致 */
+    case "message_start": {
+      const msg = (e as Record<string, unknown>).message as Record<string, unknown> | undefined;
+      if (msg?.role !== "user") return null; // assistant/toolResult 的 message_start 不落库（与既有行为一致）
+      const content = Array.isArray(msg.content)
+        ? (msg.content as Array<Record<string, unknown>>)
+            .map((c) => (typeof c?.text === "string" ? c.text : ""))
+            .filter(Boolean)
+            .join("\n")
+        : String(msg.content ?? "");
+      return { eventType: "user_injection", payload: { content, timestamp: msg.timestamp } };
+    }
     case "tool_execution_start":
       return { eventType: "assistant_toolcall", payload: { name: e.name ?? e.toolName, arguments: (e as Record<string, unknown>).args ?? (e as Record<string, unknown>).input } };
     case "tool_execution_end": {

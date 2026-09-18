@@ -133,3 +133,28 @@ describe('foldInvokeEvents', () => {
     expect(steps[0]).toMatchObject({ kind: 'call', isError: true })
   })
 })
+
+describe('user_injection（F20260918sesp）', () => {
+  it('user 步直通成步，插在真实时序位置（steer 可见）', () => {
+    const steps = foldInvokeEvents([
+      ev('u1', 'user_injection', { content: '把这个文件改完' }, 1),
+      ev('e1', 'assistant_toolcall', { name: 'read', arguments: { path: 'a.ts' } }, 2),
+      ev('e2', 'tool_result', { name: 'read', result: 'content' }, 3),
+      ev('u2', 'user_injection', { content: '【急讯 msg:x】来自 chen：先别改文件，等一下' }, 4),
+      ev('e3', 'assistant_toolcall', { name: 'bash', arguments: { command: 'ls' } }, 5),
+    ])
+    expect(steps).toHaveLength(4)
+    expect(steps[0]).toMatchObject({ kind: 'user', text: '把这个文件改完', rawEventIds: ['u1'] })
+    expect(steps[2]).toMatchObject({ kind: 'user', text: '【急讯 msg:x】来自 chen：先别改文件，等一下' })
+    expect(steps[3]).toMatchObject({ kind: 'call', name: 'bash', pending: true })
+  })
+
+  it('旧数据（无 user_injection）折叠结果不变', () => {
+    const steps = foldInvokeEvents([
+      ev('e1', 'assistant_toolcall', { name: 'read', arguments: {} }, 1),
+      ev('e2', 'tool_result', { name: 'read', result: 'ok' }, 2),
+    ])
+    expect(steps).toHaveLength(1)
+    expect(steps[0]).toMatchObject({ kind: 'call', name: 'read' })
+  })
+})

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type MutableRefObject } from 'react'
-import { X, ChevronRight, Loader2, MessageSquare, Wrench, CircleAlert, Braces, Copy, Check } from 'lucide-react'
+import { X, ChevronRight, Loader2, MessageSquare, Wrench, CircleAlert, Braces, Copy, Check, UserRound } from 'lucide-react'
 import type { LocalOtter } from '../../lib/mappers'
 import type { InvokeDTO, InvokeEventDTO } from '@contract/api'
 import { OtterAvatar } from '../../components/OtterAvatar'
@@ -11,17 +11,17 @@ import * as api from '../../api/client'
 /**
  * F20260913ctlv：Session 弹窗——点击獭头像弹出，展示该獭的完整 session 记录。
  * 数据源：GET /api/conversations/:id/invokes?otterId=（invoke 列表）+
- *        GET /api/invokes/:invokeId/events（流式过程：assistant_text/tool_call/tool_result/speak）
- * 特性文档 D5：流式过程从消息气泡挪出，只在此弹窗展示。
+ *        GET /api/invokes/:invokeId/events（流式过程：assistant_text/tool_call/tool_result/speak/user_injection）
  *
- * F20260914rtsp 升级：自动展开最新 invoke + 事件展示层折叠（invoke-event-fold）。
- * F20260914evdz 升级：
- * - 实时化改事件驱动（替换 #916 的 2s 轮询）：SSE invoke.event 经 props 注入的
- *   live 通道（index.tsx 常驻 SSE 连接转发）增量 append——推送节奏 = 獭干活的真实
- *   节奏，无任何定时器；主界面不渲染该事件（零 re-render）
- * - invoke.start → 列表自动冒出新行并自动展开；invoke 终态 → 全量拉取收敛（防乱序）
- * - 事件行展开区找回旧版（#886 前「流式过程」面板）形态：参数/结果/发言/思考全文
- *   （可滚动 + 复制按钮），替换 #916 的原始 JSON 截断分列
+ * F20260914rtsp：自动展开最新 invoke + 事件展示层折叠（invoke-event-fold）。
+ * F20260914evdz：实时化改事件驱动（SSE invoke.event 增量 append，无定时器）。
+ * F20260918sesp 主从双栏重设计（搭档反馈 2 项）：
+ * - ①滚动错乱根治：旧版 invoke 列表与展开事件共用一个滚动容器，且挂载即跟随底部——
+ *   列表 DESC（最新在顶）+ 视口在最底 = 打开看到最老 invoke，想看的 running 反而要往上翻。
+ *   新版：左栏 invoke 索引（独立滚动）+ 右栏当前选中 invoke 事件流（独立滚动），
+ *   打开自动选中 running（否则最新一条），选中变化即定位，互不干扰。
+ * - ②全事件流：steer/followUp/触发 prompt 均以 user_injection 落库（pi message_start
+ *   role=user 消费点），fold 层直通 user 步——搭档的插话在流里看得见插在哪。
  */
 
 /** 实时通道条目（index.tsx 常驻 SSE 注入；ev=null 表示 invoke 终态 flush） */
@@ -51,71 +51,82 @@ const TERMINAL_EVENTS_LIMIT = 300
 export function SessionModal({ otter, conversationId, onClose, liveEvents, liveListeners }: SessionModalProps) {
   const [invokes, setInvokes] = useState<InvokeDTO[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
-  /** 展开态：invokeId → 已加载事件（null = 未加载） */
-  const [expandedEvents, setExpandedEvents] = useState<Record<string, InvokeEventDTO[] | null>>({})
-  const [eventsLoading, setEventsLoading] = useState<Record<string, boolean>>({})
+  /** F20260918sesp：单选态（替代旧版 expandedEvents 多开记录）——右栏只渲染选中的 invoke */
+  const [selectedInvokeId, setSelectedInvokeId] = useState<string | null>(null)
+  /** 选中 invoke 的已加载事件（null = 加载中/未加载） */
+  const [selectedEvents, setSelectedEvents] = useState<InvokeEventDTO[] | null>(null)
+  const [eventsLoading, setEventsLoading] = useState(false)
   /** 折叠步展开态：`${invokeId}:${stepIndex}` → true（展开=全文区） */
   const [rawExpanded, setRawExpanded] = useState<Record<string, boolean>>({})
   /** 实时通道驱动的 invoke 状态镜像（终态 flush 时更新） */
   const [liveStatus, setLiveStatus] = useState<Record<string, InvokeDTO['status']>>({})
   /** SSE 连接状态（断连兜底提示——不静默装实时） */
   const [connLost, setConnLost] = useState(false)
+  /** 右栏事件流容器（独立滚动——与左栏索引互不影响） */
   const eventsBoxRef = useRef<HTMLDivElement | null>(null)
-  /** 自动滚底跟随：用户上滚（距底 > 40px）暂停，回底恢复 */
+  /** 自动滚底跟随：用户上滚（距底 > 40px）暂停，回底恢复；切换选中时重置为跟随 */
   const followBottomRef = useRef(true)
-  /** F20260914evdz 检视发现 1：expandedEvents ref 镜像——listener 闭包读最新展开集
-   *  （不进 effect 依赖，避免展开/收起都重注册 listener + 重复回放） */
-  const expandedEventsRef = useRef(expandedEvents)
-  useEffect(() => { expandedEventsRef.current = expandedEvents }, [expandedEvents])
+  /** F20260918sesp：selectedInvokeId ref 镜像——listener 闭包读最新选中（不进 effect 依赖，
+   *  避免每次切换选中都重注册 listener + 重复回放） */
+  const selectedInvokeIdRef = useRef<string | null>(null)
+  useEffect(() => { selectedInvokeIdRef.current = selectedInvokeId }, [selectedInvokeId])
 
   /** 全量拉取收敛（终态 flush / 断连恢复用——落库是真相源） */
   const refreshEvents = useCallback(async (invokeId: string) => {
     try {
       const resp = await api.getInvokeEvents(invokeId)
-      setExpandedEvents(prev => (prev[invokeId] == null ? prev : { ...prev, [invokeId]: resp.events }))
-      setLiveStatus(prev => ({ ...prev, [invokeId]: resp.invoke.status }))
+      if (selectedInvokeIdRef.current === invokeId) {
+        setSelectedEvents(resp.events)
+        setLiveStatus(prev => ({ ...prev, [invokeId]: resp.invoke.status }))
+      }
       setInvokes(prev => prev?.map(i => i.id === resp.invoke.id ? resp.invoke : i) ?? prev)
     } catch { /* 全量收敛失败静默——live 增量仍在推 */ }
   }, [])
 
-  /** 刷新 invoke 列表（invoke.start 信号：新行动自动冒行 + 自动展开） */
-  const refreshInvokes = useCallback(async (autoExpandInvokeId?: string) => {
+  /** 选中某 invoke：加载数据 + 重置滚底跟随（running 时由 effect 贴底）。
+   *  稳定回调（deps []）：挂载自动选中与实时通道 autoSelect 都复用它 */
+  const selectInvoke = useCallback(async (invokeId: string) => {
+    if (selectedInvokeIdRef.current === invokeId) return
+    setSelectedInvokeId(invokeId)
+    selectedInvokeIdRef.current = invokeId
+    setSelectedEvents(null)
+    setEventsLoading(true)
+    followBottomRef.current = true
+    try {
+      const resp = await api.getInvokeEvents(invokeId)
+      /** 竞态防御：加载期间用户可能已切走——只写入仍是当前选中的 */
+      if (selectedInvokeIdRef.current === invokeId) setSelectedEvents(resp.events)
+    } catch {
+      if (selectedInvokeIdRef.current === invokeId) setSelectedEvents([])
+    } finally {
+      if (selectedInvokeIdRef.current === invokeId) setEventsLoading(false)
+    }
+  }, [])
+
+  /** 刷新 invoke 列表（invoke.start 信号：新行动自动冒行 + 自动选中） */
+  const refreshInvokes = useCallback(async (autoSelectInvokeId?: string) => {
     try {
       const resp = await api.listInvokes(conversationId, { otterId: otter.id, limit: 50 })
       setInvokes(resp.invokes)
-      const target = autoExpandInvokeId ? resp.invokes.find(i => i.id === autoExpandInvokeId) : undefined
-      if (target) {
-        setExpandedEvents(prev => ({ ...prev, [target.id]: null }))
-        setEventsLoading(prev => ({ ...prev, [target.id]: true }))
-        try {
-          const r = await api.getInvokeEvents(target.id)
-          setExpandedEvents(prev => ({ ...prev, [target.id]: r.events }))
-        } catch { setExpandedEvents(prev => ({ ...prev, [target.id]: [] })) }
-        finally { setEventsLoading(prev => ({ ...prev, [target.id]: false })) }
+      if (autoSelectInvokeId && resp.invokes.some(i => i.id === autoSelectInvokeId)) {
+        void selectInvoke(autoSelectInvokeId)
       }
     } catch { /* 列表刷新失败静默 */ }
-  }, [conversationId, otter.id])
+  }, [conversationId, otter.id, selectInvoke])
 
+  /** 挂载：拉列表 + 自动选中（running 优先，否则最新一条） */
   useEffect(() => {
     let cancelled = false
     api.listInvokes(conversationId, { otterId: otter.id, limit: 50 })
       .then(resp => {
         if (cancelled) return
         setInvokes(resp.invokes)
-        /** 自动展开最新 invoke（running 优先，否则第一条） */
         const target = resp.invokes.find(i => i.status === 'running') ?? resp.invokes[0]
-        if (target) {
-          setExpandedEvents(prev => ({ ...prev, [target.id]: null }))
-          setEventsLoading(prev => ({ ...prev, [target.id]: true }))
-          api.getInvokeEvents(target.id)
-            .then(r => { if (!cancelled) setExpandedEvents(prev => ({ ...prev, [target.id]: r.events })) })
-            .catch(() => { if (!cancelled) setExpandedEvents(prev => ({ ...prev, [target.id]: [] })) })
-            .finally(() => { if (!cancelled) setEventsLoading(prev => ({ ...prev, [target.id]: false })) })
-        }
+        if (target) void selectInvoke(target.id)
       })
       .catch(() => { if (!cancelled) setLoadError('invoke 记录加载失败') })
     return () => { cancelled = true }
-  }, [conversationId, otter.id])
+  }, [conversationId, otter.id, selectInvoke])
 
   /** ESC 关闭 */
   useEffect(() => {
@@ -124,36 +135,21 @@ export function SessionModal({ otter, conversationId, onClose, liveEvents, liveL
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const toggleInvoke = useCallback(async (invoke: InvokeDTO) => {
-    if (expandedEvents[invoke.id]) {
-      setExpandedEvents(prev => { const next = { ...prev }; delete next[invoke.id]; return next })
-      return
-    }
-    setEventsLoading(prev => ({ ...prev, [invoke.id]: true }))
-    try {
-      const resp = await api.getInvokeEvents(invoke.id)
-      setExpandedEvents(prev => ({ ...prev, [invoke.id]: resp.events }))
-    } catch {
-      setExpandedEvents(prev => ({ ...prev, [invoke.id]: [] }))
-    } finally {
-      setEventsLoading(prev => ({ ...prev, [invoke.id]: false }))
-    }
-  }, [expandedEvents])
-
   /** F20260914evdz：实时通道接线（事件驱动，替换 #916 的 2s 轮询）。
    *  挂载：注册监听 + 回放积压 buffer（弹窗打开前的事件不丢）；
-   *  收到增量：仅追加到「已展开」的 invoke（seq 单调防乱序）；
+   *  收到增量：仅追加到「当前选中」的 invoke（seq 单调防乱序）；
    *  终态 flush（ev=null）：全量拉取收敛；
-   *  invoke.start（start=true）：刷新列表 + 自动展开新行动；
+   *  invoke.start（start=true）：刷新列表 + 自动选中新行动；
    *  conn：SSE 连接状态（断连提示）。 */
   useEffect(() => {
     const listener = (item: SessionLiveItem) => {
       if (item.conn !== undefined) {
         setConnLost(!item.conn)
         /** 检视发现 1：断连恢复（conn=true）即全量收敛——断连窗口内可能丢
-         *  invoke.end flush / invoke.start 信号 / 增量事件；ref 镜像读最新展开集 */
+         *  invoke.end flush / invoke.start 信号 / 增量事件；ref 镜像读最新选中 */
         if (item.conn) {
-          for (const id of Object.keys(expandedEventsRef.current)) void refreshEvents(id)
+          const cur = selectedInvokeIdRef.current
+          if (cur) void refreshEvents(cur)
           void refreshInvokes()
         }
         return
@@ -162,12 +158,11 @@ export function SessionModal({ otter, conversationId, onClose, liveEvents, liveL
       if (item.start) { void refreshInvokes(item.invokeId); return }
       if (item.ev == null) { void refreshEvents(item.invokeId); return }
       const ev = item.ev
-      setExpandedEvents(prev => {
-        const cur = prev[item.invokeId]
-        if (cur == null) return prev
-        if (cur.some(e => e.id === ev.id)) return prev
-        if (cur.length > 0 && ev.sequenceNum <= cur[cur.length - 1]!.sequenceNum) return prev
-        return { ...prev, [item.invokeId]: [...cur, ev] }
+      setSelectedEvents(prev => {
+        if (selectedInvokeIdRef.current !== item.invokeId || prev == null) return prev
+        if (prev.some(e => e.id === ev.id)) return prev
+        if (prev.length > 0 && ev.sequenceNum <= prev[prev.length - 1]!.sequenceNum) return prev
+        return [...prev, ev]
       })
     }
     const listeners = liveListeners.current
@@ -177,18 +172,21 @@ export function SessionModal({ otter, conversationId, onClose, liveEvents, liveL
     return () => { listeners.delete(listener) }
   }, [otter.id, liveEvents, liveListeners, refreshEvents, refreshInvokes])
 
-  /** 自动滚底（followBottomRef 跟随中才滚） */
+  /** 右栏自动滚底（followBottomRef 跟随中才滚；新事件到达/选中变化都触发） */
   useEffect(() => {
     if (followBottomRef.current && eventsBoxRef.current) {
       eventsBoxRef.current.scrollTop = eventsBoxRef.current.scrollHeight
     }
-  }, [expandedEvents])
+  }, [selectedEvents, selectedInvokeId])
 
   const handleScroll = useCallback(() => {
     const el = eventsBoxRef.current
     if (!el) return
     followBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
   }, [])
+
+  const selected = invokes?.find(i => i.id === selectedInvokeId) ?? null
+  const selectedIsRunning = selected != null && (liveStatus[selected.id] ?? selected.status) === 'running'
 
   return (
     <div
@@ -197,7 +195,7 @@ export function SessionModal({ otter, conversationId, onClose, liveEvents, liveL
       onClick={onClose}
     >
       <div
-        className="glass rounded-3xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden shadow-glow"
+        className="glass rounded-3xl w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden shadow-glow"
         onClick={e => e.stopPropagation()}
       >
         {/* 头部：獭头像 + 名字 */}
@@ -205,7 +203,7 @@ export function SessionModal({ otter, conversationId, onClose, liveEvents, liveL
           <OtterAvatar otterId={otter.id} name={otter.name} size={36} type={otter.type} />
           <div className="flex-1 min-w-0">
             <div className="text-sm font-semibold text-stone-700">{otter.name} · Session 记录</div>
-            <div className="text-[11px] text-stone-400">每次行动（invoke）的完整流式过程</div>
+            <div className="text-[11px] text-stone-400">每次行动（invoke）的完整流式过程——左栏选行动，右栏看过程</div>
           </div>
           {otter.modelAlias && (
             <span data-testid="model-badge" className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-stone-400/15 text-stone-500">
@@ -217,89 +215,108 @@ export function SessionModal({ otter, conversationId, onClose, liveEvents, liveL
           </button>
         </div>
 
-        {/* invoke 列表 */}
-        <div className="flex-1 overflow-y-auto px-5 py-4" ref={eventsBoxRef} onScroll={handleScroll}>
-          {/* SSE 断连兜底——不静默装实时 */}
-          {connLost && (
-            <div className="mb-2 px-3 py-1.5 rounded-lg border border-caramel-400/40 text-[10px] text-caramel-600 bg-caramel-400/10" data-testid="conn-lost-banner">
-              实时连接断开，自动重连中…（已显示的内容不受影响）
-            </div>
-          )}
-          {loadError && <div className="text-xs text-red-400 py-8 text-center">{loadError}</div>}
-          {!loadError && invokes === null && (
-            <div className="flex items-center justify-center gap-2 py-8 text-stone-400 text-xs">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" /> 加载中...
-            </div>
-          )}
-          {invokes !== null && invokes.length === 0 && (
-            <div className="py-8 text-center text-xs text-stone-400">该獭暂无 invoke 记录</div>
-          )}
-          {invokes?.map(inv => {
-            const expanded = expandedEvents[inv.id] != null
-            const loading = !!eventsLoading[inv.id]
-            const isRunning = (liveStatus[inv.id] ?? inv.status) === 'running'
-            return (
-              <div key={inv.id} className="glass-card rounded-2xl mb-2 overflow-hidden">
-                <button
-                  onClick={() => toggleInvoke(inv)}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-white/30 transition"
-                >
-                  <ChevronRight className={`w-3.5 h-3.5 text-stone-400 transition-transform flex-shrink-0 ${expanded ? 'rotate-90' : ''}`} />
-                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 ${statusBadgeClass(inv.status)}`}>
-                    {statusLabel(inv.status)}
-                  </span>
-                  <span className="text-[11px] text-stone-500 flex-shrink-0">{fmtTime(inv.startedAt)}</span>
-                  <span className="text-[10px] text-stone-400 flex-shrink-0">· {fmtInvokeElapsed(toTrackerState(inv))}</span>
-                  <span className="text-[10px] text-stone-400 flex-shrink-0">· 🛠 {inv.toolCallCount}</span>
-                  {/* F20260914rtsp：ctx 窗口占用（usage.totalTokens 快照；null = 旧数据/未发射） */}
-                  {inv.ctxWindowUsed != null && (
-                    <span className="text-[10px] text-stone-400 flex-shrink-0">· ⬛ {fmtCtx(inv.ctxWindowUsed)}</span>
-                  )}
-                  {inv.tokenUsageInput != null || inv.tokenUsageOutput != null ? (
-                    <span className="text-[10px] text-stone-400 flex-shrink-0">
-                      · {fmtTokens(inv.tokenUsageInput)}→{fmtTokens(inv.tokenUsageOutput)} tok
-                    </span>
-                  ) : null}
-                </button>
-                {expanded && (
-                  <div className="border-t border-white/30 px-3 py-2">
-                    {loading && (
-                      <div className="flex items-center gap-2 py-3 text-stone-400 text-[11px]">
-                        <Loader2 className="w-3 h-3 animate-spin" /> 加载流式过程...
-                      </div>
-                    )}
-                    {!loading && (expandedEvents[inv.id]?.length ?? 0) === 0 && (
-                      <div className="py-3 text-[11px] text-stone-400">无流式过程记录</div>
-                    )}
-                    {/* 折叠视图（invoke-event-fold 归并）+ 展开区全文（F20260914evdz：
-                        找回旧版形态——参数/结果全文 + 复制，替换 #916 原始 JSON 截断分列）。
-                        存储忠实保留原始流——折叠仅渲染层，rawEventIds 溯源 */}
-                    {!loading && (expandedEvents[inv.id] ?? []).length > TERMINAL_EVENTS_LIMIT && !isRunning && (
-                      <div className="py-1 text-[10px] text-stone-400">事件较多，仅展示最近 {TERMINAL_EVENTS_LIMIT} 条（上翻分页见后续迭代）</div>
-                    )}
-                    {!loading && foldInvokeEvents(visibleEvents(expandedEvents[inv.id] ?? [], isRunning), { invokeEnded: !isRunning }).map((step, idx) => (
-                      <FoldedStepItem
-                        key={`${inv.id}:${idx}`}
-                        step={step}
-                        rawExpanded={!!rawExpanded[`${inv.id}:${idx}`]}
-                        onToggleRaw={() => setRawExpanded(prev => ({ ...prev, [`${inv.id}:${idx}`]: !prev[`${inv.id}:${idx}`] }))}
-                      />
-                    ))}
-                    {isRunning && (
-                      <div className="flex items-center gap-2 py-2 text-[10px] text-teal-500" data-testid="live-follow-indicator">
-                        <span className="flex gap-0.5">
-                          <i className="w-0.5 h-2 bg-teal-400 rounded animate-pulse" />
-                          <i className="w-0.5 h-2 bg-teal-400 rounded animate-pulse" style={{ animationDelay: '0.2s' }} />
-                          <i className="w-0.5 h-2 bg-teal-400 rounded animate-pulse" style={{ animationDelay: '0.4s' }} />
-                        </span>
-                        实时观察中（事件驱动）· 上滚暂停，回底恢复
-                      </div>
-                    )}
-                  </div>
-                )}
+        {/* 主从双栏（F20260918sesp）：左 invoke 索引（独立滚动）+ 右事件流（独立滚动） */}
+        <div className="flex-1 flex min-h-0">
+          {/* 左栏：invoke 索引 */}
+          <div className="w-56 flex-shrink-0 border-r border-white/40 overflow-y-auto py-3 px-2" data-testid="invoke-index">
+            {connLost && (
+              <div className="mb-2 px-2 py-1.5 rounded-lg border border-caramel-400/40 text-[10px] text-caramel-600 bg-caramel-400/10" data-testid="conn-lost-banner">
+                实时连接断开，重连中…
               </div>
-            )
-          })}
+            )}
+            {loadError && <div className="text-xs text-red-400 py-6 text-center">{loadError}</div>}
+            {!loadError && invokes === null && (
+              <div className="flex items-center justify-center gap-2 py-6 text-stone-400 text-xs">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> 加载中...
+              </div>
+            )}
+            {invokes !== null && invokes.length === 0 && (
+              <div className="py-6 text-center text-xs text-stone-400 px-2">该獭暂无 invoke 记录</div>
+            )}
+            {invokes?.map(inv => {
+              const isRunning = (liveStatus[inv.id] ?? inv.status) === 'running'
+              const isSel = inv.id === selectedInvokeId
+              return (
+                <button
+                  key={inv.id}
+                  onClick={() => selectInvoke(inv.id)}
+                  className={`w-full text-left rounded-xl px-2.5 py-2 mb-1 transition border ${isSel
+                    ? 'bg-white/60 border-teal-400/60 shadow-sm'
+                    : 'border-transparent hover:bg-white/30'}`}
+                >
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${statusBadgeClass(liveStatus[inv.id] ?? inv.status)}`}>
+                      {statusLabel(liveStatus[inv.id] ?? inv.status)}
+                    </span>
+                    <span className="text-[10px] text-stone-500">{fmtTime(inv.startedAt)}</span>
+                    {isRunning && <span className="w-1 h-1 rounded-full bg-teal-400 animate-pulse" />}
+                  </div>
+                  <div className="text-[9px] text-stone-400 mt-0.5 flex items-center gap-1">
+                    <span>{fmtInvokeElapsed(toTrackerState(inv))}</span>
+                    <span>· 🛠 {inv.toolCallCount}</span>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* 右栏：选中 invoke 的完整事件流（独立滚动） */}
+          <div className="flex-1 min-w-0 flex flex-col">
+            {selected && (
+              <div className="flex items-center gap-2 px-4 py-2 border-b border-white/30 flex-wrap flex-shrink-0" data-testid="selected-invoke-header">
+                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${statusBadgeClass(liveStatus[selected.id] ?? selected.status)}`}>
+                  {statusLabel(liveStatus[selected.id] ?? selected.status)}
+                </span>
+                <span className="text-[11px] text-stone-500">{fmtTime(selected.startedAt)}</span>
+                <span className="text-[10px] text-stone-400">· {fmtInvokeElapsed(toTrackerState(selected))}</span>
+                <span className="text-[10px] text-stone-400">· 🛠 {selected.toolCallCount}</span>
+                {selected.ctxWindowUsed != null && (
+                  <span className="text-[10px] text-stone-400">· ⬛ {fmtCtx(selected.ctxWindowUsed)}</span>
+                )}
+                {selected.tokenUsageInput != null || selected.tokenUsageOutput != null ? (
+                  <span className="text-[10px] text-stone-400">
+                    · {fmtTokens(selected.tokenUsageInput)}→{fmtTokens(selected.tokenUsageOutput)} tok
+                  </span>
+                ) : null}
+              </div>
+            )}
+            <div className="flex-1 overflow-y-auto px-4 py-2" ref={eventsBoxRef} onScroll={handleScroll} data-testid="invoke-events-pane">
+              {!selected && invokes != null && invokes.length > 0 && (
+                <div className="py-8 text-center text-xs text-stone-400">左栏选择一次行动查看过程</div>
+              )}
+              {eventsLoading && (
+                <div className="flex items-center gap-2 py-3 text-stone-400 text-[11px]">
+                  <Loader2 className="w-3 h-3 animate-spin" /> 加载流式过程...
+                </div>
+              )}
+              {!eventsLoading && selectedEvents != null && selectedEvents.length === 0 && (
+                <div className="py-3 text-[11px] text-stone-400">无流式过程记录</div>
+              )}
+              {/* 折叠视图（invoke-event-fold 归并）+ 展开区全文。
+                  存储忠实保留原始流——折叠仅渲染层，rawEventIds 溯源 */}
+              {!eventsLoading && selectedEvents != null && selectedEvents.length > TERMINAL_EVENTS_LIMIT && !selectedIsRunning && (
+                <div className="py-1 text-[10px] text-stone-400">事件较多，仅展示最近 {TERMINAL_EVENTS_LIMIT} 条（上翻分页见后续迭代）</div>
+              )}
+              {!eventsLoading && selectedEvents != null && foldInvokeEvents(visibleEvents(selectedEvents, selectedIsRunning), { invokeEnded: !selectedIsRunning }).map((step, idx) => (
+                <FoldedStepItem
+                  key={`${selectedInvokeId}:${idx}`}
+                  step={step}
+                  rawExpanded={!!rawExpanded[`${selectedInvokeId}:${idx}`]}
+                  onToggleRaw={() => setRawExpanded(prev => ({ ...prev, [`${selectedInvokeId}:${idx}`]: !prev[`${selectedInvokeId}:${idx}`] }))}
+                />
+              ))}
+              {selectedIsRunning && (
+                <div className="flex items-center gap-2 py-2 text-[10px] text-teal-500" data-testid="live-follow-indicator">
+                  <span className="flex gap-0.5">
+                    <i className="w-0.5 h-2 bg-teal-400 rounded animate-pulse" />
+                    <i className="w-0.5 h-2 bg-teal-400 rounded animate-pulse" style={{ animationDelay: '0.2s' }} />
+                    <i className="w-0.5 h-2 bg-teal-400 rounded animate-pulse" style={{ animationDelay: '0.4s' }} />
+                  </span>
+                  实时观察中（事件驱动）· 上滚暂停，回底恢复
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -312,12 +329,38 @@ function visibleEvents(events: InvokeEventDTO[], isRunning: boolean): InvokeEven
   return events.slice(-TERMINAL_EVENTS_LIMIT)
 }
 
-/** 折叠步渲染（点击展开全文区——参数/结果/发言/思考，带复制按钮） */
+/** 折叠步渲染（点击展开全文区——参数/结果/发言/思考/插话，带复制按钮） */
 function FoldedStepItem({ step, rawExpanded, onToggleRaw }: {
   step: FoldedStep
   rawExpanded: boolean
   onToggleRaw: () => void
 }) {
+  if (step.kind === 'user') {
+    return (
+      <div className="py-1 border-b border-white/20 last:border-0 rounded-lg" style={{ background: 'rgba(56,102,141,0.08)' }} data-testid="folded-user-step">
+        <div
+          className="flex gap-2 items-start cursor-pointer hover:bg-white/20 rounded-lg px-1 -mx-1 transition"
+          onClick={onToggleRaw}
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-sky-600 flex-shrink-0 mt-1" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <UserRound className="w-3 h-3 text-sky-700 flex-shrink-0 mt-0.5" />
+              <span className="text-[10px] font-medium text-sky-700">用户消息</span>
+              <span className="text-[9px] text-stone-400">{fmtTime(step.ts)}</span>
+            </div>
+            <div className="text-[10px] text-stone-600 whitespace-pre-wrap break-all leading-relaxed mt-0.5 line-clamp-6" title={step.text}>{step.text}</div>
+          </div>
+          <ChevronRight className={`w-3 h-3 text-stone-300 flex-shrink-0 mt-1 transition-transform ${rawExpanded ? 'rotate-90' : ''}`} />
+        </div>
+        {rawExpanded && (
+          <div className="ml-4 mt-1 pl-2 border-l-2 border-white/40" data-testid="step-full-text">
+            <FullTextBlock label="消息全文" text={step.text} testid="user-full" />
+          </div>
+        )}
+      </div>
+    )
+  }
   if (step.kind === 'call') {
     const statusDot = step.interrupted
       ? <span className="w-1.5 h-1.5 rounded-full bg-stone-400 flex-shrink-0 mt-1" title="已中断（invoke 终态时未收到结果）" />
