@@ -46,6 +46,11 @@ export class AssistantSessionManager {
    * - 无绑定 → 自动开户（建对话 + 绑定）
    * - 有绑定 → 检查轮换条件，满足则收篇翻篇（旧对话 complete + 新开）并返回新篇
    *
+   * 并发边界（检视发现 3 留痕）：getCurrentConversation→provision 非原子——同窗口毫秒级
+   * 并发两条消息时，enterConversation 事务互斥使第二个 provision 抛 already occupied →
+   * 回退拒聊提示；副作用是多建一个孤儿 active 对话（/list 噪音，无数据损坏）。
+   * 依赖「入站主链单窗口串行」假设（方案风险 #3 已声明），低概率低危害不加盖。
+   *
    * 返回 null 仅当开户失败（enterConversation 异常等）——调用方回退拒聊提示。
    */
   async ensureAssistantConversation(input: {
@@ -122,18 +127,19 @@ export class AssistantSessionManager {
       });
     }
 
-    // 翻篇：旧对话收档（complete 后 /list 不再列出，噪音自然衰减）
-    try {
-      await this.deps.manageConversation.complete(current.id);
-    } catch (err) {
-      // complete 失败仅影响旧篇状态（如已完成），不阻断新篇开户
-      this.deps.logger.error("Assistant rotation complete failed (continuing)", err instanceof Error ? err : undefined, {
-        conversationId: current.id,
-      });
-    }
-
-    // 轮换后返回新篇（provision 失败时返回 null——调用方回退拒聊，不让消息进已 complete 的旧篇）
+    // 翻篇（检视发现 1 处置：先开户后收档）——provision 的 enterConversation 事务
+    // 原子换绑 session（释放旧 + 建新），失败时旧篇仍 active 可继续聊（降级良好，下次消息再试轮换）；
+    // 旧篇 complete 放开户成功之后，失败仅影响 /list 噪音不阻断链路
     const rotated = await this.provision(input);
+    if (rotated) {
+      try {
+        await this.deps.manageConversation.complete(current.id);
+      } catch (err) {
+        this.deps.logger.error("Assistant rotation complete failed (continuing)", err instanceof Error ? err : undefined, {
+          conversationId: current.id,
+        });
+      }
+    }
     return rotated;
   }
 

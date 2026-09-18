@@ -39,10 +39,17 @@ function makeManager(overrides: { rotationHours?: number; lastEntryAgeHours?: nu
       }),
     },
     entryRepo: {
-      getEntries: vi.fn().mockResolvedValue([
-        { id: "e-1", entryType: "speak", body: "水獭回复", createdAt: lastEntryAt, sequenceNum: 2 },
-        { id: "e-0", entryType: "user", body: "用户提问", createdAt: lastEntryAt, sequenceNum: 1 },
-      ]),
+      // 检视发现 4 处置：mock 按真实仓库语义实现（entryType 过滤 + sequence DESC）——
+      // 否则 writeDigest 的 speak/user 分类逻辑未被真实验证
+      getEntries: vi.fn(async (_conversationId: string, options?: { entryType?: string; limit?: number }) => {
+        const all = [
+          { id: "e-1", entryType: "speak", body: "水獭回复", createdAt: lastEntryAt, sequenceNum: 2 },
+          { id: "e-0", entryType: "user", body: "用户提问", createdAt: lastEntryAt, sequenceNum: 1 },
+        ];
+        return all
+          .filter(e => !options?.entryType || e.entryType === options.entryType)
+          .slice(0, options?.limit ?? 50);
+      }),
     },
     memoryIndex: {
       indexAssistantDigest: vi.fn(async (digestId: string, conversationId: string, digest: string) => {

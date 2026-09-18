@@ -89,8 +89,9 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const manageContext = new ManageContext(repos.otterContext);
   const manageScheduledTask = new ManageScheduledTask(repos.scheduledTask);
   const manageConnection = new ManageConnection(repos.connection, repos.conversation, logger);
-  // F20260918imas：IM 助理会话管理（p2p/微信私聊自动开户 + 72h 软轮换收篇）；
-  // config.im.assistant.enabled=false 时传 null——处理器回退拒聊行为（总开关）
+  // F20260918imas：IM 助理会话管理（p2p/微信私聊自动开户 + 72h 软轮换收篇）。
+  // enabled 总开关不在此层拦截——UseCases 恒持实例（供其他消费方），
+  // 拦截面在 platforms.ts 注入点（enabled=false 时不注入处理器，回退拒聊）
   const assistantSession = new AssistantSessionManager({
     manageConnection,
     manageConversation,
@@ -100,7 +101,6 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
     logger,
     rotationHours: appConfig.im?.assistant?.rotationHours ?? 72,
   });
-  const assistantSessionOrNull = appConfig.im?.assistant?.enabled === false ? null : assistantSession;
   // 多模态 Phase 1：附件上传服务（storageRoot 等来自 config.attachments）
   const attachmentUpload = buildAttachmentUploadService(repos, appConfig, logger);
   // 工作区文件浏览（只读）——workspaceGateway 可选注入
@@ -119,7 +119,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
     // querySignalTrail 退役（F20260908rlcp）
     queryOtter, createOtter, manageSession, dissolveOtter, manageContext,
     manageScheduledTask, manageConnection,
-    assistantSession: assistantSessionOrNull ?? assistantSession,
+    assistantSession,
     createEdge, getRelated, deleteEdge, getDocProvenance,
     attachmentUpload,
     manageWorkspace,
