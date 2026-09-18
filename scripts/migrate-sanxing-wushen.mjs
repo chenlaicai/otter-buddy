@@ -4,7 +4,7 @@
  *
  * 背景：搭档 2026-09-17 拍板，把 5 个「每日三省吾身」类定时任务收拢到单一对话
  * 《三省吾身》（原 🩺 Self-Healing 对话改名），重排时间轴，删除每日复盘 /
- * backlog digest 两个任务，归档三个旧对话。
+ * backlog digest 两个任务，归档五个旧对话（含 2026-09-18 补拍板的依赖升级日常运维）。
  *
  * 本脚本对存量 DB 执行（幂等，可重复运行）：
  *   1. 对话 3241317b…（原 🩺 Self-Healing）改名为《🦦 三省吾身》
@@ -13,7 +13,8 @@
  *   3. 新建「未闭环扫描」7:30 任务（body 从 prompts/scheduled/未闭环扫描.md 读取）
  *   4. 依赖升级自动化、上下文管理机制观察挪入三省吾身对话
  *   5. 删除 daily-review、backlog digest 两个任务
- *   6. 归档三个旧对话：📖 每日复盘 / 📋 Backlog 排期 / 架构整洁和过度设计
+ *   6. 归档五个旧对话：📖 每日复盘 / 📋 Backlog 排期 / 架构整洁和过度设计 /
+ *      上下文压缩交接相关的优化 / 依赖升级日常运维
  *      及其中的旧对话（上下文压缩交接相关的优化）
  *
  * 用法：
@@ -39,6 +40,7 @@ const ARCHIVE_CONV_IDS = [
   'a56c349e-c566-438c-97d0-653a260171ed', // 📋 Backlog 排期
   'a344e752-8e89-469a-ad04-5a5108867fa0', // 架构整洁和过度设计
   '9d326c9d-9818-40a2-9982-898315fe7aa4', // 上下文压缩交接相关的优化（其任务挪走后归档）
+  'a3758263-dfac-4396-93ee-37d89efb5b0e', // 依赖升级日常运维（任务已挪三省吾身；搭档 2026-09-18 补拍板归档）
 ];
 
 function parseArgs() {
@@ -134,7 +136,7 @@ for (const name of ['daily-review', 'backlog digest']) {
 
 // 6. 归档旧对话
 for (const id of ARCHIVE_CONV_IDS) {
-  run(`UPDATE conversations SET status = 'archived', archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND status = 'active'`,
+  run(`UPDATE conversations SET status = 'archived', archived_at = datetime('now'), updated_at = datetime('now'), pinned = 0 WHERE id = ? AND status = 'active'`,
     [id], `归档对话 ${id.slice(0, 8)}`);
 }
 
