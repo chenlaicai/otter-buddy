@@ -198,6 +198,17 @@ circuitBreaker:
 #   # 同一用户两次预警最小间隔（分钟，默认 60；显式 0 = 关闭预警）
 #   # contextTokenWarnCooldownMinutes: 60
 
+# === IM 助理模式（F20260918imas，可选）===
+# 微信私聊 / 飞书私聊（p2p）首条消息自动开专属助理对话——家人朋友加好友即聊，无需 /in 绑定；
+# 群聊维持显式绑定语义；命令体系不变（配置 partnerOpenId/partnerUserId 后仅搭档可用）。
+# 助理对话 72 小时（可调）无新消息则软轮换：收篇摘要落库 + 旧对话收档 + 新开一篇。
+# im:
+#   assistant:
+#     # 助理态总开关（默认 true；false 时微信私聊/飞书 p2p 回退拒聊提示）
+#     # enabled: true
+#     # 软轮换阈值（小时，last-entry 距今，默认 72；最小 1）
+#     # rotationHours: 72
+
 # === 招聘桥接 Inbound 配置（可选）===
 # 配置后启用 Chrome 扩展（boss-zhipin-bridge）向 otter-buddy 推送 BOSS 直聘消息
 # apiKey 是扩展和服务端共享的密钥，扩展端 options 页要填同样的值

@@ -69,6 +69,31 @@ describe("WeixinMessageProcessor", () => {
     expect(ctx.sentMessages).toHaveLength(0);
   });
 
+  it("F20260918imas 助理态：未绑定 + 注入 assistantSession → 自动开户不拒聊", async () => {
+    // 副作用断言：开户后消息应落到自动开的对话（conv-assistant）且不回拒聊提示
+    const ensureAssistantConversation = vi.fn(async () => ({ id: "conv-assistant", title: "微信助理 · a1b2c3" }));
+    const ctx = makeProcessor({ assistantSession: { ensureAssistantConversation } as any });
+    await ctx.processor.process({ fromUserId: "wx_user_a1b2c3", body: "在吗", raw: { item_list: [{ type: 1, text_item: { text: "在吗" } }] } });
+    // 开户后消息照常入库 + 派发（不回拒聊提示）
+    expect(ctx.sentMessages[0]).toMatchObject({ conversationId: "conv-assistant", body: "在吗" });
+    expect(ctx.dispatched[0].conversationId).toBe("conv-assistant");
+    expect(ctx.replies).toHaveLength(0);
+  });
+
+  it("F20260918imas 兼容回退：未注入 assistantSession → 维持拒聊提示", async () => {
+    const ctx = makeProcessor();
+    await ctx.processor.process({ fromUserId: "u-1", body: "在吗", raw: { item_list: [] } });
+    expect(ctx.replies[0]).toContain("/in");
+  });
+
+  it("F20260918imas 助理态开户失败（返回 null）→ 回退拒聊提示", async () => {
+    const ensureAssistantConversation = vi.fn(async () => null);
+    const ctx = makeProcessor({ assistantSession: { ensureAssistantConversation } as any });
+    await ctx.processor.process({ fromUserId: "u-1", body: "在吗", raw: { item_list: [] } });
+    expect(ctx.replies[0]).toContain("/in");
+    expect(ctx.sentMessages).toHaveLength(0);
+  });
+
   it("/list 命令：走命令分支，不进对话", async () => {
     const ctx = makeProcessor();
     await ctx.processor.process({ fromUserId: "u-1", body: "/list", raw: { item_list: [] } });

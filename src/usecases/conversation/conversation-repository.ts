@@ -22,6 +22,8 @@ export interface ConversationRepository {
     timestamp: string,
   ): Promise<void>;
   getIdsByOtterId(otterId: string): Promise<string[]>;
+  /** F20260918imas：收篇摘要落库（助理对话软轮换用） */
+  updateSummary(id: string, summary: string): Promise<void>;
   getAllIds(options?: { limit?: number; offset?: number }): Promise<string[]>;
   updatePinned(id: string, pinned: boolean): Promise<void>;
 

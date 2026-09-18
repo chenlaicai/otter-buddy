@@ -232,6 +232,9 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
         senderId: sender.sender_id?.open_id ?? "unknown",
         senderType: sender.sender_type,
         messageType: message.message_type,
+        // F20260918imas：p2p/group 分流依据——协议枚举仅这两值，其余值不填（降级保守，
+        // 消费方对无 chatType 场景维持现状不自动开户）
+        ...(message.chat_type === "p2p" || message.chat_type === "group" ? { chatType: message.chat_type } : {}),
         ...(media && { media }),
       };
 

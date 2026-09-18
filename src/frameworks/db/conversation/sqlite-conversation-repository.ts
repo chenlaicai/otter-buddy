@@ -104,6 +104,12 @@ export class SqliteConversationRepository implements ConversationRepository {
       .run(pinned ? 1 : 0, id);
   }
 
+  /** F20260918imas：收篇摘要落库（助理对话软轮换用） */
+  async updateSummary(id: string, summary: string): Promise<void> {
+    this.db.prepare("UPDATE conversations SET summary = ?, updated_at = ? WHERE id = ?")
+      .run(summary, new Date().toISOString(), id);
+  }
+
   // ── Participants (static association) ──
 
   async getOtterIds(conversationId: string): Promise<string[]> {

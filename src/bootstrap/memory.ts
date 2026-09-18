@@ -58,6 +58,21 @@ export class MemoryIndexAdapter implements MemoryIndexGateway {
     });
   }
 
+  /** F20260918imas：助理对话收篇摘要（fact 类、working 层、关联 conversationId）——
+   *  用 execute 而非 replaceBySource：同一对话多次轮换会生成多条 digest
+   *  （每篇一条），replace 会互相覆盖只剩最后一篇 */
+  async indexAssistantDigest(digestId: string, conversationId: string, digest: string): Promise<void> {
+    await this.storeMemory.execute({
+      layer: "working",
+      contentType: "fact",
+      sourceId: digestId,
+      sourceTable: "conversations",
+      conversationId,
+      granularity: "coarse",
+      content: digest,
+    });
+  }
+
   async indexFeatureChunks(id: string, chunks: ChunkData[], metadata: Record<string, unknown>): Promise<void> {
     if (chunks.length === 0) {
       await this.storeMemory.deleteChunksBySource("features", id, "feature_chunk");

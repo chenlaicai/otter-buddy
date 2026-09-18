@@ -143,6 +143,15 @@ export interface AppConfig {
     /** 同一用户两次预警最小间隔（分钟，默认 60；显式 0 关闭） */
     contextTokenWarnCooldownMinutes?: number;
   };
+  /** F20260918imas：IM 助理模式（免绑定自动开户 + 软轮换） */
+  im?: {
+    assistant?: {
+      /** 助理态总开关（默认 true；关闭时微信私聊/飞书 p2p 回退拒聊提示） */
+      enabled?: boolean;
+      /** 软轮换阈值小时数（last-entry 距今，默认 72） */
+      rotationHours?: number;
+    };
+  };
   inbound?: {
     recruiting?: {
       apiKey: string;
@@ -310,6 +319,12 @@ interface RawConfig {
     contextTokenWarnMinutes?: number;
     /** 同一用户两次预警最小间隔（分钟） */
     contextTokenWarnCooldownMinutes?: number;
+  };
+  im?: {
+    assistant?: {
+      enabled?: boolean;
+      rotationHours?: number;
+    };
   };
   inbound?: {
     recruiting?: {
@@ -504,6 +519,17 @@ function buildWeixinConfig(raw: RawConfig): AppConfig["weixin"] {
   };
 }
 
+/** F20260918imas：IM 助理模式配置（默认开启 + 72h 轮换） */
+function buildImConfig(raw: RawConfig): AppConfig["im"] {
+  const seg = raw.im?.assistant;
+  return {
+    assistant: {
+      enabled: seg?.enabled !== false,
+      rotationHours: Math.max(seg?.rotationHours ?? 72, 1),
+    },
+  };
+}
+
 function buildInboundConfig(raw: RawConfig): AppConfig["inbound"] {
   if (!raw.inbound?.recruiting?.apiKey) {
     return undefined;
@@ -570,6 +596,7 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelC
     circuitBreaker: buildCircuitBreakerConfig(raw),
     feishu: buildFeishuConfig(raw),
     weixin: buildWeixinConfig(raw),
+    im: buildImConfig(raw),
     inbound: buildInboundConfig(raw),
     web: buildWebConfig(raw),
     attachments: buildRawAttachmentsConfig(raw),

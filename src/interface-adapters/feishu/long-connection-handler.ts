@@ -34,6 +34,9 @@ export class FeishuLongConnectionHandler {
         text: msg.text,
         senderId: msg.senderId,
         messageId: msg.messageId,
+        // F20260918imas：p2p/group 分流透传
+        ...(msg.chatType && { chatType: msg.chatType }),
+        ...(msg.media && { media: msg.media }),
       });
     } catch (err) {
       this.deps.logger.error("Failed to handle Feishu message", err instanceof Error ? err : undefined, {

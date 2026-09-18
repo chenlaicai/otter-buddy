@@ -1,4 +1,5 @@
 import type { ManageConnection } from "@usecases/im/manage-connection";
+import type { AssistantSessionManager } from "@usecases/im/assistant-session";
 import type { SendEntry } from "@usecases/conversation/send-entry";
 import type { EntryRepository } from "@usecases/conversation/entry-repository";
 import type { WeixinGateway } from "@usecases/im/weixin-gateway";
@@ -53,6 +54,8 @@ export class WeixinMessageProcessor {
   constructor(
     private readonly deps: {
       manageConnection: ManageConnection;
+      /** F20260918imas：助理会话管理（自动开户 + 软轮换）。未注入时回退旧拒聊行为 */
+      assistantSession?: AssistantSessionManager;
       /** F20260913ctlv 收尾批2：微信消息唯一落点 = entries（messages 表停写，与飞书同构） */
       sendEntry: SendEntry;
       entryRepo: EntryRepository;
@@ -93,7 +96,9 @@ export class WeixinMessageProcessor {
       return false;
     }
 
-    const conversation = await this.deps.manageConnection.getCurrentConversation(connectionId);
+    // F20260918imas 助理态：未绑定不再拒聊——自动开专属助理对话（家人朋友零命令暴露）。
+    // 未注入 assistantSession（旧部署/测试）时回退拒聊提示，行为兼容
+    const conversation = await this.resolveConversation(fromUserId, connectionId);
     if (!conversation) {
       await this.replyNoConversation(fromUserId, msg.raw?.item_list ?? []);
       return false;
@@ -129,6 +134,23 @@ export class WeixinMessageProcessor {
     // F20260913ctlv：直连链点火（entries 目标显式传）——与飞书同构
     await this.dispatchAgent(conversation.id, body.trim(), fromUserId, { messageId: userEntry.id, resolvedTargets: talkingStonePassedTo, injection: outcome.injection });
     return true;
+  }
+
+  /** F20260918imas：会话解析（复杂度拆出）——已绑定直用；未绑定且注入助理管理器时自动开户 */
+  private async resolveConversation(fromUserId: string, connectionId: string): Promise<{ id: string; title: string } | null> {
+    const bound = await this.deps.manageConnection.getCurrentConversation(connectionId);
+    if (bound) return bound;
+    if (!this.deps.assistantSession) return null;
+    return this.deps.assistantSession.ensureAssistantConversation({
+      connectionId,
+      channel: "weixin",
+      displayName: this.assistantDisplayName(fromUserId),
+    });
+  }
+
+  /** 助理对话显示名：微信侧无昵称接口（ilink 私聊协议），取 id 尾部 6 位作辨认锚 */
+  private assistantDisplayName(fromUserId: string): string {
+    return fromUserId.length > 6 ? fromUserId.slice(-6) : fromUserId;
   }
 
   /** 未绑会话提示（媒体消息加「链接有时效」提醒——检视建议 2） */

@@ -201,14 +201,18 @@ im:
 | 文件 | 操作 | 说明 |
 |---|---|---|
 | docs/features/2026/09/18/F20260918imas-im-assistant-mode.md | 新增 | 本方案文档 |
-| src/interface-adapters/weixin/message-processor.ts | 改（实现 PR） | handleInbound 未绑定分支 → 自动开户 |
-| src/interface-adapters/feishu/message-processor.ts | 改（实现 PR） | p2p 分流 + 自动开户 + FeishuIncomingMessage 增 chatType |
-| src/interface-adapters/feishu/long-connection-handler.ts | 改（实现 PR） | handleMessage 转发 chatType（检视发现 1 补全） |
-| src/usecases/im/feishu-long-connection-gateway.ts | 改（实现 PR） | FeishuLongConnectionMessage 接口增 chatType 字段（检视发现 1 补全） |
-| src/frameworks/feishu/long-connection-client.ts | 改（实现 PR） | chat_type 透传 |
-| src/usecases/im/manage-connection.ts | 改（实现 PR） | 新增 ensureAssistantBinding 用例方法 |
-| src/frameworks/config-service.ts + config/config.yaml.example | 改（实现 PR） | im.assistant 开关 + rotation_hours |
-| docs/user-guide/ | 改（实现 PR） | 使用说明更新（助理态/工作态） |
+| src/usecases/im/assistant-session.ts | 新增（已实现） | AssistantSessionManager：自动开户 + 软轮换 + 收篇摘要（取代原方案的 ManageConnection 扩展——独立 usecase 更符合单一职责） |
+| src/interface-adapters/weixin/message-processor.ts | 改（已实现） | handleInbound 未绑定分支 → resolveConversation 自动开户 |
+| src/interface-adapters/feishu/message-processor.ts | 改（已实现） | p2p 分流 + 自动开户（resolveAssistantName 复用身份链） |
+| src/interface-adapters/feishu/long-connection-handler.ts | 改（已实现） | handleMessage 转发 chatType（检视发现 1 补全） |
+| src/usecases/im/feishu-long-connection-gateway.ts | 改（已实现） | FeishuLongConnectionMessage 接口增 chatType 字段（检视发现 1 补全） |
+| src/frameworks/feishu/long-connection-client.ts | 改（已实现） | processMessage 提取 chat_type（枚举白名单外不填，降级保守） |
+| src/usecases/conversation/conversation-repository.ts + sqlite 实现 | 改（已实现） | 新增 updateSummary（既有 summary 字段的写入方法，非新字段） |
+| src/usecases/conversation/memory-index-gateway.ts + bootstrap/memory.ts | 改（已实现） | 新增 indexAssistantDigest（fact 入记忆，execute 不 replace） |
+| src/frameworks/config-service.ts + config/config.yaml.example | 改（已实现） | im.assistant 配置段（enabled 默认 true + rotationHours 默认 72） |
+| src/bootstrap/usecases.ts + types.ts + platforms.ts | 改（已实现） | AssistantSessionManager 装配 + 两处理器注入（总开关关闭时不注入） |
+| docs/user-guide/feishu-setup.md | 改（已实现） | 助理态/工作态使用说明 |
+| tests/usecases/im/assistant-session.test.ts + tests/interface-adapters/weixin/message-processor.test.ts | 新增/改（已实现） | usecase 7 例 + 微信助理分支 3 例 |
 
 > 本 PR 仅含方案文档；标注「实现 PR」的行属于后续 code-implementation 阶段。
 
@@ -235,3 +239,17 @@ im:
 ### 第二轮：Delta 复核（2026-09-18）
 
 结论：**通过**——9 条发现全部核实修订到位（发现 2 的 SQL 链接点由检视獭独立复核属实）；发现 7 反驳被接受（检视獭自认误读触发锚，反驳成立）；重对抗门修正为「本特性范围内确认治本，conversation 可见性重构属独立演进阶段」（检视獭接受作者反驳：将不属于本特性范围的长期演进当作治标反证在逻辑上不成立）。方案定稿，呈搭档终审。
+
+### 终审与实现（2026-09-18）
+
+搭档口头批准（对话 11:02「ok」），进入 code-implementation。实现与方案一致部分不赘述，实现期决策记录：
+
+| 决策 | 内容 | 理由 |
+|---|---|---|
+| 收篇摘要 v1 用机械拼接 | 最近 30 条 user/speak entry 拼接（单条 300 字截断，总量 4000） | 确定性可测；新篇的检索连续性由大獭 search_memory 工具自然覆盖（摘要核心用途是记忆锚而非完整叙事）；LLM 摘要作为演进项不阻塞本版 |
+| digest 入记忆用 execute 非 replaceBySource | 同一对话多次轮换会生成多条 digest（每篇一条），replace 会互相覆盖只剩最后一篇 | bootstrap/memory.ts 实现注释 |
+| 轮换后返回值 | maybeRotate 返回 provision 的新篇（而非旧篇） | 消息不能进已 complete 的旧对话 |
+| 微信助理显示名 | id 尾部 6 位（ilink 私聊协议无昵称接口） | 不阻塞开户；飞书侧用既有 FeishuUserInfoClient 解姓名 |
+| 最简实现检查 | 已过：未建新表/新依赖，复用 Conversation/ConnectionSession/enterConversation 事务；新增 schema 零字段（updateSummary 是既有 conversation.summary 字段的写入方法，非新字段） | consumption 方：summary 由 web 对话详情页展示 |
+
+验证：新增 usecase 测试 7 例 + 微信 processor 助理分支 3 例 + 飞书 handler 透传（既有套件回归）；全量 vitest 269 文件 / 3662 用例全绿；tsc 0 error；eslint 0 error。无 UI 视觉变更（纯后端）；无 db migration 变更（零 schema 变更）；非 prompt/skill 改动，Golden Gate 与 Intent 块 n/a。

@@ -47,4 +47,6 @@ export interface MemoryIndexGateway {
     chunks: ChunkData[],
     metadata: Record<string, unknown>,
   ): Promise<void>;
+  /** F20260918imas：助理对话收篇摘要入记忆（fact 类，关联 conversationId 供新篇召回） */
+  indexAssistantDigest(digestId: string, conversationId: string, digest: string): Promise<void>;
 }

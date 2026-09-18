@@ -1,4 +1,5 @@
 import type { ManageConnection } from "@usecases/im/manage-connection";
+import type { AssistantSessionManager } from "@usecases/im/assistant-session";
 import type { SendEntry } from "@usecases/conversation/send-entry";
 import type { CommandDispatcher } from "./command-dispatcher";
 import type { FeishuGateway } from "@usecases/im/feishu-gateway";
@@ -18,6 +19,8 @@ export interface FeishuIncomingMessage {
   text: string;
   senderId: string;
   messageId: string;
+  /** F20260918imas：p2p/group 分流（缺省维持现状——群/未知场景不自动开户） */
+  chatType?: "p2p" | "group";
   /** 多模态 Phase 2：image/file 消息的媒体载荷（文本消息无此字段） */
   media?: FeishuMediaPayload;
 }
@@ -36,6 +39,8 @@ export class FeishuMessageProcessor {
   constructor(
     private readonly deps: {
       manageConnection: ManageConnection;
+      /** F20260918imas：助理会话管理（p2p 自动开户 + 软轮换）。未注入时回退旧拒聊行为 */
+      assistantSession?: AssistantSessionManager;
       /** F20260913ctlv 彻底切换：entries 写入面（用户消息唯一落点） */
       sendEntry: SendEntry;
       commandDispatcher: CommandDispatcher;
@@ -73,7 +78,17 @@ export class FeishuMessageProcessor {
     }
 
     // 普通消息：发送到当前绑定的 Conversation
-    const conversation = await this.deps.manageConnection.getCurrentConversation(connection.id);
+    // F20260918imas 助理态：p2p 未绑定不再拒聊——自动开户（群聊/未知 chatType 维持显式绑定语义）；
+    // 未注入 assistantSession（旧部署/测试）时回退拒聊提示，行为兼容
+    const isAssistantEligible = msg.chatType === "p2p" && Boolean(this.deps.assistantSession);
+    const conversation = await this.deps.manageConnection.getCurrentConversation(connection.id)
+      ?? (isAssistantEligible
+        ? await this.deps.assistantSession!.ensureAssistantConversation({
+            connectionId: connection.id,
+            channel: "feishu",
+            displayName: await this.resolveAssistantName(msg.senderId),
+          })
+        : null);
     if (!conversation) {
       await this.deps.feishuGateway.replyText(
         chatId,
@@ -306,6 +321,11 @@ export class FeishuMessageProcessor {
     } catch {
       return null;
     }
+  }
+
+  /** F20260918imas：助理对话显示名（p2p 对端）——解析失败回退 id 尾部，不阻塞开户 */
+  private async resolveAssistantName(senderId: string): Promise<string> {
+    return (await this.resolveSenderName(senderId)) ?? (senderId.length > 6 ? senderId.slice(-6) : senderId);
   }
 
   private triggerAgentDispatch(
