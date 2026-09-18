@@ -8,6 +8,9 @@ created_in_conversation: e6489833-4eaa-444c-ae5d-33f3bf1477a0
 summary: kimi 周配额耗尽报 403 + access_terminated_error 英文文案，不命中 matchRateLimitError 任何正则——识别失败导致 healing 落账、会话告警、首哑兜底（F20260916fst4）三条下游全静默，搭档被迫手动@大獭换模型。窄修：QUOTA_EXHAUSTED_PATTERNS 补 kimi 方言两条正则
 tags: [rate-limit, first-dumb, kimi, model-fallback, orchestration]
 modules: [src/usecases/conversation/agent-turn-orchestrator/rate-limit-error.ts, tests/usecases/conversation/agent-turn-orchestrator/rate-limit-error.test.ts]
+from:
+  - F20260902ralt  # 修 #543：matchRateLimitError/QUOTA_EXHAUSTED_PATTERNS 的创建者（本特性补的正则就在这个数组里）
+  - F20260916fst4  # 首哑 429 大獭兑底（PR #988）——本次 kimi 403 识别失败使其静默失效，是直接受影响机制
 ---
 
 # kimi 403 配额耗尽方言识别：修复首哑/告警/落账三链失效
