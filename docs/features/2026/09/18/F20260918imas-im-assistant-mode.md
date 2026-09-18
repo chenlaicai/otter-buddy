@@ -49,6 +49,7 @@ modules: [src/interface-adapters/weixin/, src/interface-adapters/feishu/, src/us
 ## 非目标
 
 - 不做群聊人级上下文隔离（搭档原话裁决：伪命题）
+- 不做人级记忆隔离（检视发现 2 处置：显式声明，见设计取舍「记忆隔离」行）
 - 不做飞书应用商店 ISV 上架模式（扫码安装应用级体验，企业认证+审核过重）
 - 不做主动触达（定时任务/提醒推 IM——scheduled task 底座已有，将来独立特性）
 - 不做全通道单线程（微信线与飞书线各自开助理对话，不合并）
@@ -84,15 +85,19 @@ getCurrentConversation(connectionId) 为空时
 ```
 
 细节：
-- 若该 connection 曾有历史会话（被 /out 释放后），自动开户**新开对话**还是**回绑最近一篇**？→ 首版：新开（语义最简单，回绑属于轮换策略的一部分，见轮换节）。releaseSession 时记录 lastConversationId 备查。
-- 自动开户对话也进入 /list（搭档可见、可 /in 接管——同窗口独占互斥保护现有事务语义）。
+- 若该 connection 曾有历史会话（被 /out 释放后），自动开户**新开对话**还是**回绑最近一篇**？→ 首版：新开。决策理由（检视发现 6）：新开语义最简单且回避「回绑时旧篇上下文是否仍适用」的判断；孤儿对话由归档策略兜底（见风险 #7）。另注：/out 是搭档工具，家人用户不会使用——此路径实际触发方主要是搭档自己
+- 自动开户对话也进入 /list（搭档可见、可 /in 接管——同窗口独占互斥保护现有事务语义）。/list 呈现规则（检视发现 5）：title 前缀「微信助理 ·」「飞书助理 ·」自然可辨认，本期 /list 平铺返回不做分组/过滤——分组 UI 属后续 web 侧小特性；家人不需要知道自己助理对话的 UUID，需要搭档接管时由搭档在 web 端或 /list 中按前缀辨认
 
 **飞书（私聊/群聊混合，按 chat_type 分流）**
 
 现状：`ensureConnection(chatId, chatId)`（feishu/message-processor.ts:67），不区分 p2p/group，统一走 /in 绑定。消息事件已携带 `chat_type` 字段（frameworks/feishu/long-connection-client.ts:37）。
 
 改动：
-1. **ingress 透传 chat_type**：long-connection-client → FeishuIncomingMessage 增 `chatType: "p2p" | "group"` 字段（协议已有，纯透传）
+1. **chat_type 贯通三层接口**（检视发现 1 修正：非「纯透传」，现有链路层层过滤了该字段）：
+   - `usecases/im/feishu-long-connection-gateway.ts`：FeishuLongConnectionMessage 接口增 `chatType?: "p2p" | "group"` 字段
+   - `frameworks/feishu/long-connection-client.ts`：processMessage 构造消息对象时从原始事件提取 `chat_type`（:37 已声明，:225 构造时未提取）
+   - `interface-adapters/feishu/long-connection-handler.ts`：handleMessage 转发时透传 chatType（:30 现状丢弃）
+   - `interface-adapters/feishu/message-processor.ts`：FeishuIncomingMessage 增字段并消费
 2. **message-processor 分流**：
    - `chatType === "p2p"` → 助理态：同微信的自动开户逻辑（title = 「飞书助理 · <用户名>」，resolveSenderName 已有 F20260826fuid 身份链可复用）
    - `chatType === "group"` → 维持现状：显式 /in 绑定 + 共享上下文 + 未绑定提示（群的「未绑定提示」保留——群是工作态场景，提示语维持命令引导）
@@ -106,10 +111,13 @@ getCurrentConversation(connectionId) 为空时
 
 ### 软轮换 + 收篇摘要（T5）
 
-- **触发条件（首版从保守开始）**：助理对话的最后一条 entry 距今超过 N 小时（默认 24h，config 可调）。不用上下文长度阈值（首版不引入，防误伤长对话）
+- **触发条件（首版从保守开始）**：助理对话的最后一条 entry 距今超过 N 小时（默认 72h，config 可调）。不用上下文长度阈值（首版不引入，防误伤长对话）
+- **阈值语义说明（检视发现 3/7 处置）**：触发锚是「最后一条 entry 距今」而非「对话开始至今」——**活跃对话天然不触发**（连续聊天时 last entry 持续刷新，永远新鲜），低频用户回归时上下文已冷、翻篇正是期望行为。该阈值自适应用户频率：热的篇不翻、冷的篇才翻。首版显式声明：不引入额外活跃度判断，仅看 last entry 距今
+- **默认值 72h 的依据**：24h 对「周末型」家人用户过于激进（周五聊完周日回来即翻篇）；72h 给短间隔回归留余量。上线后按真实回归间隔数据调优
 - **动作**：窗口下一条入站消息到达时发现超时 → 先对旧对话执行收篇（大獭生成收篇摘要，落 conversation.summary + 沉淀记忆条目）→ 新开助理对话绑定 → 新消息进新篇
 - **沉淀方式**：收篇摘要作为 fact 类记忆条目入库（复用现有 memory 入库通道），关联 conversationId；新篇大獭的 systemPrompt 注入「前篇摘要」（拼装点在 agent 会话组装层，实现时定位）
 - **失败降级**：收篇生成失败不阻塞新消息——先翻篇（旧对话 summary 置空 + healing 记录），摘要补写为待办。用户体验优先于完整性
+- **补写重试策略（检视发现 8）**：翻篇后异步重试收篇 1 次；仍失败则 healing event 入台账供巡检发现，不阻塞新消息、不无限重试
 - **workbuddy 对照**：其轮换=失忆（换 session 即清上下文）；本方案轮换=翻篇（摘要 + 记忆承载连续性）——这是记忆系统的产品化展示窗口
 
 ### 搭档工作态（T4，零改动声明）
@@ -125,7 +133,7 @@ getCurrentConversation(connectionId) 为空时
 im:
   assistant:
     enabled: true            # 总开关（缺省 true？见设计取舍#3）
-    rotation_hours: 24       # 软轮换阈值（小时）
+    rotation_hours: 72       # 软轮换阈值（小时，last-entry 距今）
 ```
 
 ## 影响范围
@@ -146,6 +154,7 @@ im:
 4. **收篇摘要质量**：摘要差=连续感断裂，体验劣化。缓解：首版 24h 阈值（翻篇频率低）+ summary 落库可人工核查；质量调优是运营问题不是机制问题
 5. **记忆污染面**：家人对话内容进共享记忆库。缓解：收篇摘要 fact 关联 conversationId，可按对话清理；人级记忆隔离本期不做（家人体量小，先跑起来看）
 6. **搭档自己的窗口**：搭档微信/飞书私聊也会自动开户（有额外对话噪音）。缓解：搭档可 /out 后不说话（自动开户仅由非命令消息触发）；后续可加「搭档窗口禁自动开户」配置
+7. **轮换累积成本（检视发现 4）**：每次轮换 = 新对话 + 新 otter 实例 + 新 workspace 目录。澄清实际成本量级：otter 实例是 DB 行非常驻进程（session 按需创建，不活跃不占计算），dormant 成本 = DB 行 + 磁盘目录 + /list 管理噪音。缓解方向：轮换翻篇时旧对话自动置 completed（复用 canCompleteConversation 既有机制）；后续观察量级再决定是否做「N 天无活动自动归档」（四问答③的退役路径）
 
 ## 不兼容更新
 
@@ -157,7 +166,8 @@ im:
 |---|---|---|---|
 | 锚点模型 | 窗口=线程（每聊天窗口自动一条助理线） | bot 全局单线程 | 单线程会让 A 的菜谱混进 B 的旅游线（上下文互相污染）；用户对「bot=海獭」的感知不变——没人知道也不需要知道线怎么分 |
 | 微信线与飞书线 | 各开各的助理对话 | 合并为单用户单线（跨通道归一） | 归一需要跨通道用户身份映射（无现成机制）；「同一只獭」的连续感由记忆承载，不靠塞进一个对话 |
-| 轮换触发 | 固定时长（24h） | 上下文长度阈值 | 长度阈值易误伤长对话且需常驻监测；时长规则可解释可预期；阈值 config 可调，留演进空间 |
+| 轮换触发 | 固定时长（72h，检视修正：原 24h） | 上下文长度阈值 | 长度阈值易误伤长对话且需常驻监测；时长规则可解释可预期；last-entry 距今锚天然自适应用户频率（活跃不翻、冷了才翻）；阈值 config 可调，上线后按真实数据调优 |
+| 记忆隔离（检视发现 2） | 本期不做人级隔离，但显式承认风险 | 助理对话检索强制 conversationId 过滤 | 现状检索默认全局（sqlite-memory-repository.ts:162 `? IS NULL OR conversation_id = ?`，currentConversationId 仅排序加成非过滤——F20260917cvid），家人 A 的内容可被家人 B 召回，搭档工作记忆同理。不隔离的理由：家人体量小（<10 人）+ 信任模型（同一家庭，非公网多租户）；但收篇摘要 fact 落库时关联 conversationId，为将来做读取隔离留锚。实现阶段必须显式决策：助理对话的检索是否传 conversationId 过滤（影响召回家人历史 vs 全局记忆的边界），该决策点列入实现 PR 的检视清单 |
 | 收篇失败 | 先翻篇后补摘要 | 阻塞等待摘要 | 用户消息不能被运营性任务阻塞；丢摘要代价 < 丢消息代价 |
 | 助理对话标识 | title 前缀约定 | conversation 加 kind 字段 | 零 schema 变更即达成本期目标（web 辨认 + 人可读）；字段方案在需要 UI 分组时再上（机制预算：避免为可延后的消费方提前建字段） |
 | 群聊 | 维持现状 | 群助理态（自动开户共享线） | 搭档裁决不过度设计；群是工作态场景，显式绑定语义更安全 |
@@ -181,7 +191,8 @@ im:
 - 微信模拟好友首条消息 → 自动创建助理对话 + 消息入库 + 大獭回复（无拒聊提示）
 - 飞书模拟 p2p 首条消息 → 同上；group 首条消息 → 维持「请先 /in」现状
 - 命令路径回归：/list /in /out /history /help 全量回归（自动开户不得影响命令分支——搭档窗口 /out 后发命令不被自动开户劫持）
-- 轮换：构造超时窗口，下一条消息触发收篇（summary 落库 + 记忆条目存在）+ 新篇开户；收篇失败注入 → 翻篇仍成功 + healing 记录
+- 轮换：构造超时窗口，下一条消息触发收篇（summary 落库 + 记忆条目存在）+ 新篇开户；收篇失败注入 → 翻篇仍成功 + 异步重试 1 次 + healing 记录；活跃对话（连续消息间隔 < 阈值）不触发轮换（last-entry 锚验证）
+- 搭档路径（检视发现 9 补全）：①搭档微信私聊发普通消息 → 自动开户助理对话；搭档随后 /out + /in 工作对话不受自动开户干扰 ②搭档 /out 释放助理对话后窗口再发非命令消息 → 自动新开（/out→自动开户回归路径）
 - 互斥回归：助理对话被搭档 /in 接管后，原窗口自动开户不劫持（事务互斥既有测试）
 - capability 用例在实现 PR 中补（本 PR 为方案文档，capability_test: n/a 已声明理由）
 
@@ -191,10 +202,32 @@ im:
 |---|---|---|
 | docs/features/2026/09/18/F20260918imas-im-assistant-mode.md | 新增 | 本方案文档 |
 | src/interface-adapters/weixin/message-processor.ts | 改（实现 PR） | handleInbound 未绑定分支 → 自动开户 |
-| src/interface-adapters/feishu/message-processor.ts | 改（实现 PR） | p2p 分流 + 自动开户 |
+| src/interface-adapters/feishu/message-processor.ts | 改（实现 PR） | p2p 分流 + 自动开户 + FeishuIncomingMessage 增 chatType |
+| src/interface-adapters/feishu/long-connection-handler.ts | 改（实现 PR） | handleMessage 转发 chatType（检视发现 1 补全） |
+| src/usecases/im/feishu-long-connection-gateway.ts | 改（实现 PR） | FeishuLongConnectionMessage 接口增 chatType 字段（检视发现 1 补全） |
 | src/frameworks/feishu/long-connection-client.ts | 改（实现 PR） | chat_type 透传 |
 | src/usecases/im/manage-connection.ts | 改（实现 PR） | 新增 ensureAssistantBinding 用例方法 |
 | src/frameworks/config-service.ts + config/config.yaml.example | 改（实现 PR） | im.assistant 开关 + rotation_hours |
 | docs/user-guide/ | 改（实现 PR） | 使用说明更新（助理态/工作态） |
 
 > 本 PR 仅含方案文档；标注「实现 PR」的行属于后续 code-implementation 阶段。
+
+## 对抗审视记录
+
+### 第一轮（2026-09-18，检视獭：mimo 异模型）
+
+结论：需要修改——4 严重 + 5 建议 + 重对抗门「疑似治标」。处置（按 author-response-protocol 决策树）：
+
+| # | 发现 | 严重度 | 处置 | 说明 |
+|---|---|---|---|---|
+| 1 | chat_type「纯透传」断言不实（三层接口无字段） | 🔴 | 接受并修订 | 核实属实：gateway.ts/handler.ts/FeishuIncomingMessage 均无 chatType。改为三层贯通描述 + 改动范围补 2 文件 |
+| 2 | 记忆无隔离模型，家人内容可交叉召回 | 🔴 | 接受并修订 | 核实属实：检索默认全局（sqlite-memory-repository.ts:162），currentConversationId 仅 boost 非过滤。新增设计取舍行 + 非目标声明 + 实现阶段显式决策点 |
+| 3 | 24h 轮换与低频场景不匹配 | 🔴 | 部分接受 | 默认值 24h→72h + 补充 last-entry 锚自适应语义论证；「每次回归都轮换」的成本面归发现 4 处置 |
+| 4 | 轮换累积 otter/workspace 成本未评估 | 🔴 | 部分接受 | 风险节新增 #7：澄清 dormant otter = DB 行无常驻计算 + 翻篇自动置 completed + 归档策略方向 |
+| 5 | /list 呈现规则未定义 | 🟡 | 接受并修订 | 搭档工作态节补呈现规则（前缀辨认，本期平铺不分组） |
+| 6 | /out 回归路径决策理由缺失 | 🟡 | 接受并修订 | 补决策理由（新开简单 + 归档兜底 + /out 实际是搭档工具） |
+| 7 | 活跃窗口轮换豁免未声明 | 🟡 | 反驳（附证据）+ 顺手补声明 | 方案原文即「最后一条 entry 距今」——连续聊天时 last entry 持续刷新，活跃对话永远不满足触发条件，不存在「中断活跃对话」问题。检视者误读了触发锚；已在轮换节补显式声明消除歧义 |
+| 8 | 收篇摘要重试策略空白 | 🟡 | 接受并修订 | 补：异步重试 1 次 + healing event 入台账，不无限重试 |
+| 9 | 验证节缺搭档路径用例 | 🟡 | 接受并修订 | 补 2 条用例（搭档自动开户 + /out 回归路径） |
+
+重对抗门：检视獭判「疑似治标」（自动开户是绑定架构上的补丁，治本需重构 conversation 生命周期模型）。作者立场（带证据反驳）：本特性边界内是治本——自动开户消灭的是「绑定为唯一入口」这个错误默认（产品语义层），数据模型层零补丁（复用 Conversation/ConnectionSession 既有实体与事务，enterConversation 同一入口）；conversation 可见性重构属更大产品演进（检视獭也认为不该与本特性耦合）。按规则呈搭档裁决，附双方立场。
