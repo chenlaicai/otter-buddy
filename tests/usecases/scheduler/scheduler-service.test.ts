@@ -1001,16 +1001,16 @@ describe('#814: 调度完整性对账（启动时错过窗口落 healing）', ()
     const sendEntry = createMockSendEntry();
     const entryRepo = createMockEntryRepo();
     const agentInvoke = createMockAgentInvoke();
-    // 应触发时间 = 今天 09:00；任务 lastTriggeredAt = 昨天（错过窗口）
-    const prevDue = new Date('2026-09-06T01:00:00.000Z'); // 09:00 CST
-    const cronParser = createMockCronParser(new Date('2026-09-07T01:00:00.000Z'), prevDue);
+    // 应触发时间 = 昨天；任务 lastTriggeredAt = 前天（错过窗口）
+    const prevDue = new Date(Date.now() - 24 * 3600_000);
+    const cronParser = createMockCronParser(new Date(Date.now()), prevDue);
     const healingRepo = makeHealingRepo();
 
     taskRepo._store.set('task-missed', makeTask({
       id: 'task-missed',
       scheduleType: 'cron',
       cron: '0 9 * * *',
-      lastTriggeredAt: '2026-09-05T01:00:00.000Z', // 9/5 09:00 CST——早于 prevDue（9/6）
+      lastTriggeredAt: new Date(Date.now() - 48 * 3600_000).toISOString(), // 早于 prevDue
     } as never));
     convRepo._addConversation('conv-1', { status: 'active' });
 
@@ -1040,15 +1040,15 @@ describe('#814: 调度完整性对账（启动时错过窗口落 healing）', ()
     const convRepo = createMockConvRepo();
     const sendEntry = createMockSendEntry();
     const entryRepo = createMockEntryRepo();
-    const prevDue = new Date('2026-09-06T01:00:00.000Z');
-    const cronParser = createMockCronParser(new Date('2026-09-07T01:00:00.000Z'), prevDue);
+    const prevDue = new Date(Date.now() - 24 * 3600_000);
+    const cronParser = createMockCronParser(new Date(Date.now()), prevDue);
     const healingRepo = makeHealingRepo();
 
     taskRepo._store.set('task-ok', makeTask({
       id: 'task-ok',
       scheduleType: 'cron',
       cron: '0 9 * * *',
-      lastTriggeredAt: '2026-09-06T01:00:01.000Z', // 已触发当次窗口
+      lastTriggeredAt: new Date(prevDue.getTime() + 1000).toISOString(), // 已触发当次窗口
     } as never));
     convRepo._addConversation('conv-1', { status: 'active' });
 
@@ -1153,15 +1153,15 @@ describe('#814: 调度完整性对账（启动时错过窗口落 healing）', ()
     const convRepo = createMockConvRepo();
     const sendEntry = createMockSendEntry();
     const entryRepo = createMockEntryRepo();
-    const prevDue = new Date('2026-09-06T01:00:00.000Z');
-    const cronParser = createMockCronParser(new Date('2026-09-07T01:00:00.000Z'), prevDue);
+    const prevDue = new Date(Date.now() - 24 * 3600_000);
+    const cronParser = createMockCronParser(new Date(Date.now()), prevDue);
     const healingRepo = makeHealingRepo();
 
     taskRepo._store.set('task-missed', makeTask({
       id: 'task-missed',
       scheduleType: 'cron',
       cron: '0 9 * * *',
-      lastTriggeredAt: '2026-09-05T01:00:00.000Z',
+      lastTriggeredAt: new Date(Date.now() - 48 * 3600_000).toISOString(),
     } as never));
     convRepo._addConversation('conv-1', { status: 'active' });
 
