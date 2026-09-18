@@ -8,9 +8,9 @@ intent:
   problem: "5~6 个置顶系统对话各自每日产出消息，需要搭档介入的决策信息被后续自动消息顶走沉底；飞轮消费端（每日 issue 处理）disabled 形成真空，backlog digest 只读空转。"
   why_now: "搭档 2026-09-17 主动提出边界重复疑问并当场拍板终态（统一 issue 产生源 + 勾选式 issue 处理），是明确的布局重构窗口。"
   expected_effect: "置顶系统对话从 5~6 收敛到 1 个《三省吾身》；每日所有待决事项在 9:30 单一清单呈搭档勾选；无勾选不动工（已接受的取舍）。"
-verify_by:
-  type: human_judge
-  note: "布局重构效果由搭档日常体验判定；迁移脚本正确性经 --dry-run 预览 + 执行后 DB 状态核对"
+  verify_by:
+    type: human_judge
+    note: "布局重构效果由搭档日常体验判定；迁移脚本正确性经 --dry-run 预览 + 执行后 DB 状态核对"
 capability_test: "tests/frameworks/config/features-config.test.ts"
 created_in_conversation: 7fbc015a-9d23-4dac-ae6c-1ccf0289c3d6
 created_at: 2026-09-17
