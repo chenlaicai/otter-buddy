@@ -311,14 +311,15 @@ const SCRIPT_REFERENCE = /otter-buddy\.sh/i;
 const INDIRECT_CALL_FEATURE = /\$[{({A-Za-z_]|`/;
 
 /** F20260916gtlr：脚本路径解析——相对路径基于 projectRoot（=主仓根，海獭 bash cwd 恒为主仓）resolve 并归一化。
- *  返回 true 表示解析到主仓 scripts（目标是进程1 的管理脚本）。projectRoot 缺失时保守按主仓对待。 */
+ *  返回 true 表示解析到主仓 scripts（目标是进程1 的管理脚本）。projectRoot 缺失时保守按主仓对待。
+ *  大小写归一化与 resolvesToMainData 同步（同根因：macOS case-insensitive FS 漏拦）。 */
 function resolvesToMainCheckout(scriptPath: string, projectRoot?: string): boolean {
   if (!projectRoot) return true; // 保守退化
   if (scriptPath.startsWith("~")) return true; // ~ 不展开，保守拦截
   const resolved = path.isAbsolute(scriptPath)
     ? path.normalize(scriptPath)
     : path.normalize(path.resolve(projectRoot, scriptPath));
-  return path.dirname(resolved) === path.normalize(path.join(projectRoot, "scripts"));
+  return path.dirname(resolved).toLowerCase() === path.normalize(path.join(projectRoot, "scripts")).toLowerCase();
 }
 
 /** F20260916gsrd：主服务脚本自杀命令检测（独立规则，调用点在 checkBashCommandSafetyOnText）
@@ -422,7 +423,10 @@ const DATA_DESTRUCTIVE_MSG = "bash 命令对主仓 data/（运行时数据：met
 
 /** 路径参数解析到主仓 data/ 下（含 data/ 本身）？
  *  cwd：相对路径的解析基准（跟踪 cd 后的当前目录）；projectRoot：主仓根（data 根的比较基准）。
- *  两者角色不同——cwd 只影响解析，主仓归属只看 projectRoot。 */
+ *  两者角色不同——cwd 只影响解析，主仓归属只看 projectRoot。
+ *  大小写归一化：比较双侧 toLowerCase（macOS case-insensitive FS 上 `dAta/` 实际命中
+ *  主仓 data/，区分大小写比较会漏拦——检视獭-1040 严重发现，修复与本函数同步应用于
+ *  resolvesToMainCheckout） */
 function resolvesToMainData(target: string, cwd: string, projectRoot?: string): boolean {
   if (!projectRoot) return true; // projectRoot 缺失时保守拦截（与 resolvesToMainCheckout 同策略）
   if (target.startsWith("~")) return true; // ~ 不展开，保守拦截（~/…/otter-buddy/data 可能指向主仓）
@@ -435,7 +439,10 @@ function resolvesToMainData(target: string, cwd: string, projectRoot?: string): 
     ? path.normalize(stripped)
     : path.normalize(path.resolve(cwd, stripped));
   const dataRoot = path.normalize(path.join(projectRoot, "data"));
-  return resolved === dataRoot || resolved.startsWith(dataRoot + path.sep);
+  // 大小写归一化后比较（同上注释）
+  const resolvedLower = resolved.toLowerCase();
+  const dataRootLower = dataRoot.toLowerCase();
+  return resolvedLower === dataRootLower || resolvedLower.startsWith(dataRootLower + path.sep);
 }
 
 /** 提取段内非 flag 路径参数（去引号，滤 flag） */

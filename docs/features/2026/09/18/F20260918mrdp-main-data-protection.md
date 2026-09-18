@@ -58,6 +58,11 @@ created_at: 2026-09-18
 - 子 shell `(cd worktree; rm …)` / pushd 不跟踪——cd 跟踪只看顶层段
 - `chmod`/`chown` 等属性破坏不覆盖
 
+**检视修复（检视獭-1040，2026-09-18）**：
+- 严重 1（已修）：路径比较区分大小写——macOS case-insensitive FS 上 `dAta/metrics` 实际命中主仓 data/ 但静态比较漏拦。修复：`resolvesToMainData` / `resolvesToMainCheckout` 比较双侧 toLowerCase（同根因一并修）；+2 防御测试锁定
+- 建议 1（已修）：PR 描述声称 20 例实为 18 例——数字勘误，补大小写 2 例后恰 20 例对齐
+- 建议 2（反驳留痕）：launchd plist 硬编码 `/usr/local/bin/node`——plist 本就是机器绑定配置（脚本路径同为绝对路径硬编码），迁移时整体更新；失败有 StandardErrorPath 落点（`/tmp/otterbuddy-backup.err.log`），非完全静默
+
 ### 措施 2：验证纪律固化（#1038 约定）
 
 worktree-isolation SKILL.md 步骤 3 追加「data/ 写删验证纪律（2026-09-18 #1038，双重措施）」段：
@@ -81,7 +86,7 @@ worktree-isolation SKILL.md 步骤 3 追加「data/ 写删验证纪律（2026-09
 
 ## 测试
 
-- `tests/frameworks/agent/bash-safety-guard.test.ts`：+20 例（拦截面 11：事故原形态/绝对路径/多段/rmdir/mv/find -delete/glob/尾部斜杠等；放行面 6：worktree cd 跟规/tmp/无关路径/纯读/引号内文本；退化 2：mainPid 缺失仍拦、projectRoot 缺失保守拦；+误拦防 1）
+- `tests/frameworks/agent/bash-safety-guard.test.ts`：#1038 describe 块 20 例（拦截面 13：事故原形态/绝对路径/多段/rmdir/mv/find -delete/glob/尾部斜杠/大小写变形×2 等；放行面 6：worktree cd 跟规/tmp/无关路径/纯读/引号内文本；退化 2：mainPid 缺失仍拦、projectRoot 缺失保守拦）
 - `tests/frameworks/metrics/registry.test.ts`：+2 例（目录删除后 flush 自愈重试 + ENOTDIR 非 ENOENT 错误不吞）
 - 全量 3650/3650 绿（268 文件）；lint 0 error；build 过
 

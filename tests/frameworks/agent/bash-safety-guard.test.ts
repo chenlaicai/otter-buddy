@@ -875,6 +875,17 @@ describe("#1038 主仓 data/ 破坏性命令拦截", () => {
     expect(result).toContain("alpha.sh");
   });
 
+  it("rm -rf dAta/metrics（大小写变形，macOS case-insensitive FS 实际命中主仓）→ 拦截", () => {
+    // 检视獭-1040 严重发现：比较区分大小写时 dAta/ 绕过守卫，但 macOS FS 不区分
+    const result = checkBashCommandSafety("rm -rf dAta/metrics", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("rm -rf /repo/DATA/metrics（绝对路径大小写变形）→ 拦截", () => {
+    const result = checkBashCommandSafety("rm -rf /repo/DATA/metrics", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
   it("rm -rf data → 拦截（data 本身）", () => {
     const result = checkBashCommandSafety("rm -rf data", mainPid, undefined, { projectRoot });
     expect(result).not.toBeNull();
