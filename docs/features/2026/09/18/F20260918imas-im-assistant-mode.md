@@ -253,3 +253,16 @@ im:
 | 最简实现检查 | 已过：未建新表/新依赖，复用 Conversation/ConnectionSession/enterConversation 事务；新增 schema 零字段（updateSummary 是既有 conversation.summary 字段的写入方法，非新字段） | consumption 方：summary 由 web 对话详情页展示 |
 
 验证：新增 usecase 测试 7 例 + 微信 processor 助理分支 3 例 + 飞书 handler 透传（既有套件回归）；全量 vitest 269 文件 / 3662 用例全绿；tsc 0 error；eslint 0 error。无 UI 视觉变更（纯后端）；无 db migration 变更（零 schema 变更）；非 prompt/skill 改动，Golden Gate 与 Intent 块 n/a。
+
+### 实现对抗审视（2026-09-18，检视獭：mimo；kimi 首哑后搭档指示换模复活）
+
+第一轮：无严重 + 4 建议，全部处置（commit dd348419）：
+
+| # | 发现 | 处置 |
+|---|---|---|
+| 1 | maybeRotate 先 complete 后 provision，失败留死对话 | 接受并修复：顺序反转（先原子换绑再收档，失败时旧篇仍可聊） |
+| 2 | 装配 ?? assistantSession 与注释矛盾 | 接受并修复：删 dead code；总开关拦截面收敛到 platforms.ts 注入点 |
+| 3 | getCurrentConversation→provision 非原子竞态 | 部分接受：事务互斥兜底 + 副作用仅孤儿对话；注释补并发边界留痕不加锁 |
+| 4 | 测试 mock 未按 entryType 过滤 | 接受并修复：mock 按真实仓库语义，分类逻辑真实覆盖 |
+
+第二轮 Delta 复核：**通过**——4 条全部修订到位（相关 14 文件 / 156 用例全绿）。可呈搭档终审。
