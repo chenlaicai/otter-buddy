@@ -64,7 +64,7 @@ causal_links:
 
 ## 未决问题
 
-- U1: Pi overflow 判定是否独立于 reserveTokens 配置（若 overflow 也按 reserve 公式触发，则「拉大 reserve 使 SDK 平时不触发、仅 overflow 救急」的策略失效，需换轮内流事件计数器降级触发）。实现第一步验证，置信度中。
+- ~~U1: Pi overflow 判定是否独立于 reserveTokens~~ **已验证（V7 完成，2026-09-18）**：独立。overflow 走 isContextOverflow（provider 错误模式匹配 + z.ai 静默溢出 usage.input>contextWindow + MiMo length 形态），参照系是 contextWindow，不碰 reserve；只有 threshold 走 reserve 公式（shouldCompact）。「拉大 reserve 使 threshold 永不触发 + overflow 仍能救急」策略成立。证据：pi-ai/dist/utils/overflow.js isContextOverflow + pi-coding-agent/dist/core/agent-session.js _checkCompaction（case 1/2 vs case 3 分流）
 - U2: SDK `prepareCompaction()` 裸用导出的 entries 读取便利性（重启场景从旧 jsonl 算切片）。已有 SessionRestore 读 jsonl 先例，大概率可行，实现时验证。
 - U3: 忙碌判定的精确口径（running invoke 存在即拒绝）与 UI 轮询/推送方式，实现时定。
 
