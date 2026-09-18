@@ -862,3 +862,119 @@ describe("F20260917alph 拦截文案指向 alpha.sh + 组合杀回归", () => {
     expect(result).toBeNull();
   });
 });
+
+describe("#1038 主仓 data/ 破坏性命令拦截", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo"; // 假想主仓根，测试内只用相对路径判定
+
+  // ── 拦截面：rm/mv/find -delete 指向主仓 data/ ──
+  it("rm -rf data/metrics（9/17 事故原形态）→ 拦截并引导 alpha.sh", () => {
+    const result = checkBashCommandSafety("rm -rf data/metrics", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+    expect(result).toContain("data/");
+    expect(result).toContain("alpha.sh");
+  });
+
+  it("rm -rf dAta/metrics（大小写变形，macOS case-insensitive FS 实际命中主仓）→ 拦截", () => {
+    // 检视獭-1040 严重发现：比较区分大小写时 dAta/ 绕过守卫，但 macOS FS 不区分
+    const result = checkBashCommandSafety("rm -rf dAta/metrics", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("rm -rf /repo/DATA/metrics（绝对路径大小写变形）→ 拦截", () => {
+    const result = checkBashCommandSafety("rm -rf /repo/DATA/metrics", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("rm -rf data → 拦截（data 本身）", () => {
+    const result = checkBashCommandSafety("rm -rf data", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("rmdir data/unused → 拦截（rmdir 同族）", () => {
+    const result = checkBashCommandSafety("rmdir data/unused", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("主仓绝对路径 rm -rf /repo/data/metrics → 拦截（绝对路径无相对 cwd 依赖）", () => {
+    const result = checkBashCommandSafety("rm -rf /repo/data/metrics", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("多段命令中一段命中即拦：npm test && rm -rf data → 拦截", () => {
+    const result = checkBashCommandSafety("npm test && rm -rf data", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("rm -rf ./data/metrics（./ 前缀变体）→ 拦截", () => {
+    const result = checkBashCommandSafety("rm -rf ./data/metrics", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("rm -rf data/metrics/（尾部斜杠）→ 拦截", () => {
+    const result = checkBashCommandSafety("rm -rf data/metrics/", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("rm -rf data/metrics/*（尾部 glob）→ 拦截（目录归属不变）", () => {
+    const result = checkBashCommandSafety("rm -rf data/metrics/*", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("mv data/metrics /tmp/x → 拦截（把运行时数据移走）", () => {
+    const result = checkBashCommandSafety("mv data/metrics /tmp/x", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("find data/metrics -name '*.tmp' -delete → 拦截（间接删除形态）", () => {
+    const result = checkBashCommandSafety("find data/metrics -name '*.tmp' -delete", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  // ── 放行面：worktree / tmp / alpha 数据根 / 只读 ──
+  it("worktree 内 rm -rf data/metrics（验证场景的正道）→ 放行", () => {
+    const result = checkBashCommandSafety(
+      "cd /repo/.otter/worktrees/foo && rm -rf data/metrics",
+      mainPid,
+      undefined,
+      { projectRoot },
+    );
+    expect(result).toBeNull();
+  });
+
+  it("tmp 目录 rm → 放行", () => {
+    const result = checkBashCommandSafety("rm -rf /tmp/metrics-test-abc", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  it("rm 无关相对路径（README.md 等）→ 放行（日常清理不受影响）", () => {
+    const result = checkBashCommandSafety("rm scripts/tmp-verify/old.py", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  it("纯读命令 ls data/metrics → 放行（只读不受影响）", () => {
+    const result = checkBashCommandSafety("ls -la data/metrics", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  it("非 data 开头路径 rm -rf database/ → 放行（前缀不误伤）", () => {
+    const result = checkBashCommandSafety("rm -rf database/", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  // ── 退化路径 ──
+  it("mainPid 缺失（PID 文件不可用）时 rm -rf data/metrics 仍拦（不依赖 PID）", () => {
+    const result = checkBashCommandSafety("rm -rf data/metrics", null, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("projectRoot 缺失时保守拦截（与主仓脚本判定同策略）", () => {
+    const result = checkBashCommandSafety("rm -rf data/metrics", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("normalize 变形：rm 数据在引号内数据位（echo 'rm -rf data' 文本）→ 放行（不误拦文案）", () => {
+    const result = checkBashCommandSafety("echo 'rm -rf data/metrics' >> notes.md", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+});

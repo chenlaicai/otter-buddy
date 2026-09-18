@@ -100,6 +100,39 @@ describe("MetricsRegistry", () => {
     expect(true).toBe(true);
   });
 
+  it("目录被外部删除后 flush 自愈（ENOENT 重建重试，指标不丢）", async () => {
+    // 复现 #1039：目录被 rm -rf 后 flush 不应抛错，应重建目录并落盘
+    const reg = new MetricsRegistry(noopLogger, { dir });
+    const c = reg.counter({ name: "selfheal_total", help: "test" });
+    c.inc();
+
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(fs.existsSync(dir)).toBe(false);
+
+    await expect(reg.flush()).resolves.toBeUndefined();
+
+    const today = new Date().toISOString().slice(0, 10);
+    const filePath = path.join(dir, `metrics-${today}.jsonl`);
+    expect(fs.existsSync(filePath)).toBe(true);
+    const content = fs.readFileSync(filePath, "utf-8");
+    const lines = content.trim().split("\n").map(l => JSON.parse(l) as { metric: string });
+    expect(lines.some(l => l.metric === "selfheal_total")).toBe(true);
+  });
+
+  it("非 ENOENT 写入失败仍抛出（自愈不吞其他错误）", async () => {
+    // 构造 ENOTDIR：dir 路径被同名文件占用，appendFileSync 打不开 → 不应被自愈逻辑吞掉
+    const blocker = path.join(os.tmpdir(), `metrics-blocker-${Date.now()}`);
+    fs.writeFileSync(blocker, "not a dir");
+    try {
+      const reg = new MetricsRegistry(noopLogger, { dir: path.join(blocker, "sub") });
+      const c = reg.counter({ name: "notdir_total", help: "test" });
+      c.inc();
+      await expect(reg.flush()).rejects.toThrow();
+    } finally {
+      fs.rmSync(blocker, { force: true });
+    }
+  });
+
   it("重复注册同名 metric 返回相同实例", async () => {
     const reg = new MetricsRegistry(noopLogger, { dir });
     const c1 = reg.counter({ name: "dup_total", help: "first" });
