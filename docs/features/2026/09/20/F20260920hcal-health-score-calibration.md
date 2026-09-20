@@ -159,14 +159,17 @@ issue #595 的 PR1（#597，8/29 合入）+ PR2（#606，9/1 合入）交付了�
 - 头部热点：src/app.ts(15)、db/migration.ts(12)、platforms.ts(11)、agent-invoker.ts(11)
 
 **公式**：`100 - reworkRate×250`（与 imbalance 再扣 20）
-- reworkRate=0→100（绿）、0.15→62.5（绿边界）、0.25→37.5（黄边界）、0.45→0（红）
+- reworkRate=0→100（绿）、0.10→75（绿边界）、0.20→50（黄边界）、0.40→0（红）
 - 当前 27.8% → D2≈30（红）——诚实反映返工水平
+- 锚点物理语义：「10 个修复 1 个返工」=绿界、「5 个修复 1 个返工」=黄界、「近半修复在返工」=归零
 
 **前端影响**：VerdictPanel D2 归因句改为「bugfix 返工率 X%（文件名等反复修）」
 
 ### 自校准机制（设计 vs 实现偏差）
 
-issue #595 设计节写「Day 1-13 经验值 → Day 14 基线成立切 P25/P50/P75 微调 → 14 天滚动重算」。今天 Day 20，health-score.ts 中 grep percentile/P25/baseline/selfCalibrat 零命中——**设计与实现有偏差，本期不补，留搭档拍板是否需要实现。**
+issue #595 设计节写「Day 1-13 经验值 → Day 14 基线成立切 P25/P50/P75 微调 → 14 天滚动重算」。
+
+**搭档裁决（2026-09-20）：不实现。** 理由：绝对信号优先——返工率本身有物理语义（27.8% 返工率高低是可直觉判断的），不需要相对化基线来稀释信号。指标该红就红，改进在流程侧响应（见 issue #1059）。
 
 ### bug_recurrence 阈值（与 #1012 同源）
 
@@ -183,8 +186,8 @@ null 过滤从「全序列 filter 后切分」改为「先切窗口再各窗口�
 ### 3. findByDateRange 参数化
 仓库层方法支持可选 metricType 过滤，向前兼容（不传则原行为）。
 
-### 4. D2 热区计数去截断（F20260920hcal S3 修复）
-metrics-calculator.ts computeFileHotspots 返回 `{ total, topN }`——total 用于 D2 评分（不受 Top-N 截断），topN 用于 UI 展示和归因句。Metrics 接口新增 `totalHotspotFiles` 字段。
+### 4. Bugfix 返工率计算（metrics-calculator.ts）
+新增 `computeBugfixReworkRate(parsed, commitsWithFiles)`——从 parsed 取 bugfix SHAs → 过滤 commitsWithFiles → 按文件计数 → ≥2 次/总文件数。Metrics 接口新增 `bugfixReworkRate` 字段，worker/report 透传至 `HealthScoreInput`。
 
 ## 已知边界
 

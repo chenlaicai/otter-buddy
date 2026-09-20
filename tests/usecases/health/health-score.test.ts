@@ -65,26 +65,26 @@ describe("D2 架构稳定（搭档裁决：bugfix 返工率公式）", () => {
   it("reworkRate=0 无返工 = 100", () => {
     expect(scoreD2(0, false)).toBe(100);
   });
-  it("reworkRate=0.15 返工率 15% → 62.5（绿边界）", () => {
-    expect(scoreD2(0.15, false)).toBeCloseTo(62.5, 5);
+  it("reworkRate=0.10 返工率 10% → 75（绿边界——10 个修复 1 个返工）", () => {
+    expect(scoreD2(0.10, false)).toBeCloseTo(75, 5);
   });
-  it("reworkRate=0.25 返工率 25% → 37.5（黄边界）", () => {
-    expect(scoreD2(0.25, false)).toBeCloseTo(37.5, 5);
+  it("reworkRate=0.20 返工率 20% → 50（黄边界——5 个修复 1 个返工）", () => {
+    expect(scoreD2(0.20, false)).toBeCloseTo(50, 5);
   });
   it("reworkRate=0.278 实测返工率 27.8% → 30.5（红——457 文件中 127 个返工）", () => {
     expect(scoreD2(0.278, false)).toBeCloseTo(30.5, 0);
   });
-  it("reworkRate=0.45 返工率 45% → 0（红，clamp）", () => {
-    expect(scoreD2(0.45, false)).toBe(0);
+  it("reworkRate=0.40 返工率 40% → 0（红——近半修复在返工，clamp）", () => {
+    expect(scoreD2(0.40, false)).toBe(0);
   });
-  it("reworkRate>0.45 clamp 在 0", () => {
-    expect(scoreD2(0.8, false)).toBe(0);
+  it("reworkRate>0.40 clamp 在 0", () => {
+    expect(scoreD2(0.80, false)).toBe(0);
   });
   it("失衡再扣 20", () => {
     expect(scoreD2(0, true)).toBe(80);
   });
-  it("reworkRate=0.25 + 失衡：100 - 62.5 - 20 = 17.5", () => {
-    expect(scoreD2(0.25, true)).toBeCloseTo(17.5, 5);
+  it("reworkRate=0.20 + 失衡：100 - 50 - 20 = 30", () => {
+    expect(scoreD2(0.20, true)).toBeCloseTo(30, 5);
   });
   it("bugfix:feature ≥2 判失衡（与信号引擎同口径）", () => {
     const r = computeHealthScore({

@@ -128,8 +128,12 @@ export function scoreD1(bugfixRatio: number): number {
  *  天然剥离 feature 活跃度（feature 改动不进分子），与 D1（bugfix 占比面）和 bug_recurrence
  *  信号（同文件反复出 bug）错位：D1 测「修 bug 的占比」，返工率测「修了没修好」。
  *  实测 60 天窗口：457 个文件被 bugfix 碰过，127 个 ≥2 次，返工率 27.8%。
- *  公式：100 - reworkRate×250——15%→100（绿）、25%→50（黄）、45%→0（红）
- *  与 bug_recurrence 信号区分：返工率是宏观统计（全仓口径），recurrence 是微观信号（单文件 3 次/30 天） */
+ *  公式锚点：100 − reworkRate×250
+ *    10%→75（绿）——「10 个修复 1 个返工」
+ *    20%→50（黄）——「5 个修复 1 个返工」
+ *    40%→ 0（红）——「近半修复在返工」
+ *  与 bug_recurrence 信号区分：返工率是宏观统计（全仓口径），recurrence 是微观信号（单文件 3 次/30 天）
+ *  教训（S7）：锚点宣称数字必须用公式反推验证，不能拍脑袋写——本 PR 因此栽了三轮 */
 export function scoreD2(bugfixReworkRate: number, imbalanceTriggered: boolean): number {
   const penalty = bugfixReworkRate * 250;
   return clamp(100 - penalty - (imbalanceTriggered ? 20 : 0));
@@ -183,7 +187,7 @@ function dimensionD2(input: HealthScoreInput): DimensionScore {
   const parts: string[] = [];
   if (reworkRate > 0 && input.hotspotFiles.length > 0) {
     const top = input.hotspotFiles[0]!;
-    parts.push(`bugfix 返工率 ${(reworkRate * 100).toFixed(1)}%（${top.file} 等反复修）`);
+    parts.push(`bugfix 返工率 ${(reworkRate * 100).toFixed(1)}%（${top.file} 等修了又修）`);
   }
   if (imbalance) parts.push("bugfix:feature ≥2 失衡");
   return {
