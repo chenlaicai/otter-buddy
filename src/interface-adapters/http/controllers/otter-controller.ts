@@ -30,9 +30,9 @@ export class OtterController {
     /** F20260827ucrt：可选——UI 入口 modelAlias 校验（settings-controller hasModel 同层先例）。
      *  可选注入保持测试兼容；大獭工具链不走此 controller，不受影响 */
     private readonly modelPool?: ModelPoolLike,
-    /** F20260917rsta：可选——手动重启空摘要时走自动 LLM 交接（partner 决策 2026-09-17）
-     *  未注入时降级为原语义（空摘要 = 无摘要重启，测试/旧装配兼容） */
-    private readonly agentInvoker?: Pick<AgentInvoker, "restartWithAutoHandoffIfBlank">,
+    /** F20260920uhuc：可选——手动重启走统一交接管线（叠加档案 + 忙碌拒绝）
+     *  未注入时降级为原语义（直透 restartSession，测试/旧装配兼容） */
+    private readonly agentInvoker?: Pick<AgentInvoker, "restartWithUnifiedHandoff">,
   ) {}
 
   async getById(c: Context): Promise<Response> {
@@ -111,7 +111,7 @@ export class OtterController {
     try {
       const id = param(c, "id");
       // #889：safeJsonBody 兜底非法 JSON 与 JSON null，防 body.summary on null 崩溃
-      const body = await safeJsonBody<{ summary?: string; modelAlias?: string }>(c);
+      const body = await safeJsonBody<{ summary?: string; modelAlias?: string; synthesizePast?: boolean }>(c);
       // F20260908efmd: restart body 增 modelAlias + hasModel 校验
       if (this.modelPool && body.modelAlias && !this.modelPool.hasModel(body.modelAlias)) {
         const available = this.modelPool.describeModels().map(m => m.alias).join(", ");
@@ -120,9 +120,14 @@ export class OtterController {
           "validation",
         );
       }
-      // F20260917rsta：空摘要 + agentInvoker 已注入 → 自动 LLM 交接（合成失败降级无摘要重启）
+      // F20260920uhuc：统一交接管线——synthesizePast 透传（缺省 true，向后兼容旧客户端）；
+      // 忙碌（running invoke）拒绝 409（DomainError conflict 映射）；合成失败降级机械档案
       const session = this.agentInvoker
-        ? await this.agentInvoker.restartWithAutoHandoffIfBlank(id, body.summary, body.modelAlias)
+        ? await this.agentInvoker.restartWithUnifiedHandoff(id, {
+          selfSummary: body.summary,
+          synthesizePast: body.synthesizePast !== false,
+          modelAlias: body.modelAlias,
+        })
         : await this.manageSession.restartSession(id, body.summary, body.modelAlias);
       return c.json(toOtterSessionDTO(session), 201);
     } catch (err) {

@@ -139,7 +139,8 @@ export interface ToolContext {
    * Why: session.prompt() 是原子的，中途无法替换 session；
    * 延迟到 prompt 完成后执行，消息生命周期不受影响。
    */
-  pendingRestart?: { summary?: string; modelAlias?: string };
+  /** F20260920uhuc：synthesizePast 透传（restart_otter 工具参数→自重启统一交接） */
+  pendingRestart?: { summary?: string; modelAlias?: string; synthesizePast?: boolean };
   /**
    * F20260813actk C9：本轮待派工票据（otterId → otterName）。
    * create_otter 创建后注册；speak 派工后清除已覆盖的；未清空时 speak 给一次软提醒（非阻断）。

@@ -150,7 +150,8 @@ export interface OtterToolClient {
     getActiveSession(otterId: string): Promise<OtterSession | null>;
     /** 重启獭生：归档当前 session + 创建新 session（含前情摘要）。F20260810rstart
      *  F20260908efmd: 增可选 modelAlias 参数——配额耗尽时应急切模型 */
-    restart(otterId: string, summary?: string, modelAlias?: string): Promise<OtterSession>;
+    /** F20260920uhuc：synthesizePast 透传统一交接管线（缺省 true；false = 跳过引擎合成） */
+    restart(otterId: string, summary?: string, modelAlias?: string, synthesizePast?: boolean): Promise<OtterSession>;
   };
   context: {
     get(otterId: string, key?: string): Promise<Record<string, string>>;

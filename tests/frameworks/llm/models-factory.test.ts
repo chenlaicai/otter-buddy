@@ -54,6 +54,7 @@ function makeLlm(entry: Partial<{ alias: string; provider: string; model: string
       apiBaseUrl: entry.apiBaseUrl,
       contextWindow: entry.contextWindow,
       maxTokens: entry.maxTokens,
+      handoffThresholdTokens: 100_000,
     }],
   };
 }
@@ -266,8 +267,8 @@ describe("initModels — model pool", () => {
     const llm: AppConfig["llm"] = {
       default: "fast",
       models: [
-        { alias: "fast", provider: "openai", model: "gpt-4o-mini", apiKey: "sk-fast" },
-        { alias: "powerful", provider: "openai", model: "gpt-4o", apiKey: "sk-powerful" },
+        { alias: "fast", provider: "openai", model: "gpt-4o-mini", apiKey: "sk-fast", handoffThresholdTokens: 100_000 },
+        { alias: "powerful", provider: "openai", model: "gpt-4o", apiKey: "sk-powerful", handoffThresholdTokens: 100_000 },
       ],
     };
 
@@ -300,8 +301,8 @@ describe("initModels — model pool", () => {
     const llm: AppConfig["llm"] = {
       default: "fast",
       models: [
-        { alias: "fast", provider: "openai", model: "gpt-4o-mini", apiKey: "sk-fast" },
-        { alias: "powerful", provider: "openai", model: "gpt-4o", apiKey: "sk-powerful" },
+        { alias: "fast", provider: "openai", model: "gpt-4o-mini", apiKey: "sk-fast", handoffThresholdTokens: 100_000 },
+        { alias: "powerful", provider: "openai", model: "gpt-4o", apiKey: "sk-powerful", handoffThresholdTokens: 100_000 },
       ],
     };
 

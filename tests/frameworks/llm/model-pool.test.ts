@@ -11,6 +11,7 @@ function makeConfig(alias: string, overrides?: Partial<ModelConfig>): ModelConfi
     alias,
     provider: 'openai',
     model: 'gpt-4o',
+    handoffThresholdTokens: 100_000,
     ...overrides,
   };
 }
@@ -114,6 +115,35 @@ describe('ModelPool', () => {
       ]);
 
       expect(pool.getContextWindow('default')).toBeUndefined();
+    });
+  });
+
+  describe('getHandoffThresholdTokens (F20260920uhuc 需求变更：按模型直给)', () => {
+    it('returns per-model threshold（不同模型不同水位线）', () => {
+      const pool = buildModelPool('default', [
+        { config: makeConfig('default', { contextWindow: 1_048_576, handoffThresholdTokens: 340_000 }), model: makeModel('default') },
+        { config: makeConfig('mimo', { contextWindow: 128_000, handoffThresholdTokens: 40_000 }), model: makeModel('mimo') },
+      ]);
+
+      expect(pool.getHandoffThresholdTokens('default')).toBe(340_000);
+      expect(pool.getHandoffThresholdTokens('mimo')).toBe(40_000);
+    });
+
+    it('falls back to default alias when alias omitted', () => {
+      const pool = buildModelPool('default', [
+        { config: makeConfig('default', { handoffThresholdTokens: 340_000 }), model: makeModel('default') },
+      ]);
+
+      expect(pool.getHandoffThresholdTokens(null)).toBe(340_000);
+      expect(pool.getHandoffThresholdTokens(undefined)).toBe(340_000);
+    });
+
+    it('returns undefined for unknown alias（不回退默认——与 getContextWindow 一致）', () => {
+      const pool = buildModelPool('default', [
+        { config: makeConfig('default', { handoffThresholdTokens: 340_000 }), model: makeModel('default') },
+      ]);
+
+      expect(pool.getHandoffThresholdTokens('nonexistent')).toBeUndefined();
     });
   });
 

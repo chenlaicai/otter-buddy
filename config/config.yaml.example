@@ -35,6 +35,11 @@ llm:
       strengths: ["强推理", "代码能力优秀", "长上下文"]
       weaknesses: ["价格较高"]
       contextWindow: 128000
+      # 交接阈值（必填，F20260920uhuc）：已用 token 绝对值——上轮上下文超过此值即触发
+      # 统一交接（换世：合成前世档案+新 session 继承）。
+      # 每模型单独配置（不同窗口的模型不共享水位线）。经验值：窗口的 25-35%。
+      # 例：128K 窗口配 40000；1M 窗口（如 kimi k3）配 340000。
+      handoffThresholdTokens: 40000
       # 模型输入能力（可选，多模态支持）
       # 显式声明时覆盖 provider 模板默认值；支持图片的模型声明 ["text", "image"]
       # input: ["text", "image"]
@@ -54,6 +59,7 @@ llm:
     #   strengths: ["极快", "便宜"]
     #   weaknesses: ["复杂推理有限"]
     #   contextWindow: 200000
+      #   handoffThresholdTokens: 60000
 
 # === 记忆系统配置 ===
 memory:
@@ -92,13 +98,14 @@ embedding:
   #     └─ onnx/{model.onnx, model.onnx_data}
   localModelPath: ./models
 
-# === 上下文质量配置（F20260904cq30）===
+# === 上下文质量配置（F20260904cq30 / F20260920uhuc）===
 contextQuality:
-  # pi compaction 触发储备（触发公式：contextTokens > contextWindow − reserveTokens）
-  # 1M 窗口下 1048576 − 700000 = 348576 ≈ 340K 触发。
-  # 质量优先：实测好体验区 60-90K、退化区 266K+；搭档拍板 300K 标称线。
-  # 上下文水位域唯一真相源——旧 tokenWarningThreshold/TOKEN_WARNING 假水位线已删。
-  compactionReserveTokens: 700000
+  # SDK 溢出兜底 reserve（F20260920uhuc）：Pi SDK 自带压缩的触发线 = contextWindow − 此值。
+  # 缺省 50000（贴溢出点：1M 窗口 995K 才触发）——应用层交接（llm.models[].handoffThresholdTokens）
+  # 平时先拦住，此线只在漏拦的暴涨场景救急（Pi 原地压缩，丢历史的最后防线）。与模型无关，全局一个。
+  # 注意：旧 compactionReserveTokens（预留制全局阈值）已退役——改配 llm.models[].handoffThresholdTokens
+  # （已用 token 直给制）；残留旧键会导致启动报错（迁移：handoffThresholdTokens = contextWindow − 旧值）。
+  sdkOverflowReserveTokens: 50000
 
 # === 熔断器配置 ===
 circuitBreaker:

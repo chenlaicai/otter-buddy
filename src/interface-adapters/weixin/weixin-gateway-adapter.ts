@@ -1,14 +1,14 @@
 import type { Logger } from "@usecases/ports/logger";
 import type { WeixinGateway } from "@usecases/im/weixin-gateway";
-// eslint-disable-next-line no-restricted-imports -- 依赖注入与飞书同构：接口定义在 usecases port（WeixinGateway），实现需要的协议类型从 frameworks 引入
+ 
 import type { WeixinApiClient } from "@frameworks/weixin/api-client";
-// eslint-disable-next-line no-restricted-imports -- 同上：adapter 本就是 port 的 interface-adapters 实现，需要 account-store 的 context_token 回填
+ 
 import type { WeixinAccountStore } from "@frameworks/weixin/account-store";
-// eslint-disable-next-line no-restricted-imports -- 同上：媒体出站需要 CDN 上传客户端与协议 item 类型
+ 
 import type { WeixinCdnClient } from "@frameworks/weixin/cdn/cdn-client";
-// eslint-disable-next-line no-restricted-imports -- 同上：出站 item 构建需要协议类型枚举（值导入，WeixinItemType 运行时用）
+ 
 import { WeixinItemType } from "@frameworks/weixin/types";
-// eslint-disable-next-line no-restricted-imports -- 同上：item 结构类型仅类型位置使用
+ 
 import type { WeixinMessageItem } from "@frameworks/weixin/types";
 
 /**

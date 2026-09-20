@@ -456,8 +456,10 @@ export class CircuitBreakSupport {
     return names;
   }
 
-  /** circuit_break 事件写入（上限判定与二级触发防循环的数据源；失败仅留痕不阻塞） */
-  private async writeCircuitBreakEvent(
+  /** circuit_break 事件写入（上限判定与二级触发防循环的数据源；失败仅留痕不阻塞）。
+   * F20260920uhuc：改为 public——agent-invoker 熔断-handoff 路径跳过 executeCircuitBreakRestart 二次换世时，
+   * 仍需补写熔断终态事件（newSessionId 指向 unifiedHandoff 建立的新世） */
+  async writeCircuitBreakEvent(
     info: Pick<CircuitBreakInfo, 'otterId' | 'conversationId' | 'failedInvokeId'>,
     context: Record<string, unknown>,
   ): Promise<void> {

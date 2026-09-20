@@ -187,10 +187,12 @@ export function getSessionHistory(otterId: string): Promise<OtterSessionDTO[]> {
   return request(`/otters/${otterId}/sessions`)
 }
 
-export function restartOtter(otterId: string, summary?: string, modelAlias?: string): Promise<OtterSessionDTO> {
-  const body: { summary?: string; modelAlias?: string } = {}
+/** F20260920uhuc：synthesizePast（缺省 true=后台由引擎合成前世叙事档案；false=仅自总结+机械档案） */
+export function restartOtter(otterId: string, summary?: string, modelAlias?: string, synthesizePast?: boolean): Promise<OtterSessionDTO> {
+  const body: { summary?: string; modelAlias?: string; synthesizePast?: boolean } = {}
   if (summary) body.summary = summary
   if (modelAlias) body.modelAlias = modelAlias
+  if (synthesizePast === false) body.synthesizePast = false // 仅显式 false 下发——缺省 true 向后兼容旧后端
   return request(`/otters/${otterId}/restart`, { method: 'POST', body: Object.keys(body).length ? JSON.stringify(body) : undefined })
 }
 

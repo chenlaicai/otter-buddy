@@ -15,6 +15,13 @@ export interface OtterContextWindowProvider {
    * @returns 窗口大小（tokens）；无法解析时返回 undefined（调用方走 DEFAULT_CTX_MAX 兜底）
    */
   getOtterContextWindow(otterId: string): number | undefined;
+
+  /**
+   * F20260920uhuc 需求变更（2026-09-20）：解析 otter 实际模型的交接阈值（已用 token 绝对值，按模型必填）。
+   * 与 getOtterContextWindow 同域（per-otter 模型上下文属性），故同端口不另建接口。
+   * @returns 阈值（tokens）；无法解析时返回 undefined（调用方不触发水位交接）
+   */
+  getOtterHandoffThresholdTokens(otterId: string): number | undefined;
 }
 
 /** 合理下限：小于此值的 contextWindow 视为配置异常，按 undefined 处理。

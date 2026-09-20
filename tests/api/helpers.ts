@@ -414,8 +414,8 @@ export interface TestDeps {
   cronParser: any;
   /** 可选：注入后 OtterController 读 modelAlias 写入 OtterDTO（#528: any → OtterConfigProvider，漏方法 mock 编译报错） */
   otterConfigProvider?: OtterConfigProvider;
-  /** F20260917rsta：可选——restart 空摘要自动交接委托（与上方 agentInvoker: any 区分，避免默认 mock 缺方法） */
-  otterRestartAutoHandoff?: Pick<AgentInvoker, "restartWithAutoHandoffIfBlank">;
+  /** F20260920uhuc：可选——restart 统一交接委托（与上方 agentInvoker: any 区分，避免默认 mock 缺方法） */
+  otterRestartAutoHandoff?: Pick<AgentInvoker, "restartWithUnifiedHandoff">;
 }
 
 export function createTestApp(deps: TestDeps): Hono {
@@ -575,7 +575,7 @@ export function createMockDeps(): TestDeps {
       embeddingDim: 1024,
     },
     settingsRepo: mockMethods(["get", "update", "getAll"]),
-    modelPool: buildModelPool("main", [{ config: { alias: "main", provider: "openai", model: "gpt-4o" }, model: { id: "gpt-4o" } as never }]),
+    modelPool: buildModelPool("main", [{ config: { alias: "main", provider: "openai", model: "gpt-4o", handoffThresholdTokens: 100_000 }, model: { id: "gpt-4o" } as never }]),
     manageScheduledTask: mockMethods(["create", "getById", "getByConversationId", "update", "delete", "getExecutions"]),
     schedulerService: mockMethods(["trigger", "start", "stop"]),
     cronParser: { getNextTime: vi.fn() },

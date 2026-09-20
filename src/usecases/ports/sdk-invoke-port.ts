@@ -40,7 +40,8 @@ export interface AgentRunResult {
   /** 本次 invoke 重建了全新 session（F20260814mtrc） */
   sessionRebuilt?: boolean;
   /** F20260819rscn: LLM 调用 restart_otter(self) 时，SDK 不执行 restart，改为标记信号由调用方处理 */
-  _selfRestart?: { otterId: string; summary?: string };
+  /** F20260920uhuc：synthesizePast 透传（restart_otter 工具参数——獭决定前世是否值得合成） */
+  _selfRestart?: { otterId: string; summary?: string; synthesizePast?: boolean };
   /** LLM 直出文本（未通过 speak 输出，对其他人不可见）。用于检测"旁白流失"失败形态 */
   directText?: string;
   /** 末条 assistant 消息的 stopReason（F20260903lngth：length=生成被 token 上限截断） */
@@ -92,12 +93,25 @@ export interface InvokeOptions {
   emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
 }
 
+/** F20260920uhuc：jsonl entries 读取门面（统一交接原料源——可选，mock 缺省时调用方降级） */
+export interface SessionEntryLike {
+  type: string;
+  id: string;
+  [key: string]: unknown;
+}
+
 export interface SdkInvokePort {
   invoke(otterId: string, message: string, options?: InvokeOptions): Promise<AgentRunResult>;
-  /** F20260912nlb896（#896）：压缩合成影子通道——临时 inMemory session 直调 LLM。
-   *  不走 invoke/锁/池/共享 jsonl（钩子在 prompt 中途触发，走 invoke 必然死锁或撕裂外层 session）。
-   *  可选：mock 场景缺省时调用方降级（走 Pi 默认摘要兜底）。 */
-  runCompactionSynthesis?(otterId: string, prompt: string): Promise<SynthesisRunResult>;
+  /** F20260912nlb896（#896）→F20260920uhuc 泛化：统一合成影子通道——临时 inMemory session 直调 LLM。
+   *  不走 invoke/锁/池/共享 jsonl。modelOverride（可选）= 合成跟随新世模型。
+   *  可选：mock 场景缺省时调用方降级（机械档案兜底）。 */
+  runCompactionSynthesis?(otterId: string, prompt: string, modelOverride?: string): Promise<SynthesisRunResult>;
+  /** F20260920uhuc：统一交接——获取 per-otter 锁（冻结窗口；waiter 超时交接模式 120s）。可选 */
+  acquireSessionLock?(otterId: string): Promise<() => void>;
+  /** F20260920uhuc：统一交接——只读当前 session 全部 entries（jsonl 切片原料；空/缺失返回 undefined）。可选 */
+  readCurrentSessionEntries?(otterId: string): Promise<SessionEntryLike[] | undefined>;
+  /** 查询 otter 是否有进行中的 invoke（忙碌判定——手动重启 409 / UI 置灰数据源）。可选 */
+  isRunning?(otterId: string): boolean;
   /** 中断指定 Otter 的 Agent 生成（messageId 用于定位并发 session） */
   abort(otterId: string, messageId?: string): void;
   /** 获取指定 Otter 当前 session 的工具调用次数 */

@@ -4,6 +4,7 @@ import type { ArtifactStatus } from "@entities/conversation/conversation";
 import type { UseCases } from "./types";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 import type { DispatchRecordRepository } from "@usecases/dispatch/dispatch-record-repository";
+import type { AgentInvoker } from "../interface-adapters/agent-runtime/agent-invoker";
 
 export function buildMemoryClient(uc: UseCases) {
   return {
@@ -125,6 +126,9 @@ export function buildOtterToolClient(
     syncDocs?: (rootDir?: string) => Promise<{ synced: number; updated: number; skipped: number; archived: number; errors: number }>;
     /** F20260912avlb：派工台账正式表 repo（dispatch client 数据源） */
     dispatchRepo?: DispatchRecordRepository;
+    /** F20260920uhuc：统一交接入口（restart_otter 工具重启别人走统一管线）。
+     *  app.ts 装配时注入；缺省降级域层直透 restartSession */
+    agentInvoker?: Pick<AgentInvoker, "restartWithUnifiedHandoff">;
   },
 ): OtterToolClient {
   // 审视三轮：sync_docs 并发互斥标志（模块级——client 单例，全进程共享）
@@ -243,7 +247,11 @@ export function buildOtterToolClient(
       dissolve: (id) => uc.dissolveOtter.execute(id),
       getById: (id) => uc.queryOtter.getById(id),
       getActiveSession: (otterId) => uc.manageSession.getActiveSession(otterId),
-      restart: (otterId, summary, modelAlias) => uc.manageSession.restartSession(otterId, summary, modelAlias),
+      // F20260920uhuc：restart_otter 工具（大獭重启别人）走统一交接管线——synthesizePast 透传；
+      // agentInvoker 未装配时降级域层直透（测试装配兼容）
+      restart: (otterId, summary, modelAlias, synthesizePast) => deps?.agentInvoker
+        ? deps.agentInvoker.restartWithUnifiedHandoff(otterId, { selfSummary: summary, modelAlias, synthesizePast: synthesizePast !== false })
+        : uc.manageSession.restartSession(otterId, summary, modelAlias),
     },
     context: {
       get: (otterId, key) => uc.manageContext.get(otterId, key),

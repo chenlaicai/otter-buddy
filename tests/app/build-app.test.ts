@@ -38,6 +38,7 @@ describe("buildApp 组装根启动", () => {
       "    - alias: faux",
       "      provider: openai",
       "      model: faux-model",
+      "      handoffThresholdTokens: 40000",
       `database:`,
       `  path: ${path.join(tmpDir, "test.db")}`,
       "server:",
