@@ -85,6 +85,9 @@ data/weixin/
 # Metrics runtime output (prom-client JSONL snapshots, 7-day rotation)
 data/metrics/
 
+# e2e 冒烟服务数据（F20260920ecig，scripts/e2e-server.sh 生命周期管理，stop 即清）
+data/e2e/
+
 # Per-conversation workspace dirs (runtime scratch area for agent tools)
 data/workspaces/
 
