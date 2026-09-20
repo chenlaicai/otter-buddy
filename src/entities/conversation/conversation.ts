@@ -28,7 +28,6 @@ export function normalizeConversationInput(input: ConversationInput): Conversati
   return { ...input, kind: input.kind ?? "normal" };
 }
 
- ([F20260920imax][im][Feature Update][Incompatible] IM 助理模式修订二：对话永续 + 8h 静默换 session + Web 分组可见)
 /** 产物生命周期状态 */
 export type ArtifactStatus = "active" | "superseded" | "archived";
 
