@@ -211,8 +211,8 @@ export class WeixinPollingChannel {
     if (inbound.contextToken && inbound.fromUserId) {
       accountStore.saveContextToken(accountId, inbound.fromUserId, inbound.contextToken);
       // Why: 入站换新 = 用户说话 → 清除内存缓存的 warnedAt（资格重置的内存侧；disk 侧由
-    // saveContextToken 清 warnedAt）——本静默期提醒资格随换新恢复，下次静默期满阈值再提醒一次
-    // （原注释的 cooldown > after 场景随 cooldown 机制退役而消失，清除语义保留且加强为资格重置）
+      // saveContextToken 清 warnedAt）——本静默期提醒资格随换新恢复，下次静默期满阈值再提醒一次
+      // （原注释的 cooldown > after 场景随 cooldown 机制退役而消失，清除语义保留且加强为资格重置）
       this.warnedAtMemoryCache.delete(inbound.fromUserId);
     }
     try {
