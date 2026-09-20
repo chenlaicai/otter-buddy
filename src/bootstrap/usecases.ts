@@ -89,7 +89,8 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const manageContext = new ManageContext(repos.otterContext);
   const manageScheduledTask = new ManageScheduledTask(repos.scheduledTask);
   const manageConnection = new ManageConnection(repos.connection, repos.conversation, logger);
-  // F20260918imas：IM 助理会话管理（p2p/微信私聊自动开户 + 72h 软轮换收篇）。
+  // F20260918imas / F20260920imax：IM 助理会话管理（p2p/微信私聊自动开户；对话永续 +
+  // 8h 静默 session 重启）。
   // enabled 总开关不在此层拦截——UseCases 恒持实例（供其他消费方），
   // 拦截面在 platforms.ts 注入点（enabled=false 时不注入处理器，回退拒聊）
   const assistantSession = new AssistantSessionManager({
@@ -98,8 +99,11 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
     conversationRepo: repos.conversation,
     entryRepo,
     ...(memoryIndex ? { memoryIndex } : {}),
+    // F20260920imax：8h 静默 → restartSession（机械交接摘要，非 Pi 内置压缩）
+    manageSession,
+    getOtterIds: (conversationId: string) => repos.conversation.getOtterIds(conversationId),
     logger,
-    rotationHours: appConfig.im?.assistant?.rotationHours ?? 72,
+    sessionIdleHours: appConfig.im?.assistant?.sessionIdleHours ?? 8,
   });
   // 多模态 Phase 1：附件上传服务（storageRoot 等来自 config.attachments）
   const attachmentUpload = buildAttachmentUploadService(repos, appConfig, logger);

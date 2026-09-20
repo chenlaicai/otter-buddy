@@ -14,8 +14,9 @@ export function toConversationDTO(conv: Conversation): ConversationDTO {
     title: conv.title,
     status: conv.status,
     pinned: conv.pinned,
-    /** F20260918imas：助理对话标识（前端分组依据；title 前缀单一真相源，解析函数见前端 isAssistantTitle） */
-    ...(isAssistantConversationTitle(conv.title) && { kind: "assistant" }),
+    /** F20260920imax：助理对话标识改 schema 字段单一真相源（原 title 前缀约定退役；
+     *  存量库由迁移回填，见 migration.ts ensureConversationsKindColumn） */
+    ...(conv.kind === "assistant" && { kind: "assistant" }),
     createdAt: conv.createdAt,
     updatedAt: conv.updatedAt,
     completedAt: conv.completedAt,
@@ -23,10 +24,8 @@ export function toConversationDTO(conv: Conversation): ConversationDTO {
   };
 }
 
-/** F20260918imas：助理对话标题判定（与 AssistantSessionManager 的开户命名同源；供 DTO 标识与前端分组用）。
- *  已知边界（检视发现 1/6 留痕）：SQL 排序在 sqlite-conversation-repository 用 LIKE 镜像
- *  同一前缀集（双源）——新增渠道时两处同步；当前无对话重命名功能，用户无法手动
- *  构造该前缀（grep 实证 rename 零匹配，误判风险仅存于未来功能 */
+/** F20260918imas：助理对话标题判定（开户命名展示用）。F20260920imax：分组/DTO 标识已改
+ *  读 conversation.kind，本函数仅迁移回填与展示用途保留 */
 export function isAssistantConversationTitle(title: string): boolean {
   return title.startsWith("微信助理 · ") || title.startsWith("飞书助理 · ");
 }

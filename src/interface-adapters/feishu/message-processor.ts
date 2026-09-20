@@ -39,8 +39,10 @@ export class FeishuMessageProcessor {
   constructor(
     private readonly deps: {
       manageConnection: ManageConnection;
-      /** F20260918imas：助理会话管理（p2p 自动开户 + 软轮换）。未注入时回退旧拒聊行为 */
+      /** F20260918imas / F20260920imax：助理会话管理（p2p 自动开户；对话永续）。未注入时回退旧拒聊行为 */
       assistantSession?: AssistantSessionManager;
+      /** F20260920imax：助理线模型（自动开户大獭用；缺省全局 default） */
+      assistantModelAlias?: string;
       /** F20260913ctlv 彻底切换：entries 写入面（用户消息唯一落点） */
       sendEntry: SendEntry;
       commandDispatcher: CommandDispatcher;
@@ -87,6 +89,8 @@ export class FeishuMessageProcessor {
             connectionId: connection.id,
             channel: "feishu",
             displayName: await this.resolveAssistantName(msg.senderId),
+            // F20260920imax：助理线模型（缺省 undefined = CreateOtter 走全局 default）
+            ...(this.deps.assistantModelAlias && { modelAlias: this.deps.assistantModelAlias }),
           })
         : null);
     if (!conversation) {

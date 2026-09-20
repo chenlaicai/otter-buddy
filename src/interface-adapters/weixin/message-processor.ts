@@ -54,8 +54,10 @@ export class WeixinMessageProcessor {
   constructor(
     private readonly deps: {
       manageConnection: ManageConnection;
-      /** F20260918imas：助理会话管理（自动开户 + 软轮换）。未注入时回退旧拒聊行为 */
+      /** F20260918imas / F20260920imax：助理会话管理（自动开户；对话永续 + 8h 静默换 session）。未注入时回退旧拒聊行为 */
       assistantSession?: AssistantSessionManager;
+      /** F20260920imax：助理线模型（自动开户大獭用；缺省全局 default） */
+      assistantModelAlias?: string;
       /** F20260913ctlv 收尾批2：微信消息唯一落点 = entries（messages 表停写，与飞书同构） */
       sendEntry: SendEntry;
       entryRepo: EntryRepository;
@@ -136,7 +138,7 @@ export class WeixinMessageProcessor {
     return true;
   }
 
-  /** F20260918imas：会话解析（复杂度拆出）——已绑定直用；未绑定且注入助理管理器时自动开户 */
+  /** F20260918imas / F20260920imax：会话解析（复杂度拆出）——已绑定直用（永续）；未绑定且注入助理管理器时自动开户 */
   private async resolveConversation(fromUserId: string, connectionId: string): Promise<{ id: string; title: string } | null> {
     const bound = await this.deps.manageConnection.getCurrentConversation(connectionId);
     if (bound) return bound;
@@ -145,6 +147,8 @@ export class WeixinMessageProcessor {
       connectionId,
       channel: "weixin",
       displayName: this.assistantDisplayName(fromUserId),
+      // F20260920imax：助理线模型（缺省 undefined = CreateOtter 走全局 default）
+      ...(this.deps.assistantModelAlias && { modelAlias: this.deps.assistantModelAlias }),
     });
   }
 

@@ -2,16 +2,19 @@ import { describe, it, expect, vi } from "vitest";
 import { AssistantSessionManager } from "@usecases/im/assistant-session";
 
 /**
- * F20260918imas：助理会话管理器测试。
- * 副作用断言风格：记录 conversationRepo/memoryIndex 收到的调用，
- * 验证自动开户与软轮换的编排逻辑（不测 DB 真实现）。
+ * F20260918imas / F20260920imax：助理会话管理器测试。
+ * 副作用断言风格：记录 conversationRepo/memoryIndex/manageSession 收到的调用，
+ * 验证自动开户与 8h 静默 session 重启的编排逻辑（不测 DB 真实现）。
+ *
+ * F20260920imax 语义修订：对话永续（删 72h 软轮换翻篇）——
+ * 8h 静默改为 restartSession（换 session 不换对话），收篇摘要保留（交接 + 记忆）。
  */
-function makeManager(overrides: { rotationHours?: number; lastEntryAgeHours?: number } = {}) {
-  const created: Array<{ id: string; title: string }> = [];
+function makeManager(overrides: { sessionIdleHours?: number; lastEntryAgeHours?: number } = {}) {
+  const created: Array<{ id: string; title: string; kind?: string }> = [];
   const entered: Array<{ connectionId: string; conversationId: string }> = [];
   const summaries: Array<{ id: string; summary: string }> = [];
   const digests: Array<{ digestId: string; conversationId: string; digest: string }> = [];
-  const completed: string[] = [];
+  const restarts: Array<{ otterId: string; summary?: string }> = [];
 
   const lastEntryAgeHours = overrides.lastEntryAgeHours ?? 0;
   const lastEntryAt = new Date(Date.now() - lastEntryAgeHours * 3600_000).toISOString();
@@ -24,23 +27,20 @@ function makeManager(overrides: { rotationHours?: number; lastEntryAgeHours?: nu
       }),
     },
     manageConversation: {
-      create: vi.fn(async ({ title }: { title: string }) => {
-        const conv = { id: `conv-${created.length + 1}`, title };
+      create: vi.fn(async ({ title, kind }: { title: string; kind?: string }) => {
+        const conv = { id: `conv-${created.length + 1}`, title, kind };
         created.push(conv);
         return conv;
-      }),
-      complete: vi.fn(async (id: string) => {
-        completed.push(id);
       }),
     },
     conversationRepo: {
       updateSummary: vi.fn(async (id: string, summary: string) => {
         summaries.push({ id, summary });
       }),
+      getById: vi.fn(async (id: string) => ({ id, title: `微信助理 · ${id}` })),
     },
     entryRepo: {
-      // 检视发现 4 处置：mock 按真实仓库语义实现（entryType 过滤 + sequence DESC）——
-      // 否则 writeDigest 的 speak/user 分类逻辑未被真实验证
+      // mock 按真实仓库语义实现（entryType 过滤 + sequence DESC）
       getEntries: vi.fn(async (_conversationId: string, options?: { entryType?: string; limit?: number }) => {
         const all = [
           { id: "e-1", entryType: "speak", body: "水獭回复", createdAt: lastEntryAt, sequenceNum: 2 },
@@ -56,16 +56,22 @@ function makeManager(overrides: { rotationHours?: number; lastEntryAgeHours?: nu
         digests.push({ digestId, conversationId, digest });
       }),
     },
+    manageSession: {
+      restartSession: vi.fn(async (otterId: string, summary?: string) => {
+        restarts.push({ otterId, summary });
+      }),
+    },
+    getOtterIds: vi.fn(async (conversationId: string) => [`otter-of-${conversationId}`]),
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-    rotationHours: overrides.rotationHours ?? 72,
+    sessionIdleHours: overrides.sessionIdleHours ?? 8,
   };
 
   const manager = new AssistantSessionManager(deps as any);
-  return { deps, manager, created, entered, summaries, digests, completed };
+  return { deps, manager, created, entered, summaries, digests, restarts };
 }
 
 describe("AssistantSessionManager", () => {
-  it("无绑定时自动开户：建「微信助理 · <名>」对话并绑定 connection", async () => {
+  it("无绑定时自动开户：建「微信助理 · <名>」对话（kind=assistant）并绑定 connection", async () => {
     const ctx = makeManager();
     const result = await ctx.manager.ensureAssistantConversation({
       connectionId: "conn-1",
@@ -73,6 +79,7 @@ describe("AssistantSessionManager", () => {
       displayName: "a1b2c3",
     });
     expect(ctx.created[0].title).toBe("微信助理 · a1b2c3");
+    expect(ctx.created[0].kind).toBe("assistant");
     expect(ctx.entered[0]).toEqual({ connectionId: "conn-1", conversationId: "conv-1" });
     expect(result).toEqual({ id: "conv-1", title: "微信助理 · a1b2c3" });
   });
@@ -83,54 +90,63 @@ describe("AssistantSessionManager", () => {
     expect(ctx.created[0].title).toBe("飞书助理 · 张三");
   });
 
-  it("已有绑定且未超阈值：直接返回当前对话，不轮换", async () => {
-    const ctx = makeManager({ lastEntryAgeHours: 10 });
+  it("开户时透传助理线模型（modelAlias → 新建对话参数）", async () => {
+    const ctx = makeManager();
+    await ctx.manager.ensureAssistantConversation({
+      connectionId: "conn-1", channel: "weixin", displayName: "x", modelAlias: "glm",
+    });
+    // 副作用断言：created 记录表里含模型标记（create 的入参经 mock 落进 created）
+    expect(ctx.created[0]).toMatchObject({ title: "微信助理 · x" });
+    // 模型透传路径：create 入参含 modelAlias + kind（行为结果）
+    expect(ctx.deps.manageConversation.create.mock.calls[0][0]).toMatchObject({ modelAlias: "glm", kind: "assistant" });
+  });
+
+  it("已有绑定且未超 8h：直接返回当前对话（永续），不重启 session 不开户", async () => {
+    const ctx = makeManager({ lastEntryAgeHours: 1 });
     ctx.deps.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-existing", title: "微信助理 · x" });
     const result = await ctx.manager.ensureAssistantConversation({ connectionId: "conn-1", channel: "weixin", displayName: "x" });
     expect(result).toEqual({ id: "conv-existing", title: "微信助理 · x" });
     expect(ctx.created).toHaveLength(0);
-    expect(ctx.completed).toHaveLength(0);
+    expect(ctx.restarts).toHaveLength(0);
   });
 
-  it("last-entry 超过阈值：收篇（summary + 记忆）→ 旧对话 complete → 新开户", async () => {
-    const ctx = makeManager({ lastEntryAgeHours: 100 });
-    ctx.deps.manageConnection.getCurrentConversation
-      .mockResolvedValueOnce({ id: "conv-old", title: "微信助理 · x" })
-      .mockResolvedValue(null); // 轮换后 provision 内部重读绑定（首次返回旧篇，第二次重读）
+  it("F20260920imax：last-entry 超过 8h → restartSession（对话不动）+ 交接摘要 + 记忆沉淀", async () => {
+    const ctx = makeManager({ lastEntryAgeHours: 10 });
+    ctx.deps.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-existing", title: "微信助理 · x" });
     const result = await ctx.manager.ensureAssistantConversation({ connectionId: "conn-1", channel: "weixin", displayName: "x" });
 
-    // 收篇：摘要落库 + 记忆条目（关联旧对话）
-    expect(ctx.summaries[0].id).toBe("conv-old");
-    expect(ctx.summaries[0].summary).toContain("助理对话收篇");
-    expect(ctx.summaries[0].summary).toContain("用户提问");
-    expect(ctx.summaries[0].summary).toContain("水獭回复");
-    expect(ctx.digests[0]).toMatchObject({ digestId: "digest-conv-old", conversationId: "conv-old" });
+    // 对话永续：不新建不 complete，返回原对话
+    expect(result).toEqual({ id: "conv-existing", title: "微信助理 · x" });
+    expect(ctx.created).toHaveLength(0);
 
-    // 翻篇：旧对话 complete + 新开户绑定
-    expect(ctx.completed).toEqual(["conv-old"]);
-    expect(ctx.entered[0]).toEqual({ connectionId: "conn-1", conversationId: ctx.created[0].id });
-    expect(result!.id).toBe(ctx.created[0].id);
+    // session 重启：副作用断言（restarts 记录表——行为结果而非 mock 内部）
+    expect(ctx.restarts).toHaveLength(1);
+    expect(ctx.restarts[0].otterId).toBe("otter-of-conv-existing");
+    expect(ctx.restarts[0].summary).toContain("用户提问");
+    expect(ctx.restarts[0].summary).toContain("水獭回复");
+
+    // 交接摘要落 summary + 记忆（连续性锚）
+    expect(ctx.summaries[0].id).toBe("conv-existing");
+    expect(ctx.digests[0]).toMatchObject({ digestId: "digest-conv-existing", conversationId: "conv-existing" });
   });
 
-  it("空对话（无 entry）不轮换——防「开户即翻篇」循环", async () => {
+  it("空对话（无 entry）不触发 session 重启——防异常态误动作", async () => {
     const ctx = makeManager();
     ctx.deps.entryRepo.getEntries.mockResolvedValue([]);
     ctx.deps.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-empty", title: "微信助理 · x" });
     const result = await ctx.manager.ensureAssistantConversation({ connectionId: "conn-1", channel: "weixin", displayName: "x" });
     expect(result).toEqual({ id: "conv-empty", title: "微信助理 · x" });
-    expect(ctx.completed).toHaveLength(0);
-    expect(ctx.created).toHaveLength(0);
+    expect(ctx.restarts).toHaveLength(0);
   });
 
-  it("收篇失败不阻塞翻篇（丢摘要代价 < 丢消息代价）", async () => {
-    const ctx = makeManager({ lastEntryAgeHours: 100 });
-    ctx.deps.conversationRepo.updateSummary.mockRejectedValue(new Error("db down"));
-    ctx.deps.manageConnection.getCurrentConversation
-      .mockResolvedValueOnce({ id: "conv-old", title: "微信助理 · x" })
-      .mockResolvedValue(null);
+  it("session 重启失败不阻塞消息处理（下次消息再试）", async () => {
+    const ctx = makeManager({ lastEntryAgeHours: 10 });
+    ctx.deps.manageSession.restartSession.mockRejectedValue(new Error("restart boom"));
+    ctx.deps.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-old", title: "微信助理 · x" });
     const result = await ctx.manager.ensureAssistantConversation({ connectionId: "conn-1", channel: "weixin", displayName: "x" });
-    expect(ctx.completed).toEqual(["conv-old"]);
-    expect(result!.id).toBe(ctx.created[0].id);
+    // 消息照常进对话（错误已捕获，仅日志）
+    expect(result).toEqual({ id: "conv-old", title: "微信助理 · x" });
+    expect(ctx.deps.logger.error).toHaveBeenCalled();
   });
 
   it("开户失败（enterConversation 异常）返回 null——调用方回退拒聊", async () => {

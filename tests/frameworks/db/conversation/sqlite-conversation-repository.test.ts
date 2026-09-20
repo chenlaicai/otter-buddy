@@ -32,6 +32,7 @@ function conversationFixture(overrides: Partial<Conversation> = {}): Conversatio
     status: "active",
     summary: null,
     pinned: false,
+    kind: "normal",
     workspaceDir: null,
     createdAt: "2026-07-22T00:00:00Z",
     updatedAt: "2026-07-22T00:00:00Z",
@@ -320,25 +321,25 @@ describe("SqliteConversationRepository - 助理对话排序与分页（F20260918
     db.close();
   });
 
-  it("助理对话沉底：普通在前（含置顶优先），助理在最后", async () => {
-    await repo.create(conversationFixture({ id: "conv-a", title: "微信助理 · x1", pinned: false }));
-    await repo.create(conversationFixture({ id: "conv-n1", title: "普通对话", pinned: false }));
-    await repo.create(conversationFixture({ id: "conv-n2", title: "置顶对话", pinned: true }));
-    await repo.create(conversationFixture({ id: "conv-b", title: "飞书助理 · y2", pinned: true }));
+  it("F20260920imax：助理对话不沉底——与普通对话同列自然排序（置顶优先 + 最新活跃优先），前端按 kind 分组呈现", async () => {
+    await repo.create(conversationFixture({ id: "conv-a", title: "微信助理 · x1", pinned: false, createdAt: "2026-07-22T00:04:00Z" }));
+    await repo.create(conversationFixture({ id: "conv-n1", title: "普通对话", pinned: false, createdAt: "2026-07-22T00:01:00Z" }));
+    await repo.create(conversationFixture({ id: "conv-n2", title: "置顶对话", pinned: true, createdAt: "2026-07-22T00:02:00Z" }));
+    await repo.create(conversationFixture({ id: "conv-b", title: "飞书助理 · y2", pinned: true, createdAt: "2026-07-22T00:03:00Z" }));
 
     const items = await repo.listConversationsWithMeta("user-1");
-    // 普通组内 pinned 优先；助理组内同样 pinned 优先（组内排序语义一致）
-    expect(items.map(i => i.id)).toEqual(["conv-n2", "conv-n1", "conv-b", "conv-a"]);
+    // 置顶优先（普通与助理平权），组内按 created_at DESC
+    expect(items.map(i => i.id)).toEqual(["conv-b", "conv-n2", "conv-a", "conv-n1"]);
   });
 
-  it("分页跨页边界：limit 切在助理/普通交界不丢不重", async () => {
+  it("分页跨页边界：limit 切页不丢不重（自然排序，助理不再被强制排尾）", async () => {
     await repo.create(conversationFixture({ id: "conv-n1", title: "普通一", createdAt: "2026-07-22T00:01:00Z" }));
     await repo.create(conversationFixture({ id: "conv-n2", title: "普通二", createdAt: "2026-07-22T00:02:00Z" }));
     await repo.create(conversationFixture({ id: "conv-a", title: "微信助理 · x1", createdAt: "2026-07-22T00:03:00Z" }));
 
     const page1 = await repo.listConversationsWithMeta("user-1", { limit: 2, offset: 0 });
     const page2 = await repo.listConversationsWithMeta("user-1", { limit: 2, offset: 2 });
-    expect(page1.map(i => i.id)).toEqual(["conv-n2", "conv-n1"]);
-    expect(page2.map(i => i.id)).toEqual(["conv-a"]);
+    expect(page1.map(i => i.id)).toEqual(["conv-a", "conv-n2"]);
+    expect(page2.map(i => i.id)).toEqual(["conv-n1"]);
   });
 });

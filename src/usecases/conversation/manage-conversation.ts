@@ -12,6 +12,8 @@ export interface CreateConversationInput {
   title: string;
   /** 新建对话时大獭的模型自选（透传给 CreateOtter，缺省 = 默认模型） */
   modelAlias?: string;
+  /** F20260920imax：对话类别（assistant = IM 助理自动开户；缺省 normal） */
+  kind?: "normal" | "assistant";
 }
 
 export class ManageConversation {
@@ -47,6 +49,7 @@ export class ManageConversation {
       status: "active",
       summary: null,
       pinned: false,
+      kind: params.kind ?? "normal",
       workspaceDir,
       createdAt: now,
       updatedAt: now,

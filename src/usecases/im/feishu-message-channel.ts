@@ -59,6 +59,28 @@ export class FeishuMessageChannel implements OutboundEventChannel {
       this.deliverUserEntryToFeishu(conversationId, event).catch((err) => {
         this.logger.error("Failed to deliver user entry to Feishu", err instanceof Error ? err : undefined, { conversationId });
       });
+      return;
+    }
+    // F20260920imax：invoke 失败兑底——与微信同语义，不再静默
+    if (event.event === "entry.failed") {
+      this.deliverFailureNotice(conversationId).catch((err) => {
+        this.logger.error("Failed to deliver failure notice to Feishu", err instanceof Error ? err : undefined, { conversationId });
+      });
+    }
+  }
+
+  /** F20260920imax：invoke 终态失败 → 飞书侧提示（思考中后无下文的静默兑底） */
+  private async deliverFailureNotice(conversationId: string): Promise<void> {
+    const session = await this.manageConnection.getSessionByConversation(conversationId);
+    if (!session) return;
+    const connection = await this.manageConnection.getConnection(session.connectionId);
+    if (!connection) return;
+    if (connection.externalType !== "feishu") return;
+
+    try {
+      await this.feishuGateway.replyText(connection.externalId, "⚠️ 助理这会儿没能回复（服务端处理失败）。稍后再发一条试试，若持续失败请到 Web 端查看详情 🦦");
+    } catch (err) {
+      this.logger.error("Feishu failure notice send failed", err instanceof Error ? err : undefined, { conversationId });
     }
   }
 

@@ -52,7 +52,7 @@ describe("ManageConversation（真 sqlite）", () => {
 
   async function seedConversation(id: string, status: "active" | "completed"): Promise<void> {
     await repo.create({
-      id, title: "存量对话", status, summary: null, pinned: false, workspaceDir: null,
+      id, title: "存量对话", status, summary: null, pinned: false, kind: "normal", workspaceDir: null,
       createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
       completedAt: status === "completed" ? "2026-01-01T01:00:00Z" : null,
       archivedAt: null,

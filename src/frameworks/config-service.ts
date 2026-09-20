@@ -154,13 +154,15 @@ export interface AppConfig {
     /** 同一用户两次预警最小间隔（分钟，默认 60；显式 0 关闭） */
     contextTokenWarnCooldownMinutes?: number;
   };
-  /** F20260918imas：IM 助理模式（免绑定自动开户 + 软轮换） */
+  /** F20260918imas / F20260920imax：IM 助理模式（免绑定自动开户；对话永续 + 8h 静默换 session） */
   im?: {
     assistant?: {
       /** 助理态总开关（默认 true；关闭时微信私聊/飞书 p2p 回退拒聊提示） */
       enabled?: boolean;
-      /** 软轮换阈值小时数（last-entry 距今，默认 72） */
-      rotationHours?: number;
+      /** F20260920imax：session 静默重启阈值小时数（last-entry 距今，默认 8；旧名 rotationHours 已废弃） */
+      sessionIdleHours?: number;
+      /** F20260920imax：助理线模型（自动开户的对话大獭用此模型；缺省 = 全局 default） */
+      modelAlias?: string;
     };
   };
   inbound?: {
@@ -337,7 +339,8 @@ interface RawConfig {
   im?: {
     assistant?: {
       enabled?: boolean;
-      rotationHours?: number;
+      sessionIdleHours?: number;
+      modelAlias?: string;
     };
   };
   inbound?: {
@@ -551,13 +554,14 @@ function buildWeixinConfig(raw: RawConfig): AppConfig["weixin"] {
   };
 }
 
-/** F20260918imas：IM 助理模式配置（默认开启 + 72h 轮换） */
+/** F20260918imas / F20260920imax：IM 助理模式配置（默认开启；对话永续 + 8h 静默 session 重启；模型可配） */
 function buildImConfig(raw: RawConfig): AppConfig["im"] {
   const seg = raw.im?.assistant;
   return {
     assistant: {
       enabled: seg?.enabled !== false,
-      rotationHours: Math.max(seg?.rotationHours ?? 72, 1),
+      sessionIdleHours: Math.max(seg?.sessionIdleHours ?? 8, 1),
+      ...(seg?.modelAlias && { modelAlias: seg.modelAlias }),
     },
   };
 }

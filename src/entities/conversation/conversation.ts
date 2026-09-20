@@ -8,6 +8,8 @@ export interface Conversation {
   status: ConversationStatus;
   summary: string | null;
   pinned: boolean;
+  /** F20260920imax：对话类别——assistant = IM 助理自动开户（schema 字段取代 title 前缀约定） */
+  kind: "normal" | "assistant";
   /** 工作区相对路径（相对于 dataDir），null 表示无工作区（旧数据） */
   workspaceDir: string | null;
   createdAt: string;
@@ -16,6 +18,17 @@ export interface Conversation {
   archivedAt: string | null;
 }
 
+/** F20260920imax：测试/存量构造便捷类型——kind 可缺省（normal 默认）。
+ *  实体接口 Conversation.kind 仍为必填，避免读端到处判 undefined；
+ *  写端（create/insert）用 Conversations 兼容形式收敛可逃逸的可选性 */
+export type ConversationInput = Omit<Conversation, "kind"> & { kind?: "normal" | "assistant" };
+
+/** 归一化：缺省 kind 补 normal（构造入口统一，防止 undefined 流入写库路径） */
+export function normalizeConversationInput(input: ConversationInput): Conversation {
+  return { ...input, kind: input.kind ?? "normal" };
+}
+
+ ([F20260920imax][im][Feature Update][Incompatible] IM 助理模式修订二：对话永续 + 8h 静默换 session + Web 分组可见)
 /** 产物生命周期状态 */
 export type ArtifactStatus = "active" | "superseded" | "archived";
 
