@@ -164,7 +164,11 @@ export class ModelRuntimeRegistry {
       // 搭档拍板 300K 标称线，整数 reserveTokens=700K 的实际触发 340K 在退化区间之上且留有余量。
       // 配置化（搭档要求）：config contextQuality.compactionReserveTokens，缺省 700_000。
       // merge 语义：partial merge——仅接管 reserveTokens，enabled/keepRecentTokens 保留 SDK 默认。
-      this.settingsManager.applyOverrides({ retry: { enabled: true, maxRetries: 4 }, compaction: { reserveTokens: getConfig().contextQuality.compactionReserveTokens } });
+      // F20260918uhuc 终审修正：SDK threshold reserve 改用 sdkOverflowReserveTokens（缺省 50_000）——
+      // 应用层质量线（compactionReserveTokens 340K 触发）已由 agent-invoker 轮边界水位接管，
+      // SDK threshold 只留真溢出救急（1M 窗口下 995K 触发，贴溢出点）；若仍用 700K 会与
+      // 应用层水位线撞车，单轮暴涨场景 SDK 抢先原地压缩（丢历史），违背「压缩=交接」架构意图。
+      this.settingsManager.applyOverrides({ retry: { enabled: true, maxRetries: 4 }, compaction: { reserveTokens: getConfig().contextQuality.sdkOverflowReserveTokens } });
 
       // initModels 恒产出 ModelPool（models-factory.ts），bootstrap 必装配下传
       if (this.modelPool) {
