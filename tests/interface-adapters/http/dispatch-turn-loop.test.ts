@@ -41,7 +41,6 @@ function makeSendMessageUseCase() {
     getTurnById: async () => null,
     markParticipantLeft: async () => {},
     getLastMessageBySender: async () => null,
-    getActiveTurn: async () => null,
     updateLastReadTurnNumber: async () => {},
     updateLastActiveTurnNumber: async () => {},
     getActiveParticipants: async () => [],

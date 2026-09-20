@@ -63,7 +63,6 @@ export interface OtterToolClient {
         conversationId: string;
         invokeId: string;
         otterId: string;
-        turnId: string;
         body: string;
         metadata?: Record<string, unknown>;
       }): Promise<{ id: string; entryType: string; body: string }>;
@@ -72,7 +71,6 @@ export interface OtterToolClient {
         conversationId: string;
         invokeId: string;
         otterId: string;
-        turnId: string;
         yieldTargets: string[];
       }): Promise<{
         yieldEntry: { id: string; entryType: string; yieldTargets: string[] };

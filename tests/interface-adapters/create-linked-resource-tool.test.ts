@@ -8,7 +8,6 @@ function makeLinkedResourceTool() {
   const linkCalls: Array<{ content?: string }> = [];
   const client = {
     conversation: {
-      getActiveTurnNumber: async () => 1,
     },
     resource: {
       link: async (input: { content?: string }) => {

@@ -19,8 +19,8 @@ import {
 
 export function linkResource(db: Database.Database, resource: LinkedResource): void {
   db.prepare(`
-    INSERT INTO linked_resources (id, conversation_id, resource_type, url, title, content, category, user_flagged, metadata, linked_by, otter_id, auto_linked, created_at, status, linked_at_turn_number, status_changed_at_turn_number, group_id, superseded_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO linked_resources (id, conversation_id, resource_type, url, title, content, category, user_flagged, metadata, linked_by, otter_id, auto_linked, created_at, status, group_id, superseded_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     resource.id, resource.conversationId, resource.resourceType, resource.url,
     resource.title, resource.content, resource.category, resource.userFlagged ? 1 : 0,
@@ -264,7 +264,7 @@ export function getLastMessageBySenderType(db: Database.Database, conversationId
  *  消费方（circuit-break/tool-factory/resume）只读 id/senderId/senderType/createdAt/
  *  sequenceNum/status；body 投影进 segments 供 aggregateBody。 */
 type EntryAsMessageRow = {
-  id: string; conversation_id: string; turn_id: string | null;
+  id: string; conversation_id: string;
   sender_type: string | null; sender_id: string | null;
   entry_type: string; sequence_num: number; sender_name: string | null;
   created_at: string; completed_at: string | null; status: string;

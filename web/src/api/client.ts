@@ -356,7 +356,6 @@ export interface ScheduledTaskExecutionDTO {
   status: string
   errorMessage: string | null
   messageId: string | null
-  turnId: string | null
 }
 
 export function listScheduledTasks(conversationId: string): Promise<ScheduledTaskDTO[]> {

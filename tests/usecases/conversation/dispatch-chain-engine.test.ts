@@ -46,7 +46,6 @@ function makeMocks() {
   const getInvokeById = vi.fn(async (id: string) => ({ id, status: 'completed' as const, otterId: 'otter-x', talkingStonePassedTo: [] as string[], endedAt: '2026-09-10T00:00:00Z' }));
   const invokeRepo = {
     getInvokeById,
-    getInvokesByTurnId: vi.fn().mockResolvedValue([]),
   } as unknown as InvokeRepository;
 
   return { conversationRepo, queryOtter, logger, entryRepo, invokeRepo, getInvokeById, updateLastReadSeq, getMessageById, getLastMessageBySender };
@@ -291,6 +290,34 @@ describe("buildIdleOttersWarning（F20260920trrt 新口径：发言 seq 差 + �
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo, idleStatsRepo: stats });
     const result = await engine.buildIdleOttersWarning("conv-1", "otter-current");
     expect(result).toBeNull();
+  });
+
+  it("检视发现 9 回归：新入场未被唤醒的小獭在入场 2h 内不告警", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { otterId: "otter-fresh", status: "active", createdAt: new Date(Date.now() - 30 * 60_000).toISOString() }, // 30 分钟前入场
+      makeParticipant({ otterId: "otter-current" }),
+    ]);
+    mockOtters(m);
+    const stats = makeStats({ maxSeq: 100, lastSpeak: new Map(), lastInvoke: new Map() }); // 从未发言从未被唤醒
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo, idleStatsRepo: stats });
+    const result = await engine.buildIdleOttersWarning("conv-1", "otter-current");
+    expect(result).toBeNull(); // 入场时间参与护栏——2h 内不告警
+  });
+
+  it("检视发现 9 回归：入场超 2h 仍未被唤醒也未发言 → 正常告警（真闲置）", async () => {
+    const m = makeMocks();
+    const oldJoin = new Date(Date.now() - 3 * 3600_000).toISOString();
+    (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { otterId: "otter-stale", status: "active", createdAt: oldJoin },
+      makeParticipant({ otterId: "otter-current" }),
+    ]);
+    mockOtters(m);
+    const stats = makeStats({ maxSeq: 100, lastSpeak: new Map(), lastInvoke: new Map() });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo, idleStatsRepo: stats });
+    const result = await engine.buildIdleOttersWarning("conv-1", "otter-current");
+    expect(result).toContain("otter-stale");
+    expect(result).toContain(oldJoin);
   });
 
   it("未发言过的小獭按 seq=0 计差（不误伤刚入场，但长期未发言会告警）", async () => {

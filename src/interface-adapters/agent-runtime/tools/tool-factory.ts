@@ -68,7 +68,6 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
           conversationId: ctx.conversationId,
           invokeId: ctx.currentInvokeId,
           otterId: ctx.otterId,
-          turnId: "", // send-entry 内部空 turnId 时 ensureActiveTurn 兜底
           body: cleanBody,
           // F20260916hcel：含 html-card 的条目写入 schemaVersion（保留字段）
           ...(hasCardFences(cleanBody) ? { metadata: { cardSchemaVersion: CARD_SCHEMA_VERSION } } : {}),
@@ -148,7 +147,6 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
           conversationId: ctx.conversationId,
           invokeId: ctx.currentInvokeId!,
           otterId: ctx.otterId,
-          turnId: "", // send-entry 内部空 turnId 时 ensureActiveTurn 兜底
           yieldTargets: resolvedIds,
         });
 

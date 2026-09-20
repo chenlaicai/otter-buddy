@@ -114,22 +114,18 @@ export const selftest: GoldenModule["selftest"] = async (ctx: CapabilityContext)
 
   // 关联到会话（跟随 assert 表路径修正：join 生产链路写 conversation_participants，
   // 构造路径与生产路径同表——原插 conversation_otters 是构造/生产分叉根源。
-  // joined_at_turn_id 需真实 turn（FK 约束）——取该会话最新 turn）
-  const turnRow = ctx.built.db
-    .prepare("SELECT id FROM turns WHERE conversation_id = ? ORDER BY rowid DESC LIMIT 1")
-    .get(convId) as { id: string | null } | undefined;
-  const turnId = turnRow?.id ?? null;
+  // F20260920trrt：turn 族列已随 turn 系统退役，participants 直插核心列）
   const now = new Date().toISOString();
   ctx.built.db
     .prepare(`INSERT OR REPLACE INTO conversation_participants
-      (id, conversation_id, otter_id, joined_at_turn_id, joined_at_turn_number, status, created_at, last_read_turn_number)
-      VALUES (?, ?, ?, ?, 0, 'active', ?, 0)`)
-    .run(`selftest-part-big-${convId.slice(0, 8)}`, convId, bigOtterId, turnId, now);
+      (id, conversation_id, otter_id, status, created_at)
+      VALUES (?, ?, ?, 'active', ?)`)
+    .run(`selftest-part-big-${convId.slice(0, 8)}`, convId, bigOtterId, now);
   ctx.built.db
     .prepare(`INSERT OR REPLACE INTO conversation_participants
-      (id, conversation_id, otter_id, joined_at_turn_id, joined_at_turn_number, status, created_at, last_read_turn_number)
-      VALUES (?, ?, ?, ?, 0, 'active', ?, 0)`)
-    .run(`selftest-part-small-${convId.slice(0, 8)}`, convId, smallOtterId, turnId, now);
+      (id, conversation_id, otter_id, status, created_at)
+      VALUES (?, ?, ?, 'active', ?)`)
+    .run(`selftest-part-small-${convId.slice(0, 8)}`, convId, smallOtterId, now);
 
   const userMsg: MessageDto = {
     id: "st-u1", st: "user", si: "selftest-user", content: "召唤小獭", status: "completed", seq: 1,

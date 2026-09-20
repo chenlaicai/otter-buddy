@@ -690,7 +690,13 @@ export class DispatchChainEngine {
       if (otterTypes.get(p.otterId) === 'big') continue; // 大獭互相不告警（解散对象只有小獭）
       const name = otterNames.get(p.otterId);
       if (!name) continue; // otter 记录缺失（异常边界）
-      const hit = this.evaluateIdleParticipant(p.otterId, { maxSeq, lastSpeak, lastInvoke, seqThreshold, graceMs: GRACE_MS, now });
+      // 检视发现 9：护栏数据源扩为 max(最后被唤醒, 入场时间)——新入场未被唤醒的小獭
+      // 在入场 2h 内不告警（刚进场还没派上活不是闲置）；超 2h 仍未被唤醒也未发言则
+      // 报闲置是正确语义（真闲置）。createdAt 是 JS ISO（manage-participant join 写入）。
+      const guardSince = [lastInvoke.get(p.otterId), p.createdAt]
+        .filter((t): t is string => !!t)
+        .reduce((a, b) => (a > b ? a : b), '');
+      const hit = this.evaluateIdleParticipant(p.otterId, { maxSeq, lastSpeak, lastInvoke, guardSince, seqThreshold, graceMs: GRACE_MS, now });
       if (hit) idleOtters.push({ name, ...hit });
     }
 
@@ -713,6 +719,8 @@ export class DispatchChainEngine {
     maxSeq: number;
     lastSpeak: Map<string, { seq: number; createdAt: string }>;
     lastInvoke: Map<string, string>;
+    /** 护栏起点：max(最后被唤醒, 入场时间)——空串表示两者皆无（异常边界，护栏不生效） */
+    guardSince: string;
     seqThreshold: number;
     graceMs: number;
     now: number;
@@ -721,15 +729,13 @@ export class DispatchChainEngine {
     const speakGap = ctx.maxSeq - lastSpeakSeq;
     if (speakGap <= ctx.seqThreshold) return null;
 
-    const lastStartedAt = ctx.lastInvoke.get(otterId);
-    if (lastStartedAt) {
-      // startedAt 由 JS new Date().toISOString() 写入（send-entry.ts，含 Z 的 UTC ISO）
-      // ——Date.parse 直接得 UTC 毫秒，无 SQLite datetime('now') 的无时区问题
-      const lastSeenMs = Date.parse(lastStartedAt);
-      if (!Number.isNaN(lastSeenMs) && ctx.now - lastSeenMs < ctx.graceMs) return null;
+    if (ctx.guardSince) {
+      // invokes.startedAt / participant.createdAt 均为 JS ISO UTC（含 Z）——Date.parse 直比
+      const guardMs = Date.parse(ctx.guardSince);
+      if (!Number.isNaN(guardMs) && ctx.now - guardMs < ctx.graceMs) return null;
     }
 
-    return { speakGap, lastSeen: lastStartedAt ?? '从未被唤醒' };
+    return { speakGap, lastSeen: ctx.guardSince || '从未被唤醒且无入场记录' };
   }
 
   /** F20260920trrt：闲置阈值读取——otter_idle_threshold（seq 差，默认 30）+ otter_idle_grace_hours（小时，默认 2）。

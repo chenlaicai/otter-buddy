@@ -87,7 +87,6 @@ export function upsertTerminalMessage(list: LocalMessage[], msg: LocalMessage): 
     events: msg.events ?? existing.events,
     ctx: msg.ctx ?? existing.ctx,
     ctxMax: msg.ctxMax ?? existing.ctxMax,
-    turnId: msg.turnId ?? existing.turnId,
     src: msg.src ?? existing.src,
   }
   return upsertMessage(list, merged)

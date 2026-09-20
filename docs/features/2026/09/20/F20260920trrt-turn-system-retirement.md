@@ -70,6 +70,20 @@ from:
 - 迁移幂等：retireTurnSystem 二次执行零副作用（PRAGMA 短路）
 - messages-to-entries 迁移回归：存量库形态（含旧 turns 表）迁移路径全绿
 
+## 对抗审视处置（检视1053 / mimo，PR review 2026-09-20）
+
+严重发现 S1-S4 全部核实属实并修复：
+- S1 linkResource INSERT 列数/参数数不匹配（mixins :22）→ 列清单去 turn 戳两列
+- S2 failInFlightEntries SELECT/INSERT 引用已删 turn_id（entry-repo :388-414）→ 去 turn_id；顺带发现并同修 getEntries 的 turnId 可选条件（S5）与 getEntriesByTurnId/getInvokesByTurnId 残留（S6）
+- S3 web tsc 红（mappers.ts :238/:268 读已删 DTO turnId）→ LocalMessage.turnId 全链清理（types/mappers/message-stream/api client/scheduled-task）+ web 测试同步
+- S4 golden-selftest 查已 drop 的 turns 表 → participant 种子改核心列直插
+
+建议发现处置：
+- S5/S6/S7/S8（接口/死代码残留）→ 全部修复（entry-repository 接口、otter-tool-client、scheduled-task-repository、tool-factory 死 turnId 传参、EntryAsMessageRow 类型）
+- S9（新入场未被唤醒小獭误报）→ 修复而非 issue 跟踪：时间护栏数据源扩为 max(最后被唤醒, participant.createdAt)——入场 2h 内不告警，超 2h 仍未唤醒未发言报闲置是正确语义。补 2 回归用例。
+
+自检盲区复盘：主仓 tsc/vitest 不含 web 独立构建（web 有自己的 tsconfig）与 golden 用例（独立 runner），本轮已补跑 web tsc + web vitest（490 用例）+ golden-selftest（12 用例）全绿。
+
 ## 不兼容更新
 
 - [Incompatible] turns 表 drop（存量库迁移自动拆除）

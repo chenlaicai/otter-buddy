@@ -220,7 +220,6 @@ export class SqliteEntryRepository implements EntryRepository {
 
     this.addOptionalCondition(conditions, params, "status", options?.status);
     this.addOptionalCondition(conditions, params, "sender_type", options?.senderType);
-    this.addOptionalCondition(conditions, params, "turn_id", options?.turnId);
     this.addOptionalCondition(conditions, params, "entry_type", options?.entryType);
     if (options?.before) {
       conditions.push("sequence_num < (SELECT sequence_num FROM entries WHERE id = ?)");
@@ -246,19 +245,6 @@ export class SqliteEntryRepository implements EntryRepository {
       conditions.push(`${column} = ?`);
       params.push(value);
     }
-  }
-
-  /** F20260913ctlv 彻底切换：按 turn 查 entries（turn 聚合目标/self-yield 护栏数据源） */
-  async getEntriesByTurnId(turnId: string, entryType?: EntryType): Promise<Entry[]> {
-    const sql = entryType
-      ? "SELECT * FROM entries WHERE turn_id = ? AND entry_type = ? ORDER BY sequence_num ASC"
-      : "SELECT * FROM entries WHERE turn_id = ? ORDER BY sequence_num ASC";
-    const rows = (entryType
-      ? this.db.prepare(sql).all(turnId, entryType)
-      : this.db.prepare(sql).all(turnId)) as EntryRow[];
-    const entries = rows.map(rowToEntry);
-    await this.attachAttachments(entries);
-    return entries;
   }
 
   async getEntriesBefore(entryId: string, count: number): Promise<Entry[]> {
@@ -385,8 +371,8 @@ export class SqliteEntryRepository implements EntryRepository {
     skipEntryIds?: ReadonlySet<string>,
   ): Promise<number> {
     const inFlight = this.db.prepare(
-      "SELECT id, conversation_id, turn_id, sequence_num FROM entries WHERE status IN ('streaming', 'speaking')",
-    ).all() as Array<{ id: string; conversation_id: string; turn_id: string; sequence_num: number }>;
+      "SELECT id, conversation_id, sequence_num FROM entries WHERE status IN ('streaming', 'speaking')",
+    ).all() as Array<{ id: string; conversation_id: string; sequence_num: number }>;
 
     if (inFlight.length === 0) return 0;
 
@@ -407,11 +393,11 @@ export class SqliteEntryRepository implements EntryRepository {
           this.db.prepare(`
             INSERT INTO entries (
               id, conversation_id, sequence_num, entry_type, sender_type, sender_id,
-              body, turn_id, status, sender_name, created_at, completed_at
-            ) VALUES (?, ?, ?, 'system', 'system', 'system', ?, ?, 'completed', 'system', ?, ?)
+              body, status, sender_name, created_at, completed_at
+            ) VALUES (?, ?, ?, 'system', 'system', 'system', ?, 'completed', 'system', ?, ?)
           `).run(
             noticeId, entry.conversation_id, newSeq, noticeBody,
-            entry.turn_id, failedAt, failedAt,
+            failedAt, failedAt,
           );
           this.upsertEntryFts(noticeId, noticeBody);
         }

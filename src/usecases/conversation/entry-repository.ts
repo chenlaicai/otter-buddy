@@ -11,7 +11,6 @@ export interface GetEntriesOptions {
   before?: string;
   status?: EntryStatus;
   senderType?: SenderType;
-  turnId?: string;
   entryType?: EntryType;
 }
 
@@ -44,7 +43,6 @@ export interface EntryRepository {
     options?: GetEntriesOptions,
   ): Promise<Entry[]>;
   /** F20260913ctlv 彻底切换：按 turn 查 entries（turn 聚合目标/self-yield 护栏数据源） */
-  getEntriesByTurnId(turnId: string, entryType?: EntryType): Promise<Entry[]>;
   getEntriesBefore(entryId: string, count: number): Promise<Entry[]>;
   getEntriesAfter(entryId: string, count: number): Promise<Entry[]>;
   getMaxSequenceNum(conversationId: string): Promise<number>;
