@@ -43,8 +43,10 @@ export interface Metrics {
   skipReasonDistribution: Record<string, number>;
   /** 模块热区排行（降序） */
   moduleStats: ModuleStat[];
-  /** 文件热点 TOP N（降序） */
+  /** 文件热点 TOP N（降序，用于 UI 展示和归因句） */
   fileHotspots: FileHotspot[];
+  /** 全量热区文件总数（不受 Top-N 截断，用于 D2 评分） */
+  totalHotspotFiles: number;
 }
 
 export interface MetricsOptions {
@@ -64,19 +66,23 @@ function tally<T>(items: T[], keyOf: (item: T) => string | null): Record<string,
   return counts;
 }
 
-/** 文件热点：从 commit 文件列表聚合出 TOP N */
+/**
+ * 文件热点：从 commit 文件列表聚合出 TOP N。
+ * 返回 { total: 全量文件数, topN: 前 N 个热区 }
+ * total 用于 D2 评分（不受截断影响），topN 用于 UI 展示和归因句。
+ */
 function computeFileHotspots(
   commitsWithFiles: GitCommitWithFiles[],
   topN: number,
-): FileHotspot[] {
+): { total: number; topN: FileHotspot[] } {
   const fileCounts = tally(
     commitsWithFiles.flatMap(c => c.filesChanged),
     f => f,
   );
-  return Object.entries(fileCounts)
+  const sorted = Object.entries(fileCounts)
     .map(([file, count]) => ({ file, count }))
-    .sort((a, b) => b.count - a.count || a.file.localeCompare(b.file))
-    .slice(0, topN);
+    .sort((a, b) => b.count - a.count || a.file.localeCompare(b.file));
+  return { total: sorted.length, topN: sorted.slice(0, topN) };
 }
 
 /** 模块热区：按 module 段聚合（降序，同频按名排序） */
@@ -108,6 +114,7 @@ export function calculateMetrics(
   const bugfixRatio = totalCommits > 0 ? bugfixCount / totalCommits : 0;
   const bugfixRatioOfFid = commitsWithFid > 0 ? bugfixCount / commitsWithFid : 0;
 
+  const hotspots = computeFileHotspots(commitsWithFiles, topN);
   return {
     totalCommits,
     commitsWithFid,
@@ -119,6 +126,7 @@ export function calculateMetrics(
     changeTypeDistribution: tally(parsed, p => p.changeType),
     skipReasonDistribution: tally(parsed, p => p.skipReason ?? null),
     moduleStats: computeModuleStats(parsed),
-    fileHotspots: computeFileHotspots(commitsWithFiles, topN),
+    fileHotspots: hotspots.topN,
+    totalHotspotFiles: hotspots.total,
   };
 }

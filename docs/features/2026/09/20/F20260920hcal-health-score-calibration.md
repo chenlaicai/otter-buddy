@@ -118,6 +118,8 @@ issue #595 的 PR1（#597，8/29 合入）+ PR2（#606，9/1 合入）交付了�
 
 ### 旧公式 vs 新公式（20 天回放）
 
+> **注意**：此对照表的 ratio 来自 health_snapshots 的 D1 归因元数据（bugfix 占比），反映快照计算时的 60 天窗口状态。当前数据库 overview 表的 ratio 可能因窗口滚动而略有差异（方向性结论不受影响）。
+
 | 日期 | 旧 overall | 新 overall | 旧 D1 | 新 D1 | 旧 D2 | 新 D2 |
 |------|-----------|-----------|-------|-------|-------|-------|
 | 8/30 | 65.5 | 79.5 | 70.8 | 100 | 0 | 60 |
@@ -152,6 +154,7 @@ issue #595 的 PR1（#597，8/29 合入）+ PR2（#606，9/1 合入）交付了�
 - D1 的 bugfix 占比 37-40% 确实高于理想的 25%，新公式给 50-57 分（黄色）——仍标记为「需要关注」，但不再是「天天红灯喊狼来了」
 - D2 的 20 个热区文件确实偏多，新公式给 60 分（黄色）——比原来的 40 分更准确反映「有热区但未到灾难级」
 - 如果 bugfix 占比突破 55% 或热区文件超 30，新公式照样归零/归红——校准没有降低标准，是把标尺对准了实际刻度
+- D2 热区计数改为全量（不受 Top-N 截断），确保校准梯度真实生效
 
 ### 自校准机制（设计 vs 实现偏差）
 
@@ -172,19 +175,34 @@ null 过滤从「全序列 filter 后切分」改为「先切窗口再各窗口�
 ### 3. findByDateRange 参数化
 仓库层方法支持可选 metricType 过滤，向前兼容（不传则原行为）。
 
+### 4. D2 热区计数去截断（F20260920hcal S3 修复）
+metrics-calculator.ts computeFileHotspots 返回 `{ total, topN }`——total 用于 D2 评分（不受 Top-N 截断），topN 用于 UI 展示和归因句。Metrics 接口新增 `totalHotspotFiles` 字段。
+
 ## 已知边界
 
-- D2 热区文件数来自 distribution.file_hotspots 的 Top-20 截断——如果真有 50 个热区文件，Top-20 只能看到 20 个，D2 也会被截断信息
+- D2 热区文件数现在使用全量计数（不受 Top-N 截断），30 热区=40 红的护栏声明成立
 - D3 stalled=0 是 F20260902sigm 设计调整的结果，stalled ×50 惩罚系数当前不影响实际得分
 - judgeTrend 窗口偏移修正要求 series 长度 ≥ 8（含 null）且 prior 窗口内有效值 ≥ 7——如果 prior 窗口 null 过多（≤6 个有效值），仍返回 null（数据不足）
+- judgeTrend recent 窗口收紧为 ≥3 有效值才判走向（旧版放行 1 个，噪声过大）
+- 对照表 ratio 来自快照计算时的 60 天窗口，当前 DB overview ratio 可能因窗口滚动而略有差异
+
+## 机制预算四问
+
+| 问题 | 回答 |
+|------|------|
+| 新增机制是否影响既有语义？ | 否——D1/D2/D3 公式参数调整不改变函数签名（D3 的 stalledWeight 有默认值），findByDateRange 新增可选参数向前兼容 |
+| 新增机制是否有测试覆盖？ | 是——49 个 health-score 测试 + findByDateRange metricType 测试 + snapshot-rows totalHotspotFiles 测试 |
+| 新增机制是否可回滚？ | 是——公式参数在单文件，findByDateRange 参数向前兼容，回滚只需 revert commit |
+| 新增机制是否需要监控？ | 建议——D1/D2 分布变化可通过 health_snapshots 对比新旧参数快照追踪 |
 
 ## 验证
 
-- ✅ 48/48 测试通过（含新旧公式边界用例 + 窗口偏移场景）
+- ✅ 49/49 health-score 测试通过（含新旧公式边界 + 窗口偏移 + minRecentValid + stalledWeight 向后兼容）
+- ✅ findByDateRange metricType 测试通过
 - ✅ tsc --noEmit 通过
 - ✅ ESLint 0 errors
-- ✅ 全量测试 3674/3679 通过（5 个失败为 pre-existing 环境问题：ensure-hooks worktree 路径 + halt-injection 超时）
+- ✅ 全量测试 3681/3681 通过（0 失败）
 
 ## Modification-Class
 
-`mechanism-addition`（D1/D2/D3 公式参数调整 + findByDateRange metricType 参数 + judgeTrend 窗口偏移修正）
+`mechanism-addition`（D1/D2/D3 公式参数调整 + findByDateRange metricType 参数 + judgeTrend 窗口偏移修正 + D2 热区计数去截断）

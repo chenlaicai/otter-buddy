@@ -100,4 +100,26 @@ describe("HealthSnapshotRepository（真 sqlite）", () => {
 
     db.close();
   });
+
+  it("findByDateRange(metricType) 只返回指定类型的行（F20260920hcal SQL 下推）", () => {
+    const { repo, db } = makeRepo();
+    repo.replaceForDate(day, rows(day, 0.21));
+    const healthRows = [
+      { snapshotDate: day, metricType: "health_index", metricKey: "D1", metricValue: 80 },
+      { snapshotDate: day, metricType: "health_index", metricKey: "overall", metricValue: 75 },
+    ];
+    repo.replaceForDate(day, healthRows, "health_index");
+
+    const all = repo.findByDateRange(day, day);
+    expect(all).toHaveLength(4); // 2 overview + 2 health_index
+
+    const filtered = repo.findByDateRange(day, day, "health_index");
+    expect(filtered).toHaveLength(2);
+    expect(filtered.every(r => r.metric_type === "health_index")).toBe(true);
+
+    const noMatch = repo.findByDateRange(day, day, "nonexistent");
+    expect(noMatch).toHaveLength(0);
+
+    db.close();
+  });
 });

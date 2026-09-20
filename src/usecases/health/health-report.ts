@@ -93,6 +93,7 @@ export class HealthReport {
           totalCommits: metrics.totalCommits,
           compliantCommits: metrics.compliantCommits,
           hotspotFiles: metrics.fileHotspots,
+          totalHotspotFiles: metrics.totalHotspotFiles,
           changeTypes: metrics.changeTypeDistribution,
           chainStates: null,
           openSignals: { critical: 0, warning: 0 },

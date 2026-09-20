@@ -31,6 +31,7 @@ const BASE_INPUT = {
   totalCommits: 100,
   compliantCommits: 80,
   hotspotFiles: [] as Array<{ file: string; count: number }>,
+  totalHotspotFiles: 0,
   changeTypes: { "New Feature": 60, BugFix: 10 } as Record<string, number>,
   chainStates: { active: 8, stalled: 2 } as Record<string, number>,
   openSignals: { critical: 0, warning: 0 },
@@ -284,11 +285,15 @@ describe("走向判定（F20260920hcal 窗口内 null 剔除修正）", () => {
     // (recent=series[7..13]=[70,70,70,70,70,70,70] → 7 valid)
     expect(judgeTrend(series)).toBeNull();
   });
-  it("prior 窗口全有效 + recent 含 null 时 recent 最少 1 点即可判定", () => {
+  it("prior 窗口全有效 + recent 含 null 时 recent 最少 3 点才可判定（F20260920hcal 防噪声）", () => {
     const prior = [60, 60, 60, 60, 60, 60, 60]; // 7 valid
-    const recent = [70, null, null, null, null, null, null]; // 1 valid
-    // recent avg=70, prior avg=60, delta=10 > 5 → improving
+    const recent = [70, 70, 70, null, null, null, null]; // 3 valid → 判定
     expect(judgeTrend([...prior, ...recent])).toBe("improving");
+  });
+  it("recent 窗口仅 2 点不足以判定（默认 minRecentValid=3）", () => {
+    const prior = [60, 60, 60, 60, 60, 60, 60];
+    const recent = [70, 70, null, null, null, null, null]; // 2 valid < 3
+    expect(judgeTrend([...prior, ...recent])).toBeNull();
   });
 });
 

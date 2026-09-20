@@ -73,8 +73,10 @@ export interface HealthScoreInput {
   bugfixRatio: number | null;
   totalCommits: number;
   compliantCommits: number;
-  /** distribution.file_hotspots 的 metadata（热区文件列表） */
+  /** distribution.file_hotspots 的 metadata（热区文件列表，Top-N 截断） */
   hotspotFiles: Array<{ file: string; count: number }>;
+  /** 全量热区文件总数（不受 Top-N 截断，用于 D2 评分） */
+  totalHotspotFiles: number;
   /** distribution.change_types 的 metadata（各 changeType 计数） */
   changeTypes: Record<string, number>;
   /** distribution.chain_states 的 metadata（五态计数）；null=当日无链数据 */
@@ -170,7 +172,8 @@ function dimensionD1(input: HealthScoreInput): DimensionScore {
 }
 
 function dimensionD2(input: HealthScoreInput): DimensionScore {
-  const hotspotCount = input.hotspotFiles.length;
+  // F20260920hcal: 用全量热区文件数（不受 Top-N 截断），恢复 D2 梯度区分度
+  const hotspotCount = input.totalHotspotFiles;
   const imbalance = isImbalanceTriggered(input.changeTypes);
   const score = scoreD2(hotspotCount, imbalance);
   const parts: string[] = [];
@@ -283,12 +286,13 @@ export function computeHealthScore(input: HealthScoreInput): HealthScoreResult {
  * 序列按时间升序（日期对齐，null=无数据日）。
  * F20260920hcal 修正：null 过滤改为窗口内剔除——先按日期分割窗口再剔除各窗口内 null，
  * 避免 null 穿孔导致前窗口日期被后窗口数据「借用」（原实现全序列 filter 后切分）。
+ * @param minRecentValid recent 窗口最少有效值数（默认 3；生产调用点传 3 防噪声）
  */
-export function judgeTrend(series: Array<number | null>): TrendDirection | null {
+export function judgeTrend(series: Array<number | null>, minRecentValid = 3): TrendDirection | null {
   if (series.length < 8) return null;
   const recent = series.slice(-7).filter((v): v is number => v !== null);
   const prior = series.slice(-14, -7).filter((v): v is number => v !== null);
-  if (recent.length < 1 || prior.length < 7) return null;
+  if (recent.length < minRecentValid || prior.length < 7) return null;
   const avg = (a: number[]) => a.reduce((s, v) => s + v, 0) / a.length;
   const delta = avg(recent) - avg(prior);
   if (delta > TREND_THRESHOLD) return "improving";
