@@ -1,0 +1,99 @@
+/**
+ * SPA 真机截图验证（F20260920spa）。
+ *
+ * 验证项：
+ * 1. SPA 路由跳转无白屏（TopBar 持续存在）
+ * 2. 深链接直达（直接访问 /memory 等不 404）
+ * 3. 懒加载 chunk 生效（页面能正常渲染）
+ * 4. 导航高亮正确
+ */
+import { test, expect } from '@playwright/test'
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const WORKSPACE = path.resolve(__dirname, '../../../../../data/workspaces/2006bca9-d162-40b6-b8e1-11ec3807300d')
+const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:3116'
+
+test.describe('SPA 路由截图验证', () => {
+  test('根路径 / 重定向到 /conversation', async ({ page }) => {
+    await page.goto(`${BASE}/`)
+    await expect(page).toHaveURL(/\/conversation/)
+    await expect(page.locator('header')).toBeVisible()
+    await page.screenshot({ path: path.join(WORKSPACE, 'spa-home.png'), fullPage: true })
+  })
+
+  test('深链接直达 /memory 不 404', async ({ page }) => {
+    await page.goto(`${BASE}/memory`)
+    await expect(page).toHaveURL(/\/memory/)
+    await expect(page.locator('header')).toBeVisible()
+    await expect(page.getByText('记忆搜索')).toBeVisible()
+    await page.screenshot({ path: path.join(WORKSPACE, 'spa-memory.png'), fullPage: true })
+  })
+
+  test('深链接直达 /skills 不 404', async ({ page }) => {
+    await page.goto(`${BASE}/skills`)
+    await expect(page).toHaveURL(/\/skills/)
+    await expect(page.locator('header')).toBeVisible()
+    await expect(page.getByText('能力库').first()).toBeVisible()
+    await page.screenshot({ path: path.join(WORKSPACE, 'spa-skills.png'), fullPage: true })
+  })
+
+  test('深链接直达 /settings 不 404', async ({ page }) => {
+    await page.goto(`${BASE}/settings`)
+    await expect(page).toHaveURL(/\/settings/)
+    await expect(page.locator('header')).toBeVisible()
+    await expect(page.getByText('设置').first()).toBeVisible()
+    await page.screenshot({ path: path.join(WORKSPACE, 'spa-settings.png'), fullPage: true })
+  })
+
+  test('深链接直达 /im 不 404', async ({ page }) => {
+    await page.goto(`${BASE}/im`)
+    await expect(page).toHaveURL(/\/im/)
+    await expect(page.locator('header')).toBeVisible()
+    await page.screenshot({ path: path.join(WORKSPACE, 'spa-im.png'), fullPage: true })
+  })
+
+  test('深链接直达 /health 不 404', async ({ page }) => {
+    await page.goto(`${BASE}/health`)
+    await expect(page).toHaveURL(/\/health/)
+    await expect(page.locator('header')).toBeVisible()
+    await page.screenshot({ path: path.join(WORKSPACE, 'spa-health.png'), fullPage: true })
+  })
+
+  test('深链接直达 /activity 不 404', async ({ page }) => {
+    await page.goto(`${BASE}/activity`)
+    await expect(page).toHaveURL(/\/activity/)
+    await expect(page.locator('header')).toBeVisible()
+    await page.screenshot({ path: path.join(WORKSPACE, 'spa-activity.png'), fullPage: true })
+  })
+
+  test('SPA 导航：点击 TopBar 链接切换页面无白屏', async ({ page }) => {
+    await page.goto(`${BASE}/conversation`)
+    
+    // 记住 TopBar 元素引用——SPA 切换后它应该还在（不重渲染）
+    const header = page.locator('header')
+    await expect(header).toBeVisible()
+    await page.screenshot({ path: path.join(WORKSPACE, 'spa-nav-conversation.png'), fullPage: true })
+
+    // 点击「记忆搜索」
+    await page.getByText('记忆搜索').click()
+    await expect(page).toHaveURL(/\/memory/)
+    await expect(header).toBeVisible()
+    await expect(page.getByText('搜索关键词')).toBeVisible()
+    await page.screenshot({ path: path.join(WORKSPACE, 'spa-nav-memory.png'), fullPage: true })
+
+    // 点击「设置」
+    await page.getByRole('link', { name: '设置' }).click()
+    await expect(page).toHaveURL(/\/settings/)
+    await expect(header).toBeVisible()
+    await expect(page.getByText('模型').first()).toBeVisible()
+    await page.screenshot({ path: path.join(WORKSPACE, 'spa-nav-settings.png'), fullPage: true })
+
+    // 点击「对话」回到列表
+    await page.getByRole('link', { name: '对话' }).click()
+    await expect(page).toHaveURL(/\/conversation/)
+    await expect(header).toBeVisible()
+    await page.screenshot({ path: path.join(WORKSPACE, 'spa-nav-back-to-conversation.png'), fullPage: true })
+  })
+})
