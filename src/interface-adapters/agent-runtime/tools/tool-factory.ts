@@ -3,7 +3,7 @@ import type { MemoryContentType } from "@entities/memory/memory-entry";
 import type { EdgeType } from "@entities/memory/memory-edge";
 import { createListArtifactsTool, createUpdateArtifactStatusTool } from "./artifact-tools";
 import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
-import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool, createGetTurnHistoryTool } from "./message-tools";
+import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool } from "./message-tools";
 /** 前后端共享常量，单一真相源在 @contract/api/html-card */
 import { CARD_SCHEMA_VERSION } from "@contract/api/html-card";
 import { validateSpeakBody, hasCardFences } from "./tool-helpers";
@@ -911,7 +911,6 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     createGetMessageTool(ctx),
     createListMessagesTool(ctx),
     createSearchMessagesTool(ctx),
-    createGetTurnHistoryTool(ctx),
     createGetContextTool(ctx),
     createSetContextTool(ctx),
     createDeleteContextTool(ctx),

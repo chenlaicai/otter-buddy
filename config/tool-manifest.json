@@ -4,43 +4,84 @@
   "capabilityBlocks": {
     "memory": {
       "description": "记忆检索与管理",
-      "tools": ["search_memory", "create_linked_resource", "get_memory_detail", "link_memory", "get_related", "unlink_memory", "sync_docs"]
+      "tools": [
+        "search_memory",
+        "create_linked_resource",
+        "get_memory_detail",
+        "link_memory",
+        "get_related",
+        "unlink_memory",
+        "sync_docs"
+      ]
     },
     "conversation": {
       "description": "对话历史查询",
-      "tools": ["get_message", "list_messages", "search_messages", "get_turn_history"]
+      "tools": [
+        "get_message",
+        "list_messages",
+        "search_messages"
+      ]
     },
     "context": {
       "description": "上下文管理",
-      "tools": ["get_context", "set_context", "delete_context"]
+      "tools": [
+        "get_context",
+        "set_context",
+        "delete_context"
+      ]
     },
     "terminology": {
       "description": "术语库管理",
-      "tools": ["search_terminology", "add_terminology"]
+      "tools": [
+        "search_terminology",
+        "add_terminology"
+      ]
     },
     "artifacts": {
       "description": "产物生命周期管理",
-      "tools": ["list_artifacts", "update_artifact_status"]
+      "tools": [
+        "list_artifacts",
+        "update_artifact_status"
+      ]
     },
     "system": {
       "description": "系统工具（参与者/卡片/定时/自愈/信号台账查询）",
-      "tools": ["get_active_participants", "get_html_card_contract", "create_scheduled_task", "manage_healing_events", "query_signals"]
+      "tools": [
+        "get_active_participants",
+        "get_html_card_contract",
+        "create_scheduled_task",
+        "manage_healing_events",
+        "query_signals"
+      ]
     },
     "orchestration": {
       "description": "编排/裁决工具（halt 停獭、unhalt 解除、signal 裁决）——仅 big 型引用，small 不得持有",
-      "tools": ["halt_otter", "unhalt_otter", "resolve_signal"]
+      "tools": [
+        "halt_otter",
+        "unhalt_otter",
+        "resolve_signal"
+      ]
     },
     "workspace": {
       "description": "工作区文件操作",
-      "tools": ["workspace_info", "workspace_list", "workspace_read", "workspace_write"]
+      "tools": [
+        "workspace_info",
+        "workspace_list",
+        "workspace_read",
+        "workspace_write"
+      ]
     },
     "stock": {
       "description": "A 股数据查询",
-      "tools": ["stock_data"]
+      "tools": [
+        "stock_data"
+      ]
     },
     "paper-trading": {
       "description": "纸面交易模拟系统",
-      "tools": ["paper_trade"]
+      "tools": [
+        "paper_trade"
+      ]
     }
   },
   "types": {
@@ -50,8 +91,22 @@
     },
     "small": {
       "description": "小獭 - 去除 otter 管理类",
-      "groups": ["memory", "conversation", "context", "terminology", "artifacts", "system", "workspace", "stock", "paper-trading"],
-      "tools": ["speak", "yield", "restart_otter"]
+      "groups": [
+        "memory",
+        "conversation",
+        "context",
+        "terminology",
+        "artifacts",
+        "system",
+        "workspace",
+        "stock",
+        "paper-trading"
+      ],
+      "tools": [
+        "speak",
+        "yield",
+        "restart_otter"
+      ]
     }
   }
 }

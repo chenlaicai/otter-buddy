@@ -38,7 +38,6 @@ const TOOL_DISPLAY_CATALOG: OtterProfileDTO["tools"] = [
   { name: "get_message", description: "按 ID 获取消息详情", group: "消息" },
   { name: "list_messages", description: "分页查询当前对话的消息列表", group: "消息" },
   { name: "search_messages", description: "在当前对话中关键词搜索消息", group: "消息" },
-  { name: "get_turn_history", description: "获取当前对话的 Turn 历史链", group: "消息" },
   { name: "get_context", description: "获取当前 Otter 的上下文", group: "上下文" },
   { name: "set_context", description: "设置当前 Otter 的上下文键值对", group: "上下文" },
   { name: "delete_context", description: "删除当前 Otter 的指定上下文 key", group: "上下文" },

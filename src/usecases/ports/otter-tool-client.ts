@@ -95,11 +95,6 @@ export interface OtterToolClient {
         id: string; entryType: string; senderType: string | null; senderId: string | null;
         body: string | null; sequenceNum: number; createdAt: string;
       }>>;
-      /** F20260913ctlv 批4a：按 turn 取条目（get_turn_history 工具） */
-      getEntriesByTurnId(turnId: string): Promise<Array<{
-        id: string; entryType: string; senderType: string | null; senderId: string | null;
-        body: string | null; sequenceNum: number; createdAt: string;
-      }>>;
     };
     invoke: {
       /** 追加 invoke 事件。
@@ -120,10 +115,6 @@ export interface OtterToolClient {
       leave(conversationId: string, otterId: string): Promise<void>;
     };
     getActiveTurnNumber(conversationId: string): Promise<number>;
-    /** F20260913ctlv 批4a：turn 骨架列表（get_turn_history 工具；turns 表保留不动） */
-    getTurns(conversationId: string): Promise<Array<{
-      id: string; turnNumber: number; status: string; createdAt: string; closedAt: string | null;
-    }>>;
   };
   memory: {
     getById(id: string): Promise<MemorySearchEntry | null>;

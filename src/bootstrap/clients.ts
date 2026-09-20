@@ -199,7 +199,7 @@ export function buildOtterToolClient(
           const entries = await uc.sendEntry.searchEntries(convId, query, limit);
           return entries.map(e => ({ id: e.id, entryType: e.entryType, senderId: e.senderId, senderType: e.senderType, body: e.body, sequenceNum: e.sequenceNum, createdAt: e.createdAt }));
         },
-        // F20260913ctlv 批4a：SDK 三工具切 entries（get_message/list_messages/get_turn_history）
+        // F20260913ctlv 批4a：SDK 工具切 entries（get_message/list_messages）；get_turn_history 已随 turn 退役（F20260920trrt）
         getEntryById: async (entryId: string) => {
           const e = await uc.sendEntry.getEntryById(entryId);
           if (!e) return null;
@@ -207,10 +207,6 @@ export function buildOtterToolClient(
         },
         listEntries: async (convId: string, opts?: { entryType?: string; limit?: number }) => {
           const entries = await uc.sendEntry.getEntries(convId, opts);
-          return entries.map(e => ({ id: e.id, entryType: e.entryType, senderType: e.senderType, senderId: e.senderId, body: e.body, sequenceNum: e.sequenceNum, createdAt: e.createdAt }));
-        },
-        getEntriesByTurnId: async (turnId: string) => {
-          const entries = await uc.sendEntry.getEntriesByTurnId(turnId);
           return entries.map(e => ({ id: e.id, entryType: e.entryType, senderType: e.senderType, senderId: e.senderId, body: e.body, sequenceNum: e.sequenceNum, createdAt: e.createdAt }));
         },
       },
@@ -230,8 +226,6 @@ export function buildOtterToolClient(
         },
       },
       getActiveTurnNumber: (convId) => uc.manageConversation.getActiveTurnNumber(convId),
-      // F20260913ctlv 批4a：turn 骨架（get_turn_history 工具；turns 表保留）
-      getTurns: async (convId: string) => (await uc.queryMessage.getTurnsForTool(convId)),
     },
     memory: buildMemoryClient(uc),
     terminology: {

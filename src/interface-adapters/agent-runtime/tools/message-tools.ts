@@ -80,32 +80,3 @@ export function createSearchMessagesTool(ctx: ToolContext): AgentTool {
     },
   };
 }
-
-export function createGetTurnHistoryTool(ctx: ToolContext): AgentTool {
-  return {
-    name: "get_turn_history",
-    description: "获取当前对话的 Turn 历史链. When: 理解对话回合结构 / 谁在哪个 turn 说了什么. Output: Turn 链（可选含每 turn 的条目）. TIP: includeMessages=true 看完整轨迹，false 只看骨架. BOUNDARY: conversationId 由系统注入; turns 表保留（turn 生命周期），条目内容从 entries 取.",
-    parameters: {
-      type: "object",
-      properties: {
-        includeMessages: { type: "boolean", description: "是否包含每个 Turn 的条目" },
-      },
-    },
-    execute: async (_id: string, params: Record<string, unknown>) => {
-      // F20260913ctlv 批4a：turn 骨架（turns 表）+ 条目内容（entries）
-      const turns = await ctx.client.conversation.getTurns(ctx.conversationId);
-      const include = (params.includeMessages as boolean) ?? false;
-      const result = await Promise.all(turns.map(async (turn) => ({
-        turn,
-        entries: include
-          ? (await ctx.client.conversation.entry.getEntriesByTurnId(turn.id)).map(e => ({
-            id: e.id, senderType: e.senderType, senderId: e.senderId, entryType: e.entryType,
-            /** 与 list_messages 同款剥离投影（只剥 html-card，回执 JSON 保留） */
-            body: e.body == null || e.body.length === 0 ? null : stripHtmlCardsOnly(e.body), sequenceNum: e.sequenceNum,
-          }))
-          : [],
-      })));
-      return textResponse(JSON.stringify(result));
-    },
-  };
-}
