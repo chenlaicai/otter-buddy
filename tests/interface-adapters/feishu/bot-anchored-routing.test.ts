@@ -9,17 +9,12 @@ import { FeishuMessageProcessor } from "@interface-adapters/feishu/message-proce
 function makeDeps() {
   const entered: Array<{ conversationId: string }> = [];
   const noted: Array<{ connectionId: string; chatId: string }> = [];
-  let nextConvId = "conv-bot-line";
   const manageConnection = {
     ensureConnection: vi.fn(async (externalId: string) => {
       expect(externalId).toBe("feishu-bot:cli_a****k8"); // 锚 = bot，不是 chatId
       return { id: "conn-bot", externalId };
     }),
-    getCurrentConversation: vi.fn(async () => {
-      const id = nextConvId;
-      nextConvId = "conv-bot-line"; // 首条开户后复用
-      return null;
-    }),
+    getCurrentConversation: vi.fn(async () => null),
     noteChatId: vi.fn(async (connectionId: string, chatId: string) => {
       noted.push({ connectionId, chatId });
     }),
@@ -79,7 +74,14 @@ describe("F20260920imax 增量五：飞书 bot 锚定路由（一 bot 一对话�
     await processor.process(p2pMsg("chat-a", "ou_a", "hi") as never);
     await processor.process(p2pMsg("chat-b", "ou_b", "yo") as never);
 
-    expect(ctx.assistantSession.ensureAssistantConversation).toHaveBeenCalledTimes(2); // 第二次复用检查（无绑定态）也走开户检查，但对话同
+    // 行为断言：开户检查每次都返回同一条线（bot 锚定→复用，非每消息新开）
+    const ensured: string[] = [];
+    for (const r of ctx.assistantSession.ensureAssistantConversation.mock.results) {
+      const v = await r.value; // async mock 返回 Promise
+      ensured.push(v.id);
+    }
+    expect(new Set(ensured).size).toBe(1);
+    expect(ensured[0]).toBe("conv-bot-line");
     expect(ctx.noted.map(n => n.chatId)).toEqual(["chat-a", "chat-b"]); // 出站锚随最后消息刷新
   });
 });
