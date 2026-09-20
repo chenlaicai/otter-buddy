@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useBlocker } from 'react-router-dom'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
 
 import { showToast } from '../../components/Toast'
@@ -54,6 +55,15 @@ export default function SettingsPage() {
       setSaving(false)
     }
   }
+
+  // S3 修复：SPA 路由级拦截——useBlocker 阻止客户端导航（点击 TopBar 链接等）
+  // Why: beforeunload 只在浏览器关闭/刷新时触发，SPA 的 Link 导航不触发它
+  useBlocker(({ currentLocation, nextLocation }) => {
+    if (!hasUnsaved) return false // 无未保存变更，不阻止
+    if (currentLocation.pathname === nextLocation.pathname) return false // 同路径不阻止
+    // 确认框：用户可以选择离开或留下
+    return !window.confirm('有未保存的变更，确定要离开吗？')
+  })
 
   useEffect(() => {
     function handleBeforeUnload(e: BeforeUnloadEvent) {

@@ -1,7 +1,7 @@
 ---
 id: F20260920spag
 title: Web 前端全量 SPA 化
-summary: 将 MPA（多 HTML 入口）架构一次性重构为全 SPA（React Router 客户端路由 + 单 HTML 入口 + 路由级懒加载 + zustand 状态分片 + 布局层单次渲染），所有 8 个功能页面迁入
+summary: 将 MPA（多 HTML 入口）架构一次性重构为全 SPA（React Router 客户端路由 + 单 HTML 入口 + 路由级懒加载 + 布局层单次渲染），所有 8 个功能页面迁入
 change_type: refactor
 capability_test: "n/a: 纯 A 类架构重构，无 LLM 行为变更"
 created_in_conversation: 2006bca9-d162-40b6-b8e1-11ec3807300d
@@ -14,7 +14,6 @@ tags:
   - architecture
   - spa
   - react-router
-  - zustand
 modules:
   - web/src/main.tsx
   - web/vite.config.ts
@@ -45,7 +44,7 @@ created_at: 2026-09-20
 - 不改变 SSE 连接语义（保持「切走即断」，后台保活是后续增强）
 - 不做 UI 视觉重设计（外观保持现状，只换架构）
 - 不做后端业务逻辑改动
-- 不引入 zustand 全局状态管理（本轮只建基础设施，后续按需引入）
+- 不引入 zustand 全局状态管理（已从依赖中移除，后续按需引入）
 
 ## 设计取舍
 
@@ -136,6 +135,17 @@ created_at: 2026-09-20
 
 已过最简检查：React Router + React.lazy + import() 是平台原生能力，无更简替代方案。
 
+### 检视修正（2026-09-20）
+
+对抗审视发现 4 严重 + 5 建议，本 PR 修复 S2/S3/S4 + R1/R2/R4/R5：
+
+- **S2 SPA fallback 吞 API 404**：服务端 SPA fallback 现在排除 `/api/` 前缀，API 路由未命中返回 404 而非 200
+- **S3 设置页未保存守卫失效**：从纯 `beforeunload` 升级为 `useBlocker`（SPA 路由级拦截）+ `beforeunload` 双保险
+- **R1 尾斜杠语义翻转**：已登记进负面向验收条目
+- **R2 TopBar「不重渲染」断言升级**：e2e spec 升级为 elementHandle identity 断言
+- **R4 zustand 幽灵依赖**：已从 `web/package.json` 移除
+- **R5 草稿缓存卸载不 flush**：`useDraftCache` 组件卸载时同步 flush 草稿到 localStorage
+
 ### 负面向验收条目
 
 **本次变更破坏了什么旧契约/绕过了什么既有保护？**
@@ -143,8 +153,10 @@ created_at: 2026-09-20
 - 破坏了 MPA 页面独立隔离的故障隔离特性（SPA 共享运行时，一处泄漏全局连坐）
 - 绕过了 MPA 整页刷新的状态重置特性（SPA 状态跨页面保留，需注意内存管理）
 - 破坏了 MPA 每页独立 HTML 的首屏加载特性（SPA 需要下载更多 JS 才能首屏渲染）
+- **R1 尾斜杠语义翻转**：MPA 模式下 `/memory` 和 `/memory/` 是不同路由（不同 HTML 文件），SPA 模式下 React Router 默认标准化尾斜杠（`/memory/` → `/memory`）。这是 SPA 的标准行为，但改变了旧契约。
+- **S3 beforeunload 语义翻转**：MPA 模式下页面切换触发 `beforeunload`（整页刷新），SPA 模式下客户端导航不触发。设置页未保存守卫已从纯 `beforeunload` 升级为 `useBlocker`（SPA 路由级拦截）+ `beforeunload`（浏览器关闭）双保险。
 
-这些是 SPA 架构的已知权衡，非意外破坏。后续通过 zustand 状态分片、路由级懒加载、监听器/定时器审计来缓解。
+这些是 SPA 架构的已知权衡，非意外破坏。后续通过路由级懒加载、监听器/定时器审计来缓解。
 
 ## 影响范围
 

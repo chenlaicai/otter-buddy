@@ -17,11 +17,16 @@ export function useDraftCache(conversationId: string | null) {
   const [draft, setDraft] = useState('')
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const conversationIdRef = useRef(conversationId)
+  // R5 修复：用 ref 追踪最新 draft 值，确保 cleanup 读到最新值而非闭包旧值
+  const draftRef = useRef(draft)
 
-  // 同步 conversationId 到 ref，确保 beforeunload 回闭包读到最新值
+  // 同步 conversationId/draft 到 ref，确保 beforeunload 和 cleanup 闭包读到最新值
   useEffect(() => {
     conversationIdRef.current = conversationId
   }, [conversationId])
+  useEffect(() => {
+    draftRef.current = draft
+  }, [draft])
 
   // 加载草稿：组件挂载或 conversationId 变化时，从 localStorage 读取对应对话的草稿
   useEffect(() => {
@@ -98,10 +103,19 @@ export function useDraftCache(conversationId: string | null) {
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload)
 
-      // 组件卸载时也要清除 debounce timer
+      // R5 修复：组件卸载时（SPA 导航）同步 flush 草稿到 localStorage
+      // Why: beforeunload 只在浏览器关闭/刷新时触发，SPA 的 Link 导航不触发它
+      // 组件卸载时 draft 可能还没写入（debounce 300ms 窗口内），必须同步 flush
+      // 使用 draftRef.current 而非闭包中的 draft——闭包捕获的是 effect 注册时的值
+      // 检查 localStorage 是否已有该 key——clearDraft 会先 removeItem，避免覆盖
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current)
         debounceTimerRef.current = null
+      }
+      const currentConversationId = conversationIdRef.current
+      const currentDraft = draftRef.current
+      if (currentConversationId && currentDraft && localStorage.getItem(`draft:${currentConversationId}`) !== null) {
+        localStorage.setItem(`draft:${currentConversationId}`, currentDraft)
       }
     }
   }, [draft])

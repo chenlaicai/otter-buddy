@@ -71,15 +71,20 @@ test.describe('SPA 路由截图验证', () => {
   test('SPA 导航：点击 TopBar 链接切换页面无白屏', async ({ page }) => {
     await page.goto(`${BASE}/conversation`)
     
-    // 记住 TopBar 元素引用——SPA 切换后它应该还在（不重渲染）
+    // R2 升级：获取 elementHandle 证明 TopBar 不重渲染（SPA 核心特征）
+    // Why: toBeVisible() 只证明元素存在，elementHandle identity 证明是同一个 DOM 节点
     const header = page.locator('header')
     await expect(header).toBeVisible()
+    const headerHandleBefore = await header.elementHandle()
     await page.screenshot({ path: path.join(WORKSPACE, 'spa-nav-conversation.png'), fullPage: true })
 
     // 点击「记忆搜索」
     await page.getByText('记忆搜索').click()
     await expect(page).toHaveURL(/\/memory/)
     await expect(header).toBeVisible()
+    // 验证 TopBar 是同一个 DOM 节点（未重渲染）
+    const headerHandleAfterMemory = await header.elementHandle()
+    expect(headerHandleAfterMemory).toBe(headerHandleBefore)
     await expect(page.getByText('搜索关键词')).toBeVisible()
     await page.screenshot({ path: path.join(WORKSPACE, 'spa-nav-memory.png'), fullPage: true })
 
@@ -87,6 +92,8 @@ test.describe('SPA 路由截图验证', () => {
     await page.getByRole('link', { name: '设置' }).click()
     await expect(page).toHaveURL(/\/settings/)
     await expect(header).toBeVisible()
+    const headerHandleAfterSettings = await header.elementHandle()
+    expect(headerHandleAfterSettings).toBe(headerHandleBefore)
     await expect(page.getByText('模型').first()).toBeVisible()
     await page.screenshot({ path: path.join(WORKSPACE, 'spa-nav-settings.png'), fullPage: true })
 
@@ -94,6 +101,8 @@ test.describe('SPA 路由截图验证', () => {
     await page.getByRole('link', { name: '对话' }).click()
     await expect(page).toHaveURL(/\/conversation/)
     await expect(header).toBeVisible()
+    const headerHandleAfterBack = await header.elementHandle()
+    expect(headerHandleAfterBack).toBe(headerHandleBefore)
     await page.screenshot({ path: path.join(WORKSPACE, 'spa-nav-back-to-conversation.png'), fullPage: true })
   })
 })

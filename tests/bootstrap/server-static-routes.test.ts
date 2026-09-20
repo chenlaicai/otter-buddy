@@ -82,6 +82,19 @@ describe("buildHttpApp SPA fallback（F20260920spa）", () => {
     expect((await bare.request("/health")).status).toBe(404);
   });
 
+  // S2 防回归：API 路由未命中应返回 404，不能被 SPA fallback 吞掉
+  it("/api/unknown 返回 404（不被 SPA fallback 吞掉）", async () => {
+    const res = await app.request("/api/unknown");
+    expect(res.status).toBe(404);
+    const text = await res.text();
+    expect(text).not.toContain("SPA");
+  });
+
+  it("/api/settings/nonexistent 返回 404", async () => {
+    const res = await app.request("/api/settings/nonexistent");
+    expect(res.status).toBe(404);
+  });
+
   // F20260901chun：旧 URL 301 重定向测试
   it("/connections 301 重定向到 /im", async () => {
     const res = await app.request("/connections");

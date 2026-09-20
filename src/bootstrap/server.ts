@@ -43,8 +43,13 @@ export function buildHttpApp(controllers: Controllers, logger: Logger, staticRoo
     // 覆盖 /memory、/skills、/settings 等干净 URL 的深链接直达
     // Why: serveStatic 的 path 选项行为不可靠（Hono 文档不明确），改为异步读取文件
     //       避免模块加载时 readFileSync 的 CWD 问题——alpha 实例启动时 CWD 可能与模块加载时不同
+    // S2 修复：排除 /api/ 前缀——API 路由未命中应返回 404，不能被 SPA fallback 吞掉成 200
     const staticRootResolved = resolve(staticRoot);
     app.get("*", async (c) => {
+      // API 路由未命中 → 404，不 fallback 到 SPA
+      if (c.req.path.startsWith("/api/")) {
+        return c.json({ error: "Not found" }, 404);
+      }
       try {
         const content = await readFile(resolve(staticRootResolved, "index.html"), "utf-8");
         return c.html(content);
