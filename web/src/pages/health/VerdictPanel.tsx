@@ -30,10 +30,9 @@ export const DIMENSION_PLAIN: Record<DimensionId, { name: string; plain: string 
   D5: { name: '告警处置', plain: '系统自检发现的问题有没有被处理' },
 }
 
-/** 健康线/归零线等口径锚点（与 health-score.ts 一致，证据层文案引据）
- *  F20260920hcal 校准：原 20%/40% → 25%/55%，与 scoreD1 三档锚点同步 */
-const D1_HEALTH_LINE = 0.25
-const D1_ZERO_LINE = 0.55
+/** 健康线/归零线等口径锚点（与 health-score.ts 一致，证据层文案引据） */
+const D1_HEALTH_LINE = 0.2
+const D1_ZERO_LINE = 0.4
 
 function dimOf(score: RhiScoreDTO, id: DimensionId) {
   return score.dimensions.find(d => d.dimension === id)
@@ -182,7 +181,7 @@ function DimensionEvidence({ dim, score, trends, overview, untriagedCount }: {
         <div className="space-y-2 text-xs text-stone-600 leading-relaxed" data-testid="evidence-d1">
           <p>
             健康线 ≤{Math.round(D1_HEALTH_LINE * 100)}%，{Math.round(D1_ZERO_LINE * 100)}% 以上归零——
-            最近干的活里超过一半是在修 bug 而不是写新功能，就是这个分数的含义。
+            最近干的活里四成是在擦屁股而不是写新功能，就是这个分数的含义。
           </p>
           {totalCommits > 0 && (
             <p className="text-stone-500">

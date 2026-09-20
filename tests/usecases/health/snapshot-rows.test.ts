@@ -23,8 +23,7 @@ function fakeMetrics(): Metrics {
     fileHotspots: [
       { file: "src/x.ts", count: 19 },
     ],
-    totalWindowFiles: 50,
-    highFrequencyFiles: 5,
+    bugfixReworkRate: 0.278,
   };
 }
 

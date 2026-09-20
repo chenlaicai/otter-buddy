@@ -10,7 +10,7 @@
  * 维度口径（F20260920hcal 实测校准版）：
  * - D1 质量成本: bugfix_ratio 分段线性 min(100, 100×max(0,(0.55-ratio)/0.30))
  *   三档锚点：≤25% 满分 / 40% = 50 / ≥55% 归零
- * - D2 架构稳定: 100 - hotspotDensity×250 - imbalance触发?20:0（密度化，抗规模不变性）
+ * - D2 架构稳定: 100 - bugfixReworkRate×250 - imbalance触发?20:0（返工率，与 D1/信号错位）
  * - D3 交付活力: active占比×100 - regressed（×1.5）/stalled（×0.5，pr-stalled 投影）占比扣分（F20260902sigm 四态：
  *   pr-stalled 投影 stalled 顶上原 zombie 权重位，F20260920hcal 降至 ×50；D5 分母口径不变——
  *   active+stalled 仍为「活跃+停滞中」链）
@@ -73,10 +73,10 @@ export interface HealthScoreInput {
   bugfixRatio: number | null;
   totalCommits: number;
   compliantCommits: number;
-  /** distribution.file_hotspots 的 metadata（热区文件列表，Top-N 截断） */
+  /** distribution.file_hotspots 的 metadata（热区文件列表，Top-N 截断，用于 UI 展示） */
   hotspotFiles: Array<{ file: string; count: number }>;
-  /** 热区密度：改动 ≥2 次文件数 / 窗口内被碰文件总数（0-1，抗规模不变性，用于 D2 评分） */
-  hotspotDensity: number;
+  /** Bugfix 返工率：60 天内被 bugfix 碰 ≥2 次的文件数 / 被 bugfix 碰过的文件总数（0-1） */
+  bugfixReworkRate: number;
   /** distribution.change_types 的 metadata（各 changeType 计数） */
   changeTypes: Record<string, number>;
   /** distribution.chain_states 的 metadata（五态计数）；null=当日无链数据 */
@@ -116,21 +116,22 @@ function clamp(n: number): number {
   return Math.max(0, Math.min(100, n));
 }
 
-/** D1 质量成本：ratio≤25% 满分，线性降至 55% 归零
- *  F20260920hcal 校准：原 40% 归零导致 bugfix 占比 37-40%（结构性现实）时 D1 长期 0-11 分，
- *  无区分度；三档锚点重校为 ≤25%/40%/≥55%，校准后实测 D1 50-57 分（黄色区间） */
+/** D1 质量成本：ratio≤20% 满分，线性降至 40% 归零（审视 S1 定稿：分段线性 + clamp）
+ *  2026-09-20 搭档裁决：37.9% bugfix 占比是 harness 完工质量的持续信号，保留原锚点不放宽。
+ *  「排除特性变化后一直改得多，就是完工质量不好、返工率高，就是要反思改进的信号」 */
 export function scoreD1(bugfixRatio: number): number {
-  return clamp(100 * Math.max(0, (0.55 - bugfixRatio) / 0.30));
+  return clamp(100 * Math.max(0, (0.4 - bugfixRatio) / 0.2));
 }
 
-/** D2 架构稳定：热区密度线性扣分 + bugfix:feature 失衡（≥2 倍）再扣 20
- *  F20260920hcal v2（S4 修复）：从绝对热区文件数改为热区密度（高频文件占比），抗规模不变性。
- *  密度 = 改动 ≥2 次文件数 / 窗口内被碰文件总数
- *  公式：100 - density × 250——density=0→100（绿）、0.2→50（黄）、0.4→0（红）
- *  与 bug_recurrence 的 K≥3/30天 区分：D2 用 K≥2/60天，更宽口径捕捉架构层面的反复修改模式
- */
-export function scoreD2(hotspotDensity: number, imbalanceTriggered: boolean): number {
-  const penalty = hotspotDensity * 250;
+/** D2 架构稳定：bugfix 返工率线性扣分 + bugfix:feature 失衡（≥2 倍）再扣 20
+ *  搭档裁决（2026-09-20）：D2 从「修改集中度」换为「bugfix 返工率」——直接测「补丁失效」，
+ *  天然剥离 feature 活跃度（feature 改动不进分子），与 D1（bugfix 占比面）和 bug_recurrence
+ *  信号（同文件反复出 bug）错位：D1 测「修 bug 的占比」，返工率测「修了没修好」。
+ *  实测 60 天窗口：457 个文件被 bugfix 碰过，127 个 ≥2 次，返工率 27.8%。
+ *  公式：100 - reworkRate×250——15%→100（绿）、25%→50（黄）、45%→0（红）
+ *  与 bug_recurrence 信号区分：返工率是宏观统计（全仓口径），recurrence 是微观信号（单文件 3 次/30 天） */
+export function scoreD2(bugfixReworkRate: number, imbalanceTriggered: boolean): number {
+  const penalty = bugfixReworkRate * 250;
   return clamp(100 - penalty - (imbalanceTriggered ? 20 : 0));
 }
 
@@ -175,14 +176,14 @@ function dimensionD1(input: HealthScoreInput): DimensionScore {
 }
 
 function dimensionD2(input: HealthScoreInput): DimensionScore {
-  // F20260920hcal v2（S4 修复）：用热区密度（高频文件占比）代替绝对计数，抗规模不变性
-  const density = input.hotspotDensity;
+  // 搭档裁决：D2 从「修改集中度」换为「bugfix 返工率」——直接测「补丁失效」
+  const reworkRate = input.bugfixReworkRate;
   const imbalance = isImbalanceTriggered(input.changeTypes);
-  const score = scoreD2(density, imbalance);
+  const score = scoreD2(reworkRate, imbalance);
   const parts: string[] = [];
-  if (density > 0 && input.hotspotFiles.length > 0) {
+  if (reworkRate > 0 && input.hotspotFiles.length > 0) {
     const top = input.hotspotFiles[0]!;
-    parts.push(`高频文件占比 ${(density * 100).toFixed(1)}%（${top.file} 等修改居首）`);
+    parts.push(`bugfix 返工率 ${(reworkRate * 100).toFixed(1)}%（${top.file} 等反复修）`);
   }
   if (imbalance) parts.push("bugfix:feature ≥2 失衡");
   return {

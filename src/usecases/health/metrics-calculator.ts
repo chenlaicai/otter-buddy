@@ -45,10 +45,8 @@ export interface Metrics {
   moduleStats: ModuleStat[];
   /** 文件热点 TOP N（降序，用于 UI 展示和归因句） */
   fileHotspots: FileHotspot[];
-  /** 60 天窗口内被碰过的文件总数（含仅碰 1 次的） */
-  totalWindowFiles: number;
-  /** 改动 ≥2 次的文件数（高频文件，用于 D2 热区密度计算） */
-  highFrequencyFiles: number;
+  /** Bugfix 返工率：60 天内被 bugfix 碰 ≥2 次的文件数 / 被 bugfix 碰过的文件总数（0-1） */
+  bugfixReworkRate: number;
 }
 
 export interface MetricsOptions {
@@ -69,28 +67,44 @@ function tally<T>(items: T[], keyOf: (item: T) => string | null): Record<string,
 }
 
 /**
- * 文件热点：从 commit 文件列表聚合出 TOP N。
- * 返回 { totalWindowFiles: 窗口内被碰过的文件总数, highFrequencyFiles: 改动 ≥2 次的文件数, topN: 前 N 个热区 }
- * totalWindowFiles + highFrequencyFiles 用于 D2 热区密度计算（抗规模不变性），
- * topN 用于 UI 展示和归因句。
+ * 文件热点：从 commit 文件列表聚合出 TOP N（用于 UI 展示和归因句）。
  */
 function computeFileHotspots(
   commitsWithFiles: GitCommitWithFiles[],
   topN: number,
-): { totalWindowFiles: number; highFrequencyFiles: number; topN: FileHotspot[] } {
+): FileHotspot[] {
   const fileCounts = tally(
     commitsWithFiles.flatMap(c => c.filesChanged),
     f => f,
   );
-  const allFiles = Object.entries(fileCounts);
-  const sorted = allFiles
+  return Object.entries(fileCounts)
     .map(([file, count]) => ({ file, count }))
-    .sort((a, b) => b.count - a.count || a.file.localeCompare(b.file));
-  return {
-    totalWindowFiles: sorted.length,
-    highFrequencyFiles: sorted.filter(f => f.count >= 2).length,
-    topN: sorted.slice(0, topN),
-  };
+    .sort((a, b) => b.count - a.count || a.file.localeCompare(b.file))
+    .slice(0, topN);
+}
+
+/**
+ * Bugfix 返工率：60 天内被 bugfix 碰 ≥2 次的文件数 / 被 bugfix 碰过的文件总数。
+ * 直接测「补丁失效」，天然剥离 feature 活跃度（feature 改动不进分子）。
+ * @param parsed ParsedCommit[]（含 changeType）
+ * @param commitsWithFiles GitCommitWithFiles[]（含 filesChanged）
+ */
+function computeBugfixReworkRate(
+  parsed: ParsedCommit[],
+  commitsWithFiles: GitCommitWithFiles[],
+): number {
+  const bugfixShas = new Set(parsed.filter(p => p.changeType === "BugFix").map(p => p.sha));
+  const fileCounts: Record<string, number> = {};
+  for (const c of commitsWithFiles) {
+    if (!bugfixShas.has(c.sha)) continue;
+    for (const f of c.filesChanged) {
+      fileCounts[f] = (fileCounts[f] ?? 0) + 1;
+    }
+  }
+  const total = Object.keys(fileCounts).length;
+  if (total <= 0) return 0;
+  const reworked = Object.values(fileCounts).filter(c => c >= 2).length;
+  return reworked / total;
 }
 
 /** 模块热区：按 module 段聚合（降序，同频按名排序） */
@@ -122,7 +136,6 @@ export function calculateMetrics(
   const bugfixRatio = totalCommits > 0 ? bugfixCount / totalCommits : 0;
   const bugfixRatioOfFid = commitsWithFid > 0 ? bugfixCount / commitsWithFid : 0;
 
-  const hotspots = computeFileHotspots(commitsWithFiles, topN);
   return {
     totalCommits,
     commitsWithFid,
@@ -134,8 +147,7 @@ export function calculateMetrics(
     changeTypeDistribution: tally(parsed, p => p.changeType),
     skipReasonDistribution: tally(parsed, p => p.skipReason ?? null),
     moduleStats: computeModuleStats(parsed),
-    fileHotspots: hotspots.topN,
-    totalWindowFiles: hotspots.totalWindowFiles,
-    highFrequencyFiles: hotspots.highFrequencyFiles,
+    fileHotspots: computeFileHotspots(commitsWithFiles, topN),
+    bugfixReworkRate: computeBugfixReworkRate(parsed, commitsWithFiles),
   };
 }
