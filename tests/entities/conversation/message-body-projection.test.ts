@@ -3,6 +3,7 @@ import {
   stripHtmlCardFences,
   stripHtmlCardsOnly,
   projectForChannel,
+  trimAutolinkTrailing,
 } from "@entities/conversation/message-body-projection";
 import { HTML_CARD_STRIP_VECTORS } from "@entities/conversation/html-card-test-vectors";
 
@@ -207,5 +208,53 @@ describe("projectForChannel（信道投影出口：飞书 post + md）", () => {
     expect(out).toBe(
       "前文\n\n【交互卡片:真卡片】\n👉 https://otter.app/conversations/c1\n\n后文",
     );
+  });
+});
+
+describe("trimAutolinkTrailing（F20260920alnk：GFM autolink 全角尾巴修正）", () => {
+  it("搭档实证场景：PR 链接后紧跟全角右括号+中文 → 尾巴留在链接外", () => {
+    const out = trimAutolinkTrailing(
+      "CI 双绿（https://github.com/chenlaicai/otter-buddy/pull/1053）。本地偶发的超时是环境抖动",
+    );
+    expect(out).toBe(
+      "CI 双绿（<https://github.com/chenlaicai/otter-buddy/pull/1053>）。本地偶发的超时是环境抖动",
+    );
+  });
+
+  it("全角句号/逗号/冒号同理修剪", () => {
+    expect(trimAutolinkTrailing("链接 https://example.com/a。句号")).toBe("链接 <https://example.com/a>。句号");
+    expect(trimAutolinkTrailing("链接 https://example.com/a，逗号")).toBe("链接 <https://example.com/a>，逗号");
+    expect(trimAutolinkTrailing("链接 https://example.com/a：冒号")).toBe("链接 <https://example.com/a>：冒号");
+  });
+
+  it("中文直接粘连也被吸入 → 修剪", () => {
+    expect(trimAutolinkTrailing("https://example.com/pull/1053下一句")).toBe(
+      "<https://example.com/pull/1053>下一句",
+    );
+  });
+
+  it("尾部干净的不动（避免显式化噪音）", () => {
+    expect(trimAutolinkTrailing("正常 https://example.com/path?x=1")).toBe("正常 https://example.com/path?x=1");
+    expect(trimAutolinkTrailing("英文括号 https://en.wikipedia.org/wiki/Page_(disambiguation)")).toBe(
+      "英文括号 https://en.wikipedia.org/wiki/Page_(disambiguation)",
+    );
+  });
+
+  it("原文其余 markdown 语法零改动（position 替换，非全文重排）", () => {
+    const src = "*em* _strong_ | 表格 | 保留 https://example.com/x。尾巴";
+    const out = trimAutolinkTrailing(src);
+    expect(out).toBe("*em* _strong_ | 表格 | 保留 <https://example.com/x>。尾巴");
+  });
+
+  it("无裸链快速路径原样返回", () => {
+    expect(trimAutolinkTrailing("没有链接的普通文本")).toBe("没有链接的普通文本");
+  });
+
+  it("projectForChannel 集成：出站文本中 autolink 已修剪", () => {
+    const out = projectForChannel("CI 双绿（https://github.com/x/pull/1053）。说明", {
+      webBaseUrl: "https://otter.app",
+      conversationId: "c1",
+    });
+    expect(out).toContain("<https://github.com/x/pull/1053>）。说明");
   });
 });

@@ -62,6 +62,14 @@ describe("WeixinGatewayAdapter", () => {
     expect(sent[0].text).not.toContain("https://x.test");
   });
 
+  it("replyMarkdown 尖括号 autolink（F20260920alnk 投影层产出形态）剥壳保链接可点", async () => {
+    const { adapter, sent } = makeAdapter({ "u-1": "ctx-1" });
+    await adapter.replyMarkdown("u-1", "大獭", "PR（<https://github.com/x/pull/1053>）。说明文字");
+    // 剥 < > 壳、裸 URL 保留（微信纯文本自动识别可点）、尾巴）。在链接外
+    expect(sent[0].text).toContain("PR（https://github.com/x/pull/1053）。说明文字");
+    expect(sent[0].text).not.toContain("<https");
+  });
+
   it("replyMedia（图片）：上传后发 image item，aes_key 为 base64(hex) 编码", async () => {
     const tmp = path.join(os.tmpdir(), `wx-media-test-${Date.now()}.png`);
     await fs.writeFile(tmp, Buffer.from("fake-png-bytes"));

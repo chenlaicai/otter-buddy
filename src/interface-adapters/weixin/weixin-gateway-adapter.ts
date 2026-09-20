@@ -109,6 +109,8 @@ export class WeixinGatewayAdapter implements WeixinGateway {
     return md
       // 链接 [text](url) → text（url 对纯文本用户是噪音）
       .replace(/\[([^\]]*)\]\(([^)]*)\)/g, "$1")
+      // 尖括号 autolink <url> → url（F20260920alnk 投影层产出形态，微信纯文本可点）
+      .replace(/<(https?:\/\/[^>\s]+)>/g, "$1")
       // 加粗/斜体
       .replace(/\*\*([^*]+)\*\*/g, "$1")
       .replace(/\*([^*]+)\*/g, "$1")
