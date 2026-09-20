@@ -63,22 +63,15 @@ export class ManageConversation {
     }
 
     /** A6: 为每个 otterId 创建 ConversationParticipant 记录
-     *  joinedAtTurnId=null, joinedAtTurnNumber=0 表示对话开始前已在场
      *  统一 getActiveParticipants() 查询路径
      *  批量创建保证原子性（UA-7：避免参与者记录不完整） */
     const participants: ConversationParticipant[] = otterIds.map((otterId) => ({
       id: crypto.randomUUID(),
       conversationId: id,
       otterId,
-      joinedAtTurnId: null,
-      joinedAtTurnNumber: 0,
-      leftAtTurnId: null,
-      leftAtTurnNumber: null,
       status: "active",
       createdAt: now,
       leftAt: null,
-      lastReadTurnNumber: 0,
-      lastActiveTurnNumber: 0,
     }));
     await this.repo.createParticipants(participants);
 
