@@ -124,15 +124,6 @@ jobs:
       - name: Run tests
         run: npm test
 
-      # #802 附带：Python 侧 stock-cli.py 测试接入 CI（检视-D类批次发现的存量缺口：
-      # 51 个测试不在 CI 覆盖内，quote 兜底链改坏要等真实操盘才炸）。
-      # 依赖说明：CLI 顶层 import 纯标准库（akshare 是函数内延迟 import），但测试文件
-      # 内部真 import akshare（mock.patch 用），CI 必须装 akshare（亲测裸 pytest 7 挂）。
-      - name: Run stock-cli Python tests
-        run: |
-          python3 -m pip install --quiet pytest akshare
-          python3 -m pytest tests/test_stock_cli.py -q
-
   # F20260920ecig（#1058）：SPA e2e 冒烟闸门——四轮对抗循环三次实证「静态检查绿 ≠ 运行时没崩」
   # （TS 编译过但设置页白屏 D1、断言改了但恒假 D3），真机验证必须进 CI 拦合入。
   # 流水线与本地完全同构：scripts/e2e-server.sh run（起服务→playwright→停服务，trap 始终清理）。

@@ -2075,7 +2075,7 @@ describe('PR4: function executor 执行记账', () => {
     vi.useRealTimers();
   });
 
-  /** 构造 function executor 任务 fixture（PR4 形态，如 paper-trading-match-orders） */
+  /** 构造 function executor 任务 fixture（executorType='function' 通用形态） */
   function makeFunctionTask(): ScheduledTask {
     return makeTask({
       id: 'task-fn',
@@ -2114,7 +2114,7 @@ describe('PR4: function executor 执行记账', () => {
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
-      functionRegistry: fnRegistry as unknown as import('@usecases/paper-trading/function-registry').FunctionRegistry,
+      functionRegistry: fnRegistry as unknown as import('../../../src/usecases/scheduler/function-registry').FunctionRegistry,
     });
 
     const result = await service.trigger('task-fn');
@@ -2144,7 +2144,7 @@ describe('PR4: function executor 执行记账', () => {
 
     const fnRegistry = {
       execute: vi.fn(async () => {
-        throw new Error('match_orders: no active paper account found');
+        throw new Error('fn_task: simulated failure');
       }),
     };
 
@@ -2160,14 +2160,14 @@ describe('PR4: function executor 执行记账', () => {
       agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: cronParser as unknown as CronParser,
       logger: mockLogger,
-      functionRegistry: fnRegistry as unknown as import('@usecases/paper-trading/function-registry').FunctionRegistry,
+      functionRegistry: fnRegistry as unknown as import('../../../src/usecases/scheduler/function-registry').FunctionRegistry,
     });
 
-    await expect(service.trigger('task-fn')).rejects.toThrow('no active paper account');
+    await expect(service.trigger('task-fn')).rejects.toThrow('simulated failure');
 
     const execs = [...taskRepo._executions.values()];
     expect(execs[execs.length - 1].status).toBe('failed');
-    expect(execs[execs.length - 1].errorMessage).toContain('no active paper account');
+    expect(execs[execs.length - 1].errorMessage).toContain('simulated failure');
     expect(taskRepo._getFailureCount()).toBe(1);
   });
 

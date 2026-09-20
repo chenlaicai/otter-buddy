@@ -47,7 +47,6 @@ const FALLBACK_SKILL_GROUPS: { label: string; skills: SkillEntry[] }[] = [
     label: '元规范',
     skills: [
       { name: 'writing-skills', desc: '关于 skill 的 skill：铁律 + 契约 + 模板 + lint 规则' },
-      { name: 'stock-analysis', desc: 'A股/港股结构化分析与纸面交易' },
     ],
   },
 ]

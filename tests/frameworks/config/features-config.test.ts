@@ -27,7 +27,6 @@ mockReadFileSync.mockReturnValue(MINIMAL_YAML);
 
 let loadConfig: typeof import("../../../src/frameworks/config-service").loadConfig;
 let gateOn: typeof import("../../../src/bootstrap/feature-gates").gateOn;
-let inferDomainActive: typeof import("../../../src/bootstrap/feature-gates").inferDomainActive;
 let resolveFeatureGates: typeof import("../../../src/bootstrap/feature-gates").resolveFeatureGates;
 
 beforeAll(async () => {
@@ -35,7 +34,6 @@ beforeAll(async () => {
   loadConfig = configMod.loadConfig;
   const gatesMod = await import("../../../src/bootstrap/feature-gates");
   gateOn = gatesMod.gateOn;
-  inferDomainActive = gatesMod.inferDomainActive;
   resolveFeatureGates = gatesMod.resolveFeatureGates;
 });
 
@@ -58,22 +56,20 @@ function makeLogger() {
 }
 
 describe("配置层：buildFeaturesConfig 三态归一化", () => {
-  it("未配置 features 段 → 四字段全 undefined（缺省决策在装配层）", () => {
+  it("未配置 features 段 → 三字段全 undefined（缺省决策在装配层）", () => {
     mockReadFileSync.mockReturnValue(MINIMAL_YAML);
     const config = loadConfig();
     expect(config.features).toEqual({
       selfHealing: undefined,
-      paperTrading: undefined,
       recruiting: undefined,
     });
   });
 
   it("显式 true/false 原样保留", () => {
-    mockReadFileSync.mockReturnValue(MINIMAL_YAML + "\nfeatures:\n  selfHealing: false\n  paperTrading: true\n");
+    mockReadFileSync.mockReturnValue(MINIMAL_YAML + "\nfeatures:\n  selfHealing: false\n  recruiting: true\n");
     const config = loadConfig();
-    expect(config.features.paperTrading).toBe(true);
+    expect(config.features.recruiting).toBe(true);
     expect(config.features.selfHealing).toBe(false);
-    expect(config.features.recruiting).toBeUndefined();
   });
 
   it("null（YAML 空值占位）→ undefined 且不 warn", () => {
@@ -86,11 +82,11 @@ describe("配置层：buildFeaturesConfig 三态归一化", () => {
 
   it("非法值（字符串）→ undefined 且 warn", () => {
     const logger = makeLogger();
-    mockReadFileSync.mockReturnValue(MINIMAL_YAML + "\nfeatures:\n  paperTrading: \"yes\"\n");
+    mockReadFileSync.mockReturnValue(MINIMAL_YAML + "\nfeatures:\n  recruiting: \"yes\"\n");
     const config = loadConfig(logger);
-    expect(config.features.paperTrading).toBeUndefined();
+    expect(config.features.recruiting).toBeUndefined();
     const warnMessages = logger.warn.mock.calls.map((c: unknown[]) => String(c[0]));
-    expect(warnMessages.some((m: string) => m.includes("features.paperTrading"))).toBe(true);
+    expect(warnMessages.some((m: string) => m.includes("features.recruiting"))).toBe(true);
   });
 });
 
@@ -114,7 +110,6 @@ describe("装配层：gateOn 三态门", () => {
 describe("装配层：resolveFeatureGates", () => {
   const noFeatures = {
     selfHealing: undefined,
-    paperTrading: undefined,
     recruiting: undefined,
   };
 
@@ -127,7 +122,6 @@ describe("装配层：resolveFeatureGates", () => {
     });
     expect(gates).toEqual({
       selfHealing: false,
-      paperTrading: false,
       recruiting: false,
     });
   });
@@ -142,15 +136,6 @@ describe("装配层：resolveFeatureGates", () => {
     expect(gates.selfHealing).toBe(true);
     const infoMessages = logger.info.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(infoMessages.some((m: string) => m.includes("selfHealing"))).toBe(true);
-  });
-
-  it("DB 有任一 paper-trading 任务 → paperTrading 推断 on", async () => {
-    const gates = await resolveFeatureGates({
-      features: noFeatures,
-      scheduledTaskRepo: makeTaskRepo(["paper-trading-daily-trading"]),
-      logger: makeLogger(),
-    });
-    expect(gates.paperTrading).toBe(true);
   });
 
   it("recruiting 双通道：apiKey 存在即 on（无 DB 存量）", async () => {
@@ -189,35 +174,12 @@ describe("装配层：resolveFeatureGates", () => {
   it("显式配置压过全部存量推断（老部署显式关停场景）", async () => {
     const logger = makeLogger();
     const gates = await resolveFeatureGates({
-      features: { selfHealing: false, paperTrading: false, recruiting: undefined },
-      scheduledTaskRepo: makeTaskRepo(["self-healing-analysis", "paper-trading-match-orders", "recruiting-daily-summary"]),
+      features: { selfHealing: false, recruiting: undefined },
+      scheduledTaskRepo: makeTaskRepo(["self-healing-analysis", "recruiting-daily-summary"]),
       logger,
     });
     expect(gates.selfHealing).toBe(false);
-    expect(gates.paperTrading).toBe(false);
     expect(gates.recruiting).toBe(true); // 未显式配置，存量推断生效
   });
 });
 
-describe("S1 回归：initAgentAndScheduler 路径的 paperTrading 完整三态门", () => {
-  // S1（PR #936 审视）：initAgentAndScheduler 在 app.ts:280 先于 initPlatforms 执行，
-  // 不能用 raw features.paperTrading（undefined = 未配置）直接当开关——
-  // 老部署未写配置但 DB 有 active 任务时必须靠推断保活（方案 T3）
-  it("未配置 + DB 有 paper-trading 存量 → gateOn 推断 on（seed 保活）", async () => {
-    const repo = makeTaskRepo(["paper-trading-daily-trading"]);
-    const on = await gateOn(undefined, () => inferDomainActive(repo, "paperTrading"));
-    expect(on).toBe(true);
-  });
-
-  it("未配置 + DB 无存量 → off（新环境默认关）", async () => {
-    const repo = makeTaskRepo([]);
-    const on = await gateOn(undefined, () => inferDomainActive(repo, "paperTrading"));
-    expect(on).toBe(false);
-  });
-
-  it("显式 false 压过 DB 存量推断", async () => {
-    const repo = makeTaskRepo(["paper-trading-match-orders"]);
-    const on = await gateOn(false, () => inferDomainActive(repo, "paperTrading"));
-    expect(on).toBe(false);
-  });
-});

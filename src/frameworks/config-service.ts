@@ -186,8 +186,6 @@ export interface AppConfig {
   features: {
     /** self-healing 自愈分析（海獭系统优化，缺省 false——除作者外无人关心） */
     selfHealing: boolean | undefined;
-    /** 纸面交易（个人场景，缺省 false） */
-    paperTrading: boolean | undefined;
     /** 招聘桥接（个人场景，缺省 false；关闭时 webhook 一并下线） */
     recruiting: boolean | undefined;
   };
@@ -354,7 +352,6 @@ interface RawConfig {
   };
   features?: {
     selfHealing?: boolean;
-    paperTrading?: boolean;
     recruiting?: boolean;
   };
 }

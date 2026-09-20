@@ -21,9 +21,9 @@ import { getRepoRoot } from '@frameworks/repo-root';
  * - 无 task_name 时：kebab(任务名) === 文件名去 .md（kebab = 空格转连字符）
  * - frontmatter dynamic: true 的模板跳过（body 由调度器运行时填充占位符，issue #416）
  *
- * JSON 包装兼容（paper-trading-daily-trading 形态）：任务 body 解析为 JSON 对象
- * 且含 prompt 字符串字段 → 只对账/替换内层 prompt，watchlist 等运行时字段保留
- * （#610 watchlist-only patch 语义的对偶面）。
+ * JSON 包装兼容（通用，原 paper-trading-daily-trading 形态——F20260920stkx 能力移除后无在用者，
+ * 机制保留）：任务 body 解析为 JSON 对象且含 prompt 字符串字段 → 只对账/替换内层 prompt，
+ * watchlist 等运行时字段保留（#610 watchlist-only patch 语义的对偶面）。
  *
  * 覆盖范围：getAll() 全量（含 disabled）——disabled 任务的 body 漂移同样要治，
  * 重新启用时该跑新 prompt（实证：每日 issue 处理 disabled 且 body 落后模板 2000+ 字符）。

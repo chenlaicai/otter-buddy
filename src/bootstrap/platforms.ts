@@ -23,14 +23,7 @@ import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { Repositories, UseCases } from "./types";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
-import { seedPaperTradingTasks } from "@usecases/paper-trading/ensure-paper-trading-scheduler";
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
-import { Ledger } from "@usecases/paper-trading/ledger";
-import { PaperTradeRepositoryImpl } from "@frameworks/db/paper-trade-repository-impl";
-import { StockQuoteGatewayImpl } from "@frameworks/stock/stock-quote-gateway-impl";
-import { syncTradingCalendar } from "@usecases/paper-trading/sync-trading-calendar";
-import { registerPaperTradingFunctions } from "@usecases/paper-trading/register-functions";
-import { paperTradingFunctionRegistry } from "@usecases/paper-trading/function-registry";
 import { createManageHealingEventsTool } from "@interface-adapters/agent-runtime/tools/healing-tools";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import type { SignalRouter } from "@usecases/conversation/signal-router";
@@ -74,7 +67,7 @@ import { ProcessInboundRecruit } from "@usecases/recruiting/process-inbound-recr
 import { GetBridgeStatus } from "@usecases/recruiting/get-bridge-status";
 import { ensureRecruitingConversation } from "@usecases/recruiting/ensure-recruiting-conversation";
 import { ensureRecruitingScheduler } from "@usecases/recruiting/ensure-recruiting-scheduler";
-import { resolveFeatureGates, gateOn, inferDomainActive } from "./feature-gates";
+import { resolveFeatureGates } from "./feature-gates";
 import { buildHandoffPackage } from "@frameworks/agent/handoff-package-builder";
 
 export interface FeishuBundle {
@@ -109,15 +102,7 @@ export async function createAgentGateway(options: {
     // Why: 默认目录基于代码位置解析（#429）；注入参数 override 优先
     identityPromptDir: options.identityPromptDir ?? path.resolve(getRepoRoot(), "prompts/identity"),
     createTools: (ctx, repo, log) => {
-      // PR4: 创建纸面交易 Ledger 注入到工具
-      const paperTradeRepo = new PaperTradeRepositoryImpl(db);
-      const paperGateway = new StockQuoteGatewayImpl(getRepoRoot());
-      const paperLedger = new Ledger(paperTradeRepo, paperGateway);
-      const paperLedgerRef = { ledger: paperLedger, getAccountId: () => {
-        const accounts = db.prepare('SELECT id FROM paper_accounts LIMIT 1').get() as { id: string } | undefined;
-        return accounts?.id;
-      } };
-      const tools = createTools(ctx, repo, log, options.workspaceGateway, manageScheduledTaskRef ?? undefined, paperLedgerRef);
+      const tools = createTools(ctx, repo, log, options.workspaceGateway, manageScheduledTaskRef ?? undefined);
       if (repo) tools.push(createManageHealingEventsTool(ctx, repo));
       return tools;
     },
@@ -253,43 +238,10 @@ function buildAgentInvoker(o: {
 }
 
 export async function initAgentAndScheduler(options: { repos: Repositories; uc: UseCases; agentGateway: PiSessionFactory; messageBroadcaster: MessageBroadcaster | undefined; logger: Logger; workspaceGateway?: WorkspaceGateway; metrics?: SchedulerMetrics; agentMetrics?: AgentMetricsPort; dispatchChainEngine?: DispatchChainEngine; db?: Database.Database; appConfig?: AppConfig; modelPool?: ModelPool; otterConfigProvider?: OtterConfigProvider }) {
-  const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics, agentMetrics, dispatchChainEngine, db, appConfig, modelPool, otterConfigProvider } = options;
+  const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics, agentMetrics, dispatchChainEngine, appConfig, modelPool, otterConfigProvider } = options;
   await agentGateway.warmup();
 
-  // PR4: 注册纸面交易函数（function executor 使用）
-  if (db) {
-    const paperTradeRepo = new PaperTradeRepositoryImpl(db);
-    const paperGateway = new StockQuoteGatewayImpl(getRepoRoot());
-    const paperLedger = new Ledger(paperTradeRepo, paperGateway);
-    registerPaperTradingFunctions(paperLedger, paperTradeRepo);
-
-    // A3: 同步交易日历（akshare 或 fallback）
-    syncTradingCalendar(paperTradeRepo, process.cwd()).then((res) => {
-      logger.info(`Trading calendar synced: ${res.count} entries (source: ${res.source})`);
-    }).catch((err) => {
-      logger.error("Trading calendar sync failed", err instanceof Error ? err : new Error(String(err)));
-    });
-
-    // PR5: seed 定时任务（幂等）——F20260915cfgt：受 features.paperTrading 门控（个人场景默认关）。
-    // S1 修复（检视发现）：走完整三态门（显式配置 > DB 存量推断），与 initPlatforms 的
-    // gates 同语义——老部署未写配置但 DB 有 active paper-trading 任务时靠推断保活（T3）。
-    // registerPaperTradingFunctions / syncTradingCalendar 保持无条件：进程内注册随重启重建，
-    // 不持久化，保留不动改动面最小；开关打开后无需关心注册时序
-    const paperTradingOn = await gateOn(
-      appConfig?.features.paperTrading,
-      () => inferDomainActive(repos.scheduledTask, 'paperTrading'),
-    );
-    if (paperTradingOn) {
-      await seedPaperTradingTasks({
-        manageScheduledTask: uc.manageScheduledTask,
-        manageConversation: uc.manageConversation,
-        convRepo: repos.conversation,
-        otterRepo: repos.otter,
-        settings: repos.settings,
-        logger,
-      });
-    }
-  }
+  // F20260920stkx：paper-trading 能力移除（选项 A）——原 PR4/PR5 装配块随能力整体退役。
 
   // F20260901cxmw：otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
   const ctxWindowProvider = modelPool ? buildCtxWindowProvider(modelPool, otterConfigProvider) : undefined;
@@ -331,7 +283,6 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
       healingRepo: repos.healingEvent,
       metrics,
       dispatchChainEngine,
-      functionRegistry: db ? paperTradingFunctionRegistry : undefined,
     }),
   );
 

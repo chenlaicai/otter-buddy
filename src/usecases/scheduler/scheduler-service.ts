@@ -17,7 +17,7 @@ import type { SchedulerMetricsPort } from './scheduler-metrics-port';
 import type { DispatchChainEngine } from '@usecases/conversation/dispatch-chain-engine';
 import type { SignalRouter } from '@usecases/conversation/signal-router';
 import { DirectChainGatedError } from '@usecases/conversation/signal-router';
-import type { FunctionRegistry } from '@usecases/paper-trading/function-registry';
+import type { FunctionRegistry } from './function-registry';
 import { DomainError, isSessionLockConflictError } from '@entities/errors';
 import { reconcilePromptTemplates } from './prompt-template-reconciler';
 import { readFileSync } from 'node:fs';
