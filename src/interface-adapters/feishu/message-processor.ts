@@ -71,15 +71,6 @@ export class FeishuMessageProcessor {
       textLength: text.length,
     });
 
-    // F20260920imax 语义修正（搭档裁决）：bot 有归属——自建应用机器人 = 搭档的助理。
-    // 所有人私聊 bot 都汇入同一条助理专线（单 connection 单对话，消息带发送者姓名
-    // 前缀区分谁在说）；不再按 chatId 每人开对话（错误语义，已删）。
-    // 专线 connection 的 externalId 固定为常量，与具体私聊者无关。
-    if (msg.chatType === "p2p") {
-      return this.processP2pViaAssistantLine(msg);
-    }
-
-    // 群聊/未知：维持既有路径（显式绑定 + 共享上下文）
     const connection = await this.deps.manageConnection.ensureConnection(chatId, chatId);
 
     // 判断是否是命令（仅文本消息可能是命令；纯图片/文件消息跳过命令分支）
@@ -88,7 +79,20 @@ export class FeishuMessageProcessor {
       return;
     }
 
-    const conversation = await this.deps.manageConnection.getCurrentConversation(connection.id);
+    // F20260920imax 增量三回退（搭档裁决「飞书下个再来改」）：共享专线形态不 ship，
+    // 回到「每人一对话」语义（更接近搭档终态愿景：一 bot 一对话——终态改造含
+    // 按人建 bot 的技术可行性验证，见特性文档增量四节）。p2p 首条消息自动开户
+    // （飞书有真姓名，对话名 = 发送者姓名）；群聊/未知 chatType 维持显式绑定。
+    const isAssistantEligible = msg.chatType === "p2p" && Boolean(this.deps.assistantSession);
+    const conversation = await this.deps.manageConnection.getCurrentConversation(connection.id)
+      ?? (isAssistantEligible
+        ? await this.deps.assistantSession!.ensureAssistantConversation({
+            connectionId: connection.id,
+            channel: "feishu",
+            displayName: await this.resolveAssistantName(msg.senderId),
+            ...(this.deps.assistantModelAlias && { modelAlias: this.deps.assistantModelAlias }),
+          })
+        : null);
     if (!conversation) {
       await this.deps.feishuGateway.replyText(
         chatId,
@@ -97,38 +101,6 @@ export class FeishuMessageProcessor {
       return;
     }
     await this.deliverToConversation(msg, conversation.id, connection.id, senderId, text);
-  }
-
-  /** F20260920imax：p2p 助理专线——单 connection 单对话汇流 */
-  private async processP2pViaAssistantLine(msg: FeishuIncomingMessage): Promise<void> {
-    const ASSISTANT_LINE_ID = "feishu-assistant-line";
-    const connection = await this.deps.manageConnection.ensureConnection(ASSISTANT_LINE_ID, ASSISTANT_LINE_ID);
-
-    const conversation = await this.deps.manageConnection.getCurrentConversation(connection.id)
-      ?? (this.deps.assistantSession
-        ? await this.deps.assistantSession.ensureAssistantConversation({
-            connectionId: connection.id,
-            channel: "feishu",
-            displayName: "飞书助理",
-            // F20260920imax：助理线模型（缺省 undefined = CreateOtter 走全局 default）
-            ...(this.deps.assistantModelAlias && { modelAlias: this.deps.assistantModelAlias }),
-          })
-        : null);
-    if (!conversation) {
-      await this.deps.feishuGateway.replyText(msg.chatId, "助理暂未开通，请联系主人 🦦");
-      return;
-    }
-
-    // 命令在专线内也支持（搭档 power mode）
-    if (msg.text.startsWith("/") && !msg.media) {
-      await this.dispatchCommand(msg.chatId, connection.id, msg.text, msg.senderId);
-      return;
-    }
-
-    // 发送者姓名前缀——多家人汇流时助理/用户分得清谁在说（飞书有真姓名）
-    const senderName = await this.resolveAssistantName(msg.senderId);
-    const prefixedText = `[${senderName}] ${msg.text}`;
-    await this.deliverToConversation(msg, conversation.id, connection.id, msg.senderId, prefixedText);
   }
 
   /** F20260920imax：消息投递公共尾部（专线/群聊两路共用）：媒体→入库→fanout→dispatch */
