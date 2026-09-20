@@ -69,6 +69,8 @@ export function useDraftCache(conversationId: string | null) {
   // 清除草稿：发送成功后 localStorage.removeItem('draft:{convId}')
   const clearDraft = useCallback(() => {
     setDraft('')
+    // 同步更新 ref——cleanup 闭包读 ref 而非 state，避免 ref 滞后导致 flush 覆盖
+    draftRef.current = ''
 
     // 清除 debounce timer
     if (debounceTimerRef.current) {
@@ -114,7 +116,9 @@ export function useDraftCache(conversationId: string | null) {
       }
       const currentConversationId = conversationIdRef.current
       const currentDraft = draftRef.current
-      if (currentConversationId && currentDraft && localStorage.getItem(`draft:${currentConversationId}`) !== null) {
+      // D2 修复：删除存在性检查——clearDraft 后是空串本就不写入，顾虑不成立
+      // Why: 首笔草稿（key 不存在）也需要写入，否则 SPA 导航会丢失未保存的草稿
+      if (currentConversationId && currentDraft) {
         localStorage.setItem(`draft:${currentConversationId}`, currentDraft)
       }
     }
