@@ -186,3 +186,14 @@ weixin-message-channel.ts / feishu-message-channel.ts 的 onEvent 新增 `entry.
 
 - 新增 e2e 级单测 bot-anchored-routing.test.ts（2 用例：双人私聊同 bot → 同对话 + 姓名 prefix；lastChatId 随入站刷新）
 - 全量 3679 用例绿；lint 0 error；tsc 0 error
+
+## 最终轮审视（2026-09-20 下午，检视imax2/mimo）
+
+两轮收敛：首轮 1 严重 + 4 建议（严重=命名弹层无重入路径；建议=文案残留/匹配失效/mergeMetadata 非原子/并发串台），处置 3 修复 + 2 维持已知边界；delta 复核通过（commit 457f46e4）。已知边界汇总（后续特性处理）：
+- 账号↔对话关联靠 title 匹配，根修需关联字段
+- mergeMetadata 读-改-写非原子（低频覆盖，危害=回复串前一人）
+- 飞书双人同时发消息的出站串台窗口（lastChatId 最后写者胜）
+
+## 产品定位定锚（搭档认可，2026-09-20）
+
+「B 为体 + power layer」：IM 助理（通讯录联系人模型，一 bot 一对话）为主体；slash 命令为搭档 power layer。试金石=家人两周留存；下一步「有用层」（每日简报/主动提醒/带记忆问答）。术语库已录。
