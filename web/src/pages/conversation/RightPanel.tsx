@@ -478,16 +478,14 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
               解散
             </span>
           )}
-          {/* F20260805rsto：重启是大獭专属（小獭用解散） */}
-          {isBig && (
-            <button
-              onClick={e => { e.stopPropagation(); onRestart(o.id) }}
-              className="opacity-0 group-hover:opacity-100 h-6 px-1.5 rounded-lg text-[10px] text-stone-400 hover:text-red-400 transition flex items-center"
-              title="重启大獭（新 session）"
-            >
-              重启
-            </button>
-          )}
+          {/* F20260920srbtn：重启獭生对小獭开放（与 agent 侧 restart_otter 大獭可重启小獭对齐，取代 F20260805rsto 的 isBig 门） */}
+          <button
+            onClick={e => { e.stopPropagation(); onRestart(o.id) }}
+            className="opacity-0 group-hover:opacity-100 h-6 px-1.5 rounded-lg text-[10px] text-stone-400 hover:text-red-400 transition flex items-center"
+            title="重启獭生（封存当前 session，开启新一世）"
+          >
+            重启
+          </button>
         </div>
       </div>
       {/* hover 快览卡：F20260826pfix 改 Portal + fixed 按 trigger 坐标定位。

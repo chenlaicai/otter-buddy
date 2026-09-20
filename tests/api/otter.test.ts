@@ -262,15 +262,18 @@ describe("Otter API", () => {
       expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", "Restarting", undefined);
     });
 
-    it("F20260805rsto：小獭不支持重启（重启是大獭专属，小獭用解散），返回 400", async () => {
+    it("F20260920srbtn：小獭可重启獭生（取代 F20260805rsto 的 small 拦截，与 agent 侧 restart_otter 大獭可重启小獭对齐），返回 201", async () => {
       deps.queryOtter.getById.mockResolvedValue(makeOtter({ type: "small" }));
+      const newSession = makeSession({ id: "small-new-session" });
+      deps.manageSession.restartSession.mockResolvedValue(newSession);
 
       const res = await app.request("/api/otters/otter-1/restart", {
         method: "POST",
       });
 
-      expect(res.status).toBe(400);
-      expect(deps.manageSession.restartSession).not.toHaveBeenCalled();
+      if (res.status !== 201) console.error("DBG3", await res.clone().text());
+      expect(res.status).toBe(201);
+      expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", undefined, undefined);
     });
 
     it("delegates to restartSession and returns 201", async () => {

@@ -515,11 +515,11 @@ function OtterDetailModal(props: ModalsProps) {
       footer={
         <>
           <ModalButton onClick={props.onClose}>关闭</ModalButton>
-          {isBig ? (
-            <ModalButton variant="danger" onClick={() => { props.onClose(); props.onOpenRestart(otter.id) }}>
-              重启獭生
-            </ModalButton>
-          ) : (
+          {/* F20260920srbtn：重启獭生对小獭开放（与 agent 侧 restart_otter 对齐）；小獭保留解散双入口 */}
+          <ModalButton variant="danger" onClick={() => { props.onClose(); props.onOpenRestart(otter.id) }}>
+            重启獭生
+          </ModalButton>
+          {!isBig && (
             <ModalButton variant="danger" onClick={() => { props.onClose(); props.onOpenDissolve(otter.id) }}>
               解散小獭
             </ModalButton>

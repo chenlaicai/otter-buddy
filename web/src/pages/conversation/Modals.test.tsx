@@ -165,6 +165,42 @@ describe('OtterDetailModal 世数链摘要折叠', () => {
     const generations = document.querySelector('[data-testid="detail-column-generations"]') as HTMLElement
     expect(generations.textContent).not.toContain('⚔️')
   })
+
+  // F20260920srbtn：重启獭生对小獭开放，小獭 footer 双按钮（重启+解散），大獭仅重启
+  it('小獭 footer：重启獭生与解散小獭双按钮并存（F20260920srbtn）', () => {
+    renderDetailModal([
+      makeSession({ id: 's1', status: 'active', previousSessionId: null }),
+    ])
+    const footerBtns = Array.from(document.querySelectorAll('button')).map(b => b.textContent)
+    expect(footerBtns).toContain('重启獭生')
+    expect(footerBtns).toContain('解散小獭')
+  })
+
+  it('大獭 footer：仅重启獭生，无解散按钮（解散仍是大獭专属的例外机制外能力）', () => {
+    const bigOtter = { id: 'o1', name: '大獭木体', type: 'big', createdAt: '2026-08-25' } as unknown as Otter
+    const noop = () => {}
+    act(() => {
+      root.render(
+        <ConversationModals
+          modal={{ type: 'otter-detail', otterId: 'o1' }}
+          otters={[bigOtter]}
+          sessions={{ o1: [makeSession({ id: 's1', status: 'active', previousSessionId: null })] }}
+          onClose={noop}
+          onConfirmNewConv={noop}
+          onConfirmArchive={noop}
+          onConfirmCreateOtter={noop}
+          onConfirmDissolve={noop}
+          onConfirmRestart={noop}
+          onConfirmLinkResource={noop}
+          onOpenRestart={noop}
+          onOpenDissolve={noop}
+        />
+      )
+    })
+    const footerBtns = Array.from(document.querySelectorAll('button')).map(b => b.textContent)
+    expect(footerBtns).toContain('重启獭生')
+    expect(footerBtns).not.toContain('解散小獭')
+  })
 })
 
 // ═══ F20260827ucrt：CreateOtterModal 重做测试 ═══
