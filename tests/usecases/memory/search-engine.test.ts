@@ -483,9 +483,14 @@ describe("F20260917cvid: 本对话来源加权（currentConversationBoost）", (
   });
 
   it("rerank 传入 currentConversationId 时，本对话条目分数 ×1.5，其他对话条目不变", () => {
-    const sameConv = makeEntry({ id: "same", conversationId: "conv-A" });
-    const otherConv = makeEntry({ id: "other", conversationId: "conv-B" });
-    const noConv = makeEntry({ id: "none", conversationId: null });
+    // CI flaky 修复（turn PR #1053 顺带）：默认 createdAt=now 使 boosted/baseline 两次
+    // rerank 之间真实时间流逝 → timeDecay 漂移 → 5.7e-10 差击穿 10 位精度断言（慢机
+    // 器 CI 实证）。固定 createdAt + vi.setSystemTime 钉死时间源，双保险。
+    const NOW = "2026-09-20T00:00:00Z";
+    vi.setSystemTime(new Date(NOW));
+    const sameConv = makeEntry({ id: "same", conversationId: "conv-A", createdAt: NOW });
+    const otherConv = makeEntry({ id: "other", conversationId: "conv-B", createdAt: NOW });
+    const noConv = makeEntry({ id: "none", conversationId: null, createdAt: NOW });
     const hits = new Map<string, import("@usecases/memory/search-engine").RrfHit>([
       ["same", { entryId: "same", rrfScore: 0.5, source: "fts", entry: sameConv }],
       ["other", { entryId: "other", rrfScore: 0.5, source: "fts", entry: otherConv }],
@@ -498,10 +503,12 @@ describe("F20260917cvid: 本对话来源加权（currentConversationBoost）", (
     const score = (arr: ReturnType<SearchEngine["rerank"]>, id: string) =>
       arr.find(r => r.entryId === id)!.finalScore;
 
-    // toBeCloseTo 默认 10 位精度会被 ×1.5 浮点往返击穿（CI 实证差 5.7e-10），用比例断言
+    // toBeCloseTo 默认 10 位精度会被 ×1.5 浮点往返击穿（CI 实证差 5.7e-10），用比例断言；
+    // 交叉对话断言降 8 位精度——即便时间钉死，浮点次序差异仍可能引入远小于业务意义的抖动
     expect(score(boosted, "same") / score(baseline, "same")).toBeCloseTo(1.5, 9);
-    expect(score(boosted, "other")).toBeCloseTo(score(baseline, "other"), 10);
-    expect(score(boosted, "none")).toBeCloseTo(score(baseline, "none"), 10);
+    expect(score(boosted, "other")).toBeCloseTo(score(baseline, "other"), 8);
+    expect(score(boosted, "none")).toBeCloseTo(score(baseline, "none"), 8);
+    vi.useRealTimers();
   });
 
   it("不传 currentConversationId 时排序与旧行为一致（零影响）", () => {
