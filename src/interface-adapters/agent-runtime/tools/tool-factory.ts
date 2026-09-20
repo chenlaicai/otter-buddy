@@ -269,7 +269,11 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
 /** #543：create_otter 前置提示——目标模型近 24h 内有未恢复的配额耗尽记录时提示改派。
  *  Why 提示不硬拦：rate_limit 事件 resolve 无人驱动（配额恢复是外部事实），
  *  24h 窗内旧事件可能已恢复——硬拦会误伤；提示让编排獭结合上下文自行裁决。
- *  findAll('open', 50) 按时间倒序，rate_limit 事件正常态为 0，过滤成本可忽略。 */
+ *  findAll('open', 50) 按时间倒序，rate_limit 事件正常态为 0，过滤成本可忽略。
+ *
+ *  时钟假设（#719）：`Date.now() - Date.parse(e.createdAt)` 假设进程时钟与 DB 写入时钟同源——
+ *  当前单机 SQLite 部署成立（同进程写同进程读）。多进程/远端 DB 部署时需改用
+ *  nowMs 注入接口（与 scheduler 时钟注入模式对齐），此处不提前实现。 */
 async function checkModelQuotaHint(
   healingRepo: HealingEventRepository | undefined,
   targetAlias: string | undefined,
