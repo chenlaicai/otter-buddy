@@ -22,7 +22,28 @@ import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { OtterSession } from "@entities/otter/otter-session";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
+import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
+import type { SendEntry } from "@usecases/conversation/send-entry";
 import { createCapturingLogger } from "../helpers/logger";
+import { mockSendEntry } from "../helpers/mock-send-entry";
+
+/** 熔断全链路测试的 SendEntry（复用 circuit-retry 测试的模式：第二段 invoke 查询时置 completed 模拟 yield） */
+function mockSendEntryForCircuit(): SendEntry {
+  const base = mockSendEntry();
+  let invokeCalls = 0;
+  const origGetInvoke = base.getInvokeById.bind(base);
+  (base as { getInvokeById: (id: string) => Promise<unknown> }).getInvokeById = async (id: string) => {
+    const invoke = await origGetInvoke(id) as { status?: string; talkingStonePassedTo?: string[] } | null;
+    invokeCalls++;
+    // 第二段（新世全新 invoke）查询时模拟 yield 已发生
+    if (invoke && invokeCalls >= 2) {
+      invoke.status = "completed";
+      invoke.talkingStonePassedTo = ["user-1"];
+    }
+    return invoke;
+  };
+  return base;
+}
 
 const sharedLogger = createCapturingLogger();
 
@@ -301,5 +322,77 @@ describe("restartWithUnifiedHandoff（F20260918uhuc 统一交接）", () => {
     // slice 失败被 collectJsonlSlice 内部 catch → 机械档案降级，不裸奔也不报错
     expect(session.id).toBe("sess-new");
     void engine;
+  });
+
+  it("审视发现1回归：熔断路径只换世一次——unifiedHandoff 成功后不再二次 restartSession（无幽灵世代）", async () => {
+    // 全链路走 invokeConversation → handleCircuitBreakSignal：
+    // 首段 invoke 退化（_guardAbortReason）→ 熔断判定 → unifiedHandoff 换世（唯一一次）
+    // → 补写熔断事件 → 递归全新 invoke 正常 yield。
+    // 断言：restartSession 恰一次；旧代码的双重换世（unifiedHandoff 内一次 +
+    // executeCircuitBreakRestart 内一次）会记录两次，本用例锁死为一次。
+    const restarts: string[] = [];
+    let invokeCalls = 0;
+    const sdk = {
+      invoke: async () => {
+        invokeCalls++;
+        if (invokeCalls >= 2) return { text: "新世应答" };
+        return Object.assign({ text: "" }, { _guardAbortReason: "degenerate_output" });
+      },
+      runCompactionSynthesis: async () => synthResult("## 交接摘要（七段）"),
+      acquireSessionLock: async () => () => {},
+      readCurrentSessionEntries: async () => [{ type: "message", id: "e1" }],
+      isRunning: () => false,
+      abort: vi.fn(), getToolCallCount: () => 0, getInternalAbortReason: () => undefined,
+    } as unknown as SdkInvokePort;
+    const manageSession = {
+      getActiveSession: async () => makeSession({ id: "sess-old" }),
+      createSession: async (otterId: string) => makeSession({ otterId }),
+      restartSession: async (otterId: string) => {
+        restarts.push(`restart:${otterId}`);
+        return makeSession({ id: "sess-handoff", otterId });
+      },
+      conversationQuery: { getIdsByOtterId: async () => ["conv-1"] },
+    } as unknown as ManageSession;
+    const sendEntry = mockSendEntryForCircuit();
+    const healingEvents: Array<Record<string, unknown>> = [];
+    const healingRepo = {
+      create: async (e: Record<string, unknown>) => { healingEvents.push(e); return "evt-1"; },
+      list: async () => [],
+    } as unknown as HealingEventRepository;
+    const invoker = new AgentInvoker(
+      sdk,
+      { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
+      manageSession,
+      { getById: async () => ({ id: "otter-1", name: "测试獭", type: "big" }) } as unknown as QueryOtter,
+      sharedLogger,
+      undefined, // messageBroadcaster
+      undefined, // workspaceGateway
+      undefined, // settingsRepo
+      undefined, // metrics
+      healingRepo,                       // 10：熔断启用
+      {} as ConversationRepository,      // 11：统一交接必需
+      undefined, // scheduledTaskRepo
+      undefined, // listArtifacts
+      undefined, // manageContext
+      undefined, // buildHandoffPkg
+      undefined, // healthySessionThresholdMs
+      undefined, // ctxWindowProvider
+      sendEntry,                         // 18：invoke 生命周期
+      { getInvokeEvents: async () => [] } as never, // 19：invokeRepo
+      undefined, // agentDispatchService
+      makeEngine(), // 21：engine（F20260918uhuc）
+    ) as unknown as AgentInvoker;
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1",
+    });
+
+    expect(invokeCalls).toBe(2); // 首段退化 + 新世全新 invoke
+    expect(restarts).toHaveLength(1); // 审视发现1核心断言：只换世一次
+    expect(restarts[0]).toBe("restart:otter-1");
+    // 熔断终态事件已补写（newSessionId 指向 unifiedHandoff 建立的新世）
+    const circuitEvent = healingEvents.find((e) => e.errorType === "circuit_break");
+    expect(circuitEvent).toBeDefined();
+    expect((circuitEvent as { context?: { newSessionId?: string } }).context?.newSessionId).toBe("sess-handoff");
   });
 });

@@ -1306,11 +1306,25 @@ export class AgentInvoker implements AgentTurnPort {
         error: handoffErr instanceof Error ? handoffErr.message : String(handoffErr),
       });
     }
-    void circuitHandoffSession;
-
-    const restarted = await this.circuitBreak.executeCircuitBreakRestart(turnResult._circuitBreak, emitEvent);
-    if (!restarted) {
-      return null;
+    if (circuitHandoffSession) {
+      // F20260918uhuc 审视发现1修复：unifiedHandoff 已完成唯一换世（新 session 携带四段叠加档案），
+      // 不再执行 executeCircuitBreakRestart 的第二次 restartSession（会导致幽灵世代+档案被熔断摘要覆盖）。
+      // 只补熔断终态事件（newSessionId 指向 unifiedHandoff 建立的新世），让熔断台账/查询完整。
+      await this.circuitBreak.writeCircuitBreakEvent(turnResult._circuitBreak, {
+        newSessionId: circuitHandoffSession.id,
+        trigger: 'primary',
+      }).catch((evErr) => {
+        this.logger.warn('[circuit-break] handoff-path circuit event write failed (non-blocking)', {
+          otterId: params.otterId,
+          error: evErr instanceof Error ? evErr.message : String(evErr),
+        });
+      });
+    } else {
+      // unifiedHandoff 失败（已 warn）：降级走 executeCircuitBreakRestart 裸重启（内部自行降级链）
+      const restarted = await this.circuitBreak.executeCircuitBreakRestart(turnResult._circuitBreak, emitEvent);
+      if (!restarted) {
+        return null;
+      }
     }
     try {
       /** retryCount 归零：新 session 语义上等同新 invoke，首次退化应获得自我纠正机会而非直达熔断判定 */
