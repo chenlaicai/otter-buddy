@@ -53,7 +53,7 @@ e2e 冒烟只验证 SPA 路由/静态资源/前端渲染，不跑 agent/LLM 路�
 
 ### 踩坑记录（负面向验收：本次变更绕过了什么/破坏了什么旧约定）
 
-- **bash 3.2（macOS 自带）不支持 `$(cat "${X}")` 嵌套在双引号字符串内**：`echo "...$(cat "${F}")..."` 语法解析失败（`unexpected EOF while looking for matching`）——CI 的 ubuntu bash 5 没问题但本地直接跑不了。改为先取值再插值。
+- **bash 3.2（macOS 自带）在 echo 混合文本上下文里解析嵌套命令替换失败**：`echo "...(pid $(cat "${F}"))..."` 语法解析报 `unexpected EOF while looking for matching`（CI 的 ubuntu bash 5 没问题但本地直接跑不了）。注意边界：`pid="$(cat "${X}")"` 赋值上下文的同款嵌套在 bash 3.2 是**合法的**（复核獭实测纠正），触发条件是命令替换嵌在「双引号字符串 + 周围有字面文本」的 echo 上下文。修复：先取值再插值（`running_pid=...; echo "... ${running_pid}"`），两种上下文都稳。
 - **相对路径在 `cd web` 后漂移**（实测孤儿进程根因）：cmd_run 里 `cd web` 跑 playwright，EXIT trap 触发 cmd_stop 时 `./data/e2e/server.pid` 解析到 `web/data/e2e/` 下——pid 文件找不到 → 跳过 kill → 服务孤儿 + 数据残留。修复：所有路径锚定 `REPO_ROOT="$(git rev-parse --show-toplevel)"`。守卫拦截组合杀进程时印证了「服务清理要走受控脚本」的既有约定。
 - **破坏的旧约定**：e2e spec 原本依赖「跑测试前手动起 alpha 实例」的隐性前置——现在 config 自带 + 脚本自动起停，该隐性前置作废（alpha 实例仍可用于交互式验证，但 e2e 不再依赖它）。
 

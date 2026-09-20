@@ -60,6 +60,12 @@ cmd_start() {
 
   mkdir -p "${E2E_DATA_DIR}"
 
+  # 端口占用快速失败（复核獭建议1）：/dev/tcp 探测是 bash 内建（3.2 可用、无 lsof 依赖）。
+  # Why: 端口被占时服务 bind 失败，wait_healthy 要空转 90s 才 die，报错还无法定位是端口冲突。
+  if (echo > "/dev/tcp/127.0.0.1/${PORT}") 2>/dev/null; then
+    die "port ${PORT} already in use — another process is listening (hint: scripts/e2e-server.sh stop, or check the occupier)"
+  fi
+
   # 后端构建（跳过 bge-m3 下载失败阻塞：build 脚本内已容错）+ 前端构建
   npm run build
   npm --prefix web ci
