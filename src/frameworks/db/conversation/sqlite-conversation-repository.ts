@@ -107,6 +107,12 @@ export class SqliteConversationRepository implements ConversationRepository {
       .run(summary, new Date().toISOString(), id);
   }
 
+  /** F20260920imax：对话重命名（助理名称）——与 pin/summary 同模式 */
+  async updateTitle(id: string, title: string): Promise<void> {
+    this.db.prepare("UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?")
+      .run(title, new Date().toISOString(), id);
+  }
+
   // ── Participants (static association) ──
 
   async getOtterIds(conversationId: string): Promise<string[]> {

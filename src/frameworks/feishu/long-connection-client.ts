@@ -118,6 +118,9 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
           kind: "feishu",
           state: { kind: "running", since: now },
           appIdMasked: maskAppId(this.config.appId),
+          // F20260920imax：自建应用 applink 分享链——扫码/点击直接打开机器人
+          // 会话页（已添加则直达对话；未添加则展示添加卡片）。前端渲染二维码用
+          appShareUrl: `https://applink.feishu.cn/client/chat/open?appId=${this.config.appId}`,
         });
         break;
       case "error_backoff":

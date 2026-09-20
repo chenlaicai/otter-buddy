@@ -139,3 +139,27 @@ weixin-message-channel.ts / feishu-message-channel.ts 的 onEvent 新增 `entry.
 
 - 同账号并发出站消息竞态（F20260918imas 检视发现 3）边界不变：入站主链单窗口串行假设维持
 - kimi 配额 403 的根因处置在配置层（assistantModelAlias 或换 default），本特性不引入模型故障自动切换（那是独立机制，需要时另立项）
+
+## 增量二（搭档 UI 验收反馈，2026-09-20 午）
+
+### 飞书扫码直达机器人（指令修正）
+
+原飞书卡是「bot 好友三步引导」文案，搭档明确要求扫码形态。核实飞书 applink 协议可行后实现：
+- `appShareUrl = https://applink.feishu.cn/client/chat/open?appId=<appId>`（long-connection-client 上报 registry → channel-controller 透传 → 前端 DTO）
+- 语义：没加过机器人 → 扫码打开机器人主页点添加；已加过 → 直接跳进与机器人的对话窗口（搭档原话语义）
+- 前端 `QRCodeSVG` 组件（qrcode 库）渲染真二维码；通道未就绪时显示示意码 + 角标（alpha 演示环境假凭证连不上飞书的兜底）
+
+### 助理名称（自定义对话名）
+
+搭档反馈：「你取的 id 谁看得懂」——微信 ilink id 中段 8 位（如 MV3gt9XI）对人类无意义。新增：
+- `PATCH /api/conversations/:id/rename`（三层：ManageConversation.rename 校验 1-60 字符 trim → repo.updateTitle → controller DTO）
+- IM 页新增「我的助理」列表区：每个助理一行（名称 + 最近消息预览 + 通道徽章），点名称行内编辑改名（Enter 保存 / Esc 取消）
+- 用户视角语义 = 给助理起名；实现语义 = 对话标题改名（搭档原话确认）
+- 微信默认显示名从尾 6 位（恒 wechat 无区分度）改为去 @im.wechat 后缀取中段 8 位
+
+### 验证
+
+- rename API 端到端（alpha 实例 curl）：改名生效 / 空值 400 / 恢复正常
+- 全量 3680 用例绿（含 rename 新 3 用例）；lint 0 error；tsc 0 error
+- 截图：hifi-8（IM 页含我的助理区）~ hifi-11（改名交互态 + 左栏命名后分组），存对话工作区
+- QR 码算法插曲：先手写 QR Model 2 编码（零依赖），jsQR 解码验证失败后放弃——改引 qrcode 库（纯 JS 零依赖）。教训记入取舍：底层编码算法手写验证成本远超收益

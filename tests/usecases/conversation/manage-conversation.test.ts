@@ -106,9 +106,7 @@ describe("ManageConversation（真 sqlite）", () => {
       await mc.complete("conv-1");
 
       expect((await repo.getById("conv-1"))?.status).toBe("completed");
-    });
-
-    it("不存在 -> not_found", async () => {
+    });    it("不存在 -> not_found", async () => {
       await expect(mc.complete("nonexistent")).rejects.toThrow(DomainError);
       await expect(mc.complete("nonexistent")).rejects.toSatisfy(
         (err: DomainError) => err.kind === "not_found",
@@ -122,6 +120,25 @@ describe("ManageConversation（真 sqlite）", () => {
       await expect(mc.complete("conv-1")).rejects.toSatisfy(
         (err: DomainError) => err.kind === "validation",
       );
+    });
+  });
+
+  describe("rename（F20260920imax 助理名称）", () => {
+    it("改名成功——返回新实体，库中 title 更新", async () => {
+      await seedConversation("conv-1", "active");
+      const renamed = await mc.rename("conv-1", " 朵朵的助理 ");
+      expect(renamed.title).toBe("朵朵的助理"); // trim 后落库
+      expect((await repo.getById("conv-1"))?.title).toBe("朵朵的助理");
+    });
+
+    it("空字符串 / 超长 -> validation", async () => {
+      await seedConversation("conv-1", "active");
+      await expect(mc.rename("conv-1", "   ")).rejects.toSatisfy((err: DomainError) => err.kind === "validation");
+      await expect(mc.rename("conv-1", "a".repeat(61))).rejects.toSatisfy((err: DomainError) => err.kind === "validation");
+    });
+
+    it("不存在 -> not_found", async () => {
+      await expect(mc.rename("nonexistent", "x")).rejects.toSatisfy((err: DomainError) => err.kind === "not_found");
     });
   });
 

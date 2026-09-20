@@ -20,6 +20,9 @@ export interface ConversationRepository {
   updateSummary(id: string, summary: string): Promise<void>;
   getAllIds(options?: { limit?: number; offset?: number }): Promise<string[]>;
   updatePinned(id: string, pinned: boolean): Promise<void>;
+  /** F20260920imax：对话重命名（助理名称功能的落点——用户视角是「给助理起名」，
+   *  实现上是对话 title 改名，与 pin 同模式） */
+  updateTitle(id: string, title: string): Promise<void>;
 
   // 对话参与者
   getOtterIds(conversationId: string): Promise<string[]>;

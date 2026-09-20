@@ -136,6 +136,22 @@ export class ConversationController {
     }
   }
 
+  /** F20260920imax：重命名对话（助理名称） */
+  async rename(c: Context): Promise<Response> {
+    try {
+      const id = param(c, "id");
+      const body = await c.req.json<unknown>().catch(() => ({}));
+      const title = (body as { title?: unknown }).title;
+      if (typeof title !== "string") {
+        return c.json({ error: "title 必填且为字符串" }, 400);
+      }
+      const conv = await this.manageConversation.rename(id, title);
+      return c.json(toConversationDTO(conv));
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
   async unpin(c: Context): Promise<Response> {
     try {
       const id = param(c, "id");

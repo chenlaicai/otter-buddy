@@ -152,9 +152,11 @@ export class WeixinMessageProcessor {
     });
   }
 
-  /** 助理对话显示名：微信侧无昵称接口（ilink 私聊协议），取 id 尾部 6 位作辨认锚 */
+  /** 助理对话显示名：微信 ilink id 取中段 8 位（尾 6 位恒为 "wechat" 后缀无区分度，
+   *  F20260920imax 修正——多个好友开户时无法辨认谁是谁） */
   private assistantDisplayName(fromUserId: string): string {
-    return fromUserId.length > 6 ? fromUserId.slice(-6) : fromUserId;
+    const core = fromUserId.replace(/@im\.wechat$/, '');
+    return core.length > 8 ? core.slice(-8) : core;
   }
 
   /** 未绑会话提示（媒体消息加「链接有时效」提醒——检视建议 2） */
