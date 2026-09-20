@@ -31,7 +31,7 @@ const BASE_INPUT = {
   totalCommits: 100,
   compliantCommits: 80,
   hotspotFiles: [] as Array<{ file: string; count: number }>,
-  totalHotspotFiles: 0,
+  hotspotDensity: 0,
   changeTypes: { "New Feature": 60, BugFix: 10 } as Record<string, number>,
   chainStates: { active: 8, stalled: 2 } as Record<string, number>,
   openSignals: { critical: 0, warning: 0 },
@@ -61,33 +61,30 @@ describe("D1 质量成本（F20260920hcal 校准公式）", () => {
   });
 });
 
-describe("D2 架构稳定（F20260920hcal 校准公式）", () => {
-  it("无热点无失衡 = 100", () => {
+describe("D2 架构稳定（F20260920hcal 密度化公式）", () => {
+  it("density=0 无热点 = 100", () => {
     expect(scoreD2(0, false)).toBe(100);
   });
-  it("3 个热区文件：每个扣 2，共扣 6", () => {
-    expect(scoreD2(3, false)).toBe(94);
+  it("density=0.1 热区密度 10% → 75（绿边界）", () => {
+    expect(scoreD2(0.1, false)).toBe(75);
   });
-  it("10 个热区文件：扣 20 = 80（绿）", () => {
-    expect(scoreD2(10, false)).toBe(80);
+  it("density=0.2 热区密度 20% → 50（黄边界）", () => {
+    expect(scoreD2(0.2, false)).toBe(50);
   });
-  it("15 个热区文件：扣 30 = 70（原公式饱和 40，现恢复区分度）", () => {
-    expect(scoreD2(15, false)).toBe(70);
+  it("density=0.36 实测密度 36% → 10（红——项目当前真实状态）", () => {
+    expect(scoreD2(0.36, false)).toBeCloseTo(10, 5);
   });
-  it("20 个热区文件：扣 40 = 60（黄）", () => {
-    expect(scoreD2(20, false)).toBe(60);
+  it("density=0.4 热区密度 40% → 0（红，clamp）", () => {
+    expect(scoreD2(0.4, false)).toBe(0);
   });
-  it("30 个热区文件：扣 60 = 40（红）——无饱和封顶", () => {
-    expect(scoreD2(30, false)).toBe(40);
-  });
-  it("50 个热区文件：扣 100 = 0（clamp）", () => {
-    expect(scoreD2(50, false)).toBe(0);
+  it("density>0.4 clamp 在 0", () => {
+    expect(scoreD2(0.8, false)).toBe(0);
   });
   it("失衡再扣 20", () => {
     expect(scoreD2(0, true)).toBe(80);
   });
-  it("20 热区 + 失衡：100 - 40 - 20 = 40", () => {
-    expect(scoreD2(20, true)).toBe(40);
+  it("density=0.2 + 失衡：100 - 50 - 20 = 30", () => {
+    expect(scoreD2(0.2, true)).toBe(30);
   });
   it("bugfix:feature ≥2 判失衡（与信号引擎同口径）", () => {
     const r = computeHealthScore({
@@ -96,6 +93,14 @@ describe("D2 架构稳定（F20260920hcal 校准公式）", () => {
     });
     const d2 = r.dimensions.find(d => d.dimension === "D2")!;
     expect(d2.score).toBe(80); // 0 hotspot + imbalance -20
+  });
+  it("生产量级：60天窗口 1658 文件/599 高频 → density=0.361，D2≈10（S4 防玩具值掩盖）", () => {
+    // 实测 2026-09-20：git log --since='60 days ago' | sort | uniq -c | awk '$1>=2'
+    const totalFiles = 1658;
+    const highFreqFiles = 599;
+    const density = highFreqFiles / totalFiles; // 0.361
+    expect(scoreD2(density, false)).toBeCloseTo(100 - density * 250, 5);
+    expect(scoreD2(density, false)).toBeCloseTo(9.7, 0); // 约 10 分，红区
   });
 });
 

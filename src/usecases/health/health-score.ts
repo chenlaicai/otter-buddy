@@ -10,7 +10,7 @@
  * 维度口径（F20260920hcal 实测校准版）：
  * - D1 质量成本: bugfix_ratio 分段线性 min(100, 100×max(0,(0.55-ratio)/0.30))
  *   三档锚点：≤25% 满分 / 40% = 50 / ≥55% 归零
- * - D2 架构稳定: 100 - hotspot文件数×2 - imbalance触发?20:0（无饱和封顶）
+ * - D2 架构稳定: 100 - hotspotDensity×250 - imbalance触发?20:0（密度化，抗规模不变性）
  * - D3 交付活力: active占比×100 - regressed（×1.5）/stalled（×0.5，pr-stalled 投影）占比扣分（F20260902sigm 四态：
  *   pr-stalled 投影 stalled 顶上原 zombie 权重位，F20260920hcal 降至 ×50；D5 分母口径不变——
  *   active+stalled 仍为「活跃+停滞中」链）
@@ -75,8 +75,8 @@ export interface HealthScoreInput {
   compliantCommits: number;
   /** distribution.file_hotspots 的 metadata（热区文件列表，Top-N 截断） */
   hotspotFiles: Array<{ file: string; count: number }>;
-  /** 全量热区文件总数（不受 Top-N 截断，用于 D2 评分） */
-  totalHotspotFiles: number;
+  /** 热区密度：改动 ≥2 次文件数 / 窗口内被碰文件总数（0-1，抗规模不变性，用于 D2 评分） */
+  hotspotDensity: number;
   /** distribution.change_types 的 metadata（各 changeType 计数） */
   changeTypes: Record<string, number>;
   /** distribution.chain_states 的 metadata（五态计数）；null=当日无链数据 */
@@ -123,11 +123,14 @@ export function scoreD1(bugfixRatio: number): number {
   return clamp(100 * Math.max(0, (0.55 - bugfixRatio) / 0.30));
 }
 
-/** D2 架构稳定：热区文件数线性扣分（每个扣 2，无饱和封顶）+ bugfix:feature 失衡（≥2 倍）再扣 20
- *  F20260920hcal 校准：原 ×4+cap60 在 ≥15 热区时恒 40（20天实测 D2 恒 40 无区分度），
- *  改为 ×2 无封顶——10 热区=80（绿）、20 热区=60（黄）、30 热区=40（红），梯度恢复 */
-export function scoreD2(hotspotCount: number, imbalanceTriggered: boolean): number {
-  const penalty = hotspotCount * 2;
+/** D2 架构稳定：热区密度线性扣分 + bugfix:feature 失衡（≥2 倍）再扣 20
+ *  F20260920hcal v2（S4 修复）：从绝对热区文件数改为热区密度（高频文件占比），抗规模不变性。
+ *  密度 = 改动 ≥2 次文件数 / 窗口内被碰文件总数
+ *  公式：100 - density × 250——density=0→100（绿）、0.2→50（黄）、0.4→0（红）
+ *  与 bug_recurrence 的 K≥3/30天 区分：D2 用 K≥2/60天，更宽口径捕捉架构层面的反复修改模式
+ */
+export function scoreD2(hotspotDensity: number, imbalanceTriggered: boolean): number {
+  const penalty = hotspotDensity * 250;
   return clamp(100 - penalty - (imbalanceTriggered ? 20 : 0));
 }
 
@@ -172,14 +175,14 @@ function dimensionD1(input: HealthScoreInput): DimensionScore {
 }
 
 function dimensionD2(input: HealthScoreInput): DimensionScore {
-  // F20260920hcal: 用全量热区文件数（不受 Top-N 截断），恢复 D2 梯度区分度
-  const hotspotCount = input.totalHotspotFiles;
+  // F20260920hcal v2（S4 修复）：用热区密度（高频文件占比）代替绝对计数，抗规模不变性
+  const density = input.hotspotDensity;
   const imbalance = isImbalanceTriggered(input.changeTypes);
-  const score = scoreD2(hotspotCount, imbalance);
+  const score = scoreD2(density, imbalance);
   const parts: string[] = [];
-  if (hotspotCount > 0) {
+  if (density > 0 && input.hotspotFiles.length > 0) {
     const top = input.hotspotFiles[0]!;
-    parts.push(`${top.file} 等 ${hotspotCount} 个热区文件（${top.count} 次修改居首）`);
+    parts.push(`高频文件占比 ${(density * 100).toFixed(1)}%（${top.file} 等修改居首）`);
   }
   if (imbalance) parts.push("bugfix:feature ≥2 失衡");
   return {

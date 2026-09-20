@@ -45,8 +45,10 @@ export interface Metrics {
   moduleStats: ModuleStat[];
   /** 文件热点 TOP N（降序，用于 UI 展示和归因句） */
   fileHotspots: FileHotspot[];
-  /** 全量热区文件总数（不受 Top-N 截断，用于 D2 评分） */
-  totalHotspotFiles: number;
+  /** 60 天窗口内被碰过的文件总数（含仅碰 1 次的） */
+  totalWindowFiles: number;
+  /** 改动 ≥2 次的文件数（高频文件，用于 D2 热区密度计算） */
+  highFrequencyFiles: number;
 }
 
 export interface MetricsOptions {
@@ -68,21 +70,27 @@ function tally<T>(items: T[], keyOf: (item: T) => string | null): Record<string,
 
 /**
  * 文件热点：从 commit 文件列表聚合出 TOP N。
- * 返回 { total: 全量文件数, topN: 前 N 个热区 }
- * total 用于 D2 评分（不受截断影响），topN 用于 UI 展示和归因句。
+ * 返回 { totalWindowFiles: 窗口内被碰过的文件总数, highFrequencyFiles: 改动 ≥2 次的文件数, topN: 前 N 个热区 }
+ * totalWindowFiles + highFrequencyFiles 用于 D2 热区密度计算（抗规模不变性），
+ * topN 用于 UI 展示和归因句。
  */
 function computeFileHotspots(
   commitsWithFiles: GitCommitWithFiles[],
   topN: number,
-): { total: number; topN: FileHotspot[] } {
+): { totalWindowFiles: number; highFrequencyFiles: number; topN: FileHotspot[] } {
   const fileCounts = tally(
     commitsWithFiles.flatMap(c => c.filesChanged),
     f => f,
   );
-  const sorted = Object.entries(fileCounts)
+  const allFiles = Object.entries(fileCounts);
+  const sorted = allFiles
     .map(([file, count]) => ({ file, count }))
     .sort((a, b) => b.count - a.count || a.file.localeCompare(b.file));
-  return { total: sorted.length, topN: sorted.slice(0, topN) };
+  return {
+    totalWindowFiles: sorted.length,
+    highFrequencyFiles: sorted.filter(f => f.count >= 2).length,
+    topN: sorted.slice(0, topN),
+  };
 }
 
 /** 模块热区：按 module 段聚合（降序，同频按名排序） */
@@ -127,6 +135,7 @@ export function calculateMetrics(
     skipReasonDistribution: tally(parsed, p => p.skipReason ?? null),
     moduleStats: computeModuleStats(parsed),
     fileHotspots: hotspots.topN,
-    totalHotspotFiles: hotspots.total,
+    totalWindowFiles: hotspots.totalWindowFiles,
+    highFrequencyFiles: hotspots.highFrequencyFiles,
   };
 }

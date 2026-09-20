@@ -68,18 +68,29 @@ issue #595 的 PR1（#597，8/29 合入）+ PR2（#606，9/1 合入）交付了�
 | 9/16 | 40.1% | 0 | 49.7 | +50 |
 | 9/20 | 37.9% | 10.6 | 57 | +46 |
 
-### D2 架构稳定：去除饱和封顶
+### D2 架构稳定：密度化改良（S4 修复）
 
-**原公式**：`100 - min(60, hotspotCount×4) - (imbalance?20:0)`
-- ≥15 热区时恒 = 40（饱和封顶）
+**原公式（第一次校准）**：`100 - hotspotCount×2`（绝对计数，无封顶）
+**问题**：hotspotCount 来自 Top-20 截断列表 length，恒=20→恒 60；改用全量计数后为 1658→恒 0 红（更失真）
+**根因**：绝对计数天然受项目规模影响，无法跨规模比较
 
-**校准公式**：`100 - hotspotCount×2 - (imbalance?20:0)`
-- 无饱和封顶，线性退化
+**S4 修复公式**：`100 - hotspotDensity×250`（密度化，抗规模不变性）
+- density = 改动 ≥2 次文件数 / 60 天窗口内被碰文件总数
+- 三档锚点：density=0→100（绿）、0.2→50（黄）、0.4→0（红）
+- 与 bug_recurrence 的 K≥3/30 天区分：D2 用 K≥2/60 天，更宽口径捕捉架构反复修改模式
 
-**校准依据**：
-- 20 天实测 D2 全部 = 40（hotspotCount 恒 20），指标完全丧失「走向」价值
-- 原注释「×10 导致 10 热区即归零，20 热区与 100 热区无区分度」——但 ×4+cap60 引入了新的饱和：15-26 热区全 = 40
-- ×2 无封顶：10 热区=80（绿）、15 热区=70、20 热区=60（黄）、30 热区=40（红）
+**实测锚定**（2026-09-20 git log --since='60 days ago'）：
+- 总文件数：1658
+- 改动 ≥2 次：599（36.1%）→ density=0.361 → D2=9.8（红）
+- 改动 ≥3 次：283（17.1%）→ 如用 K=3 则 density=0.171→D2=57.3（黄）
+- 改动 ≥5 次：102（6.2%）→ 如用 K=5 则 density=0.062→D2=84.5（绿）
+
+**K=2 选择理由**：
+- 与 bug_recurrence（K≥3/30 天）有区分度：D2 口径更宽（≥2/60 天），捕捉「反复修改但未到 bug 级」的架构信号
+- density=0.361→D2≈10（红）诚实反映项目当前架构状态（20 个热区文件 + 大量反复修改）
+- 抗规模不变性：项目规模翻倍但修改模式不变时 density 不变
+
+**前端影响**：VerdictPanel D2 归因句从「N 个热区文件」改为「高频文件占比 X%」——无硬编码口径需同步
 
 **校准后效果**：
 
@@ -180,29 +191,29 @@ metrics-calculator.ts computeFileHotspots 返回 `{ total, topN }`——total �
 
 ## 已知边界
 
-- D2 热区文件数现在使用全量计数（不受 Top-N 截断），30 热区=40 红的护栏声明成立
+- D2 热区密度使用 K≥2/60 天口径——与 bug_recurrence（K≥3/30 天）有区分度但语义重叠；若项目发展节奏变化，K 值可能需要重新校准
 - D3 stalled=0 是 F20260902sigm 设计调整的结果，stalled ×50 惩罚系数当前不影响实际得分
-- judgeTrend 窗口偏移修正要求 series 长度 ≥ 8（含 null）且 prior 窗口内有效值 ≥ 7——如果 prior 窗口 null 过多（≤6 个有效值），仍返回 null（数据不足）
 - judgeTrend recent 窗口收紧为 ≥3 有效值才判走向（旧版放行 1 个，噪声过大）
+- judgeTrend 要求 prior 窗口内有效值 ≥ 7——如果 prior 窗口 null 过多（≤6 个有效值），仍返回 null
 - 对照表 ratio 来自快照计算时的 60 天窗口，当前 DB overview ratio 可能因窗口滚动而略有差异
 
 ## 机制预算四问
 
 | 问题 | 回答 |
 |------|------|
-| 新增机制是否影响既有语义？ | 否——D1/D2/D3 公式参数调整不改变函数签名（D3 的 stalledWeight 有默认值），findByDateRange 新增可选参数向前兼容 |
-| 新增机制是否有测试覆盖？ | 是——49 个 health-score 测试 + findByDateRange metricType 测试 + snapshot-rows totalHotspotFiles 测试 |
+| 新增机制是否影响既有语义？ | 否——D1/D3/stalledWeight 参数调整不改变函数签名（有默认值），findByDateRange 新增可选参数向前兼容，D2 从绝对计数改为密度但函数签名保持 `(number, boolean)` |
+| 新增机制是否有测试覆盖？ | 是——50 个 health-score 测试（含生产量级 fixture 1658/599）+ findByDateRange metricType 测试 + snapshot-rows fixture 更新 |
 | 新增机制是否可回滚？ | 是——公式参数在单文件，findByDateRange 参数向前兼容，回滚只需 revert commit |
-| 新增机制是否需要监控？ | 建议——D1/D2 分布变化可通过 health_snapshots 对比新旧参数快照追踪 |
+| 新增机制是否需要监控？ | 建议——D2 热区密度随项目规模变化会波动，建议定期（月频）检查 density 分布 |
 
 ## 验证
 
-- ✅ 49/49 health-score 测试通过（含新旧公式边界 + 窗口偏移 + minRecentValid + stalledWeight 向后兼容）
+- ✅ 50/50 health-score 测试通过（含密度化 D2 边界 + 生产量级 fixture + minRecentValid + stalledWeight 向后兼容）
 - ✅ findByDateRange metricType 测试通过
 - ✅ tsc --noEmit 通过
 - ✅ ESLint 0 errors
-- ✅ 全量测试 3681/3681 通过（0 失败）
+- ✅ 全量测试 3680/3680 通过
 
 ## Modification-Class
 
-`mechanism-addition`（D1/D2/D3 公式参数调整 + findByDateRange metricType 参数 + judgeTrend 窗口偏移修正 + D2 热区计数去截断）
+`mechanism-addition`（D1/D3 公式参数调整 + D2 密度化改良 + findByDateRange metricType 参数 + judgeTrend 窗口偏移修正 + D2 热区计数密度化）

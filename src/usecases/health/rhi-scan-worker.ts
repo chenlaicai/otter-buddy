@@ -380,7 +380,9 @@ export class RhiScanWorker {
         totalCommits: ctx.metrics.totalCommits,
         compliantCommits: ctx.metrics.compliantCommits,
         hotspotFiles: ctx.metrics.fileHotspots,
-        totalHotspotFiles: ctx.metrics.totalHotspotFiles,
+        hotspotDensity: ctx.metrics.totalWindowFiles > 0
+          ? ctx.metrics.highFrequencyFiles / ctx.metrics.totalWindowFiles
+          : 0,
         changeTypes: ctx.metrics.changeTypeDistribution,
         chainStates: ctx.stateCounts,
         openSignals: this.lastOpenSignalCounts ?? { critical: 0, warning: 0 },
