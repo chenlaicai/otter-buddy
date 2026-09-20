@@ -95,6 +95,13 @@ export class DispatchChainEngine {
        *  未注入时（旧装配/测试桩）降级读 messages——生产装配必注入。 */
       entryRepo?: { getUnreadEntries(conversationId: string, otterId: string): Promise<Array<{ id: string; entryType: string; senderType: string | null; senderId: string | null; body: string | null; senderName: string; sequenceNum: number; invokeId: string | null; yieldTargets: string[] | null; attachments?: Array<{ kind: string; originalName: string }> }>>; getEntries(conversationId: string, options?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; entryType: string; senderType: string | null; senderId: string | null; body: string | null; senderName: string; sequenceNum: number; invokeId: string | null; yieldTargets: string[] | null }>> };
       invokeRepo?: { getInvokeById(invokeId: string): Promise<{ id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null } | null> };
+      /** F20260920trrt：闲置预警新口径（seq 差 + 时间护栏）读时聚合接口。
+       *  SQLite 实现已提供；测试桩可部分 mock（可选方法，未注入时预警降级为 null）。 */
+      idleStatsRepo?: {
+        getMaxEntrySeq(conversationId: string): number | Promise<number>;
+        getLastSpeakBySender(conversationId: string): Map<string, { seq: number; createdAt: string }> | Promise<Map<string, { seq: number; createdAt: string }>>;
+        getLastInvokeStartedAtByOtter(conversationId: string): Map<string, string> | Promise<Map<string, string>>;
+      };
     },
   ) {}
 
@@ -626,53 +633,123 @@ export class DispatchChainEngine {
   }
 
   /** F20260819idnw：构建闲置小獭预警信息 */
+  /** F20260920trrt：构建闲置小獭预警信息（新口径：发言 seq 差 + 时间护栏 + 只对非 big 小獭告警）。
+   *
+   * 与旧版（F20260819idnw，turn 刻度）的三点差异：
+   * 1. 语义换轨：闲置 = 「距该小獭上次发言以来对话又推进了 K 条发言」（entries 全类型计数）
+   *    ——turn 退役后 seq 差是对话推进的唯一稳定刻度；
+   * 2. 活跃信号 = speak（发言），不再用「被唤醒」：大獭刚 yield 完石子即被误报「闲置 54 轮」
+   *    的乌龙不再发生；刚入场未发言的小獭按「入群后对话发言数」计，不误伤；
+   * 3. 时间护栏：seq 差超阈值但 2h 内被唤醒过的小獭不告警（高频干活中），
+   *    防止刚被唤醒干活的小獭因尚未发言被误报（搭档 09-18 拍板）。
+   *    注：speak 时间本身不参护栏（小獭发言后又有 K 条发言才会计入差值，语义自洽）。
+   *
+   * 分发对象：仅 big——解散权限专属。旧版对所有被唤醒目标注入（含小獭），
+   * 乌龙现场：小獭认真讨论是否解散大獭。注入点不变（buildMessageWithContext），
+   * 靠本处 receiver 过滤保证只对 big 生效。 */
   async buildIdleOttersWarning(
     conversationId: string,
-    currentOtterId: string
+    currentOtterId: string,
   ): Promise<string | null> {
-    // 从 settings 读取阈值，fallback 到默认值 20
-    let threshold = 20;
-    if (this.deps.settingsRepo) {
-      const raw = (await this.deps.settingsRepo.get('otter_idle_threshold'))?.trim();
-      if (raw) {
-        const parsed = parseInt(raw, 10);
-        threshold = isNaN(parsed) ? 20 : parsed;
-      }
-    }
+    // 预警只发给有解散权的大獭：非 big 直接短路
+    const currentOtter = await this.deps.queryOtter.getById(currentOtterId);
+    if (!currentOtter || currentOtter.type !== 'big') return null;
 
-    const participants = await this.deps.conversationRepo.getActiveParticipants(conversationId);
-    // 使用 getMaxTurnNumber 替代 getActiveTurn，避免链式调用中 turn 已关闭的问题
-    const currentTurnNumber = await this.deps.conversationRepo.getMaxTurnNumber(conversationId);
+    // 新口径数据源（未注入时降级为无预警——增强功能，不阻断主流程）
+    const stats = this.deps.idleStatsRepo;
+    if (!stats) return null;
 
-    if (!currentTurnNumber) return null;
+    const { seqThreshold, graceHours } = await this.readIdleThresholds();
 
-    // 批量预取所有 participant 的 otter 信息，避免 N+1 查询
+    const maxSeq = await stats.getMaxEntrySeq(conversationId);
+    if (maxSeq === 0) return null; // 对话无任何 entry（异常边界）
+
+    const [participants, lastSpeak, lastInvoke] = await Promise.all([
+      this.deps.conversationRepo.getActiveParticipants(conversationId),
+      stats.getLastSpeakBySender(conversationId),
+      stats.getLastInvokeStartedAtByOtter(conversationId),
+    ]);
+
+    // 批量预取 otter（type 过滤 + 名字映射）
     const otterNames = new Map<string, string>();
+    const otterTypes = new Map<string, string>();
     await Promise.all(participants.map(async p => {
       const otter = await this.deps.queryOtter.getById(p.otterId);
-      if (otter) otterNames.set(p.otterId, otter.name);
+      if (otter) {
+        otterNames.set(p.otterId, otter.name);
+        otterTypes.set(p.otterId, otter.type);
+      }
     }));
 
-    const idleOtters: Array<{ name: string; idleTurns: number }> = [];
+    const now = Date.now();
+    const GRACE_MS = graceHours * 3600_000;
+    const idleOtters: Array<{ name: string; speakGap: number; lastSeen: string }> = [];
 
     for (const p of participants) {
       if (p.otterId === currentOtterId) continue;
-      const idleTurns = currentTurnNumber - p.lastActiveTurnNumber;
-      if (idleTurns > threshold) {
-        const name = otterNames.get(p.otterId);
-        if (name) {
-          idleOtters.push({ name, idleTurns });
-        }
-      }
+      if (otterTypes.get(p.otterId) === 'big') continue; // 大獭互相不告警（解散对象只有小獭）
+      const name = otterNames.get(p.otterId);
+      if (!name) continue; // otter 记录缺失（异常边界）
+      const hit = this.evaluateIdleParticipant(p.otterId, { maxSeq, lastSpeak, lastInvoke, seqThreshold, graceMs: GRACE_MS, now });
+      if (hit) idleOtters.push({ name, ...hit });
     }
 
     if (idleOtters.length === 0) return null;
 
     const warnings = idleOtters.map(o =>
-      `${o.name} 已闲置 ${o.idleTurns} 轮`
+      `${o.name}（距上次发言已隔 ${o.speakGap} 条消息，最近活动 ${o.lastSeen}）`
     ).join('、');
 
-    return `系统提示：现场有小獭（${warnings}），你评估下是否顺手解散。`;
+    return `系统提示：现场有小獭（${warnings}）已长时间未参与，你评估下是否顺手解散。`;
+  }
+
+  /** F20260920trrt：单只小獭闲置判定（纯函数风格，无副作用）。
+ *  返回 null = 不闲置/不告警；返回 { speakGap, lastSeen } = 告警。
+ *  发言 seq 差：该小獭最后一条 speak 之后对话又新增的发言数（全类型计数；
+ *  未发言过的小獭 seq 记 0，差值 = 入群以来对话总发言推进，不误伤刚入场）。
+ *  时间护栏：2h 内被唤醒过（invokes.started_at，JS ISO UTC 直比）不告警（搭档 09-18 拍板）；
+ *  speak 时间不参护栏（小獭发言后又有 K 条发言才会计入差值，语义自洽）。 */
+  private evaluateIdleParticipant(otterId: string, ctx: {
+    maxSeq: number;
+    lastSpeak: Map<string, { seq: number; createdAt: string }>;
+    lastInvoke: Map<string, string>;
+    seqThreshold: number;
+    graceMs: number;
+    now: number;
+  }): { speakGap: number; lastSeen: string } | null {
+    const lastSpeakSeq = ctx.lastSpeak.get(otterId)?.seq ?? 0;
+    const speakGap = ctx.maxSeq - lastSpeakSeq;
+    if (speakGap <= ctx.seqThreshold) return null;
+
+    const lastStartedAt = ctx.lastInvoke.get(otterId);
+    if (lastStartedAt) {
+      // startedAt 由 JS new Date().toISOString() 写入（send-entry.ts，含 Z 的 UTC ISO）
+      // ——Date.parse 直接得 UTC 毫秒，无 SQLite datetime('now') 的无时区问题
+      const lastSeenMs = Date.parse(lastStartedAt);
+      if (!Number.isNaN(lastSeenMs) && ctx.now - lastSeenMs < ctx.graceMs) return null;
+    }
+
+    return { speakGap, lastSeen: lastStartedAt ?? '从未被唤醒' };
+  }
+
+  /** F20260920trrt：闲置阈值读取——otter_idle_threshold（seq 差，默认 30）+ otter_idle_grace_hours（小时，默认 2）。
+ *  旧键 otter_idle_threshold 语义自本特性起由「轮数」换轨为「发言 seq 差」（turn 退役）。 */
+  private async readIdleThresholds(): Promise<{ seqThreshold: number; graceHours: number }> {
+    let seqThreshold = 30;
+    let graceHours = 2;
+    if (this.deps.settingsRepo) {
+      const rawSeq = (await this.deps.settingsRepo.get('otter_idle_threshold'))?.trim();
+      if (rawSeq) {
+        const parsed = parseInt(rawSeq, 10);
+        seqThreshold = isNaN(parsed) ? 30 : parsed;
+      }
+      const rawGrace = (await this.deps.settingsRepo.get('otter_idle_grace_hours'))?.trim();
+      if (rawGrace) {
+        const parsedGrace = parseFloat(rawGrace);
+        graceHours = isNaN(parsedGrace) ? 2 : parsedGrace;
+      }
+    }
+    return { seqThreshold, graceHours };
   }
 
   /** 组装派发上下文：名册 + 具名对话历史 + 当前任务

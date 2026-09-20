@@ -184,6 +184,10 @@ export class SqliteConversationRepository implements ConversationRepository {
   async updateLastReadTurnNumber(conversationId: string, otterId: string, turnNumber: number): Promise<void> { mixins.updateLastReadTurnNumber(this.db, conversationId, otterId, turnNumber); }
   async updateLastActiveTurnNumber(conversationId: string, otterId: string, turnNumber: number): Promise<void> { mixins.updateLastActiveTurnNumber(this.db, conversationId, otterId, turnNumber); }
   async markParticipantLeft(conversationId: string, otterId: string): Promise<void> { mixins.markParticipantLeft(this.db, conversationId, otterId); }
+  // ── F20260920trrt：闲置预警新口径（发言 seq 差 + 时间护栏）读时聚合三查询 ──
+  getMaxEntrySeq(conversationId: string): number { return mixins.getMaxEntrySeq(this.db, conversationId); }
+  getLastSpeakBySender(conversationId: string): Map<string, { seq: number; createdAt: string }> { return mixins.getLastSpeakBySender(this.db, conversationId); }
+  getLastInvokeStartedAtByOtter(conversationId: string): Map<string, string> { return mixins.getLastInvokeStartedAtByOtter(this.db, conversationId); }
 
   // ── Web 用户已读状态（消息级，与 otter 的 turn 级独立） ──
 

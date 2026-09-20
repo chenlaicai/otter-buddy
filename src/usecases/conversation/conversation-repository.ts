@@ -30,6 +30,12 @@ export interface ConversationRepository {
   // 对话参与者
   getOtterIds(conversationId: string): Promise<string[]>;
 
+  // F20260920trrt：闲置预警新口径（发言 seq 差 + 时间护栏）读时聚合查询。
+  // 可选接口：测试桩可不实现（未注入时预警降级为无，不阻断主流程）。
+  getMaxEntrySeq(conversationId: string): number | Promise<number>;
+  getLastSpeakBySender(conversationId: string): Map<string, { seq: number; createdAt: string }> | Promise<Map<string, { seq: number; createdAt: string }>>;
+  getLastInvokeStartedAtByOtter(conversationId: string): Map<string, string> | Promise<Map<string, string>>;
+
   // Turn 管理（F20260913ctlv 批4c：消息生命周期/查询接口随 messages 表 drop 退役，时间线读写走 EntryRepository）
   createTurn(turn: Turn): Promise<void>;
   getActiveTurn(conversationId: string): Promise<Turn | null>;

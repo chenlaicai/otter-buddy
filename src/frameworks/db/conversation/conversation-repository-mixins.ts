@@ -219,6 +219,51 @@ export function updateLastReadSeq(
   `).run(seq, conversationId, otterId);
 }
 
+/** F20260920trrt：对话内最大 sequence_num（闲置预警的全局刻度——turn 退役后唯一的「对话推进」度量） */
+export function getMaxEntrySeq(db: Database.Database, conversationId: string): number {
+  const row = db.prepare(`
+    SELECT MAX(sequence_num) AS m FROM entries WHERE conversation_id = ?
+  `).get(conversationId) as { m: number | null } | undefined;
+  return row?.m ?? 0;
+}
+
+/** F20260920trrt：各 sender 的最后一条 speak（seq + created_at）——发言口径的活跃度。
+ *  SQLite 裸列特性：GROUP BY + MAX() 时非聚合列取自 MAX 所在行（官方文档保证）。 */
+export function getLastSpeakBySender(
+  db: Database.Database,
+  conversationId: string,
+): Map<string, { seq: number; createdAt: string }> {
+  const rows = db.prepare(`
+    SELECT sender_id AS sid, MAX(sequence_num) AS seq, created_at AS ca
+    FROM entries
+    WHERE conversation_id = ? AND entry_type = 'speak' AND sender_type = 'otter'
+    GROUP BY sender_id
+  `).all(conversationId) as Array<{ sid: string | null; seq: number; ca: string }>;
+  const map = new Map<string, { seq: number; createdAt: string }>();
+  for (const r of rows) {
+    if (r.sid) map.set(r.sid, { seq: r.seq, createdAt: r.ca });
+  }
+  return map;
+}
+
+/** F20260920trrt：各 otter 的最近一次被唤醒时间（invokes.started_at）——闲置预警时间护栏数据源 */
+export function getLastInvokeStartedAtByOtter(
+  db: Database.Database,
+  conversationId: string,
+): Map<string, string> {
+  const rows = db.prepare(`
+    SELECT otter_id AS oid, MAX(started_at) AS ma
+    FROM invokes
+    WHERE conversation_id = ?
+    GROUP BY otter_id
+  `).all(conversationId) as Array<{ oid: string | null; ma: string | null }>;
+  const map = new Map<string, string>();
+  for (const r of rows) {
+    if (r.oid && r.ma) map.set(r.oid, r.ma);
+  }
+  return map;
+}
+
 /** F20260913ctlv 批4c 修复：按 invokeId 反查 turn_number（新模型链：invokes.trigger_entry_id → entries.turn_id → turns.turn_number）。
  *  旧链查 messages 表且收到的 ID 实为 invokeId（批4a 语义换轨）——永远 miss。
  *  trigger_entry_id 为空（旧 invoke/边界）时 JOIN 天然 miss，返回 null（调用方跳过推进，不抛错）。 */
