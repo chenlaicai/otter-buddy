@@ -527,8 +527,16 @@ function rebuildAttachmentsKindCheck(db: Database.Database, logger: Logger): voi
  *  幂等：新库 schema 无 turn_id 列（PRAGMA 检测不到直接返回）。
  *  FK 事务模式与 rebuildAttachmentsKindCheck 同款（PRAGMA foreign_keys 事务外关、事务后恢复）。 */
 function retireTurnSystem(db: Database.Database, logger: Logger): void {
-  const entryCols = db.prepare("PRAGMA table_info(entries)").all() as Array<{ name: string }>;
-  if (!entryCols.some(col => col.name === 'turn_id')) return; // 新库或已迁移
+  // D2（复检 delta）：各子函数独立幂等判存——曾运行中间版本的库（如 entries 已迁
+  // 但 executions 未迁）再次启动时各自自愈，不依赖 entries.turn_id 作整体闸门。
+  // 幂等判据各自 PRAGMA 检测目标列/表；全干净时整体零副作用。
+  const needsWork =
+    (db.prepare("PRAGMA table_info(entries)").all() as Array<{ name: string }>).some(col => col.name === 'turn_id')
+    || (db.prepare("PRAGMA table_info(conversation_participants)").all() as Array<{ name: string }>).some(col => col.name.includes('turn'))
+    || (db.prepare("PRAGMA table_info(scheduled_task_executions)").all() as Array<{ name: string }>).some(col => col.name === 'turn_id')
+    || (db.prepare("PRAGMA table_info(linked_resources)").all() as Array<{ name: string }>).some(col => col.name === 'linked_at_turn_number')
+    || db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='turns'").get() !== undefined;
+  if (!needsWork) return; // 新库或已迁移
 
   logger.info('Retiring turn system: rebuilding entries/participants/executions, dropping turns');
   db.pragma("foreign_keys = OFF");
@@ -538,7 +546,8 @@ function retireTurnSystem(db: Database.Database, logger: Logger): void {
       rebuildParticipantsWithoutTurnColumns(db);
       rebuildExecutionsWithoutTurnId(db);
       dropLinkedResourcesTurnStamps(db);
-      // turns 表 drop（引用方 FK 已全拆——entries/participants/executions 三处重建完毕）
+      // turns 表 drop（引用方 FK 已全拆——三处重建 + turn 戳清理完毕；独立判存使
+      // 中间态库的孤儿 turns 也能被清掉）
       db.exec(`DROP TABLE IF EXISTS turns;`);
     })();
   } finally {
@@ -601,6 +610,12 @@ function dropLinkedResourcesTurnStamps(db: Database.Database): void {
         SELECT id, conversation_id, resource_type, url, title, content, category, user_flagged, metadata, linked_by, otter_id, auto_linked, created_at, status, group_id, superseded_by FROM linked_resources;
       DROP TABLE linked_resources;
       ALTER TABLE linked_resources_retire RENAME TO linked_resources;
+      -- D1（复检 delta）：索引恢复——与 schema.ts 建表定义逐一对齐（同批其余重建函数同款）
+      CREATE INDEX IF NOT EXISTS idx_linked_resources_conversation_id ON linked_resources(conversation_id);
+      CREATE INDEX IF NOT EXISTS idx_linked_resources_type ON linked_resources(resource_type);
+      CREATE INDEX IF NOT EXISTS idx_linked_resources_conversation_status ON linked_resources(conversation_id, status);
+      CREATE INDEX IF NOT EXISTS idx_linked_resources_group_id ON linked_resources(group_id);
+      CREATE INDEX IF NOT EXISTS idx_linked_resources_user_flagged ON linked_resources(conversation_id, user_flagged);
     `);
 }
 

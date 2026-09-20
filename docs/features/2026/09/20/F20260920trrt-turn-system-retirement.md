@@ -95,6 +95,11 @@ from:
 - 新增 tests/frameworks/db/retire-turn-verify.test.ts：新库零僵尸列 + 存量库（executions 悬空 FK/turn 戳/participants turn 列/entries turn_id 四形态）全清 + 数据保留 + 幂等，7 组断言实测。
 - 复检同时确认：预警新口径边界组合、FTS 同步、last_read_seq 保留、写路径语义等价——全部干净。
 
+### 复检 delta 两建议（已修）
+- D1：dropLinkedResourcesTurnStamps 补 5 个索引恢复（与 schema.ts 建表定义逐一对齐——同批其余重建函数同款，堵 schema 真相源漂移）。
+- D2：retireTurnSystem 外层闸门改各子函数独立幂等判存（entries/participants/executions/linked/turns 五点 PRAGMA 检测）——曾运行中间版本的库再次启动各自自愈，孤儿 turns 也能被清。
+- 补 D1/D2 验证用例（retire-turn-verify.test.ts 现 4 用例）。
+
 ## 不兼容更新
 
 - [Incompatible] turns 表 drop（存量库迁移自动拆除）

@@ -24,6 +24,39 @@ describe("retireTurnSystem 复检处置验证（F20260920trrt）", () => {
     db.close();
   });
 
+  it("D1. linked_resources 重建后 5 个索引完整恢复（schema 真相源对齐）", () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    initSchema(db);
+    // 构造带 turn 戳的存量形态（同 B 场景，仅 linked_resources）
+    db.pragma("foreign_keys = OFF");
+    db.exec(`DROP TABLE linked_resources`);
+    db.exec(`CREATE TABLE linked_resources (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, resource_type TEXT NOT NULL, url TEXT, title TEXT, content TEXT, category TEXT, user_flagged INTEGER DEFAULT 0, metadata TEXT, linked_by TEXT NOT NULL, otter_id TEXT, auto_linked INTEGER DEFAULT 0, created_at TEXT, status TEXT DEFAULT 'active', linked_at_turn_number INTEGER DEFAULT 0, status_changed_at_turn_number INTEGER DEFAULT 0, group_id TEXT, superseded_by TEXT)`);
+    db.pragma("foreign_keys = ON");
+    migrateDatabase(db, createTestLogger());
+    const idx = (db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='linked_resources' AND name LIKE 'idx_%'").all() as Array<{ name: string }>).map(r => r.name).sort();
+    expect(idx).toEqual([
+      "idx_linked_resources_conversation_id",
+      "idx_linked_resources_conversation_status",
+      "idx_linked_resources_group_id",
+      "idx_linked_resources_type",
+      "idx_linked_resources_user_flagged",
+    ]);
+    db.close();
+  });
+
+  it("D2. 中间态库（entries 已迁但 turns 残留）再次启动自愈——孤儿 turns 被清", () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    initSchema(db);
+    // 构造中间态：entries/participants 已是新形（无 turn 列），但 turns 表残留
+    db.exec(`CREATE TABLE turns (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, turn_number INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'open', created_at TEXT NOT NULL DEFAULT (datetime('now')), closed_at TEXT)`);
+    migrateDatabase(db, createTestLogger());
+    // 孤儿 turns 被独立清掉（不依赖 entries.turn_id 闸门）
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='turns'").all()).toEqual([]);
+    db.close();
+  });
+
   it("B. 存量库：executions 悬空 FK 修复 + turn 戳全清 + 数据保留 + 幂等", () => {
     const db = new Database(":memory:");
     db.pragma("foreign_keys = ON");
