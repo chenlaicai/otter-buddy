@@ -1,14 +1,11 @@
 import { useState, useEffect } from 'react'
-import { createRoot } from 'react-dom/client'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
-import '../../styles/globals.css'
 
-import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
 import * as api from '../../api/client'
 import type { ModelInfoDTO } from '@contract/api'
 
-function SettingsPage() {
+export default function SettingsPage() {
   const [models, setModels] = useState<ModelInfoDTO[]>([])
   const [defaultAlias, setDefaultAlias] = useState('')
   const [savedAlias, setSavedAlias] = useState('')
@@ -67,7 +64,7 @@ function SettingsPage() {
   }, [hasUnsaved])
 
   return (
-    <AppLayout activeView="settings">
+    <>
       <div className="flex flex-1 overflow-hidden p-3">
         <main className="flex-1 glass rounded-3xl overflow-y-auto p-8">
           <div className="max-w-[600px] mx-auto">
@@ -223,9 +220,6 @@ function SettingsPage() {
           </div>
         </main>
       </div>
-    </AppLayout>
+    </>
   )
 }
-
-const root = createRoot(document.getElementById('root')!)
-root.render(<SettingsPage />)
