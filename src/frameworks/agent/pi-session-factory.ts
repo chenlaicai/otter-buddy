@@ -58,7 +58,6 @@ import { ModelRuntimeRegistry, otterInvokeStorage } from "./model-runtime-regist
 import type { PiCodingAgentModule } from "./model-runtime-registry";
 import type { ResourceLoader } from "@earendil-works/pi-coding-agent";
 import { createEventHandler } from "./agent-event-utils";
-import { setCompactionHookDeps } from "./model-runtime-registry";
 import type { AgentEvent } from "./agent-event-utils";
 
 /**
@@ -92,8 +91,9 @@ export interface AgentRunResult {
   modelAlias?: string;
   /** 本次 invoke 重建了全新 session（文件丢失/损坏/重启；F20260814mtrc） */
   sessionRebuilt?: boolean;
-  /** F20260819rscn: LLM 调用 restart_otter(self) 时标记，由 agent-invoker 执行 restart + 全新 invoke */
-  _selfRestart?: { otterId: string; summary?: string; modelAlias?: string };
+  /** F20260819rscn: LLM 调用 restart_otter(self) 时标记，由 agent-invoker 执行 restart + 全新 invoke。
+   *  F20260920uhuc：synthesizePast 透传（工具参数→统一交接管线） */
+  _selfRestart?: { otterId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean };
   /** 末条 assistant 消息的 stopReason（F20260903lngth：length=生成被 token 上限截断） */
   lastStopReason?: string;
 }
@@ -226,13 +226,8 @@ export class PiSessionFactory implements AgentGateway {
     this.otterToolClient = client;
   }
 
-  /** F20260903cmpk：压缩钩子合成函数（延迟注入，同 setOtterToolClient 模式——
-   *  合成依赖 agentInvoke，而 agentInvoke 依赖本工厂，只能后置）。
-   *  注入后 session_before_compact 钩子在 threshold 触发时用七段合成替换 Pi 默认摘要。
-   *  F20260909csfx：签名 (otterId, prompt)——otterId 由钩子在触发时从 invoke store 取真实值。 */
-  setCompactionSynthesis(synthesize: ((otterId: string, prompt: string) => Promise<string>) | null): void {
-    setCompactionHookDeps(synthesize ? { synthesize, logger: this.logger } : null);
-  }
+  // F20260920uhuc：setCompactionSynthesis 退役（session_before_compact 钩子随时机权
+  //  回收而退役，压缩时机改由应用层轮边界水位接管）。
 
   /** 预加载 pi-coding-agent SDK + ResourceLoader + ModelRuntime，避免首次对话冷启动阻塞 */
   async warmup(): Promise<void> {
@@ -713,7 +708,7 @@ export class PiSessionFactory implements AgentGateway {
           // Why 在 try 内、return 前：finally 的 dispose 清理当前 session，
           // 信号必须在 session 生命周期内捕获。
           if (toolContext.pendingRestart) {
-            result._selfRestart = { otterId, summary: toolContext.pendingRestart.summary, modelAlias: toolContext.pendingRestart.modelAlias };
+            result._selfRestart = { otterId, summary: toolContext.pendingRestart.summary, modelAlias: toolContext.pendingRestart.modelAlias, synthesizePast: toolContext.pendingRestart.synthesizePast };
             this.logger.info('Self-restart signal set on result', { otterId });
           }
           return result;

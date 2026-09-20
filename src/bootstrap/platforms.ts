@@ -13,6 +13,12 @@ import { initAgentSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import type { OtterContextWindowProvider } from "@usecases/ports/otter-context-window-provider";
+// F20260920uhuc：统一交接引擎（bootstrap=组合根，import frameworks 合法）
+import type { HandoffEngineDeps } from "../interface-adapters/agent-runtime/agent-invoker";
+import { buildNarrativeSynthesisPrompt, assembleHandoffArchive, buildMechanicalArchive, NARRATIVE_SYNTHESIS_TIMEOUT_MS } from "@frameworks/agent/narrative-synthesis-engine";
+import { sliceSessionEntries, serializeKeptWindow } from "@frameworks/agent/session-slicer";
+import { collectStateInventory, renderStateInventory } from "@frameworks/agent/state-inventory";
+import { scanWorkspaceFiles, renderFileTrail } from "@frameworks/agent/file-trail-extractor";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { Repositories, UseCases } from "./types";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
@@ -181,6 +187,29 @@ function buildCtxWindowProvider(
       // 未配 alias 时走默认模型窗口（model-pool.getContextWindow 语义：null/undefined → 默认条目）
       return modelPool.getContextWindow(alias);
     },
+    // F20260920uhuc 需求变更（2026-09-20）：交接阈值按模型直给（已用 token 绝对值）
+    getOtterHandoffThresholdTokens: (otterId: string): number | undefined => {
+      const alias = otterConfigProvider?.getConfig(otterId)?.modelAlias;
+      return modelPool.getHandoffThresholdTokens(alias);
+    },
+  };
+}
+
+/** F20260920uhuc：统一交接引擎函数包组装（bootstrap 层 import frameworks——组合根合法）。
+ *  水位阈值按模型读 ModelConfig.handoffThresholdTokens（2026-09-20 需求变更，直给制）。
+ *  类型桥接：frameworks 具体签名 → HandoffEngineDeps 结构面（具体类型在 bootstrap 收敛）。 */
+function buildHandoffEngineDeps(): HandoffEngineDeps {
+  return {
+    buildNarrativeSynthesisPrompt,
+    assembleHandoffArchive,
+    buildMechanicalArchive,
+    sliceSessionEntries: sliceSessionEntries as unknown as HandoffEngineDeps["sliceSessionEntries"],
+    serializeKeptWindow: serializeKeptWindow as unknown as HandoffEngineDeps["serializeKeptWindow"],
+    collectStateInventory: collectStateInventory as unknown as HandoffEngineDeps["collectStateInventory"],
+    renderStateInventory: renderStateInventory as unknown as HandoffEngineDeps["renderStateInventory"],
+    scanWorkspaceFiles,
+    renderFileTrail: renderFileTrail as unknown as HandoffEngineDeps["renderFileTrail"],
+    synthesisTimeoutMs: NARRATIVE_SYNTHESIS_TIMEOUT_MS,
   };
 }
 
@@ -190,6 +219,8 @@ function buildAgentInvoker(o: {
   messageBroadcaster: MessageBroadcaster | undefined; workspaceGateway?: WorkspaceGateway;
   agentMetrics?: AgentMetricsPort; appConfig?: AppConfig; ctxWindowProvider?: OtterContextWindowProvider;
   agentDispatchService?: AgentDispatchService;
+  /** F20260920uhuc：统一交接引擎函数包 */
+  handoffEngine?: HandoffEngineDeps;
 }): AgentInvoker {
   return new AgentInvoker(
     o.agentGateway,
@@ -212,6 +243,8 @@ function buildAgentInvoker(o: {
     o.repos.invoke,
     // F20260916fst4：首哑信号消费时 dispatch 大獭（setter 延迟挂接，见 initAgentAndScheduler 注释）
     o.agentDispatchService,
+    // F20260920uhuc：统一交接引擎函数包
+    o.handoffEngine,
   );
 }
 
@@ -264,15 +297,12 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
   const agentInvoker = buildAgentInvoker({
     agentGateway, uc, repos, logger, messageBroadcaster, workspaceGateway, agentMetrics,
     appConfig, ctxWindowProvider,
+    handoffEngine: buildHandoffEngineDeps(),
   });
 
-  // F20260903cmpk：压缩钩子合成注入——时机归 Pi（session_before_compact），
-  // 算法归七段合成（复用 handoff 的 readOnly invocation 链路）。
-  // F20260909csfx 修复：otterId 不得写死——钩子在 invoke 中途触发时从
-  // otterInvokeStorage 取真实 otterId 传入（合成走完整 invoke 链路，
-  // session restore 依赖真实 otterId；写死 "current" 会抛 No session or config
-  // 导致自定义算法 100% 降级 Pi 默认，2026-09-09 首次真实触发实测踩中）。
-  agentGateway.setCompactionSynthesis((otterId, prompt) => agentInvoker.buildCompactionSynthesisFn(otterId)(prompt));
+  // F20260920uhuc：压缩钩子接线退役——setCompactionSynthesis 随 session_before_compact 钩子退役
+  //（时机权回收应用层轮边界水位，七段合成迁入统一引擎 narrative-synthesis-engine，
+  //  经 HandoffEngineDeps 注入 agentInvoker）。
 
   // F20260827he2f：启动时探针——验证 healing_repo 可达，熔断事件落库能力正常
   // 失败仅 warn（不阻塞启动），但日志可作为诊断入口

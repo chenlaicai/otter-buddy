@@ -20,7 +20,7 @@ vi.mock("node:fs", () => ({
   readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
 }));
 
-const MINIMAL_YAML = "llm:\n  models:\n    - alias: main\n      provider: openai\n      model: gpt-4o\n";
+const MINIMAL_YAML = "llm:\n  models:\n    - alias: main\n      provider: openai\n      model: gpt-4o\n      handoffThresholdTokens: 40000\n";
 
 mockExistsSync.mockReturnValue(true);
 mockReadFileSync.mockReturnValue(MINIMAL_YAML);

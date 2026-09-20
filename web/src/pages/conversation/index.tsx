@@ -1265,19 +1265,23 @@ function ConversationPage() {
     } catch { showToast('解散失败', 'error') }
   }
 
-  async function confirmRestart(summary: string, modelAlias?: string) {
+  async function confirmRestart(summary: string, modelAlias?: string, synthesizePast?: boolean) {
     if (modal.type !== 'restart') return
     const otterId = modal.otterId
     try {
-      // F20260917rsta：摘要可选——空串透传 undefined，后端走自动 LLM 交接合成
-      await api.restartOtter(otterId, summary.trim() || undefined, modelAlias)
-      const hasSummary = Boolean(summary.trim())
+      // F20260920uhuc：统一交接管线——synthesizePast 透传（undefined=缺省 true）；
+      // 档案=引擎叙事（按勾选）+意图书（如填）+机械供料，前世记录完整保留
+      await api.restartOtter(otterId, summary.trim() || undefined, modelAlias, synthesizePast)
       /** F20260805rsto：重启后重拉 session 链——加载 effect 有 `!sessions[id]` 守卫，
        *  不主动重拉的话弹窗/卡片一直显示旧数据直到刷新页面 */
       const dtos = await api.getSessionHistory(otterId)
       setSessions(prev => ({ ...prev, [otterId]: dtos.map(mapSessionDTO) }))
-      setModal({ type: 'none' }); showToast(hasSummary ? '前世已封存，新一世獭生已开始' : '前世已封存，交接摘要自动生成中，新一世獭生已开始', 'success')
-    } catch { showToast('重启失败', 'error') }
+      setModal({ type: 'none' }); showToast(synthesizePast === false ? '前世已封存（机械档案），新一世獭生已开始' : '前世已封存，新一世携带完整前世档案开始', 'success')
+    } catch (err) {
+      // F20260920uhuc：忙碌 409 → 明确提示（模态保持，用户稍后重试——RestartModal 交接收尾在 onClose）
+      const isBusy = err instanceof Error && err.message.includes('忙碌')
+      showToast(isBusy ? '该獭正在执行任务，忙碌中不允许重启，请稍后再试' : '重启失败', 'error')
+    }
   }
 
   async function confirmLinkResource(type: string, url: string, title: string) {

@@ -19,7 +19,7 @@ import type { OtterPromptConfig } from "@contract/api/otter";
 import { getConfig } from "../config";
 import { buildOtterPrompt } from "./session-helpers";
 import { externalizeHistoricalImages } from "./image-externalizer";
-import { handleSessionBeforeCompact, type CompactionHookDeps, type CompactionPreparationLike } from "./compaction-hook";
+// F20260920uhuc：compaction-hook 导入退役（session_before_compact 钩子随时机权回收而退役）
 import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
 import { buildHaltBlockReason } from "@usecases/signal/halt-block-reason";
 
@@ -132,17 +132,11 @@ export class ModelRuntimeRegistry {
                 }
                 return undefined;
               });
-              // F20260903cmpk：压缩算法替换——threshold 触发时用七段合成替代 Pi 默认摘要
-              //（overflow/manual 放行）。deps 由 PiSessionFactory 在创建 session 时注入
-              //（setCompactionHookDeps），此处读全局槽（factory 与 registry 同模块层级，
-              // 避免 registry 构造参数反向穿透）。无 deps 时 undefined = Pi 默认兜底。
-              pi.on("session_before_compact", async (event: { reason: "manual" | "threshold" | "overflow"; preparation: CompactionPreparationLike }) => {
-                const store = otterInvokeStorage.getStore();
-                const otterName = store?.displayName ?? "海獭";
-                // F20260909csfx：合成链路需要真实 otterId（session restore 依赖），
-                // 从 invoke store 取——压缩必在 invoke 中途触发，store 必有值；缺失时钩子内降级。
-                return await handleSessionBeforeCompact(event, compactionHookDeps, otterName, store?.otterId ?? null);
-              });
+              // F20260920uhuc：session_before_compact 钩子退役——压缩时机权收回应用层
+              //（agent-invoker 轮边界水位检查，超线走统一交接换 session）；
+              // SDK compaction 保留 enabled 且 reserve 降为 50K 量级，仅作真溢出
+              //（overflow）时的 Pi 默认原地压缩救急（U1 验证：overflow 判定独立于
+              // reserve，参照系是 contextWindow）。此处不再注册自定义算法替换。
             },
           }],
         });
@@ -170,7 +164,11 @@ export class ModelRuntimeRegistry {
       // 搭档拍板 300K 标称线，整数 reserveTokens=700K 的实际触发 340K 在退化区间之上且留有余量。
       // 配置化（搭档要求）：config contextQuality.compactionReserveTokens，缺省 700_000。
       // merge 语义：partial merge——仅接管 reserveTokens，enabled/keepRecentTokens 保留 SDK 默认。
-      this.settingsManager.applyOverrides({ retry: { enabled: true, maxRetries: 4 }, compaction: { reserveTokens: getConfig().contextQuality.compactionReserveTokens } });
+      // F20260920uhuc 终审修正：SDK threshold reserve 改用 sdkOverflowReserveTokens（缺省 50_000）——
+      // 应用层质量线（compactionReserveTokens 340K 触发）已由 agent-invoker 轮边界水位接管，
+      // SDK threshold 只留真溢出救急（1M 窗口下 995K 触发，贴溢出点）；若仍用 700K 会与
+      // 应用层水位线撞车，单轮暴涨场景 SDK 抢先原地压缩（丢历史），违背「压缩=交接」架构意图。
+      this.settingsManager.applyOverrides({ retry: { enabled: true, maxRetries: 4 }, compaction: { reserveTokens: getConfig().contextQuality.sdkOverflowReserveTokens } });
 
       // initModels 恒产出 ModelPool（models-factory.ts），bootstrap 必装配下传
       if (this.modelPool) {
@@ -303,13 +301,8 @@ export interface OtterInvokeContext {
 export const otterInvokeStorage = new AsyncLocalStorage<OtterInvokeContext>();
 
 
-/** F20260903cmpk：压缩钩子依赖槽。PiSessionFactory 创建 session 时注入（setCompactionHookDeps）。
- *  模块级单例与 otter-hooks 单例 factory 对应；null = 钩子放行 Pi 默认。 */
-let compactionHookDeps: CompactionHookDeps | null = null;
-
-export function setCompactionHookDeps(deps: CompactionHookDeps | null): void {
-  compactionHookDeps = deps;
-}
+// F20260920uhuc：compactionHookDeps/setCompactionHookDeps 退役（session_before_compact
+//  钩子随时机权回收而退役，见上方 factory 注册处注释）。
 
 /**
  * F20260826mwrd C1：halt tool_call handler 的 block 判定（纯函数，测试可独立覆盖）。

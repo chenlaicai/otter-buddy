@@ -29,10 +29,72 @@ import type { ScheduledTaskRepository } from "@usecases/scheduled-task/scheduled
 import type { ManageContext } from "@usecases/otter/manage-context";
 import type { LinkedResource } from "@entities/conversation/conversation";
 import type { OtterSession } from "@entities/otter/otter-session";
-// eslint-disable-next-line no-restricted-imports -- F20260825hndf: type-only import for DI injection
-import type { buildHandoffPackage, HandoffPackageOptions, StateInventoryDeps, HandoffEntryReader } from "@frameworks/agent/handoff-package-builder";
-// eslint-disable-next-line no-restricted-imports -- F20260901mbfx: type-only import（SynthesisPrefetch 机械预取数据，DI 注入同源）
+ 
+import type { buildHandoffPackage, StateInventoryDeps, HandoffEntryReader } from "@frameworks/agent/handoff-package-builder";
+ 
 import type { SynthesisPrefetch } from "@frameworks/agent/synthesis-prompt-builder";
+// F20260920uhuc：统一交接引擎与 jsonl 切片的 DI 契约（层约束：interface-adapters 不
+// import frameworks 实现——同 buildHandoffPackage 注入先例，运行时由 bootstrap 装配）
+import { DomainError } from "@entities/errors";
+
+/** 统一交接的引擎输入形状（与 narrative-synthesis-engine 的同名接口结构兼容——
+ *  独立声明避免 interface-adapters→frameworks 的模块依赖，参数类型就地内联） */
+export interface EngineSynthesisInput {
+  otterName: string;
+  oldSessionId?: string;
+  trigger: '水位' | '手动' | '自重启' | '熔断' | '首哑复活';
+  messagesToSummarize: Array<{ role: string; content?: unknown }>;
+  previousSummary?: string;
+  lineage?: string;
+  selfSummary?: string;
+  stateInventoryText?: string;
+  prefetch?: {
+    contextKeys?: string[];
+    activeArtifacts?: Array<{ id: string; resourceType: string; title?: string }>;
+    recentUserMessages?: string[];
+  };
+  timestamp?: string;
+}
+
+/** jsonl 切片结果的最小消费面（与 session-slicer.JsonlSlice 结构兼容） */
+export interface EngineJsonlSlice {
+  firstKeptEntryId: string | undefined;
+  messagesToSummarize: Array<{ role: string; content?: unknown }>;
+  turnPrefixMessages: Array<{ role: string; content?: unknown }>;
+  isSplitTurn: boolean;
+  previousSummary: string | undefined;
+  tokensBefore: number;
+}
+
+/** 引擎函数包（bootstrap 注入；缺省时统一交接降级机械档案） */
+export interface HandoffEngineDeps {
+  buildNarrativeSynthesisPrompt: (input: EngineSynthesisInput) => string;
+  assembleHandoffArchive: (params: {
+    narrativeSummary?: string;
+    selfSummary?: string;
+    lineage?: string;
+    fileTrail?: string;
+    stateInventory?: string;
+    recencyWindow?: string;
+  }) => string;
+  buildMechanicalArchive: (input: {
+    otterName: string;
+    trigger: string;
+    oldSessionId?: string;
+    selfSummary?: string;
+    stateInventoryText?: string;
+    recencyWindow?: string;
+    fileTrail?: string;
+  }) => string;
+  sliceSessionEntries: (entries: unknown[]) => EngineJsonlSlice | undefined;
+  serializeKeptWindow: (slice: EngineJsonlSlice) => string;
+  collectStateInventory: (conversationId: string, otterId: string, deps: unknown) => Promise<unknown>;
+  renderStateInventory: (inventory: unknown) => string;
+  scanWorkspaceFiles: (path: string) => string[];
+  renderFileTrail: (trail: unknown) => string;
+  /** 合成超时上界 ms */
+  synthesisTimeoutMs: number;
+}
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 // F20260826mwrd C3：高危 healing 事件提醒（Part 4 高危路由消费侧）
 import { healingAlertRegistry, renderHealingAlerts } from "@usecases/healing/healing-alert-registry";
@@ -46,56 +108,10 @@ import type { InvokeRepository } from "@usecases/conversation/invoke-repository"
 import type { AgentTurnPort, AgentTurnResult } from "@usecases/ports/agent-turn-port";
 import type { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
 
-/**
- * 审视 P1 红线代码化：两条路径的 options 构造函数。
- * buildAutoHandoffOptions 仅限 70% 自动交接路径（唯一允许携带 synthesize）；
- * buildManualHandoffOptions 供手动/熔断路径使用——参数类型上就没有 synthesize，
- * LLM 合成在签名层无法接入（红线：已陷复读不做优雅交接）。
- */
-function buildAutoHandoffOptions(input: {
-  inventoryDeps: StateInventoryDeps;
-  entryReader: HandoffEntryReader;
-  logger: Logger;
-  synthesize: (prompt: string) => Promise<string>;
-  trigger: HandoffPackageOptions["trigger"];
-  /** F20260901mbfx：旧 session ID（机械查询，审计 F2） */
-  oldSessionId?: string;
-  /** F20260901mbfx：交接谱系（从旧 summary 机械继承，审计 F3） */
-  lineage?: string;
-  /** F20260901mbfx：合成 §④/⑥ 机械预取数据（审计 F1/F5） */
-  prefetch?: SynthesisPrefetch;
-  /** F20260903lngth：timeout/error 降级结果回传 metrics */
-  onSynthesisOutcome?: HandoffPackageOptions["onSynthesisOutcome"];
-}): HandoffPackageOptions {
-  return {
-    recencyTokens: 8000,
-    stateInventoryDeps: input.inventoryDeps,
-    entryReader: input.entryReader,
-    logger: input.logger,
-    synthesize: input.synthesize,
-    oldSessionId: input.oldSessionId,
-    lineage: input.lineage,
-    prefetch: input.prefetch,
-    trigger: input.trigger,
-    onSynthesisOutcome: input.onSynthesisOutcome,
-  };
-}
-
-function buildManualHandoffOptions(input: {
-  inventoryDeps: StateInventoryDeps;
-  entryReader: HandoffEntryReader;
-  logger: Logger;
-  trigger: HandoffPackageOptions["trigger"];
-}): HandoffPackageOptions {
-  // 红线：手动/熔断路径不携带 synthesize，摘要走机械转储或调用者提供的叙事
-  return {
-    recencyTokens: 8000,
-    stateInventoryDeps: input.inventoryDeps,
-    entryReader: input.entryReader,
-    logger: input.logger,
-    trigger: input.trigger,
-  };
-}
+// F20260920uhuc：buildAutoHandoffOptions / buildManualHandoffOptions 退役——
+// 红线重审（对抗审视确认推翻）：影子通道改变了 P1 当年的技术形态（合成者是干净的
+// inMemory 引擎而非退化獭的 invoke 通道），手动/熔断路径统一走 LLM 合成 + 降级链。
+// 四件套 options 组装由统一 handoff 入口（unifiedHandoff）内的机械供料收集取代。
 
 export class AgentInvoker implements AgentTurnPort {
   /** Messages explicitly aborted by the user (written only by abort()) */
@@ -146,6 +162,8 @@ export class AgentInvoker implements AgentTurnPort {
     /** F20260916fst4：可选注入，首哑信号消费时 dispatch 大獭——正常装配走 attachAgentDispatchService
      * setter（bootstrap 时序补偿）；构造直传仅供测试（缺省降级仅日志，不破坏既有测试构造调用） */
     agentDispatchService?: AgentDispatchService,
+    /** F20260920uhuc：统一交接引擎函数包（bootstrap 注入；缺省时统一交接降级机械档案） */
+    private readonly engine?: HandoffEngineDeps,
   ) {
     this.agentDispatchService = agentDispatchService;
     this.orchestrator = new AgentTurnOrchestrator(logger, metrics);
@@ -214,7 +232,7 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
    
-  // eslint-disable-next-line max-lines-per-function -- F20260913ctlv 双路径迁移期（新 invoke + 旧 message 并行），fallback 删除后回归
+  // eslint-disable-next-line max-lines-per-function, max-statements -- F20260913ctlv 双路径迁移期；F20260920uhuc 轮边界水位触发器 +3 语句（时机权回收应用层）
   private async invokeConversationInner(params: {
     otterId: string;
     conversationId: string;
@@ -244,16 +262,28 @@ export class AgentInvoker implements AgentTurnPort {
       ...(retryCount > 0 && { retryCount }),
     });
 
-    /** F20260903cmpk：70% Pre-invoke 自动 handoff 链路退役。
-     *  原因：压缩算法已由 session_before_compact 钩子接管（七段合成），
-     *  Pi 的 threshold 检查（每次 LLM 响应前，比轮边界更密）成为唯一触发方，
-     *  轮边界的 70% 预防性检查失去存在理由（抢跑对象消失）。
-     *  保留：handleHandoff 本体（手动/熔断重启路径仍在用）。 */
-    // const ctxMax = this.getCtxMax(otterId);
-    // if (shouldTriggerHandoff(otterId, this.handoffState, ctxMax)) {
-    //   this.logger.info('[handoff] Pre-invoke threshold exceeded', { otterId, ctxMax });
-    //   await this.handleHandoff(otterId, conversationId);
-    // }
+    /**
+     * F20260920uhuc：水位交接触发器（invoke 轮边界检查——时机权从 Pi 钩子收回应用层）。
+     *
+     * 写回语义变为「换 session 交接」后，Pi 钩子内换 session 是竞态地狱（#896 同构：
+     * 外层 invoke 持锁+池引用），故时机权收回：每轮 invoke 开始前查上轮 ctxTokens，
+     * 超过该獭模型的交接阈值（ctxTokens > handoffThresholdTokens，2026-09-20 需求变更：
+     * 按模型直给已用 token 绝对值，旧全局 compactionReserveTokens 预留制退役）即执行统一交接。
+     *
+     * 检查密度取舍（F20260903cmpk 反向）：从 Pi 每轮 LLM 调用边界降为 invoke 轮边界，
+     * 轮内工具循环暴涨可能漏检——补偿 = SDK overflow 兜底（reserve=50K 贴溢出点，
+     * U1 验证 overflow 判定独立于 reserve）。
+     */
+    if (this.shouldTriggerWatermarkHandoff(otterId)) {
+      this.logger.info('[handoff] watermark exceeded at invoke boundary, starting unified handoff', {
+        otterId, conversationId,
+        lastCtxTokens: this.handoffState.getLastCtxTokens(otterId),
+        threshold: this.ctxWindowProvider?.getOtterHandoffThresholdTokens(otterId),
+      });
+      await this.unifiedHandoff(otterId, conversationId, { trigger: '水位', synthesizePast: true });
+      // 交接完成后继续本 invoke——新世 session 由 restartSession 建立，本消息成为新世首个输入，
+      // 起始档案经 dynamicContext（buildDynamicContext 读新 session.summary + 借用式 context）注入
+    }
 
     this.logger.debug('Building dynamic context', { otterId });
     /** F20260818cbkr 二级触发：invoke 前按 healing_events 推导，命中先重启（消息尚未创建，重启后摘要随新 invoke 注入） */
@@ -292,7 +322,7 @@ export class AgentInvoker implements AgentTurnPort {
     return runWithTrace({ messageId: currentInvokeId }, async () => {
       // F20260819rscn: 用闭包捕获自重启信号（orchestrator 不透传未知字段）
       // F20260908efmd: 扩展 modelAlias 字段——配额耗尽时应急切模型
-      let pendingSelfRestart: { otterId: string; summary?: string; modelAlias?: string } | undefined;
+      let pendingSelfRestart: { otterId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean } | undefined;
 
       // 创建 AttemptDriver 和 TurnCallbacks
       const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, { otterName: otter?.name, onSelfRestart: (signal) => { pendingSelfRestart = signal; }, images, batchMaxSeq, currentInvokeId });
@@ -345,7 +375,7 @@ export class AgentInvoker implements AgentTurnPort {
     conversationId: string,
     dynamicContext: DynamicContext,
     emitEvent: (event: SSEEvent) => void,
-    opts: { otterName?: string; onSelfRestart?: (signal: { otterId: string; summary?: string }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }>; batchMaxSeq?: number; currentInvokeId: string },
+    opts: { otterName?: string; onSelfRestart?: (signal: { otterId: string; summary?: string; synthesizePast?: boolean }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }>; batchMaxSeq?: number; currentInvokeId: string },
   ): AttemptDriver {
     return {
       invoke: async (input: TurnInput, onEvent: (event: AgentStreamEvent) => void) => {
@@ -750,77 +780,248 @@ export class AgentInvoker implements AgentTurnPort {
     }
   }
   /**
-   * F20260825hndf：优雅上下文交接。
-   * 检测到 ctxTokens 超阈值后，构建四件套上下文包，重启 session。
-   * 件①写入 session.summary（已有路径），件路径），件②③④写入 otter_context（借用式）。
+   * F20260920uhuc：统一交接入口——所有触发场景（水位/手动/自重启/熔断）的单一 handoff 动作。
+   *
+   * 时序（方案「交接时序」节，同步原子 + 冻结窗口）：
+   * T_start: 取 per-otter 锁（等当前 turn 结束），持锁至交接完成——窗口内该獭
+   *          invoke 全部锁排队（冻结：旧世不接新单），档案切片在此刻锁定（快照一致）。
+   * 窗口内:  原料收集（jsonl 切片 + 状态盘点 + prefetch）→ synthesizePast 时影子通道合成
+   *          （不触锁不入池）→ 组装叠加式档案。
+   * T_done:  restartSession 换世（reason 按场景）→ 释放锁 → 排队消息由新世消化。
+   *
+   * 降级链（D9 不变量：交接失败永不阻塞重启）：
+   * - 合成失败/超时/空/截断 → 机械转储档案（buildMechanicalArchive），照样换世
+   * - synthesizePast=false → 跳过合成，档案 = 自总结（必有）+ 机械档案
+   * - jsonl 空/缺失 → 同上（首哑复活场景前世为空）
+   * - restartSession 失败 → 补偿删除借用式 context，错误上抛（调用方决定重试）
    */
-  // eslint-disable-next-line max-statements, complexity -- 交接触发+补偿删除+降级链
-  private async handleHandoff(otterId: string, conversationId: string): Promise<void> {
-    // 防重入
+  // eslint-disable-next-line max-statements, complexity, max-lines-per-function -- 统一交接：持锁+原料收集+合成+降级链+换世同内聚（拆分会割裂 T_start 快照一致性——原料必须在持锁后同一闭包内收集）
+  private async unifiedHandoff(
+    otterId: string,
+    conversationId: string,
+    params: {
+      trigger: '水位' | '手动' | '自重启' | '熔断' | '首哑复活';
+      selfSummary?: string;
+      synthesizePast: boolean;
+      modelAlias?: string;
+      /** 锁策略：轮边界触发时外层已持锁（invokeConversationInner→invoke），传 'none' 跳过取锁 */
+      lockMode?: 'acquire' | 'none';
+      /** F20260920uhuc 需求变更（2026-09-20）：交接进度系统消息通道（前端 entry.system SSE 消费）。
+       *  缺省 true；测试可注入 false 关闭。 */
+      progressEntry?: boolean;
+    },
+  ): Promise<OtterSession> {
+    const { trigger, selfSummary, synthesizePast, modelAlias, lockMode = 'acquire', progressEntry = true } = params;
+
+    // 防重入（同獭并发交接：手动重启连点 / 水位与手动撞车）
     if (this.handoffState.isInProgress(otterId)) {
-      this.logger.warn("[handoff] Already in progress, skipping", { otterId });
-      return;
+      throw new DomainError(`[handoff] already in progress for ${otterId}`, "conflict");
     }
     this.handoffState.setInProgress(otterId, true);
 
+    /** 交接进度系统消息（需求变更 2026-09-20：等待要有反馈）。失败静默——UX 反馈不阻塞交接主线。 */
+    const otterDisplay = async (): Promise<string> => {
+      const o = await this.queryOtter.getById(otterId);
+      return o ? `${o.type === 'big' ? '大獭' : '小獭'}「${o.name}」` : otterId;
+    };
+    const sendProgress = async (body: string): Promise<void> => {
+      if (!progressEntry) return;
+      try {
+        const sysMsg = await this.sendSystemEntry(conversationId, body);
+        this.messageBroadcaster?.broadcastEvent(conversationId, {
+          event: 'entry.system', data: { entryId: sysMsg.id, content: sysMsg.body, seq: sysMsg.sequenceNum },
+        });
+      } catch (err) {
+        this.logger.warn('[handoff] progress entry failed (non-fatal)', {
+          otterId, conversationId, error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    };
+    if (progressEntry) {
+      await sendProgress(`⏳ ${await otterDisplay()}的上下文已满（${trigger}触发），正在封装前世档案…（预计 5-15 秒，最长约 1 分钟）`);
+    }
+
+    // 冻结窗口：持锁直到交接完成（lockMode='none' 时外层 invoke 已持锁——水位场景）
+    let releaseLock: (() => void) | undefined;
+    if (lockMode === 'acquire' && this.agentInvoke.acquireSessionLock) {
+      releaseLock = await this.agentInvoke.acquireSessionLock(otterId);
+    }
+
     try {
+      // ---- 原料收集（持锁后快照一致）----
       const workspacePath = this.workspaceGateway?.getWorkspacePath(conversationId);
+      const [lineageInfo, inventoryText, prefetch, slice] = await Promise.all([
+        this.resolveHandoffLineage(otterId),
+        this.collectInventoryText(conversationId, otterId, workspacePath),
+        this.buildSynthesisPrefetch(conversationId, otterId),
+        this.collectJsonlSlice(otterId),
+      ]);
 
-      // 构建四件套（D9：显式守卫，永不阻塞 restart）
-      if (!this.buildHandoffPkg) { this.logger.warn("[handoff] buildHandoffPkg not injected, skipping"); return; }
-      if (!this.conversationRepo) { this.logger.warn("[handoff] conversationRepo not injected, skipping"); return; }
+      // 机械档案四件（秒级，必有）：近期保留段（jsonl 切片序列化，对齐 Pi keepRecent 20K）
+      // + 状态盘点 + 文件轨迹 + 谱系
+      const recencyWindow = slice ? this.engine!.serializeKeptWindow(slice) : await this.collectRecencyWindowFallback(conversationId);
+      const fileTrail = workspacePath
+        ? this.engine!.renderFileTrail({ modified: [], readOnly: [], workspaceFiles: this.engine!.scanWorkspaceFiles(workspacePath) })
+        : '';
 
-      // F20260825hndf Phase 2：构建 LLM 合成函数（readOnly invocation）。
-      // 红线（审视 P1）：synthesize 仅允许出现在 70% 自动交接路径——熔断/手动路径
-      // 绝不走 LLM 合成（已陷复读不做优雅交接）。代码层用 buildAutoHandoffOptions /
-      // buildManualHandoffOptions 两个函数隔离：手动/熔断侧的 options 签名上就传不进
-      // synthesize，违规无法顺手发生，红线不靠纪律维持。
-      const synthesize = this.buildSynthesisFunction(otterId, conversationId);
-
-      const pkg = await this.buildHandoffPkg(
-        conversationId,
-        otterId,
-        await this.buildAutoHandoffOptionsWithMechanicals(conversationId, otterId, workspacePath, synthesize),
-      );
-
-      // 件件②③④写入 otter_context（借用式，首次 invoke 后删除）
-      if (this.manageContext) {
+      // ---- 叙事合成（synthesizePast=true 时；影子通道，不触锁）----
+      let narrativeSummary: string | undefined;
+      if (synthesizePast && slice && slice.messagesToSummarize.length + slice.turnPrefixMessages.length > 0) {
         try {
-          await this.manageContext.set(otterId, "handoff_file_trail", pkg.fileTrail);
-          await this.manageContext.set(otterId, "handoff_recency_window", pkg.recencyWindow);
-          await this.manageContext.set(otterId, "handoff_state_inventory", pkg.stateInventory);
-        } catch (ctxErr) {
-          this.logger.warn("[handoff] Failed to write context, continuing with summary only", {
-            otterId, error: ctxErr instanceof Error ? ctxErr.message : String(ctxErr),
+          const prompt = this.engine!.buildNarrativeSynthesisPrompt({
+            otterName: (await this.queryOtter.getById(otterId))?.name ?? otterId,
+            oldSessionId: lineageInfo.oldSessionId,
+            trigger,
+            messagesToSummarize: slice.isSplitTurn
+              ? [...slice.messagesToSummarize, ...slice.turnPrefixMessages]
+              : slice.messagesToSummarize,
+            previousSummary: slice.previousSummary,
+            lineage: lineageInfo.lineage,
+            selfSummary,
+            stateInventoryText: inventoryText,
+            prefetch,
+          });
+          narrativeSummary = await this.runShadowSynthesis(otterId, prompt, modelAlias);
+        } catch (err) {
+          this.metrics?.recordSynthesis('error');
+          this.logger.warn('[handoff] narrative synthesis failed, degrading to mechanical archive', {
+            otterId, trigger, error: err instanceof Error ? err.message : String(err),
           });
         }
+      } else if (synthesizePast) {
+        // jsonl 无可压缩内容（首哑前世/空 session）——合成跳过，机械档案完整覆盖
+        this.logger.info('[handoff] no jsonl content to synthesize, mechanical archive only', { otterId, trigger });
       }
 
-      // 件①写入 session.summary（重启 session）
-      try {
-        await this.manageSession.restartSession(otterId, pkg.summary);
-        this.handoffState.clearLastCtxTokens(otterId);
-        this.logger.info("[handoff] Session restarted with handoff package", {
-          otterId,
-          totalTokens: pkg.totalTokenEstimate,
+      // ---- 组装叠加式档案 + 换世 ----
+      const archive = narrativeSummary
+        ? this.engine!.assembleHandoffArchive({
+          narrativeSummary,
+          selfSummary,
+          fileTrail,
+          stateInventory: inventoryText,
+          recencyWindow,
+        })
+        : this.engine!.buildMechanicalArchive({
+          otterName: (await this.queryOtter.getById(otterId))?.name ?? otterId,
+          trigger,
+          oldSessionId: lineageInfo.oldSessionId,
+          selfSummary,
+          stateInventoryText: inventoryText,
+          recencyWindow,
+          fileTrail,
         });
-      } catch (restartErr) {
-        // D8 补偿删除：restart 失败时清理已写入的 context，防止幽灵上下文泄漏到旧 session
-        if (this.manageContext) {
-          for (const key of ['handoff_file_trail', 'handoff_recency_window', 'handoff_state_inventory']) {
-            await this.manageContext.delete(otterId, key).catch(() => {});
-          }
-        }
-        this.logger.error("[handoff] Restart failed, continuing with old session",
-          restartErr instanceof Error ? restartErr : new Error(String(restartErr)),
-          { otterId });
-      }
+
+      // D8 演进：档案走 session.summary 单点写入（不再预写 otter_context 借用式 key），
+      // 天然原子——restart 失败无幽灵上下文泄漏，无需补偿删除
+      const reason = trigger === '水位' ? 'compaction' : 'restart';
+      const session = await this.manageSession.restartSession(otterId, archive, modelAlias, reason);
+      this.handoffState.clearLastCtxTokens(otterId);
+      this.logger.info('[handoff] unified handoff completed', {
+        otterId, trigger, synthesizePast, narrative: !!narrativeSummary,
+        archiveTokens: Math.ceil(archive.length / 4), newSessionId: session.id,
+      });
+      // 完成 feedback（需求变更 2026-09-20）：档案形态告知（叙事/机械）——合成降级对用户可见
+      await sendProgress(
+        `✅ ${await otterDisplay()}前世已封存（${narrativeSummary ? '完整叙事档案' : '机械档案'}），新一世携带前世记忆开始`,
+      );
+      return session;
     } catch (err) {
-      this.logger.error("[handoff] Unexpected error",
-        err instanceof Error ? err : new Error(String(err)),
-        { otterId });
+      // 失败 feedback：仅上抛的失败发（降级链内部已吞的失败照常 done）。
+      // sendProgress 自身失败静默（防反馈通道故障反噬主流程）
+      if (progressEntry) {
+        await sendProgress(`⚠️ 「${trigger}」交接未能完成，本次保持当前世代——可稍后重试或手动重启`).catch(() => { /* non-fatal */ });
+      }
+      throw err;
     } finally {
+      releaseLock?.();
       this.handoffState.setInProgress(otterId, false);
+    }
+  }
+
+  /** 水位判定：上轮 ctxTokens 超过该獭模型的交接阈值（按模型直给，2026-09-20 需求变更）。
+   *  阈值无法解析（模型缺失/旧装配）时不触发——水位交接静默失活优于拿错阈值误触发。 */
+  private shouldTriggerWatermarkHandoff(otterId: string): boolean {
+    const last = this.handoffState.getLastCtxTokens(otterId);
+    if (last === undefined) return false;
+    const threshold = this.ctxWindowProvider?.getOtterHandoffThresholdTokens(otterId);
+    if (threshold === undefined) return false;
+    return last > threshold;
+  }
+
+  /** 影子通道合成 + fail-closed 防线（空/截断拒入库；60s 超时降级机械档案） */
+  private async runShadowSynthesis(otterId: string, prompt: string, modelOverride?: string): Promise<string> {
+    if (!this.agentInvoke.runCompactionSynthesis) {
+      throw new Error('runCompactionSynthesis not available on SdkInvokePort');
+    }
+    const result = await Promise.race([
+      this.agentInvoke.runCompactionSynthesis(otterId, prompt, modelOverride),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Narrative synthesis timeout')), this.engine?.synthesisTimeoutMs ?? 60_000),
+      ),
+    ]);
+    const text = result.directText?.trim() ?? '';
+    // length-stop fail-closed（借鉴 Pi getSummarizationFailure）：截断摘要不完整，不得入库
+    if (result.lastStopReason === 'length') {
+      this.metrics?.recordSynthesis('truncated');
+      throw new Error('LLM synthesis truncated (stopReason=length), refusing to persist incomplete summary');
+    }
+    if (text.length === 0) {
+      this.metrics?.recordSynthesis('empty');
+      throw new Error('LLM synthesis returned empty result');
+    }
+    this.metrics?.recordSynthesis('success');
+    return text;
+  }
+
+  /** jsonl 切片收集（U2 落地：SDK prepareCompaction 未导出，自实现同款算法）。
+   *  entries 读取门面缺失（mock/旧装配）或空 session 返回 undefined → 机械档案降级 */
+  private async collectJsonlSlice(otterId: string): Promise<EngineJsonlSlice | undefined> {
+    try {
+      const entries = await this.agentInvoke.readCurrentSessionEntries?.(otterId);
+      if (!entries) return undefined;
+      return this.engine?.sliceSessionEntries(entries as never);
+    } catch (err) {
+      this.logger.warn('[handoff] jsonl slice failed, degrading', {
+        otterId, error: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
+  }
+
+  /** 近期原文降级收集（jsonl 不可读时用 DB entries 近期窗口——机械档案兜底，非完整 agent 视角） */
+  private async collectRecencyWindowFallback(conversationId: string): Promise<string> {
+    try {
+      const reader = this.handoffEntryReader();
+      const [speaks, users] = await Promise.all([
+        reader.getEntries(conversationId, { entryType: 'speak', limit: 20 }),
+        reader.getEntries(conversationId, { entryType: 'user', limit: 20 }),
+      ]);
+      const merged = [...speaks, ...users]
+        .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+        .slice(0, 20)
+        .reverse();
+      if (merged.length === 0) return '';
+      return merged
+        .map(e => `[${e.entryType === 'user' ? '搭档' : '海獭'}]: ${(e.body ?? '').slice(0, 500)}`)
+        .join('\n');
+    } catch {
+      return '';
+    }
+  }
+
+  /** 状态盘点文本收集（DB 权威源机械快照；依赖未注入/查询失败降级空文本，不阻塞交接） */
+  private async collectInventoryText(conversationId: string, otterId: string, workspacePath?: string): Promise<string> {
+    try {
+      if (!this.conversationRepo) return '';
+      const deps = this.buildStateInventoryDeps(conversationId, workspacePath);
+      const inventory = await this.engine!.collectStateInventory(conversationId, otterId, deps);
+      return this.engine!.renderStateInventory(inventory);
+    } catch (err) {
+      this.logger.warn('[handoff] state inventory failed, continuing without', {
+        conversationId, error: err instanceof Error ? err.message : String(err),
+      });
+      return '';
     }
   }
 
@@ -850,34 +1051,6 @@ export class AgentInvoker implements AgentTurnPort {
   /** state-inventory 降级兼容：sendEntry 缺失时返回空读（历史 reading 已全部切 entries） */
   private queryMessageCompatEntryReader(): HandoffEntryReader {
     return { getEntries: async () => [] };
-  }
-
-  /**
-   * F20260901mbfx（审计 F1/F2/F3/F5）：组装 70% 自动交接 options + 机械供料。
-   *
-   * 枚举型事实不堆叠 LLM：oldSessionId（当前 active session 真实 ID，此前未接线
-   * 导致谱系行永远显示 otter UUID）、lineage（旧 summary 谱系行，供新代追加）、
-   * prefetch（context keys / active 产物 / 最近搭档消息）。全部客忍失败，不阻塞交接。
-   */
-  private async buildAutoHandoffOptionsWithMechanicals(
-    conversationId: string,
-    otterId: string,
-    workspacePath: string | undefined,
-    synthesize: ReturnType<AgentInvoker["buildSynthesisFunction"]>,
-  ): Promise<HandoffPackageOptions> {
-    const { oldSessionId, lineage } = await this.resolveHandoffLineage(otterId);
-    return buildAutoHandoffOptions({
-      inventoryDeps: this.buildStateInventoryDeps(conversationId, workspacePath),
-      entryReader: this.handoffEntryReader(),
-      logger: this.logger,
-      synthesize,
-      trigger: '70%阈值',
-      oldSessionId,
-      lineage,
-      prefetch: await this.buildSynthesisPrefetch(conversationId, otterId),
-      // F20260903lngth：timeout/error 降级结果回传 metrics（success/empty/truncated 在合成闭包内计数）
-      onSynthesisOutcome: (outcome) => this.metrics?.recordSynthesis(outcome),
-    });
   }
 
   /**
@@ -1007,81 +1180,55 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
   /**
-   * F20260917rsta：手动重启 + 空摘要 → 自动 LLM 交接（搭档决策 2026-09-17）。
+   * F20260920uhuc：手动重启统一入口（取代 F20260917rsta 的 restartWithAutoHandoffIfBlank）。
    *
-   * 语义：手动重启时摘要未提供（undefined/空串）→ 先对当前活着的 session 跑
-   * LLM 交接合成（与退役的 70% 自动链路同款四件套），拿合成摘要重启；
-   * 摘要已提供 → 直透 restartSession（调用者/獭自己写的叙事优先）。
+   * 语义变化（叠加式档案）：不再「有摘要直透/无摘要合成」二选一——
+   * 新世起始上下文 = 优雅组织(引擎七段总结【按 synthesizePast】+ 自总结【如有】)。
+   * 有无 selfSummary 都走统一管线（unifiedHandoff），这正是「底层完全一样」的最终形态。
    *
-   * 红线放宽声明：F20260825hndf 审视 P1 定的「手动路径绝不走 LLM 合成」针对
-   * 熔断场景（已陷复读不做优雅交接）；手动重启的獭不一定是退化状态，搭档点名
-   * 要默认压缩 handoff——此处为手动路径唯一开口，熔断/獭自重启路径不受影响。
+   * 忙碌拒绝（搭档拍板 2026-09-18 16:31）：running invoke 存在 → 409 DomainError，
+   * 不进锁等待不排队——重启是干净动作（F20260917rsta 锁雪崩 500 的根治）。
    *
-   * D9 同源原则：任何环节失败（无对话、合成异常、四件套构建失败）→ 降级为
-   * 无摘要重启，永不阻塞 restart。
+   * 降级链（D9 同源原则）：任何环节失败（无对话/引擎缺失/合成异常）→ 降级为
+   * 无档案直透重启，永不阻塞 restart。
    */
-  // eslint-disable-next-line max-statements, complexity -- 交接构建+件②③④注入+降级链+D8补偿同内聚（handleHandoff 同款结构，拆分反而割裂）
-  async restartWithAutoHandoffIfBlank(
+  async restartWithUnifiedHandoff(
     otterId: string,
-    summary?: string,
-    modelAlias?: string,
+    params: {
+      selfSummary?: string;
+      synthesizePast?: boolean;
+      modelAlias?: string;
+    },
   ): Promise<OtterSession> {
-    if (summary?.trim()) {
-      return this.manageSession.restartSession(otterId, summary, modelAlias);
+    const { selfSummary, synthesizePast = true, modelAlias } = params;
+
+    // 忙碌检查：running invoke 存在即拒绝（U3 口径：isRunning = activeSessions 或池内 streaming）
+    if (this.agentInvoke.isRunning?.(otterId)) {
+      this.logger.warn('[manual-restart] otter busy (running invoke), rejecting', { otterId });
+      throw new DomainError(`Otter ${otterId} 正在执行任务（忙碌中），不允许手动重启，请稍后再试`, "conflict");
     }
 
     const conversationId = await this.resolveFirstConversationId(otterId);
     if (!conversationId) {
-      this.logger.warn('[manual-restart-auto] No conversation found, restarting without summary', { otterId });
-      return this.manageSession.restartSession(otterId, undefined, modelAlias);
-    }
-
-    let autoSummary: string | undefined;
-    if (this.buildHandoffPkg && this.conversationRepo) {
-      try {
-        const workspacePath = this.workspaceGateway?.getWorkspacePath(conversationId);
-        const synthesize = this.buildSynthesisFunction(otterId, conversationId);
-        const options = await this.buildAutoHandoffOptionsWithMechanicals(
-          conversationId, otterId, workspacePath, synthesize,
-        );
-        options.trigger = '手动';
-        const pkg = await this.buildHandoffPkg(conversationId, otterId, options);
-
-        // 件②③④写入 otter_context（借用式，首次 invoke 后删除；失败不阻塞）
-        if (this.manageContext) {
-          try {
-            await this.manageContext.set(otterId, 'handoff_file_trail', pkg.fileTrail);
-            await this.manageContext.set(otterId, 'handoff_recency_window', pkg.recencyWindow);
-            await this.manageContext.set(otterId, 'handoff_state_inventory', pkg.stateInventory);
-          } catch (ctxErr) {
-            this.logger.warn('[manual-restart-auto] Context write failed, continuing with summary only', {
-              otterId, error: ctxErr instanceof Error ? ctxErr.message : String(ctxErr),
-            });
-          }
-        }
-        autoSummary = pkg.summary;
-        this.logger.info('[manual-restart-auto] Handoff package built', {
-          otterId, conversationId, totalTokens: pkg.totalTokenEstimate,
-        });
-      } catch (err) {
-        this.logger.warn('[manual-restart-auto] Auto handoff failed, restarting without summary', {
-          otterId, error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    } else {
-      this.logger.warn('[manual-restart-auto] Handoff deps not injected, restarting without summary', { otterId });
+      this.logger.warn('[manual-restart] No conversation found, restarting bare', { otterId });
+      return this.manageSession.restartSession(otterId, selfSummary, modelAlias);
     }
 
     try {
-      return await this.manageSession.restartSession(otterId, autoSummary, modelAlias);
-    } catch (restartErr) {
-      // D8 补偿删除：restart 失败时清理已写入的借用式 context，防幽灵上下文泄漏
-      if (autoSummary && this.manageContext) {
-        for (const key of ['handoff_file_trail', 'handoff_recency_window', 'handoff_state_inventory']) {
-          await this.manageContext.delete(otterId, key).catch(() => {});
-        }
-      }
-      throw restartErr;
+      return await this.unifiedHandoff(otterId, conversationId, {
+        trigger: '手动',
+        selfSummary,
+        synthesizePast,
+        modelAlias,
+        lockMode: 'acquire',
+      });
+    } catch (err) {
+      // 防重入冲突（已在交接中）与忙碌冲突原样上抛；其余失败降级裸重启（D9：永不阻塞）
+      if (err instanceof DomainError && err.kind === 'conflict') throw err;
+      this.logger.warn('[manual-restart] unified handoff failed, degrading to bare restart', {
+        otterId, error: err instanceof Error ? err.message : String(err),
+      });
+      return this.manageSession.restartSession(otterId, selfSummary, modelAlias);
     }
   }
 
@@ -1162,7 +1309,6 @@ export class AgentInvoker implements AgentTurnPort {
    * 全新 invoke 是硬约束：sessionSummary 仅在 invokeConversation 入口 buildDynamicContext 注入一次，
    * orchestrator 内 continue 拿不到新 session 的前情摘要（详见 F20260818cbkr 实现红线）。
    */
-  // eslint-disable-next-line complexity -- Phase 2: 熔断路径+四件套注入+补偿删除
   private async handleCircuitBreakSignal(
     turnResult: { _circuitBreak?: CircuitBreakInfo },
     params: {
@@ -1178,49 +1324,45 @@ export class AgentInvoker implements AgentTurnPort {
   ): Promise<AgentTurnResult | null> {
     if (!turnResult._circuitBreak || !this.circuitBreak) return null;
 
-    // F20260825hndf Phase 2：熔断重启统一带四件套（机械转储，不走 LLM 合成）
-    // 红线（审视 P1）：用 buildManualHandoffOptions 构建——该函数类型上就不接受
-    // synthesize 参数，熔断路径无法意外（或顺手）接上 LLM 合成。
-    if (this.buildHandoffPkg && this.conversationRepo) {
-      try {
-        const workspacePath = this.workspaceGateway?.getWorkspacePath(params.conversationId);
-        const pkg = await this.buildHandoffPkg(
-          params.conversationId,
-          params.otterId,
-          buildManualHandoffOptions({
-            inventoryDeps: this.buildStateInventoryDeps(params.conversationId, workspacePath),
-            entryReader: this.handoffEntryReader(),
-            logger: this.logger,
-            trigger: '熔断',
-          }),
-        );
-
-        // 写入件②③④到 otter_context（借用式，首次 invoke 后删除）
-        if (this.manageContext) {
-          await this.manageContext.set(params.otterId, 'handoff_file_trail', pkg.fileTrail).catch(() => {});
-          await this.manageContext.set(params.otterId, 'handoff_recency_window', pkg.recencyWindow).catch(() => {});
-          await this.manageContext.set(params.otterId, 'handoff_state_inventory', pkg.stateInventory).catch(() => {});
-        }
-
-        this.logger.info('[circuit-break] Four-piece context injected', { otterId: params.otterId });
-      } catch (pkgErr) {
-        // 非致命：四件套注入失败不影响熔断重启
-        this.logger.warn('[circuit-break] Four-piece injection failed, continuing with restart', {
-          otterId: params.otterId,
-          error: pkgErr instanceof Error ? pkgErr.message : String(pkgErr),
-        });
-      }
+    // F20260920uhuc：熔断重启走统一交接（红线重审后放开合成——P1 定罪的「退化獭
+    // 现场 invoke 合成」技术形态已消失：合成者是影子通道的干净 inMemory 引擎，
+    // 读序列化 jsonl、fail-closed 防线、机械供料不依赖 jsonl 质量；熔断场景合成
+    // 命中率预期低于水位/手动（GIGO 残余，方案红线重审节），失败自动降级机械档案）。
+    // executeCircuitBreakRestart 内部走 manageSession.restartSession——档案先行注入
+    // session.summary 由 unifiedHandoff 完成，此处取回它建立的新 session 供递归 invoke。
+    let circuitHandoffSession: OtterSession | null = null;
+    try {
+      circuitHandoffSession = await this.unifiedHandoff(params.otterId, params.conversationId, {
+        trigger: '熔断',
+        synthesizePast: true,
+        lockMode: 'none', // 熔断发生在 orchestrator 收尾——外层 invoke 锁可能仍持有（ALS 嵌套场景下安全；直连场景锁已释放但 isRunning 已 false）
+      });
+    } catch (handoffErr) {
+      // 统一交接失败不阻塞熔断：executeCircuitBreakRestart 内部降级裸重启
+      this.logger.warn('[circuit-break] unified handoff failed, circuit-break restart degrades to bare', {
+        otterId: params.otterId,
+        error: handoffErr instanceof Error ? handoffErr.message : String(handoffErr),
+      });
     }
-
-    const restarted = await this.circuitBreak.executeCircuitBreakRestart(turnResult._circuitBreak, emitEvent);
-    if (!restarted) {
-      // D8 补偿删除：restart 失败时清理已写入的 context
-      if (this.manageContext) {
-        for (const key of ['handoff_file_trail', 'handoff_recency_window', 'handoff_state_inventory']) {
-          await this.manageContext.delete(params.otterId, key).catch(() => {});
-        }
+    if (circuitHandoffSession) {
+      // F20260920uhuc 审视发现1修复：unifiedHandoff 已完成唯一换世（新 session 携带四段叠加档案），
+      // 不再执行 executeCircuitBreakRestart 的第二次 restartSession（会导致幽灵世代+档案被熔断摘要覆盖）。
+      // 只补熔断终态事件（newSessionId 指向 unifiedHandoff 建立的新世），让熔断台账/查询完整。
+      await this.circuitBreak.writeCircuitBreakEvent(turnResult._circuitBreak, {
+        newSessionId: circuitHandoffSession.id,
+        trigger: 'primary',
+      }).catch((evErr) => {
+        this.logger.warn('[circuit-break] handoff-path circuit event write failed (non-blocking)', {
+          otterId: params.otterId,
+          error: evErr instanceof Error ? evErr.message : String(evErr),
+        });
+      });
+    } else {
+      // unifiedHandoff 失败（已 warn）：降级走 executeCircuitBreakRestart 裸重启（内部自行降级链）
+      const restarted = await this.circuitBreak.executeCircuitBreakRestart(turnResult._circuitBreak, emitEvent);
+      if (!restarted) {
+        return null;
       }
-      return null;
     }
     try {
       /** retryCount 归零：新 session 语义上等同新 invoke，首次退化应获得自我纠正机会而非直达熔断判定 */
@@ -1245,9 +1387,9 @@ export class AgentInvoker implements AgentTurnPort {
    * 新 session 的 LLM 会再次执行 → 无限循环。continuation message 告知"你已重启，请继续"，
    * 消除循环根因。tool-factory 层 + healing_events 上限判定提供纵深防御。
    */
-  // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- Phase 2: 手动重启+四件套注入+补偿删除
+  // eslint-disable-next-line max-lines-per-function, complexity -- F20260920uhuc：自重启统一交接 + 防循环 + 裸重启保底 + continuation 递归（同内聚，拆分割裂降级链）
   private async handleSelfRestartSignal(
-    signal: { otterId: string; summary?: string; modelAlias?: string },
+    signal: { otterId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean },
     params: {
       otterId: string;
       conversationId: string;
@@ -1275,54 +1417,33 @@ export class AgentInvoker implements AgentTurnPort {
 
     let newSessionId: string;
 
-    // F20260825hndf Phase 2：手动重启统一带四件套
-    // 注入件②③④到 otter_context（借用式，首次 invoke 后删除）
-    if (this.buildHandoffPkg && this.conversationRepo) {
-      try {
-        const workspacePath = this.workspaceGateway?.getWorkspacePath(params.conversationId);
-        // 红线（审视 P1）：同熔断路径——buildManualHandoffOptions 类型上不接受
-        // synthesize，手动重启永不接 LLM 合成（摘要用调用者/獭自己写的叙事）。
-        const pkg = await this.buildHandoffPkg(
-          params.conversationId,
-          otterId,
-          buildManualHandoffOptions({
-            inventoryDeps: this.buildStateInventoryDeps(params.conversationId, workspacePath),
-            entryReader: this.handoffEntryReader(),
-            logger: this.logger,
-            trigger: '手动',
-          }),
-        );
-
-        // 写入件②③④到 otter_context
-        if (this.manageContext) {
-          await this.manageContext.set(otterId, 'handoff_file_trail', pkg.fileTrail).catch(() => {});
-          await this.manageContext.set(otterId, 'handoff_recency_window', pkg.recencyWindow).catch(() => {});
-          await this.manageContext.set(otterId, 'handoff_state_inventory', pkg.stateInventory).catch(() => {});
-        }
-
-        this.logger.info('[self-restart] Four-piece context injected', { otterId });
-      } catch (pkgErr) {
-        // 非致命：四件套注入失败不影响重启
-        this.logger.warn('[self-restart] Four-piece injection failed, continuing with restart', {
-          otterId,
-          error: pkgErr instanceof Error ? pkgErr.message : String(pkgErr),
-        });
-      }
-    }
-
+    // F20260920uhuc：自重启走统一交接（synthesizePast 由工具参数透传——獭最清楚
+    // 前世价值；summary=自总结作为叠加档案的 §① 意图书 + 合成原料）。
+    // F20260824srst 防循环机制不变（本方法开头的 session 成因判定 + tool 层拦截）。
     try {
-      const newSession = await this.manageSession.restartSession(otterId, summary, signal.modelAlias);
+      const newSession = await this.unifiedHandoff(otterId, params.conversationId, {
+        trigger: '自重启',
+        selfSummary: summary,
+        // 獭未传 summary 且前世有料时也合成（修复现状 gap：空 summary 自重启 = 从零开始）；
+        // summary 非空时合成照跑——叠加档案语义：引擎档案【总有】+ 自总结【可能有】
+        synthesizePast: signal.synthesizePast ?? true,
+        modelAlias: signal.modelAlias,
+        lockMode: 'none', // 自重启信号在 invoke 收尾消费——外层 invoke 持锁中
+      });
       newSessionId = newSession.id;
-      this.logger.info('Self-restart completed, re-invoking with new session', { otterId, newSessionId });
-    } catch (restartErr) {
-      // D8 补偿删除：restart 失败时清理已写入的 context
-      if (this.manageContext) {
-        for (const key of ['handoff_file_trail', 'handoff_recency_window', 'handoff_state_inventory']) {
-          await this.manageContext.delete(otterId, key).catch(() => {});
-        }
+      this.logger.info('Self-restart completed (unified handoff), re-invoking with new session', { otterId, newSessionId });
+    } catch (handoffErr) {
+      // 统一交接失败（含 jsonl 缺失等降级路径耗尽）→ 裸重启保底（D9：自重启永不阻塞）
+      this.logger.warn('[self-restart] unified handoff failed, falling back to bare restart', {
+        otterId, error: handoffErr instanceof Error ? handoffErr.message : String(handoffErr),
+      });
+      try {
+        const newSession = await this.manageSession.restartSession(otterId, summary, signal.modelAlias);
+        newSessionId = newSession.id;
+      } catch (restartErr) {
+        this.logger.error('Self-restart failed, continuing with current session', restartErr instanceof Error ? restartErr : new Error(String(restartErr)), { otterId });
+        return null;
       }
-      this.logger.error('Self-restart failed, continuing with current session', restartErr instanceof Error ? restartErr : new Error(String(restartErr)), { otterId });
-      return null;
     }
 
     // F20260824srst 写 self_restart 事件（上限判定数据源）

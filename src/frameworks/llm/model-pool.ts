@@ -97,6 +97,13 @@ export class ModelPool implements ModelPoolLike {
     return this.entries.get(alias)?.config.contextWindow;
   }
 
+  /** F20260920uhuc 需求变更（2026-09-20）：获取模型的交接阈值（已用 token 绝对值，按模型必填）。
+   * 回退语义与 getContextWindow 一致：alias 缺省回退默认模型，未知 alias 返回 undefined。 */
+  getHandoffThresholdTokens(alias: string | null | undefined): number | undefined {
+    if (!alias) return this.entries.get(this.defaultAlias)?.config.handoffThresholdTokens;
+    return this.entries.get(alias)?.config.handoffThresholdTokens;
+  }
+
   /** 获取模型的思考深度配置（F20260909mthl）。alias 缺省回退默认模型；未知 alias 返回 undefined（不回退默认——「未配置」与「配置了默认模型的档位」是两个语义，调用点 resolvedAlias 恒为有效 alias） */
   getThinkingLevel(alias: string | null | undefined): ThinkingLevel | undefined {
     if (!alias) return this.entries.get(this.defaultAlias)?.config.thinkingLevel;

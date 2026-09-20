@@ -9,7 +9,7 @@ import { validate } from "@frameworks/config-service";
 function makeValidRaw(weixin?: Record<string, unknown>) {
   return {
     llm: {
-      models: [{ alias: "test", provider: "openai", model: "gpt-4" }],
+      models: [{ alias: "test", provider: "openai", model: "gpt-4", handoffThresholdTokens: 40_000 }],
     },
     server: { port: 3000 },
     ...(weixin ? { weixin } : {}),

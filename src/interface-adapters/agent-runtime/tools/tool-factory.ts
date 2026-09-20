@@ -423,10 +423,11 @@ async function isSelfRestartLoop(ctx: ToolContext, healingRepo?: HealingEventRep
 }
 
 /** F20260810rstart: restart_otter 工具。小獭只能重启自己，大獭可重启任意 otter。 */
+// eslint-disable-next-line max-lines-per-function -- F20260920uhuc：synthesizePast 参数 +3 行（61/60）
 function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepository): AgentTool {
   return {
     name: "restart_otter",
-    description: "重启指定 Otter 的獭生——封存当前 Session（前世），以全新上下文开启新一世. When: Otter 上下文污染需要重置 / 退化熔断触发 / 显式要求重启. Not for: 解散 Otter（销毁身份）→ dissolve_otter. Output: 新 Session ID 确认. GOTCHA: **前世 session 封存不可逆**——新世上下文为空，靠 summary 注入；不传 summary 则新世从零开始. TIP: 手动交接时 summary 按交接摘要模板填写——模板与填写要点见特性文档 system-md-entropy-reduction 附录 B（docs/features/ 下按标题 grep 定位）. BOUNDARY: 访问控制——小獭只能重启自己，大獭可重启任意 Otter.",
+    description: "重启指定 Otter 的獭生——封存当前 Session（前世），以全新上下文开启新一世. When: Otter 上下文污染需要重置 / 退化熔断触发 / 显式要求重启. Not for: 解散 Otter（销毁身份）→ dissolve_otter. Output: 新 Session ID 确认. GOTCHA: **前世 session 封存不可逆**——前世记录靠交接档案（引擎叙事合成 + 机械供料）注入新世，jsonl 文件保留可审计. TIP: 手动交接时 summary 按交接摘要模板填写——模板与填写要点见特性文档 system-md-entropy-reduction 附录 B（docs/features/ 下按标题 grep 定位）. BOUNDARY: 访问控制——小獭只能重启自己，大獭可重启任意 Otter.",
     parameters: {
       type: "object",
       properties: {
@@ -436,11 +437,15 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
         },
         summary: {
           type: "string",
-          description: "前情摘要，将作为新一世的上下文注入。简要说明重启原因。",
+          description: "交接意图书（自总结）：为什么重启、新世该干什么。作为独立层原样保留在新世起始档案（不转述），同时作为引擎合成的意图原料。",
         },
         modelAlias: {
           type: "string",
           description: "新模型别名（可选）。配额耗尽时可切换到其他模型。不传则保持当前模型。可选值见身份提示中的模型列表。",
+        },
+        synthesizePast: {
+          type: "boolean",
+          description: "是否由引擎合成前世叙事档案（默认 true）。false = 跳过 LLM 合成，新世档案 = 自总结 + 机械供料（谱系/文件轨迹/状态盘点/近期保留段）。前世无对话（如首哑复活）时传 false 省一次无效合成。",
         },
       },
       required: [],
@@ -450,6 +455,8 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
       const targetOtterId = (params.otterId as string) || ctx.otterId;
       const summary = params.summary as string | undefined;
       const modelAlias = params.modelAlias as string | undefined;
+      // F20260920uhuc：synthesizePast 透传（默认 true——獭最清楚前世价值）
+      const synthesizePast = params.synthesizePast !== false;
 
       // 访问控制：获取调用者类型
       const self = await ctx.client.otter.getById(ctx.otterId);
@@ -482,16 +489,18 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
       // F20260815rstrt: 自重启时延迟执行——session.prompt() 是原子的，
       // 中途 restart 会打断 LLM 生成。标记 pending，prompt 完成后由 PiSessionFactory 执行。
       if (targetOtterId === ctx.otterId) {
-        ctx.pendingRestart = { summary, modelAlias };
+        ctx.pendingRestart = { summary, modelAlias, synthesizePast };
         return textResponse(
           `已标记重启当前獭生。当前发言完成后将自动执行。` +
-          (summary ? ` 前情摘要：${summary}` : '') +
-          (modelAlias ? ` 切换模型至：${modelAlias}` : '')
+          (summary ? ` 交接意图书：${summary}` : '') +
+          (modelAlias ? ` 切换模型至：${modelAlias}` : '') +
+          (synthesizePast ? ' 前世叙事档案将由引擎合成' : ' 跳过前世叙事合成（仅机械档案）')
         );
       }
 
       // 重启别人：直接执行（不涉及自身 session）
-      const session = await ctx.client.otter.restart(targetOtterId, summary, modelAlias);
+      // F20260920uhuc：synthesizePast 透传统一交接管线（otter client → manageSession.restartSession 域层 reason）
+      const session = await ctx.client.otter.restart(targetOtterId, summary, modelAlias, synthesizePast);
       return textResponse(`Otter ${targetOtterId} 已重启獭生。新 Session ID: ${session.id}` + (modelAlias ? `，模型切换至：${modelAlias}` : ''));
     },
   };

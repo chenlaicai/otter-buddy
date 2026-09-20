@@ -12,7 +12,7 @@ vi.mock("node:fs", () => ({
   renameSync: (...args: unknown[]) => mockRenameSync(...args),
 }));
 
-const MINIMAL_YAML = "llm:\n  models:\n    - alias: main\n      provider: openai\n      model: gpt-4o\n";
+const MINIMAL_YAML = "llm:\n  models:\n    - alias: main\n      provider: openai\n      model: gpt-4o\n      handoffThresholdTokens: 40000\n";
 
 // Provide a default config so loadConfig tests work
 mockExistsSync.mockReturnValue(true);
@@ -57,18 +57,18 @@ describe("validate", () => {
   it("throws when server.port is not a number", () => {
     expect(() =>
       validate({
-        llm: { models: [{ alias: "main", provider: "openai", model: "gpt-4o" }] },
+        llm: { models: [{ alias: "main", provider: "openai", model: "gpt-4o", handoffThresholdTokens: 40_000 }] },
         server: { port: "abc" as unknown as number },
       }),
     ).toThrow("server.port");
   });
 
   it("passes with valid single-entry models[]", () => {
-    expect(() => validate({ llm: { models: [{ alias: "main", provider: "openai", model: "gpt-4o" }] } })).not.toThrow();
+    expect(() => validate({ llm: { models: [{ alias: "main", provider: "openai", model: "gpt-4o", handoffThresholdTokens: 40_000 }] } })).not.toThrow();
   });
 
   it("passes with anthropic provider", () => {
-    expect(() => validate({ llm: { models: [{ alias: "ant", provider: "anthropic", model: "claude-sonnet-4-20250514" }] } })).not.toThrow();
+    expect(() => validate({ llm: { models: [{ alias: "ant", provider: "anthropic", model: "claude-sonnet-4-20250514", handoffThresholdTokens: 40_000 }] } })).not.toThrow();
   });
 });
 
@@ -113,14 +113,14 @@ describe("loadConfig", () => {
     mockReadFileSync.mockReturnValue(MINIMAL_YAML + "llm:\n  cacheLongRetention: false\n");
     // yaml 合并：后写的 llm 块覆盖 default 键但保留 models —— 直接拼接会产生两个 llm 键，
     // 为避免歧义用完整 yaml 重写
-    mockReadFileSync.mockReturnValue("llm:\n  cacheLongRetention: false\n  models:\n    - alias: main\n      provider: openai\n      model: gpt-4o\n");
+    mockReadFileSync.mockReturnValue("llm:\n  cacheLongRetention: false\n  models:\n    - alias: main\n      provider: openai\n      model: gpt-4o\n      handoffThresholdTokens: 40000\n");
     expect(loadConfig().llm.cacheLongRetention).toBe(false);
   });
 
   it("loads config with custom values", () => {
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(
-      "llm:\n  models:\n    - alias: ant\n      provider: anthropic\n      model: claude-sonnet-4-20250514\n      apiKey: sk-test\n      apiBaseUrl: https://proxy.example.com\nserver:\n  port: 8080\n",
+      "llm:\n  models:\n    - alias: ant\n      provider: anthropic\n      model: claude-sonnet-4-20250514\n      apiKey: sk-test\n      apiBaseUrl: https://proxy.example.com\n      handoffThresholdTokens: 40000\nserver:\n  port: 8080\n",
     );
 
     const cfg = loadConfig();
@@ -136,7 +136,7 @@ describe("loadConfig", () => {
     mockExistsSync.mockReturnValue(true);
     // js-yaml parses `apiKey:` (no value) as null
     mockReadFileSync.mockReturnValue(
-      "llm:\n  models:\n    - alias: main\n      provider: openai\n      model: gpt-4o\n      apiKey:\n      apiBaseUrl:\n",
+      "llm:\n  models:\n    - alias: main\n      provider: openai\n      model: gpt-4o\n      apiKey:\n      apiBaseUrl:\n      handoffThresholdTokens: 40000\n",
     );
 
     const cfg = loadConfig();
@@ -220,8 +220,8 @@ describe("validate — models[] 条目校验", () => {
       llm: {
         default: "fast",
         models: [
-          { alias: "fast", provider: "openai", model: "gpt-4o-mini" },
-          { alias: "powerful", provider: "anthropic", model: "claude-sonnet-4-20250514" },
+          { alias: "fast", provider: "openai", model: "gpt-4o-mini", handoffThresholdTokens: 40_000 },
+          { alias: "powerful", provider: "anthropic", model: "claude-sonnet-4-20250514", handoffThresholdTokens: 40_000 },
         ],
       },
     };
@@ -234,8 +234,8 @@ describe("validate — models[] 条目校验", () => {
     const raw = {
       llm: {
         models: [
-          { alias: "fast", provider: "openai", model: "gpt-4o-mini" },
-          { alias: "powerful", provider: "anthropic", model: "claude-sonnet-4-20250514" },
+          { alias: "fast", provider: "openai", model: "gpt-4o-mini", handoffThresholdTokens: 40_000 },
+          { alias: "powerful", provider: "anthropic", model: "claude-sonnet-4-20250514", handoffThresholdTokens: 40_000 },
         ],
       },
     };
@@ -277,8 +277,8 @@ describe("validate — models[] 条目校验", () => {
     expect(() => validate({
       llm: {
         models: [
-          { alias: "same", provider: "openai", model: "gpt-4o" },
-          { alias: "same", provider: "anthropic", model: "claude-sonnet-4-20250514" },
+          { alias: "same", provider: "openai", model: "gpt-4o", handoffThresholdTokens: 40_000 },
+          { alias: "same", provider: "anthropic", model: "claude-sonnet-4-20250514", handoffThresholdTokens: 40_000 },
         ],
       },
     })).toThrow("重复的 alias");
@@ -289,7 +289,7 @@ describe("validate — models[] 条目校验", () => {
       llm: {
         default: "nonexistent",
         models: [
-          { alias: "fast", provider: "openai", model: "gpt-4o" },
+          { alias: "fast", provider: "openai", model: "gpt-4o", handoffThresholdTokens: 40_000 },
         ],
       },
     })).toThrow("不在 models[] 中");
@@ -299,7 +299,7 @@ describe("validate — models[] 条目校验", () => {
     const raw = {
       llm: {
         models: [
-          { alias: "kimi", provider: "openai", model: "k3", thinkingLevel: "high" as const },
+          { alias: "kimi", provider: "openai", model: "k3", thinkingLevel: "high" as const, handoffThresholdTokens: 40_000 },
         ],
       },
     };
@@ -310,7 +310,7 @@ describe("validate — models[] 条目校验", () => {
     expect(() => validate({
       llm: {
         models: [
-          { alias: "kimi", provider: "openai", model: "k3", thinkingLevel: "turbo" as never },
+          { alias: "kimi", provider: "openai", model: "k3", thinkingLevel: "turbo" as never, handoffThresholdTokens: 40_000 },
         ],
       },
     })).toThrow("thinkingLevel 必须是");
@@ -322,8 +322,8 @@ describe("validate — models[] 条目校验", () => {
       llm: {
         default: "kimi",
         models: [
-          { alias: "kimi", provider: "openai", model: "k3", thinkingLevel: "high" as const },
-          { alias: "mimo", provider: "anthropic", model: "mimo-v2.5-pro" },
+          { alias: "kimi", provider: "openai", model: "k3", thinkingLevel: "high" as const, handoffThresholdTokens: 40_000 },
+          { alias: "mimo", provider: "anthropic", model: "mimo-v2.5-pro", handoffThresholdTokens: 40_000 },
         ],
       },
     };
@@ -331,6 +331,27 @@ describe("validate — models[] 条目校验", () => {
     // 校验后 applyDefaults 不透传则丢字段——用 loadConfig 级断言太重，直接检查 validate 未剥字段（mutate 语义）
     expect(raw.llm.models[0].thinkingLevel).toBe("high");
     expect(raw.llm.models[1].thinkingLevel).toBeUndefined();
+  });
+
+  it("F20260920uhuc 需求变更：handoffThresholdTokens 缺失 → 启动报错（按模型必填）", () => {
+    expect(() => validate({
+      llm: { models: [{ alias: "main", provider: "openai", model: "gpt-4o" }] },
+    })).toThrow("handoffThresholdTokens 为必填");
+  });
+
+  it("F20260920uhuc 需求变更：handoffThresholdTokens 非法值（0/负数/字符串）→ 报错", () => {
+    for (const bad of [0, -5, "40000" as never]) {
+      expect(() => validate({
+        llm: { models: [{ alias: "main", provider: "openai", model: "gpt-4o", handoffThresholdTokens: bad }] },
+      })).toThrow("handoffThresholdTokens 为必填数字");
+    }
+  });
+
+  it("F20260920uhuc 需求变更：compactionReserveTokens 残留 → 报错并引导迁移（fail-closed 退役）", () => {
+    expect(() => validate({
+      llm: { models: [{ alias: "main", provider: "openai", model: "gpt-4o", handoffThresholdTokens: 40_000 }] },
+      contextQuality: { compactionReserveTokens: 700_000 } as never,
+    })).toThrow("compactionReserveTokens 已退役");
   });
 });
 

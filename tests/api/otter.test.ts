@@ -242,124 +242,180 @@ describe("Otter API", () => {
     });
   });
 
-  // ─── POST /api/otters/:id/restart ───
 
-  describe("POST /api/otters/:id/restart", () => {
-    it("archives active session and creates new one", async () => {
-      const newSession = makeSession({ id: "new-session" });
-      deps.manageSession.restartSession.mockResolvedValue(newSession);
+});
 
-      const res = await app.request("/api/otters/otter-1/restart", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ summary: "Restarting" }),
-      });
+// F20260920uhuc：restart 测试整体提升为文件级 describe——外层 Otter API 箭头函数已顶 lint 300 行上限
+describe("POST /api/otters/:id/restart（含 F20260920uhuc 统一交接）", () => {
+  let deps: TestDeps;
+  let app: ReturnType<typeof createTestApp>;
 
-      if (res.status !== 201) console.error("DBG2", await res.clone().text());
-      expect(res.status).toBe(201);
-      const body = await json(res);
-      expect(body.id).toBe("new-session");
-      expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", "Restarting", undefined);
-    });
-
-    it("F20260920srbtn：小獭可重启獭生（取代 F20260805rsto 的 small 拦截，与 agent 侧 restart_otter 大獭可重启小獭对齐），返回 201", async () => {
-      deps.queryOtter.getById.mockResolvedValue(makeOtter({ type: "small" }));
-      const newSession = makeSession({ id: "small-new-session" });
-      deps.manageSession.restartSession.mockResolvedValue(newSession);
-
-      const res = await app.request("/api/otters/otter-1/restart", {
-        method: "POST",
-      });
-
-      if (res.status !== 201) console.error("DBG3", await res.clone().text());
-      expect(res.status).toBe(201);
-      expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", undefined, undefined);
-    });
-
-    it("delegates to restartSession and returns 201", async () => {
-      const newSession = makeSession({ id: "fresh-session" });
-      deps.manageSession.restartSession.mockResolvedValue(newSession);
-
-      const res = await app.request("/api/otters/otter-1/restart", {
-        method: "POST",
-      });
-
-      expect(res.status).toBe(201);
-      expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", undefined, undefined);
-    });
-
-    it("#889: JSON null body → 201 + summary/modelAlias 为 undefined（不崩溃 500）", async () => {
-      const newSession = makeSession({ id: "null-body-session" });
-      deps.queryOtter.getById.mockResolvedValue(makeOtter({ type: "big" }));
-      deps.manageSession.restartSession.mockResolvedValue(newSession);
-
-      const res = await app.request("/api/otters/otter-1/restart", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "null",
-      });
-
-      expect(res.status).toBe(201);
-      expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", undefined, undefined);
-    });
-
-    it("F20260908efmd: restart 带合法 modelAlias → 201 + modelAlias 传入 restartSession", async () => {
-      const newSession = makeSession({ id: "model-switch-session" });
-      deps.manageSession.restartSession.mockResolvedValue(newSession);
-
-      const res = await app.request("/api/otters/otter-1/restart", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ summary: "模型切换", modelAlias: "main" }),
-      });
-
-      expect(res.status).toBe(201);
-      expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", "模型切换", "main");
-    });
-
-    it("F20260908efmd: restart 带非法 modelAlias → 400 附可用列表", async () => {
-      const res = await app.request("/api/otters/otter-1/restart", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ summary: "测试", modelAlias: "nonexistent-model" }),
-      });
-
-      expect(res.status).toBe(400);
-      const body = await json(res);
-      expect(body.error).toContain("未知的模型别名");
-      expect(body.error).toContain("main");
-      expect(deps.manageSession.restartSession).not.toHaveBeenCalled();
-    });
-
-    // ─── F20260917rsta：手动重启空摘要 → 自动 LLM 交接（controller 接线） ───
-
-    it("F20260917rsta: otterRestartAutoHandoff 注入 → restart 委托给自动交接方法", async () => {
-      const newSession = makeSession({ id: "auto-handoff-session" });
-      const restartWithAutoHandoffIfBlank = vi.fn().mockResolvedValue(newSession);
-      deps.otterRestartAutoHandoff = { restartWithAutoHandoffIfBlank };
-      app = createTestApp(deps);
-
-      const res = await app.request("/api/otters/otter-1/restart", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ summary: "  " }),
-      });
-
-      expect(res.status).toBe(201);
-      expect(restartWithAutoHandoffIfBlank).toHaveBeenCalledWith("otter-1", "  ", undefined);
-      expect(deps.manageSession.restartSession).not.toHaveBeenCalled();
-    });
-
-    it("F20260917rsta: otterRestartAutoHandoff 未注入 → 降级原语义（直走 restartSession）", async () => {
-      const newSession = makeSession({ id: "legacy-session" });
-      deps.manageSession.restartSession.mockResolvedValue(newSession);
-
-      const res = await app.request("/api/otters/otter-1/restart", {
-        method: "POST",
-      });
-
-      expect(res.status).toBe(201);
-      expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", undefined, undefined);
-    });
+  beforeEach(() => {
+    deps = createMockDeps();
+    app = createTestApp(deps);
   });
+    // ─── POST /api/otters/:id/restart ───
+
+    describe("POST /api/otters/:id/restart", () => {
+      it("archives active session and creates new one", async () => {
+        const newSession = makeSession({ id: "new-session" });
+        deps.manageSession.restartSession.mockResolvedValue(newSession);
+
+        const res = await app.request("/api/otters/otter-1/restart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ summary: "Restarting" }),
+        });
+
+        if (res.status !== 201) console.error("DBG2", await res.clone().text());
+        expect(res.status).toBe(201);
+        const body = await json(res);
+        expect(body.id).toBe("new-session");
+        expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", "Restarting", undefined);
+      });
+
+      it("F20260920srbtn：小獭可重启獭生（#1050 取代 F20260805rsto small 拦截，与 restart_otter 大獭可重启小獭对齐），返回 201", async () => {
+        deps.queryOtter.getById.mockResolvedValue(makeOtter({ type: "small" }));
+        const newSession = makeSession({ id: "small-new-session" });
+        deps.manageSession.restartSession.mockResolvedValue(newSession);
+
+        const res = await app.request("/api/otters/otter-1/restart", {
+          method: "POST",
+        });
+
+        expect(res.status).toBe(201);
+        expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", undefined, undefined);
+      });
+
+      it("delegates to restartSession and returns 201", async () => {
+        const newSession = makeSession({ id: "fresh-session" });
+        deps.manageSession.restartSession.mockResolvedValue(newSession);
+
+        const res = await app.request("/api/otters/otter-1/restart", {
+          method: "POST",
+        });
+
+        expect(res.status).toBe(201);
+        expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", undefined, undefined);
+      });
+
+      it("#889: JSON null body → 201 + summary/modelAlias 为 undefined（不崩溃 500）", async () => {
+        const newSession = makeSession({ id: "null-body-session" });
+        deps.queryOtter.getById.mockResolvedValue(makeOtter({ type: "big" }));
+        deps.manageSession.restartSession.mockResolvedValue(newSession);
+
+        const res = await app.request("/api/otters/otter-1/restart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "null",
+        });
+
+        expect(res.status).toBe(201);
+        expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", undefined, undefined);
+      });
+
+      it("F20260908efmd: restart 带合法 modelAlias → 201 + modelAlias 传入 restartSession", async () => {
+        const newSession = makeSession({ id: "model-switch-session" });
+        deps.manageSession.restartSession.mockResolvedValue(newSession);
+
+        const res = await app.request("/api/otters/otter-1/restart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ summary: "模型切换", modelAlias: "main" }),
+        });
+
+        expect(res.status).toBe(201);
+        expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", "模型切换", "main");
+      });
+
+      it("F20260908efmd: restart 带非法 modelAlias → 400 附可用列表", async () => {
+        const res = await app.request("/api/otters/otter-1/restart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ summary: "测试", modelAlias: "nonexistent-model" }),
+        });
+
+        expect(res.status).toBe(400);
+        const body = await json(res);
+        expect(body.error).toContain("未知的模型别名");
+        expect(body.error).toContain("main");
+        expect(deps.manageSession.restartSession).not.toHaveBeenCalled();
+      });
+
+      // ─── F20260920uhuc：手动重启统一交接管线（synthesizePast 透传 + 忙碌 409） ───
+
+      it("F20260920uhuc: 统一交接注入 → restart 委托 restartWithUnifiedHandoff，synthesizePast 缺省 true", async () => {
+        const newSession = makeSession({ id: "unified-handoff-session" });
+        deps.queryOtter.getById.mockResolvedValue(makeOtter({ type: "big" }));
+        const restartWithUnifiedHandoff = vi.fn().mockResolvedValue(newSession);
+        deps.otterRestartAutoHandoff = { restartWithUnifiedHandoff };
+        app = createTestApp(deps);
+
+        const res = await app.request("/api/otters/otter-1/restart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ summary: "  " }),
+        });
+
+        expect(res.status).toBe(201);
+        expect(restartWithUnifiedHandoff).toHaveBeenCalledWith("otter-1", {
+          selfSummary: "  ",
+          synthesizePast: true,
+          modelAlias: undefined,
+        });
+        expect(deps.manageSession.restartSession).not.toHaveBeenCalled();
+      });
+
+      it("F20260920uhuc: synthesizePast=false 透传（首哑复活语义）", async () => {
+        const newSession = makeSession({ id: "no-synth-session" });
+        deps.queryOtter.getById.mockResolvedValue(makeOtter({ type: "big" }));
+        const restartWithUnifiedHandoff = vi.fn().mockResolvedValue(newSession);
+        deps.otterRestartAutoHandoff = { restartWithUnifiedHandoff };
+        app = createTestApp(deps);
+
+        const res = await app.request("/api/otters/otter-1/restart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ synthesizePast: false }),
+        });
+
+        expect(res.status).toBe(201);
+        expect(restartWithUnifiedHandoff).toHaveBeenCalledWith("otter-1", {
+          selfSummary: undefined,
+          synthesizePast: false,
+          modelAlias: undefined,
+        });
+      });
+
+      it("F20260920uhuc: 忙碌（conflict）→ 409 错误透传给前端", async () => {
+        deps.queryOtter.getById.mockResolvedValue(makeOtter({ type: "big" }));
+        deps.otterRestartAutoHandoff = {
+          restartWithUnifiedHandoff: vi.fn().mockRejectedValue(
+            new DomainError("Otter otter-1 正在执行任务（忙碌中），不允许手动重启，请稍后再试", "conflict"),
+          ),
+        };
+        app = createTestApp(deps);
+
+        const res = await app.request("/api/otters/otter-1/restart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+
+        expect(res.status).toBe(409);
+      });
+
+      it("F20260920uhuc: 统一交接未注入 → 降级原语义（直走 restartSession）", async () => {
+        const newSession = makeSession({ id: "legacy-session" });
+        deps.queryOtter.getById.mockResolvedValue(makeOtter({ type: "big" }));
+        deps.manageSession.restartSession.mockResolvedValue(newSession);
+
+        const res = await app.request("/api/otters/otter-1/restart", {
+          method: "POST",
+        });
+
+        expect(res.status).toBe(201);
+        expect(deps.manageSession.restartSession).toHaveBeenCalledWith("otter-1", undefined, undefined);
+      });
+    });
 });
