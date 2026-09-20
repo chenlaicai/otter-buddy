@@ -92,8 +92,6 @@ export interface HandoffEngineDeps {
   renderStateInventory: (inventory: unknown) => string;
   scanWorkspaceFiles: (path: string) => string[];
   renderFileTrail: (trail: unknown) => string;
-  /** 水位域配置读取（缺省 700K 质量线） */
-  getCompactionReserveTokens: () => number;
   /** 合成超时上界 ms */
   synthesisTimeoutMs: number;
 }
@@ -269,16 +267,18 @@ export class AgentInvoker implements AgentTurnPort {
      *
      * 写回语义变为「换 session 交接」后，Pi 钩子内换 session 是竞态地狱（#896 同构：
      * 外层 invoke 持锁+池引用），故时机权收回：每轮 invoke 开始前查上轮 ctxTokens，
-     * 超线（ctxTokens > contextWindow − compactionReserveTokens）即执行统一交接。
+     * 超过该獭模型的交接阈值（ctxTokens > handoffThresholdTokens，2026-09-20 需求变更：
+     * 按模型直给已用 token 绝对值，旧全局 compactionReserveTokens 预留制退役）即执行统一交接。
      *
      * 检查密度取舍（F20260903cmpk 反向）：从 Pi 每轮 LLM 调用边界降为 invoke 轮边界，
      * 轮内工具循环暴涨可能漏检——补偿 = SDK overflow 兜底（reserve=50K 贴溢出点，
      * U1 验证 overflow 判定独立于 reserve）。
      */
-    const ctxMax = this.getCtxMax(otterId);
-    if (this.shouldTriggerWatermarkHandoff(otterId, ctxMax)) {
+    if (this.shouldTriggerWatermarkHandoff(otterId)) {
       this.logger.info('[handoff] watermark exceeded at invoke boundary, starting unified handoff', {
-        otterId, conversationId, lastCtxTokens: this.handoffState.getLastCtxTokens(otterId), ctxMax,
+        otterId, conversationId,
+        lastCtxTokens: this.handoffState.getLastCtxTokens(otterId),
+        threshold: this.ctxWindowProvider?.getOtterHandoffThresholdTokens(otterId),
       });
       await this.unifiedHandoff(otterId, conversationId, { trigger: '水位', synthesizePast: true });
       // 交接完成后继续本 invoke——新世 session 由 restartSession 建立，本消息成为新世首个输入，
@@ -806,15 +806,40 @@ export class AgentInvoker implements AgentTurnPort {
       modelAlias?: string;
       /** 锁策略：轮边界触发时外层已持锁（invokeConversationInner→invoke），传 'none' 跳过取锁 */
       lockMode?: 'acquire' | 'none';
+      /** F20260918uhuc 需求变更（2026-09-20）：交接进度系统消息通道（前端 entry.system SSE 消费）。
+       *  缺省 true；测试可注入 false 关闭。 */
+      progressEntry?: boolean;
     },
   ): Promise<OtterSession> {
-    const { trigger, selfSummary, synthesizePast, modelAlias, lockMode = 'acquire' } = params;
+    const { trigger, selfSummary, synthesizePast, modelAlias, lockMode = 'acquire', progressEntry = true } = params;
 
     // 防重入（同獭并发交接：手动重启连点 / 水位与手动撞车）
     if (this.handoffState.isInProgress(otterId)) {
       throw new DomainError(`[handoff] already in progress for ${otterId}`, "conflict");
     }
     this.handoffState.setInProgress(otterId, true);
+
+    /** 交接进度系统消息（需求变更 2026-09-20：等待要有反馈）。失败静默——UX 反馈不阻塞交接主线。 */
+    const otterDisplay = async (): Promise<string> => {
+      const o = await this.queryOtter.getById(otterId);
+      return o ? `${o.type === 'big' ? '大獭' : '小獭'}「${o.name}」` : otterId;
+    };
+    const sendProgress = async (body: string): Promise<void> => {
+      if (!progressEntry) return;
+      try {
+        const sysMsg = await this.sendSystemEntry(conversationId, body);
+        this.messageBroadcaster?.broadcastEvent(conversationId, {
+          event: 'entry.system', data: { entryId: sysMsg.id, content: sysMsg.body, seq: sysMsg.sequenceNum },
+        });
+      } catch (err) {
+        this.logger.warn('[handoff] progress entry failed (non-fatal)', {
+          otterId, conversationId, error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    };
+    if (progressEntry) {
+      await sendProgress(`⏳ ${await otterDisplay()}的上下文已满（${trigger}触发），正在封装前世档案…（预计 5-15 秒，最长约 1 分钟）`);
+    }
 
     // 冻结窗口：持锁直到交接完成（lockMode='none' 时外层 invoke 已持锁——水位场景）
     let releaseLock: (() => void) | undefined;
@@ -896,18 +921,31 @@ export class AgentInvoker implements AgentTurnPort {
         otterId, trigger, synthesizePast, narrative: !!narrativeSummary,
         archiveTokens: Math.ceil(archive.length / 4), newSessionId: session.id,
       });
+      // 完成 feedback（需求变更 2026-09-20）：档案形态告知（叙事/机械）——合成降级对用户可见
+      await sendProgress(
+        `✅ ${await otterDisplay()}前世已封存（${narrativeSummary ? '完整叙事档案' : '机械档案'}），新一世携带前世记忆开始`,
+      );
       return session;
+    } catch (err) {
+      // 失败 feedback：仅上抛的失败发（降级链内部已吞的失败照常 done）。
+      // sendProgress 自身失败静默（防反馈通道故障反噬主流程）
+      if (progressEntry) {
+        await sendProgress(`⚠️ 「${trigger}」交接未能完成，本次保持当前世代——可稍后重试或手动重启`).catch(() => { /* non-fatal */ });
+      }
+      throw err;
     } finally {
       releaseLock?.();
       this.handoffState.setInProgress(otterId, false);
     }
   }
 
-  /** 水位判定：上轮 ctxTokens 超线（ctxTokens > contextWindow − compactionReserveTokens） */
-  private shouldTriggerWatermarkHandoff(otterId: string, ctxMax: number): boolean {
+  /** 水位判定：上轮 ctxTokens 超过该獭模型的交接阈值（按模型直给，2026-09-20 需求变更）。
+   *  阈值无法解析（模型缺失/旧装配）时不触发——水位交接静默失活优于拿错阈值误触发。 */
+  private shouldTriggerWatermarkHandoff(otterId: string): boolean {
     const last = this.handoffState.getLastCtxTokens(otterId);
     if (last === undefined) return false;
-    const threshold = ctxMax - (this.engine?.getCompactionReserveTokens() ?? 700_000);
+    const threshold = this.ctxWindowProvider?.getOtterHandoffThresholdTokens(otterId);
+    if (threshold === undefined) return false;
     return last > threshold;
   }
 

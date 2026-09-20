@@ -162,6 +162,7 @@ export async function bootCapabilityApp(options: BootOptions = {}): Promise<Capa
         apiBaseUrl: options.recordingGatewayUrl,
         contextWindow: 200_000,
         maxTokens: 8_192,
+        handoffThresholdTokens: 150_000,
       }],
     };
   }

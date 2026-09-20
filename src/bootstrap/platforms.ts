@@ -19,7 +19,6 @@ import { buildNarrativeSynthesisPrompt, assembleHandoffArchive, buildMechanicalA
 import { sliceSessionEntries, serializeKeptWindow } from "@frameworks/agent/session-slicer";
 import { collectStateInventory, renderStateInventory } from "@frameworks/agent/state-inventory";
 import { scanWorkspaceFiles, renderFileTrail } from "@frameworks/agent/file-trail-extractor";
-import { getConfig } from "@frameworks/config";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { Repositories, UseCases } from "./types";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
@@ -188,11 +187,16 @@ function buildCtxWindowProvider(
       // 未配 alias 时走默认模型窗口（model-pool.getContextWindow 语义：null/undefined → 默认条目）
       return modelPool.getContextWindow(alias);
     },
+    // F20260918uhuc 需求变更（2026-09-20）：交接阈值按模型直给（已用 token 绝对值）
+    getOtterHandoffThresholdTokens: (otterId: string): number | undefined => {
+      const alias = otterConfigProvider?.getConfig(otterId)?.modelAlias;
+      return modelPool.getHandoffThresholdTokens(alias);
+    },
   };
 }
 
 /** F20260918uhuc：统一交接引擎函数包组装（bootstrap 层 import frameworks——组合根合法）。
- *  水位域配置读 contextQuality.compactionReserveTokens（缺省 700K 质量线）。
+ *  水位阈值按模型读 ModelConfig.handoffThresholdTokens（2026-09-20 需求变更，直给制）。
  *  类型桥接：frameworks 具体签名 → HandoffEngineDeps 结构面（具体类型在 bootstrap 收敛）。 */
 function buildHandoffEngineDeps(): HandoffEngineDeps {
   return {
@@ -205,7 +209,6 @@ function buildHandoffEngineDeps(): HandoffEngineDeps {
     renderStateInventory: renderStateInventory as unknown as HandoffEngineDeps["renderStateInventory"],
     scanWorkspaceFiles,
     renderFileTrail: renderFileTrail as unknown as HandoffEngineDeps["renderFileTrail"],
-    getCompactionReserveTokens: () => getConfig().contextQuality.compactionReserveTokens,
     synthesisTimeoutMs: NARRATIVE_SYNTHESIS_TIMEOUT_MS,
   };
 }

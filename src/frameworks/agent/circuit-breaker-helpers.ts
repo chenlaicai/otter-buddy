@@ -295,7 +295,8 @@ export function attachCircuitBreaker(
 }
 
   /** token 超阈值警告已删（F20260904cq30）：1278 次日志零下游消费的假水位线。
-   *  上下文水位域唯一真相源 = compaction 触发线（config contextQuality.compactionReserveTokens）；
+   *  上下文水位域唯一真相源 = 交接触发线（llm.models[].handoffThresholdTokens，
+   *  F20260918uhuc 需求变更 2026-09-20：按模型直给，旧 contextQuality.compactionReserveTokens 退役）；
    *  水位数据每消息落 DB（messages.context_tokens），观测走 DB/metrics 不走日志。 */
 
 /** 构建执行结果（含熔断器元数据） */

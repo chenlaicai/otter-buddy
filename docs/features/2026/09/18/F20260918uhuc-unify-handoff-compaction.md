@@ -267,3 +267,35 @@ P1 原文：「手动/熔断路径绝不走 LLM 合成」，理由 = 熔断场�
 - 触发与冻结：agent-invoker.ts 轮边界水位检查（`ctxTokens > contextWindow − compactionReserveTokens`）；统一 handoff 入口；invoke 通道合成退役（buildSynthesisFunction 删除）
 - compaction-hook.ts 已删除，platforms.ts setCompactionSynthesis 接线移除（时机权回收至应用层）
 - 域层 manage-session.ts reason 枚举新增 'compaction'；otter-controller.ts synthesizePast 透传 + 忙碌 409；tool-factory.ts restart_otter 加 synthesizePast 参数
+
+## 需求变更落地（2026-09-20，搭档两条指令）
+
+搭档原话：「1.既然handoff是由本系统控制的，那我要求直接配置 交接阈值（已用token，而不是设置 预留token），并且，每个模型必须单独配置这个参数，而不能是全局一个」「2.之前明明提出过，交接期用户体验要做好，这个等待要有反馈，现在来看是完全没做这一部分。你需要补齐用户体验交互」
+
+### 变更 1：交接阈值改按模型直给（不兼容更新）
+
+- **配置语义**：`llm.models[].handoffThresholdTokens`（必填，已用 token 绝对值）——上轮 ctxTokens 超过此值即触发统一交接。例：128K 窗口配 40000、1M 窗口配 340000（经验值：窗口 25-35%）
+- **旧键退役（fail-closed）**：`contextQuality.compactionReserveTokens`（预留制）删除，残留时 validate 启动报错并给迁移公式（`handoffThresholdTokens = contextWindow − 旧值`）；`sdkOverflowReserveTokens` 保留全局（SDK 兜底层与模型无关）
+- **解析链**：ModelConfig（config-service.ts:20 接口 + validateModels 必填校验）→ ModelPool.getHandoffThresholdTokens（model-pool.ts，对齐 getContextWindow 先例）→ OtterContextWindowProvider.getOtterHandoffThresholdTokens（同端口扩一方法）→ bootstrap/platforms.ts 闭包组装 → agent-invoker `shouldTriggerWatermarkHandoff` 直给判定（阈值无法解析时不触发——静默失活优于拿错阈值误触发）
+- **HandoffEngineDeps.getCompactionReserveTokens 退役**：水位判定不再依赖窗口（引擎 deps 减一字段；ctxMax 仍用于右栏占用率显示）
+
+### 变更 2：交接进度系统消息（UX 反馈补齐）
+
+- **三态消息**（unifiedHandoff 内部统一发，四条触发路径自动全覆盖——水位/手动/熔断/自重启）：
+  - 开始：`⏳ {大獭/小獭}「名字」的上下文已满（{触发}触发），正在封装前世档案…（预计 5-15 秒，最长约 1 分钟）`
+  - 完成：`✅ …前世已封存（完整叙事档案/机械档案），新一世携带前世记忆开始`——合成降级对用户如实标注
+  - 失败：`⚠️ 「{触发}」交接未能完成，本次保持当前世代——可稍后重试或手动重启`（仅上抛失败发；降级链内部已吞的失败照常发完成态）
+- **通道**：sendEntry.createSystemEntry（system entry 落库）+ messageBroadcaster `entry.system` SSE 广播——前端 index.tsx 既有 handler + MessageList 居中卡渲染，**web 零代码改动**
+- **容错**：反馈通道自身故障静默降级（不阻塞交接主线）；测试可传 `progressEntry: false` 关闭
+- **手动路径既有反馈保留**：RestartModal 按钮态「正在封装前世档案…」+ 防连点不变（与系统消息互补：弹窗内看按钮，弹窗外看消息流）
+
+### 验证（2026-09-20）
+
+- 单测 3675 全绿（+13：config 必填/退役引导/非法值 3 例、ModelPool 阈值查询 3 例、水位直给判定 2 例、进度消息三态+降级标注+失败不误报+通道故障不反噬 5 例）/ root lint 0 error / root+web tsc 0 error / web 495 全绿
+- **alpha 实例端到端真机验证**（worktree 构建 :3180 + vite dev :5273）：手动重启 API → 消息流出现 seq7 开始/seq8 完成系统消息（机械档案标注如实）→ Playwright 截图取证系统消息居中卡渲染（glass-card boundingBox x≈520 居中，截图 `data/workspaces/c619e648-*/ui-reqchange-01-system-messages.png`）
+- **rebase origin/main**：#1047/#1050 合入后 rebase，冲突 2 处（tests/api/otter.test.ts、RightPanel.tsx）已解——#1050 小獭重启开放语义与本分支忙碌置灰取并集；全量重跑绿
+
+### 同场发现（非本特性域）
+
+- **patrol TDZ 报错**（`Patrol duty failed: scheduler-reconcile: Cannot access 'schedulerService' before initialization`）：alpha 隔离实例启动即报——patrolWorker 数组在 schedulerService 声明前构造（src/app.ts，TDZ 闭包引用）。origin/main 基线构建对照复现同样报错，**pre-existing 非本分支引入**；生产实例 patrol 首跑在 1h 后且此时代码路径不同故未暴露。建议单独排查（低危：失败隔离，不影响其他巡检项）
+- **主仓 :3000 生产实例**跑的是 9/20 08:05 的旧 dist（不含本特性），web :3212 同为旧前端——部署后行为才对用户可见

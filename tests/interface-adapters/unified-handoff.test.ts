@@ -104,7 +104,6 @@ function makeEngine(overrides?: Partial<HandoffEngineDeps>): HandoffEngineDeps &
     renderStateInventory: () => "## 活状态盘点",
     scanWorkspaceFiles: () => [],
     renderFileTrail: () => "文件轨迹（空）",
-    getCompactionReserveTokens: () => 700_000,
     synthesisTimeoutMs: 50,
     ...overrides,
   };
@@ -147,6 +146,10 @@ function makeInvokerWithEngine(opts: {
   engine?: HandoffEngineDeps;
   conversationIds?: string[];
   restartSession?: ManageSession["restartSession"];
+  /** F20260918uhuc 需求变更（2026-09-20）：进度消息通道 stub */
+  broadcaster?: { events: Array<{ conversationId: string; event: string; data: unknown }> };
+  sendEntry?: { bodies: string[] };
+  ctxWindowProvider?: { window?: number; threshold?: number };
 }): AgentInvoker {
   const manageSession = {
     getActiveSession: async () => makeSession({ id: "sess-old", summary: "- gen1 sess-0: 初代" }),
@@ -161,7 +164,10 @@ function makeInvokerWithEngine(opts: {
     manageSession,
     { getById: async () => ({ id: "otter-1", name: "测试獭", type: "big" }) } as unknown as QueryOtter,
     sharedLogger,
-    undefined, // messageBroadcaster
+    (opts.broadcaster ? {
+      broadcastEvent: (conversationId: string, e: { event: string; data: unknown }) =>
+        opts.broadcaster!.events.push({ conversationId, event: e.event, data: e.data }),
+    } : undefined) as never, // messageBroadcaster
     undefined, // workspaceGateway
     undefined, // settingsRepo
     undefined, // metrics
@@ -172,8 +178,16 @@ function makeInvokerWithEngine(opts: {
     undefined, // manageContext
     undefined, // buildHandoffPkg
     undefined, // healthySessionThresholdMs
-    undefined, // ctxWindowProvider
-    undefined, // sendEntry
+    (opts.ctxWindowProvider ? {
+      getOtterContextWindow: () => opts.ctxWindowProvider!.window,
+      getOtterHandoffThresholdTokens: () => opts.ctxWindowProvider!.threshold,
+    } : undefined) as never, // ctxWindowProvider
+    (opts.sendEntry ? {
+      createSystemEntry: async (input: { conversationId: string; body: string }) => {
+        opts.sendEntry!.bodies.push(input.body);
+        return { entry: { id: `sys-${opts.sendEntry!.bodies.length}`, body: input.body, sequenceNum: opts.sendEntry!.bodies.length } };
+      },
+    } : undefined) as never, // sendEntry
     undefined, // invokeRepo
     undefined, // agentDispatchService
     opts.engine, // engine（F20260918uhuc）
@@ -394,5 +408,97 @@ describe("restartWithUnifiedHandoff（F20260918uhuc 统一交接）", () => {
     const circuitEvent = healingEvents.find((e) => e.errorType === "circuit_break");
     expect(circuitEvent).toBeDefined();
     expect((circuitEvent as { context?: { newSessionId?: string } }).context?.newSessionId).toBe("sess-handoff");
+  });
+});
+
+describe("需求变更（2026-09-20）：交接进度系统消息 + 水位按模型直给", () => {
+  it("进度反馈：交接开始/完成各发一条 system entry + entry.system 广播（手动路径）", async () => {
+    const broadcaster = { events: [] as Array<{ conversationId: string; event: string; data: unknown }> };
+    const sendEntry = { bodies: [] as string[] };
+    const invoker = makeInvokerWithEngine({
+      sdk: makeSdkPort(), engine: makeEngine(), broadcaster, sendEntry,
+    });
+
+    await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true });
+
+    // start + done 两态；文案含关键提示词
+    expect(sendEntry.bodies).toHaveLength(2);
+    expect(sendEntry.bodies[0]).toContain("正在封装前世档案");
+    expect(sendEntry.bodies[0]).toContain("大獭「测试獭」"); // 类型感知称呼（big→大獭）
+    expect(sendEntry.bodies[0]).toContain("预计 5-15 秒");
+    expect(sendEntry.bodies[1]).toContain("前世已封存");
+    expect(sendEntry.bodies[1]).toContain("完整叙事档案"); // 合成成功 → 叙事形态告知
+    expect(broadcaster.events).toHaveLength(2);
+    expect(broadcaster.events.every(e => e.event === "entry.system" && e.conversationId === "conv-1")).toBe(true);
+  });
+
+  it("进度反馈：合成降级（机械档案）在完成消息中如实标注", async () => {
+    const sendEntry = { bodies: [] as string[] };
+    const sdk = makeSdkPort({ synth: async () => { throw new Error("synth down"); } });
+    const invoker = makeInvokerWithEngine({ sdk, engine: makeEngine(), sendEntry });
+
+    await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true });
+
+    expect(sendEntry.bodies).toHaveLength(2);
+    expect(sendEntry.bodies[1]).toContain("机械档案");
+  });
+
+  it("进度反馈：交接上抛失败时发失败消息（保持当前世代，不误报成功）", async () => {
+    const sendEntry = { bodies: [] as string[] };
+    const invoker = makeInvokerWithEngine({
+      sdk: makeSdkPort(),
+      engine: makeEngine(),
+      sendEntry,
+      restartSession: async () => { throw new Error("db down"); },
+    });
+
+    // restartWithUnifiedHandoff 对非 conflict 失败降级裸重启——裸重启也炸则上抛
+    await expect(invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true })).rejects.toThrow("db down");
+
+    // start + failed 两态（无 done）
+    expect(sendEntry.bodies.some(b => b.includes("未能完成"))).toBe(true);
+    expect(sendEntry.bodies.some(b => b.includes("前世已封存"))).toBe(false);
+  });
+
+  it("进度反馈：反馈通道自身故障不反噬交接主线（静默降级）", async () => {
+    const invoker = makeInvokerWithEngine({
+      sdk: makeSdkPort(), engine: makeEngine(),
+      sendEntry: undefined,
+      broadcaster: undefined,
+    });
+    // sendEntry 未注入 → sendSystemEntry 走 this.sendEntry! 会炸——但 sendProgress 应 catch 住
+    // 注意：sendEntry=undefined 时 createSystemEntry 不可用，交接仍应成功完成
+    const session = await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true });
+    expect(session.id).toBe("sess-new");
+  });
+
+  it("水位判定：lastCtxTokens 超过按模型阈值即触发（直给制，不再用窗口−reserve）", async () => {
+    const sdk = makeSdkPort();
+    const restarts: string[] = [];
+    const invoker = makeInvokerWithEngine({
+      sdk, engine: makeEngine(),
+      restartSession: async (otterId: string, summary?: string) => {
+        restarts.push(otterId);
+        return makeSession({ otterId, summary: summary ?? null });
+      },
+      ctxWindowProvider: { window: 1_048_576, threshold: 340_000 },
+    });
+
+    // 上轮 ctxTokens = 400K > 340K 阈值 → 触发（直给阈值，与窗口无关）
+    invoker["handoffState"].setLastCtxTokens("otter-1", 400_000);
+    expect(invoker["shouldTriggerWatermarkHandoff"]("otter-1")).toBe(true);
+
+    // 未超线（330K < 340K）不触发
+    invoker["handoffState"].setLastCtxTokens("otter-1", 330_000);
+    expect(invoker["shouldTriggerWatermarkHandoff"]("otter-1")).toBe(false);
+  });
+
+  it("水位判定：阈值无法解析（模型缺失/旧装配）→ 不触发（静默失活优于误触发）", async () => {
+    const invoker = makeInvokerWithEngine({
+      sdk: makeSdkPort(), engine: makeEngine(),
+      ctxWindowProvider: { window: 1_048_576 }, // threshold undefined
+    });
+    invoker["handoffState"].setLastCtxTokens("otter-1", 900_000);
+    expect(invoker["shouldTriggerWatermarkHandoff"]("otter-1")).toBe(false);
   });
 });
