@@ -68,8 +68,8 @@ export class WeixinPollingChannel {
       logger: Logger;
       /** 通道状态注册表（可选注入，用于上报运行时状态） */
       registry?: ChannelStatusRegistry;
-      /** context_token 过期预警配置（可选注入，缺省不启用检查） */
-      contextTokenWarn?: { afterMs: number; cooldownMs: number };
+      /** context_token 过期预警配置（可选注入，缺省不启用检查）。F20260920wxho：cooldownMs 退役——每静默期只提醒一次 */
+      contextTokenWarn?: { afterMs: number };
       /** 时间注入（默认 Date.now，供测试控制时钟） */
       now?: () => number;
     },
@@ -210,7 +210,9 @@ export class WeixinPollingChannel {
     // 入站消息的 context_token 是出站回信的唯一凭证——先落盘再处理
     if (inbound.contextToken && inbound.fromUserId) {
       accountStore.saveContextToken(accountId, inbound.fromUserId, inbound.contextToken);
-      // Why: 入站换新 = 用户说话 → 清除内存缓存的 warnedAt，防止 stale 条目抑制后续预警（场景：cooldown > after 时，缓存中的旧 warnedAt 会在 disk warnedAt 被 saveContextToken 清零后仍生效，错误跳过预警）
+      // Why: 入站换新 = 用户说话 → 清除内存缓存的 warnedAt（资格重置的内存侧；disk 侧由
+    // saveContextToken 清 warnedAt）——本静默期提醒资格随换新恢复，下次静默期满阈值再提醒一次
+    // （原注释的 cooldown > after 场景随 cooldown 机制退役而消失，清除语义保留且加强为资格重置）
       this.warnedAtMemoryCache.delete(inbound.fromUserId);
     }
     try {
@@ -243,7 +245,7 @@ export class WeixinPollingChannel {
   }
 
   /**
-   * context_token 过期预警检查（F20260901wxnt）。
+   * context_token 过期预警检查（F20260901wxnt；F20260920wxho 改为每静默期一次）。
    * 逐用户独立 try/catch：一个用户失败不阻断其他用户。
    * 发送失败记 error 日志 + warnedAt 止损不重试（ret=-2 = token 已死，重试必败）。
    */
@@ -276,19 +278,24 @@ export class WeixinPollingChannel {
     }
   }
 
-  /** 单用户预警判断 + 发送（被 checkContextTokenExpiry 调用，失败向上抛由调用方 catch） */
+  /** 单用户预警判断 + 发送（被 checkContextTokenExpiry 调用，失败向上抛由调用方 catch）。
+   *  F20260920wxho：warnedAt 存在即跳过（同一静默期只提醒一次，无论过多久）；
+   *  重置资格的唯一路径是入站换新 token（saveContextToken 清 warnedAt + 内存缓存同步清除）。 */
   private async warnUserIfStale(
     userId: string,
     entry: { token: string; receivedAt: number; warnedAt?: number },
-    warn: { afterMs: number; cooldownMs: number },
+    warn: { afterMs: number },
     nowMs: number,
   ): Promise<void> {
     const { accountStore, accountId, api, logger } = this.deps;
     const age = nowMs - entry.receivedAt;
     if (age < warn.afterMs) return; // 未满阈值
-    // 冷却期内（内存优先——disk 可能丢失）
+    // 本静默期内已提醒过（含发送失败止损记录）——不再重复。
+    // Why（F20260920wxho）：原 cooldown 到期重发设计在生产演变为骚扰——token 实际存活
+    // 远超预估（6h 仍在发），预警本身可能为出站保活，形成「不回复就每小时一条」的无限循环；
+    // 提醒的使命是「断连前告知一次」，用户知情后重发只剩打扰价值。
     const warnedAt = this.warnedAtMemoryCache.get(userId) ?? entry.warnedAt;
-    if (warnedAt != null && nowMs - warnedAt < warn.cooldownMs) return;
+    if (warnedAt != null) return;
     try {
       await api.sendTextMessage({
         toUserId: userId,
