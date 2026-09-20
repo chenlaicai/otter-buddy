@@ -262,10 +262,13 @@ const URL_TRAILING_CHAR = /[A-Za-z0-9\-_~.!$&'()*+,;=:@#%/?]$/;
  *  不依赖 autolink 边界，尾巴问题就地消除；position 替换只动命中区段，原文其余
  *  部分零改动（不做 stringify 全文重排，避免 round-trip 改写其他语法）。
  *  解析失败/无命中时原样返回（尽力而为，不阻断出站）。 */
+// 模块级复用（检视 D1）：parser 链构建有开销，IM 出站每条消息都要过这里
+const AUTOLINK_PARSER = remark().use(remarkGfm);
+
 export function trimAutolinkTrailing(text: string): string {
   if (!/https?:\/\//.test(text)) return text; // 快速路径：无裸链
   try {
-    const file = remark().use(remarkGfm).parse(text);
+    const file = AUTOLINK_PARSER.parse(text);
     // 收集需要修剪的 autolink 区段（倒序替换，保证前面的 offset 不失效）
     const edits: Array<{ start: number; end: number; url: string }> = [];
     visit(file, "link", (node) => {
