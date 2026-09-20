@@ -42,9 +42,6 @@ export interface ChannelStatusEntry {
   account?: { id: string; nickname?: string };
   /** 掩码后的飞书 app_id（#663；形如 cli_a****z9k2，仅展示用） */
   appIdMasked?: string;
-  /** F20260920imax：飞书自建应用 applink 分享链（扫码/点击直达机器人会话；
-   *  已添加好友则直接打开对话，未添加则展示添加卡片——“扫码即用”体验） */
-  appShareUrl?: string;
 }
 
 /**

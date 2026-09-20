@@ -59,11 +59,6 @@ export function listConversations(options?: { limit?: number; offset?: number; s
   return request(`/conversations?${qs}`)
 }
 
-/** F20260920imax：重命名对话（IM 页助理名称功能） */
-export function renameConversation(id: string, title: string): Promise<ConversationDTO> {
-  return request(`/conversations/${id}/rename`, { method: 'PATCH', body: JSON.stringify({ title }) })
-}
-
 export function createConversation(body: CreateConversationRequestDTO): Promise<ConversationDTO> {
   return request('/conversations', { method: 'POST', body: JSON.stringify(body) })
 }
@@ -729,8 +724,6 @@ export interface ChannelStatusDTO {
   account?: { id: string; nickname?: string };
   /** #663：掩码后的飞书 app_id（凭证确认用，形如 cli_a****z9k2） */
   appIdMasked?: string;
-  /** F20260920imax：飞书自建应用 applink 分享链（IM 页渲染二维码，扫码直达机器人） */
-  appShareUrl?: string;
 }
 
 export interface ChannelStatusResponseDTO {

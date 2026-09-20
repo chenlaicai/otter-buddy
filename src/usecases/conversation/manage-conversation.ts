@@ -150,21 +150,6 @@ export class ManageConversation {
     await this.repo.updatePinned(id, true);
   }
 
-  /** F20260920imax：重命名对话（用户视角 = 给助理起名）。校验与 create 同源：
-   *  非空字符串；上限 60 字符（助理名是人看的，超长无意义且截列表） */
-  async rename(id: string, title: string): Promise<Conversation> {
-    const conv = await this.repo.getById(id);
-    if (!conv) {
-      throw new DomainError(`Conversation not found: ${id}`, "not_found");
-    }
-    const trimmed = typeof title === "string" ? title.trim() : "";
-    if (trimmed.length === 0 || trimmed.length > 60) {
-      throw new DomainError("title 必填且为 1-60 字符", "validation");
-    }
-    await this.repo.updateTitle(id, trimmed);
-    return { ...conv, title: trimmed };
-  }
-
   /** 取消置顶对话（幂等，保护检查在 controller 层） */
   async unpin(id: string): Promise<void> {
     const conv = await this.repo.getById(id);
