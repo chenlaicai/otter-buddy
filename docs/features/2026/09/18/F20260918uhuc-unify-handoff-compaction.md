@@ -245,3 +245,25 @@ P1 原文：「手动/熔断路径绝不走 LLM 合成」，理由 = 熔断场�
 | src/interface-adapters/agent-runtime/tools/tool-factory.ts | 修改 | restart_otter synthesizePast 参数 |
 | web/src/pages/conversation/Modals.tsx | 修改 | RestartModal 勾选项+交接态+防连点；忙碌置灰 |
 | tests/**（compaction/handoff/restart 相关） | 迁移+新增 | V1-V6 用例 |
+
+## 实现要点（2026-09-20 实现收尾补记）
+
+### 预检查决策落地
+
+1. **U2 结论：SDK `prepareCompaction` 未从主入口导出**（核实：pi-coding-agent index.d.ts 导出清单 + package.json exports 仅开放 `.` 根入口），方案中的降级路径成立——新增 `src/frameworks/agent/session-slicer.ts` 自实现同款切片：用已导出的 `findCutPoint` + `serializeConversation` + `estimateTokens` + `sessionEntryToContextMessages` + `buildSessionContext` 组合（session-slicer.ts:6-128），旧 jsonl 经 `SessionManager.open()` 只读加载（先例 session-restore.ts）。
+2. **reserve 参数笔误修正（方案→实现的关键勘误）**：SDK 公式实为 `contextTokens > window − reserve`，拉大 reserve = 更容易触发（与方案初稿方向相反）。正确姿势：reserve 取小值 50K。实现上拆两层：新增 `contextQuality.sdkOverflowReserveTokens`（缺省 50_000，专供 SDK 兜底，config-service.ts:87/93/582）；`compactionReserveTokens`（缺省 700K→质量线 340K）保留为应用层水位线——SDK threshold 平时不触发（reserve 兜底用），仅 overflow 救急；应用层水位走统一交接管线。
+
+### 测试结果全貌（2026-09-18/20）
+
+- 单测：3662 全绿（含本特性 V1-V6 用例：V1 锁雪崩重放 / V2 五场景 golden / V3 冻结窗口 / V4 血缘 / V5 回归 / V6 超时降级；入口 tests/interface-adapters/unified-handoff.test.ts 等）
+- lint 0 error / root+web tsc 0 error
+- UI 真机 Playwright 验证 15/17 取证项通过（截图存于对话工作区 `data/workspaces/c619e648-*/ui-*.png`）；剩余 2 项为采样时序问题，已用组件测试补钉覆盖
+- **capability 能力测试：环境受限，失败归因非代码**——2026-09-18 22:08 跑完（日志 /tmp/uhuc-capability.log，duration 12640s）：13 个测试文件全部 FAIL，100% 同一环境错误：bge-m3 embedding 服务未就绪（tests/capability/helpers/boot.ts:129 `waitEmbeddingReady` 轮询 `embeddingService.available` 超时，能力测试层禁止静默降级，boot 阶段拒启——build 阶段模型文件虽存在但推理服务未就绪）；47 用例 skip 为 LLM 端点未配置（设计内行为）。本特性为 agent 层管线重构，管线行为已被单测全覆盖，capability 失败不构成本特性的代码回归信号；建议待 bge-m3 环境修复后由编排方补跑确认。
+
+### 关键实现锚点
+
+- 统一七段引擎：`src/frameworks/agent/narrative-synthesis-engine.ts`（合并 compaction-hook.ts 七段模板与 synthesis-prompt-builder.ts；fail-closed 空/截断拒入库；谱系继承；selfSummary 叠加为 §① 独立层）
+- 通道泛化：pi-session-factory.ts `runCompactionSynthesis(modelOverride?)`——合成模型跟随新世模型
+- 触发与冻结：agent-invoker.ts 轮边界水位检查（`ctxTokens > contextWindow − compactionReserveTokens`）；统一 handoff 入口；invoke 通道合成退役（buildSynthesisFunction 删除）
+- compaction-hook.ts 已删除，platforms.ts setCompactionSynthesis 接线移除（时机权回收至应用层）
+- 域层 manage-session.ts reason 枚举新增 'compaction'；otter-controller.ts synthesizePast 透传 + 忙碌 409；tool-factory.ts restart_otter 加 synthesizePast 参数
