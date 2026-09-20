@@ -61,7 +61,6 @@ function toEntryDTO(e: Entry): EntryDTO {
     body: e.body,
     invokeId: e.invokeId,
     yieldTargets: e.yieldTargets,
-    turnId: e.turnId,
     status: e.status,
     source: e.source,
     metadata: e.metadata,

@@ -150,16 +150,6 @@ describe("消息工具注入出口剥离投影（只剥 html-card，回执 JSON 
     expect(msg.body).toBeNull();
   });
 
-  it("get_turn_history：消息体剥离卡片、保留回执", async () => {
-    const ctx = makeCtx();
-    ctx.client.conversation.entry.getEntriesByTurnId = async () => [
-      makeEntry(),
-      makeEntry({ id: "entry-2", senderType: "user", senderId: "user-1", body: REPLY_BODY, sequenceNum: 2 }),
-    ];
-    const tool = createTools(ctx).find(t => t.name === "get_turn_history")!;
-    const res = await tool.execute("c1", { includeMessages: true });
-    const [entry] = JSON.parse(res.content[0].text) as Array<{ entries: Array<{ body: string | null }> }>;
-    expect(entry.entries[0].body).toBe("前言\n[html-card: 方案对比]\n后记");
-    expect(entry.entries[1].body).toBe(REPLY_BODY);
-  });
+  // F20260920trrt：get_turn_history 工具随 turn 退役删除，剥离投影行为由
+  // list_messages 同款用例覆盖（同一条到 list_messages 的投影路径）
 });

@@ -62,15 +62,9 @@ function mockParticipant(otterId: string, conversationId: string): ConversationP
     id: "participant-1",
     conversationId,
     otterId,
-    joinedAtTurnId: null,
-    joinedAtTurnNumber: 0,
-    leftAtTurnId: null,
-    leftAtTurnNumber: null,
     status: "active",
     createdAt: "2026-01-01T00:00:00Z",
     leftAt: null,
-    lastReadTurnNumber: 0,
-    lastActiveTurnNumber: 0,
   };
 }
 

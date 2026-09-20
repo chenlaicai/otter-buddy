@@ -6,16 +6,11 @@ import type { ConversationRepository } from "@usecases/conversation/conversation
 import type { EntryRepository } from "@usecases/conversation/entry-repository";
 import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
 import { PartnerResolver } from "@usecases/im/partner-resolver";
-import type { Turn } from "@entities/conversation/conversation";
 import type { Message } from "@entities/conversation/message";
-
-function makeTurn(overrides: Partial<Turn> = {}): Turn {
-  return { id: "turn-1", conversationId: "conv-1", turnNumber: 5, status: "closed", createdAt: "", closedAt: null, ...overrides };
-}
 
 function makeMsg(overrides: Partial<Message> = {}): Message {
   return {
-    id: "m-1", conversationId: "conv-1", turnId: "turn-1", senderId: "otter-1",
+    id: "m-1", conversationId: "conv-1", senderId: "otter-1",
     senderType: "otter", status: "completed",
     segments: [{ id: "seg-1", messageId: "m-1", body: "hi", sequenceNum: 0, createdAt: "" }],
     sequenceNum: 1,
@@ -26,22 +21,18 @@ function makeMsg(overrides: Partial<Message> = {}): Message {
 }
 
 function makeMocks() {
-  const updateLastReadTurnNumber = vi.fn().mockResolvedValue(undefined);
   const updateLastReadSeq = vi.fn();
-  const updateLastActiveTurnNumber = vi.fn().mockResolvedValue(undefined);
-  const getTurnById = vi.fn().mockResolvedValue(makeTurn());
   // F20260904schf：链引擎改读行级 tsp（getMessageById 的 talkingStonePassedTo），
   // mock 默认按 messageId 返回对应消息行（tsp 默认空）——需 yield 路由的测试自行 override mockImplementation 注册行级 tsp
   const getMessageById = vi.fn(async (messageId: string) => makeMsg({ id: messageId }));
   const getLastMessageBySender = vi.fn().mockResolvedValue(makeMsg());
-  const getActiveTurn = vi.fn().mockResolvedValue(null);
 
   const conversationRepo = {
     getActiveParticipants: vi.fn().mockResolvedValue([]),
     getUnreadMessages: vi.fn().mockResolvedValue([]),
     getMaxTurnNumber: vi.fn().mockResolvedValue(0),
-    getTurnById, updateLastReadTurnNumber, updateLastReadSeq, updateLastActiveTurnNumber, getLastMessageBySender,
-    getActiveTurn, getMessageById,
+    updateLastReadSeq, getLastMessageBySender,
+    getMessageById,
     getParticipant: vi.fn().mockResolvedValue(null),
   } as unknown as ConversationRepository;
 
@@ -55,10 +46,9 @@ function makeMocks() {
   const getInvokeById = vi.fn(async (id: string) => ({ id, status: 'completed' as const, otterId: 'otter-x', talkingStonePassedTo: [] as string[], endedAt: '2026-09-10T00:00:00Z' }));
   const invokeRepo = {
     getInvokeById,
-    getInvokesByTurnId: vi.fn().mockResolvedValue([]),
   } as unknown as InvokeRepository;
 
-  return { conversationRepo, queryOtter, logger, entryRepo, invokeRepo, getInvokeById, updateLastReadTurnNumber, updateLastReadSeq, updateLastActiveTurnNumber, getTurnById, getMessageById, getLastMessageBySender, getActiveTurn, getMaxTurnNumber: conversationRepo.getMaxTurnNumber as ReturnType<typeof vi.fn> };
+  return { conversationRepo, queryOtter, logger, entryRepo, invokeRepo, getInvokeById, updateLastReadSeq, getMessageById, getLastMessageBySender };
 }
 
 describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒失效）", () => {
@@ -146,7 +136,19 @@ describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒�
   });
 });
 
-describe("buildIdleOttersWarning", () => {
+describe("buildIdleOttersWarning（F20260920trrt 新口径：发言 seq 差 + 时间护栏 + big 限定）", () => {
+  /** 新口径测试桩：读时聚合三查询。默认 maxSeq=100，无 speak、无 invoke。 */
+  function makeStats(opts: {
+    maxSeq?: number;
+    lastSpeak?: Map<string, { seq: number; createdAt: string }>;
+    lastInvoke?: Map<string, string>;
+  } = {}) {
+    return {
+      getMaxEntrySeq: vi.fn().mockResolvedValue(opts.maxSeq ?? 100),
+      getLastSpeakBySender: vi.fn().mockResolvedValue(opts.lastSpeak ?? new Map()),
+      getLastInvokeStartedAtByOtter: vi.fn().mockResolvedValue(opts.lastInvoke ?? new Map()),
+    };
+  }
   function makeParticipant(overrides: Record<string, unknown> = {}) {
     return {
       otterId: "otter-1",
@@ -156,106 +158,206 @@ describe("buildIdleOttersWarning", () => {
       ...overrides,
     };
   }
+  /** otter 预取 mock：receiver 是 big（传 receiverId），其余是 small；传 "__no_big__" 时全员 small */
+  function mockOtters(m: ReturnType<typeof makeMocks>, receiverId = "otter-current") {
+    (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) => {
+      if (id === receiverId) return { name: "大獭", type: "big" };
+      return { name: `小獭-${id}`, type: "small" };
+    });
+  }
 
-  it("有闲置小獭时返回正确预警文本", async () => {
+  it("小獭超阈值时返回预警文本（含 seq 差与最近活动）", async () => {
     const m = makeMocks();
     (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([
-      makeParticipant({ otterId: "otter-x", lastActiveTurnNumber: 1 }),
-      makeParticipant({ otterId: "otter-current", lastActiveTurnNumber: 20 }),
+      makeParticipant({ otterId: "otter-x" }),
+      makeParticipant({ otterId: "otter-current" }),
     ]);
-    (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) => {
-      if (id === "otter-x") return { name: "闲置獭" };
-      if (id === "otter-current") return { name: "当前獭" };
-      return null;
-    });
-    m.getMaxTurnNumber.mockResolvedValue(25);
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    mockOtters(m);
+    const stats = makeStats({ maxSeq: 100, lastSpeak: new Map([["otter-x", { seq: 10, createdAt: "" }]]) });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo, idleStatsRepo: stats });
     const result = await engine.buildIdleOttersWarning("conv-1", "otter-current");
-    expect(result).toContain("闲置獭");
-    expect(result).toContain("24 轮");
+    expect(result).toContain("小獭-otter-x");
+    expect(result).toContain("90 条消息"); // 100 - 10
+    expect(result).toContain("从未被唤醒");
     expect(result).toContain("系统提示");
   });
 
-  it("无闲置小獭时返回 null", async () => {
+  it("receiver 非 big 时返回 null（小獭不再收到解散提示——乌龙修复）", async () => {
     const m = makeMocks();
+    // receiver 是 small，另一个也是 small——全员无 big，预警在 receiver 过滤处即短路
+    (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "小獭甲", type: "small" });
     (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([
-      makeParticipant({ otterId: "otter-x", lastActiveTurnNumber: 20 }),
+      makeParticipant({ otterId: "otter-x" }),
+      makeParticipant({ otterId: "otter-also-small" }),
     ]);
-    (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "活跃獭" });
-    m.getMaxTurnNumber.mockResolvedValue(25);
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
-    const result = await engine.buildIdleOttersWarning("conv-1", "user-1");
+    const stats = makeStats({ maxSeq: 100, lastSpeak: new Map([["otter-x", { seq: 0, createdAt: "" }]]) });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo, idleStatsRepo: stats });
+    const result = await engine.buildIdleOttersWarning("conv-1", "otter-also-small");
     expect(result).toBeNull();
   });
 
-  it("getMaxTurnNumber 返回 0 时返回 null", async () => {
+  it("时间护栏：seq 差超阈值但 2h 内被唤醒过 → 不告警", async () => {
     const m = makeMocks();
-    (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
-    m.getMaxTurnNumber.mockResolvedValue(0);
-    const result = await engine.buildIdleOttersWarning("conv-1", "user-1");
+    (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeParticipant({ otterId: "otter-x" }),
+      makeParticipant({ otterId: "otter-current" }),
+    ]);
+    mockOtters(m);
+    const stats = makeStats({
+      maxSeq: 100,
+      lastSpeak: new Map([["otter-x", { seq: 10, createdAt: "" }]]),
+      lastInvoke: new Map([["otter-x", new Date(Date.now() - 30 * 60_000).toISOString()]]), // 30 分钟前
+    });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo, idleStatsRepo: stats });
+    const result = await engine.buildIdleOttersWarning("conv-1", "otter-current");
     expect(result).toBeNull();
   });
 
-  it("从 settingsRepo 读取自定义阈值", async () => {
+  it("时间护栏：3h 前被唤醒 → 正常告警（护栏只拦 2h 内）", async () => {
     const m = makeMocks();
     (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([
-      makeParticipant({ otterId: "otter-x", lastActiveTurnNumber: 1 }),
+      makeParticipant({ otterId: "otter-x" }),
+      makeParticipant({ otterId: "otter-current" }),
     ]);
-    (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "獭" });
-    m.getMaxTurnNumber.mockResolvedValue(10);
-    const settingsRepo = { get: vi.fn().mockResolvedValue("5") };
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, settingsRepo: settingsRepo as never, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
-    // idleTurns = 10 - 1 = 9, threshold = 5 → 超过
-    const result = await engine.buildIdleOttersWarning("conv-1", "user-1");
-    expect(result).toContain("獭");
-    expect(result).toContain("9 轮");
+    mockOtters(m);
+    const lastInvokeIso = new Date(Date.now() - 3 * 3600_000).toISOString();
+    const stats = makeStats({
+      maxSeq: 100,
+      lastSpeak: new Map([["otter-x", { seq: 10, createdAt: "" }]]),
+      lastInvoke: new Map([["otter-x", lastInvokeIso]]),
+    });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo, idleStatsRepo: stats });
+    const result = await engine.buildIdleOttersWarning("conv-1", "otter-current");
+    expect(result).toContain("小獭-otter-x");
+    expect(result).toContain(lastInvokeIso);
   });
 
-  it("settingsRepo 不可用时 fallback 到默认阈值 20", async () => {
+  it("大獭不作为告警对象（只告小獭）", async () => {
     const m = makeMocks();
+    (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) => {
+      return { name: id === "otter-current" ? "大獭" : "另一个大獭", type: "big" };
+    });
     (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([
-      makeParticipant({ otterId: "otter-x", lastActiveTurnNumber: 1 }),
+      makeParticipant({ otterId: "otter-other-big" }),
+      makeParticipant({ otterId: "otter-current" }),
     ]);
-    (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "獭" });
-    m.getMaxTurnNumber.mockResolvedValue(25);
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
-    // idleTurns = 25 - 1 = 24, threshold = 20 → 超过
-    const result = await engine.buildIdleOttersWarning("conv-1", "user-1");
-    expect(result).toContain("24 轮");
+    const stats = makeStats({ maxSeq: 100 });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo, idleStatsRepo: stats });
+    const result = await engine.buildIdleOttersWarning("conv-1", "otter-current");
+    expect(result).toBeNull();
   });
 
-  it("无效阈值配置 fallback 到默认值 20", async () => {
+  it("从 settingsRepo 读取自定义阈值（otter_idle_threshold 语义换为 seq 差）", async () => {
     const m = makeMocks();
     (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([
-      makeParticipant({ otterId: "otter-x", lastActiveTurnNumber: 1 }),
+      makeParticipant({ otterId: "otter-x" }),
+      makeParticipant({ otterId: "otter-current" }),
     ]);
-    (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "獭" });
-    m.getMaxTurnNumber.mockResolvedValue(25);
+    mockOtters(m);
+    const settingsRepo = { get: vi.fn().mockResolvedValue("95") }; // 差值 90 < 95 → 不告警
+    const stats = makeStats({ maxSeq: 100, lastSpeak: new Map([["otter-x", { seq: 10, createdAt: "" }]]) });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, settingsRepo: settingsRepo as never, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo, idleStatsRepo: stats });
+    const result = await engine.buildIdleOttersWarning("conv-1", "otter-current");
+    expect(result).toBeNull();
+  });
+
+  it("无效阈值配置 fallback 到默认值 30", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeParticipant({ otterId: "otter-x" }),
+      makeParticipant({ otterId: "otter-current" }),
+    ]);
+    mockOtters(m);
     const settingsRepo = { get: vi.fn().mockResolvedValue("abc") };
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, settingsRepo: settingsRepo as never, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
-    // idleTurns = 24, threshold fallback 20 → 超过
-    const result = await engine.buildIdleOttersWarning("conv-1", "user-1");
-    expect(result).toContain("24 轮");
+    const stats = makeStats({ maxSeq: 100, lastSpeak: new Map([["otter-x", { seq: 60, createdAt: "" }]]) }); // 差值 40 > 30 → 告警
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, settingsRepo: settingsRepo as never, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo, idleStatsRepo: stats });
+    const result = await engine.buildIdleOttersWarning("conv-1", "otter-current");
+    expect(result).toContain("40 条消息");
+  });
+
+  it("idleStatsRepo 未注入时降级返回 null（旧装配/测试桩兼容）", async () => {
+    const m = makeMocks();
+    mockOtters(m);
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const result = await engine.buildIdleOttersWarning("conv-1", "otter-current");
+    expect(result).toBeNull();
+  });
+
+  it("maxSeq 为 0 时返回 null（对话无 entry 异常边界）", async () => {
+    const m = makeMocks();
+    mockOtters(m);
+    const stats = makeStats({ maxSeq: 0 });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo, idleStatsRepo: stats });
+    const result = await engine.buildIdleOttersWarning("conv-1", "otter-current");
+    expect(result).toBeNull();
+  });
+
+  it("检视发现 9 回归：新入场未被唤醒的小獭在入场 2h 内不告警", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { otterId: "otter-fresh", status: "active", createdAt: new Date(Date.now() - 30 * 60_000).toISOString() }, // 30 分钟前入场
+      makeParticipant({ otterId: "otter-current" }),
+    ]);
+    mockOtters(m);
+    const stats = makeStats({ maxSeq: 100, lastSpeak: new Map(), lastInvoke: new Map() }); // 从未发言从未被唤醒
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo, idleStatsRepo: stats });
+    const result = await engine.buildIdleOttersWarning("conv-1", "otter-current");
+    expect(result).toBeNull(); // 入场时间参与护栏——2h 内不告警
+  });
+
+  it("检视发现 9 回归：入场超 2h 仍未被唤醒也未发言 → 正常告警（真闲置）", async () => {
+    const m = makeMocks();
+    const oldJoin = new Date(Date.now() - 3 * 3600_000).toISOString();
+    (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { otterId: "otter-stale", status: "active", createdAt: oldJoin },
+      makeParticipant({ otterId: "otter-current" }),
+    ]);
+    mockOtters(m);
+    const stats = makeStats({ maxSeq: 100, lastSpeak: new Map(), lastInvoke: new Map() });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo, idleStatsRepo: stats });
+    const result = await engine.buildIdleOttersWarning("conv-1", "otter-current");
+    expect(result).toContain("otter-stale");
+    expect(result).toContain(oldJoin);
+  });
+
+  it("未发言过的小獭按 seq=0 计差（不误伤刚入场，但长期未发言会告警）", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeParticipant({ otterId: "otter-fresh" }),
+      makeParticipant({ otterId: "otter-current" }),
+    ]);
+    mockOtters(m);
+    const stats = makeStats({ maxSeq: 100, lastSpeak: new Map() }); // 从未发言
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo, idleStatsRepo: stats });
+    const result = await engine.buildIdleOttersWarning("conv-1", "otter-current");
+    expect(result).toContain("100 条消息");
   });
 });
 
 describe("buildMessageWithContext 闲置预警集成", () => {
-  it("无未读消息时仍注入闲置预警（早返回路径）", async () => {
+  it("无未读消息时仍注入闲置预警（早返回路径，F20260920trrt 新口径）", async () => {
     const m = makeMocks();
     (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([
       { otterId: "otter-x", status: "active", lastActiveTurnNumber: 1, lastReadTurnNumber: 0 },
+      { otterId: "otter-current", status: "active", lastActiveTurnNumber: 1, lastReadTurnNumber: 0 },
     ]);
-    m.getMaxTurnNumber.mockResolvedValue(25);
-    (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "闲置獭" });
+    (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) => {
+      if (id === "otter-current") return { name: "大獭", type: "big" };
+      return { name: "闲置獭", type: "small" };
+    });
     // 无未读消息
     (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const stats = {
+      getMaxEntrySeq: vi.fn().mockResolvedValue(100),
+      getLastSpeakBySender: vi.fn().mockResolvedValue(new Map([["otter-x", { seq: 10, createdAt: "" }]])),
+      getLastInvokeStartedAtByOtter: vi.fn().mockResolvedValue(new Map()),
+    };
 
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
-    const { message: result } = await engine.buildMessageWithContext("conv-1", "user-1", "hi", "user-1", "## 在场成员\n- user'");
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo, idleStatsRepo: stats });
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-current", "hi", "user-1", "## 在场成员\n- user'");
 
     expect(result).toContain("闲置獭");
-    expect(result).toContain("24 轮");
+    expect(result).toContain("90 条消息");
     expect(result).toContain("## 当前任务");
   });
 

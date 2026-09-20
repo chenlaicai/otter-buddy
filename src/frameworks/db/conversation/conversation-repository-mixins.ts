@@ -3,16 +3,13 @@ import type {
   ArtifactStatus,
   ConversationParticipant,
   LinkedResource,
-  Turn,
 } from "@entities/conversation/conversation";
 import type { Message } from "@entities/conversation/message";
 import {
   rowToLinkedResource,
   rowToParticipant,
-  rowToTurn,
   type LinkedResourceRow,
   type ParticipantRow,
-  type TurnRow,
 } from "./conversation-mapper";
 
 /**
@@ -22,15 +19,14 @@ import {
 
 export function linkResource(db: Database.Database, resource: LinkedResource): void {
   db.prepare(`
-    INSERT INTO linked_resources (id, conversation_id, resource_type, url, title, content, category, user_flagged, metadata, linked_by, otter_id, auto_linked, created_at, status, linked_at_turn_number, status_changed_at_turn_number, group_id, superseded_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO linked_resources (id, conversation_id, resource_type, url, title, content, category, user_flagged, metadata, linked_by, otter_id, auto_linked, created_at, status, group_id, superseded_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     resource.id, resource.conversationId, resource.resourceType, resource.url,
     resource.title, resource.content, resource.category, resource.userFlagged ? 1 : 0,
     resource.metadata ? JSON.stringify(resource.metadata) : null,
     resource.linkedBy, resource.otterId, resource.autoLinked ? 1 : 0,
-    resource.createdAt, resource.status, resource.linkedAtTurnNumber,
-    resource.statusChangedAtTurnNumber, resource.groupId, resource.supersededBy,
+    resource.createdAt, resource.status, resource.groupId, resource.supersededBy,
   );
 }
 
@@ -66,28 +62,28 @@ export function getLinkedResourcesByGroup(db: Database.Database, conversationId:
   return rows.map(rowToLinkedResource);
 }
 
-export function updateResourceStatus(db: Database.Database, id: string, status: ArtifactStatus, statusChangedAtTurnNumber: number, supersededBy?: string): void {
+export function updateResourceStatus(db: Database.Database, id: string, status: ArtifactStatus, supersededBy?: string): void {
   const result = db.prepare(`
     UPDATE linked_resources
-    SET status = ?, status_changed_at_turn_number = ?, superseded_by = COALESCE(?, superseded_by)
+    SET status = ?, superseded_by = COALESCE(?, superseded_by)
     WHERE id = ? AND status != 'archived'
-  `).run(status, statusChangedAtTurnNumber, supersededBy ?? null, id);
+  `).run(status, supersededBy ?? null, id);
 
   if (result.changes === 0) {
     throw new Error(`LinkedResource ${id} not found or already archived`);
   }
 }
 
-export function supersedeLinkedResource(db: Database.Database, existingId: string, newResource: LinkedResource, statusChangedAtTurnNumber: number): void {
+export function supersedeLinkedResource(db: Database.Database, existingId: string, newResource: LinkedResource): void {
   db.exec("BEGIN");
   try {
     linkResource(db, newResource);
 
     const result = db.prepare(`
       UPDATE linked_resources
-      SET status = 'superseded', status_changed_at_turn_number = ?, superseded_by = ?
+      SET status = 'superseded', superseded_by = ?
       WHERE id = ? AND status != 'archived'
-    `).run(statusChangedAtTurnNumber, newResource.id, existingId);
+    `).run(newResource.id, existingId);
 
     if (result.changes === 0) {
       throw new Error(`LinkedResource ${existingId} not found or already archived`);
@@ -115,14 +111,11 @@ export function createParticipant(db: Database.Database, participant: Conversati
   // 同样读不到进场前）。搭档拍板口径：进场游标与进场 system entry 一致——能看到
   // 进场那一刻为止的全部对话。
   db.prepare(`
-    INSERT INTO conversation_participants (id, conversation_id, otter_id, joined_at_turn_id,
-      joined_at_turn_number, status, created_at, last_read_turn_number, last_read_seq)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+    INSERT INTO conversation_participants (id, conversation_id, otter_id, status, created_at, last_read_seq)
+    VALUES (?, ?, ?, ?, ?, 0)
   `).run(
     participant.id, participant.conversationId, participant.otterId,
-    participant.joinedAtTurnId, participant.joinedAtTurnNumber,
     participant.status, participant.createdAt,
-    participant.lastReadTurnNumber ?? 0,
   );
 }
 
@@ -132,12 +125,11 @@ export function createParticipants(db: Database.Database, participants: Conversa
   try {
     // F20260913ctlv test15：同 createParticipant——进场游标显式写 0（读全部历史）
     const stmt = db.prepare(`
-      INSERT INTO conversation_participants (id, conversation_id, otter_id, joined_at_turn_id,
-        joined_at_turn_number, status, created_at, last_read_turn_number, last_read_seq)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+      INSERT INTO conversation_participants (id, conversation_id, otter_id, status, created_at, last_read_seq)
+      VALUES (?, ?, ?, ?, ?, 0)
     `);
     for (const p of participants) {
-      stmt.run(p.id, p.conversationId, p.otterId, p.joinedAtTurnId, p.joinedAtTurnNumber, p.status, p.createdAt, p.lastReadTurnNumber ?? 0);
+      stmt.run(p.id, p.conversationId, p.otterId, p.status, p.createdAt);
     }
     db.exec("COMMIT");
   } catch (error) {
@@ -163,28 +155,13 @@ export function getActiveParticipants(db: Database.Database, conversationId: str
 export function updateParticipantLeave(
   db: Database.Database,
   participantId: string,
-  leftAtTurnId: string,
-  leftAtTurnNumber: number,
   leftAt: string,
 ): void {
   db.prepare(`
     UPDATE conversation_participants
-    SET status = 'left', left_at_turn_id = ?, left_at_turn_number = ?, left_at = ?
+    SET status = 'left', left_at = ?
     WHERE id = ?
-  `).run(leftAtTurnId, leftAtTurnNumber, leftAt, participantId);
-}
-
-export function updateLastReadTurnNumber(
-  db: Database.Database,
-  conversationId: string,
-  otterId: string,
-  turnNumber: number,
-): void {
-  db.prepare(`
-    UPDATE conversation_participants
-    SET last_read_turn_number = ?
-    WHERE conversation_id = ? AND otter_id = ? AND status = 'active'
-  `).run(turnNumber, conversationId, otterId);
+  `).run(leftAt, participantId);
 }
 
 /** F20260902sgp2 S4c：游标 seq 双写（新刻度）。NULL 安全：last_read_seq 列可空，
@@ -219,43 +196,51 @@ export function updateLastReadSeq(
   `).run(seq, conversationId, otterId);
 }
 
-/** F20260913ctlv 批4c 修复：按 invokeId 反查 turn_number（新模型链：invokes.trigger_entry_id → entries.turn_id → turns.turn_number）。
- *  旧链查 messages 表且收到的 ID 实为 invokeId（批4a 语义换轨）——永远 miss。
- *  trigger_entry_id 为空（旧 invoke/边界）时 JOIN 天然 miss，返回 null（调用方跳过推进，不抛错）。 */
-export function getTurnNumberByInvokeId(
-  db: Database.Database,
-  invokeId: string,
-): number | null {
+/** F20260920trrt：对话内最大 sequence_num（闲置预警的全局刻度——turn 退役后唯一的「对话推进」度量） */
+export function getMaxEntrySeq(db: Database.Database, conversationId: string): number {
   const row = db.prepare(`
-    SELECT t.turn_number AS turn_number
-    FROM invokes i
-    JOIN entries e ON e.id = i.trigger_entry_id
-    JOIN turns t ON t.id = e.turn_id
-    WHERE i.id = ?
-  `).get(invokeId) as { turn_number: number } | undefined;
-  return row?.turn_number ?? null;
+    SELECT MAX(sequence_num) AS m FROM entries WHERE conversation_id = ?
+  `).get(conversationId) as { m: number | null } | undefined;
+  return row?.m ?? 0;
 }
 
-/** F20260819idnw：更新最后活跃轮次（小獭发言时） */
-export function updateLastActiveTurnNumber(
+/** F20260920trrt：各 sender 的最后一条 speak（seq + created_at）——发言口径的活跃度。
+ *  SQLite 裸列特性：GROUP BY + MAX() 时非聚合列取自 MAX 所在行（官方文档保证）。 */
+export function getLastSpeakBySender(
   db: Database.Database,
   conversationId: string,
-  otterId: string,
-  turnNumber: number,
-): void {
-  db.prepare(`
-    UPDATE conversation_participants
-    SET last_active_turn_number = ?
-    WHERE conversation_id = ? AND otter_id = ? AND status = 'active'
-  `).run(turnNumber, conversationId, otterId);
+): Map<string, { seq: number; createdAt: string }> {
+  const rows = db.prepare(`
+    SELECT sender_id AS sid, MAX(sequence_num) AS seq, created_at AS ca
+    FROM entries
+    WHERE conversation_id = ? AND entry_type = 'speak' AND sender_type = 'otter'
+    GROUP BY sender_id
+  `).all(conversationId) as Array<{ sid: string | null; seq: number; ca: string }>;
+  const map = new Map<string, { seq: number; createdAt: string }>();
+  for (const r of rows) {
+    if (r.sid) map.set(r.sid, { seq: r.seq, createdAt: r.ca });
+  }
+  return map;
 }
 
-
-/** F20260803trrf: 按 id 查 turn（不论 status，markBatchRead 在 turn 关闭后反查 turn_number） */
-export function getTurnById(db: Database.Database, turnId: string): Turn | null {
-  const row = db.prepare(`SELECT * FROM turns WHERE id = ?`).get(turnId) as TurnRow | undefined;
-  return row ? rowToTurn(row) : null;
+/** F20260920trrt：各 otter 的最近一次被唤醒时间（invokes.started_at）——闲置预警时间护栏数据源 */
+export function getLastInvokeStartedAtByOtter(
+  db: Database.Database,
+  conversationId: string,
+): Map<string, string> {
+  const rows = db.prepare(`
+    SELECT otter_id AS oid, MAX(started_at) AS ma
+    FROM invokes
+    WHERE conversation_id = ?
+    GROUP BY otter_id
+  `).all(conversationId) as Array<{ oid: string | null; ma: string | null }>;
+  const map = new Map<string, string>();
+  for (const r of rows) {
+    if (r.oid && r.ma) map.set(r.oid, r.ma);
+  }
+  return map;
 }
+
 
 /** F20260803trrf: 指定 sender 的最新条目（F20260913ctlv 批3 切 entries；markBatchRead rejected 路径用）。
  *  兼容返回 Message 形状（消费方只读 id/senderId/createdAt/sequenceNum）——
@@ -279,7 +264,7 @@ export function getLastMessageBySenderType(db: Database.Database, conversationId
  *  消费方（circuit-break/tool-factory/resume）只读 id/senderId/senderType/createdAt/
  *  sequenceNum/status；body 投影进 segments 供 aggregateBody。 */
 type EntryAsMessageRow = {
-  id: string; conversation_id: string; turn_id: string | null;
+  id: string; conversation_id: string;
   sender_type: string | null; sender_id: string | null;
   entry_type: string; sequence_num: number; sender_name: string | null;
   created_at: string; completed_at: string | null; status: string;
@@ -289,7 +274,6 @@ function entryRowToMessageLike(row: EntryAsMessageRow & { body: string | null })
   return {
     id: row.id,
     conversationId: row.conversation_id,
-    turnId: row.turn_id ?? "",
     senderType: (row.sender_type ?? "system") as Message["senderType"],
     senderId: row.sender_id ?? "",
     talkingStonePassedTo: null,

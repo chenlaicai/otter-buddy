@@ -32,7 +32,7 @@ export const SYNTHESIS_READ_ONLY_TOOL_WHITELIST: ReadonlySet<string> = new Set([
   // 记忆系统（检索）
   'search_memory', 'get_memory_detail', 'get_related', 'search_terminology',
   // 消息与对话（查询）
-  'search_messages', 'list_messages', 'get_message', 'get_turn_history',
+  'search_messages', 'list_messages', 'get_message',
   // 协作状态（查询）
   'get_active_participants', 'query_dispatch_ledger',
 ]);

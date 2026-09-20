@@ -30,7 +30,6 @@ function makeMsg(overrides: Partial<Message> = {}): Message {
   return {
     id: "m-default",
     conversationId: "conv-1",
-    turnId: "turn-1",
     senderId: "otter-1",
     senderType: "otter",
     status: "completed",

@@ -3,7 +3,7 @@ import type { MemoryContentType } from "@entities/memory/memory-entry";
 import type { EdgeType } from "@entities/memory/memory-edge";
 import { createListArtifactsTool, createUpdateArtifactStatusTool } from "./artifact-tools";
 import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
-import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool, createGetTurnHistoryTool } from "./message-tools";
+import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool } from "./message-tools";
 /** 前后端共享常量，单一真相源在 @contract/api/html-card */
 import { CARD_SCHEMA_VERSION } from "@contract/api/html-card";
 import { validateSpeakBody, hasCardFences } from "./tool-helpers";
@@ -68,7 +68,6 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
           conversationId: ctx.conversationId,
           invokeId: ctx.currentInvokeId,
           otterId: ctx.otterId,
-          turnId: "", // send-entry 内部空 turnId 时 ensureActiveTurn 兜底
           body: cleanBody,
           // F20260916hcel：含 html-card 的条目写入 schemaVersion（保留字段）
           ...(hasCardFences(cleanBody) ? { metadata: { cardSchemaVersion: CARD_SCHEMA_VERSION } } : {}),
@@ -148,7 +147,6 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
           conversationId: ctx.conversationId,
           invokeId: ctx.currentInvokeId!,
           otterId: ctx.otterId,
-          turnId: "", // send-entry 内部空 turnId 时 ensureActiveTurn 兜底
           yieldTargets: resolvedIds,
         });
 
@@ -546,7 +544,6 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
           return errorResponse(`[错误] ${GROUP_ID_REQUIRED_MESSAGE_PREFIX}。漏传会让 list_artifacts 按组检索落空（已有两次事故案例）。请先用 list_artifacts 或 search_memory 查找当前对话对应的特性文档编号。`);
         }
       }
-      const turnNumber = await ctx.client.conversation.getActiveTurnNumber(ctx.conversationId);
       const resource = await ctx.client.resource.link({
         conversationId: ctx.conversationId,
         url: params.url as string | undefined,
@@ -556,7 +553,7 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
         linkedBy: ctx.otterId,
         resourceType,
         groupId: params.groupId as string | undefined,
-      }, turnNumber);
+      });
       return textResponse(`Linked resource created: ${resource.id} (type=${resource.resourceType}, status=${resource.status}, group=${resource.groupId})`);
     },
   };
@@ -840,7 +837,7 @@ function createDeleteContextTool(ctx: ToolContext): AgentTool {
 function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_active_participants",
-    description: "获取当前对话所有活跃参与者. When: 需要知道场上有谁、可用什么名字传行动权. Output: otterId / otterName / status / joinedAtTurnNumber 列表. BOUNDARY: 只读不修改状态. conversationId 由系统注入. TIP: speak 的 talkingStonePassedTo 用 otterName; invite/dissolve 用 otterId.",
+    description: "获取当前对话所有活跃参与者. When: 需要知道场上有谁、可用什么名字传行动权. Output: otterId / otterName / status 列表. BOUNDARY: 只读不修改状态. conversationId 由系统注入. TIP: speak 的 talkingStonePassedTo 用 otterName; invite/dissolve 用 otterId.",
     parameters: {
       type: "object",
       properties: {},
@@ -853,7 +850,6 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
         otterId: p.otterId,
         otterName: p.otterName,
         status: p.status,
-        joinedAtTurnNumber: p.joinedAtTurnNumber,
         ...(p.modelAlias ? { modelAlias: p.modelAlias } : {}),
       }));
       return textResponse(JSON.stringify(result));
@@ -920,7 +916,6 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     createGetMessageTool(ctx),
     createListMessagesTool(ctx),
     createSearchMessagesTool(ctx),
-    createGetTurnHistoryTool(ctx),
     createGetContextTool(ctx),
     createSetContextTool(ctx),
     createDeleteContextTool(ctx),

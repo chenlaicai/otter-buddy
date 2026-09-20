@@ -170,6 +170,9 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     // F20260913ctlv 彻底切换：未读注入/hop 产出判定/self-yield 护栏数据源（entries + invokes）
     entryRepo: repos.entry,
     invokeRepo: repos.invoke,
+    // F20260920trrt：闲置预警新口径数据源（SQLite 实现提供；turn 刻度退役后接发言 seq 刻度）。
+    // 可选方法（接口声明带?）：旧测试桩不实现也能装配，但接口类型带它们，直传即可
+    idleStatsRepo: repos.conversation,
   });
 }
 

@@ -17,7 +17,7 @@ import { SqliteResumePendingRepository } from "@frameworks/db/conversation/sqlit
 import { ResumeInterruptedService } from "@usecases/conversation/resume-interrupted-service";
 import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
-import type { Conversation, Turn, ConversationParticipant } from "@entities/conversation/conversation";
+import type { Conversation, ConversationParticipant } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
 import { createTestDb } from "../../helpers/db";
 import { createTestLogger } from "../../helpers/logger";
@@ -35,11 +35,8 @@ function otterFixture(id: string): Otter {
 function participantFixture(otterId: string, overrides: Partial<ConversationParticipant> = {}): ConversationParticipant {
   return {
     id: `p-${otterId}`, conversationId: "conv-1", otterId,
-    joinedAtTurnId: null, joinedAtTurnNumber: 0,
-    leftAtTurnId: null, leftAtTurnNumber: null,
     status: "active",
     createdAt: T0, leftAt: null,
-    lastReadTurnNumber: 0, lastActiveTurnNumber: 0,
     ...overrides,
   };
 }
@@ -99,14 +96,13 @@ async function seedConv2(
     createdAt: T0, updatedAt: T0, completedAt: null, archivedAt: null,
   };
   await convRepo.create(conv2);
-  await convRepo.createTurn({ id: "turn-2", conversationId: "conv-2", turnNumber: 1, status: "open", createdAt: T0, closedAt: null });
   await otterRepo.createOtter(otterFixture("otter-small"));
   await convRepo.createParticipant(participantFixture("otter-small", { id: "p-small", conversationId: "conv-2" }));
   const userEntry2 = crypto.randomUUID();
   const invokeId2 = crypto.randomUUID();
   db.prepare(`
-    INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, turn_id, status, sender_name, created_at, completed_at)
-    VALUES (?, 'conv-2', 1, 'user', 'user', 'chen', '开工', NULL, '["otter-small"]', 'turn-2', 'completed', '搭档', ?, ?)
+    INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, status, sender_name, created_at, completed_at)
+    VALUES (?, 'conv-2', 1, 'user', 'user', 'chen', '开工', NULL, '["otter-small"]', 'completed', '搭档', ?, ?)
   `).run(userEntry2, T0, T0);
   db.prepare(`
     INSERT INTO invokes (id, conversation_id, otter_id, status, trigger_entry_id, started_at)
@@ -164,8 +160,8 @@ function makeHarness(): Harness {
       const userEntryId = crypto.randomUUID();
       const createdAt = opts.userEntryCreatedAt ?? T0;
       db.prepare(`
-        INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, turn_id, status, sender_name, created_at, completed_at)
-        VALUES (?, 'conv-1', 1, 'user', 'user', 'chen', '开工', NULL, ?, 'turn-1', 'completed', '搭档', ?, ?)
+        INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, status, sender_name, created_at, completed_at)
+        VALUES (?, 'conv-1', 1, 'user', 'user', 'chen', '开工', NULL, ?, 'completed', '搭档', ?, ?)
       `).run(userEntryId, opts.userYieldTargets === null ? null : JSON.stringify(opts.userYieldTargets ?? [otterId]), createdAt, createdAt);
       db.prepare(`
         INSERT INTO invokes (id, conversation_id, otter_id, status, trigger_entry_id, started_at)
@@ -212,11 +208,6 @@ describe("ResumeInterruptedService（F20260916b1ea invoke 模型重建）", () =
       createdAt: T0, updatedAt: T0, completedAt: null, archivedAt: null,
     };
     await h.convRepo.create(conv);
-    const turn: Turn = {
-      id: "turn-1", conversationId: "conv-1", turnNumber: 1, status: "open",
-      createdAt: T0, closedAt: null,
-    };
-    await h.convRepo.createTurn(turn);
     await h.otterRepo.createOtter(otterFixture("otter-big"));
     await h.convRepo.createParticipant(participantFixture("otter-big"));
   });

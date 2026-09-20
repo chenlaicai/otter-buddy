@@ -380,7 +380,6 @@ export class MessageController {
     // F20260913ctlv 彻底切换：链深通知只写 entries（system entry）
     const { entry: sysEntry } = await this.sendEntry!.createSystemEntry({
       conversationId,
-      turnId: "",
       body: `行动权接力已达系统安全上限（${depth} 跳），行动权交还给你。直接回复即可继续——所有参与者会看到未读消息。`,
     });
     if (this.messageBroadcaster) {

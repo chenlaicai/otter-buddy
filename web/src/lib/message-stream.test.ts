@@ -163,24 +163,22 @@ describe('upsertTerminalMessage（F20260805abpp 第四轮检视 S4-1：终态事
   const evts = (n: number) => Array.from({ length: n }, (_, i) => ({ ts: '2026-08-05T00:00:00Z', eventType: 'assistant_toolcall', payload: { i } }))
 
   it('incoming 缺 events/seq/ts 时保留已有投影字段（MPA 新页面 live 状态为空）', () => {
-    const existing = msg({ id: 'a', status: 'streaming', seq: 7, ts: '2026-08-05T01:00:00Z', events: evts(3), ctx: 100, turnId: 't1' })
-    const incoming = msg({ id: 'a', status: 'aborted', ts: '', seq: undefined, events: undefined, ctx: undefined, ctxMax: undefined, turnId: undefined })
+    const existing = msg({ id: 'a', status: 'streaming', seq: 7, ts: '2026-08-05T01:00:00Z', events: evts(3), ctx: 100 })
+    const incoming = msg({ id: 'a', status: 'aborted', ts: '', seq: undefined, events: undefined, ctx: undefined, ctxMax: undefined })
     const next = upsertTerminalMessage([existing], incoming)
     expect(next[0].status).toBe('aborted')
     expect(next[0].events).toHaveLength(3)
     expect(next[0].seq).toBe(7)
     expect(next[0].ts).toBe('2026-08-05T01:00:00Z')
     expect(next[0].ctx).toBe(100)
-    expect(next[0].turnId).toBe('t1')
   })
 
-  it('incoming 携带的字段优先（complete 事件的 ctx/turnId 不被旧占位覆盖）', () => {
+  it('incoming 携带的字段优先（complete 事件的 ctx 不被旧占位覆盖）', () => {
     const existing = msg({ id: 'a', status: 'streaming', seq: 7, ts: '2026-08-05T01:00:00Z', events: evts(1) })
-    const incoming = msg({ id: 'a', status: 'completed', ts: '', events: evts(5), ctx: 999, ctxMax: 1000, turnId: 't2' })
+    const incoming = msg({ id: 'a', status: 'completed', ts: '', events: evts(5), ctx: 999, ctxMax: 1000 })
     const next = upsertTerminalMessage([existing], incoming)
     expect(next[0].events).toHaveLength(5)
     expect(next[0].ctx).toBe(999)
-    expect(next[0].turnId).toBe('t2')
     expect(next[0].seq).toBe(7)
     expect(next[0].ts).toBe('2026-08-05T01:00:00Z')
   })

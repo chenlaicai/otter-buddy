@@ -47,12 +47,11 @@ describe("活动页 API（F20260912avlb，三域只读）", () => {
 
   function seedConversation(convId: string, otterIds: string[]) {
     db.prepare("INSERT INTO conversations (id, title, status, created_at) VALUES (?, ?, 'active', datetime('now'))").run(convId, `对话${convId}`);
-    db.prepare("INSERT INTO turns (id, conversation_id, turn_number, created_at) VALUES (?, ?, 1, datetime('now'))").run(`turn-${convId}`, convId);
     for (const otterId of otterIds) {
       db.prepare("INSERT INTO otters (id, name, type, status) VALUES (?, ?, 'small', 'active')").run(otterId, `獭-${otterId}`);
       db.prepare(
-        "INSERT INTO conversation_participants (id, conversation_id, otter_id, joined_at_turn_id, joined_at_turn_number, status, created_at) VALUES (?, ?, ?, ?, 0, 'active', datetime('now'))",
-      ).run(`p-${convId}-${otterId}`, convId, otterId, `turn-${convId}`);
+        "INSERT INTO conversation_participants (id, conversation_id, otter_id, status, created_at) VALUES (?, ?, ?, 'active', datetime('now'))",
+      ).run(`p-${convId}-${otterId}`, convId, otterId);
     }
   }
 

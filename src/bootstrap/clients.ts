@@ -83,7 +83,7 @@ export function buildResourceClient(uc: UseCases) {
       category?: string;
       linkedBy: string;
       groupId?: string;
-    }, currentTurnNumber?: number) =>
+    }) =>
       uc.manageKeyInfo.linkResource({
         conversationId: input.conversationId,
         resourceType: input.resourceType ?? "url",
@@ -94,14 +94,14 @@ export function buildResourceClient(uc: UseCases) {
         linkedBy: input.linkedBy,
         autoLinked: false,
         groupId: input.groupId,
-      }, currentTurnNumber),
+      }),
     list: (convId: string, filters?: { status?: ArtifactStatus; resourceType?: string }) =>
       uc.manageKeyInfo.getLinkedResources(convId, filters),
     listByGroup: (convId: string, groupId: string) =>
       uc.manageKeyInfo.getLinkedResourcesByGroup(convId, groupId),
-    updateStatus: (id: string, status: "active" | "superseded" | "archived", turnNum: number, supersededBy?: string) =>
-      uc.manageKeyInfo.updateResourceStatus(id, status, turnNum, supersededBy),
-    supersede: (existingId: string, newInput: { conversationId: string; resourceType?: string; url?: string; title?: string; content?: string; category?: string; linkedBy: string; groupId?: string }, turnNum: number) =>
+    updateStatus: (id: string, status: "active" | "superseded" | "archived", supersededBy?: string) =>
+      uc.manageKeyInfo.updateResourceStatus(id, status, supersededBy),
+    supersede: (existingId: string, newInput: { conversationId: string; resourceType?: string; url?: string; title?: string; content?: string; category?: string; linkedBy: string; groupId?: string }) =>
       uc.manageKeyInfo.supersedeResource(existingId, {
         conversationId: newInput.conversationId,
         resourceType: newInput.resourceType ?? "url",
@@ -112,9 +112,9 @@ export function buildResourceClient(uc: UseCases) {
         linkedBy: newInput.linkedBy,
         autoLinked: false,
         groupId: newInput.groupId,
-      }, turnNum),
-    archive: (id: string, convId: string, turnNum: number) =>
-      uc.manageKeyInfo.archiveResource(id, convId, turnNum),
+      }),
+    archive: (id: string, convId: string) =>
+      uc.manageKeyInfo.archiveResource(id, convId),
   };
 }
 
@@ -165,7 +165,6 @@ export function buildOtterToolClient(
             conversationId: params.conversationId,
             invokeId: params.invokeId,
             otterId: params.otterId,
-            turnId: params.turnId,
             body: params.body,
             metadata: params.metadata,
           });
@@ -177,7 +176,6 @@ export function buildOtterToolClient(
             conversationId: params.conversationId,
             invokeId: params.invokeId,
             otterId: params.otterId,
-            turnId: params.turnId,
             yieldTargets: params.yieldTargets,
           });
           return {
@@ -203,18 +201,14 @@ export function buildOtterToolClient(
           const entries = await uc.sendEntry.searchEntries(convId, query, limit);
           return entries.map(e => ({ id: e.id, entryType: e.entryType, senderId: e.senderId, senderType: e.senderType, body: e.body, sequenceNum: e.sequenceNum, createdAt: e.createdAt }));
         },
-        // F20260913ctlv 批4a：SDK 三工具切 entries（get_message/list_messages/get_turn_history）
+        // F20260913ctlv 批4a：SDK 工具切 entries（get_message/list_messages）；get_turn_history 已随 turn 退役（F20260920trrt）
         getEntryById: async (entryId: string) => {
           const e = await uc.sendEntry.getEntryById(entryId);
           if (!e) return null;
-          return { id: e.id, conversationId: e.conversationId, entryType: e.entryType, senderType: e.senderType, senderId: e.senderId, body: e.body, turnId: e.turnId, status: e.status, sequenceNum: e.sequenceNum, createdAt: e.createdAt, completedAt: e.completedAt };
+          return { id: e.id, conversationId: e.conversationId, entryType: e.entryType, senderType: e.senderType, senderId: e.senderId, body: e.body, status: e.status, sequenceNum: e.sequenceNum, createdAt: e.createdAt, completedAt: e.completedAt };
         },
         listEntries: async (convId: string, opts?: { entryType?: string; limit?: number }) => {
           const entries = await uc.sendEntry.getEntries(convId, opts);
-          return entries.map(e => ({ id: e.id, entryType: e.entryType, senderType: e.senderType, senderId: e.senderId, body: e.body, sequenceNum: e.sequenceNum, createdAt: e.createdAt }));
-        },
-        getEntriesByTurnId: async (turnId: string) => {
-          const entries = await uc.sendEntry.getEntriesByTurnId(turnId);
           return entries.map(e => ({ id: e.id, entryType: e.entryType, senderType: e.senderType, senderId: e.senderId, body: e.body, sequenceNum: e.sequenceNum, createdAt: e.createdAt }));
         },
       },
@@ -233,9 +227,6 @@ export function buildOtterToolClient(
           await uc.sendEntry.incrementInvokeToolCallCount(invokeId);
         },
       },
-      getActiveTurnNumber: (convId) => uc.manageConversation.getActiveTurnNumber(convId),
-      // F20260913ctlv 批4a：turn 骨架（get_turn_history 工具；turns 表保留）
-      getTurns: async (convId: string) => (await uc.queryMessage.getTurnsForTool(convId)),
     },
     memory: buildMemoryClient(uc),
     terminology: {

@@ -30,7 +30,7 @@ import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { ManageReadState } from "@usecases/conversation/manage-read-state";
-import type { Conversation, Turn, ConversationParticipant } from "@entities/conversation/conversation";
+import type { Conversation, ConversationParticipant } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
 import { vi } from "vitest";
 
@@ -221,16 +221,9 @@ describe("sendMessage 附件前置校验 + FTS 时序（R3）", () => {
     await otterRepo.createOtter(otter);
     const p: ConversationParticipant = {
       id: "p-1", conversationId: "conv-1", otterId: "otter-big",
-      joinedAtTurnId: null, joinedAtTurnNumber: 0, leftAtTurnId: null, leftAtTurnNumber: null,
       status: "active", createdAt: "2026-01-01T00:00:00Z", leftAt: null,
-      lastReadTurnNumber: 0, lastActiveTurnNumber: 0,
     };
     await convRepo.createParticipant(p);
-    const turn: Turn = {
-      id: "turn-1", conversationId: "conv-1", turnNumber: 1, status: "open",
-      createdAt: "2026-01-01T00:00:00Z", closedAt: null,
-    };
-    await convRepo.createTurn(turn);
 
     const logger = createTestLogger();
     const uploadService = new AttachmentUploadService(

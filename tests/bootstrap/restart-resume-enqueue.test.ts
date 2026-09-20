@@ -24,7 +24,6 @@ describe("postInitDatabase 重启 reconcile 入队（F20260916b1ea）", () => {
     repos = initRepositories(db, createTestLogger());
     db.prepare("INSERT INTO otters (id, name, type, created_at) VALUES ('otter-1', '獭一', 'big', ?)").run(T0);
     db.prepare("INSERT INTO conversations (id, title, status, created_at, updated_at) VALUES ('conv-1', '测试', 'active', ?, ?)").run(T0, T0);
-    db.prepare("INSERT INTO turns (id, conversation_id, turn_number, status, created_at) VALUES ('turn-1', 'conv-1', 1, 'open', ?)").run(T0);
   });
 
   afterEach(() => {
@@ -33,8 +32,8 @@ describe("postInitDatabase 重启 reconcile 入队（F20260916b1ea）", () => {
 
   function insertEntry(id: string, entryType: string, opts: { yieldTargets?: string | null; createdAt?: string } = {}): void {
     db.prepare(`
-      INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, turn_id, status, sender_name, created_at, completed_at)
-      VALUES (?, 'conv-1', 1, ?, 'user', 'chen', '内容', NULL, ?, 'turn-1', 'completed', '搭档', ?, ?)
+      INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, status, sender_name, created_at, completed_at)
+      VALUES (?, 'conv-1', 1, ?, 'user', 'chen', '内容', NULL, ?, 'completed', '搭档', ?, ?)
     `).run(id, entryType, opts.yieldTargets ?? null, opts.createdAt ?? T0, opts.createdAt ?? T0);
   }
 

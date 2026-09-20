@@ -28,7 +28,6 @@ export interface EntryDTO {
   body: string | null;
   invokeId: string | null;
   yieldTargets: string[] | null;
-  turnId: string;
   status: EntryStatusDTO;
   source: "web" | "feishu" | "weixin" | null;
   metadata: Record<string, unknown> | null;

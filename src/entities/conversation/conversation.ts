@@ -16,19 +16,6 @@ export interface Conversation {
   archivedAt: string | null;
 }
 
-/** 轮次状态 */
-export type TurnStatus = "open" | "closed";
-
-/** 对话轮次（发言石轮次模型） */
-export interface Turn {
-  id: string;
-  conversationId: string;
-  turnNumber: number; // 1, 2, 3, ...（对话内自增）
-  status: TurnStatus; // open = 等待发言者完成，closed = 全部完成
-  createdAt: string;
-  closedAt: string | null;
-}
-
 /** 产物生命周期状态 */
 export type ArtifactStatus = "active" | "superseded" | "archived";
 
@@ -48,8 +35,6 @@ export interface LinkedResource {
   autoLinked: boolean;
   createdAt: string;
   status: ArtifactStatus;
-  linkedAtTurnNumber: number;
-  statusChangedAtTurnNumber: number;
   groupId: string | null;
   supersededBy: string | null;
 }
@@ -60,26 +45,19 @@ export type ParticipantStatus = "active" | "left";
 /**
  * 对话参与者实体（UA-7 动态在场名单的唯一真相源）。
  *
- * - 初始参与者在 create() 时创建（joinedAtTurnId=null, joinedAtTurnNumber=0）
- * - 后进场者通过 join() 创建（joinedAtTurnId 指向当前 Turn）
- * - 退场时更新 leftAtTurnId/leftAtTurnNumber/status
+ * - 初始参与者在 create() 时创建，后进场者通过 join() 创建
+ * - 退场时更新 leftAt/status
  * - 每个 Otter 实例在一个对话中只进场/退场一次（UA-10）
+ * - F20260920trrt：turn 戳字段（joinedAtTurnId/lastActiveTurnNumber 等）随 turn 系统退役；
+ *   已读游标唯一刻度 = lastReadSeq（F20260902sgp2 S4c）
  */
 export interface ConversationParticipant {
   id: string;
   conversationId: string;
   otterId: string;
-  joinedAtTurnId: string | null; // null 表示对话开始前已在场
-  joinedAtTurnNumber: number; // 0 表示对话开始前已在场
-  leftAtTurnId: string | null;
-  leftAtTurnNumber: number | null;
   status: ParticipantStatus;
   createdAt: string;
   leftAt: string | null;
-  /** 已读位置：该 otter 在此对话中已读到的 turn_number（0 表示未读） */
-  lastReadTurnNumber: number;
-  /** 最后活跃轮次：该 otter 在此对话中最后发言的 turn_number（0 表示未发言） */
-  lastActiveTurnNumber: number;
 }
 
 /**
@@ -96,31 +74,6 @@ export function canCompleteConversation(status: ConversationStatus): boolean {
  */
 export function canArchiveConversation(status: ConversationStatus): boolean {
   return status === "completed";
-}
-
-/**
- * 轮次是否仍在进行（接受发言者发言）
- */
-export function isTurnActive(status: TurnStatus): boolean {
-  return status === "open";
-}
-
-/**
- * 消息是否可以添加到该轮次。
- * 仅 open 状态的 Turn 可接受新消息。
- * 来源：UA-8 直接推论——每一轮发言者必须全部完成才进入下一轮
- */
-export function canAddMessageToTurn(turnStatus: TurnStatus): boolean {
-  return turnStatus === "open";
-}
-
-/**
- * 轮次是否可以关闭。
- * 当轮次内所有消息都到达终态时，可以关闭轮次。
- * allMessagesTerminal: 轮次内所有消息是否已到达终态（completed/failed）
- */
-export function canCloseTurn(allMessagesTerminal: boolean): boolean {
-  return allMessagesTerminal;
 }
 
 /**

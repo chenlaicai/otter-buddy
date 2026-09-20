@@ -63,7 +63,6 @@ export interface OtterToolClient {
         conversationId: string;
         invokeId: string;
         otterId: string;
-        turnId: string;
         body: string;
         metadata?: Record<string, unknown>;
       }): Promise<{ id: string; entryType: string; body: string }>;
@@ -72,7 +71,6 @@ export interface OtterToolClient {
         conversationId: string;
         invokeId: string;
         otterId: string;
-        turnId: string;
         yieldTargets: string[];
       }): Promise<{
         yieldEntry: { id: string; entryType: string; yieldTargets: string[] };
@@ -87,16 +85,11 @@ export interface OtterToolClient {
       getEntryById(entryId: string): Promise<{
         id: string; conversationId: string; entryType: string;
         senderType: string | null; senderId: string | null; body: string | null;
-        turnId: string; status: string; sequenceNum: number;
+        status: string; sequenceNum: number;
         createdAt: string; completedAt: string | null;
       } | null>;
       /** F20260913ctlv 批4a：时间线倒序分页（list_messages 工具） */
       listEntries(conversationId: string, opts?: { entryType?: string; limit?: number }): Promise<Array<{
-        id: string; entryType: string; senderType: string | null; senderId: string | null;
-        body: string | null; sequenceNum: number; createdAt: string;
-      }>>;
-      /** F20260913ctlv 批4a：按 turn 取条目（get_turn_history 工具） */
-      getEntriesByTurnId(turnId: string): Promise<Array<{
         id: string; entryType: string; senderType: string | null; senderId: string | null;
         body: string | null; sequenceNum: number; createdAt: string;
       }>>;
@@ -119,11 +112,6 @@ export interface OtterToolClient {
       /** 标记 otter 在指定对话中已离开（dissolve_otter 顺带修） */
       leave(conversationId: string, otterId: string): Promise<void>;
     };
-    getActiveTurnNumber(conversationId: string): Promise<number>;
-    /** F20260913ctlv 批4a：turn 骨架列表（get_turn_history 工具；turns 表保留不动） */
-    getTurns(conversationId: string): Promise<Array<{
-      id: string; turnNumber: number; status: string; createdAt: string; closedAt: string | null;
-    }>>;
   };
   memory: {
     getById(id: string): Promise<MemorySearchEntry | null>;
@@ -174,7 +162,7 @@ export interface OtterToolClient {
     link(params: LinkResourceInput, currentTurnNumber?: number): Promise<LinkedResource>;
     list(conversationId: string, filters?: { status?: ArtifactStatus; resourceType?: string }): Promise<LinkedResource[]>;
     listByGroup(conversationId: string, groupId: string): Promise<LinkedResource[]>;
-    updateStatus(id: string, status: ArtifactStatus, statusChangedAtTurnNumber: number, supersededBy?: string): Promise<void>;
+    updateStatus(id: string, status: ArtifactStatus, supersededBy?: string): Promise<void>;
     supersede(existingId: string, newInput: LinkResourceInput, currentTurnNumber: number): Promise<LinkedResource>;
     archive(id: string, conversationId: string, currentTurnNumber: number): Promise<void>;
   };

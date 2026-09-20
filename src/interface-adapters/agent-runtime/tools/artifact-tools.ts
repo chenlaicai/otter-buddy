@@ -52,8 +52,7 @@ export function createListArtifactsTool(ctx: ToolContext): AgentTool {
         id: r.id, resourceType: r.resourceType, url: r.url, title: r.title,
         content: truncateContentPreview(r.content),
         category: r.category, userFlagged: r.userFlagged,
-        status: r.status, groupId: r.groupId, linkedAtTurnNumber: r.linkedAtTurnNumber,
-        statusChangedAtTurnNumber: r.statusChangedAtTurnNumber, supersededBy: r.supersededBy,
+        status: r.status, groupId: r.groupId, supersededBy: r.supersededBy,
       }))));
     },
   };
@@ -85,8 +84,7 @@ export function createUpdateArtifactStatusTool(ctx: ToolContext): AgentTool {
         return errorResponse("[错误] status 为 'superseded' 时必须提供 supersededBy");
       }
 
-      const turnNumber = await ctx.client.conversation.getActiveTurnNumber(ctx.conversationId);
-      await ctx.client.resource.updateStatus(artifactId, targetStatus, turnNumber, supersededBy);
+      await ctx.client.resource.updateStatus(artifactId, targetStatus, supersededBy);
       return textResponse(`Artifact ${artifactId} status updated to ${targetStatus}`);
     },
   };

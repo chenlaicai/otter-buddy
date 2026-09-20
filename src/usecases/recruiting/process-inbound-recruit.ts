@@ -133,7 +133,6 @@ export class ProcessInboundRecruit {
     const externalIds = fresh.map(m => m.externalId);
     const { entry: signalEntry } = await this.sendEntry.createSystemEntry({
       conversationId,
-      turnId: "",
       body,
       yieldTargets: [bigOtterId],
       senderName: 'boss-zhipin-bridge',
@@ -178,7 +177,6 @@ export class ProcessInboundRecruit {
         // F20260913ctlv 批4a：状态事件落 system entry（eventType/severity 进 metadata）
         const { entry: statusEntry } = await this.sendEntry.createSystemEntry({
           conversationId,
-          turnId: "",
           body,
           yieldTargets: [bigOtterId],
           senderName: 'boss-zhipin-bridge',

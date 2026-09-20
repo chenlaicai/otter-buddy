@@ -36,7 +36,6 @@ function makeRepos() {
     getMaxSequenceNum: vi.fn(async () => entries.size),
   } as unknown as EntryRepository;
   const invokeRepo = {
-    getInvokesByTurnId: vi.fn(async () => []),
   } as unknown as InvokeRepository;
   const otterRepo = {
     getById: vi.fn(async (id: string) => ({ id, name: "大獭", status: "active" })),

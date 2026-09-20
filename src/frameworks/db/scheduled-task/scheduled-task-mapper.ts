@@ -38,7 +38,6 @@ export interface ScheduledTaskExecutionRow {
   status: string;
   error_message: string | null;
   message_id: string | null;
-  turn_id: string | null;
 }
 
 /** DB Row -> Entity */
@@ -86,7 +85,6 @@ export function rowToExecution(row: ScheduledTaskExecutionRow): ScheduledTaskExe
     status: row.status as ExecutionStatus,
     errorMessage: row.error_message,
     messageId: row.message_id,
-    turnId: row.turn_id,
   };
 }
 

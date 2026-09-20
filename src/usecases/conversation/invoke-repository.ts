@@ -52,7 +52,6 @@ export interface InvokeRepository {
     afterStartedAt: string,
   ): Promise<Invoke | null>;
   /** F20260913ctlv 彻底切换：按 turn 查 invokes（tryCloseTurn 判据——turn 生命周期从 messages 剥离） */
-  getInvokesByTurnId(turnId: string): Promise<Invoke[]>;
   /**
    * F20260916b1ea 重建：重启 reconcile——running invokes 全部置 failed，
    *  并原子返回被标记行的详情（UPDATE...RETURNING，单条 SQL 消

@@ -16,7 +16,6 @@ export interface MessageDTO {
   dur: string | null;
   seq: number;
   tsp: string[] | null;
-  turnId: string;
   /** 信号档位（F20260902u5tr：yield 投石为 NORMAL/URGENT/HALT，用户消息无列值隐式 NORMAL）；仅非空时携带 */
   lvl?: string;
   /** 发送者显示名（otter 消息为 otter 名；user/system 省略） */

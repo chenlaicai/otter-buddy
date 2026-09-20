@@ -10,7 +10,6 @@ import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { OtterConfig, OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import { resolveEffectiveModel } from "@usecases/ports/otter-config-provider";
 import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
-import { tryCloseTurn, ensureActiveTurn } from "./turn-utils";
 import type { EntryRepository } from "./entry-repository";
 import type { InvokeRepository } from "./invoke-repository";
 import type { Entry } from "@entities/conversation/entry";
@@ -58,49 +57,32 @@ export class ManageParticipant {
       throw new DomainError(`Otter ${otterId} already joined conversation ${conversationId}`, "conflict");
     }
 
-    /** 2. turn 锚点：ensureActiveTurn 兜底（无 open turn 时创建）*/
-    const turn = await ensureActiveTurn(this.repo, conversationId);
-
     const now = new Date().toISOString();
 
-    /** 3. 创建参与记录 */
+    /** 2. 创建参与记录（F20260920trrt：turn 锚点退役——进场游标由 createParticipant 显式写 0） */
     const participant: ConversationParticipant = {
       id: crypto.randomUUID(),
       conversationId,
       otterId,
-      joinedAtTurnId: turn.id,
-      joinedAtTurnNumber: turn.turnNumber,
-      leftAtTurnId: null,
-      leftAtTurnNumber: null,
       status: "active",
       createdAt: now,
       leftAt: null,
-      lastReadTurnNumber: turn.turnNumber,
-      lastActiveTurnNumber: 0,
     };
     await this.repo.createParticipant(participant);
 
-    /** 4. 进场系统消息：新路径 system entry / 旧路径降级 messages */
-    const systemMessage = await this.writeSystemRecord(conversationId, turn.id, otterId, systemMessageBody, now);
-
-    /** 5. 更新已读位置到当前 turn（小獭能看到整个 turn 的所有消息） */
-    await this.repo.updateLastReadTurnNumber(conversationId, otterId, turn.turnNumber);
-
-    /** 6. 尝试关闭 Turn（system entry 已终态；invoke 状态机判据） */
-    await this.closeTurnAfterRecord(turn.id);
+    /** 3. 进场系统消息 */
+    const systemMessage = await this.writeSystemRecord(conversationId, otterId, systemMessageBody, now);
 
     return { participant, systemMessage };
   }
 
-  /** F20260913ctlv：进场/退场系统消息写入——entry 新路径 + messages 降级路径 */
+  /** F20260913ctlv：进场/退场系统消息写入（entry 路径） */
   private async writeSystemRecord(
     conversationId: string,
-    turnId: string,
     otterId: string,
     body: string,
     now: string,
   ): Promise<Entry> {
-    // F20260913ctlv 批4c：messages 降级路径删除（entryDeps 必注入——装配唯一路径）
     const entry: Entry = {
         id: crypto.randomUUID(),
         conversationId,
@@ -111,7 +93,6 @@ export class ManageParticipant {
         body,
         invokeId: null,
         yieldTargets: null,
-        turnId,
         status: "completed",
         source: null,
         metadata: null,
@@ -124,11 +105,6 @@ export class ManageParticipant {
     return this.entryDeps.entryRepo.createEntryAtomic(entry);
   }
 
-
-  /** F20260913ctlv 批4a：turn 关闭（invokes 判据；messages 降级分支已删） */
-  private async closeTurnAfterRecord(turnId: string): Promise<void> {
-    await tryCloseTurn(this.repo, turnId, this.entryDeps);
-  }
 
   /**
    * Otter 退场：更新参与记录 + 系统消息。
@@ -154,30 +130,17 @@ export class ManageParticipant {
       throw new DomainError(`Otter ${otterId} is not an active participant`, "validation");
     }
 
-    /** 2. turn 锚点：ensureActiveTurn 兜底 */
-    const turn = await ensureActiveTurn(this.repo, conversationId);
-
     const now = new Date().toISOString();
 
-    /** 3. 更新参与记录（B19: 记录退场 Turn） */
-    await this.repo.updateParticipantLeave(
-      participant.id,
-      turn.id,
-      turn.turnNumber,
-      now,
-    );
+    /** 2. 更新参与记录 */
+    await this.repo.updateParticipantLeave(participant.id, now);
 
-    /** 4. 退场系统消息：新路径 system entry / 旧路径降级 messages */
-    const systemMessage = await this.writeSystemRecord(conversationId, turn.id, otterId, systemMessageBody, now);
-
-    /** 5. 尝试关闭 Turn */
-    await this.closeTurnAfterRecord(turn.id);
+    /** 3. 退场系统消息 */
+    const systemMessage = await this.writeSystemRecord(conversationId, otterId, systemMessageBody, now);
 
     return {
       participant: {
         ...participant,
-        leftAtTurnId: turn.id,
-        leftAtTurnNumber: turn.turnNumber,
         status: "left",
         leftAt: now,
       },

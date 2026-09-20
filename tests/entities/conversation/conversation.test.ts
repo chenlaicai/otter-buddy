@@ -2,9 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   canCompleteConversation,
   canArchiveConversation,
-  isTurnActive,
-  canAddMessageToTurn,
-  canCloseTurn,
   canJoinConversation,
   canLeaveConversation,
   canTransitionArtifactStatus,
@@ -37,36 +34,6 @@ describe("canArchiveConversation", () => {
 
   it("archived cannot be archived again", () => {
     expect(canArchiveConversation("archived")).toBe(false);
-  });
-});
-
-describe("isTurnActive", () => {
-  it("open turn is active", () => {
-    expect(isTurnActive("open")).toBe(true);
-  });
-
-  it("closed turn is not active", () => {
-    expect(isTurnActive("closed")).toBe(false);
-  });
-});
-
-describe("canAddMessageToTurn", () => {
-  it("open turn accepts messages", () => {
-    expect(canAddMessageToTurn("open")).toBe(true);
-  });
-
-  it("closed turn rejects messages", () => {
-    expect(canAddMessageToTurn("closed")).toBe(false);
-  });
-});
-
-describe("canCloseTurn", () => {
-  it("can close when all messages are terminal", () => {
-    expect(canCloseTurn(true)).toBe(true);
-  });
-
-  it("cannot close when some messages are not terminal", () => {
-    expect(canCloseTurn(false)).toBe(false);
   });
 });
 

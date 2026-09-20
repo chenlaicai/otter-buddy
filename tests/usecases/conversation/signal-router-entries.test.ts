@@ -32,7 +32,6 @@ function createEntry(overrides: Partial<Entry> = {}): Entry {
     body: "帮我看看",
     invokeId: null,
     yieldTargets: null,
-    turnId: "turn-1",
     status: "completed",
     source: "web",
     metadata: null,

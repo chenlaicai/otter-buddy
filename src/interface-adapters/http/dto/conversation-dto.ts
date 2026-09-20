@@ -60,8 +60,6 @@ export function toParticipantDTO(
     ...(extra?.roleName !== undefined && { roleName: extra.roleName }),
     ...(extra?.modelAlias !== undefined && { modelAlias: extra.modelAlias }),
     ...(extra?.modelIsDefault !== undefined && { modelIsDefault: extra.modelIsDefault }),
-    joinedAtTurnNumber: p.joinedAtTurnNumber,
-    leftAtTurnNumber: p.leftAtTurnNumber,
     status: p.status,
     createdAt: p.createdAt,
     leftAt: p.leftAt,

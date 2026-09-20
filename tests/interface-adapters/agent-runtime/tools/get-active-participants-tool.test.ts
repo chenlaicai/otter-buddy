@@ -16,7 +16,7 @@ import type { ToolContext } from "@usecases/ports/agent-tools";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 
 function makeGetActiveParticipantsTool(options: {
-  participants?: Array<{ otterId: string; otterName: string; status: string; joinedAtTurnNumber: number; modelAlias?: string }>;
+  participants?: Array<{ otterId: string; otterName: string; status: string; modelAlias?: string }>;
 } = {}) {
   const client = {
     conversation: {
@@ -42,8 +42,8 @@ describe("get_active_participants 工具", () => {
   describe("modelAlias 返回（#446：DTO 透传）", () => {
     it("DTO 带 modelAlias 时返回 modelAlias", async () => {
       const participants = [
-        { otterId: "otter-1", otterName: "大獭", status: "active", joinedAtTurnNumber: 0, modelAlias: "mimo" },
-        { otterId: "otter-2", otterName: "小獭", status: "active", joinedAtTurnNumber: 1, modelAlias: "kimi" },
+        { otterId: "otter-1", otterName: "大獭", status: "active", modelAlias: "mimo" },
+        { otterId: "otter-2", otterName: "小獭", status: "active", modelAlias: "kimi" },
       ];
 
       const { getActiveParticipants } = makeGetActiveParticipantsTool({ participants });
@@ -56,14 +56,12 @@ describe("get_active_participants 工具", () => {
         otterId: "otter-1",
         otterName: "大獭",
         status: "active",
-        joinedAtTurnNumber: 0,
         modelAlias: "mimo",
       });
       expect(parsed[1]).toEqual({
         otterId: "otter-2",
         otterName: "小獭",
         status: "active",
-        joinedAtTurnNumber: 1,
         modelAlias: "kimi",
       });
     });
@@ -83,14 +81,13 @@ describe("get_active_participants 工具", () => {
         otterId: "otter-1",
         otterName: "大獭",
         status: "active",
-        joinedAtTurnNumber: 0,
       });
       expect(parsed[0]).not.toHaveProperty("modelAlias");
     });
 
     it("混合场景：部分参与者有 modelAlias 部分无，逐参与者正确", async () => {
       const participants = [
-        { otterId: "otter-1", otterName: "大獭", status: "active", joinedAtTurnNumber: 0, modelAlias: "mimo" },
+        { otterId: "otter-1", otterName: "大獭", status: "active", modelAlias: "mimo" },
         { otterId: "otter-2", otterName: "小獭", status: "active", joinedAtTurnNumber: 1 },
         { otterId: "otter-3", otterName: "检视獭", status: "active", joinedAtTurnNumber: 2, modelAlias: "kimi" },
       ];

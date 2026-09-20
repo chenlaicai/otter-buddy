@@ -24,7 +24,6 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createTerminologyTables(db);
     createConversationInfoTables(db);
     createOtterTables(db);
-    createTurnTables(db);
     createParticipantTables(db);
     createAgentSessionsTable(db);
     createSettingsTable(db);
@@ -312,8 +311,6 @@ function createConversationInfoTables(db: Database.Database): void {
       auto_linked INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       status TEXT NOT NULL DEFAULT 'active',
-      linked_at_turn_number INTEGER NOT NULL DEFAULT 0,
-      status_changed_at_turn_number INTEGER NOT NULL DEFAULT 0,
       group_id TEXT,
       superseded_by TEXT,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id)
@@ -371,25 +368,6 @@ function createOtterTables(db: Database.Database): void {
   `);
 }
 
-/** Turn 表（Turn 实体，F20260715b8c6 新增） */
-function createTurnTables(db: Database.Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS turns (
-      id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      turn_number INTEGER NOT NULL,
-      status TEXT NOT NULL DEFAULT 'open',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      closed_at TEXT,
-      FOREIGN KEY (conversation_id) REFERENCES conversations(id)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_turns_conversation_id ON turns(conversation_id);
-    CREATE INDEX IF NOT EXISTS idx_turns_status ON turns(status);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_turns_conversation_number ON turns(conversation_id, turn_number);
-  `);
-}
-
 /** 对话参与者表（ConversationParticipant 实体，E3/E4 新增） */
 function createParticipantTables(db: Database.Database): void {
   db.exec(`
@@ -397,21 +375,13 @@ function createParticipantTables(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       conversation_id TEXT NOT NULL,
       otter_id TEXT NOT NULL,
-      joined_at_turn_id TEXT,
-      joined_at_turn_number INTEGER NOT NULL DEFAULT 0,
-      left_at_turn_id TEXT,
-      left_at_turn_number INTEGER,
       status TEXT NOT NULL DEFAULT 'active',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       left_at TEXT,
-      last_read_turn_number INTEGER NOT NULL DEFAULT 0,
-      last_active_turn_number INTEGER NOT NULL DEFAULT 0,
-      -- F20260902sgp2 S4c：游标 seq 刻度（可空——NULL=未迁移，读路径回退 turn 刻度）
+      -- F20260902sgp2 S4c：游标 seq 刻度（turn 刻度列已随 F20260920trrt 退役，此列是唯一已读游标）
       last_read_seq INTEGER,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id),
       FOREIGN KEY (otter_id) REFERENCES otters(id),
-      FOREIGN KEY (joined_at_turn_id) REFERENCES turns(id),
-      FOREIGN KEY (left_at_turn_id) REFERENCES turns(id),
       UNIQUE(conversation_id, otter_id)
     );
 
@@ -549,8 +519,7 @@ function createScheduledTaskTables(db: Database.Database): void {
       completed_at TEXT,
       status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed', 'skipped')),
       error_message TEXT,
-      message_id TEXT,
-      turn_id TEXT REFERENCES turns(id)
+      message_id TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_executions_task ON scheduled_task_executions(task_id, triggered_at);
@@ -637,7 +606,7 @@ function createHealingEventTables(db: Database.Database): void {
   }
 }
 
-/** Web 用户已读状态（消息级，与 otter agent 的 turn 级 last_read_turn_number 独立）。
+/** Web 用户已读状态（消息级，与 otter 的 last_read_seq 独立）。
  *  单用户预留多用户：user_id 当前固定 "web-user"，多用户扩展时按 user 隔离。 */
 function createUserReadStateTable(db: Database.Database): void {
   db.exec(`
@@ -956,7 +925,6 @@ function createEntryTables(db: Database.Database): void {
       body TEXT,
       invoke_id TEXT,
       yield_targets TEXT,
-      turn_id TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'completed',
       source TEXT,
       metadata TEXT,
@@ -966,8 +934,7 @@ function createEntryTables(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       completed_at TEXT,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id),
-      FOREIGN KEY (invoke_id) REFERENCES invokes(id),
-      FOREIGN KEY (turn_id) REFERENCES turns(id)
+      FOREIGN KEY (invoke_id) REFERENCES invokes(id)
     );
 
     CREATE INDEX IF NOT EXISTS idx_entries_conversation_seq ON entries(conversation_id, sequence_num);

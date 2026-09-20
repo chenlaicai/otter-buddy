@@ -207,14 +207,6 @@ export class SqliteInvokeRepository implements InvokeRepository {
     return row ? rowToInvoke(row) : null;
   }
 
-  /** F20260913ctlv 彻底切换：按 turn 查 invokes（tryCloseTurn 判据） */
-  async getInvokesByTurnId(turnId: string): Promise<Invoke[]> {
-    const rows = this.db.prepare(
-      "SELECT DISTINCT i.* FROM invokes i JOIN entries e ON e.invoke_id = i.id WHERE e.turn_id = ?",
-    ).all(turnId) as InvokeRow[];
-    return rows.map(rowToInvoke);
-  }
-
   /** F20260916b1ea 重建：重启 reconcile——running invokes 全部置 failed，
    *  单条 UPDATE...RETURNING 原子返回被标记行详情（消 SELECT-then-UPDATE 竞态，
    *  恢复入队的数据源）。SQLite 3.35+ 支持 RETURNING（better-sqlite3 13.0.3 已验证）。 */

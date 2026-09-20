@@ -95,7 +95,6 @@ export interface LocalMessage {
   events?: LocalMessageEvent[]
   ctx?: number
   ctxMax?: number
-  turnId?: string
   /** 消息来源 "web" | "feishu" */
   src?: 'web' | 'feishu'
   /** 消息分段（F-multi-speak-bubble）；历史消息可能无此字段 */
@@ -235,7 +234,6 @@ export function mapMessageDTO(dto: MessageDTO): LocalMessage {
     dur: dto.dur,
     ctx: dto.ctx,
     ctxMax: dto.ctxMax,
-    turnId: dto.turnId,
     // F20260902u5tr：发言石目标透出（信号轨迹判定）
     tsp: dto.tsp,
     src: dto.src as 'web' | 'feishu' | undefined,
@@ -265,7 +263,6 @@ export function mapEntryDTO(dto: EntryDTO): LocalMessage {
     dur: null,
     ctx: dto.contextTokens ?? undefined,
     ctxMax: dto.contextTokensMax ?? undefined,
-    turnId: dto.turnId,
     src: (dto.source ?? undefined) as 'web' | 'feishu' | undefined,
     entryType: dto.entryType,
     invokeId: dto.invokeId ?? undefined,
@@ -357,7 +354,6 @@ export interface LocalScheduledTaskExecution {
   status: 'running' | 'completed' | 'failed' | 'skipped'
   errorMessage: string | null
   messageId: string | null
-  turnId: string | null
 }
 
 export interface ScheduledTaskDTO {
@@ -390,7 +386,6 @@ export interface ScheduledTaskExecutionDTO {
   status: string
   errorMessage: string | null
   messageId: string | null
-  turnId: string | null
 }
 
 export function mapScheduledTaskDTO(dto: ScheduledTaskDTO): LocalScheduledTask {
@@ -426,6 +421,5 @@ export function mapExecutionDTO(dto: ScheduledTaskExecutionDTO): LocalScheduledT
     status: dto.status as 'running' | 'completed' | 'failed' | 'skipped',
     errorMessage: dto.errorMessage,
     messageId: dto.messageId,
-    turnId: dto.turnId,
   }
 }

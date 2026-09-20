@@ -118,7 +118,7 @@ export function stripHtmlCardFences(body: string, options?: StripHtmlCardOptions
 
 /**
  * 只剥 html-card、保留 html-card-reply 的投影（上下文注入出口用）。
- * 注入出口：buildMessageWithContext 未读注入、list_messages、get_turn_history。
+ * 注入出口：buildMessageWithContext 未读注入、list_messages。
  */
 export function stripHtmlCardsOnly(body: string): string {
   return stripHtmlCardFences(body, { stripReplies: false });

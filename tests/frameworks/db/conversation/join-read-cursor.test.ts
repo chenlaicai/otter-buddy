@@ -14,7 +14,7 @@ import { initSchema } from "@frameworks/db/schema";
 import { SqliteEntryRepository } from "@frameworks/db/conversation/sqlite-entry-repository";
 import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
 import type { Entry } from "@entities/conversation/entry";
-import type { Conversation, ConversationParticipant, Turn } from "@entities/conversation/conversation";
+import type { Conversation, ConversationParticipant } from "@entities/conversation/conversation";
 
 /** 创建内存 SQLite 并初始化 schema */
 function createTestDb(): Database.Database {
@@ -39,11 +39,6 @@ describe("进场已读游标（test15 回归）", () => {
       completedAt: null, archivedAt: null,
     };
     convRepo.create(conv);
-    const turn: Turn = {
-      id: "turn-1", conversationId: "conv-1", turnNumber: 1, status: "open",
-      createdAt: "2026-01-01T00:00:00Z", closedAt: null,
-    };
-    convRepo.createTurn(turn);
     // FK：participants.otter_id 引用 otters——预置甲/乙/大獭行
     db.prepare("INSERT INTO otters (id, name, type, status, created_at) VALUES ('jia-1','甲','small','active','2026-01-01T00:00:00Z')").run();
     db.prepare("INSERT INTO otters (id, name, type, status, created_at) VALUES ('yi-1','乙','small','active','2026-01-01T00:00:00Z')").run();
@@ -58,8 +53,7 @@ describe("进场已读游标（test15 回归）", () => {
     fixtureSeq += 1;
     return {
       id: `entry-${fixtureSeq}`, conversationId: "conv-1", sequenceNum: 0, entryType,
-      senderType: "otter", senderId, body, invokeId: null, yieldTargets: null,
-      turnId: "turn-1", status: "completed", source: null, metadata: null,
+      senderType: "otter", senderId, body, invokeId: null, yieldTargets: null, status: "completed", source: null, metadata: null,
       senderName: "x", contextTokens: null, contextTokensMax: null,
       createdAt: "2026-01-01T00:00:00Z", completedAt: "2026-01-01T00:00:00Z",
     };
@@ -73,10 +67,7 @@ describe("进场已读游标（test15 回归）", () => {
     // 甲獭进场（createParticipant）
     const p: ConversationParticipant = {
       id: "p-1", conversationId: "conv-1", otterId: "jia-1",
-      joinedAtTurnId: "turn-1", joinedAtTurnNumber: 1,
-      leftAtTurnId: null, leftAtTurnNumber: null,
       status: "active", createdAt: "2026-01-01T00:00:00Z", leftAt: null,
-      lastReadTurnNumber: 1, lastActiveTurnNumber: 0,
     };
     convRepo.createParticipant(p);
 
@@ -90,10 +81,7 @@ describe("进场已读游标（test15 回归）", () => {
     const q = await entryRepo.createEntryAtomic(entryFixture("big-1", "问题"));
     const p: ConversationParticipant = {
       id: "p-2", conversationId: "conv-1", otterId: "jia-1",
-      joinedAtTurnId: "turn-1", joinedAtTurnNumber: 1,
-      leftAtTurnId: null, leftAtTurnNumber: null,
       status: "active", createdAt: "2026-01-01T00:00:00Z", leftAt: null,
-      lastReadTurnNumber: 1, lastActiveTurnNumber: 0,
     };
     convRepo.createParticipant(p);
     // 甲獭自己发言 + 大獭新发言
@@ -109,10 +97,7 @@ describe("进场已读游标（test15 回归）", () => {
     await entryRepo.createEntryAtomic(entryFixture("big-1", "问题"));
     const p: ConversationParticipant = {
       id: "p-3", conversationId: "conv-1", otterId: "yi-1",
-      joinedAtTurnId: "turn-1", joinedAtTurnNumber: 1,
-      leftAtTurnId: null, leftAtTurnNumber: null,
       status: "active", createdAt: "2026-01-01T00:00:00Z", leftAt: null,
-      lastReadTurnNumber: 1, lastActiveTurnNumber: 0,
     };
     convRepo.createParticipant(p);
     db.prepare("UPDATE conversation_participants SET status = 'left' WHERE otter_id = 'yi-1'").run();

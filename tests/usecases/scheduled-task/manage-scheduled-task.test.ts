@@ -319,7 +319,6 @@ describe("ManageScheduledTask", () => {
           status: "completed",
           errorMessage: null,
           messageId: "msg-1",
-          turnId: "turn-1",
         },
         {
           id: "exec-2",
@@ -329,7 +328,6 @@ describe("ManageScheduledTask", () => {
           status: "running",
           errorMessage: null,
           messageId: null,
-          turnId: null,
         },
       ]);
 

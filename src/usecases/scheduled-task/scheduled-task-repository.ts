@@ -42,7 +42,6 @@ export interface ScheduledTaskRepository {
       completedAt?: string;
       errorMessage?: string;
       messageId?: string | null;
-      turnId?: string | null;
     },
   ): Promise<void>;
   getExecutions(

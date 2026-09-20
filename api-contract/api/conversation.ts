@@ -51,8 +51,6 @@ export interface ParticipantDTO {
   modelAlias?: string;
   /** F20260908efmd: true = 配置未显式指定，跟随默认 */
   modelIsDefault?: boolean;
-  joinedAtTurnNumber: number;
-  leftAtTurnNumber: number | null;
   status: string;
   createdAt: string;
   leftAt: string | null;

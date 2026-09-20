@@ -29,14 +29,6 @@ function insertConversation(db: Database.Database, id: string): void {
   `).run(id);
 }
 
-/** 插入 turn 记录 */
-function insertTurn(db: Database.Database, id: string, conversationId: string): void {
-  db.prepare(`
-    INSERT INTO turns (id, conversation_id, turn_number, status, created_at)
-    VALUES (?, ?, 1, 'open', '2026-09-10T00:00:00Z')
-  `).run(id, conversationId);
-}
-
 /** 构造测试用 Entry 实体 */
 function entryFixture(overrides: Partial<Entry> = {}): Entry {
   const id = overrides.id ?? "entry-1";
@@ -50,7 +42,6 @@ function entryFixture(overrides: Partial<Entry> = {}): Entry {
     body: "你好，我是獭",
     invokeId: null,
     yieldTargets: null,
-    turnId: "turn-1",
     status: "completed",
     source: "web",
     metadata: null,
@@ -104,7 +95,6 @@ describe("SqliteEntryRepository - 条目基础操作", () => {
     invokeRepo = new SqliteInvokeRepository(db);
     insertOtter(db, "otter-1");
     insertConversation(db, "conv-1");
-    insertTurn(db, "turn-1", "conv-1");
   });
 
   afterEach(() => {
@@ -254,7 +244,6 @@ describe("SqliteEntryRepository - 附件投影（F20260913ctlv delta 回修：�
     repo = new SqliteEntryRepository(db);
     insertOtter(db, "otter-1");
     insertConversation(db, "conv-1");
-    insertTurn(db, "turn-1", "conv-1");
   });
 
   afterEach(() => {

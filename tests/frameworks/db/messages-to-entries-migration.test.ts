@@ -45,6 +45,17 @@ function ensureLegacyTables(): void {
       FOREIGN KEY (conversation_id) REFERENCES conversations(id)
     );
     CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(message_id UNINDEXED, body);
+    -- F20260920trrt：新库 schema 已无 turns 表/entries.turn_id——本测试模拟「存量库」形态（迁移前），
+    -- 手工补建旧表 DDL。注意 entries 须 DROP 新表重建旧形态（含 turn_id 列 + turns FK）。
+    CREATE TABLE IF NOT EXISTS turns (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      turn_number INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      closed_at TEXT,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+    );
     CREATE TABLE IF NOT EXISTS message_attachments (
       message_id TEXT NOT NULL,
       attachment_id TEXT NOT NULL,
@@ -143,17 +154,17 @@ describe("migrateMessagesToEntries（F20260913ctlv 批4b）", () => {
   it("重叠对话：既有 entries 与新迁行合并重编号，读游标同步重映射", () => {
     seedConversation("conv-2");
     // 既有 entry（seq 1-2，时间早）
-    db.prepare(`INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, turn_id, status, source, metadata, sender_name, context_tokens, context_tokens_max, created_at, completed_at)
-      VALUES ('e-old-1', 'conv-2', 1, 'user', 'user', 'chen', '旧消息', NULL, NULL, 'turn-conv-2', 'completed', 'web', NULL, '', NULL, NULL, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`).run();
-    db.prepare(`INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, turn_id, status, source, metadata, sender_name, context_tokens, context_tokens_max, created_at, completed_at)
-      VALUES ('e-old-2', 'conv-2', 2, 'speak', 'otter', 'otter-a', '旧回复', NULL, NULL, 'turn-conv-2', 'completed', 'web', NULL, 'A', NULL, NULL, '2026-01-01T00:00:01Z', '2026-01-01T00:00:01Z')`).run();
+    db.prepare(`INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, status, source, metadata, sender_name, context_tokens, context_tokens_max, created_at, completed_at)
+      VALUES ('e-old-1', 'conv-2', 1, 'user', 'user', 'chen', '旧消息', NULL, NULL, 'completed', 'web', NULL, '', NULL, NULL, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`).run();
+    db.prepare(`INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, status, source, metadata, sender_name, context_tokens, context_tokens_max, created_at, completed_at)
+      VALUES ('e-old-2', 'conv-2', 2, 'speak', 'otter', 'otter-a', '旧回复', NULL, NULL, 'completed', 'web', NULL, 'A', NULL, NULL, '2026-01-01T00:00:01Z', '2026-01-01T00:00:01Z')`).run();
     // 旧消息（时间晚——按 created_at 应排在既有 entries 之后）
     seedMessage({ id: "m-new", conversationId: "conv-2", senderType: "user", senderId: "chen", sequenceNum: 1, turnId: "turn-conv-2", body: "新消息", createdAt: "2026-01-02T00:00:00Z" });
     // 读游标：读到旧 seq 1
     db.prepare(`INSERT INTO conversation_user_read_state (user_id, conversation_id, last_read_message_seq, updated_at) VALUES ('chen', 'conv-2', 1, datetime('now'))`).run();
     db.prepare(`INSERT INTO otters (id, name, type) VALUES ('otter-a', 'A', 'small')`).run();
-    db.prepare(`INSERT INTO conversation_participants (id, conversation_id, otter_id, joined_at_turn_id, joined_at_turn_number, status, created_at, last_read_turn_number, last_active_turn_number, last_read_seq)
-      VALUES ('p1', 'conv-2', 'otter-a', NULL, 0, 'active', '2026-01-01T00:00:00Z', 0, 0, 2)`).run();
+    db.prepare(`INSERT INTO conversation_participants (id, conversation_id, otter_id, status, created_at, last_read_seq)
+      VALUES ('p1', 'conv-2', 'otter-a', 'active', '2026-01-01T00:00:00Z', 2)`).run();
 
     runMigration();
 
@@ -176,8 +187,8 @@ describe("migrateMessagesToEntries（F20260913ctlv 批4b）", () => {
     // 用户已读到旧 seq 3（全部）；otter 参与者读到旧 seq 1
     db.prepare(`INSERT INTO conversation_user_read_state (user_id, conversation_id, last_read_message_seq, updated_at) VALUES ('chen', 'conv-nr', 3, datetime('now'))`).run();
     db.prepare(`INSERT INTO otters (id, name, type) VALUES ('otter-a', 'A', 'small')`).run();
-    db.prepare(`INSERT INTO conversation_participants (id, conversation_id, otter_id, joined_at_turn_id, joined_at_turn_number, status, created_at, last_read_turn_number, last_active_turn_number, last_read_seq)
-      VALUES ('p-nr', 'conv-nr', 'otter-a', NULL, 0, 'active', '2026-01-01T00:00:00Z', 0, 0, 1)`).run();
+    db.prepare(`INSERT INTO conversation_participants (id, conversation_id, otter_id, status, created_at, last_read_seq)
+      VALUES ('p-nr', 'conv-nr', 'otter-a', 'active', '2026-01-01T00:00:00Z', 1)`).run();
 
     runMigration();
 
