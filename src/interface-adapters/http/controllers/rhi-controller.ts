@@ -146,18 +146,26 @@ function parseLatestHealthIndex(
   return { dims, overallScore, overallMeta };
 }
 
-/** 每维 + overall 的近 14 天序列 → 走向判定 */
+/** 每维 + overall 的近 14 天序列 → 走向判定
+ *  F20260920hcal：补日期对齐 null 占位——先从 rows 收集全部日期，再按日期填充值或 null，
+ *  让 judgeTrend 的窗口内 null 剔除逻辑真正生效（原实现缺日被静默跳过，修正成 no-op）。
+ *  recent 窗口收紧：≥3 个有效值才判走向（旧版放行 1 个，噪声过大）。
+ */
 function judgeTrends(
   rows: Array<{ snapshot_date: string; metric_key: string; metric_value: number }>,
   dimensionKeys: string[],
 ): Partial<Record<DimensionId | "overall", TrendDirection | null>> {
+  // 收集该 key 的全部日期（用于对齐）
+  const allDates = [...new Set(rows.map(r => r.snapshot_date))].sort();
   const trend: Partial<Record<DimensionId | "overall", TrendDirection | null>> = {};
   for (const key of dimensionKeys) {
-    const series = rows
-      .filter(r => r.metric_key === key)
-      .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date))
-      .map(r => r.metric_value);
-    trend[key as DimensionId | "overall"] = judgeTrend(series);
+    const byDate = new Map<string, number>();
+    for (const r of rows) {
+      if (r.metric_key === key) byDate.set(r.snapshot_date, r.metric_value);
+    }
+    const series: Array<number | null> = allDates.map(d => byDate.get(d) ?? null);
+    // judgeTrend 要求 series.length ≥ 8 且 prior 窗口 ≥ 7 有效值；recent 窗口收紧为 ≥3
+    trend[key as DimensionId | "overall"] = judgeTrend(series, 3);
   }
   return trend;
 }
@@ -439,8 +447,7 @@ export class RhiController {
     try {
       const startDate = new Date(Date.now() - 13 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
       const rows = this.snapshotRepo
-        .findByDateRange(startDate, new Date().toISOString().slice(0, 10))
-        .filter(r => r.metric_type === "health_index");
+        .findByDateRange(startDate, new Date().toISOString().slice(0, 10), "health_index");
 
       if (rows.length === 0) {
         return c.json({ available: false, snapshotDate: null, overall: null, overallStatus: null, dimensions: [], trend: {}, attribution: null });

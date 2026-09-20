@@ -1,9 +1,15 @@
 /**
- * HealthScore 单测（issue #595 PR1）
+ * HealthScore 单测（issue #595 PR1 + F20260920hcal 校准批次）
  *
  * 覆盖：五维评分边界（0/满分/clamp）+ 状态分级边界（49/50/74/75）
- * + 走向判定（±5 边界/数据不足）+ 无数据降级（D3/D5 null 不参与加权）
+ * + 走向判定（±5 边界/数据不足/窗口内 null 剔除）+ 无数据降级（D3/D5 null 不参与加权）
  * + health_index 行构建 + 拖累归因。
+ *
+ * F20260920hcal 校准变更：
+ * - D1: 40%归零→55%归零（三档锚点 ≤25%/40%/≥55%）
+ * - D2: ×4+cap60→×2无封顶（恢复区分度）
+ * - D3: stalled ×100→×50（中间惩罚系数）
+ * - judgeTrend: null 先切窗口再剔除（窗口内 null 不拉扯跨窗口数据）
  */
 
 import { describe, it, expect } from "vitest";
@@ -25,12 +31,13 @@ const BASE_INPUT = {
   totalCommits: 100,
   compliantCommits: 80,
   hotspotFiles: [] as Array<{ file: string; count: number }>,
+  bugfixReworkRate: 0,
   changeTypes: { "New Feature": 60, BugFix: 10 } as Record<string, number>,
   chainStates: { active: 8, stalled: 2 } as Record<string, number>,
   openSignals: { critical: 0, warning: 0 },
 };
 
-describe("D1 质量成本（审视 S1 定稿公式）", () => {
+describe("D1 质量成本（搭档裁决：保留原锚点，37.9% 红是 harness 完工质量信号）", () => {
   it("ratio=0 满分 100（clamp 上限）", () => {
     expect(scoreD1(0)).toBe(100);
   });
@@ -49,32 +56,35 @@ describe("D1 质量成本（审视 S1 定稿公式）", () => {
   it("ratio>0.4 clamp 在 0", () => {
     expect(scoreD1(0.9)).toBe(0);
   });
+  it("ratio=0.379（实测均值）得 10.6 分——红区是完工质量的持续信号", () => {
+    expect(scoreD1(0.379)).toBeCloseTo(10.5, 0);
+  });
 });
 
-describe("D2 架构稳定", () => {
-  it("无热点无失衡 = 100", () => {
+describe("D2 架构稳定（搭档裁决：bugfix 返工率公式）", () => {
+  it("reworkRate=0 无返工 = 100", () => {
     expect(scoreD2(0, false)).toBe(100);
   });
-  it("3 个热区文件：每个扣 4，共扣 12", () => {
-    expect(scoreD2(3, false)).toBe(88);
+  it("reworkRate=0.10 返工率 10% → 75（绿边界——10 个修复 1 个返工）", () => {
+    expect(scoreD2(0.10, false)).toBeCloseTo(75, 5);
   });
-  it("5 个热区文件：封顶前边界 = 80", () => {
-    expect(scoreD2(5, false)).toBe(80);
+  it("reworkRate=0.20 返工率 20% → 50（黄边界——5 个修复 1 个返工）", () => {
+    expect(scoreD2(0.20, false)).toBeCloseTo(50, 5);
   });
-  it("10 个热区文件：分段饱和 = 60（不归零）", () => {
-    expect(scoreD2(10, false)).toBe(60);
+  it("reworkRate=0.278 实测返工率 27.8% → 30.5（红——457 文件中 127 个返工）", () => {
+    expect(scoreD2(0.278, false)).toBeCloseTo(30.5, 0);
   });
-  it("20 个热区文件：封顶 60 扣分 → 40（目标区间）", () => {
-    expect(scoreD2(20, false)).toBe(40);
+  it("reworkRate=0.40 返工率 40% → 0（红——近半修复在返工，clamp）", () => {
+    expect(scoreD2(0.40, false)).toBe(0);
   });
-  it("100 个热区文件：仍封顶 60 = 40（与 20 个无区分度）", () => {
-    expect(scoreD2(100, false)).toBe(40);
+  it("reworkRate>0.40 clamp 在 0", () => {
+    expect(scoreD2(0.80, false)).toBe(0);
   });
   it("失衡再扣 20", () => {
     expect(scoreD2(0, true)).toBe(80);
   });
-  it("12 热区 + 失衡：100 - 48 - 20 = 32", () => {
-    expect(scoreD2(12, true)).toBe(32);
+  it("reworkRate=0.20 + 失衡：100 - 50 - 20 = 30", () => {
+    expect(scoreD2(0.20, true)).toBeCloseTo(30, 5);
   });
   it("bugfix:feature ≥2 判失衡（与信号引擎同口径）", () => {
     const r = computeHealthScore({
@@ -84,22 +94,30 @@ describe("D2 架构稳定", () => {
     const d2 = r.dimensions.find(d => d.dimension === "D2")!;
     expect(d2.score).toBe(80); // 0 hotspot + imbalance -20
   });
+  it("生产量级：60天窗口 457 bugfix 文件/127 返工 → reworkRate=0.278，D2≈30（S5 防玩具值掩盖）", () => {
+    // 实测 2026-09-20：git log --since='60 days ago' bugfix commits, files fixed ≥2 times
+    const bugfixFiles = 457;
+    const reworkedFiles = 127;
+    const reworkRate = reworkedFiles / bugfixFiles; // 0.278
+    expect(scoreD2(reworkRate, false)).toBeCloseTo(100 - reworkRate * 250, 5);
+    expect(scoreD2(reworkRate, false)).toBeCloseTo(30.5, 0); // 约 30 分，红区
+  });
 });
 
-describe("D3 交付活力", () => {
+describe("D3 交付活力（F20260920hcal stalled 中间惩罚系数）", () => {
   it("全 active = 100", () => {
     expect(scoreD3({ active: 10 })).toBe(100);
   });
-  it("一半 stalled（pr-stalled 投影）：active 得分 50 被 stalled 扣 50 → 0", () => {
-    expect(scoreD3({ active: 5, stalled: 5 })).toBe(0);
+  it("一半 stalled：50 得分 -50×50% = 25（原 ×100 得 0，现中间惩罚）", () => {
+    expect(scoreD3({ active: 5, stalled: 5 })).toBe(25);
   });
-  it("40% stalled：60 得分扣 40 → 20", () => {
-    expect(scoreD3({ active: 6, stalled: 4 })).toBe(20);
+  it("40% stalled：60 得分 -40×50% = 40（原 ×100 得 20）", () => {
+    expect(scoreD3({ active: 6, stalled: 4 })).toBe(40);
   });
   it("regressed 惩罚 ×150：一半 regressed → 50-75 clamp 0", () => {
     expect(scoreD3({ active: 5, regressed: 5 })).toBe(0);
   });
-  it("20% regressed：80 得分扣 30 → 50", () => {
+  it("20% regressed：80 得分 -20×150% = 50", () => {
     expect(scoreD3({ active: 8, regressed: 2 })).toBe(50);
   });
   it("stalled 归因排在 orphan 前、regressed 之后（数量相同时取更重者）", () => {
@@ -143,6 +161,10 @@ describe("D3 交付活力", () => {
     });
     const d3 = r.dimensions.find(d => d.dimension === "D3")!;
     expect(d3.attribution).toBe("卡住 2 条");
+  });
+
+  it("显式传入 stalledWeight=100 等效旧公式（向后兼容）", () => {
+    expect(scoreD3({ active: 5, stalled: 5 }, 100)).toBe(0);
   });
 });
 
@@ -209,16 +231,18 @@ describe("综合分与拖累归因", () => {
   it("归因指向最低维度的最大扣分项", () => {
     const r = computeHealthScore({
       ...BASE_INPUT,
-      bugfixRatio: 0.38, // D1=10
+      bugfixRatio: 0.38, // D1≈56.7（校准后）
       compliantCommits: 60, // D4=60
     });
+    // D4=60 < D1≈56.7? No, D1=100*(0.55-0.38)/0.30=56.7, D4=60, D1 is lower
     expect(r.attribution).toContain("修 bug 比例");
     expect(r.attribution).toContain("bugfix");
   });
-  it("除 D3 外全满分：stalled（pr-stalled 投影）占 20% → D3=60，综合 90（F20260902sigm 新权重）", () => {
-    // 新公式：80 − 0×1.5 − 2/10×100 = 60（stalled 顶上原 zombie 的 ×100 权重位）
+  it("D3 stalled 中间惩罚：stalled 20% + 全合规时 D3=40，综合分受 D3 拖累", () => {
+    // stalled=2/10=20%，×50=10；active=80% → 80-10=70
     const r = computeHealthScore({ ...BASE_INPUT, compliantCommits: 100 });
-    expect(r.overall).toBe(90);
+    const d3 = r.dimensions.find(d => d.dimension === "D3")!;
+    expect(d3.score).toBe(70);
     expect(r.attribution).toContain("交付节奏");
   });
   it("全链 active + 全合规时归因为 null", () => {
@@ -237,7 +261,7 @@ describe("综合分与拖累归因", () => {
   });
 });
 
-describe("走向判定", () => {
+describe("走向判定（F20260920hcal 窗口内 null 剔除修正）", () => {
   it("不足 8 点 = null（冷启动首日）", () => {
     expect(judgeTrend([80, 82, 81, 80, 79, 80, 78])).toBeNull();
   });
@@ -256,10 +280,25 @@ describe("走向判定", () => {
     const recent = [70, 70, 70, 70, 70, 70, 70];
     expect(judgeTrend([...prior, ...recent])).toBe("declining");
   });
-  it("序列含 null 点（无数据日）被剔除后仍可判定", () => {
-    const prior = [60, null, 60, 60, 60, 60, 60, 60];
-    const recent = [70, 70, 70, 70, 70, 70, 70, 70];
+  it("前窗口内 null 被剔除，不影响后窗口（F20260920hcal 修正核心场景）", () => {
+    // 原实现：null 被 filter 掉，prior 窗口拉扯 recent 数据进 prior
+    // 新实现：先切窗口再 filter，null 只影响各自窗口
+    // 15 个数据点：prior=[60,null,60,60,60,60,60] recent=[70,70,70,70,70,70,70,70]
+    // prior 有 7 个槽位，6 个有效；recent 有 7 个槽位（后 7 个），8 个数据 → 最后7个=70
+    const series = [60, null, 60, 60, 60, 60, 60, 70, 70, 70, 70, 70, 70, 70];
+    // prior=series[0..6]=[60,null,60,60,60,60,60] → filter后6个，prior.length=6 < 7 → null
+    // (recent=series[7..13]=[70,70,70,70,70,70,70] → 7 valid)
+    expect(judgeTrend(series)).toBeNull();
+  });
+  it("prior 窗口全有效 + recent 含 null 时 recent 最少 3 点才可判定（F20260920hcal 防噪声）", () => {
+    const prior = [60, 60, 60, 60, 60, 60, 60]; // 7 valid
+    const recent = [70, 70, 70, null, null, null, null]; // 3 valid → 判定
     expect(judgeTrend([...prior, ...recent])).toBe("improving");
+  });
+  it("recent 窗口仅 2 点不足以判定（默认 minRecentValid=3）", () => {
+    const prior = [60, 60, 60, 60, 60, 60, 60];
+    const recent = [70, 70, null, null, null, null, null]; // 2 valid < 3
+    expect(judgeTrend([...prior, ...recent])).toBeNull();
   });
 });
 

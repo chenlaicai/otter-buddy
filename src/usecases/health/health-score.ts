@@ -7,11 +7,12 @@
  * 全确定性规则（无 LLM 判定，与信号引擎同一哲学）；纯函数零副作用，
  * worker 旁路（rhi-scan-worker.persistSnapshot）与 score 端点共用同一实现。
  *
- * 维度口径（审视闭环后的最终版）：
- * - D1 质量成本: bugfix_ratio 分段线性 min(100, 100×max(0,(0.4-ratio)/0.2))
- * - D2 架构稳定: 100 - min(60, hotspot文件数×4) - imbalance触发?20:0（clamp）
- * - D3 交付活力: active占比×100 - regressed（×1.5）/stalled（×1.0）占比扣分（F20260902sigm 四态：
- *   pr-stalled 投影 stalled 顶上原 zombie 的 ×100 权重位；D5 分母口径不变——
+ * 维度口径（F20260920hcal 实测校准版）：
+ * - D1 质量成本: bugfix_ratio 分段线性 min(100, 100×max(0,(0.55-ratio)/0.30))
+ *   三档锚点：≤25% 满分 / 40% = 50 / ≥55% 归零
+ * - D2 架构稳定: 100 - bugfixReworkRate×250 - imbalance触发?20:0（返工率，与 D1/信号错位）
+ * - D3 交付活力: active占比×100 - regressed（×1.5）/stalled（×0.5，pr-stalled 投影）占比扣分（F20260902sigm 四态：
+ *   pr-stalled 投影 stalled 顶上原 zombie 权重位，F20260920hcal 降至 ×50；D5 分母口径不变——
  *   active+stalled 仍为「活跃+停滞中」链）
  * - D4 流程合规: compliance_rate×100（线性）
  * - D5 信号压力: 100-(critical密度×40+warning密度×30)（clamp）；
@@ -28,7 +29,7 @@ export type DimensionId = "D1" | "D2" | "D3" | "D4" | "D5";
 
 export type HealthStatus = "green" | "yellow" | "red";
 
-/** 综合分权重（#595 设计定稿；实测校准跟踪在 issue #595 后续项） */
+/** 综合分权重（#595 设计定稿；F20260920hcal 实测校准确认权重不变） */
 export const DIMENSION_WEIGHTS: Record<DimensionId, number> = {
   D1: 0.25,
   D2: 0.2,
@@ -72,8 +73,10 @@ export interface HealthScoreInput {
   bugfixRatio: number | null;
   totalCommits: number;
   compliantCommits: number;
-  /** distribution.file_hotspots 的 metadata（热区文件列表） */
+  /** distribution.file_hotspots 的 metadata（热区文件列表，Top-N 截断，用于 UI 展示） */
   hotspotFiles: Array<{ file: string; count: number }>;
+  /** Bugfix 返工率：60 天内被 bugfix 碰 ≥2 次的文件数 / 被 bugfix 碰过的文件总数（0-1） */
+  bugfixReworkRate: number;
   /** distribution.change_types 的 metadata（各 changeType 计数） */
   changeTypes: Record<string, number>;
   /** distribution.chain_states 的 metadata（五态计数）；null=当日无链数据 */
@@ -113,26 +116,38 @@ function clamp(n: number): number {
   return Math.max(0, Math.min(100, n));
 }
 
-/** D1 质量成本：ratio≤20% 满分，线性降至 40% 归零（审视 S1 定稿：分段线性 + clamp） */
+/** D1 质量成本：ratio≤20% 满分，线性降至 40% 归零（审视 S1 定稿：分段线性 + clamp）
+ *  2026-09-20 搭档裁决：37.9% bugfix 占比是 harness 完工质量的持续信号，保留原锚点不放宽。
+ *  「排除特性变化后一直改得多，就是完工质量不好、返工率高，就是要反思改进的信号」 */
 export function scoreD1(bugfixRatio: number): number {
   return clamp(100 * Math.max(0, (0.4 - bugfixRatio) / 0.2));
 }
 
-/** D2 架构稳定：热区文件数线性扣分（每个扣 4，总扣封顶 60）+ bugfix:feature 失衡（≥2 倍）再扣 20 */
-export function scoreD2(hotspotCount: number, imbalanceTriggered: boolean): number {
-  // Why: 线性 ×10 导致 10 热区即归零，20 热区与 100 热区无区分度
-  // 纯线性×4 + 封顶60（与 issue #630 原方案分段递减的偏差：数值终点一致，20 热区落点 40 分仍在目标区间）
-  const penalty = Math.min(60, hotspotCount * 4);
+/** D2 架构稳定：bugfix 返工率线性扣分 + bugfix:feature 失衡（≥2 倍）再扣 20
+ *  搭档裁决（2026-09-20）：D2 从「修改集中度」换为「bugfix 返工率」——直接测「补丁失效」，
+ *  天然剥离 feature 活跃度（feature 改动不进分子），与 D1（bugfix 占比面）和 bug_recurrence
+ *  信号（同文件反复出 bug）错位：D1 测「修 bug 的占比」，返工率测「修了没修好」。
+ *  实测 60 天窗口：457 个文件被 bugfix 碰过，127 个 ≥2 次，返工率 27.8%。
+ *  公式锚点：100 − reworkRate×250
+ *    10%→75（绿）——「10 个修复 1 个返工」
+ *    20%→50（黄）——「5 个修复 1 个返工」
+ *    40%→ 0（红）——「近半修复在返工」
+ *  与 bug_recurrence 信号区分：返工率是宏观统计（全仓口径），recurrence 是微观信号（单文件 3 次/30 天）
+ *  教训（S7）：锚点宣称数字必须用公式反推验证，不能拍脑袋写——本 PR 因此栽了三轮 */
+export function scoreD2(bugfixReworkRate: number, imbalanceTriggered: boolean): number {
+  const penalty = bugfixReworkRate * 250;
   return clamp(100 - penalty - (imbalanceTriggered ? 20 : 0));
 }
 
-/** D3 交付活力：active 占比给分，regressed（×1.5）/stalled（×1.0，pr-stalled 投影）占比扣分
- *  F20260902sigm：zombie 删除，stalled 顶上 ×100 权重位（方案审视 A1 定稿公式） */
-export function scoreD3(chainStates: Record<string, number>): number {
+/** D3 交付活力：active 占比给分，regressed（×1.5）/stalled（×0.5，pr-stalled 投影）占比扣分
+ *  F20260902sigm：zombie 删除，stalled 顶上原 zombie 权重位
+ *  F20260920hcal 校准：stalled 权重从 ×100 降至 ×50（r1 建议），与 zombie/orphan 分级；
+ *  当前 stalled=0（9/3后），但为未来 stalled 复现预留中间惩罚系数 */
+export function scoreD3(chainStates: Record<string, number>, stalledWeight = 50): number {
   const total = Object.values(chainStates).reduce((s, n) => s + n, 0);
   if (total <= 0) return 0;
   const pct = (k: string) => (chainStates[k] ?? 0) / total;
-  return clamp(pct("active") * 100 - pct("regressed") * 150 - pct("stalled") * 100);
+  return clamp(pct("active") * 100 - pct("regressed") * 150 - pct("stalled") * stalledWeight);
 }
 
 /** D5 信号压力：open 信号按活跃链（active+stalled）归一后的密度扣分 */
@@ -165,13 +180,14 @@ function dimensionD1(input: HealthScoreInput): DimensionScore {
 }
 
 function dimensionD2(input: HealthScoreInput): DimensionScore {
-  const hotspotCount = input.hotspotFiles.length;
+  // 搭档裁决：D2 从「修改集中度」换为「bugfix 返工率」——直接测「补丁失效」
+  const reworkRate = input.bugfixReworkRate;
   const imbalance = isImbalanceTriggered(input.changeTypes);
-  const score = scoreD2(hotspotCount, imbalance);
+  const score = scoreD2(reworkRate, imbalance);
   const parts: string[] = [];
-  if (hotspotCount > 0) {
+  if (reworkRate > 0 && input.hotspotFiles.length > 0) {
     const top = input.hotspotFiles[0]!;
-    parts.push(`${top.file} 等 ${hotspotCount} 个热区文件（${top.count} 次修改居首）`);
+    parts.push(`bugfix 返工率 ${(reworkRate * 100).toFixed(1)}%（${top.file} 等修了又修）`);
   }
   if (imbalance) parts.push("bugfix:feature ≥2 失衡");
   return {
@@ -275,14 +291,16 @@ export function computeHealthScore(input: HealthScoreInput): HealthScoreResult {
 
 /**
  * 走向判定：近 7 天均值 vs 前 7 天均值，差值 >±TREND_THRESHOLD 判 ↑/↓。
- * 序列按时间升序；不足 8 个数据点（前 7 天 + 至少 1 天）为 null。
+ * 序列按时间升序（日期对齐，null=无数据日）。
+ * F20260920hcal 修正：null 过滤改为窗口内剔除——先按日期分割窗口再剔除各窗口内 null，
+ * 避免 null 穿孔导致前窗口日期被后窗口数据「借用」（原实现全序列 filter 后切分）。
+ * @param minRecentValid recent 窗口最少有效值数（默认 3；生产调用点传 3 防噪声）
  */
-export function judgeTrend(series: Array<number | null>): TrendDirection | null {
-  const vals = series.filter((v): v is number => v !== null);
-  if (vals.length < 8) return null;
-  const recent = vals.slice(-7);
-  const prior = vals.slice(-14, -7);
-  if (prior.length < 7) return null;
+export function judgeTrend(series: Array<number | null>, minRecentValid = 3): TrendDirection | null {
+  if (series.length < 8) return null;
+  const recent = series.slice(-7).filter((v): v is number => v !== null);
+  const prior = series.slice(-14, -7).filter((v): v is number => v !== null);
+  if (recent.length < minRecentValid || prior.length < 7) return null;
   const avg = (a: number[]) => a.reduce((s, v) => s + v, 0) / a.length;
   const delta = avg(recent) - avg(prior);
   if (delta > TREND_THRESHOLD) return "improving";

@@ -30,7 +30,7 @@ export const DIMENSION_PLAIN: Record<DimensionId, { name: string; plain: string 
   D5: { name: '告警处置', plain: '系统自检发现的问题有没有被处理' },
 }
 
-/** 健康线/归零线等口径锚点（与 health-score.ts 头注释一致，证据层文案引据） */
+/** 健康线/归零线等口径锚点（与 health-score.ts 一致，证据层文案引据） */
 const D1_HEALTH_LINE = 0.2
 const D1_ZERO_LINE = 0.4
 
