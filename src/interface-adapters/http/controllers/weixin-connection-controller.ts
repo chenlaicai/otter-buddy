@@ -59,6 +59,8 @@ export class WeixinConnectionController {
       accountStore: WeixinAccountStorePort;
       /** 账号删除后回调（停轮询等清理；调用方注入） */
       onAccountDeleted?: (accountId: string) => void;
+      /** F20260920imax：扫码后按名开助理线（必填名；app.ts 闭包注入，未注入时端点 503） */
+      provisionAssistantLine?: (accountId: string, name: string) => Promise<{ conversationId: string; title: string }>;
       logger: Logger;
     },
   ) {}
@@ -87,6 +89,29 @@ export class WeixinConnectionController {
       const ok = this.deps.loginSessions.cancel(param(c, "id"));
       if (!ok) return c.json({ error: "Login session not found or already finished" }, 404);
       return c.json({ status: "cancelled" });
+    } catch (err) {
+      return handleError(c, err, this.deps.logger);
+    }
+  }
+
+  /**
+   * F20260920imax：微信扫码后按名开助理线（登录成功即建，名字必填）。
+   * POST /api/weixin/accounts/:id/assistant-line  body: { name: string }
+   * 幂等：已有 active 绑定则返回当前对话（不重复建）。
+   */
+  async provisionAssistantLine(c: Context): Promise<Response> {
+    try {
+      if (!this.deps.provisionAssistantLine) {
+        return c.json({ error: "assistant line not available（助理态未启用）" }, 503);
+      }
+      const accountId = param(c, "id");
+      const body = await c.req.json<unknown>().catch(() => ({}));
+      const name = (body as { name?: unknown }).name;
+      if (typeof name !== "string" || name.trim().length === 0 || name.trim().length > 60) {
+        return c.json({ error: "name 必填且为 1-60 字符" }, 400);
+      }
+      const result = await this.deps.provisionAssistantLine!(accountId, name.trim());
+      return c.json(result, 201);
     } catch (err) {
       return handleError(c, err, this.deps.logger);
     }

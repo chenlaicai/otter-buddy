@@ -39,9 +39,9 @@ export class FeishuMessageProcessor {
   constructor(
     private readonly deps: {
       manageConnection: ManageConnection;
-      /** F20260918imas / F20260920imax：助理会话管理（p2p 自动开户；对话永续）。未注入时回退旧拒聊行为 */
+      /** F20260918imas / F20260920imax：助理会话管理（p2p 专线开户）。未注入时回退旧拒聊行为 */
       assistantSession?: AssistantSessionManager;
-      /** F20260920imax：助理线模型（自动开户大獭用；缺省全局 default） */
+      /** F20260920imax：助理线模型（专线开户大獭用；缺省全局 default） */
       assistantModelAlias?: string;
       /** F20260913ctlv 彻底切换：entries 写入面（用户消息唯一落点） */
       sendEntry: SendEntry;
@@ -71,6 +71,15 @@ export class FeishuMessageProcessor {
       textLength: text.length,
     });
 
+    // F20260920imax 语义修正（搭档裁决）：bot 有归属——自建应用机器人 = 搭档的助理。
+    // 所有人私聊 bot 都汇入同一条助理专线（单 connection 单对话，消息带发送者姓名
+    // 前缀区分谁在说）；不再按 chatId 每人开对话（错误语义，已删）。
+    // 专线 connection 的 externalId 固定为常量，与具体私聊者无关。
+    if (msg.chatType === "p2p") {
+      return this.processP2pViaAssistantLine(msg);
+    }
+
+    // 群聊/未知：维持既有路径（显式绑定 + 共享上下文）
     const connection = await this.deps.manageConnection.ensureConnection(chatId, chatId);
 
     // 判断是否是命令（仅文本消息可能是命令；纯图片/文件消息跳过命令分支）
@@ -79,20 +88,7 @@ export class FeishuMessageProcessor {
       return;
     }
 
-    // 普通消息：发送到当前绑定的 Conversation
-    // F20260918imas 助理态：p2p 未绑定不再拒聊——自动开户（群聊/未知 chatType 维持显式绑定语义）；
-    // 未注入 assistantSession（旧部署/测试）时回退拒聊提示，行为兼容
-    const isAssistantEligible = msg.chatType === "p2p" && Boolean(this.deps.assistantSession);
-    const conversation = await this.deps.manageConnection.getCurrentConversation(connection.id)
-      ?? (isAssistantEligible
-        ? await this.deps.assistantSession!.ensureAssistantConversation({
-            connectionId: connection.id,
-            channel: "feishu",
-            displayName: await this.resolveAssistantName(msg.senderId),
-            // F20260920imax：助理线模型（缺省 undefined = CreateOtter 走全局 default）
-            ...(this.deps.assistantModelAlias && { modelAlias: this.deps.assistantModelAlias }),
-          })
-        : null);
+    const conversation = await this.deps.manageConnection.getCurrentConversation(connection.id);
     if (!conversation) {
       await this.deps.feishuGateway.replyText(
         chatId,
@@ -100,18 +96,60 @@ export class FeishuMessageProcessor {
       );
       return;
     }
+    await this.deliverToConversation(msg, conversation.id, connection.id, senderId, text);
+  }
 
+  /** F20260920imax：p2p 助理专线——单 connection 单对话汇流 */
+  private async processP2pViaAssistantLine(msg: FeishuIncomingMessage): Promise<void> {
+    const ASSISTANT_LINE_ID = "feishu-assistant-line";
+    const connection = await this.deps.manageConnection.ensureConnection(ASSISTANT_LINE_ID, ASSISTANT_LINE_ID);
+
+    const conversation = await this.deps.manageConnection.getCurrentConversation(connection.id)
+      ?? (this.deps.assistantSession
+        ? await this.deps.assistantSession.ensureAssistantConversation({
+            connectionId: connection.id,
+            channel: "feishu",
+            displayName: "飞书助理",
+            // F20260920imax：助理线模型（缺省 undefined = CreateOtter 走全局 default）
+            ...(this.deps.assistantModelAlias && { modelAlias: this.deps.assistantModelAlias }),
+          })
+        : null);
+    if (!conversation) {
+      await this.deps.feishuGateway.replyText(msg.chatId, "助理暂未开通，请联系主人 🦦");
+      return;
+    }
+
+    // 命令在专线内也支持（搭档 power mode）
+    if (msg.text.startsWith("/") && !msg.media) {
+      await this.dispatchCommand(msg.chatId, connection.id, msg.text, msg.senderId);
+      return;
+    }
+
+    // 发送者姓名前缀——多家人汇流时助理/用户分得清谁在说（飞书有真姓名）
+    const senderName = await this.resolveAssistantName(msg.senderId);
+    const prefixedText = `[${senderName}] ${msg.text}`;
+    await this.deliverToConversation(msg, conversation.id, connection.id, msg.senderId, prefixedText);
+  }
+
+  /** F20260920imax：消息投递公共尾部（专线/群聊两路共用）：媒体→入库→fanout→dispatch */
+  private async deliverToConversation(
+    msg: FeishuIncomingMessage,
+    conversationId: string,
+    connectionId: string,
+    senderId: string,
+    text: string,
+  ): Promise<void> {
     // 多模态 Phase 2：媒体消息先走附件管线（降级语义见 processMedia），再入消息库
-    const outcome = msg.media ? await this.processMedia(msg, conversation.id, senderId) : { attachmentIds: [], degradeNote: null };
+    const outcome = msg.media ? await this.processMedia(msg, conversationId, senderId) : { attachmentIds: [] as string[], degradeNote: null };
     const bodyText = this.composeBodyText(text, outcome);
     const attachmentIds = outcome.attachmentIds.length > 0 ? outcome.attachmentIds : undefined;
 
     // #608（PR #603 检视建议 1 同款）：agent dispatch 用原始 text，不含降级提示——
     // 运维文本不进 agent 上下文；降级提示仅入消息库供用户可见（与微信侧同位置同修）
-    const dispatchText = text.trim();
+    const dispatchText = msg.text.trim();
 
     await this.persistAndFanout(
-      { chatId, senderId, conversationId: conversation.id, connectionId: connection.id },
+      { chatId: msg.chatId, senderId, conversationId, connectionId },
       { bodyText, attachmentIds, injection: outcome.injection },
       dispatchText,
     );

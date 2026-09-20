@@ -75,15 +75,16 @@ export class AssistantSessionManager {
     return current;
   }
 
-  /** 自动开户：建助理对话（kind=assistant）+ 绑定 connection（与 /in 同一事务入口，互斥语义复用） */
+  /** 自动开户：建助理对话（kind=assistant，title = 搭档起的名）+ 绑定 connection（与 /in 同一事务入口，互斥语义复用）。
+   *  F20260920imax：title 不再拼接通道前缀（微信线名字在扫码时由搭档必填；
+   *  飞书专线默认「飞书助理」）——前缀约定已随 kind 字段退役 */
   private async provision(input: {
     connectionId: string;
     channel: "weixin" | "feishu";
     displayName: string;
     modelAlias?: string;
   }): Promise<{ id: string; title: string } | null> {
-    const prefix = input.channel === "weixin" ? "微信助理" : "飞书助理";
-    const title = `${prefix} · ${input.displayName}`;
+    const title = input.displayName;
 
     try {
       const conversation = await this.deps.manageConversation.create({ title, kind: "assistant", ...(input.modelAlias && { modelAlias: input.modelAlias }) });

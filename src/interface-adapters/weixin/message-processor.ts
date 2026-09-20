@@ -98,8 +98,7 @@ export class WeixinMessageProcessor {
       return false;
     }
 
-    // F20260918imas 助理态：未绑定不再拒聊——自动开专属助理对话（家人朋友零命令暴露）。
-    // 未注入 assistantSession（旧部署/测试）时回退拒聊提示，行为兼容
+    // F20260920imax：已建线（扫码时必填名创建）→ 消息直接进；未建线 → 提示去 IM 页建线
     const conversation = await this.resolveConversation(fromUserId, connectionId);
     if (!conversation) {
       await this.replyNoConversation(fromUserId, msg.raw?.item_list ?? []);
@@ -140,21 +139,10 @@ export class WeixinMessageProcessor {
 
   /** F20260918imas / F20260920imax：会话解析（复杂度拆出）——已绑定直用（永续）；未绑定且注入助理管理器时自动开户 */
   private async resolveConversation(fromUserId: string, connectionId: string): Promise<{ id: string; title: string } | null> {
-    const bound = await this.deps.manageConnection.getCurrentConversation(connectionId);
-    if (bound) return bound;
-    if (!this.deps.assistantSession) return null;
-    return this.deps.assistantSession.ensureAssistantConversation({
-      connectionId,
-      channel: "weixin",
-      displayName: this.assistantDisplayName(fromUserId),
-      // F20260920imax：助理线模型（缺省 undefined = CreateOtter 走全局 default）
-      ...(this.deps.assistantModelAlias && { modelAlias: this.deps.assistantModelAlias }),
-    });
-  }
-
-  /** 助理对话显示名：微信侧无昵称接口（ilink 私聊协议），取 id 尾部 6 位作辨认锚 */
-  private assistantDisplayName(fromUserId: string): string {
-    return fromUserId.length > 6 ? fromUserId.slice(-6) : fromUserId;
+    void fromUserId;
+    // F20260920imax：开户时机已提前到扫码登录时（必填名建线）；ingress 不再
+    // 自动开户——未建线返回 null，调用方提示去 Web IM 页扫码建线
+    return this.deps.manageConnection.getCurrentConversation(connectionId);
   }
 
   /** 未绑会话提示（媒体消息加「链接有时效」提醒——检视建议 2） */
@@ -163,8 +151,8 @@ export class WeixinMessageProcessor {
     await this.deps.weixinGateway.replyText(
       fromUserId,
       hasMedia
-        ? "当前未进入任何对话，图片/媒体未接收（链接有时效）。请先使用 /in <对话ID> 进入对话后重发\n\n使用 /list 查看可用对话"
-        : "当前未进入任何对话，请先使用 /in <对话ID> 进入对话\n\n使用 /list 查看可用对话",
+        ? "助理线还没建立（图片/媒体未接收，链接有时效）。请到 Web 端 IM 页扫码并为助理起名后重发"
+        : "助理线还没建立。请到 Web 端 IM 页扫码并为助理起名，就能直接聊啦 🦦",
     );
   }
 

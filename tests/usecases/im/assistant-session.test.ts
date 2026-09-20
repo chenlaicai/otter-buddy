@@ -37,7 +37,7 @@ function makeManager(overrides: { sessionIdleHours?: number; lastEntryAgeHours?:
       updateSummary: vi.fn(async (id: string, summary: string) => {
         summaries.push({ id, summary });
       }),
-      getById: vi.fn(async (id: string) => ({ id, title: `微信助理 · ${id}` })),
+      getById: vi.fn(async (id: string) => ({ id, title: id })),
     },
     entryRepo: {
       // mock 按真实仓库语义实现（entryType 过滤 + sequence DESC）
@@ -78,16 +78,16 @@ describe("AssistantSessionManager", () => {
       channel: "weixin",
       displayName: "a1b2c3",
     });
-    expect(ctx.created[0].title).toBe("微信助理 · a1b2c3");
+    expect(ctx.created[0].title).toBe("a1b2c3");
     expect(ctx.created[0].kind).toBe("assistant");
     expect(ctx.entered[0]).toEqual({ connectionId: "conn-1", conversationId: "conv-1" });
-    expect(result).toEqual({ id: "conv-1", title: "微信助理 · a1b2c3" });
+    expect(result).toEqual({ id: "conv-1", title: "a1b2c3" });
   });
 
   it("飞书开户标题带「飞书助理」前缀", async () => {
     const ctx = makeManager();
     await ctx.manager.ensureAssistantConversation({ connectionId: "c", channel: "feishu", displayName: "张三" });
-    expect(ctx.created[0].title).toBe("飞书助理 · 张三");
+    expect(ctx.created[0].title).toBe("张三");
   });
 
   it("开户时透传助理线模型（modelAlias → 新建对话参数）", async () => {
@@ -96,7 +96,7 @@ describe("AssistantSessionManager", () => {
       connectionId: "conn-1", channel: "weixin", displayName: "x", modelAlias: "glm",
     });
     // 副作用断言：created 记录表里含模型标记（create 的入参经 mock 落进 created）
-    expect(ctx.created[0]).toMatchObject({ title: "微信助理 · x" });
+    expect(ctx.created[0]).toMatchObject({ title: "x" });
     // 模型透传路径：create 入参含 modelAlias + kind（行为结果）
     expect(ctx.deps.manageConversation.create.mock.calls[0][0]).toMatchObject({ modelAlias: "glm", kind: "assistant" });
   });
@@ -122,7 +122,7 @@ describe("AssistantSessionManager", () => {
     // restartSession 收到的摘要带真实标题（检视发现 1：曾发空标题）+ 内容完整
     expect(ctx.restarts).toHaveLength(1);
     expect(ctx.restarts[0].otterId).toBe("otter-of-conv-existing");
-    expect(ctx.restarts[0].summary).toContain("微信助理 · conv-existing");
+    expect(ctx.restarts[0].summary).toContain("conv-existing");
     expect(ctx.restarts[0].summary).toContain("用户提问");
 
     // 先落 summary/记忆后重启（检视发现 1/4 处置验证：摘要只构建一次、带真实标题）

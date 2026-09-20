@@ -472,6 +472,11 @@ export function listWeixinAccounts(): Promise<WeixinAccountDTO[]> {
   return request('/weixin/accounts')
 }
 
+/** F20260920imax：扫码登录后按名建助理线（名字必填） */
+export function provisionWeixinAssistantLine(accountId: string, name: string): Promise<{ conversationId: string; title: string }> {
+  return request(`/weixin/accounts/${accountId}/assistant-line`, { method: 'POST', body: JSON.stringify({ name }) })
+}
+
 export function deleteWeixinAccount(id: string): Promise<{ status: string }> {
   return request(`/weixin/accounts/${id}`, { method: 'DELETE' })
 }

@@ -51,6 +51,7 @@ export class ChannelController {
       state: ChannelStatusEntry["state"];
       account?: { id: string; nickname?: string };
       appIdMasked?: string;
+      appShareUrl?: string;
     }> = [];
     
     // 微信账号：有 registry 条目用运行态；无条目显示"未运行"
@@ -84,6 +85,7 @@ export class ChannelController {
         kind: "feishu",
         state: feishuEntry.state,
         appIdMasked: feishuEntry.appIdMasked,
+        appShareUrl: feishuEntry.appShareUrl,
       });
     }
     
