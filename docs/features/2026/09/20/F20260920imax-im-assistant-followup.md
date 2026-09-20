@@ -168,3 +168,21 @@ weixin-message-channel.ts / feishu-message-channel.ts 的 onEvent 新增 `entry.
 即：按人建 bot（一个飞书用户一个自建应用 bot）+ 一 bot 一对话。技术可行性要点（下个特性先验证）：飞书自建应用能否 API 创建/多实例（当前模型是搭档手工建一个 bot 所有事件进同一 WS 连接——按人建 bot 需要应用市场/ISV 模式或多应用凭证管理，与 F20260918imas 非目标「不做 ISV 上架」可能冲突，届时需搭档重新裁决）。
 
 微信线（扫码必填命名 + 号主私有）不受影响，维持增量三形态。
+
+## 增量五（搭档统一模型，2026-09-20 下午）
+
+### 概念对齐（搭档原话）
+
+> 不管是微信还是飞书，都是一个 im 侧 bot 等于一个海獭系统的助理对话。你老在纠结按人还是按消息，非常奇怪
+
+路由锚 = **bot 本身**，不是「谁在聊」也不是「哪条消息」。我此前两轮（按人开户→共享专线→回退每人）都在错误维度打转，此轮以 bot 锚定一次性收敛：
+
+- **微信**：扫码的号 = bot（号主私有）= 一个对话 ✅（增量三已对，不变）
+- **飞书**：connection externalId = `feishu-bot:<掩码appId>`（FeishuClient.botKey，凭证不出进程）；首条 p2p 消息建「飞书助理」对话；**任何人私聊这个 bot 都进同一对话**，消息带 `[发送者姓名]` 前缀（展示维度，非路由维度）
+- **出站定向**：bot connection 的 externalId 不再是 chatId——入站随消息刷新 `metadata.lastChatId`（connectionRepo 新增 mergeMetadata），出站（回复/思考中/失败提示）经 `resolveReplyTarget` 从 metadata 解析（普通连接直用 externalId，群聊路径不变）
+- 多 bot 将来天然扩展：每个 bot 一个 connection + 一个对话，规则不变
+
+### 验证
+
+- 新增 e2e 级单测 bot-anchored-routing.test.ts（2 用例：双人私聊同 bot → 同对话 + 姓名 prefix；lastChatId 随入站刷新）
+- 全量 3679 用例绿；lint 0 error；tsc 0 error

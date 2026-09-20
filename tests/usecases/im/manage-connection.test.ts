@@ -10,6 +10,7 @@ import { createTestLogger } from "../../helpers/logger";
 function mockConnectionRepo(overrides: Partial<ConnectionRepository> = {}): ConnectionRepository {
   return {
     create: vi.fn().mockResolvedValue(undefined),
+    mergeMetadata: vi.fn().mockResolvedValue(undefined),
     getById: vi.fn().mockResolvedValue(null),
     getByExternalId: vi.fn().mockResolvedValue(null),
     listActive: vi.fn().mockResolvedValue([]),

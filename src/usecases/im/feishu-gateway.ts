@@ -8,4 +8,7 @@
 export interface FeishuGateway {
   replyText(chatId: string, text: string): Promise<void>;
   replyMarkdown(chatId: string, senderLabel: string, markdown: string): Promise<void>;
+  /** F20260920imax 增量五：bot 身份标识（掩码 appId，如 cli_a3****k8）——
+   *  消息路由按 bot 锚定（一 bot 一对话）的键源；不暴露完整凭证 */
+  readonly botKey?: string;
 }
