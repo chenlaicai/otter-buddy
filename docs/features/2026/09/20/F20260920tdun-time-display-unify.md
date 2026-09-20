@@ -94,9 +94,11 @@ A2 旧: toISOString().slice(0,16).replace("T"," ") = 2026-09-20 06:30  ← Shang
 - `feishu-command-parser.test.ts` 新增同款：UTC 10:00Z → `[2026-07-29 18:00]`
 - `web/src/lib/utils.test.ts` fmtTimeShort 6 用例：空串 / 无效 / 常规 / 跨年 / **UTC 不被误当本地**（A1/A2 根因）/ **跨日边界**（UTC 15:00Z vs 16:00Z 标签必不同，A1 泳道轴验证）
 
-**全量验证**：backend vitest 3685/3685 通过（首次全量时 ensure-hooks 1 例 5s 超时 flaky，单跑与复跑全绿，与本改动无关）；web vitest 501/501；backend/web `tsc --noEmit` rc=0；ESLint 0 errors（7 个存量 warning 均在非本次改动文件）。
+**全量验证**（rebase #1055/#1064/#1065 后实测）：backend vitest 3620/3620（262 文件，含 TZ=UTC 复验）；web vitest 504/504（双时区：TZ=UTC 与 TZ=Asia/Shanghai 各跑一轮）；backend/web `tsc --noEmit` rc=0；ESLint 0 errors（存量 warning 均在非本次改动文件）。
 
 ## 已知边界
+
+- **撞车协调落地（#1055 后 rebase）**：#1055（IM 助理模式修订二）将调用方从「72h 软轮换翻篇」改为「8h 静默重启 session」，`writeDigest` 方法本体与时间格式化行存活，A2 修复落点零冲突；唯一适配点是测试——本 PR 新增的「非 UTC 直出」用例 mock 按新基建重写（`rotationHours` → `sessionIdleHours`），断言不变
 
 - **fmtTimeShort 无年份，跨年歧义依赖上下文推断**（检视 A2 建议）：紧凑形态 `MM-DD HH:mm` 在跨年窗口（如 12-31 与次年 01-01）不含年份，用户需借上下文推断年份。取舍依据：台账/任务卡均为近期时间（天级窗口），展示年份的宽度成本 > 歧义成本；需要年份的场景用完整形态 fmtTime。参照：fmtRelativeTime 已有同样取舍（同年内不显示年份，跨年才带）
 - `fmtImTime` 与前端 `fmtTime/fmtTimeShort` 是平行实现（backend/web 无共享模块层），格式语义对齐（分钟精度），注释互相引用。若未来出站点增多可再评估提升共享层级。
