@@ -62,8 +62,10 @@ test.describe('SPA 路由验证', () => {
   test('SPA 导航：点击 TopBar 链接切换页面无白屏', async ({ page }) => {
     await page.goto(`${BASE}/conversation`)
 
-    // R2 升级：获取 elementHandle 证明 TopBar 不重渲染（SPA 核心特征）
-    // Why: toBeVisible() 只证明元素存在，elementHandle identity 证明是同一个 DOM 节点
+    // R2 升级 + D3 修复：isConnected 探针证明 TopBar DOM 节点存活（SPA 核心特征）
+    // Why: elementHandle() 每次返回不同 JS 包装对象，toBe 比较包装对象恒假；
+    //      handle.evaluate(el => el.isConnected) 在浏览器上下文检查底层 DOM 节点
+    //      是否仍在文档中——若布局层重挂载，原节点脱离文档，探针变 false，证明力保留
     const header = page.locator('header')
     await expect(header).toBeVisible()
     const headerHandleBefore = await header.elementHandle()
@@ -72,24 +74,21 @@ test.describe('SPA 路由验证', () => {
     await page.getByText('记忆搜索').click()
     await expect(page).toHaveURL(/\/memory/)
     await expect(header).toBeVisible()
-    const headerHandleAfterMemory = await header.elementHandle()
-    expect(headerHandleAfterMemory).toBe(headerHandleBefore)
+    expect(await headerHandleBefore!.evaluate(el => el.isConnected)).toBe(true)
     await expect(page.getByText('搜索关键词')).toBeVisible()
 
     // 点击「设置」
     await page.getByRole('link', { name: '设置' }).click()
     await expect(page).toHaveURL(/\/settings/)
     await expect(header).toBeVisible()
-    const headerHandleAfterSettings = await header.elementHandle()
-    expect(headerHandleAfterSettings).toBe(headerHandleBefore)
+    expect(await headerHandleBefore!.evaluate(el => el.isConnected)).toBe(true)
     await expect(page.getByText('模型').first()).toBeVisible()
 
     // 点击「对话」回到列表
     await page.getByRole('link', { name: '对话' }).click()
     await expect(page).toHaveURL(/\/conversation/)
     await expect(header).toBeVisible()
-    const headerHandleAfterBack = await header.elementHandle()
-    expect(headerHandleAfterBack).toBe(headerHandleBefore)
+    expect(await headerHandleBefore!.evaluate(el => el.isConnected)).toBe(true)
   })
 
   test('SPA 导航：浏览器前进后退正常', async ({ page }) => {
