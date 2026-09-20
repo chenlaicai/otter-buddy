@@ -137,7 +137,12 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-2">
         {displayAssistant.length > 0 && (
           <>
-            <div className="px-2.5 pt-1 pb-0.5 text-[10px] font-medium text-stone-400 uppercase tracking-wide" data-testid="leftpanel-assistant-group-label">{ASSISTANT_GROUP_LABEL}</div>
+            {/* F20260920imax：IM 助理分组——teal 色点 + 徽章计数，与工作对话视觉区隔 */}
+            <div className="px-2.5 pt-1 pb-0.5 flex items-center gap-1.5" data-testid="leftpanel-assistant-group-label">
+              <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
+              <span className="text-[10px] font-semibold text-teal-700 tracking-wide">{ASSISTANT_GROUP_LABEL}</span>
+              <span className="text-[10px] text-stone-400">{displayAssistant.length}</span>
+            </div>
             {displayAssistant.map(c => (
               <ConversationItem
                 key={c.id}

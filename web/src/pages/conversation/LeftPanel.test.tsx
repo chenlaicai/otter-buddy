@@ -299,7 +299,9 @@ describe('LeftPanel IM 助理分组（F20260918imas）', () => {
     })
     // 分组标签存在
     const label = container.querySelector('[data-testid="leftpanel-assistant-group-label"]')
-    expect(label?.textContent).toBe('IM 助理')
+    // F20260920imax rebase 后分组标签含计数徽章（textContent = "IM 助理" + 数量）——
+    // 断言改为包含匹配，避免徽章计数变化脆断
+    expect(label?.textContent).toContain('IM 助理')
     // 助理项与普通项各归各组：按渲染顺序，a1 在 c2（置顶普通）之前。
     // ConversationItem 是 onClick onSelect 的 div，标题在内部 span
     const items = [...container.querySelectorAll('div.rounded-xl')].map(i => i.textContent ?? '')
@@ -337,7 +339,7 @@ describe('LeftPanel IM 助理分组（F20260918imas）', () => {
     expect(a1Idx).toBeGreaterThanOrEqual(0)
     expect(items.findIndex(t => t.includes('普通对话'))).toBeGreaterThan(a1Idx)
     // 普通置顶组标签存在，助理组标签也存在（两组共存）
-    expect(container.querySelector('[data-testid="leftpanel-assistant-group-label"]')?.textContent).toBe('IM 助理')
+    expect(container.querySelector('[data-testid="leftpanel-assistant-group-label"]')?.textContent).toContain('IM 助理')
   })
 
   it('搜索结果含助理对话时同样分组渲染（searchResults 路径）', async () => {
@@ -358,7 +360,7 @@ describe('LeftPanel IM 助理分组（F20260918imas）', () => {
     })
     await new Promise(r => setTimeout(r, 400))
     expect(spy).toHaveBeenCalled()
-    expect(container.querySelector('[data-testid="leftpanel-assistant-group-label"]')?.textContent).toBe('IM 助理')
+    expect(container.querySelector('[data-testid="leftpanel-assistant-group-label"]')?.textContent).toContain('IM 助理')
     const items = [...container.querySelectorAll('div.rounded-xl')].map(i => i.textContent ?? '')
     expect(items.findIndex(t => t.includes('微信助理'))).toBeGreaterThanOrEqual(0)
     spy.mockRestore()

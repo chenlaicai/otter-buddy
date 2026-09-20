@@ -16,7 +16,7 @@ const STATUS_LABEL: Record<WeixinLoginSessionDTO['status'], string> = {
 const POLL_INTERVAL_MS = 2000
 
 interface QRCodeLoginCardProps {
-  onLoginSuccess?: () => void
+  onLoginSuccess?: (accountId?: string) => void
 }
 
 export function QRCodeLoginCard({ onLoginSuccess }: QRCodeLoginCardProps) {
@@ -35,7 +35,7 @@ export function QRCodeLoginCard({ onLoginSuccess }: QRCodeLoginCardProps) {
           if (pollTimer.current) window.clearInterval(pollTimer.current)
           if (s.status === 'success') {
             showToast('微信连接成功', 'success')
-            onLoginSuccess?.()
+            onLoginSuccess?.(s.accountId)
           } else if (s.status === 'error') {
             showToast(s.error ?? '登录失败', 'error')
           }

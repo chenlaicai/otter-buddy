@@ -145,6 +145,11 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
    *  schema.ts 新库已含；存量库跑不到 CREATE 分支，需 ALTER 补列。幂等：PRAGMA 检测。 */
   ensureInvokesCtxWindowUsedColumn(db, logger);
 
+  /** F20260920imax：conversations 表添加 kind 列 + 助理对话回填。
+   *  schema.ts 新库已含默认 'normal'；存量库需 ALTER 补列，并按 title 前缀约定
+   *  回填存量助理对话（微信助理 · / 飞书助理 · → 'assistant'）。幂等：PRAGMA 检测。 */
+  ensureConversationsKindColumn(db, logger);
+
   /** F20260913ctlv 收尾批4b：messages → entries 幂等回填迁移（先迁后 drop——4c）。 */
   migrateMessagesToEntries(db, logger);
 
@@ -726,6 +731,22 @@ function ensureInvokesCtxWindowUsedColumn(db: Database.Database, logger: Logger)
  * 老库已跑过 rebuildDocumentTablesDropCheck（标记 done 不会重建），
  * 需要独立 ADD COLUMN 补列。PRAGMA table_info 检测列存在性作幂等。
  */
+/** F20260920imax：conversations.kind 列迁移 + 助理对话回填（title 前缀约定 → schema 字段）。 */
+function ensureConversationsKindColumn(db: Database.Database, logger: Logger): void {
+  const cols = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
+  if (!cols.some(col => col.name === 'kind')) {
+    db.prepare("ALTER TABLE conversations ADD COLUMN kind TEXT NOT NULL DEFAULT 'normal'").run();
+    logger.info('Added kind column to conversations table');
+  }
+  // 回填：仅对非 assistant 行执行 UPDATE（幂等——已是 assistant 的行不碰）
+  const result = db.prepare(
+    "UPDATE conversations SET kind = 'assistant' WHERE kind != 'assistant' AND (title LIKE '微信助理 · %' OR title LIKE '飞书助理 · %')"
+  ).run();
+  if (result.changes > 0) {
+    logger.info(`Backfilled ${result.changes} assistant conversations by title prefix`);
+  }
+}
+
 function addBodyHashColumns(db: Database.Database, logger: Logger): void {
   const featuresCols = db.prepare("PRAGMA table_info(features)").all() as Array<{ name: string }>;
   if (!featuresCols.some(col => col.name === 'body_hash')) {

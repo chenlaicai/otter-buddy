@@ -34,6 +34,7 @@ import { paperTradingFunctionRegistry } from "@usecases/paper-trading/function-r
 import { createManageHealingEventsTool } from "@interface-adapters/agent-runtime/tools/healing-tools";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import type { SignalRouter } from "@usecases/conversation/signal-router";
+import type { AssistantSessionManager } from "@usecases/im/assistant-session";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 import { SchedulerService } from "@usecases/scheduler/scheduler-service";
@@ -363,6 +364,19 @@ export function createFeishuBundle(options: {
   return { client, tokenManager, dispatchChainEngine };
 }
 
+/** F20260920imax：助理态注入片段（微信/飞书共用语义：总开关 + 助理线模型；setupFeishu/startWeixinChannels 双消费方） */
+function buildAssistantInjections(appConfig: AppConfig, uc: UseCases): {
+  assistantSession?: AssistantSessionManager;
+  assistantModelAlias?: string;
+} {
+  return {
+    // F20260918imas / F20260920imax：助理态（p2p 自动开户；对话永续）；总开关关闭时不注入（回退拒聊）
+    ...(appConfig.im?.assistant?.enabled !== false && { assistantSession: uc.assistantSession }),
+    // F20260920imax：助理线模型（自动开户的大獭用；缺省全局 default）
+    ...(appConfig.im?.assistant?.modelAlias && { assistantModelAlias: appConfig.im.assistant.modelAlias }),
+  };
+}
+
 export function setupFeishu(options: {
   appConfig: AppConfig;
   uc: UseCases;
@@ -387,10 +401,10 @@ export function setupFeishu(options: {
     entryRepo: repos.entry,
     agentInvokePort: agentInvoker,
     logger,
-    // F20260901sgpv P1：飞书入口换轨（隐式传石查询停用，四入口勘测硬约束 1）
     ...(signalRouter && { signalRouter }),
   });
 
+  // F20260920imax：助理态注入（语义见 buildAssistantInjections）——直接内联进 messageProcessor，不占行数
   // 多模态 Phase 2：飞书 ingress 附件三件套——资源下载客户端 + 注入服务与 controllers.ts 同构
   // （storageRoot 缺省 ./data/attachments，与 AttachmentController 一致）
   const feishuResource = new FeishuResourceClient(feishu.tokenManager, logger);
@@ -402,17 +416,12 @@ export function setupFeishu(options: {
 
   const messageProcessor = new FeishuMessageProcessor({
     manageConnection: uc.manageConnection,
-    // F20260918imas：助理态（p2p 自动开户 + 软轮换）；总开关关闭时不注入（回退拒聊）
-    ...(appConfig.im?.assistant?.enabled !== false && { assistantSession: uc.assistantSession }),
-    // F20260913ctlv 彻底切换：飞书用户消息写 entries
+    ...buildAssistantInjections(appConfig, uc),
     sendEntry: uc.sendEntry,
     commandDispatcher,
     feishuGateway: feishu.client,
-    // F20260826fuid：飞书群聊多人识别——open_id → 姓名快照
     feishuUserInfo: new FeishuUserInfoClient(feishu.tokenManager, logger),
-    // F20260826fpbd：命令门禁用（方案B）
     partnerResolver,
-    // 多模态 Phase 2：飞书 ingress 收图/收文件（下载 + 上传管线 + 注入组装）
     feishuResource,
     attachmentUpload: uc.attachmentUpload,
     attachmentInjection,
@@ -549,8 +558,8 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
       });
       const processor = new WeixinMessageProcessor({
         manageConnection: uc.manageConnection,
-        // F20260918imas：助理态（私聊自动开户 + 软轮换）；总开关关闭时不注入（回退拒聊）
-        ...(appConfig.im?.assistant?.enabled !== false && { assistantSession: uc.assistantSession }),
+        // F20260918imas / F20260920imax：助理态（私聊自动开户；对话永续 + 8h 静默换 session）；语义同 setupFeishu
+        ...buildAssistantInjections(appConfig, uc),
         // F20260913ctlv 收尾批2：微信消息唯一落点 = entries（与飞书同构）
         sendEntry: uc.sendEntry,
         entryRepo: repos.entry,

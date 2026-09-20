@@ -419,37 +419,16 @@ export interface ConnectionSessionDTO {
   releasedAt: string | null
 }
 
-export interface CreateConnectionRequestDTO {
-  name: string
-  externalId: string
-}
-
 export interface EnterConversationRequestDTO {
   conversationId: string
-}
-
-export function listConnections(): Promise<ConnectionDTO[]> {
-  return request('/connections')
-}
-
-export function createConnection(body: CreateConnectionRequestDTO): Promise<ConnectionDTO> {
-  return request('/connections', { method: 'POST', body: JSON.stringify(body) })
 }
 
 export function getConnection(id: string): Promise<ConnectionDTO> {
   return request(`/connections/${id}`)
 }
 
-export function getConnectionSession(id: string): Promise<{ id: string; title: string } | null> {
-  return request(`/connections/${id}/session`)
-}
-
 export function enterConversation(connectionId: string, body: EnterConversationRequestDTO): Promise<ConnectionSessionDTO> {
   return request(`/connections/${connectionId}/enter`, { method: 'POST', body: JSON.stringify(body) })
-}
-
-export function leaveConversation(connectionId: string): Promise<{ status: string }> {
-  return request(`/connections/${connectionId}/leave`, { method: 'POST' })
 }
 
 export function listActiveConversations(): Promise<Array<{ id: string; title: string; occupiedBy?: string }>> {
@@ -491,6 +470,11 @@ export function cancelWeixinLogin(id: string): Promise<{ status: string }> {
 
 export function listWeixinAccounts(): Promise<WeixinAccountDTO[]> {
   return request('/weixin/accounts')
+}
+
+/** F20260920imax：扫码登录后按名建助理线（名字必填） */
+export function provisionWeixinAssistantLine(accountId: string, name: string): Promise<{ conversationId: string; title: string }> {
+  return request(`/weixin/accounts/${accountId}/assistant-line`, { method: 'POST', body: JSON.stringify({ name }) })
 }
 
 export function deleteWeixinAccount(id: string): Promise<{ status: string }> {

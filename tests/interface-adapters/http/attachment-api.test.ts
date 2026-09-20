@@ -77,7 +77,7 @@ describe("附件 HTTP 端点集成（真管线：busboy→upload→sharp→sqlit
 
     // 种子会话
     const conv: Conversation = {
-      id: "conv-1", title: "测试", status: "active", summary: null, pinned: false, workspaceDir: null,
+      id: "conv-1", title: "测试", status: "active", summary: null, pinned: false, kind: "normal", workspaceDir: null,
       createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", completedAt: null, archivedAt: null,
     };
     await convRepo.create(conv);
@@ -210,7 +210,7 @@ describe("sendMessage 附件前置校验 + FTS 时序（R3）", () => {
 
     // 种子：会话 + 大獭 + participant
     const conv: Conversation = {
-      id: "conv-1", title: "测试", status: "active", summary: null, pinned: false, workspaceDir: null,
+      id: "conv-1", title: "测试", status: "active", summary: null, pinned: false, kind: "normal", workspaceDir: null,
       createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", completedAt: null, archivedAt: null,
     };
     await convRepo.create(conv);

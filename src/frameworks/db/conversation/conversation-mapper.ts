@@ -23,6 +23,8 @@ export interface ConversationRow {
   status: string;
   summary: string | null;
   pinned: number;
+  /** F20260920imax：对话类别（迁移后存量库恒有值；PRAGMA 探测前的旧列无值场景不会走到这里） */
+  kind?: string;
   workspace_dir: string | null;
   created_at: string;
   updated_at: string;
@@ -93,6 +95,7 @@ export function rowToConversation(row: ConversationRow): Conversation {
     status: row.status as ConversationStatus,
     summary: row.summary,
     pinned: row.pinned === 1,
+    kind: row.kind === "assistant" ? "assistant" : "normal",
     workspaceDir: row.workspace_dir ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

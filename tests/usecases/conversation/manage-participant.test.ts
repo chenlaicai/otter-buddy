@@ -44,7 +44,7 @@ describe("ManageParticipant（真 sqlite）", () => {
     });
 
     const conv: Conversation = {
-      id: "conv-1", title: "测试对话", status: "active", summary: null, pinned: false, workspaceDir: null,
+      id: "conv-1", title: "测试对话", status: "active", summary: null, pinned: false, kind: "normal", workspaceDir: null,
       createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
       completedAt: null, archivedAt: null,
     };

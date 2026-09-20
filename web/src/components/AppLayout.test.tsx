@@ -34,13 +34,9 @@ beforeAll(() => {
 vi.mock('../../api/client', () => ({
   getChannelStatus: vi.fn().mockResolvedValue({ channels: [] }),
   listWeixinAccounts: vi.fn().mockResolvedValue([]),
-  listConnections: vi.fn().mockResolvedValue([]),
-  getConnectionSession: vi.fn().mockResolvedValue(null),
   deleteWeixinAccount: vi.fn(),
-  createConnection: vi.fn(),
   listActiveConversations: vi.fn().mockResolvedValue([]),
   enterConversation: vi.fn(),
-  leaveConversation: vi.fn(),
 }))
 
 import { AppLayout } from './AppLayout'

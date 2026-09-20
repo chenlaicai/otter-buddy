@@ -34,7 +34,7 @@ describe("进场已读游标（test15 回归）", () => {
     entryRepo = new SqliteEntryRepository(db);
     convRepo = new SqliteConversationRepository(db);
     const conv: Conversation = {
-      id: "conv-1", title: "t", status: "active", summary: null, pinned: false, workspaceDir: null,
+      id: "conv-1", title: "t", status: "active", summary: null, pinned: false, kind: "normal", workspaceDir: null,
       createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
       completedAt: null, archivedAt: null,
     };

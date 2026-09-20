@@ -10,6 +10,7 @@ import { createTestLogger } from "../../helpers/logger";
 function mockConnectionRepo(overrides: Partial<ConnectionRepository> = {}): ConnectionRepository {
   return {
     create: vi.fn().mockResolvedValue(undefined),
+    mergeMetadata: vi.fn().mockResolvedValue(undefined),
     getById: vi.fn().mockResolvedValue(null),
     getByExternalId: vi.fn().mockResolvedValue(null),
     listActive: vi.fn().mockResolvedValue([]),
@@ -58,6 +59,7 @@ function conversationFixture(overrides: Partial<Conversation> = {}): Conversatio
     status: "active",
     summary: null,
     pinned: false,
+    kind: "normal",
     workspaceDir: null,
     createdAt: "2026-07-29T00:00:00Z",
     updatedAt: "2026-07-29T00:00:00Z",
