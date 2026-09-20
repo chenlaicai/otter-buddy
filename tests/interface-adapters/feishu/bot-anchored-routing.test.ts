@@ -14,7 +14,11 @@ function makeDeps() {
       expect(externalId).toBe("feishu-bot:cli_a****k8"); // 锚 = bot，不是 chatId
       return { id: "conn-bot", externalId };
     }),
-    getCurrentConversation: vi.fn(async () => null),
+    // F20260920imax 第四轮检视修正：首条返 null（触发开户）→ 后续返已建对话（走复用分支），
+    // 真实覆盖 ensureAssistantConversation 仅被首条消息调用一次的行为
+    getCurrentConversation: vi.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({ id: "conv-bot-line", title: "飞书助理" }),
     noteChatId: vi.fn(async (connectionId: string, chatId: string) => {
       noted.push({ connectionId, chatId });
     }),

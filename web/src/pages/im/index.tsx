@@ -31,15 +31,18 @@ export default function ImPage() {
   const [nameValue, setNameValue] = useState('')
   const [creatingLine, setCreatingLine] = useState(false)
 
-  const handleLoginSuccess = async () => {
+  const handleLoginSuccess = async (accountId?: string) => {
     try {
       const accounts = await api.listWeixinAccounts()
       setWeixinAccounts(accounts)
       loadChannelStatus()
-      // 最新账号 = 刚扫的这个；后端幂等（已建线重复提交返回现有对话，不重复建）
-      const latest = accounts[accounts.length - 1]
-      if (latest) {
-        setNaming({ accountId: latest.id })
+      // F20260920imax 第四轮检视修正：优先回传的 accountId（登录会话直绑，无启发式
+      // 错绑面）；缺省（异常路径）才退回列表末位启发式；后端幂等（重复提交返回现有对话）
+      const target = accountId
+        ? accounts.find(a => a.id === accountId)
+        : accounts[accounts.length - 1]
+      if (target) {
+        setNaming({ accountId: target.id })
         setNameValue('')
       }
     } catch {

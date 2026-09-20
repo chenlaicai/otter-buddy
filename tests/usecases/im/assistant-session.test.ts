@@ -71,7 +71,7 @@ function makeManager(overrides: { sessionIdleHours?: number; lastEntryAgeHours?:
 }
 
 describe("AssistantSessionManager", () => {
-  it("无绑定时自动开户：建「微信助理 · <名>」对话（kind=assistant）并绑定 connection", async () => {
+  it("无绑定时自动开户：建助理对话（kind=assistant）并绑定 connection", async () => {
     const ctx = makeManager();
     const result = await ctx.manager.ensureAssistantConversation({
       connectionId: "conn-1",
@@ -103,20 +103,20 @@ describe("AssistantSessionManager", () => {
 
   it("已有绑定且未超 8h：直接返回当前对话（永续），不重启 session 不开户", async () => {
     const ctx = makeManager({ lastEntryAgeHours: 1 });
-    ctx.deps.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-existing", title: "微信助理 · x" });
+    ctx.deps.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-existing", title: "助理线" });
     const result = await ctx.manager.ensureAssistantConversation({ connectionId: "conn-1", channel: "weixin", displayName: "x" });
-    expect(result).toEqual({ id: "conv-existing", title: "微信助理 · x" });
+    expect(result).toEqual({ id: "conv-existing", title: "助理线" });
     expect(ctx.created).toHaveLength(0);
     expect(ctx.restarts).toHaveLength(0);
   });
 
   it("F20260920imax：last-entry 超过 8h → 先落摘要后重启（对话不动）+ 交接摘要带真实标题", async () => {
     const ctx = makeManager({ lastEntryAgeHours: 10 });
-    ctx.deps.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-existing", title: "微信助理 · x" });
+    ctx.deps.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-existing", title: "助理线" });
     const result = await ctx.manager.ensureAssistantConversation({ connectionId: "conn-1", channel: "weixin", displayName: "x" });
 
     // 对话永续：不新建不 complete，返回原对话
-    expect(result).toEqual({ id: "conv-existing", title: "微信助理 · x" });
+    expect(result).toEqual({ id: "conv-existing", title: "助理线" });
     expect(ctx.created).toHaveLength(0);
 
     // restartSession 收到的摘要带真实标题（检视发现 1：曾发空标题）+ 内容完整
@@ -135,19 +135,19 @@ describe("AssistantSessionManager", () => {
   it("空对话（无 entry）不触发 session 重启——防异常态误动作", async () => {
     const ctx = makeManager();
     ctx.deps.entryRepo.getEntries.mockResolvedValue([]);
-    ctx.deps.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-empty", title: "微信助理 · x" });
+    ctx.deps.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-empty", title: "助理线" });
     const result = await ctx.manager.ensureAssistantConversation({ connectionId: "conn-1", channel: "weixin", displayName: "x" });
-    expect(result).toEqual({ id: "conv-empty", title: "微信助理 · x" });
+    expect(result).toEqual({ id: "conv-empty", title: "助理线" });
     expect(ctx.restarts).toHaveLength(0);
   });
 
   it("session 重启失败不阻塞消息处理（下次消息再试）", async () => {
     const ctx = makeManager({ lastEntryAgeHours: 10 });
     ctx.deps.manageSession.restartSession.mockRejectedValue(new Error("restart boom"));
-    ctx.deps.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-old", title: "微信助理 · x" });
+    ctx.deps.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-old", title: "助理线" });
     const result = await ctx.manager.ensureAssistantConversation({ connectionId: "conn-1", channel: "weixin", displayName: "x" });
     // 消息照常进对话（错误已捕获，仅日志）
-    expect(result).toEqual({ id: "conv-old", title: "微信助理 · x" });
+    expect(result).toEqual({ id: "conv-old", title: "助理线" });
     expect(ctx.deps.logger.error).toHaveBeenCalled();
   });
 

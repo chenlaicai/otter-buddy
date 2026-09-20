@@ -24,13 +24,6 @@ export function toConversationDTO(conv: Conversation): ConversationDTO {
   };
 }
 
-/** F20260918imas：助理对话标题判定（开户命名展示用）。F20260920imax：分组/DTO 标识已改
- *  读 conversation.kind，本函数仅迁移回填与展示用途保留。
- *  WARNING: 不可用于 kind 判定（真相源是 conv.kind schema 字段）——误用会绕过 kind 字段重引入旧 title 约定依赖 */
-export function isAssistantConversationTitle(title: string): boolean {
-  return title.startsWith("微信助理 · ") || title.startsWith("飞书助理 · ");
-}
-
 export function toConversationListItemDTO(
   conv: Conversation,
   otterIds: string[],
