@@ -1,38 +1,36 @@
 /**
- * MPA 页面清单单一真相源（issue #487，F20260827mpss）。
+ * SPA 路由配置单一真相源（F20260920spa，继承 #487）。
  *
- * 同一「有哪些页面」曾散落 4 处副本（vite.config / server.ts / TopBar / 路由测试），
- * 靠人工同步，两次漏注册致 404（PR #116、#444）。收敛后新增/删除页面只改本文件，
- * 4 个消费方自动同步：
- * - web/vite.config.ts（构建入口）
- * - src/bootstrap/server.ts（静态路由）
- * - web/src/components/TopBar.tsx（导航 tab）
- * - tests/bootstrap/server-static-routes.test.ts（防回归 + html 集合守卫）
+ * 从 MPA 页面清单改造为 SPA 路由定义。消费方：
+ * - web/src/components/TopBar.tsx（导航 tab 渲染）
+ * - src/bootstrap/server.ts（SPA fallback 路径匹配）
+ * - tests/bootstrap/server-static-routes.test.ts（防回归）
+ *
+ * Vite 不再需要多入口（单入口 src/main.tsx + React Router）。
  */
-export interface MpaPage {
-  /** vite 入口名 = html 文件名（不含 .html） */
-  entry: string;
-  /** server 路由 pattern（Hono 语法，:id 为路径参数） */
-  pattern: string;
-  /** TopBar 导航文案 */
-  label: string;
-  /** TopBar href（缺省 = pattern 去路径参数后的静态形态） */
+
+export interface SpaRoute {
+  /** 路由路径（React Router 语法） */
+  path: string;
+  /** 导航标签（null = 不进入 TopBar 导航，如对话详情页） */
+  label: string | null;
+  /** TopBar href（缺省 = path，含动态段时必须显式声明静态形态） */
   nav?: string;
-  /** 测试 URL（缺省 = pattern 中 :param 替换为 "abc"） */
+  /** 测试 URL（缺省 = path 中 :param 替换为 "abc"） */
   testUrl?: string;
 }
 
-/** MPA 页面清单（顺序即 TopBar 导航顺序——迁就现状，排除带参详情页后的可见顺序不变） */
-export const MPA_PAGES: readonly MpaPage[] = [
-  { entry: "index", pattern: "/", label: "对话", nav: "/" },
-  { entry: "conversation", pattern: "/conversation/:id", label: "对话详情" },
-  { entry: "memory", pattern: "/memory", label: "记忆搜索" },
-  { entry: "skills", pattern: "/skills", label: "能力库" },
-  { entry: "im", pattern: "/im", label: "IM" },
-  { entry: "health", pattern: "/health", label: "健康面板" },
-  { entry: "activity", pattern: "/activity", label: "活动" },
-  { entry: "settings", pattern: "/settings", label: "设置" },
+/** SPA 路由配置（顺序即 TopBar 导航顺序） */
+export const SPA_ROUTES: readonly SpaRoute[] = [
+  { path: "/conversation", label: "对话" },
+  { path: "/conversation/:id", label: null },
+  { path: "/memory", label: "记忆搜索" },
+  { path: "/skills", label: "能力库" },
+  { path: "/im", label: "IM" },
+  { path: "/health", label: "健康面板" },
+  { path: "/activity", label: "活动" },
+  { path: "/settings", label: "设置" },
 ];
 
-/** 清单 entry 全集（ViewKey 派生源） */
-export type MpaEntry = (typeof MPA_PAGES)[number]["entry"];
+/** 可导航路由（排除 label=null 的详情页） */
+export const NAV_ROUTES = SPA_ROUTES.filter(r => r.label !== null);

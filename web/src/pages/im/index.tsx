@@ -1,8 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { createRoot } from 'react-dom/client'
-import '../../styles/globals.css'
 
-import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
 import { QRCodeLoginCard } from '../../components/weixin/QRCodeLoginCard'
 import * as api from '../../api/client'
@@ -14,7 +11,7 @@ interface ConnectionWithSession extends ConnectionDTO {
   currentConversation?: { id: string; title: string }
 }
 
-function ImPage() {
+export default function ImPage() {
   // 通道状态
   const [channelStatus, setChannelStatus] = useState<ChannelStatusDTO[]>([])
   const pollTimer = useRef<number | null>(null)
@@ -202,7 +199,7 @@ function ImPage() {
   const weixinStatus = getWeixinAggregateStatus()
 
   return (
-    <AppLayout activeView="im">
+    <>
       {/* Why: max-w-6xl —— 双列布局需要更宽画布；4xl 下两卡并排会挤压二维码可读性 */}
       <div className="max-w-6xl w-full mx-auto px-4 py-8">
         <h1 className="text-2xl font-bold text-stone-800 mb-6">IM 总览</h1>
@@ -481,10 +478,6 @@ function ImPage() {
           )}
         </div>
       </div>
-    </AppLayout>
+    </>
   )
 }
-
-// 渲染
-const root = createRoot(document.getElementById('root')!)
-root.render(<ImPage />)

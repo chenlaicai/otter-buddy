@@ -17,11 +17,16 @@ export function useDraftCache(conversationId: string | null) {
   const [draft, setDraft] = useState('')
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const conversationIdRef = useRef(conversationId)
+  // R5 修复：用 ref 追踪最新 draft 值，确保 cleanup 读到最新值而非闭包旧值
+  const draftRef = useRef(draft)
 
-  // 同步 conversationId 到 ref，确保 beforeunload 回闭包读到最新值
+  // 同步 conversationId/draft 到 ref，确保 beforeunload 和 cleanup 闭包读到最新值
   useEffect(() => {
     conversationIdRef.current = conversationId
   }, [conversationId])
+  useEffect(() => {
+    draftRef.current = draft
+  }, [draft])
 
   // 加载草稿：组件挂载或 conversationId 变化时，从 localStorage 读取对应对话的草稿
   useEffect(() => {
@@ -64,6 +69,8 @@ export function useDraftCache(conversationId: string | null) {
   // 清除草稿：发送成功后 localStorage.removeItem('draft:{convId}')
   const clearDraft = useCallback(() => {
     setDraft('')
+    // 同步更新 ref——cleanup 闭包读 ref 而非 state，避免 ref 滞后导致 flush 覆盖
+    draftRef.current = ''
 
     // 清除 debounce timer
     if (debounceTimerRef.current) {
@@ -98,10 +105,21 @@ export function useDraftCache(conversationId: string | null) {
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload)
 
-      // 组件卸载时也要清除 debounce timer
+      // R5 修复：组件卸载时（SPA 导航）同步 flush 草稿到 localStorage
+      // Why: beforeunload 只在浏览器关闭/刷新时触发，SPA 的 Link 导航不触发它
+      // 组件卸载时 draft 可能还没写入（debounce 300ms 窗口内），必须同步 flush
+      // 使用 draftRef.current 而非闭包中的 draft——闭包捕获的是 effect 注册时的值
+      // 检查 localStorage 是否已有该 key——clearDraft 会先 removeItem，避免覆盖
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current)
         debounceTimerRef.current = null
+      }
+      const currentConversationId = conversationIdRef.current
+      const currentDraft = draftRef.current
+      // D2 修复：删除存在性检查——clearDraft 后是空串本就不写入，顾虑不成立
+      // Why: 首笔草稿（key 不存在）也需要写入，否则 SPA 导航会丢失未保存的草稿
+      if (currentConversationId && currentDraft) {
+        localStorage.setItem(`draft:${currentConversationId}`, currentDraft)
       }
     }
   }, [draft])
