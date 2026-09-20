@@ -152,8 +152,9 @@ describe("getOtterToolNamesForType", () => {
     const projectRoot = join(import.meta.dirname, "../../../"); // worktree 根
     const tools = getOtterToolNamesForType("small", undefined, projectRoot);
     expect(tools).toContain("query_signals"); // 信号台账查询开放给 small
-    expect(tools).toContain("stock_data"); // F20260831tumv：small 走 groups 展开，含 stock/paper 块
-    expect(tools).toContain("paper_trade");
+    // F20260920stkx：stock_data/paper_trade 随炒股能力移除，small 展开不得再含
+    expect(tools).not.toContain("stock_data");
+    expect(tools).not.toContain("paper_trade");
     expect(tools).not.toContain("halt_otter");
     expect(tools).not.toContain("unhalt_otter"); // #927：解除同样仅 big
     expect(tools).not.toContain("resolve_signal");

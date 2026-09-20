@@ -42,8 +42,8 @@ describe("validateFeatureFrontmatter: 存量豁免清单（#667 LEGACY_FID_IDS�
 describe("validateFeatureFrontmatter: title 可读性（#470）", () => {
   it("纯 slug title（无 CJK 无空格）报 warning", () => {
     const r = validateFeatureFrontmatter(
-      { ...BASE_FM, title: "stock-cli-pr1-data-bridge" },
-      "docs/features/2026/08/27/F20260827test-stock-cli-pr1-data-bridge.md"
+      { ...BASE_FM, title: "legacy-slug-title-fixture" },
+      "docs/features/2026/08/27/F20260827test-legacy-slug-title.md"
     );
     expect(r.valid).toBe(true);
     expect(r.warnings.some((w) => w.includes("Title looks like a slug"))).toBe(true);

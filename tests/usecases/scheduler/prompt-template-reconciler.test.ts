@@ -12,7 +12,7 @@ import type { Logger } from '@usecases/ports/logger';
 // 1. 漂移同步：DB body ≠ 模板 → 更新（含 disabled 任务）
 // 2. 已同步跳过；dynamic 模板跳过；无匹配任务只记 unmatched 不视为错误
 // 3. 匹配规则：frontmatter task_name 精确匹配 / 无 task_name 时 kebab(任务名)=文件名
-// 4. JSON 包装形态（paper-trading）：只替换内层 prompt，watchlist 等运行时字段保留
+// 4. JSON 包装形态（通用机制，原 paper-trading 场景）：只替换内层 prompt，运行时字段保留
 // 5. 对账失败（目录不可读）不抛——失败不阻塞启动
 
 const mockLogger: Logger = {
@@ -114,8 +114,8 @@ describe('#784 prompt 启动对账', () => {
   });
 
   it('匹配规则：无 task_name 时 kebab(任务名) = 文件名', async () => {
-    fs.writeFileSync(path.join(tmpDir, 'paper-trading-daily.md'), `# 操盘每日\n内容`);
-    const repo = createMockRepo([makeTask({ name: 'Paper Trading Daily', body: '旧' })]);
+    fs.writeFileSync(path.join(tmpDir, 'wrapped-daily-task.md'), `# 操盘每日\n内容`);
+    const repo = createMockRepo([makeTask({ name: 'Wrapped Daily Task', body: '旧' })]);
 
     const result = await reconcilePromptTemplates({ taskRepo: repo, logger: mockLogger, templateDir: tmpDir });
 
@@ -164,9 +164,9 @@ describe('#784 prompt 启动对账', () => {
   });
 
   it('JSON 包装形态：只替换内层 prompt，watchlist 保留（#610 对偶面）', async () => {
-    fs.writeFileSync(path.join(tmpDir, 'paper-trading-daily.md'), `---\ntask_name: paper-trading-daily-trading\n---\n操盘新 prompt`);
+    fs.writeFileSync(path.join(tmpDir, 'wrapped-task-daily.md'), `---\ntask_name: wrapped-daily-task\n---\n操盘新 prompt`);
     const wrapped = JSON.stringify({ prompt: '操盘旧 prompt', watchlist: ['600519', '000001'] });
-    const repo = createMockRepo([makeTask({ name: 'paper-trading-daily-trading', body: wrapped })]);
+    const repo = createMockRepo([makeTask({ name: 'wrapped-daily-task', body: wrapped })]);
 
     const result = await reconcilePromptTemplates({ taskRepo: repo, logger: mockLogger, templateDir: tmpDir });
 
@@ -177,9 +177,9 @@ describe('#784 prompt 启动对账', () => {
   });
 
   it('JSON 包装形态：内层已同步则跳过', async () => {
-    fs.writeFileSync(path.join(tmpDir, 'paper-trading-daily.md'), `---\ntask_name: paper-trading-daily-trading\n---\n操盘 prompt`);
+    fs.writeFileSync(path.join(tmpDir, 'wrapped-task-daily.md'), `---\ntask_name: wrapped-daily-task\n---\n操盘 prompt`);
     const wrapped = JSON.stringify({ prompt: '操盘 prompt', watchlist: ['600519'] });
-    const repo = createMockRepo([makeTask({ name: 'paper-trading-daily-trading', body: wrapped })]);
+    const repo = createMockRepo([makeTask({ name: 'wrapped-daily-task', body: wrapped })]);
 
     const result = await reconcilePromptTemplates({ taskRepo: repo, logger: mockLogger, templateDir: tmpDir });
 
@@ -189,7 +189,7 @@ describe('#784 prompt 启动对账', () => {
 
   it('非 prompt 字段的 JSON（如 match-orders 的 {}）：不误伤，走 unmatched/跳过路径', async () => {
     fs.writeFileSync(path.join(tmpDir, 'x.md'), `---\ntask_name: 其他任务\n---\n内容`);
-    const repo = createMockRepo([makeTask({ name: 'paper-trading-match-orders', body: '{}' })]);
+    const repo = createMockRepo([makeTask({ name: 'wrapped-match-task', body: '{}' })]);
 
     const result = await reconcilePromptTemplates({ taskRepo: repo, logger: mockLogger, templateDir: tmpDir });
 
