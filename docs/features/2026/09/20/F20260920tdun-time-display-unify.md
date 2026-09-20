@@ -98,6 +98,7 @@ A2 旧: toISOString().slice(0,16).replace("T"," ") = 2026-09-20 06:30  ← Shang
 
 ## 已知边界
 
+- **fmtTimeShort 无年份，跨年歧义依赖上下文推断**（检视 A2 建议）：紧凑形态 `MM-DD HH:mm` 在跨年窗口（如 12-31 与次年 01-01）不含年份，用户需借上下文推断年份。取舍依据：台账/任务卡均为近期时间（天级窗口），展示年份的宽度成本 > 歧义成本；需要年份的场景用完整形态 fmtTime。参照：fmtRelativeTime 已有同样取舍（同年内不显示年份，跨年才带）
 - `fmtImTime` 与前端 `fmtTime/fmtTimeShort` 是平行实现（backend/web 无共享模块层），格式语义对齐（分钟精度），注释互相引用。若未来出站点增多可再评估提升共享层级。
 - `SwimlaneTimeline` 轴标签取 `fmtTimeShort(iso).slice(0,5)` 得 `MM-DD`——与 health 域其他纯日期切片（fmtDate/fmtDay）格式一致，但实现路径不同（前者过完整格式化，后者纯字符串切片）。纯日期串无时区转换需求，切片安全。
 - D 类是注释级地雷标注，schema 行为未动——DB DEFAULT 产生无 Z 串的路径依然存在但无调用方。
