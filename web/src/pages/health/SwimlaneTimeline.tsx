@@ -18,6 +18,7 @@ import { FileCode } from 'lucide-react'
 import type { RhiChainDTO } from '../../api/client'
 import { TEAL, CARAMEL, OTTER, LAVENDER } from './palette'
 import { CHAIN_STATE_META, chainStateRank, commitNodeColor, ANOMALY_STATES, type ChainState } from './chain-state-meta'
+import { fmtTimeShort } from '../../lib/utils'
 
 // ── 布局常量 ──
 const ROW_H = 38
@@ -197,7 +198,9 @@ function XAxis({ now }: { now: Date }) {
   const end = now.getTime()
   const ticks = Array.from({ length: 7 }, (_, i) => {
     const t = end - (WINDOW_DAYS - i * 10) * DAY_MS
-    return { x: LANE_X0 + (i * 10 / WINDOW_DAYS) * (LANE_X1 - LANE_X0), label: new Date(t).toISOString().slice(5, 10).replace('-', '/') }
+    // A1 修复（F20260920tdun）：epoch ms 先转本地 ISO 再格式化——旧实现 toISOString() 直接切 UTC 日期，
+    // CST 0:00-8:00 期间标签显示前一天；现在用 fmtTimeShort 走本地时区，MM-DD 与页面其他域一致
+    return { x: LANE_X0 + (i * 10 / WINDOW_DAYS) * (LANE_X1 - LANE_X0), label: fmtTimeShort(new Date(t).toISOString()).slice(0, 5) }
   })
   return (
     <g className="swim-x-axis">

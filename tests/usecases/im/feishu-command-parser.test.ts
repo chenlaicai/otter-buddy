@@ -109,6 +109,16 @@ describe("formatMessageHistory", () => {
     expect(result).toContain("消息一");
     expect(result).toContain("消息二");
   });
+
+  it("时间戳为 Asia/Shanghai 时间非 UTC 直出（C 类修复验证）", () => {
+    // UTC 10:00 = Shanghai 18:00；旧实现依赖进程时区恰好为 Shanghai，
+    // 现在显式锚定——部署机任意时区均输出 18:00
+    const result = formatMessageHistory([
+      { senderType: "user", segments: [{ body: "你好" }], createdAt: "2026-07-29T10:00:00Z" },
+    ]);
+    expect(result).toContain("[2026-07-29 18:00]");
+    expect(result).not.toContain("[2026-07-29 10:00]");
+  });
 });
 
 describe("HELP_TEXT", () => {

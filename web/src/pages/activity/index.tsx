@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { ClipboardList, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react'
 import { showToast } from '../../components/Toast'
 import * as api from '../../api/client'
+import { fmtTimeShort } from '../../lib/utils'
 import type { HealingEventDTO, SignalEventDTO, DispatchRecordDTO } from '@contract/api'
 
 type Tab = 'healing' | 'signals' | 'dispatch'
@@ -71,11 +72,7 @@ const SIGNAL_STATUS_LABELS: Record<string, string> = {
 }
 
 function fmtTime(iso: string | null): string {
-  if (!iso) return '—'
-  // ISO → 本地可读时间（分钟精度足够——台账浏览场景无秒级需求）
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return iso ? fmtTimeShort(iso) : '—'
 }
 
 function shortId(id: string): string {
