@@ -33,7 +33,7 @@ import type { OtterSession } from "@entities/otter/otter-session";
 import type { buildHandoffPackage, StateInventoryDeps, HandoffEntryReader } from "@frameworks/agent/handoff-package-builder";
  
 import type { SynthesisPrefetch } from "@frameworks/agent/synthesis-prompt-builder";
-// F20260918uhuc：统一交接引擎与 jsonl 切片的 DI 契约（层约束：interface-adapters 不
+// F20260920uhuc：统一交接引擎与 jsonl 切片的 DI 契约（层约束：interface-adapters 不
 // import frameworks 实现——同 buildHandoffPackage 注入先例，运行时由 bootstrap 装配）
 import { DomainError } from "@entities/errors";
 
@@ -108,7 +108,7 @@ import type { InvokeRepository } from "@usecases/conversation/invoke-repository"
 import type { AgentTurnPort, AgentTurnResult } from "@usecases/ports/agent-turn-port";
 import type { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
 
-// F20260918uhuc：buildAutoHandoffOptions / buildManualHandoffOptions 退役——
+// F20260920uhuc：buildAutoHandoffOptions / buildManualHandoffOptions 退役——
 // 红线重审（对抗审视确认推翻）：影子通道改变了 P1 当年的技术形态（合成者是干净的
 // inMemory 引擎而非退化獭的 invoke 通道），手动/熔断路径统一走 LLM 合成 + 降级链。
 // 四件套 options 组装由统一 handoff 入口（unifiedHandoff）内的机械供料收集取代。
@@ -162,7 +162,7 @@ export class AgentInvoker implements AgentTurnPort {
     /** F20260916fst4：可选注入，首哑信号消费时 dispatch 大獭——正常装配走 attachAgentDispatchService
      * setter（bootstrap 时序补偿）；构造直传仅供测试（缺省降级仅日志，不破坏既有测试构造调用） */
     agentDispatchService?: AgentDispatchService,
-    /** F20260918uhuc：统一交接引擎函数包（bootstrap 注入；缺省时统一交接降级机械档案） */
+    /** F20260920uhuc：统一交接引擎函数包（bootstrap 注入；缺省时统一交接降级机械档案） */
     private readonly engine?: HandoffEngineDeps,
   ) {
     this.agentDispatchService = agentDispatchService;
@@ -232,7 +232,7 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
    
-  // eslint-disable-next-line max-lines-per-function, max-statements -- F20260913ctlv 双路径迁移期；F20260918uhuc 轮边界水位触发器 +3 语句（时机权回收应用层）
+  // eslint-disable-next-line max-lines-per-function, max-statements -- F20260913ctlv 双路径迁移期；F20260920uhuc 轮边界水位触发器 +3 语句（时机权回收应用层）
   private async invokeConversationInner(params: {
     otterId: string;
     conversationId: string;
@@ -263,7 +263,7 @@ export class AgentInvoker implements AgentTurnPort {
     });
 
     /**
-     * F20260918uhuc：水位交接触发器（invoke 轮边界检查——时机权从 Pi 钩子收回应用层）。
+     * F20260920uhuc：水位交接触发器（invoke 轮边界检查——时机权从 Pi 钩子收回应用层）。
      *
      * 写回语义变为「换 session 交接」后，Pi 钩子内换 session 是竞态地狱（#896 同构：
      * 外层 invoke 持锁+池引用），故时机权收回：每轮 invoke 开始前查上轮 ctxTokens，
@@ -780,7 +780,7 @@ export class AgentInvoker implements AgentTurnPort {
     }
   }
   /**
-   * F20260918uhuc：统一交接入口——所有触发场景（水位/手动/自重启/熔断）的单一 handoff 动作。
+   * F20260920uhuc：统一交接入口——所有触发场景（水位/手动/自重启/熔断）的单一 handoff 动作。
    *
    * 时序（方案「交接时序」节，同步原子 + 冻结窗口）：
    * T_start: 取 per-otter 锁（等当前 turn 结束），持锁至交接完成——窗口内该獭
@@ -806,7 +806,7 @@ export class AgentInvoker implements AgentTurnPort {
       modelAlias?: string;
       /** 锁策略：轮边界触发时外层已持锁（invokeConversationInner→invoke），传 'none' 跳过取锁 */
       lockMode?: 'acquire' | 'none';
-      /** F20260918uhuc 需求变更（2026-09-20）：交接进度系统消息通道（前端 entry.system SSE 消费）。
+      /** F20260920uhuc 需求变更（2026-09-20）：交接进度系统消息通道（前端 entry.system SSE 消费）。
        *  缺省 true；测试可注入 false 关闭。 */
       progressEntry?: boolean;
     },
@@ -1180,7 +1180,7 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
   /**
-   * F20260918uhuc：手动重启统一入口（取代 F20260917rsta 的 restartWithAutoHandoffIfBlank）。
+   * F20260920uhuc：手动重启统一入口（取代 F20260917rsta 的 restartWithAutoHandoffIfBlank）。
    *
    * 语义变化（叠加式档案）：不再「有摘要直透/无摘要合成」二选一——
    * 新世起始上下文 = 优雅组织(引擎七段总结【按 synthesizePast】+ 自总结【如有】)。
@@ -1324,7 +1324,7 @@ export class AgentInvoker implements AgentTurnPort {
   ): Promise<AgentTurnResult | null> {
     if (!turnResult._circuitBreak || !this.circuitBreak) return null;
 
-    // F20260918uhuc：熔断重启走统一交接（红线重审后放开合成——P1 定罪的「退化獭
+    // F20260920uhuc：熔断重启走统一交接（红线重审后放开合成——P1 定罪的「退化獭
     // 现场 invoke 合成」技术形态已消失：合成者是影子通道的干净 inMemory 引擎，
     // 读序列化 jsonl、fail-closed 防线、机械供料不依赖 jsonl 质量；熔断场景合成
     // 命中率预期低于水位/手动（GIGO 残余，方案红线重审节），失败自动降级机械档案）。
@@ -1345,7 +1345,7 @@ export class AgentInvoker implements AgentTurnPort {
       });
     }
     if (circuitHandoffSession) {
-      // F20260918uhuc 审视发现1修复：unifiedHandoff 已完成唯一换世（新 session 携带四段叠加档案），
+      // F20260920uhuc 审视发现1修复：unifiedHandoff 已完成唯一换世（新 session 携带四段叠加档案），
       // 不再执行 executeCircuitBreakRestart 的第二次 restartSession（会导致幽灵世代+档案被熔断摘要覆盖）。
       // 只补熔断终态事件（newSessionId 指向 unifiedHandoff 建立的新世），让熔断台账/查询完整。
       await this.circuitBreak.writeCircuitBreakEvent(turnResult._circuitBreak, {
@@ -1387,7 +1387,7 @@ export class AgentInvoker implements AgentTurnPort {
    * 新 session 的 LLM 会再次执行 → 无限循环。continuation message 告知"你已重启，请继续"，
    * 消除循环根因。tool-factory 层 + healing_events 上限判定提供纵深防御。
    */
-  // eslint-disable-next-line max-lines-per-function, complexity -- F20260918uhuc：自重启统一交接 + 防循环 + 裸重启保底 + continuation 递归（同内聚，拆分割裂降级链）
+  // eslint-disable-next-line max-lines-per-function, complexity -- F20260920uhuc：自重启统一交接 + 防循环 + 裸重启保底 + continuation 递归（同内聚，拆分割裂降级链）
   private async handleSelfRestartSignal(
     signal: { otterId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean },
     params: {
@@ -1417,7 +1417,7 @@ export class AgentInvoker implements AgentTurnPort {
 
     let newSessionId: string;
 
-    // F20260918uhuc：自重启走统一交接（synthesizePast 由工具参数透传——獭最清楚
+    // F20260920uhuc：自重启走统一交接（synthesizePast 由工具参数透传——獭最清楚
     // 前世价值；summary=自总结作为叠加档案的 §① 意图书 + 合成原料）。
     // F20260824srst 防循环机制不变（本方法开头的 session 成因判定 + tool 层拦截）。
     try {

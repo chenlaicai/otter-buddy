@@ -118,7 +118,7 @@ describe('ModelPool', () => {
     });
   });
 
-  describe('getHandoffThresholdTokens (F20260918uhuc 需求变更：按模型直给)', () => {
+  describe('getHandoffThresholdTokens (F20260920uhuc 需求变更：按模型直给)', () => {
     it('returns per-model threshold（不同模型不同水位线）', () => {
       const pool = buildModelPool('default', [
         { config: makeConfig('default', { contextWindow: 1_048_576, handoffThresholdTokens: 340_000 }), model: makeModel('default') },

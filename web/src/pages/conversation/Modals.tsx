@@ -354,7 +354,7 @@ function RestartModal(props: ModalsProps) {
    *  空串 = 不换模型（沿用当前生效模型），与后端 modelAlias 可选语义对齐 */
   const [models, setModels] = useState<ModelInfoDTO[]>([])
   const [selectedModel, setSelectedModel] = useState('')
-  /** F20260918uhuc：生成前世总结勾选（默认勾）；交接态（正在封装前世档案…）+ 防连点 */
+  /** F20260920uhuc：生成前世总结勾选（默认勾）；交接态（正在封装前世档案…）+ 防连点 */
   const [synthesizePast, setSynthesizePast] = useState(true)
   const [submitting, setSubmitting] = useState(false)
 
@@ -376,7 +376,7 @@ function RestartModal(props: ModalsProps) {
       footer={
         <>
           <ModalButton onClick={props.onClose} disabled={submitting}>取消</ModalButton>
-          {/* F20260918uhuc：交接态反馈 + 防连点——合成期间按钮锁死，文案告知正在封装前世档案 */}
+          {/* F20260920uhuc：交接态反馈 + 防连点——合成期间按钮锁死，文案告知正在封装前世档案 */}
           <ModalButton
             variant="danger"
             disabled={submitting}
@@ -417,7 +417,7 @@ function RestartModal(props: ModalsProps) {
           className="form-input w-full resize-none min-h-[60px]"
         />
       </div>
-      {/* F20260918uhuc：生成前世总结勾选（默认勾）——取消勾选则新世档案 = 自总结 + 机械供料，零合成秒级换世 */}
+      {/* F20260920uhuc：生成前世总结勾选（默认勾）——取消勾选则新世档案 = 自总结 + 机械供料，零合成秒级换世 */}
       <label className="flex items-center gap-2 mt-3 cursor-pointer select-none" data-testid="synthesize-past-toggle">
         <input
           type="checkbox"

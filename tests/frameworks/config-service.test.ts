@@ -333,13 +333,13 @@ describe("validate — models[] 条目校验", () => {
     expect(raw.llm.models[1].thinkingLevel).toBeUndefined();
   });
 
-  it("F20260918uhuc 需求变更：handoffThresholdTokens 缺失 → 启动报错（按模型必填）", () => {
+  it("F20260920uhuc 需求变更：handoffThresholdTokens 缺失 → 启动报错（按模型必填）", () => {
     expect(() => validate({
       llm: { models: [{ alias: "main", provider: "openai", model: "gpt-4o" }] },
     })).toThrow("handoffThresholdTokens 为必填");
   });
 
-  it("F20260918uhuc 需求变更：handoffThresholdTokens 非法值（0/负数/字符串）→ 报错", () => {
+  it("F20260920uhuc 需求变更：handoffThresholdTokens 非法值（0/负数/字符串）→ 报错", () => {
     for (const bad of [0, -5, "40000" as never]) {
       expect(() => validate({
         llm: { models: [{ alias: "main", provider: "openai", model: "gpt-4o", handoffThresholdTokens: bad }] },
@@ -347,7 +347,7 @@ describe("validate — models[] 条目校验", () => {
     }
   });
 
-  it("F20260918uhuc 需求变更：compactionReserveTokens 残留 → 报错并引导迁移（fail-closed 退役）", () => {
+  it("F20260920uhuc 需求变更：compactionReserveTokens 残留 → 报错并引导迁移（fail-closed 退役）", () => {
     expect(() => validate({
       llm: { models: [{ alias: "main", provider: "openai", model: "gpt-4o", handoffThresholdTokens: 40_000 }] },
       contextQuality: { compactionReserveTokens: 700_000 } as never,

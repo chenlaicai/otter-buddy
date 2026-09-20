@@ -349,7 +349,7 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
   onDissolve: (id: string) => void
   onRestart: (id: string) => void
 }) {
-  /** F20260918uhuc：忙碌判定——running invoke 存在即置灰重启 */
+  /** F20260920uhuc：忙碌判定——running invoke 存在即置灰重启 */
   const invokeStateBusy = invokeState?.status === 'running'
   const isBig = o.type === 'big'
   const activeS = sessions.find(s => s.status === 'active')
@@ -481,7 +481,7 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
             </span>
           )}
           {/* F20260920srbtn：重启獭生对小獭开放（与 agent 侧 restart_otter 大獭可重启小獭对齐）；
-              F20260918uhuc：忙碌置灰（running invoke 时禁用） */}
+              F20260920uhuc：忙碌置灰（running invoke 时禁用） */}
           <button
             onClick={e => { e.stopPropagation(); if (!invokeStateBusy) onRestart(o.id) }}
             disabled={invokeStateBusy}

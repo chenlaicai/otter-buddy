@@ -1,5 +1,5 @@
 /**
- * F20260918uhuc：统一叙事合成引擎——压缩/交接共享的单一七段算法。
+ * F20260920uhuc：统一叙事合成引擎——压缩/交接共享的单一七段算法。
  *
  * 合并来源（两套模板的合并体，谱系同源）：
  * - compaction-hook.ts 的七段模板（Pi preparation 视角：messagesToSummarize 序列化 + previousSummary 谱系继承）

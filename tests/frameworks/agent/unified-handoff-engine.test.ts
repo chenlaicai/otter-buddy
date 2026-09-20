@@ -1,5 +1,5 @@
 /**
- * F20260918uhuc：统一引擎 + jsonl 切片器 + 锁交接模式单元测试。
+ * F20260920uhuc：统一引擎 + jsonl 切片器 + 锁交接模式单元测试。
  *
  * 覆盖：
  * - narrative-synthesis-engine：prompt 组装（三源原料 + selfSummary 独立层）+ 档案结构（V2 golden）

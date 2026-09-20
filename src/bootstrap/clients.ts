@@ -126,7 +126,7 @@ export function buildOtterToolClient(
     syncDocs?: (rootDir?: string) => Promise<{ synced: number; updated: number; skipped: number; archived: number; errors: number }>;
     /** F20260912avlb：派工台账正式表 repo（dispatch client 数据源） */
     dispatchRepo?: DispatchRecordRepository;
-    /** F20260918uhuc：统一交接入口（restart_otter 工具重启别人走统一管线）。
+    /** F20260920uhuc：统一交接入口（restart_otter 工具重启别人走统一管线）。
      *  app.ts 装配时注入；缺省降级域层直透 restartSession */
     agentInvoker?: Pick<AgentInvoker, "restartWithUnifiedHandoff">;
   },
@@ -256,7 +256,7 @@ export function buildOtterToolClient(
       dissolve: (id) => uc.dissolveOtter.execute(id),
       getById: (id) => uc.queryOtter.getById(id),
       getActiveSession: (otterId) => uc.manageSession.getActiveSession(otterId),
-      // F20260918uhuc：restart_otter 工具（大獭重启别人）走统一交接管线——synthesizePast 透传；
+      // F20260920uhuc：restart_otter 工具（大獭重启别人）走统一交接管线——synthesizePast 透传；
       // agentInvoker 未装配时降级域层直透（测试装配兼容）
       restart: (otterId, summary, modelAlias, synthesizePast) => deps?.agentInvoker
         ? deps.agentInvoker.restartWithUnifiedHandoff(otterId, { selfSummary: summary, modelAlias, synthesizePast: synthesizePast !== false })

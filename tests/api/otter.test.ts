@@ -245,8 +245,8 @@ describe("Otter API", () => {
 
 });
 
-// F20260918uhuc：restart 测试整体提升为文件级 describe——外层 Otter API 箭头函数已顶 lint 300 行上限
-describe("POST /api/otters/:id/restart（含 F20260918uhuc 统一交接）", () => {
+// F20260920uhuc：restart 测试整体提升为文件级 describe——外层 Otter API 箭头函数已顶 lint 300 行上限
+describe("POST /api/otters/:id/restart（含 F20260920uhuc 统一交接）", () => {
   let deps: TestDeps;
   let app: ReturnType<typeof createTestApp>;
 
@@ -342,9 +342,9 @@ describe("POST /api/otters/:id/restart（含 F20260918uhuc 统一交接）", () 
         expect(deps.manageSession.restartSession).not.toHaveBeenCalled();
       });
 
-      // ─── F20260918uhuc：手动重启统一交接管线（synthesizePast 透传 + 忙碌 409） ───
+      // ─── F20260920uhuc：手动重启统一交接管线（synthesizePast 透传 + 忙碌 409） ───
 
-      it("F20260918uhuc: 统一交接注入 → restart 委托 restartWithUnifiedHandoff，synthesizePast 缺省 true", async () => {
+      it("F20260920uhuc: 统一交接注入 → restart 委托 restartWithUnifiedHandoff，synthesizePast 缺省 true", async () => {
         const newSession = makeSession({ id: "unified-handoff-session" });
         deps.queryOtter.getById.mockResolvedValue(makeOtter({ type: "big" }));
         const restartWithUnifiedHandoff = vi.fn().mockResolvedValue(newSession);
@@ -366,7 +366,7 @@ describe("POST /api/otters/:id/restart（含 F20260918uhuc 统一交接）", () 
         expect(deps.manageSession.restartSession).not.toHaveBeenCalled();
       });
 
-      it("F20260918uhuc: synthesizePast=false 透传（首哑复活语义）", async () => {
+      it("F20260920uhuc: synthesizePast=false 透传（首哑复活语义）", async () => {
         const newSession = makeSession({ id: "no-synth-session" });
         deps.queryOtter.getById.mockResolvedValue(makeOtter({ type: "big" }));
         const restartWithUnifiedHandoff = vi.fn().mockResolvedValue(newSession);
@@ -387,7 +387,7 @@ describe("POST /api/otters/:id/restart（含 F20260918uhuc 统一交接）", () 
         });
       });
 
-      it("F20260918uhuc: 忙碌（conflict）→ 409 错误透传给前端", async () => {
+      it("F20260920uhuc: 忙碌（conflict）→ 409 错误透传给前端", async () => {
         deps.queryOtter.getById.mockResolvedValue(makeOtter({ type: "big" }));
         deps.otterRestartAutoHandoff = {
           restartWithUnifiedHandoff: vi.fn().mockRejectedValue(
@@ -405,7 +405,7 @@ describe("POST /api/otters/:id/restart（含 F20260918uhuc 统一交接）", () 
         expect(res.status).toBe(409);
       });
 
-      it("F20260918uhuc: 统一交接未注入 → 降级原语义（直走 restartSession）", async () => {
+      it("F20260920uhuc: 统一交接未注入 → 降级原语义（直走 restartSession）", async () => {
         const newSession = makeSession({ id: "legacy-session" });
         deps.queryOtter.getById.mockResolvedValue(makeOtter({ type: "big" }));
         deps.manageSession.restartSession.mockResolvedValue(newSession);

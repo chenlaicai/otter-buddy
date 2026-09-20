@@ -92,7 +92,7 @@ export interface AgentRunResult {
   /** 本次 invoke 重建了全新 session（文件丢失/损坏/重启；F20260814mtrc） */
   sessionRebuilt?: boolean;
   /** F20260819rscn: LLM 调用 restart_otter(self) 时标记，由 agent-invoker 执行 restart + 全新 invoke。
-   *  F20260918uhuc：synthesizePast 透传（工具参数→统一交接管线） */
+   *  F20260920uhuc：synthesizePast 透传（工具参数→统一交接管线） */
   _selfRestart?: { otterId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean };
   /** 末条 assistant 消息的 stopReason（F20260903lngth：length=生成被 token 上限截断） */
   lastStopReason?: string;
@@ -226,7 +226,7 @@ export class PiSessionFactory implements AgentGateway {
     this.otterToolClient = client;
   }
 
-  // F20260918uhuc：setCompactionSynthesis 退役（session_before_compact 钩子随时机权
+  // F20260920uhuc：setCompactionSynthesis 退役（session_before_compact 钩子随时机权
   //  回收而退役，压缩时机改由应用层轮边界水位接管）。
 
   /** 预加载 pi-coding-agent SDK + ResourceLoader + ModelRuntime，避免首次对话冷启动阻塞 */

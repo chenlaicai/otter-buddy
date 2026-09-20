@@ -1,5 +1,5 @@
 /**
- * F20260918uhuc：jsonl 对话切片器——原料层统一收集器（U2 落地）。
+ * F20260920uhuc：jsonl 对话切片器——原料层统一收集器（U2 落地）。
  *
  * U2 验证结论：SDK `prepareCompaction` 未从主入口导出（index.d.ts 导出清单核实；
  * package.json exports 仅开放 `.` 根入口，深路径导入被 Node ESM 拦截）——按方案预判

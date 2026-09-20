@@ -423,7 +423,7 @@ async function isSelfRestartLoop(ctx: ToolContext, healingRepo?: HealingEventRep
 }
 
 /** F20260810rstart: restart_otter 工具。小獭只能重启自己，大獭可重启任意 otter。 */
-// eslint-disable-next-line max-lines-per-function -- F20260918uhuc：synthesizePast 参数 +3 行（61/60）
+// eslint-disable-next-line max-lines-per-function -- F20260920uhuc：synthesizePast 参数 +3 行（61/60）
 function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepository): AgentTool {
   return {
     name: "restart_otter",
@@ -455,7 +455,7 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
       const targetOtterId = (params.otterId as string) || ctx.otterId;
       const summary = params.summary as string | undefined;
       const modelAlias = params.modelAlias as string | undefined;
-      // F20260918uhuc：synthesizePast 透传（默认 true——獭最清楚前世价值）
+      // F20260920uhuc：synthesizePast 透传（默认 true——獭最清楚前世价值）
       const synthesizePast = params.synthesizePast !== false;
 
       // 访问控制：获取调用者类型
@@ -499,7 +499,7 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
       }
 
       // 重启别人：直接执行（不涉及自身 session）
-      // F20260918uhuc：synthesizePast 透传统一交接管线（otter client → manageSession.restartSession 域层 reason）
+      // F20260920uhuc：synthesizePast 透传统一交接管线（otter client → manageSession.restartSession 域层 reason）
       const session = await ctx.client.otter.restart(targetOtterId, summary, modelAlias, synthesizePast);
       return textResponse(`Otter ${targetOtterId} 已重启獭生。新 Session ID: ${session.id}` + (modelAlias ? `，模型切换至：${modelAlias}` : ''));
     },

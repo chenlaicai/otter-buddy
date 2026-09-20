@@ -109,7 +109,7 @@ export function getOtterToolNamesForType(
  * steal 后旧持有者的 release 对已易主的锁是 no-op（generation 世代号判定）。
  */
 /**
- * F20260918uhuc：交接模式锁 waiter 超时（对抗审视严重发现 1 采纳）。
+ * F20260920uhuc：交接模式锁 waiter 超时（对抗审视严重发现 1 采纳）。
  * 合成上界 60s + turn 尾缓冲 → 120s；交接期间后续 waiter 用此值，交接结束恢复正常 30s。
  */
 export const HANDOFF_LOCK_WAITER_TIMEOUT_MS = 120_000;
@@ -119,7 +119,7 @@ export class SimpleLockManager {
   private readonly defaultTimeout: number;
   /** #599：锁持有超龄阈值——超过该时长视为 stale，等待中的 acquire 可强制接管 */
   private readonly stealThresholdMs: number;
-  /** F20260918uhuc：交接模式锁 key 集合——窗口内后续 waiter 超时延长至 120s。
+  /** F20260920uhuc：交接模式锁 key 集合——窗口内后续 waiter 超时延长至 120s。
    *  Why：交接持锁最坏 60s（合成上界）+turn 尾，默认 waiter 超时 30s 会在窗口内假超时
    *  报错（F20260917rsta 锁雪崩 500 变体）；只延长交接 key，不动全局锁语义。 */
   private readonly handoffModeKeys = new Set<string>();
@@ -134,7 +134,7 @@ export class SimpleLockManager {
     this.stealThresholdMs = stealThresholdMs;
   }
 
-  /** F20260918uhuc：交接模式开关——true 后该 key 的新 waiter 超时延长至交接级别（120s）。
+  /** F20260920uhuc：交接模式开关——true 后该 key 的新 waiter 超时延长至交接级别（120s）。
    *  已在队列中的 waiter 不受影响（它们的超时定时器已建）——交接开始前的排队者
    *  等 30s 超时后报错，与现状语义一致（那是交接前正常 turn 排队）。 */
   setHandoffMode(key: string, on: boolean): void {

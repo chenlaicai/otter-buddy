@@ -19,7 +19,7 @@ import type { OtterPromptConfig } from "@contract/api/otter";
 import { getConfig } from "../config";
 import { buildOtterPrompt } from "./session-helpers";
 import { externalizeHistoricalImages } from "./image-externalizer";
-// F20260918uhuc：compaction-hook 导入退役（session_before_compact 钩子随时机权回收而退役）
+// F20260920uhuc：compaction-hook 导入退役（session_before_compact 钩子随时机权回收而退役）
 import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
 import { buildHaltBlockReason } from "@usecases/signal/halt-block-reason";
 
@@ -132,7 +132,7 @@ export class ModelRuntimeRegistry {
                 }
                 return undefined;
               });
-              // F20260918uhuc：session_before_compact 钩子退役——压缩时机权收回应用层
+              // F20260920uhuc：session_before_compact 钩子退役——压缩时机权收回应用层
               //（agent-invoker 轮边界水位检查，超线走统一交接换 session）；
               // SDK compaction 保留 enabled 且 reserve 降为 50K 量级，仅作真溢出
               //（overflow）时的 Pi 默认原地压缩救急（U1 验证：overflow 判定独立于
@@ -164,7 +164,7 @@ export class ModelRuntimeRegistry {
       // 搭档拍板 300K 标称线，整数 reserveTokens=700K 的实际触发 340K 在退化区间之上且留有余量。
       // 配置化（搭档要求）：config contextQuality.compactionReserveTokens，缺省 700_000。
       // merge 语义：partial merge——仅接管 reserveTokens，enabled/keepRecentTokens 保留 SDK 默认。
-      // F20260918uhuc 终审修正：SDK threshold reserve 改用 sdkOverflowReserveTokens（缺省 50_000）——
+      // F20260920uhuc 终审修正：SDK threshold reserve 改用 sdkOverflowReserveTokens（缺省 50_000）——
       // 应用层质量线（compactionReserveTokens 340K 触发）已由 agent-invoker 轮边界水位接管，
       // SDK threshold 只留真溢出救急（1M 窗口下 995K 触发，贴溢出点）；若仍用 700K 会与
       // 应用层水位线撞车，单轮暴涨场景 SDK 抢先原地压缩（丢历史），违背「压缩=交接」架构意图。
@@ -301,7 +301,7 @@ export interface OtterInvokeContext {
 export const otterInvokeStorage = new AsyncLocalStorage<OtterInvokeContext>();
 
 
-// F20260918uhuc：compactionHookDeps/setCompactionHookDeps 退役（session_before_compact
+// F20260920uhuc：compactionHookDeps/setCompactionHookDeps 退役（session_before_compact
 //  钩子随时机权回收而退役，见上方 factory 注册处注释）。
 
 /**

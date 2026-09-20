@@ -202,11 +202,11 @@ export class ManageSession {
    * 撞 conflict 不是用户错误——认领既有新行、补写 summary，按成功处理。
    *
    * F20260810rstart: 从 controller 提取，供 agent tool 和 HTTP API 共用。
-   * F20260918uhuc: 增可选 reason 参数——'compaction'（水位交接）与 'restart'（手动/自重启/熔断）
+   * F20260920uhuc: 增可选 reason 参数——'compaction'（水位交接）与 'restart'（手动/自重启/熔断）
    * 在域层区分世代成因（UI Session Chain / 统计可按 reason 区分）；缺省 'restart' 兼容全部既有调用方。
    * 硬约束：archive 成功后 → 写 config → createSession，顺序不可调换。
    */
-  // eslint-disable-next-line complexity -- F20260908efmd config 写回 + F20260918uhuc reason 参数（硬约束顺序内聚，拆分降低可读性）
+  // eslint-disable-next-line complexity -- F20260908efmd config 写回 + F20260920uhuc reason 参数（硬约束顺序内聚，拆分降低可读性）
   async restartSession(otterId: string, summary?: string, modelAlias?: string, reason: 'restart' | 'compaction' = 'restart'): Promise<OtterSession> {
     // 1. 归档当前 active session（含 agent session reset，确保旧 agent 会话被清理）
     // F20260821scrt：summary 是 LLM 自由文本，入口统一脱敏（archive/create/adopt 各路径与返回值一致）

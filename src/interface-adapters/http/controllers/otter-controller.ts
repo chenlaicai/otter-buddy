@@ -30,7 +30,7 @@ export class OtterController {
     /** F20260827ucrt：可选——UI 入口 modelAlias 校验（settings-controller hasModel 同层先例）。
      *  可选注入保持测试兼容；大獭工具链不走此 controller，不受影响 */
     private readonly modelPool?: ModelPoolLike,
-    /** F20260918uhuc：可选——手动重启走统一交接管线（叠加档案 + 忙碌拒绝）
+    /** F20260920uhuc：可选——手动重启走统一交接管线（叠加档案 + 忙碌拒绝）
      *  未注入时降级为原语义（直透 restartSession，测试/旧装配兼容） */
     private readonly agentInvoker?: Pick<AgentInvoker, "restartWithUnifiedHandoff">,
   ) {}
@@ -120,7 +120,7 @@ export class OtterController {
           "validation",
         );
       }
-      // F20260918uhuc：统一交接管线——synthesizePast 透传（缺省 true，向后兼容旧客户端）；
+      // F20260920uhuc：统一交接管线——synthesizePast 透传（缺省 true，向后兼容旧客户端）；
       // 忙碌（running invoke）拒绝 409（DomainError conflict 映射）；合成失败降级机械档案
       const session = this.agentInvoker
         ? await this.agentInvoker.restartWithUnifiedHandoff(id, {

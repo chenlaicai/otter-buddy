@@ -35,7 +35,7 @@ llm:
       strengths: ["强推理", "代码能力优秀", "长上下文"]
       weaknesses: ["价格较高"]
       contextWindow: 128000
-      # 交接阈值（必填，F20260918uhuc）：已用 token 绝对值——上轮上下文超过此值即触发
+      # 交接阈值（必填，F20260920uhuc）：已用 token 绝对值——上轮上下文超过此值即触发
       # 统一交接（换世：合成前世档案+新 session 继承）。
       # 每模型单独配置（不同窗口的模型不共享水位线）。经验值：窗口的 25-35%。
       # 例：128K 窗口配 40000；1M 窗口（如 kimi k3）配 340000。
@@ -98,9 +98,9 @@ embedding:
   #     └─ onnx/{model.onnx, model.onnx_data}
   localModelPath: ./models
 
-# === 上下文质量配置（F20260904cq30 / F20260918uhuc）===
+# === 上下文质量配置（F20260904cq30 / F20260920uhuc）===
 contextQuality:
-  # SDK 溢出兜底 reserve（F20260918uhuc）：Pi SDK 自带压缩的触发线 = contextWindow − 此值。
+  # SDK 溢出兜底 reserve（F20260920uhuc）：Pi SDK 自带压缩的触发线 = contextWindow − 此值。
   # 缺省 50000（贴溢出点：1M 窗口 995K 才触发）——应用层交接（llm.models[].handoffThresholdTokens）
   # 平时先拦住，此线只在漏拦的暴涨场景救急（Pi 原地压缩，丢历史的最后防线）。与模型无关，全局一个。
   # 注意：旧 compactionReserveTokens（预留制全局阈值）已退役——改配 llm.models[].handoffThresholdTokens

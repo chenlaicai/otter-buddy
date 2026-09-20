@@ -1269,7 +1269,7 @@ function ConversationPage() {
     if (modal.type !== 'restart') return
     const otterId = modal.otterId
     try {
-      // F20260918uhuc：统一交接管线——synthesizePast 透传（undefined=缺省 true）；
+      // F20260920uhuc：统一交接管线——synthesizePast 透传（undefined=缺省 true）；
       // 档案=引擎叙事（按勾选）+意图书（如填）+机械供料，前世记录完整保留
       await api.restartOtter(otterId, summary.trim() || undefined, modelAlias, synthesizePast)
       /** F20260805rsto：重启后重拉 session 链——加载 effect 有 `!sessions[id]` 守卫，
@@ -1278,7 +1278,7 @@ function ConversationPage() {
       setSessions(prev => ({ ...prev, [otterId]: dtos.map(mapSessionDTO) }))
       setModal({ type: 'none' }); showToast(synthesizePast === false ? '前世已封存（机械档案），新一世獭生已开始' : '前世已封存，新一世携带完整前世档案开始', 'success')
     } catch (err) {
-      // F20260918uhuc：忙碌 409 → 明确提示（模态保持，用户稍后重试——RestartModal 交接收尾在 onClose）
+      // F20260920uhuc：忙碌 409 → 明确提示（模态保持，用户稍后重试——RestartModal 交接收尾在 onClose）
       const isBusy = err instanceof Error && err.message.includes('忙碌')
       showToast(isBusy ? '该獭正在执行任务，忙碌中不允许重启，请稍后再试' : '重启失败', 'error')
     }

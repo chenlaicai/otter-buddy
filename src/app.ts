@@ -283,7 +283,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const uc = initUseCases({ repos, entryRepo: repos.entry, invokeRepo: repos.invoke, agentGateway, embeddingService, memoryIndex, appConfig: config, logger, workspaceGateway, otterConfigProvider, modelPool });
   // F20260813mren 审视二轮：sync_docs 工具注入——海獭写完文档可立即触发同步入库
   // 审视三轮 A-10：rootDir 透传——worktree 流程下文槛在 worktree，海獭可传 worktree 绝对路径
-  // F20260918uhuc：agentInvoker 延迟绑定容器——buildOtterToolClient 先于 agentInvoker 构造
+  // F20260920uhuc：agentInvoker 延迟绑定容器——buildOtterToolClient 先于 agentInvoker 构造
   // （同 setOtterToolClient 时序先例），闭包经 ref 读最新值
   const agentInvokerRef: { current?: Pick<AgentInvoker, "restartWithUnifiedHandoff"> } = {};
   resolveOtterToolClient(buildOtterToolClient(uc, {
@@ -293,7 +293,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     },
     /** F20260912avlb：dispatch 工具指向派工台账正式表 */
     dispatchRepo: repos.dispatchRecord,
-    /** F20260918uhuc：restart_otter 工具统一交接入口（延迟绑定） */
+    /** F20260920uhuc：restart_otter 工具统一交接入口（延迟绑定） */
     agentInvoker: {
       restartWithUnifiedHandoff: (otterId, params) => {
         if (!agentInvokerRef.current) {
@@ -326,7 +326,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     : undefined;
 
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics: schedulerMetrics, agentMetrics, dispatchChainEngine, db, appConfig: config, modelPool, otterConfigProvider });
-  // F20260918uhuc：统一交接入口回填（otter tool client 延迟绑定）
+  // F20260920uhuc：统一交接入口回填（otter tool client 延迟绑定）
   agentInvokerRef.current = agentInvoker;
 
   // ── F20260902sgp2 S2：信号路由器重挂（v2 语义：pending = 派发台账）──

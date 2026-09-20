@@ -37,7 +37,7 @@ export interface ModelConfig {
    *  "off"（默认）= 关闭 thinking；档位映射按模型目录 thinkingLevelMap 决定（如 kimi k3 支持 low/high/max），
    *  配置了映射为 null 的档位时 SDK 自动向上/向下 clamp 到最近可用档。 */
   thinkingLevel?: ThinkingLevel;
-  /** 每模型交接阈值（F20260918uhuc 需求变更，2026-09-20）：已用 token 绝对值。
+  /** 每模型交接阈值（F20260920uhuc 需求变更，2026-09-20）：已用 token 绝对值。
    *  agent-invoker 轮边界检查上轮 ctxTokens 超过此值即触发统一交接（换世+档案）。
    *  按模型必填（不同模型窗口差异大，不共享全局水位线）；旧全局
    *  contextQuality.compactionReserveTokens（预留制）已退役——用户心智从
@@ -86,11 +86,11 @@ export interface AppConfig {
     workerExecArgv?: string[];
   };
   /** 上下文质量（F20260904cq30）：SDK 兜底层 reserve 配置域。
-   *  F20260918uhuc 需求变更（2026-09-20）：应用层交接阈值改为按模型直给制
+   *  F20260920uhuc 需求变更（2026-09-20）：应用层交接阈值改为按模型直给制
    *  （ModelConfig.handoffThresholdTokens，已用 token 绝对值），旧全局
    *  compactionReserveTokens（预留制）退役 */
   contextQuality: {
-    /** F20260918uhuc：SDK 兜底 reserve（U1 验证后定稿）——SDK threshold 触发线 = 窗口 − 此值。
+    /** F20260920uhuc：SDK 兜底 reserve（U1 验证后定稿）——SDK threshold 触发线 = 窗口 − 此值。
      * 缺省 50000：1M 窗口下 995K 才触发 SDK 原地压缩（贴溢出点，平时永不触发），
      * 真溢出（overflow，判定独立于 reserve）时 Pi 默认算法救急。
      * 注意方向：reserve 越小触发线越高——「永不触发」靠小 reserve 而非大 reserve */
@@ -289,7 +289,7 @@ interface RawConfig {
     localModelPath?: string;
   };
   contextQuality?: {
-    /** F20260918uhuc 需求变更（2026-09-20）：compactionReserveTokens 退役（按模型
+    /** F20260920uhuc 需求变更（2026-09-20）：compactionReserveTokens 退役（按模型
      *  handoffThresholdTokens 直给制取代，见 ModelConfig）；此键残留时 validate 报错引导迁移 */
     sdkOverflowReserveTokens?: number;
   };
@@ -375,7 +375,7 @@ function d<T>(value: T | undefined, fallback: T): T {
  * 校验模型配置（llm.models[]）。
  * 填充 default 值（缺省时取第一个模型）。
  */
-// eslint-disable-next-line complexity -- F20260918uhuc 需求变更（2026-09-20）：models 条目校验增 handoffThresholdTokens 必填顶到 15（每条目校验内聚一函数，拆分反而碎）
+// eslint-disable-next-line complexity -- F20260920uhuc 需求变更（2026-09-20）：models 条目校验增 handoffThresholdTokens 必填顶到 15（每条目校验内聚一函数，拆分反而碎）
 function validateModels(raw: RawConfig): void {
   const models = raw.llm!.models!;
 
@@ -391,7 +391,7 @@ function validateModels(raw: RawConfig): void {
     if (m.thinkingLevel !== undefined && !VALID_THINKING_LEVELS.includes(m.thinkingLevel)) {
       throw new Error(`配置校验失败: llm.models["${m.alias}"].thinkingLevel 必须是 ${VALID_THINKING_LEVELS.join(" / ")}，当前值: ${m.thinkingLevel}`);
     }
-    // F20260918uhuc 需求变更（2026-09-20）：交接阈值按模型必填（已用 token 绝对值）。
+    // F20260920uhuc 需求变更（2026-09-20）：交接阈值按模型必填（已用 token 绝对值）。
     // 每模型单独水位线——不同模型窗口差异大（128K 与 1M 不共享一条线），不设全局缺省
     if (typeof m.handoffThresholdTokens !== "number" || !Number.isFinite(m.handoffThresholdTokens) || m.handoffThresholdTokens <= 0) {
       throw new Error(
@@ -424,11 +424,11 @@ export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { de
   if (!raw.llm?.models || raw.llm.models.length === 0) {
     throw new Error("配置校验失败: llm.models[] 为必填字段（至少一个模型条目，单模型配置也请写为一条 models[] 条目）");
   }
-  // F20260918uhuc 需求变更（2026-09-20）：compactionReserveTokens 退役 fail-closed——
+  // F20260920uhuc 需求变更（2026-09-20）：compactionReserveTokens 退役 fail-closed——
   // 残留旧键直接报错引导迁移（静默忽略会让用户以为全局水位线还在生效）
   if ((raw.contextQuality as Record<string, unknown> | undefined)?.compactionReserveTokens !== undefined) {
     throw new Error(
-      "配置校验失败: contextQuality.compactionReserveTokens 已退役（F20260918uhuc 需求变更）。" +
+      "配置校验失败: contextQuality.compactionReserveTokens 已退役（F20260920uhuc 需求变更）。" +
       "交接阈值改为按模型配置：llm.models[].handoffThresholdTokens（已用 token 绝对值）。" +
       "迁移公式：handoffThresholdTokens = 模型 contextWindow − 旧 compactionReserveTokens",
     );
@@ -599,7 +599,7 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelC
       localModelPath: raw.embedding?.localModelPath ?? undefined,
     },
     contextQuality: {
-      // F20260918uhuc 需求变更：compactionReserveTokens 退役（按模型 handoffThresholdTokens 直给制，
+      // F20260920uhuc 需求变更：compactionReserveTokens 退役（按模型 handoffThresholdTokens 直给制，
       // validateModels 强制必填）；本节只留 SDK 兜底 reserve（与模型无关的全局量）
       sdkOverflowReserveTokens: d(raw.contextQuality?.sdkOverflowReserveTokens, 50_000),
     },

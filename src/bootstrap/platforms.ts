@@ -13,7 +13,7 @@ import { initAgentSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import type { OtterContextWindowProvider } from "@usecases/ports/otter-context-window-provider";
-// F20260918uhuc：统一交接引擎（bootstrap=组合根，import frameworks 合法）
+// F20260920uhuc：统一交接引擎（bootstrap=组合根，import frameworks 合法）
 import type { HandoffEngineDeps } from "../interface-adapters/agent-runtime/agent-invoker";
 import { buildNarrativeSynthesisPrompt, assembleHandoffArchive, buildMechanicalArchive, NARRATIVE_SYNTHESIS_TIMEOUT_MS } from "@frameworks/agent/narrative-synthesis-engine";
 import { sliceSessionEntries, serializeKeptWindow } from "@frameworks/agent/session-slicer";
@@ -187,7 +187,7 @@ function buildCtxWindowProvider(
       // 未配 alias 时走默认模型窗口（model-pool.getContextWindow 语义：null/undefined → 默认条目）
       return modelPool.getContextWindow(alias);
     },
-    // F20260918uhuc 需求变更（2026-09-20）：交接阈值按模型直给（已用 token 绝对值）
+    // F20260920uhuc 需求变更（2026-09-20）：交接阈值按模型直给（已用 token 绝对值）
     getOtterHandoffThresholdTokens: (otterId: string): number | undefined => {
       const alias = otterConfigProvider?.getConfig(otterId)?.modelAlias;
       return modelPool.getHandoffThresholdTokens(alias);
@@ -195,7 +195,7 @@ function buildCtxWindowProvider(
   };
 }
 
-/** F20260918uhuc：统一交接引擎函数包组装（bootstrap 层 import frameworks——组合根合法）。
+/** F20260920uhuc：统一交接引擎函数包组装（bootstrap 层 import frameworks——组合根合法）。
  *  水位阈值按模型读 ModelConfig.handoffThresholdTokens（2026-09-20 需求变更，直给制）。
  *  类型桥接：frameworks 具体签名 → HandoffEngineDeps 结构面（具体类型在 bootstrap 收敛）。 */
 function buildHandoffEngineDeps(): HandoffEngineDeps {
@@ -219,7 +219,7 @@ function buildAgentInvoker(o: {
   messageBroadcaster: MessageBroadcaster | undefined; workspaceGateway?: WorkspaceGateway;
   agentMetrics?: AgentMetricsPort; appConfig?: AppConfig; ctxWindowProvider?: OtterContextWindowProvider;
   agentDispatchService?: AgentDispatchService;
-  /** F20260918uhuc：统一交接引擎函数包 */
+  /** F20260920uhuc：统一交接引擎函数包 */
   handoffEngine?: HandoffEngineDeps;
 }): AgentInvoker {
   return new AgentInvoker(
@@ -243,7 +243,7 @@ function buildAgentInvoker(o: {
     o.repos.invoke,
     // F20260916fst4：首哑信号消费时 dispatch 大獭（setter 延迟挂接，见 initAgentAndScheduler 注释）
     o.agentDispatchService,
-    // F20260918uhuc：统一交接引擎函数包
+    // F20260920uhuc：统一交接引擎函数包
     o.handoffEngine,
   );
 }
@@ -300,7 +300,7 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
     handoffEngine: buildHandoffEngineDeps(),
   });
 
-  // F20260918uhuc：压缩钩子接线退役——setCompactionSynthesis 随 session_before_compact 钩子退役
+  // F20260920uhuc：压缩钩子接线退役——setCompactionSynthesis 随 session_before_compact 钩子退役
   //（时机权回收应用层轮边界水位，七段合成迁入统一引擎 narrative-synthesis-engine，
   //  经 HandoffEngineDeps 注入 agentInvoker）。
 

@@ -1,5 +1,5 @@
 /**
- * F20260918uhuc：统一交接（unifiedHandoff / restartWithUnifiedHandoff）单元测试。
+ * F20260920uhuc：统一交接（unifiedHandoff / restartWithUnifiedHandoff）单元测试。
  *
  * 取代 F20260917rsta 的 restartWithAutoHandoffIfBlank 测试——语义从「空摘要才合成」
  * 升级为「叠加式档案：有无自总结都走统一管线」。
@@ -146,7 +146,7 @@ function makeInvokerWithEngine(opts: {
   engine?: HandoffEngineDeps;
   conversationIds?: string[];
   restartSession?: ManageSession["restartSession"];
-  /** F20260918uhuc 需求变更（2026-09-20）：进度消息通道 stub */
+  /** F20260920uhuc 需求变更（2026-09-20）：进度消息通道 stub */
   broadcaster?: { events: Array<{ conversationId: string; event: string; data: unknown }> };
   sendEntry?: { bodies: string[] };
   ctxWindowProvider?: { window?: number; threshold?: number };
@@ -190,11 +190,11 @@ function makeInvokerWithEngine(opts: {
     } : undefined) as never, // sendEntry
     undefined, // invokeRepo
     undefined, // agentDispatchService
-    opts.engine, // engine（F20260918uhuc）
+    opts.engine, // engine（F20260920uhuc）
   ) as unknown as AgentInvoker;
 }
 
-describe("restartWithUnifiedHandoff（F20260918uhuc 统一交接）", () => {
+describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
   it("V1 锚点：合成走影子通道——全程零 invoke 调用 + 持锁释放配对（锁雪崩根治）", async () => {
     const sdk = makeSdkPort();
     const engine = makeEngine();
@@ -394,7 +394,7 @@ describe("restartWithUnifiedHandoff（F20260918uhuc 统一交接）", () => {
       sendEntry,                         // 18：invoke 生命周期
       { getInvokeEvents: async () => [] } as never, // 19：invokeRepo
       undefined, // agentDispatchService
-      makeEngine(), // 21：engine（F20260918uhuc）
+      makeEngine(), // 21：engine（F20260920uhuc）
     ) as unknown as AgentInvoker;
 
     await invoker.invokeConversation({

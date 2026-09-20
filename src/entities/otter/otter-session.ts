@@ -57,7 +57,7 @@ export function buildNewSession(
  * 来源：D36 示例 + 旧 repo archiveSession() 逻辑提取（旧 adapter 本身不做映射，映射在 repo 中）
  */
 export function archiveReasonToSessionStatus(reason: string): SessionStatus {
-  // F20260918uhuc：'compaction'（水位交接）与 'restart' 同为换世归档——session 链
+  // F20260920uhuc：'compaction'（水位交接）与 'restart' 同为换世归档——session 链
   // 语义一致（封存+新行），映射 'restarted' 使 UI Session Chain 按世代正常展示
   if (reason === "restart" || reason === "compaction") {
     return "restarted";

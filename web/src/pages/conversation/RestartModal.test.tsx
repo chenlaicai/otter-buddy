@@ -1,5 +1,5 @@
 /**
- * F20260918uhuc：RestartModal 交互测试（UI 真机自查的组件层补充）。
+ * F20260920uhuc：RestartModal 交互测试（UI 真机自查的组件层补充）。
  *
  * 真机 Playwright 取证：空前世场景重启秒级完成，submitting 文案（正在封装前世档案…）
  * 与防连点窗口 <50ms 采样不到——本测试用 jsdom 受控环境钉死这两个行为：
@@ -40,7 +40,7 @@ function renderRestartModal(onConfirmRestart: (s: string, m?: string, sp?: boole
   )
 }
 
-describe('RestartModal（F20260918uhuc 统一交接）', () => {
+describe('RestartModal（F20260920uhuc 统一交接）', () => {
   it('「生成前世总结」勾选项默认勾选，说明文案区分勾/不勾形态', async () => {
     renderRestartModal(() => {})
     const toggle = await screen.findByTestId('synthesize-past-toggle')

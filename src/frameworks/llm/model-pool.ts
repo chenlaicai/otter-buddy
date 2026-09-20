@@ -97,7 +97,7 @@ export class ModelPool implements ModelPoolLike {
     return this.entries.get(alias)?.config.contextWindow;
   }
 
-  /** F20260918uhuc 需求变更（2026-09-20）：获取模型的交接阈值（已用 token 绝对值，按模型必填）。
+  /** F20260920uhuc 需求变更（2026-09-20）：获取模型的交接阈值（已用 token 绝对值，按模型必填）。
    * 回退语义与 getContextWindow 一致：alias 缺省回退默认模型，未知 alias 返回 undefined。 */
   getHandoffThresholdTokens(alias: string | null | undefined): number | undefined {
     if (!alias) return this.entries.get(this.defaultAlias)?.config.handoffThresholdTokens;
