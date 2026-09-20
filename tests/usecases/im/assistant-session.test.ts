@@ -110,7 +110,7 @@ describe("AssistantSessionManager", () => {
     expect(ctx.restarts).toHaveLength(0);
   });
 
-  it("F20260920imax：last-entry 超过 8h → restartSession（对话不动）+ 交接摘要 + 记忆沉淀", async () => {
+  it("F20260920imax：last-entry 超过 8h → 先落摘要后重启（对话不动）+ 交接摘要带真实标题", async () => {
     const ctx = makeManager({ lastEntryAgeHours: 10 });
     ctx.deps.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-existing", title: "微信助理 · x" });
     const result = await ctx.manager.ensureAssistantConversation({ connectionId: "conn-1", channel: "weixin", displayName: "x" });
@@ -119,13 +119,15 @@ describe("AssistantSessionManager", () => {
     expect(result).toEqual({ id: "conv-existing", title: "微信助理 · x" });
     expect(ctx.created).toHaveLength(0);
 
-    // session 重启：副作用断言（restarts 记录表——行为结果而非 mock 内部）
+    // restartSession 收到的摘要带真实标题（检视发现 1：曾发空标题）+ 内容完整
     expect(ctx.restarts).toHaveLength(1);
     expect(ctx.restarts[0].otterId).toBe("otter-of-conv-existing");
+    expect(ctx.restarts[0].summary).toContain("微信助理 · conv-existing");
     expect(ctx.restarts[0].summary).toContain("用户提问");
-    expect(ctx.restarts[0].summary).toContain("水獭回复");
 
-    // 交接摘要落 summary + 记忆（连续性锚）
+    // 先落 summary/记忆后重启（检视发现 1/4 处置验证：摘要只构建一次、带真实标题）
+    expect(ctx.summaries).toHaveLength(1); // 单次落库（若双 buildDigest 路径会重复写）
+    expect(ctx.digests).toHaveLength(1);
     expect(ctx.summaries[0].id).toBe("conv-existing");
     expect(ctx.digests[0]).toMatchObject({ digestId: "digest-conv-existing", conversationId: "conv-existing" });
   });

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { toConversationDTO, isAssistantConversationTitle } from "@interface-adapters/http/dto/conversation-dto";
+import { normalizeConversationInput } from "@entities/conversation/conversation";
 import type { Conversation } from "@entities/conversation/conversation";
 
 /**
@@ -48,5 +49,13 @@ describe("toConversationDTO kind 标识（F20260920imax：schema 字段真相源
   it("kind=normal（即便标题带助理前缀）→ DTO 无 kind 字段", () => {
     const dto = toConversationDTO(convFixture({ title: "微信助理 · x12345", kind: "normal" }));
     expect("kind" in dto).toBe(false);
+  });
+
+  // 检视发现 3 补：迁移前存量语义边界（实体层 kind 必填，缺省场景由
+  // rowToConversation/normalizeConversationInput 归一化为 normal——DTO 侧不出现 undefined 流入）
+  it("构造层归一化：缺省 kind 由 normalizeConversationInput 补 normal，DTO 不含 kind", () => {
+    const normalized = normalizeConversationInput({ ...convFixture(), kind: undefined });
+    expect(normalized.kind).toBe("normal");
+    expect("kind" in toConversationDTO(normalized)).toBe(false);
   });
 });

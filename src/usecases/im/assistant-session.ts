@@ -131,13 +131,17 @@ export class AssistantSessionManager {
         sessionIdleHours: this.deps.sessionIdleHours,
       });
 
-      // 交接摘要：机械拼接（不经 LLM）——restartSession 的 summary 即新 session 的前世上下文
-      const summary = await this.buildDigest({ id: conversationId, title: "" });
-
-      await this.deps.manageSession.restartSession(assistantOtter, summary, undefined, "restart");
-
-      // 摘要同时落 conversation.summary + 记忆（跨 session 连续感由记忆承载）
-      await this.writeDigest({ id: conversationId, title: await this.resolveTitle(conversationId) });
+      // 交接摘要：机械拼接（不经 LLM），构建一次全链共用（检视发现 1 处置——原双重
+      // buildDigest 曾把空标题摘要发给 restartSession）；先落库再重启（发现 4——
+      // 先 writeDigest 后 restartSession，消除新 session 立即产生 entry 混入摘要的竞态窗口）
+      const title = await this.resolveTitle(conversationId);
+      const digest = await this.buildDigest({ id: conversationId, title });
+      await this.deps.conversationRepo.updateSummary(conversationId, digest);
+      if (this.deps.memoryIndex) {
+        // fact 类记忆条目，conversationId 关联——新 session 大獭经 search_memory 自然召回
+        await this.deps.memoryIndex.indexAssistantDigest(`digest-${conversationId}`, conversationId, digest);
+      }
+      await this.deps.manageSession.restartSession(assistantOtter, digest, undefined, "restart");
     } catch (err) {
       // 失败不阻塞入站消息（下次消息再试）
       this.deps.logger.error("Assistant session idle restart failed (message continues)", err instanceof Error ? err : undefined, {
@@ -151,7 +155,8 @@ export class AssistantSessionManager {
     return conv?.title ?? conversationId;
   }
 
-  /** 收篇摘要：机械拼接最近 user/speak entry → conversation.summary + 记忆条目 */
+  /** 摘要落库：conversation.summary + 记忆条目（F20260920imax 检视发现 1/4 处置后仅
+   *  非重启路径使用；重启路径在 maybeRestartIdleSession 内联同语义逻辑——构建一次全链共用） */
   private async writeDigest(current: { id: string; title: string }): Promise<void> {
     const digest = await this.buildDigest(current);
     await this.deps.conversationRepo.updateSummary(current.id, digest);
