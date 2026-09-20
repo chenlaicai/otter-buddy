@@ -87,7 +87,12 @@ export class HealthSnapshotRepository {
       .all(date) as HealthSnapshot[];
   }
 
-  findByDateRange(startDate: string, endDate: string): HealthSnapshot[] {
+  findByDateRange(startDate: string, endDate: string, metricType?: string): HealthSnapshot[] {
+    if (metricType) {
+      return this.db
+        .prepare("SELECT * FROM health_snapshots WHERE snapshot_date BETWEEN ? AND ? AND metric_type = ? ORDER BY snapshot_date, id")
+        .all(startDate, endDate, metricType) as HealthSnapshot[];
+    }
     return this.db
       .prepare("SELECT * FROM health_snapshots WHERE snapshot_date BETWEEN ? AND ? ORDER BY snapshot_date, id")
       .all(startDate, endDate) as HealthSnapshot[];

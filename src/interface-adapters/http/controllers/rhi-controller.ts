@@ -439,8 +439,7 @@ export class RhiController {
     try {
       const startDate = new Date(Date.now() - 13 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
       const rows = this.snapshotRepo
-        .findByDateRange(startDate, new Date().toISOString().slice(0, 10))
-        .filter(r => r.metric_type === "health_index");
+        .findByDateRange(startDate, new Date().toISOString().slice(0, 10), "health_index");
 
       if (rows.length === 0) {
         return c.json({ available: false, snapshotDate: null, overall: null, overallStatus: null, dimensions: [], trend: {}, attribution: null });

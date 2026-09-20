@@ -7,11 +7,12 @@
  * 全确定性规则（无 LLM 判定，与信号引擎同一哲学）；纯函数零副作用，
  * worker 旁路（rhi-scan-worker.persistSnapshot）与 score 端点共用同一实现。
  *
- * 维度口径（审视闭环后的最终版）：
- * - D1 质量成本: bugfix_ratio 分段线性 min(100, 100×max(0,(0.4-ratio)/0.2))
- * - D2 架构稳定: 100 - min(60, hotspot文件数×4) - imbalance触发?20:0（clamp）
- * - D3 交付活力: active占比×100 - regressed（×1.5）/stalled（×1.0）占比扣分（F20260902sigm 四态：
- *   pr-stalled 投影 stalled 顶上原 zombie 的 ×100 权重位；D5 分母口径不变——
+ * 维度口径（F20260920hcal 实测校准版）：
+ * - D1 质量成本: bugfix_ratio 分段线性 min(100, 100×max(0,(0.55-ratio)/0.30))
+ *   三档锚点：≤25% 满分 / 40% = 50 / ≥55% 归零
+ * - D2 架构稳定: 100 - hotspot文件数×2 - imbalance触发?20:0（无饱和封顶）
+ * - D3 交付活力: active占比×100 - regressed（×1.5）/stalled（×0.5，pr-stalled 投影）占比扣分（F20260902sigm 四态：
+ *   pr-stalled 投影 stalled 顶上原 zombie 权重位，F20260920hcal 降至 ×50；D5 分母口径不变——
  *   active+stalled 仍为「活跃+停滞中」链）
  * - D4 流程合规: compliance_rate×100（线性）
  * - D5 信号压力: 100-(critical密度×40+warning密度×30)（clamp）；
@@ -28,7 +29,7 @@ export type DimensionId = "D1" | "D2" | "D3" | "D4" | "D5";
 
 export type HealthStatus = "green" | "yellow" | "red";
 
-/** 综合分权重（#595 设计定稿；实测校准跟踪在 issue #595 后续项） */
+/** 综合分权重（#595 设计定稿；F20260920hcal 实测校准确认权重不变） */
 export const DIMENSION_WEIGHTS: Record<DimensionId, number> = {
   D1: 0.25,
   D2: 0.2,
@@ -113,26 +114,30 @@ function clamp(n: number): number {
   return Math.max(0, Math.min(100, n));
 }
 
-/** D1 质量成本：ratio≤20% 满分，线性降至 40% 归零（审视 S1 定稿：分段线性 + clamp） */
+/** D1 质量成本：ratio≤25% 满分，线性降至 55% 归零
+ *  F20260920hcal 校准：原 40% 归零导致 bugfix 占比 37-40%（结构性现实）时 D1 长期 0-11 分，
+ *  无区分度；三档锚点重校为 ≤25%/40%/≥55%，校准后实测 D1 50-57 分（黄色区间） */
 export function scoreD1(bugfixRatio: number): number {
-  return clamp(100 * Math.max(0, (0.4 - bugfixRatio) / 0.2));
+  return clamp(100 * Math.max(0, (0.55 - bugfixRatio) / 0.30));
 }
 
-/** D2 架构稳定：热区文件数线性扣分（每个扣 4，总扣封顶 60）+ bugfix:feature 失衡（≥2 倍）再扣 20 */
+/** D2 架构稳定：热区文件数线性扣分（每个扣 2，无饱和封顶）+ bugfix:feature 失衡（≥2 倍）再扣 20
+ *  F20260920hcal 校准：原 ×4+cap60 在 ≥15 热区时恒 40（20天实测 D2 恒 40 无区分度），
+ *  改为 ×2 无封顶——10 热区=80（绿）、20 热区=60（黄）、30 热区=40（红），梯度恢复 */
 export function scoreD2(hotspotCount: number, imbalanceTriggered: boolean): number {
-  // Why: 线性 ×10 导致 10 热区即归零，20 热区与 100 热区无区分度
-  // 纯线性×4 + 封顶60（与 issue #630 原方案分段递减的偏差：数值终点一致，20 热区落点 40 分仍在目标区间）
-  const penalty = Math.min(60, hotspotCount * 4);
+  const penalty = hotspotCount * 2;
   return clamp(100 - penalty - (imbalanceTriggered ? 20 : 0));
 }
 
-/** D3 交付活力：active 占比给分，regressed（×1.5）/stalled（×1.0，pr-stalled 投影）占比扣分
- *  F20260902sigm：zombie 删除，stalled 顶上 ×100 权重位（方案审视 A1 定稿公式） */
-export function scoreD3(chainStates: Record<string, number>): number {
+/** D3 交付活力：active 占比给分，regressed（×1.5）/stalled（×0.5，pr-stalled 投影）占比扣分
+ *  F20260902sigm：zombie 删除，stalled 顶上原 zombie 权重位
+ *  F20260920hcal 校准：stalled 权重从 ×100 降至 ×50（r1 建议），与 zombie/orphan 分级；
+ *  当前 stalled=0（9/3后），但为未来 stalled 复现预留中间惩罚系数 */
+export function scoreD3(chainStates: Record<string, number>, stalledWeight = 50): number {
   const total = Object.values(chainStates).reduce((s, n) => s + n, 0);
   if (total <= 0) return 0;
   const pct = (k: string) => (chainStates[k] ?? 0) / total;
-  return clamp(pct("active") * 100 - pct("regressed") * 150 - pct("stalled") * 100);
+  return clamp(pct("active") * 100 - pct("regressed") * 150 - pct("stalled") * stalledWeight);
 }
 
 /** D5 信号压力：open 信号按活跃链（active+stalled）归一后的密度扣分 */
@@ -275,14 +280,15 @@ export function computeHealthScore(input: HealthScoreInput): HealthScoreResult {
 
 /**
  * 走向判定：近 7 天均值 vs 前 7 天均值，差值 >±TREND_THRESHOLD 判 ↑/↓。
- * 序列按时间升序；不足 8 个数据点（前 7 天 + 至少 1 天）为 null。
+ * 序列按时间升序（日期对齐，null=无数据日）。
+ * F20260920hcal 修正：null 过滤改为窗口内剔除——先按日期分割窗口再剔除各窗口内 null，
+ * 避免 null 穿孔导致前窗口日期被后窗口数据「借用」（原实现全序列 filter 后切分）。
  */
 export function judgeTrend(series: Array<number | null>): TrendDirection | null {
-  const vals = series.filter((v): v is number => v !== null);
-  if (vals.length < 8) return null;
-  const recent = vals.slice(-7);
-  const prior = vals.slice(-14, -7);
-  if (prior.length < 7) return null;
+  if (series.length < 8) return null;
+  const recent = series.slice(-7).filter((v): v is number => v !== null);
+  const prior = series.slice(-14, -7).filter((v): v is number => v !== null);
+  if (recent.length < 1 || prior.length < 7) return null;
   const avg = (a: number[]) => a.reduce((s, v) => s + v, 0) / a.length;
   const delta = avg(recent) - avg(prior);
   if (delta > TREND_THRESHOLD) return "improving";
