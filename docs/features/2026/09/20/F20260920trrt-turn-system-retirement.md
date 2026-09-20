@@ -84,6 +84,17 @@ from:
 
 自检盲区复盘：主仓 tsc/vitest 不含 web 独立构建（web 有自己的 tsconfig）与 golden 用例（独立 runner），本轮已补跑 web tsc + web vitest（490 用例）+ golden-selftest（12 用例）全绿。
 
+## 复检处置（复检1053 / glm-flash，搭档加派第二轮，2026-09-20）
+
+搭档因改动量要求加一轮异体复检，与首轮视角正交（首轮抓「新代码引用已删列」，复检抓「存量库列没删干净 + 新库被塞进死列」）：
+- R1（严重）scheduled_task_executions.turn_id 悬空 FK——存量库该表带 REFERENCES turns(id)（#654 时代形），drop turns 后 INSERT 在 prepare 阶段炸 no such table: main.turns，定时任务全停 → retireTurnSystem 补 rebuildExecutionsWithoutTurnId。
+- R2（严重）linked_resources turn 戳两列未迁移（生产库 608 行非零数据）→ 补 dropLinkedResourcesTurnStamps，兑现特性文档声称的 drop。
+- R3（严重）migration 的 idnw 时代 ALTER 补丁会给新库 participants 注入 last_read_turn_number/last_active_turn_number 僵尸列（等价性守卫只查表集合不查列形所以全绿漏过）→ 删两段历史补丁。
+- R4（建议）BIG_OTTER.md 术语表仍定义 turn → 删。
+- R5（建议）guardSince 字典序比较的时间格式耦合 → 注释固化 JS ISO 契约与变更须知。
+- 新增 tests/frameworks/db/retire-turn-verify.test.ts：新库零僵尸列 + 存量库（executions 悬空 FK/turn 戳/participants turn 列/entries turn_id 四形态）全清 + 数据保留 + 幂等，7 组断言实测。
+- 复检同时确认：预警新口径边界组合、FTS 同步、last_read_seq 保留、写路径语义等价——全部干净。
+
 ## 不兼容更新
 
 - [Incompatible] turns 表 drop（存量库迁移自动拆除）

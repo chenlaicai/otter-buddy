@@ -50,25 +50,9 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
     logger.info('Added model_alias column to otter_sessions table');
   }
 
-  // 检查 last_read_turn_number 字段是否存在
+  // F20260902sgp2 S4c：游标 seq 化（新列可空；turn 刻度列已随 F20260920trrt 退役——此列是唯一已读游标）。
+  // 语义：last_read_seq = 该獭已读到的最大 entries.sequence_num；旳行 NULL = 未迁移，backfillLastReadSeq 兑底。
   const participantColumns = db.prepare("PRAGMA table_info(conversation_participants)").all() as Array<{ name: string }>;
-  const hasLastRead = participantColumns.some(col => col.name === 'last_read_turn_number');
-
-  if (!hasLastRead) {
-    db.prepare("ALTER TABLE conversation_participants ADD COLUMN last_read_turn_number INTEGER NOT NULL DEFAULT 0").run();
-    logger.info('Added last_read_turn_number column to conversation_participants table');
-  }
-
-  // F20260819idnw：检查 last_active_turn_number 字段是否存在
-  const hasLastActiveTurnNumber = participantColumns.some(col => col.name === 'last_active_turn_number');
-  if (!hasLastActiveTurnNumber) {
-    db.prepare("ALTER TABLE conversation_participants ADD COLUMN last_active_turn_number INTEGER NOT NULL DEFAULT 0").run();
-    logger.info('Added last_active_turn_number column to conversation_participants table');
-  }
-
-  // F20260902sgp2 S4c：游标 seq 化（双写迁移第一步——新列可空，双写期间旧列保留为回滚面）。
-  // 语义：last_read_seq = 该獭已读到的最大 message.sequence_num；旧行 NULL = 未迁移，
-  // 读路径按 NULL 回退 turn 刻度（getUnreadMessages 双刻度兼容）。
   const hasLastReadSeq = participantColumns.some(col => col.name === 'last_read_seq');
   if (!hasLastReadSeq) {
     db.prepare("ALTER TABLE conversation_participants ADD COLUMN last_read_seq INTEGER").run();
@@ -546,19 +530,78 @@ function retireTurnSystem(db: Database.Database, logger: Logger): void {
   const entryCols = db.prepare("PRAGMA table_info(entries)").all() as Array<{ name: string }>;
   if (!entryCols.some(col => col.name === 'turn_id')) return; // 新库或已迁移
 
-  logger.info('Retiring turn system: rebuilding entries & participants, dropping turns');
+  logger.info('Retiring turn system: rebuilding entries/participants/executions, dropping turns');
   db.pragma("foreign_keys = OFF");
   try {
     db.transaction(() => {
       rebuildEntriesWithoutTurnId(db);
       rebuildParticipantsWithoutTurnColumns(db);
-      // ③ turns 表 drop（引用方 FK 已全拆）
+      rebuildExecutionsWithoutTurnId(db);
+      dropLinkedResourcesTurnStamps(db);
+      // turns 表 drop（引用方 FK 已全拆——entries/participants/executions 三处重建完毕）
       db.exec(`DROP TABLE IF EXISTS turns;`);
     })();
   } finally {
     db.pragma("foreign_keys = ON");
   }
-  logger.info('turn system retired: entries.turn_id / participants turn columns / turns table removed');
+  logger.info('turn system retired: entries/participants/executions turn columns / linked_resources stamps / turns table removed');
+}
+
+/** F20260920trrt（复检发现 1）：scheduled_task_executions 去 turn_id 重建。
+ *  存量库该表带 turn_id TEXT REFERENCES turns(id)（#654 重建时代形）——不拆 FK，
+ *  drop turns 后 INSERT 在 prepare 阶段即 no such table: main.turns，定时任务全停。
+ *  幂等：无 turn_id 列（新库/已迁移）直接返回。 */
+function rebuildExecutionsWithoutTurnId(db: Database.Database): void {
+  const cols = db.prepare("PRAGMA table_info(scheduled_task_executions)").all() as Array<{ name: string }>;
+  if (!cols.some(col => col.name === 'turn_id')) return;
+  db.exec(`
+      CREATE TABLE scheduled_task_executions_retire (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
+        triggered_at TEXT NOT NULL,
+        completed_at TEXT,
+        status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed', 'skipped')),
+        error_message TEXT,
+        message_id TEXT
+      );
+      INSERT INTO scheduled_task_executions_retire (id, task_id, triggered_at, completed_at, status, error_message, message_id)
+        SELECT id, task_id, triggered_at, completed_at, status, error_message, message_id FROM scheduled_task_executions;
+      DROP TABLE scheduled_task_executions;
+      ALTER TABLE scheduled_task_executions_retire RENAME TO scheduled_task_executions;
+      CREATE INDEX IF NOT EXISTS idx_executions_task ON scheduled_task_executions(task_id, triggered_at);
+    `);
+}
+
+/** F20260920trrt（复检发现 2）：linked_resources 去 turn 戳两列（linked_at_turn_number /
+ *  status_changed_at_turn_number，idnw 时代纯账面戳，无行为消费）。幂等：无该列直接返回。 */
+function dropLinkedResourcesTurnStamps(db: Database.Database): void {
+  const cols = db.prepare("PRAGMA table_info(linked_resources)").all() as Array<{ name: string }>;
+  if (!cols.some(col => col.name === 'linked_at_turn_number')) return;
+  db.exec(`
+      CREATE TABLE linked_resources_retire (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        resource_type TEXT NOT NULL,
+        url TEXT,
+        title TEXT,
+        content TEXT,
+        category TEXT,
+        user_flagged INTEGER NOT NULL DEFAULT 0,
+        metadata TEXT,
+        linked_by TEXT NOT NULL,
+        otter_id TEXT,
+        auto_linked INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        status TEXT NOT NULL DEFAULT 'active',
+        group_id TEXT,
+        superseded_by TEXT,
+        FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+      );
+      INSERT INTO linked_resources_retire (id, conversation_id, resource_type, url, title, content, category, user_flagged, metadata, linked_by, otter_id, auto_linked, created_at, status, group_id, superseded_by)
+        SELECT id, conversation_id, resource_type, url, title, content, category, user_flagged, metadata, linked_by, otter_id, auto_linked, created_at, status, group_id, superseded_by FROM linked_resources;
+      DROP TABLE linked_resources;
+      ALTER TABLE linked_resources_retire RENAME TO linked_resources;
+    `);
 }
 
 /** F20260920trrt：entries 去 turn_id 拷贝重建（保留其余全部列/索引） */

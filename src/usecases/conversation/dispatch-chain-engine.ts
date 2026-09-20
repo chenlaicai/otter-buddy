@@ -692,7 +692,12 @@ export class DispatchChainEngine {
       if (!name) continue; // otter 记录缺失（异常边界）
       // 检视发现 9：护栏数据源扩为 max(最后被唤醒, 入场时间)——新入场未被唤醒的小獭
       // 在入场 2h 内不告警（刚进场还没派上活不是闲置）；超 2h 仍未被唤醒也未发言则
-      // 报闲置是正确语义（真闲置）。createdAt 是 JS ISO（manage-participant join 写入）。
+      // 报闲置是正确语义（真闲置）。
+      // 复检发现 5（格式契约）：下方 max 取自字典序比较，依赖两源同为 JS ISO UTC
+      // （含 Z、同长度）——invokes.startedAt（send-entry toISOString）与
+      // participant.createdAt（manage-participant join toISOString）当前均满足。
+      // 若未来任一写入方改格式（如 SQLite datetime('now') 无时区），须改为
+      // 先 Date.parse 再比毫秒——字典序对混合格式会静默错序。
       const guardSince = [lastInvoke.get(p.otterId), p.createdAt]
         .filter((t): t is string => !!t)
         .reduce((a, b) => (a > b ? a : b), '');
