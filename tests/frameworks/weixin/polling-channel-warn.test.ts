@@ -92,7 +92,7 @@ describe("WeixinPollingChannel - context_token 过期预警 (F20260901wxnt)", ()
       accountId: "acc-1",
       onMessage: async () => {},
       logger,
-      contextTokenWarn: { afterMs: 60 * 60_000, cooldownMs: 60 * 60_000 },
+      contextTokenWarn: { afterMs: 60 * 60_000 },
       now: () => fakeNow,
     });
 
@@ -108,7 +108,8 @@ describe("WeixinPollingChannel - context_token 过期预警 (F20260901wxnt)", ()
     poller.stop();
   });
 
-  it("cooldown 期内抑制重复预警", async () => {
+
+  it("已提醒过即抑制，无论过去多久（原 cooldown 语义子集，F20260920wxho）", async () => {
     const receivedAt = fakeNow - 61 * 60_000;
     const warnedAt = fakeNow - 30 * 60_000; // 30 分钟前预警过
     const { accountStore, warnedCalls } = makeFakeAccountStore({
@@ -127,7 +128,7 @@ describe("WeixinPollingChannel - context_token 过期预警 (F20260901wxnt)", ()
       accountId: "acc-1",
       onMessage: async () => {},
       logger,
-      contextTokenWarn: { afterMs: 60 * 60_000, cooldownMs: 60 * 60_000 },
+      contextTokenWarn: { afterMs: 60 * 60_000 },
       now: () => fakeNow,
     });
 
@@ -159,7 +160,7 @@ describe("WeixinPollingChannel - context_token 过期预警 (F20260901wxnt)", ()
       accountId: "acc-1",
       onMessage: async () => {},
       logger,
-      contextTokenWarn: { afterMs: 60 * 60_000, cooldownMs: 60 * 60_000 },
+      contextTokenWarn: { afterMs: 60 * 60_000 },
       now: () => fakeNow,
     });
 
@@ -199,7 +200,7 @@ describe("WeixinPollingChannel - context_token 过期预警 (F20260901wxnt)", ()
       accountId: "acc-1",
       onMessage: async () => {},
       logger,
-      contextTokenWarn: { afterMs: 60 * 60_000, cooldownMs: 60 * 60_000 },
+      contextTokenWarn: { afterMs: 60 * 60_000 },
       now: () => fakeNow,
     });
 
@@ -244,7 +245,7 @@ describe("WeixinPollingChannel - context_token 过期预警 (F20260901wxnt)", ()
       accountId: "acc-1",
       onMessage: async () => {},
       logger,
-      contextTokenWarn: { afterMs: 60 * 60_000, cooldownMs: 60 * 60_000 },
+      contextTokenWarn: { afterMs: 60 * 60_000 },
       now: () => fakeNow,
     });
 
@@ -302,7 +303,7 @@ describe("WeixinPollingChannel - context_token 过期预警 (F20260901wxnt)", ()
       accountId: "acc-empty",
       onMessage: async () => {},
       logger,
-      contextTokenWarn: { afterMs: 60 * 60_000, cooldownMs: 60 * 60_000 },
+      contextTokenWarn: { afterMs: 60 * 60_000 },
       now: () => fakeNow,
     });
 
@@ -328,13 +329,16 @@ describe("WeixinPollingChannel - 入站清除内存缓存 warnedAt (F20260901wxn
     vi.useRealTimers();
   });
 
-  it("入站消息清除内存缓存 warnedAt（cooldown > after 场景不漏发）", async () => {
-    // 场景：cooldown > after（afterMs=60min, cooldownMs=120min）
-    // Phase 1: disk warnedAt=10min ago → cooldown 期内抑制
-    // Phase 2: 快进121min → cooldown 过期 → 预警触发 → 内存缓存 set warnedAt
-    // Phase 3: 用户回复 → dispatchInbound → saveContextToken (disk 清零) + warnedAtMemoryCache.delete (内存清零)
-    // Phase 4: 快进90min → age > afterMs, 内存缓存已清 → 冷却检查跳过 → 预警触发
-    // 若内存缓存未清（bug）：warnedAt 距今 90min < cooldownMs 120min → 错误抑制 → 漏发
+  it("入站消息清除内存缓存 warnedAt（资格重置的内存侧，F20260920wxho 语义）", async () => {
+    // 场景（F20260920wxho 后：每静默期只提醒一次）
+    // Phase 1: disk warnedAt=10min ago → 已提醒过 → 抑制
+    // Phase 2: 快进121min → 仍抑制（cooldown 已退役，warnedAt 存在即跳过）
+    //   ——但为验证内存清除链路，本测试 Phase 2 先入站换新重置资格：
+    //   快进前先注入入站消息 → saveContextToken 清 disk warnedAt → 内存缓存 delete → 资格恢复
+    // Phase 3: 快进 61min → age > afterMs → 预警触发 → 内存缓存 set warnedAt
+    // Phase 4: 用户回复 → dispatchInbound → saveContextToken (disk 清零) + warnedAtMemoryCache.delete (内存清零)
+    // Phase 5: 快进90min → age > afterMs, 内存缓存已清 → 预警触发
+    // 若内存缓存未清（bug）：warnedAt 存在 → 错误抑制 → 漏发（用户回了消息却再收不到预警）
     const warnedAt = fakeNow - 10 * 60_000; // disk: 10 分钟前被预警过
     const { accountStore, savedTokens } = makeFakeAccountStore({
       "acc-1": { user1: { token: "tok", receivedAt: fakeNow - 61 * 60_000, warnedAt } },
@@ -359,29 +363,43 @@ describe("WeixinPollingChannel - 入站清除内存缓存 warnedAt (F20260901wxn
       accountId: "acc-1",
       onMessage: async () => {},
       logger,
-      contextTokenWarn: { afterMs: 60 * 60_000, cooldownMs: 120 * 60_000 },
+      contextTokenWarn: { afterMs: 60 * 60_000 },
       now: () => fakeNow,
     });
 
     poller.start();
 
-    // Phase 1: check 运行（fakeNow 原始值），cooldown 期内抑制 → getUpdates 1 挂起
+    // Phase 1: check 运行（fakeNow 原始值），已提醒过 → 抑制 → getUpdates 1 挂起
     await vi.advanceTimersByTimeAsync(100); // drain check 微任务
     expect(getUpdatesCallCount).toBe(1); // loop 卡在 getUpdates 1
-    expect(sendCalls).toHaveLength(0); // cooldown 抑制
+    expect(sendCalls).toHaveLength(0); // 已提醒过抑制
 
-    // Phase 2: 快进 121 分钟 → resolve getUpdates 1 → loop 继续 → check 运行 → cooldown 过期 → 预警触发
-    fakeNow += 121 * 60_000;
-    getUpdatesResolvers[0]({ ret: 0, msgs: [] });
-    await vi.advanceTimersByTimeAsync(100); // drain check + send + getUpdates 2 hang
-    expect(sendCalls).toHaveLength(1);
-    expect(sendCalls[0].toUserId).toBe("user1");
+    // Phase 2: 入站消息 → saveContextToken（disk 清零）+ 内存缓存 delete → 资格重置
+    getUpdatesResolvers[0]({
+      ret: 0,
+      msgs: [{
+        message_type: 1,
+        from_user_id: "user1",
+        context_token: "tok-mid",
+        item_list: [{ type: 1, text_item: { text: "还在吗" } }],
+      }],
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(savedTokens).toHaveLength(1);
     expect(getUpdatesCallCount).toBe(2); // loop 卡在 getUpdates 2
 
-    // Phase 3: resolve getUpdates 2 → 入站消息 → dispatchInbound
+    // Phase 3: 快进 61 分钟 → resolve getUpdates 2 → check 运行 → 预警触发（第二次静默期满阈值）
+    fakeNow += 61 * 60_000;
+    getUpdatesResolvers[1]({ ret: 0, msgs: [] });
+    await vi.advanceTimersByTimeAsync(100); // drain check + send + getUpdates 3 hang
+    expect(sendCalls).toHaveLength(1);
+    expect(sendCalls[0].toUserId).toBe("user1");
+    expect(getUpdatesCallCount).toBe(3); // loop 卡在 getUpdates 3
+
+    // Phase 4: resolve getUpdates 3 → 入站消息 → dispatchInbound
     // → saveContextToken（disk: receivedAt=now, warnedAt=undefined）+ warnedAtMemoryCache.delete
-    // → check 运行（fakeNow 不变，age=0 → 不触发）→ getUpdates 3 挂起
-    getUpdatesResolvers[1]({
+    // → check 运行（fakeNow 不变，age=0 → 不触发）→ getUpdates 4 挂起
+    getUpdatesResolvers[2]({
       ret: 0,
       msgs: [{
         message_type: 1,
@@ -391,23 +409,23 @@ describe("WeixinPollingChannel - 入站清除内存缓存 warnedAt (F20260901wxn
       }],
     });
     await vi.advanceTimersByTimeAsync(100);
-    expect(savedTokens).toHaveLength(1); // saveContextToken 被调用
-    expect(savedTokens[0].token).toBe("tok-renewed"); // token 换新
-    expect(getUpdatesCallCount).toBe(3); // loop 卡在 getUpdates 3
+    expect(savedTokens).toHaveLength(2); // saveContextToken 再次被调用
+    expect(savedTokens[1].token).toBe("tok-renewed"); // token 换新
+    expect(getUpdatesCallCount).toBe(4); // loop 卡在 getUpdates 4
 
-    // Phase 4: 快进 90 分钟 → resolve getUpdates 3 → check 运行
+    // Phase 5: 快进 90 分钟 → resolve getUpdates 4 → check 运行
     // age = 90min > afterMs = 60min
     // disk warnedAt = undefined（saveContextToken 清零）
     // 内存缓存 = 已清除（dispatchInbound 调了 delete）
-    // → 冷却检查跳过 → 应触发第二次预警
-    // 若内存缓存未清（bug）：warnedAt = Phase 2 的 fakeNow 距今 90min < cooldownMs 120min → 错误抑制 → 漏发
+    // → 应触发第二次预警（资格重置后的新静默期）
+    // 若内存缓存未清（bug）：warnedAt 存在 → 错误抑制 → 漏发
     fakeNow += 90 * 60_000;
-    getUpdatesResolvers[2]({ ret: 0, msgs: [] });
+    getUpdatesResolvers[3]({ ret: 0, msgs: [] });
     await vi.advanceTimersByTimeAsync(100);
     expect(sendCalls).toHaveLength(2);
     expect(sendCalls[1].toUserId).toBe("user1");
     expect(sendCalls[1].contextToken).toBe("tok-renewed"); // 入站换的新 token
-    expect(getUpdatesCallCount).toBe(4); // loop 卡在 getUpdates 4
+    expect(getUpdatesCallCount).toBe(5); // loop 卡在 getUpdates 5
 
     poller.stop();
   });
@@ -434,8 +452,8 @@ describe("WeixinPollingChannel - 预警内存补偿止损 (F20260901wxnt 发现3
         user2: { token: "tok-ok", receivedAt },
       },
     });
-    // user1 落盘失败（模拟磁盘故障），user2 正常
-    let diskFailForUser1 = true;
+    // user1 落盘失败（模拟磁盘故障），user2 正常（F20260920wxho：不再恢复磁盘——每静默期一次无重发路径）
+    const diskFailForUser1 = true;
     const origWarned = fakeStore.accountStore.recordContextTokenWarned as ReturnType<typeof vi.fn>;
     origWarned.mockImplementation((accountId: string, userId: string) => {
       if (accountId === "acc-1" && userId === "user1" && diskFailForUser1) {
@@ -464,7 +482,7 @@ describe("WeixinPollingChannel - 预警内存补偿止损 (F20260901wxnt 发现3
       accountId: "acc-1",
       onMessage: async () => {},
       logger,
-      contextTokenWarn: { afterMs: 60 * 60_000, cooldownMs: 60 * 60_000 },
+      contextTokenWarn: { afterMs: 60 * 60_000 },
       now: () => fakeNow,
     });
 
@@ -479,16 +497,120 @@ describe("WeixinPollingChannel - 预警内存补偿止损 (F20260901wxnt 发现3
 
     const sendsAfterTick1 = sendCalls.length;
 
-    // tick 2：即使 user1 落盘失败，内存缓存的 warnedAt 生效→冷却期内不重发
+    // tick 2：即使 user1 落盘失败，内存缓存的 warnedAt 生效 → 本静默期内不重发（F20260920wxho：无论过多久）
     await vi.advanceTimersByTimeAsync(DELAY_MS + 100); // 推进到 tick 2
-    expect(sendCalls).toHaveLength(sendsAfterTick1); // 冷却期内无新发送
-
-    // tick 3：推进 fakeNow 到冷却期过后，重发成功
-    fakeNow += 61 * 60_000; // 61 分钟后，冷却期已过
-    diskFailForUser1 = false; // 恢复磁盘
-    await vi.advanceTimersByTimeAsync(DELAY_MS + 100); // 推进到 tick 3
-    expect(sendCalls.length).toBeGreaterThan(sendsAfterTick1); // 冷却期过后有新发送
+    fakeNow += 121 * 60_000; // 快进超过原 cooldown，仍不应重发
+    await vi.advanceTimersByTimeAsync(DELAY_MS + 100); // tick 3
+    expect(sendCalls).toHaveLength(sendsAfterTick1); // 每静默期一次：无新发送
     expect(getUpdatesCalls).toBeGreaterThan(0); // loop 确实在运行
+
+    poller.stop();
+  });
+});
+
+describe("WeixinPollingChannel - 预警资格重置（F20260920wxho：每静默期只提醒一次）", () => {
+  let fakeNow: number;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    fakeNow = 1725188000000;
+    vi.setSystemTime(fakeNow);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("跨冷却期不重发：同一静默期只提醒一次（F20260920wxho 修复核心断言）", async () => {
+    // 背景：修复前 cooldown 过期即重发，用户不回复 → 每小时一条无限轰炸（生产实证 6h/6 条）
+    // 修复后：warnedAt 存在（本静默期内已提醒过）→ 无条件跳过，只有入站换新 token 才重置资格
+    const receivedAt = fakeNow - 61 * 60_000;
+    const warnedAt = fakeNow - 121 * 60_000; // 121 分钟前预警过（cooldown 60min 早已过期）
+    const { accountStore } = makeFakeAccountStore({
+      "acc-1": { user1: { token: "tok", receivedAt, warnedAt } },
+    });
+    const { logger } = makeLogger();
+    const sendCalls: unknown[] = [];
+    let getUpdatesCalls = 0;
+    const DELAY_MS = 50;
+    const api = {
+      getUpdates: vi.fn().mockImplementation(() => {
+        getUpdatesCalls++;
+        return new Promise(resolve => setTimeout(() => resolve({ ret: 0, msgs: [] } as never), DELAY_MS));
+      }),
+      sendTextMessage: vi.fn(async () => { sendCalls.push(1); }),
+    } as unknown as WeixinApiClient;
+
+    const poller = new WeixinPollingChannel({
+      api,
+      accountStore,
+      accountId: "acc-1",
+      onMessage: async () => {},
+      logger,
+      contextTokenWarn: { afterMs: 60 * 60_000 },
+      now: () => fakeNow,
+    });
+
+    poller.start();
+    await vi.advanceTimersByTimeAsync(DELAY_MS * 2 + 100);
+    expect(getUpdatesCalls).toBeGreaterThanOrEqual(2); // loop 确实跑了多个 tick
+    expect(sendCalls).toHaveLength(0); // cooldown 早已过期，但本静默期已提醒过 → 不再发
+
+    poller.stop();
+  });
+
+  it("入站换新 token 后重新获得预警资格（第二次静默期仍会提醒一次）", async () => {
+    // 回复后资格重置的完整链路：dispatchInbound → saveContextToken 清 warnedAt + 内存缓存清除
+    const receivedAt = fakeNow - 61 * 60_000;
+    const warnedAt = fakeNow - 121 * 60_000;
+    const { accountStore } = makeFakeAccountStore({
+      "acc-1": { user1: { token: "tok-old", receivedAt, warnedAt } },
+    });
+    const { logger } = makeLogger();
+    const sendCalls: Array<{ toUserId: string; contextToken?: string }> = [];
+    const getUpdatesResolvers: Array<(v: { ret: number; msgs: unknown[] }) => void> = [];
+    let getUpdatesCallCount = 0;
+    const api = {
+      getUpdates: vi.fn().mockImplementation(() => {
+        getUpdatesCallCount++;
+        return new Promise(resolve => { getUpdatesResolvers.push(resolve); });
+      }),
+      sendTextMessage: vi.fn(async (p: { toUserId: string; contextToken?: string }) => { sendCalls.push(p); }),
+    } as unknown as WeixinApiClient;
+
+    const poller = new WeixinPollingChannel({
+      api,
+      accountStore,
+      accountId: "acc-1",
+      onMessage: async () => {},
+      logger,
+      contextTokenWarn: { afterMs: 60 * 60_000 },
+      now: () => fakeNow,
+    });
+
+    poller.start();
+    await vi.advanceTimersByTimeAsync(100); // tick 1：已提醒过 → 不发
+    expect(sendCalls).toHaveLength(0);
+
+    // 入站消息换新 token（资格重置）
+    getUpdatesResolvers[0]({
+      ret: 0,
+      msgs: [{
+        message_type: 1,
+        from_user_id: "user1",
+        context_token: "tok-new",
+        item_list: [{ type: 1, text_item: { text: "hi" } }],
+      }],
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(getUpdatesCallCount).toBe(2);
+
+    // 快进 61 分钟 → 第二次静默期满阈值 → 应再次提醒（且用新 token）
+    fakeNow += 61 * 60_000;
+    getUpdatesResolvers[1]({ ret: 0, msgs: [] });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(sendCalls).toHaveLength(1);
+    expect(sendCalls[0].contextToken).toBe("tok-new");
 
     poller.stop();
   });

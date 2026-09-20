@@ -149,10 +149,8 @@ export interface AppConfig {
     stateDir?: string;
     /** 搭档的微信 ilink_user_id（命令门禁锚定，同 feishu.partnerOpenId 语义） */
     partnerUserId?: string;
-    /** 静默多久（分钟）后发 context_token 预警（F20260901wxnt，默认 60；显式 0 关闭） */
+    /** 静默多久（分钟）后发 context_token 预警（F20260901wxnt，默认 60；显式 0 关闭。F20260920wxho：同一静默期只提醒一次，cooldown 键退役） */
     contextTokenWarnMinutes?: number;
-    /** 同一用户两次预警最小间隔（分钟，默认 60；显式 0 关闭） */
-    contextTokenWarnCooldownMinutes?: number;
   };
   /** F20260918imas / F20260920imax：IM 助理模式（免绑定自动开户；对话永续 + 8h 静默换 session） */
   im?: {
@@ -331,10 +329,8 @@ interface RawConfig {
     stateDir?: string;
     /** 搭档的微信 ilink_user_id（命令门禁，同 feishu.partnerOpenId 语义） */
     partnerUserId?: string;
-    /** 静默多久（分钟）后发 context_token 预警（F20260901wxnt） */
+    /** 静默多久（分钟）后发 context_token 预警（F20260901wxnt；F20260920wxho：同一静默期只提醒一次，cooldown 键退役） */
     contextTokenWarnMinutes?: number;
-    /** 同一用户两次预警最小间隔（分钟） */
-    contextTokenWarnCooldownMinutes?: number;
   };
   im?: {
     assistant?: {
@@ -452,26 +448,25 @@ function safeFinite(value: number | undefined, fallback: number): number {
 }
 
 /**
- * 预警窗口构造（F20260901wxnt）：单键显式 0 即关闭；未配置默认 60min；clamp 下限 1 分钟（防 35s 误报）。
+ * 预警窗口构造（F20260901wxnt）：显式 0 即关闭；未配置默认 60min；clamp 下限 1 分钟（防 35s 误报）。
  * 非有限数（NaN/Infinity，如 YAML "60min"）由 safeFinite 回退默认——与 validate() 启动报错构成双层防线（构造层兑底）。
+ * F20260920wxho：cooldownMs 退役——同一静默期只提醒一次，入站换新 token 才重置资格。
  * 归属 weixin 配置域，供 platforms.ts 装配层直接消费。
  */
 export function buildContextTokenWarnConfig(
   weixin: AppConfig["weixin"],
-): { afterMs: number; cooldownMs: number } | undefined {
-  if (weixin?.contextTokenWarnMinutes === 0 || weixin?.contextTokenWarnCooldownMinutes === 0) return undefined;
+): { afterMs: number } | undefined {
+  if (weixin?.contextTokenWarnMinutes === 0) return undefined;
   return {
     afterMs: Math.max(safeFinite(weixin?.contextTokenWarnMinutes, 60), 1) * 60_000,
-    cooldownMs: Math.max(safeFinite(weixin?.contextTokenWarnCooldownMinutes, 60), 1) * 60_000,
   };
 }
 
-/** 校验 weixin contextTokenWarn* 字段合法性（正整数或 undefined，F20260901wxnt 发现1） */
+/** 校验 weixin contextTokenWarnMinutes 合法性（正整数或 undefined，F20260901wxnt 发现1；F20260920wxho：cooldown 键退役不再校验） */
 function validateWeixinWarnConfig(weixin: NonNullable<RawConfig["weixin"]>): void {
-  for (const [key, val] of Object.entries({ contextTokenWarnMinutes: weixin.contextTokenWarnMinutes, contextTokenWarnCooldownMinutes: weixin.contextTokenWarnCooldownMinutes })) {
-    if (val !== undefined && (typeof val !== "number" || !Number.isInteger(val))) {
-      throw new Error(`配置校验失败: weixin.${key} 必须是整数，当前值: ${String(val)}`);
-    }
+  const val = weixin.contextTokenWarnMinutes;
+  if (val !== undefined && (typeof val !== "number" || !Number.isInteger(val))) {
+    throw new Error(`配置校验失败: weixin.contextTokenWarnMinutes 必须是整数，当前值: ${String(val)}`);
   }
 }
 
@@ -550,7 +545,6 @@ function buildWeixinConfig(raw: RawConfig): AppConfig["weixin"] {
     stateDir: seg.stateDir?.trim() || "./data/weixin",
     partnerUserId: seg.partnerUserId?.trim() || undefined,
     contextTokenWarnMinutes: seg.contextTokenWarnMinutes,
-    contextTokenWarnCooldownMinutes: seg.contextTokenWarnCooldownMinutes,
   };
 }
 

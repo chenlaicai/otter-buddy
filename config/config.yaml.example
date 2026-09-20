@@ -198,12 +198,10 @@ circuitBreaker:
 #   # stateDir: "./data/weixin"
 #   # 搭档的微信 ilink_user_id（命令门禁锚定，同 feishu.partnerOpenId 语义）
 #   # partnerUserId: "wxid_xxxxxxxxxxxx"
-#   # --- context_token 过期预警（F20260901wxnt）---
+#   # --- context_token 过期预警（F20260901wxnt；F20260920wxho：同一静默期只提醒一次）---
 #   # 静默多久（分钟）后向对端用户发一条预警提醒（默认 60；显式 0 = 关闭预警）
-#   # 用户随便回一条消息即换新 token 重置计时，安静聊天不会被打扰
+#   # 每个静默期只提醒一次；用户回一条消息即换新 token 重置提醒资格
 #   # contextTokenWarnMinutes: 60
-#   # 同一用户两次预警最小间隔（分钟，默认 60；显式 0 = 关闭预警）
-#   # contextTokenWarnCooldownMinutes: 60
 
 # === IM 助理模式（F20260918imas，可选）===
 # 微信私聊 / 飞书私聊（p2p）首条消息自动开专属助理对话——家人朋友加好友即聊，无需 /in 绑定；

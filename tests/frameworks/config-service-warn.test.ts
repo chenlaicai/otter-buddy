@@ -36,11 +36,18 @@ describe("weixin contextTokenWarn* 配置边界 (F20260901wxnt)", () => {
     const raw = makeValidRaw({
       baseUrl: "https://ilinkai.weixin.qq.com",
       contextTokenWarnMinutes: 90,
-      contextTokenWarnCooldownMinutes: 30,
     });
     expect(() => validate(raw)).not.toThrow();
     expect(raw.weixin?.contextTokenWarnMinutes).toBe(90);
-    expect(raw.weixin?.contextTokenWarnCooldownMinutes).toBe(30);
+  });
+
+  it("遗留 cooldown 键（F20260920wxho 退役）：validate 不再报错（静默忽略，向后兼容旧配置文件）", () => {
+    const raw = makeValidRaw({
+      baseUrl: "https://ilinkai.weixin.qq.com",
+      contextTokenWarnMinutes: 60,
+      contextTokenWarnCooldownMinutes: 30,
+    });
+    expect(() => validate(raw)).not.toThrow(); // 不拋错：旧配置带着退役键可继续启动
   });
 
   it("非数字坏值（如 YAML \"60min\"）：validate 抛错（与 server.port 同款防线）", () => {
