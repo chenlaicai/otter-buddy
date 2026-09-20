@@ -53,7 +53,6 @@ async function createHealingConversation(
   // F20260913ctlv 批4a：sendSystem 退役，welcome 落 system entry（时间线唯一真相源）
   await deps.sendEntry.createSystemEntry({
     conversationId: conversation.id,
-    turnId: "",
     body: `🩺 **Self-Healing 对话已创建**
 
 这是系统的自愈对话。系统会自动收集日常使用中发现的问题（如工具报错、检索不准等），并定期在此对话中汇报分析结果。

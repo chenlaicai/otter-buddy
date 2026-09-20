@@ -6,16 +6,11 @@ import type { ConversationRepository } from "@usecases/conversation/conversation
 import type { EntryRepository } from "@usecases/conversation/entry-repository";
 import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
 import { PartnerResolver } from "@usecases/im/partner-resolver";
-import type { Turn } from "@entities/conversation/conversation";
 import type { Message } from "@entities/conversation/message";
-
-function makeTurn(overrides: Partial<Turn> = {}): Turn {
-  return { id: "turn-1", conversationId: "conv-1", turnNumber: 5, status: "closed", createdAt: "", closedAt: null, ...overrides };
-}
 
 function makeMsg(overrides: Partial<Message> = {}): Message {
   return {
-    id: "m-1", conversationId: "conv-1", turnId: "turn-1", senderId: "otter-1",
+    id: "m-1", conversationId: "conv-1", senderId: "otter-1",
     senderType: "otter", status: "completed",
     segments: [{ id: "seg-1", messageId: "m-1", body: "hi", sequenceNum: 0, createdAt: "" }],
     sequenceNum: 1,
@@ -26,22 +21,18 @@ function makeMsg(overrides: Partial<Message> = {}): Message {
 }
 
 function makeMocks() {
-  const updateLastReadTurnNumber = vi.fn().mockResolvedValue(undefined);
   const updateLastReadSeq = vi.fn();
-  const updateLastActiveTurnNumber = vi.fn().mockResolvedValue(undefined);
-  const getTurnById = vi.fn().mockResolvedValue(makeTurn());
   // F20260904schf：链引擎改读行级 tsp（getMessageById 的 talkingStonePassedTo），
   // mock 默认按 messageId 返回对应消息行（tsp 默认空）——需 yield 路由的测试自行 override mockImplementation 注册行级 tsp
   const getMessageById = vi.fn(async (messageId: string) => makeMsg({ id: messageId }));
   const getLastMessageBySender = vi.fn().mockResolvedValue(makeMsg());
-  const getActiveTurn = vi.fn().mockResolvedValue(null);
 
   const conversationRepo = {
     getActiveParticipants: vi.fn().mockResolvedValue([]),
     getUnreadMessages: vi.fn().mockResolvedValue([]),
     getMaxTurnNumber: vi.fn().mockResolvedValue(0),
-    getTurnById, updateLastReadTurnNumber, updateLastReadSeq, updateLastActiveTurnNumber, getLastMessageBySender,
-    getActiveTurn, getMessageById,
+    updateLastReadSeq, getLastMessageBySender,
+    getMessageById,
     getParticipant: vi.fn().mockResolvedValue(null),
   } as unknown as ConversationRepository;
 
@@ -58,7 +49,7 @@ function makeMocks() {
     getInvokesByTurnId: vi.fn().mockResolvedValue([]),
   } as unknown as InvokeRepository;
 
-  return { conversationRepo, queryOtter, logger, entryRepo, invokeRepo, getInvokeById, updateLastReadTurnNumber, updateLastReadSeq, updateLastActiveTurnNumber, getTurnById, getMessageById, getLastMessageBySender, getActiveTurn, getMaxTurnNumber: conversationRepo.getMaxTurnNumber as ReturnType<typeof vi.fn> };
+  return { conversationRepo, queryOtter, logger, entryRepo, invokeRepo, getInvokeById, updateLastReadSeq, getMessageById, getLastMessageBySender };
 }
 
 describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒失效）", () => {

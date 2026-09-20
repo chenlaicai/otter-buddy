@@ -58,7 +58,6 @@ function createExecutionFixture(overrides: Partial<ScheduledTaskExecution> = {})
     status: "running",
     errorMessage: null,
     messageId: null,
-    turnId: null,
     ...overrides,
   };
 }
@@ -448,19 +447,18 @@ describe("SqliteScheduledTaskRepository - 状态管理与执行记录", () => {
         repo.updateExecutionStatus("exec-1", {
           status: "completed",
           completedAt: "2026-07-22T09:05:00Z",
-          turnId: "",
         }),
       ).resolves.toBeUndefined();
 
       const results = await repo.getExecutions("task-1");
-      expect(results[0].turnId).toBeNull();
+      expect(results[0].messageId ?? null).toBe(null);
     });
 
-    it("0901 PR4 FK 回归：function executor 成功路径不传 messageId/turnId -> 干净落库", async () => {
+    it("0901 PR4 FK 回归：function executor 成功路径不传 messageId -> 干净落库", async () => {
       await repo.create(createTaskFixture());
       await repo.createExecution(createExecutionFixture());
 
-      // 修复后的调用形态：只传 status/completedAt，messageId/turnId 保持 NULL（FK 豁免）
+      // 修复后的调用形态：只传 status/completedAt，messageId 保持 NULL
       await repo.updateExecutionStatus("exec-1", {
         status: "completed",
         completedAt: "2026-07-22T09:05:00Z",
@@ -469,7 +467,6 @@ describe("SqliteScheduledTaskRepository - 状态管理与执行记录", () => {
       const results = await repo.getExecutions("task-1");
       expect(results[0].status).toBe("completed");
       expect(results[0].messageId ?? null).toBe(null);
-      expect(results[0].turnId ?? null).toBe(null);
     });
   });
 });

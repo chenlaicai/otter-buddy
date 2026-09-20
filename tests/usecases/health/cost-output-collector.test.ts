@@ -100,12 +100,11 @@ describe("collectOtterOutput", () => {
     db.prepare("INSERT INTO otters (id, name, type) VALUES (?, ?, ?)").run("otter-bbb", "小獭甲", "small");
     // 插入消息数据（用 conversation 的依赖数据）
     db.prepare("INSERT INTO conversations (id, title) VALUES (?, ?)").run("conv-1", "test");
-    db.prepare("INSERT INTO turns (id, conversation_id, turn_number) VALUES (?, ?, ?)").run("turn-1", "conv-1", 1);
     // 插入不同日期的獭 speak entries（F20260913ctlv 批4c：messages 表已 drop）
     const seedEntry = (id: string, seq: number, senderId: string, senderName: string, createdAt: string) =>
       db.prepare(`
-        INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, turn_id, status, sender_name, created_at, completed_at)
-        VALUES (?, 'conv-1', ?, 'speak', 'otter', ?, '气泡', NULL, NULL, 'turn-1', 'completed', ?, ?, ?)
+        INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, status, sender_name, created_at, completed_at)
+        VALUES (?, 'conv-1', ?, 'speak', 'otter', ?, '气泡', NULL, NULL, 'completed', ?, ?, ?)
       `).run(id, seq, senderId, senderName, createdAt, createdAt);
     seedEntry("m1", 1, "otter-aaa", "大獭", "2026-08-28 10:00:00");
     seedEntry("m2", 2, "otter-aaa", "大獭", "2026-08-28 11:00:00");
@@ -113,8 +112,8 @@ describe("collectOtterOutput", () => {
     seedEntry("m4", 4, "otter-aaa", "大獭", "2026-08-29 09:00:00");
     // user 消息不应被计入
     db.prepare(`
-      INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, turn_id, status, sender_name, created_at, completed_at)
-      VALUES ('m5', 'conv-1', 5, 'user', 'user', 'user-1', '用户发言', NULL, NULL, 'turn-1', 'completed', '搭档', '2026-08-28 09:00:00', '2026-08-28 09:00:00')
+      INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, status, sender_name, created_at, completed_at)
+      VALUES ('m5', 'conv-1', 5, 'user', 'user', 'user-1', '用户发言', NULL, NULL, 'completed', '搭档', '2026-08-28 09:00:00', '2026-08-28 09:00:00')
     `).run();
   });
 

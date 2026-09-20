@@ -645,7 +645,7 @@ export class SchedulerService {
           // Why 不走 completeExecution：function executor 无 LLM 会话、不产生消息和 turn。
           // completeExecution 会写入 messageId=''（空串非 NULL，SQLite FK 不豁免——messages 表
           // 无 id=''，FOREIGN KEY constraint failed）并关联 getActiveTurn 的无关 turn。
-          // 直接落 completed，messageId/turnId 留 NULL（FK 豁免，语义正确：无消息可关联）。
+          // 直接落 completed，messageId 留 NULL（FK 豁免，语义正确：无消息可关联）。
           await this.taskRepo.updateExecutionStatus(executionId, {
             status: 'completed',
             completedAt: new Date().toISOString(),
@@ -814,7 +814,6 @@ export class SchedulerService {
       status: 'running',
       errorMessage: null,
       messageId: null,
-      turnId: null,
     });
   }
 
@@ -826,7 +825,6 @@ export class SchedulerService {
     const effectiveBody = body ?? task.body;
     const { entry } = await this.sendEntry.createSystemEntry({
       conversationId: task.conversationId,
-      turnId: "",
       body: effectiveBody,
       yieldTargets: task.talkingStonePassedTo,
       senderName: `scheduler:${task.name}`,
@@ -1161,12 +1159,10 @@ export class SchedulerService {
   /** messageId 为 null：function executor 无消息（PR4）；LLM executor 传 anchor 消息 id。
    * F20260901ppfk 检视处置：防御空串——未来新增 executor 类型若传 ''，归 null 不炸 FK */
   private async completeExecution(executionId: string, conversationId: string, messageId: string | null): Promise<void> {
-    const activeTurn = await this.convRepo.getActiveTurn(conversationId);
     await this.taskRepo.updateExecutionStatus(executionId, {
       status: 'completed',
       completedAt: new Date().toISOString(),
       messageId: messageId || null,
-      turnId: activeTurn?.id,
     });
   }
 
@@ -1228,7 +1224,6 @@ export class SchedulerService {
     try {
       const { entry } = await this.sendEntry.createSystemEntry({
         conversationId: task.conversationId,
-        turnId: "",
         body,
       });
       this.messageBroadcaster?.broadcastEvent(task.conversationId, {

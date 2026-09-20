@@ -52,7 +52,6 @@ export interface ScheduledTaskExecution {
   status: ExecutionStatus;
   errorMessage: string | null;
   messageId: string | null;
-  turnId: string | null;
 }
 
 /** 状态转换校验 */

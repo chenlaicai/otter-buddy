@@ -3,16 +3,13 @@ import type {
   ArtifactStatus,
   ConversationParticipant,
   LinkedResource,
-  Turn,
 } from "@entities/conversation/conversation";
 import type { Message } from "@entities/conversation/message";
 import {
   rowToLinkedResource,
   rowToParticipant,
-  rowToTurn,
   type LinkedResourceRow,
   type ParticipantRow,
-  type TurnRow,
 } from "./conversation-mapper";
 
 /**
@@ -29,8 +26,7 @@ export function linkResource(db: Database.Database, resource: LinkedResource): v
     resource.title, resource.content, resource.category, resource.userFlagged ? 1 : 0,
     resource.metadata ? JSON.stringify(resource.metadata) : null,
     resource.linkedBy, resource.otterId, resource.autoLinked ? 1 : 0,
-    resource.createdAt, resource.status, resource.linkedAtTurnNumber,
-    resource.statusChangedAtTurnNumber, resource.groupId, resource.supersededBy,
+    resource.createdAt, resource.status, resource.groupId, resource.supersededBy,
   );
 }
 
@@ -66,28 +62,28 @@ export function getLinkedResourcesByGroup(db: Database.Database, conversationId:
   return rows.map(rowToLinkedResource);
 }
 
-export function updateResourceStatus(db: Database.Database, id: string, status: ArtifactStatus, statusChangedAtTurnNumber: number, supersededBy?: string): void {
+export function updateResourceStatus(db: Database.Database, id: string, status: ArtifactStatus, supersededBy?: string): void {
   const result = db.prepare(`
     UPDATE linked_resources
-    SET status = ?, status_changed_at_turn_number = ?, superseded_by = COALESCE(?, superseded_by)
+    SET status = ?, superseded_by = COALESCE(?, superseded_by)
     WHERE id = ? AND status != 'archived'
-  `).run(status, statusChangedAtTurnNumber, supersededBy ?? null, id);
+  `).run(status, supersededBy ?? null, id);
 
   if (result.changes === 0) {
     throw new Error(`LinkedResource ${id} not found or already archived`);
   }
 }
 
-export function supersedeLinkedResource(db: Database.Database, existingId: string, newResource: LinkedResource, statusChangedAtTurnNumber: number): void {
+export function supersedeLinkedResource(db: Database.Database, existingId: string, newResource: LinkedResource): void {
   db.exec("BEGIN");
   try {
     linkResource(db, newResource);
 
     const result = db.prepare(`
       UPDATE linked_resources
-      SET status = 'superseded', status_changed_at_turn_number = ?, superseded_by = ?
+      SET status = 'superseded', superseded_by = ?
       WHERE id = ? AND status != 'archived'
-    `).run(statusChangedAtTurnNumber, newResource.id, existingId);
+    `).run(newResource.id, existingId);
 
     if (result.changes === 0) {
       throw new Error(`LinkedResource ${existingId} not found or already archived`);
@@ -115,14 +111,11 @@ export function createParticipant(db: Database.Database, participant: Conversati
   // 同样读不到进场前）。搭档拍板口径：进场游标与进场 system entry 一致——能看到
   // 进场那一刻为止的全部对话。
   db.prepare(`
-    INSERT INTO conversation_participants (id, conversation_id, otter_id, joined_at_turn_id,
-      joined_at_turn_number, status, created_at, last_read_turn_number, last_read_seq)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+    INSERT INTO conversation_participants (id, conversation_id, otter_id, status, created_at, last_read_seq)
+    VALUES (?, ?, ?, ?, ?, 0)
   `).run(
     participant.id, participant.conversationId, participant.otterId,
-    participant.joinedAtTurnId, participant.joinedAtTurnNumber,
     participant.status, participant.createdAt,
-    participant.lastReadTurnNumber ?? 0,
   );
 }
 
@@ -132,12 +125,11 @@ export function createParticipants(db: Database.Database, participants: Conversa
   try {
     // F20260913ctlv test15：同 createParticipant——进场游标显式写 0（读全部历史）
     const stmt = db.prepare(`
-      INSERT INTO conversation_participants (id, conversation_id, otter_id, joined_at_turn_id,
-        joined_at_turn_number, status, created_at, last_read_turn_number, last_read_seq)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+      INSERT INTO conversation_participants (id, conversation_id, otter_id, status, created_at, last_read_seq)
+      VALUES (?, ?, ?, ?, ?, 0)
     `);
     for (const p of participants) {
-      stmt.run(p.id, p.conversationId, p.otterId, p.joinedAtTurnId, p.joinedAtTurnNumber, p.status, p.createdAt, p.lastReadTurnNumber ?? 0);
+      stmt.run(p.id, p.conversationId, p.otterId, p.status, p.createdAt);
     }
     db.exec("COMMIT");
   } catch (error) {
@@ -163,28 +155,13 @@ export function getActiveParticipants(db: Database.Database, conversationId: str
 export function updateParticipantLeave(
   db: Database.Database,
   participantId: string,
-  leftAtTurnId: string,
-  leftAtTurnNumber: number,
   leftAt: string,
 ): void {
   db.prepare(`
     UPDATE conversation_participants
-    SET status = 'left', left_at_turn_id = ?, left_at_turn_number = ?, left_at = ?
+    SET status = 'left', left_at = ?
     WHERE id = ?
-  `).run(leftAtTurnId, leftAtTurnNumber, leftAt, participantId);
-}
-
-export function updateLastReadTurnNumber(
-  db: Database.Database,
-  conversationId: string,
-  otterId: string,
-  turnNumber: number,
-): void {
-  db.prepare(`
-    UPDATE conversation_participants
-    SET last_read_turn_number = ?
-    WHERE conversation_id = ? AND otter_id = ? AND status = 'active'
-  `).run(turnNumber, conversationId, otterId);
+  `).run(leftAt, participantId);
 }
 
 /** F20260902sgp2 S4c：游标 seq 双写（新刻度）。NULL 安全：last_read_seq 列可空，
@@ -264,43 +241,6 @@ export function getLastInvokeStartedAtByOtter(
   return map;
 }
 
-/** F20260913ctlv 批4c 修复：按 invokeId 反查 turn_number（新模型链：invokes.trigger_entry_id → entries.turn_id → turns.turn_number）。
- *  旧链查 messages 表且收到的 ID 实为 invokeId（批4a 语义换轨）——永远 miss。
- *  trigger_entry_id 为空（旧 invoke/边界）时 JOIN 天然 miss，返回 null（调用方跳过推进，不抛错）。 */
-export function getTurnNumberByInvokeId(
-  db: Database.Database,
-  invokeId: string,
-): number | null {
-  const row = db.prepare(`
-    SELECT t.turn_number AS turn_number
-    FROM invokes i
-    JOIN entries e ON e.id = i.trigger_entry_id
-    JOIN turns t ON t.id = e.turn_id
-    WHERE i.id = ?
-  `).get(invokeId) as { turn_number: number } | undefined;
-  return row?.turn_number ?? null;
-}
-
-/** F20260819idnw：更新最后活跃轮次（小獭发言时） */
-export function updateLastActiveTurnNumber(
-  db: Database.Database,
-  conversationId: string,
-  otterId: string,
-  turnNumber: number,
-): void {
-  db.prepare(`
-    UPDATE conversation_participants
-    SET last_active_turn_number = ?
-    WHERE conversation_id = ? AND otter_id = ? AND status = 'active'
-  `).run(turnNumber, conversationId, otterId);
-}
-
-
-/** F20260803trrf: 按 id 查 turn（不论 status，markBatchRead 在 turn 关闭后反查 turn_number） */
-export function getTurnById(db: Database.Database, turnId: string): Turn | null {
-  const row = db.prepare(`SELECT * FROM turns WHERE id = ?`).get(turnId) as TurnRow | undefined;
-  return row ? rowToTurn(row) : null;
-}
 
 /** F20260803trrf: 指定 sender 的最新条目（F20260913ctlv 批3 切 entries；markBatchRead rejected 路径用）。
  *  兼容返回 Message 形状（消费方只读 id/senderId/createdAt/sequenceNum）——
@@ -334,7 +274,6 @@ function entryRowToMessageLike(row: EntryAsMessageRow & { body: string | null })
   return {
     id: row.id,
     conversationId: row.conversation_id,
-    turnId: row.turn_id ?? "",
     senderType: (row.sender_type ?? "system") as Message["senderType"],
     senderId: row.sender_id ?? "",
     talkingStonePassedTo: null,

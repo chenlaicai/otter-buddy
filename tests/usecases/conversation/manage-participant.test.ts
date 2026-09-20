@@ -12,7 +12,7 @@ import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-reposit
 import { SqliteOtterConfigProvider } from "@frameworks/db/otter/sqlite-otter-config-provider";
 import { SqliteEntryRepository } from "@frameworks/db/conversation/sqlite-entry-repository";
 import { SqliteInvokeRepository } from "@frameworks/db/conversation/sqlite-invoke-repository";
-import type { Conversation, Turn } from "@entities/conversation/conversation";
+import type { Conversation } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
 import { DomainError } from "@entities/errors";
 import { createTestDb } from "../../helpers/db";
@@ -48,12 +48,7 @@ describe("ManageParticipant（真 sqlite）", () => {
       createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
       completedAt: null, archivedAt: null,
     };
-    const turn: Turn = {
-      id: "turn-1", conversationId: "conv-1", turnNumber: 1, status: "open",
-      createdAt: "2026-01-01T00:00:00Z", closedAt: null,
-    };
     await repo.create(conv);
-    await repo.createTurn(turn);
     /** conversation_participants.otter_id 有 FK：参与者必须先有 otter 行 */
     await otterRepo.createOtter(otterFixture("otter-1", "小獭"));
     await otterRepo.createOtter(otterFixture("otter-2", "小獭B"));
@@ -64,24 +59,8 @@ describe("ManageParticipant（真 sqlite）", () => {
     db.close();
   });
 
-  /** join/leave 的系统消息到达终态会触发 tryCloseTurn 关闭当前回合，
-   *  连续操作前必须开新回合（真实系统中参与者进出发生在 agent 回合进行中） */
-  let turnSeq = 0;
-  async function newTurn(): Promise<string> {
-    turnSeq += 1;
-    const id = `turn-x${turnSeq}`;
-    await repo.createTurn({
-      id, conversationId: "conv-1", turnNumber: 100 + turnSeq, status: "open",
-      createdAt: "2026-01-01T00:00:00Z", closedAt: null,
-    });
-    return id;
-  }
-
   describe("join", () => {
-    it("创建参与者记录 + system entry（entryDeps 路径），无 open turn 时兜底创建 turn", async () => {
-      // 关掉唯一预置的 open turn——彻底切换后常态无 open turn，join 仍须成功
-      await repo.closeTurn("turn-1", "2026-01-01T01:00:00Z");
-
+    it("创建参与者记录 + system entry（entryDeps 路径）", async () => {
       const result = await mpEntry.join("conv-1", "otter-1", "小獭进场了");
 
       expect(result.participant.otterId).toBe("otter-1");
@@ -149,7 +128,6 @@ describe("ManageParticipant（真 sqlite）", () => {
   describe("getActiveParticipants", () => {
     it("返回带 Otter 名称的参与者列表", async () => {
       await mpEntry.join("conv-1", "otter-1", "A 进场");
-      await newTurn();
       await mpEntry.join("conv-1", "otter-2", "B 进场");
 
       const result = await mpEntry.getActiveParticipants("conv-1");
@@ -181,7 +159,6 @@ describe("ManageParticipant（真 sqlite）", () => {
       configProvider.setConfig("otter-2", { otterType: "small" });
       const mpWithConfig = new ManageParticipant(repo, otterRepo, { entryRepo, invokeRepo: new SqliteInvokeRepository(db) }, configProvider);
       await mpWithConfig.join("conv-1", "otter-1", "A 进场");
-      await newTurn();
       await mpWithConfig.join("conv-1", "otter-2", "B 进场");
 
       const result = await mpWithConfig.getActiveParticipants("conv-1");

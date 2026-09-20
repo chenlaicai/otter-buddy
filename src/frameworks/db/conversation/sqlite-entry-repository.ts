@@ -25,7 +25,6 @@ interface EntryRow {
   body: string | null;
   invoke_id: string | null;
   yield_targets: string | null;
-  turn_id: string;
   status: string;
   source: string | null;
   metadata: string | null;
@@ -49,7 +48,6 @@ function rowToEntry(row: EntryRow): Entry {
     yieldTargets: row.yield_targets
       ? (JSON.parse(row.yield_targets) as string[])
       : null,
-    turnId: row.turn_id,
     status: row.status as EntryStatus,
     source: (row.source ?? null) as EntrySource,
     metadata: row.metadata ? (JSON.parse(row.metadata) as EntryMetadata) : null,
@@ -68,14 +66,14 @@ export class SqliteEntryRepository implements EntryRepository {
     this.db.prepare(`
       INSERT INTO entries (
         id, conversation_id, sequence_num, entry_type, sender_type, sender_id,
-        body, invoke_id, yield_targets, turn_id, status, source, metadata,
+        body, invoke_id, yield_targets, status, source, metadata,
         sender_name, context_tokens, context_tokens_max, created_at, completed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       entry.id, entry.conversationId, entry.sequenceNum, entry.entryType,
       entry.senderType, entry.senderId, entry.body, entry.invokeId,
       entry.yieldTargets ? JSON.stringify(entry.yieldTargets) : null,
-      entry.turnId, entry.status, entry.source,
+      entry.status, entry.source,
       entry.metadata ? JSON.stringify(entry.metadata) : null,
       entry.senderName, entry.contextTokens, entry.contextTokensMax,
       entry.createdAt, entry.completedAt,
@@ -87,9 +85,9 @@ export class SqliteEntryRepository implements EntryRepository {
     const insert = this.db.prepare(`
       INSERT INTO entries (
         id, conversation_id, sequence_num, entry_type, sender_type, sender_id,
-        body, invoke_id, yield_targets, turn_id, status, source, metadata,
+        body, invoke_id, yield_targets, status, source, metadata,
         sender_name, context_tokens, context_tokens_max, created_at, completed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const insertFts = this.db.prepare(
       "INSERT INTO entries_fts (entry_id, body) VALUES (?, ?)",
@@ -100,7 +98,7 @@ export class SqliteEntryRepository implements EntryRepository {
           entry.id, entry.conversationId, entry.sequenceNum, entry.entryType,
           entry.senderType, entry.senderId, entry.body, entry.invokeId,
           entry.yieldTargets ? JSON.stringify(entry.yieldTargets) : null,
-          entry.turnId, entry.status, entry.source,
+          entry.status, entry.source,
           entry.metadata ? JSON.stringify(entry.metadata) : null,
           entry.senderName, entry.contextTokens, entry.contextTokensMax,
           entry.createdAt, entry.completedAt,
@@ -115,17 +113,17 @@ export class SqliteEntryRepository implements EntryRepository {
     const insertSql = `
       INSERT INTO entries (
         id, conversation_id, sequence_num, entry_type, sender_type, sender_id,
-        body, invoke_id, yield_targets, turn_id, status, source, metadata,
+        body, invoke_id, yield_targets, status, source, metadata,
         sender_name, context_tokens, context_tokens_max, created_at, completed_at
       )
-      SELECT ?, ?, COALESCE(MAX(sequence_num), 0) + 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      SELECT ?, ?, COALESCE(MAX(sequence_num), 0) + 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       FROM entries WHERE conversation_id = ?
     `;
     const params = [
       entry.id, entry.conversationId, entry.entryType,
       entry.senderType, entry.senderId, entry.body, entry.invokeId,
       entry.yieldTargets ? JSON.stringify(entry.yieldTargets) : null,
-      entry.turnId, entry.status, entry.source,
+      entry.status, entry.source,
       entry.metadata ? JSON.stringify(entry.metadata) : null,
       entry.senderName, entry.contextTokens, entry.contextTokensMax,
       entry.createdAt, entry.completedAt,
@@ -145,10 +143,10 @@ export class SqliteEntryRepository implements EntryRepository {
     const insertSql = `
       INSERT INTO entries (
         id, conversation_id, sequence_num, entry_type, sender_type, sender_id,
-        body, invoke_id, yield_targets, turn_id, status, source, metadata,
+        body, invoke_id, yield_targets, status, source, metadata,
         sender_name, context_tokens, context_tokens_max, created_at, completed_at
       )
-      SELECT ?, ?, COALESCE(MAX(sequence_num), 0) + 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      SELECT ?, ?, COALESCE(MAX(sequence_num), 0) + 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       FROM entries WHERE conversation_id = ?
     `;
     this.db.transaction(() => {
@@ -157,7 +155,7 @@ export class SqliteEntryRepository implements EntryRepository {
           entry.id, entry.conversationId, entry.entryType,
           entry.senderType, entry.senderId, entry.body, entry.invokeId,
           entry.yieldTargets ? JSON.stringify(entry.yieldTargets) : null,
-          entry.turnId, entry.status, entry.source,
+          entry.status, entry.source,
           entry.metadata ? JSON.stringify(entry.metadata) : null,
           entry.senderName, entry.contextTokens, entry.contextTokensMax,
           entry.createdAt, entry.completedAt,

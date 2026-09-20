@@ -159,7 +159,7 @@ export class AgentInvoker implements AgentTurnPort {
         },
         // F20260913ctlv 彻底切换：sendSystem 走 entries（system entry），不再写 messages
         sendSystem: async (convId, body) => {
-          const { entry } = await sendEntry.createSystemEntry({ conversationId: convId, turnId: "", body });
+          const { entry } = await sendEntry.createSystemEntry({ conversationId: convId, body });
           return { id: entry.id, body: entry.body, sequenceNum: entry.sequenceNum };
         },
         healingRepo,
@@ -424,7 +424,6 @@ export class AgentInvoker implements AgentTurnPort {
           conversationId: invoke.conversationId,
           invokeId,
           otterId: invoke.otterId,
-          turnId: '', // createInvokeEndEntry 内部空 turnId 时 ensureActiveTurn 兜底
           status,
           body,
         });
@@ -435,7 +434,7 @@ export class AgentInvoker implements AgentTurnPort {
 
   private async sendSystemEntry(convId: string, body: string) {
     const sendEntry = this.sendEntry!;
-    const { entry } = await sendEntry.createSystemEntry({ conversationId: convId, turnId: "", body });
+    const { entry } = await sendEntry.createSystemEntry({ conversationId: convId, body });
     this.logger.debug('System entry sent', { entryId: entry.id, conversationId: convId });
     return { id: entry.id, body: entry.body, sequenceNum: entry.sequenceNum };
   }

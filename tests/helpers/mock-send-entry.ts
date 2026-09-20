@@ -69,7 +69,6 @@ export function mockSendEntry(options?: {
     body: null,
     invokeId: null,
     yieldTargets: null,
-    turnId: "turn-1",
     status: "completed",
     source: null,
     metadata: null,

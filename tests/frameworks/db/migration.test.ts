@@ -288,8 +288,7 @@ describe("migrateDatabase - #654 补丁: rebuildExecutionsStatusCheck", () => {
         completed_at TEXT,
         status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed')),
         error_message TEXT,
-        message_id TEXT,
-        turn_id TEXT REFERENCES turns(id)
+        message_id TEXT
       );
     `);
     db.prepare(`INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-x', '迁移测试', '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z')`).run();
@@ -442,8 +441,7 @@ describe("migrateDatabase - F20260914fkx1: rebuildExecutionsDropMessagesFk", () 
         completed_at TEXT,
         status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed', 'skipped')),
         error_message TEXT,
-        message_id TEXT REFERENCES messages(id),
-        turn_id TEXT REFERENCES turns(id)
+        message_id TEXT REFERENCES messages(id)
       );
     `);
     db.pragma("foreign_keys = OFF");

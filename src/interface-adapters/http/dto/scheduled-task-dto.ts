@@ -76,7 +76,6 @@ export interface ScheduledTaskExecutionDTO {
   status: string;
   errorMessage: string | null;
   messageId: string | null;
-  turnId: string | null;
 }
 
 /** 执行历史列表响应 */
@@ -121,6 +120,5 @@ export function toExecutionDTO(execution: ScheduledTaskExecution): ScheduledTask
     status: execution.status,
     errorMessage: execution.errorMessage,
     messageId: execution.messageId,
-    turnId: execution.turnId,
   };
 }

@@ -17,7 +17,6 @@ import { SqliteOtterConfigProvider } from "@frameworks/db/otter/sqlite-otter-con
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import { backfillSessionLedger } from "@frameworks/db/otter/backfill-session-ledger";
 import { seedTerminologyData } from "@frameworks/db/memory/seed-terminology";
-import { reconcileOrphans } from "@usecases/conversation/reconcile-orphans";
 import type { SyncResult } from "@usecases/document/sync-documents";
 import type { Repositories } from "./types";
 import { initRepositories } from "./repositories";
@@ -123,7 +122,6 @@ async function reconcileRunningInvokes(db: Database.Database, repos: Repositorie
 /** DB 初始化后的种子数据 + 孤儿修复 + ledger 回填 */
 export async function postInitDatabase(db: Database.Database, repos: Repositories, logger: Logger): Promise<void> {
   await seedTerminologyData(db, logger);
-  await reconcileOrphans(repos.conversation, logger);
   // F20260916b1ea 重建：重启 reconcile + 恢复入队（提取 reconcileRunningInvokes 控复杂度）
   await reconcileRunningInvokes(db, repos, logger);
   await backfillSessionLedger(db, repos.otter, logger);

@@ -74,14 +74,12 @@ describe("ManageConversation（真 sqlite）", () => {
       expect(stored?.title).toBe("新对话");
     });
 
-    it("为大獭创建初始参与者记录（joinedAtTurnNumber=0：开场即在场）", async () => {
+    it("为大獭创建初始参与者记录（开场即在场）", async () => {
       const conv = await mc.create({ title: "对话" });
 
       const participants = await repo.getActiveParticipants(conv.id);
       expect(participants).toHaveLength(1);
       expect(participants[0].otterId).toBe("big-otter-1");
-      expect(participants[0].joinedAtTurnId).toBeNull();
-      expect(participants[0].joinedAtTurnNumber).toBe(0);
       expect(participants[0].status).toBe("active");
     });
 

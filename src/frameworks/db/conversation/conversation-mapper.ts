@@ -5,8 +5,6 @@ import type {
   ConversationParticipant,
   LinkedResource,
   ParticipantStatus,
-  Turn,
-  TurnStatus,
 } from "@entities/conversation/conversation";
 import type {
   Message,
@@ -39,7 +37,6 @@ export interface MessageRow {
   sender_id: string;
   status: string;
   sequence_num: number;
-  turn_id: string;
   talking_stone_passed_to: string | null;
   context_tokens: number | null;
   context_tokens_max: number | null;
@@ -76,34 +73,17 @@ export interface LinkedResourceRow {
   auto_linked: number;
   created_at: string;
   status: string;
-  linked_at_turn_number: number;
-  status_changed_at_turn_number: number;
   group_id: string | null;
   superseded_by: string | null;
-}
-
-export interface TurnRow {
-  id: string;
-  conversation_id: string;
-  turn_number: number;
-  status: string;
-  created_at: string;
-  closed_at: string | null;
 }
 
 export interface ParticipantRow {
   id: string;
   conversation_id: string;
   otter_id: string;
-  joined_at_turn_id: string | null;
-  joined_at_turn_number: number;
-  left_at_turn_id: string | null;
-  left_at_turn_number: number | null;
   status: string;
   created_at: string;
   left_at: string | null;
-  last_read_turn_number: number;
-  last_active_turn_number: number;
 }
 
 export function rowToConversation(row: ConversationRow): Conversation {
@@ -125,7 +105,6 @@ export function rowToMessage(row: MessageRow): Message {
   return {
     id: row.id,
     conversationId: row.conversation_id,
-    turnId: row.turn_id as string,
     senderType: row.sender_type as SenderType,
     senderId: row.sender_id,
     talkingStonePassedTo: row.talking_stone_passed_to
@@ -175,21 +154,8 @@ export function rowToLinkedResource(row: LinkedResourceRow): LinkedResource {
     autoLinked: row.auto_linked === 1,
     createdAt: row.created_at,
     status: row.status as ArtifactStatus,
-    linkedAtTurnNumber: row.linked_at_turn_number,
-    statusChangedAtTurnNumber: row.status_changed_at_turn_number,
     groupId: row.group_id,
     supersededBy: row.superseded_by,
-  };
-}
-
-export function rowToTurn(row: TurnRow): Turn {
-  return {
-    id: row.id,
-    conversationId: row.conversation_id,
-    turnNumber: row.turn_number,
-    status: row.status as TurnStatus,
-    createdAt: row.created_at,
-    closedAt: row.closed_at,
   };
 }
 
@@ -198,15 +164,9 @@ export function rowToParticipant(row: ParticipantRow): ConversationParticipant {
     id: row.id,
     conversationId: row.conversation_id,
     otterId: row.otter_id,
-    joinedAtTurnId: row.joined_at_turn_id,
-    joinedAtTurnNumber: row.joined_at_turn_number,
-    leftAtTurnId: row.left_at_turn_id,
-    leftAtTurnNumber: row.left_at_turn_number,
     status: row.status as ParticipantStatus,
     createdAt: row.created_at,
     leftAt: row.left_at,
-    lastReadTurnNumber: row.last_read_turn_number ?? 0,
-    lastActiveTurnNumber: row.last_active_turn_number ?? 0,
   };
 }
 

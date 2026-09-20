@@ -27,7 +27,6 @@ import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { ConversationRepository } from "./conversation-repository";
 import type { Logger } from "@usecases/ports/logger";
 import { resolveSpeakerName } from "./speaker-resolver";
-import { tryCloseTurn, ensureActiveTurn } from "./turn-utils";
 import { resolveSendTargets, type ResolveTargetsDeps } from "./resolve-send-targets";
 
 /** 用户发送条目输入 */
@@ -59,7 +58,6 @@ export interface CreateSpeakEntryInput {
   conversationId: string;
   invokeId: string;
   otterId: string;
-  turnId: string;
   body: string;
   /** F20260916hcel：可选元数据（如 cardSchemaVersion） */
   metadata?: Record<string, unknown>;
@@ -70,7 +68,6 @@ export interface CreateYieldEntryInput {
   conversationId: string;
   invokeId: string;
   otterId: string;
-  turnId: string;
   yieldTargets: string[];
 }
 
@@ -79,7 +76,6 @@ export interface CreateInvokeEndEntryInput {
   conversationId: string;
   invokeId: string;
   otterId: string;
-  turnId: string;
   status: "completed" | "failed" | "aborted";
   body?: string;
 }
@@ -87,7 +83,6 @@ export interface CreateInvokeEndEntryInput {
 /** 创建系统条目输入 */
 export interface CreateSystemEntryInput {
   conversationId: string;
-  turnId: string;
   body: string;
   /** F20260913ctlv 收尾批2：scheduler 内部信号——yieldTargets 即信号目标（原 messages.talkingStonePassedTo）。
    *  仅 scheduler 生产者使用；无目标的居中系统条目不传 */
@@ -134,8 +129,6 @@ export class SendEntry {
    * 未预解析目标时在此解析（默认派发 / @提及），路由点火方消费返回的 talkingStonePassedTo。
    */
   async sendUserEntry(input: SendUserEntryInput): Promise<{ entry: Entry; talkingStonePassedTo: string[]; mentionFeedback?: string }> {
-    const turn = await this.ensureActiveTurn(input.conversationId);
-
     /** 目标解析：显式目标直用；空则走默认派发链（resolveDeps 未注入时空数组——入口必须预解析） */
     let talkingStonePassedTo = input.talkingStonePassedTo ?? [];
     let mentionFeedback: string | undefined;
@@ -159,7 +152,6 @@ export class SendEntry {
       invokeId: null,
       /** F20260913ctlv 补漏：user entry 的发言石目标 = 点火依据（信号路由读此字段） */
       yieldTargets: talkingStonePassedTo,
-      turnId: turn.id,
       status: "completed",
       source: input.source ?? "web",
       // F20260913ctlv：注入方式落 metadata（与 senderDisplayName 合并——两者可同时存在）
@@ -193,9 +185,6 @@ export class SendEntry {
       }
     }
 
-    // 尝试关闭 Turn（user entry 已是终态；同 turn 内无 running invoke 时关闭）
-    await tryCloseTurn(this.conversationRepo, turn.id, { invokeRepo: this.invokeRepo, entryRepo: this.entryRepo });
-
     this.logger.info('User entry sent', {
       conversationId: input.conversationId,
       entryId: created.id,
@@ -223,7 +212,6 @@ export class SendEntry {
       throw new DomainError(`createInvoke: otterId 不存在: ${input.otterId}`, "not_found");
     }
 
-    const turn = await this.ensureActiveTurn(input.conversationId);
     const now = new Date().toISOString();
 
     // 创建 invoke 记录
@@ -256,7 +244,6 @@ export class SendEntry {
       body: `🦦 ${otter.name}开始行动～`,
       invokeId: invoke.id,
       yieldTargets: null,
-      turnId: turn.id,
       status: "completed",
       source: null,
       metadata: null,
@@ -285,9 +272,6 @@ export class SendEntry {
       throw new DomainError(`createSpeakEntry: otterId 不存在: ${input.otterId}`, "not_found");
     }
 
-    // 空 turnId 时兜底 ensureActiveTurn（entries.turn_id FK 引用 turns.id）
-    const turnId = input.turnId || (await this.ensureActiveTurn(input.conversationId)).id;
-
     const now = new Date().toISOString();
 
     const entry: Entry = {
@@ -300,7 +284,6 @@ export class SendEntry {
       body: input.body,
       invokeId: input.invokeId,
       yieldTargets: null,
-      turnId,
       status: "completed",
       source: null,
       metadata: input.metadata ?? null,
@@ -332,8 +315,6 @@ export class SendEntry {
     }
 
     const now = new Date().toISOString();
-    // 空 turnId 兜底 ensureActiveTurn（entries.turn_id FK 引用 turns.id）
-    const turnId = input.turnId || (await this.ensureActiveTurn(input.conversationId)).id;
 
     // 更新 invoke 记录：设置 tsp + status=completed
     await this.invokeRepo.updateInvokeTalkingStonePassedTo(input.invokeId, input.yieldTargets);
@@ -356,7 +337,6 @@ export class SendEntry {
       body: `→ 交给 ${input.yieldTargets.join(", ")}`,
       invokeId: input.invokeId,
       yieldTargets: input.yieldTargets,
-      turnId,
       status: "completed",
       source: null,
       metadata: null,
@@ -377,7 +357,6 @@ export class SendEntry {
       body: `🦦 ${otter.name}先休息一下～`,
       invokeId: input.invokeId,
       yieldTargets: null,
-      turnId,
       status: "completed",
       source: null,
       metadata: null,
@@ -389,9 +368,6 @@ export class SendEntry {
     };
 
     const created = await this.entryRepo.createEntriesAtomic([yieldEntry, invokeEndEntry]);
-
-    // 尝试关闭 Turn（本 invoke 已终态；同 turn 无 running invoke 时关闭）
-    await tryCloseTurn(this.conversationRepo, turnId, { invokeRepo: this.invokeRepo, entryRepo: this.entryRepo });
 
     this.logger.info('Yield entry created', {
       invokeId: input.invokeId,
@@ -410,8 +386,6 @@ export class SendEntry {
     }
 
     const now = new Date().toISOString();
-    // 空 turnId 兜底 ensureActiveTurn
-    const turnId = input.turnId || (await this.ensureActiveTurn(input.conversationId)).id;
 
     // 更新 invoke 记录状态
     await this.invokeRepo.updateInvokeStatus(input.invokeId, input.status, now);
@@ -449,7 +423,6 @@ export class SendEntry {
       body,
       invokeId: input.invokeId,
       yieldTargets: null,
-      turnId,
       status: "completed",
       source: null,
       /** F20260913ctlv test17：invoke 真实终态记 metadata.invokeStatus——entries.status
@@ -464,9 +437,6 @@ export class SendEntry {
 
     const created = await this.entryRepo.createEntryAtomic(invokeEndEntry);
 
-    // 尝试关闭 Turn（fail/abort 也是终态）
-    await tryCloseTurn(this.conversationRepo, turnId, { invokeRepo: this.invokeRepo, entryRepo: this.entryRepo });
-
     this.logger.info('Invoke end entry created', {
       invokeId: input.invokeId,
       status: input.status,
@@ -479,8 +449,6 @@ export class SendEntry {
   /** 创建系统条目 */
   async createSystemEntry(input: CreateSystemEntryInput): Promise<{ entry: Entry }> {
     const now = new Date().toISOString();
-    // 空 turnId 兜底 ensureActiveTurn
-    const turnId = input.turnId || (await this.ensureActiveTurn(input.conversationId)).id;
 
     const entry: Entry = {
       id: crypto.randomUUID(),
@@ -492,7 +460,6 @@ export class SendEntry {
       body: input.body,
       invokeId: null,
       yieldTargets: input.yieldTargets ?? null,
-      turnId,
       status: "completed",
       source: null,
       metadata: null,
@@ -595,11 +562,5 @@ export class SendEntry {
     for (let i = 0; i < attachmentIds.length; i++) {
       await this.entryRepo.attachAttachment(entryId, attachmentIds[i]!, i);
     }
-  }
-
-  /** 确保存在活跃 Turn */
-  private async ensureActiveTurn(conversationId: string) {
-    // 共享实现上提至 turn-utils（manage-participant join 同源复用）
-    return ensureActiveTurn(this.conversationRepo, conversationId);
   }
 }

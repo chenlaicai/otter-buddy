@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
 import { initSchema } from "@frameworks/db/schema";
 import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
-import type { Conversation, Turn } from "@entities/conversation/conversation";
+import type { Conversation } from "@entities/conversation/conversation";
 import type { Entry } from "@entities/conversation/entry";
 import { SqliteEntryRepository } from "@frameworks/db/conversation/sqlite-entry-repository";
 import { SqliteInvokeRepository } from "@frameworks/db/conversation/sqlite-invoke-repository";
@@ -41,21 +41,8 @@ function conversationFixture(overrides: Partial<Conversation> = {}): Conversatio
   };
 }
 
-/** 构造测试用 Turn 实体 */
-function turnFixture(overrides: Partial<Turn> = {}): Turn {
-  return {
-    id: "turn-1",
-    conversationId: "conv-1",
-    turnNumber: 1,
-    status: "open",
-    createdAt: "2026-07-22T00:00:00Z",
-    closedAt: null,
-    ...overrides,
-  };
-}
 
-
-describe("SqliteConversationRepository - 对话与 Turn 基础操作", () => {
+describe("SqliteConversationRepository - 对话基础操作", () => {
   let db: Database.Database;
   let repo: SqliteConversationRepository;
 
@@ -156,57 +143,8 @@ describe("SqliteConversationRepository - 对话与 Turn 基础操作", () => {
     });
   });
 
-  describe("getActiveTurn", () => {
-    it("无 turn 时返回 null", async () => {
-      await repo.create(conversationFixture());
-
-      const result = await repo.getActiveTurn("conv-1");
-      expect(result).toBeNull();
-    });
-  });
-
-  describe("createTurn + getActiveTurn", () => {
-    it("创建 turn 后可查询到 open 状态的 turn", async () => {
-      await repo.create(conversationFixture());
-
-      const turn = turnFixture();
-      await repo.createTurn(turn);
-
-      const result = await repo.getActiveTurn("conv-1");
-      expect(result).not.toBeNull();
-      expect(result!.id).toBe("turn-1");
-      expect(result!.conversationId).toBe("conv-1");
-      expect(result!.turnNumber).toBe(1);
-      expect(result!.status).toBe("open");
-      expect(result!.closedAt).toBeNull();
-    });
-
-    it("多个 turn 时返回最新的 open turn", async () => {
-      await repo.create(conversationFixture());
-
-      await repo.createTurn(turnFixture({ id: "turn-1", turnNumber: 1 }));
-      // 先关闭 turn-1
-      await repo.closeTurn("turn-1", "2026-07-22T01:00:00Z");
-      // 再创建 turn-2
-      await repo.createTurn(turnFixture({ id: "turn-2", turnNumber: 2 }));
-
-      const result = await repo.getActiveTurn("conv-1");
-      expect(result).not.toBeNull();
-      expect(result!.id).toBe("turn-2");
-    });
-  });
-
-  describe("closeTurn", () => {
-    it("关闭 turn 后状态变为 closed", async () => {
-      await repo.create(conversationFixture());
-      await repo.createTurn(turnFixture());
-
-      await repo.closeTurn("turn-1", "2026-07-22T01:00:00Z");
-
-      // 关闭后不再是 active turn
-      const activeTurn = await repo.getActiveTurn("conv-1");
-      expect(activeTurn).toBeNull();
-    });
+  afterEach(() => {
+    db.close();
   });
 });
 
@@ -238,7 +176,7 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
       id, conversationId: "conv-1", sequenceNum: 0,
       entryType: "speak", senderType: "otter", senderId: "otter-1",
       body: "气泡内容", invokeId: null, yieldTargets: null,
-      turnId: "turn-1", status: "completed",
+      status: "completed",
       source: null, metadata: null, senderName: "otter",
       contextTokens: null, contextTokensMax: null,
       createdAt: "2026-07-22T00:00:00Z", completedAt: "2026-07-22T00:00:00Z",
@@ -248,7 +186,6 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
 
   it("存在 running invoke 时派生为 processing", async () => {
     await repo.create(conversationFixture());
-    await repo.createTurn(turnFixture());
     await invokeRepo.createInvoke({
       id: "inv-1", conversationId: "conv-1", otterId: "otter-1", turnId: "turn-1",
       status: "running", triggerType: "user_message", triggerSource: "web",
@@ -262,7 +199,6 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
 
   it("active 对话 + 仅有 completed entries → awaiting_user", async () => {
     await repo.create(conversationFixture());
-    await repo.createTurn(turnFixture());
     await entryRepo.createEntryAtomic(entryFixture({ yieldTargets: ["user"] }));
 
     const [item] = await repo.listConversationsWithMeta("user-1");
@@ -278,7 +214,6 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
 
   it("completed 对话即使有 entries 也派生为 idle", async () => {
     await repo.create(conversationFixture({ status: "completed", completedAt: "2026-07-22T01:00:00Z" }));
-    await repo.createTurn(turnFixture());
     await entryRepo.createEntryAtomic(entryFixture());
 
     const [item] = await repo.listConversationsWithMeta("user-1");
@@ -287,7 +222,6 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
 
   it("未读计数按 speak/system entries 计（跳过 user 气泡）", async () => {
     await repo.create(conversationFixture());
-    await repo.createTurn(turnFixture());
     await entryRepo.createEntryAtomic(entryFixture({ id: "e-1", entryType: "user", senderType: "user", senderId: "user-1", body: "用户发言" }));
     await entryRepo.createEntryAtomic(entryFixture({ id: "e-2", entryType: "speak" }));
     await entryRepo.createEntryAtomic(entryFixture({ id: "e-3", entryType: "system", senderType: "system", senderId: "system", body: "系统条目" }));
@@ -298,7 +232,6 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
 
   it("多对话并发时各自独立派生状态", async () => {
     await repo.create(conversationFixture({ id: "conv-a", createdAt: "2026-07-22T00:00:00Z" }));
-    await repo.createTurn(turnFixture({ id: "turn-a", conversationId: "conv-a" }));
     await invokeRepo.createInvoke({
       id: "inv-a", conversationId: "conv-a", otterId: "otter-1", turnId: "turn-a",
       status: "running", triggerType: "user_message", triggerSource: "web",
@@ -307,8 +240,7 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
     } as never);
 
     await repo.create(conversationFixture({ id: "conv-b", createdAt: "2026-07-22T00:01:00Z" }));
-    await repo.createTurn(turnFixture({ id: "turn-b", conversationId: "conv-b" }));
-    await entryRepo.createEntryAtomic(entryFixture({ id: "e-b", conversationId: "conv-b", turnId: "turn-b" }));
+    await entryRepo.createEntryAtomic(entryFixture({ id: "e-b", conversationId: "conv-b" }));
 
     await repo.create(conversationFixture({ id: "conv-c", createdAt: "2026-07-22T00:02:00Z" }));
 

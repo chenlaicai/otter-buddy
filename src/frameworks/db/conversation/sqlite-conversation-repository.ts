@@ -5,17 +5,13 @@ import type {
   ConversationParticipant,
   ConversationStatus,
   LinkedResource,
-  Turn,
 } from "@entities/conversation/conversation";
 import type {
   ConversationRepository,
-  TurnHistoryEntry,
 } from "@usecases/conversation/conversation-repository";
 import {
   rowToConversation,
-  rowToTurn,
   type ConversationRow,
-  type TurnRow,
 } from "./conversation-mapper";
 import * as mixins from "./conversation-repository-mixins";
 
@@ -119,55 +115,14 @@ export class SqliteConversationRepository implements ConversationRepository {
     return rows.map(r => r.otter_id);
   }
 
-  // ── Turn 管理 ──
-
-  async createTurn(turn: Turn): Promise<void> {
-    this.db.prepare(`INSERT INTO turns (id, conversation_id, turn_number, status, created_at) VALUES (?, ?, ?, ?, ?)`)
-      .run(turn.id, turn.conversationId, turn.turnNumber, turn.status, turn.createdAt);
-  }
-
-  async getActiveTurn(conversationId: string): Promise<Turn | null> {
-    const row = this.db.prepare(`SELECT * FROM turns WHERE conversation_id = ? AND status = 'open' LIMIT 1`)
-      .get(conversationId) as TurnRow | undefined;
-    return row ? rowToTurn(row) : null;
-  }
-
-  async getTurnById(turnId: string): Promise<Turn | null> { return mixins.getTurnById(this.db, turnId); }
-
-  async closeTurn(turnId: string, closedAt: string): Promise<void> {
-    this.db.prepare(`UPDATE turns SET status = 'closed', closed_at = ? WHERE id = ?`).run(closedAt, turnId);
-  }
-
-  async getMaxTurnNumber(conversationId: string): Promise<number> {
-    const result = this.db.prepare("SELECT MAX(turn_number) as max_num FROM turns WHERE conversation_id = ?")
-      .get(conversationId) as { max_num: number | null };
-    return result.max_num ?? 0;
-  }
-
-
-  async closeOrphanedTurns(closedAt: string): Promise<number> {
-    // F20260913ctlv 批4c：判据源切 invokes（messages 表已 drop——open = 该 turn 下有 running invoke；
-    // turn 归属经 entries.turn_id 关联，invokes 表无 turn_id 列）
-    const result = this.db.prepare(`
-      UPDATE turns SET status = 'closed', closed_at = ?
-      WHERE status = 'open' AND id NOT IN (
-        SELECT DISTINCT e.turn_id FROM invokes i
-        JOIN entries e ON e.invoke_id = i.id
-        WHERE i.status = 'running'
-      )
-    `).run(closedAt);
-    return result.changes;
-  }
-
-
   // ── Key Resources（委托给 mixin） ──
 
   async linkResource(resource: LinkedResource): Promise<void> { mixins.linkResource(this.db, resource); }
   async getLinkedResources(conversationId: string, filters?: { status?: ArtifactStatus; resourceType?: string }): Promise<LinkedResource[]> { return mixins.getLinkedResources(this.db, conversationId, filters); }
   async getLinkedResourceById(id: string): Promise<LinkedResource | null> { return mixins.getLinkedResourceById(this.db, id); }
   async getLinkedResourcesByGroup(conversationId: string, groupId: string): Promise<LinkedResource[]> { return mixins.getLinkedResourcesByGroup(this.db, conversationId, groupId); }
-  async updateResourceStatus(id: string, status: ArtifactStatus, statusChangedAtTurnNumber: number, supersededBy?: string): Promise<void> { mixins.updateResourceStatus(this.db, id, status, statusChangedAtTurnNumber, supersededBy); }
-  async supersedeLinkedResource(existingId: string, newResource: LinkedResource, statusChangedAtTurnNumber: number): Promise<void> { mixins.supersedeLinkedResource(this.db, existingId, newResource, statusChangedAtTurnNumber); }
+  async updateResourceStatus(id: string, status: ArtifactStatus, supersededBy?: string): Promise<void> { mixins.updateResourceStatus(this.db, id, status, supersededBy); }
+  async supersedeLinkedResource(existingId: string, newResource: LinkedResource): Promise<void> { mixins.supersedeLinkedResource(this.db, existingId, newResource); }
   async deleteLinkedResource(id: string): Promise<void> { mixins.deleteLinkedResource(this.db, id); }
   async flagResource(id: string, flagged: boolean): Promise<void> { mixins.flagResource(this.db, id, flagged); }
 
@@ -177,12 +132,10 @@ export class SqliteConversationRepository implements ConversationRepository {
   async createParticipants(participants: ConversationParticipant[]): Promise<void> { mixins.createParticipants(this.db, participants); }
   async getParticipant(conversationId: string, otterId: string): Promise<ConversationParticipant | null> { return mixins.getParticipant(this.db, conversationId, otterId); }
   async getActiveParticipants(conversationId: string): Promise<ConversationParticipant[]> { return mixins.getActiveParticipants(this.db, conversationId); }
-  async updateParticipantLeave(participantId: string, leftAtTurnId: string, leftAtTurnNumber: number, leftAt: string): Promise<void> { mixins.updateParticipantLeave(this.db, participantId, leftAtTurnId, leftAtTurnNumber, leftAt); }
+  async updateParticipantLeave(participantId: string, leftAt: string): Promise<void> { mixins.updateParticipantLeave(this.db, participantId, leftAt); }
   async updateLastReadSeq(conversationId: string, otterId: string, seq: number): Promise<void> { mixins.updateLastReadSeq(this.db, conversationId, otterId, seq); }
   /** #775：seq 刻度存量回填（一次性，启动时调用） */
   backfillLastReadSeq(): number { return mixins.backfillLastReadSeq(this.db); }
-  async updateLastReadTurnNumber(conversationId: string, otterId: string, turnNumber: number): Promise<void> { mixins.updateLastReadTurnNumber(this.db, conversationId, otterId, turnNumber); }
-  async updateLastActiveTurnNumber(conversationId: string, otterId: string, turnNumber: number): Promise<void> { mixins.updateLastActiveTurnNumber(this.db, conversationId, otterId, turnNumber); }
   async markParticipantLeft(conversationId: string, otterId: string): Promise<void> { mixins.markParticipantLeft(this.db, conversationId, otterId); }
   // ── F20260920trrt：闲置预警新口径（发言 seq 差 + 时间护栏）读时聚合三查询 ──
   getMaxEntrySeq(conversationId: string): number { return mixins.getMaxEntrySeq(this.db, conversationId); }
@@ -292,12 +245,4 @@ export class SqliteConversationRepository implements ConversationRepository {
   /** F20260805rbrg：按 metadata 查重。支持单条（externalId）和批量（externalIds 数组）两种格式。 */
 
   /** F20260909smsp：按 invokeGroupId 查询 invoke 消息链（首个 message + speak messages） */
-  // ── Turn 历史 ──
-
-  async getTurnHistory(conversationId: string): Promise<TurnHistoryEntry[]> {
-    // F20260913ctlv 批4c：messages 表 drop——只返回 turns 骨架，entries 由调用方经 EntryRepository.getEntriesByTurnId 装配
-    const turnRows = this.db.prepare("SELECT * FROM turns WHERE conversation_id = ? ORDER BY turn_number ASC")
-      .all(conversationId) as TurnRow[];
-    return turnRows.map(rowToTurn).map(turn => ({ turn }));
-  }
 }

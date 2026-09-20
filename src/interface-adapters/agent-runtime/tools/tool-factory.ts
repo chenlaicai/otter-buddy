@@ -537,7 +537,6 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
           return errorResponse(`[错误] ${GROUP_ID_REQUIRED_MESSAGE_PREFIX}。漏传会让 list_artifacts 按组检索落空（已有两次事故案例）。请先用 list_artifacts 或 search_memory 查找当前对话对应的特性文档编号。`);
         }
       }
-      const turnNumber = await ctx.client.conversation.getActiveTurnNumber(ctx.conversationId);
       const resource = await ctx.client.resource.link({
         conversationId: ctx.conversationId,
         url: params.url as string | undefined,
@@ -547,7 +546,7 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
         linkedBy: ctx.otterId,
         resourceType,
         groupId: params.groupId as string | undefined,
-      }, turnNumber);
+      });
       return textResponse(`Linked resource created: ${resource.id} (type=${resource.resourceType}, status=${resource.status}, group=${resource.groupId})`);
     },
   };
@@ -831,7 +830,7 @@ function createDeleteContextTool(ctx: ToolContext): AgentTool {
 function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_active_participants",
-    description: "获取当前对话所有活跃参与者. When: 需要知道场上有谁、可用什么名字传行动权. Output: otterId / otterName / status / joinedAtTurnNumber 列表. BOUNDARY: 只读不修改状态. conversationId 由系统注入. TIP: speak 的 talkingStonePassedTo 用 otterName; invite/dissolve 用 otterId.",
+    description: "获取当前对话所有活跃参与者. When: 需要知道场上有谁、可用什么名字传行动权. Output: otterId / otterName / status 列表. BOUNDARY: 只读不修改状态. conversationId 由系统注入. TIP: speak 的 talkingStonePassedTo 用 otterName; invite/dissolve 用 otterId.",
     parameters: {
       type: "object",
       properties: {},
@@ -844,7 +843,6 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
         otterId: p.otterId,
         otterName: p.otterName,
         status: p.status,
-        joinedAtTurnNumber: p.joinedAtTurnNumber,
         ...(p.modelAlias ? { modelAlias: p.modelAlias } : {}),
       }));
       return textResponse(JSON.stringify(result));

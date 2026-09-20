@@ -132,6 +132,14 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** Issue #608：attachments 表 kind CHECK 约束扩展 audio/video（存量库迁移）。 */
   rebuildAttachmentsKindCheck(db, logger);
 
+  /** F20260920trrt：turn 系统整体退役（存量库迁移）——
+   *  ① entries 表去 turn_id 列重建（FK 指向 turns，须先拆 FK 再 drop 表）；
+   *  ② turns 表 drop（entries/particles 的 FK 全部拆除后才能安全删）；
+   *  ③ participants 表去 turn 列重建（joined_at_turn_id / left_at_turn_id FK +
+   *     last_read_turn_number / last_active_turn_number / joined_at_turn_number / left_at_turn_number）。
+   *  新库 schema 已无这些列（检测不到旧列直接返回）。 */
+  retireTurnSystem(db, logger);
+
   /** #654：scheduled_task_executions 表 CHECK 约束扩展 skipped 枚举值（存量库重建）。
    *  schema.ts 新库已含；老库 CHECK (running/completed/failed) 无 skipped，需四步重建。 */
   rebuildExecutionsStatusCheck(db, logger);
@@ -528,6 +536,90 @@ function rebuildAttachmentsKindCheck(db: Database.Database, logger: Logger): voi
     db.pragma("foreign_keys = ON");
   }
   logger.info('attachments kind CHECK widened: audio/video now accepted');
+}
+
+/** F20260920trrt：turn 系统退役迁移（存量库）。
+ *  顺序硬约束：① entries 去 turn_id（拆 FK）→ ② participants 去 turn 列（拆 FK）→ ③ turns drop。
+ *  幂等：新库 schema 无 turn_id 列（PRAGMA 检测不到直接返回）。
+ *  FK 事务模式与 rebuildAttachmentsKindCheck 同款（PRAGMA foreign_keys 事务外关、事务后恢复）。 */
+function retireTurnSystem(db: Database.Database, logger: Logger): void {
+  const entryCols = db.prepare("PRAGMA table_info(entries)").all() as Array<{ name: string }>;
+  if (!entryCols.some(col => col.name === 'turn_id')) return; // 新库或已迁移
+
+  logger.info('Retiring turn system: rebuilding entries & participants, dropping turns');
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.transaction(() => {
+      rebuildEntriesWithoutTurnId(db);
+      rebuildParticipantsWithoutTurnColumns(db);
+      // ③ turns 表 drop（引用方 FK 已全拆）
+      db.exec(`DROP TABLE IF EXISTS turns;`);
+    })();
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+  logger.info('turn system retired: entries.turn_id / participants turn columns / turns table removed');
+}
+
+/** F20260920trrt：entries 去 turn_id 拷贝重建（保留其余全部列/索引） */
+function rebuildEntriesWithoutTurnId(db: Database.Database): void {
+  db.exec(`
+      CREATE TABLE entries_new (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        sequence_num INTEGER NOT NULL,
+        entry_type TEXT NOT NULL CHECK(entry_type IN ('speak','user','invoke_start','invoke_end','yield','system')),
+        sender_type TEXT,
+        sender_id TEXT,
+        body TEXT,
+        invoke_id TEXT,
+        yield_targets TEXT,
+        status TEXT NOT NULL DEFAULT 'completed',
+        source TEXT,
+        metadata TEXT,
+        sender_name TEXT NOT NULL DEFAULT '',
+        context_tokens INTEGER,
+        context_tokens_max INTEGER,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        completed_at TEXT,
+        FOREIGN KEY (conversation_id) REFERENCES conversations(id),
+        FOREIGN KEY (invoke_id) REFERENCES invokes(id)
+      );
+      INSERT INTO entries_new (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, status, source, metadata, sender_name, context_tokens, context_tokens_max, created_at, completed_at)
+      SELECT id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, status, source, metadata, sender_name, context_tokens, context_tokens_max, created_at, completed_at FROM entries;
+      DROP TABLE entries;
+      ALTER TABLE entries_new RENAME TO entries;
+      CREATE INDEX IF NOT EXISTS idx_entries_conversation_seq ON entries(conversation_id, sequence_num);
+      CREATE INDEX IF NOT EXISTS idx_entries_invoke ON entries(invoke_id);
+      CREATE INDEX IF NOT EXISTS idx_entries_type ON entries(entry_type);
+      CREATE INDEX IF NOT EXISTS idx_entries_status ON entries(status);
+      CREATE INDEX IF NOT EXISTS idx_entries_created_at ON entries(created_at);
+    `);
+}
+
+/** F20260920trrt：participants 去 turn 列拷贝重建（FK + 四个 turn number 列） */
+function rebuildParticipantsWithoutTurnColumns(db: Database.Database): void {
+  db.exec(`
+      CREATE TABLE conversation_participants_new (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        otter_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        left_at TEXT,
+        last_read_seq INTEGER,
+        FOREIGN KEY (conversation_id) REFERENCES conversations(id),
+        FOREIGN KEY (otter_id) REFERENCES otters(id),
+        UNIQUE(conversation_id, otter_id)
+      );
+      INSERT INTO conversation_participants_new (id, conversation_id, otter_id, status, created_at, left_at, last_read_seq)
+      SELECT id, conversation_id, otter_id, status, created_at, left_at, last_read_seq FROM conversation_participants;
+      DROP TABLE conversation_participants;
+      ALTER TABLE conversation_participants_new RENAME TO conversation_participants;
+      CREATE INDEX IF NOT EXISTS idx_participants_conversation_id ON conversation_participants(conversation_id);
+      CREATE INDEX IF NOT EXISTS idx_participants_otter_id ON conversation_participants(otter_id);
+      CREATE INDEX IF NOT EXISTS idx_participants_status ON conversation_participants(status);
+    `);
 }
 
 /** Issue #644：signals 表补 evidence_detail / confidence 列（幂等，PRAGMA 检测）。
@@ -1151,11 +1243,10 @@ function rebuildExecutionsStatusCheck(db: Database.Database, logger: Logger): vo
         completed_at TEXT,
         status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed', 'skipped')),
         error_message TEXT,
-        message_id TEXT,
-        turn_id TEXT REFERENCES turns(id)
+        message_id TEXT
       );
-      INSERT INTO scheduled_task_executions_new (id, task_id, triggered_at, completed_at, status, error_message, message_id, turn_id)
-        SELECT id, task_id, triggered_at, completed_at, status, error_message, message_id, turn_id FROM scheduled_task_executions;
+      INSERT INTO scheduled_task_executions_new (id, task_id, triggered_at, completed_at, status, error_message, message_id)
+        SELECT id, task_id, triggered_at, completed_at, status, error_message, message_id FROM scheduled_task_executions;
       DROP TABLE scheduled_task_executions;
       ALTER TABLE scheduled_task_executions_new RENAME TO scheduled_task_executions;
       CREATE INDEX IF NOT EXISTS idx_executions_task ON scheduled_task_executions(task_id, triggered_at);
@@ -1225,7 +1316,6 @@ interface MigratableMessageRow {
   sender_id: string;
   status: string;
   sequence_num: number;
-  turn_id: string;
   talking_stone_passed_to: string | null;
   context_tokens: number | null;
   context_tokens_max: number | null;
@@ -1243,7 +1333,7 @@ function speakEntryBaseOf(
 ): {
   id: string; conversation_id: string; entry_type: string; sender_type: string | null;
   sender_id: string | null; body: string | null; invoke_id: null;
-  yield_targets: string | null; turn_id: string; status: string;
+  yield_targets: string | null; status: string;
   source: string | null; metadata: string | null; sender_name: string;
   context_tokens: number | null; context_tokens_max: number | null;
   created_at: string; completed_at: string | null;
@@ -1266,7 +1356,6 @@ function speakEntryBaseOf(
     invoke_id: null,
     /** user 信号目标 → yield_targets（新模型 user entry 语义）；otter 的 tsp 落在合成 yield entry */
     yield_targets: msg.sender_type === 'user' ? msg.talking_stone_passed_to : null,
-    turn_id: msg.turn_id,
     status: 'completed',
     source: msg.source,
     metadata: mergedMetadata,
@@ -1399,10 +1488,10 @@ function buildMigrationWriters(db: Database.Database): {
     writers: {
       insertEntry: db.prepare(`
         INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id,
-          body, invoke_id, yield_targets, turn_id, status, source, metadata, sender_name,
+          body, invoke_id, yield_targets, status, source, metadata, sender_name,
           context_tokens, context_tokens_max, created_at, completed_at)
         VALUES (@id, @conversation_id, @sequence_num, @entry_type, @sender_type, @sender_id,
-          @body, @invoke_id, @yield_targets, @turn_id, @status, @source, @metadata, @sender_name,
+          @body, @invoke_id, @yield_targets, @status, @source, @metadata, @sender_name,
           @context_tokens, @context_tokens_max, @created_at, @completed_at)
       `),
       insertFts: db.prepare("INSERT INTO entries_fts (entry_id, body) VALUES (?, ?)"),
@@ -1673,11 +1762,10 @@ function rebuildExecutionsDropMessagesFk(db: Database.Database, logger: Logger):
         completed_at TEXT,
         status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed', 'skipped')),
         error_message TEXT,
-        message_id TEXT,
-        turn_id TEXT REFERENCES turns(id)
+        message_id TEXT
       );
-      INSERT INTO scheduled_task_executions_new (id, task_id, triggered_at, completed_at, status, error_message, message_id, turn_id)
-        SELECT id, task_id, triggered_at, completed_at, status, error_message, message_id, turn_id FROM scheduled_task_executions;
+      INSERT INTO scheduled_task_executions_new (id, task_id, triggered_at, completed_at, status, error_message, message_id)
+        SELECT id, task_id, triggered_at, completed_at, status, error_message, message_id FROM scheduled_task_executions;
       DROP TABLE scheduled_task_executions;
       ALTER TABLE scheduled_task_executions_new RENAME TO scheduled_task_executions;
       CREATE INDEX IF NOT EXISTS idx_executions_task ON scheduled_task_executions(task_id, triggered_at);

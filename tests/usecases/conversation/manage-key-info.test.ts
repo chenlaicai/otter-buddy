@@ -148,7 +148,7 @@ describe("ManageKeyInfo.supersedeResource validation", () => {
         resourceType: "fact",
         linkedBy: "user-1",
         autoLinked: false,
-      }, 1),
+      }),
     ).rejects.toThrow("fact 类型资源必须提供 content");
   });
 
@@ -162,7 +162,7 @@ describe("ManageKeyInfo.supersedeResource validation", () => {
         resourceType: "worktree",
         linkedBy: "user-1",
         autoLinked: false,
-      }, 1),
+      }),
     ).rejects.toThrow("非 fact 类型资源必须提供 url");
   });
 });
@@ -178,7 +178,7 @@ describe("ManageKeyInfo - F20260821scrt secrets 脱敏", () => {
       content: "部署密钥是 api_key: 0123456789abcdef01234567",
       linkedBy: "user-1",
       autoLinked: false,
-    }, 1);
+    });
 
     const resource = (repo.linkResource as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(resource.content).not.toContain("0123456789abcdef");
@@ -196,7 +196,7 @@ describe("ManageKeyInfo - F20260821scrt secrets 脱敏", () => {
       metadata: { note: "密码: hunter2xx" },
       linkedBy: "user-1",
       autoLinked: false,
-    }, 1);
+    });
 
     const resource = (repo.linkResource as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(String(resource.metadata.note)).not.toContain("hunter2xx");
@@ -213,7 +213,7 @@ describe("ManageKeyInfo - F20260821scrt secrets 脱敏", () => {
       metadata: { count: 2 },
       linkedBy: "user-1",
       autoLinked: false,
-    }, 1);
+    });
 
     const resource = (repo.linkResource as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(resource.content).toBe("项目约定：部署走 worktree");
@@ -232,7 +232,7 @@ describe("ManageKeyInfo - 二轮审视#5 索引侧传脱敏后内容", () => {
       content: "密钥是 api_key: 0123456789abcdef01234567",
       linkedBy: "user-1",
       autoLinked: false,
-    }, 1);
+    });
 
     const indexedContent = (memoryIndex.indexLinkedResource as ReturnType<typeof vi.fn>).mock.calls[0][2];
     expect(String(indexedContent)).not.toContain("0123456789abcdef");
@@ -320,7 +320,7 @@ describe("ManageKeyInfo - F20260829gvid groupId 必填校验（#580）", () => {
       url: "https://github.com/x/y/pull/561",
       linkedBy: "user-1",
       autoLinked: false,
-    }, 10);
+    });
 
     expect(result.groupId).toBe("F20260828ptun");
     expect(repo.supersedeLinkedResource).toHaveBeenCalledOnce();
@@ -340,7 +340,7 @@ describe("ManageKeyInfo - F20260829gvid groupId 必填校验（#580）", () => {
         url: "/wt/legacy",
         linkedBy: "user-1",
         autoLinked: false,
-      }, 10),
+      }),
     ).rejects.toThrow("必须提供 groupId");
   });
 });

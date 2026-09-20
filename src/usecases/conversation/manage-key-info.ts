@@ -54,7 +54,7 @@ export class ManageKeyInfo {
     private readonly memoryIndex: MemoryIndexGateway,
   ) {}
 
-  private buildResource(input: LinkedResourceInput, currentTurnNumber: number, fallbackGroupId?: string | null): LinkedResource {
+  private buildResource(input: LinkedResourceInput, fallbackGroupId?: string | null): LinkedResource {
     return {
       id: crypto.randomUUID(),
       conversationId: input.conversationId,
@@ -71,8 +71,6 @@ export class ManageKeyInfo {
       autoLinked: input.autoLinked,
       createdAt: new Date().toISOString(),
       status: "active",
-      linkedAtTurnNumber: currentTurnNumber,
-      statusChangedAtTurnNumber: currentTurnNumber,
       groupId: input.groupId ?? fallbackGroupId ?? null,
       supersededBy: null,
     };
@@ -99,13 +97,13 @@ export class ManageKeyInfo {
       : (resource.url ?? "");
   }
 
-  async linkResource(input: LinkedResourceInput, currentTurnNumber = 0): Promise<LinkedResource> {
+  async linkResource(input: LinkedResourceInput): Promise<LinkedResource> {
     this.validateInput(input);
     // F20260829gvid（#580）：直接创建 pr/worktree/branch 时 groupId 必填。supersede 路径不走
     // 这里（走 supersedeResource，允许继承旧组）——两条路径分开校验。
     const groupIdErr = validateGroupIdRequired(input.resourceType, input.groupId);
     if (groupIdErr) throw groupIdErr;
-    const resource = this.buildResource(input, currentTurnNumber);
+    const resource = this.buildResource(input);
     await this.repo.linkResource(resource);
     await this.memoryIndex.indexLinkedResource(resource.id, resource.conversationId, this.getIndexContent(resource), resource.resourceType);
     return resource;
@@ -115,7 +113,6 @@ export class ManageKeyInfo {
   async supersedeResource(
     existingId: string,
     newInput: LinkedResourceInput,
-    currentTurnNumber: number,
   ): Promise<LinkedResource> {
     this.validateInput(newInput);
     const existing = await this.repo.getLinkedResourceById(existingId);
@@ -129,20 +126,20 @@ export class ManageKeyInfo {
     const groupIdErr = validateGroupIdRequired(newInput.resourceType, newInput.groupId ?? existing.groupId);
     if (groupIdErr) throw groupIdErr;
 
-    const newResource = this.buildResource(newInput, currentTurnNumber, existing.groupId);
-    await this.repo.supersedeLinkedResource(existingId, newResource, currentTurnNumber);
+    const newResource = this.buildResource(newInput, existing.groupId);
+    await this.repo.supersedeLinkedResource(existingId, newResource);
     await this.memoryIndex.indexLinkedResource(newResource.id, newResource.conversationId, this.getIndexContent(newResource), newResource.resourceType);
     return newResource;
   }
 
   /** 归档产物 */
-  async archiveResource(id: string, _conversationId: string, currentTurnNumber: number): Promise<void> {
+  async archiveResource(id: string, _conversationId: string): Promise<void> {
     const resource = await this.repo.getLinkedResourceById(id);
     if (!resource) throw new DomainError(`LinkedResource ${id} not found`, "not_found");
     if (!canTransitionArtifactStatus(resource.status, "archived")) {
       throw new DomainError(`Cannot archive resource in status '${resource.status}'`, "conflict");
     }
-    await this.repo.updateResourceStatus(id, "archived", currentTurnNumber);
+    await this.repo.updateResourceStatus(id, "archived");
   }
 
   /** 查询链接资源（支持 status/resourceType 过滤） */
@@ -156,7 +153,7 @@ export class ManageKeyInfo {
   }
 
   /** 更新资源状态（含领域守卫校验） */
-  async updateResourceStatus(id: string, status: ArtifactStatus, statusChangedAtTurnNumber: number, supersededBy?: string): Promise<void> {
+  async updateResourceStatus(id: string, status: ArtifactStatus, supersededBy?: string): Promise<void> {
     const resource = await this.repo.getLinkedResourceById(id);
     if (!resource) throw new DomainError(`LinkedResource ${id} not found`, "not_found");
     if (!canTransitionArtifactStatus(resource.status, status)) {
@@ -165,7 +162,7 @@ export class ManageKeyInfo {
     if (status === "superseded" && !supersededBy) {
       throw new DomainError(`supersededBy is required when transitioning to 'superseded'`, "validation");
     }
-    await this.repo.updateResourceStatus(id, status, statusChangedAtTurnNumber, supersededBy);
+    await this.repo.updateResourceStatus(id, status, supersededBy);
   }
 
   /** 产物总览：按 groupId 分组 */

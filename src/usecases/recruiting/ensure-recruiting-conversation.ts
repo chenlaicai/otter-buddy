@@ -93,15 +93,9 @@ async function createConversationAndParticipant(
     id: crypto.randomUUID(),
     conversationId,
     otterId: bigOtterId,
-    joinedAtTurnId: null,
-    joinedAtTurnNumber: 0,
-    leftAtTurnId: null,
-    leftAtTurnNumber: null,
     status: 'active',
     createdAt: now,
     leftAt: null,
-    lastReadTurnNumber: 0,
-    lastActiveTurnNumber: 0,
   };
   await convRepo.createParticipants([participant]);
   return conversationId;
@@ -115,7 +109,6 @@ async function sendWelcomeMessage(
 ): Promise<void> {
   await sendEntry.createSystemEntry({
     conversationId,
-    turnId: "",
     body: `💼 **求职助手对话已创建**
 
 这是你的求职助手对话。BOSS 直聘扩展（boss-zhipin-bridge）会把新收到的招聘消息批量转发到这里，你将：

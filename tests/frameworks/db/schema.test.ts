@@ -86,30 +86,24 @@ describe("initSchema", () => {
     }).toThrow();
   });
 
-  it("外键约束生效：message 引用不存在的 conversation_id 时抛出异常", () => {
+  it("外键约束生效：entry 引用不存在的 conversation_id 时抛出异常", () => {
     initSchema(db);
 
-    // 先插入一个对话和 turn（messages 依赖 conversations 和 turns）
     db.prepare(`
       INSERT INTO conversations (id, title, created_at, updated_at)
       VALUES ('conv-1', 'test', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
-    `).run();
-
-    db.prepare(`
-      INSERT INTO turns (id, conversation_id, turn_number, created_at)
-      VALUES ('turn-1', 'conv-1', 1, '2026-01-01T00:00:00Z')
     `).run();
 
     // 引用不存在的 conversation_id
     expect(() => {
       db.prepare(`
-        INSERT INTO messages (id, conversation_id, sender_type, sender_id, sequence_num, turn_id, created_at)
-        VALUES ('msg-1', 'nonexistent-conv', 'user', 'user-1', 1, 'turn-1', '2026-01-01T00:00:00Z')
+        INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, created_at)
+        VALUES ('entry-1', 'nonexistent-conv', 1, 'user', 'user', 'user-1', '2026-01-01T00:00:00Z')
       `).run();
     }).toThrow();
   });
 
-  it("外键约束生效：message 引用不存在的 turn_id 时抛出异常", () => {
+  it("外键约束生效：entry 引用不存在的 invoke_id 时抛出异常", () => {
     initSchema(db);
 
     db.prepare(`
@@ -117,11 +111,11 @@ describe("initSchema", () => {
       VALUES ('conv-1', 'test', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
     `).run();
 
-    // 引用不存在的 turn_id
+    // 引用不存在的 invoke_id
     expect(() => {
       db.prepare(`
-        INSERT INTO messages (id, conversation_id, sender_type, sender_id, sequence_num, turn_id, created_at)
-        VALUES ('msg-1', 'conv-1', 'user', 'user-1', 1, 'nonexistent-turn', '2026-01-01T00:00:00Z')
+        INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, invoke_id, created_at)
+        VALUES ('entry-1', 'conv-1', 1, 'speak', 'otter', 'otter-1', 'nonexistent-invoke', '2026-01-01T00:00:00Z')
       `).run();
     }).toThrow();
   });

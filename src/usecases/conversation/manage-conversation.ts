@@ -125,12 +125,6 @@ export class ManageConversation {
     return this.repo.getIdsByOtterId(otterId);
   }
 
-  /** 获取当前活跃 Turn 的编号（无活跃 Turn 时返回 0） */
-  async getActiveTurnNumber(conversationId: string): Promise<number> {
-    const turn = await this.repo.getActiveTurn(conversationId);
-    return turn?.turnNumber ?? 0;
-  }
-
   /** 获取所有对话 ID（分页） */
   async getAllIds(options?: { limit?: number; offset?: number }): Promise<string[]> {
     return this.repo.getAllIds(options);

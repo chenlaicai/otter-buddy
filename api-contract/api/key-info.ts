@@ -14,8 +14,6 @@ export interface LinkedResourceDTO {
   autoLinked: boolean;
   createdAt: string;
   status: "active" | "superseded" | "archived";
-  linkedAtTurnNumber: number;
-  statusChangedAtTurnNumber: number;
   groupId: string | null;
   supersededBy: string | null;
 }

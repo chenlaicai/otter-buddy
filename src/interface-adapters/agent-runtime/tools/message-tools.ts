@@ -5,7 +5,7 @@ import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 export function createGetMessageTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_message",
-    description: "按 ID 获取消息条目详情（时间线 entries）. When: 需要查看某条发言的完整内容（含 html-card 卡片全文）/状态/元数据. Not for: 搜索 → search_messages. 列表浏览 → list_messages. Output: 条目详情（sender/body/entryType/turnId/seq/timestamps）. GOTCHA: 条目不存在时返回 isError；speak/user 承载对话内容，invoke_*/yield/system 是边界与状态条目.",
+    description: "按 ID 获取消息条目详情（时间线 entries）. When: 需要查看某条发言的完整内容（含 html-card 卡片全文）/状态/元数据. Not for: 搜索 → search_messages. 列表浏览 → list_messages. Output: 条目详情（sender/body/entryType/seq/timestamps）. GOTCHA: 条目不存在时返回 isError；speak/user 承载对话内容，invoke_*/yield/system 是边界与状态条目.",
     parameters: {
       type: "object",
       properties: {
@@ -19,7 +19,7 @@ export function createGetMessageTool(ctx: ToolContext): AgentTool {
       if (!e) return errorResponse(`[错误] 条目 ${params.messageId} 不存在`);
       return textResponse(JSON.stringify({
         id: e.id, senderType: e.senderType, senderId: e.senderId, entryType: e.entryType,
-        body: e.body, status: e.status, turnId: e.turnId,
+        body: e.body, status: e.status,
         sequenceNum: e.sequenceNum, createdAt: e.createdAt, completedAt: e.completedAt,
       }));
     },

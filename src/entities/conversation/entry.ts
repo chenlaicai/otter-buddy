@@ -52,7 +52,6 @@ export interface Entry {
   yieldTargets: string[] | null;
 
   /** 对话轮次分组 */
-  turnId: string;
   status: EntryStatus;
   source: EntrySource;
   metadata: EntryMetadata | null;

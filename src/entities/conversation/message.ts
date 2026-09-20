@@ -45,7 +45,6 @@ export interface MessageSegment {
 export interface Message {
   id: string;
   conversationId: string;
-  turnId: string;
   senderType: SenderType;
   senderId: string;
   talkingStonePassedTo: string[] | null; // 发言石传递：streaming 时为 null，completed 时必填非空。对齐 Snail 的 to_speakers 模式

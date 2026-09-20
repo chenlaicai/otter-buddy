@@ -27,7 +27,7 @@ category: technique
 ## 工作流
 
 1. **查询**：
-   - 当前对话（"刚才"、"这轮"）→ `search_messages` / `list_messages` / `get_message` / `get_turn_history`
+   - 当前对话（"刚才"、"这轮"）→ `search_messages` / `list_messages` / `get_message`
    - 跨会话记忆（"上次"、历史决策）→ `search_memory(detail_level="summary")` 先扫描，看中特定条目再 `get_memory_detail(ids=[...])` 获取全文。不要跳过 summary 直接用 full。
    - **背景探索**（隐性历史信号）：收到方案/决策/排查类实质问题时，即使搭档没提"上次"，也先自问"这事在本项目有历史脉络吗"——方案、结论、教训大多沉淀在记忆（F/R 文档、历史讨论）里。有 → 先 `search_memory` 再答；需要"怎么来的/产出了什么/被什么取代" → `get_related` 沿关系图拼链。纯新话题不必搜，不是为了搜而搜。
    - "之前"有歧义 → 先查当前对话，无结果再查记忆
