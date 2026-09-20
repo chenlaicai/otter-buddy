@@ -121,6 +121,10 @@ weixin-message-channel.ts / feishu-message-channel.ts 的 onEvent 新增 `entry.
   - IM 页：h1「IM 助理」、微信徽章/扫码区/飞书引导在、「IM 大厅」计数 0（已移除）
 - db 迁移真启动验证：alpha 实例（生产 config 副本 + 空 SQLite）启动健康、迁移执行、API 返回 kind 字段正确（curl 实测三条对话 kind 标注与排序符合预期）
 
+## 对抗审视记录（2026-09-20）
+
+检视獭「检视imax」（mimo，异模型）两轮审视：首轮 1 严重 + 3 建议，全部处置（3 修复 1 部分接受+反驳附证据）；delta 复核通过（commit a763d2ae）。发现清单：①buildDigest 双调用（空标题摘要→单次构建+真实标题）②IM 大厅死函数×4（已删）③kind 测试覆盖（补归一化断言；主断言反驳——检视看到的是注释非断言本体）④摘要与重启竞态（顺序反转：先落库后重启）。处置评论见 PR #1055。CI 未触发为 repo 级现象（03:47 后全 repo 零新 run，含其他分支），非本 PR 特有，本地 3677 用例绿 + 检视独立复核。
+
 ## 顺手修复（Discovered Issues）
 
 - **主仓 config.yaml 缺 #1049 必填项 handoffThresholdTokens**（主服务未重启所以未炸；alpha 启动即炸暴露）——已按 contextWindow 比例补 8 个模型（1M→340000，128K→40000）。config.yaml 非 git 追踪，属本地配置修复，记录于此供溯源
