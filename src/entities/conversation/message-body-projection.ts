@@ -20,6 +20,7 @@
 import { remark } from "remark";
 import remarkGfm from "remark-gfm";
 import type { Code, Nodes } from "mdast";
+import { visit } from "unist-util-visit";
 import type { AttachmentRef } from "./attachment";
 import { projectAttachments } from "./attachment-projection";
 
@@ -248,6 +249,50 @@ function truncateByBytes(text: string, maxBytes: number, hint: string): string {
  * @param options.truncationHint 截断提示，缺省 `…(已截断,完整内容见 Web 端)`
  * @param options.attachments 消息附件（占位投影在截断前注入流水线）
  */
+/** F20260920alnk：URL 尾部合法字符（RFC 3986 pchar / query / fragment 的可打印 ASCII 子集）。
+ *  GFM autolink 对 https:// 裸链的停止条件只有空白和 <，全角标点/中文/任何非空白
+ *  Unicode 都会被吸入——从尾部反向剥离直到命中合法尾字符。 */
+const URL_TRAILING_CHAR = /[A-Za-z0-9\-_~.!$&'()*+,;=:@#%/?]$/;
+
+/** F20260920alnk：修正 GFM autolink 的全角尾巴。
+ *  场景（搭档多次实证）：「（https://github.com/x/pull/1053）。本地偶发的」——GFM 把
+ *  「）。本地偶发的」整个吸进 URL，IM 侧点不开链接。
+ *  做法：remark+GFM 解析定位 autolink 的 link 节点（源文本区段），把区段替换为
+ *  显式链接形态 + 截尾串放链接外：<https://…1053>）本地偶发的。显式形态的解析
+ *  不依赖 autolink 边界，尾巴问题就地消除；position 替换只动命中区段，原文其余
+ *  部分零改动（不做 stringify 全文重排，避免 round-trip 改写其他语法）。
+ *  解析失败/无命中时原样返回（尽力而为，不阻断出站）。 */
+export function trimAutolinkTrailing(text: string): string {
+  if (!/https?:\/\//.test(text)) return text; // 快速路径：无裸链
+  try {
+    const file = remark().use(remarkGfm).parse(text);
+    // 收集需要修剪的 autolink 区段（倒序替换，保证前面的 offset 不失效）
+    const edits: Array<{ start: number; end: number; url: string }> = [];
+    visit(file, "link", (node) => {
+      if (!/^https?:\/\//.test(node.url)) return;
+      let url = node.url;
+      while (url.length > 0 && !URL_TRAILING_CHAR.test(url)) url = url.slice(0, -1);
+      if (url === node.url) return; // 尾部干净，无需修剪
+      const pos = node.position;
+      // offset 为 0（行首链接）合法：用 null 检查而非 falsy（falsy-zero 陷阱）
+      if (pos?.start?.offset == null || pos?.end?.offset == null) return;
+      edits.push({ start: pos.start.offset, end: pos.end.offset, url });
+    });
+    if (edits.length === 0) return text;
+    // autolink 区段 → <url>（CommonMark autolink，> 为明确边界）+ 剥离串留在链接外
+    let result = text;
+    for (const e of [...edits].sort((a, b) => b.start - a.start)) {
+      const segment = result.slice(e.start, e.end);
+      if (!segment.startsWith(e.url)) continue; // 防御：区段头与 url 不一致（不应发生）
+      const tail = segment.slice(e.url.length); // 被吸入的尾巴，留在链接外
+      result = result.slice(0, e.start) + `<${e.url}>` + tail + result.slice(e.end);
+    }
+    return result;
+  } catch {
+    return text; // 解析异常不阻断出站
+  }
+}
+
 export function projectForChannel(body: string, options: ProjectForChannelOptions = {}): string {
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
   const truncationHint = options.truncationHint ?? DEFAULT_TRUNCATION_HINT;
@@ -258,16 +303,20 @@ export function projectForChannel(body: string, options: ProjectForChannelOption
   // markPlaceholders:true 让占位符带零宽前缀,避免误匹配 body 原文里 LLM 手写字面量(审视 R5)
   const stripped = stripHtmlCardFences(bomStripped, { markPlaceholders: true });
   const humanized = humanizePlaceholders(stripped, options);
+  // F20260920alnk：裸 URL 后紧跟全角标点/中文时，GFM autolink 会把它们吸进 URL
+  // （IM 渲染器按 GFM 解析 → 链接尾巴带「）。本地偶发的」点不开，搭档多次实证）。
+  // IM 出站前统一截尾：URL 尾部只保留 RFC 3986 合法尾字符，剥离串原样保留在文本中。
+  const autolinkTrimmed = trimAutolinkTrailing(humanized);
 
   // 多模态 Phase 1：附件块在截断前注入流水线；预算权收投影层——
   // 附件块预留后正文按剩余预算截断，附件块在截断后仍存活（跨通道不丢）
   const attachmentBlock = humanizeAttachmentPlaceholders(options);
   if (!attachmentBlock) {
-    return truncateByBytes(humanized, maxBytes, truncationHint);
+    return truncateByBytes(autolinkTrimmed, maxBytes, truncationHint);
   }
   const attachmentBytes = Buffer.byteLength(attachmentBlock, "utf8");
   // 正文剩余预算 = 总预算 - 附件块 - 分隔符（"\n"）；保底 0（极端小预算下附件块优先存活）
   const bodyBudget = Math.max(0, maxBytes - attachmentBytes - 1);
-  const truncatedBody = truncateByBytes(humanized, bodyBudget, truncationHint);
+  const truncatedBody = truncateByBytes(autolinkTrimmed, bodyBudget, truncationHint);
   return truncatedBody.trim() ? `${truncatedBody}\n${attachmentBlock}` : attachmentBlock;
 }
