@@ -41,7 +41,7 @@ export function toRecurrenceCard(s: RhiSignalDTO): RecurrenceCard | null {
 }
 
 function fmtDay(iso: string): string {
-  return iso.length >= 10 ? iso.slice(5, 10).replace('-', '/') : iso
+  return iso.length >= 10 ? iso.slice(5, 10) : iso
 }
 
 /** 节点：bug=caramel-600 实心、fix=teal-500 实心、其他类型=otter-300 空心（交替节奏靠色差读出） */

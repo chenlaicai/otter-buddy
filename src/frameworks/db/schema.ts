@@ -10,6 +10,14 @@ import type { Logger } from "@usecases/ports/logger";
  * ⚠️ 由此产生的约束：破坏性 schema 变更（改列类型/删列）不能只改这里的 CREATE——
  * 老库表已存在不会重建，必须同时在 migration.ts 写补丁。表级漏登的强制力由
  * tests/frameworks/db/migration-equivalence.guard.test.ts 守卫，此处约定只是人类提示。
+ *
+ * ⚠️ 时间戳双轨声明（F20260920tdun）：
+ * 本 schema 多处使用 `DEFAULT (datetime('now'))` 作为兜底默认值，但实际写入路径
+ * 全部走 JS 侧 `new Date().toISOString()`（UTC 带 Z 后缀）。两者的区别：
+ * - JS ISO 写入：`2026-09-20T14:00:00.000Z`（带 Z，前端 `new Date()` 解析为 UTC 正确偏移）
+ * - DB DEFAULT：`2026-09-20 14:00:00`（无 Z，前端 `new Date()` 会误当本地时间解析，产生 8h 偏移）
+ * 当前无路径依赖 DB DEFAULT，但若未来有代码路径依赖它写入，会产生无 Z 的 UTC 串，
+ * 前端 new Date() 会误当本地时间。此处留注作为地雷标注，不改 schema 行为。
  */
 // eslint-disable-next-line max-statements -- 多表初始化，语句数由表数量决定
 export function initSchema(db: Database.Database, logger?: Logger): void {

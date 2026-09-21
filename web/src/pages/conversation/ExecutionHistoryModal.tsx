@@ -4,6 +4,7 @@ import { Modal } from '../../components/Modal'
 import type { LocalScheduledTaskExecution } from '../../lib/mappers'
 import { mapExecutionDTO } from '../../lib/mappers'
 import * as api from '../../api/client'
+import { fmtTime } from '../../lib/utils'
 
 interface Props {
   taskId: string
@@ -92,7 +93,7 @@ export function ExecutionHistoryModal({ taskId, onClose, onJumpToMessage }: Prop
                   <div className="flex items-center gap-2">
                     <StatusIcon status={ex.status} />
                     <span className="text-sm text-stone-700">
-                      {new Date(ex.triggeredAt).toLocaleString('zh-CN')}
+                      {fmtTime(ex.triggeredAt)}
                     </span>
                   </div>
                   {ex.messageId && onJumpToMessage && (

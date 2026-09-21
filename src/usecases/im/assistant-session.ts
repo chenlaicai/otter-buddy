@@ -4,6 +4,7 @@ import type { ConversationRepository } from "@usecases/conversation/conversation
 import type { EntryRepository } from "@usecases/conversation/entry-repository";
 import type { MemoryIndexGateway } from "@usecases/conversation/memory-index-gateway";
 import type { Logger } from "@usecases/ports/logger";
+import { fmtImTime } from "@usecases/im/time-format";
 
 /**
  * F20260918imas / F20260920imax：IM 助理会话管理器。
@@ -181,7 +182,7 @@ export class AssistantSessionManager {
 
     const lines = chronological.map(e => {
       const role = e.entryType === "user" ? "用户" : "水獭";
-      const time = new Date(e.createdAt).toISOString().slice(0, 16).replace("T", " ");
+      const time = fmtImTime(e.createdAt);
       const body = (e.body ?? "").replace(/\s+/g, " ").trim().slice(0, AssistantSessionManager.DIGEST_ENTRY_MAX_CHARS);
       return `[${time}] ${role}: ${body}`;
     });
