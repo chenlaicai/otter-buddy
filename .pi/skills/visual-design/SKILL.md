@@ -1,7 +1,7 @@
 ---
 name: visual-design
 description: >-
-  Use when: 搭档要求做展示类设计——页面/落地页/UI 界面/卡片/海报/PPT 版式/图表美化，或要求审视/重构既有设计、从参考图提取设计风格. Not for: 纯文案写作、代码逻辑实现（设计稿中的交互逻辑另走 code-implementation）、闲聊聊设计想法 → companion. Output: 过反泔水质检门的设计产物（四层方法论：结构→风格→质检，四动词交互），web 媒介输出 HTML/CSS.
+  Use when: 搭档要求做展示类设计——页面/落地页/UI 界面/卡片/海报/PPT 版式/图表美化，或要求审视/重构既有设计、从参考图提取设计风格. Not for: 纯文案写作、代码逻辑实现（设计稿中的交互逻辑另走 code-implementation）、闲聊聊设计想法 → companion. Output: 过反泔水质检门的设计产物（四层方法论：结构/风格/质检/交互），web 媒介输出 HTML/CSS.
 co_loads: []
 category: technique
 ---
