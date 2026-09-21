@@ -75,6 +75,15 @@ Tests  2 failed | 15 passed (17)
 - **出站回信不受影响**：gateway-adapter 按 toUserId(=fromUserId) 查 contextToken 定向（`weixin-gateway-adapter.ts:37-50`），与路由锚解耦。
 - **已知边界**：删号释放为 best-effort（失败告警不阻断）；跨进程并发删号的窗口期理论存在，概率与危害均低。
 
+## 审视处置（检视wxba，mimo 异模型，2026-09-21）
+
+| 发现 | 级别 | 处置 |
+|---|---|---|
+| onWeixinAccountDeleted sync→async 类型断层（controller 签名仍 void、调用无 await，HTTP 200 先于 DB 清理返回） | 🔴 严重 | 已修：weixin-connection-controller.ts 签名改 `void \| Promise<void>` + deleteAccount 加 await；bootstrap/controllers.ts deps 同步放宽 |
+| botAccountId 回退无日志无测试 | 🟡 建议 | 已修：回退时 logger.warn + 新增回退守卫用例（断言落发送者锚 + 告警） |
+| 删号不清理旧 fromUserId 键连接（孤儿数据悬挂） | 🟡 建议 | 维持：旧时代进孤儿连接的功能无害（不被入站命中），清理属数据卫生非本 PR 边界；后续可与 issue #1063 死端点评估同批处理 |
+| 修复前红未固化为可执行负例 | 🟡 建议 | 已修：即回退守卫用例（botAccountId: undefined → 断言旧行为 + warn），装配回退时从绿变红 |
+
 ## 预期 vs 实际对照
 
 预注册预期「删号不清绑定」被 DB 证据推翻（两锚不同键，不存在竞争）→ 转向「锚分裂」假设 → 代码+DB 双验证闭合。次级问题（删号清绑定）作为附带修复纳入，非本次现象根因。

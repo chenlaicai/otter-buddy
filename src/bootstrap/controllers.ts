@@ -90,7 +90,7 @@ export interface ControllerDeps {
   /** 微信连接管理（issue #566）：登录会话管理 + 账号 store */
   weixinLoginSessions?: WeixinLoginSessionPort;
   weixinAccountStore?: WeixinAccountStorePort;
-  onWeixinAccountDeleted?: (accountId: string) => void;
+  onWeixinAccountDeleted?: (accountId: string) => void | Promise<void>;
   /** F20260920imax：微信扫码后按名开助理线（app.ts 注入——依赖 AssistantSessionManager，
    *  controllers 层不直接引 usecases 装配产物，经 deps 闭包传递） */
   provisionWeixinAssistantLine?: (accountId: string, name: string) => Promise<{ conversationId: string; title: string }>;

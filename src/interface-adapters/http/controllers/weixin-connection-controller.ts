@@ -57,8 +57,9 @@ export class WeixinConnectionController {
     private readonly deps: {
       loginSessions: WeixinLoginSessionPort;
       accountStore: WeixinAccountStorePort;
-      /** 账号删除后回调（停轮询等清理；调用方注入） */
-      onAccountDeleted?: (accountId: string) => void;
+      /** 账号删除后回调（停轮询、释放绑定等清理；调用方注入）。F20260921wxba：
+       *  实现含 DB 释放已 async——签名允许 Promise，deleteAccount 端 await 后再回包 */
+      onAccountDeleted?: (accountId: string) => void | Promise<void>;
       /** F20260920imax：扫码后按名开助理线（必填名；app.ts 闭包注入，未注入时端点 503） */
       provisionAssistantLine?: (accountId: string, name: string) => Promise<{ conversationId: string; title: string }>;
       logger: Logger;
@@ -139,7 +140,7 @@ export class WeixinConnectionController {
       const account = this.deps.accountStore.getAccount(id);
       if (!account) return c.json({ error: "Account not found" }, 404);
       this.deps.accountStore.removeAccount(id);
-      this.deps.onAccountDeleted?.(id);
+      await this.deps.onAccountDeleted?.(id);
       return c.json({ status: "deleted" });
     } catch (err) {
       return handleError(c, err, this.deps.logger);

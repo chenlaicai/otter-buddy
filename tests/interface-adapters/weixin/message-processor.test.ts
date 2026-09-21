@@ -139,6 +139,16 @@ describe("WeixinMessageProcessor", () => {
     expect(ctx.dispatched.map(d => d.senderId)).toEqual(["user-a", "user-b"]);
   });
 
+  it("F20260921wxba：装配断裂回退守卫：未传 botAccountId 时消息落发送者锚（旧灾难行为）+ 告警", async () => {
+    // 回归守卫：若装配被回退，此用例从「落 bot 锚」变为「落发送者锚」——与本套件首例
+    // 对照即可识别装配断裂；warn 供运维诊断（不阻断消息，与实现一致）
+    const ledger = fakeAnchorLedger();
+    const ctx = makeProcessor({ manageConnection: ledger.manageConnection as any, botAccountId: undefined });
+    await ctx.processor.process({ fromUserId: "user-a", body: "在吗", raw: { item_list: [] } });
+    expect(ctx.dispatched[0].conversationId).toBe("conv-of-user-a");
+    expect(ctx.logger.warn).toHaveBeenCalled();
+  });
+
   it("/list 命令：走命令分支，不进对话", async () => {
     const ctx = makeProcessor();
     await ctx.processor.process({ fromUserId: "u-1", body: "/list", raw: { item_list: [] } });

@@ -91,7 +91,10 @@ export class WeixinMessageProcessor {
     // 新建助理线收不到消息，旧时代按人建的线继续吸走消息（用户实锤：移除重扫后
     // 消息仍进旧对话）。修后：消息恒走扫码建线的同一 connection → 同一助理对话；
     // fromUserId 仅用于出站 contextToken 定向、命令门禁、entry 发送者身份。
-    // 未传 botAccountId 时回退 fromUserId（装配层恒传，仅防御未装配场景）
+    // 未传 botAccountId 时回退 fromUserId（装配层恒传；回退即装配断裂，告警供诊断）
+    if (!this.deps.botAccountId) {
+      this.deps.logger.warn("Weixin processor missing botAccountId; falling back to sender anchor (legacy path)", { fromUserId });
+    }
     const anchor = this.deps.botAccountId ?? fromUserId;
     const connection = await this.deps.manageConnection.ensureConnection(anchor, anchor, "weixin");
 
