@@ -180,6 +180,8 @@ function registerWorkspaceRoutes(app: Hono, c: Controllers): void {
     app.get("/api/weixin/login/:id", (ctx) => c.weixin!.getLogin(ctx));
     app.post("/api/weixin/login/:id/cancel", (ctx) => c.weixin!.cancelLogin(ctx));
     app.get("/api/weixin/accounts", (ctx) => c.weixin!.listAccounts(ctx));
+    // F20260921imux：同号识别（扫码前探测已有账号，覆盖确认用）
+    app.post("/api/weixin/accounts/lookup", (ctx) => c.weixin!.lookupExistingAccount(ctx));
     app.post("/api/weixin/accounts/:id/assistant-line", (ctx) => c.weixin!.provisionAssistantLine(ctx));
     app.delete("/api/weixin/accounts/:id", (ctx) => c.weixin!.deleteAccount(ctx));
   }

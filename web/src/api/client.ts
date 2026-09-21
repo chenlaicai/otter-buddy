@@ -454,6 +454,14 @@ export interface WeixinAccountDTO {
   ilinkUserId?: string
   addedAt: string
   hasToken: boolean
+  /** F20260921imux：助理线投影（账号→活跃对话绑定；后端真相源，取代前端 title 启发式） */
+  assistantLine?: { conversationId: string }
+}
+
+/** F20260921imux：同号识别（扫码前/后探测已有账号）。
+ *  预留：扫码前预探测场景；当前前端走列表本地匹配，暂未消费（检视 D2 标注） */
+export function lookupWeixinAccount(ilinkUserId: string): Promise<{ account?: { id: string; assistantLine?: { conversationId: string } } }> {
+  return request('/weixin/accounts/lookup', { method: 'POST', body: JSON.stringify({ ilinkUserId }) })
 }
 
 export function startWeixinLogin(): Promise<WeixinLoginSessionDTO> {

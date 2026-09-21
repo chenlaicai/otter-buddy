@@ -137,20 +137,29 @@ function buildActivityController(repos: Repositories, logger: Logger) {
   );
 }
 
+/** F20260921imux：微信连接控制器工厂（拆出降 initControllers 复杂度——函数行数限制） */
+function buildWeixinControllerInstance(
+  deps: ControllerDeps,
+  repos: Repositories,
+  logger: Logger,
+): WeixinConnectionController | undefined {
+  if (!deps.weixinLoginSessions || !deps.weixinAccountStore) return undefined;
+  return new WeixinConnectionController({
+    loginSessions: deps.weixinLoginSessions,
+    accountStore: deps.weixinAccountStore,
+    onAccountDeleted: deps.onWeixinAccountDeleted,
+    ...(deps.provisionWeixinAssistantLine && { provisionAssistantLine: deps.provisionWeixinAssistantLine }),
+    // F20260921imux：账号列表投影助理线（repos.connection 直供，只读）
+    ...(repos.connection && { connectionRepo: repos.connection }),
+    logger,
+  });
+}
+
 export function initControllers(deps: ControllerDeps, logger: Logger) {
   const { uc, repos, agentInvoker, appConfig, modelPool, settingsRepo, otterConfigProvider, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus, rhiScanWorker, signalRepo, healthSnapshotRepo, signalEventRepo, signalRouter } = deps;
 
-  /** issue #566：微信连接控制器（端口注入；拆出降 initControllers 复杂度） */
-  const buildWeixinController = () =>
-    deps.weixinLoginSessions && deps.weixinAccountStore
-      ? new WeixinConnectionController({
-          loginSessions: deps.weixinLoginSessions,
-          accountStore: deps.weixinAccountStore,
-          onAccountDeleted: deps.onWeixinAccountDeleted,
-          ...(deps.provisionWeixinAssistantLine && { provisionAssistantLine: deps.provisionWeixinAssistantLine }),
-          logger,
-        })
-      : undefined;
+  /** issue #566：微信连接控制器 */
+  const weixinController = buildWeixinControllerInstance(deps, repos, logger);
 
   const settings = buildSettingsConfig(appConfig);
   const nodeFs = new NodeFileSystem();
@@ -205,7 +214,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
     // 工作区文件浏览（只读）——manageWorkspace 可选注入
     workspace: uc.manageWorkspace ? new WorkspaceController(uc.manageWorkspace, logger) : undefined,
     // 微信连接管理（issue #566）——登录会话管理器注入时挂载
-    weixin: buildWeixinController(),
+    weixin: weixinController,
     // 通道状态聚合端点（F20260901chun：统一 IM 页 + 真实健康状态）
     channel: buildChannelController(deps),
     // #576（F20260901emps）：能力库真数据源。测试环境（无 ResourceLoader）可省略，路由层优雅降级
