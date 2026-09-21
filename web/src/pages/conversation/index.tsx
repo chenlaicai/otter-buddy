@@ -470,10 +470,14 @@ export default function ConversationPage() {
   }, [activeId, allMessages])
 
   useEffect(() => {
-    if (activeId && !allMessages[activeId]) {
+    if (activeId) {
       loadConversationDetail(activeId)
     }
-  }, [activeId, allMessages, loadConversationDetail])
+    // F20260921spcm：SPA 路由切换对话时组件不重挂载，旧守门条件 `!allMessages[activeId]`
+    // 在缓存命中时跳过拉取——切走期间海獭的新发言永久不可见（SSE 只订当前对话且无回放）。
+    // 修法：恢复 MPA 时代「进入对话即拉最新」语义，activeId 变化就拉。
+    // 注：allMessages 不在依赖里——避免拉取结果 setState 反过来重触发本 effect。
+  }, [activeId, loadConversationDetail])
 
   /** 订阅消息广播（支持飞书消息实时同步到 Web，含 agent streaming 事件） */
   useEffect(() => {
