@@ -23,6 +23,21 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 
 const ANCHOR_RE = /F20\d{6}[a-z0-9]{4}|#\d{3,}\b/g; // F+8位日期+4随机缀；issue 号不限位数（防年份到期静默失效）
+
+/** #1089：hex 色值假阳性修复——色值（#000/#1a1a1a）与 issue 号（#419/#1089）结构同形，
+ * 只能靠上下文判别：色值总伴随 CSS 语境词出现在匹配点之前（solid #000 / 底 #0a0a0a / 色块 #FFD400）。
+ * 判别器宁漏放不误拦：漏放（真 issue 号恰好前文有 CSS 词）由白名单兑底，误拦（合法色值被拦）
+ * 直接阻塞合法 commit（F20260921vsds 提交现场：词典色值 #000 被拦三道）。 */
+const CSS_CONTEXT_RE = /(?:solid|shadow|gradient|background|color|border|fill|stroke|色|底|块|线条?)/i;
+
+/** 判别单个 #\d{3,} 命中是否为 hex 色值（带上下文）：匹配点前 24 字符内含 CSS 语境词即视为色值。
+ * 伪 3 位/6 位 hex 同形（#fff 与 #123 同合法），结构无法区分，只认上下文。 */
+function isHexColorHit(line, hit) {
+  const idx = line.indexOf(hit);
+  if (idx < 0) return false;
+  const before = line.slice(Math.max(0, idx - 24), idx);
+  return CSS_CONTEXT_RE.test(before);
+}
 const WHITELIST_FILE = "scripts/prompt-anchor-whitelist.txt";
 const WHITELIST_MAX = 10;
 
@@ -148,9 +163,12 @@ for (const file of targets) {
     }
     const hits = line.match(ANCHOR_RE);
     if (hits) {
+      // #1089：滤掉带 CSS 语境的 hex 色值命中（F 编号不受影响——它无色值同形问题）
+      const anchorHits = hits.filter((h) => h.startsWith("F20") || !isHexColorHit(line, h));
+      if (anchorHits.length === 0) continue;
       const m = matchWhitelist(whitelist, file, i + 1, line);
       if (m?.stale) staleEntries.push({ file, line: i + 1, entry: m.stale });
-      else if (!m?.hit) violations.push({ file, line: i + 1, hits });
+      else if (!m?.hit) violations.push({ file, line: i + 1, hits: anchorHits });
     }
   }
 }
