@@ -3,7 +3,7 @@ id: F20260921urdo
 title: 未读机制治本：契约收口（sequenceNum 全链贯通）+ 判定换轨（打开+聚焦即已读）
 summary: 红点僵死根因是 entry.speak SSE 载荷无 sequenceNum（发射点手拼）+ 已读判定绑滚动几何。本特性两步治本：①服务端统一事件投影（seq 必含）贯通 speak 落库链；②已读判定换轨为「打开+聚焦」状态语义，滚动几何触发点退役。
 change_type: fix
-capability_test: n/a: 后端投影与前端 ack 行为由单测覆盖（tests/ 与 web/ 下对应 *.test.ts），无 prompt 行为变更
+capability_test: 'n/a: 后端投影与前端 ack 行为由单测覆盖（tests/ 与 web/ 下对应 *.test.ts），无 prompt 行为变更'
 created_in_conversation: d2934a0b-9474-4d30-8d6e-be03d880e1a7
 causal_links:
   - F20260916ubrd   # 底部即已读——本特性判定换轨后其 scheduleMarkReadIfAtBottom 退役
