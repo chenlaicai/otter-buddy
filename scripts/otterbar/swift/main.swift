@@ -626,18 +626,17 @@ final class BarController: NSObject, NSTouchBarDelegate {
         exit(exitCode)
     }
 
+    /// #742：NSWorkspace 内存查询替代 pgrep fork——消除每次 poll 的子进程开销
+    /// 与 waitUntilExit 同步阻塞（pgrep 极端挂起曾可能阻塞主线程）。
+    /// bundleId 匹配：MTMR 官方分发为 org.mtmr.MTMR；未命中时回退 -x 进程名匹配
+    /// （runningApplications 的 localizedName 与 name 均非 guaranteed 精确进程名，
+    /// 双条件取 OR 保持与 pgrep -x MTMR 同等语义）。
     private func mtmrRunning() -> Bool {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        p.arguments = ["-x", "MTMR"]
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
-        do {
-            try p.run()
-            p.waitUntilExit()
-            return p.terminationStatus == 0
-        } catch {
-            return false
+        let apps = NSWorkspace.shared.runningApplications
+        return apps.contains {
+            $0.bundleIdentifier == "org.mtmr.MTMR"
+                || $0.bundleIdentifier == "MTMR"
+                || $0.localizedName == "MTMR"
         }
     }
 }
