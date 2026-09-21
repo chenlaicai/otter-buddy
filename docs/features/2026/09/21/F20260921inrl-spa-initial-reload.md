@@ -59,6 +59,16 @@ PR #1072 检视獭「检视1072」建议发现（D1）：`web/src/pages/conversa
 
 - mock 的列表分支须精确匹配 `/api/conversations?`（带 query）或裸 `/api/conversations`——宽匹配 `/api/conversations` 开头会把 entries/participants 等子路径请求误计入列表计数（实现中用 fetch 调用栈探针定位过，教训记档）。
 - 兜底 navigate 是异步链（loadInitialData 完成后触发），断言前需两轮 flushAsync。
+- **S1（检视1076，严重）**：mock 收窄后 scheduled-tasks 落入 catch-all 返回 `json({})`，`useScheduledTasks.ts:20` 的 `res.map()` 抛 TypeError → CI check FAIL。#1072 时代靠宽匹配误拿列表数组蒙混，收窄暴露隐性依赖。修：补 `/scheduled-tasks|attachments` mock 分支（convId 不限 conv-[ab]，深链接 conv-gone 同样触发该 hook）。
+- **D2（检视1076，建议，已修）**：catch-all `json({})` 是同类故障温床——改为 `console.warn('[spa-nav-test] unmocked API call:', url)` + 空对象，漏 mock 时测试输出有明确线索。
+
+## 审视处置记录
+
+检视獭：检视1076（mimo，异体模型）。首轮流结论：需要修改，1 严重 + 1 建议。
+
+- **S1（严重）**：mock 缺 scheduled-tasks 端点 → CI check FAIL。→ 接受并修复：补 mock 分支返回 `json([])`，含 conv-gone 兼容。修复后 3 用例全绿、无 unhandled rejection、全量 510 绿。
+- **D2（建议）**：catch-all 温床 → 部分接受（不建 issue，直接修）：catch-all 改为 console.warn 可见化。比建 issue 更好：零成本防同类复发。
+- 焦点验证三项（activeId 消费者迁移/disposed 覆盖/深链接边界）检视獭独立核实均通过；S1 来自检视獭自设的第四焦点（测试基础设施完整性）——作者视角盲区的实例。
 
 ## 影响面
 

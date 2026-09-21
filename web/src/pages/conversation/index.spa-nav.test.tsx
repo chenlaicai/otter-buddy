@@ -65,9 +65,18 @@ function mockApi() {
     if (/^\/api\/conversations\/conv-[ab]\/invokes/.test(url)) return json({ invokes: [] })
     if (/^\/api\/conversations\/conv-[ab]\/key-resources/.test(url)) return json({ resources: [] })
     if (/^\/api\/conversations\/conv-[ab]\/read/.test(url)) return json({})
+    // F20260921inrl S1（检视1076）：scheduled-tasks 必须返回数组——catch-all 的 json({})
+    // 会让 useScheduledTasks.ts:20 的 res.map() 拋 TypeError（CI check FAIL 实证）。
+    // convId 不限 conv-[ab]：深链接用例里 conv-gone 同样会触发该 hook。
+    // （#1072 时代靠宽匹配误拿列表数组蒙混，mock 收窄后暴露）
+    if (/^\/api\/conversations\/[^/]+\/(scheduled-tasks|attachments)/.test(url)) return json([])
     // 列表请求：带 query 的 /api/conversations?limit=…（子路径请求已在上面分流，这里只接列表本体）
     if (url.startsWith('/api/conversations?') || url === '/api/conversations') { listCalls++; return json([convA, convB]) }
     if (url.startsWith('/api/settings')) { settingsCalls++; return json({ userName: '测试用户' }) }
+    // F20260921inrl D2（检视1076）：catch-all 返回 json({}) 是同类故障温床——未 mock 的
+    // 端点拿到 {} 后 .map() 等数组操作直接 TypeError，且可能被 unhandled rejection 吞掉。
+    // 改为显式警告 + 空对象：未知请求可见，漏 mock 时测试输出有明确线索。
+    console.warn('[spa-nav-test] unmocked API call:', url)
     return json({})
   })
 }
