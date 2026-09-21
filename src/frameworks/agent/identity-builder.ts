@@ -93,8 +93,13 @@ export class IdentityBuilder {
     const dateStr = now.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour12: false });
     const dateAnchor = `## 当前日期时间\n- 今天是 ${dateStr}（Asia/Shanghai）`;
 
+    // F20260921sgid: 署名行成品随身份段注入——身份（名号）经此管道 19/19 零失误，而格式
+    // 靠"记得去查 skill"的纪律路径实测漂移率 58%（PR #921 修法对 CLI 建 PR 路径无效）。
+    // 把格式挂上已验证的身份管道，署名从"执行规范"降为"复制眼前一行"。
+    // 格式实体是 signature-convention skill 的管道快照（同 .github/pull_request_template.md
+    // 性质，机制上无法指针化），同步义务见该 skill。
     return [
-      `## 你的身份\n- 名称：${otter.name}\n- 名号：${otter.name}\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}${conversationId ? `\n- 当前对话 ID：${conversationId}（创建特性文档时写入 frontmatter 的 created_in_conversation 字段）` : ''}`,
+      `## 你的身份\n- 名称：${otter.name}\n- 名号：${otter.name}\n- 你的署名行（PR description / review 评论末尾，原样复制下面这行，不要凭记忆改写格式）：\n  🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by ${otter.name}\n- commit author（git commit --author 参数值，整体照抄）：${otter.name} <otter-buddy>\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}${conversationId ? `\n- 当前对话 ID：${conversationId}（创建特性文档时写入 frontmatter 的 created_in_conversation 字段）` : ''}`,
       conversationIdentity,
       userIdentity,
       summonerIdentity,

@@ -55,9 +55,14 @@ category: reference
 
       作用域：`gh pr review` 的 comment body、无 gh 工具时的对话完整报告、文档审视报告。
 
-## 平台快照同步义务（唯一双源，无法消除）
+## 快照同步义务（两处，无法消除）
 
-`.github/pull_request_template.md` 尾部的署名行是本 skill PR 署名格式的**平台快照**——GitHub 网页创建 PR 依赖模板自动预填，机制上无法指针化到本 skill。因此允许这唯一一处实体重复，代价是同步义务：**修改本 skill 的 PR 署名格式时，必须同 commit 同步 `.github/pull_request_template.md` 快照**，反之亦然。
+格式实体在真相源之外存在两处快照，机制上均无法指针化，同步义务成文如下：
+
+1. **平台快照** `.github/pull_request_template.md` 尾部署名行——GitHub 网页创建 PR 依赖模板自动预填（`gh pr create --body-file` 不加载模板）。
+2. **管道快照** `src/frameworks/agent/identity-builder.ts` 头部「你的身份」段——署名行成品与 commit author 格式随身份每轮注入，是运行时署名格式的实际供给源（格式在场性事实源）。名字（身份）由 otter.name 动态填充。
+
+同步义务：**修改本 skill 的署名格式时，必须同 commit 同步上述两处快照**，反之亦然。
 
 ## 指针使用方（本 skill 的消费方清单）
 
@@ -65,6 +70,9 @@ category: reference
 
 - `code-implementation/references/commit-convention.md` — PR Description 模板署名行
 - `adversarial-review/SKILL.md` — review 评论模板、对话完整报告模板（3 处）
+- `prompts/identity/BIG_OTTER.md`「你的名号」节 — 指向身份段的运行时注入（大獭静态路径）
+
+运行时注入关系：skill 文件在运行时不加载——署名行的实际供给源是 identity-builder.ts 管道快照（见上节）。本 skill 是格式定义书与变更流程真相源。
 
 ## 产出
 
