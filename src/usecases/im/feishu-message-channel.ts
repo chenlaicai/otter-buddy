@@ -59,6 +59,29 @@ export class FeishuMessageChannel implements OutboundEventChannel {
       this.deliverUserEntryToFeishu(conversationId, event).catch((err) => {
         this.logger.error("Failed to deliver user entry to Feishu", err instanceof Error ? err : undefined, { conversationId });
       });
+      return;
+    }
+    // F20260920imax：invoke 失败兑底——与微信同语义，不再静默
+    if (event.event === "entry.failed") {
+      this.deliverFailureNotice(conversationId).catch((err) => {
+        this.logger.error("Failed to deliver failure notice to Feishu", err instanceof Error ? err : undefined, { conversationId });
+      });
+    }
+  }
+
+  /** F20260920imax：invoke 终态失败 → 飞书侧提示（思考中后无下文的静默兑底） */
+  private async deliverFailureNotice(conversationId: string): Promise<void> {
+    const session = await this.manageConnection.getSessionByConversation(conversationId);
+    if (!session) return;
+    const connection = await this.manageConnection.getConnection(session.connectionId);
+    if (!connection) return;
+    if (connection.externalType !== "feishu") return;
+
+    try {
+      const failTarget = this.manageConnection.resolveReplyTarget(connection);
+      if (failTarget) await this.feishuGateway.replyText(failTarget, "⚠️ 助理这会儿没能回复（服务端处理失败）。稍后再发一条试试，若持续失败请到 Web 端查看详情 🦦");
+    } catch (err) {
+      this.logger.error("Feishu failure notice send failed", err instanceof Error ? err : undefined, { conversationId });
     }
   }
 
@@ -72,13 +95,17 @@ export class FeishuMessageChannel implements OutboundEventChannel {
     const connection = await this.manageConnection.getConnection(session.connectionId);
     if (!connection) return;
     if (connection.externalType !== "feishu") return;
+    // F20260920imax 增量五：bot connection 的 externalId 是 bot 键非 chatId——
+    // 经 resolveReplyTarget 从 metadata.lastChatId 定向（普通连接直用 externalId）
+    const replyTarget = this.manageConnection.resolveReplyTarget(connection);
+    if (!replyTarget) return;
 
     const markdown = projectForChannel(data.body, {
       webBaseUrl: this.webBaseUrl,
       conversationId,
     });
     try {
-      await this.feishuGateway.replyMarkdown(connection.externalId, data.otterName ?? "海獭", markdown);
+      await this.feishuGateway.replyMarkdown(replyTarget, data.otterName ?? "海獭", markdown);
     } catch (err) {
       this.logger.error("Failed to broadcast speak to Feishu (degradation also failed)", err instanceof Error ? err : undefined, { conversationId });
     }
@@ -114,11 +141,19 @@ export class FeishuMessageChannel implements OutboundEventChannel {
       conversationId,
     });
     try {
-      await this.feishuGateway.replyMarkdown(connection.externalId, senderLabel, markdown);
-      this.logger.info("User entry synced to Feishu (web→feishu)", { conversationId });
+      await this.deliverMarkdownToTarget(connection, senderLabel, markdown, conversationId, "User entry synced to Feishu (web→feishu)");
     } catch (err) {
       this.logger.error("Failed to sync user entry to Feishu (degradation also failed)", err instanceof Error ? err : undefined, { conversationId });
     }
+  }
+
+  /** F20260920imax 增量五：出站定向投递（bot connection 从 metadata.lastChatId 解析，
+   *  空目标静默跳过）——拆出降 deliverUserEntryToFeishu 复杂度 */
+  private async deliverMarkdownToTarget(connection: { externalId: string; externalType: string }, senderLabel: string, markdown: string, conversationId: string, successLogMsg: string): Promise<void> {
+    const target = this.manageConnection.resolveReplyTarget(connection as never);
+    if (!target) return;
+    await this.feishuGateway.replyMarkdown(target, senderLabel, markdown);
+    this.logger.info(successLogMsg, { conversationId });
   }
 
   private async maybeSendFeishuThinkingMessage(conversationId: string, event: SSEEvent): Promise<void> {
@@ -159,7 +194,8 @@ export class FeishuMessageChannel implements OutboundEventChannel {
     }
 
     try {
-      await this.feishuGateway.replyText(connection.externalId, `[${otterName}] 正在思考...`);
+      const thinkTarget = this.manageConnection.resolveReplyTarget(connection);
+      if (thinkTarget) await this.feishuGateway.replyText(thinkTarget, `[${otterName}] 正在思考...`);
       this.logger.info("Feishu thinking message sent", { conversationId, otterName });
     } catch (err) {
       this.logger.error("Failed to send feishu thinking message", err instanceof Error ? err : undefined, {

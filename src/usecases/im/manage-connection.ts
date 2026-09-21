@@ -65,6 +65,23 @@ export class ManageConnection {
     return this.createConnection(name, externalId, externalType);
   }
 
+  /** F20260920imax 增量五：bot 锚定路由——记录「最后活跃会话」供出站定向回复
+   *  （bot connection 的 externalId 是 bot 键非 chatId，出站需从 metadata 找回目标） */
+  async noteChatId(connectionId: string, chatId: string): Promise<void> {
+    await this.connRepo.mergeMetadata(connectionId, { lastChatId: chatId });
+  }
+
+  /** F20260920imax 增量五：出站目标解析——bot connection 优先 metadata.lastChatId，
+   *  普通连接（群聊/旧数据）直接 externalId 即 chatId */
+  resolveReplyTarget(connection: Connection): string | null {
+    if (connection.externalType !== "feishu") return connection.externalId;
+    if (connection.externalId.startsWith("feishu-bot:")) {
+      const last = connection.metadata?.lastChatId;
+      return typeof last === "string" ? last : null;
+    }
+    return connection.externalId;
+  }
+
   /** Connection 进入 Conversation（核心操作，使用事务解决竞态条件） */
   async enterConversation(connectionId: string, conversationId: string): Promise<ConnectionSession> {
     // 1. 校验 connection 存在且 active

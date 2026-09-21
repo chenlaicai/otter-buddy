@@ -1,0 +1,25 @@
+# e2e 冒烟服务专用配置（F20260920ecig，issue #1058）。
+# 本文件入库、零机密——CI 与本地共用，起一个「只为 SPA 前端冒烟」的极简服务实例。
+# 与 config.test.yaml（B 类能力测试：真 LLM 真 embedding）的分工：
+#   本配置只验证 SPA 路由/静态资源/前端渲染冒烟，不跑任何 agent/LLM 路径——
+#   embedding 留空 localModelPath（远程模式，模型缺失不阻塞启动，降级 FTS-only，
+#   见 src/bootstrap/database.ts ensureBgeM3Model 注释）；LLM 用占位端点（e2e 不触达）。
+server:
+  port: 3199
+database:
+  # e2e 专用临时库：systemd 无关、无生产数据；CI 每次全新，本地复用由脚本清理
+  path: ./data/e2e/otter-e2e.db
+  walMode: false
+llm:
+  default: "e2e-placeholder"
+  models:
+    - alias: "e2e-placeholder"
+      # 占位 provider：e2e 冒烟不发起任何 LLM 请求。apiBaseUrl 触发自定义 provider 构造路径
+      # （models-factory needsCustomProvider），任意 model id 可注册且启动时不连远端——
+      # 默认 openai 工厂用内置白名单（OPENAI_MODELS），假名会 "LLM model not found" 启动即炸。
+      # 端点指向不可达地址即可：本配置存在的唯一目的是让服务起来，e2e 不触达 agent 路径。
+      provider: openai
+      model: "e2e-not-a-real-model"
+      apiBaseUrl: "http://127.0.0.1:9"
+      contextWindow: 128000
+      handoffThresholdTokens: 40000

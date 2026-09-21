@@ -2,19 +2,14 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { resolve } from 'path'
-// #487（F20260827mpss）：MPA 构建入口从单一清单生成。
-// 注意：vite.config 内 @contract alias 不可用（alias 定义在本文件中，esbuild 转译时直接相对路径 import）
-import { MPA_PAGES } from '../api-contract/web/pages'
 
+/**
+ * SPA 单入口构建（F20260920spa）。
+ * 不再需要 MPA 多入口——React Router 客户端路由处理页面切换。
+ * 路由级代码分割由 React.lazy + import() 在 main.tsx 中完成。
+ */
 export default defineConfig(() => ({
   plugins: [react(), tailwindcss()],
-  build: {
-    rollupOptions: {
-      input: Object.fromEntries(
-        MPA_PAGES.map(p => [p.entry, resolve(__dirname, `${p.entry}.html`)])
-      ),
-    },
-  },
   resolve: {
     alias: {
       '@contract': resolve(__dirname, '../api-contract'),
@@ -34,5 +29,6 @@ export default defineConfig(() => ({
   test: {
     environment: 'jsdom',
     globals: true,
+    exclude: ['e2e/**', 'node_modules/**'],
   },
 }))

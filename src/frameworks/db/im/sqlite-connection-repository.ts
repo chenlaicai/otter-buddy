@@ -92,6 +92,16 @@ export class SqliteConnectionRepository implements ConnectionRepository {
     ).run(status, timestamp, id);
   }
 
+  /** F20260920imax 增量五：合并式 metadata 更新（bot 锚定路由的 lastChatId） */
+  async mergeMetadata(id: string, patch: Record<string, unknown>): Promise<void> {
+    const row = this.db.prepare("SELECT metadata FROM connections WHERE id = ?").get(id) as { metadata: string | null } | undefined;
+    if (!row) return; // 不存在静默（幂等语义——调用方不感知删除竞态）
+    const current = row.metadata ? (JSON.parse(row.metadata) as Record<string, unknown>) : {};
+    const merged = { ...current, ...patch };
+    this.db.prepare("UPDATE connections SET metadata = ?, updated_at = ? WHERE id = ?")
+      .run(JSON.stringify(merged), new Date().toISOString(), id);
+  }
+
   // ── Session 管理 ──
 
   async getActiveSession(connectionId: string): Promise<ConnectionSession | null> {

@@ -1,11 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
-import { createRoot } from 'react-dom/client'
 import { Search, Star, MessageSquare, Lightbulb, Link as LinkIcon, FileText } from 'lucide-react'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
-import '../../styles/globals.css'
 
 import type { MemoryEntryDTO } from '@contract/api'
-import { AppLayout } from '../../components/AppLayout'
 import { Modal, ModalButton } from '../../components/Modal'
 import { showToast } from '../../components/Toast'
 import * as api from '../../api/client'
@@ -73,7 +70,7 @@ function TerminologyCard({ entry }: { entry: MemoryEntryDTO }) {
   )
 }
 
-export function MemorySearchPage() {
+export default function MemorySearchPage() {
   const [query, setQuery] = useState('')
   const [layer, setLayer] = useState('')
   const [granularity, setGranularity] = useState('')
@@ -193,7 +190,7 @@ export function MemorySearchPage() {
   }
 
   return (
-    <AppLayout activeView="memory">
+    <>
       {health && !health.healthy && (
         <div className="mx-3 mt-3 rounded-xl border border-amber-300/60 bg-amber-50/80 px-4 py-2.5 text-sm text-amber-800 flex flex-col gap-2">
           <div className="flex items-center gap-2">
@@ -540,10 +537,6 @@ export function MemorySearchPage() {
         />
         <p className="text-xs text-stone-400 mt-2">基于上次搜索结果调整查询参数</p>
       </Modal>
-    </AppLayout>
+    </>
   )
 }
-
-/** 入口挂载（测试经 export 的 MemorySearchPage 直接渲染，不走此副作用） */
-const root = createRoot(document.getElementById('root')!)
-root.render(<MemorySearchPage />)

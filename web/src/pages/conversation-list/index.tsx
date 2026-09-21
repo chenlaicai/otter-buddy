@@ -1,12 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { createRoot } from 'react-dom/client'
-import '../../styles/globals.css'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import type { ModelInfoDTO } from '@contract/api'
 import type { LocalConversation } from '../../lib/mappers'
 import { mapConversationDTO } from '../../lib/mappers'
 import { showToast } from '../../components/Toast'
-import { AppLayout } from '../../components/AppLayout'
 import { Modal, ModalButton } from '../../components/Modal'
 import { LeftPanel } from '../conversation/LeftPanel'
 import { useConversationListPolling } from '../../hooks/use-conversation-list-polling'
@@ -38,6 +36,8 @@ function BigOtterModelDropdown({ models, defaultAlias, selectedModel, onSelect }
 }
 
 export default function ConversationListPage() {
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [conversations, setConversations] = useState<LocalConversation[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
@@ -67,12 +67,12 @@ export default function ConversationListPage() {
         setLoading(false)
       })
     // 归档成功后通过 URL 参数接收 toast
-    const params = new URLSearchParams(window.location.search)
-    if (params.get('archived') === '1') {
+    if (searchParams.get('archived') === '1') {
       showToast('对话已归档', 'success')
-      window.history.replaceState(null, '', '/conversation')
+      searchParams.delete('archived')
+      navigate('/conversation', { replace: true })
     }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 活动状态轮询：每 5 秒刷新对话列表（仅在页面可见时）
   // Why: visibleIds 传当前列表 id 集合——分页追加的后续页对话不被首屏轮询结果冲掉
@@ -95,9 +95,8 @@ export default function ConversationListPage() {
   }, [conversations.length])
 
   const handleSelect = useCallback((id: string) => {
-    // 混合架构：切换对话时整页刷新
-    window.location.href = `/conversation/${id}`
-  }, [])
+    navigate(`/conversation/${id}`)
+  }, [navigate])
 
   const handleNewConversation = useCallback(() => {
     setShowCreate(true)
@@ -123,12 +122,11 @@ export default function ConversationListPage() {
       setConversations(prev => [conv, ...prev])
       setShowCreate(false)
       showToast('对话已创建', 'success')
-      // 混合架构：创建新对话后整页刷新，确保 URL 与内容一致
-      window.location.href = `/conversation/${conv.id}`
+      navigate(`/conversation/${conv.id}`)
     } catch {
       showToast('创建对话失败', 'error')
     }
-  }, [newTitle, selectedModel])
+  }, [newTitle, selectedModel, navigate])
 
   const handleContextMenu = useCallback((e: React.MouseEvent, cid: string) => {
     e.preventDefault()
@@ -140,13 +138,23 @@ export default function ConversationListPage() {
 
   const closeCtxMenu = useCallback(() => setCtxMenu(null), [])
 
+  const refreshList = useCallback(async () => {
+    try {
+      const dtos = await api.listConversations()
+      setConversations(dtos.map(mapConversationDTO))
+      setHasMore(dtos.length >= PAGE_SIZE)
+    } catch {
+      showToast('刷新列表失败', 'error')
+    }
+  }, [])
+
   const ctxAction = async (action: string, cid: string) => {
     closeCtxMenu()
     if (action === 'pin') {
       showToast('正在置顶...', 'info')
       try {
         await api.pinConversation(cid)
-        window.location.reload()
+        await refreshList()
       } catch (err) {
         showToast(err instanceof ApiError ? err.message : '置顶失败', 'error')
       }
@@ -154,7 +162,7 @@ export default function ConversationListPage() {
       showToast('正在取消置顶...', 'info')
       try {
         await api.unpinConversation(cid)
-        window.location.reload()
+        await refreshList()
       } catch (err) {
         if (err instanceof ApiError && err.status === 403) {
           showToast('系统对话不可取消置顶', 'error')
@@ -167,21 +175,19 @@ export default function ConversationListPage() {
 
   if (loading) {
     return (
-      <AppLayout activeView="index">
-        <div className="flex flex-1 items-center justify-center">
-          <div className="flex gap-1">
-            <span className="w-2 h-2 rounded-full bg-otter-400 animate-dot" />
-            <span className="w-2 h-2 rounded-full bg-otter-400 animate-dot" style={{ animationDelay: '0.15s' }} />
-            <span className="w-2 h-2 rounded-full bg-otter-400 animate-dot" style={{ animationDelay: '0.3s' }} />
-          </div>
+      <div className="flex flex-1 items-center justify-center">
+        <div className="flex gap-1">
+          <span className="w-2 h-2 rounded-full bg-otter-400 animate-dot" />
+          <span className="w-2 h-2 rounded-full bg-otter-400 animate-dot" style={{ animationDelay: '0.15s' }} />
+          <span className="w-2 h-2 rounded-full bg-otter-400 animate-dot" style={{ animationDelay: '0.3s' }} />
         </div>
-      </AppLayout>
+      </div>
     )
   }
 
   if (conversations.length === 0) {
     return (
-      <AppLayout activeView="index">
+      <>
         <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
             <div className="text-4xl mb-4">🦦</div>
@@ -218,12 +224,12 @@ export default function ConversationListPage() {
           />
           <BigOtterModelDropdown models={models} defaultAlias={defaultAlias} selectedModel={selectedModel} onSelect={setSelectedModel} />
         </Modal>
-      </AppLayout>
+      </>
     )
   }
 
   return (
-    <AppLayout activeView="index">
+    <>
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel
           conversations={conversations}
@@ -278,9 +284,6 @@ export default function ConversationListPage() {
           </div>
         </>
       )}
-    </AppLayout>
+    </>
   )
 }
-
-const root = createRoot(document.getElementById('root')!)
-root.render(<ConversationListPage />)

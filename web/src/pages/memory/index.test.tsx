@@ -11,7 +11,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 
 document.body.innerHTML = '<div id="root"></div>'
-const { MemorySearchPage } = await import('./index')
+const { default: MemorySearchPage } = await import('./index')
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 

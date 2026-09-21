@@ -11,7 +11,6 @@ import { stripHtmlCardFences } from "@entities/conversation/message-body-project
 import { tokenizeWithJieba } from "@frameworks/db/jieba-tokenizer";
 import { FID_ANCHOR_REGEX } from "@entities/document/fid-format";
 import { SqliteDispatchRecordRepository } from "@frameworks/db/dispatch/sqlite-dispatch-record-repository";
-import { PAPER_TRADING_TASK_DESCRIPTIONS } from "@usecases/paper-trading/ensure-paper-trading-scheduler";
 
 /** 数据库迁移：添加 session_file 字段和 otter_configs 表 */
 // eslint-disable-next-line max-statements, max-lines-per-function -- 补丁集合，语句数和行数由历史补丁数决定（#848: +otter_sessions.model_alias）
@@ -144,6 +143,11 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** F20260914rtsp：invokes 表添加 ctx_window_used 列（存量库迁移）。
    *  schema.ts 新库已含；存量库跑不到 CREATE 分支，需 ALTER 补列。幂等：PRAGMA 检测。 */
   ensureInvokesCtxWindowUsedColumn(db, logger);
+
+  /** F20260920imax：conversations 表添加 kind 列 + 助理对话回填。
+   *  schema.ts 新库已含默认 'normal'；存量库需 ALTER 补列，并按 title 前缀约定
+   *  回填存量助理对话（微信助理 · / 飞书助理 · → 'assistant'）。幂等：PRAGMA 检测。 */
+  ensureConversationsKindColumn(db, logger);
 
   /** F20260913ctlv 收尾批4b：messages → entries 幂等回填迁移（先迁后 drop——4c）。 */
   migrateMessagesToEntries(db, logger);
@@ -726,6 +730,22 @@ function ensureInvokesCtxWindowUsedColumn(db: Database.Database, logger: Logger)
  * 老库已跑过 rebuildDocumentTablesDropCheck（标记 done 不会重建），
  * 需要独立 ADD COLUMN 补列。PRAGMA table_info 检测列存在性作幂等。
  */
+/** F20260920imax：conversations.kind 列迁移 + 助理对话回填（title 前缀约定 → schema 字段）。 */
+function ensureConversationsKindColumn(db: Database.Database, logger: Logger): void {
+  const cols = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
+  if (!cols.some(col => col.name === 'kind')) {
+    db.prepare("ALTER TABLE conversations ADD COLUMN kind TEXT NOT NULL DEFAULT 'normal'").run();
+    logger.info('Added kind column to conversations table');
+  }
+  // 回填：仅对非 assistant 行执行 UPDATE（幂等——已是 assistant 的行不碰）
+  const result = db.prepare(
+    "UPDATE conversations SET kind = 'assistant' WHERE kind != 'assistant' AND (title LIKE '微信助理 · %' OR title LIKE '飞书助理 · %')"
+  ).run();
+  if (result.changes > 0) {
+    logger.info(`Backfilled ${result.changes} assistant conversations by title prefix`);
+  }
+}
+
 function addBodyHashColumns(db: Database.Database, logger: Logger): void {
   const featuresCols = db.prepare("PRAGMA table_info(features)").all() as Array<{ name: string }>;
   if (!featuresCols.some(col => col.name === 'body_hash')) {
@@ -1037,8 +1057,7 @@ function addExecutorTypeColumns(db: Database.Database, logger: Logger): void {
 }
 
 /** F20260915desc: scheduled_tasks 表添加 description 列（人类可读任务描述）。
- *  PRAGMA 探测幂等。同时回填 paper-trading 两个 seed 任务（唯一官方 seed 且名字固定），
- *  其他存量任务留 NULL 由面板回退渲染（body/functionName）。 */
+ *  PRAGMA 探测幂等。原同时回填 paper-trading 两个 seed 任务描述，F20260920stkx 移除后无官方 seed。 */
 function addDescriptionColumn(db: Database.Database, logger: Logger): void {
   const columns = db.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{ name: string }>;
   if (!columns.some(col => col.name === 'description')) {
@@ -1046,27 +1065,8 @@ function addDescriptionColumn(db: Database.Database, logger: Logger): void {
     logger.info('Added description column to scheduled_tasks table');
   }
 
-  // 数据回填：seed 任务名字固定，按 name 幂等补描述（不覆盖已有非空描述）
-  // F20260915desc 发现 4：文案从 ensure-paper-trading-scheduler 共享常量取，避免两处硬编码漂移
-  const backfill: Array<{ name: string; description: string }> = [
-    {
-      name: 'paper-trading-match-orders',
-      description: PAPER_TRADING_TASK_DESCRIPTIONS.matchOrders,
-    },
-    {
-      name: 'paper-trading-daily-trading',
-      description: PAPER_TRADING_TASK_DESCRIPTIONS.dailyTrading,
-    },
-  ];
-  const stmt = db.prepare(
-    'UPDATE scheduled_tasks SET description = ? WHERE name = ? AND (description IS NULL OR description = \'\')',
-  );
-  for (const { name, description } of backfill) {
-    const result = stmt.run(description, name);
-    if (result.changes > 0) {
-      logger.info(`Backfilled description for scheduled task: ${name}`);
-    }
-  }
+  // F20260920stkx：paper-trading 能力移除——原 backfill 的两个 seed 任务描述随能力退役，
+  // 已回填到存量 DB 的描述保留（历史数据不动）。无官方 seed 任务，回填清单置空。
 }
 
 /** 迁移现有数据：为现有 session 创建 OtterConfig */

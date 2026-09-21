@@ -2,10 +2,12 @@
  * F20260831tumv 回归测试：manifest "*" 展开必须以实际注册工具全集为 universe，
  * 而非 session-helpers 中的 stale 硬编码 fallback。
  *
- * 事故现场（0831 操盘日报）：PR4/PR5 在 tool-factory 注册了 stock_data/paper_trade
- * 并加入 manifest capabilityBlocks，但 big 型 tools:"*" 展开走的是
+ * 事故现场（0831 操盘日报）：PR4/PR5 在 tool-factory 注册了新工具并加入
+ * manifest capabilityBlocks，但 big 型 tools:"*" 展开走的是
  * getOtterToolNamesForType(otterType, undefined, ...) 的硬编码 fallback——
- * 新工具不在其中，被 whitelist 滤掉，大獭 session 看不到这两个工具。
+ * 新工具不在其中，被 whitelist 滤掉，大獭 session 看不到新工具。
+ * （注：事故工具 stock_data/paper_trade 已随 F20260920stkx 炒股能力移除，
+ *  测试用例改用中性工具名，回归语义不变）
  *
  * 修复：pi-session-factory 先调 cfg.createTools 取注册全集，再传给白名单计算。
  * 本测试直接断言修复后的接线（mock createTools 返回含"新工具"的注册集，
@@ -19,7 +21,7 @@ import { join } from "node:path";
 
 describe("F20260831tumv: manifest '*' 展开的工具全集", () => {
   const STALE_FALLBACK = ["speak", "yield", "search_memory"]; // 简化的旧硬编码语义
-  const REGISTERED = ["speak", "yield", "search_memory", "stock_data", "paper_trade"];
+  const REGISTERED = ["speak", "yield", "search_memory", "future_tool_a", "future_tool_b"]; // 中性名占位（原 stock_data/paper_trade 已移除）
   // 检视发现 2：注册全集应含条件注册的工具（signalRepo 注入时 tool-factory 会注册），
   // 钉住 buildOtterToolWhitelist 占位 ctx 缺 signalRepo 时白名单丢信号工具的 bug 条件
   const REGISTERED_WITH_SIGNAL = [...REGISTERED, "halt_otter", "query_signals", "resolve_signal"];
@@ -39,15 +41,15 @@ describe("F20260831tumv: manifest '*' 展开的工具全集", () => {
   it("复现事故：'*' 展开以 stale fallback 为全集时，新工具被滤掉", () => {
     const whitelist = getToolNamesFromManifest(manifest, "big", STALE_FALLBACK);
     expect(whitelist).toEqual(STALE_FALLBACK);
-    expect(whitelist).not.toContain("stock_data");
-    expect(whitelist).not.toContain("paper_trade");
+    expect(whitelist).not.toContain("future_tool_a");
+    expect(whitelist).not.toContain("future_tool_b");
   });
 
   it("修复后：'*' 展开以实际注册全集（createTools 返回值）为 universe", () => {
     const whitelist = getToolNamesFromManifest(manifest, "big", REGISTERED);
     expect(whitelist).toEqual(REGISTERED);
-    expect(whitelist).toContain("stock_data");
-    expect(whitelist).toContain("paper_trade");
+    expect(whitelist).toContain("future_tool_a");
+    expect(whitelist).toContain("future_tool_b");
   });
 
   it("检视发现 1/2：注册全集含信号工具时，big 型白名单同步含——占位 ctx 必须带 signalRepo", () => {
@@ -64,28 +66,31 @@ describe("F20260831tumv: manifest '*' 展开的工具全集", () => {
     expect(whitelist).not.toContain("resolve_signal");
   });
 
-  it("生产路径（真实 manifest）：注册全集经 getOtterToolNamesForType 后 big 型含 stock_data/paper_trade", () => {
+  it("生产路径（真实 manifest）：注册全集经 getOtterToolNamesForType 后 big 型含注册的新工具；已移除工具不在", () => {
     const projectRoot = join(import.meta.dirname, "../../../"); // worktree 根（3 级：agent→frameworks→tests→根）
     const big = getOtterToolNamesForType("big", REGISTERED, projectRoot);
-    expect(big).toContain("stock_data");
-    expect(big).toContain("paper_trade");
+    expect(big).toContain("future_tool_a");
+    // F20260920stkx：stock_data/paper_trade 已移除，真实 manifest 展开不得再含
+    expect(big).not.toContain("stock_data");
+    expect(big).not.toContain("paper_trade");
     // 集团工具（小獭专属 groups 展开的）不在 big 白名单是 manifest 配置问题，此处不约束
   });
 
-  it("small 型走 groups 显式展开，不受 universe 来源影响", () => {
+  it("small 型走 groups 显式展开，不受 universe 来源影响；已移除的 stock/paper 组不展开", () => {
     const projectRoot = join(import.meta.dirname, "../../../");
     const small = getOtterToolNamesForType("small", REGISTERED, projectRoot);
-    expect(small).toContain("stock_data");
-    expect(small).toContain("paper_trade");
+    expect(small).toContain("search_memory"); // memory 组仍在 small groups
+    expect(small).not.toContain("stock_data"); // F20260920stkx：stock/paper 组已移除
+    expect(small).not.toContain("paper_trade");
     expect(small).not.toContain("create_otter");
     expect(small).not.toContain("halt_otter");
     expect(small).not.toContain("resolve_signal");
   });
 
-  it("防退化：universe 缺省时（旧行为），真实 manifest 展开不含 stock_data/paper_trade——修复必须传注册全集", () => {
+  it("防退化：universe 缺省时（旧行为），真实 manifest 展开不含注册新工具——修复必须传注册全集", () => {
     const projectRoot = join(import.meta.dirname, "../../../");
     const stale = getOtterToolNamesForType("big", undefined, projectRoot);
-    expect(stale).not.toContain("stock_data");
-    expect(stale).not.toContain("paper_trade");
+    expect(stale).not.toContain("future_tool_a");
+    expect(stale).not.toContain("future_tool_b");
   });
 });

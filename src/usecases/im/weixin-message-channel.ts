@@ -53,6 +53,29 @@ export class WeixinMessageChannel implements OutboundEventChannel {
       this.deliverUserEntryToWeixin(conversationId, event).catch((err) => {
         this.logger.error("Failed to deliver user entry to Weixin", err instanceof Error ? err : undefined, { conversationId });
       });
+      return;
+    }
+    // F20260920imax：invoke 失败兑底——不再静默（现场：kimi 配额 403 后用户只看到
+    // 「正在思考...」再无下文）。微信侧发失败提示，用户知道重试而非干等
+    if (event.event === "entry.failed") {
+      this.deliverFailureNotice(conversationId, event).catch((err) => {
+        this.logger.error("Failed to deliver failure notice to Weixin", err instanceof Error ? err : undefined, { conversationId });
+      });
+    }
+  }
+
+  /** F20260920imax：invoke 终态失败 → 微信侧提示（思考中后无下文的静默兑底） */
+  private async deliverFailureNotice(conversationId: string, _event: SSEEvent): Promise<void> {
+    const session = await this.manageConnection.getSessionByConversation(conversationId);
+    if (!session) return;
+    const connection = await this.manageConnection.getConnection(session.connectionId);
+    if (!connection) return;
+    if (connection.externalType !== "weixin") return;
+
+    try {
+      await this.weixinGateway.replyText(connection.externalId, "⚠️ 助理这会儿没能回复（服务端处理失败）。稍后再发一条试试，若持续失败请到 Web 端查看详情 🦦");
+    } catch (err) {
+      this.logger.error("Weixin failure notice send failed", err instanceof Error ? err : undefined, { conversationId });
     }
   }
 

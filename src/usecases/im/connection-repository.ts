@@ -7,6 +7,9 @@ export interface ConnectionRepository {
   getByExternalId(externalId: string): Promise<Connection | null>;
   listActive(): Promise<Connection[]>;
   updateStatus(id: string, status: ConnectionStatus, timestamp: string): Promise<void>;
+  /** F20260920imax 增量五：合并式更新 metadata（读-改-写原子化在 SQL 侧）——
+   *  bot 锚定路由用（lastChatId 随入站消息刷新，出站时定向回复） */
+  mergeMetadata(id: string, patch: Record<string, unknown>): Promise<void>;
 
   // Session 管理
   getActiveSession(connectionId: string): Promise<ConnectionSession | null>;

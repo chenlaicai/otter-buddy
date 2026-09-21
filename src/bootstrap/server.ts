@@ -1,15 +1,16 @@
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import type { Logger } from "@usecases/ports/logger";
 import { createRouter } from "@interface-adapters/http/router";
 import { getMetricsRegistry } from "@frameworks/metrics/registry";
-import { MPA_PAGES } from "@contract/web/pages";
 import type { initControllers } from "./controllers";
 
 type Controllers = ReturnType<typeof initControllers>;
 
-/** 组装 Hono app（路由 + 可选静态页面），不监听端口——测试可直接 app.request */
+/** 组装 Hono app（路由 + SPA fallback），不监听端口——测试可直接 app.request */
 export function buildHttpApp(controllers: Controllers, logger: Logger, staticRoot: string | false): Hono {
   const app = new Hono();
 
@@ -30,16 +31,32 @@ export function buildHttpApp(controllers: Controllers, logger: Logger, staticRoo
   app.route("/", createRouter(controllers, logger));
 
   if (staticRoot !== false) {
-    // #487（F20260827mpss）：静态路由从单一清单生成（防 PR #116/#444 类漏注册）
-    for (const page of MPA_PAGES) {
-      app.get(page.pattern, serveStatic({ root: staticRoot, path: `${page.entry}.html` }));
-    }
-
     // F20260901chun：旧 URL 301 重定向到 /im（防外链断裂）
     app.get("/connections", (c) => c.redirect("/im", 301));
     app.get("/weixin", (c) => c.redirect("/im", 301));
 
+    // SPA 模式：静态资源优先，其余全部 fallback 到 index.html
+    // Why: React Router 处理客户端路由，服务端只需确保深链接不 404
     app.use("/*", serveStatic({ root: staticRoot }));
+
+    // SPA fallback：非 API、非静态文件的 GET 请求全部返回 index.html
+    // 覆盖 /memory、/skills、/settings 等干净 URL 的深链接直达
+    // Why: serveStatic 的 path 选项行为不可靠（Hono 文档不明确），改为异步读取文件
+    //       避免模块加载时 readFileSync 的 CWD 问题——alpha 实例启动时 CWD 可能与模块加载时不同
+    // S2 修复：排除 /api/ 前缀——API 路由未命中应返回 404，不能被 SPA fallback 吞掉成 200
+    const staticRootResolved = resolve(staticRoot);
+    app.get("*", async (c) => {
+      // API 路由未命中 → 404，不 fallback 到 SPA
+      if (c.req.path.startsWith("/api/")) {
+        return c.json({ error: "Not found" }, 404);
+      }
+      try {
+        const content = await readFile(resolve(staticRootResolved, "index.html"), "utf-8");
+        return c.html(content);
+      } catch {
+        return c.text("SPA entry not found", 404);
+      }
+    });
   }
 
   return app;

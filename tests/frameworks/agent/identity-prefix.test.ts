@@ -246,6 +246,7 @@ describe("F20260917cvid: 所在对话身份段（对话标题注入）", () => {
     const now = new Date().toISOString();
     await convRepo.create({
       id, title, status: "active", summary: null, pinned: false,
+      kind: "normal",
       workspaceDir: null, createdAt: now, updatedAt: now,
       completedAt: null, archivedAt: null,
     });

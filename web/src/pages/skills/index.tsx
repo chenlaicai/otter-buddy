@@ -1,8 +1,5 @@
 import { useState, useEffect } from 'react'
-import { createRoot } from 'react-dom/client'
 import { Construction, Package } from 'lucide-react'
-import '../../styles/globals.css'
-import { AppLayout } from '../../components/AppLayout'
 
 /**
  * #576（F20260901emps）：数据源从静态快照改为 GET /api/skills（ResourceLoader 真相源）。
@@ -50,7 +47,6 @@ const FALLBACK_SKILL_GROUPS: { label: string; skills: SkillEntry[] }[] = [
     label: '元规范',
     skills: [
       { name: 'writing-skills', desc: '关于 skill 的 skill：铁律 + 契约 + 模板 + lint 规则' },
-      { name: 'stock-analysis', desc: 'A股/港股结构化分析与纸面交易' },
     ],
   },
 ]
@@ -88,7 +84,7 @@ function findGroupLabel(skillName: string): string | null {
   return null
 }
 
-export function SkillsPage() {
+export default function SkillsPage() {
   const [state, setState] = useState<LoadState>({ kind: 'loading' })
 
   useEffect(() => {
@@ -129,7 +125,7 @@ export function SkillsPage() {
   const selectedSkill = allSkills.find(s => s.name === selectedName) ?? allSkills[0]
 
   return (
-    <AppLayout activeView="skills">
+    <>
       <div className="flex flex-col flex-1 overflow-hidden p-3 gap-3">
         {/* Under-construction notice */}
         <div className="flex items-start gap-2.5 px-5 py-3 glass rounded-2xl border border-amber-300/40 bg-amber-400/10">
@@ -214,10 +210,6 @@ export function SkillsPage() {
           </div>
         )}
       </div>
-    </AppLayout>
+    </>
   )
 }
-
-/** 入口挂载（测试经 export 的 SkillsPage 直接渲染，不走此副作用） */
-const root = createRoot(document.getElementById('root')!)
-root.render(<SkillsPage />)

@@ -6,12 +6,10 @@
  * 页面模式参考 health 页三 tab；中文标签映射在前端（SIGNAL_TYPE_LABELS 同模式）。
  */
 import { useState, useEffect, useCallback } from 'react'
-import { createRoot } from 'react-dom/client'
 import { ClipboardList, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react'
-import '../../styles/globals.css'
-import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
 import * as api from '../../api/client'
+import { fmtTimeShort } from '../../lib/utils'
 import type { HealingEventDTO, SignalEventDTO, DispatchRecordDTO } from '@contract/api'
 
 type Tab = 'healing' | 'signals' | 'dispatch'
@@ -74,18 +72,14 @@ const SIGNAL_STATUS_LABELS: Record<string, string> = {
 }
 
 function fmtTime(iso: string | null): string {
-  if (!iso) return '—'
-  // ISO → 本地可读时间（分钟精度足够——台账浏览场景无秒级需求）
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return iso ? fmtTimeShort(iso) : '—'
 }
 
 function shortId(id: string): string {
   return id.length > 8 ? id.slice(0, 8) : id
 }
 
-function ActivityPage() {
+export default function ActivityPage() {
   const initialTab = (['healing', 'signals', 'dispatch'] as const).includes(new URLSearchParams(window.location.search).get('tab') as Tab)
     ? new URLSearchParams(window.location.search).get('tab') as Tab
     : 'healing'
@@ -134,7 +128,7 @@ function ActivityPage() {
   const count = tab === 'healing' ? healing.length : tab === 'signals' ? signals.length : dispatch.length
 
   return (
-    <AppLayout activeView="activity">
+    <>
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
           {/* 头部 */}
@@ -251,7 +245,7 @@ function ActivityPage() {
           )}
         </div>
       </div>
-    </AppLayout>
+    </>
   )
 }
 
@@ -376,5 +370,3 @@ function DispatchCard({ record }: { record: DispatchRecordDTO }) {
     </div>
   )
 }
-
-createRoot(document.getElementById('root')!).render(<ActivityPage />)

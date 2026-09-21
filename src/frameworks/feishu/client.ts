@@ -2,6 +2,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { FeishuGateway } from "@usecases/im/feishu-gateway";
 import type { FeishuAccessTokenManager } from "./access-token-manager";
 import type { FeishuConfig } from "./types";
+import { maskAppId } from "./long-connection-client";
 
 export type { FeishuConfig };
 
@@ -11,11 +12,16 @@ const FEISHU_MESSAGES_ENDPOINT = "https://open.feishu.cn/open-apis/im/v1/message
 const DEGRADE_PREFIX = "[纯文本降级]\n\n";
 
 export class FeishuClient implements FeishuGateway {
+  /** F20260920imax 增量五：bot 身份键（掩码 appId）——按 bot 锚定路由的键源 */
+  readonly botKey: string;
+
   constructor(
     private readonly config: FeishuConfig,
     private readonly logger: Logger,
     private readonly tokenManager: FeishuAccessTokenManager,
-  ) {}
+  ) {
+    this.botKey = `feishu-bot:${maskAppId(this.config.appId)}`;
+  }
 
   /** 发送文本消息到群 */
   async replyText(chatId: string, text: string): Promise<void> {

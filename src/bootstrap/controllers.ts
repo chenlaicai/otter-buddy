@@ -91,6 +91,9 @@ export interface ControllerDeps {
   weixinLoginSessions?: WeixinLoginSessionPort;
   weixinAccountStore?: WeixinAccountStorePort;
   onWeixinAccountDeleted?: (accountId: string) => void;
+  /** F20260920imax：微信扫码后按名开助理线（app.ts 注入——依赖 AssistantSessionManager，
+   *  controllers 层不直接引 usecases 装配产物，经 deps 闭包传递） */
+  provisionWeixinAssistantLine?: (accountId: string, name: string) => Promise<{ conversationId: string; title: string }>;
   /** 通道状态注册表（F20260901chun：统一 IM 页 + 真实健康状态） */
   registry?: ChannelStatusRegistry;
   /** F20260901sgpv P1：信号路由器（主入口调度收敛；未注入时 MC/ADS/RIS 降级直连链） */
@@ -144,6 +147,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
           loginSessions: deps.weixinLoginSessions,
           accountStore: deps.weixinAccountStore,
           onAccountDeleted: deps.onWeixinAccountDeleted,
+          ...(deps.provisionWeixinAssistantLine && { provisionAssistantLine: deps.provisionWeixinAssistantLine }),
           logger,
         })
       : undefined;

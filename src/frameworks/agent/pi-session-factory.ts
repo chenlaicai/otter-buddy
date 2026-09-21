@@ -786,9 +786,9 @@ export class PiSessionFactory implements AgentGateway {
   /** F20260831tumv：计算某 otter 类型的自定义工具白名单（manifest 展开以注册全集为 universe） */
   private buildOtterToolWhitelist(otterType: string): string[] {
     // 注册工具全集先于白名单计算——manifest "*" 展开以此为全集，
-    // 保证 tool-factory 新注册的工具（如 PR4/PR5 的 stock_data/paper_trade）自动进入 big 型白名单。
+    // 保证 tool-factory 新注册的工具自动进入 big 型白名单。
     // 旧序（先白名单后注册）在 "*" 展开时退化为 getOtterToolNamesForType 的 stale 硬编码 fallback，
-    // 曾致 stock_data/paper_trade 对 big 型不可见（0831 操盘日报现场）。
+    // 曾致新工具对 big 型不可见（0831 现场实证）。
     //
     // 占位 ctx 必须携带影响 tool-factory 条件注册的字段（检视发现 1）：
     // signalRepo 缺失时 halt_otter/query_signals/resolve_signal 不注册 → 不进白名单 →

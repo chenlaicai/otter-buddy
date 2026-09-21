@@ -9,16 +9,15 @@
 
 import type { Logger } from "@usecases/ports/logger";
 
-/** features 段的原始（未归一化）输入形状，与 config-service.RawConfig.features 同构 */
+/** features 段的原始（未归一化）输入形状，与 config-service.RawConfig.features 同构
+ * F20260920stkx：paperTrading 开关随 paper-trading 能力移除（旧配置残留键被忽略，不报错） */
 export interface RawFeatures {
   selfHealing?: boolean;
-  paperTrading?: boolean;
   recruiting?: boolean;
 }
 
 export interface NormalizedFeatures {
   selfHealing: boolean | undefined;
-  paperTrading: boolean | undefined;
   recruiting: boolean | undefined;
 }
 
@@ -44,7 +43,6 @@ export function buildRawAttachmentsConfig(raw: { attachments?: { storageRoot?: s
 export function buildFeaturesConfig(raw: { features?: RawFeatures }, logger?: Logger): NormalizedFeatures {
   return {
     selfHealing: norm("selfHealing", raw.features?.selfHealing, logger),
-    paperTrading: norm("paperTrading", raw.features?.paperTrading, logger),
     recruiting: norm("recruiting", raw.features?.recruiting, logger),
   };
 }

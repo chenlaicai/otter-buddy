@@ -29,14 +29,15 @@ const restrictedFrameworks = [{
   // deny-all-except-logger-and-repo-root：ESLint 10 的 patterns 对象不支持 allow 例外字段，
   // 用负向前瞻实现"除 logger / repo-root 外全限制"（D39 豁免 logger；repo-root 豁免见
   // F20260916fndv/#429——纯路径常量模块零依赖，usecases 运行时资源定位（prompt 模板/
-  // seed 数据）需在不破坏依赖方向的前提下使用，与 logger 豁免同性质）
-  regex: "(?:^|@|/)frameworks/(?!logger(?:/|$)|repo-root(?:/|$)|stock(?:/|$))",
-  message: "Inner layers cannot import from frameworks (except @frameworks/logger, @frameworks/repo-root per D39/#429, and @frameworks/stock/* shared script wrappers per #952/#429)",
+  // seed 数据）需在不破坏依赖方向的前提下使用，与 logger 豁免同性质）。
+  // F20260920stkx：stock 豁免随 @frameworks/stock 目录整体移除而移除
+  regex: "(?:^|@|/)frameworks/(?!logger(?:/|$)|repo-root(?:/|$))",
+  message: "Inner layers cannot import from frameworks (except @frameworks/logger and @frameworks/repo-root per D39/#429)",
 }];
 
 export default tseslint.config(
   {
-    ignores: ["dist/**", "node_modules/**", ".claude/**", ".otter/**", ".snail/**", ".git/**", "logs/**", "docs/**", "web/dist/**", "web/node_modules/**", "extensions/**", ".venv-stock/**", ".venv*/**", "data/**"],
+    ignores: ["dist/**", "node_modules/**", ".claude/**", ".otter/**", ".snail/**", ".git/**", "logs/**", "docs/**", "web/dist/**", "web/node_modules/**", "extensions/**", ".venv*/**", "data/**"],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -122,16 +123,16 @@ export default tseslint.config(
     }
   },
   // Layer 3: interface-adapters/ — cannot import from frameworks at all
-  // #429 豁免：@frameworks/repo-root（纯路径探测）与 @frameworks/stock/python（脚本包装）
-  // 与 repo-root 同性质（零业务依赖），resolvePython 双源收敛消除单边漂移风险（#952 遗留）
+  // #429 豁免：@frameworks/repo-root（纯路径探测，零业务依赖）。
+  // F20260920stkx：stock/python 豁免随 @frameworks/stock 目录整体移除而移除
   {
     files: ["src/interface-adapters/**/*.ts"],
     rules: {
       "no-restricted-imports": ["error", {
         patterns: [
           {
-            group: ["(?:^|@|/)frameworks/(?!logger(?:/|$)|repo-root(?:/|$)|stock/python(?:/|$))"],
-            message: "Interface adapters layer cannot import from frameworks (except @frameworks/repo-root and @frameworks/stock/python per #429/#952)"
+            group: ["(?:^|@|/)frameworks/(?!logger(?:/|$)|repo-root(?:/|$))"],
+            message: "Interface adapters layer cannot import from frameworks (except @frameworks/logger and @frameworks/repo-root per #429)"
           }
         ]
       }]

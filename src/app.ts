@@ -485,6 +485,23 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     // 微信连接管理（issue #566）
     weixinLoginSessions,
     weixinAccountStore,
+    // F20260920imax：扫码后按名开助理线（必填名；闭包封装 ensureConnection + 开户）
+    provisionWeixinAssistantLine: async (accountId, name) => {
+      // 微信连接 externalId = 账号 id（与消息 ingress 的 ensureConnection 同键，
+      // 幂等汇合到同一 connection）
+      const connection = await uc.manageConnection.ensureConnection(accountId, accountId, "weixin");
+      // 已有 active 绑定 = 已建过线（幂等：不重复建，返回当前）
+      const existing = await uc.manageConnection.getCurrentConversation(connection.id);
+      if (existing) return { conversationId: existing.id, title: existing.title };
+      const conv = await uc.assistantSession.ensureAssistantConversation({
+        connectionId: connection.id,
+        channel: "weixin",
+        displayName: name,
+        ...(config.im?.assistant?.modelAlias && { modelAlias: config.im.assistant.modelAlias }),
+      });
+      if (!conv) throw new Error("助理线创建失败");
+      return { conversationId: conv.id, title: conv.title };
+    },
     onWeixinAccountDeleted: (accountId) => {
       // 账号删除：停轮询（热启动池 + 初始启动池都查；初始池删除后无法 splice
       // 因为 weixinPollers 在别处持有——stop 即可，数组残留无害：进程生命周期内
@@ -511,7 +528,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     skillDirectory,
   }, logger);
 
-  const app = buildHttpApp(controllers, logger, options.staticRoot ?? "./web/dist");
+  const app = buildHttpApp(controllers, logger, options.staticRoot ?? path.resolve(import.meta.dirname, "../..", "web/dist"));
 
   // 飞书长连接启动（原 startServer 内的副作用，装配语义上属于"启动平台集成"）
   // #460：捕获 stopFeishu 句柄接入 dispose 链（防 WSClient 重连阻止退出）

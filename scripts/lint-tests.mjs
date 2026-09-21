@@ -31,12 +31,10 @@ const allowDdlFiles = [];
 // F20260821kgts: 豁免 ratchet——新增 allow-ddl 豁免必须显式上调此上限
 // 2→3（F20260827mpcg）：tests/scripts/cleanup-memory-pollution.test.ts——运维脚本对任意 DB 的
 // 行为测试，被测脚本不读生产 schema 迁移链，临时库手写 DDL 无漂移风险（与 migration 测试同类）
-// 3→4（F20260829ppta）：tests/frameworks/db/paper-trade-repository-impl-expiry.test.ts——
-// 仓储实现测试需要手写 DDL 建立最小表结构（测试 expireOldPendingOrders 的 SQL 行为，
-// 不走生产 schema 迁移链，隔离内存 SQLite 无漂移风险）
-// 4→5（F20260829ppta）：tests/frameworks/db/paper-trade-repository-impl-ledger-integration.test.ts——
-// X1 P0 集成测试，使用真实 Ledger + 真实 SQLite 验证成交订单 DB 状态落库，
-// 全 mock 测试结构上不可能发现 X1 缺陷，需要隔离内存 SQLite 真实写入
+// 3→4（F20260827mpcg）：tests/scripts/cleanup-memory-pollution.test.ts——运维脚本对任意 DB 的
+// 行为测试，被测脚本不读生产 schema 迁移链，临时库手写 DDL 无漂移风险（与 migration 测试同类）
+// （原 4→5/5→6 为 paper-trade 两个仓储测试豁免，F20260920stkx 炒股能力移除时随测试文件删除，
+//  上限 11→9：现存豁免 8 个文件，ratchet 只降不升防新增豁免搭便车）
 // 5→6（F20260901rhdt）：tests/usecases/health/signal-repository.test.ts——
 // Issue #644 存量库补列迁移测试：需建 8/31 旧形状 signals 表（无 evidence_detail/confidence
 // 两列）验证 migrateDatabase ALTER 补列幂等——被测对象就是「旧 schema → 新 schema」迁移本身，
@@ -54,7 +52,7 @@ const allowDdlFiles = [];
 // seed 提取（INSERT 直插 messages/otters，非 DDL 但携带 allow-ddl 标记文件入豁免清单）；
 // ③attachments-kind-migration.test.ts——#608 存量库迁移回归，此前漏登记（存量遗留，
 // 本次测试范围触及该文件一并归队）
-const MAX_ALLOW_DDL_FILES = 11;
+const MAX_ALLOW_DDL_FILES = 9;
 
 for (const file of walk(path.join(root, "tests"))) {
   const rel = path.relative(root, file);

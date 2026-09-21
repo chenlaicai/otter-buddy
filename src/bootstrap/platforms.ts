@@ -23,17 +23,11 @@ import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { Repositories, UseCases } from "./types";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
-import { seedPaperTradingTasks } from "@usecases/paper-trading/ensure-paper-trading-scheduler";
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
-import { Ledger } from "@usecases/paper-trading/ledger";
-import { PaperTradeRepositoryImpl } from "@frameworks/db/paper-trade-repository-impl";
-import { StockQuoteGatewayImpl } from "@frameworks/stock/stock-quote-gateway-impl";
-import { syncTradingCalendar } from "@usecases/paper-trading/sync-trading-calendar";
-import { registerPaperTradingFunctions } from "@usecases/paper-trading/register-functions";
-import { paperTradingFunctionRegistry } from "@usecases/paper-trading/function-registry";
 import { createManageHealingEventsTool } from "@interface-adapters/agent-runtime/tools/healing-tools";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import type { SignalRouter } from "@usecases/conversation/signal-router";
+import type { AssistantSessionManager } from "@usecases/im/assistant-session";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 import { SchedulerService } from "@usecases/scheduler/scheduler-service";
@@ -73,7 +67,7 @@ import { ProcessInboundRecruit } from "@usecases/recruiting/process-inbound-recr
 import { GetBridgeStatus } from "@usecases/recruiting/get-bridge-status";
 import { ensureRecruitingConversation } from "@usecases/recruiting/ensure-recruiting-conversation";
 import { ensureRecruitingScheduler } from "@usecases/recruiting/ensure-recruiting-scheduler";
-import { resolveFeatureGates, gateOn, inferDomainActive } from "./feature-gates";
+import { resolveFeatureGates } from "./feature-gates";
 import { buildHandoffPackage } from "@frameworks/agent/handoff-package-builder";
 
 export interface FeishuBundle {
@@ -108,15 +102,7 @@ export async function createAgentGateway(options: {
     // Why: 默认目录基于代码位置解析（#429）；注入参数 override 优先
     identityPromptDir: options.identityPromptDir ?? path.resolve(getRepoRoot(), "prompts/identity"),
     createTools: (ctx, repo, log) => {
-      // PR4: 创建纸面交易 Ledger 注入到工具
-      const paperTradeRepo = new PaperTradeRepositoryImpl(db);
-      const paperGateway = new StockQuoteGatewayImpl(getRepoRoot());
-      const paperLedger = new Ledger(paperTradeRepo, paperGateway);
-      const paperLedgerRef = { ledger: paperLedger, getAccountId: () => {
-        const accounts = db.prepare('SELECT id FROM paper_accounts LIMIT 1').get() as { id: string } | undefined;
-        return accounts?.id;
-      } };
-      const tools = createTools(ctx, repo, log, options.workspaceGateway, manageScheduledTaskRef ?? undefined, paperLedgerRef);
+      const tools = createTools(ctx, repo, log, options.workspaceGateway, manageScheduledTaskRef ?? undefined);
       if (repo) tools.push(createManageHealingEventsTool(ctx, repo));
       return tools;
     },
@@ -252,43 +238,10 @@ function buildAgentInvoker(o: {
 }
 
 export async function initAgentAndScheduler(options: { repos: Repositories; uc: UseCases; agentGateway: PiSessionFactory; messageBroadcaster: MessageBroadcaster | undefined; logger: Logger; workspaceGateway?: WorkspaceGateway; metrics?: SchedulerMetrics; agentMetrics?: AgentMetricsPort; dispatchChainEngine?: DispatchChainEngine; db?: Database.Database; appConfig?: AppConfig; modelPool?: ModelPool; otterConfigProvider?: OtterConfigProvider }) {
-  const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics, agentMetrics, dispatchChainEngine, db, appConfig, modelPool, otterConfigProvider } = options;
+  const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics, agentMetrics, dispatchChainEngine, appConfig, modelPool, otterConfigProvider } = options;
   await agentGateway.warmup();
 
-  // PR4: 注册纸面交易函数（function executor 使用）
-  if (db) {
-    const paperTradeRepo = new PaperTradeRepositoryImpl(db);
-    const paperGateway = new StockQuoteGatewayImpl(getRepoRoot());
-    const paperLedger = new Ledger(paperTradeRepo, paperGateway);
-    registerPaperTradingFunctions(paperLedger, paperTradeRepo);
-
-    // A3: 同步交易日历（akshare 或 fallback）
-    syncTradingCalendar(paperTradeRepo, process.cwd()).then((res) => {
-      logger.info(`Trading calendar synced: ${res.count} entries (source: ${res.source})`);
-    }).catch((err) => {
-      logger.error("Trading calendar sync failed", err instanceof Error ? err : new Error(String(err)));
-    });
-
-    // PR5: seed 定时任务（幂等）——F20260915cfgt：受 features.paperTrading 门控（个人场景默认关）。
-    // S1 修复（检视发现）：走完整三态门（显式配置 > DB 存量推断），与 initPlatforms 的
-    // gates 同语义——老部署未写配置但 DB 有 active paper-trading 任务时靠推断保活（T3）。
-    // registerPaperTradingFunctions / syncTradingCalendar 保持无条件：进程内注册随重启重建，
-    // 不持久化，保留不动改动面最小；开关打开后无需关心注册时序
-    const paperTradingOn = await gateOn(
-      appConfig?.features.paperTrading,
-      () => inferDomainActive(repos.scheduledTask, 'paperTrading'),
-    );
-    if (paperTradingOn) {
-      await seedPaperTradingTasks({
-        manageScheduledTask: uc.manageScheduledTask,
-        manageConversation: uc.manageConversation,
-        convRepo: repos.conversation,
-        otterRepo: repos.otter,
-        settings: repos.settings,
-        logger,
-      });
-    }
-  }
+  // F20260920stkx：paper-trading 能力移除（选项 A）——原 PR4/PR5 装配块随能力整体退役。
 
   // F20260901cxmw：otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
   const ctxWindowProvider = modelPool ? buildCtxWindowProvider(modelPool, otterConfigProvider) : undefined;
@@ -330,7 +283,6 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
       healingRepo: repos.healingEvent,
       metrics,
       dispatchChainEngine,
-      functionRegistry: db ? paperTradingFunctionRegistry : undefined,
     }),
   );
 
@@ -363,6 +315,19 @@ export function createFeishuBundle(options: {
   return { client, tokenManager, dispatchChainEngine };
 }
 
+/** F20260920imax：助理态注入片段（微信/飞书共用语义：总开关 + 助理线模型；setupFeishu/startWeixinChannels 双消费方） */
+function buildAssistantInjections(appConfig: AppConfig, uc: UseCases): {
+  assistantSession?: AssistantSessionManager;
+  assistantModelAlias?: string;
+} {
+  return {
+    // F20260918imas / F20260920imax：助理态（p2p 自动开户；对话永续）；总开关关闭时不注入（回退拒聊）
+    ...(appConfig.im?.assistant?.enabled !== false && { assistantSession: uc.assistantSession }),
+    // F20260920imax：助理线模型（自动开户的大獭用；缺省全局 default）
+    ...(appConfig.im?.assistant?.modelAlias && { assistantModelAlias: appConfig.im.assistant.modelAlias }),
+  };
+}
+
 export function setupFeishu(options: {
   appConfig: AppConfig;
   uc: UseCases;
@@ -387,10 +352,10 @@ export function setupFeishu(options: {
     entryRepo: repos.entry,
     agentInvokePort: agentInvoker,
     logger,
-    // F20260901sgpv P1：飞书入口换轨（隐式传石查询停用，四入口勘测硬约束 1）
     ...(signalRouter && { signalRouter }),
   });
 
+  // F20260920imax：助理态注入（语义见 buildAssistantInjections）——直接内联进 messageProcessor，不占行数
   // 多模态 Phase 2：飞书 ingress 附件三件套——资源下载客户端 + 注入服务与 controllers.ts 同构
   // （storageRoot 缺省 ./data/attachments，与 AttachmentController 一致）
   const feishuResource = new FeishuResourceClient(feishu.tokenManager, logger);
@@ -402,17 +367,12 @@ export function setupFeishu(options: {
 
   const messageProcessor = new FeishuMessageProcessor({
     manageConnection: uc.manageConnection,
-    // F20260918imas：助理态（p2p 自动开户 + 软轮换）；总开关关闭时不注入（回退拒聊）
-    ...(appConfig.im?.assistant?.enabled !== false && { assistantSession: uc.assistantSession }),
-    // F20260913ctlv 彻底切换：飞书用户消息写 entries
+    ...buildAssistantInjections(appConfig, uc),
     sendEntry: uc.sendEntry,
     commandDispatcher,
     feishuGateway: feishu.client,
-    // F20260826fuid：飞书群聊多人识别——open_id → 姓名快照
     feishuUserInfo: new FeishuUserInfoClient(feishu.tokenManager, logger),
-    // F20260826fpbd：命令门禁用（方案B）
     partnerResolver,
-    // 多模态 Phase 2：飞书 ingress 收图/收文件（下载 + 上传管线 + 注入组装）
     feishuResource,
     attachmentUpload: uc.attachmentUpload,
     attachmentInjection,
@@ -549,8 +509,8 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
       });
       const processor = new WeixinMessageProcessor({
         manageConnection: uc.manageConnection,
-        // F20260918imas：助理态（私聊自动开户 + 软轮换）；总开关关闭时不注入（回退拒聊）
-        ...(appConfig.im?.assistant?.enabled !== false && { assistantSession: uc.assistantSession }),
+        // F20260918imas / F20260920imax：助理态（私聊自动开户；对话永续 + 8h 静默换 session）；语义同 setupFeishu
+        ...buildAssistantInjections(appConfig, uc),
         // F20260913ctlv 收尾批2：微信消息唯一落点 = entries（与飞书同构）
         sendEntry: uc.sendEntry,
         entryRepo: repos.entry,

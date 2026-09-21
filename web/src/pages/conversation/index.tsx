@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { createRoot } from 'react-dom/client'
+import { useParams, useNavigate } from 'react-router-dom'
 import { PanelLeft, PanelRight } from 'lucide-react'
-import '../../styles/globals.css'
 
 import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask, LocalAttachment } from '../../lib/mappers'
 
@@ -10,7 +9,6 @@ import { isInFlight, upsertMessage, insertBySeq, upsertTerminalMessage, insertCe
 import { applyInvokeStart, applyInvokeEnd, applyInvokeTick, findOtterByInvokeId, type InvokeStates } from '../../lib/invoke-tracker'
 import { MessageBatcher } from '../../lib/batch-update'
 import { nowTs } from '../../lib/utils'
-import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
 import { LeftPanel } from './LeftPanel'
 import { ChatView } from './ChatView'
@@ -39,7 +37,9 @@ async function loadInitialData(): Promise<{
   return { conversations, hasMore: convDTOs.length >= 50 }
 }
 
-function ConversationPage() {
+export default function ConversationPage() {
+  const { id: urlConvId } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const [conversations, setConversations] = useState<LocalConversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [allMessages, setAllMessages] = useState<Record<string, LocalMessage[]>>({})
@@ -162,9 +162,7 @@ function ConversationPage() {
     batcher.update(convId, updater)
   }, [batcher])
 
-  // 从 URL 路径获取对话 ID（格式：/conversation/:id）
-  const pathParts = window.location.pathname.split('/')
-  const urlConvId = pathParts.length >= 3 && pathParts[1] === 'conversation' ? pathParts[2] : null
+  // urlConvId 现在由 React Router useParams 提供
 
   // 定时任务状态
   const [scheduledTaskModal, setScheduledTaskModal] = useState<{
@@ -1178,9 +1176,8 @@ function ConversationPage() {
   }, [activeId, batchUpdateMessages])
 
   const handleSelectConv = useCallback((id: string) => {
-    // 混合架构：切换对话时整页刷新
-    window.location.href = `/conversation/${id}`
-  }, [])
+    navigate(`/conversation/${id}`)
+  }, [navigate])
   const handleNewConv = () => setModal({ type: 'new-conv' })
   const handleArchive = () => activeId && setModal({ type: 'archive', cid: activeId })
   const handleCloseModal = useCallback(() => setModal({ type: 'none' }), [])
@@ -1202,8 +1199,7 @@ function ConversationPage() {
       setConversations(prev => [conv, ...prev])
       setModal({ type: 'none' })
       showToast('对话已创建', 'success')
-      // 混合架构：创建新对话后整页刷新，确保 URL 与内容一致
-      window.location.href = `/conversation/${conv.id}`
+      navigate(`/conversation/${conv.id}`)
     } catch { showToast('创建对话失败', 'error') }
   }
 
@@ -1215,7 +1211,7 @@ function ConversationPage() {
       // 归档后当前对话从列表消失（服务端列表排除 archived），
       // 轮询合并会将其移除导致 activeConv 为 null、RightPanel 串到其他对话——与 pin/unpin 一致整页跳转
       // toast 通过 URL 参数传递到目标页，避免跳转后来不及渲染
-      window.location.href = '/conversation?archived=1'
+      navigate('/conversation?archived=1')
     } catch { showToast('操作失败', 'error') }
   }
 
@@ -1341,7 +1337,9 @@ function ConversationPage() {
       showToast('正在置顶...', 'info')
       try {
         await api.pinConversation(cid)
-        window.location.reload()
+        // SPA 模式：重新加载对话列表而非整页刷新
+        const dtos = await api.listConversations()
+        setConversations(dtos.map(mapConversationDTO))
       } catch (err) {
         showToast(err instanceof ApiError ? err.message : '置顶失败', 'error')
       }
@@ -1349,7 +1347,9 @@ function ConversationPage() {
       showToast('正在取消置顶...', 'info')
       try {
         await api.unpinConversation(cid)
-        window.location.reload()
+        // SPA 模式：重新加载对话列表而非整页刷新
+        const dtos = await api.listConversations()
+        setConversations(dtos.map(mapConversationDTO))
       } catch (err) {
         if (err instanceof ApiError && err.status === 403) {
           showToast('系统对话不可取消置顶', 'error')
@@ -1358,7 +1358,7 @@ function ConversationPage() {
         }
       }
     } else {
-      window.location.href = `/conversation/${cid}`
+      navigate(`/conversation/${cid}`)
     }
   }
 
@@ -1366,7 +1366,7 @@ function ConversationPage() {
 
   if (pageState === 'loading') {
     return (
-      <AppLayout activeView="index">
+      <>
         <div className="flex flex-1 items-center justify-center">
           <div className="flex gap-1">
             <span className="w-2 h-2 rounded-full bg-otter-400 animate-dot" />
@@ -1374,12 +1374,12 @@ function ConversationPage() {
             <span className="w-2 h-2 rounded-full bg-otter-400 animate-dot" style={{ animationDelay: '0.3s' }} />
           </div>
         </div>
-      </AppLayout>
+      </>
     )
   }
 
   return (
-    <AppLayout activeView="index">
+    <>
       {/* #500：三栏布局响应式降级——外层 relative 为窄屏抽屉提供定位上下文。
           断点策略（Tailwind 默认）：≥lg(1024px) 三栏全开；md(768px)~lg 右栏折叠为悬浮抽屉；
           <md 左右栏均抽屉化，聊天区独占。面板组件保持挂载（状态不丢），仅容器显隐。 */}
@@ -1420,7 +1420,7 @@ function ConversationPage() {
         >
           <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} hasMore={hasMoreConvs} loadingMore={loadingMoreConvs} onLoadMore={handleLoadMoreConvs} />
         </div>
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} onReachBottom={handleMarkRead} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => navigate('/settings')} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} onReachBottom={handleMarkRead} />
         {/* 右栏：≥lg 常驻；<lg 抽屉化。md~lg 区间聊天区 = 全宽 - 左栏(224px)，不再被右栏挤 <500px */}
         <div
           id="right-panel-drawer"
@@ -1512,9 +1512,6 @@ function ConversationPage() {
           liveListeners={sessionLiveListeners}
         />
       )}
-    </AppLayout>
+    </>
   )
 }
-
-const root = createRoot(document.getElementById('root')!)
-root.render(<ConversationPage />)

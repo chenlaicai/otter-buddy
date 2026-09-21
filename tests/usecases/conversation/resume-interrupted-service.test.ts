@@ -92,7 +92,7 @@ async function seedConv2(
   otterRepo: SqliteOtterRepository,
 ): Promise<string> {
   const conv2: Conversation = {
-    id: "conv-2", title: "测试对话2", status: "active", summary: null, pinned: false, workspaceDir: null,
+    id: "conv-2", title: "测试对话2", status: "active", summary: null, pinned: false, kind: "normal", workspaceDir: null,
     createdAt: T0, updatedAt: T0, completedAt: null, archivedAt: null,
   };
   await convRepo.create(conv2);
@@ -204,7 +204,7 @@ describe("ResumeInterruptedService（F20260916b1ea invoke 模型重建）", () =
   beforeEach(async () => {
     h = makeHarness();
     const conv: Conversation = {
-      id: "conv-1", title: "测试对话", status: "active", summary: null, pinned: false, workspaceDir: null,
+      id: "conv-1", title: "测试对话", status: "active", summary: null, pinned: false, kind: "normal", workspaceDir: null,
       createdAt: T0, updatedAt: T0, completedAt: null, archivedAt: null,
     };
     await h.convRepo.create(conv);

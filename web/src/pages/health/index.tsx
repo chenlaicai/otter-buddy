@@ -13,16 +13,13 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
-import { createRoot } from 'react-dom/client'
 import { RefreshCw, AlertTriangle, ShieldAlert, GitBranch, Activity, TrendingUp, PieChart as PieIcon, Layers, BarChart3 } from 'lucide-react'
 import {
   ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Cell, Legend,
 } from 'recharts'
-import '../../styles/globals.css'
-import { AppLayout } from '../../components/AppLayout'
-import { showToast } from '../../components/Toast'
 import * as api from '../../api/client'
+import { showToast } from '../../components/Toast'
 import type { RhiOverviewDTO, RhiSignalDTO, RhiChainDTO, RhiTrendsDTO, RhiCostOutputDTO, RhiScoreDTO } from '../../api/client'
 import { SERIES_COLORS, CARAMEL, OTTER } from './palette'
 import { RecurrenceSection, LowConfidenceDrawer, FanInExcludedList } from './RecurrenceCard'
@@ -46,7 +43,7 @@ const TAB_LABELS: Record<Tab, string> = {
 
 const COST_OUTPUT_COLORS = SERIES_COLORS
 
-function HealthPage() {
+export default function HealthPage() {
   // Issue #647：支持 ?tab= 深链（刷新/截图/分享指定视图）；非法值回退 overview
   const initialTab = (['overview', 'signals', 'chains', 'cost'] as const).includes(new URLSearchParams(window.location.search).get('tab') as Tab) ? new URLSearchParams(window.location.search).get('tab') as Tab : 'overview'
   const [tab, setTab] = useState<Tab>(initialTab)
@@ -122,7 +119,7 @@ function HealthPage() {
   const untriagedCount = signals.filter(s => s.triageStatus === null && s.confidence !== 'low').length
 
   return (
-    <AppLayout activeView="health">
+    <>
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
           {/* 头部：标题 + 操作 */}
@@ -367,14 +364,14 @@ function HealthPage() {
       </div>
       {/* 链详情抽屉（Issue #649 交付 3）：点泳道行展开，全量 commits + 状态归因 */}
       <ChainDetailDrawer featureId={activeChainId} onClose={() => setActiveChainId(null)} />
-    </AppLayout>
+    </>
   )
 }
 
 // ── 图表数据变换 ──
 
 function fmtDate(iso: string): string {
-  return iso.length >= 10 ? iso.slice(5).replace('-', '/') : iso
+  return iso.length >= 10 ? iso.slice(5) : iso
 }
 
 // ── 组件 ──
@@ -527,5 +524,3 @@ function InvokeStatsTable({ stats }: { stats: api.RhiInvokeStatsDTO[] }) {
     </div>
   )
 }
-
-createRoot(document.getElementById('root')!).render(<HealthPage />)

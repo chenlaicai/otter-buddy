@@ -13,7 +13,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 
 document.body.innerHTML = '<div id="root"></div>'
-const { SkillsPage } = await import('./index')
+const { default: SkillsPage } = await import('./index')
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 

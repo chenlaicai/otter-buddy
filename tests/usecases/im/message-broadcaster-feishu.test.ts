@@ -25,6 +25,8 @@ function createBroadcaster(webBaseUrl?: string, settingsRepo?: Pick<SettingsRepo
   const manageConnection = {
     getSessionByConversation: vi.fn().mockResolvedValue(null),
     getConnection: vi.fn().mockResolvedValue(null),
+    // F20260920imax 增量五：出站定向解析（普通连接 mock 直用 externalId）
+    resolveReplyTarget: vi.fn((conn: { externalId: string }) => conn.externalId),
   } as any;
   const feishuGateway = {
     replyText: vi.fn(),

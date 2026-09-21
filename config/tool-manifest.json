@@ -70,18 +70,6 @@
         "workspace_read",
         "workspace_write"
       ]
-    },
-    "stock": {
-      "description": "A 股数据查询",
-      "tools": [
-        "stock_data"
-      ]
-    },
-    "paper-trading": {
-      "description": "纸面交易模拟系统",
-      "tools": [
-        "paper_trade"
-      ]
     }
   },
   "types": {
@@ -98,9 +86,7 @@
         "terminology",
         "artifacts",
         "system",
-        "workspace",
-        "stock",
-        "paper-trading"
+        "workspace"
       ],
       "tools": [
         "speak",

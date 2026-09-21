@@ -7,7 +7,9 @@
  *
  * 分类原则（搭档 2026-09-15 定调）：
  * - 海獭系统优化（self-healing）→ 默认关，除作者外无人关心
- * - 个人场景（paper-trading / recruiting）→ 默认关，显式启用
+ * - 个人场景（recruiting）→ 默认关，显式启用
+ *
+ * F20260920stkx：paperTrading 门随 paper-trading 能力整体移除（实验结论见 R20260920stkx）。
  *
  * F20260917swsh：dailyReview 开关随每日复盘任务一并移除（三省吾身整合——
  * 复盘产出的「未闭环事项」改由 7:30 未闭环扫描开 issue 承接，晨报形态废弃）。
@@ -29,15 +31,13 @@ export async function gateOn(
 }
 
 /** 各功能域的 DB 存量任务名匹配（推断依据：active 任务存在 = 部署者在用） */
-export const DOMAIN_TASK_NAMES: Record<'selfHealing' | 'paperTrading' | 'recruiting', readonly string[]> = {
+export const DOMAIN_TASK_NAMES: Record<'selfHealing' | 'recruiting', readonly string[]> = {
   selfHealing: ['self-healing-analysis'],
-  paperTrading: ['paper-trading-match-orders', 'paper-trading-daily-trading'],
   recruiting: ['recruiting-daily-summary'],
 };
 
 export interface FeatureGates {
   selfHealing: boolean;
-  paperTrading: boolean;
   recruiting: boolean;
 }
 
@@ -87,7 +87,6 @@ export async function resolveFeatureGates(deps: {
 
   return {
     selfHealing: await gateOn(features.selfHealing, async () => inferFromDb('selfHealing', 'selfHealing')),
-    paperTrading: await gateOn(features.paperTrading, async () => inferFromDb('paperTrading', 'paperTrading')),
     recruiting: await gateOn(features.recruiting, recruitingInfer),
   };
 }

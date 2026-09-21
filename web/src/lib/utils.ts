@@ -21,6 +21,15 @@ export function fmtTime(ts: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
+/** 紧凑时间格式 MM-DD HH:mm（本地时区，台账/定时任务/健康面板用） */
+export function fmtTimeShort(ts: string): string {
+  if (!ts) return ''
+  const d = new Date(ts)
+  if (isNaN(d.getTime())) return ts
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 /** 格式化为相对时间（如"刚刚"、"5分钟前"、"昨天 14:30"） */
 export function fmtRelativeTime(ts: string): string {
   if (!ts) return ''
