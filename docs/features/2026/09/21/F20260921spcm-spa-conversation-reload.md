@@ -88,3 +88,14 @@ modules: [web/src/pages/conversation/index.tsx]
 - **行为变化**：切换对话时多一次 `listEntries` 请求（50 条）+ 伴生请求（unread/invokes/key-resources/participants）——每次切换一组，与 MPA 整页刷新时的请求量相同，用户无感
 - **未覆盖**：同一对话内切走再切回期间的历史条目已通过本修复覆盖；纯实时增量（对话内 SSE 断连重连间隙的补洞）依赖既有 onError 兜底，不在本缺陷范围
 - **关联回归源**：F20260920spag（PR #1057）SPA 化引入；本修复为窄修复，不动 SPA 架构
+
+## 审视处置记录
+
+检视獭：检视1072（mimo，异体模型）。结论：通过，0 严重 / 1 建议。
+
+焦点验证：①activeId 变化链路完整性（useParams → effect[243] → setActiveId → effect[438] → loadConversationDetail）链条完整；②快速 A→B→A 竞态——无 AbortController 但分键隔离互不覆盖，预存问题无新增风险；③测试保真度——createMemoryRouter + navigate() 等价真实 SPA 导航，A→B→A 编排精确复现触发条件。
+
+建议发现处置：
+- D1（建议）：`useEffect([urlConvId])` 在 SPA 下每次切对话重拉全量对话列表 + 设置（#1057 预存债务，注释仍停留 MPA 前提）→ 接受，建 issue #1074 跟踪（检视獭建议方案：activeId 从 urlConvId 派生）。不扩大本 narrow-fix 范围。
+
+独立验证：单测 505 全绿、tsc 干净、CI（check/e2e/golden-selftest）SUCCESS、特性文档与实现一致性、与 PR #1070 无冲突——均由检视獭独立复核。
