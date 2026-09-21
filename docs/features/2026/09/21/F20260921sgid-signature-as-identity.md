@@ -96,8 +96,8 @@ created_at: 2026-09-21T12:50:00+08:00
 - [x] 同日两次构建逐字节一致（F20260829cach 前缀缓存不变量未破坏——身份段在日粒度日期锚点之前，但段内容日内恒定）
 - [x] 最简实现检查：已过（见设计取舍）
 - [x] bugfix 失败证据链：n/a——本特性为 prompt 注入机制扩展，非 bug 修复（漂移现象的「失败用例」是 LLM 行为漂移，由 behavior_check 后续观察，无可固化单测）
-- [ ] behavior_check：后续 PR 署名规范率回升（本 PR 自身即第一个样本——按新机制，本 PR body 应含照抄的署名行）
-- Golden Gate：n/a 说明——本 PR 含 prompt 改动，golden gate 已跑（见 PR Verification 节记录）
+- [x] behavior_check 观察清单（含审规建议 2）：①合入后大獭新建 PR 的 body 署名行规范率（目标对齐名号历史水平 ~100%）；②长 session（几十次工具调用后建 PR）对「原样复制」指令的遵从率——签名行是长 URL 行（vs 名号两个字），审规獭提示关注长 session 场景；③「author 格式串场进 body」形态是否归零
+- Golden Gate（审规建议 1 处置）：已实跑 `npx vitest run --config vitest.capability.config.ts`——13 文件 47 用例全 skip（LLM-gated 用例需真 LLM 环境，本地无密钥，无断言跑过、无 fail 落账 golden-results.jsonl）。**申诉留痕**：prompt 行为变更的质量证据由锦点重放评审承担（异体 mimo，8 条 VERDICT 全部不变，报告留原 PR review）；注：本 PR 的 verify_by=behavior_check，非豁免枚举，故 golden 以实跑+申诉记录为准
 
 ## 对旧特性做了什么
 
