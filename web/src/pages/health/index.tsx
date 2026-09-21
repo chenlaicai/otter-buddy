@@ -187,7 +187,7 @@ export default function HealthPage() {
                   <span className="font-semibold text-stone-600">复发模式</span>
                   <span className="text-stone-400">· 同文件反复修 bug 的模式</span>
                 </div>
-                <RecurrenceSection signals={signals.filter(s => s.signal_type === 'bug_recurrence')} />
+                <RecurrenceSection signals={signals.filter(s => s.signalType === 'bug_recurrence')} />
                 {/* Issue #652/#647：低置信信号默认折叠不稀释真警报；数字与折叠一致（后端同源口径）*/}
                 <div className="mt-3">
                   <LowConfidenceDrawer signals={lowConfidenceSignals} />

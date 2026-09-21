@@ -12,16 +12,16 @@ import { TriageQueue, daysSince } from './TriageQueue'
 function sig(overrides: Partial<RhiSignalDTO>): RhiSignalDTO {
   return {
     id: 1,
-    signal_type: 'bug_recurrence',
+    signalType: 'bug_recurrence',
     severity: 'critical',
-    feature_id: null,
-    file_path: 'src/a.ts',
+    featureId: null,
+    filePath: 'src/a.ts',
     evidence: 'e',
-    first_seen: '2026-09-10T00:00:00Z',
-    last_seen: '2026-09-16T00:00:00Z',
+    firstSeen: '2026-09-10T00:00:00Z',
+    lastSeen: '2026-09-16T00:00:00Z',
     occurrences: 3,
     status: 'open',
-    suggested_action: 's',
+    suggestedAction: 's',
     signalTypeLabel: 'bug 反复出现',
     evidenceDetail: null,
     confidence: null,
@@ -77,8 +77,8 @@ describe('TriageQueue 处置队列（F20260917trig §4）', () => {
       <TriageQueue
         now={NOW}
         signals={[
-          sig({ id: 1, triageStatus: null, first_seen: '2026-08-25T00:00:00Z' }), // 未接单 23 天
-          sig({ id: 2, triageStatus: null, first_seen: '2026-09-15T00:00:00Z' }), // 未接单 2 天
+          sig({ id: 1, triageStatus: null, firstSeen: '2026-08-25T00:00:00Z' }), // 未接单 23 天
+          sig({ id: 2, triageStatus: null, firstSeen: '2026-09-15T00:00:00Z' }), // 未接单 2 天
           sig({ id: 3, triageStatus: 'triaged', issueNumber: 1012, triagedAt: '2026-09-10T00:00:00Z' }),
           sig({ id: 4, triageStatus: 'in_progress', issueNumber: 1012 }),
         ]}
@@ -102,7 +102,7 @@ describe('TriageQueue 处置队列（F20260917trig §4）', () => {
       <TriageQueue
         now={NOW}
         signals={[
-          sig({ id: 1, triageStatus: null, first_seen: '2026-08-25T00:00:00Z' }),
+          sig({ id: 1, triageStatus: null, firstSeen: '2026-08-25T00:00:00Z' }),
           sig({ id: 3, triageStatus: 'triaged', issueNumber: 1012, triagedAt: '2026-09-10T00:00:00Z', triageNote: '并入 #1012' }),
         ]}
         onChanged={() => {}}

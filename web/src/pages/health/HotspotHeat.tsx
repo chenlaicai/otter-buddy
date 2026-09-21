@@ -64,7 +64,7 @@ export function HotspotHeatBar({ hotspots, max = 8 }: { hotspots: FileHotspot[];
 
 /** 从 trends DTO 提取 30 天热点（已有 distribution 行，零后端改动） */
 export function hotspotData(trends: RhiTrendsDTO | null): FileHotspot[] {
-  const hs = trends?.distributions.file_hotspots
+  const hs = trends?.distributions.fileHotspots
   if (!Array.isArray(hs)) return []
   return hs.map(h => ({ file: h.file, count: h.count })).sort((a, b) => b.count - a.count)
 }
@@ -74,7 +74,7 @@ export function TrendSparkline({ trends }: { trends: RhiTrendsDTO | null }) {
   const [expanded, setExpanded] = useState(false)
   const series = trends?.series ?? []
   if (series.length === 0) return null
-  const total = series.reduce((s, p) => s + (p.total_commits ?? 0), 0)
+  const total = series.reduce((s, p) => s + (p.totalCommits ?? 0), 0)
   const Chevron = expanded ? ChevronDown : ChevronRight
   const xStart = series[0]!.date.slice(5).replace('-', '/')
   return (
@@ -94,9 +94,9 @@ export function TrendSparkline({ trends }: { trends: RhiTrendsDTO | null }) {
             {expanded && <YAxis yAxisId="right" orientation="right" unit="%" domain={[0, 100]} tick={{ fontSize: 11, fill: STONE[500] }} />}
             {expanded && <Tooltip labelFormatter={l => `快照 ${String(l).slice(5).replace('-', '/')}`} />}
             {expanded && <Legend wrapperStyle={{ fontSize: 12 }} />}
-            <Bar yAxisId="left" dataKey="total_commits" name="提交数" fill={OTTER[200]} radius={[2, 2, 0, 0]} />
+            <Bar yAxisId="left" dataKey="totalCommits" name="提交数" fill={OTTER[200]} radius={[2, 2, 0, 0]} />
             {/* BugFix 比率是中性指标——禁警示红（色彩纪律 1），用 caramel-500 */}
-            <Line yAxisId="right" type="monotone" dataKey="bugfix_ratio" name="BugFix 比率" stroke={CARAMEL[500]} strokeWidth={2} dot={false} />
+            <Line yAxisId="right" type="monotone" dataKey="bugfixRatio" name="BugFix 比率" stroke={CARAMEL[500]} strokeWidth={2} dot={false} />
           </ComposedChart>
         </ResponsiveContainer>
       </div>

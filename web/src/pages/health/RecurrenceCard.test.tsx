@@ -13,16 +13,16 @@ import type { RhiTrendsDTO } from '../../api/client'
 function recurrenceSignal(overrides: Partial<RhiSignalDTO> = {}): RhiSignalDTO {
   return {
     id: 1,
-    signal_type: 'bug_recurrence',
+    signalType: 'bug_recurrence',
     severity: 'critical',
-    feature_id: null,
-    file_path: 'src/health/health-score.ts',
+    featureId: null,
+    filePath: 'src/health/health-score.ts',
     evidence: 'evidence text',
-    first_seen: '2026-08-20T00:00:00Z',
-    last_seen: '2026-08-30T00:00:00Z',
+    firstSeen: '2026-08-20T00:00:00Z',
+    lastSeen: '2026-08-30T00:00:00Z',
     occurrences: 99, // 严禁使用的假频次源——测试确保 UI 不读它
     status: 'open',
-    suggested_action: 's',
+    suggestedAction: 's',
     signalTypeLabel: 'bug 反复出现',
     evidenceDetail: {
       kind: 'bug_recurrence_commits',
@@ -45,16 +45,16 @@ function recurrenceSignal(overrides: Partial<RhiSignalDTO> = {}): RhiSignalDTO {
 function stallSignal(overrides: Partial<RhiSignalDTO> = {}): RhiSignalDTO {
   return {
     id: 100,
-    signal_type: 'chain_stall',
+    signalType: 'chain_stall',
     severity: 'critical',
-    feature_id: 'F20260901xstall',
-    file_path: null,
+    featureId: 'F20260901xstall',
+    filePath: null,
     evidence: '滞留 20 天',
-    first_seen: '2026-08-20T00:00:00Z',
-    last_seen: '2026-08-30T00:00:00Z',
+    firstSeen: '2026-08-20T00:00:00Z',
+    lastSeen: '2026-08-30T00:00:00Z',
     occurrences: 3,
     status: 'open',
-    suggested_action: 's',
+    suggestedAction: 's',
     signalTypeLabel: '特性链滞留',
     evidenceDetail: null,
     confidence: 'low',
@@ -116,7 +116,7 @@ describe('低置信折叠抽屉（Issue #647 项 2 / #652）', () => {
   beforeEach(() => { document.body.innerHTML = '' })
 
   it('默认收起：列表不可见，仅标题行（验收项）', () => {
-    const dom = render(<LowConfidenceDrawer signals={[stallSignal(), stallSignal({ id: 101, feature_id: 'F2' })]} />)
+    const dom = render(<LowConfidenceDrawer signals={[stallSignal(), stallSignal({ id: 101, featureId: 'F2' })]} />)
     expect(dom.querySelector('[data-testid="low-confidence-drawer"]')).not.toBeNull()
     expect(dom.querySelector('[data-testid="low-confidence-toggle"]')?.textContent).toContain('2')
     expect(dom.querySelector('[data-testid="low-confidence-list"]')).toBeNull()
@@ -148,7 +148,7 @@ describe('热点热力条（Issue #647 项 3）', () => {
   })
 
   it('从 trends DTO 提取 30 天热点', () => {
-    const trends = { distributions: { file_hotspots: [{ file: 'a.ts', count: 4 }, { file: 'b.ts', count: 9 }] } } as unknown as RhiTrendsDTO
+    const trends = { distributions: { fileHotspots: [{ file: 'a.ts', count: 4 }, { file: 'b.ts', count: 9 }] } } as unknown as RhiTrendsDTO
     const data = hotspotData(trends)
     expect(data[0]!.file).toBe('b.ts') // 降序
   })
@@ -210,9 +210,9 @@ describe('复发卡排序（检视建议 2：首屏卡序频次优先、其次�
   beforeEach(() => { document.body.innerHTML = '' })
 
   it('按 commitCount 降序渲染（高频次在前，与传入顺序无关）', () => {
-    const hot = recurrenceSignal({ id: 1, file_path: 'src/hot.ts' }) // 3 commits
+    const hot = recurrenceSignal({ id: 1, filePath: 'src/hot.ts' }) // 3 commits
     const cold = recurrenceSignal({
-      id: 2, file_path: 'src/cold.ts',
+      id: 2, filePath: 'src/cold.ts',
       evidenceDetail: {
         kind: 'bug_recurrence_commits',
         windowDays: 30,
@@ -228,7 +228,7 @@ describe('复发卡排序（检视建议 2：首屏卡序频次优先、其次�
 
   it('频次相同时按最近复发排序（最后节点日期新者在前）', () => {
     const older = recurrenceSignal({
-      id: 3, file_path: 'src/older.ts',
+      id: 3, filePath: 'src/older.ts',
       evidenceDetail: {
         kind: 'bug_recurrence_commits',
         windowDays: 30,
@@ -240,7 +240,7 @@ describe('复发卡排序（检视建议 2：首屏卡序频次优先、其次�
       },
     }) // 3 commits，最后节点 08/10
     const newer = recurrenceSignal({
-      id: 4, file_path: 'src/newer.ts',
+      id: 4, filePath: 'src/newer.ts',
       evidenceDetail: {
         kind: 'bug_recurrence_commits',
         windowDays: 30,
