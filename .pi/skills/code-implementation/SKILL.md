@@ -87,7 +87,7 @@ category: technique
    - **目的**：让评测机制知道这个变更需要什么验证方式，是 golden gate 的输入信号
 
 8. **提交**：特性 ID 生成纪律（先跑 `date` 取日期 + 新 ID 查重复用）见 worktree-isolation 步骤 4（真相源，本步不重复）。按 `references/commit-convention.md` 格式 commit，署名按 signature-convention skill。
-9. **推送 PR**：`git push -u origin <branch>` + `gh pr create`。
+9. **推送 PR**：`git push -u origin <branch>` + `gh pr create`——body 尾部带署名行（照抄身份段「你的署名行」，无需另行查表）。
 
 > ⚠️ PR 创建 ≠ 交付完成。步骤 9 完成后必须立即进入步骤 10。
 

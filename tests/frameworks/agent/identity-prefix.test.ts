@@ -85,6 +85,20 @@ describe("buildIdentityPrefix 分支", () => {
     expect(dateSection).toMatch(/## 当前日期时间\n- 今天是 \d{4}-\d{2}-\d{2}（Asia\/Shanghai）/);
   });
 
+  it("F20260921sgid: 署名行成品与 commit author 格式随身份段注入（每只獭动态带名号）", async () => {
+    await seedOtter("o-big", "大獭", "big");
+    await seedOtter("o-small-x", "检视獭-903fin", "small");
+    const bigPrefix = await buildIdentityPrefix(makeFactory(db, REAL_IDENTITY_DIR), "o-big", "big");
+    const smallPrefix = await buildIdentityPrefix(makeFactory(db, REAL_IDENTITY_DIR), "o-small-x", "small");
+
+    // 署名行成品：与 .github/pull_request_template.md 平台快照同格式，名字动态填充
+    expect(bigPrefix).toContain("🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by 大獭");
+    expect(smallPrefix).toContain("🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by 检视獭-903fin");
+    // commit author 格式同段注入（历史上 author 格式串场进 PR body 的混淆由此消失）
+    expect(bigPrefix).toContain("commit author（git commit --author 参数值，整体照抄）：大獭 <otter-buddy>");
+    expect(smallPrefix).toContain("commit author（git commit --author 参数值，整体照抄）：检视獭-903fin <otter-buddy>");
+  });
+
   it("F20260829cach: 同日两次构建结果稳定（日粒度锚点不打断 system prompt 前缀缓存）", async () => {
     await seedOtter("o-big", "大獭", "big");
     const p1 = await buildIdentityPrefix(makeFactory(db, REAL_IDENTITY_DIR), "o-big", "big");
