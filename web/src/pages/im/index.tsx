@@ -7,12 +7,13 @@ import type { ChannelStatusDTO, WeixinAccountDTO } from '../../api/client'
 const POLL_INTERVAL_MS = 5000
 
 /**
- * F20260920imax：IM 页按助理模式重组（增量三语义修正）。
- * - 语义根基：微信 bot = 号主私有（一个号 = 一条助理线，扫码时必填名创建）；
- *   飞书 bot 有归属（所有人私聊汇入同一条「飞书助理」专线，消息带姓名前缀）
- * - 微信卡：扫码登录 → 必填命名弹层 → 建线（开户时机 = 登录成功，非首条消息）
- * - 飞书卡：applink 二维码（未加→添加；已加→直达对话）
- * - 群聊绑定区：移除（存量群绑定后端继续工作）
+ * F20260921imux：IM 页按「先名后码」流程重组（搭档 UX 指令）。
+ * - 新建流程：点击「新建助理连接」→ 第 1 步输入名字 → 第 2 步显示二维码 → 扫码即建线
+ *   （名字是连接的名字，扫码确认后直接 provision——不再有扫码后命名弹层）
+ * - 同号覆盖：同一微信（ilinkUserId 相同）重扫时，提醒「已有助理，是否覆盖」——
+ *   确认后删旧账号再走建线（对话历史保留在旧对话里，可回看）
+ * - 「起名建线」按钮退役：流程前置闭合后无「已扫码未命名」状态，补丁不再需要
+ * - 语义根基（F20260920imax）：微信 bot = 号主私有，一个号 = 一条助理线
  */
 export default function ImPage() {
   // 通道状态
@@ -23,47 +24,96 @@ export default function ImPage() {
   const [weixinAccounts, setWeixinAccounts] = useState<WeixinAccountDTO[]>([])
   const [loadingAccounts, setLoadingAccounts] = useState(true)
 
-  // 助理对话列表（账号→对话对应关系展示）
-  const [assistantConvs, setAssistantConvs] = useState<Array<{ id: string; title: string; lastMessageTs?: string | null; lastMessagePreview?: string | null }>>([])
-
-  // F20260920imax：扫码登录成功 → 必填命名弹层（建助理线；名字不许空，无默认值）
-  const [naming, setNaming] = useState<{ accountId: string } | null>(null)
+  // F20260921imux：新建流程状态——step 'idle' → 'naming'（输入名）→ 'connecting'（扫码）
+  const [flowStep, setFlowStep] = useState<'idle' | 'naming' | 'connecting'>('idle')
   const [nameValue, setNameValue] = useState('')
   const [creatingLine, setCreatingLine] = useState(false)
 
-  const handleLoginSuccess = async (accountId?: string) => {
+  // F20260921imux：扫码确认后发现的同号冲突（旧账号）——等用户裁决覆盖/取消
+  const [duplicateAccount, setDuplicateAccount] = useState<{ id: string; hasLine: boolean } | null>(null)
+  const [pendingAccountId, setPendingAccountId] = useState<string | null>(null)
+
+  const resetFlow = () => {
+    setFlowStep('idle')
+    setNameValue('')
+    setDuplicateAccount(null)
+    setPendingAccountId(null)
+  }
+
+  // F20260921imux 检视 D1 处置：改同步（无 await，原 async 签名与 JSDoc 误导）
+  const startFlow = () => {
+    setFlowStep('naming')
+    setNameValue('')
+  }
+
+  const submitName = async () => {
+    const name = nameValue.trim()
+    if (!name) { showToast('先给助理起个名字', 'error'); return }
+    setFlowStep('connecting')
+  }
+
+  /** F20260921imux：扫码确认（success）——查同号冲突，无冲突直接建线 */
+  const handleLoginConfirmed = async (accountId?: string) => {
+    setPendingAccountId(accountId ?? null)
     try {
       const accounts = await api.listWeixinAccounts()
       setWeixinAccounts(accounts)
       loadChannelStatus()
-      // F20260920imax 第四轮检视修正：优先回传的 accountId（登录会话直绑，无启发式
-      // 错绑面）；缺省（异常路径）才退回列表末位启发式；后端幂等（重复提交返回现有对话）
-      const target = accountId
-        ? accounts.find(a => a.id === accountId)
-        : accounts[accounts.length - 1]
-      if (target) {
-        setNaming({ accountId: target.id })
-        setNameValue('')
+      // 同号识别：ilinkUserId 与现有账号一致（除本次新扫码产生的记录外）
+      const me = accountId ? accounts.find(a => a.id === accountId) : undefined
+      const dup = me?.ilinkUserId
+        ? accounts.find(a => a.ilinkUserId === me.ilinkUserId && a.id !== accountId)
+        : undefined
+      if (dup) {
+        // 有同号旧账号 → 弹覆盖确认（不自动删，用户拍板）
+        setDuplicateAccount({ id: dup.id, hasLine: Boolean(dup.assistantLine) })
+        return
       }
+      await finalizeLine(accountId)
     } catch {
-      // 失败不阻塞——账号列表由既有轮询刷新
+      showToast('连接成功，但检查账号状态失败——请刷新页面确认', 'error')
     }
   }
 
-  const submitNaming = async () => {
-    if (!naming) return
+  /** 建线（provision）：名字是连接名，扫码确认后立即执行。返回成败供覆盖流程区分错误语义 */
+  const finalizeLine = async (accountId?: string | null): Promise<boolean> => {
+    const id = accountId ?? pendingAccountId
     const name = nameValue.trim()
-    if (!name) { showToast('必须给助理起个名字', 'error'); return }
+    if (!id || !name) return false
     setCreatingLine(true)
     try {
-      await api.provisionWeixinAssistantLine(naming.accountId, name)
-      showToast(`助理「${name}」已就绪`, 'success')
-      setNaming(null)
+      await api.provisionWeixinAssistantLine(id, name)
+      showToast(`助理「${name}」已就绪 🦦`, 'success')
       loadAssistantConversations()
+      loadWeixinAccounts()
+      resetFlow()
+      return true
     } catch {
       showToast('创建失败，请重试', 'error')
+      return false
     } finally {
       setCreatingLine(false)
+    }
+  }
+
+  /** F20260921imux：覆盖确认——删旧账号（对话历史保留）→ 新记录建线。
+   *  检视 S1 处置：两步错误语义拆分——delete 失败（未做任何变更，可原地重试）
+   *  与 provision 失败（旧已清理，指引重新新建）分别提示，不再合并误导 */
+  const confirmOverwrite = async () => {
+    if (!duplicateAccount) return
+    setCreatingLine(true)
+    try {
+      await api.deleteWeixinAccount(duplicateAccount.id)
+    } catch {
+      showToast('旧账号删除失败，未做任何变更', 'error')
+      setCreatingLine(false)
+      return
+    }
+    const ok = await finalizeLine(pendingAccountId)
+    setDuplicateAccount(null)
+    if (!ok) {
+      showToast('旧账号已清理，但建线失败——请重新新建助理连接', 'error')
+      resetFlow()
     }
   }
 
@@ -89,6 +139,7 @@ export default function ImPage() {
   }, [])
 
   // F20260920imax：加载助理对话（IM 助理分组数据源——kind=assistant）
+  const [assistantConvs, setAssistantConvs] = useState<Array<{ id: string; title: string; lastMessageTs?: string | null; lastMessagePreview?: string | null }>>([])
   const loadAssistantConversations = useCallback(async () => {
     try {
       const items = await api.listConversations({ limit: 200 })
@@ -186,7 +237,7 @@ export default function ImPage() {
 
             {/* 使用说明 */}
             <p className="text-xs text-stone-500 leading-relaxed mb-4">
-              扫码登录你的微信号，给这条助理线起名后即可用——你在这个号上跟助理私聊，
+              给助理起名并扫码登录你的微信号——之后在这个号上跟助理私聊，
               消息直接进你的海獭系统。断联重扫回到同一条线。
             </p>
 
@@ -200,33 +251,27 @@ export default function ImPage() {
               ) : weixinAccounts.length === 0 ? (
                 <div className="text-center py-4 text-stone-400">
                   <p className="text-sm">还没有连接的微信账号</p>
-                  <p className="text-xs mt-1">下方扫码开始</p>
+                  <p className="text-xs mt-1">下方新建开始</p>
                 </div>
               ) : (
                 <div className="space-y-2">
                   {weixinAccounts.map(acc => {
-                    // F20260920imax 检视修正：增量三后 title 为用户任意命名，
-                    // includes 匹配失效——未匹配到时显示「未建线」并提供起名入口
-                    const linked = assistantConvs.find(c => c.title.includes(acc.id))
+                    // F20260921imux：账号→对话映射改后端真相源（assistantLine 投影），
+                    // 取代 title.includes(acc.id) 启发式（增量三后必 miss）
+                    const linked = acc.assistantLine
+                      ? assistantConvs.find(c => c.id === acc.assistantLine!.conversationId)
+                      : undefined
                     return (
                       <div key={acc.id} className="flex items-center justify-between p-3 rounded-xl bg-white/30">
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-stone-800">{linked?.title ?? acc.id}</p>
+                          <p className="text-sm font-medium text-stone-800">{linked?.title ?? '未命名连接'}</p>
                           <p className="text-xs text-stone-400 truncate">
                             {linked
                               ? `助理线 · ${linked.lastMessagePreview ?? '暂无消息'}`
-                              : '助理线未建立（需起名创建）'}
+                              : '扫码未完成或助理线异常（可删除后重新新建）'}
                           </p>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
-                          {!linked && (
-                            <button
-                              onClick={() => { setNaming({ accountId: acc.id }); setNameValue('') }}
-                              className="px-3 py-1.5 text-xs text-white rounded-lg bg-teal-500 hover:bg-teal-600 transition"
-                            >
-                              起名建线
-                            </button>
-                          )}
                           {(() => {
                             const acctStatus = channelStatus.find(c => c.channelId === `weixin-${acc.id}`)
                             return acctStatus ? (
@@ -251,8 +296,55 @@ export default function ImPage() {
               )}
             </div>
 
-            {/* 扫码登录组件 */}
-            <QRCodeLoginCard onLoginSuccess={handleLoginSuccess} />
+            {/* F20260921imux：新建流程（先名后码） */}
+            {flowStep === 'idle' && (
+              <button
+                onClick={startFlow}
+                className="w-full py-3 text-sm text-white rounded-xl shadow-glow transition hover:opacity-90"
+                style={{ background: 'linear-gradient(135deg,#2DD4BF,#14B8A6)' }}
+              >
+                ＋ 新建助理连接
+              </button>
+            )}
+
+            {flowStep === 'naming' && (
+              <div className="rounded-xl border border-teal-200/60 bg-teal-50/40 p-4">
+                <h3 className="text-sm font-semibold text-stone-800 mb-1">第 1 步 · 给助理起名</h3>
+                <p className="text-xs text-stone-500 mb-3 leading-relaxed">
+                  这个名字就是微信连接的名字（比如「我的微信」）。创建后固定，不再修改。
+                </p>
+                <input
+                  autoFocus
+                  value={nameValue}
+                  onChange={(e) => setNameValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') submitName() }}
+                  maxLength={60}
+                  placeholder="输入助理名字（必填）"
+                  className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-200 bg-white/70 focus:outline-none focus:ring-2 focus:ring-teal-300"
+                />
+                <div className="flex justify-end gap-2 mt-3">
+                  <button onClick={resetFlow} className="px-4 py-2 text-sm text-stone-500 hover:text-stone-700">
+                    取消
+                  </button>
+                  <button
+                    onClick={submitName}
+                    disabled={!nameValue.trim()}
+                    className="px-4 py-2 text-sm text-white rounded-xl bg-teal-500 hover:bg-teal-600 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    下一步：扫码
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {flowStep === 'connecting' && (
+              <div className="space-y-3">
+                <QRCodeLoginCard lineName={nameValue.trim()} onLoginConfirmed={handleLoginConfirmed} />
+                <button onClick={() => setFlowStep('naming')} className="text-xs text-stone-400 hover:text-stone-600">
+                  ← 返回修改名字
+                </button>
+              </div>
+            )}
           </div>
 
           {/* 飞书卡片（bot 好友引导） */}
@@ -310,33 +402,43 @@ export default function ImPage() {
           </div>
         </div>
 
-        {/* F20260920imax：扫码成功 → 必填命名弹层（无默认值、无跳过——搭档裁决） */}
-        {naming && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" role="dialog" aria-label="给助理起名">
-            <div className="glass-card rounded-2xl p-6 w-[380px] shadow-xl">
-              <h3 className="text-lg font-semibold text-stone-800 mb-1">给这条助理线起个名 🦦</h3>
-              <p className="text-xs text-stone-500 mb-4 leading-relaxed">
-                扫码成功！这个名字就是这个微信号的助理对话名（比如「我的助理」）。
-                <b>必填，创建后不再改。</b>
+        {/* F20260921imux：同号覆盖确认（扫码确认后弹） */}
+        {duplicateAccount && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" role="dialog" aria-label="同号覆盖确认">
+            <div className="glass-card rounded-2xl p-6 w-[400px] shadow-xl">
+              <h3 className="text-lg font-semibold text-stone-800 mb-2">这个微信已有助理 🦦</h3>
+              <p className="text-sm text-stone-600 leading-relaxed mb-1">
+                刚才扫的微信号与已有连接是同一个（{duplicateAccount.hasLine ? '且已建助理线' : '但未完成建线'}）。
               </p>
-              <input
-                autoFocus
-                value={nameValue}
-                onChange={(e) => setNameValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') submitNaming() }}
-                maxLength={60}
-                placeholder="输入助理名字（必填）"
-                className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-200 bg-white/70 focus:outline-none focus:ring-2 focus:ring-teal-300"
-              />
-              <div className="flex justify-end gap-2 mt-4">
+              <p className="text-xs text-stone-500 leading-relaxed mb-4">
+                {duplicateAccount.hasLine
+                  ? '覆盖会删除旧连接记录（旧对话历史保留，可回看），新连接用刚才起的名字建线。'
+                  : '旧连接未完成建线，覆盖只是清理记录。'}
+              </p>
+              <div className="flex justify-end gap-2">
                 <button
-                  onClick={submitNaming}
-                  disabled={creatingLine || !nameValue.trim()}
-                  className="px-4 py-2 text-sm text-white rounded-xl bg-teal-500 hover:bg-teal-600 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  onClick={() => { resetFlow() }}
+                  className="px-4 py-2 text-sm text-stone-500 hover:text-stone-700"
                 >
-                  {creatingLine ? '创建中…' : '创建助理'}
+                  不覆盖，取消
+                </button>
+                <button
+                  onClick={confirmOverwrite}
+                  disabled={creatingLine}
+                  className="px-4 py-2 text-sm text-white rounded-xl bg-teal-500 hover:bg-teal-600 transition disabled:opacity-40"
+                >
+                  {creatingLine ? '处理中…' : '覆盖，用新名字建线'}
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* F20260921imux：建线进行中提示（无冲突路径，扫码确认 → provision 完成的窗口） */}
+        {flowStep === 'connecting' && pendingAccountId && !duplicateAccount && creatingLine && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+            <div className="glass-card rounded-2xl p-6 shadow-xl text-center">
+              <p className="text-sm text-stone-600">正在创建「{nameValue.trim()}」的助理线…</p>
             </div>
           </div>
         )}
@@ -344,4 +446,3 @@ export default function ImPage() {
     </>
   )
 }
-

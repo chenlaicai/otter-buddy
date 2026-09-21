@@ -16,10 +16,13 @@ const STATUS_LABEL: Record<WeixinLoginSessionDTO['status'], string> = {
 const POLL_INTERVAL_MS = 2000
 
 interface QRCodeLoginCardProps {
-  onLoginSuccess?: (accountId?: string) => void
+  /** F20260921imux：流程前置——名字在扫码前已定（贯穿显示）；不再有扫码后命名弹层 */
+  lineName?: string
+  /** F20260921imux：扫码成功（用户已在微信侧确认）——页面接管后续（旧号处理/建线） */
+  onLoginConfirmed?: (accountId?: string) => void
 }
 
-export function QRCodeLoginCard({ onLoginSuccess }: QRCodeLoginCardProps) {
+export function QRCodeLoginCard({ lineName, onLoginConfirmed }: QRCodeLoginCardProps) {
   const [session, setSession] = useState<WeixinLoginSessionDTO | null>(null)
   const [starting, setStarting] = useState(false)
   const pollTimer = useRef<number | null>(null)
@@ -34,8 +37,8 @@ export function QRCodeLoginCard({ onLoginSuccess }: QRCodeLoginCardProps) {
         if (['success', 'expired', 'error', 'cancelled'].includes(s.status)) {
           if (pollTimer.current) window.clearInterval(pollTimer.current)
           if (s.status === 'success') {
-            showToast('微信连接成功', 'success')
-            onLoginSuccess?.(s.accountId)
+            showToast(`「${lineName ?? '助理'}」已连接`, 'success')
+            onLoginConfirmed?.(s.accountId)
           } else if (s.status === 'error') {
             showToast(s.error ?? '登录失败', 'error')
           }
@@ -45,7 +48,7 @@ export function QRCodeLoginCard({ onLoginSuccess }: QRCodeLoginCardProps) {
         if (pollTimer.current) window.clearInterval(pollTimer.current)
       }
     }, POLL_INTERVAL_MS)
-  }, [onLoginSuccess])
+  }, [onLoginConfirmed, lineName])
 
   useEffect(() => {
     return () => {
@@ -83,22 +86,29 @@ export function QRCodeLoginCard({ onLoginSuccess }: QRCodeLoginCardProps) {
   }
 
   return (
-    <div className="glass-card rounded-2xl p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-stone-800">微信扫码登录</h3>
+    <div className="rounded-xl border border-stone-200/60 bg-white/30 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <h3 className="text-sm font-semibold text-stone-800 flex-shrink-0">第 2 步 · 扫码连接</h3>
+          {lineName && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-teal-50 text-teal-600 truncate" title={lineName}>
+              助理「{lineName}」
+            </span>
+          )}
+        </div>
         <button
           onClick={handleStart}
           disabled={starting || (session !== null && ['pending', 'waiting_scan', 'scaned'].includes(session.status))}
-          className="px-4 py-2 text-sm text-white rounded-xl shadow-glow transition disabled:opacity-50"
+          className="px-3.5 py-1.5 text-xs text-white rounded-lg shadow-glow transition disabled:opacity-50 flex-shrink-0"
           style={{ background: 'linear-gradient(135deg,#8B7E72,#6B6157)' }}
         >
-          {starting ? '启动中...' : '重新扫码'}
+          {starting ? '启动中...' : session === null ? '显示二维码' : '重新扫码'}
         </button>
       </div>
 
       {/* 扫码登录会话卡片 */}
       {session && session.status !== 'cancelled' && (
-        <div className="flex flex-col items-center gap-4">
+        <div className="flex flex-col items-center gap-3">
           <p className="text-sm text-stone-600">{STATUS_LABEL[session.status]}</p>
 
           {session.qrcodePng && ['waiting_scan', 'scaned', 'expired'].includes(session.status) && (
@@ -106,7 +116,7 @@ export function QRCodeLoginCard({ onLoginSuccess }: QRCodeLoginCardProps) {
               <img
                 src={session.qrcodePng}
                 alt="微信登录二维码"
-                className="w-64 h-64 rounded-xl border border-stone-200 bg-white p-2"
+                className="w-56 h-56 rounded-xl border border-stone-200 bg-white p-2"
               />
               {session.status === 'scaned' && (
                 <div className="absolute inset-0 flex items-center justify-center">
@@ -117,14 +127,14 @@ export function QRCodeLoginCard({ onLoginSuccess }: QRCodeLoginCardProps) {
           )}
 
           {session.status === 'pending' && (
-            <div className="w-64 h-64 rounded-xl bg-white/30 animate-pulse flex items-center justify-center">
+            <div className="w-56 h-56 rounded-xl bg-white/30 animate-pulse flex items-center justify-center">
               <span className="text-xs text-stone-400">二维码生成中...</span>
             </div>
           )}
 
           {session.status === 'success' && (
             <div className="w-full p-3 rounded-xl bg-green-50 text-sm text-green-700">
-              账号 {session.accountId} 已连接，重启后仍保持（token 已持久化）
+              微信已确认授权{lineName ? `，「${lineName}」` : ''}正在就绪...
             </div>
           )}
 
@@ -145,9 +155,9 @@ export function QRCodeLoginCard({ onLoginSuccess }: QRCodeLoginCardProps) {
 
       {/* 无会话时显示说明 */}
       {!session && (
-        <div className="text-center py-8 text-stone-400">
-          <p className="text-sm">点击「重新扫码」开始微信登录</p>
-          <p className="text-xs mt-1">扫码后微信账号将自动连接</p>
+        <div className="text-center py-6 text-stone-400">
+          <p className="text-sm">点击「显示二维码」，用微信扫码授权</p>
+          <p className="text-xs mt-1">扫码确认后{lineName ? `，「${lineName}」` : '助理'}立即就绪</p>
         </div>
       )}
     </div>
