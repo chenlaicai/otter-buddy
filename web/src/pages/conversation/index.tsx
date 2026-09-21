@@ -41,7 +41,10 @@ export default function ConversationPage() {
   const { id: urlConvId } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [conversations, setConversations] = useState<LocalConversation[]>([])
-  const [activeId, setActiveId] = useState<string | null>(null)
+  /** F20260921inrl（#1074）：activeId 直接从路由参数派生——SPA 下切换对话只变 urlConvId，
+   *  不再经由 useState 中转（旧链路每次切换重跑 loadInitialData 全量重拉列表+设置）。
+   *  深链接指向不存在对话时，mount 初始化 effect 会 navigate(replace) 兑底为列表首个。 */
+  const activeId = urlConvId ?? null
   /** F20260921urdo 判定换轨：activeId 镜像 ref——focus/visibilitychange 监听器闭包读最新值 */
   const activeIdRef = useRef<string | null>(null)
   useEffect(() => { activeIdRef.current = activeId }, [activeId])
@@ -239,29 +242,36 @@ export default function ConversationPage() {
   }, [activeId, runOrDefer])
 
   useEffect(() => {
+    // F20260921inrl（#1074）：mount-only 初始化——拉列表 + 设置 + 首次 pageState 判定。
+    // 旧代码依赖 [urlConvId]，SPA 下每次切换对话都会重跑（全量重拉列表+设置）；
+    // 列表新鲜度由 useConversationListPolling 的 5s 轮询保障，切换无需重拉。
+    let disposed = false
     loadInitialData()
       .then(({ conversations: convs, hasMore }) => {
+        if (disposed) return
         setConversations(convs)
         setHasMoreConvs(hasMore)
         if (convs.length > 0) {
-          // 优先使用 URL 中的对话 ID，否则使用第一个对话
-          const targetId = urlConvId && convs.some(c => c.id === urlConvId) ? urlConvId : convs[0].id
-          setActiveId(targetId)
+          // 深链接指向不存在/已删除的对话：URL 替换为列表首个（可刷新可分享，视图一致）。
+          // 注：不 early-return——pageState 判定不依赖 navigate 完成，否则卡在 loading 态
+          if (urlConvId && !convs.some(c => c.id === urlConvId)) {
+            navigate(`/conversation/${convs[0]!.id}`, { replace: true })
+          }
           setPageState('normal')
         } else {
           setPageState('empty')
         }
       })
-      .catch(() => setPageState('error'))
+      .catch(() => { if (!disposed) setPageState('error') })
 
-    // 获取用户设置（用于消息气泡旁的名称显示）
-    // NOTE: useEffect([], []) 只在 mount 时执行。当前 MPA 模式下 window.location.href
-    // 整页跳转会重新 mount，行为正确。未来改 SPA 路由时需改为响应式（如 context/store）。
+    // 获取用户设置（用于消息气泡旁的名称显示）——mount 一次即可
     api.getSettings()
-      .then(s => setUserName(s.userName ?? ''))
+      .then(s => { if (!disposed) setUserName(s.userName ?? '') })
       .catch(() => console.warn('[ConversationPage] Failed to load userName setting'))
-    // urlConvId 源自 window.location.pathname，MPA 模式下 mount 后不变，行为等价
-  }, [urlConvId])
+    return () => { disposed = true }
+    // urlConvId 只在兑底分支读一次（首次 mount）；故意不进依赖——避免 SPA 切换对话重跑本 effect
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // 活动状态轮询：每 5 秒刷新对话列表（仅在页面可见时）。
   // F20260825scrf：弹窗打开期间暂停——mergeConversations 每次产出新引用（流式期间
