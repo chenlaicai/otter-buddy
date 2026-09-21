@@ -44,9 +44,11 @@ category: technique
 
 | 媒介 | 状态 | 载体 |
 |---|---|---|
-| web（页面/卡片/界面） | ✅ MVP | references/web/ |
-| poster（海报/单帧） | Phase 2（issue 登记） | 未建——需求来了明示状态，禁止用 web 冒充 |
-| slides（PPT/叙事流） | Phase 3（issue 登记） | 未建——同上 |
+| web（页面/卡片/界面） | ✅ v1 可用 | references/web/（结构库/词典18条/反模式/工具链） |
+| poster（海报/单帧） | ✅ v1 可用 | references/poster/（构图库/词典15条/反模式/工具链） |
+| slides（PPT/叙事流） | ✅ v1 可用 | references/slides/（叙事模板/词典12条/反模式/工具链） |
+
+三媒介骨架本次交付完整；后续迭代=逐媒介实践中深化内容（词条增长/判定锚点/工具链打磨，见 roadmap issues：质检门判定锚点、风格词典实现锚点）——骨架不重建，内容持续沉淀。
 
 ## 产出
 

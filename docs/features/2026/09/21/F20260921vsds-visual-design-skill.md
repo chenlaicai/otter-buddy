@@ -1,13 +1,13 @@
 ---
 id: F20260921vsds
-title: visual-design skill：跨媒介展示类设计方法论（总纲+媒介插件架构，MVP=web）
-summary: 把「结构化约束 > 端到端生成」的设计方法论沉淀为可安装的 skill——四层抽象（结构/风格/质检/交互）为媒介无关本体，references/ 按媒介分目录实例化（web/poster/slides）。MVP 交付总纲 + web 媒介（结构库/风格词典/反模式清单/工具链约定，含 html-card 目标格式）。roadmap 机制化防烂尾：Phase 2/3 开 issue 登记由未闭环扫描盯梢。方法论溯源：AI 海报方法论（HN 1784分）+ hallmark 等 12 万星量级设计 skill 生态洞察（2026-09-21 外部洞察对话，搭档显式发起结合落地）。
+title: visual-design skill：跨媒介展示类设计方法论（总纲+媒介插件，web/poster/slides 三媒介一次交付）
+summary: 把「结构化约束 > 端到端生成」的设计方法论沉淀为可安装的 skill——四层抽象（结构/风格/质检/交互）为媒介无关本体，references/ 按媒介分目录实例化（web/poster/slides）。三媒介骨架本次一次性交付完整（每媒介四件套）；后续迭代=逐媒介实践中深化内容（issue #1084 #1085 盯哨）——搭档修订 MVP 语义：骨架完整性一次到位，分步的是实践沉淀不是媒介存在。方法论溯源：AI 海报方法论（HN 1784分）+ hallmark 等 12 万星量级设计 skill 生态洞察（2026-09-21 外部洞察对话，搭档显式发起结合落地）。
 doc_type: feature
 change_type: prompt
-capability_test: "n/a: 纯 prompt 资产（skill 文件），无代码路径；行为验证走路由触发 + build/audit 产出人评（B3 验证见 Verification 段卖地验证记录）"
+capability_test: "n/a: 纯 prompt 资产（skill 文件），无代码路径；行为验证走路由触发 + build/audit 产出人评（B3 验证见 Verification 段实地验证记录）"
 intent:
   problem: "AI 生成展示类产物（页面/卡片/海报/PPT）时一句话端到端直出，产出泔水（同质/平庸/默认审美）——工作流问题非模型能力问题，但无沉淀的 skill 承载解法"
-  expected_effect: "展示类设计请求被路由到 visual-design skill，按结构→风格→质检三段流程产出，出门必附质检说明；poster/slides 需求诚实告知 Phase 2/3 未建不用 web 冒充"
+  expected_effect: "展示类设计请求被路由到 visual-design skill，按结构→风格→质检三段流程产出，出门必附质检说明；三媒介全部可用，迭代是内容深化"
   verify_by:
     type: human_judge
 created_in_conversation: 98bd9fdd-8e28-4de8-b782-b59f46e733dd
@@ -45,8 +45,8 @@ created_at: 2026-09-21
 ## 目标
 
 - T1: 沉淀「总纲+媒介插件」架构的 visual-design skill——SKILL.md 载四层方法论（结构/风格/质检/交互）与四动词交互模型，媒介实例进 references/<medium>/
-- T2: MVP 交付 web 媒介完整四件套（结构库/风格词典/反模式/工具链约定），支持 html-card 目标格式
-- T3: roadmap 机制化——Phase 2（poster）/Phase 3（slides）以 GitHub issue 登记，纳入未闭环扫描监控，MVP 合入不等于项目终结
+- T2: 三媒介（web/poster/slides）四件套一次性交付完整——骨架完整性一次到位（搭档修订：分步的是实践沉淀，不是媒介存在）
+- T3: roadmap 机制化——内容深化项（质检门锚点 #1084 / 词典实现锚点 #1085）以 issue 登记纳入未闭环扫描监控，骨架交付不等于项目终结
 - T4: 反泔水质检门成为产出前硬步骤（不过门不出稿）
 
 ## 非目标
@@ -58,7 +58,7 @@ created_at: 2026-09-21
 
 ## 未决问题
 
-- Phase 2 poster 的产出工具链（SVG/HTML vs 图像生成 prompt）——Phase 2 启动时定
+- ~~Phase 2 poster 的产出工具链~~ 已定：双路线并行（文字主导走 HTML/SVG，图像主导走「生成底图+文字层分离」，poster/toolchain.md）
 - 风格词典的规模与增长机制（v1 手工精选，何时引入程序化搜索）——使用反馈后定
 
 ## 方案设计
@@ -70,11 +70,21 @@ created_at: 2026-09-21
 ├── SKILL.md               # 四层方法论 + 四动词 + 媒介路由（媒介无关本体）
 └── references/
     ├── methodology.md      # 方法论展开：四层抽象的原理与出处
-    └── web/                # MVP 媒介
-        ├── structure.md    # 结构库：布局节奏/层级骨架（结构先于视觉）
-        ├── styles.md       # 风格词典：可搜索风格条目（借词典+人择）
-        ├── anti-patterns.md# 反泔水清单 + 质检门流程（不过门不出稿）
-        └── toolchain.md    # 工具链约定：通用 HTML/CSS + html-card 目标格式
+    ├── web/               # 媒介一：页面/卡片/界面
+    │   ├── structure.md    # 布局节奏/层级骨架
+    │   ├── styles.md       # 词典 18 条
+    │   ├── anti-patterns.md# 反泔水清单 A1-A4/B1-B8
+    │   └── toolchain.md    # 独立 HTML + html-card 双格式
+    ├── poster/            # 媒介二：海报/单帧
+    │   ├── structure.md    # 视觉动线/信息层级/留白配额
+    │   ├── styles.md       # 词典 15 条（海报特化）
+    │   ├── anti-patterns.md# P1-P4/Q1-Q8
+    │   └── toolchain.md    # HTML/SVG 或图像生成+文字层分离
+    └── slides/            # 媒介三：PPT/叙事流
+        ├── structure.md    # 叙事弧/密度曲线/页序模板
+        ├── styles.md       # 词典 12 条（母版级）
+        ├── anti-patterns.md# S1-S4/T1-T8
+        └── toolchain.md    # HTML slides 或 pptxgenjs
 ```
 
 ### SKILL.md 核心设计
@@ -92,14 +102,14 @@ created_at: 2026-09-21
 
 ### roadmap 机制化（T3，防烂尾——搭档硬要求）
 
-| Phase | 交付物 | 状态 | 监控机制 |
+| 迭代项 | 交付物 | 状态 | 监控机制 |
 |---|---|---|---|
-| 1 | 总纲 + web 四件套（本 PR） | 交付中 | PR 流程本身 |
-| 2 | poster/ 媒介目录（构图库/风格词典/反模式/工具链评估） | issue 登记 `visual-design Phase 2` | 未闭环扫描定时任务盯 issue |
-| 3 | slides/ 媒介目录（叙事模板/版式规则） | issue 登记 `visual-design Phase 3` | 同上 |
-| 4（远期可选） | study 动词深化 + design.md 便携格式跨工具交接 | 不开 issue，特性文档记一笔 | 使用驱动 |
+| 骨架（本 PR） | 总纲 + 三媒介四件套 | 交付中 | PR 流程本身 |
+| 内容深化一 | 质检门判定锚点（A/P/S 各项配可操作判定标准） | issue #1084 | 未闭环扫描盯 issue |
+| 内容深化二 | 风格词典 45 条补实现锚点 | issue #1085 | 同上 |
+| 远期可选 | study 动词深化 + design.md 便携格式跨工具交接 | 特性文档记一笔 | 使用驱动 |
 
-启动条件：Phase 2/3 的 issue 在 MVP 合入即创建（本 PR 合入后大獭执行），不在 MVP PR 内创建（避免 PR 膨胀）。
+骨架与内容深化的边界（搭档 2026-09-21 修订）：「本次必须把整个 skill 做完整」= 三媒介骨架与四件套齐全；分步的只是逐媒介实践、往里沉淀优化（词条增长/锚点深化），不是媒介本身分阶段才存在。
 
 ## 影响范围
 
@@ -142,5 +152,13 @@ created_at: 2026-09-21
 | .pi/skills/visual-design/references/web/structure.md | 新增 | web 结构库 |
 | .pi/skills/visual-design/references/web/styles.md | 新增 | web 风格词典 v1 |
 | .pi/skills/visual-design/references/web/anti-patterns.md | 新增 | 反泔水清单+质检门 |
-| .pi/skills/visual-design/references/web/toolchain.md | 新增 | 工具链约定（含 html-card 格式） |
+| .pi/skills/visual-design/references/web/toolchain.md | 新增 | web 工具链约定（含 html-card 格式） |
+| .pi/skills/visual-design/references/poster/structure.md | 新增 | poster 构图库 |
+| .pi/skills/visual-design/references/poster/styles.md | 新增 | poster 风格词典 15 条 |
+| .pi/skills/visual-design/references/poster/anti-patterns.md | 新增 | poster 反泔水清单 P/Q |
+| .pi/skills/visual-design/references/poster/toolchain.md | 新增 | poster 工具链（双路线） |
+| .pi/skills/visual-design/references/slides/structure.md | 新增 | slides 叙事模板 |
+| .pi/skills/visual-design/references/slides/styles.md | 新增 | slides 风格词典 12 条 |
+| .pi/skills/visual-design/references/slides/anti-patterns.md | 新增 | slides 反泔水清单 S/T |
+| .pi/skills/visual-design/references/slides/toolchain.md | 新增 | slides 工具链（HTML/pptx） |
 | docs/features/2026/09/21/F20260921vsds-*.md | 新增 | 本特性文档 |
