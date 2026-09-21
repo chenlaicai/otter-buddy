@@ -1,7 +1,7 @@
 ---
 name: visual-design
 description: >-
-  Use when: 搭档要求做展示类设计——页面/落地页/UI 界面/卡片/海报/PPT 版式/图表美化，或要求审视/重构既有设计、从参考图提取设计风格. Not for: 纯文案写作、代码逻辑实现（设计稿中的交互逻辑另走 code-implementation）、闲聊聊设计想法 → companion. Output: 过反泔水质检门的设计产物（结构→风格→质检三层流程），web 媒介输出 HTML/CSS.
+  Use when: 搭档要求做展示类设计——页面/落地页/UI 界面/卡片/海报/PPT 版式/图表美化，或要求审视/重构既有设计、从参考图提取设计风格. Not for: 纯文案写作、代码逻辑实现（设计稿中的交互逻辑另走 code-implementation）、闲聊聊设计想法 → companion. Output: 过反泔水质检门的设计产物（四层方法论：结构→风格→质检，四动词交互），web 媒介输出 HTML/CSS.
 co_loads: []
 category: technique
 ---
@@ -26,11 +26,13 @@ category: technique
 
 ## 工作流
 
-1. **路由动词**（四动词交互模型）：
+1. **路由动词**（四动词交互模型，边界决策树）：
    - `design`（默认）：新建设计。走步骤 2-5 全流程
    - `audit <目标>`：对既有产物只评分出反泔水清单，**不改稿**
    - `redesign <目标>`：保文案+信息架构+品牌，只换视觉结构层
    - `study <参考>`：从截图/URL 提取设计 DNA（结构/字体配对/色彩锚点），输出可复用诊断
+   - **动词边界决策树**：搭档要求新东西 → design；搭档要求看问题/评价 → audit（禁止顺手改）；搭档对现状不满要换样子但内容不变 → redesign；搭档给出欣赏的参考 → study。模糊时问一句，不猜
+   - **study 输出格式**：`## 设计 DNA 诊断`（宏观结构描述/字体配对推断/色彩锚点色值/可迁移要点四段）——诊断后搭档可选：用 DNA 建新（转 design）/ 沉淀进 styles.md 词典 / 仅留诊断
 2. **定结构**（结构先于视觉）：read `references/web/structure.md`，先选信息骨架与节奏——不同 brief 不同骨架，禁止模板换色。结构未定不动手写视觉
 3. **择风格**（词典+人择）：read `references/web/styles.md`，从词典给搭档 2-3 个风格候选（各附一句话特征+适用判断），人择后推到位（push it properly, not superficially）——词典没有的现场借 study 流程提取，不硬凑
 4. **工具链**：read `references/web/toolchain.md`——通用场景输出独立 HTML/CSS；海獭对话卡片场景输出 html-card（design token 引用），两者不混用

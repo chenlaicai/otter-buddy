@@ -4,7 +4,12 @@ title: visual-design skill：跨媒介展示类设计方法论（总纲+媒介�
 summary: 把「结构化约束 > 端到端生成」的设计方法论沉淀为可安装的 skill——四层抽象（结构/风格/质检/交互）为媒介无关本体，references/ 按媒介分目录实例化（web/poster/slides）。MVP 交付总纲 + web 媒介（结构库/风格词典/反模式清单/工具链约定，含 html-card 目标格式）。roadmap 机制化防烂尾：Phase 2/3 开 issue 登记由未闭环扫描盯梢。方法论溯源：AI 海报方法论（HN 1784分）+ hallmark 等 12 万星量级设计 skill 生态洞察（2026-09-21 外部洞察对话，搭档显式发起结合落地）。
 doc_type: feature
 change_type: prompt
-capability_test: "n/a: 纯 prompt 资产（skill 文件），无代码路径；行为验证走路由触发 + build/audit 产出人评"
+capability_test: "n/a: 纯 prompt 资产（skill 文件），无代码路径；行为验证走路由触发 + build/audit 产出人评（B3 验证见 Verification 段卖地验证记录）"
+intent:
+  problem: "AI 生成展示类产物（页面/卡片/海报/PPT）时一句话端到端直出，产出泔水（同质/平庸/默认审美）——工作流问题非模型能力问题，但无沉淀的 skill 承载解法"
+  expected_effect: "展示类设计请求被路由到 visual-design skill，按结构→风格→质检三段流程产出，出门必附质检说明；poster/slides 需求诚实告知 Phase 2/3 未建不用 web 冒充"
+  verify_by:
+    type: human_judge
 created_in_conversation: 98bd9fdd-8e28-4de8-b782-b59f46e733dd
 tags: [skill, design-methodology, anti-slop, prompt, roadmap]
 modules:
@@ -123,9 +128,9 @@ created_at: 2026-09-21
 
 ## 验证
 
+- **B3 执行验证（本 PR 内实地验证记录）**：MVP 合入前在本对话实际执行 skill 全流程一次——design 动词对真实 brief（对话卡式汇报页）走完结构→风格→质检三段，audit 动词对一张既有泔水页面出评分清单；验证记录与本节同步更新
+- **Golden Gate: n/a（verify_by=human_judge，无场景可跑——skill 为纯 prompt 资产，golden 比对无固定输出格式可断言）**
 - 路由验证：对话提「做个落地页/设计这张卡片」类请求，skill 被正确路由（description 触发词命中）
-- build 验证：给一个真实 brief（如对话卡式汇报页），产出过质检门的 HTML，人评「made, not generated」
-- audit 验证：对一张既有泔水页面跑 audit，输出有依据的反模式评分清单
 - 边界验证：提 poster 需求时明示 Phase 2 未建，不用 web 冒充
 
 ## 改动范围

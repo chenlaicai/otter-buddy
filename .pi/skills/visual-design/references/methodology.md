@@ -1,6 +1,6 @@
 # 方法论本体：四层抽象（媒介无关）
 
-> 本文是 visual-design skill 的原理层。方法论的业界溯源：AI 海报方法论（2026，HN 1784 分实证）与 hallmark / taste-skill / ui-ux-pro-max 设计 skill 生态（2026，头部 12 万星级）的共识蒸馏。四层抽象均不绑定媒介——海报的构图、UI 的布局、PPT 的叙事，都是各自媒介的具体化实例。
+> 本文是 visual-design skill 的原理层（背景知识，非执行文件——执行时按 SKILL.md 工作流走，本文件供理解与首次通读）。方法论的业界溯源：AI 海报方法论（2026，HN 1784 分实证）与 hallmark / taste-skill / ui-ux-pro-max 设计 skill 生态（2026，头部 12 万星级）的共识蒸馏。四层抽象均不绑定媒介——海报的构图、UI 的布局、PPT 的叙事，都是各自媒介的具体化实例。
 
 ## 核心命题
 
