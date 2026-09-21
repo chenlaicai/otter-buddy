@@ -40,6 +40,9 @@ const entriesByConv: Record<string, unknown[]> = {
 
 /** listEntries 拉取计数——断言核心 */
 let listEntriesCalls: string[] = []
+/** F20260921inrl：列表/设置拉取计数——切换对话不应重拉（#1074 债务锚定） */
+let listCalls = 0
+let settingsCalls = 0
 
 function json(data: unknown) {
   return new Response(JSON.stringify(data), { status: 200 })
@@ -47,6 +50,8 @@ function json(data: unknown) {
 
 function mockApi() {
   listEntriesCalls = []
+  listCalls = 0
+  settingsCalls = 0
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
     const url = String(input)
     // entries 历史（before/after 游标分页不在本测试范围）
@@ -60,8 +65,18 @@ function mockApi() {
     if (/^\/api\/conversations\/conv-[ab]\/invokes/.test(url)) return json({ invokes: [] })
     if (/^\/api\/conversations\/conv-[ab]\/key-resources/.test(url)) return json({ resources: [] })
     if (/^\/api\/conversations\/conv-[ab]\/read/.test(url)) return json({})
-    if (url.startsWith('/api/conversations')) return json([convA, convB])
-    if (url.startsWith('/api/settings')) return json({ userName: '测试用户' })
+    // F20260921inrl S1（检视1076）：scheduled-tasks 必须返回数组——catch-all 的 json({})
+    // 会让 useScheduledTasks.ts:20 的 res.map() 拋 TypeError（CI check FAIL 实证）。
+    // convId 不限 conv-[ab]：深链接用例里 conv-gone 同样会触发该 hook。
+    // （#1072 时代靠宽匹配误拿列表数组蒙混，mock 收窄后暴露）
+    if (/^\/api\/conversations\/[^/]+\/(scheduled-tasks|attachments)/.test(url)) return json([])
+    // 列表请求：带 query 的 /api/conversations?limit=…（子路径请求已在上面分流，这里只接列表本体）
+    if (url.startsWith('/api/conversations?') || url === '/api/conversations') { listCalls++; return json([convA, convB]) }
+    if (url.startsWith('/api/settings')) { settingsCalls++; return json({ userName: '测试用户' }) }
+    // F20260921inrl D2（检视1076）：catch-all 返回 json({}) 是同类故障温床——未 mock 的
+    // 端点拿到 {} 后 .map() 等数组操作直接 TypeError，且可能被 unhandled rejection 吞掉。
+    // 改为显式警告 + 空对象：未知请求可见，漏 mock 时测试输出有明确线索。
+    console.warn('[spa-nav-test] unmocked API call:', url)
     return json({})
   })
 }
@@ -121,5 +136,42 @@ describe('SPA 路由切换对话：消息列表必须重新拉取（F20260921spc
     expect(listEntriesCalls).toEqual(['conv-a', 'conv-b', 'conv-a'])
     // 核心断言 2：切走期间的新发言渲染出来了
     expect(container.textContent).toContain('切走期间海獭的新发言')
+  })
+})
+
+describe('SPA 路由切换对话：初始加载不再重拉（F20260921inrl，#1074）', () => {
+  it('切换对话不重拉对话列表与设置（mount 各一次）', async () => {
+    mockApi()
+
+    const router = createTestRouter('/conversation/conv-a')
+    act(() => { root.render(<RouterProvider router={router} />) })
+    await flushAsync()
+    expect(listEntriesCalls).toEqual(['conv-a'])
+    // mount 基线：列表与设置各拉一次
+    expect(listCalls).toBe(1)
+    expect(settingsCalls).toBe(1)
+
+    // 切到 B：详情必须拉（F20260921spcm 语义），但列表/设置不得重拉
+    await act(async () => { await router.navigate('/conversation/conv-b') })
+    await flushAsync()
+    expect(listEntriesCalls).toEqual(['conv-a', 'conv-b'])
+    expect(listCalls).toBe(1)
+    expect(settingsCalls).toBe(1)
+    expect(container.textContent).toContain('B的第一条')
+  })
+
+  it('深链接指向不存在的对话：URL 替换为列表首个并正常渲染', async () => {
+    mockApi()
+
+    const router = createTestRouter('/conversation/conv-gone')
+    act(() => { root.render(<RouterProvider router={router} />) })
+    // 兑底 navigate 发生在 loadInitialData 完成后（异步链 + navigate 自身异步）——多等一轮
+    await flushAsync()
+    await flushAsync()
+
+    // 列表返回不含 conv-gone → 兜底替换为列表首个 conv-a（URL 与内容一致，可刷新可分享）
+    expect(router.state.location.pathname).toBe('/conversation/conv-a')
+    expect(container.textContent).toContain('A的第一条')
+    expect(listEntriesCalls).toEqual(['conv-a'])
   })
 })
