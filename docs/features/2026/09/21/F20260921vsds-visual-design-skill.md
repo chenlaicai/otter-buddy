@@ -1,0 +1,166 @@
+---
+id: F20260921vsds
+title: visual-design skill：跨媒介展示类设计方法论（总纲+媒介插件，web/poster/slides 三媒介一次交付）
+summary: 把「结构化约束 > 端到端生成」的设计方法论沉淀为可安装的 skill——四层抽象（结构/风格/质检/交互）为媒介无关本体，references/ 按媒介分目录实例化（web/poster/slides）。三媒介四件套+质检门判定锚点（36 项机械判定操作）+词典实现锚点（45 条 CSS/HTML 抓手）一次性交付完整——搭档验收标准：「合入后海獭基于 skill 即可搭建 web」，决策词典与落地抓手齐备才算特性完整（两个深化 issue 已并入本 PR 关闭）。方法论溯源：AI 海报方法论（HN 1784分）+ hallmark 等 12 万星量级设计 skill 生态洞察（2026-09-21 外部洞察对话，搭档显式发起结合落地）。
+doc_type: feature
+change_type: prompt
+capability_test: "n/a: 纯 prompt 资产（skill 文件），无代码路径；行为验证走路由触发 + build/audit 产出人评（B3 验证见 Verification 段实地验证记录）"
+intent:
+  problem: "AI 生成展示类产物（页面/卡片/海报/PPT）时一句话端到端直出，产出泔水（同质/平庸/默认审美）——工作流问题非模型能力问题，但无沉淀的 skill 承载解法"
+  expected_effect: "展示类设计请求被路由到 visual-design skill，按结构→风格→质检三段流程产出，出门必附质检说明；三媒介全部可用，迭代是内容深化"
+  verify_by:
+    type: human_judge
+created_in_conversation: 98bd9fdd-8e28-4de8-b782-b59f46e733dd
+tags: [skill, design-methodology, anti-slop, prompt, roadmap]
+modules:
+  - .pi/skills/visual-design/SKILL.md
+  - .pi/skills/visual-design/references/methodology.md
+  - .pi/skills/visual-design/references/web/structure.md
+  - .pi/skills/visual-design/references/web/styles.md
+  - .pi/skills/visual-design/references/web/anti-patterns.md
+  - .pi/skills/visual-design/references/web/toolchain.md
+causal_links:
+  - F20260713u9v4
+created_at: 2026-09-21
+---
+
+# F20260921vsds visual-design skill：跨媒介展示类设计方法论
+
+## 背景
+
+### 意图锚（搭档原话）
+
+> 「jev先放一边吧……咱们来看下这条画图方法论。你再去洞察下，看看画图/UX设计上，有没有流行的skill这种（我理解，如果要方法论，那业界应该就有沉淀下来一些好用的skill」
+
+> 「ok，继续推进，咱们能搞一套skill出来吗，但我野心更大一点，这个方法论，是否不止是ux，其实图片/海报/ppt等涉及到展示类的设计，是否都能用这一套方法论」
+
+> 「都ok；但我补充一点，搞mvp可以，但你必须做好后续其他的规划，不能做了Mvp然后没有后续了」
+
+### 方法论溯源（外部洞察，2026-09-21 本对话）
+
+- **AI 海报方法论**（HN 1784分/913评论）：结构化分步生成（风格坐标→借模型词典→人择→推到位）vs 一句话端到端直出的对照实证。
+- **设计 skill 生态**：ui-ux-pro-max 129K★（192 规则+79 风格）、taste-skill 88.8K★、hallmark 29K★（macrostructure 优先 + 21 themes + 57 slop-test 门 + 四动词）。头部全部单媒介深耕（web UI），无一抽象出媒介无关本体——差异化空间。
+- **流程合法性**：本特性为搭档显式发起的结合落地（非雷达/洞察流程自动产出），符合「洞察归洞察、结合归搭档」边界（2026-09-21 定）。
+
+## 目标
+
+- T1: 沉淀「总纲+媒介插件」架构的 visual-design skill——SKILL.md 载四层方法论（结构/风格/质检/交互）与四动词交互模型，媒介实例进 references/<medium>/
+- T2: 三媒介（web/poster/slides）四件套一次性交付完整——骨架完整性一次到位（搭档修订：分步的是实践沉淀，不是媒介存在）
+- T3: roadmap 机制化——实践驱动迭代以滚动 issue 登记（日常使用回填词条/锚点/工具链打磨）纳入未闭环扫描监控，骨架交付不等于项目终结
+- T4: 反泔水质检门成为产出前硬步骤（不过门不出稿）
+
+## 非目标
+
+- ❌ 图像生成模型的 prompt 工程（MVP 的 web 媒介产出 HTML/CSS；图像生成类媒介留 Phase 2 poster 评估）
+- ❌ 复刻 hallmark 的 references 全量知识（30+ 文件；MVP 取方法论骨架 + 本地化内容，广度按需增长）
+- ❌ 做成海獭专用 skill——工具链通用化，html-card 仅作为 web 媒介的目标格式之一（边界：海獭给别人用时，别人在做别的项目）
+- ❌ 自动评分/CI 集成（质检门是 skill 内流程，不是代码机制）
+
+## 未决问题
+
+- ~~Phase 2 poster 的产出工具链~~ 已定：双路线并行（文字主导走 HTML/SVG，图像主导走「生成底图+文字层分离」，poster/toolchain.md）
+- 风格词典的规模与增长机制（v1 手工精选，何时引入程序化搜索）——使用反馈后定
+
+## 方案设计
+
+### 架构：总纲 + 媒介插件
+
+```
+.pi/skills/visual-design/
+├── SKILL.md               # 四层方法论 + 四动词 + 媒介路由（媒介无关本体）
+└── references/
+    ├── methodology.md      # 方法论展开：四层抽象的原理与出处
+    ├── web/               # 媒介一：页面/卡片/界面
+    │   ├── structure.md    # 布局节奏/层级骨架
+    │   ├── styles.md       # 词典 18 条
+    │   ├── anti-patterns.md# 反泔水清单 A1-A4/B1-B8
+    │   └── toolchain.md    # 独立 HTML + html-card 双格式
+    ├── poster/            # 媒介二：海报/单帧
+    │   ├── structure.md    # 视觉动线/信息层级/留白配额
+    │   ├── styles.md       # 词典 15 条（海报特化）
+    │   ├── anti-patterns.md# P1-P4/Q1-Q8
+    │   └── toolchain.md    # HTML/SVG 或图像生成+文字层分离
+    └── slides/            # 媒介三：PPT/叙事流
+        ├── structure.md    # 叙事弧/密度曲线/页序模板
+        ├── styles.md       # 词典 12 条（母版级）
+        ├── anti-patterns.md# S1-S4/T1-T8
+        └── toolchain.md    # HTML slides 或 pptxgenjs
+```
+
+### SKILL.md 核心设计
+
+- description 三段式：Use when 涉及展示类设计（页面/卡片/海报/PPT 版式/图表美化）→ Not for 纯文案、代码逻辑 → Output 按媒介产出 + 过质检门的设计稿
+- 四动词（对齐 hallmark 交互模型，业界验证过）：`design`（新建，默认）/ `audit <目标>`（评分清单不改稿）/ `redesign <目标>`（保文案信息架构换视觉层）/ `study <参考>`（提取设计 DNA）
+- 媒介路由表：三媒介各指向对应 references 目录，全部 v1 可用；未建媒介（未来扩展如 video/3D）明示待建，禁止跨媒介冒充（诚实边界）
+
+### web 媒介四件套要点
+
+- **structure.md**：宏观结构优先——先定信息骨架（叙事节奏/密度分布），后谈视觉；结构多样性原则（不同 brief 不同骨架，不做模板换色）
+- **styles.md**：v1 精选 ~20 风格条目（每条：名称/一句话特征/字体配对/色彩锚点/适用场景），来源=业界共识本地化；人择后推到位（不 superficially）
+- **anti-patterns.md**：泔水特征清单（紫色渐变 hero/居中三卡片/模板感 bullet 堆砌等）+ 出稿前质检流程：反模式扫描 → 自我批评 → 不过门不出稿
+- **toolchain.md**：通用 HTML/CSS 约定；html-card 目标格式段（design token 引用 var(--otter-*) 等，对齐卡片契约；此段仅在海獭对话场景使用，通用场景输出独立 HTML）
+
+### roadmap 机制化（T3，防烂尾——搭档硬要求）
+
+| 迭代项 | 交付物 | 状态 | 监控机制 |
+|---|---|---|---|
+| 骨架（本 PR） | 总纲 + 三媒介四件套 | 交付中 | PR 流程本身 |
+| 质检门判定锚点 | 36 项配机械判定操作 | **已并入本 PR 交付**（原独立 issue 关闭） | — |
+| 词典实现锚点 | 45 条配 CSS/HTML 抓手 | **已并入本 PR 交付**（原独立 issue 关闭） | — |
+| 远期可选 | study 动词深化 + design.md 便携格式跨工具交接 | 特性文档记一笔 | 使用驱动 |
+
+骨架与内容深化的边界（搭档 2026-09-21 修订）：「本次必须把整个 skill 做完整」= 三媒介骨架与四件套齐全；分步的只是逐媒介实践、往里沉淀优化（词条增长/锚点深化），不是媒介本身分阶段才存在。
+
+## 影响范围
+
+- 新增 skill 进入路由候选——涉及「展示类设计」请求会被路由到本 skill（此前落 companion 或无 skill 匹配）；无代码变更，无既有功能影响
+- F20260713（海獭 web UI 设计）的后续页面迭代可成为本 skill 的第一批真实使用场景（因果关联，非依赖）
+
+## 风险与约束
+
+- skill 内容质量依赖 v1 手工精选，冷启动期风格词典覆盖不足 → 用「词典没有时明示 + 借助 study 动词现场提取」兜底
+- 方法论文本过长稀释路由注意力 → SKILL.md 控制在骨架级（<150 行），展开内容全进 references（对齐项目 skill 体积预算纪律）
+
+## 不兼容更新
+
+无（纯新增）。
+
+## 设计取舍
+
+| 取舍 | 决策 | 替代方案 | 理由 |
+|---|---|---|---|
+| 架构 | 总纲+媒介插件（单 skill） | 分媒介多 skill | 方法论 DRY，路由描述不互踩；新增媒介=加目录 |
+| 架构 | 自建（借鉴 hallmark 框架） | fork hallmark | hallmark 与 web 工具链强耦合，跨媒介改造≈重写；且保持内容主权 |
+| 首个落地媒介 | web（初版） | poster | 初版选 web：日常最高频 + 约束最可控 + 业界参照最全；后按搭档修订扩至三媒介一次交付 |
+| roadmap | issue 化+未闭环扫描 | 只写文档 | 搭档硬要求「不能做了 MVP 没后续」；issue 被既有扫描机制盯住，机制化而非口头承诺 |
+| 机制识别检查点 | 全部未命中 → 不涉及净新增机制 | — | 无 schema/状态/定时任务/信号/持久化/决策分支/跨模块调用；skill 与 issue 均为既有机制的存量使用 |
+| 未答四问 | 不适用（未命中检查点） | — | 见上行判定 |
+
+## 验证
+
+- **B3 执行验证（已完成，2026-09-21 本对话实地验证）**：design 动词全流程实跑——brief=雷达简报汇报页：①定结构（汇报类→线性下潜，层级表已列）②择风格（三候选中选瑞士国际主义，系统栈模拟字体配对+黑白/teal 锚点）③质检门 A1-A4/B1-B8 逐项过（结构非同构/骨架独立/风格贯彻/动线清晰，无命中项）。结论：skill 可执行无工作流断层；当时暴露的「质检门自评缺外部校验」已由判定锚点机制缓解（每个反模式配机械判定操作）
+- **Golden Gate: n/a（verify_by=human_judge，无场景可跑——skill 为纯 prompt 资产，golden 比对无固定输出格式可断言）**
+- 路由验证：对话提「做个落地页/设计这张卡片」类请求，skill 被正确路由（description 触发词命中）
+- 边界验证：三媒介全部可用，媒介路由表诚实展示就绪状态
+- **poster 实跑验证（2026-09-21）**：brief=AI 雷达推广海报——中心聚焦动线+三级层级（主信息最远可读/次信息3秒/细节层10秒）+35%留白；风格人择（瑞士海报学派 vs risograph 选前者，黑白+teal 锚点）；工具链判定文字主导→HTML/SVG 路线；质检门 P1-P4/Q1-Q8 逐项过（主信息超大字无光晕、网格纪律贯彻细节层、字号跨度8倍）。结论：poster 流程可执行，文字层分离纪律清晰
+- **slides 实跑验证（2026-09-21）**：brief=skill 交付汇报——金字塔叙事弧（结论先行）；页序-主张表 6 页先行（每页一句话主张）；母版麦肯锡风三版式约定；质检门 S1-S4/T1-T8 逐项过（页序有推进/单页单主张/母版统一/无 bullet 堆砌）。结论：slides 流程可执行，页序-主张表先行纪律有效
+
+## 改动范围
+
+| 文件 | 操作 | 说明 |
+|---|---|---|
+| .pi/skills/visual-design/SKILL.md | 新增 | 总纲：四层方法论+四动词+媒介路由 |
+| .pi/skills/visual-design/references/methodology.md | 新增 | 方法论本体展开 |
+| .pi/skills/visual-design/references/web/structure.md | 新增 | web 结构库 |
+| .pi/skills/visual-design/references/web/styles.md | 新增 | web 风格词典 v1 |
+| .pi/skills/visual-design/references/web/anti-patterns.md | 新增 | 反泔水清单+质检门 |
+| .pi/skills/visual-design/references/web/toolchain.md | 新增 | web 工具链约定（含 html-card 格式） |
+| .pi/skills/visual-design/references/poster/structure.md | 新增 | poster 构图库 |
+| .pi/skills/visual-design/references/poster/styles.md | 新增 | poster 风格词典 15 条 |
+| .pi/skills/visual-design/references/poster/anti-patterns.md | 新增 | poster 反泔水清单 P/Q |
+| .pi/skills/visual-design/references/poster/toolchain.md | 新增 | poster 工具链（双路线） |
+| .pi/skills/visual-design/references/slides/structure.md | 新增 | slides 叙事模板 |
+| .pi/skills/visual-design/references/slides/styles.md | 新增 | slides 风格词典 12 条 |
+| .pi/skills/visual-design/references/slides/anti-patterns.md | 新增 | slides 反泔水清单 S/T |
+| .pi/skills/visual-design/references/slides/toolchain.md | 新增 | slides 工具链（HTML/pptx） |
+| docs/features/2026/09/21/F20260921vsds-*.md | 新增 | 本特性文档 |

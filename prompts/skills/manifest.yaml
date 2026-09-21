@@ -96,3 +96,10 @@ skills:
     next: []   # 查表约定，升级后交大獭/搭档
     not_for: [review-protocol, companion]
     notes: 獭间冲突解决查表——冲突分型 + 解决策略矩阵 + 升级协议 + 裁决记录格式。2026-08-21 由 mimo+kimi+大獭对抗讨论产出。
+
+  # ── 设计方法论 ──
+  - name: visual-design
+    category: technique
+    next: [code-implementation]   # 设计稿中的交互逻辑实现
+    not_for: [companion, code-implementation]
+    notes: 展示类设计反泔水方法论（总纲+媒介插件）。web/poster/slides 三媒介完整；实践迭代走滚动 issue。产出必过质检门。
