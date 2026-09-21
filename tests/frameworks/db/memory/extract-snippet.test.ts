@@ -69,7 +69,41 @@ describe("searchFTSWithHighlight - F20260811mrpy Part 2 extractSnippet", () => {
     // 即使 FTS 命中，extractSnippet 在 content 里 indexOf "e3" 找不到
     const target = hits.find(h => h.entryId === "e3");
     if (target) {
-      expect(target.snippet?.length ?? 0).toBeLessThanOrEqual(203); // 200 + 可能的省略号
+      // #740: fallback 带 sourceId 前缀（[e3] + 空格 + 200 字符）
+      expect(target.snippet?.startsWith("[e3] ")).toBe(true);
+      expect((target.snippet?.length ?? 0) <= 205).toBe(true); // 前缀 + 200 字符
     }
+  });
+
+  it("#740: 锚点命中时 snippet 回退显示文档标识前缀", async () => {
+    // 模拟 F20260902rcq3 锚点注入形态：FTS 索引含 sourceId 前缀，content 本体不含
+    const content = "这是文档正文，不包含自己的编号。".repeat(10);
+    const fid = "F20260829raft";
+    db.prepare(`
+      INSERT INTO memory_entries (id, layer, content_type, source_id, source_table,
+        conversation_id, granularity, content, metadata, created_at)
+      VALUES ('anchor-doc', 'document', 'feature', ?, 'features', NULL, 'summary', ?, NULL, '2026-08-29T00:00:00Z')
+    `).run(fid, content);
+    // FTS 索引按锚点注入逻辑写：sourceId + content（sqlite-memory-repository.ts:112 同款）
+    db.prepare(`
+      INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)
+    `).run("anchor-doc", tokenizeWithJieba(`${fid} ${content}`));
+
+    const hits = await repo.searchFTSWithHighlight(fid, {});
+    const target = hits.find(h => h.entryId === "anchor-doc");
+    expect(target).toBeDefined();
+    // 修复后：锚点词在 content 里找不到 → fallback 带 [F20260829raft] 前缀，命中原因可见
+    expect(target?.snippet?.startsWith(`[${fid}] `)).toBe(true);
+    expect(target?.snippet).toContain("这是文档正文");
+  });
+
+  it("#740: 正常命中路径不受 sourceIdPrefix 影响", async () => {
+    const longContent = "leadfiller ".repeat(80) + "realmemkeyword" + " tailfiller ".repeat(80);
+    insertEntry("e4-normal", longContent);
+    const hits = await repo.searchFTSWithHighlight("realmemkeyword", {});
+    const target = hits.find(h => h.entryId === "e4-normal");
+    expect(target).toBeDefined();
+    expect(target?.snippet).toContain("realmemkeyword");
+    expect(target?.snippet?.startsWith("[")).toBe(false); // 正常路径无前缀
   });
 });
