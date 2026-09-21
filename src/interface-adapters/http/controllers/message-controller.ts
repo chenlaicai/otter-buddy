@@ -383,7 +383,8 @@ export class MessageController {
       body: `行动权接力已达系统安全上限（${depth} 跳），行动权交还给你。直接回复即可继续——所有参与者会看到未读消息。`,
     });
     if (this.messageBroadcaster) {
-      this.messageBroadcaster.broadcastEvent(conversationId, { event: "entry.system", data: { entryId: sysEntry.id, content: sysEntry.body, seq: sysEntry.sequenceNum } });
+      // F20260921urdo 契约收口：字段名统一 sequenceNum
+      this.messageBroadcaster.broadcastEvent(conversationId, { event: "entry.system", data: { entryId: sysEntry.id, content: sysEntry.body, sequenceNum: sysEntry.sequenceNum, createdAt: sysEntry.createdAt } });
     }
   }
 

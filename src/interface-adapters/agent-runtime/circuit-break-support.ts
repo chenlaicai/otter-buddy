@@ -67,7 +67,7 @@ export class CircuitBreakSupport {
     /** F20260913ctlv 收尾批3：历史读取切 entries（messages 停写，user 消息唯一真相源 = user entry） */
     entryReader: { getEntries(conversationId: string, options?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; senderId: string | null; senderType: string | null; body: string | null; createdAt: string }>> };
     /** F20260913ctlv 彻底切换：系统消息写入（entries 语义）——旧 sendMessage.sendSystem 退役 */
-    sendSystem: (conversationId: string, body: string) => Promise<{ id: string; body: string | null; sequenceNum: number }>;
+    sendSystem: (conversationId: string, body: string) => Promise<{ id: string; body: string | null; sequenceNum: number; createdAt: string }>;
     healingRepo: HealingEventRepository;
     logger: Logger;
     /** F20260913ctlv 彻底切换：invoke_events 查询（熔断摘要工具链数据源，可选——未注入降级空序列） */
@@ -230,7 +230,7 @@ export class CircuitBreakSupport {
       });
       try {
         const sysMsg = await this.deps.sendSystem(info.conversationId, buildCircuitBreakFailureMsg());
-        emitEvent({ event: "entry.system", data: { entryId: sysMsg.id, content: sysMsg.body, seq: sysMsg.sequenceNum } });
+        emitEvent({ event: "entry.system", data: { entryId: sysMsg.id, content: sysMsg.body, sequenceNum: sysMsg.sequenceNum, createdAt: sysMsg.createdAt } });
       } catch { /* ignore */ }
       await this.writeCircuitBreakEvent(info, { trigger: 'primary', failed: true, error: error.message }).catch(() => { /* non-fatal */ });
       return false;

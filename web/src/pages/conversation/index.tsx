@@ -42,6 +42,9 @@ export default function ConversationPage() {
   const navigate = useNavigate()
   const [conversations, setConversations] = useState<LocalConversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
+  /** F20260921urdo 判定换轨：activeId 镜像 ref——focus/visibilitychange 监听器闭包读最新值 */
+  const activeIdRef = useRef<string | null>(null)
+  useEffect(() => { activeIdRef.current = activeId }, [activeId])
   const [allMessages, setAllMessages] = useState<Record<string, LocalMessage[]>>({})
   /** F20260913ctlv：獭 invoke 实时状态（右侧栏面板数据源；invoke.start/end 事件驱动） */
   const [invokeStates, setInvokeStates] = useState<InvokeStates>({})
@@ -76,13 +79,14 @@ export default function ConversationPage() {
   const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null)
   /** 用户在设置中配置的称呼，用于消息气泡旁的名称显示 */
   const [userName, setUserName] = useState('')
-  /** F20260916ubrd：「底部即已读」统一入口——用户停驻底部时新消息到达也推进已读游标。
-   *  背景：修复前游标只有三个推进渠道（首次进入/滚动到底/发言），用户静观底部不动时
-   *  新条目落库后后端 unreadCount>0，左侧栏小红点残留。此处复用既有 markRead 端点 +
-   *  防抖 + 服务端 MAX 钳制；游标越过 invoke_start/invoke_end/yield 安全（未读统计口径
-   *  只数 speak/system）。 */
-  const markReadTimerMapRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
-  const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** F20260921urdo 判定换轨：已读 ack 防抖 ref（打开/聚焦/聚焦期新消息到达共用）。
+   *  「底部即已读」（F20260916ubrd）与「滚到底已读」机制已退役——已读判定输入
+   *  从滚动几何换轨为会话状态（打开+聚焦，Slack/Discord 同型）：
+   *  · 会话打开即 ack（loadConversationDetail 成功后）
+   *  · 窗口聚焦/切回可见即 ack（focus + visibilitychange）
+   *  · 聚焦期间新消息到达即 ack（activeMessages.length effect）
+   *  滚动信息只服务视觉（自动滚底门控/未读分隔线定位），不再进已读判定。 */
+  const ackReadDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** abort toast 同步去重（F20260805abpp 第三轮检视 S-1）：发送流与常驻通道共享广播总线，
    *  message.aborted 会双通道投递；不能用 updater 闭包标志——React 有 pending update 时
    *  updater 延迟执行，同步读取恒为 false（零 toast）。ref Set 绕开调度时序 */
@@ -99,25 +103,19 @@ export default function ConversationPage() {
   const ottersRef = useRef<Record<string, LocalOtter[]>>({})
   useEffect(() => { ottersRef.current = allOtters }, [allOtters])
   useEffect(() => () => {
-    if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current)
-    for (const t of markReadTimerMapRef.current.values()) clearTimeout(t)
-    markReadTimerMapRef.current.clear()
+    if (ackReadDebounceRef.current) clearTimeout(ackReadDebounceRef.current)
   }, [])
 
-  /** F20260916ubrd：底部即已读调度（500ms 防抖，fire-and-forget）。 */
-  const scheduleMarkReadIfAtBottom = useCallback((convId: string) => {
-    if (!isAtBottomRef.current) return
-    const msgs = allMessagesRef.current[convId] || []
+  /** F20260921urdo 判定换轨：已读统一 ack 函数——会话状态（打开/聚焦/聚焦期新消息到达）
+   *  触发，不依赖滚动几何。fire-and-forget；服务端 MAX 钐制游标只进不退；
+   *  游标越过 invoke_start/invoke_end/yield 安全（未读统计口径只数 speak/system）。
+   *  msgsOverride：打开路径刚拉到的新 msgs 直通（setState 异步，ref 尚未同步，读旧值会 ack 到过期 seq）。 */
+  const ackActiveRead = useCallback((convId: string, msgsOverride?: LocalMessage[]) => {
+    const msgs = msgsOverride ?? allMessagesRef.current[convId] ?? []
     const realMsgs = msgs.filter(m => !m.id.startsWith('tmp-') && !m.id.startsWith('err-') && m.seq != null)
     if (realMsgs.length === 0) return
     const maxSeq = Math.max(...realMsgs.map(m => m.seq!))
-    const timers = markReadTimerMapRef.current
-    const existing = timers.get(convId)
-    if (existing) clearTimeout(existing)
-    timers.set(convId, setTimeout(() => {
-      api.markRead(convId, maxSeq).catch(() => {})
-      timers.delete(convId)
-    }, 500))
+    api.markRead(convId, maxSeq).catch(() => {})
   }, [])
 
   // 批量更新机制：50ms 窗口内的 SSE 事件合并为一次 setAllMessages，减少消息列表重渲染
@@ -329,11 +327,9 @@ export default function ConversationPage() {
       }
       setHasMoreBefore(entriesResp.hasMore)
       setUnreadState(unread)
-      // 首次访问（无已读记录）：初始化已读到最新，避免下次进入显示全部未读
-      if (unread.lastReadSeq === 0 && unread.unreadCount === 0 && msgs.length > 0) {
-        const maxSeq = msgs[msgs.length - 1]?.seq
-        if (maxSeq != null) api.markRead(convId, maxSeq).catch(() => {})
-      }
+      // F20260921urdo 判定换轨：打开会话即 ack（Slack/Discord 同型语义）——取代旧
+      // 「首次访问初始化已读」条件路径；未读分隔线仍在（视觉定位用），红点即时消散
+      ackActiveRead(convId, msgs)
       setUnreadSeparatorSeq(null)
       // 未读定位：第一条未读条目
       if (unread.firstUnreadSeq != null) {
@@ -353,7 +349,7 @@ export default function ConversationPage() {
       console.error('Failed to load conversation detail:', err)
       showToast('加载对话详情失败', 'error')
     }
-  }, [])
+  }, [ackActiveRead])
 
   /** 静默刷新消息列表（轮询用，失败不打扰用户，下轮重试） */
   /** F20260913ctlv 彻底切换：增量刷新（entries after 游标）——SSE 断连兜底。
@@ -376,13 +372,44 @@ export default function ConversationPage() {
           if (fresh.length === 0) return prev
           return { ...prev, [convId]: [...current, ...fresh] }
         })
-        /** F20260916ubrd：轮询拉到新条目后，若用户在底部则顺手推进已读游标 */
-        scheduleMarkReadIfAtBottom(convId)
+        /** F20260921urdo 判定换轨：轮询拉到新条目后，若对话处于打开且聚焦状态则 ack
+         *  （后台 tab 不 ack，红点保留待切回时消散） */
+        if (convId === activeIdRef.current && document.visibilityState === 'visible' && document.hasFocus()) {
+          ackActiveRead(convId)
+        }
       }
     } catch (err) {
       console.error('Failed to refresh entries:', err)
     }
-  }, [scheduleMarkReadIfAtBottom])
+  }, [ackActiveRead])
+
+  /** F20260921urdo 判定换轨：窗口聚焦/切回可见时 ack（300ms 防抖，快速切换不抖）。
+   *  document.hasFocus() 兼容 focus 事件与 visibilitychange 双通道；后台 tab 收到
+   *  新消息不 ack（红点保留，切回时消散）。
+   *  ack 前先 refreshMessages：失焦期间落库的新条目（SSE 未投递/断连）先拉进
+   *  state 再 ack 到最新——否则 focus ack 只能到本地已知 seq，失焦期新消息红点
+   *  会僵到下一轮数据到达（切回场景必现）。refreshMessages 内部拉到新条目后聚焦态
+   *  会自行 ack，此处直接 ack 是竞态兑底（state 未更新前先用旧 maxSeq 发一次无害——MAX 钐制）。 */
+  useEffect(() => {
+    const ack = () => {
+      if (!activeIdRef.current) return
+      if (ackReadDebounceRef.current) clearTimeout(ackReadDebounceRef.current)
+      ackReadDebounceRef.current = setTimeout(() => {
+        const convId = activeIdRef.current
+        if (convId && document.visibilityState === 'visible' && document.hasFocus()) {
+          refreshMessages(convId)
+          ackActiveRead(convId)
+        }
+        ackReadDebounceRef.current = null
+      }, 300)
+    }
+    window.addEventListener('focus', ack)
+    document.addEventListener('visibilitychange', ack)
+    return () => {
+      window.removeEventListener('focus', ack)
+      document.removeEventListener('visibilitychange', ack)
+    }
+  }, [ackActiveRead, refreshMessages])
 
   /** 点击"新消息 N 条"浮窗：滚到底部 + 清零计数 */
   const handleJumpToBottom = useCallback(() => {
@@ -485,8 +512,10 @@ export default function ConversationPage() {
       'entry.speak': (data) => {
         /** speak entry 全量 body——speak 是原子工具调用（无流式生命周期），落库即 completed。
          *  F20260913ctlv 语义清理：entry.start 伪事件已退役，entry.speak 自包含——
-         *  气泡不存在则插入 completed 完整气泡（无占位、无 streaming 中间态），存在则填 body 收敛终态。 */
-        const d = data as { entryId: string; invokeId?: string; otterId?: string; body?: string; otterName?: string; createdAt?: string }
+         *  气泡不存在则插入 completed 完整气泡（无占位、无 streaming 中间态），存在则填 body 收敛终态。
+         *  F20260921urdo 契约收口：sequenceNum/createdAt 必接（后端已贯通）——seq 是
+         *  已读游标与排序数据源，缺席即红点僵死。 */
+        const d = data as { entryId: string; invokeId?: string; otterId?: string; body?: string; otterName?: string; createdAt?: string; sequenceNum?: number }
         if (!d.body) return
         const body = d.body
         let added = false
@@ -495,7 +524,7 @@ export default function ConversationPage() {
             added = true
             const msg: LocalMessage = {
               id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
-              content: body, status: 'completed', ts: d.createdAt || nowTs(), dur: null,
+              content: body, status: 'completed', seq: d.sequenceNum, ts: d.createdAt || nowTs(), dur: null,
               invokeId: d.invokeId,
             }
             return insertBySeq(list, msg)
@@ -654,10 +683,11 @@ export default function ConversationPage() {
         })
       },
       'entry.system': (data) => {
-        const d = data as { entryId: string; content: string; seq?: number }
+        // F20260921urdo 契约收口：字段统一 sequenceNum（与 entry.user/entry.speak 一致）+ createdAt
+        const d = data as { entryId: string; content: string; sequenceNum?: number; createdAt?: string }
         const sysMsg: LocalMessage = {
           id: d.entryId, st: 'system', si: 'system', content: d.content,
-          status: 'completed', seq: d.seq, ts: nowTs(), dur: null, entryType: 'system',
+          status: 'completed', seq: d.sequenceNum, ts: d.createdAt || nowTs(), dur: null, entryType: 'system',
         }
         batchUpdateMessages(activeId!, (list) => upsertMessage(list, sysMsg))
       },
@@ -756,27 +786,24 @@ export default function ConversationPage() {
   const activeLinkedRes = useMemo(() => activeId ? (allLinkedRes[activeId] || []) : [], [activeId, allLinkedRes])
   const activeOtters: LocalOtter[] = useMemo(() => activeId ? (allOtters[activeId] || []) : [], [activeId, allOtters])
 
-  /** F20260916ubrd：底部即已读——活动对话消息数变化（SSE 常驻通道/POST 流/重试流统一经
-   *  setAllMessages 收拢）且用户在底部时，推进已读游标。上翻阅读历史时不触发。 */
+  /** F20260921urdo 判定换轨：聚焦期间新消息到达即 ack——消息数变化（SSE 常驻通道/
+   *  POST 流/重试流统一经 setAllMessages 收拢）且窗口可见聚焦时推进已读游标。
+   *  后台 tab 不 ack（红点保留，切回时 focus 监听消散）。 */
   useEffect(() => {
-    if (activeId && activeMessages.length > 0) scheduleMarkReadIfAtBottom(activeId)
-  }, [activeId, activeMessages.length, scheduleMarkReadIfAtBottom])
+    if (activeId && activeMessages.length > 0 && document.visibilityState === 'visible' && document.hasFocus()) {
+      ackActiveRead(activeId)
+    }
+  }, [activeId, activeMessages.length, ackActiveRead])
 
   const handleSend = useCallback(async (text: string, mentionOtterIds?: string[], attachments?: import('./hooks/useAttachmentStaging').StagedAttachment[], mode?: 'steer' | 'followUp') => {
     if (!activeId) return
-    /** F20260904smsj：发言 = 已看完全部（聊天通用语义）——立即标记已读到当前最新 +
+    /** F20260904smsj：发言 = 已看完全部（聊天通用语义）——立即 ack 到当前最新 +
      *  强制回底部 + 清未读分隔线，消除「分隔线定位 × 自动滚底门控」竞争导致的视口上跳。
-     *  此前：发言时若上一轮獭回复未读，轮询刷新会让视口跳向未读消息位置；
-     *  且 isAtBottomRef=false 时插入新消息不触发滚底，最新消息不可见。 */
+     *  F20260921urdo：markRead 内联块收拢为 ackActiveRead 统一入口。 */
     isAtBottomRef.current = true
     setNewMessagesCount(0)
     setUnreadSeparatorSeq(null)
-    {
-      const msgs = allMessagesRef.current[activeId] || []
-      const realMsgs = msgs.filter(m => !m.id.startsWith('tmp-') && !m.id.startsWith('err-') && m.seq != null)
-      const maxSeq = realMsgs.length > 0 ? Math.max(...realMsgs.map(m => m.seq!)) : null
-      if (maxSeq != null) api.markRead(activeId, maxSeq).catch(() => {})
-    }
+    ackActiveRead(activeId)
     /** 有 @ 则指定目标；无 @ 传空数组，由后端按规则解析（回复最后发言者，兜底大獭） */
     const targetOtterIds = mentionOtterIds ?? []
     /** 多模态 Phase 1：附件从 ChatView 中转区传入（上传已完成，此处只带服务端 id 引用） */
@@ -852,15 +879,16 @@ export default function ConversationPage() {
           })
         },
         'entry.speak': (data) => {
-          /** 同常驻通道：entry.speak 自包含（entry.start 已退役）——不存在则插入 completed 完整气泡 */
-          const d = data as { entryId: string; invokeId?: string; otterId?: string; body?: string; otterName?: string; createdAt?: string }
+          /** 同常驻通道：entry.speak 自包含（entry.start 已退役）——不存在则插入 completed 完整气泡。
+           *  F20260921urdo 契约收口：sequenceNum/createdAt 必接 */
+          const d = data as { entryId: string; invokeId?: string; otterId?: string; body?: string; otterName?: string; createdAt?: string; sequenceNum?: number }
           if (!d.body) return
           const body = d.body
           batchUpdateMessages(activeId!, (list) => {
             if (!list.some(m => m.id === d.entryId)) {
               const msg: LocalMessage = {
                 id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
-                content: body, status: 'completed', ts: d.createdAt || nowTs(), dur: null,
+                content: body, status: 'completed', seq: d.sequenceNum, ts: d.createdAt || nowTs(), dur: null,
                 invokeId: d.invokeId,
               }
               return insertBySeq(list, msg)
@@ -946,10 +974,11 @@ export default function ConversationPage() {
           showToast(`Agent 错误: ${d.message}`, 'error')
         },
         'entry.system': (data) => {
-          const d = data as { entryId: string; content: string; seq?: number }
+          // F20260921urdo 契约收口：字段统一 sequenceNum + createdAt
+          const d = data as { entryId: string; content: string; sequenceNum?: number; createdAt?: string }
           const sysMsg: LocalMessage = {
             id: d.entryId, st: 'system', si: 'system', content: d.content,
-            status: 'completed', seq: d.seq, ts: nowTs(), dur: null, entryType: 'system',
+            status: 'completed', seq: d.sequenceNum, ts: d.createdAt || nowTs(), dur: null, entryType: 'system',
           }
           batchUpdateMessages(activeId!, (list) => insertBySeq(list, sysMsg))
         },
@@ -982,7 +1011,7 @@ export default function ConversationPage() {
       showToast('发送失败', 'error')
       throw err // F20260916sgcl S1：失败信号传出，ChatView 据此跳过 clearAll、保留附件供重试
     }
-  }, [activeId, refreshMessages, batchUpdateMessages, refreshParticipantsAfterDissolve, upsertOtterIfAbsentDeferred])
+  }, [activeId, ackActiveRead, refreshMessages, batchUpdateMessages, refreshParticipantsAfterDissolve, upsertOtterIfAbsentDeferred])
 
   /** 卡片提交 → 强制预览 → 回执复用 handleSend 整条 SSE 管线（显式路由卡片作者） */
   const { cardPreview, confirmCardPreview, rejectCardPreview } = useCardBridge({
@@ -1050,25 +1079,9 @@ export default function ConversationPage() {
     }
   }, [activeId])
 
-  /** 标记已读防抖（避免滚动时频繁调用 API） */
-  const markReadDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(() => () => {
-    if (markReadDebounceRef.current) clearTimeout(markReadDebounceRef.current)
-  }, [])
-
-  /** 用户滚动到底部时标记已读（防抖 500ms） */
-  const handleMarkRead = useCallback(() => {
-    if (!activeId) return
-    if (markReadDebounceRef.current) clearTimeout(markReadDebounceRef.current)
-    markReadDebounceRef.current = setTimeout(() => {
-      const msgs = allMessagesRef.current[activeId] || []
-      const realMsgs = msgs.filter(m => !m.id.startsWith('tmp-') && !m.id.startsWith('err-') && m.seq != null)
-      if (realMsgs.length === 0) return
-      const maxSeq = Math.max(...realMsgs.map(m => m.seq!))
-      api.markRead(activeId, maxSeq).catch(() => {})
-      markReadDebounceRef.current = null
-    }, 500)
-  }, [activeId])
+  /** F20260921urdo 判定换轨退役：「滚到底标记已读」handleMarkRead + markReadDebounceRef
+   *  删除——已读判定不再依赖滚动几何（打开/聚焦/新消息到达三接法接管），
+   *  MessageList 的 onReachBottom prop 同步退役。 */
 
   /** F20260913ctlv 彻底切换：手动重试——invoke retry（invokeId 锚）。
    *  重试产生全新 invoke（新时间线），流内 entry.* 事件插入新气泡。 */
@@ -1089,15 +1102,16 @@ export default function ConversationPage() {
       // 重试流：单通道 entry.*（与发送流同型；新 invoke 的气泡经 entry.speak 插入）
       const retryHandlers: Record<string, (data: Record<string, unknown>) => void> = {
         'entry.speak': (data) => {
-          /** 同常驻通道：entry.speak 自包含（entry.start 已退役）——不存在则插入 completed 完整气泡 */
-          const d = data as { entryId: string; invokeId?: string; otterId?: string; body?: string; otterName?: string; createdAt?: string }
+          /** 同常驻通道：entry.speak 自包含（entry.start 已退役）——不存在则插入 completed 完整气泡。
+           *  F20260921urdo 契约收口：sequenceNum/createdAt 必接 */
+          const d = data as { entryId: string; invokeId?: string; otterId?: string; body?: string; otterName?: string; createdAt?: string; sequenceNum?: number }
           if (!d.body) return
           const body = d.body
           batchUpdateMessages(activeId, (list) => {
             if (!list.some(m => m.id === d.entryId)) {
               const msg: LocalMessage = {
                 id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
-                content: body, status: 'completed', ts: d.createdAt || nowTs(), dur: null,
+                content: body, status: 'completed', seq: d.sequenceNum, ts: d.createdAt || nowTs(), dur: null,
                 invokeId: d.invokeId,
               }
               return insertBySeq(list, msg)
@@ -1420,7 +1434,7 @@ export default function ConversationPage() {
         >
           <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} hasMore={hasMoreConvs} loadingMore={loadingMoreConvs} onLoadMore={handleLoadMoreConvs} />
         </div>
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => navigate('/settings')} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} onReachBottom={handleMarkRead} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => navigate('/settings')} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} />
         {/* 右栏：≥lg 常驻；<lg 抽屉化。md~lg 区间聊天区 = 全宽 - 左栏(224px)，不再被右栏挤 <500px */}
         <div
           id="right-panel-drawer"

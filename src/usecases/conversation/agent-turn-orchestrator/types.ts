@@ -146,7 +146,7 @@ export interface TurnCallbacks {
   /** F20260818cbkr：熔断是否可用。上限/二级判定依赖 healing_events 状态载体，repo 缺失时禁用并降级为旧 abort 语义 */
   isCircuitBreakerEnabled(): boolean;
   /** 发送系统消息（F20260913ctlv：只写 entries + entry.system SSE，实现方负责） */
-  sendSystem(conversationId: string, body: string): Promise<{ id: string; body: string | null; sequenceNum: number }>;
+  sendSystem(conversationId: string, body: string): Promise<{ id: string; body: string | null; sequenceNum: number; createdAt: string }>;
   /** 查询 otter */
   getOtterById(otterId: string): Promise<{ name: string; type?: string } | null>;
   /**
