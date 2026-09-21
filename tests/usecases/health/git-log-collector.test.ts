@@ -91,4 +91,65 @@ describe("collectGitLogWithFiles（临时仓库 fixture）", () => {
 
     git(["checkout", "main"]);
   });
+
+  // ── #426 边界场景补齐：rename / binary / 空 commit / merge / 多行 message ──
+  // 基于各形态真实输出实测（2026-09-21，git 2.x --name-only）后写断言，
+  // 不是按想象中的行为写。
+
+  it("#426 rename commit：--name-only 只输出新路径，不双计 old/new（实测锁定）", async () => {
+    git(["mv", "a.txt", "renamed-a.txt"]);
+    git(["add", "-A"]);
+    git(["commit", "-m", "[F20260921tst4][health][Refactor] 重命名文件"]);
+    const commits = await collectGitLogWithFiles(repoDir);
+    const renameCommit = commits.find(c => c.message.includes("tst4"));
+    expect(renameCommit).toBeDefined();
+    // 实测：git log --name-only 对 rename 只输出新路径（与 diff-tree -r 的 old+new 两行不同）。
+    // 文件热点不会把 rename 算作两次修改——issue #426 的双计担忧在此采集路径不成立。
+    // 锁定该行为：若未来 git 版本/参数变更导致双计，本断言会红。
+    expect(renameCommit?.filesChanged).toEqual(["renamed-a.txt"]);
+  });
+
+  it("#426 二进制文件：计入 filesChanged（无特殊处理，热点计数与文本文件同权）", async () => {
+    const binPath = path.join(repoDir, "asset.bin");
+    // 写入含 NUL 字节的真二进制内容（git 会识别为 binary）
+    await writeFile(binPath, Buffer.from([0x00, 0x01, 0x02, 0xff]), null);
+    git(["add", "asset.bin"]);
+    git(["commit", "-m", "[F20260921tst5][health][New Feature] 加二进制资产"]);
+    const commits = await collectGitLogWithFiles(repoDir);
+    const binCommit = commits.find(c => c.message.includes("tst5"));
+    expect(binCommit?.filesChanged).toContain("asset.bin");
+  });
+
+  it("#426 空 commit：filesChanged 为空数组，解析不炸", async () => {
+    git(["commit", "--allow-empty", "-m", "[F20260921tst6][health][Chore] 空提交"]);
+    const commits = await collectGitLogWithFiles(repoDir);
+    const emptyCommit = commits.find(c => c.message.includes("tst6"));
+    expect(emptyCommit).toBeDefined();
+    expect(emptyCommit?.filesChanged).toEqual([]);
+  });
+
+  it("#426 merge commit：默认策略不带 -m，文件列表为空，不计数", async () => {
+    // 制造真 merge：side 分支有独立 commit，回 main 合入。
+    // --no-ff 必需：否则 main 无分叉时 fast-forward 不产生 merge commit（实测踩过）
+    git(["checkout", "-b", "feature-merge"]);
+    await commitFile("merge-side.txt", "m", "[F20260921tst7][health][New Feature] 待合分支");
+    git(["checkout", "main"]);
+    git(["merge", "--no-ff", "feature-merge", "-m", "[F20260921tst8][health][Feature Update] 合入 feature-merge"]);
+    const commits = await collectGitLogWithFiles(repoDir);
+    const mergeCommit = commits.find(c => c.message.includes("tst8"));
+    expect(mergeCommit).toBeDefined();
+    // 实测：git log --name-only 对 merge commit（不带 -m first-parent 展开）输出空文件列表
+    // ——metrics-calculator 侧 "merge commit 空文件列表不计数" 已有断言，此处锁定采集层行为
+    expect(mergeCommit?.filesChanged).toEqual([]);
+  });
+
+  it("#426 多行 message：%s 只取首行，后续行不渗入 filesChanged（实测锁定）", async () => {
+    git(["commit", "--allow-empty", "-m", "[F20260921tst9][health][Chore] 标题行\n\n正文第二行\n第三行"]);
+    const commits = await collectGitLogWithFiles(repoDir);
+    const multiCommit = commits.find(c => c.message.includes("tst9"));
+    expect(multiCommit).toBeDefined();
+    // %s 只输出首行——message 是纯标题，正文行不会污染解析（也不会被误当文件名）
+    expect(multiCommit?.message).toBe("[F20260921tst9][health][Chore] 标题行");
+    expect(multiCommit?.filesChanged).toEqual([]);
+  });
 });
