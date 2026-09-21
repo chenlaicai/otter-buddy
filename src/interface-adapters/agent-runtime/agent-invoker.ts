@@ -233,7 +233,7 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
    
-  // eslint-disable-next-line max-lines-per-function, max-statements -- F20260913ctlv 双路径迁移期；F20260920uhuc 轮边界水位触发器 +3 语句（时机权回收应用层）
+  // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- F20260913ctlv 双路径迁移期；F20260920uhuc 轮边界水位触发器 +3 语句（时机权回收应用层）；F20260921otcl +invoke.start 身份透传 1 分支
   private async invokeConversationInner(params: {
     otterId: string;
     conversationId: string;
@@ -316,7 +316,8 @@ export class AgentInvoker implements AgentTurnPort {
     const currentInvokeId = invoke.id;
     const resolvedOtterName = resolveSpeakerName("otter", otterId, otter?.name) ?? otterId;
     // SSE: invoke.start（triggerEntryId = invoke_start entry id——时间线居中条目与 invoke 关联）
-    emitEvent({ event: "invoke.start", data: { invokeId: invoke.id, otterId, otterName: resolvedOtterName, conversationId, startedAt: invoke.startedAt, triggerEntryId: invokeStartEntry.id } });
+    // F20260921otcl：otter 实体在手则透传出生色（闭包透传，零额外查询；otter 为 null（已解散等）时缺省，前端展示回退）
+    emitEvent({ event: "invoke.start", data: { invokeId: invoke.id, otterId, otterName: resolvedOtterName, conversationId, startedAt: invoke.startedAt, triggerEntryId: invokeStartEntry.id, otterType: otter?.type, otterColor: otter?.color ?? null } });
     this.logger.info('Invoke created', { invokeId: invoke.id, otterId, conversationId });
 
     // F20260814mtrc：invokeId 进 trace scope（onEvent 回调与收尾日志自动携带）
@@ -326,7 +327,7 @@ export class AgentInvoker implements AgentTurnPort {
       let pendingSelfRestart: { otterId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean } | undefined;
 
       // 创建 AttemptDriver 和 TurnCallbacks
-      const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, { otterName: otter?.name, onSelfRestart: (signal) => { pendingSelfRestart = signal; }, images, batchMaxSeq, currentInvokeId });
+      const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, { otterName: otter?.name, otterType: otter?.type, otterColor: otter?.color ?? null, onSelfRestart: (signal) => { pendingSelfRestart = signal; }, images, batchMaxSeq, currentInvokeId });
       // F20260913ctlv 彻底切换：invoke 态回调（无 failMessage→abort SDK 联动——handleAutoRetry 同 invoke 重试不再杀 session）
       const callbacks = this.createTurnCallbacks(emitEvent, otterId);
 
@@ -376,7 +377,7 @@ export class AgentInvoker implements AgentTurnPort {
     conversationId: string,
     dynamicContext: DynamicContext,
     emitEvent: (event: SSEEvent) => void,
-    opts: { otterName?: string; onSelfRestart?: (signal: { otterId: string; summary?: string; synthesizePast?: boolean }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }>; batchMaxSeq?: number; currentInvokeId: string },
+    opts: { otterName?: string; otterType?: string; otterColor?: string | null; onSelfRestart?: (signal: { otterId: string; summary?: string; synthesizePast?: boolean }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }>; batchMaxSeq?: number; currentInvokeId: string },
   ): AttemptDriver {
     return {
       invoke: async (input: TurnInput, onEvent: (event: AgentStreamEvent) => void) => {
@@ -480,8 +481,8 @@ export class AgentInvoker implements AgentTurnPort {
     return {
       ...this.makeInvokePersistenceCallbacks(),
 
-      emitInvokeEnd: (invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string; endBody?: string; otterName?: string }) => {
-        emitEvent({ event: 'invoke.end', data: { invokeId, otterId: otterId ?? '', status, duration, endedAt: new Date().toISOString(), toolCallCount: stats?.toolCallCount, tokenUsage: stats?.tokenUsage, invokeEndEntryId: stats?.invokeEndEntryId, endBody: stats?.endBody, otterName: stats?.otterName } });
+      emitInvokeEnd: (invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string; endBody?: string; otterName?: string; otterType?: string; otterColor?: string | null }) => {
+        emitEvent({ event: 'invoke.end', data: { invokeId, otterId: otterId ?? '', status, duration, endedAt: new Date().toISOString(), toolCallCount: stats?.toolCallCount, tokenUsage: stats?.tokenUsage, invokeEndEntryId: stats?.invokeEndEntryId, endBody: stats?.endBody, otterName: stats?.otterName, otterType: stats?.otterType, otterColor: stats?.otterColor ?? null } });
       },
 
       recordHealingEvent: async (input: HealingEventInput) => {
@@ -506,7 +507,7 @@ export class AgentInvoker implements AgentTurnPort {
 
       getOtterById: async (otterId: string) => {
         const otter = await this.queryOtter.getById(otterId);
-        return otter ? { name: otter.name, type: otter.type } : null;
+        return otter ? { name: otter.name, type: otter.type, color: otter.color } : null;
       },
 
       // F20260916fst4：首哑判定数据源——invokeRepo 缺省时拋错由 orchestrator fail-open
@@ -591,7 +592,7 @@ export class AgentInvoker implements AgentTurnPort {
     input: { invokeId: string },
     otterId: string,
     emitEvent: (event: SSEEvent) => void,
-    opts: { otterName?: string; currentInvokeId: string },
+    opts: { otterName?: string; otterType?: string; otterColor?: string | null; currentInvokeId: string },
     toolStarts: Map<string, number>,
     toolCallCountBox: { count: number },
     onEvent: (e: AgentStreamEvent) => void,
@@ -620,7 +621,7 @@ export class AgentInvoker implements AgentTurnPort {
         // F20260921urdo 契约收口：sequenceNum/createdAt 必含——已读游标与排序数据源（缺席即红点僵死）
         const sequenceNum = (speakDetails as { sequenceNum?: number }).sequenceNum;
         const createdAt = (speakDetails as { createdAt?: string }).createdAt;
-        emitEvent({ event: "entry.speak", data: { entryId, invokeId: opts.currentInvokeId, otterId, body, otterName: resolvedName, ...(sequenceNum != null && { sequenceNum }), ...(createdAt && { createdAt }) } });
+        emitEvent({ event: "entry.speak", data: { entryId, invokeId: opts.currentInvokeId, otterId, body, otterName: resolvedName, otterType: opts.otterType, otterColor: opts.otterColor ?? null, ...(sequenceNum != null && { sequenceNum }), ...(createdAt && { createdAt }) } });
       }
     }
     // F20260913ctlv 彻底切换：流式过程唯一存储 = invoke_events（message_events 停写）

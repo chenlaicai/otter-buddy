@@ -8,9 +8,11 @@ describe('getOtterAvatar', () => {
     expect(getOtterAvatar('any-id', 'big')).toBe('/avatars/datu.svg')
   })
 
-  it('大獭：历史 ID 池兜底（type 缺省时）', () => {
-    expect(getOtterAvatar('o1')).toBe('/avatars/datu.svg')
-    expect(getOtterAvatar('big-otter')).toBe('/avatars/datu.svg')
+  it('大獭：历史 ID 池兜底已删（F20260921otcl）——type 缺省时历史 ID 不再判大獭，走小獭 hash 池', () => {
+    // BIG_OTTER_IDS 删除后的行为契约：type 是唯一大獭判定；
+    // 生产环境大獭 ID 为 UUID，历史 ID 池对生产永久失效，属死代码清除
+    expect(getOtterAvatar('o1')).toMatch(/^\/avatars\/otter-\d{2}-[a-z]+\.svg$/)
+    expect(getOtterAvatar('big-otter')).toMatch(/^\/avatars\/otter-\d{2}-[a-z]+\.svg$/)
   })
 
   it('小獭返回九款池内头像（/avatars/ 前缀 + .svg 后缀）', () => {

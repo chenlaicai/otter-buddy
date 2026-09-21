@@ -24,6 +24,7 @@ describe("ManageSession", () => {
     repo = new SqliteOtterRepository(db);
     await repo.createOtter({
       id: "otter-1", name: "测试獭", type: "big", status: "active",
+      color: null,
       role: null, parentOtterId: null, createdAt: new Date().toISOString(), dissolvedAt: null,
     });
     ms = new ManageSession(

@@ -20,6 +20,7 @@ import { createTestDb } from "../../helpers/db";
 function otterFixture(id: string, name: string): Otter {
   return {
     id, name, type: "small", status: "active",
+    color: null,
     role: null, parentOtterId: null,
     createdAt: "2026-01-01T00:00:00Z", dissolvedAt: null,
   };

@@ -5,6 +5,8 @@ export interface LocalOtter {
   id: string
   name: string
   type: 'big' | 'small'
+  /** F20260921otcl：出生颜色（色板 key；大獭/未回填为 null——resolveOtterVisual 消费） */
+  color?: string | null
   createdAt: string
   role?: { name: string; resp: string[] }
   parentOtterId?: string
@@ -85,6 +87,9 @@ export interface LocalMessage {
   si: string
   /** 发送者显示名（otter 消息来自后端投影，实时消息来自 message.start） */
   sn?: string
+  /** F20260921otcl：发送者出生色（SSE 事件携带 / entries DTO 投影；
+   *  缺失时 resolveOtterVisual 展示回退。otterType 走 SSE 事件字段/名册，不入 LocalMessage） */
+  scolor?: string | null
   content: string
   /** 消息生命周期状态；仅历史查询（DTO）路径携带，SSE 实时构造的消息为 undefined（视同 completed/对应事件态） */
   status?: LocalMessageStatus
@@ -198,6 +203,7 @@ export function mapOtterDTO(dto: OtterDTO): LocalOtter {
     id: dto.id,
     name: dto.name,
     type: dto.type as 'big' | 'small',
+    ...(dto.color !== undefined && { color: dto.color }),
     createdAt: dto.createdAt.split('T')[0],
     role: dto.role ? { name: dto.role.name, resp: dto.role.responsibilities } : undefined,
     parentOtterId: dto.parentOtterId ?? undefined,
@@ -266,6 +272,10 @@ export function mapEntryDTO(dto: EntryDTO): LocalMessage {
     src: (dto.source ?? undefined) as 'web' | 'feishu' | undefined,
     entryType: dto.entryType,
     invokeId: dto.invokeId ?? undefined,
+    // F20260921otcl：发送者出生色透出（repo join otters 投影；大獭/未回填 null）。
+    //  type 不随 entry 携带（方案 §4：entries 只补 senderColor）——渲染时从
+    //  otters 名册查 id 得 type，名册未到且 color=null 时 resolveOtterVisual 走回退
+    scolor: dto.senderColor ?? null,
     // F20260913ctlv test17：invoke_end 的 metadata.invokeStatus 透出（重试按钮数据源）
     ...(dto.metadata?.invokeStatus === 'failed' || dto.metadata?.invokeStatus === 'aborted' ? { invokeStatus: dto.metadata.invokeStatus } : {}),
     // F20260916hcel：html-card schema版本透出
@@ -283,6 +293,7 @@ export function mapParticipantDTO(p: ParticipantDTO): LocalOtter {
     id: p.otterId,
     name: p.otterName,
     type: (p.otterType as 'big' | 'small') ?? 'small',
+    ...(p.otterColor !== undefined && { color: p.otterColor }),
     createdAt: '',
     role: p.roleName ? { name: p.roleName, resp: [] } : undefined,
     ...(p.modelAlias !== undefined && { modelAlias: p.modelAlias }),

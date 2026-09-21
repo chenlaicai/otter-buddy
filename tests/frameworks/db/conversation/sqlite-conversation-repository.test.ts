@@ -162,6 +162,7 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
     invokeRepo = new SqliteInvokeRepository(db);
     new SqliteOtterRepository(db).createOtter({
       id: "otter-1", name: "小獭", type: "small", status: "active",
+      color: null,
       role: null, parentOtterId: null,
       createdAt: "2026-01-01T00:00:00Z", dissolvedAt: null,
     });

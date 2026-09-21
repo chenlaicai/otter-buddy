@@ -20,13 +20,14 @@ export class SqliteOtterRepository implements OtterRepository {
       : null;
 
     this.db.prepare(`
-      INSERT INTO otters (id, name, type, status, role_name, role_responsibilities, parent_otter_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO otters (id, name, type, status, color, role_name, role_responsibilities, parent_otter_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       otter.id,
       otter.name,
       otter.type,
       otter.status,
+      otter.color,
       roleName,
       responsibilities,
       otter.parentOtterId,
@@ -56,6 +57,21 @@ export class SqliteOtterRepository implements OtterRepository {
       const otter = rowToOtter(row);
       result.set(otter.id, otter);
     }
+    return result;
+  }
+
+  /** F20260921otcl：对话内小獭出生色占用集（join participants + otters，一次 SELECT）。
+   *  占用范围 = active 参与者中 type='small' 且 color 非空（dissolved 獭已离场不占色）。 */
+  async getColorOccupancy(conversationId: string): Promise<Map<string, number>> {
+    const rows = this.db.prepare(`
+      SELECT o.color AS color, COUNT(*) AS n
+      FROM conversation_participants p
+      JOIN otters o ON o.id = p.otter_id
+      WHERE p.conversation_id = ? AND p.status = 'active' AND o.type = 'small' AND o.color IS NOT NULL
+      GROUP BY o.color
+    `).all(conversationId) as Array<{ color: string; n: number }>;
+    const result = new Map<string, number>();
+    for (const row of rows) result.set(row.color, row.n);
     return result;
   }
 

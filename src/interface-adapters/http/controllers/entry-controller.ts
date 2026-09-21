@@ -65,6 +65,8 @@ function toEntryDTO(e: Entry): EntryDTO {
     source: e.source,
     metadata: e.metadata,
     senderName: e.senderName,
+    // F20260921otcl：发送者出生色透出（repo 读路径 join otters 填充；user/system 条目 null）
+    senderColor: e.senderColor ?? null,
     contextTokens: e.contextTokens,
     contextTokensMax: e.contextTokensMax,
     createdAt: e.createdAt,

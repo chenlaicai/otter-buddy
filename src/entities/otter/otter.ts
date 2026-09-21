@@ -17,6 +17,9 @@ export interface Otter {
   name: string;
   type: OtterType;
   status: OtterStatus;
+  /** F20260921otcl：出生颜色（色板 key，如 'teal'）。大獭与未回填存量为 null；
+   *  值域见 api-contract OTTER_PALETTE_KEYS（消费方经投影透传，前端最终消费） */
+  color: string | null;
   role: OtterRole | null;
   parentOtterId: string | null;
   createdAt: string;

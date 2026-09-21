@@ -2,7 +2,7 @@ import { Search, Plus, Pin, X, Loader2 } from 'lucide-react'
 import { useRef, useEffect, useState, useCallback } from 'react'
 import type { LocalConversation as Conversation, LocalOtter as Otter } from '../../lib/mappers'
 import { mapConversationDTO } from '../../lib/mappers'
-import { getOtterColor } from '../../lib/otter-colors'
+import { resolveOtterVisual } from '../../lib/otter-visual'
 import { fmtRelativeTime } from '../../lib/utils'
 import * as api from '../../api/client'
 
@@ -267,7 +267,8 @@ function ConversationItem({
         </div>
         <div className="flex ml-auto">
           {convOtters.map(o => {
-            const color = getOtterColor(o.id)
+            // F20260921otcl：列表项自带身份（LocalOtter.type/color）走库值
+            const { color } = resolveOtterVisual(o.id, { type: o.type, color: o.color })
             return (
               <div
                 key={o.id}

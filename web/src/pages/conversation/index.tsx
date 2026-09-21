@@ -192,13 +192,15 @@ export default function ConversationPage() {
    *  fill-only 幂等语义保证延迟更新安全；全量替换（onDone 参与者刷新）跳过后关窗由
    *  upsert 链补齐参与者，无永久丢失 */
   const { runOrDefer, flush: flushDeferredOps } = useDeferredOps(() => modalOpenRef.current)
-  const upsertOtterIfAbsentDeferred = useCallback((otterId: string, otterName?: string, convId?: string) => {
+  const upsertOtterIfAbsentDeferred = useCallback((otterId: string, otterName?: string, convId?: string, identity?: { type?: string | null; color?: string | null }) => {
     const apply = (prev: Record<string, LocalOtter[]>) => {
       const cid = convId || activeId
       if (!cid || !otterId) return prev
       const convOtters = prev[cid] || []
       if (convOtters.some(o => o.id === otterId)) return prev
-      const newOtter: LocalOtter = { id: otterId, name: otterName || '', type: 'small', createdAt: '' }
+      // F20260921otcl：占位身份用事件携带的 otterType/otterColor（不再硬编码 'small'；
+      //  事件字段缺席时回退 small + color undefined，resolveOtterVisual 展示回退承接）
+      const newOtter: LocalOtter = { id: otterId, name: otterName || '', type: (identity?.type === 'big' ? 'big' : 'small') as 'big' | 'small', ...(identity?.color != null && { color: identity.color }), createdAt: '' }
       return { ...prev, [cid]: [...convOtters, newOtter] }
     }
     runOrDefer(() => setAllOtters(apply))
@@ -536,7 +538,7 @@ export default function ConversationPage() {
          *  气泡不存在则插入 completed 完整气泡（无占位、无 streaming 中间态），存在则填 body 收敛终态。
          *  F20260921urdo 契约收口：sequenceNum/createdAt 必接（后端已贯通）——seq 是
          *  已读游标与排序数据源，缺席即红点僵死。 */
-        const d = data as { entryId: string; invokeId?: string; otterId?: string; body?: string; otterName?: string; createdAt?: string; sequenceNum?: number }
+        const d = data as { entryId: string; invokeId?: string; otterId?: string; body?: string; otterName?: string; createdAt?: string; sequenceNum?: number; otterType?: string; otterColor?: string | null }
         if (!d.body) return
         const body = d.body
         let added = false
@@ -545,6 +547,8 @@ export default function ConversationPage() {
             added = true
             const msg: LocalMessage = {
               id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+              // F20260921otcl：事件携带出生色（占位/渲染双用）
+              scolor: d.otterColor ?? null,
               content: body, status: 'completed', seq: d.sequenceNum, ts: d.createdAt || nowTs(), dur: null,
               invokeId: d.invokeId,
             }
@@ -553,17 +557,18 @@ export default function ConversationPage() {
           return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, status: 'completed' as const, sn: m.sn || d.otterName || '' } : m)
         })
         if (d.otterId) {
-          upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId)
+          upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId, { type: d.otterType, color: d.otterColor })
         }
         if (added) { const atBottom = isAtBottomRef.current; runOrDefer(() => { if (!atBottom) setNewMessagesCount(c => c + 1) }) }
       },
       // F20260913ctlv 收尾：entry.complete 事件已退役（后端无发射点；speak 气泡终态由 invoke.end 收敛）
       'entry.failed': (data) => {
-        const d = data as { entryId: string; invokeId?: string; body?: string; otterId?: string; otterName?: string }
+        const d = data as { entryId: string; invokeId?: string; body?: string; otterId?: string; otterName?: string; otterType?: string; otterColor?: string | null }
         /** invoke 级失败（invokeId 锚）——刷新后由 invoke_end entry 呈现，实时阶段：
          *  无对应 speak 气泡时插一条 failed 消息（重试按钮数据源）；有则置 failed */
         const failedMsg: LocalMessage = {
           id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+          scolor: d.otterColor ?? null,
           content: d.body ?? '[未完成]', status: 'failed', ts: nowTs(), dur: null,
           invokeId: d.invokeId,
         }
@@ -576,15 +581,16 @@ export default function ConversationPage() {
         showToast(`第 ${d.attempt ?? '?'} 次自动重试：${d.reason ?? ''}`, 'info')
       },
       'entry.aborted': (data) => {
-        const d = data as { entryId: string; invokeId?: string; body?: string; otterId?: string; otterName?: string }
+        const d = data as { entryId: string; invokeId?: string; body?: string; otterId?: string; otterName?: string; otterType?: string; otterColor?: string | null }
         const otterId = d.otterId || ''
         const otterName = d.otterName
         if (otterId && otterName && activeId) {
-          upsertOtterIfAbsentDeferred(otterId, otterName, activeId)
+          upsertOtterIfAbsentDeferred(otterId, otterName, activeId, { type: d.otterType, color: d.otterColor })
         }
         /** invoke 级中止——失败气泡（可重试）；speak entry 若已存在则保留（发言有效） */
         const abortedMsg: LocalMessage = {
           id: d.entryId, st: 'otter', si: otterId, sn: otterName,
+          scolor: d.otterColor ?? null,
           content: d.body ?? '[中断]', status: 'aborted', ts: nowTs(), dur: null,
           invokeId: d.invokeId,
         }
@@ -617,7 +623,7 @@ export default function ConversationPage() {
         for (const fn of sessionLiveListeners.current) fn(item)
       },
       'invoke.start': (data) => {
-        const d = data as { invokeId: string; otterId: string; otterName?: string; triggerEntryId?: string; startedAt?: string }
+        const d = data as { invokeId: string; otterId: string; otterName?: string; triggerEntryId?: string; startedAt?: string; otterType?: string; otterColor?: string | null }
         const startTs = d.startedAt || nowTs()
         syncInvokeState(prev => applyInvokeStart(prev, {
           invokeId: d.invokeId, otterId: d.otterId, otterName: d.otterName || '',
@@ -630,12 +636,13 @@ export default function ConversationPage() {
         if (triggerEntryId) {
           batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, {
             id: triggerEntryId, st: 'otter', si: d.otterId, sn: d.otterName,
+            scolor: d.otterColor ?? null,
             content: '', ts: startTs, dur: null,
             entryType: 'invoke_start', invokeId: d.invokeId, status: 'completed',
           }))
         }
         /** 獭可能在 chain 中新建，保证右栏参与者列表能见 */
-        if (d.otterId) upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId)
+        if (d.otterId) upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId, { type: d.otterType, color: d.otterColor })
         /** F20260914evdz：Session 弹窗——新行动开始信号（列表自动冒行 + 自动展开） */
         const startItem: SessionLiveItem = { invokeId: d.invokeId, otterId: d.otterId, ev: null, start: true }
         sessionLiveEvents.current.push(startItem)
@@ -653,7 +660,7 @@ export default function ConversationPage() {
         }))
       },
       'invoke.end': (data) => {
-        const d = data as { invokeId: string; otterId?: string; status: 'completed' | 'failed' | 'aborted'; endedAt?: string; invokeEndEntryId?: string; endBody?: string }
+        const d = data as { invokeId: string; otterId?: string; status: 'completed' | 'failed' | 'aborted'; endedAt?: string; invokeEndEntryId?: string; endBody?: string; otterName?: string; otterType?: string; otterColor?: string | null }
         const otterId = d.otterId || findOtterByInvokeId(invokeStatesRef.current, d.invokeId)
         /** F20260914evdz：invoke 终态即 flush 实时通道（弹窗收到 ev:null 信号后全量拉取收敛，防乱序丢帧） */
         for (const fn of sessionLiveListeners.current) fn({ invokeId: d.invokeId, otterId: otterId || '', ev: null as never })
@@ -676,6 +683,7 @@ export default function ConversationPage() {
           const otterName = ottersRef.current[activeId!]?.find(o => o.id === otterId)?.name
           batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, {
             id: d.invokeEndEntryId!, st: 'otter', si: otterId, sn: otterName,
+            scolor: d.otterColor ?? null,
             content: d.endBody ?? '', ts: endedAt, dur: null,
             entryType: 'invoke_end', invokeId: d.invokeId, status: 'completed',
             invokeStatus: d.status === 'failed' || d.status === 'aborted' ? d.status : undefined,
@@ -683,11 +691,12 @@ export default function ConversationPage() {
         }
       },
       'entry.yield': (data) => {
-        const d = data as { entryId: string; invokeId?: string; otterId?: string; otterName?: string; yieldTargets?: string[]; invokeEndEntryId?: string }
+        const d = data as { entryId: string; invokeId?: string; otterId?: string; otterName?: string; yieldTargets?: string[]; invokeEndEntryId?: string; otterType?: string; otterColor?: string | null }
         const targets = (d.yieldTargets || []).map((t: string) => ottersRef.current[activeId]?.find(o => o.id === t)?.name || t)
         batchUpdateMessages(activeId!, (list) => {
           let next = insertCenteredByTs(list, {
             id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+            scolor: d.otterColor ?? null,
             content: '', ts: nowTs(), dur: null,
             entryType: 'yield', invokeId: d.invokeId, yieldTargets: targets,
           })
@@ -696,6 +705,7 @@ export default function ConversationPage() {
           if (d.invokeEndEntryId) {
             next = insertCenteredByTs(next, {
               id: d.invokeEndEntryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+              scolor: d.otterColor ?? null,
               content: '', ts: nowTs(), dur: null,
               entryType: 'invoke_end', invokeId: d.invokeId, status: 'completed',
             })
@@ -902,13 +912,14 @@ export default function ConversationPage() {
         'entry.speak': (data) => {
           /** 同常驻通道：entry.speak 自包含（entry.start 已退役）——不存在则插入 completed 完整气泡。
            *  F20260921urdo 契约收口：sequenceNum/createdAt 必接 */
-          const d = data as { entryId: string; invokeId?: string; otterId?: string; body?: string; otterName?: string; createdAt?: string; sequenceNum?: number }
+          const d = data as { entryId: string; invokeId?: string; otterId?: string; body?: string; otterName?: string; createdAt?: string; sequenceNum?: number; otterType?: string; otterColor?: string | null }
           if (!d.body) return
           const body = d.body
           batchUpdateMessages(activeId!, (list) => {
             if (!list.some(m => m.id === d.entryId)) {
               const msg: LocalMessage = {
                 id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+                scolor: d.otterColor ?? null,
                 content: body, status: 'completed', seq: d.sequenceNum, ts: d.createdAt || nowTs(), dur: null,
                 invokeId: d.invokeId,
               }
@@ -917,24 +928,25 @@ export default function ConversationPage() {
             return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, status: 'completed' as const, sn: m.sn || d.otterName || '' } : m)
           })
           if (d.otterId && activeId) {
-            upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId)
+            upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId, { type: d.otterType, color: d.otterColor })
           }
         },
         // F20260913ctlv 收尾：entry.complete 事件已退役（后端无发射点；speak 气泡终态由 invoke.end 收敛）
         'invoke.start': (data) => {
-          const d = data as { invokeId: string; otterId: string; otterName?: string; triggerEntryId?: string; startedAt?: string }
+          const d = data as { invokeId: string; otterId: string; otterName?: string; triggerEntryId?: string; startedAt?: string; otterType?: string; otterColor?: string | null }
           const startTs = d.startedAt || nowTs()
           const triggerEntryId = d.triggerEntryId
           if (triggerEntryId) {
             batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, {
               id: triggerEntryId, st: 'otter', si: d.otterId, sn: d.otterName,
+              scolor: d.otterColor ?? null,
               content: '', ts: startTs, dur: null,
               entryType: 'invoke_start', invokeId: d.invokeId, status: 'completed',
             }))
           }
         },
         'invoke.end': (data) => {
-          const d = data as { invokeId: string; otterId?: string; status: 'completed' | 'failed' | 'aborted'; endedAt?: string; invokeEndEntryId?: string }
+          const d = data as { invokeId: string; otterId?: string; status: 'completed' | 'failed' | 'aborted'; endedAt?: string; invokeEndEntryId?: string; otterType?: string; otterColor?: string | null }
           batchUpdateMessages(activeId!, (list) => list.map(m =>
             m.invokeId === d.invokeId && isInFlight(m)
               ? { ...m, status: d.status === 'completed' ? 'completed' as const : d.status === 'aborted' ? 'aborted' as const : 'failed' as const, content: m.content || (d.status === 'completed' ? '' : d.status === 'aborted' ? '[中断]' : '[未完成]') }
@@ -944,23 +956,26 @@ export default function ConversationPage() {
             const otterName = ottersRef.current[activeId!]?.find(o => o.id === otterId)?.name
             batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, {
               id: d.invokeEndEntryId!, st: 'otter', si: otterId || '', sn: otterName,
+              scolor: d.otterColor ?? null,
               content: '', ts: d.endedAt || nowTs(), dur: null,
               entryType: 'invoke_end', invokeId: d.invokeId, status: 'completed',
             }))
           }
         },
         'entry.yield': (data) => {
-          const d = data as { entryId: string; invokeId?: string; otterId?: string; otterName?: string; yieldTargets?: string[]; invokeEndEntryId?: string }
+          const d = data as { entryId: string; invokeId?: string; otterId?: string; otterName?: string; yieldTargets?: string[]; invokeEndEntryId?: string; otterType?: string; otterColor?: string | null }
           const targets = (d.yieldTargets || []).map((t: string) => ottersRef.current[activeId!]?.find(o => o.id === t)?.name || t)
           batchUpdateMessages(activeId!, (list) => {
             let next = insertCenteredByTs(list, {
               id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+              scolor: d.otterColor ?? null,
               content: '', ts: nowTs(), dur: null,
               entryType: 'yield', invokeId: d.invokeId, yieldTargets: targets,
             })
             if (d.invokeEndEntryId) {
               next = insertCenteredByTs(next, {
                 id: d.invokeEndEntryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+                scolor: d.otterColor ?? null,
                 content: '', ts: nowTs(), dur: null,
                 entryType: 'invoke_end', invokeId: d.invokeId, status: 'completed',
               })
@@ -969,18 +984,20 @@ export default function ConversationPage() {
           })
         },
         'entry.failed': (data) => {
-          const d = data as { entryId: string; invokeId?: string; body?: string; otterId?: string; otterName?: string }
+          const d = data as { entryId: string; invokeId?: string; body?: string; otterId?: string; otterName?: string; otterType?: string; otterColor?: string | null }
           const failedMsg: LocalMessage = {
             id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+            scolor: d.otterColor ?? null,
             content: d.body ?? '[未完成]', status: 'failed', ts: nowTs(), dur: null,
             invokeId: d.invokeId,
           }
           batchUpdateMessages(activeId!, (list) => upsertTerminalMessage(list, failedMsg))
         },
         'entry.aborted': (data) => {
-          const d = data as { entryId: string; invokeId?: string; body?: string; otterId?: string; otterName?: string }
+          const d = data as { entryId: string; invokeId?: string; body?: string; otterId?: string; otterName?: string; otterType?: string; otterColor?: string | null }
           const abortedMsg: LocalMessage = {
             id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+            scolor: d.otterColor ?? null,
             content: d.body ?? '[中断]', status: 'aborted', ts: nowTs(), dur: null,
             invokeId: d.invokeId,
           }
@@ -1125,13 +1142,14 @@ export default function ConversationPage() {
         'entry.speak': (data) => {
           /** 同常驻通道：entry.speak 自包含（entry.start 已退役）——不存在则插入 completed 完整气泡。
            *  F20260921urdo 契约收口：sequenceNum/createdAt 必接 */
-          const d = data as { entryId: string; invokeId?: string; otterId?: string; body?: string; otterName?: string; createdAt?: string; sequenceNum?: number }
+          const d = data as { entryId: string; invokeId?: string; otterId?: string; body?: string; otterName?: string; createdAt?: string; sequenceNum?: number; otterType?: string; otterColor?: string | null }
           if (!d.body) return
           const body = d.body
           batchUpdateMessages(activeId, (list) => {
             if (!list.some(m => m.id === d.entryId)) {
               const msg: LocalMessage = {
                 id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+                scolor: d.otterColor ?? null,
                 content: body, status: 'completed', seq: d.sequenceNum, ts: d.createdAt || nowTs(), dur: null,
                 invokeId: d.invokeId,
               }
@@ -1142,19 +1160,20 @@ export default function ConversationPage() {
         },
         // F20260913ctlv 收尾：entry.complete 事件已退役（后端无发射点；speak 气泡终态由 invoke.end 收敛）
         'invoke.start': (data) => {
-          const d = data as { invokeId: string; otterId: string; otterName?: string; triggerEntryId?: string; startedAt?: string }
+          const d = data as { invokeId: string; otterId: string; otterName?: string; triggerEntryId?: string; startedAt?: string; otterType?: string; otterColor?: string | null }
           const startTs = d.startedAt || nowTs()
           const triggerEntryId = d.triggerEntryId
           if (triggerEntryId) {
             batchUpdateMessages(activeId, (list) => insertCenteredByTs(list, {
               id: triggerEntryId, st: 'otter', si: d.otterId, sn: d.otterName,
+              scolor: d.otterColor ?? null,
               content: '', ts: startTs, dur: null,
               entryType: 'invoke_start', invokeId: d.invokeId, status: 'completed',
             }))
           }
         },
         'invoke.end': (data) => {
-          const d = data as { invokeId: string; otterId?: string; status: 'completed' | 'failed' | 'aborted'; endedAt?: string; invokeEndEntryId?: string }
+          const d = data as { invokeId: string; otterId?: string; status: 'completed' | 'failed' | 'aborted'; endedAt?: string; invokeEndEntryId?: string; otterType?: string; otterColor?: string | null }
           batchUpdateMessages(activeId, (list) => list.map(m =>
             m.invokeId === d.invokeId && isInFlight(m)
               ? { ...m, status: d.status === 'completed' ? 'completed' as const : d.status === 'aborted' ? 'aborted' as const : 'failed' as const, content: m.content || (d.status === 'completed' ? '' : d.status === 'aborted' ? '[中断]' : '[未完成]') }
@@ -1164,23 +1183,26 @@ export default function ConversationPage() {
             const otterName = ottersRef.current[activeId]?.find(o => o.id === otterId)?.name
             batchUpdateMessages(activeId, (list) => insertCenteredByTs(list, {
               id: d.invokeEndEntryId!, st: 'otter', si: otterId || '', sn: otterName,
+              scolor: d.otterColor ?? null,
               content: '', ts: d.endedAt || nowTs(), dur: null,
               entryType: 'invoke_end', invokeId: d.invokeId, status: 'completed',
             }))
           }
         },
         'entry.yield': (data) => {
-          const d = data as { entryId: string; invokeId?: string; otterId?: string; otterName?: string; yieldTargets?: string[]; invokeEndEntryId?: string }
+          const d = data as { entryId: string; invokeId?: string; otterId?: string; otterName?: string; yieldTargets?: string[]; invokeEndEntryId?: string; otterType?: string; otterColor?: string | null }
           const targets = (d.yieldTargets || []).map((t: string) => ottersRef.current[activeId]?.find(o => o.id === t)?.name || t)
           batchUpdateMessages(activeId, (list) => {
             let next = insertCenteredByTs(list, {
               id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+              scolor: d.otterColor ?? null,
               content: '', ts: nowTs(), dur: null,
               entryType: 'yield', invokeId: d.invokeId, yieldTargets: targets,
             })
             if (d.invokeEndEntryId) {
               next = insertCenteredByTs(next, {
                 id: d.invokeEndEntryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
+                scolor: d.otterColor ?? null,
                 content: '', ts: nowTs(), dur: null,
                 entryType: 'invoke_end', invokeId: d.invokeId, status: 'completed',
               })
@@ -1266,12 +1288,13 @@ export default function ConversationPage() {
       const dto = await api.createOtter({
         name: form.name,
         type: 'small',
+        // F20260921otcl：出生挑色域（query 注入当前对话）
         role: form.roleName || form.responsibilities.length > 0
           ? { name: form.roleName, responsibilities: form.responsibilities }
           : undefined,
         modelAlias: form.modelAlias || undefined,
         systemPrompt: form.systemPrompt,
-      })
+      }, activeId)
       // T2（前端版）：自选头像写 localStorage override（随机 = 不写，走 hash 池）
       if (form.avatarName) setOtterAvatarOverride(dto.id, form.avatarName)
       const otter = mapOtterDTO(dto)

@@ -198,7 +198,11 @@ export class AgentTurnOrchestrator {
 
       // 发送 invoke.end + turn.complete 事件（yield 已发 entry.yield/invoke_end 由 tool-factory 负责；
       // 此处补发 invoke.end 终态事件保证前端右栏状态收敛——emitInvokeEnd 幂等安全）
-      ctx.callbacks.emitInvokeEnd(input.invokeId, "completed", duration, { toolCallCount: ctx.toolCallCount, tokenUsage: result.tokenUsage });
+      // F20260921otcl：completed 路径补 otter 身份（前端气泡终态收敛时 upsert 占位用）
+      {
+        const otter = await ctx.callbacks.getOtterById(input.otterId);
+        ctx.callbacks.emitInvokeEnd(input.invokeId, "completed", duration, { toolCallCount: ctx.toolCallCount, tokenUsage: result.tokenUsage, otterName: otter?.name, otterType: otter?.type, otterColor: otter?.color ?? null });
+      }
 
       this.safeEmitEvent(ctx.callbacks, { event: "turn.complete", data: {} });
 
@@ -573,7 +577,9 @@ export class AgentTurnOrchestrator {
     try {
       await callbacks.updateInvokeStatus(input.invokeId, 'failed');
       const endEntry = await callbacks.createInvokeEndEntry(input.invokeId, 'failed', failBody);
-      callbacks.emitInvokeEnd(input.invokeId, 'failed', Date.now() - startTime, { toolCallCount: 0, invokeEndEntryId: endEntry?.entryId, endBody: endEntry?.body });
+      // F20260921otcl：终态事件补 otter 身份
+      const endOtter = await callbacks.getOtterById(input.otterId);
+      callbacks.emitInvokeEnd(input.invokeId, 'failed', Date.now() - startTime, { toolCallCount: 0, invokeEndEntryId: endEntry?.entryId, endBody: endEntry?.body, otterName: endOtter?.name, otterType: endOtter?.type, otterColor: endOtter?.color ?? null });
     } catch { /* already terminal */ }
   }
 
@@ -733,9 +739,11 @@ export class AgentTurnOrchestrator {
 
     // 发言石回传触发者（终态时无 yield 目标）
     await this.finalizeInvokeFailedWithTsp(ctx.input, failBody, [ctx.input.senderId], ctx.callbacks, ctx.startTime);
+    // F20260921otcl：entry.failed 补 otter 身份（前端 failed 气泡 upsert 占位用）
+    const failOtter = await ctx.callbacks.getOtterById(ctx.input.otterId);
     this.safeEmitEvent(ctx.callbacks, {
       event: 'entry.failed',
-      data: { entryId: ctx.input.invokeId, invokeId: ctx.input.invokeId, otterId: ctx.input.otterId, body: failBody },
+      data: { entryId: ctx.input.invokeId, invokeId: ctx.input.invokeId, otterId: ctx.input.otterId, body: failBody, otterName: failOtter?.name, otterType: failOtter?.type, otterColor: failOtter?.color ?? null },
     });
 
     return {
@@ -759,7 +767,9 @@ export class AgentTurnOrchestrator {
       await callbacks.updateInvokeStatus(input.invokeId, 'failed');
       await callbacks.updateInvokeTalkingStonePassedTo?.(input.invokeId, talkingStonePassedTo);
       const endEntry = await callbacks.createInvokeEndEntry(input.invokeId, 'failed', failBody);
-      callbacks.emitInvokeEnd(input.invokeId, 'failed', Date.now() - startTime, { invokeEndEntryId: endEntry?.entryId, endBody: endEntry?.body });
+      // F20260921otcl：终态事件补 otter 身份
+      const endOtter = await callbacks.getOtterById(input.otterId);
+      callbacks.emitInvokeEnd(input.invokeId, 'failed', Date.now() - startTime, { invokeEndEntryId: endEntry?.entryId, endBody: endEntry?.body, otterName: endOtter?.name, otterType: endOtter?.type, otterColor: endOtter?.color ?? null });
     } catch { /* already terminal */ }
   }
 
@@ -773,6 +783,7 @@ export class AgentTurnOrchestrator {
   }
 
   /** Abort terminal: invoke 终态化 aborted + invoke_end entry + SSE */
+  // eslint-disable-next-line complexity -- F20260921otcl：+终态事件 otter 身份查询分支（guard bounce 判定/终态化/观测写入同内聚）
    private async abortTerminal(ctx: TerminalContext): Promise<TurnResult> {
     const { invokeId, otterId } = ctx.input;
 
@@ -800,7 +811,9 @@ export class AgentTurnOrchestrator {
       endBody = endEntry?.body;
     } catch { /* ignore */ }
 
-    ctx.callbacks.emitInvokeEnd(invokeId, 'aborted', Date.now() - ctx.startTime, { toolCallCount: actualToolCallCount, invokeEndEntryId, endBody });
+    // F20260921otcl：终态事件补 otter 身份（前端 aborted 气泡 upsert 占位用）
+    const abortOtter = await ctx.callbacks.getOtterById(otterId);
+    ctx.callbacks.emitInvokeEnd(invokeId, 'aborted', Date.now() - ctx.startTime, { toolCallCount: actualToolCallCount, invokeEndEntryId, endBody, otterName: abortOtter?.name, otterType: abortOtter?.type, otterColor: abortOtter?.color ?? null });
 
     return { invokeId, duration: Date.now() - ctx.startTime };
   }
@@ -854,7 +867,9 @@ export class AgentTurnOrchestrator {
       endBody = endEntry?.body;
     } catch { /* ignore */ }
 
-    callbacks.emitInvokeEnd(invokeId, 'failed', Date.now() - startTime, { invokeEndEntryId, endBody });
+    // F20260921otcl：终态事件补 otter 身份（前端 failed 气泡 upsert 占位用）
+    const endOtter = await callbacks.getOtterById(otterId);
+    callbacks.emitInvokeEnd(invokeId, 'failed', Date.now() - startTime, { invokeEndEntryId, endBody, otterName: endOtter?.name, otterType: endOtter?.type, otterColor: endOtter?.color ?? null });
 
     this.safeEmitEvent(callbacks, {
       event: 'error',

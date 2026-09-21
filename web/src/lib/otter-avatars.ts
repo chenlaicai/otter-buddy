@@ -43,10 +43,11 @@ export function smallOtterAvatarUrl(resourceName: string): string {
 /** localStorage override key 前缀（导出便于调试/清缓存定位） */
 export const OTTER_AVATAR_OVERRIDE_PREFIX = 'otter-avatar:'
 
-/** 历史大獭 ID 兜底（otter.type 不可得时的降级判断；生产大獭 ID 是 UUID） */
-const BIG_OTTER_IDS = new Set(['o1', 'big-otter'])
-
-/** FNV-1a 32-bit hash：确定性、跨刷新稳定 */
+/**
+ * FNV-1a 32-bit hash：确定性、跨刷新稳定。
+ * F20260921otcl：BIG_OTTER_IDS 历史兜底已删除——type 三路契约（SSE/participants/
+ * entries）补齐后处处可得，对生产 UUID 永久失效的兜底是死代码；type 缺省视为小獭
+ */
 function fnv1a(str: string): number {
   let h = 0x811c9dc5
   for (let i = 0; i < str.length; i++) {
@@ -88,13 +89,13 @@ export function setOtterAvatarOverride(otterId: string, avatarName: string | nul
 
 /**
  * otterId → 头像 URL。
- * 优先按 otter.type 判断大獭（生产 ID 为 UUID，无法枚举硬编码）；
- * type 缺省时回退历史 ID 池（o1/big-otter），再缺省视为小獭。
+ * 按 otter.type 判断大獭（生产 ID 为 UUID，无法枚举硬编码）；type 缺省视为小獭
+ * （F20260921otcl：历史 ID 池兜底已删）。
  * 小獭优先读 localStorage override（F20260827ucrt），未命中走 hash 池——
  * 未自选的獭路径与改前逐位一致。
  */
 export function getOtterAvatar(otterId: string, type?: 'big' | 'small'): string {
-  if (type === 'big' || (!type && BIG_OTTER_IDS.has(otterId))) return BIG_OTTER_AVATAR
+  if (type === 'big') return BIG_OTTER_AVATAR
   const override = getAvatarOverride(otterId, type)
   if (override) return `/avatars/${override}.svg`
   const poolIndex = fnv1a(otterId) % SMALL_OTTER_POOL.length

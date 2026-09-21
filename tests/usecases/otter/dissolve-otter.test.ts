@@ -15,6 +15,7 @@ function makeActiveOtter(overrides: Partial<Otter> = {}): Otter {
     name: "测试水獭",
     type: "big",
     status: "active",
+    color: null,
     role: null,
     parentOtterId: null,
     createdAt: "2026-07-20T00:00:00Z",

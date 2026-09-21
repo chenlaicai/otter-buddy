@@ -57,6 +57,9 @@ export interface Entry {
   metadata: EntryMetadata | null;
   /** 发送者显示名快照 */
   senderName: string;
+  /** F20260921otcl：发送者出生色（色板 key；仅 otter 条目有值，大獭/未回填为 null）。
+   *  读路径 join otters 填充，不入库 */
+  senderColor?: string | null;
   contextTokens: number | null;
   contextTokensMax: number | null;
   createdAt: string;

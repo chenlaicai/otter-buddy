@@ -76,6 +76,8 @@ export class OtterController {
         modelAlias: body.modelAlias,
         systemPrompt: body.systemPrompt,
         context: body.context,
+        // F20260921otcl：出生挑色域——UI 在对话页创建小獭，query 注入当前对话 ID
+        conversationId: c.req.query("conversationId") || undefined,
       };
       const otter = await this.createOtterUseCase.execute(input);
       const config = this.configProvider?.getConfig(otter.id);

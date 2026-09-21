@@ -59,6 +59,23 @@ function rowToEntry(row: EntryRow): Entry {
   };
 }
 
+/** F20260921otcl：批量填充 entries 的 senderColor（读路径 join otters，不入库）。
+ *  仅 senderType='otter' 的条目查询；user/system 条目保持 undefined。 */
+async function attachSenderColors(db: Database.Database, entries: Entry[]): Promise<void> {
+  const otterIds = [...new Set(entries.filter(e => e.senderType === "otter" && e.senderId).map(e => e.senderId as string))];
+  if (otterIds.length === 0) return;
+  const placeholders = otterIds.map(() => "?").join(", ");
+  const rows = db.prepare(`
+    SELECT id, color FROM otters WHERE id IN (${placeholders})
+  `).all(...otterIds) as Array<{ id: string; color: string | null }>;
+  const colorById = new Map(rows.map(r => [r.id, r.color]));
+  for (const e of entries) {
+    if (e.senderType === "otter" && e.senderId) {
+      e.senderColor = colorById.get(e.senderId) ?? null;
+    }
+  }
+}
+
 export class SqliteEntryRepository implements EntryRepository {
   constructor(private readonly db: Database.Database) {}
 
@@ -207,6 +224,7 @@ export class SqliteEntryRepository implements EntryRepository {
     if (!row) return null;
     const entry = rowToEntry(row);
     await this.attachAttachments([entry]);
+    await attachSenderColors(this.db, [entry]);
     return entry;
   }
 
@@ -232,6 +250,7 @@ export class SqliteEntryRepository implements EntryRepository {
     const rows = this.db.prepare(sql).all(...params) as EntryRow[];
     const entries = rows.map(rowToEntry);
     await this.attachAttachments(entries);
+    await attachSenderColors(this.db, entries);
     return entries;
   }
 
@@ -257,6 +276,7 @@ export class SqliteEntryRepository implements EntryRepository {
     ).all(entry.conversation_id, entry.sequence_num, count) as EntryRow[];
     const entries = rows.map(rowToEntry);
     await this.attachAttachments(entries);
+    await attachSenderColors(this.db, entries);
     return entries;
   }
 
@@ -270,6 +290,7 @@ export class SqliteEntryRepository implements EntryRepository {
     ).all(entry.conversation_id, entry.sequence_num, count) as EntryRow[];
     const entries = rows.map(rowToEntry);
     await this.attachAttachments(entries);
+    await attachSenderColors(this.db, entries);
     return entries;
   }
 

@@ -215,7 +215,7 @@ describe("sendMessage 附件前置校验 + FTS 时序（R3）", () => {
     };
     await convRepo.create(conv);
     const otter: Otter = {
-      id: "otter-big", name: "大獭", type: "big", status: "active", role: null, parentOtterId: null,
+      id: "otter-big", name: "大獭", type: "big", status: "active", color: null, role: null, parentOtterId: null,
       createdAt: "2026-01-01T00:00:00Z", dissolvedAt: null,
     };
     await otterRepo.createOtter(otter);

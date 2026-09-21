@@ -14,6 +14,8 @@ export function toOtterDTO(otter: Otter, modelAlias?: string, modelIsDefault?: b
     name: otter.name,
     type: otter.type,
     status: otter.status,
+    // F20260921otcl：出生色透出（大獭/未回填 null）
+    color: otter.color ?? null,
     role: otter.role,
     parentOtterId: otter.parentOtterId,
     createdAt: otter.createdAt,

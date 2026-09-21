@@ -42,7 +42,7 @@ export function toConversationListItemDTO(
 export function toParticipantDTO(
   p: ConversationParticipant,
   otterName: string,
-  extra?: { otterType?: string; roleName?: string; modelAlias?: string; modelIsDefault?: boolean },
+  extra?: { otterType?: string; otterColor?: string | null; roleName?: string; modelAlias?: string; modelIsDefault?: boolean },
 ): ParticipantDTO {
   return {
     id: p.id,
@@ -50,6 +50,7 @@ export function toParticipantDTO(
     otterId: p.otterId,
     otterName,
     ...(extra?.otterType !== undefined && { otterType: extra.otterType }),
+    ...(extra?.otterColor !== undefined && { otterColor: extra.otterColor }),
     ...(extra?.roleName !== undefined && { roleName: extra.roleName }),
     ...(extra?.modelAlias !== undefined && { modelAlias: extra.modelAlias }),
     ...(extra?.modelIsDefault !== undefined && { modelIsDefault: extra.modelIsDefault }),

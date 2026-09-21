@@ -30,6 +30,13 @@
   --color-lavender-500: #8B7AB8;
   --color-lavender-600: #6B5A98;
 
+  /* F20260921otcl：色板新增阶（sage/plum——小獭出生色 nameClass 消费，
+     与 otter-visual.ts PALETTE_VISUALS 的 hex 主色同源） */
+  --color-sage-500: #8FAF8F;
+  --color-sage-600: #6F8F6F;
+  --color-plum-500: #9C6B9C;
+  --color-plum-600: #7A4F7A;
+
   /* F20260827abcd: 玻璃色/状态色/骨架色 token（@theme 生成 bg-* utility） */
   --color-glass-surface: rgba(245, 245, 244, 0.5); /* stone-50/50 */
   --color-status-success: rgba(220, 252, 231, 1); /* green-100 */

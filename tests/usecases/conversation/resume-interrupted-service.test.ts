@@ -27,6 +27,7 @@ const T0 = "2026-01-01T00:00:00Z";
 function otterFixture(id: string): Otter {
   return {
     id, name: `獭-${id}`, type: "big", status: "active",
+    color: null,
     role: null, parentOtterId: null,
     createdAt: T0, dissolvedAt: null,
   };

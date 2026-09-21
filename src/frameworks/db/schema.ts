@@ -341,6 +341,8 @@ function createOtterTables(db: Database.Database): void {
       name TEXT NOT NULL,
       type TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active',
+      -- F20260921otcl：出生颜色（色板 key，如 'teal'；大獭与未回填存量为 NULL）
+      color TEXT,
       role_name TEXT,
       role_responsibilities TEXT,
       parent_otter_id TEXT,
