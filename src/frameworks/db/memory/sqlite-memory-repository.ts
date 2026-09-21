@@ -489,10 +489,13 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     if (tokenizedQuery.length === 0) return [];
     const rows = this.searchFtsJiebaRows(query, filters);
 
-    // F20260811mrpy Part 2: 应用层 extractSnippet
+    // F20260811mrpy Part 2: 应用层 extractSnippet；#740: 文档类条目锚点命中时
+    // 锚点词只注入 FTS 索引（F20260902rcq3）不在 content 本体，extractSnippet 找不到
+    // token 会走「前 200 字符」fallback——snippet 与命中原因脱节。传 sourceIdPrefix
+    // 让 fallback 带上文档标识，用户看到「为何命中」。
     return rows.map(row => {
       const content = row.content || '';
-      const snippet = this.extractSnippet(content, tokenizedQuery);
+      const snippet = this.extractSnippet(content, tokenizedQuery, 100, row.source_id);
       return {
         entryId: row.id,
         ftsRank: row.bm25_score,
@@ -508,7 +511,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
    * 性能保护：tokens.slice(0, 10) 限制扫描 token 数防 O(n*m) 爆炸。
    * fallback：全部 token 未匹配上时,返回前 200 字符。
    */
-  private extractSnippet(content: string, tokens: string[], windowSize = 100): string {
+  private extractSnippet(content: string, tokens: string[], windowSize = 100, sourceIdPrefix?: string): string {
     if (!content) return '';
     let firstMatchPos = -1;
     for (const token of tokens.slice(0, 10)) {
@@ -516,7 +519,10 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
       if (idx >= 0) { firstMatchPos = idx; break; }
     }
     if (firstMatchPos < 0) {
-      return content.slice(0, 200);
+      // #740: token 全未命中（锚点命中的典型形态：锚点词只在 FTS 索引前缀里）——
+      // fallback 带 sourceId 前缀回退，snippet 至少指回命中文档；无 sourceId 时维持原行为
+      const fallbackBody = content.slice(0, 200);
+      return sourceIdPrefix ? `[${sourceIdPrefix}] ${fallbackBody}` : fallbackBody;
     }
     const start = Math.max(0, firstMatchPos - windowSize);
     const end = Math.min(content.length, firstMatchPos + windowSize);
