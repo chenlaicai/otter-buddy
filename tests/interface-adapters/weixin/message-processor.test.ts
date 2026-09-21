@@ -46,6 +46,8 @@ function makeProcessor(overrides: Record<string, unknown> = {}) {
 
   const processor = new WeixinMessageProcessor({
     manageConnection,
+    // F20260921wxba：bot 账号锚（bot=对话模型；默认测试值，覆盖可换）
+    botAccountId: "bot-acc-1",
     sendEntry,
     entryRepo,
     weixinGateway,
@@ -56,6 +58,27 @@ function makeProcessor(overrides: Record<string, unknown> = {}) {
     ...overrides,
   } as any);
   return { processor, sentMessages, replies, dispatched, manageConnection, logger };
+}
+
+/** F20260921wxba：有状态 fake 连接仓库——按 externalId 建连/取对话，
+ *  行为断言用（消息落点由路由锚决定，与真实链路同构） */
+function fakeAnchorLedger() {
+  const anchoredExternals: string[] = [];
+  const convOf = new Map<string, { id: string; title: string }>();
+  return {
+    anchoredExternals,
+    manageConnection: {
+      ensureConnection: async (externalId: string) => {
+        anchoredExternals.push(externalId);
+        convOf.set(`conn-of-${externalId}`, { id: `conv-of-${externalId}`, title: externalId });
+        return { id: `conn-of-${externalId}`, externalId };
+      },
+      getCurrentConversation: async (connectionId: string) => convOf.get(connectionId) ?? null,
+      listActiveConversations: async () => [],
+      enterConversation: async () => {},
+      leaveConversation: async () => {},
+    },
+  };
 }
 
 describe("WeixinMessageProcessor", () => {
@@ -95,6 +118,25 @@ describe("WeixinMessageProcessor", () => {
     const ctx = makeProcessor({ noConversation: true });
     await ctx.processor.process({ fromUserId: "u-1", body: "", raw: { item_list: [{ type: 2, image_item: { } }] } });
     expect(ctx.replies[0]).toContain("链接有时效");
+  });
+
+  it("F20260921wxba：入站路由锚 = bot 账号（bot=对话），消息不落在发送者自己的线上", async () => {
+    // 根因回归：曾按 fromUserId 开户 → 建线锚(accountId)与消息锚(发送者)分裂，
+    // 新线收不到消息、旧线继续吸走消息。行为断言：user-a 发的消息落在 bot 锚的对话
+    const ledger = fakeAnchorLedger();
+    const ctx = makeProcessor({ manageConnection: ledger.manageConnection as any });
+    await ctx.processor.process({ fromUserId: "user-a", body: "在吗", raw: { item_list: [{ type: 1, text_item: { text: "在吗" } }] } });
+    expect(ctx.dispatched[0].conversationId).toBe("conv-of-bot-acc-1");
+    expect(ledger.anchoredExternals).not.toContain("user-a");
+  });
+
+  it("F20260921wxba：两个发送者私聊同一 bot → 汇流同一对话（发送者身份保留在 entry）", async () => {
+    const ledger = fakeAnchorLedger();
+    const ctx = makeProcessor({ manageConnection: ledger.manageConnection as any });
+    await ctx.processor.process({ fromUserId: "user-a", body: "在吗", raw: { item_list: [] } });
+    await ctx.processor.process({ fromUserId: "user-b", body: "我也在", raw: { item_list: [] } });
+    expect(ctx.dispatched.map(d => d.conversationId)).toEqual(["conv-of-bot-acc-1", "conv-of-bot-acc-1"]);
+    expect(ctx.dispatched.map(d => d.senderId)).toEqual(["user-a", "user-b"]);
   });
 
   it("/list 命令：走命令分支，不进对话", async () => {

@@ -502,12 +502,26 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       if (!conv) throw new Error("助理线创建失败");
       return { conversationId: conv.id, title: conv.title };
     },
-    onWeixinAccountDeleted: (accountId) => {
+    onWeixinAccountDeleted: async (accountId) => {
       // 账号删除：停轮询（热启动池 + 初始启动池都查；初始池删除后无法 splice
       // 因为 weixinPollers 在别处持有——stop 即可，数组残留无害：进程生命周期内
       // 它不再拉起新轮询，长轮询 35s 超时后自然停止）
       const stopped = stopWeixinPoller(accountId, extraWeixinPollers);
       if (!stopped && weixinPollers) stopWeixinPoller(accountId, weixinPollers);
+      // F20260921wxba：释放 bot 锚 connection 的活跃绑定——删号后重扫建新线时，
+      // 新 conversation 能正常绑上（旧代码删号不清绑定：账号复用 id 时重扫后
+      // ensureConnection 幂等命中旧 connection，getCurrentConversation 返回
+      // 「已建线」旧对话，新建线静默失效）。查到才释放（幂等，无绑定不动）
+      try {
+        const conn = await repos.connection.getByExternalId(accountId);
+        if (conn) {
+          const session = await repos.connection.getActiveSession(conn.id);
+          if (session) await repos.connection.releaseSession(session.id, new Date().toISOString());
+        }
+      } catch (err) {
+        // 清理失败不阻断删号主链（下次删号/重扫可重试）；留日志供诊断
+        logger.warn("Weixin account deleted; connection release failed", { accountId, error: err instanceof Error ? err.message : String(err) });
+      }
       // #592：清理关联的活跃登录会话——开着登录页又去删账号的竞态场景，不清理
       // 的话扫码确认后账号重新落盘（「删了又复活」）。非终态会话置 cancelled；
       // 若扫码已在后台完成（accountId 已回填）连带清同扫码人的其它会话。已终态

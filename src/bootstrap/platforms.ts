@@ -509,6 +509,8 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
       });
       const processor = new WeixinMessageProcessor({
         manageConnection: uc.manageConnection,
+        // F20260921wxba：入站路由锚 = bot 账号（与扫码建线同键，bot=对话统一模型）
+        botAccountId: account.id,
         // F20260918imas / F20260920imax：助理态（私聊自动开户；对话永续 + 8h 静默换 session）；语义同 setupFeishu
         ...buildAssistantInjections(appConfig, uc),
         // F20260913ctlv 收尾批2：微信消息唯一落点 = entries（与飞书同构）

@@ -66,6 +66,10 @@ export class WeixinMessageProcessor {
       agentDispatchService: AgentDispatchService;
       messageBroadcaster: MessageBroadcaster;
       logger: Logger;
+      /** F20260921wxba：bot 账号锚（bot=对话模型，与扫码建线 provisionWeixinAssistantLine
+       *  的 ensureConnection(accountId,...) 同键）。缺省回退 fromUserId 旧锚（未过装配的
+       *  遗留路径，仅测试/降级兼容——线上恒由 platforms.ts 传入 account.id） */
+      botAccountId?: string;
       /** 媒体支持（issue #567）：媒体下载网关 + 附件上传管线 + 注入服务。未注入时媒体降级为提示文本 */
       mediaGateway?: WeixinMediaGateway;
       attachmentUpload?: AttachmentUploadService;
@@ -82,8 +86,14 @@ export class WeixinMessageProcessor {
       textLength: body.length,
     });
 
-    // F20260831xtrt：微信用户建连声明 externalType=weixin——出站通道按类型路由的依据
-    const connection = await this.deps.manageConnection.ensureConnection(fromUserId, fromUserId, "weixin");
+    // F20260921wxba：入站路由锚 = bot 账号（bot=对话，搭档统一模型，与飞书 feishu-bot:<appId>
+    // 同构）。曾按 fromUserId 开户 → 建线锚(accountId)与消息锚(发送者 id)永久分裂：
+    // 新建助理线收不到消息，旧时代按人建的线继续吸走消息（用户实锤：移除重扫后
+    // 消息仍进旧对话）。修后：消息恒走扫码建线的同一 connection → 同一助理对话；
+    // fromUserId 仅用于出站 contextToken 定向、命令门禁、entry 发送者身份。
+    // 未传 botAccountId 时回退 fromUserId（装配层恒传，仅防御未装配场景）
+    const anchor = this.deps.botAccountId ?? fromUserId;
+    const connection = await this.deps.manageConnection.ensureConnection(anchor, anchor, "weixin");
 
     if (!(await this.handleInbound(fromUserId, connection.id, msg))) return;
   }
