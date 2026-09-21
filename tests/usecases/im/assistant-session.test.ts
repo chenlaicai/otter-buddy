@@ -157,4 +157,29 @@ describe("AssistantSessionManager", () => {
     const result = await ctx.manager.ensureAssistantConversation({ connectionId: "conn-1", channel: "weixin", displayName: "x" });
     expect(result).toBeNull();
   });
+
+  it("收篇摘要时间戳为 Asia/Shanghai 本地时间，非 UTC 直出（A2 修复验证）", async () => {
+    // A2 田bug：旧实现 toISOString().slice(0,16) 直出 UTC，用户看到的时间差 8 小时。
+    // 固定 UTC 时间锚定：06:30Z 应显示 14:30（Shanghai），而非 06:30（UTC）。
+    // mock 按真实仓库语义实现：limit:1（maybeRestartIdleSession 阈值判断）返回旧时间
+    // 触发 8h 静默重启，writeDigest 全量拉取返回固定锚定时间
+    const ctx = makeManager({ lastEntryAgeHours: 0, sessionIdleHours: 1 });
+    const oldEntries = [
+      { id: "e-1", entryType: "speak", body: "水獭回复", createdAt: "2026-09-19T06:30:00Z", sequenceNum: 2 },
+      { id: "e-0", entryType: "user", body: "用户提问", createdAt: "2026-09-19T06:20:00Z", sequenceNum: 1 },
+    ];
+    ctx.deps.entryRepo.getEntries.mockImplementation(async (_id: string, options?: { entryType?: string; limit?: number }) => {
+      if (options?.limit === 1) return [oldEntries[0]]; // 静默阈值判断（昨日时间，超 1h 阈值触发重启）
+      return options?.entryType
+        ? oldEntries.filter(e => e.entryType === options.entryType)
+        : oldEntries;
+    });
+    ctx.deps.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-old", title: "微信助理 · x" });
+    await ctx.manager.ensureAssistantConversation({ connectionId: "conn-1", channel: "weixin", displayName: "x" });
+    const summary = ctx.summaries[0].summary;
+    expect(summary).toContain("[2026-09-19 14:30]");
+    expect(summary).toContain("[2026-09-19 14:20]");
+    // 旧实现的 UTC 直出不应出现
+    expect(summary).not.toContain("[2026-09-19 06:3");
+  });
 });

@@ -1,5 +1,6 @@
 import { Clock, Play, History, Edit, Trash, AlertCircle } from 'lucide-react'
 import type { LocalScheduledTask } from '../../lib/mappers'
+import { fmtTimeShort } from '../../lib/utils'
 
 interface Props {
   tasks: LocalScheduledTask[]
@@ -20,7 +21,7 @@ function formatNextTrigger(isoString: string | null): string {
     if (diff < 60000) return '不到 1 分钟'
     if (diff < 3600000) return `约 ${Math.floor(diff / 60000)} 分钟`
     if (diff < 86400000) return `约 ${Math.floor(diff / 3600000)} 小时`
-    return date.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' })
+    return fmtTimeShort(isoString)
   } catch {
     return ''
   }
@@ -103,7 +104,7 @@ export function ScheduledTaskSection({ tasks, onToggle, onEdit, onDelete, onTrig
               <>
                 <span className="px-1.5 py-0.5 rounded-full bg-status-running text-blue-700 text-[10px] font-medium">一次性</span>
                 {task.triggerAt ? (
-                  <span>{new Date(task.triggerAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' })}</span>
+                  <span>{fmtTimeShort(task.triggerAt)}</span>
                 ) : (
                   <span className="text-stone-400">未设置触发时间</span>
                 )}

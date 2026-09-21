@@ -1,3 +1,5 @@
+import { fmtImTime } from "@usecases/im/time-format";
+
 export type ParsedCommand =
   | { command: 'list' }
   | { command: 'in'; conversationId: string }
@@ -38,7 +40,7 @@ export function formatMessageHistory(messages: Array<{ senderType: string; segme
   const lines = messages.map(msg => {
     const sender = msg.senderType === 'user' ? '用户' : msg.senderType === 'otter' ? '水獭' : '系统';
     const body = msg.segments.map(s => s.body).join("\n\n") || '(空消息)';
-    const time = new Date(msg.createdAt).toLocaleString('zh-CN');
+    const time = fmtImTime(msg.createdAt);
     return `[${time}] ${sender}: ${body}`;
   });
 

@@ -371,7 +371,7 @@ export default function HealthPage() {
 // ── 图表数据变换 ──
 
 function fmtDate(iso: string): string {
-  return iso.length >= 10 ? iso.slice(5).replace('-', '/') : iso
+  return iso.length >= 10 ? iso.slice(5) : iso
 }
 
 // ── 组件 ──

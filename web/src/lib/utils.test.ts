@@ -1,7 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fmtRelativeTime } from './utils'
+import { fmtRelativeTime, fmtTimeShort } from './utils'
 
 const pad = (n: number) => String(n).padStart(2, '0')
+
+/** 强制进程时区（同步窗口内立即恢复）——CI runner 是 UTC，本地时区=UTC 时新旧实现行为相同、
+ * 回归防线尖区分力；强制 CST 后旧实现（UTC 切片）在任何 runner 上都会被排中 */
+function withTZ(tz: string, fn: () => void): void {
+  const saved = process.env.TZ
+  process.env.TZ = tz
+  try {
+    fn()
+  } finally {
+    if (saved === undefined) delete process.env.TZ
+    else process.env.TZ = saved
+  }
+}
 function localDisplay(ts: string): { hhmm: string; date: string; yearDate: string } {
   const d = new Date(ts)
   const hhmm = `${pad(d.getHours())}:${pad(d.getMinutes())}`
@@ -11,6 +24,47 @@ function localDisplay(ts: string): { hhmm: string; date: string; yearDate: strin
     yearDate: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hhmm}`,
   }
 }
+
+describe('fmtTimeShort', () => {
+  it('空字符串返回空字符串', () => {
+    expect(fmtTimeShort('')).toBe('')
+  })
+
+  it('无效日期返回原字符串', () => {
+    expect(fmtTimeShort('invalid-date')).toBe('invalid-date')
+  })
+
+  it('正常时间戳格式化为 MM-DD HH:mm', () => {
+    withTZ('Asia/Shanghai', () => {
+      expect(fmtTimeShort('2026-09-20T06:30:00Z')).toBe('09-20 14:30')
+    })
+  })
+
+  it('跨年跨日：UTC 12-31 23:59 = CST 次年 01-01 07:59', () => {
+    withTZ('Asia/Shanghai', () => {
+      expect(fmtTimeShort('2025-12-31T23:59:00Z')).toBe('01-01 07:59')
+    })
+  })
+
+  it('UTC 时间不被误当本地时间（A1/A2 根因验证）', () => {
+    // CST 0:00-8:00 窗口：UTC 9-19 20:00 = CST 9-20 04:00（凌晨）。
+    // 旧实现 toISOString().slice(5,10) 返回 "09-19"（UTC 日期，前一天）——强制 CST 后
+    // 本用例在任何 runner（含 UTC CI）上对旧实现都是红的，回归防线成立
+    withTZ('Asia/Shanghai', () => {
+      expect(fmtTimeShort('2026-09-19T20:00:00Z')).toBe('09-20 04:00')
+    })
+  })
+
+  it('跨日边界：凌晨相邻两时刻分属两日，标签必不同（A1 泳道轴验证）', () => {
+    withTZ('Asia/Shanghai', () => {
+      const label1 = fmtTimeShort('2026-09-19T15:00:00Z').slice(0, 5) // CST 9-19 23:00
+      const label2 = fmtTimeShort('2026-09-19T16:00:00Z').slice(0, 5) // CST 9-20 00:00（跨日）
+      expect(label1).toBe('09-19')
+      expect(label2).toBe('09-20')
+      expect(label1).not.toBe(label2)
+    })
+  })
+})
 
 describe('fmtRelativeTime', () => {
   // 固定为 UTC 2026-08-11 07:00:00（各时区本地时间不同，但 diff 计算一致）
