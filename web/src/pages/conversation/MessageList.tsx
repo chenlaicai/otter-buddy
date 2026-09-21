@@ -185,8 +185,6 @@ interface MessageListProps {
   highlightMessageId?: string | null
   /** 用户在设置中配置的称呼，用于消息气泡旁的名称显示 */
   userName?: string
-  /** 用户滚动到底部时调用，用于标记已读 */
-  onReachBottom?: () => void
   /** 信号轨迹（F20260902u5tr）：服务端推导的投石信号投递状态（可选，未加载时不渲染轨迹） */
 }
 
@@ -200,7 +198,7 @@ export function MessageList({
   conversationId, isAtBottomRef, newMessagesCount = 0, onJumpToBottom, onLoadMore,
   loadingMore, onAtBottomChange,
   unreadSeparatorSeq, highlightMessageId,
-  userName, onReachBottom,
+  userName,
 }: MessageListProps) {
   /** F20260814qswp：全部 hooks 前置于任何条件 return——旧实现 no-llm/loading/empty 分支
    *  的早退位于 hooks 声明之前，同一挂载实例上 state 切换会导致 hooks 数量变化而崩溃 */
@@ -326,10 +324,8 @@ export function MessageList({
     isAtBottomRef.current = atBottom
     onAtBottomChange?.(atBottom)
 
-    // 到达底部，标记已读
-    if (atBottom && onReachBottom) {
-      onReachBottom()
-    }
+    // F20260921urdo 判定换轨退役：到底标记已读回调（onReachBottom）删除——
+    // 已读判定不再依赖滚动几何
 
     // 到达顶部，触发加载更多
     if (el.scrollTop === 0 && onLoadMore && !loadingMore) {
@@ -337,15 +333,14 @@ export function MessageList({
       pendingScrollRestoreRef.current = el.scrollHeight
       onLoadMore()
     }
-  }, [onLoadMore, loadingMore, onAtBottomChange, isAtBottomRef, onReachBottom])
+  }, [onLoadMore, loadingMore, onAtBottomChange, isAtBottomRef])
 
   /** 首次渲染滚到底部 */
   useEffect(() => {
     if (messages.length > 0) {
       requestAnimationFrame(() => {
         scrollToBottom()
-        // Why: 首次渲染滚到底部后标记已读（此时 isNearBottom 检测已通过）
-        if (onReachBottom) onReachBottom()
+        // F20260921urdo 判定换轨退役：到底标记已读回调删除（打开路径已 ack）
       })
     }
     // Why: 有意 mount-only。若补 messages.length 会在用户上翻阅读历史时把每条新消息

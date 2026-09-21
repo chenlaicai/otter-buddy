@@ -145,7 +145,7 @@ export function buildOtterToolClient(
           // F20260913ctlv：进场 system entry 投影透出（create_otter 广播 entry.system SSE 用；
           // 旧降级路径返回 Message，无投影）
           if (systemMessage && "entryType" in systemMessage) {
-            return { ...participant, systemEntry: { id: systemMessage.id, body: systemMessage.body, sequenceNum: systemMessage.sequenceNum } };
+            return { ...participant, systemEntry: { id: systemMessage.id, body: systemMessage.body, sequenceNum: systemMessage.sequenceNum, createdAt: systemMessage.createdAt } };
           }
           return participant;
         },
@@ -168,7 +168,9 @@ export function buildOtterToolClient(
             body: params.body,
             metadata: params.metadata,
           });
-          return { id: entry.entry.id, entryType: entry.entry.entryType, body: entry.entry.body ?? '' };
+          // F20260921urdo 契约收口：返回 sequenceNum/createdAt——SSE 投影必含字段，
+          // 消费方（已读游标/排序）不再依赖发射点各自手拼
+          return { id: entry.entry.id, entryType: entry.entry.entryType, body: entry.entry.body ?? '', sequenceNum: entry.entry.sequenceNum, createdAt: entry.entry.createdAt };
         },
         createYieldEntry: async (params) => {
           // 创建 yield 条目 + invoke_end 条目 + 更新 invoke 记录

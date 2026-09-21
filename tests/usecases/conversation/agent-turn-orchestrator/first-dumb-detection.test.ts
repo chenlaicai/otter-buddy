@@ -67,7 +67,7 @@ function makeCallbacks(opts: {
     getRecentGuardBounces: async () => 0,
     isSessionCircuitBreakCreated: async () => false,
     isCircuitBreakerEnabled: () => false,
-    sendSystem: async (_convId: string, body: string) => { systemBodies.push(body); return { id: "s1", body, sequenceNum: 1 }; },
+    sendSystem: async (_convId: string, body: string) => { systemBodies.push(body); return { id: "s1", body, sequenceNum: 1, createdAt: "2026-09-21T00:00:00Z" }; },
     getOtterById: async () => (opts.otterType === undefined ? null : { name: "獭", type: opts.otterType }),
     getPartnerLabel: async () => "搭档",
     emitEvent: () => {},

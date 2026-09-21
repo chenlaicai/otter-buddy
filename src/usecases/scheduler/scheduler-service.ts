@@ -833,7 +833,8 @@ export class SchedulerService {
     try {
       this.messageBroadcaster?.broadcastEvent(task.conversationId, {
         event: "entry.system",
-        data: { entryId: entry.id, content: entry.body, seq: entry.sequenceNum },
+        // F20260921urdo 契约收口：字段名统一 sequenceNum（与 entry.user/entry.speak 一致）
+        data: { entryId: entry.id, content: entry.body, sequenceNum: entry.sequenceNum, createdAt: entry.createdAt },
       });
     } catch { /* 广播失败不影响触发 */ }
     return { id: entry.id, body: entry.body };
@@ -1228,7 +1229,8 @@ export class SchedulerService {
       });
       this.messageBroadcaster?.broadcastEvent(task.conversationId, {
         event: "entry.system",
-        data: { entryId: entry.id, content: entry.body, seq: entry.sequenceNum },
+        // F20260921urdo 契约收口：字段名统一 sequenceNum
+        data: { entryId: entry.id, content: entry.body, sequenceNum: entry.sequenceNum, createdAt: entry.createdAt },
       });
     } catch (err) {
       this.logger.warn('notifyTaskErrored: system entry failed (non-fatal)', {

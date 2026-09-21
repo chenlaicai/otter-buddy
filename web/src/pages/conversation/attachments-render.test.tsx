@@ -43,7 +43,6 @@ function render(messages: LocalMessage[]) {
         otters={[]}
         conversationId="conv-1"
         isAtBottomRef={{ current: true }}
-        onReachBottom={() => {}}
       />,
     )
   })
