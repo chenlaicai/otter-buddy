@@ -490,98 +490,21 @@ export function deleteWeixinAccount(id: string): Promise<{ status: string }> {
 }
 
 // ── RHI 健康面板（F20260825rweb #402/#403；F20260829hviz 增补 trends）──
-
-export interface RhiOverviewDTO {
-  metrics: Record<string, number>
-  snapshotDate: string | null
-  openSignals: number
-  openSignalsBySeverity: { critical: number; warning: number }
-  /** Issue #652：按置信度计数（low = 低置信折叠抽屉数据源，不进 severity 主数） */
-  openSignalsByConfidence: { normal: number; low: number }
-}
-
-export interface RhiTrendPointDTO {
-  date: string
-  total_commits?: number
-  bugfix_count?: number
-  bugfix_ratio?: number
-  compliant_commits?: number
-}
-
-export interface RhiTrendsDTO {
-  days: number
-  series: RhiTrendPointDTO[]
-  distributions: {
-    change_types?: Record<string, number>
-    skip_reasons?: Record<string, number>
-    modules?: Array<{ module: string; count: number }>
-    file_hotspots?: Array<{ file: string; count: number }>
-    chain_states?: Record<string, number>
-  }
-  latestSnapshotDate: string | null
-}
-
-export interface RhiSignalDTO {
-  id: number
-  signal_type: string
-  severity: string
-  feature_id: string | null
-  file_path: string | null
-  evidence: string
-  first_seen: string
-  last_seen: string
-  occurrences: number
-  status: string
-  suggested_action: string | null
-  signalTypeLabel: string
-  /** Issue #644：结构化证据详情（bug●→fix● 交替时间轴数据源）。null=无 */
-  evidenceDetail: {
-    kind: string
-    windowDays: number
-    commits: Array<{ sha: string; date: string; changeType: string | null; message: string }>
-  } | null
-  /** 置信度：low=大概率误报（UI 折叠收纳）。null=normal */
-  confidence: string | null
-  /** F20260917trig：处置状态机——null=未接单；'triaged'=已归口；'in_progress'=修复中 */
-  triageStatus: string | null
-  /** F20260917trig：绑定的 GitHub issue 编号 */
-  issueNumber: number | null
-  /** F20260917trig：归口时间（ISO） */
-  triagedAt: string | null
-  /** F20260917trig：处置说明 */
-  triageNote: string | null
-}
-
-export interface RhiChainCommitLiteDTO {
-  /** 8 位短 sha */
-  sha: string
-  /** ISO 时间 */
-  date: string
-  changeType: string | null
-}
-
-export interface RhiChainDTO {
-  featureId: string
-  /** F20260902sigm：四态兼容投影（zombie 删除） */
-  state: 'active' | 'stalled' | 'regressed' | 'orphan'
-  /** 链路信号清单（可叠加；state 是其兼容投影） */
-  signals: Array<{
-    id: 'pr-stalled' | 'regressed' | 'doc-gap'
-    evidence: string
-    stalledPrs?: Array<{ number: number; url: string | null; daysSinceActivity: number }>
-  }>
-  commitCount: number
-  bugfixCount: number
-  daysSinceLastCommit: number | null
-  firstSeenAt: string | null
-  lastCommitAt: string | null
-  /** deprecated：健康链路不再消费（F20260902sigm），存量兼容保留 */
-  docStatus: string | null
-  docTitle: string | null
-  stateReason: string
-  /** Issue #649 PR3：轻量 commit 序列（泳道 x 轴映射；全量含 message/filesChanged 走 chainDetail） */
-  commits: RhiChainCommitLiteDTO[]
-}
+// Issue #448：DTO 单一真相源收口到 @contract/api/rhi——以下均为契约层 re-export
+export type {
+  RhiSignalDTO,
+  RhiSignalEvidenceDetailDTO,
+  RhiSignalEvidenceDetailCommitsDTO,
+  RhiOverviewDTO,
+  RhiTrendPointDTO,
+  RhiTrendsDTO,
+  RhiTrendsDistributionsDTO,
+  RhiChainDTO,
+  RhiChainCommitLiteDTO,
+  RhiChainDetailDTO,
+  RhiChainDetailCommitDTO,
+} from '@contract/api/rhi'
+import type { RhiSignalDTO, RhiOverviewDTO, RhiChainDTO, RhiChainDetailDTO, RhiTrendsDTO } from '@contract/api/rhi'
 
 export function getRhiOverview(signal?: AbortSignal): Promise<RhiOverviewDTO> {
   return request('/health/overview', { signal })
@@ -596,18 +519,6 @@ export function getRhiChains(signal?: AbortSignal): Promise<{ chains: RhiChainDT
 }
 
 /** Issue #644：链详情（全类型 commit 序列——泳道时间线/链详情抽屉数据源） */
-export interface RhiChainDetailCommitDTO {
-  sha: string
-  date: string
-  changeType: string | null
-  message: string
-  filesChanged: string[]
-}
-
-export interface RhiChainDetailDTO extends Omit<RhiChainDTO, 'commits'> {
-  commits: RhiChainDetailCommitDTO[]
-}
-
 export function getRhiChainDetail(featureId: string, signal?: AbortSignal): Promise<{ chain: RhiChainDetailDTO }> {
   return request(`/health/chains/${encodeURIComponent(featureId)}`, { signal })
 }

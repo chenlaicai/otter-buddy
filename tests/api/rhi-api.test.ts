@@ -96,7 +96,7 @@ describe("RHI API（真 sqlite）", () => {
       const res = await makeController().overview(makeCtx());
       const body = await res.json() as Record<string, unknown>;
 
-      expect(body.metrics).toMatchObject({ total_commits: 268, bugfix_ratio: 0.27 });
+      expect(body.metrics).toMatchObject({ totalCommits: 268, bugfixRatio: 0.27 });
       expect(body.openSignals).toBe(2);
       expect(body.openSignalsBySeverity).toEqual({ critical: 1, warning: 1 });
       expect(body.snapshotDate).toBe("2026-08-25");
@@ -207,16 +207,16 @@ describe("RHI API（真 sqlite）", () => {
 
       const res = await makeController().trends(makeTrendsCtx());
       const body = await res.json() as {
-        series: Array<{ date: string; total_commits: number; bugfix_ratio: number }>;
+        series: Array<{ date: string; totalCommits: number; bugfixRatio: number }>;
         distributions: Record<string, unknown>;
         latestSnapshotDate: string;
       };
 
       expect(body.series).toHaveLength(2);
-      expect(body.series[0]).toMatchObject({ date: "2026-08-26", total_commits: 100, bugfix_ratio: 30 });
-      expect(body.series[1]).toMatchObject({ date: "2026-08-27", total_commits: 120, bugfix_ratio: 25 });
-      expect(body.distributions.change_types).toEqual({ Feature: 80, BugFix: 30 });
-      expect(body.distributions.chain_states).toEqual({ active: 3, stalled: 2 });
+      expect(body.series[0]).toMatchObject({ date: "2026-08-26", totalCommits: 100, bugfixRatio: 30 });
+      expect(body.series[1]).toMatchObject({ date: "2026-08-27", totalCommits: 120, bugfixRatio: 25 });
+      expect(body.distributions.changeTypes).toEqual({ Feature: 80, BugFix: 30 });
+      expect(body.distributions.chainStates).toEqual({ active: 3, stalled: 2 });
       expect(body.latestSnapshotDate).toBe("2026-08-27");
     });
 

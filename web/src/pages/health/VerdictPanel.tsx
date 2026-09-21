@@ -173,8 +173,8 @@ function DimensionEvidence({ dim, score, trends, overview, untriagedCount }: {
     case 'D1': {
       // 收编：提交类型环形图原料 + BugFix 比率卡 + 近 10 天 bugfix 占比走势
       const ratio = trends?.series?.slice(-10) ?? []
-      const totalCommits = overview?.metrics.total_commits ?? 0
-      const dist = trends?.distributions.change_types ?? {}
+      const totalCommits = overview?.metrics.totalCommits ?? 0
+      const dist = trends?.distributions.changeTypes ?? {}
       const bugfixCount = dist.BugFix ?? 0
       const featureCount = (dist['New Feature'] ?? 0) + (dist['Feature Update'] ?? 0)
       return (
@@ -192,7 +192,7 @@ function DimensionEvidence({ dim, score, trends, overview, untriagedCount }: {
           {ratio.length > 1 && (
             <div>
               <BugfixRatioSparkline points={ratio} />
-              <p className="text-[11px] text-stone-400 mt-1">↑ 近 {ratio.length} 天 bugfix 占比走势{ratio.every(p => (p.bugfix_ratio ?? 0) >= D1_HEALTH_LINE) ? '（一直在健康线上方，没降下来过）' : ''}</p>
+              <p className="text-[11px] text-stone-400 mt-1">↑ 近 {ratio.length} 天 bugfix 占比走势{ratio.every(p => (p.bugfixRatio ?? 0) >= D1_HEALTH_LINE) ? '（一直在健康线上方，没降下来过）' : ''}</p>
             </div>
           )}
           <EvidenceAction to="signals">去「警报」看反复修 bug 的文件清单</EvidenceAction>
@@ -216,7 +216,7 @@ function DimensionEvidence({ dim, score, trends, overview, untriagedCount }: {
     }
     case 'D3': {
       // 收编：四态计数（链状态分布原料）
-      const cs = trends?.distributions.chain_states ?? {}
+      const cs = trends?.distributions.chainStates ?? {}
       const entries = Object.entries(cs).filter(([, v]) => v > 0)
       const total = entries.reduce((s, [, v]) => s + v, 0)
       return (
@@ -233,8 +233,8 @@ function DimensionEvidence({ dim, score, trends, overview, untriagedCount }: {
     }
     case 'D4': {
       const series = trends?.series ?? []
-      const total = overview?.metrics.total_commits ?? 0
-      const compliant = series.length > 0 ? series[series.length - 1]!.compliant_commits : undefined
+      const total = overview?.metrics.totalCommits ?? 0
+      const compliant = series.length > 0 ? series[series.length - 1]!.compliantCommits : undefined
       return (
         <div className="space-y-2 text-xs text-stone-600 leading-relaxed" data-testid="evidence-d4">
           <p>commit message 按规范格式的占比，线性计分。</p>
@@ -263,8 +263,8 @@ function DimensionEvidence({ dim, score, trends, overview, untriagedCount }: {
 }
 
 /** D1 证据层的 bugfix 占比迷你走势条（原型 spark：bad 段标红） */
-function BugfixRatioSparkline({ points }: { points: Array<{ date: string; bugfix_ratio?: number }> }) {
-  const vals = points.map(p => p.bugfix_ratio ?? 0)
+function BugfixRatioSparkline({ points }: { points: Array<{ date: string; bugfixRatio?: number }> }) {
+  const vals = points.map(p => p.bugfixRatio ?? 0)
   const max = Math.max(...vals, 0.01)
   return (
     <div className="flex items-end gap-1 h-7 mt-1" data-testid="bugfix-sparkline">

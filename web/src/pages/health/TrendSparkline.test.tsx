@@ -24,8 +24,8 @@ class ResizeObserverStub {
 function trendsFixture(): RhiTrendsDTO {
   const series = Array.from({ length: 10 }, (_, i) => ({
     date: `2026-08-${String(20 + i).padStart(2, '0')}`,
-    total_commits: i + 1,
-    bugfix_ratio: 20 + i,
+    totalCommits: i + 1,
+    bugfixRatio: 20 + i,
   }))
   return { days: 30, series, distributions: {}, latestSnapshotDate: '2026-08-29' } as unknown as RhiTrendsDTO
 }

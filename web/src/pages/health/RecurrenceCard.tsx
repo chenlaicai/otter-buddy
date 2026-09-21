@@ -32,8 +32,8 @@ export function toRecurrenceCard(s: RhiSignalDTO): RecurrenceCard | null {
   return {
     id: s.id,
     label: s.signalTypeLabel,
-    filePath: s.file_path,
-    featureId: s.feature_id,
+    filePath: s.filePath,
+    featureId: s.featureId,
     commitCount: d.commits.length,
     windowDays: d.windowDays ?? null,
     commits: d.commits,
@@ -147,14 +147,14 @@ export function RecurrenceSection({ signals }: { signals: RhiSignalDTO[] }) {
  * bug_recurrence 的 occurrences 严禁展示：随扫描频率漂移，与复发卡数字同屏矛盾。
  */
 export function FreqBadge({ signal }: { signal: RhiSignalDTO }) {
-  const n = signal.signal_type === 'bug_recurrence'
+  const n = signal.signalType === 'bug_recurrence'
     ? (signal.evidenceDetail?.kind === 'bug_recurrence_commits' ? signal.evidenceDetail.commits.length : 0)
     : signal.occurrences
   if (n <= 1) return null
   return (
     <span
       className="px-1.5 py-0.5 rounded text-xs"
-      style={signal.signal_type === 'bug_recurrence'
+      style={signal.signalType === 'bug_recurrence'
         ? { color: CARAMEL[600], backgroundColor: `${CARAMEL[300]}33` }
         : undefined}
       data-testid="freq-badge"
@@ -214,7 +214,7 @@ export function LowConfidenceDrawer({ signals, defaultOpen = false }: {
                 {s.severity}
               </span>
               <span className="text-xs font-medium text-stone-600">{s.signalTypeLabel}</span>
-              {s.feature_id && <span className="font-mono text-[11px] text-stone-400">{s.feature_id}</span>}
+              {s.featureId && <span className="font-mono text-[11px] text-stone-400">{s.featureId}</span>}
               <span className="text-[11px] text-stone-400 flex-1 min-w-[120px] truncate" title={s.evidence}>{s.evidence}</span>
             </div>
           ))}

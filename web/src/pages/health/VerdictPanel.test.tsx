@@ -34,18 +34,18 @@ function trends(): RhiTrendsDTO {
     days: 30,
     series: Array.from({ length: 10 }, (_, i) => ({
       date: `2026-09-0${i + 1}`,
-      total_commits: 300,
-      bugfix_count: 120,
-      bugfix_ratio: 0.39,
-      compliant_commits: 280,
+      totalCommits: 300,
+      bugfixCount: 120,
+      bugfixRatio: 0.39,
+      compliantCommits: 280,
     })),
     distributions: {
-      change_types: { BugFix: 135, 'New Feature': 80, 'Feature Update': 40, Refactor: 59 },
-      file_hotspots: [
+      changeTypes: { BugFix: 135, 'New Feature': 80, 'Feature Update': 40, Refactor: 59 },
+      fileHotspots: [
         { file: 'src/app.ts', count: 44 },
         { file: 'src/platforms.ts', count: 35 },
       ],
-      chain_states: { active: 28, stalled: 2, orphan: 1 },
+      chainStates: { active: 28, stalled: 2, orphan: 1 },
     },
     latestSnapshotDate: '2026-09-15',
   }
@@ -53,7 +53,7 @@ function trends(): RhiTrendsDTO {
 
 function overview(): RhiOverviewDTO {
   return {
-    metrics: { total_commits: 314, bugfix_ratio: 0.392 },
+    metrics: { totalCommits: 314, bugfixRatio: 0.392 },
     snapshotDate: '2026-09-15',
     openSignals: 40,
     openSignalsBySeverity: { critical: 40, warning: 0 },

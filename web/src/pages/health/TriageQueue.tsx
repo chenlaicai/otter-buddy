@@ -137,13 +137,13 @@ function TriageActions({ signal, onDone }: { signal: RhiSignalDTO; onDone: () =>
 
 /** 单条信号行（含处置状态徽章 + 操作区） */
 function SignalRow({ signal, now, onChanged }: { signal: RhiSignalDTO; now: number; onChanged: () => void }) {
-  const openDays = daysSince(signal.first_seen, now)
+  const openDays = daysSince(signal.firstSeen, now)
   return (
     <div className="px-4 py-3" data-signal-id={signal.id}>
       <div className="flex items-center gap-2 flex-wrap">
         <span className="font-medium text-sm">{signal.signalTypeLabel}</span>
-        {signal.feature_id && <span className="font-mono text-xs text-stone-500">{signal.feature_id}</span>}
-        {signal.file_path && <span className="font-mono text-xs text-stone-500">{signal.file_path}</span>}
+        {signal.featureId && <span className="font-mono text-xs text-stone-500">{signal.featureId}</span>}
+        {signal.filePath && <span className="font-mono text-xs text-stone-500">{signal.filePath}</span>}
         <span className={`text-xs tabular-nums ${ageTone(openDays)}`}>open {openDays} 天</span>
         {signal.severity === 'critical'
           ? <span className="px-1.5 py-0.5 rounded text-xs bg-rose-50 text-rose-600 border border-rose-200">critical</span>
@@ -158,8 +158,8 @@ function SignalRow({ signal, now, onChanged }: { signal: RhiSignalDTO; now: numb
         )}
       </div>
       <p className="text-xs text-stone-500 mt-1">{signal.evidence}</p>
-      {signal.suggested_action && (
-        <p className="text-xs text-otter-500 mt-0.5">建议：{signal.suggested_action}</p>
+      {signal.suggestedAction && (
+        <p className="text-xs text-otter-500 mt-0.5">建议：{signal.suggestedAction}</p>
       )}
       {signal.issueNumber && (
         <p className="text-xs mt-0.5">
@@ -187,7 +187,7 @@ export function TriageQueue({ signals, onChanged, now }: { signals: RhiSignalDTO
   const untriaged = signals
     .filter(s => s.triageStatus === null)
     // 未接单按挂了几天降序——first_seen 越早（挂越久）越靠前（§4：N 越红越醒目）
-    .sort((a, b) => Date.parse(a.first_seen) - Date.parse(b.first_seen))
+    .sort((a, b) => Date.parse(a.firstSeen) - Date.parse(b.firstSeen))
   const triaged = signals.filter(s => s.triageStatus === 'triaged')
   const inProgress = signals.filter(s => s.triageStatus === 'in_progress')
 

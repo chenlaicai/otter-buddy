@@ -1,3 +1,5 @@
+/* eslint-disable max-lines -- F20260921rctr 显式序列化（serializeSignal + metricKeyToCamel）后有效行 458>450；
+   controller 是 /api/health/* 全端点聚合点，拆分待视图稳定后另立 issue */
 /**
  * RhiController: /api/health/* 端点（F20260825rweb Phase 2 / Issue #402）
  *
@@ -14,9 +16,11 @@
 import type { Context } from "hono";
 import type { Logger } from "@usecases/ports/logger";
 import { handleError } from "../http-error";
-import type { SignalRepository } from "@usecases/health/signal-repository";
+import type { SignalRepository, SignalRecord } from "@usecases/health/signal-repository";
 import type { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
 import type { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
+// Issue #448：RHI DTO 契约单一真相源（api-contract）——响应序列化显式对齐
+import type { RhiSignalDTO } from "@contract/api/rhi";
 import { judgeTrend, DIMENSION_NAMES, statusFromScore } from "@usecases/health/health-score";
 import { buildModelBreakdown, buildInvokeStats } from "@usecases/health/usage-model-breakdown";
 import type { DimensionId, TrendDirection } from "@usecases/health/health-score";
@@ -69,6 +73,39 @@ const OVERVIEW_KEYS = [
   "bugfix_count", "bugfix_ratio", "bugfix_ratio_of_fid",
 ] as const;
 
+/** snake_case 指标键 → camelCase 序列化投影（Issue #448：API 命名对齐，DB 存储键不动） */
+function metricKeyToCamel(key: string): string {
+  return key.replace(/_([a-z0-9])/g, (_, ch: string) => ch.toUpperCase());
+}
+
+/** signals 响应序列化（Issue #448）：不再 `...s` 透传 DB 行——契约字段显式映射，
+ *  created_at/resolved_at 从未进 DTO（前端零消费），透传噪音一并移除 */
+function serializeSignal(s: SignalRecord): RhiSignalDTO {
+  return {
+    id: s.id,
+    signalType: s.signal_type,
+    severity: s.severity,
+    featureId: s.feature_id,
+    filePath: s.file_path,
+    evidence: s.evidence,
+    firstSeen: s.first_seen,
+    lastSeen: s.last_seen,
+    occurrences: s.occurrences,
+    status: s.status,
+    suggestedAction: s.suggested_action,
+    signalTypeLabel: signalTypeLabel(s.signal_type),
+    // evidence_detail 存 JSON 字符串（可空）——解析失败不阻断列表，降级 null。
+    // safeParseJson 返回 unknown：解析成功时结构由写入侧（worker evidenceDetail 序列化）保证
+    evidenceDetail: (s.evidence_detail ? safeParseJson(s.evidence_detail) : null) as RhiSignalDTO["evidenceDetail"],
+    confidence: s.confidence,
+    // F20260917trig：处置状态机四字段（面板处置队列数据源）
+    triageStatus: s.triage_status,
+    issueNumber: s.issue_number,
+    triagedAt: s.triaged_at,
+    triageNote: s.triage_note,
+  };
+}
+
 /** trends 序列指标键（F20260829hviz）：折线图趋势专用，比率 ×100 转百分比点位 */
 const TREND_KEYS = [
   "total_commits", "bugfix_count", "bugfix_ratio", "compliant_commits",
@@ -85,7 +122,8 @@ function aggregateTrendSeries(rows: Array<{ snapshot_date: string; metric_key: s
   for (const row of rows) {
     if (!TREND_KEYS.includes(row.metric_key as (typeof TREND_KEYS)[number])) continue;
     const point = byDate.get(row.snapshot_date) ?? {};
-    point[row.metric_key] = RATIO_KEYS.has(row.metric_key)
+    // Issue #448：点位键 camelCase 投影（比率键仍按 DB 键判定）
+    point[metricKeyToCamel(row.metric_key)] = RATIO_KEYS.has(row.metric_key)
       ? Number((row.metric_value * 100).toFixed(2))
       : row.metric_value;
     byDate.set(row.snapshot_date, point);
@@ -105,9 +143,10 @@ function parseLatestDistributions(
   for (const r of rows) {
     if (r.metric_type !== "distribution" || r.snapshot_date !== latestDate) continue;
     try {
-      out[r.metric_key] = r.metadata ? JSON.parse(r.metadata) : null;
+      // Issue #448：distribution 键 camelCase 投影（change_types→changeTypes 等）
+      out[metricKeyToCamel(r.metric_key)] = r.metadata ? JSON.parse(r.metadata) : null;
     } catch {
-      out[r.metric_key] = null;
+      out[metricKeyToCamel(r.metric_key)] = null;
     }
   }
   return out;
@@ -288,7 +327,8 @@ export class RhiController {
       const metrics: Record<string, number> = {};
       for (const key of OVERVIEW_KEYS) {
         const snap = this.snapshotRepo.findLatestByMetricKey(key);
-        if (snap) metrics[key] = snap.metric_value;
+        // Issue #448：响应键 camelCase 投影（查询仍用 DB 存储键）
+        if (snap) metrics[metricKeyToCamel(key)] = snap.metric_value;
       }
 
       const openSignals = this.signalRepo.findOpen();
@@ -318,18 +358,8 @@ export class RhiController {
         ? [...this.signalRepo.findOpen(), ...this.signalRepo.findByStatus("resolved"), ...this.signalRepo.findByStatus("dismissed")]
         : this.signalRepo.findByStatus(status);
       return c.json({
-        signals: rows.map(s => ({
-          ...s,
-          signalTypeLabel: signalTypeLabel(s.signal_type),
-          // evidence_detail 存 JSON 字符串（可空）——解析失败不阻断列表，降级 null
-          evidenceDetail: s.evidence_detail ? safeParseJson(s.evidence_detail) : null,
-          evidence_detail: undefined,
-          // F20260917trig：处置状态机四字段透传（面板处置队列数据源）
-          triageStatus: s.triage_status,
-          issueNumber: s.issue_number,
-          triagedAt: s.triaged_at,
-          triageNote: s.triage_note,
-        })),
+        // Issue #448：显式序列化 camelCase（契约 RhiSignalDTO），不再展开透传 DB 行
+        signals: rows.map(serializeSignal),
         count: rows.length,
       });
     } catch (err) {
@@ -551,7 +581,9 @@ export class RhiController {
       if (!result.ok) {
         return c.json({ error: result.reason }, 422);
       }
-      return c.json({ ok: true, record: result.record });
+      // Issue #448：record 与 signals 端点同构序列化（原直传 DB 行，与 client.ts 声明的 DTO 不符）。
+      // record 为可选字段但 ok=true 时每个分支必返回（triage 实现不变式）
+      return c.json({ ok: true, record: serializeSignal(result.record!) });
     } catch (err) {
       return handleError(c, err, this.logger);
     }
