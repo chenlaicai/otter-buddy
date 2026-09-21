@@ -175,8 +175,10 @@ export function getOtter(id: string): Promise<OtterDTO> {
   return request(`/otters/${id}`)
 }
 
-export function createOtter(body: CreateOtterRequestDTO): Promise<OtterDTO> {
-  return request('/otters', { method: 'POST', body: JSON.stringify(body) })
+/** F20260921otcl：conversationId 走 query 注入（出生挑色域——服务端 controller 层读取） */
+export function createOtter(body: CreateOtterRequestDTO, conversationId?: string): Promise<OtterDTO> {
+  const qs = conversationId ? `?conversationId=${encodeURIComponent(conversationId)}` : ''
+  return request(`/otters${qs}`, { method: 'POST', body: JSON.stringify(body) })
 }
 
 export function dissolveOtter(id: string, summary?: string): Promise<{ status: string }> {

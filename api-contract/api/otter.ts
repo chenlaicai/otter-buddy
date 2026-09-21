@@ -16,6 +16,8 @@ export interface OtterDTO {
   name: string;
   type: string;
   status: string;
+  /** F20260921otcl：出生颜色（色板 key；大獭/未回填为 null） */
+  color?: string | null;
   role: { name: string; responsibilities: string[] } | null;
   /** 模型别名（多模型路由，如 "mimo"）；未配置（大獭/老数据/默认模型）时不返回 */
   modelAlias?: string;

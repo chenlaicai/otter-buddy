@@ -19,6 +19,9 @@ export interface OtterRepository {
    * 不存在的 id 不出现在返回 Map 中。
    */
   getByIds(ids: string[]): Promise<Map<string, Otter>>;
+  /** F20260921otcl：对话内小獭出生色占用集（色板 key → 占用数，一次 SELECT）。
+   *  占用范围 = active 参与者中 type='small' 且 color 非空的行（dissolved 不占色） */
+  getColorOccupancy(conversationId: string): Promise<Map<string, number>>;
   dissolve(otterId: string, dissolvedAt: string): Promise<void>;
   deleteOtter(otterId: string): Promise<void>;
   createSession(session: OtterSession): Promise<void>;

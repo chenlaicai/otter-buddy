@@ -25,6 +25,7 @@ describe("ManageConversation（真 sqlite）", () => {
         lastCreateOtterParams = params
         const otter: Otter = {
           id: otterId, name: "大獭", type: "big", status: "active",
+          color: null,
           role: null, parentOtterId: null,
           createdAt: new Date().toISOString(), dissolvedAt: null,
         };

@@ -127,6 +127,7 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
       required: ["to"],
     },
      
+    // eslint-disable-next-line complexity -- F20260921otcl：+yield 事件身份透传（交棒校验/记账/SSE 同链内聚）
     execute: async (_id: string, params: Record<string, unknown>) => {
       // 消息非空校验（有 speak entry 才能交棒）
       const msgError = await validateMessageHasContent(ctx);
@@ -165,6 +166,9 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
             invokeId: ctx.currentInvokeId!,
             otterId: ctx.otterId,
             otterName: yieldOtter?.name ?? ctx.otterId,
+            // F20260921otcl：实体在手直透出生色（大獭 color=null，前端 type 判定品牌棕）
+            otterType: yieldOtter?.type,
+            otterColor: yieldOtter?.color ?? null,
             yieldTargets: resolvedIds,
             invokeEndEntryId: yieldResult.invokeEndEntry.id,
           },
@@ -334,6 +338,8 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
         systemPrompt: params.systemPrompt as string,
         parentOtterId: ctx.otterId,
         modelAlias: modelAlias?.trim() || undefined,
+        // F20260921otcl：出生挑色域——工具链创建即在当前对话内
+        conversationId: ctx.conversationId,
       });
       /** 创建后自动加入当前对话参与者 */
 

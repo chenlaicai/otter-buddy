@@ -33,6 +33,8 @@ export interface CreateOtterInput {
   parentOtterId: string;
   /** 模型别名（多模型路由，可选） */
   modelAlias?: string;
+  /** F20260921otcl：出生挑色域——工具链创建时恒为当前对话（tool-factory 注入 ctx.conversationId） */
+  conversationId?: string;
 }
 
 /** 链接资源输入 */

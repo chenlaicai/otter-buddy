@@ -11,6 +11,8 @@ import { stripHtmlCardFences } from "@entities/conversation/message-body-project
 import { tokenizeWithJieba } from "@frameworks/db/jieba-tokenizer";
 import { FID_ANCHOR_REGEX } from "@entities/document/fid-format";
 import { SqliteDispatchRecordRepository } from "@frameworks/db/dispatch/sqlite-dispatch-record-repository";
+import { pickOtterColor } from "@entities/otter/palette-picking";
+import { OTTER_PALETTE_KEYS } from "@contract/api/otter-palette";
 
 /** 数据库迁移：添加 session_file 字段和 otter_configs 表 */
 // eslint-disable-next-line max-statements, max-lines-per-function -- 补丁集合，语句数和行数由历史补丁数决定（#848: +otter_sessions.model_alias）
@@ -172,6 +174,10 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
 
   /** F20260915midu（#942）：记忆投影条目主键统一为 source_id（存量迁移）。 */
   rebuildMemoryEntriesUnifyIds(db, logger);
+
+  /** F20260921otcl：otters 表加 color 列 + 存量小獭回填（fill-only 续算幂等）。 */
+  ensureOtterColorColumn(db, logger);
+  backfillOtterColors(db, logger);
 }
 
 /**
@@ -1833,4 +1839,66 @@ function rebuildExecutionsDropMessagesFk(db: Database.Database, logger: Logger):
     db.pragma("foreign_keys = ON");
   }
   logger.info('Rebuilt scheduled_task_executions: stale messages FK removed (F20260914fkx1)');
+}
+
+/** F20260921otcl：otters 表补 color 列（PRAGMA 探测幂等——新库 initSchema 已含，存量库 ALTER 补列） */
+function ensureOtterColorColumn(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(otters)").all() as Array<{ name: string }>;
+  if (!columns.some(col => col.name === 'color')) {
+    db.prepare("ALTER TABLE otters ADD COLUMN color TEXT").run();
+    logger.info('Added color column to otters table (F20260921otcl)');
+  }
+}
+
+/**
+ * F20260921otcl：存量小獭颜色回填（fill-only 续算，真幂等）。
+ *
+ * 分组：按 conversation_participants 对话归属分组（现行参与者表——conversation_otters
+ * 是遗留 join 表仅覆盖大獭，小獭归属在 participants；大獭 type='big' 不分配）。
+ * 组内小獭按 created_at 升序依次挑未占用色。active 与 dissolved 全量回填
+ * （历史消息含已解散獭——「历史正确答案不存在，任何稳定分配均成立」）。
+ *
+ * 幂等策略（审视处置定稿）：fill-only 续算——重跑仅处理 color IS NULL 的小獭，
+ * 占用集 = 同对话已填色。因算法本身是「顺序挑未占用」，中断后续算结果与
+ * 一次跑完一致（真幂等），无需「先清后填」、无需 settings 幂等键。
+ * 与实时 CreateOtter 用同一纯函数（palette-picking.ts），保证两路径 tie-breaking
+ * （并列取色板 index 最小）行为一致。
+ */
+function backfillOtterColors(db: Database.Database, logger: Logger): void {
+  // 无 NULL 小獭即已完成（常态快路径——回填一次后每次启动 0 行）
+  const pending = db.prepare(`
+    SELECT COUNT(*) AS n FROM otters WHERE color IS NULL AND type = 'small'
+  `).get() as { n: number };
+  if (pending.n === 0) return;
+
+  const rows = db.prepare(`
+    SELECT o.id, o.type, o.created_at, p.conversation_id
+    FROM otters o
+    JOIN conversation_participants p ON p.otter_id = o.id
+    WHERE o.color IS NULL
+    ORDER BY p.conversation_id, o.created_at
+  `).all() as Array<{ id: string; type: string; created_at: string; conversation_id: string }>;
+
+  /** 每对话的占用集（已填色 = 先到者占用，与「顺序挑未占用」语义一致） */
+  const occupied = new Map<string, Map<string, number>>();
+  /** 本趟已填色獭（同獭多对话归属时只处理首个——color 是全局属性非对话属性） */
+  const filledIds = new Set<string>();
+  const update = db.prepare("UPDATE otters SET color = ? WHERE id = ?");
+  let filled = 0;
+
+  const tx = db.transaction(() => {
+    for (const row of rows) {
+      // 大獭不分配（type 判定恒品牌棕）；本趟已填的獭跳过（多对话归属去重）
+      if (row.type !== 'small' || filledIds.has(row.id)) continue;
+      const occ = occupied.get(row.conversation_id) ?? new Map<string, number>();
+      occupied.set(row.conversation_id, occ);
+      const color = pickOtterColor(OTTER_PALETTE_KEYS, occ);
+      occ.set(color, (occ.get(color) ?? 0) + 1);
+      update.run(color, row.id);
+      filledIds.add(row.id);
+      filled++;
+    }
+  });
+  tx();
+  if (filled > 0) logger.info(`Backfilled otter colors (${filled} rows, F20260921otcl)`);
 }

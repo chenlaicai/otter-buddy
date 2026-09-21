@@ -4,9 +4,10 @@ import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { AgentGateway } from "@usecases/otter/agent-gateway";
 import type { OtterSession } from "@entities/otter/otter-session";
 import { createTestLogger } from "../../helpers/logger";
+import { OTTER_PALETTE_KEYS } from "@contract/api/otter-palette";
 
 /** 带状态追踪的 mock repo：记录 createOtter / deleteOtter / createSession 的调用状态 */
-function mockRepo(options?: { failCreateSession?: boolean }) {
+function mockRepo(options?: { failCreateSession?: boolean; occupancy?: Map<string, number> }) {
   const createdOtters: Array<{ id: string; name: string }> = [];
   const deletedOtterIds: string[] = [];
   const createdSessions: OtterSession[] = [];
@@ -19,6 +20,7 @@ function mockRepo(options?: { failCreateSession?: boolean }) {
       createdOtters.push({ id: otter.id, name: otter.name });
     }),
     getById: vi.fn(async () => null),
+    getColorOccupancy: vi.fn(async () => options?.occupancy ?? new Map<string, number>()),
     dissolve: vi.fn(async () => {}),
     deleteOtter: vi.fn(async (id: string) => {
       deletedOtterIds.push(id);
@@ -174,6 +176,89 @@ describe("CreateOtter", () => {
 
       expect(result.role).toBeNull();
       expect(result.parentOtterId).toBeNull();
+    });
+  });
+
+  /** F20260921otcl：出生挑色（方案 §3） */
+  describe("出生挑色", () => {
+    it("空对话：小獭取色板首色 teal", async () => {
+      const repo = mockRepo();
+      const gateway = mockAgentGateway();
+      const useCase = new CreateOtter(repo, gateway, createTestLogger());
+
+      const result = await useCase.execute({ name: "首色水獭", type: "small", conversationId: "conv-1" });
+
+      expect(result.color).toBe("teal");
+    });
+
+    it("占用集跳过：teal 已占用时取次色 caramel", async () => {
+      const repo = mockRepo({ occupancy: new Map([["teal", 1]]) });
+      const gateway = mockAgentGateway();
+      const useCase = new CreateOtter(repo, gateway, createTestLogger());
+
+      const result = await useCase.execute({ name: "次色水獭", type: "small", conversationId: "conv-1" });
+
+      expect(result.color).toBe("caramel");
+    });
+
+    it("8 色用尽：挑占用数最少的（并列取色板 index 最小）", async () => {
+      // 全占用：teal/lavender/rose/sage/slate/plum 各 2，caramel/amber 各 1 → 最少占用并列，取 index 最小者 caramel
+      const occ = new Map<string, number>([
+        ["teal", 2], ["caramel", 1], ["lavender", 2], ["rose", 2],
+        ["amber", 1], ["sage", 2], ["slate", 2], ["plum", 2],
+      ]);
+      const repo = mockRepo({ occupancy: occ });
+      const gateway = mockAgentGateway();
+      const useCase = new CreateOtter(repo, gateway, createTestLogger());
+
+      const result = await useCase.execute({ name: "挤色水獭", type: "small", conversationId: "conv-1" });
+
+      expect(result.color).toBe("caramel");
+    });
+
+    it("大獭不分配：type=big 时 color 恒 null（不查占用集）", async () => {
+      const repo = mockRepo();
+      const gateway = mockAgentGateway();
+      const useCase = new CreateOtter(repo, gateway, createTestLogger());
+
+      const result = await useCase.execute({ name: "大獭", type: "big", conversationId: "conv-1" });
+
+      expect(result.color).toBeNull();
+      expect(repo.getColorOccupancy).not.toHaveBeenCalled();
+    });
+
+    it("无 conversationId（异常路径）：color 落 null 不挑色", async () => {
+      const repo = mockRepo();
+      const gateway = mockAgentGateway();
+      const useCase = new CreateOtter(repo, gateway, createTestLogger());
+
+      const result = await useCase.execute({ name: "无域水獭", type: "small" });
+
+      expect(result.color).toBeNull();
+    });
+
+    it("挑色失败不阻断创建（non-fatal）：repo 拋错时 color=null 创建照常", async () => {
+      const repo = mockRepo();
+      (repo.getColorOccupancy as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("DB 炸了"));
+      const gateway = mockAgentGateway();
+      const useCase = new CreateOtter(repo, gateway, createTestLogger());
+
+      const result = await useCase.execute({ name: "容错水獭", type: "small", conversationId: "conv-1" });
+
+      expect(result.color).toBeNull();
+      expect(result.status).toBe("active");
+    });
+
+    it("色板 key 集合完整性：挑出的 key 恒在色板内（与 api-contract 对齐）", async () => {
+      // 占用前 7 色（teal..slate）各 1 次，剩下 plum 未占用
+      const occ = new Map<string, number>(OTTER_PALETTE_KEYS.slice(0, 7).map(k => [k, 1]));
+      const repo = mockRepo({ occupancy: occ });
+      const gateway = mockAgentGateway();
+      const useCase = new CreateOtter(repo, gateway, createTestLogger());
+
+      const result = await useCase.execute({ name: "末色水獭", type: "small", conversationId: "conv-1" });
+
+      expect(result.color).toBe("plum");
     });
   });
 });

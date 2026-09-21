@@ -133,7 +133,7 @@ export interface TurnCallbacks {
   /** 创建 invoke_end entry（fail/abort 终态条目）。返回 entry id + body（供前端实时居中条目同源渲染） */
   createInvokeEndEntry(invokeId: string, status: 'failed' | 'aborted', body?: string): Promise<{ entryId: string; body: string } | undefined>;
   /** 发送 invoke.end SSE 事件 */
-  emitInvokeEnd(invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string; endBody?: string; otterName?: string }): void;
+  emitInvokeEnd(invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string; endBody?: string; otterName?: string; otterType?: string; otterColor?: string | null }): void;
   /** F20260818cbkr：写 healing 事件（degenerate guard 触发点数据源） */
   recordHealingEvent(input: HealingEventInput): Promise<void>;
   /**
@@ -148,7 +148,7 @@ export interface TurnCallbacks {
   /** 发送系统消息（F20260913ctlv：只写 entries + entry.system SSE，实现方负责） */
   sendSystem(conversationId: string, body: string): Promise<{ id: string; body: string | null; sequenceNum: number; createdAt: string }>;
   /** 查询 otter */
-  getOtterById(otterId: string): Promise<{ name: string; type?: string } | null>;
+  getOtterById(otterId: string): Promise<{ name: string; type?: string; color?: string | null } | null>;
   /**
    * F20260916fst4：首哑判定数据源——查 otter 在本 conversation 的 invoke 计数。
    * 当前 failed invoke 已入库（failTerminal 先于计数查询），count==1 即首次；

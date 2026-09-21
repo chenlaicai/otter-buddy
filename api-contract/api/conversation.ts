@@ -45,6 +45,8 @@ export interface ParticipantDTO {
   otterName: string;
   /** otter 类型（big/small），查询时从 otters 表解析 */
   otterType?: string;
+  /** F20260921otcl：出生颜色（色板 key，如 'teal'；大獭/未回填为 null）——从 otters 表解析 */
+  otterColor?: string | null;
   /** otter 角色名（小獭的角色，如"审查獭"） */
   roleName?: string;
   /** 模型别名（有效模型解析后，恒非空——默认模型回退后也有值） */

@@ -14,6 +14,8 @@ export interface OtterRow {
   name: string;
   type: string;
   status: string;
+  /** F20260921otcl：出生颜色（色板 key；大獭/未回填 NULL） */
+  color: string | null;
   role_name: string | null;
   role_responsibilities: string | null;
   parent_otter_id: string | null;
@@ -51,6 +53,7 @@ export function rowToOtter(row: OtterRow): Otter {
     name: row.name,
     type: row.type as OtterType,
     status: row.status as OtterStatus,
+    color: row.color ?? null,
     role,
     parentOtterId: row.parent_otter_id,
     createdAt: row.created_at,

@@ -118,8 +118,8 @@ export class ConversationController {
     try {
       const id = param(c, "id");
       const participantsWithOtter = await this.manageParticipant.getActiveParticipants(id);
-      return c.json(participantsWithOtter.map(({ participant, otterName, otterType, roleName, modelAlias, modelIsDefault }) =>
-        toParticipantDTO(participant, otterName, { otterType, roleName, modelAlias, modelIsDefault })
+      return c.json(participantsWithOtter.map(({ participant, otterName, otterType, otterColor, roleName, modelAlias, modelIsDefault }) =>
+        toParticipantDTO(participant, otterName, { otterType, otterColor, roleName, modelAlias, modelIsDefault })
       ));
     } catch (err) {
       return handleError(c, err, this.logger);

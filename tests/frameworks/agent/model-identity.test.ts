@@ -55,6 +55,7 @@ describe("buildIdentityPrefix 模型身份段（F20260824aibd）", () => {
   async function seedOtter(id: string, name: string, type: "big" | "small") {
     await repo.createOtter({
       id, name, type, status: "active",
+      color: null,
       role: null, parentOtterId: null, createdAt: new Date().toISOString(), dissolvedAt: null,
     });
   }

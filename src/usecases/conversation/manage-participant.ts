@@ -18,6 +18,8 @@ export interface ParticipantWithOtter {
   participant: ConversationParticipant;
   otterName: string;
   otterType?: string;
+  /** F20260921otcl：出生颜色（色板 key；大獭/未回填为 null） */
+  otterColor?: string | null;
   roleName?: string;
   /** 模型别名（有效模型解析后，恒非空——默认模型回退后也有值） */
   modelAlias?: string;
@@ -176,11 +178,11 @@ export class ManageParticipant {
       // F20260908efmd: 有效模型解析——空配置回退默认并标注
       if (this.configProvider && this.modelPool) {
         const effective = resolveEffectiveModel(config, this.modelPool);
-        result.push({ participant, otterName, otterType: otter?.type, roleName: otter?.role?.name, modelAlias: effective.alias, modelIsDefault: effective.isDefault });
+        result.push({ participant, otterName, otterType: otter?.type, otterColor: otter?.color ?? null, roleName: otter?.role?.name, modelAlias: effective.alias, modelIsDefault: effective.isDefault });
       } else {
         // 降级：旧行为（configProvider/modelPool 未注入）
         const modelAlias = config?.modelAlias;
-        result.push({ participant, otterName, otterType: otter?.type, roleName: otter?.role?.name, modelAlias });
+        result.push({ participant, otterName, otterType: otter?.type, otterColor: otter?.color ?? null, roleName: otter?.role?.name, modelAlias });
       }
     }
     return result;

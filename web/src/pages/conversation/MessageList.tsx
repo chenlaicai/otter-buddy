@@ -7,7 +7,8 @@ import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { AlertTriangle, Square, Copy, Check, Clock, RotateCcw, FileText, Zap, Moon, ArrowRight } from 'lucide-react'
 import type { LocalMessage as Message, LocalOtter as Otter, LocalAttachment } from '../../lib/mappers'
 import { deriveEntryType, centeredEntryText } from '../../lib/mappers'
-import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
+import { OTTER_GRADIENT } from '../../lib/otter-colors'
+import { resolveOtterVisual } from '../../lib/otter-visual'
 import { getUserAvatar } from '../../lib/otter-avatars'
 import { OtterAvatar } from '../../components/OtterAvatar'
 import { fmtTokens, ctxPercent, fmtTime } from '../../lib/utils'
@@ -557,7 +558,13 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
   const snapshotName = isUser ? (m.sn || '').trim() : ''
   const remoteFallbackName = m.src === 'feishu' ? '飞书成员' : ''
   const name = isUser ? (snapshotName || remoteFallbackName || userDisplayName) : resolveDisplayName(m, otters)
-  const color = isUser ? null : getOtterColor(m.si)
+  // F20260921otcl：消息自带身份优先（事件携带 scolor），名册补充 type；均缺失时
+  //  resolveOtterVisual 内部 fnv1a 展示回退——大獭判定优先消息/名册 type
+  const otterInfo = otters.find(o => o.id === m.si)
+  const { color } = isUser ? { color: null } : resolveOtterVisual(m.si, {
+    type: otterInfo?.type,
+    color: m.scolor != null ? m.scolor : otterInfo?.color,
+  })
   const nameColor = isUser ? 'text-stone-600' : color?.nameClass || 'text-otter-500'
   const sideBar: CSSProperties = !isUser
     ? { borderLeft: `3px solid ${color?.border || '#8B6F47'}`, '--otter-tint': color?.border || '#8B6F47' } as CSSProperties
@@ -576,7 +583,7 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
         />
       ) : (
         <div className="mt-0.5">
-          <OtterAvatar otterId={m.si} name={name} type={otters.find(o => o.id === m.si)?.type} />
+          <OtterAvatar otterId={m.si} name={name} type={otterInfo?.type} color={m.scolor != null ? m.scolor : otterInfo?.color} />
         </div>
       )}
       <div className={`flex flex-col ${isUser ? 'items-end' : ''}`} style={{ maxWidth: '72%' }}>

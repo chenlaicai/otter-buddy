@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { ArrowUp, Paperclip, X, FileText } from 'lucide-react'
 import type { LocalOtter as Otter } from '../../lib/mappers'
-import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
+import { OTTER_GRADIENT } from '../../lib/otter-colors'
+import { resolveOtterVisual } from '../../lib/otter-visual'
 import { useDraftCache } from '../../hooks/use-draft-cache'
 import { ATTACHMENT_ACCEPT, MAX_IMAGES_PER_SEND, MAX_FILES_PER_UPLOAD, fmtBytes } from '../../lib/attachments'
 import type { StagedAttachment, UploadErrorInfo } from './hooks/useAttachmentStaging'
@@ -158,7 +159,8 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
         {mentionQuery !== null && filteredOtters.length > 0 && (
           <div className="absolute bottom-16 left-1/2 -translate-x-1/2 glass-overlay rounded-2xl p-1 z-50 min-w-[180px]">
             {filteredOtters.map(o => {
-              const color = getOtterColor(o.id)
+              // F20260921otcl：mention 候选自带身份（LocalOtter.type/color）
+              const { color } = resolveOtterVisual(o.id, { type: o.type, color: o.color })
               return (
                 <div
                   key={o.id}

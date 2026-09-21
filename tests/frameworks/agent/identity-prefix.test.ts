@@ -65,6 +65,7 @@ describe("buildIdentityPrefix 分支", () => {
   async function seedOtter(id: string, name: string, type: "big" | "small"): Promise<void> {
     await repo.createOtter({
       id, name, type, status: "active",
+      color: null,
       role: null, parentOtterId: null, createdAt: new Date().toISOString(), dissolvedAt: null,
     });
   }
@@ -238,6 +239,7 @@ describe("F20260917cvid: 所在对话身份段（对话标题注入）", () => {
   async function seedOtter(id: string): Promise<void> {
     await repo.createOtter({
       id, name: "大獭", type: "big", status: "active",
+      color: null,
       role: null, parentOtterId: null, createdAt: new Date().toISOString(), dissolvedAt: null,
     });
   }

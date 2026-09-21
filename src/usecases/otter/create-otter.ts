@@ -9,12 +9,18 @@ import type { OtterPromptConfig } from "@contract/api/otter";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
 import { resolveEffectiveModel } from "@usecases/ports/otter-config-provider";
+import { pickOtterColor } from "@entities/otter/palette-picking";
+import { OTTER_PALETTE_KEYS } from "@contract/api/otter-palette";
 
 export interface CreateOtterInput {
   name: string;
   type: OtterType;
   role?: OtterRole;
   parentOtterId?: string;
+  /** F20260921otcl：出生挑色域——对话 ID。type='small' 时查对话内 active 小獭已用色
+   *  挑未占用色板 key 落 otters.color；大獭/无此字段不分配（NULL）。控制器与
+   *  tool-factory 均持有 conversationId，由调用方注入 */
+  conversationId?: string;
   /** Otter 级系统提示词（可选，与平台 prompt 叠加） */
   systemPrompt?: string | OtterPromptConfig;
   context?: Record<string, unknown>;
@@ -46,11 +52,14 @@ export class CreateOtter {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
 
+    const color = await this.allocateBirthColor(params);
+
     const otter: Otter = {
       id,
       name: params.name,
       type: params.type,
       status: "active",
+      color,
       role: params.role ?? null,
       parentOtterId: params.parentOtterId ?? null,
       createdAt: now,
@@ -101,6 +110,25 @@ export class CreateOtter {
     }
 
     return otter;
+  }
+
+  /**
+   * F20260921otcl：出生挑色——小獭 + 有对话域时，查对话内占用集挑未占用色。
+   *  全占用挑占用最少（并列取色板 index 最小，pickOtterColor 内实现）；
+   *  大獭与异常路径（无 conversationId）落 NULL，前端展示回退承接。
+   *  挑色失败不阻断创建（颜色是展示属性非业务依赖）——NULL + 展示回退
+   */
+  private async allocateBirthColor(params: CreateOtterInput): Promise<string | null> {
+    if (params.type !== "small" || !params.conversationId) return null;
+    try {
+      const occupied = await this.repo.getColorOccupancy(params.conversationId);
+      return pickOtterColor(OTTER_PALETTE_KEYS, occupied);
+    } catch (err) {
+      this.logger.warn("Otter color allocation failed (non-fatal)", {
+        conversationId: params.conversationId, error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
   }
 
   /**
