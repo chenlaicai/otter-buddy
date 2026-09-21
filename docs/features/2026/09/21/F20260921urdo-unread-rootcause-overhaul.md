@@ -79,7 +79,7 @@ agent-invoker.ts:618 entry.speak  → 载荷补 sequenceNum + createdAt
 
 **后端——字段名统一**：entry.system 发射点（scheduler-service.ts ×2、circuit-break-support.ts:233、agent-invoker.ts:831、tool-factory.ts:348）`seq` → `sequenceNum`（与 entry.user 一致）。
 
-**前端——归一化读取**：所有 entry.* handler 的 data 类型声明统一含 `sequenceNum?: number`，LocalMessage 构造时 `seq: d.sequenceNum`。涉及 entry.system ×2（index.tsx:657、949）、entry.speak ×3（485、854、1091）。旧 `seq` 字段读取同步改 `sequenceNum`（前后端同 PR 合入，无兼容窗口）。
+**前端——归一化读取**：所有 entry.* handler 的 data 类型声明统一含 `sequenceNum?: number`，LocalMessage 构造时 `seq: d.sequenceNum`。涉及 entry.system ×2（index.tsx:683、974）、entry.speak ×3（512、879、1102）。旧 `seq` 字段读取同步改 `sequenceNum`（前后端同 PR 合入，无兼容窗口）。
 
 **不动项**：entry.yield（invoke_end 居中条目）载荷本就不进未读统计（`entry_type IN ('speak','system')` 才计数），不扩载荷；entry.user 已带 sequenceNum 不动。
 
@@ -121,7 +121,7 @@ const ackActiveRead = useCallback((convId: string) => {
 |---|---|---|
 | speak 落库链 5 文件 | 返回值/载荷补 sequenceNum | 低——纯增量字段，消费方未读才受影响 |
 | entry.system 发射点 5 处 | `seq` → `sequenceNum` | 低——前后端同 PR，无兼容窗口 |
-| 前端 handler 6 处 | 读 `sequenceNum` 建气泡 seq | 低——与后端同合入 |
+| 前端 handler 5 处（speak×3 / system×2） | 读 `sequenceNum` 建气泡 seq | 低——与后端同合入 |
 | 已读触发点 | 5 → 1 函数 3 接法 | 中——行为语义变化（见取舍 2/3） |
 | MessageList props | onReachBottom 退役 | 低——需确认无其他消费 |
 | IM 通道（weixin/feishu message-channel） | 只读载荷既有字段，不读 seq | 零——载荷增量字段不破坏 |
@@ -152,7 +152,9 @@ const ackActiveRead = useCallback((convId: string) => {
 - [D] 切回（focus 事件）→ ack：unread 0 ✅（切回消散）
 - 过程中挖出并修复真 bug：切回场景「focus ack 只能到本地已知 seq」——失焦期落库的新条目不在
   state（SSE 未投递/断连），ack 到旧 seq 红点僵死。修法：focus ack 防抖回调内先 refreshMessages
-  拉增量再 ack（refreshMessages 拉到后聚焦态自 ack；直接 ack 作为竞态兑底，MAX 钐制无害）。
+  拉增量；refreshMessages 拉到新条目后聚焦态用 msgsOverride 直通「ref 旧列表 + 新增量」
+  直接 ack 到最新 seq（setState 异步，ref 尚未同步——直通避免过期 seq；直接 ack 作为竞态兑底，
+  MAX 钐制无害）。
 - 验证面说明：alpha 无可用 LLM 配额（kimi 403），真实 speak 链（speak 工具 → SSE 广播）无法
   端到端触发，SSE 载荷契约由单测驱动真实 handleStreamEvent 覆盖；e2e 以直接写库模拟新条目
   落库，验证 ack 语义矩阵。
@@ -176,6 +178,13 @@ n/a（非软代码变更，无 intent 块需求）
 - SSE 断连期间（如笔记本休眠）常驻通道无投递，依赖重连 + 下一轮数据到达拉齐——重连成功后
   服务端不补发 missed 事件，需靠 refreshMessages/重新打开拉平。此为既有边界（非本次引入），
   切回场景已由 focus-ack 的 refreshMessages 兑底缓解。
-- 多标签页同开同一对话：互相 ack（幂等，MAX 钐制），语义「看过这个会话」——设计取舍 3 已披露。
+- 多标签页同开同一对话：互相 ack（幂等，MAX 钳制），语义「看过这个会话」——设计取舍 3 已披露。
 - 未读分隔线（unreadSeparatorSeq）保留定位职责，但「打开即 ack」后首次打开时 unread
   状态已归零，分隔线只在后台期新消息场景出现。
+
+## 7. 对抗审视处置记录（检视獭urdo，异模型 mimo，delta 复核通过）
+- 发现 1（文档「6 处」与实际 5 处不一致）：接受，已修正影响范围表。
+- 发现 2（focus ack 中 refreshMessages 未 await）：部分接受——加 await 达不到「先拉再 ack」
+  效果（allMessagesRef 同步在 useEffect 里，await 恢复时 commit 未发生，ref 仍旧值，
+  await 是误导性显式化）；换更强修法：refreshMessages 内联 ack 改用 msgsOverride 直通新数据，
+  真正达成「拉到即 ack 到最新」。

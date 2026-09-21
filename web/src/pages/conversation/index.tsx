@@ -365,17 +365,24 @@ export default function ConversationPage() {
       const resp = await api.listEntriesAfter(convId, newest.id, 100)
       if (resp.entries.length > 0) {
         const newer = resp.entries.map(mapEntryDTO)
-        setAllMessages(prev => {
-          const current = prev[convId] || []
-          const existingIds = new Set(current.map(m => m.id))
-          const fresh = newer.filter(e => !existingIds.has(e.id))
-          if (fresh.length === 0) return prev
-          return { ...prev, [convId]: [...current, ...fresh] }
-        })
-        /** F20260921urdo 判定换轨：轮询拉到新条目后，若对话处于打开且聚焦状态则 ack
-         *  （后台 tab 不 ack，红点保留待切回时消散） */
-        if (convId === activeIdRef.current && document.visibilityState === 'visible' && document.hasFocus()) {
-          ackActiveRead(convId)
+        // 去重提到 updater 外：ack 直通需要 fresh（updater 外计算基于 ref 镜像，
+        // 与 updater 内 prev 同源同值——列表轮询刷新前 ref 与 state 一致）
+        const existingIds = new Set(list.map(m => m.id))
+        const fresh = newer.filter(e => !existingIds.has(e.id))
+        if (fresh.length > 0) {
+          setAllMessages(prev => {
+            const current = prev[convId] || []
+            const innerIds = new Set(current.map(m => m.id))
+            const inner = fresh.filter(e => !innerIds.has(e.id))
+            if (inner.length === 0) return prev
+            return { ...prev, [convId]: [...current, ...inner] }
+          })
+          /** F20260921urdo 判定换轨：轮询拉到新条目后，若对话处于打开且聚焦状态则 ack。
+           *  msgsOverride 直通「ref 旧列表 + 新增量」——setState 异步，ref 尚未同步，
+           *  读 ref 会 ack 到过期 seq（依赖后续 length-effect 兜底才能拉齐） */
+          if (convId === activeIdRef.current && document.visibilityState === 'visible' && document.hasFocus()) {
+            ackActiveRead(convId, [...list, ...fresh])
+          }
         }
       }
     } catch (err) {
