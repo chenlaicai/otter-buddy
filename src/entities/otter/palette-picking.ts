@@ -18,7 +18,7 @@ export type OtterColorOccupancy = Map<string, number>;
 /**
  * 挑一个对话内未占用的色板 key。
  * @param paletteKeyOrder 色板 key 有序数组（api-contract OTTER_PALETTE_KEYS 注入）
- * @param occupied 该对话的占用集（会被原地更新——调用方无需重复累加）
+ * @param occupied 该对话的占用集（只读——本函数不落账；调用方在色落定后自行累加，见 CreateOtter 与回填迁移）
  */
 export function pickOtterColor(paletteKeyOrder: readonly string[], occupied: OtterColorOccupancy): string {
   // 1. 第一个未占用
