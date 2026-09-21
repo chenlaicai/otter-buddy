@@ -2,7 +2,7 @@
 id: F20260921gedg
 title: git log 采集边界场景测试补齐
 summary: 补齐 #426 列出的五类边界场景测试（rename/binary/空 commit/merge/多行 message）——基于各形态真实输出实测后写断言，其中 rename 双计假设被实测证伪（git log --name-only 只输出新路径），行为锁定防未来漂移。
-change_type: test
+change_type: fix
 capability_test: "n/a: 纯测试补充，无 LLM 参与行为"
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 tags: [rhi, test, git-log, edge-case]
