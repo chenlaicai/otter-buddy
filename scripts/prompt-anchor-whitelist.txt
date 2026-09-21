@@ -3,7 +3,3 @@
 # 格式：path:linenum:token——token 失配（行内容被改）时条目失效并报 error，防豁免静默转移
 prompts/scheduled/依赖升级自动化.md:7:PR #419
 prompts/scheduled/依赖升级自动化.md:21:PR #419
-# 2026-09-21 F20260921vsds 评审：以下为设计词典色值 token（#000 黑色），非 issue 锚点——lint 的 #\d{3,} 对 3 位 hex 色值假阳性（已开 issue 修扫描器），暂以白名单放行
-.pi/skills/visual-design/references/web/styles.md:16:#000
-.pi/skills/visual-design/references/web/styles.md:17:#000
-.pi/skills/visual-design/references/slides/styles.md:17:#000
