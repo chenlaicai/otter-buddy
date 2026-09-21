@@ -178,7 +178,8 @@ export class AgentInvoker implements AgentTurnPort {
         // F20260913ctlv 彻底切换：sendSystem 走 entries（system entry），不再写 messages
         sendSystem: async (convId, body) => {
           const { entry } = await sendEntry.createSystemEntry({ conversationId: convId, body });
-          return { id: entry.id, body: entry.body, sequenceNum: entry.sequenceNum };
+          // F20260921urdo 契约收口：投影补 createdAt
+          return { id: entry.id, body: entry.body, sequenceNum: entry.sequenceNum, createdAt: entry.createdAt };
         },
         healingRepo,
         invokeRepo,
@@ -466,7 +467,8 @@ export class AgentInvoker implements AgentTurnPort {
     const sendEntry = this.sendEntry!;
     const { entry } = await sendEntry.createSystemEntry({ conversationId: convId, body });
     this.logger.debug('System entry sent', { entryId: entry.id, conversationId: convId });
-    return { id: entry.id, body: entry.body, sequenceNum: entry.sequenceNum };
+    // F20260921urdo 契约收口：投影补 createdAt（SSE 载荷必含字段）
+    return { id: entry.id, body: entry.body, sequenceNum: entry.sequenceNum, createdAt: entry.createdAt };
   }
 
   /** 创建 TurnCallbacks：invoke 生命周期 + SSE 事件推送（F20260913ctlv 彻底切换：全部 invoke 化）
@@ -615,7 +617,10 @@ export class AgentInvoker implements AgentTurnPort {
         const resolvedName = resolveSpeakerName("otter", otterId, opts?.otterName) ?? otterId;
         const entryId = speakDetails.entryId as string;
         const body = String((speakDetails as { body?: unknown }).body ?? "");
-        emitEvent({ event: "entry.speak", data: { entryId, invokeId: opts.currentInvokeId, otterId, body, otterName: resolvedName } });
+        // F20260921urdo 契约收口：sequenceNum/createdAt 必含——已读游标与排序数据源（缺席即红点僵死）
+        const sequenceNum = (speakDetails as { sequenceNum?: number }).sequenceNum;
+        const createdAt = (speakDetails as { createdAt?: string }).createdAt;
+        emitEvent({ event: "entry.speak", data: { entryId, invokeId: opts.currentInvokeId, otterId, body, otterName: resolvedName, ...(sequenceNum != null && { sequenceNum }), ...(createdAt && { createdAt }) } });
       }
     }
     // F20260913ctlv 彻底切换：流式过程唯一存储 = invoke_events（message_events 停写）
@@ -828,7 +833,7 @@ export class AgentInvoker implements AgentTurnPort {
       try {
         const sysMsg = await this.sendSystemEntry(conversationId, body);
         this.messageBroadcaster?.broadcastEvent(conversationId, {
-          event: 'entry.system', data: { entryId: sysMsg.id, content: sysMsg.body, seq: sysMsg.sequenceNum },
+          event: 'entry.system', data: { entryId: sysMsg.id, content: sysMsg.body, sequenceNum: sysMsg.sequenceNum, createdAt: sysMsg.createdAt },
         });
       } catch (err) {
         this.logger.warn('[handoff] progress entry failed (non-fatal)', {

@@ -65,7 +65,7 @@ export interface OtterToolClient {
         otterId: string;
         body: string;
         metadata?: Record<string, unknown>;
-      }): Promise<{ id: string; entryType: string; body: string }>;
+      }): Promise<{ id: string; entryType: string; body: string; sequenceNum: number; createdAt: string }>;
       /** 创建 yield 条目 + invoke_end 条目 + 更新 invoke 记录 */
       createYieldEntry(params: {
         conversationId: string;
@@ -106,7 +106,7 @@ export interface OtterToolClient {
     };
     participant: {
       /** 返回 participant + 进场 system entry 投影（F20260913ctlv：create_otter 广播 entry.system SSE 用） */
-      join(conversationId: string, otterId: string): Promise<ConversationParticipant & { systemEntry?: { id: string; body: string | null; sequenceNum: number } }>;
+      join(conversationId: string, otterId: string): Promise<ConversationParticipant & { systemEntry?: { id: string; body: string | null; sequenceNum: number; createdAt: string } }>;
       /** modelAlias 由 ManageParticipant.getActiveParticipants 批量预取后透传（#446） */
       getActive(conversationId: string): Promise<Array<ConversationParticipant & { otterName: string; modelAlias?: string }>>;
       /** 标记 otter 在指定对话中已离开（dissolve_otter 顺带修） */

@@ -76,8 +76,10 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
         return {
           ...textResponse("[系统控制信号] 已记录发言，继续工作。"),
           terminate: false,
-          /** agent-invoker 检测此标记并发射 entry.start/entry.speak SSE（真实 entryId） */
-          details: { __speakIntermediate: true, body: cleanBody, entryId: speakEntry.id, entryType: speakEntry.entryType },
+          /** agent-invoker 检测此标记并发射 entry.start/entry.speak SSE（真实 entryId）。
+           *  F20260921urdo 契约收口：sequenceNum/createdAt 必带——已读游标与排序的数据源，
+           *  禁发射点手拼缺失 */
+          details: { __speakIntermediate: true, body: cleanBody, entryId: speakEntry.id, entryType: speakEntry.entryType, sequenceNum: speakEntry.sequenceNum, createdAt: speakEntry.createdAt },
         };
       } catch (err) {
         return errorResponse(`[错误] 发言落库失败：${err instanceof Error ? err.message : String(err)}。请重试。`);
@@ -350,7 +352,7 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
       if (joined?.systemEntry) {
         ctx.emitEvent?.({
           event: "entry.system",
-          data: { entryId: joined.systemEntry.id, content: joined.systemEntry.body ?? '', seq: joined.systemEntry.sequenceNum },
+          data: { entryId: joined.systemEntry.id, content: joined.systemEntry.body ?? '', sequenceNum: joined.systemEntry.sequenceNum, createdAt: joined.systemEntry.createdAt },
         });
       }
       /** F20260824aibd: 回包含模型信息，让大獭对模型分配有即时反馈 */
