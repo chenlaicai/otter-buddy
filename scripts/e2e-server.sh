@@ -12,13 +12,16 @@
 #     本脚本是「CI/本地共用的 e2e 冒烟流水线」（固定 config.e2e.yaml + 固定端口 3199 +
 #     幂等清理）。CI 步骤与本地命令完全同构，避免两套逻辑漂移。
 #   - 端口 3199：3100-3198 偶数段是 alpha 专属（scripts/alpha.sh），取段外奇数尾避免冲突。
-#   - 健康等待复用 alpha.sh 同款轮询（/api/settings），超时 90s（无 embedding 模型时启动应 <10s，
-#     放宽余量覆盖 CI 冷缓存；下载模型失败不阻塞启动——FTS-only 降级路径）。
+#   - 健康等待复用 alpha.sh 同款轮询（/api/settings），超时 150s（#1077：90s 在冷缓存 runner 上
+#     实证不够——bge-m3 加载 ~30s + Document sync ~19s+，同步启动链全部完成才 listen；
+#     PR #1071 e2e job 106189197172 同 commit 重跑通过，flaky 实锤。下载模型失败不阻塞
+#     启动——FTS-only 降级路径；分阶段健康检查（listen 提前 + 阶段端点）为后续演进，
+#     涉启动顺序重构不在止血范围）。
 set -euo pipefail
 
 PORT=3199
 BASE_URL="http://localhost:${PORT}"
-HEALTH_TIMEOUT=90
+HEALTH_TIMEOUT=150
 # 路径一律锚定 repo root（cmd_run 会 cd web 跑 playwright，EXIT trap 里的 cmd_stop
 # 若用相对路径会解析到 web/ 下——pid 文件找不到 → 服务孤儿。实测踩过。）
 REPO_ROOT="$(git rev-parse --show-toplevel)"
