@@ -7,7 +7,13 @@ created: 2026-09-22
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:
   - scripts/lint-skills.mjs
-summary: "#773：lint 的 resolveRefToAbs 对跨 skill 裸写引用（`other-skill/references/x.md`）按 skills 根解析放行，但 SDK 系统提示明确「相对路径从当前 skill 目录解析」——lint 认存在、SDK 读不到 = 错误安全感（#726 28 次 ENOENT 同族病灶）。按 issue 倾向方案（机械可校验）把约定写死成门禁：E1c 拦截跨 skill 裸写 + 报错附 ../ 迁移指引；存量 2 处裸写（signature-convention）改 ../ 前缀；E2 可见性豁免 SKILL.md 目标（skill 名引用由 agent 的 skill 加载机制直接消费，md 可见性实证不适用——否则 signature-convention 的存量索引引用会误报 error）。"
+intent:
+  problem: 'lint 的 resolveRefToAbs 对跨 skill 裸写引用（`other-skill/references/x.md`、`other-skill/SKILL.md`）按 skills 根解析放行，但 SDK 相对路径一律从当前 skill 目录解析——lint 认存在、SDK 读不到 = 错误安全感（#726 28 次 ENOENT 同族病灶），写错形态的 skill 作者无任何提示'
+  expected_effect: '跨 skill 裸写引用在 lint 阶段被 E1c 显式拦截并附 ../ 迁移指引；合法宇宙（本 skill 相对 + ../ 前缀）不受影响；SKILL.md 入口文件豁免 E2 可见性要求'
+  verify_by:
+    type: static_only
+    note: lint 规则纯静态校验，由 vitest 用例锁定（含旧正则回退红证据），无 LLM 场景
+summary: "#773：lint 的 resolveRefToAbs 对跨 skill 裸写引用（`other-skill/references/x.md`）按 skills 根解析放行，但 SDK 系统提示明确「相对路径从当前 skill 目录解析」——lint 认存在、SDK 读不到 = 错误安全感（#726 28 次 ENOENT 同族病灶）。按 issue 倾向方案（机械可校验）把约定写死成门禁：E1c 拦截跨 skill 裸写 + 报错附 ../ 迁移指引；存量 2 处裸写（signature-convention）改 ../ 前缀；E2 可见性豁免 SKILL.md 入口文件（skill 加载即读，索引-only 低可见性实证不适用——否则 signature-convention 的存量索引引用会误报 error）。"
 tags: [lint, skills, cross-skill, sdk-alignment]
 capability_test: tests/scripts/lint-skills.test.ts
 from: [F20260903sdcp]
@@ -24,7 +30,7 @@ from: [F20260903sdcp]
 1. **E1c 门禁**：`BARE_CROSS_SKILL_RE` 拦截跨 skill 裸写，error 附迁移指引（`改写为 \`../<raw>\``）
 2. **REF_LINE_RE 收紧**：合法宇宙 = `references/`（本 skill）+ `../` 前缀（跨 skill），裸写移出合法宇宙
 3. **resolveRefToAbs 简化**：全部按当前 skill 目录解析（与 SDK 规则字面一致），skills 根解析分支删除
-4. **E2 豁免 SKILL.md 目标**（修复中发现的存量误报，L1 拍板）：skill 名引用（`adversarial-review` = 「先 read 该 skill」的指令对象）由 agent 的 skill 加载机制直接消费——E2 的 md 文件可见性实证（索引引用零读取）不适用。signature-convention 的存量索引引用 `../adversarial-review/SKILL.md` 属此类。references/*.md 目标不适用豁免
+4. **E2 豁免 SKILL.md 目标**（修复中发现的存量误报，L1 拍板）：SKILL.md 是 skill 入口文件，skill 加载即读——E2 的「索引-only 低可见性」实证针对 references 类材料文件，对入口文件不适用。signature-convention 的存量索引引用 `../adversarial-review/SKILL.md` 属此类。references/*.md 目标不适用豁免
 5. **存量迁移**：signature-convention 的 2 处裸写改 `../` 前缀
 
 ## 测试

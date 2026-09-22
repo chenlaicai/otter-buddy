@@ -58,7 +58,7 @@ const REF_LINE_RE = /`((?:\.\.\/|references\/)[^`]*\.md)`|\]\(((?:\.\.\/|referen
 
 // E1c（#773）：跨 skill 裸写引用（<name>/references/… 或 <name>/SKILL.md）——lint 按 skills
 // 根解析会放行，SDK 从当前 skill 目录解析必然 ENOENT。必须 ../ 前缀。
-const BARE_CROSS_SKILL_RE = /`([a-z][a-z0-9-]*\/(?:references\/|SKILL\.md)[^`]*\.md)`|\]\(([a-z][a-z0-9-]*\/(?:references\/|SKILL\.md)[^)]+\.md)\)/g;
+const BARE_CROSS_SKILL_RE = /`([a-z][a-z0-9-]*\/(?:references\/[^`]*\.md|SKILL\.md))`|\]\(([a-z][a-z0-9-]*\/(?:references\/[^)]+\.md|SKILL\.md))\)/g;
 // E1：反引号内的绝对路径 .md 引用（含 .pi/skills 前缀）——cwd 依赖，跨环境必然失效
 const ABSOLUTE_REF_RE = /`(\/[^`\n]*\.pi\/skills\/[^`\n]*\.md)`/;
 // E1b：任何 _shared/ 引用（裸写或 ../ 前缀）。目录已随 F20260903 拆解删除，
@@ -212,7 +212,7 @@ for (const s of skills) {
     const bare = [...s.body.matchAll(BARE_CROSS_SKILL_RE)];
     for (const m of bare) {
       const raw = m[1] ?? m[2];
-      error(`${rel}: 跨 skill 裸写引用 \`${raw}\`——SDK 从当前 skill 目录解析必然 ENOENT（#773）。改写为 \`../${raw}\``);
+      error(`${rel}: 跨 skill 裸写引用 \`${raw}\`——SDK 从当前 skill 目录解析必然 ENOENT（#773）。改写为 \`../${raw}\`。若为反例说明（提及而非使用），请将裸写拆写为 \`foo/\` + \`references/\` 分段，避免整体落入反引号`);
     }
   }
 
@@ -258,8 +258,8 @@ if (skills.length < MIN_SKILLS) {
 // 分级：哪都没绑定 → error；仅其他 skill 的工作流绑定、本 skill 未内联 → warning。
 // （实证 #726/#758：工作流内联引用被高频读取（20-190 次）；索引-only 引用低频/零读取；
 //   跨 skill 工作流绑定有效（author-response-protocol.md 由 code-implementation 步骤 10 绑定，被读 48 次））
-// #773 豁免：SKILL.md 目标是 skill 名引用（`adversarial-review` 即「先 read 该 skill」的指令对象，
-// E2 的 md 文件可见性实证不适用——skill 名是 agent 的 skill 加载机制直接消费的形态）
+// #773 豁免：SKILL.md 是 skill 入口文件——skill 加载即读，E2 的「索引-only 低可见性」
+// 实证（针对 references 类材料文件）对入口文件不适用。
 // 并集在循环外一次构建（O(skills)——#758 检视发现 3：原实现在循环内重建 O(skills²)）
 const anyWorkflowRefs = new Set();
 for (const { wfRefs } of skillWorkflowRefs.values()) {
@@ -269,7 +269,7 @@ for (const refs of skillWorkflowRefs.values()) {
   const rel = refs.rel;
   for (const refAbs of refs.allRefs) {
     if (refs.wfRefs.has(refAbs)) continue; // 本 skill 工作流已内联
-    if (path.basename(refAbs) === "SKILL.md") continue; // #773：skill 名引用豁免
+    if (path.basename(refAbs) === "SKILL.md") continue; // #773：skill 入口文件豁免
     const refRel = path.relative(refs.dir, refAbs).startsWith("..")
       ? path.relative(SKILLS_DIR, refAbs)
       : path.relative(refs.dir, refAbs);
