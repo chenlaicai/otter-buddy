@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildYieldRetryMsg, buildAutoRetryMsg, isRetryableGuardAbort, buildGuardAbortBody, GUARD_BOUNCE_MAX, GUARD_BOUNCE_WINDOW_MS, buildGuardBounceMsg, buildGuardBounceFailBody, buildGuardBounceEscalationMsg, buildUserAbortBody, buildTimeoutRetryExhaustedMsg } from "@usecases/conversation/agent-turn-orchestrator/retry-policy";
+import { buildYieldRetryMsg, buildAutoRetryMsg, isRetryableGuardAbort, isTimeoutGuardReason, buildGuardAbortBody, GUARD_BOUNCE_MAX, GUARD_BOUNCE_WINDOW_MS, buildGuardBounceMsg, buildGuardBounceFailBody, buildGuardBounceEscalationMsg, buildUserAbortBody, buildTimeoutRetryExhaustedMsg } from "@usecases/conversation/agent-turn-orchestrator/retry-policy";
 
 describe("buildYieldRetryMsg", () => {
   it("hasOrphanText=true 时返回旁白流失专项文案", () => {
@@ -148,6 +148,25 @@ describe("#731 guard bounce 文案与常量", () => {
   });
 });
 
+describe("F20260922txes isTimeoutGuardReason（L3 升级判定闭集，检视发现 2 收窄）", () => {
+  it("三个确证超时原因命中", () => {
+    expect(isTimeoutGuardReason('first_byte_timeout')).toBe(true);
+    expect(isTimeoutGuardReason('streaming_timeout')).toBe(true);
+    expect(isTimeoutGuardReason('circuit_break:event_timeout')).toBe(true);
+  });
+
+  it("非超时 circuit_break trigger 不命中（ignored_steer/unknown 等）", () => {
+    expect(isTimeoutGuardReason('circuit_break:ignored_steer')).toBe(false);
+    expect(isTimeoutGuardReason('circuit_break:unknown')).toBe(false);
+  });
+
+  it("bash_safety / degenerate_output / 未知原因不命中", () => {
+    expect(isTimeoutGuardReason('bash_safety:kill detected')).toBe(false);
+    expect(isTimeoutGuardReason('degenerate_output')).toBe(false);
+    expect(isTimeoutGuardReason('unknown_reason')).toBe(false);
+  });
+});
+
 describe("F20260922txes buildTimeoutRetryExhaustedMsg（超时重试耗尽 L3 升级提示）", () => {
   it("first_byte_timeout → 生成超时（长时间无输出）口径", () => {
     const msg = buildTimeoutRetryExhaustedMsg('first_byte_timeout');
@@ -162,15 +181,18 @@ describe("F20260922txes buildTimeoutRetryExhaustedMsg（超时重试耗尽 L3 �
     expect(msg).toContain("自动重试后仍未恢复");
   });
 
-  it("circuit_break:* → 工具调用异常口径", () => {
+  it("circuit_break:event_timeout → 单次工具调用超时口径（与 L2 buildGuardAbortBody 标签一致，检视发现 7）", () => {
     const msg = buildTimeoutRetryExhaustedMsg('circuit_break:event_timeout');
-    expect(msg).toContain("工具调用异常");
+    expect(msg).toContain("单次工具调用超时");
     expect(msg).toContain("自动重试后仍未恢复");
   });
 
-  it("未知 reason → 兜底工具调用异常口径", () => {
-    const msg = buildTimeoutRetryExhaustedMsg('unknown_reason');
-    expect(msg).toContain("自动重试后仍未恢复");
+  it("文案只写确证事实：不归因服务波动/模型状态（F20260913ctlv 口径，检视发现 7）", () => {
+    for (const reason of ['first_byte_timeout', 'streaming_timeout', 'circuit_break:event_timeout']) {
+      const msg = buildTimeoutRetryExhaustedMsg(reason);
+      expect(msg).not.toContain("服务波动");
+      expect(msg).not.toContain("模型服务状态");
+    }
   });
 });
 

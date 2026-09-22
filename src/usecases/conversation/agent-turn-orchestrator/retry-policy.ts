@@ -18,6 +18,15 @@ export function isRetryableGuardAbort(reason: string): boolean {
   return false;
 }
 
+/** F20260922txes：确证超时类 guard 原因闭集（L3 升级判定口径，检视发现 2 收窄）。
+ *  circuit_break 仅 event_timeout（单次工具调用超时，circuit-breaker-helpers.ts:229）属超时；
+ *  ignored_steer 等非超时 trigger（tool-call-circuit-breaker.ts:259）不进 timeout_retry_exhausted 枚举。 */
+export function isTimeoutGuardReason(reason: string): boolean {
+  return reason === 'first_byte_timeout'
+    || reason === 'streaming_timeout'
+    || reason === 'circuit_break:event_timeout';
+}
+
 /** 构造自动重试的过渡态消息。
  *  F20260913ctlv 口径：只写确证内容——「超时」有计时证据；「模型」是归因不确证，统一去「模型」字样。 */
 export function buildRetryFailBody(reason: string): string {
@@ -116,8 +125,8 @@ export function buildTimeoutRetryExhaustedMsg(guardReason: string): string {
     ? '生成超时（长时间无输出）'
     : guardReason === 'streaming_timeout'
       ? '生成过程超时'
-      : '工具调用异常';
-  return `[系统保护] ${label}，自动重试后仍未恢复，已中断发言。这可能是临时的服务波动，可手动重试该消息；若持续出现请排查模型服务状态。`;
+      : '单次工具调用超时';
+  return `[系统保护] ${label}，自动重试后仍未恢复，已中断发言。可手动重试该消息；若持续出现请报告搭档排查。`;
 }
 
 /** Build abort body: user abort vs guard abort */

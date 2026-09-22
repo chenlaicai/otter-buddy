@@ -40,6 +40,9 @@ export const HEALING_ENVIRONMENT_TYPES: readonly HealingErrorType[] = [
   'rate_limit',     // 模型配额耗尽（供应商侧）
   'circuit_break',  // 熔断执行（系统保护动作）
   'self_restart',   // 自重启执行（系统保护动作）
+  // F20260922txes：超时自动重试耗尽（环境侧——超时是模型/网络环境信号，非獭能力失败；
+  // 漏入本清单会被 classifyHealingErrorType 兜底归 capability，daily-review 误读为獭能力失败）
+  'timeout_retry_exhausted',
 ];
 
 /** #998：不参与成败分账的类型（主动反馈信号，独立一列呈现） */
