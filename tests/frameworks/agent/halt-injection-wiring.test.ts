@@ -11,9 +11,14 @@
  * 等重资源；handlers map + 直接调用已覆盖本 PR 新增的接线风险（handler 注册丢失、
  * 闭包引用错误），SDK 侧 runner→agent-loop 的 block 消费是 SDK 自身测试的职责。
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { haltRegistry } from '@usecases/signal/halt-registry';
 import { otterInvokeStorage, haltToolCallGuard } from '@frameworks/agent/model-runtime-registry';
+
+// F20260922txre 检视发现顺手修（与 ensure-hooks.test.ts 同根因）：ResourceLoader 真实装载
+// 用例单跑 3.2s 本就贴着 vitest 默认 5s 预算，并行负载下随机 timeout flaky。
+// 断言零改动，仅加 20s 超时预算。
+vi.setConfig({ testTimeout: 20_000 });
 
 /** 与 model-runtime-registry 相同的 loader 构造（复制最小路径，避免引真实 getAgentDir） */
 async function buildLoader() {

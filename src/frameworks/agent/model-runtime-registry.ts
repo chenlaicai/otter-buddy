@@ -19,6 +19,7 @@ import type { OtterPromptConfig } from "@contract/api/otter";
 import { getConfig } from "../config";
 import { buildOtterPrompt } from "./session-helpers";
 import { externalizeHistoricalImages } from "./image-externalizer";
+import { externalizeHistoricalToolResults } from "./toolresult-externalizer";
 // F20260920uhuc：compaction-hook 导入退役（session_before_compact 钩子随时机权回收而退役）
 import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
 import { buildHaltBlockReason } from "@usecases/signal/halt-block-reason";
@@ -100,8 +101,9 @@ export class ModelRuntimeRegistry {
             factory: (pi: any) => {
               // strip 历史 assistant 消息的 thinking 块（保留最新一条）
               // + F20260915iext（#779）：历史图片外置（当轮图片保留，上一 turn 及更早文本化）
+              // + F20260922txre（#1093）：历史文本 toolResult 收缩（当轮保留，历史区超大文本投影为头+标记）
               pi.on("context", (event: { messages: any[] }) => {
-                return { messages: externalizeHistoricalImages(stripHistoricalThinking(event.messages)) };
+                return { messages: externalizeHistoricalToolResults(externalizeHistoricalImages(stripHistoricalThinking(event.messages))) };
               });
               // F20260826mwrd C1：halt 边界注入。tool_call 扩展事件在每次工具执行前触发，
               // 返回 { block, reason } → SDK agent-loop 对该次调用生成 isError tool result

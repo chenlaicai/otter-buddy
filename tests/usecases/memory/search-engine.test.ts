@@ -512,12 +512,18 @@ describe("F20260917cvid: 本对话来源加权（currentConversationBoost）", (
   });
 
   it("不传 currentConversationId 时排序与旧行为一致（零影响）", () => {
-    const e1 = makeEntry({ id: "a", conversationId: "conv-A" });
+    // 与上一测试同款 flaky（F20260922txre PR 顺带修，CI run 35687806624 实证）：
+    // 默认 createdAt=now + 双次 rerank 跨毫秒 → timeDecay 漂移 → 5.7e-10 差击穿
+    // 10 位精度断言。固定 createdAt + vi.setSystemTime 钉死时间源（同款双保险）。
+    const NOW = "2026-09-20T00:00:00Z";
+    vi.setSystemTime(new Date(NOW));
+    const e1 = makeEntry({ id: "a", conversationId: "conv-A", createdAt: NOW });
     const hits = new Map<string, import("@usecases/memory/search-engine").RrfHit>([
       ["a", { entryId: "a", rrfScore: 0.5, source: "fts", entry: e1 }],
     ]);
     const withUndef = engine.rerank(hits, new Map(), undefined);
     const plain = engine.rerank(hits, new Map());
     expect(withUndef[0].finalScore).toBeCloseTo(plain[0].finalScore, 10);
+    vi.useRealTimers();
   });
 });
