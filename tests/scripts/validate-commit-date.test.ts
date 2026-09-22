@@ -193,42 +193,52 @@ describe('validateCommitDate', () => {
   describe('CLI 双基准与 --warn-on-drift（F20260914prdb 定稿改名模型）', () => {
     // 搭档决策 2026-09-14：squash 模型下 PR 标题即 main 历史，特性文档 ID ≡ PR 标题 ID；
     // PR 定稿改名（创建日→合入日）后，双基准任一通过：创建基准覆盖旧 ID，当前基准覆盖新 ID
+    // F20260922ctbf（#1098）：CLI 用例跑真实脚本（用真实当前时间），硬编码日期 = 日期炸弹——
+    // 改为动态生成：「今天」与「10 天前」两个基准，ID 日期按场景取其一。
+    const fmtId = (d: Date): string => {
+      const p = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d);
+      const get = (t: string) => p.find(x => x.type === t)?.value ?? '';
+      return `${get('year')}${get('month')}${get('day')}`;
+    };
+    const todayId = fmtId(new Date());
+    const tenDaysAgo = new Date(Date.now() - 10 * 86_400_000);
+    const tenDaysAgoId = fmtId(tenDaysAgo);
+    const tenDaysAgoISO = tenDaysAgo.toISOString();
+
     it('dual-base: 定稿改名合入日后，--at 创建时间基准被当前时间基准救回（PR 标题改名场景）', () => {
-      // #789 现场语义：创建=今天-10 天（超窗），定稿改名=今天（与当前差 0 天 → 当前基准救回）。
-      // F20260922ctxi 修复时间炸弹：原 fixture 硬编码 2026-09-04 / 2026-09-14（隐含「今天=9-14」，
-      // 标题日期距今 >7 天后救回窗口失效、用例必挂）——改为相对日期动态生成，语义不变。
-      const today = new Date();
-      const tenDaysAgo = new Date(today.getTime() - 10 * 24 * 3600_000);
-      const fid = (d: Date) => `F${d.toISOString().slice(0, 10).replace(/-/g, '')}wxeg`;
+      // #789 现场模型：创建 10 天前，定稿改名今天。与创建基准差 10 天，但与当前差 0 天 → 通过
       const { exitCode } = runCLI([
-        '--at', tenDaysAgo.toISOString(),
-        `[${fid(today)}][weixin][BugFix] 出站 sendmessage 全量观测日志`,
+        '--at', tenDaysAgoISO,
+        `[F${todayId}wxeg][weixin][BugFix] 出站 sendmessage 全量观测日志`,
       ]);
       expect(exitCode).toBe(0);
     });
 
     it('dual-base: 创建日 ID 持续肠通（--at 基准通过，与当前时间无关）', () => {
       const { exitCode } = runCLI([
-        '--at', '2026-09-04T03:56:11Z',
-        '[F20260904wxeg][weixin][BugFix] 出站 sendmessage 全量观测日志',
+        '--at', tenDaysAgoISO,
+        `[F${tenDaysAgoId}wxeg][weixin][BugFix] 出站 sendmessage 全量观测日志`,
       ]);
       expect(exitCode).toBe(0);
     });
 
     it('dual-base: 两基准都不在窗内仍拦（发起时就写错且未改名）', () => {
-      // 创建 9-04，标题写 8-25（差 10 天）且与今天也超窗 → 拦
+      // 创建 10 天前，标题写 20 天前（与创建基准差 10 天）且与今天也超窗 → 拦
+      const twentyDaysAgoId = fmtId(new Date(Date.now() - 20 * 86_400_000));
       const { exitCode, stderr } = runCLI([
-        '--at', '2026-09-04T03:56:11Z',
-        '[F20260825abcd][agent][Feature Update] 测试',
+        '--at', tenDaysAgoISO,
+        `[F${twentyDaysAgoId}abcd][agent][Feature Update] 测试`,
       ]);
       expect(exitCode).toBe(1);
       expect(stderr).toContain('偏差');
     });
 
     it('--warn-on-drift: 偏差超窗降为警告 exit 0（钩子场景）', () => {
+      // 20 天前 ID 与今天超窗 → 警告不拦
+      const twentyDaysAgoId = fmtId(new Date(Date.now() - 20 * 86_400_000));
       const { exitCode, stderr } = runCLI([
         '--warn-on-drift',
-        '[F20260801abcd][agent][Feature Update] 测试',
+        `[F${twentyDaysAgoId}abcd][agent][Feature Update] 测试`,
       ]);
       expect(exitCode).toBe(0);
       expect(stderr).toContain('警告');
