@@ -46,15 +46,15 @@ category: technique
    **目录位置规范**：worktree 一律创建在 `<被处理项目根>/.otter/worktrees/<name>`（`.otter/` 属运行时产物，已 gitignore）。生命周期跟 PR/项目走、**不跟对话走**——对话工作区（`data/workspaces/`）在对话归档时会被 removeWorkspace 整体删除，只可放可丢弃草稿，禁止存放 worktree 等交付中资产。存量 `.claude/worktrees/` 下的旧 worktree 不迁移（搭档决策 2026-09-12：避免影响其他对话在途工作），随各自 PR 合入由 post-merge-cleanup 自然衰减；认领协议与清理流程均以 `git worktree list` 为准，位置无关。
    **验证服务行为的标准动作（2026-09-17 alpha 隔离特性）**：在 worktree 内需要起真实服务验证时，一律用 `scripts/alpha.sh start`（隔离实例：3100-3198 偶数段端口 + 独立数据根 `~/.otter/alpha/<hash>/`，与主服务三维不相交）——不用手工 `otter-buddy.sh start -p <port>`（那会读主仓 config、无隔离）。验证完 `scripts/alpha.sh stop`；清理验证实例的正道也是 stop，不用组合杀（对 3100+ 端口的组合杀会被守卫拦并引导回脚本）。
    **data/ 写删验证纪律（2026-09-18，主仓数据事故后双重措施）**：涉及 data/ 的验证命令（构造/删除测试数据、模拟指标写入等）一律在 worktree/临时目录内执行——海獭 bash cwd 恒为主仓，相对路径 `data/…` 一伸手就是生产数据（事故实例：`rm -rf data/metrics` 删掉了主仓 metrics + golden 历史，不可恢复）。守卫会拦截指向主仓 data/ 的 rm/mv/find -delete，但正道是不碰：验证数据用 `os.tmpdir()` 或 worktree 内路径，服务行为验证走 alpha.sh（独立数据根，天然隔离）。主仓 data/ 的清理只能由搭档人工执行。
-4. **在 worktree 内提交**：所有改动和验证在 worktree 内进行，主目录只读。生成特性 ID 前必须先跑 `date` 取当前日期，禁止凭印象标日期；**新 ID 必须先查重**：`grep -rl '<title 或主题关键词>' docs/features/ docs/research/`，存在同 title 或语义相同的文档则复用原 ID——自编新 ID 会让旧 ID 的 chunk 残留 memory 库形成重复污染。标题搜不到时改用主题关键词重试，仍无命中才可自编新 ID。按提交模板 commit，署名按 signature-convention skill。**Modification-Class 声明**：commit message body 必须含一行声明，取值与修法排序对应——
+4. **在 worktree 内提交**：所有改动和验证在 worktree 内进行，主目录只读。生成特性 ID 前必须先跑 `date` 取当前日期，禁止凭印象标日期；**新 ID 必须先查重**：`grep -rl '<title 或主题关键词>' docs/features/ docs/research/`，存在同 title 或语义相同的文档则复用原 ID——自编新 ID 会让旧 ID 的 chunk 残留 memory 库形成重复污染。标题搜不到时改用主题关键词重试，仍无命中才可自编新 ID。按提交模板 commit，署名按 signature-convention skill。**Modification-Class 声明**：commit message body 必须含一行声明，取值与修法决策树对应——
 
    | 修改类型 | 声明值 |
    |---|---|
-   | 修法排序① 既有语义内修 | `narrow-fix` |
-   | 修法排序② 收窄管辖 | `scope-reduction` |
-   | 修法排序③ 删除机制 | `deletion` |
-   | 修法排序④ 新增机制（重对抗通过后） | `mechanism-addition` |
-   | 纯文档/配置微调（不经修法排序） | `docs-config` |
+   | 修法决策树①（原称修法排序）既有语义内修 | `narrow-fix` |
+   | 修法决策树② 收窄管辖 | `scope-reduction` |
+   | 修法决策树③ 删除机制 | `deletion` |
+   | 修法决策树④ 新增机制（重对抗通过后） | `mechanism-addition` |
+   | 纯文档/配置微调（不经修法决策树） | `docs-config` |
 
    声明进 git 记录，对抗审视时检视獭核对声明与实际 diff 一致性（声明非 `mechanism-addition` 但 diff 实增机制 = 🔴 高严重度补丁证据）。P0 紧急修复可先修后补审，声明值后标注 `(P0-emergency, post-review pending)`。**特性文档（docs/features/F*.md）是默认交付物**：与改动同 worktree 提交。**特性文档约定**（原 _shared/ 全局约定，拆解后内联）：特性文档是特性开发的全流程载体，贯穿探索、分析、设计、实现、审视各阶段——
    - **位置**：worktree 中（`<worktree>/docs/features/<yyyy>/<mm>/<dd>/F<date><id>-<title>.md`），随代码一起提交到 PR
