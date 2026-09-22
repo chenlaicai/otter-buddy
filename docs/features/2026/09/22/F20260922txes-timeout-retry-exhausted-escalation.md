@@ -85,6 +85,14 @@ created_in_conversation: 5c8cc078-3655-4e1a-ae63-70af967f92f9
 | 9 | 核心判定零测试 | 接受修复：isTimeoutGuardReason 提为纯函数 + 3 组边界用例 | 判定逻辑提纯函数后可测；manualRetry 排除路径依赖 TerminalContext 构造，orchestrator 无既有单测基建，闭集纯函数测试已覆盖发现 2 的枚举边界，manualRetry 分支留 simple 判定注释 |
 | 10 | L3 消息与 L2 abort body 近重复 | 反驳（不改） | escalateGuardBounce 双消息先例（orchestrator.ts:673-676）：L2 是中断事实陈述、L3 是升级处置通知，分层语义不同，删除任一则另一层读者受损 |
 
+### 第二轮 delta 复核（fix-regression 1 条）
+
+| # | 发现 | 处置 | 理由 |
+|---|---|---|---|
+| R1 | 发现 3 修复打碎 healing-analysis-template.test.ts:201：生产用 `HEALING_ENVIRONMENT_TYPES.join('/')` 动态拼接（scheduler-service.ts:1518），测试期望硬编码字面量，清单 4→5 失配 | 接受修复：测试期望改与生产同源动态拼接；附 logger 来源统一（this.logger） | 测试注释自称「非硬编码」实则硬编码——修复让测试与生产同源，清单再新增类型永不失配。教训落账：枚举清单变更后必须全量跑 vitest（首轮只跑两目录导致回归漏网） |
+
+ensure-hooks / halt-injection 全量跑失败经对照组实验（stash 干净代码同跑亦失败、单跑全过、主仓单跑全过）确认为并行环境敏感 flake，与本 PR 无关（检视第 2 轮亦同判定）。
+
 ## 决策记录
 
 | 决策 | 选择 | 理由 |
