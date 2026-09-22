@@ -3295,3 +3295,163 @@ describe('#823 根修：skip 吞 claim 导致任务饿死（9/6 生产现场）'
     }
   });
 });
+
+describe('#1068: quota-exhausted 自动降级（定时任务模型绑定默认模型无逃生）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** 构造注入 modelPool + manageSession 的 service；invoke 错误消息可编程 */
+  function buildFallbackService(opts: {
+    invokeErrors: Array<string | null>; // 每次 invokeConversation 调用消费一个；null=成功
+    modelAliases?: string[];
+    defaultAlias?: string;
+  }) {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    taskRepo._store.set('task-1', makeTask());
+    convRepo._addConversation('conv-1', { status: 'active' });
+    const sendEntry = createMockSendEntry();
+    const entryRepo = createMockEntryRepo();
+    const agentInvoke = createMockAgentInvoke();
+    let callIdx = 0;
+    agentInvoke.invokeConversation.mockImplementation(async () => {
+      const err = opts.invokeErrors[Math.min(callIdx, opts.invokeErrors.length - 1)];
+      callIdx++;
+      if (err) throw new Error(err);
+      return { messageId: 'msg-1', duration: 0 };
+    });
+    /** 状态读取：invoke 实际执行次数（副作用计数，非 mock 调用断言） */
+    const getInvokeCount = () => callIdx;
+
+    /** 副作用状态：restart 收到的 modelAlias 序列（长度=降级次数，内容=换的模型） */
+    const restartModelAliases: Array<string | undefined> = [];
+    const mockManageSession = {
+      restartSession: vi.fn(async (_otterId: string, _summary?: string, modelAlias?: string) => {
+        restartModelAliases.push(modelAlias);
+        return { id: 'new-session' };
+      }),
+    };
+    const aliases = opts.modelAliases ?? ['kimi', 'glm'];
+    const mockModelPool = {
+      getDefaultAlias: () => opts.defaultAlias ?? 'kimi',
+      setDefaultAlias: vi.fn(),
+      hasModel: (a: string) => aliases.includes(a),
+      getModelInfos: () => aliases.map(a => ({ alias: a, provider: 'p', model: a })),
+      describeModels: () => aliases.map(a => ({ alias: a })),
+    };
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: { getNextTime: () => new Date('2025-06-15T09:00:00.000Z') } as unknown as CronParser,
+      logger: mockLogger,
+      manageSession: mockManageSession as unknown as ManageSession,
+      modelPool: mockModelPool as never,
+    });
+    return { service, taskRepo, agentInvoke, mockManageSession, mockModelPool, getInvokeCount, restartModelAliases };
+  }
+
+  const KIMI_QUOTA_ERROR = "LLM API error: 403 access_terminated_error: You've reached your weekly (7-day) usage limit";
+
+  it('quota-exhausted 失败 -> restart 换 fallback 模型重试一次，成功则 execution 记 completed', async () => {
+    const { service, taskRepo, restartModelAliases, getInvokeCount } = buildFallbackService({
+      invokeErrors: [KIMI_QUOTA_ERROR, null],
+    });
+
+    const result = await service.trigger('task-1');
+
+    // 降级 restart 发生且模型换为非默认的 glm（副作用状态断言）
+    expect(restartModelAliases).toEqual(['glm']);
+    // invoke 副作用序列：原始失败 + 降级重试成功
+    expect(getInvokeCount()).toBe(2);
+    // execution 最终 completed（重试成功）
+    expect(taskRepo._executions.get(result.executionId)!.status).toBe('completed');
+    expect(taskRepo._getResetCallCount()).toBe(1);
+  });
+
+  it('降级重试再失败 -> execution 记 failed，不再二次降级（预算 1 次）', async () => {
+    const { service, taskRepo, restartModelAliases, getInvokeCount } = buildFallbackService({
+      invokeErrors: [KIMI_QUOTA_ERROR, KIMI_QUOTA_ERROR],
+    });
+
+    const err = await service.trigger('task-1').catch((e: Error) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    // restart 副作用仅一次（无二次降级循环）
+    expect(restartModelAliases).toEqual(['glm']);
+    expect(getInvokeCount()).toBe(2);
+    expect(taskRepo._executions.get(err ? Object.keys(Object.fromEntries(taskRepo._executions))[0] : '')?.status ?? taskRepo._executions.values().next().value!.status).toBe('failed');
+  });
+
+  it('瞬时限流（非 exhausted）-> 不降级，直接走原失败路径', async () => {
+    const { service, restartModelAliases, getInvokeCount } = buildFallbackService({
+      invokeErrors: ['LLM API error: 429 rate limit exceeded, retry later'],
+    });
+
+    await service.trigger('task-1').catch(() => {});
+
+    expect(restartModelAliases).toEqual([]);
+    expect(getInvokeCount()).toBe(1);
+  });
+
+  it('非限流错误 -> 不降级', async () => {
+    const { service, restartModelAliases } = buildFallbackService({
+      invokeErrors: ['Agent invocation failed: entry xyz indicates failure'],
+    });
+
+    await service.trigger('task-1').catch(() => {});
+
+    expect(restartModelAliases).toEqual([]);
+  });
+
+  it('modelPool 只有一个模型 -> 无 fallback 可用，不降级走原失败路径', async () => {
+    const { service, restartModelAliases } = buildFallbackService({
+      invokeErrors: [KIMI_QUOTA_ERROR],
+      modelAliases: ['kimi'],
+    });
+
+    await service.trigger('task-1').catch(() => {});
+
+    expect(restartModelAliases).toEqual([]);
+  });
+
+  it('manageSession 未注入 -> 降级路径整体跳过，走原失败路径', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    taskRepo._store.set('task-1', makeTask());
+    convRepo._addConversation('conv-1', { status: 'active' });
+    const sendEntry = createMockSendEntry();
+    const entryRepo = createMockEntryRepo();
+    const agentInvoke = createMockAgentInvoke();
+    agentInvoke.invokeConversation.mockRejectedValue(new Error(KIMI_QUOTA_ERROR));
+    const mockModelPool = {
+      getDefaultAlias: () => 'kimi',
+      getModelInfos: () => [{ alias: 'kimi' }, { alias: 'glm' }],
+    };
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: { getNextTime: () => new Date('2025-06-15T09:00:00.000Z') } as unknown as CronParser,
+      logger: mockLogger,
+      modelPool: mockModelPool as never,
+      // manageSession 未注入
+    });
+
+    const err = await service.trigger('task-1').catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    // 未崩、原失败路径（invoke 副作用仅一次，无降级重试）
+    expect(agentInvoke.invokeConversation.mock.results.length).toBe(1);
+  });
+});
