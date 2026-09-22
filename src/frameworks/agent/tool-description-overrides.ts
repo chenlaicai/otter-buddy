@@ -22,7 +22,8 @@ import { wrapBashWithCwdPrefix, BASH_STATELESS_SUFFIX } from "./cwd-awareness";
 /** 各工具的描述追加文本（ Why 前缀 + 使用边界，与实证数据一致：833KB/1.6M） */
 const DESCRIPTION_SUFFIXES: Record<string, string> = {
   bash:
-    " Prefer dedicated tools when applicable: use the grep tool (not `grep ...` here) to search file contents; use the read tool (not `sed -n '1,80p'`) to read files; use find/ls tools to locate files or list directories. Reserve bash for git, npm/build commands, multi-command pipelines, and filtering command output (e.g. `npx vitest 2>&1 | grep FAIL`). Why: compound bash commands with long paths accumulate as context bloat (measured: one session had 756 bash calls totaling 833KB of 1.6M context).",
+    " Prefer dedicated tools when applicable: use the grep tool (not `grep ...` here) to search file contents; use the read tool (not `sed -n '1,80p'`) to read files; use find/ls tools to locate files or list directories. Reserve bash for git, npm/build commands, multi-command pipelines, and filtering command output (e.g. `npx vitest 2>&1 | grep FAIL`). Why: compound bash commands with long paths accumulate as context bloat (measured: one session had 756 bash calls totaling 833KB of 1.6M context)."
+    + " Waiting: use the wait tool (not `sleep` in bash) for any wait ≥5s — speak your reason first, then call wait. Bare sleep ≥5s will be intercepted by the safety guard.",
   read:
     " Prefer this over `bash sed -n 'X,Yp'` for reading file fragments — supports offset/limit, cleaner output, and avoids shell quoting noise.",
   grep:

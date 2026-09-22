@@ -47,6 +47,15 @@ describe("buildToolDescriptionOverrides", () => {
     expect(overrides[0].description).toContain("git");
   });
 
+  // F20260922slan L0：bash 描述追加 wait 软引导
+  it("bash 覆写含 L0 wait 引导（Waiting: use the wait tool）", () => {
+    const base = buildBase();
+    const overrides = buildToolDescriptionOverrides(base, ["bash"]);
+    expect(overrides[0].description).toContain("Waiting: use the wait tool");
+    expect(overrides[0].description).toContain("Bare sleep ≥5s will be intercepted");
+    expect(overrides[0].description).toContain("speak your reason first");
+  });
+
   it("read/grep/find/ls 覆写各含反 bash 引导", () => {
     const base = buildBase();
     const overrides = buildToolDescriptionOverrides(base, ["read", "grep", "find", "ls"]);

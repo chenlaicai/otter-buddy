@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildYieldRetryMsg, buildAutoRetryMsg, isRetryableGuardAbort, isTimeoutGuardReason, buildGuardAbortBody, GUARD_BOUNCE_MAX, GUARD_BOUNCE_WINDOW_MS, buildGuardBounceMsg, buildGuardBounceFailBody, buildGuardBounceEscalationMsg, buildUserAbortBody, buildTimeoutRetryExhaustedMsg } from "@usecases/conversation/agent-turn-orchestrator/retry-policy";
+import { buildYieldRetryMsg, buildAutoRetryMsg, buildRetryFailBody, isRetryableGuardAbort, isTimeoutGuardReason, buildGuardAbortBody, GUARD_BOUNCE_MAX, GUARD_BOUNCE_WINDOW_MS, buildGuardBounceMsg, buildGuardBounceFailBody, buildGuardBounceEscalationMsg, buildUserAbortBody, buildTimeoutRetryExhaustedMsg } from "@usecases/conversation/agent-turn-orchestrator/retry-policy";
 
 describe("buildYieldRetryMsg", () => {
   it("hasOrphanText=true 时返回旁白流失专项文案", () => {
@@ -229,5 +229,63 @@ describe("buildUserAbortBody（F20260913ctlv：只写确证内容，不写根因
     expect(msg).toContain("安全守卫拦截");
     expect(msg).toContain("未能开始");
     expect(msg).toContain("搭档中断了等待");
+  });
+});
+
+// ─── F20260922slan V5：bash_sleep 前缀全链 ───
+
+describe("bash_sleep: 分支（F20260922slan）", () => {
+  it("isRetryableGuardAbort: bash_sleep:* 可重试（一次自纠机会，同 bash_safety 纪律）", () => {
+    expect(isRetryableGuardAbort("bash_sleep:sleep detected")).toBe(true);
+  });
+
+  it("buildRetryFailBody: bash_sleep:* → sleep 语义文案，不含 kill 域「主进程」措辞", () => {
+    const body = buildRetryFailBody("bash_sleep:sleep 30 detected");
+    expect(body).toContain("长时间静默等待");
+    expect(body).toContain("wait 工具");
+    expect(body).not.toContain("主进程");
+    expect(body).not.toContain("不允许命令");
+  });
+
+  it("buildAutoRetryMsg: bash_sleep:* → 透传守卫 reason + 引导 speak + wait，无 kill 域样板", () => {
+    const msg = buildAutoRetryMsg("bash_sleep:检测到你使用了 sleep 等待（约 30 秒）");
+    expect(msg).toContain("等待守卫拦截");
+    expect(msg).toContain("检测到你使用了 sleep 等待（约 30 秒）");
+    expect(msg).toContain("先 speak 说明你在等什么");
+    expect(msg).toContain("wait 工具");
+    expect(msg).not.toContain("主进程是所有海獭");
+    expect(msg).not.toContain("不得终止");
+  });
+
+  it("buildGuardAbortBody: bash_sleep:* → 终态 sleep 文案，引导 wait 工具 + speak 先行", () => {
+    const body = buildGuardAbortBody("bash_sleep:sleep detected");
+    expect(body).toContain("长时间静默等待");
+    expect(body).toContain("wait 工具");
+    expect(body).toContain("speak");
+    expect(body).not.toContain("主进程");
+  });
+
+  it("buildGuardBounceFailBody: bash_sleep:* → sleep 域 bounce 文案，区分 kill 域", () => {
+    expect(buildGuardBounceFailBody("bash_sleep:x")).toContain("长时间静默等待");
+    expect(buildGuardBounceFailBody("bash_sleep:x")).toContain("自纠重试后仍被拦");
+    // kill 域保持原文案
+    expect(buildGuardBounceFailBody("bash_safety:x")).toContain("主进程");
+    // 无参默认保持 kill 域（向后兼容）
+    expect(buildGuardBounceFailBody()).toContain("主进程");
+  });
+
+  it("buildGuardBounceEscalationMsg: bash_sleep:* → 引导 wait 工具 + speak，不再硬编码「进程管理」", () => {
+    const msg = buildGuardBounceEscalationMsg("mimo", "bash_sleep:x");
+    expect(msg).toContain("等待守卫拦截");
+    expect(msg).toContain("wait 工具");
+    expect(msg).toContain("speak");
+    expect(msg).not.toContain("进程管理");
+    // kill 域保持原文案
+    expect(buildGuardBounceEscalationMsg("mimo", "bash_safety:x")).toContain("进程管理");
+  });
+
+  it("buildGuardBounceMsg: bash_sleep:* → 前缀「等待守卫拦截」（区别于 kill 域「bash 安全守卫拦截」）", () => {
+    expect(buildGuardBounceMsg("bash_sleep:x", 2)).toContain("等待守卫拦截");
+    expect(buildGuardBounceMsg("bash_safety:x", 2)).toContain("bash 安全守卫拦截");
   });
 });

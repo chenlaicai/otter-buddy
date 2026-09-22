@@ -1223,3 +1223,72 @@ describe("F20260922scwd delta D1/D2 绕过形态回归（mimo 二轮检视）", 
     expect(result).toBeNull();
   });
 });
+
+// ─── F20260922slan V1：sleep 检测边界全集 ───
+
+describe("checkBashCommandSafety - sleep 检测（F20260922slan）", () => {
+  const mainPid = 42877;
+
+  it("`sleep 30 && gh pr checks`（典型轮询形态）→ 拦", () => {
+    const result = checkBashCommandSafety("sleep 30 && gh pr checks", mainPid);
+    expect(result).toContain("wait 工具");
+    expect(result).toContain("speak");
+  });
+
+  it("`sleep 5`（边界 = 阈值）→ 拦", () => {
+    expect(checkBashCommandSafety("sleep 5", mainPid)).toContain("wait 工具");
+  });
+
+  it("`sleep 2`（阈值下）→ 放行", () => {
+    expect(checkBashCommandSafety("sleep 2", mainPid)).toBeNull();
+  });
+
+  it("`sleep 2 30`（多参数求和 32s）→ 拦", () => {
+    expect(checkBashCommandSafety("sleep 2 30", mainPid)).toContain("约 32 秒");
+  });
+
+  it("`sleep 1h`（小时单位）→ 拦", () => {
+    expect(checkBashCommandSafety("sleep 1h", mainPid)).toContain("约 3600 秒");
+  });
+
+  it("`sleep 0.1m`（小数+分钟 = 6s）→ 拦", () => {
+    expect(checkBashCommandSafety("sleep 0.1m", mainPid)).toContain("约 6 秒");
+  });
+
+  it("`sleep 0.001h`（小数+小时 = 3.6s < 阈值）→ 放行", () => {
+    expect(checkBashCommandSafety("sleep 0.001h", mainPid)).toBeNull();
+  });
+
+  it("`sleep infinity` / `sleep inf`（GNU 无限等待）→ 拦", () => {
+    expect(checkBashCommandSafety("sleep infinity", mainPid)).toContain("无限");
+    expect(checkBashCommandSafety("sleep inf", mainPid)).toContain("无限");
+  });
+
+  it("`sleep $X`（变量不可解析）→ 放行（保守，宁漏勿误）", () => {
+    expect(checkBashCommandSafety("sleep $X", mainPid)).toBeNull();
+  });
+
+  it("`sleep $(cat t)`（命令替换不可解析）→ 放行", () => {
+    expect(checkBashCommandSafety("sleep $(cat t)", mainPid)).toBeNull();
+  });
+
+  it("`timeout 30 sleep 5`（前缀包装，COMMAND_PREFIX_WORD 剥除）→ 拦", () => {
+    expect(checkBashCommandSafety("timeout 30 sleep 5", mainPid)).toContain("约 5 秒");
+  });
+
+  it("数据位 `echo sleeping now`（sleep 非命令位置）→ 放行", () => {
+    expect(checkBashCommandSafety("echo sleeping now", mainPid)).toBeNull();
+  });
+
+  it("`sleeping 30`（连字符前缀非词边界命中）→ 放行", () => {
+    expect(checkBashCommandSafety("sleeping 30", mainPid)).toBeNull();
+  });
+
+  it("`bash scripts/alpha.sh`（文件形态脚本，sleep 不在命令字符串）→ 放行（T4）", () => {
+    expect(checkBashCommandSafety("bash scripts/alpha.sh", mainPid)).toBeNull();
+  });
+
+  it("`echo hi && sleep 30`（段首命令位置）→ 拦", () => {
+    expect(checkBashCommandSafety("echo hi && sleep 30", mainPid)).toContain("wait 工具");
+  });
+});
