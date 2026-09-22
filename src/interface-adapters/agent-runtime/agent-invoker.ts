@@ -117,6 +117,11 @@ import type { AgentDispatchService } from "@usecases/conversation/agent-dispatch
 export class AgentInvoker implements AgentTurnPort {
   /** Messages explicitly aborted by the user (written only by abort()) */
   private readonly userAbortedMessages = new Set<string>();
+  /** #764：SDK auto_retry_start 观测窗——retry backoff 期间 abort 时 err 被 retry 层抹掉
+   *  errorMessage（{...rest, stopReason: "aborted"}），exit 分类拿不到底层错误；
+   *  但 auto_retry_start 事件带完整 errorMessage，且 retry 会话在成功/耗尽前不结束。
+   *  invokeId → 最近一次 retry 的 errorMessage，abort 归因消费后随 invoke 生命周期清理。 */
+  private readonly retryContextByInvoke = new Map<string, string>();
   private readonly orchestrator: AgentTurnOrchestrator;
   /** F20260818cbkr：熔断执行器（healingRepo 未注入时为 null，熔断禁用） */
   private readonly circuitBreak: CircuitBreakSupport | null;
@@ -348,6 +353,8 @@ export class AgentInvoker implements AgentTurnPort {
 
       // 委托给 orchestrator 执行
       const turnResult = await this.orchestrator.executeTurn(turnInput, driver, callbacks);
+      // #764：turn 结束清理 retry 观测窗（防 invokeId 积累泄漏；归因消费已发生在 executeTurn 内）
+      this.retryContextByInvoke.delete(turnInput.invokeId);
 
       /**
        * F20260818cbkr 一级熔断：orchestrator 上抛熔断信号（executeTurn 循环内不消费）→
@@ -443,6 +450,10 @@ export class AgentInvoker implements AgentTurnPort {
 
       isUserAborted: (invokeId: string) => {
         return this.userAbortedMessages.has(invokeId);
+      },
+
+      getRetryErrorMessage: (invokeId: string) => {
+        return this.retryContextByInvoke.get(invokeId);
       },
     };
     // F20260922handoff 建议1：ctxTokens 旁路盒经 defineProperty 挂 driver——AttemptDriver
@@ -634,6 +645,14 @@ export class AgentInvoker implements AgentTurnPort {
   ): void {
     this.logger.debug('Agent event received', { invokeId: input.invokeId, eventType: e.type, toolName: e.name ?? e.toolName });
     this.recordStreamEventMetrics(e, toolStarts);
+    if (e.type === "auto_retry_start") {
+      // #764：捕获 retry backoff 的底层错误（429 等）——backoff 期间 abort 时 err 通道
+      // 拿不到 errorMessage，exit 分类从这里取归因上下文
+      const errorMessage = (e as { errorMessage?: unknown }).errorMessage;
+      if (typeof errorMessage === "string" && errorMessage) {
+        this.retryContextByInvoke.set(input.invokeId, errorMessage);
+      }
+    }
     if (e.type === "tool_execution_start") {
       toolCallCountBox.count++;
     }
