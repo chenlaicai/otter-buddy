@@ -11,7 +11,7 @@ import type { AttachmentInjectionService } from "@usecases/conversation/attachme
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { Logger } from "@usecases/ports/logger";
 import { Readable } from "node:stream";
-import { parseCommand, formatConversationList, HELP_TEXT } from "@usecases/im/feishu-command-parser";
+import { parseCommand, formatConversationList, HELP_TEXT } from "@usecases/im/im-command-parser";
 
 /** F20260913ctlv 收尾批2：entries 版历史格式化（原 formatMessageHistory 消费 messages.segments） */
 function formatEntryHistory(entries: Array<{ senderType: string; body: string; createdAt: string }>): string {
@@ -46,7 +46,7 @@ interface WeixinMediaItemEntry {
 /**
  * 微信入站消息处理器（interface-adapters 层，照 FeishuMessageProcessor 模式）。
  *
- * 命令体系复用 feishu-command-parser（/list /in /out /history /help 与
+ * 命令体系复用 im-command-parser（/list /in /out /history /help 与
  * ManageConnection 的会话绑定语义通道无关）；partnerResolver 做命令门禁
  * （F20260826fpbd 方案 B 同语义：配置 partnerUserId 时仅搭档可用命令）。
  */

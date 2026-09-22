@@ -4,7 +4,7 @@ import {
   formatConversationList,
   formatMessageHistory,
   HELP_TEXT,
-} from "@usecases/im/feishu-command-parser";
+} from "@usecases/im/im-command-parser";
 
 describe("parseCommand", () => {
   it("解析 /list 命令", () => {
