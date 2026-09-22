@@ -29,6 +29,9 @@ export interface InvokeResultShape {
   outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number };
   /** LLM 直出文本（未通过 speak 输出，对其他人不可见）。用于检测"旁白流失"失败形态 */
   directText?: string;
+  /** 末条 assistant 消息的 stopReason（F20260922wbfx：透传自 buildInvokeResult）。
+   *  length=输出被 token 上限截断——no_yield 失败文案据此区分「真没 yield」与「开口即截断」 */
+  lastStopReason?: string;
 }
 
 /** Attempt 执行结果 */
