@@ -70,6 +70,54 @@ describe("PiSessionFactory 端口方法装配冒烟（F20260922handoff 死链防
     ).resolves.toBeUndefined();
   });
 
+  it("acquireSessionLock：交接模式覆盖整个持锁期（release 闭包内复位，非 finally）", async () => {
+    const factory = new PiSessionFactory({
+      db,
+      sessionDir: ":memory:",
+      otterToolClient: {} as never,
+      model: null as never,
+      createTools: () => [],
+      otterConfigProvider: new SqliteOtterConfigProvider(db),
+      otterRepo: new SqliteOtterRepository(db),
+    }, createTestLogger());
+
+    // handoffModeKeys 是 SimpleLockManager 私有——cast 触达（同 identity-prefix 测试的已知妥协模式）。
+    // 本用例锁死 F20260922handoff 审视打回的语义反转 bug：若复位在外层 finally，
+    // 持锁期间 handoffModeKeys 已被清空（交接窗口内 waiter 回退 30s 默认超时）。
+    const lockManager = (factory as unknown as { lockManager: { handoffModeKeys: Set<string> } }).lockManager;
+    const key = "session:otter-handoff";
+
+    const release = await factory.acquireSessionLock("otter-handoff");
+    expect(lockManager.handoffModeKeys.has(key)).toBe(true); // 持锁期：交接模式在位
+
+    release();
+    expect(lockManager.handoffModeKeys.has(key)).toBe(false); // release 后：复位
+  });
+
+  it("acquireSessionLock：acquire 抛错路径复位 handoffMode（防泄漏）", async () => {
+    const factory = new PiSessionFactory({
+      db,
+      sessionDir: ":memory:",
+      otterToolClient: {} as never,
+      model: null as never,
+      createTools: () => [],
+      otterConfigProvider: new SqliteOtterConfigProvider(db),
+      otterRepo: new SqliteOtterRepository(db),
+    }, createTestLogger());
+
+    const lockManager = (factory as unknown as { lockManager: { handoffModeKeys: Set<string>; acquire: (k: string) => Promise<() => void> } }).lockManager;
+    const key = "session:otter-err";
+    // 先占锁，让后续 acquireSessionLock 的 acquire 排队——steal 阈值 5min 内不会接管，
+    // 用 defaultTimeout 30s 太久，直接 mock acquire 抛错更快（异常路径复位语义不变）。
+    const origAcquire = lockManager.acquire.bind(lockManager);
+    lockManager.acquire = () => Promise.reject(new Error("simulated acquire failure"));
+
+    await expect(factory.acquireSessionLock("otter-err")).rejects.toThrow("simulated acquire failure");
+    expect(lockManager.handoffModeKeys.has(key)).toBe(false); // 异常路径：复位
+
+    lockManager.acquire = origAcquire;
+  });
+
   it("acquireSessionLock：取锁/释放闭环（释放函数可调用，不抛错）", async () => {
     const factory = new PiSessionFactory({
       db,

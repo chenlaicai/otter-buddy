@@ -464,10 +464,21 @@ export class PiSessionFactory implements AgentGateway {
   async acquireSessionLock(otterId: string): Promise<() => void> {
     const key = `session:${otterId}`;
     this.lockManager.setHandoffMode(key, true);
+    let acquired = false;
     try {
-      return await this.lockManager.acquire(key);
+      const release = await this.lockManager.acquire(key);
+      acquired = true;
+      // F20260922handoff 审视打回修复：交接模式（waiter 超时 120s）必须覆盖整个持锁期。
+      //  复位放在 release 闭包内（release 时先复位再放锁）——此前放外层 finally 会在
+      //  acquire 返回瞬间复位，交接窗口内 waiter 仍是默认 30s 超时（「交接窗口假超时」
+      //  语义反转，F20260920uhuc 审视严重发现要消灭的形态）。
+      return () => {
+        this.lockManager.setHandoffMode(key, false);
+        release();
+      };
     } finally {
-      this.lockManager.setHandoffMode(key, false);
+      // 异常路径（acquire 抛错，未拿到锁）：复位 handoffMode，防泄漏。
+      if (!acquired) this.lockManager.setHandoffMode(key, false);
     }
   }
 

@@ -36,7 +36,8 @@ F20260920uhuc「压缩=交接」统一重构合入（#1049）后，三条链路�
 ### ② `PiSessionFactory.acquireSessionLock`（pi-session-factory.ts）
 
 - 取 invoke 同源的 `lockManager.acquire("session:<otterId>")`——交接窗口与 invoke 互斥的真实保障。
-- 取锁前 `setHandoffMode(key, true)`（交接模式 waiter 超时延长至 120s），释放后 `setHandoffMode(key, false)` 恢复正常 30s。
+- 取锁前 `setHandoffMode(key, true)`（交接模式 waiter 超时延长至 120s），**复位放在返回的 release 闭包内**（release 时先复位 handoffMode 再放锁）——交接模式覆盖整个持锁期。⚠️ 首版曾把复位放外层 `finally`，在 acquire 返回瞬间复位，交接窗口内 waiter 仍是默认 30s 超时（「交接窗口假超时」语义反转）——大獭终审打回，已修（commit 2）。
+- acquire 抛错路径：`acquired` 标志判定，未拿到锁时 finally 复位 handoffMode，防泄漏。
 - 交接窗口期间该獭 invoke 全部锁排队（冻结语义），交接完成释放后由新世消化。
 
 ### ③ `setLastCtxTokens` 写回（agent-invoker.ts）
@@ -53,6 +54,9 @@ F20260920uhuc「压缩=交接」统一重构合入（#1049）后，三条链路�
   - invoke 结果带 ctxTokens → `handoffState.getLastCtxTokens` 有值（水位触发器数据源复活）。
   - 预置超阈值 ctxTokens → 第二段 invoke 入口先触发统一交接（`restartSession` 被调）再执行 invoke，交接清旧值后本轮写回新值。
   - 未超阈值 → 不触发交接，ctxTokens 仅写回。
+- `handoff-deadlink-smoke.test.ts` 补充（大獭终审打回后新增）：
+  - **交接模式覆盖整个持锁期**：持锁期间 `handoffModeKeys` 含该 key、release 后复位（锁死 finally-瞬间复位的语义反转 bug——变异验证：回退到旧形态本用例必红）。
+  - acquire 抛错路径复位 handoffMode（防泄漏）。
 
 ## 设计取舍
 
