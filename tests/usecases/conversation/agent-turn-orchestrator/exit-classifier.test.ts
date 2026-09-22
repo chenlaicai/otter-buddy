@@ -50,6 +50,21 @@ describe("classifyExit", () => {
     }
   });
 
+  it("user_abort + abort 自身产物变体（无 was）→ underlyingError 为 undefined（生产现场文案）", () => {
+    const aborted = new Set(["msg-1"]);
+    // 生产现场实际观察到的另一种 SDK abort 写法："Request aborted"（无 was）
+    const err = new Error("LLM API error: Request aborted");
+    const reason = classifyExit(
+      { messageId: "msg-1", result: { text: "" }, err, toolCallCount: 114 },
+      aborted,
+      noInternalReason,
+    );
+    expect(reason.kind).toBe("user_abort");
+    if (reason.kind === "user_abort") {
+      expect(reason.underlyingError).toBeUndefined();
+    }
+  });
+
   it("user_abort + 底层有 guardReason → underlyingError 为 guard_abort", () => {
     const aborted = new Set(["msg-1"]);
     const reason = classifyExit(
@@ -125,6 +140,9 @@ describe("isAbortOwnError", () => {
   it("SDK abort 错误 → true", () => {
     expect(isAbortOwnError(new Error("Request was aborted"))).toBe(true);
     expect(isAbortOwnError(new Error("LLM API error: Request was aborted"))).toBe(true);
+    // 生产现场实际写法（无 was，F20260922abfx）：用户中断时 SDK 抛出 "LLM API error: Request aborted"
+    expect(isAbortOwnError(new Error("Request aborted"))).toBe(true);
+    expect(isAbortOwnError(new Error("LLM API error: Request aborted"))).toBe(true);
   });
 
   it("真实 API 错误 → false", () => {
