@@ -68,6 +68,15 @@ modules: [src/usecases/scheduler/scheduler-service.ts, src/bootstrap/platforms.t
 - 机制源头：F20260916fst4（首哑决策树——本修复是其定时任务链路版）、F20260908efmd（restartSession modelAlias 支持）、#642（429 重试判死）
 - 同池问题：#1067（补丁清单任务自身去留）
 
+## 搭档裁决（2026-09-22 17:35，复杂度封顶）
+
+> 「这个降级处理到此为止，后续如果还是团灭，那也不管，因为 token 用完其实是我的问题，我不想因为这个把系统搞得太复杂，甚至可能有时候是所有模型都无 token，那这个自动切换反而对系统来说是一次额外消耗了」
+
+口径（防后续「优化」回摆）：
+- 降级预算 = 每次触发 1 次硬顶，**禁止扩展为多次/循环降级**
+- fallback 也耗尽 → 认死走原失败路径（healing 可见即可），不加二级逃生
+- 不做 fallback 偏好选择、配额探测预判等增强——机制复杂度到此封顶
+
 ## 对抗审视处置记录（PR #1117，检视獭-1117）
 
 **严重发现 1 ①（双跑面）→ 论证排除，不改代码**：`retryInvokeAfterQuotaFallback` 重投新信号、原锚点信号从未 consumed，看似与 resume 补扫构成双跑。核实补扫数据源后排除：`restart_pending_resumes` 的唯一种子路径是**进程重启** reconcile（`database.ts:91` `failRunningInvokes` 把 running invokes 置 failed 并入队）——quota 失败时进程未重启，invoke 被 orchestrator 正常 settle 为 failed（非 running），补扫数据源为空。进程内不存在「信号重扫」机制（`routeSignals` 无 triggerMessageId 拒绝调用，signal-router.ts:177）。结论：双跑只在「降级重试成功后、进程崩溃、且 invoke 恰在 running 窗口」的极窄交集理论存在，与既有 resume 机制对所有 invoke 的固有风险同级，非本修复引入。
