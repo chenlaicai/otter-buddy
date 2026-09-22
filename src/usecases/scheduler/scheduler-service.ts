@@ -18,6 +18,8 @@ import type { DispatchChainEngine } from '@usecases/conversation/dispatch-chain-
 import type { SignalRouter } from '@usecases/conversation/signal-router';
 import { DirectChainGatedError } from '@usecases/conversation/signal-router';
 import type { FunctionRegistry } from './function-registry';
+import type { ModelPoolLike } from '@usecases/ports/model-pool-like';
+import { matchRateLimitError } from '@usecases/conversation/agent-turn-orchestrator/rate-limit-error';
 import { DomainError, isSessionLockConflictError } from '@entities/errors';
 import { reconcilePromptTemplates } from './prompt-template-reconciler';
 import { readFileSync } from 'node:fs';
@@ -45,6 +47,11 @@ const LEDGER_WATCH_HARD_LIMIT_MS = 24 * 60 * 60 * 1000;
 
 /** #642: 429/rate_limit 类错误的最大重试次数。超过此次数仍 429 → 判死（配额耗尽不会自愈，续期无意义） */
 const MAX_429_RETRIES = 3;
+
+/** #1068: 配额终态降级重试次数上限（每次触发预算 1 次）。
+ *  语义：定时任务 invoke 因 quota-exhausted 失败时，restart 执行獭换 fallback 模型重试一次；
+ *  重试再失败（任何原因）走既有 failure 记账，不再循环降级（fallback 也可能同池耗尽）。 */
+const MAX_QUOTA_FALLBACK_RETRIES = 1;
 
 /** #516: 链超时参数。语义从「一刀切墙钟」改为「静默容忍窗 + 硬上限」：
  *  静默窗内链无任何新消息 → 判死；有新消息（流式/终态均算）→ 链活跃，续期等待。
@@ -98,6 +105,9 @@ export interface SchedulerServiceOptions {
   now?: () => number;
   /** PR4: 函数注册表，用于 function executor */
   functionRegistry?: FunctionRegistry;
+  /** #1068: 模型池（可选）——quota-exhausted 降级重试时解析默认模型/选 fallback。
+   *  未注入时降级路径整体跳过（与 manageSession 缺失同语义：warn 后走原失败路径）。 */
+  modelPool?: ModelPoolLike;
 }
 
 export class SchedulerService {
@@ -128,6 +138,7 @@ export class SchedulerService {
   private readonly now: () => number;
   private readonly manageSession?: ManageSession;
   private readonly functionRegistry?: FunctionRegistry;
+  private readonly modelPool?: ModelPoolLike;
 
   constructor(options: SchedulerServiceOptions) {
     this.taskRepo = options.taskRepo;
@@ -146,6 +157,7 @@ export class SchedulerService {
     if (options.tickImpl) this.tickImpl = options.tickImpl;
     this.manageSession = options.manageSession;
     this.functionRegistry = options.functionRegistry;
+    this.modelPool = options.modelPool;
 
     // 注册任务变更回调
     if (options.manageScheduledTask) {
@@ -598,6 +610,8 @@ export class SchedulerService {
     // Why 不计入 consecutiveFailures：前置炸点未产生 execution，失败计数器挂在
     // execution 生命周期上；且 #912 已修 FK 主因，此处是兑底可见性不是重试治理。
     let executionEstablished = false;
+    // #1068: quota-exhausted 降级重试预算（每次触发 1 次，函数内可变状态）
+    let quotaFallbackAttempts = 0;
 
     try {
       // #823 根修之一：resolveEffectiveBody 先于 claim——动态跳过（如 self-healing-analysis
@@ -710,6 +724,28 @@ export class SchedulerService {
         status = 'completed';
         return { executionId };
       } catch (error) {
+        // #1068: quota-exhausted 终态降级——执行獭模型配额耗尽时 restart 换 fallback 模型重试一次。
+        // 判据用 matchRateLimitError 同族正则（orchestrator 侧 429 整改单一真相源），
+        // exhausted=true 才降级（瞬时限流可能自愈，换模型是过激反应）。
+        const quotaFallback = await this.tryQuotaExhaustedFallback(task, error, quotaFallbackAttempts);
+        if (quotaFallback.retried) {
+          quotaFallbackAttempts++;
+          this.logger.warn('Quota-exhausted fallback: retrying with new model', {
+            taskId: task.id,
+            fallbackModel: quotaFallback.fallbackModel,
+          });
+          try {
+            await this.retryInvokeAfterQuotaFallback(task, effectiveBody, executionId, now);
+            status = 'completed';
+            this.logger.info('Quota-exhausted fallback succeeded', { taskId: task.id, fallbackModel: quotaFallback.fallbackModel });
+            return { executionId };
+          } catch (retryError) {
+            // 降级重试失败（含 fallback 模型同池耗尽）——走原失败路径，error 换为重试错误（更接近现场）
+            this.logger.error('Quota-exhausted fallback retry failed', retryError as Error, { taskId: task.id });
+            await this.handleTaskExecutionFailure(executionId, task.id, retryError, options?.skipConsecutiveFailureTracking);
+            throw retryError;
+          }
+        }
         // #654: session 锁冲突 = 并发冲突（目标会话被活跃方持有，如人工调查/并行任务），
         // 非任务本身失败——execution 记 skipped、不 increment consecutiveFailures、不触发 3 连败熔断。
         // 判据：锁超时错误从 agent 调用链抛出（非链路径 rethrow，或锁链路径经 assertNoFailedMessages
@@ -1357,9 +1393,82 @@ export class SchedulerService {
     }
   }
 
+  /** #1068: 降级 restart 后的重试 invoke 完整路径（提取为 helper 控制 executeTask 嵌套深度）。
+   *  与主路径同语义：锚点 entry → invoke → 记账校验 → completeExecution → resetConsecutiveFailures。 */
+  private async retryInvokeAfterQuotaFallback(
+    task: ScheduledTask,
+    effectiveBody: string,
+    executionId: string,
+    now: string,
+  ): Promise<void> {
+    const retryAnchor = await this.createSystemSignalEntry(task, effectiveBody);
+    await this.invokeAgentWithTimeout(task, effectiveBody, retryAnchor.id);
+    await this.assertNoFailedInvokes(task.conversationId, retryAnchor.id);
+    await this.completeExecution(executionId, task.conversationId, retryAnchor.id);
+    try {
+      await this.taskRepo.resetConsecutiveFailures(task.id, now);
+    } catch (resetErr) {
+      this.logger.warn('resetConsecutiveFailures failed (non-fatal)', {
+        taskId: task.id,
+        error: resetErr instanceof Error ? resetErr.message : String(resetErr),
+      });
+    }
+  }
+
   /** 获取所有 active 任务（直接查询，避免 N+1） */
   private async getAllActiveTasks(): Promise<ScheduledTask[]> {
     return this.taskRepo.getAllActive();
+  }
+
+  /** #1068: quota-exhausted 终态降级——执行獭模型配额耗尽时，restart 换 fallback 模型。
+   *  返回 { retried: true, fallbackModel } 表示已 restart 可重试；否则 retried=false 走原失败路径。
+   *
+   *  触发条件（全部满足才降级，任一不满足即跳过）：
+   *  1. 错误文本命中 matchRateLimitError 且 exhausted=true（终态配额耗尽；瞬时限流可能自愈，换模型过激）
+   *  2. 本次触发尚未用过降级预算（MAX_QUOTA_FALLBACK_RETRIES=1）
+   *  3. manageSession + modelPool 已注入（缺一则 warn 降级路径整体跳过）
+   *  4. 执行獭可确定（talkingStonePassedTo[0]）
+   *  5. 存在可用 fallback 模型（≠ 当前默认模型；取 getModelInfos() 第一个非默认项——
+   *     无偏好配置，机制预算最小化，验证断言只看「不团灭」不看「选最优」）
+   *
+   *  Why 只有 restartBeforeInvoke 任务也生效：本路径 restart 是「配额耗尽后换模型复活」，
+   *  与任务配置的「触发前保持干净上下文」语义独立——两者可叠加（先 restartBeforeInvoke 重启，
+   *  配额死了再 fallback restart），不冲突。 */
+  private async tryQuotaExhaustedFallback(
+    task: ScheduledTask,
+    error: unknown,
+    alreadyAttempted: number,
+  ): Promise<{ retried: boolean; fallbackModel?: string }> {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const rateLimit = matchRateLimitError(errorMessage);
+    if (!rateLimit?.exhausted) return { retried: false };
+    if (alreadyAttempted >= MAX_QUOTA_FALLBACK_RETRIES) return { retried: false };
+    if (!this.manageSession || !this.modelPool) {
+      this.logger.warn('Quota-exhausted fallback skipped: manageSession/modelPool not injected', { taskId: task.id });
+      return { retried: false };
+    }
+    const executorOtterId = task.talkingStonePassedTo[0];
+    if (!executorOtterId) return { retried: false };
+
+    const defaultAlias = this.modelPool.getDefaultAlias();
+    const fallback = this.modelPool.getModelInfos().find(m => m.alias !== defaultAlias);
+    if (!fallback) {
+      this.logger.warn('Quota-exhausted fallback skipped: no alternative model in pool', { taskId: task.id, defaultAlias });
+      return { retried: false };
+    }
+
+    try {
+      await this.manageSession.restartSession(
+        executorOtterId,
+        `定时任务「${task.name}」模型配额耗尽（${defaultAlias}），自动降级重启为 ${fallback.alias}`,
+        fallback.alias,
+      );
+      return { retried: true, fallbackModel: fallback.alias };
+    } catch (restartErr) {
+      // restart 失败不阻断原失败路径——记 error 后返回 retried=false
+      this.logger.error('Quota-exhausted fallback restart failed', restartErr as Error, { taskId: task.id, otterId: executorOtterId });
+      return { retried: false };
+    }
   }
 }
 

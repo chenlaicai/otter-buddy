@@ -283,6 +283,7 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
       healingRepo: repos.healingEvent,
       metrics,
       dispatchChainEngine,
+      modelPool,
     }),
   );
 
