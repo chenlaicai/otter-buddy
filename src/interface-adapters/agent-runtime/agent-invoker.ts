@@ -351,10 +351,16 @@ export class AgentInvoker implements AgentTurnPort {
 
       const turnInput = this.buildTurnInput(params, currentInvokeId, startTime);
 
-      // 委托给 orchestrator 执行
-      const turnResult = await this.orchestrator.executeTurn(turnInput, driver, callbacks);
-      // #764：turn 结束清理 retry 观测窗（防 invokeId 积累泄漏；归因消费已发生在 executeTurn 内）
-      this.retryContextByInvoke.delete(turnInput.invokeId);
+      // 委托给 orchestrator 执行（#764 审视 A1：观测窗清理进 finally——classifyExit/
+      // routeByReason 在 executeTurn 的 try 外，DB 抖动上抛时普通清理会被跳过，
+      // 长生命周期单例逐 turn 泄漏）
+      let turnResult: Awaited<ReturnType<typeof this.orchestrator.executeTurn>>;
+      try {
+        turnResult = await this.orchestrator.executeTurn(turnInput, driver, callbacks);
+      } finally {
+        // #764：turn 结束清理 retry 观测窗（归因消费已发生在 executeTurn 内）
+        this.retryContextByInvoke.delete(turnInput.invokeId);
+      }
 
       /**
        * F20260818cbkr 一级熔断：orchestrator 上抛熔断信号（executeTurn 循环内不消费）→
@@ -632,6 +638,28 @@ export class AgentInvoker implements AgentTurnPort {
   /** F20260913ctlv 彻底切换：流式事件处理（SSE 转发 + speak entry 发射 + invoke_events 持久化 + 计数）
    *  F20260914rtsp：message_end → invoke.tick（右栏 ctx/工具计数实时化）+ ctx_window_used 落库 */
   // eslint-disable-next-line max-params, complexity -- 事件管线需要完整上下文；事件分发本质是多分支
+  /**
+   * #764：retry 观测窗生命周期。
+   * auto_retry_start：捕获 backoff 的底层错误（429 等）——backoff 期间 abort 时 err 通道
+   * 拿不到 errorMessage，exit 分类从这里取归因上下文。
+   * auto_retry_end(success=true)：retry 成功 = backoff 等待已结束、LLM 恢复干活——观测窗
+   * 必须清空，否则陈旧 429 原文在「retry 成功后干活 N 分钟用户才 abort」（常态时机）时被
+   * 误回填为「底层错误：429」（审视 S1）——陈旧误归因比无归因更误导。
+   * 只在 success===true 时清：abort 打断 backoff 时 SDK 也发 auto_retry_end(success:false)，
+   * 无条件清会把正确归因一起清掉。
+   */
+  private trackRetryWindow(e: AgentStreamEvent, invokeId: string): void {
+    if (e.type === "auto_retry_start") {
+      const errorMessage = (e as { errorMessage?: unknown }).errorMessage;
+      if (typeof errorMessage === "string" && errorMessage) {
+        this.retryContextByInvoke.set(invokeId, errorMessage);
+      }
+    } else if (e.type === "auto_retry_end" && (e as { success?: unknown }).success === true) {
+      this.retryContextByInvoke.delete(invokeId);
+    }
+  }
+
+  // eslint-disable-next-line max-params, complexity -- 事件管线需要完整上下文；事件分发本质是多分支
   private handleStreamEvent(
     e: AgentStreamEvent,
     input: { invokeId: string },
@@ -645,14 +673,7 @@ export class AgentInvoker implements AgentTurnPort {
   ): void {
     this.logger.debug('Agent event received', { invokeId: input.invokeId, eventType: e.type, toolName: e.name ?? e.toolName });
     this.recordStreamEventMetrics(e, toolStarts);
-    if (e.type === "auto_retry_start") {
-      // #764：捕获 retry backoff 的底层错误（429 等）——backoff 期间 abort 时 err 通道
-      // 拿不到 errorMessage，exit 分类从这里取归因上下文
-      const errorMessage = (e as { errorMessage?: unknown }).errorMessage;
-      if (typeof errorMessage === "string" && errorMessage) {
-        this.retryContextByInvoke.set(input.invokeId, errorMessage);
-      }
-    }
+    this.trackRetryWindow(e, input.invokeId);
     if (e.type === "tool_execution_start") {
       toolCallCountBox.count++;
     }

@@ -33,18 +33,25 @@ issue 预估「需要在 SDK 回调与编排层之间打通状态通道，跨层
 
 三处改动（共 ~30 行）：
 
-1. **agent-invoker**：`retryContextByInvoke` Map（invokeId → 最近 retry errorMessage），`handleStreamEvent` 捕获 `auto_retry_start.errorMessage` 写入；turn 结束清理防泄漏
+1. **agent-invoker**：`retryContextByInvoke` Map（invokeId → 最近 retry errorMessage），`trackRetryWindow` 生命周期管理——`auto_retry_start.errorMessage` 写入；**`auto_retry_end(success=true)` 清空**（审视 S1：retry 成功后 LLM 恢复干活，观测窗不清会让「干活 N 分钟后 abort」（常态时机）被陈旧 429 误归因——误归因比无归因更误导；success:false 不清——abort 打断 backoff 时保留正确归因）；turn 结束 finally 兜底清理（审视 A1：classifyExit/routeByReason 在 executeTurn 的 try 外，异常路径普通清理会被跳过）
 2. **AttemptDriver**：`getRetryErrorMessage?(invokeId)` 可选接口
 3. **orchestrator**：`user_abort` 且 `underlyingError` 为空时查观测窗回填 `{ kind: 'api_error', errorMessage }`——归因文案「底层错误：…429…」主路径恢复可达
 
-误归因防线：无 retry 观测窗 / 接口缺席时行为=修复前（纯主动中断简洁文案），不错报。
+误归因防线：无 retry 观测窗 / 接口缺席 / retry 已成功时行为=修复前（纯主动中断简洁文案），不错报。
 
 ## 测试
 
-`backoff-abort-attribution.test.ts`（3 用例，真实 executeTurn 驱动）：
+双层覆盖（审视 A3：观测窗写入侧零覆盖同款教训——#1113 S1）：
+
+**orchestrator 侧** `backoff-abort-attribution.test.ts`（3 用例，真实 executeTurn 驱动）：
 - backoff-abort 现场：观测窗有 429 原文 → 文案含「底层错误」+ 429。**回退验证**：屏蔽回填逻辑 → 红（`expected '…搭档中断了当前发言。' to contain '底层错误'`），恢复 → 绿
 - 无观测窗 → 保持纯中断简洁文案（防误归因）
 - 可选接口缺席 → 不炸，按无观测窗处理
+
+**agent-invoker 写入侧** `agent-invoker-retry-window.test.ts`（3 用例，真实 invokeConversation + 事件回放驱动观测窗生命周期）：
+- auto_retry_start 捕获 + backoff 中 abort → 归因带 429
+- S1 防线：auto_retry_end(success=true) 清窗后 abort → 不带陈旧归因（回退验证：stash 修复后本用例红，恢复绿）
+- auto_retry_end(success:false) 不清窗 → 归因保留（防误清）
 
 ## 验证
 
