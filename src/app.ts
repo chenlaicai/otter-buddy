@@ -456,23 +456,24 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
    *  新 conversation 能正常绑上（旧代码删号不清绑定：账号复用 id 时重扫后
    *  ensureConnection 幂等命中旧 connection，getCurrentConversation 返回
    *  「已建线」旧对话，新建线静默失效）。查到才释放（幂等，无绑定不动）
-   *  F20260922wxeg：释放前归档「这条线建出来的助理对话」（搭档指令 9/22：
-   *  移除助理时对应的对话也要直接删除移除——删号即删线，Web 侧不留残对话）。
-   *  归属护栏：只归档 connection.metadata.assistantConversationId 指向且当前
-   *  绑定的对话（本账号 provision 建的那条），用户 /in 挪线不误伤别的对话。 */
+   *  F20260922wxeg：删号即删线（搭档指令 9/22：移除助理时对应的对话也要直接
+   *  删除移除）——metadata.assistantConversationId 存在即归档（本账号 provision
+   *  建的那条）。与活跃绑定判等的旧护栏有两条漏删路径（/out 后删号、/in 挪线后
+   *  删号，检视 S1），且误伤场景本就不成立： archived 对话被 /in 时会被
+   *  enterConversation 状态校验拒绝（仅 active 可进），不存在「我建的对话被归档
+   *  后还能被别的连接用」的受害者。防误删的真护栏是归属标记本身。 */
   const releaseWeixinConnectionAndArchiveLine = async (accountId: string): Promise<void> => {
     try {
       const conn = await repos.connection.getByExternalId(accountId);
       if (!conn) return;
-      const session = await repos.connection.getActiveSession(conn.id);
-      if (!session) return;
       const ownedConversationId = conn.metadata?.assistantConversationId;
-      if (typeof ownedConversationId === "string" && session.conversationId === ownedConversationId) {
+      if (typeof ownedConversationId === "string") {
         await uc.manageConversation.archive(ownedConversationId).catch((err) => {
           logger.warn("Weixin account deleted; assistant conversation archive failed", { accountId, conversationId: ownedConversationId, error: err instanceof Error ? err.message : String(err) });
         });
       }
-      await repos.connection.releaseSession(session.id, new Date().toISOString());
+      const session = await repos.connection.getActiveSession(conn.id);
+      if (session) await repos.connection.releaseSession(session.id, new Date().toISOString());
     } catch (err) {
       // 清理失败不阻断删号主链（下次删号/重扫可重试）；留日志供诊断
       logger.warn("Weixin account deleted; connection release failed", { accountId, error: err instanceof Error ? err.message : String(err) });
@@ -521,7 +522,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       // 「用户先发一条消息」才恢复出站（无消息期也从 Web 侧发起对话的场景）
       const account = weixinAccountStore.getAccount(accountId);
       if (account?.ilinkUserId) {
-        await uc.manageConnection.noteChatId(connection.id, account.ilinkUserId).catch(() => undefined);
+        // 失败仅降级为「等用户首发消息重建锚」——记 warn 供诊断（检视建议①：静默吞错零日志）
+        await uc.manageConnection.noteChatId(connection.id, account.ilinkUserId).catch((err) => {
+          logger.warn("Weixin provision: noteChatId failed（出站锚待用户首发消息重建）", { accountId, error: err instanceof Error ? err.message : String(err) });
+        });
+      } else {
+        logger.warn("Weixin provision: account missing ilinkUserId（出站锚待用户首发消息重建）", { accountId });
       }
       // 已有 active 绑定 = 已建过线（幂等：不重复建，返回当前）
       const existing = await uc.manageConnection.getCurrentConversation(connection.id);
@@ -533,9 +539,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
         ...(config.im?.assistant?.modelAlias && { modelAlias: config.im.assistant.modelAlias }),
       });
       if (!conv) throw new Error("助理线创建失败");
-      // F20260922wxeg：记录「这条线建出来的对话」归属——删号时只删我建的这条
-      // （onWeixinAccountDeleted 按此精确归档；用户 /in 挪线不误伤别的对话）
-      await repos.connection.mergeMetadata(connection.id, { assistantConversationId: conv.id }).catch(() => undefined);
+      // F20260922wxeg：记录「这条线建出来的对话」归属——删号时按此归档
+      // 失败后果 = 删号时该对话残留（可手动归档），记 warn 供诊断（检视建议①）
+      await repos.connection.mergeMetadata(connection.id, { assistantConversationId: conv.id }).catch((err) => {
+        logger.warn("Weixin provision: assistantConversationId metadata write failed（删号时对话将残留）", { accountId, conversationId: conv.id, error: err instanceof Error ? err.message : String(err) });
+      });
       return { conversationId: conv.id, title: conv.title };
     },
     onWeixinAccountDeleted: async (accountId) => {

@@ -6,6 +6,7 @@ import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import type { Logger } from "@usecases/ports/logger";
 import type { SSEEvent } from "@contract/sse/events";
 import type { OutboundEventChannel } from "./message-broadcaster";
+import type { Connection } from "@entities/im/connection";
 import { projectForChannel } from "@entities/conversation/message-body-projection";
 
 /**
@@ -70,8 +71,8 @@ export class WeixinMessageChannel implements OutboundEventChannel {
    *  收信人经 resolveReplyTarget 从 metadata.lastChatId 取回（ilinkUserId，入站时
    *  由 message-processor 记录）。解析不到目标 = 用户尚未在新 connection 上说过话
    *  ——跳过发送记 warn（发给 bot 账号 id 只会 ret=-3 假失败，绝不投递） */
-  private resolveTarget(connectionId: string, connection: { externalId: string; externalType: string; metadata?: Record<string, unknown> | null }): string | null {
-    const target = this.manageConnection.resolveReplyTarget(connection as never);
+  private resolveTarget(connectionId: string, connection: Connection): string | null {
+    const target = this.manageConnection.resolveReplyTarget(connection);
     if (!target) {
       this.logger.warn("Weixin outbound skipped: no reply target yet（等用户先发一条消息建立出站锚）", { connectionId });
     }

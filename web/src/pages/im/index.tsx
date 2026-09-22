@@ -414,7 +414,7 @@ export default function ImPage() {
               </p>
               <p className="text-xs text-stone-500 leading-relaxed mb-4">
                 {duplicateAccount.hasLine
-                  ? '覆盖会删除旧连接记录（旧对话历史保留，可回看），新连接用刚才起的名字建线。'
+                  ? '覆盖会删除旧连接及其助理对话（对话历史随之移除），新连接用刚才起的名字建线。'
                   : '旧连接未完成建线，覆盖只是清理记录。'}
               </p>
               <div className="flex justify-end gap-2">
