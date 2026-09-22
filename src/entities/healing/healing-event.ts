@@ -16,6 +16,8 @@ export type HealingErrorType =
   | 'guard_intercept'
   /** #543：模型限流/配额耗尽（api_error 终态识别；context 含 modelAlias/exhausted/resetHint） */
   | 'rate_limit'
+  /** F20260922txes：超时类自动重试耗尽终态（L1 重试后仍超时，L3 升级上报数据源） */
+  | 'timeout_retry_exhausted'
   /** F20260904tflp：工具使用感受反馈（海獭主动报难用/多余/过度设计；description 以 [tool:工具名] 前缀标识） */
   | 'tool_use_feedback'
   | 'other';

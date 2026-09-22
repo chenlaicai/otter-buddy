@@ -109,6 +109,17 @@ export function buildGuardBounceEscalationMsg(otterName: string): string {
   return `[系统保护] ${otterName} 已连续 ${GUARD_BOUNCE_MAX} 次被 bash 守卫拦截并自动回发，仍在尝试被拦命令——已停止自动回发并中断其发言。请人工介入：排查该獭任务是否涉及进程管理，或核实守卫是否误拦。`;
 }
 
+/** F20260922txes：超时类重试耗尽终态的会话内用户可见提示（L3 升级上报）
+ *  口径与 buildUserAbortBody 一致：只写确证事实（重试过、仍超时、可手动重试），不归因模型/网络。 */
+export function buildTimeoutRetryExhaustedMsg(guardReason: string): string {
+  const label = guardReason === 'first_byte_timeout'
+    ? '生成超时（长时间无输出）'
+    : guardReason === 'streaming_timeout'
+      ? '生成过程超时'
+      : '工具调用异常';
+  return `[系统保护] ${label}，自动重试后仍未恢复，已中断发言。这可能是临时的服务波动，可手动重试该消息；若持续出现请排查模型服务状态。`;
+}
+
 /** Build abort body: user abort vs guard abort */
 export function buildGuardAbortBody(guardReason: string | undefined): string {
   if (guardReason === 'degenerate_output') return '[系统保护] 检测到输出内容异常重复，已自动中断。';

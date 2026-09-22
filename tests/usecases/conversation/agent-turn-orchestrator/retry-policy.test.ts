@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildYieldRetryMsg, buildAutoRetryMsg, isRetryableGuardAbort, buildGuardAbortBody, GUARD_BOUNCE_MAX, GUARD_BOUNCE_WINDOW_MS, buildGuardBounceMsg, buildGuardBounceFailBody, buildGuardBounceEscalationMsg, buildUserAbortBody } from "@usecases/conversation/agent-turn-orchestrator/retry-policy";
+import { buildYieldRetryMsg, buildAutoRetryMsg, isRetryableGuardAbort, buildGuardAbortBody, GUARD_BOUNCE_MAX, GUARD_BOUNCE_WINDOW_MS, buildGuardBounceMsg, buildGuardBounceFailBody, buildGuardBounceEscalationMsg, buildUserAbortBody, buildTimeoutRetryExhaustedMsg } from "@usecases/conversation/agent-turn-orchestrator/retry-policy";
 
 describe("buildYieldRetryMsg", () => {
   it("hasOrphanText=true 时返回旁白流失专项文案", () => {
@@ -145,6 +145,32 @@ describe("#731 guard bounce 文案与常量", () => {
     expect(msg).toContain("停止自动回发");
     expect(msg).toContain("请人工介入");
     expect(msg).toContain("误拦");
+  });
+});
+
+describe("F20260922txes buildTimeoutRetryExhaustedMsg（超时重试耗尽 L3 升级提示）", () => {
+  it("first_byte_timeout → 生成超时（长时间无输出）口径", () => {
+    const msg = buildTimeoutRetryExhaustedMsg('first_byte_timeout');
+    expect(msg).toContain("生成超时（长时间无输出）");
+    expect(msg).toContain("自动重试后仍未恢复");
+    expect(msg).toContain("手动重试");
+  });
+
+  it("streaming_timeout → 生成过程超时口径", () => {
+    const msg = buildTimeoutRetryExhaustedMsg('streaming_timeout');
+    expect(msg).toContain("生成过程超时");
+    expect(msg).toContain("自动重试后仍未恢复");
+  });
+
+  it("circuit_break:* → 工具调用异常口径", () => {
+    const msg = buildTimeoutRetryExhaustedMsg('circuit_break:event_timeout');
+    expect(msg).toContain("工具调用异常");
+    expect(msg).toContain("自动重试后仍未恢复");
+  });
+
+  it("未知 reason → 兜底工具调用异常口径", () => {
+    const msg = buildTimeoutRetryExhaustedMsg('unknown_reason');
+    expect(msg).toContain("自动重试后仍未恢复");
   });
 });
 
