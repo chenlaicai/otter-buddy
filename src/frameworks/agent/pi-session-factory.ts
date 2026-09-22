@@ -767,7 +767,17 @@ export class PiSessionFactory implements AgentGateway {
           return result;
         } catch (err) {
           const e = err as Error & { _toolCallCount?: number; _guardAbortReason?: string; _outputGuardMetadata?: unknown; _modelAlias?: string };
-          e._toolCallCount = this.activeSessions.get(sessionKey)?.toolCallCount ?? 0;
+          // #763：计数快照必须取自 activeEntry 闭包引用（attachGuards 时已捕获），
+          // 不能经 activeSessions.get() 重查——真实竞态是**跨帧删除**先于 catch 读取：
+          // (a) destroy() 在 invoke 挂起时外部 abort→delete 条目（pi-session-factory
+          //     _destroyInternal），abort 先 resolve 的窗口内 prompt reject 的 catch 在
+          //     delete 后运行 → 重查 undefined 退化 0；
+          // (b) 同 sessionKey 并发 invoke 互踩（sessionKey 无 messageId 时是裸 otterId
+          //     共键）——A 的 finally delete 删 B 的条目，甚至读到 B 的计数（跨 invoke
+          //     污染，比 0 更糟）。
+          // 已知边界：set 与 attachGuards 之间存在 await 窗口（delete-before-attach），
+          // 该窗口被删则 activeEntry=undefined 整轮不计数——修复与旧代码同丢，见 F 文档。
+          e._toolCallCount = activeEntry?.toolCallCount ?? this.activeSessions.get(sessionKey)?.toolCallCount ?? 0;
           e._guardAbortReason = activeEntry?.guardAbortReason;
           /** F20260814mtrc：guard abort 路径的首字节样本不随 abort 丢弃（超时样本恰是最关心的） */
           e._outputGuardMetadata = outputGuard.getMetadata();
@@ -856,7 +866,7 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /** 创建带工具配置的 AgentSession（F20260911pspl：invoke 级字段走寄存器，不再按 invoke 新建） */
-  // eslint-disable-next-line max-params, complexity, max-statements, max-lines-per-function -- Phase 2: readOnly 参数增加工具过滤；F20260904cg77 描述覆写接线 +1 语句；F20260922scwd sessionCwd 注入 +1 语句（覆写本体在 tool-description-overrides.ts，此处仅组装）
+  // eslint-disable-next-line max-params, complexity, max-statements -- Phase 2: readOnly 参数增加工具过滤；F20260904cg77 描述覆写接线 +1 语句（覆写本体在 tool-description-overrides.ts，此处仅组装）
   private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, sessionManager: SessionManager, register: InvokeRegister, readOnly?: boolean) {
     const conversationId = options?.conversationId ?? "";
     const otterToolNames = this.buildOtterToolWhitelist(otterType);
@@ -897,12 +907,9 @@ export class PiSessionFactory implements AgentGateway {
 
     // F20260904cg77（#776）：编码工具描述覆写（引导归位工具描述，readOnly 不覆写——
     // 合成路径工具已过滤，保持 prompt 最小）。机制见 tool-description-overrides.ts。
-    // F20260922scwd：bash 感知对齐——sessionCwd 传入用于 [cwd:...] 前缀注入。
-    const sessionCwd = process.cwd();
     const descriptionOverrides = readOnly ? [] : buildToolDescriptionOverrides(
-      buildPiBuiltinToolDefinitions(piCodingAgent as unknown as Record<string, unknown>, sessionCwd),
+      buildPiBuiltinToolDefinitions(piCodingAgent as unknown as Record<string, unknown>, process.cwd()),
       filteredCodingTools,
-      sessionCwd,
     );
 
     this.logger.debug('[createSession] Calling createAgentSession', { otterId, modelAlias: resolvedAlias });
