@@ -658,7 +658,7 @@ export class AgentInvoker implements AgentTurnPort {
 
   /** F20260913ctlv 彻底切换：流式事件处理（SSE 转发 + speak entry 发射 + invoke_events 持久化 + 计数）
    *  F20260914rtsp：message_end → invoke.tick（右栏 ctx/工具计数实时化）+ ctx_window_used 落库 */
-  // eslint-disable-next-line max-params, complexity -- 事件管线需要完整上下文；事件分发本质是多分支
+  // eslint-disable-next-line max-params, complexity, max-statements -- 事件管线需要完整上下文；事件分发本质是多分支；F20260922wbfx +compaction 失败上浮分支
   private handleStreamEvent(
     e: AgentStreamEvent,
     input: { invokeId: string },
@@ -673,6 +673,21 @@ export class AgentInvoker implements AgentTurnPort {
     this.logger.debug('Agent event received', { invokeId: input.invokeId, eventType: e.type, toolName: e.name ?? e.toolName });
     this.recordStreamEventMetrics(e, toolStarts);
     this.trackRetryWindow(e, input.invokeId);
+    // F20260922wbfx：SDK 压缩失败上浮——compaction_end 携带 errorMessage 时 warn 留痕。
+    // 9/22 事故实证：18:40 SDK threshold 压缩触发但摘要失败，compaction_end(errorMessage)
+    // 走 _emit 普通订阅通道到达本处，但 otter 侧只记 metrics 不读 errorMessage——呼救被静默吞掉。
+    // （session_compact_failed 走 extension 通道，subscribe 收不到，errorMessage 是唯一可达信号。）
+    if (e.type === "compaction_end") {
+      const errorMessage = (e as { errorMessage?: unknown }).errorMessage;
+      if (typeof errorMessage === "string" && errorMessage) {
+        this.logger.warn('SDK compaction failed', {
+          invokeId: input.invokeId,
+          otterId,
+          reason: (e as { reason?: unknown }).reason,
+          errorMessage,
+        });
+      }
+    }
     if (e.type === "tool_execution_start") {
       toolCallCountBox.count++;
     }
@@ -1052,14 +1067,19 @@ export class AgentInvoker implements AgentTurnPort {
    *  阈值无法解析（模型缺失/旧装配）时不触发——水位交接静默失活优于拿错阈值误触发。
    *  F20260922handoff 审视严重3修正：交接进行中（inProgress）短路不触发——交接窗口内
    *  本獭 invoke（「重启后 30 秒内发言」主场景）不该因旧世残留水位被判超阈值，且
-   *  unifiedHandoff 自身的防重入会抛 conflict。 */
+   *  unifiedHandoff 自身的防重入会抛 conflict。
+   *  F20260922wbfx：每次判定留痕（debug）——9/22 事故实证：大獭 ctx 261k 超 40k 阈值
+   *  但水位从未触发且零日志，静态推演无法定位断在守卫链哪一环。防线放弃时必须可见。 */
   private shouldTriggerWatermarkHandoff(otterId: string): boolean {
-    if (this.handoffState.isInProgress(otterId)) return false;
+    if (this.handoffState.isInProgress(otterId)) {
+      this.logger.debug('[handoff] watermark check skipped: handoff in progress', { otterId });
+      return false;
+    }
     const last = this.handoffState.getLastCtxTokens(otterId);
-    if (last === undefined) return false;
     const threshold = this.ctxWindowProvider?.getOtterHandoffThresholdTokens(otterId);
-    if (threshold === undefined) return false;
-    return last > threshold;
+    const triggered = last !== undefined && threshold !== undefined && last > threshold;
+    this.logger.debug('[handoff] watermark check', { otterId, lastCtxTokens: last, threshold, triggered });
+    return triggered;
   }
 
   /** 影子通道合成 + fail-closed 防线（空/截断拒入库；60s 超时降级机械档案） */

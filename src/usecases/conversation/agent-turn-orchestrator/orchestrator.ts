@@ -739,13 +739,19 @@ export class AgentTurnOrchestrator {
       return null;
     }
 
+    // F20260922wbfx：失败文案带真实死因——lastStopReason=length 时写明「输出被 token 上限截断」，
+    // 不再用误导性的「未调用 yield」（9/22 事故：开口即截断的 no_yield 死循环，文案完全误导排查方向）
+    const truncated = ctx.result.lastStopReason === 'length';
+    const failBody = truncated
+      ? "[系统] 模型输出被 token 上限截断（stopReason=length），未能完成发言——上下文可能已接近窗口上限，建议重启獭生或换更大窗口模型"
+      : "[系统] 重试后仍未调用 yield 工具";
+
     this.logger.warn('Yield retry exhausted, failing invoke', {
       invokeId: ctx.input.invokeId,
       otterId: ctx.input.otterId,
       conversationId: ctx.input.conversationId,
+      lastStopReason: ctx.result.lastStopReason,
     });
-
-    const failBody = "[系统] 重试后仍未调用 yield 工具";
 
     // 发言石回传触发者（终态时无 yield 目标）
     await this.finalizeInvokeFailedWithTsp(ctx.input, failBody, [ctx.input.senderId], ctx.callbacks, ctx.startTime);
