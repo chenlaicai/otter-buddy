@@ -635,9 +635,6 @@ export class AgentInvoker implements AgentTurnPort {
     if (e.isError === true) this.metrics?.recordToolError(tool);
   }
 
-  /** F20260913ctlv 彻底切换：流式事件处理（SSE 转发 + speak entry 发射 + invoke_events 持久化 + 计数）
-   *  F20260914rtsp：message_end → invoke.tick（右栏 ctx/工具计数实时化）+ ctx_window_used 落库 */
-  // eslint-disable-next-line max-params, complexity -- 事件管线需要完整上下文；事件分发本质是多分支
   /**
    * #764：retry 观测窗生命周期。
    * auto_retry_start：捕获 backoff 的底层错误（429 等）——backoff 期间 abort 时 err 通道
@@ -659,6 +656,8 @@ export class AgentInvoker implements AgentTurnPort {
     }
   }
 
+  /** F20260913ctlv 彻底切换：流式事件处理（SSE 转发 + speak entry 发射 + invoke_events 持久化 + 计数）
+   *  F20260914rtsp：message_end → invoke.tick（右栏 ctx/工具计数实时化）+ ctx_window_used 落库 */
   // eslint-disable-next-line max-params, complexity -- 事件管线需要完整上下文；事件分发本质是多分支
   private handleStreamEvent(
     e: AgentStreamEvent,
