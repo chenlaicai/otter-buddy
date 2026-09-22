@@ -1,6 +1,6 @@
 import type { Logger } from "@usecases/ports/logger";
 import type { WeixinAccountStore } from "./account-store";
-import type { WeixinApiClient } from "./api-client";
+import { WeixinApiClient } from "./api-client";
 import type { WeixinQrStatus, WeixinQrStatusResp } from "./types";
 
 /**
@@ -108,10 +108,44 @@ export class WeixinLoginFlow {
         // 配对码随下一轮状态轮询回传（GET query 参数，协议：pendingVerifyCode 模式）
         return this.pollOnce(qrcode, code);
       }
-      default:
-        // wait / scaned / scaned_but_redirect（redirect 需换网关重试，当前网关无
-        // 区域分片罕见，透传状态给上层继续轮询）
+      case "scaned_but_redirect":
+        // #571：协议语义要求切换到 redirect_host 指向的新网关重试（IDC 分片），
+        // 原实现在原网关轮询到 5 分钟超时永远等不到 confirmed。
+        this.switchGateway(st);
         return "abort-loop";
+      default:
+        // wait / scaned：透传状态给上层继续轮询
+        return "abort-loop";
+    }
+  }
+
+  /**
+   * #571：扫码重定向网关切换。redirect_host（纯主机名）或 baseurl（完整 URL）
+   * 指示新轮询网关；切后本实例后续轮询全部走新网关。
+   * 安全：非微信官方域拒绝切换（白名单校验），防服务端下发任意域名时扫码
+   * 轮询（含 qrcode/verify_code 参数）被导流到第三方主机。
+   */
+  private switchGateway(st: WeixinQrStatusResp): void {
+    const host = st.redirect_host ?? this.extractHost(st.baseurl);
+    if (!host) {
+      this.deps.logger.warn("Weixin scaned_but_redirect without redirect_host/baseurl, keep polling on current gateway");
+      return;
+    }
+    if (!WeixinApiClient.isAllowedRedirectHost(host)) {
+      this.deps.logger.warn("Weixin redirect host not in allowlist, refused gateway switch", { host });
+      return;
+    }
+    const newBase = st.baseurl ?? `https://${host}`;
+    this.deps.api = this.deps.api.withBaseUrl(newBase);
+    this.deps.logger.info("Weixin login gateway switched", { host, baseUrl: newBase });
+  }
+
+  private extractHost(url?: string): string | undefined {
+    if (!url) return undefined;
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return undefined;
     }
   }
 }

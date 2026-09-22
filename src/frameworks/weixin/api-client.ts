@@ -39,6 +39,21 @@ export class WeixinApiClient {
     this.logger = options.logger;
   }
 
+  /** 派生同配置新网关 client（token/logger 随实例） */
+  withBaseUrl(baseUrl: string): WeixinApiClient {
+    return new WeixinApiClient({ baseUrl, token: this.token, logger: this.logger });
+  }
+
+  /**
+   * #571 网关切换白名单：扫码重定向只允许微信官方域。
+   * 服务端下发的 redirect_host 未审计——盲跳会把扫码轮询（含 qrcode/verify_code）
+   * 打到任意域名。白名单兜底 + 日志告警，非官方域拒绝切换。
+   */
+  static isAllowedRedirectHost(host: string): boolean {
+    const h = host.trim().toLowerCase();
+    return h === "weixin.qq.com" || h === "qq.com" || h.endsWith(".weixin.qq.com") || h.endsWith(".qq.com");
+  }
+
   /** 组装每请求自声明信息 */
   private baseInfo(): WeixinBaseInfo {
     return { channel_version: "0.1.0", bot_agent: WeixinApiClient.BOT_AGENT };
