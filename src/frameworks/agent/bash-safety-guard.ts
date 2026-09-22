@@ -444,6 +444,13 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
   if (!projectRoot) return null; // 无 projectRoot 时保守放行（与 resolvesToMainData 同策略）
   // 含 cd 的命令：LLM 显式切换了目录，按 cd 后语义理解——不拦（正道）
   if (/\bcd\s+[^&|;\n]/.test(command)) return null;
+  // #1038 语义兼容：echo '...' >> file 形态，引号内含 rm/mv/find 敏感词元且目标非 data/ → 放行
+  // （#1038 判定引号内是文本不是命令；新守卫的重定向拦截不能把 #1038 放行的形态再拦回来）
+  if (/>>?\s*['"]?[^'"\s]*data[^'"\s]*['"]?/.test(command)) {
+    // 重定向目标含 data/ 路径 → 不豁免（可能真是写 data/ 破坏）
+  } else if (/echo\s+['"].*\b(?:rm|mv|find)\b.*['"].*>>?/.test(command)) {
+    return null; // echo 'rm ...' >> file：引号内文本，目标非 data/，与 #1038 同口径放行
+  }
   // 主仓写形态命中 → 拦（但绝对路径写非主仓放行）
   for (const pattern of MAIN_WRITE_PATTERNS) {
     if (pattern.test(command)) {
