@@ -140,7 +140,7 @@ Can the next developer understand this?
 
 > 范围（软维度，非必查）：变更净新增机制（新机制/子机制/对外承诺）时可选用此维度作焦点。纯修 bug、纯删除、纯重构豁免。复盘记录破例（搭档裁决豁免 + 特性文档引用裁决）亦豁免。
 
-Does the addition carry its full future cost explicitly? (加法自带全部未来)
+Does the addition carry its full future cost explicitly? (加法自带全部未来：加 M 意味着同时接受它将要生成的问题类)
 
 - Check the feature doc's「设计取舍」section for the four answers:
   ① 谁需要它（具体角色，不是「应该有」）② 失败后果（用户可感知，还是仅内部指标异常）③ 后续机制（它创造的新状态里哪些可能出错、会被怎么修）④ 退役条件（什么信号出现时该删它）
