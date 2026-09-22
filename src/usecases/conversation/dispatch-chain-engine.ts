@@ -237,9 +237,9 @@ export class DispatchChainEngine {
     const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder, triggerMessageId, ledgerSource: _ledgerSource, chainSourceMessageIds: _chainSourceMessageIds, steerText } = params;
     const roster = await this.buildRoster(conversationId, senderId);
 
-    // F20260922ctxi：触发消息去重——触发 entry 已在「当前任务」段全文注入，从未读批剔除防双份
-    // （实测同一消息 269+257 字符双份）。幂等：triggerMessageId 若非 entry id（如 retry / resume
-    // 路径传的 invokeId）不会命中未读 entry 集合，自然不过滤。
+    // F20260922ctxi：触发消息去重——触发 entry 以 userMessageContent 形态追加发言流末尾，
+    // 从未读批剔除防双份（实测同一消息 269+257 字符双份）。幂等：triggerMessageId 若非 entry id
+    // （如 retry / resume 路径传的 invokeId）不会命中未读 entry 集合，自然不过滤。
     const excludeIds = new Set(params.excludeMessageIds ?? []);
     if (triggerMessageId) excludeIds.add(triggerMessageId);
 
@@ -783,7 +783,9 @@ export class DispatchChainEngine {
     return { seqThreshold, graceHours };
   }
 
-  /** 组装派发上下文：名册 + 具名对话历史 + 当前任务
+  /** 组装派发上下文：名册 + 单一时间序发言流（历史未读 + 触发消息流末尾）。
+   *  F20260922ctxi 搭档拍板方案 A：删「## 当前任务」叙事段——一切皆发言（聊天室模型），
+   *  触发发言并入流末尾（最新=天然焦点），消除「记录 vs 工单」两顶帽子的叙事割裂。
    * F20260829cach: 首部注入分钟级当前时间。原分钟级时间戳在 system prompt 身份段（每 invoke
    * 重建即变，打断前缀缓存）；改为：system prompt 日粒度锚点（identity-builder）+ 本处
    * 消息首部分钟级新鲜时间。本段随 user message 持久化、位于历史末尾，不占缓存前缀。
@@ -822,7 +824,7 @@ export class DispatchChainEngine {
     const rosterSegment = this.consumeRosterSegment(conversationId, otterId, roster);
 
     if (filtered.length === 0) {
-      let result = `${rosterSegment}## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 当前任务\n${userMessageContent}`;
+      let result = `${rosterSegment}## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 对话历史（你上次发言后的消息）\n${userMessageContent}`;
       if (idleWarning) result += `\n\n${idleWarning}`;
       return { message: result, batchMaxSeq };
     }
@@ -844,7 +846,7 @@ export class DispatchChainEngine {
     };
     const formatted = filtered.map(formatEntry).join('\n');
 
-    let result = `${rosterSegment}## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
+    let result = `${rosterSegment}## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n${userMessageContent}`;
     if (idleWarning) {
       result += `\n\n${idleWarning}`;
     }
