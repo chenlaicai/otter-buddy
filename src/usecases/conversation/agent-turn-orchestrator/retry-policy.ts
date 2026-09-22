@@ -18,6 +18,15 @@ export function isRetryableGuardAbort(reason: string): boolean {
   return false;
 }
 
+/** F20260922txes：确证超时类 guard 原因闭集（L3 升级判定口径，检视发现 2 收窄）。
+ *  circuit_break 仅 event_timeout（单次工具调用超时，circuit-breaker-helpers.ts:229）属超时；
+ *  ignored_steer 等非超时 trigger（tool-call-circuit-breaker.ts:259）不进 timeout_retry_exhausted 枚举。 */
+export function isTimeoutGuardReason(reason: string): boolean {
+  return reason === 'first_byte_timeout'
+    || reason === 'streaming_timeout'
+    || reason === 'circuit_break:event_timeout';
+}
+
 /** 构造自动重试的过渡态消息。
  *  F20260913ctlv 口径：只写确证内容——「超时」有计时证据；「模型」是归因不确证，统一去「模型」字样。 */
 export function buildRetryFailBody(reason: string): string {
@@ -107,6 +116,17 @@ export function buildGuardBounceFailBody(): string {
 /** #731：bounce 超限升级的会话内用户可见通知 */
 export function buildGuardBounceEscalationMsg(otterName: string): string {
   return `[系统保护] ${otterName} 已连续 ${GUARD_BOUNCE_MAX} 次被 bash 守卫拦截并自动回发，仍在尝试被拦命令——已停止自动回发并中断其发言。请人工介入：排查该獭任务是否涉及进程管理，或核实守卫是否误拦。`;
+}
+
+/** F20260922txes：超时类重试耗尽终态的会话内用户可见提示（L3 升级上报）
+ *  口径与 buildUserAbortBody 一致：只写确证事实（重试过、仍超时、可手动重试），不归因模型/网络。 */
+export function buildTimeoutRetryExhaustedMsg(guardReason: string): string {
+  const label = guardReason === 'first_byte_timeout'
+    ? '生成超时（长时间无输出）'
+    : guardReason === 'streaming_timeout'
+      ? '生成过程超时'
+      : '单次工具调用超时';
+  return `[系统保护] ${label}，自动重试后仍未恢复，已中断发言。可手动重试该消息；若持续出现请报告搭档排查。`;
 }
 
 /** Build abort body: user abort vs guard abort */
