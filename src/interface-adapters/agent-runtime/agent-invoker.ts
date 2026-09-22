@@ -855,7 +855,10 @@ export class AgentInvoker implements AgentTurnPort {
       selfSummary?: string;
       synthesizePast: boolean;
       modelAlias?: string;
-      /** 锁策略：轮边界触发时外层已持锁（invokeConversationInner→invoke），传 'none' 跳过取锁 */
+      /** 锁策略：默认 'acquire'（交接窗口持锁冻结并发 invoke）。'none' 跳过取锁——
+       *  历史遗留（#1049 水位路径曾传 'none' 认为外层 invoke 持锁，经 F20260922handoff 审视
+       *  核实锁在 invoke 收尾 finally 已释放），现所有触发路径均用默认/'acquire'，
+       *  'none' 仅存留作防御性选项，调用方不应再使用。 */
       lockMode?: 'acquire' | 'none';
       /** F20260920uhuc 需求变更（2026-09-20）：交接进度系统消息通道（前端 entry.system SSE 消费）。
        *  缺省 true；测试可注入 false 关闭。 */
@@ -904,7 +907,8 @@ export class AgentInvoker implements AgentTurnPort {
       await sendProgress(`⏳ ${await otterDisplay()}的上下文已满（${trigger}触发），正在封装前世档案…（预计 5-15 秒，最长约 1 分钟）`);
     }
 
-    // 冻结窗口：持锁直到交接完成（lockMode='none' 时外层 invoke 已持锁——水位场景）。
+    // 冻结窗口：持锁直到交接完成。所有触发路径均走 'acquire'（严重5修正后）——
+    //  invoke 锁在收尾 finally 已归还，「外层持锁」不是事实。
     // F20260922handoff 审视严重2修正：acquireSessionLock 挪进 try——此前在 try 外，
     //  超时抛错时 finally 的 setInProgress(false) 不执行（try/finally 尚未进入），该獭
     //  永久 409 conflict（acquireSessionLock 超时路径正是本 PR 激活的）。
