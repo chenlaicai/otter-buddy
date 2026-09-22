@@ -32,6 +32,9 @@ export interface AgentTurnPort {
     manualRetry?: boolean;
     /** 多模态 Phase 1：当前任务消息携带的图片（ImageContent；≤2 图由服务端硬限制把关） */
     images?: Array<{ type: "image"; data: string; mimeType: string }>;
+    /** F20260908rlcp：本批未读消息的最大 sequence_num（启动成功后推进游标用）。
+     *  F20260922ctxi：port 声明补齐——实现方早已支持，缺声明让 recruiting 路径无法透传（游标不推进） */
+    batchMaxSeq?: number;
   }): Promise<AgentTurnResult>;
 
   /** 中止 Agent 生成 */

@@ -165,6 +165,9 @@ export class InvokeController {
             retryCount: 1,
             manualRetry: true,
             ...(params.images && { images: params.images }),
+            // F20260922ctxi：batchMaxSeq 透传——闭包重组字段时漏传会让 pushCursorOnStartup
+            // 拿不到批次游标（永不推进），重试 invoke 已注入的未读下轮重复注入。
+            batchMaxSeq: params.batchMaxSeq,
           });
           return { messageId: r.invokeId };
         },

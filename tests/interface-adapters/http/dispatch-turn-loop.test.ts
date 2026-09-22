@@ -80,9 +80,11 @@ describe("dispatchTurnLoop 深度上限", () => {
     const { logger, warns } = makeLogger();
     /** 发言石永远互传 → 死循环，必须由 maxChainDepth 截断 */
     let dispatchCount = 0;
+    let receivedBatchMaxSeq: number | undefined;
     const agentInvoker = {
-      invokeConversation: async ({ otterId }: { otterId: string }) => {
+      invokeConversation: async ({ otterId, batchMaxSeq }: { otterId: string; batchMaxSeq?: number }) => {
         dispatchCount++;
+        receivedBatchMaxSeq = batchMaxSeq;
         const invokeId = `inv-${otterId}-${dispatchCount}`;
         (agentInvoker as unknown as { _invokeRows: Map<string, unknown> })._invokeRows.set(invokeId, { id: invokeId, status: "completed", otterId, talkingStonePassedTo: ["otter-x"], endedAt: new Date().toISOString() });
         return { invokeId, messageId: invokeId, aggregatedTargets: ["otter-x"] };
@@ -140,6 +142,9 @@ describe("dispatchTurnLoop 深度上限", () => {
     /** depth=2：只派发 2 跳（x→y→x），第 3 跳被截断。深度截断验证改为合法互传乒乓后，
      *  行动权触顶时还持有 yield 方（x）的目标 */
     expect(dispatchCount).toBe(2);
+    // F20260922ctxi：dispatchTurnLoop 闭包必须透传 batchMaxSeq（修复前漏传 → pushCursorOnStartup
+    // 拿不到批次游标永不推进 → 已注入的未读下轮重复注入；实测 retry 路径重复 ⏳✅ 两条系统条目）
+    expect(receivedBatchMaxSeq).not.toBeUndefined();
     // DispatchChainEngine 和 MessageController 都会记录 warn 日志
     expect(warns.length).toBeGreaterThanOrEqual(1);
     const depthWarn = warns.find(w => w.msg === "发言链达到深度上限，交还用户");
