@@ -462,9 +462,13 @@ export class AgentTurnOrchestrator {
     return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'guard', guardReason });
   }
 
-  /** 从 ExitReason 判断是否应走 #731 guard bounce（终态前最后一道判定，独立降复杂度） */
+  /** 从 ExitReason 判断是否应走 #731 guard bounce（终态前最后一道判定，独立降复杂度）
+   *  F20260922slan：`bash_sleep:` 纳入 bounce 全链（与 kill 域同纪律——拦截是反馈信号
+   *  不是断头台，顽固裸 sleep 也应见人；多类命令共享同一额度，混类共用 GUARD_BOUNCE_MAX）。 */
   private shouldGuardBounce(guardReason: string, retryCount: number): boolean {
-    return guardReason.startsWith('bash_safety:') && retryCount > 0 && isRetryableGuardAbort(guardReason);
+    return (guardReason.startsWith('bash_safety:') || guardReason.startsWith('bash_sleep:'))
+      && retryCount > 0
+      && isRetryableGuardAbort(guardReason);
   }
 
 
@@ -692,7 +696,7 @@ export class AgentTurnOrchestrator {
       countQueryFailed,
     });
     try {
-      await ctx.callbacks.sendSystem(ctx.input.conversationId, buildGuardBounceEscalationMsg(otterName));
+      await ctx.callbacks.sendSystem(ctx.input.conversationId, buildGuardBounceEscalationMsg(otterName, guardReason));
     } catch { /* 通知失败不阻断 abort 流程 */ }
     return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'guard', guardReason });
   }
@@ -720,7 +724,7 @@ export class AgentTurnOrchestrator {
     // F20260913ctlv：entry.retry SSE + 返回 null 主循环同 invoke 重试
     this.safeEmitEvent(ctx.callbacks, {
       event: 'entry.retry',
-      data: { entryId: ctx.input.invokeId, invokeId: ctx.input.invokeId, otterId: ctx.input.otterId, otterName, reason: buildGuardBounceFailBody(), attempt },
+      data: { entryId: ctx.input.invokeId, invokeId: ctx.input.invokeId, otterId: ctx.input.otterId, otterName, reason: buildGuardBounceFailBody(guardReason), attempt },
     });
 
     return null;
@@ -840,9 +844,13 @@ export class AgentTurnOrchestrator {
     return { invokeId, duration: Date.now() - ctx.startTime };
   }
 
-  /** F20260831aksp T3：bash 守卫二拦终态判定（自 abortTerminal 拆出控复杂度） */
+  /** F20260831aksp T3：bash 守卫二拦终态判定（自 abortTerminal 拆出控复杂度）。
+   *  F20260922slan：`bash_sleep:` 同列——sleep 二拦终态归类不漂移。 */
   private isGuardBounceTerminal(ctx: TerminalContext): boolean {
-    return ctx.kind === 'guard' && !!ctx.guardReason?.startsWith('bash_safety:') && ctx.input.retryCount > 0;
+    return ctx.kind === 'guard'
+      && !!ctx.guardReason
+      && (ctx.guardReason.startsWith('bash_safety:') || ctx.guardReason.startsWith('bash_sleep:'))
+      && ctx.input.retryCount > 0;
   }
 
   /** F20260922txes：超时类重试耗尽终态判定——三个确证超时的 guard 原因 + retryCount>0 + 非手动重试，
@@ -1114,11 +1122,14 @@ export class AgentTurnOrchestrator {
       return;
     }
     if (isRetryableGuardAbort(reason.guardReason)) {
+      // F20260922slan：`bash_sleep:` 补记账分支——否则落 else 把整段拦截文案当指标标签
       const kind = reason.guardReason.startsWith('circuit_break:')
         ? 'circuit_break'
         : reason.guardReason.startsWith('bash_safety:')
           ? 'bash_safety'
-          : reason.guardReason as 'streaming_timeout' | 'first_byte_timeout';
+          : reason.guardReason.startsWith('bash_sleep:')
+            ? 'bash_sleep'
+            : reason.guardReason as 'streaming_timeout' | 'first_byte_timeout';
       recordRetrySafe(kind);
     }
   }
