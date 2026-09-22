@@ -36,22 +36,31 @@ function baseRef() {
 }
 
 /** 该文件是否为本分支新建（在 origin/main..HEAD 全部 commit 中曾出现过 Add，含新增后修改/重命名路径）
- *  边界：新增后 commit 再修改的场景，log 范围含产生 Add 的 commit，判定为分支新建 */
-function isAddedOnBranch(file, ref) {
+ *  边界：新增后 commit 再修改的场景，log 范围含产生 Add 的 commit，判定为分支新建
+ *  F20260922rntc（#1103）：rename R 形态溯源——staged rename 未提交时，新路径在 ref..HEAD 中
+ *  查不到 Add（git log --follow 对已提交历史有效，但对「索引区里尚未提交的 rename」看不到），
+ *  需同时按旧路径查 Add；任一路径命中即本分支新建。 */
+function isAddedOnBranch(file, ref, oldPath) {
   try {
     const out = git(["log", `${ref}..HEAD`, "--follow", "--diff-filter=A", "--format=%H", "--", file]);
-    return out.length > 0;
+    if (out.length > 0) return true;
+    if (oldPath && oldPath !== file) {
+      const oldOut = git(["log", `${ref}..HEAD`, "--follow", "--diff-filter=A", "--format=%H", "--", oldPath]);
+      return oldOut.length > 0;
+    }
+    return false;
   } catch {
     return false;
   }
 }
 
-/** 解析 staged 状态行（git diff --cached --name-status），返回 {status, path} */
+/** 解析 staged 状态行（git diff --cached --name-status），返回 {status, path, oldPath} */
 function parseStatusLine(line) {
   const [rawStatus, ...rest] = line.split("\t");
-  // 重命名/复制格式："R100\told\tnew" —— 目标路径是最后一列
+  // 重命名/复制格式："R100\told\tnew" —— 目标路径是最后一列，旧路径是倒数第二列
   const filePath = rest[rest.length - 1];
-  return { status: rawStatus[0], filePath };
+  const oldPath = rest.length >= 2 ? rest[rest.length - 2] : undefined;
+  return { status: rawStatus[0], filePath, oldPath };
 }
 
 export function findViolations() {
@@ -81,7 +90,7 @@ export function findViolations() {
   }
 
   const errors = modified
-    .filter((e) => !isAddedOnBranch(e.filePath, ref))
+    .filter((e) => !isAddedOnBranch(e.filePath, ref, e.oldPath))
     .map((e) => e.filePath);
   return { errors, degraded: false };
 }

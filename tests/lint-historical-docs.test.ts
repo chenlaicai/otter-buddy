@@ -256,5 +256,32 @@ describe("lint-historical-docs: 历史文档不可变", () => {
     git(repo, ["add", "--", NEW_DOC]);
     const r = runLint(repo);
     expect(r.status).toBe(0);
+    // 收尾（探针验证序列）：reset → 恢复 HEAD 内容到 renamed（git show 写文件+add 让 git 认识）
+    // → mv 回原路径 → reset。否则 staged M（内容改写）残留会让后续 R 形态 rename 用例退化成 D+A
+    git(repo, ["reset", "-q", "--", "."]);
+    fs.writeFileSync(path.join(repo, renamed), git(repo, ["show", `HEAD:${NEW_DOC}`]) + "\n");
+    git(repo, ["add", "--", renamed]);
+    git(repo, ["mv", "-f", renamed, NEW_DOC]);
+    git(repo, ["reset", "-q", "--", "."]);
+  });
+
+  it("F20260922rntc（#1103）：本分支新建文档 R 形态 rename（git mv 不改内容，R100 纯 rename）→ 通过（rename 溯源修复锁定）", () => {
+    // 修复前实测：R 形态（相似度≥50%）下新路径查不到 Add commit → 误拦（行为随 git 相似度漂移）
+    // 用纯 git mv（不改内容）保证 R100 形态，排除内容改写导致的 D+A 退化
+    const renamed = "docs/features/2026/08/31/F20260831new-r-form.md";
+    git(repo, ["mv", NEW_DOC, renamed]);
+    // git mv 已暂存 rename 两端，无需再 add（旧路径已不存在，add 会报 pathspec 错）
+    // 确认 staged 确实是 R 形态——rename 检测需全量 diff（pathspec 单路径过滤会抑制 rename 配对，
+    // 实测：-- <new> 只显示 A；全量才显示 R100 old\tnew）
+    const status = git(repo, ["diff", "--cached", "--name-status"]);
+    expect(status).toMatch(new RegExp(`^R\\d{2,3}\\t${NEW_DOC}\\t${renamed}$`, "m"));
+    const r = runLint(repo);
+    expect(r.status).toBe(0);
+    // 收尾（与上一用例同序列）：reset → 恢复 HEAD 内容 → add → mv 回 → reset
+    git(repo, ["reset", "-q", "--", "."]);
+    fs.writeFileSync(path.join(repo, renamed), git(repo, ["show", `HEAD:${NEW_DOC}`]) + "\n");
+    git(repo, ["add", "--", renamed]);
+    git(repo, ["mv", "-f", renamed, NEW_DOC]);
+    git(repo, ["reset", "-q", "--", "."]);
   });
 });
