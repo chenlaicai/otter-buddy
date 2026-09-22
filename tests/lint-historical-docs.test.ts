@@ -235,7 +235,7 @@ describe("lint-historical-docs: 历史文档不可变", () => {
 
   it("rename 历史文档（git mv + 编辑新路径）→ 旧路径 D 被拦（rename 等价语义，走 .doc-fix 声明通道）", () => {
     // 实测：git mv + add 后 staged 显示 A 新路径 + D 旧路径。新路径按 A 放行（rename 等价），
-    // 旧路径 D 落入拦截——结构性重排属于 BYPASS 逃生门场景，本用例锁定该行为
+    // 旧路径 D 落入拦截——结构性重排走 .doc-fix 声明通道，本用例锁定该行为
     const renamed = "docs/features/2026/01/01/F20260101old-renamed.md";
     git(repo, ["mv", OLD_DOC, renamed]);
     fs.writeFileSync(path.join(repo, renamed), "# renamed+edited\n");
