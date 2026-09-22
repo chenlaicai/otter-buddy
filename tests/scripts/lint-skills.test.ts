@@ -1,13 +1,16 @@
 /**
  * F20260903（#726 拆解）：lint-skills.mjs 引用规范校验测试。
  *
- * 覆盖规则（校验 7/9，F20260903 拆解后结构）：
+ * 覆盖规则（校验 7/9，F20260903 拆解后结构 + #773 E1c）：
  *   E1: 绝对路径 .md 引用（含 /…/.pi/skills/…）→ error（agent 换 cwd 后必然读不到）
  *   E1b: 任何 _shared/ 引用（裸写或 ../ 前缀）→ error（目录已随拆解删除，必然 ENOENT）
+ *   E1c: 跨 skill 裸写引用（`other/references/x.md`、`other/SKILL.md`）→ error（#773：
+ *        lint 曾按 skills 根解析放行，SDK 从当前 skill 目录解析必然 ENOENT）
  *   E2: 引用可见性 = 出现在任一 skill 的「## 工作流」section：
  *       - 哪都没绑定 → error
  *       - 仅其他 skill 的工作流绑定（跨 skill 绑定也算可见）→ warning
- *   7: 引用路径存在性（合法形态统一解析：本 skill 相对 + 跨 skill 裸写）
+ *       - SKILL.md 目标豁免（skill 名引用由加载机制直接消费）
+ *   7: 引用路径存在性（合法形态：本 skill 相对 + 跨 skill ../ 前缀；裸写归 E1c）
  *
  * 设计继承 PR #758 的 tests/scripts/lint-skills.test.ts（其方案被架构决策取代，
  * 诊断资产由本测试继承）。
@@ -133,16 +136,80 @@ describe("lint-skills 校验 9（F20260903 拆解后引用规范）", () => {
     expect(r.output).toContain("仅由其他 skill 的工作流绑定");
   });
 
-  it("E2: 同一文件不同引用字符串（references/x vs 跨 skill 裸写 review/references/x）按解析后路径归一", () => {
+  it("E1c（#773）：跨 skill 裸写引用 → error + 迁移指引（SDK 从当前 skill 目录解析必然 ENOENT）", () => {
     const r = runLint({
       review: {
         body: skillBody({ wfRef: "references/protocol.md" }),
         refs: { "review/references/protocol.md": "# protocol" },
       },
       impl: {
-        // 跨 skill 裸写形态：F20260903 拆解后放行（目标目录真实存在）
+        // 裸写形态：F20260903 拆解后曾放行，#773 非法化（lint 按 skills 根解析会放行，
+        // SDK 从当前 skill 目录解析读不到——#726 28 次 ENOENT 同族病灶）
         body: skillBody({ wfRef: "review/references/protocol.md" }),
         refs: {},
+      },
+    });
+    expect(r.exitCode).toBe(1);
+    expect(r.output).toContain("跨 skill 裸写引用");
+    expect(r.output).toContain("../review/references/protocol.md"); // 迁移指引给出 ../ 形态
+  });
+
+  it("E1c（#773）：跨 skill 裸写 SKILL.md 形态 → error（r1 死分支回归防线）", () => {
+    // 检视发现：旧正则 `(?:references\/|SKILL\.md)[^`]*\.md` 的 SKILL.md 分支消费后仍强制
+    // 再匹配一段 .md，裸写 `foo/SKILL.md` 完全拦不到——而 #773 原文示例正是此形态。
+    const r = runLint({
+      review: {
+        body: skillBody({ wfRef: "references/protocol.md" }),
+        refs: { "review/references/protocol.md": "# protocol" },
+      },
+      impl: {
+        body: skillBody({ wfRef: "review/SKILL.md" }),
+        refs: {},
+      },
+    });
+    expect(r.exitCode).toBe(1);
+    expect(r.output).toContain("跨 skill 裸写引用");
+    expect(r.output).toContain("review/SKILL.md");
+  });
+
+  it("E1c（#773）：链接形态裸写 SKILL.md + 目标不存在 → error（存在性无关，形态即非法）", () => {
+    const r = runLint({
+      alpha: {
+        body: "# T\n\n## 工作流\n\n1. 做事，详见 [文档](no-such-skill/SKILL.md)。\n",
+        refs: {},
+      },
+    });
+    expect(r.exitCode).toBe(1);
+    expect(r.output).toContain("跨 skill 裸写引用");
+    expect(r.output).toContain("no-such-skill/SKILL.md");
+  });
+
+  it("#773：跨 skill 引用 ../ 前缀形态 → 放行（与 SDK 解析规则对齐）", () => {
+    const r = runLint({
+      review: {
+        body: skillBody({ wfRef: "references/protocol.md" }),
+        refs: { "review/references/protocol.md": "# protocol" },
+      },
+      impl: {
+        body: skillBody({ wfRef: "../review/references/protocol.md" }),
+        refs: {},
+      },
+    });
+    expect(r.exitCode).toBe(0);
+    expect(r.output).not.toContain("跨 skill 裸写");
+  });
+
+  it("#773：E2 可见性豁免——SKILL.md 目标（skill 名引用）不要求工作流内联", () => {
+    const r = runLint({
+      review: {
+        body: skillBody({ wfRef: "references/protocol.md" }),
+        refs: { "review/references/protocol.md": "# protocol" },
+      },
+      impl: {
+        // 索引-only 引用另一个 skill 的 SKILL.md——E2 的 md 可见性实证不适用
+        //（skill 名引用由 agent 的 skill 加载机制直接消费）
+        body: skillBody({ wfRef: "references/own.md", indexRef: "../review/SKILL.md" }),
+        refs: { "impl/references/own.md": "# own" },
       },
     });
     expect(r.exitCode).toBe(0);
@@ -193,12 +260,12 @@ describe("lint-skills 校验 9（F20260903 拆解后引用规范）", () => {
     expect(r.output).toContain("references 路径不存在");
   });
 
-  it("存量行为不回归: 跨 skill 裸写指向不存在的 skill → error（校验 7，按 skills 根解析）", () => {
+  it("存量行为不回归: 跨 skill 裸写指向不存在的 skill → error（#773 后归 E1c 裸写拦截）", () => {
     const r = runLint({
       alpha: { body: skillBody({ wfRef: "no-such-skill/references/guide.md" }), refs: {} },
     });
     expect(r.exitCode).toBe(1);
-    expect(r.output).toContain("references 路径不存在");
+    expect(r.output).toContain("跨 skill 裸写引用");
   });
 
   it("存量行为不回归: frontmatter 缺字段 → error（校验 1）", () => {
