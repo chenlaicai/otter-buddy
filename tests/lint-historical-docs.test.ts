@@ -278,10 +278,41 @@ describe("lint-historical-docs: 历史文档不可变", () => {
     const r = runLint(repo);
     expect(r.status).toBe(0);
     // 收尾（与上一用例同序列）：reset → 恢复 HEAD 内容 → add → mv 回 → reset
+    // 隐式假设（检视建议 2 注记）：恢复内容 = trim + 单 "\n"（git() helper 对输出 trim），
+    // 仅对「单换行结尾」的 fixture 精确——若 fixture 改为无换行/多换行结尾，恢复会静默漂移
     git(repo, ["reset", "-q", "--", "."]);
     fs.writeFileSync(path.join(repo, renamed), git(repo, ["show", `HEAD:${NEW_DOC}`]) + "\n");
     git(repo, ["add", "--", renamed]);
     git(repo, ["mv", "-f", renamed, NEW_DOC]);
+    git(repo, ["reset", "-q", "--", "."]);
+  });
+
+  it("F20260922rntc delta（PR #1108 检视严重 1）：派生文档（cp 历史文档+微改）普通修改 → 通过（无 --follow 查询兜底）", () => {
+    // 实测怪癖：--follow --diff-filter=A 对高相似派生文件系统性 miss（内容来源被 follow 到历史文档，
+    // Add commit 被过滤）；无 --follow 的 --diff-filter=A 按路径查直接命中 Add commit
+    const derived = "docs/features/2026/08/31/F20260831der-derived.md";
+    fs.writeFileSync(path.join(repo, derived), OLD_DOC_CONTENT.replace("F20260101old", "F20260831der").replace("旧特性", "派生特性"));
+    stageOnly(repo, derived);
+    git(repo, ["commit", "-q", "-m", "derived doc"]);
+    // 普通修改
+    fs.writeFileSync(path.join(repo, derived), OLD_DOC_CONTENT.replace("F20260101old", "F20260831der").replace("旧特性", "派生特性").replace("正文内容。", "正文内容，改了点。"));
+    stageOnly(repo, derived);
+    expect(runLint(repo).status).toBe(0);
+    // 收尾：恢复到 commit 版本（该文件后续用例不用，但保持仓库干净）
+    git(repo, ["reset", "-q", "--", "."]);
+    git(repo, ["checkout", "--", derived]);
+  });
+
+  it("F20260922rntc delta（PR #1108 检视严重 1）：派生文档 R 形态 rename → 通过（oldPath 仅按来源判定 + 无 --follow 兜底）", () => {
+    const derived = "docs/features/2026/08/31/F20260831der-derived.md";
+    // 上一用例已创建并 commit 派生文档；直接 rename
+    const renamed = "docs/features/2026/08/31/F20260831der-renamed.md";
+    git(repo, ["mv", derived, renamed]);
+    const status = git(repo, ["diff", "--cached", "--name-status"]);
+    expect(status).toMatch(new RegExp(`^R\\d{2,3}\\t${derived}\\t${renamed}$`, "m"));
+    expect(runLint(repo).status).toBe(0);
+    // 收尾：rename 还在 staged 区时先 mv 回（reset 后 renamed 不被 git 追踪，mv 会报 not under version control）
+    git(repo, ["mv", renamed, derived]);
     git(repo, ["reset", "-q", "--", "."]);
   });
 });
