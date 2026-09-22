@@ -231,9 +231,38 @@ export default function ConversationPage() {
     trigger: triggerScheduledTask,
   } = useScheduledTasks(activeId, !modalOpen)
 
-  /** dissolve_otter 工具执行完成后刷新参与者列表（DRY 提取，检视獭 review F1） */
+  /** F20260922rprf：SSE 断连重连后补偿拉取 invoke 状态——重连窗口内丢失的 invoke.end
+   *  会导致右栏永久卡在「运行中」。每次重连成功 / activeId 变化时拉一次最新 invokes 合并收敛。
+   *  与 loadConversationDetail 的恢复逻辑同型，但幂等可重入（重连多次调用安全）。 */
+  const syncInvokeStatesFromServer = useCallback(async (convId: string) => {
+    try {
+      const resp = await api.listInvokes(convId, { limit: 50 })
+      setInvokeStates(prev => {
+        const next = { ...prev }
+        for (const inv of resp.invokes) {
+          // listInvokes 按 started_at DESC，同一只獭首次出现即最新——跳过后续旧记录
+          if (next[inv.otterId]) continue
+          next[inv.otterId] = {
+            invokeId: inv.id, otterId: inv.otterId, status: inv.status, startedAt: inv.startedAt,
+            ...(inv.endedAt && { endedAt: inv.endedAt }),
+            toolCallCount: inv.toolCallCount,
+            ...(inv.tokenUsageInput != null && inv.tokenUsageOutput != null && { tokenUsage: { input: inv.tokenUsageInput, output: inv.tokenUsageOutput } }),
+            ...(inv.ctxWindowUsed != null && { ctxWindowUsed: inv.ctxWindowUsed }),
+          }
+        }
+        return next
+      })
+    } catch (err) {
+      console.error('Failed to sync invoke states from server:', err)
+    }
+  }, [])
+
+  /** dissolve/create/restart 等参与者变更工具执行完成后刷新右栏参与者列表。
+   *  F20260811dsrt 原版走 SSE tool.result 钩子；F20260913ctlv 后 tool.result 停发 SSE（仅落 invoke_events），
+   *  改为在常驻通道 invoke.event（tool_result 类）里按 payload.name 触发本函数。 */
   const refreshParticipantsAfterDissolve = useCallback((toolName: string) => {
-    if (toolName !== 'dissolve_otter' || !activeId) return
+    if (!activeId) return
+    if (!['dissolve_otter', 'create_otter', 'restart_otter'].includes(toolName)) return
     api.getParticipants(activeId).then(participants => {
       // #502：内容未变时保引用，避免 RightPanel 整树 re-render 引发 hover 快览卡微闪
       // F20260827scrf2：弹窗期延迟到关窗 flush（runOrDefer），不驱动背景像素变化
@@ -621,6 +650,12 @@ export default function ConversationPage() {
         sessionLiveEvents.current.push(item)
         if (sessionLiveEvents.current.length > 400) sessionLiveEvents.current.splice(0, sessionLiveEvents.current.length - 400)
         for (const fn of sessionLiveListeners.current) fn(item)
+        /** F20260922rprf：参与者变更工具（dissolve/create/restart）实时刷新右栏。
+         *  F20260913ctlv 后 tool.result 不再广播 SSE，invoke.event 是唯一实时通道。 */
+        if (d.event.eventType === 'tool_result') {
+          const toolName = (d.event.payload as { name?: string }).name
+          if (toolName) refreshParticipantsAfterDissolve(toolName)
+        }
       },
       'invoke.start': (data) => {
         const d = data as { invokeId: string; otterId: string; otterName?: string; triggerEntryId?: string; startedAt?: string; otterType?: string; otterColor?: string | null }
@@ -777,6 +812,10 @@ export default function ConversationPage() {
         // 收到数据后重置重连延迟
         reconnectDelay = 1000
         notifyConn(true)
+        /** F20260922rprf：SSE 重连成功后补偿拉取 invoke 状态——重连窗口内丢失的 invoke.end
+         *  会导致右栏永久卡在「运行中」。每次 onprogress（含 keep-alive 心跳）都触发是安全的：
+         *  syncInvokeStatesFromServer 幂等且只补缺（existing 同状态跳过），无额外请求风暴。 */
+        if (activeId) void syncInvokeStatesFromServer(activeId)
       }
 
       xhr.onerror = () => { notifyConn(false); scheduleReconnect() }
@@ -800,7 +839,7 @@ export default function ConversationPage() {
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (xhr) xhr.abort()
     }
-  }, [activeId, batchUpdateMessages, upsertOtterIfAbsentDeferred])
+  }, [activeId, batchUpdateMessages, upsertOtterIfAbsentDeferred, refreshParticipantsAfterDissolve, syncInvokeStatesFromServer])
 
   useEffect(() => {
     for (const otter of Object.values(allOtters).flat()) {
