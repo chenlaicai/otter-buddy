@@ -1,6 +1,6 @@
 import type { Logger } from "@usecases/ports/logger";
 import type { WeixinAccountStore } from "./account-store";
-import type { WeixinApiClient } from "./api-client";
+import { WeixinApiClient } from "./api-client";
 import type { WeixinQrStatus, WeixinQrStatusResp } from "./types";
 
 /**
@@ -77,13 +77,18 @@ export class WeixinLoginFlow {
   /** confirmed 落盘并返回账号信息 */
   private confirm(st: WeixinQrStatusResp): { accountId: string; ilinkUserId?: string } {
     if (!st.bot_token) throw new Error("扫码 confirmed 但未返回 bot_token");
+    // #571 审视 S2：confirmed 下发的 baseurl 零校验落盘会被 platforms.ts 拿去建
+    // 带 bot_token 的正式 client——Authorization 随行长驻，恶意域=长效凭证泄露。
+    // 与 switchGateway 同一白名单收口；非白名单拒绝落盘（消费端有默认网关回退，
+    // 无新增失败面），不炸登录流程。
+    const persistBaseUrl = this.validateRedirectBase(st.baseurl, "confirmed baseurl");
     const accountId = `weixin-${Date.now().toString(36)}`;
     this.deps.accountStore.saveAccount({
       id: accountId,
       token: st.bot_token,
       ilinkBotId: st.ilink_bot_id,
       ilinkUserId: st.ilink_user_id,
-      baseUrl: st.baseurl,
+      baseUrl: persistBaseUrl,
       addedAt: new Date().toISOString(),
     });
     this.deps.logger.info("Weixin login confirmed", { accountId, ilinkUserId: st.ilink_user_id });
@@ -108,10 +113,70 @@ export class WeixinLoginFlow {
         // 配对码随下一轮状态轮询回传（GET query 参数，协议：pendingVerifyCode 模式）
         return this.pollOnce(qrcode, code);
       }
+      case "scaned_but_redirect":
+        // #571：协议语义要求切换到 redirect_host 指向的新网关重试（IDC 分片），
+        // 原实现在原网关轮询到 5 分钟超时永远等不到 confirmed。
+        this.switchGateway(st);
+        return "abort-loop";
       default:
-        // wait / scaned / scaned_but_redirect（redirect 需换网关重试，当前网关无
-        // 区域分片罕见，透传状态给上层继续轮询）
+        // wait / scaned：透传状态给上层继续轮询
         return "abort-loop";
     }
+  }
+
+  /**
+   * #571：扫码重定向网关切换。redirect_host（纯主机名）或 baseurl（完整 URL）
+   * 指示新轮询网关；切后本实例后续轮询全部走新网关。
+   * 安全：非微信官方域拒绝切换（白名单校验），防服务端下发任意域名时扫码
+   * 轮询（含 qrcode/verify_code 参数）被导流到第三方主机。
+   *
+   * 审视 S1 修复：校验对象统一为**最终实际使用的 URL 的 hostname**——原实现
+   * 校验 redirect_host 却使用 baseurl，响应同时给合法 host + 恶意 baseurl 即绕过。
+   */
+  private switchGateway(st: WeixinQrStatusResp): void {
+    // URL 选择优先级：baseurl（完整 URL）优先，redirect_host（纯主机名）兜底拼 https
+    const candidate = st.baseurl ?? (st.redirect_host ? `https://${st.redirect_host}` : undefined);
+    const newBase = this.validateRedirectBase(candidate, "scaned_but_redirect");
+    if (!newBase) return; // 无字段/非白名单均已 warn，继续原网关轮询（行为=原实现）
+    this.deps.api = this.deps.api.withBaseUrl(newBase);
+    this.deps.logger.info("Weixin login gateway switched", { baseUrl: newBase });
+  }
+
+  /**
+   * 重定向 URL 白名单校验（switchGateway 与 confirm 落盘共用——#571 审视 S1/S2/A1 收口）。
+   * 校验对象 = 最终使用的 URL 经 URL 解析后的 hostname（非裸字符串 endsWith）：
+   * - `evil.com@weixin.qq.com` 形态 URL 解析后 hostname 是 weixin.qq.com？不——
+   *   userinfo 在 @ 前，hostname 是 @ 后的 weixin.qq.com，确实官方；但裸串 endsWith
+   *   会把 `evil.com@weixin.qq.com` 也放行，而裸串拼进 https:// 后 undici 解析即炸。
+   *   统一走 new URL() 解析，非法 URL fail-closed 拒绝。
+   * 返回：合法 URL（原样）；非法/缺失/非白名单 → undefined（调用方继续原网关/不落盘）。
+   */
+  private validateRedirectBase(raw: string | undefined, scene: string): string | undefined {
+    if (!raw) {
+      // confirmed 场景常态无 baseurl（默认网关）——不是异常，不 warn；
+      // redirect 场景缺跳转目标才是协议缺口（delta 复核：文案与频次错位修正）
+      if (scene === "scaned_but_redirect") {
+        this.deps.logger.warn(`Weixin ${scene}: no redirect target, keep current gateway`);
+      }
+      return undefined;
+    }
+    let url: URL;
+    try {
+      url = new URL(raw);
+    } catch {
+      this.deps.logger.warn(`Weixin ${scene}: redirect target is not a valid URL, refused`, { raw });
+      return undefined;
+    }
+    // delta A1 残留：URL 带 credentials（user:pass@host）直接拒——undici 对带 credentials
+    // 的 Request 会抛错，登录被打挂；且 credentials 出现在跳转目标里本身就可疑
+    if (url.username || url.password) {
+      this.deps.logger.warn(`Weixin ${scene}: redirect target carries credentials, refused`, { host: url.hostname });
+      return undefined;
+    }
+    if (!WeixinApiClient.isAllowedRedirectHost(url.hostname)) {
+      this.deps.logger.warn(`Weixin ${scene}: redirect host not in allowlist, refused`, { host: url.hostname });
+      return undefined;
+    }
+    return raw;
   }
 }

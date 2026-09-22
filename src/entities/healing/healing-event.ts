@@ -16,6 +16,8 @@ export type HealingErrorType =
   | 'guard_intercept'
   /** #543：模型限流/配额耗尽（api_error 终态识别；context 含 modelAlias/exhausted/resetHint） */
   | 'rate_limit'
+  /** F20260922txes：超时类自动重试耗尽终态（L1 重试后仍超时，L3 升级上报数据源） */
+  | 'timeout_retry_exhausted'
   /** F20260904tflp：工具使用感受反馈（海獭主动报难用/多余/过度设计；description 以 [tool:工具名] 前缀标识） */
   | 'tool_use_feedback'
   | 'other';
@@ -38,6 +40,9 @@ export const HEALING_ENVIRONMENT_TYPES: readonly HealingErrorType[] = [
   'rate_limit',     // 模型配额耗尽（供应商侧）
   'circuit_break',  // 熔断执行（系统保护动作）
   'self_restart',   // 自重启执行（系统保护动作）
+  // F20260922txes：超时自动重试耗尽（环境侧——超时是模型/网络环境信号，非獭能力失败；
+  // 漏入本清单会被 classifyHealingErrorType 兜底归 capability，daily-review 误读为獭能力失败）
+  'timeout_retry_exhausted',
 ];
 
 /** #998：不参与成败分账的类型（主动反馈信号，独立一列呈现） */

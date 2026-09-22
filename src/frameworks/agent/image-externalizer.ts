@@ -89,8 +89,9 @@ export function externalizeHistoricalImages(messages: any[]): any[] {
   return changed ? result : messages;
 }
 
-/** 找 turn 边界：最后一条非 assistant/toolResult 的消息索引；无边界消息 = 0（全部视为当前 turn，保守保留） */
-function findTurnBoundary(messages: any[]): number {
+/** 找 turn 边界：最后一条非 assistant/toolResult 的消息索引；无边界消息 = 0（全部视为当前 turn，保守保留）。
+ *  F20260922txre（#1093）：导出供 toolresult-externalizer 复用同一边界语义（零行为改动）。 */
+export function findTurnBoundary(messages: any[]): number {
   for (let i = messages.length - 1; i >= 0; i--) {
     const role = messages[i]?.role;
     if (role !== "assistant" && role !== "toolResult") return i;

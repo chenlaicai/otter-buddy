@@ -9,6 +9,7 @@ import type { AgentTurnPort } from '@usecases/ports/agent-turn-port';
 import type { ManageScheduledTask } from '@usecases/scheduled-task/manage-scheduled-task';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
+import { HEALING_ENVIRONMENT_TYPES, HEALING_FEEDBACK_TYPES } from '@entities/healing/healing-event';
 import type { Logger } from '@usecases/ports/logger';
 
 // ─── issue #416：self-healing-analysis prompt git 化 ──────
@@ -197,9 +198,10 @@ describe('SchedulerService - self-healing-analysis 模板化（issue #416）', (
     expect(effectiveBody).toContain('环境/系统失败 0 条');
     expect(effectiveBody).toContain('獭能力失败 2 条');
     expect(effectiveBody).toContain('主动反馈 0 条');
-    // 口径文案从实体清单拼接（非硬编码字面量）
-    expect(effectiveBody).toContain('tool_failure/rate_limit/circuit_break/self_restart=环境');
-    expect(effectiveBody).toContain('tool_use_feedback=反馈独立列');
+    // 口径文案从实体清单拼接（非硬编码字面量）——测试期望与生产同源（scheduler-service.ts:1518），
+    // 清单新增类型不再失配（F20260922txes delta 复核回归 1：清单 4→5 时硬编码字面量失配）
+    expect(effectiveBody).toContain(`${HEALING_ENVIRONMENT_TYPES.join('/')}=环境`);
+    expect(effectiveBody).toContain(`${HEALING_FEEDBACK_TYPES.join('/')}=反馈独立列`);
   });
 
   it('无待处理 healing events 时：跳过触发，不发送消息', async () => {

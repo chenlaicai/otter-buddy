@@ -374,6 +374,86 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
   };
 }
 
+/** F20260922pmgd：merge_pr 工具——PR 合入搭档授权闸。
+ *  事故锚：2026-09-22 大獭在搭档未显式授权时自行 gh pr merge 合入 #1095（流水线惯性）。
+ *  定位：提醒 + 审计（非物理闸）——partnerApproval 必填强制 LLM 面对「我拿到授权了吗」；
+ *  授权原话落 linked_resources（对话内查询面）+ warn 日志（跨对话兜底）双通道。 */
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+
+/** merge_pr 子步骤：PR 状态门——返回 null 放行执行，否则返回终态响应（幂等/错误）。 */
+async function checkPrMergeable(prNumber: number): Promise<{ state: string } | { terminal: ReturnType<typeof textResponse> | ReturnType<typeof errorResponse> }> {
+  let prState: string;
+  try {
+    const { stdout } = await execFileAsync("gh", ["pr", "view", String(prNumber), "--json", "state", "--jq", ".state"], { timeout: 30_000 });
+    prState = stdout.trim();
+  } catch (err) {
+    return { terminal: errorResponse(`[错误] 查询 PR #${prNumber} 状态失败：${err instanceof Error ? err.message : String(err)}`) };
+  }
+  if (prState === "MERGED") return { terminal: textResponse(`PR #${prNumber} 已合入（幂等），无需重复操作`) };
+  if (prState !== "OPEN") return { terminal: errorResponse(`[错误] PR #${prNumber} 状态为 ${prState}，不可合入`) };
+  return { state: prState };
+}
+
+/** merge_pr 子步骤：审计双通道落痕（linked_resources 主 + warn 日志跨对话兜底）。 */
+async function writeMergeAudit(ctx: ToolContext, logger: Logger | undefined, prNumber: number, strategy: string, partnerApproval: string): Promise<void> {
+  const auditContent = `PR #${prNumber} 合入授权：搭档原话「${partnerApproval}」（策略 ${strategy}，调用獭 ${ctx.otterId}）`;
+  try {
+    await ctx.client.resource.link({
+      conversationId: ctx.conversationId,
+      resourceType: "fact",
+      category: "merge-authorization",
+      title: `PR #${prNumber} 合入授权记录`,
+      content: auditContent,
+      linkedBy: ctx.otterId,
+    });
+  } catch (err) {
+    // 审计主通道失败不阻断合入，但必须有日志兜底
+    logger?.warn("[merge_pr] audit linked_resource failed (non-fatal)", { prNumber, error: err instanceof Error ? err.message : String(err) });
+  }
+  logger?.warn(`[merge_pr] AUTHORIZATION prNumber=${prNumber} strategy=${strategy} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)}`);
+}
+
+function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
+  return {
+    name: "merge_pr",
+    description: "合并指定 PR（搭档授权闸）. Precondition: 搭档已显式同意合入该 PR——partnerApproval 必须原样引用搭档的授权原话（如「1095合入」「这个可以合了」），不得转述/概括/编造. When: PR 审视通过且搭档已拍板合入时. Not for: 搭档尚未拍板 → 先呈终审简报（决策简报卡），不得调用本工具. Output: 合入结果（mergedAt/mergeCommit）+ 审计记录确认. GOTCHA: 授权原话会落审计（linked_resources + 日志双通道），伪造会留痕可追责.",
+    parameters: {
+      type: "object",
+      properties: {
+        prNumber: { type: "number", description: "PR 编号" },
+        partnerApproval: { type: "string", description: "搭档授权原话（必填，原样引用，不得转述/概括/编造）" },
+        strategy: { type: "string", enum: ["squash", "merge", "rebase"], description: "合入策略，缺省 squash（本仓惯例）" },
+      },
+      required: ["prNumber", "partnerApproval"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      const prNumber = params.prNumber as number;
+      const partnerApproval = (params.partnerApproval as string)?.trim();
+      const strategy = (params.strategy as string) || "squash";
+      if (!prNumber || prNumber <= 0) {
+        return errorResponse("[错误] prNumber 必须是正整数");
+      }
+      if (!partnerApproval) {
+        return errorResponse("[错误] partnerApproval 为空——必须原样引用搭档的授权原话。搭档尚未拍板时先呈终审简报（决策简报卡），不得调用本工具。");
+      }
+      const gate = await checkPrMergeable(prNumber);
+      if ("terminal" in gate) return gate.terminal;
+      // 审计先落（执行失败也留有授权依据记录），再执行合入。
+      // 工具内部 exec 通道——不过 bash 守卫，与 halt_otter 等管理工具同型。
+      await writeMergeAudit(ctx, logger, prNumber, strategy, partnerApproval);
+      try {
+        const { stdout } = await execFileAsync("gh", ["pr", "merge", String(prNumber), `--${strategy}`], { timeout: 60_000 });
+        return textResponse(`PR #${prNumber} 已合入（${strategy}）。${stdout.trim()}\n审计：授权原话已落 linked_resources（category=merge-authorization）+ 日志`);
+      } catch (err) {
+        return errorResponse(`[错误] 合入 PR #${prNumber} 失败：${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+  };
+}
+
 function createDissolveOtterTool(ctx: ToolContext): AgentTool {
   return {
     name: "dissolve_otter",
@@ -914,6 +994,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     createSearchMemoryTool(ctx),
     createCreateOtterTool(ctx, healingRepo),
     createDissolveOtterTool(ctx),
+    createMergePrTool(ctx, logger),
     createRestartOtterTool(ctx, healingRepo),
     createLinkedResourceTool(ctx),
     createGetMemoryDetailTool(ctx),

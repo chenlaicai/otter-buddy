@@ -62,7 +62,7 @@ category: technique
    - **时机**：当有需要记录的内容时就记录——各 skill 中的「写入特性文档」步骤是建议性的，不是强制检查点
    - **角色**：任何参与者（大獭/小獭）都可以创建和更新特性文档，无角色约束
    - **格式**：参考 docs/features/ 下已有文档的 frontmatter。核心字段：`id`、`title`（人类可读描述，不用英文 slug——slug 放文件名）、`summary`、`change_type` + `capability_test`（change_type 为 feature/prompt 时声明，指向 `tests/capability/` 用例或 `n/a: 理由`）+ `created_in_conversation`；可选 `doc_type`/`causal_links`/`tags`/`modules`/`created_at`；新文档不写 `status` 字段
-   - **入库与关系**：写完/改完文档后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"；`created_in_conversation` 填当前对话 ID**历史文档不可变（铁律）**：`git log --oneline -- <file>` 已在 main 出现过的特性/研究文档，禁止 M/D——后续变更一律新建文档记录（frontmatter from/supersedes 关联前文），pre-commit 的 lint-historical-docs 机械拦截，结构性迁移用 `BYPASS_HISTORICAL_DOC_LINT=1` 并在特性文档记录理由。
+   - **入库与关系**：写完/改完文档后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"；`created_in_conversation` 填当前对话 ID**历史文档不可变（铁律）**：`git log --oneline -- <file>` 已在 main 出现过的特性/研究文档，禁止 M/D——后续内容/设计变更一律新建文档记录（frontmatter from/supersedes 关联前文），pre-commit 的 lint-historical-docs 机械拦截。唯一开口：**元数据订正**（frontmatter 字段修正、id 对齐、格式订正，不含内容/设计修改）——在仓库根目录新建 `.doc-fix` 文件（内容写清订正理由，≥10 字符）并 staged 进同一个 commit，且变更行须全部落在 frontmatter 块内（lint 机械校验，正文修改即使配 .doc-fix 也会被拒）；声明文件随 commit 历史与 PR commits 可见（squash 合并下不进 main 净 diff），提交后删除（忘删 fail-closed 不构成绕过）。
    - **bugfix 类 Verification 硬规则**：bugfix PR 的 Verification 节必须附失败用例证据——修复前失败输出 + 修复后通过输出（失败测试/最小复现脚本，来自 troubleshooting 步骤 5a 固化）；两者均不可行时附豁免记录（理由一句话，为何测试与脚本都不适用）。无失败证据链的 bugfix 不算修完。
 5. **推送并创建 PR**：`git push -u origin <branch>` + `gh pr create`，PR 链接交给搭档。自己创建的 feature 分支 rebase 后需重写推送时，用 `git push --force-with-lease`——R1 第 4 条对此放行且无需确认；受保护分支的 force push 仍禁止，见 SYSTEM.md 红线。
 

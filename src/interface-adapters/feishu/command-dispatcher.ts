@@ -6,7 +6,7 @@ import {
   parseCommand,
   formatConversationList,
   HELP_TEXT,
-} from "@usecases/im/feishu-command-parser";
+} from "@usecases/im/im-command-parser";
 
 /** F20260913ctlv 批4a：entries 版历史格式化（与微信 formatEntryHistory 同构） */
 function formatEntryHistory(entries: Array<{ senderType: string | null; body: string | null; createdAt: string }>): string {
