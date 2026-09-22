@@ -29,15 +29,26 @@ from: [F20260829wxch]
 
 - **切换点放在 login-flow 而非 session-manager**：switch 后 `this.deps.api` 派生新网关 client，本实例后续轮询自动走新网关；session-manager/CLI 无感
 - **api-client 增 `withBaseUrl`** 派生同配置（token/logger 随实例）新 client，不改原 client 可变状态——避免共享 client 被中途换底座影响其他调用方
-- **白名单校验**（L1 拍板，超出 issue 原文范围的安全加固）：服务端下发的 `redirect_host` 未经审计，盲跳会把扫码轮询（含 qrcode/verify_code 参数）导流到任意域名。仅允许 `weixin.qq.com`/`qq.com` 及其子域；非白名单拒绝切换 + warn 告警 + 继续原网关轮询（行为退化为原实现，不新增失败面）
-- `redirect_host`（纯主机名）优先于 `baseurl`（完整 URL）；两者皆缺时 warn 兜底继续原网关
+- **白名单校验**（L1 拍板，超出 issue 原文范围的安全加固）：服务端下发的跳转目标未经审计，盲跳会把扫码轮询（含 qrcode/verify_code 参数）乃至 confirmed 后的 bot_token 请求导流到任意域名。仅允许 `weixin.qq.com`/`qq.com` 及其子域；非白名单拒绝切换 + warn + 继续原网关（行为退化为原实现，不新增失败面）
+- **校验/使用同源**（审视 S1 修复）：校验对象 = **最终实际使用的 URL 经 `new URL()` 解析后的 hostname**——原实现校验 redirect_host 却使用 baseurl，「合法 host + 恶意 baseurl」组合即绕过；裸串 endsWith 还会放行 `evil.com@weixin.qq.com` 形态（URL 解析后 hostname 其实是官方域，但裸串拼进 https:// 会炸）。统一 URL 解析，非法 URL fail-closed
+- **落盘同闸**（审视 S2 修复）：confirmed 响应的 `baseurl` 落盘前过同一白名单（`validateRedirectBase` 共用）——platforms.ts 据此建带 bot_token 的正式 client，Authorization 随行长驻，恶意域=长效凭证泄露；非白名单不落盘（消费端有默认网关回退，不炸登录）
+- **URL 选择优先级**：baseurl（完整 URL）优先，redirect_host（纯主机名）兜底拼 `https://`（与初版文档声明相反，以实际使用源为准校验，已修正）
+- redirect/baseurl 两者皆缺时 warn 兜底继续原网关
+
+### 机制预算四问（审视 A5）
+
+1. **这机制防什么真实失败？** 服务端下发任意跳转目标 → 扫码参数/bot_token 导流第三方。威胁真实（凭证级），但触发前提 = 官方网关被污染或中间人——概率低、危害高
+2. **能不能更简单？** 已是最简形态：一个白名单函数 + 两处调用（switchGateway/confirm），无状态无配置
+3. **失败时它自己怎么死？** fail-closed：白名单拒绝 → 行为=原实现（继续原网关/不落盘），warn 落日志可查；不会误杀正常流程（官方域全放行）
+4. **它会和谁打架？** 若微信未来启用非 qq.com 域网关，合法 redirect 会被误拒 → 症状=扫码超时 + warn 日志明确指向 host，排查路径短；届时加白名单条目即可
 
 ### 测试
 
-`tests/frameworks/weixin/login-flow.test.ts`（新文件，4 用例全 mock fetch 不出网）：
-- redirect_host 切换：前两轮原网关 → redirect 后轮询打到 `szshort.weixin.qq.com` → confirmed 落盘
-- baseurl 形式切换
-- 非白名单域（evil.example.com）拒绝切换：所有轮询留原网关 + warn 副作用
+`tests/frameworks/weixin/login-flow.test.ts`（新文件，8 用例全 mock fetch 不出网）：
+- redirect_host 切换 / baseurl 切换 / 链式 redirect 逐跳切换（审视 A2）
+- 非白名单域拒绝：所有轮询留原网关 + warn 副作用
+- 审视 S1：合法 redirect_host + 恶意 baseurl 组合不得绕过；官方子域后缀陷阱（weixin.qq.com.evil.com）拒绝
+- 审视 S2：confirmed 非白名单 baseurl 不落盘（账号照常落，baseUrl undefined）
 - redirect 缺 host/baseurl：保持原网关 + warn 兜底
 
 ## #572：feishu-command-parser → im-command-parser

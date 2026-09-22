@@ -116,9 +116,81 @@ describe("WeixinLoginFlow (#571 scaned_but_redirect)", () => {
         expect(u).toContain("https://ilinkai.weixin.qq.com/");
         expect(u).not.toContain("evil.example.com");
       }
-      // 拒绝切换的可观察副作用：下一次轮询仍留在原网关（上方已断言），
-      // 且告警落日志——侧效应断言（warn 被触发），不绑定实现参数
+      // 拒绝切换的可观察副作用：轮询留原网关（上方）+ warn 告警落日志
       expect(vi.mocked(logger.warn).mock.calls.length).toBeGreaterThan(0);
+    } finally {
+      restore();
+    }
+  });
+
+  it("审视 S1：合法 redirect_host + 恶意 baseurl 组合不得绕过白名单", async () => {
+    // 原实现校验 redirect_host 却使用 baseurl——本组合在原实现下会切到 evil.com
+    const { calls, restore } = scriptFetch([
+      { ret: 0, qrcode: "qr-1" },
+      { status: "scaned_but_redirect", redirect_host: "weixin.qq.com", baseurl: "https://evil.com/steal" },
+      { status: "confirmed", bot_token: "tok", ilink_user_id: "u-5" },
+    ]);
+    try {
+      const store = new WeixinAccountStore({ stateDir: tempStateDir() });
+      await makeFlow(store).run();
+      const pollUrls = calls.filter((u) => u.includes("get_qrcode_status"));
+      for (const u of pollUrls) {
+        expect(u).not.toContain("evil.com");
+      }
+    } finally {
+      restore();
+    }
+  });
+
+  it("审视 S1/A1：baseurl 官方子域后缀陷阱（weixin.qq.com.evil.com）拒绝切换", async () => {
+    const { calls, restore } = scriptFetch([
+      { ret: 0, qrcode: "qr-1" },
+      { status: "scaned_but_redirect", baseurl: "https://weixin.qq.com.evil.com/x" },
+      { status: "confirmed", bot_token: "tok", ilink_user_id: "u-6" },
+    ]);
+    try {
+      const store = new WeixinAccountStore({ stateDir: tempStateDir() });
+      await makeFlow(store).run();
+      const pollUrls = calls.filter((u) => u.includes("get_qrcode_status"));
+      for (const u of pollUrls) {
+        expect(u).toContain("https://ilinkai.weixin.qq.com/");
+      }
+    } finally {
+      restore();
+    }
+  });
+
+  it("审视 S2：confirmed 下发非白名单 baseurl 不落盘（防 bot_token 长效凭证导流）", async () => {
+    const { restore } = scriptFetch([
+      { ret: 0, qrcode: "qr-1" },
+      { status: "confirmed", bot_token: "tok-leak", ilink_user_id: "u-7", baseurl: "https://evil.com/api" },
+    ]);
+    try {
+      const store = new WeixinAccountStore({ stateDir: tempStateDir() });
+      const { accountId } = await makeFlow(store).run();
+      // 账号照常落盘（登录不炸），但恶意 baseurl 被白名单拦下不持久化
+      const account = store.getAccount(accountId);
+      expect(account?.token).toBe("tok-leak");
+      expect(account?.baseUrl).toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("审视 A2：链式 redirect（redirect 后又 redirect）逐跳切换，末跳 confirmed", async () => {
+    const { calls, restore } = scriptFetch([
+      { ret: 0, qrcode: "qr-1" },
+      { status: "scaned_but_redirect", redirect_host: "szshort.weixin.qq.com" },
+      { status: "scaned_but_redirect", baseurl: "https://shlong.weixin.qq.com" },
+      { status: "confirmed", bot_token: "tok", ilink_user_id: "u-8" },
+    ]);
+    try {
+      const store = new WeixinAccountStore({ stateDir: tempStateDir() });
+      await makeFlow(store).run();
+      const pollUrls = calls.filter((u) => u.includes("get_qrcode_status"));
+      expect(pollUrls[0]).toContain("https://ilinkai.weixin.qq.com/");
+      expect(pollUrls[1]).toContain("https://szshort.weixin.qq.com/");
+      expect(pollUrls[2]).toContain("https://shlong.weixin.qq.com/");
     } finally {
       restore();
     }
