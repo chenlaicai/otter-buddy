@@ -17,6 +17,7 @@
  */
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { wrapBashWithCwdPrefix, BASH_STATELESS_SUFFIX } from "./cwd-awareness";
 
 /** 各工具的描述追加文本（ Why 前缀 + 使用边界，与实证数据一致：833KB/1.6M） */
 const DESCRIPTION_SUFFIXES: Record<string, string> = {
@@ -40,12 +41,21 @@ const DESCRIPTION_SUFFIXES: Record<string, string> = {
 export function buildToolDescriptionOverrides(
   baseTools: Record<string, ToolDefinition>,
   toolNames: string[],
+  sessionCwd?: string,
 ): ToolDefinition[] {
   const overrides: ToolDefinition[] = [];
   for (const name of toolNames) {
     const suffix = DESCRIPTION_SUFFIXES[name];
     const base = baseTools[name];
     if (!suffix || !base) continue;
+    // F20260922scwd：bash 感知对齐——execute 包装注入 [cwd:...] 前缀 + 描述补充无状态架构
+    if (name === "bash" && sessionCwd) {
+      overrides.push({
+        ...wrapBashWithCwdPrefix(base, sessionCwd),
+        description: `${base.description}${suffix}${BASH_STATELESS_SUFFIX}`,
+      });
+      continue;
+    }
     overrides.push({
       ...base,
       description: `${base.description}${suffix}`,

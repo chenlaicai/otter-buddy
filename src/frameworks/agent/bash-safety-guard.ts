@@ -421,6 +421,33 @@ function checkKillSegment(
  *  路径前段 glob 变形（dat[glob]…）不覆盖——主流形态覆盖后由对抗审视评估是否补面。 */
 const DATA_DESTRUCTIVE_MSG = "bash 命令对主仓 data/（运行时数据：metrics/logs/workspaces）执行了删除/移动操作。data/ 是主服务运行时数据，海獭不得直接改删：验证类操作请在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根 ~/.otter/alpha/）；需临时数据目录时用 os.tmpdir() 或 worktree 内路径；确需清理主仓数据时报告搭档人工执行（data/backups/ 有定期备份兑底）。";
 
+/** F20260922scwd：主仓写拦截文案（感知对齐保护闸） */
+const MAIN_WRITE_BLOCK_MSG = "当前 bash 工作目录在主仓（未 cd 到 worktree）。落点为主仓的写命令被拦截——若目标在 worktree，请先 cd <worktree 路径> 再执行；若确实要写主仓，用绝对路径（写主仓受 R1 红线约束，请确认意图）。";
+
+/** 主仓写操作形态（F20260922scwd）：重定向/heredoc/python patch/git 写族 */
+const MAIN_WRITE_PATTERNS = [
+  /(?:^|&&|\|\||[;&\n])\s*(?:>|>>|<<<)\s*[^|&;\n]+/,  // 重定向/heredoc
+  /(?:^|&&|\|\||[;&\n])\s*python3?\s+-\s*<<[/"']?/,       // python heredoc patch
+  /(?:^|&&|\|\||[;&\n])\s*git\s+(?:commit|rebase|merge|cherry-pick|apply|stash\s+push)\b/,  // git 写族
+] as const;
+
+/** 主仓写检测（F20260922scwd）：未 cd 时拦截落点为主仓的写命令。
+ *  与 #1038 数据破坏检测的差异：不跟踪 cd（感知对齐方案下 LLM 需显式 cd），
+ *  只做「当前文本是否含主仓写形态」的静态判定——简单可靠，无状态。 */
+function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: string): string | null {
+  if (!projectRoot) return null; // 无 projectRoot 时保守放行（与 resolvesToMainData 同策略）
+  // 含 cd 的命令：LLM 显式切换了目录，按 cd 后语义理解——不拦（正道）
+  if (/\bcd\s+[^&|;\n]/.test(command)) return null;
+  // 主仓写形态命中 → 拦
+  for (const pattern of MAIN_WRITE_PATTERNS) {
+    if (pattern.test(command)) {
+      logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (no cd)", { command: command.substring(0, 200) });
+      return MAIN_WRITE_BLOCK_MSG;
+    }
+  }
+  return null;
+}
+
 /** 路径参数解析到主仓 data/ 下（含 data/ 本身）？
  *  cwd：相对路径的解析基准（跟踪 cd 后的当前目录）；projectRoot：主仓根（data 根的比较基准）。
  *  两者角色不同——cwd 只影响解析，主仓归属只看 projectRoot。
@@ -491,6 +518,7 @@ function checkDataDirDestructive(command: string, logger?: Logger, projectRoot?:
   return null;
 }
 
+// eslint-disable-next-line complexity -- F20260922scwd 主仓写拦截并入 writeBlock 判定（+1 分支），与 #1038 data/ 检测合并为单一 early-return 点；checkBashCommandSafetyOnText 本就是规则编排入口，拆分反而割裂「按优先级短路」的阅读连贯性
 function checkBashCommandSafetyOnText(
   text: string,
   mainPid: number,
@@ -502,9 +530,9 @@ function checkBashCommandSafetyOnText(
   // 杀主进程，kill 族检测看不到脚本名；脚本调用语义明确，无需保守降级）
   const scriptKill = checkServiceScriptKill(text, mainPid, logger, projectRoot);
   if (scriptKill) return scriptKill;
-  // 脚本自杀检测之后、kill 族之前（数据破坏不依赖 mainPid，两路调用链都覆盖）
-  const dataBlock = checkDataDirDestructive(text, logger, projectRoot);
-  if (dataBlock) return dataBlock;
+  // F20260922scwd + #1038：主仓写/数据破坏检测（不依赖 mainPid，两路调用链都覆盖）
+  const writeBlock = checkMainCheckoutWrite(text, logger, projectRoot) ?? checkDataDirDestructive(text, logger, projectRoot);
+  if (writeBlock) return writeBlock;
   // 全命令级高危模式检测（在分段前检查，防止 eval/pipe-to-shell 绕过分段检测）。
   // #918 检视严重 1：必须先于白名单放行——否则 `lsof -t -i:3100 | sh -c 'k...'` 类
   // 形态借白名单端口 lsof 做左段，跳过 pipe-to-shell 检测（defense-in-depth 失效）
