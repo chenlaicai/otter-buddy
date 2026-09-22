@@ -322,6 +322,32 @@ function resolvesToMainCheckout(scriptPath: string, projectRoot?: string): boole
   return path.dirname(resolved).toLowerCase() === path.normalize(path.join(projectRoot, "scripts")).toLowerCase();
 }
 
+/** F20260922pmgd：PR 合入命令检测（独立规则）。
+ *  事故锚：2026-09-22 大獭在搭档未显式授权时自行 gh pr merge 合入 #1095——
+ *  纯文字规则（「PR 合入不是 LLM 执行的动作」）在流水线惯性下失效。
+ *  定位：提醒 + 审计（非物理闸，搭档拍板「并不强制」）——拦截文案引导到
+ *  merge_pr 工具（partnerApproval 必填搭档授权原话）。
+ *  覆盖形态（与方案「第一步」一致，确定性拦截无「可选」）：
+ *  ① gh pr merge <N|url> [--squash|--merge|--rebase|--auto|--admin]
+ *  ② gh api .../pulls/<N>/merge -X PUT（REST 变形）
+ *  ③ gh api .../repos/{owner}/{repo}/merges -X POST（REST 底层变形）
+ *  不拦：gh pr close / ready / review 等其他 PR 操作（权利红线精确在 merge）。 */
+const GH_PR_MERGE = /\bgh\s+pr\s+merge\b/i;
+const GH_API_PULLS_MERGE = /\bgh\s+api\b[^|;&]*\bpulls\/\d+\/merge\b/i;
+/** gh api 语法是 `gh api repos/{o}/{r}/merges`（路径无 leading slash）——正则写成
+ *  `/repos/` 会结构性失配（检视严重 1：真实命令永远匹配不到，拦截形同虚设）。 */
+const GH_API_REPOS_MERGES = /\bgh\s+api\b[^|;&]*\brepos\/[^\s"'/]+\/[^\s"'/]+\/merges\b/i;
+
+const PR_MERGE_MSG = "bash 命令包含 gh pr merge——PR 合入是搭档专属动作（PR 后硬规则：LLM 执行 PR 创建和呈终审，合入按钮属于搭档）。请改用 merge_pr 工具，并在 partnerApproval 参数中原样引用搭档的授权原话（如搭档说「1095合入」就填那句话）。无授权原话不得合入；搭档尚未拍板时先呈终审简报（决策简报卡）。";
+
+function checkPrMergeCommand(command: string, logger?: Logger): string | null {
+  if (GH_PR_MERGE.test(command) || GH_API_PULLS_MERGE.test(command) || GH_API_REPOS_MERGES.test(command)) {
+    logger?.warn("[bash-safety-guard] BLOCKED gh pr merge (partner-gate)", { command: command.substring(0, 200) });
+    return PR_MERGE_MSG;
+  }
+  return null;
+}
+
 /** F20260916gsrd：主服务脚本自杀命令检测（独立规则，调用点在 checkBashCommandSafetyOnText）
  *  F20260916gtlr：从全局文本拦改为主仓路径限定拦（worktree 绝对路径调用放行，脚本层兜底已删，
  *  守卫是唯一防线）+ 间接调用保守拦截（变量/命令替换隐藏 stop/restart 的形态）。 */
@@ -502,9 +528,10 @@ function checkBashCommandSafetyOnText(
   // 杀主进程，kill 族检测看不到脚本名；脚本调用语义明确，无需保守降级）
   const scriptKill = checkServiceScriptKill(text, mainPid, logger, projectRoot);
   if (scriptKill) return scriptKill;
-  // 脚本自杀检测之后、kill 族之前（数据破坏不依赖 mainPid，两路调用链都覆盖）
-  const dataBlock = checkDataDirDestructive(text, logger, projectRoot);
-  if (dataBlock) return dataBlock;
+  // F20260922pmgd + #1038：不依赖 mainPid 的独立规则（PR 合入 / data 破坏）——
+  // 提前判定，两路调用链（正常 / PID 缺失）都覆盖；抽函数控圈复杂度
+  const pidFree = checkPidIndependentRules(text, logger, projectRoot);
+  if (pidFree) return pidFree;
   // 全命令级高危模式检测（在分段前检查，防止 eval/pipe-to-shell 绕过分段检测）。
   // #918 检视严重 1：必须先于白名单放行——否则 `lsof -t -i:3100 | sh -c 'k...'` 类
   // 形态借白名单端口 lsof 做左段，跳过 pipe-to-shell 检测（defense-in-depth 失效）
@@ -587,6 +614,14 @@ function withDiagnostics(message: string, scanText: string, mainPid: number | nu
  * 脚本路径判定不依赖 PID 信息，仍需拦截主仓脚本 stop/restart（脚本层兜底已删，
  * 此处是唯一防线）；kill 族判定无 PID 可比对，保守放行。抽为独立函数控制主入口圈复杂度。
  */
+/** F20260922pmgd：不依赖 mainPid 的独立规则合集（PR 合入 + data 破坏）——
+ *  抽出供 checkBashCommandSafetyOnText 与 checkWhenMainPidMissing 共用（圈复杂度控制）。 */
+function checkPidIndependentRules(command: string, logger?: Logger, projectRoot?: string): string | null {
+  const prMerge = checkPrMergeCommand(command, logger);
+  if (prMerge) return prMerge;
+  return checkDataDirDestructive(command, logger, projectRoot);
+}
+
 function checkWhenMainPidMissing(
   command: string,
   logger?: Logger,
@@ -594,10 +629,10 @@ function checkWhenMainPidMissing(
 ): string | null {
   const scriptKill = checkServiceScriptKill(command, 0, logger, guardOptions?.projectRoot);
   if (scriptKill) return withDiagnostics(scriptKill, command, null);
-  // #1038：数据破坏检测不依赖 mainPid，PID 缺失时仍拦（与 kill 族保守放行的差异：
-  // data/ 判定只需 projectRoot，无退化理由）
-  const dataBlock = checkDataDirDestructive(command, logger, guardOptions?.projectRoot);
-  return dataBlock ? withDiagnostics(dataBlock, command, null) : null;
+  // F20260922pmgd / #1038：PR 合入与 data 破坏判定不依赖 mainPid（与 kill 族保守放行的
+  // 差异：只需命令文本/projectRoot，无退化理由）
+  const pidFree = checkPidIndependentRules(command, logger, guardOptions?.projectRoot);
+  return pidFree ? withDiagnostics(pidFree, command, null) : null;
 }
 
 /** F20260916gtlr：脱敏扫描路径（#858）——抽为独立函数控制主入口圈复杂度。

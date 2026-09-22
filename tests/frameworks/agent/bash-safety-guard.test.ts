@@ -978,3 +978,53 @@ describe("#1038 主仓 data/ 破坏性命令拦截", () => {
     expect(result).toBeNull();
   });
 });
+
+/** F20260922pmgd：PR 合入搭档授权闸——gh pr merge 全变形拦截（事故锚：2026-09-22
+ *  大獭未授权自行合入 #1095）。定位提醒+审计非物理闸，拦截文案引导 merge_pr 工具。 */
+describe("F20260922pmgd PR 合入拦截（gh pr merge partner-gate）", () => {
+  const mainPid = 42877;
+
+  it("gh pr merge <N> → 拦截，文案引导 merge_pr + partnerApproval", () => {
+    const result = checkBashCommandSafety("gh pr merge 1095 --squash", mainPid);
+    expect(result).toContain("merge_pr");
+    expect(result).toContain("partnerApproval");
+    expect(result).toContain("授权原话");
+  });
+
+  it("gh pr merge <N> --squash --auto → 拦截", () => {
+    expect(checkBashCommandSafety("gh pr merge 1095 --squash --auto", mainPid)).not.toBeNull();
+  });
+
+  it("gh pr merge <url> → 拦截", () => {
+    expect(checkBashCommandSafety("gh pr merge https://github.com/chenlaicai/otter-buddy/pull/1095", mainPid)).not.toBeNull();
+  });
+
+  it("gh api .../pulls/<N>/merge -X PUT（REST 变形）→ 拦截", () => {
+    const result = checkBashCommandSafety("gh api repos/chenlaicai/otter-buddy/pulls/1095/merge -X PUT", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("gh api .../repos/{o}/{r}/merges -X POST（REST 底层变形）→ 拦截", () => {
+    expect(checkBashCommandSafety("gh api repos/chenlaicai/otter-buddy/merges -X POST -f base=main -f head=fix/x", mainPid)).not.toBeNull();
+  });
+
+  it("gh pr close / ready / review → 放行（权利红线精确在 merge）", () => {
+    expect(checkBashCommandSafety("gh pr close 1095", mainPid)).toBeNull();
+    expect(checkBashCommandSafety("gh pr ready 1095", mainPid)).toBeNull();
+    expect(checkBashCommandSafety("gh pr review 1095 --approve", mainPid)).toBeNull();
+  });
+
+  it("gh pr view / checks / diff（只读）→ 放行", () => {
+    expect(checkBashCommandSafety("gh pr view 1095 --json state", mainPid)).toBeNull();
+    expect(checkBashCommandSafety("gh pr checks 1095", mainPid)).toBeNull();
+    expect(checkBashCommandSafety("gh pr diff 1095", mainPid)).toBeNull();
+  });
+
+  it("引号内文本「gh pr merge」→ 放行（#858 脱敏管道，不拦 markdown/文案）", () => {
+    expect(checkBashCommandSafety("echo '请用 gh pr merge 合入' >> notes.md", mainPid)).toBeNull();
+  });
+
+  it("mainPid 缺失（PID 文件不可用）时 gh pr merge 仍拦（不依赖 PID）", () => {
+    expect(checkBashCommandSafety("gh pr merge 1095 --squash", null)).not.toBeNull();
+  });
+});
