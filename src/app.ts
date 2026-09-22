@@ -354,6 +354,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     invokeFn: (params) => agentInvoker.invokeConversation(params),
     logger,
     healingRepo: repos.healingEvent,
+    settingsRepo: repos.settings,
     // F20260908rlcp: dispatchAttemptRepo/attachmentInjection/agentGateway 退役，改用 factory。
     // F20260913ctlv 整合轮修复：显式 adapter 替代 as unknown as 双重绕过——三个方法
     // 编译期可见，再丢（如合并误删）tsc 直接报错（steerSession 曾被合并丢过，靠运行时才发现）
