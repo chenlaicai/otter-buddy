@@ -15,6 +15,8 @@ export function isRetryableGuardAbort(reason: string): boolean {
   if (reason.startsWith('circuit_break:')) return true;
   // F20260830bsgr: bash 安全守卫命中后给 LLM 一次自纠机会（R2-1 delta 复核裁决）
   if (reason.startsWith('bash_safety:')) return true;
+  // F20260922slan：sleep 拦截（感知问题）同纪律——一次自纠机会：先 speak 说明理由 → 改 wait 工具
+  if (reason.startsWith('bash_sleep:')) return true;
   return false;
 }
 
@@ -36,6 +38,8 @@ export function buildRetryFailBody(reason: string): string {
   if (reason === "api_error") return "底层调用错误";
   // F20260831aksp T2：对话流可见文案——事实而非误导（修复前显示通用「执行异常」）
   if (reason.startsWith("bash_safety:")) return "检测到针对主进程的不允许命令，已拦截并引导海獭重新分析任务";
+  // F20260922slan：sleep 拦截的对话流文案——感知问题非安全问题，措辞向引导而非 kill 域
+  if (reason.startsWith("bash_sleep:")) return "检测到长时间静默等待（sleep），已拦截并引导海獭说明理由后改用 wait 工具";
   return "执行异常";
 }
 
@@ -64,6 +68,10 @@ export function buildAutoRetryMsg(reason: string): string {
   // F20260831aksp T2：透传拦截原因 + 无 restart 出口口径（搭档终审：不存在海獭重启主进程的合法场景）
   if (reason.startsWith('bash_safety:')) {
     return `[系统提醒] 你刚才的 bash 命令被安全守卫拦截：${reason.slice('bash_safety:'.length)} 该命令不允许：主进程是所有海獭（包括你）的运行环境，任何情况下都不得终止——你不存在需要重启或停止主进程的合法场景。若你的目的是验证代码变更：请在 worktree 中用独立端口启动隔离实例验证；若你观察到服务异常：请报告搭档处理。请基于以上约束重新分析当前任务，调整方案继续执行，不要重复原命令。`;
+  }
+  // F20260922slan：sleep 拦截的 LLM 文案——透传守卫引导文案，提示 speak 先行 + wait 工具，无 kill 域样板
+  if (reason.startsWith('bash_sleep:')) {
+    return `[系统提醒] 你刚才的 bash 命令被等待守卫拦截：${reason.slice('bash_sleep:'.length)} 请先 speak 说明你在等什么、为什么是这个时长，然后改用 wait 工具（seconds/reason/until）。请基于以上约束继续执行，不要重复原命令。`;
   }
   return '[系统提醒] 你上一轮执行异常，已被系统自动重试。请继续完成你的发言。';
 }
@@ -102,19 +110,31 @@ export const GUARD_BOUNCE_WINDOW_MS = 10 * 60 * 1000;
 /**
  * #731：bounce 回发消息——复用 buildAutoRetryMsg 的四要素文案（被拦/为什么/正道/继续），
  * 前缀告知回发进度。口径与 F20260831aksp 终审一致：不提供任何 restart 出口。
+ * F20260922slan：sleep 拦截的 bounce 前缀按域区分文案（感知问题 vs 安全问题）。
  */
 export function buildGuardBounceMsg(reason: string, attempt: number): string {
   const core = buildAutoRetryMsg(reason).slice('[系统提醒] '.length);
-  return `[系统提醒] 你上一条发言因 bash 安全守卫拦截已中止，系统自动回发控制信号（第 ${attempt}/${GUARD_BOUNCE_MAX} 次）。${core}`;
+  const prefix = reason.startsWith('bash_sleep:')
+    ? `你上一条发言因等待守卫拦截已中止，系统自动回发控制信号（第 ${attempt}/${GUARD_BOUNCE_MAX} 次）。`
+    : `你上一条发言因 bash 安全守卫拦截已中止，系统自动回发控制信号（第 ${attempt}/${GUARD_BOUNCE_MAX} 次）。`;
+  return `[系统提醒] ${prefix}${core}`;
 }
 
-/** #731：bounce 时旧消息的 fail 过渡文案（一拦 auto-retry 的 buildRetryFailBody 同族，区别在自纠已失败一次） */
-export function buildGuardBounceFailBody(): string {
+/** #731：bounce 时旧消息的 fail 过渡文案（一拦 auto-retry 的 buildRetryFailBody 同族，区别在自纠已失败一次）。
+ *  F20260922slan：入参化——睡眠域「长时间静默等待（自纠后仍裸 sleep）」，安全域保留原「进程」措辞。 */
+export function buildGuardBounceFailBody(guardReason?: string): string {
+  if (guardReason?.startsWith('bash_sleep:')) {
+    return "检测到长时间静默等待（sleep，自纠重试后仍被拦），已拦截并自动回发控制信号";
+  }
   return "检测到针对主进程的不允许命令（自纠重试后仍被拦），已拦截并自动回发控制信号";
 }
 
-/** #731：bounce 超限升级的会话内用户可见通知 */
-export function buildGuardBounceEscalationMsg(otterName: string): string {
+/** #731：bounce 超限升级的会话内用户可见通知。
+ *  F20260922slan：入参化——睡眠域引导「改用 wait 工具并说明理由」，安全域保留「进程管理」排查口径。 */
+export function buildGuardBounceEscalationMsg(otterName: string, guardReason?: string): string {
+  if (guardReason?.startsWith('bash_sleep:')) {
+    return `[系统保护] ${otterName} 已连续 ${GUARD_BOUNCE_MAX} 次被等待守卫拦截并自动回发，仍在尝试裸 sleep——已停止自动回发并中断其发言。请人工介入：引导该獭改用 wait 工具并先 speak 说明理由，或核实守卫是否误拦。`;
+  }
   return `[系统保护] ${otterName} 已连续 ${GUARD_BOUNCE_MAX} 次被 bash 守卫拦截并自动回发，仍在尝试被拦命令——已停止自动回发并中断其发言。请人工介入：排查该獭任务是否涉及进程管理，或核实守卫是否误拦。`;
 }
 
@@ -139,6 +159,8 @@ export function buildGuardAbortBody(guardReason: string | undefined): string {
     return '[系统保护] 检测到工具调用异常循环，已自动中断。';
   }
   if (guardReason?.startsWith('bash_safety:')) return '[系统保护] 检测到针对主进程的不允许命令（主进程是海獭运行环境，任何情况下不得终止），已自动中断。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。';
+  // F20260922slan：sleep 拦截终态文案——感知问题非安全问题，引导 wait 工具 + speak 先行
+  if (guardReason?.startsWith('bash_sleep:')) return '[系统保护] 检测到长时间静默等待（sleep），已自动中断。等待请用 wait 工具并先向搭档说明理由（speak 说明等什么、为什么是这个时长）。';
   return '[系统保护] 输出异常，已自动中断。';
 }
 

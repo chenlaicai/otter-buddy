@@ -13,7 +13,7 @@ import { getConfig } from "@frameworks/config";
 import type { OutputGuardConfig } from "./output-guard";
 import { attachOutputGuard } from "./output-guard";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { checkBashCommandSafety, readMainProcessPid } from "./bash-safety-guard";
+import { checkBashCommandSafety, readMainProcessPid, SLEEP_REASON_PREFIX, stripSleepMarkerIfPresent } from "./bash-safety-guard";
 import { loadAllowedServicePorts } from "./allowed-service-ports";
 
 /**
@@ -235,24 +235,10 @@ export function attachCircuitBreaker(
 
       // F20260830bsgr：bash 安全守卫——拦截针对主进程的 kill 命令（早于工具执行）
       // #844：guardOptions 传入 projectRoot 供白名单热加载；拦截文案动态附加受控脚本引导
-      if (toolName === "bash") {
+      if (toolName === "bash" && e.toolCallId) {
         const args = (e.args ?? {}) as Record<string, unknown>;
         const command = typeof args.command === "string" ? args.command : "";
-        const mainPid = getMainPid();
-        const rawSafetyBlock = checkBashCommandSafety(command, mainPid, logger, { projectRoot: options?.projectRoot });
-        const safetyBlock = rawSafetyBlock ? appendDevServerGuidance(rawSafetyBlock, options?.projectRoot ?? process.cwd()) : null;
-        if (safetyBlock) {
-          logger.warn("[bash-safety-guard] BLOCKED dangerous bash command", {
-            otterId,
-            mainPid,
-            command: command.substring(0, 200),
-          });
-          // F20260831aksp T3：拦截落 healing（框架层 medium 样本；失败不阻断拦截本身）
-          options?.onGuardIntercept?.({ command, reason: safetyBlock });
-          clearEventTimer(toolCallId);
-          doAbort(`bash_safety:${safetyBlock}`);
-          return;
-        }
+        if (abortOnUnsafeBash(command, e.toolCallId)) return;
       }
 
       const result = circuitBreaker.check(toolName, e.args);
@@ -285,6 +271,29 @@ export function attachCircuitBreaker(
       }
     }
   });
+
+  /** bash 守卫判定 + abort 发射（自 subscribe 回调拆出控复杂度）。
+   *  F20260922slan：sleep 拦截（感知问题）与 kill 域（安全问题）前缀分流——守卫返回带
+   *  SLEEP_REASON_PREFIX 标记的 reason 时发射 `bash_sleep:`，否则 `bash_safety:`。判定用
+   *  startsWith（delta-3 备注：精确匹配，禁用 includes），此发射点是 `bash_sleep:` 的唯一产源（D5a）。 */
+  function abortOnUnsafeBash(command: string, toolCallId: string): boolean {
+    const mainPid = getMainPid();
+    const rawSafetyBlock = checkBashCommandSafety(command, mainPid, logger, { projectRoot: options?.projectRoot });
+    if (!rawSafetyBlock) return false;
+    const isSleepBlock = rawSafetyBlock.startsWith(SLEEP_REASON_PREFIX);
+    const safetyBlock = appendDevServerGuidance(stripSleepMarkerIfPresent(rawSafetyBlock), options?.projectRoot ?? process.cwd());
+    logger.warn("[bash-safety-guard] BLOCKED dangerous bash command", {
+      otterId,
+      mainPid,
+      kind: isSleepBlock ? "sleep" : "safety",
+      command: command.substring(0, 200),
+    });
+    // F20260831aksp T3：拦截落 healing（框架层 medium 样本；失败不阻断拦截本身）
+    options?.onGuardIntercept?.({ command, reason: safetyBlock });
+    clearEventTimer(toolCallId);
+    doAbort(isSleepBlock ? `bash_sleep:${safetyBlock}` : `bash_safety:${safetyBlock}`);
+    return true;
+  }
 
   const originalUnregister = unregisterToolCall;
   return {

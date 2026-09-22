@@ -18,9 +18,10 @@ import { createTriageSignalTool, createListRhiSignalsTool } from "./rhi-signal-t
 import { DomainError } from "@entities/errors";
 import { createWorkspaceTools } from "./workspace-tools";
 import { createCreateScheduledTaskTool } from "./scheduled-task-tools";
+import { checkBashCommandSafety } from "@frameworks/agent/bash-safety-guard";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 // R20260817arnt PR-A：工具契约类型自本文件上移 @usecases/ports/agent-tools（消除 frameworks 反向依赖此文件）
-import type { AgentTool, ToolContext, ToolModelPool } from "@usecases/ports/agent-tools";
+import type { AgentTool, ToolContext, ToolModelPool, ToolResponse } from "@usecases/ports/agent-tools";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 // R20260817arnt PR-B：领域规则下沉到 usecases 层
 import { validateAndResolve } from "@usecases/conversation/talking-stone";
@@ -382,6 +383,130 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
+
+/** wait 参数边界（方案 F20260922slan）：per-event 熔断 maxPerEventTimeMs 默认 600s——
+ *  seconds 上限对齐 600（不豁免计时，防 wait 成熔断逃逸通道）；带 until 时 ≤560
+ *  （预算闭合留 ε 裕量：seconds + until 30s + ε ≤ 600，D3/D6——570+30 压线 race）。 */
+const WAIT_SECONDS_MIN = 5;
+const WAIT_SECONDS_MAX = 600;
+const WAIT_SECONDS_MAX_WITH_UNTIL = 560;
+/** until 苏醒检查命令的执行超时（execFileAsync timeout） */
+const WAIT_UNTIL_TIMEOUT_MS = 30_000;
+/** until 输出截断上限（2KB，防巨量输出污染上下文） */
+const WAIT_UNTIL_OUTPUT_MAX = 2048;
+/** until 禁用的 shell 元字符 + 单双引号（D4③：sh -c '…' 形态经空白切 argv 语义扭曲，显式拒绝给出可操作提示）。
+ *  用 RegExp 构造避免字符类内裸引号——lint 的 stripTsComments 不解析正则字面量，
+ *  裸引号会致后续注释剥离失效（已知限制，lint 文件头注释自述）。 */
+const WAIT_UNTIL_FORBIDDEN = new RegExp("[|&;><`$()\\'\"\\\\]");
+
+/** 解析 until 命令为 argv（无 shell 展开的 execFileAsync 直执行，空白切分） */
+function parseUntilArgv(until: string): string[] | null {
+  const trimmed = until.trim();
+  if (!trimmed) return null;
+  if (WAIT_UNTIL_FORBIDDEN.test(trimmed)) return null; // 元字符/引号显式拒绝
+  const argv = trimmed.split(/\s+/).filter(Boolean);
+  return argv.length > 0 ? argv : null;
+}
+
+/** wait 子步骤：until 前置校验——先过守卫主链（复用全家族安全防线，S1）+ 元字符/引号检查（A1/D4③）。 */
+function validateUntil(
+  until: string | undefined,
+  logger: Logger | undefined,
+): { error: ToolResponse } | { untilArgv: string[] } {
+  if (until === undefined || until.trim() === "") return { untilArgv: [] };
+  const safetyBlock = checkBashCommandSafety(until, null, logger, { projectRoot: process.cwd() });
+  if (safetyBlock) {
+    // 与 bash 同文案同纪律——透传守卫拦截文案（含进程终止/data 域引导）
+    return { error: errorResponse(`[错误] until 苏醒检查命令被安全守卫拦截：${safetyBlock}`) };
+  }
+  const untilArgv = parseUntilArgv(until);
+  if (!untilArgv) {
+    return { error: errorResponse("[错误] until 只支持单命令、无 shell 展开——管道/重定向/分号/反引号/变量替换/引号不可用。带过滤需求请让命令自身支持（如 gh pr checks --json）或接受全量输出自行判读。") };
+  }
+  return { untilArgv };
+}
+
+/** wait 子步骤：执行 until 苏醒检查——execFileAsync 无 shell 展开，timeout 30s，输出截 2KB；
+ *  非零 exit 不抛错，exit code + stderr 截断一并返回（苏醒检查「还没好」是正常答案，A1）。 */
+async function runUntilCheck(untilArgv: string[]): Promise<string> {
+  const [cmd, ...cmdArgs] = untilArgv;
+  try {
+    const { stdout, stderr } = await execFileAsync(cmd, cmdArgs, {
+      timeout: WAIT_UNTIL_TIMEOUT_MS,
+      maxBuffer: WAIT_UNTIL_OUTPUT_MAX,
+    });
+    const out = (stdout ?? "").trim().slice(0, WAIT_UNTIL_OUTPUT_MAX);
+    const err = (stderr ?? "").trim().slice(0, WAIT_UNTIL_OUTPUT_MAX);
+    return `\n苏醒检查（${cmd}）输出：${out || "（无输出）"}${err ? `\nstderr：${err}` : ""}`;
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException & { code?: number | string; killed?: boolean; stderr?: string };
+    const exitDesc = e.killed ? `超时（>${WAIT_UNTIL_TIMEOUT_MS / 1000}s 被杀）` : `exit code ${e.code ?? "unknown"}`;
+    const stderrText = (e.stderr ?? "").trim().slice(0, WAIT_UNTIL_OUTPUT_MAX);
+    return `\n苏醒检查（${cmd}）未通过：${exitDesc}${stderrText ? `\nstderr：${stderrText}` : ""}——「还没好」是正常答案，请自行判读是否继续等待。`;
+  }
+}
+
+/** wait 子步骤：回显 reason——返回文本以「等待原因：<reason>」开头；缺 reason 时附轻提示（A2）。 */
+function buildWaitEcho(reason: string | undefined, seconds: number, untilResultText: string): ToolResponse {
+  const reasonEcho = reason
+    ? `等待原因：${reason}`
+    : `等待原因：（未填——搭档看到的是无交代的等待，下次请填 reason：为什么在等 + 为什么是这个时长）`;
+  return textResponse(`${reasonEcho}\n已等待 ${seconds} 秒。${untilResultText}`);
+}
+
+/** F20260922slan：wait 工具——等待指定时长（替代裸 sleep），理由自证 + 可选苏醒检查。
+ *  定位：感知问题的正道工具（非安全授权闸）。reason 可选靠描述+回显引导；until 可选苏醒检查
+ *  命令（过守卫主链 + 禁元字符，execFileAsync 无 shell 展开）——终结「sleep 完再查一次」两拍心智。
+ *  详见方案文档 F20260922slan。 */
+function createWaitTool(logger?: Logger): AgentTool {
+  return {
+    name: "wait",
+    description: "等待指定时长（替代裸 sleep）. When: 需要等待异步操作完成（CI 检查、服务启动、退避重试）时——先 speak 告诉搭档你在等什么，再调用本工具. Not for: 5 秒以下的短等待（搭档无感，可直接 bash sleep）. 等待即黑盒——reason 参数是你对搭档的交代，不填理由的等待会让搭档看着进度条干着急. Output: 等待完成确认（+ until 检查命令的输出）.",
+    parameters: {
+      type: "object",
+      properties: {
+        seconds: {
+          type: "number",
+          description: "等待秒数，必填，范围 5-600。<5 拒绝（搭档无感的等待用 bash sleep）；>600 拒绝——超过 10 分钟触发 per-event 熔断，应拆多次轮询（带 until 的 wait 循环）或改用 create_scheduled_task 定时任务。带 until 时上限 560（预算闭合：seconds + until 30s + 余量 ≤ 600s 熔断窗）",
+        },
+        reason: {
+          type: "string",
+          description: "可选——「为什么在等 + 为什么是这个时长」，如「等 CI 跑完，平均 3 分钟，取 2 分钟首轮轮询」。不强制，但搭档能看到这个理由：填了 = 交代，不填 = 黑盒。工具返回会回显你填的理由；缺省时附一句轻提示。",
+        },
+        until: {
+          type: "string",
+          description: "可选——苏醒检查命令（单命令，禁管道/重定向/分号/引号等 shell 元字符）——等待结束后执行并把输出返回。轮询场景（等 CI/等服务起）推荐带上：返回值让你立刻知道「等的东西好了没」。带过滤需求请让命令自身支持（如 gh pr checks --json）或接受全量输出自行判读。非零 exit 返回错误文本不抛错——「还没好」是正常答案。",
+        },
+      },
+      required: ["seconds"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      const seconds = params.seconds as number;
+      const reason = (params.reason as string | undefined)?.trim();
+      const until = params.until as string | undefined;
+
+      // 1. 参数校验：seconds ∈ [5,600]；带 until 时 ≤ 560（预算闭合留裕量，D3/D6）
+      if (typeof seconds !== "number" || Number.isNaN(seconds) || seconds < WAIT_SECONDS_MIN || seconds > WAIT_SECONDS_MAX) {
+        return errorResponse(`[错误] seconds 必须是 ${WAIT_SECONDS_MIN}-${WAIT_SECONDS_MAX} 的数字。<5 的等待搭档无感，请直接 bash sleep；>600 超过 per-event 熔断窗（10 分钟），请拆多次轮询（带 until 的 wait 循环）或改用 create_scheduled_task 定时任务。`);
+      }
+      if (until && seconds > WAIT_SECONDS_MAX_WITH_UNTIL) {
+        return errorResponse(`[错误] 带 until 时 seconds 上限 ${WAIT_SECONDS_MAX_WITH_UNTIL}（预算闭合：seconds + until 30s + 余量 ≤ 600s per-event 熔断窗）。请把等待拆短，或去掉 until 用满 600s 后另行检查。`);
+      }
+
+      // 2. until 前置校验（守卫主链 + 元字符/引号检查）
+      const untilCheck = validateUntil(until, logger);
+      if ("error" in untilCheck) return untilCheck.error;
+      const untilArgv = untilCheck.untilArgv;
+
+      // 3. Node 侧 setTimeout promise sleep（不经 bash）
+      await new Promise<void>((resolve) => setTimeout(resolve, seconds * 1000));
+
+      // 4. 苏醒检查（若带 until）+ 5. 回显 reason
+      const untilResultText = untilArgv.length > 0 ? await runUntilCheck(untilArgv) : "";
+      return buildWaitEcho(reason, seconds, untilResultText);
+    },
+  };
+}
 
 /** merge_pr 子步骤：PR 状态门——返回 null 放行执行，否则返回终态响应（幂等/错误）。 */
 async function checkPrMergeable(prNumber: number): Promise<{ state: string } | { terminal: ReturnType<typeof textResponse> | ReturnType<typeof errorResponse> }> {
@@ -991,6 +1116,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
   const tools: AgentTool[] = [
     createSpeakTool(ctx, healingRepo, logger),
     createYieldTool(ctx, healingRepo),
+    createWaitTool(logger),
     createSearchMemoryTool(ctx),
     createCreateOtterTool(ctx, healingRepo),
     createDissolveOtterTool(ctx),

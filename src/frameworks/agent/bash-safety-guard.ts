@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- F20260922slan：sleep 检测已拆至 sleep-command-guard.ts；本文件随 kill/merge/data 安全规则持续自然增长（F20260830bsgr→F20260922scwd 五次特性叠加），行数上限与「多规则单文件」架构冲突 */
 /**
  * Bash 命令安全守卫（F20260830bsgr）。
  *
@@ -236,6 +237,12 @@ function isKillAtCommandPosition(text: string, pattern: RegExp): boolean {
  * 且不被连字符前缀（如 eval-skill / guard-kill）误触发。
  * 这解决了模式2误报（词元在 markdown body / 路径 / 注释中任意位置匹配）。
  */
+/** F20260922slan：位置感知判定通用包装——供 sleep-command-guard.ts 注入复用（与 kill 族同一份
+ *  位置感知逻辑，口径一致防漂移）。命名带 For 后缀以区别于 kill 族的 isKillAtCommandPosition。 */
+function isCommandPositionFor(text: string, pattern: RegExp): boolean {
+  return isKillAtCommandPosition(text, pattern);
+}
+
 function findKillSegments(command: string): { segment: string; isPkill: boolean }[] {
   const results: { segment: string; isPkill: boolean }[] = [];
   // 按 shell 操作符分段。#777 起含 | 管道：F20260903gh698 不含 | 的理由（管道到 kill 是
@@ -533,6 +540,10 @@ function checkBashCommandSafetyOnText(
   // 提前判定，两路调用链（正常 / PID 缺失）都覆盖；抽函数控圈复杂度
   const pidFree = checkPidIndependentRules(text, logger, projectRoot);
   if (pidFree) return pidFree;
+  // F20260922slan：裸 sleep 静默等待检测——独立于 kill 域（感知问题非安全问题），
+  // 命中返回带 SLEEP_REASON_PREFIX 标记的文案，出口处由 checkBashCommandSafety 剥离标记
+  const sleepBlock = checkSleepCommand(text, logger, { isCommandPosition: isCommandPositionFor });
+  if (sleepBlock) return sleepBlock;
   // 全命令级高危模式检测（在分段前检查，防止 eval/pipe-to-shell 绕过分段检测）。
   // #918 检视严重 1：必须先于白名单放行——否则 `lsof -t -i:3100 | sh -c 'k...'` 类
   // 形态借白名单端口 lsof 做左段，跳过 pipe-to-shell 检测（defense-in-depth 失效）
@@ -746,13 +757,21 @@ export function checkBashCommandSafety(
   const sanitizedResult = checkSanitizedPath(command, mainPid, logger, allowedServices, projectRoot);
   if (sanitizedResult === null) return null;
 
-  const result = checkBashCommandSafetyOnText(command, mainPid, logger, allowedServices, projectRoot);
-  if (result) return withDiagnostics(result, command, mainPid);
-
+  // F20260922slan：sleep 拦截标记（SLEEP_REASON_PREFIX）保留至发射点——circuit-breaker-helpers
+  // 据此分流 `bash_sleep:` 前缀并自行剥离（此发射点是 bash_sleep: 唯一产源，D5a）。诊断文案用干净文案。
+  const scan = (text: string): string | null => {
+    const r = checkBashCommandSafetyOnText(text, mainPid, logger, allowedServices, projectRoot);
+    if (!r) return null;
+    return r.startsWith(SLEEP_REASON_PREFIX)
+      ? SLEEP_REASON_PREFIX + withDiagnostics(stripSleepMarkerIfPresent(r), text, mainPid)
+      : withDiagnostics(r, text, mainPid);
+  };
+  const result = scan(command);
+  if (result) return result;
   const normalized = normalizeForDetection(command);
-  if (normalized !== command) {
-    const nResult = checkBashCommandSafetyOnText(normalized, mainPid, logger, allowedServices, projectRoot);
-    return nResult ? withDiagnostics(nResult, normalized, mainPid) : null;
-  }
-  return null;
+  return normalized !== command ? scan(normalized) : null;
 }
+
+// F20260922slan：sleep 检测拆至 sleep-command-guard.ts（控文件行数）——import + re-export 保持 API 稳定
+import { checkSleepCommand, SLEEP_REASON_PREFIX, stripSleepMarkerIfPresent } from "./sleep-command-guard";
+export { SLEEP_REASON_PREFIX, stripSleepMarkerIfPresent };

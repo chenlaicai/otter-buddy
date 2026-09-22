@@ -23,6 +23,8 @@ import { createTestLogger } from "../helpers/logger";
 import { mockSendEntry } from "../helpers/mock-send-entry";
 
 const GUARD_REASON = "bash_safety:bash 命令包含针对主进程 PID 的终止命令。主进程是海獭运行环境，任何情况下不得终止。";
+/** F20260922slan：sleep 域 guard reason（验证 orchestrator 三门对 bash_sleep: 适配） */
+const SLEEP_GUARD_REASON = "bash_sleep:检测到你使用了 sleep 等待（约 30 秒）。裸 sleep 会让搭档看到长时间静默黑盒。请先 speak 说明你要等什么、为什么要等这么久，然后改用 wait 工具。";
 
 function makeSession(overrides: Partial<OtterSession> = {}): OtterSession {
   return {
@@ -77,13 +79,13 @@ function seedBounceEvent(overrides: Partial<HealingEvent> = {}): HealingEvent {
  * script 元素：{ guard: n } = 接下来 n 次 invoke 返回 bash_safety 终态（内部 abort reason），
  * 之后 { done: true } 正常完成（含 yield 语义——onYield 置 invoke completed）。
  */
-function mockAgentInvoke(script: Array<{ guard: number } | { done: true }>) {
+function mockAgentInvoke(script: Array<{ guard: number } | { done: true }>, guardReason: string = GUARD_REASON) {
   let invokeCount = 0;
   const contexts: string[] = [];
   const aborts: string[] = [];
   const steps: Array<string | undefined> = [];
   for (const step of script) {
-    if ("guard" in step) for (let i = 0; i < step.guard; i++) steps.push(GUARD_REASON);
+    if ("guard" in step) for (let i = 0; i < step.guard; i++) steps.push(guardReason);
     else steps.push(undefined);
   }
   const mock: SdkInvokePort & { _contexts: typeof contexts; _aborts: string[]; _count: () => number } = {
@@ -291,5 +293,55 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     expect(abortEnds).toHaveLength(1);
     const abortedInvoke = [...sendEntry.store.invokes.values()].find(inv => inv.status === "aborted");
     expect(abortedInvoke).toBeTruthy();
+  });
+
+  /** F20260922slan D5b：sleep 域（bash_sleep:）纳入 #731 bounce——orchestrator 三门适配验证 */
+  it("GB-sleep：sleep 域二拦终态 → 自动回发（bounce 门对 bash_sleep: 开启）→ 回发后自纠成功闭环", async () => {
+    const sendEntry = mockSendEntry();
+    const healing = mockHealingRepo();
+    const invoke = mockAgentInvoke([{ guard: 2 }, { done: true }], SLEEP_GUARD_REASON);
+    const wrappedEntry = mockSendEntry();
+    Object.assign(wrappedEntry.store, sendEntry.store);
+    const yieldRounds = new Set<string>();
+    wrappedEntry.getInvokeById = async (invokeId: string) => {
+      const store = sendEntry.store as unknown as { invokes: Map<string, { status: string; talkingStonePassedTo: string[] | null }> };
+      const inv = store.invokes.get(invokeId) ?? null;
+      if (inv && invoke._count() >= 3 && !yieldRounds.has(invokeId)) {
+        yieldRounds.add(invokeId);
+        inv.status = "completed";
+        inv.talkingStonePassedTo = ["user-1"];
+      }
+      return inv as never;
+    };
+    const invoker = new AgentInvoker(
+      invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
+      mockManageSession, queryOtter, createTestLogger(),
+      undefined, undefined, undefined, undefined, healing.repo,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      wrappedEntry as never,
+      { getInvokeEvents: async () => [] } as never,
+    );
+
+    const result = await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "等 CI 任务", senderId: "user-1",
+    });
+
+    // 二拦终态不再 aborted：bounce 门对 bash_sleep: 开启（shouldGuardBounce + isGuardBounceTerminal 适配）
+    const abortEnds = sendEntry.store.invokeEndCalls.filter(e => e.status === "aborted");
+    expect(abortEnds).toHaveLength(0);
+    // bounce sendSystem：含「等待守卫拦截」前缀（D5c bounce 文案 sleep 域分流）
+    const bounceMsg = sendEntry.store.systemBodies.find(b => b.includes("自动回发控制信号"));
+    expect(bounceMsg).toBeTruthy();
+    expect(bounceMsg).toContain("等待守卫拦截");
+    expect(bounceMsg).toContain("第 1/3 次");
+    expect(bounceMsg).toContain("wait 工具");
+    // 不含 kill 域措辞
+    expect(bounceMsg).not.toContain("主进程");
+    // 回发后自纠成功闭环
+    expect(invoke._count()).toBe(3);
+    const finalInvoke = [...sendEntry.store.invokes.values()].find(inv => inv.talkingStonePassedTo?.includes("user-1"));
+    expect(finalInvoke?.status).toBe("completed");
+    expect(result.invokeId).toBeTruthy();
   });
 });
