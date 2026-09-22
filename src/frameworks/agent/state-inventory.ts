@@ -170,8 +170,9 @@ async function collectActivity(
   deps: StateInventoryDeps,
 ): Promise<{ status: string; waitingFor?: string }> {
   try {
-    const conversations = await deps.conversationRepo.listConversationsWithMeta('', { limit: 1000 });
-    const conv = conversations.find(c => c.id === conversationId);
+    // F20260922cgrp：listConversationsWithMeta 返回 { items, total }（分组分页）
+    const { items } = await deps.conversationRepo.listConversationsWithMeta('', { limit: 1000 });
+    const conv = items.find(c => c.id === conversationId);
     if (!conv) return { status: 'unknown' };
 
     // activityStatus 已在 listConversationsWithMeta 中返回

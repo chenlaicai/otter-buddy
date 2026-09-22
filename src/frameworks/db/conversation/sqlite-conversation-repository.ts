@@ -7,7 +7,9 @@ import type {
   LinkedResource,
 } from "@entities/conversation/conversation";
 import type {
+  ConversationListResult,
   ConversationRepository,
+  ListConversationsFilter,
 } from "@usecases/conversation/conversation-repository";
 import {
   rowToConversation,
@@ -16,6 +18,35 @@ import {
 import * as mixins from "./conversation-repository-mixins";
 
 import type { Logger } from "@usecases/ports/logger";
+
+/**
+ * F20260922cgrp：列表查询 where 子句与参数构建（status/kind/search 过滤）。
+ * 缺省 status = 仅 active（弱状态两态：归档对话移入独立空间，不出现在默认列表）。
+ * search 转义 LIKE 通配符（%/\\_）防误匹配——标题关键字属用户任意输入，
+ * 不转义则搜 "50%" 会命中所有含 "50" 的标题（LIKE 注入的退化形态）
+ */
+function buildConversationListWhere(options?: ListConversationsFilter): {
+  whereClause: string;
+  filterParams: Array<string | number>;
+} {
+  // (条件片段, 参数) 对——无参数片段的 param 为 null；线性拼装，压复杂度
+  const clauses: Array<{ sql: string; param: string | null }> = [];
+  if (options?.status) {
+    clauses.push({ sql: "AND c.status = ?", param: options.status });
+  } else {
+    clauses.push({ sql: "AND c.status != 'archived'", param: null });
+  }
+  if (options?.kind) clauses.push({ sql: "AND c.kind = ?", param: options.kind });
+  const search = options?.search?.trim();
+  if (search) {
+    const escaped = `%${search.replace(/[%_\\]/g, (ch) => `\\${ch}`)}%`;
+    clauses.push({ sql: "AND c.title LIKE ? ESCAPE '\\'", param: escaped });
+  }
+  return {
+    whereClause: `WHERE 1=1 ${clauses.map(cl => cl.sql).join(" ")}`,
+    filterParams: clauses.flatMap(cl => (cl.param !== null ? [cl.param] : [])),
+  };
+}
 
 export class SqliteConversationRepository implements ConversationRepository {
   /** 多模态 Phase 1：附件 repo（消息组装点①——repository 加载回填 attachments） */
@@ -69,10 +100,8 @@ export class SqliteConversationRepository implements ConversationRepository {
   }
 
   async updateStatus(id: string, status: ConversationStatus, timestamp: string): Promise<void> {
-    if (status === "completed") {
-      this.db.prepare(`UPDATE conversations SET status = 'completed', completed_at = ?, updated_at = ? WHERE id = ?`)
-        .run(timestamp, timestamp, id);
-    } else if (status === "archived") {
+    // F20260922cgrp：弱状态两态——completed 退役，只剩 archived 写入路径
+    if (status === "archived") {
       this.db.prepare(`UPDATE conversations SET status = 'archived', archived_at = ?, updated_at = ? WHERE id = ?`)
         .run(timestamp, timestamp, id);
     } else {
@@ -179,18 +208,14 @@ export class SqliteConversationRepository implements ConversationRepository {
 
   async listConversationsWithMeta(
     userId: string,
-    options?: { limit?: number; offset?: number; search?: string },
-  ): Promise<Array<Conversation & { otterIds: string[]; unreadCount: number; lastMessagePreview: string | null; lastMessageTs: string | null; activityStatus: 'processing' | 'awaiting_user' | 'idle' }>> {
+    options?: ListConversationsFilter,
+  ): Promise<ConversationListResult> {
     // F20260913ctlv 批4c：数据源切 entries（messages 表 drop）——
     // unread/activity/last 预览全部从时间线读取；activity 判据 = running invoke（invokes 表）
     const limit = options?.limit ?? 50;
     const offset = options?.offset ?? 0;
-    // Why: search 参数转义 LIKE 通配符（%/\\_）防误匹配——标题关键字属用户任意输入，
-    // 不转义则搜 "50%" 会命中所有含 "50" 的标题（LIKE 注入的退化形态）
-    const search = options?.search?.trim();
-    const searchCond = search ? "AND c.title LIKE ? ESCAPE '\\'" : "";
-    const searchParam = search ? `%${search.replace(/[%_\\]/g, (ch) => `\\${ch}`)}%` : null;
-    const params: Array<string | number> = searchParam ? [userId, searchParam, limit, offset] : [userId, limit, offset];
+    const { whereClause, filterParams } = buildConversationListWhere(options);
+    const params: Array<string | number> = [userId, ...filterParams, limit, offset];
     const rows = this.db.prepare(`
       SELECT c.*,
         COALESCE(u.last_read_message_seq, 0) AS last_read_seq,
@@ -215,8 +240,7 @@ export class SqliteConversationRepository implements ConversationRepository {
           AND entry_type IN ('user', 'speak', 'system')
         ORDER BY sequence_num DESC LIMIT 1
       )
-      WHERE c.status != 'archived'
-        ${searchCond}
+      ${whereClause}
       ORDER BY c.pinned DESC, COALESCE(le.created_at, c.created_at) DESC LIMIT ? OFFSET ?
     `).all(...params) as Array<ConversationRow & {
       last_read_seq: number; unread_count: number;
@@ -224,7 +248,11 @@ export class SqliteConversationRepository implements ConversationRepository {
       otter_ids_flat: string | null;
       activity_status: 'processing' | 'awaiting_user' | 'idle';
     }>;
-    return rows.map(row => {
+    // F20260922cgrp：total = 满足过滤条件的总数（不含分页），供前端页码跳转
+    const totalRow = this.db.prepare(
+      `SELECT COUNT(*) AS cnt FROM conversations c ${whereClause}`,
+    ).get(...filterParams) as { cnt: number };
+    const items = rows.map(row => {
       const conv = rowToConversation(row);
       const preview = row.last_entry_body
         ? (row.last_entry_body as string).replace(/<[^>]*>/g, "").slice(0, 50)
@@ -238,6 +266,7 @@ export class SqliteConversationRepository implements ConversationRepository {
         activityStatus: row.activity_status,
       };
     });
+    return { items, total: totalRow.cnt };
   }
 
   // ── Message 全文搜索（FTS5） ──

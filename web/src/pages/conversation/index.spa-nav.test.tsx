@@ -71,7 +71,13 @@ function mockApi() {
     // （#1072 时代靠宽匹配误拿列表数组蒙混，mock 收窄后暴露）
     if (/^\/api\/conversations\/[^/]+\/(scheduled-tasks|attachments)/.test(url)) return json([])
     // 列表请求：带 query 的 /api/conversations?limit=…（子路径请求已在上面分流，这里只接列表本体）
-    if (url.startsWith('/api/conversations?') || url === '/api/conversations') { listCalls++; return json([convA, convB]) }
+    // F20260922cgrp：返回结构 { items, total }——列表本体与 LeftPanel 分组分页拉取共用此 mock；
+    // listCalls 只计父组件首屏（limit=500，无 status），分组分页（status/kind）不计入「重拉」断言
+    if (url.startsWith('/api/conversations?') || url === '/api/conversations') {
+      const isGroupFetch = url.includes('status=') || url.includes('kind=')
+      if (!isGroupFetch) listCalls++
+      return json({ items: [convA, convB], total: 2 })
+    }
     if (url.startsWith('/api/settings')) { settingsCalls++; return json({ userName: '测试用户' }) }
     // F20260921inrl D2（检视1076）：catch-all 返回 json({}) 是同类故障温床——未 mock 的
     // 端点拿到 {} 后 .map() 等数组操作直接 TypeError，且可能被 unhandled rejection 吞掉。

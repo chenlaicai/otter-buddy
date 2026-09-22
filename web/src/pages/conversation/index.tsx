@@ -30,11 +30,11 @@ import { consumeSSE } from '../../api/sse'
 
 async function loadInitialData(): Promise<{
   conversations: LocalConversation[]
-  hasMore: boolean
 }> {
-  const convDTOs = await api.listConversations()
-  const conversations = convDTOs.map(mapConversationDTO)
-  return { conversations, hasMore: convDTOs.length >= 50 }
+  // F20260922cgrp：listConversations 返回 { items, total }（分组分页）；
+  // 首屏全量拉 active（IM 助理组 + 置顶区数据源；普通区由 LeftPanel 内部分页自拉）
+  const { items } = await api.listConversations({ limit: 500 })
+  return { conversations: items.map(mapConversationDTO) }
 }
 
 export default function ConversationPage() {
@@ -264,10 +264,9 @@ export default function ConversationPage() {
     // 列表新鲜度由 useConversationListPolling 的 5s 轮询保障，切换无需重拉。
     let disposed = false
     loadInitialData()
-      .then(({ conversations: convs, hasMore }) => {
+      .then(({ conversations: convs }) => {
         if (disposed) return
         setConversations(convs)
-        setHasMoreConvs(hasMore)
         if (convs.length > 0) {
           // 深链接指向不存在/已删除的对话：URL 替换为列表首个（可刷新可分享，视图一致）。
           // 注：不 early-return——pageState 判定不依赖 navigate 完成，否则卡在 loading 态
@@ -297,25 +296,7 @@ export default function ConversationPage() {
   const visibleConvIds = useMemo(() => new Set(conversations.map(c => c.id)), [conversations])
   useConversationListPolling(pageState !== 'loading' && pageState !== 'error' && !modalOpen, setConversations, visibleConvIds)
 
-  /** 分页（F20260916lpsc）：加载更多对话列表（服务端每页 50 条） */
-  const CONV_PAGE_SIZE = 50
-  const [hasMoreConvs, setHasMoreConvs] = useState(false)
-  const [loadingMoreConvs, setLoadingMoreConvs] = useState(false)
-  const handleLoadMoreConvs = useCallback(() => {
-    setLoadingMoreConvs(true)
-    api.listConversations({ limit: CONV_PAGE_SIZE, offset: conversations.length })
-      .then(dtos => {
-        const mapped = dtos.map(mapConversationDTO)
-        setConversations(prev => {
-          const existing = new Set(prev.map(c => c.id))
-          return [...prev, ...mapped.filter(m => !existing.has(m.id))]
-        })
-        setHasMoreConvs(dtos.length >= CONV_PAGE_SIZE)
-      })
-      .catch(() => showToast('加载更多失败', 'error'))
-      .finally(() => setLoadingMoreConvs(false))
-  }, [conversations.length])
-
+  /** F20260922cgrp：「加载更多」机制退役——分组分页由 LeftPanel 内部管理（每页 20 条页码跳转） */
   const loadConversationDetail = useCallback(async (convId: string) => {
     try {
       // F20260913ctlv 彻底切换：时间线唯一数据源 = entries（messages 渲染路径退役）
@@ -1430,8 +1411,8 @@ export default function ConversationPage() {
       try {
         await api.pinConversation(cid)
         // SPA 模式：重新加载对话列表而非整页刷新
-        const dtos = await api.listConversations()
-        setConversations(dtos.map(mapConversationDTO))
+        const { items } = await api.listConversations({ limit: 500 })
+        setConversations(items.map(mapConversationDTO))
       } catch (err) {
         showToast(err instanceof ApiError ? err.message : '置顶失败', 'error')
       }
@@ -1440,8 +1421,8 @@ export default function ConversationPage() {
       try {
         await api.unpinConversation(cid)
         // SPA 模式：重新加载对话列表而非整页刷新
-        const dtos = await api.listConversations()
-        setConversations(dtos.map(mapConversationDTO))
+        const { items } = await api.listConversations({ limit: 500 })
+        setConversations(items.map(mapConversationDTO))
       } catch (err) {
         if (err instanceof ApiError && err.status === 403) {
           showToast('系统对话不可取消置顶', 'error')
@@ -1510,7 +1491,7 @@ export default function ConversationPage() {
           id="left-panel-drawer"
           className={`${isMdUp ? 'contents' : `${leftDrawerOpen ? '' : 'hidden '}absolute left-3 top-3 bottom-3 z-50`}`}
         >
-          <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} hasMore={hasMoreConvs} loadingMore={loadingMoreConvs} onLoadMore={handleLoadMoreConvs} />
+          <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
         </div>
         <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => navigate('/settings')} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} />
         {/* 右栏：≥lg 常驻；<lg 抽屉化。md~lg 区间聊天区 = 全宽 - 左栏(224px)，不再被右栏挤 <500px */}

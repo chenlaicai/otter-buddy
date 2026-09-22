@@ -1,4 +1,4 @@
-import { Search, Plus, Pin, X, Loader2 } from 'lucide-react'
+import { Search, Plus, Pin, X, Loader2, ChevronDown, ChevronRight } from 'lucide-react'
 import { useRef, useEffect, useState, useCallback } from 'react'
 import type { LocalConversation as Conversation, LocalOtter as Otter } from '../../lib/mappers'
 import { mapConversationDTO } from '../../lib/mappers'
@@ -8,6 +8,17 @@ import * as api from '../../api/client'
 
 /** F20260918imas：助理分组标题（与后端 DTO kind 标识同步出现） */
 const ASSISTANT_GROUP_LABEL = 'IM 助理'
+/** F20260922cgrp：三分组标题 */
+const CONVERSATION_GROUP_LABEL = '对话'
+const ARCHIVED_GROUP_LABEL = '已归档'
+
+/** F20260922cgrp：分组分页固定页大小（搭档拍板：一页固定 20 个，不做下拉加载更多） */
+const PAGE_SIZE = 20
+
+type GroupKey = 'assistant' | 'conversation' | 'archived'
+
+/** F20260922cgrp：折叠状态持久化 localStorage（默认：助理开、对话开、归档关） */
+const COLLAPSED_KEY = (g: GroupKey) => `leftPanel:collapsed:${g}`
 
 interface LeftPanelProps {
   conversations: Conversation[]
@@ -16,24 +27,111 @@ interface LeftPanelProps {
   onNewConversation: () => void
   onContextMenu: (e: React.MouseEvent, cid: string) => void
   otters: Otter[]
-  /** 加载更多（分页追加），父组件负责拉取并合并；缺省不显示按钮 */
-  onLoadMore?: () => void
-  /** 是否还有下一页可加载 */
-  hasMore?: boolean
-  /** 加载更多进行中的 spinner 态 */
-  loadingMore?: boolean
+  /** F20260922cgrp：数据变化通知（归档/置顶/新建后父组件刷新各分组数据） */
+  onRefresh?: () => void
 }
 
 /** sessionStorage key for persisting scroll position across MPA page transitions */
 const SCROLL_POS_KEY = 'leftPanel:scrollTop'
 
-export function LeftPanel({ conversations, activeId, onSelect, onNewConversation, onContextMenu, otters, onLoadMore, hasMore, loadingMore }: LeftPanelProps) {
+/**
+ * F20260922cgrp：页码跳转器——`‹ 1 2 3 … N ›`，N>10 时折叠中间页（首尾 + 当前±2）。
+ * 简单实现：页数 ≤10 全展示；>10 展示 1 … (cur-2..cur+2) … N。
+ */
+function Pagination({ page, total, onChange, testid }: { page: number; total: number; onChange: (p: number) => void; testid: string }) {
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  if (pageCount <= 1) return null
+
+  const pages: Array<number | 'ellipsis'> = []
+  if (pageCount <= 10) {
+    for (let i = 1; i <= pageCount; i++) pages.push(i)
+  } else {
+    const windowStart = Math.max(2, Math.min(page - 2, pageCount - 3))
+    const windowEnd = Math.min(pageCount - 1, Math.max(page + 2, 4))
+    pages.push(1)
+    if (windowStart > 2) pages.push('ellipsis')
+    for (let i = windowStart; i <= windowEnd; i++) pages.push(i)
+    if (windowEnd < pageCount - 1) pages.push('ellipsis')
+    pages.push(pageCount)
+  }
+
+  return (
+    <div className="flex items-center justify-center gap-0.5 py-1.5" data-testid={testid}>
+      <button
+        data-testid={`${testid}-prev`}
+        disabled={page <= 1}
+        onClick={() => onChange(page - 1)}
+        className="w-5 h-5 rounded text-[10px] text-stone-500 hover:bg-white/40 disabled:opacity-30 disabled:cursor-not-allowed transition"
+      >
+        ‹
+      </button>
+      {pages.map((p, i) =>
+        p === 'ellipsis' ? (
+          <span key={`e${i}`} className="text-[10px] text-stone-400 px-0.5">…</span>
+        ) : (
+          <button
+            key={p}
+            data-testid={`${testid}-page-${p}`}
+            onClick={() => onChange(p)}
+            className={`w-5 h-5 rounded text-[10px] transition ${
+              p === page
+                ? 'bg-otter-400 text-white font-semibold'
+                : 'text-stone-500 hover:bg-white/40'
+            }`}
+          >
+            {p}
+          </button>
+        ),
+      )}
+      <button
+        data-testid={`${testid}-next`}
+        disabled={page >= pageCount}
+        onClick={() => onChange(page + 1)}
+        className="w-5 h-5 rounded text-[10px] text-stone-500 hover:bg-white/40 disabled:opacity-30 disabled:cursor-not-allowed transition"
+      >
+        ›
+      </button>
+    </div>
+  )
+}
+
+/** F20260922cgrp：可折叠分组头（chevron + 标题 + 计数） */
+function GroupHeader({
+  label,
+  count,
+  collapsed,
+  onToggle,
+  testid,
+}: {
+  label: string
+  count: number
+  collapsed: boolean
+  onToggle: () => void
+  testid: string
+}) {
+  return (
+    <button
+      data-testid={testid}
+      onClick={onToggle}
+      className="w-full px-2.5 pt-1.5 pb-0.5 flex items-center gap-1.5 text-left hover:bg-white/20 rounded-lg transition"
+    >
+      {collapsed ? (
+        <ChevronRight className="w-3 h-3 text-stone-400 flex-shrink-0" />
+      ) : (
+        <ChevronDown className="w-3 h-3 text-stone-400 flex-shrink-0" />
+      )}
+      <span className="text-[10px] font-semibold text-stone-500 tracking-wide flex-1">{label}</span>
+      <span className="text-[10px] text-stone-400" data-testid={`${testid}-count`}>{count}</span>
+    </button>
+  )
+}
+
+export function LeftPanel({ conversations, activeId, onSelect, onNewConversation, onContextMenu, otters, onRefresh }: LeftPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // ── 对话标题搜索（F20260916lpsc）──
-  // Why: 就地展开输入框 + 服务端 LIKE 过滤——替代原跳 /memory 的行为（搭档 9/16：
-  // 「我更想要搜索对话的标题关键字匹配」）。搜索态下列表替换为命中结果（含 50 条以外的
-  // 对话），清空恢复父组件列表。防抖 300ms 防每次击键一发请求。
+  // Why: 就地展开输入框 + 服务端 LIKE 过滤。搜索态下列表替换为命中结果（平铺、不分组不分页），
+  // 清空恢复分组视图。防抖 300ms 防每次击键一发请求。
   const [searchOpen, setSearchOpen] = useState(false)
   const [keyword, setKeyword] = useState('')
   const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
@@ -56,19 +154,76 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
     setSearching(true)
     debounceRef.current = setTimeout(() => {
       api.listConversations({ search: kw, limit: 50 })
-        .then(dtos => setSearchResults(dtos.map(mapConversationDTO)))
+        .then(({ items }) => setSearchResults(items.map(mapConversationDTO)))
         .catch(() => setSearchResults([]))
         .finally(() => setSearching(false))
     }, 300)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
   }, [keyword, searchOpen])
 
-  const displayConvs = searchResults ?? conversations
-  // F20260918imas：助理对话固定独立分组（不与普通对话混排）；组内仍保留置顶优先
-  const displayAssistant = displayConvs.filter(c => c.kind === 'assistant')
-  const displayNonAssistant = displayConvs.filter(c => c.kind !== 'assistant')
-  const displayPinned = displayNonAssistant.filter(c => c.pinned)
-  const displayNormal = displayNonAssistant.filter(c => !c.pinned)
+  // ── F20260922cgrp：三分组折叠状态（localStorage 持久化；默认 助理开/对话开/归档关）──
+  const [collapsed, setCollapsed] = useState<Record<GroupKey, boolean>>(() => ({
+    assistant: localStorage.getItem(COLLAPSED_KEY('assistant')) === '1',
+    conversation: localStorage.getItem(COLLAPSED_KEY('conversation')) === '1',
+    archived: localStorage.getItem(COLLAPSED_KEY('archived')) !== '0', // 默认关
+  }))
+  const toggleGroup = useCallback((g: GroupKey) => {
+    setCollapsed(prev => {
+      const next = { ...prev, [g]: !prev[g] }
+      localStorage.setItem(COLLAPSED_KEY(g), next[g] ? '1' : '0')
+      return next
+    })
+  }, [])
+
+  // ── F20260922cgrp：分组数据──
+  // IM 助理 + 置顶区来自父组件 conversations（全量，数量小）；
+  // 普通对话 + 已归档走独立分页查询（每页 20 条 + total 页码跳转）。
+  const assistantConvs = conversations.filter(c => c.kind === 'assistant')
+  const pinnedConvs = conversations.filter(c => c.kind !== 'assistant' && c.pinned)
+
+  const [normalPage, setNormalPage] = useState(1)
+  const [normalItems, setNormalItems] = useState<Conversation[]>([])
+  const [normalTotal, setNormalTotal] = useState(0)
+  const [archivedPage, setArchivedPage] = useState(1)
+  const [archivedItems, setArchivedItems] = useState<Conversation[]>([])
+  const [archivedTotal, setArchivedTotal] = useState(0)
+
+  // 普通对话总数（pinned + normal 分页 total），组头计数用
+  const conversationGroupTotal = pinnedConvs.length + normalTotal
+
+  const loadNormalPage = useCallback((page: number) => {
+    api.listConversations({
+      status: 'active',
+      kind: 'normal',
+      limit: PAGE_SIZE,
+      offset: (page - 1) * PAGE_SIZE,
+    })
+      .then(({ items, total }) => {
+        setNormalItems(items.map(mapConversationDTO).filter(c => !c.pinned))
+        setNormalTotal(total)
+      })
+      .catch(() => { /* 静默降级——分组拉取失败不阻塞面板 */ })
+  }, [])
+
+  const loadArchivedPage = useCallback((page: number) => {
+    api.listConversations({
+      status: 'archived',
+      limit: PAGE_SIZE,
+      offset: (page - 1) * PAGE_SIZE,
+    })
+      .then(({ items, total }) => {
+        setArchivedItems(items.map(mapConversationDTO))
+        setArchivedTotal(total)
+      })
+      .catch(() => { /* 静默降级 */ })
+  }, [])
+
+  // 初次挂载 + conversations 变化（归档/置顶/新建/轮询刷新）时重拉当前页
+  useEffect(() => { loadNormalPage(normalPage) }, [normalPage, conversations, loadNormalPage])
+  useEffect(() => { loadArchivedPage(archivedPage) }, [archivedPage, conversations, loadArchivedPage])
+
+  // 数据变化通知（供父组件在归档等操作后触发——目前 conversations 依赖已覆盖，保留扩展口）
+  useEffect(() => { onRefresh?.() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 恢复上次保存的滚动位置（整页刷新后）
   useEffect(() => {
@@ -135,15 +290,10 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
         </div>
       )}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-2">
-        {displayAssistant.length > 0 && (
+        {searchResults ? (
+          /* 搜索态：平铺命中结果（不分组不分页），F20260916lpsc 既有行为保留 */
           <>
-            {/* F20260920imax：IM 助理分组——teal 色点 + 徽章计数，与工作对话视觉区隔 */}
-            <div className="px-2.5 pt-1 pb-0.5 flex items-center gap-1.5" data-testid="leftpanel-assistant-group-label">
-              <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
-              <span className="text-[10px] font-semibold text-teal-700 tracking-wide">{ASSISTANT_GROUP_LABEL}</span>
-              <span className="text-[10px] text-stone-400">{displayAssistant.length}</span>
-            </div>
-            {displayAssistant.map(c => (
+            {searchResults.map(c => (
               <ConversationItem
                 key={c.id}
                 conversation={c}
@@ -153,48 +303,107 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
                 otters={otters}
               />
             ))}
-            <div className="my-1 border-t border-white/30" />
+            {!searching && searchResults.length === 0 && (
+              <div className="p-4 text-xs text-stone-400 text-center" data-testid="leftpanel-search-empty">无匹配对话</div>
+            )}
           </>
-        )}
-        {displayPinned.length > 0 && (
-          <div className="px-2.5 pt-1 pb-0.5 text-[10px] font-medium text-stone-400 uppercase tracking-wide">置顶</div>
-        )}
-        {displayPinned.map(c => (
-          <ConversationItem
-            key={c.id}
-            conversation={c}
-            isActive={c.id === activeId}
-            onSelect={onSelect}
-            onContextMenu={onContextMenu}
-            otters={otters}
-          />
-        ))}
-        {displayPinned.length > 0 && displayNormal.length > 0 && (
-          <div className="my-1 border-t border-white/30" />
-        )}
-        {displayNormal.map(c => (
-          <ConversationItem
-            key={c.id}
-            conversation={c}
-            isActive={c.id === activeId}
-            onSelect={onSelect}
-            onContextMenu={onContextMenu}
-            otters={otters}
-          />
-        ))}
-        {searchResults && !searching && displayConvs.length === 0 && (
-          <div className="p-4 text-xs text-stone-400 text-center" data-testid="leftpanel-search-empty">无匹配对话</div>
-        )}
-        {!searchResults && hasMore && onLoadMore && (
-          <button
-            data-testid="leftpanel-load-more"
-            onClick={onLoadMore}
-            disabled={loadingMore}
-            className="w-full mt-1 py-1.5 text-xs text-stone-500 hover:bg-white/30 rounded-xl transition flex items-center justify-center gap-1"
-          >
-            {loadingMore ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-            加载更多
-          </button>
+        ) : (
+          <>
+            {/* ── 《IM 助理》组：全量显示不分页（数量小）── */}
+            <GroupHeader
+              label={ASSISTANT_GROUP_LABEL}
+              count={assistantConvs.length}
+              collapsed={collapsed.assistant}
+              onToggle={() => toggleGroup('assistant')}
+              testid="leftpanel-group-assistant"
+            />
+            {!collapsed.assistant && assistantConvs.map(c => (
+              <ConversationItem
+                key={c.id}
+                conversation={c}
+                isActive={c.id === activeId}
+                onSelect={onSelect}
+                onContextMenu={onContextMenu}
+                otters={otters}
+              />
+            ))}
+
+            {/* ── 《对话》组：置顶区（区分底色）+ 普通区（分页 20/页）── */}
+            <GroupHeader
+              label={CONVERSATION_GROUP_LABEL}
+              count={conversationGroupTotal}
+              collapsed={collapsed.conversation}
+              onToggle={() => toggleGroup('conversation')}
+              testid="leftpanel-group-conversation"
+            />
+            {!collapsed.conversation && (
+              <>
+                {/* 置顶区：底色区分边界（搭档诉求：置顶/普通边界看不清） */}
+                {pinnedConvs.map(c => (
+                  <ConversationItem
+                    key={c.id}
+                    conversation={c}
+                    isActive={c.id === activeId}
+                    onSelect={onSelect}
+                    onContextMenu={onContextMenu}
+                    otters={otters}
+                    pinnedHighlight
+                  />
+                ))}
+                {pinnedConvs.length > 0 && normalItems.length > 0 && (
+                  <div className="my-1 border-t border-white/30" />
+                )}
+                {normalItems.map(c => (
+                  <ConversationItem
+                    key={c.id}
+                    conversation={c}
+                    isActive={c.id === activeId}
+                    onSelect={onSelect}
+                    onContextMenu={onContextMenu}
+                    otters={otters}
+                  />
+                ))}
+                <Pagination
+                  page={normalPage}
+                  total={normalTotal}
+                  onChange={setNormalPage}
+                  testid="leftpanel-pagination-conversation"
+                />
+              </>
+            )}
+
+            {/* ── 《已归档》组：独立分页（默认折叠）── */}
+            <GroupHeader
+              label={ARCHIVED_GROUP_LABEL}
+              count={archivedTotal}
+              collapsed={collapsed.archived}
+              onToggle={() => toggleGroup('archived')}
+              testid="leftpanel-group-archived"
+            />
+            {!collapsed.archived && (
+              <>
+                {archivedItems.map(c => (
+                  <ConversationItem
+                    key={c.id}
+                    conversation={c}
+                    isActive={c.id === activeId}
+                    onSelect={onSelect}
+                    onContextMenu={onContextMenu}
+                    otters={otters}
+                  />
+                ))}
+                {archivedItems.length === 0 && (
+                  <div className="px-2.5 py-2 text-[10px] text-stone-400" data-testid="leftpanel-archived-empty">暂无已归档对话</div>
+                )}
+                <Pagination
+                  page={archivedPage}
+                  total={archivedTotal}
+                  onChange={setArchivedPage}
+                  testid="leftpanel-pagination-archived"
+                />
+              </>
+            )}
+          </>
         )}
       </div>
     </aside>
@@ -207,12 +416,15 @@ function ConversationItem({
   onSelect,
   onContextMenu,
   otters,
+  pinnedHighlight,
 }: {
   conversation: Conversation
   isActive: boolean
   onSelect: (id: string) => void
   onContextMenu: (e: React.MouseEvent, cid: string) => void
   otters: Otter[]
+  /** F20260922cgrp：置顶项底色区分（搭档：置顶/普通边界看不清） */
+  pinnedHighlight?: boolean
 }) {
   const convOtters: Otter[] = c.otterIds
     .map(id => otters.find(o => o.id === id))
@@ -223,8 +435,13 @@ function ConversationItem({
       onClick={() => onSelect(c.id)}
       onContextMenu={e => onContextMenu(e, c.id)}
       className={`px-2.5 py-2 rounded-xl cursor-pointer transition ${
-        isActive ? 'conv-active' : 'hover:bg-white/30'
+        isActive
+          ? 'conv-active'
+          : pinnedHighlight
+            ? 'bg-otter-100/50 hover:bg-otter-100/70'
+            : 'hover:bg-white/30'
       }`}
+      {...(pinnedHighlight ? { 'data-testid': `conv-item-pinned-${c.id}` } : {})}
     >
       <div className="flex items-center gap-1.5">
         <div className="text-xs font-medium text-stone-700 truncate flex-1 flex items-center gap-1">
@@ -249,7 +466,7 @@ function ConversationItem({
         <div className="flex items-center gap-0.5">
           <div
             className={`w-1 h-1 rounded-full ${
-              c.status === 'active' ? 'bg-teal-400' : c.status === 'completed' ? 'bg-otter-400' : 'bg-stone-400'
+              c.status === 'active' ? 'bg-teal-400' : 'bg-stone-400'
             }`}
           />
           {c.activityStatus === 'processing' && (

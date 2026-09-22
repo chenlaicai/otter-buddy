@@ -26,12 +26,33 @@ const mockConversations: LocalConversation[] = [
   { id: 'c2', title: '对话2', status: 'active', otterIds: [], pinned: false },
 ]
 const mockOtters: LocalOtter[] = []
+
+function dtoOf(c: LocalConversation) {
+  return { id: c.id, title: c.title, status: c.status, pinned: c.pinned, otterIds: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', ...(c.kind === 'assistant' ? { kind: 'assistant' } : {}) }
+}
+
+/** F20260922cgrp：LeftPanel 普通/已归档分组自拉分页数据——默认 stub 空页（total=0），
+ *  各用例需要具体数据时显式调用本函数覆盖 */
+function stubGroupFetch(normalItems: unknown[] = [], normalTotal = 0, archivedItems: unknown[] = [], archivedTotal = 0) {
+  return vi.spyOn(api, 'listConversations').mockImplementation((options) => {
+    if (options?.search) return Promise.resolve({ items: [], total: 0 }) as never
+    if (options?.status === 'archived') return Promise.resolve({ items: archivedItems, total: archivedTotal }) as never
+    return Promise.resolve({ items: normalItems, total: normalTotal }) as never
+  })
+}
+
 beforeEach(() => {
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
   sessionStorage.clear()
+  localStorage.clear()
   scrollToSpy = vi.fn()
+  stubGroupFetch()
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
 })
 
 afterEach(() => {
@@ -85,10 +106,16 @@ describe('LeftPanel sessionStorage 滚动位置保持', () => {
     })
   })
 
-  it('onSelect 回调正常触发，不被 beforeunload 逻辑影响', () => {
+  it('onSelect 回调正常触发，不被 beforeunload 逻辑影响', async () => {
     const onSelect = vi.fn()
+    // F20260922cgrp：普通对话由 LeftPanel 内部分页拉取（异步）——显式 stub 提供 c1
+    stubGroupFetch([dtoOf(mockConversations[0])], 1)
     renderLeftPanel(onSelect)
-    const item = container.querySelector('[class*="cursor-pointer"]') as HTMLElement
+    const item = await vi.waitFor(() => {
+      const el = container.querySelector('[class*="cursor-pointer"]') as HTMLElement | null
+      expect(el).not.toBeNull()
+      return el!
+    })
     act(() => { item.click() })
     expect(onSelect).toHaveBeenCalledWith('c1')
     expect(sessionStorage.getItem(SCROLL_POS_KEY)).toBeNull()
@@ -147,14 +174,16 @@ describe('LeftPanel sessionStorage 滚动位置保持', () => {
 describe('LeftPanel 对话标题搜索（F20260916lpsc）', () => {
   const searchHit: LocalConversation = { id: 'c9', title: '工作区优化', status: 'active', otterIds: [], pinned: false }
 
-  function mockSearchFetch(dtos: unknown[]) {
-    return vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(dtos), { status: 200, headers: { 'Content-Type': 'application/json' } })
-    )
-  }
-
-  function dtoOf(c: LocalConversation) {
-    return { id: c.id, title: c.title, status: c.status, pinned: c.pinned, otterIds: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }
+  function mockSearchFetch(dtos: unknown[], groupDtos: unknown[] = []) {
+    // F20260922cgrp：listConversations 返回 { items, total }；
+    // 分组分页拉取（无 search 参数）与搜索请求按 URL 区分返回
+    return vi.fn().mockImplementation((url: unknown) => {
+      const isSearch = String(url).includes('search=')
+      const payload = isSearch ? { items: dtos, total: dtos.length } : { items: groupDtos, total: groupDtos.length }
+      return Promise.resolve(
+        new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      )
+    })
   }
 
   /** Why: React 受控 input 需走 native value setter + input 事件才能触发 onChange（React 16+ 值跟踪机制） */
@@ -178,6 +207,7 @@ describe('LeftPanel 对话标题搜索（F20260916lpsc）', () => {
 
   it('输入关键字防抖后调 search API，列表替换为命中结果', async () => {
     vi.useFakeTimers()
+    vi.restoreAllMocks() // 撤掉 beforeEach 的分组 stub——fetch stub 接管全部请求
     const mock = mockSearchFetch([dtoOf(searchHit)])
     vi.stubGlobal('fetch', mock)
 
@@ -186,12 +216,13 @@ describe('LeftPanel 对话标题搜索（F20260916lpsc）', () => {
 
     const input = container.querySelector('[data-testid="leftpanel-search-bar"] input') as HTMLInputElement
     typeKeyword(input, '工作区')
-    // 防抖 300ms 内不请求
-    expect(mock).not.toHaveBeenCalled()
+    // 防抖 300ms 内不发搜索请求（F20260922cgrp：mount 时的分组拉取不计——断言带 search 参数的请求）
+    expect(mock.mock.calls.filter(c => String(c[0]).includes('search='))).toHaveLength(0)
     await act(async () => { vi.advanceTimersByTime(350) })
 
-    expect(mock).toHaveBeenCalledTimes(1)
-    expect(String(mock.mock.calls[0][0])).toContain('search=%E5%B7%A5%E4%BD%9C%E5%8C%BA')
+    const searchCalls = mock.mock.calls.filter(c => String(c[0]).includes('search='))
+    expect(searchCalls).toHaveLength(1)
+    expect(String(searchCalls[0][0])).toContain('search=%E5%B7%A5%E4%BD%9C%E5%8C%BA')
     await vi.waitFor(() => {
       expect(container.textContent).toContain('工作区优化')
       expect(container.textContent).not.toContain('对话1')
@@ -202,7 +233,8 @@ describe('LeftPanel 对话标题搜索（F20260916lpsc）', () => {
 
   it('关闭搜索恢复父组件列表', async () => {
     vi.useFakeTimers()
-    const mock = mockSearchFetch([dtoOf(searchHit)])
+    vi.restoreAllMocks()
+    const mock = mockSearchFetch([dtoOf(searchHit)], [dtoOf(mockConversations[0])])
     vi.stubGlobal('fetch', mock)
 
     renderLeftPanel()
@@ -214,7 +246,8 @@ describe('LeftPanel 对话标题搜索（F20260916lpsc）', () => {
 
     act(() => { (container.querySelector('[data-testid="leftpanel-search-close"]') as HTMLElement).click() })
     expect(container.querySelector('[data-testid="leftpanel-search-bar"]')).toBeNull()
-    expect(container.textContent).toContain('对话1')
+    // F20260922cgrp：恢复分组视图后普通对话由内部分页拉取（异步渲染）
+    await vi.waitFor(() => expect(container.textContent).toContain('对话1'))
     expect(container.textContent).not.toContain('工作区优化')
     vi.useRealTimers()
     vi.unstubAllGlobals()
@@ -222,6 +255,7 @@ describe('LeftPanel 对话标题搜索（F20260916lpsc）', () => {
 
   it('搜索无命中时展示空态提示', async () => {
     vi.useFakeTimers()
+    vi.restoreAllMocks()
     const mock = mockSearchFetch([])
     vi.stubGlobal('fetch', mock)
 
@@ -248,33 +282,98 @@ describe('LeftPanel 对话标题搜索（F20260916lpsc）', () => {
   })
 })
 
-describe('LeftPanel 分页加载更多（F20260916lpsc）', () => {
-  it('hasMore + onLoadMore 时展示按钮并触发回调', () => {
-    const onLoadMore = vi.fn()
+describe('LeftPanel 三分组 + 分页跳转（F20260922cgrp）', () => {
+  it('三分组头渲染：IM 助理 / 对话 / 已归档，默认 助理开、对话开、归档关', async () => {
+    renderLeftPanel()
+    expect(container.querySelector('[data-testid="leftpanel-group-assistant"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="leftpanel-group-conversation"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="leftpanel-group-archived"]')).not.toBeNull()
+    // 已归档默认折叠——分页器与列表项不可见
+    expect(container.querySelector('[data-testid="leftpanel-pagination-archived"]')).toBeNull()
+    // 「加载更多」机制退役
+    expect(container.querySelector('[data-testid="leftpanel-load-more"]')).toBeNull()
+  })
+
+  it('折叠状态持久化 localStorage，重新挂载后保持', async () => {
+    stubGroupFetch([dtoOf(mockConversations[0])], 1)
+    renderLeftPanel()
+    // 等待初始分页拉取渲染普通项
+    await vi.waitFor(() => expect(container.textContent).toContain('对话1'))
+    // 折叠「对话」组
+    act(() => { (container.querySelector('[data-testid="leftpanel-group-conversation"]') as HTMLElement).click() })
+    expect(localStorage.getItem('leftPanel:collapsed:conversation')).toBe('1')
+    // 普通对话项不可见（组头标题恒在——断言列表项元素消失而非文本）
+    expect(container.querySelector('.cursor-pointer')).toBeNull()
+    // 展开「已归档」组
+    act(() => { (container.querySelector('[data-testid="leftpanel-group-archived"]') as HTMLElement).click() })
+    expect(localStorage.getItem('leftpanel:collapsed:archived') ?? localStorage.getItem('leftPanel:collapsed:archived')).toBe('0')
+    act(() => { root.unmount() })
+    container.remove()
+    // 重新挂载：折叠态保持
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    renderLeftPanel()
+    expect(container.querySelector('.cursor-pointer')).toBeNull()
+    // 归档组展开后空态可见
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-testid="leftpanel-archived-empty"]')).not.toBeNull()
+    })
+  })
+
+  it('普通对话分页：total>20 时渲染页码跳转器，点击页码拉对应页', async () => {
+    const page1Items = Array.from({ length: 20 }, (_, i) => dtoOf({ id: `n${i + 1}`, title: `普通${i + 1}`, status: 'active', otterIds: [], pinned: false }))
+    const spy = stubGroupFetch(page1Items, 45)
+    renderLeftPanel()
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-testid="leftpanel-pagination-conversation"]')).not.toBeNull()
+    })
+    // 45 total / 20 一页 = 3 页
+    expect(container.querySelector('[data-testid="leftpanel-pagination-conversation-page-3"]')).not.toBeNull()
+    // 点第 2 页
+    spy.mockClear()
+    act(() => { (container.querySelector('[data-testid="leftpanel-pagination-conversation-page-2"]') as HTMLElement).click() })
+    await vi.waitFor(() => {
+      expect(spy).toHaveBeenCalled()
+      const call = spy.mock.calls.find(c => (c[0] as { offset?: number })?.offset === 20)
+      expect(call).toBeTruthy()
+    })
+  })
+
+  it('total ≤ 20 时不渲染分页器', async () => {
+    renderLeftPanel()
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-testid="leftpanel-group-conversation"]')).not.toBeNull()
+    })
+    expect(container.querySelector('[data-testid="leftpanel-pagination-conversation"]')).toBeNull()
+  })
+
+  it('置顶项渲染区分底色（pinnedHighlight）且组头计数 = 置顶数 + 普通 total', async () => {
+    const convs: LocalConversation[] = [
+      { id: 'p1', title: '置顶对话', status: 'active', otterIds: [], pinned: true },
+      { id: 'a1', title: '微信助理 · x1', status: 'active', otterIds: [], pinned: false, kind: 'assistant' },
+    ]
+    stubGroupFetch([dtoOf({ id: 'n1', title: '普通1', status: 'active', otterIds: [], pinned: false })], 7)
     act(() => {
       root.render(
         <LeftPanel
-          conversations={mockConversations}
-          activeId="c1"
+          conversations={convs}
+          activeId=""
           onSelect={() => {}}
           onNewConversation={() => {}}
           onContextMenu={() => {}}
           otters={mockOtters}
-          hasMore={true}
-          loadingMore={false}
-          onLoadMore={onLoadMore}
         />
       )
     })
-    const btn = container.querySelector('[data-testid="leftpanel-load-more"]') as HTMLElement
-    expect(btn).not.toBeNull()
-    act(() => { btn.click() })
-    expect(onLoadMore).toHaveBeenCalledTimes(1)
-  })
-
-  it('hasMore=false 时不展示加载更多按钮', () => {
-    renderLeftPanel()
-    expect(container.querySelector('[data-testid="leftpanel-load-more"]')).toBeNull()
+    // 置顶项渲染区分底色 + 计数等分页拉取完成后断言（异步）
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-testid="conv-item-pinned-p1"]')).not.toBeNull()
+      // 「对话」组头计数 = 1（置顶） + 7（普通 total）
+      expect(container.querySelector('[data-testid="leftpanel-group-conversation-count"]')?.textContent).toBe('8')
+    })
+    // 「IM 助理」组头计数 = 1
+    expect(container.querySelector('[data-testid="leftpanel-group-assistant-count"]')?.textContent).toBe('1')
   })
 })
 
@@ -297,8 +396,8 @@ describe('LeftPanel IM 助理分组（F20260918imas）', () => {
         />
       )
     })
-    // 分组标签存在
-    const label = container.querySelector('[data-testid="leftpanel-assistant-group-label"]')
+    // 分组标签存在（F20260922cgrp：组头改为可折叠 GroupHeader）
+    const label = container.querySelector('[data-testid="leftpanel-group-assistant"]')
     // F20260920imax rebase 后分组标签含计数徽章（textContent = "IM 助理" + 数量）——
     // 断言改为包含匹配，避免徽章计数变化脆断
     expect(label?.textContent).toContain('IM 助理')
@@ -309,16 +408,20 @@ describe('LeftPanel IM 助理分组（F20260918imas）', () => {
     const c2Idx = items.findIndex(t => t.includes('对话2'))
     expect(a1Idx).toBeGreaterThanOrEqual(0)
     expect(c2Idx).toBeGreaterThan(a1Idx)
+    // 普通（非置顶）对话 c1 不进「对话」组的父组件数据源视图——由内部分页拉取呈现
   })
 
-  it('无助理对话时不渲染分组标签', () => {
+  it('无助理对话时分组头仍在（计数 0）——F20260922cgrp：三分组恒渲染，可折叠', () => {
     renderLeftPanel()
-    expect(container.querySelector('[data-testid="leftpanel-assistant-group-label"]')).toBeNull()
+    const label = container.querySelector('[data-testid="leftpanel-group-assistant"]')
+    expect(label).not.toBeNull()
+    expect(container.querySelector('[data-testid="leftpanel-group-assistant-count"]')?.textContent).toBe('0')
   })
 
-  it('置顶的助理对话仍留在 IM 助理分组内（不升入普通置顶组）', () => {
+  it('置顶的助理对话仍留在 IM 助理分组内（不升入普通置顶组）', async () => {
+    // F20260922cgrp：普通对话由内部分页拉取——stub 提供（c1 非置顶，从父组件 props 隔离）
+    stubGroupFetch([dtoOf({ id: 'c1', title: '普通对话', status: 'active', otterIds: [], pinned: false })], 1)
     const convs: LocalConversation[] = [
-      { id: 'c1', title: '普通对话', status: 'active', otterIds: [], pinned: false },
       { id: 'a1', title: '微信助理 · x1', status: 'active', otterIds: [], pinned: true, kind: 'assistant' },
     ]
     act(() => {
@@ -333,21 +436,33 @@ describe('LeftPanel IM 助理分组（F20260918imas）', () => {
         />
       )
     })
+    // 助理项（虽 pinned）仍在助理组
     const items = [...container.querySelectorAll('div.rounded-xl')].map(i => i.textContent ?? '')
     const a1Idx = items.findIndex(t => t.includes('微信助理'))
-    // 唯一普通项在置顶组；助理项（虽 pinned）仍在助理组且先于普通项渲染
     expect(a1Idx).toBeGreaterThanOrEqual(0)
-    expect(items.findIndex(t => t.includes('普通对话'))).toBeGreaterThan(a1Idx)
-    // 普通置顶组标签存在，助理组标签也存在（两组共存）
-    expect(container.querySelector('[data-testid="leftpanel-assistant-group-label"]')?.textContent).toContain('IM 助理')
+    // 置顶的普通项经内部分页拉取渲染后，位于助理项之后（「对话」组在「IM 助理」组下方）
+    await vi.waitFor(() => {
+      const all = [...container.querySelectorAll('div.rounded-xl')].map(i => i.textContent ?? '')
+      expect(all.findIndex(t => t.includes('普通对话'))).toBeGreaterThan(a1Idx)
+    })
+    // 普通对话归入「对话」组（置顶区），助理组标签也存在（两组共存）
+    expect(container.querySelector('[data-testid="leftpanel-group-assistant"]')?.textContent).toContain('IM 助理')
   })
 
-  it('搜索结果含助理对话时同样分组渲染（searchResults 路径）', async () => {
+  it('搜索态平铺渲染命中结果（F20260922cgrp：不分组不分页，既有搜索行为保留）', async () => {
     // LeftPanel 内部搜索走 api.listConversations({search})，mock client 返回混合结果
-    const spy = vi.spyOn(api, 'listConversations').mockResolvedValue([
-      { id: 'a1', title: '微信助理 · x1', status: 'active', pinned: false, otterIds: [], kind: 'assistant' },
-      { id: 'c1', title: '普通对话', status: 'active', pinned: false, otterIds: [] },
-    ] as never)
+    const spy = vi.spyOn(api, 'listConversations').mockImplementation((options) => {
+      if (options?.search) {
+        return Promise.resolve({
+          items: [
+            { id: 'a1', title: '微信助理 · x1', status: 'active', pinned: false, otterIds: [], kind: 'assistant' },
+            { id: 'c1', title: '普通对话', status: 'active', pinned: false, otterIds: [] },
+          ],
+          total: 2,
+        }) as never
+      }
+      return Promise.resolve({ items: [], total: 0 }) as never
+    })
     renderLeftPanel()
     const toggle = container.querySelector('[data-testid="leftpanel-search-toggle"]') as HTMLElement
     act(() => { toggle.click() })
@@ -360,7 +475,10 @@ describe('LeftPanel IM 助理分组（F20260918imas）', () => {
     })
     await new Promise(r => setTimeout(r, 400))
     expect(spy).toHaveBeenCalled()
-    expect(container.querySelector('[data-testid="leftpanel-assistant-group-label"]')?.textContent).toContain('IM 助理')
+    // 搜索态平铺：分组头不渲染
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-testid="leftpanel-group-assistant"]')).toBeNull()
+    })
     const items = [...container.querySelectorAll('div.rounded-xl')].map(i => i.textContent ?? '')
     expect(items.findIndex(t => t.includes('微信助理'))).toBeGreaterThanOrEqual(0)
     spy.mockRestore()

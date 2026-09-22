@@ -48,18 +48,13 @@ export default function ConversationListPage() {
   const [defaultAlias, setDefaultAlias] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; cid: string } | null>(null)
-  /** 分页（F20260916lpsc）：服务端每页 50 条，满页即认为可能还有下一页 */
-  const [hasMore, setHasMore] = useState(false)
-  const [loadingMore, setLoadingMore] = useState(false)
-  const PAGE_SIZE = 50
-
   const activeConvForMenu = ctxMenu ? conversations.find(c => c.id === ctxMenu.cid) : null
 
   useEffect(() => {
-    api.listConversations()
-      .then(dtos => {
-        setConversations(dtos.map(mapConversationDTO))
-        setHasMore(dtos.length >= PAGE_SIZE)
+    // F20260922cgrp：listConversations 返回 { items, total }；首屏全量拉 active（分组分页由 LeftPanel 内部管理）
+    api.listConversations({ limit: 500 })
+      .then(({ items }) => {
+        setConversations(items.map(mapConversationDTO))
         setLoading(false)
       })
       .catch(() => {
@@ -78,21 +73,6 @@ export default function ConversationListPage() {
   // Why: visibleIds 传当前列表 id 集合——分页追加的后续页对话不被首屏轮询结果冲掉
   const visibleIds = useMemo(() => new Set(conversations.map(c => c.id)), [conversations])
   useConversationListPolling(!loading, setConversations, visibleIds)
-
-  const handleLoadMore = useCallback(() => {
-    setLoadingMore(true)
-    api.listConversations({ limit: PAGE_SIZE, offset: conversations.length })
-      .then(dtos => {
-        const mapped = dtos.map(mapConversationDTO)
-        setConversations(prev => {
-          const existing = new Set(prev.map(c => c.id))
-          return [...prev, ...mapped.filter(m => !existing.has(m.id))]
-        })
-        setHasMore(dtos.length >= PAGE_SIZE)
-      })
-      .catch(() => showToast('加载更多失败', 'error'))
-      .finally(() => setLoadingMore(false))
-  }, [conversations.length])
 
   const handleSelect = useCallback((id: string) => {
     navigate(`/conversation/${id}`)
@@ -140,9 +120,8 @@ export default function ConversationListPage() {
 
   const refreshList = useCallback(async () => {
     try {
-      const dtos = await api.listConversations()
-      setConversations(dtos.map(mapConversationDTO))
-      setHasMore(dtos.length >= PAGE_SIZE)
+      const { items } = await api.listConversations({ limit: 500 })
+      setConversations(items.map(mapConversationDTO))
     } catch {
       showToast('刷新列表失败', 'error')
     }
@@ -238,9 +217,6 @@ export default function ConversationListPage() {
           onNewConversation={handleNewConversation}
           onContextMenu={handleContextMenu}
           otters={[]}
-          hasMore={hasMore}
-          loadingMore={loadingMore}
-          onLoadMore={handleLoadMore}
         />
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">

@@ -16,39 +16,48 @@ describe("Conversation API", () => {
 
   describe("GET /api/conversations", () => {
     it("returns conversation list", async () => {
-      deps.manageConversation.listWithMeta.mockResolvedValue([
-        { ...makeConversation(), otterIds: ["otter-1"], unreadCount: 0, lastMessagePreview: null, lastMessageTs: null },
-      ]);
+      // F20260922cgrp：listWithMeta 返回 { items, total }；HTTP 响应同构
+      deps.manageConversation.listWithMeta.mockResolvedValue({
+        items: [
+          { ...makeConversation(), otterIds: ["otter-1"], unreadCount: 0, lastMessagePreview: null, lastMessageTs: null },
+        ],
+        total: 1,
+      });
 
       const res = await app.request("/api/conversations");
       expect(res.status).toBe(200);
       const body = await json(res);
-      expect(body).toHaveLength(1);
-      expect(body[0].id).toBe("conv-1");
-      expect(body[0].otterIds).toEqual(["otter-1"]);
+      expect(body.items).toHaveLength(1);
+      expect(body.total).toBe(1);
+      expect(body.items[0].id).toBe("conv-1");
+      expect(body.items[0].otterIds).toEqual(["otter-1"]);
     });
 
     it("activityStatus 在 HTTP 响应中正确透传（F20260805actv：防字段在边界脱落）", async () => {
-      deps.manageConversation.listWithMeta.mockResolvedValue([
-        { ...makeConversation(), otterIds: ["otter-1"], unreadCount: 2, lastMessagePreview: "预览", lastMessageTs: "2026-07-16T00:01:00Z", activityStatus: "processing" },
-      ]);
+      deps.manageConversation.listWithMeta.mockResolvedValue({
+        items: [
+          { ...makeConversation(), otterIds: ["otter-1"], unreadCount: 2, lastMessagePreview: "预览", lastMessageTs: "2026-07-16T00:01:00Z", activityStatus: "processing" },
+        ],
+        total: 1,
+      });
 
       const res = await app.request("/api/conversations");
       expect(res.status).toBe(200);
       const body = await json(res);
-      expect(body).toHaveLength(1);
-      expect(body[0].activityStatus).toBe("processing");
-      expect(body[0].unreadCount).toBe(2);
-      expect(body[0].lastMessagePreview).toBe("预览");
+      expect(body.items).toHaveLength(1);
+      expect(body.items[0].activityStatus).toBe("processing");
+      expect(body.items[0].unreadCount).toBe(2);
+      expect(body.items[0].lastMessagePreview).toBe("预览");
     });
 
     it("returns empty list when listWithMeta returns empty", async () => {
-      deps.manageConversation.listWithMeta.mockResolvedValue([]);
+      deps.manageConversation.listWithMeta.mockResolvedValue({ items: [], total: 0 });
 
       const res = await app.request("/api/conversations");
       expect(res.status).toBe(200);
       const body = await json(res);
-      expect(body).toHaveLength(0);
+      expect(body.items).toHaveLength(0);
+      expect(body.total).toBe(0);
     });
 
     it("returns 400 for invalid pagination parameters", async () => {
@@ -59,22 +68,42 @@ describe("Conversation API", () => {
     });
 
     it("search 参数透传到 listWithMeta（F20260916lpsc）", async () => {
-      deps.manageConversation.listWithMeta.mockResolvedValue([]);
+      deps.manageConversation.listWithMeta.mockResolvedValue({ items: [], total: 0 });
 
       const res = await app.request("/api/conversations?search=%E5%B7%A5%E4%BD%9C%E5%8C%BA");
       expect(res.status).toBe(200);
       expect(deps.manageConversation.listWithMeta).toHaveBeenCalledWith("web-user", {
-        limit: 50, offset: 0, search: "工作区",
+        limit: 50, offset: 0, search: "工作区", status: undefined, kind: undefined,
       });
     });
 
     it("未带 search 参数时传 undefined", async () => {
-      deps.manageConversation.listWithMeta.mockResolvedValue([]);
+      deps.manageConversation.listWithMeta.mockResolvedValue({ items: [], total: 0 });
 
       const res = await app.request("/api/conversations");
       expect(res.status).toBe(200);
       expect(deps.manageConversation.listWithMeta).toHaveBeenCalledWith("web-user", {
-        limit: 50, offset: 0, search: undefined,
+        limit: 50, offset: 0, search: undefined, status: undefined, kind: undefined,
+      });
+    });
+
+    it("status/kind 过滤参数透传到 listWithMeta（F20260922cgrp：三分组分页数据源）", async () => {
+      deps.manageConversation.listWithMeta.mockResolvedValue({ items: [], total: 0 });
+
+      const res = await app.request("/api/conversations?status=archived&kind=normal&limit=20&offset=20");
+      expect(res.status).toBe(200);
+      expect(deps.manageConversation.listWithMeta).toHaveBeenCalledWith("web-user", {
+        limit: 20, offset: 20, search: undefined, status: "archived", kind: "normal",
+      });
+    });
+
+    it("非法 status/kind 参数静默忽略（不 400——缺省行为兜底）", async () => {
+      deps.manageConversation.listWithMeta.mockResolvedValue({ items: [], total: 0 });
+
+      const res = await app.request("/api/conversations?status=bogus&kind=bogus");
+      expect(res.status).toBe(200);
+      expect(deps.manageConversation.listWithMeta).toHaveBeenCalledWith("web-user", {
+        limit: 50, offset: 0, search: undefined, status: undefined, kind: undefined,
       });
     });
   });
@@ -147,46 +176,7 @@ describe("Conversation API", () => {
     });
   });
 
-  // ─── PATCH /api/conversations/:id/complete ───
-
-  describe("PATCH /api/conversations/:id/complete", () => {
-    it("completes conversation", async () => {
-      deps.manageConversation.complete.mockResolvedValue(undefined);
-
-      const res = await app.request("/api/conversations/conv-1/complete", {
-        method: "PATCH",
-      });
-
-      expect(res.status).toBe(200);
-      const body = await json(res);
-      expect(body.status).toBe("completed");
-      expect(deps.manageConversation.complete).toHaveBeenCalledWith("conv-1");
-    });
-
-    it("returns 404 when conversation not found", async () => {
-      deps.manageConversation.complete.mockRejectedValue(
-        new DomainError("Conversation not found: missing", "not_found"),
-      );
-
-      const res = await app.request("/api/conversations/missing/complete", {
-        method: "PATCH",
-      });
-
-      expect(res.status).toBe(404);
-    });
-
-    it("returns 400 when conversation cannot be completed", async () => {
-      deps.manageConversation.complete.mockRejectedValue(
-        new DomainError("Cannot complete conversation with status: completed", "validation"),
-      );
-
-      const res = await app.request("/api/conversations/conv-1/complete", {
-        method: "PATCH",
-      });
-
-      expect(res.status).toBe(400);
-    });
-  });
+  // F20260922cgrp：PATCH /complete 路由退役（弱状态两态管理——「没有完成一说了」）
 
   // ─── PATCH /api/conversations/:id/archive ───
 

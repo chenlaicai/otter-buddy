@@ -1,5 +1,10 @@
-/** 对话状态 */
-export type ConversationStatus = "active" | "completed" | "archived";
+/**
+ * 对话状态（F20260922cgrp：弱状态两态管理）
+ * 搭档原话：「对话是弱状态管理，归档即移到独立空间」——completed 状态退役，
+ * 只剩 active | archived；生产库零 completed 存量（2026-09-22 已核实），无需迁移。
+ * completedAt 字段保留（DB 列不动，历史数据可读）。
+ */
+export type ConversationStatus = "active" | "archived";
 
 /** 对话实体（无对话树，独立实体） */
 export interface Conversation {
@@ -73,19 +78,11 @@ export interface ConversationParticipant {
 }
 
 /**
- * 对话状态转换：active -> completed
- * 来源：旧 adapter.ts complete() 方法中的状态校验
- */
-export function canCompleteConversation(status: ConversationStatus): boolean {
-  return status === "active";
-}
-
-/**
- * 对话状态转换：completed -> archived
- * 来源：旧 adapter.ts archive() 方法中的状态校验
+ * 对话状态转换（F20260922cgrp 弱状态管理）：active -> archived
+ * archived 为终态，不可再转换（无 unarchive 机制——归档即移到独立空间）
  */
 export function canArchiveConversation(status: ConversationStatus): boolean {
-  return status === "completed";
+  return status === "active";
 }
 
 /**

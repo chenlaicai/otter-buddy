@@ -62,12 +62,11 @@ export function ChatView(props: ChatViewProps) {
               className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
                 c.status === 'active'
                   ? 'bg-teal-400/15 text-teal-500'
-                  : c.status === 'completed'
-                  ? 'bg-otter-400/15 text-otter-500'
                   : 'bg-stone-400/15 text-stone-400'
               }`}
             >
-              {c.status === 'active' ? '活跃' : c.status === 'completed' ? '已完成' : '已归档'}
+              {/* F20260922cgrp：弱状态两态——completed 退役，只剩 活跃 | 已归档 */}
+              {c.status === 'active' ? '活跃' : '已归档'}
             </span>
           )}
         </div>

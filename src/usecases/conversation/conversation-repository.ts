@@ -6,6 +6,31 @@ import type {
   ConversationParticipant,
 } from "@entities/conversation/conversation";
 
+export type ListConversationsFilter = {
+  limit?: number;
+  offset?: number;
+  search?: string;
+  /** F20260922cgrp：按状态过滤（弱状态两态：active | archived）；缺省 = 仅 active（归档对话移入独立空间） */
+  status?: ConversationStatus;
+  /** F20260922cgrp：按类别过滤（assistant = IM 助理；normal = 普通对话）；缺省不过滤 */
+  kind?: "normal" | "assistant";
+};
+
+export type ConversationListItem = Conversation & {
+  otterIds: string[];
+  unreadCount: number;
+  lastMessagePreview: string | null;
+  lastMessageTs: string | null;
+  /** 实时活动状态（派生字段） */
+  activityStatus: 'processing' | 'awaiting_user' | 'idle';
+};
+
+export type ConversationListResult = {
+  items: ConversationListItem[];
+  /** 满足过滤条件的总数（不含 limit/offset），供前端页码跳转 */
+  total: number;
+};
+
 export interface ConversationRepository {
   // Conversation CRUD
   create(conversation: Conversation, otterIds?: string[]): Promise<void>;
@@ -83,15 +108,9 @@ export interface ConversationRepository {
   ): Promise<number>;
 
   // 会话列表批量查询（含未读计数 + 最后一条 entry 预览，替代 N+1）
+  // F20260922cgrp：返回 { items, total }——total 供前端分组分页页码跳转
   listConversationsWithMeta(
     userId: string,
-    options?: { limit?: number; offset?: number; search?: string },
-  ): Promise<Array<Conversation & {
-    otterIds: string[];
-    unreadCount: number;
-    lastMessagePreview: string | null;
-    lastMessageTs: string | null;
-    /** 实时活动状态（派生字段） */
-    activityStatus: 'processing' | 'awaiting_user' | 'idle';
-  }>>;
+    options?: ListConversationsFilter,
+  ): Promise<ConversationListResult>;
 }

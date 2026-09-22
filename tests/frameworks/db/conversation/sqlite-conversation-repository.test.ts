@@ -91,19 +91,9 @@ describe("SqliteConversationRepository - 对话基础操作", () => {
   });
 
   describe("updateStatus", () => {
-    it("将对话状态更新为 completed 并设置 completedAt", async () => {
-      await repo.create(conversationFixture());
-
-      await repo.updateStatus("conv-1", "completed", "2026-07-22T10:00:00Z");
-
-      const result = await repo.getById("conv-1");
-      expect(result!.status).toBe("completed");
-      expect(result!.completedAt).toBe("2026-07-22T10:00:00Z");
-      expect(result!.updatedAt).toBe("2026-07-22T10:00:00Z");
-    });
-
+    // F20260922cgrp：弱状态两态——completed 写入路径退役，只剩 archived
     it("将对话状态更新为 archived 并设置 archivedAt", async () => {
-      await repo.create(conversationFixture({ status: "completed", completedAt: "2026-07-22T10:00:00Z" }));
+      await repo.create(conversationFixture());
 
       await repo.updateStatus("conv-1", "archived", "2026-07-22T12:00:00Z");
 
@@ -195,7 +185,7 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
       startedAt: "2026-07-22T00:00:00Z", endedAt: null,
     } as never);
 
-    const [item] = await repo.listConversationsWithMeta("user-1");
+    const { items: [item] } = await repo.listConversationsWithMeta("user-1");
     expect(item.activityStatus).toBe("processing");
   });
 
@@ -203,22 +193,23 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
     await repo.create(conversationFixture());
     await entryRepo.createEntryAtomic(entryFixture({ yieldTargets: ["user"] }));
 
-    const [item] = await repo.listConversationsWithMeta("user-1");
+    const { items: [item] } = await repo.listConversationsWithMeta("user-1");
     expect(item.activityStatus).toBe("awaiting_user");
   });
 
   it("active 对话 + 无任何 entry → idle", async () => {
     await repo.create(conversationFixture());
 
-    const [item] = await repo.listConversationsWithMeta("user-1");
+    const { items: [item] } = await repo.listConversationsWithMeta("user-1");
     expect(item.activityStatus).toBe("idle");
   });
 
-  it("completed 对话即使有 entries 也派生为 idle", async () => {
-    await repo.create(conversationFixture({ status: "completed", completedAt: "2026-07-22T01:00:00Z" }));
+  it("archived 对话即使有 entries 也派生为 idle（F20260922cgrp：completed 退役，非活跃 = archived）", async () => {
+    await repo.create(conversationFixture({ status: "archived", archivedAt: "2026-07-22T01:00:00Z" }));
     await entryRepo.createEntryAtomic(entryFixture());
 
-    const [item] = await repo.listConversationsWithMeta("user-1");
+    // 默认过滤（不含 archived）下 archived 对话不出现——显式 status 过滤拉取
+    const { items: [item] } = await repo.listConversationsWithMeta("user-1", { status: "archived" });
     expect(item.activityStatus).toBe("idle");
   });
 
@@ -228,7 +219,7 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
     await entryRepo.createEntryAtomic(entryFixture({ id: "e-2", entryType: "speak" }));
     await entryRepo.createEntryAtomic(entryFixture({ id: "e-3", entryType: "system", senderType: "system", senderId: "system", body: "系统条目" }));
 
-    const [item] = await repo.listConversationsWithMeta("user-1");
+    const { items: [item] } = await repo.listConversationsWithMeta("user-1");
     expect(item.unreadCount).toBe(2);
   });
 
@@ -246,7 +237,7 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
 
     await repo.create(conversationFixture({ id: "conv-c", createdAt: "2026-07-22T00:02:00Z" }));
 
-    const items = await repo.listConversationsWithMeta("user-1");
+    const { items } = await repo.listConversationsWithMeta("user-1");
     const byId = Object.fromEntries(items.map(i => [i.id, i.activityStatus]));
     expect(byId["conv-a"]).toBe("processing");
     expect(byId["conv-b"]).toBe("awaiting_user");
@@ -272,30 +263,30 @@ describe("SqliteConversationRepository - listConversationsWithMeta 标题搜索�
   });
 
   it("search 关键字按标题子串过滤", async () => {
-    const items = await repo.listConversationsWithMeta("user-1", { search: "工作区" });
+    const { items } = await repo.listConversationsWithMeta("user-1", { search: "工作区" });
     expect(items.map(i => i.id)).toEqual(["conv-1"]);
   });
 
   it("search 不命中的归档对话不返回", async () => {
     // conv-4 标题含「工作区」但已归档——archived 排除规则优先
-    const items = await repo.listConversationsWithMeta("user-1", { search: "已归档" });
+    const { items } = await repo.listConversationsWithMeta("user-1", { search: "已归档" });
     expect(items).toEqual([]);
   });
 
   it("search 中的 LIKE 通配符 % 被转义为字面量", async () => {
     // 「50%」若未转义会命中所有含「50」的标题；转义后仅精确命中 conv-3
-    const items = await repo.listConversationsWithMeta("user-1", { search: "50%" });
+    const { items } = await repo.listConversationsWithMeta("user-1", { search: "50%" });
     expect(items.map(i => i.id)).toEqual(["conv-3"]);
   });
 
   it("search 中的下划线被转义为字面量", async () => {
     await repo.create(conversationFixture({ id: "conv-5", title: "a_b 测试", createdAt: "2026-07-22T00:04:00Z" }));
-    const items = await repo.listConversationsWithMeta("user-1", { search: "a_b" });
+    const { items } = await repo.listConversationsWithMeta("user-1", { search: "a_b" });
     expect(items.map(i => i.id)).toEqual(["conv-5"]);
   });
 
   it("search 空白字符串退化为不过滤", async () => {
-    const items = await repo.listConversationsWithMeta("user-1", { search: "   " });
+    const { items } = await repo.listConversationsWithMeta("user-1", { search: "   " });
     expect(items.length).toBe(3);
   });
 
@@ -303,9 +294,11 @@ describe("SqliteConversationRepository - listConversationsWithMeta 标题搜索�
     await repo.create(conversationFixture({ id: "conv-6", title: "工作区二期", createdAt: "2026-07-22T00:05:00Z" }));
     const page1 = await repo.listConversationsWithMeta("user-1", { search: "工作区", limit: 1, offset: 0 });
     const page2 = await repo.listConversationsWithMeta("user-1", { search: "工作区", limit: 1, offset: 1 });
-    expect(page1.length).toBe(1);
-    expect(page2.length).toBe(1);
-    expect(page1[0].id).not.toBe(page2[0].id);
+    expect(page1.items.length).toBe(1);
+    expect(page2.items.length).toBe(1);
+    expect(page1.items[0].id).not.toBe(page2.items[0].id);
+    // F20260922cgrp：total = 满足过滤条件的总数（不含分页）
+    expect(page1.total).toBe(2);
   });
 });
 
@@ -328,9 +321,10 @@ describe("SqliteConversationRepository - 助理对话排序与分页（F20260918
     await repo.create(conversationFixture({ id: "conv-n2", title: "置顶对话", pinned: true, createdAt: "2026-07-22T00:02:00Z" }));
     await repo.create(conversationFixture({ id: "conv-b", title: "飞书助理 · y2", pinned: true, createdAt: "2026-07-22T00:03:00Z" }));
 
-    const items = await repo.listConversationsWithMeta("user-1");
+    const { items, total } = await repo.listConversationsWithMeta("user-1");
     // 置顶优先（普通与助理平权），组内按 created_at DESC
     expect(items.map(i => i.id)).toEqual(["conv-b", "conv-n2", "conv-a", "conv-n1"]);
+    expect(total).toBe(4);
   });
 
   it("分页跨页边界：limit 切页不丢不重（自然排序，助理不再被强制排尾）", async () => {
@@ -340,7 +334,8 @@ describe("SqliteConversationRepository - 助理对话排序与分页（F20260918
 
     const page1 = await repo.listConversationsWithMeta("user-1", { limit: 2, offset: 0 });
     const page2 = await repo.listConversationsWithMeta("user-1", { limit: 2, offset: 2 });
-    expect(page1.map(i => i.id)).toEqual(["conv-a", "conv-n2"]);
-    expect(page2.map(i => i.id)).toEqual(["conv-n1"]);
+    expect(page1.items.map(i => i.id)).toEqual(["conv-a", "conv-n2"]);
+    expect(page2.items.map(i => i.id)).toEqual(["conv-n1"]);
+    expect(page1.total).toBe(3);
   });
 });

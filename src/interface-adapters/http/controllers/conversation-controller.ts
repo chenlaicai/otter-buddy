@@ -15,6 +15,26 @@ import {
 import type { CreateConversationRequestDTO } from "../dto/conversation-dto";
 import { DomainError } from "@entities/errors";
 import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
+import type { ListConversationsFilter } from "@usecases/conversation/conversation-repository";
+
+/**
+ * 解析 GET /api/conversations 的过滤参数（F20260922cgrp：status/kind 过滤——三分组分页数据源）。
+ * 非法 limit/offset 返回错误消息字符串（400）；非法 status/kind 静默忽略（缺省行为兜底）。
+ */
+function parseListFilter(c: Context): ListConversationsFilter | string {
+  const limit = parseInt(c.req.query("limit") ?? "50", 10);
+  const offset = parseInt(c.req.query("offset") ?? "0", 10);
+  if (isNaN(limit) || isNaN(offset) || limit < 0 || offset < 0) {
+    return "Invalid pagination parameters";
+  }
+  /** search：对话标题关键字过滤（LIKE 子串匹配，仓储层转义通配符） */
+  const search = c.req.query("search") || undefined;
+  const statusRaw = c.req.query("status");
+  const status = statusRaw === "active" || statusRaw === "archived" ? statusRaw : undefined;
+  const kindRaw = c.req.query("kind");
+  const kind = kindRaw === "assistant" || kindRaw === "normal" ? kindRaw : undefined;
+  return { limit, offset, search, status, kind };
+}
 
 export class ConversationController {
   constructor(
@@ -29,28 +49,26 @@ export class ConversationController {
 
   async list(c: Context): Promise<Response> {
     try {
-      const limitStr = c.req.query("limit") ?? "50";
-      const offsetStr = c.req.query("offset") ?? "0";
-      const limit = parseInt(limitStr, 10);
-      const offset = parseInt(offsetStr, 10);
-      if (isNaN(limit) || isNaN(offset) || limit < 0 || offset < 0) {
-        return c.json({ error: "Invalid pagination parameters" }, 400);
+      const filter = parseListFilter(c);
+      if (typeof filter === "string") {
+        return c.json({ error: filter }, 400);
       }
-      /** search：对话标题关键字过滤（LIKE 子串匹配，仓储层转义通配符） */
-      const search = c.req.query("search") || undefined;
       /** 批量 JOIN 查询（含未读计数 + last_message），替代 N+1 */
       const userId = c.req.query("userId") ?? "web-user";
-      const items = await this.manageConversation.listWithMeta(userId, { limit, offset, search });
-      return c.json(items.map((item) => toConversationListItemDTO(
-        item,
-        item.otterIds,
-        {
-          unreadCount: item.unreadCount,
-          lastMessagePreview: item.lastMessagePreview,
-          lastMessageTs: item.lastMessageTs,
-          activityStatus: item.activityStatus,
-        },
-      )));
+      const { items, total } = await this.manageConversation.listWithMeta(userId, filter);
+      return c.json({
+        items: items.map((item) => toConversationListItemDTO(
+          item,
+          item.otterIds,
+          {
+            unreadCount: item.unreadCount,
+            lastMessagePreview: item.lastMessagePreview,
+            lastMessageTs: item.lastMessageTs,
+            activityStatus: item.activityStatus,
+          },
+        )),
+        total,
+      });
     } catch (err) {
       return handleError(c, err, this.logger);
     }
@@ -89,16 +107,6 @@ export class ConversationController {
         return c.json({ error: "Conversation not found" }, 404);
       }
       return c.json(toConversationDTO(conv));
-    } catch (err) {
-      return handleError(c, err, this.logger);
-    }
-  }
-
-  async complete(c: Context): Promise<Response> {
-    try {
-      const id = param(c, "id");
-      await this.manageConversation.complete(id);
-      return c.json({ status: "completed" });
     } catch (err) {
       return handleError(c, err, this.logger);
     }

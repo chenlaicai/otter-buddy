@@ -1,6 +1,6 @@
 import type {
   ConversationDTO,
-  ConversationListItemDTO,
+  ConversationListResponseDTO,
   CreateConversationRequestDTO,
   UnreadStateDTO,
   MarkReadResponseDTO,
@@ -51,11 +51,21 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 // ── Conversations ──
 
-export function listConversations(options?: { limit?: number; offset?: number; search?: string }): Promise<ConversationListItemDTO[]> {
+export function listConversations(options?: {
+  limit?: number
+  offset?: number
+  search?: string
+  /** F20260922cgrp：按状态过滤（active | archived）；缺省 = 仅 active */
+  status?: 'active' | 'archived'
+  /** F20260922cgrp：按类别过滤（assistant = IM 助理；normal = 普通对话） */
+  kind?: 'normal' | 'assistant'
+}): Promise<ConversationListResponseDTO> {
   const qs = new URLSearchParams();
   if (options?.limit) qs.set('limit', String(options.limit));
   if (options?.offset) qs.set('offset', String(options.offset));
   if (options?.search) qs.set('search', options.search);
+  if (options?.status) qs.set('status', options.status);
+  if (options?.kind) qs.set('kind', options.kind);
   return request(`/conversations?${qs}`)
 }
 

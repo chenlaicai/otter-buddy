@@ -26,9 +26,9 @@ export function useConversationListPolling(
       if (timer) return // 防重入：重复 visible 事件不会双开 interval
       timer = setInterval(async () => {
         try {
-          const dtos = await api.listConversations()
+          const { items } = await api.listConversations()
           setConversations(prev => {
-            const firstPage = dtos.map(mapConversationDTO)
+            const firstPage = items.map(mapConversationDTO)
             // Why: 分页追加的对话在首屏轮询结果中不存在——按 id 保留，
             // 新数据放前、保留的后续页放后，排序以服务端首屏为准
             const merged = visibleIds

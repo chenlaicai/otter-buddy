@@ -142,8 +142,8 @@ export default function ImPage() {
   const [assistantConvs, setAssistantConvs] = useState<Array<{ id: string; title: string; lastMessageTs?: string | null; lastMessagePreview?: string | null }>>([])
   const loadAssistantConversations = useCallback(async () => {
     try {
-      const items = await api.listConversations({ limit: 200 })
-      setAssistantConvs(items.filter(c => c.kind === 'assistant'))
+      const { items } = await api.listConversations({ limit: 200, kind: 'assistant' })
+      setAssistantConvs(items)
     } catch {
       // 静默降级——列表失败不阻塞页面主体
     }
