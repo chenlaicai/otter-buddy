@@ -5,7 +5,8 @@
  * 1. 历史文档（基准分支已合入）被修改 → 违规
  * 2. 本分支新建的文档被修改 → 通过（迭代载体）
  * 3. 非 docs/features|research 路径的修改 → 不在管辖范围
- * 4. BYPASS 环境变量 → 放行并警告
+ * 4. staged .doc-fix 声明文件（理由≥10字符）→ 放行（F20260922dfch 显式开口）
+ * 5. .doc-fix 理由不足 / 未 staged → 拦截（声明必须进索引区才生效）
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -101,13 +102,37 @@ describe("lint-historical-docs: 历史文档不可变", () => {
     expect(r.status).toBe(0);
   });
 
-  it("BYPASS_HISTORICAL_DOC_LINT=1 → 放行并警告", () => {
+  it("staged .doc-fix 声明文件（理由≥10字符）→ 放行并警告", () => {
     fs.writeFileSync(path.join(repo, OLD_DOC), "# old (edited again)\n");
-    stageOnly(repo, OLD_DOC);
-    const r = runLint(repo, { BYPASS_HISTORICAL_DOC_LINT: "1" });
+    fs.writeFileSync(path.join(repo, ".doc-fix"), "订正 frontmatter capability_test 字段（#1100）\n");
+    stageOnly(repo, ".");
+    const r = runLint(repo);
     expect(r.status).toBe(0);
-    // 警告在 stderr（console.warn），stdout 为空是正常行为
-    expect(r.stderr).toMatch(/BYPASS/);
+    expect(r.stderr).toMatch(/\.doc-fix 声明文件存在/);
+    expect(r.stderr).toMatch(/订正 frontmatter/);
+    git(repo, ["reset", "-q", "--", ".doc-fix"]);
+    fs.rmSync(path.join(repo, ".doc-fix"), { force: true });
+  });
+
+  it("staged .doc-fix 但理由不足 10 字符 → 拦截（提示理由不足）", () => {
+    fs.writeFileSync(path.join(repo, OLD_DOC), "# old (edited again)\n");
+    fs.writeFileSync(path.join(repo, ".doc-fix"), "太短\n");
+    stageOnly(repo, ".");
+    const r = runLint(repo);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/理由不足 10 字符/);
+    git(repo, ["reset", "-q", "--", ".doc-fix"]);
+    fs.rmSync(path.join(repo, ".doc-fix"), { force: true });
+  });
+
+  it("工作区有 .doc-fix 但未 staged → 拦截（声明必须 staged 才生效）", () => {
+    fs.writeFileSync(path.join(repo, OLD_DOC), "# old (edited again)\n");
+    fs.writeFileSync(path.join(repo, ".doc-fix"), "这个文件没有 staged 进索引区\n");
+    stageOnly(repo, OLD_DOC); // 只 stage 文档，不 stage .doc-fix
+    const r = runLint(repo);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/无 \.doc-fix 声明文件/);
+    fs.rmSync(path.join(repo, ".doc-fix"), { force: true });
   });
 
   it("rename 历史文档（git mv + 编辑新路径）→ 旧路径 D 被拦（rename 等价语义，BYPASS 通道处理）", () => {
@@ -116,7 +141,8 @@ describe("lint-historical-docs: 历史文档不可变", () => {
     const renamed = "docs/features/2026/01/01/F20260101old-renamed.md";
     git(repo, ["mv", OLD_DOC, renamed]);
     fs.writeFileSync(path.join(repo, renamed), "# renamed+edited\n");
-    stageOnly(repo, ".");
+    git(repo, ["reset", "-q", "--", "."]);
+    git(repo, ["add", "--", renamed, OLD_DOC]);
     const r = runLint(repo);
     expect(r.status).toBe(1);
     expect(r.stderr).toContain(OLD_DOC);

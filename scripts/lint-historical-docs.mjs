@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 /**
  * F20260831dgim: 历史特性文档不可变（commit-time gate）。
+ * F20260922dfch: BYPASS 环境变量自觉制 → `.doc-fix` 声明文件显式开口（搭档决策 2026-09-22）。
  *
  * 规则：已合入的特性/研究文档是交付时点的快照，禁止在后续分支上修改（M/R/C/D）。
  * 后续特性更新一律追加新特性文档记录变化（frontmatter from/supersedes 关联前文）。
  * 判定"历史"：该文件不是本分支新建（本分支独有 commit 里没有它的 Add 记录）。
  *
- * 逃生门（仅限结构性迁移，如 frontmatter backfill）：
- *   BYPASS_HISTORICAL_DOC_LINT=1 npm run ... 或直接带环境变量 commit
+ * 显式开口（仅限元数据订正：frontmatter 字段修正、id 对齐、格式订正——内容/设计修改一律走 supersede 新文档）：
+ *   在仓库根目录新建 `.doc-fix` 文件并 staged 进同一个 commit，文件内容写明订正理由（≥10 字符）。
+ *   声明文件随 commit 进 git 历史、随 PR diff 可见——比环境变量更不易悄悄绕过，且理由强制留痕。
+ *   工具链在消费后负责删除该文件（一次性用途）。
  *
  * 退出码：0 通过 / 1 有违规 / 2 环境异常（宽松放行，不误伤）。
  */
@@ -82,21 +85,56 @@ export function findViolations() {
 }
 
 function main() {
-  if (process.env.BYPASS_HISTORICAL_DOC_LINT === "1") {
-    console.warn("[lint:historical-docs] BYPASS_HISTORICAL_DOC_LINT=1，跳过（仅限结构性迁移）");
-    process.exit(0);
-  }
   const { errors } = findViolations();
   if (errors.length === 0) process.exit(0);
+
+  // 显式开口：staged 区存在 .doc-fix 声明文件（内容≥10字符，写清订正理由）则放行
+  const declaration = readDocFixDeclaration();
+  if (declaration.ok) {
+    console.warn(`[lint:historical-docs] .doc-fix 声明文件存在，放行 ${errors.length} 个历史文档修改（仅限元数据订正）：`);
+    for (const f of errors) console.warn(`  M ${f}`);
+    console.warn(`  声明理由：${declaration.reason}`);
+    console.warn(`  提示：.doc-fix 为一次性声明文件，提交后请删除（git rm .doc-fix）。`);
+    process.exit(0);
+  }
 
   console.error(`[lint:historical-docs] 检测到修改历史特性/研究文档（${errors.length} 个）：`);
   for (const f of errors) console.error(`  M ${f}`);
   console.error(`
 错误：已合入的特性文档是交付时点的快照，禁止修改使其反映"当前状态"。
-特性更新一律追加新特性文档记录变化过程（frontmatter from/supersedes 关联前文），
-发现历史文档错误 → 在新文档中记录更正，不回改。
-结构性迁移确需批量修改时：BYPASS_HISTORICAL_DOC_LINT=1 <commit命令>（并在特性文档中记录理由）。`);
+
+正当通道（二选一）：
+  ① 元数据订正（frontmatter 字段修正 / id 对齐 / 格式订正）：
+     在仓库根目录新建 .doc-fix 文件并 staged 进同一个 commit，内容写清订正理由（≥10 字符）。
+     声明文件随 commit 进 git 历史、随 PR diff 可见；提交后删除该文件。
+  ② 内容/设计修改：
+     禁止回改历史文档——新建特性文档记录变化（frontmatter from/supersedes 关联前文）。
+${declaration.hint}`);
   process.exit(1);
+}
+
+/** 读取 staged 区的 .doc-fix 声明文件（git show :<file> 读索引区内容，不看工作区） */
+function readDocFixDeclaration() {
+  let staged;
+  try {
+    staged = git(["diff", "--cached", "--name-only"]);
+  } catch {
+    return { ok: false, hint: "" };
+  }
+  if (!staged.split("\n").includes(".doc-fix")) {
+    return { ok: false, hint: "（当前 staged 区无 .doc-fix 声明文件）" };
+  }
+  let content;
+  try {
+    content = git(["show", ":.doc-fix"]);
+  } catch {
+    return { ok: false, hint: "（.doc-fix 已 staged 但读取失败）" };
+  }
+  const reason = content.trim();
+  if (reason.length < 10) {
+    return { ok: false, hint: `（.doc-fix 存在但理由不足 10 字符："${reason}"）` };
+  }
+  return { ok: true, reason };
 }
 
 // 直接执行（非被 import 测试）时跑 main
