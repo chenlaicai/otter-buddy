@@ -237,7 +237,15 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
   // 但组头计数必须常显（搭档诉求「分组上要显示当前有几个对话」）——归档组折叠时也需轻量
   // total 查询（limit=1 只取计数，不传 pinned/kind 时后端 COUNT 与列表同 where，成本一致）
   useEffect(() => {
-    if (collapsed.conversation) return
+    if (collapsed.conversation) {
+      // delta 复核严重修复：对话组折叠时也需轻量计数（对称归档组）——否则冷启动/手动折叠时
+      // 组头计数 = pinnedConvs.length + 0（漏全部非置顶），违背「分组上显示当前对话数」。
+      // 口径与展开态一致：status=active + kind=normal + pinned:false
+      api.listConversations({ status: 'active', kind: 'normal', pinned: false, limit: 1, offset: 0 })
+        .then(({ total }) => setNormalTotal(total))
+        .catch(() => { /* 静默降级 */ })
+      return
+    }
     loadNormalPage(normalPage)
   }, [normalPage, conversations, collapsed.conversation, loadNormalPage])
   useEffect(() => {

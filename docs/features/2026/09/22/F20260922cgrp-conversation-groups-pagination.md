@@ -169,3 +169,8 @@ typecheck 双端 0 error。delta 真机复验（隔离实例 3194）：计数口
 conversation-list 页对归档项不渲染菜单（该页菜单只有置顶项，对 archived 无意义）。
 另：建议 7 的折叠跳过拉取初版导致归档组头计数恒 0（搭档诉求「组头显示对话数」），
 调整为折叠时仅拉轻量计数（limit=1 取 total）。
+
+**第二轮 delta（2026-09-22 晚）**：复核发现 normal 组折叠分支裸 return（归档组对称修了、
+normal 组漏了）——冷启动/手动折叠对话组时组头计数漏全部非置顶。修复：折叠分支对称加
+轻量计数（status=active + kind=normal + pinned:false，口径与展开态一致），新增 LeftPanel
+回归用例（折叠态计数常显 + 只发 limit=1 计数请求不发条目拉取）。web 530 用例全绿。

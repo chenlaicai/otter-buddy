@@ -387,6 +387,35 @@ describe('LeftPanel 三分组 + 分页跳转（F20260922cgrp）', () => {
     })
   })
 
+  it('对话组折叠时组头计数仍常显（delta 复核严重回归：折叠 ≠ 计数归零）', async () => {
+    // 预设折叠：localStorage 标记 + 分页数据 total=7
+    localStorage.setItem('leftPanel:collapsed:conversation', '1')
+    const spy = stubGroupFetch([], 7)
+    const convs: LocalConversation[] = [
+      { id: 'p1', title: '置顶对话', status: 'active', otterIds: [], pinned: true },
+    ]
+    act(() => {
+      root.render(
+        <LeftPanel
+          conversations={convs}
+          activeId=""
+          onSelect={() => {}}
+          onNewConversation={() => {}}
+          onContextMenu={() => {}}
+          otters={mockOtters}
+        />
+      )
+    })
+    await vi.waitFor(() => {
+      // 组头计数 = 1（置顶） + 7（折叠态轻量计数拉取的 total，口径 pinned:false）
+      expect(container.querySelector('[data-testid="leftpanel-group-conversation-count"]')?.textContent).toBe('8')
+    })
+    // 折叠态只发轻量计数请求（limit=1），不发条目拉取（limit=20）
+    const calls = spy.mock.calls.map(c => c[0] as { limit?: number; pinned?: boolean })
+    expect(calls.some(c => c.limit === 1 && c.pinned === false)).toBe(true)
+    expect(calls.some(c => c.limit === 20)).toBe(false)
+  })
+
   it('total ≤ 20 时不渲染分页器', async () => {
     renderLeftPanel()
     await vi.waitFor(() => {
