@@ -21,6 +21,8 @@ function makeProcessor(overrides: Record<string, unknown> = {}) {
     listActiveConversations: vi.fn().mockResolvedValue([]),
     enterConversation: vi.fn().mockResolvedValue(undefined),
     leaveConversation: vi.fn().mockResolvedValue(undefined),
+    // F20260922wxeg：出站目标记录（入站时 noteChatId，供 resolveReplyTarget 出站定向）
+    noteChatId: vi.fn().mockResolvedValue(undefined),
   } as any;
   // F20260913ctlv 收尾批2：微信消息唯一落点 = entries（sendUserEntry）
   const sendEntry = {
@@ -77,6 +79,7 @@ function fakeAnchorLedger() {
       listActiveConversations: async () => [],
       enterConversation: async () => {},
       leaveConversation: async () => {},
+      noteChatId: async () => {},
     },
   };
 }
