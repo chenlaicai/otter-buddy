@@ -67,3 +67,14 @@ modules: [src/usecases/scheduler/scheduler-service.ts, src/bootstrap/platforms.t
 - issue #1068（Closes）
 - 机制源头：F20260916fst4（首哑决策树——本修复是其定时任务链路版）、F20260908efmd（restartSession modelAlias 支持）、#642（429 重试判死）
 - 同池问题：#1067（补丁清单任务自身去留）
+
+## 对抗审视处置记录（PR #1117，检视獭-1117）
+
+**严重发现 1 ①（双跑面）→ 论证排除，不改代码**：`retryInvokeAfterQuotaFallback` 重投新信号、原锚点信号从未 consumed，看似与 resume 补扫构成双跑。核实补扫数据源后排除：`restart_pending_resumes` 的唯一种子路径是**进程重启** reconcile（`database.ts:91` `failRunningInvokes` 把 running invokes 置 failed 并入队）——quota 失败时进程未重启，invoke 被 orchestrator 正常 settle 为 failed（非 running），补扫数据源为空。进程内不存在「信号重扫」机制（`routeSignals` 无 triggerMessageId 拒绝调用，signal-router.ts:177）。结论：双跑只在「降级重试成功后、进程崩溃、且 invoke 恰在 running 窗口」的极窄交集理论存在，与既有 resume 机制对所有 invoke 的固有风险同级，非本修复引入。
+
+**严重发现 1 ②（生产路径零覆盖）→ 采纳**：补 2 个换轨形态测试（signalRouter 注入 + isMessageSettled/assertNoFailedInvokes 走 entryRepo 序列）——quota failed entry → 降级 restart → 重投新信号 → completed；单模型池无 fallback → 不降级走原失败。mock 结构教训：sendEntry（锚点创建）与 entryRepo（看门狗数据源）是分离 mock，锚点需同步登记进 entryRepo 才与生产「entry 单一真相源」同形态。
+
+**建议发现处置**：
+- 告警文案与「失败」判据脆弱耦合 → 记录在案（assertNoFailedInvokes 的 `includes("失败")` 匹配是既有 #517 机制，本修复未新增耦合面，quota 路径走 invoke_end.metadata 精确判据不受影响）
+- modelAlias 写回无回切说明 → 已在「影响范围」风险③承认（restartSession 既有语义，配额恢复后需手动 restart 切回或待首哑决策树自然处理）
+- fallback 排除项应为「獭当前 modelAlias」而非「池默认」→ 部分采纳：当前实现排除池默认（常见情形獭=默认模型，等价）；獭已被降级过一次的罕见场景会选中当前模型导致重试失败——预算 1 次兜底不循环，风险可接受，记录在此供后续改进

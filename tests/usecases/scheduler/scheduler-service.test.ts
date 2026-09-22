@@ -3455,3 +3455,121 @@ describe('#1068: quota-exhausted 自动降级（定时任务模型绑定默认�
     expect(agentInvoke.invokeConversation.mock.results.length).toBe(1);
   });
 });
+
+describe('#1068 换轨路径: quota-exhausted 降级（signalRouter 生产形态，PR #1117 检视严重发现②补覆盖）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const KIMI_QUOTA_ERROR = "[错误] LLM API error: 403 access_terminated_error: You've reached your weekly (7-day) usage limit";
+
+  /** 构造换轨形态 service：signalRouter 注入，isMessageSettled 由 entryRepo._entries 驱动 */
+  function buildSwappedFallbackService(opts: {
+    failFirstInvoke: boolean; // 第一次 invoke 后锚点后出现 quota failed entry；false=两次都成功
+    modelAliases?: string[];
+  }) {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    taskRepo._store.set('task-1', makeTask());
+    convRepo._addConversation('conv-1', { status: 'active' });
+    const sendEntry = createMockSendEntry();
+    const entryRepo = createMockEntryRepo();
+
+    /** 副作用状态：routeDirectSignal 调用序号驱动的场景编排。
+     *  mock 结构注意：sendEntry（锚点创建）与 entryRepo（看门狗/记账数据源）是分离 mock，
+     *  锚点 entry-N 不在 entryRepo Map 中——isMessageSettled 锚点缺失判 settled（无需等待），
+     *  assertNoFailedInvokes 的 fetchEntriesAfterPaged 锚点缺失返回空（无 failed 证据）。
+     *  因此失败证据预置在「锚点之前可见」：锚点缺失时 after=空 → assert 通过——此路不通。
+     *  正道：把锚点 entry-N 同步登记进 entryRepo（与生产同形态：entry 单一真相源），
+     *  失败/成功产出 entry 排在其后。 */
+    let routeCallCount = 0;
+    const routeDirectSignal = vi.fn().mockImplementation(async () => {
+      routeCallCount++;
+      const anchorId = `entry-${routeCallCount}`;
+      entryRepo._addEntry({ id: anchorId, entryType: 'system', body: '触发', yieldTargets: ['otter-1'] });
+      if (routeCallCount === 1 && opts.failFirstInvoke) {
+        // 第一次：模拟 invoke 失败——目标獭产出 invoke_end failed entry（orchestrator failTerminal 写），
+        // 置于锚点之后：isMessageSettled 见产出（senderId 命中）判 settled，
+        // assertNoFailedInvokes 见 invoke_end failed 抛 quota 错。
+        entryRepo._addEntry({
+          id: 'failed-invoke-end-1',
+          senderId: 'otter-1',
+          entryType: 'invoke_end',
+          body: KIMI_QUOTA_ERROR,
+          metadata: { invokeStatus: 'failed' },
+        });
+      } else {
+        // 成功路径：目标产出 speak（锚点后 isMessageSettled 判 settled；assertNoFailedInvokes 无 failed）
+        entryRepo._addEntry({ id: `speak-${routeCallCount}`, senderId: 'otter-1', entryType: 'speak', body: '完成' });
+      }
+      return 'invoked';
+    });
+
+    const restartModelAliases: Array<string | undefined> = [];
+    const mockManageSession = {
+      restartSession: vi.fn(async (_o: string, _s?: string, modelAlias?: string) => {
+        restartModelAliases.push(modelAlias);
+        return { id: 'new-session' };
+      }),
+    };
+    const aliases = opts.modelAliases ?? ['kimi', 'glm'];
+    const mockModelPool = {
+      getDefaultAlias: () => 'kimi',
+      getModelInfos: () => aliases.map(a => ({ alias: a, provider: 'p', model: a })),
+    };
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: { getNextTime: () => new Date('2025-06-15T09:00:00.000Z') } as unknown as CronParser,
+      logger: mockLogger,
+      signalRouter: { routeDirectSignal } as never,
+      manageSession: mockManageSession as unknown as ManageSession,
+      modelPool: mockModelPool as never,
+    });
+    return { service, taskRepo, routeDirectSignal, restartModelAliases, getRouteCallCount: () => routeCallCount };
+  }
+
+  it('换轨形态：第一次 invoke quota 失败（invoke_end failed entry）-> assertNoFailedInvokes 抛错 -> 降级 restart -> 重投新信号成功 -> completed', async () => {
+    const { service, taskRepo, routeDirectSignal, restartModelAliases, getRouteCallCount } =
+      buildSwappedFallbackService({ failFirstInvoke: true });
+
+    const triggerPromise = service.trigger('task-1');
+    // 三轮看门狗轮询推进（15s × 3）：第一轮 settled → assert 抛 quota 错 → 降级 → 重投 → 第二轮 settled → 成功。
+    // 多推进一轮保底：async 函数内 promise 链在 fake timer 间的微任务推进需冗余窗口。
+    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.advanceTimersByTimeAsync(15_000);
+    const result = await triggerPromise;
+
+    // 降级发生且换 glm（副作用状态）
+    expect(restartModelAliases).toEqual(['glm']);
+    // 信号投了两次（原锚点 + 降级重试新锚点）
+    expect(getRouteCallCount()).toBe(2);
+    expect(routeDirectSignal.mock.calls[0][0]).toBe('conv-1');
+    // execution 终态 completed
+    expect(taskRepo._executions.get(result.executionId)!.status).toBe('completed');
+  }, 20_000);
+
+  it('换轨形态：quota 失败但单模型池无 fallback -> 不降级，execution failed', async () => {
+    const { service, taskRepo, restartModelAliases, getRouteCallCount } =
+      buildSwappedFallbackService({ failFirstInvoke: true, modelAliases: ['kimi'] });
+
+    const triggerPromise = service.trigger('task-1').catch((e: Error) => e);
+    await vi.advanceTimersByTimeAsync(15_000);
+    const err = await triggerPromise;
+
+    expect(err).toBeInstanceOf(Error);
+    expect(restartModelAliases).toEqual([]);
+    expect(getRouteCallCount()).toBe(1);
+    const executions = [...taskRepo._executions.values()];
+    expect(executions[0]!.status).toBe('failed');
+  }, 20_000);
+});
