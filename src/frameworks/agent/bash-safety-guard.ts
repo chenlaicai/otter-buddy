@@ -426,7 +426,7 @@ const MAIN_WRITE_BLOCK_MSG = "当前 bash 工作目录在主仓（未 cd 到 wor
 
 /** 主仓写操作形态（F20260922scwd）：重定向/heredoc/python patch/git 写族 */
 const MAIN_WRITE_PATTERNS = [
-  /(?:^|&&|\|\||[;&\n])\s*(?:>|>>|<<<)\s*[^|&;\n]+/,  // 重定向/heredoc
+  /(?:^|[;&\n]|&&|\|\|)\s*(?:>|>>|<<<)\s*[^|&;\n]+|(?<!['"\w])>>?\s*[^|&;\n'"]+/,  // 重定向（含 echo x > file 中段形态）
   /(?:^|&&|\|\||[;&\n])\s*python3?\s+-\s*<<[/"']?/,       // python heredoc patch
   /(?:^|&&|\|\||[;&\n])\s*git\s+(?:commit|rebase|merge|cherry-pick|apply|stash\s+push)\b/,  // git 写族
 ] as const;

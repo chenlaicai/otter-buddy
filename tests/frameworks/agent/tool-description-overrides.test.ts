@@ -58,7 +58,8 @@ describe("buildToolDescriptionOverrides", () => {
 
   it("execute/parameters 与 builtin 同一引用（零行为变化）", () => {
     const base = buildBase();
-    const overrides = buildToolDescriptionOverrides(base, ["bash", "read"]);
+    // F20260922scwd：bash 覆写需 sessionCwd 才触发 execute 包装；read 始终纯描述覆写
+    const overrides = buildToolDescriptionOverrides(base, ["bash", "read"], cwd);
     for (const o of overrides) {
       // bash 覆写后 execute 是包装函数（F20260922scwd 感知对齐），不再同一引用
       if (o.name === "bash") {
