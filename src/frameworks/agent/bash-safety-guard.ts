@@ -431,6 +431,12 @@ const MAIN_WRITE_PATTERNS = [
   /(?:^|&&|\|\||[;&\n])\s*git\s+(?:commit|rebase|merge|cherry-pick|apply|stash\s+push)\b/,  // git 写族
 ] as const;
 
+/** 提取重定向目标路径（去引号，取 > 后第一个词元） */
+function extractRedirectTarget(command: string): string | null {
+  const m = command.match(/>>?\s*([^|&;\n'"\s]+)/);
+  return m?.[1]?.replace(/^["']|["']$/g, "") ?? null;
+}
+
 /** 主仓写检测（F20260922scwd）：未 cd 时拦截落点为主仓的写命令。
  *  与 #1038 数据破坏检测的差异：不跟踪 cd（感知对齐方案下 LLM 需显式 cd），
  *  只做「当前文本是否含主仓写形态」的静态判定——简单可靠，无状态。 */
@@ -438,9 +444,18 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
   if (!projectRoot) return null; // 无 projectRoot 时保守放行（与 resolvesToMainData 同策略）
   // 含 cd 的命令：LLM 显式切换了目录，按 cd 后语义理解——不拦（正道）
   if (/\bcd\s+[^&|;\n]/.test(command)) return null;
-  // 主仓写形态命中 → 拦
+  // 主仓写形态命中 → 拦（但绝对路径写非主仓放行）
   for (const pattern of MAIN_WRITE_PATTERNS) {
     if (pattern.test(command)) {
+      // 重定向形态：提取目标路径，绝对路径且不在主仓下 → 放行
+      const target = extractRedirectTarget(command);
+      if (target && path.isAbsolute(target)) {
+        const normalizedRoot = path.normalize(projectRoot).toLowerCase();
+        const normalizedTarget = path.normalize(target).toLowerCase();
+        if (!normalizedTarget.startsWith(normalizedRoot + path.sep) && normalizedTarget !== normalizedRoot) {
+          continue; // 绝对路径写非主仓，检查下一个形态
+        }
+      }
       logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (no cd)", { command: command.substring(0, 200) });
       return MAIN_WRITE_BLOCK_MSG;
     }
