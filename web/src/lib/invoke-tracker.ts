@@ -56,6 +56,56 @@ export interface InvokeTickPayload {
 
 export type InvokeStates = Record<string, OtterInvokeState>
 
+/** F20260922rprf：服务端 invoke 记录（listInvokes 响应元素）的最小形状——
+ *  与 api-contract InvokeDTO 结构兼容（此处独立声明避免 web→api-contract 深层 import）。 */
+export interface ServerInvokeRecord {
+  id: string
+  otterId: string
+  status: 'running' | 'completed' | 'failed' | 'aborted'
+  startedAt: string
+  endedAt: string | null
+  toolCallCount: number
+  tokenUsageInput: number | null
+  tokenUsageOutput: number | null
+  ctxWindowUsed: number | null
+}
+
+/** F20260922rprf 检视发现 1 修复：服务端 invokes 合并进本地 invokeStates（SSE 断连补偿）。
+ *  合并语义（listInvokes 按 started_at DESC，同獭首次出现即最新，后续旧记录跳过）：
+ *  - 本地无该獭 entry → 用服务端记录建立（含 running——本地漏了 invoke.start）
+ *  - 本地 entry 已终态 → 跳过（本地已收敛，不接受服务端旧 running 回退——服务端
+ *    最新记录即终态时本地必然也是该 invoke 的终态或更新 invoke）
+ *  - 本地 entry running：
+ *    · 同 invokeId 且服务端已终态 → 收敛（断连窗口丢 invoke.end 的核心场景）
+ *    · 服务端已是更新 invoke → 覆盖（断连窗口丢整轮 start+end）
+ *    · 同 invokeId 服务端仍 running → 跳过（无新信息）
+ *  幂等：无任何变更时返回原引用（心跳期重连补偿不驱动 re-render）。 */
+export function mergeInvokesFromServer(states: InvokeStates, invokes: ServerInvokeRecord[]): InvokeStates {
+  let next: InvokeStates | null = null
+  const seen = new Set<string>()
+  for (const inv of invokes) {
+    if (seen.has(inv.otterId)) continue
+    seen.add(inv.otterId)
+    const existing = (next ?? states)[inv.otterId]
+    if (existing && existing.status !== 'running') continue
+    if (existing && existing.invokeId === inv.id && inv.status === 'running') continue
+    next = next ?? { ...states }
+    next[inv.otterId] = {
+      invokeId: inv.id,
+      otterId: inv.otterId,
+      otterName: existing?.otterName,
+      status: inv.status,
+      startedAt: inv.startedAt,
+      ...(inv.endedAt && { endedAt: inv.endedAt }),
+      toolCallCount: inv.toolCallCount,
+      ...(inv.tokenUsageInput != null && inv.tokenUsageOutput != null && { tokenUsage: { input: inv.tokenUsageInput, output: inv.tokenUsageOutput } }),
+      ...(inv.ctxWindowUsed != null && { ctxWindowUsed: inv.ctxWindowUsed }),
+      ...(existing?.ctxMax != null && { ctxMax: existing.ctxMax }),
+    }
+  }
+  return next ?? states
+}
+
 /** invoke.start → 记 running 状态（同 invokeId 重放幂等：内容相同返回原引用）。
  *  保留上一轮终态的 ctxWindowUsed/ctxMax——ctx 表示「当前 session 的上下文占用」，
  *  新 invoke 刚启动尚未有首条 LLM 往返前，真实占用仍等于上轮末态（上下文只增不减）。 */

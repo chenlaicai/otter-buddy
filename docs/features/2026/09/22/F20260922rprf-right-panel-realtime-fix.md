@@ -66,13 +66,26 @@ created_in_conversation: 9c674ed5-5ba4-4d24-8f01-99da6b57a7a2
 
 ## 变更范围
 
-- `web/src/pages/conversation/index.tsx`（+38 行，-4 行）
+- `web/src/pages/conversation/index.tsx`（invoke.event 工具名检测 + 重连后首次 onprogress 补偿拉取）
+- `web/src/lib/invoke-tracker.ts`（+`mergeInvokesFromServer` 纯函数，检视发现 1/4 处置）
+- `web/src/lib/invoke-tracker.test.ts`（+7 个 mergeInvokesFromServer 用例）
+
+## 对抗审视记录（检视獭 kimi-k28，PR #1095 review）
+
+| 发现 | 级别 | 处置 |
+|---|---|---|
+| 1. 合并逻辑 `if (next[inv.otterId]) continue` 只补缺不更新——本地 running + 服务端终态场景（断连丢 invoke.end 核心场景）仍卡「运行中」 | 严重 | 已修：合并逻辑提取为 `mergeInvokesFromServer` 纯函数，本地 running + 服务端终态时收敛；本地已终态跳过（不回退） |
+| 2. onprogress 每 15s 心跳无防抖触发 listInvokes（空闲 1h = 240 次请求） | 严重 | 已修：`needsSyncAfterReconnect` 标记，只在重连后首次 onprogress 触发 |
+| 3. CI 红灯为存量日期炸弹（validate-commit-date.test.ts:202 硬编码 F20260914） | 建议 | 与本 PR 无关的存量问题（干净 main 同样失败），另行跟踪 |
+| 4. 新增合并逻辑无测试覆盖 | 建议 | 已修：7 个 `mergeInvokesFromServer` 单测（含「本地 running + 服务端终态 → 收敛」核心场景） |
+| 5. `payload.name` 理论可空，静默失效无日志 | 建议 | 已修：toolName 为空时 console.warn |
 
 ## Verification（bugfix 硬规则）
 
 **失败用例证据**：
 - 修复前：常驻 SSE 无 `tool.result` 处理器（grep `tool.result` 于 `index.tsx` 常驻 handlers 段无命中）；`applyInvokeEnd` 乱序防御丢弃无 prev 的 end 事件（`invoke-tracker.test.ts:74` 用例「无 start 记录时忽略」佐证）
-- 修复后：58 个前端测试文件 518 个测试全部通过（`npx vitest run`）；`invoke-tracker.test.ts` 17 个测试全绿
+- 修复后：web 前端 58 个测试文件 525 个测试全部通过（`npx vitest run`，含 7 个新增 mergeInvokesFromServer 用例）；`invoke-tracker.test.ts` 24 个测试全绿
+- 全量测试中 2 个失败（validate-commit-date 日期炸弹 / weixin-cold-start）经干净 main 复跑确认属存量问题，与本 PR 无关
 
 **最小复现路径**（修复前）：
 1. 打开对话，让大獭发言，发言结束后右栏仍显示「运行中」
@@ -87,7 +100,8 @@ created_in_conversation: 9c674ed5-5ba4-4d24-8f01-99da6b57a7a2
 
 ## 已知边界
 
-- SSE 补偿拉取在每次 `onprogress`（含 15s keep-alive 心跳）触发——`syncInvokeStatesFromServer` 幂等且只在状态有差异时更新，无额外请求风暴
-- `invoke.event` 的 `tool_result` 检测依赖 `payload.name` 字段（后端 `mapToInvokeEventInput` 已保证携带）
+- SSE 补偿拉取只在重连后首次 `onprogress` 触发（`needsSyncAfterReconnect` 标记）——正常心跳期无事件丢失风险，不重复请求
+- `invoke.event` 的 `tool_result` 检测依赖 `payload.name` 字段（后端 `mapToInvokeEventInput` 已保证携带）；缺失时 console.warn 留痕
+- `mergeInvokesFromServer` 幂等：无变更返回原引用，不驱动 re-render
 
 🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by 大獭

@@ -6,7 +6,7 @@ import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, 
 
 import { mapOtterDTO, mapConversationDTO, mapEntryDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
 import { isInFlight, upsertMessage, insertBySeq, upsertTerminalMessage, insertCenteredByTs } from '../../lib/message-stream'
-import { applyInvokeStart, applyInvokeEnd, applyInvokeTick, findOtterByInvokeId, type InvokeStates } from '../../lib/invoke-tracker'
+import { applyInvokeStart, applyInvokeEnd, applyInvokeTick, findOtterByInvokeId, mergeInvokesFromServer, type InvokeStates } from '../../lib/invoke-tracker'
 import { MessageBatcher } from '../../lib/batch-update'
 import { nowTs } from '../../lib/utils'
 import { showToast } from '../../components/Toast'
@@ -232,26 +232,12 @@ export default function ConversationPage() {
   } = useScheduledTasks(activeId, !modalOpen)
 
   /** F20260922rprf：SSE 断连重连后补偿拉取 invoke 状态——重连窗口内丢失的 invoke.end
-   *  会导致右栏永久卡在「运行中」。每次重连成功 / activeId 变化时拉一次最新 invokes 合并收敛。
-   *  与 loadConversationDetail 的恢复逻辑同型，但幂等可重入（重连多次调用安全）。 */
+   *  会导致右栏永久卡在「运行中」。合并逻辑提取为纯函数 mergeInvokesFromServer（invoke-tracker），
+   *  幂等（无变更返回原引用）。 */
   const syncInvokeStatesFromServer = useCallback(async (convId: string) => {
     try {
       const resp = await api.listInvokes(convId, { limit: 50 })
-      setInvokeStates(prev => {
-        const next = { ...prev }
-        for (const inv of resp.invokes) {
-          // listInvokes 按 started_at DESC，同一只獭首次出现即最新——跳过后续旧记录
-          if (next[inv.otterId]) continue
-          next[inv.otterId] = {
-            invokeId: inv.id, otterId: inv.otterId, status: inv.status, startedAt: inv.startedAt,
-            ...(inv.endedAt && { endedAt: inv.endedAt }),
-            toolCallCount: inv.toolCallCount,
-            ...(inv.tokenUsageInput != null && inv.tokenUsageOutput != null && { tokenUsage: { input: inv.tokenUsageInput, output: inv.tokenUsageOutput } }),
-            ...(inv.ctxWindowUsed != null && { ctxWindowUsed: inv.ctxWindowUsed }),
-          }
-        }
-        return next
-      })
+      setInvokeStates(prev => mergeInvokesFromServer(prev, resp.invokes))
     } catch (err) {
       console.error('Failed to sync invoke states from server:', err)
     }
@@ -654,7 +640,12 @@ export default function ConversationPage() {
          *  F20260913ctlv 后 tool.result 不再广播 SSE，invoke.event 是唯一实时通道。 */
         if (d.event.eventType === 'tool_result') {
           const toolName = (d.event.payload as { name?: string }).name
-          if (toolName) refreshParticipantsAfterDissolve(toolName)
+          if (toolName) {
+            refreshParticipantsAfterDissolve(toolName)
+          } else {
+            // F20260922rprf 检视发现 5：payload.name 理论可空（SDK 字段变更时静默失效），留日志便于排查
+            console.warn('[invoke.event] tool_result payload missing name:', d.event.payload)
+          }
         }
       },
       'invoke.start': (data) => {
@@ -766,6 +757,9 @@ export default function ConversationPage() {
     let reconnectDelay = 1000
     const maxDelay = 30000
     let disposed = false
+    /** F20260922rprf 检视发现 2 修复：补偿拉取只在「重连后首次 onprogress」触发——
+     *  断连窗口是唯一会丢 invoke.end 的时段；正常心跳期无事件丢失风险，不重复请求。 */
+    let needsSyncAfterReconnect = true
 
     function notifyConn(connected: boolean): void {
       if (sseConnectedRef.current === connected) return
@@ -812,10 +806,10 @@ export default function ConversationPage() {
         // 收到数据后重置重连延迟
         reconnectDelay = 1000
         notifyConn(true)
-        /** F20260922rprf：SSE 重连成功后补偿拉取 invoke 状态——重连窗口内丢失的 invoke.end
-         *  会导致右栏永久卡在「运行中」。每次 onprogress（含 keep-alive 心跳）都触发是安全的：
-         *  syncInvokeStatesFromServer 幂等且只补缺（existing 同状态跳过），无额外请求风暴。 */
-        if (activeId) void syncInvokeStatesFromServer(activeId)
+        if (activeId && needsSyncAfterReconnect) {
+          needsSyncAfterReconnect = false
+          void syncInvokeStatesFromServer(activeId)
+        }
       }
 
       xhr.onerror = () => { notifyConn(false); scheduleReconnect() }
@@ -826,6 +820,7 @@ export default function ConversationPage() {
 
     function scheduleReconnect() {
       if (disposed) return
+      needsSyncAfterReconnect = true
       reconnectTimer = setTimeout(() => {
         reconnectDelay = Math.min(reconnectDelay * 2, maxDelay)
         connect()
