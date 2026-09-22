@@ -20,10 +20,13 @@ export type ExitReason =
   | { kind: 'api_error'; errorMessage: string; toolCallCount: number }
   | { kind: 'no_yield'; toolCallCount: number };
 
-/** #752：判断 err 是否是 abort 操作自身的产物（而非 abort 前已存在的底层错误） */
+/** #752：判断 err 是否是 abort 操作自身的产物（而非 abort 前已存在的底层错误）
+ *  SDK abort 错误文案存在多种写法（"Request was aborted" / "Request aborted"，
+ *  均已在生产现场观察到），匹配须覆盖全部变体——漏匹配会把 abort 副作用
+ *  误判为底层 API 错误，导致中断归因消息附上一段误导性的「底层错误」。 */
 export function isAbortOwnError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
-  return /Request was aborted/i.test(msg);
+  return /request\s+(?:was\s+)?aborted/i.test(msg);
 }
 
 /** Extract guard abort reason from result or error (single source of truth) */
