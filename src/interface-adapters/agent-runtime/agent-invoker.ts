@@ -362,6 +362,14 @@ export class AgentInvoker implements AgentTurnPort {
         if (selfRestarted) return selfRestarted;
       }
 
+      // F20260920uhuc 死链修复：水位状态写回（此前 setLastCtxTokens 零调用 →
+      // shouldTriggerWatermarkHandoff 永远 false → 水位交接从未触发）。ctxTokens 来自
+      // turn 内 message_end usage（右栏实时口径同公式），换世后首 invoke 读不到 usage
+      // 属自然语义（新世上下文为空）。
+      const lastCtxTokens = (driver as unknown as { _lastCtxTokens?: number })._lastCtxTokens;
+      if (lastCtxTokens !== undefined && Number.isFinite(lastCtxTokens)) {
+        this.handoffState.setLastCtxTokens(otterId, lastCtxTokens);
+      }
       return {
         invokeId: turnResult.invokeId,
         messageId: turnResult.invokeId, // F20260913ctlv：兼容字段——链引擎过渡期仍读 messageId，值 = invokeId
@@ -379,7 +387,11 @@ export class AgentInvoker implements AgentTurnPort {
     emitEvent: (event: SSEEvent) => void,
     opts: { otterName?: string; otterType?: string; otterColor?: string | null; onSelfRestart?: (signal: { otterId: string; summary?: string; synthesizePast?: boolean }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }>; batchMaxSeq?: number; currentInvokeId: string },
   ): AttemptDriver {
-    return {
+    /** F20260920uhuc 死链修复：ctxTokens 旁路盒（TurnResult 不带 ctxTokens，闭包直改
+     *  外部 let 不可行——driver 对象生命周期覆盖整个 turn，invokeConversationInner
+     *  收尾处读取本盒写回 handoffState 水位状态）。 */
+    const ctxTokensBox = { value: undefined as number | undefined };
+    const driver = {
       invoke: async (input: TurnInput, onEvent: (event: AgentStreamEvent) => void) => {
         const toolStarts = new Map<string, number>();
         /** toolCallCount 透传盒——handleStreamEvent 提取后闭包直改外部 let 不再可行，改盒式引用 */
@@ -396,6 +408,8 @@ export class AgentInvoker implements AgentTurnPort {
           batchMaxSeq: opts?.batchMaxSeq,
           onEvent: (e: AgentStreamEvent) => this.handleStreamEvent(e, input, otterId, emitEvent, opts, toolStarts, countBox, onEvent, conversationId),
         });
+        // F20260920uhuc 死链修复：invoke 结果 ctxTokens 写盒（水位状态数据源）
+        ctxTokensBox.value = result.ctxTokens;
         // F20260819rscn: SDK 标记了自重启信号时，通知调用方（闭包捕获）
         if (result._selfRestart) opts?.onSelfRestart?.(result._selfRestart);
         return { result: result as unknown as InvokeResultShape, toolCallCount: countBox.count };
@@ -417,7 +431,13 @@ export class AgentInvoker implements AgentTurnPort {
       isUserAborted: (invokeId: string) => {
         return this.userAbortedMessages.has(invokeId);
       },
-    };
+    } as AttemptDriver & { _lastCtxTokens?: number };
+    // F20260920uhuc 死链修复：ctxTokens 旁路盒挂 driver 对象（invokeConversationInner 收尾读取）
+    Object.defineProperty(driver, '_lastCtxTokens', {
+      get: () => ctxTokensBox.value,
+      configurable: true,
+    });
+    return driver;
   }
 
   /** F20260913ctlv 彻底切换：系统消息唯一落点 = entries（system entry），messages 停写 */

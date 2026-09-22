@@ -43,6 +43,8 @@ import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildMessageWithContext } from "./session-helpers";
 import { updateLastReadSeq } from "@frameworks/db/conversation/conversation-repository-mixins";
+import { readSessionEntries } from "./session-slicer";
+import type { SessionEntryLike } from "@usecases/ports/sdk-invoke-port";
 import { attachGuards, checkSessionError, buildPromptResult } from "./circuit-breaker-helpers";
 import { checkOrchestrationGuard } from "@usecases/conversation/dispatch-guard";
 import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
@@ -433,6 +435,39 @@ export class PiSessionFactory implements AgentGateway {
       unsubscribe();
       // inMemory session 无文件资源；dispose 释放内部状态（abort 进行中的流——影子 session 在 prompt 返回后已无活动流）
       try { session.dispose?.(); } catch { /* 清理失败不阻塞 */ }
+    }
+  }
+
+  /** F20260920uhuc 死链修复：jsonl entries 读取门面实现（此前端口声明可选但唯一实现体
+   *  缺该方法 → 合成分支永远不进 → 100% 机械档案）。从 domain 账本取当前 session 文件
+   *  只读打开（SessionManager.open 不写文件），喂给已有的 sliceSessionEntries。
+   *  池内已有 live sessionManager 时不另 open（避免重复句柄）。 */
+  async readCurrentSessionEntries(otterId: string): Promise<SessionEntryLike[] | undefined> {
+    try {
+      const pooled = this.poolMeta.get(otterId);
+      const sessionManager = pooled
+        ? pooled.session.sessionManager
+        : (await this.sessionRestore.restoreOrCreate(otterId, this.modelRuntimeRegistry.getPiCodingAgent()!, this.cfg.sessionDir)).sessionManager;
+      if (!sessionManager) return undefined;
+      return readSessionEntries(sessionManager) as SessionEntryLike[] | undefined;
+    } catch (err) {
+      this.logger.warn('[handoff] readCurrentSessionEntries failed', {
+        otterId, error: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
+  }
+
+  /** F20260920uhuc 死链修复：交接冻结锁实现（此前端口声明可选但唯一实现体缺该方法 →
+   *  冻结窗口静默跳过 → 并发竞态）。取 invoke 同源的 per-otter 锁；交接模式开启后
+   *  后续 waiter 超时自动延长至交接级别（120s，SimpleLockManager.setHandoffMode）。 */
+  async acquireSessionLock(otterId: string): Promise<() => void> {
+    const key = `session:${otterId}`;
+    this.lockManager.setHandoffMode(key, true);
+    try {
+      return await this.lockManager.acquire(key);
+    } finally {
+      this.lockManager.setHandoffMode(key, false);
     }
   }
 
