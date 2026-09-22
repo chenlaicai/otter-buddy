@@ -186,6 +186,8 @@ export class AgentInvoker implements AgentTurnPort {
         invokeRepo,
         logger,
         healthySessionThresholdMs,
+        // F20260922handoff 审视严重1：熔断换世也清水位状态（与 unifiedHandoff 入口同语义）。
+        onSessionRestarted: (id: string) => { this.handoffState.clearLastCtxTokens(id); },
       })
       : null;
   }
@@ -282,7 +284,18 @@ export class AgentInvoker implements AgentTurnPort {
         lastCtxTokens: this.handoffState.getLastCtxTokens(otterId),
         threshold: this.ctxWindowProvider?.getOtterHandoffThresholdTokens(otterId),
       });
-      await this.unifiedHandoff(otterId, conversationId, { trigger: '水位', synthesizePast: true });
+      try {
+        await this.unifiedHandoff(otterId, conversationId, { trigger: '水位', synthesizePast: true });
+      } catch (err) {
+        // F20260922handoff 审视严重3修正：交接失败（含 inProgress 撞车 conflict——
+        //  交接窗口内本獭 invoke 正是「重启后 30 秒内发言」主场景）不杀本消息——
+        //  D9 同源：交接失败永不阻塞 invoke，照常走当前世。conflict 除外？不，
+        //  水位入口的 conflict 只可能来自另一路交接已在进行（手动/熔断），本消息
+        //  照旧执行是最安全的降级（旧世上下文继续，下轮再检水位）。
+        this.logger.warn('[handoff] watermark handoff failed at invoke boundary, continuing with current session', {
+          otterId, conversationId, error: err instanceof Error ? err.message : String(err),
+        });
+      }
       // 交接完成后继续本 invoke——新世 session 由 restartSession 建立，本消息成为新世首个输入，
       // 起始档案经 dynamicContext（buildDynamicContext 读新 session.summary + 借用式 context）注入
     }
@@ -387,11 +400,11 @@ export class AgentInvoker implements AgentTurnPort {
     emitEvent: (event: SSEEvent) => void,
     opts: { otterName?: string; otterType?: string; otterColor?: string | null; onSelfRestart?: (signal: { otterId: string; summary?: string; synthesizePast?: boolean }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }>; batchMaxSeq?: number; currentInvokeId: string },
   ): AttemptDriver {
-    /** F20260920uhuc 死链修复：ctxTokens 旁路盒（TurnResult 不带 ctxTokens，闭包直改
-     *  外部 let 不可行——driver 对象生命周期覆盖整个 turn，invokeConversationInner
-     *  收尾处读取本盒写回 handoffState 水位状态）。 */
+    /** F20260922handoff 建议1：ctxTokens 旁路盒——TurnResult 不带 ctxTokens，闭包直改
+     *  外部 let 不可行，driver 对象生命周期覆盖整个 turn，invokeConversationInner 收尾处
+     *  读 driver._lastCtxTokens（类型上显式可选字段）写回 handoffState 水位状态。 */
     const ctxTokensBox = { value: undefined as number | undefined };
-    const driver = {
+    const driver: AttemptDriver = {
       invoke: async (input: TurnInput, onEvent: (event: AgentStreamEvent) => void) => {
         const toolStarts = new Map<string, number>();
         /** toolCallCount 透传盒——handleStreamEvent 提取后闭包直改外部 let 不再可行，改盒式引用 */
@@ -431,8 +444,9 @@ export class AgentInvoker implements AgentTurnPort {
       isUserAborted: (invokeId: string) => {
         return this.userAbortedMessages.has(invokeId);
       },
-    } as AttemptDriver & { _lastCtxTokens?: number };
-    // F20260920uhuc 死链修复：ctxTokens 旁路盒挂 driver 对象（invokeConversationInner 收尾读取）
+    };
+    // F20260922handoff 建议1：ctxTokens 旁路盒经 defineProperty 挂 driver——AttemptDriver
+    //  类型已显式声明 _lastCtxTokens 可选字段，消除消费侧 cast。
     Object.defineProperty(driver, '_lastCtxTokens', {
       get: () => ctxTokensBox.value,
       configurable: true,
@@ -855,6 +869,11 @@ export class AgentInvoker implements AgentTurnPort {
       throw new DomainError(`[handoff] already in progress for ${otterId}`, "conflict");
     }
     this.handoffState.setInProgress(otterId, true);
+    // F20260922handoff 审视严重1修正：换世统一在入口清水位状态（任何 await 前）——
+    //  无论后续走合成/机械/降级/裸重启哪条路径，换世后都不残留旧世 ctxTokens，
+    //  防误触发水位二次换世。此前 clearLastCtxTokens 在 restartSession 成功后，
+    //  降级/异常路径绕过 → 残留。
+    this.handoffState.clearLastCtxTokens(otterId);
 
     /** 交接进度系统消息（需求变更 2026-09-20：等待要有反馈）。失败静默——UX 反馈不阻塞交接主线。 */
     const otterDisplay = async (): Promise<string> => {
@@ -878,13 +897,16 @@ export class AgentInvoker implements AgentTurnPort {
       await sendProgress(`⏳ ${await otterDisplay()}的上下文已满（${trigger}触发），正在封装前世档案…（预计 5-15 秒，最长约 1 分钟）`);
     }
 
-    // 冻结窗口：持锁直到交接完成（lockMode='none' 时外层 invoke 已持锁——水位场景）
+    // 冻结窗口：持锁直到交接完成（lockMode='none' 时外层 invoke 已持锁——水位场景）。
+    // F20260922handoff 审视严重2修正：acquireSessionLock 挪进 try——此前在 try 外，
+    //  超时抛错时 finally 的 setInProgress(false) 不执行（try/finally 尚未进入），该獭
+    //  永久 409 conflict（acquireSessionLock 超时路径正是本 PR 激活的）。
     let releaseLock: (() => void) | undefined;
-    if (lockMode === 'acquire' && this.agentInvoke.acquireSessionLock) {
-      releaseLock = await this.agentInvoke.acquireSessionLock(otterId);
-    }
-
     try {
+      if (lockMode === 'acquire' && this.agentInvoke.acquireSessionLock) {
+        releaseLock = await this.agentInvoke.acquireSessionLock(otterId);
+      }
+
       // ---- 原料收集（持锁后快照一致）----
       const workspacePath = this.workspaceGateway?.getWorkspacePath(conversationId);
       const [lineageInfo, inventoryText, prefetch, slice] = await Promise.all([
@@ -953,7 +975,7 @@ export class AgentInvoker implements AgentTurnPort {
       // 天然原子——restart 失败无幽灵上下文泄漏，无需补偿删除
       const reason = trigger === '水位' ? 'compaction' : 'restart';
       const session = await this.manageSession.restartSession(otterId, archive, modelAlias, reason);
-      this.handoffState.clearLastCtxTokens(otterId);
+      // 水位状态已在 unifiedHandoff 入口统一清理（严重1修正），此处不再重复。
       this.logger.info('[handoff] unified handoff completed', {
         otterId, trigger, synthesizePast, narrative: !!narrativeSummary,
         archiveTokens: Math.ceil(archive.length / 4), newSessionId: session.id,
@@ -977,8 +999,12 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
   /** 水位判定：上轮 ctxTokens 超过该獭模型的交接阈值（按模型直给，2026-09-20 需求变更）。
-   *  阈值无法解析（模型缺失/旧装配）时不触发——水位交接静默失活优于拿错阈值误触发。 */
+   *  阈值无法解析（模型缺失/旧装配）时不触发——水位交接静默失活优于拿错阈值误触发。
+   *  F20260922handoff 审视严重3修正：交接进行中（inProgress）短路不触发——交接窗口内
+   *  本獭 invoke（「重启后 30 秒内发言」主场景）不该因旧世残留水位被判超阈值，且
+   *  unifiedHandoff 自身的防重入会抛 conflict。 */
   private shouldTriggerWatermarkHandoff(otterId: string): boolean {
+    if (this.handoffState.isInProgress(otterId)) return false;
     const last = this.handoffState.getLastCtxTokens(otterId);
     if (last === undefined) return false;
     const threshold = this.ctxWindowProvider?.getOtterHandoffThresholdTokens(otterId);
@@ -1245,10 +1271,18 @@ export class AgentInvoker implements AgentTurnPort {
       throw new DomainError(`Otter ${otterId} 正在执行任务（忙碌中），不允许手动重启，请稍后再试`, "conflict");
     }
 
+    /** F20260922handoff 审视严重1修正：裸重启统一收口——换世必须清水位状态，
+     *  否则旧世 ctxTokens 残留 → 下轮 invoke 误判超阈值 → 二次换世（幽灵世代）。
+     *  所有 unifiedHandoff 之外的 restartSession 调用点（手动降级/自重启保底）必须走本 helper。 */
+    const bareRestart = async (): Promise<OtterSession> => {
+      this.handoffState.clearLastCtxTokens(otterId);
+      return this.manageSession.restartSession(otterId, selfSummary, modelAlias);
+    };
+
     const conversationId = await this.resolveFirstConversationId(otterId);
     if (!conversationId) {
       this.logger.warn('[manual-restart] No conversation found, restarting bare', { otterId });
-      return this.manageSession.restartSession(otterId, selfSummary, modelAlias);
+      return bareRestart();
     }
 
     try {
@@ -1265,7 +1299,7 @@ export class AgentInvoker implements AgentTurnPort {
       this.logger.warn('[manual-restart] unified handoff failed, degrading to bare restart', {
         otterId, error: err instanceof Error ? err.message : String(err),
       });
-      return this.manageSession.restartSession(otterId, selfSummary, modelAlias);
+      return bareRestart();
     }
   }
 
@@ -1386,7 +1420,11 @@ export class AgentInvoker implements AgentTurnPort {
       circuitHandoffSession = await this.unifiedHandoff(params.otterId, params.conversationId, {
         trigger: '熔断',
         synthesizePast: true,
-        lockMode: 'none', // 熔断发生在 orchestrator 收尾——外层 invoke 锁可能仍持有（ALS 嵌套场景下安全；直连场景锁已释放但 isRunning 已 false）
+        // F20260922handoff 审视严重5修正：lockMode 改 'acquire'——熔断发生在 orchestrator
+        //  收尾，此时本 invoke 的 PiSessionFactory.invoke 锁已释放（finally 归还），传 'none'
+        //  跳过取锁会让交接窗口失去冻结保护（另一 invoke 可闯入）。取 invoke 同源锁是正确的
+        //  交接互斥保障。
+        lockMode: 'acquire',
       });
     } catch (handoffErr) {
       // 统一交接失败不阻塞熔断：executeCircuitBreakRestart 内部降级裸重启
@@ -1438,6 +1476,18 @@ export class AgentInvoker implements AgentTurnPort {
    * 新 session 的 LLM 会再次执行 → 无限循环。continuation message 告知"你已重启，请继续"，
    * 消除循环根因。tool-factory 层 + healing_events 上限判定提供纵深防御。
    */
+  /** F20260922handoff 审视严重1：自重启裸重启保底——清水位状态再换世（同手动降级收口语义），
+   *  防旧世 ctxTokens 残留 → 下轮 invoke 误判超阈值 → 二次换世。抽出以守 handleSelfRestartSignal
+   *  max-statements 上限。 */
+  private async selfRestartBareFallback(
+    otterId: string,
+    summary: string | undefined,
+    modelAlias: string | undefined,
+  ): Promise<OtterSession> {
+    this.handoffState.clearLastCtxTokens(otterId);
+    return this.manageSession.restartSession(otterId, summary, modelAlias);
+  }
+
   // eslint-disable-next-line max-lines-per-function, complexity -- F20260920uhuc：自重启统一交接 + 防循环 + 裸重启保底 + continuation 递归（同内聚，拆分割裂降级链）
   private async handleSelfRestartSignal(
     signal: { otterId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean },
@@ -1479,7 +1529,10 @@ export class AgentInvoker implements AgentTurnPort {
         // summary 非空时合成照跑——叠加档案语义：引擎档案【总有】+ 自总结【可能有】
         synthesizePast: signal.synthesizePast ?? true,
         modelAlias: signal.modelAlias,
-        lockMode: 'none', // 自重启信号在 invoke 收尾消费——外层 invoke 持锁中
+        // F20260922handoff 审视严重5修正：lockMode 改 'acquire'——自重启信号虽在 invoke 收尾
+        //  消费，但 PiSessionFactory.invoke 的锁在 finally 已归还（invoke 先于 signal 处理返回），
+        //  传 'none' 跳过取锁会让交接窗口失去冻结保护。取 invoke 同源锁是正确的交接互斥保障。
+        lockMode: 'acquire',
       });
       newSessionId = newSession.id;
       this.logger.info('Self-restart completed (unified handoff), re-invoking with new session', { otterId, newSessionId });
@@ -1489,7 +1542,8 @@ export class AgentInvoker implements AgentTurnPort {
         otterId, error: handoffErr instanceof Error ? handoffErr.message : String(handoffErr),
       });
       try {
-        const newSession = await this.manageSession.restartSession(otterId, summary, signal.modelAlias);
+        // F20260922handoff 审视严重1修正：裸重启保底也清水位状态（收口语义同手动降级）。
+        const newSession = await this.selfRestartBareFallback(otterId, summary, signal.modelAlias);
         newSessionId = newSession.id;
       } catch (restartErr) {
         this.logger.error('Self-restart failed, continuing with current session', restartErr instanceof Error ? restartErr : new Error(String(restartErr)), { otterId });

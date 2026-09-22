@@ -439,16 +439,23 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /** F20260920uhuc 死链修复：jsonl entries 读取门面实现（此前端口声明可选但唯一实现体
-   *  缺该方法 → 合成分支永远不进 → 100% 机械档案）。从 domain 账本取当前 session 文件
-   *  只读打开（SessionManager.open 不写文件），喂给已有的 sliceSessionEntries。
+   *  缺该方法 → 合成分支永远不进 → 100% 机械档案）。
+   *  F20260922handoff 审视严重4修正：池外路径改直读 sessionStore.getWithFile +
+   *  SessionManagerClass.open() 只读打开——永不 create。此前走 restoreOrCreate 的降级
+   *  分支会在账本缺失时重建 session 覆盖旧记录（「读门面重写账本」），只读声称不实。
    *  池内已有 live sessionManager 时不另 open（避免重复句柄）。 */
   async readCurrentSessionEntries(otterId: string): Promise<SessionEntryLike[] | undefined> {
     try {
       const pooled = this.poolMeta.get(otterId);
-      const sessionManager = pooled
-        ? pooled.session.sessionManager
-        : (await this.sessionRestore.restoreOrCreate(otterId, this.modelRuntimeRegistry.getPiCodingAgent()!, this.cfg.sessionDir)).sessionManager;
-      if (!sessionManager) return undefined;
+      if (pooled) {
+        return readSessionEntries(pooled.session.sessionManager) as SessionEntryLike[] | undefined;
+      }
+      const stored = this.sessionStore.getWithFile(otterId);
+      if (!stored?.sessionFile) return undefined;
+      const piCodingAgent = this.modelRuntimeRegistry.getPiCodingAgent();
+      if (!piCodingAgent) return undefined;
+      const SessionManagerClass = getSessionManagerClass(piCodingAgent);
+      const sessionManager = SessionManagerClass.open(stored.sessionFile);
       return readSessionEntries(sessionManager) as SessionEntryLike[] | undefined;
     } catch (err) {
       this.logger.warn('[handoff] readCurrentSessionEntries failed', {

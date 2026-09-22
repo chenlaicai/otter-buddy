@@ -62,9 +62,23 @@ F20260920uhuc「压缩=交接」统一重构合入（#1049）后，三条链路�
 
 机制识别检查点判定（修法排序前置）：**未命中任一项**——本次为既有机制（SdkInvokePort 可选方法、SimpleLockManager 交接模式、HandoffState 水位状态）的接线补全，无净新增机制；机制语义在 F20260920uhuc 方案期已定案，本次仅落实实现。判定结论：n/a（纯 narrow-fix）。
 
+## 审视修复轮（检视獭-handfix / mimo，7 严重 + 2 建议，大獭核实接受 5 严重 + 2 建议 + 裁决 2 项）
+
+PR #1096 异体审视（检视者 mimo，实现者 kimi-k28 异模型）后的修复包：
+
+- **严重1 裸重启残留 lastCtxTokens**：换世必须清水位状态，否则旧世 ctxTokens 残留 → 下轮 invoke 误判超阈值 → 二次换世（幽灵世代）。修复：`clearLastCtxTokens` 挪到 `unifiedHandoff` 入口（setInProgress 旁、任何 await 前）——无论合成/机械/降级哪条路径都清理；`restartWithUnifiedHandoff` 两条裸重启降级 + 自重启裸重启保底收口闭包；`CircuitBreakSupport` 两处 restartSession（一级/二级熔断）经新注入的 `onSessionRestarted` 回调清理（由 agent-invoker 构造时持有 handoffState 传入）。
+- **严重2 inProgress 泄漏**：`acquireSessionLock` 从 try 外挪进 try 内——此前超时抛错时 finally 的 `setInProgress(false)` 不执行，该獭永久 409 conflict（acquireSessionLock 超时路径正是本 PR 激活的）。
+- **严重3 交接窗口消息被杀**：`shouldTriggerWatermarkHandoff` 加 `isInProgress` 短路（交接进行中不触发）+ 水位入口 try/catch 降级——交接窗口内本獭 invoke（「重启后 30 秒内发言」主场景）不因旧世残留水位被判超阈值，交接失败也不杀本消息（D9 同源）。
+- **严重4 只读声称不实**：`readCurrentSessionEntries` 池外路径改直读 `sessionStore.getWithFile()` + `SessionManagerClass.open()`，永不 create——此前走 `restoreOrCreate` 的降级分支会在账本缺失时重建 session 覆盖旧记录（「读门面重写账本」）。
+- **严重5 lockMode 缺口**：熔断/自重启两处 `lockMode: 'none'` 改 `'acquire'`——PiSessionFactory.invoke 的锁在 finally 已归还（先于 signal 处理），传 'none' 跳过取锁让交接窗口失去冻结保护。
+- **建议1**：`AttemptDriver` 类型显式声明 `readonly _lastCtxTokens?: number`，`createAttemptDriver` 返回类型收敛为 `AttemptDriver`，消除消费侧双 cast。
+- **建议2**：补真实 jsonl 正向冒烟——真实 jsonl 文件 + mock PiCodingAgent（open 只读解析）→ `readCurrentSessionEntries` 断言返回 entries；另补「账本 sessionFile 磁盘缺失 → open 抛错 → 返回 undefined 且不 create」用例。
+
+大獭裁决（不实施）：CI pre-existing 红灯（validate-commit-date 时间炸弹）→ 独立 issue #1099 根治；B5 撞车 PR #1094 → 本 PR 先行，#1094 rebase。
+
 ## 验证
 
-- 全量 vitest：3665 通过 / 1 失败（`tests/scripts/validate-commit-date.test.ts`，pre-existing——`git stash -u` 基线复跑同样失败，与本次无关）。
+- 全量 vitest：3669 通过 / 1 失败（`tests/scripts/validate-commit-date.test.ts`，pre-existing——大獭已裁决独立 issue #1099，SUT 未被本 PR 触碰）。
 - `npx tsc --noEmit`：0 error。
 - `npm run lint`：0 error / 8 warnings（全部 pre-existing，位于 web/，本次未触碰）。
 - 最简实现检查：已过——①②③均为既有机制内最小接线，无新文件/新依赖；④测试用既有 createTestDb/mockSendEntry 模式。
