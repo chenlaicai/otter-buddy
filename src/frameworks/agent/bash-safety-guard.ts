@@ -333,8 +333,10 @@ function resolvesToMainCheckout(scriptPath: string, projectRoot?: string): boole
  *  ③ gh api .../repos/{owner}/{repo}/merges -X POST（REST 底层变形）
  *  不拦：gh pr close / ready / review 等其他 PR 操作（权利红线精确在 merge）。 */
 const GH_PR_MERGE = /\bgh\s+pr\s+merge\b/i;
-const GH_API_PULLS_MERGE = /\bgh\s+api\b[^|;&]*\/pulls\/\d+\/merge\b/i;
-const GH_API_REPOS_MERGES = /\bgh\s+api\b[^|;&]*\/repos\/[^\s"'/]+\/[^\s"'/]+\/merges\b/i;
+const GH_API_PULLS_MERGE = /\bgh\s+api\b[^|;&]*\bpulls\/\d+\/merge\b/i;
+/** gh api 语法是 `gh api repos/{o}/{r}/merges`（路径无 leading slash）——正则写成
+ *  `/repos/` 会结构性失配（检视严重 1：真实命令永远匹配不到，拦截形同虚设）。 */
+const GH_API_REPOS_MERGES = /\bgh\s+api\b[^|;&]*\brepos\/[^\s"'/]+\/[^\s"'/]+\/merges\b/i;
 
 const PR_MERGE_MSG = "bash 命令包含 gh pr merge——PR 合入是搭档专属动作（PR 后硬规则：LLM 执行 PR 创建和呈终审，合入按钮属于搭档）。请改用 merge_pr 工具，并在 partnerApproval 参数中原样引用搭档的授权原话（如搭档说「1095合入」就填那句话）。无授权原话不得合入；搭档尚未拍板时先呈终审简报（决策简报卡）。";
 

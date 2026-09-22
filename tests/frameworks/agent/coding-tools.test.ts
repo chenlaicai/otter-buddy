@@ -97,7 +97,8 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("query_signals"); // F20260826mwrd C1
     expect(tools).toContain("resolve_signal"); // F20260826mwrd C2：裁决写路径（big）
     expect(tools).toContain("unhalt_otter"); // #927：halt 解除（big 编排域）
-    expect(tools).toHaveLength(35);
+    expect(tools).toContain("merge_pr"); // F20260922pmgd：PR 合入授权闸（big 型唯一合入通道）
+    expect(tools).toHaveLength(36);
   });
 
   it("small otter 应包含消息/记忆/上下文/术语/产物/参与者/工作区/定时任务/自愈管理/自身重启工具，不含管理类工具", () => {
@@ -183,6 +184,7 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("query_dispatch_ledger");
     expect(tools).toContain("query_signals"); // F20260826mwrd C1
     expect(tools).toContain("unhalt_otter"); // #927：halt 解除（big 编排域）
+    expect(tools).not.toContain("merge_pr"); // F20260922pmgd：合入权恒在大獭呈终审链路，小獭无场景
     expect(tools).toHaveLength(35);
   });
 });
