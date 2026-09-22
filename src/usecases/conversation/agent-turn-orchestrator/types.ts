@@ -114,7 +114,7 @@ export interface HealingEventInput {
   invokeId: string;
   conversationId: string;
   otterId: string;
-  errorType: "degenerate" | "circuit_break" | "self_restart" | "guard_intercept" | "rate_limit";
+  errorType: "degenerate" | "circuit_break" | "self_restart" | "guard_intercept" | "rate_limit" | "timeout_retry_exhausted";
   severity: "low" | "medium" | "high";
   description: string;
   suggestion?: string;
