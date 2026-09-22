@@ -44,6 +44,17 @@ function scriptFetch(script: Array<Record<string, unknown>>) {
   return { calls, restore: () => vi.unstubAllGlobals() };
 }
 
+/** 捕获请求头（withBaseUrl token 携带断言用） */
+function captureHeaders() {
+  const calls: Array<{ url: string; headers: Record<string, string> }> = [];
+  const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+    calls.push({ url: String(url), headers: (init?.headers as Record<string, string>) ?? {} });
+    return new Response(JSON.stringify({ status: "wait" }), { status: 200 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return { calls, restore: () => vi.unstubAllGlobals() };
+}
+
 function makeFlow(store: WeixinAccountStore) {
   // 用真实 client（baseUrl 指向假域名，fetch 已全 mock 不出网）——
   // redirect 断言依赖 WeixinApiClient.withBaseUrl 真实派生新网关 client
@@ -96,6 +107,40 @@ describe("WeixinLoginFlow (#571 scaned_but_redirect)", () => {
       await makeFlow(store).run();
       const pollUrls = calls.filter((u) => u.includes("get_qrcode_status"));
       expect(pollUrls[1]).toContain("https://shlong.weixin.qq.com/");
+    } finally {
+      restore();
+    }
+  });
+
+  it("审视 delta A2 残留：withBaseUrl 派生 client 携带 token/logger 随实例", async () => {
+    // 带 token 派生：新网关 client 的请求头仍带原 token 的 Authorization
+    const { calls, restore } = captureHeaders();
+    try {
+      const api = new WeixinApiClient({ baseUrl: "https://ilinkai.weixin.qq.com", token: "tok-carry" });
+      const derived = api.withBaseUrl("https://szshort.weixin.qq.com");
+      await derived.pollQrStatus({ qrcode: "qr-x" });
+      expect(calls[0].url).toContain("https://szshort.weixin.qq.com/");
+      expect(calls[0].headers["Authorization"]).toBe("Bearer tok-carry");
+    } finally {
+      restore();
+    }
+  });
+
+  it("审视 delta A1 残留：URL 带 credentials（user@host）拒绝切换", async () => {
+    const { calls, restore } = scriptFetch([
+      { ret: 0, qrcode: "qr-1" },
+      { status: "scaned_but_redirect", baseurl: "https://evil.com@weixin.qq.com/x" },
+      { status: "confirmed", bot_token: "tok", ilink_user_id: "u-9" },
+    ]);
+    try {
+      const store = new WeixinAccountStore({ stateDir: tempStateDir() });
+      await makeFlow(store).run();
+      const pollUrls = calls.filter((u) => u.includes("get_qrcode_status"));
+      // credentials URL 被拒：轮询留原网关（hostname 虽官方域，但带 credentials 的
+      // Request 会被 undici 打挂登录，fail-closed 拒）
+      for (const u of pollUrls) {
+        expect(u).toContain("https://ilinkai.weixin.qq.com/");
+      }
     } finally {
       restore();
     }

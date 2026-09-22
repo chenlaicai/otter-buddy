@@ -30,7 +30,7 @@ from: [F20260829wxch]
 - **切换点放在 login-flow 而非 session-manager**：switch 后 `this.deps.api` 派生新网关 client，本实例后续轮询自动走新网关；session-manager/CLI 无感
 - **api-client 增 `withBaseUrl`** 派生同配置（token/logger 随实例）新 client，不改原 client 可变状态——避免共享 client 被中途换底座影响其他调用方
 - **白名单校验**（L1 拍板，超出 issue 原文范围的安全加固）：服务端下发的跳转目标未经审计，盲跳会把扫码轮询（含 qrcode/verify_code 参数）乃至 confirmed 后的 bot_token 请求导流到任意域名。仅允许 `weixin.qq.com`/`qq.com` 及其子域；非白名单拒绝切换 + warn + 继续原网关（行为退化为原实现，不新增失败面）
-- **校验/使用同源**（审视 S1 修复）：校验对象 = **最终实际使用的 URL 经 `new URL()` 解析后的 hostname**——原实现校验 redirect_host 却使用 baseurl，「合法 host + 恶意 baseurl」组合即绕过；裸串 endsWith 还会放行 `evil.com@weixin.qq.com` 形态（URL 解析后 hostname 其实是官方域，但裸串拼进 https:// 会炸）。统一 URL 解析，非法 URL fail-closed
+- **校验/使用同源**（审视 S1 修复）：校验对象 = **最终实际使用的 URL 经 `new URL()` 解析后的 hostname**——原实现校验 redirect_host 却使用 baseurl，「合法 host + 恶意 baseurl」组合即绕过；裸串 endsWith 还会放行 `evil.com@weixin.qq.com` 形态。统一 URL 解析，非法 URL / URL 带 credentials（user:pass@host，undici 会打挂登录）fail-closed 拒绝（delta A1 残留收口）
 - **落盘同闸**（审视 S2 修复）：confirmed 响应的 `baseurl` 落盘前过同一白名单（`validateRedirectBase` 共用）——platforms.ts 据此建带 bot_token 的正式 client，Authorization 随行长驻，恶意域=长效凭证泄露；非白名单不落盘（消费端有默认网关回退，不炸登录）
 - **URL 选择优先级**：baseurl（完整 URL）优先，redirect_host（纯主机名）兜底拼 `https://`（与初版文档声明相反，以实际使用源为准校验，已修正）
 - redirect/baseurl 两者皆缺时 warn 兜底继续原网关
@@ -44,12 +44,13 @@ from: [F20260829wxch]
 
 ### 测试
 
-`tests/frameworks/weixin/login-flow.test.ts`（新文件，8 用例全 mock fetch 不出网）：
+`tests/frameworks/weixin/login-flow.test.ts`（新文件，10 用例全 mock fetch 不出网）：
 - redirect_host 切换 / baseurl 切换 / 链式 redirect 逐跳切换（审视 A2）
 - 非白名单域拒绝：所有轮询留原网关 + warn 副作用
 - 审视 S1：合法 redirect_host + 恶意 baseurl 组合不得绕过；官方子域后缀陷阱（weixin.qq.com.evil.com）拒绝
 - 审视 S2：confirmed 非白名单 baseurl 不落盘（账号照常落，baseUrl undefined）
-- redirect 缺 host/baseurl：保持原网关 + warn 兜底
+- delta A1 残留：URL 带 credentials 拒绝切换；delta A2 残留：withBaseUrl token 携带断言
+- redirect 缺 host/baseurl：保持原网关 + warn 兜底（confirmed 常态无 baseurl 不 warn——delta 日志语义修正）
 
 ## #572：feishu-command-parser → im-command-parser
 

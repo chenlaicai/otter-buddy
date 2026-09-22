@@ -153,18 +153,28 @@ export class WeixinLoginFlow {
    */
   private validateRedirectBase(raw: string | undefined, scene: string): string | undefined {
     if (!raw) {
-      this.deps.logger.warn(`Weixin ${scene}: no redirect target, keep current gateway`);
+      // confirmed 场景常态无 baseurl（默认网关）——不是异常，不 warn；
+      // redirect 场景缺跳转目标才是协议缺口（delta 复核：文案与频次错位修正）
+      if (scene === "scaned_but_redirect") {
+        this.deps.logger.warn(`Weixin ${scene}: no redirect target, keep current gateway`);
+      }
       return undefined;
     }
-    let hostname: string;
+    let url: URL;
     try {
-      hostname = new URL(raw).hostname;
+      url = new URL(raw);
     } catch {
       this.deps.logger.warn(`Weixin ${scene}: redirect target is not a valid URL, refused`, { raw });
       return undefined;
     }
-    if (!WeixinApiClient.isAllowedRedirectHost(hostname)) {
-      this.deps.logger.warn(`Weixin ${scene}: redirect host not in allowlist, refused`, { host: hostname });
+    // delta A1 残留：URL 带 credentials（user:pass@host）直接拒——undici 对带 credentials
+    // 的 Request 会抛错，登录被打挂；且 credentials 出现在跳转目标里本身就可疑
+    if (url.username || url.password) {
+      this.deps.logger.warn(`Weixin ${scene}: redirect target carries credentials, refused`, { host: url.hostname });
+      return undefined;
+    }
+    if (!WeixinApiClient.isAllowedRedirectHost(url.hostname)) {
+      this.deps.logger.warn(`Weixin ${scene}: redirect host not in allowlist, refused`, { host: url.hostname });
       return undefined;
     }
     return raw;
