@@ -26,15 +26,15 @@
  *   W3. 两个 skill 的 not_for 互指对方（检查 Use when 区分度）
  *   W4. description 不含三段式 marker（Use when / Not for / Output）—— companion 豁免
  *
- * 引用形态宇宙（校验 7/9 共用，合法形态两种）：
- *   - 本 skill 相对：`references/x.md`、`../other-skill/references/x.md`、
- *     `../other-skill/SKILL.md`——相对当前 skill 目录解析（SDK 系统提示指引如此，
+ * 引用形态宇宙（校验 7/9 共用）：
+ *   - 本 skill 相对：`references/x.md`——相对当前 skill 目录解析（SDK 系统提示指引如此，
  *     agent 的 read 从 SKILL.md 所在目录出发）
- *   - 跨 skill 裸写：`other-skill/references/x.md`——相对 .pi/skills 根解析。
- *     #758 对裸写法整体判 error 是因为 `_shared/x` 裸写会解析到 <skill>/_shared/x；
- *     拆解后跨 skill 裸写的目标目录真实存在、解析规则明确（先试 skill 目录，落空
- *     则以 skills 根解析），予以放行。
- *   非法形态：`_shared/x`、`../_shared/x`（目录已删，E1b）、绝对路径（E1）。
+ *   - 跨 skill 引用：**必须 `../` 前缀**（`../other-skill/references/x.md`）——与 SDK
+ *     解析规则对齐（SDK 相对路径一律从当前 skill 目录解析）。
+ *   非法形态（E1c，#773）：跨 skill **裸写**（`other-skill/references/x.md`、
+ *   `other-skill/SKILL.md`）——lint 曾按 skills 根解析放行，但 SDK 从当前 skill 目录
+ *   解析必然 ENOENT（#726 28 次 ENOENT 同族病灶：lint 认存在、SDK 读不到 = 错误安全感）。
+ *   其他非法：`_shared/x`、`../_shared/x`（目录已删，E1b）、绝对路径（E1）。
  *
  * 退出码：0 通过（含警告）/ 1 有错误。
  */
@@ -52,8 +52,13 @@ const MIN_SKILLS = 9;
 const THREE_PART_MARKERS = ["Use when", "Not for", "Output"];
 const THREE_PART_EXEMPT = new Set(["companion"]); // fallback skill 豁免
 
-// 引用宇宙（合法形态）：本 skill 相对（references/ 或 ../）+ 跨 skill 裸写（<name>/references/ 或 <name>/SKILL.md）
-const REF_LINE_RE = /`((?:\.\.\/|(?:[a-z][a-z0-9-]*\/)?references\/|[a-z][a-z0-9-]*\/SKILL\.md)[^`]*\.md)`|\]\(((?:\.\.\/|(?:[a-z][a-z0-9-]*\/)?references\/|[a-z][a-z0-9-]*\/SKILL\.md)[^)]+\.md)\)/g;
+// 引用宇宙（合法形态）：本 skill 相对（references/）+ 跨 skill（../ 前缀，#773 写死）。
+// 跨 skill 裸写不再属于合法宇宙——由 E1c 显式拦截并给迁移指引。
+const REF_LINE_RE = /`((?:\.\.\/|references\/)[^`]*\.md)`|\]\(((?:\.\.\/|references\/)[^)]+\.md)\)/g;
+
+// E1c（#773）：跨 skill 裸写引用（<name>/references/… 或 <name>/SKILL.md）——lint 按 skills
+// 根解析会放行，SDK 从当前 skill 目录解析必然 ENOENT。必须 ../ 前缀。
+const BARE_CROSS_SKILL_RE = /`([a-z][a-z0-9-]*\/(?:references\/[^`]*\.md|SKILL\.md))`|\]\(([a-z][a-z0-9-]*\/(?:references\/[^)]+\.md|SKILL\.md))\)/g;
 // E1：反引号内的绝对路径 .md 引用（含 .pi/skills 前缀）——cwd 依赖，跨环境必然失效
 const ABSOLUTE_REF_RE = /`(\/[^`\n]*\.pi\/skills\/[^`\n]*\.md)`/;
 // E1b：任何 _shared/ 引用（裸写或 ../ 前缀）。目录已随 F20260903 拆解删除，
@@ -102,13 +107,9 @@ function readManifest() {
  * 解析引用形态 → 文件绝对路径（与 REF_LINE_RE 的合法宇宙一一对应）。
  * 解析规则（与 SDK 系统提示给 agent 的指引一致：相对 skill 目录解析）：
  *   references/x.md | ../x.md        → 相对当前 skill 目录
- *   <name>/references/x.md          → 相对 .pi/skills 根（跨 skill 裸写）
- *   <name>/SKILL.md                 → 相对 .pi/skills 根（跨 skill 裸写）
+ *   （#773：跨 skill 裸写已非法化，E1c 拦截——不再参与存在性解析）
  */
 function resolveRefToAbs(s, refPath) {
-  if (/^[a-z][a-z0-9-]*\/(?:references\/|SKILL\.md)/.test(refPath)) {
-    return path.resolve(SKILLS_DIR, refPath);
-  }
   return path.resolve(s.dir, refPath);
 }
 
@@ -205,6 +206,15 @@ for (const s of skills) {
     const shown = s.body.match(SHARED_REF_RE)?.[0] ?? "_shared/x.md";
     error(`${rel}: _shared/ 残留引用 \`${shown}\`——目录已随 F20260903 拆解删除。约定类内容已升格为 skill（signature-convention / review-protocol / conflict-resolution-protocol），模板在 writing-skills/references/`);
   }
+  // 校验 9 E1c（#773）：跨 skill 裸写引用——lint 按 skills 根解析会放行，SDK 从当前
+  // skill 目录解析必然 ENOENT（#726 同族病灶：lint 认存在、SDK 读不到）。必须 ../ 前缀。
+  {
+    const bare = [...s.body.matchAll(BARE_CROSS_SKILL_RE)];
+    for (const m of bare) {
+      const raw = m[1] ?? m[2];
+      error(`${rel}: 跨 skill 裸写引用 \`${raw}\`——SDK 从当前 skill 目录解析必然 ENOENT（#773）。改写为 \`../${raw}\`。若为反例说明（提及而非使用），请将裸写拆写为 \`foo/\` + \`references/\` 分段，避免整体落入反引号`);
+    }
+  }
 
   // 校验 7: references 路径存在（合法形态统一解析，规则见 resolveRefToAbs）
   for (const { raw, abs } of extractRefs(s, s.body)) {
@@ -248,6 +258,8 @@ if (skills.length < MIN_SKILLS) {
 // 分级：哪都没绑定 → error；仅其他 skill 的工作流绑定、本 skill 未内联 → warning。
 // （实证 #726/#758：工作流内联引用被高频读取（20-190 次）；索引-only 引用低频/零读取；
 //   跨 skill 工作流绑定有效（author-response-protocol.md 由 code-implementation 步骤 10 绑定，被读 48 次））
+// #773 豁免：SKILL.md 是 skill 入口文件——skill 加载即读，E2 的「索引-only 低可见性」
+// 实证（针对 references 类材料文件）对入口文件不适用。
 // 并集在循环外一次构建（O(skills)——#758 检视发现 3：原实现在循环内重建 O(skills²)）
 const anyWorkflowRefs = new Set();
 for (const { wfRefs } of skillWorkflowRefs.values()) {
@@ -257,6 +269,7 @@ for (const refs of skillWorkflowRefs.values()) {
   const rel = refs.rel;
   for (const refAbs of refs.allRefs) {
     if (refs.wfRefs.has(refAbs)) continue; // 本 skill 工作流已内联
+    if (path.basename(refAbs) === "SKILL.md") continue; // #773：skill 入口文件豁免
     const refRel = path.relative(refs.dir, refAbs).startsWith("..")
       ? path.relative(SKILLS_DIR, refAbs)
       : path.relative(refs.dir, refAbs);
