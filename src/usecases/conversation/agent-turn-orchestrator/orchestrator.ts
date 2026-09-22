@@ -18,7 +18,7 @@ import { toRetryLabel } from "@usecases/ports/agent-metrics-port";
 import { getTraceContext } from "@usecases/ports/trace-context";
 import type { ExitReason } from "./exit-classifier";
 import { classifyExit, exitKindToOutcome } from "./exit-classifier";
-import { isRetryableGuardAbort, buildRetryFailBody, buildGuardAbortBody, buildUserAbortBody, buildYieldRetryMsg, buildAutoRetryMsg, buildCircuitBreakFailBody, buildCircuitBreakSystemMsg, GUARD_BOUNCE_MAX, GUARD_BOUNCE_WINDOW_MS, buildGuardBounceMsg, buildGuardBounceFailBody, buildGuardBounceEscalationMsg } from "./retry-policy";
+import { isRetryableGuardAbort, isTimeoutGuardReason, buildRetryFailBody, buildGuardAbortBody, buildUserAbortBody, buildYieldRetryMsg, buildAutoRetryMsg, buildCircuitBreakFailBody, buildCircuitBreakSystemMsg, GUARD_BOUNCE_MAX, GUARD_BOUNCE_WINDOW_MS, buildGuardBounceMsg, buildGuardBounceFailBody, buildGuardBounceEscalationMsg, buildTimeoutRetryExhaustedMsg } from "./retry-policy";
 // #543：api_error 终态限流识别 + 告警文案（配额黑盒修复）
 import { matchRateLimitError, buildRateLimitSystemMsg, buildRateLimitDescription } from "./rate-limit-error";
 // #543 严重发现 1 修复：high 级 rate_limit 事件入 C3 高警队列——大獭不在场时 sendSystem 错过，
@@ -798,6 +798,12 @@ export class AgentTurnOrchestrator {
       this.recordGuardBounceTerminal(invokeId, otterId, ctx);
     }
 
+    // F20260922txes：超时类自动重试耗尽终态 → L3 升级上报（healing 落账 + 会话内可见提示）
+    // 梯度对齐：L1 自动重试（软提示）→ L2 硬中断 → L3 上报；此前 L3 缺失，用户只见中断不知是重试失败终态
+    if (this.isTimeoutRetryExhaustedTerminal(ctx)) {
+      await this.escalateTimeoutRetryExhausted(ctx);
+    }
+
     const actualToolCallCount = ctx.toolCallCount || 0;
     const body = await this.buildAbortBody(ctx, actualToolCallCount);
 
@@ -821,6 +827,51 @@ export class AgentTurnOrchestrator {
   /** F20260831aksp T3：bash 守卫二拦终态判定（自 abortTerminal 拆出控复杂度） */
   private isGuardBounceTerminal(ctx: TerminalContext): boolean {
     return ctx.kind === 'guard' && !!ctx.guardReason?.startsWith('bash_safety:') && ctx.input.retryCount > 0;
+  }
+
+  /** F20260922txes：超时类重试耗尽终态判定——三个确证超时的 guard 原因 + retryCount>0 + 非手动重试，
+   *  即 L1 自动重试确已发生仍失败、走到 L2 硬中断。排除项：
+   *  - bash_safety：走 #731 bounce 升级，不在此列；
+   *  - degenerate：isRetryableGuardAbort=false，不在超时枚举内；
+   *  - circuit_break:ignored_steer 等非超时 trigger（tool-call-circuit-breaker.ts:259）：非超时不进新枚举（检视发现 2）；
+   *  - manualRetry（invoke-controller.ts:166 retryCount:1+manualRetry:true）：该 invoke 内从未发生 L1 自动重试，
+   *    升级文案「自动重试后仍未恢复」将是不实陈述（检视发现 1）。 */
+  private isTimeoutRetryExhaustedTerminal(ctx: TerminalContext): boolean {
+    return ctx.kind === 'guard'
+      && !!ctx.guardReason
+      && isTimeoutGuardReason(ctx.guardReason)
+      && ctx.input.retryCount > 0
+      && !ctx.input.manualRetry;
+  }
+
+  /** F20260922txes：超时重试耗尽 L3 升级——healing medium 落账 + 会话内用户可见提示（均非致命，不阻断终态） */
+  private async escalateTimeoutRetryExhausted(ctx: TerminalContext): Promise<void> {
+    const guardReason = ctx.guardReason ?? 'unknown';
+    ctx.callbacks.recordHealingEvent({
+      invokeId: ctx.input.invokeId,
+      conversationId: ctx.input.conversationId,
+      otterId: ctx.input.otterId,
+      errorType: "timeout_retry_exhausted",
+      severity: "medium",
+      description: `超时自动重试耗尽终态（guardReason=${guardReason}, retry=${ctx.input.retryCount}）：L1 自动重试后仍超时，已硬中断`,
+      suggestion: "可手动重试该消息；若持续出现请检查模型服务连通性",
+      context: { layer: "orchestrator", guardReason, retryCount: ctx.input.retryCount, toolCallCount: ctx.toolCallCount },
+    }).catch((err) => {
+      // L3 机制自身失败留痕（对照 recordGuardBounceTerminal 静默先例，采纳检视发现 8：升级机制失败不该无痕）
+      this.logger.error('timeout_retry_exhausted healing_event write FAILED — L3 escalation data source degraded',
+        err instanceof Error ? err : new Error(String(err)),
+        { component: 'AgentTurnOrchestrator', otterId: ctx.input.otterId, invokeId: ctx.input.invokeId, guardReason },
+      );
+    });
+
+    try {
+      await ctx.callbacks.sendSystem(ctx.input.conversationId, buildTimeoutRetryExhaustedMsg(guardReason));
+    } catch (err) {
+      this.logger.error('sendSystem failed during timeout-retry-exhausted escalation (non-fatal)',
+        err instanceof Error ? err : new Error(String(err)),
+        { component: 'AgentTurnOrchestrator', otterId: ctx.input.otterId, invokeId: ctx.input.invokeId, guardReason },
+      );
+    }
   }
 
   /** abort body 构造（自 abortTerminal 拆出控复杂度）：guard 原因 / 用户中断 */
