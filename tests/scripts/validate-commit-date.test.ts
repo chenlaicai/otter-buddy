@@ -194,10 +194,15 @@ describe('validateCommitDate', () => {
     // 搭档决策 2026-09-14：squash 模型下 PR 标题即 main 历史，特性文档 ID ≡ PR 标题 ID；
     // PR 定稿改名（创建日→合入日）后，双基准任一通过：创建基准覆盖旧 ID，当前基准覆盖新 ID
     it('dual-base: 定稿改名合入日后，--at 创建时间基准被当前时间基准救回（PR 标题改名场景）', () => {
-      // #789 现场：创建 9-04，定稿改名 F20260914wxeg。与创建基准差 10 天，但与当前（9-14）差 0 天 → 通过
+      // #789 现场语义：创建=今天-10 天（超窗），定稿改名=今天（与当前差 0 天 → 当前基准救回）。
+      // F20260922ctxi 修复时间炸弹：原 fixture 硬编码 2026-09-04 / 2026-09-14（隐含「今天=9-14」，
+      // 标题日期距今 >7 天后救回窗口失效、用例必挂）——改为相对日期动态生成，语义不变。
+      const today = new Date();
+      const tenDaysAgo = new Date(today.getTime() - 10 * 24 * 3600_000);
+      const fid = (d: Date) => `F${d.toISOString().slice(0, 10).replace(/-/g, '')}wxeg`;
       const { exitCode } = runCLI([
-        '--at', '2026-09-04T03:56:11Z',
-        '[F20260914wxeg][weixin][BugFix] 出站 sendmessage 全量观测日志',
+        '--at', tenDaysAgo.toISOString(),
+        `[${fid(today)}][weixin][BugFix] 出站 sendmessage 全量观测日志`,
       ]);
       expect(exitCode).toBe(0);
     });

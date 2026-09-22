@@ -82,6 +82,8 @@ export class DispatchChainEngine {
   private consumeRosterSegment(conversationId: string, otterId: string, roster: string): string {
     const key = `${conversationId}:${otterId}`;
     const prev = this.rosterCache.get(key);
+    // 检视建议2：上限防御——key 只增不减，超限整体清空后重建当前 key（量级小，无需 LRU）
+    if (this.rosterCache.size > 500) this.rosterCache.clear();
     this.rosterCache.set(key, roster);
     return prev === roster ? "" : `${roster}\n\n`;
   }
@@ -236,8 +238,8 @@ export class DispatchChainEngine {
     const roster = await this.buildRoster(conversationId, senderId);
 
     // F20260922ctxi：触发消息去重——触发 entry 已在「当前任务」段全文注入，从未读批剔除防双份
-    // （实测同一消息 269+257 字符双份）。幂等：triggerMessageId 若非 entry id（如 retry 的 invokeId）
-    // 不会命中未读集合，自然不过滤。
+    // （实测同一消息 269+257 字符双份）。幂等：triggerMessageId 若非 entry id（如 retry / resume
+    // 路径传的 invokeId）不会命中未读 entry 集合，自然不过滤。
     const excludeIds = new Set(params.excludeMessageIds ?? []);
     if (triggerMessageId) excludeIds.add(triggerMessageId);
 

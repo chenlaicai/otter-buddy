@@ -101,6 +101,8 @@ export class AgentDispatchService {
           userMessageContent: params.userMessageContent,
           senderId: params.senderId,
           ...(params.images && { images: params.images }),
+          // F20260922ctxi 检视修复：batchMaxSeq 透传（同款漏传——游标不推进致未读重复注入）
+          batchMaxSeq: params.batchMaxSeq,
         });
         lastMessageId = invokeResult.messageId;
         return invokeResult;
@@ -140,6 +142,8 @@ export class AgentDispatchService {
             userMessageContent: params.userMessageContent,
             senderId: params.senderId,
             ...(params.images && { images: params.images }),
+            // F20260922ctxi 检视修复：batchMaxSeq 透传（IM direct 路径同款漏传）
+            batchMaxSeq: params.batchMaxSeq,
           }).then(r => ({ messageId: r.messageId })),
         });
       } catch (err) {
