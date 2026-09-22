@@ -6,7 +6,7 @@ import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, 
 
 import { mapOtterDTO, mapConversationDTO, mapEntryDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
 import { isInFlight, upsertMessage, insertBySeq, upsertTerminalMessage, insertCenteredByTs } from '../../lib/message-stream'
-import { applyInvokeStart, applyInvokeEnd, applyInvokeTick, findOtterByInvokeId, type InvokeStates } from '../../lib/invoke-tracker'
+import { applyInvokeStart, applyInvokeEnd, applyInvokeTick, findOtterByInvokeId, mergeInvokesFromServer, type InvokeStates } from '../../lib/invoke-tracker'
 import { MessageBatcher } from '../../lib/batch-update'
 import { nowTs } from '../../lib/utils'
 import { showToast } from '../../components/Toast'
@@ -231,9 +231,24 @@ export default function ConversationPage() {
     trigger: triggerScheduledTask,
   } = useScheduledTasks(activeId, !modalOpen)
 
-  /** dissolve_otter 工具执行完成后刷新参与者列表（DRY 提取，检视獭 review F1） */
+  /** F20260922rprf：SSE 断连重连后补偿拉取 invoke 状态——重连窗口内丢失的 invoke.end
+   *  会导致右栏永久卡在「运行中」。合并逻辑提取为纯函数 mergeInvokesFromServer（invoke-tracker），
+   *  幂等（无变更返回原引用）。 */
+  const syncInvokeStatesFromServer = useCallback(async (convId: string) => {
+    try {
+      const resp = await api.listInvokes(convId, { limit: 50 })
+      setInvokeStates(prev => mergeInvokesFromServer(prev, resp.invokes))
+    } catch (err) {
+      console.error('Failed to sync invoke states from server:', err)
+    }
+  }, [])
+
+  /** dissolve/create/restart 等参与者变更工具执行完成后刷新右栏参与者列表。
+   *  F20260811dsrt 原版走 SSE tool.result 钩子；F20260913ctlv 后 tool.result 停发 SSE（仅落 invoke_events），
+   *  改为在常驻通道 invoke.event（tool_result 类）里按 payload.name 触发本函数。 */
   const refreshParticipantsAfterDissolve = useCallback((toolName: string) => {
-    if (toolName !== 'dissolve_otter' || !activeId) return
+    if (!activeId) return
+    if (!['dissolve_otter', 'create_otter', 'restart_otter'].includes(toolName)) return
     api.getParticipants(activeId).then(participants => {
       // #502：内容未变时保引用，避免 RightPanel 整树 re-render 引发 hover 快览卡微闪
       // F20260827scrf2：弹窗期延迟到关窗 flush（runOrDefer），不驱动背景像素变化
@@ -621,6 +636,17 @@ export default function ConversationPage() {
         sessionLiveEvents.current.push(item)
         if (sessionLiveEvents.current.length > 400) sessionLiveEvents.current.splice(0, sessionLiveEvents.current.length - 400)
         for (const fn of sessionLiveListeners.current) fn(item)
+        /** F20260922rprf：参与者变更工具（dissolve/create/restart）实时刷新右栏。
+         *  F20260913ctlv 后 tool.result 不再广播 SSE，invoke.event 是唯一实时通道。 */
+        if (d.event.eventType === 'tool_result') {
+          const toolName = (d.event.payload as { name?: string }).name
+          if (toolName) {
+            refreshParticipantsAfterDissolve(toolName)
+          } else {
+            // F20260922rprf 检视发现 5：payload.name 理论可空（SDK 字段变更时静默失效），留日志便于排查
+            console.warn('[invoke.event] tool_result payload missing name:', d.event.payload)
+          }
+        }
       },
       'invoke.start': (data) => {
         const d = data as { invokeId: string; otterId: string; otterName?: string; triggerEntryId?: string; startedAt?: string; otterType?: string; otterColor?: string | null }
@@ -731,6 +757,9 @@ export default function ConversationPage() {
     let reconnectDelay = 1000
     const maxDelay = 30000
     let disposed = false
+    /** F20260922rprf 检视发现 2 修复：补偿拉取只在「重连后首次 onprogress」触发——
+     *  断连窗口是唯一会丢 invoke.end 的时段；正常心跳期无事件丢失风险，不重复请求。 */
+    let needsSyncAfterReconnect = true
 
     function notifyConn(connected: boolean): void {
       if (sseConnectedRef.current === connected) return
@@ -777,6 +806,10 @@ export default function ConversationPage() {
         // 收到数据后重置重连延迟
         reconnectDelay = 1000
         notifyConn(true)
+        if (activeId && needsSyncAfterReconnect) {
+          needsSyncAfterReconnect = false
+          void syncInvokeStatesFromServer(activeId)
+        }
       }
 
       xhr.onerror = () => { notifyConn(false); scheduleReconnect() }
@@ -787,6 +820,7 @@ export default function ConversationPage() {
 
     function scheduleReconnect() {
       if (disposed) return
+      needsSyncAfterReconnect = true
       reconnectTimer = setTimeout(() => {
         reconnectDelay = Math.min(reconnectDelay * 2, maxDelay)
         connect()
@@ -800,7 +834,7 @@ export default function ConversationPage() {
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (xhr) xhr.abort()
     }
-  }, [activeId, batchUpdateMessages, upsertOtterIfAbsentDeferred])
+  }, [activeId, batchUpdateMessages, upsertOtterIfAbsentDeferred, refreshParticipantsAfterDissolve, syncInvokeStatesFromServer])
 
   useEffect(() => {
     for (const otter of Object.values(allOtters).flat()) {

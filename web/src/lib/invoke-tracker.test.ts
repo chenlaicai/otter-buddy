@@ -8,7 +8,9 @@ import {
   fmtInvokeElapsed,
   fmtTokens,
   invokeBoundaryEntry,
+  mergeInvokesFromServer,
   type InvokeStates,
+  type ServerInvokeRecord,
 } from './invoke-tracker'
 
 /** F20260913ctlv Phase 4：invoke 状态追踪纯函数（右侧栏面板 + 时间线边界条目） */
@@ -112,6 +114,61 @@ describe('findOtterByInvokeId', () => {
     const states: InvokeStates = { a: { invokeId: 'i1', otterId: 'a', status: 'running', startedAt: '' } }
     expect(findOtterByInvokeId(states, 'i1')).toBe('a')
     expect(findOtterByInvokeId(states, 'nope')).toBeNull()
+  })
+})
+
+/** F20260922rprf 检视发现 4：mergeInvokesFromServer（SSE 断连补偿合并） */
+describe('mergeInvokesFromServer', () => {
+  const serverInvoke = (overrides: Partial<ServerInvokeRecord> = {}): ServerInvokeRecord => ({
+    id: 'inv-1', otterId: 'otter-a', status: 'completed',
+    startedAt: '2026-09-22T06:00:00Z', endedAt: '2026-09-22T06:05:00Z',
+    toolCallCount: 7, tokenUsageInput: 12000, tokenUsageOutput: 3400,
+    ctxWindowUsed: 45200, ...overrides,
+  })
+
+  it('本地无 entry → 建立（含本地漏了 invoke.start 的场景）', () => {
+    const next = mergeInvokesFromServer({}, [serverInvoke()])
+    expect(next['otter-a']).toMatchObject({ invokeId: 'inv-1', status: 'completed', toolCallCount: 7, ctxWindowUsed: 45200 })
+  })
+
+  it('本地 running + 服务端同 invoke 已终态 → 收敛（断连丢 invoke.end 核心场景）', () => {
+    const states = applyInvokeStart({}, startPayload({ invokeId: 'inv-1', startedAt: '2026-09-22T06:00:00Z' }))
+    const next = mergeInvokesFromServer(states, [serverInvoke()])
+    expect(next['otter-a']).toMatchObject({ invokeId: 'inv-1', status: 'completed', endedAt: '2026-09-22T06:05:00Z' })
+    expect(isStreaming(next, 'otter-a')).toBe(false)
+  })
+
+  it('本地 running + 服务端同 invoke 仍 running → 跳过（无新信息）', () => {
+    const states = applyInvokeStart({}, startPayload({ invokeId: 'inv-1' }))
+    const next = mergeInvokesFromServer(states, [serverInvoke({ status: 'running', endedAt: null })])
+    expect(next).toBe(states)
+  })
+
+  it('本地 running + 服务端已是更新 invoke → 覆盖（断连丢整轮 start+end）', () => {
+    const states = applyInvokeStart({}, startPayload({ invokeId: 'inv-1' }))
+    const next = mergeInvokesFromServer(states, [serverInvoke({ id: 'inv-2' })])
+    expect(next['otter-a']).toMatchObject({ invokeId: 'inv-2', status: 'completed' })
+  })
+
+  it('本地已终态 → 跳过（本地已收敛，不回退）', () => {
+    let states = applyInvokeStart({}, startPayload())
+    states = applyInvokeEnd(states, { invokeId: 'inv-1', otterId: 'otter-a', status: 'completed', endedAt: '2026-09-22T06:05:00Z' })
+    expect(mergeInvokesFromServer(states, [serverInvoke()])).toBe(states)
+    expect(mergeInvokesFromServer(states, [serverInvoke({ id: 'inv-2', status: 'running', endedAt: null })])).toBe(states)
+  })
+
+  it('同獭多条记录只取最新（DESC 首次出现），后续旧记录跳过', () => {
+    const next = mergeInvokesFromServer({}, [
+      serverInvoke({ id: 'inv-2' }),
+      serverInvoke({ id: 'inv-1', status: 'running', endedAt: null }),
+    ])
+    expect(next['otter-a']?.invokeId).toBe('inv-2')
+  })
+
+  it('无任何变更返回原引用（幂等，不驱动 re-render）', () => {
+    let states = applyInvokeStart({}, startPayload())
+    states = applyInvokeEnd(states, { invokeId: 'inv-1', otterId: 'otter-a', status: 'completed', endedAt: '2026-09-22T06:05:00Z' })
+    expect(mergeInvokesFromServer(states, [])).toBe(states)
   })
 })
 
