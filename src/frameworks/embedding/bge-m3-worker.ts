@@ -39,6 +39,21 @@ type EmbedResponse =
 type Extractor = (text: string, options?: unknown) => Promise<{ data: Float32Array; dims: number[] }>;
 
 /**
+ * 解析 OTTER_EMBED_INTRA_OP_THREADS（#1107 检视处置）：非法值（NaN/<1）不可静默
+ * 回退到 onnxruntime 默认（=物理核数，钳制失效不可见）——warn 后回落到 2。
+ */
+function resolveIntraOpThreads(): number {
+  const raw = process.env.OTTER_EMBED_INTRA_OP_THREADS;
+  if (raw === undefined) return 2;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 1) {
+    console.warn(`[embedding] OTTER_EMBED_INTRA_OP_THREADS="${raw}" 非法，回落默认 2`);
+    return 2;
+  }
+  return n;
+}
+
+/**
  * 懒加载 bge-m3 模型。
  *
  * 用 promise cache 而非 null 标志位：避免预加载调用与 embed 请求并发时
@@ -66,7 +81,7 @@ function getExtractor(): Promise<Extractor> {
         // embedding 是 worker 内串行队列处理，intra-op 2 线程足够（实测延迟仅微增）；
         // OTTER_EMBED_INTRA_OP_THREADS 可覆盖（紧急调参逃生口，不进配置 schema）。
         session_options: {
-          intraOpNumThreads: parseInt(process.env.OTTER_EMBED_INTRA_OP_THREADS ?? "2", 10),
+          intraOpNumThreads: resolveIntraOpThreads(),
         },
       });
       return (text: string, options?: unknown) =>

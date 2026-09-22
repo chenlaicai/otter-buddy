@@ -15,7 +15,7 @@ import { execSync } from "node:child_process";
 const intraOp = process.argv[2] ? parseInt(process.argv[2], 10) : undefined;
 
 function threadCount(label) {
-  // macOS ps -M：每个线程一行（含 header）
+  // macOS ps -M：输出行数 ≈ 线程数 + 固定偏移（绝对口径有偏差，本脚本只看 delta 相对比较）
   const out = execSync(`ps -M ${process.pid} | tail -n +2 | wc -l`).toString().trim();
   console.log(`${label}: ${out} threads`);
   return parseInt(out, 10);
