@@ -103,6 +103,16 @@ export class AgentTurnOrchestrator {
         (id) => driver.getInternalAbortReason(id) ?? undefined,
       );
 
+      // #764：user_abort 且 err 通道无底层错误时，查 retry 观测窗——429 backoff 期间
+      // abort 的 errorMessage 被 SDK retry 层抹掉，但 auto_retry_start 事件留有原文。
+      // 有值即确证「abort 发生在 retry backoff 等待中」，归因文案主路径恢复可达。
+      if (reason.kind === 'user_abort' && !reason.underlyingError) {
+        const retryError = driver.getRetryErrorMessage?.(currentInput.invokeId);
+        if (retryError) {
+          reason.underlyingError = { kind: 'api_error', errorMessage: retryError };
+        }
+      }
+
       // F20260821spcm: 旁白流失检测——LLM 输出了直出文本但未调 speak
       const hasOrphanText = this.detectOrphanText(reason, result);
 
