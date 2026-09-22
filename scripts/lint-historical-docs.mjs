@@ -36,22 +36,39 @@ function baseRef() {
 }
 
 /** 该文件是否为本分支新建（在 origin/main..HEAD 全部 commit 中曾出现过 Add，含新增后修改/重命名路径）
- *  边界：新增后 commit 再修改的场景，log 范围含产生 Add 的 commit，判定为分支新建 */
-function isAddedOnBranch(file, ref) {
-  try {
-    const out = git(["log", `${ref}..HEAD`, "--follow", "--diff-filter=A", "--format=%H", "--", file]);
-    return out.length > 0;
-  } catch {
-    return false;
-  }
+ *  边界：新增后 commit 再修改的场景，log 范围含产生 Add 的 commit，判定为分支新建
+ *  F20260922rntc（#1103）：rename R 形态溯源——staged rename 未提交时，新路径在 ref..HEAD 中
+ *  查不到 Add（git log --follow 对已提交历史有效，但对「索引区里尚未提交的 rename」看不到），
+ *  需按旧路径查 Add。
+ *  F20260922rntc delta（PR #1108 检视严重 1 + 建议 1，判定语义修订）：
+ *  - R 形态（oldPath 存在）：仅按 oldPath 判定——R 行语义上内容来源是 oldPath，「任一命中」
+ *    中 newPath 一侧对 R 行恒 miss（依赖 git 怪癖的偶然正确），若 git 修正行为则留误放窗口
+ *  - 非 R 形态（M/D）：并集查询——`--diff-filter=A`（无 --follow）兜住高相似派生文件
+ *    （--follow 与 diff-filter 交互对派生文件系统性 miss，实测坐实），`--follow --diff-filter=A`
+ *    保留已提交 rename 链的溯源
+ */
+function isAddedOnBranch(file, ref, oldPath) {
+  const hasAdd = (p) => {
+    try {
+      const plain = git(["log", `${ref}..HEAD`, "--diff-filter=A", "--format=%H", "--", p]);
+      if (plain.length > 0) return true;
+      const follow = git(["log", `${ref}..HEAD`, "--follow", "--diff-filter=A", "--format=%H", "--", p]);
+      return follow.length > 0;
+    } catch {
+      return false;
+    }
+  };
+  if (oldPath && oldPath !== file) return hasAdd(oldPath); // R 形态：仅按来源路径判定
+  return hasAdd(file);
 }
 
-/** 解析 staged 状态行（git diff --cached --name-status），返回 {status, path} */
+/** 解析 staged 状态行（git diff --cached --name-status），返回 {status, path, oldPath} */
 function parseStatusLine(line) {
   const [rawStatus, ...rest] = line.split("\t");
-  // 重命名/复制格式："R100\told\tnew" —— 目标路径是最后一列
+  // 重命名/复制格式："R100\told\tnew" —— 目标路径是最后一列，旧路径是倒数第二列
   const filePath = rest[rest.length - 1];
-  return { status: rawStatus[0], filePath };
+  const oldPath = rest.length >= 2 ? rest[rest.length - 2] : undefined;
+  return { status: rawStatus[0], filePath, oldPath };
 }
 
 export function findViolations() {
@@ -81,7 +98,7 @@ export function findViolations() {
   }
 
   const errors = modified
-    .filter((e) => !isAddedOnBranch(e.filePath, ref))
+    .filter((e) => !isAddedOnBranch(e.filePath, ref, e.oldPath))
     .map((e) => e.filePath);
   return { errors, degraded: false };
 }
