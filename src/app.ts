@@ -453,6 +453,35 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const statsQuery = new SqliteStatsQuery(db);
   const queryOtterProfile = new QueryOtterProfile(repos.otter, otterConfigProvider, modelPool, logger, { resourceLoader: resourceLoader as any, statsQuery });
 
+  /** F20260921wxba + F20260922wxeg：删号清理链——释放 bot 锚绑定（重扫建新线可绑）
+   *  + 删号即删线（搭档指令 9/22）。归属判定双源：metadata.assistantConversationId
+   *  （provision 写入，精确归属）优先，存量 connection 无此键兑底当前活跃绑定
+   *  （delta N1：否则存量线删号恒漏删）。占用护栏（N2）：目标被别的连接绑定跳过
+   *  归档。archived 对话不可再被 /in（enterConversation 状态校验），无后续受害者。 */
+  const releaseWeixinConnectionAndArchiveLine = async (accountId: string): Promise<void> => {
+    try {
+      const conn = await repos.connection.getByExternalId(accountId);
+      if (!conn) return;
+      const session = await repos.connection.getActiveSession(conn.id);
+      const owned = conn.metadata?.assistantConversationId;
+      const ownedConversationId = typeof owned === "string" ? owned : session?.conversationId;
+      if (ownedConversationId) {
+        const occupying = await repos.connection.getActiveSessionByConversation(ownedConversationId);
+        if (occupying && occupying.connectionId !== conn.id) {
+          logger.info("Weixin account deleted; conversation occupied by another connection, skip archive", { accountId, conversationId: ownedConversationId });
+        } else {
+          await uc.manageConversation.archive(ownedConversationId).catch((err) => {
+            logger.warn("Weixin account deleted; assistant conversation archive failed", { accountId, conversationId: ownedConversationId, error: err instanceof Error ? err.message : String(err) });
+          });
+        }
+      }
+      if (session) await repos.connection.releaseSession(session.id, new Date().toISOString());
+    } catch (err) {
+      // 清理失败不阻断删号主链（下次删号/重扫可重试）；留日志供诊断
+      logger.warn("Weixin account deleted; connection release failed", { accountId, error: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
   /** #576（F20260901emps）：能力库页面数据源——ResourceLoader 适配 SkillDirectory 端口。
    *  与 otter 实际加载的 skill 一致（页面所见即系统所载），替代前端静态快照。
    *  warmup 前 resourceLoader 可能为 null——返回空列表，前端展示显式空态（不静默空白） */
@@ -491,9 +520,28 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       // 微信连接 externalId = 账号 id（与消息 ingress 的 ensureConnection 同键，
       // 幂等汇合到同一 connection）
       const connection = await uc.manageConnection.ensureConnection(accountId, accountId, "weixin");
+      // F20260922wxeg：建线即刻记录出站目标（扫码人 ilinkUserId）——不依赖
+      // 「用户先发一条消息」才恢复出站（无消息期也从 Web 侧发起对话的场景）
+      const account = weixinAccountStore.getAccount(accountId);
+      if (account?.ilinkUserId) {
+        // 失败仅降级为「等用户首发消息重建锚」——记 warn 供诊断（检视建议①：静默吞错零日志）
+        await uc.manageConnection.noteChatId(connection.id, account.ilinkUserId).catch((err) => {
+          logger.warn("Weixin provision: noteChatId failed（出站锚待用户首发消息重建）", { accountId, error: err instanceof Error ? err.message : String(err) });
+        });
+      } else {
+        logger.warn("Weixin provision: account missing ilinkUserId（出站锚待用户首发消息重建）", { accountId });
+      }
       // 已有 active 绑定 = 已建过线（幂等：不重复建，返回当前）
       const existing = await uc.manageConnection.getCurrentConversation(connection.id);
-      if (existing) return { conversationId: existing.id, title: existing.title };
+      if (existing) {
+        // F20260922wxeg delta N1：幂等分支补写归属 metadata（存量 connection 断键续接）
+        if (typeof connection.metadata?.assistantConversationId !== "string") {
+          await repos.connection.mergeMetadata(connection.id, { assistantConversationId: existing.id }).catch((err) => {
+            logger.warn("Weixin provision: assistantConversationId backfill failed（删号归档将走绑定兑底）", { accountId, error: err instanceof Error ? err.message : String(err) });
+          });
+        }
+        return { conversationId: existing.id, title: existing.title };
+      }
       const conv = await uc.assistantSession.ensureAssistantConversation({
         connectionId: connection.id,
         channel: "weixin",
@@ -501,6 +549,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
         ...(config.im?.assistant?.modelAlias && { modelAlias: config.im.assistant.modelAlias }),
       });
       if (!conv) throw new Error("助理线创建失败");
+      // F20260922wxeg：记录「这条线建出来的对话」归属——删号时按此归档
+      // 失败后果 = 删号时该对话残留（可手动归档），记 warn 供诊断（检视建议①）
+      await repos.connection.mergeMetadata(connection.id, { assistantConversationId: conv.id }).catch((err) => {
+        logger.warn("Weixin provision: assistantConversationId metadata write failed（删号时对话将残留）", { accountId, conversationId: conv.id, error: err instanceof Error ? err.message : String(err) });
+      });
       return { conversationId: conv.id, title: conv.title };
     },
     onWeixinAccountDeleted: async (accountId) => {
@@ -509,20 +562,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       // 它不再拉起新轮询，长轮询 35s 超时后自然停止）
       const stopped = stopWeixinPoller(accountId, extraWeixinPollers);
       if (!stopped && weixinPollers) stopWeixinPoller(accountId, weixinPollers);
-      // F20260921wxba：释放 bot 锚 connection 的活跃绑定——删号后重扫建新线时，
-      // 新 conversation 能正常绑上（旧代码删号不清绑定：账号复用 id 时重扫后
-      // ensureConnection 幂等命中旧 connection，getCurrentConversation 返回
-      // 「已建线」旧对话，新建线静默失效）。查到才释放（幂等，无绑定不动）
-      try {
-        const conn = await repos.connection.getByExternalId(accountId);
-        if (conn) {
-          const session = await repos.connection.getActiveSession(conn.id);
-          if (session) await repos.connection.releaseSession(session.id, new Date().toISOString());
-        }
-      } catch (err) {
-        // 清理失败不阻断删号主链（下次删号/重扫可重试）；留日志供诊断
-        logger.warn("Weixin account deleted; connection release failed", { accountId, error: err instanceof Error ? err.message : String(err) });
-      }
+      await releaseWeixinConnectionAndArchiveLine(accountId);
       // #592：清理关联的活跃登录会话——开着登录页又去删账号的竞态场景，不清理
       // 的话扫码确认后账号重新落盘（「删了又复活」）。非终态会话置 cancelled；
       // 若扫码已在后台完成（accountId 已回填）连带清同扫码人的其它会话。已终态

@@ -6,6 +6,7 @@ import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import type { Logger } from "@usecases/ports/logger";
 import type { SSEEvent } from "@contract/sse/events";
 import type { OutboundEventChannel } from "./message-broadcaster";
+import type { Connection } from "@entities/im/connection";
 import { projectForChannel } from "@entities/conversation/message-body-projection";
 
 /**
@@ -14,8 +15,10 @@ import { projectForChannel } from "@entities/conversation/message-body-projectio
  * 微信与飞书的差异点：
  * - 协议只收纯文本（item type=1）→ markdown 投影后按 replyText 语义发送
  *   （projectForChannel 产出文本，html-card 落占位符 + Web 链接，同飞书）
- * - 会话模型是"人对 bot 私聊"：connection.externalId = 对端 ilink_user_id
- *   （出站目标），context_token 由 ingress 落盘、gateway 实现层查表回填
+ * - 会话模型是"人对 bot 私聊"：connection.externalId = bot 账号 id（F20260921wxba
+ *   路由锚），出站收信人经 manageConnection.resolveReplyTarget 从
+ *   metadata.lastChatId 取回（ilinkUserId，入站由 processor 记录，F20260922wxeg）；
+ *   context_token 由 ingress 落盘、gateway 实现层查表回填
  */
 export class WeixinMessageChannel implements OutboundEventChannel {
   // eslint-disable-next-line max-params -- 依赖由 DI 装配，参数数量由依赖决定（同 feishu-message-controller 约定）
@@ -64,6 +67,18 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     }
   }
 
+  /** F20260922wxeg：出站目标解析——connection.externalId 是 bot 账号 id（路由锚），
+   *  收信人经 resolveReplyTarget 从 metadata.lastChatId 取回（ilinkUserId，入站时
+   *  由 message-processor 记录）。解析不到目标 = 用户尚未在新 connection 上说过话
+   *  ——跳过发送记 warn（发给 bot 账号 id 只会 ret=-3 假失败，绝不投递） */
+  private resolveTarget(connectionId: string, connection: Connection): string | null {
+    const target = this.manageConnection.resolveReplyTarget(connection);
+    if (!target) {
+      this.logger.warn("Weixin outbound skipped: no reply target yet（等用户先发一条消息建立出站锚）", { connectionId });
+    }
+    return target;
+  }
+
   /** F20260920imax：invoke 终态失败 → 微信侧提示（思考中后无下文的静默兑底） */
   private async deliverFailureNotice(conversationId: string, _event: SSEEvent): Promise<void> {
     const session = await this.manageConnection.getSessionByConversation(conversationId);
@@ -71,11 +86,26 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     const connection = await this.manageConnection.getConnection(session.connectionId);
     if (!connection) return;
     if (connection.externalType !== "weixin") return;
+    const target = this.resolveTarget(connection.id, connection);
+    if (!target) return;
 
     try {
-      await this.weixinGateway.replyText(connection.externalId, "⚠️ 助理这会儿没能回复（服务端处理失败）。稍后再发一条试试，若持续失败请到 Web 端查看详情 🦦");
+      await this.weixinGateway.replyText(target, "⚠️ 助理这会儿没能回复（服务端处理失败）。稍后再发一条试试，若持续失败请到 Web 端查看详情 🦦");
     } catch (err) {
       this.logger.error("Weixin failure notice send failed", err instanceof Error ? err : undefined, { conversationId });
+    }
+  }
+
+  /** Web 消息发送者标签解析（复杂度拆出；无渠道快照用全局名，降级「用户」） */
+  private async resolveSenderLabel(): Promise<string> {
+    try {
+      const globalName = this.settingsRepo
+        ? (await this.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim()
+        : undefined;
+      return globalName || "用户";
+    } catch {
+      // 标签解析异常不应吞掉整个投递
+      return "用户";
     }
   }
 
@@ -90,24 +120,17 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     const connection = await this.manageConnection.getConnection(session.connectionId);
     if (!connection) return;
     if (connection.externalType !== "weixin") return;
+    const target = this.resolveTarget(connection.id, connection);
+    if (!target) return;
 
-    // Web 消息无渠道快照：显示全局名，降级「用户」（与旧 resolveSenderLabel 语义一致）
-    let senderLabel = "用户";
-    try {
-      const globalName = this.settingsRepo
-        ? (await this.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim()
-        : undefined;
-      if (globalName) senderLabel = globalName;
-    } catch {
-      // 标签解析异常不应吞掉整个投递
-    }
+    const senderLabel = await this.resolveSenderLabel();
 
     const projected = projectForChannel(data.body, {
       webBaseUrl: this.webBaseUrl,
       conversationId,
     });
     try {
-      await this.weixinGateway.replyMarkdown(connection.externalId, senderLabel, projected);
+      await this.weixinGateway.replyMarkdown(target, senderLabel, projected);
       this.logger.info("User entry synced to Weixin (web→weixin)", { conversationId });
     } catch (err) {
       this.logger.error("Failed to sync user entry to Weixin", err instanceof Error ? err : undefined, { conversationId });
@@ -124,13 +147,15 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     const connection = await this.manageConnection.getConnection(session.connectionId);
     if (!connection) return;
     if (connection.externalType !== "weixin") return;
+    const target = this.resolveTarget(connection.id, connection);
+    if (!target) return;
 
     const projected = projectForChannel(data.body, {
       webBaseUrl: this.webBaseUrl,
       conversationId,
     });
     try {
-      await this.weixinGateway.replyMarkdown(connection.externalId, data.otterName ?? "海獭", projected);
+      await this.weixinGateway.replyMarkdown(target, data.otterName ?? "海獭", projected);
     } catch (err) {
       this.logger.error("Failed to broadcast speak to Weixin", err instanceof Error ? err : undefined, { conversationId });
     }
@@ -158,9 +183,11 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     }
 
     const otterName = await this.resolveOtterName(event);
+    const target = this.resolveTarget(connection.id, connection);
+    if (!target) return;
     try {
       // F20260829wxch（#213 检视发现3）：thinking 可丢弃，无 context_token 时跳过不裸发
-      await this.weixinGateway.replyText(connection.externalId, `${otterName} 正在思考...`, { requireContextToken: true });
+      await this.weixinGateway.replyText(target, `${otterName} 正在思考...`, { requireContextToken: true });
     } catch (err) {
       this.logger.error("Failed to send Weixin thinking message", err instanceof Error ? err : undefined, {
         conversationId,

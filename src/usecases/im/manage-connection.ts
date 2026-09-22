@@ -72,12 +72,27 @@ export class ManageConnection {
   }
 
   /** F20260920imax 增量五：出站目标解析——bot connection 优先 metadata.lastChatId，
-   *  普通连接（群聊/旧数据）直接 externalId 即 chatId */
+   *  普通连接（群聊/旧数据）直接 externalId 即 chatId。
+   *  F20260922wxeg：微信同构——bot 锚定后 connection.externalId = bot 账号 id
+   *  （建线/路由锚），不是收信人；真实收信人（ilinkUserId）由入站/provision 记到
+   *  metadata.lastChatId。缺目标返回 null，调用方跳过发送并记日志（裸发给 bot
+   *  账号 id 只会 ret=-3 假失败，绝不投递）。 */
   resolveReplyTarget(connection: Connection): string | null {
-    if (connection.externalType !== "feishu") return connection.externalId;
-    if (connection.externalId.startsWith("feishu-bot:")) {
-      const last = connection.metadata?.lastChatId;
-      return typeof last === "string" ? last : null;
+    if (connection.externalType === "feishu") {
+      if (connection.externalId.startsWith("feishu-bot:")) {
+        const last = connection.metadata?.lastChatId;
+        return typeof last === "string" ? last : null;
+      }
+      return connection.externalId;
+    }
+    if (connection.externalType === "weixin") {
+      // 微信 bot 账号 connection（externalId = accountId，形态 weixin-*）走 metadata
+      if (connection.externalId.startsWith("weixin-")) {
+        const last = connection.metadata?.lastChatId;
+        return typeof last === "string" ? last : null;
+      }
+      // 旧时代按人建的 connection：externalId 本来就是用户 id，直用（向后兼容）
+      return connection.externalId;
     }
     return connection.externalId;
   }

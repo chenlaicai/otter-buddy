@@ -32,6 +32,19 @@ function createBroadcaster() {
   const manageConnection = {
     getSessionByConversation: vi.fn().mockResolvedValue(null),
     getConnection: vi.fn().mockResolvedValue(null),
+    // F20260922wxeg：真实 resolveReplyTarget 语义（bot 锚 connection 走 metadata.lastChatId，
+    // 普通连接直用 externalId）——出站目标断言必须穿透这层，否则锚分裂回归抓不到
+    resolveReplyTarget: vi.fn((conn: { externalId: string; externalType: string; metadata?: Record<string, unknown> | null }) => {
+      if (conn.externalType === "weixin" && conn.externalId.startsWith("weixin-")) {
+        const last = conn.metadata?.lastChatId;
+        return typeof last === "string" ? last : null;
+      }
+      if (conn.externalType === "feishu" && conn.externalId.startsWith("feishu-bot:")) {
+        const last = conn.metadata?.lastChatId;
+        return typeof last === "string" ? last : null;
+      }
+      return conn.externalId;
+    }),
   } as any;
   const replies: Array<{ to: string; label: string; text: string }> = [];
   const weixinGateway = {
@@ -50,9 +63,9 @@ function createBroadcaster() {
   return { broadcaster, manageConnection, weixinGateway, replies, logger };
 }
 
-function bindWeixin(manageConnection: any, externalId = "wx-user-1", externalType = "weixin") {
+function bindWeixin(manageConnection: any, externalId = "wx-user-1", externalType = "weixin", metadata: Record<string, unknown> | null = null) {
   manageConnection.getSessionByConversation.mockResolvedValue({ connectionId: "conn-1" });
-  manageConnection.getConnection.mockResolvedValue({ id: "conn-1", externalId, externalType });
+  manageConnection.getConnection.mockResolvedValue({ id: "conn-1", externalId, externalType, metadata });
 }
 
 describe("WeixinMessageChannel（事件出站）", () => {
@@ -168,5 +181,38 @@ describe("WeixinMessageChannel onEvent thinking 按 externalType 路由（F20260
     expect(sent).toHaveLength(1);
     expect(sent[0].to).toBe("wx-user-1");
     expect(sent[0].text).toBe("大獭 正在思考...");
+  });
+});
+
+describe("WeixinMessageChannel 出站目标锚（F20260922wxeg：bot 锚 connection 经 metadata.lastChatId 定向）", () => {
+  // 固化失败：9/21 现场——bot 锚 connection（externalId=weixin-muawxk7x）被当收信人，
+  // context_token 表按用户 id 键查不到 → ret=-3 invalid arguments，微信侧零投递
+  it("bot 锚 connection（externalId=weixin-*）：speak 投给 metadata.lastChatId 而非 bot 账号 id", async () => {
+    const ctx = createBroadcaster();
+    bindWeixin(ctx.manageConnection, "weixin-muawxk7x", "weixin", { lastChatId: "o9cq8003MV3gt9XILrwg5RHYIgHg@im.wechat" });
+    ctx.broadcaster.broadcastEvent("conv-1", speakEvent());
+    await new Promise((r) => setTimeout(r, 10));
+    expect(ctx.replies).toHaveLength(1);
+    expect(ctx.replies[0].to).toBe("o9cq8003MV3gt9XILrwg5RHYIgHg@im.wechat");
+  });
+
+  it("bot 锚 connection 无 lastChatId（用户未说过话）：跳过发送不裸发给 bot 账号 id", async () => {
+    const ctx = createBroadcaster();
+    bindWeixin(ctx.manageConnection, "weixin-muawxk7x", "weixin", null);
+    ctx.broadcaster.broadcastEvent("conv-1", speakEvent());
+    await new Promise((r) => setTimeout(r, 10));
+    expect(ctx.replies).toHaveLength(0);
+    // 副作用断言：跳过的可诊断性 = warn 日志留下「等用户先发消息」记录（不断言调用参数）
+    const warned = ctx.logger.warn.mock.calls.length > 0;
+    expect(warned).toBe(true);
+  });
+
+  it("旧时代按人建的 connection（externalId=用户 id）：直用 externalId 不回归", async () => {
+    const ctx = createBroadcaster();
+    bindWeixin(ctx.manageConnection, "o9cq8003MV3gt9XILrwg5RHYIgHg@im.wechat", "weixin");
+    ctx.broadcaster.broadcastEvent("conv-1", speakEvent());
+    await new Promise((r) => setTimeout(r, 10));
+    expect(ctx.replies).toHaveLength(1);
+    expect(ctx.replies[0].to).toBe("o9cq8003MV3gt9XILrwg5RHYIgHg@im.wechat");
   });
 });

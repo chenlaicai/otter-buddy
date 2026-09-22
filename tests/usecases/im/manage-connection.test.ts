@@ -358,3 +358,36 @@ describe("ManageConnection", () => {
     });
   });
 });
+
+describe("ManageConnection.resolveReplyTarget（F20260922wxeg：微信 bot 锚出站定向）", () => {
+  const mc = new ManageConnection(mockConnectionRepo(), mockConversationRepo(), createTestLogger());
+
+  it("微信 bot 锚 connection（externalId=weixin-*）：返回 metadata.lastChatId", () => {
+    const conn = connectionFixture({
+      externalType: "weixin",
+      externalId: "weixin-muawxk7x",
+      metadata: { lastChatId: "o9cq8003MV3gt9XILrwg5RHYIgHg@im.wechat" },
+    });
+    expect(mc.resolveReplyTarget(conn)).toBe("o9cq8003MV3gt9XILrwg5RHYIgHg@im.wechat");
+  });
+
+  it("微信 bot 锚 connection 无 lastChatId：返回 null（跳过发送，不裸发给 bot 账号 id）", () => {
+    const conn = connectionFixture({ externalType: "weixin", externalId: "weixin-muawxk7x", metadata: null });
+    expect(mc.resolveReplyTarget(conn)).toBeNull();
+  });
+
+  it("微信旧时代按人 connection（externalId=用户 id）：直用 externalId（向后兼容）", () => {
+    const conn = connectionFixture({ externalType: "weixin", externalId: "o9cq8003MV3gt9XILrwg5RHYIgHg@im.wechat" });
+    expect(mc.resolveReplyTarget(conn)).toBe("o9cq8003MV3gt9XILrwg5RHYIgHg@im.wechat");
+  });
+
+  it("飞书 bot connection（feishu-bot:*）：走 metadata.lastChatId（不回归）", () => {
+    const conn = connectionFixture({ externalType: "feishu", externalId: "feishu-bot:cli_x", metadata: { lastChatId: "oc_123" } });
+    expect(mc.resolveReplyTarget(conn)).toBe("oc_123");
+  });
+
+  it("飞书普通群 connection：直用 externalId（不回归）", () => {
+    const conn = connectionFixture({ externalType: "feishu", externalId: "oc_949fe0ade829f04a451d427fa6940f92" });
+    expect(mc.resolveReplyTarget(conn)).toBe("oc_949fe0ade829f04a451d427fa6940f92");
+  });
+});
