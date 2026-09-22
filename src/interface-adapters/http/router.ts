@@ -56,7 +56,6 @@ function registerConvRoutes(app: Hono, c: Controllers): void {
   app.get("/api/conversations", (ctx) => c.conversation.list(ctx));
   app.post("/api/conversations", (ctx) => c.conversation.create(ctx));
   app.get("/api/conversations/:id", (ctx) => c.conversation.getById(ctx));
-  app.patch("/api/conversations/:id/complete", (ctx) => c.conversation.complete(ctx));
   app.patch("/api/conversations/:id/archive", (ctx) => c.conversation.archive(ctx));
   app.patch("/api/conversations/:id/pin", (ctx) => c.conversation.pin(ctx));
   app.patch("/api/conversations/:id/unpin", (ctx) => c.conversation.unpin(ctx));

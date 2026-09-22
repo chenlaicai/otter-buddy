@@ -205,7 +205,7 @@ describe("ManageConnection", () => {
 
     it("对话不活跃时抛出错误", async () => {
       vi.mocked(connRepo.getById).mockResolvedValue(connectionFixture());
-      vi.mocked(convRepo.getById).mockResolvedValue(conversationFixture({ status: "completed" }));
+      vi.mocked(convRepo.getById).mockResolvedValue(conversationFixture({ status: "archived" }));
 
       await expect(manageConnection.enterConversation("conn-1", "conv-1"))
         .rejects.toThrow("not active");
@@ -298,7 +298,7 @@ describe("ManageConnection", () => {
     it("跳过非活跃对话", async () => {
       vi.mocked(convRepo.getAllIds).mockResolvedValue(["conv-1", "conv-2"]);
       vi.mocked(convRepo.getById)
-        .mockResolvedValueOnce(conversationFixture({ status: "completed" }))
+        .mockResolvedValueOnce(conversationFixture({ status: "archived" }))
         .mockResolvedValueOnce(conversationFixture({ id: "conv-2" }));
       vi.mocked(connRepo.getActiveSessionsByConversations).mockResolvedValue([]);
 

@@ -2,12 +2,14 @@
 export interface ConversationDTO {
   id: string;
   title: string;
-  status: string;
+  /** F20260922cgrp：弱状态两态管理——completed 退役，只剩 active | archived */
+  status: "active" | "archived";
   pinned: boolean;
   /** F20260918imas：助理对话标识（微信/飞书 IM 自动开户；缺省 = 普通对话。前端左侧栏分组依据） */
   kind?: "assistant";
   createdAt: string;
   updatedAt: string;
+  /** F20260922cgrp：completed 状态退役，字段保留（DB 列不动，历史数据可读，恒为 null 或旧值） */
   completedAt: string | null;
   archivedAt: string | null;
 }
@@ -27,6 +29,13 @@ export interface ConversationListItemDTO extends ConversationDTO {
    *  - idle: 已完成/归档，或活跃但尚无消息
    */
   activityStatus?: 'processing' | 'awaiting_user' | 'idle';
+}
+
+/** F20260922cgrp：对话列表响应——items + total（total 供分组分页页码跳转） */
+export interface ConversationListResponseDTO {
+  items: ConversationListItemDTO[];
+  /** 满足过滤条件的总数（不含 limit/offset） */
+  total: number;
 }
 
 /** 创建对话请求 DTO */

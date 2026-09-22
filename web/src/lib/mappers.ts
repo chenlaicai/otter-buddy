@@ -20,7 +20,8 @@ export interface LocalOtter {
 export interface LocalConversation {
   id: string
   title: string
-  status: 'active' | 'completed' | 'archived'
+  /** F20260922cgrp：弱状态两态——completed 退役 */
+  status: 'active' | 'archived'
   pinned: boolean
   /** F20260918imas：助理对话标识（IM 自动开户；缺省 = 普通对话。左侧栏分组依据） */
   kind?: 'assistant'
@@ -216,7 +217,7 @@ export function mapConversationDTO(dto: ConversationListItemDTO | ConversationDT
   return {
     id: dto.id,
     title: dto.title,
-    status: dto.status as 'active' | 'completed' | 'archived',
+    status: dto.status as 'active' | 'archived',
     pinned: dto.pinned,
     ...(dto.kind === 'assistant' && { kind: 'assistant' as const }),
     otterIds: 'otterIds' in dto ? dto.otterIds : [],

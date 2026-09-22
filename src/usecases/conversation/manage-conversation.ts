@@ -1,10 +1,13 @@
 import type { Conversation, ConversationParticipant } from "@entities/conversation/conversation";
 import {
-  canCompleteConversation,
   canArchiveConversation,
 } from "@entities/conversation/conversation";
 import { DomainError } from "@entities/errors";
-import type { ConversationRepository } from "./conversation-repository";
+import type {
+  ConversationListResult,
+  ConversationRepository,
+  ListConversationsFilter,
+} from "./conversation-repository";
 import type { CreateOtter } from "@usecases/otter/create-otter";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 
@@ -85,17 +88,6 @@ export class ManageConversation {
     return this.repo.getById(id);
   }
 
-  async complete(id: string): Promise<void> {
-    const conv = await this.repo.getById(id);
-    if (!conv) {
-      throw new DomainError(`Conversation not found: ${id}`, "not_found");
-    }
-    if (!canCompleteConversation(conv.status)) {
-      throw new DomainError(`Cannot complete conversation with status: ${conv.status}`, "validation");
-    }
-    await this.repo.updateStatus(id, "completed", new Date().toISOString());
-  }
-
   async archive(id: string): Promise<void> {
     const conv = await this.repo.getById(id);
     if (!conv) {
@@ -126,18 +118,12 @@ export class ManageConversation {
     return this.repo.getAllIds(options);
   }
 
-  /** 批量查询会话列表（含未读计数 + last_message，一条 SQL JOIN 替代 N+1） */
+  /** 批量查询会话列表（含未读计数 + last_message，一条 SQL JOIN 替代 N+1）
+   *  F20260922cgrp：返回 { items, total }——total 供前端分组分页页码跳转 */
   async listWithMeta(
     userId: string,
-    options?: { limit?: number; offset?: number; search?: string },
-  ): Promise<Array<Conversation & {
-    otterIds: string[];
-    unreadCount: number;
-    lastMessagePreview: string | null;
-    lastMessageTs: string | null;
-    /** 实时活动状态（派生字段） */
-    activityStatus: 'processing' | 'awaiting_user' | 'idle';
-  }>> {
+    options?: ListConversationsFilter,
+  ): Promise<ConversationListResult> {
     return this.repo.listConversationsWithMeta(userId, options);
   }
 

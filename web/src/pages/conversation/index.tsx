@@ -30,11 +30,11 @@ import { consumeSSE } from '../../api/sse'
 
 async function loadInitialData(): Promise<{
   conversations: LocalConversation[]
-  hasMore: boolean
 }> {
-  const convDTOs = await api.listConversations()
-  const conversations = convDTOs.map(mapConversationDTO)
-  return { conversations, hasMore: convDTOs.length >= 50 }
+  // F20260922cgrp：listConversations 返回 { items, total }（分组分页）；
+  // 首屏全量拉 active（IM 助理组 + 置顶区数据源；普通区由 LeftPanel 内部分页自拉）
+  const { items } = await api.listConversations({ limit: 500 })
+  return { conversations: items.map(mapConversationDTO) }
 }
 
 export default function ConversationPage() {
@@ -264,10 +264,9 @@ export default function ConversationPage() {
     // 列表新鲜度由 useConversationListPolling 的 5s 轮询保障，切换无需重拉。
     let disposed = false
     loadInitialData()
-      .then(({ conversations: convs, hasMore }) => {
+      .then(({ conversations: convs }) => {
         if (disposed) return
         setConversations(convs)
-        setHasMoreConvs(hasMore)
         if (convs.length > 0) {
           // 深链接指向不存在/已删除的对话：URL 替换为列表首个（可刷新可分享，视图一致）。
           // 注：不 early-return——pageState 判定不依赖 navigate 完成，否则卡在 loading 态
@@ -297,25 +296,7 @@ export default function ConversationPage() {
   const visibleConvIds = useMemo(() => new Set(conversations.map(c => c.id)), [conversations])
   useConversationListPolling(pageState !== 'loading' && pageState !== 'error' && !modalOpen, setConversations, visibleConvIds)
 
-  /** 分页（F20260916lpsc）：加载更多对话列表（服务端每页 50 条） */
-  const CONV_PAGE_SIZE = 50
-  const [hasMoreConvs, setHasMoreConvs] = useState(false)
-  const [loadingMoreConvs, setLoadingMoreConvs] = useState(false)
-  const handleLoadMoreConvs = useCallback(() => {
-    setLoadingMoreConvs(true)
-    api.listConversations({ limit: CONV_PAGE_SIZE, offset: conversations.length })
-      .then(dtos => {
-        const mapped = dtos.map(mapConversationDTO)
-        setConversations(prev => {
-          const existing = new Set(prev.map(c => c.id))
-          return [...prev, ...mapped.filter(m => !existing.has(m.id))]
-        })
-        setHasMoreConvs(dtos.length >= CONV_PAGE_SIZE)
-      })
-      .catch(() => showToast('加载更多失败', 'error'))
-      .finally(() => setLoadingMoreConvs(false))
-  }, [conversations.length])
-
+  /** F20260922cgrp：「加载更多」机制退役——分组分页由 LeftPanel 内部管理（每页 20 条页码跳转） */
   const loadConversationDetail = useCallback(async (convId: string) => {
     try {
       // F20260913ctlv 彻底切换：时间线唯一数据源 = entries（messages 渲染路径退役）
@@ -1294,15 +1275,23 @@ export default function ConversationPage() {
     } catch { showToast('创建对话失败', 'error') }
   }
 
-  async function confirmArchive() {
-    if (!activeId) return
+  // F20260922cgrp delta（检视建议 4）：归档对象取 modal.cid 而非 activeId——
+  // 右键非当前对话归档的应是该对话；仅当归档的恰是当前对话时才需跳转兑底
+  async function confirmArchive(cid: string) {
     try {
-      await api.archiveConversation(activeId)
+      await api.archiveConversation(cid)
       setModal({ type: 'none' })
-      // 归档后当前对话从列表消失（服务端列表排除 archived），
-      // 轮询合并会将其移除导致 activeConv 为 null、RightPanel 串到其他对话——与 pin/unpin 一致整页跳转
-      // toast 通过 URL 参数传递到目标页，避免跳转后来不及渲染
-      navigate('/conversation?archived=1')
+      if (cid === activeId) {
+        // 归档后当前对话从列表消失（服务端列表排除 archived），
+        // 轮询合并会将其移除导致 activeConv 为 null、RightPanel 串到其他对话——与 pin/unpin 一致整页跳转
+        // toast 通过 URL 参数传递到目标页，避免跳转后来不及渲染
+        navigate('/conversation?archived=1')
+      } else {
+        // 归档的是非当前对话：SPA 原地刷新列表（LeftPanel 分组随 conversations 变化重拉）
+        const { items } = await api.listConversations({ limit: 500 })
+        setConversations(items.map(mapConversationDTO))
+        showToast('对话已归档', 'success')
+      }
     } catch { showToast('操作失败', 'error') }
   }
 
@@ -1430,8 +1419,8 @@ export default function ConversationPage() {
       try {
         await api.pinConversation(cid)
         // SPA 模式：重新加载对话列表而非整页刷新
-        const dtos = await api.listConversations()
-        setConversations(dtos.map(mapConversationDTO))
+        const { items } = await api.listConversations({ limit: 500 })
+        setConversations(items.map(mapConversationDTO))
       } catch (err) {
         showToast(err instanceof ApiError ? err.message : '置顶失败', 'error')
       }
@@ -1440,8 +1429,8 @@ export default function ConversationPage() {
       try {
         await api.unpinConversation(cid)
         // SPA 模式：重新加载对话列表而非整页刷新
-        const dtos = await api.listConversations()
-        setConversations(dtos.map(mapConversationDTO))
+        const { items } = await api.listConversations({ limit: 500 })
+        setConversations(items.map(mapConversationDTO))
       } catch (err) {
         if (err instanceof ApiError && err.status === 403) {
           showToast('系统对话不可取消置顶', 'error')
@@ -1454,7 +1443,13 @@ export default function ConversationPage() {
     }
   }
 
-  const activeConvForMenu = ctxMenu ? conversations.find(c => c.id === ctxMenu.cid) : null
+  // F20260922cgrp delta（右键归档组修复）：归档对话不在父组件 conversations（active-only）中——
+  // find 落空时按 status='archived' 合成最小对象，菜单对归档项只提供「归档对话」（禁用态）
+  const activeConvForMenu = ctxMenu
+    ? (conversations.find(c => c.id === ctxMenu.cid) ?? {
+        id: ctxMenu.cid, title: '', status: 'archived' as const, pinned: false, otterIds: [],
+      })
+    : null
 
   if (pageState === 'loading') {
     return (
@@ -1510,7 +1505,7 @@ export default function ConversationPage() {
           id="left-panel-drawer"
           className={`${isMdUp ? 'contents' : `${leftDrawerOpen ? '' : 'hidden '}absolute left-3 top-3 bottom-3 z-50`}`}
         >
-          <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} hasMore={hasMoreConvs} loadingMore={loadingMoreConvs} onLoadMore={handleLoadMoreConvs} />
+          <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
         </div>
         <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => navigate('/settings')} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} />
         {/* 右栏：≥lg 常驻；<lg 抽屉化。md~lg 区间聊天区 = 全宽 - 左栏(224px)，不再被右栏挤 <500px */}
@@ -1559,8 +1554,12 @@ export default function ConversationPage() {
         <>
           <div className="fixed inset-0 z-40" onClick={closeCtxMenu} />
           <div className="fixed glass-overlay rounded-2xl p-1 z-50 min-w-[150px]" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
-            <div onClick={() => ctxAction(activeConvForMenu.pinned ? 'unpin' : 'pin', ctxMenu.cid)} className="px-2.5 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-white/40 text-stone-600">{activeConvForMenu.pinned ? '取消置顶' : '置顶'}</div>
-            <div onClick={() => ctxAction('archive', ctxMenu.cid)} className={`px-2.5 py-1.5 rounded-lg text-xs cursor-pointer ${activeConvForMenu.status !== 'archived' ? 'hover:bg-white/40 text-stone-600' : 'text-stone-300 cursor-not-allowed'}`}>归档对话</div>
+            {activeConvForMenu.status !== 'archived' && (
+              <div onClick={() => ctxAction(activeConvForMenu.pinned ? 'unpin' : 'pin', ctxMenu.cid)} className="px-2.5 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-white/40 text-stone-600">{activeConvForMenu.pinned ? '取消置顶' : '置顶'}</div>
+            )}
+            {/* F20260922cgrp delta（检视严重 3）：archived 对话禁用点击——className 置灰挡不住 onClick，
+                本 PR 让 archived 对话首次可右键，不守卫则确认后走 400 报错路径 */}
+            <div onClick={() => { if (activeConvForMenu.status !== 'archived') ctxAction('archive', ctxMenu.cid) }} className={`px-2.5 py-1.5 rounded-lg text-xs ${activeConvForMenu.status !== 'archived' ? 'cursor-pointer hover:bg-white/40 text-stone-600' : 'text-stone-300 cursor-not-allowed'}`}>归档对话</div>
           </div>
         </>
       )}

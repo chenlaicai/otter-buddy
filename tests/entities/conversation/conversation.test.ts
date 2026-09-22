@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import {
-  canCompleteConversation,
   canArchiveConversation,
   canJoinConversation,
   canLeaveConversation,
@@ -9,30 +8,14 @@ import {
   isArtifactVisible,
 } from "../../../src/entities/conversation/conversation";
 
-describe("canCompleteConversation", () => {
-  it("active can be completed", () => {
-    expect(canCompleteConversation("active")).toBe(true);
-  });
-
-  it("completed cannot be completed again", () => {
-    expect(canCompleteConversation("completed")).toBe(false);
-  });
-
-  it("archived cannot be completed", () => {
-    expect(canCompleteConversation("archived")).toBe(false);
-  });
-});
-
+/** F20260922cgrp：弱状态两态管理——completed 退役（canCompleteConversation 一并删除），
+ *  对话只剩 active -> archived 单向转换，archived 为终态 */
 describe("canArchiveConversation", () => {
-  it("completed can be archived", () => {
-    expect(canArchiveConversation("completed")).toBe(true);
+  it("active can be archived", () => {
+    expect(canArchiveConversation("active")).toBe(true);
   });
 
-  it("active cannot be archived", () => {
-    expect(canArchiveConversation("active")).toBe(false);
-  });
-
-  it("archived cannot be archived again", () => {
+  it("archived cannot be archived again (终态)", () => {
     expect(canArchiveConversation("archived")).toBe(false);
   });
 });
