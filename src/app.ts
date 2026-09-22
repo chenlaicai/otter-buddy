@@ -457,22 +457,33 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
    *  ensureConnection 幂等命中旧 connection，getCurrentConversation 返回
    *  「已建线」旧对话，新建线静默失效）。查到才释放（幂等，无绑定不动）
    *  F20260922wxeg：删号即删线（搭档指令 9/22：移除助理时对应的对话也要直接
-   *  删除移除）——metadata.assistantConversationId 存在即归档（本账号 provision
-   *  建的那条）。与活跃绑定判等的旧护栏有两条漏删路径（/out 后删号、/in 挪线后
-   *  删号，检视 S1），且误伤场景本就不成立： archived 对话被 /in 时会被
-   *  enterConversation 状态校验拒绝（仅 active 可进），不存在「我建的对话被归档
-   *  后还能被别的连接用」的受害者。防误删的真护栏是归属标记本身。 */
+   *  删除移除）——归属判定双源：metadata.assistantConversationId（本账号
+   *  provision 建线时写入，精确归属）优先；存量 connection（该键写入前的线上
+   *  数据）无此键，兑底用当前活跃绑定对话（delta 复核 N1：否则存量线删号恒
+   *  不归档，bug 症状原样复现）。占用护栏（N2）：归档目标当前被别的连接绑定
+   *  时跳过归档（防「/out→别的连接挪进→删号」时序反向误伤占用中对话）。
+   *  archived 对话本身不可再被 /in（enterConversation 状态校验），无后续受害者。 */
   const releaseWeixinConnectionAndArchiveLine = async (accountId: string): Promise<void> => {
     try {
       const conn = await repos.connection.getByExternalId(accountId);
       if (!conn) return;
-      const ownedConversationId = conn.metadata?.assistantConversationId;
-      if (typeof ownedConversationId === "string") {
-        await uc.manageConversation.archive(ownedConversationId).catch((err) => {
-          logger.warn("Weixin account deleted; assistant conversation archive failed", { accountId, conversationId: ownedConversationId, error: err instanceof Error ? err.message : String(err) });
-        });
-      }
       const session = await repos.connection.getActiveSession(conn.id);
+      const ownedConversationId =
+        typeof conn.metadata?.assistantConversationId === "string"
+          ? conn.metadata.assistantConversationId
+          : session?.conversationId;
+      if (ownedConversationId) {
+        // 占用护栏：目标对话被别的连接活跃绑定（别的连接 /in 挪进）→ 不归档
+        const occupying = await repos.connection.getActiveSessionByConversation(ownedConversationId);
+        const occupiedByOther = occupying && occupying.connectionId !== conn.id;
+        if (occupiedByOther) {
+          logger.info("Weixin account deleted; conversation occupied by another connection, skip archive", { accountId, conversationId: ownedConversationId });
+        } else {
+          await uc.manageConversation.archive(ownedConversationId).catch((err) => {
+            logger.warn("Weixin account deleted; assistant conversation archive failed", { accountId, conversationId: ownedConversationId, error: err instanceof Error ? err.message : String(err) });
+          });
+        }
+      }
       if (session) await repos.connection.releaseSession(session.id, new Date().toISOString());
     } catch (err) {
       // 清理失败不阻断删号主链（下次删号/重扫可重试）；留日志供诊断
@@ -531,7 +542,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       }
       // 已有 active 绑定 = 已建过线（幂等：不重复建，返回当前）
       const existing = await uc.manageConnection.getCurrentConversation(connection.id);
-      if (existing) return { conversationId: existing.id, title: existing.title };
+      if (existing) {
+        // F20260922wxeg delta 复核 N1：幂等分支补写归属 metadata——存量 connection
+        // （该键写入前的线上数据）走此分支时补记，删号归档的归属判定不再断键
+        if (typeof connection.metadata?.assistantConversationId !== "string") {
+          await repos.connection.mergeMetadata(connection.id, { assistantConversationId: existing.id }).catch((err) => {
+            logger.warn("Weixin provision: assistantConversationId backfill failed（删号时对话归档将走绑定兑底）", { accountId, conversationId: existing.id, error: err instanceof Error ? err.message : String(err) });
+          });
+        }
+        return { conversationId: existing.id, title: existing.title };
+      }
       const conv = await uc.assistantSession.ensureAssistantConversation({
         connectionId: connection.id,
         channel: "weixin",

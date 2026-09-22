@@ -75,11 +75,11 @@ created_at: 2026-09-22
 
 恢复路径闭环：删号重扫 → 新 connection 无 lastChatId → 用户发第一条消息 → noteChatId 重建出站锚 → 回复恢复。与 context_token 的既有恢复语义（「对方需先发一条消息建立会话」）一致。
 
-### P2 删号连删对话（归属标记即归档）
+### P2 删号连删对话（归属双源 + 占用护栏，delta 复核后定稿）
 
-- provision 建线成功后在 connection metadata 记 `assistantConversationId`（这条线建出来的对话）；写入失败记 warn（删号时该对话将残留，可手动归档）
-- `onWeixinAccountDeleted`：**metadata.assistantConversationId 存在即归档**（`manageConversation.archive` 软删：列表消失、数据保留、工作区清理复用既有链），随后释放活跃绑定（如有）。
-- **为何不做「与活跃绑定判等」护栏**（处置轮修订，检视 S1）：判等有两条漏删路径——/out 后删号（无活跃绑定直接跳过）与 /in 挪线后删号（判等失败）——搭档「移除助理连删对话」的指令在边缘路径落空。而误伤场景本就不成立：archived 对话被 /in 时会被 enterConversation 状态校验拒绝（仅 active 可进），不存在「归档后还能被别的连接继续用」的受害者。防误删的真护栏是归属标记本身，不是绑定判等。
+- provision 建线成功后在 connection metadata 记 `assistantConversationId`（这条线建出来的对话）；**幂等分支（已有 active 绑定）补写该键**——存量 connection（该键写入前的线上数据）走幂等分支时补记，归属判定不断键（delta N1）
+- `onWeixinAccountDeleted`：归档归属**双源判定**——`metadata.assistantConversationId`（精确归属）优先，缺键时兑底当前活跃绑定对话（存量线兜底）；归档后释放活跃绑定（如有）
+- **占用护栏**（delta N2）：归档目标被**别的连接**活跃绑定时跳过归档记 info——防「/out → 别的连接挪进对话 → 删号」时序反向误伤占用中对话。archived 对话本身不可再被 /in（enterConversation 状态校验），无后续受害者
 - 前端 `handleDeleteWeixinAccount`：确认文案改为「对应的助理对话将一并删除」，删除后刷新助理对话列表；同号覆盖弹窗文案同步修正（「覆盖会删除旧连接及其助理对话（对话历史随之移除）」——处置轮修订，原文案「历史保留可回看」与归档行为矛盾，检视 S2）
 
 覆盖流程（confirmOverwrite 删旧号）自动获得新语义：旧号建的助理对话随删号归档——与搭档「覆盖移除」预期一致。
