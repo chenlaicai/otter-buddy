@@ -620,30 +620,47 @@ const MAIN_WRITE_BLOCK_MSG = "当前 bash 工作目录在主仓（未 cd 到 wor
 
 /** 主仓写操作形态（F20260922scwd）：重定向/heredoc/python patch/git 写族 */
 const MAIN_WRITE_PATTERNS = [
-  /(?:^|[;&\n]|&&|\|\|)\s*(?:>|>>|<<<)\s*[^|&;\n]+|(?<!['"\w])>>?\s*[^|&;\n'"]+/,  // 重定向（含 echo x > file 中段形态）
+  /(?:^|[;&\n]|&&|\|\|)\s*(?:>|>>|<<<)\s*[^|&;\n]+|(?<!["'\w])\d*>>?\s*[^|&;\n'"]+/,  // 重定向（含 echo x > file 中段形态 + 2> 数字前缀）
   /(?:^|&&|\|\||[;&\n])\s*python3?\s+-\s*<<[/"']?/,       // python heredoc patch
   /(?:^|&&|\|\||[;&\n])\s*git\s+(?:commit|rebase|merge|cherry-pick|apply|stash\s+push)\b/,  // git 写族
 ] as const;
 
-/** 提取重定向目标路径（去引号，取 > 后第一个词元） */
+/** 提取重定向目标路径（去引号，取 > 后第一个词元；剥 2>/1> 数字前缀） */
 function extractRedirectTarget(command: string): string | null {
-  const m = command.match(/>>?\s*([^|&;\n'"\s]+)/);
-  return m?.[1]?.replace(/^["']|["']$/g, "") ?? null;
+  const m = command.match(/\d*>>?\s*["']?([^|&;\n'"\s]+)/);
+  return m?.[1] ?? null;
+}
+
+/** cd 段精确判定：段首 cd（非引号内文本、非命令中段的巧合词元）且目标非平凡。
+ *  「含 cd 即放行」的整条豁免过粗（检视严重 1：`git commit && cd /tmp` 写在 cd 前、
+ *  `echo 'cd /x' > file` 引号假 cd、`cd .` 平凡 cd 全部绕过）——必须段级解析。
+ *  更进一步：cd 必须是命令的**第一段**（检视严重 1a 补：`git commit && cd /tmp` 的 cd 在写之后，
+ *  写在 cd 前照样落主仓）——只有 cd 先行后续的相对路径写才按 cd 后语义理解。 */
+function hasRealCdSegment(command: string): boolean {
+  const segments = command.split(/&&|\|\||[;&\n]/).map(s => s.trim()).filter(Boolean);
+  const first = segments[0];
+  if (!first) return false;
+  const m = first.match(/^cd\s+(.+)$/);
+  if (!m) return false;
+  const target = m[1].replace(/^["']|["']$/g, "").trim();
+  // 平凡 cd（. / 空）不算真实切换
+  return target !== "" && target !== ".";
 }
 
 /** 主仓写检测（F20260922scwd）：未 cd 时拦截落点为主仓的写命令。
  *  与 #1038 数据破坏检测的差异：不跟踪 cd（感知对齐方案下 LLM 需显式 cd），
  *  只做「当前文本是否含主仓写形态」的静态判定——简单可靠，无状态。 */
+// eslint-disable-next-line complexity -- mimo 终审处置后豁免分支增至 4（首段 cd/echo 纯重定向/data 目标/绝对路径非主仓），每分支对应一条已实证的绕过形态，合并会牺牲「一形态一分支」的可读性
 function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: string): string | null {
   if (!projectRoot) return null; // 无 projectRoot 时保守放行（与 resolvesToMainData 同策略）
-  // 含 cd 的命令：LLM 显式切换了目录，按 cd 后语义理解——不拦（正道）
-  if (/\bcd\s+[^&|;\n]/.test(command)) return null;
-  // #1038 语义兼容：echo '...' >> file 形态，引号内含 rm/mv/find 敏感词元且目标非 data/ → 放行
-  // （#1038 判定引号内是文本不是命令；新守卫的重定向拦截不能把 #1038 放行的形态再拦回来）
-  if (/>>?\s*['"]?[^'"\s]*data[^'"\s]*['"]?/.test(command)) {
-    // 重定向目标含 data/ 路径 → 不豁免（可能真是写 data/ 破坏）
-  } else if (/echo\s+['"].*\b(?:rm|mv|find)\b.*['"].*>>?/.test(command)) {
-    return null; // echo 'rm ...' >> file：引号内文本，目标非 data/，与 #1038 同口径放行
+  // 段首真 cd 才放行（检视严重 1 处置：整条豁免 → 段级精确判定，写在 cd 前的/引号假 cd/平凡 cd 不豁免）
+  if (hasRealCdSegment(command)) return null;
+  // #1038 语义兼容：echo '...' >> file 形态，引号内含 rm/mv/find 敏感词元且目标非 data/ → 放行。
+  // 豁免粒度收窄到重定向段（检视严重 1 处置）：整条 return null 会连带放行 && 后的 git 写族
+  // （`echo 'find x' > notes.md && git commit -m y` 的 commit 被误豁免）——只豁免纯重定向命令。
+  if (!/&&|\|\||[;\n]/.test(command) && !/>>?\s*['"]?[^'"\s]*data[^'"\s]*['"]?/.test(command)
+      && /echo\s+['"].*\b(?:rm|mv|find)\b.*['"].*>>?/.test(command)) {
+    return null; // echo 'rm ...' >> file：引号内文本，目标非 data/，无复合命令，与 #1038 同口径放行
   }
   // 主仓写形态命中 → 拦（但绝对路径写非主仓放行）
   for (const pattern of MAIN_WRITE_PATTERNS) {

@@ -20,6 +20,13 @@ causal_links:
   from:
     - F20260922pmgd
 
+intent:
+  problem: "bash 每条命令独立 shell（cd 不跨命令保持）与 LLM 终端心理模型系统性冲突，cwd 漂移事故频发（2026-09-22 大獭 4-5 次 heredoc/patch/commit 落主仓）。工具描述层需声明无状态架构 + 输出层注入 [cwd:] 前缀让误差显式化"
+  expected_effect: "bash 输出含 [cwd: <dir>] 前缀（成功/错误双路径）；bash 工具描述含 independent shell 声明；未 cd 时主仓写命令被拦截并给出正道指引；Golden Gate 既有场景不回归"
+  verify_by:
+    type: capability_test
+    reason: "工具描述层行为引导（与 F20260904cg77 同型），以单测锁定前缀注入与拦截语义 + golden 场景集验证不回归；[cwd:] 感知对齐效果为后续观察指标"
+
 change_type: feature
 tags: [bash-guard, cwd, worktree, session-hygiene, harness]
 capability_test: tests/frameworks/agent/tool-description-overrides.test.ts

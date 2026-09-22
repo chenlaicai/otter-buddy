@@ -1113,3 +1113,60 @@ describe("F20260922scwd 主仓写拦截（感知对齐保护闸）", () => {
     expect(result).not.toBeNull();
   });
 });
+
+describe("F20260922scwd 检视严重 1/2 绕过形态回归（mimo 终审检视）", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+
+  // ── 严重 1a：写在 cd 前的复合命令不豁免 ──
+  it("git commit -m x && cd /tmp（写在 cd 前）→ 拦截", () => {
+    const result = checkBashCommandSafety("git commit -m x && cd /tmp", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  // ── 严重 1b：引号内假 cd 不豁免 ──
+  it("echo 'cd /x' > file.txt（引号文本假 cd + 重定向写主仓）→ 拦截", () => {
+    const result = checkBashCommandSafety("echo 'cd /x' > file.txt", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  // ── 严重 1c：平凡 cd 不豁免 ──
+  it("git commit && cd .（平凡 cd）→ 拦截", () => {
+    const result = checkBashCommandSafety("git commit && cd .", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  // ── 严重 1d：echo 豁免连带 git 写族不豁免 ──
+  it("echo 'find x' > notes.md && git commit -m y（echo 豁免连带 git 写）→ 拦截", () => {
+    const result = checkBashCommandSafety("echo 'find x' > notes.md && git commit -m y", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  // ── 严重 2：数字前缀重定向 ──
+  it("python3 t.py 2> error.log（2> 数字前缀重定向落主仓）→ 拦截", () => {
+    const result = checkBashCommandSafety("python3 t.py 2> error.log", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("python3 t.py 2> /wt/error.log（2> 绝对路径写非主仓）→ 放行", () => {
+    const result = checkBashCommandSafety("python3 t.py 2> /wt/error.log", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  // ── 正道保持：真 cd 段首仍放行 ──
+  it("cd /wt && git commit -m x（段首真 cd）→ 放行", () => {
+    const result = checkBashCommandSafety("cd /wt && git commit -m x", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  it("cd worktree && echo x > file.txt（段首真 cd + 相对路径写）→ 放行", () => {
+    const result = checkBashCommandSafety("cd worktree && echo x > file.txt", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  // ── #1038 语义保持：纯 echo 引号文本仍放行 ──
+  it("echo 'rm -rf data/metrics' >> notes.md（纯 echo 引号文本无复合）→ 放行（#1038 语义保持）", () => {
+    const result = checkBashCommandSafety("echo 'rm -rf data/metrics' >> notes.md", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+});
