@@ -95,6 +95,19 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     }
   }
 
+  /** Web 消息发送者标签解析（复杂度拆出；无渠道快照用全局名，降级「用户」） */
+  private async resolveSenderLabel(): Promise<string> {
+    try {
+      const globalName = this.settingsRepo
+        ? (await this.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim()
+        : undefined;
+      return globalName || "用户";
+    } catch {
+      // 标签解析异常不应吞掉整个投递
+      return "用户";
+    }
+  }
+
   /** entry.user 出站：Web 用户消息同步到微信（防回环：仅投 source=web） */
   private async deliverUserEntryToWeixin(conversationId: string, event: SSEEvent): Promise<void> {
     const data = event.data as { body?: string; source?: string };
@@ -109,16 +122,7 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     const target = this.resolveTarget(connection.id, connection);
     if (!target) return;
 
-    // Web 消息无渠道快照：显示全局名，降级「用户」（与旧 resolveSenderLabel 语义一致）
-    let senderLabel = "用户";
-    try {
-      const globalName = this.settingsRepo
-        ? (await this.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim()
-        : undefined;
-      if (globalName) senderLabel = globalName;
-    } catch {
-      // 标签解析异常不应吞掉整个投递
-    }
+    const senderLabel = await this.resolveSenderLabel();
 
     const projected = projectForChannel(data.body, {
       webBaseUrl: this.webBaseUrl,

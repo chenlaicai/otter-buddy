@@ -452,6 +452,33 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const statsQuery = new SqliteStatsQuery(db);
   const queryOtterProfile = new QueryOtterProfile(repos.otter, otterConfigProvider, modelPool, logger, { resourceLoader: resourceLoader as any, statsQuery });
 
+  /** F20260921wxba：释放 bot 锚 connection 的活跃绑定——删号后重扫建新线时，
+   *  新 conversation 能正常绑上（旧代码删号不清绑定：账号复用 id 时重扫后
+   *  ensureConnection 幂等命中旧 connection，getCurrentConversation 返回
+   *  「已建线」旧对话，新建线静默失效）。查到才释放（幂等，无绑定不动）
+   *  F20260922wxeg：释放前归档「这条线建出来的助理对话」（搭档指令 9/22：
+   *  移除助理时对应的对话也要直接删除移除——删号即删线，Web 侧不留残对话）。
+   *  归属护栏：只归档 connection.metadata.assistantConversationId 指向且当前
+   *  绑定的对话（本账号 provision 建的那条），用户 /in 挪线不误伤别的对话。 */
+  const releaseWeixinConnectionAndArchiveLine = async (accountId: string): Promise<void> => {
+    try {
+      const conn = await repos.connection.getByExternalId(accountId);
+      if (!conn) return;
+      const session = await repos.connection.getActiveSession(conn.id);
+      if (!session) return;
+      const ownedConversationId = conn.metadata?.assistantConversationId;
+      if (typeof ownedConversationId === "string" && session.conversationId === ownedConversationId) {
+        await uc.manageConversation.archive(ownedConversationId).catch((err) => {
+          logger.warn("Weixin account deleted; assistant conversation archive failed", { accountId, conversationId: ownedConversationId, error: err instanceof Error ? err.message : String(err) });
+        });
+      }
+      await repos.connection.releaseSession(session.id, new Date().toISOString());
+    } catch (err) {
+      // 清理失败不阻断删号主链（下次删号/重扫可重试）；留日志供诊断
+      logger.warn("Weixin account deleted; connection release failed", { accountId, error: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
   /** #576（F20260901emps）：能力库页面数据源——ResourceLoader 适配 SkillDirectory 端口。
    *  与 otter 实际加载的 skill 一致（页面所见即系统所载），替代前端静态快照。
    *  warmup 前 resourceLoader 可能为 null——返回空列表，前端展示显式空态（不静默空白） */
@@ -517,33 +544,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       // 它不再拉起新轮询，长轮询 35s 超时后自然停止）
       const stopped = stopWeixinPoller(accountId, extraWeixinPollers);
       if (!stopped && weixinPollers) stopWeixinPoller(accountId, weixinPollers);
-      // F20260921wxba：释放 bot 锚 connection 的活跃绑定——删号后重扫建新线时，
-      // 新 conversation 能正常绑上（旧代码删号不清绑定：账号复用 id 时重扫后
-      // ensureConnection 幂等命中旧 connection，getCurrentConversation 返回
-      // 「已建线」旧对话，新建线静默失效）。查到才释放（幂等，无绑定不动）
-      // F20260922wxeg：释放前归档「这条线建出来的助理对话」（搭档指令 9/22：
-      // 移除助理时对应的对话也要直接删除移除——删号即删线，Web 侧不留残对话）。
-      // 归属护栏：只归档 connection.metadata.assistantConversationId 指向的对话
-      // （本账号 provision 建的那条），用户后来把连接 /in 到别的对话不误伤。
-      try {
-        const conn = await repos.connection.getByExternalId(accountId);
-        if (conn) {
-          const session = await repos.connection.getActiveSession(conn.id);
-          const ownedConversationId = conn.metadata?.assistantConversationId;
-          if (session) await repos.connection.releaseSession(session.id, new Date().toISOString());
-          if (
-            typeof ownedConversationId === "string" &&
-            session?.conversationId === ownedConversationId
-          ) {
-            await uc.manageConversation.archive(ownedConversationId).catch((err) => {
-              logger.warn("Weixin account deleted; assistant conversation archive failed", { accountId, conversationId: ownedConversationId, error: err instanceof Error ? err.message : String(err) });
-            });
-          }
-        }
-      } catch (err) {
-        // 清理失败不阻断删号主链（下次删号/重扫可重试）；留日志供诊断
-        logger.warn("Weixin account deleted; connection release failed", { accountId, error: err instanceof Error ? err.message : String(err) });
-      }
+      await releaseWeixinConnectionAndArchiveLine(accountId);
       // #592：清理关联的活跃登录会话——开着登录页又去删账号的竞态场景，不清理
       // 的话扫码确认后账号重新落盘（「删了又复活」）。非终态会话置 cancelled；
       // 若扫码已在后台完成（accountId 已回填）连带清同扫码人的其它会话。已终态
