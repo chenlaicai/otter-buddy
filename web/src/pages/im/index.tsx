@@ -159,11 +159,13 @@ export default function ImPage() {
   }, [loadChannelStatus, loadWeixinAccounts, loadAssistantConversations])
 
   const handleDeleteWeixinAccount = async (accountId: string) => {
-    if (!confirm('确定删除该微信账号？删除后需重新扫码')) return
+    // F20260922wxeg：删号即删线（后端会连同助理对话一起移除）——确认文案说清后果
+    if (!confirm('确定移除该助理？对应的助理对话将一并删除，之后需重新扫码建线')) return
     try {
       await api.deleteWeixinAccount(accountId)
       showToast('已删除', 'success')
       loadWeixinAccounts()
+      loadAssistantConversations()
       loadChannelStatus()
     } catch {
       showToast('删除失败', 'error')

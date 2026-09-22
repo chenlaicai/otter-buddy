@@ -98,6 +98,17 @@ export class WeixinMessageProcessor {
     const anchor = this.deps.botAccountId ?? fromUserId;
     const connection = await this.deps.manageConnection.ensureConnection(anchor, anchor, "weixin");
 
+    // F20260922wxeg：出站目标随入站刷新（与飞书 noteChatId 同构）——bot 锚定后
+    // connection.externalId 是 bot 账号 id（路由锚）而非收信人，真实收信人
+    // （fromUserId=ilinkUserId，微信侧稳定身份）记到 metadata.lastChatId，
+    // 出站经 resolveReplyTarget 取回。账号被删重扫换新 accountId 后，新 connection
+    // 无此值——用户第一条入站消息在此重建，确保「发一条消息即可恢复回复」成立。
+    if (this.deps.botAccountId && fromUserId !== this.deps.botAccountId) {
+      await this.deps.manageConnection.noteChatId(connection.id, fromUserId).catch((err) => {
+        this.deps.logger.warn("Weixin noteChatId failed", { fromUserId, error: err instanceof Error ? err.message : String(err) });
+      });
+    }
+
     if (!(await this.handleInbound(fromUserId, connection.id, msg))) return;
   }
 
