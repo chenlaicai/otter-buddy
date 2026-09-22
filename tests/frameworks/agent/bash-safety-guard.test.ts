@@ -1170,3 +1170,56 @@ describe("F20260922scwd 检视严重 1/2 绕过形态回归（mimo 终审检视�
     expect(result).toBeNull();
   });
 });
+
+describe("F20260922scwd delta D1/D2 绕过形态回归（mimo 二轮检视）", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+
+  // ── D1：abs-target 豁免不跨 pattern 泄漏 ──
+  it("git commit -m x > /dev/null（git 写族 + 绝对路径重定向，高频尾缀）→ 拦截", () => {
+    const result = checkBashCommandSafety("git commit -m x > /dev/null", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("git commit -m x 2> /dev/null（git 写族 + 2> 绝对路径）→ 拦截", () => {
+    const result = checkBashCommandSafety("git commit -m x 2> /dev/null", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("echo 'rm -rf' && git commit -m x > /dev/null（原反例 4 双根因）→ 拦截", () => {
+    const result = checkBashCommandSafety("echo 'rm -rf' && git commit -m x > /dev/null", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  // ── D2：单 & / | 复合判定 ──
+  it("echo 'find x' > notes.md & git commit -m y（单 & 后台连带 git 写族）→ 拦截", () => {
+    const result = checkBashCommandSafety("echo 'find x' > notes.md & git commit -m y", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("cd /wt & git commit -m y（cd 后台子 shell，父 shell cwd 不变）→ 拦截", () => {
+    const result = checkBashCommandSafety("cd /wt & git commit -m y", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("cd /wt | git commit -m y（管道切断 cd 效应）→ 拦截", () => {
+    const result = checkBashCommandSafety("cd /wt | git commit -m y", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  // ── 正道保持 ──
+  it("echo x > /wt/file.txt（绝对路径写非主仓，重定向豁免仍生效）→ 放行", () => {
+    const result = checkBashCommandSafety("echo x > /wt/file.txt", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  it("python3 t.py 2> /wt/error.log（2> 绝对路径写非主仓）→ 放行", () => {
+    const result = checkBashCommandSafety("python3 t.py 2> /wt/error.log", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  it("cd /wt && git commit -m x（首段真 cd）→ 放行", () => {
+    const result = checkBashCommandSafety("cd /wt && git commit -m x", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+});

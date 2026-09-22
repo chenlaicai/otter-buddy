@@ -619,11 +619,18 @@ function withDiagnostics(message: string, scanText: string, mainPid: number | nu
 const MAIN_WRITE_BLOCK_MSG = "当前 bash 工作目录在主仓（未 cd 到 worktree）。落点为主仓的写命令被拦截——若目标在 worktree，请先 cd <worktree 路径> 再执行；若确实要写主仓，用绝对路径（写主仓受 R1 红线约束，请确认意图）。";
 
 /** 主仓写操作形态（F20260922scwd）：重定向/heredoc/python patch/git 写族 */
+const REDIRECT_PATTERN = /(?:^|[;&\n]|&&|\|\|)\s*(?:>|>>|<<<)\s*[^|&;\n]+|(?<!["'\w])\d*>>?\s*[^|&;\n'"]+/;  // 重定向（含 echo x > file 中段形态 + 2> 数字前缀）
 const MAIN_WRITE_PATTERNS = [
-  /(?:^|[;&\n]|&&|\|\|)\s*(?:>|>>|<<<)\s*[^|&;\n]+|(?<!["'\w])\d*>>?\s*[^|&;\n'"]+/,  // 重定向（含 echo x > file 中段形态 + 2> 数字前缀）
+  REDIRECT_PATTERN,
   /(?:^|&&|\|\||[;&\n])\s*python3?\s+-\s*<<[/"']?/,       // python heredoc patch
-  /(?:^|&&|\|\||[;&\n])\s*git\s+(?:commit|rebase|merge|cherry-pick|apply|stash\s+push)\b/,  // git 写族
+  // D2：段首锚含单 | / &（`cd /wt | git commit` / `& git commit` 同样是新命令段）
+  /(?:^|[|&]|&&|\|\||[;\n])\s*git\s+(?:commit|rebase|merge|cherry-pick|apply|stash\s+push)\b/,  // git 写族
 ] as const;
+
+/** 复合命令判定（D2 处置：单 & 后台 / | 管道同样切开命令段——
+ *  `cd /wt & git commit` 的 cd 在后台子 shell，父 shell cwd 不变，commit 落主仓；
+ *  `echo 'find x' > f & git commit` 与 && 形态一字符之差） */
+const COMPOUND_SEPARATOR = /&&|\|\||[;&\n|]/;
 
 /** 提取重定向目标路径（去引号，取 > 后第一个词元；剥 2>/1> 数字前缀） */
 function extractRedirectTarget(command: string): string | null {
@@ -631,19 +638,16 @@ function extractRedirectTarget(command: string): string | null {
   return m?.[1] ?? null;
 }
 
-/** cd 段精确判定：段首 cd（非引号内文本、非命令中段的巧合词元）且目标非平凡。
- *  「含 cd 即放行」的整条豁免过粗（检视严重 1：`git commit && cd /tmp` 写在 cd 前、
- *  `echo 'cd /x' > file` 引号假 cd、`cd .` 平凡 cd 全部绕过）——必须段级解析。
- *  更进一步：cd 必须是命令的**第一段**（检视严重 1a 补：`git commit && cd /tmp` 的 cd 在写之后，
- *  写在 cd 前照样落主仓）——只有 cd 先行后续的相对路径写才按 cd 后语义理解。 */
+/** cd 段精确判定（检视严重 1/D2 处置）：首段真 cd 且无后台/管道符才豁免。
+ *  首段 cd（`git commit && cd /tmp` 写在 cd 前不算）、非平凡目标（cd . 不算）、
+ *  无 & / |（后台子 shell / 管道切断 cd 父 shell 效应，`cd /wt & git commit` 落主仓）。 */
 function hasRealCdSegment(command: string): boolean {
-  const segments = command.split(/&&|\|\||[;&\n]/).map(s => s.trim()).filter(Boolean);
-  const first = segments[0];
+  if (/(?<!&)&(?!&)|\|/.test(command)) return false; // (?<!&)&(?!&) 防 && 误命中
+  const first = command.split(/&&|\|\||[;\n]/).map(s => s.trim()).filter(Boolean)[0];
   if (!first) return false;
   const m = first.match(/^cd\s+(.+)$/);
   if (!m) return false;
   const target = m[1].replace(/^["']|["']$/g, "").trim();
-  // 平凡 cd（. / 空）不算真实切换
   return target !== "" && target !== ".";
 }
 
@@ -658,22 +662,29 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
   // #1038 语义兼容：echo '...' >> file 形态，引号内含 rm/mv/find 敏感词元且目标非 data/ → 放行。
   // 豁免粒度收窄到重定向段（检视严重 1 处置）：整条 return null 会连带放行 && 后的 git 写族
   // （`echo 'find x' > notes.md && git commit -m y` 的 commit 被误豁免）——只豁免纯重定向命令。
-  if (!/&&|\|\||[;\n]/.test(command) && !/>>?\s*['"]?[^'"\s]*data[^'"\s]*['"]?/.test(command)
+  // D2：复合判定含单 & / |（后台/管道同样连带）。
+  if (!COMPOUND_SEPARATOR.test(command) && !/>>?\s*['"]?[^'"\s]*data[^'"\s]*['"]?/.test(command)
       && /echo\s+['"].*\b(?:rm|mv|find)\b.*['"].*>>?/.test(command)) {
     return null; // echo 'rm ...' >> file：引号内文本，目标非 data/，无复合命令，与 #1038 同口径放行
   }
-  // 主仓写形态命中 → 拦（但绝对路径写非主仓放行）
-  for (const pattern of MAIN_WRITE_PATTERNS) {
+  // 重定向形态单独判定（D1 处置：abs-target 豁免只适用重定向，不跨 pattern 泄漏——
+  // git 写族落点是 .git/cwd 不是重定向目标，`git commit -m x > /dev/null` 高频尾缀形态曾全豁免）
+  if (REDIRECT_PATTERN.test(command)) {
+    const target = extractRedirectTarget(command);
+    const isAbsNonMain = target && path.isAbsolute(target)
+      && (() => {
+        const r = path.normalize(projectRoot).toLowerCase();
+        const t = path.normalize(target).toLowerCase();
+        return !t.startsWith(r + path.sep) && t !== r;
+      })();
+    if (!isAbsNonMain) {
+      logger?.warn("[bash-safety-guard] BLOCKED main-checkout write via redirect (no cd)", { command: command.substring(0, 200) });
+      return MAIN_WRITE_BLOCK_MSG;
+    }
+  }
+  // heredoc / git 写族形态（无 abs-target 豁免——落点是 cwd/.git，与重定向目标无关）
+  for (const pattern of MAIN_WRITE_PATTERNS.slice(1)) {
     if (pattern.test(command)) {
-      // 重定向形态：提取目标路径，绝对路径且不在主仓下 → 放行
-      const target = extractRedirectTarget(command);
-      if (target && path.isAbsolute(target)) {
-        const normalizedRoot = path.normalize(projectRoot).toLowerCase();
-        const normalizedTarget = path.normalize(target).toLowerCase();
-        if (!normalizedTarget.startsWith(normalizedRoot + path.sep) && normalizedTarget !== normalizedRoot) {
-          continue; // 绝对路径写非主仓，检查下一个形态
-        }
-      }
       logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (no cd)", { command: command.substring(0, 200) });
       return MAIN_WRITE_BLOCK_MSG;
     }

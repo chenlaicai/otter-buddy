@@ -25,7 +25,7 @@ intent:
   expected_effect: "bash 输出含 [cwd: <dir>] 前缀（成功/错误双路径）；bash 工具描述含 independent shell 声明；未 cd 时主仓写命令被拦截并给出正道指引；Golden Gate 既有场景不回归"
   verify_by:
     type: capability_test
-    reason: "工具描述层行为引导（与 F20260904cg77 同型），以单测锁定前缀注入与拦截语义 + golden 场景集验证不回归；[cwd:] 感知对齐效果为后续观察指标"
+    reason: "工具描述层行为引导（与 F20260904cg77 同型），以单测锁定前缀注入与拦截语义 + golden 场景集验证不回归；[cwd:] 感知对齐效果为后续观察指标。Golden Gate 实跑记录：13 文件 47 用例全 skip（测试环境 llm.models 配置缺 handoffThresholdTokens，与本 PR 无关的环境缺陷）——能力验证由 197 守卫单测 + 9+9 绕过形态回归探针承载，golden 环境修复后补跑"
 
 change_type: feature
 tags: [bash-guard, cwd, worktree, session-hygiene, harness]
