@@ -72,17 +72,27 @@ describe("startWeixinChannels 冷启动降级（F20260831wxsp bugfix 4）", () =
   // 分支行为：无 weixin 段 + 无账号 → 空数组且不 warn（既有零配置行为不回归）。
   // 有账号分支由 build-app 级集成测试覆盖（装配链真实拉起）。
   it("无 weixin 段且无已登录账号：返回空数组（零配置首次使用，不误报）", () => {
-    const opts = {
-      appConfig: { weixin: undefined } as never,
-      repos: {} as never,
-      uc: {} as never,
-      agentInvoker: {} as never,
-      dispatchChainEngine: {} as never,
-      messageBroadcaster: {} as never,
-      logger,
-    };
-    const result = startWeixinChannels(opts);
-    expect(result).toEqual([]);
-    expect(logger.warn).not.toHaveBeenCalled();
+    // F20260922ctbf（#1098）：WeixinAccountStore(undefined) 默认读 ./data/weixin/accounts.json——
+    // 开发机有真实登录账号时本用例命中「孤儿账号降级」分支误报。隔离：chdir 到临时空目录，
+    // 相对路径自然落空（listAccounts 读不到文件 → []）。
+    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "wx-cold-"));
+    const cwd = process.cwd();
+    process.chdir(emptyDir);
+    try {
+      const opts = {
+        appConfig: { weixin: undefined } as never,
+        repos: {} as never,
+        uc: {} as never,
+        agentInvoker: {} as never,
+        dispatchChainEngine: {} as never,
+        messageBroadcaster: {} as never,
+        logger,
+      };
+      const result = startWeixinChannels(opts);
+      expect(result).toEqual([]);
+      expect(logger.warn).not.toHaveBeenCalled();
+    } finally {
+      process.chdir(cwd);
+    }
   });
 });
