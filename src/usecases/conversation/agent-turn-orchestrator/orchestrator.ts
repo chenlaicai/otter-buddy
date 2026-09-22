@@ -858,7 +858,7 @@ export class AgentTurnOrchestrator {
       context: { layer: "orchestrator", guardReason, retryCount: ctx.input.retryCount, toolCallCount: ctx.toolCallCount },
     }).catch((err) => {
       // L3 机制自身失败留痕（对照 recordGuardBounceTerminal 静默先例，采纳检视发现 8：升级机制失败不该无痕）
-      ctx.callbacks.logger.error('timeout_retry_exhausted healing_event write FAILED — L3 escalation data source degraded',
+      this.logger.error('timeout_retry_exhausted healing_event write FAILED — L3 escalation data source degraded',
         err instanceof Error ? err : new Error(String(err)),
         { component: 'AgentTurnOrchestrator', otterId: ctx.input.otterId, invokeId: ctx.input.invokeId, guardReason },
       );
