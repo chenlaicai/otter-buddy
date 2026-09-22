@@ -74,6 +74,18 @@ export type InvokeFn = (params: InvokeFnParams) => Promise<InvokeFnResult>;
  * 同时服务于 SSE 和非 SSE 两条路径，通过 invokeFn 注入解耦差异。
  */
 export class DispatchChainEngine {
+  /** F20260922ctxi：名册快照缓存（进程内纯运行时缓存，key=conversation:otter，重启自然重建）——
+   *  delta 注入对比基准：内容未变不重复注入，变化时重新注入并更新快照 */
+  private readonly rosterCache = new Map<string, string>();
+
+  /** F20260922ctxi：名册段消费——返回应拼接的段（""=未变不注入；首轮/变更返回 roster + 空行） */
+  private consumeRosterSegment(conversationId: string, otterId: string, roster: string): string {
+    const key = `${conversationId}:${otterId}`;
+    const prev = this.rosterCache.get(key);
+    this.rosterCache.set(key, roster);
+    return prev === roster ? "" : `${roster}\n\n`;
+  }
+
   constructor(
     private readonly deps: {
       conversationRepo: ConversationRepository;
@@ -220,13 +232,19 @@ export class DispatchChainEngine {
     /** F20260908rlcp：恢复侧 steer 去重——已消化的 msg id 从未读注入剔除 */
     excludeMessageIds?: Set<string>;
   }): Promise<ChainHopResult> {
-    const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder, triggerMessageId: _triggerMessageId, ledgerSource: _ledgerSource, chainSourceMessageIds: _chainSourceMessageIds, steerText } = params;
+    const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder, triggerMessageId, ledgerSource: _ledgerSource, chainSourceMessageIds: _chainSourceMessageIds, steerText } = params;
     const roster = await this.buildRoster(conversationId, senderId);
+
+    // F20260922ctxi：触发消息去重——触发 entry 已在「当前任务」段全文注入，从未读批剔除防双份
+    // （实测同一消息 269+257 字符双份）。幂等：triggerMessageId 若非 entry id（如 retry 的 invokeId）
+    // 不会命中未读集合，自然不过滤。
+    const excludeIds = new Set(params.excludeMessageIds ?? []);
+    if (triggerMessageId) excludeIds.add(triggerMessageId);
 
     const promises = targets.map(async otterId => {
       // F20260908rlcp：台账退役——起跑记账删除
       const messageWithContext = await this.buildMessageWithContext(
-        conversationId, otterId, userMessageContent, senderId, roster, params.excludeMessageIds
+        conversationId, otterId, userMessageContent, senderId, roster, excludeIds.size > 0 ? excludeIds : undefined
       );
       // #530 护栏 steer 文案前置注入：位置在消息开头，靠近生成点，注意力权重最高。
       // 解决 session 已 dispose 无法通过 session.steer 注入的生命周期问题。
@@ -785,12 +803,10 @@ export class DispatchChainEngine {
       idleWarning = await this.buildIdleOttersWarning(conversationId, otterId);
     } catch { /* 预警失败不影响主流程 */ }
 
-    // F20260829cach: 分钟级当前时间（Asia/Shanghai）——补偿 system prompt 日粒度锚点的新鲜度损失
+    // F20260829cach: 分钟级当前时间（Asia/Shanghai）——补偿 system prompt 日粒度锚点的新鲜度损失。
+    // 分钟级=每轮变化，按「有变化的才注入」原则合规，每轮注入。
     const now = new Date();
     const timeAnchor = now.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
-
-    // K2 收件箱预告已退役（台账退役后数据源不存在，F20260908rlcp）
-    const pendingPreview: string | null = null;
 
     // F20260913ctlv 彻底切换：未读注入读 entries（user/system/speak），messages 停写后旧数据源只会读到空集
     const unreadAll = this.deps.entryRepo
@@ -800,8 +816,11 @@ export class DispatchChainEngine {
     const filtered = excludeMessageIds ? unreadAll.filter(m => !excludeMessageIds.has(m.id)) : unreadAll;
     // F20260908rlcp：记录本批未读最大 seq（启动成功后推进游标；entries 序号）
     const batchMaxSeq = filtered.length > 0 ? Math.max(...filtered.map(m => m.sequenceNum)) : 0;
+    // F20260922ctxi：名册 delta 注入——内容未变（同对话同獭）时不重复拼接，仅首轮/变更时注入
+    const rosterSegment = this.consumeRosterSegment(conversationId, otterId, roster);
+
     if (filtered.length === 0) {
-      let result = `${roster}\n\n## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n${pendingPreview ?? ""}\n\n## 当前任务\n${userMessageContent}`;
+      let result = `${rosterSegment}## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 当前任务\n${userMessageContent}`;
       if (idleWarning) result += `\n\n${idleWarning}`;
       return { message: result, batchMaxSeq };
     }
@@ -823,7 +842,7 @@ export class DispatchChainEngine {
     };
     const formatted = filtered.map(formatEntry).join('\n');
 
-    let result = `${roster}\n\n## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n${pendingPreview ?? ""}\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
+    let result = `${rosterSegment}## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
     if (idleWarning) {
       result += `\n\n${idleWarning}`;
     }

@@ -612,3 +612,84 @@ describe("L2 安全词扫描接线（F20260826mwrd C3 Part 6）", () => {
   });
 });
 
+describe("上下文注入面 delta 化（F20260922ctxi）", () => {
+  it("名册 delta 注入：同 roster 不重复拼接，变更时重新注入", async () => {
+    const m = makeMocks();
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+
+    const first = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "user-1", "## 在场成员\n- 大獭");
+    expect(first.message).toContain("## 在场成员");
+
+    // 同 roster 重复调用 → 不再拼接（修复前每条消息都带一份逐字节相同的名册）
+    const second = await engine.buildMessageWithContext("conv-1", "otter-1", "再 hi", "user-1", "## 在场成员\n- 大獭");
+    expect(second.message).not.toContain("## 在场成员");
+    expect(second.message).toContain("## 当前任务\n再 hi");
+    expect(second.message).toContain("## 当前时间");
+
+    // roster 变化（成员进出/访客提示）→ 重新注入
+    const changed = await engine.buildMessageWithContext("conv-1", "otter-1", "yo", "user-1", "## 在场成员\n- 大獭\n- 小獭");
+    expect(changed.message).toContain("## 在场成员\n- 大獭\n- 小獭");
+  });
+
+  it("名册 delta 按獭隔离：同对话不同獭各自首轮注入", async () => {
+    const m = makeMocks();
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const roster = "## 在场成员\n- 大獭";
+
+    await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "user-1", roster);
+    const other = await engine.buildMessageWithContext("conv-1", "otter-2", "hi", "user-1", roster);
+    expect(other.message).toContain("## 在场成员");
+  });
+
+  it("触发消息从未读批剔除——同一文本只在「当前任务」出现一份", async () => {
+    const m = makeMocks();
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "e-trigger", entryType: "user", senderType: "user", senderId: "user-1", senderName: "张三", body: "任务原文ABC", sequenceNum: 7, invokeId: null, yieldTargets: null },
+      { id: "e-other", entryType: "user", senderType: "user", senderId: "user-1", senderName: "张三", body: "其他未读XYZ", sequenceNum: 6, invokeId: null, yieldTargets: null },
+    ]);
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const received: string[] = [];
+    await engine.executeChain({
+      conversationId: "conv-1",
+      userMessageContent: "任务原文ABC",
+      senderId: "user-1",
+      initialTargets: ["otter-1"],
+      triggerMessageId: "e-trigger",
+      invokeFn: async (params) => {
+        received.push(params.userMessageContent);
+        return { messageId: "m-x" };
+      },
+    });
+
+    expect(received).toHaveLength(1);
+    // 修复前同一文本双份（实测 269+257 字符）：对话历史一份 + 当前任务一份
+    expect(received[0].split("任务原文ABC").length - 1).toBe(1);
+    expect(received[0]).not.toContain("[张三] 任务原文ABC");
+    // 其他未读保留
+    expect(received[0]).toContain("其他未读XYZ");
+  });
+
+  it("triggerMessageId 非 entry id（如 retry 的 invokeId）时不误过滤", async () => {
+    const m = makeMocks();
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "e-1", entryType: "user", senderType: "user", senderId: "user-1", senderName: "张三", body: "旧消息", sequenceNum: 3, invokeId: null, yieldTargets: null },
+    ]);
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const received: string[] = [];
+    await engine.executeChain({
+      conversationId: "conv-1",
+      userMessageContent: "续跑指令",
+      senderId: "user-1",
+      initialTargets: ["otter-1"],
+      triggerMessageId: "inv-abc",
+      invokeFn: async (params) => {
+        received.push(params.userMessageContent);
+        return { messageId: "m-x" };
+      },
+    });
+    expect(received[0]).toContain("[张三] 旧消息"); // 未读保留，不过滤
+  });
+});
+

@@ -99,6 +99,7 @@ import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 // F20260826mwrd C3：高危 healing 事件提醒（Part 4 高危路由消费侧）
 import { healingAlertRegistry, renderHealingAlerts } from "@usecases/healing/healing-alert-registry";
 import { HandoffState, restoreHandoffContext, DEFAULT_CTX_MAX } from "./handoff-support";
+import { shouldInjectSessionPreamble } from "@frameworks/agent/session-helpers";
 import { MIN_SENSIBLE_CTX_WINDOW, type OtterContextWindowProvider } from "@usecases/ports/otter-context-window-provider";
 import { mapToSSEEvent, mapToInvokeEventInput, extractMessageEndUsage } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
@@ -233,7 +234,7 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
    
-  // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- F20260913ctlv 双路径迁移期；F20260920uhuc 轮边界水位触发器 +3 语句（时机权回收应用层）；F20260921otcl +invoke.start 身份透传 1 分支
+  // eslint-disable-next-line max-lines-per-function, complexity -- F20260913ctlv 双路径迁移期；F20260920uhuc 轮边界水位触发器 +3 语句（时机权回收应用层）；F20260921otcl +invoke.start 身份透传 1 分支
   private async invokeConversationInner(params: {
     otterId: string;
     conversationId: string;
@@ -289,7 +290,7 @@ export class AgentInvoker implements AgentTurnPort {
     this.logger.debug('Building dynamic context', { otterId });
     /** F20260818cbkr 二级触发：invoke 前按 healing_events 推导，命中先重启（消息尚未创建，重启后摘要随新 invoke 注入） */
     await this.circuitBreak?.maybeSecondaryCircuitBreak(otterId, conversationId);
-    const dynamicContext = await this.buildDynamicContext(otterId);
+    const dynamicContext = await this.buildDynamicContext(otterId, conversationId);
     // F20260826mwrd C3（Part 4）：高危 healing 事件提醒——仅 big 獭消费（编排者处置义务），
     // small 獭 invoke 不取队列（队列滞留，大獭下轮补提醒）。失败不阻断主流程（台账在，提醒可再等）。
     // otterType 查询与下方 otter 复用：此处仅取 type，会话中 otter 主体仍在 streaming 消息创建后取。
@@ -301,7 +302,6 @@ export class AgentInvoker implements AgentTurnPort {
         this.logger.info('Healing high alerts injected', { otterId, conversationId, count: alerts.length });
       }
     }
-    await this.injectWorkspacePath(dynamicContext, conversationId);
     this.logger.debug('Dynamic context built', { otterId, hasSummary: !!dynamicContext.sessionSummary, hasWorkspace: !!dynamicContext.workspacePath });
 
     this.logger.debug('Creating invoke (timeline model)', { otterId, conversationId });
@@ -699,11 +699,18 @@ export class AgentInvoker implements AgentTurnPort {
     this.agentInvoke.abort(otterId, invokeId);
   }
 
-  /** 构建 DynamicContext：会话摘要（前情）。记忆召回由 agent 通过 search_memory tool 主动触发 */
+  /** 构建 DynamicContext：会话摘要（前情）。记忆召回由 agent 通过 search_memory tool 主动触发。
+   *  F20260922ctxi：换世首轮注入——sessionSummary/workspacePath 仅在新世首轮注入（session 尚无
+   *  user 消息），后续轮次历史里已有原文，不再重复拼接（实测每轮重复 ~780 字符逐字节相同）。
+   *  F20260818cbkr 红线不破：熔断 restart / 水位交接后都是新 session（无 user 消息）→ 首轮注入 ✓ */
   private async buildDynamicContext(
     otterId: string,
+    conversationId: string,
   ): Promise<DynamicContext> {
     const ctx: DynamicContext = {};
+
+    // F20260922ctxi：首轮判定。entries 门面缺失（mock/旧装配）或读取失败 → 保守视为首轮（宁重复不丢失）
+    const isFirstTurn = await this.probeFirstTurn(otterId);
 
     try {
       let session = await this.manageSession.getActiveSession(otterId);
@@ -741,7 +748,7 @@ export class AgentInvoker implements AgentTurnPort {
         }
         }
       }
-      if (session?.summary) {
+      if (session?.summary && isFirstTurn) {
         ctx.sessionSummary = session.summary;
       }
     } catch (err) {
@@ -752,6 +759,11 @@ export class AgentInvoker implements AgentTurnPort {
 
     // F20260825hndf：从 otter_context 恢复交接上下文（借用式，消费即删）
     await restoreHandoffContext(otterId, ctx, this.manageContext, this.logger);
+
+    // F20260922ctxi：工作区路径恒定不变，同归首轮注入组（移自 invokeConversation 的每轮注入）
+    if (isFirstTurn) {
+      await this.injectWorkspacePath(ctx, conversationId);
+    }
 
     return ctx;
   }
@@ -1307,6 +1319,20 @@ export class AgentInvoker implements AgentTurnPort {
     // 低噪声可观测：每 otter 仅首饮打一次，部署后 grep 该事件即可验证解析链路
     this.logger.info('[handoff] ctxMax resolved', { otterId, ctxMax: resolved, source });
     return resolved;
+  }
+
+  /** F20260922ctxi：换世首轮判定探针（抽离独立方法守 buildDynamicContext 复杂度门禁）。
+   *  门面缺失（mock/旧装配）或读取失败 → 保守视为首轮（宁重复不丢失前情） */
+  private async probeFirstTurn(otterId: string): Promise<boolean> {
+    try {
+      const entries = await this.agentInvoke.readCurrentSessionEntries?.(otterId);
+      return entries ? shouldInjectSessionPreamble(entries) : true;
+    } catch (preambleErr) {
+      this.logger.warn('Session preamble probe failed, injecting conservatively', {
+        otterId, error: preambleErr instanceof Error ? preambleErr.message : String(preambleErr),
+      });
+      return true;
+    }
   }
 
   /**

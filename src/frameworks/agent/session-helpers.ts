@@ -310,6 +310,16 @@ export function buildOtterPrompt(config: string | OtterPromptConfig | undefined)
 }
 
 /**
+ * 换世首轮判定（F20260922ctxi）：session entries 中尚无 user 消息 = 新世首轮。
+ * 前情情报（会话摘要/工作区路径）只在首轮注入——每轮重复注入会在历史里线性堆积
+ * （实测同一份前世档案 636 字符 × N 轮逐字节重复）。
+ * 调用方在 entries 门面缺失/读取失败时应保守视为首轮（宁重复不丢失前情）。
+ */
+export function shouldInjectSessionPreamble(entries: Array<{ type: string; [key: string]: unknown }>): boolean {
+  return !entries.some(e => e.type === "message" && (e.message as { role?: string } | undefined)?.role === "user");
+}
+
+/**
  * 构建包含动态上下文的用户消息。
  * S1（R20260810piab）：system prompt（otterPrompt + identity）已改由 extension
  * before_agent_start handler 注入 system role，不再拼在 user message 里。
