@@ -61,6 +61,13 @@ function getExtractor(): Promise<Extractor> {
 
       const pipe = await pipeline("feature-extraction", settings.modelId, {
         dtype: "fp32",
+        // #1107: 钳制 onnxruntime intra-op 线程数。默认 = 物理核数，单条 embed 期间
+        // 线程池忙等自旋（SpinPause 不放核）把进程 CPU 打到 ~9 核，挤压主事件循环。
+        // embedding 是 worker 内串行队列处理，intra-op 2 线程足够（实测延迟仅微增）；
+        // OTTER_EMBED_INTRA_OP_THREADS 可覆盖（紧急调参逃生口，不进配置 schema）。
+        session_options: {
+          intraOpNumThreads: parseInt(process.env.OTTER_EMBED_INTRA_OP_THREADS ?? "2", 10),
+        },
       });
       return (text: string, options?: unknown) =>
         (pipe as (text: string, options?: unknown) => Promise<{ data: Float32Array; dims: number[] }>)(
