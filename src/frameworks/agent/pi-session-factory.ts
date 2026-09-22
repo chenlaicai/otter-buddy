@@ -856,7 +856,7 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /** 创建带工具配置的 AgentSession（F20260911pspl：invoke 级字段走寄存器，不再按 invoke 新建） */
-  // eslint-disable-next-line max-params, complexity, max-statements -- Phase 2: readOnly 参数增加工具过滤；F20260904cg77 描述覆写接线 +1 语句（覆写本体在 tool-description-overrides.ts，此处仅组装）
+  // eslint-disable-next-line max-params, complexity, max-statements, max-lines-per-function -- Phase 2: readOnly 参数增加工具过滤；F20260904cg77 描述覆写接线 +1 语句；F20260922scwd sessionCwd 注入 +1 语句（覆写本体在 tool-description-overrides.ts，此处仅组装）
   private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, sessionManager: SessionManager, register: InvokeRegister, readOnly?: boolean) {
     const conversationId = options?.conversationId ?? "";
     const otterToolNames = this.buildOtterToolWhitelist(otterType);
@@ -897,9 +897,12 @@ export class PiSessionFactory implements AgentGateway {
 
     // F20260904cg77（#776）：编码工具描述覆写（引导归位工具描述，readOnly 不覆写——
     // 合成路径工具已过滤，保持 prompt 最小）。机制见 tool-description-overrides.ts。
+    // F20260922scwd：bash 感知对齐——sessionCwd 传入用于 [cwd:...] 前缀注入。
+    const sessionCwd = process.cwd();
     const descriptionOverrides = readOnly ? [] : buildToolDescriptionOverrides(
-      buildPiBuiltinToolDefinitions(piCodingAgent as unknown as Record<string, unknown>, process.cwd()),
+      buildPiBuiltinToolDefinitions(piCodingAgent as unknown as Record<string, unknown>, sessionCwd),
       filteredCodingTools,
+      sessionCwd,
     );
 
     this.logger.debug('[createSession] Calling createAgentSession', { otterId, modelAlias: resolvedAlias });

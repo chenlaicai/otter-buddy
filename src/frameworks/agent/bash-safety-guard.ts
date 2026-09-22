@@ -517,6 +517,7 @@ function checkDataDirDestructive(command: string, logger?: Logger, projectRoot?:
   return null;
 }
 
+// eslint-disable-next-line complexity -- F20260922scwd 主仓写拦截并入 checkPidIndependentRules（+1 分支）；规则编排入口，拆分反而割裂「按优先级短路」连贯性
 function checkBashCommandSafetyOnText(
   text: string,
   mainPid: number,
@@ -614,11 +615,63 @@ function withDiagnostics(message: string, scanText: string, mainPid: number | nu
  * 脚本路径判定不依赖 PID 信息，仍需拦截主仓脚本 stop/restart（脚本层兜底已删，
  * 此处是唯一防线）；kill 族判定无 PID 可比对，保守放行。抽为独立函数控制主入口圈复杂度。
  */
+/** F20260922scwd：主仓写拦截文案（感知对齐保护闸） */
+const MAIN_WRITE_BLOCK_MSG = "当前 bash 工作目录在主仓（未 cd 到 worktree）。落点为主仓的写命令被拦截——若目标在 worktree，请先 cd <worktree 路径> 再执行；若确实要写主仓，用绝对路径（写主仓受 R1 红线约束，请确认意图）。";
+
+/** 主仓写操作形态（F20260922scwd）：重定向/heredoc/python patch/git 写族 */
+const MAIN_WRITE_PATTERNS = [
+  /(?:^|[;&\n]|&&|\|\|)\s*(?:>|>>|<<<)\s*[^|&;\n]+|(?<!['"\w])>>?\s*[^|&;\n'"]+/,  // 重定向（含 echo x > file 中段形态）
+  /(?:^|&&|\|\||[;&\n])\s*python3?\s+-\s*<<[/"']?/,       // python heredoc patch
+  /(?:^|&&|\|\||[;&\n])\s*git\s+(?:commit|rebase|merge|cherry-pick|apply|stash\s+push)\b/,  // git 写族
+] as const;
+
+/** 提取重定向目标路径（去引号，取 > 后第一个词元） */
+function extractRedirectTarget(command: string): string | null {
+  const m = command.match(/>>?\s*([^|&;\n'"\s]+)/);
+  return m?.[1]?.replace(/^["']|["']$/g, "") ?? null;
+}
+
+/** 主仓写检测（F20260922scwd）：未 cd 时拦截落点为主仓的写命令。
+ *  与 #1038 数据破坏检测的差异：不跟踪 cd（感知对齐方案下 LLM 需显式 cd），
+ *  只做「当前文本是否含主仓写形态」的静态判定——简单可靠，无状态。 */
+function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: string): string | null {
+  if (!projectRoot) return null; // 无 projectRoot 时保守放行（与 resolvesToMainData 同策略）
+  // 含 cd 的命令：LLM 显式切换了目录，按 cd 后语义理解——不拦（正道）
+  if (/\bcd\s+[^&|;\n]/.test(command)) return null;
+  // #1038 语义兼容：echo '...' >> file 形态，引号内含 rm/mv/find 敏感词元且目标非 data/ → 放行
+  // （#1038 判定引号内是文本不是命令；新守卫的重定向拦截不能把 #1038 放行的形态再拦回来）
+  if (/>>?\s*['"]?[^'"\s]*data[^'"\s]*['"]?/.test(command)) {
+    // 重定向目标含 data/ 路径 → 不豁免（可能真是写 data/ 破坏）
+  } else if (/echo\s+['"].*\b(?:rm|mv|find)\b.*['"].*>>?/.test(command)) {
+    return null; // echo 'rm ...' >> file：引号内文本，目标非 data/，与 #1038 同口径放行
+  }
+  // 主仓写形态命中 → 拦（但绝对路径写非主仓放行）
+  for (const pattern of MAIN_WRITE_PATTERNS) {
+    if (pattern.test(command)) {
+      // 重定向形态：提取目标路径，绝对路径且不在主仓下 → 放行
+      const target = extractRedirectTarget(command);
+      if (target && path.isAbsolute(target)) {
+        const normalizedRoot = path.normalize(projectRoot).toLowerCase();
+        const normalizedTarget = path.normalize(target).toLowerCase();
+        if (!normalizedTarget.startsWith(normalizedRoot + path.sep) && normalizedTarget !== normalizedRoot) {
+          continue; // 绝对路径写非主仓，检查下一个形态
+        }
+      }
+      logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (no cd)", { command: command.substring(0, 200) });
+      return MAIN_WRITE_BLOCK_MSG;
+    }
+  }
+  return null;
+}
+
+
 /** F20260922pmgd：不依赖 mainPid 的独立规则合集（PR 合入 + data 破坏）——
  *  抽出供 checkBashCommandSafetyOnText 与 checkWhenMainPidMissing 共用（圈复杂度控制）。 */
 function checkPidIndependentRules(command: string, logger?: Logger, projectRoot?: string): string | null {
   const prMerge = checkPrMergeCommand(command, logger);
   if (prMerge) return prMerge;
+  const mainWrite = checkMainCheckoutWrite(command, logger, projectRoot);
+  if (mainWrite) return mainWrite;
   return checkDataDirDestructive(command, logger, projectRoot);
 }
 

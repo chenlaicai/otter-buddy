@@ -1028,3 +1028,88 @@ describe("F20260922pmgd PR 合入拦截（gh pr merge partner-gate）", () => {
     expect(checkBashCommandSafety("gh pr merge 1095 --squash", null)).not.toBeNull();
   });
 });
+
+describe("F20260922scwd 主仓写拦截（感知对齐保护闸）", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+
+  // ── 拦截面：未 cd 时的主仓写命令 ──
+  it("echo x > file.txt（重定向落点主仓）→ 拦截", () => {
+    const result = checkBashCommandSafety("echo x > file.txt", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+    expect(result).toContain("当前 bash 工作目录在主仓");
+  });
+
+  it("python3 - <<'EOF'（heredoc patch 落点主仓）→ 拦截", () => {
+    const result = checkBashCommandSafety("python3 - <<'EOF'\nwith open('src/foo.ts','w') as f: f.write('x')\nEOF", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+    expect(result).toContain("当前 bash 工作目录在主仓");
+  });
+
+  it("git commit -m 'x'（git 写族落点主仓）→ 拦截", () => {
+    const result = checkBashCommandSafety("git commit -m 'x'", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+    expect(result).toContain("当前 bash 工作目录在主仓");
+  });
+
+  it("git rebase main（git 写族）→ 拦截", () => {
+    const result = checkBashCommandSafety("git rebase main", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("git merge feature（git 写族）→ 拦截", () => {
+    const result = checkBashCommandSafety("git merge feature", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("git stash push（git 写族）→ 拦截", () => {
+    const result = checkBashCommandSafety("git stash push", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  // ── 放行面：cd 显式切换后的正道 ──
+  it("cd /wt && echo x > file.txt（cd 后相对路径写）→ 放行（正道）", () => {
+    const result = checkBashCommandSafety("cd /wt && echo x > file.txt", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  it("cd /repo && git commit -m 'x'（cd 主仓后 git 写）→ 放行（显式意图）", () => {
+    const result = checkBashCommandSafety("cd /repo && git commit -m 'x'", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  it("echo x > /wt/file.txt（绝对路径写非主仓）→ 放行", () => {
+    const result = checkBashCommandSafety("echo x > /wt/file.txt", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  it("git status（只读命令）→ 放行", () => {
+    const result = checkBashCommandSafety("git status", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  it("git log --oneline -5（只读命令）→ 放行", () => {
+    const result = checkBashCommandSafety("git log --oneline -5", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  it("npm test（构建命令无写形态）→ 放行", () => {
+    const result = checkBashCommandSafety("npm test", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  // ── 边界：projectRoot 缺失时保守放行（与 data/ 判定同策略）──
+  it("projectRoot 缺失时主仓写命令 → 放行（保守降级）", () => {
+    const result = checkBashCommandSafety("git commit -m 'x'", mainPid);
+    expect(result).toBeNull();
+  });
+
+  // ── 边界：引号脱敏协同 ──
+  it("echo 'git commit -m x' > notes.md（文本含写族但非命令）→ 拦截（引号脱敏后仍命中）", () => {
+    // 说明：echo '...' > file 的重定向落点是主仓（未 cd），文本内容里的 git commit
+    // 在脱敏后仍被识别（#858 脱敏只剥引号不剥语义）——这是预期行为：
+    // 重定向写主仓 + 文本含写族词元，双重命中，拦是保守正确的。
+    const result = checkBashCommandSafety("echo 'git commit -m x' > notes.md", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+});
