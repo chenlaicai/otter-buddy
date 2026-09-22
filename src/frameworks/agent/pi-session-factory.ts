@@ -43,6 +43,8 @@ import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildMessageWithContext } from "./session-helpers";
 import { updateLastReadSeq } from "@frameworks/db/conversation/conversation-repository-mixins";
+import { readSessionEntries } from "./session-slicer";
+import type { SessionEntryLike } from "@usecases/ports/sdk-invoke-port";
 import { attachGuards, checkSessionError, buildPromptResult } from "./circuit-breaker-helpers";
 import { checkOrchestrationGuard } from "@usecases/conversation/dispatch-guard";
 import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
@@ -433,6 +435,57 @@ export class PiSessionFactory implements AgentGateway {
       unsubscribe();
       // inMemory session 无文件资源；dispose 释放内部状态（abort 进行中的流——影子 session 在 prompt 返回后已无活动流）
       try { session.dispose?.(); } catch { /* 清理失败不阻塞 */ }
+    }
+  }
+
+  /** F20260920uhuc 死链修复：jsonl entries 读取门面实现（此前端口声明可选但唯一实现体
+   *  缺该方法 → 合成分支永远不进 → 100% 机械档案）。
+   *  F20260922handoff 审视严重4修正：池外路径改直读 sessionStore.getWithFile +
+   *  SessionManagerClass.open() 只读打开——永不 create。此前走 restoreOrCreate 的降级
+   *  分支会在账本缺失时重建 session 覆盖旧记录（「读门面重写账本」），只读声称不实。
+   *  池内已有 live sessionManager 时不另 open（避免重复句柄）。 */
+  async readCurrentSessionEntries(otterId: string): Promise<SessionEntryLike[] | undefined> {
+    try {
+      const pooled = this.poolMeta.get(otterId);
+      if (pooled) {
+        return readSessionEntries(pooled.session.sessionManager) as SessionEntryLike[] | undefined;
+      }
+      const stored = this.sessionStore.getWithFile(otterId);
+      if (!stored?.sessionFile) return undefined;
+      const piCodingAgent = this.modelRuntimeRegistry.getPiCodingAgent();
+      if (!piCodingAgent) return undefined;
+      const SessionManagerClass = getSessionManagerClass(piCodingAgent);
+      const sessionManager = SessionManagerClass.open(stored.sessionFile);
+      return readSessionEntries(sessionManager) as SessionEntryLike[] | undefined;
+    } catch (err) {
+      this.logger.warn('[handoff] readCurrentSessionEntries failed', {
+        otterId, error: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
+  }
+
+  /** F20260920uhuc 死链修复：交接冻结锁实现（此前端口声明可选但唯一实现体缺该方法 →
+   *  冻结窗口静默跳过 → 并发竞态）。取 invoke 同源的 per-otter 锁；交接模式开启后
+   *  后续 waiter 超时自动延长至交接级别（120s，SimpleLockManager.setHandoffMode）。 */
+  async acquireSessionLock(otterId: string): Promise<() => void> {
+    const key = `session:${otterId}`;
+    this.lockManager.setHandoffMode(key, true);
+    let acquired = false;
+    try {
+      const release = await this.lockManager.acquire(key);
+      acquired = true;
+      // F20260922handoff 审视打回修复：交接模式（waiter 超时 120s）必须覆盖整个持锁期。
+      //  复位放在 release 闭包内（release 时先复位再放锁）——此前放外层 finally 会在
+      //  acquire 返回瞬间复位，交接窗口内 waiter 仍是默认 30s 超时（「交接窗口假超时」
+      //  语义反转，F20260920uhuc 审视严重发现要消灭的形态）。
+      return () => {
+        this.lockManager.setHandoffMode(key, false);
+        release();
+      };
+    } finally {
+      // 异常路径（acquire 抛错，未拿到锁）：复位 handoffMode，防泄漏。
+      if (!acquired) this.lockManager.setHandoffMode(key, false);
     }
   }
 

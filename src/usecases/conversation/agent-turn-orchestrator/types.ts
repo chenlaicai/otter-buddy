@@ -104,6 +104,9 @@ export interface AttemptDriver {
   getToolCallCount(otterId: string, invokeId: string): number;
   /** 检查 invoke 是否被用户中止 */
   isUserAborted(invokeId: string): boolean;
+  /** F20260922handoff 建议1：turn 内末次 invoke 的 ctxTokens（水位状态数据源）。
+   *  由实现层（agent-invoker createAttemptDriver）经旁路盒填充，orchestrator 不写。 */
+  readonly _lastCtxTokens?: number;
 }
 
 /** F20260818cbkr：healing 事件写入回调入参（完整实体由 invoker 层组装） */

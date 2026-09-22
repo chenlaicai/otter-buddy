@@ -74,6 +74,10 @@ export class CircuitBreakSupport {
     invokeRepo?: { getInvokeEvents(invokeId: string): Promise<Array<{ eventType: string; payload: Record<string, unknown> }>> };
     /** F20260831cbkw：熔断 session 年龄窗口阈值（ms），缺省取硬编码 2h */
     healthySessionThresholdMs?: number;
+    /** F20260922handoff 审视严重1修正：换世清水位状态回调（由 agent-invoker 注入，
+     *  持有 handoffState）——熔断路径的 restartSession 也属换世，不清 lastCtxTokens 会
+     *  残留旧世 ctxTokens → 下轮 invoke 误判超阈值 → 二次换世。可选：未注入不调用。 */
+    onSessionRestarted?: (otterId: string) => void;
   }) {}
 
   /**
@@ -222,6 +226,8 @@ export class CircuitBreakSupport {
     let session;
     try {
       session = await this.deps.manageSession.restartSession(info.otterId, summary);
+      // F20260922handoff 审视严重1：一级熔断换世清水位状态（与 unifiedHandoff 入口同语义）。
+      this.deps.onSessionRestarted?.(info.otterId);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.deps.logger.error('Circuit break restart failed, falling back to interrupted state', error, {
@@ -283,6 +289,8 @@ export class CircuitBreakSupport {
         ? buildSecondaryCircuitBreakSummary({ lastUserMessage })
         : buildCircuitBreakFallbackSummary();
       const newSession = await this.deps.manageSession.restartSession(otterId, summary);
+      // F20260922handoff 审视严重1：二级熔断换世清水位状态（同 executeCircuitBreakRestart 语义）。
+      this.deps.onSessionRestarted?.(otterId);
       await this.writeCircuitBreakEvent(
         { otterId, conversationId, failedInvokeId: inWindow.latestMessageId },
         { newSessionId: newSession.id, trigger: 'secondary' },

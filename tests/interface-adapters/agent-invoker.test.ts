@@ -419,3 +419,107 @@ describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () =
     expect(events.filter(e => e.event.startsWith("message.") || e.event === "speak.intermediate" || e.event === "assistant_text" || e.event === "assistant_toolcall" || e.event === "tool.result")).toHaveLength(0);
   });
 });
+
+/**
+ * F20260922handoff 死链修复②语义锁：invoke 完成 → setLastCtxTokens 写回 →
+ * 超阈值时水位交接真实触发（此前 setter 零调用，水位触发器从未触发）。
+ */
+describe("水位触发端到端（F20260922handoff 死链修复语义锁）", () => {
+  /** 构造带水位/引擎注入的 invoker（参数位对齐构造函数 22 位契约） */
+  function makeWatermarkInvoker(opts: {
+    ctxTokens: number;
+    threshold?: number;
+    restartSession?: ManageSession["restartSession"];
+  }) {
+    const sendEntry = mockSendEntry();
+    const restarts: string[] = [];
+    const manageSession = {
+      getActiveSession: async () => makeSession({ id: "sess-old", summary: null }),
+      createSession: async (otterId: string) => makeSession({ id: "sess-backfill", otterId }),
+      restartSession: opts.restartSession ?? (async (otterId: string) => {
+        restarts.push(otterId);
+        return makeSession({ id: "sess-new", otterId });
+      }),
+      conversationQuery: { getIdsByOtterId: async () => ["conv-1"] },
+    } as unknown as ManageSession;
+
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({
+        result: { text: "done", tokenUsage: { input: 100, output: 50 }, ctxTokens: opts.ctxTokens },
+      }),
+      mockQueryMessage(),
+      manageSession,
+      mockQueryOtter(),
+      createTestLogger(),
+      undefined, // broadcaster
+      undefined, // workspaceGateway
+      undefined, // settingsRepo
+      undefined, // metrics
+      undefined, // healingRepo
+      {} as never, // conversationRepo（统一交接必需）
+      undefined, // scheduledTaskRepo
+      undefined, // listArtifacts
+      undefined, // manageContext
+      undefined, // buildHandoffPkg
+      undefined, // healthySessionThresholdMs
+      (opts.threshold !== undefined
+        ? { getOtterContextWindow: () => 1_048_576, getOtterHandoffThresholdTokens: () => opts.threshold }
+        : undefined) as never, // ctxWindowProvider
+      sendEntry,
+      { getInvokeEvents: async () => [] } as never, // invokeRepo
+      undefined, // agentDispatchService
+      { // engine（unifiedHandoff 必需——缺省时统一交接降级路径跳过）
+        buildNarrativeSynthesisPrompt: () => "[prompt]",
+        assembleHandoffArchive: () => "[archive]",
+        buildMechanicalArchive: () => "[mechanical]",
+        sliceSessionEntries: () => undefined,
+        serializeKeptWindow: () => "",
+        collectStateInventory: async () => ({}),
+        renderStateInventory: () => "",
+        scanWorkspaceFiles: () => [],
+        renderFileTrail: () => "",
+        synthesisTimeoutMs: 50,
+      },
+    );
+    return { invoker, restarts, sendEntry };
+  }
+
+  it("invoke 结果带 ctxTokens → handoffState 写回有值（水位触发器数据源复活）", async () => {
+    const { invoker } = makeWatermarkInvoker({ ctxTokens: 400_000, threshold: 340_000 });
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "第一段", senderId: "user-1",
+    });
+
+    expect(invoker["handoffState"].getLastCtxTokens("otter-1")).toBe(400_000);
+  });
+
+  it("超阈值：第二段 invoke 入口先触发统一交接再执行 invoke（restartSession 被调 + ctxTokens 清除）", async () => {
+    const { invoker, restarts } = makeWatermarkInvoker({ ctxTokens: 350_000, threshold: 340_000 });
+
+    // 预置上轮 ctxTokens 超阈值（模拟上轮 invoke 写回 400K）
+    invoker["handoffState"].setLastCtxTokens("otter-1", 400_000);
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "第二段", senderId: "user-1",
+    });
+
+    // 交接已触发（restartSession 被调）+ 交接清旧值后本轮 invoke 重新写回 350K
+    expect(restarts.length).toBeGreaterThan(0);
+    expect(invoker["handoffState"].getLastCtxTokens("otter-1")).toBe(350_000);
+  });
+
+  it("未超阈值：不触发交接，ctxTokens 仅写回", async () => {
+    const { invoker, restarts } = makeWatermarkInvoker({ ctxTokens: 100_000, threshold: 340_000 });
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "正常轮", senderId: "user-1",
+    });
+
+    expect(restarts).toEqual([]);
+    expect(invoker["handoffState"].getLastCtxTokens("otter-1")).toBe(100_000);
+  });
+});
