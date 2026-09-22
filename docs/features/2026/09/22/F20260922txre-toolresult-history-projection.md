@@ -73,7 +73,7 @@ modules:
 ### 回读设计（占位符里的「怎么拿回全文」）
 
 收缩标记提示两条回读路径：
-1. **grep session jsonl**：完整原文在 session 历史 jsonl（存储不动），按本条 toolCallId 检索——LLM 在 API 结构里可见 tool_use_id，可直接喂给 grep 工具
+1. **grep session jsonl**：完整原文在 session 历史 jsonl（存储不动），按本条 toolCallId 检索——可达性已核：toolCallId 即 API 结构中的 tool_use_id，随 toolResult 消息字段直达 LLM（provider 转换不剥离），可直接喂给 grep 工具
 2. **重新执行原工具**：read/grep 等检索类结果天然可重放（重新 read 同一文件/重跑同一查询）
 
 被否的备选：ALS 注入精确 sessionFile 路径进占位符（省一次 ls/grep 定位）——需要扩展 OtterInvokeContext + 装配链透传（~10 行跨 2 文件 plumbing），对「回读」这一低频路径过重；toolCallId 检索已可达，按最简原则不取。若实测回读频发再补。
@@ -118,6 +118,8 @@ modules:
 | 01a0c695（issue #1093 现场，22 turns/417 msgs） | 22 | 380,584 | 72,254 | **-81.0%** |
 | 01a0a7eb（长任务，15 turns/405 msgs） | 15 | 155,243 | 45,462 | **-70.7%** |
 | 01a05bc6（重工具链 session，4 turns/478 msgs） | 4 | 279,446 | 65,906 | **-76.4%** |
+
+  数据快照时点：2026-09-22 12:05-12:15（CST）——01a0c695 等为活 session，之后仍在追加消息，复跑数字会有小幅漂移（检视衡复跑差异 -3.7% 即此因）；量级与结论不受影响
 
   增长曲线（01a0c695，逐 turn 发送面 chars）：修复前 turn#15→#22 为 364K→379K 持续爬升；修复后同期 62.8K→71.3K，斜率显著压平（剩余增长来自当轮新结果与小结果，属预期）。issue 验收第 1 条的 ≥30 轮线上前瞻对比以本次真实回放代替，线上长期观测另行排期（非目标节）
 - **预期 vs 实际**：预期（历史层削减 70%+、当轮零损失、幂等）全部命中，无偏离/反转

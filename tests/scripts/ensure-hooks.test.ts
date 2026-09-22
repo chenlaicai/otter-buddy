@@ -6,11 +6,16 @@
  * - --check 只读模式 fail-closed
  * - worktree 场景：repo config 共享，任一 worktree 内修复全局生效
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+
+// F20260922txre 检视发现顺手修：git 实操作用例（init/config/execSync）在全量并行
+// CPU 争抢下会超过 vitest 默认 5s 预算（单跑 ~2.8s/例，负载下 5-7s），随机 timeout flaky。
+// 断言零改动，仅给本文件用例加 20s 超时预算。
+vi.setConfig({ testTimeout: 20_000 });
 
 const REPO_ROOT = path.resolve(__dirname, '../..');
 const SCRIPT = path.join(REPO_ROOT, 'scripts/ensure-hooks.mjs');
