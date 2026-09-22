@@ -85,10 +85,12 @@ describe("PiSessionFactory 端口方法装配冒烟（F20260922handoff 死链防
     ];
     fs.writeFileSync(sessionFile, entries.map(e => JSON.stringify(e)).join("\n") + "\n");
 
-    // 真实 SDK 的 SessionManager.open 只读解析 jsonl——mock 按行 JSON.parse 模拟其行为
+    // 真实 SDK 的 SessionManager.open 只读解析 jsonl——mock 按行 JSON.parse 模拟其行为。
+    // create 用 spy 锁死只读语义（同降级用例）。
+    const createSpy = vi.fn(() => { throw new Error("create 不应被 readCurrentSessionEntries 调用（只读语义）"); });
     const mockPiCodingAgent = {
       SessionManager: {
-        create: () => { throw new Error("create 不应被 readCurrentSessionEntries 调用（只读语义）"); },
+        create: createSpy,
         open: (file: string) => ({
           getSessionId: () => "sid-smoke",
           getSessionFile: () => file,
@@ -124,6 +126,7 @@ describe("PiSessionFactory 端口方法装配冒烟（F20260922handoff 死链防
     expect(result).toBeDefined();
     expect(result!.length).toBe(2);
     expect((result![0] as { id: string }).id).toBe("e1");
+    expect(createSpy).not.toHaveBeenCalled(); // 只读语义锁死
 
     fs.rmSync(sessionDir, { recursive: true, force: true });
   });
@@ -139,9 +142,12 @@ describe("PiSessionFactory 端口方法装配冒烟（F20260922handoff 死链防
       otterRepo: new SqliteOtterRepository(db),
     }, createTestLogger());
 
+    // F20260922handoff delta 复核建议2残余修正：create 用 vi.fn + not.toHaveBeenCalled——
+    //  实现的外层 catch 会吞掉 create 抛错返回 undefined，断言照样绿，「回退必红」不成立。
+    const createSpy = vi.fn(() => { throw new Error("create 不应被调用"); });
     const mockPiCodingAgent = {
       SessionManager: {
-        create: () => { throw new Error("create 不应被调用"); },
+        create: createSpy,
         open: () => { throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); },
       },
     };
@@ -153,6 +159,7 @@ describe("PiSessionFactory 端口方法装配冒烟（F20260922handoff 死链防
     store.setWithFile("otter-missing", "sid-x", "/nonexistent/path.jsonl");
 
     await expect(factory.readCurrentSessionEntries("otter-missing")).resolves.toBeUndefined();
+    expect(createSpy).not.toHaveBeenCalled(); // 只读语义锁死：任何路径都不得 create
   });
 
   it("acquireSessionLock：交接模式覆盖整个持锁期（release 闭包内复位，非 finally）", async () => {

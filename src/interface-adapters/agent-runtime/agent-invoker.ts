@@ -379,7 +379,7 @@ export class AgentInvoker implements AgentTurnPort {
       // shouldTriggerWatermarkHandoff 永远 false → 水位交接从未触发）。ctxTokens 来自
       // turn 内 message_end usage（右栏实时口径同公式），换世后首 invoke 读不到 usage
       // 属自然语义（新世上下文为空）。
-      const lastCtxTokens = (driver as unknown as { _lastCtxTokens?: number })._lastCtxTokens;
+      const lastCtxTokens = driver._lastCtxTokens;
       if (lastCtxTokens !== undefined && Number.isFinite(lastCtxTokens)) {
         this.handoffState.setLastCtxTokens(otterId, lastCtxTokens);
       }
@@ -876,9 +876,16 @@ export class AgentInvoker implements AgentTurnPort {
     this.handoffState.clearLastCtxTokens(otterId);
 
     /** 交接进度系统消息（需求变更 2026-09-20：等待要有反馈）。失败静默——UX 反馈不阻塞交接主线。 */
+    /** F20260922handoff 审视严重2残余修正：otterDisplay 求值加容错——queryOtter.getById
+     *  抛错时模板实参求值（在 try 外）会泄漏 inProgress → 永久 409。fallback 到 otterId
+     *  兜底（进度消息降级为「獭 <id>」），异常不穿透 sendProgress 调用点。 */
     const otterDisplay = async (): Promise<string> => {
-      const o = await this.queryOtter.getById(otterId);
-      return o ? `${o.type === 'big' ? '大獭' : '小獭'}「${o.name}」` : otterId;
+      try {
+        const o = await this.queryOtter.getById(otterId);
+        return o ? `${o.type === 'big' ? '大獭' : '小獭'}「${o.name}」` : otterId;
+      } catch {
+        return otterId;
+      }
     };
     const sendProgress = async (body: string): Promise<void> => {
       if (!progressEntry) return;
