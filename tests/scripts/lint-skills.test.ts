@@ -133,16 +133,50 @@ describe("lint-skills 校验 9（F20260903 拆解后引用规范）", () => {
     expect(r.output).toContain("仅由其他 skill 的工作流绑定");
   });
 
-  it("E2: 同一文件不同引用字符串（references/x vs 跨 skill 裸写 review/references/x）按解析后路径归一", () => {
+  it("E1c（#773）：跨 skill 裸写引用 → error + 迁移指引（SDK 从当前 skill 目录解析必然 ENOENT）", () => {
     const r = runLint({
       review: {
         body: skillBody({ wfRef: "references/protocol.md" }),
         refs: { "review/references/protocol.md": "# protocol" },
       },
       impl: {
-        // 跨 skill 裸写形态：F20260903 拆解后放行（目标目录真实存在）
+        // 裸写形态：F20260903 拆解后曾放行，#773 非法化（lint 按 skills 根解析会放行，
+        // SDK 从当前 skill 目录解析读不到——#726 28 次 ENOENT 同族病灶）
         body: skillBody({ wfRef: "review/references/protocol.md" }),
         refs: {},
+      },
+    });
+    expect(r.exitCode).toBe(1);
+    expect(r.output).toContain("跨 skill 裸写引用");
+    expect(r.output).toContain("../review/references/protocol.md"); // 迁移指引给出 ../ 形态
+  });
+
+  it("#773：跨 skill 引用 ../ 前缀形态 → 放行（与 SDK 解析规则对齐）", () => {
+    const r = runLint({
+      review: {
+        body: skillBody({ wfRef: "references/protocol.md" }),
+        refs: { "review/references/protocol.md": "# protocol" },
+      },
+      impl: {
+        body: skillBody({ wfRef: "../review/references/protocol.md" }),
+        refs: {},
+      },
+    });
+    expect(r.exitCode).toBe(0);
+    expect(r.output).not.toContain("跨 skill 裸写");
+  });
+
+  it("#773：E2 可见性豁免——SKILL.md 目标（skill 名引用）不要求工作流内联", () => {
+    const r = runLint({
+      review: {
+        body: skillBody({ wfRef: "references/protocol.md" }),
+        refs: { "review/references/protocol.md": "# protocol" },
+      },
+      impl: {
+        // 索引-only 引用另一个 skill 的 SKILL.md——E2 的 md 可见性实证不适用
+        //（skill 名引用由 agent 的 skill 加载机制直接消费）
+        body: skillBody({ wfRef: "references/own.md", indexRef: "../review/SKILL.md" }),
+        refs: { "impl/references/own.md": "# own" },
       },
     });
     expect(r.exitCode).toBe(0);
@@ -193,12 +227,12 @@ describe("lint-skills 校验 9（F20260903 拆解后引用规范）", () => {
     expect(r.output).toContain("references 路径不存在");
   });
 
-  it("存量行为不回归: 跨 skill 裸写指向不存在的 skill → error（校验 7，按 skills 根解析）", () => {
+  it("存量行为不回归: 跨 skill 裸写指向不存在的 skill → error（#773 后归 E1c 裸写拦截）", () => {
     const r = runLint({
       alpha: { body: skillBody({ wfRef: "no-such-skill/references/guide.md" }), refs: {} },
     });
     expect(r.exitCode).toBe(1);
-    expect(r.output).toContain("references 路径不存在");
+    expect(r.output).toContain("跨 skill 裸写引用");
   });
 
   it("存量行为不回归: frontmatter 缺字段 → error（校验 1）", () => {

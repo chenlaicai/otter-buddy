@@ -68,8 +68,8 @@ category: reference
 
 修改署名格式时，下列文件只含指针不含实体，无需改动；若发现下列文件私自内联了署名行实体，视为双源漂移，须改回指针：
 
-- `code-implementation/references/commit-convention.md` — PR Description 模板署名行
-- `adversarial-review/SKILL.md` — review 评论模板、对话完整报告模板（3 处）
+- `../code-implementation/references/commit-convention.md` — PR Description 模板署名行
+- `../adversarial-review/SKILL.md` — review 评论模板、对话完整报告模板（3 处）
 - `prompts/identity/BIG_OTTER.md`「你的名号」节 — 指向身份段的运行时注入（大獭静态路径）
 
 运行时注入关系：skill 文件在运行时不加载——署名行的实际供给源是 identity-builder.ts 管道快照（见上节）。本 skill 是格式定义书与变更流程真相源。
