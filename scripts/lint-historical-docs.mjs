@@ -9,8 +9,10 @@
  *
  * 显式开口（仅限元数据订正：frontmatter 字段修正、id 对齐、格式订正——内容/设计修改一律走 supersede 新文档）：
  *   在仓库根目录新建 `.doc-fix` 文件并 staged 进同一个 commit，文件内容写明订正理由（≥10 字符）。
- *   声明文件随 commit 进 git 历史、随 PR diff 可见——比环境变量更不易悄悄绕过，且理由强制留痕。
- *   工具链在消费后负责删除该文件（一次性用途）。
+ *   声明文件随 commit 历史与 PR commits 可见（squash 合并下不进 main 净 diff）——比环境变量更不易悄悄绕过，且理由强制留痕。
+ *   机械边界（F20260922dfch 严重 1 处置）：除声明文件外，每个历史文档的变更行必须全部落在 frontmatter
+ *   块内（首个 --- 至次个 ---）；正文实质修改（增/删非空行）即使配 .doc-fix 也拒绝放行——「仅限元数据」
+ *   是机制不是约定。提交后由使用者删除 .doc-fix（lint 仅提示；忘删 fail-closed：残留且未变更的声明不开启通道）。
  *
  * 退出码：0 通过 / 1 有违规 / 2 环境异常（宽松放行，不误伤）。
  */
@@ -88,14 +90,23 @@ function main() {
   const { errors } = findViolations();
   if (errors.length === 0) process.exit(0);
 
-  // 显式开口：staged 区存在 .doc-fix 声明文件（内容≥10字符，写清订正理由）则放行
+  // 显式开口：staged 区存在 .doc-fix 声明文件（内容≥10字符）+ 每个历史文档变更均在 frontmatter 块内
   const declaration = readDocFixDeclaration();
   if (declaration.ok) {
-    console.warn(`[lint:historical-docs] .doc-fix 声明文件存在，放行 ${errors.length} 个历史文档修改（仅限元数据订正）：`);
-    for (const f of errors) console.warn(`  M ${f}`);
-    console.warn(`  声明理由：${declaration.reason}`);
-    console.warn(`  提示：.doc-fix 为一次性声明文件，提交后请删除（git rm .doc-fix）。`);
-    process.exit(0);
+    const scope = checkFrontmatterScope(errors);
+    if (scope.ok) {
+      console.warn(`[lint:historical-docs] .doc-fix 声明文件存在且变更均在 frontmatter 块内，放行 ${errors.length} 个历史文档修改：`);
+      for (const f of errors) console.warn(`  M ${f}`);
+      console.warn(`  声明理由：${sanitize(declaration.reason)}`);
+      console.warn(`  提示：.doc-fix 为一次性声明文件，提交后请删除（git rm .doc-fix；忘删 fail-closed 不构成绕过）。`);
+      process.exit(0);
+    }
+    console.error(`[lint:historical-docs] .doc-fix 声明存在，但以下历史文档的变更超出 frontmatter 块（正文实质修改）：`);
+    for (const f of scope.outOfScope) console.error(`  M ${f}`);
+    console.error(`
+.doc-fix 开口仅限元数据订正（frontmatter 块内）。正文内容/设计修改禁止回改——
+请新建特性文档记录变化（frontmatter from/supersedes 关联前文），或将本次正文改动撤销后重新提交。`);
+    process.exit(1);
   }
 
   console.error(`[lint:historical-docs] 检测到修改历史特性/研究文档（${errors.length} 个）：`);
@@ -106,11 +117,78 @@ function main() {
 正当通道（二选一）：
   ① 元数据订正（frontmatter 字段修正 / id 对齐 / 格式订正）：
      在仓库根目录新建 .doc-fix 文件并 staged 进同一个 commit，内容写清订正理由（≥10 字符）。
-     声明文件随 commit 进 git 历史、随 PR diff 可见；提交后删除该文件。
+     声明文件随 commit 历史与 PR commits 可见（squash 合并下不进 main 净 diff）；提交后删除该文件。
+     变更行须全部落在 frontmatter 块内——正文修改即使配 .doc-fix 也会被拒。
   ② 内容/设计修改：
      禁止回改历史文档——新建特性文档记录变化（frontmatter from/supersedes 关联前文）。
 ${declaration.hint}`);
   process.exit(1);
+}
+
+/** 终端输出消毒：strip ANSI 转义序列与回车，防理由文本污染终端（检视建议 4）
+ *  eslint no-control-regex 规避：用 u001b 构造而非字面 \x1b */
+function sanitize(s) {
+  const esc = String.fromCharCode(27);
+  const ansi = new RegExp(esc + "\\[[0-9;]*[a-zA-Z]", "g");
+  return s.replace(ansi, "").replace(/[\r\n]+/g, " ");
+}
+
+/** 校验每个历史文档的 staged 变更行全部落在 frontmatter 块内（首个 --- 至次个 ---）。
+ *  判定口径（宁拦勿放）：变更行（+/- 开头、非 +++/--- 头）trim 后非空，且行号在 frontmatter 块外 → 超出。
+ *  读索引区（git show :<file>）拿新版本的 frontmatter 边界，与 git diff --cached -U0 的 hunk 行号比对。 */
+function checkFrontmatterScope(files) {
+  const outOfScope = [];
+  for (const file of files) {
+    let newContent;
+    try {
+      newContent = git(["show", `:${file}`]);
+    } catch {
+      outOfScope.push(file); // 读取失败（如纯删除）宁拦
+      continue;
+    }
+    const lines = newContent.split("\n");
+    // frontmatter 块：第 1 行 ---，到下一处 --- 为止
+    let fmEnd = -1;
+    if (lines[0] && lines[0].trim() === "---") {
+      for (let i = 1; i < lines.length; i++) {
+        if (lines[i].trim() === "---") { fmEnd = i; break; }
+      }
+    }
+    // 无合法 frontmatter 块（行号从 1 计，fmEnd 是 0-based 索引）→ 无法证明变更是元数据级 → 宁拦
+    if (fmEnd === -1) { outOfScope.push(file); continue; }
+    const fmLastLine = fmEnd + 1; // 1-based 行号（含第二个 ---）
+
+    let diff;
+    try {
+      diff = git(["diff", "--cached", "-U0", "--", file]);
+    } catch {
+      outOfScope.push(file);
+      continue;
+    }
+    // 解析 hunk：@@ -a,b +c,d @@ —— 新版本变更区间 [c, c+d-1]（d=0 时为纯删除，位置 c 之前）
+    let violated = false;
+    for (const m of diff.matchAll(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/g)) {
+      const start = Number(m[1]);
+      const count = m[2] === undefined ? 1 : Number(m[2]);
+      if (count === 0) continue; // 纯删除 hunks：新位置无行，删除行的内容校验由下方删除行扫描覆盖
+      if (start + count - 1 > fmLastLine) { violated = true; break; }
+    }
+    if (violated) { outOfScope.push(file); continue; }
+    // 删除行（- 开头）无法靠新文件行号定位——检查被删行内容是否像 frontmatter 行（key: value 或 ---）
+    // 正文行被删 → 超出范围。frontmatter 行特征：^---$ 或 ^[A-Za-z_][\w-]*\s*:
+    for (const line of diff.split("\n")) {
+      if (!line.startsWith("-") || line.startsWith("--- ")) continue;
+      const del = line.slice(1).trim();
+      if (del === "") continue;
+      if (del === "---") continue;
+      if (!/^[A-Za-z_][\w-]*\s*:/.test(del) && !/^\s+#/.test(del)) {
+        violated = true;
+        break;
+      }
+    }
+    if (violated) outOfScope.push(file);
+  }
+  return { ok: outOfScope.length === 0, outOfScope };
 }
 
 /** 读取 staged 区的 .doc-fix 声明文件（git show :<file> 读索引区内容，不看工作区） */
@@ -132,7 +210,7 @@ function readDocFixDeclaration() {
   }
   const reason = content.trim();
   if (reason.length < 10) {
-    return { ok: false, hint: `（.doc-fix 存在但理由不足 10 字符："${reason}"）` };
+    return { ok: false, hint: `（.doc-fix 存在但理由不足 10 字符："${sanitize(reason)}"）` };
   }
   return { ok: true, reason };
 }

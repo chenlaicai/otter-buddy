@@ -5,6 +5,12 @@ summary: lint-historical-docs 的逃生门从 BYPASS_HISTORICAL_DOC_LINT 环境�
 change_type: feature
 capability_test: tests/lint-historical-docs.test.ts
 created_in_conversation: 98bd9fdd-8e28-4de8-b782-b59f46e733dd
+intent:
+  problem: BYPASS_HISTORICAL_DOC_LINT 环境变量可悄悄绕过历史文档不可变铁律（无强制留痕、无 PR 可见性、无类型约束）；且 .doc-fix 初版放行判定与 diff 语义零关联（内容重写+无关理由也放行）
+  expected_effect: 历史文档修改必须经 staged .doc-fix 声明文件（理由留痕进 commit 历史）+ 变更行机械校验落在 frontmatter 块内——「开口仅限元数据」是机制不是约定；正文修改一律 supersede 新文档
+  verify_by:
+    type: static_only
+    note: lint 脚本行为由 vitest 14 用例静态锁定（拦截/放行/范围校验/绕过形态矩阵），无 LLM 场景可跑 Golden Gate
 tags: [toolchain, lint, governance, docs]
 modules: [scripts/lint-historical-docs.mjs, tests/lint-historical-docs.test.ts, .pi/skills/worktree-isolation/SKILL.md]
 ---
@@ -45,6 +51,13 @@ modules: [scripts/lint-historical-docs.mjs, tests/lint-historical-docs.test.ts, 
 
 `BYPASS_HISTORICAL_DOC_LINT` 环境变量直接移除（非过渡期警告）——该通道自 8/31 存在仅 3 周，全历史仅 1 次合法使用（4cd428c5），无兼容负担；新旧通道语义等价（都是显式声明），直接切换不留双轨。
 
+### 机制预算四问（mechanism-addition 账目）
+
+1. **谁需要**：需要订正历史文档元数据（frontmatter 字段修正、id 对齐、格式订正）的维护者——实证需求 6 案/全历史（见背景核查）
+2. **失败后果**：fail-closed——误拦合法 rename（建议 1 已立案）或声明文件残留都不会造成绕过，只会多拦；最差结果是维护者被推向 supersede（本来就是正道）
+3. **后续机制（新状态哪里会出错、怎么修）**：①声明文件忘删——fail-closed 不构成绕过（残留且未变更的 .doc-fix 不开启通道），lint 放行警告中已提示删除；②误拦驱动的开口滥用（合法 rename 被拦→写假理由）——与建议 1 的 rename 判定修复联动处置；③frontmatter 范围校验误伤 body 格式订正——按搭档决策宁拦勿放，正文改动本就该走 supersede
+4. **退役条件**：supersede 约定全面取代回改需求（连续 3 个月 .doc-fix 使用次数为 0）→ 收窄开口至完全封闭，仅保留 supersede 单通道
+
 ## 影响范围
 
 - scripts/lint-historical-docs.mjs：main() 通道判定逻辑 + readDocFixDeclaration() 新增
@@ -53,8 +66,9 @@ modules: [scripts/lint-historical-docs.mjs, tests/lint-historical-docs.test.ts, 
 
 ## 验证
 
-- 8 用例全过（vitest run tests/lint-historical-docs.test.ts）：历史修改拦截 / 本分支新建放行 / 管辖外路径 / .doc-fix 放行（理由留痕警告）/ 理由不足 10 字符拦截 / 未 staged 拦截 / rename 历史文档拦截 / rename 本分支新建放行
+- 14 用例全过（vitest run tests/lint-historical-docs.test.ts）：历史修改拦截 / 本分支新建放行 / 管辖外路径 / .doc-fix+frontmatter 内放行 / **正文修改+.doc-fix 拒绝（严重 1 锁定）** / 混合修改拒绝 / 删除 frontmatter 行放行 / 理由不足拦截 / 理由恰 10 字符边界 / 子目录声明不生效 / 大小写变体不生效 / 未 staged 拦截 / rename 两案
 - lint:skills 与 lint:prompt-anchors 通过（SKILL.md 改动合规）
+- Golden Gate: n/a（verify_by=static_only，lint 脚本行为由单测锁定，无可跑场景）
 
 ## 决策记录
 
