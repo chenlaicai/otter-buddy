@@ -33,6 +33,11 @@ const SENSITIVE_TOKENS: RegExp[] = [
   /\beval\b/gi,
   /\.otter-buddy\.pid/g,
   /otter-buddy\.sh/gi,
+  // F20260922pmgd：gh pr merge 词元——守卫新增 PR 合入拦截时同步本表（与 otter-buddy.sh
+  // 同型教训 #970：新增守卫词元不同步脱敏表 → 引号数据文本被误拦）
+  /gh\s+pr\s+merge/gi,
+  /\/pulls\/\d+\/merge\b/gi,
+  /\/repos\/[^\s/]+\/[^\s/]+\/merges\b/gi,
 ];
 
 /**
