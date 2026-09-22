@@ -14,6 +14,8 @@ export type ListConversationsFilter = {
   status?: ConversationStatus;
   /** F20260922cgrp：按类别过滤（assistant = IM 助理；normal = 普通对话）；缺省不过滤 */
   kind?: "normal" | "assistant";
+  /** F20260922cgrp delta：按置顶过滤（false = 仅非置顶——普通区分页不含置顶，计数口径对齐）；缺省不过滤 */
+  pinned?: boolean;
 };
 
 export type ConversationListItem = Conversation & {

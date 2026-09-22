@@ -1275,15 +1275,23 @@ export default function ConversationPage() {
     } catch { showToast('创建对话失败', 'error') }
   }
 
-  async function confirmArchive() {
-    if (!activeId) return
+  // F20260922cgrp delta（检视建议 4）：归档对象取 modal.cid 而非 activeId——
+  // 右键非当前对话归档的应是该对话；仅当归档的恰是当前对话时才需跳转兑底
+  async function confirmArchive(cid: string) {
     try {
-      await api.archiveConversation(activeId)
+      await api.archiveConversation(cid)
       setModal({ type: 'none' })
-      // 归档后当前对话从列表消失（服务端列表排除 archived），
-      // 轮询合并会将其移除导致 activeConv 为 null、RightPanel 串到其他对话——与 pin/unpin 一致整页跳转
-      // toast 通过 URL 参数传递到目标页，避免跳转后来不及渲染
-      navigate('/conversation?archived=1')
+      if (cid === activeId) {
+        // 归档后当前对话从列表消失（服务端列表排除 archived），
+        // 轮询合并会将其移除导致 activeConv 为 null、RightPanel 串到其他对话——与 pin/unpin 一致整页跳转
+        // toast 通过 URL 参数传递到目标页，避免跳转后来不及渲染
+        navigate('/conversation?archived=1')
+      } else {
+        // 归档的是非当前对话：SPA 原地刷新列表（LeftPanel 分组随 conversations 变化重拉）
+        const { items } = await api.listConversations({ limit: 500 })
+        setConversations(items.map(mapConversationDTO))
+        showToast('对话已归档', 'success')
+      }
     } catch { showToast('操作失败', 'error') }
   }
 
@@ -1435,7 +1443,13 @@ export default function ConversationPage() {
     }
   }
 
-  const activeConvForMenu = ctxMenu ? conversations.find(c => c.id === ctxMenu.cid) : null
+  // F20260922cgrp delta（右键归档组修复）：归档对话不在父组件 conversations（active-only）中——
+  // find 落空时按 status='archived' 合成最小对象，菜单对归档项只提供「归档对话」（禁用态）
+  const activeConvForMenu = ctxMenu
+    ? (conversations.find(c => c.id === ctxMenu.cid) ?? {
+        id: ctxMenu.cid, title: '', status: 'archived' as const, pinned: false, otterIds: [],
+      })
+    : null
 
   if (pageState === 'loading') {
     return (
@@ -1540,8 +1554,12 @@ export default function ConversationPage() {
         <>
           <div className="fixed inset-0 z-40" onClick={closeCtxMenu} />
           <div className="fixed glass-overlay rounded-2xl p-1 z-50 min-w-[150px]" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
-            <div onClick={() => ctxAction(activeConvForMenu.pinned ? 'unpin' : 'pin', ctxMenu.cid)} className="px-2.5 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-white/40 text-stone-600">{activeConvForMenu.pinned ? '取消置顶' : '置顶'}</div>
-            <div onClick={() => ctxAction('archive', ctxMenu.cid)} className={`px-2.5 py-1.5 rounded-lg text-xs cursor-pointer ${activeConvForMenu.status !== 'archived' ? 'hover:bg-white/40 text-stone-600' : 'text-stone-300 cursor-not-allowed'}`}>归档对话</div>
+            {activeConvForMenu.status !== 'archived' && (
+              <div onClick={() => ctxAction(activeConvForMenu.pinned ? 'unpin' : 'pin', ctxMenu.cid)} className="px-2.5 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-white/40 text-stone-600">{activeConvForMenu.pinned ? '取消置顶' : '置顶'}</div>
+            )}
+            {/* F20260922cgrp delta（检视严重 3）：archived 对话禁用点击——className 置灰挡不住 onClick，
+                本 PR 让 archived 对话首次可右键，不守卫则确认后走 400 报错路径 */}
+            <div onClick={() => { if (activeConvForMenu.status !== 'archived') ctxAction('archive', ctxMenu.cid) }} className={`px-2.5 py-1.5 rounded-lg text-xs ${activeConvForMenu.status !== 'archived' ? 'cursor-pointer hover:bg-white/40 text-stone-600' : 'text-stone-300 cursor-not-allowed'}`}>归档对话</div>
           </div>
         </>
       )}

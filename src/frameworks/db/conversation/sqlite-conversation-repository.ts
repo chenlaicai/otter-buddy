@@ -37,6 +37,9 @@ function buildConversationListWhere(options?: ListConversationsFilter): {
     clauses.push({ sql: "AND c.status != 'archived'", param: null });
   }
   if (options?.kind) clauses.push({ sql: "AND c.kind = ?", param: options.kind });
+  // F20260922cgrp delta：pinned=false → 仅非置顶（普通区分页排除置顶，total 与 items 口径一致）
+  if (options?.pinned === false) clauses.push({ sql: "AND c.pinned = 0", param: null });
+  if (options?.pinned === true) clauses.push({ sql: "AND c.pinned = 1", param: null });
   const search = options?.search?.trim();
   if (search) {
     const escaped = `%${search.replace(/[%_\\]/g, (ch) => `\\${ch}`)}%`;

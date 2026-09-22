@@ -339,3 +339,37 @@ describe("SqliteConversationRepository - 助理对话排序与分页（F20260918
     expect(page1.total).toBe(3);
   });
 });
+
+describe("SqliteConversationRepository - listConversationsWithMeta pinned 过滤（F20260922cgrp delta，检视严重 1）", () => {
+  let db: Database.Database;
+  let repo: SqliteConversationRepository;
+
+  beforeEach(async () => {
+    db = createTestDb();
+    repo = new SqliteConversationRepository(db);
+    await repo.create(conversationFixture({ id: "conv-p1", title: "置顶一", pinned: true, createdAt: "2026-07-22T00:01:00Z" }));
+    await repo.create(conversationFixture({ id: "conv-n1", title: "普通一", pinned: false, createdAt: "2026-07-22T00:02:00Z" }));
+    await repo.create(conversationFixture({ id: "conv-n2", title: "普通二", pinned: false, createdAt: "2026-07-22T00:03:00Z" }));
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("pinned: false 排除置顶——items 与 total 口径一致（组头计数不再双重计数）", async () => {
+    const { items, total } = await repo.listConversationsWithMeta("user-1", { pinned: false });
+    expect(items.map(i => i.id)).toEqual(["conv-n2", "conv-n1"]);
+    expect(total).toBe(2);
+  });
+
+  it("pinned: true 仅置顶", async () => {
+    const { items, total } = await repo.listConversationsWithMeta("user-1", { pinned: true });
+    expect(items.map(i => i.id)).toEqual(["conv-p1"]);
+    expect(total).toBe(1);
+  });
+
+  it("缺省不过滤（含置顶）", async () => {
+    const { total } = await repo.listConversationsWithMeta("user-1");
+    expect(total).toBe(3);
+  });
+});

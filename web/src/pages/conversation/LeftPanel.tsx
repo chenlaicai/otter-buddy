@@ -188,18 +188,27 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
   const [archivedItems, setArchivedItems] = useState<Conversation[]>([])
   const [archivedTotal, setArchivedTotal] = useState(0)
 
-  // 普通对话总数（pinned + normal 分页 total），组头计数用
+  // 普通对话总数（pinned 全量 + normal 分页 total）——normalTotal 经 pinned:false 过滤，
+  // 不再含置顶（检视严重 1 修复：原口径 pinnedConvs.length + normalTotal 双重计数置顶项）
   const conversationGroupTotal = pinnedConvs.length + normalTotal
 
   const loadNormalPage = useCallback((page: number) => {
     api.listConversations({
       status: 'active',
       kind: 'normal',
+      pinned: false,
       limit: PAGE_SIZE,
       offset: (page - 1) * PAGE_SIZE,
     })
       .then(({ items, total }) => {
-        setNormalItems(items.map(mapConversationDTO).filter(c => !c.pinned))
+        // 检视严重 2 修复：页数收缩 clamp——末页条目归档/删空后重拉回空页时回退到末页，
+        // 防止页码器消失造成空白页死锁
+        const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
+        if (items.length === 0 && page > pageCount) {
+          setNormalPage(pageCount)
+          return
+        }
+        setNormalItems(items.map(mapConversationDTO))
         setNormalTotal(total)
       })
       .catch(() => { /* 静默降级——分组拉取失败不阻塞面板 */ })
@@ -212,15 +221,35 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
       offset: (page - 1) * PAGE_SIZE,
     })
       .then(({ items, total }) => {
+        const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
+        if (items.length === 0 && page > pageCount) {
+          setArchivedPage(pageCount)
+          return
+        }
         setArchivedItems(items.map(mapConversationDTO))
         setArchivedTotal(total)
       })
       .catch(() => { /* 静默降级 */ })
   }, [])
 
-  // 初次挂载 + conversations 变化（归档/置顶/新建/轮询刷新）时重拉当前页
-  useEffect(() => { loadNormalPage(normalPage) }, [normalPage, conversations, loadNormalPage])
-  useEffect(() => { loadArchivedPage(archivedPage) }, [archivedPage, conversations, loadArchivedPage])
+  // 初次挂载 + conversations 变化（归档/置顶/新建/轮询刷新）时重拉当前页。
+  // 检视建议 7 修复：折叠的组跳过分页【条目】拉取（5s 轮询不再放大 3 倍请求），展开时重拉；
+  // 但组头计数必须常显（搭档诉求「分组上要显示当前有几个对话」）——归档组折叠时也需轻量
+  // total 查询（limit=1 只取计数，不传 pinned/kind 时后端 COUNT 与列表同 where，成本一致）
+  useEffect(() => {
+    if (collapsed.conversation) return
+    loadNormalPage(normalPage)
+  }, [normalPage, conversations, collapsed.conversation, loadNormalPage])
+  useEffect(() => {
+    if (collapsed.archived) {
+      // 折叠时仅拉计数（页码器不可见，条目等展开再拉）
+      api.listConversations({ status: 'archived', limit: 1, offset: 0 })
+        .then(({ total }) => setArchivedTotal(total))
+        .catch(() => { /* 静默降级 */ })
+      return
+    }
+    loadArchivedPage(archivedPage)
+  }, [archivedPage, conversations, collapsed.archived, loadArchivedPage])
 
   // 数据变化通知（供父组件在归档等操作后触发——目前 conversations 依赖已覆盖，保留扩展口）
   useEffect(() => { onRefresh?.() }, []) // eslint-disable-line react-hooks/exhaustive-deps

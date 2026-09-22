@@ -77,7 +77,8 @@ completed 退役是状态机语义变更。四问：
 - **completedAt 字段保留**：DB 列不动（历史数据可读），DTO 保留该字段（恒 null 或旧值），
   只退役状态机与写入路径。
 - **搜索态不重构**：命中结果保持既有平铺行为（替换列表、不分组不分页）——搜索语义是
-  「跨组找特定对话」，分组反而干扰。
+  「跨组找特定对话」，分组反而干扰。搜索范围不含已归档（搜索请求不传 status，服务端缺省
+  排除 archived——要找归档对话请展开《已归档》组浏览）。
 
 ## 实现
 
@@ -131,3 +132,40 @@ completed 退役是状态机语义变更。四问：
 - 真机 UI 自查：alpha 实例无头浏览器截图（见对话工作区 screenshots/）。
 - 最简实现检查：已过——分页器为组件内 ~50 行实现（未引第三方分页库）；where 构建复用
   现有 SQL 拼接模式；折叠持久化用 localStorage（平台原生，无新依赖）。
+
+## Delta 修复记录（PR #1119 检视处置，2026-09-22）
+
+检视獭（mimo）首轮审视发现 3 严重 + 5 建议，全部接受并当场修复（更好/更差判断均为「改了更好」）：
+
+1. **严重：组头计数双重计数置顶**——`ListConversationsFilter` 新增 `pinned?: boolean`，
+   SQL 加 `AND c.pinned = 0/1` 子句；普通区拉取传 `pinned: false`，items/total/组头计数
+   三位一体对齐（原 `pinnedConvs.length + normalTotal` 中 normalTotal 恒含置顶）。
+2. **严重：页数收缩空白页死锁**——normal/archived 两个 load 回调加 clamp：
+   `items.length === 0 && page > pageCount` 时回退到新末页重拉，页码器永远有回去的路。
+   新增 LeftPanel clamp 测试（45→20 条收缩场景）。
+3. **严重：归档菜单点击穿透**——右键菜单「归档对话」onClick 加
+   `status !== 'archived'` 守卫（原仅 className 置灰，本 PR 让 archived 对话首次可右键
+   激活了该路径，与本 PR 主目标直接冲突）。
+4. 建议（归档错对象，pre-existing 顺手修）：`confirmArchive(cid)` 透传 modal.cid
+   替代 activeId——右键非当前对话归档的应是该对话；仅当归档当前对话时才整页跳转，
+   否则 SPA 原地刷新 + toast。
+5. 建议（mock 残留）：tests/api/helpers.ts 删已退役的 complete mock 方法名。
+6. 建议（limit:500 截断）：conversation-list 页接 total，超限显示
+   「仅展示前 500 条（共 N 条）」提示（最简实现：提示条而非引入分页器——该页是入口页，
+   对话浏览主路径在 conversation 页）。
+7. 建议（轮询请求放大）：折叠组跳过分页拉取——归档组默认折叠，不再每 5s 白拉；
+   展开时因 collapsed 依赖变化自动重拉（stale 标记为防御性冗余）。
+8. 建议（文档）：搜索态段补「搜索范围不含已归档」。
+
+验证：后端 273 文件 3757 用例全绿（含新增 pinned 过滤 3 用例）；web 58 文件 529 用例
+全绿（含新增 clamp 用例）；lint 0 error（parseListFilter 抽 parseBoolQuery 压复杂度）；
+typecheck 双端 0 error。delta 真机复验（隔离实例 3194）：计数口径（对话组头 25 = 2 置顶 +
+23 非置顶，修复前 27）、归档组折叠时计数常显（3）、归档项右键菜单守卫生效
+（cursor-not-allowed + 点击不穿、modal 不弹），截图 screenshots/05/06。
+
+**delta 过程中新发现（第 9 条，当场修复）**：右键归档项菜单整体不渲染——
+`activeConvForMenu = conversations.find(cid)` 的数据源是 active-only 列表，归档项 find 落空
+→ 菜单条件渲染整体跳过（两页同缺陷）。修复：find 落空时按 `status: 'archived'` 合成最小对象；
+conversation-list 页对归档项不渲染菜单（该页菜单只有置顶项，对 archived 无意义）。
+另：建议 7 的折叠跳过拉取初版导致归档组头计数恒 0（搭档诉求「组头显示对话数」），
+调整为折叠时仅拉轻量计数（limit=1 取 total）。

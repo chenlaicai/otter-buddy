@@ -53,7 +53,7 @@ interface ModalsProps {
   sessions: Record<string, OtterSession[]>
   onClose: () => void
   onConfirmNewConv: (title: string, modelAlias?: string) => void
-  onConfirmArchive: () => void
+  onConfirmArchive: (cid: string) => void
   onConfirmCreateOtter: (form: CreateOtterFormValue) => void
   onConfirmDissolve: (summary: string) => void
   onConfirmRestart: (summary: string, modelAlias?: string, synthesizePast?: boolean) => void
@@ -150,6 +150,8 @@ function NewConvModal(props: ModalsProps) {
 }
 
 function ArchiveModal(props: ModalsProps) {
+  // F20260922cgrp delta：modal.type === 'archive' 时 cid 恒存在（ConversationModals 路由保证）
+  const cid = props.modal.type === 'archive' ? props.modal.cid : ''
   return (
     <Modal
       isOpen
@@ -159,7 +161,7 @@ function ArchiveModal(props: ModalsProps) {
       footer={
         <>
           <ModalButton onClick={props.onClose}>取消</ModalButton>
-          <ModalButton variant="primary" onClick={props.onConfirmArchive}>确认归档</ModalButton>
+          <ModalButton variant="primary" onClick={() => props.onConfirmArchive(cid)}>确认归档</ModalButton>
         </>
       }
     >

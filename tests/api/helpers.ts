@@ -536,7 +536,8 @@ export function createTestApp(deps: TestDeps): Hono {
 /** 创建类型安全的 mock deps，各测试按需覆盖 */
 export function createMockDeps(): TestDeps {
   return {
-    manageConversation: mockMethods(["create", "getById", "complete", "archive", "getIdsByOtterId", "getAllIds", "listWithMeta", "pin", "unpin"]),
+    // F20260922cgrp delta：complete 退役（弱状态两态管理），mock 方法名同步删除
+    manageConversation: mockMethods(["create", "getById", "archive", "getIdsByOtterId", "getAllIds", "listWithMeta", "pin", "unpin"]),
     manageParticipant: mockMethods(["getActiveParticipants", "join", "leave"]),
     sendMessageUseCase: {
       ...mockMethods(["send", "start", "appendEvent", "complete", "fail", "abort"]),

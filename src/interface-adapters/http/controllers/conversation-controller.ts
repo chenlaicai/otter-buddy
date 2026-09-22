@@ -21,6 +21,13 @@ import type { ListConversationsFilter } from "@usecases/conversation/conversatio
  * 解析 GET /api/conversations 的过滤参数（F20260922cgrp：status/kind 过滤——三分组分页数据源）。
  * 非法 limit/offset 返回错误消息字符串（400）；非法 status/kind 静默忽略（缺省行为兜底）。
  */
+/** 解析布尔 query 参数（"true"/"false"，其余 undefined 静默忽略） */
+function parseBoolQuery(raw: string | undefined): boolean | undefined {
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return undefined;
+}
+
 function parseListFilter(c: Context): ListConversationsFilter | string {
   const limit = parseInt(c.req.query("limit") ?? "50", 10);
   const offset = parseInt(c.req.query("offset") ?? "0", 10);
@@ -33,7 +40,9 @@ function parseListFilter(c: Context): ListConversationsFilter | string {
   const status = statusRaw === "active" || statusRaw === "archived" ? statusRaw : undefined;
   const kindRaw = c.req.query("kind");
   const kind = kindRaw === "assistant" || kindRaw === "normal" ? kindRaw : undefined;
-  return { limit, offset, search, status, kind };
+  /** F20260922cgrp delta：pinned=true|false（普通区分页传 false 排除置顶，计数口径对齐） */
+  const pinned = parseBoolQuery(c.req.query("pinned"));
+  return { limit, offset, search, status, kind, pinned };
 }
 
 export class ConversationController {

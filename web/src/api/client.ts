@@ -59,6 +59,8 @@ export function listConversations(options?: {
   status?: 'active' | 'archived'
   /** F20260922cgrp：按类别过滤（assistant = IM 助理；normal = 普通对话） */
   kind?: 'normal' | 'assistant'
+  /** F20260922cgrp delta：置顶过滤（false = 仅非置顶——普通区分页用，计数口径对齐） */
+  pinned?: boolean
 }): Promise<ConversationListResponseDTO> {
   const qs = new URLSearchParams();
   if (options?.limit) qs.set('limit', String(options.limit));
@@ -66,6 +68,7 @@ export function listConversations(options?: {
   if (options?.search) qs.set('search', options.search);
   if (options?.status) qs.set('status', options.status);
   if (options?.kind) qs.set('kind', options.kind);
+  if (options?.pinned !== undefined) qs.set('pinned', String(options.pinned));
   return request(`/conversations?${qs}`)
 }
 

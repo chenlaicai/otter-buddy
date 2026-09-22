@@ -40,6 +40,8 @@ export default function ConversationListPage() {
   const [searchParams] = useSearchParams()
   const [conversations, setConversations] = useState<LocalConversation[]>([])
   const [loading, setLoading] = useState(true)
+  /** F20260922cgrp delta（检视建议 6）：首屏硬上限 500——超限静默截断不可接受，接 total 提示 */
+  const [truncatedTotal, setTruncatedTotal] = useState(0)
   const [showCreate, setShowCreate] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   /** 新建对话选大獭模型：与 conversation 页 NewConvModal 同款下拉（默认 = 配置文件默认模型）。
@@ -48,13 +50,20 @@ export default function ConversationListPage() {
   const [defaultAlias, setDefaultAlias] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; cid: string } | null>(null)
-  const activeConvForMenu = ctxMenu ? conversations.find(c => c.id === ctxMenu.cid) : null
+  // F20260922cgrp delta：归档对话不在 conversations（active-only）——find 落空时合成 archived
+  // 最小对象；该页菜单对归档项不渲染任何操作项（置顶/归档对 archived 均无意义），菜单本体不弹
+  const activeConvForMenu = ctxMenu
+    ? (conversations.find(c => c.id === ctxMenu.cid) ?? {
+        id: ctxMenu.cid, title: '', status: 'archived' as const, pinned: false, otterIds: [],
+      })
+    : null
 
   useEffect(() => {
     // F20260922cgrp：listConversations 返回 { items, total }；首屏全量拉 active（分组分页由 LeftPanel 内部管理）
     api.listConversations({ limit: 500 })
-      .then(({ items }) => {
+      .then(({ items, total }) => {
         setConversations(items.map(mapConversationDTO))
+        if (total > items.length) setTruncatedTotal(total)
         setLoading(false)
       })
       .catch(() => {
@@ -120,8 +129,9 @@ export default function ConversationListPage() {
 
   const refreshList = useCallback(async () => {
     try {
-      const { items } = await api.listConversations({ limit: 500 })
+      const { items, total } = await api.listConversations({ limit: 500 })
       setConversations(items.map(mapConversationDTO))
+      setTruncatedTotal(total > items.length ? total : 0)
     } catch {
       showToast('刷新列表失败', 'error')
     }
@@ -223,6 +233,11 @@ export default function ConversationListPage() {
             <div className="text-4xl mb-4">🦦</div>
             <div className="text-lg font-medium text-stone-600 mb-2">选择一个对话</div>
             <div className="text-sm text-stone-400">从左侧列表中选择一个对话开始</div>
+            {truncatedTotal > 0 && (
+              <div className="text-xs text-amber-500 mt-3" data-testid="list-truncated-hint">
+                对话较多，仅展示前 500 条（共 {truncatedTotal} 条）——可用左侧搜索定位
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -250,7 +265,7 @@ export default function ConversationListPage() {
         <BigOtterModelDropdown models={models} defaultAlias={defaultAlias} selectedModel={selectedModel} onSelect={setSelectedModel} />
       </Modal>
 
-      {ctxMenu && activeConvForMenu && (
+      {ctxMenu && activeConvForMenu && activeConvForMenu.status !== 'archived' && (
         <>
           <div className="fixed inset-0 z-40" onClick={closeCtxMenu} />
           <div className="fixed glass-overlay rounded-2xl p-1 z-50 min-w-[150px]" style={{ left: ctxMenu.x, top: ctxMenu.y }}>

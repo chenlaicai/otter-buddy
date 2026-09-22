@@ -33,6 +33,8 @@ function dtoOf(c: LocalConversation) {
 
 /** F20260922cgrp：LeftPanel 普通/已归档分组自拉分页数据——默认 stub 空页（total=0），
  *  各用例需要具体数据时显式调用本函数覆盖 */
+// F20260922cgrp delta（检视严重 1）：普通区拉取恒带 pinned:false——total/items 均不含置顶，
+// stub 语义 = 「非置顶普通对话」（与生产口径一致，不再固化「total 含置顶」的错误假设）
 function stubGroupFetch(normalItems: unknown[] = [], normalTotal = 0, archivedItems: unknown[] = [], archivedTotal = 0) {
   return vi.spyOn(api, 'listConversations').mockImplementation((options) => {
     if (options?.search) return Promise.resolve({ items: [], total: 0 }) as never
@@ -337,6 +339,51 @@ describe('LeftPanel 三分组 + 分页跳转（F20260922cgrp）', () => {
       expect(spy).toHaveBeenCalled()
       const call = spy.mock.calls.find(c => (c[0] as { offset?: number })?.offset === 20)
       expect(call).toBeTruthy()
+      // F20260922cgrp delta：普通区拉取带 pinned:false（排除置顶，计数口径对齐）
+      expect((call![0] as { pinned?: boolean }).pinned).toBe(false)
+    })
+  })
+
+  it('页数收缩 clamp：末页条目清空后回退到新末页（防空白页死锁，检视严重 2）', async () => {
+    // 初始 45 条 = 3 页；跳到第 3 页后 total 收缩为 20（1 页）→ 重拉回空页 → clamp 回 1
+    let total = 45
+    const page3Items = Array.from({ length: 5 }, (_, i) => dtoOf({ id: `n${41 + i}`, title: `普通${41 + i}`, status: 'active', otterIds: [], pinned: false }))
+    const spy = vi.spyOn(api, 'listConversations').mockImplementation((options) => {
+      if (options?.status === 'archived') return Promise.resolve({ items: [], total: 0 }) as never
+      const offset = options?.offset ?? 0
+      // total 收缩后 offset=40 的页返回空（模拟末页 5 条全部被归档）
+      const items = total === 45
+        ? Array.from({ length: 20 }, (_, i) => dtoOf({ id: `n${offset + i + 1}`, title: `普通${offset + i + 1}`, status: 'active', otterIds: [], pinned: false }))
+        : []
+      return Promise.resolve({ items, total }) as never
+    })
+    void page3Items
+    renderLeftPanel()
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-testid="leftpanel-pagination-conversation-page-3"]')).not.toBeNull()
+    })
+    act(() => { (container.querySelector('[data-testid="leftpanel-pagination-conversation-page-3"]') as HTMLElement).click() })
+    await vi.waitFor(() => {
+      expect(spy.mock.calls.some(c => (c[0] as { offset?: number })?.offset === 40)).toBe(true)
+    })
+    // total 收缩为 20 → clamp 回第 1 页并重拉
+    total = 20
+    // 触发重拉：conversations prop 变化（模拟归档操作后父组件刷新）
+    act(() => {
+      root.render(
+        <LeftPanel
+          conversations={[...mockConversations]}
+          activeId="c1"
+          onSelect={() => {}}
+          onNewConversation={() => {}}
+          onContextMenu={() => {}}
+          otters={mockOtters}
+        />
+      )
+    })
+    await vi.waitFor(() => {
+      // clamp 后重新拉第 1 页（offset=0），分页器存活（不消失 = 不死锁）
+      expect(spy.mock.calls.filter(c => (c[0] as { offset?: number })?.offset === 0).length).toBeGreaterThan(1)
     })
   })
 
