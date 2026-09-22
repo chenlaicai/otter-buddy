@@ -243,12 +243,14 @@ export class ProcessInboundRecruit {
         throw err;
       }
     }
-    const invokeFn: InvokeFn = async ({ otterId, conversationId, userMessageContent, senderId }) =>
+    const invokeFn: InvokeFn = async ({ otterId, conversationId, userMessageContent, senderId, batchMaxSeq }) =>
       this.agentInvokePort.invokeConversation({
         otterId,
         conversationId,
         userMessageContent,
         senderId,
+        // F20260922ctxi：batchMaxSeq 透传（同款漏传修复——解构丢弃致游标不推进）
+        batchMaxSeq,
       });
 
     await this.dispatchChainEngine.executeChain({

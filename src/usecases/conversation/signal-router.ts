@@ -21,7 +21,22 @@ import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { DispatchChainEngine } from "./dispatch-chain-engine";
 import type { Logger } from "@usecases/ports/logger";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
+import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import type { HealingErrorType, HealingEventStatus, HealingEvent, HealingSeverity } from "@entities/healing/healing-event";
+
+/**
+ * F20260922ctxi：发送者显示名回退链（导出纯函数供直测）——快照名 → 配置显示名 → senderId。
+ * 修 [user] 标签瑕疵：senderName 缺失时直接掉 senderId（显示 [user]），与对话历史段的 [chen]
+ * （partnerLabel 快照路径）不一致；降级语义对齐 dispatch-chain resolveUnreadSenderLabel 的
+ * #488 回退约定（当前 sender 无快照 → partnerLabel）。
+ */
+export function resolveSignalSenderLabel(
+  senderName: string | null | undefined,
+  senderId: string,
+  partnerLabel?: string,
+): string {
+  return senderName?.trim() || partnerLabel?.trim() || senderId;
+}
 
 /** invoke 函数签名（与 AgentInvoker.invokeConversation 对齐的最小面；装配处闭包捕获 agentInvoker） */
 export type SignalRouterInvokeFn = (params: {
@@ -91,6 +106,8 @@ export class SignalRouter {
       invokeFn: SignalRouterInvokeFn;
       logger: Logger;
       healingRepo?: HealingEventRepository;
+      /** F20260922ctxi：发送者显示名回退链用（senderName 快照缺失时回退配置显示名，#488 同款降级） */
+      settingsRepo?: { get(key: string): Promise<string | null | undefined> };
       /** F20260908rlcp：LRU 热池窄接口（isRunning/followUp/steerSession） */
       factory: SignalRouterSessionFactory;
     },
@@ -208,14 +225,14 @@ export class SignalRouter {
        *  当前生成）；用户显式选 followUp（副按钮「排队」）时排队等当前轮说完再接。
        *  mode 来自 entry.metadata.injectionMode（sendMessage 请求体透传落库） */
       if (signal.injectionMode === "followUp") {
-        const followed = this.deps.factory.followUp(targetId, this.buildSignalText(signal));
+        const followed = this.deps.factory.followUp(targetId, await this.buildSignalText(signal));
         if (followed) {
           this.deps.logger.info("[signal-router] followUp 注入成功（用户显式排队）", { conversationId, messageId: signal.id, targetId });
           return "followed_up";
         }
         this.deps.logger.info("[signal-router] followUp 不可达，降级 invoke", { conversationId, messageId: signal.id, targetId });
       } else {
-        const steered = this.deps.factory.steerSession(targetId, this.buildSteerText(signal));
+        const steered = this.deps.factory.steerSession(targetId, await this.buildSteerText(signal));
         if (steered) {
           this.deps.logger.info("[signal-router] steer 注入成功", { conversationId, messageId: signal.id, targetId });
           return "steered";
@@ -289,15 +306,26 @@ export class SignalRouter {
   }
 
   /** 构建信号注入文本（followUp 路径：常规排队） */
-  private buildSignalText(signal: SignalView): string {
-    const sender = signal.senderName?.trim() || signal.senderId;
+  private async buildSignalText(signal: SignalView): Promise<string> {
+    const sender = resolveSignalSenderLabel(signal.senderName, signal.senderId, await this.getPartnerLabel());
     const content = this.extractContent(signal);
     return `[${sender}] ${content}`;
   }
 
   /** 构建 steer 文本（急讯路径：下一思考点注入） */
-  private buildSteerText(signal: SignalView): string {
-    return `【急讯 msg:${signal.id}】来自 ${signal.senderName?.trim() || signal.senderId}：${this.extractContent(signal)}`;
+  private async buildSteerText(signal: SignalView): Promise<string> {
+    const sender = resolveSignalSenderLabel(signal.senderName, signal.senderId, await this.getPartnerLabel());
+    return `【急讯 msg:${signal.id}】来自 ${sender}：${this.extractContent(signal)}`;
+  }
+
+  /** F20260922ctxi：配置显示名读取（缺失/异常降级 undefined → 继续回退 senderId） */
+  private async getPartnerLabel(): Promise<string | undefined> {
+    if (!this.deps.settingsRepo) return undefined;
+    try {
+      return (await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /** 提取信号内容（SignalView.body 单字段） */
@@ -314,7 +342,7 @@ export class SignalRouter {
     otterId: string,
     signal: SignalView,
   ): Promise<"invoked"> {
-    const userMessageContent = this.buildSignalText(signal);
+    const userMessageContent = await this.buildSignalText(signal);
     // fire-and-forget
     void (async () => {
       try {

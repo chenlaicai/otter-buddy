@@ -360,6 +360,8 @@ export class MessageController {
           userMessageContent: params.userMessageContent,
           senderId: params.senderId,
           ...(params.images && { images: params.images }),
+          // F20260922ctxi：batchMaxSeq 透传（同 invoke-controller 修复——闭包重组漏传致游标不推进）
+          batchMaxSeq: params.batchMaxSeq,
         });
       },
       callbacks: {
