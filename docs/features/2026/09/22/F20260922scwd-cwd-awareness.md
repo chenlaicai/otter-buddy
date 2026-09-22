@@ -1,6 +1,6 @@
 ---
 id: F20260922scwd
-title: bash 感知对齐与主仓写保护：[cwd:] 前缀 + 未 cd 写拦截 + 无状态架构声明
+title: bash 感知对齐与主仓写保护：每条 bash 输出带 [cwd:] 前缀 + 未 cd 时拦截主仓写
 doc_type: feature
 
 summary: |
