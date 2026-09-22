@@ -165,26 +165,49 @@ function checkFrontmatterScope(files) {
       outOfScope.push(file);
       continue;
     }
-    // 解析 hunk：@@ -a,b +c,d @@ —— 新版本变更区间 [c, c+d-1]（d=0 时为纯删除，位置 c 之前）
-    let violated = false;
-    for (const m of diff.matchAll(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/g)) {
-      const start = Number(m[1]);
-      const count = m[2] === undefined ? 1 : Number(m[2]);
-      if (count === 0) continue; // 纯删除 hunks：新位置无行，删除行的内容校验由下方删除行扫描覆盖
-      if (start + count - 1 > fmLastLine) { violated = true; break; }
-    }
-    if (violated) { outOfScope.push(file); continue; }
-    // 删除行（- 开头）无法靠新文件行号定位——检查被删行内容是否像 frontmatter 行（key: value 或 ---）
-    // 正文行被删 → 超出范围。frontmatter 行特征：^---$ 或 ^[A-Za-z_][\w-]*\s*:
-    for (const line of diff.split("\n")) {
-      if (!line.startsWith("-") || line.startsWith("--- ")) continue;
-      const del = line.slice(1).trim();
-      if (del === "") continue;
-      if (del === "---") continue;
-      if (!/^[A-Za-z_][\w-]*\s*:/.test(del) && !/^\s+#/.test(del)) {
-        violated = true;
-        break;
+    // 旧版本（HEAD）的 frontmatter 边界——删除行用 old-side 位置判定（delta-严重 1：形状判定有洞，
+    // 正文行 "Note: important" 形状像 key:value 曾被误放；纯位置判定无此洞）
+    let oldFmLastLine = -1;
+    try {
+      const oldContent = git(["show", `HEAD:${file}`]);
+      const oldLines = oldContent.split("\n");
+      if (oldLines[0] && oldLines[0].trim() === "---") {
+        for (let i = 1; i < oldLines.length; i++) {
+          if (oldLines[i].trim() === "---") { oldFmLastLine = i + 1; break; } // 1-based
+        }
       }
+    } catch {
+      oldFmLastLine = -1; // HEAD 读不到（理论边角）→ 宁拦
+    }
+    if (oldFmLastLine === -1) { outOfScope.push(file); continue; }
+
+    // 逐 hunk 校验：新增行（+）用 new-side 行号比对新边界；删除行（-）用 old-side 行号比对旧边界。
+    // 位置判定对两类行统一生效，形状分类器退役（delta 复核：死分支注释类一并消失）。
+    let violated = false;
+    const hunks = [...diff.matchAll(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/g)];
+    // diff 中 hunk 之后的行序列属于该 hunk；逐行推进 old/new 两侧行号
+    let pos = 0;
+    for (const hm of hunks) {
+      const hunkStartInDiff = diff.indexOf(hm[0], pos);
+      pos = hunkStartInDiff + hm[0].length;
+      const nextHunk = diff.indexOf("@@", pos);
+      const body = diff.slice(pos, nextHunk === -1 ? undefined : nextHunk);
+      let oldLine = Number(hm[1]);
+      let newLine = Number(hm[3]);
+      for (const raw of body.split("\n")) {
+        if (raw.startsWith("+")) {
+          if (raw.slice(1).trim() !== "" && newLine > fmLastLine) { violated = true; break; }
+          newLine++;
+        } else if (raw.startsWith("-")) {
+          if (raw.slice(1).trim() !== "" && oldLine > oldFmLastLine) { violated = true; break; }
+          oldLine++;
+        } else {
+          // 上下文行（-U0 下应无，防御）
+          oldLine++;
+          newLine++;
+        }
+      }
+      if (violated) break;
     }
     if (violated) outOfScope.push(file);
   }

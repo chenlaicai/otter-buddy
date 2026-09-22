@@ -143,7 +143,30 @@ describe("lint-historical-docs: 历史文档不可变", () => {
     fs.writeFileSync(path.join(repo, OLD_DOC), OLD_DOC_CONTENT);
   });
 
-  it(".doc-fix + 删除 frontmatter 字段行 → 放行（删除行形态校验：key: value 视为元数据）", () => {
+  it("delta-严重1 锁定：.doc-fix + 删除正文 key:value 形状行 → 拒绝放行（位置判定，形状分类器已退役）", () => {
+    // 检视獭 delta 复核实测案：正文行 "Note: important thing" 形状像 key:value，旧形状判定误放
+    // 注意：本用例需先让该正文行进入 HEAD（否则会命中「文件不在 HEAD」路径而测不到删除行判定）
+    fs.writeFileSync(path.join(repo, OLD_DOC), OLD_DOC_CONTENT + "Note: important thing\n");
+    stageOnly(repo, OLD_DOC);
+    git(repo, ["commit", "-q", "-m", "add note line to old doc"]);
+    // 该 commit 让 OLD_DOC 在 ref..HEAD 内有改动但不是 Add——isAddedOnBranch 只看 diff-filter=A，仍判历史 ✓
+    fs.writeFileSync(path.join(repo, OLD_DOC), OLD_DOC_CONTENT);
+    fs.writeFileSync(path.join(repo, ".doc-fix"), "这是一条与实际改动毫无关系的订正理由文本\n");
+    stageOnly(repo, ".");
+    const r = runLint(repo);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/超出 frontmatter 块/);
+    // 收尾必须连 HEAD 一起恢复：本用例的 commit 已把 OLD_DOC 的 HEAD 版本改成含 Note 行，
+    // 后续用例基于 OLD_DOC_CONTENT 改写会产生意外 diff（曾致 3 用例连锁失败）
+    git(repo, ["reset", "-q", "--", ".doc-fix", OLD_DOC]);
+    fs.rmSync(path.join(repo, ".doc-fix"), { force: true });
+    git(repo, ["checkout", "--", OLD_DOC]);
+    fs.writeFileSync(path.join(repo, OLD_DOC), OLD_DOC_CONTENT);
+    stageOnly(repo, OLD_DOC);
+    git(repo, ["commit", "-q", "-m", "restore old doc"]);
+  });
+
+  it(".doc-fix + 删除 frontmatter 字段行 → 放行（old-side 位置判定：删除行在 frontmatter 块内）", () => {
     fs.writeFileSync(path.join(repo, OLD_DOC), OLD_DOC_CONTENT.replace("change_type: feature\n", ""));
     fs.writeFileSync(path.join(repo, ".doc-fix"), "删除多余的 change_type 字段（订正）\n");
     stageOnly(repo, ".");
