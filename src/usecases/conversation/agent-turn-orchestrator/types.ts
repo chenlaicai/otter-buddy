@@ -104,6 +104,10 @@ export interface AttemptDriver {
   getToolCallCount(otterId: string, invokeId: string): number;
   /** 检查 invoke 是否被用户中止 */
   isUserAborted(invokeId: string): boolean;
+  /** #764：invoke 最近一次 SDK auto_retry 的底层 errorMessage（429 backoff 归因通道）。
+   *  backoff 等待期间恒有值；retry 成功（auto_retry_end success=true）即清空——
+   *  之后 abort 不再带 retry 归因；turn 结束兜底清理。无 retry 发生过 → undefined。 */
+  getRetryErrorMessage?(invokeId: string): string | undefined;
   /** F20260922handoff 建议1：turn 内末次 invoke 的 ctxTokens（水位状态数据源）。
    *  由实现层（agent-invoker createAttemptDriver）经旁路盒填充，orchestrator 不写。 */
   readonly _lastCtxTokens?: number;
