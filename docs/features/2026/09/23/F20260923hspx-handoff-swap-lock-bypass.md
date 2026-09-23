@@ -11,7 +11,7 @@ modules:
   - src/frameworks/agent/pi-session-factory.ts
   - src/interface-adapters/agent-runtime/agent-invoker.ts
   - tests/interface-adapters/unified-handoff.test.ts
-summary: "9/23 实证事故：更新 #1130 重启后，4 只獭手动重启全部失败「Lock acquire timeout」（holderHeldForMs 恒 ≈120s、queueLength=0——等的是自己）。根因（根本设计缺陷，非锁时序）：统一交接管线持冻结锁（acquireSessionLock）期间，换世 restartSession→archiveSession→agentGateway.reset() 复用 invoke 池复用锁路径二次取同一把 per-otter 锁——一把锁双目的（invoke 池复用短临界区 + 交接冻结长临界区）+ 不可重入 = 教科书级自死锁。修法（根本，非补丁）：AgentGateway.reset 增加 channel 参数，handoff 渠道走 resetForHandoff 锁旁路变体（调用方已持冻结锁，冻结窗口保证无并发 invoke 动池位），per-otter 锁退回单目的短临界区。配套：合成后 prompt 超窗预检（trim 只裁历史段，固定段大 session 可超 10K 预算假设，省 96s 必败等待）；裸重启成功后熔断计数清零（此前只 +1 永不清且内存态，该獭会被永久熔断）。"
+summary: "9/23 实证：更新 #1130 重启后 4 獭手动重启全部失败 Lock acquire timeout（holderHeldForMs 恂 ≈120s、queueLength=0——等的是自己）。根因（根本设计缺陷）：统一交接持冻结锁期间，换世 restartSession→archiveSession→reset() 复用 invoke 池复用锁路径二次取同一把 per-otter 锁——一把锁双目的 + 不可重入 = 自死锁。修法：AgentGateway.reset 增 channel 参数，handoff 渠道走 resetForHandoff 锁旁路变体，per-otter 锁退回单目的短临界区。配套：合成后 prompt 超窗预检（省 96s 必败等待）；裸重启成功后熔断计数清零（此前只 +1 永不清且内存态，永久熔断）。"
 tags: [handoff, session-lock, deadlock, circuit-breaker, synthesis]
 capability_test: "n/a: 并发时序修复，回归用例固化于 tests/interface-adapters/unified-handoff.test.ts（channel='handoff' 钉死 + 裸重启清零）"
 causal_links:
