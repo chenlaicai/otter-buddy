@@ -460,6 +460,87 @@ describe("需求变更（2026-09-20）：交接进度系统消息 + 水位按模
     expect(sendEntry.bodies.some(b => b.includes("前世已封存"))).toBe(false);
   });
 
+  it("F20260923hspx 根本修法：交接换世 restartSession 必传 channel='handoff'（锁旁路，杜绝自死锁）", async () => {
+    // Why：9/23 实证 4 獭连续「Lock acquire timeout」——交接持冻结锁时 restartSession→archiveSession
+    //  →agentGateway.reset() 二次取同一把 per-otter 锁，排队在自己后面，等满 120s 必死。
+    //  本测试钉死：统一交接管线内换世必须走 handoff 渠道（锁旁路），回归即死锁复发。
+    const channels: Array<string | undefined> = [];
+    const invoker = makeInvokerWithEngine({
+      sdk: makeSdkPort(),
+      engine: makeEngine(),
+      restartSession: async (otterId: string, summary?: string, _modelAlias?: string, _reason?: 'restart' | 'compaction', channel?: 'normal' | 'handoff') => {
+        channels.push(channel);
+        return makeSession({ otterId, summary: summary ?? null });
+      },
+    });
+
+    await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: false });
+
+    expect(channels.length).toBeGreaterThan(0);
+    expect(channels.every(c => c === 'handoff')).toBe(true);
+  });
+
+  it("F20260923hspx 裸重启成功后熔断计数清零（回归：曾只 +1 永不清 → 永久熔断）", async () => {
+    // Why：此前 mock 恒 throw 的版本永远执行不到 clearHandoffFailures——删掉清零行测试照样绿。
+    //  本真回归：先记录失败（recordHandoffFailure），再让降级裸重启成功，断言计数被清零。
+    const sendEntry = { bodies: [] as string[] };
+    let restartCalls = 0;
+    const invoker = makeInvokerWithEngine({
+      sdk: makeSdkPort(),
+      engine: makeEngine(),
+      sendEntry,
+      // 第一次（unifiedHandoff 内换世）炸 → 降级裸重启（第二次）成功
+      restartSession: async () => {
+        restartCalls += 1;
+        if (restartCalls === 1) throw new Error("unified handoff db down");
+        return makeSession({ otterId: "otter-1" });
+      },
+    });
+    invoker["handoffState"].recordHandoffFailure("otter-1");
+    expect(invoker["handoffState"].getConsecutiveFailures("otter-1")).toBe(1);
+
+    await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true });
+
+    expect(restartCalls).toBe(2); // unifiedHandoff 失败 → 降级裸重启成功
+    expect(invoker["handoffState"].getConsecutiveFailures("otter-1")).toBe(0);
+  });
+
+  it("F20260923hspx 合成超窗预检：prompt 超窗口×密度阈值 → 跳过合成走机械档案（动机案例回归）", async () => {
+    // Why：9/23 实测 566K chars prompt 超 kimi-256k 262K 窗口 400，白等 96s 才降级。
+    //  预检应在合成前拦下（密度 chars/2 阈值 = 262144×2 = 524288；566216 > 524288 拦下）。
+    const engine = makeEngine({
+      buildNarrativeSynthesisPrompt: () => "x".repeat(566_216), // 动机案例实测长度
+    });
+    const synthCalls: string[] = [];
+    const invoker = makeInvokerWithEngine({
+      sdk: makeSdkPort({ synth: async (p) => { synthCalls.push(p); return { directText: "summary" }; } }),
+      engine,
+      ctxWindowProvider: { window: 262_144 },
+    });
+
+    await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true });
+
+    expect(synthCalls).toEqual([]); // 合成被预检拦下
+    expect(engine.mechanical.length).toBeGreaterThan(0); // 走机械档案
+    expect(invoker["handoffState"].getConsecutiveFailures("otter-1")).toBeGreaterThan(0); // 计失败一次（熔断语义）
+  });
+
+  it("F20260923hspx 合成超窗预检：prompt 在阈值内 → 正常合成（不误杀）", async () => {
+    const engine = makeEngine({
+      buildNarrativeSynthesisPrompt: () => "x".repeat(100_000), // 阈值内
+    });
+    const synthCalls: string[] = [];
+    const invoker = makeInvokerWithEngine({
+      sdk: makeSdkPort({ synth: async (p) => { synthCalls.push(p); return { directText: "summary" }; } }),
+      engine,
+      ctxWindowProvider: { window: 262_144 },
+    });
+
+    await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true });
+
+    expect(synthCalls.length).toBe(1); // 正常合成
+  });
+
   it("进度反馈：反馈通道自身故障不反噬交接主线（静默降级）", async () => {
     const invoker = makeInvokerWithEngine({
       sdk: makeSdkPort(), engine: makeEngine(),

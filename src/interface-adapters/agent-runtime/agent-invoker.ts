@@ -37,6 +37,16 @@ import type { SynthesisPrefetch } from "@frameworks/agent/synthesis-prompt-build
 // import frameworks 实现——同 buildHandoffPackage 注入先例，运行时由 bootstrap 装配）
 import { DomainError } from "@entities/errors";
 
+/** F20260923hlck：合成 prompt 长度→token 估算比率——9/23 生产日志实测校准。
+ *  实测（pid 56177）：362K/566K chars 两 prompt 均超 kimi-256k 262K 窗口 400，
+ *  反推真实密度 <1.38/<2.16 chars/token——合成 prompt 含大量机械供料（§④⑤⑥ 状态盘点/
+ *  文件轨迹/谱系摘要），密度远低于常规对话（≈3）。取 2.0 为预检阈值（实测上界 ×0.93 余量，
+ *  漏杀方向保守：宁多合成一次 400 降级，不漏杀本可合成的场景）。
+ *  已知边界：362K 案例（密度 1.38）仍低于本阈值 → 不触发预检，会付一次 400 降级学费。
+ *  收紧到 ≤1.38 的误杀代价（失败计数副作用 + 正常对话场景误拦）大于收益，接受不收紧。
+ *  层约束不让 interface-adapters import frameworks 常量——值必须与 trimMessagesToBudget 的口径解耦。 */
+const SYNTHESIS_PRECHECK_CHARS_PER_TOKEN = 2;
+
 /** 统一交接的引擎输入形状（与 narrative-synthesis-engine 的同名接口结构兼容——
  *  独立声明避免 interface-adapters→frameworks 的模块依赖，参数类型就地内联） */
 export interface EngineSynthesisInput {
@@ -1018,7 +1028,25 @@ export class AgentInvoker implements AgentTurnPort {
             // F20260923hsyn：预算裁剪（丢最老保最近）——目标窗口缺省时取合成模型覆盖值或该獭当前模型
             contextWindowTokens: this.resolveSynthesisContextWindow(otterId, modelAlias),
           });
-          narrativeSummary = await this.runShadowSynthesis(otterId, prompt, modelAlias);
+          // F20260923hlck：合成后预检——trimMessagesToBudget 只裁历史段，previousSummary/§⑤ 状态盘点等
+          //  固定段在大 session 可突破 10K token 预算假设（9/23 实测 546KB jsonl 裁剪后合成请求仍超窗，
+          //  白等 96s 才 400，还全程拖着交接锁逼死后续 waiter）。超窗直接跳合成走机械档案，
+          //  与合成失败同语义计一次失败——既有 ≥2 熔断机制会接管「固定段结构性超窗」的死亡链。
+          const synthesisWindow = this.resolveSynthesisContextWindow(otterId, modelAlias);
+          const overWindow = synthesisWindow !== undefined
+            && prompt.length > synthesisWindow * SYNTHESIS_PRECHECK_CHARS_PER_TOKEN;
+          if (overWindow) {
+            this.metrics?.recordSynthesis('error');
+            this.handoffState.recordHandoffFailure(otterId);
+            this.logger.warn('[handoff] prompt still over window after trim, skipping synthesis (mechanical archive)', {
+              otterId, trigger,
+              promptChars: prompt.length,
+              budgetChars: synthesisWindow! * SYNTHESIS_PRECHECK_CHARS_PER_TOKEN,
+              consecutiveFailures: this.handoffState.getConsecutiveFailures(otterId),
+            });
+          } else {
+            narrativeSummary = await this.runShadowSynthesis(otterId, prompt, modelAlias);
+          }
         } catch (err) {
           this.metrics?.recordSynthesis('error');
           this.handoffState.recordHandoffFailure(otterId);
@@ -1054,7 +1082,11 @@ export class AgentInvoker implements AgentTurnPort {
       // D8 演进：档案走 session.summary 单点写入（不再预写 otter_context 借用式 key），
       // 天然原子——restart 失败无幽灵上下文泄漏，无需补偿删除
       const reason = trigger === '水位' ? 'compaction' : 'restart';
-      const session = await this.manageSession.restartSession(otterId, archive, modelAlias, reason);
+      // F20260923hspx：channel='handoff'——交接冻结锁已由本管线持有（unifiedHandoff 入口
+      //  acquireSessionLock），换世的 archive→reset 必须走锁旁路（resetForHandoff），
+      //  否则二次取同一把 per-otter 锁 = 自死锁（9/23 实证 4 獭连续「Lock acquire timeout」，
+      //  holderHeldForMs 恂 ≈120s、queueLength=0——等的是自己）。
+      const session = await this.manageSession.restartSession(otterId, archive, modelAlias, reason, 'handoff');
       // 水位状态已在 unifiedHandoff 入口统一清理（严重1修正），此处不再重复。
       // F20260923hsyn 审视严重1修正：熔断清零挂「合成成功」（narrativeSummary 非空）而非
       // 「交接成功」——死亡链场景每次交接都是「合成失败→机械档案→restart 成功」，清零挂交接成功
@@ -1377,7 +1409,15 @@ export class AgentInvoker implements AgentTurnPort {
      *  所有 unifiedHandoff 之外的 restartSession 调用点（手动降级/自重启保底）必须走本 helper。 */
     const bareRestart = async (): Promise<OtterSession> => {
       this.handoffState.clearLastCtxTokens(otterId);
-      return this.manageSession.restartSession(otterId, selfSummary, modelAlias);
+      const session = await this.manageSession.restartSession(otterId, selfSummary, modelAlias);
+      // F20260923hlck：裸重启成功 = 换世完成，失败链已断——熔断计数清零。
+      //  此前只 +1 永不清（clearHandoffFailures 只在合成成功时调），进程重启也不恢复
+      //  （内存态），该獭会被永久熔断（9/23 实证：重启后仍反复交接失败）。
+      // F20260923hspx 检视建议5 说明：清零仅发生在「降级裸重启成功」——即「交接管线已炸但
+      //  换世本身成功」的场景；若裸重启也失败（异常上抛），本行不执行，计数保留。
+      //  「失败+1→bare 成功清零」不会掩盖「换世本身连续失败」的信号（那是上抛路径）。
+      this.handoffState.clearHandoffFailures(otterId);
+      return session;
     };
 
     const conversationId = await this.resolveFirstConversationId(otterId);
