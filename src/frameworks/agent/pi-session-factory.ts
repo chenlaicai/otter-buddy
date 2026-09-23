@@ -303,13 +303,34 @@ export class PiSessionFactory implements AgentGateway {
     this.poolMeta.delete(otterId);
   }
 
-  async reset(otterId: string, context?: AgentContext): Promise<void> {
+  async reset(otterId: string, context?: AgentContext, channel?: 'normal' | 'handoff'): Promise<void> {
+    // F20260923hspx：handoff 渠道 = 交接冻结锁已由调用方持有，走锁旁路（隔离换世通道），
+    //  避免与交接锁自死锁（9/23 实证 4 獭连续「Lock acquire timeout」——等的是自己）。
+    //  resetForHandoff 未实现时降级走正常路径（旧行为，兼容 mock）。
+    if (channel === 'handoff' && this.resetForHandoff) {
+      return this.resetForHandoff(otterId, context);
+    }
     const release = await this.lockManager.acquire(`session:${otterId}`);
     try {
       await this._resetInternal(otterId, context);
     } finally {
       release();
     }
+  }
+
+  /** F20260923hspx：交接换世隔离通道——reset 的锁旁路变体。
+   *  Why（根本设计修复，不再打锁时序补丁）：统一交接管线已持交接冻结锁（acquireSessionLock），
+   *  换世再走 reset() 会二次取同一把 per-otter 锁 → 排队在自己后面 → 等满 waiter 超时必死
+   *  （9/23 实证 4 獭连续「Lock acquire timeout」，holderHeldForMs 恂 ≈120s、queueLength=0，
+   *  等的就是自己）。此前修法（heldAt 纪元/hopeless 预检）都是锁时序补丁——本通道从根上拆掉
+   *  「交接换世复用 invoke 池复用锁路径」这个双目的锁模型：per-otter 锁退回单目的
+   *  （invoke 池复用，毫秒级短临界区）。
+   *  安全性：调用方必须已持有交接冻结锁（冻结窗口保证此刻无并发 invoke 动池位），
+   *  且 reset 换世期间池内旧 session 由 _resetInternal 的 evict 出池（不 dispose，
+   *  旧 invoke 若仍活着由 GC 兑底——与 markStale 同语义，F20260912nlb896 已验证）。
+   *  Precondition: 调用方已持交接冻结锁（acquireSessionLock），否则与 reset() 等价但与并发 invoke 竞态。 */
+  async resetForHandoff(otterId: string, context?: AgentContext): Promise<void> {
+    await this._resetInternal(otterId, context);
   }
 
   private async _resetInternal(otterId: string, context?: AgentContext): Promise<void> {

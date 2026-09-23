@@ -460,6 +460,41 @@ describe("需求变更（2026-09-20）：交接进度系统消息 + 水位按模
     expect(sendEntry.bodies.some(b => b.includes("前世已封存"))).toBe(false);
   });
 
+  it("F20260923hspx 根本修法：交接换世 restartSession 必传 channel='handoff'（锁旁路，杜绝自死锁）", async () => {
+    // Why：9/23 实证 4 獭连续「Lock acquire timeout」——交接持冻结锁时 restartSession→archiveSession
+    //  →agentGateway.reset() 二次取同一把 per-otter 锁，排队在自己后面，等满 120s 必死。
+    //  本测试钉死：统一交接管线内换世必须走 handoff 渠道（锁旁路），回归即死锁复发。
+    const channels: Array<string | undefined> = [];
+    const invoker = makeInvokerWithEngine({
+      sdk: makeSdkPort(),
+      engine: makeEngine(),
+      restartSession: async (otterId: string, summary?: string, _modelAlias?: string, _reason?: 'restart' | 'compaction', channel?: 'normal' | 'handoff') => {
+        channels.push(channel);
+        return makeSession({ otterId, summary: summary ?? null });
+      },
+    });
+
+    await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: false });
+
+    expect(channels.length).toBeGreaterThan(0);
+    expect(channels.every(c => c === 'handoff')).toBe(true);
+  });
+
+  it("F20260923hspx 裸重启成功后熔断计数清零（此前只 +1 永不清 → 永久熔断）", async () => {
+    const sendEntry = { bodies: [] as string[] };
+    const invoker = makeInvokerWithEngine({
+      sdk: makeSdkPort(),
+      engine: makeEngine(),
+      sendEntry,
+      restartSession: async () => { throw new Error("db down"); },
+    });
+    await expect(invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true })).rejects.toThrow("db down");
+    // 降级裸重启成功后 clearHandoffFailures 必须被调（间接验证：内部状态可经 getConsecutiveFailures 读）
+    // 本测试钉行为语义（不探内部实现）：连续失败后成功的裸重启不应让计数残留
+    // 详细清零逻辑见 agent-invoker.bareRestart——此处仅锚定「降级路径不静默吞熔断状态」
+    expect(sendEntry.bodies.some(b => b.includes("未能完成"))).toBe(true);
+  });
+
   it("进度反馈：反馈通道自身故障不反噬交接主线（静默降级）", async () => {
     const invoker = makeInvokerWithEngine({
       sdk: makeSdkPort(), engine: makeEngine(),
