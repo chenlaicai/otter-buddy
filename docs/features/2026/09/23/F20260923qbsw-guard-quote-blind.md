@@ -1,11 +1,20 @@
 ---
+id: F20260923qbsw
 title: bash 守卫引号盲误拦修复（#984 循环拦截事故）
-date: 2026-09-23
-category: Bugfix
-scope: [agent]
-type: feature
-status: active
+doc_type: feature
+change_type: fix
+created: 2026-09-23
 created_in_conversation: ce40cd37-9b62-4b7c-9fe1-35fc6f8a0a2f
+modules:
+  - src/frameworks/agent/bash-safety-guard.ts
+  - src/frameworks/agent/quoted-text-sanitizer.ts
+  - tests/frameworks/agent/bash-safety-guard.test.ts
+summary: "F20260922scwd 主仓写拦截的 REDIRECT_PATTERN 与 hasRealCdSegment 复合切断检查是文本级引号盲全文扫描：gh issue comment --body 内含 -->/|/& 合法文本被误判重定向写主仓或假 cd，#984 连拦 3 次中断獭回合。修复：quoted-text-sanitizer 新增 stripQuotedTextSpans（引号段整段剥离，供 shell 语法形态判定；危险通道 bash -c/heredoc/反引号不剥离），checkMainCheckoutWrite 判定基准改剥离文本。9/23 早《压缩交接紧急修复》排查对话追加 9 个回归用例固化 sqlite3/grep 管道/awk/ls/tail/gh comment 等高频只读命令放行面。修法决策树①（既有机制语义内修复），Modification-Class: narrow-fix。"
+tags: [bash-safety-guard, quote-blind, false-positive, reliability]
+capability_test: "n/a: narrow-fix 收窄既有守卫判定语义，回归用例固化于 tests/frameworks/agent/bash-safety-guard.test.ts（F20260923qbsw 两个 describe 块）"
+causal_links:
+  from:
+    - F20260922scwd
 ---
 
 # F20260923qbsw：bash 守卫引号盲误拦修复（#984 循环拦截事故）
