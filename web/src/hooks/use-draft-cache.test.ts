@@ -122,4 +122,38 @@ describe('useDraftCache', () => {
     rerender({ conversationId: 'conv-1' })
     expect(result.current.draft).toBe('draft A')
   })
+
+  it('should not resurrect manually cleared draft via debounce effect cleanup (ref sync timing)', () => {
+    // Bug: saveDraft('x') 后 saveDraft('') 手动清空，debounce effect 的 cleanup 在
+    // ref 同步 effect 之前执行，读到滞后的 draftRef.current='x' 并写回 localStorage，
+    // 导致清空的内容在切换页面回来时复活。
+    const { result, unmount } = renderHook(() => useDraftCache('conv-1'))
+
+    // 第一笔草稿：写入 localStorage（模拟 debounce 完成的真实场景）
+    act(() => {
+      result.current.saveDraft('will-be-cleared')
+    })
+    act(() => {
+      vi.advanceTimersByTime(400)  // debounce 触发，localStorage 写入
+    })
+    expect(localStorage.getItem('draft:conv-1')).toBe('will-be-cleared')
+
+    // 手动清空：用户删光输入框内容
+    act(() => {
+      result.current.saveDraft('')
+    })
+
+    // debounce timer 因空串不写入；deps=[] 后 cleanup 不在 draft 变化时触发
+    act(() => {
+      vi.advanceTimersByTime(400)
+    })
+
+    // 卸载组件（模拟 SPA 导航离开）——cleanup 执行，但读到 draftRef.current='' 不写入
+    unmount()
+
+    // 关键断言：cleanup 没有把旧值写回（storage 仍是 debounce 写入的旧值或空，但不是复活）
+    // 真正的回归验证：重新挂载后 draft 为空（不复活）
+    const { result: result2 } = renderHook(() => useDraftCache('conv-1'))
+    expect(result2.current.draft).toBe('')
+  })
 })

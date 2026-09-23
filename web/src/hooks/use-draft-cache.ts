@@ -45,6 +45,9 @@ export function useDraftCache(conversationId: string | null) {
   // 保存草稿：用户输入时 debounce 300ms 写入 localStorage
   const saveDraft = useCallback((text: string) => {
     setDraft(text)
+    // 同步更新 ref——与 clearDraft 同构，防止 effect cleanup 在 ref 同步前读到滞后旧值写回
+    // Bug 场景：saveDraft('x') → saveDraft('') 时，cleanup 读到滞后的 'x' 写回 localStorage，清空内容复活
+    draftRef.current = text
 
     // 清除之前的 debounce timer
     if (debounceTimerRef.current) {
@@ -93,10 +96,11 @@ export function useDraftCache(conversationId: string | null) {
         debounceTimerRef.current = null
       }
 
-      // 立即同步写入 localStorage
+      // 立即同步写入 localStorage（读 ref 而非闭包 draft——闭包在 deps=[] 下永远是初始值）
       const currentConversationId = conversationIdRef.current
-      if (currentConversationId && draft) {
-        localStorage.setItem(`draft:${currentConversationId}`, draft)
+      const currentDraft = draftRef.current
+      if (currentConversationId && currentDraft) {
+        localStorage.setItem(`draft:${currentConversationId}`, currentDraft)
       }
     }
 
@@ -109,20 +113,18 @@ export function useDraftCache(conversationId: string | null) {
       // Why: beforeunload 只在浏览器关闭/刷新时触发，SPA 的 Link 导航不触发它
       // 组件卸载时 draft 可能还没写入（debounce 300ms 窗口内），必须同步 flush
       // 使用 draftRef.current 而非闭包中的 draft——闭包捕获的是 effect 注册时的值
-      // 检查 localStorage 是否已有该 key——clearDraft 会先 removeItem，避免覆盖
+      // deps=[]：cleanup 只在真正卸载时执行，不在 draft 每次变化时误写回
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current)
         debounceTimerRef.current = null
       }
       const currentConversationId = conversationIdRef.current
       const currentDraft = draftRef.current
-      // D2 修复：删除存在性检查——clearDraft 后是空串本就不写入，顾虑不成立
-      // Why: 首笔草稿（key 不存在）也需要写入，否则 SPA 导航会丢失未保存的草稿
       if (currentConversationId && currentDraft) {
         localStorage.setItem(`draft:${currentConversationId}`, currentDraft)
       }
     }
-  }, [draft])
+  }, [])
 
   return { draft, saveDraft, clearDraft }
 }
