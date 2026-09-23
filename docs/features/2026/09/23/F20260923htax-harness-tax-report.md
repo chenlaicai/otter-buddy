@@ -59,30 +59,31 @@ T3: 零侵入——纯只读查询，不改任何现有表结构/写入路径
 `scripts/harness-tax-report.mjs`（Node，better-sqlite3 只读连接）：
 
 ```
-查询：invokes JOIN conversations JOIN otters
+查询：invokes LEFT JOIN conversations
 维度：
-  - model（从 invokes.metadata JSON 提取）
-  - 任务类型（推断规则）：
-      scheduler 触发（trigger_entry_id IS NULL 或指向 system entry）→ 按 conversation title 匹配「雷达」等关键词
-      非 scheduler → 按 conversation title 关键词粗分（开发/审视/闲聊/其他）
+  - model（从 invokes.metadata JSON 提取，缺失归 unknown）
+  - 任务类型：conversation title 关键词粗分（雷达简报/每日体检/洞察讨论/审视/运维/其他），
+    定时/手动触发源不可判（trigger_entry_id 实测恒 NULL，见未决问题 #1150）
 指标（按 model × 任务类型分组）：
   - 样本数、ctx_window_used 均值/中位数/P90
   - token_usage_input/output 均值
-  - tool_call_count 均值
-  - 平均耗时（ended_at - started_at）
-  - 估算成本（model 定价表硬编码：input/output per M token）
-输出：终端表格 + 可选 JSON 导出（--json 落工作区，供后续分析）
+  - tool_call_count 均值、平均耗时
+  - 估算成本（定价表硬编码；不含 cache 读写——未落库，方向性低估，见 #1149）
+输出：终端表格（头部三行口径声明）+ 可选 JSON 导出（--json）
 ```
 
-### 首版定价表（硬编码，来源：各厂商公开定价，执行时核实）
+### 定价表（脚本顶部常量区，2026-09 公开 API 量级估算）
 
 | 模型 | input $/M | output $/M |
 |---|---|---|
-| kimi (k3) | 待查 | 待查 |
-| glm | 待查 | 待查 |
-| 其他出现的模型 | 待查 | 待查 |
+| kimi (k3) | 4 | 16 |
+| kimi-256k / kimi-k28 | 2 | 8 |
+| kimi-fast | 6 | 24 |
+| glm | 1 | 4 |
+| glm-flash | 0.5 | 2 |
+| mimo / mimo-pro | 1-2 | 4-8 |
 
-（定价在脚本顶部常量区，改价格改一处；查不到的模型标注「价格未知，只报 token 量」）
+（量级估算非账单；改价格改一处；未在表中的模型归 unknown 只报 token 量）
 
 ### 涉及模块
 
