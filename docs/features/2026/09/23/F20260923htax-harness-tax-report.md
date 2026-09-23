@@ -30,7 +30,7 @@ causal_links:
 数据基础已探明（本对话实测）：
 - `invokes` 表（schema.ts:866-902）：2766 条记录，1809 条含 `ctx_window_used`（65% 覆盖率，token_usage_input/output/ctx_window_used/tool_call_count/started_at/ended_at 齐全）
 - `invokes.metadata` JSON 含 `model` 字段（实测：`{"model":"kimi"}`）
-- 任务类型推断链：`invokes.conversation_id → conversations(title/type)` + `invokes.trigger_entry_id`（scheduler 触发的 invoke 可识别，见 schema.ts:907 注释「scheduled 任务来源 trigger_entry_id 为 NULL 或指向 system entry」）
+- 任务类型推断：对话标题关键词粗分。**invoke 级定时/手动触发源不可判**——`trigger_entry_id` 实测恒 NULL（schema.ts:907 注释预告「scheduled 任务来源 trigger_entry_id 为 NULL」），entries 特征匹配只能到对话级（同对话手动/定时混杂无法拆分），本 PR 不新增此维度，根治需写入侧补 trigger 记录（未决问题）
 
 ## 目标
 
@@ -47,7 +47,9 @@ T3: 零侵入——纯只读查询，不改任何现有表结构/写入路径
 
 ## 未决问题
 
-- 任务类型的分组粒度：首版按「对话标题关键词 + 是否 scheduler 触发」粗分（雷达/开发/审视/闲聊），粗分不够再细化
+- 任务类型的分组粒度：首版按对话标题关键词粗分（雷达/体检/洞察/审视/运维/其他），粗分不够再细化
+- invoke 级定时/手动拆分：需写入侧补 trigger_entry_id 记录（运行时改动）——已立 issue #1150
+- cacheRead/cacheWrite 成本：未落库（sqlite-invoke-repository 只存 input/output），脚本成本口径为方向性低估；补齐落库——已立 issue #1149
 - 定价表维护：模型价格硬编码在脚本里（首版），后续看是否需要抽配置
 
 ## 方案设计
@@ -95,6 +97,7 @@ T3: 零侵入——纯只读查询，不改任何现有表结构/写入路径
 2. **幂等**：每次跑全量重算，无状态
 3. **渐进式**：首版终端表格够看就行；--json 导出留给后续深挖
 4. **任务类型推断宁可粗不可错**：匹配不到关键词的归「其他」，不强行归类
+5. **口径声明上头**（审视修正）：输出头部三行口径声明——定价口径（公开 API 量级）、成本口径（不含 cache 读写，方向性低估）、分组口径（标题粗分，定时/手动不可拆）。不给读者「假装精确」的数字
 
 ## 影响范围
 
@@ -127,8 +130,9 @@ Golden Gate: n/a（纯查询脚本，无 prompt/skill 层改动）
 1. ✅ 脚本在真实 data/otter-buddy.db 上执行成功，输出 26 个分组的完整表格（近 30 天 1913 次 invoke、89% ctx 覆盖率）
 2. ✅ 抽查校验：手工 SQL 复算「kimi×审视」分组均值（141064/418127/47548/22 条）与脚本输出完全一致
 3. ✅ 边界：--db 指向不存在路径报清晰错误 exit 1；--days 0 空结果正常输出不报错
-4. ✅ 定时/对话分组修正：首版 trigger_entry_id 判定全落空（实测该列恒 NULL），改为「对话内存在 scheduler system 注入消息（body 特征匹配）」判定，雷达对话 41 条 invoke 正确拆分（定时 29 + 对话 14）
+4. ~~定时/对话分组~~ **已修正**：首版 trigger_entry_id 判定全落空（实测恒 NULL），二版 entries 特征匹配被判对话级误标（审视严重 1：同对话手动轮次全被误标「定时·」，「29+14 正确拆分」声称被证伪）——最终版去掉定时/对话维度，任务类型只按标题关键词粗分，不可判性在输出头部声明
 5. 最简检查：单文件脚本、零新依赖（better-sqlite3 为既有依赖）、无状态幂等——已过最简检查
+6. ✅ --days 参数校验（非正数清晰报错 exit 1）
 
 ## 改动范围
 
