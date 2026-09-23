@@ -81,4 +81,20 @@ describe('RestartModal（F20260920uhuc 统一交接）', () => {
 
     await waitFor(() => expect(onConfirmRestart).toHaveBeenCalledWith('', undefined, false))
   })
+
+  // F20260923hsyn：提交中文案按勾选区分——不勾时是秒级机械重启语义，不显示「封装前世档案」
+  // （9/23 搭档实证：不勾选仍看到封装文案，误以为勾选失效）
+  it('取消勾选后提交 → 按钮显示「正在重启…（秒级）」而非封装文案', async () => {
+    const onConfirmRestart = vi.fn()
+    renderRestartModal(onConfirmRestart)
+
+    const toggle = await screen.findByTestId('synthesize-past-toggle')
+    fireEvent.click(toggle.querySelector('input[type="checkbox"]') as HTMLInputElement)
+    const confirm = await screen.findByRole('button', { name: '确认重启' })
+    fireEvent.click(confirm)
+
+    const submitting = await screen.findByRole('button', { name: /正在重启…（秒级）/ })
+    expect((submitting as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.queryByRole('button', { name: /正在封装前世档案/ })).toBeNull()
+  })
 })

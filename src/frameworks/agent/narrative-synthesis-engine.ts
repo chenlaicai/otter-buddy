@@ -15,8 +15,63 @@
 
 import { serializeConversation } from "@earendil-works/pi-coding-agent";
 
-/** 合成超时上界（ms）：影子通道外层兜底，超时降级机械转储档案 */
-export const NARRATIVE_SYNTHESIS_TIMEOUT_MS = 60_000;
+/** 合成超时上界（ms）：兜底异常语义——防 LLM 卡死/网络挂起，不是质量闸门（F20260923hsyn）。
+ *  实证分布（9/23 日志配对统计）：正常 20-65s，最大真实案例 146s（956k chars prompt）。
+ *  60s 会把大 session 的正常合成误判超时并丢弃迟到结果（白跑+降级双重损失），故定 300s。 */
+export const NARRATIVE_SYNTHESIS_TIMEOUT_MS = 300_000;
+
+/** 合成 prompt 输出预留（tokens）：合成输出实证 1.3k-2.7k chars，留足余量 */
+export const SYNTHESIS_OUTPUT_RESERVE_TOKENS = 8_192;
+/** 固定段开销（tokens）：模板/规则/谱系/§④⑤⑥机械供料的保守估计 */
+export const SYNTHESIS_FIXED_OVERHEAD_TOKENS = 10_000;
+
+/** F20260923hsyn：预算裁剪结果（供调用方留痕裁剪幅度） */
+export interface BudgetTrimResult {
+  /** 裁剪后的消息列表（丢最老保最近） */
+  messages: Array<{ role: string; content?: unknown }>;
+  /** 被丢弃的最老消息条数（0 = 未裁剪） */
+  droppedCount: number;
+}
+
+/**
+ * F20260923hsyn：合成 prompt 预算裁剪——丢最老保最近（方案 A，搭档 9/23 拍板）。
+ *
+ * 根因（9/23 压缩死亡链）：合成请求 = 全量历史 + prompt，从不裁剪——一旦 ctx 超过
+ * 「模型窗口 − prompt 开销」临界点，compaction/narrative synthesis 全部数学性失效
+ * （kimi-256k 实测 prompt 362k-956k chars 超 262k 窗口必 400）。
+ *
+ * 裁剪策略：历史段预算 = contextWindow − 输出预留 − 固定段开销；从最老消息开始整条丢，
+ * 直到序列化文本估算进预算。谱系摘要（previousSummary）与 §④⑤⑥ 机械供料不裁——
+ * 它们已是压缩过的全局信息，交接场景「最近正在干什么」远比「开头聊了啥」重要。
+ *
+ * token 估算：chars / 3（审视建议1修正：chars/4 对中文偏乐观——中文 UTF-16 单字 1 unit
+ * 但 token 化接近 1.5 chars/token 即 tokens≈chars/1.5，chars/4 会低估 token 2.6 倍，
+ * 大中文 session 裁剪不足。chars/3 仍偏保守方向安全：多裁不会更糟，少裁会 400）。
+ */
+export function trimMessagesToBudget(
+  messages: Array<{ role: string; content?: unknown }>,
+  contextWindowTokens: number,
+): BudgetTrimResult {
+  const historyBudgetChars =
+    (contextWindowTokens - SYNTHESIS_OUTPUT_RESERVE_TOKENS - SYNTHESIS_FIXED_OVERHEAD_TOKENS) * 3;
+  if (historyBudgetChars <= 0) {
+    // 窗口过小连固定段都装不下——保底返回空历史（机械供料仍在，合成仍可产出）
+    return { messages: [], droppedCount: messages.length };
+  }
+  const total = serializeConversation(messages as never).length;
+  if (total <= historyBudgetChars) return { messages, droppedCount: 0 };
+  // 从最老端整条丢弃（保持消息边界完整，不切半条）。
+  // 增量估算避免 O(n²) 重序列化：每条消息的序列化长度单独算，总长 − 逐条长度，
+  // 直到进预算（ serializeConversation 是拼接语义，长度近似可加——分隔符误差 << 预算余量）。
+  const perMsgChars = messages.map(m => serializeConversation([m] as never).length);
+  let remaining = total;
+  let dropped = 0;
+  while (dropped < messages.length && remaining > historyBudgetChars) {
+    remaining -= perMsgChars[dropped];
+    dropped++;
+  }
+  return { messages: messages.slice(dropped), droppedCount: dropped };
+}
 
 /** 引擎输入原料包（原料层统一收集器的产出——触发层负责收集，算法层只管消费） */
 export interface NarrativeSynthesisInput {
@@ -44,6 +99,12 @@ export interface NarrativeSynthesisInput {
   };
   /** 当前时间戳（缺省 now） */
   timestamp?: string;
+  /**
+   * F20260923hsyn：目标模型上下文窗口（tokens）——传入则对历史段做预算裁剪
+   * （trimMessagesToBudget，丢最老保最近）；缺省不裁（向后兼容旧调用）。
+   * 9/23 压缩死亡链根因：合成请求从不裁剪，ctx 超「窗口 − prompt 开销」后数学性必败。
+   */
+  contextWindowTokens?: number;
 }
 
 /**
@@ -137,12 +198,32 @@ function appendPreviousSummary(lines: string[], previousSummary: string | undefi
 
 function appendMaterialSections(lines: string[], ctx: PromptContext, input: NarrativeSynthesisInput): void {
   void ctx;
+  appendHistorySection(lines, input);
+  appendMechanicalSections(lines, input);
+}
+
+/** F20260923hsyn：历史段（含预算裁剪——裁剪在此做，调用方拿到的 prompt 必然装得下） */
+function appendHistorySection(lines: string[], input: NarrativeSynthesisInput): void {
+  let trimmedMessages = input.messagesToSummarize;
+  let droppedCount = 0;
+  if (input.contextWindowTokens) {
+    const result = trimMessagesToBudget(input.messagesToSummarize, input.contextWindowTokens);
+    trimmedMessages = result.messages;
+    droppedCount = result.droppedCount;
+  }
   lines.push('## 待压缩的对话历史（前世 agent 视角完整记录）');
   lines.push('<conversation-to-summarize>');
-  lines.push(serializeConversation(input.messagesToSummarize as never));
+  lines.push(serializeConversation(trimmedMessages as never));
   lines.push('</conversation-to-summarize>');
+  if (droppedCount > 0) {
+    lines.push('<trim-note>');
+    lines.push(`预算裁剪：已丢弃最老 ${droppedCount} 条消息——全局脉络见上一代摘要与 §⑤ 机械盘点，本段为最近原文。`);
+    lines.push('</trim-note>');
+  }
   lines.push('');
+}
 
+function appendMechanicalSections(lines: string[], input: NarrativeSynthesisInput): void {
   lines.push('## 机械供料（枚举事实，直接用）');
   lines.push('### §④ 预取数据');
   lines.push(formatPrefetch(input.prefetch));
@@ -155,7 +236,6 @@ function appendMaterialSections(lines: string[], ctx: PromptContext, input: Narr
   lines.push('### §⑥ 最近搭档消息原文（挑选指令性语句引用）');
   lines.push(formatRecentUserMessages(input.prefetch));
   lines.push('');
-
 }
 
 function appendTemplateSection(lines: string[], ctx: PromptContext, input: NarrativeSynthesisInput): void {

@@ -583,6 +583,11 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
       && (() => {
         const r = path.normalize(projectRoot).toLowerCase();
         const t = path.normalize(target).toLowerCase();
+        // F20260923hsyn：主仓树下但属合法工作区（data/workspaces/）——重定向落点豁免
+        // （9/23 排查实证：tail log > data/workspaces/<id>/x.log 被误拦；工作区是 sandbox 语义，
+        //  与 data/metrics|logs 等运行时数据性质不同，DATA_DESTRUCTIVE 层另有 rm/mv 防线）。
+        const workspacesDir = path.join(r, 'data', 'workspaces') + path.sep;
+        if (t.startsWith(workspacesDir)) return true;
         return !t.startsWith(r + path.sep) && t !== r;
       })();
     if (!isAbsNonMain) {
