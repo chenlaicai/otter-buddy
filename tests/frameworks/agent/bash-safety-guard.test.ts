@@ -697,6 +697,40 @@ describe("#698 攻击链回归：wrapper/赋值/bash -c/xargs 参数/路径变�
     const result = checkBashCommandSafety("bash -c 'scripts/otter-buddy.sh stop'", mainPid);
     expect(result).toBeNull();
   });
+
+  // ─── #852：引号包裹 bash/sh -c 载荷内第二位起的词元检测（纵深防御层独立性修复） ───
+  // 修复前：KILL_COMMANDS 右支要求词元紧邻 -c，innerPkill 的 [^|;&]* 被引号内 ; 截断——
+  // 词元在引号内第二位（如 bash -c 'sleep 1; pkill …'）整层失效，只剩分段层兜底。
+
+  it("bash -c 'sleep 1; pkill -f otter-buddy'（词元在引号内第二位）→ 拦截（#852）", () => {
+    const result = checkBashCommandSafety("bash -c 'sleep 1; pkill -f otter-buddy'", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("bash -c 'cd /tmp; kill <mainPid>'（引号内第二位 + 字面主 PID）→ 拦截（#852）", () => {
+    const result = checkBashCommandSafety(`bash -c 'cd /tmp; kill ${mainPid}'`, mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("bash -c 'sleep 1; kill 99999'（引号内第二位但非主 PID 字面量）→ 放行（与主支语义一致）", () => {
+    const result = checkBashCommandSafety("bash -c 'sleep 1; kill 99999'", mainPid);
+    expect(result).toBeNull();
+  });
+
+  it('bash -c "cd /tmp; killall node"（双引号载荷第二位）→ 拦截（#852）', () => {
+    const result = checkBashCommandSafety('bash -c "cd /tmp; killall node"', mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("嵌套 bash -c（引号套引号第二位词元）→ 拦截（#852 递归提取）", () => {
+    const result = checkBashCommandSafety(`bash -c 'bash -c "sleep 1; pkill -f otter-buddy"'`, mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("bash -c 'echo hello; ls'（引号内无词元）→ 放行（不误伤）", () => {
+    const result = checkBashCommandSafety("bash -c 'echo hello; ls'", mainPid);
+    expect(result).toBeNull();
+  });
 });
 
 describe("SERVICE_SCRIPT_KILL 路径限定（F20260916gtlr）", () => {
