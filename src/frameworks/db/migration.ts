@@ -178,6 +178,9 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** F20260921otcl：otters 表加 color 列 + 存量小獭回填（fill-only 续算幂等）。 */
   ensureOtterColorColumn(db, logger);
   backfillOtterColors(db, logger);
+
+  /** F20260923icus（#1149）：invokes 表补 cache token 两列（存量库 ALTER，幂等 PRAGMA 探测）。 */
+  ensureInvokeCacheColumns(db, logger);
 }
 
 /**
@@ -1839,6 +1842,17 @@ function rebuildExecutionsDropMessagesFk(db: Database.Database, logger: Logger):
     db.pragma("foreign_keys = ON");
   }
   logger.info('Rebuilt scheduled_task_executions: stale messages FK removed (F20260914fkx1)');
+}
+
+/** F20260923icus（#1149）：invokes 表补 token_usage_cache_read / token_usage_cache_write 两列。
+ *  新库 initSchema 已含；存量库 ALTER 补列。幂等：PRAGMA 探测。历史行留 NULL（无法回补）。 */
+function ensureInvokeCacheColumns(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(invokes)").all() as Array<{ name: string }>;
+  if (!columns.some(col => col.name === 'token_usage_cache_read')) {
+    db.prepare("ALTER TABLE invokes ADD COLUMN token_usage_cache_read INTEGER").run();
+    db.prepare("ALTER TABLE invokes ADD COLUMN token_usage_cache_write INTEGER").run();
+    logger.info('Added cache token columns to invokes table (F20260923icus)');
+  }
 }
 
 /** F20260921otcl：otters 表补 color 列（PRAGMA 探测幂等——新库 initSchema 已含，存量库 ALTER 补列） */

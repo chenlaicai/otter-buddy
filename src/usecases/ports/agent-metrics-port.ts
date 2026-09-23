@@ -40,7 +40,7 @@ export interface InvokeOutcomeRecord {
   retry: RetryLabel;
   durationMs: number;
   /** session 累计值（实现内部差分为 attempt 增量） */
-  tokenUsage?: { input: number; output: number };
+  tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   ctxTokens?: number;
   firstByteLatencyMs?: number;
 }

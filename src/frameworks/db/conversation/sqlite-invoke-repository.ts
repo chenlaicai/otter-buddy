@@ -123,10 +123,12 @@ export class SqliteInvokeRepository implements InvokeRepository {
     invokeId: string,
     input: number,
     output: number,
+    cacheRead?: number,
+    cacheWrite?: number,
   ): Promise<void> {
     this.db.prepare(
-      "UPDATE invokes SET token_usage_input = ?, token_usage_output = ? WHERE id = ?",
-    ).run(input, output, invokeId);
+      "UPDATE invokes SET token_usage_input = ?, token_usage_output = ?, token_usage_cache_read = ?, token_usage_cache_write = ? WHERE id = ?",
+    ).run(input, output, cacheRead ?? null, cacheWrite ?? null, invokeId);
   }
 
   /** F20260914rtsp：更新末次 LLM 往返的上下文窗口占用（invoke.tick 数据落库，右栏刷新恢复用） */
