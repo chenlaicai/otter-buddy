@@ -122,4 +122,89 @@ describe('useDraftCache', () => {
     rerender({ conversationId: 'conv-1' })
     expect(result.current.draft).toBe('draft A')
   })
+
+  it('should not resurrect manually cleared draft via debounce effect cleanup (ref sync timing)', () => {
+    // Bug: saveDraft('x') 后 saveDraft('') 手动清空，debounce effect 的 cleanup 在
+    // ref 同步 effect 之前执行，读到滞后的 draftRef.current='x' 并写回 localStorage，
+    // 导致清空的内容在切换页面回来时复活。
+    const { result, unmount } = renderHook(() => useDraftCache('conv-1'))
+
+    // 第一笔草稿：写入 localStorage（模拟 debounce 完成的真实场景）
+    act(() => {
+      result.current.saveDraft('will-be-cleared')
+    })
+    act(() => {
+      vi.advanceTimersByTime(400)  // debounce 触发，localStorage 写入
+    })
+    expect(localStorage.getItem('draft:conv-1')).toBe('will-be-cleared')
+
+    // 手动清空：用户删光输入框内容
+    act(() => {
+      result.current.saveDraft('')
+    })
+
+    // 手动清空后 debounce timer 不写入（S1 修复：空串同步 removeItem 了）
+    act(() => {
+      vi.advanceTimersByTime(400)
+    })
+
+    // 卸载组件（模拟 SPA 导航离开）——cleanup 执行，但读到 draftRef.current='' 不写入
+    unmount()
+
+    // 关键断言：重新挂载后 draft 为空（不复活）
+    const { result: result2 } = renderHook(() => useDraftCache('conv-1'))
+    expect(result2.current.draft).toBe('')
+  })
+
+  it('should not resurrect when cleared and unmounted within debounce window (S1 CE-1)', () => {
+    // S1 反例：清空后 300ms debounce 窗口内卸载（SPA 导航），旧 key 留存复活
+    const { result, unmount } = renderHook(() => useDraftCache('conv-1'))
+
+    // 写入草稿并完成 debounce
+    act(() => {
+      result.current.saveDraft('will-be-cleared')
+    })
+    act(() => {
+      vi.advanceTimersByTime(400)
+    })
+    expect(localStorage.getItem('draft:conv-1')).toBe('will-be-cleared')
+
+    // 手动清空 + 立即卸载（300ms 窗口内，debounce timer 还未触发）
+    act(() => {
+      result.current.saveDraft('')
+    })
+    unmount()
+
+    // 重新挂载：不应复活
+    const { result: result2 } = renderHook(() => useDraftCache('conv-1'))
+    expect(result2.current.draft).toBe('')
+  })
+
+  it('should not resurrect when cleared and beforeunload within debounce window (S1 CE-2)', () => {
+    // S1 反例：清空后 300ms debounce 窗口内 beforeunload（关页/刷新），旧 key 留存复活
+    const { result } = renderHook(() => useDraftCache('conv-1'))
+
+    // 写入草稿并完成 debounce
+    act(() => {
+      result.current.saveDraft('will-be-cleared')
+    })
+    act(() => {
+      vi.advanceTimersByTime(400)
+    })
+    expect(localStorage.getItem('draft:conv-1')).toBe('will-be-cleared')
+
+    // 手动清空
+    act(() => {
+      result.current.saveDraft('')
+    })
+
+    // 触发 beforeunload（300ms 窗口内，debounce timer 还未触发）
+    act(() => {
+      window.dispatchEvent(new Event('beforeunload'))
+    })
+
+    // 重新挂载：不应复活
+    const { result: result2 } = renderHook(() => useDraftCache('conv-1'))
+    expect(result2.current.draft).toBe('')
+  })
 })
