@@ -44,14 +44,16 @@ export interface BudgetTrimResult {
  * 直到序列化文本估算进预算。谱系摘要（previousSummary）与 §④⑤⑥ 机械供料不裁——
  * 它们已是压缩过的全局信息，交接场景「最近正在干什么」远比「开头聊了啥」重要。
  *
- * token 估算：chars / 4（与 archiveTokens 口径一致，agent-invoker.ts 既有约定）。
+ * token 估算：chars / 3（审视建议1修正：chars/4 对中文偏乐观——中文 UTF-16 单字 1 unit
+ * 但 token 化接近 1.5 chars/token 即 tokens≈chars/1.5，chars/4 会低估 token 2.6 倍，
+ * 大中文 session 裁剪不足。chars/3 仍偏保守方向安全：多裁不会更糟，少裁会 400）。
  */
 export function trimMessagesToBudget(
   messages: Array<{ role: string; content?: unknown }>,
   contextWindowTokens: number,
 ): BudgetTrimResult {
   const historyBudgetChars =
-    (contextWindowTokens - SYNTHESIS_OUTPUT_RESERVE_TOKENS - SYNTHESIS_FIXED_OVERHEAD_TOKENS) * 4;
+    (contextWindowTokens - SYNTHESIS_OUTPUT_RESERVE_TOKENS - SYNTHESIS_FIXED_OVERHEAD_TOKENS) * 3;
   if (historyBudgetChars <= 0) {
     // 窗口过小连固定段都装不下——保底返回空历史（机械供料仍在，合成仍可产出）
     return { messages: [], droppedCount: messages.length };
@@ -214,7 +216,9 @@ function appendHistorySection(lines: string[], input: NarrativeSynthesisInput): 
   lines.push(serializeConversation(trimmedMessages as never));
   lines.push('</conversation-to-summarize>');
   if (droppedCount > 0) {
-    lines.push(`（预算裁剪：已丢弃最老 ${droppedCount} 条消息——全局脉络见上一代摘要与 §⑤ 机械盘点，本段为最近原文）`);
+    lines.push('<trim-note>');
+    lines.push(`预算裁剪：已丢弃最老 ${droppedCount} 条消息——全局脉络见上一代摘要与 §⑤ 机械盘点，本段为最近原文。`);
+    lines.push('</trim-note>');
   }
   lines.push('');
 }

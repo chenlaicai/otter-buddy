@@ -1056,8 +1056,13 @@ export class AgentInvoker implements AgentTurnPort {
       const reason = trigger === '水位' ? 'compaction' : 'restart';
       const session = await this.manageSession.restartSession(otterId, archive, modelAlias, reason);
       // 水位状态已在 unifiedHandoff 入口统一清理（严重1修正），此处不再重复。
-      // F20260923hsyn：交接成功清零失败熔断计数
-      this.handoffState.clearHandoffFailures(otterId);
+      // F20260923hsyn 审视严重1修正：熔断清零挂「合成成功」（narrativeSummary 非空）而非
+      // 「交接成功」——死亡链场景每次交接都是「合成失败→机械档案→restart 成功」，清零挂交接成功
+      // 会让计数永远到不了 2，熔断形同虚设。合成成功才清零（机械档案交接不清零，计数继续累积，
+      // 下次交接直接跳过合成熔断分支生效）。
+      if (narrativeSummary) {
+        this.handoffState.clearHandoffFailures(otterId);
+      }
       this.logger.info('[handoff] unified handoff completed', {
         otterId, trigger, synthesizePast, narrative: !!narrativeSummary,
         archiveTokens: Math.ceil(archive.length / 4), newSessionId: session.id,

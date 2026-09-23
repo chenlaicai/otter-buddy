@@ -87,13 +87,14 @@ describe("buildNarrativeSynthesisPrompt 集成裁剪（F20260923hsyn）", () => 
       messagesToSummarize: msgs,
       contextWindowTokens: 262_144,
     });
+    expect(prompt).toContain("<trim-note>");
     expect(prompt).toContain("预算裁剪：已丢弃最老");
     // 最近消息原文必须在
     expect(prompt).toContain("msg-9-");
     // 最老消息被丢
     expect(prompt).not.toContain("msg-0-");
-    // 总 prompt 长度必须小于窗口（留 prompt 其余段 + 输出余量）
-    expect(prompt.length).toBeLessThan(262_144 * 4);
+    // 总 prompt 长度必须小于窗口（chars/3 口径，留 prompt 其余段 + 输出余量）
+    expect(prompt.length).toBeLessThan(262_144 * 3);
   });
 
   it("不传 contextWindowTokens → 不裁剪（向后兼容）", () => {
@@ -138,6 +139,22 @@ describe("HandoffState 失败熔断（F20260923hsyn 死循环防线）", () => {
     s.recordHandoffFailure("o2");
     expect(s.getConsecutiveFailures("o1")).toBe(2);
     expect(s.getConsecutiveFailures("o2")).toBe(1);
+  });
+
+  it("审视严重1回归：机械档案交接不清零——只有合成成功（narrativeSummary 非空）才清零", () => {
+    // 9/23 死亡链时序：合成失败(+1) → 机械档案交接成功（restart 成功但无叙事）→ 计数保留
+    // → 下次交接 getConsecutiveFailures>=2 → 熔断分支直接跳过合成。清零挂交接成功会让熔断永不生效。
+    // 本测试固化状态机语义：recordHandoffFailure 只增不减，唯一清零通道是 clearHandoffFailures
+    // （调用方仅在 narrativeSummary 非空时调用——接线语义见 agent-invoker unifiedHandoff）。
+    const s = new HandoffState();
+    s.recordHandoffFailure("o1"); // 第 1 次合成失败 → 机械档案交接（不清零）
+    s.recordHandoffFailure("o1"); // 第 2 次合成失败 → 机械档案交接（不清零）
+    expect(s.getConsecutiveFailures("o1")).toBe(2); // 熔断阈值到达
+    // 熔断生效后交接走纯机械路径（无合成调用无失败记录）→ 计数保持
+    expect(s.getConsecutiveFailures("o1")).toBe(2);
+    // 模型配额恢复/窗口切换后某次合成成功 → 清零重启计数
+    s.clearHandoffFailures("o1");
+    expect(s.getConsecutiveFailures("o1")).toBe(0);
   });
 });
 
