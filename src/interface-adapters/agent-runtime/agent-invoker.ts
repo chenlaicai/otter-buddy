@@ -42,6 +42,8 @@ import { DomainError } from "@entities/errors";
  *  反推真实密度 <1.38/<2.16 chars/token——合成 prompt 含大量机械供料（§④⑤⑥ 状态盘点/
  *  文件轨迹/谱系摘要），密度远低于常规对话（≈3）。取 2.0 为预检阈值（实测上界 ×0.93 余量，
  *  漏杀方向保守：宁多合成一次 400 降级，不漏杀本可合成的场景）。
+ *  已知边界：362K 案例（密度 1.38）仍低于本阈值 → 不触发预检，会付一次 400 降级学费。
+ *  收紧到 ≤1.38 的误杀代价（失败计数副作用 + 正常对话场景误拦）大于收益，接受不收紧。
  *  层约束不让 interface-adapters import frameworks 常量——值必须与 trimMessagesToBudget 的口径解耦。 */
 const SYNTHESIS_PRECHECK_CHARS_PER_TOKEN = 2;
 

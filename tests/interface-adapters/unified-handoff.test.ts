@@ -505,6 +505,42 @@ describe("需求变更（2026-09-20）：交接进度系统消息 + 水位按模
     expect(invoker["handoffState"].getConsecutiveFailures("otter-1")).toBe(0);
   });
 
+  it("F20260923hspx 合成超窗预检：prompt 超窗口×密度阈值 → 跳过合成走机械档案（动机案例回归）", async () => {
+    // Why：9/23 实测 566K chars prompt 超 kimi-256k 262K 窗口 400，白等 96s 才降级。
+    //  预检应在合成前拦下（密度 chars/2 阈值 = 262144×2 = 524288；566216 > 524288 拦下）。
+    const engine = makeEngine({
+      buildNarrativeSynthesisPrompt: () => "x".repeat(566_216), // 动机案例实测长度
+    });
+    const synthCalls: string[] = [];
+    const invoker = makeInvokerWithEngine({
+      sdk: makeSdkPort({ synth: async (p) => { synthCalls.push(p); return { directText: "summary" }; } }),
+      engine,
+      ctxWindowProvider: { window: 262_144 },
+    });
+
+    await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true });
+
+    expect(synthCalls).toEqual([]); // 合成被预检拦下
+    expect(engine.mechanical.length).toBeGreaterThan(0); // 走机械档案
+    expect(invoker["handoffState"].getConsecutiveFailures("otter-1")).toBeGreaterThan(0); // 计失败一次（熔断语义）
+  });
+
+  it("F20260923hspx 合成超窗预检：prompt 在阈值内 → 正常合成（不误杀）", async () => {
+    const engine = makeEngine({
+      buildNarrativeSynthesisPrompt: () => "x".repeat(100_000), // 阈值内
+    });
+    const synthCalls: string[] = [];
+    const invoker = makeInvokerWithEngine({
+      sdk: makeSdkPort({ synth: async (p) => { synthCalls.push(p); return { directText: "summary" }; } }),
+      engine,
+      ctxWindowProvider: { window: 262_144 },
+    });
+
+    await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true });
+
+    expect(synthCalls.length).toBe(1); // 正常合成
+  });
+
   it("进度反馈：反馈通道自身故障不反噬交接主线（静默降级）", async () => {
     const invoker = makeInvokerWithEngine({
       sdk: makeSdkPort(), engine: makeEngine(),

@@ -144,17 +144,6 @@ export class SimpleLockManager {
     else this.handoffModeKeys.delete(key);
   }
 
-  /** 锁等待耗时读取（只读诊断用）——F20260923hspx 严重1 预检校准用。 */
-  getQueueStats(key: string): { held: boolean; holderHeldForMs: number | null; queueLength: number } {
-    const lock = this.locks.get(key);
-    if (!lock) return { held: false, holderHeldForMs: null, queueLength: 0 };
-    return {
-      held: lock.held,
-      holderHeldForMs: lock.heldAt !== null ? Date.now() - lock.heldAt : null,
-      queueLength: lock.waiters.length,
-    };
-  }
-
   async acquire(key: string, timeoutMs?: number): Promise<() => void> {
     const timeout = timeoutMs ?? (this.handoffModeKeys.has(key) ? HANDOFF_LOCK_WAITER_TIMEOUT_MS : this.defaultTimeout);
     const waitStartedAt = Date.now();
@@ -168,7 +157,13 @@ export class SimpleLockManager {
     // 旧版检查队列长度导致两个调用者都绕过等待。
     if (lock.held) {
       const holderAgeMs = lock.heldAt !== null ? Date.now() - lock.heldAt : null;
-      // F20260923hspx 检视严重2b：交接模式下持有者是交接本身，steal 无合法场景——直接走等待。
+      // F20260923hspx 检视严重2b + delta 建议1：持有者是交接（handoffMode 置位）时禁 steal——
+      //  合成超时上限 300s 与 stealThresholdMs=300s 相邻，慢合成交接持锁 ≥300s 时并发 invoke
+      //  会误 steal 冻结锁，换世 markStale/换世链可撕裂 stolen invoke 活 session。
+      //  已知边界（delta 复核指出，接受不收窄）：谓词用「key 有交接在场」代「持有者是交接」——
+      //  等待期（setHandoffMode 先于 acquire）也置位，stale 非交接持有者 + 手动交接并发时
+      //  #599 强制接管失效；hung 交接时该 key 死结。收窄需锁内追踪持有者身份，复杂度高，
+      //  冻结窗口的 steal 失效场景（交接正常数分钟内完成）概率低于误 steal 撕裂场景。
       if (!this.handoffModeKeys.has(key) && holderAgeMs !== null && holderAgeMs >= this.stealThresholdMs) {
         // Why(#599): stale 持有强制接管——holderAge 超阈值说明持有者已异常
         // （正常 invoke 数分钟内结束；abort 后 session.run 未 settle 会永久持有）。

@@ -60,7 +60,7 @@ causal_links:
 
 **配套修复**（同 PR，独立有效）：
 
-1. **合成后 prompt 超窗预检**（agent-invoker.ts）：`trimMessagesToBudget` 只裁历史段，`previousSummary`/§⑤ 状态盘点等固定段在大 session 可超 `SYNTHESIS_FIXED_OVERHEAD_TOKENS=10K` 预算假设。密度阈值按 9/23 生产日志实测校准（`SYNTHESIS_PRECHECK_CHARS_PER_TOKEN=2`——实测 362K/566K chars 两 prompt 均超 262K 窗口，反推真实密度 <1.38/<2.16 chars/token，合成 prompt 的机械供料密度远低于常规对话 ≈3）。超窗直接跳过合成走机械档案，与合成失败同语义计一次失败。
+1. **合成后 prompt 超窗预检**（agent-invoker.ts）：`trimMessagesToBudget` 只裁历史段，`previousSummary`/§⑤ 状态盘点等固定段在大 session 可超 `SYNTHESIS_FIXED_OVERHEAD_TOKENS=10K` 预算假设。密度阈值按 9/23 生产日志实测校准（`SYNTHESIS_PRECHECK_CHARS_PER_TOKEN=2`——实测 362K/566K chars 两 prompt 均超 262K 窗口，反推真实密度 <1.38/<2.16 chars/token）。**已知边界**：566K 案例拦下（566216 > 262144×2），362K 案例（密度 1.38）仍低于阈值不触发——收紧到 ≤1.38 的误杀代价（失败计数副作用 + 正常场景误拦）大于收益，接受不收紧（delta 复核裁决）。预检治标；trim 密度 chars/3 根因（narrative-synthesis-engine.ts:51-76，「裁后仍超窗」直接成因）已建 issue #1148 治本。
 2. **裸重启成功后熔断计数清零**（agent-invoker.ts `bareRestart`）：此前 `recordHandoffFailure` 只 +1、`clearHandoffFailures` 只在合成成功时调，进程重启不恢复（内存态）——该獭会被永久熔断。裸重启成功 = 换世完成 = 失败链已断，必须清零。清零仅发生在「降级裸重启成功」场景；若裸重启也失败（异常上抛），计数保留（不掩盖换世本身连续失败的信号）。
 
 ## 对抗审视后加固（检视獭-hspx，4 严重 3 建议全部处置）
@@ -68,8 +68,8 @@ causal_links:
 | 检视发现 | 处置 |
 |---|---|
 | 严重2a：`removeEntry` 无条件 dispose——「evict 出池不 dispose」论证失实，stolen invoke 活 session 可被撕裂 | `resetForHandoff` 改用 `pool.markStale`（不 dispose，F20260912nlb896 stale steal 同语义）；`_resetInternal` 两处 evict 对 handoff 渠道退化为幂等 no-op（markStale 后池内无条目） |
-| 严重2b：`stealThresholdMs=300s` 与合成超时上限 300s 相邻，慢合成交接持锁 ≥300s 时并发 invoke 可误 steal 冻结锁 | `SimpleLockManager.acquire` 交接模式（handoffMode）下禁止 steal——handoffMode 本身即「持有者是交接」的声明，冻结窗口内 steal 无合法场景 |
-| 严重1：预检阈值 chars/3 ≈786K，事发实测失败 prompt 仅 362K/566K——「省 96s 必败等待」对两个动机案例不生效 | 密度校准为 chars/2（实测上界 ×0.93 余量，漏杀方向保守：宁多合成一次 400 降级，不漏杀本可合成的场景） |
+| 严重2b：`stealThresholdMs=300s` 与合成超时上限 300s 相邻，慢合成交接持锁 ≥300s 时并发 invoke 可误 steal 冻结锁 | `SimpleLockManager.acquire` 交接模式（handoffMode）下禁止 steal。**delta 复核裁决**：谓词用「key 有交接在场」代「持有者是交接」——等待期（setHandoffMode 先于 acquire）也置位，stale 非交接持有者 + 手动交接并发时 #599 强制接管失效、hung 交接时该 key 死结。收窄需锁内追踪持有者身份，复杂度高，冻结窗口 steal 失效场景（交接正常数分钟内完成）概率低于误 steal 撕裂场景——接受不收窄，注释已改口 |
+| 严重1：预检阈值 chars/3 ≈786K，事发实测失败 prompt 仅 362K/566K——「省 96s 必败等待」对两个动机案例不生效 | 密度校准为 chars/2（566K 拦下；362K 仍不触发——收紧误杀代价大于收益，delta 复核裁决接受）。补 2 例预检单测（566K 拦下走机械档案 + 阈值内不误杀） |
 | 严重3：熔断清零测试 mock 恒 throw，清零路径永远执行不到（删掉清零行测试照样绿） | 改为真回归：先 recordHandoffFailure，再让降级裸重启成功，断言 `getConsecutiveFailures` 归 0 |
 | 严重4：commit body 缺 `Modification-Class:` 声明 | 已补 |
 | 建议5：清零自擦除环（失败+1→bare 成功清零，≥2 熔断永不触发） | 保留清零（换世成功即失败链断的语义正确），注释明确「裸重启也失败则计数保留」——不掩盖换世本身连续失败 |
