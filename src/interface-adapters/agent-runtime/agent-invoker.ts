@@ -504,8 +504,8 @@ export class AgentInvoker implements AgentTurnPort {
         await sendEntry.updateInvokeTalkingStonePassedTo(invokeId, targets);
       },
 
-      updateInvokeTokenUsage: async (invokeId: string, input: number, output: number) => {
-        await sendEntry.updateInvokeTokenUsage(invokeId, input, output);
+      updateInvokeTokenUsage: async (invokeId: string, input: number, output: number, cacheRead?: number, cacheWrite?: number) => {
+        await sendEntry.updateInvokeTokenUsage(invokeId, input, output, cacheRead, cacheWrite);
       },
 
       updateInvokeModel: async (invokeId: string, model: string) => {
@@ -544,7 +544,7 @@ export class AgentInvoker implements AgentTurnPort {
     return {
       ...this.makeInvokePersistenceCallbacks(),
 
-      emitInvokeEnd: (invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string; endBody?: string; otterName?: string; otterType?: string; otterColor?: string | null }) => {
+      emitInvokeEnd: (invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number }; invokeEndEntryId?: string; endBody?: string; otterName?: string; otterType?: string; otterColor?: string | null }) => {
         emitEvent({ event: 'invoke.end', data: { invokeId, otterId: otterId ?? '', status, duration, endedAt: new Date().toISOString(), toolCallCount: stats?.toolCallCount, tokenUsage: stats?.tokenUsage, invokeEndEntryId: stats?.invokeEndEntryId, endBody: stats?.endBody, otterName: stats?.otterName, otterType: stats?.otterType, otterColor: stats?.otterColor ?? null } });
       },
 

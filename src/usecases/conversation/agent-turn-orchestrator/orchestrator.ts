@@ -181,7 +181,7 @@ export class AgentTurnOrchestrator {
     try {
       // token usage 落 invoke 行（终态快照）
       if (result.tokenUsage) {
-        await ctx.callbacks.updateInvokeTokenUsage?.(input.invokeId, result.tokenUsage.input, result.tokenUsage.output);
+        await ctx.callbacks.updateInvokeTokenUsage?.(input.invokeId, result.tokenUsage.input, result.tokenUsage.output, result.tokenUsage.cacheRead, result.tokenUsage.cacheWrite);
       }
       // F20260914usgm：model 归属落 invoke metadata（成功路径）
       this.recordInvokeModelSafe(ctx.callbacks, input.invokeId, result.modelAlias);

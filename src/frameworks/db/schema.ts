@@ -875,6 +875,8 @@ function createInvokeTables(db: Database.Database): void {
       tool_call_count INTEGER DEFAULT 0,
       token_usage_input INTEGER,
       token_usage_output INTEGER,
+      token_usage_cache_read INTEGER,
+      token_usage_cache_write INTEGER,
       ctx_window_used INTEGER,
       metadata TEXT,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id),

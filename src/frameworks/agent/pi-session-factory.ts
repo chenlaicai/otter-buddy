@@ -83,7 +83,7 @@ const EMPTY_TOOL_CONTEXT_BASE: ToolContext = {
 export interface AgentRunResult {
   text: string;
   /** session 累计 token 消耗（成本口径，仅日志用；不代表上下文窗口占用） */
-  tokenUsage?: { input: number; output: number };
+  tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   /** 上下文窗口占用：末次 LLM 调用的 input+output+cacheRead+cacheWrite（F20260808ctxw） */
   ctxTokens?: number;
   ctxMax?: number;

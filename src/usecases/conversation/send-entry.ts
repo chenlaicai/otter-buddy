@@ -508,8 +508,8 @@ export class SendEntry {
   }
 
   /** 更新 invoke token 使用量 */
-  async updateInvokeTokenUsage(invokeId: string, input: number, output: number): Promise<void> {
-    await this.invokeRepo.updateInvokeTokenUsage(invokeId, input, output);
+  async updateInvokeTokenUsage(invokeId: string, input: number, output: number, cacheRead?: number, cacheWrite?: number): Promise<void> {
+    await this.invokeRepo.updateInvokeTokenUsage(invokeId, input, output, cacheRead, cacheWrite);
   }
 
   /** F20260914rtsp：末次 LLM 往返 ctx 窗口占用（invoke.tick 落库，刷新恢复用） */
