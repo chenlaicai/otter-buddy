@@ -56,7 +56,17 @@ const SYNTAX_SINGLE_QUOTED = /'[^']*'/g;
 const SYNTAX_DOUBLE_QUOTED = /"[^"]*"/g;
 
 /** #923 处置 c：shell 执行载荷通道——命中时命令里的引号段是「要执行的命令」本体 */
-const SHELL_PAYLOAD_CHANNEL = /\b(?:bash|sh|zsh)\s+-c\b|\|\s*(?:sh|bash|zsh)\b|\b(?:perl|ruby|python\d?)\s+.*(?:-e|-c)\s|<<</;
+const SHELL_PAYLOAD_CHANNEL = /\b(?:bash|sh|zsh)\s+-c\b|\|\s*(?:sh|bash|zsh)\b|\b(?:perl|ruby|python\d?)\s+.*(?:-e|-c)\s|\bnode\s+.*-e\s|<<</;
+
+/**
+ * F20260923glay：脚本 one-liner 通道（python/perl/ruby -c|-e、node -e）——语法剥离的
+ * 精细化处理对象。与 shell 载荷（bash -c / 管道进 shell / heredoc）的差异：shell 载荷
+ * 的引号内是 shell 代码（剥离会瞎掉 kill 检测，必须整体保留原文）；脚本 one-liner 的
+ * 载荷是 python/node 代码，其中的字符串字面量是数据——剥离它们不影响 kill 检测，
+ * 因为 kill 调用词元（os.kill / process.kill / os.system）在调用位不在字符串里
+ * （字符串里的 kill 字样是数据不是调用，如 '# kill test' 注释、'kill_signal' 变量名）。
+ */
+const SCRIPT_ONELINER_CHANNEL = /\b(?:perl|ruby|python\d?)\s+.*(?:-e|-c)\s|\bnode\s+.*-e\s/;
 
 /** 文本中是否含敏感词元（重置 lastIndex 防全局正则状态泄漏） */
 function containsSensitiveToken(text: string): boolean {
@@ -151,14 +161,21 @@ export function sanitizeQuotedText(command: string): string {
  * 与 sanitizeQuotedText 同哲学：危险通道（bash -c / heredoc / 反引号）不脱敏
  * 不剥离——单引号是其载荷容器，载荷内的重定向/复合是真实语法，必须可见。
  * 因此本函数在 SHELL_PAYLOAD_CHANNEL 命中时原样返回输入。
+ *
+ * F20260923glay 分层修正：脚本 one-liner（python/node -c|-e）不再是剥离禁区——
+ * 载荷是 python/node 代码，其中字符串字面量是数据（'...' / "..." / f'...'），
+ * 剥离不影响 kill 检测（kill 调用词元在调用位不在字符串里）。shell 载荷
+ * （bash -c / 管道进 shell / heredoc）仍整体保留原文（引号内是 shell 代码）。
+ * 9/23 实证：python3 -c "print(a > b)" / node -e 分析脚本批量被重定向判定误拦
+ * （今日 93 次 BLOCKED 中疑似误拦 51 次，主要形态即此）。
  */
 export function stripQuotedTextSpans(command: string): string {
   const basis = stripEmptyQuotePairs(command);
-  if (SHELL_PAYLOAD_CHANNEL.test(basis)) return command;
-  // 跨行引号对（语法剥离专用）：shell 单/双引号均可跨行，gh --body 多行文本是
-  // 合法高频形态（#984 事故 body 就是多行）。sanitize 的 QUOTED_TEXT 不跨行是
-  // 词元脱敏的保守选择，语法剥离不能用同一个——多行引号内的 > | & 同样是数据。
-  // 不需「多词」限制：全词引号剥成等长空段不改变 shell 语法判定结果。
+  // shell 载荷（bash -c / 管道 / heredoc）整体保留原文——引号内是 shell 代码
+  if (SHELL_PAYLOAD_CHANNEL.test(basis) && !SCRIPT_ONELINER_CHANNEL.test(basis)) return command;
+  // 脚本 one-liner：载荷内字符串字面量是数据，照常剥离（python/node 字符串有明确
+  // 语法边界，比 shell 引号好解析；shell 引号剥离正则对它们同样适用——python 单双
+  // 引号与 shell 同形，f-string 前缀 f'...' 的引号边界不变）。
   SYNTAX_SINGLE_QUOTED.lastIndex = 0;
   SYNTAX_DOUBLE_QUOTED.lastIndex = 0;
   const blank = (m: string): string => " ".repeat(m.length);
