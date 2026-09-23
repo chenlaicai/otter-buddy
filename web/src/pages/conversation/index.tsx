@@ -233,15 +233,27 @@ export default function ConversationPage() {
 
   /** F20260922rprf：SSE 断连重连后补偿拉取 invoke 状态——重连窗口内丢失的 invoke.end
    *  会导致右栏永久卡在「运行中」。合并逻辑提取为纯函数 mergeInvokesFromServer（invoke-tracker），
-   *  幂等（无变更返回原引用）。 */
+   *  幂等（无变更返回原引用）。
+   *  F20260923sswd：兼作 loadConversationDetail 内联 listInvokes 失败时的重试兜底——
+   *  读 invokeStatesLoadedRef，已成功恢复过则跳过初始重试（避免双拉）；重试链路自身成功时置标记。 */
   const syncInvokeStatesFromServer = useCallback(async (convId: string) => {
+    if (invokeStatesLoadedRef.current) return
     try {
       const resp = await api.listInvokes(convId, { limit: 50 })
       setInvokeStates(prev => mergeInvokesFromServer(prev, resp.invokes))
+      invokeStatesLoadedRef.current = true
     } catch (err) {
       console.error('Failed to sync invoke states from server:', err)
     }
   }, [])
+
+  /** F20260923sswd：loadConversationDetail 内联 listInvokes 是否已成功恢复过右栏状态——
+   *  成功置 true，syncInvokeStatesFromServer 读此标记跳过初始重试（避免双拉）。 */
+  const invokeStatesLoadedRef = useRef(false)
+
+  /** F20260923sswd 检视发现 3：listInvokes 重试兜底链的定时器句柄——
+   *  切对话时清理，防滞后重试把旧会话 invoke 记录 merge 进新会话 invokeStates（同 otterId 跨会话可见）。 */
+  const invokeRetryTimersRef = useRef<ReturnType<typeof setTimeout>[]>([])
 
   /** dissolve/create/restart 等参与者变更工具执行完成后刷新右栏参与者列表。
    *  F20260811dsrt 原版走 SSE tool.result 钩子；F20260913ctlv 后 tool.result 停发 SSE（仅落 invoke_events），
@@ -298,8 +310,17 @@ export default function ConversationPage() {
 
   /** F20260922cgrp：「加载更多」机制退役——分组分页由 LeftPanel 内部管理（每页 20 条页码跳转） */
   const loadConversationDetail = useCallback(async (convId: string) => {
+    // F20260923sswd：新会话加载开始，重置内联恢复标记（本 conv 的 listInvokes 尚未恢复）
+    invokeStatesLoadedRef.current = false
+    // 检视发现 3：切对话时清理上一会话未触发的重试定时器（防旧会话 invoke 状态滞后写进新会话）
+    invokeRetryTimersRef.current.forEach(clearTimeout)
+    invokeRetryTimersRef.current = []
     try {
       // F20260913ctlv 彻底切换：时间线唯一数据源 = entries（messages 渲染路径退役）
+      // F20260923sswd：listInvokes 从依赖链拆出并行发——原实现排在 Promise.all 之后，
+      // listEntries/participants 慢时右栏状态恢复被拖住；且 .catch(() => null) 静默吞失败，
+      // 切对话发现右栏状态错、手动刷新才恢复（issue #1134 入口 A）。
+      const invokesPromise = api.listInvokes(convId, { limit: 50 })
       const [entriesResp, keyInfo, participants] = await Promise.all([
         api.listEntries(convId, 50),
         api.getKeyResources(convId),
@@ -314,8 +335,9 @@ export default function ConversationPage() {
       /** F20260913ctlv test17：刷新恢复 invokeStates——右栏中断/重试按钮依赖该獭最新 invoke 状态。
        *  刷新前 invokeStates 由 invoke.start/end 事件驱动，刷新后内存态丢失。
        *  每只獭取最新一次 invoke 恢复完整状态（running→中断按钮，aborted/failed→重试按钮）。 */
-      const invokesResp = await api.listInvokes(convId, { limit: 50 }).catch(() => null)
-      if (invokesResp) {
+      try {
+        const invokesResp = await invokesPromise
+        invokeStatesLoadedRef.current = true
         setInvokeStates(prev => {
           const next = { ...prev }
           for (const inv of invokesResp.invokes) {
@@ -332,6 +354,13 @@ export default function ConversationPage() {
           }
           return next
         })
+      } catch {
+        // F20260923sswd：内联拉取失败不再静默——重试兜底链（600ms/2500ms 两次延迟重试，
+        // 复用 syncInvokeStatesFromServer；mergeInvokesFromServer 幂等，重试安全）。
+        // 检视发现 3：定时器句柄入 ref，切对话时清理（防旧会话状态滞后写进新会话）。
+        console.warn('[invokeStates] 初始拉取失败，启动延迟重试兜底:', convId)
+        invokeRetryTimersRef.current.push(setTimeout(() => { void syncInvokeStatesFromServer(convId) }, 600))
+        invokeRetryTimersRef.current.push(setTimeout(() => { void syncInvokeStatesFromServer(convId) }, 2500))
       }
       setHasMoreBefore(entriesResp.hasMore)
       setUnreadState(unread)
@@ -357,7 +386,7 @@ export default function ConversationPage() {
       console.error('Failed to load conversation detail:', err)
       showToast('加载对话详情失败', 'error')
     }
-  }, [ackActiveRead])
+  }, [ackActiveRead, syncInvokeStatesFromServer])
 
   /** 静默刷新消息列表（轮询用，失败不打扰用户，下轮重试） */
   /** F20260913ctlv 彻底切换：增量刷新（entries after 游标）——SSE 断连兜底。
@@ -742,6 +771,15 @@ export default function ConversationPage() {
      *  断连窗口是唯一会丢 invoke.end 的时段；正常心跳期无事件丢失风险，不重复请求。 */
     let needsSyncAfterReconnect = true
 
+    /** F20260923sswd：活性看门狗——XHR 流式读取在网络闪断下会「静默半截」：TCP 已死
+     *  但浏览器不触发 onerror/onload（readyState=3 悬挂），onprogress 永久停止，
+     *  scheduleReconnect 与 needsSyncAfterReconnect 补偿链永不激活（issue #1134 入口 B）。
+     *  服务端有 15s keep-alive，正常连接下 onprogress ≤15s 必触发一次——
+     *  哨兵超 40s 未见回调即认定连接静默死亡，主动 abort 走既有重连+补偿链路。 */
+    const SSE_LIVENESS_TIMEOUT_MS = 40_000
+    let lastProgressAt = Date.now()
+    let livenessTimer: ReturnType<typeof setInterval> | null = null
+
     function notifyConn(connected: boolean): void {
       if (sseConnectedRef.current === connected) return
       sseConnectedRef.current = connected
@@ -751,6 +789,18 @@ export default function ConversationPage() {
 
     function connect() {
       if (disposed) return
+      // 看门狗只在首个有效连接上安装一次（防重连叠加多个 interval）
+      if (!livenessTimer) {
+        livenessTimer = setInterval(() => {
+          if (disposed) return
+          if (Date.now() - lastProgressAt > SSE_LIVENESS_TIMEOUT_MS) {
+            console.warn('[SSE-subscribe] 活性超时（>40s 无数据），判定静默断连，主动重连')
+            notifyConn(false)
+            try { xhr?.abort() } catch { /* abort 已完成/未连接的 xhr 不抛，防御兜底 */ }
+            scheduleReconnect()
+          }
+        }, 10_000)
+      }
       xhr = new XMLHttpRequest()
       xhr.open('GET', `/api/conversations/${activeId}/subscribe`)
       let buffer = ''
@@ -764,6 +814,8 @@ export default function ConversationPage() {
 
       xhr.onprogress = () => {
         if (!xhr) return
+        // F20260923sswd：活性看门狗心跳记账——每次 onprogress（含 15s keep-alive 注释行）刷新时间戳
+        lastProgressAt = Date.now()
         if (xhr.responseText.length <= processedLen) return
         buffer += xhr.responseText.slice(processedLen)
         processedLen = xhr.responseText.length
@@ -796,6 +848,9 @@ export default function ConversationPage() {
       xhr.onerror = () => { notifyConn(false); scheduleReconnect() }
       xhr.onload = () => { if (!disposed) { notifyConn(false); scheduleReconnect() } }
 
+      // F20260923sswd 检视发现 2：send 时重置时间戳——剔除 effect 安装到连接建立之间的耗时，
+      // 防首个事件超 40s 的极端慢连接被看门狗误报
+      lastProgressAt = Date.now()
       xhr.send()
     }
 
@@ -813,6 +868,8 @@ export default function ConversationPage() {
     return () => {
       disposed = true
       if (reconnectTimer) clearTimeout(reconnectTimer)
+      // F20260923sswd：清理活性看门狗定时器
+      if (livenessTimer) { clearInterval(livenessTimer); livenessTimer = null }
       if (xhr) xhr.abort()
     }
   }, [activeId, batchUpdateMessages, upsertOtterIfAbsentDeferred, refreshParticipantsAfterDissolve, syncInvokeStatesFromServer])
