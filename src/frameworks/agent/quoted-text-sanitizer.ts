@@ -50,6 +50,11 @@ const SENSITIVE_TOKENS: RegExp[] = [
 const SINGLE_QUOTED_TEXT = /'[^'\n]*[^\w'\n][^'\n]*'/g;
 const DOUBLE_QUOTED_TEXT = /"[^"\n]*[^\w"\n][^"\n]*"/g;
 
+/** F20260923qbsw：语法剥离专用跨行引号对（shell 引号可跨行；与词元脱敏的
+ *  单行多词 QUOTED_TEXT 分工不同，见 stripQuotedTextSpans 注释） */
+const SYNTAX_SINGLE_QUOTED = /'[^']*'/g;
+const SYNTAX_DOUBLE_QUOTED = /"[^"]*"/g;
+
 /** #923 处置 c：shell 执行载荷通道——命中时命令里的引号段是「要执行的命令」本体 */
 const SHELL_PAYLOAD_CHANNEL = /\b(?:bash|sh|zsh)\s+-c\b|\|\s*(?:sh|bash|zsh)\b|\b(?:perl|ruby|python\d?)\s+.*(?:-e|-c)\s|<<</;
 
@@ -128,4 +133,34 @@ export function sanitizeQuotedText(command: string): string {
   SINGLE_QUOTED_TEXT.lastIndex = 0;
   DOUBLE_QUOTED_TEXT.lastIndex = 0;
   return basis.replace(SINGLE_QUOTED_TEXT, sanitizeSegment).replace(DOUBLE_QUOTED_TEXT, sanitizeSegment);
+}
+
+/**
+ * F20260923qbsw：引号段整段剥离为等长空格——供「shell 语法形态判定」（重定向/
+ * 复合切断）在扫描前剥掉数据段。
+ *
+ * 背景（#984 循环拦截事故）：checkMainCheckoutWrite 的 REDIRECT_PATTERN 与
+ * hasRealCdSegment 的「无 & / |」检查是文本级引号盲全文扫描——
+ * `gh issue comment --body '... --> ...'`（HTML 注释/markdown 表格）被误判为
+ * 重定向写主仓，连拦 3 次中断獭回合（healing 4d692fb6/e671f577）。
+ *
+ * 与 sanitizeQuotedText 的分工：脱敏只替换「敏感词元」、保留其余文本（服务词元
+ * 判定）；本函数整段抹除引号内容（服务 shell 语法判定——引号内是数据，
+ * 不参与 shell 语法）。
+ *
+ * 与 sanitizeQuotedText 同哲学：危险通道（bash -c / heredoc / 反引号）不脱敏
+ * 不剥离——单引号是其载荷容器，载荷内的重定向/复合是真实语法，必须可见。
+ * 因此本函数在 SHELL_PAYLOAD_CHANNEL 命中时原样返回输入。
+ */
+export function stripQuotedTextSpans(command: string): string {
+  const basis = stripEmptyQuotePairs(command);
+  if (SHELL_PAYLOAD_CHANNEL.test(basis)) return command;
+  // 跨行引号对（语法剥离专用）：shell 单/双引号均可跨行，gh --body 多行文本是
+  // 合法高频形态（#984 事故 body 就是多行）。sanitize 的 QUOTED_TEXT 不跨行是
+  // 词元脱敏的保守选择，语法剥离不能用同一个——多行引号内的 > | & 同样是数据。
+  // 不需「多词」限制：全词引号剥成等长空段不改变 shell 语法判定结果。
+  SYNTAX_SINGLE_QUOTED.lastIndex = 0;
+  SYNTAX_DOUBLE_QUOTED.lastIndex = 0;
+  const blank = (m: string): string => " ".repeat(m.length);
+  return basis.replace(SYNTAX_SINGLE_QUOTED, blank).replace(SYNTAX_DOUBLE_QUOTED, blank);
 }
