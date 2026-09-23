@@ -480,19 +480,29 @@ describe("需求变更（2026-09-20）：交接进度系统消息 + 水位按模
     expect(channels.every(c => c === 'handoff')).toBe(true);
   });
 
-  it("F20260923hspx 裸重启成功后熔断计数清零（此前只 +1 永不清 → 永久熔断）", async () => {
+  it("F20260923hspx 裸重启成功后熔断计数清零（回归：曾只 +1 永不清 → 永久熔断）", async () => {
+    // Why：此前 mock 恒 throw 的版本永远执行不到 clearHandoffFailures——删掉清零行测试照样绿。
+    //  本真回归：先记录失败（recordHandoffFailure），再让降级裸重启成功，断言计数被清零。
     const sendEntry = { bodies: [] as string[] };
+    let restartCalls = 0;
     const invoker = makeInvokerWithEngine({
       sdk: makeSdkPort(),
       engine: makeEngine(),
       sendEntry,
-      restartSession: async () => { throw new Error("db down"); },
+      // 第一次（unifiedHandoff 内换世）炸 → 降级裸重启（第二次）成功
+      restartSession: async () => {
+        restartCalls += 1;
+        if (restartCalls === 1) throw new Error("unified handoff db down");
+        return makeSession({ otterId: "otter-1" });
+      },
     });
-    await expect(invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true })).rejects.toThrow("db down");
-    // 降级裸重启成功后 clearHandoffFailures 必须被调（间接验证：内部状态可经 getConsecutiveFailures 读）
-    // 本测试钉行为语义（不探内部实现）：连续失败后成功的裸重启不应让计数残留
-    // 详细清零逻辑见 agent-invoker.bareRestart——此处仅锚定「降级路径不静默吞熔断状态」
-    expect(sendEntry.bodies.some(b => b.includes("未能完成"))).toBe(true);
+    invoker["handoffState"].recordHandoffFailure("otter-1");
+    expect(invoker["handoffState"].getConsecutiveFailures("otter-1")).toBe(1);
+
+    await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true });
+
+    expect(restartCalls).toBe(2); // unifiedHandoff 失败 → 降级裸重启成功
+    expect(invoker["handoffState"].getConsecutiveFailures("otter-1")).toBe(0);
   });
 
   it("进度反馈：反馈通道自身故障不反噬交接主线（静默降级）", async () => {

@@ -11,7 +11,7 @@ modules:
   - src/frameworks/agent/pi-session-factory.ts
   - src/interface-adapters/agent-runtime/agent-invoker.ts
   - tests/interface-adapters/unified-handoff.test.ts
-summary: "9/23 实证：更新 #1130 重启后 4 獭手动重启全部失败 Lock acquire timeout（holderHeldForMs 恂 ≈120s、queueLength=0——等的是自己）。根因（根本设计缺陷）：统一交接持冻结锁期间，换世 restartSession→archiveSession→reset() 复用 invoke 池复用锁路径二次取同一把 per-otter 锁——一把锁双目的 + 不可重入 = 自死锁。修法：AgentGateway.reset 增 channel 参数，handoff 渠道走 resetForHandoff 锁旁路变体，per-otter 锁退回单目的短临界区。配套：合成后 prompt 超窗预检（省 96s 必败等待）；裸重启成功后熔断计数清零（此前只 +1 永不清且内存态，永久熔断）。"
+summary: "9/23 实证：更新 #1130 重启后 4 獭手动重启全部失败 Lock acquire timeout（holderHeldForMs 恂 ≈120s、queueLength=0——等的是自己）。根因（根本设计缺陷）：统一交接持冻结锁期间，换世 restartSession→archiveSession→reset() 复用 invoke 池复用锁路径二次取同一把 per-otter 锁——一把锁双目的 + 不可重入 = 自死锁。修法：AgentGateway.reset 增 channel 参数，handoff 渠道走 resetForHandoff 锁旁路变体，per-otter 锁退回单目的短临界区。配套：合成后 prompt 超窗预检（密度按 9/23 生产日志实测校准为 chars/2）；裸重启成功后熔断计数清零。检视后加固：resetForHandoff 用 markStale（不 dispose）+ 交接模式禁 steal。"
 tags: [handoff, session-lock, deadlock, circuit-breaker, synthesis]
 capability_test: "n/a: 并发时序修复，回归用例固化于 tests/interface-adapters/unified-handoff.test.ts（channel='handoff' 钉死 + 裸重启清零）"
 causal_links:
@@ -54,14 +54,27 @@ causal_links:
 **Agent reset 渠道路由**：`AgentGateway.reset(otterId, context, channel)` 增加 `channel: 'normal' | 'handoff'` 参数：
 
 - `normal`（缺省）：常规路径，自取 invoke 池复用锁（既有行为不变）
-- `handoff`：走 `resetForHandoff` 锁旁路变体（pi-session-factory 直接调 `_resetInternal`，不取锁）——Precondition：调用方已持交接冻结锁（冻结窗口保证此刻无并发 invoke 动池位），旧 invoke 若仍活着由 `_resetInternal` 的 `pool.evict` 出池托管（不 dispose，与 `markStale` 同语义，F20260912nlb896 已验证）
+- `handoff`：走 `resetForHandoff` 锁旁路变体（pi-session-factory 直接调 `_resetInternal`，不取锁）——Precondition：调用方已持交接冻结锁（冻结窗口保证此刻无并发 invoke 动池位）
 
 **链路打通**：`restartSession/restartSession→archiveSession` 透传 channel；`unifiedHandoff` 换世调 `restartSession(..., 'handoff')`。per-otter 锁退回单目的（invoke 池复用短临界区）。
 
 **配套修复**（同 PR，独立有效）：
 
-1. **合成后 prompt 超窗预检**（agent-invoker.ts）：`trimMessagesToBudget` 只裁历史段，`previousSummary`/§⑤ 状态盘点等固定段在大 session 可超 `SYNTHESIS_FIXED_OVERHEAD_TOKENS=10K` 预算假设（9/23 实测 546KB jsonl 裁剪后合成请求仍超 kimi-256k 窗，白等 96s 才 400）。超窗直接跳过合成走机械档案，与合成失败同语义计一次失败（既有 ≥2 熔断机制接管结构性超窗死亡链）。
-2. **裸重启成功后熔断计数清零**（agent-invoker.ts `bareRestart`）：此前 `recordHandoffFailure` 只 +1、`clearHandoffFailures` 只在合成成功时调，进程重启不恢复（内存态）——该獭会被永久熔断。裸重启成功 = 换世完成 = 失败链已断，必须清零。
+1. **合成后 prompt 超窗预检**（agent-invoker.ts）：`trimMessagesToBudget` 只裁历史段，`previousSummary`/§⑤ 状态盘点等固定段在大 session 可超 `SYNTHESIS_FIXED_OVERHEAD_TOKENS=10K` 预算假设。密度阈值按 9/23 生产日志实测校准（`SYNTHESIS_PRECHECK_CHARS_PER_TOKEN=2`——实测 362K/566K chars 两 prompt 均超 262K 窗口，反推真实密度 <1.38/<2.16 chars/token，合成 prompt 的机械供料密度远低于常规对话 ≈3）。超窗直接跳过合成走机械档案，与合成失败同语义计一次失败。
+2. **裸重启成功后熔断计数清零**（agent-invoker.ts `bareRestart`）：此前 `recordHandoffFailure` 只 +1、`clearHandoffFailures` 只在合成成功时调，进程重启不恢复（内存态）——该獭会被永久熔断。裸重启成功 = 换世完成 = 失败链已断，必须清零。清零仅发生在「降级裸重启成功」场景；若裸重启也失败（异常上抛），计数保留（不掩盖换世本身连续失败的信号）。
+
+## 对抗审视后加固（检视獭-hspx，4 严重 3 建议全部处置）
+
+| 检视发现 | 处置 |
+|---|---|
+| 严重2a：`removeEntry` 无条件 dispose——「evict 出池不 dispose」论证失实，stolen invoke 活 session 可被撕裂 | `resetForHandoff` 改用 `pool.markStale`（不 dispose，F20260912nlb896 stale steal 同语义）；`_resetInternal` 两处 evict 对 handoff 渠道退化为幂等 no-op（markStale 后池内无条目） |
+| 严重2b：`stealThresholdMs=300s` 与合成超时上限 300s 相邻，慢合成交接持锁 ≥300s 时并发 invoke 可误 steal 冻结锁 | `SimpleLockManager.acquire` 交接模式（handoffMode）下禁止 steal——handoffMode 本身即「持有者是交接」的声明，冻结窗口内 steal 无合法场景 |
+| 严重1：预检阈值 chars/3 ≈786K，事发实测失败 prompt 仅 362K/566K——「省 96s 必败等待」对两个动机案例不生效 | 密度校准为 chars/2（实测上界 ×0.93 余量，漏杀方向保守：宁多合成一次 400 降级，不漏杀本可合成的场景） |
+| 严重3：熔断清零测试 mock 恒 throw，清零路径永远执行不到（删掉清零行测试照样绿） | 改为真回归：先 recordHandoffFailure，再让降级裸重启成功，断言 `getConsecutiveFailures` 归 0 |
+| 严重4：commit body 缺 `Modification-Class:` 声明 | 已补 |
+| 建议5：清零自擦除环（失败+1→bare 成功清零，≥2 熔断永不触发） | 保留清零（换世成功即失败链断的语义正确），注释明确「裸重启也失败则计数保留」——不掩盖换世本身连续失败 |
+| 建议6：两个锁外裸重启 helper 语义分裂（:1404 vs :1623） | 记录，不在本 PR 扩面（:1623 是 selfRestart 独立路径，统一收口是独立重构） |
+| 建议7：resetForHandoff 静默降级无观测 | 降级路径加 `logger.warn`——生产装配意外走到降级立即现形 |
 
 ## 设计取舍（机制预算四问，动手前作答）
 
@@ -81,4 +94,4 @@ causal_links:
 - 全量测试 3854 通过（279 文件），含 unified-handoff 20 例（新增 2 例回归：channel='handoff' 钉死 / 裸重启失败文案）
 - tsc --noEmit 0 error；eslint 0 error
 - 最简实现检查：已过——`resetForHandoff` 复用 `_resetInternal` 零重复；channel 参数复用既有 `AgentGateway.reset` 签名不新增方法面（`resetForHandoff` 为可选兜底，mock 兼容）；未引入新锁/新类
-- 负面向验收：本次变更**绕过**了 invoke 池复用锁对交接换世的保护——论证：交接冻结锁（acquireSessionLock）已提供同等互斥（冻结窗口拒绝新 invoke 入队），且 `_resetInternal` 的 `pool.evict` 对并发旧 invoke 采用「出池不 dispose」策略（与 markStale 同语义，F20260912nlb896 已验证安全）；绕过的保护是冗余的（双重互斥），且正是死锁根因
+- 负面向验收：本次变更**绕过**了 invoke 池复用锁对交接换世的保护——论证：交接冻结锁（acquireSessionLock）已提供同等互斥（冻结窗口拒绝新 invoke 入队），且 `resetForHandoff` 对池内旧 session 采用 `markStale`（出池不 dispose，与 F20260912nlb896 stale steal 同语义，已验证安全）；交接模式下 steal 被禁止（堵 300s 阈值缝隙）；绕过的保护是冗余的（双重互斥），且正是死锁根因

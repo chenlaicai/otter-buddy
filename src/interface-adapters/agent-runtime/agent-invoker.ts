@@ -37,9 +37,13 @@ import type { SynthesisPrefetch } from "@frameworks/agent/synthesis-prompt-build
 // import frameworks 实现——同 buildHandoffPackage 注入先例，运行时由 bootstrap 装配）
 import { DomainError } from "@entities/errors";
 
-/** F20260923hlck：合成 prompt 长度→token 估算比率（与 trimMessagesToBudget 的 chars/3 同源，
- *  层约束不让 interface-adapters import frameworks 常量——值必须保持同步） */
-const SYNTHESIS_CHARS_PER_TOKEN = 3;
+/** F20260923hlck：合成 prompt 长度→token 估算比率——9/23 生产日志实测校准。
+ *  实测（pid 56177）：362K/566K chars 两 prompt 均超 kimi-256k 262K 窗口 400，
+ *  反推真实密度 <1.38/<2.16 chars/token——合成 prompt 含大量机械供料（§④⑤⑥ 状态盘点/
+ *  文件轨迹/谱系摘要），密度远低于常规对话（≈3）。取 2.0 为预检阈值（实测上界 ×0.93 余量，
+ *  漏杀方向保守：宁多合成一次 400 降级，不漏杀本可合成的场景）。
+ *  层约束不让 interface-adapters import frameworks 常量——值必须与 trimMessagesToBudget 的口径解耦。 */
+const SYNTHESIS_PRECHECK_CHARS_PER_TOKEN = 2;
 
 /** 统一交接的引擎输入形状（与 narrative-synthesis-engine 的同名接口结构兼容——
  *  独立声明避免 interface-adapters→frameworks 的模块依赖，参数类型就地内联） */
@@ -1028,14 +1032,14 @@ export class AgentInvoker implements AgentTurnPort {
           //  与合成失败同语义计一次失败——既有 ≥2 熔断机制会接管「固定段结构性超窗」的死亡链。
           const synthesisWindow = this.resolveSynthesisContextWindow(otterId, modelAlias);
           const overWindow = synthesisWindow !== undefined
-            && prompt.length > synthesisWindow * SYNTHESIS_CHARS_PER_TOKEN;
+            && prompt.length > synthesisWindow * SYNTHESIS_PRECHECK_CHARS_PER_TOKEN;
           if (overWindow) {
             this.metrics?.recordSynthesis('error');
             this.handoffState.recordHandoffFailure(otterId);
             this.logger.warn('[handoff] prompt still over window after trim, skipping synthesis (mechanical archive)', {
               otterId, trigger,
               promptChars: prompt.length,
-              budgetChars: synthesisWindow! * SYNTHESIS_CHARS_PER_TOKEN,
+              budgetChars: synthesisWindow! * SYNTHESIS_PRECHECK_CHARS_PER_TOKEN,
               consecutiveFailures: this.handoffState.getConsecutiveFailures(otterId),
             });
           } else {
@@ -1407,6 +1411,9 @@ export class AgentInvoker implements AgentTurnPort {
       // F20260923hlck：裸重启成功 = 换世完成，失败链已断——熔断计数清零。
       //  此前只 +1 永不清（clearHandoffFailures 只在合成成功时调），进程重启也不恢复
       //  （内存态），该獭会被永久熔断（9/23 实证：重启后仍反复交接失败）。
+      // F20260923hspx 检视建议5 说明：清零仅发生在「降级裸重启成功」——即「交接管线已炸但
+      //  换世本身成功」的场景；若裸重启也失败（异常上抛），本行不执行，计数保留。
+      //  「失败+1→bare 成功清零」不会掩盖「换世本身连续失败」的信号（那是上抛路径）。
       this.handoffState.clearHandoffFailures(otterId);
       return session;
     };
