@@ -14,7 +14,7 @@ import fs from "fs";
 import path from "path";
 import type { Logger } from "@usecases/ports/logger";
 import { loadAllowedServicePorts, extractWhitelistedPortRefs, type AllowedService } from "./allowed-service-ports";
-import { shouldSanitizeForScan, sanitizeQuotedText } from "./quoted-text-sanitizer";
+import { shouldSanitizeForScan, sanitizeQuotedText, stripQuotedTextSpans } from "./quoted-text-sanitizer";
 import { findKillSegments, isKillAtCommandPosition } from "./kill-segment-finder";
 
 export type { AllowedService };
@@ -540,10 +540,13 @@ function extractRedirectTarget(command: string): string | null {
 
 /** cd 段精确判定（检视严重 1/D2 处置）：首段真 cd 且无后台/管道符才豁免。
  *  首段 cd（`git commit && cd /tmp` 写在 cd 前不算）、非平凡目标（cd . 不算）、
- *  无 & / |（后台子 shell / 管道切断 cd 父 shell 效应，`cd /wt & git commit` 落主仓）。 */
+ *  无 & / |（后台子 shell / 管道切断 cd 父 shell 效应，`cd /wt & git commit` 落主仓）。
+ *  F20260923qbsw：复合切断检查在引号剥离基准上进行——引号内 | & 是数据（gh comment
+ *  body 里的 markdown 表格/逻辑或），不构成 shell 复合（#984 第二误拦面）。 */
 function hasRealCdSegment(command: string): boolean {
-  if (/(?<!&)&(?!&)|\|/.test(command)) return false; // (?<!&)&(?!&) 防 && 误命中
-  const first = command.split(/&&|\|\||[;\n]/).map(s => s.trim()).filter(Boolean)[0];
+  const basis = stripQuotedTextSpans(command);
+  if (/(?<!&)&(?!&)|\|/.test(basis)) return false; // (?<!&)&(?!&) 防 && 误命中
+  const first = basis.split(/&&|\|\||[;\n]/).map(s => s.trim()).filter(Boolean)[0];
   if (!first) return false;
   const m = first.match(/^cd\s+(.+)$/);
   if (!m) return false;
@@ -567,10 +570,15 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
       && /echo\s+['"].*\b(?:rm|mv|find)\b.*['"].*>>?/.test(command)) {
     return null; // echo 'rm ...' >> file：引号内文本，目标非 data/，无复合命令，与 #1038 同口径放行
   }
+  // F20260923qbsw：重定向判定在引号剥离基准上进行——引号内 > >> --> 是文本数据
+  // （gh issue comment --body 的 HTML 注释/markdown 引用），不是 shell 重定向
+  // （#984 循环拦截事故：连拦 3 次中断獭回合，healing 4d692fb6/e671f577）。
+  // 危险通道（bash -c/heredoc）内引号不剥离，载荷内重定向仍可见（stripQuotedTextSpans 守住）。
+  const syntaxBasis = stripQuotedTextSpans(command);
   // 重定向形态单独判定（D1 处置：abs-target 豁免只适用重定向，不跨 pattern 泄漏——
   // git 写族落点是 .git/cwd 不是重定向目标，`git commit -m x > /dev/null` 高频尾缀形态曾全豁免）
-  if (REDIRECT_PATTERN.test(command)) {
-    const target = extractRedirectTarget(command);
+  if (REDIRECT_PATTERN.test(syntaxBasis)) {
+    const target = extractRedirectTarget(syntaxBasis);
     const isAbsNonMain = target && path.isAbsolute(target)
       && (() => {
         const r = path.normalize(projectRoot).toLowerCase();

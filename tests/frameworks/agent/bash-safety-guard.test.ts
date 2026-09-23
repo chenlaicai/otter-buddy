@@ -1257,3 +1257,60 @@ describe("F20260922scwd delta D1/D2 绕过形态回归（mimo 二轮检视）", 
     expect(result).toBeNull();
   });
 });
+
+describe("F20260923qbsw 引号盲重定向/复合切断误拦修复（#984 循环拦截事故）", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+  // 事故现场还原：issue 认领评论 body 含 otter-claim HTML 注释（--> 形态），
+  // 无 cd 前缀时连拦 3 次中断獭回合（healing 4d692fb6/e671f577，9/23 00:11-00:15）。
+
+  // ── 误拦面 1：引号内 > >> --> 是文本数据，不是重定向 ──
+  it("gh issue comment --body 含 HTML 注释 -->（无 cd）→ 放行", () => {
+    const cmd = `gh issue comment 984 --body '🦦 认领 #984
+<!-- otter-claim: conversation=d7377cfd; otter=大獭 -->
+上下文：已完成桥接方案'`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("gh issue comment --body 含 markdown 引用 '> 引用文本'（无 cd）→ 放行", () => {
+    expect(checkBashCommandSafety("gh issue comment 984 --body '> 检视发现：a > b 对照'", mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("gh pr review --body 含 -->（无 cd）→ 放行", () => {
+    expect(checkBashCommandSafety("gh pr review 850 --comment --body '修复 a --> b 迁移'", mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  // ── 误拦面 2：引号内 | / & 不构成复合切断，cd 豁免不应失效 ──
+  it("cd /wt && gh issue comment --body 含 markdown 表格 | → 放行", () => {
+    const cmd = `cd /wt && gh issue comment 984 --body '| 项 | 值 |
+|---|---|
+| worktree | x |'`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("cd /wt && gh issue comment --body 含 & 字样 → 放行", () => {
+    expect(checkBashCommandSafety("cd /wt && gh issue comment 984 --body '修复 A & B 联动'", mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  // ── 安全性回归：真重定向/危险通道仍拦 ──
+  it("echo x > file.txt（真重定向落点主仓，无 cd）→ 仍拦截", () => {
+    const result = checkBashCommandSafety("echo x > file.txt", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+    expect(result).toContain("当前 bash 工作目录在主仓");
+  });
+
+  it("echo x > file.txt（引号外真重定向，引号内另有 --> 干扰）→ 仍拦截", () => {
+    const result = checkBashCommandSafety("echo 'a --> b' > file.txt", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("bash -c 'echo x > file.txt'（危险通道内引号不剥离，载荷重定向仍可见）→ 仍拦截", () => {
+    const result = checkBashCommandSafety("bash -c 'echo x > file.txt'", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("cd /wt | git commit（引号外真管道切断 cd）→ 仍拦截", () => {
+    const result = checkBashCommandSafety("cd /wt | git commit -m y", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+});
