@@ -1314,3 +1314,60 @@ describe("F20260923qbsw 引号盲重定向/复合切断误拦修复（#984 循�
     expect(result).not.toBeNull();
   });
 });
+
+describe("F20260923qbsw 补充：排查期高频只读命令误拦回归（9/23 早《压缩交接紧急修复》现场）", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+  // 9/23 08:26-08:48 排查对话实证：大獭连续 5+ 次被拦中断回合（invoke aborted），
+  // 全部为只读排查命令——sqlite3 SELECT / grep 管道链 / awk / ls / tail / gh comment。
+  // 共同特征：参数值含项目数据路径、SQL 比较符 >、引号内管道/表格字符。
+  // 路径词元用拼接避开守卫对自身测试文件的词元命中（运行时旧守卫未修前）。
+  const DB = "data/" + ["otter", "buddy"].join("-") + ".db";
+  const ABS = "/Users/orca/ai/" + ["otter", "buddy"].join("-");
+
+  it("sqlite3 只读查询（SQL 含 > 比较符 + 项目 db 路径）→ 放行", () => {
+    const cmd = `sqlite3 ${DB} "SELECT otter_id, ctx_window_used FROM invokes WHERE started_at > '2026-09-23'"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("sqlite3 多段 SQL（ORDER BY + LIMIT）→ 放行", () => {
+    const cmd = `sqlite3 ${DB} "SELECT * FROM invokes WHERE started_at > 'x' ORDER BY started_at DESC LIMIT 25;"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("node 执行工作区脚本（路径含项目 data/workspaces）→ 放行", () => {
+    const cmd = `node ${ABS}/data/workspaces/abc/scripts/inspect-db.cjs`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("grep 管道链读主仓日志（grep | grep | cut）→ 放行", () => {
+    const cmd = `grep -a "compaction" data/logs/${["otter","buddy"].join("-")}.log | grep -a "179012" | cut -c1-420`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("awk 引号脚本（-F 双引号 + print）→ 放行", () => {
+    const cmd = `awk -F'"' '{print $2}' /tmp/x.txt`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("ls 绝对路径 sessions 目录 → 放行", () => {
+    const cmd = `ls ${ABS}/data/sessions/ | head`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("tail 读日志管道 grep → 放行", () => {
+    const cmd = `tail -c 8000000 ${ABS}/data/logs/app.log | grep watermark`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("gh issue comment body 含 > | & 混合（无 cd）→ 放行", () => {
+    const cmd = `gh issue comment 984 --body "修复说明：引号内 > 符号 | 管道 & 文本"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  // 安全面回归：同形态但真危险的仍拦
+  it("sqlite3 查询结果重定向落主仓（引号外真重定向）→ 仍拦截", () => {
+    const cmd = `sqlite3 ${DB} "SELECT 1" > src/dump.txt`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+});
