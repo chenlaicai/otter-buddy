@@ -43,6 +43,8 @@ let listEntriesCalls: string[] = []
 /** F20260921inrl：列表/设置拉取计数——切换对话不应重拉（#1074 债务锚定） */
 let listCalls = 0
 let settingsCalls = 0
+/** F20260923sswd：listInvokes 拉取计数——右栏状态恢复竞态/重试断言核心 */
+let listInvokesCalls: string[] = []
 
 function json(data: unknown) {
   return new Response(JSON.stringify(data), { status: 200 })
@@ -52,6 +54,7 @@ function mockApi() {
   listEntriesCalls = []
   listCalls = 0
   settingsCalls = 0
+  listInvokesCalls = []
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
     const url = String(input)
     // entries 历史（before/after 游标分页不在本测试范围）
@@ -62,7 +65,8 @@ function mockApi() {
     }
     if (/^\/api\/conversations\/conv-[ab]\/participants/.test(url)) return json([])
     if (/^\/api\/conversations\/conv-[ab]\/unread/.test(url)) return json({ lastReadSeq: 0, unreadCount: 0, firstUnreadMessageId: null, firstUnreadSeq: null })
-    if (/^\/api\/conversations\/conv-[ab]\/invokes/.test(url)) return json({ invokes: [] })
+    const invokesMatch = url.match(/^\/api\/conversations\/(conv-[ab])\/invokes/)
+    if (invokesMatch) { listInvokesCalls.push(invokesMatch[1]!); return json({ invokes: [] }) }
     if (/^\/api\/conversations\/conv-[ab]\/key-resources/.test(url)) return json({ resources: [] })
     if (/^\/api\/conversations\/conv-[ab]\/read/.test(url)) return json({})
     // F20260921inrl S1（检视1076）：scheduled-tasks 必须返回数组——catch-all 的 json({})
@@ -179,5 +183,88 @@ describe('SPA 路由切换对话：初始加载不再重拉（F20260921inrl，#1
     expect(router.state.location.pathname).toBe('/conversation/conv-a')
     expect(container.textContent).toContain('A的第一条')
     expect(listEntriesCalls).toEqual(['conv-a'])
+  })
+})
+
+describe('右栏 invoke 状态恢复（F20260923sswd，issue #1134）', () => {
+  it('listInvokes 与慢查询并行发出——不被 Promise.all 拖住（可控延迟断言调用顺序）', async () => {
+    // 旧实现：listInvokes 排在 Promise.all 之后，慢 listEntries 会拖住它；
+    // 新实现：并行发出——entries 挂起 200ms 期间，listInvokes 必须已经发出。
+    vi.useFakeTimers()
+    try {
+      listInvokesCalls = []
+      let entriesCalled = false
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        const invokesMatch = url.match(/^\/api\/conversations\/(conv-[ab])\/invokes/)
+        if (invokesMatch) { listInvokesCalls.push(invokesMatch[1]!); return json({ invokes: [] }) }
+        const entriesMatch = url.match(/^\/api\/conversations\/(conv-[ab])\/entries/)
+        if (entriesMatch) {
+          entriesCalled = true
+          // 慢查询：挂起 200ms
+          await new Promise(r => setTimeout(r, 200))
+          return json({ hasMore: false, entries: entriesByConv[entriesMatch[1]!] })
+        }
+        if (/^\/api\/conversations\/conv-[ab]\/participants/.test(url)) return json([])
+        if (/^\/api\/conversations\/conv-[ab]\/unread/.test(url)) return json({ lastReadSeq: 0, unreadCount: 0, firstUnreadMessageId: null, firstUnreadSeq: null })
+        if (/^\/api\/conversations\/conv-[ab]\/key-resources/.test(url)) return json({ resources: [] })
+        if (/^\/api\/conversations\/conv-[ab]\/read/.test(url)) return json({})
+        if (/^\/api\/conversations\/[^/]+\/(scheduled-tasks|attachments)/.test(url)) return json([])
+        if (url.startsWith('/api/conversations?') || url === '/api/conversations') return json({ items: [convA, convB], total: 2 })
+        if (url.startsWith('/api/settings')) return json({ userName: '测试用户' })
+        return json({})
+      })
+      const router = createTestRouter('/conversation/conv-b')
+      await act(async () => { root.render(<RouterProvider router={router} />) })
+      // 推进 50ms：entries 仍在挂起（200ms），但 listInvokes 必须已发出（并行）
+      await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+      expect(entriesCalled).toBe(true)
+      expect(listInvokesCalls).toContain('conv-b')
+      // 推进完 200ms：慢查询落地
+      await act(async () => { await vi.advanceTimersByTimeAsync(300) })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('listInvokes 失败 → 不静默吞，600ms/2500ms 两次延迟重试兜底（fake timers）', async () => {
+    vi.useFakeTimers()
+    try {
+      let failCount = 3 // 初始 + 600ms 重试 + 2500ms 重试全败，验证兜底链完整触发
+      listInvokesCalls = []
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        const invokesMatch = url.match(/^\/api\/conversations\/(conv-[ab])\/invokes/)
+        if (invokesMatch) {
+          listInvokesCalls.push(invokesMatch[1]!)
+          if (failCount-- > 0) throw new Error('network down')
+          return json({ invokes: [] })
+        }
+        const entriesMatch = url.match(/^\/api\/conversations\/(conv-[ab])\/entries/)
+        if (entriesMatch) return json({ hasMore: false, entries: entriesByConv[entriesMatch[1]!] })
+        if (/^\/api\/conversations\/conv-[ab]\/participants/.test(url)) return json([])
+        if (/^\/api\/conversations\/conv-[ab]\/unread/.test(url)) return json({ lastReadSeq: 0, unreadCount: 0, firstUnreadMessageId: null, firstUnreadSeq: null })
+        if (/^\/api\/conversations\/conv-[ab]\/key-resources/.test(url)) return json({ resources: [] })
+        if (/^\/api\/conversations\/conv-[ab]\/read/.test(url)) return json({})
+        if (/^\/api\/conversations\/[^/]+\/(scheduled-tasks|attachments)/.test(url)) return json([])
+        if (url.startsWith('/api/conversations?') || url === '/api/conversations') return json({ items: [convA, convB], total: 2 })
+        if (url.startsWith('/api/settings')) return json({ userName: '测试用户' })
+        return json({})
+      })
+      const router = createTestRouter('/conversation/conv-a')
+      await act(async () => { root.render(<RouterProvider router={router} />) })
+      await act(async () => { await vi.advanceTimersByTimeAsync(60) })
+      const callsAfterInitial = listInvokesCalls.length
+      expect(callsAfterInitial).toBeGreaterThanOrEqual(1)
+      // 推进 600ms → 第一次重试
+      await act(async () => { await vi.advanceTimersByTimeAsync(700) })
+      const callsAfter600 = listInvokesCalls.length
+      expect(callsAfter600).toBeGreaterThan(callsAfterInitial)
+      // 推进到 2500ms → 第二次重试（兜底链完整）
+      await act(async () => { await vi.advanceTimersByTimeAsync(2200) })
+      expect(listInvokesCalls.length).toBeGreaterThan(callsAfter600)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
