@@ -295,9 +295,10 @@ function checkCommandLevelPatterns(
     return "bash 命令通过管道传入 shell 执行且包含终止进程操作，可能针对主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
   }
   // 脚本语言 one-liner 执行 kill：perl/ruby/python -e '...kill N...'
-  // F20260923glay：加 node -e（与 SCRIPT_ONELINER_CHANNEL 口径对齐——脚本载荷剥离后，
-  // kill 检测必须覆盖全部 one-liner 形态，防 node -e 'process.kill(42877)' 绕过）
-  if (/(?:perl|ruby|python\d?)\s+.*(?:-e|-c)\s|\bnode\s+.*-e\s/.test(cmdLower) && /\bkill\b/.test(cmdLower) && /\b\d{2,6}\b/.test(command)) {
+  // F20260923glay：加 node -e/--eval（与 SCRIPT_ONELINER_CHANNEL 口径对齐——脚本载荷剥离后，
+  // kill 检测必须覆盖全部 one-liner 形态，防 node -e 'process.kill(42877)' 绕过；
+  // 审视焦点 2 实证 node --eval 等价旗标此前漏覆盖）
+  if (/(?:perl|ruby|python\d?)\s+.*(?:-e|-c)\s|\bnode\s+.*(?:-e|--eval)\s/.test(cmdLower) && /\bkill\b/.test(cmdLower) && /\b\d{2,6}\b/.test(command)) {
     logger?.warn("[bash-safety-guard] BLOCKED scripting language one-liner with kill", { mainPid, command: command.substring(0, 200) });
     return "bash 命令通过脚本语言执行了终止进程操作，无法判断目标。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
   }

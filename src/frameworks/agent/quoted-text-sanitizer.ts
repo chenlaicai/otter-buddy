@@ -56,17 +56,15 @@ const SYNTAX_SINGLE_QUOTED = /'[^']*'/g;
 const SYNTAX_DOUBLE_QUOTED = /"[^"]*"/g;
 
 /** #923 处置 c：shell 执行载荷通道——命中时命令里的引号段是「要执行的命令」本体 */
-const SHELL_PAYLOAD_CHANNEL = /\b(?:bash|sh|zsh)\s+-c\b|\|\s*(?:sh|bash|zsh)\b|\b(?:perl|ruby|python\d?)\s+.*(?:-e|-c)\s|\bnode\s+.*-e\s|<<</;
+const SHELL_PAYLOAD_CHANNEL = /\b(?:bash|sh|zsh)\s+-c\b|\|\s*(?:sh|bash|zsh)\b|\b(?:perl|ruby|python\d?)\s+.*(?:-e|-c)\s|\bnode\s+.*(?:-e|--eval)\s|<<</;
 
 /**
- * F20260923glay：脚本 one-liner 通道（python/perl/ruby -c|-e、node -e）——语法剥离的
- * 精细化处理对象。与 shell 载荷（bash -c / 管道进 shell / heredoc）的差异：shell 载荷
- * 的引号内是 shell 代码（剥离会瞎掉 kill 检测，必须整体保留原文）；脚本 one-liner 的
- * 载荷是 python/node 代码，其中的字符串字面量是数据——剥离它们不影响 kill 检测，
- * 因为 kill 调用词元（os.kill / process.kill / os.system）在调用位不在字符串里
- * （字符串里的 kill 字样是数据不是调用，如 '# kill test' 注释、'kill_signal' 变量名）。
+ * F20260923glay：脚本 one-liner 通道（python/perl/ruby -c|-e、node -e|--eval）——
+ * 文档性常量：脚本载荷与 shell 载荷的分层语义说明（shell 载荷引号内是 shell 代码须保留原文，
+ * 脚本载荷字符串字面量是数据可剥离）。当前实现已内联进 stripQuotedTextSpans 的载荷段定位
+ * 逻辑（审视严重 1 修正后不再用通道整体分类），保留此常量供 kill 检测等调用方对齐口径。
  */
-const SCRIPT_ONELINER_CHANNEL = /\b(?:perl|ruby|python\d?)\s+.*(?:-e|-c)\s|\bnode\s+.*-e\s/;
+const _SCRIPT_ONELINER_CHANNEL_DOC = /\b(?:perl|ruby|python\d?)\s+.*(?:-e|-c)\s|\bnode\s+.*(?:-e|--eval)\s/;
 
 /** 文本中是否含敏感词元（重置 lastIndex 防全局正则状态泄漏） */
 function containsSensitiveToken(text: string): boolean {
@@ -171,13 +169,30 @@ export function sanitizeQuotedText(command: string): string {
  */
 export function stripQuotedTextSpans(command: string): string {
   const basis = stripEmptyQuotePairs(command);
-  // shell 载荷（bash -c / 管道 / heredoc）整体保留原文——引号内是 shell 代码
-  if (SHELL_PAYLOAD_CHANNEL.test(basis) && !SCRIPT_ONELINER_CHANNEL.test(basis)) return command;
-  // 脚本 one-liner：载荷内字符串字面量是数据，照常剥离（python/node 字符串有明确
-  // 语法边界，比 shell 引号好解析；shell 引号剥离正则对它们同样适用——python 单双
-  // 引号与 shell 同形，f-string 前缀 f'...' 的引号边界不变）。
   SYNTAX_SINGLE_QUOTED.lastIndex = 0;
   SYNTAX_DOUBLE_QUOTED.lastIndex = 0;
   const blank = (m: string): string => " ".repeat(m.length);
-  return basis.replace(SYNTAX_SINGLE_QUOTED, blank).replace(SYNTAX_DOUBLE_QUOTED, blank);
+
+  // F20260923glay 分层 + 审视严重 1 修正：shell 载荷段（bash -c / 管道进 shell / heredoc）
+  // 整段保留原文（引号内是 shell 代码）；其余（常规命令 + 脚本 one-liner 载荷）照常剥离。
+  // 整条命令全局分类会让混合命令（bash -c '...' && python3 -c "..."）中的 shell 载荷遁形，
+  // 而按 &&/; 等分隔符切段又会切散跨分隔符的引号对（--body "a | b"）。
+  // 取中：仅当命令含 shell 载荷通道时，先定位载荷段（bash -c 之后的引号段）保留，其余剥离。
+  const hasShellPayload = /\b(?:bash|sh|zsh)\s+-c\b|\|\s*(?:sh|bash|zsh)\b|<<</.test(basis);
+  if (!hasShellPayload) {
+    return basis.replace(SYNTAX_SINGLE_QUOTED, blank).replace(SYNTAX_DOUBLE_QUOTED, blank);
+  }
+  // 含 shell 载荷：保留载荷引号段原文，剥离其余引号段。
+  // 定位 bash -c 后的首个引号段为载荷容器（shell 语义：-c 后第一个参数即执行体）。
+  const payloadMatch = /\b(?:bash|sh|zsh)\s+-c\s+(?:"([^"\\]*)"|'([^'\\]*)')/s.exec(basis);
+  if (!payloadMatch) {
+    // heredoc / 管道进 shell / 无法定位载荷容器 → 保守整体保留原文（现状语义）
+    return command;
+  }
+  const payloadStart = payloadMatch.index;
+  const payloadEnd = payloadMatch.index + payloadMatch[0].length;
+  const before = basis.slice(0, payloadStart).replace(SYNTAX_SINGLE_QUOTED, blank).replace(SYNTAX_DOUBLE_QUOTED, blank);
+  const payload = basis.slice(payloadStart, payloadEnd); // 载荷段保留原文
+  const after = basis.slice(payloadEnd).replace(SYNTAX_SINGLE_QUOTED, blank).replace(SYNTAX_DOUBLE_QUOTED, blank);
+  return before + payload + after;
 }

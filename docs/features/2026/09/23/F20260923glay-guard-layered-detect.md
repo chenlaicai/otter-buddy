@@ -57,7 +57,16 @@ causal_links:
 
 - python3 -c / node -e 内联分析脚本（载荷字符串含 > | & 文本）不再误拦——覆盖今日 55% 误拦的主要形态
 - 拦截提示显著变短（命中详情合并 + retry 引导一句）
-- kill 族安全面零降级（原文检测 + node -e 补覆盖）
+- kill 族安全面零降级（原文检测 + node -e/--eval 补覆盖）
+
+## 对抗审视处置记录（检视獭-glay，kimi-k28，同家不同代降级声明）
+
+- **严重 1 混合命令绕过**（采纳，已修）：`bash -c 'echo x > /repo/src/y.ts' && python3 -c "print(1)"` 混合命令命中 SCRIPT_ONELINER 即全文豁免，shell 载荷重定向遁形。修复：stripQuotedTextSpans 改为「定位 shell 载荷段（bash -c 后首个引号段）保留原文，其余剥离」——不分段不切散跨分隔符引号对。回归测试 3 例（前后混合 + 安全部分仍受益）。
+- **焦点 1 f-string/JS 反引号**：非问题（kill 检测走原文，字样永远可见）。字符串拼接构造 kill（`eval("process."+"kill")`）属既有缺口非本 PR 回归，文档声明为已知残留边界。
+- **焦点 2 node --eval 绕过**（采纳，已修）：`SHELL_PAYLOAD_CHANNEL` 的 node 分支 `-e\s` 不匹配 `--eval`——`node --eval "process.kill(42877)"` 落进脱敏路径被抹 kill 字样后放行。修：三处通道正则（SHELL_PAYLOAD_CHANNEL / SCRIPT_ONELINER_CHANNEL / 脚本 kill 检测）统一补 `--eval`。回归测试固化。
+- **焦点 3 命中详情合并**：通过（首条+计数+索引足够自诊断）。
+- **焦点 4 retry 文案压缩**：通过（三要素实质齐全，重试上限由外层计数承接）。
+- **大小写问题**（PYTHON3/NODE 大写 ALLOWED）：shell 命令名大小写敏感，低危，记录为已知边界不展开。
 
 ## 已知边界
 

@@ -65,6 +65,11 @@ print(d['name'])
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 
+  it("node --eval process.kill（等价旗标，审视焦点 2 实证绕过）→ 仍拦截", () => {
+    const cmd = `node --eval "process.kill(42877)"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
   it("python3 -c 字符串里的 kill 字样 + 数字（数据非调用，如注释/日志分析）→ kill 检测仍触发（保守拦截，可接受误拦）", () => {
     // 已知取舍：kill 检测看原文无法区分字符串内 kill 字样与真调用——保守拦截。
     // 该形态在日志分析中真实出现（查 kill 相关日志），误拦可接受（改写法绕过：
@@ -89,5 +94,22 @@ print(d['name'])
   it("python3 heredoc patch 形态（既有两道防线）→ 仍拦截", () => {
     const cmd = `python3 - <<'EOF'\nopen('src/foo.ts','w').write('x')\nEOF`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // ── 审视严重 1 回归：混合命令（shell 载荷 + 脚本 one-liner 同现）不给 shell 载荷开门 ──
+  it("混合命令：bash -c 载荷重定向 + python3 -c 同现 → 仍拦截（shell 载荷不遁形）", () => {
+    const cmd = `bash -c 'echo x > /repo/src/y.ts' && python3 -c "print(1)"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("混合命令：python3 -c 在前 + bash -c 载荷在后 → 仍拦截", () => {
+    const cmd = `python3 -c "print(1)"; bash -c 'cat > /repo/src/z.ts'`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("混合命令的安全部分仍受益：python3 -c 字符串 > 文本 + bash -c 无害命令 → 放行", () => {
+    // python 段剥离字符串（> 不误触），bash -c 段保留原文但无危险语法 → 整体放行
+    const cmd = `python3 -c "print('a > b')" && bash -c 'echo hello'`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
   });
 });
