@@ -57,6 +57,13 @@ export function useDraftCache(conversationId: string | null) {
     // 如果 conversationId 为 null，不保存草稿
     if (!conversationId) return
 
+    // S1 修复：空串同步移除 key——防止 300ms debounce 窗口内卸载时旧值留存复活
+    // Why: 手动清空语义=立即删除，不等 debounce；与 clearDraft 的 removeItem 同构
+    if (!text) {
+      localStorage.removeItem(`draft:${conversationId}`)
+      return
+    }
+
     // 设置新的 debounce timer
     // Why: 使用 conversationIdRef.current 而非闭包中的 conversationId
     // 与 beforeunload handler 保持一致，避免 conversationId 变化时闭包捕获旧值

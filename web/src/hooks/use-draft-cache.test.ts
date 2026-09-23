@@ -143,7 +143,7 @@ describe('useDraftCache', () => {
       result.current.saveDraft('')
     })
 
-    // debounce timer 因空串不写入；deps=[] 后 cleanup 不在 draft 变化时触发
+    // 手动清空后 debounce timer 不写入（S1 修复：空串同步 removeItem 了）
     act(() => {
       vi.advanceTimersByTime(400)
     })
@@ -151,8 +151,59 @@ describe('useDraftCache', () => {
     // 卸载组件（模拟 SPA 导航离开）——cleanup 执行，但读到 draftRef.current='' 不写入
     unmount()
 
-    // 关键断言：cleanup 没有把旧值写回（storage 仍是 debounce 写入的旧值或空，但不是复活）
-    // 真正的回归验证：重新挂载后 draft 为空（不复活）
+    // 关键断言：重新挂载后 draft 为空（不复活）
+    const { result: result2 } = renderHook(() => useDraftCache('conv-1'))
+    expect(result2.current.draft).toBe('')
+  })
+
+  it('should not resurrect when cleared and unmounted within debounce window (S1 CE-1)', () => {
+    // S1 反例：清空后 300ms debounce 窗口内卸载（SPA 导航），旧 key 留存复活
+    const { result, unmount } = renderHook(() => useDraftCache('conv-1'))
+
+    // 写入草稿并完成 debounce
+    act(() => {
+      result.current.saveDraft('will-be-cleared')
+    })
+    act(() => {
+      vi.advanceTimersByTime(400)
+    })
+    expect(localStorage.getItem('draft:conv-1')).toBe('will-be-cleared')
+
+    // 手动清空 + 立即卸载（300ms 窗口内，debounce timer 还未触发）
+    act(() => {
+      result.current.saveDraft('')
+    })
+    unmount()
+
+    // 重新挂载：不应复活
+    const { result: result2 } = renderHook(() => useDraftCache('conv-1'))
+    expect(result2.current.draft).toBe('')
+  })
+
+  it('should not resurrect when cleared and beforeunload within debounce window (S1 CE-2)', () => {
+    // S1 反例：清空后 300ms debounce 窗口内 beforeunload（关页/刷新），旧 key 留存复活
+    const { result } = renderHook(() => useDraftCache('conv-1'))
+
+    // 写入草稿并完成 debounce
+    act(() => {
+      result.current.saveDraft('will-be-cleared')
+    })
+    act(() => {
+      vi.advanceTimersByTime(400)
+    })
+    expect(localStorage.getItem('draft:conv-1')).toBe('will-be-cleared')
+
+    // 手动清空
+    act(() => {
+      result.current.saveDraft('')
+    })
+
+    // 触发 beforeunload（300ms 窗口内，debounce timer 还未触发）
+    act(() => {
+      window.dispatchEvent(new Event('beforeunload'))
+    })
+
+    // 重新挂载：不应复活
     const { result: result2 } = renderHook(() => useDraftCache('conv-1'))
     expect(result2.current.draft).toBe('')
   })
