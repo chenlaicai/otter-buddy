@@ -181,6 +181,10 @@ function buildCtxWindowProvider(
       const alias = otterConfigProvider?.getConfig(otterId)?.modelAlias;
       return modelPool.getHandoffThresholdTokens(alias);
     },
+    // F20260923hsyn：按别名直查（合成模型覆盖场景）
+    getContextWindowByAlias: (modelAlias: string): number | undefined => {
+      return modelPool.getContextWindow(modelAlias);
+    },
   };
 }
 
