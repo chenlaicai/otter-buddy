@@ -7,10 +7,10 @@ intent:
   who: 健康面板用量数据的消费者（搭档 + 大獭）
   problem: "invokes 表 token_usage 只存 input/output，cacheRead/cacheWrite 在落库链上被丢弃——SDK SessionStats.tokens 本含四字段（agent-session.d.ts:182-188），circuit-breaker-helpers.ts:126 只取两个，健康面板 invoke 均值口径（invoke-stats-collector）因此缺 cache"
   trigger: "1149这个小问题你直接修复"
-  expected_effect: "invokes 表新增 token_usage_cache_read / token_usage_cache_write 两列，新 invoke 落库含 cache 快照；invoke-stats-collector 差分口径可扩展含 cache（后续面板增强可用）"
-verify_by:
-  type: static_only
-  reason: "数据落库透传扩展，无 LLM 行为变更；验证方式=单测全绿（279 文件 3856 用例）+ 类型编译通过 + migration 幂等性代码审查"
+  expected_effect: "invokes 表新增 token_usage_cache_read / token_usage_cache_write 两列，新 invoke 落库含 cache 快照；invoke-stats-collector 差分口径可扩展含 cache（后续面板可用）——lint 统计口径含 cache 数据时基线可对比。"
+  verify_by:
+    type: static_only
+    reason: "数据落库透传扩展，无 LLM 行为变更；验证方式=单测全绿（279 文件 3856 用例）+ 类型编译通过 + migration 幂等性代码审查"
 summary: "#1149：invokes 表 token_usage 只存 input/output，cacheRead/cacheWrite 在落库链上被丢弃（SDK 数据本有，circuit-breaker-helpers.ts:126 只取两个）。修复链路：SDK stats.tokens 四字段 → circuit-breaker-helpers 全量取 → types.ts TokenUsage 类型扩展 → orchestrator 透传 → send-entry/agent-invoker 回调透传 → sqlite-invoke-repository 写两列 → schema+ migration 补列。健康面板 invoke 均值口径从此含 cache 数据可用。"
 tags: [observability, token-usage, cache, invoke]
 capability_test: "n/a: 数据落库透传扩展，无运行时行为变更；279 测试文件 3856 用例全绿"
