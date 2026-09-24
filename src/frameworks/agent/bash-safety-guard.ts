@@ -14,7 +14,7 @@ import fs from "fs";
 import path from "path";
 import type { Logger } from "@usecases/ports/logger";
 import { loadAllowedServicePorts, extractWhitelistedPortRefs, type AllowedService } from "./allowed-service-ports";
-import { shouldSanitizeForScan, sanitizeQuotedText, stripQuotedTextSpans } from "./quoted-text-sanitizer";
+import { shouldSanitizeForScan, sanitizeQuotedText, stripQuotedTextSpans, stripHeredocPayloads } from "./quoted-text-sanitizer";
 import { findKillSegments, isKillAtCommandPosition } from "./kill-segment-finder";
 
 export type { AllowedService };
@@ -420,7 +420,7 @@ function checkDataDirDestructive(command: string, logger?: Logger, projectRoot?:
   return null;
 }
 
-// eslint-disable-next-line complexity -- F20260922scwd 主仓写拦截并入 checkPidIndependentRules（+1 分支）；规则编排入口，拆分反而割裂「按优先级短路」连贯性
+ 
 function checkBashCommandSafetyOnText(
   text: string,
   mainPid: number,
@@ -533,8 +533,67 @@ const MAIN_WRITE_PATTERNS = [
   REDIRECT_PATTERN,
   /(?:^|&&|\|\||[;&\n])\s*python3?\s+-\s*<<[/"']?/,       // python heredoc patch
   // D2：段首锚含单 | / &（`cd /wt | git commit` / `& git commit` 同样是新命令段）
-  /(?:^|[|&]|&&|\|\||[;\n])\s*git\s+(?:commit|rebase|merge|cherry-pick|apply|stash\s+push)\b/,  // git 写族
+  // F20260924gfpn：① merge → merge(?!-) 负向断言——`git merge-base`（只读）曾被 merge\b
+  // 吞成写操作（9/23 台账实测 BLOCKED）；同组其他词审计：commit→commit(?!-tree)（commit-tree
+  // 是 plumbing 只读，前缀吞噬同型），cherry-pick/apply/rebase/stash push 无 - 开头只读派生。
+  // ② 段首锚前加赋值前缀串（[A-Za-z_]\w*=\S+\s+）*——`FOO=1 git commit` 的赋值是 shell
+  // 前缀不是子命令，原锚要求 git 紧邻段首会漏此形态（写族判定绕过面）。
+  /(?:^|[|&]|&&|\|\||[;\n])\s*(?:[A-Za-z_]\w*=\S+\s+)*git\s+(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push)\b/,  // git 写族
 ] as const;
+
+/** F20260924gfpn：git 只读子命令白名单（精确全称，非前缀匹配）。
+ *  9/23 台账根因②：黑名单思维缺白名单出口——git 后跟明确只读子命令时仍走主仓写判定，
+ *  merge-base 之外的只读面（log/diff/show/…）全靠「恰好不在写族正则里」兜底，脆弱。
+ *  安全红线：① 白名单词必须精确匹配子命令全称（首词元相等），`git log-f` 等变形不命中；
+ *  ② 白名单只管「跳过 git 写族判定」——整条命令的重定向/data 破坏/kill 族判定照常跑，
+ *  链式绕过（`git log && git commit` / `git log; rm -rf data`）仍被拦。
+ *  注意：白名单不含 merge——merge 的真写判定已由写族正则 merge(?!-) 精确承担，
+ *  merge-base 走「既不在写族、又不在白名单需要确认」的路径：它不是写族（负向断言后），
+ *  且不需要 cd 豁免（只读），因此自然放行。
+ */
+const GIT_READONLY_WHITELIST = new Set([
+  "log", "diff", "status", "show", "rev-parse", "rev-list", "merge-base",
+  "branch", "blame", "describe", "ls-files", "ls-remote", "ls-tree",
+  "stash", "remote", "tag", "config", "shortlog", "reflog", "cherry",
+  "commit-tree", "cat-file", "for-each-ref", "name-rev", "var", "version",
+  "count-objects", "verify-pack", "whatchanged", "archive",
+]);
+
+/** git 子命令词元序列（首个非 flag 词元为子命令名）。
+ *  F20260924gfpn：剥变量赋值前缀——`FOO=1 git commit` 的赋值是 shell 前缀不是
+ *  子命令；不剥会把 commit 当成「首个词元」位置错乱。 */
+function gitSubcommandOf(seg: string): string | null {
+  const words = seg.split(/\s+/).filter(Boolean);
+  let i = 0;
+  while (i < words.length && /^[A-Za-z_]\w*=\S*$/.test(words[i])) i++; // 赋值前缀
+  if (words[i] !== "git") return null;
+  i++;
+  while (i < words.length) {
+    const w = words[i];
+    if (!w.startsWith("-")) return w.replace(/^["']|["']$/g, "");
+    i++;
+    // 取值型全局 flag（-C / --git-dir / --work-tree）跳过值
+    if (/^(-C|--git-dir|--work-tree|--namespace)$/.test(w)) i++;
+  }
+  return null;
+}
+
+/** 整条命令的每个段都是「git 只读子命令」段？（链式绕过防线）
+ *  非 git 段（echo/ls/rm/…）不参与本快通道——它们的写形态由重定向/data 破坏等
+ *  既有判定承担，不因此放行。
+ *  注意 stash 特例：裸 `git stash`（list/show 省略形）放行，显式写子命令
+ *  （push/pop/apply/drop/clear/store）不在白名单 → 不命中，回落写族判定拦截。
+ *  前缀模糊防御：子命令名精确匹配白名单全称（gitSubcommandOf 取首词元全等），
+ *  `git log-f` 的 log-f 不在集合内 → 不命中。 */
+function allSegmentsGitReadonly(command: string): boolean {
+  const segments = command.split(/&&|\|\||[;&\n|]/).map(s => s.trim()).filter(Boolean);
+  if (segments.length === 0) return false;
+  for (const seg of segments) {
+    const sub = gitSubcommandOf(seg);
+    if (!sub || !GIT_READONLY_WHITELIST.has(sub)) return false;
+  }
+  return true;
+}
 
 /** 复合命令判定（D2 处置：单 & 后台 / | 管道同样切开命令段——
  *  `cd /wt & git commit` 的 cd 在后台子 shell，父 shell cwd 不变，commit 落主仓；
@@ -547,15 +606,30 @@ function extractRedirectTarget(command: string): string | null {
   return m?.[1] ?? null;
 }
 
+/** 段首内容是否纯赋值前缀（VAR=value 形态，可任意多个） */
+function isPureAssignPrefix(seg: string): boolean {
+  const words = seg.split(/\s+/).filter(Boolean);
+  return words.length > 0 && words.every(w => /^[A-Za-z_]\w*=\S*$/.test(w));
+}
+
 /** cd 段精确判定（检视严重 1/D2 处置）：首段真 cd 且无后台/管道符才豁免。
  *  首段 cd（`git commit && cd /tmp` 写在 cd 前不算）、非平凡目标（cd . 不算）、
  *  无 & / |（后台子 shell / 管道切断 cd 父 shell 效应，`cd /wt & git commit` 落主仓）。
  *  F20260923qbsw：复合切断检查在引号剥离基准上进行——引号内 | & 是数据（gh comment
- *  body 里的 markdown 表格/逻辑或），不构成 shell 复合（#984 第二误拦面）。 */
+ *  body 里的 markdown 表格/逻辑或），不构成 shell 复合（#984 第二误拦面）。
+ *  F20260924gfpn：首段判定跳过纯赋值前缀段——`W=/path; cd $W/...` 的赋值段
+ *  不改变 shell 状态（9/23 台账连环拦现场形态）；剥除赋值前缀后首个「真命令段」
+ *  须为 cd（赋值前缀后 cd 前再出现其他命令段 → 该段不是 cd，不豁免）。 */
 function hasRealCdSegment(command: string): boolean {
   const basis = stripQuotedTextSpans(command);
   if (/(?<!&)&(?!&)|\|/.test(basis)) return false; // (?<!&)&(?!&) 防 && 误命中
-  const first = basis.split(/&&|\|\||[;\n]/).map(s => s.trim()).filter(Boolean)[0];
+  const segs = basis.split(/&&|\|\||[;\n]/).map(s => s.trim()).filter(Boolean);
+  let first = "";
+  for (const s of segs) {
+    if (isPureAssignPrefix(s)) continue; // 赋值段跳过（不改变 shell 状态）
+    first = s;
+    break;
+  }
   if (!first) return false;
   const m = first.match(/^cd\s+(.+)$/);
   if (!m) return false;
@@ -570,7 +644,24 @@ function hasRealCdSegment(command: string): boolean {
 function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: string): string | null {
   if (!projectRoot) return null; // 无 projectRoot 时保守放行（与 resolvesToMainData 同策略）
   // 段首真 cd 才放行（检视严重 1 处置：整条豁免 → 段级精确判定，写在 cd 前的/引号假 cd/平凡 cd 不豁免）
+  // 位置最前：cd 后落点即 worktree，其后写族/白名单均不适用。
   if (hasRealCdSegment(command)) return null;
+  // F20260924gfpn：git 写族字面判定先于只读白名单——写族正则
+  // （merge(?!-) 负向断言后）在命令文本上跑，命中即拦；`git stash push` 的 push 在写族
+  // 正则内，先于白名单命中，杜绝 stash 白名单词被显式写子命令借壳。
+  // 判定基准：原始命令（非剥后）——heredoc 是 python/node 的 stdin 数据通道，patch 语义
+  // 由 python 进程在运行时解释，静态层把 `python3 - <<EOF` 整体当写形态保守拦是对的；
+  // 要跑 heredoc 分析脚本先 cd worktree（落点即 worktree，cd 豁免在最前）。
+  for (const pattern of MAIN_WRITE_PATTERNS.slice(1)) {
+    if (pattern.test(command)) {
+      logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (no cd)", { command: command.substring(0, 200) });
+      return MAIN_WRITE_BLOCK_MSG;
+    }
+  }
+  // F20260924gfpn：git 只读白名单快通道——整条命令的每段都是白名单只读子命令段时
+  // 跳过主仓写判定（重定向判定仍在下方跑）。防链式绕过：任一段无 git 子命令或子命令
+  // 不在白名单 → 不命中；写族已在上文先行拦截。
+  if (allSegmentsGitReadonly(command)) return null;
   // #1038 语义兼容：echo '...' >> file 形态，引号内含 rm/mv/find 敏感词元且目标非 data/ → 放行。
   // 豁免粒度收窄到重定向段（检视严重 1 处置）：整条 return null 会连带放行 && 后的 git 写族
   // （`echo 'find x' > notes.md && git commit -m y` 的 commit 被误豁免）——只豁免纯重定向命令。
@@ -601,13 +692,6 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
       })();
     if (!isAbsNonMain) {
       logger?.warn("[bash-safety-guard] BLOCKED main-checkout write via redirect (no cd)", { command: command.substring(0, 200) });
-      return MAIN_WRITE_BLOCK_MSG;
-    }
-  }
-  // heredoc / git 写族形态（无 abs-target 豁免——落点是 cwd/.git，与重定向目标无关）
-  for (const pattern of MAIN_WRITE_PATTERNS.slice(1)) {
-    if (pattern.test(command)) {
-      logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (no cd)", { command: command.substring(0, 200) });
       return MAIN_WRITE_BLOCK_MSG;
     }
   }
@@ -664,15 +748,22 @@ export function checkBashCommandSafety(
   const allowedServices = guardOptions?.projectRoot ? loadAllowedServicePorts(guardOptions.projectRoot) : [];
   const projectRoot = guardOptions?.projectRoot;
 
+  // F20260924gfpn：heredoc 载荷整体剥离——python3 - <<EOF 的 stdin 体对 shell 层判定
+  // 是数据（kill 字样测试文本曾触发「脚本 one-liner + kill + 数字」cmdLevel 拦截并
+  // abort 整个 invoke + 重试刷屏，9/23 台账连环拦主因之一）。fail-closed：未闭合/
+  // 裸定界符+展开特征 → 原样保留（stripHeredocPayloads 内部判定）。
+  // 替换是等长的，其后命令的 offset/分段不受影响。
+  const heredocStripped = stripHeredocPayloads(command);
+
   // #858：内嵌文本脱敏——脱敏后干净（纯数据操作）→ 放行；仍命中 → 继续原文本路径
-  const sanitizedResult = checkSanitizedPath(command, mainPid, logger, allowedServices, projectRoot);
+  const sanitizedResult = checkSanitizedPath(heredocStripped, mainPid, logger, allowedServices, projectRoot);
   if (sanitizedResult === null) return null;
 
-  const result = checkBashCommandSafetyOnText(command, mainPid, logger, allowedServices, projectRoot);
+  const result = checkBashCommandSafetyOnText(heredocStripped, mainPid, logger, allowedServices, projectRoot);
   if (result) return withDiagnostics(result, command, mainPid);
 
-  const normalized = normalizeForDetection(command);
-  if (normalized !== command) {
+  const normalized = normalizeForDetection(heredocStripped);
+  if (normalized !== heredocStripped) {
     const nResult = checkBashCommandSafetyOnText(normalized, mainPid, logger, allowedServices, projectRoot);
     return nResult ? withDiagnostics(nResult, normalized, mainPid) : null;
   }
