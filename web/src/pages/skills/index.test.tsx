@@ -159,3 +159,78 @@ describe('能力库书式页面（#576 + F20260924uxrc spread 书）', () => {
     expect(container.textContent).toContain('未发现任何 skill')
   })
 })
+
+describe('翻页引擎边界（检视獭-uxrc2 发现回归防护：连击 off-by-one + 奇偶末页可达）', () => {
+  /** 用例素材：奇数内容页场景—— 章(1)+1 skill + 章(1)+2 skill = 5 内容页（奇数），
+   *  sheet=3，maxView=3：末视野 = p5(末 skill) | 底衬页 */
+  const ODD_SKILLS = [
+    { name: 'companion', description: 'Use when: 聊. Output: 天.' },
+    { name: 'core-workflow', description: '查历史。' },
+    { name: 'troubleshooting', description: '排查。' },
+  ]
+
+  it('奇数内容页：末技能页可达（maxView 翻得到最后一门）', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ skills: ODD_SKILLS }), { status: 200 }),
+    )
+    render()
+    await act(async () => {})
+
+    // 直接点右热区到 maxView（每步等动画窗口结束，避免连击排队路径）
+    const next = () => container.querySelector<HTMLElement>('[data-testid="nav-next"]')!
+    for (let i = 0; i < 10; i++) {
+      const before = (container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view
+      act(() => { next().click() })
+      await new Promise(r => setTimeout(r, 700)) // 等动画窗口（650ms）关闭
+      await act(async () => {})
+      const after = (container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view
+      if (before === after) break // clamp 生效，到 maxView
+    }
+    const finalView = Number((container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view)
+    // 奇数内容页（5）：maxView = 3；末视野左页 = p5 = troubleshooting（最后技能页可达）
+    expect(finalView).toBeGreaterThanOrEqual(3)
+    expect(container.textContent).toContain('troubleshooting')
+  })
+
+  it('TOC 条目可点直达：点壹章目录首条目 → 跳到 companion 秘籍页', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ skills: ODD_SKILLS }), { status: 200 }),
+    )
+    render()
+    await act(async () => {})
+
+    // 摊开到壹目录（视野 1）
+    act(() => { container.querySelector<HTMLElement>('[data-testid="nav-next"]')!.click() })
+    await act(async () => {})
+    // 点目录首条目（companion）
+    const tocBtns = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .filter(b => b.textContent?.includes('companion') && b.textContent?.includes('翻阅'))
+    expect(tocBtns.length).toBeGreaterThanOrEqual(1)
+    act(() => { tocBtns[0].click() })
+    await act(async () => {})
+    const view = Number((container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view)
+    // companion = 内容页 p2，位于视野 1
+    expect(view).toBe(1)
+  })
+
+  it('连击不丢步（off-by-one 回归）：快速双击右热区，view 立即 2（回放基准=落地 view）', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ skills: ODD_SKILLS }), { status: 200 }),
+    )
+    render()
+    await act(async () => {})
+
+    const next = () => container.querySelector<HTMLElement>('[data-testid="nav-next"]')!
+    // 双击：第一次立即 view 0→1；第二次在动画窗口内（步进排队 +1）→ 回放后应为 2
+    act(() => { next().click() })
+    act(() => { next().click() })
+    await act(async () => {})
+    let view = Number((container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view)
+    expect(view).toBe(1) // 排队中：立即态为 1，回放要等 FLIP_MS
+    // 快进 650ms（fake timer 风格：直接等真实定时器，vitest jsdom 可等待）
+    await new Promise(r => setTimeout(r, 700))
+    await act(async () => {})
+    view = Number((container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view)
+    expect(view).toBe(2) // 原 bug：回放基准用旧 view → 双击落 1；修复后落 2
+  })
+})
