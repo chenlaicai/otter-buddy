@@ -11,10 +11,6 @@ export const KILL_COMMANDS = /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:~\/[
 export const PKILL_COMMANDS = /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:~\/[^\s]+\/)?(?:pkill|pgrep|killall|killall5)\b/i;
 
 /**
- * 检查命令是否包含 kill 族操作。
- * 返回匹配的 kill 段（按 shell 操作符分段后逐段扫描）。
- */
-/**
  * F20260903gh698：位置感知匹配——regex match 必须出现在命令位置（段首或 shell 操作符后）。
  * #777 语义反转：#760 的 default 分支 `return true` 与位置感知目标相反——一切非白名单
  * 前导字符（/ 引号 空格 中文 数字……）都误判命令位置，字符串字面量/路径恰好含词元即误拦
@@ -85,8 +81,11 @@ export function isKillAtCommandPosition(text: string, pattern: RegExp): boolean 
  * 这解决了模式2误报（词元在 markdown body / 路径 / 注释中任意位置匹配）。
  */
 /** kill 段查找结果（#1154 r1）：payload 仅 bash/sh -c 载荷级命中携带；
- *  source:"pipe" 标记该段是管道右段（kill 目标来自上游 stdin，间接来源）。 */
-export interface KillSegment { segment: string; isPkill: boolean; payload?: string; source?: "pipe" }
+ *  source:"pipe" 标记该段是管道右段（kill 目标来自上游 stdin，间接来源）；
+ *  outer 仅载荷级命中携带（含 bash -c 包装与外层位置参数的原始段文本）——
+ *  #1154 r2（N1）：载荷引用位置参数（$0/$1/$@…）时外层参数成为 kill 目标的
+ *  一部分（`bash -c 'kill $0' 42877` 的 $0 绑定 42877），PID 判定需在引用时纳入。 */
+export interface KillSegment { segment: string; isPkill: boolean; payload?: string; source?: "pipe"; outer?: string }
 
 /** 单段 kill 位置判定（findKillSegments 主支/次支出口）
  * #1154 r1：从 findKillSegments 拆出——分段循环内分支复杂度超限。 */
@@ -140,7 +139,7 @@ export function findKillSegments(command: string): KillSegment[] {
     // 命中间接 PID 模式两类误拦）。
     for (const payload of extractDashCPayloads(trimmed)) {
       for (const hit of findKillSegments(payload)) {
-        results.push({ segment: hit.segment, isPkill: hit.isPkill, payload, ...(hit.source ? { source: hit.source } : {}) });
+        results.push({ segment: hit.segment, isPkill: hit.isPkill, payload, outer: trimmed, ...(hit.source ? { source: hit.source } : {}) });
       }
     }
   }

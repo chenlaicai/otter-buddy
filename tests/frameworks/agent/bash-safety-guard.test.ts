@@ -768,6 +768,31 @@ describe("#698 攻击链回归：wrapper/赋值/bash -c/xargs 参数/路径变�
     const result = checkBashCommandSafety("bash -c 'xargs kill 99999'", mainPid);
     expect(result).toBeNull();
   });
+
+  it("bash -c 'nohup kill $0' <mainPid>（载荷引用位置参数绑定外层主 PID）→ 拦截（#1154 r2 N1）", () => {
+    // r2 前：PID 判定输入是载荷级段（'nohup kill $0'），字面主 PID 在外层被剥除——
+    // shell 语义下 $0 绑定 bash -c 后首个位置参数，真实 kill 目标就是 mainPid
+    const result = checkBashCommandSafety(`bash -c 'nohup kill $0' ${mainPid}`, mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("bash -c 'kill $0' 42877（无 wrapper 同型，直接路径对照）→ 拦截", () => {
+    const result = checkBashCommandSafety("bash -c 'kill $0' 42877", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("bash -c 'nohup kill $1' 99999 <mainPid>（多参数引用非首位，payload 路径）→ 拦截（$1 绑定 mainPid）", () => {
+    // $1 绑定第二个位置参数——参数顺序不影响「外层参数是 kill 目标一部分」的判定；
+    // nohup 包裹使其走载荷级路径（与 direct 路径口径一致）
+    const result = checkBashCommandSafety(`bash -c 'nohup kill $1' 99999 ${mainPid}`, mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("bash -c 'echo $0; ls' <mainPid>（载荷引用位置参数但非 kill 目标）→ 放行", () => {
+    // $0 引用不往 kill 语义上挂——载荷内无 kill 词元，整段根本不进 checkKillSegment
+    const result = checkBashCommandSafety(`bash -c 'echo $0; ls' ${mainPid}`, mainPid);
+    expect(result).toBeNull();
+  });
 });
 
 describe("SERVICE_SCRIPT_KILL 路径限定（F20260916gtlr）", () => {
