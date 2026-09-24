@@ -88,7 +88,7 @@ fi
 # F20260914prdb: 偏差降为警告（--warn-on-drift）——squash 合入模型下 PR 内中间
 # commit 标题会被抹掉，只有 PR 标题进 main 历史，阻断是纯摩擦（#789 处置被误拦实证）；
 # bad_date（非法日期）仍硬拦，凭印象编日期的笔误仍会被拦下。
-if ! echo "$first_line" | grep -q '^\\[F'; then
+if ! echo "$first_line" | grep -q '^\[F'; then
   exit 0
 fi
 date_check=$(node scripts/validate-commit-date.mjs --warn-on-drift "$first_line" 2>&1)

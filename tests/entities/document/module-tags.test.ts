@@ -77,6 +77,14 @@ describe("模块位词表契约（F20260924mseu 单一真相源）", () => {
     expect(isValidModuleTagFormat("")).toBe(false);
   });
 
+  it("历史碎裂同义词不回潮推荐表", () => {
+    // 特性文档背景节点名的碎裂同义词：收编后的唯一形态已在表，旧形态永不得回流
+    const deprecatedSynonyms = ["skills", "weixin", "feishu", "rhi", "healing", "toolchain", "scripts", "deps", "readme", "db"];
+    for (const tag of deprecatedSynonyms) {
+      expect(MODULE_RECOMMENDED_TAG_NAMES).not.toContain(tag);
+    }
+  });
+
   it("formatRecommendedTags 每行一个词", () => {
     const lines = formatRecommendedTags().split("\n");
     expect(lines).toHaveLength(MODULE_RECOMMENDED_TAG_NAMES.length);
