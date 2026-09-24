@@ -31,7 +31,7 @@ import type { AgentSessionStore } from "./agent-session-store";
 import { classifyGuardIntercept } from "./guard-intercept-escalation";
 import type { DynamicContext } from "@usecases/ports/sdk-invoke-port";
 import type { SynthesisRunResult } from "@usecases/ports/sdk-invoke-port";
-import { getLastStopReason } from "./context-tokens";
+import { getLastStopReason, getLastUsage } from "./context-tokens";
 import { DEFAULT_CIRCUIT_BREAKER_CONFIG } from "./tool-call-circuit-breaker";
 import type { CircuitBreakerConfig } from "./tool-call-circuit-breaker";
 import { getConfig } from "@frameworks/config";
@@ -415,6 +415,44 @@ export class PiSessionFactory implements AgentGateway {
     this.poolMeta.delete(otterId);
   }
 
+  /** F20260924thnk：合成模型解析（自 runCompactionSynthesis 抽出，complexity 限）。
+   *  链路：modelOverride（换模型重启场景）优先，缺省回退 otter 当前配置——
+   *  F20260924swin 严重5 修复链路；显式 maxTokens=F20260924swin 改动点1
+   *  （SDK falsy 跳过分支 openai-responses.js:235，否则输出预留 = 服务端默认吃掉 ~25% 输入容量）；
+   *  resolvedModelAlias = 观测三件套之 1（真实执行模型，非 getModelAliasForLog 的 config 值）。 */
+  private resolveSynthesisModel(otterId: string, modelOverride?: string): { resolvedModel: Model<Api>; resolvedModelAlias: string } {
+    // F20260924swin 严重5：modelOverride（换模型重启场景）优先，缺省回退 otter 当前配置（既有行为）。
+    //  此前端口声明第三参但实现丢弃，换模型重启时预算按新模型算、请求发给旧模型 → 必 400。
+    let resolvedModel = this.cfg.model;
+    if (this.cfg.modelPool) {
+      const modelAlias = modelOverride ?? this.cfg.otterConfigProvider.getConfig(otterId)?.modelAlias;
+      resolvedModel = this.cfg.modelPool.getModel(modelAlias);
+    }
+    // F20260924swin 改动点1：显式合成 max_tokens——合成输出实证 ≤2,415 chars ≤ ~1K tokens，4,096 留 4 倍余量。
+    resolvedModel = { ...resolvedModel, maxTokens: SYNTHESIS_EXPLICIT_MAX_TOKENS };
+    // F20260924thnk 观测三件套之 1：真实执行模型（14:16 现场显示 mimo-pro 但实际执行 override 的 glm）。
+    const resolvedModelAlias = modelOverride ?? this.cfg.otterConfigProvider.getConfig(otterId)?.modelAlias ?? resolvedModel.name ?? 'unknown';
+    return { resolvedModel, resolvedModelAlias };
+  }
+
+  /** F20260924thnk 改动点1：合成 session 禁思考，返回实际生效档位。
+   *  Why：thinking 与正文共享 maxTokens（4,096），思考型模型 medium 档思考可烧光全部
+   *  预算致正文 0 字 stopReason=length（2026-09-24 14:16 生产实证 57s/length:0 → 机械档案）。
+   *  摘要任务 prompt 自带结构化七段指令，off 不降质。
+   *  off 合法性依赖模型 thinkingLevelMap（models.js:551-584 map[level]===null → clamp
+   *  向高找）——当前生产模型均走 fallback 空 map（off 合法）；若切 kimi-coding 正主
+   *  模板（k3 "off":null）会被 clamp 到 low——applied ≠ off 时 warn 把静默失效变可见。 */
+  private disableSynthesisThinking(session: { setThinkingLevel(level: string): void; thinkingLevel: string }, otterId: string): string {
+    session.setThinkingLevel('off');
+    const applied = session.thinkingLevel;
+    if (applied !== 'off') {
+      this.logger.warn('[compaction-synthesis] thinking off clamped, synthesis may burn output budget', {
+        otterId, requested: 'off', applied,
+      });
+    }
+    return applied;
+  }
+
   /**
    * F20260912nlb896（#896 + PR #897 检视严重 1）：压缩合成影子通道——临时 inMemory session 直调 LLM。
    *
@@ -436,18 +474,7 @@ export class PiSessionFactory implements AgentGateway {
     await this.ensurePiCodingAgent();
     const piCodingAgent = this.modelRuntimeRegistry.getPiCodingAgent()!;
 
-    // 模型解析：F20260924swin 严重5 修复——modelOverride（换模型重启场景）优先，
-    //  缺省回退 otter 当前配置（既有行为）。此前端口声明第三参但实现丢弃，
-    //  换模型重启时预算按新模型算、请求发给旧模型 → 必 400。
-    let resolvedModel = this.cfg.model;
-    if (this.cfg.modelPool) {
-      const modelAlias = modelOverride ?? this.cfg.otterConfigProvider.getConfig(otterId)?.modelAlias;
-      resolvedModel = this.cfg.modelPool.getModel(modelAlias);
-    }
-    // F20260924swin 改动点1：显式合成 max_tokens——否则 SDK 发送层 falsy 跳过分支
-    //  （openai-responses.js:235），请求无 max_tokens → 输出预留 = 服务端默认（推断 ~64K），
-    //  输入容量被吃掉 ~25%。合成输出实证 ≤2,415 chars ≤ ~1K tokens，4,096 留 4 倍余量。
-    resolvedModel = { ...resolvedModel, maxTokens: SYNTHESIS_EXPLICIT_MAX_TOKENS };
+    const { resolvedModel, resolvedModelAlias } = this.resolveSynthesisModel(otterId, modelOverride);
 
     const SessionManagerClass = getSessionManagerClass(piCodingAgent);
     const sessionManager = SessionManagerClass.inMemory();
@@ -461,21 +488,52 @@ export class PiSessionFactory implements AgentGateway {
       settingsManager: this.modelRuntimeRegistry.getSettingsManager() ?? undefined,
     });
 
+    // F20260924thnk 改动点1：合成任务禁思考（详见 disableSynthesisThinking 注释）。
+    //  14:16 生产实证：thinking 烧光 maxTokens=4,096 → 正文 0 字 stopReason=length → 机械档案。
+    const appliedThinkingLevel = this.disableSynthesisThinking(session, otterId);
+
     // 收集 LLM 直出文本（合成不挂 customTools，turnText 经 subscribe 捕获旁白）
     const turnText = { text: "" };
     const unsubscribe = session.subscribe(createEventHandler(undefined, undefined, turnText));
     try {
-      this.logger.info('[compaction-synthesis] shadow channel starting', { otterId, modelAlias: this.getModelAliasForLog(otterId), promptLength: prompt.length });
+      // F20260924thnk 观测三件套之 1/2：starting 打真实 resolved 模型 + applied
+      //  thinkingLevel——此前打 getModelAliasForLog（config 值），14:16 现场显示 mimo-pro
+      //  但实际执行模型是 override 的 glm，观测误导排查。三件套之 3（usage）在 logSynthesisCompleted。
+      this.logSynthesisStarting(otterId, resolvedModelAlias, appliedThinkingLevel, prompt.length);
       await session.prompt(prompt, { expandPromptTemplates: false });
       checkSessionError(session, otterId, this.logger);
       const lastStopReason = getLastStopReason(session.sessionManager.getBranch());
-      this.logger.info('[compaction-synthesis] shadow channel completed', { otterId, length: turnText.text.length, lastStopReason });
+      // F20260924thnk 观测三件套之 3：completed 补 usage（详见 logSynthesisCompleted 注释）
+      this.logSynthesisCompleted(otterId, turnText.text.length, lastStopReason, session.sessionManager.getBranch());
       return { directText: turnText.text, lastStopReason };
     } finally {
       unsubscribe();
       // inMemory session 无文件资源；dispose 释放内部状态（abort 进行中的流——影子 session 在 prompt 返回后已无活动流）
       try { session.dispose?.(); } catch { /* 清理失败不阻塞 */ }
     }
+  }
+
+  /** F20260924thnk 观测三件套之 1/2：合成 starting 日志。打真实 resolved 模型
+   *  （配置/override 后的执行模型）而非 getModelAliasForLog（config 值）——14:16 现场
+   *  显示 mimo-pro 但实际执行模型是 override 的 glm，观测误导排查。 */
+  private logSynthesisStarting(otterId: string, resolvedModelAlias: string, appliedThinkingLevel: string, promptLength: number): void {
+    this.logger.info('[compaction-synthesis] shadow channel starting', {
+      otterId,
+      modelAlias: resolvedModelAlias,
+      thinkingLevel: appliedThinkingLevel,
+      promptLength,
+    });
+  }
+
+  /** F20260924thnk 观测三件套之 3：合成 completed 日志补 usage（input/output/reasoning）。
+   *  Usage 来自 @earendil-works/pi-ai types.d.ts:265（reasoning 是 output 子集，可证伪 thinking）。
+   *  失败时可直接判别四种模式：off 被 clamp / 端点忽略 disabled / thinking 烧预算 / 截断。 */
+  private logSynthesisCompleted(otterId: string, textLength: number, lastStopReason: string | undefined, branch: Parameters<typeof getLastUsage>[0]): void {
+    const lastUsage = getLastUsage(branch);
+    this.logger.info('[compaction-synthesis] shadow channel completed', {
+      otterId, length: textLength, lastStopReason,
+      ...(lastUsage ? { usage: { input: lastUsage.input, output: lastUsage.output, reasoning: lastUsage.reasoning ?? null } } : {}),
+    });
   }
 
   /** F20260920uhuc 死链修复：jsonl entries 读取门面实现（此前端口声明可选但唯一实现体

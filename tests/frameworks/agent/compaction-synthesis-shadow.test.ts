@@ -26,13 +26,16 @@ type ShadowSession = {
   dispose: () => void;
   state: { errorMessage?: string };
   sessionManager: { getBranch: () => Array<Record<string, unknown>> };
+  /** F20260924thnk：thinkingLevel 注入链 */
+  setThinkingLevel: (level: string) => void;
+  thinkingLevel: string;
   /** 测试侧控制：prompt 时经 subscribe 回调推 message 事件喂 turnText */
   _emit: (event: unknown) => void;
   _promptCalls: Array<{ text: string; opts?: { expandPromptTemplates?: boolean } }>;
   _disposed: boolean;
 };
 
-function makeShadowSession(opts: { emitText?: string; stopReason?: string; promptError?: Error } = {}): ShadowSession {
+function makeShadowSession(opts: { emitText?: string; stopReason?: string; promptError?: Error; usage?: { input: number; output: number; reasoning?: number }; appliedThinkingLevel?: string } = {}): ShadowSession {
   let handler: ((event: unknown) => void) | null = null;
   const s: ShadowSession = {
     _promptCalls: [],
@@ -49,9 +52,16 @@ function makeShadowSession(opts: { emitText?: string; stopReason?: string; promp
     },
     dispose: () => { s._disposed = true; },
     state: {},
+    // setThinkingLevel 记录请求值；applied 档默认回显 off（空 map 生产路径），可注入 clamp 行为
+    setThinkingLevel: (level) => { s.thinkingLevel = opts.appliedThinkingLevel ?? level; },
+    thinkingLevel: "medium",
     sessionManager: {
-      getBranch: () => opts.stopReason
-        ? [{ type: "message", message: { role: "assistant", stopReason: opts.stopReason } }]
+      getBranch: () => opts.stopReason || opts.usage
+        ? [{ type: "message", message: {
+            role: "assistant",
+            ...(opts.stopReason ? { stopReason: opts.stopReason } : {}),
+            ...(opts.usage ? { usage: opts.usage } : {}),
+          } }]
         : [],
     },
   };
@@ -163,6 +173,81 @@ describe("F20260912nlb896 压缩合成影子通道（runCompactionSynthesis）",
 
     await expect(factory.runCompactionSynthesis("o1", "prompt")).rejects.toThrow("LLM API 502");
     expect(shadow._disposed).toBe(true); // finally 清理不受异常影响
+    db.close();
+  });
+});
+
+describe("F20260924thnk 合成影子通道 thinking 关闭（观测三件套）", () => {
+  it("改动点1：session 创建后显式 setThinkingLevel('off') 且生效（空 map 生产路径）——思考型模型不再烧光 maxTokens 致正文 0 字", async () => {
+    const shadow = makeShadowSession({ emitText: "七段合成摘要", stopReason: "stop" });
+    const { factory, db, createSessionCalls } = makeFactoryForShadow(shadow);
+
+    const result = await factory.runCompactionSynthesis("o1", "合成 prompt");
+
+    // off 请求已发且生效（mock 回显默认 off——空 thinkingLevelMap 生产路径）
+    expect(shadow.thinkingLevel).toBe("off");
+    // maxTokens 回归钉：显式合成预算仍在（F20260924swin 改动点1 不回退）且为有限数（无 NaN——simple-options off 档 budgets['off']=undefined 边界）
+    const model = (createSessionCalls[0] as { model: { maxTokens?: number } }).model;
+    expect(model.maxTokens).toBe(4096);
+    expect(Number.isFinite(model.maxTokens)).toBe(true);
+    // 结果组装不受影响
+    expect(result.directText).toBe("七段合成摘要");
+    expect(result.lastStopReason).toBe("stop");
+    db.close();
+  });
+
+  it("严重2 防线：off 被 clamp 到其他档时 warn 日志落锚（k3 系正主模板风险，静默失效变可见）", async () => {
+    const warnCalls: Array<Record<string, unknown>> = [];
+    const shadow = makeShadowSession({ appliedThinkingLevel: "low" }); // 模拟 kimi-coding 正主 map[off]=null → clamp
+    const { factory, db } = makeFactoryForShadow(shadow);
+    (factory as unknown as { logger: { warn: (msg: string, data: Record<string, unknown>) => void } }).logger.warn =
+      (msg: string, data: Record<string, unknown>) => { warnCalls.push({ msg, ...data }); };
+
+    await factory.runCompactionSynthesis("o1", "prompt");
+
+    expect(shadow.thinkingLevel).toBe("low"); // clamp 生效（模拟）
+    const clampWarn = warnCalls.find((w) => String(w.msg).includes("thinking off clamped"));
+    expect(clampWarn).toBeTruthy(); // applied ≠ off 必报——静默失效变可见
+    expect(clampWarn!.applied).toBe("low");
+    db.close();
+  });
+
+  it("观测三件套：starting 打 resolved 模型 + applied thinkingLevel；completed 补 usage（reasoning 可证伪 thinking）", async () => {
+    const infoCalls: Array<Record<string, unknown>> = [];
+    const shadow = makeShadowSession({
+      emitText: "摘要", stopReason: "stop",
+      usage: { input: 82_000, output: 1_024, reasoning: 0 },
+    });
+    const poolModel = { id: "glm-5.3", contextWindow: 1_048_576 } as unknown as Model<Api>;
+    const { factory, db } = makeFactoryForShadow(shadow, { getModel: () => poolModel });
+    (factory as unknown as { logger: { info: (msg: string, data: Record<string, unknown>) => void } }).logger.info =
+      (msg: string, data: Record<string, unknown>) => { infoCalls.push({ msg, ...data }); };
+
+    await factory.runCompactionSynthesis("o1", "prompt");
+
+    const starting = infoCalls.find((l) => String(l.msg).includes("shadow channel starting"));
+    expect(starting).toBeTruthy();
+    expect(starting!.modelAlias).toBe("kimi"); // resolved 真实模型（otter config alias），非 getModelAliasForLog 的 config 值——观测不再误导
+    expect(starting!.thinkingLevel).toBe("off"); // applied 档落锚
+    const completed = infoCalls.find((l) => String(l.msg).includes("shadow channel completed"));
+    expect(completed).toBeTruthy();
+    expect((completed!.usage as { input: number }).input).toBe(82_000);
+    expect((completed!.usage as { reasoning?: number }).reasoning).toBe(0); // thinking 未烧预算的直接证据
+    db.close();
+  });
+
+  it("override 场景：resolved 模型打 override 值（换模型重启时观测与执行一致）", async () => {
+    const infoCalls: Array<Record<string, unknown>> = [];
+    const shadow = makeShadowSession({ emitText: "x", stopReason: "stop" });
+    const poolModel = { id: "glm-5.3" } as unknown as Model<Api>;
+    const { factory, db } = makeFactoryForShadow(shadow, { getModel: () => poolModel });
+    (factory as unknown as { logger: { info: (msg: string, data: Record<string, unknown>) => void } }).logger.info =
+      (msg: string, data: Record<string, unknown>) => { infoCalls.push({ msg, ...data }); };
+
+    await factory.runCompactionSynthesis("o1", "prompt", "glm");
+
+    const starting = infoCalls.find((l) => String(l.msg).includes("shadow channel starting"));
+    expect(starting!.modelAlias).toBe("glm"); // override 优先——14:16 现场显示 mimo-pro 但执行 glm 的观测失真不复存在
     db.close();
   });
 });
