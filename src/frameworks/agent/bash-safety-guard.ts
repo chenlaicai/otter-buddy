@@ -39,11 +39,6 @@ export function readMainProcessPid(projectRoot: string): number | null {
 
 // ─── 危险命令模式匹配 ───
 
-/** kill 族命令名（含路径穿透、~ 路径、变量赋值前缀、wrapper 命令、bash -c 引号内嵌）
- * F20260903gh698：(1) bash -c 支持引号包裹的内嵌命令（'kill N'/"kill N"/kill N）
- *                (2) 全模式加 i 标志（大小写不敏感）
- */
-
 const OTTER_PROCESS_PATTERNS = [
   "otter-buddy", "otter_buddy",
   "node.*main", "dist/src/main", "dist/src/main.js",
@@ -346,7 +341,11 @@ function checkKillSegment(ctx: KillSegmentCtx): string | null {
   // 的 $0 绑定主 PID）——PID 判定（间接+字面量）输入换成真外层段，恢复字面主 PID
   // 拦截面；无位置参数引用时维持 r1-S3 口径（外层传参不混入，防 $VAR 误拦）。
   // pkill 进程名判定维持载荷级（r1-S3 方向正确——外层包装/注释不是目标名语义）。
-  const refsPositional = !!outer && !!payload && /\$(?:0|[1-9]\d*|@|\*)\b/.test(payload);
+  // #1154 r3（S1-r2，检视獭 r2 delta 复核发现）：位置参数引用正则改 lookahead 写法——
+  // 旧写法 `\$(?:0|[1-9]\d*|@|\*)\b` 双缺陷：(a) `${0}` 花括号形态失配（$ 后紧跟 {，
+  // 非数字/@/*）；(b) `@`/`*` 是非词字符，`\b` 在其后永不成立，$@/$* 分支是死代码。
+  // 三种 shell 语义等价的杀主形态（`kill ${0}` / `kill $@` / `kill $*`）曾全部绕过 N1 修复。
+  const refsPositional = !!outer && !!payload && /\$\{?(?:0|[1-9]\d*|@|\*)\}?(?![\w$])/.test(payload);
   const pidTextA = refsPositional ? outer : segment;
   const pidTextB = refsPositional ? segment : outerContext;
   // #1154 r1：管道右段（findKillSegments 标记 source:"pipe"）的 kill 目标来自上游

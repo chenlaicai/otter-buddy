@@ -14,7 +14,7 @@ intent:
   expected_effect: '逐载荷入结果（遮蔽面灭）；语义判定输入收敛到载荷级命中段 + 外层剥载荷上下文（误拦面灭）；真金拦截面（引号内无分隔符+前缀词包裹）与误拦面各有回归用例锁定，回退红绿验证成立；lsof | xargs kill 管道组合杀拦截面不回退'
   verify_by:
     type: capability_test
-    note: tests/frameworks/agent/bash-safety-guard.test.ts 新增 10 用例（#1154 节含 r2 N1 锁定 4 例），回退 src 后红（红绿区分度实证），vitest 自动断言
+    note: tests/frameworks/agent/bash-safety-guard.test.ts 新增 13 用例（#1154 节含 r2 N1 锁定 4 例 + r3 S1-r2 锁定 3 例），回退 src 后红（红绿区分度实证），vitest 自动断言
 summary: '#1154（PR #1125 r1 未处置即合并的欠账）：KillSegment 增 payload/source/outer 字段跨层携带载荷、管道右段标记与外层段；checkKillSegment 语义判定改为「载荷级命中段 + 剥载荷外层上下文」双输入，载荷引用位置参数时 PID 判定切换真外层段（r2 N1）；hasIndirectPidTarget 的 xargs 剥除按「无 stdin 来源」收窄；pkillTargetsOtter 剥 shell 注释再判定。'
 tags: [bash-guard, security, defense-in-depth]
 capability_test: tests/frameworks/agent/bash-safety-guard.test.ts
@@ -45,6 +45,11 @@ PR #1125（#852 引号感知修复）在检视獭1125 r1 结论「需要修改�
 ### 管道右段标记（处置中新发现）
 
 ### r2 处置（终局复核 N1 + A1'/A2'/A3'）
+
+### r3 处置（r2 delta 复核 S1-r2 + A1''）
+
+- **S1-r2（严重，检视獭 r2 复核发现）**：refsPositional 旧正则 `\$(?:0|[1-9]\d*|@|\*)\b` 双缺陷——(a) `${0}` 花括号形态失配（$ 后跟 { 非数字/@/*）；(b) `@`/`*` 是非词字符，`\b` 在其后永不成立，$@/$* 分支是死代码。实测三种 shell 语义等价杀主形态绕过：`${0}` 走 INDIRECT 模式 `\$[{(a-zA-Z_]` 兼兑兜住（payload 路径仍裸），`nohup kill $@` / `kill $*`（payload 路径）真裸奔。修复：改 lookahead 写法 `/\$\{?(?:0|[1-9]\d*|@|\*)\}?(?![\w$])/`，花括号/全参数展开/多位数全覆盖，`$VAR`/`${VAR}` 仍排除。锁定用例 3 个，红绿矩阵：回退旧正则 → 2 红（$@/$* payload 路径），修复态 234/234 全绿。
+- **A1''**：r1 指的孤儿注释是主文件 40-42 行「kill 族命令名…」（r2 删的是另一条）——本次对照 r1 原文 quoted 文本逐字核实后真迁：孤儿注释迁到 kill-segment-finder.ts 的 KILL_COMMANDS 宿主（与 PKILL_COMMANDS 的注释风格对齐），主文件删除。
 
 - **N1（严重，检视獭 glm-flash 终局复核发现）**：`bash -c 'nohup kill $0' 42877` 在 r1 修复态放行——shell 语义下 $0 绑定 bash -c 后首个位置参数（42877=主 PID），真实 kill 目标就是主进程；双输入的 outerContext 剥掉 payload 后为空串，字面 PID 被逐出判定。修复：`KillSegment` 增 `outer` 字段携带真外层段，`checkKillSegment` 在载荷引用位置参数（`$0`/`$1`…）时把 PID 判定输入切换为真外层段——F2（$VAR 传参放行）与 N1（字面主 PID 拦截）同时成立。
 - **A1'**：孤儿 JSDoc 真归位（删除）。**A2'**：pipe 一票否决的保守误拦记录已知边界。**A3'**：剥注释正则不辨引号内 # 的理论偏差记录已知边界。

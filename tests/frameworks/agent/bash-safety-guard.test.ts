@@ -793,6 +793,24 @@ describe("#698 攻击链回归：wrapper/赋值/bash -c/xargs 参数/路径变�
     const result = checkBashCommandSafety(`bash -c 'echo $0; ls' ${mainPid}`, mainPid);
     expect(result).toBeNull();
   });
+
+  it("bash -c 'nohup kill ${0}' <mainPid>（花括号形态位置参数）→ 拦截（#1154 r3 S1-r2）", () => {
+    // 旧正则对 ${0} 失配（$ 后跟 { 非数字），N1 修复被绕过
+    const result = checkBashCommandSafety("bash -c 'nohup k" + "ill ${0}' " + mainPid, mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("bash -c 'nohup kill $@' <mainPid>（全参数展开，payload 路径）→ 拦截（#1154 r3 S1-r2）", () => {
+    // 旧正则 @ 分支后跟 \b：@ 非词字符，$@ 后跟空格/串尾时词边界永不成立——死代码；
+    // INDIRECT 模式 \$[{(a-zA-Z_] 对 @/* 也不命中，此形态在旧正则下真正裸奔
+    const result = checkBashCommandSafety("bash -c 'nohup k" + "ill $@' " + mainPid, mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("bash -c 'nohup kill $*' <mainPid>（全参数展开星号，payload 路径）→ 拦截（#1154 r3 S1-r2）", () => {
+    const result = checkBashCommandSafety("bash -c 'nohup k" + "ill $*' " + mainPid, mainPid);
+    expect(result).not.toBeNull();
+  });
 });
 
 describe("SERVICE_SCRIPT_KILL 路径限定（F20260916gtlr）", () => {
