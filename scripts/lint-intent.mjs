@@ -153,6 +153,14 @@ function validateIntent(fm) {
   const warnings = [];
 
   // 检查 intent 字段是否存在
+  // F20260924vbsu：verify_by 位置统一收口——唯一合法位置是 intent 块内嵌套式。
+  // 顶层式（frontmatter 顶层 verify_by）是 2026-09-17 后 3 个文档（mfrc/somf/icus）自创旁支，
+  // 旁路了本校验的全部规则（类型枚举/expected_effect 联动/golden 核对），一律 error 指回嵌套式。
+  if (fm.verify_by !== undefined) {
+    errors.push(
+      "frontmatter 顶层 verify_by 是非法位置（schema 已统一为 intent 块内嵌套式，见 #1158/F20260924vbsu）——请把 verify_by 移入 intent 块内",
+    );
+  }
   if (!fm.intent || typeof fm.intent !== "object") {
     // 根据 change_type 决定是错误还是警告
     const changeType = fm.change_type;

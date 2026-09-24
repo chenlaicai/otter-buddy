@@ -39,6 +39,21 @@ function createBaseFm(changeType: string, intent?: Record<string, unknown>) {
 }
 
 describe('lint:intent', () => {
+  it('should reject frontmatter top-level verify_by (schema unified to intent-nested, #1158)', () => {
+    const fm = {
+      ...createBaseFm('feature', {
+        problem: '软代码行为改动',
+        expected_effect: '行为可判定',
+        verify_by: { type: 'human_judge' },
+      }),
+      verify_by: { type: 'human_judge' },
+      modules: ['prompts/identity/SMALL_OTTER.md'],
+      created_at: '2026-09-24',
+    };
+    const result = validateIntent(fm);
+    expect(result.errors.some((e: string) => e.includes('frontmatter 顶层 verify_by 是非法位置'))).toBe(true);
+  });
+
   it('should require intent for feature', () => {
     const fm = createBaseFm('feature');
     const result = validateIntent(fm);

@@ -6,10 +6,10 @@ intent:
   problem: "F20260917mfrc 一周复验（9/18-24）：大獭首工具 search_memory 率 2.9%→8.4%（3 倍提升），但小獭 4.3%→1.5% 未受益——小獭身份 prompt 是独立的 SMALL_OTTER.md，不含 SYSTEM.md R4 首响应原则，prompt 触达有缺口。"
   why_now: "复验当日搭档拍板（原话）：「工具必须提供在这，然后用法咱们系统需要说明清楚，最终是否使用则交由 llm 自行思考决策……你明确了 r4 里的引导非常关键，那我觉得也应该给小獭也加一下你说的引导」。不追求小獭使用比例，追求的是该想到时想得到。"
   expected_effect: "小獭身份 prompt 携带记忆先行引导；小獭侧首工具 search_memory 率不设目标值（检视獭等 skill 覆盖任务被正确豁免是设计行为），复验只确认引导文案触达。"
+  verify_by:
+    type: human_judge
+    note: "小獭运行时行为无固定输出格式可断言；搭档 9/24 拍板『用不用由 LLM 自行决策、不追求比例』，铸门强制使用与该拍板直接矛盾，故不设 golden 场景"
 capability_test: "n/a: 纯 prompt 文案改动（SMALL_OTTER.md 单文件单段落），无代码逻辑；golden 场景 mfrc-first-response 守护的是大獭侧 R4 原则，小獭侧不设比例目标故不铸新门"
-verify_by:
-  type: human_judge
-  note: "小獭运行时行为无固定输出格式可断言；搭档 9/24 拍板『用不用由 LLM 自行决策、不追求比例』，铸门强制使用与该拍板直接矛盾，故不设 golden 场景"
 change_type: prompt
 tags: [memory, prompt, small-otter, identity, first-response]
 modules: [prompts/identity/SMALL_OTTER.md]
