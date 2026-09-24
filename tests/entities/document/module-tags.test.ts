@@ -27,15 +27,17 @@ function extractHookList(varName: string): string[] {
 /** 从 ci.yml 报错文案中提取推荐词清单（推荐 X/Y/Z；格式） */
 function extractCiRecommended(): string[] {
   const ciSrc = fs.readFileSync(path.join(repoRoot, ".github/workflows/ci.yml"), "utf-8");
-  const m = ciSrc.match(/推荐 ([a-z/]+)；清单外开放/);
+  const line = ciSrc.split("\n").find((l) => l.includes("推荐 ") && l.includes("清单外开放"));
+  const m = line?.match(/推荐 ([a-z/]+)；清单外开放/);
   if (!m) throw new Error("ci.yml 中未找到推荐词清单");
   return m[1].split("/");
 }
 
-/** 从 ci.yml 报错文案中提取黑名单（X/Y/Z 禁用，F20260924mseu） */
+/** 从 ci.yml 报错文案中提取黑名单（X/Y/Z 禁用，行内锚定模块规则行防误配） */
 function extractCiBanned(): string[] {
   const ciSrc = fs.readFileSync(path.join(repoRoot, ".github/workflows/ci.yml"), "utf-8");
-  const m = ciSrc.match(/([a-z/]+) 禁用，F20260924mseu/);
+  const line = ciSrc.split("\n").find((l) => l.includes("禁用") && l.includes("清单外开放"));
+  const m = line?.match(/([a-z/]+) 禁用/);
   if (!m) throw new Error("ci.yml 中未找到黑名单清单");
   return m[1].split("/");
 }
