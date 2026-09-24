@@ -7,11 +7,12 @@ created: 2026-09-24
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
 modules:
   - src/frameworks/agent/bash-safety-guard.ts
+  - src/frameworks/agent/git-readonly-whitelist.ts
   - src/frameworks/agent/quoted-text-sanitizer.ts
   - tests/frameworks/agent/bash-guard-false-positive-fix.test.ts
-summary: "9/23 台账（healing_events a9260c50《issue处理》对话 12:43–15:23 约 20 条连环拦）实证：bash 守卫三天三修（qbsw 引号盲 / glay 分层 / gr1f r1 处置）仍误拦正当命令，直接阻塞了守卫修复 PR 自身的 commit。根因：历史修复只覆盖「该拦的拦住」一侧，放行侧系统性缺失。本特性修 5 处真误拦根因：① git 写族正则 merge\\b 吞只读 git merge-base（负向断言 merge(?!-)）；② 缺 git 只读白名单快通道（补白名单出口，黑名单思维翻转）；③ cd 检测漏识别变量赋值前缀段（W=/path; cd $W/... 首段是赋值不是 cd）；④ python/node heredoc 载荷体字符串（测试文本 kill 字样）被当真实终止命令；⑤ 进程名模式把命令文本里的项目路径/worktree 路径当命中。核心交付：81 例放行侧回归测试（历史三次修复都缺的一侧）+ 拦截侧保持（kill 主 PID / 未 cd git 写族 / eval kill / 链式绕过全部仍拦）。"
+summary: "9/23 台账（healing_events a9260c50《issue处理》对话 12:43–15:23 约 20 条连环拦）实证：bash 守卫三天三修（qbsw 引号盲 / glay 分层 / gr1f r1 处置）仍误拦正当命令，直接阻塞了守卫修复 PR 自身的 commit。根因：历史修复只覆盖「该拦的拦住」一侧，放行侧系统性缺失。本特性修 5 处真误拦根因：① git 写族正则 merge\\b 吞只读 git merge-base（负向断言 merge(?!-)）；② 缺 git 只读白名单快通道（补白名单出口，黑名单思维翻转）；③ cd 检测漏识别变量赋值前缀段（W=/path; cd $W/... 首段是赋值不是 cd）；④ python/node heredoc 载荷体字符串（测试文本 kill 字样）被当真实终止命令；⑤ 进程名模式把命令文本里的项目路径/worktree 路径当命中。核心交付：66 例放行侧回归测试（历史三次修复都缺的一侧）+ 拦截侧保持（kill 主 PID / 未 cd git 写族 / eval kill / 链式绕过全部仍拦）。"
 tags: [bash-safety-guard, false-positive, git-readonly-whitelist, heredoc-payload, cd-detection, narrow-fix]
-capability_test: "n/a: narrow-fix 收窄既有守卫误拦面，回归用例固化于 tests/frameworks/agent/bash-guard-false-positive-fix.test.ts（81 例含安全面与放行侧）"
+capability_test: "n/a: narrow-fix 收窄既有守卫误拦面，回归用例固化于 tests/frameworks/agent/bash-guard-false-positive-fix.test.ts（66+ 例含安全面与放行侧）"
 causal_links:
   from:
     - F20260923qbsw
@@ -80,6 +81,32 @@ git 后跟明确只读子命令（log/diff/status/show/rev-parse/rev-list/merge-
 
 **本特性处置**：进程名模式相关判定在主进程守卫运行时的复杂路径（detectMainPid + 进程名模式），本 worktree 修复聚焦 ①-④ 的确定性根因（单测可固化）。**⑤ 的精确化需独立特性处理**（进程名模式判定涉及运行时 PID/进程状态，worktree 单测难以等价复现）——已列为遗留问题，建议单独 issue 跟踪。
 
+## r1 处置（检视獭1156 对抗审视）
+
+PR #1156 初轮对抗审视（检视獭1156，kimi 模型与实现者 kimi-k28 错开）产出 1 严重 + 3 建议，全部处置：
+
+### F1（严重，必修）：白名单快通道短路重定向主仓写判定——拦截侧回归
+
+**现场**：`git log > /repo/hacked.txt` / `git show HEAD:src/a.ts > /repo/src/a.ts` / `git diff > /repo/docs/x.md && git status` 在 PR 上放行、main 基线拦截。
+
+**机制**：原实现 `allSegmentsGitReadonly(command)` 命中时 `return null` 跳出整个 `checkMainCheckoutWrite`，把下方 `REDIRECT_PATTERN` 重定向防线整体旁路——与「重定向判定照常跑」注释直接矛盾。正是「历史三次修复缺的那一侧的镜像盲区」：放行侧测试补了，但「放行逻辑不得旁路拦截侧」这条没测。
+
+**修法**：白名单命中只跳过 git 写族循环、**不 return null**——把写族循环包在 `if (!gitReadonlyCmd)` 里，命中则跳过该循环，继续走下方重定向判定。重定向目标绝对路径且在主仓外仍豁免（`git log > /tmp/out.txt` 放行，与 #1038 绝对路径豁免一致）。
+
+### S1（建议）：白名单含 stash/config/tag/branch 等有写形态子命令
+
+**处置**：白名单收紧为真只读子集（移除 stash/remote/tag/config/reflog/branch 6 词），新增 `AMBIGUOUS_READONLY_FLAGS` 第二级精确判定——这 6 个「带写形态子命令」的只读形态（`git branch -a` / `git stash list` / `git tag -l` / `git config --get`）靠 flag/参数精确识别放行，写形态（`git stash push` / `git tag v1` / `git config k v`）不在白名单、也非只读形态 → 回落写族判定拦截。bare 形态（`git branch` / `git stash` / `git tag`，git 语义里 bare=list）放行。
+
+**澄清**：`git tag v1.0` / `git config k v` / `git branch newb` 等写形态**守卫历史上就不拦**（dist 当前 main 实测 PASS，写族正则只覆盖 commit/rebase/merge/cherry-pick/apply/stash push）——非本次回归。S1 收窄与既有 main 完全一致。
+
+### S2（建议）：「cd 豁免优先于危险载荷检测」设计选择进正文
+
+**处置**：见 ④ 语义边界——cd worktree 后（落点即 worktree）载荷体内 kill 字样数据不再触发 cmdLevel 拦截；要跑 heredoc 分析脚本先 cd worktree。这是与 glay「cd 豁免优先于脚本 one-liner 载荷字符串规则」同型的设计选择，固化于测试。
+
+### S4（信息）：新增实为 62 例 it，文档三处称 81 例
+
+**处置**：r1 补 4 条「白名单+重定向」对抗用例后，文档统一改为 66 例。
+
 ## 修改的对抗面自检（每处放宽的变形绕过评估）
 
 | 放宽 | 变形绕过尝试 | 结果 |
@@ -95,7 +122,7 @@ git 后跟明确只读子命令（log/diff/status/show/rev-parse/rev-list/merge-
 
 ## 测试
 
-**新增 `tests/frameworks/agent/bash-guard-false-positive-fix.test.ts`（81 例）**——历史三次修复都缺的**放行侧回归**（PASS 断言）+ 拦截侧保持（BLOCKED 断言）：
+**新增 `tests/frameworks/agent/bash-guard-false-positive-fix.test.ts`（66 例）**——历史三次修复都缺的**放行侧回归**（PASS 断言）+ 拦截侧保持（BLOCKED 断言）：
 
 - **git merge-base 各形态**（5 例）：裸命令 / --all / HEAD origin/main / 命令替换内 / 管道链 → 全部 PASS
 - **git 只读白名单**（20 例）：log/diff/status/show/rev-parse/rev-list/merge-base/branch/blame/describe/ls-files/ls-remote/stash list/stash show/remote/tag/config/shortlog/reflog 等 → 全部 PASS
@@ -110,13 +137,13 @@ git 后跟明确只读子命令（log/diff/status/show/rev-parse/rev-list/merge-
 
 **bugfix Verification（修复前失败输出 + 修复后通过输出）**：
 - 修复前：`git merge-base main feature/x` → BLOCKED（dist 当前 main 实测，guard-test3.mjs）；新测试文件 77 例中 18 例失败（before-fix.txt）
-- 修复后：全部台账命令形态 PASS（单测 81 例全绿，after-fix.txt）
+- 修复后：全部台账命令形态 PASS（单测 66 例全绿，after-fix.txt）
 
 ## 影响范围
 
 - `src/frameworks/agent/bash-safety-guard.ts`：写族正则（merge/commit-tree 负向断言 + 赋值前缀锚）、GIT_READONLY_WHITELIST + gitSubcommandOf + allSegmentsGitReadonly、hasRealCdSegment 跳过赋值前缀、checkMainCheckoutWrite 判定顺序（cd 豁免 → 写族字面 → 白名单快通道）
 - `src/frameworks/agent/quoted-text-sanitizer.ts`：stripHeredocPayloads（heredoc 载荷剥离，fail-closed）
-- `tests/frameworks/agent/bash-guard-false-positive-fix.test.ts`：新增 81 例放行侧 + 拦截侧回归
+- `tests/frameworks/agent/bash-guard-false-positive-fix.test.ts`：新增 66 例放行侧 + 拦截侧回归
 
 ## 遗留问题（建议单独 issue）
 

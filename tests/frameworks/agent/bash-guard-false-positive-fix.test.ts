@@ -62,7 +62,7 @@ describe("F20260924gfpn：git merge-base 只读负向断言（#1 根因）", () 
     expect(checkBashCommandSafety("git rebase main", mainPid, undefined, opts)).not.toBeNull();
   });
 
-  it("git stash push（未 cd）→ 仍拦截", () => {
+  it("git stash push（未 cd）→ 仍拦截（写族字面判定先于白名单，防 stash 借壳）", () => {
     expect(checkBashCommandSafety("git stash push", mainPid, undefined, opts)).not.toBeNull();
   });
 
@@ -83,6 +83,24 @@ describe("F20260924gfpn：git merge-base 只读负向断言（#1 根因）", () 
     // git log-f 不是 git 子命令（git 会报错），守卫无写语义可拦——放行。
     // 白名单防御的是「真只读子命令被写族误吞」，不是拦截一切含 git 词元的命令。
     expect(checkBashCommandSafety("git log-f /tmp/x", mainPid, undefined, opts)).toBeNull();
+  });
+
+  // ── F20260924gfpn-r1（检视严重 F1 处置）：白名单不得旁路重定向防线 ──
+  it("git log > /repo/hacked.txt（白名单子命令 + 重定向主仓）→ 仍拦截", () => {
+    expect(checkBashCommandSafety("git log > /repo/hacked.txt", mainPid, undefined, opts)).not.toBeNull();
+  });
+
+  it("git show HEAD:src/a.ts > /repo/src/a.ts（白名单 + 重定向覆盖主仓文件）→ 仍拦截", () => {
+    expect(checkBashCommandSafety("git show HEAD:src/a.ts > /repo/src/a.ts", mainPid, undefined, opts)).not.toBeNull();
+  });
+
+  it("git diff > /repo/docs/x.md && git status（白名单段含重定向 + 只读段）→ 仍拦截", () => {
+    expect(checkBashCommandSafety("git diff > /repo/docs/x.md && git status", mainPid, undefined, opts)).not.toBeNull();
+  });
+
+  it("git log > /tmp/outside.txt（白名单 + 重定向主仓外绝对路径）→ 放行", () => {
+    // 重定向目标绝对路径且在主仓外 → 不重定向防线命中（与 #1038 绝对路径豁免一致）。
+    expect(checkBashCommandSafety("git log > /tmp/outside.txt", mainPid, undefined, opts)).toBeNull();
   });
 
   it("git log; rm -rf /repo/data（白名单段 + data 破坏）→ 仍拦截", () => {

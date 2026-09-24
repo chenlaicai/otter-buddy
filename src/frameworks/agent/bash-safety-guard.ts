@@ -16,6 +16,7 @@ import type { Logger } from "@usecases/ports/logger";
 import { loadAllowedServicePorts, extractWhitelistedPortRefs, type AllowedService } from "./allowed-service-ports";
 import { shouldSanitizeForScan, sanitizeQuotedText, stripQuotedTextSpans, stripHeredocPayloads } from "./quoted-text-sanitizer";
 import { findKillSegments, isKillAtCommandPosition } from "./kill-segment-finder";
+import { allSegmentsGitReadonly } from "./git-readonly-whitelist";
 
 export type { AllowedService };
 
@@ -551,50 +552,6 @@ const MAIN_WRITE_PATTERNS = [
  *  merge-base 走「既不在写族、又不在白名单需要确认」的路径：它不是写族（负向断言后），
  *  且不需要 cd 豁免（只读），因此自然放行。
  */
-const GIT_READONLY_WHITELIST = new Set([
-  "log", "diff", "status", "show", "rev-parse", "rev-list", "merge-base",
-  "branch", "blame", "describe", "ls-files", "ls-remote", "ls-tree",
-  "stash", "remote", "tag", "config", "shortlog", "reflog", "cherry",
-  "commit-tree", "cat-file", "for-each-ref", "name-rev", "var", "version",
-  "count-objects", "verify-pack", "whatchanged", "archive",
-]);
-
-/** git 子命令词元序列（首个非 flag 词元为子命令名）。
- *  F20260924gfpn：剥变量赋值前缀——`FOO=1 git commit` 的赋值是 shell 前缀不是
- *  子命令；不剥会把 commit 当成「首个词元」位置错乱。 */
-function gitSubcommandOf(seg: string): string | null {
-  const words = seg.split(/\s+/).filter(Boolean);
-  let i = 0;
-  while (i < words.length && /^[A-Za-z_]\w*=\S*$/.test(words[i])) i++; // 赋值前缀
-  if (words[i] !== "git") return null;
-  i++;
-  while (i < words.length) {
-    const w = words[i];
-    if (!w.startsWith("-")) return w.replace(/^["']|["']$/g, "");
-    i++;
-    // 取值型全局 flag（-C / --git-dir / --work-tree）跳过值
-    if (/^(-C|--git-dir|--work-tree|--namespace)$/.test(w)) i++;
-  }
-  return null;
-}
-
-/** 整条命令的每个段都是「git 只读子命令」段？（链式绕过防线）
- *  非 git 段（echo/ls/rm/…）不参与本快通道——它们的写形态由重定向/data 破坏等
- *  既有判定承担，不因此放行。
- *  注意 stash 特例：裸 `git stash`（list/show 省略形）放行，显式写子命令
- *  （push/pop/apply/drop/clear/store）不在白名单 → 不命中，回落写族判定拦截。
- *  前缀模糊防御：子命令名精确匹配白名单全称（gitSubcommandOf 取首词元全等），
- *  `git log-f` 的 log-f 不在集合内 → 不命中。 */
-function allSegmentsGitReadonly(command: string): boolean {
-  const segments = command.split(/&&|\|\||[;&\n|]/).map(s => s.trim()).filter(Boolean);
-  if (segments.length === 0) return false;
-  for (const seg of segments) {
-    const sub = gitSubcommandOf(seg);
-    if (!sub || !GIT_READONLY_WHITELIST.has(sub)) return false;
-  }
-  return true;
-}
-
 /** 复合命令判定（D2 处置：单 & 后台 / | 管道同样切开命令段——
  *  `cd /wt & git commit` 的 cd 在后台子 shell，父 shell cwd 不变，commit 落主仓；
  *  `echo 'find x' > f & git commit` 与 && 形态一字符之差） */
@@ -652,16 +609,19 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
   // 判定基准：原始命令（非剥后）——heredoc 是 python/node 的 stdin 数据通道，patch 语义
   // 由 python 进程在运行时解释，静态层把 `python3 - <<EOF` 整体当写形态保守拦是对的；
   // 要跑 heredoc 分析脚本先 cd worktree（落点即 worktree，cd 豁免在最前）。
-  for (const pattern of MAIN_WRITE_PATTERNS.slice(1)) {
-    if (pattern.test(command)) {
-      logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (no cd)", { command: command.substring(0, 200) });
-      return MAIN_WRITE_BLOCK_MSG;
+  // F20260924gfpn-r1（检视严重 F1 处置）：白名单命中只「跳过 git 写族循环」、不 return null——
+  // 原实现命中即跳出整个 checkMainCheckoutWrite，把下方 REDIRECT_PATTERN 重定向防线整体旁路
+  // （`git log > /repo/hacked.txt` 在 main 拦、PR 误放行，拦截侧回归）。白名单语义收窄为：
+  // 仅免除 git 写族字面判定，重定向/data 破坏等其余判定照常跑。
+  const gitReadonlyCmd = allSegmentsGitReadonly(command);
+  if (!gitReadonlyCmd) {
+    for (const pattern of MAIN_WRITE_PATTERNS.slice(1)) {
+      if (pattern.test(command)) {
+        logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (no cd)", { command: command.substring(0, 200) });
+        return MAIN_WRITE_BLOCK_MSG;
+      }
     }
   }
-  // F20260924gfpn：git 只读白名单快通道——整条命令的每段都是白名单只读子命令段时
-  // 跳过主仓写判定（重定向判定仍在下方跑）。防链式绕过：任一段无 git 子命令或子命令
-  // 不在白名单 → 不命中；写族已在上文先行拦截。
-  if (allSegmentsGitReadonly(command)) return null;
   // #1038 语义兼容：echo '...' >> file 形态，引号内含 rm/mv/find 敏感词元且目标非 data/ → 放行。
   // 豁免粒度收窄到重定向段（检视严重 1 处置）：整条 return null 会连带放行 && 后的 git 写族
   // （`echo 'find x' > notes.md && git commit -m y` 的 commit 被误豁免）——只豁免纯重定向命令。
