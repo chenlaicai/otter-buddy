@@ -236,7 +236,20 @@ export default function ConversationPage() {
    *  幂等（无变更返回原引用）。
    *  F20260923sswd：兼作 loadConversationDetail 内联 listInvokes 失败时的重试兜底——
    *  读 invokeStatesLoadedRef，已成功恢复过则跳过初始重试（避免双拉）；重试链路自身成功时置标记。 */
+  /** F20260924ircc（#1160）：重连补偿拉取——无 invokeStatesLoadedRef 门控。
+   *  断连窗口丢失 invoke.end 后的唯一自愈路径；该门控属「初始恢复」语义，错误覆盖补偿
+   *  曾导致断连后状态永不更新（#1144 回归）。mergeInvokesFromServer 幂等，重复拉取安全。 */
+  const syncInvokeStatesOnReconnect = useCallback(async (convId: string) => {
+    try {
+      const resp = await api.listInvokes(convId, { limit: 50 })
+      setInvokeStates(prev => mergeInvokesFromServer(prev, resp.invokes))
+    } catch (err) {
+      console.error('[invokeStates] 重连补偿拉取失败:', err)
+    }
+  }, [])
+
   const syncInvokeStatesFromServer = useCallback(async (convId: string) => {
+    // 门控仅约束初始重试路径——首次加载成功后初始重试链短路，避免双拉
     if (invokeStatesLoadedRef.current) return
     try {
       const resp = await api.listInvokes(convId, { limit: 50 })
@@ -769,7 +782,9 @@ export default function ConversationPage() {
     let disposed = false
     /** F20260922rprf 检视发现 2 修复：补偿拉取只在「重连后首次 onprogress」触发——
      *  断连窗口是唯一会丢 invoke.end 的时段；正常心跳期无事件丢失风险，不重复请求。 */
-    let needsSyncAfterReconnect = true
+    let needsSyncAfterReconnect = false
+    // F20260924ircc：首连不补偿——初始恢复归 loadConversationDetail 内联拉取+重试链全权负责；
+    // 初值 true 会让首连 onprogress 与内联拉取并发双拉。仅断连后的重连才置 true（scheduleReconnect）。
 
     /** F20260923sswd：活性看门狗——XHR 流式读取在网络闪断下会「静默半截」：TCP 已死
      *  但浏览器不触发 onerror/onload（readyState=3 悬挂），onprogress 永久停止，
@@ -841,7 +856,7 @@ export default function ConversationPage() {
         notifyConn(true)
         if (activeId && needsSyncAfterReconnect) {
           needsSyncAfterReconnect = false
-          void syncInvokeStatesFromServer(activeId)
+          void syncInvokeStatesOnReconnect(activeId)
         }
       }
 

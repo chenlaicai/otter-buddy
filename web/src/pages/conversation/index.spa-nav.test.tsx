@@ -268,3 +268,63 @@ describe('右栏 invoke 状态恢复（F20260923sswd，issue #1134）', () => {
     }
   })
 })
+
+/**
+ * F20260924ircc 回归用例（issue #1160，#1144 回归）：
+ * 初始拉取成功后，SSE 断连重连的补偿拉取必须仍然发生——
+ * F20260923sswd 的防双拉门控（invokeStatesLoadedRef）错误覆盖了重连补偿路径，
+ * 导致初始成功后任何断连窗口丢失的 invoke.end 无愈合路径（右栏永久卡「运行中」）。
+ * 本用例在旧实现下必失败（listInvokes 恒 1 次），修复后通过。
+ */
+describe('SSE 断连重连补偿（F20260924ircc，issue #1160）', () => {
+  /** 手工 XHR 桩：捕获实例，可控触发 onprogress / onerror 生命周期 */
+  class FakeXHR {
+    static instances: FakeXHR[] = []
+    responseText = ''
+    onprogress: (() => void) | null = null
+    onerror: (() => void) | null = null
+    onload: (() => void) | null = null
+    constructor() { FakeXHR.instances.push(this) }
+    open() {}
+    send() {}
+    abort() {}
+    /** 模拟服务端推流（数据增长触发 onprogress） */
+    tick(data: string) {
+      this.responseText += data
+      this.onprogress?.()
+    }
+    fail() { this.onerror?.() }
+  }
+
+  it('初始拉取成功后，断连重连的补偿拉取仍发生（不被防双拉门控短路）', async () => {
+    vi.useFakeTimers()
+    const savedXHR = globalThis.XMLHttpRequest
+    FakeXHR.instances = []
+    ;(globalThis as Record<string, unknown>).XMLHttpRequest = FakeXHR as unknown
+    try {
+      mockApi()
+      const router = createTestRouter('/conversation/conv-b')
+      await act(async () => { root.render(<RouterProvider router={router} />) })
+      await act(async () => { await vi.advanceTimersByTimeAsync(80) })
+      // 初始内联拉取已发生（invokeStatesLoadedRef 置 true——门控生效的前提成立）
+      expect(listInvokesCalls.length).toBe(1)
+      expect(FakeXHR.instances.length).toBeGreaterThanOrEqual(1)
+      const first = FakeXHR.instances[0]!
+      // 首连 onprogress：不应触发补偿拉取（初始恢复归内联拉取负责，防双拉）
+      await act(async () => { first.tick(': keep-alive\n\n') })
+      expect(listInvokesCalls.length).toBe(1)
+      // 断连（onerror → scheduleReconnect 1s）→ 重连 → 首帧数据 → 补偿拉取必须发生
+      await act(async () => { first.fail() })
+      await act(async () => { await vi.advanceTimersByTimeAsync(1500) })
+      expect(FakeXHR.instances.length).toBeGreaterThanOrEqual(2)
+      const second = FakeXHR.instances[1]!
+      await act(async () => { second.tick(': keep-alive\n\n') })
+      await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+      expect(listInvokesCalls.length).toBe(2)
+      expect(listInvokesCalls[1]).toBe('conv-b')
+    } finally {
+      ;(globalThis as Record<string, unknown>).XMLHttpRequest = savedXHR
+      vi.useRealTimers()
+    }
+  })
+})
