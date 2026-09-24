@@ -7,7 +7,7 @@ intent:
   who: 健康面板用量数据的消费者（搭档 + 大獭）
   problem: "invokes 表 token_usage 只存 input/output，cacheRead/cacheWrite 在落库链上被丢弃——SDK SessionStats.tokens 本含四字段（agent-session.d.ts:182-188），circuit-breaker-helpers.ts:126 只取两个，健康面板 invoke 均值口径（invoke-stats-collector）因此缺 cache"
   trigger: "1149这个小问题你直接修复"
-  expected_effect: "invokes 表新增 token_usage_cache_read / token_usage_cache_write 两列，新 invoke 落库含 cache 快照；invoke-stats-collector 差分口径可扩展含 cache（后续面板可用）——lint 统计口径含 cache 数据时基线可对比。"
+  expected_effect: "invokes 表新增 token_usage_cache_read / token_usage_cache_write 两列，新 invoke 落库含 cache 快照；invoke-stats-collector 差分口径可扩展含 cache（后续面板可用）。"
   verify_by:
     type: static_only
     reason: "数据落库透传扩展，无 LLM 行为变更；验证方式=单测全绿（279 文件 3856 用例）+ 类型编译通过 + migration 幂等性代码审查"
