@@ -74,7 +74,7 @@ function buildPages(skills: SkillEntry[]): { chapters: typeof CHAPTERS; pages: P
   const chapters = CHAPTERS.map(c => ({ ...c }))
   const hasOrphan = skills.some(s => !CHAPTERS.some(c => c.members.includes(s.name)))
   if (hasOrphan) {
-    chapters.push({ no: cnNum(chapters.length - 1), emoji: '📦', title: '外典', en: 'UNSORTED', color: '#8B7D6B',
+    chapters.push({ no: '陆', emoji: '📦', title: '外典', en: 'UNSORTED', color: '#8B7D6B',
       desc: '尚未归入流派的技艺——族群成长中自然出现。', members: [] })
   }
   const pages: PageModel[] = []
@@ -136,12 +136,14 @@ export default function SkillsPage() {
   maxViewRef.current = maxView
 
   /** 翻页引擎（检视修复版）：回放基准 = viewRef（动画落地后的真实值，原 bug 用翻页前 view 丢步）
-   *  纯事件驱动无 setState updater 副作用（StrictMode 安全）；timerRef 卸载可清理 */
+   *  纯事件驱动无 setState updater 副作用（StrictMode 安全）；timerRef 卸载可清理
+   *  delta 复核修复：动画窗口内的耳/目录跳转不再被压成 ±1 步——排队存绝对目标
+   *  （后写覆盖先写，语义=「连击取最终意图」；步进热区/键盘仍走增量路径） */
   const goView = useCallback((target: number) => {
     const cur = viewRef.current
     const t = Math.max(0, Math.min(maxViewRef.current, target))
     if (flippingRef.current) {
-      if (t !== cur) queueRef.current += Math.sign(t - cur)
+      if (t !== cur) queueRef.current = t // 绝对目标：直达类跳转不退化（原 Math.sign 压成 ±1 步）
       return
     }
     if (t === cur) return
@@ -153,9 +155,9 @@ export default function SkillsPage() {
       flippingRef.current = false
       setFlipping(false)
       if (queueRef.current !== 0) {
-        const s = queueRef.current
+        const target2 = Math.max(0, Math.min(maxViewRef.current, queueRef.current))
         queueRef.current = 0
-        goView(viewRef.current + s) // 回放基准 = 落地后的 viewRef（off-by-one 修复点）
+        goView(target2) // 回放绝对目标（off-by-one 修复点 + 直达不退化）
       }
     }, FLIP_MS)
   }, [])

@@ -233,4 +233,51 @@ describe('翻页引擎边界（检视獭-uxrc2 发现回归防护：连击 off-b
     view = Number((container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view)
     expect(view).toBe(2) // 原 bug：回放基准用旧 view → 双击落 1；修复后落 2
   })
+
+  it('动画窗口内点章节耳直达：不被压成 ±1 步（delta 复核发现的第三形态）', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ skills: ODD_SKILLS }), { status: 200 }),
+    )
+    render()
+    await act(async () => {})
+
+    // ODD_SKILLS 页序（空章也有目录页）：p1壹目录 p2companion p3贰目录 p4core p5trouble
+    // p6叁目录(空) p7肆目录(空) p8伍目录(空) = 8 内容页，叁目录 p6 → 视野 3
+    // 封面态先点右热区（view 0→1，进入动画窗口），窗口内点叁章耳（目标视野 3）
+    act(() => { container.querySelector<HTMLElement>('[data-testid="nav-next"]')!.click() })
+    const ear3 = Array.from(container.querySelectorAll<HTMLButtonElement>('button[title^="直达"]'))[2]
+    act(() => { ear3.click() }) // 动画窗口内的直达跳转
+    await act(async () => {})
+    await new Promise(r => setTimeout(r, 750))
+    await act(async () => {})
+    const view = Number((container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view)
+    // 原 bug：Math.sign 把目标 3 压成 +1 步 → 落 2；修复后落绝对目标 3
+    expect(view).toBe(3)
+  })
+
+  it('动画窗口内点章节耳直达（远章）：落目标视野非 +1（强断言版）', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      // 6 skill：壹(1+1)+贰(1+2)+叁(1+2) = 9 内容页；叁目录 p6 → 视野 3
+      new Response(JSON.stringify({ skills: [
+        { name: 'companion', description: 'Use when: 聊. Output: 天.' },
+        { name: 'core-workflow', description: '查历史。' },
+        { name: 'troubleshooting', description: '排查。' },
+        { name: 'requirement-analysis', description: 'Use when: 方案. Output: 文档.' },
+        { name: 'code-implementation', description: 'Use when: 写码. Output: PR.' },
+        { name: 'worktree-isolation', description: 'Use when: git. Output: worktree.' },
+      ] }), { status: 200 }),
+    )
+    render()
+    await act(async () => {})
+
+    // 封面态：点热区（view 0→1 进入动画窗口）后立即点叁章耳（目标视野 3）
+    act(() => { container.querySelector<HTMLElement>('[data-testid="nav-next"]')!.click() })
+    const ear3 = Array.from(container.querySelectorAll<HTMLButtonElement>('button[title^="直达"]'))[2]
+    act(() => { ear3.click() })
+    await new Promise(r => setTimeout(r, 750))
+    await act(async () => {})
+    const view = Number((container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view)
+    // 原 bug：动画中 Math.sign → +1 步 → 落 2；修复：落绝对目标 3
+    expect(view).toBe(3)
+  })
 })
