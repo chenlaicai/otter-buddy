@@ -57,12 +57,14 @@ function diagnosticWrap<A extends unknown[], R>(fn: (...args: A) => Promise<R>, 
     }
   };
 }
+/** 发用户消息。返回 halted 标志：202+"halted" 短路（Magic Word 系统级急停，落库/点火前）时 true——
+ *  消息不投递、agent 不唤醒，调用方断言 halt 触发层的确定性信号（检视 1167 严重 3/建议 3）。 */
 export const sendUserMessage = diagnosticWrap(async function sendUserMessage(
   ctx: CapabilityContext,
   convId: string,
   text: string,
   opts: { talkingStonePassedTo?: string[] } = {},
-): Promise<void> {
+): Promise<{ halted: boolean }> {
   const res = await ctx.built.app.request(`/api/conversations/${convId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -82,10 +84,11 @@ export const sendUserMessage = diagnosticWrap(async function sendUserMessage(
     if (!(res.status === 202 && errBody.includes('"halted"'))) {
       throw new Error(`sendUserMessage HTTP ${res.status}: ${errBody.slice(0, 300)}`, { cause: bodyErr });
     }
-    // 202 halt 短路响应：body 已被 text() 消费（locked），不能再 cancel
-    return;
+    // 202 halt 短路响应：body 已被 text() 消费（locked），不能再 cancel；返回 halted 供断言触发层
+    return { halted: true };
   }
   await res.body?.cancel();
+  return { halted: false };
 }, "sendUserMessage");
 
 export async function listMessages(ctx: CapabilityContext, convId: string): Promise<MessageDto[]> {
@@ -123,10 +126,13 @@ export async function listMessages(ctx: CapabilityContext, convId: string): Prom
     }
   }
 
-  // events：speak entry 的 invokeId → invoke_events 直查（测试进程内同库，零路由依赖）
+  // events：speak entry 的 invokeId → invoke_events 直查（测试进程内同库，零路由依赖）。
+  // status：entries.status 是死字段（恒 completed，生产侧 send-entry.ts 注释）——真实终态在
+  // invokes 表，投影 join 改写（检视 1167 严重 2）：running→streaming，其余枚举直映。
   const stmt = ctx.built.db.prepare(
     "SELECT invoke_id, event_type, payload FROM invoke_events WHERE invoke_id = ? ORDER BY sequence_num ASC",
   );
+  const invokeStatusStmt = ctx.built.db.prepare("SELECT status FROM invokes WHERE id = ?");
 
   return all.map((e): MessageDto => {
     const entryType = e.entryType as string;
@@ -137,20 +143,36 @@ export async function listMessages(ctx: CapabilityContext, convId: string): Prom
       const rows = stmt.all(invokeId) as Array<{ event_type: string; payload: string }>;
       events = rows.map((r) => {
         const p = JSON.parse(r.payload) as Record<string, unknown>;
+        // 双源形态（检视 1167 建议 1，event-mapping.ts:111 vs :123-124）：
+        // ① tool_execution_start → payload {name, arguments}；② message_end → payload {content: blocks[]}（块内含 type/name/arguments）
+        const blocks: Array<{ type: string; name?: string; arguments?: unknown }> = Array.isArray(p.content)
+          ? (p.content as Array<Record<string, unknown>>).map((b) => ({
+              type: String(b.type ?? "text"),
+              name: b.name as string | undefined,
+              arguments: b.arguments,
+            }))
+          : [{ type: r.event_type === "assistant_toolcall" ? "toolCall" : "text", name: p.name as string | undefined, arguments: p.arguments }];
         return {
           eventType: r.event_type,
-          payload: {
-            content: [{ type: r.event_type === "assistant_toolcall" ? "toolCall" : "text", name: p.name as string | undefined, arguments: p.arguments }],
-          },
+          payload: { content: blocks },
         };
       });
     }
+    // status 投影：speak entry 挂 invokeId 时取 invoke 真实态（invoke 行不存在时兜底 entry.status）
+    const invokeRow = invokeId
+      ? (invokeStatusStmt.get(invokeId) as { status: string } | undefined)
+      : undefined;
+    const mappedStatus: MessageDto["status"] = invokeRow
+      ? invokeRow.status === "running"
+        ? "streaming"
+        : (invokeRow.status as MessageDto["status"])
+      : (e.status as MessageDto["status"]);
     return {
       id: e.id as string,
       st: senderType,
       si: (e.senderId as string | null) ?? "",
       content: (e.body as string | null) ?? "",
-      status: e.status as MessageDto["status"],
+      status: mappedStatus,
       seq: e.sequenceNum as number,
       tsp: (e.yieldTargets as string[] | null) ?? (invokeId ? tspByInvokeId.get(invokeId) : undefined),
       sn: (e.senderName as string | null) ?? undefined,
@@ -170,9 +192,22 @@ export async function waitForInvokeSettled(
   opts: { timeoutMs?: number } = {},
 ): Promise<void> {
   const deadline = Date.now() + (opts.timeoutMs ?? 300_000);
+  /** 检视 1167 建议 2：双阶段——先等 invoke 行出现（信号/halt 路径下可能不创建，dispatch 也有延迟），
+   *  再等终态；取行按 id DESC（最新创建）替代 started_at DESC（同刻排序不稳定）。 */
+  let seen = false;
+  while (Date.now() < deadline && !seen) {
+    const row0 = ctx.built.db.prepare(
+      "SELECT status FROM invokes WHERE conversation_id = ? AND otter_id = ? ORDER BY id DESC LIMIT 1",
+    ).get(convId, otterId) as { status: string } | undefined;
+    if (row0) seen = true;
+    else await new Promise((r) => setTimeout(r, 2000));
+  }
+  if (!seen) {
+    throw new Error(`等待 invoke 创建超时（otter=${otterId.slice(0, 8)}）——信号/halt 路径下 invoke 行可能不创建`);
+  }
   while (Date.now() < deadline) {
     const row = ctx.built.db.prepare(
-      "SELECT status FROM invokes WHERE conversation_id = ? AND otter_id = ? ORDER BY started_at DESC LIMIT 1",
+      "SELECT status FROM invokes WHERE conversation_id = ? AND otter_id = ? ORDER BY id DESC LIMIT 1",
     ).get(convId, otterId) as { status: string } | undefined;
     if (row && row.status !== "running") return;
     await new Promise((r) => setTimeout(r, 2000));

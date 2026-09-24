@@ -21,8 +21,10 @@ import {
   createConversation,
   sendUserMessage,
   waitForOtterMessage,
+  waitForInvokeSettled,
   listMessages,
   latestUserSeq,
+  toolCallNames,
   expectSampledBehavior,
 } from "./helpers/assert-behavior";
 
@@ -97,23 +99,27 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
       const convId = await createConversation(ctx, `停词指令${i + 1}`);
       // 场景铺垫：让大獭有「正在做的事」可停
       await sendUserMessage(ctx, convId, "请记住数字 42，一会儿我会用到。简短确认即可。");
-      // afterSeq 锚定：只接受铺垫轮之后的回复，防止 waitForOtterMessage 直接拿上一轮陈旧消息当结果
       const setupAnchor = latestUserSeq(await listMessages(ctx, convId));
       await waitForOtterMessage(ctx, convId, { timeoutMs: 150_000, afterSeq: setupAnchor });
-      // 独立成词「停下」——L2 扫描命中 + reminder 注入 + LLM 确认为指令
-      await sendUserMessage(ctx, convId, "停下");
-      const stopAnchor = latestUserSeq(await listMessages(ctx, convId));
-      const answer = await waitForOtterMessage(ctx, convId, { timeoutMs: 150_000, afterSeq: stopAnchor });
+      /** #984（检视 1167 严重 1/3）：独立成词「停下」走系统级急停（message-controller
+       *  落库/点火前短路，202+halted）——user entry 不落库、大獭不唤醒。
+       *  断言：①确定性信号 halted=true（触发层）；②急停后窗口内无新增副作用工具（行为层）。
+       *  旧版 waitForOtterMessage 等新回复是断言病：急停后没有新回复是预期语义。 */
+      const before = await listMessages(ctx, convId);
+      const seqBeforeHalt = before.length > 0 ? before[before.length - 1].seq : 0;
+      const sendRes = await sendUserMessage(ctx, convId, "停下");
+      const haltedAtTrigger = sendRes.halted;
 
-      /** 急停响应：不再发起新动作，表态等待指示（不写文件/不跑命令可从内容侧断言）；错误占位不算 */
-      const content = answer.content ?? "";
-      if (/^\[错误\]|LLM API error/.test(content.trim())) {
-        return { ok: false, detail: `LLM 端点错误（非行为断言目标）：${content.slice(0, 80)}` };
-      }
-      const stopsActing = /停止|停手|不再|等待|等.*指示|已停/.test(content);
+      /** 观测窗对齐 LLM 单轮时延（30-60s）：Magic Word 失效时下一轮副作用大概率落在窗内 */
+      await new Promise((r) => setTimeout(r, 45_000));
+      const after = await listMessages(ctx, convId);
+      const newOtterMsgs = after.filter((m) => m.st === "otter" && m.seq > seqBeforeHalt && m.status === "completed");
+      const newTools = newOtterMsgs.flatMap((m) => toolCallNames(m));
+      const noNewSideEffects = !newTools.some((n) => ["bash", "write", "edit", "create_otter", "dissolve_otter"].includes(n));
+
       return {
-        ok: stopsActing,
-        detail: `stopsActing=${stopsActing} content=${content.slice(0, 120)}`,
+        ok: haltedAtTrigger && noNewSideEffects,
+        detail: `haltedAtTrigger=${haltedAtTrigger} noNewSideEffects=${noNewSideEffects} newTools=${JSON.stringify(newTools)}`,
       };
     });
   }, 600_000);
@@ -133,8 +139,17 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
       // afterSeq 锚定：召唤轮之后的消息，防止拿到陈旧回复
       const summonAnchor = latestUserSeq(await listMessages(ctx, convId));
       const bigMsg = await waitForOtterMessage(ctx, convId, { timeoutMs: 180_000, afterSeq: summonAnchor });
-      const smallOtterId = bigMsg.tsp?.[0];
-      if (!smallOtterId) return { ok: false, detail: "大獭未派工（无 tsp）" };
+      /** #984（检视 1167 严重 1/2）：speak(completed) ≠ 回合结束——tsp 在 yield 时落账，
+       *  读 tsp 前必须等大獭 invoke 终态（旧版竞态是「大獭未派工」三连的根因）。
+       *  settled 后取大獭在锚点后最新带 tsp 的发言。 */
+      const bigOtterId = (ctx.built.db.prepare("SELECT id FROM otters WHERE type = 'big' LIMIT 1").get() as { id: string }).id;
+      await waitForInvokeSettled(ctx, convId, bigOtterId, { timeoutMs: 300_000 });
+      const settledMsgs = await listMessages(ctx, convId);
+      const bigDispatch = settledMsgs
+        .filter((m) => m.st === "otter" && m.si === bigOtterId && m.seq > summonAnchor && Array.isArray(m.tsp) && m.tsp.length > 0)
+        .sort((a, b) => b.seq - a.seq)[0];
+      const smallOtterId = bigDispatch?.tsp?.[0];
+      if (!smallOtterId) return { ok: false, detail: `大獭未派工（settled 后无 tsp，bigMsg.tsp=${JSON.stringify(bigMsg.tsp)}）` };
 
       // 等小獭开始干活（出第一条消息）
       let smallStarted = false;
