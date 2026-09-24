@@ -92,7 +92,7 @@ export function attachGuards(params: AttachGuardsParams): AttachGuardsResult {
 /** _buildInvokeResult 所需的参数类型 */
 export interface BuildInvokeResultParams {
   otterId: string;
-  session: { getSessionStats: () => { tokens: { input: number; output: number } }; sessionManager: { getBranch: () => SessionEntry[] } };
+  session: { getSessionStats: () => { tokens: { input: number; output: number; cacheRead?: number; cacheWrite?: number } }; sessionManager: { getBranch: () => SessionEntry[] } };
   circuitBreaker: ToolCallCircuitBreaker;
   modelPool?: ModelPool;
   otterConfigProvider: OtterConfigProvider;
@@ -104,7 +104,7 @@ export interface BuildInvokeResultParams {
 /** _buildInvokeResult 返回类型 */
 export interface BuildInvokeResultResult {
   text: string;
-  tokenUsage?: { input: number; output: number };
+  tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   ctxTokens?: number;
   ctxMax?: number;
   circuitBreakerMetadata?: { totalCalls: number; circuitReason?: string };
@@ -123,7 +123,9 @@ export interface BuildInvokeResultResult {
 export function buildInvokeResult(params: BuildInvokeResultParams): BuildInvokeResultResult {
   const { otterId, session, circuitBreaker, modelPool, otterConfigProvider, model, getModelAliasForLog } = params;
   const stats = session.getSessionStats();
-  const tokenUsage = { input: stats.tokens.input, output: stats.tokens.output };
+  /** F20260923icus（#1149）：cache token 随快照透传——SDK SessionStats.tokens 本含四字段，
+   *  此前只取 input/output 致 cache 数据在 invoke 落库链上丢失（健康面板 invoke 均值口径缺 cache）。 */
+  const tokenUsage = { input: stats.tokens.input, output: stats.tokens.output, cacheRead: stats.tokens.cacheRead, cacheWrite: stats.tokens.cacheWrite };
 
   /** F20260808ctxw：上下文窗口占用 = 末次有效 assistant 消息的 usage（input+output+cacheRead+cacheWrite），
    * 与 SDK compaction 判定同公式、同 compaction 边界语义；session 重建/compaction 后自然回落，不会虚增 */
@@ -157,7 +159,7 @@ export function checkSessionError(session: { state: { errorMessage?: string } },
 /** buildPromptResult 所需的参数类型 */
 export interface BuildPromptResultParams {
   otterId: string;
-  session: { getSessionStats: () => { tokens: { input: number; output: number } }; sessionManager: { getBranch: () => SessionEntry[] } };
+  session: { getSessionStats: () => { tokens: { input: number; output: number; cacheRead?: number; cacheWrite?: number } }; sessionManager: { getBranch: () => SessionEntry[] } };
   circuitBreaker: ToolCallCircuitBreaker;
   outputGuard: { getMetadata: () => { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number } };
   activeEntry: { guardAbortReason?: string } | undefined;
@@ -302,7 +304,7 @@ export function attachCircuitBreaker(
 /** 构建执行结果（含熔断器元数据） */
 export function buildResult(
   text: string,
-  tokenUsage?: { input: number; output: number },
+  tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number },
   circuitBreaker?: ToolCallCircuitBreaker,
   ctxMax?: number,
   ctxTokens?: number,

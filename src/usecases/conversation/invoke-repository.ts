@@ -28,6 +28,8 @@ export interface InvokeRepository {
     invokeId: string,
     input: number,
     output: number,
+    cacheRead?: number,
+    cacheWrite?: number,
   ): Promise<void>;
   /** F20260914rtsp：更新末次 LLM 往返 ctx 窗口占用（invoke.tick 落库） */
   updateInvokeCtxWindowUsed(invokeId: string, ctxWindowUsed: number): Promise<void>;

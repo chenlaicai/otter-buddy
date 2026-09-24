@@ -37,6 +37,10 @@ import type { SynthesisPrefetch } from "@frameworks/agent/synthesis-prompt-build
 // import frameworks 实现——同 buildHandoffPackage 注入先例，运行时由 bootstrap 装配）
 import { DomainError } from "@entities/errors";
 
+/** F20260923hlck：合成 prompt 长度→token 估算比率——9/23 生产日志实测校准。
+ *  F20260924swin 起退役：预检与 trim 共享 synthesisFullBudgetChars（引擎端口注入），
+ *  不再各自维护密度常数（此前 trim chars/3 预检 chars/2 双口径漂移的教训）。 */
+
 /** 统一交接的引擎输入形状（与 narrative-synthesis-engine 的同名接口结构兼容——
  *  独立声明避免 interface-adapters→frameworks 的模块依赖，参数类型就地内联） */
 export interface EngineSynthesisInput {
@@ -54,6 +58,16 @@ export interface EngineSynthesisInput {
     recentUserMessages?: string[];
   };
   timestamp?: string;
+  /** F20260923hsyn：目标模型上下文窗口（tokens）——传入则历史段预算裁剪（丢最老保最近）；缺省不裁 */
+  contextWindowTokens?: number;
+  /** F20260924swin 观测锚：trim 结果回调（与引擎 NarrativeSynthesisInput.onTrim 结构兼容） */
+  onTrim?: (result: {
+    inputChars: number;
+    measuredFixedChars: number;
+    historyBudgetChars: number;
+    droppedCount: number;
+    promptChars: number;
+  }) => void;
 }
 
 /** jsonl 切片结果的最小消费面（与 session-slicer.JsonlSlice 结构兼容） */
@@ -94,6 +108,10 @@ export interface HandoffEngineDeps {
   renderFileTrail: (trail: unknown) => string;
   /** 合成超时上界 ms */
   synthesisTimeoutMs: number;
+  /** F20260924swin：合成全文预算函数（trim 与预检共享的唯一预算对象）——
+   *  引擎端口注入（层约束：interface-adapters 不 import frameworks 常量）。
+   *  delta 复核建议4：可选 → 必填——可选时漏注入 = 预检静默失效 fail-open。 */
+  synthesisFullBudgetChars: (contextWindowTokens: number) => number;
 }
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 // F20260826mwrd C3：高危 healing 事件提醒（Part 4 高危路由消费侧）
@@ -492,8 +510,8 @@ export class AgentInvoker implements AgentTurnPort {
         await sendEntry.updateInvokeTalkingStonePassedTo(invokeId, targets);
       },
 
-      updateInvokeTokenUsage: async (invokeId: string, input: number, output: number) => {
-        await sendEntry.updateInvokeTokenUsage(invokeId, input, output);
+      updateInvokeTokenUsage: async (invokeId: string, input: number, output: number, cacheRead?: number, cacheWrite?: number) => {
+        await sendEntry.updateInvokeTokenUsage(invokeId, input, output, cacheRead, cacheWrite);
       },
 
       updateInvokeModel: async (invokeId: string, model: string) => {
@@ -532,7 +550,7 @@ export class AgentInvoker implements AgentTurnPort {
     return {
       ...this.makeInvokePersistenceCallbacks(),
 
-      emitInvokeEnd: (invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string; endBody?: string; otterName?: string; otterType?: string; otterColor?: string | null }) => {
+      emitInvokeEnd: (invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number }; invokeEndEntryId?: string; endBody?: string; otterName?: string; otterType?: string; otterColor?: string | null }) => {
         emitEvent({ event: 'invoke.end', data: { invokeId, otterId: otterId ?? '', status, duration, endedAt: new Date().toISOString(), toolCallCount: stats?.toolCallCount, tokenUsage: stats?.tokenUsage, invokeEndEntryId: stats?.invokeEndEntryId, endBody: stats?.endBody, otterName: stats?.otterName, otterType: stats?.otterType, otterColor: stats?.otterColor ?? null } });
       },
 
@@ -958,7 +976,12 @@ export class AgentInvoker implements AgentTurnPort {
       }
     };
     if (progressEntry) {
-      await sendProgress(`⏳ ${await otterDisplay()}的上下文已满（${trigger}触发），正在封装前世档案…（预计 5-15 秒，最长约 1 分钟）`);
+      // F20260924thnk 改动点3：文案如实——手动触发时未必上下文满（写死「已满」误导）；
+      //  synthesizePast=false 时不跑 LLM 合成（机械转储），文案不得暗示在跑总结。
+      const phaseLabel = trigger === '手动'
+        ? `⏳ ${await otterDisplay()}正在重启獭生（${synthesizePast ? '前世总结中' : '机械转储，已跳过前世总结'}）…（预计 5-15 秒，最长约 1 分钟）`
+        : `⏳ ${await otterDisplay()}的上下文已满（${trigger}触发），正在封装前世档案${synthesizePast ? '' : '（机械转储，已跳过前世总结）'}…（预计 5-15 秒，最长约 1 分钟）`;
+      await sendProgress(phaseLabel);
     }
 
     // 冻结窗口：持锁直到交接完成。所有触发路径均走 'acquire'（严重5修正后）——
@@ -989,8 +1012,17 @@ export class AgentInvoker implements AgentTurnPort {
         : '';
 
       // ---- 叙事合成（synthesizePast=true 时；影子通道，不触锁）----
+      // F20260923hsyn：死循环熔断——连续 ≥2 次交接失败则跳过合成直接机械档案
+      // （9/23 压缩死亡链：失败后 continuing with current session → ctx 继续涨 → 再触发再失败）
+      const priorFailures = this.handoffState.getConsecutiveFailures(otterId);
+      const skipSynthesisByCircuitBreaker = synthesizePast && priorFailures >= 2;
+      if (skipSynthesisByCircuitBreaker) {
+        this.logger.warn('[handoff] synthesis circuit breaker open: consecutive failures >= 2, forcing mechanical archive', {
+          otterId, trigger, priorFailures,
+        });
+      }
       let narrativeSummary: string | undefined;
-      if (synthesizePast && slice && slice.messagesToSummarize.length + slice.turnPrefixMessages.length > 0) {
+      if (synthesizePast && !skipSynthesisByCircuitBreaker && slice && slice.messagesToSummarize.length + slice.turnPrefixMessages.length > 0) {
         try {
           const prompt = this.engine!.buildNarrativeSynthesisPrompt({
             otterName: (await this.queryOtter.getById(otterId))?.name ?? otterId,
@@ -1004,12 +1036,49 @@ export class AgentInvoker implements AgentTurnPort {
             selfSummary,
             stateInventoryText: inventoryText,
             prefetch,
+            // F20260923hsyn：预算裁剪（丢最老保最近）——目标窗口缺省时取合成模型覆盖值或该獭当前模型
+            contextWindowTokens: this.resolveSynthesisContextWindow(otterId, modelAlias),
+            // F20260924swin 观测锚：trim 日志（输入/固定段实测/预算/dropped/最终 prompt 长度）——
+            //  「裁没裁」从此可查（9/24 生产 vs 探针数字偏差的定谳锚）。
+            onTrim: (r) => this.logger.info('[handoff] synthesis trim', {
+              otterId, trigger,
+              inputChars: r.inputChars,
+              measuredFixedChars: r.measuredFixedChars,
+              historyBudgetChars: r.historyBudgetChars,
+              droppedCount: r.droppedCount,
+              promptChars: r.promptChars,
+            }),
           });
-          narrativeSummary = await this.runShadowSynthesis(otterId, prompt, modelAlias);
+          // F20260923hlck：合成后预检——trimMessagesToBudget 只裁历史段，previousSummary/§⑤ 状态盘点等
+          //  固定段在大 session 可突破 10K token 预算假设（9/23 实测 546KB jsonl 裁剪后合成请求仍超窗，
+          //  白等 96s 才 400，还全程拖着交接锁逼死后续 waiter）。超窗直接跳合成走机械档案，
+          //  与合成失败同语义计一次失败——既有 ≥2 熔断机制会接管「固定段结构性超窗」的死亡链。
+          // F20260924swin：预检与 trim 共享同一预算函数（synthesisFullBudgetChars，经引擎端口注入——
+          //  层约束不 import frameworks 常量）。口径修正：预算对象 = 全文（与 trim 同一对象），
+          //  不再各自口径（此前 trim 管历史段/预检比全文，trim 裁满的产物会被预检自拦）。
+          const synthesisWindow = this.resolveSynthesisContextWindow(otterId, modelAlias);
+          const budgetChars = synthesisWindow !== undefined
+            ? this.engine!.synthesisFullBudgetChars(synthesisWindow)
+            : undefined;
+          const overWindow = budgetChars !== undefined && prompt.length > budgetChars;
+          if (overWindow) {
+            this.metrics?.recordSynthesis('error');
+            this.handoffState.recordHandoffFailure(otterId);
+            this.logger.warn('[handoff] prompt still over window after trim, skipping synthesis (mechanical archive)', {
+              otterId, trigger,
+              promptChars: prompt.length,
+              budgetChars,
+              consecutiveFailures: this.handoffState.getConsecutiveFailures(otterId),
+            });
+          } else {
+            narrativeSummary = await this.runShadowSynthesis(otterId, prompt, modelAlias);
+          }
         } catch (err) {
           this.metrics?.recordSynthesis('error');
+          this.handoffState.recordHandoffFailure(otterId);
           this.logger.warn('[handoff] narrative synthesis failed, degrading to mechanical archive', {
             otterId, trigger, error: err instanceof Error ? err.message : String(err),
+            consecutiveFailures: this.handoffState.getConsecutiveFailures(otterId),
           });
         }
       } else if (synthesizePast) {
@@ -1039,8 +1108,19 @@ export class AgentInvoker implements AgentTurnPort {
       // D8 演进：档案走 session.summary 单点写入（不再预写 otter_context 借用式 key），
       // 天然原子——restart 失败无幽灵上下文泄漏，无需补偿删除
       const reason = trigger === '水位' ? 'compaction' : 'restart';
-      const session = await this.manageSession.restartSession(otterId, archive, modelAlias, reason);
+      // F20260923hspx：channel='handoff'——交接冻结锁已由本管线持有（unifiedHandoff 入口
+      //  acquireSessionLock），换世的 archive→reset 必须走锁旁路（resetForHandoff），
+      //  否则二次取同一把 per-otter 锁 = 自死锁（9/23 实证 4 獭连续「Lock acquire timeout」，
+      //  holderHeldForMs 恂 ≈120s、queueLength=0——等的是自己）。
+      const session = await this.manageSession.restartSession(otterId, archive, modelAlias, reason, 'handoff');
       // 水位状态已在 unifiedHandoff 入口统一清理（严重1修正），此处不再重复。
+      // F20260923hsyn 审视严重1修正：熔断清零挂「合成成功」（narrativeSummary 非空）而非
+      // 「交接成功」——死亡链场景每次交接都是「合成失败→机械档案→restart 成功」，清零挂交接成功
+      // 会让计数永远到不了 2，熔断形同虚设。合成成功才清零（机械档案交接不清零，计数继续累积，
+      // 下次交接直接跳过合成熔断分支生效）。
+      if (narrativeSummary) {
+        this.handoffState.clearHandoffFailures(otterId);
+      }
       this.logger.info('[handoff] unified handoff completed', {
         otterId, trigger, synthesizePast, narrative: !!narrativeSummary,
         archiveTokens: Math.ceil(archive.length / 4), newSessionId: session.id,
@@ -1082,7 +1162,16 @@ export class AgentInvoker implements AgentTurnPort {
     return triggered;
   }
 
-  /** 影子通道合成 + fail-closed 防线（空/截断拒入库；60s 超时降级机械档案） */
+  /** F20260923hsyn：解析合成目标窗口——重启换模型时按目标模型（新世以新模型启动，
+   *  合成 prompt 最终给的是新模型）；未换模型按该獭当前配置。缺省 undefined（不裁剪，向后兼容）。 */
+  private resolveSynthesisContextWindow(otterId: string, modelOverride?: string): number | undefined {
+    if (modelOverride) return this.ctxWindowProvider?.getContextWindowByAlias(modelOverride);
+    return this.ctxWindowProvider?.getOtterContextWindow(otterId);
+  }
+
+  /** 影子通道合成 + fail-closed 防线（空/截断拒入库；超时降级机械档案——
+   *  F20260923hsyn：超时为兜底异常语义 300s，防 LLM 卡死/网络挂起，不是质量闸门。
+   *  实证分布（9/23 日志）：正常 20-65s，最大真实案例 146s；60s 会把大 session 正常合成误判超时。） */
   private async runShadowSynthesis(otterId: string, prompt: string, modelOverride?: string): Promise<string> {
     if (!this.agentInvoke.runCompactionSynthesis) {
       throw new Error('runCompactionSynthesis not available on SdkInvokePort');
@@ -1090,7 +1179,7 @@ export class AgentInvoker implements AgentTurnPort {
     const result = await Promise.race([
       this.agentInvoke.runCompactionSynthesis(otterId, prompt, modelOverride),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Narrative synthesis timeout')), this.engine?.synthesisTimeoutMs ?? 60_000),
+        setTimeout(() => reject(new Error('Narrative synthesis timeout')), this.engine?.synthesisTimeoutMs ?? 300_000),
       ),
     ]);
     const text = result.directText?.trim() ?? '';
@@ -1346,7 +1435,15 @@ export class AgentInvoker implements AgentTurnPort {
      *  所有 unifiedHandoff 之外的 restartSession 调用点（手动降级/自重启保底）必须走本 helper。 */
     const bareRestart = async (): Promise<OtterSession> => {
       this.handoffState.clearLastCtxTokens(otterId);
-      return this.manageSession.restartSession(otterId, selfSummary, modelAlias);
+      const session = await this.manageSession.restartSession(otterId, selfSummary, modelAlias);
+      // F20260923hlck：裸重启成功 = 换世完成，失败链已断——熔断计数清零。
+      //  此前只 +1 永不清（clearHandoffFailures 只在合成成功时调），进程重启也不恢复
+      //  （内存态），该獭会被永久熔断（9/23 实证：重启后仍反复交接失败）。
+      // F20260923hspx 检视建议5 说明：清零仅发生在「降级裸重启成功」——即「交接管线已炸但
+      //  换世本身成功」的场景；若裸重启也失败（异常上抛），本行不执行，计数保留。
+      //  「失败+1→bare 成功清零」不会掩盖「换世本身连续失败」的信号（那是上抛路径）。
+      this.handoffState.clearHandoffFailures(otterId);
+      return session;
     };
 
     const conversationId = await this.resolveFirstConversationId(otterId);
@@ -1366,8 +1463,11 @@ export class AgentInvoker implements AgentTurnPort {
     } catch (err) {
       // 防重入冲突（已在交接中）与忙碌冲突原样上抛；其余失败降级裸重启（D9：永不阻塞）
       if (err instanceof DomainError && err.kind === 'conflict') throw err;
+      // F20260923hsyn：降级路径计入失败熔断 + 留痕用户原始选择（synthesizePast 原值）
+      const failures = this.handoffState.recordHandoffFailure(otterId);
       this.logger.warn('[manual-restart] unified handoff failed, degrading to bare restart', {
         otterId, error: err instanceof Error ? err.message : String(err),
+        synthesizePast, consecutiveFailures: failures,
       });
       return bareRestart();
     }

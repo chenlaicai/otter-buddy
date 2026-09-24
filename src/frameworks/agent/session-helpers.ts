@@ -135,9 +135,10 @@ export class SimpleLockManager {
     this.stealThresholdMs = stealThresholdMs;
   }
 
-  /** F20260920uhuc：交接模式开关——true 后该 key 的新 waiter 超时延长至交接级别（120s）。
-   *  已在队列中的 waiter 不受影响（它们的超时定时器已建）——交接开始前的排队者
-   *  等 30s 超时后报错，与现状语义一致（那是交接前正常 turn 排队）。 */
+  /** F20260923hspx 检视严重2b 修正：交接模式（handoffMode）下禁止 steal——
+   *  交接持锁可能 legitimately 超 stealThresholdMs（合成超时上限 300s = 阈值默认 300s 相邻，
+   *  慢合成交接持锁 ≥300s 时并发 invoke 会误 steal 冻结锁，换世 dispose 可撕裂 stolen invoke 活 session）。
+   *  handoffMode 本身即「持有者是交接」的声明，冻结窗口内 steal 无合法场景。 */
   setHandoffMode(key: string, on: boolean): void {
     if (on) this.handoffModeKeys.add(key);
     else this.handoffModeKeys.delete(key);
@@ -156,7 +157,14 @@ export class SimpleLockManager {
     // 旧版检查队列长度导致两个调用者都绕过等待。
     if (lock.held) {
       const holderAgeMs = lock.heldAt !== null ? Date.now() - lock.heldAt : null;
-      if (holderAgeMs !== null && holderAgeMs >= this.stealThresholdMs) {
+      // F20260923hspx 检视严重2b + delta 建议1：持有者是交接（handoffMode 置位）时禁 steal——
+      //  合成超时上限 300s 与 stealThresholdMs=300s 相邻，慢合成交接持锁 ≥300s 时并发 invoke
+      //  会误 steal 冻结锁，换世 markStale/换世链可撕裂 stolen invoke 活 session。
+      //  已知边界（delta 复核指出，接受不收窄）：谓词用「key 有交接在场」代「持有者是交接」——
+      //  等待期（setHandoffMode 先于 acquire）也置位，stale 非交接持有者 + 手动交接并发时
+      //  #599 强制接管失效；hung 交接时该 key 死结。收窄需锁内追踪持有者身份，复杂度高，
+      //  冻结窗口的 steal 失效场景（交接正常数分钟内完成）概率低于误 steal 撕裂场景。
+      if (!this.handoffModeKeys.has(key) && holderAgeMs !== null && holderAgeMs >= this.stealThresholdMs) {
         // Why(#599): stale 持有强制接管——holderAge 超阈值说明持有者已异常
         // （正常 invoke 数分钟内结束；abort 后 session.run 未 settle 会永久持有）。
         // generation+1 使旧持有者的 release 对易主后的锁 no-op；waiters 保留，

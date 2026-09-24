@@ -47,7 +47,7 @@ export function extractGuardReason(
 export function classifyExit(
   p: {
     messageId: string;
-    result?: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number };
+    result?: { text: string; tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number }; ctxTokens?: number; ctxMax?: number };
     err?: unknown;
     toolCallCount: number;
   },

@@ -35,17 +35,50 @@ const cjk = '[\\\\u4e00-\\\\u9fff]';
 // F：必须带变更类型；R：类型可省略（与 CI PR 标题规则及历史 R 提交一致）
 // 类型白名单与 commit-convention.md Type Tags 对齐（补录 Design/Refactor，#427）
 const types = '(Feature Update|BugFix|New Feature|Refactor|Design)';
+// 模块位词表（F20260924mseu）：与 src/entities/document/module-tags.ts 单一真相源同步——
+// hook 无法 import ts，人工内联镜像；tests/entities/document/module-tags.test.ts
+// 元测试从本源码提取清单与真相源字符级比对，单侧改动立即变红。
+// 开放集：清单外的合法词允许提交仅提示；黑名单自指/无边界词硬拒（agent 已除名）。
+const moduleRecommended = ['loop','session','guard','context','web','im','conversation','memory','scheduler','skill','prompt','health','ci','docs','otterbar'];
+const moduleBanned = ['agent','runtime','core','system','general','misc','other'];
 const f = new RegExp('^\\\\[F' + id + '\\\\]\\\\[[a-z]+\\\\]\\\\[' + types + '\\\\](\\\\[Incompatible\\\\])?\\\\s+.+' + cjk + '.*$');
 const r = new RegExp('^\\\\[R' + id + '\\\\]\\\\[[a-z]+\\\\](\\\\[' + types + '\\\\](\\\\[Incompatible\\\\])?)?\\\\s+.+' + cjk + '.*$');
-process.stdout.write((f.test(title) || r.test(title)) ? 'yes' : 'no');
+if (!(f.test(title) || r.test(title))) {
+  process.stdout.write('no');
+} else {
+  const moduleMatch = title.match(new RegExp('^\\\\[[FR]' + id + '\\\\]\\\\[([a-z]+)\\\\]'));
+  const moduleTag = moduleMatch && moduleMatch[2];
+  if (moduleTag && moduleBanned.indexOf(moduleTag) !== -1) {
+    process.stdout.write('banned:' + moduleTag);
+  } else if (moduleTag && moduleRecommended.indexOf(moduleTag) === -1) {
+    process.stdout.write('unlisted:' + moduleTag);
+  } else {
+    process.stdout.write('yes');
+  }
+}
 " "$first_line")
+case "$is_template_valid" in
+  banned:*)
+    echo "错误：模块位 [${is_template_valid#banned:}] 在黑名单中——自指/无边界词作为模块标签信息量趋零（agent 已除名，F20260924mseu）。"
+    echo "请按「改了哪个子系统的行为」选词。推荐词表（开放集，清单外合法词可用）："
+    echo "  loop/session/guard/context/web/im/conversation/memory/scheduler/skill/prompt/health/ci/docs/otterbar"
+    echo "各词用法详见 src/entities/document/module-tags.ts"
+    echo "当前首行: $first_line"
+    exit 1
+    ;;
+  unlisted:*)
+    echo "提示：模块位 [${is_template_valid#unlisted:}] 不在推荐清单——开放集不拦截，继续提交。"
+    echo "若它是新功能域且会高频出现，请提出收编进推荐词表（src/entities/document/module-tags.ts）。"
+    is_template_valid=yes
+    ;;
+esac
 if [ "$is_template_valid" != "yes" ]; then
   echo "错误：commit message 首行必须使用模板："
   echo "[F|YYYYMMDDNN|YYYYMMDDxNNN][module][Feature Update|BugFix|New Feature|Refactor|Design][Incompatible] 中文标题"
   echo "或 [R...][module] 中文标题（R=research，类型字段可省略）"
   echo "说明：ID 前缀 F=feature/bugfix（须带变更类型），R=research。[Incompatible] 仅在存在不兼容更新时出现。"
   echo "xxxx 为 4-10 位小写字母数字（实查最短 4 位，与 src/entities/document/fid-format.ts 契约同步，#667）。"
-  echo "module 为小写字母格式（如 agent、web、memory 等功能区域标签，不允许连字符）"
+  echo "module 为小写字母的子系统名（推荐 loop/session/guard/context/web/im/conversation/memory/scheduler/skill/prompt/health/ci/docs/otterbar；清单外开放；自指/兜底词 agent/runtime/core/system/general/misc/other 禁用，F20260924mseu）"
   echo "当前首行: $first_line"
   exit 1
 fi
@@ -55,7 +88,7 @@ fi
 # F20260914prdb: 偏差降为警告（--warn-on-drift）——squash 合入模型下 PR 内中间
 # commit 标题会被抹掉，只有 PR 标题进 main 历史，阻断是纯摩擦（#789 处置被误拦实证）；
 # bad_date（非法日期）仍硬拦，凭印象编日期的笔误仍会被拦下。
-if ! echo "$first_line" | grep -q '^\\[F'; then
+if ! echo "$first_line" | grep -q '^\[F'; then
   exit 0
 fi
 date_check=$(node scripts/validate-commit-date.mjs --warn-on-drift "$first_line" 2>&1)

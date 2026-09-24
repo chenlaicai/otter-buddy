@@ -5,12 +5,13 @@ summary: SYSTEM.md R4 新增「首响应原则」段 + search_memory description
 intent:
   problem: "2026-09-17 排查（search_query_logs 埋点）：88% invoke 首响应跳过记忆直接 grep/bash 翻代码（357 个 invoke 仅 43 个用过 search_memory；首工具 bash 155/read 112/search_memory 23），而召回质量本身不差（空结果率 1.1%）——是触发时机问题不是召回质量问题，与 F20260819 派工守卫的成本不对称同构。"
   why_now: "搭档目击现场后要求排查并拍板修复；埋点基线已就位（F20260826rcmp），此刻修可直接获得 before/after 对比数据。"
-  expected_effect: "invoke 首工具分布中 search_memory 占比从基线 6.4%（9/16-17）显著提升；skill 覆盖任务不被拦截、纯新话题不被误拉入搜索。"
+  expected_effect: "invoke 首工具分布中 search_memory 占比从基线 6.4%（9/16-17）升 2 个百分点以上（复验窗口可观测）；skill 覆盖任务不被拦截、纯新话题不被误拉入搜索。"
+  verify_by:
+    type: golden_replay
+    scenes: [r4-summon-search-first]
+    note: "本改动属日常小改采样协议（n=3 全过，排除严重退化）；跑 r4-summon-search-first 场景验证 R4 召唤前先搜不退化，并铸新场景 mfrc-first-response 覆盖首响应原则本身"
 capability_test: "n/a: 纯 prompt 行为引导改动（SYSTEM.md 规则段 + tool description），无代码逻辑；行为效果经 search_query_logs 埋点对比观测，不适用单元测试"
-verify_by:
-  type: golden_replay
-  scenes: [r4-summon-search-first]
-  note: "本改动属日常小改采样协议（n=3 全过，排除严重退化）；跑 r4-summon-search-first 场景验证 R4 召唤前先搜不退化，并铸新场景 mfrc-first-response 覆盖首响应原则本身"
+created_at: 2026-09-17
 change_type: prompt
 tags: [memory, prompt, agent-behavior, first-response]
 modules: [.pi/SYSTEM.md, src/interface-adapters/agent-runtime/tools/tool-factory.ts]

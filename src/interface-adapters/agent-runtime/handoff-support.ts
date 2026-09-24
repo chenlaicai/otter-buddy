@@ -16,6 +16,10 @@ export const DEFAULT_CTX_MAX = 128_000;
 export class HandoffState {
   private readonly lastCtxTokens = new Map<string, number>();
   private readonly inProgress = new Map<string, boolean>();
+  /** F20260923hsyn：连续交接失败计数（死循环熔断——9/23 压缩死亡链：失败后 continuing with
+   *  current session → ctx 继续涨 → 再触发再失败。连续 2 次失败则强制跳过合成直接机械档案，
+   *  断「再试一次同样超窗」的循环；成功后清零） */
+  private readonly consecutiveFailCount = new Map<string, number>();
 
   getLastCtxTokens(otterId: string): number | undefined {
     return this.lastCtxTokens.get(otterId);
@@ -35,6 +39,23 @@ export class HandoffState {
 
   setInProgress(otterId: string, value: boolean): void {
     this.inProgress.set(otterId, value);
+  }
+
+  /** F20260923hsyn：记录一次交接失败（合成失败/锁超时等），返回累计失败次数 */
+  recordHandoffFailure(otterId: string): number {
+    const n = (this.consecutiveFailCount.get(otterId) ?? 0) + 1;
+    this.consecutiveFailCount.set(otterId, n);
+    return n;
+  }
+
+  /** F20260923hsyn：交接成功后清零失败计数 */
+  clearHandoffFailures(otterId: string): void {
+    this.consecutiveFailCount.delete(otterId);
+  }
+
+  /** F20260923hsyn：当前连续失败次数 */
+  getConsecutiveFailures(otterId: string): number {
+    return this.consecutiveFailCount.get(otterId) ?? 0;
   }
 }
 

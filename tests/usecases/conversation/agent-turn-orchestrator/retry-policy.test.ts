@@ -91,11 +91,11 @@ describe("buildAutoRetryMsg", () => {
     const msg = buildAutoRetryMsg('bash_safety:bash 命令包含针对主进程 PID 的终止命令');
     expect(msg).toContain("安全守卫拦截");
     expect(msg).toContain("bash 命令包含针对主进程 PID 的终止命令");
-    // 四要素：不允许声明 / 无合法场景说明 / worktree 正道 / 重新分析引导
+    // F20260923gld：四要素浓缩（不允许 + 无合法场景 + worktree + 换写法），长引导已压为一句
     expect(msg).toContain("该命令不允许");
     expect(msg).toContain("不存在需要重启或停止主进程的合法场景");
     expect(msg).toContain("worktree");
-    expect(msg).toContain("重新分析当前任务");
+    expect(msg).toContain("不要重复原命令");
     // 无 restart 出口（终审口径）
     expect(msg).not.toContain("otter-buddy.sh restart");
   });

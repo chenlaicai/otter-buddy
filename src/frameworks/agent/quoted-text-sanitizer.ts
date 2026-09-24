@@ -50,8 +50,72 @@ const SENSITIVE_TOKENS: RegExp[] = [
 const SINGLE_QUOTED_TEXT = /'[^'\n]*[^\w'\n][^'\n]*'/g;
 const DOUBLE_QUOTED_TEXT = /"[^"\n]*[^\w"\n][^"\n]*"/g;
 
+/** F20260923qbsw：语法剥离专用跨行引号对（shell 引号可跨行；与词元脱敏的
+ *  单行多词 QUOTED_TEXT 分工不同，见 stripQuotedTextSpans 注释） */
+const SYNTAX_SINGLE_QUOTED = /'[^']*'/g;
+const SYNTAX_DOUBLE_QUOTED = /"[^"]*"/g;
+
+/** F20260924gfpn：heredoc 载荷整体剥离（等长空格替换）。
+ *  9/23 台账实证：《issue处理》连环拦中 python3 - <<EOF 的载荷体（测试用例文本，含 kill
+ *  字样）被当真实终止命令——cmdLevel「脚本 one-liner + kill + 数字」在原文上命中载荷内数据。
+ *  语义：heredoc 定界行之后到闭合行为止是 python/node 的 stdin 数据（非 shell 语法），
+ *  对 shell 层判定（kill 词元/重定向）是数据 → 整体剥离。
+ *  安全红线（fail-closed）：
+ *  - 定界符带引号（<<'EOF' / <<"EOF"）→ 无展开无危险，剥。
+ *  - 定界符裸名且命令行含 $()/反引号/${} → 载荷内有 shell 展开（危险通道）→ 不剥，保守拦。
+ *  - 找不到闭合行（未闭合 heredoc）→ 不剥，fail-closed。
+ *  与 SHELL_PAYLOAD_CHANNEL 的关系：hasExecutionChannel 对 python heredoc 命令整体跳过脱敏
+ *  （现状保守路径），本函数供「需要语法基准的判定」在调用点选择使用。
+ */
+const HEREDOC_OPEN = /<<\s*["']?([A-Za-z_][A-Za-z0-9_]*)["']?/g;
+
+export function stripHeredocPayloads(command: string): string {
+  // 定界符带引号（无展开）→ 无条件可剥
+  if (/<<\s*['"][A-Za-z_][A-Za-z0-9_]*['"]/.test(command)) {
+    return blankHeredocBody(command);
+  }
+  // 裸定界符：命令行有展开特征时载荷可能含 $(...)（危险通道）→ 保守不剥
+  const outsideHeredoc = command.replace(HEREDOC_OPEN, "");
+  if (/\$\(|`|\$\{/.test(outsideHeredoc)) return command;
+  return blankHeredocBody(command);
+}
+
+/** 逐处 heredoc 剥载荷体（闭合行缺失 → 原样返回该处起全部，fail-closed） */
+function blankHeredocBody(command: string): string {
+  HEREDOC_OPEN.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  let out = "";
+  let cursor = 0;
+  while ((m = HEREDOC_OPEN.exec(command)) !== null) {
+    const openLineEnd = command.indexOf("\n", m.index);
+    if (openLineEnd === -1) break; // 无换行（单行 <<EOF 后无体）——无需剥
+    // 定界符必须独占一行（行首可选空白 + 词 + 行尾）才算闭合
+    const closerRe = new RegExp(`^[ \\t]*${m[1]}[ \\t]*$`, "gm");
+    closerRe.lastIndex = openLineEnd + 1;
+    const close = closerRe.exec(command);
+    if (!close) {
+      // 未闭合 heredoc：fail-closed——该处起不剥（含危险载荷），跳出
+      break;
+    }
+    out += command.slice(cursor, openLineEnd + 1);
+    out += " ".repeat(close.index - (openLineEnd + 1)); // 载荷体等长空格
+    cursor = close.index;
+    HEREDOC_OPEN.lastIndex = cursor + close[0].length;
+  }
+  if (cursor === 0) return command;
+  return out + command.slice(cursor);
+}
+
 /** #923 处置 c：shell 执行载荷通道——命中时命令里的引号段是「要执行的命令」本体 */
-const SHELL_PAYLOAD_CHANNEL = /\b(?:bash|sh|zsh)\s+-c\b|\|\s*(?:sh|bash|zsh)\b|\b(?:perl|ruby|python\d?)\s+.*(?:-e|-c)\s|<<</;
+const SHELL_PAYLOAD_CHANNEL = /\b(?:bash|sh|zsh)\s+-c\b|\|\s*(?:sh|bash|zsh)\b|\b(?:perl|ruby|python\d?)\s+.*(?:-e|-c)\s|\bnode\s+.*(?:-e|--eval)\s|<<</;
+
+/**
+ * F20260923glay：脚本 one-liner 通道（python/perl/ruby -c|-e、node -e|--eval）——
+ * 文档性常量：脚本载荷与 shell 载荷的分层语义说明（shell 载荷引号内是 shell 代码须保留原文，
+ * 脚本载荷字符串字面量是数据可剥离）。当前实现已内联进 stripQuotedTextSpans 的载荷段定位
+ * 逻辑（审视严重 1 修正后不再用通道整体分类），保留此常量供 kill 检测等调用方对齐口径。
+ */
+const _SCRIPT_ONELINER_CHANNEL_DOC = /\b(?:perl|ruby|python\d?)\s+.*(?:-e|-c)\s|\bnode\s+.*(?:-e|--eval)\s/;
 
 /** 文本中是否含敏感词元（重置 lastIndex 防全局正则状态泄漏） */
 function containsSensitiveToken(text: string): boolean {
@@ -128,4 +192,58 @@ export function sanitizeQuotedText(command: string): string {
   SINGLE_QUOTED_TEXT.lastIndex = 0;
   DOUBLE_QUOTED_TEXT.lastIndex = 0;
   return basis.replace(SINGLE_QUOTED_TEXT, sanitizeSegment).replace(DOUBLE_QUOTED_TEXT, sanitizeSegment);
+}
+
+/**
+ * F20260923qbsw：引号段整段剥离为等长空格——供「shell 语法形态判定」（重定向/
+ * 复合切断）在扫描前剥掉数据段。
+ *
+ * 背景（#984 循环拦截事故）：checkMainCheckoutWrite 的 REDIRECT_PATTERN 与
+ * hasRealCdSegment 的「无 & / |」检查是文本级引号盲全文扫描——
+ * `gh issue comment --body '... --> ...'`（HTML 注释/markdown 表格）被误判为
+ * 重定向写主仓，连拦 3 次中断獭回合（healing 4d692fb6/e671f577）。
+ *
+ * 与 sanitizeQuotedText 的分工：脱敏只替换「敏感词元」、保留其余文本（服务词元
+ * 判定）；本函数整段抹除引号内容（服务 shell 语法判定——引号内是数据，
+ * 不参与 shell 语法）。
+ *
+ * 与 sanitizeQuotedText 同哲学：危险通道（bash -c / heredoc / 反引号）不脱敏
+ * 不剥离——单引号是其载荷容器，载荷内的重定向/复合是真实语法，必须可见。
+ * 因此本函数在 SHELL_PAYLOAD_CHANNEL 命中时原样返回输入。
+ *
+ * F20260923glay 分层修正：脚本 one-liner（python/node -c|-e）不再是剥离禁区——
+ * 载荷是 python/node 代码，其中字符串字面量是数据（'...' / "..." / f'...'），
+ * 剥离不影响 kill 检测（kill 调用词元在调用位不在字符串里）。shell 载荷
+ * （bash -c / 管道进 shell / heredoc）仍整体保留原文（引号内是 shell 代码）。
+ * 9/23 实证：python3 -c "print(a > b)" / node -e 分析脚本批量被重定向判定误拦
+ * （今日 93 次 BLOCKED 中疑似误拦 51 次，主要形态即此）。
+ */
+export function stripQuotedTextSpans(command: string): string {
+  const basis = stripEmptyQuotePairs(command);
+  SYNTAX_SINGLE_QUOTED.lastIndex = 0;
+  SYNTAX_DOUBLE_QUOTED.lastIndex = 0;
+  const blank = (m: string): string => " ".repeat(m.length);
+
+  // F20260923glay 分层 + 审视严重 1 修正：shell 载荷段（bash -c / 管道进 shell / heredoc）
+  // 整段保留原文（引号内是 shell 代码）；其余（常规命令 + 脚本 one-liner 载荷）照常剥离。
+  // 整条命令全局分类会让混合命令（bash -c '...' && python3 -c "..."）中的 shell 载荷遁形，
+  // 而按 &&/; 等分隔符切段又会切散跨分隔符的引号对（--body "a | b"）。
+  // 取中：仅当命令含 shell 载荷通道时，先定位载荷段（bash -c 之后的引号段）保留，其余剥离。
+  const hasShellPayload = /\b(?:bash|sh|zsh)\s+-c\b|\|\s*(?:sh|bash|zsh)\b|<<</.test(basis);
+  if (!hasShellPayload) {
+    return basis.replace(SYNTAX_SINGLE_QUOTED, blank).replace(SYNTAX_DOUBLE_QUOTED, blank);
+  }
+  // 含 shell 载荷：保留载荷引号段原文，剥离其余引号段。
+  // 定位 bash -c 后的首个引号段为载荷容器（shell 语义：-c 后第一个参数即执行体）。
+  const payloadMatch = /\b(?:bash|sh|zsh)\s+-c\s+(?:"([^"\\]*)"|'([^'\\]*)')/s.exec(basis);
+  if (!payloadMatch) {
+    // heredoc / 管道进 shell / 无法定位载荷容器 → 保守整体保留原文（现状语义）
+    return command;
+  }
+  const payloadStart = payloadMatch.index;
+  const payloadEnd = payloadMatch.index + payloadMatch[0].length;
+  const before = basis.slice(0, payloadStart).replace(SYNTAX_SINGLE_QUOTED, blank).replace(SYNTAX_DOUBLE_QUOTED, blank);
+  const payload = basis.slice(payloadStart, payloadEnd); // 载荷段保留原文
+  const after = basis.slice(payloadEnd).replace(SYNTAX_SINGLE_QUOTED, blank).replace(SYNTAX_DOUBLE_QUOTED, blank);
+  return before + payload + after;
 }

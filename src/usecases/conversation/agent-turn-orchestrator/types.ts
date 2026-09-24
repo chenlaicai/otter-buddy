@@ -21,7 +21,7 @@ export type ErrorWithToolCallCount = Error & {
 /** invoke 结果形状 */
 export interface InvokeResultShape {
   text: string;
-  tokenUsage?: { input: number; output: number };
+  tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   ctxTokens?: number;
   ctxMax?: number;
   modelAlias?: string;
@@ -88,7 +88,7 @@ export interface FirstDumbInfo {
 export interface TurnResult {
   invokeId: string;
   duration: number;
-  tokenUsage?: { input: number; output: number };
+  tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   /** F20260818cbkr：degenerate 二次退化时携带，agent-invoker 执行熔断重启 */
   _circuitBreak?: CircuitBreakInfo;
   /** F20260916fst4：首哑 429 信号，agent-invoker 唤醒大獭处置 */
@@ -137,13 +137,13 @@ export interface TurnCallbacks {
   /** 更新 invoke 发言石去向（abort/no_yield 耗尽时回传触发者） */
   updateInvokeTalkingStonePassedTo?(invokeId: string, targets: string[]): Promise<void>;
   /** 更新 invoke token 用量（成功路径终态快照） */
-  updateInvokeTokenUsage?(invokeId: string, input: number, output: number): Promise<void>;
+  updateInvokeTokenUsage?(invokeId: string, input: number, output: number, cacheRead?: number, cacheWrite?: number): Promise<void>;
   /** F20260914usgm：更新 invoke model 归属（usage 面板按模型统计单次问答均值的数据源） */
   updateInvokeModel?(invokeId: string, model: string): Promise<void>;
   /** 创建 invoke_end entry（fail/abort 终态条目）。返回 entry id + body（供前端实时居中条目同源渲染） */
   createInvokeEndEntry(invokeId: string, status: 'failed' | 'aborted', body?: string): Promise<{ entryId: string; body: string } | undefined>;
   /** 发送 invoke.end SSE 事件 */
-  emitInvokeEnd(invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number }; invokeEndEntryId?: string; endBody?: string; otterName?: string; otterType?: string; otterColor?: string | null }): void;
+  emitInvokeEnd(invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number }; invokeEndEntryId?: string; endBody?: string; otterName?: string; otterType?: string; otterColor?: string | null }): void;
   /** F20260818cbkr：写 healing 事件（degenerate guard 触发点数据源） */
   recordHealingEvent(input: HealingEventInput): Promise<void>;
   /**
@@ -192,7 +192,7 @@ export interface RetryContext {
   input: TurnInput;
   failBody: string;
   retryMsg: string;
-  tokenUsage?: { input: number; output: number };
+  tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   callbacks: TurnCallbacks;
   startTime: number;
 }

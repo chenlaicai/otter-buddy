@@ -56,3 +56,21 @@ export function getLastStopReason(entries: SessionEntry[]): string | undefined {
   }
   return undefined;
 }
+
+/** F20260924thnk 观测三件套之 3：取最后一条 assistant 消息的 usage。
+ *  与 getLastStopReason 同源同构（最后一条 assistant 消息），usage 形状来自
+ *  @earendil-works/pi-ai types.d.ts:265（input/output/cacheRead/cacheWrite/reasoning?）。
+ *  reasoning 是 output 子集（思考 token）——合成链路 off 失效/被忽略时可从 reasoning>0 直接证伪。
+ *  无 usage（异常/网络层失败）返回 undefined，调用方日志字段缺省。 */
+export function getLastUsage(entries: SessionEntry[]):
+  { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning?: number } | undefined {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    if (entry.type !== "message") continue;
+    const msg = entry.message;
+    if (msg.role !== "assistant") continue;
+    const assistant = msg as { usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning?: number } };
+    if (assistant.usage && typeof assistant.usage.input === "number") return assistant.usage;
+  }
+  return undefined;
+}

@@ -22,6 +22,13 @@ export interface OtterContextWindowProvider {
    * @returns 阈值（tokens）；无法解析时返回 undefined（调用方不触发水位交接）
    */
   getOtterHandoffThresholdTokens(otterId: string): number | undefined;
+
+  /**
+   * F20260923hsyn：按模型别名直接查窗口（合成模型覆盖场景——重启换模型时新世用 alias 合成，
+   * 窗口必须按目标模型而非 otter 当前配置解析，否则 kimi-256k 合成 prompt 按 1M 窗口裁剪仍超限）。
+   * @returns 窗口大小（tokens）；别名未知时返回 undefined
+   */
+  getContextWindowByAlias(modelAlias: string): number | undefined;
 }
 
 /** 合理下限：小于此值的 contextWindow 视为配置异常，按 undefined 处理。

@@ -389,7 +389,9 @@ function RestartModal(props: ModalsProps) {
               setSummary('')
             }}
           >
-            {submitting ? '正在封装前世档案…（预计 5-15s，最长约 1 分钟）' : '确认重启'}
+            {submitting
+              ? (synthesizePast ? '正在封装前世档案…（预计 5-15s，最长约 1 分钟）' : '正在重启…（秒级）')
+              : '确认重启'}
           </ModalButton>
         </>
       }

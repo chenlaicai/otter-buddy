@@ -110,6 +110,10 @@ export class ManageSession {
   async archiveSession(
     sessionId: string,
     params: ArchiveSessionInput,
+    /** F20260923hspx：Agent reset 渠道——handoff=交接冻结锁已由调用方持有（走锁旁路，
+     *  避免与交接锁自死锁：9/23 实证 4 獭连续「Lock acquire timeout」，等的是自己）。
+     *  缺省 normal=常规 invoke 池复用锁路径。 */
+    channel?: 'normal' | 'handoff',
   ): Promise<OtterSession> {
     // F20260821scrt 二轮审视#4：repo.archiveSession 会把 params.summary 写入旧行
     // otter_sessions.summary（restart/dissolve 传 LLM 原文），入口统一脱敏
@@ -120,7 +124,7 @@ export class ManageSession {
       await this.archiveSessionCore(sessionId, safeParams);
 
     /** Agent reset（重置上下文） */
-    await this.agentGateway.reset(session.otterId);
+    await this.agentGateway.reset(session.otterId, undefined, channel ?? 'normal');
 
     // 记录 Session 归档日志
     this.logger.info('Session archived', {
@@ -207,7 +211,14 @@ export class ManageSession {
    * 硬约束：archive 成功后 → 写 config → createSession，顺序不可调换。
    */
   // eslint-disable-next-line complexity -- F20260908efmd config 写回 + F20260920uhuc reason 参数（硬约束顺序内聚，拆分降低可读性）
-  async restartSession(otterId: string, summary?: string, modelAlias?: string, reason: 'restart' | 'compaction' = 'restart'): Promise<OtterSession> {
+  async restartSession(
+    otterId: string,
+    summary?: string,
+    modelAlias?: string,
+    reason: 'restart' | 'compaction' = 'restart',
+    /** F20260923hspx：Agent reset 渠道——handoff=交接冻结锁已由调用方持有（锁旁路）。缺省 normal。 */
+    channel?: 'normal' | 'handoff',
+  ): Promise<OtterSession> {
     // 1. 归档当前 active session（含 agent session reset，确保旧 agent 会话被清理）
     // F20260821scrt：summary 是 LLM 自由文本，入口统一脱敏（archive/create/adopt 各路径与返回值一致）
     const safeSummary = summary ? redactSecrets(summary) : undefined;
@@ -217,7 +228,7 @@ export class ManageSession {
         reason,
         isNegativeCase: false,
         summary: safeSummary,
-      });
+      }, channel);
     }
 
     // 2. F20260908efmd 硬约束：archive 成功后 → 写 config → createSession
