@@ -976,7 +976,12 @@ export class AgentInvoker implements AgentTurnPort {
       }
     };
     if (progressEntry) {
-      await sendProgress(`⏳ ${await otterDisplay()}的上下文已满（${trigger}触发），正在封装前世档案…（预计 5-15 秒，最长约 1 分钟）`);
+      // F20260924thnk 改动点3：文案如实——手动触发时未必上下文满（写死「已满」误导）；
+      //  synthesizePast=false 时不跑 LLM 合成（机械转储），文案不得暗示在跑总结。
+      const phaseLabel = trigger === '手动'
+        ? `⏳ ${await otterDisplay()}正在重启獭生（${synthesizePast ? '前世总结中' : '机械转储，已跳过前世总结'}）…（预计 5-15 秒，最长约 1 分钟）`
+        : `⏳ ${await otterDisplay()}的上下文已满（${trigger}触发），正在封装前世档案${synthesizePast ? '' : '（机械转储，已跳过前世总结）'}…（预计 5-15 秒，最长约 1 分钟）`;
+      await sendProgress(phaseLabel);
     }
 
     // 冻结窗口：持锁直到交接完成。所有触发路径均走 'acquire'（严重5修正后）——
