@@ -479,6 +479,7 @@ describe("水位触发端到端（F20260922handoff 死链修复语义锁）", ()
         scanWorkspaceFiles: () => [],
         renderFileTrail: () => "",
         synthesisTimeoutMs: 50,
+        synthesisFullBudgetChars: (w: number) => Math.floor(w * 0.693),
       },
     );
     return { invoker, restarts, sendEntry };

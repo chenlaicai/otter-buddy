@@ -139,7 +139,21 @@ describe("F20260912nlb896 压缩合成影子通道（runCompactionSynthesis）",
 
     expect(getModelCalls).toEqual(["kimi"]); // otterConfig.modelAlias
     const createArgs = createSessionCalls[0] as { model: unknown };
-    expect(createArgs.model).toBe(poolModel);
+    // F20260924swin 改动点1：合成 model 显式 maxTokens=4,096（否则 SDK falsy 跳过分支，服务端默认预留吃掉 25% 窗口）
+    expect(createArgs.model).toEqual({ ...poolModel, maxTokens: 4_096 });
+    db.close();
+  });
+
+  it("F20260924swin 严重5 修复：modelOverride 优先于 otter 配置（换模型重启预算模型 = 执行模型）", async () => {
+    const shadow = makeShadowSession({ emitText: "x" });
+    const poolModel = { id: "pool-model", contextWindow: 300_000 } as unknown as Model<Api>;
+    const getModelCalls: Array<string | null | undefined> = [];
+    const getModel = (alias: string | null | undefined) => { getModelCalls.push(alias); return poolModel; };
+    const { factory, db } = makeFactoryForShadow(shadow, { getModel });
+
+    await factory.runCompactionSynthesis("o1", "prompt", "kimi-1m-override");
+
+    expect(getModelCalls).toEqual(["kimi-1m-override"]); // override 优先，非 otterConfig 的 kimi
     db.close();
   });
 

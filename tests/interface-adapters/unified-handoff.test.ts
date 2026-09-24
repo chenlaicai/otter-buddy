@@ -86,6 +86,8 @@ function makeEngine(overrides?: Partial<HandoffEngineDeps>): HandoffEngineDeps &
   const mechanical: string[] = [];
   return {
     prompts, archives, mechanical,
+    // delta 复核建议4 同步：必填后 stub 默认实现（与真实同口径 0.693 占比）
+    synthesisFullBudgetChars: (w: number) => Math.floor(w * 0.693),
     buildNarrativeSynthesisPrompt: (input) => {
       prompts.push(JSON.stringify({ trigger: input.trigger, hasSelf: !!input.selfSummary, msgs: input.messagesToSummarize.length }));
       return "[合成prompt]";
@@ -114,18 +116,20 @@ function makeSdkPort(opts?: {
   synth?: (prompt: string) => Promise<SynthesisRunResult>;
   isRunning?: boolean;
   hasEntries?: boolean;
-}): SdkInvokePort & { invokeCalls: string[]; synthPrompts: string[]; lockLog: string[] } {
+}): SdkInvokePort & { invokeCalls: string[]; synthPrompts: string[]; synthOverrides: Array<string | undefined>; lockLog: string[] } {
   const invokeCalls: string[] = [];
   const synthPrompts: string[] = [];
+  const synthOverrides: Array<string | undefined> = [];
   const lockLog: string[] = [];
   return {
-    invokeCalls, synthPrompts, lockLog,
+    invokeCalls, synthPrompts, synthOverrides, lockLog,
     invoke: async (otterId: string, message: string) => {
       invokeCalls.push(`${otterId}:${message.slice(0, 30)}`);
       throw new Error("invoke 不应被合成链路调用（V1：影子通道）");
     },
-    runCompactionSynthesis: async (_otterId: string, prompt: string) => {
+    runCompactionSynthesis: async (_otterId: string, prompt: string, modelOverride?: string) => {
       synthPrompts.push(prompt);
+      synthOverrides.push(modelOverride);
       return opts?.synth ? opts.synth(prompt) : synthResult("## 交接摘要（七段）");
     },
     acquireSessionLock: async (otterId: string) => {
@@ -137,7 +141,7 @@ function makeSdkPort(opts?: {
     abort: vi.fn(),
     getToolCallCount: () => 0,
     getInternalAbortReason: () => undefined,
-  } as unknown as SdkInvokePort & { invokeCalls: string[]; synthPrompts: string[]; lockLog: string[] };
+  } as unknown as SdkInvokePort & { invokeCalls: string[]; synthPrompts: string[]; synthOverrides: Array<string | undefined>; lockLog: string[] };
 }
 
 /** 组装含引擎注入的 invoker（构造参数 22 位——引擎在尾部） */
@@ -505,11 +509,26 @@ describe("需求变更（2026-09-20）：交接进度系统消息 + 水位按模
     expect(invoker["handoffState"].getConsecutiveFailures("otter-1")).toBe(0);
   });
 
-  it("F20260923hspx 合成超窗预检：prompt 超窗口×密度阈值 → 跳过合成走机械档案（动机案例回归）", async () => {
+  it("F20260924swin 严重5 回归：换模型重启 → 合成请求带 modelOverride（预算模型 = 执行模型）", async () => {
+    // Why：端口声明 runCompactionSynthesis(otterId, prompt, modelOverride?) 但唯一实现曾丢弃第三参——
+    //  换模型重启（如 kimi-256k → kimi 1M）时预算按新模型算、请求发给旧模型 → 必 400。
+    //  本测试钉住：modelAlias 参数必须透传到合成调用。
+    const sdk = makeSdkPort();
+    const invoker = makeInvokerWithEngine({ sdk, engine: makeEngine() });
+
+    await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true, modelAlias: "kimi" });
+
+    expect(sdk.synthOverrides.length).toBeGreaterThan(0);
+    expect(sdk.synthOverrides[0]).toBe("kimi"); // override 透传（实现侧模型解析优先用它）
+  });
+
+  it("F20260923hspx+F20260924swin 合成超窗预检：prompt 超全文预算 → 跳过合成走机械档案（动机案例回归）", async () => {
     // Why：9/23 实测 566K chars prompt 超 kimi-256k 262K 窗口 400，白等 96s 才降级。
-    //  预检应在合成前拦下（密度 chars/2 阈值 = 262144×2 = 524288；566216 > 524288 拦下）。
+    //  预检应在合成前拦下。F20260924swin 口径：预算 = synthesisFullBudgetChars(262144) = 181,688
+    //  （夹逼定标——引擎端口注入同函数，预检与 trim 共享唯一预算对象）。
     const engine = makeEngine({
-      buildNarrativeSynthesisPrompt: () => "x".repeat(566_216), // 动机案例实测长度
+      buildNarrativeSynthesisPrompt: () => "x".repeat(200_000), // > 181,688 预算 → 拦下
+      synthesisFullBudgetChars: (w: number) => Math.floor(w * (181_688 / 262_144)),
     });
     const synthCalls: string[] = [];
     const invoker = makeInvokerWithEngine({
@@ -525,9 +544,10 @@ describe("需求变更（2026-09-20）：交接进度系统消息 + 水位按模
     expect(invoker["handoffState"].getConsecutiveFailures("otter-1")).toBeGreaterThan(0); // 计失败一次（熔断语义）
   });
 
-  it("F20260923hspx 合成超窗预检：prompt 在阈值内 → 正常合成（不误杀）", async () => {
+  it("F20260923hspx+F20260924swin 合成超窗预检：prompt 在预算内 → 正常合成（不误杀）", async () => {
     const engine = makeEngine({
-      buildNarrativeSynthesisPrompt: () => "x".repeat(100_000), // 阈值内
+      buildNarrativeSynthesisPrompt: () => "x".repeat(100_000), // < 181,688 预算 → 放行
+      synthesisFullBudgetChars: (w: number) => Math.floor(w * (181_688 / 262_144)),
     });
     const synthCalls: string[] = [];
     const invoker = makeInvokerWithEngine({

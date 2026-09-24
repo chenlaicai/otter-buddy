@@ -20,19 +20,36 @@ import { serializeConversation } from "@earendil-works/pi-coding-agent";
  *  60s 会把大 session 的正常合成误判超时并丢弃迟到结果（白跑+降级双重损失），故定 300s。 */
 export const NARRATIVE_SYNTHESIS_TIMEOUT_MS = 300_000;
 
-/** 合成 prompt 输出预留（tokens）：合成输出实证 1.3k-2.7k chars，留足余量 */
-export const SYNTHESIS_OUTPUT_RESERVE_TOKENS = 8_192;
-/** 固定段开销（tokens）：模板/规则/谱系/§④⑤⑥机械供料的保守估计 */
-export const SYNTHESIS_FIXED_OVERHEAD_TOKENS = 10_000;
-
-/** F20260923hsyn：预算裁剪结果（供调用方留痕裁剪幅度） */
-export interface BudgetTrimResult {
-  /** 裁剪后的消息列表（丢最老保最近） */
-  messages: Array<{ role: string; content?: unknown }>;
-  /** 被丢弃的最老消息条数（0 = 未裁剪） */
-  droppedCount: number;
+/** F20260924swin：合成全文预算（chars）——trim 与预检共享的唯一预算对象。
+ *  定标（夹逼法，只用实测成败样本，不依赖容量/密度推导链，锚点见特性文档「全量合成样本回放」）：
+ *    最小失败 227,110 chars（09-24 大獭重启）× 0.8 余量（防内容密度方差 ~20%）= 181,688 chars @262K 窗口；
+ *    已知最大成功（262K 档）41,951 chars < 181,688 ✓。
+ *  跨窗口泛化：按窗口占比缩放（精确分数，不写三位小数——262144×0.693=181,664 漂移 24 chars）——
+ *    1M 窗口 → 726,752 chars。注意（保守外推，安全方向）：1M 档最大成功 956,403 > 726,752——
+ *    (726,752, 956,403] 区间现状可全量合成，修复后最老 ~24% 会被裁（确定的保真代价，接受：
+ *    裁方向安全不漏放 400；1M 保真特例留待实测失败样本驱动再调，观测锚 = trim 日志）。
+ *  夹逼缺口 (41,951, 227,110) 内无成败样本——0.8× 因子即此缺口的残余风险定价。
+ *  预算对象 = 全文（含固定段）；trim 内部用「全文预算 − 固定段实测」裁历史段，
+ *  公式内不再扣固定段（实测在 trim 内单点扣，此处只定天花板）。 */
+const SYNTHESIS_BUDGET_WINDOW_RATIO = 181_688 / 262_144;
+export function synthesisFullBudgetChars(contextWindowTokens: number): number {
+  return Math.floor(contextWindowTokens * SYNTHESIS_BUDGET_WINDOW_RATIO);
 }
 
+/** F20260924swin：显式合成 max_tokens（与 pi-session-factory 调用侧同值，单一真相源）。
+ *  输出实证 ≤2,415 chars ≤ ~1K tokens，prompt 规则 7 自限 ≤2000 tokens，4 倍余量。
+ *  显式发送后输入容量 = 窗口 − 4,096（不再被服务端默认预留 ~64K 吃掉 25%）。 */
+export const SYNTHESIS_EXPLICIT_MAX_TOKENS = 4_096;
+
+/** F20260924swin delta 复核严重4 闭合：trim-note 渲染长度预留（chars）。
+ *  trim-note 三行渲染 ≈85 chars（<trim-note> 标签 + 「预算裁剪：已丢弃最老 N 条…」文案 +
+ *  </trim-note> + 换行，droppedCount ≤ 7 位数），取 200 为渲染上界（×2 余量）。
+ *  恒定预留（裁不裁都留）→ 历史正文进预算 + trim-note 必 ≤ 全文预算 → 预检严格 > 不自拦。
+ *  反例锚（修复前）：裁满边界 final = 全文预算 + ≈75（trim-note 不进预算）→ 预检自拦
+ *  + 熔断计一次（检视獭-岚 构造性证明）。 */
+export const TRIM_NOTE_RESERVE_CHARS = 200;
+
+/** F20260923hsyn：预算裁剪结果（供调用方留痕裁剪幅度） */
 /**
  * F20260923hsyn：合成 prompt 预算裁剪——丢最老保最近（方案 A，搭档 9/23 拍板）。
  *
@@ -40,37 +57,63 @@ export interface BudgetTrimResult {
  * 「模型窗口 − prompt 开销」临界点，compaction/narrative synthesis 全部数学性失效
  * （kimi-256k 实测 prompt 362k-956k chars 超 262k 窗口必 400）。
  *
- * 裁剪策略：历史段预算 = contextWindow − 输出预留 − 固定段开销；从最老消息开始整条丢，
- * 直到序列化文本估算进预算。谱系摘要（previousSummary）与 §④⑤⑥ 机械供料不裁——
- * 它们已是压缩过的全局信息，交接场景「最近正在干什么」远比「开头聊了啥」重要。
+ * 裁剪策略：历史段预算 = 全文预算 − 固定段实测开销（F20260924swin 口径修正）；
+ * 从最老消息开始整条丢，直到序列化文本进预算。谱系摘要（previousSummary）与 §④⑤⑥
+ * 机械供料不裁——它们已是压缩过的全局信息，交接场景「最近正在干什么」远比「开头聊了啥」重要。
  *
- * token 估算：chars / 3（审视建议1修正：chars/4 对中文偏乐观——中文 UTF-16 单字 1 unit
- * 但 token 化接近 1.5 chars/token 即 tokens≈chars/1.5，chars/4 会低估 token 2.6 倍，
- * 大中文 session 裁剪不足。chars/3 仍偏保守方向安全：多裁不会更糟，少裁会 400）。
+ * F20260924swin 口径修正（三轮对抗审视定稿）：
+ * - 预算基准从「(窗口−预留−固定段)×密度」理论式改为「synthesisFullBudgetChars」夹逼定标——
+ *   理论式的容量/密度都是边界反推（循环论证），夹逼常数只依赖实测成败样本
+ * - 预算对象从「历史段」改为「全文」——调用方传 measuredFixedChars（固定段实测），
+ *   本函数内部用「全文预算 − 固定段实测」得历史段预算（单点扣减，不再双重扣）
+ * - 签名变更：第三参 measuredFixedChars 必填（delta 复核建议2：src 调用方恒传，无参回退
+ *   无生产消费者，legacy 双口径公式删除——防口径漂移复发）
  */
+export interface BudgetTrimResult {
+  /** 裁剪后的消息列表（丢最老保最近） */
+  messages: Array<{ role: string; content?: unknown }>;
+  /** 被丢弃的最老消息条数（0 = 未裁剪） */
+  droppedCount: number;
+  /** F20260924swin 观测锚：裁剪前历史段序列化长度（chars）——trim 日志用 */
+  inputChars: number;
+  /** F20260924swin 观测锚：历史段预算（chars，全文预算 − 固定段实测）——trim 日志用 */
+  historyBudgetChars: number;
+}
+
 export function trimMessagesToBudget(
   messages: Array<{ role: string; content?: unknown }>,
   contextWindowTokens: number,
+  measuredFixedChars: number,
 ): BudgetTrimResult {
-  const historyBudgetChars =
-    (contextWindowTokens - SYNTHESIS_OUTPUT_RESERVE_TOKENS - SYNTHESIS_FIXED_OVERHEAD_TOKENS) * 3;
+  // F20260924swin（delta 复核严重4 闭合）：历史段预算 = 全文预算 − 固定段实测 − trim-note 预留。
+  //  legacy 双口径回退分支删除（第三参必填——src 唯一调用方恒传，无参「兼容」无生产消费者）。
+  const historyBudgetChars = synthesisFullBudgetChars(contextWindowTokens) - measuredFixedChars - TRIM_NOTE_RESERVE_CHARS;
   if (historyBudgetChars <= 0) {
     // 窗口过小连固定段都装不下——保底返回空历史（机械供料仍在，合成仍可产出）
-    return { messages: [], droppedCount: messages.length };
+    return { messages: [], droppedCount: messages.length, inputChars: 0, historyBudgetChars };
   }
   const total = serializeConversation(messages as never).length;
-  if (total <= historyBudgetChars) return { messages, droppedCount: 0 };
+  if (total <= historyBudgetChars) return { messages, droppedCount: 0, inputChars: total, historyBudgetChars };
   // 从最老端整条丢弃（保持消息边界完整，不切半条）。
   // 增量估算避免 O(n²) 重序列化：每条消息的序列化长度单独算，总长 − 逐条长度，
   // 直到进预算（ serializeConversation 是拼接语义，长度近似可加——分隔符误差 << 预算余量）。
   const perMsgChars = messages.map(m => serializeConversation([m] as never).length);
-  let remaining = total;
+  // 增量估算定位：全程用 perMsg 单口径——total（整体序列化）与 ΣperMsg 存在分隔符差异，
+  //  混用两口径会多丢（贴顶消息被误丢实证 2026-09-24）；终局判据以下方实测回退为准。
+  let remaining = perMsgChars.reduce((a, b) => a + b, 0);
   let dropped = 0;
   while (dropped < messages.length && remaining > historyBudgetChars) {
     remaining -= perMsgChars[dropped];
     dropped++;
   }
-  return { messages: messages.slice(dropped), droppedCount: dropped };
+  // 实测校验回退（delta 复核严重4 闭合）：serializeConversation 是 SDK 拼接语义，长度可加性
+  //  不作假设——增量估算收敛后实测 kept 长度，仍超预算则逐条实测丢弃直到进预算。
+  //  预算已含 trim-note 预留（TRIM_NOTE_RESERVE_CHARS）→ 终稿严格 ≤ 全文预算，预检不自拦。
+  while (dropped < messages.length
+    && serializeConversation(messages.slice(dropped) as never).length > historyBudgetChars) {
+    dropped++;
+  }
+  return { messages: messages.slice(dropped), droppedCount: dropped, inputChars: total, historyBudgetChars };
 }
 
 /** 引擎输入原料包（原料层统一收集器的产出——触发层负责收集，算法层只管消费） */
@@ -105,6 +148,15 @@ export interface NarrativeSynthesisInput {
    * 9/23 压缩死亡链根因：合成请求从不裁剪，ctx 超「窗口 − prompt 开销」后数学性必败。
    */
   contextWindowTokens?: number;
+  /** F20260924swin 观测锚：trim 结果回调（输入/固定段实测/预算/dropped/最终 prompt 长度）——
+   *  调用方（agent-invoker）落日志用；缺省静默（测试/旧调用无感）。 */
+  onTrim?: (result: {
+    inputChars: number;
+    measuredFixedChars: number;
+    historyBudgetChars: number;
+    droppedCount: number;
+    promptChars: number;
+  }) => void;
 }
 
 /**
@@ -120,14 +172,42 @@ export interface NarrativeSynthesisInput {
  */
 export function buildNarrativeSynthesisPrompt(input: NarrativeSynthesisInput): string {
   const ctx = resolvePromptContext(input);
+  // F20260924swin：固定段实测（预算口径 = 全文预算 − 固定段实测 = 历史段预算）。
+  // 两遍组装：先无裁剪组出「固定段基线」（历史段置空），实测其长度；再带历史段预算裁剪组装终稿。
+  // 两遍成本可接受（序列化是纯字符串拼接，大 session 百 ms 级），换来预算对象唯一（全文）无双重扣减。
+  let measuredFixedChars: number | undefined;
+  let trimResult: BudgetTrimResult | undefined;
+  if (input.contextWindowTokens) {
+    const baselineLines: string[] = [];
+    appendPromptHeader(baselineLines, ctx);
+    appendRuleLines(baselineLines, input.selfSummary, input.previousSummary);
+    appendMaterialSections(baselineLines, ctx, { ...input, messagesToSummarize: [] });
+    appendTemplateSection(baselineLines, ctx, input);
+    baselineLines.push('');
+    baselineLines.push('请基于上述原料，按七段模板直接输出摘要文本。');
+    measuredFixedChars = baselineLines.join('\n').length;
+    trimResult = trimMessagesToBudget(input.messagesToSummarize, input.contextWindowTokens, measuredFixedChars);
+  }
+
   const lines: string[] = [];
   appendPromptHeader(lines, ctx);
   appendRuleLines(lines, input.selfSummary, input.previousSummary);
-  appendMaterialSections(lines, ctx, input);
+  appendMaterialSections(lines, ctx, trimResult ? { ...input, messagesToSummarize: trimResult.messages as never, __trimDropped: trimResult.droppedCount } as never : input);
   appendTemplateSection(lines, ctx, input);
   lines.push('');
   lines.push('请基于上述原料，按七段模板直接输出摘要文本。');
-  return lines.join('\n');
+  const prompt = lines.join('\n');
+  // F20260924swin 观测锚：trim 日志（输入/预算/固定段实测/dropped/最终 prompt 长度）——
+  //  生产 vs 探针数字偏差的定谳锚（「裁没裁」从此可查，不再是观测缺口）。
+  input.onTrim?.({
+    // delta 复核建议5：不裁剪路径（window 缺省）也报真实输入长度，不再报 0 造成观测歧义
+    inputChars: trimResult?.inputChars ?? serializeConversation(input.messagesToSummarize as never).length,
+    measuredFixedChars: measuredFixedChars ?? 0,
+    historyBudgetChars: trimResult?.historyBudgetChars ?? 0,
+    droppedCount: trimResult?.droppedCount ?? 0,
+    promptChars: prompt.length,
+  });
+  return prompt;
 }
 
 /** prompt 组装上下文（代数/时间/短 ID 的机械推导） */
@@ -202,18 +282,14 @@ function appendMaterialSections(lines: string[], ctx: PromptContext, input: Narr
   appendMechanicalSections(lines, input);
 }
 
-/** F20260923hsyn：历史段（含预算裁剪——裁剪在此做，调用方拿到的 prompt 必然装得下） */
+/** F20260923hsyn：历史段（含预算裁剪——裁剪在此做，调用方拿到的 prompt 必然装得下）。
+ *  F20260924swin：裁剪上移到 buildNarrativeSynthesisPrompt（需先实测固定段才能算历史段预算），
+ *  本函数只负责渲染——裁剪结果经 input.__trimDropped 透传（装配细节，不进 NarrativeSynthesisInput 公开面）。 */
 function appendHistorySection(lines: string[], input: NarrativeSynthesisInput): void {
-  let trimmedMessages = input.messagesToSummarize;
-  let droppedCount = 0;
-  if (input.contextWindowTokens) {
-    const result = trimMessagesToBudget(input.messagesToSummarize, input.contextWindowTokens);
-    trimmedMessages = result.messages;
-    droppedCount = result.droppedCount;
-  }
+  const droppedCount = (input as unknown as { __trimDropped?: number }).__trimDropped ?? 0;
   lines.push('## 待压缩的对话历史（前世 agent 视角完整记录）');
   lines.push('<conversation-to-summarize>');
-  lines.push(serializeConversation(trimmedMessages as never));
+  lines.push(serializeConversation(input.messagesToSummarize as never));
   lines.push('</conversation-to-summarize>');
   if (droppedCount > 0) {
     lines.push('<trim-note>');
