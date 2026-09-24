@@ -38,14 +38,8 @@ import type { SynthesisPrefetch } from "@frameworks/agent/synthesis-prompt-build
 import { DomainError } from "@entities/errors";
 
 /** F20260923hlck：合成 prompt 长度→token 估算比率——9/23 生产日志实测校准。
- *  实测（pid 56177）：362K/566K chars 两 prompt 均超 kimi-256k 262K 窗口 400，
- *  反推真实密度 <1.38/<2.16 chars/token——合成 prompt 含大量机械供料（§④⑤⑥ 状态盘点/
- *  文件轨迹/谱系摘要），密度远低于常规对话（≈3）。取 2.0 为预检阈值（实测上界 ×0.93 余量，
- *  漏杀方向保守：宁多合成一次 400 降级，不漏杀本可合成的场景）。
- *  已知边界：362K 案例（密度 1.38）仍低于本阈值 → 不触发预检，会付一次 400 降级学费。
- *  收紧到 ≤1.38 的误杀代价（失败计数副作用 + 正常对话场景误拦）大于收益，接受不收紧。
- *  层约束不让 interface-adapters import frameworks 常量——值必须与 trimMessagesToBudget 的口径解耦。 */
-const SYNTHESIS_PRECHECK_CHARS_PER_TOKEN = 2;
+ *  F20260924swin 起退役：预检与 trim 共享 synthesisFullBudgetChars（引擎端口注入），
+ *  不再各自维护密度常数（此前 trim chars/3 预检 chars/2 双口径漂移的教训）。 */
 
 /** 统一交接的引擎输入形状（与 narrative-synthesis-engine 的同名接口结构兼容——
  *  独立声明避免 interface-adapters→frameworks 的模块依赖，参数类型就地内联） */
@@ -66,6 +60,14 @@ export interface EngineSynthesisInput {
   timestamp?: string;
   /** F20260923hsyn：目标模型上下文窗口（tokens）——传入则历史段预算裁剪（丢最老保最近）；缺省不裁 */
   contextWindowTokens?: number;
+  /** F20260924swin 观测锚：trim 结果回调（与引擎 NarrativeSynthesisInput.onTrim 结构兼容） */
+  onTrim?: (result: {
+    inputChars: number;
+    measuredFixedChars: number;
+    historyBudgetChars: number;
+    droppedCount: number;
+    promptChars: number;
+  }) => void;
 }
 
 /** jsonl 切片结果的最小消费面（与 session-slicer.JsonlSlice 结构兼容） */
@@ -106,6 +108,10 @@ export interface HandoffEngineDeps {
   renderFileTrail: (trail: unknown) => string;
   /** 合成超时上界 ms */
   synthesisTimeoutMs: number;
+  /** F20260924swin：合成全文预算函数（trim 与预检共享的唯一预算对象）——
+   *  引擎端口注入（层约束：interface-adapters 不 import frameworks 常量）。
+   *  delta 复核建议4：可选 → 必填——可选时漏注入 = 预检静默失效 fail-open。 */
+  synthesisFullBudgetChars: (contextWindowTokens: number) => number;
 }
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 // F20260826mwrd C3：高危 healing 事件提醒（Part 4 高危路由消费侧）
@@ -1027,21 +1033,36 @@ export class AgentInvoker implements AgentTurnPort {
             prefetch,
             // F20260923hsyn：预算裁剪（丢最老保最近）——目标窗口缺省时取合成模型覆盖值或该獭当前模型
             contextWindowTokens: this.resolveSynthesisContextWindow(otterId, modelAlias),
+            // F20260924swin 观测锚：trim 日志（输入/固定段实测/预算/dropped/最终 prompt 长度）——
+            //  「裁没裁」从此可查（9/24 生产 vs 探针数字偏差的定谳锚）。
+            onTrim: (r) => this.logger.info('[handoff] synthesis trim', {
+              otterId, trigger,
+              inputChars: r.inputChars,
+              measuredFixedChars: r.measuredFixedChars,
+              historyBudgetChars: r.historyBudgetChars,
+              droppedCount: r.droppedCount,
+              promptChars: r.promptChars,
+            }),
           });
           // F20260923hlck：合成后预检——trimMessagesToBudget 只裁历史段，previousSummary/§⑤ 状态盘点等
           //  固定段在大 session 可突破 10K token 预算假设（9/23 实测 546KB jsonl 裁剪后合成请求仍超窗，
           //  白等 96s 才 400，还全程拖着交接锁逼死后续 waiter）。超窗直接跳合成走机械档案，
           //  与合成失败同语义计一次失败——既有 ≥2 熔断机制会接管「固定段结构性超窗」的死亡链。
+          // F20260924swin：预检与 trim 共享同一预算函数（synthesisFullBudgetChars，经引擎端口注入——
+          //  层约束不 import frameworks 常量）。口径修正：预算对象 = 全文（与 trim 同一对象），
+          //  不再各自口径（此前 trim 管历史段/预检比全文，trim 裁满的产物会被预检自拦）。
           const synthesisWindow = this.resolveSynthesisContextWindow(otterId, modelAlias);
-          const overWindow = synthesisWindow !== undefined
-            && prompt.length > synthesisWindow * SYNTHESIS_PRECHECK_CHARS_PER_TOKEN;
+          const budgetChars = synthesisWindow !== undefined
+            ? this.engine!.synthesisFullBudgetChars(synthesisWindow)
+            : undefined;
+          const overWindow = budgetChars !== undefined && prompt.length > budgetChars;
           if (overWindow) {
             this.metrics?.recordSynthesis('error');
             this.handoffState.recordHandoffFailure(otterId);
             this.logger.warn('[handoff] prompt still over window after trim, skipping synthesis (mechanical archive)', {
               otterId, trigger,
               promptChars: prompt.length,
-              budgetChars: synthesisWindow! * SYNTHESIS_PRECHECK_CHARS_PER_TOKEN,
+              budgetChars,
               consecutiveFailures: this.handoffState.getConsecutiveFailures(otterId),
             });
           } else {

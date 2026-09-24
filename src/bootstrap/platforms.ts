@@ -15,7 +15,7 @@ import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider"
 import type { OtterContextWindowProvider } from "@usecases/ports/otter-context-window-provider";
 // F20260920uhuc：统一交接引擎（bootstrap=组合根，import frameworks 合法）
 import type { HandoffEngineDeps } from "../interface-adapters/agent-runtime/agent-invoker";
-import { buildNarrativeSynthesisPrompt, assembleHandoffArchive, buildMechanicalArchive, NARRATIVE_SYNTHESIS_TIMEOUT_MS } from "@frameworks/agent/narrative-synthesis-engine";
+import { buildNarrativeSynthesisPrompt, assembleHandoffArchive, buildMechanicalArchive, NARRATIVE_SYNTHESIS_TIMEOUT_MS, synthesisFullBudgetChars } from "@frameworks/agent/narrative-synthesis-engine";
 import { sliceSessionEntries, serializeKeptWindow } from "@frameworks/agent/session-slicer";
 import { collectStateInventory, renderStateInventory } from "@frameworks/agent/state-inventory";
 import { scanWorkspaceFiles, renderFileTrail } from "@frameworks/agent/file-trail-extractor";
@@ -203,6 +203,7 @@ function buildHandoffEngineDeps(): HandoffEngineDeps {
     scanWorkspaceFiles,
     renderFileTrail: renderFileTrail as unknown as HandoffEngineDeps["renderFileTrail"],
     synthesisTimeoutMs: NARRATIVE_SYNTHESIS_TIMEOUT_MS,
+    synthesisFullBudgetChars,
   };
 }
 

@@ -26,6 +26,7 @@ import type { ConversationRepository } from "@usecases/conversation/conversation
 import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import { createAgentSessionStore } from "./agent-session-store";
+import { SYNTHESIS_EXPLICIT_MAX_TOKENS } from "./narrative-synthesis-engine";
 import type { AgentSessionStore } from "./agent-session-store";
 import { classifyGuardIntercept } from "./guard-intercept-escalation";
 import type { DynamicContext } from "@usecases/ports/sdk-invoke-port";
@@ -431,17 +432,22 @@ export class PiSessionFactory implements AgentGateway {
    *
    * 已知妥协：无熔断/outputGuard 守卫（60s 超时防线在 compaction-hook 层，COMPACTION_SYNTHESIS_TIMEOUT_MS）。
    */
-  async runCompactionSynthesis(otterId: string, prompt: string): Promise<SynthesisRunResult> {
+  async runCompactionSynthesis(otterId: string, prompt: string, modelOverride?: string): Promise<SynthesisRunResult> {
     await this.ensurePiCodingAgent();
     const piCodingAgent = this.modelRuntimeRegistry.getPiCodingAgent()!;
 
-    // 模型解析：与 _createSessionWithTools 同链（otter 显式 alias → 池默认）
+    // 模型解析：F20260924swin 严重5 修复——modelOverride（换模型重启场景）优先，
+    //  缺省回退 otter 当前配置（既有行为）。此前端口声明第三参但实现丢弃，
+    //  换模型重启时预算按新模型算、请求发给旧模型 → 必 400。
     let resolvedModel = this.cfg.model;
     if (this.cfg.modelPool) {
-      const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
-      const modelAlias = otterConfig?.modelAlias;
+      const modelAlias = modelOverride ?? this.cfg.otterConfigProvider.getConfig(otterId)?.modelAlias;
       resolvedModel = this.cfg.modelPool.getModel(modelAlias);
     }
+    // F20260924swin 改动点1：显式合成 max_tokens——否则 SDK 发送层 falsy 跳过分支
+    //  （openai-responses.js:235），请求无 max_tokens → 输出预留 = 服务端默认（推断 ~64K），
+    //  输入容量被吃掉 ~25%。合成输出实证 ≤2,415 chars ≤ ~1K tokens，4,096 留 4 倍余量。
+    resolvedModel = { ...resolvedModel, maxTokens: SYNTHESIS_EXPLICIT_MAX_TOKENS };
 
     const SessionManagerClass = getSessionManagerClass(piCodingAgent);
     const sessionManager = SessionManagerClass.inMemory();
