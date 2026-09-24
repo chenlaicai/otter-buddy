@@ -731,6 +731,43 @@ describe("#698 攻击链回归：wrapper/赋值/bash -c/xargs 参数/路径变�
     const result = checkBashCommandSafety("bash -c 'echo hello; ls'", mainPid);
     expect(result).toBeNull();
   });
+
+  // ─── #1154 r1：S1/S2/S3 回归锁定（真金拦截面 + 遮蔽面 + 误拦面） ───
+
+  it("bash -c 'nohup pkill -f otter-buddy'（引号内无分隔符+前缀词包裹）→ 拦截（#1154 S1 真金）", () => {
+    const result = checkBashCommandSafety("bash -c 'nohup pkill -f otter-buddy'", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it(`bash -c 'xargs kill <mainPid>'（引号内前缀词包裹+字面主PID）→ 拦截（#1154 S1 真金）`, () => {
+    const result = checkBashCommandSafety(`bash -c 'xargs kill ${mainPid}'`, mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("多载荷段首载荷良性遮蔽后续攻击 → 拦截（#1154 S2 遮蔽修复）", () => {
+    // r1 前：hits[0].isPkill + break 让首个良性命中遮蔽真实攻击
+    const result = checkBashCommandSafety(
+      "bash -c 'nohup kill 1' bash -c 'pkill -f otter-buddy'", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("bash -c 'xargs pkill -f myapp # node'（载荷内注释含 node）→ 放行（#1154 S3 误拦修复）", () => {
+    // r1 前：外层段文本混入判定，载荷内注释 # node 命中进程名表（node 在表内）
+    const result = checkBashCommandSafety("bash -c 'xargs pkill -f myapp # node'", mainPid);
+    expect(result).toBeNull();
+  });
+
+  it('bash -c \'xargs kill 5\' "$VAR"（bash -c 传参变量）→ 放行（#1154 S3 误拦修复）', () => {
+    // r1 前：外层段文本的 "$VAR" 命中间接 PID 模式，真实目标是字面量 5
+    const result = checkBashCommandSafety('bash -c \'xargs kill 5\' "$VAR"', mainPid);
+    expect(result).toBeNull();
+  });
+
+  it("bash -c 'xargs kill 99999'（载荷内非主 PID 前缀词包裹）→ 放行（与裸 kill 字面量一致）", () => {
+    // xargs 剥除后走字面量判定：99999 ≠ mainPid → 放行
+    const result = checkBashCommandSafety("bash -c 'xargs kill 99999'", mainPid);
+    expect(result).toBeNull();
+  });
 });
 
 describe("SERVICE_SCRIPT_KILL 路径限定（F20260916gtlr）", () => {

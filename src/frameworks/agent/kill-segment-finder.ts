@@ -1,5 +1,5 @@
 /**
- * kill 段查找与词元位置判定（F20260922gpq 从 bash-safety-guard.ts 拆出）。
+ * kill 段查找与词元位置判定（F20260922gpqa 从 bash-safety-guard.ts 拆出）。
  *
  * 拆分离由：bash-safety-guard.ts 基线恰满 max-lines 450 上限，#852 引号感知修复
  * 净增代码必然超限。本组（KILL/PKILL 词元目录 + 命令位置判定 + 段查找）自包含、
@@ -84,36 +84,63 @@ export function isKillAtCommandPosition(text: string, pattern: RegExp): boolean 
  * 且不被连字符前缀（如 eval-skill / guard-kill）误触发。
  * 这解决了模式2误报（词元在 markdown body / 路径 / 注释中任意位置匹配）。
  */
-export function findKillSegments(command: string): { segment: string; isPkill: boolean }[] {
-  const results: { segment: string; isPkill: boolean }[] = [];
+/** kill 段查找结果（#1154 r1）：payload 仅 bash/sh -c 载荷级命中携带；
+ *  source:"pipe" 标记该段是管道右段（kill 目标来自上游 stdin，间接来源）。 */
+export interface KillSegment { segment: string; isPkill: boolean; payload?: string; source?: "pipe" }
+
+/** 单段 kill 位置判定（findKillSegments 主支/次支出口）
+ * #1154 r1：从 findKillSegments 拆出——分段循环内分支复杂度超限。 */
+function matchKillAtPosition(trimmed: string, pipeSource: boolean): KillSegment | null {
+  if (isKillAtCommandPosition(trimmed, PKILL_COMMANDS)) {
+    return { segment: trimmed, isPkill: true, ...(pipeSource ? { source: "pipe" as const } : {}) };
+  }
+  if (!isKillAtCommandPosition(trimmed, KILL_COMMANDS)) return null;
+  // #777：bash -c 分支（KILL_COMMANDS 右支）可内嵌 pkill/killall 词元——
+  // 主支的 isKillAtCommandPosition 对该段返回 false（词元在引号内数据位），
+  // 但 bash -c 分支的语义是「引号内整串是独立命令」。内嵌词元为 pkill/killall
+  // 族时按 pkill 语义检查目标进程名（否则 'pkill -f otter-buddy' 走 kill 语义
+  // 解析不到字面量 PID 而漏拦，#698 攻击链回归实证）。
+  const innerPkill = /(?:bash|sh)\s*-c\s*[\s'"]?[^|;&]*\b(?:pkill|killall|killall5)\b/i.test(trimmed);
+  return { segment: trimmed, isPkill: innerPkill, ...(pipeSource ? { source: "pipe" as const } : {}) }
+}
+
+export function findKillSegments(command: string): KillSegment[] {
+  const results: KillSegment[] = [];
   // 按 shell 操作符分段。#777 起含 | 管道：F20260903gh698 不含 | 的理由（管道到 kill 是
   // 间接攻击向量整体拦截）在白名单语义下变成漏拦——xargs 前缀词判定依赖段首上下文，
   // 管道右段被吞进左段时剥除失败。| 右段首恒为命令位置（shell 语义），分段代价为零。
   //  || 先于 |：split 交替语义下单 | 会把 || 拆成两个空段，
   //  长操作符必须在前（否则 `a || kill` 被拆成 `a |` `| kill` 三段，段首位置错乱）。
   const segments = command.split(/&&|\|\||[;&|\n]/);
+  // 段在原文中的偏移（split 不含分隔符——管道右段判定需要段前分隔符是单 |）
+  let segOffset = 0;
   for (const seg of segments) {
     const trimmed = seg.trim();
     if (!trimmed) continue;
-    if (isKillAtCommandPosition(trimmed, PKILL_COMMANDS)) {
-      results.push({ segment: trimmed, isPkill: true });
-    } else if (isKillAtCommandPosition(trimmed, KILL_COMMANDS)) {
-      // #777：bash -c 分支（KILL_COMMANDS 右支）可内嵌 pkill/killall 词元——
-      // 主支的 isKillAtCommandPosition 对该段返回 false（词元在引号内数据位），
-      // 但 bash -c 分支的语义是「引号内整串是独立命令」。内嵌词元为 pkill/killall
-      // 族时按 pkill 语义检查目标进程名（否则 'pkill -f otter-buddy' 走 kill 语义
-      // 解析不到字面量 PID 而漏拦，#698 攻击链回归实证）。
-      const innerPkill = /(?:bash|sh)\s*-c\s*[\s'"]?[^|;&]*\b(?:pkill|killall|killall5)\b/i.test(trimmed);
-      results.push({ segment: trimmed, isPkill: innerPkill });
-    } else {
-      // #852：引号包裹的 bash/sh -c 载荷——外层检测对引号内第二位起的词元失效
-      //（右支要求词元紧邻 -c、innerPkill 被引号内 ; 截断），提取载荷递归检测补齐。
-      for (const payload of extractDashCPayloads(trimmed)) {
-        const hits = findKillSegments(payload);
-        if (hits.length > 0) {
-          results.push({ segment: trimmed, isPkill: hits[0].isPkill }); // 段文本保留外层段
-          break; // 一个段一行结果，多载荷命中其一即可
-        }
+    // #1154 r1：管道右段的 kill 目标来自上游 stdin（间接来源）。split 把 | 吞了，
+    // 段文本不含 |——看段起点前一个字符：trimmed 在原文中的起始位置前是 |（且不是
+    // || 的第二个）即管道右段。分段把 `lsof | xargs kill` 切成两段后，右段单看无
+    // 管道，source 标记让语义层恢复「目标来自 stdin」的间接来源判定。
+    const segStart = command.indexOf(trimmed, segOffset);
+    segOffset = segStart + trimmed.length;
+    // 往前跳过空白看分隔符：| 且前一个不是 |（排除 || 第二字符）即管道右段
+    let p = segStart - 1;
+    while (p >= 0 && /\s/.test(command[p])) p--;
+    const pipeSource = p >= 0 && command[p] === "|" && (p < 1 || command[p - 1] !== "|");
+    const direct = matchKillAtPosition(trimmed, pipeSource);
+    if (direct) {
+      results.push(direct);
+      continue;
+    }
+    // #852：引号包裹的 bash/sh -c 载荷——外层检测对引号内第二位起的词元失效
+    //（右支要求词元紧邻 -c、innerPkill 被引号内 ; 截断），提取载荷递归检测补齐。
+    // #1154 r1（S2/S3）：逐载荷入结果——hits[0]+break 会让首个良性命中遮蔽后续载荷
+    // 的真实攻击（良性 decoy 漏拦）；判定文本改用载荷级命中段（hit.segment），外层
+    // 包装/传参/注释不是 kill 目标语义的一部分（混入致注释命中进程名表、传参变量
+    // 命中间接 PID 模式两类误拦）。
+    for (const payload of extractDashCPayloads(trimmed)) {
+      for (const hit of findKillSegments(payload)) {
+        results.push({ segment: hit.segment, isPkill: hit.isPkill, payload, ...(hit.source ? { source: hit.source } : {}) });
       }
     }
   }
