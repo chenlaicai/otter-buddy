@@ -1,6 +1,6 @@
 ---
 id: F20260924uxrc
-title: 交互优化：重启獭生确认即转后台 + 能力库图鉴化改版
+title: 交互优化：重启獭生确认即转后台 + 能力库书式改版
 doc_type: feature
 
 summary: |
@@ -9,9 +9,9 @@ summary: |
   而合成前世档案耗时 5-15s（最长约 1 分钟），期间 Modal scrim 全屏锁定。②能力库
   界面「乱七八糟」——旧版是「左列表右详情」二分结构，信息密度低且无趣味性。
   修复①：确认即关弹窗 + 即时 toast 告知后台进行中，成功/失败各弹终态 toast。
-  修复②：图鉴式分组卡阵改版——skill 三段式 description（Use when/Not for/Output）
-  解析成「施展/忌用/产出」三槽秘籍卡，趣味语言借海獭面板装备槽体系（emoji 门派
-  徽章/槽位标签/点卡展开全文），不造假数据不加伪游戏属性。
+  修复②：书式改版（双页摊开 spread）——封面→章目录→秘籍页，连续性三件套
+  （双页同框/厚度堆/章节耳），三段式 description 解析成施展/忌用/产出三槽。
+  搭档三轮反馈驱动定稿，两个渲染 bug（左侧白边/翻页闪字）一并修复。
 
 type: Feature Update
 domain: web
@@ -25,7 +25,7 @@ causal_links:
   - F20260901emps
 ---
 
-# 交互优化：重启獭生确认即转后台 + 能力库图鉴化改版
+# 交互优化：重启獭生确认即转后台 + 能力库书式改版
 
 ## 背景
 
@@ -71,15 +71,19 @@ await 达到 5-15s（勾选引擎叙事合成时最长约 1 分钟）。期间�
   一次性 true，组件随 modal 关闭卸载）
 - 弹窗关闭由父级落地（modal 状态归 index.tsx），RestartModal 不自作主张 onClose
 
-### 修复 2：能力库图鉴化改版
+### 修复 2：能力库书式改版（双页摊开秘籍书，搭档拍板定案）
 
-结构选择（visual-design structure.md：结构先于视觉）：**图鉴式分组卡阵**。
+结构选择（visual-design structure.md：结构先于视觉）：**双页摊开（spread）秘籍书**。
 
-- 为什么不是仪表盘/杂志流：内容是「14 个平行能力的目录」，无主次之分、无叙事
-  顺序——分组卡阵（流派 banner + 自适应网格）天然支持扫读比较，一屏见全族
-- 层级表：馆藏总览头（H1 级：⛩️ + 名称 + N 门心法·M 大流派统计 + 只读徽章）→
-  流派 banner（M 级：门派徽章 + 派名 + 藏品数）→ 秘籍卡（辅级：徽章 + name +
-  三槽）→ 展开全文（折叠级：完整 description）
+- 封面态：书体半宽居中（合上的书）；摊开后书体展为全宽——修复首版左侧白边
+  （根因：厚度堆公式反了 + 封面纸未占满书体）
+- 摊开：左页+右页同框（sheet 正反面），纸张 3D 掠过中线 rotateY(-118deg)；
+  翻页中段全书压暗 22%（修复纸张背面文字「一闪而过看不清」——压暗后掠过的
+  是暗影非清晰文字）
+- 连续性三件套：双页同框（视野永不断档）/ 书脊两侧厚度堆（已翻|未翻，进度
+  可感知）/ 章节索引耳（书缘五色耳，点耳直达章）
+- 内页：章目录页（竖排章号+流派徽章+条目）与技能秘籍页（施展/忌用/产出三槽）
+  交替；末尾后记+封底凑双（sheet 数 = ceil((内容页+1)/2)）
 
 秘籍卡三槽（趣味性来源，全部真实数据）：
 
@@ -88,11 +92,15 @@ await 达到 5-15s（勾选引擎叙事合成时最长约 1 分钟）。期间�
 - 未识别结构化文案（降级清单等）不装模作样拆槽，整段展示
 - 点卡展开秘籍全文（含 Precondition 等未分槽内容），多卡可同时展开
 
-趣味锚点（借海獭面板装备槽语言，不越界）：
+趣味锚点（书式隐喻，全部真实数据）：
 
-- 门派徽章：默认搭档🍃 信息层🔍 开发流程链⚒️ 编排层🎪 元规范📖 其他📦
-- 槽位标签 + 「秘籍」徽章 + otter 选中 ring，与海獭面板 ✨技能槽 同语言
+- 章号（壹贰叁…）/ 中文序数（第N门）/ 印章式槽位标签（忌用朱砂红）
+- 章节索引耳：五色耳点达章，翻过的章耳移左缘（导航即进度）
 - **反假数据立场**：不加等级/经验/星数——能力是静态目录，编数值是 B6 假数据感
+
+演进补记（搭档三轮反馈驱动）：v1 卡片阵 → 「像本书翻开、不要固定框」→ 单页翻原型
+→ 「每页孤立、没有连续性」→ 双页摊开原型 → 拍板采用 + 两个渲染 bug（左侧白边、
+翻页闪字）→ 定稿。其他内容（非 skill）搭档明确后续另做展示效果。
 
 降级链保留不变（#576 契约）：API 成功 → 真实清单；失败 → 内置兜底 + 「离线兜底」
 徽章（升级为 header 内徽章）；空 → 显式空态文案。
@@ -110,13 +118,12 @@ await 达到 5-15s（勾选引擎叙事合成时最长约 1 分钟）。期间�
 
 **能力库视觉质检门（visual-design anti-patterns.md）**：
 
-- A1 结构同构：旧版是列表-详情二分，新版是分组卡阵网格——骨架节奏不同 ✅
-- A2 模板换色：组件树重构（article 卡阵/SlotRow 槽位/流派 banner），非仅调色 ✅
-- A4 全屏均质：第一视觉锚点 = 馆藏总览头（唯一 ⛩️ 大徽章卡），流派 banner 为
-  M 级节奏，卡为辅级 ✅
-- B3 图标堆砌：门派徽章有信息增量（分组识别），非装饰 ✅
+- A1 结构同构：旧版是列表-详情二分，新版是双页摊开书（sheet 正反面 + 翻页引擎）——骨架完全不同 ✅
+- A2 模板换色：组件树重构（sheet/PageFace/TOCPage/SkillPage/Slot），非仅调色 ✅
+- A4 全屏均质：封面态唯一锚点 = 居中合上的书；摊开态左右页主次分明（目录|秘籍） ✅
+- B3 图标堆砌：章耳/徽章有导航与分组信息增量，非装饰 ✅
 - B6 假数据感：不加伪游戏数值，三槽内容全部来自真实 description 解析 ✅
-- B8 色彩超载：otter 色系 + stone 灰阶 + 单点 rose（忌用），3 色相收敛 ✅
+- B8 色彩超载：暖纸/墨/烫金 + 五章色耳（低饱和），色相收敛 ✅
 
 ## 变更清单
 
@@ -124,29 +131,30 @@ await 达到 5-15s（勾选引擎叙事合成时最长约 1 分钟）。期间�
 |---|---|
 | `web/src/pages/conversation/index.tsx` | confirmRestart 改同步关窗 + toast 后台化 |
 | `web/src/pages/conversation/Modals.tsx` | RestartModal 删持久 submitting 文案态，保留防连点 |
-| `web/src/pages/skills/index.tsx` | 图鉴化改版：卡阵 + 三槽解析 + 门派徽章 + 点卡展开 |
+| `web/src/pages/skills/index.tsx` | 书式改版：双页摊开 + 翻页引擎 + 三槽解析 + 章节耳 |
 | `web/src/pages/conversation/RestartModal.test.tsx` | 适配新语义（同步触发/防连点/勾选透传） |
-| `web/src/pages/skills/index.test.tsx` | 新增 parseSkillDescription 4 用例 + 卡阵/展开/降级断言 |
+| `web/src/pages/skills/index.test.tsx` | parseSkillDescription 4 用例 + 封面/摊开/三槽/耳/降级断言 |
 
 ## 验证
 
-**单测**：`npx vitest run`（web）全量 58 文件 542 用例通过，含：
+**单测**：`npx vitest run`（web）全量 58 文件 543 用例通过，含：
 
 - RestartModal 新语义 4 用例（同步触发/防连点/勾选透传/文案形态）
 - parseSkillDescription 4 用例（标准三段式/部分段/非结构化兜底/Precondition 不污染）
-- 能力库卡阵冒烟（真实清单/点卡展开收起/降级离线标注/空态）
+- 能力库书式 5 用例（封面统计/摊开双页同框+三槽/章节耳直达/降级离线标注/空态）
 
-**tsc**：`npm --prefix web ci && npx tsc --noEmit` exit 0（与 CI 同路径 npm ci）。
+**tsc/lint**：`npm --prefix web ci && npx tsc --noEmit` exit 0（与 CI 同路径 npm ci）；eslint 0 error 0 warning（skills 页）。
+
+**原型验证**（v2 spread，Playwright）：翻页/连击消化/目录直达/无溢出全绿；顺手修三个交互 bug：连击丢步（步进排队+clamp 消化）、叠放页拦截点击（pointer-events 穿透）、章节耳被热区遮挡（z-index）。
 
 **UI 真机自查**（code-implementation 步骤 6 硬规则，alpha 实例 3172 + Playwright
 + 截图存对话工作区）：
 
-- 能力库：馆藏总览头 ✅ / 14 卡图鉴阵 ✅ / 三槽标签 ✅ / 点卡展开收起 ✅
-- 几何取证：scrollWidth 1440 = clientWidth（无横向溢出），首屏卡 347×125，6 分区
+- 能力库：封面态书体半宽居中（无左白边）✅ / 封面书名+统计 ✅ / 摊开壹目录+companion 同框 ✅ / 三槽标签 ✅ / 五章节耳+点耳直达 ✅ / 无横向溢出 ✅
 - 重启流（右栏 hover → 重启 → 确认）：★弹窗 250ms 内关闭（不再锁死）✅ /
   ★toast 即时反馈 ✅ / API 完成终态 toast（前世已封存…）✅
-- 截图：`uxrc-skills-page.png` / `uxrc-restart-modal.png` / `uxrc-after-confirm.png` /
-  `uxrc-after-api.png`（对话工作区 `data/workspaces/6b8384a6…/`，呈搭档人评——
+- 截图：`book-final-1-cover.png` / `book-final-2-open.png` / `book-final-3-ear.png` /
+  `uxrc-restart-modal.png` / `uxrc-after-confirm.png`（对话工作区，呈搭档人评——
   本模型无图片输入能力，视觉终审依赖截图 + 几何取证）
 
 **已知 pre-existing（非本次引入）**：worktree pnpm install 环境 `tsc` 报
