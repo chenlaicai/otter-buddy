@@ -17,6 +17,7 @@ import {
   createConversation,
   sendUserMessage,
   waitForOtterMessage,
+  waitForInvokeSettled,
   listMessages,
   expectSampledBehavior,
   type MessageDto,
@@ -78,6 +79,9 @@ describe("发言权路由：子獭完成本职后传回召唤者（真系统 + �
           timeoutMs: 300_000,
           afterSeq: bigOtterMsg.seq,
         });
+        /** #984：speak(completed) ≠ 回合结束——tsp 在 yield 时落账，
+         *  且 no_yield 首轮会自动重试（重试轮可能补上调 yield），必须等 invoke 终态 */
+        await waitForInvokeSettled(ctx, convId, smallOtter.id, { timeoutMs: 300_000 });
       } catch {
         /** 子獭可能卡住或退化，继续检查已有消息 */
       }

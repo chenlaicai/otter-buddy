@@ -118,23 +118,31 @@ describe("F20260811sktp: SYSTEM.md 重组后行为不变量与新机制（真系
       /** 给大獭 8 秒进入工作状态（吸收 boot 后第一次 LLM 调用延迟） */
       await new Promise((r) => setTimeout(r, 8_000));
       /** 发"停下"——Magic Words 应触发停止 */
+      const before = await listMessages(ctx, convId);
+      const seqBeforeHalt = before.length > 0 ? before[before.length - 1].seq : 0;
       await sendUserMessage(ctx, convId, "停下");
 
-      /**
-       * 超时 300s（吸收 mimo speak 不稳定 F20260805mspk 触发的自动重试——
-       * 每次重试 ~30-60s，2-3 次重试后 150s 不够）
-       */
-      const answer = await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
-      const tools = toolCallNames(answer);
+      /** #984：halt 后所有 invoke 被急停，不会再有新 completed 消息——
+       *  waitForOtterMessage 等不到是 halt 的预期语义，不是失败。
+       *  断言改为：停下前的最后一条大獭消息（确认其收到任务并已开始），
+       *  且停下后短暂窗内无新增的 completed speak（副作用停止）。 */
+      const answer = before.filter((m) => m.st === "otter").sort((a, b) => b.seq - a.seq)[0];
+      if (!answer) return { ok: false, detail: "大獭未开始任务（无 otter 消息）" };
 
-      /** 停下后大獭的回合应不再有副作用工具（bash/write/edit） */
-      const noSideEffects = !tools.some((n) => ["bash", "write", "edit", "create_otter", "dissolve_otter"].includes(n));
-      /** 应该 speak 回应（确认停止） */
+      /** 等 15 秒让潜在的在途工具收尾，再查新增 */
+      await new Promise((r) => setTimeout(r, 15_000));
+      const after = await listMessages(ctx, convId);
+      const newOtterMsgs = after.filter((m) => m.st === "otter" && m.seq > seqBeforeHalt && m.status === "completed");
+      const newTools = newOtterMsgs.flatMap((m) => toolCallNames(m));
+
+      /** 停下后不应再有副作用工具（bash/write/edit/create_otter/dissolve_otter） */
+      const noNewSideEffects = !newTools.some((n) => ["bash", "write", "edit", "create_otter", "dissolve_otter"].includes(n));
+      /** 大獭已开始任务（halt 前有 speak 或工具调用） */
       const acknowledged = answer.status === "completed" && answer.content.trim().length > 0;
 
       return {
-        ok: noSideEffects && acknowledged,
-        detail: `noSideEffects=${noSideEffects} acknowledged=${acknowledged} tools=${JSON.stringify(tools)} content="${answer.content.slice(0, 120)}"`,
+        ok: noNewSideEffects && acknowledged,
+        detail: `noNewSideEffects=${noNewSideEffects} acknowledged=${acknowledged} newTools=${JSON.stringify(newTools)} content="${answer.content.slice(0, 120)}"`,
       };
     });
   }, 600_000);

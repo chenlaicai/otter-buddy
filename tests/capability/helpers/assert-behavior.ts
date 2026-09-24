@@ -5,7 +5,9 @@
 import { expect } from "vitest";
 import type { CapabilityContext } from "./boot";
 
-/** GET /messages 返回的消息 DTO（短键名是既有 API 契约） */
+/** GET /messages 返回的消息 DTO（短键名是既有 API 契约）
+ *  #984：GET /messages 已随 F20260913ctlv（#886）退役——本 DTO 是测试侧视图模型，
+ *  由 listMessages 从 GET /entries + invoke_events 桥接组装（见下），字段语义保持不变。 */
 export interface MessageDto {
   id: string;
   st: string;             // senderType: "user" | "otter" | "system"
@@ -28,13 +30,34 @@ export async function createConversation(ctx: CapabilityContext, name: string): 
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, title: name }),
   });
-  expect(res.status).toBe(201);
+  if (res.status !== 201) {
+    let errBody = "<unreadable>";
+    let bodyErr: unknown;
+    try {
+      errBody = await res.text();
+    } catch (e) {
+      bodyErr = e;
+    }
+    throw new Error(`createConversation HTTP ${res.status}: ${errBody.slice(0, 300)}`, { cause: bodyErr });
+  }
   const body = await res.json() as { id: string };
   return body.id;
 }
 
-/** 发用户消息。响应是 SSE 流（agent 异步跑），取消流后走轮询断言终态。 */
-export async function sendUserMessage(
+/** #984 诊断：猎取「ReadableStream is locked」真实栈——vitest 只留 message 时看不到源。 */
+function diagnosticWrap<A extends unknown[], R>(fn: (...args: A) => Promise<R>, label: string): (...args: A) => Promise<R> {
+  return async (...args: A): Promise<R> => {
+    try {
+      return await fn(...args);
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("locked")) {
+        throw new Error(`${label}: ${e.message}\nstack: ${e.stack?.slice(0, 600)}`, { cause: e });
+      }
+      throw e;
+    }
+  };
+}
+export const sendUserMessage = diagnosticWrap(async function sendUserMessage(
   ctx: CapabilityContext,
   convId: string,
   text: string,
@@ -45,15 +68,116 @@ export async function sendUserMessage(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ senderId: "capability-tester", body: text, talkingStonePassedTo: opts.talkingStonePassedTo ?? [] }),
   });
-  expect(res.status).toBe(200);
+  // #984：非 200 带响应体抛错——裸 404/202 无法定位是路由退役还是 halt 闸门
+  if (res.status !== 200) {
+    let errBody = "<unreadable>";
+    let bodyErr: unknown;
+    try {
+      errBody = await res.text();
+    } catch (e) {
+      bodyErr = e;
+    }
+    // 202 + halted 是 Magic Word「停下」的合法急停响应（message-controller 硬编码）——
+    // 发「停下」类用例预期触发，不应视为发送失败。其他非 200 照旧抛。
+    if (!(res.status === 202 && errBody.includes('"halted"'))) {
+      throw new Error(`sendUserMessage HTTP ${res.status}: ${errBody.slice(0, 300)}`, { cause: bodyErr });
+    }
+    // 202 halt 短路响应：body 已被 text() 消费（locked），不能再 cancel
+    return;
+  }
   await res.body?.cancel();
-}
+}, "sendUserMessage");
 
 export async function listMessages(ctx: CapabilityContext, convId: string): Promise<MessageDto[]> {
-  const res = await ctx.built.app.request(`/api/conversations/${convId}/messages`);
-  expect(res.status).toBe(200);
-  const body = await res.json() as { messages: MessageDto[] };
-  return body.messages;
+  // #984 桥接：GET /messages 已退役（F20260913ctlv #886，entries 为唯一渲染数据源）。
+  // capability 测试不改生产路由——从 GET /entries 拉全量时间线，按 entryType/senderType
+  // 映射回 MessageDto 视图；events 从 invoke_events（同库直查）按 invokeId 组装。
+  const all: Array<Record<string, unknown>> = [];
+  let before: string | undefined;
+  for (let page = 0; page < 100; page++) {
+    const url = `/api/conversations/${convId}/entries?limit=200${before ? `&before=${before}` : ""}`;
+    const res = await ctx.built.app.request(url);
+    if (res.status !== 200) {
+      let errBody = "<unreadable>";
+      let bodyErr: unknown;
+      try {
+        errBody = await res.text();
+      } catch (e) {
+        bodyErr = e;
+      }
+      throw new Error(`listMessages(entries) HTTP ${res.status}: ${errBody.slice(0, 300)}`, { cause: bodyErr });
+    }
+    const body = await res.json() as { entries: Array<Record<string, unknown>>; hasMore: boolean };
+    all.unshift(...body.entries);
+    if (!body.hasMore || body.entries.length === 0) break;
+    before = body.entries[0].id as string;
+  }
+
+  // tsp 归属修正：发言的 talkingStonePassedTo 不落 speak entry（yieldTargets=null），
+  // 落在同 invokeId 的 yield entry（send-entry.ts createYieldEntry）与 invokes 表。
+  // 桥接须把 yield entry 的 yieldTargets 回填到同 invokeId 的 speak entry 上。
+  const tspByInvokeId = new Map<string, string[]>();
+  for (const e of all) {
+    if (e.entryType === "yield" && e.invokeId && Array.isArray(e.yieldTargets)) {
+      tspByInvokeId.set(e.invokeId as string, e.yieldTargets as string[]);
+    }
+  }
+
+  // events：speak entry 的 invokeId → invoke_events 直查（测试进程内同库，零路由依赖）
+  const stmt = ctx.built.db.prepare(
+    "SELECT invoke_id, event_type, payload FROM invoke_events WHERE invoke_id = ? ORDER BY sequence_num ASC",
+  );
+
+  return all.map((e): MessageDto => {
+    const entryType = e.entryType as string;
+    const senderType = (e.senderType as string | null) ?? (entryType === "user" ? "user" : "system");
+    const invokeId = e.invokeId as string | null;
+    let events: MessageDto["events"];
+    if (invokeId) {
+      const rows = stmt.all(invokeId) as Array<{ event_type: string; payload: string }>;
+      events = rows.map((r) => {
+        const p = JSON.parse(r.payload) as Record<string, unknown>;
+        return {
+          eventType: r.event_type,
+          payload: {
+            content: [{ type: r.event_type === "assistant_toolcall" ? "toolCall" : "text", name: p.name as string | undefined, arguments: p.arguments }],
+          },
+        };
+      });
+    }
+    return {
+      id: e.id as string,
+      st: senderType,
+      si: (e.senderId as string | null) ?? "",
+      content: (e.body as string | null) ?? "",
+      status: e.status as MessageDto["status"],
+      seq: e.sequenceNum as number,
+      tsp: (e.yieldTargets as string[] | null) ?? (invokeId ? tspByInvokeId.get(invokeId) : undefined),
+      sn: (e.senderName as string | null) ?? undefined,
+      events,
+    };
+  }).filter((m) => m.st !== "system" || m.content.length > 0);
+}
+
+/** #984：等某獭的 invoke 到达终态（yield 落账后才可读 tsp）。
+ *  子獭 speak(completed) ≠ 回合结束——yield 在 speak 之后调，no_yield 重试循环中
+ *  invoke 仍 running、tsp 未写。waitForOtterMessage 只保证「有 completed speak」，
+ *  断言 tsp/yield 行为前必须等 invoke 终态。 */
+export async function waitForInvokeSettled(
+  ctx: CapabilityContext,
+  convId: string,
+  otterId: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<void> {
+  const deadline = Date.now() + (opts.timeoutMs ?? 300_000);
+  while (Date.now() < deadline) {
+    const row = ctx.built.db.prepare(
+      "SELECT status FROM invokes WHERE conversation_id = ? AND otter_id = ? ORDER BY started_at DESC LIMIT 1",
+    ).get(convId, otterId) as { status: string } | undefined;
+    if (row && row.status !== "running") return;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  throw new Error(`等待 invoke 终态超时（otter=${otterId.slice(0, 8)}）`);
 }
 
 /** 轮询直到獭的回合产出最终结果（优先 completed；无重试迹象时才接受 failed/aborted） */
