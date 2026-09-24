@@ -101,8 +101,15 @@ module = **有边界的子系统名**，回答「动了哪个子系统的行为�
 
 ### 已知非阻断项
 
-- hook 内存量 bug：`grep -q '^\\[F'` 在 BSD grep 下报 "brackets not balanced"（stderr 噪音，不影响退出码与主逻辑），本特性不顺手修，留独立处理
+- ~~hook 内存量 bug：`grep -q '^\\[F'` 在 BSD grep 下报 "brackets not balanced"~~ → **已修**（检视獭发现 1 处置：单反斜杠 `^\[F`，BSD/GNU grep 均兼容）
 - 历史 commit 不回填：健康面板热区新旧口径混排约 60 天（滚动窗口自然消化）
+
+### 检视处置记录（2026-09-24，检视獭-模块词表 kimi-k28）
+
+0 严重 / 3 建议，全部本 PR 处置：
+1. grep BSD 兼容噪音 → 本 PR 修复（单反斜杠）
+2. 元测试 ci.yml 提取正则无行锚定（假绿路径） → 本 PR 修复（find 行内锚定）
+3. 历史碎裂同义词回潮无断言 → 本 PR 修复（deprecatedSynonyms 回潮断言 1 例）
 
 ## 待办（后续收编信号）
 
