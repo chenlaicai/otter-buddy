@@ -1414,23 +1414,34 @@ export default function ConversationPage() {
     } catch { showToast('解散失败', 'error') }
   }
 
-  async function confirmRestart(summary: string, modelAlias?: string, synthesizePast?: boolean) {
+  /** F20260924uxrc：确认即转后台交接。原实现 await api.restartOtter 完才关弹窗——
+   *  合成前世档案 5-15s（最长约 1 分钟）期间 scrim 全屏锁定 = 搭档实证「停留在弹窗啥也干不了」。
+   *  新语义：提交即关弹窗 + 即时 toast（告知后台进行中），API 在异步 task 中跑；
+   *  成功/失败再各弹一次 toast，会话链数据不变（成功后照旧重拉 session 链）。 */
+  function confirmRestart(summary: string, modelAlias?: string, synthesizePast?: boolean) {
     if (modal.type !== 'restart') return
     const otterId = modal.otterId
-    try {
-      // F20260920uhuc：统一交接管线——synthesizePast 透传（undefined=缺省 true）；
-      // 档案=引擎叙事（按勾选）+意图书（如填）+机械供料，前世记录完整保留
-      await api.restartOtter(otterId, summary.trim() || undefined, modelAlias, synthesizePast)
-      /** F20260805rsto：重启后重拉 session 链——加载 effect 有 `!sessions[id]` 守卫，
-       *  不主动重拉的话弹窗/卡片一直显示旧数据直到刷新页面 */
-      const dtos = await api.getSessionHistory(otterId)
-      setSessions(prev => ({ ...prev, [otterId]: dtos.map(mapSessionDTO) }))
-      setModal({ type: 'none' }); showToast(synthesizePast === false ? '前世已封存（机械档案），新一世獭生已开始' : '前世已封存，新一世携带完整前世档案开始', 'success')
-    } catch (err) {
-      // F20260920uhuc：忙碌 409 → 明确提示（模态保持，用户稍后重试——RestartModal 交接收尾在 onClose）
-      const isBusy = err instanceof Error && err.message.includes('忙碌')
-      showToast(isBusy ? '该獭正在执行任务，忙碌中不允许重启，请稍后再试' : '重启失败', 'error')
-    }
+    const otterName = allOtters[activeId || '']?.find(o => o.id === otterId)?.name
+    // F20260920uhuc：统一交接管线——synthesizePast 透传（undefined=缺省 true）；
+    // 档案=引擎叙事（按勾选）+意图书（如填）+机械供料，前世记录完整保留
+    const isSynth = synthesizePast !== false
+    setModal({ type: 'none' })
+    showToast(`正在为 ${otterName ?? '海獭'} ${isSynth ? '封装前世档案（预计 5-15s，最长约 1 分钟）…' : '重启…（秒级）'}`, 'info')
+    void api.restartOtter(otterId, summary.trim() || undefined, modelAlias, synthesizePast)
+      .then(async () => {
+        /** F20260805rsto：重启后重拉 session 链——加载 effect 有 `!sessions[id]` 守卫，
+         *  不主动重拉的话弹窗/卡片一直显示旧数据直到刷新页面 */
+        try {
+          const dtos = await api.getSessionHistory(otterId)
+          setSessions(prev => ({ ...prev, [otterId]: dtos.map(mapSessionDTO) }))
+        } catch { /* 重启本身已成功；链拉取失败不阻断成功提示 */ }
+        showToast(synthesizePast === false ? '前世已封存（机械档案），新一世獭生已开始' : '前世已封存，新一世携带完整前世档案开始', 'success')
+      })
+      .catch(err => {
+        // F20260920uhuc：忙碌 409 → 明确提示（弹窗已关，toast 承接反馈）
+        const isBusy = err instanceof Error && err.message.includes('忙碌')
+        showToast(isBusy ? '该獭正在执行任务，忙碌中不允许重启，请稍后再试' : '重启失败，请重试', 'error')
+      })
   }
 
   async function confirmLinkResource(type: string, url: string, title: string) {

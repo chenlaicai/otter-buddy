@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react'
 import { Construction, Package } from 'lucide-react'
 
 /**
- * #576（F20260901emps）：数据源从静态快照改为 GET /api/skills（ResourceLoader 真相源）。
- * Why: 此前硬编码 9 个 skill（8/21 快照），仓库演化到 11 个后页面过时且不会更新。
- * 降级链：API 成功 → 真实清单；API 失败 → 内置兜底清单（带「离线兜底」标注）；
- * API 成功但空 → 显式空态文案（不再静默空白）。
+ * #576（F20260901emps）：数据源 GET /api/skills（ResourceLoader 真相源）。
+ * F20260924uxrc 改版：图鉴式分组卡阵——「左列表右详情」二分改为单栏网格，
+ * 每张 skill 卡解析 frontmatter 三段式 description（施展/忌用/产出）分槽展示，
+ * 趣味语言借海獭面板装备槽（emoji 门派徽章 / 槽位标签 / otter 选中态）。
+ * 降级链不变：API 成功 → 真实清单；失败 → 内置兜底（带「离线兜底」标注）；空 → 显式空态。
  */
 interface SkillEntry {
   name: string
@@ -51,6 +52,38 @@ const FALLBACK_SKILL_GROUPS: { label: string; skills: SkillEntry[] }[] = [
   },
 ]
 
+/** 门派配置：分组 → 徽章 emoji + 归属描述。趣味锚点（海獭面板装备语言），色系收敛于 otter/stone */
+const GROUP_SIGIL: Record<string, string> = {
+  '默认搭档': '🍃',
+  '信息层': '🔍',
+  '开发流程链': '⚒️',
+  '编排层': '🎪',
+  '元规范': '📖',
+  '其他': '📦',
+}
+
+export interface ParsedSkillDesc {
+  when: string | null
+  notFor: string | null
+  output: string | null
+  /** 未被三段式识别时的整段原文（兜底清单等非结构化文案走这里） */
+  raw: string
+}
+
+/**
+ * 解析 SKILL.md frontmatter 的三段式 description。
+ * 标准格式（writing-skills 契约）：Use when: … Not for: … Output: …
+ * 段间可能有 Precondition / co_loads 等其他行——三段正则各自锚定关键词，
+ * 未识别的文案三段全 null（卡片降级为整段描述展示，不装模作样拆槽）。
+ */
+export function parseSkillDescription(desc: string): ParsedSkillDesc {
+  const clean = desc.replace(/\s+/g, ' ').trim()
+  const when = clean.match(/Use when:\s*(.*?)(?=\s(?:Not for:|Output:|Precondition:)|$)/i)?.[1]?.trim() || null
+  const notFor = clean.match(/Not for:\s*(.*?)(?=\s(?:Output:|Precondition:|Use when:)|$)/i)?.[1]?.trim() || null
+  const output = clean.match(/Output:\s*(.*?)(?=\s(?:Precondition:|Use when:|Not for:)|$)/i)?.[1]?.trim() || null
+  return { when, notFor, output, raw: clean }
+}
+
 type LoadState =
   | { kind: 'loading' }
   | { kind: 'loaded'; groups: { label: string; skills: SkillEntry[] }[]; degraded: boolean }
@@ -84,8 +117,20 @@ function findGroupLabel(skillName: string): string | null {
   return null
 }
 
+/** 秘籍卡槽位行：文字标签 + 截断内容，展开后看全文 */
+function SlotRow({ label, text }: { label: string; text: string }) {
+  return (
+    <div className="flex gap-2 items-start">
+      <span className={`text-[9px] font-semibold tracking-wider flex-shrink-0 w-7 pt-0.5 ${label === '忌用' ? 'text-rose-400' : 'text-stone-400'}`}>{label}</span>
+      <p className="text-xs text-stone-600 leading-relaxed line-clamp-2">{text}</p>
+    </div>
+  )
+}
+
 export default function SkillsPage() {
   const [state, setState] = useState<LoadState>({ kind: 'loading' })
+  /** 展开态：点卡 toggle，多卡可同时展开（图鉴翻阅感） */
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     let cancelled = false
@@ -119,97 +164,124 @@ export default function SkillsPage() {
     : []
   const degraded = state.kind === 'error'
   const allSkills = groups.flatMap(g => g.skills)
-  const [selectedName, setSelectedName] = useState(allSkills[0]?.name || '')
-  // useState 初始值在 loading 态（allSkills 空）求值为 ''，API 加载后不会重求——
-  // 无点击时详情面板空白（#689 审视建议 1）。回退语义：当前选择失效时自动选中首项，用户已点击的选择保留。
-  const selectedSkill = allSkills.find(s => s.name === selectedName) ?? allSkills[0]
+
+  const toggle = (name: string) =>
+    setExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
 
   return (
-    <>
-      <div className="flex flex-col flex-1 overflow-hidden p-3 gap-3">
-        {/* Under-construction notice */}
-        <div className="flex items-start gap-2.5 px-5 py-3 glass rounded-2xl border border-amber-300/40 bg-amber-400/10">
-          <Construction className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
-          <div className="text-xs leading-relaxed text-stone-600">
-            <span className="font-semibold text-amber-600">建设中</span>
-            Skill 目录为只读展示，数据来自系统真实 skill 清单；注册、加载、卸载等管理功能尚未接入，暂不可用。
-            {degraded && (
-              <span className="block mt-1 text-amber-600">
-                （服务连接失败，当前展示内置离线清单，可能与实际不符）
-              </span>
-            )}
+    <div className="flex flex-col flex-1 overflow-y-auto p-3 gap-3">
+      {/* 馆藏总览：第一视觉锚点（动线起点），统计 + 只读声明整合于此，替代原 amber 警示条 */}
+      <header className="glass rounded-3xl px-6 py-4 flex items-center gap-4 flex-shrink-0">
+        <div className="w-11 h-11 rounded-2xl bg-otter-100 flex items-center justify-center text-xl flex-shrink-0">⛩️</div>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-base font-semibold text-stone-800">能力秘籍馆</h1>
+          <p className="text-xs text-stone-500 mt-0.5">
+            {allSkills.length} 门心法 · {groups.length} 大流派 · 族群共享，个体差异在武器与心法
+          </p>
+        </div>
+        {degraded ? (
+          <span className="text-[10px] px-2 py-1 rounded-full bg-amber-400/15 text-amber-600 flex-shrink-0" data-testid="degraded-badge">
+            离线兜底清单，可能与实际不符
+          </span>
+        ) : (
+          <span className="text-[10px] px-2 py-1 rounded-full bg-white/50 text-stone-400 flex items-center gap-1 flex-shrink-0">
+            <Construction className="w-3 h-3" />
+            只读展示 · 管理功能建设中
+          </span>
+        )}
+      </header>
+
+      {/* 加载中 / 空态 */}
+      {state.kind === 'loading' && (
+        <div className="flex-1 flex flex-col items-center justify-center gap-2">
+          <div className="w-6 h-6 border-2 border-otter-300 border-t-transparent rounded-full animate-spin" />
+          <div className="text-sm text-stone-400">加载 skill 清单中...</div>
+        </div>
+      )}
+      {state.kind === 'empty' && (
+        <div className="flex-1 flex flex-col items-center justify-center gap-2">
+          <Package className="w-10 h-10 text-stone-300" />
+          <div className="text-sm font-medium text-stone-400">未发现任何 skill</div>
+          <div className="text-xs text-stone-400">
+            .pi/skills 目录为空或未加载——请检查服务端 skill 加载日志
           </div>
         </div>
+      )}
 
-        {/* 加载中 / 空态 */}
-        {state.kind === 'loading' && (
-          <div className="flex-1 flex flex-col items-center justify-center gap-2">
-            <div className="w-6 h-6 border-2 border-otter-300 border-t-transparent rounded-full animate-spin" />
-            <div className="text-sm text-stone-400">加载 skill 清单中...</div>
-          </div>
-        )}
-        {state.kind === 'empty' && (
-          <div className="flex-1 flex flex-col items-center justify-center gap-2">
-            <Package className="w-10 h-10 text-stone-300" />
-            <div className="text-sm font-medium text-stone-400">未发现任何 skill</div>
-            <div className="text-xs text-stone-400">
-              .pi/skills 目录为空或未加载——请检查服务端 skill 加载日志
-            </div>
-          </div>
-        )}
-
-        {(state.kind === 'loaded' || state.kind === 'error') && (
-          <div className="flex flex-1 overflow-hidden gap-3">
-            {/* Skill List Panel */}
-            <aside className="w-56 glass rounded-3xl flex flex-col flex-shrink-0 overflow-y-auto">
-              <div className="p-3 border-b border-white/40">
-                <span className="text-sm font-semibold text-stone-700">能力库</span>
+      {(state.kind === 'loaded' || state.kind === 'error') && (
+        /* 分区卡阵：流派 banner + 自适应网格，一屏图鉴式扫读（替代左列表右详情二分） */
+        <div className="flex flex-col gap-4">
+          {groups.map(group => (
+            <section key={group.label} aria-label={group.label}>
+              {/* 流派 banner：徽章 + 派名 + 藏品数 */}
+              <div className="flex items-center gap-2 mb-2 px-1">
+                <span className="text-sm">{GROUP_SIGIL[group.label] ?? GROUP_SIGIL['其他']}</span>
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-stone-600">{group.label}</h2>
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-skeleton text-stone-500">{group.skills.length} 门</span>
               </div>
-
-              {groups.map(group => (
-                <div key={group.label}>
-                  <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-stone-400">
-                    {group.label}
-                  </div>
-                  {group.skills.map(s => (
-                    <div
+              <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+                {group.skills.map(s => {
+                  const p = parseSkillDescription(s.desc)
+                  const isOpen = expanded.has(s.name)
+                  const structured = p.when || p.notFor || p.output
+                  return (
+                    <article
                       key={s.name}
-                      onClick={() => setSelectedName(s.name)}
-                      className={`px-3 py-2 mx-2 rounded-xl cursor-pointer transition ${
-                        s.name === selectedSkill?.name ? 'conv-active' : 'hover:bg-white/30'
+                      onClick={() => toggle(s.name)}
+                      aria-expanded={isOpen}
+                      className={`glass-card rounded-2xl p-3.5 cursor-pointer transition hover:shadow-otter-lg hover:-translate-y-0.5 ${
+                        isOpen ? 'ring-1 ring-otter-300' : ''
                       }`}
                     >
-                      <div className="text-xs font-medium text-stone-700">{s.name}</div>
-                      <div className="text-[10px] text-stone-400">{s.desc}</div>
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </aside>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="w-8 h-8 rounded-xl bg-white/70 flex items-center justify-center text-sm flex-shrink-0">
+                            {GROUP_SIGIL[group.label] ?? GROUP_SIGIL['其他']}
+                          </span>
+                          <div className="min-w-0">
+                            <h3 className="text-sm font-semibold text-stone-800 truncate">{s.name}</h3>
+                            <span className="text-[9px] text-stone-400">{group.label}</span>
+                          </div>
+                        </div>
+                        {structured && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-otter-400/15 text-otter-600 flex-shrink-0">
+                            {isOpen ? '收起' : '秘籍'}
+                          </span>
+                        )}
+                      </div>
 
-            {/* Skill Detail */}
-            <main className="flex-1 glass rounded-3xl overflow-y-auto p-6">
-              {!selectedSkill ? (
-                <div className="flex flex-col items-center justify-center h-full gap-2">
-                  <Package className="w-10 h-10 text-stone-300" />
-                  <div className="text-sm font-medium text-stone-400">未选择 Skill</div>
-                </div>
-              ) : (
-                <div className="max-w-[700px] mx-auto">
-                  <div className="flex items-center gap-3 mb-4">
-                    <h2 className="text-lg font-semibold text-stone-700">{selectedSkill.name}</h2>
-                  </div>
+                      {/* 三槽：施展 / 忌用 / 产出；非结构化文案整段展示 */}
+                      <div className="mt-3 space-y-1.5">
+                        {structured ? (
+                          <>
+                            {p.when && <SlotRow label="施展" text={p.when} />}
+                            {p.notFor && <SlotRow label="忌用" text={p.notFor} />}
+                            {p.output && <SlotRow label="产出" text={p.output} />}
+                          </>
+                        ) : (
+                          <p className="text-xs text-stone-600 leading-relaxed line-clamp-2">{s.desc}</p>
+                        )}
+                      </div>
 
-                  <div className="mb-4">
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-1">描述</div>
-                    <div className="text-sm text-stone-600">{selectedSkill.desc}</div>
-                  </div>
-                </div>
-              )}
-            </main>
-          </div>
-        )}
-      </div>
-    </>
+                      {/* 展开：秘籍全文（含 Precondition 等未分槽内容） */}
+                      {isOpen && (
+                        <pre className="mt-3 pt-2.5 border-t border-white/50 text-[11px] text-stone-500 whitespace-pre-wrap font-sans leading-relaxed">
+                          {s.desc}
+                        </pre>
+                      )}
+                    </article>
+                  )
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
