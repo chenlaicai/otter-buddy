@@ -10,7 +10,7 @@ modules:
   - src/frameworks/agent/git-readonly-whitelist.ts
   - src/frameworks/agent/quoted-text-sanitizer.ts
   - tests/frameworks/agent/bash-guard-false-positive-fix.test.ts
-summary: "9/23 台账（healing_events a9260c50《issue处理》对话 12:43–15:23 约 20 条连环拦）实证：bash 守卫三天三修（qbsw 引号盲 / glay 分层 / gr1f r1 处置）仍误拦正当命令，直接阻塞了守卫修复 PR 自身的 commit。根因：历史修复只覆盖「该拦的拦住」一侧，放行侧系统性缺失。本特性修 5 处真误拦根因：① git 写族正则 merge\\b 吞只读 git merge-base（负向断言 merge(?!-)）；② 缺 git 只读白名单快通道（补白名单出口，黑名单思维翻转）；③ cd 检测漏识别变量赋值前缀段（W=/path; cd $W/... 首段是赋值不是 cd）；④ python/node heredoc 载荷体字符串（测试文本 kill 字样）被当真实终止命令；⑤ 进程名模式把命令文本里的项目路径/worktree 路径当命中。核心交付：66 例放行侧回归测试（历史三次修复都缺的一侧）+ 拦截侧保持（kill 主 PID / 未 cd git 写族 / eval kill / 链式绕过全部仍拦）。"
+summary: "9/23 台账（healing_events a9260c50《issue处理》12:43-15:23 约 20 条连环拦）实证：bash 守卫三天三修（qbsw/glay/gr1f）仍误拦正当命令，阻塞守卫修复 PR 自身 commit。根因：历史修复只覆盖『该拦的拦住』，放行侧系统性缺失。修 4 处真根因：① 写族正则 merge 词吞只读 git merge-base（merge(?!-) 负向断言）；② 缺 git 只读白名单快通道；③ cd 检测漏识别变量赋值前缀段（W=/path; cd $W/...）；④ heredoc 载荷体字符串（测试文本含终止族字样）被当真实终止命令。排查期误判的『⑤进程名模式吞路径』经真实主进程 PID 实测证伪——它只是诊断回显层，症状是旧 dist 上①-④的表现，合入+重启即消失。核心交付：66 例放行侧回归（历史三次修复都缺的一侧）+ 拦截侧保持。"
 tags: [bash-safety-guard, false-positive, git-readonly-whitelist, heredoc-payload, cd-detection, narrow-fix]
 capability_test: "n/a: narrow-fix 收窄既有守卫误拦面，回归用例固化于 tests/frameworks/agent/bash-guard-false-positive-fix.test.ts（66+ 例含安全面与放行侧）"
 causal_links:
@@ -27,7 +27,7 @@ causal_links:
 
 9/23 台账实证（healing_events 表 conversation_id=a9260c50，《issue处理》对话 12:43–15:23 约 20 条连环拦）：守卫修复獭在 guard-r1-fix worktree 里做完了 #1154 全部修复、227 测试全绿，**结果 commit 这一步被守卫连环拦**：
 
-- `cd .../guard-r1-fix && git add -A && git commit -F /tmp/...` → 被「未 cd 主仓写」拦（进程名模式把 `commit-msg-guard-r1.txt` 里的文本和 worktree 路径算成进程名命中）
+- `cd .../guard-r1-fix && git add -A && git commit -F /tmp/...` → 被「未 cd 主仓写」拦（真正拦截的是①-④的判定层在旧 dist 上的表现；回执里的「进程名模式」仅是诊断回显，非判定层——详见⑤节）
 - 换 `W=/path; cd $W/...` → 变量赋值前缀让 cd 检测失效
 - 连 `rm -f .commit-msg.txt` 都被拦
 
@@ -73,13 +73,18 @@ git 后跟明确只读子命令（log/diff/status/show/rev-parse/rev-list/merge-
 
 **语义边界**：`python3 - <<EOF` 命令头本身是主仓写形态（patch 语义静态不可分），守卫对该命令头保守拦是对的；**cd worktree 后**（落点即 worktree）载荷体内 kill 字样数据不得再触发 cmdLevel 拦截——这才是台账连环拦的失效层。要跑 heredoc 分析脚本先 cd worktree。
 
-### ⑤ 进程名命中吞命令内路径/文件名（detectMainPid 进程名模式）
+### ⑤「进程名模式吞路径」——排查期误判，实测证伪（无独立第五缺陷）
 
-`detectMainPid` 的进程名模式把命令文本里的 `otter-buddy` 路径、worktree 路径、文件名（如 `commit-msg-guard-r1.txt`）当进程名命中，且不受 cd 状态豁免——cd 对了照样拦。
+**排查期的假设**：拦截回执【命中详情】总显示 `进程名模式：…s/orca/ai/otter-buddy/.otter/wo…`，看起来是进程名正则 `otter-buddy` 词元匹配到了 worktree 路径——据此推断存在「一个独立判定层，cd 豁免对它不生效」。
 
-**修法方向**：命中文本落在 `.otter/worktrees/` 路径段或明显是文件路径/文件名的，不计入主进程判定。
+**实测证伪（真实主进程 PID 95447）**：
+- 「进程名模式」那段代码是 `locateTriggerContext`（bash-safety-guard.ts），注释明确写着**只做诊断回显、不参与拦截判定**——它只是拦截后告诉你「命令里哪里出现了敏感词」，是个「显示层」，不是「判定层」。
+- 真正拦下那些命令的，还是 ①-④ 修的那几处判定层（cd 豁免被引号剥离盲区吃掉 + 写族正则覆盖不全）。
+- 症状在**旧 dist**（9/23 20:18，未 build + 主进程未重启）上表现：守卫跑旧代码，①-④ 的修复未生效，于是「命令含 worktree 路径就被拦」。
 
-**本特性处置**：进程名模式相关判定在主进程守卫运行时的复杂路径（detectMainPid + 进程名模式），本 worktree 修复聚焦 ①-④ 的确定性根因（单测可固化）。**⑤ 的精确化需独立特性处理**（进程名模式判定涉及运行时 PID/进程状态，worktree 单测难以等价复现）——已列为遗留问题，建议单独 issue 跟踪。
+**结论**：不存在未修的「第五个 bug」。⑤ = 「命令含 worktree 路径就被拦」这个症状的**误诊**——它就是①-④的既有缺陷在旧 dist 上的表现。修复合入 + 主进程重启（重新 build dist + 重启）后，这个症状自然消失。
+
+**本特性处置**：无需改代码修⑤。①-④ 已在本特性修复且 worktree 单测全绿；⑤ 随①-④ 的部署生效而消解。
 
 ## r1 处置（检视獭1156 对抗审视）
 
@@ -145,10 +150,21 @@ PR #1156 初轮对抗审视（检视獭1156，kimi 模型与实现者 kimi-k28 �
 - `src/frameworks/agent/quoted-text-sanitizer.ts`：stripHeredocPayloads（heredoc 载荷剥离，fail-closed）
 - `tests/frameworks/agent/bash-guard-false-positive-fix.test.ts`：新增 66 例放行侧 + 拦截侧回归
 
-## 遗留问题（建议单独 issue）
+## 合入后生效验证 checklist（本次最大教训）
 
-- **进程名模式精确化（根因⑤）**：detectMainPid 进程名模式把命令文本里的项目路径/worktree 路径/文件名当命中，且不受 cd 豁免。需独立特性处理（涉及运行时 PID/进程状态判定，worktree 单测难以等价复现）。本特性修复 ①-④ 后，台账 20 条连环拦中由 ⑤ 直接导致的占比需重新统计（⑤ 与 ①③④ 的命中详情在台账中耦合）。
-- **node -e / python heredoc 的 kill 字样保守拦**：glay 既定「kill 检测看原文」语义在 node -e 字符串含 kill+数字时保守拦，分析脚本须写成 .mjs 文件绕开。这是既定取舍（防误放行），但牺牲了一部分 heredoc 分析脚本的便利——本特性固化了该语义（测试防误放行），后续如需放宽须独立评估。
+**核心教训**：守卫修复改的是 `src/`，但主进程运行时加载的是 `dist/`（build 产物）。**只改 src 不 build + 不重启主进程，修复不生效**——本次排查期误以为存在「第五个独立 bug」，实为旧 dist 上①-④缺陷的持续表现。
+
+**合入后必须执行**：
+1. `npm run build`——重新编译 dist（含本次①-④ + r1 全部修复）
+2. 重启主进程——让运行时代码重载新 dist（重启方式遵循受控脚本，勿直接 kill 主进程）
+3. 台账观察 24–48h——复跑 9/23 台账（healing_events a9260c50）里被拦的命令形态，确认误拦面收敛
+4. 抽验拦截侧仍拦——`kill <主PID>` / `git commit -m x`（未 cd）/ `git log > /repo/x.txt` 等仍 BLOCKED
+
+**验证锚点**：重启后用真实主进程 PID 跑守卫单测里的放行用例（`git merge-base` / `cd worktree && git checkout -b` / `W=/path; cd $W/...`），应全 PASS；拦截用例（kill 主 PID / 未 cd 写族）应全 BLOCKED。
+
+## 已知取舍（非遗留 bug）
+
+- **node -e / python heredoc 的 kill 字样保守拦**：glay 既定「kill 检测看原文」语义在 node -e 字符串含 kill+数字时保守拦，分析脚本须写成 .mjs 文件绕开。这是既定取舍（防误放行），本特性固化了该语义（测试防误放行），后续如需放宽须独立评估。
 
 ## causal_links 说明
 
