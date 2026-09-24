@@ -23,7 +23,7 @@ Commit messages must follow the template:
 
 - `FYYYYMMDDNN`: 8-digit date + 2-digit sequence number (legacy format)
 - `FYYYYMMDDxNNN`: 8-digit date + 1 separator letter (a-k, m-n, p-z) + 3-9 char code (charset: 2-9a-km-np-z)
-- Module: lowercase label (e.g. `agent`, `web`, `readme`, `memory`)
+- Module: lowercase subsystem name. Recommended tags: `loop`/`session`/`guard`/`context`/`web`/`im`/`conversation`/`memory`/`scheduler`/`skill`/`prompt`/`health`/`ci`/`docs`/`otterbar` (usage per tag: see `src/entities/document/module-tags.ts`, F20260924mseu single source of truth). Open set: unlisted tags are allowed; self-referential/catch-all tags (`agent`, `runtime`, `core`, `system`, `general`, `misc`, `other`) are rejected.
 - Type tags: `Feature Update`, `BugFix`, `New Feature`, `Refactor`, `Design`
 - `[Incompatible]` is optional, only when breaking changes exist
 - First line must contain CJK characters
