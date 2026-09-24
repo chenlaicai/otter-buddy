@@ -55,6 +55,57 @@ const DOUBLE_QUOTED_TEXT = /"[^"\n]*[^\w"\n][^"\n]*"/g;
 const SYNTAX_SINGLE_QUOTED = /'[^']*'/g;
 const SYNTAX_DOUBLE_QUOTED = /"[^"]*"/g;
 
+/** F20260924gfpn：heredoc 载荷整体剥离（等长空格替换）。
+ *  9/23 台账实证：《issue处理》连环拦中 python3 - <<EOF 的载荷体（测试用例文本，含 kill
+ *  字样）被当真实终止命令——cmdLevel「脚本 one-liner + kill + 数字」在原文上命中载荷内数据。
+ *  语义：heredoc 定界行之后到闭合行为止是 python/node 的 stdin 数据（非 shell 语法），
+ *  对 shell 层判定（kill 词元/重定向）是数据 → 整体剥离。
+ *  安全红线（fail-closed）：
+ *  - 定界符带引号（<<'EOF' / <<"EOF"）→ 无展开无危险，剥。
+ *  - 定界符裸名且命令行含 $()/反引号/${} → 载荷内有 shell 展开（危险通道）→ 不剥，保守拦。
+ *  - 找不到闭合行（未闭合 heredoc）→ 不剥，fail-closed。
+ *  与 SHELL_PAYLOAD_CHANNEL 的关系：hasExecutionChannel 对 python heredoc 命令整体跳过脱敏
+ *  （现状保守路径），本函数供「需要语法基准的判定」在调用点选择使用。
+ */
+const HEREDOC_OPEN = /<<\s*["']?([A-Za-z_][A-Za-z0-9_]*)["']?/g;
+
+export function stripHeredocPayloads(command: string): string {
+  // 定界符带引号（无展开）→ 无条件可剥
+  if (/<<\s*['"][A-Za-z_][A-Za-z0-9_]*['"]/.test(command)) {
+    return blankHeredocBody(command);
+  }
+  // 裸定界符：命令行有展开特征时载荷可能含 $(...)（危险通道）→ 保守不剥
+  const outsideHeredoc = command.replace(HEREDOC_OPEN, "");
+  if (/\$\(|`|\$\{/.test(outsideHeredoc)) return command;
+  return blankHeredocBody(command);
+}
+
+/** 逐处 heredoc 剥载荷体（闭合行缺失 → 原样返回该处起全部，fail-closed） */
+function blankHeredocBody(command: string): string {
+  HEREDOC_OPEN.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  let out = "";
+  let cursor = 0;
+  while ((m = HEREDOC_OPEN.exec(command)) !== null) {
+    const openLineEnd = command.indexOf("\n", m.index);
+    if (openLineEnd === -1) break; // 无换行（单行 <<EOF 后无体）——无需剥
+    // 定界符必须独占一行（行首可选空白 + 词 + 行尾）才算闭合
+    const closerRe = new RegExp(`^[ \\t]*${m[1]}[ \\t]*$`, "gm");
+    closerRe.lastIndex = openLineEnd + 1;
+    const close = closerRe.exec(command);
+    if (!close) {
+      // 未闭合 heredoc：fail-closed——该处起不剥（含危险载荷），跳出
+      break;
+    }
+    out += command.slice(cursor, openLineEnd + 1);
+    out += " ".repeat(close.index - (openLineEnd + 1)); // 载荷体等长空格
+    cursor = close.index;
+    HEREDOC_OPEN.lastIndex = cursor + close[0].length;
+  }
+  if (cursor === 0) return command;
+  return out + command.slice(cursor);
+}
+
 /** #923 处置 c：shell 执行载荷通道——命中时命令里的引号段是「要执行的命令」本体 */
 const SHELL_PAYLOAD_CHANNEL = /\b(?:bash|sh|zsh)\s+-c\b|\|\s*(?:sh|bash|zsh)\b|\b(?:perl|ruby|python\d?)\s+.*(?:-e|-c)\s|\bnode\s+.*(?:-e|--eval)\s|<<</;
 
