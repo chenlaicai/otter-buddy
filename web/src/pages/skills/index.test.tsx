@@ -234,6 +234,44 @@ describe('翻页引擎边界（检视獭-uxrc2 发现回归防护：连击 off-b
     expect(view).toBe(2) // 原 bug：回放基准用旧 view → 双击落 1；修复后落 2
   })
 
+  it('同向三连击不丢步（终验 N3 回归钉死）：步进累计不因 last-wins 吞步', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      // 8 skill：壹1+1 贰1+2 叁1+2 肆1+1 伍1+1 = 12 内容页 → sheetCount 7 → maxView 7
+      new Response(JSON.stringify({ skills: [
+        { name: 'companion', description: 'Use when: 聊. Output: 天.' },
+        { name: 'core-workflow', description: '查历史。' },
+        { name: 'troubleshooting', description: '排查。' },
+        { name: 'requirement-analysis', description: 'Use when: 方案. Output: 文档.' },
+        { name: 'code-implementation', description: 'Use when: 写码. Output: PR.' },
+        { name: 'worktree-isolation', description: 'Use when: git. Output: worktree.' },
+        { name: 'otter-summon', description: 'Use when: 召唤. Output: 编排.' },
+        { name: 'visual-design', description: 'Use when: 设计. Output: 稿.' },
+      ] }), { status: 200 }),
+    )
+    render()
+    await act(async () => {})
+
+    const next = () => container.querySelector<HTMLElement>('[data-testid="nav-next"]')!
+    // 三连击（全部落在同一个动画窗口内）
+    act(() => { next().click() })
+    act(() => { next().click() })
+    act(() => { next().click() })
+    await new Promise(r => setTimeout(r, 750))
+    await act(async () => {})
+    let view = Number((container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view)
+    expect(view).toBe(3) // N3 回归：last-wins 绝对目标吞成 2；步进累计应落 3
+
+    // 接着四连击（从视野 3 再连击四下）
+    act(() => { next().click() })
+    act(() => { next().click() })
+    act(() => { next().click() })
+    act(() => { next().click() })
+    await new Promise(r => setTimeout(r, 750))
+    await act(async () => {})
+    view = Number((container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view)
+    expect(view).toBe(7) // 3 + 4 = 7；若吞步会落更少
+  })
+
   it('动画窗口内点章节耳直达：不被压成 ±1 步（delta 复核发现的第三形态）', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ skills: ODD_SKILLS }), { status: 200 }),

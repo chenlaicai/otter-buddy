@@ -104,7 +104,7 @@ export default function SkillsPage() {
   const [flipping, setFlipping] = useState(false)
   const viewRef = useRef(0) // 真实 view（闭包读，绕开 setState 异步）
   const flippingRef = useRef(false)
-  const queueRef = useRef(0)
+  const queueRef = useRef(QUEUE_EMPTY)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -136,14 +136,19 @@ export default function SkillsPage() {
   maxViewRef.current = maxView
 
   /** 翻页引擎（检视修复版）：回放基准 = viewRef（动画落地后的真实值，原 bug 用翻页前 view 丢步）
-   *  纯事件驱动无 setState updater 副作用（StrictMode 安全）；timerRef 卸载可清理
-   *  delta 复核修复：动画窗口内的耳/目录跳转不再被压成 ±1 步——排队存绝对目标
-   *  （后写覆盖先写，语义=「连击取最终意图」；步进热区/键盘仍走增量路径） */
+ *  纯事件驱动无 setState updater 副作用（StrictMode 安全）；timerRef 卸载可清理
+ *
+ *  排队语义（终验 N3 两全修复）：
+ *  - 步进类（|t-cur|≤1，热区/键盘）：从排队目标累计——同向连击不丢步（三连击落 3）
+ *  - 跳转类（|t-cur|>1，章节耳/TOC）：绝对目标覆盖——动画中直达不退化（点耳落 8）
+ *  两形态共存（检视实证：单一 last-wins 吞连击，单一 sign 累计压直达） */
   const goView = useCallback((target: number) => {
     const cur = viewRef.current
     const t = Math.max(0, Math.min(maxViewRef.current, target))
     if (flippingRef.current) {
-      if (t !== cur) queueRef.current = t // 绝对目标：直达类跳转不退化（原 Math.sign 压成 ±1 步）
+      if (t === cur) return
+      const queued = queueRef.current !== QUEUE_EMPTY ? queueRef.current : cur
+      queueRef.current = Math.abs(t - cur) <= 1 ? queued + (t - cur) : t
       return
     }
     if (t === cur) return
@@ -154,10 +159,10 @@ export default function SkillsPage() {
     timerRef.current = setTimeout(() => {
       flippingRef.current = false
       setFlipping(false)
-      if (queueRef.current !== 0) {
+      if (queueRef.current !== QUEUE_EMPTY) {
         const target2 = Math.max(0, Math.min(maxViewRef.current, queueRef.current))
-        queueRef.current = 0
-        goView(target2) // 回放绝对目标（off-by-one 修复点 + 直达不退化）
+        queueRef.current = QUEUE_EMPTY
+        goView(target2)
       }
     }, FLIP_MS)
   }, [])
@@ -305,6 +310,8 @@ export default function SkillsPage() {
 
 /** 翻页动画时长（CSS transition 与 JS 回收定时共享，单一真相源） */
 const FLIP_MS = 650
+/** 排队空哨兵（0 是合法视野号，不能用 0 表示空） */
+const QUEUE_EMPTY = -1
 
 /** 封面纸面 */
 function CoverFace({ total, chapters, degraded }: { total: number; chapters: number; degraded: boolean }) {
