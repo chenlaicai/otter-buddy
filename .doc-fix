@@ -1,1 +1,0 @@
-merge main 带入既有已合入变更：F20260917mfrc-memory-first-recall.md 的 frontmatter 结构调整（verify_by 字段内移 + created_at 补充），来自上游 main 已合入 commit，本分支仅同步不做内容修改，变更行全部在 frontmatter 块内。
