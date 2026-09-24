@@ -1,1 +1,0 @@
-PR #1162 检视处置轮元数据订正（全部改动落在 frontmatter 块内）：① F20260917mfrc expected_effect 措辞订正「升至少 2 个百分点以上」→「升 2 个百分点以上」（消除「至少…以上」冗余，检视建议 2）；② F20260923icus expected_effect 删除与 token 落库语义无关的从句「——lint 统计口径含 cache 数据时基线可对比」（检视建议 1）。
