@@ -159,8 +159,14 @@ export interface AppConfig {
       enabled?: boolean;
       /** F20260920imax：session 静默重启阈值小时数（last-entry 距今，默认 8；旧名 rotationHours 已废弃） */
       sessionIdleHours?: number;
-      /** F20260920imax：助理线模型（自动开户的对话大獭用此模型；缺省 = 全局 default） */
+      /** F20260920imax：助理线模型（自动开户的对话大獭用此模型；缺省 = 全局 default）。
+       *  F20260924wast：web 助理共用此配置值（对话实例各自独立——改配置后 web 助理下个 session 生效） */
       modelAlias?: string;
+      /** F20260924wast：web 助理（浮动獭）总开关（默认 true；关闭时前端浮动獭不挂载，
+       *  降级入口 = 侧栏 web 助理对话页。DI 启动注入，改配置需重启进程生效） */
+      web?: {
+        enabled?: boolean;
+      };
     };
   };
   inbound?: {
@@ -335,6 +341,9 @@ interface RawConfig {
       enabled?: boolean;
       sessionIdleHours?: number;
       modelAlias?: string;
+      web?: {
+        enabled?: boolean;
+      };
     };
   };
   inbound?: {
@@ -545,7 +554,8 @@ function buildWeixinConfig(raw: RawConfig): AppConfig["weixin"] {
   };
 }
 
-/** F20260918imas / F20260920imax：IM 助理模式配置（默认开启；对话永续 + 8h 静默 session 重启；模型可配） */
+/** F20260918imas / F20260920imax：IM 助理模式配置（默认开启；对话永续 + 8h 静默 session 重启；模型可配）。
+ *  F20260924wast：web 助理开关归入同段（assistant.web.enabled，默认开启） */
 function buildImConfig(raw: RawConfig): AppConfig["im"] {
   const seg = raw.im?.assistant;
   return {
@@ -553,6 +563,9 @@ function buildImConfig(raw: RawConfig): AppConfig["im"] {
       enabled: seg?.enabled !== false,
       sessionIdleHours: Math.max(seg?.sessionIdleHours ?? 8, 1),
       ...(seg?.modelAlias && { modelAlias: seg.modelAlias }),
+      web: {
+        enabled: seg?.web?.enabled !== false,
+      },
     },
   };
 }

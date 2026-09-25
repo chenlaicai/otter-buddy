@@ -6,6 +6,8 @@
  */
 export type ConversationStatus = "active" | "archived";
 
+export type ConversationKind = "normal" | "assistant" | "web-assistant";
+
 /** 对话实体（无对话树，独立实体） */
 export interface Conversation {
   id: string;
@@ -13,8 +15,9 @@ export interface Conversation {
   status: ConversationStatus;
   summary: string | null;
   pinned: boolean;
-  /** F20260920imax：对话类别——assistant = IM 助理自动开户（schema 字段取代 title 前缀约定） */
-  kind: "normal" | "assistant";
+  /** F20260920imax：对话类别——assistant = IM 助理自动开户（schema 字段取代 title 前缀约定）；
+   *  F20260924wast：web-assistant = web 浮动獭全局唯一助理对话 */
+  kind: ConversationKind;
   /** 工作区相对路径（相对于 dataDir），null 表示无工作区（旧数据） */
   workspaceDir: string | null;
   createdAt: string;
@@ -26,7 +29,7 @@ export interface Conversation {
 /** F20260920imax：测试/存量构造便捷类型——kind 可缺省（normal 默认）。
  *  实体接口 Conversation.kind 仍为必填，避免读端到处判 undefined；
  *  写端（create/insert）用 Conversations 兼容形式收敛可逃逸的可选性 */
-export type ConversationInput = Omit<Conversation, "kind"> & { kind?: "normal" | "assistant" };
+export type ConversationInput = Omit<Conversation, "kind"> & { kind?: ConversationKind };
 
 /** 归一化：缺省 kind 补 normal（构造入口统一，防止 undefined 流入写库路径） */
 export function normalizeConversationInput(input: ConversationInput): Conversation {

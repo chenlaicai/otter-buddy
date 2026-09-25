@@ -5,17 +5,19 @@ import { mapConversationDTO } from '../../lib/mappers'
 import { resolveOtterVisual } from '../../lib/otter-visual'
 import { fmtRelativeTime } from '../../lib/utils'
 import * as api from '../../api/client'
+import { showToast } from '../../components/Toast'
 
 /** F20260918imas：助理分组标题（与后端 DTO kind 标识同步出现） */
 const ASSISTANT_GROUP_LABEL = 'IM 助理'
-/** F20260922cgrp：三分组标题 */
+/** F20260922cgrp：三分组标题（F20260924wast 增 web 助理组） */
+const WEB_ASSISTANT_GROUP_LABEL = 'web 助理'
 const CONVERSATION_GROUP_LABEL = '对话'
 const ARCHIVED_GROUP_LABEL = '已归档'
 
 /** F20260922cgrp：分组分页固定页大小（搭档拍板：一页固定 20 个，不做下拉加载更多） */
 const PAGE_SIZE = 20
 
-type GroupKey = 'assistant' | 'conversation' | 'archived'
+type GroupKey = 'assistant' | 'webAssistant' | 'conversation' | 'archived'
 
 /** F20260922cgrp：折叠状态持久化 localStorage（默认：助理开、对话开、归档关） */
 const COLLAPSED_KEY = (g: GroupKey) => `leftPanel:collapsed:${g}`
@@ -129,6 +131,21 @@ function GroupHeader({
 export function LeftPanel({ conversations, activeId, onSelect, onNewConversation, onContextMenu, otters, onRefresh }: LeftPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
+  // K4：web 助理空组「创建」入口状态（开关关闭+从未开户的降级路径兑底）
+  const [webAssistantCreating, setWebAssistantCreating] = useState(false)
+  const handleCreateWebAssistant = useCallback(async () => {
+    setWebAssistantCreating(true)
+    try {
+      const conv = await api.createConversation({ title: 'web 助理', kind: 'web-assistant' })
+      onSelect(conv.id)
+      onRefresh?.()
+    } catch {
+      showToast('创建 web 助理对话失败', 'error')
+    } finally {
+      setWebAssistantCreating(false)
+    }
+  }, [onSelect, onRefresh])
+
   // ── 对话标题搜索（F20260916lpsc）──
   // Why: 就地展开输入框 + 服务端 LIKE 过滤。搜索态下列表替换为命中结果（平铺、不分组不分页），
   // 清空恢复分组视图。防抖 300ms 防每次击键一发请求。
@@ -164,6 +181,7 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
   // ── F20260922cgrp：三分组折叠状态（localStorage 持久化；默认 助理开/对话开/归档关）──
   const [collapsed, setCollapsed] = useState<Record<GroupKey, boolean>>(() => ({
     assistant: localStorage.getItem(COLLAPSED_KEY('assistant')) === '1',
+    webAssistant: localStorage.getItem(COLLAPSED_KEY('webAssistant')) === '1',
     conversation: localStorage.getItem(COLLAPSED_KEY('conversation')) === '1',
     archived: localStorage.getItem(COLLAPSED_KEY('archived')) !== '0', // 默认关
   }))
@@ -178,8 +196,10 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
   // ── F20260922cgrp：分组数据──
   // IM 助理 + 置顶区来自父组件 conversations（全量，数量小）；
   // 普通对话 + 已归档走独立分页查询（每页 20 条 + total 页码跳转）。
+  // F20260924wast：web 助理独立分组（浮动獭降级入口）
   const assistantConvs = conversations.filter(c => c.kind === 'assistant')
-  const pinnedConvs = conversations.filter(c => c.kind !== 'assistant' && c.pinned)
+  const webAssistantConvs = conversations.filter(c => c.kind === 'web-assistant')
+  const pinnedConvs = conversations.filter(c => !c.kind && c.pinned)
 
   const [normalPage, setNormalPage] = useState(1)
   const [normalItems, setNormalItems] = useState<Conversation[]>([])
@@ -355,6 +375,38 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
               testid="leftpanel-group-assistant"
             />
             {!collapsed.assistant && assistantConvs.map(c => (
+              <ConversationItem
+                key={c.id}
+                conversation={c}
+                isActive={c.id === activeId}
+                onSelect={onSelect}
+                onContextMenu={onContextMenu}
+                otters={otters}
+              />
+            ))}
+
+            {/* ── 《web 助理》组：浮动獭对话（全局唯一；浮动獭关闭时的降级入口）。
+                 K4：空组时给「创建」入口——否则「开关关闭+从未开户」时降级路径断裂 */}
+            <GroupHeader
+              label={WEB_ASSISTANT_GROUP_LABEL}
+              count={webAssistantConvs.length}
+              collapsed={collapsed.webAssistant}
+              onToggle={() => toggleGroup('webAssistant')}
+              testid="leftpanel-group-web-assistant"
+            />
+            {!collapsed.webAssistant && webAssistantConvs.length === 0 && (
+              <button
+                type="button"
+                data-testid="leftpanel-web-assistant-create"
+                disabled={webAssistantCreating}
+                onClick={() => void handleCreateWebAssistant()}
+                className="w-full text-left text-[11px] text-teal-600 hover:bg-teal-50 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5 transition"
+              >
+                <Plus className="w-3 h-3 flex-shrink-0" />
+                {webAssistantCreating ? '正在创建…' : '创建 web 助理对话'}
+              </button>
+            )}
+            {!collapsed.webAssistant && webAssistantConvs.map(c => (
               <ConversationItem
                 key={c.id}
                 conversation={c}

@@ -17,6 +17,12 @@ import { fmtImTime } from "@usecases/im/time-format";
  *   收篇摘要顺手沉淀记忆（跨 session 连续感由记忆承载）
  * - 助理对话建库时写 kind='assistant'（schema 字段取代 title 前缀约定）
  *
+ * F20260924wast：maybeRestartIdleSession 从 private 暴露公开入口
+ * checkIdleAndRestartSession——HTTP sendMessage 链（web 助理对话）在 precheck 后、
+ * sendEntry 前调用（S1 修复：纯 web 使用场景 session 永不轮换的缺口）。并发防重：
+ * restarting 集合按 conversationId 加进行中标记（双 tab 同 tick 触发时收敛为一次），
+ * 完成/失败均清除标记（失败下次消息再试，与 IM 链失败语义一致）。
+ *
  * 交接摘要 v1 为机械拼接（确定性可测，不经 LLM）——与 #1049 统一交接架构的
  * narrative-synthesis 引擎刻意区隔：8h 重启的交接原料是「对话静默期边界」，语义
  * 简单（用户隔天回来），机械摘要足够；水位触发的 LLM 叙事合成留给主链路。
@@ -47,6 +53,10 @@ export class AssistantSessionManager {
     },
   ) {}
 
+  /** F20260924wast（D1）：restart 进行中标记（conversationId 集合）——双 tab 同 tick
+   *  对同一对话并发触发 restart 时的防重闸；完成/失败均清除（失败下次消息再试） */
+  private readonly restarting = new Set<string>();
+
   /**
    * 确保该 connection 有可用的助理对话（入站主链唯一入口）：
    * - 无绑定 → 自动开户（建对话 + 绑定，kind=assistant）
@@ -74,6 +84,14 @@ export class AssistantSessionManager {
     // F20260920imax：对话永续——不轮换不翻篇；仅做 session 静默检查
     await this.maybeRestartIdleSession(current.id);
     return current;
+  }
+
+  /** F20260924wast（S1）：HTTP sendMessage 链公开入口——web 助理对话的 8h 静默
+   *  session 重启检查。语义与 IM 入站链 ensureAssistantConversation 内联检查完全
+   *  一致（同一 maybeRestartIdleSession 实现）；调用方（message-controller）负责
+   *  严格限定 kind=web-assistant 对话（IM 助理对话由 IM 入站链保证，不重复触发）。 */
+  async checkIdleAndRestartSession(conversationId: string): Promise<void> {
+    await this.maybeRestartIdleSession(conversationId);
   }
 
   /** 自动开户：建助理对话（kind=assistant，title = 搭档起的名）+ 绑定 connection（与 /in 同一事务入口，互斥语义复用）。
@@ -111,9 +129,13 @@ export class AssistantSessionManager {
    * 触发锚 = 对话最后一条 entry 距今超过 sessionIdleHours（活跃对话持续刷新天然不触发）。
    * 交接摘要 = 机械拼接（writeDigest），作为 restartSession 的 summary 注入新 session 前世上下文。
    * 摘要落 summary + 记忆照旧（连续性锚）。失败不阻塞消息处理（丢摘要代价 < 丢消息代价）。
+   * F20260924wast（D1）：进行中标记防重——同对话并发触发（双 tab 同 tick）时后续调用
+   *  直接跳过（首个完成的 restart 已换新 session，后续消息落新 session 天然正确）。
    */
   private async maybeRestartIdleSession(conversationId: string): Promise<void> {
     if (!this.deps.manageSession || !this.deps.getOtterIds) return;
+    if (this.restarting.has(conversationId)) return; // 并发防重：同对话 restart 进行中
+    this.restarting.add(conversationId);
     try {
       const latest = await this.deps.entryRepo.getEntries(conversationId, { limit: 1 });
       if (latest.length === 0) return; // 空对话（异常态，如孤儿）不处理
@@ -149,6 +171,9 @@ export class AssistantSessionManager {
       this.deps.logger.error("Assistant session idle restart failed (message continues)", err instanceof Error ? err : undefined, {
         conversationId,
       });
+    } finally {
+      // F20260924wast（D1）：防重标记在成功/失败/提前返回路径统一清除
+      this.restarting.delete(conversationId);
     }
   }
 

@@ -16,6 +16,8 @@ import type { CreateConversationRequestDTO } from "../dto/conversation-dto";
 import { DomainError } from "@entities/errors";
 import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
 import type { ListConversationsFilter } from "@usecases/conversation/conversation-repository";
+/** F20260924wast：web 助理开户（幂等 + 人设后端注入） */
+import type { WebAssistantProvisioner } from "@usecases/conversation/web-assistant-provisioner";
 
 /**
  * 解析 GET /api/conversations 的过滤参数（F20260922cgrp：status/kind 过滤——三分组分页数据源）。
@@ -28,6 +30,11 @@ function parseBoolQuery(raw: string | undefined): boolean | undefined {
   return undefined;
 }
 
+/** F20260924wast：kind 合法值解析（normal | assistant | web-assistant，其余 undefined） */
+function parseKindQuery(raw: string | undefined): "normal" | "assistant" | "web-assistant" | undefined {
+  return raw === "normal" || raw === "assistant" || raw === "web-assistant" ? raw : undefined;
+}
+
 function parseListFilter(c: Context): ListConversationsFilter | string {
   const limit = parseInt(c.req.query("limit") ?? "50", 10);
   const offset = parseInt(c.req.query("offset") ?? "0", 10);
@@ -38,14 +45,14 @@ function parseListFilter(c: Context): ListConversationsFilter | string {
   const search = c.req.query("search") || undefined;
   const statusRaw = c.req.query("status");
   const status = statusRaw === "active" || statusRaw === "archived" ? statusRaw : undefined;
-  const kindRaw = c.req.query("kind");
-  const kind = kindRaw === "assistant" || kindRaw === "normal" ? kindRaw : undefined;
+  const kind = parseKindQuery(c.req.query("kind"));
   /** F20260922cgrp delta：pinned=true|false（普通区分页传 false 排除置顶，计数口径对齐） */
   const pinned = parseBoolQuery(c.req.query("pinned"));
   return { limit, offset, search, status, kind, pinned };
 }
 
 export class ConversationController {
+  // eslint-disable-next-line max-params -- 依赖由 DI 装配，参数数量由依赖决定（message-controller 同款）
   constructor(
     private readonly manageConversation: ManageConversation,
     private readonly manageParticipant: ManageParticipant,
@@ -54,6 +61,8 @@ export class ConversationController {
     /** 新建对话选大獭模型：modelAlias 校验（otter-controller 同层先例）。
      *  可选注入保持测试兼容；未注入时跳过校验，usecase 层缺省走默认模型 */
     private readonly modelPool?: ModelPoolLike,
+    /** F20260924wast：web 助理开户（首唤幂等创建，kind=web-assistant 人设后端注入）。可选注入 */
+    private readonly webAssistantProvisioner?: WebAssistantProvisioner,
   ) {}
 
   async list(c: Context): Promise<Response> {
@@ -86,6 +95,21 @@ export class ConversationController {
   async create(c: Context): Promise<Response> {
     try {
       const body = await safeJsonBody<CreateConversationRequestDTO>(c);
+      /** F20260924wast：kind=web-assistant = web 助理首唤开户——走幂等 provisioner
+       *  （人设后端注入 + 并发收敛），忽略 title/modelAlias 等其余字段 */
+      if (body.kind === "web-assistant") {
+        if (!this.webAssistantProvisioner) {
+          return c.json({ error: "Web assistant provisioner not configured" }, 500);
+        }
+        const result = await this.webAssistantProvisioner.ensure();
+        const conv = await this.manageConversation.getById(result.conversationId);
+        if (!conv) {
+          return c.json({ error: "Web assistant conversation lost after provision" }, 500);
+        }
+        const participantsWithOtter = await this.manageParticipant.getActiveParticipants(conv.id);
+        const otterIds = participantsWithOtter.map((p) => p.participant.otterId);
+        return c.json(toConversationListItemDTO(conv, otterIds), result.created ? 201 : 200);
+      }
       /** 新建对话选大獭模型：与 otter-controller.create 同款校验（400 附可用列表）。
        *  未注入 modelPool 时跳过校验（测试/降级场景） */
       if (this.modelPool && body.modelAlias && !this.modelPool.hasModel(body.modelAlias)) {

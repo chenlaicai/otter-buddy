@@ -32,6 +32,8 @@ import { ManageContext } from "@usecases/otter/manage-context";
 import { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 import { ManageConnection } from "@usecases/im/manage-connection";
 import { AssistantSessionManager } from "@usecases/im/assistant-session";
+/** F20260924wast：web 助理开户（幂等 + 人设后端注入） */
+import { WebAssistantProvisioner } from "@usecases/conversation/web-assistant-provisioner";
 import { AttachmentUploadService } from "@usecases/conversation/attachment-upload-service";
 import { ManageWorkspace } from "@usecases/conversation/manage-workspace";
 import { SendEntry } from "@usecases/conversation/send-entry";
@@ -105,6 +107,9 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
     logger,
     sessionIdleHours: appConfig.im?.assistant?.sessionIdleHours ?? 8,
   });
+  // F20260924wast：web 助理开户（全局唯一 kind=web-assistant 对话；幂等 + 人设注入；
+  // modelAlias 共用 im.assistant.modelAlias——对话实例各自独立，改配置下个 session 生效）
+  const webAssistantProvisioner = buildWebAssistantProvisioner(repos.conversation, createOtter, appConfig, logger);
   // 多模态 Phase 1：附件上传服务（storageRoot 等来自 config.attachments）
   const attachmentUpload = buildAttachmentUploadService(repos, appConfig, logger);
   // 工作区文件浏览（只读）——workspaceGateway 可选注入
@@ -124,11 +129,27 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
     queryOtter, createOtter, manageSession, dissolveOtter, manageContext,
     manageScheduledTask, manageConnection,
     assistantSession,
+    webAssistantProvisioner,
     createEdge, getRelated, deleteEdge, getDocProvenance,
     attachmentUpload,
     manageWorkspace,
     sendEntry,
   };
+}
+
+/** F20260924wast：web 助理开户工厂（initUseCases 行数限额拆出） */
+function buildWebAssistantProvisioner(
+  conversationRepo: Repositories["conversation"],
+  createOtter: CreateOtter,
+  appConfig: AppConfig,
+  logger: Logger,
+): WebAssistantProvisioner {
+  return new WebAssistantProvisioner({
+    conversationRepo,
+    createOtter,
+    ...(appConfig.im?.assistant?.modelAlias && { modelAlias: appConfig.im.assistant.modelAlias }),
+    logger,
+  });
 }
 
 /** 多模态 Phase 1：附件上传服务工厂（config.attachments 缺省值内置） */

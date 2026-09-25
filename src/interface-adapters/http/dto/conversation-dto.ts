@@ -15,8 +15,9 @@ export function toConversationDTO(conv: Conversation): ConversationDTO {
     status: conv.status,
     pinned: conv.pinned,
     /** F20260920imax：助理对话标识改 schema 字段单一真相源（原 title 前缀约定退役；
-     *  存量库由迁移回填，见 migration.ts ensureConversationsKindColumn） */
-    ...(conv.kind === "assistant" && { kind: "assistant" }),
+     *  存量库由迁移回填，见 migration.ts ensureConversationsKindColumn）。
+     *  F20260924wast：kind 扩 web-assistant（web 浮动獭全局唯一对话，前端侧栏独立分组） */
+    ...(conv.kind !== "normal" && { kind: conv.kind }),
     createdAt: conv.createdAt,
     updatedAt: conv.updatedAt,
     completedAt: conv.completedAt,
