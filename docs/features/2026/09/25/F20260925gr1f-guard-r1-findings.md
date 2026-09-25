@@ -1,9 +1,9 @@
 ---
-id: F20260923gr1f
+id: F20260925gr1f
 title: bash 守卫 r1 审视发现处置（#1154）：载荷级判定 + 遮蔽修复 + 管道右段标记
 change_type: fix
 status: implemented
-created: 2026-09-23
+created: 2026-09-25
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:
   - src/frameworks/agent/kill-segment-finder.ts
@@ -21,7 +21,7 @@ capability_test: tests/frameworks/agent/bash-safety-guard.test.ts
 from: [F20260922gpqa]
 ---
 
-# F20260923gr1f bash 守卫 r1 审视发现处置（#1154）
+# F20260925gr1f bash 守卫 r1 审视发现处置（#1154）
 
 ## 背景
 
