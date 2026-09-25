@@ -71,6 +71,10 @@ export function ConversationModals(props: ModalsProps) {
       {modal.type === 'archive' && <ArchiveModal {...props} />}
       {modal.type === 'create-otter' && <CreateOtterModal {...props} />}
       {modal.type === 'dissolve' && <DissolveModal {...props} />}
+      {/* F20260924uxrc：确认即转后台交接——RestartModal 只负责表单收集，
+           submitting 交接收尾（防连点→API 返回后关弹窗）由 index.confirmRestart 落地：
+           await 期间 Modal 锁死全屏 5-15s（合成前世档案）= 搭档实证「啥也干不了」。
+           新语义：onConfirmRestart 触发即关弹窗 + 即时 toast，重活留在后台。 */}
       {modal.type === 'restart' && <RestartModal {...props} />}
       {modal.type === 'otter-detail' && modal.otterId && <OtterDetailModal key={modal.otterId} {...props} />}
       {modal.type === 'link-resource' && <LinkResourceModal {...props} />}
@@ -378,7 +382,10 @@ function RestartModal(props: ModalsProps) {
       footer={
         <>
           <ModalButton onClick={props.onClose} disabled={submitting}>取消</ModalButton>
-          {/* F20260920uhuc：交接态反馈 + 防连点——合成期间按钮锁死，文案告知正在封装前世档案 */}
+          {/* F20260920uhuc 交接态反馈 + 防连点：合成期间按钮锁死，文案告知正在封装前世档案
+              F20260924uxrc：只保留「点击即锁」的防连点窗口（同步清 summary），
+              持久 submitting 态已删——index.confirmRestart 确认即关弹窗转后台，
+              原 await 期间弹窗锁死全屏 = 搭档实证「啥也干不了」 */}
           <ModalButton
             variant="danger"
             disabled={submitting}
@@ -389,9 +396,7 @@ function RestartModal(props: ModalsProps) {
               setSummary('')
             }}
           >
-            {submitting
-              ? (synthesizePast ? '正在封装前世档案…（预计 5-15s，最长约 1 分钟）' : '正在重启…（秒级）')
-              : '确认重启'}
+            确认重启
           </ModalButton>
         </>
       }
