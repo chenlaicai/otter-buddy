@@ -23,8 +23,9 @@ export interface LocalConversation {
   /** F20260922cgrp：弱状态两态——completed 退役 */
   status: 'active' | 'archived'
   pinned: boolean
-  /** F20260918imas：助理对话标识（IM 自动开户；缺省 = 普通对话。左侧栏分组依据） */
-  kind?: 'assistant'
+  /** F20260918imas：助理对话标识（IM 自动开户；缺省 = 普通对话。左侧栏分组依据）。
+   *  F20260924wast：扩 web-assistant（web 浮动獭全局唯一对话，独立分组） */
+  kind?: 'assistant' | 'web-assistant'
   otterIds: string[]
   /** 未读消息计数（消息级） */
   unreadCount?: number
@@ -219,7 +220,8 @@ export function mapConversationDTO(dto: ConversationListItemDTO | ConversationDT
     title: dto.title,
     status: dto.status as 'active' | 'archived',
     pinned: dto.pinned,
-    ...(dto.kind === 'assistant' && { kind: 'assistant' as const }),
+    // F20260924wast：kind 联合类型只含非 normal 值（DTO 缺省 = normal）
+    ...(dto.kind && { kind: dto.kind }),
     otterIds: 'otterIds' in dto ? dto.otterIds : [],
     ...('unreadCount' in dto && { unreadCount: dto.unreadCount }),
     ...('lastMessagePreview' in dto && { lastMessagePreview: dto.lastMessagePreview }),

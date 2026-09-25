@@ -574,6 +574,8 @@ export function createMockDeps(): TestDeps {
       dbPath: "./otter-buddy.db",
       embeddingModelPath: "./embedding.bin",
       embeddingDim: 1024,
+      // F20260924wast：浮动獭开关（测试基线默认开）
+      assistantWebEnabled: true,
     },
     settingsRepo: mockMethods(["get", "update", "getAll"]),
     modelPool: buildModelPool("main", [{ config: { alias: "main", provider: "openai", model: "gpt-4o", handoffThresholdTokens: 100_000 }, model: { id: "gpt-4o" } as never }]),

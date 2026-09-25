@@ -8,14 +8,15 @@ import * as api from '../../api/client'
 
 /** F20260918imas：助理分组标题（与后端 DTO kind 标识同步出现） */
 const ASSISTANT_GROUP_LABEL = 'IM 助理'
-/** F20260922cgrp：三分组标题 */
+/** F20260922cgrp：三分组标题（F20260924wast 增 web 助理组） */
+const WEB_ASSISTANT_GROUP_LABEL = 'web 助理'
 const CONVERSATION_GROUP_LABEL = '对话'
 const ARCHIVED_GROUP_LABEL = '已归档'
 
 /** F20260922cgrp：分组分页固定页大小（搭档拍板：一页固定 20 个，不做下拉加载更多） */
 const PAGE_SIZE = 20
 
-type GroupKey = 'assistant' | 'conversation' | 'archived'
+type GroupKey = 'assistant' | 'webAssistant' | 'conversation' | 'archived'
 
 /** F20260922cgrp：折叠状态持久化 localStorage（默认：助理开、对话开、归档关） */
 const COLLAPSED_KEY = (g: GroupKey) => `leftPanel:collapsed:${g}`
@@ -164,6 +165,7 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
   // ── F20260922cgrp：三分组折叠状态（localStorage 持久化；默认 助理开/对话开/归档关）──
   const [collapsed, setCollapsed] = useState<Record<GroupKey, boolean>>(() => ({
     assistant: localStorage.getItem(COLLAPSED_KEY('assistant')) === '1',
+    webAssistant: localStorage.getItem(COLLAPSED_KEY('webAssistant')) === '1',
     conversation: localStorage.getItem(COLLAPSED_KEY('conversation')) === '1',
     archived: localStorage.getItem(COLLAPSED_KEY('archived')) !== '0', // 默认关
   }))
@@ -178,8 +180,10 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
   // ── F20260922cgrp：分组数据──
   // IM 助理 + 置顶区来自父组件 conversations（全量，数量小）；
   // 普通对话 + 已归档走独立分页查询（每页 20 条 + total 页码跳转）。
+  // F20260924wast：web 助理独立分组（浮动獭降级入口）
   const assistantConvs = conversations.filter(c => c.kind === 'assistant')
-  const pinnedConvs = conversations.filter(c => c.kind !== 'assistant' && c.pinned)
+  const webAssistantConvs = conversations.filter(c => c.kind === 'web-assistant')
+  const pinnedConvs = conversations.filter(c => !c.kind && c.pinned)
 
   const [normalPage, setNormalPage] = useState(1)
   const [normalItems, setNormalItems] = useState<Conversation[]>([])
@@ -355,6 +359,25 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
               testid="leftpanel-group-assistant"
             />
             {!collapsed.assistant && assistantConvs.map(c => (
+              <ConversationItem
+                key={c.id}
+                conversation={c}
+                isActive={c.id === activeId}
+                onSelect={onSelect}
+                onContextMenu={onContextMenu}
+                otters={otters}
+              />
+            ))}
+
+            {/* ── 《web 助理》组：浮动獭对话（全局唯一；浮动獭关闭时的降级入口）── */}
+            <GroupHeader
+              label={WEB_ASSISTANT_GROUP_LABEL}
+              count={webAssistantConvs.length}
+              collapsed={collapsed.webAssistant}
+              onToggle={() => toggleGroup('webAssistant')}
+              testid="leftpanel-group-web-assistant"
+            />
+            {!collapsed.webAssistant && webAssistantConvs.map(c => (
               <ConversationItem
                 key={c.id}
                 conversation={c}

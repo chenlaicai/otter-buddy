@@ -43,6 +43,9 @@ import type { InvokeRepository } from "@usecases/conversation/invoke-repository"
 /** 多模态 Phase 1（审视修复 R4/R7）：附件注入策略归位 usecases 层——controller 只透传调用 */
  
 import type { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
+/** F20260924wast（S1）：web 助理对话 8h 静默 session 重启检查（HTTP 链补链） */
+import type { AssistantSessionManager } from "@usecases/im/assistant-session";
+import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
 
 
 export class MessageController {
@@ -67,6 +70,13 @@ export class MessageController {
     /** F20260913ctlv 补漏：settle 判据数据源（K3 关流读 entries/invokes） */
     private readonly settleEntryRepo?: EntryRepository,
     private readonly settleInvokeRepo?: InvokeRepository,
+    /** F20260924wast（S1）：web 助理对话 session 重启检查——注入后 sendMessage 对
+     *  kind=web-assistant 对话在 precheck 后、sendEntry 前调 checkIdleAndRestartSession
+     *  （严格限定 web-assistant，IM 助理对话由 IM 入站链保证不重复触发）；可选注入 */
+    private readonly webAssistantSession?: {
+      checkIdleAndRestartSession: AssistantSessionManager["checkIdleAndRestartSession"];
+    },
+    private readonly conversationRepo?: Pick<ConversationRepository, "getById">,
   ) {}
 
   /** 批量解析 otter 消息的发送者显示名（dissolve 不删行，永远可解析） */
@@ -173,6 +183,19 @@ export class MessageController {
     return { response: null, payload: payloadResult };
   }
 
+  /** F20260924wast（S1）：web 助理对话 session 重启检查——precheck 后、sendEntry 前。
+   *  失败不阻塞发送（与 IM 链「丢摘要代价 < 丢消息代价」语义一致），只记日志。 */
+  private async checkWebAssistantSession(conversationId: string): Promise<void> {
+    if (!this.webAssistantSession || !this.conversationRepo) return;
+    try {
+      const conv = await this.conversationRepo.getById(conversationId);
+      if (conv?.kind !== "web-assistant") return; // 严格限定：只碰 web 助理对话
+      await this.webAssistantSession.checkIdleAndRestartSession(conversationId);
+    } catch (err) {
+      this.logger.error("Web assistant session idle check failed (message continues)", err instanceof Error ? err : undefined, { conversationId });
+    }
+  }
+
   async sendMessage(c: Context): Promise<Response> {
     try {
       const conversationId = param(c, "id");
@@ -182,6 +205,11 @@ export class MessageController {
       const early = await this.precheckSend(c, conversationId, body);
       if (early.response) return early.response;
       const payload = early.payload;
+
+      /** 1.5 F20260924wast（S1）：web 助理对话 8h 静默 session 重启检查
+       *  （precheck 后、sendEntry 前——重启先于新消息落库，新消息天然落新 session；
+       *  restart 内部有并发防重，不中断进行中的 dispatch/流式输出，D2 边界） */
+      await this.checkWebAssistantSession(conversationId);
 
       /** 2. F20260913ctlv 彻底切换：user 消息唯一落点 = entries（messages 表停写）。
        *  目标解析（默认派发/@提及）在 SendEntry 内完成；显式目标透传；talkingStonePassedTo 是点火依据。

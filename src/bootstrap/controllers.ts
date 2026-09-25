@@ -123,6 +123,8 @@ function buildSettingsConfig(appConfig: AppConfig): SettingsConfig {
     embeddingModelPath: appConfig.embedding.modelPath,
     embeddingLocalModelPath: appConfig.embedding.localModelPath,
     embeddingDim: appConfig.embedding.dimensions,
+    // F20260924wast：浮动獭开关（im.assistant.web.enabled，DI 启动注入；默认 true）
+    assistantWebEnabled: appConfig.im?.assistant?.web?.enabled !== false,
   };
 }
 
@@ -169,7 +171,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
   const attachmentInjection = buildAttachmentInjection(deps, appConfig, repos, logger);
 
   return {
-    conversation: new ConversationController(uc.manageConversation, uc.manageParticipant, settingsRepo, logger, modelPool),
+    conversation: new ConversationController(uc.manageConversation, uc.manageParticipant, settingsRepo, logger, modelPool, uc.webAssistantProvisioner),
     otter: new OtterController(uc.createOtter, uc.dissolveOtter, uc.manageSession, uc.queryOtter, logger, otterConfigProvider, deps.queryOtterProfile, modelPool, agentInvoker),
     message: new MessageController(
       uc.queryMessage, uc.manageReadState, agentInvoker, logger, uc.queryOtter,
@@ -180,6 +182,9 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
       uc.sendEntry,
       repos.entry,
       repos.invoke,
+      // F20260924wast（S1）：web 助理对话 8h 静默 session 重启检查（HTTP 链补链）
+      uc.assistantSession,
+      repos.conversation,
     ),
     // F20260913ctlv 彻底切换：invoke 查询 + 中止 + 重试（自足调度链）
     invoke: new InvokeController(repos.invoke, logger, agentInvoker, dispatchChainEngine, messageBroadcaster),
