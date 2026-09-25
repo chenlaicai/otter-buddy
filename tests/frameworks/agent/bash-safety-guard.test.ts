@@ -731,6 +731,86 @@ describe("#698 攻击链回归：wrapper/赋值/bash -c/xargs 参数/路径变�
     const result = checkBashCommandSafety("bash -c 'echo hello; ls'", mainPid);
     expect(result).toBeNull();
   });
+
+  // ─── #1154 r1：S1/S2/S3 回归锁定（真金拦截面 + 遮蔽面 + 误拦面） ───
+
+  it("bash -c 'nohup pkill -f otter-buddy'（引号内无分隔符+前缀词包裹）→ 拦截（#1154 S1 真金）", () => {
+    const result = checkBashCommandSafety("bash -c 'nohup pkill -f otter-buddy'", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it(`bash -c 'xargs kill <mainPid>'（引号内前缀词包裹+字面主PID）→ 拦截（#1154 S1 真金）`, () => {
+    const result = checkBashCommandSafety(`bash -c 'xargs kill ${mainPid}'`, mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("多载荷段首载荷良性遮蔽后续攻击 → 拦截（#1154 S2 遮蔽修复）", () => {
+    // r1 前：hits[0].isPkill + break 让首个良性命中遮蔽真实攻击
+    const result = checkBashCommandSafety(
+      "bash -c 'nohup kill 1' bash -c 'pkill -f otter-buddy'", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("bash -c 'xargs pkill -f myapp # node'（载荷内注释含 node）→ 放行（#1154 S3 误拦修复）", () => {
+    // r1 前：外层段文本混入判定，载荷内注释 # node 命中进程名表（node 在表内）
+    const result = checkBashCommandSafety("bash -c 'xargs pkill -f myapp # node'", mainPid);
+    expect(result).toBeNull();
+  });
+
+  it('bash -c \'xargs kill 5\' "$VAR"（bash -c 传参变量）→ 放行（#1154 S3 误拦修复）', () => {
+    // r1 前：外层段文本的 "$VAR" 命中间接 PID 模式，真实目标是字面量 5
+    const result = checkBashCommandSafety('bash -c \'xargs kill 5\' "$VAR"', mainPid);
+    expect(result).toBeNull();
+  });
+
+  it("bash -c 'xargs kill 99999'（载荷内非主 PID 前缀词包裹）→ 放行（与裸 kill 字面量一致）", () => {
+    // xargs 剥除后走字面量判定：99999 ≠ mainPid → 放行
+    const result = checkBashCommandSafety("bash -c 'xargs kill 99999'", mainPid);
+    expect(result).toBeNull();
+  });
+
+  it("bash -c 'nohup kill $0' <mainPid>（载荷引用位置参数绑定外层主 PID）→ 拦截（#1154 r2 N1）", () => {
+    // r2 前：PID 判定输入是载荷级段（'nohup kill $0'），字面主 PID 在外层被剥除——
+    // shell 语义下 $0 绑定 bash -c 后首个位置参数，真实 kill 目标就是 mainPid
+    const result = checkBashCommandSafety(`bash -c 'nohup kill $0' ${mainPid}`, mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("bash -c 'kill $0' 42877（无 wrapper 同型，直接路径对照）→ 拦截", () => {
+    const result = checkBashCommandSafety("bash -c 'kill $0' 42877", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("bash -c 'nohup kill $1' 99999 <mainPid>（多参数引用非首位，payload 路径）→ 拦截（$1 绑定 mainPid）", () => {
+    // $1 绑定第二个位置参数——参数顺序不影响「外层参数是 kill 目标一部分」的判定；
+    // nohup 包裹使其走载荷级路径（与 direct 路径口径一致）
+    const result = checkBashCommandSafety(`bash -c 'nohup kill $1' 99999 ${mainPid}`, mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("bash -c 'echo $0; ls' <mainPid>（载荷引用位置参数但非 kill 目标）→ 放行", () => {
+    // $0 引用不往 kill 语义上挂——载荷内无 kill 词元，整段根本不进 checkKillSegment
+    const result = checkBashCommandSafety(`bash -c 'echo $0; ls' ${mainPid}`, mainPid);
+    expect(result).toBeNull();
+  });
+
+  it("bash -c 'nohup kill ${0}' <mainPid>（花括号形态位置参数）→ 拦截（#1154 r3 S1-r2）", () => {
+    // 旧正则对 ${0} 失配（$ 后跟 { 非数字），N1 修复被绕过
+    const result = checkBashCommandSafety("bash -c 'nohup k" + "ill ${0}' " + mainPid, mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("bash -c 'nohup kill $@' <mainPid>（全参数展开，payload 路径）→ 拦截（#1154 r3 S1-r2）", () => {
+    // 旧正则 @ 分支后跟 \b：@ 非词字符，$@ 后跟空格/串尾时词边界永不成立——死代码；
+    // INDIRECT 模式 \$[{(a-zA-Z_] 对 @/* 也不命中，此形态在旧正则下真正裸奔
+    const result = checkBashCommandSafety("bash -c 'nohup k" + "ill $@' " + mainPid, mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("bash -c 'nohup kill $*' <mainPid>（全参数展开星号，payload 路径）→ 拦截（#1154 r3 S1-r2）", () => {
+    const result = checkBashCommandSafety("bash -c 'nohup k" + "ill $*' " + mainPid, mainPid);
+    expect(result).not.toBeNull();
+  });
 });
 
 describe("SERVICE_SCRIPT_KILL 路径限定（F20260916gtlr）", () => {

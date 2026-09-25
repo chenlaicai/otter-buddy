@@ -39,11 +39,6 @@ export function readMainProcessPid(projectRoot: string): number | null {
 
 // ─── 危险命令模式匹配 ───
 
-/** kill 族命令名（含路径穿透、~ 路径、变量赋值前缀、wrapper 命令、bash -c 引号内嵌）
- * F20260903gh698：(1) bash -c 支持引号包裹的内嵌命令（'kill N'/"kill N"/kill N）
- *                (2) 全模式加 i 标志（大小写不敏感）
- */
-
 const OTTER_PROCESS_PATTERNS = [
   "otter-buddy", "otter_buddy",
   "node.*main", "dist/src/main", "dist/src/main.js",
@@ -166,9 +161,22 @@ export function normalizeForDetection(command: string): string {
 /**
  * 检查 kill 段是否有非字面量 PID 目标。
  * 非字面量 = 变量引用 / 命令替换 / 管道 / eval / hex 转义
+ * #1154 r1（S3）：xargs 剥除仅限「无 stdin 来源」形态——管道上游（|）或命令替换
+ * $(...)/`...` 存在时 kill 目标来自外部输入（属间接，不剥，lsof | xargs kill
+ * 拦截面保留）；裸 xargs kill 无输入来源，剥除后走字面量判定与裸 kill 语义一致。
  */
-function hasIndirectPidTarget(segment: string): boolean {
-  return INDIRECT_PID_PATTERNS.some(pat => pat.test(segment));
+function hasIndirectPidTarget(segment: string, pipeSourced = false): boolean {
+  if (pipeSourced) {
+    // 上游 stdin 即间接来源——xargs 剥除禁用（剥除会让 `lsof | xargs kill` 的右段
+    // 「xargs kill」剥成空串放行，发现 1 实证）；`kill $P` 等形态按常规模式判定。
+    if (/xargs\b[^|;&]*\bkill\b/i.test(segment)) return true;
+    return INDIRECT_PID_PATTERNS.some(pat => pat.test(segment));
+  }
+  if (/[|`]|\$\(/.test(segment)) {
+    return INDIRECT_PID_PATTERNS.some(pat => pat.test(segment));
+  }
+  const stripped = segment.replace(/xargs\b[^|;&]*\bkill\b/i, "");
+  return INDIRECT_PID_PATTERNS.some(pat => pat.test(stripped));
 }
 
 /**
@@ -197,7 +205,10 @@ function extractLiteralPids(segment: string): number[] {
  * F20260903gh698：改用 word-boundary 正则——lower.includes("node") 会误匹配 "ffmpeg" 中的子串 "node"。
  */
 function pkillTargetsOtter(segment: string): boolean {
-  const lower = segment.toLowerCase();
+  // #1154 r1（S3）：剥 shell 注释再判定——`-f myapp # node` 的 `# node` 是注释
+  // 不是目标，不剥会让注释文本命中进程名表（node 在表内）造成误拦。
+  const noComment = segment.replace(/#.*$/, "");
+  const lower = noComment.toLowerCase();
   return OTTER_PROCESS_PATTERNS.some(
     pat => new RegExp("\\b" + pat.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b").test(lower),
   );
@@ -306,22 +317,48 @@ function checkCommandLevelPatterns(
   return null;
 }
 
+interface KillSegmentCtx {
+  segment: string;
+  isPkill: boolean;
+  mainPid: number;
+  command: string;
+  logger?: Logger;
+  payload?: string;
+  source?: "pipe";
+  outer?: string;
+}
+
 /** 检查 kill 段：pkill/killall 模式 或 kill 间接/字面量 PID */
-function checkKillSegment(
-  segment: string,
-  isPkill: boolean,
-  mainPid: number,
-  command: string,
-  logger?: Logger,
-): string | null {
+// eslint-disable-next-line complexity -- #1154 r1：pkill/间接/PID 文件/字面量四分支各对应一条已实证形态，合并会牺牲「一形态一分支」可读性
+function checkKillSegment(ctx: KillSegmentCtx): string | null {
+  const { segment, isPkill, mainPid, logger, payload, source, outer } = ctx;
+  // #1154 r1（S3）：载荷级命中的段，外层段文本剥离载荷后再参与判定——外层包装/
+  // 传参（如 bash -c '…' "$VAR" 的 $VAR）不是 kill 目标语义的一部分，混入会把
+  // 传参变量误判为间接 PID。
+  const outerContext = payload ? segment.replace(payload, " ") : segment;
+  // #1154 r2（N1，检视獭终局复核发现）：载荷引用位置参数（$0/$1/$@…）时外层
+  // 参数绑定到载荷内引用，成为 kill 目标的一部分（`bash -c 'nohup kill $0' 42877`
+  // 的 $0 绑定主 PID）——PID 判定（间接+字面量）输入换成真外层段，恢复字面主 PID
+  // 拦截面；无位置参数引用时维持 r1-S3 口径（外层传参不混入，防 $VAR 误拦）。
+  // pkill 进程名判定维持载荷级（r1-S3 方向正确——外层包装/注释不是目标名语义）。
+  // #1154 r3（S1-r2，检视獭 r2 delta 复核发现）：位置参数引用正则改 lookahead 写法——
+  // 旧写法 `\$(?:0|[1-9]\d*|@|\*)\b` 双缺陷：(a) `${0}` 花括号形态失配（$ 后紧跟 {，
+  // 非数字/@/*）；(b) `@`/`*` 是非词字符，`\b` 在其后永不成立，$@/$* 分支是死代码。
+  // 三种 shell 语义等价的杀主形态（`kill ${0}` / `kill $@` / `kill $*`）曾全部绕过 N1 修复。
+  const refsPositional = !!outer && !!payload && /\$\{?(?:0|[1-9]\d*|@|\*)\}?(?![\w$])/.test(payload);
+  const pidTextA = refsPositional ? outer : segment;
+  const pidTextB = refsPositional ? segment : outerContext;
+  // #1154 r1：管道右段（findKillSegments 标记 source:"pipe"）的 kill 目标来自上游
+  // stdin——分段后管道符不在段文本内，语义层按「含管道」路径恢复间接来源判定。
+  const pipeSourced = source === "pipe";
   if (isPkill) {
-    if (pkillTargetsOtter(segment)) {
+    if (pkillTargetsOtter(segment) || pkillTargetsOtter(outerContext)) {
       logger?.warn("[bash-safety-guard] BLOCKED pkill/killall targeting otter processes", { mainPid, segment: segment.substring(0, 200) });
       return "bash 命令包含按名匹配的批量终止命令（pkill/killall），可能影响主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。";
     }
     return null;
   }
-  if (hasIndirectPidTarget(segment)) {
+  if (hasIndirectPidTarget(pidTextA, pipeSourced) || hasIndirectPidTarget(pidTextB, pipeSourced)) {
     logger?.warn("[bash-safety-guard] BLOCKED kill with indirect PID target", { mainPid, segment: segment.substring(0, 200) });
     return "bash 命令中终止进程的目标为变量或命令替换（非字面量 PID），无法判断是否针对主进程。该命令不允许——若需终止/重启验证实例，在 worktree 内跑 scripts/alpha.sh stop（alpha 实例的标准清理方式，勿用组合杀）；若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
   }
@@ -329,7 +366,7 @@ function checkKillSegment(
     logger?.warn("[bash-safety-guard] BLOCKED kill referencing .otter-buddy.pid file", { mainPid, segment: segment.substring(0, 200) });
     return "bash 命令中终止进程的命令引用了主进程 PID 文件。主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。";
   }
-  const pids = extractLiteralPids(segment);
+  const pids = [...new Set([...extractLiteralPids(pidTextA), ...extractLiteralPids(pidTextB)])];
   if (pids.length > 0 && pids.includes(mainPid)) {
     logger?.warn("[bash-safety-guard] BLOCKED kill targeting main process PID", { mainPid, commandPids: pids, segment: segment.substring(0, 200) });
     // F20260831aksp：PID 数字脱敏——堵「错误 PID 试探 → 拦截文案回显真实 PID → 精准二次打击」链（结构化日志字段 commandPids 保留数值）
@@ -421,7 +458,6 @@ function checkDataDirDestructive(command: string, logger?: Logger, projectRoot?:
   return null;
 }
 
- 
 function checkBashCommandSafetyOnText(
   text: string,
   mainPid: number,
@@ -457,8 +493,8 @@ function checkBashCommandSafetyOnText(
     return "bash 命令中包含主进程 PID 文件引用和终止进程操作，可能针对主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
   }
 
-  for (const { segment, isPkill } of killSegments) {
-    const result = checkKillSegment(segment, isPkill, mainPid, text, logger);
+  for (const { segment, isPkill, payload, source, outer } of killSegments) {
+    const result = checkKillSegment({ segment, isPkill, mainPid, command: text, logger, payload, source, outer });
     if (result) return result;
   }
   return null;

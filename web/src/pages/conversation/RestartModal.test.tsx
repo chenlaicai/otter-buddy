@@ -1,11 +1,12 @@
 /**
- * F20260920uhuc：RestartModal 交互测试（UI 真机自查的组件层补充）。
+ * F20260924uxrc：确认即转后台交接后的 RestartModal 交互测试。
  *
- * 真机 Playwright 取证：空前世场景重启秒级完成，submitting 文案（正在封装前世档案…）
- * 与防连点窗口 <50ms 采样不到——本测试用 jsdom 受控环境钉死这两个行为：
- * 1. 确认后按钮进入 submitting 态（文案切换 + disabled）
- * 2. submitting 期间再次点击不重复触发 onConfirmRestart
- * 3. 勾选项默认勾选 / 取消勾选透传 false
+ * 行为变更：原「await 期间弹窗锁死 + 按钮文案切封装中文案」已删——
+ * index.confirmRestart 确认即关弹窗 + toast 后台反馈（搭档实证：
+ * 停留在弹窗啥也干不了）。本测试钉死新行为：
+ * 1. 勾选项默认勾选 / 取消勾选透传 false（保留自 F20260920uhuc）
+ * 2. 确认 → 立即触发 onConfirmRestart（同步，不等 API）
+ * 3. 防连点：点击后按钮进入 disabled 窗口，再次点击不重复触发
  */
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
@@ -20,7 +21,6 @@ const baseOtter: Otter = {
 
 function renderRestartModal(onConfirmRestart: (s: string, m?: string, sp?: boolean) => void) {
   const modal: ModalState = { type: 'restart', otterId: 'big-otter' }
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- jsdom fetch stub（getSettings 降级）
   globalThis.fetch = vi.fn().mockResolvedValue({ ok: false }) as unknown as typeof fetch
   return render(
     <ConversationModals
@@ -40,7 +40,7 @@ function renderRestartModal(onConfirmRestart: (s: string, m?: string, sp?: boole
   )
 }
 
-describe('RestartModal（F20260920uhuc 统一交接）', () => {
+describe('RestartModal（F20260924uxrc 确认即转后台）', () => {
   it('「生成前世总结」勾选项默认勾选，说明文案区分勾/不勾形态', async () => {
     renderRestartModal(() => {})
     const toggle = await screen.findByTestId('synthesize-past-toggle')
@@ -53,21 +53,27 @@ describe('RestartModal（F20260920uhuc 统一交接）', () => {
     expect(screen.getByText(/跳过合成秒级换世/)).toBeTruthy()
   })
 
-  it('确认后进入交接态：文案切换 + disabled 防连点 + 不重复触发', async () => {
+  it('确认 → 同步触发 onConfirmRestart（弹窗关闭由父级落地，不等 API）', async () => {
     const onConfirmRestart = vi.fn()
     renderRestartModal(onConfirmRestart)
 
     const confirm = await screen.findByRole('button', { name: '确认重启' })
     fireEvent.click(confirm)
 
-    // submitting 态：按钮文案切换且 disabled
-    const submitting = await screen.findByRole('button', { name: /正在封装前世档案/ })
-    expect((submitting as HTMLButtonElement).disabled).toBe(true)
-
-    // 防连点：submitting 期间再点击不触发第二次
-    fireEvent.click(submitting)
     expect(onConfirmRestart).toHaveBeenCalledTimes(1)
     expect(onConfirmRestart).toHaveBeenCalledWith('', undefined, true)
+  })
+
+  it('防连点：确认后按钮 disabled，再次点击不重复触发', async () => {
+    const onConfirmRestart = vi.fn()
+    renderRestartModal(onConfirmRestart)
+
+    const confirm = await screen.findByRole('button', { name: '确认重启' })
+    fireEvent.click(confirm)
+    // Modal 卸载由父级 setModal 驱动；jsdom 下父级未卸载时按钮处于 disabled 防连点窗口
+    expect((confirm as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(confirm)
+    expect(onConfirmRestart).toHaveBeenCalledTimes(1)
   })
 
   it('取消勾选后确认 → synthesizePast=false 透传', async () => {
@@ -80,21 +86,5 @@ describe('RestartModal（F20260920uhuc 统一交接）', () => {
     fireEvent.click(confirm)
 
     await waitFor(() => expect(onConfirmRestart).toHaveBeenCalledWith('', undefined, false))
-  })
-
-  // F20260923hsyn：提交中文案按勾选区分——不勾时是秒级机械重启语义，不显示「封装前世档案」
-  // （9/23 搭档实证：不勾选仍看到封装文案，误以为勾选失效）
-  it('取消勾选后提交 → 按钮显示「正在重启…（秒级）」而非封装文案', async () => {
-    const onConfirmRestart = vi.fn()
-    renderRestartModal(onConfirmRestart)
-
-    const toggle = await screen.findByTestId('synthesize-past-toggle')
-    fireEvent.click(toggle.querySelector('input[type="checkbox"]') as HTMLInputElement)
-    const confirm = await screen.findByRole('button', { name: '确认重启' })
-    fireEvent.click(confirm)
-
-    const submitting = await screen.findByRole('button', { name: /正在重启…（秒级）/ })
-    expect((submitting as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.queryByRole('button', { name: /正在封装前世档案/ })).toBeNull()
   })
 })
