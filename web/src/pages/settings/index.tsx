@@ -14,7 +14,7 @@ export default function SettingsPage() {
   const [hasUnsaved, setHasUnsaved] = useState(false)
   const [userName, setUserName] = useState('')
   const [settingsInfo, setSettingsInfo] = useState<{ port: number; dbPath: string; embeddingModelPath: string; embeddingLocalModelPath?: string; embeddingDim: number; assistantWebEnabled?: boolean } | null>(null)
-  // F20260924wast：浮动獭快揵键（可配置，localStorage 本地；⌘J/Ctrl+J 默认）
+  // F20260924wast：浮动獭快捷键（可配置，localStorage 本地；⌘J/Ctrl+J 默认）
   const [hotkey, setHotkey] = useState(() => localStorage.getItem('floating-otter:hotkey') || 'j')
   const [glassT, setGlassT] = useState(() => {
     const v = parseFloat(localStorage.getItem('otter-glass-t') || '0.85')

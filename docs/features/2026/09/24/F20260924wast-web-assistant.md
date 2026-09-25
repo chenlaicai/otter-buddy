@@ -79,9 +79,9 @@ modules: [web/src/components/FloatingAssistant, web/src/components/AppLayout, sr
   - `use-floating-otter.ts`——唤起/收起（点击、⌘J、Esc、点外）、三态数据源 hook
 - **挂载点**：`AppLayout.tsx` 根布局——SPA 全页面常驻
 - **助理对话指向规则**（M3 重写，N2 定稿）：web 助理=**固定全局唯一**，识别机制拍板：**新增 kind 枚举值 `web-assistant`**（不用「复用 kind='assistant'+metadata」）——识别逻辑收敛一处，session 触发范围/侧栏分组/人设识别三个下游歧义全部消失；无则首次唤起时创建（T2b）。侧栏新增 web 助理分组（降级入口可见性）
-- **三态数据源**（一期，M2 处置）：`use-conversation-list-polling` **提升为全局单例**（App 层起一份，对话列表页与浮动獭共用，避免多一份 5s 轮询）推断——**优先级写死：冒泡 > 张望 > 睡觉**（SG1）：有未读回复→冒泡（per-conversation unreadCount 前端 any() 聚合）；有活跃对话→张望（per-conversation activityStatus 前端 any() 聚合）；否则睡觉。不新增后端状态接口。已知失真：①「运行中」语义粗（正在打字≠跑任务）②无人值守的定时任务也张望——由「大概状态」产品语义认领（原「跨入口已读不同步」项已随 16:34 纠正删除：独立对话下 web 前端自知未读状态，反而更准）
+- **三态数据源**（一期，M2 处置；**K1 delta 改口**：实现落点为新建 global-conversation-store 全局轮询单例，旧 use-conversation-list-polling 未动——一期两份 5s 轮询并存（对话页停留时双请求，可接受），「列表页改吃全局 store」需评估 merge-conversations 未读兑底语义，列 issue 二期）：三态由全局轮询单例推断，**优先级写死：冒泡 > 张望 > 睡觉**（SG1）：有未读回复→冒泡（per-conversation unreadCount 前端 any() 聚合）；有活跃对话→张望（per-conversation activityStatus 前端 any() 聚合）；否则睡觉。不新增后端状态接口。已知失真：①「运行中」语义粗（正在打字≠跑任务）②无人值守的定时任务也张望——由「大概状态」产品语义认领（原「跨入口已读不同步」项已随 16:34 纠正删除：独立对话下 web 前端自知未读状态，反而更准）
 - **上下文 chip**：已随 T4 砍除（17:01），面板不再带「📍 当前」标签
-- **设置开关**：settings 页加「浮动獭」开关；关闭后退回左侧栏助理对话页（助理对话本就是一条 conversation，天然存在降级入口）。**生效语义**（M5）：遵循现有 config DI 模式，改配置需重启进程生效
+- **设置开关**：settings 页加「浮动獭」开关；关闭后退回左侧栏助理对话页（助理对话本就是一条 conversation，天然存在降级入口）。**生效语义**（M5）：遵循现有 config DI 模式，改配置需重启进程生效。**K4 delta 补盲点**：「天然存在降级入口」的前提是已开户——「开关关闭+从未开户」时侧栏空分组无对话可达，已在侧栏 web 助理空分组加「创建」入口兑底
 - **快捷键**：⌘J / Ctrl+J 唤起面板，可配置；点击兜底
 
 ### 后端（src/）
@@ -138,17 +138,37 @@ modules: [web/src/components/FloatingAssistant, web/src/components/AppLayout, sr
 
 ## 改动范围
 
+（delta K3 补全：初版仅列 10 项，与实际 37 文件 diff 不符；下表为实拍清单）
+
 | 文件/目录 | 操作 | 说明 |
 |---|---|---|
-| web/src/components/FloatingAssistant/ | 新增 | FloatingOtter / AssistantPanel / use-floating-otter |
-| web/src/components/AppLayout.tsx | 修改 | 挂载 FloatingAssistant + 全局轮询单例提升 |
-| web/src/hooks/use-conversation-list-polling.ts | 修改 | 提升全局单例（M2） |
-| web/src/pages/settings/ | 修改 | 浮动獭开关 + 快捷键配置 |
-| src/frameworks/config-service.ts | 修改 | assistant.web.enabled 配置项 |
-| src/interface-adapters/http/controllers/message-controller.ts | 修改 | web-assistant 对话 session 检查（T2/S1） |
-| src/usecases/im/assistant-session.ts | 修改 | `maybeRestartIdleSession` 暴露公开入口（S1） |
-| src/usecases/（conversation create 链） | 修改 | kind=web-assistant 开户人设注入（T2b/N2） |
-| ConversationDTO/前端 mapper/LeftPanel 分组 | 修改 | kind 扩枚举值 web-assistant 适配（N2，契约变更已认领） |
+| web/src/components/FloatingAssistant/ | 新增 | FloatingOtter / AssistantPanel / use-floating-otter / global-conversation-store / FloatingAssistant 宿主 + 单测 |
+| web/src/components/AppLayout.tsx | 修改 | 挂载 FloatingAssistant + 全局轮询组件 + settings 开关拉取（mock 同步更新 AppLayout.test） |
+| web/src/hooks/use-conversation-list-polling.ts | **未改** | K1 改口：一期两份轮询并存（见设计取舍 M2 补记），真共用列 issue 二期 |
+| web/src/pages/conversation/LeftPanel.tsx | 修改 | 「web 助理」独立分组 + 空组创建入口（K4） |
+| web/src/pages/settings/index.tsx | 修改 | 浮动獭开关只读展示 + 快捷键配置 |
+| web/src/lib/mappers.ts | 修改 | kind 扩枚举适配 |
+| web/src/api/client.ts | 修改 | createConversation 返回类型改列表项 DTO（K9） |
+| web/src/styles/globals.css | 修改 | otter 三态/pop 动画 + prefers-reduced-motion |
+| web/e2e/floating-assistant*.spec.ts | 新增×2 | 常驻/首唤/双 tab 收敛/降级 mock e2e |
+| web/pnpm-lock.yaml | 修改 | 基线失同步补齐（router-dom/playwright 未收录，不修 CI npm ci 挂） |
+| api-contract/api/conversation.ts | 修改 | kind 扩枚举 + CreateConversationRequestDTO.kind + title 可选（K9） |
+| api-contract/api/settings.ts | 修改 | SettingsDTO.assistantWebEnabled 只读下发 |
+| src/entities/conversation/conversation.ts | 修改 | ConversationKind 联合类型化 |
+| src/usecases/im/assistant-session.ts | 修改 | checkIdleAndRestartSession 公开入口 + restarting 防重（S1/D1） |
+| src/usecases/conversation/web-assistant-provisioner.ts | 新增 | 幂等开户 + 人设注入（T2b/N3） |
+| src/usecases/conversation/conversation-repository.ts | 修改 | kind 类型扩枚举 |
+| src/interface-adapters/http/controllers/conversation-controller.ts | 修改 | create 收 kind=web-assistant 走 provisioner（新增 API 分支）+ title 服务端校验 |
+| src/interface-adapters/http/controllers/message-controller.ts | 修改 | sendMessage 链 session 检查（S1） |
+| src/interface-adapters/http/controllers/settings-controller.ts | 修改 | SettingsConfig.assistantWebEnabled |
+| src/interface-adapters/http/dto/conversation-dto.ts | 修改 | kind 透传非 normal 值 |
+| src/frameworks/config-service.ts | 修改 | im.assistant.web.enabled 配置段 |
+| src/bootstrap/usecases.ts / types.ts / controllers.ts | 修改 | WebAssistantProvisioner 装配 + 双 controller 注入 |
+| config/config.yaml.example | 修改 | 配置段示例 |
+| tests/usecases/conversation/web-assistant-provisioner.test.ts | 新增 | 开户幂等 5 例 |
+| tests/usecases/im/web-assistant-session-entry.test.ts | 新增 | session 入口/防重 5 例 |
+| tests/interface-adapters/http/web-assistant-session-check.test.ts | 新增 | controller S1 4 例 |
+| tests/api/helpers.ts / settings.test.ts | 修改 | SettingsConfig 新字段测试基线 |
 | docs/features/2026/09/24/F20260924wast-web-assistant.md | 新增 | 本特性文档 |
 
 ## 实现纪要（2026-09-25，实现獭落盘）
@@ -171,6 +191,13 @@ modules: [web/src/components/FloatingAssistant, web/src/components/AppLayout, sr
 - `web/src/styles/globals.css`——otter-breathe/peek/hop/zz/pop 动画（prefers-reduced-motion 全覆盖）
 
 ### 实现中发现与处置
+
+**delta 处置（2026-09-25，检视獭 4 minor + 5 suggestion，大獭裁决后实现獭执行）**：
+- K1 双轮询并存：**改口认领**——一期全局轮询（三态数据源）与列表页轮询（未读兑底/merge 语义）两份并存，每 5s 双请求可接受；真共用（列表页改吃全局 store）需评估 merge-conversations 未读兑底语义变更，列 issue 二期
+- K2 全局轮询 limit：对齐侧栏同口径 500（消默认 50 截断）
+- K3 改动范围表：补全实拍清单（含 conversation-controller 入口层分支）
+- K4 降级路径断裂：侧栏 web 助理空分组加「创建」入口（复用 POST {kind}）；**方案层盲点留痕**——「关闭后天然存在侧栏降级入口」的前提是已开户，原方案与三轮方案审均未抓到（检视獭自领一半），已补实现兑底
+- K5 e2e 断言收紧 toBe(1)；K6 错别字；K7 面板历史不自动刷新记此处（一期一次性加载 30 条，另一 tab 问答不入流，二期全局态势一并解）；K8 删 convsRef 死代码；K9 契约 title 可选 + api client 显式类型去双重 cast
 
 1. **面板定位 bug（e2e 拦下）**：零尺寸 fixed 容器 + top/right 锚点会让子面板向右溢出视口（x=1256+380 > 1280）——改为定位样式直接挂 AssistantPanel 根元素
 2. **呼吸动画 vs playwright stability**：三态动画使元素永不稳定（element is not stable）——e2e 用 `page.emulateMedia({ reducedMotion: 'reduce' })` + CSS 层 prefers-reduced-motion 全覆盖三态与 pop 动画

@@ -48,14 +48,16 @@ export function FloatingAssistant(props: FloatingAssistantProps) {
     [conversations],
   )
 
-  /** 首唤开户（幂等——后端 ensure 收敛；双 tab 并发由后端最早创建规则兜底） */
+  /** 首唤开户（幂等——后端 ensure 收敛；双 tab 并发由后端最早创建规则兜底）。
+   *  F20260925wast delta K9：契约 title 保持必填，调用传占位（后端 web-assistant 分支忽略 title 用固定标题）；
+   *  响应为列表项 DTO（api client 已显式类型）——不再 cast */
   const ensureConversation = useCallback(async () => {
     if (webConvId || ensuring) return
     setEnsuring(true)
     setEnsureError(null)
     try {
-      const dto = await api.createConversation({ kind: 'web-assistant' } as never)
-      const conv = mapConversationDTO(dto as Parameters<typeof mapConversationDTO>[0])
+      const dto = await api.createConversation({ title: 'web 助理', kind: 'web-assistant' })
+      const conv = mapConversationDTO(dto)
       upsertGlobalConversation(conv)
       setWebConvId(conv.id)
     } catch {

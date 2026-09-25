@@ -45,8 +45,8 @@ export interface CreateConversationRequestDTO {
   otterIds?: string[];
   /** 新建对话时大獭的模型自选（可选，缺省 = 配置文件默认模型） */
   modelAlias?: string;
-  /** F20260924wast：web 助理开户标识（后端按此注入 web 助理人设 systemPrompt；
-   *  与 title 互斥使用——kind=web-assistant 时后端忽略 title 用固定标题） */
+  /** F20260924wast：web 助理开户标识（后端按此注入 web 助理人设 systemPrompt 并用固定标题，
+   *  忽略 title；调用方可传占位 title 满足契约必填约束） */
   kind?: "web-assistant";
 }
 

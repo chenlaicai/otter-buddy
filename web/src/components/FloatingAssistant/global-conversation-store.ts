@@ -79,7 +79,8 @@ export function GlobalConversationPoller() {
     try {
       const { listConversations } = await import('../../api/client')
       const { mapConversationDTO } = await import('../../lib/mappers')
-      const { items } = await listConversations()
+      // K2：limit 与侧栏父组件同口径（500）——避免后端默认 50 截断三态聚合数据源
+      const { items } = await listConversations({ limit: 500 })
       // 服务端权威替换（三态数据源——merge 策略同 use-conversation-list-polling）
       store.conversations = items.map(mapConversationDTO)
       emit()
@@ -114,10 +115,5 @@ export function GlobalConversationPoller() {
 /** 三态 hook（浮动獭专用，数据源 = 全局轮询单例） */
 export function useOtterMood(): OtterMood {
   const { conversations } = useGlobalConversationSnapshot()
-  return useMemo(() => inferMood(convsRef(conversations)), [conversations])
-}
-
-// conversations 引用稳定性兜底（emit 换新数组引用；直接用即可）
-function convsRef(convs: LocalConversation[]): LocalConversation[] {
-  return convs
+  return useMemo(() => inferMood(conversations), [conversations])
 }
