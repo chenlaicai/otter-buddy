@@ -152,13 +152,13 @@ modules: [web/src/components/FloatingAssistant, web/src/components/AppLayout, sr
 | web/src/styles/globals.css | 修改 | otter 三态/pop 动画 + prefers-reduced-motion |
 | web/e2e/floating-assistant*.spec.ts | 新增×2 | 常驻/首唤/双 tab 收敛/降级 mock e2e |
 | web/pnpm-lock.yaml | 修改 | 基线失同步补齐（router-dom/playwright 未收录，不修 CI npm ci 挂） |
-| api-contract/api/conversation.ts | 修改 | kind 扩枚举 + CreateConversationRequestDTO.kind + title 可选（K9） |
+| api-contract/api/conversation.ts | 修改 | kind 扩枚举 + CreateConversationRequestDTO.kind + title 保持必填（K9 落法：前端占位传参，不破坏空 title 透传既有语义） |
 | api-contract/api/settings.ts | 修改 | SettingsDTO.assistantWebEnabled 只读下发 |
 | src/entities/conversation/conversation.ts | 修改 | ConversationKind 联合类型化 |
 | src/usecases/im/assistant-session.ts | 修改 | checkIdleAndRestartSession 公开入口 + restarting 防重（S1/D1） |
 | src/usecases/conversation/web-assistant-provisioner.ts | 新增 | 幂等开户 + 人设注入（T2b/N3） |
 | src/usecases/conversation/conversation-repository.ts | 修改 | kind 类型扩枚举 |
-| src/interface-adapters/http/controllers/conversation-controller.ts | 修改 | create 收 kind=web-assistant 走 provisioner（新增 API 分支）+ title 服务端校验 |
+| src/interface-adapters/http/controllers/conversation-controller.ts | 修改 | create 收 kind=web-assistant 走 provisioner（新增 API 分支）；title 校验在 usecase 层 manage-conversation.ts:34，controller 无校验 |
 | src/interface-adapters/http/controllers/message-controller.ts | 修改 | sendMessage 链 session 检查（S1） |
 | src/interface-adapters/http/controllers/settings-controller.ts | 修改 | SettingsConfig.assistantWebEnabled |
 | src/interface-adapters/http/dto/conversation-dto.ts | 修改 | kind 透传非 normal 值 |
@@ -197,7 +197,7 @@ modules: [web/src/components/FloatingAssistant, web/src/components/AppLayout, sr
 - K2 全局轮询 limit：对齐侧栏同口径 500（消默认 50 截断）
 - K3 改动范围表：补全实拍清单（含 conversation-controller 入口层分支）
 - K4 降级路径断裂：侧栏 web 助理空分组加「创建」入口（复用 POST {kind}）；**方案层盲点留痕**——「关闭后天然存在侧栏降级入口」的前提是已开户，原方案与三轮方案审均未抓到（检视獭自领一半），已补实现兑底
-- K5 e2e 断言收紧 toBe(1)；K6 错别字；K7 面板历史不自动刷新记此处（一期一次性加载 30 条，另一 tab 问答不入流，二期全局态势一并解）；K8 删 convsRef 死代码；K9 契约 title 可选 + api client 显式类型去双重 cast
+- K5 e2e 断言收紧 toBe(1)；K6 错别字；K7 面板历史不自动刷新记此处（一期一次性加载 30 条，另一 tab 问答不入流，二期全局态势一并解）；K8 删 convsRef 死代码；K9 契约 title 保持必填（前端占位传参，保住 tests/api/conversation.test.ts:136 空 title 透传语义）+ api client 显式类型去双重 cast
 
 1. **面板定位 bug（e2e 拦下）**：零尺寸 fixed 容器 + top/right 锚点会让子面板向右溢出视口（x=1256+380 > 1280）——改为定位样式直接挂 AssistantPanel 根元素
 2. **呼吸动画 vs playwright stability**：三态动画使元素永不稳定（element is not stable）——e2e 用 `page.emulateMedia({ reducedMotion: 'reduce' })` + CSS 层 prefers-reduced-motion 全覆盖三态与 pop 动画
