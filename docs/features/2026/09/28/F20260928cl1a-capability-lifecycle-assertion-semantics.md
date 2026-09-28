@@ -13,7 +13,7 @@ intent:
     reason: "测试断言语义更新，验证=受影响文件真跑全绿（真系统+真 LLM）"
 summary: "#1186 两根因判定均为「断言滞后于有意语义变更」，非产品回归：① restart summary 双写——#1146/F20260920uhuc 统一交接管线下，手工 selfSummary 以 ① 交接意图书 原话层嵌在叠加式档案内（F20260917rsta 搭档语义「填了就按我的」的实现形态），断言从 toBe(裸文本) 改为档案结构断言（含 ① 层 + 原话 + 双写同源不变量保留）；② 身份注入——F20260810piab S1 早已把身份从 user message 迁到 system role（before_agent_start handler，不持久化），断言改为行为证据（模型自称身份标记）+ 架构不变量（用户消息不含身份前缀）。附带发现：#886 删除 indexMessage 后消息→记忆链路无替代（生产库 9/13 后 message 类记忆零新增），测试改显式构造种子，产品侧另立 issue 跟踪。"
 tags: [capability, test-infra, restart, identity, unified-handoff]
-capability_test: "tests/capability/otter-lifecycle.capability.test.ts 真跑全绿（连续两次 3/3：/tmp/cap-run7.log、cap-run8.log，speak 采样 3/3 合规）"
+capability_test: "tests/capability/otter-lifecycle.capability.test.ts 真跑全绿（审视修复后连续两次 3/3：/tmp/cap-run11.log、cap-run12.log）"
 causal_links:
   from:
     - F20260920uhuc
@@ -72,8 +72,16 @@ issue #1186：`tests/capability/otter-lifecycle.capability.test.ts` 两个用例
 
 ### 稳定性设计（针对 LLM 非确定性）
 
-- 行为断言只断不变量（标记 token 出现），不断言措辞——遵守 helper 纪律（`assert-behavior.ts` 头注）。
-- 提问显式要求「逐字包含、不要改写」：开发中实证「包含团队角色称呼」的模糊引导会被模型改写为「团队里的大獭」（第 5 次真跑），逐字引导后连续两次全绿。
+- 行为断言只断不变量（身份 token 出现），不断言措辞——遵守 helper 纪律（`assert-behavior.ts` 头注）。
+- 提问为开放式自我介绍（不含任何身份 token）——鉴别力来自「提示词不泄漏答案」；token 向量按 BIG_OTTER.md 身份内容全谱系取（「海獭团队/头儿/统筹/编排」均不进动态上下文泄漏面）。
+
+## 对抗审视修复轮（检视獭-1192，三严重两建议全处置）
+
+1. **严重 1（断言空转）→ 已修**：提问从「逐字包含『海獭团队的头儿』」改为开放式自我介绍；断言改 token 向量任一命中。鉴别力：run10 中模型自然改写措辞（「统筹全场的那只海獭」）仍命中「统筹」；若 system 身份注入失效，模型对开放提问无身份可引，向量零命中必红。
+2. **严重 2（档案断言漏检）→ 已修**：新增 `extractHandoffSectionOne`（提取 ① 层内容：剥标题行、至下一行首 ### 止），原话断言从 toContain（在档案某处）收紧为 toBe（恰在 ① 层内且全等）。负例脚本验证（/tmp/negative-assert-v2.mjs）：正例三形态（机械/合成/无尾节）全过，三类损坏形态（原话转述进②层①层占位 / 层内追加 / 层内截断）全拦。
+3. **严重 3（编号漂移）→ 已修**：:81/:108 两处注释 F20260928cl1186 → F20260928cl1a。
+4. **建议 1（两个未锁定假设）→ 已收拢**：① extractUserText 改拼接全部 text 块（防 SDK 演进后多块漏检）；② assistant 自发言不进自己的未读注入批（未读窗=「你上次发言后的消息」）——已在断言处显式假设声明，机制变更需同步。
+5. **建议 2（#1191 证据加硬）→ 已评论**：F20260913ctlv :183/:378/:385/:423 四处承诺锚点补进 #1191（issuecomment-5866255648）——「承诺适配未兑现」的直接文档证据。
 
 ## 附带发现（开 issue 跟踪）
 
@@ -82,9 +90,9 @@ issue #1186：`tests/capability/otter-lifecycle.capability.test.ts` 两个用例
 ## 验证
 
 - 真跑（真系统 + 真 LLM，mimo-v2.6-flash）：`npx vitest run --config vitest.capability.config.ts tests/capability/otter-lifecycle.capability.test.ts`
-- **连续两次 3/3 全绿**（/tmp/cap-run7.log、/tmp/cap-run8.log）：restart 全链路 18-26s / 身份注入 14-18s / speak 采样 3/3 合规
-- 开发过程共 8 次真跑：基线复现 2 失败（run1/2）→ 修复迭代（run3-6，含记忆种子时机修正、回声剔除）→ 稳定全绿（run7/8）
-- 最简检查：已过——纯测试断言更新，零生产代码、零新依赖；档案断言用 toContain 结构断言而非全文快照，是「锁语义不锁实现」的最简形态
+- **连续两次 3/3 全绿**（审视修复后：/tmp/cap-run11.log、/tmp/cap-run12.log）：restart 全链路 16-22s / 身份注入 18-22s / speak 采样合规
+- 开发过程共 12 次真跑：基线复现 2 失败（run1/2）→ 首版修复迭代（run3-6）→ 首版稳定全绿（run7/8/9）→ 审视修复轮（run10 暴露 token 向量过窄误红 → run11/12 连续全绿）
+- 最简检查：已过——纯测试断言更新，零生产代码、零新依赖；档案断言锁层位全等（① 层 toBe）而非全文快照，是「锁语义不锁实现」的最简形态
 
 ## 设计取舍
 
