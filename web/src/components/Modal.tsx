@@ -53,10 +53,11 @@ export const Modal = memo(function Modal({ isOpen = true, onClose, title, childr
     }
   }, [isOpen, onClose])
 
-  /** F20260825scrf：body.modal-open 声明期 = Modal 打开期——配合 globals.css 冻结
-   *  shimmer 动画；配合 index.tsx 的渲染冻结（SSE batch/轮询暂停）使 scrim 的
-   *  backdrop 采样源准静态，根治流式期间清晰↔模糊交替。多重弹窗共存安全：
-   *  仅当 body 里无其它 scrim 时才移除 */
+  /** F20260825scrf：body.modal-open 声明期 = Modal 打开期。历史：曾配合 globals.css 冻结
+   *  shimmer/背景渲染（scrim 采样时代）；F20260909srf6 模糊语义换轨后，本 class 的
+   *  现役职责是挂「内容自模糊」（body.modal-open [data-testid='app-content-scroll']
+   *  filter:blur）+ scrim 摘 backdrop-filter。多重弹窗共存安全：仅当 body 里无其它
+   *  scrim 时才移除 */
   useEffect(() => {
     if (!isOpen) return
     document.body.classList.add('modal-open')

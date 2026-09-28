@@ -244,11 +244,6 @@ body {
   -webkit-backdrop-filter: var(--scrim-blur);
 }
 
-/* F20260825scrf：Modal 打开期间冻结流光动画——backdrop-filter 重算由背后像素变化驱动，
- *  shimmer 每帧扫过会使模糊采样持续失效（清晰↔模糊交替的直接来源之一）。
- *  与 index.tsx 的渲染冻结（SSE batch/轮询暂停）配合，使 scrim 采样源准静态 */
-body.modal-open .stream-shimmer::after { animation: none; }
-
 /* F20260909scrf6：弹窗期模糊语义切换——从「scrim 实时采样下层位图」改为「内容自模糊」。
  *  backdrop-filter 的采样是每帧实时的：下层任何像素变化（流式计时器 100ms 跳字、
  *  animate-dot、未来的新动画源）都会使采样失效，产生「清晰帧↔模糊帧」高频交替——
@@ -361,15 +356,6 @@ body.modal-open .scrim { backdrop-filter: none; -webkit-backdrop-filter: none; }
     var(--edge-hi),
     inset 0 -1px 0 var(--contact-line);
 }
-/* 流式过程条：流光扫过（仅在生成中的面板使用） */
-.stream-shimmer { position: relative; overflow: hidden; }
-.stream-shimmer::after {
-  content: ''; position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(100deg, transparent 35%, rgba(255,255,255,0.4) 50%, transparent 65%);
-  animation: streamShimmer 1.6s ease-in-out infinite;
-}
-@keyframes streamShimmer { from { transform: translateX(-100%) } to { transform: translateX(100%) } }
-@media (prefers-reduced-motion: reduce) { .stream-shimmer::after { display: none; } }
 /* 头像：玻璃环 + 高光，进入材质体系 */
 .msg-avatar {
   border: 2px solid rgba(255,255,255,0.65);
