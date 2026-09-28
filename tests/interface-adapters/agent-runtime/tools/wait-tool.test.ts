@@ -159,7 +159,8 @@ describe("F20260922slan wait 工具", () => {
   // ─── r1 发现 1 锁定：until 载荷杀主形态必拦（真 mainPid 链路，非 null 旁路） ───
   // 原缺陷：validateUntil 传 mainPid=null → kill 族整体旁路（8/30 事故同款威胁
   // 经 wait 工具新通道重开）。修复后透传 readMainProcessPid——本机 PID 文件存在时
-  // 走完整主链。用杀主三形态（字面主PID/pkill 特征名/killall node）断言拦截。
+  // 走完整主链。用杀主三形态（pkill 特征名/killall node/间接 $(cat pid) 文件）断言拦截。
+  // N1 硬化后：kill 族词样在守卫主链之前就被 until 通道一律拒（零合法形态，fail-closed）。
   describe("r1-发现1: until 苏醒检查命令安全（真 mainPid 链路）", () => {
     // 测试环境无主仓 PID 文件（cwd=worktree 根）——写临时文件使 readMainProcessPid
     // 命中真值链路（生产环境 cwd=主服务目录，PID 文件原生存在，无需此 setup）
@@ -174,19 +175,27 @@ describe("F20260922slan wait 工具", () => {
       const tool = findWait();
       const result = await tool.execute("t1", { seconds: 5, reason: "等 CI", until: "p" + ["k","i","l","l"].join("") + " -f otter-buddy" });
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain("安全守卫拦截");
+      expect(result.content[0].text).toContain("不支持进程终止类命令");
     });
     it("until 含 killall node → 拦", async () => {
       const tool = findWait();
       const result = await tool.execute("t1", { seconds: 5, reason: "等 CI", until: "killa" + "ll node" });
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain("安全守卫拦截");
+      expect(result.content[0].text).toContain("不支持进程终止类命令");
     });
     it("until 含间接 kill（$(cat pid 文件)）→ 拦", async () => {
       const tool = findWait();
       const result = await tool.execute("t1", { seconds: 5, reason: "等 CI", until: "k" + "ill $(cat .otter-buddy.pid)" });
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain("安全守卫拦截");
+      expect(result.content[0].text).toContain("不支持进程终止类命令");
+    });
+    it("N1 硬化：until 含 kill + 无关字面量 PID（V1 降级链会放行的形态）→ 拦", async () => {
+      const tool = findWait();
+      // pid 文件存在且真链路下，kill 12345 与 mainPid(42877) 无关——主链本会放行；
+      // N1 fail-closed 一律拒（until 零合法 kill 形态）
+      const result = await tool.execute("t1", { seconds: 5, reason: "等 CI", until: "k" + "ill 12345" });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("不支持进程终止类命令");
     });
   });
 });

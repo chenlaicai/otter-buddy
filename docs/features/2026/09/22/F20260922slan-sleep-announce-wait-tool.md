@@ -5,7 +5,7 @@ summary: 海獭裸跑 bash sleep 对搭档是长时间静默黑盒。按梯度�
 change_type: feature
 capability_test: tests/capability/sleep-announce.capability.test.ts
 tags: [bash-guard, sleep, wait-tool, ux, gradient-guard, tool-factory]
-modules: [src/frameworks/agent/bash-safety-guard.ts, src/interface-adapters/agent-runtime/tools/tool-factory.ts, src/frameworks/agent/tool-description-overrides.ts, src/usecases/conversation/agent-turn-orchestrator/retry-policy.ts, src/usecases/conversation/agent-turn-orchestrator/orchestrator.ts, src/frameworks/agent/circuit-breaker-helpers.ts, tests/frameworks/agent/bash-safety-guard.test.ts]
+modules: [src/frameworks/agent/bash-safety-guard.ts, src/interface-adapters/agent-runtime/tools/tool-factory.ts, src/frameworks/agent/tool-description-overrides.ts, src/usecases/conversation/agent-turn-orchestrator/retry-policy.ts, src/usecases/conversation/agent-turn-orchestrator/orchestrator.ts, src/frameworks/agent/circuit-breaker-helpers.ts, src/frameworks/agent/sleep-command-guard.ts, src/usecases/ports/agent-metrics-port.ts, tests/frameworks/agent/bash-safety-guard.test.ts, tests/interface-adapters/agent-runtime/tools/wait-tool.test.ts]
 from: [F20260922pmgd]
 created_in_conversation: 82ab2e1c-65ec-4f39-84b6-4022f7dacbf2
 created_at: 2026-09-22T12:16:00Z
@@ -156,7 +156,7 @@ tool-description-overrides.ts 的 bash suffix 追加一句：
 
 ## 风险与约束
 
-- **R1 逃逸通道**：`perl -e 'sleep 30'`、`read -t 30`、`sleep $X` 等变体不在检测范围——接受，引导型方案不追求完美封堵（同 merge_pr 的「字面量黑名单必输但正道引力足够」哲学）；`bash -c 'sleep 30'` 引号内形态若漏检同族接受
+- **R1 逃逸通道**：`perl -e 'sleep 30'`、`read -t 30`、`sleep $X` 等变体不在检测范围——接受，引导型方案不追求完美封堵（同 merge_pr 的「字面量黑名单必输但正道引力足够」哲学）；`bash -c 'sleep 30'` 引号内形态若漏检同族接受；**多段链形态**（delta 复核建议 6 实证）：`sleep 2 && sleep 30`、`echo 'sleep 30' && sleep 7` 均放行——extractCommandSegment 首匹配后不再扫后续段，首段合法即整链过；单段拦截已覆盖主要形态（LLM 实际使用几乎全是单段 sleep），多段链属低频组合形态，接受并记录（修法是全段扫描，代价与收益不成比例，归 #1189 重设计统一处理）
 - **R2 until 注入面**：已被设计纪律收敛——过守卫主链 + 禁元字符 + execFileAsync 无 shell 展开（见 until 安全纪律段）
 - **R3 提醒疲劳**：若某獭反复裸 sleep，每轮都被拦/提醒——可接受（提醒本身就是设计目的；顽固不化者在每日 review 现形）
 
