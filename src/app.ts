@@ -515,7 +515,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     // 微信连接管理（issue #566）
     weixinLoginSessions,
     weixinAccountStore,
-    // F20260920imax：扫码后按名开助理线（必填名；闭包封装 ensureConnection + 开户）
+    // F20260920imax：扫码后按名开助理线（必填名；闭环封装 ensureConnection + 开户）
+    // F20260928wxid：userName 不走本闭包——controller 建线后直接写 metadata（与 PATCH user-name 对称）
     provisionWeixinAssistantLine: async (accountId, name) => {
       // 微信连接 externalId = 账号 id（与消息 ingress 的 ensureConnection 同键，
       // 幂等汇合到同一 connection）

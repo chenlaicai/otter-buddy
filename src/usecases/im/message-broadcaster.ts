@@ -80,8 +80,15 @@ export class MessageBroadcaster {
     const subscribers = this.eventSubscribers.get(conversationId);
     if (!subscribers || subscribers.size === 0) {
       // F20260817bcst 三轮审视：web-only 修复后此路径新激活（此前 broadcaster undefined 短路），
-      // scheduler/cron 触发的 invoke 无任何订阅者，每轮 10-60 事件全是此分支——降为 debug 防日志噪音
-      this.logger.debug("[broadcastEvent] 无事件订阅者", { conversationId, event: event.event });
+      // F20260928icmm 阶段2：零订阅丢事件日志 debug→info——阶段1 后右栏正确性已由拉取对账
+      // 兑底，本日志从「噪音」变为「丢事件窗口」的可观测信号（右栏延迟更新的定位入口）。
+      // scheduler/cron 触发的 invoke 无订阅者属常态，噪音顾虑由「仅 invoke.* 终态事件升级」
+      // 收窄：invoke.end（丢终态直接影响右栏收敛时机）升 info，其余维持 debug。
+      if (event.event === 'invoke.end') {
+        this.logger.info("[broadcastEvent] invoke.end 无订阅者（断连窗口丢终态，前端对账兜底）", { conversationId, event: event.event });
+      } else {
+        this.logger.debug("[broadcastEvent] 无事件订阅者", { conversationId, event: event.event });
+      }
       return;
     }
     this.logger.info("[broadcastEvent] 推送事件", { conversationId, event: event.event, subscriberCount: subscribers.size });

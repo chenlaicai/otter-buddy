@@ -27,6 +27,8 @@ export default function ImPage() {
   // F20260921imux：新建流程状态——step 'idle' → 'naming'（输入名）→ 'connecting'（扫码）
   const [flowStep, setFlowStep] = useState<'idle' | 'naming' | 'connecting'>('idle')
   const [nameValue, setNameValue] = useState('')
+  // F20260928wxid：扫码人自报称呼（可空）——存 connection.metadata.userName，入站消息据此显示/快照 senderName
+  const [userNameValue, setUserNameValue] = useState('')
   const [creatingLine, setCreatingLine] = useState(false)
 
   // F20260921imux：扫码确认后发现的同号冲突（旧账号）——等用户裁决覆盖/取消
@@ -36,6 +38,7 @@ export default function ImPage() {
   const resetFlow = () => {
     setFlowStep('idle')
     setNameValue('')
+    setUserNameValue('')
     setDuplicateAccount(null)
     setPendingAccountId(null)
   }
@@ -79,10 +82,11 @@ export default function ImPage() {
   const finalizeLine = async (accountId?: string | null): Promise<boolean> => {
     const id = accountId ?? pendingAccountId
     const name = nameValue.trim()
+    const userName = userNameValue.trim()
     if (!id || !name) return false
     setCreatingLine(true)
     try {
-      await api.provisionWeixinAssistantLine(id, name)
+      await api.provisionWeixinAssistantLine(id, name, userName || undefined)
       showToast(`助理「${name}」已就绪 🦦`, 'success')
       loadAssistantConversations()
       loadWeixinAccounts()
@@ -158,6 +162,21 @@ export default function ImPage() {
     return () => { if (pollTimer.current) window.clearInterval(pollTimer.current) }
   }, [loadChannelStatus, loadWeixinAccounts, loadAssistantConversations])
 
+  // F20260928wxid：存量线补/改称呼（新线在扫码时填；这条是存量兜底通道）
+  const handleEditUserName = async (accountId: string, current?: string) => {
+    const input = prompt('你的称呼（助理会这样称呼你；留空 = 清除，恢复 ID 展示）', current ?? '')
+    if (input === null) return  // 取消
+    const trimmed = input.trim()
+    if (trimmed.length > 60) { showToast('称呼最长 60 字符', 'error'); return }
+    try {
+      await api.updateWeixinUserName(accountId, trimmed)
+      showToast(trimmed ? `称呼已更新为「${trimmed}」` : '称呼已清除', 'success')
+      loadWeixinAccounts()
+    } catch {
+      showToast('更新失败，请重试', 'error')
+    }
+  }
+
   const handleDeleteWeixinAccount = async (accountId: string) => {
     // F20260922wxeg：删号即删线（后端会连同助理对话一起移除）——确认文案说清后果
     if (!confirm('确定移除该助理？对应的助理对话将一并删除，之后需重新扫码建线')) return
@@ -172,32 +191,40 @@ export default function ImPage() {
     }
   }
 
-  // 状态展示辅助（通道健康）
+  // 状态展示辅助（通道健康）F20260928wxid：恢复 #655 五态完整映射
+  // （#1055 重写时误写 ok/degraded 三态，后端从无此 kind，致 running/token_stale/stopped 全落「未知」）
   const getStatusColor = (state: ChannelStatusDTO['state']): string => {
     switch (state.kind) {
-      case 'ok': return 'bg-green-50 text-green-600'
-      case 'degraded': return 'bg-amber-50 text-amber-600'
+      case 'running': return state.degraded ? 'bg-amber-50 text-amber-600' : 'bg-green-50 text-green-600'
+      case 'starting': return 'bg-amber-50 text-amber-600'
+      case 'token_stale': return 'bg-red-50 text-red-500'
       case 'error_backoff': return 'bg-red-50 text-red-500'
       default: return 'bg-skeleton text-stone-500'
     }
   }
   const getStatusLabel = (state: ChannelStatusDTO['state']): string => {
     switch (state.kind) {
-      case 'ok': return '● 正常'
-      case 'degraded': return '● 降级'
-      case 'error_backoff': return '● 异常'
+      case 'running': return state.degraded ? '🟡 降级运行中' : '● 运行中'
+      case 'starting': return '🟡 启动中'
+      case 'token_stale': return '🔴 token 失效，重新扫码'
+      case 'error_backoff': return '🟡 网络异常，自动重试中'
+      case 'stopped': return '○ 已停止'
       default: return '● 未知'
     }
   }
 
-  /** 微信聚合状态：任一账号 error → error；任一 stale → degraded；否则取首个 */
+  /** 微信聚合状态：任一 error_backoff → 优先；任一 token_stale → 次优先；任一 running.degraded → 三优先；否则取首个
+   *  F20260928wxid：hasStale 原找 kind='degraded'（不存在的值）→ token_stale 永远漏报；
+   *  检视建议 1：多账号时任一账号 running.degraded 不设防会被绿色掩盖，补三优先级 */
   const getWeixinAggregateStatus = (): ChannelStatusDTO | undefined => {
     const weixinEntries = channelStatus.filter(c => c.kind === 'weixin')
     if (weixinEntries.length === 0) return undefined
     const hasError = weixinEntries.find(e => e.state.kind === 'error_backoff')
     if (hasError) return hasError
-    const hasStale = weixinEntries.find(e => e.state.kind === 'degraded')
+    const hasStale = weixinEntries.find(e => e.state.kind === 'token_stale')
     if (hasStale) return hasStale
+    const hasDegraded = weixinEntries.find(e => e.state.kind === 'running' && e.state.degraded)
+    if (hasDegraded) return hasDegraded
     return weixinEntries[0]
   }
 
@@ -284,6 +311,14 @@ export default function ImPage() {
                               <span className="text-xs px-2 py-1 rounded-full bg-skeleton text-stone-500">未运行</span>
                             )
                           })()}
+                          {/* F20260928wxid：称呼展示 + 存量线编辑入口 */}
+                          <button
+                            onClick={() => handleEditUserName(acc.id, acc.userName)}
+                            className={`px-3 py-1.5 text-xs rounded-lg transition ${acc.userName ? 'text-teal-600 hover:bg-teal-50' : 'text-stone-400 hover:bg-stone-100'}`}
+                            title="设置你的称呼（助理会这样叫你）"
+                          >
+                            {acc.userName ? `@${acc.userName}` : '设置称呼'}
+                          </button>
                           <button
                             onClick={() => handleDeleteWeixinAccount(acc.id)}
                             className="px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded-lg transition"
@@ -323,6 +358,15 @@ export default function ImPage() {
                   maxLength={60}
                   placeholder="输入助理名字（必填）"
                   className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-200 bg-white/70 focus:outline-none focus:ring-2 focus:ring-teal-300"
+                />
+                {/* F20260928wxid：扫码人自报称呼（可空）——微信无查名 API，自报是唯一解；
+                    空则维持现状（裸 ID 展示），不强制增加扫码摩擦 */}
+                <input
+                  value={userNameValue}
+                  onChange={(e) => setUserNameValue(e.target.value)}
+                  maxLength={60}
+                  placeholder="你的称呼（选填，如 joy）——助理就能叫出你的名字"
+                  className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-200 bg-white/70 focus:outline-none focus:ring-2 focus:ring-teal-300 mt-2"
                 />
                 <div className="flex justify-end gap-2 mt-3">
                   <button onClick={resetFlow} className="px-4 py-2 text-sm text-stone-500 hover:text-stone-700">
