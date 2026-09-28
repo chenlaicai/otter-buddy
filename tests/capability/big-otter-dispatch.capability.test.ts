@@ -97,7 +97,7 @@ describe("大獭召唤后派工：create 后 speak 传给小獭不传 user（真
         detail: `小獭=${smallOtter.name} tsp=${JSON.stringify(tsp)} match=${passedToSmall} body="${dispatchMsg.content.slice(0, 60)}"`,
       };
     }, { budgetMs: 3300000, sampleWorstMs: 660000 });
-  }, 3_420_000); // 50 分钟超时（5 次采样）
+  }, 3_420_000); // 57 分钟 = 5×660s 最坏 + 120s 余量（#1187 公式）
 
   it("AT-2 批量 4 只：大獭召唤 4 只后 tsp 含全部 4 只 ID（7 次采样 ≥5）", async (t) => {
     if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
@@ -148,5 +148,5 @@ describe("大獭召唤后派工：create 后 speak 传给小獭不传 user（真
         detail: `召唤 ${newSmalls.length} 只（${newSmalls.map((r) => r.name).join(",")}） tsp 覆盖 ${coveredCount}/${newSmalls.length} user=${passedToUser} body="${dispatchMsg.content.slice(0, 80)}"`,
       };
     }, { budgetMs: 5880000, sampleWorstMs: 840000 });
-  }, 6_000_000); // 70 分钟超时（7 次采样 × 批量更慢）
+  }, 6_000_000); // 100 分钟 = 7×840s 最坏 + 120s 余量（#1187 公式）
 });

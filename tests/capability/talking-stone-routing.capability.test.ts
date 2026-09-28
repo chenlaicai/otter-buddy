@@ -107,5 +107,5 @@ describe("发言权路由：子獭完成本职后传回召唤者（真系统 + �
         detail: `子獭=${smallOtter.name} tsp=${JSON.stringify(tsp)} bigOtterId=${bigOtterId.slice(0, 8)} match=${passedToBigOtter} body="${smallMsg.content.slice(0, 60)}"`,
       };
     }, { budgetMs: 2340000, sampleWorstMs: 780000 });
-  }, 2_460_000); // 30 分钟超时（3 次采样 × 每次最多 ~6 分钟）
+  }, 2_460_000); // 41 分钟 = 3×780s 最坏 + 120s 余量（#1187 公式）
 });

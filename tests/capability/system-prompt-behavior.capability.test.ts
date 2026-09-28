@@ -220,8 +220,8 @@ describe("F20260811sktp: SYSTEM.md 重组后行为不变量与新机制（真系
         ok: paused && acknowledged && reflection,
         detail: `paused=${paused} acknowledged=${acknowledged} reflection=${reflection} tools=${JSON.stringify(tools)} content="${content.slice(0, 120)}"`,
       };
-    }, { budgetMs: 1380000, sampleWorstMs: 450000 });
-  }, 1_500_000);
+    }, { budgetMs: 1800000, sampleWorstMs: 600000 });
+  }, 1_920_000); // 3×600s 最坏 + 120s 余量
 
   it("Magic Words「就这样」：搭档说'就这样'后，流程提前终止（3 次采样 ≥1）", async (t) => {
     if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);

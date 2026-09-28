@@ -345,7 +345,8 @@ export interface SampleResult {
  * 只挡起跑点不前瞻的话，在途采样仍可越过 it 帽（AT-1 算术：4×11min 后 #5 起跑时
  * elapsed<预算，但 #5 最坏 11min 会把总时长推到 55min>50min 帽）。
  * SKIP 不计入分母（避免误读采样质量），断言 successes ≥ minSuccess 不变。
- * 调用点约定：sampleWorstMs = 采样内各段等待窗之和；budgetMs = it 帽 − 60~150s teardown
+ * 调用点约定：sampleWorstMs ≥ 采样内各段等待窗之和（含隐式默认等待；高报安全=前瞻更早触发，
+ * 低报禁止=在途越帽）；budgetMs = it 帽 − 60~150s teardown
  * 余量，且满足 samples × sampleWorstMs ≤ budgetMs（不满足时先调 it 帽，不能靠预算硬截）。
  */
 export async function expectSampledBehavior(

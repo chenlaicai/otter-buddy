@@ -118,9 +118,18 @@ v4/v5 证明：超时被标失败的采样循环在下一个 it 运行期间继�
 
 | 发现 | 处置 |
 |---|---|
-| 严重 1：预算只挡采样起点不挡在途（AT-1 在途 #5 仍可越帽 55min>50min；detour/halt-boundary 单采样超帽） | 采纳：检查改前瞻 `elapsed + sampleWorstMs > budgetMs`；全 22 调用点统一公式 it 帽 = n×worst+120s 重算（mws detour 帽 600s→2400s、halt-boundary 600s→2280s 等） |
+| 严重 1：预算只挡采样起点不挡在途（AT-1 在途 #5 仍可越帽 55min>50min；detour/halt-boundary 单采样超帽） | 采纳：检查改前瞻 `elapsed + sampleWorstMs > budgetMs`；全 22 调用点统一公式 it 帽 = n×worst+120s 重算（spb detour worst 600s 帽 1920s；mws halt-boundary 帽 2280s（720s=660+60 默认等待）等） |
 | 严重 2：budgetMs 核心逻辑零回归测试（声称的单测不在仓库） | 采纳：tests/budget-guard.test.ts 入库，4 用例 |
 | 建议 ③：golden.runner.ts:294 是第 22 调用点漏插（"21 个"措辞不准） | 采纳：补插 budgetMs 1_680_000 + sampleWorstMs 480_000（帽 1_800_000 内自洽） |
 | 建议 ④：memory-recall:81 手写采样循环绕过 helper 无护栏 | 部分采纳：本 PR 不动（narrow-fix 边界，当前算术安全）；遗留建议后续 PR 统一收编到 helper |
 | 建议 ⑤："无 abort"措辞不准（vitest 超时会 abort context.signal，循环不消费）；引证缺版本号；v1/v4/v5 脚本未入库 | 采纳：helper 注释改为"超时回调会 abort context.signal，但采样循环不消费 signal——僵尸残留"；版本锚定 vitest 4.1.11（实验跑于该版本）；脚本属一次性诊断未入库（机制表已固化关键证据时间戳，脚本几何可从文档复现） |
 | 建议 ⑥：SKIP 计入分母易误读 | 采纳：分母改 samples − skipped，摘要行附 SKIP 计数 |
+
+### delta 轮（检视獭-1193，1 严重 + 2 建议）
+
+| 发现 | 处置 |
+|---|---|
+| 严重 1：spb magic-word-detour worst 低报（两段 300s 之和 600s，声明 450s）——慢端点可构造在途越帽；处置表「detour 帽 600s→2400s」与代码（1.5M）不符，记录失实 | 采纳：detour 改 sampleWorstMs 600s / budget 1_800_000 / 帽 1_920_000（3×600+120）；处置表订正。全量重审计 22 调用点：bod/tsr worst 精确、mws 高报安全（契约允许）、spb 其余 7 点高报安全（worst≥等待窗之和） |
+| 建议 ①：④ memory-recall 缺 issue 登记 | 采纳：建 issue（# 编号待 GitHub 恢复后回填），tech-debt P3 |
+| 建议 ②：PR 描述未随 delta 更新（含初轮被证伪的「budgetMs 单测」声明） | 采纳：PR body 重写为当前口径 |
+| 建议 ③（初轮遗留核实）：bod/tsr it 帽注释过时（写 50/70/30 分钟） | 采纳：三处注释对齐公式（57/100/41 分钟） |
