@@ -12,7 +12,7 @@ summary: |
   硬刷新。本 PR 正确性模型换轨：invokeStates = 服务端 invokes 表的缓存（同獭
   startedAt 最新者胜、服务端可覆盖本地、防回退保留）+ 对账读点挂齐（focus/可见性
   + POST 流结束（含 retry 流），无门控）+ 通道分工（POST 流不管右栏）。失败测试先行，
-  572/572 绿。
+  573/573 绿。
 
 type: BugFix
 domain: web
@@ -60,7 +60,7 @@ causal_links:
 
 | # | 位置 | 修改 |
 |---|---|---|
-| 1 | `invoke-tracker.ts` `mergeInvokesFromServer` | 重写：服务端数组内同獭取 startedAt 最新（不依赖顺序）；与本地比，服务端记录更新（startedAt 更新，或同刻同 invokeId 终态胜 running）则覆盖；否则本地保持（防回退）。幂等保留：无变更返回原引用 |
+| 1 | `invoke-tracker.ts` `mergeInvokesFromServer` | 重写：服务端数组内同獭取 startedAt 最新（不依赖顺序）；与本地比，服务端记录更新（startedAt 更新，或同刻同 invokeId 终态胜 running）则覆盖；否则本地保持（防回退）。幂等保留：无变更返回原引用。检视处置补：覆盖时服务端 ctxWindowUsed 为 null 回填本地上一轮值（新 invoke 首个 message_end 落库前不闪「—/—」，与 applyInvokeStart 跨 invoke 保留 ctx 语义对齐，T9 锁定） |
 | 2 | `index.tsx` 内联恢复 | 手写映射 + `continue` 弱合并退役，改调 `mergeInvokesFromServer`（一处语义，三处消费） |
 | 3 | `index.tsx` focus/visibility 钩子 | 挂对账读点：窗口聚焦/切回可见时（复用既有 ack 300ms 防抖窗口）调无门控对账 |
 | 4 | `index.tsx` POST 流 onDone | 挂对账读点：POST 发言流结束（通道分工：POST 流不驱动 invokeStates，结束后对账拉齐）；检视处置后 retry 流 onDone 同款补齐（重试按钮也是 POST 流，右栏本职入口） |
@@ -78,7 +78,8 @@ POST 发言流的 `invoke.start/end` handler 只管中间栏消息（气泡终�
 ## 测试
 
 - **失败测试先行**：
-  - 单元级（invoke-tracker.test.ts，新增 8 用例）：T1/T2（本地旧 running + 服务端更新
+  - 单元级（invoke-tracker.test.ts，失败先行批次 8 用例 + 检视处置批次 3 用例 = +11）：
+    T1/T2（本地旧 running + 服务端更新
     → 服务端胜）、T2b/T2c（本地旧终态 + 服务端更新 → 服务端胜，**修复前必失败**——
     弱合并的反向洞）、T3（防回退：本地新 + 服务端旧 → 本地保持，**修复前必失败**——
     旧实现无 startedAt 单调性）、T4（同刻终态收敛）、T5（幂等原引用）、T6（数组序无关）
@@ -86,7 +87,7 @@ POST 发言流的 `invoke.start/end` handler 只管中间栏消息（气泡终�
     服务端权威数据纠正」（**旧 continue 实现必失败**）、「窗口重新聚焦对账恢复」
 - 旧弱合并断言测试改写为缓存模型语义（「本地已终态 → 跳过」→「同 invoke 幂等 + 更新
   invoke 覆盖」，语义有意反转）
-- 全量 572/572 绿（59 文件）+ `tsc --noEmit` exit 0 + eslint index.tsx 0 warnings
+- 全量 573/573 绿（59 文件）+ `tsc --noEmit` exit 0 + eslint index.tsx 0 warnings
 
 ## 设计取舍（Modification-Class: narrow-fix 四问）
 
@@ -112,6 +113,6 @@ POST 发言流的 `invoke.start/end` handler 只管中间栏消息（气泡终�
 
 - `web/src/lib/invoke-tracker.ts`（mergeInvokesFromServer 重写 + recordNewer/localAsRecord 辅助）
 - `web/src/pages/conversation/index.tsx`（内联恢复换轨、focus/POST 读点）
-- 测试：invoke-tracker.test.ts +10 用例（含 T7/T8 边界锁定、T9 ctx 回填，含 2 处旧语义
-  反转改写）、index.spa-nav.test.tsx +2 组件级用例（切回纠正 + focus 对账）
+- 测试：invoke-tracker.test.ts +11 用例（T1-T6 失败先行批次 + T7/T8 边界锁定 + T9 ctx
+  回填，含 2 处旧语义反转改写）、index.spa-nav.test.tsx +2 组件级用例（切回纠正 + focus 对账）
 - 服务端零改动
