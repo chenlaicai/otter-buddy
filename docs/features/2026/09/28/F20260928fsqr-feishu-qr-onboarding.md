@@ -74,7 +74,7 @@ causal_links:
 |---|---|---|
 | 键派生 | `src/frameworks/feishu/bot-key.ts`（新） | **审改：统一键源**——`botKey(appId) = \`feishu-bot:${maskAppId(appId)}\``，复用 long-connection-client 的 maskAppId；provision/DELETE/入站三处同源派生，杜绝建线键与路由锚分裂（F20260921wxba 教训）。注意：maskAppId 掩码键兼任身份键有理论碰撞面（首5尾4），个位数 app 量级可接受，注记留此 |
 | 凭据存储 | `src/frameworks/feishu/app-store.ts`（新） | 模仿 WeixinAccountStore：`<stateDir>/feishu-apps.json`，`{ appId → {appSecret, ownerOpenId, name, addedAt} }`；save/delete/list |
-| 登录会话 | `src/frameworks/feishu/login-session-manager.ts`（新） | 包 SDK registerApp：start（begin+二维码 URL→png base64）/ get / cancel；状态机 pending→waiting_scan→success/error/expired（**SDK 无 scanned 态**——onStatusChange 仅 polling/slow_down/domain_switched，与微信七态不同，前端映射按实际六态）；10min 过期清理。二维码渲染用 `qrcode` npm 包（已在依赖，微信 login-session-manager 现用） |
+| 登录会话 | `src/frameworks/feishu/login-session-manager.ts`（新） | 包 SDK registerApp：start（begin+二维码 URL→png base64，**起名流入 appPreset.name**（EchoAgent 同构 feishu-login.ts:50-51，扫码确认页应用名有语义））/ get / cancel；状态机 pending→waiting_scan→success/error/expired（**SDK 无 scanned 态**——onStatusChange 仅 polling/slow_down/domain_switched，与微信七态不同，前端映射按实际六态）；10min 过期清理。二维码渲染用 `qrcode` npm 包（已在依赖，微信 login-session-manager 现用） |
 | HTTP 端点 | `src/interface-adapters/http/controllers/feishu-connection-controller.ts`（新） | `POST /api/feishu/login`、`GET /api/feishu/login/:id`、`POST /api/feishu/login/:id/cancel`、`GET /api/feishu/apps`（账号列表+助理线投影）、`DELETE /api/feishu/apps/:id`（停 WS+unregister+删store+释放绑定）、**`POST /api/feishu/apps/:id/assistant-line`（幂等 provision 独立端点，对齐微信 weixin-connection-controller.ts:120 先例，失败可重试）**；safeJsonBody 防御、错误文案映射 describeFeishuQrFailure 模式照搬 EchoAgent |
 | 出站通道 | `src/usecases/im/feishu-message-channel.ts` 改造 | **审改：键控出站（#591 同构）**——归属过滤从「externalType === feishu」升级为「externalType === feishu 且 externalId === 本通道 botKey」；构造注入 botKey；多通道注册后广播互不串扰 |
 | 运行时工厂 | `src/bootstrap/platforms.ts` 改造 | **审改（delta 修正）**：工厂吸收 createFeishuBundle（:310-328，client/tokenManager/出站注册）+ setupFeishu（:341-414，commandDispatcher/partnerResolver/messageProcessor/longConnection）两段：抽 `buildFeishuRuntime(appId, appSecret, ...) → {stop, botKey}`；**出站注册键控化** `messageBroadcaster.registerOutboundChannel(botKey, channel)`（delta：直接用 botKey 做键，无双重前缀；静态 config app 同款改造；key 仅运行时注册表不落库，无兼容负担）；DELETE/dispose 时 unregister 成对清理 |
@@ -209,7 +209,7 @@ onSuccess({appId, appSecret, ownerOpenId})
 - 集成：扫码 onSuccess 全链（mock registerApp）→ store 落库 → resolver 写锚 → runtime 注册 → 出站定向
 - 实测三清单（真机）：p2p 收发 / 群 @ 收发 / 事件到达 WS
 - 存量回归：config.yaml 静态 app 路径测试全绿（装配重构+键控出站行为等价）
-- 手测清单：真机扫码 → p2p 对话 → 海獭回复带 [搭档(称呼)]（首号锚生效）→ 删除账号 → WS 停止+出站通道注销；**第二扫码人场景（delta D）**：joy 扫码建自己线 → 称呼链出 [joy]（线 owner metadata 生效）→ 标签显「访客+joy」（非「搭档」，D7 称谓遗留）→ 命令门禁：joy 在自己线可跑命令（每线 owner 锚），陌生人被拦（「这些命令暂时不对所有人开放哦」）——防实现期误「修」或误判 bug
+- 手测清单：真机扫码 → p2p 对话 → 海獭回复带 [搭档(称呼)]（首号锚生效）→ 删除账号 → WS 停止+出站通道注销；**第二扫码人场景（delta D）**：joy 扫码建自己线 → 称呼链出 [joy]（线 owner metadata 生效）→ 标签显 `joy`（快照名，非「搭档(joy)」形态——D7 称谓遗留；注：resolveUserEntryLabel 访客分支只出快照名/裸 ID，「访客」字样仅在会话注入文本）→ 命令门禁：joy 在自己线可跑命令（每线 owner 锚），陌生人被拦（「这些命令暂时不对所有人开放哦」）——防实现期误「修」或误判 bug
 
 ## 改动范围
 
