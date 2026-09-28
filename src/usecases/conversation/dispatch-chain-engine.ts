@@ -881,7 +881,9 @@ export class DispatchChainEngine {
     return names.get(entrySenderId) ?? entrySenderId;
   }
 
-  /** user 条目标签：静态绑定（搭档/访客快照名/裸 ID）或未配置降级（#488 行为） */
+  /** user 条目标签：静态绑定（搭档/访客快照名/裸 ID）或未配置降级（#488 行为）。
+   *  F20260928wxid（检视发现 2a）：搭档标签带自报快照名——partnerLabel（默认「搭档」/全局设置）
+   *  是配置层的泛称，快照名是用户自报的真名；有快照优先真名，无则回退 partnerLabel 不变 */
   private resolveUserEntryLabel(
     m: { senderName?: string | null },
     entrySenderId: string,
@@ -890,9 +892,11 @@ export class DispatchChainEngine {
     staticResolver: { isPartner: (id: string) => boolean } | undefined,
   ): string {
     if (staticResolver) {
-      return staticResolver.isPartner(entrySenderId)
-        ? partnerLabel
-        : (m.senderName?.trim() || entrySenderId);  // 访客：快照名，无则裸 ID 不冒充
+      if (staticResolver.isPartner(entrySenderId)) {
+        const sn = m.senderName?.trim();
+        return sn ? `${partnerLabel}(${sn})` : partnerLabel; // 真交付：自报称呼进海獭视野，泛称不变
+      }
+      return m.senderName?.trim() || entrySenderId;  // 访客：快照名，无则裸 ID 不冒充
     }
     // 降级（未配置 partnerOpenId）：维持 #488 行为——当前 sender 无快照 → partnerLabel，
     // 其他人无快照 → 裸 ID（不冒充搭档）

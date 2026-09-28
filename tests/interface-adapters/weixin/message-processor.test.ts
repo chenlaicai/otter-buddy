@@ -313,11 +313,19 @@ describe("WeixinMessageProcessor", () => {
 // F20260928wxid：称呼链（独立 describe 防主 describe 超行限）
 describe("WeixinMessageProcessor · F20260928wxid 称呼链", () => {
   it("connection metadata 有 userName → senderDisplayName 快照入库（海獭/前端不再裸 ID）", async () => {
-    const ctx = makeProcessor();
+    const ctx = makeProcessor({ ownerIlinkUserId: "u-1" });
     ctx.manageConnection.getConnection.mockResolvedValue({ metadata: { userName: "joy" } });
     ctx.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-1", title: "t" });
     await ctx.processor.process({ fromUserId: "u-1", body: "在吗", raw: { item_list: [{ type: 1, text_item: { text: "在吗" } }] } });
     expect(ctx.sentMessages[0]).toMatchObject({ source: "weixin", body: "在吗", senderDisplayName: "joy" });
+  });
+
+  it("检视发现 1：访客消息不盖 owner 称呼（fromUserId ≠ 建线人 → 空串裸 ID，不张冠李戴）", async () => {
+    const ctx = makeProcessor({ ownerIlinkUserId: "u-owner" });
+    ctx.manageConnection.getConnection.mockResolvedValue({ metadata: { userName: "joy" } });
+    ctx.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-1", title: "t" });
+    await ctx.processor.process({ fromUserId: "u-guest", body: "在吗", raw: { item_list: [{ type: 1, text_item: { text: "在吗" } }] } });
+    expect((((ctx.sentMessages[0] as Record<string, unknown>).senderDisplayName ?? "") as string).trim()).toBe("");
   });
 
   it("无称呼（存量线未设置）→ senderDisplayName 空串，落库后等同裸 ID 现状", async () => {
@@ -328,7 +336,7 @@ describe("WeixinMessageProcessor · F20260928wxid 称呼链", () => {
   });
 
   it("称呼解析失败（getConnection 抛错）→ 降级空串裸 ID，不阻断主链", async () => {
-    const ctx = makeProcessor();
+    const ctx = makeProcessor({ ownerIlinkUserId: "u-1" });
     ctx.manageConnection.getConnection.mockRejectedValue(new Error("db down"));
     ctx.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-1", title: "t" });
     await ctx.processor.process({ fromUserId: "u-1", body: "在吗", raw: { item_list: [{ type: 1, text_item: { text: "在吗" } }] } });

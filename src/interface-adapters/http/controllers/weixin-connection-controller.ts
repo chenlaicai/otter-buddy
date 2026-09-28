@@ -133,8 +133,13 @@ export class WeixinConnectionController {
         return c.json({ error: "userName 若填须为 0-60 字符" }, 400);
       }
       const result = await this.deps.provisionAssistantLine!(accountId, name.trim());
-      // F20260928wxid：称呼写 metadata（不走 app 闭包，与本端点对称；失败仅 500 让前端重试）
-      await this.writeUserNameMetadata(accountId, un);
+      // F20260928wxid：称呼写 metadata（不走 app 闭包，与本端点对称；检视建议 2：写失败仅降级
+      //  warn 不 500——建线已成功，称呼不生效可后续 PATCH 补，与 app.ts 出站锚同策略）
+      try {
+        await this.writeUserNameMetadata(accountId, un);
+      } catch {
+        this.deps.logger.warn("Weixin provision: userName metadata write failed（称呼未生效，可经 PATCH user-name 补写）", { accountId });
+      }
       return c.json(result, 201);
     } catch (err) {
       return handleError(c, err, this.deps.logger);

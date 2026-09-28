@@ -213,8 +213,9 @@ export default function ImPage() {
     }
   }
 
-  /** 微信聚合状态：任一账号 error_backoff → 优先；任一 token_stale → 次优先；否则取首个
-   *  F20260928wxid：hasStale 原找 kind='degraded'（不存在的值）→ token_stale 永远漏报 */
+  /** 微信聚合状态：任一 error_backoff → 优先；任一 token_stale → 次优先；任一 running.degraded → 三优先；否则取首个
+   *  F20260928wxid：hasStale 原找 kind='degraded'（不存在的值）→ token_stale 永远漏报；
+   *  检视建议 1：多账号时任一账号 running.degraded 不设防会被绿色掩盖，补三优先级 */
   const getWeixinAggregateStatus = (): ChannelStatusDTO | undefined => {
     const weixinEntries = channelStatus.filter(c => c.kind === 'weixin')
     if (weixinEntries.length === 0) return undefined
@@ -222,6 +223,8 @@ export default function ImPage() {
     if (hasError) return hasError
     const hasStale = weixinEntries.find(e => e.state.kind === 'token_stale')
     if (hasStale) return hasStale
+    const hasDegraded = weixinEntries.find(e => e.state.kind === 'running' && e.state.degraded)
+    if (hasDegraded) return hasDegraded
     return weixinEntries[0]
   }
 

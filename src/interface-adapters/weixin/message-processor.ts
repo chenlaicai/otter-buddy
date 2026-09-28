@@ -66,10 +66,13 @@ export class WeixinMessageProcessor {
       agentDispatchService: AgentDispatchService;
       messageBroadcaster: MessageBroadcaster;
       logger: Logger;
-      /** F20260921wxba：bot 账号锚（bot=对话模型，与扫码建线 provisionWeixinAssistantLine
+      /** F20260928wxid：bot 账号锚（bot=对话模型，与扫码建线 provisionWeixinAssistantLine
        *  的 ensureConnection(accountId,...) 同键）。缺省回退 fromUserId 旧锚（未过装配的
        *  遗留路径，仅测试/降级兼容——线上恒由 platforms.ts 传入 account.id） */
       botAccountId?: string;
+      /** F20260928wxid：建线人（扫码人）的 ilinkUserId——owner 鉴定用（检视发现 1）：
+       *  仅 fromUserId = owner 时才用 metadata.userName 盖称呼，防访客被盖主人称呼 */
+      ownerIlinkUserId?: string;
       /** 媒体支持（issue #567）：媒体下载网关 + 附件上传管线 + 注入服务。未注入时媒体降级为提示文本 */
       mediaGateway?: WeixinMediaGateway;
       attachmentUpload?: AttachmentUploadService;
@@ -139,9 +142,10 @@ export class WeixinMessageProcessor {
 
     // F20260913ctlv 收尾批2：微信 user 消息唯一落点 = entries（与飞书同构——
     // sendUserEntry 落库 + 目标解析；messages 表停写 UI 消息）
-    // F20260928wxid：senderName 快照——从 connection metadata.userName（扫码人自报称呼）取；
-    // 微信协议无查名 API（飞书靠 getUserName，微信靠自报），空则 send-entry 落空串等同不传（维持裸 ID）
-    const senderLabel = await this.resolveSelfUserName(connectionId);
+    // F20260928wxid：senderName 快照——仅当发送者 = 建线人（owner 鉴定，检视发现 1）时取
+    // connection metadata.userName（扫码自报称呼）；访客消息不盖 owner 称呼（张冠李戴会
+    // 与同帧「访客」标注自相矛盾）。微信协议无查名 API，飞书靠 getUserName，微信靠自报。
+    const senderLabel = await this.resolveSelfUserName(connectionId, fromUserId);
     const { entry: userEntry, talkingStonePassedTo } = await this.deps.sendEntry.sendUserEntry({
       conversationId: conversation.id,
       senderId: fromUserId,
@@ -166,11 +170,14 @@ export class WeixinMessageProcessor {
   }
 
   /**
-   * F20260928wxid：扫码人自报称呼解析——读 connection metadata.userName。
-   * 失败/缺失返回空串（调用方不传 senderDisplayName，维持裸 ID 现状，不阻断主链）。
+   * F20260928wxid：扫码人自报称呼解析（检视发现 1 加 owner 鉴定）——仅发送者 = 建线人
+   * （bot 账号的 ilinkUserId）时才读 connection metadata.userName；访客返回空串。
+   * 解析失败/无称呼/无 owner 注入均降级空串（senderDisplayName 空串，维持裸 ID，不阻断主链）。
    */
-  private async resolveSelfUserName(connectionId: string): Promise<string> {
+  private async resolveSelfUserName(connectionId: string, fromUserId: string): Promise<string> {
     try {
+      const owner = this.deps.ownerIlinkUserId?.trim();
+      if (!owner || owner !== fromUserId) return ""; // 访客/未注入 owner：不盖 owner 称呼
       const conn = await this.deps.manageConnection.getConnection(connectionId);
       return (conn?.metadata?.userName as string | undefined)?.trim() ?? "";
     } catch {

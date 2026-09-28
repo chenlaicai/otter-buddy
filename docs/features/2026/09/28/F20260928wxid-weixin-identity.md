@@ -89,6 +89,21 @@ PartnerResolver 两处**命令门禁**装配（platforms.ts setupFeishu / setupW
 
 新线扫码时填称呼；存量线（如已建的助理线）补 PATCH /api/weixin/accounts/:id/user-name 端点 + IM 页账号卡「设置称呼」入口（prompt 弹窗，空串=清除）。
 
+## 设计取舍
+
+### 机制识别检查点命中与 narrow-fix 论证（F20260928wxid 补录，检视发现 3 处置）
+
+检查点命中项：□新增决策分支（PATCH user-name 端点写 metadata.userName 分支）☑命中；□新增跨模块调用路径（controller→connectionRepo.mergeMetadata）☑命中。
+
+为何命中但不涉净新增机制：两项均复用既有机制不动其管辖边界——(a) connection.metadata 是既有自由键值存储（F20260922wxeg 已存 lastChatId，同模式读写，未新增表/字段/生命周期，仅新增一个约定键 userName）；(b) PATCH 端点复用既有 weixin-connection-controller 的路由注册/参数校验/mergeMetadata 通道，与 feishu partnerOpenId 管理端点同构，无新进程/新信号类型/新配置开关。判定：修法决策树①（narrow-fix，既有机制语义内补链，非机制新增）。
+
+### 其他取舍
+
+| 取舍 | 决策 | 替代方案 | 理由 |
+|---|---|---|---|
+| 微信无查名 API 的替代 | 扫码自报称呼存 metadata | 从消息协议拓字段/第三方库 | 协议无此能力；自报与飞书 getUserName 等价解（搭档提议） |
+| PartnerResolver 多渠道 | rest 构造器 + 门禁单渠道锚 | forGate/forIdentity 拆双类 | 本轮最小改动；拆类留后续（检视建议 4 已记 issue 待建） |
+
 ## 影响范围与风险
 
 - 飞书侧零改动（PartnerResolver 多参构造向后兼容，旧调用处行为不变）
