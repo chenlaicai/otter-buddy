@@ -85,7 +85,7 @@ describe("F20260928fsqr：多 app 出站键控隔离", () => {
 });
 
 describe("F20260928fsqr：PartnerResolver.addPartnerId 运行时写入", () => {
-  it("扫码首号运行时写入 → configured 动态翻真 + isPartner 命中", () => {
+  it("写入后 configured 动态翻真 + isPartner 命中（首号先写先得的底层能力）", () => {
     const r = new PartnerResolver(); // 纯扫码主路径：构造期无锚
     expect(r.configured).toBe(false);
     r.addPartnerId("ou_first_owner");

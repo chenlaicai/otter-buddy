@@ -41,7 +41,6 @@ import { FeishuClient } from "@frameworks/feishu/client";
 import { FeishuLongConnectionClient } from "@frameworks/feishu/long-connection-client";
 import { botKey } from "@frameworks/feishu/bot-key";
 import { maskAppId } from "@frameworks/feishu/long-connection-client";
-import { FeishuAppStore } from "@frameworks/feishu/app-store";
 import { FeishuLongConnectionHandler } from "@interface-adapters/feishu/long-connection-handler";
 import { FeishuMessageProcessor } from "@interface-adapters/feishu/message-processor";
 import { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
@@ -321,10 +320,14 @@ export function createFeishuBundle(options: {
   /** F20260828fsyc：出站标签解析用户全局名（可选,不传时 FeishuMessageChannel 回退「用户」） */
   settingsRepo?: SettingsRepository;
 }): FeishuBundle {
-  const { feishuConfig, uc, dispatchChainEngine, logger, webBaseUrl, messageBroadcaster, settingsRepo } = options;
+  const { feishuConfig, dispatchChainEngine, logger, webBaseUrl, messageBroadcaster, settingsRepo } = options;
   const tokenManager = new FeishuAccessTokenManager(feishuConfig, logger);
   const client = new FeishuClient(feishuConfig, logger, tokenManager);
-  messageBroadcaster.registerOutboundChannel("feishu", new FeishuMessageChannel({ manageConnection: uc.manageConnection, feishuGateway: client, logger, webBaseUrl, settingsRepo }));
+  // F20260928fsqr（检视严重 1）：出站注册移除——setupFeishu 走 buildFeishuRuntime 工厂后
+  // 由工厂统一键控注册（key=botKey）；此处再注册无 key 的 "feishu" 通道会造成双注册
+  // （broadcastEvent 遍历全部通道双命中 → 每条飞书消息重复投递）。
+  // tokenManager/client 保留：app.ts 320 行 createFeishuBundle 仍产出 feishu.resource/gateway 依赖
+  void settingsRepo; void webBaseUrl; void messageBroadcaster; // 参数保留防调用方破坏，消费面已移至工厂
   if (!webBaseUrl) {
     logger.info("web.baseUrl not configured, feishu html-card placeholders will show without clickable links");
   }
@@ -375,6 +378,9 @@ export function setupFeishu(options: {
     logger,
     registry,
     signalRouter,
+    // F20260928fsqr（检视严重 2）：静态 config app 状态投影键维持 "feishu"（channel-controller:81
+    // 只查此键；#663 掩码 appId 依附其上）——存量 IM 页状态徽标零改动。扫码线才用 botKey 多实例
+    channelKey: "feishu",
   });
   if (!runtime) return undefined;
   return {
@@ -532,6 +538,7 @@ function buildScanFeishuProcessor(o: {
 }) {
   return new FeishuMessageProcessor({
     manageConnection: o.uc.manageConnection,
+    ...(o.repos.connection && { connectionRepo: o.repos.connection }),
     ...buildAssistantInjections(o.appConfig, o.uc),
     sendEntry: o.uc.sendEntry,
     commandDispatcher: new CommandDispatcher(o.uc.manageConnection, o.repos.entry, o.client, o.logger),
@@ -551,51 +558,6 @@ function buildScanFeishuProcessor(o: {
   });
 }
 
-/**
- * F20260928fsqr：扫码 app 启动（app.ts 启动时 + onSuccess 热启动两路调用）。
- * 首号判定（先写先得）：store 最早添加的 owner 即首号（新增扫码人时已由调用方写入全局
- * resolver 的不重复写）；门禁双锚 = 线 owner + 首号。
- */
-export function startFeishuScanChannels(options: {
-  appConfig: AppConfig;
-  uc: UseCases;
-  repos: Repositories;
-  agentInvoker: AgentInvoker;
-  dispatchChainEngine: DispatchChainEngine;
-  messageBroadcaster: MessageBroadcaster;
-  logger: Logger;
-  registry?: ChannelStatusRegistry;
-  signalRouter?: SignalRouter;
-  appStore?: FeishuAppStore;
-  /** 全局首号（调用方维护，先写先得；未传时从 store 推导） */
-  globalFirstOwnerOpenId?: string;
-}): FeishuRuntime[] {
-  const store = options.appStore ?? new FeishuAppStore();
-  const apps = store.listApps().sort((a, b) => a.addedAt.localeCompare(b.addedAt));
-  const firstOwner =
-    options.globalFirstOwnerOpenId ??
-    apps.map((a) => a.ownerOpenId).find((id): id is string => typeof id === "string" && id.trim().length > 0);
-  const runtimes: FeishuRuntime[] = [];
-  for (const app of apps) {
-    const rt = buildFeishuRuntime({
-      appId: app.appId,
-      appSecret: app.appSecret,
-      gateOwnerOpenId: app.ownerOpenId,
-      globalFirstOwnerOpenId: firstOwner,
-      appConfig: options.appConfig,
-      uc: options.uc,
-      repos: options.repos,
-      agentInvoker: options.agentInvoker,
-      dispatchChainEngine: options.dispatchChainEngine,
-      messageBroadcaster: options.messageBroadcaster,
-      logger: options.logger,
-      registry: options.registry,
-      signalRouter: options.signalRouter,
-    });
-    if (rt) runtimes.push(rt);
-  }
-  return runtimes;
-}
 
 /** 微信通道启动（issue #565）：每个已登录账号拉一条轮询 + 注册出站通道 */
 export function startWeixinChannels(options: {

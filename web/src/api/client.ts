@@ -709,7 +709,7 @@ export function getRhiScore(signal?: AbortSignal): Promise<RhiScoreDTO> {
 
 export interface ChannelStatusDTO {
   channelId: string;
-  kind: "weixin" | "feishu";
+  kind: "weixin" | "feishu" | (string & {});
   state: {
     kind: string;
     since: number;

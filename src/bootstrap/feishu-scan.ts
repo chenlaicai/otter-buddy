@@ -84,14 +84,19 @@ export function setupFeishuScanChannels(options: {
     onSuccess: async ({ appId, appSecret, ownerOpenId, name }) => {
       // 1) 落库（在热启动前——运行时工厂读 store 外的 secret 直传）
       feishuAppStore.saveApp({ appId, appSecret, ...(ownerOpenId && { ownerOpenId }), ...(name && { name }), addedAt: new Date().toISOString() });
-      // 2) 首号先写先得（D7）：首个扫码人 ownerOpenId 写全局渲染 resolver（幂等；DELETE 不回收，记遗留）
-      if (ownerOpenId) globalPartnerResolver.addPartnerId(ownerOpenId);
+      // 2) 首号先写先得（D7，检视严重 4）：**仅首个**扫码人 ownerOpenId 写全局渲染 resolver
+      //  （saveApp 后 feishuFirstOwner 若返回本号 = 我是首号；非首号不写——第二扫码人
+      //  显示快照名非「搭档」，方案手测清单钉死的语义）；DELETE 不回收（记遗留）
+      const firstOwnerNow = feishuFirstOwner();
+      if (ownerOpenId && firstOwnerNow === ownerOpenId) globalPartnerResolver.addPartnerId(ownerOpenId);
       // 3) 热启动运行时（同 app 重扫替换旧 runtime，#591 语义）
+      //  门禁锚（检视建议⑤）：ownerOpenId 缺失时退 partnerOpenId（config 锚）而非空——
+      //  双缺席才真正无锚（遗留安全面，记特性文档）
       stopFeishuRuntime(appId);
       const rt = buildFeishuRuntime({
         appId, appSecret,
-        gateOwnerOpenId: ownerOpenId,
-        globalFirstOwnerOpenId: feishuFirstOwner(),
+        gateOwnerOpenId: ownerOpenId ?? config.feishu?.partnerOpenId,
+        globalFirstOwnerOpenId: firstOwnerNow,
         appConfig: config, uc, repos, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, registry, signalRouter,
       });
       if (rt) feishuRuntimes.set(appId, rt);
@@ -109,19 +114,52 @@ export function setupFeishuScanChannels(options: {
     const rt = buildFeishuRuntime({
       appId: app.appId,
       appSecret: app.appSecret,
-      gateOwnerOpenId: app.ownerOpenId,
+      gateOwnerOpenId: app.ownerOpenId ?? config.feishu?.partnerOpenId, // 检视建议⑤：owner 缺失退 config 锚
       globalFirstOwnerOpenId: feishuFirstOwner(),
       appConfig: config, uc, repos, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, registry, signalRouter,
     });
     if (rt) feishuRuntimes.set(app.appId, rt);
+    // 首号锚启动恢复（D7）：boot 时首号写全局 resolver（进程重启不丢搭档锚）
+    if (app.ownerOpenId && feishuFirstOwner() === app.ownerOpenId) {
+      globalPartnerResolver.addPartnerId(app.ownerOpenId);
+    }
   }
+
+  /** F20260928fsqr（检视严重 5）：删除时释放绑定——微信 releaseWeixinConnectionAndArchiveLine
+   *  同构：归档助理对话（被占则跳过）+ 释放 session */
+  const releaseFeishuConnectionAndArchiveLine = async (appId: string): Promise<void> => {
+    try {
+      const conn = await repos.connection.getByExternalId(botKey(appId));
+      if (!conn) return;
+      const session = await repos.connection.getActiveSession(conn.id);
+      const owned = conn.metadata?.assistantConversationId;
+      const ownedConversationId = typeof owned === "string" ? owned : session?.conversationId;
+      if (ownedConversationId) {
+        const occupying = await repos.connection.getActiveSessionByConversation(ownedConversationId);
+        if (occupying && occupying.connectionId !== conn.id) {
+          logger.info("Feishu app deleted; conversation occupied by another connection, skip archive", { appId: maskAppId(appId), conversationId: ownedConversationId });
+        } else {
+          await uc.manageConversation.archive(ownedConversationId).catch((err) => {
+            logger.warn("Feishu app deleted; assistant conversation archive failed", { appId: maskAppId(appId), conversationId: ownedConversationId, error: err instanceof Error ? err.message : String(err) });
+          });
+        }
+      }
+      if (session) await repos.connection.releaseSession(session.id, new Date().toISOString());
+    } catch (err) {
+      logger.warn("Feishu app deleted; connection release failed", { appId: maskAppId(appId), error: err instanceof Error ? err.message : String(err) });
+    }
+  };
 
   return {
     feishuAppStore,
     feishuLoginSessions,
     provisionFeishuAssistantLine,
-    /** DELETE 端点回调：停运行时（#592 防复活序——controller 先调本函数再删 store） */
-    onAppDeleted: async (appId: string) => stopFeishuRuntime(appId),
+    /** DELETE 端点回调（#592 防复活序——controller 先调本函数再删 store）：
+     *  停运行时 + 释放绑定归档线（检视严重 5） */
+    onAppDeleted: async (appId: string) => {
+      stopFeishuRuntime(appId);
+      await releaseFeishuConnectionAndArchiveLine(appId);
+    },
     /** dispose 链：停全部运行时（#460） */
     disposeAll: () => {
       for (const rt of feishuRuntimes.values()) rt.stop();

@@ -41,6 +41,8 @@ export interface FeishuLoginSessionPort {
 export interface FeishuAppStorePort {
   listApps(): Array<{ appId: string; appSecret: string; ownerOpenId?: string; name?: string; addedAt: string }>;
   getApp(appId: string): { appId: string; appSecret: string; ownerOpenId?: string; name?: string; addedAt: string } | undefined;
+  /** 按掩码 appId 查找（前端只有掩码；碰撞时 undefined 宁拒勿错删） */
+  getAppByMaskedId(maskedId: string): { appId: string; appSecret: string; ownerOpenId?: string; name?: string; addedAt: string } | undefined;
   removeApp(appId: string): void;
 }
 
@@ -79,7 +81,10 @@ export class FeishuConnectionController {
     try {
       const session = this.deps.loginSessions.get(param(c, "id"));
       if (!session) return c.json({ error: "login session not found" }, 404);
-      return c.json(session);
+      // F20260928fsqr（检视建议⑥）：完整 appId 不出网——会话态回包掩码化
+      //  （onLoginConfirmed 前端只需感知成功，不消费 appId 原文）
+      const { appId: _full, ...rest } = session;
+      return c.json({ ...rest, ...(session.appId && { appId: maskAppId(session.appId) }) });
     } catch (err) {
       return handleError(c, err, this.deps.logger);
     }
@@ -128,19 +133,19 @@ export class FeishuConnectionController {
     }
   }
 
-  /** 幂等建助理线（onSuccess 自动触发失败后的补建/重试入口，微信 provisionAssistantLine 同构） */
+  /** 幂等建助理线（onSuccess 自动触发失败后的补建/重试入口，微信 provisionAssistantLine 同构）
+   *  F20260928fsqr（检视严重 3）：path id 是掩码 appId（前端唯一可见形态），按掩码回查 */
   async provisionAssistantLine(c: Context): Promise<Response> {
     try {
       if (!this.deps.provisionAssistantLine) {
         return c.json({ error: "assistant line not available（助理态未启用）" }, 503);
       }
-      const appId = param(c, "id");
-      const app = this.deps.appStore.getApp(appId);
+      const app = this.deps.appStore.getAppByMaskedId(param(c, "id"));
       if (!app) return c.json({ error: "feishu app not found" }, 404);
       const body = await c.req.json<unknown>().catch(() => ({}));
       const rawName = (body as { name?: unknown }).name;
-      const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : (app.name ?? maskAppId(appId));
-      const result = await this.deps.provisionAssistantLine!(appId, name);
+      const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : (app.name ?? app.appId);
+      const result = await this.deps.provisionAssistantLine!(app.appId, name);
       return c.json(result, 201);
     } catch (err) {
       return handleError(c, err, this.deps.logger);
@@ -149,14 +154,14 @@ export class FeishuConnectionController {
 
   async deleteApp(c: Context): Promise<Response> {
     try {
-      const appId = param(c, "id");
-      const app = this.deps.appStore.getApp(appId);
+      // F20260928fsqr（检视严重 3）：前端拿掩码回查（掩码单射；碰撞 404 宁拒勿错删）
+      const app = this.deps.appStore.getAppByMaskedId(param(c, "id"));
       if (!app) return c.json({ error: "feishu app not found" }, 404);
       // #592 防复活序：先回调（停 WS + unregister 出站 + 释放绑定），后删 store——
       // 反序崩溃会留下「store 已删但 WS 还在拉」的复活通道
-      await this.deps.onAppDeleted?.(appId);
-      this.deps.appStore.removeApp(appId);
-      this.deps.logger.info("Feishu scan app deleted", { appId: maskAppId(appId) });
+      await this.deps.onAppDeleted?.(app.appId);
+      this.deps.appStore.removeApp(app.appId);
+      this.deps.logger.info("Feishu scan app deleted", { appId: maskAppId(app.appId) });
       return c.json({ ok: true });
     } catch (err) {
       return handleError(c, err, this.deps.logger);

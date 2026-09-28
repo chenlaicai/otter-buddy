@@ -47,7 +47,7 @@ export class ChannelController {
     // 聚合结果：微信账号 + registry 状态 leftJoin
     const channels: Array<{
       channelId: string;
-      kind: "weixin" | "feishu";
+      kind: "weixin" | "feishu" | string;
       state: ChannelStatusEntry["state"];
       account?: { id: string; nickname?: string };
       appIdMasked?: string;
@@ -87,6 +87,20 @@ export class ChannelController {
         appIdMasked: feishuEntry.appIdMasked,
         appShareUrl: feishuEntry.appShareUrl,
       });
+    }
+
+    // F20260928fsqr：扫码接入线——registry 键 = botKey（feishu-bot:<掩码appId>）多实例，
+    // 与静态 "feishu" 键并存（静态 config app 与扫码 apps 并行 D5）。
+    // kind 带 feishu- 前缀供前端区分实例（find(kind==='feishu') 仍命中静态线不受影响）
+    for (const [channelId, entry] of registryMap) {
+      if (channelId.startsWith("feishu-bot:")) {
+        channels.push({
+          channelId,
+          kind: channelId, // 多实例各自 kind（如 feishu-bot:cli_a****z9k2）
+          state: entry.state,
+          appIdMasked: entry.appIdMasked,
+        });
+      }
     }
     
     return c.json({ channels });

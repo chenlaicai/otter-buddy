@@ -116,12 +116,15 @@ export class FeishuLoginSessionManager {
     return { ...session };
   }
 
-  /** registerApp 选项拼装（拆出控 start 复杂度）：QR 回调 + appPreset 预填 + 取消信号 */
+  /** registerApp 选项拼装（拆出控 start 复杂度）：QR 回调 + appPreset 预填 + 取消信号。
+   *  F20260928fsqr（检视严重 6）：createOnly: true——D3 钉死（SDK 注释明示：不传时若
+   *  用户扫过同 source 的码会走「绑定既有 app 更新」流，覆盖其 webhook 配置） */
   private buildRegisterOptions(session: FeishuLoginSession, signal: AbortSignal, name?: string) {
     const id = session.id;
     return {
       source: "otter-buddy",
       signal,
+      createOnly: true,
       onQRCodeReady: ({ url }: { url: string; expireIn?: number }) => {
         if (session.status === "cancelled") return; // QR 异步到达时可能已取消——不覆写终态
         session.qrcodeUrl = url;

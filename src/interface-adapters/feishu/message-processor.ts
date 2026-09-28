@@ -39,6 +39,8 @@ export class FeishuMessageProcessor {
   constructor(
     private readonly deps: {
       manageConnection: ManageConnection;
+      /** F20260928fsqr（检视建议④）：可选注入——ownerOpenId 回填直写 metadata */
+      connectionRepo?: { mergeMetadata(connectionId: string, patch: Record<string, unknown>): Promise<unknown> };
       /** F20260918imas / F20260920imax：助理会话管理（p2p 专线开户）。未注入时回退旧拒聊行为 */
       assistantSession?: AssistantSessionManager;
       /** F20260920imax：助理线模型（专线开户大獭用；缺省全局 default） */
@@ -104,6 +106,15 @@ export class FeishuMessageProcessor {
     const connection = await this.deps.manageConnection.ensureConnection(botKey, botKey, "feishu");
     // 出站定向锚：记最后活跃会话（多人私聊同一 bot 时，回复给最近发消息的人）
     await this.deps.manageConnection.noteChatId(connection.id, msg.chatId);
+
+    // F20260928fsqr（检视建议④）：线 owner 回填——provision 时 ownerOpenId 缺失
+    //  （SDK user_info 双层可选）或存量线无 metadata 的，首条 p2p 消息 sender 回填
+    //  （与 noteChatId 同位；仅缺失时写，已有不覆盖；repo 未注入时跳过——测试/降级兼容）
+    if (!connection.metadata?.ownerOpenId && this.deps.connectionRepo) {
+      await this.deps.connectionRepo.mergeMetadata(connection.id, { ownerOpenId: msg.senderId }).catch((err: unknown) => {
+        this.deps.logger.warn("Feishu ownerOpenId backfill failed", { connectionId: connection.id, error: err instanceof Error ? err.message : String(err) });
+      });
+    }
 
     const conversation = await this.deps.manageConnection.getCurrentConversation(connection.id)
       ?? (this.deps.assistantSession

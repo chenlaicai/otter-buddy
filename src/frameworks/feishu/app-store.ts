@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { maskAppId } from "./long-connection-client";
 
 /**
  * F20260928fsqr：飞书扫码应用凭据持久化（frameworks 层文件实现）。
@@ -46,6 +47,14 @@ export class FeishuAppStore {
 
   getApp(appId: string): FeishuAppRecord | undefined {
     return this.listApps().find((a) => a.appId === appId);
+  }
+
+  /** F20260928fsqr（检视严重 3）：按掩码 appId 查找——前端只有掩码（listApps 出网脱敏），
+   *  DELETE/provision 端点拿掩码回查。maskAppId 单射（前5尾4），掩码唯一命中才返回
+   *  （理论碰撞面见 bot-key.ts 注记；碰撞时返回 undefined 走 404，宁拒勿错删） */
+  getAppByMaskedId(maskedId: string): FeishuAppRecord | undefined {
+    const hits = this.listApps().filter((a) => maskAppId(a.appId) === maskedId);
+    return hits.length === 1 ? hits[0] : undefined;
   }
 
   /** upsert（扫码 onSuccess 调用）。?? {}：首次落盘文件不存在，safeRead 返回 null */

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { FeishuConnectionController } from "@interface-adapters/http/controllers/feishu-connection-controller";
+import { maskAppId } from "@frameworks/feishu/long-connection-client";
 
 /** F20260928fsqr：飞书扫码连接端点测试——账号列表投影（掩码 appId）+ 删除防复活序 + 幂等建线 */
 
@@ -11,6 +12,11 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
   const appStore = {
     listApps: () => apps,
     getApp: (id: string) => apps.find((a) => a.appId === id),
+    getAppByMaskedId: (masked: string) => {
+      // maskAppId 单源同构；单射唯一命中才返回（碰撞 undefined）
+      const hits = apps.filter((a) => maskAppId(a.appId) === masked);
+      return hits.length === 1 ? hits[0] : undefined;
+    },
     removeApp: (id: string) => { const i = apps.findIndex((a) => a.appId === id); if (i >= 0) apps.splice(i, 1); },
   };
   // 有状态 fake 连接仓库：botKey → connection → active session
@@ -58,12 +64,36 @@ describe("FeishuConnectionController（F20260928fsqr）", () => {
     expect(second).not.toHaveProperty("assistantLine");
   });
 
-  it("deleteApp：防复活序——先回调停运行时，后删 store（副作用状态断言）", async () => {
+  it("deleteApp：防复活序——掩码 id 回查（前端唯一可见形态），先回调停运行时后删 store", async () => {
     const { controller, json, mkCtx, apps } = makeDeps();
-    // 副本记录回调副作用（onAppDeleted 内部序）
-    await controller.deleteApp(mkCtx({ id: "cli_a1b2c3d4e5f6" }));
-    expect(apps.find((a) => a.appId === "cli_a1b2c3d4e5f6")).toBeUndefined(); // store 已删
+    // 前端只能传掩码（cli_a****e5f6），不是完整 appId（检视严重 3 回归锁）
+    await controller.deleteApp(mkCtx({ id: "cli_a****e5f6" }));
+    expect(apps.find((a) => a.appId === "cli_a1b2c3d4e5f6")).toBeUndefined(); // 完整 id 的 app 被删
     expect((json.mock.calls[0][0] as { ok: boolean }).ok).toBe(true);
+  });
+
+  it("deleteApp：掩码碰撞（两个 app 同掩码）→ 404 宁拒勿错删", async () => {
+    const { controller, json, mkCtx, apps } = makeDeps({
+      apps: [
+        { appId: "cli_a1b2c3d4e5f6", appSecret: "s1", addedAt: "t1" },
+        { appId: "cli_a1b2xxxxe5f6", appSecret: "s2", addedAt: "t2" }, // 前5尾4 同掩码
+      ],
+    });
+    await controller.deleteApp(mkCtx({ id: "cli_a****e5f6" }));
+    expect((json.mock.calls[0][0] as { error?: string }).error).toBe("feishu app not found");
+    expect(apps).toHaveLength(2); // 都不删
+  });
+
+  it("provisionAssistantLine：掩码 id 回查 + name 缺省取 store 名（闭包收到完整 appId）", async () => {
+    let provisioned: { appId: string; name: string } | undefined;
+    const provision = async (appId: string, name: string) => {
+      provisioned = { appId, name };
+      return { conversationId: "conv-9", title: "joy 线" };
+    };
+    const { controller, json, mkCtx } = makeDeps({ provision });
+    await controller.provisionAssistantLine(mkCtx({ id: "cli_a****e5f6" }, {}));
+    expect(provisioned).toEqual({ appId: "cli_a1b2c3d4e5f6", name: "joy 线" }); // 闭包拿完整 id
+    expect((json.mock.calls[0][0] as { conversationId: string }).conversationId).toBe("conv-9");
   });
 
   it("deleteApp：app 不存在 → 404（无副作用）", async () => {
@@ -74,21 +104,9 @@ describe("FeishuConnectionController（F20260928fsqr）", () => {
     expect(apps).toEqual(before); // store 未动
   });
 
-  it("provisionAssistantLine：name 缺省取 store 名（闭包收到的入参经副作用副本验证）", async () => {
-    let provisioned: { appId: string; name: string } | undefined;
-    const provision = async (appId: string, name: string) => {
-      provisioned = { appId, name };
-      return { conversationId: "conv-9", title: "joy 线" };
-    };
-    const { controller, json, mkCtx } = makeDeps({ provision });
-    await controller.provisionAssistantLine(mkCtx({ id: "cli_a1b2c3d4e5f6" }, {}));
-    expect(provisioned).toEqual({ appId: "cli_a1b2c3d4e5f6", name: "joy 线" });
-    expect((json.mock.calls[0][0] as { conversationId: string }).conversationId).toBe("conv-9");
-  });
-
   it("provisionAssistantLine：provision 闭包未注入（助理态未启用）→ 503", async () => {
     const { controller, json, mkCtx } = makeDeps(); // 不传 provision
-    await controller.provisionAssistantLine(mkCtx({ id: "cli_a1b2c3d4e5f6" }, {}));
+    await controller.provisionAssistantLine(mkCtx({ id: "cli_a****e5f6" }, {}));
     expect(json.mock.calls[0][1]).toBe(503);
   });
 
