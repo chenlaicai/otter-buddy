@@ -29,9 +29,13 @@ const KILL_NAMES = new Set(["kill", "skill"]);
 const PKILL_NAMES = new Set(["pkill", "killall", "killall5"]);
 /** wrapper 前缀词（V1 stripCommandPrefixes 语义） */
 const WRAPPER_WORDS = new Set(["sudo", "env", "nohup", "command", "xargs", "nice", "watch", "exec", "time", "timeout", "do"]);
-/** otter 进程特征名（V1 OTTER_PROCESS_PATTERNS 迁移） */
+/** otter 进程特征名（V1 OTTER_PROCESS_PATTERNS 全量迁移——含 V1 每个模式，
+ *  dist/src 中缀/node.*main 等历史形态一个不落） */
 const OTTER_PROCESS_PATTERNS = [
-  "otter-buddy", "otter_buddy", "dist/src/main", "main.js", "node",
+  "otter-buddy", "otter_buddy",
+  "node.*main", "dist/src/main", "dist/src/main.js",
+  "dist/src", "node.*dist", ".otter-buddy.pid",
+  "main.js", "node",
 ];
 /** PID 文件引用（词文本判定用） */
 const PID_FILE_TEXT = /\.otter-buddy\.pid/;
@@ -52,7 +56,7 @@ function effectiveCommand(seg: Segment): { name: string | null; args: Array<stri
       // wrapper 参数（-n1 / 5 / VAR=val）跳过一个（timeout 5 / xargs -n1）
       if (words.length > 0) {
         const w1 = words[0].evaluated;
-        if (w1 !== null && (/^[-]/.test(w1) || /^\d+$/.test(w1) || /^[A-Za-z_]\w*=/.test(w1))) {
+        if (w1 !== null && (/^-/.test(w1) || /^\d+$/.test(w1) || /^[A-Za-z_]\w*=/.test(w1))) {
           words = words.slice(1);
         }
       }
@@ -87,11 +91,13 @@ function literalPidsOf(seg: Segment): number[] {
   return pids;
 }
 
-/** pkill 目标是否命中 otter 特征名（模型版 pkillTargetsOtter）——含词内 var part 展开文本 */
+/** pkill 目标是否命中 otter 特征名（模型版 pkillTargetsOtter）。
+ *  比对基准：词文本去引号字符后的归一化形态（V1 对 sanitized 文本做模式匹配的
+ *  模型版——"ma''in.js" 的引号塔死是 V1 归一化语义，双引号内单引号不配对时求值
+ *  保留引号，但特征名匹配是文本包含语义，需归一化视图） */
 function pkillTargetsOtterModel(seg: Segment): boolean {
   for (const w of seg.words.slice(1)) {
-    // 词文本基准：evaluated ?? 全 part 原文拼接（var 词看原文，如 $OTTER_NAME 里的名不含特征名则不命中——与 V1 文本正则等价）
-    const text = (w.evaluated ?? w.parts.map(p => p.text).join("")).toLowerCase();
+    const text = (w.evaluated ?? w.parts.map(p => p.text).join("")).replace(/['"]/g, "").toLowerCase();
     if (OTTER_PROCESS_PATTERNS.some(pat => new RegExp(`\\b${pat.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(text))) {
       return true;
     }
@@ -105,11 +111,11 @@ function referencesPidFile(seg: Segment): boolean {
 }
 void PID_FILE_TEXT;
 
-/** 段间管道溯源：段的上游邻接段（joiner=| 的前段） */
-function pipeUpstreamOf(model: CommandModel, seg: Segment): Segment | null {
-  const idx = model.segments.indexOf(seg);
+/** 段间管道溯源：本段 joiner=| 则上游是紧邻前段（joiner 存在本段上——buildSegments
+ *  的 flushSegment(nextJoiner) 语义：新段的 joiner=它与前段的连接符） */
+function pipeUpstreamAt(model: CommandModel, idx: number): Segment | null {
   if (idx <= 0) return null;
-  return model.segments[idx - 1].joiner === "|" ? model.segments[idx - 1] : null;
+  return model.segments[idx].joiner === "|" ? model.segments[idx - 1] : null;
 }
 
 // ────────────────────────────── kill 族判定（模型版） ──────────────────────────────
@@ -131,6 +137,7 @@ export interface ModelVerdict {
 function judgeKillSegment(
   seg: Segment,
   model: CommandModel,
+  segIdx: number,
   mainPid: number,
   logger: Logger | undefined,
   allowedServices: AllowedService[],
@@ -153,29 +160,32 @@ function judgeKillSegment(
   }
 
   // kill 族：
-  // PID 文件引用（跨段文本语义保留——词文本含即拦）
-  if (referencesPidFile(seg)) {
+  // PID 文件引用（跨段语义：V1 是全命令文本检测——kill 段存在 + 全命令任何位置含
+  // .otter-buddy.pid 均拦；PoC-4 形态 cat .pid | xargs kill 的引用在上游段）
+  if (model.segments.some(s => referencesPidFile(s))) {
     logger?.warn("[guard-v2] BLOCKED kill referencing .otter-buddy.pid file", { mainPid, depth });
-    return "bash 命令中终止进程的命令引用了主进程 PID 文件。主进程是海獭运行时环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。";
+    return "bash 命令中包含主进程 PID 文件引用和终止进程操作，可能针对主进程。该命令不允许：主进程是海獭运行时环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
   }  // 间接目标：参数位含展开 part（$VAR/$()/反引号/$(())/\xNN）
   if (hasExpansionPart(seg, true)) {
     // 管道右段且上游是白名单端口的 lsof → 白名单放行（#844 规则 2a/2c 模型版）
-    const upstream = pipeUpstreamOf(model, seg);
+    const upstream = pipeUpstreamAt(model, segIdx);
     if (upstream && isWhitelistedLsofSegment(upstream, allowedServices)) return null;
     // #844 规则 2b 模型版：kill $VAR 且 VAR 在同命令内被赋值为白名单端口 lsof 结果
     if (killVarSourcedFromWhitelistedLsof(seg, model, allowedServices)) return null;
     logger?.warn("[guard-v2] BLOCKED kill with indirect PID target", { mainPid, depth });
     return "bash 命令中终止进程的目标为变量或命令替换（非字面量 PID），无法判断是否针对主进程。该命令不允许——若需终止/重启验证实例，在 worktree 内跑 scripts/alpha.sh stop（alpha 实例的标准清理方式，勿用组合杀）；若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
   }
-  // 管道右段：stdin 即间接来源（xargs kill 无字面参数也拦——V1 pipeSourced 语义）
-  const upstream = pipeUpstreamOf(model, seg);
+  // 管道右段：stdin 即间接来源（V1 pipeSourced 语义：lsof|grep|xargs 链尾的
+  // kill / xargs kill 从 stdin 读目标——上游存在且非白名单 lsof → 间接拦。
+  // 字面参数判定用剥 wrapper 后的参数位（xargs kill 段的 kill 是命令位非参数））
+  const upstream = pipeUpstreamAt(model, segIdx);
   if (upstream && !isWhitelistedLsofSegment(upstream, allowedServices)) {
-    // 上游段参数有 xargs（kill 从 stdin 读目标）且上游不是白名单 lsof → 间接
-    // V1 语义：`lsof | xargs kill` 右段「xargs kill」剥除 xargs 后无参数 → pipeSourced 拦
-    const upEff = effectiveCommand(upstream);
-    if (upEff.name === "xargs" || upstream.words.some(w => w.evaluated === "xargs")) {
+    const effArgs = effectiveCommand(seg).args;
+    const hasLiteralArgs = effArgs.some(a => a !== null && !a.startsWith("-"));
+    if (!hasLiteralArgs || upstream.words.some(w => w.evaluated === "xargs")) {
+      if (killVarSourcedFromWhitelistedLsof(seg, model, allowedServices)) return null;
       logger?.warn("[guard-v2] BLOCKED kill via pipe (stdin-sourced target)", { mainPid, depth });
-      return "bash 命令中终止进程的目标为变量或命令替换（非字面量 PID），无法判断是否针对主进程。该命令不允许——若需终止/重启验证实例，在 worktree 内跑 scripts/alpha.sh stop（alpha 实例的标准清理方式，勿用组合杀）；若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
+      return INDIRECT_BLOCK_MSG;
     }
   }
   // 字面量 PID：主 PID → 拦；0（进程组，U1/#1169）→ 拦（V2 白名单新拦项）
@@ -242,25 +252,68 @@ function killVarSourcedFromWhitelistedLsof(seg: Segment, model: CommandModel, al
 
 // ────────────────────────────── 全命令级判定（模型版） ──────────────────────────────
 
+/** eval 载荷递归（V1 cmdLevel eval 规则模型版）：eval 是展开器不是段命令——
+ *  eval 后的全部词文本（含引号内）作为载荷文本递归判定。
+ *  V1 语义：eval kill… / eval 'kill …' / eval "kil""l …"（拼接后命中）均拦。 */
+function judgeEvalPayload(model: CommandModel, mainPid: number, logger: Logger | undefined, allowedServices: AllowedService[]): string | null {
+  for (const seg of model.segments) {
+    const eff = effectiveCommand(seg);
+    if (eff.name !== "eval") continue;
+    // 载荷 = eval 后全部词的求值拼接（evaluated ?? part 原文）——拼接后归一化再递归判定
+    const payloadText = seg.words.slice(1).map(w => w.evaluated ?? w.parts.map(p => p.text).join("")).join(" ");
+    if (!payloadText.trim()) continue;
+    const sub = parseOnce(payloadText);
+    if (sub.parseOk) {
+      for (let si = 0; si < sub.segments.length; si++) {
+        const r = judgeKillSegment(sub.segments[si], sub, si, mainPid, logger, allowedServices, 1);
+        if (r) return r;
+      }
+      const pipe = judgePipeToShell(sub, mainPid, logger);
+      if (pipe) return pipe;
+    } else if (/\b(?:kill|skill|pkill|killall)\b/i.test(payloadText)) {
+      logger?.warn("[guard-v2] BLOCKED eval payload containing kill tokens (unparseable)", { mainPid });
+      return INDIRECT_BLOCK_MSG;
+    }
+  }
+  return null;
+}
+
 /** 管道到 shell（V1 checkCommandLevelPatterns 第 2 条模型版）：
- *  管道右段 argv0 ∈ {sh,bash,zsh} 且上游段（任一）含 kill 词元（命令位） */
+ *  管道右段 argv0 ∈ {sh,bash,zsh} 且上游段（任一）含 kill 词元（命令位）。
+ *  单遍扫描：沿段序累计 upstreamKill 标志（O(n) 不复制数组）。 */
 function judgePipeToShell(model: CommandModel, mainPid: number, logger: Logger | undefined): string | null {
+  let upstreamKillAny = false;
   for (let i = 1; i < model.segments.length; i++) {
     const seg = model.segments[i];
-    if (seg.joiner !== "|") continue;
-    const eff = effectiveCommand(seg);
-    const bare = eff.name?.split("/").pop();
-    if (bare && SHELL_INTERPRETERS.has(bare)) {
-      // 上游任一段（含递归载荷）含 kill 命令位词元
-      const upstream = model.segments.slice(0, i);
-      const upstreamKill = upstream.some(s => isKillSegmentQuick(s)) || model.payloads.some(p => payloadHasKill(p));
-      if (upstreamKill) {
-        logger?.warn("[guard-v2] BLOCKED pipe-to-shell with kill content", { mainPid });
-        return "bash 命令通过管道传入 shell 执行且包含终止进程操作，可能针对主进程。该命令不允许：主进程是海獭运行时环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
+    const prevSeg = model.segments[i - 1];
+    // V1 语义：上游 kill 判定是词元级（非命令位）——echo 'kill 42877' | sh 的词样
+    // 在引号内（数据位置），但管道进 shell 后变成真命令。管道到 shell 的上游
+    // 一律按词元检测（模型版：词文本含 kill 族词样，含引号内/注释）。
+    // #918 补：下游 shell 段自身载荷（sh -c 'kill …'）也计入——V1 全文本正则扫
+    // 不分上下游，模型版拆解为上游词样 + 下游 shell 段载荷两部分。
+    const prevHasKillToken = prevSeg.words.some(w => {
+      const t = w.evaluated ?? w.parts.map(p => p.text).join("");
+      return /\b(?:kill|pkill|killall|skill|killall5)\b/i.test(t);
+    }) || isKillSegmentQuick(prevSeg)
+      // V1 口径保持：注释 token 的词样也计入（curl | bash # kill 42877——V1 文本扫
+      // 不辨注释；注释词样虽是数据但白名单外行为不变原则优先）
+      || /\b(?:kill|pkill|killall|skill|killall5)\b/i.test(prevSeg.commentText ?? "");
+    if (seg.joiner !== "|" && !prevHasKillToken) upstreamKillAny = false;
+    upstreamKillAny = upstreamKillAny || prevHasKillToken;
+    if (seg.joiner === "|") {
+      const eff = effectiveCommand(seg);
+      const bare = eff.name?.split("/").pop();
+      if (bare && SHELL_INTERPRETERS.has(bare)) {
+        // 下游 shell 段载荷含 kill 词样（sh -c 'k''ill 12345'）——词元级检测载荷文本
+        const payloadText = seg.words.slice(1).map(w => w.evaluated ?? w.parts.map(p => p.text).join("")).join(" ");
+        const selfPayloadKill = /\b(?:kill|pkill|killall|skill|killall5)\b/i.test(payloadText)
+          // V1 口径：shell 段自身注释词样也计入（curl | bash # kill N——V1 文本扫不辨注释）
+          || /\b(?:kill|pkill|killall|skill|killall5)\b/i.test(seg.commentText ?? "");
+        if (upstreamKillAny || selfPayloadKill) {
+          logger?.warn("[guard-v2] BLOCKED pipe-to-shell with kill content", { mainPid });
+          return "bash 命令通过管道传入 shell 执行且包含终止进程操作，可能针对主进程。该命令不允许：主进程是海獭运行时环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
+        }
       }
-      // 解码器上游（D5 矩阵 #9）：F20260928grv2-V2 双向锁回退——解码器中转拦截不在
-      // 搭档拍板的 V2 白名单内（V1 PoC-8 用例断言放行），本层不拦，记入特性文档
-      //「已知边界」待独立 issue 处置。
     }
   }
   return null;
@@ -272,12 +325,6 @@ function isKillSegmentQuick(seg: Segment): boolean {
   if (name === null) return false;
   const bare = name.includes("/") ? name.split("/").pop()! : name;
   return KILL_NAMES.has(bare) || PKILL_NAMES.has(bare);
-}
-
-/** 载荷（递归）含 kill 命令位 */
-function payloadHasKill(p: Payload): boolean {
-  if (p.model === null) return true; // 载荷不可知 → 保守按有（调用方拦）
-  return p.model.segments.some(s => isKillSegmentQuick(s)) || p.model.payloads.some(sp => payloadHasKill(sp));
 }
 
 /** U5：bash <file> / bash file.sh 从文件读脚本（V2 白名单新拦项——保守拦+提示改写） */
@@ -306,6 +353,62 @@ function judgeBashFileScript(model: CommandModel, mainPid: number, logger: Logge
 
 /** 判定层 v2 主入口：模型判定。返回拦截文案或 null。
  *  caller 负责：parseOk=false 时走 V1 兜底链（本函数不兜底——D3 分层）。 */
+/** 间接目标拦截文案（V1 同文案——含误拦退出引导） */
+const INDIRECT_BLOCK_MSG = "bash 命令中终止进程的目标为变量或命令替换（非字面量 PID），无法判断是否针对主进程。该命令不允许——若需终止/重启验证实例，在 worktree 内跑 scripts/alpha.sh stop（alpha 实例的标准清理方式，勿用组合杀）；若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
+
+/** V1 cmdLevel 三条规则的模型版（完整继承——F20260902gvrd 收紧口径 + F20260923glay
+ *  node --eval 扩展）：
+ *  1. eval 命令位 + 数字参数（eval "echo 42877" / eval "kil""l 42877"）——eval 是
+ *     展开器，数字参数无法静态确认非 PID → 保守拦
+ *  2. 管道到 shell 且上游含 kill 词样（judgePipeToShell 已承担）
+ *  3. 脚本 one-liner（perl/ruby/python -e/-c、node -e/--eval）+ kill 词样 + 数字 */
+function judgeCmdLevelModel(model: CommandModel, mainPid: number, logger: Logger | undefined): string | null {
+  const EVAL_MSG = "bash 命令使用 eval 包装了含数字参数的操作，可能隐藏终止进程的命令。该命令不允许：主进程是海獭运行时环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
+  const ONELINER_MSG = "bash 命令通过脚本语言执行了终止进程操作，无法判断目标。该命令不允许：主进程是海獭运行时环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
+  for (const seg of model.segments) {
+    // 规则 1：eval 命令位（段内命令位置——模型天然保证）
+    const eff = effectiveCommand(seg);
+    if (eff.name === "eval") {
+      const payloadText = seg.words.slice(1).map(w => w.evaluated ?? w.parts.map(p => p.text).join("")).join(" ");
+      if (/\b\d{2,6}\b/.test(payloadText)) {
+        logger?.warn("[guard-v2] BLOCKED eval with numeric arguments", { mainPid });
+        return EVAL_MSG;
+      }
+    }
+    // 规则 3：脚本 one-liner 载荷词样 + 数字
+    if (eff.name) {
+      const bare = eff.name.split("/").pop()!;
+      const isOneliner = (/^(?:python\d?|perl|ruby)$/.test(bare) && seg.words.some((w, idx) => idx > 0 && (w.evaluated === "-e" || w.evaluated === "-c")))
+        || (bare === "node" && seg.words.some((w, idx) => idx > 0 && (w.evaluated === "-e" || w.evaluated === "--eval")));
+      if (isOneliner) {
+        const payloadText = seg.words.map(w => w.evaluated ?? w.parts.map(p => p.text).join("")).join(" ");
+        if (/\bkill\b/i.test(payloadText) && /\b\d{2,6}\b/.test(payloadText)) {
+          logger?.warn("[guard-v2] BLOCKED scripting one-liner with kill", { mainPid });
+          return ONELINER_MSG;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** PR merge 拦截（partner-gate，F20260922pmgd）模型版：gh pr merge / gh api …merge
+ *  在 argv 命令位才拦（引号内文本是数据——#858 语义的模型版：V1 靠 sanitize 脱敏
+ *  后不命中，模型版引号内词样天然不在命令位） */
+function judgePrMergeModel(model: CommandModel, logger: Logger | undefined): string | null {
+  const PR_MERGE_MSG = "bash 命令包含 gh pr merge——PR 合入是搭档专属动作（PR 后硬规则：LLM 执行 PR 创建和呈终审，合入按钮属于搭档）。请改用 merge_pr 工具，并在 partnerApproval 参数中原样引用搭档的授权原话（如搭档说「1095合入」就填那句话）。无授权原话不得合入；搭档尚未拍板时先呈终审简报（决策简报卡）。";
+  for (const seg of model.segments) {
+    const eff = effectiveCommand(seg);
+    if (eff.name !== "gh") continue;
+    const args = eff.args.map(a => a ?? "").join(" ");
+    if (/^pr\s+merge\b/.test(args) || (/^api\b/.test(args) && /pulls\/\d+\/merge\b/.test(args)) || (/^api\b/.test(args) && /repos\/[^/]+\/[^/]+\/merges\b/.test(args))) {
+      logger?.warn("[guard-v2] BLOCKED gh pr merge (partner-gate)");
+      return PR_MERGE_MSG;
+    }
+  }
+  return null;
+}
+
 export function checkWithModel(
   command: string,
   mainPid: number,
@@ -313,15 +416,24 @@ export function checkWithModel(
   allowedServices: AllowedService[] = [],
 ): string | null {
   const model = parseOnce(command);
+  // PR merge partner-gate（模型版 argv 位判定——先于 kill 族，V1 顺序保持）
+  const prMerge = judgePrMergeModel(model, logger);
+  if (prMerge) return prMerge;
+  // V1 cmdLevel 规则模型版（eval+数字 / one-liner 词样——管道到 shell 在下方）
+  const cmdLevel = judgeCmdLevelModel(model, mainPid, logger);
+  if (cmdLevel) return cmdLevel;
+  // eval 载荷递归（展开器语义）
+  const evalHit = judgeEvalPayload(model, mainPid, logger, allowedServices);
+  if (evalHit) return evalHit;
   // U5（bash 文件脚本）——不依赖 parseOk 的段级判定（段存在即可判）
   const bashFile = judgeBashFileScript(model, mainPid, logger);
   if (bashFile) return bashFile;
   // 管道到 shell / 解码器中转
   const pipeShell = judgePipeToShell(model, mainPid, logger);
   if (pipeShell) return pipeShell;
-  // kill 段逐段判定
-  for (const seg of model.segments) {
-    const r = judgeKillSegment(seg, model, mainPid, logger, allowedServices, 0);
+  // kill 段逐段判定（索引传递 O(1) 管道溯源）
+  for (let si = 0; si < model.segments.length; si++) {
+    const r = judgeKillSegment(model.segments[si], model, si, mainPid, logger, allowedServices, 0);
     if (r) return r;
   }
   // 递归载荷内的 kill 段（bash -c 载荷/cmdsub/heredoc 裸定界——继承判定，含 U1 kill 0）
@@ -336,17 +448,35 @@ export function checkWithModel(
       }
       continue;
     }
-    for (const seg of p.model.segments) {
-      const r = judgeKillSegment(seg, p.model, mainPid, logger, allowedServices, p.depth);
+    for (let si = 0; si < p.model.segments.length; si++) {
+      const r = judgeKillSegment(p.model.segments[si], p.model, si, mainPid, logger, allowedServices, p.depth);
       if (r) return r;
     }
-    // 载荷内的嵌套载荷
-    for (const np of p.model.payloads) {
-      if (np.model === null && /\b(?:kill|skill|pkill|killall)\b/i.test(np.raw)) {
+    // 载荷内的嵌套载荷（递归到底——#852 嵌套 bash -c / cmdsub 内 cmdsub）：
+    // 嵌套载荷模型里的段继续判，嵌套载荷的载荷继续递归
+    const nestedHit = judgeNestedPayloads(p.model.payloads, mainPid, logger, allowedServices);
+    if (nestedHit) return nestedHit;
+  }
+  return null;
+}
+
+/** 嵌套载荷递归判定（深度优先到底——V1 findKillSegments 递归提取语义） */
+function judgeNestedPayloads(payloads: Payload[], mainPid: number, logger: Logger | undefined, allowedServices: AllowedService[]): string | null {
+  for (const np of payloads) {
+    if (np.kind === "heredoc-quoted") continue; // 引号定界 heredoc 体=绝对数据
+    if (np.model === null) {
+      if (/\b(?:kill|skill|pkill|killall)\b/i.test(np.raw)) {
         logger?.warn("[guard-v2] BLOCKED nested unparseable payload containing kill tokens", { mainPid, kind: np.kind });
-        return "bash 命令中终止进程的目标为变量或命令替换（非字面量 PID），无法判断是否针对主进程。该命令不允许——若需终止/重启验证实例，在 worktree 内跑 scripts/alpha.sh stop（alpha 实例的标准清理方式，勿用组合杀）；若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
+        return INDIRECT_BLOCK_MSG;
       }
+      continue;
     }
+    for (let si = 0; si < np.model.segments.length; si++) {
+      const r = judgeKillSegment(np.model.segments[si], np.model, si, mainPid, logger, allowedServices, np.depth);
+      if (r) return r;
+    }
+    const deeper = judgeNestedPayloads(np.model.payloads, mainPid, logger, allowedServices);
+    if (deeper) return deeper;
   }
   return null;
 }
@@ -425,7 +555,7 @@ function effectiveCommandOfSegment(seg: Segment): string | null {
       words = words.slice(1);
       if (words.length > 0) {
         const w1 = words[0].evaluated;
-        if (w1 !== null && (/^[-]/.test(w1) || /^\d+$/.test(w1) || /^[A-Za-z_]\w*=/.test(w1))) {
+        if (w1 !== null && (/^-/.test(w1) || /^\d+$/.test(w1) || /^[A-Za-z_]\w*=/.test(w1))) {
           words = words.slice(1);
         }
       }

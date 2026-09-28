@@ -28,6 +28,8 @@ export interface Segment {
   words: Word[];
   /** 段内重定向（含 fd 前缀） */
   redirects: RedirTarget[];
+  /** 段内注释文本（# 后内容——V1 pipe-to-shell 口径保持：注释词样计入上游检测） */
+  commentText: string | null;
   /** 赋值前缀 W=/path（Ad1：独立段表示——赋值不进 args） */
   assignments: Array<{ name: string; value: string | null }>;
   /** 含展开的赋值词（P=$(lsof …)——词本体含 cmdsub part，供白名单溯源） */
@@ -85,7 +87,7 @@ function buildSegments(tokens: Token[], text: string): { segments: Segment[]; su
   let i = 0;
 
   function emptySegment(joiner: string): Segment {
-    return { argv0: null, args: [], words: [], redirects: [], assignments: [], assignWords: [], subshell: false, joiner };
+    return { argv0: null, args: [], words: [], redirects: [], assignments: [], assignWords: [], subshell: false, joiner, commentText: null };
   }
 
   function flushSegment(nextJoiner: string): void {
@@ -160,7 +162,12 @@ function buildSegments(tokens: Token[], text: string): { segments: Segment[]; su
       i++;
       continue;
     }
-    if (t.type === "comment") { i++; continue; }
+    if (t.type === "comment") {
+      // 注释归入当前段（commentText 覆盖追加——多注释拼接）
+      cur.commentText = (cur.commentText ?? "") + " " + (t.text ?? "");
+      i++;
+      continue;
+    }
     i++;
   }
   flushSegment("");
@@ -280,25 +287,29 @@ function collectPayloads(tokens: Token[], text: string, depth: number): { payloa
   return { payloads, parseOk };
 }
 
-/** 词是否是解释器载荷调用（bash -c 'cmd' / python -c 'code'）→ 返回载荷文本 */
-function matchInterpreterPayload(argv0: string | null, args: Array<string | null>, words: Word[]): { raw: string; kind: Payload["kind"] } | null {
+/** 词是否是解释器载荷调用（bash -c 'cmd' / python -c 'code'）→ 返回全部载荷
+ *  （一个段内多个 -c 载荷词并列：`bash -c 'kill 1' bash -c 'pkill x'`——V1 #1154 S2
+ *  逐载荷语义：一个都不能被首个良性载荷遮蔽） */
+function matchInterpreterPayloads(argv0: string | null, words: Word[]): Array<{ raw: string; kind: Payload["kind"] }> | null {
   if (argv0 === null) return null;
   const bare = argv0.split("/").pop() ?? argv0;
+  const out: Array<{ raw: string; kind: Payload["kind"] }> = [];
   if (SHELL_INTERPRETERS.has(bare)) {
-    // bash -c 'payload'：-c 后第一个词（引号内）是载荷
-    // args[0]=argv0 之外首个参数？注意：Segment.args 含除 argv0 外全部词
-    const flagIdx = words.findIndex((w, idx) => idx > 0 && w.evaluated === "-c");
-    if (flagIdx >= 0 && words[flagIdx + 1]) {
-      return { raw: words[flagIdx + 1].parts.map(p => p.type === "lit" || p.type === "escape" ? p.text : "").join("") || words[flagIdx + 1].evaluated || "", kind: "bash-c" };
+    // 全部 -c 后的载荷词（并列多载荷）
+    for (let i = 1; i < words.length - 1; i++) {
+      if (words[i].evaluated === "-c") {
+        out.push({ raw: words[i + 1].parts.map(p => p.type === "lit" || p.type === "escape" ? p.text : "").join("") || words[i + 1].evaluated || "", kind: "bash-c" });
+      }
     }
-    // bash file.sh（无 -c）：脚本文件形态（V2 白名单新拦项 U5——判定层处理，模型只记录 argv）
-    return null;
-    }
+    return out.length > 0 ? out : null;
+  }
   if (SCRIPT_RUNNERS.has(bare)) {
-    const flagIdx = words.findIndex((w, idx) => idx > 0 && (w.evaluated === "-c" || w.evaluated === "-e"));
-    if (flagIdx >= 0 && words[flagIdx + 1]) {
-      return { raw: words[flagIdx + 1].evaluated ?? "", kind: "cmdsub" };
+    for (let i = 1; i < words.length - 1; i++) {
+      if (words[i].evaluated === "-c" || words[i].evaluated === "-e") {
+        out.push({ raw: words[i + 1].evaluated ?? "", kind: "cmdsub" });
+      }
     }
+    return out.length > 0 ? out : null;
   }
   return null;
 }
@@ -316,18 +327,20 @@ export function parseOnce(text: string, depth = 0): CommandModel {
   if (!collected.parseOk) parseOk = false;
   issues.push(...collected.payloads.filter(p => p.model === null && p.kind !== "heredoc-quoted").map(p => `payload-unparseable:${p.kind}`));
 
-  // bash -c / 脚本解释器载荷：段级补充递归
+  // bash -c / 脚本解释器载荷：段级补充递归（全部载荷——#1154 S2 逐载荷语义）
   const payloads = [...collected.payloads, ...subshellPayloads];
   for (const seg of segments) {
-    const interp = matchInterpreterPayload(seg.argv0, seg.args, seg.words);
-    if (interp) {
-      if (depth >= MAX_DEPTH) {
-        payloads.push({ raw: interp.raw, model: null, kind: interp.kind, depth });
-        parseOk = false;
-      } else {
-        const sub = parseOnce(interp.raw, depth + 1);
-        payloads.push({ raw: interp.raw, model: sub, kind: interp.kind, depth: depth + 1 });
-        if (!sub.parseOk) parseOk = false;
+    const interps = matchInterpreterPayloads(seg.argv0, seg.words);
+    if (interps) {
+      for (const interp of interps) {
+        if (depth >= MAX_DEPTH) {
+          payloads.push({ raw: interp.raw, model: null, kind: interp.kind, depth });
+          parseOk = false;
+        } else {
+          const sub = parseOnce(interp.raw, depth + 1);
+          payloads.push({ raw: interp.raw, model: sub, kind: interp.kind, depth: depth + 1 });
+          if (!sub.parseOk) parseOk = false;
+        }
       }
     }
     // args 填充

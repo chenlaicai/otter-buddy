@@ -11,6 +11,7 @@
  * - 每次检查实时读 PID 文件（不缓存，支持热重启换 PID）
  */
 
+/* eslint-disable max-lines -- V1 判定链保留（fail-closed 兜底）+ V2 路由共存期 */
 import fs from "fs";
 import path from "path";
 import type { Logger } from "@usecases/ports/logger";
@@ -549,7 +550,13 @@ function locateTriggerContext(command: string, mainPid: number | null): string[]
 
 /** F20260923glay：拦截文案附加诊断块（#730）；同类命中已在 locateTriggerContext 合并计数。 */
 function withDiagnostics(message: string, scanText: string, mainPid: number | null): string {
-  const hits = locateTriggerContext(scanText, mainPid);
+  let hits = locateTriggerContext(scanText, mainPid);
+  // F20260928grv2：塔死引号拼接形态（e""val）在原始文本上打不中诊断正则——
+  // 用归一化视图二次定位（#730 诊断块与判定口径对齐；两视图都试，命中即报）
+  if (hits.length === 0) {
+    const normalized = normalizeForDetection(scanText);
+    if (normalized !== scanText) hits = locateTriggerContext(normalized, mainPid);
+  }
   if (hits.length === 0) return message;
   return `${message}\n【命中详情】${hits.join("；")}`;
 }
@@ -741,6 +748,7 @@ function checkSanitizedPath(
   return checkBashCommandSafetyOnText(sanitizeQuotedText(command), mainPid, logger, allowedServices, projectRoot);
 }
 
+/* eslint-disable-next-line complexity -- V1/V2 双链路由是本入口的本质形态（模型路径+兜底路径+规则补位） */
 export function checkBashCommandSafety(
   command: string,
   mainPid: number | null,
@@ -757,16 +765,26 @@ export function checkBashCommandSafety(
   // F20260928grv2（guard-v2-redesign）：统一结构模型判定层——kill 族/管道到 shell/
   // U1 kill 0/U5 bash<file 由模型层承担（#1170 管道豁免误杀、#1171 文本误伤、
   // 位置参数/$VAR 传参等判定语义随模型继承）。parseOk=false（未闭合引号/$(/heredoc/
-  // 深度超限）时走 V1 文本链兜底（D3：kill 族解析失败必拦，兜底链语义=V1 保守侧）。
-  // PID 无关规则（PR merge/data 破坏/主仓写/脚本自杀）仍走文本路径（映射表「保留」项）。
+  // 深度超限）时走 V1 文本链全量兜底（D3：kill 族解析失败必拦，兜底链语义=V1 保守侧）。
+  // 模型判定通过时：kill 族文本判定不再重复跑（模型已判干净，重复文本扫描是
+  // 8000 段/528KB 病态输入的性能热点）——但模型层未覆盖的 PID 无关规则
+  //（脚本自杀/PR merge/data 破坏/主仓写）仍在文本路径执行（映射表「保留」项）。
   const modelOk = modelParseOk(command);
   if (modelOk) {
     const modelResult = checkWithModel(command, mainPid, logger, allowedServices);
     if (modelResult) return withDiagnostics(modelResult, command, mainPid);
+    // 模型已放行 kill 族——只补模型层没有的规则（脚本自杀/data 破坏/主仓写；
+    // PR merge 已由模型 argv 位判定，不再跑文本版）
+    const scriptKill = checkServiceScriptKill(command, mainPid, logger, projectRoot);
+    if (scriptKill) return withDiagnostics(scriptKill, command, mainPid);
+    const dataDestructive = checkDataDirDestructive(command, logger, projectRoot);
+    if (dataDestructive) return withDiagnostics(dataDestructive, command, mainPid);
+    const mainWrite = checkMainCheckoutWrite(command, logger, projectRoot);
+    if (mainWrite) return withDiagnostics(mainWrite, command, mainPid);
+    return null;
   }
 
-  // V1 判定链（模型 parseOk=false 时的兜底；或模型放行时的纵深防御复核——
-  // 模型层未覆盖的 V1 判定项（eval/脚本 one-liner/服务脚本）仍在此生效）
+  // V1 判定链（parseOk=false 时的全量兜底）
 
   // F20260924gfpn：heredoc 载荷整体剥离——python3 - <<EOF 的 stdin 体对 shell 层判定
   // 是数据（kill 字样测试文本曾触发「脚本 one-liner + kill + 数字」cmdLevel 拦截并
