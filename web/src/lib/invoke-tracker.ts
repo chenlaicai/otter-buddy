@@ -70,27 +70,32 @@ export interface ServerInvokeRecord {
   ctxWindowUsed: number | null
 }
 
-/** F20260922rprf 检视发现 1 修复：服务端 invokes 合并进本地 invokeStates（SSE 断连补偿）。
- *  合并语义（listInvokes 按 started_at DESC，同獭首次出现即最新，后续旧记录跳过）：
- *  - 本地无该獭 entry → 用服务端记录建立（含 running——本地漏了 invoke.start）
- *  - 本地 entry 已终态 → 跳过（本地已收敛，不接受服务端旧 running 回退——服务端
- *    最新记录即终态时本地必然也是该 invoke 的终态或更新 invoke）
- *  - 本地 entry running：
- *    · 同 invokeId 且服务端已终态 → 收敛（断连窗口丢 invoke.end 的核心场景）
- *    · 服务端已是更新 invoke → 覆盖（断连窗口丢整轮 start+end）
- *    · 同 invokeId 服务端仍 running → 跳过（无新信息）
- *  幂等：无任何变更时返回原引用（心跳期重连补偿不驱动 re-render）。 */
+/** 服务端 invokes 合并进本地 invokeStates（拉取对账的写入语义，唯一真相源）。
+ *  F20260928icmm 缓存模型（阶段1，弱合并退役）：服务端 invokes 表是权威数据源，
+ *  同獭按 startedAt 最新者胜（同刻同 invokeId 时终态胜 running；同刻异 id 保守
+ *  保持先到者；startedAt 不可解析时保守保持）；服务端更新即可覆盖本地任何旧状态
+ *  （含本地终态——旧「本地终态即跳过」反向洞已随弱合并退役）；本地新于服务端
+ *  （拉取竞态/SSE 实时先行）时本地保持，不回退。
+ *  ctx 回填：服务端 ctx_window_used 为 null（新 invoke 首个 message_end 落库前）
+ *  时回填本地上一轮值，与 applyInvokeStart「跨 invoke 保留 ctx」语义对齐。
+ *  幂等：无任何变更时返回原引用（周期/重连/读点对账不驱动多余 re-render）。 */
 export function mergeInvokesFromServer(states: InvokeStates, invokes: ServerInvokeRecord[]): InvokeStates {
+  /** F20260928icmm 阶段1：缓存模型合并语义——服务端 invokes 表是权威数据源，同獭按
+   *  startedAt 最新者胜（同刻比状态终态性：终态胜 running）；幂等：无变更返回原引用。
+   *  弱合并（本地已有即跳过 / 本地终态即跳过）退役——它让切回对话后的对账拉取写不进状态，
+   *  是右栏卡「运行中」四轮未愈的根因（联合排查 2026-09-28）。
+   *  防回退保留：本地比服务端新（拉取竞态/SSE 实时先行）时本地保持，不会把右栏改旧。 */
   let next: InvokeStates | null = null
-  const seen = new Set<string>()
+  const latest = new Map<string, ServerInvokeRecord>()
   for (const inv of invokes) {
-    if (seen.has(inv.otterId)) continue
-    seen.add(inv.otterId)
-    const existing = (next ?? states)[inv.otterId]
-    if (existing && existing.status !== 'running') continue
-    if (existing && existing.invokeId === inv.id && inv.status === 'running') continue
-    next = next ?? { ...states }
-    next[inv.otterId] = {
+    const seen = latest.get(inv.otterId)
+    if (!seen || recordNewer(inv, seen)) latest.set(inv.otterId, inv)
+  }
+  for (const [otterId, inv] of latest) {
+    const existing = (next ?? states)[otterId]
+    if (existing && !recordNewer(inv, localAsRecord(existing))) continue
+    if (next === null) next = { ...states }
+    next[otterId] = {
       invokeId: inv.id,
       otterId: inv.otterId,
       otterName: existing?.otterName,
@@ -99,11 +104,41 @@ export function mergeInvokesFromServer(states: InvokeStates, invokes: ServerInvo
       ...(inv.endedAt && { endedAt: inv.endedAt }),
       toolCallCount: inv.toolCallCount,
       ...(inv.tokenUsageInput != null && inv.tokenUsageOutput != null && { tokenUsage: { input: inv.tokenUsageInput, output: inv.tokenUsageOutput } }),
-      ...(inv.ctxWindowUsed != null && { ctxWindowUsed: inv.ctxWindowUsed }),
+      ...(inv.ctxWindowUsed != null
+        ? { ctxWindowUsed: inv.ctxWindowUsed }
+        // 检视建议 4（PR #1179）：服务端 ctx 尚未落库（新 invoke 首个 message_end 前）
+        // 时回填本地上一轮值——与 applyInvokeStart 跨 invoke 保留 ctx 语义对齐
+        // （「上下文只增不减」），避免右栏「行动中 · 45.2k/128k」闪成「—/—」。
+        : (existing?.ctxWindowUsed != null && { ctxWindowUsed: existing.ctxWindowUsed })),
       ...(existing?.ctxMax != null && { ctxMax: existing.ctxMax }),
     }
   }
   return next ?? states
+}
+
+/** F20260928icmm：记录新旧比较——startedAt 新者胜；同刻同 invokeId 时终态胜 running
+ *  （对账收敛本地幽灵 running）；无信息可判时保守返回 false（本地/先到者保持）。 */
+function recordNewer(a: ServerInvokeRecord, b: ServerInvokeRecord): boolean {
+  const ta = Date.parse(a.startedAt)
+  const tb = Date.parse(b.startedAt)
+  if (!Number.isNaN(ta) && !Number.isNaN(tb) && ta !== tb) return ta > tb
+  if (ta === tb && a.id === b.id) return a.status !== 'running' && b.status === 'running'
+  return false
+}
+
+/** F20260928icmm：本地状态 → 服务端记录形状（供记录比较；无关字段置空）。 */
+function localAsRecord(s: OtterInvokeState): ServerInvokeRecord {
+  return {
+    id: s.invokeId,
+    otterId: s.otterId,
+    status: s.status,
+    startedAt: s.startedAt,
+    endedAt: s.endedAt ?? null,
+    toolCallCount: 0,
+    tokenUsageInput: null,
+    tokenUsageOutput: null,
+    ctxWindowUsed: null,
+  }
 }
 
 /** invoke.start → 记 running 状态（同 invokeId 重放幂等：内容相同返回原引用）。
