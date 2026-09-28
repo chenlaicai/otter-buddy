@@ -9,7 +9,7 @@ summary: |
   hono 4.13.7→4.13.8、@earendil-works/pi-ai 0.85.1→0.86.0、
   @huggingface/transformers 4.2.0→4.3.0；
   另含 GitHub Actions：actions/upload-artifact v4→v7（#1135）。
-  vitest 4.1.11→5.0.1（#1143，主版本）按规范单独 PR 处理（F20260924vitt）。
+  vitest 4.1.11→5.0.1（#1143，主版本）按规范单独 PR 处理（F20260928vitt）。
 causal_links:
   from:
     - F20260903deps
@@ -44,7 +44,7 @@ created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 - #1141: Bump @larksuiteoapi/node-sdk from 1.73.3 to 1.74.0
 - #1142: Bump @types/node from 26.5.1 to 26.6.2
 - #1135: Bump actions/upload-artifact from 4 to 7（GitHub Actions，随本 PR 一并升级）
-- #1143: Bump vitest from 4.1.11 to 5.0.1（major，单独 PR，见 F20260924vitt）
+- #1143: Bump vitest from 4.1.11 to 5.0.1（major，单独 PR，见 F20260928vitt）
 
 ### 升级的依赖（本 PR 范围）
 
@@ -68,7 +68,7 @@ created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 
 ### 明确不做
 
-- 不升级 vitest 5.x（主版本，单独 PR F20260924vitt）
+- 不升级 vitest 5.x（主版本，单独 PR F20260928vitt）
 - 不做全量 `npm update`（PR #419 决策：仅 Dependabot 信号驱动）
 
 ## 验证
