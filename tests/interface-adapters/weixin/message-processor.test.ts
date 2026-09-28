@@ -328,8 +328,9 @@ describe("WeixinMessageProcessor · F20260928wxid 称呼链", () => {
     expect((((ctx.sentMessages[0] as Record<string, unknown>).senderDisplayName ?? "") as string).trim()).toBe("");
   });
 
-  it("无称呼（存量线未设置）→ senderDisplayName 空串，落库后等同裸 ID 现状", async () => {
-    const ctx = makeProcessor();
+  it("无称呼（存量线未设置，owner 已注入走目标分支）→ senderDisplayName 空串，落库后等同裸 ID 现状", async () => {
+    const ctx = makeProcessor({ ownerIlinkUserId: "u-1" });
+    ctx.manageConnection.getConnection.mockResolvedValue({ metadata: {} });
     ctx.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-1", title: "t" });
     await ctx.processor.process({ fromUserId: "u-1", body: "在吗", raw: { item_list: [{ type: 1, text_item: { text: "在吗" } }] } });
     expect((((ctx.sentMessages[0] as Record<string, unknown>).senderDisplayName ?? "") as string).trim()).toBe("");

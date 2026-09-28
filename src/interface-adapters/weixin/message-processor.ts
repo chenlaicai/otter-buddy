@@ -66,7 +66,7 @@ export class WeixinMessageProcessor {
       agentDispatchService: AgentDispatchService;
       messageBroadcaster: MessageBroadcaster;
       logger: Logger;
-      /** F20260928wxid：bot 账号锚（bot=对话模型，与扫码建线 provisionWeixinAssistantLine
+      /** F20260921wxba：bot 账号锚（bot=对话模型，与扫码建线 provisionWeixinAssistantLine
        *  的 ensureConnection(accountId,...) 同键）。缺省回退 fromUserId 旧锚（未过装配的
        *  遗留路径，仅测试/降级兼容——线上恒由 platforms.ts 传入 account.id） */
       botAccountId?: string;
