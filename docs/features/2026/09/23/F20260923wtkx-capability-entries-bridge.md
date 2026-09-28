@@ -45,11 +45,22 @@ issue #984：PR #979 自检实证——本机跑 capability 测试（Golden Gate
 
 ## 真跑验证（真系统 + 真 LLM）
 
-- system-prompt-behavior：8 tests 全过（含 magic-word-stop、starcandy 达标）
-- magic-words-signal：5 passed + 1 skipped
+**最终轮（9/28，提交态 07515eb4，分文件跑）**：
+
+- system-prompt-behavior：7 passed + 1 skipped（stop 3/3、starcandy 1/3 达标、detour 3/3）
+- magic-words-signal：5 passed + 1 skipped（halt-boundary skip；l2 两用例 3/3、objection/blocked 3/3）
 - big-otter-dispatch：AT-1 5/5、AT-2 7/7（桥前 1/5）
-- talking-stone-routing：全过
+- talking-stone-routing：3/3 全过
 - （otter-lifecycle 2 fail 为 pre-existing，涉 #1146 交接重构断言，与本分支无关，另开 issue）
+
+**整改期间暴露的三个新问题（均以提交态复现验证修复）**：
+
+| 轮次 | 问题 | 根因 | 修法（commit） |
+|---|---|---|---|
+| round1/2（9/25） | starcandy/stop 部分采样「场景未成立」 | 固定 8s 窗不够 boot 首响应 30s+ | 等 setupReply（afterSeq 锚定）替代 8s（aad81a65） |
+| round1-6（9/25-28） | bod AT-1 #1 OK #2 起全挂、AT-2 0/7，反复出现 | 4157b0c9 整改引入 bug：`WHERE type='big' LIMIT 1` 在「每对话独立大獭」设计（R20260821tutv）下拿到 boot 獭，采样 #2 起 waitForInvokeSettled 等错獭 | bigOtterId 改取 bigOtterMsg.si（07515eb4）；mws 同病一并修 |
+| round1（9/25） | 长跑后期「database connection is not open」 | bod 单文件 2h+ 长跑中 app DB 连接死掉 | 分文件跑规避；根因待查（与本分支测试面无关） |
+
 
 ## 影响范围
 
