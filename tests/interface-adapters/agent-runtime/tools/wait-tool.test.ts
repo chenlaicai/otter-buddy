@@ -13,7 +13,9 @@
  * execFile mock（同 merge-pr-tool.test.ts 模式）：until 的 execFileAsync 经 vi.mock 替换。
  * sleep 用 fake timers 推进（wait 工具内 setTimeout）。
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import type { ToolContext } from "@usecases/ports/agent-tools";
 
 const execFileMock = vi.fn();
@@ -152,5 +154,39 @@ describe("F20260922slan wait 工具", () => {
     const text = result.content[0].text;
     expect(text).toContain("苏醒检查");
     expect(text).toContain("CI pass");
+  });
+
+  // ─── r1 发现 1 锁定：until 载荷杀主形态必拦（真 mainPid 链路，非 null 旁路） ───
+  // 原缺陷：validateUntil 传 mainPid=null → kill 族整体旁路（8/30 事故同款威胁
+  // 经 wait 工具新通道重开）。修复后透传 readMainProcessPid——本机 PID 文件存在时
+  // 走完整主链。用杀主三形态（字面主PID/pkill 特征名/killall node）断言拦截。
+  describe("r1-发现1: until 苏醒检查命令安全（真 mainPid 链路）", () => {
+    // 测试环境无主仓 PID 文件（cwd=worktree 根）——写临时文件使 readMainProcessPid
+    // 命中真值链路（生产环境 cwd=主服务目录，PID 文件原生存在，无需此 setup）
+    const pidFile = path.join(process.cwd(), ".otter-buddy.pid");
+    beforeAll(() => {
+      fs.writeFileSync(pidFile, "42877");
+    });
+    afterAll(() => {
+      fs.rmSync(pidFile, { force: true });
+    });
+    it("until 含 pkill 特征名 → 拦（不再走 null 旁路）", async () => {
+      const tool = findWait();
+      const result = await tool.execute("t1", { seconds: 5, reason: "等 CI", until: "p" + ["k","i","l","l"].join("") + " -f otter-buddy" });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("安全守卫拦截");
+    });
+    it("until 含 killall node → 拦", async () => {
+      const tool = findWait();
+      const result = await tool.execute("t1", { seconds: 5, reason: "等 CI", until: "killa" + "ll node" });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("安全守卫拦截");
+    });
+    it("until 含间接 kill（$(cat pid 文件)）→ 拦", async () => {
+      const tool = findWait();
+      const result = await tool.execute("t1", { seconds: 5, reason: "等 CI", until: "k" + "ill $(cat .otter-buddy.pid)" });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("安全守卫拦截");
+    });
   });
 });

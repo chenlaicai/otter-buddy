@@ -18,7 +18,7 @@ import { createTriageSignalTool, createListRhiSignalsTool } from "./rhi-signal-t
 import { DomainError } from "@entities/errors";
 import { createWorkspaceTools } from "./workspace-tools";
 import { createCreateScheduledTaskTool } from "./scheduled-task-tools";
-import { checkBashCommandSafety } from "@frameworks/agent/bash-safety-guard";
+import { checkBashCommandSafety, readMainProcessPid } from "@frameworks/agent/bash-safety-guard";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 // R20260817arnt PR-A：工具契约类型自本文件上移 @usecases/ports/agent-tools（消除 frameworks 反向依赖此文件）
 import type { AgentTool, ToolContext, ToolModelPool, ToolResponse } from "@usecases/ports/agent-tools";
@@ -414,7 +414,13 @@ function validateUntil(
   logger: Logger | undefined,
 ): { error: ToolResponse } | { untilArgv: string[] } {
   if (until === undefined || until.trim() === "") return { untilArgv: [] };
-  const safetyBlock = checkBashCommandSafety(until, null, logger, { projectRoot: process.cwd() });
+  // r1 发现 1 修复：透传真 mainPid（对齐 circuit-breaker-helpers 生产调用链形态
+  // readMainProcessPid(cwd)——生产 cwd=主服务运行目录，PID 文件在那）——原 null 使
+  // kill 族检测整体旁路（until: "pkill -f otter-buddy" 可直接过，8/30 事故同款
+  // 威胁经 wait 工具新通道重开）。缺失时 null 走降级链（V1 语义）。
+  // 测试形态：wait-tool.test beforeAll 在 worktree 根写临时 .otter-buddy.pid。
+  const mainPid = readMainProcessPid(process.cwd());
+  const safetyBlock = checkBashCommandSafety(until, mainPid, logger, { projectRoot: process.cwd() });
   if (safetyBlock) {
     // 与 bash 同文案同纪律——透传守卫拦截文案（含进程终止/data 域引导）
     return { error: errorResponse(`[错误] until 苏醒检查命令被安全守卫拦截：${safetyBlock}`) };

@@ -237,7 +237,9 @@ export function attachCircuitBreaker(
 
       // F20260830bsgr：bash 安全守卫——拦截针对主进程的 kill 命令（早于工具执行）
       // #844：guardOptions 传入 projectRoot 供白名单热加载；拦截文案动态附加受控脚本引导
-      if (toolName === "bash" && e.toolCallId) {
+      // r1 发现 2 修复：去掉 `&& e.toolCallId` 收窄——缺 toolCallId 的 bash 事件
+      // （SDK 边缘形态）不能整体跳过守卫；toolCallId 可选传递给 abortOnUnsafeBash
+      if (toolName === "bash") {
         const args = (e.args ?? {}) as Record<string, unknown>;
         const command = typeof args.command === "string" ? args.command : "";
         if (abortOnUnsafeBash(command, e.toolCallId)) return;
@@ -278,7 +280,7 @@ export function attachCircuitBreaker(
    *  F20260922slan：sleep 拦截（感知问题）与 kill 域（安全问题）前缀分流——守卫返回带
    *  SLEEP_REASON_PREFIX 标记的 reason 时发射 `bash_sleep:`，否则 `bash_safety:`。判定用
    *  startsWith（delta-3 备注：精确匹配，禁用 includes），此发射点是 `bash_sleep:` 的唯一产源（D5a）。 */
-  function abortOnUnsafeBash(command: string, toolCallId: string): boolean {
+  function abortOnUnsafeBash(command: string, toolCallId?: string): boolean {
     const mainPid = getMainPid();
     const rawSafetyBlock = checkBashCommandSafety(command, mainPid, logger, { projectRoot: options?.projectRoot });
     if (!rawSafetyBlock) return false;

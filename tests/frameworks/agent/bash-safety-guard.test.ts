@@ -1449,6 +1449,8 @@ describe("F20260923qbsw 补充：排查期高频只读命令误拦回归（9/23 
   it("sqlite3 查询结果重定向落主仓（引号外真重定向）→ 仍拦截", () => {
     const cmd = `sqlite3 ${DB} "SELECT 1" > src/dump.txt`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+});
 
 // ─── F20260922slan V1：sleep 检测边界全集 ───
 

@@ -17,6 +17,10 @@ import type { Logger } from "@usecases/ports/logger";
 import { loadAllowedServicePorts, extractWhitelistedPortRefs, type AllowedService } from "./allowed-service-ports";
 import { shouldSanitizeForScan, sanitizeQuotedText, stripQuotedTextSpans, stripHeredocPayloads } from "./quoted-text-sanitizer";
 import { findKillSegments, isKillAtCommandPosition } from "./kill-segment-finder";
+
+/** F20260922slan：sleep 命令位置判定——复用 kill-segment-finder 的位置感知
+ * （isKillAtCommandPosition 对任意 pattern 通用，sleep 词元复用同一套位置白名单） */
+const isCommandPositionFor = (text: string, pattern: RegExp): boolean => isKillAtCommandPosition(text, pattern);
 import { allSegmentsGitReadonly } from "./git-readonly-whitelist";
 
 export type { AllowedService };
@@ -459,6 +463,7 @@ function checkDataDirDestructive(command: string, logger?: Logger, projectRoot?:
   return null;
 }
 
+/* eslint-disable-next-line complexity -- sleep 检测挂点（F20260922slan）新增一分支：V1 判定链原 12 分支 + sleep 检测，合并后 13——每分支对应一条已断言语义 */
 function checkBashCommandSafetyOnText(
   text: string,
   mainPid: number,
@@ -760,13 +765,6 @@ export function checkBashCommandSafety(
   const sanitizedResult = checkSanitizedPath(heredocStripped, mainPid, logger, allowedServices, projectRoot);
   if (sanitizedResult === null) return null;
 
-  // F20260924gfpn：heredoc 载荷整体剥离（等长替换，offset 不变）。
-  const heredocStripped = stripHeredocPayloads(command);
-
-  // #858：内嵌文本脱敏——脱敏后干净（纯数据操作）→ 放行；仍命中 → 继续原文本路径
-  const sanitizedResult = checkSanitizedPath(heredocStripped, mainPid, logger, allowedServices, projectRoot);
-  if (sanitizedResult === null) return null;
-
   // F20260922slan：sleep 拦截标记（SLEEP_REASON_PREFIX）保留至发射点——circuit-breaker-helpers
   // 据此分流 `bash_sleep:` 前缀并自行剥离（此发射点是 bash_sleep: 唯一产源，D5a）。诊断文案用干净文案。
   const scan = (text: string): string | null => {
@@ -780,7 +778,8 @@ export function checkBashCommandSafety(
   if (result) return result;
 
   const normalized = normalizeForDetection(heredocStripped);
-  return normalized !== heredocStripped ? scan(normalized) : null;}
+  return normalized !== heredocStripped ? scan(normalized) : null;
+}
 
 // F20260922slan：sleep 检测拆至 sleep-command-guard.ts（控文件行数）——import + re-export 保持 API 稳定
 import { checkSleepCommand, SLEEP_REASON_PREFIX, stripSleepMarkerIfPresent } from "./sleep-command-guard";

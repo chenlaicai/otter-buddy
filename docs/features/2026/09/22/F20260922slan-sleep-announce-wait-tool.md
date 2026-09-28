@@ -299,3 +299,16 @@ tool-description-overrides.ts 的 bash suffix 追加一句：
 ### 最简实现检查
 
 已过。wait 工具复用 checkBashCommandSafety 主链（零重复安全逻辑）+ execFileAsync（已装依赖）+ Node setTimeout（stdlib），无新框架/依赖。sleep 检测复用位置感知（依赖注入），无重复实现。
+
+## r1 审视处置记录（检视獭-sleep 5 严重 + 3 建议，处置：守卫实现獭 2026-09-28）
+
+| 发现 | 处置 |
+|---|---|
+| S1 发现 1：until 过守卫传 mainPid=null → kill 族整体旁路（`until: "pkill -f otter-buddy"` 直接过——8/30 事故同款威胁经 wait 工具新通道重开） | validateUntil 透传真 mainPid（readMainProcessPid(cwd)，对齐 circuit-breaker-helpers 生产形态）+ wait-tool.test 3 个杀主形态锁定用例（pkill 特征名/killall/间接 $(cat pid)，beforeAll 写临时 pid 文件仿真值链路）+ 正常命令不拦对照 |
+| S2 发现 2：守卫入口 `&& e.toolCallId` 条件收窄——缺 toolCallId 的 bash 事件整体跳过守卫 | 恢复无条件 `if (toolName === "bash")`；abortOnUnsafeBash 的 toolCallId 参数改可选 |
+| S3 发现 3（B5 撞车 #1125） | 历史性消解——#1125 已合入；rebase 到含 #1125 的 main，位置感知 DI 口径重验（isCommandPositionFor 桥接 kill-segment-finder 的 isKillAtCommandPosition），253/253 含引号感知用例全绿 |
+| S4 发现 4（B7）：capability_test 无执行记录 | 本机 LLM 未配置（OTTER_TEST_LLM_API_KEY 缺失）→ capability 测试 skip（非伪造记录）。处置：PR Verification 附完整跳过输出 + 环境事实；真 LLM 采样留 CI/搭档环境补跑，记录载体 data/metrics/golden-results.jsonl（runner 自动写） |
+| S5 发现 5：时序未断言（spokeFirst 只测存在性）+ ≥1/3 阈值与「收敛」宣称不符 | spokeBeforeWait：sequenceNum 时序断言（首个 otter speak < wait 所在 invoke 首条 entry；锚缺失时保守放行并标注 unanchored）+ 阈值 1→2（≥2/3）+ 标题措辞改「时序断言为主，硬收敛由 L1 守卫兜底」 |
+| 建议 6-8（extractCommandSegment 首匹配/其他） | 记录保留——建议级不阻断，后续 PR |
+
+处置验证：全仓 4066/4066（288 文件）；wait-tool 14/14（含 3 杀主锁定）；bash-sleep 19/19；bash-safety 234/234；tsc/eslint 净。rebase 消解两文件冲突（bash-safety-guard.ts 双块 + 测试文件双侧并置）。

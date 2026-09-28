@@ -51,8 +51,17 @@ async function listInvokeEvents(ctx: CapabilityContext, invokeId: string): Promi
 }
 
 /** 獭是否 speak 过（等待前交代） */
-function otterSpoke(entries: EntryDto[]): boolean {
-  return entries.some((e) => e.entryType === "speak" && e.senderType === "otter" && (e.body ?? "").trim().length > 0);
+/** r1 发现 5 修复：时序断言——首个 otter speak 的 sequenceNum 须早于 wait 所在 invoke
+ *  的首条 entry（「先说一声再等」的意图锚第一不变量，sequenceNum 同流单调可比较）。
+ *  fallback：拿不到 invoke 锚时退化为存在性（不降级通过，只在锚缺失时保守放行
+ *  并在 detail 标注 timing=unanchored）。 */
+function spokeBeforeWait(entries: EntryDto[], waitInvokeIds: Set<string>): { ok: boolean; detail: string } {
+  const firstOtterSpeak = entries.find((e) => e.entryType === "speak" && e.senderType === "otter" && (e.body ?? "").trim().length > 0);
+  if (!firstOtterSpeak) return { ok: false, detail: "no-otter-speak" };
+  const waitAnchor = entries.find((e) => e.invokeId && waitInvokeIds.has(e.invokeId));
+  if (!waitAnchor) return { ok: true, detail: "timing=unanchored(existence-only)" };
+  const spokeFirst = firstOtterSpeak.sequenceNum < waitAnchor.sequenceNum;
+  return { ok: spokeFirst, detail: `timing=anchored speak@${firstOtterSpeak.sequenceNum} < wait-invoke@${waitAnchor.sequenceNum}` };
 }
 
 /** invoke 事件流里的工具调用名（按发生顺序） */
@@ -78,10 +87,10 @@ describe("sleep 工具化：先 speak 再 wait（真系统 + 真 LLM）", () => 
     ctx?.cleanup();
   });
 
-  it("等待场景：獭先 speak 说明理由，再调 wait（3 次采样 ≥1）", async (t) => {
+  it("等待场景：獭先 speak 说明理由，再调 wait（3 次采样 ≥2——时序断言为主，硬收敛由 L1 守卫兜底）", async (t) => {
     if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
 
-    await expectSampledBehavior("sleep-announce-wait", 3, 1, async (i) => {
+    await expectSampledBehavior("sleep-announce-wait", 3, 2, async (i) => {
       const convId = await createConversation(ctx, `等待采样${i + 1}`);
       /** 场景：只给獭一个「等 5 秒再回复」的任务，观察其等待方式。
        *  不设限措辞，只断言行为不变量：wait 被采纳 + speak 先行 + 无裸 sleep ≥5s。 */
@@ -98,6 +107,7 @@ describe("sleep 工具化：先 speak 再 wait（真系统 + 真 LLM）", () => 
       const deadline = Date.now() + 240_000;
       let finalEntries: EntryDto[] = [];
       let toolNames: string[] = [];
+      const waitInvokeIds = new Set<string>();
       let converged = false;
       while (Date.now() < deadline) {
         finalEntries = await listEntries(ctx, convId);
@@ -108,17 +118,17 @@ describe("sleep 工具化：先 speak 再 wait（真系统 + 真 LLM）", () => 
         for (const iid of invokeIds) {
           const events = await listInvokeEvents(ctx, iid);
           toolNames = toolNamesFromEvents(events);
-          if (toolNames.includes("wait")) { converged = true; break; }
+          if (toolNames.includes("wait")) { converged = true; waitInvokeIds.add(iid); break; }
         }
         if (converged) break;
         await new Promise((r) => setTimeout(r, 3000));
       }
 
       const calledWait = toolNames.includes("wait");
-      const spokeFirst = otterSpoke(finalEntries);
+      const timing = spokeBeforeWait(finalEntries, waitInvokeIds);
       return {
-        ok: converged && calledWait && spokeFirst,
-        detail: `converged=${converged} wait=${calledWait} spoke=${spokeFirst} tools=${JSON.stringify(toolNames)}`,
+        ok: converged && calledWait && timing.ok,
+        detail: `converged=${converged} wait=${calledWait} timing=${timing.detail} tools=${JSON.stringify(toolNames)}`,
       };
     });
   }, 600_000);
