@@ -872,9 +872,25 @@ export default function ConversationPage() {
 
     connect()
 
+    /** F20260928icmm 阶段2：running 存在期间的周期静默对账（60s）。
+     *  兑底「页面一直开着不动」的长尾：tab 休眠/后台节流导致 onprogress 停滞但看门狗
+     *  未触发（或事件丢失且无任何读点时机）时，右栏错误最多存活一个周期。
+     *  门条件：invokeStates 全局存在 running（键为 otterId，无会话维度、无清空点——
+     *  切走会话的陈旧 running 条目也会触发对当前会话的一次拉取；merge 幂等，无正确性
+     *  损害，仅为极低频的冗余请求）；activeIdRef 守卫防 effect 换会话后旧 interval 触发
+     *  陈旧会话的拉取。机制四问见 F20260928audt。 */
+    const PERIODIC_AUDIT_INTERVAL_MS = 60_000
+    const auditTimer = setInterval(() => {
+      if (disposed) return
+      if (activeIdRef.current !== activeId) return
+      const hasRunning = Object.values(invokeStatesRef.current).some(s => s.status === 'running')
+      if (hasRunning) void syncInvokeStatesOnReconnect(activeId)
+    }, PERIODIC_AUDIT_INTERVAL_MS)
+
     return () => {
       disposed = true
       if (reconnectTimer) clearTimeout(reconnectTimer)
+      clearInterval(auditTimer)
       // F20260923sswd：清理活性看门狗定时器
       if (livenessTimer) { clearInterval(livenessTimer); livenessTimer = null }
       if (xhr) xhr.abort()
