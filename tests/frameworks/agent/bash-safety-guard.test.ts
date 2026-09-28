@@ -1512,8 +1512,12 @@ describe("checkBashCommandSafety - sleep 检测（F20260928slan）", () => {
     expect(checkBashCommandSafety("sleeping 30", mainPid)).toBeNull();
   });
 
-  it("`bash scripts/alpha.sh`（文件形态脚本，sleep 不在命令字符串）→ 放行（T4）", () => {
-    expect(checkBashCommandSafety("bash scripts/alpha.sh", mainPid)).toBeNull();
+  it("`bash scripts/alpha.sh`（文件形态脚本）→ 拦（U5 白名单新拦，#1189 拍板——原 T4 放行语义被取代；文件形态脚本引导拆命令或隔离实例）", () => {
+    // 语义演进：#1126 T4 原断言放行（sleep 不在命令字符串）；#1189 U5 搭档拍板
+    // 「bash <file>/bash file.sh 从文件读脚本保守拦」——V2 主链拦一切 bash 文件
+    // 执行形态（脚本内容未经守卫逐条判定，绕过面不可接受）。断言 U5 文案。
+    const result = checkBashCommandSafety("bash scripts/alpha.sh", mainPid);
+    expect(result).toContain("从文件读取脚本执行");
   });
 
   it("`echo hi && sleep 30`（段首命令位置）→ 拦", () => {
