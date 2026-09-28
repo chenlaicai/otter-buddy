@@ -6,6 +6,7 @@ change_type: fix
 tags: [web-assistant, conversation-mapper, kind, bugfix]
 modules:
   - src/frameworks/db/conversation/conversation-mapper.ts
+from: [F20260924wast]
 created_in_conversation: 480589fd-5813-400a-9b07-8e7d5707fb34
 ---
 
@@ -80,12 +81,14 @@ FAIL  tests/frameworks/db/conversation/sqlite-conversation-repository.test.ts
 ## 影响范围
 
 - getById 与 listConversationsWithMeta 两条读路径共用 rowToConversation，一并修复
-- 未知 kind 值行为不变（回退 normal），无存量数据风险
+- **第二消费方（检视 M1 发现）**：message-controller.ts `checkWebAssistantSession`（F20260924wast S1）也经 getById 判 kind——折叠 bug 期间恒早退，**web 助理 session 轮换自 #1174 上线起静默失效**；本次修复顺带复活。合入后首次触发 idle 检查可能立即换 session（设计行为但用户可感知）；存量测试 `web-assistant-session-check.test.ts:38` 恰在 repo.getById 处 mock，绕过了出 bug 的 mapper 缝隙（逃逸路径，非测试错）
+- 非枚举值回退 normal 行为不变，无存量数据风险（列 NOT NULL DEFAULT 'normal'，migration.ts ensureConversationsKindColumn）
 - 修复上线后无需数据迁移——DB 里 kind 本来就是对的，只是读丢了
 
 ## 遗留（顺带发现，与本 bug 无关）
 
 - 搭档 21:00 的 hi 未获回复：web 助理对话后端獭模型 kimi 配额耗尽（429 终态，entries 第 3-4 条留痕），配额恢复后重发即可
+- 枚举三处平行硬编码（entity / mapper / DTO 白名单）——本 bug 成因模式（扩枚举漏改投影点）未极除，建议后续单源化（检视 SG1，未在本 PR 处理，避免扩散修改面）
 
 ## 预期 vs 实际对照
 
