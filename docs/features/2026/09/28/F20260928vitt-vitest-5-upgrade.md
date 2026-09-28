@@ -30,7 +30,7 @@ tags: [deps, testing]
 | package.json | vitest ^4.1.11 → ^5.0.1；新增 engines.node（^22.12.0||^24.0.0||>=26.0.0，与 vitest 官方一致） | 检视建议③采纳 + delta-2 对齐 |
 | package-lock.json | 锁文件同步 | |
 | tests/capability/helpers/skip-reporter.ts | 计数修复：state === "skipped" && mode !== "todo"（旧 === "skip" 是死分支）；回退链改 task?.mode ?? options?.mode；注释含全域探针实测语义 | delta-2 处置 |
-| tests/capability/skip-reporter.capability.test.ts | 新增：计数语义固化测试（5 类用例探针表 + v6 回退安全网 + 死分支哨兵，12 用例） | delta-2 处置 |
+| tests/skip-reporter-semantics.test.ts | 新增：计数语义固化测试（5 类用例探针表 + v6 回退安全网 + 死分支哨兵，12 用例；delta-3 移入主套件纳入 CI 执行面，并软化「锁上游」过度承诺措辞） | delta-2/delta-3 处置 |
 
 ## 对抗审视（检视獭 mimo-pro，2026-09-28，两轮）
 

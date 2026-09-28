@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import CapabilitySkipReporter from "./helpers/skip-reporter";
+import CapabilitySkipReporter from "./capability/helpers/skip-reporter";
 
 /**
  * skip-reporter 计数语义固化测试（delta-2 审视处置，2026-09-28）。
  *
- * 语义锚点来自检视獭在 vitest 5.0.1 下的全域探针实测（5 类用例）——上游版本升级若改变
- * 这些字段语义，本测试先红，防「静默全绿」（该 reporter 的明令禁止形态）。
+ * 语义锚点来自检视獭在 vitest 5.0.1 下的全域探针实测（5 类用例）。本测试驱动生产类直接断言，
+ * 锁定的是本仓库计数语义（合成输入为固定字段组合，不能替代上游真实运行时——上游升级若改语义，
+ * 需配合 golden-selftest / capability 套件的真探针复核）。位于主套件（tests/ 根，CI 执行面）。
  *
  * | 用例形态          | task.mode | options.mode | state     | 应计数 |
  * |-------------------|-----------|--------------|-----------|--------|

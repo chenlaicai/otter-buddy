@@ -18,7 +18,7 @@ interface TestTaskLike {
    * v5.0.1 实测（检视獭 2026-09-28 全域探针，5 类用例）：
    * - ctx.skip() 置 task.mode="skip" 但 options.mode 仍为 "run"——单靠公开字段会漏计运行期 skip
    * - state 值域是 "skipped"/"passed"/"failed"（plugin.d.CN87HSxv.d.ts:350），无 "skip"
-   * 语义固化测试：tests/capability/skip-reporter.capability.test.ts（含 v6 收掉 .task 后的回退行为验证）
+   * 语义固化测试（主套件，CI 执行面）：tests/skip-reporter-semantics.test.ts（含 v6 收掉 .task 后的回退行为验证）
    */
   task?: { mode?: string; result?: { state?: string } };
 }
