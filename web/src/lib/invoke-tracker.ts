@@ -70,16 +70,15 @@ export interface ServerInvokeRecord {
   ctxWindowUsed: number | null
 }
 
-/** F20260922rprf 检视发现 1 修复：服务端 invokes 合并进本地 invokeStates（SSE 断连补偿）。
- *  合并语义（listInvokes 按 started_at DESC，同獭首次出现即最新，后续旧记录跳过）：
- *  - 本地无该獭 entry → 用服务端记录建立（含 running——本地漏了 invoke.start）
- *  - 本地 entry 已终态 → 跳过（本地已收敛，不接受服务端旧 running 回退——服务端
- *    最新记录即终态时本地必然也是该 invoke 的终态或更新 invoke）
- *  - 本地 entry running：
- *    · 同 invokeId 且服务端已终态 → 收敛（断连窗口丢 invoke.end 的核心场景）
- *    · 服务端已是更新 invoke → 覆盖（断连窗口丢整轮 start+end）
- *    · 同 invokeId 服务端仍 running → 跳过（无新信息）
- *  幂等：无任何变更时返回原引用（心跳期重连补偿不驱动 re-render）。 */
+/** 服务端 invokes 合并进本地 invokeStates（拉取对账的写入语义，唯一真相源）。
+ *  F20260928icmm 缓存模型（阶段1，弱合并退役）：服务端 invokes 表是权威数据源，
+ *  同獭按 startedAt 最新者胜（同刻同 invokeId 时终态胜 running；同刻异 id 保守
+ *  保持先到者；startedAt 不可解析时保守保持）；服务端更新即可覆盖本地任何旧状态
+ *  （含本地终态——旧「本地终态即跳过」反向洞已随弱合并退役）；本地新于服务端
+ *  （拉取竞态/SSE 实时先行）时本地保持，不回退。
+ *  ctx 回填：服务端 ctx_window_used 为 null（新 invoke 首个 message_end 落库前）
+ *  时回填本地上一轮值，与 applyInvokeStart「跨 invoke 保留 ctx」语义对齐。
+ *  幂等：无任何变更时返回原引用（周期/重连/读点对账不驱动多余 re-render）。 */
 export function mergeInvokesFromServer(states: InvokeStates, invokes: ServerInvokeRecord[]): InvokeStates {
   /** F20260928icmm 阶段1：缓存模型合并语义——服务端 invokes 表是权威数据源，同獭按
    *  startedAt 最新者胜（同刻比状态终态性：终态胜 running）；幂等：无变更返回原引用。
@@ -105,7 +104,12 @@ export function mergeInvokesFromServer(states: InvokeStates, invokes: ServerInvo
       ...(inv.endedAt && { endedAt: inv.endedAt }),
       toolCallCount: inv.toolCallCount,
       ...(inv.tokenUsageInput != null && inv.tokenUsageOutput != null && { tokenUsage: { input: inv.tokenUsageInput, output: inv.tokenUsageOutput } }),
-      ...(inv.ctxWindowUsed != null && { ctxWindowUsed: inv.ctxWindowUsed }),
+      ...(inv.ctxWindowUsed != null
+        ? { ctxWindowUsed: inv.ctxWindowUsed }
+        // 检视建议 4（PR #1179）：服务端 ctx 尚未落库（新 invoke 首个 message_end 前）
+        // 时回填本地上一轮值——与 applyInvokeStart 跨 invoke 保留 ctx 语义对齐
+        // （「上下文只增不减」），避免右栏「行动中 · 45.2k/128k」闪成「—/—」。
+        : (existing?.ctxWindowUsed != null && { ctxWindowUsed: existing.ctxWindowUsed })),
       ...(existing?.ctxMax != null && { ctxMax: existing.ctxMax }),
     }
   }

@@ -255,6 +255,27 @@ describe('mergeInvokesFromServer · cache-model', () => {
     ])
     expect(next[otterA].invokeId).toBe('inv-new')
   })
+
+  it('T7 同 startedAt 不同 invokeId → 保守保持先到者（决策锁定：无信息可判时不赌）', () => {
+    const states: InvokeStates = {
+      [otterA]: { invokeId: 'inv-a', otterId: otterA, status: 'completed', startedAt: '2026-09-28T01:00:00.000Z', endedAt: '2026-09-28T01:01:00.000Z' },
+    }
+    const next = mergeInvokesFromServer(states, [rec({ id: 'inv-b', status: 'running', startedAt: '2026-09-28T01:00:00.000Z' })])
+    expect(next).toBe(states)
+    expect(next[otterA].invokeId).toBe('inv-a')
+  })
+
+  it('T8 startedAt 不可解析（NaN/空串）→ 保守保持（决策锁定：双方任一不可解析均不赌）', () => {
+    const states: InvokeStates = {
+      [otterA]: { invokeId: 'inv-a', otterId: otterA, status: 'running', startedAt: '2026-09-28T01:00:00.000Z' },
+    }
+    // 服务端记录时间坏掉（空串）→ 不覆盖本地可解析的记录
+    const next = mergeInvokesFromServer(states, [rec({ id: 'inv-b', startedAt: '' })])
+    expect(next).toBe(states)
+    // 本地时间坏掉 + 服务端可解析 → 同样保守：不覆盖（recordNewer 双方任一 NaN 均返回 false）
+    const bad: InvokeStates = { [otterA]: { invokeId: 'inv-x', otterId: otterA, status: 'running', startedAt: '' } }
+    expect(mergeInvokesFromServer(bad, [rec()])).toBe(bad)
+  })
 })
 
 describe('fmtInvokeElapsed / fmtTokens', () => {

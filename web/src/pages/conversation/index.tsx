@@ -458,7 +458,7 @@ export default function ConversationPage() {
       window.removeEventListener('focus', ack)
       document.removeEventListener('visibilitychange', ack)
     }
-  }, [ackActiveRead, refreshMessages])
+  }, [ackActiveRead, refreshMessages, syncInvokeStatesOnReconnect])
 
   /** 点击"新消息 N 条"浮窗：滚到底部 + 清零计数 */
   const handleJumpToBottom = useCallback(() => {
@@ -879,7 +879,7 @@ export default function ConversationPage() {
       if (livenessTimer) { clearInterval(livenessTimer); livenessTimer = null }
       if (xhr) xhr.abort()
     }
-  }, [activeId, batchUpdateMessages, upsertOtterIfAbsentDeferred, refreshParticipantsAfterDissolve, syncInvokeStatesFromServer])
+  }, [activeId, batchUpdateMessages, upsertOtterIfAbsentDeferred, refreshParticipantsAfterDissolve, runOrDefer, syncInvokeStatesFromServer, syncInvokeStatesOnReconnect])
 
   useEffect(() => {
     for (const otter of Object.values(allOtters).flat()) {
@@ -1132,7 +1132,7 @@ export default function ConversationPage() {
       showToast('发送失败', 'error')
       throw err // F20260916sgcl S1：失败信号传出，ChatView 据此跳过 clearAll、保留附件供重试
     }
-  }, [activeId, ackActiveRead, refreshMessages, batchUpdateMessages, refreshParticipantsAfterDissolve, upsertOtterIfAbsentDeferred])
+  }, [activeId, ackActiveRead, refreshMessages, batchUpdateMessages, upsertOtterIfAbsentDeferred, runOrDefer, syncInvokeStatesOnReconnect])
 
   /** 卡片提交 → 强制预览 → 回执复用 handleSend 整条 SSE 管线（显式路由卡片作者） */
   const { cardPreview, confirmCardPreview, rejectCardPreview } = useCardBridge({
@@ -1309,11 +1309,16 @@ export default function ConversationPage() {
           showToast((data as { message?: string }).message || '重试出错', 'error')
         },
       }
-      consumeSSE(response, retryHandlers)
+      // 检视建议 2（PR #1179）：retry 流结束对账读点——与 handleSend onDone 同款。
+      // 重试按钮是右栏本职入口，流结束即「本地确知 invoke 结束」的强信号；若 GET 通道
+      // 恰丢 invoke.end，右栏要等下一次 focus/导航/看门狗才纠正。幂等拉取，无副作用。
+      consumeSSE(response, retryHandlers, { onDone: () => {
+        if (activeId) void syncInvokeStatesOnReconnect(activeId)
+      } })
     } catch {
       showToast('重试请求失败', 'error')
     }
-  }, [activeId, batchUpdateMessages])
+  }, [activeId, batchUpdateMessages, syncInvokeStatesOnReconnect])
 
   const handleSelectConv = useCallback((id: string) => {
     navigate(`/conversation/${id}`)
