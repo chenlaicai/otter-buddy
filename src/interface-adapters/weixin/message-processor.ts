@@ -139,11 +139,15 @@ export class WeixinMessageProcessor {
 
     // F20260913ctlv 收尾批2：微信 user 消息唯一落点 = entries（与飞书同构——
     // sendUserEntry 落库 + 目标解析；messages 表停写 UI 消息）
+    // F20260928wxid：senderName 快照——从 connection metadata.userName（扫码人自报称呼）取；
+    // 微信协议无查名 API（飞书靠 getUserName，微信靠自报），空则 send-entry 落空串等同不传（维持裸 ID）
+    const senderLabel = await this.resolveSelfUserName(connectionId);
     const { entry: userEntry, talkingStonePassedTo } = await this.deps.sendEntry.sendUserEntry({
       conversationId: conversation.id,
       senderId: fromUserId,
       body: bodyText,
       source: "weixin",
+      senderDisplayName: senderLabel,
       ...(outcome.attachmentIds.length > 0 ? { attachmentIds: outcome.attachmentIds } : {}),
     });
 
@@ -159,6 +163,19 @@ export class WeixinMessageProcessor {
     // F20260913ctlv：直连链点火（entries 目标显式传）——与飞书同构
     await this.dispatchAgent(conversation.id, body.trim(), fromUserId, { messageId: userEntry.id, resolvedTargets: talkingStonePassedTo, injection: outcome.injection });
     return true;
+  }
+
+  /**
+   * F20260928wxid：扫码人自报称呼解析——读 connection metadata.userName。
+   * 失败/缺失返回空串（调用方不传 senderDisplayName，维持裸 ID 现状，不阻断主链）。
+   */
+  private async resolveSelfUserName(connectionId: string): Promise<string> {
+    try {
+      const conn = await this.deps.manageConnection.getConnection(connectionId);
+      return (conn?.metadata?.userName as string | undefined)?.trim() ?? "";
+    } catch {
+      return "";
+    }
   }
 
   /** F20260918imas / F20260920imax：会话解析（复杂度拆出）——已绑定直用（永续）；未绑定且注入助理管理器时自动开户 */

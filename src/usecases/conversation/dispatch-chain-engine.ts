@@ -644,10 +644,13 @@ export class DispatchChainEngine {
     const partnerLabel = this.deps.settingsRepo ? ((await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
     lines.push(`- ${partnerLabel}（传 'user' 即交还行动权给搭档）`);
     // F20260826fpbd：静态绑定后，非搭档的飞书发言者（访客）触发时明示身份——
-    // 避免海獭把「当前说话的人」误当成搭档（动态推断时代的田病）
+    // 避免海獭把「当前说话的人」误当成搭档（动态推断时代的旧病）
+    // F20260928wxid：渠道标注按 senderId 形态判定（微信 ilink ID 带 @im.wechat 后缀）——
+    // 原硬编码「飞书 open_id」在微信访客触发时误导海獭脑补成飞书账号
     if (senderId && this.deps.partnerResolver?.configured && !this.deps.partnerResolver.isPartner(senderId)) {
+      const channelLabel = senderId.includes('@im.wechat') ? '微信' : '飞书';
       lines.push('');
-      lines.push(`## 当前说话者\n非你的搭档（访客，飞书 open_id: ${senderId}）；你的搭档是 ${partnerLabel}`);
+      lines.push(`## 当前说话者\n非你的搭档（访客，${channelLabel} ID: ${senderId}）；你的搭档是 ${partnerLabel}`);
     }
     return `## 在场成员\n${lines.join('\n')}`;
   }

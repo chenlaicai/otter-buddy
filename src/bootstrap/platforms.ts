@@ -149,7 +149,8 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     settingsRepo: repos.settings,
     metrics: options?.agentMetrics,
     // F20260826fpbd：搭档身份静态判定。appConfig.feishu 可选，未配置时 PartnerResolver 降级（动态推断）
-    partnerResolver: new PartnerResolver(appConfig.feishu?.partnerOpenId),
+    // F20260928wxid：双渠道 ID——微信消息也经链引擎渲染历史，搭档需被认出（含微信 ilink_user_id）
+    partnerResolver: new PartnerResolver(appConfig.feishu?.partnerOpenId, appConfig.weixin?.partnerUserId),
     // F20260902sgp2 S1：派发台账注入——所有入口每次派发都记账（链引擎是必经之路，§4.2）。
     // 记账失败仅日志不阻断（硬约束 1）；不注入时链路行为与 sgpv 回滚基线一致。
     // #530 梯度护栏：abort 回调注入（可选——不注入时降级为纯日志）。
@@ -357,6 +358,8 @@ export function setupFeishu(options: {
 
   const commandDispatcher = new CommandDispatcher(uc.manageConnection, repos.entry, feishu.client, logger);
   // F20260826fpbd：命令门禁（方案B）——setupFeishu 入口有 !appConfig.feishu 早退，此处必存在；partnerOpenId 仍可选
+  // F20260928wxid：保持单渠道锚——门禁语义是「配置了本渠道搭档锚才拦截」，混入微信 ID 会让
+  //  只配微信的场景 configured 误翻 true → 飞书命令被全量锁死。跨渠道身份标注只走 dispatchChainEngine 装配处
   const partnerResolver = new PartnerResolver(appConfig.feishu?.partnerOpenId);
   const agentDispatchService = new AgentDispatchService({
     dispatchChainEngine: feishu.dispatchChainEngine,
@@ -528,6 +531,7 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
         sendEntry: uc.sendEntry,
         entryRepo: repos.entry,
         weixinGateway: gateway,
+        // F20260928wxid：保持单渠道锚（语义同飞书装配处——门禁只认本渠道搭档锚，防 configured 误翻锁死命令）
         partnerResolver: new PartnerResolver(weixinConfig.partnerUserId),
         // F20260901sgpv P1：微信入口换轨（与飞书同构）
         agentDispatchService: (() => {

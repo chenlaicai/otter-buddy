@@ -92,7 +92,7 @@ export interface ControllerDeps {
   weixinAccountStore?: WeixinAccountStorePort;
   onWeixinAccountDeleted?: (accountId: string) => void | Promise<void>;
   /** F20260920imax：微信扫码后按名开助理线（app.ts 注入——依赖 AssistantSessionManager，
-   *  controllers 层不直接引 usecases 装配产物，经 deps 闭包传递） */
+   *  controllers 层不直接引 usecases 装配产物，经 deps 闭包传递）。F20260928wxid：第三参 userName 可选——扫码人称呼存 connection.metadata */
   provisionWeixinAssistantLine?: (accountId: string, name: string) => Promise<{ conversationId: string; title: string }>;
   /** 通道状态注册表（F20260901chun：统一 IM 页 + 真实健康状态） */
   registry?: ChannelStatusRegistry;
