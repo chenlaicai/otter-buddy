@@ -6,12 +6,16 @@
  * parseOk=false 时的 fail-closed 兜底（D3：kill 族解析失败必拦——兜底链语义
  * 等价于 V1 判定，保守侧不回归）。
  *
- * V2 行为变化白名单（搭档已拍板，双向锁）：
- * - 白名单内新拦：kill 0（进程组语义，U1/#1169）；bash <file> / bash file.sh
- *   从文件读脚本（U5，保守拦+提示改写）
+ * V2 行为变化白名单（搭档已拍板，双向锁；五项新拦——r1-delta C1 补全）：
+ * - U1 kill 0（进程组语义，#1169）
+ * - U5 bash <file> / bash file（任意文件，含不可求值位置参数——r1-S3 扩展）
+ * - 词元修补集（批准方案 S3-⑤）：kill $$ / setsid kill 等 kill 族词元形态
+ * - cd 含展开且不可溯源 → 保守拦+改写指引文案（批准方案 S3-④）
+ * - sleep ≥5s / infinity 硬拦（#1126 协同，大獭 S5 仲裁；合并顺序：#1126 先合
+ *   否则 sleep 文案走 kill 域误导链——r1-delta C4）
  * - 白名单内放行（以前误拦）：#1170 管道/分号杀 cd 豁免、#1171 引号/heredoc 内
  *   词样字面量、$VAR 传参（r1-S3 口径由模型层继承）
- * - 白名单外任何「以前放行 → 现在拦截」= 失败（迁移矩阵断言）
+ * - 白名单外零变化（V1 234 用例锁定——精确表述，避免全量宣称）
  */
 /* eslint-disable max-statements, complexity, max-depth, max-params, max-lines -- 判定层承载 V1 全量规则 + V2 白名单新拦 + r1 五项处置，450 行与规则密度本质冲突 */
 
