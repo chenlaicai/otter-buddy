@@ -62,10 +62,11 @@ causal_links:
 ## 测试
 
 - 重试用例语义反转改写（单次 600ms + 3000ms 无二次重试断言）
-- web 573/573（59 文件，反查用例 -1、重试用例语义改写）+ tsc 0 + eslint index.tsx 0 warnings
+- isEmpty 分支用例（检视处置新增）：全败 mock 下状态保持空，断言 60s 周期仍拉——旧 hasRunning 门下必红（红跑坐实）
+- web 574/574（59 文件，反查用例 -1、重试用例语义改写、isEmpty 分支用例 +1（检视处置））+ tsc 0 + eslint index.tsx 0 warnings
 - 服务端零改动（纯前端退役）
 
 ## 影响范围
 
-- 净变化：index.tsx 约 -30 行、invoke-tracker.ts -7 行、测试改写 2 处
+- 净变化：index.tsx 约 -30 行、invoke-tracker.ts -7 行、测试改写 2 处 + 新增 1 用例（isEmpty 分支，失败先行红跑坐实）
 - 消费者面（RightPanel 中断/重试按钮、Session 弹窗）读的 invokeStates 数据形状零变化
