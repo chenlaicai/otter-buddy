@@ -100,7 +100,7 @@ export interface HandoffEngineDeps {
     recencyWindow?: string;
     fileTrail?: string;
   }) => string;
-  sliceSessionEntries: (entries: unknown[]) => EngineJsonlSlice | undefined;
+  sliceSessionEntries: (entries: unknown[], keepRecentTokens?: number, options?: { scopeKey?: string }) => EngineJsonlSlice | undefined;
   serializeKeptWindow: (slice: EngineJsonlSlice) => string;
   collectStateInventory: (conversationId: string, otterId: string, deps: unknown) => Promise<unknown>;
   renderStateInventory: (inventory: unknown) => string;
@@ -1202,7 +1202,8 @@ export class AgentInvoker implements AgentTurnPort {
     try {
       const entries = await this.agentInvoke.readCurrentSessionEntries?.(otterId);
       if (!entries) return undefined;
-      return this.engine?.sliceSessionEntries(entries as never);
+      // F20260928keep：scopeKey=otterId——密度告警按獭隔离（每 otter 每 24h 最多 1 条，文档规格）
+      return this.engine?.sliceSessionEntries(entries as never, undefined, { scopeKey: otterId });
     } catch (err) {
       this.logger.warn('[handoff] jsonl slice failed, degrading', {
         otterId, error: err instanceof Error ? err.message : String(err),
