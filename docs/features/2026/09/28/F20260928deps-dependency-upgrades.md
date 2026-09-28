@@ -1,6 +1,6 @@
 ---
-id: F20260924deps
-title: 统一升级依赖版本（2026-09-24）
+id: F20260928deps
+title: 统一升级依赖版本（2026-09-28）
 doc_type: feature
 summary: |
   关闭 7 个 Dependabot npm PR（#1136-#1142），按其版本创建统一升级 PR：
@@ -10,6 +10,8 @@ summary: |
   @huggingface/transformers 4.2.0→4.3.0；
   另含 GitHub Actions：actions/upload-artifact v4→v7（#1135）。
   vitest 4.1.11→5.0.1（#1143，主版本）按规范单独 PR 处理（F20260928vitt）。
+  编号顺延说明：9/24 启动，因 kimi 模型 429 断档搁置，9/28 续完交付——
+  特性编号按搭档指示顺延至实际交付日（F20260924deps → F20260928deps）。
 causal_links:
   from:
     - F20260903deps
@@ -23,7 +25,7 @@ capability_test: "n/a: 纯依赖升级，无 LLM 参与行为"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 ---
 
-# F20260924deps: 统一升级依赖版本（2026-09-24）
+# F20260928deps: 统一升级依赖版本（2026-09-28）
 
 ## 背景与需求
 
@@ -31,6 +33,13 @@ created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 
 定时任务「依赖升级自动化」（仅 Dependabot 驱动，决策来源 PR #419）触发，
 发现 9 个 Dependabot PR 待处理（#1135-#1143）。
+
+### 交付时间线（编号顺延原因）
+
+- 2026-09-24 启动：关闭 7 个 Dependabot PR、创建本 PR 后，kimi 模型配额 429 断档，
+  无人处置 CI 失败（PR 标题缺 [F ID] 前缀 + 分支落后 main），PR 挂 4 天
+- 2026-09-28 续完：glm 接棒——修正标题、rebase main、订正悬空引用、对抗审视通过后交付
+- 特性编号按搭档指示顺延至实际交付日
 
 ## 变更说明
 
@@ -75,4 +84,5 @@ created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 
 - [x] `npx tsc --noEmit` 通过
 - [x] `npm run lint` 通过
-- [x] `npm test` 通过（279 个测试文件，3856 个测试）
+- [x] `npm test` 通过（9/24 基线：279 个测试文件，3856 个测试）
+- [x] 9/28 rebase main 后 CI 三绿（run 36374230736：check/e2e/golden-selftest，检视獭 delta 复核实查）
