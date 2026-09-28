@@ -113,6 +113,7 @@ PartnerResolver 两处**命令门禁**装配（platforms.ts setupFeishu / setupW
 
 ## 验证
 
-- 后端 tsc 0 错；全量 vitest 3993+ 过（284 文件）
-- 新增回归：partner-resolver.test.ts F20260928wxid 四例（双渠道匹配/单参兼容/空白过滤/trim 容错）；message-processor.test.ts 称呼链三例（有称呼快照/无称呼维持现状/解析失败降级）
+- 后端 tsc 0 错；全量 vitest 4011 过（285 文件，delta 后）
+- 新增回归：partner-resolver.test.ts F20260928wxid 四例（双渠道匹配/单参兼容/空白过滤/trim 容错）；message-processor.test.ts 称呼链四例（有称呼快照/无称呼目标分支/访客不盖 owner 称呼/解析失败降级）；dispatch-chain-engine.test.ts 三例（搭档带快照 [搭档(joy)]/访客快照不冒充/触发消息带标签一问一答可见）
 - 前端 tsc 0 错；vite build ✓（3345 modules）
+- 对抗审视：检视獭（mimo-pro）round 1 + delta 复核 6/7 → PR body 补 Modification-Class 落点 + 触发消息标签（检视建议 2 真交付）+ 测试漂移修正（建议 3）+ 注释归源还原（建议 1）；parseUserName sanitize 与 PartnerResolver 拆类记遗留
