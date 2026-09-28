@@ -3,7 +3,6 @@ import {
   applyInvokeStart,
   applyInvokeTick,
   applyInvokeEnd,
-  findOtterByInvokeId,
   isStreaming,
   fmtInvokeElapsed,
   fmtTokens,
@@ -106,14 +105,6 @@ describe('applyInvokeTick（F20260914rtsp）', () => {
     states = applyInvokeTick(states, { invokeId: 'inv-1', otterId: 'otter-a', conversationId: 'conv-1', ctxWindowUsed: 45200, ctxMax: 200000, toolCallCount: 8 })
     states = applyInvokeEnd(states, { invokeId: 'inv-1', otterId: 'otter-a', status: 'completed', endedAt: '2026-09-10T06:02:00Z' })
     expect(states['otter-a']).toMatchObject({ status: 'completed', ctxWindowUsed: 45200, ctxMax: 200000 })
-  })
-})
-
-describe('findOtterByInvokeId', () => {
-  it('反查命中', () => {
-    const states: InvokeStates = { a: { invokeId: 'i1', otterId: 'a', status: 'running', startedAt: '' } }
-    expect(findOtterByInvokeId(states, 'i1')).toBe('a')
-    expect(findOtterByInvokeId(states, 'nope')).toBeNull()
   })
 })
 

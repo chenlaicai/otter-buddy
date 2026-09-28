@@ -211,13 +211,9 @@ export function fmtCtx(n: number | undefined | null): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
 }
 
-/** invokeId → otterId 反查（invoke.end 事件实际发射不带 otterId，从状态表反查） */
-export function findOtterByInvokeId(states: InvokeStates, invokeId: string): string | null {
-  for (const [otterId, s] of Object.entries(states)) {
-    if (s.invokeId === invokeId) return otterId
-  }
-  return null
-}
+/** F20260928icmm 阶段3退役：invokeId → otterId 反查（invoke.end 事件实际发射不带 otterId
+ *  的前提已过时——唯一发射点 agent-invoker.ts 恒带 otterId；前端空串时早退与反查 miss
+ *  行为等价，反查链无存在理由，已删） */
 
 /** 格式化耗时（进行中 = startedAt 起算；终态 = endedAt - startedAt） */
 export function fmtInvokeElapsed(state: OtterInvokeState, nowMs?: number): string {

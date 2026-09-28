@@ -6,7 +6,7 @@ import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, 
 
 import { mapOtterDTO, mapConversationDTO, mapEntryDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
 import { isInFlight, upsertMessage, insertBySeq, upsertTerminalMessage, insertCenteredByTs } from '../../lib/message-stream'
-import { applyInvokeStart, applyInvokeEnd, applyInvokeTick, findOtterByInvokeId, mergeInvokesFromServer, type InvokeStates } from '../../lib/invoke-tracker'
+import { applyInvokeStart, applyInvokeEnd, applyInvokeTick, mergeInvokesFromServer, type InvokeStates } from '../../lib/invoke-tracker'
 import { MessageBatcher } from '../../lib/batch-update'
 import { nowTs } from '../../lib/utils'
 import { showToast } from '../../components/Toast'
@@ -235,34 +235,21 @@ export default function ConversationPage() {
    *  会导致右栏永久卡在「运行中」。合并逻辑提取为纯函数 mergeInvokesFromServer（invoke-tracker），
    *  幂等（无变更返回原引用）。
    *  F20260923sswd：兼作 loadConversationDetail 内联 listInvokes 失败时的重试兜底——
-   *  读 invokeStatesLoadedRef，已成功恢复过则跳过初始重试（避免双拉）；重试链路自身成功时置标记。 */
-  /** F20260924ircc（#1160）：重连补偿拉取——无 invokeStatesLoadedRef 门控。
-   *  断连窗口丢失 invoke.end 后的唯一自愈路径；该门控属「初始恢复」语义，错误覆盖补偿
-   *  曾导致断连后状态永不更新（#1144 回归）。mergeInvokesFromServer 幂等，重复拉取安全。 */
-  const syncInvokeStatesOnReconnect = useCallback(async (convId: string) => {
-    try {
-      const resp = await api.listInvokes(convId, { limit: 50 })
-      setInvokeStates(prev => mergeInvokesFromServer(prev, resp.invokes))
-    } catch (err) {
-      console.error('[invokeStates] 重连补偿拉取失败:', err)
-    }
-  }, [])
-
+   *  F20260928icmm 阶段3：门控与重试链退役——弱合并换轨后双拉无害化，防双拉补丁失去
+   *  存在理由；对账统一走无门控的 syncInvokeStatesFromServer。 */
+  /** F20260928icmm 阶段3（旧补丁退役）：统一拉取对账（原 syncInvokeStatesFromServer +
+   *  syncInvokeStatesFromServer 双函数收敛为单函数，无门控）。
+   *  缓存模型下 mergeInvokesFromServer 幂等，任何时机重复拉取都安全；历史上为防
+   *  初始双拉设的 invokeStatesLoadedRef 门控已退役（弱合并退役后双拉无害，门控失去
+   *  存在理由）。#1144 曾因门控错误覆盖补偿路径引入回归，#1161 拆双函数过渡，本阶段收敛。 */
   const syncInvokeStatesFromServer = useCallback(async (convId: string) => {
-    // 门控仅约束初始重试路径——首次加载成功后初始重试链短路，避免双拉
-    if (invokeStatesLoadedRef.current) return
     try {
       const resp = await api.listInvokes(convId, { limit: 50 })
       setInvokeStates(prev => mergeInvokesFromServer(prev, resp.invokes))
-      invokeStatesLoadedRef.current = true
     } catch (err) {
-      console.error('Failed to sync invoke states from server:', err)
+      console.error('[invokeStates] 拉取对账失败:', err)
     }
   }, [])
-
-  /** F20260923sswd：loadConversationDetail 内联 listInvokes 是否已成功恢复过右栏状态——
-   *  成功置 true，syncInvokeStatesFromServer 读此标记跳过初始重试（避免双拉）。 */
-  const invokeStatesLoadedRef = useRef(false)
 
   /** F20260923sswd 检视发现 3：listInvokes 重试兜底链的定时器句柄——
    *  切对话时清理，防滞后重试把旧会话 invoke 记录 merge 进新会话 invokeStates（同 otterId 跨会话可见）。 */
@@ -323,8 +310,6 @@ export default function ConversationPage() {
 
   /** F20260922cgrp：「加载更多」机制退役——分组分页由 LeftPanel 内部管理（每页 20 条页码跳转） */
   const loadConversationDetail = useCallback(async (convId: string) => {
-    // F20260923sswd：新会话加载开始，重置内联恢复标记（本 conv 的 listInvokes 尚未恢复）
-    invokeStatesLoadedRef.current = false
     // 检视发现 3：切对话时清理上一会话未触发的重试定时器（防旧会话 invoke 状态滞后写进新会话）
     invokeRetryTimersRef.current.forEach(clearTimeout)
     invokeRetryTimersRef.current = []
@@ -352,15 +337,13 @@ export default function ConversationPage() {
        *  是右栏卡「运行中」直到手动刷新的根因（listInvokes 200 但 UI 不修）。 */
       try {
         const invokesResp = await invokesPromise
-        invokeStatesLoadedRef.current = true
         setInvokeStates(prev => mergeInvokesFromServer(prev, invokesResp.invokes))
       } catch {
-        // F20260923sswd：内联拉取失败不再静默——重试兜底链（600ms/2500ms 两次延迟重试，
-        // 复用 syncInvokeStatesFromServer；mergeInvokesFromServer 幂等，重试安全）。
+        // F20260928icmm 阶段3：重试链降级——双次延迟重试（600ms/2500ms）降为单次 600ms；
+        // 2500ms 二次重试退役（60s 周期对账 + focus/导航读点已是更强兑底，短链无增量价值）。
         // 检视发现 3：定时器句柄入 ref，切对话时清理（防旧会话状态滞后写进新会话）。
-        console.warn('[invokeStates] 初始拉取失败，启动延迟重试兜底:', convId)
+        console.warn('[invokeStates] 初始拉取失败，600ms 后重试:', convId)
         invokeRetryTimersRef.current.push(setTimeout(() => { void syncInvokeStatesFromServer(convId) }, 600))
-        invokeRetryTimersRef.current.push(setTimeout(() => { void syncInvokeStatesFromServer(convId) }, 2500))
       }
       setHasMoreBefore(entriesResp.hasMore)
       setUnreadState(unread)
@@ -445,9 +428,9 @@ export default function ConversationPage() {
           ackActiveRead(convId)
           /** F20260928icmm 阶段1：窗口聚焦/切回可见时同步对账右栏 invoke 状态——
            *  失焦/后台窗口期间的 invoke.end 可能因订阅断开丢失（无回放），切回时
-           *  用权威数据拉齐。走无门控对账（syncInvokeStatesOnReconnect）：初始恢复
-           *  门控（invokeStatesLoadedRef）只属于初始重试链，对账不受限（#1144 教训）。 */
-          void syncInvokeStatesOnReconnect(convId)
+           *  用权威数据拉齐。走无门控对账（syncInvokeStatesFromServer）：初始恢复
+           *  用权威数据拉齐（无门控对账；门控已随阶段3 退役）。 */
+          void syncInvokeStatesFromServer(convId)
         }
         ackReadDebounceRef.current = null
       }, 300)
@@ -458,7 +441,7 @@ export default function ConversationPage() {
       window.removeEventListener('focus', ack)
       document.removeEventListener('visibilitychange', ack)
     }
-  }, [ackActiveRead, refreshMessages, syncInvokeStatesOnReconnect])
+  }, [ackActiveRead, refreshMessages, syncInvokeStatesFromServer])
 
   /** 点击"新消息 N 条"浮窗：滚到底部 + 清零计数 */
   const handleJumpToBottom = useCallback(() => {
@@ -702,7 +685,7 @@ export default function ConversationPage() {
       },
       'invoke.end': (data) => {
         const d = data as { invokeId: string; otterId?: string; status: 'completed' | 'failed' | 'aborted'; endedAt?: string; invokeEndEntryId?: string; endBody?: string; otterName?: string; otterType?: string; otterColor?: string | null }
-        const otterId = d.otterId || findOtterByInvokeId(invokeStatesRef.current, d.invokeId)
+        const otterId = d.otterId
         /** F20260914evdz：invoke 终态即 flush 实时通道（弹窗收到 ev:null 信号后全量拉取收敛，防乱序丢帧） */
         for (const fn of sessionLiveListeners.current) fn({ invokeId: d.invokeId, otterId: otterId || '', ev: null as never })
         if (!otterId) return
@@ -848,7 +831,7 @@ export default function ConversationPage() {
         notifyConn(true)
         if (activeId && needsSyncAfterReconnect) {
           needsSyncAfterReconnect = false
-          void syncInvokeStatesOnReconnect(activeId)
+          void syncInvokeStatesFromServer(activeId)
         }
       }
 
@@ -884,7 +867,7 @@ export default function ConversationPage() {
       if (disposed) return
       if (activeIdRef.current !== activeId) return
       const hasRunning = Object.values(invokeStatesRef.current).some(s => s.status === 'running')
-      if (hasRunning) void syncInvokeStatesOnReconnect(activeId)
+      if (hasRunning) void syncInvokeStatesFromServer(activeId)
     }, PERIODIC_AUDIT_INTERVAL_MS)
 
     return () => {
@@ -895,7 +878,7 @@ export default function ConversationPage() {
       if (livenessTimer) { clearInterval(livenessTimer); livenessTimer = null }
       if (xhr) xhr.abort()
     }
-  }, [activeId, batchUpdateMessages, upsertOtterIfAbsentDeferred, refreshParticipantsAfterDissolve, runOrDefer, syncInvokeStatesFromServer, syncInvokeStatesOnReconnect])
+  }, [activeId, batchUpdateMessages, upsertOtterIfAbsentDeferred, refreshParticipantsAfterDissolve, runOrDefer, syncInvokeStatesFromServer])
 
   useEffect(() => {
     for (const otter of Object.values(allOtters).flat()) {
@@ -1047,7 +1030,7 @@ export default function ConversationPage() {
               ? { ...m, status: d.status === 'completed' ? 'completed' as const : d.status === 'aborted' ? 'aborted' as const : 'failed' as const, content: m.content || (d.status === 'completed' ? '' : d.status === 'aborted' ? '[中断]' : '[未完成]') }
               : m))
           if (d.invokeEndEntryId && d.status !== 'completed') {
-            const otterId = d.otterId || findOtterByInvokeId(invokeStatesRef.current, d.invokeId)
+            const otterId = d.otterId
             const otterName = ottersRef.current[activeId!]?.find(o => o.id === otterId)?.name
             batchUpdateMessages(activeId!, (list) => insertCenteredByTs(list, {
               id: d.invokeEndEntryId!, st: 'otter', si: otterId || '', sn: otterName,
@@ -1139,7 +1122,7 @@ export default function ConversationPage() {
           /** F20260928icmm 阶段1：POST 流结束时对账右栏 invoke 状态——POST 流不驱动
            *  invokeStates（通道分工：右栏单一时钟 = GET 订阅事件 + 拉取对账），
            *  流内触发的 invoke 终态若 GET 通道未投递，在此用权威数据拉齐（无门控对账）。 */
-          void syncInvokeStatesOnReconnect(activeId)
+          void syncInvokeStatesFromServer(activeId)
         }
       } })
     } catch (err) {
@@ -1148,7 +1131,7 @@ export default function ConversationPage() {
       showToast('发送失败', 'error')
       throw err // F20260916sgcl S1：失败信号传出，ChatView 据此跳过 clearAll、保留附件供重试
     }
-  }, [activeId, ackActiveRead, refreshMessages, batchUpdateMessages, upsertOtterIfAbsentDeferred, runOrDefer, syncInvokeStatesOnReconnect])
+  }, [activeId, ackActiveRead, refreshMessages, batchUpdateMessages, upsertOtterIfAbsentDeferred, runOrDefer, syncInvokeStatesFromServer])
 
   /** 卡片提交 → 强制预览 → 回执复用 handleSend 整条 SSE 管线（显式路由卡片作者） */
   const { cardPreview, confirmCardPreview, rejectCardPreview } = useCardBridge({
@@ -1278,7 +1261,7 @@ export default function ConversationPage() {
               ? { ...m, status: d.status === 'completed' ? 'completed' as const : d.status === 'aborted' ? 'aborted' as const : 'failed' as const, content: m.content || (d.status === 'completed' ? '' : d.status === 'aborted' ? '[中断]' : '[未完成]') }
               : m))
           if (d.invokeEndEntryId && d.status !== 'completed') {
-            const otterId = d.otterId || findOtterByInvokeId(invokeStatesRef.current, d.invokeId)
+            const otterId = d.otterId
             const otterName = ottersRef.current[activeId]?.find(o => o.id === otterId)?.name
             batchUpdateMessages(activeId, (list) => insertCenteredByTs(list, {
               id: d.invokeEndEntryId!, st: 'otter', si: otterId || '', sn: otterName,
@@ -1329,12 +1312,12 @@ export default function ConversationPage() {
       // 重试按钮是右栏本职入口，流结束即「本地确知 invoke 结束」的强信号；若 GET 通道
       // 恰丢 invoke.end，右栏要等下一次 focus/导航/看门狗才纠正。幂等拉取，无副作用。
       consumeSSE(response, retryHandlers, { onDone: () => {
-        if (activeId) void syncInvokeStatesOnReconnect(activeId)
+        if (activeId) void syncInvokeStatesFromServer(activeId)
       } })
     } catch {
       showToast('重试请求失败', 'error')
     }
-  }, [activeId, batchUpdateMessages, syncInvokeStatesOnReconnect])
+  }, [activeId, batchUpdateMessages, syncInvokeStatesFromServer])
 
   const handleSelectConv = useCallback((id: string) => {
     navigate(`/conversation/${id}`)
