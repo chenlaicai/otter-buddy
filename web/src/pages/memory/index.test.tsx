@@ -164,9 +164,7 @@ describe('多条件查询面板（F20260928mrui）', () => {
     })
     // 开三个高级开关
     for (const label of ['邻域扩展', '显示数据结构', '召回诊断']) {
-      const cb = container.querySelector(`input[type="checkbox"]`)! // 三个 checkbox 逐个找
       const target = [...container.querySelectorAll('label')].find(l => l.textContent!.includes(label))!.querySelector('input')!
-      void cb; void target
       act(() => { target.click() })
     }
     doSearch('记忆召回')
@@ -221,11 +219,11 @@ describe('结果结构化分组（F20260928mrui 核心）', () => {
     await act(async () => {})
 
     const text = container.textContent!
-    // doc 组：标题 + 命中数（summary 无 + 2 chunk + 1 邻域 = 3 条命中）
+    // doc 组：标题 + 命中口径（检视发现 5：邻域不计命中——2 主命中 + 1 邻域）
     expect(text).toContain('记忆召回界面重构')
     const docCard = container.querySelector('[data-group-id="F20260928mrui"]')
     expect(docCard).toBeTruthy()
-    expect(docCard!.textContent).toContain('3 条命中')
+    expect(docCard!.textContent).toContain('2 命中 + 1 邻域')
     expect(docCard!.querySelectorAll('[data-entry-id]')).toHaveLength(3)
     // doc 组内分段按 chunk_index 排序：分段零在前
     expect(docCard!.textContent!.indexOf('分段零')).toBeLessThan(docCard!.textContent!.indexOf('分段一'))

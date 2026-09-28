@@ -149,6 +149,13 @@ function ContextBadge() {
   return <span className="text-[10px] bg-sky-50 text-sky-600 border border-sky-100 px-1.5 py-0.5 rounded-full">邻域</span>
 }
 
+/** 组头命中计数：邻域条目（source='context-expand'）不计命中，单独报告（检视发现 5 口径统一） */
+function hitCountLabel(group: Extract<ResultGroup, { kind: 'doc' }>): string {
+  const hits = (group.docEntry ? 1 : 0) + group.items.filter(e => e.source !== 'context-expand').length
+  const ctx = group.items.filter(e => e.source === 'context-expand').length
+  return ctx > 0 ? `${hits} 命中 + ${ctx} 邻域` : `${hits} 条命中`
+}
+
 /**
  * F20260928mrui：单条结果（组内行）。
  * dataStructure 开关（外部组级/全局控制）展开完整数据结构面板。
@@ -233,7 +240,7 @@ function DocGroupCard({ group, showStructure, onExpand, onSimilar, onFlag }: {
         <FileStack className="w-4 h-4 text-otter-500" />
         <span className="text-sm font-semibold text-stone-800 truncate">{group.docTitle}</span>
         <span className="font-mono text-[11px] text-stone-400">{group.sourceId}</span>
-        <span className="ml-auto text-xs text-stone-400">{group.docEntry ? group.items.length + 1 : group.items.length} 条命中</span>
+        <span className="ml-auto text-xs text-stone-400">{hitCountLabel(group)}</span>
       </button>
       {open && (
         <div className="divide-y divide-stone-100 border-t border-stone-100">
@@ -269,7 +276,13 @@ function ConversationGroupCard({ group, showStructure, onExpand, onSimilar, onFl
         <MessageSquare className="w-4 h-4 text-caramel-600" />
         <span className="text-sm font-semibold text-stone-800 font-mono">{group.conversationId.slice(0, 8)}</span>
         <span className="text-xs text-stone-400">对话时间线</span>
-        <span className="ml-auto text-xs text-stone-400">{group.items.length} 条命中</span>
+        <span className="ml-auto text-xs text-stone-400">
+          {(() => {
+            const hits = group.items.filter(e => e.source !== 'context-expand').length
+            const ctx = group.items.length - hits
+            return ctx > 0 ? `${hits} 命中 + ${ctx} 邻域` : `${hits} 条命中`
+          })()}
+        </span>
       </button>
       {open && (
         <div className="divide-y divide-stone-100 border-t border-stone-100">

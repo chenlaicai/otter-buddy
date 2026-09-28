@@ -108,18 +108,32 @@ describe('groupResults', () => {
 
 describe('resolveCreatedAfter', () => {
   const now = Date.parse('2026-09-28T12:00:00Z')
+  /** 独立于实现的日历计算：当日本地 00:00 起点（锁「自然日起点」语义，非实现同义反复） */
+  const local = new Date(now)
+  const startOfToday = new Date(local.getFullYear(), local.getMonth(), local.getDate()).getTime()
+  const iso = (t: number) => new Date(t).toISOString()
 
   it('all → undefined（不传 created_after）', () => {
     expect(resolveCreatedAfter('all', now)).toBeUndefined()
     expect(resolveCreatedAfter('', now)).toBeUndefined()
   })
 
-  it('today = 1 天（当前时刻锚点，非自然日边界）', () => {
-    expect(resolveCreatedAfter('today', now)).toBe('2026-09-28T12:00:00.000Z')
+  it('today = 当日本地 00:00（自然日起点，非当前时刻——初版缺陷回归防线）', () => {
+    const v = resolveCreatedAfter('today', now)
+    expect(v).toBe(iso(startOfToday))
+    // 行为性双保险：结果必须是当日零点且 <= now（初版返回 now 本身，恒空过滤）
+    const d = new Date(v!)
+    expect(d.getTime()).toBeLessThanOrEqual(now)
+    expect(d.getHours()).toBe(0)
+    expect(d.getDate()).toBe(local.getDate())
   })
 
-  it('7d = 当前时刻 - 6 天', () => {
-    expect(resolveCreatedAfter('7d', now)).toBe('2026-09-22T12:00:00.000Z')
+  it('7d = 当日起点 - 6 天（含今天共 7 个自然日）', () => {
+    expect(resolveCreatedAfter('7d', now)).toBe(iso(startOfToday - 6 * 86400000))
+  })
+
+  it('3d = 当日起点 - 2 天', () => {
+    expect(resolveCreatedAfter('3d', now)).toBe(iso(startOfToday - 2 * 86400000))
   })
 
   it('未知值 → undefined（防御）', () => {

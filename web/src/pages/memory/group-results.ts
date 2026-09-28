@@ -139,12 +139,17 @@ export function groupResults(entries: MemoryEntryDTO[], contextEntries: MemoryEn
 
 /**
  * 时间过滤快捷项 → created_after ISO 值（now 可注入供测试）。
- * today/today 含当日起点：为避免「今天凌晨创建的条目被昨天锚点排掉」，
- * 用「当前时刻 - (n-1) 天」而非自然日边界——面板语义是「近 N 天有活动的记忆」。
+ * 语义：含今天的 N 个自然日——锚点为「当日本地 00:00 −（N−1）天」。
+ * 初版误用 now−（N−1）天（滚动窗口错位）：today 算出当前时刻，而 SQL 过滤是
+ * created_at >= ?（sqlite-memory-repository created_at 子句），历史记忆恒空——
+ * 检视发现 2（PR #1199 review）修正为自然日起点，见 F20260928mrui 文档「审视处置」。
  */
 export function resolveCreatedAfter(preset: string, now = Date.now()): string | undefined {
   if (!preset || preset === 'all') return undefined
   const days: Record<string, number> = { today: 1, '3d': 3, '7d': 7, '30d': 30 }
   const n = days[preset]
-  return n === undefined ? undefined : new Date(now - (n - 1) * 86400000).toISOString()
+  if (n === undefined) return undefined
+  const local = new Date(now)
+  const startOfToday = new Date(local.getFullYear(), local.getMonth(), local.getDate()).getTime()
+  return new Date(startOfToday - (n - 1) * 86400000).toISOString()
 }
