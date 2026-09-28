@@ -11,6 +11,7 @@
  * - 每次检查实时读 PID 文件（不缓存，支持热重启换 PID）
  */
 
+/* eslint-disable max-lines -- V1 判定链保留（fail-closed 兜底）+ V2 路由共存期 */
 import fs from "fs";
 import path from "path";
 import type { Logger } from "@usecases/ports/logger";
@@ -22,6 +23,7 @@ import { findKillSegments, isKillAtCommandPosition } from "./kill-segment-finder
  * （isKillAtCommandPosition 对任意 pattern 通用，sleep 词元复用同一套位置白名单） */
 const isCommandPositionFor = (text: string, pattern: RegExp): boolean => isKillAtCommandPosition(text, pattern);
 import { allSegmentsGitReadonly } from "./git-readonly-whitelist";
+import { checkWithModel, modelParseOk, modelCdExemption } from "./guard-model-judge";
 
 export type { AllowedService };
 
@@ -548,7 +550,13 @@ function locateTriggerContext(command: string, mainPid: number | null): string[]
 
 /** F20260923glay：拦截文案附加诊断块（#730）；同类命中已在 locateTriggerContext 合并计数。 */
 function withDiagnostics(message: string, scanText: string, mainPid: number | null): string {
-  const hits = locateTriggerContext(scanText, mainPid);
+  let hits = locateTriggerContext(scanText, mainPid);
+  // F20260928grv2：塔死引号拼接形态（e""val）在原始文本上打不中诊断正则——
+  // 用归一化视图二次定位（#730 诊断块与判定口径对齐；两视图都试，命中即报）
+  if (hits.length === 0) {
+    const normalized = normalizeForDetection(scanText);
+    if (normalized !== scanText) hits = locateTriggerContext(normalized, mainPid);
+  }
   if (hits.length === 0) return message;
   return `${message}\n【命中详情】${hits.join("；")}`;
 }
@@ -643,12 +651,12 @@ function hasRealCdSegment(command: string): boolean {
 /** 主仓写检测（F20260922scwd）：未 cd 时拦截落点为主仓的写命令。
  *  与 #1038 数据破坏检测的差异：不跟踪 cd（感知对齐方案下 LLM 需显式 cd），
  *  只做「当前文本是否含主仓写形态」的静态判定——简单可靠，无状态。 */
-// eslint-disable-next-line complexity -- mimo 终审处置后豁免分支增至 4（首段 cd/echo 纯重定向/data 目标/绝对路径非主仓），每分支对应一条已实证的绕过形态，合并会牺牲「一形态一分支」的可读性
+
+// eslint-disable-next-line complexity -- V1 分支语义保留（echo 纯重定向/data 目标/绝对路径豁免），cd 豁免换模型版
 function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: string): string | null {
   if (!projectRoot) return null; // 无 projectRoot 时保守放行（与 resolvesToMainData 同策略）
-  // 段首真 cd 才放行（检视严重 1 处置：整条豁免 → 段级精确判定，写在 cd 前的/引号假 cd/平凡 cd 不豁免）
-  // 位置最前：cd 后落点即 worktree，其后写族/白名单均不适用。
-  if (hasRealCdSegment(command)) return null;
+  // #1170 根治：模型版 cd 豁免——管道/分号不再杀死豁免（`cd wt && git commit | tail` 放行）
+  if (modelCdExemption(command, hasRealCdSegment)) return null;
   // F20260924gfpn：git 写族字面判定先于只读白名单——写族正则
   // （merge(?!-) 负向断言后）在命令文本上跑，命中即拦；`git stash push` 的 push 在写族
   // 正则内，先于白名单命中，杜绝 stash 白名单词被显式写子命令借壳。
@@ -704,7 +712,6 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
   return null;
 }
 
-
 /** F20260922pmgd：不依赖 mainPid 的独立规则合集（PR 合入 + data 破坏）——
  *  抽出供 checkBashCommandSafetyOnText 与 checkWhenMainPidMissing 共用（圈复杂度控制）。 */
 function checkPidIndependentRules(command: string, logger?: Logger, projectRoot?: string): string | null {
@@ -741,6 +748,7 @@ function checkSanitizedPath(
   return checkBashCommandSafetyOnText(sanitizeQuotedText(command), mainPid, logger, allowedServices, projectRoot);
 }
 
+/* eslint-disable-next-line complexity -- V1/V2 双链路由是本入口的本质形态（模型路径+兜底路径+规则补位） */
 export function checkBashCommandSafety(
   command: string,
   mainPid: number | null,
@@ -753,6 +761,30 @@ export function checkBashCommandSafety(
   // #844：白名单热加载（与 PID 文件同策略：每次判定重读，mtime 缓存去抖）
   const allowedServices = guardOptions?.projectRoot ? loadAllowedServicePorts(guardOptions.projectRoot) : [];
   const projectRoot = guardOptions?.projectRoot;
+
+  // F20260928grv2（guard-v2-redesign）：统一结构模型判定层——kill 族/管道到 shell/
+  // U1 kill 0/U5 bash<file 由模型层承担（#1170 管道豁免误杀、#1171 文本误伤、
+  // 位置参数/$VAR 传参等判定语义随模型继承）。parseOk=false（未闭合引号/$(/heredoc/
+  // 深度超限）时走 V1 文本链全量兜底（D3：kill 族解析失败必拦，兜底链语义=V1 保守侧）。
+  // 模型判定通过时：kill 族文本判定不再重复跑（模型已判干净，重复文本扫描是
+  // 8000 段/528KB 病态输入的性能热点）——但模型层未覆盖的 PID 无关规则
+  //（脚本自杀/PR merge/data 破坏/主仓写）仍在文本路径执行（映射表「保留」项）。
+  const modelOk = modelParseOk(command);
+  if (modelOk) {
+    const modelResult = checkWithModel(command, mainPid, logger, allowedServices);
+    if (modelResult) return withDiagnostics(modelResult, command, mainPid);
+    // 模型已放行 kill 族——只补模型层没有的规则（脚本自杀/data 破坏/主仓写；
+    // PR merge 已由模型 argv 位判定，不再跑文本版）
+    const scriptKill = checkServiceScriptKill(command, mainPid, logger, projectRoot);
+    if (scriptKill) return withDiagnostics(scriptKill, command, mainPid);
+    const dataDestructive = checkDataDirDestructive(command, logger, projectRoot);
+    if (dataDestructive) return withDiagnostics(dataDestructive, command, mainPid);
+    const mainWrite = checkMainCheckoutWrite(command, logger, projectRoot);
+    if (mainWrite) return withDiagnostics(mainWrite, command, mainPid);
+    return null;
+  }
+
+  // V1 判定链（parseOk=false 时的全量兜底）
 
   // F20260924gfpn：heredoc 载荷整体剥离——python3 - <<EOF 的 stdin 体对 shell 层判定
   // 是数据（kill 字样测试文本曾触发「脚本 one-liner + kill + 数字」cmdLevel 拦截并
