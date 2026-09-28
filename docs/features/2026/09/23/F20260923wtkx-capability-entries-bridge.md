@@ -8,9 +8,9 @@ intent:
   problem: "GET /messages 路由退役（F20260913ctlv #886，entries 为唯一渲染数据源）后，capability 测试 14 个场景中 11 个同型 HTTP 404/202——软代码 PR 本机无法全绿，每次都要靠「origin/main 基线对照」证明 pre-existing（issue #984）"
   trigger: "搭档：你看下历史消息，继续984的工作"
   expected_effect: "capability 断言面（listMessages/waitForOtterMessage 族）从已退役的 GET /messages 改为 entries 直读（GET /entries HTTP 路由拉全量投影 MessageDto + invokes/invoke_events 表测试进程内 DB 直查的混合），受影响文件本机真跑全绿；后续软代码 PR 的 Golden Gate 不再撞 404 墙"
-verify_by:
-  type: capability
-  reason: "测试基础设施改动，验证=受影响文件真跑全绿（真系统+真 LLM 采样达标）"
+  verify_by:
+    type: capability_test
+    reason: "测试基础设施改动，验证=受影响文件真跑全绿（真系统+真 LLM 采样达标）"
 summary: "#984：capability 断言面从已退役的 GET /messages 桥接到 entries 直读（GET /entries 拉全量投影 MessageDto + invokes/invoke_events DB 直查混合；status 取 invoke 真实态、tsp 优先 entry.yieldTargets+同 invokeId yield entry 回填、events 从 invoke_events 组装）。连锁修复 5 类断言病：①「停下」「星星罐子」改 halt 语义快照断言；②202 halted 短路响应不再当发送失败；③ReadableStream is locked 根因=res.text() 消费后再 cancel 撞锁；④tsp 改轮询「带 tsp 的 completed 发言」；⑤halt-boundary-injection skip（端点不识别 halt 指令，机制有单测覆盖）。真跑：spb 7过1跳 / mws 5过1跳 / bod 5:5+7:7（桥前 1/5）/ tsr 3/3。"
 tags: [capability, test-infra, entries, golden-gate]
 capability_test: "tests/capability/{system-prompt-behavior,magic-words-signal,big-otter-dispatch,talking-stone-routing}.capability.test.ts 真跑全绿（9/28 提交态分文件：/tmp/capab-round5-mws.log、round7-bod.log、round8-tsr.log、round3.log）"
