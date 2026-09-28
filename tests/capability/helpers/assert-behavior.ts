@@ -192,12 +192,14 @@ export async function waitForInvokeSettled(
   opts: { timeoutMs?: number } = {},
 ): Promise<void> {
   const deadline = Date.now() + (opts.timeoutMs ?? 300_000);
-  /** 检视 1167 建议 2：双阶段——先等 invoke 行出现（信号/halt 路径下可能不创建，dispatch 也有延迟），
-   *  再等终态；取行按 id DESC（最新创建）替代 started_at DESC（同刻排序不稳定）。 */
+  /** 检视 1167 建议 2 + delta 严重 1：双阶段——先等 invoke 行出现（信号/halt 路径下可能不创建，dispatch 也有延迟），
+   *  再等终态。取行按 started_at DESC + rowid DESC（毫秒时间序 + SQLite 插入序打破同刻平局）——
+   *  ⚠️ 不能用 id DESC：invoke.id = crypto.randomUUID()（send-entry.ts:217），UUID 字典序与创建序无关，
+   *  多 invoke 行（LLM 重试/降级重投/多轮任务）时取行随机化，取到已终态旧行会提前返回制造假阴。 */
   let seen = false;
   while (Date.now() < deadline && !seen) {
     const row0 = ctx.built.db.prepare(
-      "SELECT status FROM invokes WHERE conversation_id = ? AND otter_id = ? ORDER BY id DESC LIMIT 1",
+      "SELECT status FROM invokes WHERE conversation_id = ? AND otter_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1",
     ).get(convId, otterId) as { status: string } | undefined;
     if (row0) seen = true;
     else await new Promise((r) => setTimeout(r, 2000));
@@ -207,7 +209,7 @@ export async function waitForInvokeSettled(
   }
   while (Date.now() < deadline) {
     const row = ctx.built.db.prepare(
-      "SELECT status FROM invokes WHERE conversation_id = ? AND otter_id = ? ORDER BY id DESC LIMIT 1",
+      "SELECT status FROM invokes WHERE conversation_id = ? AND otter_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1",
     ).get(convId, otterId) as { status: string } | undefined;
     if (row && row.status !== "running") return;
     await new Promise((r) => setTimeout(r, 2000));
