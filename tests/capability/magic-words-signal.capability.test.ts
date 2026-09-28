@@ -88,8 +88,8 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
         ok: answered && !haltCalled && talkedAboutSemantics,
         detail: `answered=${answered} haltCalled=${haltCalled} semantics=${talkedAboutSemantics} signals=${signals.length}`,
       };
-    }, { budgetMs: 480000 });
-  }, 600_000);
+    }, { budgetMs: 900000, sampleWorstMs: 300000 });
+  }, 1_020_000);
 
   // 依赖 C3：用户词 halt 合流——L2 命中注入 + LLM 确认后急停（B 类：LLM 需把命中判断为指令）
   it("用户独立成词的「停下」触发急停响应（含对运行中小獭 halt 打标——无运行中小獭时仅全场停手）（3 次采样 ≥2）", async (t) => {
@@ -121,8 +121,8 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
         ok: haltedAtTrigger && noNewSideEffects,
         detail: `haltedAtTrigger=${haltedAtTrigger} noNewSideEffects=${noNewSideEffects} newTools=${JSON.stringify(newTools)}`,
       };
-    }, { budgetMs: 480000 });
-  }, 600_000);
+    }, { budgetMs: 900000, sampleWorstMs: 300000 });
+  }, 1_020_000);
 
   // 依赖 C1：halt 边界注入（B 类：小獭收到 halt block 后的合规动作）
   // #984（检视 1167 严重 1 补漏）：前世 3 轮 9 采样实证——测试端点（mimo-v2.6-flash）不把
@@ -179,8 +179,8 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
         ok: resolved,
         detail: `haltSignal=${haltSignal.id} status=${haltSignal.status} resolvedBy=${haltSignal.resolved_by}`,
       };
-    }, { budgetMs: 480000 });
-  }, 600_000);
+    }, { budgetMs: 2160000, sampleWorstMs: 720000 });
+  }, 2_280_000);
 
   // 依赖 C2：objection 程序义务（B 类：小獭知道写 signal、大獭知道裁决义务）
   it("小獭对错误派工发含锚点的 objection，大獭下轮收到 reminder 并显式裁决（3 次采样 ≥2）", async (t) => {
@@ -208,8 +208,8 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
         ok: hasPayload,
         detail: `objection=${objection.id} payload=${String(objection.payload).slice(0, 60)}`,
       };
-    }, { budgetMs: 480000 });
-  }, 600_000);
+    }, { budgetMs: 1980000, sampleWorstMs: 660000 });
+  }, 2_100_000);
 
   // 依赖 C2：blocked 一等状态（B 类：blocked 信号附已试清单）
   it("小獭 blocked 信号附已试清单，落 signal_events 为一等状态（3 次采样 ≥2）", async (t) => {
@@ -235,8 +235,8 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
         ok: hasTriedList,
         detail: `blocked=${blocked.id} payload=${String(blocked.payload).slice(0, 80)}`,
       };
-    }, { budgetMs: 480000 });
-  }, 600_000);
+    }, { budgetMs: 1080000, sampleWorstMs: 360000 });
+  }, 1_200_000);
 
   // 依赖 C4：词表改版生效（确定性 prompt 断言——无 LLM，不采样）
   it("「星星罐子」「就这样」「严肃点」不再作为 Magic Words 被识别，行为由语义层自然覆盖", async () => {

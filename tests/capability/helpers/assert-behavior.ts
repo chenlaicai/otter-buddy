@@ -335,25 +335,36 @@ export interface SampleResult {
  * 跑 samples 次，打印全部明细，断言至少 minSuccess 次成功。
  *
  * #1187：墙钟预算 opts.budgetMs——采样循环只数次数不看钟时，慢端点下总耗时撞破 it 超时帽；
- * vitest 超时只 reject Promise 不取消测试函数（@vitest/runner withTimeout），超时后循环变僵尸，
- * 文件级 afterAll cleanup 已 dispose 关 DB，僵尸醒来继续采样 → HTTP 500 "database connection
- * is not open" 级联假象（9/25 round1 实证：bod AT-1 5×11min=55min>50min 帽、AT-2 7×14min=98min>70min 帽）。
- * 修复：预算耗尽即停止后续采样，剩余样本记 SKIP（预算内 successes 不变仍需 ≥ minSuccess），
- * 把「撞帽僵尸」变成「预算耗尽」的可读红。调用点约定 budgetMs = it 帽 − 60~150s teardown 余量。
+ * vitest 超时只 reject Promise 不取消测试函数（@vitest/runner withTimeout；超时回调会
+ * abort context.signal，但采样循环不消费 signal——僵尸残留），文件级 afterAll cleanup 已
+ * dispose 关 DB，僵尸醒来继续采样 → HTTP 500 "database connection is not open" 级联假象
+ * （9/25 round1 实证：bod AT-1 5×11min=55min>50min 帽、AT-2 7×14min=98min>70min 帽）。
+ *
+ * 预算语义（delta 严重 1 修正）：检查在采样起跑前且必须前瞻——单次采样最坏耗时
+ * opts.sampleWorstMs（采样内各段等待窗之和）。elapsed + sampleWorstMs > budgetMs 则 SKIP：
+ * 只挡起跑点不前瞻的话，在途采样仍可越过 it 帽（AT-1 算术：4×11min 后 #5 起跑时
+ * elapsed<预算，但 #5 最坏 11min 会把总时长推到 55min>50min 帽）。
+ * SKIP 不计入分母（避免误读采样质量），断言 successes ≥ minSuccess 不变。
+ * 调用点约定：sampleWorstMs = 采样内各段等待窗之和；budgetMs = it 帽 − 60~150s teardown
+ * 余量，且满足 samples × sampleWorstMs ≤ budgetMs（不满足时先调 it 帽，不能靠预算硬截）。
  */
 export async function expectSampledBehavior(
   label: string,
   samples: number,
   minSuccess: number,
   sample: (index: number) => Promise<SampleResult>,
-  opts: { budgetMs?: number } = {},
+  opts: { budgetMs?: number; sampleWorstMs?: number } = {},
 ): Promise<void> {
   let successes = 0;
+  let skipped = 0;
   const outcomes: string[] = [];
   const start = Date.now();
+  const worst = opts.sampleWorstMs ?? 0;
   for (let i = 0; i < samples; i++) {
-    if (opts.budgetMs !== undefined && Date.now() - start >= opts.budgetMs) {
-      outcomes.push(`#${i + 1}: SKIP 预算耗尽（budgetMs=${opts.budgetMs}ms，已耗时 ${Date.now() - start}ms）`);
+    const elapsed = Date.now() - start;
+    if (opts.budgetMs !== undefined && elapsed + worst > opts.budgetMs) {
+      skipped++;
+      outcomes.push(`#${i + 1}: SKIP 预算前瞻拦截（elapsed ${elapsed}ms + sampleWorst ${worst}ms > budgetMs ${opts.budgetMs}ms）`);
       continue;
     }
     /** 单次采样异常（如等待超时）记为失败样本而非炸掉整个采样——
@@ -371,6 +382,6 @@ export async function expectSampledBehavior(
       outcomes.push(`#${i + 1}: FAIL 异常 ${msg.slice(0, 150)}${zombieHint}`);
     }
   }
-  console.log(`[capability] ${label} 采样结果（${successes}/${samples} 成功）:\n${outcomes.join("\n")}`);
+  console.log(`[capability] ${label} 采样结果（${successes}/${samples - skipped} 成功${skipped ? `，SKIP ${skipped} 个` : ""}）:\n${outcomes.join("\n")}`);
   expect(successes, `${label}：${samples} 次采样至少 ${minSuccess} 次成功\n${outcomes.join("\n")}`).toBeGreaterThanOrEqual(minSuccess);
 }

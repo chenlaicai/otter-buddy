@@ -67,9 +67,11 @@ v4/v5 证明：超时被标失败的采样循环在下一个 it 运行期间继�
 
 ### A. `expectSampledBehavior` 加墙钟预算（tests/capability/helpers/assert-behavior.ts）
 
-新增 `opts.budgetMs`：采样循环开头检查 `Date.now() - start >= budgetMs` 即记 `SKIP 预算耗尽` 并 continue（不跑剩余采样）；成功数不变仍需 ≥ minSuccess。把"撞帽僵尸"变成"预算耗尽"的可读红。僵尸征兆专项诊断：异常消息含 "database connection is not open" 时附加提示。
+新增 `opts.budgetMs` + `opts.sampleWorstMs`（delta 严重 1 修正为**前瞻语义**）：采样起跑前检查 `elapsed + sampleWorstMs > budgetMs` 则记 SKIP——只挡起跑点不前瞻的话，在途采样最坏仍可越过 it 帽（AT-1 算术：4×11min 后 #5 起跑时 elapsed<预算，但 #5 最坏 11min 推到 55min>50min 帽）。SKIP 不计入分母；成功数不变仍需 ≥ minSuccess。僵尸征兆专项诊断：异常消息含 "database connection is not open" 时附加提示。
 
-### B. 全部 21 个调用点插入 budgetMs = it 帽 − 120s 余量
+### B. 全部 22 个调用点（21 + golden.runner）按统一公式配准
+
+公式：**it 帽 = n × sampleWorstMs + 120s**（向上取整分钟）；budgetMs = it 帽 − 120s。语义三层：①帽容纳全部采样最坏——正常慢速不误拦、不撞帽不产生僵尸；②预算前瞻是二道保险——单采样真实耗时超 worst（故障级慢速）时截停后续；③SKIP 明细进断言消息，红在根因处。
 
 | 文件 | 调用数 | budgetMs |
 |---|---|---|
@@ -86,8 +88,9 @@ v4/v5 证明：超时被标失败的采样循环在下一个 it 运行期间继�
 ## 验证
 
 - 机制复现：v1/v4/v5 秒级复现僵尸链（证据日志见「机制实验」表）
-- budgetMs 机制单测：预算 500ms/3 采×300ms → ran≤2（SKIP 生效）；无预算全跑不变
-- 回归：tsc 干净 + 全量 4024 用例 passed（286 files）
+- budgetMs 回归单测入库（tests/budget-guard.test.ts，4 用例）：前瞻拦截 ran≤2 / worst 精确不误拦 / 无预算行为不变 / SKIP 致不足时断言红且消息含 SKIP 明细
+- 全 22 调用点终校验：n×worst ≤ budget ≤ 帽−60s 全 OK（脚本核对清单在 review 处置记录）
+- 回归：tsc 干净 + 全量 4028 用例 passed（287 files，含新增 4 用例）
 
 ## 影响范围
 
@@ -108,3 +111,16 @@ v4/v5 证明：超时被标失败的采样循环在下一个 it 运行期间继�
 - issue #1187（现象与对照证据）
 - F20260928be9j（#984 桥接，round1 日志来源）
 - vitest withTimeout 源码（node_modules/@vitest/runner/dist/chunk-artifact.js:2261）
+
+## 检视与处置记录
+
+### 初轮（检视獭-1193，mimo-pro，2 严重 4 建议）
+
+| 发现 | 处置 |
+|---|---|
+| 严重 1：预算只挡采样起点不挡在途（AT-1 在途 #5 仍可越帽 55min>50min；detour/halt-boundary 单采样超帽） | 采纳：检查改前瞻 `elapsed + sampleWorstMs > budgetMs`；全 22 调用点统一公式 it 帽 = n×worst+120s 重算（mws detour 帽 600s→2400s、halt-boundary 600s→2280s 等） |
+| 严重 2：budgetMs 核心逻辑零回归测试（声称的单测不在仓库） | 采纳：tests/budget-guard.test.ts 入库，4 用例 |
+| 建议 ③：golden.runner.ts:294 是第 22 调用点漏插（"21 个"措辞不准） | 采纳：补插 budgetMs 1_680_000 + sampleWorstMs 480_000（帽 1_800_000 内自洽） |
+| 建议 ④：memory-recall:81 手写采样循环绕过 helper 无护栏 | 部分采纳：本 PR 不动（narrow-fix 边界，当前算术安全）；遗留建议后续 PR 统一收编到 helper |
+| 建议 ⑤："无 abort"措辞不准（vitest 超时会 abort context.signal，循环不消费）；引证缺版本号；v1/v4/v5 脚本未入库 | 采纳：helper 注释改为"超时回调会 abort context.signal，但采样循环不消费 signal——僵尸残留"；版本锚定 vitest 4.1.11（实验跑于该版本）；脚本属一次性诊断未入库（机制表已固化关键证据时间戳，脚本几何可从文档复现） |
+| 建议 ⑥：SKIP 计入分母易误读 | 采纳：分母改 samples − skipped，摘要行附 SKIP 计数 |

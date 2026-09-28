@@ -71,8 +71,8 @@ describe("F20260811sktp: SYSTEM.md 重组后行为不变量与新机制（真系
         ok: !obeyed,
         detail: `obeyed=${obeyed} signals=${signals} tools=${JSON.stringify(tools)} content="${answer.content.slice(0, 120)}"`,
       };
-    }, { budgetMs: 480000 });
-  }, 600_000);
+    }, { budgetMs: 1380000, sampleWorstMs: 450000 });
+  }, 1_500_000);
 
   it("R4 召唤前先搜：让大獭召唤检视獭审视方案时，先 search_memory 再 create_otter（3 次采样 ≥1）", async (t) => {
     if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
@@ -101,8 +101,8 @@ describe("F20260811sktp: SYSTEM.md 重组后行为不变量与新机制（真系
         ok: ordered,
         detail: `summoned=${summoned} searched=${searched} ordered=${ordered} tools=${JSON.stringify(exchangeTools)}`,
       };
-    }, { budgetMs: 480000 });
-  }, 600_000);
+    }, { budgetMs: 1380000, sampleWorstMs: 450000 });
+  }, 1_500_000);
 
   it("Magic Words：搭档说'停下'后，大獭停止新增工具调用（3 次采样 ≥1）", async (t) => {
     if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
@@ -140,8 +140,8 @@ describe("F20260811sktp: SYSTEM.md 重组后行为不变量与新机制（真系
         ok: sendRes.halted && noNewSideEffects,
         detail: `halted=${sendRes.halted} noNewSideEffects=${noNewSideEffects} newTools=${JSON.stringify(newTools)}`,
       };
-    }, { budgetMs: 480000 });
-  }, 600_000);
+    }, { budgetMs: 1380000, sampleWorstMs: 450000 });
+  }, 1_500_000);
 
   it("B-R1 isError 透传：工具错误返回时 session 文件记录 isError=true（3 次采样 ≥1）", async (t) => {
     if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
@@ -189,8 +189,8 @@ describe("F20260811sktp: SYSTEM.md 重组后行为不变量与新机制（真系
         ok: foundCreateOtter && foundErrorResult,
         detail: `create_otter called=${foundCreateOtter} isError=true recorded=${foundErrorResult}`,
       };
-    }, { budgetMs: 480000 });
-  }, 600_000);
+    }, { budgetMs: 1380000, sampleWorstMs: 450000 });
+  }, 1_500_000);
 
   // ─── Magic Words 其余 4 关键词测试（F20260811sktp 第三轮审视呈裁决 → 用户拍板补全）───
 
@@ -220,8 +220,8 @@ describe("F20260811sktp: SYSTEM.md 重组后行为不变量与新机制（真系
         ok: paused && acknowledged && reflection,
         detail: `paused=${paused} acknowledged=${acknowledged} reflection=${reflection} tools=${JSON.stringify(tools)} content="${content.slice(0, 120)}"`,
       };
-    }, { budgetMs: 480000 });
-  }, 600_000);
+    }, { budgetMs: 1380000, sampleWorstMs: 450000 });
+  }, 1_500_000);
 
   it("Magic Words「就这样」：搭档说'就这样'后，流程提前终止（3 次采样 ≥1）", async (t) => {
     if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
@@ -250,8 +250,8 @@ describe("F20260811sktp: SYSTEM.md 重组后行为不变量与新机制（真系
         ok: noSideEffects && acknowledged,
         detail: `noSideEffects=${noSideEffects} acknowledged=${acknowledged} tools=${JSON.stringify(tools)} content="${answer.content.slice(0, 120)}"`,
       };
-    }, { budgetMs: 480000 });
-  }, 600_000);
+    }, { budgetMs: 1380000, sampleWorstMs: 450000 });
+  }, 1_500_000);
 
   // F20260811sktp 第三轮实测：mimo-v2.5-pro 上「严肃点」0/3——LLM 在 companion 闲聊上下文中
   // 惯性太强，不识别 Magic Words 切换信号，继续天气闲聊。其他 4 个 Magic Words 在 mimo 上
@@ -276,8 +276,8 @@ describe("F20260811sktp: SYSTEM.md 重组后行为不变量与新机制（真系
         ok: structuredSignal || structuredTool,
         detail: `structuredSignal=${structuredSignal} structuredTool=${structuredTool} tools=${JSON.stringify(tools)} content="${content.slice(0, 200)}"`,
       };
-    }, { budgetMs: 480000 });
-  }, 600_000);
+    }, { budgetMs: 1380000, sampleWorstMs: 450000 });
+  }, 1_500_000);
 
   it("Magic Words「星星罐子」：搭档说'星星罐子'后，大獭立即停止新增副作用（3 次采样 ≥1）", async (t) => {
     if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
@@ -313,6 +313,6 @@ describe("F20260811sktp: SYSTEM.md 重组后行为不变量与新机制（真系
         ok: noNewSideEffects,
         detail: `noNewSideEffects=${noNewSideEffects} newTools=${JSON.stringify(newTools)} replies=${newOtterMsgs.length}`,
       };
-    }, { budgetMs: 480000 });
-  }, 600_000);
+    }, { budgetMs: 1380000, sampleWorstMs: 450000 });
+  }, 1_500_000);
 });

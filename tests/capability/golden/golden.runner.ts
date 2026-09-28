@@ -295,7 +295,7 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
             const r = await runOneSample(ctx, golden, assert);
             if (r.ok) successes++;
             return r;
-          });
+          }, { budgetMs: 1_680_000, sampleWorstMs: 480_000 });
         } catch (err) {
           appendResult({
             ts: new Date().toISOString(),
