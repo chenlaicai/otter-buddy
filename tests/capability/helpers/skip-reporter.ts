@@ -10,8 +10,16 @@ import * as path from "node:path";
 
 interface TestTaskLike {
   name: string;
-  mode?: string;
+  /** 公开 API（vitest 5 d.ts）：TestCase.options.mode */
+  options?: { mode?: string };
   result?: { state?: string } | (() => { state?: string } | undefined);
+  /**
+   * 运行时私有表面：TestCase 实例的 .task 属性不在公开类型定义内。
+   * v5.0.1 实测（检视獭 2026-09-28 全域探针，5 类用例）：
+   * - ctx.skip() 置 task.mode="skip" 但 options.mode 仍为 "run"——单靠公开字段会漏计运行期 skip
+   * - state 值域是 "skipped"/"passed"/"failed"（plugin.d.CN87HSxv.d.ts:350），无 "skip"
+   * 语义固化测试（主套件，CI 执行面）：tests/skip-reporter-semantics.test.ts（含 v6 收掉 .task 后的回退行为验证）
+   */
   task?: { mode?: string; result?: { state?: string } };
 }
 
@@ -35,14 +43,18 @@ export default class CapabilitySkipReporter {
     let skipped = 0;
     for (const mod of testModules) {
       for (const testCase of mod.children.allTests()) {
-        /** vitest 4 TestCase：声明期 skip 看 task.mode；运行期 ctx.skip() 看 result().state。
-         *  注意 result 是原型方法，必须通过 testCase 调用（摘出来会丢 this） */
-        const mode = testCase.task?.mode ?? testCase.mode;
+        /** 计数语义（全域探针实测固化，见 skip-reporter.capability.test.ts）：
+         *  - 声明期 skip（it.skip/describe.skip）：task.mode=options.mode="skip"
+         *  - 运行期 ctx.skip()：task.mode="skip"，options.mode 仍 "run"，state="skipped"
+         *  - it.todo：mode="todo"，state 也是 "skipped"——须排除，否则 todo 被误计为 skip
+         *  - state 无 "skip" 值（只有 "skipped"），旧 === "skip" 分支是死代码（delta-2 已修）
+         *  v6 安全网：若 .task 被收掉，声明期 skip 由 options.mode 兑住、运行期由 state="skipped" 兑住 */
+        const mode = testCase.task?.mode ?? testCase.options?.mode;
         const rawResult = testCase.result;
         const state = typeof rawResult === "function"
           ? (rawResult as () => { state?: string }).call(testCase)?.state
           : (rawResult?.state ?? testCase.task?.result?.state);
-        if (mode === "skip" || state === "skip") skipped++;
+        if (mode === "skip" || (state === "skipped" && mode !== "todo")) skipped++;
       }
     }
 
