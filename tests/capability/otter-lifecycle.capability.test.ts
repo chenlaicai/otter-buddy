@@ -15,6 +15,7 @@ import {
   waitForOtterMessage,
   toolCallNames,
   expectSpeakCompliance,
+  expectSampledBehavior,
 } from "./helpers/assert-behavior";
 import { readSessionMessages, getSessionFile } from "./helpers/session-file";
 
@@ -230,11 +231,11 @@ describe("獭生命周期：重启獭生 + 身份注入 + speak 协议（真系�
   it("speak 协议合规：3 次采样 ≥1 次合规（统计断言，F20260805mspk）", async (t) => {
     if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
 
-    const SAMPLES = 3;
-    let compliant = 0;
-    const outcomes: string[] = [];
-
-    for (let i = 0; i < SAMPLES; i++) {
+    /** #1195：收编到 expectSampledBehavior（原先手写循环绕过 #1187 预算护栏）。
+     *  采样内 expectSpeakCompliance 的 throw 由 helper catch 记 FAIL 样本——与原
+     *  try/catch 记 ok=false 语义对齐。规格同 memory-recall（120s 窗 + 轮询余量 →
+     *  worst 240s；3×240+120 → 帽 840s）。 */
+    await expectSampledBehavior("speak-protocol-compliance", 3, 1, async (i) => {
       const convId = await createConversation(ctx, `speak 采样${i + 1}`);
       await sendUserMessage(ctx, convId, "用一句话介绍你自己");
       const answer = await waitForOtterMessage(ctx, convId, { timeoutMs: 120_000 });
@@ -247,11 +248,10 @@ describe("獭生命周期：重启獭生 + 身份注入 + speak 协议（真系�
         ok = false;
         violation = String(err).slice(0, 120);
       }
-      if (ok) compliant++;
-      outcomes.push(`#${i + 1}: tools=${JSON.stringify(tools)} status=${answer.status} compliant=${ok}${violation ? ` (${violation})` : ""}`);
-    }
-
-    console.log(`[capability] speak 协议采样结果（${compliant}/${SAMPLES} 合规）:\n${outcomes.join("\n")}`);
-    expect(compliant, `3 次采样至少 1 次 speak 合规\n${outcomes.join("\n")}`).toBeGreaterThanOrEqual(1);
-  }, 600_000);
+      return {
+        ok,
+        detail: `tools=${JSON.stringify(tools)} status=${answer.status} compliant=${ok}${violation ? ` (${violation})` : ""}`,
+      };
+    }, { budgetMs: 720_000, sampleWorstMs: 240_000 });
+  }, 840_000);
 });
