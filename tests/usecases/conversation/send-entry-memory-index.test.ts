@@ -92,15 +92,17 @@ describe("#1191 消息索引链路接回：sendUserEntry", () => {
   });
 
   it("附件按发送意图投影：attach 失败仍投影（旧口径 attachmentRefs 同语义）", async () => {
-    const { sendEntry, indexed } = makeSendEntry();
-    const res = await sendEntry.sendUserEntry({
+    // 构造 attach 真失败：attachAttachment 抛错（非阻断被吞），refs 查询独立成功
+    const failing = makeSendEntry();
+    (failing.repos.entryRepo.attachAttachment as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("attach db locked"));
+    const res = await failing.sendEntry.sendUserEntry({
       conversationId: "conv-1", senderId: "user-1", body: "带图的消息",
       talkingStonePassedTo: [], attachmentIds: ["att-1"],
     });
-    expect(indexed).toHaveLength(1);
-    expect(indexed[0]!.messageId).toBe(res.entry.id);
-    expect(indexed[0]!.content).toContain("带图的消息");
-    expect(indexed[0]!.content).toContain("[图片: 架构图.png]");
+    expect(failing.indexed).toHaveLength(1);
+    expect(failing.indexed[0]!.messageId).toBe(res.entry.id);
+    expect(failing.indexed[0]!.content).toContain("带图的消息");
+    expect(failing.indexed[0]!.content).toContain("[图片: 架构图.png]");
   });
 
   it("未注入 memoryIndex 时不炸（旧调用方兼容）", async () => {

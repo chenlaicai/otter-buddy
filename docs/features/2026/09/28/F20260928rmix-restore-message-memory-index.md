@@ -94,6 +94,15 @@ from:
 | 建议 3：attach 失败路径索引丢附件投影（与旧口径 attachmentRefs 失败模式漂移） | 修：投影改基于发送意图（input.attachmentIds → 新 repo 方法 getAttachmentRefsByIds），attach 失败也投影——旧口径同语义；单测补「attach 失败仍投影」用例 |
 | 建议 4：迁移每次启动全量扫 | 修：one-shot 标记（settings `entry_memory_index_backfilled`，惯例同 messages_to_entries_migrated）；测试断言标记写入 + 重跑零扫描 |
 
+### delta 轮（检视獭-1200 复核通过 + 3 条非阻断收尾项，全采纳）
+
+| 发现 | 处置 |
+|---|---|
+| 处置核验 | 四项全过 + 独立三场景复现回归（旧口径/增量重启/混合态）+ 全仓读取方零影响核查 |
+| 收尾 1：「attach 失败仍投影」测试没构造失败分支（mock 不抛错名不副实） | 修：attachAttachment mockRejectedValue 真失败分支 + refs 查询独立成功 |
+| 收尾 2：PR body 未随 delta 同步（旧口径 4195/幂等描述） | 修：body 全面更新（主键幂等 + one-shot + 4197 + 三轮历程） |
+| 收尾 3：Modification-Class 字面命中「实增机制」校验项 | 口径论证补 PR body 专节（记账键沿 #886 惯例 + 读接口服务既有口径还原） |
+
 **结构整理**（超 max-lines 450 引发）：#1191 辅助方法抽 `send-entry-index-helpers.ts`（buildUserIndexBody/loadAttachmentRefs）；目标解析抽 `resolveTargetsForSend`（resolve-send-targets.ts）；公共委托方法保留原地（多入口消费，非死码）。
 
 验证：全量 4197 绿；tsc 0 错；build（含 eslint）0 错；capability 锚复跑绿。
