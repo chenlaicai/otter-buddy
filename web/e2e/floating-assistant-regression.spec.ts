@@ -56,7 +56,10 @@ test.describe('浮动獭交互回归（F20260928waf1）', () => {
   })
 
   test('P3：侧栏无「创建 web 助理对话」按钮（mock 空列表——防用例间首唤开户污染共享库）', async ({ page }) => {
-    await page.route('**/api/conversations', async route => {
+    // regex 而非 glob（检视 DS1）：Playwright glob 以 $ 锚定收尾，而 listConversations 实际流量
+    // 全带 query（有参 ?limit=500、无参也拼裸 ?），glob **/api/conversations 拦不到任何请求。
+    // regex 覆盖零 query/带 query/裸 ?，同时排除 /:id/entries 子路径
+    await page.route(/\/api\/conversations(\?.*)?$/, async route => {
       // 一条普通对话 + 零 web 助理对话（空态独占视图只左栏不渲染——必须有一条才见分组）
       // glob 不含 **，避免误匹配 /api/conversations/:id/entries 子路径（检视 S1）
       await route.fulfill({
@@ -72,6 +75,9 @@ test.describe('浮动獭交互回归（F20260928waf1）', () => {
     await expectOtter(page) // settings 请求不被 mock——獭照常挂载
     await page.waitForTimeout(500) // 侧栏渲染空列表
     await expect(page.locator('[data-testid="leftpanel-group-web-assistant"]')).toBeVisible()
+    // mock 生效性自证：真实库被前置用例首唤开户后 count=1，mock 后必须恒为 0
+    // （若 mock 未拦到（如 DS1 复发），此断言红——用例不再「碰巧」绿）
+    await expect(page.locator('[data-testid="leftpanel-group-web-assistant-count"]')).toHaveText('0')
     await expect(page.locator('[data-testid="leftpanel-web-assistant-create"]')).toHaveCount(0)
   })
 
