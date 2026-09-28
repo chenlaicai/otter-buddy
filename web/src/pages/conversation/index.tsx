@@ -346,27 +346,14 @@ export default function ConversationPage() {
       // entries 全量映射（ASC；单一 sequenceNum 排序天然单调——跨表排序问题消失）
       const msgs = entriesResp.entries.map(mapEntryDTO)
       /** F20260913ctlv test17：刷新恢复 invokeStates——右栏中断/重试按钮依赖该獭最新 invoke 状态。
-       *  刷新前 invokeStates 由 invoke.start/end 事件驱动，刷新后内存态丢失。
-       *  每只獭取最新一次 invoke 恢复完整状态（running→中断按钮，aborted/failed→重试按钮）。 */
+       *  F20260928icmm 阶段1：缓存模型换轨——内联恢复改用 mergeInvokesFromServer（同獭
+       *  startedAt 最新者胜，服务端可覆盖本地旧状态）。旧「本地已有即 continue」弱合并退役：
+       *  SPA 切对话组件不卸载、invokeStates 不清空，旧实现把服务端正确状态原样丢弃，
+       *  是右栏卡「运行中」直到手动刷新的根因（listInvokes 200 但 UI 不修）。 */
       try {
         const invokesResp = await invokesPromise
         invokeStatesLoadedRef.current = true
-        setInvokeStates(prev => {
-          const next = { ...prev }
-          for (const inv of invokesResp.invokes) {
-            // listInvokes 按 started_at DESC，同一只獭首次出现即最新——跳过后续旧记录
-            if (next[inv.otterId]) continue
-            next[inv.otterId] = {
-              invokeId: inv.id, otterId: inv.otterId, status: inv.status, startedAt: inv.startedAt,
-              ...(inv.endedAt && { endedAt: inv.endedAt }),
-              toolCallCount: inv.toolCallCount,
-              ...(inv.tokenUsageInput != null && inv.tokenUsageOutput != null && { tokenUsage: { input: inv.tokenUsageInput, output: inv.tokenUsageOutput } }),
-              // F20260914rtsp：ctx 窗口占用恢复（右栏「休息中 · xx/xx」数据源）
-              ...(inv.ctxWindowUsed != null && { ctxWindowUsed: inv.ctxWindowUsed }),
-            }
-          }
-          return next
-        })
+        setInvokeStates(prev => mergeInvokesFromServer(prev, invokesResp.invokes))
       } catch {
         // F20260923sswd：内联拉取失败不再静默——重试兜底链（600ms/2500ms 两次延迟重试，
         // 复用 syncInvokeStatesFromServer；mergeInvokesFromServer 幂等，重试安全）。
@@ -456,6 +443,11 @@ export default function ConversationPage() {
         if (convId && document.visibilityState === 'visible' && document.hasFocus()) {
           refreshMessages(convId)
           ackActiveRead(convId)
+          /** F20260928icmm 阶段1：窗口聚焦/切回可见时同步对账右栏 invoke 状态——
+           *  失焦/后台窗口期间的 invoke.end 可能因订阅断开丢失（无回放），切回时
+           *  用权威数据拉齐。走无门控对账（syncInvokeStatesOnReconnect）：初始恢复
+           *  门控（invokeStatesLoadedRef）只属于初始重试链，对账不受限（#1144 教训）。 */
+          void syncInvokeStatesOnReconnect(convId)
         }
         ackReadDebounceRef.current = null
       }, 300)
@@ -1128,6 +1120,10 @@ export default function ConversationPage() {
               mergeOttersIfChanged(prev, activeId, participants.map(p => mapParticipantDTO(p)))
             runOrDefer(() => setAllOtters(apply))
           }).catch(() => {})
+          /** F20260928icmm 阶段1：POST 流结束时对账右栏 invoke 状态——POST 流不驱动
+           *  invokeStates（通道分工：右栏单一时钟 = GET 订阅事件 + 拉取对账），
+           *  流内触发的 invoke 终态若 GET 通道未投递，在此用权威数据拉齐（无门控对账）。 */
+          void syncInvokeStatesOnReconnect(activeId)
         }
       } })
     } catch (err) {

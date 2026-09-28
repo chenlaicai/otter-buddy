@@ -81,16 +81,22 @@ export interface ServerInvokeRecord {
  *    · 同 invokeId 服务端仍 running → 跳过（无新信息）
  *  幂等：无任何变更时返回原引用（心跳期重连补偿不驱动 re-render）。 */
 export function mergeInvokesFromServer(states: InvokeStates, invokes: ServerInvokeRecord[]): InvokeStates {
+  /** F20260928icmm 阶段1：缓存模型合并语义——服务端 invokes 表是权威数据源，同獭按
+   *  startedAt 最新者胜（同刻比状态终态性：终态胜 running）；幂等：无变更返回原引用。
+   *  弱合并（本地已有即跳过 / 本地终态即跳过）退役——它让切回对话后的对账拉取写不进状态，
+   *  是右栏卡「运行中」四轮未愈的根因（联合排查 2026-09-28）。
+   *  防回退保留：本地比服务端新（拉取竞态/SSE 实时先行）时本地保持，不会把右栏改旧。 */
   let next: InvokeStates | null = null
-  const seen = new Set<string>()
+  const latest = new Map<string, ServerInvokeRecord>()
   for (const inv of invokes) {
-    if (seen.has(inv.otterId)) continue
-    seen.add(inv.otterId)
-    const existing = (next ?? states)[inv.otterId]
-    if (existing && existing.status !== 'running') continue
-    if (existing && existing.invokeId === inv.id && inv.status === 'running') continue
-    next = next ?? { ...states }
-    next[inv.otterId] = {
+    const seen = latest.get(inv.otterId)
+    if (!seen || recordNewer(inv, seen)) latest.set(inv.otterId, inv)
+  }
+  for (const [otterId, inv] of latest) {
+    const existing = (next ?? states)[otterId]
+    if (existing && !recordNewer(inv, localAsRecord(existing))) continue
+    if (next === null) next = { ...states }
+    next[otterId] = {
       invokeId: inv.id,
       otterId: inv.otterId,
       otterName: existing?.otterName,
@@ -104,6 +110,31 @@ export function mergeInvokesFromServer(states: InvokeStates, invokes: ServerInvo
     }
   }
   return next ?? states
+}
+
+/** F20260928icmm：记录新旧比较——startedAt 新者胜；同刻同 invokeId 时终态胜 running
+ *  （对账收敛本地幽灵 running）；无信息可判时保守返回 false（本地/先到者保持）。 */
+function recordNewer(a: ServerInvokeRecord, b: ServerInvokeRecord): boolean {
+  const ta = Date.parse(a.startedAt)
+  const tb = Date.parse(b.startedAt)
+  if (!Number.isNaN(ta) && !Number.isNaN(tb) && ta !== tb) return ta > tb
+  if (ta === tb && a.id === b.id) return a.status !== 'running' && b.status === 'running'
+  return false
+}
+
+/** F20260928icmm：本地状态 → 服务端记录形状（供记录比较；无关字段置空）。 */
+function localAsRecord(s: OtterInvokeState): ServerInvokeRecord {
+  return {
+    id: s.invokeId,
+    otterId: s.otterId,
+    status: s.status,
+    startedAt: s.startedAt,
+    endedAt: s.endedAt ?? null,
+    toolCallCount: 0,
+    tokenUsageInput: null,
+    tokenUsageOutput: null,
+    ctxWindowUsed: null,
+  }
 }
 
 /** invoke.start → 记 running 状态（同 invokeId 重放幂等：内容相同返回原引用）。
