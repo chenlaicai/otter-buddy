@@ -45,6 +45,8 @@ PR #1193（F20260928zq7d）给 `expectSampledBehavior` 加了 budgetMs 前瞻墙
 
 480_000/600_000 → **810_000/930_000**（3×270+120=930 帽；810 = n×worst 等号契约，与 tsr/memory-recall 先例一致）。
 
+**参数修正不改变该 it 当前红态**：实跑 0/3（2 条 `timing=anchored speak@3 < wait-invoke@2` + 1 条 `converged=false`），检视轮双参数归因（新参 810/930 与还原 main 旧参 480/600 均 0/3）确认是 **main 既有红，与本 PR 无关**——跟踪见 issue #1198。
+
 ## 验证
 
 - budget-guard 4 用例通过（护栏语义回归）
@@ -54,7 +56,7 @@ PR #1193（F20260928zq7d）给 `expectSampledBehavior` 加了 budgetMs 前瞻墙
 ## 影响范围
 
 - 仅 tests/ 三个 capability 测试文件 + 本文档；生产代码零改动
-- 收编后全仓 capability 采样 24/24 走 helper 预算护栏（#1195「统一全部」口径闭环）
+- 收编后全仓 capability 采样 25/25 走 helper 预算护栏（24 个测试文件直调点 + golden.runner 1 处；#1195「统一全部」口径闭环）
 
 ## 检视与处置记录
 
@@ -66,3 +68,12 @@ PR #1193（F20260928zq7d）给 `expectSampledBehavior` 加了 budgetMs 前瞻墙
 | 建议 1：otter-lifecycle:230 手写循环残留（#1195「统一全部」未闭环） | 采纳：B 节收编 |
 | 建议 2：PR body「断言语义不变」绝对化失实——失败消息丢 F20260805mspk 溯源、异常路径语义变化（判更好） | 采纳：PR body 措辞改「断言判据逐字保留；异常路径语义变化见特性文档」；本文档 A 节明示两处变化 |
 | 范围外观察：sleep-announce 参数违反 n×worst≤budget 契约（810>480，慢端点假红面） | 采纳并入：C 节修正 |
+
+### delta 轮（检视獭-1196 复核通过 + 2 条新建议）
+
+| 发现 | 处置 |
+|---|---|
+| 处置核验 | 四条全过（文档存在 lint 0 错 / 收编复扫 0 残留 / PR body 措辞 / 算术公式） |
+| 新建议 1：sleep-announce 实跑 0/3 是 main 既有红（双参数归因），文档只写「参数已修」易误读为该测试健康 | 采纳：issue #1198 登记 + C 节补红态说明（本表上方） |
+| 新建议 2：「24/24」口径漏 golden.runner（实测 25 处） | 采纳：影响范围节改 25/25 并注明构成 |
+| 注记（不计发现）：change_type 与 Modification-Class 无交叉校验；otter-lifecycle 注释把 helper catch 说成主捕获路径（实际采样体内 try/catch 先捕获，结果语义不受影响） | 记录在案，不改动 |
