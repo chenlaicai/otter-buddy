@@ -82,6 +82,10 @@ export interface SearchQueryDTO {
   debug?: boolean;
   /** F20260812mrcq Part 2: 开启邻域扩展（chunk ±1 / message 前后条） */
   expand_context?: boolean;
+  /** F20260803fbit/F20260803chunk: contentType 多选（逗号分隔），如 ?content_type=feature_chunk,feature */
+  content_type?: string;
+  /** F20260805rbrg: 时间过滤（ISO timestamp），仅返回此时间之后创建的记忆 */
+  created_after?: string;
 }
 
 /** 相似检索请求 DTO */
