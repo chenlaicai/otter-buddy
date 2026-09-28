@@ -144,7 +144,9 @@ describe("awaitTriggerAttemptsSettled（entries/invokes 判据）", () => {
       } as unknown as EntryRepository;
       const invokeRepo = {
         getActiveInvokeByOtterId: vi.fn().mockImplementation(async () => {
-          // invoke 创建前返回 running（模拟 invoke 已建）；终态后返回 null
+          // 真实竞态形态：invoke 行创建前（Date.now() < createdAt）返回 null——
+          // 旧实现首查立即执行落在 null 窗口会被误判 settled；创建后 running，终态后 null
+          if (Date.now() < createdAt) return null;
           if (Date.now() < createdAt + 1000) return { id: "inv-1", status: "running" };
           return null;
         }),
