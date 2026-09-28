@@ -328,3 +328,93 @@ describe('SSE 断连重连补偿（F20260924ircc，issue #1160）', () => {
     }
   })
 })
+
+/**
+ * F20260928icmm 阶段1：缓存模型合并语义——右栏 invoke 状态对账可覆盖本地旧状态。
+ * 根因主场景（四轮未愈）：SPA 切对话组件不卸载、invokeStates 不清空；切走期间
+ * invoke 终态事件（GET 通道断开/丢件）未投递，切回后 listInvokes 200 拿到正确数据，
+ * 但旧「本地已有即 continue」弱合并把结果丢弃——右栏永久卡「运行中」直到手动刷新。
+ * 核心断言：切回对话后，服务端返回的更新 invoke 状态必须写进右栏（服务端胜）。
+ */
+describe('右栏 invoke 状态对账：缓存模型合并（F20260928icmm）', () => {
+  /** 服务端 invokes 数据（可变——模拟切走期间状态变化） */
+  let invokesByConv: Record<string, unknown[]>
+
+  function mockApiWithInvokes() {
+    listInvokesCalls = []
+    invokesByConv = {
+      'conv-a': [{ id: 'inv-old', otterId: 'otter-1', status: 'running', startedAt: '2026-09-28T01:00:00.000Z', endedAt: null, toolCallCount: 0, tokenUsageInput: null, tokenUsageOutput: null, ctxWindowUsed: null }],
+    }
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      const invokesMatch = url.match(/^\/api\/conversations\/(conv-[ab])\/invokes/)
+      if (invokesMatch) { listInvokesCalls.push(invokesMatch[1]!); return json({ invokes: invokesByConv[invokesMatch[1]!] ?? [] }) }
+      const entriesMatch = url.match(/^\/api\/conversations\/(conv-[ab])\/entries/)
+      if (entriesMatch) return json({ hasMore: false, entries: entriesByConv[entriesMatch[1]!] })
+      if (/^\/api\/conversations\/conv-[ab]\/participants/.test(url)) return json([{ otterId: 'otter-1', otterName: '小獭', otterType: 'small', roleName: '千活' }])
+      if (/^\/api\/conversations\/conv-[ab]\/unread/.test(url)) return json({ lastReadSeq: 0, unreadCount: 0, firstUnreadMessageId: null, firstUnreadSeq: null })
+      if (/^\/api\/conversations\/conv-[ab]\/key-resources/.test(url)) return json({ resources: [] })
+      if (/^\/api\/conversations\/conv-[ab]\/read/.test(url)) return json({})
+      if (/^\/api\/conversations\/[^/]+\/(scheduled-tasks|attachments)/.test(url)) return json([])
+      if (/^\/api\/otters\/[^/]+\/sessions/.test(url)) return json([])
+      if (url.startsWith('/api/conversations?') || url === '/api/conversations') return json({ items: [convA, convB], total: 2 })
+      if (url.startsWith('/api/settings')) return json({ userName: '测试用户' })
+      return json({})
+    })
+  }
+
+  it('切走丢 invoke.end → 切回对话，右栏状态被服务端权威数据纠正（弱合并退役）', async () => {
+    mockApiWithInvokes()
+
+    // 第一步：进入 conv-a，右栏看到 otter-1 running（inv-old）
+    const router = createTestRouter('/conversation/conv-a')
+    act(() => { root.render(<RouterProvider router={router} />) })
+    await flushAsync()
+    expect(listInvokesCalls).toEqual(['conv-a'])
+    expect(container.textContent).toContain('行动中')
+
+    // 第二步：切到 conv-b（GET 订阅 dispose；模拟切走期间 invoke 已结束）
+    await act(async () => { await router.navigate('/conversation/conv-b') })
+    await flushAsync()
+    // 服务端状态已变：inv-old 终结（completed）——用户在 B 期间，A 的海獭干完活了
+    invokesByConv['conv-a'] = [{ id: 'inv-old', otterId: 'otter-1', status: 'completed', startedAt: '2026-09-28T01:00:00.000Z', endedAt: '2026-09-28T01:05:00.000Z', toolCallCount: 2, tokenUsageInput: 100, tokenUsageOutput: 50, ctxWindowUsed: null }]
+
+    // 第三步：切回 conv-a——旧实现（continue 弱合并）丢弃服务端数据，右栏仍卡「运行中」；
+    // 新实现（mergeInvokesFromServer 缓存语义）用服务端终态覆盖本地旧 running
+    await act(async () => { await router.navigate('/conversation/conv-a') })
+    await flushAsync()
+    expect(listInvokesCalls[listInvokesCalls.length - 1]).toBe('conv-a')
+    expect(listInvokesCalls.filter(c => c === 'conv-a').length).toBeGreaterThanOrEqual(2)
+    // 核心断言：右栏不再显示「行动中」——服务端权威数据胜出（旧实现必败）
+    expect(container.textContent).not.toContain('行动中')
+  })
+
+  it('窗口重新聚焦时对账右栏（focus 读点）——丢终态后切回浏览器窗口即恢复', async () => {
+    mockApiWithInvokes()
+
+    const router = createTestRouter('/conversation/conv-a')
+    act(() => { root.render(<RouterProvider router={router} />) })
+    await flushAsync()
+    expect(container.textContent).toContain('行动中')
+
+    // 模拟窗口失焦期间 invoke 终结（无 SSE 投递）
+    invokesByConv['conv-a'] = [{ id: 'inv-old', otterId: 'otter-1', status: 'completed', startedAt: '2026-09-28T01:00:00.000Z', endedAt: '2026-09-28T01:05:00.000Z', toolCallCount: 2, tokenUsageInput: 100, tokenUsageOutput: 50, ctxWindowUsed: null }]
+
+    // 触发 window focus + visible：focus 钩子应发起对账拉取
+    // （jsdom 中 document.hasFocus() 默认 false——mock 为 true 才能通过钩子的聚焦门禁）
+    const savedHasFocus = document.hasFocus.bind(document)
+    document.hasFocus = () => true
+    await act(async () => {
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+      window.dispatchEvent(new Event('focus'))
+      document.dispatchEvent(new Event('visibilitychange'))
+      // focus 钩子有 300ms 防抖——推进时钟过防抖窗口
+      await new Promise(r => setTimeout(r, 400))
+    })
+    await flushAsync()
+    document.hasFocus = savedHasFocus
+    expect(listInvokesCalls.length).toBeGreaterThanOrEqual(2)
+    expect(listInvokesCalls[1]).toBe('conv-a')
+    expect(container.textContent).not.toContain('行动中')
+  })
+})
