@@ -95,7 +95,9 @@ export function rowToConversation(row: ConversationRow): Conversation {
     status: row.status as ConversationStatus,
     summary: row.summary,
     pinned: row.pinned === 1,
-    kind: row.kind === "assistant" ? "assistant" : "normal",
+    /** F20260928wak1：合法枚举透传（修复线上 bug——双值折叠把 web-assistant 折成
+     *  normal，侧栏分组认不出 web 助理对话）。未知值/缺省回退 normal（存量为空列 + 旧库兼容） */
+    kind: row.kind === "assistant" || row.kind === "web-assistant" ? row.kind : "normal",
     workspaceDir: row.workspace_dir ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
