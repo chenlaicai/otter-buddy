@@ -238,7 +238,7 @@ export default function ConversationPage() {
    *  F20260928icmm 阶段3：门控与重试链退役——弱合并换轨后双拉无害化，防双拉补丁失去
    *  存在理由；对账统一走无门控的 syncInvokeStatesFromServer。 */
   /** F20260928icmm 阶段3（旧补丁退役）：统一拉取对账（原 syncInvokeStatesFromServer（带门控）+
-   *  syncInvokeStatesFromServer 双函数收敛为单函数，无门控）。
+   *  syncInvokeStatesOnReconnect（无门控）双函数收敛为单函数，无门控）。
    *  缓存模型下 mergeInvokesFromServer 幂等，任何时机重复拉取都安全；历史上为防
    *  初始双拉设的 invokeStatesLoadedRef 门控已退役（弱合并退役后双拉无害，门控失去
    *  存在理由）。#1144 曾因门控错误覆盖补偿路径引入回归，#1161 拆双函数过渡，本阶段收敛。 */
