@@ -182,7 +182,7 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** F20260923icus（#1149）：invokes 表补 cache token 两列（存量库 ALTER，幂等 PRAGMA 探测）。 */
   ensureInvokeCacheColumns(db, logger);
 
-  /** #1191（F20260929rmix）：entries → memory_entries 消息索引回填。
+  /** #1191（F20260928rmix）：entries → memory_entries 消息索引回填。
    *  #886 删除 indexMessage 后 9/13 至今的对话正文未入记忆——本函数一次性回填
    *  存量（user + speak，双侧剥 html-card 围栏，user 侧拼附件占位投影行），
    *  幂等条件 NOT EXISTS 保证重跑安全；embedding 由启动时 createAndStartRetryWorker
@@ -1925,7 +1925,7 @@ function backfillOtterColors(db: Database.Database, logger: Logger): void {
 }
 
 /**
- * #1191（F20260929rmix）：entries → memory_entries 消息索引存量回填。
+ * #1191（F20260928rmix）：entries → memory_entries 消息索引存量回填。
  *
  * 背景：#886（F20260913ctlv）删除旧 SendMessage 的三处 indexMessage 调用后，
  * 9/13 至修复日的对话正文（user + speak）未入记忆——search_memory 对该时段
@@ -1935,7 +1935,8 @@ function backfillOtterColors(db: Database.Database, logger: Logger): void {
  * - 范围：entry_type IN ('user','speak') 且 body 非空（system/yield/invoke_* 边界
  *   条目不入——旧口径只有正文承载语义的条目入索引）
  * - 投影主键 = entry.id（sourceTable='entries'，generateId 直透）——与增量写入
- *   路径（SendEntry.indexEntryBody）同源，幂等对齐；重跑时 NOT EXISTS 自然跳过
+ *   路径（SendEntry.indexEntryBody → indexMessage，本 PR 统一 'entries' 口径）同源，
+ *   幂等按主键 id 判断（两种历史口径的存量行全部可见）；重跑时 NOT EXISTS 自然跳过
  * - 正文：双侧 stripHtmlCardFences（与 entries_fts 投影一致）；user 侧拼附件
  *   占位投影行（同旧 buildIndexBody：附件在正文后逐行拼接）
  * - 卫星写入：memory_fts_jieba（jieba 双写）+ memory_weights——与
@@ -1944,6 +1945,11 @@ function backfillOtterColors(db: Database.Database, logger: Logger): void {
  *   渐进补齐（bge-m3 worker 串行，3837 条按历史速率 ~2-3 分钟量级）
  */
 function backfillEntryMemoryIndex(db: Database.Database, logger: Logger): void {
+  // #1191 one-shot：存量回填一次性完成即标记，后续启动零扫描（settings 惯例同
+  // messages_to_entries_migrated）——首次启动回填存量，之后只在增量路径写入
+  const done = db.prepare("SELECT value FROM settings WHERE key = 'entry_memory_index_backfilled'").get() as { value: string } | undefined;
+  if (done?.value === 'done') return;
+
   let entriesInserted = 0;
 
   const tx = db.transaction(() => {
@@ -1954,7 +1960,10 @@ function backfillEntryMemoryIndex(db: Database.Database, logger: Logger): void {
       FROM entries e
       WHERE e.entry_type IN ('user','speak')
         AND e.body IS NOT NULL AND TRIM(e.body) != ''
-        AND NOT EXISTS (SELECT 1 FROM memory_entries m WHERE m.source_table = 'entries' AND m.source_id = e.id)
+        -- 幂等按主键 id 判断（非 source_table 双口径）：#942 后投影主键=源 id，
+        -- 旧路径写 'messages' 口径（9/13 前存量 8021 条）与新写 'entries' 口径
+        -- 的行主键同为 entry.id——按 id 判重两种口径全部可见，双路径零撞车
+        AND NOT EXISTS (SELECT 1 FROM memory_entries m WHERE m.id = e.id)
     `).all() as Array<{ id: string; entry_type: string; body: string; conversation_id: string; created_at: string; att_count: number }>;
 
     const insEntry = db.prepare(`
@@ -1994,8 +2003,11 @@ function backfillEntryMemoryIndex(db: Database.Database, logger: Logger): void {
   });
   tx();
 
+  // 标记 one-shot（事务外写 settings——即使回填 0 条也标记，幂等重跑同样零扫描）
+  db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('entry_memory_index_backfilled', 'done', datetime('now'))").run();
+
   if (entriesInserted > 0) {
-    logger.info(`[backfillEntryMemoryIndex] Backfilled ${entriesInserted} message entries to memory (#1191, F20260929rmix)`);
+    logger.info(`[backfillEntryMemoryIndex] Backfilled ${entriesInserted} message entries to memory (#1191, F20260928rmix)`);
   }
 }
 

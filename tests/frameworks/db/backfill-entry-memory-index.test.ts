@@ -48,7 +48,6 @@ function insertEntry(db: Database.Database, id: string, type: string, body: stri
 describe("#1191 backfillEntryMemoryIndex 存量回填", () => {
   it("user/speak 回填，边界条目不入，附件拼投影，纯卡片跳过，幂等", () => {
     const db = makeDb();
-    const logger = createLogger();
     insertFkParents(db);
 
     // user 带附件
@@ -63,7 +62,11 @@ describe("#1191 backfillEntryMemoryIndex 存量回填", () => {
     // 纯卡片（剥离后为占位符——与增量路径 StoreMemory 同构入库，占位符是公开契约）
     insertEntry(db, "e-card-1", "speak", "```html-card title=\"纯卡\"\n<div>只有卡片</div>\n```");
 
-    migrateDatabase(db, logger);
+    migrateDatabase(db, createLogger());
+
+    // one-shot 标记已写（重跑零扫描）
+    const flag = db.prepare("SELECT value FROM settings WHERE key = 'entry_memory_index_backfilled'").get() as { value: string };
+    expect(flag.value).toBe("done");
 
     const rows = db.prepare("SELECT id, content_type, layer, granularity, content FROM memory_entries WHERE source_table = 'entries'").all() as Array<{ id: string; content_type: string; layer: string; granularity: string; content: string }>;
     expect(rows).toHaveLength(3); // e-user-1 + e-speak-1 + e-card-1（占位符入库，与增量路径同构）
@@ -86,10 +89,35 @@ describe("#1191 backfillEntryMemoryIndex 存量回填", () => {
     const w = db.prepare("SELECT COUNT(*) AS n FROM memory_weights WHERE memory_entry_id IN ('e-user-1','e-speak-1')").get() as { n: number };
     expect(w.n).toBe(2);
 
-    // 幂等：重跑零新增
+    // 幂等：重跑零新增（one-shot 标记后直接返回，不扫库）
     const before = (db.prepare("SELECT COUNT(*) AS n FROM memory_entries WHERE source_table='entries'").get() as { n: number }).n;
     migrateDatabase(db, createLogger());
     const after = (db.prepare("SELECT COUNT(*) AS n FROM memory_entries WHERE source_table='entries'").get() as { n: number }).n;
     expect(after).toBe(before);
+  });
+
+  /**
+   * #1191 严重 1 回归（检视獭-1200 实锤）：跨路径主键撞车。
+   * 场景：#942 后旧增量路径（indexMessage）曾写 source_table='messages' 口径行，
+   * 其投影主键 = message.id = entry.id——与回填的主键同源。若回填幂等只按
+   * source_table='entries' 判重，看不见旧口径行 → UNIQUE 撞车 → 启动崩。
+   * 修复后幂等按主键 id 判断，两种口径全部可见，零撞车。
+   */
+  it("旧口径（source_table='messages'）存量行存在时，回填不撞主键不重复", () => {
+    const db = makeDb();
+    insertFkParents(db);
+    insertEntry(db, "e-old-1", "user", "9/13 前的旧消息，已有 messages 口径投影");
+    // 模拟旧增量路径写入的投影行（主键 = entry.id，口径 = 'messages'）
+    db.prepare(
+      "INSERT INTO memory_entries (id, layer, content_type, source_id, source_table, conversation_id, granularity, content, metadata, created_at) VALUES ('e-old-1', 'working', 'message', 'e-old-1', 'messages', 'conv-1', 'fine', '旧投影内容', NULL, '2026-09-13T00:00:00Z')",
+    ).run();
+    db.prepare("INSERT INTO memory_weights (memory_entry_id, retrieval_count, last_retrieved_at, user_flagged) VALUES ('e-old-1', 0, NULL, 0)").run();
+
+    expect(() => migrateDatabase(db, createLogger())).not.toThrow();
+
+    const dup = db.prepare("SELECT COUNT(*) AS n FROM memory_entries WHERE id = 'e-old-1'").get() as { n: number };
+    expect(dup.n).toBe(1); // 旧口径行保留，回填不重插不撞车
+    const total = (db.prepare("SELECT COUNT(*) AS n FROM memory_entries WHERE source_table IN ('entries','messages')").get() as { n: number }).n;
+    expect(total).toBe(1);
   });
 });

@@ -35,6 +35,10 @@ function makeRepos() {
     }),
     getEntryById: vi.fn(async (id: string) => entries.get(id) ?? null),
     attachAttachment: vi.fn(async () => {}),
+    getAttachmentRefsByIds: vi.fn(async (ids: string[]) => ids.map(id => ({
+      id, kind: "image", originalName: "架构图.png", mimeType: "image/png",
+      sizeBytes: 2048, width: null, height: null, caption: null,
+    }))),
     getMaxSequenceNum: vi.fn(async () => entries.size),
   } as unknown as EntryRepository;
   const invokeRepo = {} as unknown as InvokeRepository;
@@ -85,6 +89,18 @@ describe("#1191 消息索引链路接回：sendUserEntry", () => {
     expect(indexed[0]!.messageId).toBe(res.entry.id);
     expect(indexed[0]!.conversationId).toBe("conv-1");
     expect(indexed[0]!.content).toContain("跨对话的记忆检索修好");
+  });
+
+  it("附件按发送意图投影：attach 失败仍投影（旧口径 attachmentRefs 同语义）", async () => {
+    const { sendEntry, indexed } = makeSendEntry();
+    const res = await sendEntry.sendUserEntry({
+      conversationId: "conv-1", senderId: "user-1", body: "带图的消息",
+      talkingStonePassedTo: [], attachmentIds: ["att-1"],
+    });
+    expect(indexed).toHaveLength(1);
+    expect(indexed[0]!.messageId).toBe(res.entry.id);
+    expect(indexed[0]!.content).toContain("带图的消息");
+    expect(indexed[0]!.content).toContain("[图片: 架构图.png]");
   });
 
   it("未注入 memoryIndex 时不炸（旧调用方兼容）", async () => {

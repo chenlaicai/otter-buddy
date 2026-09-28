@@ -219,3 +219,23 @@ async function pickRunningTarget(
   // running 集合里无任何 speak 记录（同时开工无发言，无从比较）→ 取首只
   return runnableRunning[0]!;
 }
+
+/**
+ * #1191（F20260928rmix）：SendEntry.sendUserEntry 的目标解析包装——
+ * 显式目标直用；空且 resolveDeps 可用时走默认派发链，否则空数组（入口必须预解析）。
+ * 从 send-entry.ts 抽出（主文件行数上限）。
+ */
+export async function resolveTargetsForSend(
+  aux: { resolveDeps?: ResolveTargetsDeps },
+  logger: Logger,
+  input: { conversationId: string; body: string; talkingStonePassedTo?: string[] },
+): Promise<{ talkingStonePassedTo: string[]; mentionFeedback?: string }> {
+  const explicit = input.talkingStonePassedTo ?? [];
+  if (explicit.length > 0 || !aux.resolveDeps) {
+    return { talkingStonePassedTo: explicit };
+  }
+  const resolved = await resolveSendTargets({
+    deps: aux.resolveDeps, logger, conversationId: input.conversationId, explicit: [], body: input.body, senderType: "user",
+  });
+  return { talkingStonePassedTo: resolved.targets, mentionFeedback: resolved.feedback };
+}

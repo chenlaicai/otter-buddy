@@ -7,6 +7,7 @@ import type {
   EntryMetadata,
   SenderType,
 } from "@entities/conversation/entry";
+import type { AttachmentRef } from "@entities/conversation/attachment";
 import type {
   EntryRepository,
   GetEntriesOptions,
@@ -375,6 +376,29 @@ export class SqliteEntryRepository implements EntryRepository {
       "SELECT attachment_id, sequence_num FROM entry_attachments WHERE entry_id = ? ORDER BY sequence_num",
     ).all(entryId) as Array<{ attachment_id: string; sequence_num: number }>;
     return rows.map(r => ({ attachmentId: r.attachment_id, sequenceNum: r.sequence_num }));
+  }
+
+  /** #1191（F20260928rmix）：按附件 id 批量取投影 refs（记忆索引——发送意图描述，
+   *  attach 前可查；不存在的 id 静默跳过，索引面不固化硬错） */
+  async getAttachmentRefsByIds(ids: string[]): Promise<AttachmentRef[]> {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = this.db.prepare(
+      `SELECT id, kind, original_name, mime_type, size_bytes, width, height, caption FROM attachments WHERE id IN (${placeholders})`,
+    ).all(...ids) as Array<{
+      id: string; kind: string; original_name: string; mime_type: string;
+      size_bytes: number; width: number | null; height: number | null; caption: string | null;
+    }>;
+    return rows.map(r => ({
+      id: r.id,
+      kind: r.kind as AttachmentRef["kind"],
+      originalName: r.original_name,
+      mimeType: r.mime_type,
+      sizeBytes: r.size_bytes,
+      width: r.width,
+      height: r.height,
+      caption: r.caption,
+    }));
   }
 
   async getInFlightEntries(conversationId: string): Promise<Entry[]> {

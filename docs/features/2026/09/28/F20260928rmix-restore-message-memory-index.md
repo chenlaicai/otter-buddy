@@ -85,4 +85,15 @@ from:
 
 ## 检视处置记录
 
-（待检视轮补充）
+### 初轮（检视獭-1200，mimo-pro：2 严重 2 建议，全采纳）
+
+| 发现 | 处置 |
+|---|---|
+| **严重 1**（实验实锤）：回填幂等只查 `source_table='entries'`，但增量路径 indexMessage 写 `'messages'`（本 PR 未改）——#942 后两路径投影主键同源（entry.id），`UNIQUE constraint failed: memory_entries.id` 撞车 → 生产首发即崩 / 二次启动崩（migrateDatabase 无 catch） | **双层修**：①增量口径统一 `messages`→`entries`（memory.ts:21——#886 后源表就是 entries，旧口径是遗留脏值；grep 确认无读取方依赖）②幂等条件改按主键 `m.id = e.id` 判断（两种历史口径全部可见，一劳永逸）+ 撞车场景回归测试（backfill 测试新 it：旧口径行存在时不撞不重） |
+| **严重 2**（B4）：7 处注释写 `F20260929rmix`，真相源 `F20260928rmix`——grep 双向断链 | sed 全修，复扫 0 命中 |
+| 建议 3：attach 失败路径索引丢附件投影（与旧口径 attachmentRefs 失败模式漂移） | 修：投影改基于发送意图（input.attachmentIds → 新 repo 方法 getAttachmentRefsByIds），attach 失败也投影——旧口径同语义；单测补「attach 失败仍投影」用例 |
+| 建议 4：迁移每次启动全量扫 | 修：one-shot 标记（settings `entry_memory_index_backfilled`，惯例同 messages_to_entries_migrated）；测试断言标记写入 + 重跑零扫描 |
+
+**结构整理**（超 max-lines 450 引发）：#1191 辅助方法抽 `send-entry-index-helpers.ts`（buildUserIndexBody/loadAttachmentRefs）；目标解析抽 `resolveTargetsForSend`（resolve-send-targets.ts）；公共委托方法保留原地（多入口消费，非死码）。
+
+验证：全量 4197 绿；tsc 0 错；build（含 eslint）0 错；capability 锚复跑绿。

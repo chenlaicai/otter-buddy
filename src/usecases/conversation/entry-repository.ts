@@ -5,6 +5,7 @@ import type {
   EntryType,
   SenderType,
 } from "@entities/conversation/entry";
+import type { AttachmentRef } from "@entities/conversation/attachment";
 
 export interface GetEntriesOptions {
   limit?: number;
@@ -56,6 +57,8 @@ export interface EntryRepository {
   // 附件关联
   attachAttachment(entryId: string, attachmentId: string, sequenceNum?: number): Promise<void>;
   getAttachments(entryId: string): Promise<Array<{ attachmentId: string; sequenceNum: number }>>;
+  /** #1191：按附件 id 批量取投影 refs（记忆索引用——发送意图描述，attach 前可查） */
+  getAttachmentRefsByIds(ids: string[]): Promise<AttachmentRef[]>;
 
   /**
    * F20260913ctlv 彻底切换：獭未读注入数据源——entries 表（user/system/speak 按 sequenceNum）。
