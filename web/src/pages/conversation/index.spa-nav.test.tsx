@@ -227,10 +227,10 @@ describe('右栏 invoke 状态恢复（F20260923sswd，issue #1134）', () => {
     }
   })
 
-  it('listInvokes 失败 → 不静默吞，600ms/2500ms 两次延迟重试兜底（fake timers）', async () => {
+  it('listInvokes 失败 → 不静默吞，600ms 单次延迟重试（2500ms 已退役，阶段3）（fake timers）', async () => {
     vi.useFakeTimers()
     try {
-      let failCount = 3 // 初始 + 600ms 重试 + 2500ms 重试全败，验证兜底链完整触发
+      let failCount = 2 // 初始 + 600ms 重试全败（2500ms 二次重试已退役，阶段3）
       listInvokesCalls = []
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
         const url = String(input)
@@ -260,9 +260,9 @@ describe('右栏 invoke 状态恢复（F20260923sswd，issue #1134）', () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(700) })
       const callsAfter600 = listInvokesCalls.length
       expect(callsAfter600).toBeGreaterThan(callsAfterInitial)
-      // 推进到 2500ms → 第二次重试（兜底链完整）
-      await act(async () => { await vi.advanceTimersByTimeAsync(2200) })
-      expect(listInvokesCalls.length).toBeGreaterThan(callsAfter600)
+      // 推进 3000ms → 无第二次重试（2500ms 已退役，后续兑底归周期对账/读点，阶段3）
+      await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
+      expect(listInvokesCalls.length).toBe(callsAfter600)
     } finally {
       vi.useRealTimers()
     }
@@ -306,11 +306,11 @@ describe('SSE 断连重连补偿（F20260924ircc，issue #1160）', () => {
       const router = createTestRouter('/conversation/conv-b')
       await act(async () => { root.render(<RouterProvider router={router} />) })
       await act(async () => { await vi.advanceTimersByTimeAsync(80) })
-      // 初始内联拉取已发生（invokeStatesLoadedRef 置 true——门控生效的前提成立）
+      // 初始内联拉取已发生（阶段3 后无门控，但首连补偿仍不触发——needsSyncAfterReconnect 初值 false 语义不变）
       expect(listInvokesCalls.length).toBe(1)
       expect(FakeXHR.instances.length).toBeGreaterThanOrEqual(1)
       const first = FakeXHR.instances[0]!
-      // 首连 onprogress：不应触发补偿拉取（初始恢复归内联拉取负责，防双拉）
+      // 首连 onprogress：不应触发补偿拉取（初始恢复归内联拉取负责；needsSyncAfterReconnect 初值 false）
       await act(async () => { first.tick(': keep-alive\n\n') })
       expect(listInvokesCalls.length).toBe(1)
       // 断连（onerror → scheduleReconnect 1s）→ 重连 → 首帧数据 → 补偿拉取必须发生
@@ -444,6 +444,44 @@ describe('右栏 invoke 状态对账：缓存模型合并（F20260928icmm）', (
       const settledCount = listInvokesCalls.length
       await act(async () => { await vi.advanceTimersByTimeAsync(120_000) })
       expect(listInvokesCalls.length).toBe(settledCount)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('阶段3（PR #1190 建议1）：状态空（初始拉取全败）时 60s 周期对账仍拉——hasRunning 门不可达的残余窗口已堵', async () => {
+    vi.useFakeTimers()
+    try {
+      // 全败 mock：invokes 永远抛错（初始 + 600ms 重试 + 周期全败）——状态保持空
+      listInvokesCalls = []
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        const invokesMatch = url.match(/^\/api\/conversations\/(conv-[ab])\/invokes/)
+        if (invokesMatch) { listInvokesCalls.push(invokesMatch[1]!); throw new Error('network down') }
+        const entriesMatch = url.match(/^\/api\/conversations\/(conv-[ab])\/entries/)
+        if (entriesMatch) return json({ hasMore: false, entries: entriesByConv[entriesMatch[1]!] })
+        if (/^\/api\/conversations\/conv-[ab]\/participants/.test(url)) return json([{ otterId: 'otter-1', otterName: '小獭', otterType: 'small', roleName: '干活' }])
+        if (/^\/api\/conversations\/conv-[ab]\/unread/.test(url)) return json({ lastReadSeq: 0, unreadCount: 0, firstUnreadMessageId: null, firstUnreadSeq: null })
+        if (/^\/api\/conversations\/conv-[ab]\/key-resources/.test(url)) return json({ resources: [] })
+        if (/^\/api\/conversations\/conv-[ab]\/read/.test(url)) return json({})
+        if (/^\/api\/conversations\/[^/]+\/(scheduled-tasks|attachments)/.test(url)) return json([])
+        if (/^\/api\/otters\/[^/]+\/sessions/.test(url)) return json([])
+        if (url.startsWith('/api/conversations?') || url === '/api/conversations') return json({ items: [convA, convB], total: 2 })
+        if (url.startsWith('/api/settings')) return json({ userName: '测试用户' })
+        return json({})
+      })
+      const router = createTestRouter('/conversation/conv-a')
+      await act(async () => { root.render(<RouterProvider router={router} />); await vi.advanceTimersByTimeAsync(100) })
+      const initialCalls = listInvokesCalls.length
+      expect(initialCalls).toBeGreaterThanOrEqual(1) // 初始内联拉取（失败）
+
+      // 推进 700ms：600ms 重试（失败）；再推进到 60s：空态周期拉取必须发生（旧实现 hasRunning 门下不可达）
+      await act(async () => { await vi.advanceTimersByTimeAsync(700) })
+      expect(listInvokesCalls.length).toBe(initialCalls + 1)
+      const beforeCycle = listInvokesCalls.length
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+      // 核心断言：状态为空（无 running 可种）时周期对账仍拉——isEmpty 分支生效（旧实现必败：无拉取）
+      expect(listInvokesCalls.length).toBeGreaterThan(beforeCycle)
     } finally {
       vi.useRealTimers()
     }
