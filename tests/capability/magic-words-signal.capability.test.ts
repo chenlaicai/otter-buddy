@@ -145,7 +145,7 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
       /** #984（检视 1167 严重 1/2）：speak(completed) ≠ 回合结束——tsp 在 yield 时落账，
        *  读 tsp 前必须等大獭 invoke 终态（旧版竞态是「大獭未派工」三连的根因）。
        *  settled 后取大獭在锚点后最新带 tsp 的发言。 */
-      const bigOtterId = (ctx.built.db.prepare("SELECT id FROM otters WHERE type = 'big' LIMIT 1").get() as { id: string }).id;
+      const bigOtterId = bigMsg.si; // ⚠️ 每对话独立大獭，取实际响应者；全局查询会拿错獭（9/28 round6 实证）
       await waitForInvokeSettled(ctx, convId, bigOtterId, { timeoutMs: 300_000 });
       const settledMsgs = await listMessages(ctx, convId);
       const bigDispatch = settledMsgs
