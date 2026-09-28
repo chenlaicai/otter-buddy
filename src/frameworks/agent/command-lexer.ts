@@ -60,6 +60,11 @@ export interface LexResult {
 /** D6 防御：输入上限（超限截断 + parseOk=false，判定层走兜底） */
 const MAX_INPUT = 1_000_000;
 
+/** S4 防碎片爆炸：单词 part 数上限（引号塔形态 27 万碎片 part 的对象分配热点）。
+ *  超限 → 尾部折叠为单 unknown part + fail（词不可信 → 判定层走 V1 兑底链，
+ *  保守侧不回退；正常命令词 part 数 < 10，恶意形态不受影响）。 */
+const MAX_PARTS_PER_WORD = 256;
+
 const OP_CHARS = new Set(["|", "&", ";", "(", ")", "<", ">"]);
 
 function isWordStart(tokens: Token[]): boolean {
@@ -80,15 +85,17 @@ function evalEscape(raw: string): string {
   return "";
 }
 
-/** Word.evaluated：全部 parts 为 lit/escape → 拼接值；否则 null（不可静态求值）。 */
+/** Word.evaluated：全部 parts 为 lit/escape → 拼接值；否则 null（不可静态求值）。
+ *  S4 性能：拼接用数组+单次 join（27 万碎片 part 的逐个 += 是 O(n²) 字符拷贝，
+ *  引号塔形态 528KB 实测 52ms → join 后归 O(n)）。 */
 function evalWord(parts: WordPart[]): string | null {
-  let out = "";
+  const out: string[] = [];
   for (const p of parts) {
-    if (p.type === "lit") out += p.text;
-    else if (p.type === "escape") out += evalEscape(p.text);
+    if (p.type === "lit") out.push(p.text);
+    else if (p.type === "escape") out.push(evalEscape(p.text));
     else return null; // var/cmdsub/arith/hex/unknown → 展开不可静态求值
   }
-  return out;
+  return out.join("");
 }
 
 /** 词法主入口。depth 由模型层递归时传入（此处仅透传到 issues 标注）。 */
@@ -385,6 +392,11 @@ export function lex(text: string): LexResult {
       while (i < n && !breaksWord(text[i])) i++;
       if (i > l) parts.push({ type: "lit", text: text.slice(l, i), quoted: false });
       else i++; // 防御：不可达（breaksWord 已覆盖所有断词符）
+    }
+    // S4 防碎片爆炸：超限尾部折叠为单 unknown part + fail（词不可信 → 判定走兑底）
+    if (parts.length > MAX_PARTS_PER_WORD) {
+      parts = [parts[0], { type: "unknown", text: `<+${parts.length - 1}-parts:${text.slice(start, Math.min(i, start + 24))}…>`, quoted: false }];
+      fail(`word-parts-overflow @${start} (${parts.length})`);
     }
     const word: Word = { span: { start, end: i }, parts, evaluated: parts.length ? evalWord(parts) : null };
     tokens.push({ type: "word", span: word.span, word });

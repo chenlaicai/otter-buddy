@@ -125,10 +125,16 @@ describe("command-model 结构模型", () => {
       expect(l3).toBeDefined();
       expect(l3!.model).toBeNull(); // 第三层不再解析（D2）
     });
-    it("裸定界 heredoc 体递归（危险通道）", () => {
-      const m = parseOnce("bash <<EOF\nkill 42877\nEOF");
-      const pl = m.payloads.find(p => p.kind === "heredoc-bare");
-      expect(pl?.model?.segments[0].argv0).toBe("kill");
+    it("裸定界 heredoc 体含展开特征时递归（危险通道）；纯数据体不递归（r1-S2/V1 对齐）", () => {
+      // 体含展开（$/反引号）→ 危险通道递归
+      const m1 = parseOnce("bash <<EOF\nkill $((1+1))\nEOF");
+      const pl1 = m1.payloads.find(p => p.kind === "heredoc-bare");
+      expect(pl1?.model?.segments[0].argv0).toBe("kill");
+      // 体无展开特征 = 纯数据（V1 stripHeredocPayloads 剥离放行语义）
+      const m2 = parseOnce("bash <<EOF\nkill 42877\nEOF");
+      const pl2 = m2.payloads.find(p => p.kind === "heredoc-bare");
+      expect(pl2).toBeUndefined(); // 不再作为危险通道递归
+      expect(m2.parseOk).toBe(true);
     });
     it("引号定界 heredoc 体=数据（不递归）", () => {
       const m = parseOnce("cat <<'EOF'\nsleep 1; pkill -f x\nEOF");

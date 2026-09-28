@@ -238,7 +238,10 @@ function matchAssignment(w: Word): { name: string; value: string | null } | null
 
 // ────────────────────────────── 载荷收集与递归 ──────────────────────────────
 
-/** 全词扫描：cmdsub/backtick part + bash -c 载荷 + heredoc 体 → 递归 payload */
+/** 全词扫描：cmdsub/backtick part + bash -c 载荷 + heredoc 体 → 递归 payload。
+ *  r1-S2 处置：裸定界 heredoc 体对齐 V1 stripHeredocPayloads 语义——体内容
+ *  无展开特征（$/反引号）时是纯数据不递归（V1 剥离放行；#1171 白名单完整落实：
+ *  裸定界 body 的数据行 kill 词样不拦）；体含展开才作为危险通道递归。 */
 function collectPayloads(tokens: Token[], text: string, depth: number): { payloads: Payload[]; parseOk: boolean } {
   const payloads: Payload[] = [];
   let parseOk = true;
@@ -263,8 +266,11 @@ function collectPayloads(tokens: Token[], text: string, depth: number): { payloa
       const hd = t.heredoc!;
       if (hd.bodySpan) {
         const body = text.slice(hd.bodySpan.start, hd.bodySpan.end);
-        // 引号定界=绝对数据（不递归）；裸定界=可展开危险通道（递归）
-        if (!hd.delimQuoted) {
+        if (hd.delimQuoted) {
+          // 引号定界=绝对数据（不递归）
+          payloads.push({ raw: body, model: null, kind: "heredoc-quoted", depth });
+        } else if (/\$|`/.test(body)) {
+          // 裸定界 + 体含展开特征（$/反引号）→ 危险通道递归（V1 同口径）
           if (depth >= MAX_DEPTH) {
             payloads.push({ raw: body, model: null, kind: "heredoc-bare", depth });
             parseOk = false;
@@ -274,6 +280,8 @@ function collectPayloads(tokens: Token[], text: string, depth: number): { payloa
             if (!sub.parseOk) parseOk = false;
           }
         } else {
+          // 裸定界 + 体无展开特征 = 纯数据（V1 stripHeredocPayloads 剥离放行——
+          // kill 独立成行等数据行不递归判定，#1171 白名单完整落实）
           payloads.push({ raw: body, model: null, kind: "heredoc-quoted", depth });
         }
       } else {
@@ -281,9 +289,7 @@ function collectPayloads(tokens: Token[], text: string, depth: number): { payloa
       }
       continue;
     }
-    // 进程替换 <( ) >( )：词法层把它们归入 op/( ) 序列——由 buildSegments 的括号路径处理
   }
-  // bash -c 载荷（段级）：在 buildSegments 后由上层补充——见 parseOnce
   return { payloads, parseOk };
 }
 

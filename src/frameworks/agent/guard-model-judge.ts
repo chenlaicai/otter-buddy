@@ -13,7 +13,7 @@
  *   词样字面量、$VAR 传参（r1-S3 口径由模型层继承）
  * - 白名单外任何「以前放行 → 现在拦截」= 失败（迁移矩阵断言）
  */
-/* eslint-disable max-statements, complexity, max-depth, max-params */
+/* eslint-disable max-statements, complexity, max-depth, max-params, max-lines -- 判定层承载 V1 全量规则 + V2 白名单新拦 + r1 五项处置，450 行与规则密度本质冲突 */
 
 import type { Logger } from "@usecases/ports/logger";
 import type { CommandModel, Segment, Payload } from "./command-model";
@@ -127,13 +127,33 @@ export interface ModelVerdict {
 }
 
 /** kill 段判定：模型版 checkKillSegment。
- *  语义映射：
+ *  r1-S1 处置：argv0 含 var part（kill${IFS}42877——IFS 展开重分词，V1 归一化
+ *  文本判间接拦）→ 首词 lit 前缀是 kill 族词元即按 kill 段处理（间接目标语义）。
+ *  其它语义映射：
  *  - pkill 族：目标词命中 otter 特征名 → 拦（文案同 V1）
  *  - kill 间接目标（var/cmdsub/arith/hex/unknown part 在参数位）→ 拦（文案同 V1）
  *  - PID 文件引用 → 拦
  *  - 字面量主 PID → 拦
  *  - U1 新增：字面量 0（进程组语义——载荷内 kill 0 信号覆盖含主进程的整组）→ 拦
  *  - 管道右段（上游 stdin 为 kill 参数来源）→ 参数不可静态求值 → 间接拦 */
+/** r1-S1：argv0 含 var part 的 kill 前缀形态（kill${IFS}42877——IFS 展开重分词，
+ *  V1 归一化文本判间接拦的模型版等价）。命中返回拦截文案，未命中返回 null
+ *  （非 kill 前缀或无展开）。 */
+function matchIfsSplitKillPrefix(seg: Segment, mainPid: number, logger: Logger | undefined, depth: number): string | null {
+  if (seg.words.length === 0) return null;
+  const w0 = seg.words[0];
+  if (w0.parts[0]?.type !== "lit") return null;
+  const litPrefix = w0.parts[0].text;
+  if (!KILL_NAMES.has(litPrefix) && !PKILL_NAMES.has(litPrefix)) return null;
+  // 展开在词内（argv0 自身——hasExpansionPart(fromArg1) 查不到）或在参数位，
+  // 均算展开 PID 未知 → 间接拦
+  if (w0.parts.some(p => p.type !== "lit" && p.type !== "escape") || hasExpansionPart(seg, true)) {
+    logger?.warn("[guard-v2] BLOCKED kill with expansion in argv0 (IFS-split form)", { mainPid, depth });
+    return INDIRECT_BLOCK_MSG;
+  }
+  return null;
+}
+
 function judgeKillSegment(
   seg: Segment,
   model: CommandModel,
@@ -144,6 +164,9 @@ function judgeKillSegment(
   depth: number,
 ): string | null {
   const { name } = effectiveCommand(seg);
+  // r1-S1：argv0 不可求值（含 var part，如 kill${IFS}42877）→ 首词 lit 前缀检测
+  const ifs = matchIfsSplitKillPrefix(seg, mainPid, logger, depth);
+  if (ifs) return ifs;
   if (name === null) return null;
   const bare = name.includes("/") ? name.split("/").pop()! : name;
   const isPkill = PKILL_NAMES.has(bare);
@@ -327,23 +350,85 @@ function isKillSegmentQuick(seg: Segment): boolean {
   return KILL_NAMES.has(bare) || PKILL_NAMES.has(bare);
 }
 
-/** U5：bash <file> / bash file.sh 从文件读脚本（V2 白名单新拦项——保守拦+提示改写） */
+/** U5：bash <file> / bash file.sh 从文件读脚本（V2 白名单新拦项——保守拦+提示改写）。
+ *  r1-S3 处置：覆盖扩展到任意文件——扩展名过滤（.sh/.bash）被换扩展名绕过
+ *  （bash < x.txt 同样是「从文件读脚本」，脚本内容未经逐条判定）；保留「已确认
+ *  非脚本的数据文件」通过白名单外的人工通道（告知搭档）处置。 */
+const U5_BLOCK_MSG = "bash 命令从文件读取脚本执行（bash < file / bash file）——脚本内容未经守卫逐条判定，绕过面不可接受。该命令不允许：请改写为直接命令形态（把脚本内容拆成独立命令执行），或在 worktree 内以隔离实例验证。若确认此命令本意安全（文件内容是纯数据非脚本），请改用保持原语义的不含敏感字样的方式达成目的；无法规避时告知搭档人工执行。";
+
 function judgeBashFileScript(model: CommandModel, mainPid: number, logger: Logger | undefined): string | null {
   for (const seg of model.segments) {
     const eff = effectiveCommand(seg);
     const bare = eff.name?.split("/").pop();
     if (!bare || !SHELL_INTERPRETERS.has(bare)) continue;
-    // 形态 1：< 重定向（bash < file.sh）
-    const stdinRedir = seg.redirects.find(r => r.op === "<" || r.op === "<<" || r.op === "<<<");
-    if (stdinRedir && stdinRedir.target && /\.(sh|bash)$/.test(stdinRedir.target)) {
+    // 形态 1：< 重定向（bash < file）——任意目标文件
+    const stdinRedir = seg.redirects.find(r => r.op === "<");
+    if (stdinRedir && stdinRedir.target && stdinRedir.target !== "/dev/stdin") {
       logger?.warn("[guard-v2] BLOCKED bash reading script from file (stdin)", { mainPid, target: stdinRedir.target });
-      return "bash 命令从文件读取脚本执行（bash < file）——脚本内容未经守卫逐条判定，绕过面不可接受。该命令不允许：请改写为直接命令形态（把脚本内容拆成独立命令执行），或在 worktree 内以隔离实例验证。若确认此命令本意安全（脚本内容是纯只读操作），请改用保持原语义的不含敏感字样的方式达成目的；无法规避时告知搭档人工执行。";
+      return U5_BLOCK_MSG;
     }
-    // 形态 2：位置参数 .sh（bash file.sh）
-    const shArg = eff.args.find(a => a !== null && /\.(sh|bash)$/.test(a));
-    if (shArg) {
-      logger?.warn("[guard-v2] BLOCKED bash script file argument", { mainPid, target: shArg });
-      return "bash 命令从文件读取脚本执行（bash file.sh）——脚本内容未经守卫逐条判定，绕过面不可接受。该命令不允许：请改写为直接命令形态（把脚本内容拆成独立命令执行），或在 worktree 内以隔离实例验证。若确认此命令本意安全（脚本内容是纯只读操作），请改用保持原语义的不含敏感字样的方式达成目的；无法规避时告知搭档人工执行。";
+    // 形态 2：位置参数文件（bash file / bash file.sh）——非旗标参数里的文件形态。
+    // -c/-s 等旗标后的载荷词已由递归判定，此处跳过；拦的是无 -c 时的首个位置
+    // 参数（脚本文件位）。r1-S3：任意扩展名（换扩展名绕过面）。
+    let hasDashC = false;
+    for (const w of seg.words.slice(1)) {
+      if (w.evaluated === "-c" || w.evaluated === "--") hasDashC = w.evaluated === "-c" ? true : hasDashC;
+    }
+    if (hasDashC) continue; // bash -c 'payload' 形态：载荷递归判定，非文件
+    for (let ai = 0; ai < eff.args.length; ai++) {
+      const a = eff.args[ai];
+      if (a !== null && a.startsWith("-")) continue; // 旗标
+      // 首个非旗标位置参数 = 脚本文件位（bash file.sh / bash file / bash $SCRIPT）
+      if (a !== null) {
+        logger?.warn("[guard-v2] BLOCKED bash script file argument", { mainPid, target: a });
+        return U5_BLOCK_MSG;
+      }
+      // a === null（不可求值，如 bash $SCRIPT）：首个位置参数不可求值 → 可能是
+      // 文件路径，保守拦（展开后不可知）
+      const argWord = eff.argWords[ai];
+      const isFlagLike = argWord && (argWord.parts[0]?.text.startsWith("-") || (argWord.evaluated ?? "").startsWith("-"));
+      if (!isFlagLike) {
+        logger?.warn("[guard-v2] BLOCKED bash script argument (unparseable)", { mainPid });
+        return U5_BLOCK_MSG;
+      }
+    }
+  }
+  return null;
+}
+
+// ────────────────────────────── sleep 静默检测（#1126 协同 / S5） ──────────────────────────────
+
+/** S5（r1-B5 撞车处置）：裸 sleep 静默等待检测——模型版。
+ *  #1126（sleep 工具化）在 V1 链挂 checkSleepCommand，本 PR 的模型放行路径短路
+ *  V1 链会绕过它。此处模型版等价实现（argv 位 sleep + 时长静态求和 ≥5s/
+ *  infinity 必拦），#1126 合入 rebase 时两版并存去重（语义一致，模型版更精确）。
+ *  语义对齐 #1126 的收编哲学：拦截文案引导改用 wait 工具（理由自证+苏醒检查）。 */
+const SLEEP_BLOCK_MSG = "__bash_sleep_block__:bash 命令包含裸 sleep 静默等待（≥5s）——长时间无输出会让搭档失去对进度的感知。请改用 wait 工具（reason 参数自证理由 + until 苏醒检查），或拆分为短步多次汇报；若确需短暂 sleep（<5s 重试抖动）直接执行即可。";
+
+function judgeSleepCommand(model: CommandModel, logger: Logger | undefined): string | null {
+  for (const seg of model.segments) {
+    const eff = effectiveCommand(seg);
+    if (eff.name !== "sleep") continue;
+    // 时长静态求和（多参数：sleep 5 6 = 11s；单位 s/m/h/d；小数）
+    let total = 0;
+    let unparseable = false;
+    for (const a of eff.args) {
+      if (a === null) { unparseable = true; break; } // sleep $X——宁漏勿误（#1126 同口径）
+      const lower = a.toLowerCase();
+      if (lower === "infinity" || lower === "inf") {
+        logger?.warn("[guard-v2] BLOCKED sleep infinity");
+        return SLEEP_BLOCK_MSG;
+      }
+      const m = /^([0-9.]+)(s|m|h|d)?$/.exec(lower);
+      if (!m) { unparseable = true; break; }
+      const v = parseFloat(m[1]);
+      const unit = m[2] ?? "s";
+      total += unit === "m" ? v * 60 : unit === "h" ? v * 3600 : unit === "d" ? v * 86400 : v;
+    }
+    if (unparseable) continue; // 不可解析形态放行（归逃逸面，#1126 同口径）
+    if (total >= 5) {
+      logger?.warn("[guard-v2] BLOCKED bare sleep >= 5s", { total });
+      return SLEEP_BLOCK_MSG;
     }
   }
   return null;
@@ -416,6 +501,9 @@ export function checkWithModel(
   allowedServices: AllowedService[] = [],
 ): string | null {
   const model = parseOnce(command);
+  // S5：裸 sleep 静默检测（#1126 协同——模型路径不被短路绕过）
+  const sleepHit = judgeSleepCommand(model, logger);
+  if (sleepHit) return sleepHit;
   // PR merge partner-gate（模型版 argv 位判定——先于 kill 族，V1 顺序保持）
   const prMerge = judgePrMergeModel(model, logger);
   if (prMerge) return prMerge;

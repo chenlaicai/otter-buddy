@@ -48,8 +48,55 @@ describe("V2 白名单新拦项（U1/U5——搭档拍板）", () => {
       const r = checkBashCommandSafety("bash run.sh", mainPid);
       expect(r).toContain("从文件读取脚本");
     });
+    it("r1-S3：bash < x.txt（换扩展名绕过）→ 拦（任意文件）", () => {
+      expect(checkBashCommandSafety("bash < x.txt", mainPid)).toContain("从文件读取脚本");
+      expect(checkBashCommandSafety("bash data.bin", mainPid)).toContain("从文件读取脚本");
+    });
+    it("r1-S3：bash $SCRIPT（不可求值位置参数）→ 拦（展开后可能是文件）", () => {
+      expect(checkBashCommandSafety("bash $SCRIPT", mainPid)).toContain("从文件读取脚本");
+    });
     it("对照：bash -c 'echo hi'（-c 载荷已由模型递归判定）→ 放行", () => {
       expect(checkBashCommandSafety("bash -c 'echo hi'", mainPid)).toBeNull();
+    });
+  });
+
+  describe("r1-S1：kill${IFS} 形态（IFS 展开重分词）", () => {
+    it("kill${IFS}42877 → 拦（间接目标——V1 归一化同口径）", () => {
+      expect(checkBashCommandSafety("kill${IFS}42877", mainPid)).toBeTruthy();
+    });
+    it("kill${IFS}0 → 拦（U1 击穿面闭合）", () => {
+      const r = checkBashCommandSafety("kill${IFS}0", mainPid);
+      expect(r).toBeTruthy();
+    });
+    it("对照：ki${IFS}ll 42877（中缀形态）→ 放行（V1 同口径）", () => {
+      expect(checkBashCommandSafety("ki${IFS}ll 42877", mainPid)).toBeNull();
+    });
+  });
+
+  describe("r1-S2：裸定界 heredoc body 数据行", () => {
+    it("裸定界 + body 无展开：kill 独立成行等数据词样 → 放行（V1 剥离语义对齐）", () => {
+      const cmd = "cat > /tmp/notes.md <<EOF\n历史记录：曾用 pkill -f node 清理\n另一行：kill 42877 是测试词样\nEOF";
+      expect(checkBashCommandSafety(cmd, mainPid)).toBeNull();
+    });
+    it("裸定界 + body 含展开（$）：危险通道 → 递归判定", () => {
+      const cmd = "bash <<EOF\nkill $((1+1))\nEOF";
+      expect(checkBashCommandSafety(cmd, mainPid)).toBeTruthy();
+    });
+  });
+
+  describe("r1-S5：裸 sleep 静默检测（#1126 协同）", () => {
+    it("sleep 30 → 拦（≥5s 静默，引导 wait 工具）", () => {
+      const r = checkBashCommandSafety("sleep 30", mainPid);
+      expect(r).toContain("wait");
+    });
+    it("sleep 1h → 拦", () => {
+      expect(checkBashCommandSafety("sleep 1h", mainPid)).toBeTruthy();
+    });
+    it("sleep infinity → 拦", () => {
+      expect(checkBashCommandSafety("sleep infinity", mainPid)).toBeTruthy();
+    });
+    it("对照：sleep 3（<5s 重试抖动）→ 放行", () => {
+      expect(checkBashCommandSafety("sleep 3", mainPid)).toBeNull();
     });
   });
 });
