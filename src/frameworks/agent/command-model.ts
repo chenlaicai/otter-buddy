@@ -30,6 +30,8 @@ export interface Segment {
   redirects: RedirTarget[];
   /** 赋值前缀 W=/path（Ad1：独立段表示——赋值不进 args） */
   assignments: Array<{ name: string; value: string | null }>;
+  /** 含展开的赋值词（P=$(lsof …)——词本体含 cmdsub part，供白名单溯源） */
+  assignWords: Word[];
   /** 本段是子 shell 组（(...) 包裹） */
   subshell: boolean;
   /** 段间连接符（上游段→本段）：&& || ; | & \n 或 ""（首段） */
@@ -83,7 +85,7 @@ function buildSegments(tokens: Token[], text: string): { segments: Segment[]; su
   let i = 0;
 
   function emptySegment(joiner: string): Segment {
-    return { argv0: null, args: [], words: [], redirects: [], assignments: [], subshell: false, joiner };
+    return { argv0: null, args: [], words: [], redirects: [], assignments: [], assignWords: [], subshell: false, joiner };
   }
 
   function flushSegment(nextJoiner: string): void {
@@ -191,27 +193,40 @@ function collectParenBody(tokens: Token[], start: number, text: string): { raw: 
   return { raw, model, nextIdx: j + 1 };
 }
 
-/** 赋值前缀拆分（Ad1）：词流前部 NAME=value 形态词 → assignments */
+/** 赋值前缀拆分（Ad1）：词流前部 NAME=value 形态词 → assignments。
+ *  可求值词直接记；不可求值词（含 cmdsub/var part，如 P=$(lsof …)）拆 part：
+ *  首 part lit 形如 NAME= → 记赋值（value=null，溯源走段 payloads 的 cmdsub）。
+ *  这样白名单溯源（#844 规则 2b）能拿到「P 被赋值为 lsof 结果」的模型证据。 */
 function finalizeAssignments(seg: Segment): void {
-  // 只有在 argv0 位置之前的连续 NAME=value 词才是赋值前缀；
-  // 词流中间的 NAME=value（如 env 风格）也按前缀处理（env VAR=1 cmd 的语义近似）
   while (seg.words.length > 0) {
     const w = seg.words[0];
     const m = matchAssignment(w);
     if (m && seg.argv0 === null) {
       seg.assignments.push(m);
+      // 含展开的赋值词（P=$(lsof …)）：词保留在 words（但标记为赋值——argv0 跳过它）。
+      // 白名单溯源（#844 规则 2b）需要从段 words 的 cmdsub part 找 lsof 证据。
+      const hasExpansion = w.parts.some(p => p.type !== "lit" && p.type !== "escape");
       seg.words = seg.words.slice(1);
-    } else {
-      break;
+      if (hasExpansion) seg.assignWords.push(w);
+      continue;
     }
+    break;
   }
 }
 
 function matchAssignment(w: Word): { name: string; value: string | null } | null {
-  if (w.evaluated === null) return null;
-  const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s.exec(w.evaluated);
-  if (!m) return null;
-  return { name: m[1], value: m[2] === "" ? "" : m[2] };
+  if (w.evaluated !== null) {
+    const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s.exec(w.evaluated);
+    if (!m) return null;
+    return { name: m[1], value: m[2] === "" ? "" : m[2] };
+  }
+  // 不可求值词：首 part 是 lit 且形如 NAME= 前缀 → 赋值（value=null，含展开）
+  const first = w.parts[0];
+  if (first && first.type === "lit" && /^[A-Za-z_][A-Za-z0-9_]*=/.test(first.text)) {
+    const eq = first.text.indexOf("=");
+    return { name: first.text.slice(0, eq), value: null };
+  }
+  return null;
 }
 
 // ────────────────────────────── 载荷收集与递归 ──────────────────────────────
