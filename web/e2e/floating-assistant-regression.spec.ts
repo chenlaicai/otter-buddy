@@ -43,7 +43,7 @@ test.describe('浮动獭交互回归（F20260928waf1）', () => {
     await expect(panel).toBeVisible()
     await expect(panel.locator('[data-testid="assistant-panel-input"]')).toBeEnabled({ timeout: 15_000 })
     // 点击消息流区域（面板内非交互元素）
-    await panel.locator('.flex-1.overflow-y-auto').click()
+    await panel.locator('[data-testid="assistant-panel-messages"]').click()
     await expect(panel).toBeVisible()
   })
 
@@ -56,8 +56,9 @@ test.describe('浮动獭交互回归（F20260928waf1）', () => {
   })
 
   test('P3：侧栏无「创建 web 助理对话」按钮（mock 空列表——防用例间首唤开户污染共享库）', async ({ page }) => {
-    await page.route('**/api/conversations**', async route => {
+    await page.route('**/api/conversations', async route => {
       // 一条普通对话 + 零 web 助理对话（空态独占视图只左栏不渲染——必须有一条才见分组）
+      // glob 不含 **，避免误匹配 /api/conversations/:id/entries 子路径（检视 S1）
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -72,6 +73,24 @@ test.describe('浮动獭交互回归（F20260928waf1）', () => {
     await page.waitForTimeout(500) // 侧栏渲染空列表
     await expect(page.locator('[data-testid="leftpanel-group-web-assistant"]')).toBeVisible()
     await expect(page.locator('[data-testid="leftpanel-web-assistant-create"]')).toHaveCount(0)
+  })
+
+  test('S3：面板展开时点獭收起，再点獭重展开', async ({ page }) => {
+    await page.goto('/conversation')
+    const otter = await expectOtter(page)
+    await otter.locator('[data-testid="floating-otter-avatar"]').click()
+    const panel = page.locator('[data-testid="assistant-panel"]')
+    await expect(panel).toBeVisible()
+    await expect(panel.locator('[data-testid="assistant-panel-input"]')).toBeEnabled({ timeout: 15_000 })
+
+    // 面板开着再点獭 → 收起（toggle 路径，非点外收起）
+    await otter.locator('[data-testid="floating-otter-avatar"]').click()
+    await expect(panel).toBeHidden()
+
+    // 再点獭 → 重展开（toggle 竞态回归——Esc flaky #1181 同路径）
+    await otter.locator('[data-testid="floating-otter-avatar"]').click()
+    await expect(panel).toBeVisible()
+    await expect(panel.locator('[data-testid="assistant-panel-input"]')).toBeEnabled({ timeout: 15_000 })
   })
 
   test('正路径保留：点外收起仍工作', async ({ page }) => {

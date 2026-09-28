@@ -52,7 +52,9 @@ FloatingOtter.tsx 原有 hover 快捷气泡（三条静态 QUICK_PROMPTS）。�
 
 ### P3：web 助理全局唯一，不存在用户侧「创建」语义（语义修正）
 
-LeftPanel.tsx 的 K4 处置（#1174 检视轮次加的降级入口）在空组渲染「创建 web 助理对话」按钮——但 web 助理固定全局一个、首唤自动开户，用户不需要也不应该「创建」。开关关闭时的降级入口 = 分组头 + 设置开关即可。
+LeftPanel.tsx 的 K4 处置（#1174 检视轮次加的降级入口）在空组渲染「创建 web 助理对话」按钮——但 web 助理固定全局一个、首唤自动开户，用户不需要也不应该「创建」。按钮删除后空组仅余分组头。
+
+**降级路径如实记录**（检视 M1 修正）：settings 页开关是**只读**（`web/src/pages/settings/index.tsx:135-140`），重开浮动獭须改 `config.yaml` 的 `assistant.web.enabled` + 重启；「enabled=false + 从未开户」时用户零 web 助理入口（K4 盲点回归，有搭档 P3 决策背书，属已认领代价）。
 
 ## 修复（修法决策树：P1 走①既有语义内修；P2/P3 走③删除机制）
 
@@ -84,7 +86,7 @@ Modification-Class: narrow-fix（P1 既有语义内修）+ deletion（P2/P3 机�
 
 - 仅 web 前端 5 文件 + 新增 1 回归 spec；后端零改动
 - 快捷问句预填（initialDraft/onDraftConsumed）链路随 P2 一并删除——唯一消费者是已删的 hover 气泡
-- 侧栏 web 助理空组从「按钮」降级为「仅分组头」——开关关闭时用户经设置页重开浮动獭
+- 侧栏 web 助理空组从「按钮」降级为「仅分组头」——重开浮动獭须改 config.yaml（settings 开关只读）+ 重启，见「根因分析」降级路径如实记录节
 
 ## 遗留
 

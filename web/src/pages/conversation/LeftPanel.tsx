@@ -180,7 +180,7 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
   // ── F20260922cgrp：分组数据──
   // IM 助理 + 置顶区来自父组件 conversations（全量，数量小）；
   // 普通对话 + 已归档走独立分页查询（每页 20 条 + total 页码跳转）。
-  // F20260924wast：web 助理独立分组（浮动獭降级入口）
+  // F20260924wast：web 助理独立分组（开关关闭时侧栏仅余此分组头，重开须改 config.yaml + 重启）
   const assistantConvs = conversations.filter(c => c.kind === 'assistant')
   const webAssistantConvs = conversations.filter(c => c.kind === 'web-assistant')
   const pinnedConvs = conversations.filter(c => !c.kind && c.pinned)
@@ -369,9 +369,10 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
               />
             ))}
 
-            {/* ── 《web 助理》组：浮动獭对话（全局唯一；浮动獭关闭时的降级入口）。
+            {/* ── 《web 助理》组：浮动獭对话（全局唯一；开关关闭时侧栏仅余此分组头）。
                  F20260928waf1 P3：空组「创建」按钮移除——web 助理全局唯一、首唤自动开户，
-                 不存在用户侧「创建」语义（搭档实测反馈）；降级入口 = 分组头 + 设置开关 */}
+                 不存在用户侧「创建」语义（搭档实测反馈）；重开浮动獭须改 config.yaml
+                 （settings 开关只读）+ 重启 */}
             <GroupHeader
               label={WEB_ASSISTANT_GROUP_LABEL}
               count={webAssistantConvs.length}

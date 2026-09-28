@@ -161,7 +161,7 @@ export const AssistantPanel = forwardRef<HTMLDivElement, AssistantPanelProps>(fu
       </div>
 
       {/* 消息流 */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-2.5">
+      <div ref={scrollRef} data-testid="assistant-panel-messages" className="flex-1 overflow-y-auto px-4 py-3 space-y-2.5">
         {ensuring && (
           <div className="flex flex-col items-center justify-center gap-2 py-10 text-stone-400">
             <Loader2 className="w-5 h-5 animate-spin" />

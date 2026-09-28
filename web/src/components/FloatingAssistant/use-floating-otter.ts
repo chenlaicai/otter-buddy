@@ -62,11 +62,6 @@ export interface UseFloatingOtterResult {
   bindDrag: {
     onPointerDown: (e: React.PointerEvent) => void
   }
-  /** 全局键盘/点外 handlers（挂到面板与 document） */
-  bindGlobal: {
-    onKeyDown: (e: React.KeyboardEvent) => void
-    onPanelPointerDown: (e: React.PointerEvent) => void
-  }
   /** 面板根元素 ref（宿主绑定到 AssistantPanel 根——点外收起判定的「内」边界） */
   panelRef: React.RefObject<HTMLDivElement | null>
 }
@@ -173,12 +168,6 @@ export function useFloatingOtter(): UseFloatingOtterResult {
   const toggle = useCallback(() => setOpen(v => !v), [])
 
   const bindDrag = { onPointerDown }
-  const bindGlobal = {
-    onKeyDown: (e: React.KeyboardEvent) => {
-      if (e.key === 'Escape') { e.preventDefault(); setOpen(false) }
-    },
-    onPanelPointerDown: () => { /* 面板内按下不冒泡处理（点外收起由 document listener 判定） */ },
-  }
 
-  return { open, setOpen, toggle, position, dragging, bindDrag, bindGlobal, panelRef }
+  return { open, setOpen, toggle, position, dragging, bindDrag, panelRef }
 }
