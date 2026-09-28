@@ -96,7 +96,7 @@ describe("大獭召唤后派工：create 后 speak 传给小獭不传 user（真
         ok: passedToSmall && !passedToUser,
         detail: `小獭=${smallOtter.name} tsp=${JSON.stringify(tsp)} match=${passedToSmall} body="${dispatchMsg.content.slice(0, 60)}"`,
       };
-    });
+    }, { budgetMs: 2880000 });
   }, 3_000_000); // 50 分钟超时（5 次采样）
 
   it("AT-2 批量 4 只：大獭召唤 4 只后 tsp 含全部 4 只 ID（7 次采样 ≥5）", async (t) => {
@@ -147,6 +147,6 @@ describe("大獭召唤后派工：create 后 speak 传给小獭不传 user（真
         ok: allCovered && !passedToUser,
         detail: `召唤 ${newSmalls.length} 只（${newSmalls.map((r) => r.name).join(",")}） tsp 覆盖 ${coveredCount}/${newSmalls.length} user=${passedToUser} body="${dispatchMsg.content.slice(0, 80)}"`,
       };
-    });
+    }, { budgetMs: 4080000 });
   }, 4_200_000); // 70 分钟超时（7 次采样 × 批量更慢）
 });

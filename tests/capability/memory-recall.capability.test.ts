@@ -155,6 +155,6 @@ describe("记忆系统：跨对话事实召回（真 bge-m3 + 真 LLM）", () =>
         detail: `searchedBeforeSpeak=${searchedBeforeSpeak} spoke=${spoke} grounded=${grounded}`
           + ` tools=${JSON.stringify(tools)} answer=${answer.content.slice(0, 100)}`,
       };
-    });
+    }, { budgetMs: 480000 });
   }, 600_000);
 });

@@ -60,7 +60,7 @@ describe("獭协作：召唤与解散（真系统 + 真 LLM）", () => {
         ok: promptOk,
         detail: `小獭=${small.name} prompt=${(cfgRow?.system_prompt ?? "").slice(0, 80)} promptOk=${promptOk}`,
       };
-    });
+    }, { budgetMs: 480000 });
   }, 600_000);
 
   it("解散獭：dissolve 后状态/会话/agent 三层清理到位（确定性，严格断言）", async () => {

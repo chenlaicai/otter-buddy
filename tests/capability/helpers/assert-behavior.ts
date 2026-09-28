@@ -333,16 +333,29 @@ export interface SampleResult {
 /**
  * LLM 行为统计采样（F20260805mspk：mimo 行为不稳定，单次断言会把套件打成长红）。
  * 跑 samples 次，打印全部明细，断言至少 minSuccess 次成功。
+ *
+ * #1187：墙钟预算 opts.budgetMs——采样循环只数次数不看钟时，慢端点下总耗时撞破 it 超时帽；
+ * vitest 超时只 reject Promise 不取消测试函数（@vitest/runner withTimeout），超时后循环变僵尸，
+ * 文件级 afterAll cleanup 已 dispose 关 DB，僵尸醒来继续采样 → HTTP 500 "database connection
+ * is not open" 级联假象（9/25 round1 实证：bod AT-1 5×11min=55min>50min 帽、AT-2 7×14min=98min>70min 帽）。
+ * 修复：预算耗尽即停止后续采样，剩余样本记 SKIP（预算内 successes 不变仍需 ≥ minSuccess），
+ * 把「撞帽僵尸」变成「预算耗尽」的可读红。调用点约定 budgetMs = it 帽 − 60~150s teardown 余量。
  */
 export async function expectSampledBehavior(
   label: string,
   samples: number,
   minSuccess: number,
   sample: (index: number) => Promise<SampleResult>,
+  opts: { budgetMs?: number } = {},
 ): Promise<void> {
   let successes = 0;
   const outcomes: string[] = [];
+  const start = Date.now();
   for (let i = 0; i < samples; i++) {
+    if (opts.budgetMs !== undefined && Date.now() - start >= opts.budgetMs) {
+      outcomes.push(`#${i + 1}: SKIP 预算耗尽（budgetMs=${opts.budgetMs}ms，已耗时 ${Date.now() - start}ms）`);
+      continue;
+    }
     /** 单次采样异常（如等待超时）记为失败样本而非炸掉整个采样——
      *  否则后续采样不执行，且残留回合对着已 dispose 的 app 跑 */
     try {
@@ -350,7 +363,12 @@ export async function expectSampledBehavior(
       if (result.ok) successes++;
       outcomes.push(`#${i + 1}: ${result.ok ? "OK" : "FAIL"} ${result.detail}`);
     } catch (err) {
-      outcomes.push(`#${i + 1}: FAIL 异常 ${err instanceof Error ? err.message.slice(0, 150) : String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      /** #1187 僵尸征兆专项诊断：500 not open = it 超时后 afterAll 已 dispose，本样本是僵尸残留 */
+      const zombieHint = msg.includes("database connection is not open")
+        ? "〔#1187 诊断：app DB 已被关闭——大概率 it 超时后僵尸采样（vitest 不取消测试函数），检查 budgetMs 是否覆盖全部采样〕"
+        : "";
+      outcomes.push(`#${i + 1}: FAIL 异常 ${msg.slice(0, 150)}${zombieHint}`);
     }
   }
   console.log(`[capability] ${label} 采样结果（${successes}/${samples} 成功）:\n${outcomes.join("\n")}`);

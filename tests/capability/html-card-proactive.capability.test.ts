@@ -58,6 +58,6 @@ describe("獭的主动行为：html-card 主动引导（真系统 + 真 LLM）",
         ok: hasCard,
         detail: `hasCard=${hasCard} content前120字=${JSON.stringify(answer.content.slice(0, 120))}`,
       };
-    });
+    }, { budgetMs: 480000 });
   }, 600_000);
 });

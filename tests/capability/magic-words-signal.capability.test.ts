@@ -88,7 +88,7 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
         ok: answered && !haltCalled && talkedAboutSemantics,
         detail: `answered=${answered} haltCalled=${haltCalled} semantics=${talkedAboutSemantics} signals=${signals.length}`,
       };
-    });
+    }, { budgetMs: 480000 });
   }, 600_000);
 
   // 依赖 C3：用户词 halt 合流——L2 命中注入 + LLM 确认后急停（B 类：LLM 需把命中判断为指令）
@@ -121,7 +121,7 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
         ok: haltedAtTrigger && noNewSideEffects,
         detail: `haltedAtTrigger=${haltedAtTrigger} noNewSideEffects=${noNewSideEffects} newTools=${JSON.stringify(newTools)}`,
       };
-    });
+    }, { budgetMs: 480000 });
   }, 600_000);
 
   // 依赖 C1：halt 边界注入（B 类：小獭收到 halt block 后的合规动作）
@@ -179,7 +179,7 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
         ok: resolved,
         detail: `haltSignal=${haltSignal.id} status=${haltSignal.status} resolvedBy=${haltSignal.resolved_by}`,
       };
-    });
+    }, { budgetMs: 480000 });
   }, 600_000);
 
   // 依赖 C2：objection 程序义务（B 类：小獭知道写 signal、大獭知道裁决义务）
@@ -208,7 +208,7 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
         ok: hasPayload,
         detail: `objection=${objection.id} payload=${String(objection.payload).slice(0, 60)}`,
       };
-    });
+    }, { budgetMs: 480000 });
   }, 600_000);
 
   // 依赖 C2：blocked 一等状态（B 类：blocked 信号附已试清单）
@@ -235,7 +235,7 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
         ok: hasTriedList,
         detail: `blocked=${blocked.id} payload=${String(blocked.payload).slice(0, 80)}`,
       };
-    });
+    }, { budgetMs: 480000 });
   }, 600_000);
 
   // 依赖 C4：词表改版生效（确定性 prompt 断言——无 LLM，不采样）

@@ -59,7 +59,7 @@ describe("獭的主动行为：术语捕获 + skill 触发（真系统 + 真 LLM
         ok: called || stored,
         detail: `called=${called} stored=${stored} tools=${JSON.stringify(tools)}`,
       };
-    });
+    }, { budgetMs: 480000 });
   }, 600_000);
 
   it("skill 触发：实现类请求触发獭 read core-workflow SKILL.md（3 次采样 ≥1）", async (t) => {
@@ -83,6 +83,6 @@ describe("獭的主动行为：术语捕获 + skill 触发（真系统 + 真 LLM
         ok: readSkill,
         detail: `readSkill=${readSkill} tools=${JSON.stringify(tools)}`,
       };
-    });
+    }, { budgetMs: 480000 });
   }, 600_000);
 });
