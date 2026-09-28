@@ -346,27 +346,14 @@ export default function ConversationPage() {
       // entries 全量映射（ASC；单一 sequenceNum 排序天然单调——跨表排序问题消失）
       const msgs = entriesResp.entries.map(mapEntryDTO)
       /** F20260913ctlv test17：刷新恢复 invokeStates——右栏中断/重试按钮依赖该獭最新 invoke 状态。
-       *  刷新前 invokeStates 由 invoke.start/end 事件驱动，刷新后内存态丢失。
-       *  每只獭取最新一次 invoke 恢复完整状态（running→中断按钮，aborted/failed→重试按钮）。 */
+       *  F20260928icmm 阶段1：缓存模型换轨——内联恢复改用 mergeInvokesFromServer（同獭
+       *  startedAt 最新者胜，服务端可覆盖本地旧状态）。旧「本地已有即 continue」弱合并退役：
+       *  SPA 切对话组件不卸载、invokeStates 不清空，旧实现把服务端正确状态原样丢弃，
+       *  是右栏卡「运行中」直到手动刷新的根因（listInvokes 200 但 UI 不修）。 */
       try {
         const invokesResp = await invokesPromise
         invokeStatesLoadedRef.current = true
-        setInvokeStates(prev => {
-          const next = { ...prev }
-          for (const inv of invokesResp.invokes) {
-            // listInvokes 按 started_at DESC，同一只獭首次出现即最新——跳过后续旧记录
-            if (next[inv.otterId]) continue
-            next[inv.otterId] = {
-              invokeId: inv.id, otterId: inv.otterId, status: inv.status, startedAt: inv.startedAt,
-              ...(inv.endedAt && { endedAt: inv.endedAt }),
-              toolCallCount: inv.toolCallCount,
-              ...(inv.tokenUsageInput != null && inv.tokenUsageOutput != null && { tokenUsage: { input: inv.tokenUsageInput, output: inv.tokenUsageOutput } }),
-              // F20260914rtsp：ctx 窗口占用恢复（右栏「休息中 · xx/xx」数据源）
-              ...(inv.ctxWindowUsed != null && { ctxWindowUsed: inv.ctxWindowUsed }),
-            }
-          }
-          return next
-        })
+        setInvokeStates(prev => mergeInvokesFromServer(prev, invokesResp.invokes))
       } catch {
         // F20260923sswd：内联拉取失败不再静默——重试兜底链（600ms/2500ms 两次延迟重试，
         // 复用 syncInvokeStatesFromServer；mergeInvokesFromServer 幂等，重试安全）。
@@ -456,6 +443,11 @@ export default function ConversationPage() {
         if (convId && document.visibilityState === 'visible' && document.hasFocus()) {
           refreshMessages(convId)
           ackActiveRead(convId)
+          /** F20260928icmm 阶段1：窗口聚焦/切回可见时同步对账右栏 invoke 状态——
+           *  失焦/后台窗口期间的 invoke.end 可能因订阅断开丢失（无回放），切回时
+           *  用权威数据拉齐。走无门控对账（syncInvokeStatesOnReconnect）：初始恢复
+           *  门控（invokeStatesLoadedRef）只属于初始重试链，对账不受限（#1144 教训）。 */
+          void syncInvokeStatesOnReconnect(convId)
         }
         ackReadDebounceRef.current = null
       }, 300)
@@ -466,7 +458,7 @@ export default function ConversationPage() {
       window.removeEventListener('focus', ack)
       document.removeEventListener('visibilitychange', ack)
     }
-  }, [ackActiveRead, refreshMessages])
+  }, [ackActiveRead, refreshMessages, syncInvokeStatesOnReconnect])
 
   /** 点击"新消息 N 条"浮窗：滚到底部 + 清零计数 */
   const handleJumpToBottom = useCallback(() => {
@@ -887,7 +879,7 @@ export default function ConversationPage() {
       if (livenessTimer) { clearInterval(livenessTimer); livenessTimer = null }
       if (xhr) xhr.abort()
     }
-  }, [activeId, batchUpdateMessages, upsertOtterIfAbsentDeferred, refreshParticipantsAfterDissolve, syncInvokeStatesFromServer])
+  }, [activeId, batchUpdateMessages, upsertOtterIfAbsentDeferred, refreshParticipantsAfterDissolve, runOrDefer, syncInvokeStatesFromServer, syncInvokeStatesOnReconnect])
 
   useEffect(() => {
     for (const otter of Object.values(allOtters).flat()) {
@@ -1128,6 +1120,10 @@ export default function ConversationPage() {
               mergeOttersIfChanged(prev, activeId, participants.map(p => mapParticipantDTO(p)))
             runOrDefer(() => setAllOtters(apply))
           }).catch(() => {})
+          /** F20260928icmm 阶段1：POST 流结束时对账右栏 invoke 状态——POST 流不驱动
+           *  invokeStates（通道分工：右栏单一时钟 = GET 订阅事件 + 拉取对账），
+           *  流内触发的 invoke 终态若 GET 通道未投递，在此用权威数据拉齐（无门控对账）。 */
+          void syncInvokeStatesOnReconnect(activeId)
         }
       } })
     } catch (err) {
@@ -1136,7 +1132,7 @@ export default function ConversationPage() {
       showToast('发送失败', 'error')
       throw err // F20260916sgcl S1：失败信号传出，ChatView 据此跳过 clearAll、保留附件供重试
     }
-  }, [activeId, ackActiveRead, refreshMessages, batchUpdateMessages, refreshParticipantsAfterDissolve, upsertOtterIfAbsentDeferred])
+  }, [activeId, ackActiveRead, refreshMessages, batchUpdateMessages, upsertOtterIfAbsentDeferred, runOrDefer, syncInvokeStatesOnReconnect])
 
   /** 卡片提交 → 强制预览 → 回执复用 handleSend 整条 SSE 管线（显式路由卡片作者） */
   const { cardPreview, confirmCardPreview, rejectCardPreview } = useCardBridge({
@@ -1313,11 +1309,16 @@ export default function ConversationPage() {
           showToast((data as { message?: string }).message || '重试出错', 'error')
         },
       }
-      consumeSSE(response, retryHandlers)
+      // 检视建议 2（PR #1179）：retry 流结束对账读点——与 handleSend onDone 同款。
+      // 重试按钮是右栏本职入口，流结束即「本地确知 invoke 结束」的强信号；若 GET 通道
+      // 恰丢 invoke.end，右栏要等下一次 focus/导航/看门狗才纠正。幂等拉取，无副作用。
+      consumeSSE(response, retryHandlers, { onDone: () => {
+        if (activeId) void syncInvokeStatesOnReconnect(activeId)
+      } })
     } catch {
       showToast('重试请求失败', 'error')
     }
-  }, [activeId, batchUpdateMessages])
+  }, [activeId, batchUpdateMessages, syncInvokeStatesOnReconnect])
 
   const handleSelectConv = useCallback((id: string) => {
     navigate(`/conversation/${id}`)
@@ -1414,23 +1415,34 @@ export default function ConversationPage() {
     } catch { showToast('解散失败', 'error') }
   }
 
-  async function confirmRestart(summary: string, modelAlias?: string, synthesizePast?: boolean) {
+  /** F20260924uxrc：确认即转后台交接。原实现 await api.restartOtter 完才关弹窗——
+   *  合成前世档案 5-15s（最长约 1 分钟）期间 scrim 全屏锁定 = 搭档实证「停留在弹窗啥也干不了」。
+   *  新语义：提交即关弹窗 + 即时 toast（告知后台进行中），API 在异步 task 中跑；
+   *  成功/失败再各弹一次 toast，会话链数据不变（成功后照旧重拉 session 链）。 */
+  function confirmRestart(summary: string, modelAlias?: string, synthesizePast?: boolean) {
     if (modal.type !== 'restart') return
     const otterId = modal.otterId
-    try {
-      // F20260920uhuc：统一交接管线——synthesizePast 透传（undefined=缺省 true）；
-      // 档案=引擎叙事（按勾选）+意图书（如填）+机械供料，前世记录完整保留
-      await api.restartOtter(otterId, summary.trim() || undefined, modelAlias, synthesizePast)
-      /** F20260805rsto：重启后重拉 session 链——加载 effect 有 `!sessions[id]` 守卫，
-       *  不主动重拉的话弹窗/卡片一直显示旧数据直到刷新页面 */
-      const dtos = await api.getSessionHistory(otterId)
-      setSessions(prev => ({ ...prev, [otterId]: dtos.map(mapSessionDTO) }))
-      setModal({ type: 'none' }); showToast(synthesizePast === false ? '前世已封存（机械档案），新一世獭生已开始' : '前世已封存，新一世携带完整前世档案开始', 'success')
-    } catch (err) {
-      // F20260920uhuc：忙碌 409 → 明确提示（模态保持，用户稍后重试——RestartModal 交接收尾在 onClose）
-      const isBusy = err instanceof Error && err.message.includes('忙碌')
-      showToast(isBusy ? '该獭正在执行任务，忙碌中不允许重启，请稍后再试' : '重启失败', 'error')
-    }
+    const otterName = allOtters[activeId || '']?.find(o => o.id === otterId)?.name
+    // F20260920uhuc：统一交接管线——synthesizePast 透传（undefined=缺省 true）；
+    // 档案=引擎叙事（按勾选）+意图书（如填）+机械供料，前世记录完整保留
+    const isSynth = synthesizePast !== false
+    setModal({ type: 'none' })
+    showToast(`正在为 ${otterName ?? '海獭'} ${isSynth ? '封装前世档案（预计 5-15s，最长约 1 分钟）…' : '重启…（秒级）'}`, 'info')
+    void api.restartOtter(otterId, summary.trim() || undefined, modelAlias, synthesizePast)
+      .then(async () => {
+        /** F20260805rsto：重启后重拉 session 链——加载 effect 有 `!sessions[id]` 守卫，
+         *  不主动重拉的话弹窗/卡片一直显示旧数据直到刷新页面 */
+        try {
+          const dtos = await api.getSessionHistory(otterId)
+          setSessions(prev => ({ ...prev, [otterId]: dtos.map(mapSessionDTO) }))
+        } catch { /* 重启本身已成功；链拉取失败不阻断成功提示 */ }
+        showToast(synthesizePast === false ? '前世已封存（机械档案），新一世獭生已开始' : '前世已封存，新一世携带完整前世档案开始', 'success')
+      })
+      .catch(err => {
+        // F20260920uhuc：忙碌 409 → 明确提示（弹窗已关，toast 承接反馈）
+        const isBusy = err instanceof Error && err.message.includes('忙碌')
+        showToast(isBusy ? '该獭正在执行任务，忙碌中不允许重启，请稍后再试' : '重启失败，请重试', 'error')
+      })
   }
 
   async function confirmLinkResource(type: string, url: string, title: string) {

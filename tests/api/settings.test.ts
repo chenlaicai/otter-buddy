@@ -52,7 +52,7 @@ describe("Settings API", () => {
       const { Hono } = await import("hono");
       const multiPoolApp = new Hono();
       const ctrl = new SettingsController(
-        { port: 3000, dbPath: "/tmp/db", embeddingModelPath: "bge-m3", embeddingDim: 1024 },
+        { port: 3000, dbPath: "/tmp/db", embeddingModelPath: "bge-m3", embeddingDim: 1024, assistantWebEnabled: true },
         deps.settingsRepo,
         pool,
         createTestLogger(),

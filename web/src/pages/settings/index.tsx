@@ -13,7 +13,9 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [hasUnsaved, setHasUnsaved] = useState(false)
   const [userName, setUserName] = useState('')
-  const [settingsInfo, setSettingsInfo] = useState<{ port: number; dbPath: string; embeddingModelPath: string; embeddingLocalModelPath?: string; embeddingDim: number } | null>(null)
+  const [settingsInfo, setSettingsInfo] = useState<{ port: number; dbPath: string; embeddingModelPath: string; embeddingLocalModelPath?: string; embeddingDim: number; assistantWebEnabled?: boolean } | null>(null)
+  // F20260924wast：浮动獭快捷键（可配置，localStorage 本地；⌘J/Ctrl+J 默认）
+  const [hotkey, setHotkey] = useState(() => localStorage.getItem('floating-otter:hotkey') || 'j')
   const [glassT, setGlassT] = useState(() => {
     const v = parseFloat(localStorage.getItem('otter-glass-t') || '0.85')
     return isNaN(v) ? 0.85 : Math.min(1, Math.max(0.45, v))
@@ -25,6 +27,12 @@ export default function SettingsPage() {
     localStorage.setItem('otter-glass-t', String(v))
   }
 
+  function updateHotkey(v: string) {
+    const k = v.trim().toLowerCase().slice(0, 1)
+    setHotkey(k)
+    localStorage.setItem('floating-otter:hotkey', k || 'j')
+  }
+
   useEffect(() => {
     api.getSettings()
       .then(s => {
@@ -32,7 +40,7 @@ export default function SettingsPage() {
         setDefaultAlias(s.defaultModelAlias)
         setSavedAlias(s.defaultModelAlias)
         setUserName(s.userName)
-        setSettingsInfo({ port: s.port, dbPath: s.dbPath, embeddingModelPath: s.embeddingModelPath, embeddingLocalModelPath: s.embeddingLocalModelPath, embeddingDim: s.embeddingDim })
+        setSettingsInfo({ port: s.port, dbPath: s.dbPath, embeddingModelPath: s.embeddingModelPath, embeddingLocalModelPath: s.embeddingLocalModelPath, embeddingDim: s.embeddingDim, assistantWebEnabled: s.assistantWebEnabled })
       })
       .catch(() => showToast('加载设置失败', 'error'))
   }, [])
@@ -115,6 +123,38 @@ export default function SettingsPage() {
                   className="glass-range w-full"
                 />
                 <p className="text-[11px] text-stone-400 mt-1">越低越透 · 即时生效 · 仅保存在本机浏览器</p>
+              </div>
+            </section>
+
+            {/* F20260924wast：浮动獭 */}
+            <section className="mb-8">
+              <h2 className="text-sm font-semibold text-stone-600 mb-4">浮动獭</h2>
+              <div className="space-y-2">
+                <div className="flex justify-between items-center py-2 border-b border-white/30">
+                  <span className="text-sm text-stone-500">浮动獭开关</span>
+                  <span className="text-sm text-stone-400">
+                    {settingsInfo?.assistantWebEnabled === false ? '已关闭' : '开启中'} (只读)
+                  </span>
+                </div>
+                <p className="text-[11px] text-stone-400">
+                  在 config.yaml 的 im.assistant.web.enabled 修改，重启进程生效。关闭后浮动獭不显示，web 助理对话仍在左侧栏「web 助理」分组可用。
+                </p>
+                <div>
+                  <label className="block text-xs font-medium text-stone-500 mb-1.5">唤起快捷键</label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-stone-400 px-2 py-1.5 bg-stone-100 rounded-lg">⌘ / Ctrl +</span>
+                    <input
+                      type="text"
+                      value={hotkey}
+                      onChange={e => updateHotkey(e.target.value)}
+                      maxLength={1}
+                      data-testid="settings-floating-hotkey"
+                      className="form-input w-16 text-center uppercase"
+                      placeholder="J"
+                    />
+                  </div>
+                  <p className="text-[11px] text-stone-400 mt-1">仅保存在本机浏览器 · 刷新后生效 · 点击獭永远可用</p>
+                </div>
               </div>
             </section>
 

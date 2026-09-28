@@ -430,3 +430,36 @@ body.modal-open .scrim { backdrop-filter: none; -webkit-backdrop-filter: none; }
     padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
   }
 }
+
+/* ── F20260924wast：浮动獭三态动画（只加装饰不动脸——呼吸/探头/轻跳/zZ/弹出） ── */
+@keyframes otterBreathe {
+  0%, 100% { transform: scale(1) }
+  50% { transform: scale(1.03) }
+}
+@keyframes otterPeek {
+  0%, 100% { transform: rotate(0deg) }
+  25% { transform: rotate(6deg) }
+  75% { transform: rotate(-6deg) }
+}
+@keyframes otterHop {
+  0%, 100% { transform: translateY(0) }
+  30% { transform: translateY(-6px) }
+  60% { transform: translateY(0) }
+}
+@keyframes otterZZ {
+  0% { opacity: 0; transform: translateY(2px) }
+  50% { opacity: 1 }
+  100% { opacity: 0; transform: translateY(-6px) }
+}
+@keyframes otterPop {
+  from { opacity: 0; transform: translateY(8px) scale(0.97) }
+  to { opacity: 1; transform: translateY(0) scale(1) }
+}
+.animate-otter-breathe { animation: otterBreathe 3.2s ease-in-out infinite }
+.animate-otter-peek { animation: otterPeek 2.4s ease-in-out infinite }
+.animate-otter-hop { animation: otterHop 1.6s ease-in-out infinite }
+.animate-otter-zz { animation: otterZZ 2.8s ease-in-out infinite }
+.animate-otter-pop { animation: otterPop 180ms ease-out }
+@media (prefers-reduced-motion: reduce) {
+  .animate-otter-breathe, .animate-otter-peek, .animate-otter-hop, .animate-otter-zz, .animate-otter-pop { animation: none }
+}

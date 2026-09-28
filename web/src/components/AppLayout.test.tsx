@@ -37,6 +37,8 @@ vi.mock('../../api/client', () => ({
   deleteWeixinAccount: vi.fn(),
   listActiveConversations: vi.fn().mockResolvedValue([]),
   enterConversation: vi.fn(),
+  // F20260924wast：AppLayout 拉浮动獭开关（settings）
+  getSettings: vi.fn().mockResolvedValue({ models: [], defaultModelAlias: 'main', userName: '', assistantWebEnabled: true }),
 }))
 
 import { AppLayout } from './AppLayout'

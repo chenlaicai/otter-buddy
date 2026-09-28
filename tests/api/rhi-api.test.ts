@@ -188,19 +188,24 @@ describe("RHI API（真 sqlite）", () => {
     }
 
     it("返回日期序列（比率×100）与最新分布", async () => {
-      snapshotRepo.replaceForDate("2026-08-26", [
-        { snapshotDate: "2026-08-26", metricType: "overview", metricKey: "total_commits", metricValue: 100 },
-        { snapshotDate: "2026-08-26", metricType: "overview", metricKey: "bugfix_ratio", metricValue: 0.3 },
+      /* 时间炸弹修复（PR #1165 CI 排查）：原造数硬编码 2026-08-26/27，trends 默认
+       * 30 天窗口的 startDate = 今天-29，日期滑出窗口后 series 只剩 1 条 → 断言炸。
+       * 改相对日期（今天-1 / 今天），永在窗口内；断言同步用同一变量。 */
+      const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const today = new Date().toISOString().slice(0, 10);
+      snapshotRepo.replaceForDate(dayAgo, [
+        { snapshotDate: dayAgo, metricType: "overview", metricKey: "total_commits", metricValue: 100 },
+        { snapshotDate: dayAgo, metricType: "overview", metricKey: "bugfix_ratio", metricValue: 0.3 },
       ]);
-      snapshotRepo.replaceForDate("2026-08-27", [
-        { snapshotDate: "2026-08-27", metricType: "overview", metricKey: "total_commits", metricValue: 120 },
-        { snapshotDate: "2026-08-27", metricType: "overview", metricKey: "bugfix_ratio", metricValue: 0.25 },
+      snapshotRepo.replaceForDate(today, [
+        { snapshotDate: today, metricType: "overview", metricKey: "total_commits", metricValue: 120 },
+        { snapshotDate: today, metricType: "overview", metricKey: "bugfix_ratio", metricValue: 0.25 },
         {
-          snapshotDate: "2026-08-27", metricType: "distribution", metricKey: "change_types",
+          snapshotDate: today, metricType: "distribution", metricKey: "change_types",
           metricValue: 120, metadata: JSON.stringify({ Feature: 80, BugFix: 30 }),
         },
         {
-          snapshotDate: "2026-08-27", metricType: "distribution", metricKey: "chain_states",
+          snapshotDate: today, metricType: "distribution", metricKey: "chain_states",
           metricValue: 5, metadata: JSON.stringify({ active: 3, stalled: 2 }),
         },
       ]);
@@ -213,11 +218,11 @@ describe("RHI API（真 sqlite）", () => {
       };
 
       expect(body.series).toHaveLength(2);
-      expect(body.series[0]).toMatchObject({ date: "2026-08-26", totalCommits: 100, bugfixRatio: 30 });
-      expect(body.series[1]).toMatchObject({ date: "2026-08-27", totalCommits: 120, bugfixRatio: 25 });
+      expect(body.series[0]).toMatchObject({ date: dayAgo, totalCommits: 100, bugfixRatio: 30 });
+      expect(body.series[1]).toMatchObject({ date: today, totalCommits: 120, bugfixRatio: 25 });
       expect(body.distributions.changeTypes).toEqual({ Feature: 80, BugFix: 30 });
       expect(body.distributions.chainStates).toEqual({ active: 3, stalled: 2 });
-      expect(body.latestSnapshotDate).toBe("2026-08-27");
+      expect(body.latestSnapshotDate).toBe(today);
     });
 
     it("空库返回空序列不抛错", async () => {

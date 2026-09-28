@@ -1,5 +1,6 @@
 import type {
   ConversationDTO,
+  ConversationListItemDTO,
   ConversationListResponseDTO,
   CreateConversationRequestDTO,
   UnreadStateDTO,
@@ -72,7 +73,8 @@ export function listConversations(options?: {
   return request(`/conversations?${qs}`)
 }
 
-export function createConversation(body: CreateConversationRequestDTO): Promise<ConversationDTO> {
+/** 创建对话（普通对话传 title；web 助理首唤传 {kind:'web-assistant'}——后端幂等开户，返回列表项 DTO） */
+export function createConversation(body: CreateConversationRequestDTO): Promise<ConversationListItemDTO> {
   return request('/conversations', { method: 'POST', body: JSON.stringify(body) })
 }
 

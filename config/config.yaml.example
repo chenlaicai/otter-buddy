@@ -206,13 +206,19 @@ circuitBreaker:
 # === IM 助理模式（F20260918imas，可选）===
 # 微信私聊 / 飞书私聊（p2p）首条消息自动开专属助理对话——家人朋友加好友即聊，无需 /in 绑定；
 # 群聊维持显式绑定语义；命令体系不变（配置 partnerOpenId/partnerUserId 后仅搭档可用）。
-# 助理对话 72 小时（可调）无新消息则软轮换：收篇摘要落库 + 旧对话收档 + 新开一篇。
+# 助理对话 8 小时（可调）静默后自动换 session（重启獭生，交接摘要沉淀记忆）。
 # im:
 #   assistant:
 #     # 助理态总开关（默认 true；false 时微信私聊/飞书 p2p 回退拒聊提示）
 #     # enabled: true
-#     # 软轮换阈值（小时，last-entry 距今，默认 72；最小 1）
-#     # rotationHours: 72
+#     # session 静默重启阈值（小时，last-entry 距今，默认 8；最小 1）
+#     # sessionIdleHours: 8
+#     # 助理线模型（自动开户的对话大獭用此模型；缺省 = 全局 default）
+#     # modelAlias: glm
+#     # web 助理（浮动獭，F20260924wast）总开关（默认 true；关闭时前端浮动獭不挂载，
+#     # 降级入口 = 侧栏 web 助理对话页。改配置需重启进程生效）
+#     # web:
+#     #   enabled: true
 
 # === 招聘桥接 Inbound 配置（可选）===
 # 配置后启用 Chrome 扩展（boss-zhipin-bridge）向 otter-buddy 推送 BOSS 直聘消息

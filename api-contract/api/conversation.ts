@@ -5,8 +5,9 @@ export interface ConversationDTO {
   /** F20260922cgrp：弱状态两态管理——completed 退役，只剩 active | archived */
   status: "active" | "archived";
   pinned: boolean;
-  /** F20260918imas：助理对话标识（微信/飞书 IM 自动开户；缺省 = 普通对话。前端左侧栏分组依据） */
-  kind?: "assistant";
+  /** F20260918imas：助理对话标识（微信/飞书 IM 自动开户；缺省 = 普通对话。前端左侧栏分组依据）
+   *  F20260924wast：kind 联合类型扩 web-assistant（web 浮动獭全局唯一对话） */
+  kind?: "assistant" | "web-assistant";
   createdAt: string;
   updatedAt: string;
   /** F20260922cgrp：completed 状态退役，字段保留（DB 列不动，历史数据可读，恒为 null 或旧值） */
@@ -44,6 +45,9 @@ export interface CreateConversationRequestDTO {
   otterIds?: string[];
   /** 新建对话时大獭的模型自选（可选，缺省 = 配置文件默认模型） */
   modelAlias?: string;
+  /** F20260924wast：web 助理开户标识（后端按此注入 web 助理人设 systemPrompt 并用固定标题，
+   *  忽略 title；调用方可传占位 title 满足契约必填约束） */
+  kind?: "web-assistant";
 }
 
 /** 参与者 DTO */

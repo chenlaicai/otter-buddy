@@ -45,6 +45,8 @@ import type { ManageContext } from "@usecases/otter/manage-context";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 import type { ManageConnection } from "@usecases/im/manage-connection";
 import type { AssistantSessionManager } from "@usecases/im/assistant-session";
+/** F20260924wast：web 助理开户 */
+import type { WebAssistantProvisioner } from "@usecases/conversation/web-assistant-provisioner";
 import type { AttachmentUploadService } from "@usecases/conversation/attachment-upload-service";
 import type { ManageWorkspace } from "@usecases/conversation/manage-workspace";
 
@@ -111,6 +113,7 @@ export interface UseCases {
   manageConnection: ManageConnection;
   /** F20260918imas：IM 助理会话管理（自动开户 + 软轮换） */
   assistantSession: AssistantSessionManager;
+  webAssistantProvisioner: WebAssistantProvisioner;
   /** 多模态 Phase 1：附件上传服务 */
   attachmentUpload: AttachmentUploadService;
   /** 工作区文件浏览（只读） */

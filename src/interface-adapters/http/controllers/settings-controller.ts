@@ -15,6 +15,8 @@ export interface SettingsConfig {
   /** 本地模型根目录。设置后走本地加载，未设置走远程下载 */
   embeddingLocalModelPath?: string;
   embeddingDim: number;
+  /** F20260924wast：浮动獭开关（im.assistant.web.enabled；只读下发——改配置需重启生效） */
+  assistantWebEnabled: boolean;
 }
 
 /** 默认模型写入函数类型（由 Composition Root 注入，解耦 frameworks 依赖） */

@@ -23,6 +23,9 @@ export interface SettingsDTO {
   /** 本地模型根目录。设置后走本地加载，未设置走远程下载 */
   embeddingLocalModelPath?: string;
   embeddingDim: number;
+  /** F20260924wast：浮动獭开关（config im.assistant.web.enabled，DI 启动注入；
+   *  false 时前端不挂载浮动元素，降级入口 = 侧栏 web 助理对话。默认 true） */
+  assistantWebEnabled: boolean;
 }
 
 /** 更新 Settings 请求 DTO */
