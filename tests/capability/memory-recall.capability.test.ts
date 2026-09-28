@@ -78,11 +78,10 @@ describe("记忆系统：跨对话事实召回（真 bge-m3 + 真 LLM）", () =>
       vitestCtx.skip(`LLM 未配置：${ctx.skipReason}`);
     }
 
-    const SAMPLES = 3;
-    let successes = 0;
-    const outcomes: string[] = [];
-
-    for (let i = 0; i < SAMPLES; i++) {
+    /** #1195：收编到 expectSampledBehavior，享受 #1187 预算护栏（原先手写循环无保护，
+     *  等待窗一旦上调即复现僵尸缺口）。与下方隐性信号 it 同构：同 120s 等待窗，
+     *  同规格护栏（3×240s+120s → 帽 840s）。 */
+    await expectSampledBehavior("跨对话事实召回", 3, 1, async (i) => {
       const convId = await createConversation(ctx, `记忆召回采样${i + 1}`);
       await sendUserMessage(ctx, convId, "幻影灯塔计划的门禁验证码是什么？");
       const answer = await waitForOtterMessage(ctx, convId, { timeoutMs: 120_000 });
@@ -95,20 +94,13 @@ describe("记忆系统：跨对话事实召回（真 bge-m3 + 真 LLM）", () =>
         && tools.indexOf("search_memory") < tools.lastIndexOf("speak");
       const spoke = tools.includes("speak") && answer.status === "completed";
       const correct = answer.content.includes(FACT_TOKEN);
-      const ok = searchedBeforeSpeak && spoke && correct;
-      if (ok) successes++;
-      outcomes.push(
-        `#${i + 1}: searched=${searched} searchedBeforeSpeak=${searchedBeforeSpeak} spoke=${spoke} correct=${correct}`
-        + ` tools=${JSON.stringify(tools)} answer=${answer.content.slice(0, 100)}`,
-      );
-    }
-
-    console.log(`[capability] 记忆召回采样结果（${successes}/${SAMPLES} 全链路成功）:\n${outcomes.join("\n")}`);
-    expect(
-      successes,
-      `3 次采样至少 1 次全链路成功（mimo speak 协议不稳定，发现见 F20260805mspk）\n${outcomes.join("\n")}`,
-    ).toBeGreaterThanOrEqual(1);
-  }, 600_000);
+      return {
+        ok: searchedBeforeSpeak && spoke && correct,
+        detail: `searched=${searched} searchedBeforeSpeak=${searchedBeforeSpeak} spoke=${spoke} correct=${correct}`
+          + ` tools=${JSON.stringify(tools)} answer=${answer.content.slice(0, 100)}`,
+      };
+    }, { budgetMs: 720_000, sampleWorstMs: 240_000 });
+  }, 840_000);
 
   /**
    * F20260814mbex：隐性历史信号下的主动背景探索。
@@ -155,6 +147,6 @@ describe("记忆系统：跨对话事实召回（真 bge-m3 + 真 LLM）", () =>
         detail: `searchedBeforeSpeak=${searchedBeforeSpeak} spoke=${spoke} grounded=${grounded}`
           + ` tools=${JSON.stringify(tools)} answer=${answer.content.slice(0, 100)}`,
       };
-    }, { budgetMs: 720000, sampleWorstMs: 240000 });
+    }, { budgetMs: 720_000, sampleWorstMs: 240_000 });
   }, 840_000);
 });
