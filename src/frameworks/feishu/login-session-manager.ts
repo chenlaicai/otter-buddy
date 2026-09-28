@@ -37,7 +37,8 @@ export interface FeishuLoginSession {
   ownerOpenId?: string;
   error?: string;
   createdAt: string;
-  /** 取消原因标记（app_deleted = 删除 app 时取消，防复活路径识别用，#592 同构） */
+  /** 取消原因标记——app_deleted 值保留为未来删除联动预留（当前 createOnly 流无同 id
+   *  复活面，微信式「取消时同步删号」不适用；检视 N2 口径修正） */
   cancellationReason?: "app_deleted";
 }
 

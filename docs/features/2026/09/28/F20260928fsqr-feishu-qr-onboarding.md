@@ -158,6 +158,27 @@ onSuccess({appId, appSecret, ownerOpenId})
 
 - 多账号「每线各自认定搭档」语义（与 #1188 同根因：多账号搭档错认）——D7 首号锚是当前形态的解，每线语义留待多家庭部署需求出现时升级
 - PartnerResolver addPartnerId 后不回收（首账号 DELETE 后锚仍在）——避免摇摆，记遗留
+- 门禁锚双缺席面（代码审视建议⑤）：线 ownerOpenId 与 config.feishu.partnerOpenId 均缺失时，该线门禁 configured=false 不拦截——已做单级退避（owner 缺失退 config 锚），纯扫码且 owner 从未回填的极端窗口才有此面，待门禁默认拒绝语义升级
+- 同号扫码提示与拒绝路径未实现（重复扫码建新 app，删除入口/开放平台手动删兑底）——低频顺手项
+
+### 代码审视处置记录（代码检视獭，7 严重 + 6 建议 + delta 轮）
+
+| 发现 | 级别 | 处置 |
+|---|---|---|
+| 静态 app 出站双注册（重复投递） | 严重 | ✅ createFeishuBundle 注册行删除，工厂单点注册 |
+| channel-status 投影断裂 | 严重 | ✅ 静态 channelKey:"feishu" 保持 + feishu-bot: 前缀多实例投影 |
+| 掩码 appId 端点断链 | 严重 | ✅ getAppByMaskedId 单射回查（碰撞 404）+ 3 回归锁 |
+| 首号语义未落实（每号皆写） | 严重 | ✅ 首号判定写入 + boot 恢复 + 测试锁死 |
+| DELETE 释放绑定缺失 | 严重 | ✅ releaseFeishuConnectionAndArchiveLine（微信同构）；cancellationReason 改预留注释（createOnly 流无复活面，检视 N2） |
+| createOnly 未传 | 严重 | ✅ createOnly: true |
+| 词表不合规 | 严重 | ✅ amend：实现 commit → mechanism-addition，处置 commit → narrow-fix |
+| ①虚假✅ | 建议 | ✅ 本文档订正（同号提示/拒绝路径改📋 未实现） |
+| ②死代码 | 建议 | ✅ startFeishuScanChannels 删除 |
+| ③单源未达成 | 建议 | ✅ client.ts 入站锚改 deriveBotKey() |
+| ④ownerOpenId 回填 | 建议 | ✅ processor p2p 入口回填（仅缺失时写） |
+| ⑤门禁双缺席 | 建议 | ✅ owner 缺失退 config 锚；双缺席面记遗留（上节） |
+| ⑥appId 出网 | 建议 | ✅ getLogin 回包掩码化 |
+| N1 会话标题完整 appId | delta 新 | ✅ 缺省回退改 maskAppId |
 
 ## 不兼容更新
 
@@ -185,7 +206,7 @@ onSuccess({appId, appSecret, ownerOpenId})
 | 身份模型三处矛盾 + resolver 运行时不更新 | 严重 | ✅ D7：首号先写先得 + addPartnerId 可变方法；每线语义记遗留；ownerOpenId 缺失首消息回填 |
 | 未决 1 灰度措辞 + 实测清单不足 | 建议 | ✅ 实测三清单（p2p/群@/事件到 WS）+ 兜底改控制台手调；删「不依赖灰度」 |
 | 状态机 5 态 vs 前端七态矛盾 | 建议 | ✅ 显式声明无 scanned 态，前端按实际映射 |
-| 重复扫码无同号收敛 | 建议 | ✅ 同号提示确认框（顺手做） |
+| 重复扫码无同号收敛 | 建议 | 📋 未实现（代码审视轮订正）：同号提示与拒绝路径未落地——重复扫码建新 app 属预期，删除入口兑底；低频场景留后续（顺手项不阻合入） |
 | 运行时注册表 + 状态投影多实例 | 建议 | ✅ feishuRuntimes Map + channel-status 多实例化入模块清单 |
 | qrcode 包已存在 | 建议 | ✅ 文档订正（已在依赖） |
 | onSuccess 事务捆绑 | 建议 | ✅ 幂等 provision 端点拆分 |
@@ -197,7 +218,7 @@ onSuccess({appId, appSecret, ownerOpenId})
 |---|---|---|
 | D7 门禁锚定源未钉死（(c) 字面实现 = 纯扫码门禁全开） | 必修 | ✅ D7 改双层锚：称谓全局首号 + 命令门禁每线 `new PartnerResolver(线owner, 首号owner?)` 双锚（排除 (c)）；第二扫码人命令预期写入手测清单 |
 | A 出站 key 双重前缀 | 建议 | ✅ 直接用 botKey 做键（channel-status 同源） |
-| B 同号拒绝路径孤儿 app | 建议 | ✅ 拒绝 → DELETE 自动删（含停 WS+释放） |
+| B 同号拒绝路径孤儿 app | 建议 | 📋 未实现（代码审视轮订正，同上条）：拒绝路径随同号提示一并留后续；孤儿 app 可在飞书开放平台手动删 |
 | C 工厂提参范围仍欠准 | 建议 | ✅ 修正为吸收 createFeishuBundle(:310-328)+setupFeishu(:341-414) 两段 |
 | D 手测缺第二扫码人 | 建议 | ✅ 补场景与预期（称呼链/标签/门禁三断言） |
 

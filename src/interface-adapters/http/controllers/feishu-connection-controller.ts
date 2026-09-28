@@ -144,7 +144,7 @@ export class FeishuConnectionController {
       if (!app) return c.json({ error: "feishu app not found" }, 404);
       const body = await c.req.json<unknown>().catch(() => ({}));
       const rawName = (body as { name?: unknown }).name;
-      const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : (app.name ?? app.appId);
+      const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : (app.name ?? maskAppId(app.appId)); // N1：缺省回退掩码（完整 appId 不进会话标题）
       const result = await this.deps.provisionAssistantLine!(app.appId, name);
       return c.json(result, 201);
     } catch (err) {
