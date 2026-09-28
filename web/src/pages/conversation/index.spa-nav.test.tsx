@@ -417,4 +417,35 @@ describe('右栏 invoke 状态对账：缓存模型合并（F20260928icmm）', (
     expect(listInvokesCalls[1]).toBe('conv-a')
     expect(container.textContent).not.toContain('行动中')
   })
+
+  it('阶段2：running 存在期间 60s 周期静默对账，无 running 时不拉（零开销）', async () => {
+    vi.useFakeTimers()
+    try {
+      mockApiWithInvokes()
+      // 服务端持续返回 running（对账拉了也不会清状态）——测拉取行为本身
+      const router = createTestRouter('/conversation/conv-a')
+      await act(async () => { root.render(<RouterProvider router={router} />); await vi.advanceTimersByTimeAsync(100) })
+      const baseline = listInvokesCalls.length
+      expect(container.textContent).toContain('行动中')
+
+      // 推进 60s：running 存在 → 触发一次周期对账
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+      expect(listInvokesCalls.length).toBeGreaterThan(baseline)
+
+      // 再推进 60s：仍 running → 再拉一次
+      const mid = listInvokesCalls.length
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+      expect(listInvokesCalls.length).toBeGreaterThan(mid)
+
+      // 服务端变终态 → 下一个周期对账后右栏收敛，且无 running 后不再拉
+      invokesByConv['conv-a'] = [{ id: 'inv-old', otterId: 'otter-1', status: 'completed', startedAt: '2026-09-28T01:00:00.000Z', endedAt: '2026-09-28T01:05:00.000Z', toolCallCount: 2, tokenUsageInput: 100, tokenUsageOutput: 50, ctxWindowUsed: null }]
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+      expect(container.textContent).not.toContain('行动中')
+      const settledCount = listInvokesCalls.length
+      await act(async () => { await vi.advanceTimersByTimeAsync(120_000) })
+      expect(listInvokesCalls.length).toBe(settledCount)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

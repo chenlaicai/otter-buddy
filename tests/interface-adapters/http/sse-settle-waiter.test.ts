@@ -132,4 +132,41 @@ describe("awaitTriggerAttemptsSettled（entries/invokes 判据）", () => {
     ).resolves.toBeUndefined();
     expect(logger.warn).toHaveBeenCalled();
   });
+
+  /** F20260928icmm 阶段2：POST 流 settle 首查竞态回归——invoke 行延迟创建时不得误判
+   *  settled 提前关流（9/25 现场实证：14:51:02.246 关流 / .288 invoke 才创建）。 */
+  it("首查时 invoke 尚未创建（竞态窗口）→ 不立即 settle，等到 invoke 出现且终态后才关流", async () => {
+    vi.useFakeTimers();
+    try {
+      const createdAt = Date.now() + 400; // invoke 行 400ms 后才创建（真实竞态窗口 ~40ms，放大便于测试）
+      const entryRepo = {
+        getEntryById: vi.fn().mockResolvedValue(createEntry({ yieldTargets: ["otter-1"] })),
+      } as unknown as EntryRepository;
+      const invokeRepo = {
+        getActiveInvokeByOtterId: vi.fn().mockImplementation(async () => {
+          // invoke 创建前返回 running（模拟 invoke 已建）；终态后返回 null
+          if (Date.now() < createdAt + 1000) return { id: "inv-1", status: "running" };
+          return null;
+        }),
+      } as unknown as InvokeRepository;
+
+      let settled = false;
+      awaitTriggerAttemptsSettled({ entryRepo, invokeRepo }, logger, "conv-1", "entry-1").then(() => { settled = true; });
+
+      // 旧实现（首查立即执行）在此刻就可能误判 settle（若首查落在 invoke 创建前）
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(false);
+
+      // 推进过首查延迟（500ms）：invoke 已创建且 running → 仍不 settle
+      await vi.advanceTimersByTimeAsync(600);
+      expect(settled).toBe(false);
+
+      // 推进到 invoke 终态（createdAt + 1000 之后）→ settle
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(settled).toBe(true);
+      expect(Date.now()).toBeGreaterThanOrEqual(createdAt); // settle 时 invoke 已创建且过终态——若首查误判，settle 会发生在 createdAt 前
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

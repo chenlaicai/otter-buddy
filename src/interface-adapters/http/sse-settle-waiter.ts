@@ -41,6 +41,11 @@ export function awaitTriggerAttemptsSettled(
   };
   return new Promise<void>((resolve) => {
     const deadline = Date.now() + SSE_SETTLE_TIMEOUT_MS;
+    // F20260928icmm 阶段2：首查延迟一个轮询周期起步——POST 请求链路上 trigger entry 落库
+    // 与目标獭 invoke 行创建存在竞态（实测 entry 入库→invoke 创建最短 ~40ms，极端调度下可
+    // 拉开数百 ms）：首查立即执行时 invoke 尚未创建，getActiveInvokeByOtterId 返回 null 被
+    // 误判 settled 提前关流（架构獭 9/25 现场实证：14:51:02.246 关流 / .288 invoke 才创建）。
+    // 延迟 500ms 起步后，正常链路 invoke 早已创建，轮询判据恢复可靠；超时兑底不变。
     const tick = () => {
       settled().then(
         done => {
@@ -50,6 +55,6 @@ export function awaitTriggerAttemptsSettled(
         () => resolve(),
       );
     };
-    tick();
+    setTimeout(tick, SSE_SETTLE_POLL_MS);
   });
 }
