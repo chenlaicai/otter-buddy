@@ -82,5 +82,8 @@
     "better-sqlite3@13.0.1": true,
     "onnxruntime-node@1.23.2": true,
     "sharp@0.34.5": true
+  },
+  "engines": {
+    "node": ">=22.12"
   }
 }

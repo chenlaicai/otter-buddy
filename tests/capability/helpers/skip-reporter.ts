@@ -12,6 +12,13 @@ interface TestTaskLike {
   name: string;
   mode?: string;
   result?: { state?: string } | (() => { state?: string } | undefined);
+  /**
+   * vitest 5 运行时兼容层：TestCase 实例上存在 `.task` 属性（收集期 skip 模式的真实载体），
+   * 但它不在 vitest 5 公开类型定义（TaskBase）内，属运行时私有表面。
+   * 这里保留运行时探查但防御性可选访问——上游收掉该属性时退回公开字段 mode/result，
+   * 配合 skip 不计数时无输出（全绿幻觉）风险的足印注释。实验锚点（v5.0.1 实测）：
+   * 声明期 skip 与 ctx.skip() 两路都能被 task?.mode ?? mode + result().state 正确捕获。
+   */
   task?: { mode?: string; result?: { state?: string } };
 }
 
@@ -35,8 +42,9 @@ export default class CapabilitySkipReporter {
     let skipped = 0;
     for (const mod of testModules) {
       for (const testCase of mod.children.allTests()) {
-        /** vitest 4 TestCase：声明期 skip 看 task.mode；运行期 ctx.skip() 看 result().state。
-         *  注意 result 是原型方法，必须通过 testCase 调用（摘出来会丢 this） */
+        /** vitest 4/5 TestCase：声明期 skip 看 task.mode（运行时属性，公开类型未暴露）；
+         *  运行期 ctx.skip() 看 result().state。两路探查都保留——v5 实测均有效，
+         *  探针锚点：tests/capability/probe.capability.test.ts 验证方式（2026-09-28） */
         const mode = testCase.task?.mode ?? testCase.mode;
         const rawResult = testCase.result;
         const state = typeof rawResult === "function"
