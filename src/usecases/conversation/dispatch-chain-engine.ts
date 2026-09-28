@@ -246,7 +246,7 @@ export class DispatchChainEngine {
     const promises = targets.map(async otterId => {
       // F20260908rlcp：台账退役——起跑记账删除
       const messageWithContext = await this.buildMessageWithContext(
-        conversationId, otterId, userMessageContent, senderId, roster, excludeIds.size > 0 ? excludeIds : undefined
+        conversationId, otterId, userMessageContent, senderId, roster, excludeIds.size > 0 ? excludeIds : undefined, triggerMessageId
       );
       // #530 护栏 steer 文案前置注入：位置在消息开头，靠近生成点，注意力权重最高。
       // 解决 session 已 dispose 无法通过 session.steer 注入的生命周期问题。
@@ -644,10 +644,13 @@ export class DispatchChainEngine {
     const partnerLabel = this.deps.settingsRepo ? ((await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
     lines.push(`- ${partnerLabel}（传 'user' 即交还行动权给搭档）`);
     // F20260826fpbd：静态绑定后，非搭档的飞书发言者（访客）触发时明示身份——
-    // 避免海獭把「当前说话的人」误当成搭档（动态推断时代的田病）
+    // 避免海獭把「当前说话的人」误当成搭档（动态推断时代的旧病）
+    // F20260928wxid：渠道标注按 senderId 形态判定（微信 ilink ID 带 @im.wechat 后缀）——
+    // 原硬编码「飞书 open_id」在微信访客触发时误导海獭脑补成飞书账号
     if (senderId && this.deps.partnerResolver?.configured && !this.deps.partnerResolver.isPartner(senderId)) {
+      const channelLabel = senderId.includes('@im.wechat') ? '微信' : '飞书';
       lines.push('');
-      lines.push(`## 当前说话者\n非你的搭档（访客，飞书 open_id: ${senderId}）；你的搭档是 ${partnerLabel}`);
+      lines.push(`## 当前说话者\n非你的搭档（访客，${channelLabel} ID: ${senderId}）；你的搭档是 ${partnerLabel}`);
     }
     return `## 在场成员\n${lines.join('\n')}`;
   }
@@ -799,6 +802,7 @@ export class DispatchChainEngine {
     senderId: string,
     roster: string,
     excludeMessageIds?: Set<string>,
+    triggerMessageId?: string,
   ): Promise<{ message: string; batchMaxSeq: number }> {
     // F20260819idnw：闲置小獭预警（增强功能，失败不影响主流程）
     // 必须在早返回路径之前计算，否则无未读消息时预警会被跳过
@@ -816,6 +820,9 @@ export class DispatchChainEngine {
     const unreadAll = this.deps.entryRepo
       ? await this.deps.entryRepo.getUnreadEntries(conversationId, otterId)
       : [];
+    // F20260928wxid（检视建议 2）：触发消息 senderName 快照——从未读全集反查（入排除集前必在集内；
+    // retry/resume 路径 id 非 entry id 时自然 miss，降级无快照标签）
+    const triggerSenderName = (triggerMessageId ? unreadAll.find(m => m.id === triggerMessageId)?.senderName : undefined) ?? null;
     // F20260908rlcp：恢复侧 steer 去重——已消化的 entry id 剔除
     const filtered = excludeMessageIds ? unreadAll.filter(m => !excludeMessageIds.has(m.id)) : unreadAll;
     // F20260908rlcp：记录本批未读最大 seq（启动成功后推进游标；entries 序号）
@@ -823,22 +830,28 @@ export class DispatchChainEngine {
     // F20260922ctxi：名册 delta 注入——内容未变（同对话同獭）时不重复拼接，仅首轮/变更时注入
     const rosterSegment = this.consumeRosterSegment(conversationId, otterId, roster);
 
+    // F20260928wxid（检视建议 2）：partnerLabel/staticResolver 计算上移（原在非空分支）——
+    // 触发消息标签两条 return 路径都要用；纯读无副作用，时机前移逻辑等价
+    const partnerLabel = this.deps.settingsRepo ? ((await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
+    const resolver = this.deps.partnerResolver;
+    // #497：三元式收窄（staticResolver 非 undefined ⟹ resolver 非空，回调内自动收窄）
+    const staticResolver = resolver?.configured ? resolver : undefined;
+    // 触发消息标签与历史渲染同款规则（resolveUserEntryLabel 不用 names，无需 resolveSenderNames）
+    const triggerLabel = this.resolveUserEntryLabel(
+      { senderName: triggerSenderName }, senderId, senderId, partnerLabel, staticResolver,
+    );
+
     if (filtered.length === 0) {
-      let result = `${rosterSegment}## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 对话历史（你上次发言后的消息）\n${userMessageContent}`;
+      let result = `${rosterSegment}## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 对话历史（你上次发言后的消息）\n[${triggerLabel}] ${userMessageContent}`;
       if (idleWarning) result += `\n\n${idleWarning}`;
       return { message: result, batchMaxSeq };
     }
     const names = await this.resolveSenderNames(filtered);
-    const partnerLabel = this.deps.settingsRepo ? ((await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
     // F20260826fuid：user 消息优先用持久化快照名（飞书群聊多人识别）。
     // F20260826fpbd：搭档判定改静态——partnerLabel 只属于配置锚定的搭档（含 Web 'user'），
     //  非搭档即使触发本次派发也不再显示 partnerLabel（动态推断时代的冒名旧病）。
     //  降级：未配置 partnerOpenId 时回退 #488 行为（当前 sender 无快照→partnerLabel）
-    const resolver = this.deps.partnerResolver;
-    // #497：用三元式收窄替代旧 staticMode + resolver! 断言——configured 时绑定非空 resolver 本身，
-    //  TS 控制流在回调内自动收窄（if (staticResolver) ⟹ 非空），零非空断言且不把 ?. 分支点
-    //  携入 .map 回调（复杂度门禁 12，携入会 13 超限）
-    const staticResolver = resolver?.configured ? resolver : undefined;
+    // F20260928wxid：resolver/staticResolver 已上移（触发消息标签共用）；formatEntry 消费同名变量
     const formatEntry = (m: typeof filtered[number]): string => {
       const label = this.resolveUnreadSenderLabel(m, senderId, partnerLabel, staticResolver, names);
       const text = stripHtmlCardsOnly(m.body ?? '');
@@ -846,7 +859,9 @@ export class DispatchChainEngine {
     };
     const formatted = filtered.map(formatEntry).join('\n');
 
-    let result = `${rosterSegment}## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n${userMessageContent}`;
+    // F20260928wxid（检视建议 2）：触发消息带发送者标签（triggerLabel 已在前置段计算）——
+    // 原本读批剔除后裸文追加，一问一答流（窗口唯一消息即触发消息）称呼不进海獭视野
+    let result = `${rosterSegment}## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n[${triggerLabel}] ${userMessageContent}`;
     if (idleWarning) {
       result += `\n\n${idleWarning}`;
     }
@@ -878,7 +893,9 @@ export class DispatchChainEngine {
     return names.get(entrySenderId) ?? entrySenderId;
   }
 
-  /** user 条目标签：静态绑定（搭档/访客快照名/裸 ID）或未配置降级（#488 行为） */
+  /** user 条目标签：静态绑定（搭档/访客快照名/裸 ID）或未配置降级（#488 行为）。
+   *  F20260928wxid（检视发现 2a）：搭档标签带自报快照名——partnerLabel（默认「搭档」/全局设置）
+   *  是配置层的泛称，快照名是用户自报的真名；有快照优先真名，无则回退 partnerLabel 不变 */
   private resolveUserEntryLabel(
     m: { senderName?: string | null },
     entrySenderId: string,
@@ -887,9 +904,11 @@ export class DispatchChainEngine {
     staticResolver: { isPartner: (id: string) => boolean } | undefined,
   ): string {
     if (staticResolver) {
-      return staticResolver.isPartner(entrySenderId)
-        ? partnerLabel
-        : (m.senderName?.trim() || entrySenderId);  // 访客：快照名，无则裸 ID 不冒充
+      if (staticResolver.isPartner(entrySenderId)) {
+        const sn = m.senderName?.trim();
+        return sn ? `${partnerLabel}(${sn})` : partnerLabel; // 真交付：自报称呼进海獭视野，泛称不变
+      }
+      return m.senderName?.trim() || entrySenderId;  // 访客：快照名，无则裸 ID 不冒充
     }
     // 降级（未配置 partnerOpenId）：维持 #488 行为——当前 sender 无快照 → partnerLabel，
     // 其他人无快照 → 裸 ID（不冒充搭档）
