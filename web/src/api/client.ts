@@ -473,6 +473,8 @@ export interface WeixinAccountDTO {
   hasToken: boolean
   /** F20260921imux：助理线投影（账号→活跃对话绑定；后端真相源，取代前端 title 启发式） */
   assistantLine?: { conversationId: string }
+  /** F20260928wxid：扫码人自报称呼（connection.metadata.userName 投影；存量线未设置时 undefined） */
+  userName?: string
 }
 
 /** F20260921imux：同号识别（扫码前/后探测已有账号）。
@@ -497,9 +499,14 @@ export function listWeixinAccounts(): Promise<WeixinAccountDTO[]> {
   return request('/weixin/accounts')
 }
 
-/** F20260920imax：扫码登录后按名建助理线（名字必填） */
-export function provisionWeixinAssistantLine(accountId: string, name: string): Promise<{ conversationId: string; title: string }> {
-  return request(`/weixin/accounts/${accountId}/assistant-line`, { method: 'POST', body: JSON.stringify({ name }) })
+/** F20260920imax：扫码登录后按名建助理线（名字必填）。F20260928wxid：userName 可选——扫码人自报称呼，存 connection.metadata */
+export function provisionWeixinAssistantLine(accountId: string, name: string, userName?: string): Promise<{ conversationId: string; title: string }> {
+  return request(`/weixin/accounts/${accountId}/assistant-line`, { method: 'POST', body: JSON.stringify({ name, ...(userName ? { userName } : {}) }) })
+}
+
+/** F20260928wxid：存量线补/改称呼（空串 = 清除，维持裸 ID 展示） */
+export function updateWeixinUserName(accountId: string, userName: string): Promise<{ userName?: string }> {
+  return request(`/weixin/accounts/${accountId}/user-name`, { method: 'PATCH', body: JSON.stringify({ userName }) })
 }
 
 export function deleteWeixinAccount(id: string): Promise<{ status: string }> {
