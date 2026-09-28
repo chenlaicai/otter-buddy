@@ -130,6 +130,6 @@ v4/v5 证明：超时被标失败的采样循环在下一个 it 运行期间继�
 | 发现 | 处置 |
 |---|---|
 | 严重 1：spb magic-word-detour worst 低报（两段 300s 之和 600s，声明 450s）——慢端点可构造在途越帽；处置表「detour 帽 600s→2400s」与代码（1.5M）不符，记录失实 | 采纳：detour 改 sampleWorstMs 600s / budget 1_800_000 / 帽 1_920_000（3×600+120）；处置表订正。全量重审计 22 调用点：bod/tsr worst 精确、mws 高报安全（契约允许）、spb 其余 7 点高报安全（worst≥等待窗之和） |
-| 建议 ①：④ memory-recall 缺 issue 登记 | 采纳：建 issue（# 编号待 GitHub 恢复后回填），tech-debt P3 |
+| 建议 ①：④ memory-recall 缺 issue 登记 | 采纳：issue #1195 已建 |
 | 建议 ②：PR 描述未随 delta 更新（含初轮被证伪的「budgetMs 单测」声明） | 采纳：PR body 重写为当前口径 |
 | 建议 ③（初轮遗留核实）：bod/tsr it 帽注释过时（写 50/70/30 分钟） | 采纳：三处注释对齐公式（57/100/41 分钟） |
