@@ -237,7 +237,7 @@ export default function ConversationPage() {
    *  F20260923sswd：兼作 loadConversationDetail 内联 listInvokes 失败时的重试兜底——
    *  F20260928icmm 阶段3：门控与重试链退役——弱合并换轨后双拉无害化，防双拉补丁失去
    *  存在理由；对账统一走无门控的 syncInvokeStatesFromServer。 */
-  /** F20260928icmm 阶段3（旧补丁退役）：统一拉取对账（原 syncInvokeStatesFromServer +
+  /** F20260928icmm 阶段3（旧补丁退役）：统一拉取对账（原 syncInvokeStatesFromServer（带门控）+
    *  syncInvokeStatesFromServer 双函数收敛为单函数，无门控）。
    *  缓存模型下 mergeInvokesFromServer 幂等，任何时机重复拉取都安全；历史上为防
    *  初始双拉设的 invokeStatesLoadedRef 门控已退役（弱合并退役后双拉无害，门控失去
@@ -428,7 +428,6 @@ export default function ConversationPage() {
           ackActiveRead(convId)
           /** F20260928icmm 阶段1：窗口聚焦/切回可见时同步对账右栏 invoke 状态——
            *  失焦/后台窗口期间的 invoke.end 可能因订阅断开丢失（无回放），切回时
-           *  用权威数据拉齐。走无门控对账（syncInvokeStatesFromServer）：初始恢复
            *  用权威数据拉齐（无门控对账；门控已随阶段3 退役）。 */
           void syncInvokeStatesFromServer(convId)
         }
@@ -866,8 +865,13 @@ export default function ConversationPage() {
     const auditTimer = setInterval(() => {
       if (disposed) return
       if (activeIdRef.current !== activeId) return
-      const hasRunning = Object.values(invokeStatesRef.current).some(s => s.status === 'running')
-      if (hasRunning) void syncInvokeStatesFromServer(activeId)
+      const states = invokeStatesRef.current
+      // 检视建议 1（PR #1190）：空态也拉——初始拉取全败（含 600ms 重试）且用户不动时，
+      // 状态为空、右栏裸奔；「有 running 才拉」的门在此场景不可达（无事件可种 running）。
+      // 空态判定为全量拉（频率 60s 一次单请求，成本可忽略）；非空且无 running 才零开销。
+      const hasRunning = Object.values(states).some(s => s.status === 'running')
+      const isEmpty = Object.keys(states).length === 0
+      if (hasRunning || isEmpty) void syncInvokeStatesFromServer(activeId)
     }, PERIODIC_AUDIT_INTERVAL_MS)
 
     return () => {

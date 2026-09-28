@@ -227,7 +227,7 @@ describe('右栏 invoke 状态恢复（F20260923sswd，issue #1134）', () => {
     }
   })
 
-  it('listInvokes 失败 → 不静默吞，600ms/2500ms 两次延迟重试兜底（fake timers）', async () => {
+  it('listInvokes 失败 → 不静默吞，600ms 单次延迟重试（2500ms 已退役，阶段3）（fake timers）', async () => {
     vi.useFakeTimers()
     try {
       let failCount = 2 // 初始 + 600ms 重试全败（2500ms 二次重试已退役，阶段3）
@@ -306,7 +306,7 @@ describe('SSE 断连重连补偿（F20260924ircc，issue #1160）', () => {
       const router = createTestRouter('/conversation/conv-b')
       await act(async () => { root.render(<RouterProvider router={router} />) })
       await act(async () => { await vi.advanceTimersByTimeAsync(80) })
-      // 初始内联拉取已发生（invokeStatesLoadedRef 置 true——门控生效的前提成立）
+      // 初始内联拉取已发生（阶段3 后无门控，但首连补偿仍不触发——needsSyncAfterReconnect 初值 false 语义不变）
       expect(listInvokesCalls.length).toBe(1)
       expect(FakeXHR.instances.length).toBeGreaterThanOrEqual(1)
       const first = FakeXHR.instances[0]!
