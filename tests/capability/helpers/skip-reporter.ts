@@ -10,14 +10,15 @@ import * as path from "node:path";
 
 interface TestTaskLike {
   name: string;
-  mode?: string;
+  /** 公开 API（vitest 5 d.ts）：TestCase.options.mode */
+  options?: { mode?: string };
   result?: { state?: string } | (() => { state?: string } | undefined);
   /**
-   * vitest 5 运行时兼容层：TestCase 实例上存在 `.task` 属性（收集期 skip 模式的真实载体），
-   * 但它不在 vitest 5 公开类型定义（TaskBase）内，属运行时私有表面。
-   * 这里保留运行时探查但防御性可选访问——上游收掉该属性时退回公开字段 mode/result，
-   * 配合 skip 不计数时无输出（全绿幻觉）风险的足印注释。实验锚点（v5.0.1 实测）：
-   * 声明期 skip 与 ctx.skip() 两路都能被 task?.mode ?? mode + result().state 正确捕获。
+   * 运行时私有表面：TestCase 实例的 .task 属性不在公开类型定义内。
+   * v5.0.1 实测（检视獭 2026-09-28 全域探针，5 类用例）：
+   * - ctx.skip() 置 task.mode="skip" 但 options.mode 仍为 "run"——单靠公开字段会漏计运行期 skip
+   * - state 值域是 "skipped"/"passed"/"failed"（plugin.d.CN87HSxv.d.ts:350），无 "skip"
+   * 语义固化测试：tests/capability/skip-reporter.capability.test.ts（含 v6 收掉 .task 后的回退行为验证）
    */
   task?: { mode?: string; result?: { state?: string } };
 }
@@ -42,15 +43,18 @@ export default class CapabilitySkipReporter {
     let skipped = 0;
     for (const mod of testModules) {
       for (const testCase of mod.children.allTests()) {
-        /** vitest 4/5 TestCase：声明期 skip 看 task.mode（运行时属性，公开类型未暴露）；
-         *  运行期 ctx.skip() 看 result().state。两路探查都保留——v5 实测均有效，
-         *  探针锚点：tests/capability/probe.capability.test.ts 验证方式（2026-09-28） */
-        const mode = testCase.task?.mode ?? testCase.mode;
+        /** 计数语义（全域探针实测固化，见 skip-reporter.capability.test.ts）：
+         *  - 声明期 skip（it.skip/describe.skip）：task.mode=options.mode="skip"
+         *  - 运行期 ctx.skip()：task.mode="skip"，options.mode 仍 "run"，state="skipped"
+         *  - it.todo：mode="todo"，state 也是 "skipped"——须排除，否则 todo 被误计为 skip
+         *  - state 无 "skip" 值（只有 "skipped"），旧 === "skip" 分支是死代码（delta-2 已修）
+         *  v6 安全网：若 .task 被收掉，声明期 skip 由 options.mode 兑住、运行期由 state="skipped" 兑住 */
+        const mode = testCase.task?.mode ?? testCase.options?.mode;
         const rawResult = testCase.result;
         const state = typeof rawResult === "function"
           ? (rawResult as () => { state?: string }).call(testCase)?.state
           : (rawResult?.state ?? testCase.task?.result?.state);
-        if (mode === "skip" || state === "skip") skipped++;
+        if (mode === "skip" || (state === "skipped" && mode !== "todo")) skipped++;
       }
     }
 
