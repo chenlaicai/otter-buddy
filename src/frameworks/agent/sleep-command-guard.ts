@@ -43,8 +43,9 @@ function parseSleepDurationSeconds(token: string): number | null {
   return value * (SLEEP_UNITS[unit] ?? 1);
 }
 
-/** sleep 拦截文案（kill 域文案零共用——sleep 是感知问题非安全问题，措辞向引导而非禁止） */
-function buildSleepBlockMessage(durationDesc: string): string {
+/** sleep 拦截文案（kill 域文案零共用——sleep 是感知问题非安全问题，措辞向引导而非禁止）。
+ *  V2 模型版（guard-model-judge judgeSleepCommand）复用本构造——语义一致防漂移（S5 去重后唯一文案源）。 */
+export function buildSleepBlockMessage(durationDesc: string): string {
   return `检测到你使用了 sleep 等待（约 ${durationDesc}）。裸 sleep 会让搭档看到长时间静默黑盒。请先 speak 说明你要等什么、为什么要等这么久，然后改用 wait 工具（wait 的 seconds/reason/until 参数支持等待+理由自证+可选的苏醒检查命令）。`;
 }
 

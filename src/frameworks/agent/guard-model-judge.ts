@@ -24,6 +24,7 @@ import type { CommandModel, Segment, Payload } from "./command-model";
 import { parseOnce } from "./command-model";
 import { loadAllowedServicePorts } from "./allowed-service-ports";
 import type { AllowedService } from "./allowed-service-ports";
+import { SLEEP_REASON_PREFIX, buildSleepBlockMessage } from "./sleep-command-guard";
 
 // ────────────────────────────── 词表（与 V1 对齐迁移） ──────────────────────────────
 
@@ -405,10 +406,10 @@ function judgeBashFileScript(model: CommandModel, mainPid: number, logger: Logge
 /** S5（r1-B5 撞车处置）：裸 sleep 静默等待检测——模型版。
  *  #1126（sleep 工具化）在 V1 链挂 checkSleepCommand，本 PR 的模型放行路径短路
  *  V1 链会绕过它。此处模型版等价实现（argv 位 sleep + 时长静态求和 ≥5s/
- *  infinity 必拦），#1126 合入 rebase 时两版并存去重（语义一致，模型版更精确）。
- *  语义对齐 #1126 的收编哲学：拦截文案引导改用 wait 工具（理由自证+苏醒检查）。 */
-const SLEEP_BLOCK_MSG = "__bash_sleep_block__:bash 命令包含裸 sleep 静默等待（≥5s）——长时间无输出会让搭档失去对进度的感知。请改用 wait 工具（reason 参数自证理由 + until 苏醒检查），或拆分为短步多次汇报；若确需短暂 sleep（<5s 重试抖动）直接执行即可。";
-
+ *  infinity 必拦），#1126 合入 rebase 去重后本版为唯一主链判定（V1 checkSleepCommand
+ *  仅 parseOk=false 兜底链可达）。
+ *  文案：复用 sleep-command-guard 的 buildSleepBlockMessage（动态秒数/speak 引导/
+ *  无限措辞）——V1 V2 唯一文案源，防漂移；前缀 SLEEP_REASON_PREFIX 同源。 */
 function judgeSleepCommand(model: CommandModel, logger: Logger | undefined): string | null {
   for (const seg of model.segments) {
     const eff = effectiveCommand(seg);
@@ -416,12 +417,13 @@ function judgeSleepCommand(model: CommandModel, logger: Logger | undefined): str
     // 时长静态求和（多参数：sleep 5 6 = 11s；单位 s/m/h/d；小数）
     let total = 0;
     let unparseable = false;
+    let infinite = false;
     for (const a of eff.args) {
       if (a === null) { unparseable = true; break; } // sleep $X——宁漏勿误（#1126 同口径）
       const lower = a.toLowerCase();
       if (lower === "infinity" || lower === "inf") {
-        logger?.warn("[guard-v2] BLOCKED sleep infinity");
-        return SLEEP_BLOCK_MSG;
+        infinite = true;
+        continue;
       }
       const m = /^([0-9.]+)(s|m|h|d)?$/.exec(lower);
       if (!m) { unparseable = true; break; }
@@ -430,9 +432,13 @@ function judgeSleepCommand(model: CommandModel, logger: Logger | undefined): str
       total += unit === "m" ? v * 60 : unit === "h" ? v * 3600 : unit === "d" ? v * 86400 : v;
     }
     if (unparseable) continue; // 不可解析形态放行（归逃逸面，#1126 同口径）
+    if (infinite) {
+      logger?.warn("[guard-v2] BLOCKED sleep infinity");
+      return SLEEP_REASON_PREFIX + buildSleepBlockMessage("无限");
+    }
     if (total >= 5) {
       logger?.warn("[guard-v2] BLOCKED bare sleep >= 5s", { total });
-      return SLEEP_BLOCK_MSG;
+      return SLEEP_REASON_PREFIX + buildSleepBlockMessage(`${total} 秒`);
     }
   }
   return null;

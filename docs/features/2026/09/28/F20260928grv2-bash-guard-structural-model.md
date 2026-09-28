@@ -166,8 +166,12 @@ pkill 特征名表全量（V1 十模式含 node.*main/dist/src 中缀）/ 词文
    时长静态求和，语义对齐 #1126 文本版）。**合并顺序锁定：#1126 必须先合**——
    sleep 拦截文案带 `__bash_sleep_block__:` 标记，分流代码（retry-policy 的
    bash_sleep 前缀）在 #1126 里；若本 PR 先合，sleep 拦截走现有 kill 域链，
-   搭档将看到误导文案。去重时保留 #1126 文本版对载荷内 sleep 形态的覆盖
-   （模型版只扫顶层段，`bash -c 'sleep 30'` 属其 R1 逃逸面口径）。
+   搭档将看到误导文案。**rebase 去重已落地（#1126 合入后）**：judgeSleepCommand
+   文案改用 buildSleepBlockMessage（V1/V2 唯一文案源——动态秒数/speak 引导/
+   无限措辞，V1 的 6 个 sleep 用例断言转绿）；`bash scripts/alpha.sh` 断言
+   改拦（U5 白名单新拦取代 #1126 T4 放行语义，拍板在先）；`bash -c 'sleep 30'`
+   载荷内形态由 V1 checkSleepCommand 在 parseOk=false 兜底链外仍覆盖不到，
+   归 #1126 R1 逃逸面同族口径。
 6. **U5 覆盖（r1-S3 处置）**：拦任意扩展名文件（bash < x.txt / bash data.bin /
    bash $SCRIPT 均拦——换扩展名绕过面闭合）；-s 旗标与 source/. 内建不在拦截面
    （source 是 shell 内建不走解释器 argv——V1 同盲区）。
