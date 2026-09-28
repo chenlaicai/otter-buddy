@@ -182,6 +182,8 @@ function registerWorkspaceRoutes(app: Hono, c: Controllers): void {
     // F20260921imux：同号识别（扫码前探测已有账号，覆盖确认用）
     app.post("/api/weixin/accounts/lookup", (ctx) => c.weixin!.lookupExistingAccount(ctx));
     app.post("/api/weixin/accounts/:id/assistant-line", (ctx) => c.weixin!.provisionAssistantLine(ctx));
+    // F20260928wxid：存量线补/改称呼（connection.metadata.userName）
+    app.patch("/api/weixin/accounts/:id/user-name", (ctx) => c.weixin!.updateUserName(ctx));
     app.delete("/api/weixin/accounts/:id", (ctx) => c.weixin!.deleteAccount(ctx));
   }
 }

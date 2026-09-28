@@ -394,7 +394,7 @@ describe("buildMessageWithContext 闲置预警集成", () => {
 
     // 预警失败不影响主流程，结果仍包含发言流（历史未读 + 触发发言流末尾）
     expect(result).toContain("## 对话历史");
-    expect(result).toContain("[otter-1] msg\n\nhi");
+    expect(result).toContain("[otter-1] msg\n\n[搭档] hi"); // F20260928wxid：触发消息带标签
     expect(result).not.toContain("系统提示");
   });
 });
@@ -487,6 +487,48 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
 
     expect(result).toContain("[搭档] 看看这个");
+  });
+
+  // F20260928wxid（检视建议 3）：搭档带自报快照名渲染「搭档(joy)」；无快照回退泛称
+  it("F20260928wxid：搭档消息带快照名 → [搭档(joy)]；无快照 → [搭档] 不变", async () => {
+    const m = makeMocks();
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "e-user-ou_chen-sn", entryType: "user", senderType: "user", senderId: "ou_chen", senderName: "joy", body: "带称呼", sequenceNum: 1, invokeId: null, yieldTargets: null },
+      { id: "e-user-ou_chen", entryType: "user", senderType: "user", senderId: "ou_chen", senderName: "", body: "无称呼", sequenceNum: 2, invokeId: null, yieldTargets: null },
+    ]);
+
+    const engine = makeEngine(m, "ou_chen");
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
+
+    expect(result).toContain("[搭档(joy)] 带称呼");
+    expect(result).toContain("[搭档] 无称呼");
+  });
+
+  it("F20260928wxid：访客消息带快照名 → [快照名]，不冒充搭档", async () => {
+    const m = makeMocks();
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "e-user-ou_guest", entryType: "user", senderType: "user", senderId: "ou_guest", senderName: "游客甲", body: "路过", sequenceNum: 1, invokeId: null, yieldTargets: null },
+    ]);
+
+    const engine = makeEngine(m, "ou_chen");
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
+
+    expect(result).toContain("[游客甲] 路过");
+    expect(result).not.toContain("[搭档] 路过");
+  });
+
+  it("F20260928wxid（检视建议 2）：触发消息带发送者标签——一问一答流称呼也进视野", async () => {
+    const m = makeMocks();
+    // 触发 entry 在未读集内（携带快照名），无其他未读 → 早退分支也带标签
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "e-trig", entryType: "user", senderType: "user", senderId: "ou_chen", senderName: "joy", body: "我是谁", sequenceNum: 1, invokeId: null, yieldTargets: null },
+    ]);
+
+    const engine = makeEngine(m, "ou_chen");
+    // senderId=ou_chen（搭档）触发，exclude 集=空（不传），triggerMessageId=e-trig 反查快照
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "我是谁", "ou_chen", "## 在场成员", undefined, "e-trig");
+
+    expect(result).toContain("[搭档(joy)] 我是谁");
   });
 
   it("静态模式：访客触发本次派发也无 partnerLabel（动态推断旧病修复）", async () => {
@@ -593,7 +635,7 @@ describe("L2 安全词扫描接线（F20260826mwrd C3 Part 6）", () => {
     expect(received).toHaveLength(1);
     expect(received[0]).toContain("[L2 安全词检测]");
     expect(received[0]).toContain("Magic Words");
-    expect(received[0]).toContain("## 对话历史（你上次发言后的消息）\n停下"); // 原文保留（流末尾）
+    expect(received[0]).toContain("## 对话历史（你上次发言后的消息）\n[搭档] 停下"); // F20260928wxid：触发消息带标签（原文保留流末尾）
   });
 
   it("命令形态「快停下，都别乱动」也注入 reminder", async () => {
@@ -624,7 +666,7 @@ describe("上下文注入面 delta 化（F20260922ctxi）", () => {
     // 同 roster 重复调用 → 不再拼接（修复前每条消息都带一份逐字节相同的名册）
     const second = await engine.buildMessageWithContext("conv-1", "otter-1", "再 hi", "user-1", "## 在场成员\n- 大獭");
     expect(second.message).not.toContain("## 在场成员");
-    expect(second.message).toContain("## 对话历史（你上次发言后的消息）\n再 hi");
+    expect(second.message).toContain("## 对话历史（你上次发言后的消息）\n[搭档] 再 hi"); // F20260928wxid
     expect(second.message).toContain("## 当前时间");
 
     // roster 变化（成员进出/访客提示）→ 重新注入
@@ -666,7 +708,7 @@ describe("上下文注入面 delta 化（F20260922ctxi）", () => {
     expect(received).toHaveLength(1);
     // 修复前同一文本双份（实测 269+257 字符）：对话历史一份 + 触发消息一份
     expect(received[0].split("任务原文ABC").length - 1).toBe(1);
-    expect(received[0]).not.toContain("[张三] 任务原文ABC");
+    expect(received[0]).toContain("[张三] 任务原文ABC"); // F20260928wxid：触发消息带标签（与历史同款规则）
     // 其他未读保留
     expect(received[0]).toContain("其他未读XYZ");
   });
