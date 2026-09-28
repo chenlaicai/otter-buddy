@@ -77,13 +77,14 @@ causal_links:
 | 登录会话 | `src/frameworks/feishu/login-session-manager.ts`（新） | 包 SDK registerApp：start（begin+二维码 URL→png base64）/ get / cancel；状态机 pending→waiting_scan→success/error/expired（**SDK 无 scanned 态**——onStatusChange 仅 polling/slow_down/domain_switched，与微信七态不同，前端映射按实际六态）；10min 过期清理。二维码渲染用 `qrcode` npm 包（已在依赖，微信 login-session-manager 现用） |
 | HTTP 端点 | `src/interface-adapters/http/controllers/feishu-connection-controller.ts`（新） | `POST /api/feishu/login`、`GET /api/feishu/login/:id`、`POST /api/feishu/login/:id/cancel`、`GET /api/feishu/apps`（账号列表+助理线投影）、`DELETE /api/feishu/apps/:id`（停 WS+unregister+删store+释放绑定）、**`POST /api/feishu/apps/:id/assistant-line`（幂等 provision 独立端点，对齐微信 weixin-connection-controller.ts:120 先例，失败可重试）**；safeJsonBody 防御、错误文案映射 describeFeishuQrFailure 模式照搬 EchoAgent |
 | 出站通道 | `src/usecases/im/feishu-message-channel.ts` 改造 | **审改：键控出站（#591 同构）**——归属过滤从「externalType === feishu」升级为「externalType === feishu 且 externalId === 本通道 botKey」；构造注入 botKey；多通道注册后广播互不串扰 |
-| 运行时工厂 | `src/bootstrap/platforms.ts` 改造 | **审改：提参范围修正**——不是「380-405 行段」而是 setupFeishu 全段（commandDispatcher/partnerResolver/messageProcessor/longConnection 装配，约 :341-414）：抽 `buildFeishuRuntime(appId, appSecret, ...) → {stop, botKey}`；**出站注册同步键控化** `messageBroadcaster.registerOutboundChannel(\`feishu-${botKey}\`, channel)`（静态 config app 同款改造，原 "feishu" key 不再使用——key 仅运行时注册表不落库，无兼容负担）；DELETE/dispose 时 unregister 成对清理 |
+| 运行时工厂 | `src/bootstrap/platforms.ts` 改造 | **审改（delta 修正）**：工厂吸收 createFeishuBundle（:310-328，client/tokenManager/出站注册）+ setupFeishu（:341-414，commandDispatcher/partnerResolver/messageProcessor/longConnection）两段：抽 `buildFeishuRuntime(appId, appSecret, ...) → {stop, botKey}`；**出站注册键控化** `messageBroadcaster.registerOutboundChannel(botKey, channel)`（delta：直接用 botKey 做键，无双重前缀；静态 config app 同款改造；key 仅运行时注册表不落库，无兼容负担）；DELETE/dispose 时 unregister 成对清理 |
 | 运行时注册表 | `src/app.ts`（新 Map） | **审改（建议 4）**：`feishuRuntimes: Map<appId, {stop, botKey}>`——boot 遍历 appStore 与 onSuccess 两源统一入表，DELETE/销毁链两路成对清理（#460 dispose 链接入） |
 | 扫码账号启动 | `startFeishuScanChannels`（platforms.ts 新导出） | app.ts 启动时遍历 FeishuAppStore.list() 逐个 buildFeishuRuntime；返回 stop 全体句柄接入 dispose 链 |
 | 助理线开通 | `POST /api/feishu/apps/:id/assistant-line`（幂等端点，app.ts 闭包注入） | **审改（建议 6）**：拆独立幂等端点；扫码 onSuccess 只做 save+start（轻量），provision 由 onSuccess 自动触发一次但失败不阻建 app，账号卡「补建线」入口兼做重试通道；建线键用 botKey(appId)（**掩码形态**，与入站路由锚同源）→ 开 assistant 对话 → noteChatId 首消息回填 |
-| PartnerResolver | `src/usecases/im/partner-resolver.ts` 改造 + platforms.ts 装配 | **审改（严重 3）**：加 `addPartnerId(id)` 可变方法（幂等）——扫码 onSuccess 时首个 ownerOpenId 先写先得写入（微信 ensureWeixinConfig 同构语义）；DELETE 不回收（记遗留，避免首账号删除后链路摇摆）；其余扫码人不进全局 resolver（线 owner 走 metadata.ownerOpenId 供称呼链）；命令门禁装配点维持单渠道锚不变，dispatch 渲染装配点（多渠道构造）同实例共享 |
-| 前端 | `web/src/components/feishu/FeishuQRCodeLoginCard.tsx`（新）+ IM 页飞书卡改造 | 复制 QRCodeLoginCard 骨架（两步：起名→扫码，2s 轮询）；状态映射按飞书实际（无 scanned 态）；同号提示（onSuccess 前后端查同 owner 已有 app → 前端「已有助理线 X，确认再建？」确认框，建议 3 顺手做） |
-| 状态投影 | `src/interface-adapters/http/controllers/channel-controller.ts` + web IM 页 | **审改（建议 4）**：channel-status 多实例化——feishu 扫码线各报 kind=\`feishu-<botKey>\`（或 instances 数组，实现时按现有 registry 结构定）；IM 页 \`find(kind==='feishu')\` 取首处同步适配 |
+| PartnerResolver | `src/usecases/im/partner-resolver.ts` 改造 + platforms.ts 装配 | **审改（严重 3 + delta 必修）**：加 `addPartnerId(id)` 可变方法（幂等）——扫码 onSuccess 时首个 ownerOpenId 先写先得写入（微信 ensureWeixinConfig 同构语义，供 dispatch 渲染链）；**命令门禁锚每线构造**：buildFeishuRuntime 内 `new PartnerResolver(线ownerOpenId, 首号ownerOpenId?)`（D7 双锚，纯扫码主路径不落入 configured=false 全开分支）；DELETE 不回收全局锚（记遗留，避免首账号删除后链路摇摆）；dispatch 渲染装配点（多渠道构造）同实例共享 |
+| 前端 | `web/src/components/feishu/FeishuQRCodeLoginCard.tsx`（新）+ IM 页飞书卡改造 | 复制 QRCodeLoginCard 骨架（两步：起名→扫码，2s 轮询）；状态映射按飞书实际（无 scanned 态）；飞书卡未配置时展示扫码入口，已配置时追加「添加扫码账号」 |
+| 同号提示 | 前端 FeishuQRCodeLoginCard | onSuccess 后查同 owner 已有 app → 前端「已有助理线 X，确认再建？」确认框（建议 3 顺手做）；**拒绝路径（delta B）**：调用 `DELETE /api/feishu/apps/:id` 自动删除刚建 app（含停 WS+释放，无孤儿 app） |
+| 状态投影 | `src/interface-adapters/http/controllers/channel-controller.ts` + web IM 页 | **审改（建议 4）**：channel-status 多实例化——feishu 扫码线各报 kind=botKey（delta：出站键同源，无双重前缀；或 instances 数组，实现时按现有 registry 结构定）；IM 页 \`find(kind==='feishu')\` 取首处同步适配 |
 | DTO | `web/src/api/client.ts` | FeishuLoginSessionDTO 对齐 WeixinLoginSessionDTO 形态（id/status/qrcodePng/error），status 枚举差异（无 scanned）显式声明 |
 
 ### 关键设计决策
@@ -100,7 +101,7 @@ causal_links:
 
 **D6 建线键统一从 botKey 派生（审改，严重 1）**：入站路由锚是 `feishu-bot:${maskAppId(appId)}`（client.ts:23，#663 掩码），provision/DELETE/入站必须同源——抽 bot-key.ts 共享 helper，三处消费。不改存量锚格式（存量线 externalId 已是掩码形态，改格式会孤儿化）。
 
-**D7 首个扫码人先写先得全搭档锚（审改，严重 3）**：「谁是搭档」产品语义上存在全局/每线两案，取**全局首号锚**（对齐微信 ensureWeixinConfig 先写先得幂等）：首个扫码人 ownerOpenId 经 PartnerResolver.addPartnerId 运行时写入（resolver 加可变方法，onSuccess/启动恢复两处调用）；后续扫码人是线 owner（metadata 落库供称呼链），不进全局 resolver。多账号全量每线搭档语义（每线各自认定搭档）记遗留与 #1188 同根因聚合。理由：本产品当前实际形态是「部署者自用 + 家人/同事小范围」（微信侧同款先例），首号锚最贴近现状且不引入 resolver 生命周期摇摆；若未来多家庭部署再升级每线语义。
+**D7 首个扫码人先写先得全局搭档锚 + 每线 owner 命令门禁锚（delta 复核修订）**：「谁是搭档」分两层——**称谓语义**全局首号（对齐微信 ensureWeixinConfig 先写先得）：首个扫码人 ownerOpenId 经 PartnerResolver.addPartnerId 运行时写入，后续扫码人是线 owner（metadata 落库供称呼链）；**操作语义每线**：命令门禁 resolver 每线独立构造 `new PartnerResolver(线ownerOpenId, 首号ownerOpenId?)` 双锚——线主人在自己线上可跑命令，首号（部署者）任意线上可跑，陌生人被拦（message-processor.ts:165 门禁在 configured=false 时全开，纯扫码主路径必须有锚；同渠道多锚不违反 wxid 跨渠道不变量）。多账号全量每线搭档**称谓**语义记遗留（与 #1188 同根因聚合）。理由：本产品当前实际形态是「部署者自用 + 家人/同事小范围」（微信侧同款先例），首号称谓锚最贴近现状；每线命令锚是安全底线不可降级。
 
 ### 机制识别检查点（命中申报）
 
@@ -190,6 +191,16 @@ onSuccess({appId, appSecret, ownerOpenId})
 | onSuccess 事务捆绑 | 建议 | ✅ 幂等 provision 端点拆分 |
 | maskAppId 碰撞面（观察项） | 观察 | 键派生模块内注记 |
 
+### 审视处置记录（delta 轮，方案检视獭）
+
+| 发现 | 级别 | 处置 |
+|---|---|---|
+| D7 门禁锚定源未钉死（(c) 字面实现 = 纯扫码门禁全开） | 必修 | ✅ D7 改双层锚：称谓全局首号 + 命令门禁每线 `new PartnerResolver(线owner, 首号owner?)` 双锚（排除 (c)）；第二扫码人命令预期写入手测清单 |
+| A 出站 key 双重前缀 | 建议 | ✅ 直接用 botKey 做键（channel-status 同源） |
+| B 同号拒绝路径孤儿 app | 建议 | ✅ 拒绝 → DELETE 自动删（含停 WS+释放） |
+| C 工厂提参范围仍欠准 | 建议 | ✅ 修正为吸收 createFeishuBundle(:310-328)+setupFeishu(:341-414) 两段 |
+| D 手测缺第二扫码人 | 建议 | ✅ 补场景与预期（称呼链/标签/门禁三断言） |
+
 省事声明审计：本方案「对齐微信模式复制组件」类表述——省掉的是前端交互设计与状态机设计的从零成本，代价由「微信/飞书组件相似但不共享」承担（两份代码各自演化），主人明确（本项目 IM 页已接受 QRCodeLoginCard 单例形态，复制是既定模式而非新债）。
 
 ## 验证
@@ -198,7 +209,7 @@ onSuccess({appId, appSecret, ownerOpenId})
 - 集成：扫码 onSuccess 全链（mock registerApp）→ store 落库 → resolver 写锚 → runtime 注册 → 出站定向
 - 实测三清单（真机）：p2p 收发 / 群 @ 收发 / 事件到达 WS
 - 存量回归：config.yaml 静态 app 路径测试全绿（装配重构+键控出站行为等价）
-- 手测清单：真机扫码 → p2p 对话 → 海獭回复带 [搭档(称呼)]（首号锚生效）→ 删除账号 → WS 停止+出站通道注销
+- 手测清单：真机扫码 → p2p 对话 → 海獭回复带 [搭档(称呼)]（首号锚生效）→ 删除账号 → WS 停止+出站通道注销；**第二扫码人场景（delta D）**：joy 扫码建自己线 → 称呼链出 [joy]（线 owner metadata 生效）→ 标签显「访客+joy」（非「搭档」，D7 称谓遗留）→ 命令门禁：joy 在自己线可跑命令（每线 owner 锚），陌生人被拦（「这些命令暂时不对所有人开放哦」）——防实现期误「修」或误判 bug
 
 ## 改动范围
 
