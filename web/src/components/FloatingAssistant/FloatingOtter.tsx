@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import type { OtterMood } from './global-conversation-store'
 
 /**
@@ -8,10 +7,9 @@ import type { OtterMood } from './global-conversation-store'
  * - look 张望：左右探头（rotate ±6°）
  * - bubble 冒泡：红点（未读数）+ 轻跳
  * 位置/拖动状态由宿主（FloatingAssistant）经 props 注入——獭与面板共享同一份。
+ * F20260928waf1 P2：hover 快捷气泡（三条「随便问点什么」）移除——实测反馈多余，
+ * 交互简化为「点击獭=开面板」，无中间层
  */
-
-/** 快捷问句（SG3 静态——不做上下文感知） */
-const QUICK_PROMPTS = ['帮我总结下今天的进展', '这个报错是什么意思？', '给我讲讲这个项目']
 
 const MOOD_LABEL: Record<OtterMood, string> = {
   sleep: '睡觉（全空闲）',
@@ -26,16 +24,13 @@ export interface FloatingOtterProps {
   open: boolean
   /** 点击獭（点击/拖动分离已在宿主完成——这里只收「确定为点击」的回调） */
   onToggle: () => void
-  /** 快捷问句点击（展开面板并预填） */
-  onQuickPrompt: (text: string) => void
   position: { x: number; y: number }
   dragging: boolean
   onPointerDown: (e: React.PointerEvent) => void
 }
 
 export function FloatingOtter(props: FloatingOtterProps) {
-  const { mood, unreadCount, open, onToggle, onQuickPrompt, position, dragging, onPointerDown } = props
-  const [hovered, setHovered] = useState(false)
+  const { mood, unreadCount, open, onToggle, position, dragging, onPointerDown } = props
 
   return (
     <div
@@ -45,8 +40,6 @@ export function FloatingOtter(props: FloatingOtterProps) {
       aria-label={`浮动獭（${MOOD_LABEL[mood]}）`}
       className="fixed z-50 select-none touch-none"
       style={{ left: position.x, top: position.y, width: 56, height: 56 }}
-      onPointerEnter={() => setHovered(true)}
-      onPointerLeave={() => setHovered(false)}
       onPointerDown={onPointerDown}
     >
       {/* 獭本体（点击=展开/收起；拖动位移<6px 判点击由宿主 dragging 状态抑制） */}
@@ -77,29 +70,6 @@ export function FloatingOtter(props: FloatingOtterProps) {
           <span className="absolute -top-2 right-0 text-stone-400 text-xs font-bold animate-otter-zz" aria-hidden>zZ</span>
         )}
       </button>
-
-      {/* hover 快捷气泡（非拖动、非展开时） */}
-      {hovered && !dragging && !open && (
-        <div
-          data-testid="floating-otter-hover-card"
-          className="absolute bottom-full mb-3 right-0 w-56 rounded-2xl bg-white/95 backdrop-blur shadow-xl
-            border border-white/60 p-3 animate-otter-pop"
-          onPointerEnter={() => setHovered(true)}
-        >
-          <div className="text-[11px] text-stone-400 mb-2">随便问点什么</div>
-          {QUICK_PROMPTS.map(q => (
-            <button
-              key={q}
-              type="button"
-              data-testid="floating-otter-quick-prompt"
-              className="block w-full text-left text-xs text-stone-600 hover:bg-teal-50 rounded-lg px-2 py-1.5 truncate"
-              onClick={e => { e.stopPropagation(); onQuickPrompt(q) }}
-            >
-              {q}
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   )
 }

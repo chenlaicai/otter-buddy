@@ -67,6 +67,8 @@ export interface UseFloatingOtterResult {
     onKeyDown: (e: React.KeyboardEvent) => void
     onPanelPointerDown: (e: React.PointerEvent) => void
   }
+  /** 面板根元素 ref（宿主绑定到 AssistantPanel 根——点外收起判定的「内」边界） */
+  panelRef: React.RefObject<HTMLDivElement | null>
 }
 
 /** 默认快捷键字母（settings 页可改，localStorage floating-otter:hotkey） */
@@ -90,6 +92,9 @@ export function useFloatingOtter(): UseFloatingOtterResult {
   const [position, setPosition] = useState<OtterPosition>(() => loadOtterPosition() ?? defaultOtterPosition())
   const [dragging, setDragging] = useState(false)
   const dragStateRef = useRef<{ startX: number; startY: number; origin: OtterPosition; moved: boolean } | null>(null)
+  // F20260928waf1 P1 修复：panelRef 从「定义未绑定」改为经 return 暴露，由宿主绑到面板根元素。
+  // 此前 panelRef 恒 null → panelRef.current?.contains(target) 恒 undefined → 点面板内部
+  // （含输入框）被判为「外部」→ 收起——用户点输入框弹窗即消失的根因
   const panelRef = useRef<HTMLDivElement | null>(null)
 
   // ⌘J 全局监听（capture 阶段——避免输入框 stopPropagation 吞掉）
@@ -175,5 +180,5 @@ export function useFloatingOtter(): UseFloatingOtterResult {
     onPanelPointerDown: () => { /* 面板内按下不冒泡处理（点外收起由 document listener 判定） */ },
   }
 
-  return { open, setOpen, toggle, position, dragging, bindDrag, bindGlobal }
+  return { open, setOpen, toggle, position, dragging, bindDrag, bindGlobal, panelRef }
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, forwardRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { X, ArrowUpRight, Loader2 } from 'lucide-react'
 import * as api from '../../api/client'
@@ -23,9 +23,6 @@ export interface AssistantPanelProps {
   ensureError: string | null
   onRetryEnsure: () => void
   onClose: () => void
-  /** 快捷问句预填（宿主传入，消费后清空） */
-  initialDraft: string | null
-  onDraftConsumed: () => void
 }
 
 interface PanelMessage {
@@ -36,8 +33,8 @@ interface PanelMessage {
   ts: string
 }
 
-export function AssistantPanel(props: AssistantPanelProps) {
-  const { conversationId, ensuring, ensureError, onRetryEnsure, onClose, initialDraft, onDraftConsumed, style } = props
+export const AssistantPanel = forwardRef<HTMLDivElement, AssistantPanelProps>(function AssistantPanel(props, ref) {
+  const { conversationId, ensuring, ensureError, onRetryEnsure, onClose, style } = props
   const navigate = useNavigate()
   const [messages, setMessages] = useState<PanelMessage[]>([])
   const [input, setInput] = useState('')
@@ -66,15 +63,6 @@ export function AssistantPanel(props: AssistantPanelProps) {
     }).catch(() => { if (!cancelled) setHistoryLoaded(true) })
     return () => { cancelled = true }
   }, [conversationId])
-
-  // 快捷问句预填
-  useEffect(() => {
-    if (initialDraft) {
-      setInput(initialDraft)
-      onDraftConsumed()
-      inputRef.current?.focus()
-    }
-  }, [initialDraft, onDraftConsumed])
 
   // 自动滚底
   useEffect(() => {
@@ -137,6 +125,7 @@ export function AssistantPanel(props: AssistantPanelProps) {
 
   return (
     <div
+      ref={ref}
       data-testid="assistant-panel"
       role="dialog"
       aria-label="web 助理面板"
@@ -249,6 +238,6 @@ export function AssistantPanel(props: AssistantPanelProps) {
       </div>
     </div>
   )
-}
+})
 
 export default AssistantPanel

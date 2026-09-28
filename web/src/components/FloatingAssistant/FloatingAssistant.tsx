@@ -29,13 +29,12 @@ export function FloatingAssistant(props: FloatingAssistantProps) {
   const { enabled } = props
   const mood = useOtterMood()
   const { conversations } = useGlobalConversationSnapshot()
-  const { open, setOpen, toggle, position, dragging, bindDrag } = useFloatingOtter()
+  const { open, setOpen, toggle, position, dragging, bindDrag, panelRef } = useFloatingOtter()
 
   /** web 助理对话 id（null = 尚无） */
   const [webConvId, setWebConvId] = useState<string | null>(null)
   const [ensuring, setEnsuring] = useState(false)
   const [ensureError, setEnsureError] = useState<string | null>(null)
-  const [initialDraft, setInitialDraft] = useState<string | null>(null)
 
   // 全局轮询数据中查找 web 助理对话（首个 active 的 kind=web-assistant）
   const polledConv = conversations.find(c => c.kind === 'web-assistant')
@@ -76,11 +75,6 @@ export function FloatingAssistant(props: FloatingAssistantProps) {
     toggle()
   }, [toggle])
 
-  const handleQuickPrompt = useCallback((text: string) => {
-    setInitialDraft(text)
-    setOpen(true)
-  }, [setOpen])
-
   /** 面板定位：獭位上方右对齐，视口 clamp（獭太靠上时改到下方）。
    *  Why 直接放 AssistantPanel：零尺寸 fixed 容器 + top/right 锚点会让子元素
    *  向右溢出视口（e2e 实测 x=1256 + 380 > 1280）——面板自带 fixed 定位才正确 */
@@ -101,21 +95,19 @@ export function FloatingAssistant(props: FloatingAssistantProps) {
         unreadCount={unreadTotal}
         open={open}
         onToggle={handleToggle}
-        onQuickPrompt={handleQuickPrompt}
         position={position}
         dragging={dragging}
         onPointerDown={bindDrag.onPointerDown}
       />
       {open && (
         <AssistantPanel
+          ref={panelRef}
           style={panelStyle}
           conversationId={webConvId}
           ensuring={ensuring && !webConvId}
           ensureError={ensureError}
           onRetryEnsure={() => { setEnsureError(null); void ensureConversation() }}
           onClose={() => setOpen(false)}
-          initialDraft={initialDraft}
-          onDraftConsumed={() => setInitialDraft(null)}
         />
       )}
     </>
