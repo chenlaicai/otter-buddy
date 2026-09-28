@@ -130,6 +130,6 @@ describe("sleep 工具化：先 speak 再 wait（真系统 + 真 LLM）", () => 
         ok: converged && calledWait && timing.ok,
         detail: `converged=${converged} wait=${calledWait} timing=${timing.detail} tools=${JSON.stringify(toolNames)}`,
       };
-    });
+    }, { budgetMs: 480_000, sampleWorstMs: 270_000 }); // #1187 预算护栏（240s deadline + 轮询余量；3×270+120 → 帽 600s 容不下全最坏，靠前瞻截停撞帽采样）
   }, 600_000);
 });
