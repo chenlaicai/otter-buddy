@@ -276,6 +276,20 @@ describe('mergeInvokesFromServer · cache-model', () => {
     const bad: InvokeStates = { [otterA]: { invokeId: 'inv-x', otterId: otterA, status: 'running', startedAt: '' } }
     expect(mergeInvokesFromServer(bad, [rec()])).toBe(bad)
   })
+
+  it('T9 ctx 回填：服务端 ctxWindowUsed 为 null 时保留本地上一轮值（不闪「—/—」）', () => {
+    // 场景：新 invoke 首个 message_end 落库前服务端 ctx 尚为 null；本地上一轮已有 45.2k
+    const states: InvokeStates = {
+      [otterA]: { invokeId: 'inv-old', otterId: otterA, status: 'running', startedAt: '2026-09-28T01:00:00.000Z', ctxWindowUsed: 45200, ctxMax: 128000 },
+    }
+    const next = mergeInvokesFromServer(states, [rec({ status: 'completed', endedAt: '2026-09-28T02:05:00.000Z' })])
+    // 覆盖发生（服务端更新胜出），但 ctx 保留本地上一轮值——与 applyInvokeStart 跨 invoke 保留语义对齐
+    expect(next[otterA].invokeId).toBe('inv-new')
+    expect(next[otterA].ctxWindowUsed).toBe(45200)
+    // 服务端有值时正常写入（不回退服务端真实数据）
+    const withCtx = mergeInvokesFromServer(states, [rec({ status: 'completed', endedAt: '2026-09-28T02:05:00.000Z', ctxWindowUsed: 51000 })])
+    expect(withCtx[otterA].ctxWindowUsed).toBe(51000)
+  })
 })
 
 describe('fmtInvokeElapsed / fmtTokens', () => {
