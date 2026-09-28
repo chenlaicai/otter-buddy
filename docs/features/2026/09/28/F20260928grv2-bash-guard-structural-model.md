@@ -36,7 +36,7 @@ intent:
     误伤）的误拦面归零；kill 0（#1169）与 bash<file（U5）纳入拦截；V1 的
     234 用例语义 100% 保持（双向锁）。
   verify_by:
-    type: test_only
+    type: capability_test
     note: >
       四层测试：词法 golden 35 + 模型结构 24 + V1 基线 234（零红保持）+ V2 白名单
       39 + 真实拦截回放 9。红绿双向：禁用模型判定入口 → V2 白名单 8 用例红；
