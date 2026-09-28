@@ -47,7 +47,7 @@ describe("buildToolDescriptionOverrides", () => {
     expect(overrides[0].description).toContain("git");
   });
 
-  // F20260922slan L0：bash 描述追加 wait 软引导
+  // F20260928slan L0：bash 描述追加 wait 软引导
   it("bash 覆写含 L0 wait 引导（Waiting: use the wait tool）", () => {
     const base = buildBase();
     const overrides = buildToolDescriptionOverrides(base, ["bash"]);

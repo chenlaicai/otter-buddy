@@ -385,7 +385,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-/** wait 参数边界（方案 F20260922slan）：per-event 熔断 maxPerEventTimeMs 默认 600s——
+/** wait 参数边界（方案 F20260928slan）：per-event 熔断 maxPerEventTimeMs 默认 600s——
  *  seconds 上限对齐 600（不豁免计时，防 wait 成熔断逃逸通道）；带 until 时 ≤560
  *  （预算闭合留 ε 裕量：seconds + until 30s + ε ≤ 600，D3/D6——570+30 压线 race）。 */
 const WAIT_SECONDS_MIN = 5;
@@ -467,10 +467,10 @@ function buildWaitEcho(reason: string | undefined, seconds: number, untilResultT
   return textResponse(`${reasonEcho}\n已等待 ${seconds} 秒。${untilResultText}`);
 }
 
-/** F20260922slan：wait 工具——等待指定时长（替代裸 sleep），理由自证 + 可选苏醒检查。
+/** F20260928slan：wait 工具——等待指定时长（替代裸 sleep），理由自证 + 可选苏醒检查。
  *  定位：感知问题的正道工具（非安全授权闸）。reason 可选靠描述+回显引导；until 可选苏醒检查
  *  命令（过守卫主链 + 禁元字符，execFileAsync 无 shell 展开）——终结「sleep 完再查一次」两拍心智。
- *  详见方案文档 F20260922slan。 */
+ *  详见方案文档 F20260928slan。 */
 function createWaitTool(logger?: Logger): AgentTool {
   return {
     name: "wait",

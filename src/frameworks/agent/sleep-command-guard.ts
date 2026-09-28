@@ -1,5 +1,5 @@
 /**
- * F20260922slan：sleep 命令检测（独立规则模块，自 bash-safety-guard.ts 拆出控文件行数）。
+ * F20260928slan：sleep 命令检测（独立规则模块，自 bash-safety-guard.ts 拆出控文件行数）。
  *
  * 痛点锚：海獭裸跑 `sleep 30 && gh pr checks` 对搭档是长时间静默黑盒（搭档原话：
  * 「我只感觉到海獭一直没说话、然后执行很长一段时间」）。收编哲学（梯度分层）：
@@ -92,7 +92,7 @@ export function checkSleepCommand(
   return SLEEP_REASON_PREFIX + buildSleepBlockMessage(`${totalSeconds} 秒`);
 }
 
-/** F20260922slan：剥离 sleep 拦截标记（若带标记）。标记只存在于守卫内部传输，
+/** F20260928slan：剥离 sleep 拦截标记（若带标记）。标记只存在于守卫内部传输，
  *  对外（含诊断文案）一律是干净文案——发射点据原始标记决定 `bash_sleep:` 前缀。
  *  判定用 startsWith（delta-3 备注：精确匹配，禁用 includes）。 */
 export function stripSleepMarkerIfPresent(reason: string): string {

@@ -30,7 +30,7 @@ export type RetryKind =
   | "first_byte_timeout"
   | "circuit_break"
   | "bash_safety"
-  | "bash_sleep"; // F20260922slan：sleep 拦截重试（感知问题域，与 kill 域 bash_safety 分流记账）
+  | "bash_sleep"; // F20260928slan：sleep 拦截重试（感知问题域，与 kill 域 bash_safety 分流记账）
 
 /** 一次 invoke attempt 的退出画像 */
 export interface InvokeOutcomeRecord {

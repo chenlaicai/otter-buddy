@@ -23,7 +23,7 @@ import { createTestLogger } from "../helpers/logger";
 import { mockSendEntry } from "../helpers/mock-send-entry";
 
 const GUARD_REASON = "bash_safety:bash 命令包含针对主进程 PID 的终止命令。主进程是海獭运行环境，任何情况下不得终止。";
-/** F20260922slan：sleep 域 guard reason（验证 orchestrator 三门对 bash_sleep: 适配） */
+/** F20260928slan：sleep 域 guard reason（验证 orchestrator 三门对 bash_sleep: 适配） */
 const SLEEP_GUARD_REASON = "bash_sleep:检测到你使用了 sleep 等待（约 30 秒）。裸 sleep 会让搭档看到长时间静默黑盒。请先 speak 说明你要等什么、为什么要等这么久，然后改用 wait 工具。";
 
 function makeSession(overrides: Partial<OtterSession> = {}): OtterSession {
@@ -295,7 +295,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     expect(abortedInvoke).toBeTruthy();
   });
 
-  /** F20260922slan D5b：sleep 域（bash_sleep:）纳入 #731 bounce——orchestrator 三门适配验证 */
+  /** F20260928slan D5b：sleep 域（bash_sleep:）纳入 #731 bounce——orchestrator 三门适配验证 */
   it("GB-sleep：sleep 域二拦终态 → 自动回发（bounce 门对 bash_sleep: 开启）→ 回发后自纠成功闭环", async () => {
     const sendEntry = mockSendEntry();
     const healing = mockHealingRepo();

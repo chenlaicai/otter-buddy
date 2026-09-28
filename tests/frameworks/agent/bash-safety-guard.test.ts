@@ -1452,9 +1452,9 @@ describe("F20260923qbsw 补充：排查期高频只读命令误拦回归（9/23 
   });
 });
 
-// ─── F20260922slan V1：sleep 检测边界全集 ───
+// ─── F20260928slan V1：sleep 检测边界全集 ───
 
-describe("checkBashCommandSafety - sleep 检测（F20260922slan）", () => {
+describe("checkBashCommandSafety - sleep 检测（F20260928slan）", () => {
   const mainPid = 42877;
 
   it("`sleep 30 && gh pr checks`（典型轮询形态）→ 拦", () => {

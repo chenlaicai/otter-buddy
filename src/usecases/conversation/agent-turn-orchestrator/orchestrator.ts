@@ -463,7 +463,7 @@ export class AgentTurnOrchestrator {
   }
 
   /** 从 ExitReason 判断是否应走 #731 guard bounce（终态前最后一道判定，独立降复杂度）
-   *  F20260922slan：`bash_sleep:` 纳入 bounce 全链（与 kill 域同纪律——拦截是反馈信号
+   *  F20260928slan：`bash_sleep:` 纳入 bounce 全链（与 kill 域同纪律——拦截是反馈信号
    *  不是断头台，顽固裸 sleep 也应见人；多类命令共享同一额度，混类共用 GUARD_BOUNCE_MAX）。 */
   private shouldGuardBounce(guardReason: string, retryCount: number): boolean {
     return (guardReason.startsWith('bash_safety:') || guardReason.startsWith('bash_sleep:'))
@@ -845,7 +845,7 @@ export class AgentTurnOrchestrator {
   }
 
   /** F20260831aksp T3：bash 守卫二拦终态判定（自 abortTerminal 拆出控复杂度）。
-   *  F20260922slan：`bash_sleep:` 同列——sleep 二拦终态归类不漂移。 */
+   *  F20260928slan：`bash_sleep:` 同列——sleep 二拦终态归类不漂移。 */
   private isGuardBounceTerminal(ctx: TerminalContext): boolean {
     return ctx.kind === 'guard'
       && !!ctx.guardReason
@@ -1122,7 +1122,7 @@ export class AgentTurnOrchestrator {
       return;
     }
     if (isRetryableGuardAbort(reason.guardReason)) {
-      // F20260922slan：`bash_sleep:` 补记账分支——否则落 else 把整段拦截文案当指标标签
+      // F20260928slan：`bash_sleep:` 补记账分支——否则落 else 把整段拦截文案当指标标签
       const kind = reason.guardReason.startsWith('circuit_break:')
         ? 'circuit_break'
         : reason.guardReason.startsWith('bash_safety:')

@@ -1,5 +1,5 @@
 ---
-id: F20260922slan
+id: F20260928slan
 title: sleep 工具化：bash 守卫拦截裸 sleep + wait 工具封装（理由自证 + 可选苏醒检查）
 summary: 海獭裸跑 bash sleep 对搭档是长时间静默黑盒。按梯度哲学收编：bash 守卫拦截 sleep 命令并指向 wait 工具；wait 工具参数带 reason（不强制，靠描述+回显引导），可选 until 苏醒检查（过守卫、禁元字符）终结轮询心智。拦截力度已经搭档拍板：硬拦 abort（merge_pr 同型，doAbort `bash_sleep:` 专属前缀 + retry-policy 新增 sleep 文案分支）。
 change_type: feature

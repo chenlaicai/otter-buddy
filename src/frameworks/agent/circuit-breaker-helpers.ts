@@ -277,7 +277,7 @@ export function attachCircuitBreaker(
   });
 
   /** bash 守卫判定 + abort 发射（自 subscribe 回调拆出控复杂度）。
-   *  F20260922slan：sleep 拦截（感知问题）与 kill 域（安全问题）前缀分流——守卫返回带
+   *  F20260928slan：sleep 拦截（感知问题）与 kill 域（安全问题）前缀分流——守卫返回带
    *  SLEEP_REASON_PREFIX 标记的 reason 时发射 `bash_sleep:`，否则 `bash_safety:`。判定用
    *  startsWith（delta-3 备注：精确匹配，禁用 includes），此发射点是 `bash_sleep:` 的唯一产源（D5a）。 */
   function abortOnUnsafeBash(command: string, toolCallId?: string): boolean {

@@ -232,9 +232,9 @@ describe("buildUserAbortBody（F20260913ctlv：只写确证内容，不写根因
   });
 });
 
-// ─── F20260922slan V5：bash_sleep 前缀全链 ───
+// ─── F20260928slan V5：bash_sleep 前缀全链 ───
 
-describe("bash_sleep: 分支（F20260922slan）", () => {
+describe("bash_sleep: 分支（F20260928slan）", () => {
   it("isRetryableGuardAbort: bash_sleep:* 可重试（一次自纠机会，同 bash_safety 纪律）", () => {
     expect(isRetryableGuardAbort("bash_sleep:sleep detected")).toBe(true);
   });

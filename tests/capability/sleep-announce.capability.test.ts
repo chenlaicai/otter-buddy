@@ -1,5 +1,5 @@
 /**
- * F20260922slan V4：sleep 工具化行为验证（capability / Golden Gate）。
+ * F20260928slan V4：sleep 工具化行为验证（capability / Golden Gate）。
  *
  * verify_by: capability_test（intent 块声明）——模拟獭需要等待的场景，
  * 断言其行为收敛：先 speak 说明理由，再调 wait 工具（而非裸 bash sleep ≥5s）。

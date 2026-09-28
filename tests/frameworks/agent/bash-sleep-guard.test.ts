@@ -1,5 +1,5 @@
 /**
- * F20260922slan V5：bash_sleep 前缀全链测试。
+ * F20260928slan V5：bash_sleep 前缀全链测试。
  *
  * 验证 delta-2 D5 的 6 消费点闭合：
  * - 发射点（circuit-breaker-helpers）：守卫返回带标记的 sleep reason → doAbort(`bash_sleep:`)，

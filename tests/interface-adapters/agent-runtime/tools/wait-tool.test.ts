@@ -1,5 +1,5 @@
 /**
- * F20260922slan V2：wait 工具行为测试。
+ * F20260928slan V2：wait 工具行为测试。
  *
  * 验证方案「L2：wait 工具」execute 实现：
  * - seconds ∈ [5,600]（<5 / >600 拒绝）
@@ -49,7 +49,7 @@ async function runWait(tool: ReturnType<typeof findWait>, params: Record<string,
   return execPromise;
 }
 
-describe("F20260922slan wait 工具", () => {
+describe("F20260928slan wait 工具", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     execFileMock.mockReset();
