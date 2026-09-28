@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- F20260928slan：sleep 检测已拆至 sleep-command-guard.ts；本文件随 kill/merge/data 安全规则持续自然增长（F20260830bsgr→F20260922scwd 五次特性叠加），行数上限与「多规则单文件」架构冲突 */
 /**
  * Bash 命令安全守卫（F20260830bsgr）。
  *
@@ -16,6 +17,10 @@ import type { Logger } from "@usecases/ports/logger";
 import { loadAllowedServicePorts, extractWhitelistedPortRefs, type AllowedService } from "./allowed-service-ports";
 import { shouldSanitizeForScan, sanitizeQuotedText, stripQuotedTextSpans, stripHeredocPayloads } from "./quoted-text-sanitizer";
 import { findKillSegments, isKillAtCommandPosition } from "./kill-segment-finder";
+
+/** F20260928slan：sleep 命令位置判定——复用 kill-segment-finder 的位置感知
+ * （isKillAtCommandPosition 对任意 pattern 通用，sleep 词元复用同一套位置白名单） */
+const isCommandPositionFor = (text: string, pattern: RegExp): boolean => isKillAtCommandPosition(text, pattern);
 import { allSegmentsGitReadonly } from "./git-readonly-whitelist";
 
 export type { AllowedService };
@@ -458,6 +463,7 @@ function checkDataDirDestructive(command: string, logger?: Logger, projectRoot?:
   return null;
 }
 
+/* eslint-disable-next-line complexity -- sleep 检测挂点（F20260928slan）新增一分支：V1 判定链原 12 分支 + sleep 检测，合并后 13——每分支对应一条已断言语义 */
 function checkBashCommandSafetyOnText(
   text: string,
   mainPid: number,
@@ -473,6 +479,10 @@ function checkBashCommandSafetyOnText(
   // 提前判定，两路调用链（正常 / PID 缺失）都覆盖；抽函数控圈复杂度
   const pidFree = checkPidIndependentRules(text, logger, projectRoot);
   if (pidFree) return pidFree;
+  // F20260928slan：裸 sleep 静默等待检测——独立于 kill 域（感知问题非安全问题），
+  // 命中返回带 SLEEP_REASON_PREFIX 标记的文案，出口处由 checkBashCommandSafety 剥离标记
+  const sleepBlock = checkSleepCommand(text, logger, { isCommandPosition: isCommandPositionFor });
+  if (sleepBlock) return sleepBlock;
   // 全命令级高危模式检测（在分段前检查，防止 eval/pipe-to-shell 绕过分段检测）。
   // #918 检视严重 1：必须先于白名单放行——否则 `lsof -t -i:3100 | sh -c 'k...'` 类
   // 形态借白名单端口 lsof 做左段，跳过 pipe-to-shell 检测（defense-in-depth 失效）
@@ -755,13 +765,22 @@ export function checkBashCommandSafety(
   const sanitizedResult = checkSanitizedPath(heredocStripped, mainPid, logger, allowedServices, projectRoot);
   if (sanitizedResult === null) return null;
 
-  const result = checkBashCommandSafetyOnText(heredocStripped, mainPid, logger, allowedServices, projectRoot);
-  if (result) return withDiagnostics(result, command, mainPid);
+  // F20260928slan：sleep 拦截标记（SLEEP_REASON_PREFIX）保留至发射点——circuit-breaker-helpers
+  // 据此分流 `bash_sleep:` 前缀并自行剥离（此发射点是 bash_sleep: 唯一产源，D5a）。诊断文案用干净文案。
+  const scan = (text: string): string | null => {
+    const r = checkBashCommandSafetyOnText(text, mainPid, logger, allowedServices, projectRoot);
+    if (!r) return null;
+    return r.startsWith(SLEEP_REASON_PREFIX)
+      ? SLEEP_REASON_PREFIX + withDiagnostics(stripSleepMarkerIfPresent(r), text, mainPid)
+      : withDiagnostics(r, text, mainPid);
+  };
+  const result = scan(heredocStripped);
+  if (result) return result;
 
   const normalized = normalizeForDetection(heredocStripped);
-  if (normalized !== heredocStripped) {
-    const nResult = checkBashCommandSafetyOnText(normalized, mainPid, logger, allowedServices, projectRoot);
-    return nResult ? withDiagnostics(nResult, normalized, mainPid) : null;
-  }
-  return null;
+  return normalized !== heredocStripped ? scan(normalized) : null;
 }
+
+// F20260928slan：sleep 检测拆至 sleep-command-guard.ts（控文件行数）——import + re-export 保持 API 稳定
+import { checkSleepCommand, SLEEP_REASON_PREFIX, stripSleepMarkerIfPresent } from "./sleep-command-guard";
+export { SLEEP_REASON_PREFIX, stripSleepMarkerIfPresent };
