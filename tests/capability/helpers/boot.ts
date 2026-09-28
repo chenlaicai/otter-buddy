@@ -17,6 +17,7 @@ import { initFauxModels } from "../../../src/frameworks/llm/models-factory";
 import { ModelPool } from "../../../src/frameworks/llm/model-pool";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import { createTestLogger } from "../../helpers/logger";
+import { spawnSync } from "node:child_process";
 
 export interface CapabilityContext {
   built: BuiltApp;
@@ -101,6 +102,28 @@ function resolveTestConfig(tmpDir: string): AppConfig {
   /** vitest fork 的 execArgv（--conditions development 等）会被 worker 线程继承，
    *  导致 worker 内 @huggingface/transformers 解析到非生产构建、推理挂起。必须清空。 */
   config.embedding.workerExecArgv = [];
+
+  /** #984：localModelPath 绝对化。capability 会把 cwd chdir 到 tmp 沙箱（防 agent 工具写真仓），
+   *  而 worker 内 transformers.js 的 env.localModelPath 在沙箱 cwd 下解析 —— 相对路径 ./models
+   *  在沙箱里不存在，模型加载 fetch failed、embedding 永不 ready。
+   *  解析策略与 scripts/download-bge-m3.mjs resolveModelDir 对齐：worktree 场景复用主仓 models。 */
+  if (config.embedding.localModelPath) {
+    const candidate = path.resolve(root, config.embedding.localModelPath);
+    if (fs.existsSync(candidate)) {
+      config.embedding.localModelPath = candidate;
+    } else {
+      // worktree 场景：git rev-parse --git-common-dir 返回主仓 .git，其父目录即主仓根
+      try {
+        const commonDir = spawnSync("git", ["rev-parse", "--git-common-dir"], { encoding: "utf8", cwd: root }).stdout?.trim();
+        if (commonDir) {
+          const mainRepoModels = path.resolve(root, commonDir, "..", "models");
+          if (fs.existsSync(path.join(mainRepoModels, "bge-m3"))) {
+            config.embedding.localModelPath = mainRepoModels;
+          }
+        }
+      } catch { /* git 不可用则保留原相对路径，走原有失败路径 */ }
+    }
+  }
 
   return config;
 }
