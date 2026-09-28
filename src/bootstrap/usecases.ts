@@ -121,7 +121,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
     repos.otter,
     invokeRepo,
   );
-  const sendEntry = new SendEntry(entryRepo, invokeRepo, repos.otter, repos.conversation, { logger, resolveDeps });
+  const sendEntry = new SendEntry(entryRepo, invokeRepo, repos.otter, repos.conversation, { logger, resolveDeps, ...(memoryIndex ? { memoryIndex } : {}) });
   return {
     manageConversation, manageMemory, manageTerminology, searchMemory, scanDarkEntries,
     queryMessage, manageReadState, manageParticipant, manageKeyInfo, recordSearchQuery,

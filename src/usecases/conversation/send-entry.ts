@@ -25,9 +25,12 @@ import type { EntryRepository } from "./entry-repository";
 import type { InvokeRepository } from "./invoke-repository";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { ConversationRepository } from "./conversation-repository";
+import type { MemoryIndexGateway } from "./memory-index-gateway";
 import type { Logger } from "@usecases/ports/logger";
 import { resolveSpeakerName } from "./speaker-resolver";
 import { resolveSendTargets, type ResolveTargetsDeps } from "./resolve-send-targets";
+import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
+import { projectAttachments } from "@entities/conversation/attachment-projection";
 
 /** 用户发送条目输入 */
 export interface SendUserEntryInput {
@@ -115,13 +118,34 @@ export class SendEntry {
     private readonly otterRepo: OtterRepository,
     private readonly conversationRepo: ConversationRepository,
     /** F20260913ctlv 彻底切换：logger + 目标解析依赖（未注入 resolveDeps 时 sendUserEntry
-     *  不解析目标，由入口预解析；logger 独立成字段以保持构造 ≤5 参） */
-    private readonly aux: { logger: Logger; resolveDeps?: ResolveTargetsDeps },
+     *  不解析目标，由入口预解析；logger 独立成字段以保持构造 ≤5 参）
+     *  #1191（F20260929rmix）：memoryIndex —— #886 删旧 SendMessage 时三处 indexMessage
+     *  调用随消息体消失，9/13 后对话正文不再入记忆（search_memory 失明 15 天）。
+     *  此处接回：user/speak 落库后非阻断索引（语义对齐旧 SendMessage：
+     *  user 侧 buildIndexBody 含附件投影，speak/abort 侧剥 html-card 围栏） */
+    private readonly aux: { logger: Logger; resolveDeps?: ResolveTargetsDeps; memoryIndex?: MemoryIndexGateway },
   ) {
     this.logger = aux.logger;
+    this.memoryIndex = aux.memoryIndex;
   }
 
   private readonly logger: Logger;
+  private readonly memoryIndex?: MemoryIndexGateway;
+
+  /** #1191：索引消息正文到记忆系统（非阻断——失败仅 warn，文字优先送达）。
+   *  sourceId = entry.id（#942 ID 统一后投影主键即源 id，幂等对齐） */
+  private async indexEntryBody(entryId: string, conversationId: string, body: string): Promise<void> {
+    if (!this.memoryIndex) return;
+    try {
+      await this.memoryIndex.indexMessage(entryId, conversationId, body);
+    } catch (err) {
+      this.logger.warn("Failed to index entry body to memory (non-fatal)", {
+        entryId,
+        conversationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   /**
    * 用户发送条目（立即 completed）。
@@ -130,15 +154,7 @@ export class SendEntry {
    */
   async sendUserEntry(input: SendUserEntryInput): Promise<{ entry: Entry; talkingStonePassedTo: string[]; mentionFeedback?: string }> {
     /** 目标解析：显式目标直用；空则走默认派发链（resolveDeps 未注入时空数组——入口必须预解析） */
-    let talkingStonePassedTo = input.talkingStonePassedTo ?? [];
-    let mentionFeedback: string | undefined;
-    if (talkingStonePassedTo.length === 0 && this.aux.resolveDeps) {
-      const resolved = await resolveSendTargets({
-        deps: this.aux.resolveDeps, logger: this.logger, conversationId: input.conversationId, explicit: [], body: input.body, senderType: "user",
-      });
-      talkingStonePassedTo = resolved.targets;
-      mentionFeedback = resolved.feedback;
-    }
+    const { talkingStonePassedTo, mentionFeedback } = await this.resolveTargetsOrPass(input);
 
     const now = new Date().toISOString();
     const entry: Entry = {
@@ -193,7 +209,30 @@ export class SendEntry {
       talkingStonePassedTo,
     });
 
+    // #1191（F20260929rmix）：索引 user 正文到记忆（旧 SendMessage buildIndexBody 同构：
+    // 剥 html-card 围栏 + 附件占位投影行；非阻断）
+    await this.indexEntryBody(result.id, input.conversationId, this.buildUserIndexBody(input.body, result.attachments ?? []));
+
     return { entry: result, talkingStonePassedTo, mentionFeedback };
+  }
+
+  /** #1191：user 侧索引正文 = 剥围栏正文 + 附件占位投影行（旧 SendMessage buildIndexBody 同构） */
+  private buildUserIndexBody(body: string, attachments: Entry["attachments"]): string {
+    const projection = projectAttachments(attachments ?? []);
+    const stripped = stripHtmlCardFences(body);
+    return projection ? `${stripped}\n${projection}` : stripped;
+  }
+
+  /** 目标解析：显式目标直用；空则走默认派发链（resolveDeps 未注入时空数组——入口必须预解析） */
+  private async resolveTargetsOrPass(input: SendUserEntryInput): Promise<{ talkingStonePassedTo: string[]; mentionFeedback?: string }> {
+    const explicit = input.talkingStonePassedTo ?? [];
+    if (explicit.length > 0 || !this.aux.resolveDeps) {
+      return { talkingStonePassedTo: explicit };
+    }
+    const resolved = await resolveSendTargets({
+      deps: this.aux.resolveDeps, logger: this.logger, conversationId: input.conversationId, explicit: [], body: input.body, senderType: "user",
+    });
+    return { talkingStonePassedTo: resolved.targets, mentionFeedback: resolved.feedback };
   }
 
   /** 组装 user entry metadata：显式 metadata / senderDisplayName / injectionMode 三者合并（可同存） */
@@ -301,6 +340,10 @@ export class SendEntry {
       invokeId: input.invokeId,
       otterId: input.otterId,
     });
+
+    // #1191（F20260929rmix）：索引 speak 正文到记忆（旧 SendMessage 同构：剥 html-card 围栏；
+    // 失败消息不索引——旧 abort 路径只索引带 body 的中断正文，此处 completed 语义）
+    await this.indexEntryBody(created.id, input.conversationId, stripHtmlCardFences(input.body));
 
     return { entry: created };
   }
