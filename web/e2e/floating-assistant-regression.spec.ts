@@ -61,7 +61,6 @@ test.describe('浮动獭交互回归（F20260928waf1）', () => {
     // regex 覆盖零 query/带 query/裸 ?，同时排除 /:id/entries 子路径
     await page.route(/\/api\/conversations(\?.*)?$/, async route => {
       // 一条普通对话 + 零 web 助理对话（空态独占视图只左栏不渲染——必须有一条才见分组）
-      // glob 不含 **，避免误匹配 /api/conversations/:id/entries 子路径（检视 S1）
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
