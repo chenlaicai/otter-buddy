@@ -16,7 +16,7 @@ import type { OtterContextWindowProvider } from "@usecases/ports/otter-context-w
 // F20260920uhuc：统一交接引擎（bootstrap=组合根，import frameworks 合法）
 import type { HandoffEngineDeps } from "../interface-adapters/agent-runtime/agent-invoker";
 import { buildNarrativeSynthesisPrompt, assembleHandoffArchive, buildMechanicalArchive, NARRATIVE_SYNTHESIS_TIMEOUT_MS, synthesisFullBudgetChars } from "@frameworks/agent/narrative-synthesis-engine";
-import { sliceSessionEntries, serializeKeptWindow } from "@frameworks/agent/session-slicer";
+import { sliceSessionEntries, serializeKeptWindow, setSliceLogger } from "@frameworks/agent/session-slicer";
 import { collectStateInventory, renderStateInventory } from "@frameworks/agent/state-inventory";
 import { scanWorkspaceFiles, renderFileTrail } from "@frameworks/agent/file-trail-extractor";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
@@ -92,6 +92,11 @@ export async function createAgentGateway(options: {
   workspaceGateway?: WorkspaceGateway;
 }): Promise<{ agentGateway: PiSessionFactory; resolveOtterToolClient: (client: OtterToolClient) => void; resolveManageScheduledTask: (mst: ManageScheduledTask) => void }> {
   const { repos, otterConfigProvider, model, modelPool, db, logger } = options;
+  // F20260928keep：切片观测锚接线（[keeprecent-slice] cut/density warn → 主日志）
+  setSliceLogger(fields => {
+    if ((fields as { level?: string }).level === 'warn') logger.warn('[keeprecent-slice] density drift warning', fields);
+    else logger.info('[keeprecent-slice] cut', fields);
+  });
   // Why: manageScheduledTask 在 initUseCases 之后才可用，用 mutable ref 延迟注入
   let manageScheduledTaskRef: ManageScheduledTask | null = null;
   // OtterToolClient 循环依赖：先注入空占位，initUseCases 后通过 resolveOtterToolClient 注入真实实例
