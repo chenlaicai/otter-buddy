@@ -1,5 +1,5 @@
 ---
-id: F20260923wtkx
+id: F20260928be9j
 title: capability 断言面桥接到 entries 直读（#984）
 change_type: fix
 created_in_conversation: d7377cfd-8497-4338-9fb5-366967ffe87e
