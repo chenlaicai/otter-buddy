@@ -41,6 +41,8 @@ import { AttachmentController } from "@interface-adapters/http/controllers/attac
 import { WorkspaceController } from "@interface-adapters/http/controllers/workspace-controller";
 import { WeixinConnectionController } from "@interface-adapters/http/controllers/weixin-connection-controller";
 import type { WeixinLoginSessionPort, WeixinAccountStorePort } from "@interface-adapters/http/controllers/weixin-connection-controller";
+import { FeishuConnectionController } from "@interface-adapters/http/controllers/feishu-connection-controller";
+import type { FeishuLoginSessionPort, FeishuAppStorePort } from "@interface-adapters/http/controllers/feishu-connection-controller";
 import { ChannelController } from "@interface-adapters/http/controllers/channel-controller";
 import { ActivityController } from "@interface-adapters/http/controllers/activity-controller";
 import type { ChannelStatusRegistry } from "@usecases/channel/channel-status";
@@ -91,6 +93,13 @@ export interface ControllerDeps {
   weixinLoginSessions?: WeixinLoginSessionPort;
   weixinAccountStore?: WeixinAccountStorePort;
   onWeixinAccountDeleted?: (accountId: string) => void | Promise<void>;
+  /** F20260928fsqr：飞书扫码连接管理句柄组（bootstrap/feishu-scan.ts 产出） */
+  feishuScan?: {
+    feishuLoginSessions: FeishuLoginSessionPort;
+    feishuAppStore: FeishuAppStorePort;
+    provisionFeishuAssistantLine: (appId: string, name: string) => Promise<{ conversationId: string; title: string }>;
+    onAppDeleted: (appId: string) => void | Promise<void>;
+  };
   /** F20260920imax：微信扫码后按名开助理线（app.ts 注入——依赖 AssistantSessionManager，
    *  controllers 层不直接引 usecases 装配产物，经 deps 闭包传递）。F20260928wxid：第三参 userName 可选——扫码人称呼存 connection.metadata */
   provisionWeixinAssistantLine?: (accountId: string, name: string) => Promise<{ conversationId: string; title: string }>;
@@ -157,11 +166,27 @@ function buildWeixinControllerInstance(
   });
 }
 
+/** F20260928fsqr：飞书扫码连接控制器装配（会话/store 任缺则 undefined——路由 404 兼容） */
+function buildFeishuScanControllerInstance(deps: ControllerDeps, repos: Repositories, logger: Logger): FeishuConnectionController | undefined {
+  const scan = deps.feishuScan;
+  if (!scan?.feishuLoginSessions || !scan.feishuAppStore) return undefined;
+  return new FeishuConnectionController({
+    loginSessions: scan.feishuLoginSessions,
+    appStore: scan.feishuAppStore,
+    provisionAssistantLine: scan.provisionFeishuAssistantLine,
+    onAppDeleted: scan.onAppDeleted,
+    ...(repos.connection && { connectionRepo: repos.connection }),
+    logger,
+  });
+}
+
 export function initControllers(deps: ControllerDeps, logger: Logger) {
   const { uc, repos, agentInvoker, appConfig, modelPool, settingsRepo, otterConfigProvider, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus, rhiScanWorker, signalRepo, healthSnapshotRepo, signalEventRepo, signalRouter } = deps;
 
   /** issue #566：微信连接控制器 */
   const weixinController = buildWeixinControllerInstance(deps, repos, logger);
+  /** F20260928fsqr：飞书扫码连接控制器 */
+  const feishuController = buildFeishuScanControllerInstance(deps, repos, logger);
 
   const settings = buildSettingsConfig(appConfig);
   const nodeFs = new NodeFileSystem();
@@ -220,6 +245,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
     workspace: uc.manageWorkspace ? new WorkspaceController(uc.manageWorkspace, logger) : undefined,
     // 微信连接管理（issue #566）——登录会话管理器注入时挂载
     weixin: weixinController,
+    feishuScan: feishuController,
     // 通道状态聚合端点（F20260901chun：统一 IM 页 + 真实健康状态）
     channel: buildChannelController(deps),
     // #576（F20260901emps）：能力库真数据源。测试环境（无 ResourceLoader）可省略，路由层优雅降级

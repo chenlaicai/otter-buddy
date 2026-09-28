@@ -39,6 +39,9 @@ import { FeishuAccessTokenManager } from "@frameworks/feishu/access-token-manage
 import { FeishuUserInfoClient } from "@frameworks/feishu/user-info-client";
 import { FeishuClient } from "@frameworks/feishu/client";
 import { FeishuLongConnectionClient } from "@frameworks/feishu/long-connection-client";
+import { botKey } from "@frameworks/feishu/bot-key";
+import { maskAppId } from "@frameworks/feishu/long-connection-client";
+import { FeishuAppStore } from "@frameworks/feishu/app-store";
 import { FeishuLongConnectionHandler } from "@interface-adapters/feishu/long-connection-handler";
 import { FeishuMessageProcessor } from "@interface-adapters/feishu/message-processor";
 import { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
@@ -140,7 +143,7 @@ export async function createAgentGateway(options: {
   };
 }
 
-export function createDispatchChainEngine(repos: Repositories, uc: UseCases, appConfig: AppConfig, logger: Logger, options?: { agentMetrics?: AgentMetricsPort; agentGateway?: PiSessionFactory }): DispatchChainEngine {
+export function createDispatchChainEngine(repos: Repositories, uc: UseCases, appConfig: AppConfig, logger: Logger, options?: { agentMetrics?: AgentMetricsPort; agentGateway?: PiSessionFactory; /** F20260928fsqr：渲染链 resolver 外置注入（全局实例——飞书扫码首号运行时写入 addPartnerId）；缺省内部构造（行为不变） */ partnerResolver?: PartnerResolver }): DispatchChainEngine {
   return new DispatchChainEngine({
     conversationRepo: repos.conversation,
     queryOtter: uc.queryOtter,
@@ -150,7 +153,8 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     metrics: options?.agentMetrics,
     // F20260826fpbd：搭档身份静态判定。appConfig.feishu 可选，未配置时 PartnerResolver 降级（动态推断）
     // F20260928wxid：双渠道 ID——微信消息也经链引擎渲染历史，搭档需被认出（含微信 ilink_user_id）
-    partnerResolver: new PartnerResolver(appConfig.feishu?.partnerOpenId, appConfig.weixin?.partnerUserId),
+    // F20260928fsqr：外置实例（扫码首号运行时写入）；缺省内部构造保持存量行为
+    partnerResolver: options?.partnerResolver ?? new PartnerResolver(appConfig.feishu?.partnerOpenId, appConfig.weixin?.partnerUserId),
     // F20260902sgp2 S1：派发台账注入——所有入口每次派发都记账（链引擎是必经之路，§4.2）。
     // 记账失败仅日志不阻断（硬约束 1）；不注入时链路行为与 sgpv 回滚基线一致。
     // #530 梯度护栏：abort 回调注入（可选——不注入时降级为纯日志）。
@@ -320,7 +324,7 @@ export function createFeishuBundle(options: {
   const { feishuConfig, uc, dispatchChainEngine, logger, webBaseUrl, messageBroadcaster, settingsRepo } = options;
   const tokenManager = new FeishuAccessTokenManager(feishuConfig, logger);
   const client = new FeishuClient(feishuConfig, logger, tokenManager);
-  messageBroadcaster.registerOutboundChannel("feishu", new FeishuMessageChannel(uc.manageConnection, client, logger, webBaseUrl, settingsRepo));
+  messageBroadcaster.registerOutboundChannel("feishu", new FeishuMessageChannel({ manageConnection: uc.manageConnection, feishuGateway: client, logger, webBaseUrl, settingsRepo }));
   if (!webBaseUrl) {
     logger.info("web.baseUrl not configured, feishu html-card placeholders will show without clickable links");
   }
@@ -356,64 +360,26 @@ export function setupFeishu(options: {
   const { appConfig, uc, repos, agentInvoker, feishu, messageBroadcaster, logger, registry, signalRouter } = options;
   if (!appConfig.feishu) return undefined;
 
-  const commandDispatcher = new CommandDispatcher(uc.manageConnection, repos.entry, feishu.client, logger);
-  // F20260826fpbd：命令门禁（方案B）——setupFeishu 入口有 !appConfig.feishu 早退，此处必存在；partnerOpenId 仍可选
-  // F20260928wxid：保持单渠道锚——门禁语义是「配置了本渠道搭档锚才拦截」，混入微信 ID 会让
-  //  只配微信的场景 configured 误翻 true → 飞书命令被全量锁死。跨渠道身份标注只走 dispatchChainEngine 装配处
-  const partnerResolver = new PartnerResolver(appConfig.feishu?.partnerOpenId);
-  const agentDispatchService = new AgentDispatchService({
+  // F20260928fsqr：装配段整体提入 buildFeishuRuntime 工厂（静态 config app 与扫码 apps
+  // 共用）；此处降为单次调用 + 签名适配。门禁锚：config partnerOpenId（存量行为等价）
+  const runtime = buildFeishuRuntime({
+    appId: appConfig.feishu.appId,
+    appSecret: appConfig.feishu.appSecret,
+    gateOwnerOpenId: appConfig.feishu.partnerOpenId,
+    appConfig,
+    uc,
+    repos,
+    agentInvoker,
     dispatchChainEngine: feishu.dispatchChainEngine,
-    entryRepo: repos.entry,
-    agentInvokePort: agentInvoker,
-    logger,
-    ...(signalRouter && { signalRouter }),
-  });
-
-  // F20260920imax：助理态注入（语义见 buildAssistantInjections）——直接内联进 messageProcessor，不占行数
-  // 多模态 Phase 2：飞书 ingress 附件三件套——资源下载客户端 + 注入服务与 controllers.ts 同构
-  // （storageRoot 缺省 ./data/attachments，与 AttachmentController 一致）
-  const feishuResource = new FeishuResourceClient(feishu.tokenManager, logger);
-  const attachmentInjection = new AttachmentInjectionService({
-    attachmentRepo: repos.attachment,
-    storageRoot: appConfig.attachments?.storageRoot ?? "./data/attachments",
-    logger,
-  });
-
-  const messageProcessor = new FeishuMessageProcessor({
-    manageConnection: uc.manageConnection,
-    ...buildAssistantInjections(appConfig, uc),
-    sendEntry: uc.sendEntry,
-    commandDispatcher,
-    feishuGateway: feishu.client,
-    feishuUserInfo: new FeishuUserInfoClient(feishu.tokenManager, logger),
-    partnerResolver,
-    feishuResource,
-    attachmentUpload: uc.attachmentUpload,
-    attachmentInjection,
-    agentDispatchService,
     messageBroadcaster,
     logger,
+    registry,
+    signalRouter,
   });
-
-  const longConnectionClient = new FeishuLongConnectionClient(appConfig.feishu, logger, feishu.tokenManager, registry);
-  const longConnectionHandler = new FeishuLongConnectionHandler({
-    longConnectionGateway: longConnectionClient,
-    messageProcessor,
-    logger,
-  });
-
-  longConnectionHandler.start().then(() => {
-    logger.info("Feishu long connection started");
-  }).catch((err) => {
-    logger.error("Failed to start Feishu long connection", err instanceof Error ? err : undefined);
-  });
-
-  // #460：返回 stop 句柄接入 app.ts dispose 链——WSClient 重连会阻止进程退出（僵尸进程根因之四）
+  if (!runtime) return undefined;
   return {
-    stopFeishu: () => void longConnectionClient.stop().catch((err) =>
-      logger.error("Feishu long connection stop failed", err instanceof Error ? err : undefined)),
-    // F20260916fst4：首哑信号消费依赖——供 app.ts setter 延迟挂接 agentInvoker
-    agentDispatchService,
+    stopFeishu: runtime.stop,
+    agentDispatchService: runtime.agentDispatchService,
   };
 }
 
@@ -429,6 +395,206 @@ export interface PlatformBootstrapResult {
   registry?: ChannelStatusRegistry;
   /** #460：飞书长连接 stop 句柄（app dispose 时停 WSClient 重连，防僵尸进程） */
   stopFeishu?: () => void;
+}
+
+/** F20260928fsqr：单 app 飞书运行时句柄（静态 config app 与扫码 apps 共用工厂产出） */
+export interface FeishuRuntime {
+  /** bot 锚键（feishu-bot:<掩码appId>）——provision/出站归属/状态投影三处同源 */
+  botKey: string;
+  tokenManager: FeishuAccessTokenManager;
+  client: FeishuClient;
+  agentDispatchService: AgentDispatchService;
+  /** 停 WS 长连接（#460 dispose 链接入；同步停出站通道由调用方 unregister） */
+  stop: () => void;
+}
+
+/**
+ * F20260928fsqr：飞书单 app 运行时工厂（静态 config app 与扫码 apps 共用）。
+ *
+ * 吸收原 createFeishuBundle（client/tokenManager/出站注册）+ setupFeishu 装配段
+ * （commandDispatcher/partnerResolver/messageProcessor/longConnection）两段。
+ * 每条 WS 一套独立装配（D1）：token 域按 app 隔离是飞书机制，共享无收益有串扰。
+ *
+ * 出站键控（#591 同构）：通道按 botKey 注册/注销，FeishuMessageChannel 按
+ * externalId === botKey 过滤归属——多 app 广播互不串扰。
+ *
+ * 命令门禁锚（D7 双层）：每线独立 resolver——`new PartnerResolver(线ownerOpenId, 首号ownerOpenId?)`；
+ * 线主人自己线上可跑命令、首号（部署者）任意线上可跑、陌生人被拦。静态 config app 路径
+ * 传 config 锚（ownerOpenId=partnerOpenId），行为等价存量。
+ */
+export function buildFeishuRuntime(options: {
+  appId: string;
+  appSecret: string;
+  /** 命令门禁锚：线 owner（扫码人 / 静态 app 时 = config partnerOpenId） */
+  gateOwnerOpenId?: string;
+  /** 命令门禁锚第二锚：全局首号（部署者；仅扫码线非首号时传） */
+  globalFirstOwnerOpenId?: string;
+  appConfig: AppConfig;
+  uc: UseCases;
+  repos: Repositories;
+  agentInvoker: AgentInvoker;
+  dispatchChainEngine: DispatchChainEngine;
+  messageBroadcaster: MessageBroadcaster;
+  logger: Logger;
+  registry?: ChannelStatusRegistry;
+  signalRouter?: SignalRouter;
+  /** 出站/状态键前缀的注册名（缺省 = botKey；状态投影 kind 需要区分时传唯一名） */
+  channelKey?: string;
+}): FeishuRuntime | undefined {
+  const { appId, appSecret, appConfig, uc, repos, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, registry, signalRouter } = options;
+  const key = botKey(appId);
+  try {
+    const feishuConfig = buildScanFeishuConfig(appId, appSecret, options.gateOwnerOpenId);
+    const tokenManager = new FeishuAccessTokenManager(feishuConfig, logger);
+    const client = new FeishuClient(feishuConfig, logger, tokenManager);
+
+    const gateResolver = new PartnerResolver(options.gateOwnerOpenId, options.globalFirstOwnerOpenId);
+    const agentDispatchService = new AgentDispatchService({
+      dispatchChainEngine,
+      entryRepo: repos.entry,
+      agentInvokePort: agentInvoker,
+      logger,
+      ...(signalRouter && { signalRouter }),
+    });
+
+    const messageProcessor = buildScanFeishuProcessor({
+      appConfig, uc, repos, logger, client, tokenManager,
+      gateResolver, agentDispatchService, messageBroadcaster,
+    });
+
+    // 键控出站（#591 同构）：按 botKey 注册，FeishuMessageChannel 按 externalId===botKey 过滤。
+    // 同 app 重扫（理论上 createOnly 不重复，防御性）时替换旧通道而非追加。
+    const channelKey = options.channelKey ?? key;
+    messageBroadcaster.registerOutboundChannel(
+      channelKey,
+      new FeishuMessageChannel({
+        manageConnection: uc.manageConnection, feishuGateway: client, logger,
+        webBaseUrl: appConfig.web?.baseUrl, settingsRepo: repos.settings, botKey: key,
+      }),
+    );
+
+    return finishFeishuRuntime({ appId, key, channelKey, feishuConfig, tokenManager, client, agentDispatchService, messageProcessor, messageBroadcaster, logger, registry });
+  } catch (err) {
+    logger.error("Failed to build Feishu runtime", err instanceof Error ? err : undefined, { appId: maskAppId(appId) });
+    return undefined;
+  }
+}
+
+/** F20260928fsqr：WS 长连接启动 + stop 句柄拼装（拆出控 buildFeishuRuntime 行数；
+ *  #460：stop 接入调用方 dispose 链，出站 unregister 同步成对做） */
+function finishFeishuRuntime(o: {
+  appId: string; key: string; channelKey: string; feishuConfig: FeishuConfig;
+  tokenManager: FeishuAccessTokenManager; client: FeishuClient;
+  agentDispatchService: AgentDispatchService; messageProcessor: FeishuMessageProcessor;
+  messageBroadcaster: MessageBroadcaster; logger: Logger; registry?: ChannelStatusRegistry;
+}): FeishuRuntime {
+  const longConnectionClient = new FeishuLongConnectionClient(
+    o.feishuConfig, o.logger, o.tokenManager, o.registry, o.channelKey,
+  );
+  const longConnectionHandler = new FeishuLongConnectionHandler({
+    longConnectionGateway: longConnectionClient,
+    messageProcessor: o.messageProcessor,
+    logger: o.logger,
+  });
+  longConnectionHandler.start().then(() => {
+    o.logger.info("Feishu long connection started", { appId: maskAppId(o.appId), channelKey: o.channelKey });
+  }).catch((err) => {
+    o.logger.error("Failed to start Feishu long connection", err instanceof Error ? err : undefined, { appId: maskAppId(o.appId) });
+  });
+  return {
+    botKey: o.key,
+    tokenManager: o.tokenManager,
+    client: o.client,
+    agentDispatchService: o.agentDispatchService,
+    stop: () => {
+      o.messageBroadcaster.unregisterOutboundChannel(o.channelKey);
+      void longConnectionClient.stop().catch((err) =>
+        o.logger.error("Feishu long connection stop failed", err instanceof Error ? err : undefined, { appId: maskAppId(o.appId) }));
+    },
+  };
+}
+
+/** F20260928fsqr：扫码 app 的 FeishuConfig 拼装（encryptKey 不适用——事件走 WS 无 webhook 加密） */
+function buildScanFeishuConfig(appId: string, appSecret: string, gateOwnerOpenId?: string): FeishuConfig {
+  return {
+    appId,
+    appSecret,
+    ...(gateOwnerOpenId ? { partnerOpenId: gateOwnerOpenId } : {}),
+  };
+}
+
+/** F20260928fsqr：扫码 app 的 messageProcessor 装配（拆出控 buildFeishuRuntime 行数；
+ *  语义与存量 setupFeishu 原装配段一致——助理注入/附件三件套/门禁 resolver 全同构） */
+function buildScanFeishuProcessor(o: {
+  appConfig: AppConfig; uc: UseCases; repos: Repositories; logger: Logger;
+  client: FeishuClient; tokenManager: FeishuAccessTokenManager;
+  gateResolver: PartnerResolver; agentDispatchService: AgentDispatchService; messageBroadcaster: MessageBroadcaster;
+}) {
+  return new FeishuMessageProcessor({
+    manageConnection: o.uc.manageConnection,
+    ...buildAssistantInjections(o.appConfig, o.uc),
+    sendEntry: o.uc.sendEntry,
+    commandDispatcher: new CommandDispatcher(o.uc.manageConnection, o.repos.entry, o.client, o.logger),
+    feishuGateway: o.client,
+    feishuUserInfo: new FeishuUserInfoClient(o.tokenManager, o.logger),
+    partnerResolver: o.gateResolver,
+    feishuResource: new FeishuResourceClient(o.tokenManager, o.logger),
+    attachmentUpload: o.uc.attachmentUpload,
+    attachmentInjection: new AttachmentInjectionService({
+      attachmentRepo: o.repos.attachment,
+      storageRoot: o.appConfig.attachments?.storageRoot ?? "./data/attachments",
+      logger: o.logger,
+    }),
+    agentDispatchService: o.agentDispatchService,
+    messageBroadcaster: o.messageBroadcaster,
+    logger: o.logger,
+  });
+}
+
+/**
+ * F20260928fsqr：扫码 app 启动（app.ts 启动时 + onSuccess 热启动两路调用）。
+ * 首号判定（先写先得）：store 最早添加的 owner 即首号（新增扫码人时已由调用方写入全局
+ * resolver 的不重复写）；门禁双锚 = 线 owner + 首号。
+ */
+export function startFeishuScanChannels(options: {
+  appConfig: AppConfig;
+  uc: UseCases;
+  repos: Repositories;
+  agentInvoker: AgentInvoker;
+  dispatchChainEngine: DispatchChainEngine;
+  messageBroadcaster: MessageBroadcaster;
+  logger: Logger;
+  registry?: ChannelStatusRegistry;
+  signalRouter?: SignalRouter;
+  appStore?: FeishuAppStore;
+  /** 全局首号（调用方维护，先写先得；未传时从 store 推导） */
+  globalFirstOwnerOpenId?: string;
+}): FeishuRuntime[] {
+  const store = options.appStore ?? new FeishuAppStore();
+  const apps = store.listApps().sort((a, b) => a.addedAt.localeCompare(b.addedAt));
+  const firstOwner =
+    options.globalFirstOwnerOpenId ??
+    apps.map((a) => a.ownerOpenId).find((id): id is string => typeof id === "string" && id.trim().length > 0);
+  const runtimes: FeishuRuntime[] = [];
+  for (const app of apps) {
+    const rt = buildFeishuRuntime({
+      appId: app.appId,
+      appSecret: app.appSecret,
+      gateOwnerOpenId: app.ownerOpenId,
+      globalFirstOwnerOpenId: firstOwner,
+      appConfig: options.appConfig,
+      uc: options.uc,
+      repos: options.repos,
+      agentInvoker: options.agentInvoker,
+      dispatchChainEngine: options.dispatchChainEngine,
+      messageBroadcaster: options.messageBroadcaster,
+      logger: options.logger,
+      registry: options.registry,
+      signalRouter: options.signalRouter,
+    });
+    if (rt) runtimes.push(rt);
+  }
+  return runtimes;
 }
 
 /** 微信通道启动（issue #565）：每个已登录账号拉一条轮询 + 注册出站通道 */

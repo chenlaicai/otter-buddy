@@ -11,10 +11,17 @@
  * F20260928wxid：构造参数改 rest 收多渠道 ID——同一搭档在飞书是 open_id、
  * 在微信是 ilink_user_id，两者指向同一人。微信消息入站后海獭也要能认出
  * 「这是搭档本人」而非陌生人；旧单参构造兼容保留（旧调用处降级为单渠道判定）。
+ *
+ * F20260928fsqr：addPartnerId 运行时写入——飞书扫码首个 ownerOpenId 先写先得
+ * （对齐微信 ensureWeixinConfig 幂等语义）；仅渲染链全局实例用（每线命令门禁
+ * resolver 独立构造，不调用本方法）。configured 定为 getter：动态写入后
+ * 后续判定能看到新锚（构造期快照会固住 false）。
  */
 export class PartnerResolver {
   /** 任一渠道 ID 已配置——未配置时消费方走降级路径（动态推断/不拦截） */
-  readonly configured: boolean;
+  get configured(): boolean {
+    return this.partnerIds.size > 0;
+  }
 
   private readonly partnerIds: Set<string>;
 
@@ -25,7 +32,7 @@ export class PartnerResolver {
         .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
         .map(id => id.trim()),
     );
-    this.configured = this.partnerIds.size > 0;
+    // F20260928fsqr：configured 是 getter（动态反映 addPartnerId 运行时写入），构造期不再赋值
   }
 
   isPartner(senderId: string): boolean {
@@ -33,5 +40,14 @@ export class PartnerResolver {
     if (senderId === 'user') return true;
     if (!this.configured) return false;
     return this.partnerIds.has(senderId.trim());
+  }
+
+  /** F20260928fsqr：运行时追加搭档 ID（幂等；空白串忽略）。
+   * 仅供渲染链全局实例——首个飞书扫码人先写先得；DELETE 不回收（记特性文档遗留） */
+  addPartnerId(id: string | undefined): void {
+    if (typeof id !== 'string') return;
+    const trimmed = id.trim();
+    if (!trimmed) return;
+    this.partnerIds.add(trimmed);
   }
 }

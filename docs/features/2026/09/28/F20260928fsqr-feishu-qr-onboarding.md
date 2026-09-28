@@ -6,7 +6,7 @@ feature_id: F20260928fsqr
 created: 2026-09-28
 created_in_conversation: 8c447618-ef7a-4b21-8b01-45c6ebff138b
 change_type: feature
-capability_test: "n/a: 方案阶段文档（实现 PR 落地时补 login-session-manager 状态机与 app-store CRUD 的测试路径）"
+capability_test: tests/frameworks/feishu/feishu-qr-onboarding.test.ts
 tags: [im, feishu, qr-login, registerApp, multi-app]
 modules: [src/frameworks/feishu/, src/interface-adapters/feishu/, src/interface-adapters/http/controllers/, src/bootstrap/, web/src/pages/im/, web/src/components/feishu/]
 causal_links:
@@ -210,6 +210,13 @@ onSuccess({appId, appSecret, ownerOpenId})
 - 实测三清单（真机）：p2p 收发 / 群 @ 收发 / 事件到达 WS
 - 存量回归：config.yaml 静态 app 路径测试全绿（装配重构+键控出站行为等价）
 - 手测清单：真机扫码 → p2p 对话 → 海獭回复带 [搭档(称呼)]（首号锚生效）→ 删除账号 → WS 停止+出站通道注销；**第二扫码人场景（delta D）**：joy 扫码建自己线 → 称呼链出 [joy]（线 owner metadata 生效）→ 标签显 `joy`（快照名，非「搭档(joy)」形态——D7 称谓遗留；注：resolveUserEntryLabel 访客分支只出快照名/裸 ID，「访客」字样仅在会话注入文本）→ 命令门禁：joy 在自己线可跑命令（每线 owner 锚），陌生人被拦（「这些命令暂时不对所有人开放哦」）——防实现期误「修」或误判 bug
+
+### 实现落盘记录（2026-09-28）
+
+- 后端：bot-key.ts / app-store.ts / login-session-manager.ts / feishu-connection-controller.ts 新建；bootstrap/feishu-scan.ts 装配抽出（app.ts 行数闸）；platforms.ts 工厂化（buildFeishuRuntime + finishFeishuRuntime + buildScanFeishuProcessor）；FeishuMessageChannel 构造改对象参数 + ownsConnection 四处归属判定；PartnerResolver configured 改 getter + addPartnerId；FeishuLongConnectionClient 构造加 channelId 第五参；router/controllers 接线（/api/feishu/* 六端点）
+- 前端：FeishuQRCodeLoginCard（微信同构，无 scanned 态）+ IM 页飞书卡三态流（idle/naming/connecting）+ 账号列表（掩码 appId + 删除）+ client.ts DTO/API
+- 验证：后端 tsc 0 错 / eslint 0 错 / 全量 291 文件 4091 测试过；前端 tsc 0 错 / vite build ✓（3346 modules）
+- 待真机：实测三清单 + 手测清单（部署重启后验证）
 
 ## 改动范围
 

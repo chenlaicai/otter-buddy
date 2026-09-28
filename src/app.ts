@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- F20260928fsqr：飞书扫码接入装配净增 6 行（feishuScan 句柄组 + resolver 外置）；装配文件由注入项决定（platforms.ts 同款豁免） */
 /**
  * buildApp：可测试的系统装配入口（F20260806tstr Part 1，基于 F20260805codx bootstrap 模块）。
  *
@@ -43,6 +44,8 @@ import {
   hotStartWeixinAccount, ensureWeixinConfig,
 } from "./bootstrap/platforms";
 import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
+import { PartnerResolver } from "@usecases/im/partner-resolver";
+import { setupFeishuScanChannels } from "./bootstrap/feishu-scan";
 import { WeixinAccountStore } from "@frameworks/weixin/account-store";
 import { WeixinLoginSessionManager } from "@frameworks/weixin/login-session-manager";
 import type { WeixinPollingChannel } from "@frameworks/weixin/polling-channel";
@@ -311,7 +314,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const agentMetrics = new AgentMetrics(metricsRegistry);
 
   // ── 调度引擎 + 平台集成 ──
-  const dispatchChainEngine = createDispatchChainEngine(repos, uc, config, logger, { agentMetrics, agentGateway });
+  const globalPartnerResolver = new PartnerResolver(config.feishu?.partnerOpenId, config.weixin?.partnerUserId); // F20260928fsqr：渲染 resolver 外置——扫码首号运行时写入
+  const dispatchChainEngine = createDispatchChainEngine(repos, uc, config, logger, { agentMetrics, agentGateway, partnerResolver: globalPartnerResolver });
   /** issue #281：广播总线无条件创建（平台无关），飞书出站作为 channel 注册——
    *  旧实现 messageBroadcaster: feishu?.broadcaster 导致 web-only 部署流式链路断流 */
   const messageBroadcaster = new MessageBroadcaster(logger);
@@ -448,6 +452,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   });
 
   // ── HTTP 层 ──
+  // F20260928fsqr：飞书扫码接入（装配在 bootstrap/feishu-scan.ts）
+  const feishuScan = setupFeishuScanChannels({ config, uc, repos, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, registry, signalRouter, globalPartnerResolver });
+
   // PR-2：创建 profile 聚合 use case（warmup 后 ResourceLoader 可用）
   const resourceLoader = agentGateway.getResourceLoader();
   const statsQuery = new SqliteStatsQuery(db);
@@ -514,12 +521,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     attachmentRepo: repos.attachment,
     // 微信连接管理（issue #566）
     weixinLoginSessions,
+    feishuScan: { ...feishuScan, onAppDeleted: async (appId) => { if (!disposed) feishuScan.onAppDeleted(appId); } },
     weixinAccountStore,
     // F20260920imax：扫码后按名开助理线（必填名；闭环封装 ensureConnection + 开户）
     // F20260928wxid：userName 不走本闭包——controller 建线后直接写 metadata（与 PATCH user-name 对称）
     provisionWeixinAssistantLine: async (accountId, name) => {
-      // 微信连接 externalId = 账号 id（与消息 ingress 的 ensureConnection 同键，
-      // 幂等汇合到同一 connection）
+      // 微信连接 externalId = 账号 id（与消息 ingress 的 ensureConnection 同键，幂等汇合）
       const connection = await uc.manageConnection.ensureConnection(accountId, accountId, "weixin");
       // F20260922wxeg：建线即刻记录出站目标（扫码人 ilinkUserId）——不依赖
       // 「用户先发一条消息」才恢复出站（无消息期也从 Web 侧发起对话的场景）
@@ -646,6 +653,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       weixinPollers?.forEach((p) => p.stop());
       // issue #566：web 登录热启动的轮询同样要停（dispose 单独数组）
       extraWeixinPollers.forEach((p) => p.stop());
+      // F20260928fsqr：扫码飞书运行时统一停（#460 同款——WSClient 重连阻退出 + 出站成对注销）
+      feishuScan.disposeAll();
       // F20260901chun：防御性清空通道状态注册表（防未来加事件监听/定时器泄漏）
       registry?.clear();
       schedulerService.stop();

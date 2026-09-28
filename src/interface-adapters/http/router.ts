@@ -17,6 +17,7 @@ import type { RhiController } from "./controllers/rhi-controller";
 import type { AttachmentController } from "./controllers/attachment-controller";
 import type { WorkspaceController } from "./controllers/workspace-controller";
 import type { WeixinConnectionController } from "./controllers/weixin-connection-controller";
+import type { FeishuConnectionController } from "./controllers/feishu-connection-controller";
 import type { ChannelController } from "./controllers/channel-controller";
 import type { SkillController } from "./controllers/skill-controller";
 import type { ActivityController } from "./controllers/activity-controller";
@@ -43,6 +44,8 @@ export interface Controllers {
   workspace?: WorkspaceController;
   /** 微信连接管理端点（issue #566） */
   weixin?: WeixinConnectionController;
+  /** F20260928fsqr：飞书扫码连接管理端点 */
+  feishuScan?: FeishuConnectionController;
   /** 通道状态聚合端点（F20260901chun：统一 IM 页 + 真实健康状态） */
   channel?: ChannelController;
   /** #576（F20260901emps）：能力库真数据源端点 */
@@ -185,6 +188,16 @@ function registerWorkspaceRoutes(app: Hono, c: Controllers): void {
     // F20260928wxid：存量线补/改称呼（connection.metadata.userName）
     app.patch("/api/weixin/accounts/:id/user-name", (ctx) => c.weixin!.updateUserName(ctx));
     app.delete("/api/weixin/accounts/:id", (ctx) => c.weixin!.deleteAccount(ctx));
+  }
+
+  // F20260928fsqr：飞书扫码接入（registerApp 免凭证建 app；对齐微信全套语义）
+  if (c.feishuScan) {
+    app.post("/api/feishu/login", (ctx) => c.feishuScan!.startLogin(ctx));
+    app.get("/api/feishu/login/:id", (ctx) => c.feishuScan!.getLogin(ctx));
+    app.post("/api/feishu/login/:id/cancel", (ctx) => c.feishuScan!.cancelLogin(ctx));
+    app.get("/api/feishu/apps", (ctx) => c.feishuScan!.listApps(ctx));
+    app.post("/api/feishu/apps/:id/assistant-line", (ctx) => c.feishuScan!.provisionAssistantLine(ctx));
+    app.delete("/api/feishu/apps/:id", (ctx) => c.feishuScan!.deleteApp(ctx));
   }
 }
 
