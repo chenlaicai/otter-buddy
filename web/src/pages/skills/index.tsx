@@ -89,8 +89,10 @@ interface PageModel {
   kind: 'toc' | 'chapterToc' | 'section' | 'skill' | 'tools'
   /** 所属章序（CHAPTERS 内索引；-1 = 卷首/卷末编） */
   chapter: number
-  /** 全局技能序（skill 页） */
+  /** 全局技能序（skill 页；API 数组序，仅作索引用；编号口径见 ord） */
   skillIdx: number
+  /** 书序编号（1 起；按 buildPages 组页时 skill 出现的真实顺序，续页共享首页 ord） */
+  ord: number
   /** 心法总纲节序（section 页） */
   sectionIdx: number
   /** 兵器谱页序（该页起始 tool 序） */
@@ -104,17 +106,39 @@ interface PageModel {
 /** 分页粒度：按行装箱，超页高即切页（F20260929scfx 派工单第 7 条） */
 const PAGE_TEXT_LINES = 30
 
-/** 将长文本按行装箱为若干页文本（每页 ≤ maxLines 行） */
+/** 将长文本按行装箱为若干页文本（每页 ≤ maxLines 行）。
+ *  围栏（``` 包围的代码块）不跨页切：围栏内行随围栏整体入页，超页高时围栏整体移到下页；
+ *  超长行按 ~64 字符视觉宽估算折行数（防 wrap 后实际高度超页）。 */
 export function paginateText(text: string, maxLines: number = PAGE_TEXT_LINES): string[] {
+  const estUnits = (line: string) => Math.max(1, Math.ceil(line.length / 64))
   const lines = text.split('\n')
   const pages: string[] = []
-  for (let i = 0; i < lines.length; i += maxLines) {
-    pages.push(lines.slice(i, i + maxLines).join('\n'))
+  let cur: string[] = []
+  let curUnits = 0
+  let inFence = false
+  const flush = () => { pages.push(cur.join('\n')); cur = []; curUnits = 0 }
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (/^\s*```/.test(line)) {
+      // 围栏边界：若切换后会超页，先切页（围栏不跨页）
+      const need = estUnits(line)
+      if (curUnits + need > maxLines && cur.length > 0) flush()
+      cur.push(line); curUnits += need
+      inFence = !inFence
+      continue
+    }
+    const need = estUnits(line)
+    if (curUnits + need > maxLines && cur.length > 0) flush()
+    cur.push(line); curUnits += need
   }
-  return pages.length > 0 ? pages : ['']
+  if (cur.length > 0) flush()
+  if (pages.length === 0) pages.push('')
+  return pages
 }
 
-/** 组页：卷首编目 → 心法总纲各节（含续页）→ 各章（章目录 + skill 页含续页）→ 兵器谱（含续页） */
+/** 组页：卷首编目 → 心法总纲各节（含续页）→ 各章（章目录 + skill 页含续页）→ 兵器谱（含续页）。
+ * 书序编号（ord）：组页时按 skill 实际出现顺序递增，续页共享首页 ord——「第N门」与翻书
+ * 遇到的次序严格一致（检视修复：旧版直接用 API 数组序，与 CHAPTERS 分组书序错位）。 */
 export function buildPages(skills: SkillEntry[], prompts: PromptData | null): { chapters: typeof CHAPTERS; pages: PageModel[] } {
   const chapters = CHAPTERS.map(c => ({ ...c }))
   const hasOrphan = skills.some(s => !CHAPTERS.some(c => c.members.includes(s.name)))
@@ -123,29 +147,33 @@ export function buildPages(skills: SkillEntry[], prompts: PromptData | null): { 
       desc: '尚未归入流派的技艺——族群成长中自然出现。', members: [] })
   }
   const pages: PageModel[] = []
+  const mk = (partial: Omit<PageModel, 'ord'>): PageModel => ({ ord: 0, ...partial })
+  let skillOrd = 0
   const chapterOf = (name: string) => {
     const known = CHAPTERS.findIndex(c => c.members.includes(name))
     return known >= 0 ? known : chapters.length - 1
   }
 
   // 卷首编目页（总目录：三编结构一览）
-  pages.push({ kind: 'toc', chapter: -1, skillIdx: -1, sectionIdx: -1, toolsIdx: -1, cont: 0, text: '' })
+  pages.push(mk({ kind: 'toc', chapter: -1, skillIdx: -1, sectionIdx: -1, toolsIdx: -1, cont: 0, text: '' }))
 
   // 卷首·心法总纲：每 section 一页起，过长续页
   const sections = prompts?.system ?? []
   sections.forEach((sec, si) => {
     paginateText(sec.content).forEach((slice, cont) => {
-      pages.push({ kind: 'section', chapter: -1, skillIdx: -1, sectionIdx: si, toolsIdx: -1, cont, text: slice })
+      pages.push(mk({ kind: 'section', chapter: -1, skillIdx: -1, sectionIdx: si, toolsIdx: -1, cont, text: slice }))
     })
   })
 
   // 卷中·招式秘籍：各章（章目录 + skill 页含续页）
   chapters.forEach((_ch, ci) => {
-    pages.push({ kind: 'chapterToc', chapter: ci, skillIdx: -1, sectionIdx: -1, toolsIdx: -1, cont: 0, text: '' })
+    pages.push(mk({ kind: 'chapterToc', chapter: ci, skillIdx: -1, sectionIdx: -1, toolsIdx: -1, cont: 0, text: '' }))
     skills.forEach((s, si) => {
       if (chapterOf(s.name) === ci) {
+        skillOrd += 1
+        const ord = skillOrd
         paginateText(s.body || s.desc).forEach((slice, cont) => {
-          pages.push({ kind: 'skill', chapter: ci, skillIdx: si, sectionIdx: -1, toolsIdx: -1, cont, text: slice })
+          pages.push({ kind: 'skill', chapter: ci, skillIdx: si, ord, sectionIdx: -1, toolsIdx: -1, cont, text: slice })
         })
       }
     })
@@ -155,7 +183,7 @@ export function buildPages(skills: SkillEntry[], prompts: PromptData | null): { 
   const tools = prompts?.tools ?? []
   const TOOLS_PER_PAGE = 12
   for (let i = 0; i < tools.length; i += TOOLS_PER_PAGE) {
-    pages.push({ kind: 'tools', chapter: -1, skillIdx: -1, sectionIdx: -1, toolsIdx: i, cont: Math.floor(i / TOOLS_PER_PAGE), text: '' })
+    pages.push(mk({ kind: 'tools', chapter: -1, skillIdx: -1, sectionIdx: -1, toolsIdx: i, cont: Math.floor(i / TOOLS_PER_PAGE), text: '' }))
   }
 
   return { chapters, pages }
@@ -467,7 +495,7 @@ function PageFace({ page, chapters, skills, prompts, pad, onTOCGo, pages }: {
       ) : page.kind === 'tools' ? (
         <ToolsPage tools={prompts?.tools ?? []} startIdx={page.toolsIdx} cont={page.cont} />
       ) : (
-        <SkillPage skill={skills[page.skillIdx]} chapter={chapters[page.chapter]} idx={page.skillIdx} cont={page.cont} text={page.text} />
+        <SkillPage skill={skills[page.skillIdx]} chapter={chapters[page.chapter]} ord={page.ord} cont={page.cont} text={page.text} />
       )}
       {page !== null && meta && (
         <div style={{ display: 'flex', justifyContent: 'space-between', padding: pad === 'right' ? '10px 40px 14px 46px' : '10px 46px 14px 40px', fontSize: 10.5, color: '#8B7D6B', letterSpacing: '.12em' }}>
@@ -475,7 +503,7 @@ function PageFace({ page, chapters, skills, prompts, pad, onTOCGo, pages }: {
             <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: meta.color, marginRight: 6, verticalAlign: 1 }} />
             {meta.label}
           </span>
-          <span>{page.kind === 'toc' || page.kind === 'chapterToc' ? '目 录' : page.kind === 'section' ? `第${cnNum(page.sectionIdx)}则` : page.kind === 'tools' ? `兵器 · ${cnNum(page.cont)}` : `第${cnNum(page.skillIdx)}门${page.cont > 0 ? ` · 其${cnNum(page.cont)}` : ''}`}</span>
+          <span>{page.kind === 'toc' || page.kind === 'chapterToc' ? '目 录' : page.kind === 'section' ? `第${cnNum(page.sectionIdx)}则` : page.kind === 'tools' ? `兵器 · ${cnNum(page.cont)}` : `第${cnNum(page.ord - 1)}门${page.cont > 0 ? ` · 其${cnNum(page.cont)}` : ''}`}</span>
         </div>
       )}
     </div>
@@ -497,6 +525,7 @@ function CodexTOCPage({ skills, prompts, chapters, pages, onGo }: {
     return known >= 0 ? known : chapters.length - 1
   }
   const skillPageIdx = (g: number) => pages.findIndex(p => p.kind === 'skill' && p.skillIdx === g && p.cont === 0)
+  const skillOrd = (g: number) => pages.find(p => p.kind === 'skill' && p.skillIdx === g && p.cont === 0)?.ord ?? 0
   const sectionPageIdx = (si: number) => pages.findIndex(p => p.kind === 'section' && p.sectionIdx === si && p.cont === 0)
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '36px 36px 12px 44px', minHeight: 0 }}>
@@ -510,7 +539,7 @@ function CodexTOCPage({ skills, prompts, chapters, pages, onGo }: {
               style={{ display: 'block', width: '100%', textAlign: 'left', padding: '4px 4px', background: 'none', border: 'none', borderBottom: '1px dashed rgba(139,111,71,.2)', cursor: 'pointer', fontFamily: 'inherit' }}
               onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139,111,71,.06)' }}
               onMouseLeave={e => { e.currentTarget.style.background = 'none' }}>
-              <span style={{ fontSize: 12, color: '#3A2E1F' }}>{sec.title}</span>
+              <span style={{ fontSize: 12, color: '#3A2E1F' }}>{sec.title || '卷首语'}</span>
             </button>
           ))}
           {sections.length === 0 && <div style={{ fontSize: 11, color: '#8B7D6B' }}>（心法总纲加载失败——降级跳过）</div>}
@@ -535,7 +564,7 @@ function CodexTOCPage({ skills, prompts, chapters, pages, onGo }: {
                     style={{ display: 'block', width: '100%', textAlign: 'left', padding: '2px 4px 2px 20px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
                     onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139,111,71,.06)' }}
                     onMouseLeave={e => { e.currentTarget.style.background = 'none' }}>
-                    <span style={{ fontSize: 11.5, color: '#52402C' }}>第{cnNum(i)}门 · {s.name}</span>
+                    <span style={{ fontSize: 11.5, color: '#52402C' }}>第{cnNum(skillOrd(i) - 1)}门 · {s.name}</span>
                   </button>
                 ))}
               </div>
@@ -549,7 +578,7 @@ function CodexTOCPage({ skills, prompts, chapters, pages, onGo }: {
               style={{ display: 'block', width: '100%', textAlign: 'left', padding: '4px 4px', background: 'none', border: 'none', borderBottom: '1px dashed rgba(139,111,71,.2)', cursor: 'pointer', fontFamily: 'inherit' }}
               onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139,111,71,.06)' }}
               onMouseLeave={e => { e.currentTarget.style.background = 'none' }}>
-              <span style={{ fontSize: 12, color: '#3A2E1F' }}>运行时注册工具全集（name + 描述）</span>
+              <span style={{ fontSize: 12, color: '#3A2E1F' }}>无条件基础工具集（name + 描述）</span>
             </button>
           )}
           {tools.length === 0 && <div style={{ fontSize: 11, color: '#8B7D6B' }}>（兵器谱加载失败——降级跳过）</div>}
@@ -570,6 +599,7 @@ function ChapterTOCPage({ chapter, skills, pages, onGo }: {
     CHAPTERS.some(c => c.members.includes(s.name) && c.title === chapter.title) ||
     (!CHAPTERS.some(c => c.members.includes(s.name)) && chapter.title === '外典'))
   const skillPageIdx = (g: number) => pages.findIndex(p => p.kind === 'skill' && p.skillIdx === g && p.cont === 0)
+  const skillOrd = (g: number) => pages.find(p => p.kind === 'skill' && p.skillIdx === g && p.cont === 0)?.ord ?? 0
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '40px 40px 12px 48px', minHeight: 0 }}>
       <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
@@ -591,7 +621,7 @@ function ChapterTOCPage({ chapter, skills, pages, onGo }: {
                 border: 'none', borderTop: 'none', borderLeft: 'none', borderRight: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
               onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139,111,71,.06)' }}
               onMouseLeave={e => { e.currentTarget.style.background = 'none' }}>
-              <span style={{ fontFamily: SERIF, color: '#8B6F47', fontSize: 12, width: '2.4em', flexShrink: 0 }}>{cnNum(i)}</span>
+              <span style={{ fontFamily: SERIF, color: '#8B6F47', fontSize: 12, width: '2.4em', flexShrink: 0 }}>{cnNum(skillOrd(i) - 1)}</span>
               <span style={{ flex: 1 }}>
                 <span style={{ fontFamily: SERIF, fontSize: 15, color: '#3A2E1F' }}>{s.name}</span>
                 {p.when && <span style={{ display: 'block', fontSize: 11.5, color: '#8B7D6B', marginTop: 2 }}>{p.when.split('；')[0].split('。')[0]}</span>}
@@ -611,7 +641,7 @@ function SectionPage({ section, idx, cont, text }: { section: SystemSection | un
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '32px 32px 12px 44px', minHeight: 0 }}>
       <div style={{ fontSize: 10, letterSpacing: '.35em', color: PART_CODEX.color, marginBottom: 6 }}>{PART_CODEX.en} · 第{cnNum(idx)}则{cont > 0 ? ` · 其${cnNum(cont)}` : ''}</div>
-      <div style={{ fontFamily: SERIF, fontSize: 21, letterSpacing: '.08em', color: '#2A2014', fontWeight: 600, marginBottom: 10 }}>{section.title}</div>
+      <div style={{ fontFamily: SERIF, fontSize: 21, letterSpacing: '.08em', color: '#2A2014', fontWeight: 600, marginBottom: 10 }}>{section.title || '卷首语'}</div>
       <div style={{ flex: 1, overflowY: 'auto', fontSize: 12, lineHeight: 1.75, color: '#3A2E1F', whiteSpace: 'pre-wrap' }}>
         {text}
       </div>
@@ -619,13 +649,13 @@ function SectionPage({ section, idx, cont, text }: { section: SystemSection | un
   )
 }
 
-/** 技能秘籍页：三槽摘要 + 正文全文（过长续页切片）；页序编号 = skillIdx（书序口径） */
-function SkillPage({ skill, chapter, idx, cont, text }: { skill: SkillEntry; chapter: (typeof CHAPTERS)[number]; idx: number; cont: number; text: string }) {
+/** 技能秘籍页：三槽摘要 + 正文全文（过长续页切片）；ord = 书序编号（组页顺序） */
+function SkillPage({ skill, chapter, ord, cont, text }: { skill: SkillEntry; chapter: (typeof CHAPTERS)[number]; ord: number; cont: number; text: string }) {
   const p = parseSkillDescription(skill.desc)
   const structured = p.when || p.notFor || p.output
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '32px 32px 12px 44px', minHeight: 0 }}>
-      <div style={{ fontSize: 10, letterSpacing: '.35em', color: '#6B5638', marginBottom: 6 }}>{chapter.en} · 第{cnNum(idx)}门{cont > 0 ? ` · 其${cnNum(cont)}` : ''}</div>
+      <div style={{ fontSize: 10, letterSpacing: '.35em', color: '#6B5638', marginBottom: 6 }}>{chapter.en} · 第{cnNum(ord - 1)}门{cont > 0 ? ` · 其${cnNum(cont)}` : ''}</div>
       <div style={{ fontFamily: SERIF, fontSize: cont > 0 ? 16 : 24, letterSpacing: '.08em', color: '#3A2E1F', fontWeight: 600, wordBreak: 'break-all' }}>
         {skill.name}{cont > 0 && <span style={{ fontSize: 12, color: '#8B7D6B', marginLeft: 8 }}>（续）</span>}
       </div>
@@ -659,7 +689,10 @@ function ToolsPage({ tools, startIdx, cont }: { tools: ToolEntry[]; startIdx: nu
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '32px 32px 12px 44px', minHeight: 0 }}>
       <div style={{ fontSize: 10, letterSpacing: '.35em', color: PART_TOOLS.color, marginBottom: 6 }}>{PART_TOOLS.en}{cont > 0 ? ` · 其${cnNum(cont)}` : ''}</div>
       <div style={{ fontFamily: SERIF, fontSize: 22, letterSpacing: '.12em', color: '#2A2014', fontWeight: 600, marginBottom: 4 }}>{PART_TOOLS.emoji} 兵器谱</div>
-      <div style={{ fontSize: 11, color: '#8B7D6B', marginBottom: 8 }}>运行时注册工具全集 · {tools.length} 件</div>
+      <div style={{ fontSize: 11, color: '#8B7D6B', marginBottom: 8 }}>无条件基础工具 {tools.length} 件</div>
+      <div style={{ fontSize: 10.5, lineHeight: 1.7, color: '#8B7D6B', marginBottom: 10, padding: '6px 10px', background: 'rgba(139,111,71,.05)', borderRadius: 4 }}>
+        另有条件注册的环境工具——healing（健康自愈）、workspace_*（獭工作区）、create_scheduled_task（定时任务）、query_signals / halt / resolve_signal（獭间信号）等，依运行时环境挂载，不在本谱。
+      </div>
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {pageTools.map((t) => (
           <div key={t.name} style={{ padding: '7px 0', borderBottom: '1px solid rgba(139,111,71,.12)' }}>

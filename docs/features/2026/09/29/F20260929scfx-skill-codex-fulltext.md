@@ -36,21 +36,31 @@ related: [F20260901emps, F20260924uxrc]
 
 4. 双源并行拉取 `/api/skills` + `/api/prompts`；prompts 失败降级 null（卷首/卷末跳过，封面标「离线兜底」），skills 失败才整书降级内置清单。
 5. 书重排三编：`buildPages` 组页——编目页 → 心法各节（含续页）→ 各章（章目录 + skill 页含续页）→ 兵器谱（含续页）。PageModel 扩展 kind: 'toc' | 'chapterToc' | 'section' | 'skill' | 'tools'。
-6. 序号修复：`第N门` = skills 数组全局序（= 书页顺序，因 buildPages 按同序组页）；目录页与章目录页同口径。
-7. 长文分页：`paginateText` 按行装箱（30 行/页），超页高切页，不断词。正文区字号 12px 容纳全文。
+6. 序号修复：「第N门」= **书序编号（ord）**——`buildPages` 组页时按 skill 实际出现顺序递增（续页共享首页 ord），目录页/章目录页/秘籍页/页脚四处置同源读取。（检视修复：初版直接用 skills 数组下标编号，数组序=字母序与 CHAPTERS 分组书序错位，翻书编号乱序——已改 ord 计数器口径，测试补乱序数据断言。）
+7. 长文分页：`paginateText` 按行装箱（30 行/页，超长行按 ~64 字符估算折行），超页高切页，不断词；代码围栏（```）不跨页切。正文区字号 12px 容纳全文。
 8. 目录页：`CodexTOCPage` 列三编结构，点击跳页沿用 ear/jump 机制。
 
 ### 设计取舍（留痕）
 
-- **仓根定位**：`readSkillBody`/`readSystemSections` 不用 `process.cwd()`（alpha 实例 cwd 是数据根非仓根），用 `import.meta.dirname` 从编译产物位置（`dist/src/frameworks/agent/`）向上四级推仓根 + `.pi/SYSTEM.md` 存在性校验，失败兜底 `process.cwd()`。
-- **工具清单来源**：派工单要求运行时真实注册集。聚合点 `createTools` 在 `interface-adapters/agent-runtime/tool-factory.ts`，http 层引用它有先例（controllers 引 AgentInvoker 类型）。取全集（不注入可选 repo/白名单）——「系统会什么」的答案不受 invoke 级白名单过滤影响，更贴近兵器谱语义。这是 app bootstrap 期唯一可稳定获得的真实全集；invoke 级动态集不在端点层可达。
+- **仓根定位**：`readSkillBody`/`readSystemSections` 不用 `process.cwd()`（alpha 实例 cwd 是数据根非仓根），用 `import.meta.dirname` 上溯推仓根。两种布局层级不同（dist 4 级 / src 3 级），逐一候选 + `.pi/SYSTEM.md` 存在性校验，全不命中兜底 `process.cwd()`。
+- **工具清单来源**：聚合点 `createTools`（`interface-adapters/agent-runtime/tool-factory.ts`）。空 ctx 调用只得**无条件基础集 27 件**——条件注册工具（healing/workspace_*/create_scheduled_task/query_signals/halt/resolve_signal 等）依运行时环境挂载，不在清单内；UI 兵器谱文案如实标注「无条件基础工具 N 件」并附条件注册说明段。反向地，编排工具（wait/create_otter/dissolve_otter/merge_pr 等）多数 otter 经白名单拿不到，但它们是系统能力的一部分，谱上保留。
+- **SYSTEM.md 首段引言**：首个 `##` 前的标题/术语段（约 400 字）并入第一编作引言，不丢弃（检视修复：初版 splitByH2 静默丢弃且注释失实）。代码围栏内的 `##` 不视为分节边界。
 - **机制识别检查点**：大獭判定无命中（不新增机制，属展示层修复 + 数据源扩展，Modification-Class=narrow-fix）。本特性不经 RA 流程。
-- **序号口径**：「第N门」编号 = skills 数组全局序（书页顺序同口径），非章内序。字母序下 chapter 唯一成员的编号可能非「第一门」（如 companion=第三门），但目录页与秘籍页严格一致——符合派工单「序号与页序一致」的字面要求。
 
 ## 测试
 
-- `web/src/pages/skills/index.test.tsx`（25 断言）：三编结构、skill 正文渲染、心法节存在、兵器谱渲染、序号与页序一致、prompts 降级、翻页引擎回归（检视獭-uxrc2 off-by-one 防护）、paginateText/buildPages 单测
+- `web/src/pages/skills/index.test.tsx`（27 断言）：三编结构、skill 正文渲染、心法节存在、兵器谱渲染、书序编号乱序断言、目录编号同口径、目录直达 + 奇数末页显式视野断言（uxrc2 防护恢复）、翻页引擎回归、paginateText/buildPages 单测
 - `tests/api/skills.test.ts`（6 断言）：skills body 透传、prompts system/tools 契约、默认空实现、500 路径
+
+## 检视与修复（F20260929scfx 检视獭-scfx REQUEST_CHANGES → 修复）
+
+4 严重全部修复：
+1. 序号口径改 ord 组页计数器（目录/章目录/秘籍页/页脚四处置同源），乱序数据测试断言
+2. CI e2e tsc：test mock 键对齐 SkillEntry.desc；rebase main
+3. 回归防护恢复：奇数末页改显式最终视野断言（=maxView 5）；新增「总目录条目可点直达」用例
+4. 兵器谱文案改「无条件基础工具」+ 补条件注册说明段；PR body 断言同步改实
+
+顺手修 5 建议：paginateText 围栏不跨页 + 长行估算折行、resolveRepoRoot 双布局候选、/api/prompts 加无鉴权注释、SYSTEM.md 首段引言并入第一编（改 splitByH2）、序号测试命名去过度声明。
 
 ## 自检
 

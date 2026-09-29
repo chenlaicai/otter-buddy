@@ -10,7 +10,8 @@
  * 3. skill 页渲染正文内容片段（F20260929scfx 新断言）
  * 4. 心法总纲 section 页存在（F20260929scfx 新断言）
  * 5. 兵器谱 tools 渲染（F20260929scfx 新断言）
- * 6. 序号与页序一致：第N门 = 书页顺序编号（F20260929scfx 新断言）
+ * 6. 序号与页序一致：书序编号（ord）按组页顺序递增，乱序数据下可检出数组序/书序错位（检视修复）
+ * 6b. 总目录条目可点直达 + 奇数末页最终视野显式断言（uxrc2 回归防护恢复，检视修复）
  * 7. API 失败：降级内置清单 + 封面「离线兜底」标注；prompts 单独失败：仅卷首/卷末降级
  * 8. API 空：显式空态文案（非静默空白）
  * 9. 翻页引擎边界（检视獭-uxrc2 回归防护）：连击 off-by-one + 奇偶末页可达
@@ -83,6 +84,9 @@ const REAL_SKILLS = [
   },
 ]
 
+/** 内部 SkillEntry 形态（fetch map 之后的组件内表示；mock 用此键名对齐 SkillEntry.desc） */
+const SKILLS_INTERNAL = REAL_SKILLS.map(s => ({ name: s.name, desc: s.description, body: s.body }))
+
 describe('parseSkillDescription（F20260924uxrc 三段式解析）', () => {
   it('标准三段式：Use when / Not for / Output 各自锚定', () => {
     const p = parseSkillDescription(
@@ -139,7 +143,7 @@ describe('paginateText（F20260929scfx 长文分页）', () => {
 
 describe('buildPages（F20260929scfx 三编组页）', () => {
   it('页序：编目 → 心法节（含续页） → 章目录+skill 页（含续页） → 兵器谱', () => {
-    const { pages: builtPages } = buildPages(REAL_SKILLS, REAL_PROMPTS)
+    const { pages: builtPages } = buildPages(SKILLS_INTERNAL, REAL_PROMPTS)
     const kinds = builtPages.map(p => p.kind)
     const pages = builtPages
     // p0 编目
@@ -181,7 +185,7 @@ describe('buildPages（F20260929scfx 三编组页）', () => {
   })
 
   it('prompts 为 null：卷首/卷末编跳过，卷中保留', () => {
-    const { pages } = buildPages(REAL_SKILLS, null)
+    const { pages } = buildPages(SKILLS_INTERNAL, null)
     expect(pages.some(p => p.kind === 'section')).toBe(false)
     expect(pages.some(p => p.kind === 'tools')).toBe(false)
     expect(pages.some(p => p.kind === 'skill')).toBe(true)
@@ -276,18 +280,37 @@ describe('能力库全书页面（F20260929scfx 三编结构）', () => {
     expect(text).toContain('兵器谱')
     expect(text).toContain('speak')
     expect(text).toContain('search_memory')
-    expect(text).toContain('运行时注册工具全集')
+    expect(text).toContain('无条件基础工具 3 件')
+    expect(text).toContain('条件注册的环境工具')
   }, 12000)
 
-  it('序号与页序一致：第N门按书页顺序编号（F20260929scfx 新断言）', async () => {
+  it('序号与页序一致：书序编号按组页顺序递增（F20260929scfx 检视修复）', async () => {
+    // 真实乱序数据：API 数组序（字母序）≠ 书序（CHAPTERS 分组序）——
+    // companion 在 API 数组排第一，但伍章「群体协作」的 adversarial-review 才是全书第一门。
+    const SHUFFLED = [
+      { name: 'companion', desc: 'Use when: 聊. Output: 天.', body: 'companion 正文' },
+      { name: 'adversarial-review', desc: 'Use when: 审视. Output: 报告.', body: 'adversarial 正文' },
+      { name: 'code-implementation', desc: 'Use when: 写码. Output: PR.', body: 'code-impl 正文' },
+    ]
+    const { pages } = buildPages(SHUFFLED, { system: [], tools: [] })
+    const skillPages = pages.filter(p => p.kind === 'skill' && p.cont === 0)
+    expect(skillPages.map(p => p.ord)).toEqual([1, 2, 3])
+    expect(skillPages[0].skillIdx).toBe(0) // companion（数组下标 0，壹章唯一成员）是书序第一门
+    expect(skillPages[1].skillIdx).toBe(2) // code-implementation（数组下标 2，叁章）第二门
+    expect(skillPages[2].skillIdx).toBe(1) // adversarial-review（数组下标 1，肆章）第三门
+  })
+
+  it('总目录条目与秘籍页编号同口径（书序 ord）', async () => {
     mockFetch(REAL_SKILLS)
     render()
     await act(async () => {})
 
-    // 编目页内两 skill 条目的编号 = 全局序（companion=0 → 第一门，core-workflow=1 → 第二门）
+    // 摊开：目录页 + 心法第一则（视野 1）
     act(() => { container.querySelector<HTMLElement>('[data-testid="nav-next"]')!.click() })
     await act(async () => {})
     const text = container.textContent ?? ''
+    // REAL_SKILLS 数组序 companion=0 / core-workflow=1；CHAPTERS 书序 companion 在壹章、core-workflow 在贰章
+    // companion 是书序第一门（壹章排前），core-workflow 第二门
     expect(text).toContain('第一门 · companion')
     expect(text).toContain('第二门 · core-workflow')
   })
@@ -336,21 +359,27 @@ describe('翻页引擎边界（检视獭-uxrc2 回归防护：连击 off-by-one 
     { name: 'troubleshooting', description: '排查。', body: '正文三。' },
   ]
 
-  it('奇数内容页：末技能页可达（maxView 翻得到最后一门）', async () => {
+  it('奇数内容页：末技能页可达（maxView 翻得到最后一门，最终视野显式断言）', async () => {
     mockFetch(ODD_SKILLS, { system: [], tools: [] })
     render()
     await act(async () => {})
 
+    const book = () => container.querySelector('[data-testid="skills-book"]') as HTMLElement
     const next = () => container.querySelector<HTMLElement>('[data-testid="nav-next"]')!
+    let lastView = 0
     for (let i = 0; i < 20; i++) {
-      const before = (container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view
+      const before = book().dataset.view
       act(() => { next().click() })
       await new Promise(r => setTimeout(r, 700))
       await act(async () => {})
-      const after = (container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view
+      const after = book().dataset.view
+      lastView = Number(after)
       if (before === after) break
     }
-    expect(container.textContent).toContain('troubleshooting')
+    // 有判别力断言：最终视野到达内容页末视野（ODD 3 skill：9 内容页 → maxView=5）
+    expect(lastView).toBe(5)
+    const text = container.textContent ?? ''
+    expect(text).toContain('troubleshooting')
   })
 
   it('连击不丢步（off-by-one 回归）：快速双击右热区，回放后 view = 2', async () => {
@@ -419,5 +448,27 @@ describe('翻页引擎边界（检视獭-uxrc2 回归防护：连击 off-by-one 
     await act(async () => {})
     const view = Number((container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view)
     expect(view).toBe(4)
+  })
+
+  it('总目录条目可点直达：编目页点 companion 条目 → 跳到其秘籍页视野', async () => {
+    mockFetch(ODD_SKILLS, { system: [], tools: [] })
+    render()
+    await act(async () => {})
+
+    // 摊开（视野 1：编目页 + 壹章目录）
+    act(() => { container.querySelector<HTMLElement>('[data-testid="nav-next"]')!.click() })
+    await new Promise(r => setTimeout(r, 700))
+    await act(async () => {})
+    // 编目页内 companion 条目（第N门 · companion）
+    const btn = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(b =>
+      (b.textContent ?? '').includes('companion') && (b.textContent ?? '').includes('门 ·'),
+    )
+    expect(btn).toBeTruthy()
+    act(() => { btn!.click() })
+    await new Promise(r => setTimeout(r, 700))
+    await act(async () => {})
+    // companion 起始页 = p2（编目 p0 / 壹目录 p1 / companion p2）→ 视野 2
+    const view = Number((container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view)
+    expect(view).toBe(2)
   })
 })
