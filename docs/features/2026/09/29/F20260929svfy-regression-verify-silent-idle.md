@@ -106,13 +106,23 @@ issue #1208：regression-verify 定时任务创建 11 天（9/18–9/29）零执
 ## 验证
 
 - `tests/usecases/scheduler/` 6 文件 **129/129 通过**（含 #1208 新增 7 用例 + 存量 5 用例断言反转 + 发现 1 组合测试 1 用例）
-- 全量 vitest **4266/4266 通过**（303 文件零失败，独立复跑核实）
+- 全量 vitest **4294/4294 通过**（304 文件零失败，终态独立复跑核实）
 - `tsc --noEmit` 干净
-- 特性文档验证段计数：scheduler-service.test.ts 79 用例（含 #1208 新增 3 + #823 反转 1 + #641 更新 1）+ regression-verify.test.ts 11 用例（含 #1208 新增 3）+ healing-analysis-template.test.ts 8 用例（含 #1208 更新 1）+ daily-health-check-prompt-discipline.test.ts 7 用例（含 #1208 新增 1）
+- 分文件计数：scheduler-service.test.ts 79（含 #1208 新增 3 + #823 反转 1 + #641 更新 1）+ regression-verify.test.ts 11（含 #1208 新增 3）+ healing-analysis-template.test.ts 8（含 #1208 更新 1）+ daily-health-check-prompt-discipline.test.ts 7（含 #1208 新增 1）+ prompt-template-reconciler.test.ts 16 + scheduler-metric-integration.test.ts 8
 
 ## PR Verification
 
 Golden Gate: n/a——本 PR 属 scheduler 内部机制修复（skip 落账/心跳），无 prompt 层行为变更可跑 golden 场景（prompt 变更部分为 issue 产出规范补段，属文档纪律非交互场景）；verify_by 声明 behavior_check 已由 129/129 单测覆盖（含 7 个新增用例锁定 skip 落账/心跳去重/旗标复位语义）。
+
+## 审视处置记录（delta 复核尾巴修留痕）
+
+| 尾巴 | 处置 | 说明 |
+|------|------|------|
+| PR body 根因第 5 条死锚点 | ✅ 同步降级标注 | 特性文档已修，PR 描述同步为「凭任务简报转述，代码未核实」 |
+| 验证段计数 4266/303 | ✅ 刷新 4294/304 | rebase 后终态实测（检视獭独立复验 4294/4294 一致） |
+| 「查不到的跳过」未恢复未留痕 | ✅ 留痕 | 接受丢弃——model_alias 查不到时改派异体复核的兜底仍在，行为未定义风险低 |
+| 「用户自建也是重要信号」未申报 | ✅ 留痕 | 接受丢弃——`gh issue list` / `gh pr list` 本身含用户自建，语义未丢失 |
+| 心跳去重注释「近 24h」 | ✅ 改注释 | findAll 100 条实测回看约 12h（视 resolved 池流速），注释改「近期」 |
 
 ## 补跑（合入后执行）
 

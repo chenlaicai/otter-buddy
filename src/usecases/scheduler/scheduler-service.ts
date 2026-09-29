@@ -1663,8 +1663,7 @@ export async function buildRegressionVerifyBody(): Promise<string | null | typeo
  *  Why resolved 而非 open：open 事件会被次日 9:00 self-healing-analysis 的 findOpen(20)
  *  消费（废掉其「no open events」skip 机制）、污染 dismiss 率统计；心跳是状态记录，
  *  不是要处置的问题。
- *  去重：查近 24h 内同 taskId + 同 reason 的已落心跳（含 resolved——心跳无需再处置，
- *  findOpen 查不到 resolved，故用 findAll('resolved') + 时间窗判定），有则跳过。
+ *  去重：查近期（findAll('resolved', 100) 回看窗，实测约 12h 视 resolved 池流速）内同 taskId + 同 reason 的已落心跳，有则跳过。
  *  gh-cli-failure 与 no-due-assertions 独立计数不互压（前者是故障信号，后者是正常空转）。
  *  Why 放模块级：与 buildRegressionVerifyBody 同生命周期，不依赖类实例状态。 */
 export async function buildRegressionVerifyHeartbeat(
@@ -1676,7 +1675,7 @@ export async function buildRegressionVerifyHeartbeat(
   const now = new Date();
   const dedupWindowMs = 24 * 3600_000;
   try {
-    // 查近 24h 内同 taskId + 同 reason 的心跳（resolved 状态，findOpen 查不到，用 findAll）
+    // 查近期同 taskId + 同 reason 的心跳（resolved 状态，findOpen 查不到，用 findAll）
     const recentResolved = await healingRepo.findAll('resolved', 100);
     const hasRecent = recentResolved.some(e => {
       if (e.errorType !== 'other') return false;
