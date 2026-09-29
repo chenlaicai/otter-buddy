@@ -25,13 +25,13 @@ created_in_conversation: 480589fd-5813-400a-9b07-8e7d5707fb34
 
 ## 修复
 
-AssistantPanel.tsx 三处：
+AssistantPanel.tsx（检视 S1 后行动边界成对闭合）：
 
-1. 历史加载：删除多余 reverse，直接按 API 返回序渲染；filter 增加 invoke_start
-2. 流式渲染：handlers 增加 `invoke.start`（契约事件名，非 entry.invoke_start——tsc 会拦），渲染为居中状态条
+1. 历史加载：删除多余 reverse；filter 扩为五类 user/speak/system/invoke_start/**invoke_end**（成对，闭括号）
+2. 流式渲染：`invoke.start` + `invoke.end`（status 三态文案：completed「先休息一下」/ failed「遇到了问题」/ aborted「被叫停了」，优先用契约 endBody）+ `entry.failed` + `entry.aborted` 四个 handler
 3. system 消息渲染元素补 `data-testid="assistant-panel-system-msg"`（e2e 可断言）
 
-行动边界渲染形态：与 system 同款居中小字（10px stone-400），如「🦦 大獭开始行动～」——轻量，与面板纯文本定位一致。
+行动边界形态：与 system 同款居中小字（10px stone-400）。「开始行动」不再悬挂——有 start 无 end = 行动中；429 失败场景也有失败边界可见。
 
 ## 失败用例证据（修复前红 → 修复后绿）
 
@@ -47,12 +47,21 @@ Received: "assistant-panel-otter-msg"
 
 （第一条渲染的是 seq 4 的獭消息而非 seq 1 的用户消息——时间线倒序的直接指纹）
 
-**修复后**：1 passed → 全量 e2e 30/30 passed（10.4s）。
+**修复后**：1 passed → 全量 e2e 30/30 passed。
+
+## 检视轮补充（S1/M1/S3 处置）
+
+初版只加 invoke_start 不加 invoke_end（检视 S1：「开始过 ≠ 正在动」，行动中不可判定）：
+
+- S1：filter 补 invoke_end；流式补 invoke.end（三态文案）/entry.failed/entry.aborted 四 handler，边界成对闭合
+- M1：失败锁补齐——mock 加 invoke_end 条目 + system 条计数断言（=3）+ 收尾断言 + 边界文案 containText。只修 reverse 不修 filter 时 =1（红），只加 start 漏 end 时 =2（红），修复后 =3（绿）。已实跑红转绿验证（M1 断言在修复前红：Expected system-msg Received otter-msg）
+- S3：流式去重键改用事件自带 triggerEntryId（= entry id，agent-invoker.ts:356）——与历史加载 e.id 同构，未来历史刷新（K7 二期）不会双条
+- 注释纠偏：「重开面板可见行动中」改为如实描述（历史边界非实时状态，实时看思考中气泡+张望动画）
 
 ## 影响范围
 
 - 仅面板展示层（AssistantPanel.tsx 单文件），不触数据层/契约/后端
-- invoke_start 历史渲染为已完成的行动边界（非实时状态）；「思考中…」占位逻辑不变
+- invoke_start/invoke_end 历史渲染为已完成的行动边界（非实时状态）；「思考中…」占位逻辑不变；实时行动中 = 张望动画 + 思考中气泡
 - 完整对话页渲染不受影响
 
 ## 消息组织结构说明（搭档问询的顺带回答）
