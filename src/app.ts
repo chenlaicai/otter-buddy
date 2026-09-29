@@ -102,7 +102,7 @@ export interface BuildAppOptions {
   staticRoot?: string | false;
   /** 同步 apiKey 到 ~/.pi/agent/auth.json（全局用户态副作用），默认 true；测试必须传 false */
   syncAuth?: boolean;
-  /** 启用飞书长连接，默认 !!config.feishu */
+  /** F20260929fsqr 已退役：飞书接入唯一路径为扫码（IM 页），此选项不再生效 */
   enableFeishu?: boolean;
   /** 启动调度器，默认 true */
   startScheduler?: boolean;
@@ -314,20 +314,20 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const agentMetrics = new AgentMetrics(metricsRegistry);
 
   // ── 调度引擎 + 平台集成 ──
-  const globalPartnerResolver = new PartnerResolver(config.feishu?.partnerOpenId, config.weixin?.partnerUserId); // F20260928fsqr：渲染 resolver 外置——扫码首号运行时写入
+  const globalPartnerResolver = new PartnerResolver(undefined, config.weixin?.partnerUserId); // F20260928fsqr：渲染 resolver 外置——扫码首号运行时写入。F20260929fsqr：feishu.partnerOpenId 随静态段退役移除，飞书搭档锚一律扫码首号
   const dispatchChainEngine = createDispatchChainEngine(repos, uc, config, logger, { agentMetrics, agentGateway, partnerResolver: globalPartnerResolver });
   /** issue #281：广播总线无条件创建（平台无关），飞书出站作为 channel 注册——
    *  旧实现 messageBroadcaster: feishu?.broadcaster 导致 web-only 部署流式链路断流 */
   const messageBroadcaster = new MessageBroadcaster(logger);
-  const feishuEnabled = options.enableFeishu ?? !!config.feishu;
-  const feishu: FeishuBundle | undefined = feishuEnabled && config.feishu
-    ? createFeishuBundle({
-      feishuConfig: config.feishu, uc, dispatchChainEngine, logger,
-      webBaseUrl: config.web?.baseUrl, messageBroadcaster,
-      // F20260828fsyc：出站标签解析用户全局名（settingsRepo 可选注入,web-only 部署不传也不炸）
-      settingsRepo: repos.settings,
-    })
-    : undefined;
+  // F20260929fsqr（搭档决策）：feishu 静态凭证段退役——扫码双模式（新建/选已有）为唯一接入路径。
+  // 存量配置检测到时告警提示迁移；enableFeishu 选项同步退役（无静态线可启用）。
+  if (config.feishu) {
+    logger.warn(
+      "Feishu static config is deprecated: scan-based onboarding (create new / select existing app) is now the only path. " +
+      "Remove the `feishu` section from config.yaml and re-onboard via IM page QR scan (existing app: select it on the confirm page).",
+    );
+  }
+  const feishu: FeishuBundle | undefined = undefined;
 
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics: schedulerMetrics, agentMetrics, dispatchChainEngine, db, appConfig: config, modelPool, otterConfigProvider });
   // F20260920uhuc：统一交接入口回填（otter tool client 延迟绑定）
@@ -595,17 +595,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   // 飞书长连接启动（原 startServer 内的副作用，装配语义上属于"启动平台集成"）
   // #460：捕获 stopFeishu 句柄接入 dispose 链（防 WSClient 重连阻止退出）
+  // F20260929fsqr：静态线退役——启动句柄仅由扫码线持有（feishu-scan.ts），此处不再调用 setupFeishu
   let feishuStop: ReturnType<typeof setupFeishu> | undefined;
-  if (feishu) {
-    const feishuBundle = setupFeishu({ appConfig: config, uc, repos, agentInvoker, feishu, messageBroadcaster, logger, registry });
-    feishuStop = feishuBundle;
-    // F20260916fst4：首哑信号消费依赖挂接——setupFeishu 内构建的 AgentDispatchService
-    // 晚于 agentInvoker，setter 延迟挂接（bootstrap 时序补偿；web-only 部署无 feishu 时
-    // 首哑降级仅日志，回到现状静默终链）
-    if (feishuBundle) {
-      agentInvoker.attachAgentDispatchService(feishuBundle.agentDispatchService);
-    }
-  }
 
   /** 等待所有 ensure 完成后再启动 scheduler，确保新创建的 scheduled task 被遍历到。
    *  与旧 main() 的差异：buildApp 会 await 这两个 ensure 再返回（确定性更高，无 LLM 调用、耗时极小）。 */

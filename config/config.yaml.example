@@ -156,43 +156,16 @@ circuitBreaker:
   # 覆盖排队 + prefill 静默期；大上下文 TTFT 实测 ~70s，留足余量
   firstByteTimeoutMs: 300000
 
-# === 飞书集成配置（可选——扫码模式下整个 feishu 段都可以不配）===
-# 推荐用 Web IM 页「扫码接入飞书」（F20260929fsqr）：起名 → 扫码 → 自动创建应用并接入，
-# 全程无需填写任何凭证，凭据自动落盘 data/feishu/feishu-apps.json。
-# 下面这段静态凭证配置是旧方式（也可与扫码模式并行，两模式互不干扰）：
-# 适合在开放平台已有自建应用、想直接复用的场景。
-# 配置后启用飞书长连接接入，支持 IM 大厅功能
-# 飞书群可通过命令与系统对话交互
-# feishu:
-#   # 飞书应用 App ID（必填，从飞书开放平台获取）
-#   appId: "cli_xxxxxxxxxxxxxxxx"
-#   # 飞书应用 App Secret（必填，从飞书开放平台获取）
-#   appSecret: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-#   # 事件加密密钥（可选，用于解密飞书加密事件）
-#   encryptKey: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-#   # 搭档（本实例主人）的飞书 open_id（F20260826fpbd）
-#   # 搭档身份静态锚定：海獭的「搭档」始终是这个人，不随消息发送者变化；
-#   # 未配置时降级为动态推断（当前说话者视为搭档）
-#   # 获取方式见 docs/user-guide/feishu-setup.md「搭档身份绑定」
-#   # 注：扫码模式下无需本字段——首个扫码成功的人自动成为搭档锚
-#   partnerOpenId: "ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-
-# === 飞书集成使用说明（静态凭证模式）===
-# 详细步骤见 docs/user-guide/feishu-setup.md
-# 1. 在飞书开放平台创建自建应用，启用"机器人"能力
-# 2. 订阅事件：im.message.receive_v1（长连接方式）
-# 3. 开通权限（权限管理页搜索开通并发布版本）：
-#    - im:message（必选，接收单聊+群聊消息事件推送；只开 p2p 子集会导致群聊不通）
-#    - im:message:send_as_bot（必选，发送消息；与 im:message 任开其一可发送，建议都开）
-#    - contact:contact.base:readonly（推荐，群聊多人识别：发送者 open_id → 姓名；注意不是 contact:user.base:readonly，该名不存在）
-# 4. 获取 App ID 和 App Secret，填入上方配置
-# 5. 在 Web 端创建 Connection，绑定飞书群
-# 6. 在飞书群中使用命令：
-#    /list - 查看所有活跃对话
-#    /in <对话ID> - 进入指定对话
-#    /out - 退出当前对话
-#    /history - 查看当前对话历史消息
-#    /help - 显示帮助信息
+# === 飞书集成（无需任何配置项）===
+# 接入方式：Web IM 页 → 飞书区块 → 「+ 扫码接入飞书」（F20260929fsqr）：
+#   起名 → 飞书扫码 → 确认页选「创建新应用」或「选择已有应用」→ 完成。
+# 全程零凭证，凭据自动落盘 data/feishu/feishu-apps.json，重启自动恢复。
+# 详细步骤与常见问题：docs/user-guide/feishu-setup.md
+#
+# 旧静态凭证配置段已退役（F20260929fsqr 搭档决策）：扫码双模式为唯一接入路径。
+# 存量 config.yaml 中的 feishu: 段会在启动时收到迁移告警日志——
+# 迁移方式：删除该段，在 IM 页扫码并在确认页选「选择已有应用」重新接入原 app 即可
+# （历史 Connection 不受影响，自动恢复绑定）。
 
 # === 微信通道配置（可选）===
 # 协议直连 ilink，无需 appId/Secret（扫码授权，issue #565）；账号状态默认存 ./data/weixin

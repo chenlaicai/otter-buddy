@@ -182,7 +182,7 @@ onSuccess({appId, appSecret, ownerOpenId})
 
 ## 不兼容更新
 
-无。[Incompatible] 无标注项。
+- **feishu 静态凭证段退役**（搭档决策 2026-09-29，本 PR 内）：`config.yaml` 的 `feishu:` 段（appId/appSecret/encryptKey/partnerOpenId）不再启动静态线——扫码双模式（创建新/选已有）为唯一接入路径。存量部署影响：保留旧段启动时收到迁移告警日志（不炸）；迁移路径 = 删段 + IM 页扫码选「选择已有应用」重新接入原 app（历史 Connection 不受影响）。执行层 commit 未标 [Incompatible]（读入兼容不炸、迁移路径闭环），此处显式声明供追溯。
 
 ## 设计取舍
 

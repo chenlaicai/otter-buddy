@@ -95,7 +95,7 @@ export function setupFeishuScanChannels(options: {
       stopFeishuRuntime(appId);
       const rt = buildFeishuRuntime({
         appId, appSecret,
-        gateOwnerOpenId: ownerOpenId ?? config.feishu?.partnerOpenId,
+        gateOwnerOpenId: ownerOpenId ?? config.feishu?.partnerOpenId, // 检视建议⑤：owner 缺失退 config 锚（静态段退役后该退锥随存量迁移自然消失）
         globalFirstOwnerOpenId: firstOwnerNow,
         appConfig: config, uc, repos, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, registry, signalRouter,
       });
@@ -114,7 +114,7 @@ export function setupFeishuScanChannels(options: {
     const rt = buildFeishuRuntime({
       appId: app.appId,
       appSecret: app.appSecret,
-      gateOwnerOpenId: app.ownerOpenId ?? config.feishu?.partnerOpenId, // 检视建议⑤：owner 缺失退 config 锚
+      gateOwnerOpenId: app.ownerOpenId ?? config.feishu?.partnerOpenId, // 检视建议⑤：owner 缺失退 config 锚（静态段退役后该退锥随存量迁移自然消失）
       globalFirstOwnerOpenId: feishuFirstOwner(),
       appConfig: config, uc, repos, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, registry, signalRouter,
     });
