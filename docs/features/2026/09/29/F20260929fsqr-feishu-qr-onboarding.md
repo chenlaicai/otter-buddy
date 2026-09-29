@@ -1,8 +1,8 @@
 ---
-id: F20260928fsqr
+id: F20260929fsqr
 summary: 飞书接入改造——SDK registerApp 扫码自动建 app 免 ak/sk，多账号多 WS 并行，对齐微信 clawbot 模式
 title: 飞书扫码接入：registerApp 免凭证建线
-feature_id: F20260928fsqr
+feature_id: F20260929fsqr
 created: 2026-09-28
 created_in_conversation: 8c447618-ef7a-4b21-8b01-45c6ebff138b
 change_type: feature
@@ -257,6 +257,6 @@ onSuccess({appId, appSecret, ownerOpenId})
 | web/src/components/feishu/FeishuQRCodeLoginCard.tsx | 新增 | 扫码组件（微信同构，状态枚举差异） |
 | web/src/pages/im/index.tsx | 修改 | 飞书卡扫码入口+账号列表+多实例状态 |
 | web/src/api/client.ts | 修改 | DTO + API 函数 |
-| docs/features/2026/09/28/F20260928fsqr-feishu-qr-onboarding.md | 本文档 | 含 round 1 审视处置记录 |
+| docs/features/2026/09/29/F20260929fsqr-feishu-qr-onboarding.md | 本文档 | 含 round 1 审视处置记录 |
 
 （package.json 无改动——qrcode 已在依赖）
