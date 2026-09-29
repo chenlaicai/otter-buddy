@@ -8,7 +8,6 @@
 3. 30 秒层：背景 ≤3 行 + 选项对比表（含被否方案 + 否决理由，推荐行高亮）+ 獭间分歧 + 推荐理由
 4. 完整版：`<details>` 折叠案发现场 / 锚点
 5. 操作区：每个选项一个按钮，`otterCard.submit` 回执
-6. 高度按内容用 `data-height` 声明（clamp [100,4000]，不写默认 240px——内容多时应显式调高）
 7. 颜色只用设计 token（`var(--otter-*)` 等），不写死色值；不要前置色块
 
 **完整示例**（写卡前必调 `get_html_card_contract` 核对最新契约）：
@@ -35,7 +34,7 @@ li{margin:3px 0}
 details summary{cursor:pointer;padding:8px;background:var(--otter-100);border-radius:6px;font-weight:600;font-size:13px}
 code{background:var(--otter-100);padding:2px 6px;border-radius:4px;font-size:11px}
 </style>
-<div class="rd" data-height="900">
+<div class="rd">
 
 <div class="layer exec">
   <div class="verdict">「说人话」反复失效 → 落地「三层汇报文档」规范</div>
@@ -91,4 +90,3 @@ code{background:var(--otter-100);padding:2px 6px;border-radius:4px;font-size:11p
 - [ ] 被否方案和否决理由写了？
 - [ ] 按钮 onclick 走 `otterCard.submit` 且 summary 人话可读？
 - [ ] 没有前置色块、没有写死色值？
-- [ ] 内容多时已用 `data-height` 调高度？

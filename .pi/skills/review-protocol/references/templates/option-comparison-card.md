@@ -31,7 +31,7 @@ h4{margin:12px 0 6px;font-size:13.5px;color:var(--otter-700)}
 details summary{cursor:pointer;padding:8px;background:var(--otter-100);border-radius:6px;font-weight:600;font-size:13px}
 code{background:var(--otter-100);padding:2px 6px;border-radius:4px;font-size:11px}
 </style>
-<div class="oc" data-height="800">
+<div class="oc">
 
 <div class="exec">
   <div class="verdict">推荐 B（增量索引）——效果 90%、成本 1/3、可回退</div>
