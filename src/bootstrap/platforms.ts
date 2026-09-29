@@ -406,12 +406,18 @@ export function buildFeishuRuntime(options: {
 
     // 键控出站（#591 同构）：按 botKey 注册，FeishuMessageChannel 按 externalId===botKey 过滤。
     // 同 app 重扫（绑定已有 app 时真实发生）替换旧通道而非追加，#591 语义。
+    // #902 媒体出站：attachmentDeps 注入（实体查询 + speak 补拉 + 存储根；不注降级纯占位投影）
     const channelKey = options.channelKey ?? key;
     messageBroadcaster.registerOutboundChannel(
       channelKey,
       new FeishuMessageChannel({
         manageConnection: uc.manageConnection, feishuGateway: client, logger,
         webBaseUrl: appConfig.web?.baseUrl, settingsRepo: repos.settings, botKey: key,
+        attachmentDeps: {
+          attachmentRepo: repos.attachment,
+          entryReader: uc.sendEntry,
+          storageRoot: appConfig.attachments?.storageRoot ?? "./data/attachments",
+        },
       }),
     );
 
@@ -572,12 +578,17 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
       const cdn = new WeixinCdnClient({ api, logger });
       const mediaGateway = new WeixinMediaClient({ cdn, logger });
       const gateway = new WeixinGatewayAdapter({ api, accountStore, accountId: account.id, logger, cdn });
-      // 出站：广播总线注册（与飞书同模式；F20260913ctlv 处置轮：attachmentRepo 死参数已删，媒体出站恢复待独立 issue）
+      // 出站：广播总线注册（与飞书同模式；F20260913ctlv 删 attachmentRepo 死参数，
+      // #902 媒体出站恢复：重注入附件依赖——实体查询 + speak 补拉 + 存储根）
       // #591：键控注册（"weixin-<accountId>"）——同账号重登录时替换旧通道而非追加，
       // 防止重复投递；停轮询/删账号时 unregisterOutboundChannel 成对清理
       messageBroadcaster.registerOutboundChannel(
         `weixin-${account.id}`,
-        new WeixinMessageChannel(uc.manageConnection, gateway, uc.queryOtter, logger, appConfig.web?.baseUrl, repos.settings),
+        new WeixinMessageChannel(uc.manageConnection, gateway, uc.queryOtter, logger, appConfig.web?.baseUrl, repos.settings, {
+          attachmentRepo: repos.attachment,
+          entryReader: uc.sendEntry,
+          storageRoot: appConfig.attachments?.storageRoot ?? "./data/attachments",
+        }),
       );
       // ingress：入站处理器 + 轮询循环（媒体三项与飞书同构：注入服务与 controllers.ts 同一块装配）
       const attachmentInjection = new AttachmentInjectionService({
