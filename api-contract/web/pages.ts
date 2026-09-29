@@ -24,7 +24,7 @@ export interface SpaRoute {
 export const SPA_ROUTES: readonly SpaRoute[] = [
   { path: "/conversation", label: "对话" },
   { path: "/conversation/:id", label: null },
-  { path: "/memory", label: "记忆搜索" },
+  { path: "/memory", label: "记忆召回" },
   { path: "/skills", label: "能力库" },
   { path: "/im", label: "IM" },
   { path: "/health", label: "健康面板" },

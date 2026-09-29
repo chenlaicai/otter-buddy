@@ -227,7 +227,6 @@ export async function bootCapabilityApp(options: BootOptions = {}): Promise<Capa
       models,
       staticRoot: false,
       syncAuth: false,
-      enableFeishu: false,
       startScheduler: false,
     });
     await waitEmbeddingReady(built, options.embeddingTimeoutMs ?? 240_000);
