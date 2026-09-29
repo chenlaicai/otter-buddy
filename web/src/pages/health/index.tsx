@@ -149,7 +149,7 @@ export default function HealthPage() {
           <div className="flex gap-1 p-1 rounded-full bg-skeleton/70 w-fit">
             {([
               { key: 'overview', label: `${TAB_LABELS.overview}${overview ? ` · ${overview.openSignals}` : ''}` },
-              { key: 'signals', label: `${TAB_LABELS.signals}${signals.length ? ` · ${signals.length}` : ''}` },
+              { key: 'signals', label: `${TAB_LABELS.signals}${untriagedCount > 0 ? ` · ${untriagedCount} 待接单` : ''}` },
               { key: 'chains', label: `${TAB_LABELS.chains}${chains.length ? ` · ${chains.length}` : ''}` },
               { key: 'cost', label: TAB_LABELS.cost },
             ] as { key: Tab; label: string }[]).map(t => (

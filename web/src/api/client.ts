@@ -246,6 +246,11 @@ export function searchMemory(params: {
   conversationId?: string;
   detail_level?: 'summary' | 'snippet' | 'full';
   library?: string;
+  /** F20260929mrui：多条件查询补齐（后端 F20260803fbit/F20260805rbrg/F20260812mrcq 已支持，UI 本次暴露） */
+  content_type?: string[];
+  created_after?: string;
+  expand_context?: boolean;
+  debug?: boolean;
 }): Promise<SearchResultDTO> {
   const qs = new URLSearchParams()
   qs.set('query', params.query)
@@ -255,6 +260,10 @@ export function searchMemory(params: {
   if (params.conversationId) qs.set('conversationId', params.conversationId)
   if (params.detail_level) qs.set('detail_level', params.detail_level)
   if (params.library) qs.set('library', params.library)
+  if (params.content_type?.length) qs.set('content_type', params.content_type.join(','))
+  if (params.created_after) qs.set('created_after', params.created_after)
+  if (params.expand_context) qs.set('expand_context', 'true')
+  if (params.debug) qs.set('debug', 'true')
   return request(`/memory/search?${qs}`)
 }
 
@@ -297,7 +306,7 @@ export function flagMemory(id: string, flagged: boolean): Promise<{ status: stri
   return request(`/memory/${id}/flag`, { method: 'PATCH', body: JSON.stringify({ flagged }) })
 }
 
-/** #576（F20260901emps）：最近记忆——记忆搜索页初始态数据源 */
+/** #576（F20260901emps）：最近记忆——记忆召回页初始态数据源 */
 export function getRecentMemory(limit = 10): Promise<{ entries: MemoryEntryDTO[]; total: number }> {
   return request(`/memory/recent?limit=${limit}`)
 }

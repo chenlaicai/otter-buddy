@@ -26,7 +26,7 @@ test.describe('SPA 路由截图验证', () => {
     await page.goto('/memory')
     await expect(page).toHaveURL(/\/memory/)
     await expect(page.locator('header')).toBeVisible()
-    await expect(page.getByText('记忆搜索')).toBeVisible()
+    await expect(page.getByText('记忆召回')).toBeVisible()
     await page.screenshot({ path: test.info().outputPath('spa-memory.png'), fullPage: true })
   })
 
@@ -79,13 +79,13 @@ test.describe('SPA 路由截图验证', () => {
     const headerHandleBefore = await header.elementHandle()
     await page.screenshot({ path: test.info().outputPath('spa-nav-conversation.png'), fullPage: true })
 
-    // 点击「记忆搜索」
-    await page.getByText('记忆搜索').click()
+    // 点击「记忆召回」
+    await page.getByText('记忆召回').click()
     await expect(page).toHaveURL(/\/memory/)
     await expect(header).toBeVisible()
     // 验证导航前的 header DOM 节点仍然存活（未重挂载）
     expect(await headerHandleBefore!.evaluate(el => el.isConnected)).toBe(true)
-    await expect(page.getByText('搜索关键词')).toBeVisible()
+    await expect(page.getByText('召回关键词')).toBeVisible()
     await page.screenshot({ path: test.info().outputPath('spa-nav-memory.png'), fullPage: true })
 
     // 点击「设置」
