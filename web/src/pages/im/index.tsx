@@ -248,7 +248,9 @@ export default function ImPage() {
 
   /** 飞书聚合状态：扫码线多实例（kind=feishu-bot:*），聚合优先级照微信先例
    *  F20260929fsqr（delta 检视建议 6）：静态 kind='feishu' 键随退役消失，纯扫码模式下
-   *  原单键 find 恒 miss → 徽标恒「未配置」——改前缀聚合 */
+   *  原单键 find 恒 miss → 徽标恒「未配置」——改前缀聚合。
+   *  O1 注：无 token_stale 档——飞书 WS 模式当前不可达该态（long-connection-client 仅报
+   *  running/error_backoff）；未来若引入 token_stale 需在此补档 */
   const getFeishuAggregateStatus = (): ChannelStatusDTO | undefined => {
     const feishuEntries = channelStatus.filter(c => c.kind.startsWith('feishu-bot:'))
     if (feishuEntries.length === 0) return undefined
