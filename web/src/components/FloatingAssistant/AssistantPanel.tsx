@@ -49,9 +49,11 @@ export const AssistantPanel = forwardRef<HTMLDivElement, AssistantPanelProps>(fu
     let cancelled = false
     api.listEntries(conversationId, 30).then(({ entries }) => {
       if (cancelled) return
-      // 倒序转正序；只渲染 user/speak/system 三类（invoke 边界一期略——面板轻量）
-      const view: PanelMessage[] = [...entries].reverse()
-        .filter(e => e.entryType === 'user' || e.entryType === 'speak' || e.entryType === 'system')
+      // F20260929wap1：entries API 返回正序（entry-controller :45 将 DESC 取数反转为 ASC）
+      // ——旧代码误加 reverse 造成双重反转，历史时间线倒序渲染。直接按返回序渲染。
+      // 渲染四类：user/speak/system + invoke_start 行动边界（居中状态条，重开面板可见行动中）
+      const view: PanelMessage[] = entries
+        .filter(e => e.entryType === 'user' || e.entryType === 'speak' || e.entryType === 'system' || e.entryType === 'invoke_start')
         .map(e => ({
           id: e.id,
           st: e.entryType === 'user' ? 'user' : e.entryType === 'speak' ? 'otter' : 'system',
@@ -100,6 +102,16 @@ export const AssistantPanel = forwardRef<HTMLDivElement, AssistantPanelProps>(fu
           setMessages(prev => {
             if (prev.some(m => m.id === d.entryId)) return prev
             return [...prev, { id: d.entryId, st: 'otter' as const, content: body, ts: createdAt }]
+          })
+        },
+        // F20260929wap1：流内 invoke.start 也渲染（发送后本轮行动边界即时可见，居中状态条）。
+        //  契约事件名是 invoke.start（invoke 记录创建 + invoke_start entry 投影，events.ts:36）
+        'invoke.start': data => {
+          const d = data as { invokeId: string; otterName?: string }
+          setMessages(prev => {
+            const key = 'invoke-start-' + d.invokeId
+            if (prev.some(m => m.id === key)) return prev
+            return [...prev, { id: key, st: 'system' as const, content: `🦦 ${d.otterName || '大獭'}开始行动～`, ts: nowTs() }]
           })
         },
         'entry.system': data => {
@@ -181,7 +193,7 @@ export const AssistantPanel = forwardRef<HTMLDivElement, AssistantPanelProps>(fu
         )}
         {messages.map(m =>
           m.st === 'system' ? (
-            <div key={m.id} className="text-center text-[10px] text-stone-400 py-1">{m.content}</div>
+            <div key={m.id} data-testid="assistant-panel-system-msg" className="text-center text-[10px] text-stone-400 py-1">{m.content}</div>
           ) : m.st === 'user' ? (
             <div key={m.id} className="flex justify-end">
               <div data-testid="assistant-panel-user-msg" className="max-w-[80%] rounded-2xl rounded-br-md bg-teal-500 text-white px-3 py-2 text-xs whitespace-pre-wrap break-words">
