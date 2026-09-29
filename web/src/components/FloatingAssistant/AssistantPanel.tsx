@@ -37,6 +37,8 @@ export const AssistantPanel = forwardRef<HTMLDivElement, AssistantPanelProps>(fu
   const { conversationId, ensuring, ensureError, onRetryEnsure, onClose, style } = props
   const navigate = useNavigate()
   const [messages, setMessages] = useState<PanelMessage[]>([])
+  // F20260929wap1 DS1：已收尾 invoke 的 id 集合——entry.failed/aborted 与 invoke.end 同帧双发时防双收尾条
+  const finishedInvokeIdsRef = useRef<Set<string>>(new Set())
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [historyLoaded, setHistoryLoaded] = useState(false)
@@ -49,9 +51,11 @@ export const AssistantPanel = forwardRef<HTMLDivElement, AssistantPanelProps>(fu
     let cancelled = false
     api.listEntries(conversationId, 30).then(({ entries }) => {
       if (cancelled) return
-      // 倒序转正序；只渲染 user/speak/system 三类（invoke 边界一期略——面板轻量）
-      const view: PanelMessage[] = [...entries].reverse()
-        .filter(e => e.entryType === 'user' || e.entryType === 'speak' || e.entryType === 'system')
+      // F20260929wap1：entries API 返回正序（entry-controller :45 将 DESC 取数反转为 ASC）
+      // ——旧代码误加 reverse 造成双重反转，历史时间线倒序渲染。直接按返回序渲染。
+      // 渲染五类：user/speak/system + invoke_start/invoke_end 行动边界（成对，居中状态条）
+      const view: PanelMessage[] = entries
+        .filter(e => ['user', 'speak', 'system', 'invoke_start', 'invoke_end'].includes(e.entryType))
         .map(e => ({
           id: e.id,
           st: e.entryType === 'user' ? 'user' : e.entryType === 'speak' ? 'otter' : 'system',
@@ -100,6 +104,50 @@ export const AssistantPanel = forwardRef<HTMLDivElement, AssistantPanelProps>(fu
           setMessages(prev => {
             if (prev.some(m => m.id === d.entryId)) return prev
             return [...prev, { id: d.entryId, st: 'otter' as const, content: body, ts: createdAt }]
+          })
+        },
+        // F20260929wap1：流内 invoke.start 渲染（发送后本轮行动边界即时可见，居中状态条）。
+        //  契约事件名是 invoke.start（invoke 记录创建 + invoke_start entry 投影，events.ts:36）。
+        //  S3：去重键用事件自带的 triggerEntryId（= entry id，agent-invoker.ts:356）——与历史
+        //  加载的 e.id 同构，未来做历史刷新（K7 二期）不会双条
+        'invoke.start': data => {
+          const d = data as { invokeId: string; otterName?: string; triggerEntryId?: string }
+          setMessages(prev => {
+            const key = d.triggerEntryId ?? 'invoke-start-' + d.invokeId
+            if (prev.some(m => m.id === key)) return prev
+            return [...prev, { id: key, st: 'system' as const, content: `🦦 ${d.otterName || '大獭'}开始行动～`, ts: nowTs() }]
+          })
+        },
+        // F20260929wap1 S1：invoke 终态边界（闭括号）——completed/failed/aborted 三态均渲染，
+        //  「开始行动」不再悬挂无收尾，行动中可判定 = 有 start 无 end。
+        //  DS1：invokeId 记入收尾 Set——entry.failed/aborted（yield 重试耗尽路径同帧双发）
+        //  凭此跳过，防双收尾条；保留 finalize 吞异常时 entry 事件的兑底路径
+        'invoke.end': data => {
+          const d = data as { invokeId: string; otterName?: string; status: string; invokeEndEntryId?: string; endBody?: string }
+          finishedInvokeIdsRef.current.add(d.invokeId)
+          setMessages(prev => {
+            const key = d.invokeEndEntryId ?? 'invoke-end-' + d.invokeId
+            if (prev.some(m => m.id === key)) return prev
+            const tail = d.status === 'completed' ? '先休息一下' : d.status === 'aborted' ? '被叫停了' : '遇到了问题'
+            return [...prev, { id: key, st: 'system' as const, content: d.endBody || `🦦 ${d.otterName || '大獭'}${tail}～`, ts: nowTs() }]
+          })
+        },
+        // F20260929wap1 S1：invoke_end entry 投影（失败/中止的 entry 面）——与 invoke.end 同形态居中条。
+        //  DS1：已收尾的 invoke 跳过（invoke.end 已渲染过，同帧双发防双条）
+        'entry.failed': data => {
+          const d = data as { entryId: string; invokeId?: string; body?: string; otterName?: string }
+          if (d.invokeId && finishedInvokeIdsRef.current.has(d.invokeId)) return
+          setMessages(prev => {
+            if (prev.some(m => m.id === d.entryId)) return prev
+            return [...prev, { id: d.entryId, st: 'system' as const, content: d.body || `🦦 ${d.otterName || '大獭'}遇到了问题～`, ts: nowTs() }]
+          })
+        },
+        'entry.aborted': data => {
+          const d = data as { entryId: string; invokeId?: string; body?: string }
+          if (d.invokeId && finishedInvokeIdsRef.current.has(d.invokeId)) return
+          setMessages(prev => {
+            if (prev.some(m => m.id === d.entryId)) return prev
+            return [...prev, { id: d.entryId, st: 'system' as const, content: d.body || '🦦 行动被中止～', ts: nowTs() }]
           })
         },
         'entry.system': data => {
@@ -181,7 +229,7 @@ export const AssistantPanel = forwardRef<HTMLDivElement, AssistantPanelProps>(fu
         )}
         {messages.map(m =>
           m.st === 'system' ? (
-            <div key={m.id} className="text-center text-[10px] text-stone-400 py-1">{m.content}</div>
+            <div key={m.id} data-testid="assistant-panel-system-msg" className="text-center text-[10px] text-stone-400 py-1">{m.content}</div>
           ) : m.st === 'user' ? (
             <div key={m.id} className="flex justify-end">
               <div data-testid="assistant-panel-user-msg" className="max-w-[80%] rounded-2xl rounded-br-md bg-teal-500 text-white px-3 py-2 text-xs whitespace-pre-wrap break-words">
