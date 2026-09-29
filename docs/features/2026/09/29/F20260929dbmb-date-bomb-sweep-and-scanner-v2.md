@@ -96,6 +96,10 @@ causal_links:
 - 新增炸弹形态（窗口 API 族）会被 E2 在 CI 拦截
 - 12 条 W1 存量 warning 不阻断，随文件触碰逐步消除后下调基线
 
+## createBatch 白名单缺口记档（delta 复核残留，人工判定非炸弹）
+
+检视 delta 指出 `createBatch`（health-snapshot-repository.ts:41，INSERT INTO health_snapshots(snapshot_date)）是 E2 白名单外的日期写入面，现役样本 rhi-scan-worker.test.ts:451-453。人工核实结论：**非炸弹**——断言依赖的删除路径只有 `replaceForDate`（DELETE WHERE snapshot_date = 写入日，同日限定），全仓无 `deleteOlderThan` 生产调用方（grep 0 命中，仅测试自身用例）；fixture 日期 2026-08-28 恒可插入恒可读回，无真实时钟能碰到它。**不加入白名单**：createBatch 是通用 INSERT，纯 fixture 使用面极广（几乎每个快照测试都用），加入会大面积误报——违背「宁可窄不可宽」原则；若未来 deleteOlderThan 进生产路径，需重新评估。
+
 ## 机制识别检查点（Modification-Class: mechanism-addition 依据）
 
 按 commit-convention 四问自答（#1206 检视 S1 处置补全）：

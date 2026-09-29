@@ -159,6 +159,32 @@ describe('W1：it 块内 ISO 日期与真实时钟共现（warning 级）', () =
   });
 });
 
+describe('修饰块开块（#1206 检视 S2 回归锚）', () => {
+  it('it.each 块内 E2 形态必须检出', () => {
+    const results = scanFixture(
+      'tests/each-block.test.ts',
+      `it.each([\n`
+      + `  ['case1'],\n`
+      + `])('window %s', () => {\n`
+      + `  snapshotRepo.replaceForDate('2026-08-26', [{ snapshotDate: '2026-08-26' }]);\n`
+      + `});\n`,
+    );
+    expect(results.filter((r) => r.pattern === 'window-api-literal')).toHaveLength(1);
+  });
+
+  it('it.skip 块内 W1 共现必须检出', () => {
+    const results = scanFixture(
+      'tests/skip-block.test.ts',
+      `it.skip('mixed', () => {\n`
+      + `  const today = new Date().toISOString();\n`
+      + `  const d = '2026-08-28';\n`
+      + `  expect(d).toBeTruthy();\n`
+      + `});\n`,
+    );
+    expect(results.filter((r) => r.pattern === 'block-cooccurrence')).toHaveLength(1);
+  });
+});
+
 describe('扫描器自身约定', () => {
   it('W1_BASELINE 是非负整数且当前告警面不超基线', () => {
     expect(Number.isInteger(W1_BASELINE)).toBe(true);
