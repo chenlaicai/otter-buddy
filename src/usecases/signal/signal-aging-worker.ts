@@ -14,7 +14,7 @@
  *
  * 落账去重：同一 signalId 只落一次老化告警——scan 前查 open healing 事件的
  * context.signalId 是否已存在。healing 事件被 resolve 后若信号仍 pending，
- * 下一轮会再落一条（间隔 ≥24h，可接受——持续悬置本就该持续可见）。
+ * 下一轮会再落一条（间隔 ≥24h——持续悬置持续记异常，供机制分析；非提醒通道，见搭档终审裁决）。
  */
 
 import type { SignalEventRepository } from '@usecases/signal/signal-event-repository';
