@@ -12,6 +12,10 @@ summary: |
   查询失败 fail-closed。审计附命中锚点（entryId/seq/createdAt），
   事后可回查授权语境。卡片回执（otterCard.submit 按钮选择）也是
   user 消息，天然进入匹配面——按钮拍板通道自动合法化。
+  检视轮处置：短引用不足 4 实义字须整条等值（防否定句断章）；纯标点拒绝；
+  去空白比对；对称剥引号补全字符集；匹配面剔除 html-card-reply 围栏
+  （agent 自构 data JSON 不可作授权源）；畸形返回 fail-closed；
+  审计附命中片段；五处文案同步。访客面记 U3 遗留。
 
 causal_links:
   from:
@@ -79,6 +83,17 @@ T5: prompt 层与代码层一致：工具 description、bash 守卫文案、iden
 
 **为什么子串**：搭档授权常是长句中的短语——「1101合入，你更新下1095」→ 引「1095合入」需命中。整条强制会把这类合法引用拒掉，产生大量误拒推动拆闸（拆闸历史教训：负担重的闸会被绕过）。**为什么连续子串够**：拼接攻击（「1095」来自消息 A +「合入」来自消息 B）在连续子串语义下无法命中——两段分属不同消息的文本不可能构成任何一条消息的连续子串。断章取义残余（「不…合」的反义引用）靠审计锚点事后核对缓解——审计附 entryId/seq/createdAt，回查 get_message 即见完整语境。
 
+### 检视轮升级（S1/M1/M2/M3/SG1/SG2 处置）
+
+初轮对抗审视（检视獭-mpav，mimo-pro）发现初版实现的真洞与文案失实，全部处置：
+
+- **S1（严重）退化片段与否定句断章**：初版「合入」二字从「先不合入」里抠出可过闸（includes 子串命中）。修复：①纯标点/无实义字符拒绝（hasSubstantiveChars——汉字/字母/数字至少一个）；②短引用（<4 实义字）须**整条等值**——搭档独立回「合吧」= 整条即授权放行，从长句抠「合入」= 整条不等值拒绝。「不校验语义」的非目标不破——这是形态规则不是语义解析。
+- **M1 引号剥除不对称**：初版 ASCII 单引号/中文角括号不剥、首尾不对称。修复：对称字符类 + 补「」『』。
+- **M2 空白文案失实**：初版「折叠」容忍不了「有无空白」差异，文案却称容忍。修复：两侧同步**去空白**比对（实现改了，文案就实了）。
+- **M3 匹配面失实 + 自我授权闭环**：初版匹配面含 html-card-reply 围栏内 data JSON——那是大獭自己构造的载荷（藏文本进卡片→搭档点按钮→回执落 user entry→从 JSON「引用」=自我授权闭环）。修复：匹配前 stripHtmlCardFences 剥围栏（人类可读摘要保留——搭档过目文本仍是合法授权源）。访客面（weixin fromUserId≠owner 的 user entry 也在匹配面）：PartnerResolver 布线至 ToolContext 属中等改造，本 PR 记遗留（见 U3）。
+- **M4 第四处文案漏网**：tool-factory.ts 段头注释与测试头注释仍写「非物理闸」。修复：改 v2 物理闸语义。
+- **SG1** 审计附命中片段文本（断章核对一眼化）；**SG2** 非数组畸形返回 fail-closed。
+
 ### 卡片回执 = 合法授权源（T4 无需特判）
 
 卡片回执是 user 消息（html-card-contract-tool.ts:51「提交后你会收到一条用户消息」；形态 = 人类可读摘要 + html-card-reply 围栏）。子串匹配天然覆盖：搭档点「合入 PR #1201」按钮 → 回执摘要含「合入 PR #1201」→ 大獭引回执摘要的按钮文字即命中。#1205 案例（搭档在卡上点合入）在 v2 下合法可合。
@@ -115,6 +130,10 @@ writeMergeAudit 升级：auditContent 追加「命中锚点 entryId=… seq=… 
 
 无。merge_pr 拒绝行为是新增拒绝路径，无既有行为破坏。
 
+## 未决问题
+
+- **U3 访客面收窄（M3 遗留）**：匹配面当前只滤 entryType=user 不滤 senderId——weixin 访客（fromUserId≠owner）的消息也落 user entry，理论上可作授权源。收窄需 PartnerResolver 布线进 ToolContext（装配链 4 处：app.ts globalPartnerResolver → pi-session-factory cfg → buildCustomTools → tool-factory），属独立改造，触发条件：merge_pr 进入多人类会话使用场景时必须做（升级为 serious），当前单搭档场景攻击面窄（访客需恰好说出可作授权的文本）。
+
 ## 设计取舍
 
 | 取舍 | 决策 | 替代方案 | 理由 |
@@ -133,8 +152,8 @@ writeMergeAudit 升级：auditContent 追加「命中锚点 entryId=… seq=… 
 ## 验证
 
 - **失败固化先行**：事故重放 + 拼接绕过 + fail-closed + 空 entries + 纯引号空串 5 类拒绝路径先写红测试（8 失败）再实现转绿
-- 工具单测 15 用例全绿：v1 六用例（参数校验/状态门/审计双通道/幂等/审计失败不阻断/strategy 缺省）+ v2 九用例（事故重放拒绝/拼接拒绝/fail-closed/空 entries/引号形态放行/空白折叠放行/审计锚点断言/entryType 限定断言/纯引号空串拒绝）
-- 回归：bash 守卫测试 + agent-runtime tools 全家桶 264 绿；全量 296 文件 4226 测试绿
+- 工具单测初版 15 用例 + 检视轮处置后 19 用例全绿（新增：否定句断章拒绝/短引用整条等值豁免双向/回执围栏剔除双向/畸形返回 fail-closed；强化：引号形态六种/去空白真锁/纯标点四种/审计片段文本）
+- 回归：bash 守卫测试 + agent-runtime tools 全家桶绿；全量 299 文件 4255 测试绿（检视处置后）
 - tsc --noEmit 零错误；ESLint max-params 修复（writeMergeAudit 参数打包对象）
 - Golden Gate：`npm run test:capability` 14 文件 15 passed | 34 skipped（环境无 LLM 端点，与本次改动无关的既定 skip）
 - 最简实现检查：复用 getEntries 既有管道（restart_otter 同型）+ 纯函数规范化 + includes 匹配，无新依赖——已过最简检查

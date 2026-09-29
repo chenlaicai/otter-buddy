@@ -23,6 +23,7 @@ import { findKillSegments } from "@frameworks/agent/kill-segment-finder";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 // R20260817arnt PR-A：工具契约类型自本文件上移 @usecases/ports/agent-tools（消除 frameworks 反向依赖此文件）
 import type { AgentTool, ToolContext, ToolModelPool, ToolResponse } from "@usecases/ports/agent-tools";
+import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 // R20260817arnt PR-B：领域规则下沉到 usecases 层
 import { validateAndResolve } from "@usecases/conversation/talking-stone";
@@ -378,8 +379,9 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
 
 /** F20260922pmgd：merge_pr 工具——PR 合入搭档授权闸。
  *  事故锚：2026-09-22 大獭在搭档未显式授权时自行 gh pr merge 合入 #1095（流水线惯性）。
- *  定位：提醒 + 审计（非物理闸）——partnerApproval 必填强制 LLM 面对「我拿到授权了吗」；
- *  授权原话落 linked_resources（对话内查询面）+ warn 日志（跨对话兜底）双通道。 */
+ *  定位：v1 提醒 + 审计 → v2 升级物理闸——partnerApproval 必须逐字命中
+ *  搭档 user 历史消息（规范化容忍空白/引号形态；短引用<4实义字须整条等值；卡片回执
+ *  data JSON 围栏不作授权源），未命中拒绝执行；授权原话落 linked_resources + warn 日志双通道。 */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -535,26 +537,48 @@ async function checkPrMergeable(prNumber: number): Promise<{ state: string } | {
   return { state: prState };
 }
 
-/** F20260929mpav：merge_pr 原话校验——规范化文本（去首尾包裹引号 + 空白折叠）。
+/** merge_pr 原话校验——规范化文本（对称去包裹引号 + 去空白）。
  *  为什么去包裹引号：LLM 引用原话时习惯加引号包裹（“合吧”/"合吧"），
  *  搭档消息本身不含这些包裹——去掉后才能逐字命中；仅去包裹层，不动内部字符。
- *  为什么折叠空白：换行/多空格在引用时常被折成单空格，语义无损。 */
+ *  为什么去空白（而非折叠）：引用时丢空格/折行常见（「1095 合入」→「1095合入」），
+ *  两侧同步去空白比对，语义无损且实现最简。 */
 function normalizeApprovalText(text: string): string {
   let t = text.trim();
-  // 去包裹引号（中英引号反复剥，处理双层包裹），仅限首尾
-  const WRAPPING_QUOTES = /^["“”‘’]+|['’‘“”"]+$/g;
+  // 对称去包裹引号（ASCII 单双引号/中文弯引号/角括号，反复剥处理双层包裹），仅限首尾。
+  // ASCII 引号用 \u 转义而非字面量——lint-prompt-anchors 的注释剥离器不解析正则字面量，
+  // 字面引号会打乱其引号奇偶、致后续注释剥离失效（该脚本头部已知限制）。
+  const WRAPPING_QUOTES = /^[\u0022\u0027“”‘’「」『』]+|[\u0022\u0027“”‘’「」『』]+$/g;
   let prev = '';
   while (prev !== t) {
     prev = t;
     t = t.replace(WRAPPING_QUOTES, '').trim();
   }
-  // 空白折叠：连续空白（含换行）→ 单空格
-  return t.replace(/\s+/g, ' ');
+  // 去空白：全部空白（含换行）剔除后比对——形态差异归一
+  return t.replace(/\s+/g, '');
 }
 
-/** F20260929mpav：merge_pr 原话校验闸——partnerApproval 必须逐字命中搭档（user）历史消息。
- *  事故锚：2026-09-29 PR #1201 合入把自我推理文本塞进 partnerApproval，零校验照单全收
- *  （触发 F20260922pmgd U1 预留的升级条件「出现伪造授权原话事故即升级真伪校验」）。
+/** 匹配用 needle 是否含实义字符——纯标点/符号串（无汉字/字母/数字）视为无实义。
+ *  防退化片段：「。」「，」「!!!」等零信息量片段不该作为授权依据（空串防护只挡长度 0）。 */
+function hasSubstantiveChars(text: string): boolean {
+  return /[\p{Script=Han}\p{L}\p{N}]/u.test(text);
+}
+
+/** 短引用（<4 实义字符）须整条等值——防否定句断章。
+ *  搭档独立回「好」/「合吧」= 整条即授权，放行；从「先不合入」里抠「合入」二字 = 断章，
+ *  整条等值不成立 → 拒。>=4 字的引用靠子串 + 审计锚点事后核对。 */
+function shortApprovalRequiresWholeEntry(needle: string): boolean {
+  return countSubstantive(needle) < 4;
+}
+
+/** 实义字符计数（汉字/字母/数字） */
+function countSubstantive(text: string): number {
+  const matches = text.match(/[\p{Script=Han}\p{L}\p{N}]/gu);
+  return matches ? matches.length : 0;
+}
+
+/** merge_pr 原话校验闸——partnerApproval 必须逐字命中搭档（user）历史消息。
+ *  事故锚：2026-09-29 一次合入把自我推理文本塞进 partnerApproval，零校验照单全收
+ *  （v1 特性文档预留的升级条件「出现伪造授权原话事故即升级真伪校验」被命中）。
  *  匹配粒度：连续子串（规范化后）——搭档授权常是长句中的短语，整条强制会把合法引用拒掉；
  *  拼接两段话术的攻击在连续子串下无法命中。查询失败 fail-closed（授权闸宁可误拒不放）。
  *  卡片回执也是 user 消息（摘要 + html-card-reply 围栏），天然进入匹配面——按钮拍板通道自动覆盖。
@@ -564,7 +588,7 @@ async function verifyPartnerApproval(
   ctx: ToolContext,
   partnerApproval: string,
 ): Promise<{ hit: { id: string; sequenceNum: number; createdAt: string } } | { error: ToolResponse }> {
-  let entries: Array<{ id: string; sequenceNum: number; createdAt: string; body: string | null }>;
+  let entries: unknown;
   try {
     entries = await ctx.client.conversation.entry.getEntries(ctx.conversationId, { entryType: 'user', limit: 500 });
   } catch (err) {
@@ -575,23 +599,36 @@ async function verifyPartnerApproval(
       ),
     };
   }
+  // SG2：畸形返回（非数组）fail-closed——授权闸宁误拒不放
+  if (!Array.isArray(entries)) {
+    return {
+      error: errorResponse('[错误] 授权原话校验失败（fail-closed，已拒绝合入）：搭档历史消息返回格式异常（非数组）。请稍后重试。'),
+    };
+  }
   const needle = normalizeApprovalText(partnerApproval);
-  if (needle.length === 0) {
+  if (needle.length === 0 || !hasSubstantiveChars(needle)) {
     return {
       error: errorResponse(
-        '[错误] partnerApproval 规范化后为空（纯引号/空白）——必须原样引用搭档的授权原话，不得转述/概括/拼接。' +
+        '[错误] partnerApproval 无实义内容（空/纯引号/纯标点）——必须原样引用搭档的授权原话，不得转述/概括/拼接。' +
         '搭档尚未拍板时先呈终审简报（决策简报卡），不得调用本工具。',
       ),
     };
   }
-  const hit = entries.find(e => {
-    const hay = normalizeApprovalText(e.body ?? '');
-    return hay.length > 0 && hay.includes(needle);
+  // 匹配面：卡片回执的人类可读摘要可作授权源；html-card-reply 围栏内 data JSON 是
+  // agent 构造的交互载荷（摘要文本由 agent 撰写、data 由 agent 塞）——围栏整体剔除，
+  // 防 agent 借自构 JSON 文本自我授权（M3）。
+  const hit = (entries as Array<{ id: string; sequenceNum: number; createdAt: string; body: string | null }>).find(e => {
+    const stripped = stripHtmlCardFences(e.body ?? '');
+    const hay = normalizeApprovalText(stripped);
+    if (hay.length === 0 || !hasSubstantiveChars(hay)) return false;
+    if (shortApprovalRequiresWholeEntry(needle)) return hay === needle;
+    return hay.includes(needle);
   });
   if (!hit) {
     return {
       error: errorResponse(
-        `[错误] partnerApproval 未在搭档历史消息中命中——“${partnerApproval}”不是搭档任何一条消息的逐字片段（容忍空白/引号形态差异）。` +
+        `[错误] partnerApproval 未在搭档历史消息中命中——“${partnerApproval}”不是搭档任何一条消息的逐字片段` +
+        '（容忍空白/引号形态差异；短引用须整条等值；卡片回执 JSON 围栏不作授权源）。' +
         '原话不得伪装：推断/拼接/转述都不算授权。无授权原话时先呈终审简报（决策简报卡）请搭档拍板，拿到原话后重试。',
       ),
     };
@@ -600,7 +637,7 @@ async function verifyPartnerApproval(
 }
 
 /** merge_pr 子步骤：审计双通道落痕（linked_resources 主 + warn 日志跨对话兜底）。
- *  F20260929mpav：审计附原话命中锚点（entryId/seq/createdAt）——事后可回查授权语境。 */
+ *  审计附原话命中锚点（entryId/seq/createdAt）——事后可回查授权语境。 */
 async function writeMergeAudit(
   ctx: ToolContext,
   logger: Logger | undefined,
@@ -612,7 +649,9 @@ async function writeMergeAudit(
   },
 ): Promise<void> {
   const { prNumber, strategy, partnerApproval, approvalAnchor } = info;
-  const anchorDesc = approvalAnchor ? `，命中锚点 entryId=${approvalAnchor.id} seq=${approvalAnchor.sequenceNum} createdAt=${approvalAnchor.createdAt}` : '（原话校验锚点缺失）';
+  const anchorDesc = approvalAnchor
+    ? `，命中锚点 entryId=${approvalAnchor.id} seq=${approvalAnchor.sequenceNum} createdAt=${approvalAnchor.createdAt} 片段「${normalizeApprovalText(partnerApproval)}」`
+    : '（原话校验锚点缺失）';
   const auditContent = `PR #${prNumber} 合入授权：搭档原话「${partnerApproval}」${anchorDesc}（策略 ${strategy}，调用獭 ${ctx.otterId}）`;
   try {
     await ctx.client.resource.link({
@@ -633,7 +672,7 @@ async function writeMergeAudit(
 function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
   return {
     name: "merge_pr",
-    description: "合并指定 PR（搭档授权闸）. Precondition: 搭档已显式同意合入该 PR——partnerApproval 必须原样引用搭档的授权原话（如「1095合入」「这个可以合了」），不得转述/概括/编造. When: PR 审视通过且搭档已拍板合入时. Not for: 搭档尚未拍板 → 先呈终审简报（决策简报卡），不得调用本工具. Output: 合入结果（mergedAt/mergeCommit）+ 审计记录确认（含原话命中锚点）. GOTCHA: 原话经机械校验——partnerApproval 必须逐字命中当前对话中搭档（user）历史消息的连续片段（容忍空白/引号形态差异），未命中直接拒绝合入（无原话不允许使用）；卡片回执（otterCard.submit 提交的按钮选择摘要）也是搭档消息，属合法来源. 授权原话落审计双通道（linked_resources + 日志），伪造留痕可追责.",
+    description: "合并指定 PR（搭档授权闸）. Precondition: 搭档已显式同意合入该 PR——partnerApproval 必须原样引用搭档的授权原话（如「1095合入」「这个可以合了」），不得转述/概括/编造. When: PR 审视通过且搭档已拍板合入时. Not for: 搭档尚未拍板 → 先呈终审简报（决策简报卡），不得调用本工具. Output: 合入结果（mergedAt/mergeCommit）+ 审计记录确认（含原话命中锚点）. GOTCHA: 原话经机械校验——partnerApproval 必须逐字命中当前对话中搭档（user）历史消息的连续片段（容忍空白/引号形态差异；短引用不足4实义字须整条等值，防否定句断章；纯标点拒绝），未命中直接拒绝合入（无原话不允许使用）；卡片回执的人类可读摘要（otterCard.submit 后搭档过目的文本）也是搭档消息，属合法来源，但回执内 html-card-reply 围栏的 data JSON 是 agent 构造载荷，不作授权源. 授权原话落审计双通道（linked_resources + 日志，附命中锚点），伪造留痕可追责.",
     parameters: {
       type: "object",
       properties: {
@@ -655,7 +694,7 @@ function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
       }
       const gate = await checkPrMergeable(prNumber);
       if ("terminal" in gate) return gate.terminal;
-      // F20260929mpav：原话校验闸（物理闸）——逐字命中搭档历史消息才放行，否则拒绝；
+      // 原话校验闸（物理闸）——逐字命中搭档历史消息才放行，否则拒绝；
       // 位于 PR 状态门之后、审计/执行之前——未命中不落审计不执行 merge（拒绝事件落 warn 日志可观测）。
       const approvalCheck = await verifyPartnerApproval(ctx, partnerApproval);
       if ("error" in approvalCheck) {
