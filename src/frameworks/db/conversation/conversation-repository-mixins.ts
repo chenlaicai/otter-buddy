@@ -308,7 +308,9 @@ export function markParticipantLeft(db: Database.Database, conversationId: strin
  *  过任何历史消息，事实状态就是「读到最新」，与 #775 backfillLastReadSeq 的回填
  *  语义同源。空对话里 max(seq)=0，迁移前后等价，幂等天然安全。
  *  幂等：只更新 0 行；全量推进后（游标恒 >0 或空对话仍为 0——后者重写等价零改动）
- *  重复执行零副作用。
+ *  重复执行零副作用。已知边界：空对话的零游标行迁移后仍为 0，守卫计数永不结清，
+ *  每次启动会空转一次本 UPDATE（changes=0，零副作用）——为有历史对话的正确性
+ *  付的固定微小成本，不优化。
  *  回滚语义：回滚本特性代码不会回滚本迁移（无备份列——0 本就是事故值，回滚到 0
  *  无意义且会复发爆窗；迁移值与旧列独立，无回滚需求。检视残留观察项，见特性文档）。 */
 export function advanceZeroCursorsForActiveJoin(db: Database.Database): number {
