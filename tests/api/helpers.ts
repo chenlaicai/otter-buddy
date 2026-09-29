@@ -99,6 +99,8 @@ export function makeConversation(overrides: Partial<{
   updatedAt: string;
   completedAt: string | null;
   archivedAt: string | null;
+  /** F20260929wak1：对话类别（DTO 投影用例需要——'assistant'|'web-assistant'|undefined 等） */
+  kind: string | undefined;
 }> = {}) {
   const now = new Date().toISOString();
   return {
@@ -110,6 +112,7 @@ export function makeConversation(overrides: Partial<{
     updatedAt: overrides.updatedAt ?? now,
     completedAt: overrides.completedAt ?? null,
     archivedAt: overrides.archivedAt ?? null,
+    kind: overrides.kind,
   };
 }
 
