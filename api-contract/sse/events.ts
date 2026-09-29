@@ -18,8 +18,10 @@ export type SSEEventMap = {
    *  只投 source=web 的 user 消息（Web→IM 同步），IM 来源的消息不回投（防回环） */
   "entry.user": { entryId: string; sequenceNum: number; senderId: string; body: string; createdAt: string; yieldTargets?: string[]; source?: "web" | "feishu" | "weixin" | null; senderName?: string; attachments?: import("../api/entry").EntryAttachmentDTO[] };
   /** speak entry（獭气泡唯一来源）——speak 是原子工具调用（无流式生命周期），落库即 completed，
-   *  单事件携带全量 body 一次性渲染完整气泡。原 entry.start 伪事件已退役（与 entry.speak 背靠背同数据，纯冗余）。 */
-  "entry.speak": { entryId: string; invokeId: string; otterId?: string; body: string; otterName?: string; createdAt?: string; otterType?: string; otterColor?: string | null };
+   *  单事件携带全量 body 一次性渲染完整气泡。原 entry.start 伪事件已退役（与 entry.speak 背靠背同数据，纯冗余）。
+   *  #902：attachments 预留字段——speak 工具暂无附件写入源（#608 speak 侧上传就绪后发射点带值），
+   *  IM 出站通道消费时 data.attachments 缺失则按 entryId 补拉（entry 读出链自带投影） */
+  "entry.speak": { entryId: string; invokeId: string; otterId?: string; body: string; otterName?: string; createdAt?: string; otterType?: string; otterColor?: string | null; attachments?: import("../api/entry").EntryAttachmentDTO[] };
   /** invoke 终态失败（invoke_end entry 对应投影） */
   "entry.failed": { entryId: string; invokeId: string; otterId: string; otterName?: string; body?: string; otterType?: string; otterColor?: string | null };
   /** invoke 内自动重试（系统提醒 + 前端状态回退） */
