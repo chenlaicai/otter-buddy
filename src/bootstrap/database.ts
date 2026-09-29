@@ -152,6 +152,22 @@ export async function postInitDatabase(db: Database.Database, repos: Repositorie
     } catch (e) {
       logger.warn('[cursor-seq] seq 回填失败（不阻塞启动；读路径 NULL 回退仍在）', { error: e instanceof Error ? e.message : String(e) });
     }
+    // F20260929czi0：进场游标零点修正存量迁移（一次性，守卫同上：零游标行计数，
+    // 空对话重写 max(seq)=0 等价零改动，重复启动零代价）。仅推进「active 参与者 ×
+    // active 对话 × last_read_seq=0」——这些游标是 F20260913ctlv 口径的事故值
+    //（零游标獭把全历史当未读，多为换世后爆窗锁死），不是合法已读位置；失败仅日志，
+    // 不阻断启动（否则修复本身会打断生产启动，得不偿失）。
+    try {
+      const zeroRows = db.prepare(
+        "SELECT count(*) AS n FROM conversation_participants cp WHERE cp.last_read_seq = 0 AND cp.status = 'active' AND EXISTS (SELECT 1 FROM conversations c WHERE c.id = cp.conversation_id AND c.status = 'active')"
+      ).get() as { n: number };
+      if (zeroRows.n > 0 && repos.conversation.advanceZeroCursorsForActiveJoin) {
+        const advanced = repos.conversation.advanceZeroCursorsForActiveJoin();
+        logger.info('[cursor-zero-fix] 存量零游标进场獭迁移完成（F20260929czi0）', { advanced });
+      }
+    } catch (e) {
+      logger.warn('[cursor-zero-fix] 零游标迁移失败（不阻塞启动）', { error: e instanceof Error ? e.message : String(e) });
+    }
   } catch (e) {
     logger.warn('[signal-ledger] 启动任务失败（不影响启动）', { error: e instanceof Error ? e.message : String(e) });
   }

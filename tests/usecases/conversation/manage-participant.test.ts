@@ -93,6 +93,68 @@ describe("ManageParticipant（真 sqlite）", () => {
     });
   });
 
+  describe("join 进场游标（F20260929czi0：零点=进场点）", () => {
+    it("已有 N 条 entries 的对话进场 → 游标 = 进场时刻 max(seq)，进场前历史不可见，进场后新消息可见", async () => {
+      // Arrange：大獭先行在场并发言（进场前历史）
+      await otterRepo.createOtter(otterFixture("big-0", "大獭甲"));
+      db.prepare("INSERT INTO conversation_participants (id, conversation_id, otter_id, status, created_at, last_read_seq) VALUES ('p-big','conv-1','big-0','active','2026-01-01T00:00:00Z',0)").run();
+      const q = await entryRepo.createEntryAtomic({
+        id: "e-1", conversationId: "conv-1", sequenceNum: 0, entryType: "speak",
+        senderType: "otter", senderId: "big-0", body: "进场前的问题", invokeId: null, yieldTargets: null,
+        status: "completed", source: null, metadata: null, senderName: "大獭甲",
+        contextTokens: null, contextTokensMax: null,
+        createdAt: "2026-01-01T00:00:00Z", completedAt: "2026-01-01T00:00:00Z",
+      });
+
+      // Act：小獭进场（join 会写进场 system entry，seq > q）
+      await mpEntry.join("conv-1", "otter-1", "小獭进场了");
+
+      // Assert：游标 = join 读 maxSeq 时刻的 max(seq)=q 的 seq（进场 entry 在游标读数之后落库，
+      // 且其 sender=新獭自己被 sender 过滤排除——双重不可见，语义等价）
+      const row = db.prepare("SELECT last_read_seq FROM conversation_participants WHERE otter_id = 'otter-1'").get() as { last_read_seq: number };
+      expect(row.last_read_seq).toBe(q.sequenceNum);
+      // 进场前历史不进未读（旧口径下这里是全历史）
+      let unread = await entryRepo.getUnreadEntries("conv-1", "otter-1");
+      expect(unread).toEqual([]);
+      // 进场后新消息可见
+      const next = await entryRepo.createEntryAtomic({
+        id: "e-2", conversationId: "conv-1", sequenceNum: 0, entryType: "speak",
+        senderType: "otter", senderId: "big-0", body: "进场后的新消息", invokeId: null, yieldTargets: null,
+        status: "completed", source: null, metadata: null, senderName: "大獭甲",
+        contextTokens: null, contextTokensMax: null,
+        createdAt: "2026-01-01T00:00:00Z", completedAt: "2026-01-01T00:00:00Z",
+      });
+      unread = await entryRepo.getUnreadEntries("conv-1", "otter-1");
+      expect(unread.map(e => e.sequenceNum)).toEqual([next.sequenceNum]);
+    });
+
+    it("空对话进场 → 游标 = 0（= max(seq)），开场白可见", async () => {
+      await mpEntry.join("conv-1", "otter-1", "小獭进场了");
+
+      const row = db.prepare("SELECT last_read_seq FROM conversation_participants WHERE otter_id = 'otter-1'").get() as { last_read_seq: number };
+      expect(row.last_read_seq).toBe(0);
+      // 开场白（进场后写入）可见
+      const welcome = await entryRepo.createEntryAtomic({
+        id: "e-3", conversationId: "conv-1", sequenceNum: 0, entryType: "system",
+        senderType: "system", senderId: "user-1", body: "开场白", invokeId: null, yieldTargets: null,
+        status: "completed", source: null, metadata: null, senderName: "system",
+        contextTokens: null, contextTokensMax: null,
+        createdAt: "2026-01-01T00:00:00Z", completedAt: "2026-01-01T00:00:00Z",
+      });
+      const unread = await entryRepo.getUnreadEntries("conv-1", "otter-1");
+      expect(unread.map(e => e.sequenceNum)).toEqual([welcome.sequenceNum]);
+    });
+
+    it("进场 system entry 对新獭不可见（sender=自己，固化既有语义防回归）", async () => {
+      const { systemMessage } = await mpEntry.join("conv-1", "otter-1", "小獭进场了");
+      expect(systemMessage.senderId).toBe("otter-1");
+
+      // 新獭的未读不含自己的进场 entry（getUnreadEntries 排除 sender=自己）
+      const unread = await entryRepo.getUnreadEntries("conv-1", "otter-1");
+      expect(unread.filter(e => e.senderId === "otter-1")).toEqual([]);
+    });
+  });
+
   describe("leave", () => {
     it("更新参与者状态为 left + system entry（entryDeps 路径）", async () => {
       const { participant } = await mpEntry.join("conv-1", "otter-1", "小獭进场了");

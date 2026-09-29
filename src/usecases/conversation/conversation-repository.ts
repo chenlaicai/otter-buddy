@@ -67,7 +67,10 @@ export interface ConversationRepository {
   deleteLinkedResource(id: string): Promise<void>;
   flagResource(id: string, flagged: boolean): Promise<void>;
 
-  // Participant 管理（UA-4~UA-10）
+  // Participant 管理（UA-4~UA-10）。
+  // F20260929czi0：participant.lastReadSeq 为可选进场游标初值（缺省 0）——
+  // 新对话初始化调用方零改动；加入已有对话的调用方（manage-participant.join）
+  // 传进场时刻 max(seq)，进场前历史不进未读注入。
   createParticipant(participant: ConversationParticipant): Promise<void>;
   createParticipants(participants: ConversationParticipant[]): Promise<void>;
   getParticipant(
@@ -88,6 +91,11 @@ export interface ConversationRepository {
   /** #775：seq 刻度存量回填（一次性，启动时调用）。实体方法：sqlite 实现专用，
    *  未实现的仓储（测试桩）不需要——调用方用 `'backfillLastReadSeq' in repo` 防御。 */
   backfillLastReadSeq?(): number;
+  /** F20260929czi0：进场游标零点修正存量迁移（一次性，启动时调用）。
+   *  active 参与者 × active 对话 × last_read_seq=0 → max(seq)：F20260913ctlv 把
+   *  「进场游标=0」当成「读全部历史」，零游标獭多为换世后爆窗锁死（从未成功消费
+   *  历史），事实状态就是「读到最新」。sqlite 实现专用，防御方式同上。 */
+  advanceZeroCursorsForActiveJoin?(): number;
   /** 标记参与者已离开（dissolve_otter 顺带修：不创建系统消息） */
   markParticipantLeft(conversationId: string, otterId: string): Promise<void>;
 
