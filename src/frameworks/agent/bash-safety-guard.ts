@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- F20260928slan：sleep 检测已拆至 sleep-command-guard.ts；本文件随 kill/merge/data 安全规则持续自然增长（F20260830bsgr→F20260922scwd 五次特性叠加），行数上限与「多规则单文件」架构冲突 */
 /**
  * Bash 命令安全守卫（F20260830bsgr）。
  *

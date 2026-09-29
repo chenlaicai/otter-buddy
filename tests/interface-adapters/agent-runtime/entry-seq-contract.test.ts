@@ -13,7 +13,6 @@ import { mockSendEntry } from "../../helpers/mock-send-entry";
 
 type AnyInvoker = {
   // 测试直接驱动真实类的私有事件处理路径（发射 entry.speak 的生产代码）
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 };
 
