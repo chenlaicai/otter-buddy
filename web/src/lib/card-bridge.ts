@@ -11,9 +11,9 @@ export const CARD_ID_RE = /^[\w-]+:\d+$/
 const CARD_RESIZE_SCRIPT = `(function () {
   var CARD_ID = "__OTTER_CARD_ID__";
   function report() {
-    var h = 0;
-    if (document.body) h = Math.max(h, document.body.scrollHeight);
-    if (document.documentElement) h = Math.max(h, document.documentElement.scrollHeight);
+    /* F20260929ahgt：只测 body.scrollHeight——documentElement.scrollHeight ≥ clientHeight（视口高）
+     * 在已撑大的 iframe 里恒 ≥ 当前高度，是单向棘轮的自指污染源；body 高度与视口解耦，可撑可缩 */
+    var h = document.body ? document.body.scrollHeight : 0;
     parent.postMessage({ type: 'card:resize', cardId: CARD_ID, height: h }, '*');
   }
   if (typeof ResizeObserver !== 'undefined' && document.body) {
@@ -24,15 +24,12 @@ const CARD_RESIZE_SCRIPT = `(function () {
 })();`
 
 /** submit 段：仅在 cardId 格式合法时注入（fail-closed）
- *  F20260916hcel：新增 otterCard.resize(height)——卡片脚本动态声明高度，系统 clamp [100, 4000] */
+ *  F20260929ahgt：移除 otterCard.resize——agent 不再管高度，ResizeObserver 自动上报是唯一高度来源 */
 const CARD_SUBMIT_SCRIPT = `(function () {
   var CARD_ID = "__OTTER_CARD_ID__";
   window.otterCard = {
     submit: function (payload) {
       parent.postMessage({ type: 'card:submit', cardId: CARD_ID, payload: payload }, '*');
-    },
-    resize: function (height) {
-      parent.postMessage({ type: 'card:resize', cardId: CARD_ID, height: height }, '*');
     }
   };
 })();`
