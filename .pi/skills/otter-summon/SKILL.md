@@ -55,6 +55,11 @@ category: technique
 
 2. **写 systemPrompt**：身份信息不需要写（SMALL_OTTER.md 已覆盖），只写任务相关内容：
 
+   > 新獭默认看不到进场前的对话历史（进场游标 = 进场时刻 max(seq)，
+   > 进场前历史不进未读注入）——任务背景必须写进派工简报（systemPrompt/任务描述），
+   > 或在简报中指引小獭用 search_messages / list_messages 主动检索。不要指望小獭
+   > 「自己翻到」历史。
+
    ```
    你的任务：[一句话]
    背景信息：[相关上下文、已有结论、约束条件]
