@@ -100,6 +100,8 @@ jobs:
           node scripts/lint-capability-docs.mjs
           node scripts/lint-prompt-size.mjs
           node scripts/lint-prompt-anchors.mjs --full
+          # #1173 / F20260929dbmb: 时间炸弹收窄扫描 v2（E1/E2 error 阻断 + W1 基线守恒）
+          npm run lint:date-bombs
 
       - name: Run full project checks
         run: npm run check

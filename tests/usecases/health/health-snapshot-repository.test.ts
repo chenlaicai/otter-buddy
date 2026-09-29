@@ -11,7 +11,8 @@ describe("HealthSnapshotRepository（真 sqlite）", () => {
     return { repo: new HealthSnapshotRepository(db), db };
   }
 
-  const day = "2026-08-25";
+  // #1173 时间炸弹清扫：原硬编码 "2026-08-25"，deleteOlderThan 用例 2026-11-23 起翻转（day 亦滑出 90 天 cutoff）
+  const day = new Date().toISOString().slice(0, 10);
   const rows = (date: string, value: number) => [
     { snapshotDate: date, metricType: "overview", metricKey: "bugfix_ratio", metricValue: value },
     { snapshotDate: date, metricType: "overview", metricKey: "total_commits", metricValue: value * 100 },
@@ -40,6 +41,7 @@ describe("HealthSnapshotRepository（真 sqlite）", () => {
 
   it("replaceForDate 跨日不覆盖", () => {
     const { repo, db } = makeRepo();
+    // date-literal: fixture-relative —— 旧日与新日仅作 fixture 内部排序锚点，被测端无真实时钟窗口
     repo.replaceForDate("2026-08-24", rows("2026-08-24", 0.2));
     repo.replaceForDate(day, rows(day, 0.27));
 
@@ -50,6 +52,7 @@ describe("HealthSnapshotRepository（真 sqlite）", () => {
 
   it("findLatestByMetricKey 取最新日期", () => {
     const { repo, db } = makeRepo();
+    // date-literal: fixture-relative —— 旧日与新日仅作排序比较锚点，与真实时钟无关
     repo.replaceForDate("2026-08-24", rows("2026-08-24", 0.2));
     repo.replaceForDate(day, rows(day, 0.27));
 
@@ -60,6 +63,7 @@ describe("HealthSnapshotRepository（真 sqlite）", () => {
 
   it("deleteOlderThan 保留策略", () => {
     const { repo, db } = makeRepo();
+    // date-literal: fixture-relative —— 2026-01-01 恒早于今天-90d（今天 >= 2026-04-02 后恒真），cutoff 侧恒删，语义稳定
     repo.replaceForDate("2026-01-01", rows("2026-01-01", 0.1));
     repo.replaceForDate(day, rows(day, 0.27));
 
