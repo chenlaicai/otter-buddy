@@ -218,7 +218,8 @@ describe('SchedulerService - self-healing-analysis 模板化（issue #416）', (
     const result = await service.trigger('task-healing');
 
     // 副作用断言：未发送消息 + 日志记录跳过原因（状态化捕获，非 mock 调用断言）
-    expect(result.executionId).toBe('');
+    // #1208：skip 落 skipped execution 行 → executionId 非空（此前空串 = 静默）
+    expect(result.executionId).toBeTruthy();
     expect(capturing.sentBodies).toHaveLength(0);
     const skipLogged = (mockLogger.info as ReturnType<typeof vi.fn>).mock.calls.some(
       (args: unknown[]) => args[0] === 'Healing analysis skipped: no open events',
