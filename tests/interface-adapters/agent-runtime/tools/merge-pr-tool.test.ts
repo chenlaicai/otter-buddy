@@ -340,6 +340,18 @@ describe('F20260929mpav 原话校验闸（无原话不允许合入）', () => {
     expect(JSON.stringify(result)).toContain('已合入');
   });
 
+  it('CS1 否定字集补「未」：「尚未同意合入」抠「同意合入」（4实义字、前邻「未」）→ 拒', async () => {
+    stubGh('OPEN');
+    const entries = [
+      { id: 'ue-cs1', entryType: 'user', senderType: 'user', senderId: 'user', body: '尚未同意合入，再等等', sequenceNum: 361, createdAt: '2026-09-29T05:00:00.000Z' },
+    ];
+    const getEntriesMock = vi.fn().mockResolvedValue(entries);
+    const tool = findMergePr(makeCtx(vi.fn(), getEntriesMock));
+    const result = await tool.execute('v16', { prNumber: 1095, partnerApproval: '同意合入' });
+    expect(JSON.stringify(result)).toContain('未在搭档历史消息中命中');
+    expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
+  });
+
   it('SG2 畸形返回兜底：getEntries 返回非数组 → fail-closed 拒绝', async () => {
     stubGh('OPEN');
     const getEntriesMock = vi.fn().mockResolvedValue({ not: 'array' });

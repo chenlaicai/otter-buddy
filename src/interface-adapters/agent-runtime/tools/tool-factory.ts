@@ -584,7 +584,7 @@ function isNegatedHit(hay: string, needle: string): boolean {
   const idx = hay.indexOf(needle);
   if (idx <= 0) return false;
   const prevChar = hay[idx - 1]!;
-  return '不别勿没莫非'.includes(prevChar);
+  return '不别勿没莫非未'.includes(prevChar);
 }
 
 /** merge_pr 原话校验闸——partnerApproval 必须逐字命中搭档（user）历史消息。
