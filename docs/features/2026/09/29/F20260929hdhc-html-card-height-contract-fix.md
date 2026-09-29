@@ -1,7 +1,7 @@
 ---
 id: F20260929hdhc
 title: html-card 高度契约纠偏：data-height 语义从「预估内容高度」改为「首帧临时高度，宁小勿大」
-summary: "实测当日 10/10 张 html-card 的 data-height 系统性高估内容真实高度（最大浪费 497px），根因是契约措辞诱发「宁可多留」的保守写法。本改动只调 prompt 注入面措辞：data-height 明确为首帧临时高度（ResizeObserver 自动回正），按内容下限写、估不准不写。不动渲染机制。"
+summary: "实测当日 10/10 张 html-card 的 data-height 系统性高估内容真实高度（最大浪费 497px），根因是契约措辞诱发「宁可多留」的保守写法。本改动只调 prompt 注入面措辞：data-height 语义定为初始高度（ResizeObserver 自动撑高、单向棘轮只涨不缩——写大永久残留），按内容下限写、估不准不写。不动渲染机制。"
 change_type: prompt
 capability_test: "n/a: 纯契约/prompt 措辞纠偏，无代码行为变更；渲染机制（HtmlCard.tsx clamp + card-bridge ResizeObserver 回正）本身未动"
 created: 2026-09-29
@@ -59,7 +59,7 @@ tags:
 ## 影响范围
 
 - 仅 prompt 注入面文本，无运行时行为变更；存量卡不受影响（历史消息的 data-height 已固化）。
-- 预期效果：新卡的声明高度回归内容真实高度附近，底部空白消失；写小的代价仅展开瞬间一次自动回正。
+- 预期效果：新卡的声明高度回归内容真实高度下限或省略，底部空白消失；写小的代价仅展开瞬间一次自动撑高。
 
 ## 取舍
 

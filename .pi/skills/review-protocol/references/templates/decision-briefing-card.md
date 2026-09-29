@@ -91,4 +91,4 @@ code{background:var(--otter-100);padding:2px 6px;border-radius:4px;font-size:11p
 - [ ] 被否方案和否决理由写了？
 - [ ] 按钮 onclick 走 `otterCard.submit` 且 summary 人话可读？
 - [ ] 没有前置色块、没有写死色值？
-- [ ] `data-height` 按内容预估下限写的（宁小勿大），还是合理省略了（交给自动回正）？
+- [ ] `data-height` 按内容预估下限写的（宁小勿大——写大部分单向棘轮不缩回），还是合理省略了（交给自动撑高）？
