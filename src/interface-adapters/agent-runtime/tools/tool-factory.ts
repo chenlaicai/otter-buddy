@@ -576,6 +576,17 @@ function countSubstantive(text: string): number {
   return matches ? matches.length : 0;
 }
 
+/** 去空白比对下的否定断章加固：needle 在 hay 的命中起点紧邻否定字（不/别/勿/没/莫/非）
+ *  则拒——「不同意 合入」去空白后「不同意合入」，从「同意」起抠「同意合入」= 跨空白
+ *  接缝断章。前邻检查（hay[开始前一字符] 是否定字）可封住此类接缝变体；后邻不查
+ *  （「不合入」本身含否定字不会作为合法 needle 引用）。 */
+function isNegatedHit(hay: string, needle: string): boolean {
+  const idx = hay.indexOf(needle);
+  if (idx <= 0) return false;
+  const prevChar = hay[idx - 1]!;
+  return '不别勿没莫非'.includes(prevChar);
+}
+
 /** merge_pr 原话校验闸——partnerApproval 必须逐字命中搭档（user）历史消息。
  *  事故锚：2026-09-29 一次合入把自我推理文本塞进 partnerApproval，零校验照单全收
  *  （v1 特性文档预留的升级条件「出现伪造授权原话事故即升级真伪校验」被命中）。
@@ -587,7 +598,7 @@ function countSubstantive(text: string): number {
 async function verifyPartnerApproval(
   ctx: ToolContext,
   partnerApproval: string,
-): Promise<{ hit: { id: string; sequenceNum: number; createdAt: string } } | { error: ToolResponse }> {
+): Promise<{ hit: { id: string; sequenceNum: number; createdAt: string; body: string } } | { error: ToolResponse }> {
   let entries: unknown;
   try {
     entries = await ctx.client.conversation.entry.getEntries(ctx.conversationId, { entryType: 'user', limit: 500 });
@@ -622,7 +633,7 @@ async function verifyPartnerApproval(
     const hay = normalizeApprovalText(stripped);
     if (hay.length === 0 || !hasSubstantiveChars(hay)) return false;
     if (shortApprovalRequiresWholeEntry(needle)) return hay === needle;
-    return hay.includes(needle);
+    return hay.includes(needle) && !isNegatedHit(hay, needle);
   });
   if (!hit) {
     return {
@@ -633,7 +644,7 @@ async function verifyPartnerApproval(
       ),
     };
   }
-  return { hit: { id: hit.id, sequenceNum: hit.sequenceNum, createdAt: hit.createdAt } };
+  return { hit: { id: hit.id, sequenceNum: hit.sequenceNum, createdAt: hit.createdAt, body: stripHtmlCardFences(hit.body ?? '') } };
 }
 
 /** merge_pr 子步骤：审计双通道落痕（linked_resources 主 + warn 日志跨对话兜底）。
@@ -645,12 +656,14 @@ async function writeMergeAudit(
     prNumber: number;
     strategy: string;
     partnerApproval: string;
-    approvalAnchor?: { id: string; sequenceNum: number; createdAt: string };
+    approvalAnchor?: { id: string; sequenceNum: number; createdAt: string; body?: string };
   },
 ): Promise<void> {
   const { prNumber, strategy, partnerApproval, approvalAnchor } = info;
+  // 命中 entry 原文（剥围栏后截断）进审计——断章核对一眼化：只看审计即可见「授权出自什么语境」
+  const hitExcerpt = approvalAnchor?.body ? `原文「${approvalAnchor.body.slice(0, 80)}」` : '';
   const anchorDesc = approvalAnchor
-    ? `，命中锚点 entryId=${approvalAnchor.id} seq=${approvalAnchor.sequenceNum} createdAt=${approvalAnchor.createdAt} 片段「${normalizeApprovalText(partnerApproval)}」`
+    ? `，命中锚点 entryId=${approvalAnchor.id} seq=${approvalAnchor.sequenceNum} createdAt=${approvalAnchor.createdAt} ${hitExcerpt}`.trimEnd()
     : '（原话校验锚点缺失）';
   const auditContent = `PR #${prNumber} 合入授权：搭档原话「${partnerApproval}」${anchorDesc}（策略 ${strategy}，调用獭 ${ctx.otterId}）`;
   try {

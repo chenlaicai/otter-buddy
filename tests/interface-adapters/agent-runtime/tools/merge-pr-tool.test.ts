@@ -224,17 +224,18 @@ describe('F20260929mpav 原话校验闸（无原话不允许合入）', () => {
     expect(JSON.stringify(result)).toContain('已合入');
   });
 
-  it('命中锚点落在 audit 日志与 fact：entryId + seq 可回查', async () => {
+  it('命中锚点落在 audit 日志与 fact：entryId + seq + 命中 entry 原文（真锁：断言 entry 独有子串，删 body 截断则红）', async () => {
     stubGh('OPEN');
     const linkMock = vi.fn().mockResolvedValue({ id: 'res-1' });
     const logger = makeLogger();
     const tool = findMergePr(makeCtx(linkMock), logger);
-    await tool.execute('v7', { prNumber: 1095, partnerApproval: '这个可以合了，合吧' });
+    // 引用前半段「这个可以合了」，entry 原文独有后半段「，合吧」——审计须含原文供断章核对
+    await tool.execute('v7', { prNumber: 1095, partnerApproval: '这个可以合了' });
     expect(linkMock).toHaveBeenCalledOnce();
     const content = linkMock.mock.calls[0]![0].content as string;
     expect(content).toContain('ue-2');
     expect(content).toContain('102');
-    expect(content).toContain('这个可以合了'); // SG1：审计附命中片段文本，断章核对一眼化
+    expect(content).toContain('，合吧'); // DS1：命中 entry 原文截断进审计（partnerApproval 不含此段）
   });
 
   it('校验查询限定 user 类型（entryType 参数断言，防止未来实现漂移拉全量）', async () => {
@@ -314,6 +315,29 @@ describe('F20260929mpav 原话校验闸（无原话不允许合入）', () => {
     result = await tool.execute('v12b', { prNumber: 1095, partnerApproval: 'secret":"975d2c0f8a' });
     expect(JSON.stringify(result)).toContain('未在搭档历史消息中命中');
     expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
+  });
+
+  it('DS2 去空白接缝否定断章：「同意 合入」抠「同意合入」跨界拼接、前邻「不」→ 拒', async () => {
+    stubGh('OPEN');
+    const entries = [
+      { id: 'ue-ds2', entryType: 'user', senderType: 'user', senderId: 'user', body: '不同意 合入，先等等', sequenceNum: 351, createdAt: '2026-09-29T04:50:00.000Z' },
+    ];
+    const getEntriesMock = vi.fn().mockResolvedValue(entries);
+    const tool = findMergePr(makeCtx(vi.fn(), getEntriesMock));
+    const result = await tool.execute('v14', { prNumber: 1095, partnerApproval: '同意合入' });
+    expect(JSON.stringify(result)).toContain('未在搭档历史消息中命中');
+    expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
+  });
+
+  it('DS2 邻字豁免边界：前邻非否定字（「就合入吧」抠「合入吧」不够 4 字走整条，改引 4 字「就合入吧」）→ 照常放行', async () => {
+    stubGh('OPEN');
+    const entries = [
+      { id: 'ue-ds2b', entryType: 'user', senderType: 'user', senderId: 'user', body: 'CI 绿了就合入吧，别的先不动', sequenceNum: 352, createdAt: '2026-09-29T04:51:00.000Z' },
+    ];
+    const getEntriesMock = vi.fn().mockResolvedValue(entries);
+    const tool = findMergePr(makeCtx(vi.fn(), getEntriesMock));
+    const result = await tool.execute('v15', { prNumber: 1095, partnerApproval: '就合入吧' });
+    expect(JSON.stringify(result)).toContain('已合入');
   });
 
   it('SG2 畸形返回兜底：getEntries 返回非数组 → fail-closed 拒绝', async () => {
