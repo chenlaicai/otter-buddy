@@ -679,6 +679,7 @@ const PY_READONLY_METHODS = new Set([
   "index", "count", "find", "rfind", "append", "extend", "insert", "pop",
   "sort", "join", "isdigit", "isalpha", "isspace", "compile", "escape", "fullmatch",
   "glob", "iglob",                                                        // glob 模块只读 API（delta 2 高频点）
+  "safe_load", "safe_load_all",                                           // yaml 定域化后的纯读面（delta 4，检视 Y6 建议）
   "read_csv", "read_json", "read_excel", "read_table", "read_parquet",    // pandas 读族（delta 2 高频点）
   "describe", "head", "tail", "info",                                    // DataFrame 只读探查
   "open",                                                                  // Path.open('r')——mode 由 ② 门独立把关
@@ -720,24 +721,52 @@ function positionalArgMayBeVariableMode(p: string): boolean {
 }
 
 /** python 只读门 ②：open 调用的 mode 实参必须是字面 'r'/'rb' 或无（默认 'r'）。
- *  delta 3（检视 delta 2 终轮 (a) 类修）：mode 槽位（内建 open 首参之后的位置实参 /
- *  pathlib .open 的全部位置实参——其签名首参即 mode）见裸标识符即不豁免——
- *  变量 mode（m='w'; open(p, m)）此前因检查正则误写（\/ 应为 ,）全部漏过。
- *  路径位裸标识符（open(path)）不构成写向量（无 mode 默认 'r'），保留豁免
- *  （E5 主形态可用性）。mode= 关键字：值必须字面 'r'/'rb'（变量值/写 mode 均拒）。 */
+ *  delta 4（检视 delta 3 出口不变式 1/2 类修）：
+ *  不变式 1（检测面 over-broad）：对 body 中**每一个** open( 子串做实参检查，
+ *  不管前字符（.open(/p.open(/io.open(/builtins.open( 全部可见）——禁止用前字符
+ *  正则收窄检测面（delta 3 的 (^|[^\w.]) 让 p.open( 整类不可见，比修复前更窄）。
+ *  内建/方法签名用「匹配串是否以点开头」区分：方法 → 全部位置实参按 mode 槽位
+ *  查；内建 → 首参是路径位（裸标识符不构成写向量——无 mode 默认 'r'），跳过。
+ *  不变式 2（关键字白名单）：关键字仅接受 mode（值必须字面 'r'/'rb'）、
+ *  encoding/errors/newline（值必须字面串）；其余（opener=/closefd=/mode=变量/
+ *  **kwargs）一律不豁免（opener= 可携带任意 callable）。 */
+const PY_OPEN_KNOWN_KEYWORDS = new Set(["mode", "encoding", "errors", "newline"]);
+
+/** 关键字实参白名单判定（不变式 2）：仅 mode（字面 'r'/'rb'）与
+ *  encoding/errors/newline（字面串）可接受；未知关键字（opener=/closefd=）/
+ *  变量值/写 mode → false（不豁免）。非关键字实参返回 null（交位置判定）。 */
+function keywordArgReadOnly(p: string): boolean | null {
+  if (/^\*\*/.test(p)) return false;                                     // **kwargs 不可静态判
+  const kw = p.match(/^([A-Za-z_]\w*)\s*=\s*([\s\S]+)$/);
+  if (!kw) return null;
+  if (!PY_OPEN_KNOWN_KEYWORDS.has(kw[1])) return false;                  // opener=/closefd=/未知关键字
+  const v = kw[2].trim();
+  if (kw[1] === "mode") return /^(?:['"][rb]{1,2}['"])$/.test(v);       // mode= 变量值/写 mode → false
+  return /^(?:['"][^'"]*['"])$/.test(v);                                // encoding/errors/newline 值必须字面串
+}
+
 function pythonOpenModesReadOnly(body: string): boolean {
-  // 内建 open（open(path, mode?)）与 pathlib .open（.open(mode?)）两种签名都进本门
-  for (const om of body.matchAll(/(^|[^\w.])(\.?open)\s*\(([^)]*)\)/g)) {
-    const isMethodCall = om[2].startsWith(".");
-    const args = om[3];
-    if (/\/\*/.test(args)) return false;                                 // 注释掃尾不可静态判
-    const kw = args.match(/\bmode\s*=\s*(.+)/);
-    if (kw) {
-      const v = kw[1].replace(/\)\s*$/, "").trim();
-      if (! /^(?:['"][rb]{1,2}['"])$/.test(v)) return false;             // mode= 变量值/写 mode
+  // over-broad（不变式 1）：所有 open( 子串全查（含 .open( / p.open( / io.open( 等）
+  for (const om of body.matchAll(/(\.?open)\s*\(([^)]*)\)/g)) {
+    const isMethodCall = om[1].startsWith(".");
+    const args = om[2];
+    if (/\/\*/.test(args)) return false;                                 // 注释不可静态判
+    let pathArgSeen = false;                                             // 内建签名首参 = 路径位标记
+    for (const raw of splitTopLevelArgs(args)) {
+      const p = raw.trim();
+      if (p === "") continue;
+      const kwVerdict = keywordArgReadOnly(p);
+      if (kwVerdict !== null) {
+        if (!kwVerdict) return false;
+        continue;
+      }
+      // 位置实参：方法签名全部是 mode 槽位；内建签名首参是路径位（裸标识符不构成写向量，跳过）
+      if (isMethodCall || pathArgSeen) {
+        if (positionalArgMayBeVariableMode(p)) return false;
+      } else {
+        pathArgSeen = true;
+      }
     }
-    const modeSlots = splitTopLevelArgs(args).slice(isMethodCall ? 0 : 1);
-    if (modeSlots.some(raw => raw.trim() !== "" && positionalArgMayBeVariableMode(raw.trim()))) return false;
   }
   return true;
 }
@@ -749,11 +778,20 @@ function pythonModuleSurfaceReadOnly(body: string): boolean {
   // delta 2：csv 移出——无代码执行面（写盘由 open mode 门兜底），且文件名字面量
   // 'x.csv' 会被 \bcsv\b 误伤；pickle 保留（反序列化可执行 payload，只读也不行）
   // delta 3（检视 delta 2 终轮 (b) 类修）：反序列化执行面全禁——pickle 之外
-  // 补 dill/joblib/shelve/marshal/yaml（yaml.load 默认unsafe，safe_load 亦保守
-  // 拦——白名单是例外）；allow_pickle 非字面 False 一律拒（np.load 变量旗标穿不过）
-  if (/\b(?:fileinput|mmap|shutil|subprocess|socket|ctypes|pickle|sqlite|urllib|requests|http|ftplib|pty|dill|joblib|shelve|marshal|yaml)\b/.test(body)) return false;
+  // 补 dill/joblib/shelve/marshal（yaml 定域化见下——safe_load 白名单化）
+  if (/\b(?:fileinput|mmap|shutil|subprocess|socket|ctypes|pickle|sqlite|urllib|requests|http|ftplib|pty|dill|joblib|shelve|marshal)\b/.test(body)) return false;
+  // delta 4（检视建议项）：yaml 定域化——safe_load 是配置读取高频只读形态
+  // （检视 Y6 实证误拦），只禁 (unsafe_)?load(_all)?（子串级，无括号盲区，
+  // 与不变式 3 同法）；safe_load/safe_load_all 等纯读面放行
+  if (/\bimport\s+yaml\b|\bfrom\s+yaml\s+import/.test(body)) {
+    if (/\byaml\s*\.\s*(?:unsafe_)?load(?:_all)?\s*\(/.test(body)) return false;
+  }
   if (/\bimport\s+csv\b/.test(body)) return false; // csv 模块 import 仍拦（写入面不靠字面量）
-  if (/\bload\s*\([^)]*allow_pickle\s*=\s*(?!False\b)/.test(body)) return false;
+  // delta 4（不变式 3）：allow_pickle 子串级——body 中出现（非紧邻 =False 字面）
+  // 即不豁免，不做跨括号上下文匹配（delta 3 的 [^)]* 遇嵌套调用即停，
+  // np.load(open(p,'rb'), allow_pickle=True) 穿过）
+  if (/\ballow_pickle\b/.test(body) && !/\ballow_pickle\s*=\s*False\b/.test(body)) return false;
+  if (/\ballow_pickle\s*=\s*[^F\s]/.test(body)) return false;             // allow_pickle 非 False 开头的形态保守拒
   return true;
 }
 

@@ -1653,6 +1653,69 @@ describe("#1207 delta r1/r2：体豁免反转后的攻防两面（检视獭-1207
       expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
     }
   });
+
+});
+
+describe("#1207 delta r4：检视出口不变式 1-3 矩阵测试（检测面 over-broad × 关键字白名单 × 子串级反序列化）", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+  it("[delta4-X1] pathlib 变量接收者 p.open('w') / p.open(m) → 拦（over-broad 检测面）", () => {
+    for (const body of [
+      "from pathlib import Path\np = Path('src/foo.ts')\np.open('w')",
+      "from pathlib import Path\nm = 'w'\np = Path('src/foo.ts')\np.open(m)",
+    ]) {
+      const cmd = `python3 - <<'PY'\n${body}\nPY`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+    }
+  });
+  it("[delta4-X2/X3] 模块前缀 io.open(p, m) / builtins.open(p, 'w') → 拦", () => {
+    for (const body of [
+      "import io\nm = 'w'\nio.open('src/foo.ts', m)",
+      "import builtins\nbuiltins.open('src/foo.ts', 'w')",
+    ]) {
+      const cmd = `python3 - <<'PY'\n${body}\nPY`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+    }
+  });
+  it("[delta4-X6] opener=/closefd=变量/**kwargs → 拦（关键字白名单，不变式 2）", () => {
+    for (const body of [
+      "import io\nopen('src/foo.ts', 'r', opener=io.open)",
+      "c = True\nopen('src/foo.ts', 'r', closefd=c)",
+      "k = {}\nopen('src/foo.ts', **k)",
+    ]) {
+      const cmd = `python3 - <<'PY'\n${body}\nPY`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+    }
+  });
+  // 不变式 3（反序列化子串级）→ 拦截面
+  it("[delta4-X4/X5] np.load(open(), allow_pickle=True) 嵌套括号 → 拦（子串级无跨括号盲区）", () => {
+    for (const body of [
+      "import numpy as np\nnp.load(open('/tmp/e.npy','rb'), allow_pickle=True)",
+      "import numpy as np\nnp.load((open('/tmp/e.npy','rb')), allow_pickle=True)",
+      "import numpy as np\nv = True\nnp.load(open('/tmp/e.npy','rb'), allow_pickle=v)",
+    ]) {
+      const cmd = `python3 - <<'PY'\n${body}\nPY`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+    }
+  });
+  it("[delta4-X7] yaml.load 定域禁 → 拦（unsafe 面）", () => {
+    const cmd = `python3 - <<'PY'\nimport yaml\nyaml.load(open('data/config.yaml'))\nPY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  // 放行面（Y1-Y6）：E5 可用性 + 检视建议项 yaml.safe_load
+  it("[delta4-Y] open 字面/关键字字面/yaml.safe_load/pandas 只读 → 放行", () => {
+    for (const body of [
+      "import re\ns = open('src/foo.ts').read()\nprint(len(s))",
+      "from pathlib import Path\nprint(open('src/foo.ts', 'r').read())\nprint(Path('src/foo.ts').open('rb').read()[:10])",
+      "print(open('src/foo.ts', encoding='utf-8').read())\nprint(open('src/foo.txt', newline='').read())",
+      "from pathlib import Path\nimport json\nprint(Path('src/foo.ts').open('r').read()[:10])\nprint(json.load(open('src/foo.json')))",
+      "import pandas as pd\ndf = pd.read_csv('data/a.csv')\nprint(df.head())",
+      "import yaml\nprint(yaml.safe_load(open('data/config.yaml')))",
+    ]) {
+      const cmd = `python3 - <<'PY'\n${body}\nPY`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+    }
+  });
 });
 
 describe("F20260923qbsw 引号盲重定向/复合切断误拦修复（#984 循环拦截事故）", () => {
