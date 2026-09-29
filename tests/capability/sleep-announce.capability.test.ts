@@ -111,8 +111,10 @@ describe("sleep 工具化：先 speak 再 wait（真系统 + 真 LLM）", () => 
       /** 场景：只给獭一个「等 20 秒再回复」的任务，观察其等待方式。
        *  不设限措辞，只断言行为不变量：wait 被采纳 + speak 先行。
        *  #1210 检视 S1：原 5s 场景存在逃逸口——bash sleep 3×2 合规等满 5s 不触发守卫
-       *  （<5s 微 sleep 不在拦截面），wait 采纳率 ~2/3 在门槛边缘 flaky。改 20s：
-       *  sleep 20 被守卫拦、唯一合规等待路径是 wait（speak 引导 + wait reason 自证）。 */
+       *  （<5s 微 sleep 不在拦截面），wait 采纳率 ~2/3 在门槛边缘 flaky。改 20s 后守卫走
+       *  「弹回漏斗」：单段 sleep ≥5s 被拦并弹回引导文案（sleep-command-guard.ts 指向 wait），
+       *  拆分路径（sleep 4×N 逐段 <5s）技术上仍放行（守卫逐段判定不累加）但行为学上罕见
+       *  （需刻意规避），9 采样实证零拆分（speak=call#1 wait=call#2 一致）。 */
       await sendUserMessage(
         ctx,
         convId,
