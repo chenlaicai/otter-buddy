@@ -5,7 +5,11 @@ import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import type { Logger } from "@usecases/ports/logger";
 import type { SSEEvent } from "@contract/sse/events";
 import type { OutboundEventChannel } from "./message-broadcaster";
+import type { AttachmentRef } from "@entities/conversation/attachment";
+import type { AttachmentRepository } from "@usecases/conversation/attachment-repository";
+import type { SendEntry } from "@usecases/conversation/send-entry";
 import { projectForChannel } from "@entities/conversation/message-body-projection";
+import path from "node:path";
 
 /**
  * 飞书出站通道（issue #281，自 MessageBroadcaster 拆出）。
@@ -29,6 +33,14 @@ export class FeishuMessageChannel implements OutboundEventChannel {
      *  一个通道，本通道只投 externalId === botKey 的连接；缺省 undefined = 全飞书连接
      *  （存量单 app 零参兼容，行为不变） */
     botKey?: string;
+    /** #902 媒体出站恢复：可选注入。附件实体查询（拿 filePath 供媒体上传）+ speak entry
+     *  附件补拉（事件载荷缺 attachments 时按 entryId 回查）；未注入时降级纯占位投影不阻塞。
+     *  storageRoot 用于把 entity.filePath（相对路径）解析成绝对路径 */
+    attachmentDeps?: {
+      attachmentRepo: Pick<AttachmentRepository, "getByIds">;
+      entryReader: Pick<SendEntry, "getEntryById">;
+      storageRoot: string;
+    };
   }) {}
 
   /** F20260928fsqr：归属判定——本通道只投递 externalId === 本通道 botKey 的连接。
@@ -97,9 +109,11 @@ export class FeishuMessageChannel implements OutboundEventChannel {
     }
   }
 
-  /** entry.speak 出站：speak body 投影 + markdown 投递（web 端发言之外唯一气泡来源） */
+  /** entry.speak 出站：speak body 投影 + markdown 投递（web 端发言之外唯一气泡来源）。
+   *  #902 媒体出站：事件载荷无 attachments 时按 entryId 补拉（speak 工具暂无附件写入源，
+   *  写入源就绪前事件恒缺席——补拉是 speak 侧唯一取附件路径）；拉到则投影占位 + 图片真实投递 */
   private async deliverSpeakToFeishu(conversationId: string, event: SSEEvent): Promise<void> {
-    const data = event.data as { body?: string; otterName?: string };
+    const data = event.data as { body?: string; otterName?: string; attachments?: AttachmentRef[]; entryId?: string };
     if (!data.body) return;
 
     const session = await this.o.manageConnection.getSessionByConversation(conversationId);
@@ -112,12 +126,19 @@ export class FeishuMessageChannel implements OutboundEventChannel {
     const replyTarget = this.o.manageConnection.resolveReplyTarget(connection);
     if (!replyTarget) return;
 
+    // #902：附件补拉（事件载荷缺席时）——拉不到降级纯文本，不阻塞
+    const attachments = await this.resolveAttachments(data);
+
     const markdown = projectForChannel(data.body, {
       webBaseUrl: this.o.webBaseUrl,
       conversationId,
+      ...(attachments.length > 0 && { attachments }),
     });
     try {
       await this.o.feishuGateway.replyMarkdown(replyTarget, data.otterName ?? "海獭", markdown);
+      // #902：图片真实投递（飞书仅 image 分支——上传 API + msg_type=image；
+      // document/audio/video 无上传通道，占位投影已在上方 markdown 里兑底）
+      await this.sendImageAttachments(replyTarget, attachments);
     } catch (err) {
       this.o.logger.error("Failed to broadcast speak to Feishu (degradation also failed)", err instanceof Error ? err : undefined, { conversationId });
     }
@@ -125,9 +146,10 @@ export class FeishuMessageChannel implements OutboundEventChannel {
 
   /** entry.user 出站：Web 用户消息同步到飞书（F20260828fsyc 双向同步恢复）。
    *  防回环：仅投 source=web 的事件——IM 入站链（processor）广播的 entry.user
-   *  source=feishu/weixin，直接跳过（消息已在 IM 侧，回投即复读）。 */
+   *  source=feishu/weixin，直接跳过（消息已在 IM 侧，回投即复读）。
+   *  #902 媒体出站：事件自带 attachments（发射点已投影）直接消费 + 图片真实投递 */
   private async deliverUserEntryToFeishu(conversationId: string, event: SSEEvent): Promise<void> {
-    const data = event.data as { body?: string; source?: string };
+    const data = event.data as { body?: string; source?: string; attachments?: AttachmentRef[] };
     if (!data.body) return;
     if (data.source !== "web") return;
 
@@ -137,25 +159,35 @@ export class FeishuMessageChannel implements OutboundEventChannel {
     if (!connection) return;
     if (!this.ownsConnection(connection)) return;
 
-    // Web 消息无渠道快照：显示全局名（本机即搭档本人），降级「用户」（与旧 resolveSenderLabel 语义一致）
-    let senderLabel = "用户";
-    try {
-      const globalName = this.o.settingsRepo
-        ? (await this.o.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim()
-        : undefined;
-      if (globalName) senderLabel = globalName;
-    } catch {
-      // 标签解析异常不应吞掉整个投递（同步旧版防御语义）
-    }
+    const senderLabel = await this.resolveSenderLabel();
+
+    // #902：entry.user 事件自带 attachments（发射点已投影），直接消费；缺席时降级纯文本
+    const attachments = data.attachments ?? [];
 
     const markdown = projectForChannel(data.body, {
       webBaseUrl: this.o.webBaseUrl,
       conversationId,
+      ...(attachments.length > 0 && { attachments }),
     });
     try {
       await this.deliverMarkdownToTarget(connection, senderLabel, markdown, conversationId, "User entry synced to Feishu (web→feishu)");
+      // #902：图片真实投递（同 speak 路径，仅 image 分支）
+      await this.sendImageAttachments(this.resolveReplyTargetSafe(connection), attachments);
     } catch (err) {
       this.o.logger.error("Failed to sync user entry to Feishu (degradation also failed)", err instanceof Error ? err : undefined, { conversationId });
+    }
+  }
+
+  /** Web 消息发送者标签：全局名（本机即搭档本人），降级「用户」（与旧 resolveSenderLabel 语义一致）。
+   *  #902 拆出（complexity 超限）：标签解析异常不吞掉整个投递（同步旧版防御语义） */
+  private async resolveSenderLabel(): Promise<string> {
+    try {
+      const globalName = this.o.settingsRepo
+        ? (await this.o.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim()
+        : undefined;
+      return globalName || "用户";
+    } catch {
+      return "用户";
     }
   }
 
@@ -166,6 +198,65 @@ export class FeishuMessageChannel implements OutboundEventChannel {
     if (!target) return;
     await this.o.feishuGateway.replyMarkdown(target, senderLabel, markdown);
     this.o.logger.info(successLogMsg, { conversationId });
+  }
+
+  /** #902：resolveReplyTarget 的非断言包装（deliverUserEntryToFeishu 内已过类型闸，
+   *  但 media 投递需独立取 target——复用同一解析口避免二次解析逻辑分叉） */
+  private resolveReplyTargetSafe(connection: { externalId: string; externalType: string }): string | null {
+    try {
+      return this.o.manageConnection.resolveReplyTarget(connection as never) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** #902：附件解析——事件载荷自带 attachments（entry.user 发射点已投影）直接用；
+   *  载荷缺席（entry.speak 现阶段恒缺席）时按 entryId 补拉 entry 读出链（自带投影）。
+   *  补拉失败/未注入附件依赖时返回空数组降级纯文本，不阻塞文本投递 */
+  private async resolveAttachments(data: { attachments?: AttachmentRef[]; entryId?: string }): Promise<AttachmentRef[]> {
+    if (data.attachments && data.attachments.length > 0) return data.attachments;
+    if (!data.entryId || !this.o.attachmentDeps) return [];
+    try {
+      const entry = await this.o.attachmentDeps.entryReader.getEntryById(data.entryId);
+      return entry?.attachments ?? [];
+    } catch (err) {
+      this.o.logger.warn("Feishu attachment backfill failed, degrading to text-only", {
+        entryId: data.entryId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [];
+    }
+  }
+
+  /** #902：图片真实投递（飞书仅 image 分支——document/audio/video 无上传通道，
+   *  占位投影已在 projectForChannel 产出的 markdown 里兑底）。
+   *  逐张上传发送；单项失败不阻塞其余（占位已在文本里可见）
+   *  附件依赖未注入时静默跳过（占位投影仍生效，语义与旧 sendAttachments 先例一致） */
+  private async sendImageAttachments(replyTarget: string | null, attachments: AttachmentRef[]): Promise<void> {
+    if (!replyTarget || attachments.length === 0) return;
+    const images = attachments.filter(a => a.kind === "image");
+    if (images.length === 0) return;
+    if (!this.o.attachmentDeps) {
+      this.o.logger.warn("Feishu image send skipped: attachment deps not injected");
+      return;
+    }
+    for (const img of images) {
+      try {
+        const [entity] = await this.o.attachmentDeps.attachmentRepo.getByIds([img.id]);
+        if (!entity) {
+          this.o.logger.warn("Feishu attachment not found, skip", { attachmentId: img.id });
+          continue;
+        }
+        // filePath 是相对 storageRoot 的路径（内容寻址分桶），解析成绝对路径再交给 gateway
+        const absPath = path.join(this.o.attachmentDeps.storageRoot, entity.filePath);
+        await this.o.feishuGateway.replyImage(replyTarget, { filePath: absPath, fileName: img.originalName, mimeType: img.mimeType });
+      } catch (err) {
+        this.o.logger.error("Feishu image send failed, placeholder remains in text", err instanceof Error ? err : undefined, {
+          attachmentId: img.id,
+          fileName: img.originalName,
+        });
+      }
+    }
   }
 
   private async maybeSendFeishuThinkingMessage(conversationId: string, event: SSEEvent): Promise<void> {

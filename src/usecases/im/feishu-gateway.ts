@@ -8,6 +8,10 @@
 export interface FeishuGateway {
   replyText(chatId: string, text: string): Promise<void>;
   replyMarkdown(chatId: string, senderLabel: string, markdown: string): Promise<void>;
+  /** #902 媒体出站：图片真实投递——上传图片 API（im/v1/images）拿 image_key 后发
+   *  msg_type=image 消息；filePath 为本地绝对路径（调用方已拼 storageRoot）。
+   *  飞书本期仅 image 分支（document/audio/video 无上传通道，占位投影兑底） */
+  replyImage(chatId: string, params: { filePath: string; fileName: string; mimeType: string }): Promise<void>;
   /** F20260920imax 增量五：bot 身份标识（掩码 appId，如 cli_a3****k8）——
    *  消息路由按 bot 锚定（一 bot 一对话）的键源；不暴露完整凭证 */
   readonly botKey?: string;

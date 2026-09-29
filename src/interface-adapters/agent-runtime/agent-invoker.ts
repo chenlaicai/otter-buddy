@@ -727,7 +727,10 @@ export class AgentInvoker implements AgentTurnPort {
         // F20260921urdo 契约收口：sequenceNum/createdAt 必含——已读游标与排序数据源（缺席即红点僵死）
         const sequenceNum = (speakDetails as { sequenceNum?: number }).sequenceNum;
         const createdAt = (speakDetails as { createdAt?: string }).createdAt;
-        emitEvent({ event: "entry.speak", data: { entryId, invokeId: opts.currentInvokeId, otterId, body, otterName: resolvedName, otterType: opts.otterType, otterColor: opts.otterColor ?? null, ...(sequenceNum != null && { sequenceNum }), ...(createdAt && { createdAt }) } });
+        // #902：attachments 透传——speak 工具暂无附件写入源，details 无此字段时缺席；
+        // IM 出站通道见 data.attachments 缺失即按 entryId 补拉（entry 读出链自带投影，见双通道实现）
+        const speakAttachments = (speakDetails as { attachments?: unknown }).attachments as Array<Record<string, unknown>> | undefined;
+        emitEvent({ event: "entry.speak", data: { entryId, invokeId: opts.currentInvokeId, otterId, body, otterName: resolvedName, otterType: opts.otterType, otterColor: opts.otterColor ?? null, ...(sequenceNum != null && { sequenceNum }), ...(createdAt && { createdAt }), ...(speakAttachments && speakAttachments.length > 0 && { attachments: speakAttachments }) } });
       }
     }
     // F20260913ctlv 彻底切换：流式过程唯一存储 = invoke_events（message_events 停写）
