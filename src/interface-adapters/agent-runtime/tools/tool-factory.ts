@@ -476,7 +476,7 @@ function buildWaitEcho(reason: string | undefined, seconds: number, untilResultT
 function createWaitTool(logger?: Logger): AgentTool {
   return {
     name: "wait",
-    description: "等待指定时长（替代裸 sleep）. When: 需要等待异步操作完成（CI 检查、服务启动、退避重试）时——先 speak 告诉搭档你在等什么，再调用本工具. Not for: 5 秒以下的短等待（搭档无感，可直接 bash sleep）. 等待即黑盒——reason 参数是你对搭档的交代，不填理由的等待会让搭档看着进度条干着急. Output: 等待完成确认（+ until 检查命令的输出）.",
+    description: "等待指定时长（替代裸 sleep）. When: 需要等待异步操作完成（CI 检查、服务启动、退避重试）时——调用顺序必须：先调 speak(body) 告诉搭档你在等什么、为什么，speak 返回后再调用本工具开始等待（顺序反了搭档会先看到进度条黑盒）. Not for: 5 秒以下的短等待（搭档无感，可直接 bash sleep）. 等待即黑盒——reason 参数是你对搭档的交代，不填理由的等待会让搭档看着进度条干着急. Output: 等待完成确认（+ until 检查命令的输出）.",
     parameters: {
       type: "object",
       properties: {

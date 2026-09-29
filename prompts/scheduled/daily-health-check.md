@@ -11,7 +11,7 @@ budget_bytes: 9200
 
 ## 范围约束（2026-09-04 搭档定调）
 
-只找 otter-buddy 自身系统的优化点。其他项目（如 Echo agent 等）的对话反馈、UX 讨论、报错，一律忽略。跨对话 memory 检索到的候选信号，上报前先验证对话归属（引用的路径/PR/issue 是否指向 otter-buddy）；无法确认归属的，不报。
+只找 otter-buddy 自身系统的优化点。其他项目的对话反馈、UX 讨论、报错，一律忽略。跨对话 memory 检索到的候选信号，上报前先验证对话归属（引用的路径/PR/issue 是否指向 otter-buddy）；无法确认归属的，不报。
 
 ## 必须检查的数据源
 
@@ -21,10 +21,10 @@ budget_bytes: 9200
 2. **GitHub issues / PRs**：`gh issue list` / `gh pr list --state all --limit 50`，筛昨天创建/更新/合入的——用户自建也是重要信号
 3. **self-healing events**：`manage_healing_events(action: query)`。**二维分账**：errorType 分布按「环境/系统失败」vs「獭能力失败」分列（口径真相源：`src/entities/healing/healing-event.ts`）
 4. **memory**：`search_memory`（created_after 过滤昨日）——跨会话问题脉络、未闭环任务状态
-5. **RHI 健康信号**：`curl http://localhost:<port>/api/health/overview` 与 `/api/health/signals`——critical 是优先素材；也可 search_memory 检索 `[RHI信号]` 前缀
+5. **RHI 健康信号**：`curl http://localhost:<port>/api/health/overview` 与 `/api/health/signals`——critical 是优先素材
 6. **signal_events**：`query_signals(status=pending)` 查悬置獭间信号（细则见「signal 对账段」；跨对话统计用 sqlite3）
 
-## RHI 信号处置段（闭环硬规则，已机制化，2026-09-17）
+## RHI 信号处置段（闭环硬规则）
 
 「看见」≠「处置」。拉取后逐条处置，禁止只列数字。处置动作**必须调 `triage_signal` 留痕写库**（对账公式自动生成）：
 
@@ -34,9 +34,9 @@ budget_bytes: 9200
 4. **warning 扫视**：同类型 ≥5 条指向同一模块 → 按 critical；零散汇总一行
 5. **闭环自检**：「critical N → 开 M/并入 K/dismiss D，M+K+D=N」自动生成；对不上 = 有信号被沉默跳过，补查
 
-## 观测器信噪比自监控（2026-09-17，观测器自己也被观测）
+## 观测器信噪比自监控（2026-09-17）
 
-观测器自己也被观测——误报率比检出率更决定告警系统生死：
+误报率比检出率更决定告警系统生死：
 
 1. **昨日信噪统计**（日报末尾固定段）：healing 处置 resolve X / dismiss Y（dismiss 率 = Y/(X+Y)）；RHI 不处置率 L/(M+K+L)（M/K/L 取昨日日报闭环自检行，非 RHI DB）；产给搭档物件数。healing 侧 SQL 与 stale 排除口径见体积预算闸特性文档「出清明细」（关键：人工 dismiss 用时间差 <30 天分离，不能按 resolution IS NULL 判）
 2. **趋势对比**：与近 7 日均值比，dismiss 率/不处置率突增 → 标注「信号源可能劣化」（检索近 7 日日报，覆盖率 <4/7 标注置信低）
@@ -47,14 +47,18 @@ budget_bytes: 9200
 锚点规则（SYSTEM.md A1②）靠自觉存在「真假锚点混合」绕过——本段每日抽查，抓编造现形：
 
 1. **抽样**：跨对话检索昨日含 file:line 锚点的断言，抽 5-10 条（含大獭/小獭；不足 5 全量）。途径：search_memory（message + created_after）或 sqlite3 直查；**禁止 search_messages**——只搜当前对话，本任务独立 session 会空集假阳性
-2. **异体核对（硬规则）**：抽查獭与被抽查发言的獭**必须不同模型**（消息模型经 otter_sessions.model_alias 对照；查不到的跳过）。同模型样本 → 改派异体复核；无条件时降级标注「同模型抽查，置信降级」（依据：同源评审对 AI 产出接受率 1.91 倍于人类）
+2. **异体核对（硬规则）**：抽查獭与被抽查发言的獭**必须不同模型**（消息模型经 otter_sessions.model_alias 对照；查不到的跳过）。同模型样本 → 改派异体复核；无条件时降级标注「同模型抽查，置信降级」
 3. **核对**：每条用 read 打开对应文件行——①文件存在；②行号在文件内；③内容与断言实质相符
 4. **产出**：「锚点抽查段」——抽查 N/通过 M/失败 K（失败附对话 ID + 断言原文 + 实际内容）+ 模型对照行
 5. **处置**：任一不通过 → 开 P1 issue（[prompt]，标题含「编造锚点」）；同一獭 7 日 ≥2 次 → 升 P0
 
 ## 分析纪律
 
-调查纪律全量按 SYSTEM.md A1 执行（先收集数据再归纳 / 关键数字双源验证 / 不确定的因果不写 / 能力边界先测试再声明 / 对话归属先验证再上报）。此处只留任务特有约束：**先跑完上方全部数据源再开始分析**。
+调查纪律全量按 SYSTEM.md A1 执行，此处只留任务特有约束：**先跑完上方全部数据源再开始分析**。
+
+## 噪声带对照（2026-09-29 定）
+
+指标涨跌声明必须对照近 7 日序列（`/api/health/trends`）：今日值 vs 近 7 日 min-max；带内涨跌不作信号（一行「带内」即可），超带才进 issue。仅限比率/均值/日增量指标；累积量只报日增量；<7 日标「基线不足」。
 
 ## 产出前检查清单（硬门禁）
 
@@ -72,12 +76,12 @@ budget_bytes: 9200
 [ ] 9. 观测器信噪比：dismiss 率/不处置率/物件数
 ```
 
-## healing events 消费即处置（不留悬空状态）
+## healing events 消费即处置
 
 分析过的 self-healing events 必须在本次产出内处置完毕：
 
 - **无需修复**（自愈按设计拦截/单次偶发）：立即 `resolve` 批量处置，notes 写判定依据
-- **需要修复**：证据写进 issue body 后**立即 resolve**（notes 引用 issue 编号）。「留 open 等修复」已废除——修复进度是 issue 的职责
+- **需要修复**：证据写进 issue body 后**立即 resolve**（notes 引用 issue 编号）。修复进度归 issue 跟踪
 - **处置权**：首个消费任务拥有处置权，后续任务不得推翻，存疑在 issue 评论
 - **覆盖核实**：query 默认 50 条 + 单 status——errorType 过滤逐一排查；处置完重跑 query 确认无遗漏，产出写「昨日 N → resolved M / open K」
 
@@ -104,10 +108,10 @@ budget_bytes: 9200
 
 **标签/标题/聚合硬规则**（详规与 lint 单一真相源：`scripts/lint-issue-labels.mjs`）：type 一个 + priority 一个 + daily-review；标题 `[模块] 一句话摘要`（模块枚举/聚合红线/拿不准宁降一级见 lint 头注）；同根因合一条不拆条。产出对照自查，不完整率 >5% 日报标红。
 
-**验证断言必填**：每个 issue body 含「验证断言」段，三字段——`断言`（具体可证伪、含数据源）/ `检查方式`（sqlite / gh / 人工）/ `到期`（创建日 +30 天，YYYY-MM-DD）。写不出断言 = 问题定义不清，重写。回查由 regression-verify 定时任务到期执行，结果回写 issue 评论。
+**验证断言必填**：每个 issue body 含「验证断言」段，三字段——`断言`（具体可证伪、含数据源）/ `检查方式`（sqlite / gh / 人工）/ `到期`（创建日 +30 天，YYYY-MM-DD）。写不出断言 = 问题定义不清，重写。回查由 regression-verify 到期执行、结果回写 issue。
 
 ## 止损线检查（P0-c）
 
-每日检查评测机制止损线（详规见评测止损线特性文档（2026-09-02）；脚本：`node scripts/lint-intent.mjs`）：①观察期新增文档 intent 率 <80% → 触发；②`data/metrics/golden-results.jsonl` 从未执行 → 触发；③≥5 个 PR 的自动场景记录且 passed 全 true → 触发复审（复审「保留」→ 静默 ≥8 周；样本 <5 PR 顺延记「样本不足」）。
+每日检查评测机制止损线（详规见评测止损线特性文档；脚本 `scripts/lint-intent.mjs`）：①观察期新增文档 intent 率 <80% → 触发；②`data/metrics/golden-results.jsonl` 从未执行 → 触发；③≥5 个 PR 的自动场景记录且 passed 全 true → 触发复审（复审「保留」→ 静默 ≥8 周；样本 <5 PR 顺延记「样本不足」）。
 
 触发 → 开 issue（owner=大獭）；处置路径（golden 目录删除 → capability test 承接 → results.jsonl 归档）与复审判据见该特性文档。
