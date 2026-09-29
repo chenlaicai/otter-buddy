@@ -3,7 +3,7 @@
  *
  * 覆盖：
  * - narrative-synthesis-engine：prompt 组装（三源原料 + selfSummary 独立层）+ 档案结构（V2 golden）
- * - session-slicer：findCutPoint 对齐切片（keepRecent 窗口 + split turn）
+ * - session-slicer：最近 4 条 speak 切片（F20260929kws1：token 预算/turn 切片退役）
  * - SimpleLockManager.setHandoffMode：V3 冻结窗口锁超时对齐（30s → 120s）
  * - archiveReasonToSessionStatus：V4 血缘（compaction → restarted）
  */
@@ -14,7 +14,7 @@ import {
   buildMechanicalArchive,
   assembleHandoffArchive,
 } from "@frameworks/agent/narrative-synthesis-engine";
-import { sliceSessionEntries, serializeKeptWindow, DEFAULT_KEEP_RECENT_TOKENS } from "@frameworks/agent/session-slicer";
+import { sliceSessionEntries, serializeKeptWindow } from "@frameworks/agent/session-slicer";
 import { SimpleLockManager, HANDOFF_LOCK_WAITER_TIMEOUT_MS } from "@frameworks/agent/session-helpers";
 import { archiveReasonToSessionStatus } from "@entities/otter/otter-session";
 
@@ -34,24 +34,27 @@ function makeMessageEntry(id: string, role: "user" | "assistant", text: string, 
   } as never;
 }
 
-describe("sliceSessionEntries（U2：自实现 SDK 同款切片）", () => {
-  it("短历史（< keepRecent 窗口）→ 无可压缩段，返回 undefined", () => {
+describe("sliceSessionEntries（F20260929kws1：最近 4 条 speak）", () => {
+  it("无 assistant text（纯工具前世）→ 返回 undefined；有 speak 的短历史保留全部 speak", () => {
     const entries = [makeMessageEntry("e1", "user", "你好"), makeMessageEntry("e2", "assistant", "在的")];
-    expect(sliceSessionEntries(entries)).toBeUndefined();
+    const slice = sliceSessionEntries(entries);
+    expect(slice).toBeDefined();
+    expect(slice!.keptEntries.length).toBe(1);
+    // 原料 = 最老保留 speak 之前的全部消息（此处 1 条 user 消息）——不再因「短」返回 undefined
+    expect(slice!.messagesToSummarize.length).toBe(1);
   });
 
-  it("长历史 → 切出待压缩段与保留段，firstKeptEntryId 有值", () => {
+  it("长历史 → 只保留最近 4 条 speak，切出待压缩段与保留段，firstKeptEntryId 有值", () => {
     const entries: never[] = [];
     for (let i = 0; i < 80; i++) {
-      // 真实体量：每条 2000 字符 ≈ 500 token（estimateTokens 按字符/4 估算），×160 条远超 20K 窗口
       entries.push(makeMessageEntry(`e${i}`, "user", `用户消息 ${i} ${"x".repeat(2000)}`));
       entries.push(makeMessageEntry(`a${i}`, "assistant", `回复 ${i} ${"y".repeat(2000)}`));
     }
     const slice = sliceSessionEntries(entries);
     expect(slice).toBeDefined();
+    expect(slice!.keptEntries.length).toBe(4);
     expect(slice!.messagesToSummarize.length).toBeGreaterThan(0);
     expect(slice!.firstKeptEntryId).toBeTruthy();
-    expect(slice!.keptEntries.length).toBeGreaterThan(0);
   });
 
   it("previousSummary：jsonl 含 compaction entry 时提取其 summary 作谱系种子", () => {
@@ -73,7 +76,7 @@ describe("sliceSessionEntries（U2：自实现 SDK 同款切片）", () => {
     expect(slice?.previousSummary).toBe("上一代摘要");
   });
 
-  it("serializeKeptWindow：保留段序列化为 [User]/[Assistant] 文本", () => {
+  it("serializeKeptWindow：保留段只序列化 [Assistant]（user/toolResult 不进保留段）", () => {
     const entries: never[] = [];
     for (let i = 0; i < 80; i++) {
       entries.push(makeMessageEntry(`e${i}`, "user", `msg ${i} ${"x".repeat(2000)}`));
@@ -82,12 +85,21 @@ describe("sliceSessionEntries（U2：自实现 SDK 同款切片）", () => {
     const slice = sliceSessionEntries(entries)!;
     const text = serializeKeptWindow(slice);
     expect(text.length).toBeGreaterThan(0);
-    expect(text).toContain("[User]");
     expect(text).toContain("[Assistant]");
+    expect(text).not.toContain("[User]");
   });
 
-  it("DEFAULT_KEEP_RECENT_TOKENS 对齐 Pi 默认 20K", () => {
-    expect(DEFAULT_KEEP_RECENT_TOKENS).toBe(20_000);
+  it("契约：turnPrefixMessages 恒空、isSplitTurn 恒 false（cutPoint 概念退役）", () => {
+    const entries: never[] = [];
+    for (let i = 0; i < 20; i++) {
+      entries.push(makeMessageEntry(`e${i}`, "user", `msg ${i}`));
+      entries.push(makeMessageEntry(`a${i}`, "assistant", `reply ${i} ${"y".repeat(2000)}`));
+    }
+    const slice = sliceSessionEntries(entries)!;
+    expect(slice.turnPrefixMessages).toEqual([]);
+    expect(slice.isSplitTurn).toBe(false);
+    // 单条超 1500 → 截断标记出现在序列化产物（端到端链路）
+    expect(serializeKeptWindow(slice)).toContain("（截断 ");
   });
 });
 

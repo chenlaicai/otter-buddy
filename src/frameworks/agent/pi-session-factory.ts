@@ -563,6 +563,25 @@ export class PiSessionFactory implements AgentGateway {
     }
   }
 
+  /** F20260929kws1：当前 session jsonl 文件绝对路径（交接保留段截断标记的原文落点锚）。
+   *  交接收集期（restartSession 之前）调用：池内 live session 直取 getSessionFile()；
+   *  池外从 agent_sessions 账本查 sessionFile——此刻仍指向旧世文件（账本翻新发生在
+   *  restartSession 内部），与 readCurrentSessionEntries 同一生命数据源，错位风险一致。 */
+  async getCurrentSessionFile(otterId: string): Promise<string | undefined> {
+    try {
+      const pooled = this.poolMeta.get(otterId);
+      if (pooled) {
+        return pooled.session.sessionManager.getSessionFile() ?? undefined;
+      }
+      return this.sessionStore.getWithFile(otterId)?.sessionFile ?? undefined;
+    } catch (err) {
+      this.logger.warn('[handoff] getCurrentSessionFile failed', {
+        otterId, error: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
+  }
+
   /** F20260920uhuc 死链修复：交接冻结锁实现（此前端口声明可选但唯一实现体缺该方法 →
    *  冻结窗口静默跳过 → 并发竞态）。取 invoke 同源的 per-otter 锁；交接模式开启后
    *  后续 waiter 超时自动延长至交接级别（120s，SimpleLockManager.setHandoffMode）。 */

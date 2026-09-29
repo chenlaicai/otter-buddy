@@ -483,7 +483,7 @@ export function assembleHandoffArchive(params: {
     parts.push('');
   }
   if (params.recencyWindow) {
-    parts.push('### ④ 机械供料：近期保留段（前世最近对话原文，对齐 Pi keepRecent 20K）');
+    parts.push('### ④ 机械供料：近期保留段（前世最近 4 条 speak，单条超长已截断）');
     parts.push(params.recencyWindow);
     parts.push('');
   }
