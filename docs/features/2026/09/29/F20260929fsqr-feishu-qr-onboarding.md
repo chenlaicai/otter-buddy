@@ -93,7 +93,7 @@ causal_links:
 
 **D2 二维码服务端渲染**（URL→png base64）：前端已有 `<img src={base64}>` 渲染路径（QRCodeLoginCard.tsx:117），后端 `qrcode` 包转 png 后 DTO 形态与微信完全一致，前端组件近乎复制。替代方案（前端 qrcode.react 渲染 URL）被否——引入新依赖+新渲染分支，与微信组件形态分叉。
 
-**D3 registerApp 走 createOnly 语义**（每次扫码建新 app）：SDK 注释明示绑定既有 app 会覆盖其 webhook 配置（风险源）；重复扫码建多 app 属可接受冗余，账号卡删除入口兜底。
+**D3 registerApp 双模式**（搭档决策 2026-09-29 演进，原 createOnly 钉死新建）：不传 createOnly，SDK 确认页原生双入口——「创建新 app」/「选择已有 app」（选已有时显示 diff 由用户显式再授权，webhook 覆盖风险从「隐藏入口」改为「确认页可见」）。同 id 重绑由 onSuccess upsert + runtime 替换（#591 语义）幂等承接；provision 幂等（botKey ensureConnection + existing early-return）。
 
 **D4 凭据存文件非 DB**（对齐微信 accounts.json 先例）：connections 表是路由锚（externalId=bot键），凭据是运行时密钥（含 secret），混入 DB 无消费方且扩大暴露面。app-store 文件权限同 weixin stateDir。
 
@@ -159,7 +159,7 @@ onSuccess({appId, appSecret, ownerOpenId})
 - 多账号「每线各自认定搭档」语义（与 #1188 同根因：多账号搭档错认）——D7 首号锚是当前形态的解，每线语义留待多家庭部署需求出现时升级
 - PartnerResolver addPartnerId 后不回收（首账号 DELETE 后锚仍在）——避免摇摆，记遗留
 - 门禁锚双缺席面（代码审视建议⑤）：线 ownerOpenId 与 config.feishu.partnerOpenId 均缺失时，该线门禁 configured=false 不拦截——已做单级退避（owner 缺失退 config 锚），纯扫码且 owner 从未回填的极端窗口才有此面，待门禁默认拒绝语义升级
-- 同号扫码提示与拒绝路径未实现（重复扫码建新 app，删除入口/开放平台手动删兑底）——低频顺手项
+- 同号扫码提示与拒绝路径未实现（重复扫码可选「选择已有应用」或新建，删除入口/开放平台手动删兑底）——低频顺手项
 
 ### 代码审视处置记录（代码检视獭，7 严重 + 6 建议 + delta 轮）
 

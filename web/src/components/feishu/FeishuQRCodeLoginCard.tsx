@@ -13,7 +13,7 @@ import type { FeishuLoginSessionDTO } from '../../api/client'
 const STATUS_LABEL: Record<FeishuLoginSessionDTO['status'], string> = {
   pending: '正在申请二维码...',
   waiting_scan: '等待扫码（飞书内打开确认）',
-  success: '应用已创建，助理线就绪',
+  success: '飞书应用已接入，助理线就绪',
   expired: '二维码已过期',
   error: '接入失败',
   cancelled: '已取消',
@@ -133,7 +133,7 @@ export function FeishuQRCodeLoginCard({ lineName, onLoginConfirmed }: FeishuQRCo
 
           {session.status === 'success' && (
             <div className="w-full p-3 rounded-xl bg-green-50 text-sm text-green-700">
-              飞书应用已创建{lineName ? `，「${lineName}」` : ''}正在就绪...
+              飞书应用已接入{lineName ? `，「${lineName}」` : ''}正在就绪...
             </div>
           )}
 

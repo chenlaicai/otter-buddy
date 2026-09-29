@@ -469,7 +469,7 @@ export function buildFeishuRuntime(options: {
     });
 
     // 键控出站（#591 同构）：按 botKey 注册，FeishuMessageChannel 按 externalId===botKey 过滤。
-    // 同 app 重扫（理论上 createOnly 不重复，防御性）时替换旧通道而非追加。
+    // 同 app 重扫（绑定已有 app 时真实发生）替换旧通道而非追加，#591 语义。
     const channelKey = options.channelKey ?? key;
     messageBroadcaster.registerOutboundChannel(
       channelKey,

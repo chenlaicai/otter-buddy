@@ -37,8 +37,8 @@ export interface FeishuLoginSession {
   ownerOpenId?: string;
   error?: string;
   createdAt: string;
-  /** 取消原因标记——app_deleted 值保留为未来删除联动预留（当前 createOnly 流无同 id
-   *  复活面，微信式「取消时同步删号」不适用；检视 N2 口径修正） */
+  /** 取消原因标记——app_deleted 值保留为未来删除联动预留（当前无删除联动；同 id
+   *  重绑由 onSuccess upsert 幂等覆盖，无微信式复活面，检视 N2 口径） */
   cancellationReason?: "app_deleted";
 }
 
@@ -118,14 +118,15 @@ export class FeishuLoginSessionManager {
   }
 
   /** registerApp 选项拼装（拆出控 start 复杂度）：QR 回调 + appPreset 预填 + 取消信号。
-   *  F20260928fsqr（检视严重 6）：createOnly: true——D3 钉死（SDK 注释明示：不传时若
-   *  用户扫过同 source 的码会走「绑定既有 app 更新」流，覆盖其 webhook 配置） */
+   *  D3 演进（搭档决策 2026-09-29）：不传 createOnly——SDK 确认页原生双入口
+   *  （创建新 app / 选择已有 app），选已有时显示 diff 由用户显式再授权，
+   *  webhook 覆盖风险从「隐藏入口」改为「确认页可见」；同 id 重绑由 onSuccess
+   *  upsert + runtime 替换（#591 语义）幂等承接 */
   private buildRegisterOptions(session: FeishuLoginSession, signal: AbortSignal, name?: string) {
     const id = session.id;
     return {
       source: "otter-buddy",
       signal,
-      createOnly: true,
       onQRCodeReady: ({ url }: { url: string; expireIn?: number }) => {
         if (session.status === "cancelled") return; // QR 异步到达时可能已取消——不覆写终态
         session.qrcodeUrl = url;
