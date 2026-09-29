@@ -58,6 +58,12 @@ Received: "assistant-panel-otter-msg"
 - S3：流式去重键改用事件自带 triggerEntryId（= entry id，agent-invoker.ts:356）——与历史加载 e.id 同构，未来历史刷新（K7 二期）不会双条
 - 注释纠偏：「重开面板可见行动中」改为如实描述（历史边界非实时状态，实时看思考中气泡+张望动画）
 
+## Delta 轮补充（DS1/DS2 处置）
+
+- **DS1（返工）**：yield 重试耗尽路径 invoke.end 与 entry.failed 同帧双发、同文案，且后者 entryId 字段装的是 invokeId（orchestrator.ts:765）——两 key 不同源去重失效，双收尾条。修法（检视獭方案）：invoke.end 先将 invokeId 记入 finishedInvokeIdsRef（Set），entry.failed/aborted 见已收尾即跳过；保留 finalize 吞异常时 entry 事件的兑底路径
+- **DS2（注记）**：completed 路径 emitInvokeEnd 不带 invokeEndEntryId（orchestrator.ts:214），收尾条走合成键——今天无害，K7 历史刷新时会双条；后端 tool-factory 的 entry.yield 事件带该 id，透传一行可闭合（记实现注记，不在本 PR）
+- 程序性：CI check 红 = 分支落后 main 的 sync 门禁，merge main 解决
+
 ## 影响范围
 
 - 仅面板展示层（AssistantPanel.tsx 单文件），不触数据层/契约/后端

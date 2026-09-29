@@ -37,6 +37,8 @@ export const AssistantPanel = forwardRef<HTMLDivElement, AssistantPanelProps>(fu
   const { conversationId, ensuring, ensureError, onRetryEnsure, onClose, style } = props
   const navigate = useNavigate()
   const [messages, setMessages] = useState<PanelMessage[]>([])
+  // F20260929wap1 DS1：已收尾 invoke 的 id 集合——entry.failed/aborted 与 invoke.end 同帧双发时防双收尾条
+  const finishedInvokeIdsRef = useRef<Set<string>>(new Set())
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [historyLoaded, setHistoryLoaded] = useState(false)
@@ -117,9 +119,12 @@ export const AssistantPanel = forwardRef<HTMLDivElement, AssistantPanelProps>(fu
           })
         },
         // F20260929wap1 S1：invoke 终态边界（闭括号）——completed/failed/aborted 三态均渲染，
-        //  「开始行动」不再悬挂无收尾，行动中可判定 = 有 start 无 end
+        //  「开始行动」不再悬挂无收尾，行动中可判定 = 有 start 无 end。
+        //  DS1：invokeId 记入收尾 Set——entry.failed/aborted（yield 重试耗尽路径同帧双发）
+        //  凭此跳过，防双收尾条；保留 finalize 吞异常时 entry 事件的兑底路径
         'invoke.end': data => {
           const d = data as { invokeId: string; otterName?: string; status: string; invokeEndEntryId?: string; endBody?: string }
+          finishedInvokeIdsRef.current.add(d.invokeId)
           setMessages(prev => {
             const key = d.invokeEndEntryId ?? 'invoke-end-' + d.invokeId
             if (prev.some(m => m.id === key)) return prev
@@ -127,16 +132,19 @@ export const AssistantPanel = forwardRef<HTMLDivElement, AssistantPanelProps>(fu
             return [...prev, { id: key, st: 'system' as const, content: d.endBody || `🦦 ${d.otterName || '大獭'}${tail}～`, ts: nowTs() }]
           })
         },
-        // F20260929wap1 S1：invoke_end entry 投影（失败/中止的 entry 面）——与 invoke.end 同形态居中条
+        // F20260929wap1 S1：invoke_end entry 投影（失败/中止的 entry 面）——与 invoke.end 同形态居中条。
+        //  DS1：已收尾的 invoke 跳过（invoke.end 已渲染过，同帧双发防双条）
         'entry.failed': data => {
-          const d = data as { entryId: string; body?: string; otterName?: string }
+          const d = data as { entryId: string; invokeId?: string; body?: string; otterName?: string }
+          if (d.invokeId && finishedInvokeIdsRef.current.has(d.invokeId)) return
           setMessages(prev => {
             if (prev.some(m => m.id === d.entryId)) return prev
             return [...prev, { id: d.entryId, st: 'system' as const, content: d.body || `🦦 ${d.otterName || '大獭'}遇到了问题～`, ts: nowTs() }]
           })
         },
         'entry.aborted': data => {
-          const d = data as { entryId: string; body?: string }
+          const d = data as { entryId: string; invokeId?: string; body?: string }
+          if (d.invokeId && finishedInvokeIdsRef.current.has(d.invokeId)) return
           setMessages(prev => {
             if (prev.some(m => m.id === d.entryId)) return prev
             return [...prev, { id: d.entryId, st: 'system' as const, content: d.body || '🦦 行动被中止～', ts: nowTs() }]
