@@ -92,4 +92,21 @@ describe("#1216 sleep 拦截跨段求和", () => {
     const cmd = Array.from({ length: 50 }, () => "sleep 0.1").join(" && ");
     expect(isSleepBlock(checkWithModel(cmd, MAIN_PID))).toBe(true);
   });
+
+  // ── #1220 delta Δ1：镜像序文案口径（判定与文案分离后）──
+  it("镜像序文案报总值：sleep 6 && sleep 3 报 9 秒（非首段 6）", () => {
+    const r = checkWithModel("sleep 6 && sleep 3", MAIN_PID);
+    expect(r).toContain("9 秒");
+  });
+
+  it("镜像序 infinity 优先：sleep 6 && sleep infinity 报「无限」非秒数", () => {
+    const r = checkWithModel("sleep 6 && sleep infinity", MAIN_PID);
+    expect(r).toContain("无限");
+  });
+
+  it("float 显示去舍入尾：sleep 0.1 && sleep 4.9 报「5 秒」非 4.999…", () => {
+    const r = checkWithModel("sleep 0.1 && sleep 4.9", MAIN_PID);
+    expect(r).toContain("5 秒");
+    expect(r).not.toContain("4.999");
+  });
 });

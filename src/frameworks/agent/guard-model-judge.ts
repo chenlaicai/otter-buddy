@@ -419,19 +419,20 @@ function judgeSleepCommand(model: CommandModel, logger: Logger | undefined): str
   let commandTotal = 0;
   let sawInfinite = false;
 
-  /** 单命令树求和（顶层段 + 各层载荷段全部累计）。返回拦截消息（快路径）或 null */
-  const sumModel = (m: CommandModel): string | null => {
+  /** 全命令树求和（顶层段 + 各层载荷段全部累计）。不构造文案——判定与文案分离，
+   *  文案在全扫完后统一构造（#1220 delta Δ1：镜像序 sleep 6 && sleep 3 曾报 6 秒实 9，
+   *  sleep 6 && sleep infinity 曾漏「无限」——拦截判定一直 100% 正确，缺口纯在文案时序） */
+  const sumModel = (m: CommandModel): void => {
     for (const seg of m.segments) {
       const eff = effectiveCommand(seg);
       if (eff.name !== "sleep") continue;
       let total = 0;
       let unparseable = false;
-      let infinite = false;
       for (const a of eff.args) {
         if (a === null) { unparseable = true; break; } // sleep $X——宁漏勿误（#1126 同口径）
         const lower = a.toLowerCase();
         if (lower === "infinity" || lower === "inf") {
-          infinite = true;
+          sawInfinite = true;
           continue;
         }
         const mm = /^([0-9.]+)(s|m|h|d)?$/.exec(lower);
@@ -441,35 +442,27 @@ function judgeSleepCommand(model: CommandModel, logger: Logger | undefined): str
         total += unit === "m" ? v * 60 : unit === "h" ? v * 3600 : unit === "d" ? v * 86400 : v;
       }
       if (unparseable) continue; // 该段不可解析：不计入求和（保守放行该段）
-      if (infinite) sawInfinite = true;
       commandTotal += total;
-      // 段内已 ≥5s：立即拦（快路径，文案报累计总值——#1220 检视建议1）
-      if (total >= 5 - 1e-9) {
-        logger?.warn("[guard-v2] BLOCKED bare sleep >= 5s", { total, commandTotal });
-        return SLEEP_REASON_PREFIX + buildSleepBlockMessage(`${Math.max(total, commandTotal)} 秒`);
-      }
     }
     // 载荷递归（heredoc-quoted = 纯数据跳过，#1171 口径；不可解析载荷含 sleep 词样放行——
     // sleep 拦截是体验引导非安全红线，与 kill 判定对不可解析载荷的保守拦截不同档）
     for (const p of m.payloads) {
       if (p.kind === "heredoc-quoted") continue;
       if (p.model === null) continue;
-      const hit = sumModel(p.model);
-      if (hit) return hit;
+      sumModel(p.model);
     }
-    return null;
   };
-  const fastHit = sumModel(model);
+  sumModel(model);
 
-  // 判定顺序：无限优先于有限累计（语义更严重——#1220 检视建议1）
+  // 判定顺序：无限优先于有限累计（语义更严重）。文案统一带累计总值，float 显示去舍入尾（Δ4）
   if (sawInfinite) {
     logger?.warn("[guard-v2] BLOCKED sleep infinity");
     return SLEEP_REASON_PREFIX + buildSleepBlockMessage("无限");
   }
-  if (fastHit) return fastHit;
   if (commandTotal >= 5 - 1e-9) {
     logger?.warn("[guard-v2] BLOCKED bare sleep >= 5s (cross-segment sum)", { commandTotal });
-    return SLEEP_REASON_PREFIX + buildSleepBlockMessage(`${commandTotal} 秒`);
+    const display = commandTotal >= 10 ? Math.round(commandTotal) : Math.round(commandTotal * 10) / 10;
+    return SLEEP_REASON_PREFIX + buildSleepBlockMessage(`${display} 秒`);
   }
   return null;
 }
