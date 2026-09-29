@@ -110,6 +110,13 @@ export interface SdkInvokePort {
   acquireSessionLock?(otterId: string): Promise<() => void>;
   /** F20260920uhuc：统一交接——只读当前 session 全部 entries（jsonl 切片原料；空/缺失返回 undefined）。可选 */
   readCurrentSessionEntries?(otterId: string): Promise<SessionEntryLike[] | undefined>;
+  /** F20260929kws1：当前 session jsonl 文件绝对路径（保留段截断标记的原文落点锚）。
+   *  交接收集期调用（restartSession 之前）——此后 agent_sessions 账本已翻到新世。
+   *  可选：mock 缺省时锚降级不阻塞交接 */
+  getCurrentSessionFile?(otterId: string): Promise<string | undefined>;
+  /** F20260929kws1：旧世 session jsonl 文件绝对路径（保留段截断标记的原文落点锚；
+   *  交接收集期调用——restartSession 后账本翻到新世再查就错了）。可选：mock 缺省时锚降级。 */
+  getCurrentSessionFile?(otterId: string): Promise<string | undefined>;
   /** 查询 otter 是否有进行中的 invoke（忙碌判定——手动重启 409 / UI 置灰数据源）。可选 */
   isRunning?(otterId: string): boolean;
   /** 中断指定 Otter 的 Agent 生成（messageId 用于定位并发 session） */

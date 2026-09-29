@@ -89,10 +89,9 @@ export async function createAgentGateway(options: {
   workspaceGateway?: WorkspaceGateway;
 }): Promise<{ agentGateway: PiSessionFactory; resolveOtterToolClient: (client: OtterToolClient) => void; resolveManageScheduledTask: (mst: ManageScheduledTask) => void }> {
   const { repos, otterConfigProvider, model, modelPool, db, logger } = options;
-  // F20260928keep：切片观测锚接线（[keeprecent-slice] cut/density warn → 主日志）
+  // F20260929kws1：切片观测锚接线（[keeprecent-slice] cut → 主日志；密度告警已随估算机制退役）
   setSliceLogger(fields => {
-    if ((fields as { level?: string }).level === 'warn') logger.warn('[keeprecent-slice] density drift warning', fields);
-    else logger.info('[keeprecent-slice] cut', fields);
+    logger.info('[keeprecent-slice] cut', fields);
   });
   // Why: manageScheduledTask 在 initUseCases 之后才可用，用 mutable ref 延迟注入
   let manageScheduledTaskRef: ManageScheduledTask | null = null;

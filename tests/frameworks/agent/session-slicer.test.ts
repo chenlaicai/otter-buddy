@@ -1,24 +1,19 @@
 /**
- * F20260928keep：保留段密度校准测试（预算换算/等效性/截断/fail-open/低密度快照）。
+ * F20260929kws1：保留段简化测试（最近 4 条 speak + 单条截断 + 剥离非 text 块）。
  *
- * 验证节规格（方案文档 v2.1）：
- * 1. 体积预算 chars 紧边界：fixture 不含「## 对话历史」节（隔离防掩蔽），
- *    断言保留段 Σchars ≤ 25,000 + maxFixtureMessageChars（停刀粒度=完整消息）
- * 2. 换算等效性：SDK findCutPoint(budget=6,250) vs 测试内参照累加器（divisor=1.25
- *    逐条累计 chars/1.25 至 20K 停刀），kept 集合相差 ≤1 条边界消息；divisor=4 回退回归锚
- * 3. 截断规则：「## 对话历史」节内单条 >1,500 chars 头 750+尾 750；正常块原样
- * 4. fail-open：无节头标记 → 原样序列化零改动
- * 5. 低密度行为快照：code/JSON 重 fixture 记录切点位置（快照变化须伴随定标重审）
+ * 验证节规格（方案文档「验证」节第 2 条）：
+ * 1. 切片：含 10 条 assistant text → 只保留最近 4 条；不足 4 条全保留；无 assistant text 不报错
+ * 2. 截断：单条 5000 chars → 750+标记+750；≤1500 不动；多 text 块拼接计长（3×600=1800 → 截）
+ * 3. 混合块形态（S1 回归）：text 1000 + thinking 3000 + toolCall args 5000 → 序列化不含
+ *    thinking/toolCall 内容，总量 ≤6,500 chars（剥块不截 text 的「硬顶」是假的——实证锚）
+ * 4. 契约：messagesToSummarize=第 4 条 speak 之前的全部消息；turnPrefixMessages 恒空；isSplitTurn 恒 false
+ * 5. 回归：user 消息/注入包/toolResult 不进保留段
  */
 import { describe, expect, it } from "vitest";
-import { findCutPoint } from "@earendil-works/pi-coding-agent";
 import {
-  DEFAULT_KEEP_RECENT_TOKENS,
-  OTTER_CHARS_PER_TOKEN,
   serializeKeptWindow,
   sliceSessionEntries,
   setSliceLogger,
-  __testApplyReplayTruncation,
   type JsonlSlice,
 } from "@frameworks/agent/session-slicer";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
@@ -38,245 +33,211 @@ function makeUserEntry(text: string): SessionEntry {
   } as unknown as SessionEntry;
 }
 
-function makeAssistantEntry(text: string): SessionEntry {
+/** assistant 消息（可含混合 content 块：text / thinking / toolCall） */
+function makeAssistantEntry(blocks: unknown[]): SessionEntry {
   return {
     type: "message",
     id: `entry-${entrySeq++}`,
     parentId: null,
     timestamp: new Date().toISOString(),
-    message: { role: "assistant", content: [{ type: "text", text }] },
+    message: { role: "assistant", content: blocks },
   } as unknown as SessionEntry;
 }
 
-/** 中文叙事内容（≈1.9-2.5 chars/token 形态） */
-function cn(len: number, seed = "獭海豚协作记忆密度校准保留段预算换算线性等效测试中文叙事内容填充"): string {
+function textBlock(text: string): { type: "text"; text: string } {
+  return { type: "text", text };
+}
+
+function thinkingBlock(text: string): { type: "thinking"; thinking: string } {
+  return { type: "thinking", thinking: text };
+}
+
+function toolCallBlock(name: string, args: Record<string, unknown>): { type: "toolCall"; name: string; arguments: Record<string, unknown> } {
+  return { type: "toolCall", name, arguments: args };
+}
+
+function makeToolResultEntry(): SessionEntry {
+  return {
+    type: "message",
+    id: `entry-${entrySeq++}`,
+    parentId: null,
+    timestamp: new Date().toISOString(),
+    message: { role: "toolResult", content: [{ type: "toolResult", output: "tool result output" }] },
+  } as unknown as SessionEntry;
+}
+
+/** 中文叙事内容 */
+function cn(len: number, seed = "獭海豚协作保留段最近四条speak截断剥离测试中文叙事内容填充"): string {
   const base = seed.repeat(Math.ceil(len / seed.length));
   return base.slice(0, len);
 }
 
-/** code/JSON 高密度内容（≈0.4-0.8 chars/token 形态） */
-function codeish(len: number): string {
-  const line = '{"type":"toolResult","output":"0123456789abcdef"}\n';
-  return line.repeat(Math.ceil(len / line.length)).slice(0, len);
-}
-
-/** 不含「## 对话历史」节的中文大保留段 fixture（体积测试隔离用） */
-function makeLargeChineseSession(nMessages: number, msgChars: number): SessionEntry[] {
-  const entries: SessionEntry[] = [];
-  for (let i = 0; i < nMessages; i++) {
-    entries.push(makeUserEntry(cn(msgChars) + ` #${i}`));
-    entries.push(makeAssistantEntry(cn(msgChars) + ` #${i}`));
-  }
-  return entries;
-}
-
-// ---------------------------------------------------------------------------
-// 测试内参照累加器（只模拟估算与停刀，不复制切点合法性逻辑——方案 v2.1 测试2规格）
-// ---------------------------------------------------------------------------
-
-/** 与 SDK findValidCutPoints 同语义的合法切点收集（user/assistant 消息边界） */
-function referenceKeptIndexes(entries: SessionEntry[], divisor: number, budgetTokens: number): Set<number> {
-  // 从尾向前累计 chars/divisor 至预算停刀（每条完整消息粒度）
-  let acc = 0;
-  let start = entries.length;
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const e = entries[i];
-    if (e.type !== "message") continue;
-    const role = (e.message as { role?: string }).role;
-    if (role !== "user" && role !== "assistant") continue;
-    const text = entryCharsForRef(e);
-    if (acc + text / divisor > budgetTokens) break;
-    acc += text / divisor;
-    start = i;
-  }
-  return new Set(range(start, entries.length));
-}
-
-function entryCharsForRef(e: SessionEntry): number {
-  const c = ((e as unknown as { message?: { content?: unknown } }).message ?? {}).content;
-  if (typeof c === "string") return c.length;
-  if (!Array.isArray(c)) return 0;
-  let chars = 0;
-  for (const b of c as Array<{ text?: string; thinking?: string }>) {
-    if (typeof b?.text === "string") chars += b.text.length;
-    else if (typeof b?.thinking === "string") chars += b.thinking.length;
-  }
-  return chars;
-}
-
-function range(a: number, b: number): number[] {
-  return Array.from({ length: Math.max(0, b - a) }, (_, i) => a + i);
+/** 从重构造后的 keptEntry 取唯一 text 块文本（断言辅助） */
+function keptText(entry: SessionEntry): string {
+  const content = (entry as unknown as { message: { content: Array<{ type: string; text: string }> } }).message.content;
+  expect(content.length).toBe(1);
+  expect(content[0].type).toBe("text");
+  return content[0].text;
 }
 
 // ---------------------------------------------------------------------------
 // tests
 // ---------------------------------------------------------------------------
 
-describe("F20260928keep 保留段密度校准", () => {
-  it("体积预算（chars 紧边界）：切点后保留段 Σchars ≤ 25,000 + maxFixtureMessageChars", () => {
-    const msgChars = 520;
-    const entries = makeLargeChineseSession(60, msgChars); // 120 条 × 520 chars ≈ 62.4K chars
-    const slice = sliceSessionEntries(entries, DEFAULT_KEEP_RECENT_TOKENS);
-    expect(slice).toBeDefined();
-
-    const keptChars = slice!.keptEntries.reduce((sum, e) => sum + entryCharsForRef(e), 0);
-    // 停刀粒度=完整消息：上界 = 预算 chars + 最老保留消息 chars（方案 D2 修正后规格）
-    expect(keptChars).toBeLessThanOrEqual(DEFAULT_KEEP_RECENT_TOKENS * OTTER_CHARS_PER_TOKEN + msgChars + 8); // +8 容纳消息尾序号
-    // 且确实发生了裁剪（fixture 总量超预算）
-    expect(keptChars).toBeLessThan(62_400);
-    expect(slice!.keptEntries.length).toBeGreaterThan(0);
-  });
-
-  it("换算等效性：SDK budget=6,250 与参照累加器（divisor=1.25/20K）kept 集合相差 ≤1 条边界消息", () => {
-    // 混合尺寸 fixture（等尺寸 fixture 会掩盖 ceil 舍入边界抖动）
+describe("F20260929kws1 保留段简化：最近 4 条 speak", () => {
+  it("切片：10 条 speak 只保留最近 4 条，user/toolResult 不进保留段", () => {
     const entries: SessionEntry[] = [];
-    const sizes = [300, 800, 120, 2000, 450, 90, 1500, 620, 240, 1100];
-    for (let i = 0; i < 60; i++) {
-      const s = sizes[i % sizes.length];
-      entries.push(makeUserEntry(cn(s) + ` #${i}`));
-      entries.push(makeAssistantEntry(cn((s * 2) % 2400 + 100) + ` #${i}`));
+    for (let i = 0; i < 10; i++) {
+      entries.push(makeUserEntry(`用户消息 ${i}`));
+      entries.push(makeAssistantEntry([textBlock(`第 ${i} 条 speak`)]));
+      entries.push(makeToolResultEntry());
     }
-    const budget = Math.round((DEFAULT_KEEP_RECENT_TOKENS * OTTER_CHARS_PER_TOKEN) / 4); // 6,250
-    const sdkCut = findCutPoint(entries as never, 0, entries.length, budget);
-    const sdkKept = new Set(range(sdkCut.firstKeptEntryIndex, entries.length));
-    const refKept = referenceKeptIndexes(entries, OTTER_CHARS_PER_TOKEN, DEFAULT_KEEP_RECENT_TOKENS);
-
-    // 集合差对称（双向 ≤1 条边界消息）：单侧 diff 看不见「保留更少」方向发散（如预算被除两次 4）
-    const diffS2R = [...sdkKept].filter(i => !refKept.has(i));
-    const diffR2S = [...refKept].filter(i => !sdkKept.has(i));
-    expect(diffS2R.length).toBeLessThanOrEqual(1);
-    expect(diffR2S.length).toBeLessThanOrEqual(1);
-    // 方向语义：两边保留量同量级（非全保留/全丢弃的畸形对照）
-    expect(sdkKept.size).toBeGreaterThan(10);
-    expect(refKept.size).toBeGreaterThan(10);
-  });
-
-  it("divisor=4 回退回归锚：预算不换算时与现状切点一致（定点值）", () => {
-    const entries = makeLargeChineseSession(30, 400);
-    // 现状口径：直接传 20,000（SDK 内部 chars/4）
-    const legacyCut = findCutPoint(entries as never, 0, entries.length, DEFAULT_KEEP_RECENT_TOKENS);
-    // 定点锚：60 条 × 400 chars=24K chars，chars/4=6K < 20K 预算 → 全保留（cut=0）
-    expect(legacyCut.firstKeptEntryIndex).toBe(0);
-    // 回退口径（divisor=4）：round(20,000 × 4 / 4) = 20,000——预算相同即切点相同
-    const fallbackBudget = Math.round((DEFAULT_KEEP_RECENT_TOKENS * 4) / 4);
-    expect(fallbackBudget).toBe(DEFAULT_KEEP_RECENT_TOKENS);
-    const fallbackCut = findCutPoint(entries as never, 0, entries.length, fallbackBudget);
-    expect(fallbackCut.firstKeptEntryIndex).toBe(legacyCut.firstKeptEntryIndex);
-  });
-
-  it("截断规则：「## 对话历史」节内单条 >1,500 chars 头 750+尾 750，正常块与节外消息原样", () => {
-    const longReport = "[检视獭-keep] 审查结论开始。" + cn(3000) + "审查结论结束。署名。";
-    const normalBlock = "[chen] 正常消息。";
-    const injected = [
-      "## 当前时间",
-      "- 2026-09-24 15:43",
-      "## 对话历史（你上次发言后的消息）",
-      longReport,
-      normalBlock,
-      "[chen] 另一条正常消息。",
-    ].join("\n");
-    // 直接测截断通道（截断规则本身不依赖 slice 预算前置）
-    const processed = __testApplyReplayTruncation([
-      { role: "user", content: injected },
-      { role: "assistant", content: "收到。" },
-      { role: "user", content: "## 对话历史节外的正常 user 消息——这条不应被动。" },
-    ]);
-    const out = String(processed[0].content);
-    // 截断标记出现 + 恒真尾注
-    expect(out).toContain("（截断 ");
-    expect(out).toContain("原文见前世 session jsonl");
-    // 头尾各 750 保留：首尾锚文本可见
-    expect(out).toContain("审查结论开始。");
-    expect(out).toContain("署名。");
-    // 正常块原样（未被截断）
-    expect(out).toContain("[chen] 正常消息。");
-    expect(out).toContain("另一条正常消息。");
-    // 节外消息不动 + assistant 不动
-    expect(String(processed[2].content)).toContain("节外的正常 user 消息——这条不应被动。");
-    expect(String(processed[1].content)).toBe("收到。");
-    // 端到端：走 serializeKeptWindow 的完整链路（前置大块撞出切点 + 尾部注入落在保留段内）
-    // 60×2 条 × 520 ≈ 62K chars → 切点约在 32；但注入需在保留段——用前置大块+短尾部组合：
-    // 10×800 前置（16K）+ 30×2×800 大块（48K）在前 → 切点落在大块内，尾部 16K+注入全保留
-    const entries = [
-      ...makeLargeChineseSession(10, 800),
-      ...makeLargeChineseSession(30, 800).map(e => e), // 大块前置撞出切点
-      ...makeLargeChineseSession(10, 800),
-      makeUserEntry(injected),
-      makeAssistantEntry("收到。"),
-    ];
-    const slice = sliceSessionEntries(entries, DEFAULT_KEEP_RECENT_TOKENS);
+    const slice = sliceSessionEntries(entries);
     expect(slice).toBeDefined();
+    expect(slice!.keptEntries.length).toBe(4);
     const serialized = serializeKeptWindow(slice!);
-    expect(serialized).toContain(REPLAY_HEADER_TEXT); // 尾部（含注入）必在保留段
-    expect(serialized).toContain("（截断 "); // 端到端链路（serializeKeptWindow）截断生效
-    expect(serialized).toContain("原文见前世 session jsonl");
+    // 最近 4 条 speak（#6-#9）在；更早的 speak（#0-#5）不在
+    expect(serialized).toContain("第 9 条 speak");
+    expect(serialized).toContain("第 6 条 speak");
+    expect(serialized).not.toContain("第 5 条 speak");
+    // user 消息与 toolResult 不进保留段（截断层只保留 assistant text）
+    expect(serialized).not.toContain("[User]");
+    expect(serialized).not.toContain("[Tool result]");
+    expect(serialized).not.toContain("用户消息 9");
   });
 
-  it("fail-open：无「## 对话历史」节头 → 原样零改动", () => {
-    const longNoHeader = cn(4000) + "（无节头的普通长消息，不截断）";
-    const processed = __testApplyReplayTruncation([
-      { role: "user", content: longNoHeader },
-      { role: "assistant", content: "ok" },
-    ]);
-    expect(String(processed[0].content)).toBe(longNoHeader); // 逐字相等=零改动
-    expect(String(processed[0].content)).not.toContain("（截断 ");
-  });
-
-  it("低密度行为快照：code/JSON 重 fixture 切点位置锁定（快照变化必须伴随定标重审）", () => {
-    const msgChars = 520;
-    const entries: SessionEntry[] = [];
-    for (let i = 0; i < 60; i++) {
-      entries.push(makeUserEntry(codeish(msgChars) + ` #${i}`));
-      entries.push(makeAssistantEntry(codeish(msgChars) + ` #${i}`));
-    }
-    const slice = sliceSessionEntries(entries, DEFAULT_KEEP_RECENT_TOKENS);
+  it("不足 4 条：全保留；无 assistant text（纯工具前世）返回 undefined 不报错", () => {
+    const few = [
+      makeUserEntry("问"),
+      makeAssistantEntry([textBlock("答 1")]),
+      makeUserEntry("再问"),
+      makeAssistantEntry([textBlock("答 2")]),
+    ];
+    const slice = sliceSessionEntries(few);
     expect(slice).toBeDefined();
-    // 快照锚：切点位置与保留条数（codeish 形态真实密度 ~0.8 chars/token → 25K chars ≈ 31K token，
-    // 超预算为已知风险；本断言钉行为快照，变化即触发定标重审，不做预算断言）
-    expect(slice!.keptEntries.length).toBe(48); // 2026-09-28 实现时快照（codeish 48 条 ≈ 24,960 chars）
-    expect(slice!.messagesToSummarize.length).toBeGreaterThan(0);
+    expect(slice!.keptEntries.length).toBe(2);
+    const serialized = serializeKeptWindow(slice!);
+    expect(serialized).toContain("答 1");
+    expect(serialized).toContain("答 2");
+
+    // 无 assistant text：thinking+toolCall 纯工具轮不是 speak
+    const toolOnly = [
+      makeUserEntry("干活"),
+      makeAssistantEntry([thinkingBlock(cn(200)), toolCallBlock("write", { path: "x" })]),
+      makeToolResultEntry(),
+    ];
+    expect(sliceSessionEntries(toolOnly)).toBeUndefined();
+
+    // 空数组同样安全
+    expect(sliceSessionEntries([])).toBeUndefined();
   });
 
-  it("观测锚：slice 日志带 divisor/budgetChars/rule/scope 字段；告警窗口按 scope 隔离（每 scope 24h 最多 1 条）", () => {
+  it("截断：单条 5000 chars → 头 750 + 标记 + 尾 750；≤1500 不动；多块拼接计长", () => {
+    const long = `【${"甲".repeat(750)}】中段【${"乙".repeat(3490)}】尾【${"丙".repeat(750)}】`;
+    expect(long.length).toBeGreaterThan(4_000);
+    const slice = sliceSessionEntries([
+      makeUserEntry("汇报"),
+      makeAssistantEntry([textBlock(long)]),
+    ])!;
+    const serialized = serializeKeptWindow(slice);
+    expect(serialized).toContain("（截断 ");
+    expect(serialized).toContain("原文见前世 session jsonl");
+    // 头尾各 750 保留：首尾锚可见
+    expect(serialized).toContain("【");
+    expect(serialized).toContain("】");
+    // 截断后单条 ≤ 750 + 标记（~60） + 750
+    const keptEntryText = keptText(slice.keptEntries[0]);
+    expect(keptEntryText.length).toBeLessThanOrEqual(750 + 100 + 750);
+
+    // 1500 以下不动：逐字保留
+    const short = cn(1_400);
+    const sliceShort = sliceSessionEntries([makeUserEntry("q"), makeAssistantEntry([textBlock(short)])])!;
+    expect(keptText(sliceShort.keptEntries[0])).toBe(short);
+
+    // 多 text 块拼接计长：3 块 × 600 = 1800 > 1500 → 截（逐块截会放过累积形态）
+    const sliceMulti = sliceSessionEntries([
+      makeUserEntry("q"),
+      makeAssistantEntry([textBlock(cn(600)), textBlock(cn(600)), textBlock(cn(600))]),
+    ])!;
+    const multiText = keptText(sliceMulti.keptEntries[0]);
+    expect(multiText.length).toBeLessThanOrEqual(750 + 100 + 750);
+    expect(multiText).toContain("（截断 ");
+  });
+
+  it("混合块形态（S1 回归）：剥 thinking/toolCall，总量 ≤6,500 chars", () => {
+    const THINKING_MARK = `THINK${"思".repeat(2_995)}MARK`;
+    const ARG_MARK = `ARG${"参".repeat(4_996)}MARK`;
+    const entries: SessionEntry[] = [];
+    for (let i = 0; i < 4; i++) {
+      entries.push(makeUserEntry(`指令 ${i}`));
+      // 每条消息 text 1000 + thinking 3000 + toolCall args 5000
+      entries.push(makeAssistantEntry([
+        textBlock(cn(1_000)),
+        thinkingBlock(THINKING_MARK),
+        toolCallBlock("write", { path: `f${i}.ts`, content: ARG_MARK }),
+      ]));
+      entries.push(makeToolResultEntry());
+    }
+    const slice = sliceSessionEntries(entries)!;
+    expect(slice.keptEntries.length).toBe(4);
+    const serialized = serializeKeptWindow(slice);
+    // 不含 thinking 内容与 toolCall 参数 JSON
+    expect(serialized).not.toContain("THINK");
+    expect(serialized).not.toContain("思");
+    expect(serialized).not.toContain("ARG");
+    expect(serialized).not.toContain("参数内容");
+    expect(serialized).not.toContain("[Assistant thinking]");
+    expect(serialized).not.toContain("[Assistant tool calls]");
+    // 4 × (text 1000 + 序列化开销) ≤ 6,500（硬顶断言——剥块后结构性不可能超）
+    expect(serialized.length).toBeLessThanOrEqual(6_500);
+    expect(serialized).toContain("[Assistant]");
+  });
+
+  it("契约：messagesToSummarize=第 4 条 speak 之前的全部消息；turnPrefixMessages 恒空；isSplitTurn 恒 false", () => {
+    const entries: SessionEntry[] = [];
+    for (let i = 0; i < 8; i++) {
+      entries.push(makeUserEntry(`用户 ${i}`));
+      entries.push(makeAssistantEntry([textBlock(`speak ${i}`)]));
+    }
+    const slice = sliceSessionEntries(entries)!;
+    // 最近 4 条 speak = speak 4..7（index 9,11,13,15）→ 原料 = index 0-8 共 9 条消息（user 0-3 + speak 0-3 + user 4）
+    expect(slice.messagesToSummarize.length).toBe(9);
+    expect(slice.messagesToSummarize[0]).toMatchObject({ role: "user" });
+    // 非空原料 → 叙事合成触发条件成立（agent-invoker 依赖此字段非空）
+    expect(slice.messagesToSummarize.length).toBeGreaterThan(0);
+    // cutPoint 概念退役：无 turn 前缀、不切半轮
+    expect(slice.turnPrefixMessages).toEqual([]);
+    expect(slice.isSplitTurn).toBe(false);
+    // firstKeptEntryId = 最老保留 speak 的 entry id
+    expect(slice.firstKeptEntryId).toBe(entries[9].id); // speak 4（index 9）
+    // previousSummary：compaction entry 存在时提取
+    const withCompaction = [
+      { type: "compaction", id: "c1", summary: "上一代摘要" },
+      ...entries,
+    ] as unknown as SessionEntry[];
+    expect(sliceSessionEntries(withCompaction)!.previousSummary).toBe("上一代摘要");
+  });
+
+  it("观测锚：slice 日志带 keptSpeaks/keptChars/scope 字段", () => {
     const logs: Array<Record<string, unknown>> = [];
     setSliceLogger(fields => logs.push(fields));
     try {
-      const mkUsageSession = () => {
-        const s = makeLargeChineseSession(30, 800);
-        type WithUsage = { message: { usage?: unknown } };
-        const attachUsage = (e: SessionEntry, usage: unknown) => {
-          (e as unknown as WithUsage).message.usage = usage;
-        };
-        // 极低密度（出界）观测对：Δchars 4,800 / Δtok 9,000 → density 0.53…不够低，改 density≈0.2（远低于 0.45 下沿）
-        attachUsage(s[s.length - 2], { input: 1000, cacheRead: 1000, cacheWrite: 0, output: 0 });
-        attachUsage(s[s.length - 1], { input: 1000, cacheRead: 10_000, cacheWrite: 0, output: 0 });
-        return s;
-      };
-      // 同一 scope 连续 5 次出界观测 → 恰 1 条 warn
-      for (let i = 0; i < 5; i++) {
-        const slice = sliceSessionEntries(mkUsageSession(), DEFAULT_KEEP_RECENT_TOKENS, { scopeKey: 'otter-A' });
-        expect(slice).toBeDefined();
-      }
+      const entries = [
+        makeUserEntry("q"),
+        makeAssistantEntry([textBlock(cn(800))]),
+      ];
+      const slice = sliceSessionEntries(entries, { scopeKey: "otter-A" });
+      expect(slice).toBeDefined();
       const cutLog = logs.find(l => String(l.msg).includes("cut"));
       expect(cutLog).toBeDefined();
-      expect(cutLog!.divisor).toBe(1.25);
-      expect(cutLog!.budgetChars).toBe(25_000);
-      expect(cutLog!.rule).toBe("linear-convert");
-      expect(typeof cutLog!.measuredDensity).toBe("number");
-      const warnLogs = logs.filter(l => l.level === 'warn');
-      expect(warnLogs.length).toBe(1); // 窗口滿后告警一次，后续不重复（24h 内）
-      expect(warnLogs[0].scope).toBe('otter-A');
-      // 另一 scope 不受污染：otter-B 首次观测无告警
-      const logsB: Array<Record<string, unknown>> = [];
-      setSliceLogger(fields => logsB.push(fields));
-      sliceSessionEntries(mkUsageSession(), DEFAULT_KEEP_RECENT_TOKENS, { scopeKey: 'otter-B' });
-      expect(logsB.filter(l => l.level === 'warn').length).toBe(0); // B 的窗口只有 1 次观测，未满足 5 次
+      expect(cutLog!.keptSpeaks).toBe(1);
+      expect(cutLog!.keptChars).toBe(800);
+      expect(cutLog!.scopeKey).toBe("otter-A");
+      expect(cutLog!.total).toBe(2);
     } finally {
       setSliceLogger(undefined);
     }
   });
 });
-
-const REPLAY_HEADER_TEXT = "## 对话历史（你上次发言后的消息）";
 
 void ({} as unknown as JsonlSlice);

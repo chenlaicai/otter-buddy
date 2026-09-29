@@ -70,7 +70,9 @@ export interface EngineSynthesisInput {
   }) => void;
 }
 
-/** jsonl 切片结果的最小消费面（与 session-slicer.JsonlSlice 结构兼容） */
+/** jsonl 切片结果的最小消费面（与 session-slicer.JsonlSlice 结构兼容）。
+ *  F20260929kws1 契约：messagesToSummarize=第 4 条 speak 之前的全部消息（叙事合成原料）；
+ *  turnPrefixMessages 恒空、isSplitTurn 恒 false（cutPoint 概念退役）。 */
 export interface EngineJsonlSlice {
   firstKeptEntryId: string | undefined;
   messagesToSummarize: Array<{ role: string; content?: unknown }>;
@@ -100,7 +102,7 @@ export interface HandoffEngineDeps {
     recencyWindow?: string;
     fileTrail?: string;
   }) => string;
-  sliceSessionEntries: (entries: unknown[], keepRecentTokens?: number, options?: { scopeKey?: string }) => EngineJsonlSlice | undefined;
+  sliceSessionEntries: (entries: unknown[], options?: { scopeKey?: string }) => EngineJsonlSlice | undefined;
   serializeKeptWindow: (slice: EngineJsonlSlice) => string;
   collectStateInventory: (conversationId: string, otterId: string, deps: unknown) => Promise<unknown>;
   renderStateInventory: (inventory: unknown) => string;
@@ -1009,9 +1011,14 @@ export class AgentInvoker implements AgentTurnPort {
         this.collectJsonlSlice(otterId),
       ]);
 
-      // 机械档案四件（秒级，必有）：近期保留段（jsonl 切片序列化，对齐 Pi keepRecent 20K）
-      // + 状态盘点 + 文件轨迹 + 谱系
-      const recencyWindow = slice ? this.engine!.serializeKeptWindow(slice) : await this.collectRecencyWindowFallback(conversationId);
+      // 机械档案四件（秒级，必有）：近期保留段（jsonl 切片序列化——F20260929kws1 起
+      // 为最近 4 条 speak 的纯 text，硬顶 ≈6.3K chars）+ 状态盘点 + 文件轨迹 + 谱系
+      const recencyBase = slice ? this.engine!.serializeKeptWindow(slice) : await this.collectRecencyWindowFallback(conversationId);
+      // F20260929kws1 A1：旧世 session jsonl 文件路径锚——保留段截断标记指向的原文落点，
+      // 附在保留段末尾（叙事/机械两种档案形态都在此处渲染保留段；谱系节在机械档案中
+      // 不存在、叙事档案里由 LLM 生成且 gen 代数推导对行数敏感，均不适合承载）。
+      // 必须在 restartSession 之前收集——此后 agent_sessions 账本已翻到新世。
+      const recencyWindow = recencyBase ? await this.appendSessionFileAnchor(otterId, recencyBase) : recencyBase;
       const fileTrail = workspacePath
         ? this.engine!.renderFileTrail({ modified: [], readOnly: [], workspaceFiles: this.engine!.scanWorkspaceFiles(workspacePath) })
         : '';
@@ -1201,19 +1208,34 @@ export class AgentInvoker implements AgentTurnPort {
     return text;
   }
 
-  /** jsonl 切片收集（U2 落地：SDK prepareCompaction 未导出，自实现同款算法）。
+  /** jsonl 切片收集（F20260929kws1：倒序找最近 4 条 speak——token 预算切片退役）。
    *  entries 读取门面缺失（mock/旧装配）或空 session 返回 undefined → 机械档案降级 */
   private async collectJsonlSlice(otterId: string): Promise<EngineJsonlSlice | undefined> {
     try {
       const entries = await this.agentInvoke.readCurrentSessionEntries?.(otterId);
       if (!entries) return undefined;
-      // F20260928keep：scopeKey=otterId——密度告警按獭隔离（每 otter 每 24h 最多 1 条，文档规格）
-      return this.engine?.sliceSessionEntries(entries as never, undefined, { scopeKey: otterId });
+      // scopeKey=otterId——切片观测日志按獭归因（[keeprecent-slice] cut；密度告警已随估算机制退役）
+      return this.engine?.sliceSessionEntries(entries as never, { scopeKey: otterId });
     } catch (err) {
       this.logger.warn('[handoff] jsonl slice failed, degrading', {
         otterId, error: err instanceof Error ? err.message : String(err),
       });
       return undefined;
+    }
+  }
+
+  /** F20260929kws1 A1：保留段末尾附旧世 session 文件路径锚（截断标记「原文见前世
+   *  session jsonl」的落点，新世獭 read/bash 可直接定位）。门面缺失/读取失败降级
+   *  无锚，不阻塞交接。 */
+  private async appendSessionFileAnchor(otterId: string, recencyWindow: string): Promise<string> {
+    try {
+      const sessionFile = await this.agentInvoke.getCurrentSessionFile?.(otterId);
+      return sessionFile ? `${recencyWindow}\n（前世 session 文件：${sessionFile}）` : recencyWindow;
+    } catch (err) {
+      this.logger.warn('[handoff] old session file anchor failed, continuing without', {
+        otterId, error: err instanceof Error ? err.message : String(err),
+      });
+      return recencyWindow;
     }
   }
 
