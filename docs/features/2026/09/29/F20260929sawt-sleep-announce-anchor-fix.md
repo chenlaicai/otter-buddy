@@ -46,9 +46,20 @@ sleep-announce.capability.test.ts 实跑 0/3：
 1. **断言改锚 invoke 事件流**：`spokeBeforeWaitInInvoke`——wait 所在 invoke 的事件流里，speak 工具调用（assistant_toolcall name=speak）必须先于 wait 工具调用。数据面：`tool_execution_start` 对 speak/wait 同发 assistant_toolcall 事件（event-mapping.ts:111），顺序可判。跨 invoke 形态（speak 在更早回合）保留 entries seq 比较——那种形态下 speak entry 属于前一 invoke，seq 恒小于 wait invoke_start，比较语义正确。
 2. **wait description 顺序引导强化**（tool-factory.ts:477）：「调用顺序必须：先调 speak(body) 告诉搭档你在等什么、为什么，speak 返回后再调用本工具开始等待（顺序反了搭档会先看到进度条黑盒）」——行为触发类引导必须在工具 description（F20260825hcpg 判断标准先例）。
 
-## 验证
+## 验证（含检视处置后的统计口径订正）
 
-- capability 实跑（worktree 真跑，含 config.test.local.yaml）：修复前 0/3（2 anchored 假红 + 1 converged）→ 仅修断言仍 0/3（真红显形：wait=call#1 speak=call#3）→ 双层修后 **3/3**（speak=call#1 wait=call#3）
+**实证时间线（完整口径）**：
+1. 修复前：0/3（2 anchored 假红 + 1 converged）
+2. 仅修断言：0/3（真红显形：wait=call#1 speak=call#3——LLM 先 wait 后 speak）
+3. 双层修 + 5s 场景：初跑 3/3，但检视獭-1210 独立复跑 **1/3**（#2 OK、#1/#3 LLM 用 bash sleep 3×2 合规等满 5s 未采纳 wait）——5s 场景存在逃逸口，wait 采纳率 ~2/3 在门槛边缘 flaky（检视 S1）
+4. 场景改 20s（封堵逃逸：sleep 20 被守卫拦，唯一合规等待路径是 wait）+ A1 双计数修复（wait 序号从 call#3 归真为 call#2）后：**两轮独立采样 6/6 全绿**（speak=call#1 wait=call#2，tools=["speak","wait"] 六采样一致）
+
+**检视处置记录（检视獭-1210，1 严重 3 建议）**：
+- S1（采纳率 flaky）→ 采纳：场景 5s→20s 封堵逃逸口；实证口径如上订正
+- A1（callOrder 双计数）→ 采纳：统一只解析执行序形态（tool_execution_start 直挂 payload.name），message_end blocks 形态不再重复计数
+- A2（toolNamesFromEvents 只认 blocks 形态）→ 采纳：与 A1 一并统一到执行序形态
+- A3（场景禁 bash sleep 措辞）→ 不采纳：与「不设限措辞，只断言行为不变量」的测试设计原则冲突——20s 时长本身已让 bash sleep 路径不可行（守卫拦 ≥5s），措辞禁令会把测试变成 prompt compliance 测试而非行为测试；6/6 实证支持
+
 - 单测回归：agent-runtime + frameworks/agent 56 files / 970 tests 全绿；guard-bounce + retry-policy（引用 sleep 引导文案的测试）45/45 绿
 - tsc 干净
 

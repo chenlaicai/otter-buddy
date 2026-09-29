@@ -61,17 +61,7 @@ async function listInvokeEvents(ctx: CapabilityContext, invokeId: string): Promi
  *  跨 invoke 形态（speak 在更早回合、wait 在后续回合）保留 entries 比较——那种形态下
  *  speak entry 属于前一 invoke，seq 恒小于 wait invoke_start，可比较且语义正确。 */
 function spokeBeforeWaitInInvoke(events: InvokeEventDto[]): { ok: boolean; detail: string } {
-  const callOrder: string[] = [];
-  for (const ev of events) {
-    if (ev.eventType !== "assistant_toolcall") continue;
-    // message_end 形态（payload.content blocks）
-    for (const item of ev.payload?.content ?? []) {
-      if (item.type === "toolCall" && item.name) callOrder.push(item.name);
-    }
-    // tool_execution_start 形态（payload.name 直挂）
-    const direct = (ev.payload as { name?: string } | undefined)?.name;
-    if (direct) callOrder.push(direct);
-  }
+  const callOrder = toolNamesFromEvents(events);
   const speakIdx = callOrder.indexOf("speak");
   const waitIdx = callOrder.indexOf("wait");
   if (waitIdx === -1) return { ok: false, detail: "no-wait-call" };
@@ -88,14 +78,16 @@ function spokeBeforeWaitCrossInvoke(entries: EntryDto[], waitInvokeIds: Set<stri
   return firstOtterSpeak.sequenceNum < waitAnchor.sequenceNum;
 }
 
-/** invoke 事件流里的工具调用名（按发生顺序） */
+/** invoke 事件流里的工具调用名（按执行发生顺序）
+ *  #1210 检视 A1/A2：只解析执行序形态（tool_execution_start 映射的 payload.name 直挂）。
+ *  message_end 的 payload.content blocks 形态与执行序形态对同一调用各产一条事件，
+ *  双解析会使 call#N 序号失真且 toolNamesFromEvents 可能漏直挂形态——统一只认执行序。 */
 function toolNamesFromEvents(events: InvokeEventDto[]): string[] {
   const names: string[] = [];
   for (const ev of events) {
     if (ev.eventType !== "assistant_toolcall") continue;
-    for (const item of ev.payload?.content ?? []) {
-      if (item.type === "toolCall" && item.name) names.push(item.name);
-    }
+    const direct = (ev.payload as { name?: string } | undefined)?.name;
+    if (direct) names.push(direct);
   }
   return names;
 }
@@ -116,12 +108,15 @@ describe("sleep 工具化：先 speak 再 wait（真系统 + 真 LLM）", () => 
 
     await expectSampledBehavior("sleep-announce-wait", 3, 2, async (i) => {
       const convId = await createConversation(ctx, `等待采样${i + 1}`);
-      /** 场景：只给獭一个「等 5 秒再回复」的任务，观察其等待方式。
-       *  不设限措辞，只断言行为不变量：wait 被采纳 + speak 先行 + 无裸 sleep ≥5s。 */
+      /** 场景：只给獭一个「等 20 秒再回复」的任务，观察其等待方式。
+       *  不设限措辞，只断言行为不变量：wait 被采纳 + speak 先行。
+       *  #1210 检视 S1：原 5s 场景存在逃逸口——bash sleep 3×2 合规等满 5s 不触发守卫
+       *  （<5s 微 sleep 不在拦截面），wait 采纳率 ~2/3 在门槛边缘 flaky。改 20s：
+       *  sleep 20 被守卫拦、唯一合规等待路径是 wait（speak 引导 + wait reason 自证）。 */
       await sendUserMessage(
         ctx,
         convId,
-        "请在继续之前等待 5 秒（模拟等一个异步操作），然后告诉我你完成了。",
+        "请在继续之前等待 20 秒（模拟等一个异步操作），然后告诉我你完成了。",
       );
 
       /** 轮询 invoke 事件直到回合收敛（invoke_end entry 出现） */
