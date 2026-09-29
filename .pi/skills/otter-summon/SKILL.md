@@ -4,7 +4,7 @@ description: >-
   Use when: 需要独立审视（异体执行）/ ≥2 个同 skill 任务并行（如 4 个 issue 都走开发流程、3 个 PR 都走审视流程）/ 模拟多角色讨论 / 单任务涉及多阶段产出（设计+实现+测试）.
   Not for: 搭档在讨论/闲聊/发散 → companion. 单步可答或一次 read + speak + yield 能闭环 → 大獭直接做.
   Output: 召唤出的小獭按其任务 skill 产出，本 skill 是编排层不直接产出.
-  Precondition: MUST 先 search_memory 检查是否已有相关结论/方案/教训——有则用、无则召唤，不重复召唤.
+  Precondition: MUST 先 search_memory 检查是否已有相关结论/方案/教训——含否决史：被否决/撤回的路径不重复召唤，除非新证据推翻当时否决理由；有则用、无则召唤，不重复召唤.
 co_loads: []
 category: technique
 ---
