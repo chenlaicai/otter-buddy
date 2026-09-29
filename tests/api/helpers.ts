@@ -99,7 +99,7 @@ export function makeConversation(overrides: Partial<{
   updatedAt: string;
   completedAt: string | null;
   archivedAt: string | null;
-  /** F20260928wak1：对话类别（DTO 投影用例需要——'assistant'|'web-assistant'|undefined 等） */
+  /** F20260929wak1：对话类别（DTO 投影用例需要——'assistant'|'web-assistant'|undefined 等） */
   kind: string | undefined;
 }> = {}) {
   const now = new Date().toISOString();

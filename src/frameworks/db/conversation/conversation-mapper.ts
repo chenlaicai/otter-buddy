@@ -95,7 +95,7 @@ export function rowToConversation(row: ConversationRow): Conversation {
     status: row.status as ConversationStatus,
     summary: row.summary,
     pinned: row.pinned === 1,
-    /** F20260928wak1：合法枚举透传（修复线上 bug——双值折叠把 web-assistant 折成
+    /** F20260929wak1：合法枚举透传（修复线上 bug——双值折叠把 web-assistant 折成
      *  normal，侧栏分组认不出 web 助理对话）。非枚举值回退 normal：列 NOT NULL DEFAULT
      *  'normal'（migration.ts ensureConversationsKindColumn），但手工改库/未来枚举退役
      *  仍可能遇到怪值，回退兑底防静默放行 */

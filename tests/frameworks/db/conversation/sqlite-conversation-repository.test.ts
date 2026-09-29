@@ -72,22 +72,22 @@ describe("SqliteConversationRepository - 对话基础操作", () => {
       expect(result!.archivedAt).toBeNull();
     });
 
-    // F20260928wak1：kind 透传回归（线上 bug——mapper 双值折叠把 web-assistant 折成 normal，
+    // F20260929wak1：kind 透传回归（线上 bug——mapper 双值折叠把 web-assistant 折成 normal，
     // 侧栏分组认不出，web 助理对话掉进普通组）
-    it("F20260928wak1：kind=web-assistant 透传不折叠为 normal（getById 路径）", async () => {
+    it("F20260929wak1：kind=web-assistant 透传不折叠为 normal（getById 路径）", async () => {
       await repo.create(conversationFixture({ id: "conv-wa", kind: "web-assistant" }));
       const result = await repo.getById("conv-wa");
       expect(result!.kind).toBe("web-assistant");
     });
 
-    it("F20260928wak1：kind=web-assistant 在 listWithMeta 路径同样透传（侧栏分组数据源）", async () => {
+    it("F20260929wak1：kind=web-assistant 在 listWithMeta 路径同样透传（侧栏分组数据源）", async () => {
       await repo.create(conversationFixture({ id: "conv-wa", kind: "web-assistant" }));
       const { items } = await repo.listConversationsWithMeta("web-user");
       const wa = items.find(c => c.id === "conv-wa");
       expect(wa!.kind).toBe("web-assistant");
     });
 
-    it("F20260928wak1：kind=assistant 不回归（合法枚举护栏）", async () => {
+    it("F20260929wak1：kind=assistant 不回归（合法枚举护栏）", async () => {
       await repo.create(conversationFixture({ id: "conv-as", kind: "assistant" }));
       const as = await repo.getById("conv-as");
       expect(as!.kind).toBe("assistant");
@@ -95,7 +95,7 @@ describe("SqliteConversationRepository - 对话基础操作", () => {
 
     // M2：回退分支用例——列 NOT NULL DEFAULT 'normal'（migration.ts:746），但旧库 PRAGMA
     // 探测前路径/手工改库仍可能遇到非枚举值，回退 normal 兑底并锁死行为
-    it("F20260928wak1：kind 非法值回退 normal（回退分支锁——防未来枚举变更时静默放行怪值）", async () => {
+    it("F20260929wak1：kind 非法值回退 normal（回退分支锁——防未来枚举变更时静默放行怪值）", async () => {
       await repo.create(conversationFixture({ id: "conv-bogus" }));
       await db.exec("UPDATE conversations SET kind = 'bogus' WHERE id = 'conv-bogus'");
       const result = await repo.getById("conv-bogus");

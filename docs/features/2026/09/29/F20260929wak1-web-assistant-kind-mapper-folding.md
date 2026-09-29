@@ -1,5 +1,5 @@
 ---
-id: F20260928wak1
+id: F20260929wak1
 title: web 助理对话侧栏分组失踪：conversation-mapper kind 双值折叠漏扩枚举
 summary: 搭档实测点浮动獭 say hi 后，侧栏「web助理」分组下没有对话。排查确认对话已创建且列表 API 正常返回（排第 8 位），但 kind 字段为空——根因是 conversation-mapper.ts 的 rowToConversation 双值折叠（assistant 之外一律 normal）未随 F20260924wast 枚举扩展更新，把 web-assistant 折成 normal，前端分组认不出。修法为合法枚举透传 + 未知值回退 normal。
 change_type: fix
@@ -10,7 +10,7 @@ from: [F20260924wast]
 created_in_conversation: 480589fd-5813-400a-9b07-8e7d5707fb34
 ---
 
-# web 助理对话侧栏分组失踪（F20260928wak1）
+# web 助理对话侧栏分组失踪（F20260929wak1）
 
 ## 预注册（动手前冻结）
 
@@ -55,7 +55,7 @@ kind: row.kind === "assistant" ? "assistant" : "normal",
 ## 修复
 
 ```ts
-// F20260928wak1：合法枚举透传（修复线上 bug——双值折叠把 web-assistant 折成
+// F20260929wak1：合法枚举透传（修复线上 bug——双值折叠把 web-assistant 折成
 //  normal，侧栏分组认不出 web 助理对话）。未知值/缺省回退 normal（存量为空列 + 旧库兼容）
 kind: row.kind === "assistant" || row.kind === "web-assistant" ? row.kind : "normal",
 ```
@@ -68,9 +68,9 @@ kind: row.kind === "assistant" || row.kind === "web-assistant" ? row.kind : "nor
 
 ```
 FAIL  tests/frameworks/db/conversation/sqlite-conversation-repository.test.ts
-✗ F20260928wak1：kind=web-assistant 透传不折叠为 normal（getById 路径）
+✗ F20260929wak1：kind=web-assistant 透传不折叠为 normal（getById 路径）
   Expected: "web-assistant"  Received: "normal"
-✗ F20260928wak1：kind=web-assistant 在 listWithMeta 路径同样透传（侧栏分组数据源）
+✗ F20260929wak1：kind=web-assistant 在 listWithMeta 路径同样透传（侧栏分组数据源）
   Expected: "web-assistant"  Received: "normal"
 ```
 
