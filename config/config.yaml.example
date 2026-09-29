@@ -156,7 +156,11 @@ circuitBreaker:
   # 覆盖排队 + prefill 静默期；大上下文 TTFT 实测 ~70s，留足余量
   firstByteTimeoutMs: 300000
 
-# === 飞书集成配置（可选）===
+# === 飞书集成配置（可选——扫码模式下整个 feishu 段都可以不配）===
+# 推荐用 Web IM 页「扫码接入飞书」（F20260929fsqr）：起名 → 扫码 → 自动创建应用并接入，
+# 全程无需填写任何凭证，凭据自动落盘 data/feishu/feishu-apps.json。
+# 下面这段静态凭证配置是旧方式（也可与扫码模式并行，两模式互不干扰）：
+# 适合在开放平台已有自建应用、想直接复用的场景。
 # 配置后启用飞书长连接接入，支持 IM 大厅功能
 # 飞书群可通过命令与系统对话交互
 # feishu:
@@ -170,9 +174,10 @@ circuitBreaker:
 #   # 搭档身份静态锚定：海獭的「搭档」始终是这个人，不随消息发送者变化；
 #   # 未配置时降级为动态推断（当前说话者视为搭档）
 #   # 获取方式见 docs/user-guide/feishu-setup.md「搭档身份绑定」
+#   # 注：扫码模式下无需本字段——首个扫码成功的人自动成为搭档锚
 #   partnerOpenId: "ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
-# === 飞书集成使用说明 ===
+# === 飞书集成使用说明（静态凭证模式）===
 # 详细步骤见 docs/user-guide/feishu-setup.md
 # 1. 在飞书开放平台创建自建应用，启用"机器人"能力
 # 2. 订阅事件：im.message.receive_v1（长连接方式）
