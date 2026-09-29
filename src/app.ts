@@ -1,11 +1,7 @@
 /**
  * buildApp：可测试的系统装配入口（F20260806tstr Part 1，基于 F20260805codx bootstrap 模块）。
- *
- * 与 main.ts 的关系：main.ts 是生产薄入口（本模块的调用方），全部编排在这里。
- * 与 bootstrap/* 的关系：bootstrap 模块是零件，本模块是按序组装 + 提供测试接缝。
- *
- * 无 import 时副作用：所有路径/全局副作用（配置加载、日志文件、auth 同步、
- * 飞书长连接、调度器、静态路由）均可通过 options 注入或关闭。
+ * main.ts 是生产薄入口；bootstrap/* 是零件，本模块按序组装 + 提供测试接缝。
+ * 全局副作用（配置/日志/auth/飞书/调度器/静态路由）均可经 options 注入或关闭。
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -65,6 +61,7 @@ import { PatrolWorker } from "@usecases/health/patrol-worker";
 import { collectHealingEvents } from "@usecases/health/healing-collector";
 import type { AgentSessionSource } from "@usecases/health/cost-output-collector";
 import type { CreateSnapshotRow } from "@usecases/health/snapshot-rows";
+import { readSkillBody, readSystemSections, listAllToolSummaries } from "@frameworks/agent/codex-sources";
 
 /** 创建 PinoLogger 实例（stdout + 文件持久化），logDir 不存在时创建 */
 export function createLogger(logDir: string): PinoLogger {
@@ -485,17 +482,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     }
   };
 
-  /** #576（F20260901emps）：能力库页面数据源——ResourceLoader 适配 SkillDirectory 端口。
-   *  与 otter 实际加载的 skill 一致（页面所见即系统所载），替代前端静态快照。
-   *  warmup 前 resourceLoader 可能为 null——返回空列表，前端展示显式空态（不静默空白） */
+  // #576 能力库数据源（F20260929scfx 扩展 body=SKILL.md 正文，读失败降级 ''）；warmup 前 null → 空列表
   const skillDirectory = resourceLoader
-    ? {
-        list: async () => {
-          const { skills } = resourceLoader.getSkills();
-          return skills.map((s: { name: string; description: string }) => ({ name: s.name, description: s.description }));
-        },
-      }
+    ? { list: async () => (await resourceLoader.getSkills()).skills.map((s: { name: string; description: string }) => ({ name: s.name, description: s.description, body: readSkillBody(s.name) })) }
     : undefined;
+
+  // F20260929scfx：卷首心法总纲（SYSTEM.md 按 ## 切分）+ 卷末兵器谱（createTools 真实全集）；读失败降级空
+  const promptDirectory = {
+    getSystemSections: async () => readSystemSections(),
+    listTools: async () => listAllToolSummaries(),
+  };
 
   const controllers = initControllers({
     uc, repos, agentInvoker, appConfig: config, modelPool, settingsRepo: repos.settings,
@@ -585,6 +581,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     registry,
     // #576（F20260901emps）：能力库真数据源
     skillDirectory,
+    // F20260929scfx：能力库全书——系统提示词分节 + 工具清单
+    promptDirectory,
   }, logger);
 
   const app = buildHttpApp(controllers, logger, options.staticRoot ?? path.resolve(import.meta.dirname, "../..", "web/dist"));
@@ -662,3 +660,4 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     },
   };
 }
+

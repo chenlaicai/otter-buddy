@@ -18,6 +18,7 @@ import { OtterController } from "../../src/interface-adapters/http/controllers/o
 import type { AgentInvoker } from "../../src/interface-adapters/agent-runtime/agent-invoker";
 import { MemoryController } from "../../src/interface-adapters/http/controllers/memory-controller";
 import { SkillController } from "../../src/interface-adapters/http/controllers/skill-controller";
+import { PromptController } from "../../src/interface-adapters/http/controllers/prompt-controller";
 import type { MemoryRepository } from "../../src/usecases/memory/memory-repository";
 import { KeyInfoController } from "../../src/interface-adapters/http/controllers/key-info-controller";
 import { SettingsController, type SettingsConfig } from "../../src/interface-adapters/http/controllers/settings-controller";
@@ -402,7 +403,12 @@ export interface TestDeps {
   /** #576（F20260901emps）：recent 端点 repo（默认空列表，需测试时覆写 listRecent） */
   memoryRepo?: { listRecent: (limit: number) => Promise<unknown[]> };
   /** #576（F20260901emps）：能力库真数据源（默认空列表） */
-  skillDirectory?: { list: () => Promise<{ name: string; description: string }[]> };
+  skillDirectory?: { list: () => Promise<{ name: string; description: string; body?: string }[]> };
+  /** F20260929scfx：能力库全书——系统提示词分节 + 工具清单（默认空实现） */
+  promptDirectory?: {
+    getSystemSections: () => Promise<Array<{ title: string; content: string }>>;
+    listTools: () => Promise<Array<{ name: string; description: string }>>;
+  };
   scanDarkEntries: any;
   manageMemory: any;
   manageKeyInfo: any;
@@ -524,6 +530,13 @@ export function createTestApp(deps: TestDeps): Hono {
     skills: deps.skillDirectory
       ? new SkillController(deps.skillDirectory as never, createTestLogger())
       : new SkillController({ list: async () => [] }, createTestLogger()),
+    /* F20260929scfx：能力库全书三编数据源；默认空实现，测试经 deps.promptDirectory 覆写 */
+    prompts: deps.promptDirectory
+      ? new PromptController(deps.promptDirectory as never, createTestLogger())
+      : new PromptController(
+          { getSystemSections: async () => [], listTools: async () => [] },
+          createTestLogger(),
+        ),
     /* F20260912avlb：活动页三域台账只读（默认空实现，activity 专项测试另建真 sqlite） */
     activity: {} as any,
   };

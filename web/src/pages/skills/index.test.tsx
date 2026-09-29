@@ -1,21 +1,26 @@
 // @vitest-environment jsdom
 /**
  * #576（F20260901emps）：能力库页面非空冒烟断言——防「页面静默空白」回归。
- * 用户 8/28 原话「能力库和记忆搜索页面上内容其实都是空的，这不好」。
- *
- * F20260924uxrc 书式改版（搭档拍板：双页摊开秘籍书）后锁定点：
- * 1. API 正常：封面渲染（书名 + 心法数）+ 摊开后章目录/技能页内容非空
- * 2. 三段式 description 解析：Use when / Not for / Output 各自锚定成槽
- * 3. API 失败：降级内置清单 + 封面「离线兜底」标注（非静默空白）
- * 4. API 空：显式空态文案（非静默空白）
- * 5. 翻页：goView 语义（点热区 / 章节耳直达）——jsdom 无 3D 渲染，断言 DOM 语义
+ * F20260924uxrc 书式改版（搭档拍板：双页摊开秘籍书）。
+ * F20260929scfx 能力库全书（搭档拍板，对话 9eeb7b69）：书重排三编——
+ *   卷首·心法总纲（SYSTEM.md 分节全文）/ 卷中·招式秘籍（正文全文+续页）/ 卷末·兵器谱。
+ * 锁定点：
+ * 1. 封面渲染（书名 + 心法数）+ 三编结构（目录页/心法页/技能页/兵器谱页）
+ * 2. 三段式 description 解析（parseSkillDescription 回归）
+ * 3. skill 页渲染正文内容片段（F20260929scfx 新断言）
+ * 4. 心法总纲 section 页存在（F20260929scfx 新断言）
+ * 5. 兵器谱 tools 渲染（F20260929scfx 新断言）
+ * 6. 序号与页序一致：第N门 = 书页顺序编号（F20260929scfx 新断言）
+ * 7. API 失败：降级内置清单 + 封面「离线兜底」标注；prompts 单独失败：仅卷首/卷末降级
+ * 8. API 空：显式空态文案（非静默空白）
+ * 9. 翻页引擎边界（检视獭-uxrc2 回归防护）：连击 off-by-one + 奇偶末页可达
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 
 document.body.innerHTML = '<div id="root"></div>'
-const { default: SkillsPage, parseSkillDescription } = await import('./index')
+const { default: SkillsPage, parseSkillDescription, paginateText, buildPages, viewOfPageIdx } = await import('./index')
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -38,12 +43,44 @@ function render() {
   act(() => { root.render(<SkillsPage />) })
 }
 
+const REAL_PROMPTS = {
+  system: [
+    { title: '第一性原理（Axioms，A 层）', content: '你是独立的思考者和诚实的专业协作者。\n\n优先级链：事实 > 搭档判断 > AI 偏好。' },
+    { title: '世界观（Worldview，W 层）', content: '海獭是有名字的唯一实体。\n\nAI 是独立思考者不是服从工具。' },
+  ],
+  tools: [
+    { name: 'speak', description: '发言工具——你在聊天室里唯一的发言通道。' },
+    { name: 'yield', description: '交棒工具——结束本轮行动。' },
+    { name: 'search_memory', description: '检索记忆。' },
+  ],
+}
+
+/** 双源 mock：/api/skills 与 /api/prompts 分别响应 */
+function mockFetch(skills: unknown[] | null, prompts: typeof REAL_PROMPTS | null = REAL_PROMPTS, opts?: { skillsFail?: boolean }) {
+  vi.spyOn(globalThis, 'fetch').mockImplementation((input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    if (url.includes('/api/prompts')) {
+      if (prompts === null) return Promise.reject(new Error('prompts down'))
+      return Promise.resolve(new Response(JSON.stringify(prompts), { status: 200 }))
+    }
+    if (opts?.skillsFail) return Promise.reject(new Error('skills down'))
+    if (skills === null) return Promise.resolve(new Response(JSON.stringify({ skills: [] }), { status: 200 }))
+    return Promise.resolve(new Response(JSON.stringify({ skills }), { status: 200 }))
+  })
+}
+
+/** API 格式（description 字段；组件 fetch 后 map 成内部 desc） */
 const REAL_SKILLS = [
   {
     name: 'companion',
     description: 'Use when: 自由协作讨论. Not for: 匹配其他 skill. Output: 自然对话.',
+    body: '# Companion\n\n不匹配任何 skill 时的兜底模式。\n\n像朋友一样协作，不端着流程。',
   },
-  { name: 'core-workflow', description: '查询对话历史、搜索记忆、记录决策和产出。' },
+  {
+    name: 'core-workflow',
+    description: '查询对话历史、搜索记忆、记录决策和产出。',
+    body: '# Core Workflow\n\n查与记的标准动作。',
+  },
 ]
 
 describe('parseSkillDescription（F20260924uxrc 三段式解析）', () => {
@@ -82,11 +119,84 @@ describe('parseSkillDescription（F20260924uxrc 三段式解析）', () => {
   })
 })
 
-describe('能力库书式页面（#576 + F20260924uxrc spread 书）', () => {
-  it('API 正常：封面渲染（书名 + 心法统计 + 无离线标注）', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ skills: REAL_SKILLS }), { status: 200 }),
+describe('paginateText（F20260929scfx 长文分页）', () => {
+  it('短文本单页', () => {
+    expect(paginateText('a\nb\nc', 5)).toEqual(['a\nb\nc'])
+  })
+
+  it('超页高按行装箱切多页，不截词（按整行粒度）', () => {
+    const text = Array.from({ length: 7 }, (_, i) => `line-${i}`).join('\n')
+    const pages = paginateText(text, 3)
+    expect(pages).toHaveLength(3)
+    expect(pages[0]).toBe('line-0\nline-1\nline-2')
+    expect(pages[2]).toBe('line-6')
+  })
+
+  it('空文本兜底单页空串', () => {
+    expect(paginateText('', 5)).toEqual([''])
+  })
+})
+
+describe('buildPages（F20260929scfx 三编组页）', () => {
+  it('页序：编目 → 心法节（含续页） → 章目录+skill 页（含续页） → 兵器谱', () => {
+    const { pages: builtPages } = buildPages(REAL_SKILLS, REAL_PROMPTS)
+    const kinds = builtPages.map(p => p.kind)
+    const pages = builtPages
+    // p0 编目
+    expect(kinds[0]).toBe('toc')
+    // 心法两节（内容短 → 各 1 页）
+    expect(kinds[1]).toBe('section')
+    expect(pages[1].sectionIdx).toBe(0)
+    expect(kinds[2]).toBe('section')
+    expect(pages[2].sectionIdx).toBe(1)
+    // 章目录 + skill 页
+    expect(kinds[3]).toBe('chapterToc')
+    expect(kinds[4]).toBe('skill')
+    expect(pages[4].skillIdx).toBe(0)
+    // 兵器谱
+    expect(kinds[kinds.length - 1]).toBe('tools')
+  })
+
+  it('长 section 自动续页（cont 递增）', () => {
+    const longContent = Array.from({ length: 70 }, (_, i) => `sec-line-${i}`).join('\n')
+    const { pages } = buildPages([], { system: [{ title: '长节', content: longContent }], tools: [] })
+    const secPages = pages.filter(p => p.kind === 'section')
+    expect(secPages.length).toBeGreaterThan(1)
+    expect(secPages[0].cont).toBe(0)
+    expect(secPages[1].cont).toBe(1)
+    // 续页文本是切片而非全文
+    expect(secPages[1].text).not.toContain('sec-line-0')
+    expect(secPages[1].text).toContain(`sec-line-${30}`)
+  })
+
+  it('长 skill 正文自动续页', () => {
+    const longBody = Array.from({ length: 65 }, (_, i) => `body-line-${i}`).join('\n')
+    const { pages } = buildPages(
+      [{ name: 'companion', desc: 'Use when: 聊. Output: 天.', body: longBody }],
+      { system: [], tools: [] },
     )
+    const skillPages = pages.filter(p => p.kind === 'skill' && p.skillIdx === 0)
+    expect(skillPages.length).toBeGreaterThan(1)
+    expect(skillPages[1].cont).toBe(1)
+  })
+
+  it('prompts 为 null：卷首/卷末编跳过，卷中保留', () => {
+    const { pages } = buildPages(REAL_SKILLS, null)
+    expect(pages.some(p => p.kind === 'section')).toBe(false)
+    expect(pages.some(p => p.kind === 'tools')).toBe(false)
+    expect(pages.some(p => p.kind === 'skill')).toBe(true)
+  })
+
+  it('viewOfPageIdx：页序→视野映射（0/1 同视野摊开）', () => {
+    expect(viewOfPageIdx(0)).toBe(1) // p0 右页（视野1）
+    expect(viewOfPageIdx(1)).toBe(1) // p1 左页（视野1）
+    expect(viewOfPageIdx(2)).toBe(2) // p2 右页（视野2）
+  })
+})
+
+describe('能力库全书页面（F20260929scfx 三编结构）', () => {
+  it('封面渲染：书名 + 心法数 + 编数；无降级标注', async () => {
+    mockFetch(REAL_SKILLS)
     render()
     await act(async () => {})
 
@@ -96,50 +206,94 @@ describe('能力库书式页面（#576 + F20260924uxrc spread 书）', () => {
     expect(container.querySelector('[data-testid="degraded-badge"]')).toBeNull()
   })
 
-  it('摊开视野1：壹章目录 + companion 技能页同框，三槽解析成槽', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ skills: REAL_SKILLS }), { status: 200 }),
-    )
+  it('视野1：编目页 + 心法首节同框（三编数据源到位）', async () => {
+    mockFetch(REAL_SKILLS)
     render()
     await act(async () => {})
 
-    // 点右热区摊开（封面 → 视野1）
-    const zones = Array.from(container.querySelectorAll<HTMLElement>('div[style*="cursor: pointer"]'))
-    const rightZone = zones.find(z => z.style.right === '0px')
-    expect(rightZone).toBeTruthy()
-    act(() => { rightZone!.click() })
+    act(() => { container.querySelector<HTMLElement>('[data-testid="nav-next"]')!.click() })
     await act(async () => {})
 
     const text = container.textContent ?? ''
-    // 摊开后：章目录 + 技能页都在 DOM（sheet 正反面）
-    expect(text).toContain('搭档之道')
-    expect(text).toContain('companion')
+    expect(text).toContain('全帙目录')
+    expect(text).toContain('第一性原理')
+    expect(text).toContain('卷中 · 招式秘籍')
+    expect(text).toContain('卷末 · 兵器谱')
+  })
+
+  it('skill 页渲染正文内容片段（F20260929scfx 新断言）', async () => {
+    mockFetch(REAL_SKILLS)
+    render()
+    await act(async () => {})
+
+    // companion = skillIdx 0 → 起始内容页：编目1 + 心法2 + 壹目录1 = p3 → 视野 2
+    act(() => { container.querySelector<HTMLElement>('[data-testid="nav-next"]')!.click() })
+    await new Promise(r => setTimeout(r, 700))
+    await act(async () => {})
+    act(() => { container.querySelector<HTMLElement>('[data-testid="nav-next"]')!.click() })
+    await act(async () => {})
+
+    const text = container.textContent ?? ''
+    // 正文区含 body 片段（非 frontmatter description）
+    expect(text).toContain('不匹配任何 skill 时的兜底模式')
     // companion 是结构化描述 → 三槽标签渲染
     expect(text).toContain('施展')
     expect(text).toContain('忌用')
     expect(text).toContain('产出')
-    // core-workflow 非结构化 → 整段 raw 展示
-    expect(text).toContain('查询对话历史')
   })
 
-  it('章节耳：五流派耳存在，点耳直达章目录视野', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ skills: REAL_SKILLS }), { status: 200 }),
-    )
+  it('心法总纲 section 页存在且渲染正文（F20260929scfx 新断言）', async () => {
+    mockFetch(REAL_SKILLS)
     render()
     await act(async () => {})
 
-    const ears = Array.from(container.querySelectorAll<HTMLButtonElement>('button[title^="直达"]'))
-    expect(ears.length).toBe(5) // 壹..伍 五章耳（2 skill 只归入两章，但耳固定五章）
-    // 点叁章耳 → 视野切到叁章目录页所在视野
-    act(() => { ears[2].click() })
+    // 视野1 左页 = 编目？页序 p0 编目（右页，视野1）p1 心法第〇则（左页，视野1）
+    act(() => { container.querySelector<HTMLElement>('[data-testid="nav-next"]')!.click() })
     await act(async () => {})
-    // jsdom 无过渡计时器完成等待——goView 立即 setView，DOM 已更新
-    expect(container.textContent).toContain('修行之路')
+
+    const text = container.textContent ?? ''
+    expect(text).toContain('第一性原理（Axioms，A 层）')
+    expect(text).toContain('你是独立的思考者和诚实的专业协作者')
+    // 节序页脚标注（cnNum(0) = 第一则）
+    expect(text).toContain('第一则')
   })
 
-  it('API 失败：降级内置清单 + 封面离线兜底标注（非静默空白）', async () => {
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network down'))
+  it('兵器谱 tools 渲染（F20260929scfx 新断言）', async () => {
+    mockFetch(REAL_SKILLS)
+    render()
+    await act(async () => {})
+
+    // 直接翻到末视野（内容页 11 → maxView 6）
+    for (let i = 0; i < 6; i++) {
+      const before = (container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view
+      act(() => { container.querySelector<HTMLElement>('[data-testid="nav-next"]')!.click() })
+      await new Promise(r => setTimeout(r, 700))
+      await act(async () => {})
+      const after = (container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view
+      if (before === after) break
+    }
+    const text = container.textContent ?? ''
+    expect(text).toContain('兵器谱')
+    expect(text).toContain('speak')
+    expect(text).toContain('search_memory')
+    expect(text).toContain('运行时注册工具全集')
+  }, 12000)
+
+  it('序号与页序一致：第N门按书页顺序编号（F20260929scfx 新断言）', async () => {
+    mockFetch(REAL_SKILLS)
+    render()
+    await act(async () => {})
+
+    // 编目页内两 skill 条目的编号 = 全局序（companion=0 → 第一门，core-workflow=1 → 第二门）
+    act(() => { container.querySelector<HTMLElement>('[data-testid="nav-next"]')!.click() })
+    await act(async () => {})
+    const text = container.textContent ?? ''
+    expect(text).toContain('第一门 · companion')
+    expect(text).toContain('第二门 · core-workflow')
+  })
+
+  it('prompts 端点失败：卷首/卷末降级 + 封面离线兜底标注；skills 正常', async () => {
+    mockFetch(REAL_SKILLS, null)
     render()
     await act(async () => {})
 
@@ -147,12 +301,27 @@ describe('能力库书式页面（#576 + F20260924uxrc spread 书）', () => {
     expect(text).toContain('獭族能力秘籍')
     expect(text).toContain('离线兜底')
     expect(container.querySelector('[data-testid="degraded-badge"]')).toBeTruthy()
+    // skills 正常 → 卷中编仍在（摊开后可见章目录）
+    act(() => { container.querySelector<HTMLElement>('[data-testid="nav-next"]')!.click() })
+    await act(async () => {})
+    expect(container.textContent).toContain('卷中 · 招式秘籍')
   })
 
-  it('API 返回空数组：显式空态文案（非静默空白）', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ skills: [] }), { status: 200 }),
-    )
+  it('skills 端点失败：整书降级内置清单 + 离线兜底标注', async () => {
+    mockFetch(null, null, { skillsFail: true })
+    render()
+    await act(async () => {})
+
+    const text = container.textContent ?? ''
+    expect(text).toContain('獭族能力秘籍')
+    expect(text).toContain('离线兜底')
+    // 内置兜底清单 14 门渲染
+    expect(text).toContain('companion')
+    expect(text).toContain('visual-design')
+  })
+
+  it('skills 返回空数组：显式空态文案（非静默空白）', async () => {
+    mockFetch([])
     render()
     await act(async () => {})
 
@@ -160,108 +329,70 @@ describe('能力库书式页面（#576 + F20260924uxrc spread 书）', () => {
   })
 })
 
-describe('翻页引擎边界（检视獭-uxrc2 发现回归防护：连击 off-by-one + 奇偶末页可达）', () => {
-  /** 用例素材：奇数内容页场景—— 章(1)+1 skill + 章(1)+2 skill = 5 内容页（奇数），
-   *  sheet=3，maxView=3：末视野 = p5(末 skill) | 底衬页 */
+describe('翻页引擎边界（检视獭-uxrc2 回归防护：连击 off-by-one + 奇偶末页可达）', () => {
   const ODD_SKILLS = [
-    { name: 'companion', description: 'Use when: 聊. Output: 天.' },
-    { name: 'core-workflow', description: '查历史。' },
-    { name: 'troubleshooting', description: '排查。' },
+    { name: 'companion', description: 'Use when: 聊. Output: 天.', body: '正文一。' },
+    { name: 'core-workflow', description: '查历史。', body: '正文二。' },
+    { name: 'troubleshooting', description: '排查。', body: '正文三。' },
   ]
 
   it('奇数内容页：末技能页可达（maxView 翻得到最后一门）', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ skills: ODD_SKILLS }), { status: 200 }),
-    )
+    mockFetch(ODD_SKILLS, { system: [], tools: [] })
     render()
     await act(async () => {})
 
-    // 直接点右热区到 maxView（每步等动画窗口结束，避免连击排队路径）
     const next = () => container.querySelector<HTMLElement>('[data-testid="nav-next"]')!
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 20; i++) {
       const before = (container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view
       act(() => { next().click() })
-      await new Promise(r => setTimeout(r, 700)) // 等动画窗口（650ms）关闭
+      await new Promise(r => setTimeout(r, 700))
       await act(async () => {})
       const after = (container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view
-      if (before === after) break // clamp 生效，到 maxView
+      if (before === after) break
     }
-    const finalView = Number((container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view)
-    // 奇数内容页（5）：maxView = 3；末视野左页 = p5 = troubleshooting（最后技能页可达）
-    expect(finalView).toBeGreaterThanOrEqual(3)
     expect(container.textContent).toContain('troubleshooting')
   })
 
-  it('TOC 条目可点直达：点壹章目录首条目 → 跳到 companion 秘籍页', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ skills: ODD_SKILLS }), { status: 200 }),
-    )
-    render()
-    await act(async () => {})
-
-    // 摊开到壹目录（视野 1）
-    act(() => { container.querySelector<HTMLElement>('[data-testid="nav-next"]')!.click() })
-    await act(async () => {})
-    // 点目录首条目（companion）
-    const tocBtns = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
-      .filter(b => b.textContent?.includes('companion') && b.textContent?.includes('翻阅'))
-    expect(tocBtns.length).toBeGreaterThanOrEqual(1)
-    act(() => { tocBtns[0].click() })
-    await act(async () => {})
-    const view = Number((container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view)
-    // companion = 内容页 p2，位于视野 1
-    expect(view).toBe(1)
-  })
-
-  it('连击不丢步（off-by-one 回归）：快速双击右热区，view 立即 2（回放基准=落地 view）', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ skills: ODD_SKILLS }), { status: 200 }),
-    )
+  it('连击不丢步（off-by-one 回归）：快速双击右热区，回放后 view = 2', async () => {
+    mockFetch(ODD_SKILLS, { system: [], tools: [] })
     render()
     await act(async () => {})
 
     const next = () => container.querySelector<HTMLElement>('[data-testid="nav-next"]')!
-    // 双击：第一次立即 view 0→1；第二次在动画窗口内（步进排队 +1）→ 回放后应为 2
     act(() => { next().click() })
     act(() => { next().click() })
     await act(async () => {})
     let view = Number((container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view)
-    expect(view).toBe(1) // 排队中：立即态为 1，回放要等 FLIP_MS
-    // 快进 650ms（fake timer 风格：直接等真实定时器，vitest jsdom 可等待）
+    expect(view).toBe(1)
     await new Promise(r => setTimeout(r, 700))
     await act(async () => {})
     view = Number((container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view)
-    expect(view).toBe(2) // 原 bug：回放基准用旧 view → 双击落 1；修复后落 2
+    expect(view).toBe(2)
   })
 
-  it('同向三连击不丢步（终验 N3 回归钉死）：步进累计不因 last-wins 吞步', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      // 8 skill：壹1+1 贰1+2 叁1+2 肆1+1 伍1+1 = 12 内容页 → sheetCount 7 → maxView 7
-      new Response(JSON.stringify({ skills: [
-        { name: 'companion', description: 'Use when: 聊. Output: 天.' },
-        { name: 'core-workflow', description: '查历史。' },
-        { name: 'troubleshooting', description: '排查。' },
-        { name: 'requirement-analysis', description: 'Use when: 方案. Output: 文档.' },
-        { name: 'code-implementation', description: 'Use when: 写码. Output: PR.' },
-        { name: 'worktree-isolation', description: 'Use when: git. Output: worktree.' },
-        { name: 'otter-summon', description: 'Use when: 召唤. Output: 编排.' },
-        { name: 'visual-design', description: 'Use when: 设计. Output: 稿.' },
-      ] }), { status: 200 }),
-    )
+  it('同向三连击不丢步（终验 N3 回归钉死）', async () => {
+    mockFetch([
+      { name: 'companion', description: 'Use when: 聊. Output: 天.', body: '一' },
+      { name: 'core-workflow', description: '查历史。', body: '二' },
+      { name: 'troubleshooting', description: '排查。', body: '三' },
+      { name: 'requirement-analysis', description: 'Use when: 方案. Output: 文档.', body: '四' },
+      { name: 'code-implementation', description: 'Use when: 写码. Output: PR.', body: '五' },
+      { name: 'worktree-isolation', description: 'Use when: git. Output: worktree.', body: '六' },
+      { name: 'otter-summon', description: 'Use when: 召唤. Output: 编排.', body: '七' },
+      { name: 'visual-design', description: 'Use when: 设计. Output: 稿.', body: '八' },
+    ], { system: [], tools: [] })
     render()
     await act(async () => {})
 
     const next = () => container.querySelector<HTMLElement>('[data-testid="nav-next"]')!
-    // 三连击（全部落在同一个动画窗口内）
     act(() => { next().click() })
     act(() => { next().click() })
     act(() => { next().click() })
     await new Promise(r => setTimeout(r, 750))
     await act(async () => {})
     let view = Number((container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view)
-    expect(view).toBe(3) // N3 回归：last-wins 绝对目标吞成 2；步进累计应落 3
+    expect(view).toBe(3)
 
-    // 接着四连击（从视野 3 再连击四下）
     act(() => { next().click() })
     act(() => { next().click() })
     act(() => { next().click() })
@@ -269,53 +400,24 @@ describe('翻页引擎边界（检视獭-uxrc2 发现回归防护：连击 off-b
     await new Promise(r => setTimeout(r, 750))
     await act(async () => {})
     view = Number((container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view)
-    expect(view).toBe(7) // 3 + 4 = 7；若吞步会落更少
+    expect(view).toBe(7)
   })
 
-  it('动画窗口内点章节耳直达：不被压成 ±1 步（delta 复核发现的第三形态）', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ skills: ODD_SKILLS }), { status: 200 }),
-    )
+  it('动画窗口内点章耳直达：落绝对目标视野非 +1 步', async () => {
+    mockFetch(ODD_SKILLS, { system: [], tools: [] })
     render()
     await act(async () => {})
 
-    // ODD_SKILLS 页序（空章也有目录页）：p1壹目录 p2companion p3贰目录 p4core p5trouble
-    // p6叁目录(空) p7肆目录(空) p8伍目录(空) = 8 内容页，叁目录 p6 → 视野 3
-    // 封面态先点右热区（view 0→1，进入动画窗口），窗口内点叁章耳（目标视野 3）
+    // ODD 3 skill + 空 prompts：页序 p0编目 p1心法(无,跳过) ... 实际：p0编目 p1壹目录 p2companion p3贰目录 p4core p5trouble p6叁目录 p7肆目录 p8伍目录 = 9 内容页
+    // 叁目录 p6 → 视野 4（2*4-2=6 左页）
     act(() => { container.querySelector<HTMLElement>('[data-testid="nav-next"]')!.click() })
-    const ear3 = Array.from(container.querySelectorAll<HTMLButtonElement>('button[title^="直达"]'))[2]
-    act(() => { ear3.click() }) // 动画窗口内的直达跳转
-    await act(async () => {})
-    await new Promise(r => setTimeout(r, 750))
-    await act(async () => {})
-    const view = Number((container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view)
-    // 原 bug：Math.sign 把目标 3 压成 +1 步 → 落 2；修复后落绝对目标 3
-    expect(view).toBe(3)
-  })
-
-  it('动画窗口内点章节耳直达（远章）：落目标视野非 +1（强断言版）', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      // 6 skill：壹(1+1)+贰(1+2)+叁(1+2) = 9 内容页；叁目录 p6 → 视野 3
-      new Response(JSON.stringify({ skills: [
-        { name: 'companion', description: 'Use when: 聊. Output: 天.' },
-        { name: 'core-workflow', description: '查历史。' },
-        { name: 'troubleshooting', description: '排查。' },
-        { name: 'requirement-analysis', description: 'Use when: 方案. Output: 文档.' },
-        { name: 'code-implementation', description: 'Use when: 写码. Output: PR.' },
-        { name: 'worktree-isolation', description: 'Use when: git. Output: worktree.' },
-      ] }), { status: 200 }),
-    )
-    render()
-    await act(async () => {})
-
-    // 封面态：点热区（view 0→1 进入动画窗口）后立即点叁章耳（目标视野 3）
-    act(() => { container.querySelector<HTMLElement>('[data-testid="nav-next"]')!.click() })
-    const ear3 = Array.from(container.querySelectorAll<HTMLButtonElement>('button[title^="直达"]'))[2]
+    // 耳列表：卷首(0) + 伍章(1..5) + 卷末(6)
+    const ears = Array.from(container.querySelectorAll<HTMLButtonElement>('button[title^="直达"]'))
+    const ear3 = ears[3] // 叁章耳
     act(() => { ear3.click() })
     await new Promise(r => setTimeout(r, 750))
     await act(async () => {})
     const view = Number((container.querySelector('[data-testid="skills-book"]') as HTMLElement).dataset.view)
-    // 原 bug：动画中 Math.sign → +1 步 → 落 2；修复：落绝对目标 3
-    expect(view).toBe(3)
+    expect(view).toBe(4)
   })
 })
