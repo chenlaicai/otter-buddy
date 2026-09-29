@@ -60,7 +60,6 @@ describe("buildApp 组装根启动", () => {
       rootDir: docsRoot,
       staticRoot: false,
       syncAuth: false,
-      enableFeishu: false,
       startScheduler: false,
     });
   }, 180_000);

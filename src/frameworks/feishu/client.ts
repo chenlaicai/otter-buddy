@@ -2,7 +2,8 @@ import type { Logger } from "@usecases/ports/logger";
 import type { FeishuGateway } from "@usecases/im/feishu-gateway";
 import type { FeishuAccessTokenManager } from "./access-token-manager";
 import type { FeishuConfig } from "./types";
-import { maskAppId } from "./long-connection-client";
+
+import { botKey as deriveBotKey } from "./bot-key";
 
 export type { FeishuConfig };
 
@@ -20,7 +21,8 @@ export class FeishuClient implements FeishuGateway {
     private readonly logger: Logger,
     private readonly tokenManager: FeishuAccessTokenManager,
   ) {
-    this.botKey = `feishu-bot:${maskAppId(this.config.appId)}`;
+    // F20260928fsqr（检视建议③）：入站路由锚改单源派生（与 provision/出站同走 bot-key.ts）
+    this.botKey = deriveBotKey(this.config.appId);
   }
 
   /** 发送文本消息到群 */

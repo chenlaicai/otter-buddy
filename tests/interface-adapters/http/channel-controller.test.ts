@@ -69,9 +69,9 @@ describe("ChannelController.getStatus", () => {
     });
   });
 
-  it("飞书通道有 registry 条目时出现", async () => {
+  it("飞书通道有 registry 条目时出现（F20260929fsqr：静态键退役，扫码线 feishu-bot: 前缀投影）", async () => {
     const registry = makeRegistry([
-      { channelId: "feishu", kind: "feishu", state: { kind: "running", since: 2000 } },
+      { channelId: "feishu-bot:cli_a****z9k2", kind: "feishu-bot:cli_a****z9k2", state: { kind: "running", since: 2000 } },
     ]);
     const accountStore = makeAccountStore([]);
     const controller = new ChannelController(registry, accountStore);
@@ -79,7 +79,7 @@ describe("ChannelController.getStatus", () => {
     await controller.getStatus(ctx);
     const body = getBody();
     expect(body.channels).toHaveLength(1);
-    expect(body.channels[0]).toMatchObject({ channelId: "feishu", kind: "feishu" });
+    expect(body.channels[0]).toMatchObject({ channelId: "feishu-bot:cli_a****z9k2", kind: "feishu-bot:cli_a****z9k2" });
   });
 
   it("飞书通道无 registry 条目时不出现", async () => {
@@ -92,10 +92,10 @@ describe("ChannelController.getStatus", () => {
     expect(body.channels).toHaveLength(0);
   });
 
-  it("混合场景：微信 + 飞书同时存在", async () => {
+  it("混合场景：微信 + 飞书扫码线同时存在（静态键退役后仅 feishu-bot: 前缀）", async () => {
     const registry = makeRegistry([
       { channelId: "weixin-acc1", kind: "weixin", state: { kind: "token_stale", since: 3000, errmsg: "session timeout" } },
-      { channelId: "feishu", kind: "feishu", state: { kind: "error_backoff", since: 4000, errorMsg: "WS 断线" } },
+      { channelId: "feishu-bot:cli_a****z9k2", kind: "feishu-bot:cli_a****z9k2", state: { kind: "error_backoff", since: 4000, errorMsg: "WS 断线" } },
     ]);
     const accountStore = makeAccountStore([{ id: "acc1" }]);
     const controller = new ChannelController(registry, accountStore);

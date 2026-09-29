@@ -16,16 +16,28 @@ import { projectForChannel } from "@entities/conversation/message-body-projectio
  * - 降级: replyMarkdown 失败时由 client.ts 自动降级到 replyText 带 [纯文本降级] 前缀
  */
 export class FeishuMessageChannel implements OutboundEventChannel {
-  constructor(
-    private readonly manageConnection: ManageConnection,
-    private readonly feishuGateway: FeishuGateway,
-    private readonly logger: Logger,
+  constructor(private readonly o: {
+    manageConnection: ManageConnection;
+    feishuGateway: FeishuGateway;
+    logger: Logger;
     /** Web 端 base URL,用于飞书侧 html-card 占位符拼接跳转链接 */
-    private readonly webBaseUrl?: string,
+    webBaseUrl?: string;
     /** F20260828fsyc：可选注入。Web 消息出站标签显示全局名而非硬编码「用户」;
      *  未注入时保持原行为（回退「用户」） */
-    private readonly settingsRepo?: Pick<SettingsRepository, "get">,
-  ) {}
+    settingsRepo?: Pick<SettingsRepository, "get">;
+    /** F20260928fsqr：可选注入。键控出站（#591 同构）——多 app 并行时每条 WS 注册
+     *  一个通道，本通道只投 externalId === botKey 的连接；缺省 undefined = 全飞书连接
+     *  （存量单 app 零参兼容，行为不变） */
+    botKey?: string;
+  }) {}
+
+  /** F20260928fsqr：归属判定——本通道只投递 externalId === 本通道 botKey 的连接。
+   *  botKey 未注入（存量单 app）时退化为仅类型判定（原行为）。 */
+  private ownsConnection(connection: { externalType: string; externalId: string }): boolean {
+    if (connection.externalType !== "feishu") return false;
+    if (this.o.botKey === undefined) return true;
+    return connection.externalId === this.o.botKey;
+  }
 
 
   /**
@@ -43,7 +55,7 @@ export class FeishuMessageChannel implements OutboundEventChannel {
   onEvent(conversationId: string, event: SSEEvent): void {
     if (event.event === "invoke.start") {
       this.maybeSendFeishuThinkingMessage(conversationId, event).catch((err) => {
-        this.logger.error("Failed to send feishu thinking message", err instanceof Error ? err : undefined, {
+        this.o.logger.error("Failed to send feishu thinking message", err instanceof Error ? err : undefined, {
           conversationId,
         });
       });
@@ -51,37 +63,37 @@ export class FeishuMessageChannel implements OutboundEventChannel {
     }
     if (event.event === "entry.speak") {
       this.deliverSpeakToFeishu(conversationId, event).catch((err) => {
-        this.logger.error("Failed to deliver speak entry to Feishu", err instanceof Error ? err : undefined, { conversationId });
+        this.o.logger.error("Failed to deliver speak entry to Feishu", err instanceof Error ? err : undefined, { conversationId });
       });
       return;
     }
     if (event.event === "entry.user") {
       this.deliverUserEntryToFeishu(conversationId, event).catch((err) => {
-        this.logger.error("Failed to deliver user entry to Feishu", err instanceof Error ? err : undefined, { conversationId });
+        this.o.logger.error("Failed to deliver user entry to Feishu", err instanceof Error ? err : undefined, { conversationId });
       });
       return;
     }
     // F20260920imax：invoke 失败兑底——与微信同语义，不再静默
     if (event.event === "entry.failed") {
       this.deliverFailureNotice(conversationId).catch((err) => {
-        this.logger.error("Failed to deliver failure notice to Feishu", err instanceof Error ? err : undefined, { conversationId });
+        this.o.logger.error("Failed to deliver failure notice to Feishu", err instanceof Error ? err : undefined, { conversationId });
       });
     }
   }
 
   /** F20260920imax：invoke 终态失败 → 飞书侧提示（思考中后无下文的静默兑底） */
   private async deliverFailureNotice(conversationId: string): Promise<void> {
-    const session = await this.manageConnection.getSessionByConversation(conversationId);
+    const session = await this.o.manageConnection.getSessionByConversation(conversationId);
     if (!session) return;
-    const connection = await this.manageConnection.getConnection(session.connectionId);
+    const connection = await this.o.manageConnection.getConnection(session.connectionId);
     if (!connection) return;
-    if (connection.externalType !== "feishu") return;
+    if (!this.ownsConnection(connection)) return;
 
     try {
-      const failTarget = this.manageConnection.resolveReplyTarget(connection);
-      if (failTarget) await this.feishuGateway.replyText(failTarget, "⚠️ 助理这会儿没能回复（服务端处理失败）。稍后再发一条试试，若持续失败请到 Web 端查看详情 🦦");
+      const failTarget = this.o.manageConnection.resolveReplyTarget(connection);
+      if (failTarget) await this.o.feishuGateway.replyText(failTarget, "⚠️ 助理这会儿没能回复（服务端处理失败）。稍后再发一条试试，若持续失败请到 Web 端查看详情 🦦");
     } catch (err) {
-      this.logger.error("Feishu failure notice send failed", err instanceof Error ? err : undefined, { conversationId });
+      this.o.logger.error("Feishu failure notice send failed", err instanceof Error ? err : undefined, { conversationId });
     }
   }
 
@@ -90,24 +102,24 @@ export class FeishuMessageChannel implements OutboundEventChannel {
     const data = event.data as { body?: string; otterName?: string };
     if (!data.body) return;
 
-    const session = await this.manageConnection.getSessionByConversation(conversationId);
+    const session = await this.o.manageConnection.getSessionByConversation(conversationId);
     if (!session) return;
-    const connection = await this.manageConnection.getConnection(session.connectionId);
+    const connection = await this.o.manageConnection.getConnection(session.connectionId);
     if (!connection) return;
-    if (connection.externalType !== "feishu") return;
+    if (!this.ownsConnection(connection)) return;
     // F20260920imax 增量五：bot connection 的 externalId 是 bot 键非 chatId——
     // 经 resolveReplyTarget 从 metadata.lastChatId 定向（普通连接直用 externalId）
-    const replyTarget = this.manageConnection.resolveReplyTarget(connection);
+    const replyTarget = this.o.manageConnection.resolveReplyTarget(connection);
     if (!replyTarget) return;
 
     const markdown = projectForChannel(data.body, {
-      webBaseUrl: this.webBaseUrl,
+      webBaseUrl: this.o.webBaseUrl,
       conversationId,
     });
     try {
-      await this.feishuGateway.replyMarkdown(replyTarget, data.otterName ?? "海獭", markdown);
+      await this.o.feishuGateway.replyMarkdown(replyTarget, data.otterName ?? "海獭", markdown);
     } catch (err) {
-      this.logger.error("Failed to broadcast speak to Feishu (degradation also failed)", err instanceof Error ? err : undefined, { conversationId });
+      this.o.logger.error("Failed to broadcast speak to Feishu (degradation also failed)", err instanceof Error ? err : undefined, { conversationId });
     }
   }
 
@@ -119,17 +131,17 @@ export class FeishuMessageChannel implements OutboundEventChannel {
     if (!data.body) return;
     if (data.source !== "web") return;
 
-    const session = await this.manageConnection.getSessionByConversation(conversationId);
+    const session = await this.o.manageConnection.getSessionByConversation(conversationId);
     if (!session) return;
-    const connection = await this.manageConnection.getConnection(session.connectionId);
+    const connection = await this.o.manageConnection.getConnection(session.connectionId);
     if (!connection) return;
-    if (connection.externalType !== "feishu") return;
+    if (!this.ownsConnection(connection)) return;
 
     // Web 消息无渠道快照：显示全局名（本机即搭档本人），降级「用户」（与旧 resolveSenderLabel 语义一致）
     let senderLabel = "用户";
     try {
-      const globalName = this.settingsRepo
-        ? (await this.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim()
+      const globalName = this.o.settingsRepo
+        ? (await this.o.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim()
         : undefined;
       if (globalName) senderLabel = globalName;
     } catch {
@@ -137,23 +149,23 @@ export class FeishuMessageChannel implements OutboundEventChannel {
     }
 
     const markdown = projectForChannel(data.body, {
-      webBaseUrl: this.webBaseUrl,
+      webBaseUrl: this.o.webBaseUrl,
       conversationId,
     });
     try {
       await this.deliverMarkdownToTarget(connection, senderLabel, markdown, conversationId, "User entry synced to Feishu (web→feishu)");
     } catch (err) {
-      this.logger.error("Failed to sync user entry to Feishu (degradation also failed)", err instanceof Error ? err : undefined, { conversationId });
+      this.o.logger.error("Failed to sync user entry to Feishu (degradation also failed)", err instanceof Error ? err : undefined, { conversationId });
     }
   }
 
   /** F20260920imax 增量五：出站定向投递（bot connection 从 metadata.lastChatId 解析，
    *  空目标静默跳过）——拆出降 deliverUserEntryToFeishu 复杂度 */
   private async deliverMarkdownToTarget(connection: { externalId: string; externalType: string }, senderLabel: string, markdown: string, conversationId: string, successLogMsg: string): Promise<void> {
-    const target = this.manageConnection.resolveReplyTarget(connection as never);
+    const target = this.o.manageConnection.resolveReplyTarget(connection as never);
     if (!target) return;
-    await this.feishuGateway.replyMarkdown(target, senderLabel, markdown);
-    this.logger.info(successLogMsg, { conversationId });
+    await this.o.feishuGateway.replyMarkdown(target, senderLabel, markdown);
+    this.o.logger.info(successLogMsg, { conversationId });
   }
 
   private async maybeSendFeishuThinkingMessage(conversationId: string, event: SSEEvent): Promise<void> {
@@ -169,7 +181,7 @@ export class FeishuMessageChannel implements OutboundEventChannel {
       const elapsedMs = Date.now() - new Date(gateTs).getTime();
       // 非法 createdAt → NaN:显式当作"无 gate 信息",继续发送(与 createdAt 缺失同语义)
       if (!Number.isNaN(elapsedMs) && elapsedMs > THINKING_MESSAGE_MAX_DELAY_MS) {
-        this.logger.info("Skip feishu thinking message: too slow, final message likely already sent", {
+        this.o.logger.info("Skip feishu thinking message: too slow, final message likely already sent", {
           conversationId,
           otterName,
           elapsedMs,
@@ -178,15 +190,16 @@ export class FeishuMessageChannel implements OutboundEventChannel {
       }
     }
 
-    const session = await this.manageConnection.getSessionByConversation(conversationId);
+    const session = await this.o.manageConnection.getSessionByConversation(conversationId);
     if (!session) return;
-    const connection = await this.manageConnection.getConnection(session.connectionId);
+    const connection = await this.o.manageConnection.getConnection(session.connectionId);
     if (!connection) return;
 
     // F20260831xtrt 检视R1：onEvent（thinking）路径与 onMessage 对称路由——
     // 遗留微信连接曾因缺省建连被误投飞书（invalid receive_id 噪音），类型不对直接退出
-    if (connection.externalType !== "feishu") {
-      this.logger.debug("Skipping thinking message to non-feishu connection", {
+    // F20260928fsqr：加 botKey 归属（多 app 时 thinking 也只进本通道的线）
+    if (!this.ownsConnection(connection)) {
+      this.o.logger.debug("Skipping thinking message to non-feishu/foreign-bot connection", {
         conversationId,
         externalType: connection.externalType,
       });
@@ -194,11 +207,11 @@ export class FeishuMessageChannel implements OutboundEventChannel {
     }
 
     try {
-      const thinkTarget = this.manageConnection.resolveReplyTarget(connection);
-      if (thinkTarget) await this.feishuGateway.replyText(thinkTarget, `[${otterName}] 正在思考...`);
-      this.logger.info("Feishu thinking message sent", { conversationId, otterName });
+      const thinkTarget = this.o.manageConnection.resolveReplyTarget(connection);
+      if (thinkTarget) await this.o.feishuGateway.replyText(thinkTarget, `[${otterName}] 正在思考...`);
+      this.o.logger.info("Feishu thinking message sent", { conversationId, otterName });
     } catch (err) {
-      this.logger.error("Failed to send feishu thinking message", err instanceof Error ? err : undefined, {
+      this.o.logger.error("Failed to send feishu thinking message", err instanceof Error ? err : undefined, {
         conversationId,
       });
     }

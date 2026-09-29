@@ -496,6 +496,50 @@ export function startWeixinLogin(): Promise<WeixinLoginSessionDTO> {
   return request('/weixin/login', { method: 'POST' })
 }
 
+// ── F20260928fsqr：飞书扫码接入 ──
+
+/** 飞书登录会话（SDK registerApp 无 scanned 态——waiting_scan 直达终态） */
+export interface FeishuLoginSessionDTO {
+  id: string
+  status: 'pending' | 'waiting_scan' | 'success' | 'expired' | 'error' | 'cancelled'
+  qrcodePng?: string
+  qrcodeUrl?: string
+  appId?: string
+  ownerOpenId?: string
+  error?: string
+  createdAt: string
+}
+
+export interface FeishuAppDTO {
+  /** 掩码 appId（cli_a****z9k2；完整凭证不出网） */
+  appId: string
+  ownerOpenId?: string
+  name?: string
+  addedAt: string
+  hasSecret: boolean
+  assistantLine?: { conversationId: string }
+}
+
+export function startFeishuLogin(name?: string): Promise<FeishuLoginSessionDTO> {
+  return request('/feishu/login', { method: 'POST', ...(name && { body: JSON.stringify({ name }) }) })
+}
+
+export function getFeishuLogin(id: string): Promise<FeishuLoginSessionDTO> {
+  return request(`/feishu/login/${id}`)
+}
+
+export function cancelFeishuLogin(id: string): Promise<{ ok: boolean }> {
+  return request(`/feishu/login/${id}/cancel`, { method: 'POST' })
+}
+
+export function listFeishuApps(): Promise<FeishuAppDTO[]> {
+  return request('/feishu/apps')
+}
+
+export function deleteFeishuApp(appId: string): Promise<{ ok: boolean }> {
+  return request(`/feishu/apps/${appId}`, { method: 'DELETE' })
+}
+
 export function getWeixinLogin(id: string): Promise<WeixinLoginSessionDTO> {
   return request(`/weixin/login/${id}`)
 }
@@ -665,7 +709,7 @@ export function getRhiScore(signal?: AbortSignal): Promise<RhiScoreDTO> {
 
 export interface ChannelStatusDTO {
   channelId: string;
-  kind: "weixin" | "feishu";
+  kind: "weixin" | "feishu" | (string & {});
   state: {
     kind: string;
     since: number;
