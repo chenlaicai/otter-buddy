@@ -122,5 +122,12 @@ describe('triage_signal batch_bind 工具层（真 sqlite）', () => {
     const rp = await tool.execute('c3', { action: 'in_progress', signalId: s.id });
     expect(rp.isError).toBeUndefined();
     expect(rp.content[0].text).toContain('in_progress');
+    // dismiss：note 必填校验 + 终态化（第三动作 tool 级回归）
+    const rdErr = await tool.execute('c4', { action: 'dismiss', signalId: s.id });
+    expect(rdErr.isError).toBe(true);
+    expect(rdErr.content[0].text).toContain('note');
+    const rd = await tool.execute('c5', { action: 'dismiss', signalId: s.id, note: '误报' });
+    expect(rd.isError).toBeUndefined();
+    expect(repo.findById(s.id)!.status).toBe('dismissed');
   });
 });

@@ -4,6 +4,12 @@ title: triage_signal 批量归口（batch_bind）
 summary: 给 triage_signal 增加 batch_bind 批量归口 action，根治「daily-review 逐条留痕被循环守卫阻断」的流程冲突（#1052）
 change_type: feature
 capability_test: "n/a: 工具层/仓库层纯逻辑变更，真 sqlite 单测覆盖（14 用例），无 LLM 行为面"
+intent:
+  problem: "daily-review 硬规则要求逐条 triage_signal 留痕，但 RHI 未接单常态 100+ 条（9/20 实测 150 条），第 6 次起触发「连续同构调用」循环守卫全部未落库，被迫 sqlite 直写绕过校验层——流程要求与守卫在信号量 >10 时必然冲突，错在工具无批量模式（#1052）"
+  expected_effect: "同类型 >10 条同归口时一次 batch_bind 调用完成批量落库，matched=bound=实际落库条数；daily-review 处置段不再出现守卫拦截；异质处置（不同类型/不同判断）仍走单条"
+  verify_by:
+    type: static_only
+    reason: "工具层参数校验+SQL 批量写库为确定性逻辑，真 sqlite 单测 14 用例（repo 7+工具 7）固化四字段语义/边界/截断续批；prompt 指引为条件性路由（同类型 >10 才批量），行为面由 9/30 daily-review 运行记录回查（issue #1052 验证断言，到期 2026-10-20）"
 created_in_conversation: d7377cfd-8497-4338-9fb5-366967ffe87e
 tags: [rhi, triage, batch, tool, daily-review]
 modules: [src/usecases/health/, src/interface-adapters/agent-runtime/tools/, prompts/scheduled/]
@@ -19,7 +25,6 @@ created_at: 2026-09-29
 daily-review 流程硬规则要求「逐条三选一，选完立即调 triage_signal 留痕」。9/20 实测：未接单信号 150 条（critical 44 + warning 106），逐条调用从第 6 次起触发「Consecutive identical call N times」循环守卫（返回 Operation aborted），15 连发全部未落库；拆小块重试守卫计数器跨轮累计仍被拦。最终被迫 sqlite3 直写绕过工具校验层——语义等价但绕过了校验。
 
 **根因**：流程要求（逐条留痕）与运行时守卫（拦连续同构调用）在信号量 >10 时必然冲突，而 RHI 未接单常态 100+ 条，冲突每天必现。守卫拦同构连发是正确的（防退化），错的是 triage_signal 没有批量模式，把 150 次合法调用逼成了同构连发。
-
 ## 方案设计
 
 照 `manage_healing_events.batch_resolve` 的成熟模式（#454 已验证设计）给 triage_signal 增加批量路径：
@@ -55,6 +60,7 @@ daily-review 流程硬规则要求「逐条三选一，选完立即调 triage_si
 
 - **不做批量 dismiss**：dismiss 是终态化（每条 note 必填且语义不同——「不处置必须是判断结论」），批量 dismiss 会稀释 note 的判断语义，与 #1052 的核心诉求（合法处置通道）不符。issue 也没要求。
 - **不改守卫放行 triage_signal**：守卫拦同构连发是防 LLM 退化循环的正确机制（#475 家族），为其开口子是方向错误——错在流程要求与工具能力错配，不在守卫。
+- **无日期过滤**：healing batch_resolve 有 filterCreatedBefore/After，本工具不做——issue #1052 场景是「未接单存量清点」无时间窗需求，first_seen ASC 先老后新已覆盖时序诉求；若后续需要按时间窗批量处置再补（YAGNI）。
 - **HTTP 端点不加批量**：面板处置队列是一键单条操作场景，无批量归口需求（issue 只提工具层）。
 
 ## 验证
@@ -72,7 +78,7 @@ daily-review 流程硬规则要求「逐条三选一，选完立即调 triage_si
 
 ### Golden Gate
 
-Golden Gate: n/a（verify_by=static_only——工具层参数校验与 SQL 批量写库，无 prompt/skill/协议层软代码变更触发的行为场景；工具 description 增补为参数契约说明，不改行为触发语义。capability_test 已声明 n/a 并附理由）
+Golden Gate: n/a（verify_by=static_only。本 PR 确触及 prompts/scheduled/ 软代码域，但改动仅限：①处置段第 2 步补一句条件性批量指引（同类型 >10 条才走 batch_bind，异质处置路径不变）；②budget_bytes 上限调整。新增的是工具调用路由指引而非 prompt 行为触发语义变更——批量工具行为由 14 用例单测固化，prompt 行为面由 9/30 daily-review 实际运行回查（见验证断言）。无 golden_replay 场景可跑。）
 
 ### 验证断言（issue #1052 回查）
 
@@ -82,3 +88,7 @@ Golden Gate: n/a（verify_by=static_only——工具层参数校验与 SQL 批�
 
 - PR 合入后：观察 9/30 daily-review 是否自然使用 batch_bind（无需推送——工具 description 已含指引）
 - issue #1052 随 PR closes 自动关闭
+
+## 守卫根治范围声明（检视处置补记）
+
+同质路径（同类型同归口）已根治：batch_bind 一次调用替代 N 次连发。**异质路径有结构残余**：守卫签名对 triage_signal 只取工具名（tool-call-circuit-breaker.ts:167），连续 >5 次纯 triage_signal 调用（含 dismiss 混合）第 6 次起仍被拦——异质处置（不同类型/不同结论逐条调用）超过 5 条时靠 prompt 指引穿插非 triage 工具调用打散节奏（见 daily-health-check.md 处置段第 2 步）。这是守卫机制（拦同构连发防退化）与异质逐条留痕的固有张力，prompt 指引缓解而非消除；若未来异质大存量成为常态，再议守卫签名细化（按 action 参数区分）——当前不提前复杂化。
