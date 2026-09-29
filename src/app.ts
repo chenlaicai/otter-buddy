@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- F20260928fsqr：飞书扫码接入装配净增 6 行（feishuScan 句柄组 + resolver 外置）；装配文件由注入项决定（platforms.ts 同款豁免） */
 /**
  * buildApp：可测试的系统装配入口（F20260806tstr Part 1，基于 F20260805codx bootstrap 模块）。
  *
@@ -40,7 +39,7 @@ import { SqliteStatsQuery } from "@frameworks/db/stats/sqlite-stats-query";
 import { buildOtterToolClient } from "./bootstrap/clients";
 import {
   createAgentGateway, createDispatchChainEngine, initAgentAndScheduler,
-  createFeishuBundle, initPlatforms, setupFeishu, type FeishuBundle,
+  initPlatforms,
   hotStartWeixinAccount, ensureWeixinConfig,
 } from "./bootstrap/platforms";
 import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
@@ -327,7 +326,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       "Remove the `feishu` section from config.yaml and re-onboard via IM page QR scan (existing app: select it on the confirm page).",
     );
   }
-  const feishu: FeishuBundle | undefined = undefined;
 
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics: schedulerMetrics, agentMetrics, dispatchChainEngine, db, appConfig: config, modelPool, otterConfigProvider });
   // F20260920uhuc：统一交接入口回填（otter tool client 延迟绑定）
@@ -595,8 +593,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   // 飞书长连接启动（原 startServer 内的副作用，装配语义上属于"启动平台集成"）
   // #460：捕获 stopFeishu 句柄接入 dispose 链（防 WSClient 重连阻止退出）
-  // F20260929fsqr：静态线退役——启动句柄仅由扫码线持有（feishu-scan.ts），此处不再调用 setupFeishu
-  let feishuStop: ReturnType<typeof setupFeishu> | undefined;
+  // F20260929fsqr：静态线退役——启动句柄仅由扫码线持有（feishu-scan.ts），dispose 链不再有 feishuStop
 
   /** 等待所有 ensure 完成后再启动 scheduler，确保新创建的 scheduled task 被遍历到。
    *  与旧 main() 的差异：buildApp 会 await 这两个 ensure 再返回（确定性更高，无 LLM 调用、耗时极小）。 */
@@ -638,7 +635,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       if (disposed) return;
       disposed = true;
       // #460：停飞书长连接 WSClient（重连机制会阻止退出，根因之四）
-      feishuStop?.stopFeishu();
+      feishuScan.disposeAll(); // F20260929fsqr：扫码线持有全部飞书 WS 句柄，dispose 时统一停（原 feishuStop 随静态线退役）
       // F20260829wxch（#213 检视发现2）：停微信长轮询通道——否则 SIGINT/SIGTERM 时
       // fetch 挂到超时、notifyStop 不调用、服务端不知客户端已断
       weixinPollers?.forEach((p) => p.stop());
