@@ -50,18 +50,42 @@ async function listInvokeEvents(ctx: CapabilityContext, invokeId: string): Promi
   return body.events;
 }
 
-/** 獭是否 speak 过（等待前交代） */
-/** r1 发现 5 修复：时序断言——首个 otter speak 的 sequenceNum 须早于 wait 所在 invoke
- *  的首条 entry（「先说一声再等」的意图锚第一不变量，sequenceNum 同流单调可比较）。
- *  fallback：拿不到 invoke 锚时退化为存在性（不降级通过，只在锚缺失时保守放行
- *  并在 detail 标注 timing=unanchored）。 */
-function spokeBeforeWait(entries: EntryDto[], waitInvokeIds: Set<string>): { ok: boolean; detail: string } {
+/** 獭是否 speak 过（等待前交代）
+ *  #1198 根因修复：原断言拿「首个 otter speak entry 的 sequenceNum」与「wait 所在 invoke
+ *  的首条 entry（即 invoke_start）的 sequenceNum」比较——但 speak 是 invoke 内的工具调用，
+ *  其 entry sequenceNum 恒大于本回合 invoke_start（invoke_start 先落库）。当 speak 与 wait
+ *  同属一个回合时，speak@N 恒 > invoke_start@2，anchored 断言结构性恒 false，从 #1126
+ *  建立即红（2/3 timing=anchored speak@3 < wait-invoke@2 即此形态）。
+ *  正确锚：wait 所在 invoke 的事件流里，speak 工具调用（assistant_toolcall name=speak）
+ *  必须先于 wait 工具调用（tool_execution_start 对两者同发 assistant_toolcall，顺序可判）。
+ *  跨 invoke 形态（speak 在更早回合、wait 在后续回合）保留 entries 比较——那种形态下
+ *  speak entry 属于前一 invoke，seq 恒小于 wait invoke_start，可比较且语义正确。 */
+function spokeBeforeWaitInInvoke(events: InvokeEventDto[]): { ok: boolean; detail: string } {
+  const callOrder: string[] = [];
+  for (const ev of events) {
+    if (ev.eventType !== "assistant_toolcall") continue;
+    // message_end 形态（payload.content blocks）
+    for (const item of ev.payload?.content ?? []) {
+      if (item.type === "toolCall" && item.name) callOrder.push(item.name);
+    }
+    // tool_execution_start 形态（payload.name 直挂）
+    const direct = (ev.payload as { name?: string } | undefined)?.name;
+    if (direct) callOrder.push(direct);
+  }
+  const speakIdx = callOrder.indexOf("speak");
+  const waitIdx = callOrder.indexOf("wait");
+  if (waitIdx === -1) return { ok: false, detail: "no-wait-call" };
+  if (speakIdx === -1) return { ok: false, detail: "no-speak-call-in-invoke" };
+  return { ok: speakIdx < waitIdx, detail: `timing=event-stream speak=call#${speakIdx + 1} wait=call#${waitIdx + 1}` };
+}
+
+/** 跨 invoke 分支：speak 在更早回合（独立 invoke 或已落库 entry）→ entries seq 比较仍成立 */
+function spokeBeforeWaitCrossInvoke(entries: EntryDto[], waitInvokeIds: Set<string>): boolean {
   const firstOtterSpeak = entries.find((e) => e.entryType === "speak" && e.senderType === "otter" && (e.body ?? "").trim().length > 0);
-  if (!firstOtterSpeak) return { ok: false, detail: "no-otter-speak" };
+  if (!firstOtterSpeak) return false;
   const waitAnchor = entries.find((e) => e.invokeId && waitInvokeIds.has(e.invokeId));
-  if (!waitAnchor) return { ok: true, detail: "timing=unanchored(existence-only)" };
-  const spokeFirst = firstOtterSpeak.sequenceNum < waitAnchor.sequenceNum;
-  return { ok: spokeFirst, detail: `timing=anchored speak@${firstOtterSpeak.sequenceNum} < wait-invoke@${waitAnchor.sequenceNum}` };
+  if (!waitAnchor) return true; // 锚缺失保守放行（existence-only）
+  return firstOtterSpeak.sequenceNum < waitAnchor.sequenceNum;
 }
 
 /** invoke 事件流里的工具调用名（按发生顺序） */
@@ -125,10 +149,27 @@ describe("sleep 工具化：先 speak 再 wait（真系统 + 真 LLM）", () => 
       }
 
       const calledWait = toolNames.includes("wait");
-      const timing = spokeBeforeWait(finalEntries, waitInvokeIds);
+      /** #1198：时序锚改事件流（wait 回合内 speak 调用先于 wait 调用）；
+       *  speak 落在更早回合的形态走跨 invoke 分支（entries seq 比较对跨回合成立）。 */
+      let timingOk = false;
+      let timingDetail = "not-converged";
+      if (converged && waitInvokeIds.size > 0) {
+        const waitInvokeId = [...waitInvokeIds][0]!;
+        const waitEvents = await listInvokeEvents(ctx, waitInvokeId);
+        const inInvoke = spokeBeforeWaitInInvoke(waitEvents);
+        if (inInvoke.ok) {
+          timingOk = true; timingDetail = inInvoke.detail;
+        } else if (inInvoke.detail === "no-speak-call-in-invoke") {
+          const crossOk = spokeBeforeWaitCrossInvoke(finalEntries, waitInvokeIds);
+          timingOk = crossOk;
+          timingDetail = `timing=cross-invoke speak-in-earlier-turn=${crossOk}`;
+        } else {
+          timingDetail = inInvoke.detail;
+        }
+      }
       return {
-        ok: converged && calledWait && timing.ok,
-        detail: `converged=${converged} wait=${calledWait} timing=${timing.detail} tools=${JSON.stringify(toolNames)}`,
+        ok: converged && calledWait && timingOk,
+        detail: `converged=${converged} wait=${calledWait} ${timingDetail} tools=${JSON.stringify(toolNames)}`,
       };
     }, { budgetMs: 810_000, sampleWorstMs: 270_000 }); // #1187 预算护栏（240s deadline + 轮询余量；#1195 修正：原 480/600 违反 n×worst≤budget 契约致慢端点 SKIP 假红）
   }, 930_000);
