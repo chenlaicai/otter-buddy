@@ -79,8 +79,8 @@ export interface OtterToolClient {
         invokeEndEntry: { id: string; entryType: string };
         invoke: { id: string; status: string; endedAt: string | null; toolCallCount: number; tokenUsageInput: number | null; tokenUsageOutput: number | null };
       }>;
-      /** 查询条目列表（F20260913ctlv 批3：返回 createdAt/senderId——自重启用户介入检测等只读消费） */
-      getEntries(conversationId: string, opts?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; entryType: string; body: string | null; senderId: string | null; senderType: string | null; createdAt: string }>>;
+      /** 查询条目列表（F20260913ctlv 批3：返回 createdAt/senderId——自重启用户介入检测等只读消费；F20260929mpav 补 sequenceNum：实现层 Entry 全量含此字段，merge_pr 原话校验需它做命中锚点） */
+      getEntries(conversationId: string, opts?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; entryType: string; body: string | null; senderId: string | null; senderType: string | null; sequenceNum: number; createdAt: string }>>;
       /** F20260913ctlv 批3：全文搜索（entries_fts，时间线唯一真相源） */
       searchEntries(conversationId: string, query: string, limit?: number): Promise<Array<{ id: string; entryType: string; senderId: string | null; senderType: string | null; body: string | null; sequenceNum: number; createdAt: string }>>;
       /** F20260913ctlv 批4a：按 ID 取条目（get_message 工具——卡片全文回看源） */

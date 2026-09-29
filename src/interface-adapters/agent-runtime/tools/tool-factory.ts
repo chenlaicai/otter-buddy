@@ -535,9 +535,85 @@ async function checkPrMergeable(prNumber: number): Promise<{ state: string } | {
   return { state: prState };
 }
 
-/** merge_pr 子步骤：审计双通道落痕（linked_resources 主 + warn 日志跨对话兜底）。 */
-async function writeMergeAudit(ctx: ToolContext, logger: Logger | undefined, prNumber: number, strategy: string, partnerApproval: string): Promise<void> {
-  const auditContent = `PR #${prNumber} 合入授权：搭档原话「${partnerApproval}」（策略 ${strategy}，调用獭 ${ctx.otterId}）`;
+/** F20260929mpav：merge_pr 原话校验——规范化文本（去首尾包裹引号 + 空白折叠）。
+ *  为什么去包裹引号：LLM 引用原话时习惯加引号包裹（“合吧”/"合吧"），
+ *  搭档消息本身不含这些包裹——去掉后才能逐字命中；仅去包裹层，不动内部字符。
+ *  为什么折叠空白：换行/多空格在引用时常被折成单空格，语义无损。 */
+function normalizeApprovalText(text: string): string {
+  let t = text.trim();
+  // 去包裹引号（中英引号反复剥，处理双层包裹），仅限首尾
+  const WRAPPING_QUOTES = /^["“”‘’]+|['’‘“”"]+$/g;
+  let prev = '';
+  while (prev !== t) {
+    prev = t;
+    t = t.replace(WRAPPING_QUOTES, '').trim();
+  }
+  // 空白折叠：连续空白（含换行）→ 单空格
+  return t.replace(/\s+/g, ' ');
+}
+
+/** F20260929mpav：merge_pr 原话校验闸——partnerApproval 必须逐字命中搭档（user）历史消息。
+ *  事故锚：2026-09-29 PR #1201 合入把自我推理文本塞进 partnerApproval，零校验照单全收
+ *  （触发 F20260922pmgd U1 预留的升级条件「出现伪造授权原话事故即升级真伪校验」）。
+ *  匹配粒度：连续子串（规范化后）——搭档授权常是长句中的短语，整条强制会把合法引用拒掉；
+ *  拼接两段话术的攻击在连续子串下无法命中。查询失败 fail-closed（授权闸宁可误拒不放）。
+ *  卡片回执也是 user 消息（摘要 + html-card-reply 围栏），天然进入匹配面——按钮拍板通道自动覆盖。
+ *  limit 500：拉最近 500 条 user entries；授权语义天然新鲜（旧授权不该再用于新合入），
+ *  超深历史的授权视为过期（宁可误拒）。返回命中 entry（含锚点）或拒绝文案。 */
+async function verifyPartnerApproval(
+  ctx: ToolContext,
+  partnerApproval: string,
+): Promise<{ hit: { id: string; sequenceNum: number; createdAt: string } } | { error: ToolResponse }> {
+  let entries: Array<{ id: string; sequenceNum: number; createdAt: string; body: string | null }>;
+  try {
+    entries = await ctx.client.conversation.entry.getEntries(ctx.conversationId, { entryType: 'user', limit: 500 });
+  } catch (err) {
+    return {
+      error: errorResponse(
+        `[错误] 授权原话校验失败（fail-closed，已拒绝合入）：查询搭档历史消息出错——${err instanceof Error ? err.message : String(err)}。` +
+        `请稍后重试；确认拿到搭档授权原话后再次调用。`,
+      ),
+    };
+  }
+  const needle = normalizeApprovalText(partnerApproval);
+  if (needle.length === 0) {
+    return {
+      error: errorResponse(
+        '[错误] partnerApproval 规范化后为空（纯引号/空白）——必须原样引用搭档的授权原话，不得转述/概括/拼接。' +
+        '搭档尚未拍板时先呈终审简报（决策简报卡），不得调用本工具。',
+      ),
+    };
+  }
+  const hit = entries.find(e => {
+    const hay = normalizeApprovalText(e.body ?? '');
+    return hay.length > 0 && hay.includes(needle);
+  });
+  if (!hit) {
+    return {
+      error: errorResponse(
+        `[错误] partnerApproval 未在搭档历史消息中命中——“${partnerApproval}”不是搭档任何一条消息的逐字片段（容忍空白/引号形态差异）。` +
+        '原话不得伪装：推断/拼接/转述都不算授权。无授权原话时先呈终审简报（决策简报卡）请搭档拍板，拿到原话后重试。',
+      ),
+    };
+  }
+  return { hit: { id: hit.id, sequenceNum: hit.sequenceNum, createdAt: hit.createdAt } };
+}
+
+/** merge_pr 子步骤：审计双通道落痕（linked_resources 主 + warn 日志跨对话兜底）。
+ *  F20260929mpav：审计附原话命中锚点（entryId/seq/createdAt）——事后可回查授权语境。 */
+async function writeMergeAudit(
+  ctx: ToolContext,
+  logger: Logger | undefined,
+  info: {
+    prNumber: number;
+    strategy: string;
+    partnerApproval: string;
+    approvalAnchor?: { id: string; sequenceNum: number; createdAt: string };
+  },
+): Promise<void> {
+  const { prNumber, strategy, partnerApproval, approvalAnchor } = info;
+  const anchorDesc = approvalAnchor ? `，命中锚点 entryId=${approvalAnchor.id} seq=${approvalAnchor.sequenceNum} createdAt=${approvalAnchor.createdAt}` : '（原话校验锚点缺失）';
+  const auditContent = `PR #${prNumber} 合入授权：搭档原话「${partnerApproval}」${anchorDesc}（策略 ${strategy}，调用獭 ${ctx.otterId}）`;
   try {
     await ctx.client.resource.link({
       conversationId: ctx.conversationId,
@@ -557,12 +633,12 @@ async function writeMergeAudit(ctx: ToolContext, logger: Logger | undefined, prN
 function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
   return {
     name: "merge_pr",
-    description: "合并指定 PR（搭档授权闸）. Precondition: 搭档已显式同意合入该 PR——partnerApproval 必须原样引用搭档的授权原话（如「1095合入」「这个可以合了」），不得转述/概括/编造. When: PR 审视通过且搭档已拍板合入时. Not for: 搭档尚未拍板 → 先呈终审简报（决策简报卡），不得调用本工具. Output: 合入结果（mergedAt/mergeCommit）+ 审计记录确认. GOTCHA: 授权原话会落审计（linked_resources + 日志双通道），伪造会留痕可追责.",
+    description: "合并指定 PR（搭档授权闸）. Precondition: 搭档已显式同意合入该 PR——partnerApproval 必须原样引用搭档的授权原话（如「1095合入」「这个可以合了」），不得转述/概括/编造. When: PR 审视通过且搭档已拍板合入时. Not for: 搭档尚未拍板 → 先呈终审简报（决策简报卡），不得调用本工具. Output: 合入结果（mergedAt/mergeCommit）+ 审计记录确认（含原话命中锚点）. GOTCHA: 原话经机械校验——partnerApproval 必须逐字命中当前对话中搭档（user）历史消息的连续片段（容忍空白/引号形态差异），未命中直接拒绝合入（无原话不允许使用）；卡片回执（otterCard.submit 提交的按钮选择摘要）也是搭档消息，属合法来源. 授权原话落审计双通道（linked_resources + 日志），伪造留痕可追责.",
     parameters: {
       type: "object",
       properties: {
         prNumber: { type: "number", description: "PR 编号" },
-        partnerApproval: { type: "string", description: "搭档授权原话（必填，原样引用，不得转述/概括/编造）" },
+        partnerApproval: { type: "string", description: "搭档授权原话（必填，原样引用，不得转述/概括/编造）。机械校验：必须逐字命中搭档历史消息的连续片段（引一次说过的原话，如「1095合入」），推断/拼接/转述文本会被拒绝" },
         strategy: { type: "string", enum: ["squash", "merge", "rebase"], description: "合入策略，缺省 squash（本仓惯例）" },
       },
       required: ["prNumber", "partnerApproval"],
@@ -579,9 +655,16 @@ function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
       }
       const gate = await checkPrMergeable(prNumber);
       if ("terminal" in gate) return gate.terminal;
+      // F20260929mpav：原话校验闸（物理闸）——逐字命中搭档历史消息才放行，否则拒绝；
+      // 位于 PR 状态门之后、审计/执行之前——未命中不落审计不执行 merge（拒绝事件落 warn 日志可观测）。
+      const approvalCheck = await verifyPartnerApproval(ctx, partnerApproval);
+      if ("error" in approvalCheck) {
+        logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED prNumber=${prNumber} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)}`);
+        return approvalCheck.error;
+      }
       // 审计先落（执行失败也留有授权依据记录），再执行合入。
       // 工具内部 exec 通道——不过 bash 守卫，与 halt_otter 等管理工具同型。
-      await writeMergeAudit(ctx, logger, prNumber, strategy, partnerApproval);
+      await writeMergeAudit(ctx, logger, { prNumber, strategy, partnerApproval, approvalAnchor: approvalCheck.hit });
       try {
         const { stdout } = await execFileAsync("gh", ["pr", "merge", String(prNumber), `--${strategy}`], { timeout: 60_000 });
         return textResponse(`PR #${prNumber} 已合入（${strategy}）。${stdout.trim()}\n审计：授权原话已落 linked_resources（category=merge-authorization）+ 日志`);
