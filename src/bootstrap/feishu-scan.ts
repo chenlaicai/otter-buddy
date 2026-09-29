@@ -95,7 +95,7 @@ export function setupFeishuScanChannels(options: {
       stopFeishuRuntime(appId);
       const rt = buildFeishuRuntime({
         appId, appSecret,
-        gateOwnerOpenId: ownerOpenId ?? config.feishu?.partnerOpenId, // 检视建议⑤：owner 缺失退 config 锚（静态段退役后该退锥随存量迁移自然消失）
+        gateOwnerOpenId: ownerOpenId, // delta 检视严重 2：退役后不再回写 config.feishu.partnerOpenId（与「搭档锚一律扫码首号」决策对齐）
         globalFirstOwnerOpenId: firstOwnerNow,
         appConfig: config, uc, repos, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, registry, signalRouter,
       });
@@ -114,7 +114,7 @@ export function setupFeishuScanChannels(options: {
     const rt = buildFeishuRuntime({
       appId: app.appId,
       appSecret: app.appSecret,
-      gateOwnerOpenId: app.ownerOpenId ?? config.feishu?.partnerOpenId, // 检视建议⑤：owner 缺失退 config 锚（静态段退役后该退锥随存量迁移自然消失）
+      gateOwnerOpenId: app.ownerOpenId, // delta 检视严重 2：退役后不再回写 config.feishu.partnerOpenId（与「搭档锚一律扫码首号」决策对齐）
       globalFirstOwnerOpenId: feishuFirstOwner(),
       appConfig: config, uc, repos, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, registry, signalRouter,
     });
@@ -160,10 +160,11 @@ export function setupFeishuScanChannels(options: {
       stopFeishuRuntime(appId);
       await releaseFeishuConnectionAndArchiveLine(appId);
     },
-    /** dispose 链：停全部运行时（#460） */
+    /** dispose 链：停全部运行时（#460）+ 取消进行中登录会话（delta 检视建议 5） */
     disposeAll: () => {
       for (const rt of feishuRuntimes.values()) rt.stop();
       feishuRuntimes.clear();
+      feishuLoginSessions.dispose();
     },
   };
 }

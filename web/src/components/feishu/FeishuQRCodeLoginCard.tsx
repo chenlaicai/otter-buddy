@@ -12,7 +12,7 @@ import type { FeishuLoginSessionDTO } from '../../api/client'
 
 const STATUS_LABEL: Record<FeishuLoginSessionDTO['status'], string> = {
   pending: '正在申请二维码...',
-  waiting_scan: '等待扫码（飞书内打开确认）',
+  waiting_scan: '等待扫码——确认页可选「创建新应用」或「选择已有应用」（选已有时将接管该应用的消息事件）',
   success: '飞书应用已接入，助理线就绪',
   expired: '二维码已过期',
   error: '接入失败',

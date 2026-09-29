@@ -77,21 +77,10 @@ export class ChannelController {
       }
     }
     
-    // 飞书通道：registry 有条目则添加（#663：携带掩码 appId 供凭证确认）
-    const feishuEntry = registryMap.get("feishu");
-    if (feishuEntry) {
-      channels.push({
-        channelId: "feishu",
-        kind: "feishu",
-        state: feishuEntry.state,
-        appIdMasked: feishuEntry.appIdMasked,
-        appShareUrl: feishuEntry.appShareUrl,
-      });
-    }
-
-    // F20260928fsqr：扫码接入线——registry 键 = botKey（feishu-bot:<掩码appId>）多实例，
-    // 与静态 "feishu" 键并存（静态 config app 与扫码 apps 并行 D5）。
-    // kind 带 feishu- 前缀供前端区分实例（find(kind==='feishu') 仍命中静态线不受影响）
+    // 飞书通道：静态 "feishu" 键已随静态线退役（F20260929fsqr）——不再单查此键；
+    // 扫码线统一走下方 feishu-bot: 前缀扫投。
+    // F20260928fsqr：扫码接入线——registry 键 = botKey（feishu-bot:<掩码appId>）多实例。
+    // kind 带 feishu- 前缀供前端区分实例（前端 find(kind==='feishu') 历史静态线语义已随退役失效）
     for (const [channelId, entry] of registryMap) {
       if (channelId.startsWith("feishu-bot:")) {
         channels.push({

@@ -246,7 +246,20 @@ export default function ImPage() {
     return weixinEntries[0]
   }
 
-  const feishuStatus = channelStatus.find(c => c.kind === 'feishu')
+  /** 飞书聚合状态：扫码线多实例（kind=feishu-bot:*），聚合优先级照微信先例
+   *  F20260929fsqr（delta 检视建议 6）：静态 kind='feishu' 键随退役消失，纯扫码模式下
+   *  原单键 find 恒 miss → 徽标恒「未配置」——改前缀聚合 */
+  const getFeishuAggregateStatus = (): ChannelStatusDTO | undefined => {
+    const feishuEntries = channelStatus.filter(c => c.kind.startsWith('feishu-bot:'))
+    if (feishuEntries.length === 0) return undefined
+    const hasError = feishuEntries.find(e => e.state.kind === 'error_backoff')
+    if (hasError) return hasError
+    const hasDegraded = feishuEntries.find(e => e.state.kind === 'running' && e.state.degraded)
+    if (hasDegraded) return hasDegraded
+    return feishuEntries[0]
+  }
+
+  const feishuStatus = getFeishuAggregateStatus()
   const weixinStatus = getWeixinAggregateStatus()
 
   return (

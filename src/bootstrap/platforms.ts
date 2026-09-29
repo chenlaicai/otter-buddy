@@ -45,7 +45,6 @@ import { FeishuLongConnectionHandler } from "@interface-adapters/feishu/long-con
 import { FeishuMessageProcessor } from "@interface-adapters/feishu/message-processor";
 import { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
 import { PartnerResolver } from "@usecases/im/partner-resolver";
-import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
 import { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
 import { FeishuResourceClient } from "@frameworks/feishu/resource-client";
@@ -72,11 +71,7 @@ import { ensureRecruitingScheduler } from "@usecases/recruiting/ensure-recruitin
 import { resolveFeatureGates } from "./feature-gates";
 import { buildHandoffPackage } from "@frameworks/agent/handoff-package-builder";
 
-export interface FeishuBundle {
-  client: FeishuClient;
-  tokenManager: FeishuAccessTokenManager;
-  dispatchChainEngine: DispatchChainEngine;
-}
+// F20260929fsqr（delta 检视严重 1）：FeishuBundle 随静态线退役删除（见 createFeishuBundle 注释）
 
 /** 创建 AgentGateway（PiSessionFactory），解决 OtterToolClient 循环依赖 */
 export async function createAgentGateway(options: {
@@ -310,29 +305,8 @@ function buildSchedulerServiceOptions(o: SchedulerServiceOptions): SchedulerServ
 }
 
 /** issue #281：broadcaster 由 app.ts 无条件创建（平台无关总线），飞书出站作为 channel 注册 */
-export function createFeishuBundle(options: {
-  feishuConfig: FeishuConfig;
-  uc: UseCases;
-  dispatchChainEngine: DispatchChainEngine;
-  logger: Logger;
-  webBaseUrl: string | undefined;
-  messageBroadcaster: MessageBroadcaster;
-  /** F20260828fsyc：出站标签解析用户全局名（可选,不传时 FeishuMessageChannel 回退「用户」） */
-  settingsRepo?: SettingsRepository;
-}): FeishuBundle {
-  const { feishuConfig, dispatchChainEngine, logger, webBaseUrl, messageBroadcaster, settingsRepo } = options;
-  const tokenManager = new FeishuAccessTokenManager(feishuConfig, logger);
-  const client = new FeishuClient(feishuConfig, logger, tokenManager);
-  // F20260928fsqr（检视严重 1）：出站注册移除——setupFeishu 走 buildFeishuRuntime 工厂后
-  // 由工厂统一键控注册（key=botKey）；此处再注册无 key 的 "feishu" 通道会造成双注册
-  // （broadcastEvent 遍历全部通道双命中 → 每条飞书消息重复投递）。
-  // tokenManager/client 保留：app.ts 320 行 createFeishuBundle 仍产出 feishu.resource/gateway 依赖
-  void settingsRepo; void webBaseUrl; void messageBroadcaster; // 参数保留防调用方破坏，消费面已移至工厂
-  if (!webBaseUrl) {
-    logger.info("web.baseUrl not configured, feishu html-card placeholders will show without clickable links");
-  }
-  return { client, tokenManager, dispatchChainEngine };
-}
+// F20260929fsqr（delta 检视严重 1）：createFeishuBundle/setupFeishu/FeishuBundle 随静态线退役删除
+// （唯一调用方 app.ts 已移除；误复活风险与死代码一并清除）
 
 /** F20260920imax：助理态注入片段（微信/飞书共用语义：总开关 + 助理线模型；setupFeishu/startWeixinChannels 双消费方） */
 function buildAssistantInjections(appConfig: AppConfig, uc: UseCases): {
@@ -347,47 +321,9 @@ function buildAssistantInjections(appConfig: AppConfig, uc: UseCases): {
   };
 }
 
-export function setupFeishu(options: {
-  appConfig: AppConfig;
-  uc: UseCases;
-  repos: Repositories;
-  agentInvoker: AgentInvoker;
-  feishu: FeishuBundle;
-  messageBroadcaster: MessageBroadcaster;
-  logger: Logger;
-  registry?: ChannelStatusRegistry;
-  /** F20260901sgpv P1：信号路由器（飞书入口换轨） */
-  signalRouter?: SignalRouter;
-  /** #460：返回飞书 stop 句柄（app dispose 时停 WSClient 重连，防僵尸进程） */
-}): { stopFeishu: () => void; agentDispatchService: AgentDispatchService } | undefined {
-  const { appConfig, uc, repos, agentInvoker, feishu, messageBroadcaster, logger, registry, signalRouter } = options;
-  if (!appConfig.feishu) return undefined;
-
-  // F20260928fsqr：装配段整体提入 buildFeishuRuntime 工厂（静态 config app 与扫码 apps
-  // 共用）；此处降为单次调用 + 签名适配。门禁锚：config partnerOpenId（存量行为等价）
-  const runtime = buildFeishuRuntime({
-    appId: appConfig.feishu.appId,
-    appSecret: appConfig.feishu.appSecret,
-    gateOwnerOpenId: appConfig.feishu.partnerOpenId,
-    appConfig,
-    uc,
-    repos,
-    agentInvoker,
-    dispatchChainEngine: feishu.dispatchChainEngine,
-    messageBroadcaster,
-    logger,
-    registry,
-    signalRouter,
-    // F20260928fsqr（检视严重 2）：静态 config app 状态投影键维持 "feishu"（channel-controller:81
-    // 只查此键；#663 掩码 appId 依附其上）——存量 IM 页状态徽标零改动。扫码线才用 botKey 多实例
-    channelKey: "feishu",
-  });
-  if (!runtime) return undefined;
-  return {
-    stopFeishu: runtime.stop,
-    agentDispatchService: runtime.agentDispatchService,
-  };
-}
+// F20260929fsqr（delta 检视严重 1）：setupFeishu 已随静态线退役删除
+// F20260929fsqr（delta 检视严重 1）：setupFeishu 随静态线退役删除——唯一调用方 app.ts 已移除；
+// 装配语义由 buildFeishuRuntime 工厂统一承担（扫码线 feishu-scan.ts 全权持有）
 
 export interface PlatformBootstrapResult {
   processInboundRecruit?: ProcessInboundRecruit;

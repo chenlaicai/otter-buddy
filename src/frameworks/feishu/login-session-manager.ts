@@ -200,6 +200,17 @@ export class FeishuLoginSessionManager {
     return true;
   }
 
+  /** dispose：取消全部进行中的 registerApp 后台流（delta 检视建议 5——微信 dispose() 同构；
+   *  不停运行时——运行时句柄由 feishu-scan disposeAll 持有） */
+  dispose(): void {
+    for (const [id, s] of this.sessions) {
+      if (s.status === "pending" || s.status === "waiting_scan") {
+        s.status = "cancelled";
+        this.aborts.get(id)?.();
+      }
+    }
+  }
+
   /** 会话名（扫码页起名，appPreset 预填用）；无则 undefined */
   sessionName(id: string): string | undefined {
     return this.sessionNames.get(id);

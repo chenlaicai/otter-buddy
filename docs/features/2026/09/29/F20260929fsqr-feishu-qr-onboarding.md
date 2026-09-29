@@ -158,10 +158,22 @@ onSuccess({appId, appSecret, ownerOpenId})
 
 - 多账号「每线各自认定搭档」语义（与 #1188 同根因：多账号搭档错认）——D7 首号锚是当前形态的解，每线语义留待多家庭部署需求出现时升级
 - PartnerResolver addPartnerId 后不回收（首账号 DELETE 后锚仍在）——避免摇摆，记遗留
-- 门禁锚双缺席面（代码审视建议⑤）：线 ownerOpenId 与 config.feishu.partnerOpenId 均缺失时，该线门禁 configured=false 不拦截——已做单级退避（owner 缺失退 config 锚），纯扫码且 owner 从未回填的极端窗口才有此面，待门禁默认拒绝语义升级
+- 门禁无锚面（delta 检视严重 2 订正，原建议⑤）：线 ownerOpenId 缺失时该线门禁 configured=false 不拦截——config 锚退避已随静态段退役删除（与「搭档锚一律扫码首号」决策对齐），纯扫码且 owner 从未回填的极端窗口才有此面，待门禁默认拒绝语义升级
 - 同号扫码提示与拒绝路径未实现（重复扫码可选「选择已有应用」或新建，删除入口/开放平台手动删兑底）——低频顺手项
 
 ### 代码审视处置记录（代码检视獭，7 严重 + 6 建议 + delta 轮）
+
+### Delta 检视处置记录（delta 检视獭 kimi-256k，3 严重 + 4 建议，审 32d554ae..6fdb6f6f 新增段）
+
+| 发现 | 级别 | 处置 |
+|---|---|---|
+| 1 静态线孤儿件（createFeishuBundle/setupFeishu/FeishuBundle 零调用方残留） | 严重 | ✅ 三导出删除 + enableFeishu 字段连根删（两测试传参同步清） |
+| 2 门禁锚回写退役配置（feishu-scan 两处 ?? config.feishu?.partnerOpenId） | 严重 | ✅ 退避锚删除（缺 owner → 单锚仅首号，与「搭档锚一律扫码首号」对齐）；遗留面措辞同步订正 |
+| 3 与 #1209 构造函数硬撞车（位置参数 vs 对象参数） | 严重 | ✅ 通告已留 #1209（强制顺序：1194 先合，1209 rebase 按对象参数形态重写装配点） |
+| 4 选已有 app 接管事件无 UI 提示 | 建议 | ✅ 扫码卡 waiting_scan 文案补「选已有时将接管该应用的消息事件」 |
+| 5 dispose 漏登录会话（registerApp 后台流无人 abort） | 建议 | ✅ manager 补 dispose()（微信同构）+ feishu-scan disposeAll 接入 |
+| 6 纯扫码模式徽标恒「未配置」（前端 find kind='feishu' 永不命中） | 建议 | ✅ 后端删静态键单查 + 前端 feishu-bot: 前缀聚合（微信先例）；ChannelKind 扩展 string 收纳多实例键；测试同步改 |
+| 7 存量迁移无 IM 页引导 | 建议 | 📋 记 #1211（需 API 透传+前端分支，超本 PR 面） |
 
 | 发现 | 级别 | 处置 |
 |---|---|---|
@@ -176,7 +188,7 @@ onSuccess({appId, appSecret, ownerOpenId})
 | ②死代码 | 建议 | ✅ startFeishuScanChannels 删除 |
 | ③单源未达成 | 建议 | ✅ client.ts 入站锚改 deriveBotKey() |
 | ④ownerOpenId 回填 | 建议 | ✅ processor p2p 入口回填（仅缺失时写） |
-| ⑤门禁双缺席 | 建议 | ✅ owner 缺失退 config 锚；双缺席面记遗留（上节） |
+| ⑤门禁双缺席 | 建议 | ✅（delta 订正）owner 缺失不再退 config 锚（严重 2：退役配置不回写）；无锚面记遗留（上节） |
 | ⑥appId 出网 | 建议 | ✅ getLogin 回包掩码化 |
 | N1 会话标题完整 appId | delta 新 | ✅ 缺省回退改 maskAppId |
 

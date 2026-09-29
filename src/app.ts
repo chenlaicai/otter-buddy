@@ -101,8 +101,6 @@ export interface BuildAppOptions {
   staticRoot?: string | false;
   /** 同步 apiKey 到 ~/.pi/agent/auth.json（全局用户态副作用），默认 true；测试必须传 false */
   syncAuth?: boolean;
-  /** F20260929fsqr 已退役：飞书接入唯一路径为扫码（IM 页），此选项不再生效 */
-  enableFeishu?: boolean;
   /** 启动调度器，默认 true */
   startScheduler?: boolean;
   /** F20260825sgnw 审视发现 1：RHI 扫描 worker 启动开关（对齐 startScheduler 模式；测试/CI 可关） */
@@ -319,7 +317,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
    *  旧实现 messageBroadcaster: feishu?.broadcaster 导致 web-only 部署流式链路断流 */
   const messageBroadcaster = new MessageBroadcaster(logger);
   // F20260929fsqr（搭档决策）：feishu 静态凭证段退役——扫码双模式（新建/选已有）为唯一接入路径。
-  // 存量配置检测到时告警提示迁移；enableFeishu 选项同步退役（无静态线可启用）。
+  // 存量配置检测到时告警提示迁移。
   if (config.feishu) {
     logger.warn(
       "Feishu static config is deprecated: scan-based onboarding (create new / select existing app) is now the only path. " +
