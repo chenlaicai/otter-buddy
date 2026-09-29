@@ -130,6 +130,27 @@ function GroupHeader({
 export function LeftPanel({ conversations, activeId, onSelect, onNewConversation, onContextMenu, otters, onRefresh }: LeftPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
+  /**
+   * Safari 26 兜底（F20260929sqmk，同 PR #972 / F20260916scfx 模式）：实测 Safari 26 不尊重
+   * contextmenu 事件的 preventDefault——事件能派发、defaultPrevented=true，但原生菜单照弹，
+   * React 挂在 root 的委托 handler 拦不住。mousedown 阶段拦截 button===2 可抢在浏览器默认
+   * 行为前生效；Chromium 上同样无害（与 onContextMenu 并存双保险）。
+   * 收窄：只拦对话项节点（closest 匹配 data-testid 前缀 conv-item），面板其他区域
+   * （搜索框、分组头、页码器、空白区）右键原生菜单保留——不能把整个面板右键全废掉。
+   */
+  const rootRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const el = rootRef.current
+    if (!el) return
+    const onMouseDown = (ev: MouseEvent) => {
+      if (ev.button !== 2) return
+      const target = (ev.target as HTMLElement).closest('[data-testid^="conv-item"]')
+      if (target) ev.preventDefault()
+    }
+    el.addEventListener('mousedown', onMouseDown)
+    return () => el.removeEventListener('mousedown', onMouseDown)
+  }, [])
+
   // ── 对话标题搜索（F20260916lpsc）──
   // Why: 就地展开输入框 + 服务端 LIKE 过滤。搜索态下列表替换为命中结果（平铺、不分组不分页），
   // 清空恢复分组视图。防抖 300ms 防每次击键一发请求。
@@ -291,7 +312,7 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
   }, [])
 
   return (
-    <aside className="w-56 h-full glass rounded-3xl flex flex-col flex-shrink-0 overflow-hidden">
+    <aside ref={rootRef} className="w-56 h-full glass rounded-3xl flex flex-col flex-shrink-0 overflow-hidden">
       <div className="p-3 flex gap-2 border-b border-white/40">
         <button
           data-testid="leftpanel-search-toggle"
@@ -504,7 +525,9 @@ function ConversationItem({
             ? 'bg-otter-100/50 hover:bg-otter-100/70'
             : 'hover:bg-white/30'
       }`}
-      {...(pinnedHighlight ? { 'data-testid': `conv-item-pinned-${c.id}` } : {})}
+      // F20260929sqmk：统一 conv-item 前缀，Safari 26 mousedown 兜底靠 closest 按此前缀
+      // 收窄拦截范围；置顶项保留原 conv-item-pinned- testid（既有测试依赖），前缀同样命中
+      data-testid={pinnedHighlight ? `conv-item-pinned-${c.id}` : `conv-item-${c.id}`}
     >
       <div className="flex items-center gap-1.5">
         <div className="text-xs font-medium text-stone-700 truncate flex-1 flex items-center gap-1">

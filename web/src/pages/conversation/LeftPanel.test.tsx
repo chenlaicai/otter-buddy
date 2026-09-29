@@ -560,3 +560,99 @@ describe('LeftPanel IM 助理分组（F20260918imas）', () => {
     spy.mockRestore()
   })
 })
+
+/**
+ * F20260929sqmk：Safari 26 右键菜单兜底测试（同 WorkspacePanel.test.tsx 模式）。
+ * Safari 26 不尊重 contextmenu preventDefault（事件派发、defaultPrevented=true 但原生菜单照弹），
+ * LeftPanel 根容器挂原生 mousedown listener 拦 button===2 兜底，收窄到对话项节点
+ * （data-testid 前缀 conv-item）——面板其他区域右键原生菜单保留。
+ */
+describe('LeftPanel Safari 26 右键菜单兜底（F20260929sqmk）', () => {
+  function renderWithItems() {
+    const normalConv: LocalConversation = { id: 'n1', title: '普通对话', status: 'active', otterIds: [], pinned: false }
+    const pinnedConv: LocalConversation = { id: 'p1', title: '置顶对话', status: 'active', otterIds: [], pinned: true }
+    // 置顶区走 props（pinned:true）；普通区走分页拉取 stub（total=1, items=[n1]）
+    stubGroupFetch([dtoOf(normalConv)], 1)
+    act(() => {
+      root.render(
+        <LeftPanel
+          conversations={[pinnedConv, normalConv]}
+          activeId=""
+          onSelect={() => {}}
+          onNewConversation={() => {}}
+          onContextMenu={() => {}}
+          otters={mockOtters}
+        />
+      )
+    })
+  }
+
+  async function waitForItem(testid: string): Promise<HTMLElement> {
+    await vi.waitFor(() => {
+      expect(container.querySelector(`[data-testid="${testid}"]`)).not.toBeNull()
+    })
+    return container.querySelector(`[data-testid="${testid}"]`) as HTMLElement
+  }
+
+  function fireMousedown(target: HTMLElement, button: number): MouseEvent {
+    const ev = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button })
+    act(() => { target.dispatchEvent(ev) })
+    return ev
+  }
+
+  it('对话项上 mousedown(button=2) 被 preventDefault（防 Safari 26 原生菜单）', async () => {
+    renderWithItems()
+    const pinnedItem = await waitForItem('conv-item-pinned-p1')
+    expect(fireMousedown(pinnedItem, 2).defaultPrevented).toBe(true)
+
+    // 普通区对话项（F20260929sqmk 补 testid 前同样无标记，补后纳入拦截）
+    const normalItem = await waitForItem('conv-item-n1')
+    expect(fireMousedown(normalItem, 2).defaultPrevented).toBe(true)
+  })
+
+  it('边界：分组头 mousedown(button=2) 不拦截（原生右键菜单保留）', async () => {
+    renderWithItems()
+    await waitForItem('conv-item-n1')
+    const header = container.querySelector('[data-testid="leftpanel-group-conversation"]') as HTMLElement
+    expect(header).not.toBeNull()
+    expect(fireMousedown(header, 2).defaultPrevented).toBe(false)
+  })
+
+  it('边界：面板头部「新建对话」按钮 mousedown(button=2) 不拦截', async () => {
+    renderWithItems()
+    await waitForItem('conv-item-n1')
+    const newBtn = [...container.querySelectorAll('button')].find(b => b.textContent?.includes('新建对话')) as HTMLElement
+    expect(newBtn).toBeDefined()
+    expect(fireMousedown(newBtn, 2).defaultPrevented).toBe(false)
+  })
+
+  it('边界：左键（button=0）在对话项上不拦截', async () => {
+    renderWithItems()
+    const item = await waitForItem('conv-item-n1')
+    expect(fireMousedown(item, 0).defaultPrevented).toBe(false)
+  })
+
+  it('contextmenu 事件仍正常到达 onContextMenu prop（既有菜单逻辑不受兜底影响）', async () => {
+    const onCtx = vi.fn()
+    const normalConv: LocalConversation = { id: 'n1', title: '普通对话', status: 'active', otterIds: [], pinned: false }
+    stubGroupFetch([dtoOf(normalConv)], 1)
+    act(() => {
+      root.render(
+        <LeftPanel
+          conversations={[normalConv]}
+          activeId=""
+          onSelect={() => {}}
+          onNewConversation={() => {}}
+          onContextMenu={onCtx}
+          otters={mockOtters}
+        />
+      )
+    })
+    const item = await waitForItem('conv-item-n1')
+    await act(async () => {
+      item.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+    })
+    expect(onCtx).toHaveBeenCalledTimes(1)
+    expect(onCtx.mock.calls[0][1]).toBe('n1')
+  })
+})
