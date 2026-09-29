@@ -411,35 +411,58 @@ function judgeBashFileScript(model: CommandModel, mainPid: number, logger: Logge
  *  文案：复用 sleep-command-guard 的 buildSleepBlockMessage（动态秒数/speak 引导/
  *  无限措辞）——V1 V2 唯一文案源，防漂移；前缀 SLEEP_REASON_PREFIX 同源。 */
 function judgeSleepCommand(model: CommandModel, logger: Logger | undefined): string | null {
-  for (const seg of model.segments) {
-    const eff = effectiveCommand(seg);
-    if (eff.name !== "sleep") continue;
-    // 时长静态求和（多参数：sleep 5 6 = 11s；单位 s/m/h/d；小数）
-    let total = 0;
-    let unparseable = false;
-    let infinite = false;
-    for (const a of eff.args) {
-      if (a === null) { unparseable = true; break; } // sleep $X——宁漏勿误（#1126 同口径）
-      const lower = a.toLowerCase();
-      if (lower === "infinity" || lower === "inf") {
-        infinite = true;
-        continue;
+  // #1216：跨段求和——同命令内多段 sleep 累计判定（sleep 3 && sleep 3 = 6s 拦）。
+  // #1220 检视 S1：载荷递归——bash -c 'sleep 3 && sleep 3' / $(sleep 3) 等嵌套载荷
+  // 内的 sleep 与外层段合并求和（同构 kill 判定的 payload 树遍历先例 :554-593）。
+  // 逃逸面声明：循环倍数（for/while 体内 sleep ×N 次）静态不可判，归已知逃逸面
+  // （宁漏勿误——保守拦循环体会误杀合法轮询重试形态）；跨命令累计同。
+  let commandTotal = 0;
+  let sawInfinite = false;
+
+  /** 全命令树求和（顶层段 + 各层载荷段全部累计）。不构造文案——判定与文案分离，
+   *  文案在全扫完后统一构造（#1220 delta Δ1：镜像序 sleep 6 && sleep 3 曾报 6 秒实 9，
+   *  sleep 6 && sleep infinity 曾漏「无限」——拦截判定一直 100% 正确，缺口纯在文案时序） */
+  const sumModel = (m: CommandModel): void => {
+    for (const seg of m.segments) {
+      const eff = effectiveCommand(seg);
+      if (eff.name !== "sleep") continue;
+      let total = 0;
+      let unparseable = false;
+      for (const a of eff.args) {
+        if (a === null) { unparseable = true; break; } // sleep $X——宁漏勿误（#1126 同口径）
+        const lower = a.toLowerCase();
+        if (lower === "infinity" || lower === "inf") {
+          sawInfinite = true;
+          continue;
+        }
+        const mm = /^([0-9.]+)(s|m|h|d)?$/.exec(lower);
+        if (!mm) { unparseable = true; break; }
+        const v = parseFloat(mm[1]);
+        const unit = mm[2] ?? "s";
+        total += unit === "m" ? v * 60 : unit === "h" ? v * 3600 : unit === "d" ? v * 86400 : v;
       }
-      const m = /^([0-9.]+)(s|m|h|d)?$/.exec(lower);
-      if (!m) { unparseable = true; break; }
-      const v = parseFloat(m[1]);
-      const unit = m[2] ?? "s";
-      total += unit === "m" ? v * 60 : unit === "h" ? v * 3600 : unit === "d" ? v * 86400 : v;
+      if (unparseable) continue; // 该段不可解析：不计入求和（保守放行该段）
+      commandTotal += total;
     }
-    if (unparseable) continue; // 不可解析形态放行（归逃逸面，#1126 同口径）
-    if (infinite) {
-      logger?.warn("[guard-v2] BLOCKED sleep infinity");
-      return SLEEP_REASON_PREFIX + buildSleepBlockMessage("无限");
+    // 载荷递归（heredoc-quoted = 纯数据跳过，#1171 口径；不可解析载荷含 sleep 词样放行——
+    // sleep 拦截是体验引导非安全红线，与 kill 判定对不可解析载荷的保守拦截不同档）
+    for (const p of m.payloads) {
+      if (p.kind === "heredoc-quoted") continue;
+      if (p.model === null) continue;
+      sumModel(p.model);
     }
-    if (total >= 5) {
-      logger?.warn("[guard-v2] BLOCKED bare sleep >= 5s", { total });
-      return SLEEP_REASON_PREFIX + buildSleepBlockMessage(`${total} 秒`);
-    }
+  };
+  sumModel(model);
+
+  // 判定顺序：无限优先于有限累计（语义更严重）。文案统一带累计总值，float 显示去舍入尾（Δ4）
+  if (sawInfinite) {
+    logger?.warn("[guard-v2] BLOCKED sleep infinity");
+    return SLEEP_REASON_PREFIX + buildSleepBlockMessage("无限");
+  }
+  if (commandTotal >= 5 - 1e-9) {
+    logger?.warn("[guard-v2] BLOCKED bare sleep >= 5s (cross-segment sum)", { commandTotal });
+    const display = commandTotal >= 10 ? Math.round(commandTotal) : Math.round(commandTotal * 10) / 10;
+    return SLEEP_REASON_PREFIX + buildSleepBlockMessage(`${display} 秒`);
   }
   return null;
 }
