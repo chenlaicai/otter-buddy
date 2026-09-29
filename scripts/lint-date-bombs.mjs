@@ -99,7 +99,8 @@ const isCommentLine = (line) => /^\s*(\/\/|\/\*|\*|\{\/\*)/.test(line);
 
 /** it/test 块切片：返回 [{start, end}]（行号 1-based，含边界）。
  * 简化策略：遇 it(/test( 开新块；块以「缩进 <= it 行缩进的 }); 行」结束。
- * vitest 嵌套闭包内的 it 罕见；误切的后果只是窗口放大（跨块合并），不漏检。 */
+ * vitest 嵌套闭包内的 it 罕见；误切的后果只是窗口放大（跨块合并）。
+ * 开块正则含 .skip/.each/.only 等修饰形态（#1206 检视 S2 探针实证曾漏检）。 */
 function sliceItBlocks(lines) {
   const blocks = [];
   let cur = null;
@@ -107,7 +108,8 @@ function sliceItBlocks(lines) {
     const line = lines[i];
     const codePart = stripInlineComment(line);
     if (!cur) {
-      const m = codePart.match(/^(\s*)(?:it|test)\s*\(/);
+      // #1206 检视 S2：it.skip/it.each/it.only 修饰形态必须开块（检视獭探针实证漏检面）
+      const m = codePart.match(/^(\s*)(?:it|test)(?:\.(?:skip|only|each|todo|concurrent|sequential))*\s*(?:\(|\[)/);
       if (m && !isCommentLine(line)) {
         cur = { start: i + 1, indent: m[1].length };
       }
@@ -308,7 +310,7 @@ if (isDirectRun) {
     failed = true;
   }
   if (warnings.length > W1_BASELINE) {
-    console.error(`\n共现 warning ${warnings.length} 条 > 基线 ${W1_BASELINE}（只减不增纪律，#1173）。消除共现块后手动下调脚本内 W1_BASELINE。`);
+    console.error(`\n共现 warning ${warnings.length} 条 > 基线 ${W1_BASELINE}（只减不增纪律，#1173）。两条出路：①确认为炸弹 → 改相对日期构造消除共现；②确认安全（fixture 内部相对/错误字符串/显式注入）→ 块内加豁免注释 ${EXEMPTION_RELATIVE}。消除后手动下调脚本内 W1_BASELINE。`);
     failed = true;
   }
   if (!failed && warnings.length > 0 && verbose) {
