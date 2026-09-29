@@ -19,7 +19,7 @@
 ## html-card 约定（海獭对话场景）
 
 - 颜色一律 `var(--otter-*) / var(--teal-*) / var(--caramel-*) / var(--lavender-*) / var(--paper) / var(--ink) / var(--line)` 引用，不硬编码色值——与宿主主题一致是卡片场景的「材质真实」
-- 布局用 flex/grid，高度超默认时根元素 `data-height` 声明或 `otterCard.resize()`
+- 布局用 flex/grid，高度声明首选省略（ResizeObserver 自动回正到内容真实高度）；要控制首帧时根元素 `data-height` 按内容**下限**写（宁小勿大，写大了底部留白）或 `otterCard.resize()`
 - 遵守卡片禁令：无外链、无外部资源、无导航逃逸（细节以当时取到的 get_html_card_contract 为准，契约可能演进）
 - 卡片场景的结构选择向「扫读友好」倾斜：折叠态 title 承载结论，展开分层递进
 
