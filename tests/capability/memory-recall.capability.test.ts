@@ -41,6 +41,27 @@ describe("记忆系统：跨对话事实召回（真 bge-m3 + 真 LLM）", () =>
     expect(ctx.built.embeddingService.available).toBe(true);
   });
 
+  /**
+   * #1191（F20260928rmix）：消息→记忆索引链路回归锚。
+   * #886 删 indexMessage 后该链路静默断裂 15 天（search_memory 对 9/13 后对话失明），
+   * 无人发现——本用例固化「用户发消息后 search_memory 可召回」的行为不变量。
+   * 纯管道断言（无 LLM 采样）：HTTP 发消息 → HTTP 检索命中同一 token，防再断。
+   */
+  it("#1191 用户消息发送后进入记忆系统，search_memory 可召回（防静默断裂锚）", async () => {
+    const convId = await createConversation(ctx, "memory-index-regression-1191");
+    const RECALL_TOKEN = "ZX7-MSG-1191";
+    await sendUserMessage(ctx, convId, `请记住这个回归锚标记：${RECALL_TOKEN}，它只在对话里说过。`, { talkingStonePassedTo: [] });
+
+    await expectEventually(async () => {
+      const res = await ctx.built.app.request(
+        `/api/memory/search?query=${encodeURIComponent(RECALL_TOKEN)}&limit=5`,
+      );
+      if (res.status !== 200) return false;
+      const body = await res.json() as { entries: Array<{ content: string; contentType?: string }> };
+      return body.entries.some(e => e.content.includes(RECALL_TOKEN));
+    }, { message: "用户消息未被记忆索引召回（消息→记忆链路可能又断了——#1191 回归锚）" });
+  });
+
   it("事实经 StoreMemory 落入记忆，混合检索（真 bge-m3 + FTS）可召回", async () => {
     const storeMemory = new StoreMemory(ctx.built.repos.memoryWriter, ctx.built.repos.memoryQueue, ctx.built.embeddingService, createTestLogger());
     await storeMemory.execute({
