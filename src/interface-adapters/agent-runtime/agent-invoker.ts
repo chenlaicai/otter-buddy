@@ -118,6 +118,7 @@ export interface HandoffEngineDeps {
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 // F20260826mwrd C3：高危 healing 事件提醒（Part 4 高危路由消费侧）
 import { healingAlertRegistry, renderHealingAlerts } from "@usecases/healing/healing-alert-registry";
+import { signalAlertRegistry, renderSignalAlerts } from "@usecases/signal/signal-alert-registry";
 import { HandoffState, restoreHandoffContext, DEFAULT_CTX_MAX } from "./handoff-support";
 import { shouldInjectSessionPreamble } from "@frameworks/agent/session-helpers";
 import { MIN_SENSIBLE_CTX_WINDOW, type OtterContextWindowProvider } from "@usecases/ports/otter-context-window-provider";
@@ -338,6 +339,12 @@ export class AgentInvoker implements AgentTurnPort {
       if (alerts.length > 0) {
         dynamicContext.healingAlerts = renderHealingAlerts(alerts);
         this.logger.info('Healing high alerts injected', { otterId, conversationId, count: alerts.length });
+      }
+      // #1227 M1：pending 信号裁决提醒——协议义务的物理可见面（跨对话滞留，aging 兜底）
+      const signalAlerts = signalAlertRegistry.takeAll(conversationId);
+      if (signalAlerts.length > 0) {
+        dynamicContext.signalAlerts = renderSignalAlerts(signalAlerts);
+        this.logger.info('Signal resolution alerts injected', { otterId, conversationId, count: signalAlerts.length });
       }
     }
     this.logger.debug('Dynamic context built', { otterId, hasSummary: !!dynamicContext.sessionSummary, hasWorkspace: !!dynamicContext.workspacePath });

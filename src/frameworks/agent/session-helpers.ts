@@ -371,6 +371,11 @@ export function buildMessageWithContext(
     parts.push(dynamicContext.healingAlerts);
   }
 
+  // #1227 M1：pending 信号裁决提醒（借用式，消费即删）——大獭编排义务的物理可见面
+  if (dynamicContext?.signalAlerts) {
+    parts.push(dynamicContext.signalAlerts);
+  }
+
   if (dynamicContext?.workspacePath) {
     parts.push(`## 对话工作区\n你的对话工作区路径：${dynamicContext.workspacePath}\n使用 workspace_* 工具操作工作区文件。研究报告、临时文件等持久化内容请写入工作区。`);
   }
