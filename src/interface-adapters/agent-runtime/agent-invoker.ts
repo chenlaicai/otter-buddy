@@ -728,8 +728,10 @@ export class AgentInvoker implements AgentTurnPort {
         const sequenceNum = (speakDetails as { sequenceNum?: number }).sequenceNum;
         const createdAt = (speakDetails as { createdAt?: string }).createdAt;
         // #902：attachments 透传——speak 工具暂无附件写入源，details 无此字段时缺席；
-        // IM 出站通道见 data.attachments 缺失即按 entryId 补拉（entry 读出链自带投影，见双通道实现）
-        const speakAttachments = (speakDetails as { attachments?: unknown }).attachments as Array<Record<string, unknown>> | undefined;
+        // IM 出站通道见 data.attachments 缺失即按 entryId 补拉（entry 读出链自带投影，见双通道实现）。
+        // r1-A1：运行时闸防畸形穿透（#608 接入前 details 恒无此字段，闸为未来接入者驻守）
+        const rawAttachments = (speakDetails as { attachments?: unknown }).attachments;
+        const speakAttachments = Array.isArray(rawAttachments) ? (rawAttachments as Array<Record<string, unknown>>) : undefined;
         emitEvent({ event: "entry.speak", data: { entryId, invokeId: opts.currentInvokeId, otterId, body, otterName: resolvedName, otterType: opts.otterType, otterColor: opts.otterColor ?? null, ...(sequenceNum != null && { sequenceNum }), ...(createdAt && { createdAt }), ...(speakAttachments && speakAttachments.length > 0 && { attachments: speakAttachments }) } });
       }
     }

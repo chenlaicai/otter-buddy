@@ -144,13 +144,14 @@ export class WeixinMessageChannel implements OutboundEventChannel {
       ...(attachments.length > 0 && { attachments }),
     });
     try {
-      // 文本在前（含附件占位投影），媒体在后（单项失败占位仍在文本里可见）
+      // 文本在前（含附件占位投影），媒体在后（r1-S1 拆分：媒体独立于文本 try）
       await this.weixinGateway.replyMarkdown(target, senderLabel, projected);
-      await this.sendAttachments(target, attachments);
       this.logger.info("User entry synced to Weixin (web→weixin)", { conversationId });
     } catch (err) {
       this.logger.error("Failed to sync user entry to Weixin", err instanceof Error ? err : undefined, { conversationId });
     }
+    // r1-S1：文本失败时媒体仍发——per-item 失败在 sendAttachments 内部处理，不向上抛
+    await this.sendAttachments(target, attachments);
   }
 
   /** entry.speak 出站：speak body 投影 + 纯文本投递（与飞书同构）。
@@ -175,12 +176,12 @@ export class WeixinMessageChannel implements OutboundEventChannel {
       ...(attachments.length > 0 && { attachments }),
     });
     try {
-      // 文本在前（含附件占位投影），媒体在后（单项失败占位仍在文本里可见）
       await this.weixinGateway.replyMarkdown(target, data.otterName ?? "海獭", projected);
-      await this.sendAttachments(target, attachments);
     } catch (err) {
       this.logger.error("Failed to broadcast speak to Weixin", err instanceof Error ? err : undefined, { conversationId });
     }
+    // r1-S1：媒体投递独立于文本 try——文本失败时媒体仍发（同 user 路径）
+    await this.sendAttachments(target, attachments);
   }
 
   /** #902：附件解析——事件载荷自带 attachments 直接用；载荷缺席（entry.speak 现阶段
@@ -206,7 +207,7 @@ export class WeixinMessageChannel implements OutboundEventChannel {
   private async sendAttachments(target: string, attachments: AttachmentRef[]): Promise<void> {
     if (attachments.length === 0) return;
     if (!this.attachmentDeps) {
-      this.logger.warn("Weixin attachment send skipped: attachment deps not injected", { target });
+      this.logger.debug("Weixin attachment send skipped: attachment deps not injected", { target });
       return;
     }
     for (const att of attachments) {

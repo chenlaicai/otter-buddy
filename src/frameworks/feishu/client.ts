@@ -137,6 +137,10 @@ export class FeishuClient implements FeishuGateway {
       },
       body: form,
     });
+    // r1-A4：网络层失败（非 2xx）先挡——json() 解析失败会抛不可诊断的 SyntaxError
+    if (!uploadRes.ok) {
+      throw new Error(`Feishu image upload HTTP ${uploadRes.status}: ${await uploadRes.text().catch(() => "<no body>")}`);
+    }
     const uploadData = (await uploadRes.json()) as {
       code: number;
       msg: string;
@@ -160,6 +164,10 @@ export class FeishuClient implements FeishuGateway {
         content: JSON.stringify({ image_key: imageKey }),
       }),
     });
+    // r1-A4：同上传侧——非 2xx 先挡再解析
+    if (!response.ok) {
+      throw new Error(`Feishu image message HTTP ${response.status}: ${await response.text().catch(() => "<no body>")}`);
+    }
     const data = (await response.json()) as { code: number; msg: string };
     if (data.code !== 0) {
       throw new Error(`Feishu image message rejected: code=${data.code} msg=${data.msg}`);

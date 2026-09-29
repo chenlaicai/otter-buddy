@@ -196,4 +196,22 @@ describe("FeishuMessageChannel 媒体出站（#902）", () => {
     expect(ctx.images[0].fileName).toBe("dog.png");
     expect(ctx.logger.error).toHaveBeenCalled();
   });
+
+  it("r1-S1：文本投递失败（replyMarkdown 拒绝）→ 媒体仍投递（独立 try）", async () => {
+    const deps = {
+      attachmentRepo: fakeAttachmentRepo({ "att-img-1": "attachments/x.png" }),
+      entryReader: { getEntryById: vi.fn() },
+      storageRoot: "/d",
+    };
+    const ctx = createChannel(deps);
+    ctx.bind();
+    ctx.feishuGateway.replyMarkdown.mockRejectedValueOnce(new Error("feishu 5xx"));
+
+    ctx.broadcaster.broadcastEvent("conv-1", userEntryEvent([IMG_REF]));
+    await new Promise((r) => setTimeout(r, 10));
+
+    // 文本失败不再吞媒体：图片照发（占位投影丢失于文本，但媒体本体可达）
+    expect(ctx.images).toHaveLength(1);
+    expect(ctx.logger.error).toHaveBeenCalled();
+  });
 });

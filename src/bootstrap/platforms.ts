@@ -23,8 +23,6 @@ import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { Repositories, UseCases } from "./types";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
-import type { AttachmentRepository } from "@usecases/conversation/attachment-repository";
-import type { SendEntry } from "@usecases/conversation/send-entry";
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
 import { createManageHealingEventsTool } from "@interface-adapters/agent-runtime/tools/healing-tools";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";

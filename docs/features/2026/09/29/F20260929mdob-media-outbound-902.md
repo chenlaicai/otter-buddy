@@ -73,13 +73,15 @@ Web 用户发消息带附件（entry.user 路径）
 | 5 | feishu-gateway.ts + client.ts | 新增 replyImage：读文件 → FormData 上传（image_type=message）→ image_key → msg_type=image |
 | 6 | platforms.ts / app.ts | 双通道装配注入 attachmentDeps（attachmentRepo + entryReader + storageRoot） |
 
-### 设计取舍
+### 设计取舍（含 r1 处置）
 
-- **补拉而非改 speak 工具**：speak 侧附件写入源属 #608（voice/file/video 白名单 + 獭侧上传），本特性不越界扩 speak 参数。发射点管线已就位（details 有 attachments 即透传），#608 就绪后零改动接入。
+- r1-S1：四处 deliver 的媒体投递移出文本 try（文本失败时媒体仍发，媒体 per-item 失败内部降级不向上抛），行为锁测试已补（双通道各一）。
+
+- **补拉而非改 speak 工具**：speak 侧附件写入源属 #608（voice/file/video 白名单 + 獭侧上传），本特性不越界扩 speak 参数。发射点消费端管线已就位（details 有 attachments 即透传，r1-A3 已补真实透传用例）；**#608 接入时产出端还需在 speak 工具 details 补 attachments 字段（tool-factory 一行）——「消费端零改动，产出端差一行」**，非全程零改动。
 - **attachmentDeps 而非裸 attachmentRepo**（对当年死参数的纠正）：旧版只注入 attachmentRepo（拿 filePath），本次补拉还需要 entryReader——打包成对象参数，命名显式。
 - **filePath 绝对路径在通道层解析**：entity.filePath 是相对 storageRoot 的内容寻址路径（`attachments/<sha前2>/<sha次2>/<sha>.<ext>`），与 attachment-injection-service.ts:156 的 `path.join(storageRoot, filePath)` 同构。旧版（7bb98c6f）replyMedia 直传相对路径属 F20260913ctlv 前旧存储形态，已修正。
 - **飞书仅 image 分支**：任务书明确本期范围。document/audio/video 在飞书侧由占位投影（`[文件: name (size)]` + Web 链接）兑底；微信侧 CDN 协议天然支持全类型（replyMedia 按 MIME 路由 IMAGE/VIDEO/FILE），不做人为收窄。
-- **单项失败不阻塞**：文本在前（含占位投影）媒体在后，逐项独立投递——失败时占位文本已可见，Web 链接兜底。与 7bb98c6f sendAttachments 先例语义一致。
+- **单项失败不阻塞（r1-S1 修正后语义）**：文本与媒体各自独立 try——文本失败（含降级链尽）媒体仍发；媒体 per-item 失败不阻塞其余且不向上抛（占位投影已随文本可见，或文本也败时媒体本体仍可达）。与 7bb98c6f sendAttachments 先例语义一致并收窄了其缺陷。
 
 ### 机制识别检查点（命中申报）
 

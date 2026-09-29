@@ -136,12 +136,12 @@ export class FeishuMessageChannel implements OutboundEventChannel {
     });
     try {
       await this.o.feishuGateway.replyMarkdown(replyTarget, data.otterName ?? "海獭", markdown);
-      // #902：图片真实投递（飞书仅 image 分支——上传 API + msg_type=image；
-      // document/audio/video 无上传通道，占位投影已在上方 markdown 里兑底）
-      await this.sendImageAttachments(replyTarget, attachments);
     } catch (err) {
       this.o.logger.error("Failed to broadcast speak to Feishu (degradation also failed)", err instanceof Error ? err : undefined, { conversationId });
     }
+    // r1-S1：媒体投递独立于文本 try——文本失败（含降级链尽）时媒体仍发，
+    // per-item 失败在 sendImageAttachments 内部处理，不向上抛
+    await this.sendImageAttachments(replyTarget, attachments);
   }
 
   /** entry.user 出站：Web 用户消息同步到飞书（F20260828fsyc 双向同步恢复）。
@@ -171,11 +171,11 @@ export class FeishuMessageChannel implements OutboundEventChannel {
     });
     try {
       await this.deliverMarkdownToTarget(connection, senderLabel, markdown, conversationId, "User entry synced to Feishu (web→feishu)");
-      // #902：图片真实投递（同 speak 路径，仅 image 分支）
-      await this.sendImageAttachments(this.resolveReplyTargetSafe(connection), attachments);
     } catch (err) {
       this.o.logger.error("Failed to sync user entry to Feishu (degradation also failed)", err instanceof Error ? err : undefined, { conversationId });
     }
+    // r1-S1：媒体投递独立于文本 try——文本失败时媒体仍发（同 speak 路径）
+    await this.sendImageAttachments(this.resolveReplyTargetSafe(connection), attachments);
   }
 
   /** Web 消息发送者标签：全局名（本机即搭档本人），降级「用户」（与旧 resolveSenderLabel 语义一致）。
@@ -237,7 +237,7 @@ export class FeishuMessageChannel implements OutboundEventChannel {
     const images = attachments.filter(a => a.kind === "image");
     if (images.length === 0) return;
     if (!this.o.attachmentDeps) {
-      this.o.logger.warn("Feishu image send skipped: attachment deps not injected");
+      this.o.logger.debug("Feishu image send skipped: attachment deps not injected");
       return;
     }
     for (const img of images) {

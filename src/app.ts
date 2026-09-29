@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- #902 媒体出站：飞书通道 attachmentDeps 注入净增 5 行；装配文件行数由注入项决定（platforms.ts 同款豁免先例） */
 /**
  * buildApp：可测试的系统装配入口（F20260806tstr Part 1，基于 F20260805codx bootstrap 模块）。
  *

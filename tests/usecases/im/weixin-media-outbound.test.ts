@@ -142,7 +142,7 @@ describe("WeixinMessageChannel 媒体出站（#902）", () => {
     expect(ctx.media).toHaveLength(1);
   });
 
-  it("附件依赖未注入：占位投影仍生效，无媒体投递（warn 留痕）", async () => {
+  it("附件依赖未注入：占位投影仍生效，无媒体投递（r1-A5 后 debug 留痕不刷屏）", async () => {
     const ctx = createChannel(undefined);
     ctx.bind();
 
@@ -152,7 +152,7 @@ describe("WeixinMessageChannel 媒体出站（#902）", () => {
     expect(ctx.texts).toHaveLength(1);
     expect(ctx.texts[0].text).toContain("[图片: photo.jpg]");
     expect(ctx.media).toHaveLength(0);
-    expect(ctx.logger.warn).toHaveBeenCalled();
+    expect(ctx.logger.debug).toHaveBeenCalled();
   });
 
   it("单项媒体失败不阻塞其余（占位已在文本里可见）", async () => {
@@ -188,5 +188,23 @@ describe("WeixinMessageChannel 媒体出站（#902）", () => {
     expect(ctx.texts).toHaveLength(1);
     expect(ctx.media).toHaveLength(0);
     expect(ctx.logger.warn).toHaveBeenCalled();
+  });
+
+  it("r1-S1：文本投递失败（replyMarkdown 拒绝）→ 媒体仍投递（独立 try）", async () => {
+    const deps = {
+      attachmentRepo: fakeAttachmentRepo({ "att-1": "attachments/a.jpg" }),
+      entryReader: { getEntryById: vi.fn() },
+      storageRoot: "/d",
+    };
+    const ctx = createChannel(deps);
+    ctx.bind();
+    ctx.weixinGateway.replyMarkdown.mockRejectedValueOnce(new Error("weixin cdn 5xx"));
+
+    ctx.broadcaster.broadcastEvent("conv-1", userEntryEvent([IMG_REF]));
+    await new Promise((r) => setTimeout(r, 10));
+
+    // 文本失败不再吞媒体：replyMedia 照发
+    expect(ctx.media).toHaveLength(1);
+    expect(ctx.logger.error).toHaveBeenCalled();
   });
 });
