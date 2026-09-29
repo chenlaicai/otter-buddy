@@ -1,5 +1,5 @@
 /**
- * F20260928mrui：记忆召回结果结构化分组。
+ * F20260929mrui：记忆召回结果结构化分组。
  *
  * 搭档原话：「我输入关键字，那召回的是相关的一些东西，而这些东西，
  * 我要能看到数据结构，而不是零散的一堆」——按来源结构归组：
@@ -142,7 +142,7 @@ export function groupResults(entries: MemoryEntryDTO[], contextEntries: MemoryEn
  * 语义：含今天的 N 个自然日——锚点为「当日本地 00:00 −（N−1）天」。
  * 初版误用 now−（N−1）天（滚动窗口错位）：today 算出当前时刻，而 SQL 过滤是
  * created_at >= ?（sqlite-memory-repository created_at 子句），历史记忆恒空——
- * 检视发现 2（PR #1199 review）修正为自然日起点，见 F20260928mrui 文档「审视处置」。
+ * 检视发现 2（PR #1199 review）修正为自然日起点，见 F20260929mrui 文档「审视处置」。
  */
 export function resolveCreatedAfter(preset: string, now = Date.now()): string | undefined {
   if (!preset || preset === 'all') return undefined

@@ -246,7 +246,7 @@ export function searchMemory(params: {
   conversationId?: string;
   detail_level?: 'summary' | 'snippet' | 'full';
   library?: string;
-  /** F20260928mrui：多条件查询补齐（后端 F20260803fbit/F20260805rbrg/F20260812mrcq 已支持，UI 本次暴露） */
+  /** F20260929mrui：多条件查询补齐（后端 F20260803fbit/F20260805rbrg/F20260812mrcq 已支持，UI 本次暴露） */
   content_type?: string[];
   created_after?: string;
   expand_context?: boolean;

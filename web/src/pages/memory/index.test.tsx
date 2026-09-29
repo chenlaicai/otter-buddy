@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 /**
- * 记忆召回页面（F20260928mrui 重构，前称记忆搜索）测试：
+ * 记忆召回页面（F20260929mrui 重构，前称记忆搜索）测试：
  *
  * 1. #576 冒烟（保留）：初始态非空——最近记忆列表 / 显式空态文案 / 静默降级
- * 2. F20260928mrui：多条件查询面板渲染（内容类型多选/时间范围/对话过滤/高级开关）
- * 3. F20260928mrui：搜索请求携带新参数（content_type/created_after/expand_context/debug）
- * 4. F20260928mrui：结果结构化分组——doc 聚合（chunk 归拢）/ conversation 时间线 / 独立条目
- * 5. F20260928mrui：数据结构面板（showStructure 开关联动每条展开）
+ * 2. F20260929mrui：多条件查询面板渲染（内容类型多选/时间范围/对话过滤/高级开关）
+ * 3. F20260929mrui：搜索请求携带新参数（content_type/created_after/expand_context/debug）
+ * 4. F20260929mrui：结果结构化分组——doc 聚合（chunk 归拢）/ conversation 时间线 / 独立条目
+ * 5. F20260929mrui：数据结构面板（showStructure 开关联动每条展开）
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
@@ -69,7 +69,7 @@ function render() {
   act(() => { root.render(<MemorySearchPage />) })
 }
 
-describe('结果操作交互（F20260928mrui 补：搭档终审要求，点击 → 断言请求 + 弹窗/状态响应）', () => {
+describe('结果操作交互（F20260929mrui 补：搭档终审要求，点击 → 断言请求 + 弹窗/状态响应）', () => {
   /** 操作端点精确 mock：捕获全部请求（url/method/body）供断言 */
   function mockWithActions() {
     const calls: { url: string; method: string; body?: string }[] = []
@@ -237,7 +237,7 @@ describe('记忆召回页面初始态冒烟（#576，保留）', () => {
   })
 })
 
-describe('多条件查询面板（F20260928mrui）', () => {
+describe('多条件查询面板（F20260929mrui）', () => {
   it('渲染内容类型多选、时间范围、对话过滤与高级开关', async () => {
     mockRoutes()
     render()
@@ -313,16 +313,16 @@ const MIXED_RESULT = {
   entries: [
     { id: 'm1', layer: 'historical', contentType: 'message', sourceId: 'msg-1', sourceTable: 'messages', conversationId: 'convA', granularity: 'fine', content: '消息一', metadata: null, createdAt: '2026-09-02T09:00:00Z', score: 0.9, source: 'both', snippet: '消息<b>一</b>' },
     { id: 'm2', layer: 'historical', contentType: 'message', sourceId: 'msg-2', sourceTable: 'messages', conversationId: 'convA', granularity: 'fine', content: '消息二', metadata: null, createdAt: '2026-09-03T10:00:00Z', score: 0.7, source: 'fts', snippet: '消息<b>二</b>' },
-    { id: 'chunk1', layer: 'document', contentType: 'feature_chunk', sourceId: 'F20260928mrui', sourceTable: 'features', conversationId: null, granularity: 'fine', content: '分段一', metadata: { chunk_index: 1, doc_title: '记忆召回界面重构', heading_path: ['设计', '分组'] }, createdAt: '2026-09-20T00:00:00Z', score: 0.8, source: 'fts', snippet: '分段<b>一</b>' },
-    { id: 'chunk0', layer: 'document', contentType: 'feature_chunk', sourceId: 'F20260928mrui', sourceTable: 'features', conversationId: null, granularity: 'fine', content: '分段零', metadata: { chunk_index: 0, doc_title: '记忆召回界面重构' }, createdAt: '2026-09-20T00:00:00Z', score: 0.6, source: 'fts', snippet: '分段<b>零</b>' },
+    { id: 'chunk1', layer: 'document', contentType: 'feature_chunk', sourceId: 'F20260929mrui', sourceTable: 'features', conversationId: null, granularity: 'fine', content: '分段一', metadata: { chunk_index: 1, doc_title: '记忆召回界面重构', heading_path: ['设计', '分组'] }, createdAt: '2026-09-20T00:00:00Z', score: 0.8, source: 'fts', snippet: '分段<b>一</b>' },
+    { id: 'chunk0', layer: 'document', contentType: 'feature_chunk', sourceId: 'F20260929mrui', sourceTable: 'features', conversationId: null, granularity: 'fine', content: '分段零', metadata: { chunk_index: 0, doc_title: '记忆召回界面重构' }, createdAt: '2026-09-20T00:00:00Z', score: 0.6, source: 'fts', snippet: '分段<b>零</b>' },
     { id: 'fact1', layer: 'working', contentType: 'fact', sourceId: 'f-1', sourceTable: 'facts', conversationId: null, granularity: 'coarse', content: '事实条目', metadata: null, createdAt: '2026-09-10T00:00:00Z', score: 0.5, source: 'vec' },
   ],
   contextEntries: [
-    { id: 'ctx0', layer: 'document', contentType: 'feature_chunk', sourceId: 'F20260928mrui', sourceTable: 'features', conversationId: null, granularity: 'fine', content: '邻域分段', metadata: { chunk_index: 2 }, createdAt: '2026-09-20T00:00:00Z', score: 0, source: 'context-expand' },
+    { id: 'ctx0', layer: 'document', contentType: 'feature_chunk', sourceId: 'F20260929mrui', sourceTable: 'features', conversationId: null, granularity: 'fine', content: '邻域分段', metadata: { chunk_index: 2 }, createdAt: '2026-09-20T00:00:00Z', score: 0, source: 'context-expand' },
   ],
 }
 
-describe('结果结构化分组（F20260928mrui 核心）', () => {
+describe('结果结构化分组（F20260929mrui 核心）', () => {
 
   it('doc 命中按文档归组（chunk 归拢），conversation 命中聚合成时间线，fact 独立卡片', async () => {
     mockRoutes(MIXED_RESULT)
@@ -335,7 +335,7 @@ describe('结果结构化分组（F20260928mrui 核心）', () => {
     const text = container.textContent!
     // doc 组：标题 + 命中口径（检视发现 5：邻域不计命中——2 主命中 + 1 邻域）
     expect(text).toContain('记忆召回界面重构')
-    const docCard = container.querySelector('[data-group-id="F20260928mrui"]')
+    const docCard = container.querySelector('[data-group-id="F20260929mrui"]')
     expect(docCard).toBeTruthy()
     expect(docCard!.textContent).toContain('2 命中 + 1 邻域')
     expect(docCard!.querySelectorAll('[data-entry-id]')).toHaveLength(3)

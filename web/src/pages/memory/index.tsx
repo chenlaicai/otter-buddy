@@ -39,7 +39,7 @@ const layerLabels: Record<string, string> = {
   document: '文档层',
 }
 
-/** F20260928mrui：contentType 多选清单（与 src/entities/memory/memory-entry.ts 七类对齐） */
+/** F20260929mrui：contentType 多选清单（与 src/entities/memory/memory-entry.ts 七类对齐） */
 const CONTENT_TYPE_OPTIONS = [
   { value: 'message', label: '消息' },
   { value: 'fact', label: '事实' },
@@ -93,7 +93,7 @@ function TerminologyCard({ entry }: { entry: MemoryEntryDTO }) {
   )
 }
 
-/** F20260928mrui：debug 中间分值（召回诊断，高级开关开启时返回） */
+/** F20260929mrui：debug 中间分值（召回诊断，高级开关开启时返回） */
 function DebugScores({ debug }: { debug: NonNullable<MemoryEntryDTO['debug']> }) {
   const rows = [
     ['rrfScore', debug.rrfScore],
@@ -157,7 +157,7 @@ function hitCountLabel(group: Extract<ResultGroup, { kind: 'doc' }>): string {
 }
 
 /**
- * F20260928mrui：单条结果（组内行）。
+ * F20260929mrui：单条结果（组内行）。
  * dataStructure 开关（外部组级/全局控制）展开完整数据结构面板。
  */
 function ResultItem({ entry, showStructure, onExpand, onSimilar, onFlag }: {
@@ -316,7 +316,7 @@ export default function MemorySearchPage() {
   const [granularity, setGranularity] = useState('')
   const [detailLevel, setDetailLevel] = useState<'summary' | 'snippet' | 'full'>('snippet')
   const [library, setLibrary] = useState('')
-  /** F20260928mrui：多条件查询状态 */
+  /** F20260929mrui：多条件查询状态 */
   const [contentTypes, setContentTypes] = useState<string[]>([])
   const [timePreset, setTimePreset] = useState('all')
   const [conversationIdFilter, setConversationIdFilter] = useState('')
@@ -394,7 +394,7 @@ export default function MemorySearchPage() {
     }
   }
 
-  /** 结构化分组（F20260928mrui 核心） */
+  /** 结构化分组（F20260929mrui 核心） */
   const resultGroups = useMemo(
     () => results ? groupResults(results, contextResults) : [],
     [results, contextResults],
@@ -482,7 +482,7 @@ export default function MemorySearchPage() {
         </div>
       )}
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
-        {/* 检索条件面板（F20260928mrui：多条件查询） */}
+        {/* 检索条件面板（F20260929mrui：多条件查询） */}
         <aside className="w-64 glass rounded-3xl flex flex-col flex-shrink-0 overflow-y-auto p-4 space-y-4">
           <div style={{ fontSize: '16px', fontWeight: 600 }}>记忆召回</div>
 
@@ -639,7 +639,7 @@ export default function MemorySearchPage() {
           </div>
         </aside>
 
-        {/* 结果区：结构化分组呈现（F20260928mrui 核心） */}
+        {/* 结果区：结构化分组呈现（F20260929mrui 核心） */}
         <main className="flex-1 glass rounded-3xl overflow-y-auto p-6">
           {loading && (
             <div className="flex flex-col items-center justify-center h-full gap-3">
