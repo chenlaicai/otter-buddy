@@ -246,6 +246,11 @@ export function searchMemory(params: {
   conversationId?: string;
   detail_level?: 'summary' | 'snippet' | 'full';
   library?: string;
+  /** F20260929mrui：多条件查询补齐（后端 F20260803fbit/F20260805rbrg/F20260812mrcq 已支持，UI 本次暴露） */
+  content_type?: string[];
+  created_after?: string;
+  expand_context?: boolean;
+  debug?: boolean;
 }): Promise<SearchResultDTO> {
   const qs = new URLSearchParams()
   qs.set('query', params.query)
@@ -255,6 +260,10 @@ export function searchMemory(params: {
   if (params.conversationId) qs.set('conversationId', params.conversationId)
   if (params.detail_level) qs.set('detail_level', params.detail_level)
   if (params.library) qs.set('library', params.library)
+  if (params.content_type?.length) qs.set('content_type', params.content_type.join(','))
+  if (params.created_after) qs.set('created_after', params.created_after)
+  if (params.expand_context) qs.set('expand_context', 'true')
+  if (params.debug) qs.set('debug', 'true')
   return request(`/memory/search?${qs}`)
 }
 
@@ -297,7 +306,7 @@ export function flagMemory(id: string, flagged: boolean): Promise<{ status: stri
   return request(`/memory/${id}/flag`, { method: 'PATCH', body: JSON.stringify({ flagged }) })
 }
 
-/** #576（F20260901emps）：最近记忆——记忆搜索页初始态数据源 */
+/** #576（F20260901emps）：最近记忆——记忆召回页初始态数据源 */
 export function getRecentMemory(limit = 10): Promise<{ entries: MemoryEntryDTO[]; total: number }> {
   return request(`/memory/recent?limit=${limit}`)
 }
@@ -487,6 +496,50 @@ export function startWeixinLogin(): Promise<WeixinLoginSessionDTO> {
   return request('/weixin/login', { method: 'POST' })
 }
 
+// ── F20260928fsqr：飞书扫码接入 ──
+
+/** 飞书登录会话（SDK registerApp 无 scanned 态——waiting_scan 直达终态） */
+export interface FeishuLoginSessionDTO {
+  id: string
+  status: 'pending' | 'waiting_scan' | 'success' | 'expired' | 'error' | 'cancelled'
+  qrcodePng?: string
+  qrcodeUrl?: string
+  appId?: string
+  ownerOpenId?: string
+  error?: string
+  createdAt: string
+}
+
+export interface FeishuAppDTO {
+  /** 掩码 appId（cli_a****z9k2；完整凭证不出网） */
+  appId: string
+  ownerOpenId?: string
+  name?: string
+  addedAt: string
+  hasSecret: boolean
+  assistantLine?: { conversationId: string }
+}
+
+export function startFeishuLogin(name?: string): Promise<FeishuLoginSessionDTO> {
+  return request('/feishu/login', { method: 'POST', ...(name && { body: JSON.stringify({ name }) }) })
+}
+
+export function getFeishuLogin(id: string): Promise<FeishuLoginSessionDTO> {
+  return request(`/feishu/login/${id}`)
+}
+
+export function cancelFeishuLogin(id: string): Promise<{ ok: boolean }> {
+  return request(`/feishu/login/${id}/cancel`, { method: 'POST' })
+}
+
+export function listFeishuApps(): Promise<FeishuAppDTO[]> {
+  return request('/feishu/apps')
+}
+
+export function deleteFeishuApp(appId: string): Promise<{ ok: boolean }> {
+  return request(`/feishu/apps/${appId}`, { method: 'DELETE' })
+}
+
 export function getWeixinLogin(id: string): Promise<WeixinLoginSessionDTO> {
   return request(`/weixin/login/${id}`)
 }
@@ -656,7 +709,7 @@ export function getRhiScore(signal?: AbortSignal): Promise<RhiScoreDTO> {
 
 export interface ChannelStatusDTO {
   channelId: string;
-  kind: "weixin" | "feishu";
+  kind: "weixin" | "feishu" | (string & {});
   state: {
     kind: string;
     since: number;

@@ -60,6 +60,8 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
     private readonly logger: Logger,
     private readonly tokenManager: FeishuAccessTokenManager,
     private readonly registry?: ChannelStatusRegistry,
+    /** F20260928fsqr：多 app 并行时每线一个 registry 条目（缺省 "feishu" 存量单 app 兼容） */
+    private readonly channelId: string = "feishu",
   ) {
     this.eventDispatcher = new EventDispatcher({
       encryptKey: config.encryptKey,
@@ -110,7 +112,8 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
     extra?: { errorMsg?: string; reconnectAttempts?: number },
   ): void {
     if (!this.registry) return;
-    const channelId = "feishu";
+    // F20260928fsqr：channelId 构造注入（多 app 各一条目；存量单 app 缺省 "feishu"）
+    const channelId = this.channelId;
     const now = Date.now();
     switch (kind) {
       case "running":

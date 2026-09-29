@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { showToast } from '../../components/Toast'
 import { QRCodeLoginCard } from '../../components/weixin/QRCodeLoginCard'
+import { FeishuQRCodeLoginCard } from '../../components/feishu/FeishuQRCodeLoginCard'
 import * as api from '../../api/client'
-import type { ChannelStatusDTO, WeixinAccountDTO } from '../../api/client'
+import type { ChannelStatusDTO, WeixinAccountDTO, FeishuAppDTO } from '../../api/client'
 
 const POLL_INTERVAL_MS = 5000
 
@@ -34,6 +35,23 @@ export default function ImPage() {
   // F20260921imux：扫码确认后发现的同号冲突（旧账号）——等用户裁决覆盖/取消
   const [duplicateAccount, setDuplicateAccount] = useState<{ id: string; hasLine: boolean } | null>(null)
   const [pendingAccountId, setPendingAccountId] = useState<string | null>(null)
+
+  // F20260928fsqr：飞书扫码接入——step 'idle' → 'naming'（起名，流入 appPreset 预填）→ 'connecting'（扫码）
+  const [feishuFlowStep, setFeishuFlowStep] = useState<'idle' | 'naming' | 'connecting'>('idle')
+  const [feishuNameValue, setFeishuNameValue] = useState('')
+  const [feishuApps, setFeishuApps] = useState<FeishuAppDTO[]>([])
+
+  const loadFeishuApps = useCallback(async () => {
+    try {
+      setFeishuApps(await api.listFeishuApps())
+    } catch {
+      // 后端未启用扫码接入（旧版本）时静默——入口仅在有响应时展示账号列表
+    }
+  }, [])
+
+  useEffect(() => {
+    loadFeishuApps()
+  }, [loadFeishuApps])
 
   const resetFlow = () => {
     setFlowStep('idle')
@@ -228,7 +246,22 @@ export default function ImPage() {
     return weixinEntries[0]
   }
 
-  const feishuStatus = channelStatus.find(c => c.kind === 'feishu')
+  /** 飞书聚合状态：扫码线多实例（kind=feishu-bot:*），聚合优先级照微信先例
+   *  F20260929fsqr（delta 检视建议 6）：静态 kind='feishu' 键随退役消失，纯扫码模式下
+   *  原单键 find 恒 miss → 徽标恒「未配置」——改前缀聚合。
+   *  O1 注：无 token_stale 档——飞书 WS 模式当前不可达该态（long-connection-client 仅报
+   *  running/error_backoff）；未来若引入 token_stale 需在此补档 */
+  const getFeishuAggregateStatus = (): ChannelStatusDTO | undefined => {
+    const feishuEntries = channelStatus.filter(c => c.kind.startsWith('feishu-bot:'))
+    if (feishuEntries.length === 0) return undefined
+    const hasError = feishuEntries.find(e => e.state.kind === 'error_backoff')
+    if (hasError) return hasError
+    const hasDegraded = feishuEntries.find(e => e.state.kind === 'running' && e.state.degraded)
+    if (hasDegraded) return hasDegraded
+    return feishuEntries[0]
+  }
+
+  const feishuStatus = getFeishuAggregateStatus()
   const weixinStatus = getWeixinAggregateStatus()
 
   return (
@@ -411,13 +444,20 @@ export default function ImPage() {
               </span>
             </div>
 
-            {/* 三步引导 */}
+            {/* 三步引导：未配置态指向扫码流程，已配置态指向加好友开聊（F20260929fsqr 扫码文案对齐） */}
             <div className="space-y-2.5 mb-4">
-              {[
-                '打开飞书，搜索你创建的自建应用机器人',
-                '把机器人加为好友（或拉进私聊）',
-                '直接发条消息——自动开助理对话，免绑定',
-              ].map((step, i) => (
+              {(feishuStatus
+                ? [
+                    '打开飞书，搜索你创建的自建应用机器人',
+                    '把机器人加为好友（或拉进私聊）',
+                    '直接发条消息——自动开助理对话，免绑定',
+                  ]
+                : [
+                    '点下方「扫码接入飞书」，给助理起个名字',
+                    '用飞书扫二维码，确认页可选「创建新应用」或「选择已有应用」',
+                    '完成后在飞书搜索助理名，加好友即用',
+                  ]
+              ).map((step, i) => (
                 <div key={i} className="flex items-start gap-2.5">
                   <span className="w-5 h-5 rounded-full bg-teal-50 text-teal-600 text-[11px] font-semibold flex items-center justify-center flex-shrink-0 mt-0.5">
                     {i + 1}
@@ -428,7 +468,7 @@ export default function ImPage() {
             </div>
 
             <p className="text-sm text-stone-600">
-              {feishuStatus ? '应用凭证已配置' : '未配置飞书凭证，请在 config.yaml 中配置 feishu 段'}
+              {feishuStatus ? '应用凭证已配置' : '未配置飞书凭证——扫码即可接入，无需任何凭证'}
             </p>
             {/* #663：掩码 appId 展示 */}
             {feishuStatus?.appIdMasked && (
@@ -442,6 +482,85 @@ export default function ImPage() {
                 )}
               </p>
             )}
+
+            {/* F20260928fsqr：扫码接入（registerApp 免凭证）——起名 + 扫码两步 */}
+            {feishuFlowStep === 'naming' && (
+              <div className="mt-4 space-y-3">
+                <input
+                  value={feishuNameValue}
+                  onChange={(e) => setFeishuNameValue(e.target.value)}
+                  placeholder="给助理起个名字（如 joy 的小助手）"
+                  maxLength={60}
+                  className="w-full px-3 py-2 text-sm rounded-xl border border-stone-200 bg-white/60 focus:outline-none focus:ring-2 focus:ring-teal-400/40"
+                />
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setFeishuFlowStep('idle')} className="text-xs text-stone-400 hover:text-stone-600">
+                    取消
+                  </button>
+                  <button
+                    onClick={() => setFeishuFlowStep('connecting')}
+                    disabled={!feishuNameValue.trim()}
+                    className="px-4 py-2 text-sm text-white rounded-xl bg-teal-500 hover:bg-teal-600 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    下一步：扫码
+                  </button>
+                </div>
+              </div>
+            )}
+            {feishuFlowStep === 'connecting' && (
+              <div className="mt-4 space-y-3">
+                <FeishuQRCodeLoginCard
+                  lineName={feishuNameValue.trim()}
+                  onLoginConfirmed={() => {
+                    setFeishuFlowStep('idle')
+                    setFeishuNameValue('')
+                    loadFeishuApps()
+                  }}
+                />
+                <button onClick={() => setFeishuFlowStep('naming')} className="text-xs text-stone-400 hover:text-stone-600">
+                  ← 返回修改名字
+                </button>
+              </div>
+            )}
+            {feishuFlowStep === 'idle' && (
+              <button
+                onClick={() => setFeishuFlowStep('naming')}
+                className="mt-4 px-4 py-2 text-sm text-white rounded-xl bg-teal-500 hover:bg-teal-600 transition"
+              >
+                + 扫码接入飞书
+              </button>
+            )}
+
+            {/* 扫码账号列表（多 app 并行；删除入口） */}
+            {feishuApps.length > 0 && (
+              <div className="mt-4 space-y-2">
+                <p className="text-xs text-stone-400">扫码接入的账号</p>
+                {feishuApps.map((app) => (
+                  <div key={app.appId} className="flex items-center justify-between px-3 py-2 rounded-xl bg-white/40">
+                    <div className="min-w-0">
+                      <p className="text-sm text-stone-700 truncate">{app.name ?? '未命名助理'}</p>
+                      <p className="text-[11px] text-stone-400 font-mono">{app.appId}{app.assistantLine ? ' · 已建线' : ' · 未建线'}</p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        if (!window.confirm(`删除「${app.name ?? app.appId}」？将停止其消息通道与助理线绑定。`)) return
+                        try {
+                          await api.deleteFeishuApp(app.appId)
+                          showToast('已删除', 'success')
+                          loadFeishuApps()
+                        } catch (err) {
+                          showToast(err instanceof Error ? err.message : '删除失败', 'error')
+                        }
+                      }}
+                      className="text-xs text-stone-400 hover:text-red-500 flex-shrink-0"
+                    >
+                      删除
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <p className="text-xs text-stone-400 mt-4 leading-relaxed">
               群聊绑定入口已移除；存量群绑定继续工作（详见 Web 对话列表）。
             </p>

@@ -6,7 +6,7 @@
  */
 
 /** 通道类型标识 */
-export type ChannelKind = "weixin" | "feishu";
+export type ChannelKind = "weixin" | "feishu" | (string & {}); // F20260929fsqr：扫码线多实例 kind=feishu-bot:<掩码>（字面量联合保留自动补全，string 收纳多实例键）
 
 /**
  * 通道运行时状态（状态机）。

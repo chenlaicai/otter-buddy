@@ -39,10 +39,12 @@ import { SqliteStatsQuery } from "@frameworks/db/stats/sqlite-stats-query";
 import { buildOtterToolClient } from "./bootstrap/clients";
 import {
   createAgentGateway, createDispatchChainEngine, initAgentAndScheduler,
-  createFeishuBundle, initPlatforms, setupFeishu, type FeishuBundle,
+  initPlatforms,
   hotStartWeixinAccount, ensureWeixinConfig,
 } from "./bootstrap/platforms";
 import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
+import { PartnerResolver } from "@usecases/im/partner-resolver";
+import { setupFeishuScanChannels } from "./bootstrap/feishu-scan";
 import { WeixinAccountStore } from "@frameworks/weixin/account-store";
 import { WeixinLoginSessionManager } from "@frameworks/weixin/login-session-manager";
 import type { WeixinPollingChannel } from "@frameworks/weixin/polling-channel";
@@ -99,8 +101,6 @@ export interface BuildAppOptions {
   staticRoot?: string | false;
   /** 同步 apiKey 到 ~/.pi/agent/auth.json（全局用户态副作用），默认 true；测试必须传 false */
   syncAuth?: boolean;
-  /** 启用飞书长连接，默认 !!config.feishu */
-  enableFeishu?: boolean;
   /** 启动调度器，默认 true */
   startScheduler?: boolean;
   /** F20260825sgnw 审视发现 1：RHI 扫描 worker 启动开关（对齐 startScheduler 模式；测试/CI 可关） */
@@ -311,19 +311,19 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const agentMetrics = new AgentMetrics(metricsRegistry);
 
   // ── 调度引擎 + 平台集成 ──
-  const dispatchChainEngine = createDispatchChainEngine(repos, uc, config, logger, { agentMetrics, agentGateway });
+  const globalPartnerResolver = new PartnerResolver(undefined, config.weixin?.partnerUserId); // F20260928fsqr：渲染 resolver 外置——扫码首号运行时写入。F20260929fsqr：feishu.partnerOpenId 随静态段退役移除，飞书搭档锚一律扫码首号
+  const dispatchChainEngine = createDispatchChainEngine(repos, uc, config, logger, { agentMetrics, agentGateway, partnerResolver: globalPartnerResolver });
   /** issue #281：广播总线无条件创建（平台无关），飞书出站作为 channel 注册——
    *  旧实现 messageBroadcaster: feishu?.broadcaster 导致 web-only 部署流式链路断流 */
   const messageBroadcaster = new MessageBroadcaster(logger);
-  const feishuEnabled = options.enableFeishu ?? !!config.feishu;
-  const feishu: FeishuBundle | undefined = feishuEnabled && config.feishu
-    ? createFeishuBundle({
-      feishuConfig: config.feishu, uc, dispatchChainEngine, logger,
-      webBaseUrl: config.web?.baseUrl, messageBroadcaster,
-      // F20260828fsyc：出站标签解析用户全局名（settingsRepo 可选注入,web-only 部署不传也不炸）
-      settingsRepo: repos.settings,
-    })
-    : undefined;
+  // F20260929fsqr（搭档决策）：feishu 静态凭证段退役——扫码双模式（新建/选已有）为唯一接入路径。
+  // 存量配置检测到时告警提示迁移。
+  if (config.feishu) {
+    logger.warn(
+      "Feishu static config is deprecated: scan-based onboarding (create new / select existing app) is now the only path. " +
+      "Remove the `feishu` section from config.yaml and re-onboard via IM page QR scan (existing app: select it on the confirm page).",
+    );
+  }
 
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics: schedulerMetrics, agentMetrics, dispatchChainEngine, db, appConfig: config, modelPool, otterConfigProvider });
   // F20260920uhuc：统一交接入口回填（otter tool client 延迟绑定）
@@ -448,6 +448,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   });
 
   // ── HTTP 层 ──
+  // F20260928fsqr：飞书扫码接入（装配在 bootstrap/feishu-scan.ts）
+  const feishuScan = setupFeishuScanChannels({ config, uc, repos, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, registry, signalRouter, globalPartnerResolver });
+
   // PR-2：创建 profile 聚合 use case（warmup 后 ResourceLoader 可用）
   const resourceLoader = agentGateway.getResourceLoader();
   const statsQuery = new SqliteStatsQuery(db);
@@ -514,12 +517,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     attachmentRepo: repos.attachment,
     // 微信连接管理（issue #566）
     weixinLoginSessions,
+    feishuScan: { ...feishuScan, onAppDeleted: async (appId) => { if (!disposed) feishuScan.onAppDeleted(appId); } },
     weixinAccountStore,
     // F20260920imax：扫码后按名开助理线（必填名；闭环封装 ensureConnection + 开户）
     // F20260928wxid：userName 不走本闭包——controller 建线后直接写 metadata（与 PATCH user-name 对称）
     provisionWeixinAssistantLine: async (accountId, name) => {
-      // 微信连接 externalId = 账号 id（与消息 ingress 的 ensureConnection 同键，
-      // 幂等汇合到同一 connection）
+      // 微信连接 externalId = 账号 id（与消息 ingress 的 ensureConnection 同键，幂等汇合）
       const connection = await uc.manageConnection.ensureConnection(accountId, accountId, "weixin");
       // F20260922wxeg：建线即刻记录出站目标（扫码人 ilinkUserId）——不依赖
       // 「用户先发一条消息」才恢复出站（无消息期也从 Web 侧发起对话的场景）
@@ -588,17 +591,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   // 飞书长连接启动（原 startServer 内的副作用，装配语义上属于"启动平台集成"）
   // #460：捕获 stopFeishu 句柄接入 dispose 链（防 WSClient 重连阻止退出）
-  let feishuStop: ReturnType<typeof setupFeishu> | undefined;
-  if (feishu) {
-    const feishuBundle = setupFeishu({ appConfig: config, uc, repos, agentInvoker, feishu, messageBroadcaster, logger, registry });
-    feishuStop = feishuBundle;
-    // F20260916fst4：首哑信号消费依赖挂接——setupFeishu 内构建的 AgentDispatchService
-    // 晚于 agentInvoker，setter 延迟挂接（bootstrap 时序补偿；web-only 部署无 feishu 时
-    // 首哑降级仅日志，回到现状静默终链）
-    if (feishuBundle) {
-      agentInvoker.attachAgentDispatchService(feishuBundle.agentDispatchService);
-    }
-  }
+  // F20260929fsqr：静态线退役——启动句柄仅由扫码线持有（feishu-scan.ts），dispose 链不再有 feishuStop
 
   /** 等待所有 ensure 完成后再启动 scheduler，确保新创建的 scheduled task 被遍历到。
    *  与旧 main() 的差异：buildApp 会 await 这两个 ensure 再返回（确定性更高，无 LLM 调用、耗时极小）。 */
@@ -640,12 +633,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       if (disposed) return;
       disposed = true;
       // #460：停飞书长连接 WSClient（重连机制会阻止退出，根因之四）
-      feishuStop?.stopFeishu();
+      feishuScan.disposeAll(); // F20260929fsqr：扫码线持有全部飞书 WS 句柄，dispose 时统一停（原 feishuStop 随静态线退役）
       // F20260829wxch（#213 检视发现2）：停微信长轮询通道——否则 SIGINT/SIGTERM 时
       // fetch 挂到超时、notifyStop 不调用、服务端不知客户端已断
       weixinPollers?.forEach((p) => p.stop());
       // issue #566：web 登录热启动的轮询同样要停（dispose 单独数组）
       extraWeixinPollers.forEach((p) => p.stop());
+      // F20260928fsqr：扫码飞书运行时统一停（#460 同款——WSClient 重连阻退出 + 出站成对注销）
+      feishuScan.disposeAll();
       // F20260901chun：防御性清空通道状态注册表（防未来加事件监听/定时器泄漏）
       registry?.clear();
       schedulerService.stop();

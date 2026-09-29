@@ -22,9 +22,9 @@ test.describe('SPA 路由验证', () => {
   test('深链接直达 /memory 不 404', async ({ page }) => {
     await page.goto('/memory')
     await expect(page).toHaveURL(/\/memory/)
-    // 页面应有「记忆搜索」标题或输入框
+    // 页面应有「记忆召回」标题或输入框
     await expect(page.locator('header')).toBeVisible()
-    await expect(page.getByText('记忆搜索')).toBeVisible()
+    await expect(page.getByText('记忆召回')).toBeVisible()
   })
 
   test('深链接直达 /skills 不 404', async ({ page }) => {
@@ -70,12 +70,12 @@ test.describe('SPA 路由验证', () => {
     await expect(header).toBeVisible()
     const headerHandleBefore = await header.elementHandle()
 
-    // 点击「记忆搜索」
-    await page.getByText('记忆搜索').click()
+    // 点击「记忆召回」
+    await page.getByText('记忆召回').click()
     await expect(page).toHaveURL(/\/memory/)
     await expect(header).toBeVisible()
     expect(await headerHandleBefore!.evaluate(el => el.isConnected)).toBe(true)
-    await expect(page.getByText('搜索关键词')).toBeVisible()
+    await expect(page.getByText('召回关键词')).toBeVisible()
 
     // 点击「设置」
     await page.getByRole('link', { name: '设置' }).click()

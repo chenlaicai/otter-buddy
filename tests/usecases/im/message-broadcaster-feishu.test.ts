@@ -36,7 +36,7 @@ function createBroadcaster(webBaseUrl?: string, settingsRepo?: Pick<SettingsRepo
   const broadcaster = new MessageBroadcaster(logger);
   broadcaster.registerOutboundChannel(
     "feishu",
-    new FeishuMessageChannel(manageConnection, feishuGateway, logger, webBaseUrl, settingsRepo),
+    new FeishuMessageChannel({ manageConnection, feishuGateway, logger, webBaseUrl, settingsRepo }),
   );
   return { broadcaster, manageConnection, feishuGateway, logger };
 }
@@ -44,7 +44,7 @@ function createBroadcaster(webBaseUrl?: string, settingsRepo?: Pick<SettingsRepo
 /** 把 manageConnection mock 设置为有飞书绑定（#591 重构后出站通道存 Map，
  *  取通道改走 outboundChannels.get） */
 function bindFeishu(broadcaster: MessageBroadcaster, externalId = "chat-123", externalType = "feishu") {
-  const manageConnection = (broadcaster as any).outboundChannels.get("feishu")["manageConnection"];
+  const manageConnection = (broadcaster as any).outboundChannels.get("feishu").o.manageConnection;
   manageConnection.getSessionByConversation.mockResolvedValue({ connectionId: "conn-1" });
   manageConnection.getConnection.mockResolvedValue({ externalId, externalType });
 }

@@ -140,6 +140,8 @@ export interface AppConfig {
     encryptKey?: string;
     /** 搭档（本实例主人）的飞书 open_id（F20260826fpbd）——搭档身份静态锚定，未配置时降级动态推断 */
     partnerOpenId?: string;
+    /** F20260929fsqr：静态凭证段退役标记——读入兼容，启动侧不再建静态线（扫码双模式为唯一路径） */
+    deprecated?: boolean;
   };
   /** 微信通道（issue #565）——协议直连 ilink，无需 appId/Secret（扫码授权） */
   weixin?: {
@@ -325,6 +327,8 @@ interface RawConfig {
     encryptKey?: string;
     /** 搭档（本实例主人）的飞书 open_id（F20260826fpbd） */
     partnerOpenId?: string;
+    /** F20260826fpbd（已退役）：旧静态凭证段——扫码双模式为唯一接入路径 */
+    deprecated?: boolean;
   };
   weixin?: {
     /** ilink 网关（默认 https://ilinkai.weixin.qq.com） */
@@ -526,6 +530,9 @@ function buildCircuitBreakerConfig(raw: RawConfig): AppConfig["circuitBreaker"] 
   };
 }
 
+/** F20260929fsqr（搭档决策）：feishu 静态凭证段退役——扫码双模式（新建/选已有）为唯一接入路径。
+ *  存量 config.yaml 的 feishu 段读入保留（向后兼容不炸）但不再启动静态线；
+ *  检测到时发迁移告警提示改用扫码接入。 */
 function buildFeishuConfig(raw: RawConfig): AppConfig["feishu"] {
   if (!raw.feishu?.appId || !raw.feishu?.appSecret) {
     return undefined;
@@ -535,6 +542,8 @@ function buildFeishuConfig(raw: RawConfig): AppConfig["feishu"] {
     appSecret: raw.feishu.appSecret,
     encryptKey: raw.feishu.encryptKey ?? undefined,
     partnerOpenId: raw.feishu.partnerOpenId?.trim() || undefined,
+    /** 静态段已退役：仅存读兼容，启动侧不再消费（见 app.ts） */
+    deprecated: true,
   };
 }
 

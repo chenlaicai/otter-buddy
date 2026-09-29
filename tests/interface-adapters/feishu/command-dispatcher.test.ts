@@ -28,6 +28,7 @@ describe("CommandDispatcher", () => {
     feishuGateway = {
       replyText: replyTextMock as any,
       replyMarkdown: vi.fn(),
+      replyImage: vi.fn(), // #902：媒体出站接口新增，命令链不用但接口必实现
     };
     logger = createTestLogger();
     dispatcher = new CommandDispatcher(manageConnection, entryRepo, feishuGateway, logger);

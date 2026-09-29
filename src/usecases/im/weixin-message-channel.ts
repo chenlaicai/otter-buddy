@@ -7,7 +7,11 @@ import type { Logger } from "@usecases/ports/logger";
 import type { SSEEvent } from "@contract/sse/events";
 import type { OutboundEventChannel } from "./message-broadcaster";
 import type { Connection } from "@entities/im/connection";
+import type { AttachmentRef } from "@entities/conversation/attachment";
+import type { AttachmentRepository } from "@usecases/conversation/attachment-repository";
+import type { SendEntry } from "@usecases/conversation/send-entry";
 import { projectForChannel } from "@entities/conversation/message-body-projection";
+import path from "node:path";
 
 /**
  * 微信出站通道（issue #565，照 FeishuMessageChannel 模式）。
@@ -29,6 +33,13 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     private readonly logger: Logger,
     private readonly webBaseUrl?: string,
     private readonly settingsRepo?: Pick<SettingsRepository, "get">,
+    /** #902 媒体出站恢复（F20260913ctlv 删除后重注入）：附件实体查询（拿 filePath）
+     *  + speak entry 附件补拉；未注入时降级纯占位投影不阻塞（旧版 attachmentRepo 死参数语义纠正） */
+    private readonly attachmentDeps?: {
+      attachmentRepo: Pick<AttachmentRepository, "getByIds">;
+      entryReader: Pick<SendEntry, "getEntryById">;
+      storageRoot: string;
+    },
   ) {}
 
 
@@ -109,9 +120,10 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     }
   }
 
-  /** entry.user 出站：Web 用户消息同步到微信（防回环：仅投 source=web） */
+  /** entry.user 出站：Web 用户消息同步到微信（防回环：仅投 source=web）。
+   *  #902 媒体出站：事件自带 attachments（发射点已投影）直接消费 + 媒体真实投递 */
   private async deliverUserEntryToWeixin(conversationId: string, event: SSEEvent): Promise<void> {
-    const data = event.data as { body?: string; source?: string };
+    const data = event.data as { body?: string; source?: string; attachments?: AttachmentRef[] };
     if (!data.body) return;
     if (data.source !== "web") return;
 
@@ -124,22 +136,29 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     if (!target) return;
 
     const senderLabel = await this.resolveSenderLabel();
+    const attachments = data.attachments ?? [];
 
     const projected = projectForChannel(data.body, {
       webBaseUrl: this.webBaseUrl,
       conversationId,
+      ...(attachments.length > 0 && { attachments }),
     });
     try {
+      // 文本在前（含附件占位投影），媒体在后（r1-S1 拆分：媒体独立于文本 try）
       await this.weixinGateway.replyMarkdown(target, senderLabel, projected);
       this.logger.info("User entry synced to Weixin (web→weixin)", { conversationId });
     } catch (err) {
       this.logger.error("Failed to sync user entry to Weixin", err instanceof Error ? err : undefined, { conversationId });
     }
+    // r1-S1：文本失败时媒体仍发——per-item 失败在 sendAttachments 内部处理，不向上抛
+    await this.sendAttachments(target, attachments);
   }
 
-  /** entry.speak 出站：speak body 投影 + 纯文本投递（与飞书同构） */
+  /** entry.speak 出站：speak body 投影 + 纯文本投递（与飞书同构）。
+   *  #902 媒体出站：事件载荷无 attachments 时按 entryId 补拉（speak 工具暂无附件写入源）；
+   *  拉到则投影占位 + 媒体真实投递（CDN 上传，image/file/video 按 MIME 路由） */
   private async deliverSpeakToWeixin(conversationId: string, event: SSEEvent): Promise<void> {
-    const data = event.data as { body?: string; otterName?: string };
+    const data = event.data as { body?: string; otterName?: string; attachments?: AttachmentRef[]; entryId?: string };
     if (!data.body) return;
 
     const session = await this.manageConnection.getSessionByConversation(conversationId);
@@ -150,14 +169,67 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     const target = this.resolveTarget(connection.id, connection);
     if (!target) return;
 
+    const attachments = await this.resolveAttachments(data);
     const projected = projectForChannel(data.body, {
       webBaseUrl: this.webBaseUrl,
       conversationId,
+      ...(attachments.length > 0 && { attachments }),
     });
     try {
       await this.weixinGateway.replyMarkdown(target, data.otterName ?? "海獭", projected);
     } catch (err) {
       this.logger.error("Failed to broadcast speak to Weixin", err instanceof Error ? err : undefined, { conversationId });
+    }
+    // r1-S1：媒体投递独立于文本 try——文本失败时媒体仍发（同 user 路径）
+    await this.sendAttachments(target, attachments);
+  }
+
+  /** #902：附件解析——事件载荷自带 attachments 直接用；载荷缺席（entry.speak 现阶段
+   *  恒缺席）时按 entryId 补拉 entry 读出链。补拉失败/未注入依赖时空数组降级纯文本 */
+  private async resolveAttachments(data: { attachments?: AttachmentRef[]; entryId?: string }): Promise<AttachmentRef[]> {
+    if (data.attachments && data.attachments.length > 0) return data.attachments;
+    if (!data.entryId || !this.attachmentDeps) return [];
+    try {
+      const entry = await this.attachmentDeps.entryReader.getEntryById(data.entryId);
+      return entry?.attachments ?? [];
+    } catch (err) {
+      this.logger.warn("Weixin attachment backfill failed, degrading to text-only", {
+        entryId: data.entryId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [];
+    }
+  }
+
+  /** #902 媒体出站恢复（git 7bb98c6f sendAttachments 先例 + 两处修正）：逐个查实体拿
+   *  filePath（相对 storageRoot，拼绝对路径——旧版直传相对路径是 F20260913ctlv 前
+   *  的存储旧形态）后 replyMedia（CDN 上传按 MIME 路由 item）；单项失败降级占位继续 */
+  private async sendAttachments(target: string, attachments: AttachmentRef[]): Promise<void> {
+    if (attachments.length === 0) return;
+    if (!this.attachmentDeps) {
+      this.logger.debug("Weixin attachment send skipped: attachment deps not injected", { target });
+      return;
+    }
+    for (const att of attachments) {
+      try {
+        const [entity] = await this.attachmentDeps.attachmentRepo.getByIds([att.id]);
+        if (!entity) {
+          this.logger.warn("Weixin attachment not found, skip", { target, attachmentId: att.id });
+          continue;
+        }
+        const absPath = path.join(this.attachmentDeps.storageRoot, entity.filePath);
+        await this.weixinGateway.replyMedia(target, {
+          filePath: absPath,
+          fileName: att.originalName,
+          mimeType: att.mimeType,
+        });
+      } catch (err) {
+        this.logger.error("Weixin attachment send failed, placeholder remains in text", err instanceof Error ? err : undefined, {
+          target,
+          attachmentId: att.id,
+          fileName: att.originalName,
+        });
+      }
     }
   }
 
