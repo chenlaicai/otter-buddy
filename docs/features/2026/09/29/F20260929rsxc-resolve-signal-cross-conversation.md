@@ -50,9 +50,12 @@ signal-aging-worker 发现悬置信号（objection/blocked 超 24h 未裁决）�
 
 ## 验证
 
-- signal-tools 21 用例全绿（原 14 + 跨对话新形态 6 + 旧「跨对话拒绝」用例改写为「短 ID 本对话无匹配」）
-- 跨对话形态覆盖：完整 ID 裁决成功 / 指定对话内短 ID 展开 / 隐式跨对话拒（引导传参）/ conversationId 拼错串话防护（错误信息带实际对话 ID）/ 本对话显式传参幂等
+Golden Gate: n/a（verify_by=static_only——无 LLM 行为场景可跑，模型可见文本变更的回归面由工具单测覆盖）
+
+- signal-tools 23 用例全绿（基线 16 + 跨对话新形态 5：完整 ID 裁决 / 指定对话短 ID / 隐式拒 / 拼错防串话 / 本对话显式传参幂等；改写 1（旧「跨对话拒绝」→「短 ID 本对话无匹配」）；检视处置补 2（空串等同隐式 / scoped 歧义拒绝）+ 收紧 2（隐式/拼错分支专属文案断言，防死代码回归））
 - signal 域 + coding-tools + tool-universe 103 回归全绿、tsc 干净
+
+Modification-Class 论证（narrow-fix）：无新机制——conversationId 是既有工具的可选参数扩展（权限/状态机/台账结构全不变）；aging suggestion 是文案可执行化（context 加字段非新表）。若未来引入 aging 自裁决（方案 2）或跨对话 query_signals，届时为 mechanism-addition。
 
 ## 影响范围
 

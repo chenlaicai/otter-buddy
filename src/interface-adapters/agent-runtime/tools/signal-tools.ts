@@ -311,17 +311,21 @@ async function checkResolvable(
 ): Promise<{ event: SignalEvent } | { error: string } | { idempotent: string }> {
   const existing = await signalRepo.findById(id);
   if (!existing) {
-    return { error: `[错误] 信号 ${id} 不存在。用 query_signals 确认。` };
+    return { error: `[错误] 信号 ${id} 不存在。本对话信号用 query_signals 查；跨对话信号核对 aging 告警里的完整 ID 与 signalConversationId。` };
   }
   // 跨对话裁决（#1041 方案 1）：默认仅本对话；显式 conversationId 且匹配时放行——
   // 权限面由工具持有性保证（resolve_signal 仅 big 型，manifest orchestration 组 +
   // session-helpers small 白名单排除），大獭是编排者，aging healing event 悬置信号的
   // 唯一消费通道。conversationId 不匹配（信号实际在其他对话）仍拒——防拼错串话。
-  if (existing.conversationId !== ctx.conversationId && existing.conversationId !== scopeConversationId) {
-    return { error: `[错误] 该信号属于对话 ${existing.conversationId}，与当前对话及指定 conversationId 均不匹配，拒绝裁决。跨对话裁决请显式传 conversationId=${existing.conversationId}。` };
-  }
-  if (existing.conversationId !== ctx.conversationId && !scopeConversationId) {
-    return { error: "[错误] 该信号不属于当前对话。跨对话裁决需显式传 conversationId 参数（aging 告警的 context 里已给出）。" };
+  // #1225 检视建议①：调序——先判隐式（scope 未传），再判显式不匹配；原序下
+  // 第二分支永不可达（不匹配先命中），隐式场景会拿到「拼错串话」的错误前提文案。
+  if (existing.conversationId === ctx.conversationId) {
+    // 本对话信号：放行（scope 即使传了也不影响——本对话显式传参 = 幂等面）
+  } else if (!scopeConversationId) {
+    return { error: "[错误] 该信号不属于当前对话。跨对话裁决需显式传 conversationId 参数（aging 告警的 context.signalConversationId 已给出）。" };
+  } else if (existing.conversationId !== scopeConversationId) {
+    // scope 已传且不匹配（信号在本对话之外，且不等于指定值）——拼错或串话
+    return { error: `[错误] 该信号属于对话 ${existing.conversationId}，与指定的 conversationId=${scopeConversationId} 不匹配，拒绝裁决（防串话）。请核对 aging 告警 context.signalConversationId 后重传。` };
   }
   if (existing.status !== 'pending') {
     return {

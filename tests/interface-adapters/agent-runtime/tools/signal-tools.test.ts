@@ -282,7 +282,7 @@ describe('resolve_signal 工具（C2：裁决写路径）', () => {
     expect(ev?.status).toBe('dismissed');
   });
 
-  it('完整 ID + 隐式跨对话仍拒，错误信息引导显式传参', async () => {
+  it('完整 ID + 隐式跨对话仍拒：断言隐式分支专属文案（#1225 检视①收紧）', async () => {
     await repo.create({
       id: 'dddddddd-1111-2222-3333-444444444444', conversationId: 'conv-OTHER', messageId: 'm1',
       fromOtterId: 'otter-x', targetOtterId: null, type: 'objection', severity: 'low',
@@ -292,10 +292,12 @@ describe('resolve_signal 工具（C2：裁决写路径）', () => {
     const tool = createResolveSignalTool(ctx, repo);
     const res = await tool.execute('t', { signalId: 'dddddddd-1111-2222-3333-444444444444', status: 'resolved', resolution: 'x' });
     expect(res.isError).toBe(true);
-    expect(res.content[0].text).toContain('conversationId');
+    // 隐式分支文案：引导显式传参（含 aging context 字段名），非「拼错串话」前提
+    expect(res.content[0].text).toContain('需显式传 conversationId');
+    expect(res.content[0].text).toContain('signalConversationId');
   });
 
-  it('conversationId 不匹配（拼错串话防护）：信号实际在第三个对话仍拒', async () => {
+  it('conversationId 拼错（显式但不匹配）：断言拼错分支专属文案', async () => {
     await repo.create({
       id: 'eeeeeeee-1111-2222-3333-444444444444', conversationId: 'conv-THIRD', messageId: 'm1',
       fromOtterId: 'otter-x', targetOtterId: null, type: 'objection', severity: 'low',
@@ -311,6 +313,41 @@ describe('resolve_signal 工具（C2：裁决写路径）', () => {
     });
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toContain('conv-THIRD');
+    expect(res.content[0].text).toContain('防串话');
+  });
+
+  // ── #1225 检视⑥：边界补齐 ──
+  it('空串 conversationId 等同隐式（trim 后 undefined）', async () => {
+    await repo.create({
+      id: 'ffffffff-1111-2222-3333-444444444444', conversationId: 'conv-OTHER', messageId: 'm1',
+      fromOtterId: 'otter-x', targetOtterId: null, type: 'objection', severity: 'low',
+      payload: 'q', status: 'pending', resolution: null, resolvedBy: null, resolvedAt: null,
+      createdAt: '2026-08-26T10:06:00.000Z',
+    });
+    const tool = createResolveSignalTool(ctx, repo);
+    const res = await tool.execute('t', {
+      signalId: 'ffffffff-1111-2222-3333-444444444444',
+      conversationId: '   ',
+      status: 'resolved',
+      resolution: 'x',
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain('需显式传 conversationId'); // 隐式分支
+  });
+
+  it('scoped 短 ID 歧义（指定对话内多条同前缀）：拒绝并列出', async () => {
+    for (const [cid, i] of [['conv-1', '1'], ['conv-1', '2']]) {
+      await repo.create({
+        id: `abcd123${i}-1111-2222-3333-444444444444`, conversationId: cid, messageId: 'm1',
+        fromOtterId: 'otter-x', targetOtterId: null, type: 'objection', severity: 'low',
+        payload: `p${i}`, status: 'pending', resolution: null, resolvedBy: null, resolvedAt: null,
+        createdAt: '2026-08-26T10:07:00.000Z',
+      });
+    }
+    const tool = createResolveSignalTool(ctx, repo);
+    const res = await tool.execute('t', { signalId: 'abcd123', status: 'resolved', resolution: 'x' });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain('命中 2 条');
   });
 
   it('本对话信号带不带 conversationId 行为一致（幂等面）', async () => {
