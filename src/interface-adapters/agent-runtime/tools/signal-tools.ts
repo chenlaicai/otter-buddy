@@ -9,6 +9,7 @@
 
 import type { ToolContext, AgentTool } from "@usecases/ports/agent-tools";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
+import { signalAlertRegistry } from "@usecases/signal/signal-alert-registry";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
 import { parseSignalReport, stripSignalReport } from "@usecases/signal/signal-report-parser";
@@ -271,9 +272,23 @@ export async function interceptSignalReport(
         createdAt: now,
       };
       // fire-and-forget：信号落库失败不阻断发言（台账是审计面，不是发言前置条件）
-      repo.create(event).catch(err =>
-        logger?.error('Failed to persist signal event', err instanceof Error ? err : new Error(String(err))),
-      );
+      repo.create(event)
+        .then(() => {
+          // #1227 M1：落账即登记提醒——大獭下一轮 invoke 头部可见「N 条 pending 待裁决」，
+          // 当场处理可见性由注入面保证（协议义务 → 物理可见）。落库失败不登记（台账没有的信号不提醒）。
+          signalAlertRegistry.register({
+            signalId: event.id,
+            conversationId: event.conversationId,
+            fromOtterId: event.fromOtterId,
+            signalType: event.type,
+            severity: event.severity,
+            payloadPreview: event.payload.slice(0, 80),
+            createdAt: event.createdAt,
+          });
+        })
+        .catch(err =>
+          logger?.error('Failed to persist signal event', err instanceof Error ? err : new Error(String(err))),
+        );
     }
   }
   return cleanBody;
@@ -352,6 +367,8 @@ export function createResolveSignalTool(ctx: ToolContext, signalRepo: SignalEven
     if (!updated) {
       return errorResponse(`[错误] 裁决落库失败（信号 ${resolved.id}）。请重试或查日志。`);
     }
+    // #1227 M1：裁决成功即注销提醒——提醒队列与台账状态联动，已裁决信号不再出现在下一轮注入
+    signalAlertRegistry.dismiss(resolved.id);
     return textResponse(
       `[裁决完成] 信号 ${resolved.id}（${verdict.event.type}）→ ${status}。理由：${resolution.trim()}`,
     );
