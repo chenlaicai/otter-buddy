@@ -632,7 +632,7 @@ describe('LeftPanel Safari 26 右键菜单兜底（F20260929sqmk）', () => {
     expect(fireMousedown(item, 0).defaultPrevented).toBe(false)
   })
 
-  it('contextmenu 事件仍正常到达 onContextMenu prop（既有菜单逻辑不受兜底影响）', async () => {
+  it('mousedown 拦截后 contextmenu 链式到达 onContextMenu（jsdom 仅证 handler 链；Safari 事件链实证见 F20260916scfx/cmpt 实机）', async () => {
     const onCtx = vi.fn()
     const normalConv: LocalConversation = { id: 'n1', title: '普通对话', status: 'active', otterIds: [], pinned: false }
     stubGroupFetch([dtoOf(normalConv)], 1)
@@ -649,10 +649,25 @@ describe('LeftPanel Safari 26 右键菜单兜底（F20260929sqmk）', () => {
       )
     })
     const item = await waitForItem('conv-item-n1')
+    // 链式断言：mousedown(button=2) 被拦截后，紧接派发的 contextmenu 仍到达 React handler。
+    // 说明：jsdom 无浏览器默认行为链，单派 contextmenu 的断言证明力为零（拦不拦都过）；
+    // 本断言只证 handler 链路未断。Safari 26 实机「拦截后自定义菜单照弹」证据来自
+    // F20260916scfx / F20260916cmpt 实机记录。
+    expect(fireMousedown(item, 2).defaultPrevented).toBe(true)
     await act(async () => {
       item.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
     })
     expect(onCtx).toHaveBeenCalledTimes(1)
     expect(onCtx.mock.calls[0][1]).toBe('n1')
+  })
+
+  it('行为拦截锚定 data-conv-item 语义标记（与 testid 命名解耦）', async () => {
+    renderWithItems()
+    const item = await waitForItem('conv-item-n1')
+    // data-conv-item 标记必须恰好落在各对话项节点上（对话行数 == 标记数，不多不少）
+    const markers = container.querySelectorAll('[data-conv-item]')
+    expect(markers).toHaveLength(container.querySelectorAll('[data-testid^="conv-item"]').length)
+    expect(item.hasAttribute('data-conv-item')).toBe(true)
+    expect(fireMousedown(item, 2).defaultPrevented).toBe(true)
   })
 })

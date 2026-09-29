@@ -31,16 +31,19 @@ preventDefault，按同模式统一兜底。
 preventDefault：
 
 - 挂载点：LeftPanel 根 `<aside>` 的原生 listener（useEffect + ref，空依赖数组），不用 React 委托
-- **拦截范围收窄到对话项**：仅当事件 target 在 `[data-testid^="conv-item"]` 节点内才
+- **拦截范围收窄到对话项**：仅当事件 target 在 `[data-conv-item]` 节点内才
   preventDefault；面板其他区域（搜索框、分组头、页码器、空白区）右键原生菜单保留——
   不能把整个面板的右键全废掉（issue 关键约束）
-- 与现有 onContextMenu 并存：React handler 继续负责弹出菜单（contextmenu 事件流不受
-  mousedown preventDefault 影响，测试有断言）；mousedown 拦截只负责压制 Safari 原生菜单，
+- 与现有 onContextMenu 并存：React handler 继续负责弹出菜单（mousedown 拦截后
+  contextmenu 仍到达 handler，测试为链式断言——但 jsdom 无浏览器默认行为链，仅证
+  handler 链路未断；Safari 26 实机「拦截后自定义菜单照弹」的证据来自
+  F20260916scfx / F20260916cmpt 实机记录）；mousedown 拦截只负责压制 Safari 原生菜单，
   Chromium 上无害（双保险）
 - **testid 统一前缀**：原实现只有置顶高亮项有 testid（`conv-item-pinned-${id}`），普通/
   搜索/归档项无标记，closest 无从匹配。本次统一为 `conv-item-${c.id}` 前缀（置顶项保留
-  `conv-item-pinned-` 前缀不变——既有测试依赖，且同样命中前缀选择器）；从散点标记改为
-  单一三元表达式，消 TS2783 重复属性
+  `conv-item-pinned-` 前缀不变——既有测试依赖）；从散点标记改为
+  单一三元表达式，消 TS2783 重复属性。行为拦截锚定 `data-conv-item` 语义标记（与
+  testid 命名解耦，检视建议 2），testid 仅作测试选择器
 - 菜单渲染位置不变：index.tsx 顶层的 fixed `glass-overlay` 菜单不在 LeftPanel 的
   backdrop-filter 祖先链内，无 F20260916cmpt 的 containing block 飞出问题
 
@@ -79,9 +82,17 @@ preventDefault：
 - 单测：见自检结果（jsdom mousedown defaultPrevented 断言，同 WorkspacePanel.test.tsx 模式）
 - Chromium 回归：jsdom 层 contextmenu 事件流不变（既有 contextmenu 测试 + 新增 onContextMenu
   到达断言均过）
-- **Safari 26 实机验证待搭档**：合入后右键对话项应弹自定义菜单（非 Safari 原生菜单）；
+- **Safari 26 实机验证待搭档**：合入后右键对话项应弹自定义菜单（非 Safari 原生菜单），
+  且加测 **Ctrl+点击对话项**（macOS ctrl+click 语义等价右键；若 Safari 26 对其 mousedown
+  报 button=0 则拦截漏过、原生菜单仍弹——检视建议 4，未验证推测，仅列入手测清单）；
   本地最小复现（F20260916scfx）已证明 mousedown 阶段拦截是 Safari 26 唯一尊重的拦截点，
   本修复与其同机制
-- 已知残留：暂无。全应用还有其他依赖 contextmenu preventDefault 的右键菜单吗？本次排查
-  仅 WorkspacePanel（已修）与 LeftPanel（本修复）两处，如后续新增右键菜单场景，须同模式
-  挂 mousedown 兜底
+- 已知残留：暂无。全应用依赖 contextmenu preventDefault 的右键菜单实例共 3 处：
+  conversation 页（`conversation/index.tsx`）、conversation-list 页自带菜单
+  （`conversation-list/index.tsx:120` 处理 / :268 渲染）与 WorkspacePanel。后两者的菜单
+  消费方均复用本 LeftPanel 组件（`conversation-list/index.tsx:9` import），功能上被本
+  修复一并覆盖；WorkspacePanel 已由 F20260916scfx 修复。如后续新增右键菜单场景或新增
+  LeftPanel 消费方，须同模式挂 mousedown 兜底。
+- 拦截选择器约定：行为拦截锚定 `data-conv-item` 语义标记（与 testid 解耦，检视建议 2）。
+  **新增对话行渲染路径必须带 `data-conv-item` 属性**，否则 Safari 26 原生菜单静默回归，
+  且测试不会报警（除非改动该测试本身）。

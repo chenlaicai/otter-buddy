@@ -135,7 +135,7 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
    * contextmenu 事件的 preventDefault——事件能派发、defaultPrevented=true，但原生菜单照弹，
    * React 挂在 root 的委托 handler 拦不住。mousedown 阶段拦截 button===2 可抢在浏览器默认
    * 行为前生效；Chromium 上同样无害（与 onContextMenu 并存双保险）。
-   * 收窄：只拦对话项节点（closest 匹配 data-testid 前缀 conv-item），面板其他区域
+   * 收窄：只拦对话项节点（closest 匹配 data-conv-item 语义标记，与 testid 解耦），面板其他区域
    * （搜索框、分组头、页码器、空白区）右键原生菜单保留——不能把整个面板右键全废掉。
    */
   const rootRef = useRef<HTMLElement>(null)
@@ -144,7 +144,7 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
     if (!el) return
     const onMouseDown = (ev: MouseEvent) => {
       if (ev.button !== 2) return
-      const target = (ev.target as HTMLElement).closest('[data-testid^="conv-item"]')
+      const target = (ev.target as HTMLElement).closest('[data-conv-item]')
       if (target) ev.preventDefault()
     }
     el.addEventListener('mousedown', onMouseDown)
@@ -525,8 +525,11 @@ function ConversationItem({
             ? 'bg-otter-100/50 hover:bg-otter-100/70'
             : 'hover:bg-white/30'
       }`}
-      // F20260929sqmk：统一 conv-item 前缀，Safari 26 mousedown 兜底靠 closest 按此前缀
-      // 收窄拦截范围；置顶项保留原 conv-item-pinned- testid（既有测试依赖），前缀同样命中
+      // F20260929sqmk：统一 conv-item 前缀，Safari 26 mousedown 兜底靠 closest 收窄拦截
+      // 范围；置顶项保留原 conv-item-pinned- testid（既有测试依赖）。
+      // 注意：行为拦截只看 data-conv-item 语义标记，testid 仅作测试选择器——新增对话行
+      // 渲染必须带 data-conv-item，否则 Safari 26 原生菜单静默回归（本特性检视建议 2）。
+      data-conv-item=""
       data-testid={pinnedHighlight ? `conv-item-pinned-${c.id}` : `conv-item-${c.id}`}
     >
       <div className="flex items-center gap-1.5">
