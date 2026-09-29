@@ -69,6 +69,118 @@ function render() {
   act(() => { root.render(<MemorySearchPage />) })
 }
 
+describe('结果操作交互（F20260928mrui 补：搭档终审要求，点击 → 断言请求 + 弹窗/状态响应）', () => {
+  /** 操作端点精确 mock：捕获全部请求（url/method/body）供断言 */
+  function mockWithActions() {
+    const calls: { url: string; method: string; body?: string }[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      calls.push({ url, method: init?.method ?? 'GET', body: typeof init?.body === 'string' ? init.body : undefined })
+      if (url.includes('/api/health/memory')) {
+        return new Response(JSON.stringify({
+          healthy: true, documentsOnDisk: 0, documentsInDb: 0,
+          reconcileGaps: [], embeddingAvailable: true, embeddingModel: 'test',
+        }), { status: 200 })
+      }
+      if (url.includes('/api/memory/recent')) {
+        return new Response(JSON.stringify({ entries: [], total: 0 }), { status: 200 })
+      }
+      if (url.includes('/api/memory/search?')) {
+        return new Response(JSON.stringify(MIXED_RESULT), { status: 200 })
+      }
+      if (/\/api\/memory\/[^/]+\/flag$/.test(url)) {
+        return new Response(JSON.stringify({ status: 'ok' }), { status: 200 })
+      }
+      if (/\/api\/memory\/[^/]+$/.test(url)) {
+        return new Response(JSON.stringify({
+          id: 'fact1', layer: 'working', contentType: 'fact', sourceId: 'f-1',
+          sourceTable: 'facts', conversationId: null, granularity: 'coarse',
+          content: '事实条目的完整内容（详情接口返回全文）', metadata: null,
+          createdAt: '2026-09-10T00:00:00Z',
+        }), { status: 200 })
+      }
+      if (url.includes('/api/memory/search/similar')) {
+        return new Response(JSON.stringify({
+          total: 1, vecCoverage: { total: 1, withVec: 1, ratio: 1 },
+          entries: [{
+            id: 'sim1', layer: 'working', contentType: 'fact', sourceId: 'f-9',
+            sourceTable: 'facts', conversationId: null, granularity: 'coarse',
+            content: '与锤点相似的事实条目', metadata: null,
+            createdAt: '2026-09-11T00:00:00Z', score: 0.88, source: 'vec',
+          }],
+        }), { status: 200 })
+      }
+      return new Response('{}', { status: 200 })
+    })
+    return { calls }
+  }
+
+  /** 搜索一次使结果区渲染（复用页内搜索路径） */
+  async function searchOnce() {
+    render()
+    await act(async () => {})
+    doSearch('记忆')
+    await act(async () => {})
+  }
+
+  it('☆ 标记：点击发出 PATCH /memory/:id/flag + 星标状态翻转', async () => {
+    const { calls } = mockWithActions()
+    await searchOnce()
+
+    const starBtn = container.querySelector('[data-entry-id="fact1"] button.text-stone-300')
+      ?? container.querySelector('[data-entry-id="fact1"] .ml-auto button:last-child')
+    expect(starBtn).toBeTruthy()
+    act(() => { (starBtn as HTMLElement).click() })
+    await act(async () => {})
+
+    const flagCall = calls.find(c => c.method === 'PATCH' && /\/api\/memory\/fact1\/flag$/.test(c.url))
+    expect(flagCall).toBeTruthy()
+    expect(JSON.parse(flagCall!.body!)).toEqual({ flagged: true })
+    // 状态翻转：未标记（text-stone-300）→ 已标记（text-amber-400）
+    expect(container.querySelector('[data-entry-id="fact1"] button.text-amber-400')).toBeTruthy()
+  })
+
+  it('展开上下文：点击发出 GET /memory/:id + Modal（body portal）展示全文', async () => {
+    const { calls } = mockWithActions()
+    await searchOnce()
+
+    const btn = [...container.querySelectorAll('[data-entry-id="fact1"] button')]
+      .find(b => b.textContent === '展开上下文')
+    expect(btn).toBeTruthy()
+    act(() => { (btn as HTMLElement).click() })
+    await act(async () => {})
+
+    expect(calls.some(c => c.method === 'GET' && /\/api\/memory\/fact1$/.test(c.url))).toBe(true)
+    // Modal 经 createPortal 挂 document.body（非测试 container）
+    const dialog = document.body.querySelector('[role="dialog"][aria-label="记忆详情"]')
+    expect(dialog).toBeTruthy()
+    expect(dialog!.textContent).toContain('事实条目的完整内容（详情接口返回全文）')
+
+    // 关闭：Escape（栈顶响应）后 Modal 卸载
+    act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })) })
+    await act(async () => {})
+    expect(document.body.querySelector('[role="dialog"][aria-label="记忆详情"]')).toBeNull()
+  })
+
+  it('查找相似：点击发出 POST /memory/search/similar + Modal 列出相似条目', async () => {
+    const { calls } = mockWithActions()
+    await searchOnce()
+
+    const btn = [...container.querySelectorAll('[data-entry-id="fact1"] button')]
+      .find(b => b.textContent === '查找相似')
+    expect(btn).toBeTruthy()
+    act(() => { (btn as HTMLElement).click() })
+    await act(async () => {})
+
+    const simCall = calls.find(c => c.method === 'POST' && c.url.includes('/api/memory/search/similar'))
+    expect(simCall).toBeTruthy()
+    expect(JSON.parse(simCall!.body!)).toMatchObject({ memoryEntryId: 'fact1' })
+    const dialog = document.body.querySelector('[role="dialog"][aria-label="相似记忆"]')
+    expect(dialog).toBeTruthy()
+    expect(dialog!.textContent).toContain('与锤点相似的事实条目')
+  })
+})
+
 /** 触发一次搜索（输入关键词 + 点召回按钮） */
 function doSearch(queryText: string) {
   const input = container.querySelector('input[placeholder*="关键词"]') as HTMLInputElement
@@ -194,21 +306,23 @@ describe('多条件查询面板（F20260928mrui）', () => {
   })
 })
 
+/** 混合结果 fixture（模块级：分组渲染与操作交互两个 describe 共用） */
+const MIXED_RESULT = {
+  total: 6,
+  vecCoverage: { total: 6, withVec: 6, ratio: 1 },
+  entries: [
+    { id: 'm1', layer: 'historical', contentType: 'message', sourceId: 'msg-1', sourceTable: 'messages', conversationId: 'convA', granularity: 'fine', content: '消息一', metadata: null, createdAt: '2026-09-02T09:00:00Z', score: 0.9, source: 'both', snippet: '消息<b>一</b>' },
+    { id: 'm2', layer: 'historical', contentType: 'message', sourceId: 'msg-2', sourceTable: 'messages', conversationId: 'convA', granularity: 'fine', content: '消息二', metadata: null, createdAt: '2026-09-03T10:00:00Z', score: 0.7, source: 'fts', snippet: '消息<b>二</b>' },
+    { id: 'chunk1', layer: 'document', contentType: 'feature_chunk', sourceId: 'F20260928mrui', sourceTable: 'features', conversationId: null, granularity: 'fine', content: '分段一', metadata: { chunk_index: 1, doc_title: '记忆召回界面重构', heading_path: ['设计', '分组'] }, createdAt: '2026-09-20T00:00:00Z', score: 0.8, source: 'fts', snippet: '分段<b>一</b>' },
+    { id: 'chunk0', layer: 'document', contentType: 'feature_chunk', sourceId: 'F20260928mrui', sourceTable: 'features', conversationId: null, granularity: 'fine', content: '分段零', metadata: { chunk_index: 0, doc_title: '记忆召回界面重构' }, createdAt: '2026-09-20T00:00:00Z', score: 0.6, source: 'fts', snippet: '分段<b>零</b>' },
+    { id: 'fact1', layer: 'working', contentType: 'fact', sourceId: 'f-1', sourceTable: 'facts', conversationId: null, granularity: 'coarse', content: '事实条目', metadata: null, createdAt: '2026-09-10T00:00:00Z', score: 0.5, source: 'vec' },
+  ],
+  contextEntries: [
+    { id: 'ctx0', layer: 'document', contentType: 'feature_chunk', sourceId: 'F20260928mrui', sourceTable: 'features', conversationId: null, granularity: 'fine', content: '邻域分段', metadata: { chunk_index: 2 }, createdAt: '2026-09-20T00:00:00Z', score: 0, source: 'context-expand' },
+  ],
+}
+
 describe('结果结构化分组（F20260928mrui 核心）', () => {
-  const MIXED_RESULT = {
-    total: 6,
-    vecCoverage: { total: 6, withVec: 6, ratio: 1 },
-    entries: [
-      { id: 'm1', layer: 'historical', contentType: 'message', sourceId: 'msg-1', sourceTable: 'messages', conversationId: 'convA', granularity: 'fine', content: '消息一', metadata: null, createdAt: '2026-09-02T09:00:00Z', score: 0.9, source: 'both', snippet: '消息<b>一</b>' },
-      { id: 'm2', layer: 'historical', contentType: 'message', sourceId: 'msg-2', sourceTable: 'messages', conversationId: 'convA', granularity: 'fine', content: '消息二', metadata: null, createdAt: '2026-09-03T10:00:00Z', score: 0.7, source: 'fts', snippet: '消息<b>二</b>' },
-      { id: 'chunk1', layer: 'document', contentType: 'feature_chunk', sourceId: 'F20260928mrui', sourceTable: 'features', conversationId: null, granularity: 'fine', content: '分段一', metadata: { chunk_index: 1, doc_title: '记忆召回界面重构', heading_path: ['设计', '分组'] }, createdAt: '2026-09-20T00:00:00Z', score: 0.8, source: 'fts', snippet: '分段<b>一</b>' },
-      { id: 'chunk0', layer: 'document', contentType: 'feature_chunk', sourceId: 'F20260928mrui', sourceTable: 'features', conversationId: null, granularity: 'fine', content: '分段零', metadata: { chunk_index: 0, doc_title: '记忆召回界面重构' }, createdAt: '2026-09-20T00:00:00Z', score: 0.6, source: 'fts', snippet: '分段<b>零</b>' },
-      { id: 'fact1', layer: 'working', contentType: 'fact', sourceId: 'f-1', sourceTable: 'facts', conversationId: null, granularity: 'coarse', content: '事实条目', metadata: null, createdAt: '2026-09-10T00:00:00Z', score: 0.5, source: 'vec' },
-    ],
-    contextEntries: [
-      { id: 'ctx0', layer: 'document', contentType: 'feature_chunk', sourceId: 'F20260928mrui', sourceTable: 'features', conversationId: null, granularity: 'fine', content: '邻域分段', metadata: { chunk_index: 2 }, createdAt: '2026-09-20T00:00:00Z', score: 0, source: 'context-expand' },
-    ],
-  }
 
   it('doc 命中按文档归组（chunk 归拢），conversation 命中聚合成时间线，fact 独立卡片', async () => {
     mockRoutes(MIXED_RESULT)
