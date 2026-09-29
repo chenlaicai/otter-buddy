@@ -17,7 +17,6 @@
  * 下一轮会再落一条（间隔 ≥24h，可接受——持续悬置本就该持续可见）。
  */
 
-import { signalAlertRegistry } from "./signal-alert-registry";
 import type { SignalEventRepository } from '@usecases/signal/signal-event-repository';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
 import type { HealingEvent } from '@entities/healing/healing-event';
@@ -113,8 +112,8 @@ export class SignalAgingWorker {
         otterId: sig.fromOtterId,
         errorType: 'other',
         severity: 'medium',
-        description: `獭间信号悬置超 ${Math.floor(SIGNAL_AGING_THRESHOLD_MS / 3600000)}h 未裁决：${sig.type}（发起者 ${sig.fromOtterId}，payload 摘要：${sig.payload.slice(0, 100)}）——违反「objection 下一轮派工前裁决 / blocked 当场裁决」义务`,
-        suggestion: `调 query_signals 查 ${sig.id.slice(0, 8)} 详情并 resolve_signal 裁决；若来源会话已无续办价值，dismissed 留痕即可`,
+        description: `系统异常：獭间信号超 ${Math.floor(SIGNAL_AGING_THRESHOLD_MS / 3600000)}h 未当场处理（不处理即忽略）：${sig.type}（发起者 ${sig.fromOtterId}，payload 摘要：${sig.payload.slice(0, 100)}）——当场处理机制未生效的记录，供分析审视；非异议信号功能处理链的一环`,
+        suggestion: `供系统异常分析审视：核对 ${sig.id.slice(0, 8)} 当场提醒为何未促成裁决（注入时序/大獭进场轮次），据此改进机制；台账卫生可用 resolve_signal 销账`,
         context: { signalId: sig.id, signalType: sig.type, fromOtterId: sig.fromOtterId, createdAt: sig.createdAt, source: 'signal-aging-worker' },
         status: 'open',
         resolution: null,
@@ -123,18 +122,6 @@ export class SignalAgingWorker {
       };
       await healingRepo.create(event);
       result.alertsCreated++;
-      // #1229 检视 A2：aging 告警同时升级为注入提醒——兜底从台账级（healing medium 事件，
-      // 仅日志可见）升到注入级（大獭在该对话下一轮进场头部可见）。去重与 healing 同闸
-      //（alertedIds 已含本 signalId 则跳过整个循环体）。
-      signalAlertRegistry.register({
-        signalId: sig.id,
-        conversationId: sig.conversationId,
-        fromOtterId: sig.fromOtterId,
-        signalType: sig.type,
-        severity: sig.severity,
-        payloadPreview: sig.payload.slice(0, 80),
-        createdAt: sig.createdAt,
-      });
     }
     return result;
   }
