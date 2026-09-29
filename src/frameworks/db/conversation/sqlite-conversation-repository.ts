@@ -169,6 +169,8 @@ export class SqliteConversationRepository implements ConversationRepository {
   async updateLastReadSeq(conversationId: string, otterId: string, seq: number): Promise<void> { mixins.updateLastReadSeq(this.db, conversationId, otterId, seq); }
   /** #775：seq 刻度存量回填（一次性，启动时调用） */
   backfillLastReadSeq(): number { return mixins.backfillLastReadSeq(this.db); }
+  /** F20260929czi0：进场游标零点修正存量迁移（一次性，启动时调用） */
+  advanceZeroCursorsForActiveJoin(): number { return mixins.advanceZeroCursorsForActiveJoin(this.db); }
   async markParticipantLeft(conversationId: string, otterId: string): Promise<void> { mixins.markParticipantLeft(this.db, conversationId, otterId); }
   // ── F20260920trrt：闲置预警新口径（发言 seq 差 + 时间护栏）读时聚合三查询 ──
   getMaxEntrySeq(conversationId: string): number { return mixins.getMaxEntrySeq(this.db, conversationId); }
