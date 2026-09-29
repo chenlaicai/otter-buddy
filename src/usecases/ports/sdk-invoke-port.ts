@@ -69,6 +69,8 @@ export interface DynamicContext {
   stateInventory?: string;
   /** F20260826mwrd C3（Part 4）：高危 healing 事件提醒（渲染好的文本，借用式，消费即删） */
   healingAlerts?: string;
+  /** #1227 M1：pending 信号裁决提醒（大獭 invoke 头部注入，借用式消费即删） */
+  signalAlerts?: string;
 }
 
 /** invoke() 选项 */
