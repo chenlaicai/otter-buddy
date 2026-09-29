@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { LocalMessage } from '../../../lib/mappers'
 import {
   CARD_MAX_HEIGHT,
-  CARD_MIN_HEIGHT,
   buildCardReplyBody,
   countCardFences,
   deriveRepliedCardIds,
@@ -105,7 +104,9 @@ export function useCardBridge({ activeId, messages, onSendReply }: UseCardBridge
         const now = Date.now()
         if (now - (lastResizeRef.current.get(cardId) || 0) < RESIZE_THROTTLE_MS) return
         lastResizeRef.current.set(cardId, now)
-        const clamped = Math.min(CARD_MAX_HEIGHT, Math.max(CARD_MIN_HEIGHT, Math.round(h)))
+        /** F20260929ahgt：clamp 下限改为 1——初始高度固定 CARD_MIN_HEIGHT 后 documentElement.scrollHeight
+         *  等于真实内容高度，上报值可信，解开单向棘轮（内容变矮可缩回） */
+        const clamped = Math.min(CARD_MAX_HEIGHT, Math.max(1, Math.round(h)))
         getCardEntry(cardId)?.setHeight?.(clamped)
         return
       }

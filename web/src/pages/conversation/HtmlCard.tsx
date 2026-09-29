@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Hash, ShieldCheck, AlertTriangle } from 'lucide-react'
-import { CARD_MAX_BYTES, CARD_MAX_PER_MESSAGE, CARD_MAX_HEIGHT, CARD_MIN_HEIGHT, byteLength } from '../../lib/html-card'
+import { CARD_MAX_BYTES, CARD_MAX_PER_MESSAGE, CARD_MIN_HEIGHT, byteLength } from '../../lib/html-card'
 import { registerCard, unregisterCard } from '../../lib/card-registry'
 import { buildCardBridgeScript } from '../../lib/card-bridge'
 
@@ -47,12 +47,10 @@ type CardView = 'collapsed' | 'expanded' | 'source' | 'invalid'
 function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId }: HtmlCardProps) {
   /** F20260916hcel：所有卡默认折叠（搭档 9/16 纠正——曾误执行为「新卡默认展开」） */
   const [view, setView] = useState<CardView>('collapsed')
-  const [height, setHeight] = useState(() => {
-    /** F20260916hcel：支持 data-height 属性——AI 在 HTML 根元素上声明高度，系统 clamp [100, 4000] */
-    const dataHeightMatch = code.match(/data-height="(\d+)"/)
-    const declared = dataHeightMatch ? Number(dataHeightMatch[1]) : 240
-    return Math.min(CARD_MAX_HEIGHT, Math.max(CARD_MIN_HEIGHT, declared))
-  })
+  /** F20260929ahgt：agent 不再管高度——初始固定 CARD_MIN_HEIGHT（小起步防视觉跳变过量），
+   *  展开后桥 ResizeObserver 上报真实内容高度（clamp [1, CARD_MAX_HEIGHT]，可撑可缩）。
+   *  旧卡的 data-height 属性自此为无害冗余，不再解析。 */
+  const [height, setHeight] = useState(CARD_MIN_HEIGHT)
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const loadCountRef = useRef(0)
   const oversize = byteLength(code) > CARD_MAX_BYTES
@@ -135,7 +133,7 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId 
             srcDoc={srcdoc}
             onLoad={handleLoad}
             title={title || 'HTML 卡片'}
-            className="w-full border-0 block bg-white"
+            className="w-full border-0 block bg-white transition-[height] duration-200 ease-out"
             style={{ height }}
           />
           <div className="flex items-center gap-1 px-3 py-1 text-[10px] text-stone-400">

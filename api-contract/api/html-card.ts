@@ -16,6 +16,8 @@ export const CARD_MAX_BYTES = 65536;
  *  当前所有卡默认 collapsed（搭档 9/16 拍板）。 */
 export const CARD_SCHEMA_VERSION = 2;
 
-/** 卡片 iframe 高度 clamp 区间（像素）：海獭可通过 data-height 属性或 otterCard.resize() 自定 */
+/** 卡片 iframe 高度区间（像素）。
+ *  CARD_MIN_HEIGHT = 展开初始高度（小起步防跳变过量，随后桥 ResizeObserver 自动撑高/缩回到内容真实高度）；
+ *  CARD_MAX_HEIGHT = 防失控上限。F20260929ahgt 起高度全自动，agent 无干预通道 */
 export const CARD_MIN_HEIGHT = 100;
 export const CARD_MAX_HEIGHT = 4000;

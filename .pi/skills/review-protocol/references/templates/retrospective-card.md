@@ -33,7 +33,7 @@ td{padding:7px;border:1px solid var(--line);vertical-align:top}
 details summary{cursor:pointer;padding:8px;background:var(--otter-100);border-radius:6px;font-weight:600;font-size:13px}
 code{background:var(--otter-100);padding:2px 6px;border-radius:4px;font-size:11px}
 </style>
-<div class="rp" data-height="800">
+<div class="rp">
 
 <div class="exec">
   <div class="verdict">开发獭宣称「已 push」实际只 staged——检视空转一轮</div>

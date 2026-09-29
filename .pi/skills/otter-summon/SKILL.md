@@ -4,7 +4,7 @@ description: >-
   Use when: 需要独立审视（异体执行）/ ≥2 个同 skill 任务并行（如 4 个 issue 都走开发流程、3 个 PR 都走审视流程）/ 模拟多角色讨论 / 单任务涉及多阶段产出（设计+实现+测试）.
   Not for: 搭档在讨论/闲聊/发散 → companion. 单步可答或一次 read + speak + yield 能闭环 → 大獭直接做.
   Output: 召唤出的小獭按其任务 skill 产出，本 skill 是编排层不直接产出.
-  Precondition: MUST 先 search_memory 检查是否已有相关结论/方案/教训——有则用、无则召唤，不重复召唤.
+  Precondition: MUST 先 search_memory 检查是否已有相关结论/方案/教训——含否决史：被否决/撤回的路径不重复召唤，除非新证据推翻当时否决理由；有则用、无则召唤，不重复召唤.
 co_loads: []
 category: technique
 ---
@@ -54,6 +54,11 @@ category: technique
    核心原则：**任务体越大、越并行，越该召唤**；单步可答的事自己做。
 
 2. **写 systemPrompt**：身份信息不需要写（SMALL_OTTER.md 已覆盖），只写任务相关内容：
+
+   > 新獭默认看不到进场前的对话历史（进场游标 = 进场时刻 max(seq)，
+   > 进场前历史不进未读注入）——任务背景必须写进派工简报（systemPrompt/任务描述），
+   > 或在简报中指引小獭用 search_messages / list_messages 主动检索。不要指望小獭
+   > 「自己翻到」历史。
 
    ```
    你的任务：[一句话]

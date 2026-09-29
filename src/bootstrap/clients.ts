@@ -195,8 +195,8 @@ export function buildOtterToolClient(
         },
         getEntries: async (convId, opts) => {
           const entries = await uc.sendEntry.getEntries(convId, opts);
-          // F20260913ctlv 批3：投影带 createdAt/senderId（自重启用户介入检测等只读消费）
-          return entries.map(e => ({ id: e.id, entryType: e.entryType, body: e.body, senderId: e.senderId, senderType: e.senderType, createdAt: e.createdAt }));
+          // F20260913ctlv 批3：投影带 createdAt/senderId（自重启用户介入检测等只读消费）；F20260929mpav 补 sequenceNum（merge_pr 原话校验命中锚点）
+          return entries.map(e => ({ id: e.id, entryType: e.entryType, body: e.body, senderId: e.senderId, senderType: e.senderType, sequenceNum: e.sequenceNum, createdAt: e.createdAt }));
         },
         // F20260913ctlv 批3：全文搜索（entries_fts，search_messages 工具数据源切换）
         searchEntries: async (convId: string, query: string, limit?: number) => {
