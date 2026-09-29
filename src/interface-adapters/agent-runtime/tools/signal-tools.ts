@@ -284,13 +284,17 @@ async function resolveSignalId(
   ctx: ToolContext,
   signalRepo: SignalEventRepository,
   signalId: string,
+  scopeConversationId?: string,
 ): Promise<{ id: string } | { error: string }> {
   const fullId = signalId.trim();
   if (/^[0-9a-f]{8}-/i.test(fullId)) return { id: fullId };
-  const candidates = await signalRepo.findByConversation(ctx.conversationId, { status: 'pending' }, 50);
+  // #1041：短 ID 前缀匹配的搜索域 = 显式 conversationId（跨对话裁决）或本对话
+  const searchConv = scopeConversationId ?? ctx.conversationId;
+  const scopeLabel = scopeConversationId ? `对话 ${scopeConversationId}` : '本对话';
+  const candidates = await signalRepo.findByConversation(searchConv, { status: 'pending' }, 50);
   const hit = candidates.filter(e => e.id.startsWith(fullId));
   if (hit.length === 0) {
-    return { error: `前缀「${fullId}」在本对话 pending 信号中无匹配。用 query_signals(status=pending) 确认 ID。` };
+    return { error: `前缀「${fullId}」在${scopeLabel} pending 信号中无匹配。用 query_signals(status=pending) 确认 ID。` };
   }
   if (hit.length > 1) {
     return { error: `前缀「${fullId}」命中 ${hit.length} 条，请用完整 ID。` };
@@ -303,14 +307,21 @@ async function checkResolvable(
   ctx: ToolContext,
   signalRepo: SignalEventRepository,
   id: string,
+  scopeConversationId?: string,
 ): Promise<{ event: SignalEvent } | { error: string } | { idempotent: string }> {
   const existing = await signalRepo.findById(id);
   if (!existing) {
     return { error: `[错误] 信号 ${id} 不存在。用 query_signals 确认。` };
   }
-  // 跨对话越权裁决拒绝（防御纵深：同 conversation 才允许）
-  if (existing.conversationId !== ctx.conversationId) {
-    return { error: "[错误] 该信号不属于当前对话，拒绝裁决。" };
+  // 跨对话裁决（#1041 方案 1）：默认仅本对话；显式 conversationId 且匹配时放行——
+  // 权限面由工具持有性保证（resolve_signal 仅 big 型，manifest orchestration 组 +
+  // session-helpers small 白名单排除），大獭是编排者，aging healing event 悬置信号的
+  // 唯一消费通道。conversationId 不匹配（信号实际在其他对话）仍拒——防拼错串话。
+  if (existing.conversationId !== ctx.conversationId && existing.conversationId !== scopeConversationId) {
+    return { error: `[错误] 该信号属于对话 ${existing.conversationId}，与当前对话及指定 conversationId 均不匹配，拒绝裁决。跨对话裁决请显式传 conversationId=${existing.conversationId}。` };
+  }
+  if (existing.conversationId !== ctx.conversationId && !scopeConversationId) {
+    return { error: "[错误] 该信号不属于当前对话。跨对话裁决需显式传 conversationId 参数（aging 告警的 context 里已给出）。" };
   }
   if (existing.status !== 'pending') {
     return {
@@ -325,30 +336,41 @@ async function checkResolvable(
  * 「程序化裁决义务」的代码落点：裁决 = 本工具调用落库，speak 里的裁决文本仅作展示。
  * 状态迁移以此为唯一数据源（UI 徽章 resolved/dismissed 渲染同源）。
  */
+/** #1041：resolve_signal 参数校验段（拆出控复杂度）。
+ *  conversationId 形态不做 UUID 强校验（测试夹具与兼容面用简式 ID）；
+ *  真正的防线在 checkResolvable 的对话匹配校验——与信号实际归属不符即拒（防拼错串话）。 */
+function validateResolveParams(params: Record<string, unknown>): {
+  signalId?: string; status?: 'resolved' | 'dismissed'; resolution: string; scopeConversationId?: string; error?: string;
+} {
+  const signalId = params.signalId as string | undefined;
+  const status = params.status as 'resolved' | 'dismissed' | undefined;
+  const resolution = (params.resolution as string | undefined) ?? '';
+  const scopeConversationId = (params.conversationId as string | undefined)?.trim() || undefined;
+  if (!signalId || !signalId.trim()) {
+    return { resolution, scopeConversationId, error: "[错误] signalId 必填——用 query_signals(status=pending) 查台账拿 ID（回显为短 ID）。" };
+  }
+  if (status !== 'resolved' && status !== 'dismissed') {
+    return { signalId, resolution, scopeConversationId, error: "[错误] status 必须是 resolved（采纳/已处理）或 dismissed（驳回）。" };
+  }
+  if (!resolution.trim()) {
+    return { signalId, status, resolution, scopeConversationId, error: "[错误] resolution 必填——裁决理由是台账的一部分（驳回写为何驳、采纳写怎么改派），空裁决等于没裁决。" };
+  }
+  return { signalId, status: status as 'resolved' | 'dismissed', resolution, scopeConversationId };
+}
+
 export function createResolveSignalTool(ctx: ToolContext, signalRepo: SignalEventRepository): AgentTool {
   const exec = async (_id: string, params: Record<string, unknown>): Promise<ReturnType<typeof textResponse>> => {
-    const signalId = params.signalId as string | undefined;
-    const status = params.status as string | undefined;
-    const resolution = (params.resolution as string | undefined) ?? '';
+    const { signalId, status, resolution, scopeConversationId, error } = validateResolveParams(params);
+    if (error) return errorResponse(error);
 
-    if (!signalId || !signalId.trim()) {
-      return errorResponse("[错误] signalId 必填——用 query_signals(status=pending) 查台账拿 ID（回显为短 ID）。");
-    }
-    if (status !== 'resolved' && status !== 'dismissed') {
-      return errorResponse("[错误] status 必须是 resolved（采纳/已处理）或 dismissed（驳回）。");
-    }
-    if (!resolution.trim()) {
-      return errorResponse("[错误] resolution 必填——裁决理由是台账的一部分（驳回写为何驳、采纳写怎么改派），空裁决等于没裁决。");
-    }
-
-    const resolved = await resolveSignalId(ctx, signalRepo, signalId);
+    const resolved = await resolveSignalId(ctx, signalRepo, signalId!, scopeConversationId);
     if ('error' in resolved) return errorResponse(`[错误] ${resolved.error}`);
 
-    const verdict = await checkResolvable(ctx, signalRepo, resolved.id);
+    const verdict = await checkResolvable(ctx, signalRepo, resolved.id, scopeConversationId);
     if ('error' in verdict) return errorResponse(verdict.error);
     if ('idempotent' in verdict) return textResponse(verdict.idempotent);
 
-    const updated = await signalRepo.resolve(resolved.id, status, resolution.trim(), ctx.otterId);
+    const updated = await signalRepo.resolve(resolved.id, status!, resolution.trim(), ctx.otterId);
     if (!updated) {
       return errorResponse(`[错误] 裁决落库失败（信号 ${resolved.id}）。请重试或查日志。`);
     }
@@ -358,13 +380,14 @@ export function createResolveSignalTool(ctx: ToolContext, signalRepo: SignalEven
   };
   return {
     name: "resolve_signal",
-    description: "裁决一条獭间信号（objection/blocked）. When: 小獭发了 <signal> 异议或 blocked 信号后，你（大獭）必须显式裁决——采纳/resolved 或驳回/dismissed，不得悬置. Not for: halt 信号（系统自动落账 resolved，无需裁决）/ 查询（用 query_signals）. Output: 裁决确认（状态迁移 + 台账留痕）. GOTCHA: 裁决必须带理由（resolution），空裁决等于没裁决；ID 支持 query_signals 回显的短 ID（前 8 位）.",
+    description: "裁决一条獭间信号（objection/blocked）. When: 小獭发了 <signal> 异议或 blocked 信号后，你（大獭）必须显式裁决——采纳/resolved 或驳回/dismissed，不得悬置；跨对话悬置信号（aging 告警里的，context 含 signalId + signalConversationId）传 conversationId 显式裁决. Not for: halt 信号（系统自动落账 resolved，无需裁决）/ 查询（用 query_signals）. Output: 裁决确认（状态迁移 + 台账留痕）. GOTCHA: 裁决必须带理由（resolution），空裁决等于没裁决；ID 支持 query_signals 回显的短 ID（前 8 位）；跨对话裁决必须显式传 conversationId（本对话信号无需传，行为不变）.",
     parameters: {
       type: "object",
       properties: {
         signalId: { type: "string", description: "信号 ID（query_signals 回显的短 ID 或完整 UUID）" },
         status: { type: "string", enum: ["resolved", "dismissed"], description: "resolved=采纳/已处理；dismissed=驳回（写明为何驳）" },
         resolution: { type: "string", description: "裁决理由（必填）：驳回写为何驳（如'当时否的是全量迁移，本次只迁搜索路径'）；采纳写怎么处理（改派/给资源/砍需求）" },
+        conversationId: { type: "string", description: "跨对话裁决用：信号所在对话的完整 ID（aging 告警 context.signalConversationId 已给出）。本对话信号不传" },
       },
       required: ["signalId", "status", "resolution"],
     },

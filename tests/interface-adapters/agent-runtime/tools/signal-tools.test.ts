@@ -228,7 +228,7 @@ describe('resolve_signal 工具（C2：裁决写路径）', () => {
     expect(res.content[0].text).toContain('命中 2 条');
   });
 
-  it('跨对话信号拒绝裁决（防御纵深）', async () => {
+  it('跨对话短 ID 本对话无匹配（搜索域默认本对话）', async () => {
     await repo.create({
       id: 'bbbbbbbb-1111-2222-3333-444444444444', conversationId: 'conv-OTHER', messageId: 'm1',
       fromOtterId: 'otter-x', targetOtterId: null, type: 'objection', severity: 'low',
@@ -238,7 +238,91 @@ describe('resolve_signal 工具（C2：裁决写路径）', () => {
     const tool = createResolveSignalTool(ctx, repo);
     const res = await tool.execute('t', { signalId: 'bbbbbbbb', status: 'resolved', resolution: 'x' });
     expect(res.isError).toBe(true);
-    // 注：短 ID 前缀搜索限定本对话，跨对话信号经完整 ID 访问时被 conversation 校验拒绝
     expect(res.content[0].text).toContain('无匹配');
+  });
+
+  // ── #1041：跨对话裁决（显式 conversationId）──
+  it('完整 ID + conversationId 跨对话裁决成功：aging 悬置信号主路径', async () => {
+    await repo.create({
+      id: 'bbbbbbbb-1111-2222-3333-444444444444', conversationId: 'conv-OTHER', messageId: 'm1',
+      fromOtterId: 'otter-x', targetOtterId: null, type: 'objection', severity: 'low',
+      payload: 'x', status: 'pending', resolution: null, resolvedBy: null, resolvedAt: null,
+      createdAt: '2026-08-26T10:02:00.000Z',
+    });
+    const tool = createResolveSignalTool(ctx, repo);
+    const res = await tool.execute('t', {
+      signalId: 'bbbbbbbb-1111-2222-3333-444444444444',
+      conversationId: 'conv-OTHER',
+      status: 'resolved',
+      resolution: '修复已由 PR #1015 完成，resolved 留痕',
+    });
+    expect(res.isError).toBeUndefined();
+    expect(res.content[0].text).toContain('裁决完成');
+    const ev = await repo.findById('bbbbbbbb-1111-2222-3333-444444444444');
+    expect(ev?.status).toBe('resolved');
+    expect(ev?.resolvedBy).toBe('otter-big');
+  });
+
+  it('跨对话短 ID + conversationId：在指定对话内展开前缀', async () => {
+    await repo.create({
+      id: 'cccccccc-1111-2222-3333-444444444444', conversationId: 'conv-OTHER', messageId: 'm1',
+      fromOtterId: 'otter-x', targetOtterId: null, type: 'blocked', severity: 'medium',
+      payload: 'y', status: 'pending', resolution: null, resolvedBy: null, resolvedAt: null,
+      createdAt: '2026-08-26T10:03:00.000Z',
+    });
+    const tool = createResolveSignalTool(ctx, repo);
+    const res = await tool.execute('t', {
+      signalId: 'cccccccc',
+      conversationId: 'conv-OTHER',
+      status: 'dismissed',
+      resolution: '来源会话已无续办价值',
+    });
+    expect(res.isError).toBeUndefined();
+    const ev = await repo.findById('cccccccc-1111-2222-3333-444444444444');
+    expect(ev?.status).toBe('dismissed');
+  });
+
+  it('完整 ID + 隐式跨对话仍拒，错误信息引导显式传参', async () => {
+    await repo.create({
+      id: 'dddddddd-1111-2222-3333-444444444444', conversationId: 'conv-OTHER', messageId: 'm1',
+      fromOtterId: 'otter-x', targetOtterId: null, type: 'objection', severity: 'low',
+      payload: 'z', status: 'pending', resolution: null, resolvedBy: null, resolvedAt: null,
+      createdAt: '2026-08-26T10:04:00.000Z',
+    });
+    const tool = createResolveSignalTool(ctx, repo);
+    const res = await tool.execute('t', { signalId: 'dddddddd-1111-2222-3333-444444444444', status: 'resolved', resolution: 'x' });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain('conversationId');
+  });
+
+  it('conversationId 不匹配（拼错串话防护）：信号实际在第三个对话仍拒', async () => {
+    await repo.create({
+      id: 'eeeeeeee-1111-2222-3333-444444444444', conversationId: 'conv-THIRD', messageId: 'm1',
+      fromOtterId: 'otter-x', targetOtterId: null, type: 'objection', severity: 'low',
+      payload: 'w', status: 'pending', resolution: null, resolvedBy: null, resolvedAt: null,
+      createdAt: '2026-08-26T10:05:00.000Z',
+    });
+    const tool = createResolveSignalTool(ctx, repo);
+    const res = await tool.execute('t', {
+      signalId: 'eeeeeeee-1111-2222-3333-444444444444',
+      conversationId: 'conv-OTHER', // 拼错——信号实际在 conv-THIRD
+      status: 'resolved',
+      resolution: 'x',
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain('conv-THIRD');
+  });
+
+  it('本对话信号带不带 conversationId 行为一致（幂等面）', async () => {
+    const tool = createResolveSignalTool(ctx, repo);
+    const res = await tool.execute('t', {
+      signalId: 'aaaaaaaa',
+      conversationId: 'conv-1', // 显式传本对话 ID——应等同默认
+      status: 'resolved',
+      resolution: '本对话显式传参',
+    });
+    expect(res.isError).toBeUndefined();
+    const ev = await repo.findById('aaaaaaaa-1111-2222-3333-444444444444');
+    expect(ev?.status).toBe('resolved');
   });
 });
