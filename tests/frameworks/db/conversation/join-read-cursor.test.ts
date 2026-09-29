@@ -1,30 +1,20 @@
 /**
- * F20260913ctlv test15：小獭进场已读游标回归测试。
+ * F20260929czi0：进场游标零点修正——仓储层测试。
  *
- * 搭档拍板口径：进场游标与进场 system entry 一致——小獭能读到进场那一刻为止的
- * 全部历史（含进场前的大獭发言），否则小獭会重复问「问题是什么」。
- *
- * 根因：createParticipant INSERT 不写 last_read_seq → NULL → getUnreadEntries
- * 对 NULL 返回空；重启 backfill 又把 NULL 填成 max seq（读到最新）。两条路都
- * 读不到进场前历史。修复：进场显式写 last_read_seq=0（读全部）。
+ * 游标语义：獭的未读集合 = 自其进场点之后、尚未消化的发言；进场前历史不进
+ * 未读注入（背景供给归派工简报/检索工具）。取代 F20260913ctlv test15 的
+ * 「进场游标=0=读全部历史」口径（该口径让新獭天生背上全对话未读债，
+ * 大对话 + 小窗口模型首请求即爆窗——kimi-256k 在 2301 条对话 400 拒答）。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Database from "better-sqlite3";
-import { initSchema } from "@frameworks/db/schema";
+import type Database from "better-sqlite3";
 import { SqliteEntryRepository } from "@frameworks/db/conversation/sqlite-entry-repository";
 import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
 import type { Entry } from "@entities/conversation/entry";
 import type { Conversation, ConversationParticipant } from "@entities/conversation/conversation";
+import { createTestDb } from "../../../helpers/db";
 
-/** 创建内存 SQLite 并初始化 schema */
-function createTestDb(): Database.Database {
-  const db = new Database(":memory:");
-  db.pragma("foreign_keys = ON");
-  initSchema(db);
-  return db;
-}
-
-describe("进场已读游标（test15 回归）", () => {
+describe("进场游标零点（F20260929czi0）", () => {
   let db: Database.Database;
   let entryRepo: SqliteEntryRepository;
   let convRepo: SqliteConversationRepository;
@@ -59,50 +49,79 @@ describe("进场已读游标（test15 回归）", () => {
     };
   }
 
-  it("新进场獭 last_read_seq=0 → getUnreadEntries 读到进场前历史（含大獭提的问题）", async () => {
-    // 大獭进场前提问题（speak）+ 系统消息（system）——seq 原子分配，以返回值为准
-    const q = await entryRepo.createEntryAtomic(entryFixture("big-1", "问题：你最喜欢什么颜色？"));
-    const sys = await entryRepo.createEntryAtomic(entryFixture("system", "甲獭 加入了对话", "system"));
-
-    // 甲獭进场（createParticipant）
-    const p: ConversationParticipant = {
-      id: "p-1", conversationId: "conv-1", otterId: "jia-1",
+  function participantFixture(otterId: string, id: string, lastReadSeq?: number): ConversationParticipant {
+    return {
+      id, conversationId: "conv-1", otterId,
       status: "active", createdAt: "2026-01-01T00:00:00Z", leftAt: null,
+      ...(lastReadSeq !== undefined ? { lastReadSeq } : {}),
     };
-    convRepo.createParticipant(p);
+  }
 
-    // 甲獭的未读 = 进场前全部 user/system/speak 条目（不含自己发的）
-    const unread = await entryRepo.getUnreadEntries("conv-1", "jia-1");
-    expect(unread.map(e => e.sequenceNum)).toEqual([q.sequenceNum, sys.sequenceNum]);
-    expect(unread[0]?.body).toContain("问题");
+  describe("createParticipant 游标初值", () => {
+    it("带 lastReadSeq 初值写入生效（进场点游标落库）", async () => {
+      const q = await entryRepo.createEntryAtomic(entryFixture("big-1", "进场前的问题"));
+      const sys = await entryRepo.createEntryAtomic(entryFixture("system", "甲獭 加入了对话", "system"));
+      // 加入已有对话：游标 = 进场时刻 max(seq)（含进场 system entry 的 seq）
+      const joinSeq = Math.max(q.sequenceNum, sys.sequenceNum);
+      convRepo.createParticipant(participantFixture("jia-1", "p-1", joinSeq));
+
+      // 进场前历史（含进场 system entry，sender=甲自己——双重不可见）不进未读
+      const unread = await entryRepo.getUnreadEntries("conv-1", "jia-1");
+      expect(unread).toEqual([]);
+      // 落库值直查（游标写入语义，非读路径映射）
+      const row = db.prepare("SELECT last_read_seq FROM conversation_participants WHERE otter_id = 'jia-1'").get() as { last_read_seq: number };
+      expect(row.last_read_seq).toBe(joinSeq);
+    });
+
+    it("缺省写入 0（新对话初始化调用方零改动、行为不变）", async () => {
+      convRepo.createParticipant(participantFixture("jia-1", "p-2"));
+
+      const row = db.prepare("SELECT last_read_seq FROM conversation_participants WHERE otter_id = 'jia-1'").get() as { last_read_seq: number };
+      expect(row.last_read_seq).toBe(0);
+      // 空对话缺省 0：开场白（写在前）仍可见
+      const welcome = await entryRepo.createEntryAtomic(entryFixture("big-1", "开场白", "system"));
+      const unread = await entryRepo.getUnreadEntries("conv-1", "jia-1");
+      expect(unread.map(e => e.sequenceNum)).toEqual([welcome.sequenceNum]);
+    });
+
+    it("createParticipants 批量：带初值与缺省混合写入各自生效", async () => {
+      const q = await entryRepo.createEntryAtomic(entryFixture("big-1", "进场前问题"));
+      convRepo.createParticipants([
+        participantFixture("jia-1", "p-3", q.sequenceNum),
+        participantFixture("yi-1", "p-4"),
+      ]);
+
+      const rows = db.prepare("SELECT otter_id, last_read_seq FROM conversation_participants").all() as Array<{ otter_id: string; last_read_seq: number }>;
+      const byOtter = new Map(rows.map(r => [r.otter_id, r.last_read_seq]));
+      expect(byOtter.get("jia-1")).toBe(q.sequenceNum);
+      expect(byOtter.get("yi-1")).toBe(0);
+    });
+
+    it("进场点之后的新消息正常未读（零点=进场点，不是「全历史」）", async () => {
+      await entryRepo.createEntryAtomic(entryFixture("big-1", "进场前的旧问题"));
+      const sys = await entryRepo.createEntryAtomic(entryFixture("system", "乙獭 加入了对话", "system"));
+      convRepo.createParticipant(participantFixture("yi-1", "p-5", sys.sequenceNum));
+
+      const after1 = await entryRepo.createEntryAtomic(entryFixture("big-1", "进场后新消息"));
+      const unread = await entryRepo.getUnreadEntries("conv-1", "yi-1");
+      expect(unread.map(e => e.sequenceNum)).toEqual([after1.sequenceNum]);
+    });
   });
 
-  it("进场后自己产出不重复计未读（sender 过滤），他人后续条目正常未读", async () => {
-    const q = await entryRepo.createEntryAtomic(entryFixture("big-1", "问题"));
-    const p: ConversationParticipant = {
-      id: "p-2", conversationId: "conv-1", otterId: "jia-1",
-      status: "active", createdAt: "2026-01-01T00:00:00Z", leftAt: null,
-    };
-    convRepo.createParticipant(p);
-    // 甲獭自己发言 + 大獭新发言
-    const own = await entryRepo.createEntryAtomic(entryFixture("jia-1", "我的回答"));
-    const next = await entryRepo.createEntryAtomic(entryFixture("big-1", "收到"));
+  describe("进场 system entry 可见性（既有语义固化，检视 S2 订正后的现实断言）", () => {
+    it("进场 entry 对新獭不可见（sender=自己，被 sender 过滤排除）；其他在场獭可见", async () => {
+      // 大獭先行在场，看得到乙进场
+      convRepo.createParticipant(participantFixture("big-1", "p-6", 0));
+      const joinEntry = await entryRepo.createEntryAtomic(entryFixture("system", "乙獭 加入了对话", "system"));
+      // 乙带进场点游标进场（join 的进场 entry 在游标读数之前落库）
+      convRepo.createParticipant(participantFixture("yi-1", "p-7", joinEntry.sequenceNum));
 
-    const unread = await entryRepo.getUnreadEntries("conv-1", "jia-1");
-    expect(unread.map(e => e.sequenceNum)).toEqual([q.sequenceNum, next.sequenceNum]);
-    void own;
-  });
-
-  it("退场獭（status=left）不返回未读", async () => {
-    await entryRepo.createEntryAtomic(entryFixture("big-1", "问题"));
-    const p: ConversationParticipant = {
-      id: "p-3", conversationId: "conv-1", otterId: "yi-1",
-      status: "active", createdAt: "2026-01-01T00:00:00Z", leftAt: null,
-    };
-    convRepo.createParticipant(p);
-    db.prepare("UPDATE conversation_participants SET status = 'left' WHERE otter_id = 'yi-1'").run();
-
-    const unread = await entryRepo.getUnreadEntries("conv-1", "yi-1");
-    expect(unread).toEqual([]);
+      // 对乙不可见：seq ≤ 游标（且 sender=自己本就被排除）——「我进场了」是写给其他在场獭的仪式性消息
+      const unreadYi = await entryRepo.getUnreadEntries("conv-1", "yi-1");
+      expect(unreadYi).toEqual([]);
+      // 对大獭可见：seq > 0 游标 + sender ≠ 大獭
+      const unreadBig = await entryRepo.getUnreadEntries("conv-1", "big-1");
+      expect(unreadBig.map(e => e.sequenceNum)).toContain(joinEntry.sequenceNum);
+    });
   });
 });

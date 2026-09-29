@@ -61,7 +61,13 @@ export class ManageParticipant {
 
     const now = new Date().toISOString();
 
-    /** 2. 创建参与记录（F20260920trrt：turn 锚点退役——进场游标由 createParticipant 显式写 0） */
+    /** 2. 创建参与记录。F20260929czi0：进场游标零点 = 进场点——先读进场时刻
+     *  max(seq)，以此作为游标初值（进场前历史不是未读，背景供给归派工简报/
+     *  检索工具；取代 F20260913ctlv 的游标=0 口径）。时序安全：seq 由
+     *  createEntryAtomic 单调原子分配，「先读 maxSeq=M → 写 participant(游标=M)」
+     *  顺序下，读数之后并发落库的消息 seq 恒 > M = 游标，对新獭恒可见、无漏读窗口，
+     *  无需加锁。 */
+    const joinCursorSeq = await this.repo.getMaxEntrySeq(conversationId);
     const participant: ConversationParticipant = {
       id: crypto.randomUUID(),
       conversationId,
@@ -69,6 +75,7 @@ export class ManageParticipant {
       status: "active",
       createdAt: now,
       leftAt: null,
+      lastReadSeq: joinCursorSeq,
     };
     await this.repo.createParticipant(participant);
 
