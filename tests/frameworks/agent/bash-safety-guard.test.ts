@@ -1467,6 +1467,84 @@ describe("#1207：只读 python heredoc 被「heredoc patch」通道误拦（9/2
     const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
     expect(result).not.toBeNull();
   });
+
+  // ── delta r1（检视獭-1207 严重 1/2 + 建议 1/2）：豁免方向反转后的攻防两面 ──
+  // denylist 版被实证的绕过形态，全部必须保持拦截（fail-closed 白名单后不可回退）
+  it("[严重1] 假闭合利用链（体首 EOF = 0 + 宽版 closer 尾写）→ 拦（closer 已对齐 bash 语义）", () => {
+    const cmd = `python3 - <<'EOF'\nEOF = 0\nopen('/etc/hosts').read()\nEOF   \nopen('/tmp/review1207-marker','w').write('TAIL-WRITE-EXECUTED')\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("[严重1] 别名 import os as o + o.remove → 拦（别名 import 不豁免）", () => {
+    const cmd = `python3 - <<'EOF'\nimport os as o\no.remove('src/foo.ts')\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("[严重1] __import__('os').system('kill 主PID') → 拦（动态 import 不豁免）", () => {
+    const cmd = `python3 - <<'EOF'\n__import__('os').system('kill ${mainPid}')\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("[严重1] getattr 动态 kill → 拦（动态形态不豁免）", () => {
+    const cmd = `python3 - <<'EOF'\ngetattr(__import__('os'),'k'+'ill')(${mainPid})\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("[严重1] pathlib unlink → 拦（Path 方法面白名单外）", () => {
+    const cmd = `python3 - <<'EOF'\nfrom pathlib import Path\nPath('src/foo.ts').unlink()\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("[严重1] fileinput inplace → 拦（原 Known Limitations 点名形态，白名单外）", () => {
+    const cmd = `python3 - <<'EOF'\nimport fileinput\nfor l in fileinput.input('src/x.ts', inplace=True): print(l)\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("[严重2] node 计算键写 ['write'+'FileSync'] → 拦（计算成员调用不豁免）", () => {
+    const cmd = `node - <<'EOF'\nrequire('fs')['write'+'FileSync']('src/x.ts','x')\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("[严重2] node 别名 p['k'+'ill'](主PID) → 拦", () => {
+    const cmd = `node - <<'EOF'\nconst p=process\np['k'+'ill'](${mainPid})\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("[严重2] 未闭合 node heredoc 体 process.kill(主PID) → 拦（V1 OnText 挂点已补）", () => {
+    const cmd = `node - <<'EOF'\nprocess.kill(${mainPid});`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("[建议2] python3.11 版本体写主仓 → 拦（通道含小数点版本）", () => {
+    const cmd = `python3.11 - <<'PY'\nopen('src/foo.ts','w').write('x')\nPY`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("[建议2] /usr/bin/python3 只读体 → 放行（绝对路径解释器不误拦）", () => {
+    const cmd = `/usr/bin/python3 - <<'PY'\nprint(open('src/foo.ts').read())\nPY`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+  it("混合体：只读前缀掩开写 → 拦（open 无 mode 在白名单外）", () => {
+    const cmd = `python3 - <<'EOF'\nprint(open('src/a.ts').read()) if open('src/b.ts','w') else 0\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("bare 体含 $(...) → 拦（展开面在场不豁免）", () => {
+    const cmd = `python3 - <<EOF\n$(touch src/x.ts)\nprint(open('src/foo.ts').read())\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("open('rb')/无 mode 默认只读/Path.read_text 继续放行（豁免面必要可用性）", () => {
+    for (const body of [
+      "print(open('src/foo.ts').read())",
+      "with open('src/foo.ts', 'rb') as f:\n    print(len(f.read()))",
+      "from pathlib import Path\nprint(Path('src/foo.ts').read_text()[:100])",
+    ]) {
+      const cmd = `python3 - <<'EOF'\n${body}\nEOF`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+    }
+  });
 });
 
 describe("F20260923qbsw 引号盲重定向/复合切断误拦修复（#984 循环拦截事故）", () => {

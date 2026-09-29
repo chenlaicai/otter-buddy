@@ -80,51 +80,52 @@ export function stripHeredocPayloads(command: string): string {
   return blankHeredocBody(command);
 }
 
-/** #1207（F20260929hcwd）：提取全部 heredoc 载荷体原文——供体感知判定
- *  （bash-safety-guard 的主仓写检测：通道命中后查体写/执行签名，纯只读体放行）。
- *  闭合/边界语义与 blankHeredocBody 完全一致（同一定界符闭合规则；未闭合 →
- *  返回已闭合部分的体，调用方在 V2 模型路径使用——未闭合命令 parseOk=false
- *  走 V1 fail-closed 链，不会到达体感知判定）。 */
-export function extractHeredocBodies(command: string): string[] {
-  const bodies: string[] = [];
-  HEREDOC_OPEN.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = HEREDOC_OPEN.exec(command)) !== null) {
-    const openLineEnd = command.indexOf("\n", m.index);
-    if (openLineEnd === -1) break; // 无换行（单行 <<EOF 后无体）——无体可提取
-    const closerRe = new RegExp(`^[ \\t]*${m[1]}[ \\t]*$`, "gm");
-    closerRe.lastIndex = openLineEnd + 1;
-    const close = closerRe.exec(command);
-    if (!close) break; // 未闭合：与 blankHeredocBody 同 fail-closed 边界
-    bodies.push(command.slice(openLineEnd + 1, close.index));
-  }
-  return bodies;
-}
-
-/** #1207（F20260929hcwd）：提取全部 heredoc 载荷体及位置——供体感知判定
- *  （bash-safety-guard 的主仓写检测：通道命中后查体写/执行签名，纯只读体放行）。
- *  闭合/边界语义与 blankHeredocBody 完全一致（同一套定界符闭合规则；未闭合 →
- *  只返回已闭合部分的 span，调用方在 V2 模型路径使用——未闭合命令 parseOk=false
- *  走 V1 fail-closed 链，不会到达体感知判定）。 */
-export interface HeredocSpan { header: string; body: string; start: number; end: number }
+/** #1207（F20260929hcwd，delta r1 修正）：提取全部 heredoc 载荷 span——供体感知判定。
+ *  closer 语义与 bash 对齐：定界符必须独占一行（行首无空白、行尾无任何字符——
+ *  实测 `EOF   ` 不闭合；此前容忍 [ \t]* 的宽版被检视獭凑出利用链：
+ *  体首定义 `EOF = 0` 让 python 合法经过「假闭合行」+ 宽版 closer 误判闭合，
+ *  尾段真实写入逃过体判定，端到端 ALLOW 实证）。
+ *  quoted 标记定界符是否带引号（无展开体）；closed=false 表示未闭合（bash 会
+ *  把剩余全文吃进体——调用方必须保守拦，不可对未闭合 span 豁免）。
+ *  注意：仅引用此函数的调用方必须自行把「未闭合」当保守信号；本函数返回数据，
+ *  不做拦截决策。 */
+export interface HeredocSpan { header: string; body: string; start: number; end: number; quoted: boolean; closed: boolean }
 export function extractHeredocSpans(command: string): HeredocSpan[] {
   const spans: HeredocSpan[] = [];
   HEREDOC_OPEN.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = HEREDOC_OPEN.exec(command)) !== null) {
+    const quoted = /<<\s*["']/.test(m[0]);
     const openLineEnd = command.indexOf("\n", m.index);
     if (openLineEnd === -1) break; // 无换行（单行 <<EOF 后无体）——无体可提取
-    const closerRe = new RegExp(`^[ \\t]*${m[1]}[ \\t]*$`, "gm");
+    // bash 语义：定界符必须独占一行（行首无空白、行尾无任何字符）；
+    // ^D$ 配 m 旗标同时覆盖「后跟换行」与「命令串末尾」两种闭合
+    const closerRe = new RegExp(`^${m[1]}$`, "gm");
     closerRe.lastIndex = openLineEnd + 1;
     const close = closerRe.exec(command);
-    if (!close) break; // 未闭合：与 blankHeredocBody 同 fail-closed 边界
+    if (!close) {
+      // 未闭合：bash 把剩余全文吃进体——返回 unclosed span，调用方保守处理
+      const lineStart = command.lastIndexOf("\n", m.index) + 1;
+      spans.push({
+        header: command.slice(lineStart, openLineEnd),
+        body: command.slice(openLineEnd + 1),
+        start: openLineEnd + 1,
+        end: command.length,
+        quoted,
+        closed: false,
+      });
+      break;
+    }
     const lineStart = command.lastIndexOf("\n", m.index) + 1;
     spans.push({
       header: command.slice(lineStart, openLineEnd),
       body: command.slice(openLineEnd + 1, close.index),
       start: openLineEnd + 1,
       end: close.index,
+      quoted,
+      closed: true,
     });
+    closerRe.lastIndex = close.index + close[0].length;
   }
   return spans;
 }
@@ -138,8 +139,10 @@ function blankHeredocBody(command: string): string {
   while ((m = HEREDOC_OPEN.exec(command)) !== null) {
     const openLineEnd = command.indexOf("\n", m.index);
     if (openLineEnd === -1) break; // 无换行（单行 <<EOF 后无体）——无需剥
-    // 定界符必须独占一行（行首可选空白 + 词 + 行尾）才算闭合
-    const closerRe = new RegExp(`^[ \\t]*${m[1]}[ \\t]*$`, "gm");
+    // #1207 delta r1：closer 与 bash 对齐——定界符独占一行（行首无空白、行尾无任何
+    // 字符，`EOF   ` 不闭合）。宽版 `[ \\t]*` 被检视獭利用（体首 `EOF = 0` + 尾段
+    // 真实写入端到端 ALLOW）；剥体到不了的位置体文本留在扫描面 → 保守侧。
+    const closerRe = new RegExp(`^${m[1]}$`, "gm");
     closerRe.lastIndex = openLineEnd + 1;
     const close = closerRe.exec(command);
     if (!close) {

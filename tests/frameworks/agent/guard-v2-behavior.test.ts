@@ -248,6 +248,13 @@ describe("#1207 + #760 A4：xargs 多参数 wrapper 剥除不完整致管道右�
   it("kill -9 42877 → 拦（信号参数后字面主 PID，剥除不伤信号旗标语义）", () => {
     expect(checkBashCommandSafety("kill -9 42877", mainPid)).toBeTruthy();
   });
+  // delta r1（检视建议 1）：wrapper 叠加超过静态判定上限 → 段不可判定 → 保守拦
+  it("echo 42877 | xargs env×9 kill 42877 → 拦（wrapper 饱和保守拦，超 guard≤8 界不放行）", () => {
+    expect(checkBashCommandSafety(`echo 42877 | xargs ${"env ".repeat(9)}kill 42877`, mainPid)).toBeTruthy();
+  });
+  it("echo hi | env A=1 node -e 'console.log(1)' → 放行（合理层数 wrapper 不受饱和拦影响）", () => {
+    expect(checkBashCommandSafety("echo hi | env A=1 node -e 'console.log(1)'", mainPid)).toBeNull();
+  });
 });
 
 describe("#1207 对称面：node heredoc 体级危险签名（process.kill 此前无任何判定）", () => {
