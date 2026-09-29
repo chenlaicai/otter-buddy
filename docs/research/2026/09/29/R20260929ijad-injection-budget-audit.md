@@ -2,7 +2,7 @@
 doc_type: research
 id: R20260929ijad
 title: 注入面体积深入分析：工具精拆 + 按需加载可行性 + skill 索引审计
-summary: 首请求注入面 ~26.7K token 中工具 schema 占 ~60%（39 个工具 ≈25K 字符）。逐工具实测显示体积呈长尾分布（top10 占 46%）；SDK 核实运行时 registerTool 通道存在但无 unregister，给出三条裁剪路径的可行性结论；skill 索引 4.3K 字符逐条审计发现 2 处可精简。
+summary: 首请求注入面 ~26.7K token 中工具 schema 占 ~60%（39 个工具 ≈25K 字符）。逐工具实测显示体积呈长尾分布（top10 占 46%）。根因分析：schema 每轮全量重发是默认设计选择非必须（根 1），工具供需靠人维护映射表只胀不缩（根 2）。SDK 核实：setActiveToolsByName 公开方法 + transcript toolsAdded 持久化 + provider mid-convo 能力位齐备——根因级解法「轻目录+意图驱动按需激活」成立，大獭首请求 27K→~7K；预算闸/任务级白名单/元工具加载均否决（症状管理/映射表未动/三重代价）。
 created_in_conversation: 1d3437f9-ae46-488f-824b-d67936791165
 causal_links:
   issues: [1235, 1230]
@@ -44,35 +44,46 @@ skill 全文懒加载（F20260724skch），SYSTEM.md 身份段（大獭定义/�
 
 **关键发现：体积大头在参数 schema 不在 description**——search_memory 参数段 1377 字符（detail_level 枚举 + content_type 多选 + expand_context 等），manage_healing_events 参数 1327 字符（batch_resolve 五个 filter 参数）。tdrv 审视过的 description 文本反而不是体积主因。
 
-## 二、按需加载可行性（路 A，SDK 链路核实）
+## 二、按需加载可行性（根因级方案，SDK 链路核实）
+
+**搭档 9/29 21:41 方向纠正**：「不要上来就搞一大堆兜底/限制机制，从第一性原理出发先分析根因」。根因分析：
+
+- **根 1：schema 是序列化说明书，但每轮都在重发**——session 创建时静态塞入后每轮原样重发是默认设计选择，不是必须如此。schema 的价值集中在首次接触（学会怎么调）和调错时（纠正），后续轮次边际贡献趋零。
+- **根 2：工具供需靠人维护映射表**（manifest/白名单），配置永远滞后于任务，映射表只胀不缩——这才是「只增不减」斜坡的真正来源。
+
+### SDK 核实结论：根因级解法由公开 API 直接支持
 
 核实锚点（node_modules/@earendil-works/pi-coding-agent/dist）：
-- `ExtensionContext.registerTool()`（core/extensions/types.d.ts:950）——**运行时动态注册通道存在**，extension handler 内可注册新工具
-- `AgentSession` 构造期 `customTools?: ToolDefinition[]`（core/agent-session.d.ts:118）+ 私有 `_customTools`（:225）+ 私有 `_refreshToolRegistry`（:580）——session 级一次注入
-- **无公开 unregisterTool/removeTool**——注册了只能增不能减（同 session 内）
 
-三条路径评估：
+| 能力 | 锚点 | 性质 |
+|---|---|---|
+| `AgentSession.setActiveToolsByName(names)` | core/agent-session.d.ts:327 | **公开方法**：运行时改活跃工具集，「Changes take effect on the next agent turn」 |
+| `ExtensionContext.setActiveTools(names)` | core/extensions/types.d.ts:1005 | extension handler 内同样可用 |
+| transcript 持久化 `toolsAdded/toolsRemoved` | pi-ai `SystemMessage` 协议；agent-session.js:848 `_restoreToolsFromTranscript` | 换 session 自动恢复工具集——跨换世一致 |
+| provider 能力位 | `supportsMidConvoToolAdditions`（OpenAI Responses compat）/ `supportsMidConvoToolChanges`（Anthropic compat）/ `supportsToolSearch`（OpenAI Responses，客户端执行工具搜索） | 主流链路原生支持会话中途改工具 |
+| 运行时注册 | `ExtensionContext.registerTool()`（types.d.ts:950）；无公开 unregister——但 setActiveTools 是「激活/失活」语义，规避了单向门问题 | 备用 |
 
-### 路径 A1：元工具动态注册（load_tool 模式）
-做一个常驻 `load_tool(name)` 元工具，调用后通过 extension 的 registerTool 把目标工具注册进来，后续轮可用。
-- ✅ SDK 机制支持（registerTool 运行时可用）
-- ⚠️ **延迟一拍**：注册后下一轮 LLM 才看见——「獭想用 X → 先 load → 下轮才能调」，工作流被打断
-- ⚠️ **发现性问题**（9/4 教训：可用≠会用）：LLM 不知道有哪些可加载工具，元工具 description 得内嵌工具目录——目录本身又是注入面（39 个名字+一句话 ≈1.5K，省 7K 花 1.5K+一拍延迟）
-- ⚠️ 单向门：误注册无法撤销
+### 方案：轻目录 + 意图驱动的按需激活（动摇根 1 + 根 2）
 
-### 路径 A2：任务级 session 白名单细化（派工即裁剪）
-现状已有 manifest 按獭**类型**（big/small）裁剪；升级为按**任务**裁剪——派工简报声明任务类别（如「审视」→ 不含 workspace/write/bash；「干活」→ 不含 signals/healing），create_otter 时算白名单。
-- ✅ 零 SDK 改造（白名单机制现成，getOtterToolNamesForType + buildCustomTools）
-- ✅ 无发现性问题——裁剪的是「这个任务大概率用不到的」，不是藏起来
-- ⚠️ 误判代价：派工时声明错了类别，小獭干到一半缺工具（需要兜底：小獭可申请补发/大獭重启改派）
-- 📊 收益估算：审视类小獭可裁 ~10K（编码工具里留 read/grep/find，裁 write/edit/bash + workspace/signals/artifacts）；大獭本体收益小（编排者什么都可能用到）
+1. **首轮轻载**：活跃工具集 = 核心高频件（speak/yield/记忆三件套/bash/read 等 ~10 个，~5K），其余 29 个仅以「名字+一句话触发条件」轻目录进 prompt（~2K）
+2. **按需激活**：獭输出未激活工具的调用 → 系统拦截 → `setActiveToolsByName` 就地激活该工具（完整 schema 下轮可见）→ 返回「已激活，请重试」的错误提示让模型重调。不断一拍工作流（错误-重试是 agent loop 原生语义）
+3. **供需因果链**：工具供给由「模型实际调用意图」驱动，不靠人事先声明白名单——根 2 的映射表消失
+4. **跨 session 一致**：`toolsAdded` 进 transcript，换世自动恢复
 
-### 路径 A3：参数 schema 瘦身（头部工具）
-top10 里参数 schema 超重的是 search_memory(1377)/manage_healing_events(1327)/restart_otter(790)/wait(821)——这些是**参数级契约**（枚举值、filter 语义），tdrv 已判定为「删了直接调错」。可做的是：低频参数从 schema 挪到工具返回的错误提示里（调错时教会），但牺牲首次调对率。
-- 判定：**个别可做（如 batch_resolve 的五个 filter 参数可合并为一个 filter 对象描述），整体收益有限（~1-2K）**
+与此前否决的「A1 元工具」的本质区别：补全由系统在意图检测时自动完成，不依赖 LLM 主动喊 load_tool，无发现性问题、无断拍。
 
-### 结论
-**推荐 A2（任务级白名单）为主、A3 个别打磨为辅；A1 不推荐**（延迟一拍 + 发现性成本 + 单向门，三重代价换 5-7K 不值）。A2 是小獭侧优化（大獭本体裁不动），与「小獭首请求 17K」现状叠加后审视獭可降到 ~10K 以下。
+### 被取代的旧方案（留档）
+
+- ~~路 B 预算闸~~：**不做**——症状管理（装栏杆承认失控）；根 1 解决后体积随需求自然涨落
+- ~~A2 任务级白名单~~：**不做**——仍是人维护映射表（根 2 未动），被「意图驱动激活」完全取代
+- A3 参数 schema 分层（枚举/filter 语义挪到调错时的错误提示里）：**保留**，与本方案正交——「调错时教会」正是信息归位到被需要的时刻，头部工具再省 3-5K
+
+### 风险与开放问题
+
+- 「调用未激活工具」的拦截点在 Otter 侧（buildCustomTools execute 包装）还是 SDK 侧（unknown tool 处理），实现期定
+- 轻目录的「一句话触发条件」质量决定激活率——可直接复用 tdrv 审视过的 description 首句
+- provider 不支持 mid-convo 工具变更的降级：fold into leading system message（SDK 自动处理，compat 位已声明）
+- 大獭本体收益：核心 10 件 ~5K + 目录 2K ≈ 7K vs 现 27K，首请求省 ~20K
 
 ## 三、skill 索引审计（14 个 frontmatter，4,272 字符）
 
@@ -90,24 +101,19 @@ description 是触发门（模型靠它决定何时 read 全文），逐条看�
 
 ## 四、预算闸方案（路 B）
 
-对齐 lint-prompt-size 思路，两个闸：
-1. **工具 schema 闸**：CI 实测 39 工具 desc+param 序列化总字符，超上限（建议 26K，现值 25.1K + ~4% 余量）即红；单工具超 2K 字符警告（现值 top1 search_memory 2047）
-2. **skill frontmatter 闸**：单个 SKILL.md frontmatter 超 450 字符即红（现值 top1 431），总量超 4.5K 警告
+**已否决**（搭档 9/29 21:41 方向纠正：不搞兜底/限制机制）。留档备查：若根因方案落地后体积仍异常增长，说明新工具真有需求，届时再讨论是否需要预算答辩机制。
 
-闸的价值在**拦增长斜坡**——27K 是「只增不减」一年涨出来的，有闸后新增工具必须先过预算答辩。
-
-## 建议落地顺序
+## 建议落地顺序（根因优先，2026-09-29 21:41 后修订）
 
 | 序 | 项 | 类型 | 收益 | 风险 |
 |---|---|---|---|---|
-| 1 | 路 B 预算闸（双闸） | lint 脚本，小 PR | 防回弹 | 无 |
-| 2 | A2 任务级白名单 | manifest 扩展 + 派工简报模板加「任务类别」字段 | 小獭侧 ~5-10K | 误判缺工具（需兜底流程） |
-| 3 | A3 个别参数瘦身 | batch_resolve filter 合并等 2-3 处 | ~1-2K | 首次调对率下降 |
-| 4 | skill frontmatter 2 处精简 | 顺手带入闸 PR | ~170 tok | 无 |
+| 1 | **轻目录 + 意图驱动按需激活**（根 1+2 结构性解法） | 架构改动：buildCustomTools 包装 + 轻目录生成 + setActiveToolsByName 激活流 | 大獭首请求 27K→~7K；小獭同步受益 | 中：激活拦截点选择、轻目录质量、provider 降级 |
+| 2 | A3 参数 schema 分层（枚举/filter 语义挪到调错提示） | 头部 3-4 个工具参数改造 | 再省 3-5K | 首次调对率下降（用错误提示教学补偿） |
+| 3 | skill frontmatter 2 处精简 | 顺手带入 | ~170 tok | 无 |
 
-A1（元工具动态加载）**不推荐**，理由见 §二。
+~~预算闸、任务级白名单、元工具动态加载~~：均否决（症状管理/人维护映射表/三重代价），理由见 §二。
 
 ## 未决（呈搭档）
 
-- A2 的「任务类别」 taxonomy 怎么定（审视/干活/研究三类够不够）——进入实现前需方案细化
-- 预算闸上限数值（26K/450 是否合适）拍板
+- 根因方案（轻目录+按需激活）是否进入方案设计阶段——这是架构级改动，建议走 requirement-analysis 出正式方案
+- 「核心常驻工具集」的边界（哪些算每轮必需——初判 speak/yield/记忆三件套/编码五件/healing/wait 约 10 个）
