@@ -70,4 +70,13 @@ describe('每日健康检查模板纪律锁（#791 P1）', () => {
     expect(tpl).toContain('不处置率');
     expect(tpl).toContain('降级');
   });
+
+  it('关闭标准必填 + 断言豁免标注段存在（#1208：issue 生命周期契约——创建有门、关闭有环）', () => {
+    const tpl = readTemplate();
+    // 关闭标准：与验证断言互补，断言管「修没修好」、关闭标准管「什么时候可以关」
+    expect(tpl).toContain('关闭标准必填');
+    expect(tpl).toContain('关闭标准');
+    // 豁免标注：无法写断言的 issue 必须显式声明，不因无断言段而静默漏检
+    expect(tpl).toContain('暂不验证');
+  });
 });

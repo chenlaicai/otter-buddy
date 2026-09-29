@@ -3,3 +3,4 @@
 # 格式：path:linenum:token——token 失配（行内容被改）时条目失效并报 error，防豁免静默转移
 prompts/scheduled/依赖升级自动化.md:7:PR #419
 prompts/scheduled/依赖升级自动化.md:21:PR #419
+src/usecases/scheduler/scheduler-service.ts:1707:#751

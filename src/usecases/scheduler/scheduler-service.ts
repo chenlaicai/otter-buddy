@@ -139,6 +139,12 @@ export class SchedulerService {
   private readonly manageSession?: ManageSession;
   private readonly functionRegistry?: FunctionRegistry;
   private readonly modelPool?: ModelPoolLike;
+  /** #1208：regression-verify 本轮 skip 的原因（resolveEffectiveBody 写入，skip 落账/心跳消费后清除）。
+   *  实例字段而非返回值——resolveEffectiveBody 签名不变（调用方多），且原因只服务 skip 路径。 */
+  private lastRegressionSkipReason?: 'gh-cli-failure' | 'no-due-assertions';
+  /** #1208：claim 因对话不存在/非 active 被拒时由 claimAndValidateTask 置位，
+   *  catch 块据此跳过 skipped execution 落账（任务已 disable，落账无意义）。消费后清除。 */
+  private conversationDisabledInClaim = false;
 
   constructor(options: SchedulerServiceOptions) {
     this.taskRepo = options.taskRepo;
@@ -613,6 +619,17 @@ export class SchedulerService {
     // #1068: quota-exhausted 降级重试预算（每次触发 1 次，函数内可变状态）
     let quotaFallbackAttempts = 0;
 
+    // #1208：executionId 提前生成——动态 skip / claim 被拒也要落 skipped execution 行。
+    // Why：9/18–9/29 生产现场 regression-verify 每天 11:00 触发→resolveEffectiveBody 返 null
+    //   （上游无断言段 issue / gh 故障）→ skip 不落 execution、不刷 last_triggered_at
+    //   → last_triggered_at 永远 NULL → #814 调度对账误报「错过触发窗口」5+ 条，
+    //   prompt-discipline skipped-24h-ratio 指标全盲——「任务死了」与「没事干」不可区分。
+    //   修复：任何 skip 路径都落 skipped execution 行（含触发时间与跳过原因），并刷新
+    //   last_triggered_at（reconcile 的 reference 点），把静默空转变成可见的 skipped 记录。
+    // Why 不移回 createExecution 之后：executionId 只是 UUID，提前生成无副作用；
+    //   execution 行建立仍只在 skip/claim 成功后（下方 createExecution 调用点不变）。
+    const executionId = crypto.randomUUID();
+
     try {
       // #823 根修之一：resolveEffectiveBody 先于 claim——动态跳过（如 self-healing-analysis
       // 无 open events）不再消耗 claim。9/6 现场：skip 吞掉 claim 但不建 execution、不更新
@@ -620,9 +637,34 @@ export class SchedulerService {
       // 已新 → 不重算 expected → 永不补触发，任务静默饿死（详见特性文档 F20260915n84u）。
       const effectiveBody = await this.resolveEffectiveBody(task);
       if (effectiveBody === null) {
-        status = 'skipped';
+        // #1208：claim 占位（刷 last_triggered_at，让 reconcile 知道本轮已跑过）。
+        //   占位被拒（如 running execution 冲突）也照常落 skipped 行——记录本轮触发事实。
+        //   例外：对话不存在/非 active → 任务已被 disable（conversationDisabledInClaim 置位），
+        //   skip 落账无意义（任务已停），不落行（与「对话校验」测试锁定的排除语义一致）。
+        const isRegression = task.body.includes('[regression-verify]');
+        const skipReason = isRegression
+          ? this.lastRegressionSkipReason ?? 'dynamic skip: no pending items'
+          : 'dynamic skip: effective body resolved to null (no pending items)';
+        await this.claimAndValidateTask(task, now).catch(() => { /* 占位失败不阻塞 skip 落账 */ });
+        // 旗标消费后立即复位（不依赖外层 catch——本路径提前 return，复位点不可达）
+        const conversationDisabled = this.conversationDisabledInClaim;
+        this.conversationDisabledInClaim = false;
+        if (!conversationDisabled) {
+          // #1208 建议 8：claim 被拒（如 running execution 前置拦截）时 last_triggered_at
+          //   未刷新——显式幂等补刷，让 reconcile 知道本轮已跑过（与外层 catch 同型兜底）。
+          await this.taskRepo.claimTask(task.id, now, now).catch(() => { /* 幂等兜底 */ });
+          status = 'skipped';
+          await this.createExecution(executionId, task.id, now);
+          executionEstablished = true;
+          await this.handleExecutionSkipped(executionId, new Error(skipReason));
+          // #1208 ②：regression-verify 专属心跳——「活着但没活干」可见（#751 写入即 resolved 先例）。
+          if (isRegression) {
+            await buildRegressionVerifyHeartbeat(task, this.healingRepo, this.lastRegressionSkipReason === 'gh-cli-failure' ? 'gh-cli-failure' : 'no-due-assertions');
+          }
+        }
+        this.lastRegressionSkipReason = undefined; // 消费后清除，防串任务污染
         this.logger.info(`Task ${task.id} skipped before claim (dynamic skip)`, { taskId: task.id });
-        return { executionId: '' };
+        return { executionId };
       }
 
       await this.claimAndValidateTask(task, now).catch(err => {
@@ -630,7 +672,6 @@ export class SchedulerService {
         throw err;
       });
 
-      const executionId = crypto.randomUUID();
       await this.createExecution(executionId, task.id, now);
       executionEstablished = true;
 
@@ -769,8 +810,20 @@ export class SchedulerService {
       }
     } catch (error) {
       // #913：claim 成功后、execution 行建立前的前置炸点（见 executionEstablished 声明处注释）。
+      // claim 被拒（status='skipped'）也要落 skipped execution 行（#1208：触发事实可见）。
+      // resolveEffectiveBody 返 null 已在上方提前 return 并落账，此处只补 claim 被拒路径。
+      // 例外：对话不存在/非 active → 任务被 disable，skip 落账无意义（任务已停），不落。
+      if (!executionEstablished && status === 'skipped' && !this.conversationDisabledInClaim) {
+        // #1208：claim 被拒时 claimTask 未必执行（如 running execution 检查在前置拦截），
+        //   last_triggered_at 可能未刷新——显式补刷，让 reconcile 知道本轮已跑过。
+        await this.taskRepo.claimTask(task.id, now, now).catch(() => { /* 已拒过，幂等兜底 */ });
+        await this.createExecution(executionId, task.id, now);
+        executionEstablished = true;
+        await this.handleExecutionSkipped(executionId, error);
+      }
+      this.conversationDisabledInClaim = false; // 消费后清除，防串任务污染（含提前 return 路径——skip 分支内另有消费点，此处为兜底）
       // claim 被拒（status='skipped'）与 resolveEffectiveBody 返回 null 属正常跳过，
-      // 不走此分支（它们不抛错或已 return）。
+      // 不走前置 healing 分支（它们不抛错或已 return / 已落 skipped execution）。
       if (!executionEstablished && status !== 'skipped') {
         status = 'failed';
         await this.recordPreExecutionFailureHealing(task, error);
@@ -794,10 +847,12 @@ export class SchedulerService {
       if (body === REGRESSION_GH_FAILED) {
         // gh 故障——记 warn（区别于「无到期断言」的正常跳过），本轮跳过但不静默（检视发现 2）
         this.logger.warn('Regression verify skipped: gh CLI failure (auth/network)——回归验证管道失效，需人工检查 gh 状态');
+        this.lastRegressionSkipReason = 'gh-cli-failure'; // #1208：供 skip 落账 + 心跳分类
         return null;
       }
       if (body === null) {
         this.logger.info('Regression verify skipped: no due assertions');
+        this.lastRegressionSkipReason = 'no-due-assertions'; // #1208：供 skip 落账 + 心跳分类
       }
       return body;
     }
@@ -836,6 +891,7 @@ export class SchedulerService {
 
     const conversation = await this.convRepo.getById(task.conversationId);
     if (!conversation || conversation.status !== 'active') {
+      this.conversationDisabledInClaim = true; // #1208：告知 catch 块本任务已 disable，skip 落账无意义
       await this.taskRepo.updateStatus(task.id, 'disabled', now);
       throw new DomainError('Conversation is not active', 'validation');
     }
@@ -1596,6 +1652,68 @@ export async function buildRegressionVerifyBody(): Promise<string | null | typeo
   }
   // 模板缺失时的最小回退（保证机制可用，静态文案的完整真相源在模板文件）
   return `## 验证断言回查任务\n\n${dataSection}\n\n逐条：gh issue view 读断言段 → 执行检查方式 → 判定 ✅/❌/⚠️ → 评论回写（含 <!-- regression-verify: ... --> 标记）；❌ 已关闭的重开并升级优先级。`;
+}
+
+/** #1208：regression-verify 心跳可见性——「活着但没活干」可查询。
+ *  生产现场 9/18–9/29：任务每天 11:00 触发但每天跳过（无到期断言 / gh 故障），
+ *  既不落 execution 也无任何心跳——与「死了」在指标上不可区分。
+ *
+ *  写入形态：**写入即 resolved**（#751 心跳语义先例 circuit-break-support.ts:92-101——
+ *  「探针是心跳不是问题」，落账只为管道自证，不进 open 池等待处置）。
+ *  Why resolved 而非 open：open 事件会被次日 9:00 self-healing-analysis 的 findOpen(20)
+ *  消费（废掉其「no open events」skip 机制）、污染 dismiss 率统计；心跳是状态记录，
+ *  不是要处置的问题。
+ *  去重：查近 24h 内同 taskId + 同 reason 的已落心跳（含 resolved——心跳无需再处置，
+ *  findOpen 查不到 resolved，故用 findAll('resolved') + 时间窗判定），有则跳过。
+ *  gh-cli-failure 与 no-due-assertions 独立计数不互压（前者是故障信号，后者是正常空转）。
+ *  Why 放模块级：与 buildRegressionVerifyBody 同生命周期，不依赖类实例状态。 */
+export async function buildRegressionVerifyHeartbeat(
+  task: ScheduledTask,
+  healingRepo: HealingEventRepository | undefined,
+  reason: 'gh-cli-failure' | 'no-due-assertions',
+): Promise<void> {
+  if (!healingRepo) return;
+  const now = new Date();
+  const dedupWindowMs = 24 * 3600_000;
+  try {
+    // 查近 24h 内同 taskId + 同 reason 的心跳（resolved 状态，findOpen 查不到，用 findAll）
+    const recentResolved = await healingRepo.findAll('resolved', 100);
+    const hasRecent = recentResolved.some(e => {
+      if (e.errorType !== 'other') return false;
+      const ctx = e.context as Record<string, unknown> | null;
+      if (ctx?.taskId !== task.id || ctx?.reason !== reason) return false;
+      const at = typeof ctx?.heartbeatAt === 'string' ? new Date(ctx.heartbeatAt).getTime() : 0;
+      return now.getTime() - at < dedupWindowMs;
+    });
+    if (hasRecent) return;
+    const nowIso = now.toISOString();
+    await healingRepo.create({
+      id: crypto.randomUUID(),
+      messageId: '',
+      conversationId: task.conversationId,
+      otterId: task.talkingStonePassedTo[0] ?? '',
+      errorType: 'other',
+      severity: 'low',
+      description: `定时任务「${task.name}」回归验证心跳：本轮跳过（${reason === 'gh-cli-failure' ? 'gh CLI 故障' : '无到期断言'}）——任务活着但没活干，连续多日需排查上游断言覆盖`,
+      suggestion: reason === 'gh-cli-failure'
+        ? '检查 gh CLI 认证与网络状态'
+        : '确认 daily-review issue 的验证断言段覆盖率；长期无到期断言考虑收窄 cron 频率',
+      context: { taskId: task.id, reason, heartbeatAt: nowIso },
+      status: 'resolved',
+      resolution: {
+        action: 'no_action',
+        decidedBy: 'agent',
+        decidedAt: nowIso,
+        notes: '#1208 心跳写入即 resolved（#751 同型）：心跳是状态记录不是要处置的问题，不进 open 池',
+      },
+      createdAt: nowIso,
+      resolvedAt: nowIso,
+    });
+  } catch (err) {
+    // best-effort：心跳落账失败不阻塞 skip 主路径
+    // eslint-disable-next-line no-console -- 模块级函数无类实例 logger；console.warn 与既有 fetchClosedDailyReviewIssues 风格一致
+    console.warn('[regression-verify] heartbeat write failed (non-fatal):', err instanceof Error ? err.message : String(err));
+  }
 }
 
 /** 构建 healing 分析任务的动态 prompt。返回 null 表示无待处理事件。

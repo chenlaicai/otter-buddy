@@ -15,6 +15,18 @@ import type { DispatchChainEngine } from '@usecases/conversation/dispatch-chain-
 
 // ─── 辅助工具 ─────────────────────────────────────────────
 
+/** #1208：可观察 healingRepo（事件落 _events 可断言），模块级共享（跨 describe 复用）。 */
+function makeObservableHealingRepo(openEvents: Array<Record<string, unknown>> = []) {
+  const events: Array<Record<string, unknown>> = [];
+  return {
+    _events: events,
+    create: vi.fn(async (e: Record<string, unknown>) => { events.push(e); }),
+    findOpen: vi.fn(async () => openEvents),
+    getStats: vi.fn(async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} })),
+    autoStaleDismiss: vi.fn(async () => 0),
+  };
+}
+
 const mockLogger: Logger = {
   info: vi.fn(),
   warn: vi.fn(),
@@ -638,8 +650,9 @@ describe('SchedulerService - trigger', () => {
       expect(err).toBeInstanceOf(DomainError);
       expect(err.kind).toBe('validation');
 
-      // 不应创建执行记录
-      expect(taskRepo._executions.size).toBe(0);
+      // #1208：claim 被拒（抢占失败）落 skipped execution 行——触发事实可见
+      expect(taskRepo._executions.size).toBe(1);
+      expect(Array.from(taskRepo._executions.values())[0].status).toBe('skipped');
 
       // 不应发送消息（计数应为 0）
       expect(sendEntry._getEntryCount()).toBe(0);
@@ -679,7 +692,7 @@ describe('SchedulerService - trigger', () => {
       expect(taskRepo._statusUpdates).toHaveLength(1);
       expect(taskRepo._statusUpdates[0]).toEqual({ id: 'task-1', status: 'disabled' });
 
-      // 不应创建执行记录
+      // 对话不存在 → 任务已 disable，不落 skipped execution（#1208 排除项：任务已停，落账无意义）
       expect(taskRepo._executions.size).toBe(0);
     });
 
@@ -715,7 +728,7 @@ describe('SchedulerService - trigger', () => {
       expect(taskRepo._statusUpdates).toHaveLength(1);
       expect(taskRepo._statusUpdates[0]).toEqual({ id: 'task-1', status: 'disabled' });
 
-      // 不应创建执行记录
+      // 对话非 active → 任务已 disable，不落 skipped execution（#1208 排除项同上）
       expect(taskRepo._executions.size).toBe(0);
     });
   });
@@ -914,34 +927,39 @@ describe('#913: catch-up 前置阶段炸点落 healing（claim 后 execution 建
   });
 
   it('claim 被拒（running execution 存在）→ 正常跳过，不落前置 healing', async () => {
-    const healingRepo = makeHealingRepo();
-    const taskRepo = createMockTaskRepo();
-    taskRepo._store.set('task-y', makeTask({
-      id: 'task-y', scheduleType: 'cron', cron: '0 9 * * *',
-      lastTriggeredAt: new Date(Date.now() - 24 * 3600_000).toISOString(),
-    } as never));
-    // claim 拒绝：已有未超时 running execution
-    (taskRepo as Record<string, unknown>).getExecutions = vi.fn(async () => [
-      { id: 'exec-running', status: 'running', triggeredAt: new Date().toISOString() },
-    ]);
-    const convRepo = createMockConvRepo();
-    convRepo._addConversation('conv-1', { status: 'active' });
-    const service = new SchedulerService({
-      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
-      convRepo: convRepo as unknown as ConversationRepository,
-      sendEntry: createMockSendEntry() as unknown as SendEntry,
-      entryRepo: createMockEntryRepo() as unknown as EntryRepository,
-      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
-      cronParser: createMockCronParser(new Date(Date.now())) as unknown as CronParser,
-      logger: mockLogger,
-      healingRepo: healingRepo as never,
-    });
-    await service.start();
-    await new Promise(r => setTimeout(r, 50));
-    service.stop();
+    vi.useFakeTimers(); // #1208：隔离轮询 tick，只验证 service.start() 对账行为
+    try {
+      const healingRepo = makeHealingRepo();
+      const taskRepo = createMockTaskRepo();
+      taskRepo._store.set('task-y', makeTask({
+        id: 'task-y', scheduleType: 'cron', cron: '0 9 * * *',
+        lastTriggeredAt: new Date(Date.now() - 24 * 3600_000).toISOString(),
+      } as never));
+      // claim 拒绝：已有未超时 running execution
+      (taskRepo as Record<string, unknown>).getExecutions = vi.fn(async () => [
+        { id: 'exec-running', status: 'running', triggeredAt: new Date().toISOString() },
+      ]);
+      const convRepo = createMockConvRepo();
+      convRepo._addConversation('conv-1', { status: 'active' });
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendEntry: createMockSendEntry() as unknown as SendEntry,
+        entryRepo: createMockEntryRepo() as unknown as EntryRepository,
+        agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+        cronParser: createMockCronParser(new Date(Date.now())) as unknown as CronParser,
+        logger: mockLogger,
+        healingRepo: healingRepo as never,
+        tickImpl: async () => {}, // 轮询隔离
+      });
+      await service.start();
+      service.stop();
 
-    // claim 被拒是正常跳过（skipped），不得落前置 healing
-    expect(healingRepo._events.filter(ev => (ev.context as Record<string, unknown>)?.stage === 'pre-execution')).toHaveLength(0);
+      // claim 被拒是正常跳过（skipped），不得落前置 healing
+      expect(healingRepo._events.filter(ev => (ev.context as Record<string, unknown>)?.stage === 'pre-execution')).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -2620,10 +2638,12 @@ describe('#641: claim 前检查 running execution', () => {
 
     // 手动触发应被跳过（存在 running execution）
     await expect(service.trigger('task-1')).rejects.toThrow('Task already has a running execution');
-    // 未创建新 execution
-    expect(taskRepo._executions.size).toBe(0);
-    // claimTask 未被调用（在检查 running execution 时就已拦截）
-    expect(taskRepo.claimTask).not.toHaveBeenCalled();
+    // #1208：claim 被拒落 skipped execution 行（触发事实可见，此前 0 行 = 静默）
+    expect(taskRepo._executions.size).toBe(1);
+    expect(Array.from(taskRepo._executions.values())[0].status).toBe('skipped');
+    // last_triggered_at 已刷新（catch 块兜底补刷——claim 被拒时 claimTask 在 running
+    //   检查前置拦截，原 claimTask 未执行，需显式补刷让 reconcile 知道本轮已跑过）
+    expect(taskRepo._store.get('task-1')!.lastTriggeredAt).toBe('2026-09-01T10:00:00.000Z');
   });
 
   it('running execution 超时（>24h）时允许 claim', async () => {
@@ -3179,6 +3199,8 @@ describe('#823 根修：skip 吞 claim 导致任务饿死（9/6 生产现场）'
       _events: [] as Array<Record<string, unknown>>,
       create: vi.fn(async () => { /* 对账事件 */ }),
       findOpen: vi.fn(async () => openEvents),
+      // #1208：buildHealingAnalysisBody 需要 getStats——缺它 resolveEffectiveBody 抛错走 catch 而非 skip
+      getStats: vi.fn(async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} })),
       autoStaleDismiss: vi.fn(async () => 0),
     };
   }
@@ -3226,10 +3248,14 @@ describe('#823 根修：skip 吞 claim 导致任务饿死（9/6 生产现场）'
       await service.trigger('task-heal').catch(() => undefined);
       const after = taskRepo._store.get('task-heal')!.lastTriggeredAt;
 
-      // 关键断言：skip 不得消耗 claim（last_triggered_at 不变）
-      expect(after).toBe(before);
-      // 且无 execution 建立
-      expect(taskRepo._executions.size).toBe(0);
+      // 关键断言：skip 消耗 claim 并刷 last_triggered_at（#1208：skip 必须可见，
+      // 否则 reconcile 对账把每天正常 skip 误报为「错过触发窗口」）
+      expect(after).not.toBe(before);
+      // #1208：动态 skip 落 skipped execution 行——消除「任务死了」与「没事干」的指标盲区
+      expect(taskRepo._executions.size).toBe(1);
+      const skippedExec = Array.from(taskRepo._executions.values())[0];
+      expect(skippedExec.status).toBe('skipped');
+      expect(skippedExec.errorMessage).toContain('dynamic skip');
       await service.stop();
     } finally {
       vi.useRealTimers();
@@ -3289,6 +3315,150 @@ describe('#823 根修：skip 吞 claim 导致任务饿死（9/6 生产现场）'
       const expected = (service as unknown as { nextExpectedTrigger: Map<string, Date> }).nextExpectedTrigger
         .get('task-starve');
       expect(expected?.toISOString()).toBe('2026-09-06T03:00:00.000Z');
+      await service.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('#1208 根修：动态 skip 可见性（11 天零执行记录生产现场）', () => {
+  // 9/18–9/29 生产现场：regression-verify 每天 11:00 触发→ resolveEffectiveBody 返 null
+  // （上游无断言段 issue / gh 故障）→ skip 不落 execution、不刷 last_triggered_at
+  // → last_triggered_at 永远 NULL → reconcile 误报「错过触发窗口」+ prompt-discipline
+  // skipped-24h-ratio 指标全盲。根修：skip 落 skipped execution 行 + 刷 last_triggered_at。
+
+  it('claim 被拒（running execution 存在）→ execution 记 skipped 且 last_triggered_at 刷新', async () => {
+    vi.useFakeTimers(); // #1208：隔离轮询 tick——只验证 trigger() 单次行为，不让 tick 反复触发灌入 executions
+    try {
+      const healingRepo = makeObservableHealingRepo();
+      const taskRepo = createMockTaskRepo();
+      const before = new Date(Date.now() - 24 * 3600_000).toISOString();
+      taskRepo._store.set('task-claim-skip', makeTask({
+        id: 'task-claim-skip', scheduleType: 'cron', cron: '0 9 * * *',
+        lastTriggeredAt: before,
+      } as never));
+      // claim 拒绝：已有未超时 running execution
+      (taskRepo as Record<string, unknown>).getExecutions = vi.fn(async () => [
+        { id: 'exec-running', status: 'running', triggeredAt: new Date().toISOString() },
+      ]);
+      const convRepo = createMockConvRepo();
+      convRepo._addConversation('conv-1', { status: 'active' });
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendEntry: createMockSendEntry() as unknown as SendEntry,
+        entryRepo: createMockEntryRepo() as unknown as EntryRepository,
+        agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+        cronParser: createMockCronParser(new Date(Date.now())) as unknown as CronParser,
+        logger: mockLogger,
+        healingRepo: healingRepo as never,
+        tickImpl: async () => {}, // 轮询隔离
+      });
+      await service.trigger('task-claim-skip').catch(() => undefined);
+      service.stop();
+
+      // #1208：claim 被拒也要落 skipped execution 行（否则「今日是否跑过」不可见）
+      expect(taskRepo._executions.size).toBe(1);
+      const exec = Array.from(taskRepo._executions.values())[0];
+      expect(exec.status).toBe('skipped');
+      expect(String(exec.errorMessage)).toContain('running execution');
+      // 且 last_triggered_at 已刷新（claim 副作用）
+      expect(taskRepo._store.get('task-claim-skip')!.lastTriggeredAt).not.toBe(before);
+      // claim 被拒仍属正常跳过，不落前置 healing
+      expect(healingRepo._events.filter((ev: Record<string, unknown>) => (ev.context as Record<string, unknown>)?.stage === 'pre-execution')).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('动态 skip × 对话停用 → 不落 skipped 行且旗标不泄漏到下一任务（发现 1 组合场景）', async () => {
+    // 发现 1 现场还原：dynamic-skip 路径的 claim 占位触发「对话不存在」→ 任务被 disable
+    //   + conversationDisabledInClaim 置位 → 但 early return 绕过外层 catch 复位点 →
+    //   旗标泄漏到下一次任意任务 triggerTask，吞掉其 claim 被拒时的 skipped 落账。
+    // 本测试锁定：① 对话停用场景不落 skipped 行（排除语义）② 旗标已复位不泄漏。
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-06T01:59:58.000Z'));
+    try {
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      // conv-1 对话故意不注册 → claimAndValidateTask 走「对话不存在」分支
+      const healingRepo = makeObservableHealingRepo([]);
+      taskRepo._store.set('task-disabled-skip', makeTask({
+        id: 'task-disabled-skip', scheduleType: 'cron', cron: '0 10 * * *',
+        body: '[self-healing-analysis]',
+        lastTriggeredAt: '2026-09-05T02:00:00.000Z',
+      } as never));
+      // 第二个任务：对话正常、会被 claim 拒（running execution）——检验旗标泄漏
+      taskRepo._store.set('task-next', makeTask({
+        id: 'task-next', conversationId: 'conv-ok', scheduleType: 'cron', cron: '0 10 * * *',
+        lastTriggeredAt: '2026-09-05T02:00:00.000Z',
+      } as never));
+      convRepo._addConversation('conv-ok', { status: 'active' });
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendEntry: createMockSendEntry() as unknown as SendEntry,
+        entryRepo: createMockEntryRepo() as unknown as EntryRepository,
+        agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+        cronParser: createMockCronParser(new Date('2026-09-06T02:00:00.000Z'), new Date('2026-09-06T01:00:00.000Z')) as unknown as CronParser,
+        logger: mockLogger,
+        healingRepo: healingRepo as never,
+        tickImpl: async () => {},
+      });
+      // 任务 1：动态 skip × 对话停用 → 不落 skipped 行、任务被 disable
+      await service.trigger('task-disabled-skip').catch(() => undefined);
+      expect(taskRepo._executions.size).toBe(0);
+      expect(taskRepo._statusUpdates.some(u => u.id === 'task-disabled-skip' && u.status === 'disabled')).toBe(true);
+
+      // 任务 2：claim 被拒（running execution）→ 旗标若泄漏会吞掉此行；复位后必须落 skipped
+      (taskRepo as Record<string, unknown>).getExecutions = vi.fn(async (taskId: string) =>
+        taskId === 'task-next'
+          ? [{ id: 'exec-run', status: 'running', triggeredAt: new Date().toISOString() }]
+          : []);
+      await service.trigger('task-next').catch(() => undefined);
+      expect(taskRepo._executions.size).toBe(1);
+      expect(Array.from(taskRepo._executions.values())[0].status).toBe('skipped');
+      await service.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('动态 skip（self-healing-analysis 无 open events）→ 落 skipped execution + 不落 heartbeat（非 regression-verify）', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-06T01:59:58.000Z'));
+    try {
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const healingRepo = makeObservableHealingRepo([]);
+      taskRepo._store.set('task-heal2', makeTask({
+        id: 'task-heal2', scheduleType: 'cron', cron: '0 10 * * *',
+        body: '[self-healing-analysis]',
+        lastTriggeredAt: '2026-09-05T02:00:00.000Z',
+      } as never));
+      convRepo._addConversation('conv-1', { status: 'active' });
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendEntry: createMockSendEntry() as unknown as SendEntry,
+        entryRepo: createMockEntryRepo() as unknown as EntryRepository,
+        agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+        cronParser: createMockCronParser(new Date('2026-09-06T02:00:00.000Z'), new Date('2026-09-06T01:00:00.000Z')) as unknown as CronParser,
+        logger: mockLogger,
+        healingRepo: healingRepo as never,
+        tickImpl: async () => {},
+      });
+      await service.start();
+      await service.trigger('task-heal2').catch(() => undefined);
+
+      // #1208：dynamic skip 落 skipped execution 行（此前 0 行 = 静默）
+      expect(taskRepo._executions.size).toBe(1);
+      const exec = Array.from(taskRepo._executions.values())[0];
+      expect(exec.status).toBe('skipped');
+      expect(String(exec.errorMessage)).toContain('dynamic skip');
+      // heartbeat 只服务 regression-verify——self-healing skip 不落
+      expect(healingRepo._events.filter((e: Record<string, unknown>) => String(e.description).includes('回归验证心跳'))).toHaveLength(0);
       await service.stop();
     } finally {
       vi.useRealTimers();
