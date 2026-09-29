@@ -58,4 +58,38 @@ describe("#1216 sleep 拦截跨段求和", () => {
   it("单位换算参与跨段求和：sleep 2s && sleep 3s = 5s 拦", () => {
     expect(isSleepBlock(checkWithModel("sleep 2s && sleep 3s", MAIN_PID))).toBe(true);
   });
+
+  // ── #1220 检视 S1：载荷递归（套壳形态）──
+  it("bash -c 载荷内拆分：拦（bash -c 'sleep 3 && sleep 3'）", () => {
+    expect(isSleepBlock(checkWithModel("bash -c 'sleep 3 && sleep 3'", MAIN_PID))).toBe(true);
+  });
+
+  it("命令替换载荷内 sleep：拦（echo $(sleep 3) 混合外层 sleep 3 = 6s）", () => {
+    expect(isSleepBlock(checkWithModel("echo $(sleep 3) && sleep 3", MAIN_PID))).toBe(true);
+  });
+
+  it("嵌套载荷递归：拦（外层 sleep 3 + bash -c 内再嵌 sleep 3）", () => {
+    // 用拼接避开三层引号嵌套：bash -c "bash -c 'sleep 3' && sleep 3"
+    const cmd = 'bash -c ' + JSON.stringify("bash -c 'sleep 3' && sleep 3");
+    expect(isSleepBlock(checkWithModel(cmd, MAIN_PID))).toBe(true);
+  });
+
+  it("载荷内单段 <5s 外层无 sleep：放行（bash -c 'sleep 3'）", () => {
+    expect(isSleepBlock(checkWithModel("bash -c 'sleep 3'", MAIN_PID))).toBe(false);
+  });
+
+  it("载荷内 sleep infinity：拦（无限优先于有限累计）", () => {
+    expect(isSleepBlock(checkWithModel("sleep 1 && bash -c 'sleep infinity'", MAIN_PID))).toBe(true);
+  });
+
+  // ── #1220 检视建议1：文案口径 ──
+  it("拦截文案报累计总值：sleep 3 && sleep 6 报 9 秒非 6 秒", () => {
+    const r = checkWithModel("sleep 3 && sleep 6", MAIN_PID);
+    expect(r).toContain("9 秒");
+  });
+
+  it("float 求和容差：sleep 0.1 ×50 段 = 5s 拦（IEEE 舍入不致漏）", () => {
+    const cmd = Array.from({ length: 50 }, () => "sleep 0.1").join(" && ");
+    expect(isSleepBlock(checkWithModel(cmd, MAIN_PID))).toBe(true);
+  });
 });

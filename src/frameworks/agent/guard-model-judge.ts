@@ -412,51 +412,65 @@ function judgeBashFileScript(model: CommandModel, mainPid: number, logger: Logge
  *  无限措辞）——V1 V2 唯一文案源，防漂移；前缀 SLEEP_REASON_PREFIX 同源。 */
 function judgeSleepCommand(model: CommandModel, logger: Logger | undefined): string | null {
   // #1216：跨段求和——同命令内多段 sleep 累计判定（sleep 3 && sleep 3 = 6s 拦）。
-  // 原逐段独立判定可被拆分绕过（sleep 4 && sleep 4 && … 静默任意时长）。
-  // 生产合法微 sleep 全为 kill/端口检查功能性等待（实测单命令累计最大 3s），
-  // 门槛 5s 有 2s 余量。含 unparseable/infinite 的段按段内语义处理（见下），
-  // 其余段照常累加——半可解析命令的求和面取保守放行（宁漏勿误，#1126 同口径）。
+  // #1220 检视 S1：载荷递归——bash -c 'sleep 3 && sleep 3' / $(sleep 3) 等嵌套载荷
+  // 内的 sleep 与外层段合并求和（同构 kill 判定的 payload 树遍历先例 :554-593）。
+  // 逃逸面声明：循环倍数（for/while 体内 sleep ×N 次）静态不可判，归已知逃逸面
+  // （宁漏勿误——保守拦循环体会误杀合法轮询重试形态）；跨命令累计同。
   let commandTotal = 0;
   let sawInfinite = false;
-  for (const seg of model.segments) {
-    const eff = effectiveCommand(seg);
-    if (eff.name !== "sleep") continue;
-    // 时长静态求和（多参数：sleep 5 6 = 11s；单位 s/m/h/d；小数）
-    let total = 0;
-    let unparseable = false;
-    let infinite = false;
-    for (const a of eff.args) {
-      if (a === null) { unparseable = true; break; } // sleep $X——宁漏勿误（#1126 同口径）
-      const lower = a.toLowerCase();
-      if (lower === "infinity" || lower === "inf") {
-        infinite = true;
-        continue;
+
+  /** 单命令树求和（顶层段 + 各层载荷段全部累计）。返回拦截消息（快路径）或 null */
+  const sumModel = (m: CommandModel): string | null => {
+    for (const seg of m.segments) {
+      const eff = effectiveCommand(seg);
+      if (eff.name !== "sleep") continue;
+      let total = 0;
+      let unparseable = false;
+      let infinite = false;
+      for (const a of eff.args) {
+        if (a === null) { unparseable = true; break; } // sleep $X——宁漏勿误（#1126 同口径）
+        const lower = a.toLowerCase();
+        if (lower === "infinity" || lower === "inf") {
+          infinite = true;
+          continue;
+        }
+        const mm = /^([0-9.]+)(s|m|h|d)?$/.exec(lower);
+        if (!mm) { unparseable = true; break; }
+        const v = parseFloat(mm[1]);
+        const unit = mm[2] ?? "s";
+        total += unit === "m" ? v * 60 : unit === "h" ? v * 3600 : unit === "d" ? v * 86400 : v;
       }
-      const m = /^([0-9.]+)(s|m|h|d)?$/.exec(lower);
-      if (!m) { unparseable = true; break; }
-      const v = parseFloat(m[1]);
-      const unit = m[2] ?? "s";
-      total += unit === "m" ? v * 60 : unit === "h" ? v * 3600 : unit === "d" ? v * 86400 : v;
+      if (unparseable) continue; // 该段不可解析：不计入求和（保守放行该段）
+      if (infinite) sawInfinite = true;
+      commandTotal += total;
+      // 段内已 ≥5s：立即拦（快路径，文案报累计总值——#1220 检视建议1）
+      if (total >= 5 - 1e-9) {
+        logger?.warn("[guard-v2] BLOCKED bare sleep >= 5s", { total, commandTotal });
+        return SLEEP_REASON_PREFIX + buildSleepBlockMessage(`${Math.max(total, commandTotal)} 秒`);
+      }
     }
-    if (unparseable) continue; // 该段不可解析：不计入求和（保守放行该段——宁漏勿误，#1126 同口径）
-    if (infinite) sawInfinite = true; // infinity 段：累计标记，最后统一判
-    commandTotal += total;
-    // 段内已 ≥5s：立即拦（原行为，快路径）
-    if (total >= 5) {
-      logger?.warn("[guard-v2] BLOCKED bare sleep >= 5s", { total, commandTotal });
-      return SLEEP_REASON_PREFIX + buildSleepBlockMessage(`${total} 秒`);
+    // 载荷递归（heredoc-quoted = 纯数据跳过，#1171 口径；不可解析载荷含 sleep 词样放行——
+    // sleep 拦截是体验引导非安全红线，与 kill 判定对不可解析载荷的保守拦截不同档）
+    for (const p of m.payloads) {
+      if (p.kind === "heredoc-quoted") continue;
+      if (p.model === null) continue;
+      const hit = sumModel(p.model);
+      if (hit) return hit;
     }
-  }
-  // 跨段累计 ≥5s：拦（#1216 新增——拆分形态 sleep 3 && sleep 3）
-  if (commandTotal >= 5) {
-    logger?.warn("[guard-v2] BLOCKED bare sleep >= 5s (cross-segment sum)", { commandTotal });
-    return SLEEP_REASON_PREFIX + buildSleepBlockMessage(`${commandTotal} 秒`);
-  }
+    return null;
+  };
+  const fastHit = sumModel(model);
+
+  // 判定顺序：无限优先于有限累计（语义更严重——#1220 检视建议1）
   if (sawInfinite) {
     logger?.warn("[guard-v2] BLOCKED sleep infinity");
     return SLEEP_REASON_PREFIX + buildSleepBlockMessage("无限");
   }
-  // 含不可解析段且其余段合计 <5s：放行（宁漏勿误——变量段不可判，#1126 同口径）
+  if (fastHit) return fastHit;
+  if (commandTotal >= 5 - 1e-9) {
+    logger?.warn("[guard-v2] BLOCKED bare sleep >= 5s (cross-segment sum)", { commandTotal });
+    return SLEEP_REASON_PREFIX + buildSleepBlockMessage(`${commandTotal} 秒`);
+  }
   return null;
 }
 
