@@ -21,6 +21,16 @@
 
 set -euo pipefail
 
+# F1 修复（检视獭-boot 对抗审视）：fail-close 防线。
+# vitest.config.ts 的 passWithNoTests: true 使硬编码测试路径被移动/改名/删除时
+# vitest 静默返回 EXIT=0（冒烟门 fail-open 失效）——门槛自身必须有失效检测。
+SMOKE_TEST="tests/app/build-app.test.ts"
+if [ ! -f "$SMOKE_TEST" ]; then
+  echo "==> [smoke:boot] 失败：冒烟测试文件不存在：$SMOKE_TEST" >&2
+  echo "    门槛 fail-close：测试被移动/改名/删除时必须同步更新本脚本，否则视为启动无保障。" >&2
+  exit 1
+fi
+
 echo "==> [smoke:boot] 运行 buildApp 全栈装配冒烟测试（真 sqlite + faux LLM）..."
-npx vitest run tests/app/build-app.test.ts --reporter=dot
+npx vitest run "$SMOKE_TEST" --reporter=dot
 echo "==> [smoke:boot] 通过：系统可完成全栈装配并服务请求"

@@ -73,8 +73,9 @@ created_at: 2026-09-29
   真 sqlite 临时库、buildApp 全装配（真仓库/真用例/真控制器/真路由）、
   faux LLM（pi-ai 官方假 provider，不触网）、stub embedding（验证降级不炸启动）。
   测试已是单一真相源，复制即分叉。
-- **门槛挂载点**：`check` 被 pre-commit hook（`.githooks/pre-commit:14`）与
-  CI（`.github/workflows/ci.yml:107`）共用——commit 时和 merge 前都会跑，
+- **门槛挂载点**（4 处，`check` 共用）：`.githooks/pre-commit:14`、
+  `.githooks/pre-merge-commit:5`、`.github/workflows/ci.yml:107`（PR check job）、
+  `.github/workflows/ci.yml:196`（第二处 check）——commit 时和 merge 前都会跑，
   「这次代码能不能起」在最早环节暴露。
 - **执行成本**：本地实测 6 个测试约 5 秒，可接受。
 
@@ -123,7 +124,8 @@ created_at: 2026-09-29
 | package.json | build 去 lint；check 加 lint+smoke:boot；新增 smoke:boot script |
 | scripts/smoke-boot.sh | 新增（5 行 bash 封装，调用既有 vitest） |
 | .githooks/pre-commit | 无改动（check 串联自动继承冒烟门） |
-| .github/workflows/ci.yml | 无改动（check job 自动继承冒烟门） |
+| .githooks/pre-merge-commit | 无改动（同上） |
+| .github/workflows/ci.yml | 无改动（两处 check job 自动继承冒烟门） |
 
 ## 关联
 
