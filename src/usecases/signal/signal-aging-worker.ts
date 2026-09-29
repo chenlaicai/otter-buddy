@@ -17,6 +17,7 @@
  * 下一轮会再落一条（间隔 ≥24h，可接受——持续悬置本就该持续可见）。
  */
 
+import { signalAlertRegistry } from "./signal-alert-registry";
 import type { SignalEventRepository } from '@usecases/signal/signal-event-repository';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
 import type { HealingEvent } from '@entities/healing/healing-event';
@@ -122,6 +123,18 @@ export class SignalAgingWorker {
       };
       await healingRepo.create(event);
       result.alertsCreated++;
+      // #1229 检视 A2：aging 告警同时升级为注入提醒——兜底从台账级（healing medium 事件，
+      // 仅日志可见）升到注入级（大獭在该对话下一轮进场头部可见）。去重与 healing 同闸
+      //（alertedIds 已含本 signalId 则跳过整个循环体）。
+      signalAlertRegistry.register({
+        signalId: sig.id,
+        conversationId: sig.conversationId,
+        fromOtterId: sig.fromOtterId,
+        signalType: sig.type,
+        severity: sig.severity,
+        payloadPreview: sig.payload.slice(0, 80),
+        createdAt: sig.createdAt,
+      });
     }
     return result;
   }

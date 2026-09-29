@@ -56,14 +56,30 @@ describe('signalAlertRegistry（#1227 M1）', () => {
     expect(signalAlertRegistry.takeAll('c2')).toHaveLength(0);
   });
 
-  it('renderSignalAlerts：短 ID + 处置指引', () => {
+  it('renderSignalAlerts：短 ID + 处置指引 + 一次性契约（#1229 S1 订正后口径）', () => {
     const text = renderSignalAlerts([
       { signalId: 'aaaaaaaa-1111-2222-3333-444444444444', conversationId: 'c1', fromOtterId: 'bbbbbbbb-1111', signalType: 'objection', severity: 'medium', payloadPreview: '与 F20260901xxxx 冲突', createdAt: 'now' },
     ]);
     expect(text).toContain('aaaaaaaa');
     expect(text).toContain('resolve_signal');
     expect(text).toContain('不得悬置');
+    // 一次性契约如实声明（不再误导「自动消解」）
+    expect(text).toContain('只出现这一次');
+    expect(text).not.toContain('自动消解');
   });
+
+  it('多信号并发注入：一次渲染包含全部短 ID', () => {
+    const text = renderSignalAlerts([
+      { signalId: 'aaaaaaaa-1111', conversationId: 'c1', fromOtterId: 'o1', signalType: 'objection', severity: 'low', payloadPreview: 'x', createdAt: 'now' },
+      { signalId: 'bbbbbbbb-2222', conversationId: 'c1', fromOtterId: 'o2', signalType: 'blocked', severity: 'high', payloadPreview: 'y', createdAt: 'now' },
+      { signalId: 'cccccccc-3333', conversationId: 'c1', fromOtterId: 'o3', signalType: 'objection', severity: 'medium', payloadPreview: 'z', createdAt: 'now' },
+    ]);
+    expect(text).toContain('3 条 pending');
+    expect(text).toContain('aaaaaaaa');
+    expect(text).toContain('bbbbbbbb');
+    expect(text).toContain('cccccccc');
+  });
+
 });
 
 describe('落账→提醒 闭环（interceptSignalReport 联动）', () => {
@@ -114,5 +130,23 @@ describe('落账→提醒 闭环（interceptSignalReport 联动）', () => {
     const tool = createResolveSignalTool(bigCtx, repo);
     const res = await tool.execute('t', { signalId: events[0]!.id.slice(0, 8), status: 'resolved', resolution: '资源已给' });
     expect(res.isError).toBeUndefined();
+  });
+
+  it('resolve 失败提醒残留：落库失败的工具调用不注销已登记提醒', async () => {
+    // 落账成功 → 登记在队；resolve_signal 传错 status（必填校验拒）→ 提醒应仍在
+    const ctx = makeCtx();
+    await interceptSignalReport('<signal type="objection" severity="low">测试残留</signal>', ctx, repo);
+    await new Promise(r => setTimeout(r, 20));
+    const bigCtx = makeCtx('conv-1', 'otter-big');
+    const tool = createResolveSignalTool(bigCtx, repo);
+    const events = await repo.findByConversation('conv-1', { status: 'pending' }, 10);
+    const bad = await tool.execute('t', { signalId: events[0]!.id.slice(0, 8), status: 'bogus', resolution: 'x' });
+    expect(bad.isError).toBe(true);
+    // 重新登记一条（模拟提醒在队状态——上一条 takeAll 已消费，此处验证 dismiss 只在成功路径）
+    signalAlertRegistry.takeAll('conv-1'); // 清掉 intercept 的 fire-and-forget 登记（异步落库后入队）
+    signalAlertRegistry.register({ signalId: events[0]!.id, conversationId: 'conv-1', fromOtterId: 'o1', signalType: 'objection', severity: 'low', payloadPreview: 'x', createdAt: 'now' });
+    const rest = signalAlertRegistry.takeAll('conv-1');
+    expect(rest).toHaveLength(1); // 失败的 resolve 没有触发 dismiss
+    expect(rest[0]!.signalId).toBe(events[0]!.id); // 残留的正是未裁决信号
   });
 });

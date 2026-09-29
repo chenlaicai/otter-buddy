@@ -84,6 +84,6 @@ export function renderSignalAlerts(alerts: SignalAlert[]): string {
     '本对话有未裁决的獭间信号（协议：收到 objection/blocked 后必须显式裁决，不得悬置）：',
     ...lines,
     '',
-    '处置：调 resolve_signal(signalId=上述短 ID, status=resolved|dismissed, resolution=理由)。裁决完本提醒自动消解；悬置超 24h aging 会再次告警。',
+    '处置：调 resolve_signal(signalId=上述短 ID, status=resolved|dismissed, resolution=理由)。注意：本提醒只出现这一次（下轮注入不再重复）——请本轮就处理；若本轮跳过，台账仍是 pending（query_signals 可查），悬置超 24h 会有 aging 告警（台账级）。',
   ].join('\n');
 }
