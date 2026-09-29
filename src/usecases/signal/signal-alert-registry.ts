@@ -7,11 +7,11 @@
  *   ——送达时点由「下一个 invoke 边界」保证，无需轮询
  * - 大獭 resolve_signal 裁决后注销（信号 ID 粒度）——提醒与台账状态联动
  * - 大獭不在本对话（跨对话 invoke 是常态）：提醒按信号归属对话滞留，
- *   大獭在该对话的下一轮才看到——接受（aging worker 24h 兜底告警仍在）
+ *   大獭在该对话的下一轮才看到——接受（无二次提醒；超龄由 aging worker 落系统异常记录供分析）
  *
  * 内存态而非落库：这是「未送达的提醒」队列，送达即删；signal_events 主台账
- * 仍是持久化真相源。进程重启丢队列的代价 = 错过一次提醒，台账完整 + aging
- * 兜底——接受（与 healing-alert-registry 同口径）。
+ * 仍是持久化真相源。进程重启丢队列的代价 = 错过一次提醒（即忽略），台账完整 +
+ * aging 落系统异常记录供分析（搭档终审裁决：无兜底，跳过=忽略）。
  *
  * 键为 conversationId：intercept 时不知谁是大獭，消费侧（agent-invoker）解析。
  * 进程级单例（同 haltRegistry / healingAlertRegistry 模式）。

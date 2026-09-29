@@ -340,7 +340,7 @@ export class AgentInvoker implements AgentTurnPort {
         dynamicContext.healingAlerts = renderHealingAlerts(alerts);
         this.logger.info('Healing high alerts injected', { otterId, conversationId, count: alerts.length });
       }
-      // #1227 M1：pending 信号裁决提醒——协议义务的物理可见面（跨对话滞留，aging 兜底）
+      // #1227 M1：pending 信号裁决提醒——协议义务的物理可见面（跨对话滞留，无二次提醒；超龄由 aging 落系统异常记录供分析）
       const signalAlerts = signalAlertRegistry.takeAll(conversationId);
       if (signalAlerts.length > 0) {
         dynamicContext.signalAlerts = renderSignalAlerts(signalAlerts);
