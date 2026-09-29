@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { MessageBatcher } from './batch-update'
+import { MessageBatcher, type MessageBatcherOptions } from './batch-update'
 import type { LocalMessage } from './mappers'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 /**
  * F20260814qswp：直接测试真实实现 MessageBatcher。
@@ -177,81 +179,42 @@ describe('MessageBatcher', () => {
   })
 })
 
-describe('MessageBatcher getShouldDefer（F20260825scrf 弹窗背景冻结）', () => {
-  let mirror: Record<string, LocalMessage[]>
-  let queue: Record<string, LocalMessage[]>
-  let appliedCount: number
-  let shouldDefer: boolean
-  let batcher: MessageBatcher
+/**
+ * F20260929fcln（#884）：冻结链退役契约——batcher 无门控 flush。
+ * 历史：F20260825scrf 曾设 getShouldDefer（弹窗期暂停 flush、关窗手动追上）；
+ * F20260909srf6 模糊语义换轨后冻结失去服务对象，本轮拆除。
+ * 本断言锁定：flush 不受任何外部门控影响（无 defer 参数可用），窗口到期必产出——
+ * 防止未来「顺手」恢复冻结式 API 重新引入双轨语义。
+ */
+describe('MessageBatcher 无门控 flush（F20260929fcln #884）', () => {
+  it('接口层：Options 不含 getShouldDefer（条件类型断言，接口加回即 tsc 编译失败）', () => {
+    // 真编译期防线（r2-D2：Exclude 剔除键后类型不变、永不失败，已证伪弃用）：
+    // HasDefer = 'getShouldDefer' extends keyof Options ? true : false
+    // 接口加回该键 → HasDefer = true → `const _assert: false = true` 编译失败
+    type HasDefer = 'getShouldDefer' extends keyof MessageBatcherOptions ? true : false
+    const _assert: false = false as HasDefer
+    expect(_assert).toBe(false)
+    // 运行时同步锚：实现代码（剥注释）不含 getShouldDefer 入口
+    const src = readFileSync(resolve(__dirname, 'batch-update.ts'), 'utf-8')
+    const codeForm = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    expect(codeForm).not.toMatch(/getShouldDefer/)
+  })
 
-  beforeEach(() => {
-    vi.useFakeTimers()
-    mirror = { c1: [msg()] }
-    queue = { c1: [msg()] }
-    appliedCount = 0
-    shouldDefer = false
-    batcher = new MessageBatcher({
+  it('行为层：窗口到期必产出——无需任何解冻调用（无门控路径）', () => {
+    let applied = 0
+    const batcher = new MessageBatcher({
       windowMs: 50,
-      getBase: (convId) => mirror[convId] ?? [],
-      getShouldDefer: () => shouldDefer,
-      apply: (updates) => {
-        appliedCount++
-        const next = { ...queue }
-        for (const [convId, materialize] of updates) next[convId] = materialize(next[convId]) ?? []
-        queue = next
-        Object.assign(mirror, queue)
-      },
+      getBase: () => [],
+      apply: () => { applied++ },
     })
-  })
-
-  afterEach(() => {
-    batcher.dispose()
-    vi.useRealTimers()
-  })
-
-  it('冻结期间窗口到期不产出（背景像素不变），解冻 flush 零丢失追上', () => {
-    shouldDefer = true
-    batcher.update('c1', list => [...list, msg({ id: 'm2', content: '流式文本' })])
-    vi.advanceTimersByTime(200)
-    // 冻结期：无 apply、queue 未变（scrim 背后像素静止）
-    expect(appliedCount).toBe(0)
-    expect(queue.c1.length).toBe(1)
-
-    // 解冻：手动 flush 一次性应用暂存链
-    shouldDefer = false
-    batcher.flush()
-    expect(appliedCount).toBe(1)
-    expect(queue.c1.length).toBe(2)
-    expect(queue.c1[1].content).toBe('流式文本')
-  })
-
-  it('冻结期间持续 update 继续暂存（updater 链不丢），解冻后一次性产出', () => {
-    shouldDefer = true
-    batcher.update('c1', list => [...list, msg({ id: 'm2' })])
-    vi.advanceTimersByTime(100)
-    batcher.update('c1', list => list.map(m => m.id === 'm2' ? { ...m, content: '追加' } : m))
-    vi.advanceTimersByTime(100)
-    expect(appliedCount).toBe(0)
-
-    shouldDefer = false
-    batcher.flush()
-
-    expect(appliedCount).toBe(1)
-    expect(queue.c1.length).toBe(2)
-    expect(queue.c1[1].content).toBe('追加')
-  })
-
-  it('解冻后暂存仍在时，下个窗口到期自然恢复产出（timer 未被清除）', () => {
-    shouldDefer = true
-    batcher.update('c1', list => [...list, msg({ id: 'm2' })])
-    vi.advanceTimersByTime(200)
-    expect(appliedCount).toBe(0)
-
-    // 解冻但不手动 flush：下一个窗口到期应自然产出
-    shouldDefer = false
-    batcher.update('c1', list => [...list, msg({ id: 'm3' })])
-    vi.advanceTimersByTime(50)
-    expect(appliedCount).toBe(1)
-    expect(queue.c1.length).toBe(3)
+    vi.useFakeTimers()
+    try {
+      batcher.update('c1', (list) => [...list, { id: 'x' } as LocalMessage])
+      vi.advanceTimersByTime(60)
+      expect(applied).toBe(1)
+    } finally {
+      batcher.dispose()
+      vi.useRealTimers()
+    }
   })
 })

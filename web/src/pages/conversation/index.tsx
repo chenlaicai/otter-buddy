@@ -18,7 +18,6 @@ import { setOtterAvatarOverride } from '../../lib/otter-avatars'
 import { mergeOttersIfChanged } from '../../lib/shallow-equal-otters'
 import { useMediaQuery } from '../../hooks/use-media-query'
 import { useConversationListPolling } from '../../hooks/use-conversation-list-polling'
-import { useDeferredOps } from './hooks/useDeferredOps'
 import { ScheduledTaskModal } from './ScheduledTaskModal'
 import { ExecutionHistoryModal } from './ExecutionHistoryModal'
 import { SessionModal, type SessionLiveItem } from './SessionModal'
@@ -129,16 +128,9 @@ export default function ConversationPage() {
   // F20260814qswp 三轮：materialize 在 setState 函数式 updater 内调用（prev=队列最新值），
   // 消除 allMessagesRef 镜像在 commit→passive-effect 间隙的引用比较盲区
   const BATCH_WINDOW_MS = 50
-  /** F20260825scrf：弹窗打开期间冻结 SSE 批量应用——backdrop-filter 重算由 scrim
-   *  背后像素变化驱动（非 React re-render，上轮 memo 修复无效的根因），流式期间
-   *  50ms 一批的文本追加使模糊采样持续失效。暂存链完整保留，关窗后 flush() 一次性
-   *  追上（流式内容零丢失、视觉无损） */
-  const modalOpenRef = useRef(false)
-  const [modalOpen, setModalOpen] = useState(false)
   const batcher = useMemo(() => new MessageBatcher({
     windowMs: BATCH_WINDOW_MS,
     getBase: (convId) => allMessagesRef.current[convId] ?? [],
-    getShouldDefer: () => modalOpenRef.current,
     apply: (updates) => {
       setAllMessages(prev => {
         let next: Record<string, LocalMessage[]> | null = null
@@ -155,10 +147,6 @@ export default function ConversationPage() {
   useEffect(() => () => {
     batcher.dispose()
   }, [batcher])
-  /** F20260825scrf：关窗时 flush 冻结期间攒下的流式更新（下次打开前背景已追上
-   *  真实状态；手动 flush 后 timer 自然空转，无害）。ref 同步在 render 阶段
-   *  （isAnyModalOpen 处）——effect 同步存在 commit→effect 间隙，弹窗打开瞬间
-   *  batcher timer 到期会穿透 defer（检视 S-2） */
   const batchUpdateMessages = useCallback((convId: string, updater: (prev: LocalMessage[]) => LocalMessage[]) => {
     batcher.update(convId, updater)
   }, [batcher])
@@ -181,18 +169,10 @@ export default function ConversationPage() {
   const sessionLiveListeners = useRef(new Set<(e: SessionLiveItem) => void>())
   /** SSE 连接状态（弹窗断连提示数据源） */
   const sseConnectedRef = useRef(true)
-  /** F20260825scrf：modalOpen 派生（8 种 ConversationModals + 定时任务/执行历史 modal）。
-   *  下沉到 index 顶层供 batcher/轮询冻结用；setModalOpen 仅在此处同步 */
-  const isAnyModalOpen = modal.type !== 'none' || scheduledTaskModal.type !== 'none' || executionHistoryTaskId !== null
-  /** F20260827scrf2（第五源治理）：SSE 回调里的 setAllOtters 直接 setState 绕过全部冻结
-   *  gate（batcher defer / 轮询 gate / refreshMessages 守卫）——多獭流式场景每 turn 的
-   *  message.start/complete/aborted/onDone 都驱动右栏+消息区 re-render，scrim 背景
-   *  像素变化 → 闪烁（8/25 验证环境未复现因当时对话内无小獭增量，fill-only 提前 return）。
-   *  治理：统一入口 upsertOtterIfAbsentDeferred——弹窗期攒进 pendingOtters，关窗 flush。
-   *  fill-only 幂等语义保证延迟更新安全；全量替换（onDone 参与者刷新）跳过后关窗由
-   *  upsert 链补齐参与者，无永久丢失 */
-  const { runOrDefer, flush: flushDeferredOps } = useDeferredOps(() => modalOpenRef.current)
-  const upsertOtterIfAbsentDeferred = useCallback((otterId: string, otterName?: string, convId?: string, identity?: { type?: string | null; color?: string | null }) => {
+  /** 参与者占位 upsert（fill-only 幂等）：SSE 事件驱动，#502 浅比较保引用。
+   *  历史：F20260827scrf2 曾按「弹窗期攒队列、关窗 flush」延迟执行（防 scrim 采样闪烁）；
+   *  F20260909srf6 改内容自模糊语义后冻结失去服务对象，F20260929fcln 拆冻结链恢复直行 */
+  const upsertOtterIfAbsent = useCallback((otterId: string, otterName?: string, convId?: string, identity?: { type?: string | null; color?: string | null }) => {
     const apply = (prev: Record<string, LocalOtter[]>) => {
       const cid = convId || activeId
       if (!cid || !otterId) return prev
@@ -203,21 +183,8 @@ export default function ConversationPage() {
       const newOtter: LocalOtter = { id: otterId, name: otterName || '', type: (identity?.type === 'big' ? 'big' : 'small') as 'big' | 'small', ...(identity?.color != null && { color: identity.color }), createdAt: '' }
       return { ...prev, [cid]: [...convOtters, newOtter] }
     }
-    runOrDefer(() => setAllOtters(apply))
-  }, [activeId, runOrDefer])
-
-  /** F20260827scrf2：关窗 flush——batcher（流式 batch）与 deferred ops（参与者/徽标）
-   *  同窗口重放，背景一次性追上真实状态 */
-  useEffect(() => {
-    if (!modalOpen) { batcher.flush(); flushDeferredOps() }
-  }, [modalOpen, batcher, flushDeferredOps])
-  /** F20260825scrf 检视 S-2 修复：render 阶段同步 ref（镜像最新值模式）——useEffect
-   *  同步存在 commit→effect 间隙，弹窗打开瞬间的 batcher timer 到期会读到旧值 false，
-   *  flush 穿透 defer 产生单帧闪烁。render 赋值幂等，StrictMode 双 render 无害 */
-  modalOpenRef.current = isAnyModalOpen
-  useEffect(() => {
-    setModalOpen(isAnyModalOpen)
-  }, [isAnyModalOpen])
+    setAllOtters(apply)
+  }, [activeId])
 
 
   // 定时任务 Hook
@@ -229,7 +196,7 @@ export default function ConversationPage() {
     update: updateScheduledTask,
     remove: deleteScheduledTask,
     trigger: triggerScheduledTask,
-  } = useScheduledTasks(activeId, !modalOpen)
+  } = useScheduledTasks(activeId)
 
   /** F20260922rprf：SSE 断连重连后补偿拉取 invoke 状态——重连窗口内丢失的 invoke.end
    *  会导致右栏永久卡在「运行中」。合并逻辑提取为纯函数 mergeInvokesFromServer（invoke-tracker），
@@ -262,13 +229,11 @@ export default function ConversationPage() {
     if (!activeId) return
     if (!['dissolve_otter', 'create_otter', 'restart_otter'].includes(toolName)) return
     api.getParticipants(activeId).then(participants => {
-      // #502：内容未变时保引用，避免 RightPanel 整树 re-render 引发 hover 快览卡微闪
-      // F20260827scrf2：弹窗期延迟到关窗 flush（runOrDefer），不驱动背景像素变化
       const apply = (prev: Record<string, LocalOtter[]>) =>
         mergeOttersIfChanged(prev, activeId, participants.map(p => mapParticipantDTO(p)))
-      runOrDefer(() => setAllOtters(apply))
+      setAllOtters(apply)
     }).catch(err => console.error('Failed to refresh participants after dissolve:', err))
-  }, [activeId, runOrDefer])
+  }, [activeId])
 
   useEffect(() => {
     // F20260921inrl（#1074）：mount-only 初始化——拉列表 + 设置 + 首次 pageState 判定。
@@ -302,11 +267,9 @@ export default function ConversationPage() {
   }, [])
 
   // 活动状态轮询：每 5 秒刷新对话列表（仅在页面可见时）。
-  // F20260825scrf：弹窗打开期间暂停——mergeConversations 每次产出新引用（流式期间
-  //  lastMessagePreview 持续变化），轮询会驱动 scrim 背后像素变化；关窗后 interval 立即重建
   // F20260916lpsc：visibleIds 传入当前列表 id 集合——分页追加的对话不被首屏轮询冲掉
   const visibleConvIds = useMemo(() => new Set(conversations.map(c => c.id)), [conversations])
-  useConversationListPolling(pageState !== 'loading' && pageState !== 'error' && !modalOpen, setConversations, visibleConvIds)
+  useConversationListPolling(pageState !== 'loading' && pageState !== 'error', setConversations, visibleConvIds)
 
   /** F20260922cgrp：「加载更多」机制退役——分组分页由 LeftPanel 内部管理（每页 20 条页码跳转） */
   const loadConversationDetail = useCallback(async (convId: string) => {
@@ -376,7 +339,6 @@ export default function ConversationPage() {
    *  时间线实体全部终态（user/speak/居中条目 completed），无 in-flight 轮询需求；
    *  invoke 运行态由 invoke.start/end 事件驱动 + 刷新时经右栏 API 收敛。 */
   const refreshMessages = useCallback(async (convId: string) => {
-    if (modalOpenRef.current) return
     try {
       const list = allMessagesRef.current[convId] || []
       const realEntries = list.filter(m => !m.id.startsWith('tmp-') && !m.id.startsWith('err-') && m.seq != null)
@@ -542,7 +504,7 @@ export default function ConversationPage() {
           added = true
           return [...current, userMsg]
         })
-        if (added) { const atBottom = isAtBottomRef.current; runOrDefer(() => { if (!atBottom) setNewMessagesCount(c => c + 1) }) }
+        if (added) { const atBottom = isAtBottomRef.current; if (!atBottom) setNewMessagesCount(c => c + 1) }
       },
       'entry.speak': (data) => {
         /** speak entry 全量 body——speak 是原子工具调用（无流式生命周期），落库即 completed。
@@ -569,9 +531,9 @@ export default function ConversationPage() {
           return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, status: 'completed' as const, sn: m.sn || d.otterName || '' } : m)
         })
         if (d.otterId) {
-          upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId, { type: d.otterType, color: d.otterColor })
+          upsertOtterIfAbsent(d.otterId, d.otterName, activeId, { type: d.otterType, color: d.otterColor })
         }
-        if (added) { const atBottom = isAtBottomRef.current; runOrDefer(() => { if (!atBottom) setNewMessagesCount(c => c + 1) }) }
+        if (added) { const atBottom = isAtBottomRef.current; if (!atBottom) setNewMessagesCount(c => c + 1) }
       },
       // F20260913ctlv 收尾：entry.complete 事件已退役（后端无发射点；speak 气泡终态由 invoke.end 收敛）
       'entry.failed': (data) => {
@@ -597,7 +559,7 @@ export default function ConversationPage() {
         const otterId = d.otterId || ''
         const otterName = d.otterName
         if (otterId && otterName && activeId) {
-          upsertOtterIfAbsentDeferred(otterId, otterName, activeId, { type: d.otterType, color: d.otterColor })
+          upsertOtterIfAbsent(otterId, otterName, activeId, { type: d.otterType, color: d.otterColor })
         }
         /** invoke 级中止——失败气泡（可重试）；speak entry 若已存在则保留（发言有效） */
         const abortedMsg: LocalMessage = {
@@ -665,7 +627,7 @@ export default function ConversationPage() {
           }))
         }
         /** 獭可能在 chain 中新建，保证右栏参与者列表能见 */
-        if (d.otterId) upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId, { type: d.otterType, color: d.otterColor })
+        if (d.otterId) upsertOtterIfAbsent(d.otterId, d.otterName, activeId, { type: d.otterType, color: d.otterColor })
         /** F20260914evdz：Session 弹窗——新行动开始信号（列表自动冒行 + 自动展开） */
         const startItem: SessionLiveItem = { invokeId: d.invokeId, otterId: d.otterId, ev: null, start: true }
         sessionLiveEvents.current.push(startItem)
@@ -882,7 +844,7 @@ export default function ConversationPage() {
       if (livenessTimer) { clearInterval(livenessTimer); livenessTimer = null }
       if (xhr) xhr.abort()
     }
-  }, [activeId, batchUpdateMessages, upsertOtterIfAbsentDeferred, refreshParticipantsAfterDissolve, runOrDefer, syncInvokeStatesFromServer])
+  }, [activeId, batchUpdateMessages, upsertOtterIfAbsent, refreshParticipantsAfterDissolve, syncInvokeStatesFromServer])
 
   useEffect(() => {
     for (const otter of Object.values(allOtters).flat()) {
@@ -1010,7 +972,7 @@ export default function ConversationPage() {
             return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, status: 'completed' as const, sn: m.sn || d.otterName || '' } : m)
           })
           if (d.otterId && activeId) {
-            upsertOtterIfAbsentDeferred(d.otterId, d.otterName, activeId, { type: d.otterType, color: d.otterColor })
+            upsertOtterIfAbsent(d.otterId, d.otterName, activeId, { type: d.otterType, color: d.otterColor })
           }
         },
         // F20260913ctlv 收尾：entry.complete 事件已退役（后端无发射点；speak 气泡终态由 invoke.end 收敛）
@@ -1114,14 +1076,14 @@ export default function ConversationPage() {
         /** SSE 中断不代表发言停止（刷新≠停止）：拉取快照播种进行中消息，让轮询续看接管 */
         if (activeId) refreshMessages(activeId)
       }, onDone: () => {
-        /** 流结束后刷新参与者列表（agent 可能创建/解散了小獭）。
-         *  F20260827scrf2：弹窗打开期间不 setState——结果延迟到关窗 flush（与 batcher
-         *  同窗口）；非弹窗期行为不变（#502 浅比较保引用） */
+        /** 流结束后刷新参与者列表（agent 可能创建/解散了小獭）。#502 浅比较保引用。
+   *  历史：F20260827scrf2 曾延迟到关窗 flush（防 scrim 采样闪烁）；F20260929fcln
+   *  拆冻结链后恢复直行（模糊语义已换轨为内容自模糊，F20260909srf6） */
         if (activeId) {
           api.getParticipants(activeId).then(participants => {
             const apply = (prev: Record<string, LocalOtter[]>) =>
               mergeOttersIfChanged(prev, activeId, participants.map(p => mapParticipantDTO(p)))
-            runOrDefer(() => setAllOtters(apply))
+            setAllOtters(apply)
           }).catch(() => {})
           /** F20260928icmm 阶段1：POST 流结束时对账右栏 invoke 状态——POST 流不驱动
            *  invokeStates（通道分工：右栏单一时钟 = GET 订阅事件 + 拉取对账），
@@ -1135,7 +1097,7 @@ export default function ConversationPage() {
       showToast('发送失败', 'error')
       throw err // F20260916sgcl S1：失败信号传出，ChatView 据此跳过 clearAll、保留附件供重试
     }
-  }, [activeId, ackActiveRead, refreshMessages, batchUpdateMessages, upsertOtterIfAbsentDeferred, runOrDefer, syncInvokeStatesFromServer])
+  }, [activeId, ackActiveRead, refreshMessages, batchUpdateMessages, upsertOtterIfAbsent, syncInvokeStatesFromServer])
 
   /** 卡片提交 → 强制预览 → 回执复用 handleSend 整条 SSE 管线（显式路由卡片作者） */
   const { cardPreview, confirmCardPreview, rejectCardPreview } = useCardBridge({
