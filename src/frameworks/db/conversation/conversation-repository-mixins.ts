@@ -104,18 +104,20 @@ export function flagResource(db: Database.Database, id: string, flagged: boolean
   db.prepare("UPDATE linked_resources SET user_flagged = ? WHERE id = ?").run(flagged ? 1 : 0, id);
 }
 
+/** F20260929czi0：进场游标写入。participant.lastReadSeq = 可选进场游标初值，缺省 0。
+ *  两种进场场景语义（取代 F20260913ctlv test15 的「进场游标=0=读全部历史」口径——
+ *  该口径把「未读」零点从进场点挪到对话起点，新獭天生背上全对话未读债，大对话 +
+ *  小窗口模型首请求即爆窗；原始拍板追溯见 git 历史与 F20260929czi0）:
+ *  - 新对话初始化（空对话）：缺省 0 天然正确——对话全部历史 = 开场白；
+ *  - 加入已有对话（manage-participant.join）：传进场时刻 max(seq)——进场前历史
+ *    不是未读，背景供给归派工简报/检索工具，不再按存在灌入。 */
 export function createParticipant(db: Database.Database, participant: ConversationParticipant): void {
-  // F20260913ctlv test15：进场游标显式写 0（= 读全部历史，含进场前的大獭发言）。
-  // 旧实现 INSERT 不含该列 → NULL → getUnreadEntries 返回空（读不到任何历史，
-  // 小獭进场后仍在问「问题是什么」）；重启 backfill 又把 NULL 填成 max seq（读到最新，
-  // 同样读不到进场前）。搭档拍板口径：进场游标与进场 system entry 一致——能看到
-  // 进场那一刻为止的全部对话。
   db.prepare(`
     INSERT INTO conversation_participants (id, conversation_id, otter_id, status, created_at, last_read_seq)
-    VALUES (?, ?, ?, ?, ?, 0)
+    VALUES (?, ?, ?, ?, ?, ?)
   `).run(
     participant.id, participant.conversationId, participant.otterId,
-    participant.status, participant.createdAt,
+    participant.status, participant.createdAt, participant.lastReadSeq ?? 0,
   );
 }
 
@@ -123,13 +125,13 @@ export function createParticipants(db: Database.Database, participants: Conversa
   if (participants.length === 0) return;
   db.exec("BEGIN");
   try {
-    // F20260913ctlv test15：同 createParticipant——进场游标显式写 0（读全部历史）
+    // F20260929czi0：同 createParticipant——lastReadSeq 为可选进场游标初值（缺省 0）
     const stmt = db.prepare(`
       INSERT INTO conversation_participants (id, conversation_id, otter_id, status, created_at, last_read_seq)
-      VALUES (?, ?, ?, ?, ?, 0)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
     for (const p of participants) {
-      stmt.run(p.id, p.conversationId, p.otterId, p.status, p.createdAt);
+      stmt.run(p.id, p.conversationId, p.otterId, p.status, p.createdAt, p.lastReadSeq ?? 0);
     }
     db.exec("COMMIT");
   } catch (error) {
@@ -296,4 +298,30 @@ export function markParticipantLeft(db: Database.Database, conversationId: strin
   db.prepare(
     `UPDATE conversation_participants SET status = 'left', left_at = datetime('now') WHERE conversation_id = ? AND otter_id = ? AND status = 'active'`,
   ).run(conversationId, otterId);
+}
+
+/** F20260929czi0：进场游标零点修正存量迁移（一次性，启动时调用）。
+ *  active 参与者 × active 对话 × last_read_seq=0 → 该对话 max(seq)。
+ *  Why：F20260913ctlv 的「进场游标=0」口径让零游标獭把全历史当未读；这些獭多为
+ *  换世后首请求爆窗锁死（pushCursorOnStartup 只在启动成功时推进游标——爆窗 400 →
+ *  不推进 → 永远全量未读，pi-session-factory.ts pushCursorOnStartup），从未成功消费
+ *  过任何历史消息，事实状态就是「读到最新」，与 #775 backfillLastReadSeq 的回填
+ *  语义同源。空对话里 max(seq)=0，迁移前后等价，幂等天然安全。
+ *  幂等：只更新 0 行；全量推进后（游标恒 >0 或空对话仍为 0——后者重写等价零改动）
+ *  重复执行零副作用。已知边界：空对话的零游标行迁移后仍为 0，守卫计数永不结清，
+ *  每次启动会空转一次本 UPDATE（changes=0，零副作用）——为有历史对话的正确性
+ *  付的固定微小成本，不优化。
+ *  回滚语义：回滚本特性代码不会回滚本迁移（无备份列——0 本就是事故值，回滚到 0
+ *  无意义且会复发爆窗；迁移值与旧列独立，无回滚需求。检视残留观察项，见特性文档）。 */
+export function advanceZeroCursorsForActiveJoin(db: Database.Database): number {
+  const result = db.prepare(`
+    UPDATE conversation_participants AS cp
+    SET last_read_seq = (
+      SELECT COALESCE(MAX(e.sequence_num), 0) FROM entries e WHERE e.conversation_id = cp.conversation_id
+    )
+    WHERE cp.status = 'active'
+      AND cp.last_read_seq = 0
+      AND EXISTS (SELECT 1 FROM conversations c WHERE c.id = cp.conversation_id AND c.status = 'active')
+  `).run();
+  return result.changes;
 }

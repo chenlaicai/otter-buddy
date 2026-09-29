@@ -78,6 +78,11 @@ export interface ConversationParticipant {
   status: ParticipantStatus;
   createdAt: string;
   leftAt: string | null;
+  /** F20260929czi0：进场游标初值（写入时语义——仅 createParticipant(s) 落库时生效）。
+   *  缺省 0 = 新对话初始化（空对话天然正确）；加入已有对话时由域层传进场时刻
+   *  max(seq)（进场前历史不是未读）。读取侧游标真值在 participants 行上
+   *  （rowToParticipant 不回填本字段）。 */
+  lastReadSeq?: number;
 }
 
 /**
