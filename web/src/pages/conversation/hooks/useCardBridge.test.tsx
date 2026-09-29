@@ -219,12 +219,12 @@ describe('已回复集合（历史派生）', () => {
 })
 
 describe('resize 闸门', () => {
-  it('高度 clamp 到 [100, 4000] 并回写登记的 setHeight', () => {
+  it('高度 clamp 到 [1, 4000] 并回写登记的 setHeight（F20260929ahgt：下限解开为 1，棘轮解开可缩回）', () => {
     dispatchCardMessage(WIN_A, { type: 'card:resize', cardId: 'msg-1:0', height: 99999 })
     expect(setHeightA).toHaveBeenCalledWith(4000)
     vi.advanceTimersByTime(100)
-    dispatchCardMessage(WIN_A, { type: 'card:resize', cardId: 'msg-1:0', height: 1 })
-    expect(setHeightA).toHaveBeenCalledWith(100)
+    dispatchCardMessage(WIN_A, { type: 'card:resize', cardId: 'msg-1:0', height: 50 })
+    expect(setHeightA).toHaveBeenCalledWith(50)
   })
 
   it('resize 节流（60ms）窗口内的重复上报被丢弃；非法高度丢弃', () => {

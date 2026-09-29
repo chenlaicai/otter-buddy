@@ -16,6 +16,7 @@ modules:
   - web/src/pages/conversation/hooks/useCardBridge.ts
   - web/src/lib/card-bridge.ts
   - web/src/lib/card-bridge.test.ts
+  - web/src/pages/conversation/hooks/useCardBridge.test.tsx
   - api-contract/api/html-card.ts
   - src/interface-adapters/agent-runtime/tools/html-card-contract-tool.ts
   - .pi/skills/review-protocol/references/templates/decision-briefing-card.md
@@ -59,7 +60,9 @@ html-card 底部空白问题的发展链（本对话 80128ebf 全程）：
 **取舍**：
 - 否「保留 data-height 作为可选优化」：旋钮存在一天，agent 就会去拧（实测 10/10 高估证明估不准），终态必须删除而非降级
 - 否「父页跨域测量」：iframe sandbox 无 allow-same-origin，父页摸不到内部 DOM，本就不可行；桥内测量是唯一通道
-- body-only 上报的边角：卡片用 `html{height:100%}` 撑满布局时 body 可能不足内容高——但 token CSS 未设 html 高度，写卡契约也不鼓励视口相对布局；若未来遇到，ResizeObserver 对 body 的观察仍会在内容溢出时触发（overflow 内容计入 body.scrollHeight）
+- body-only 上报的边角（检视獭-1217 独立焦点实测补记）：
+  - **vh 布局正反馈**：`min-height:100vh` 类视口相对高度在 iframe 里视口高 = 当前卡高，卡越高 vh 越大——实测 100→4000px 封顶只用 8 秒（内容实际 164px），且 transition 是放大器（无 transition 只单步过冲即冻结）。存量 521 张卡全量扫描 0 张 vh 布局，当前无害；防线 = 契约禁用清单新增「禁止 100vh/100% 视口相对高度撑布局」（本次已补）
+  - **全脱流主容器塌缩**：卡片内容全部 absolute/fixed 脱流时 body.scrollHeight=0，iframe 塌至 24px（padding）裁掉内容——相对旧机制（documentElement 兜底）的回归性边角。存量 521 卡 0 张全脱流，当前无害；未来遇到时的解法：桥上报加「视口内可见元素最大 bottom」兜底项，本期不做
 
 ## 负面向验收条目
 
@@ -72,7 +75,7 @@ html-card 底部空白问题的发展链（本对话 80128ebf 全程）：
 - **宿主管线仿真实验**（playwright，复刻 srcdoc 组装 + 新桥 + useCardBridge clamp 逻辑；脚本 `/tmp/otter-auto-height-verify.mjs` 可复跑）：
   - 12 张今日真实卡从 100px 起步全部精确收敛到内容真实高度（854/2948/341/1445/413/544/1182/635/830/1436/1119/916px）
   - **缩回测试**：800px 内容→iframe 824px；内容改 50px→iframe 缩回 74px（50+24 padding）——棘轮解开
-- **web 单测**：card-bridge.test.ts 5 通过（resize API 移除断言更新）
+- **web 单测**：card-bridge.test.ts 5 通过（resize API 移除断言更新）；useCardBridge.test.tsx 17 通过（含 clamp 断言更新——检视发现 [100,4000] 旧断言漏改导致 CI 红，已修为 [1,4000] 语义：99999→4000 上限不变、50→50 下限不再托底）
 - **tsc**：后端 + web 双端通过
 - **Golden Gate**：本次涉及 prompt 面（契约高度段删除），按 code-implementation 步骤 6 需跑 capability gate（见 PR Verification 节结果）
 - 已过最简实现检查：机制改动共 4 处、净删代码，无新依赖
