@@ -591,7 +591,7 @@ const MAIN_WRITE_BLOCK_MSG = "当前 bash 工作目录在主仓（未 cd 到 wor
 const REDIRECT_PATTERN = /(?:^|[;&\n]|&&|\|\|)\s*(?:>|>>|<<<)\s*[^|&;\n]+|(?<!["'\w])\d*>>?\s*[^|&;\n'"]+/;  // 重定向（含 echo x > file 中段形态 + 2> 数字前缀）
 const MAIN_WRITE_PATTERNS = [
   REDIRECT_PATTERN,
-  /(?:^|&&|\|\||[;&\n])\s*(?:[\w.-]+\/)?python[\d.]*\s+-\s*<<["']?/,       // python heredoc patch（delta r1：含小数点版本 python3.11 与绝对路径形态）
+  /(?:^|&&|\|\||[;&\n])\s*(?:[\w./-]+\/)?python[\d.]*\s+-\s*<<["']?/,       // python heredoc patch（delta r1：含版本号/路径形态；delta 2：多级+绝对路径）
   // D2：段首锚含单 | / &（`cd /wt | git commit` / `& git commit` 同样是新命令段）
   // F20260924gfpn：① merge → merge(?!-) 负向断言——`git merge-base`（只读）曾被 merge\b
   // 吞成写操作（9/23 台账实测 BLOCKED）；同组其他词审计：commit→commit(?!-tree)（commit-tree
@@ -665,6 +665,8 @@ const PY_READONLY_CALLS = new Set([
   "re",       // re.findall/search/match/sub/compile 全只读
   "json",     // json.load/loads 只读；json.dump（写盘）由方法门拦（不在 METHODS）
   "Path", "PurePath", "PosixPath", "WindowsPath", // pathlib 构造只读；写面由方法门拦（unlink/write_text 等不在 METHODS）
+  "glob",     // glob.glob/iglob 只读（delta 2 高频点：文件探查分析主形态）
+  "pandas", "pd", "numpy", "np",  // 数据分析读面由方法门收口（read_csv 等白名单、to_csv 不在）
 ]);
 const PY_READONLY_METHODS = new Set([
   "read", "readline", "readlines", "read_text", "read_bytes", "load", "loads", "dumps",
@@ -676,6 +678,10 @@ const PY_READONLY_METHODS = new Set([
   "splitlines", "encode", "decode", "keys", "values", "items", "get", "copy",
   "index", "count", "find", "rfind", "append", "extend", "insert", "pop",
   "sort", "join", "isdigit", "isalpha", "isspace", "compile", "escape", "fullmatch",
+  "glob", "iglob",                                                        // glob 模块只读 API（delta 2 高频点）
+  "read_csv", "read_json", "read_excel", "read_table", "read_parquet",    // pandas 读族（delta 2 高频点）
+  "describe", "head", "tail", "info",                                    // DataFrame 只读探查
+  "open",                                                                  // Path.open('r')——mode 由 ② 门独立把关
 ]);
 
 /** python 只读门 ②：open 调用的 mode 实参必须是字面 'r'/'rb' 或无（默认 'r'）；
@@ -695,7 +701,10 @@ function pythonOpenModesReadOnly(body: string): boolean {
 function pythonModuleSurfaceReadOnly(body: string): boolean {
   if (/\bos\.\w/.test(body) && !/\bos\.(?:getcwd|listdir|walk|stat|path)\b/.test(body)) return false;
   if (/\bsys\.\w/.test(body) && !/\bsys\.(?:argv|stdin|stdout)\b/.test(body)) return false;
-  if (/\b(?:fileinput|mmap|shutil|subprocess|socket|ctypes|pickle|csv|sqlite|urllib|requests|http|ftplib|pty)\b/.test(body)) return false;
+  // delta 2：csv 移出——无代码执行面（写盘由 open mode 门兜底），且文件名字面量
+  // 'x.csv' 会被 \bcsv\b 误伤；pickle 保留（反序列化可执行 payload，只读也不行）
+  if (/\b(?:fileinput|mmap|shutil|subprocess|socket|ctypes|pickle|sqlite|urllib|requests|http|ftplib|pty)\b/.test(body)) return false;
+  if (/\bimport\s+csv\b/.test(body)) return false; // csv 模块 import 仍拦（写入面不靠字面量）
   return true;
 }
 
@@ -703,7 +712,16 @@ function pythonBodyReadOnly(body: string): boolean {
   // ① 否定检测：动态/危险形态出现即非只读（别名/计算属性本质都是动态面）
   if (/[`\\]/.test(body)) return false;                                    // 反斜杠续行/转义不可静态判
   if (/\b(?:__import__|getattr|setattr|delattr|globals|locals|vars|eval|exec|compile|breakpoint)\b/.test(body)) return false;
-  if (/\bimport\s+\w+\s+as\b/.test(body)) return false;                    // 别名 import——引用面失控
+  if (/\bimport\s+\w+\s+as\b/.test(body)) {
+    // delta 2：社区标准固定别名放行（pandas as pd / numpy as np）——其余别名
+    //（import os as o 等）仍不豁免（引用面失控）
+    const am = body.match(/\bimport\s+(\w+)\s+as\s+(\w+)\b/g) ?? [];
+    const ok = am.every(s => {
+      const mm = s.match(/\bimport\s+(\w+)\s+as\s+(\w+)\b/)!;
+      return (mm[1] === "pandas" && mm[2] === "pd") || (mm[1] === "numpy" && mm[2] === "np");
+    });
+    if (!ok) return false;
+  }
   if (/\w\s*\[\s*['"][^'"]*['"]\s*\]\s*\(/.test(body)) return false;     // 计算键调用 obj['x'](...)
   if (/\blambda\b/.test(body)) return false;
   // ② open mode 门
@@ -890,12 +908,13 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
 // 初版 node 体用危险签名 denylist（不命中即放行）——计算键 p['k'+'ill'] /
 // require()['w'+'riteFileSync'] 等 JS 日常形态绕过（检视獭探针实证），且「V1
 // OnText 挂点」声明失实。delta r1：node 体反转为只读白名单（白名单外一律拦，
-// fail-closed）；挂点收敛为统一入口单点 + PID 缺失路径（V1 OnText 链不挂——其
-// 输入已剥体，递归解析会伪造结构；未闭合 heredoc parseOk=false 走 V1 时体文本
-// 保留、kill 规则直接可见，基线保守面在）。
+// fail-closed）；挂点：统一入口 + PID 缺失路径 + V1 OnText 链（delta 2 订正：
+// 初版注释「V1 OnText 不挂」为 stale 残留，实际已挂载于 checkBashCommandSafetyOnText——
+// 剥体输入 extractHeredocSpans 只命中空白体自然 no-op；未闭合保留原文时体判定生效）。
 // bash/sh/zsh 体是真执行 shell 脚本 → 递归 V1 全量判定（语义精确：体段位判定
-// 与顶层一致，echo kill N 的数据位词元不误拦）；体中嵌套 heredoc 限深一层，
-// 超深保守拦（嵌套攻击面窄，但不留零判定盲区）。
+// 与顶层一致，echo kill N 的数据位词元不误拦）；体中嵌套 shell 解释器 heredoc
+// 不递归判定，出现即拦（delta 2 措辞订正：非「限深一层后拦」——depth=1 时内层
+// shell 体即触发超深分支保守拦，行为为「嵌套即拦」，与 fail-closed 方向一致）。
 
 const NODE_HEREDOC_BODY_MSG = "bash 命令通过 heredoc 向 node 传入非白名单只读形态的脚本体，无法静态确认其安全。该命令不允许：分析类脚本请限定在 fs 只读 API（readFileSync/existsSync/statSync 等）+ console 输出，或落盘到 /tmp 后审阅执行；确需其他形态时告知搭档人工执行。";
 const SHELL_HEREDOC_BODY_MSG = "bash 命令通过 heredoc 向 shell 传入的脚本体中检测到危险操作（体内容会被直接执行）。该命令不允许：若需终止/重启验证实例，在 worktree 内跑 scripts/alpha.sh stop/start；请把体内容拆成独立命令或落盘 /tmp 后审阅执行；确需此形态时告知搭档人工执行。";

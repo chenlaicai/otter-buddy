@@ -81,10 +81,23 @@ solution: |
      会让段被当非 kill 跳过（fail-open 方向错误）。
   ⑥ python 通道正则扩展：python[\d.]* + 绝对路径形态（python3.11、
      /usr/bin/python3 修复前进不了通道）。
+  ⑦ <<- dash 定界整链盲区（delta r2，检视 delta 2 严重）：HEREDOC_OPEN 不匹配
+     <<-，整套体判定对其不可见——bash/node 体级真杀三形态放行实证（base 同
+     放行 = 存量缺口，但与已修声明同构）。修复：定界符正则加 -?；<<- 的
+     closer 允许行首 TAB（bash 只剥 tab 不剥空格，`^\t*D$` 严格于宽版——
+     空格前缀仍不闭合，不重开宽版利用链）；span 增 dash 标记。
 
   附带：appendDevServerGuidance 改命令感知——只在命令真实命中进程操作形态
   （kill 族/lsof/pkill/killall/restart-service 词元）时附加 dev-server 引导，
   只读 heredoc 被拦时不再出现答非所问的重启建议（PROCESS_OPS_SHAPE）。
+
+  delta r2 白名单迭代（检视 delta 2 建议顺手项）：三高频只读点补入白名单
+  （glob.glob/iglob、pandas 读族 read_csv/read_json/read_excel/read_table/
+  read_parquet + DataFrame 探查 describe/head/tail/info、Path.open——mode
+  仍由 open 门独立把关）；社区标准固定别名放行（import pandas as pd /
+  numpy as np，其余别名仍不豁免）；csv 移出危险模块列表（无代码执行面，
+  写盘由 open mode 门兜底，且文件名字面量 'x.csv' 会被 \bcsv\b 误伤）；
+  S1 通道正则尾巴（多级/绝对路径目录段）订正。
 trade_offs:
   - 豁免面只收不扩（白名单方向）：体白名单识别不了的形态（新 API、复杂控制流）
     保守拦——豁免是例外，拦截是默认。denylist 方向（初版）被端到端利用链证伪，
@@ -123,11 +136,14 @@ production_assertion:
   check: sqlite healing_events 按 error_type=guard_intercept + description LIKE '%主仓%' 计数
   due: 2026-10-29
 known_limitations:
-  - python 体白名单只放内置只读面与 re/json/pathlib 读族——数据分析常用第三方库
-    （pandas/numpy 读）不在白名单，会被保守拦（逃生：落盘 /tmp 或告知搭档）
+  - python 体白名单只放内置只读面与 re/json/pathlib 读族/pandas 读族/glob——
+    其余第三方库读 API 不在白名单，会被保守拦（逃生：落盘 /tmp 或告知搭档）
   - bare（裸定界符）体含 $ 或反引号即不豁免（展开面不可静态判）
-  - lexer 对 <<-（dash 去tab 形态）的 delim 解析含 '-'——bash-valid 的 <<- 命令
-    parseOk=false 走 V1（体文本可见，kill 规则可判，保守闭合）；python 通道 <<-仍在
+  - <<- 变体允许行首 TAB 的 closer——空格前缀的 <<- 定界行不闭合（保守侧，
+    bash 实际只剥 tab，行为一致）
+  - 复合命令 cd <非主仓> && python heredoc 体绝对路径写主仓：modelCdExemption
+    按 cd 落点豁免主仓写检查（grv2 存量行为，#1189），体绝对路径逃逸——本 PR
+    已在 known_limitations 留痕，待独立 issue（不在本 PR 范围）
   - issue 1069 受控脚本白名单未落地，误拦无正道逃生通道（独立 issue 排期）
 ---
 

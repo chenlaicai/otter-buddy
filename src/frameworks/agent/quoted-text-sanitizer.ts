@@ -67,11 +67,11 @@ const SYNTAX_DOUBLE_QUOTED = /"[^"]*"/g;
  *  与 SHELL_PAYLOAD_CHANNEL 的关系：hasExecutionChannel 对 python heredoc 命令整体跳过脱敏
  *  （现状保守路径），本函数供「需要语法基准的判定」在调用点选择使用。
  */
-const HEREDOC_OPEN = /<<\s*["']?([A-Za-z_][A-Za-z0-9_]*)["']?/g;
+const HEREDOC_OPEN = /<<-?\s*["']?([A-Za-z_][A-Za-z0-9_]*)["']?/g;
 
 export function stripHeredocPayloads(command: string): string {
   // 定界符带引号（无展开）→ 无条件可剥
-  if (/<<\s*['"][A-Za-z_][A-Za-z0-9_]*['"]/.test(command)) {
+  if (/<<-?\s*['"][A-Za-z_][A-Za-z0-9_]*['"]/.test(command)) {
     return blankHeredocBody(command);
   }
   // 裸定界符：命令行有展开特征时载荷可能含 $(...)（危险通道）→ 保守不剥
@@ -85,22 +85,28 @@ export function stripHeredocPayloads(command: string): string {
  *  实测 `EOF   ` 不闭合；此前容忍 [ \t]* 的宽版被检视獭凑出利用链：
  *  体首定义 `EOF = 0` 让 python 合法经过「假闭合行」+ 宽版 closer 误判闭合，
  *  尾段真实写入逃过体判定，端到端 ALLOW 实证）。
+ *  delta r2：匹配 <<-（dash 定界，delta 2 严重——此前整链不可见，bash/node
+ *  体级真杀放行实证）；<<- 的 closer 允许行首 TAB（bash 只剥 tab 不剥空格，
+ *  `^\t*D$` 严格于宽版——空格前缀仍不闭合，不重开宽版利用链）。
  *  quoted 标记定界符是否带引号（无展开体）；closed=false 表示未闭合（bash 会
  *  把剩余全文吃进体——调用方必须保守拦，不可对未闭合 span 豁免）。
  *  注意：仅引用此函数的调用方必须自行把「未闭合」当保守信号；本函数返回数据，
  *  不做拦截决策。 */
-export interface HeredocSpan { header: string; body: string; start: number; end: number; quoted: boolean; closed: boolean }
+export interface HeredocSpan { header: string; body: string; start: number; end: number; quoted: boolean; closed: boolean; dash: boolean }
 export function extractHeredocSpans(command: string): HeredocSpan[] {
   const spans: HeredocSpan[] = [];
   HEREDOC_OPEN.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = HEREDOC_OPEN.exec(command)) !== null) {
-    const quoted = /<<\s*["']/.test(m[0]);
+    const quoted = /<<-?\s*["']/.test(m[0]);
+    const dash = /<<-/.test(m[0]);
     const openLineEnd = command.indexOf("\n", m.index);
     if (openLineEnd === -1) break; // 无换行（单行 <<EOF 后无体）——无体可提取
     // bash 语义：定界符必须独占一行（行首无空白、行尾无任何字符）；
+    // <<- 变体允许行首 TAB（bash 只剥 tab 不剥空格，空格前缀仍不闭合——
+    // 不重开宽版 closer 的假闭合利用链）；
     // ^D$ 配 m 旗标同时覆盖「后跟换行」与「命令串末尾」两种闭合
-    const closerRe = new RegExp(`^${m[1]}$`, "gm");
+    const closerRe = new RegExp(dash ? `^\\t*${m[1]}$` : `^${m[1]}$`, "gm");
     closerRe.lastIndex = openLineEnd + 1;
     const close = closerRe.exec(command);
     if (!close) {
@@ -113,6 +119,7 @@ export function extractHeredocSpans(command: string): HeredocSpan[] {
         end: command.length,
         quoted,
         closed: false,
+        dash,
       });
       break;
     }
@@ -124,6 +131,7 @@ export function extractHeredocSpans(command: string): HeredocSpan[] {
       end: close.index,
       quoted,
       closed: true,
+      dash,
     });
     closerRe.lastIndex = close.index + close[0].length;
   }
@@ -142,7 +150,8 @@ function blankHeredocBody(command: string): string {
     // #1207 delta r1：closer 与 bash 对齐——定界符独占一行（行首无空白、行尾无任何
     // 字符，`EOF   ` 不闭合）。宽版 `[ \\t]*` 被检视獭利用（体首 `EOF = 0` + 尾段
     // 真实写入端到端 ALLOW）；剥体到不了的位置体文本留在扫描面 → 保守侧。
-    const closerRe = new RegExp(`^${m[1]}$`, "gm");
+    // delta r2：<<- 变体允许行首 TAB（bash 只剥 tab 不剥空格）
+    const closerRe = new RegExp(/<<\s*-/.test(m[0]) ? `^\\t*${m[1]}$` : `^${m[1]}$`, "gm");
     closerRe.lastIndex = openLineEnd + 1;
     const close = closerRe.exec(command);
     if (!close) {
