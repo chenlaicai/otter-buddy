@@ -429,13 +429,20 @@ export default function ImPage() {
               </span>
             </div>
 
-            {/* 三步引导 */}
+            {/* 三步引导：未配置态指向扫码流程，已配置态指向加好友开聊（F20260929fsqr 扫码文案对齐） */}
             <div className="space-y-2.5 mb-4">
-              {[
-                '打开飞书，搜索你创建的自建应用机器人',
-                '把机器人加为好友（或拉进私聊）',
-                '直接发条消息——自动开助理对话，免绑定',
-              ].map((step, i) => (
+              {(feishuStatus
+                ? [
+                    '打开飞书，搜索你创建的自建应用机器人',
+                    '把机器人加为好友（或拉进私聊）',
+                    '直接发条消息——自动开助理对话，免绑定',
+                  ]
+                : [
+                    '点下方「扫码接入飞书」，给助理起个名字',
+                    '用飞书扫二维码，在飞书内确认创建应用',
+                    '完成后在飞书搜索助理名，加好友即用',
+                  ]
+              ).map((step, i) => (
                 <div key={i} className="flex items-start gap-2.5">
                   <span className="w-5 h-5 rounded-full bg-teal-50 text-teal-600 text-[11px] font-semibold flex items-center justify-center flex-shrink-0 mt-0.5">
                     {i + 1}
