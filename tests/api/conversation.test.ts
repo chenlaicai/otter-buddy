@@ -97,6 +97,34 @@ describe("Conversation API", () => {
       });
     });
 
+    // F20260929wak1 SG2：DTO 第二投影点回归——entity.kind=web-assistant 经 API 透出不丢
+    // （线上 bug 逃逸路径：mapper 修复有用例锁，但 DTO 层 !== 'normal' 吞字段无 API 级断言）
+    it("GET /api/conversations 响应透传 kind=web-assistant（F20260929wak1：DTO 投影回归锁）", async () => {
+      deps.manageConversation.listWithMeta.mockResolvedValue({
+        items: [makeConversation({ id: "conv-wa", title: "web 助理", kind: "web-assistant" })],
+        total: 1,
+      });
+
+      const res = await app.request("/api/conversations");
+      expect(res.status).toBe(200);
+      const body = await json(res);
+      expect(body.items).toHaveLength(1);
+      expect(body.items[0].kind).toBe("web-assistant");
+    });
+
+    it("kind=undefined 时响应不含 kind 字段（DTO !== 'normal' 条件吞字段——存量普通对话行为不变）", async () => {
+      deps.manageConversation.listWithMeta.mockResolvedValue({
+        items: [makeConversation({ id: "conv-n", kind: undefined })],
+        total: 1,
+      });
+
+      const res = await app.request("/api/conversations");
+      expect(res.status).toBe(200);
+      const body = await json(res);
+      expect(body.items[0].id).toBe("conv-n");
+      expect(body.items[0].kind).toBeUndefined();
+    });
+
     it("非法 status/kind 参数静默忽略（不 400——缺省行为兜底）", async () => {
       deps.manageConversation.listWithMeta.mockResolvedValue({ items: [], total: 0 });
 
