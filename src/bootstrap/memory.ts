@@ -16,9 +16,12 @@ export class MemoryIndexAdapter implements MemoryIndexGateway {
   constructor(private readonly storeMemory: StoreMemory) {}
 
   async indexMessage(messageId: string, conversationId: string, content: string): Promise<void> {
+    // #1191（F20260928rmix）：sourceTable 统一 'entries'——#886 后消息已住在 entries 表，
+    // 旧 'messages' 是表族退役前的遗留口径；与回填迁移（backfillEntryMemoryIndex）同口径，
+    // 幂等按主键 id 对齐（#942 后投影主键=源 id）
     await this.storeMemory.execute({
       layer: "working", contentType: "message",
-      sourceId: messageId, sourceTable: "messages",
+      sourceId: messageId, sourceTable: "entries",
       conversationId, granularity: "fine", content,
     });
   }

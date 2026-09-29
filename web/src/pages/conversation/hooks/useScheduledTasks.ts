@@ -4,7 +4,7 @@ import { mapScheduledTaskDTO } from '../../../lib/mappers'
 import * as api from '../../../api/client'
 import { showToast } from '../../../components/Toast'
 
-export function useScheduledTasks(conversationId: string | null, enabled = true) {
+export function useScheduledTasks(conversationId: string | null) {
   const [tasks, setTasks] = useState<LocalScheduledTask[]>([])
   const [loading, setLoading] = useState(false)
 
@@ -12,25 +12,25 @@ export function useScheduledTasks(conversationId: string | null, enabled = true)
   const tasksRef = useRef(tasks)
   useEffect(() => { tasksRef.current = tasks }, [tasks])
 
-  // 数据加载（F20260827scrf2：enabled=false 即弹窗打开期间暂停，弹窗期不驱动右栏像素变化）
+  // 数据加载（F20260827scrf2 曾在弹窗期停拉以保 scrim 采样；F20260929fcln 拆冻结链后恢复常拉）
   useEffect(() => {
-    if (!conversationId || !enabled) return
+    if (!conversationId) return
     setLoading(true)
     api.listScheduledTasks(conversationId)
       .then(res => setTasks(res.map(mapScheduledTaskDTO)))
       .finally(() => setLoading(false))
-  }, [conversationId, enabled])
+  }, [conversationId])
 
-  // 轮询（每 30 秒）（F20260827scrf2：弹窗期暂停）
+  // 轮询（每 30 秒）
   useEffect(() => {
-    if (!conversationId || !enabled) return
+    if (!conversationId) return
     const timer = setInterval(() => {
       api.listScheduledTasks(conversationId)
         .then(res => setTasks(res.map(mapScheduledTaskDTO)))
         .catch(() => {}) // 静默失败
     }, 30_000)
     return () => clearInterval(timer)
-  }, [conversationId, enabled])
+  }, [conversationId])
 
   // 乐观更新：启用/禁用
   const toggleStatus = useCallback(async (taskId: string) => {

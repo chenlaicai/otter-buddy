@@ -86,9 +86,12 @@ describe("RHI API（真 sqlite）", () => {
 
   describe("overview", () => {
     it("返回最新快照指标与信号分级计数", async () => {
-      snapshotRepo.replaceForDate("2026-08-25", [
-        { snapshotDate: "2026-08-25", metricType: "overview", metricKey: "total_commits", metricValue: 268 },
-        { snapshotDate: "2026-08-25", metricType: "overview", metricKey: "bugfix_ratio", metricValue: 0.27 },
+      /* #1173 时间炸弹清扫：原硬编码 2026-08-25，overview 断言锁 snapshotDate 字面量。
+       * 改相对日期（今天），断言用同一变量。 */
+      const day = new Date().toISOString().slice(0, 10);
+      snapshotRepo.replaceForDate(day, [
+        { snapshotDate: day, metricType: "overview", metricKey: "total_commits", metricValue: 268 },
+        { snapshotDate: day, metricType: "overview", metricKey: "bugfix_ratio", metricValue: 0.27 },
       ]);
       signalRepo.upsert({ signalType: "bug_recurrence", severity: "critical", featureId: null, filePath: "a.ts", evidence: "e", suggestedAction: "s" });
       signalRepo.upsert({ signalType: "hotspot", severity: "warning", featureId: null, filePath: "b.ts", evidence: "e", suggestedAction: "s" });
@@ -99,7 +102,7 @@ describe("RHI API（真 sqlite）", () => {
       expect(body.metrics).toMatchObject({ totalCommits: 268, bugfixRatio: 0.27 });
       expect(body.openSignals).toBe(2);
       expect(body.openSignalsBySeverity).toEqual({ critical: 1, warning: 1 });
-      expect(body.snapshotDate).toBe("2026-08-25");
+      expect(body.snapshotDate).toBe(day);
     });
 
     it("空库返回零值不抛错", async () => {
@@ -273,8 +276,10 @@ describe("RHI API（真 sqlite）", () => {
     });
 
     it("series cacheHitRate 为加权平均（非简单平均）", async () => {
-      const d1 = "2026-08-28";
-      const d2 = "2026-08-29";
+      /* #1173 时间炸弹清扫：原硬编码 2026-08-28/29，costOutput 90 天窗滑出后 series 缺日 → 断言炸。
+       * 改相对日期（今天-1 / 今天），永在窗口内；断言用同一变量，写法对齐 #1165 的 trends 修复。 */
+      const d1 = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const d2 = new Date().toISOString().slice(0, 10);
       // day1: cacheRead=800, input=200 → hitRate 0.8
       // day2: cacheRead=100, input=900 → hitRate 0.1
       // series 加权: (800+100)/(800+200+100+900) = 0.45
@@ -431,8 +436,10 @@ describe("RHI costOutput 模型维度聚合（F20260914usgm）", () => {
   });
 
   it("F20260914usgm：invokeStats 从 stats 行取最新日（per-model + _total）", async () => {
-    const d1 = "2026-09-12";
-    const d2 = "2026-09-13";
+    /* #1173 时间炸弹清扫：原硬编码 2026-09-12/13，costOutput 默认 30 天窗滑出后 invokeStats 断链 → 炸。
+     * 改相对日期（今天-1 / 今天）；「取最新日不被旧值污染」的语义由 d1(旧) < d2(新) 保留。 */
+    const d1 = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const d2 = new Date().toISOString().slice(0, 10);
     const metaGlm = JSON.stringify({ model: "glm-5.3" });
     const metaTotal = JSON.stringify({ model: "_total" });
     snapshotRepo.replaceForDate(d1, [

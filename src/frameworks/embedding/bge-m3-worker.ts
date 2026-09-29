@@ -47,6 +47,7 @@ function resolveIntraOpThreads(): number {
   if (raw === undefined) return 2;
   const n = parseInt(raw, 10);
   if (!Number.isFinite(n) || n < 1) {
+    // eslint-disable-next-line no-console -- worker 线程内无 logger，console.warn 兜底
     console.warn(`[embedding] OTTER_EMBED_INTRA_OP_THREADS="${raw}" 非法，回落默认 2`);
     return 2;
   }

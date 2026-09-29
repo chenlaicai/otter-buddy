@@ -1567,6 +1567,7 @@ async function fetchClosedDailyReviewIssues(): Promise<RegressionIssueRow[] | nu
     ], { maxBuffer: 16 * 1024 * 1024 });
     return JSON.parse(stdout) as RegressionIssueRow[];
   } catch (err) {
+    // eslint-disable-next-line no-console -- logger 在类实例上，此处是模块级函数；console.warn 与脚本输出风格一致
     console.warn('[regression-verify] gh fetch failed:', err instanceof Error ? err.message : String(err));
     return null;
   }

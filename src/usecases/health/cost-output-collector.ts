@@ -342,6 +342,7 @@ export async function collectLlmCalls(
   }
 
   if (unknownSessions.length > 0) {
+    // eslint-disable-next-line no-console -- 采集器无 logger 注入，console.warn 兜底
     console.warn(
       `[cost-output] ${unknownSessions.length} session(s) could not be mapped to otter ` +
       `(not in agent_sessions, no parseable identity in file). ` +
@@ -462,6 +463,7 @@ export async function collectToolCallCounts(
   }
 
   if (unknownSessions.length > 0) {
+    // eslint-disable-next-line no-console -- 采集器无 logger 注入，console.warn 兜底
     console.warn(
       `[cost-output] ${unknownSessions.length} session(s) could not be mapped to otter ` +
       `(tool call counts attributed to 'unknown' bucket). Sample IDs: ${unknownSessions.slice(0, 5).join(", ")}`,
