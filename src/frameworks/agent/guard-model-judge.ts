@@ -411,6 +411,13 @@ function judgeBashFileScript(model: CommandModel, mainPid: number, logger: Logge
  *  文案：复用 sleep-command-guard 的 buildSleepBlockMessage（动态秒数/speak 引导/
  *  无限措辞）——V1 V2 唯一文案源，防漂移；前缀 SLEEP_REASON_PREFIX 同源。 */
 function judgeSleepCommand(model: CommandModel, logger: Logger | undefined): string | null {
+  // #1216：跨段求和——同命令内多段 sleep 累计判定（sleep 3 && sleep 3 = 6s 拦）。
+  // 原逐段独立判定可被拆分绕过（sleep 4 && sleep 4 && … 静默任意时长）。
+  // 生产合法微 sleep 全为 kill/端口检查功能性等待（实测单命令累计最大 3s），
+  // 门槛 5s 有 2s 余量。含 unparseable/infinite 的段按段内语义处理（见下），
+  // 其余段照常累加——半可解析命令的求和面取保守放行（宁漏勿误，#1126 同口径）。
+  let commandTotal = 0;
+  let sawInfinite = false;
   for (const seg of model.segments) {
     const eff = effectiveCommand(seg);
     if (eff.name !== "sleep") continue;
@@ -431,16 +438,25 @@ function judgeSleepCommand(model: CommandModel, logger: Logger | undefined): str
       const unit = m[2] ?? "s";
       total += unit === "m" ? v * 60 : unit === "h" ? v * 3600 : unit === "d" ? v * 86400 : v;
     }
-    if (unparseable) continue; // 不可解析形态放行（归逃逸面，#1126 同口径）
-    if (infinite) {
-      logger?.warn("[guard-v2] BLOCKED sleep infinity");
-      return SLEEP_REASON_PREFIX + buildSleepBlockMessage("无限");
-    }
+    if (unparseable) continue; // 该段不可解析：不计入求和（保守放行该段——宁漏勿误，#1126 同口径）
+    if (infinite) sawInfinite = true; // infinity 段：累计标记，最后统一判
+    commandTotal += total;
+    // 段内已 ≥5s：立即拦（原行为，快路径）
     if (total >= 5) {
-      logger?.warn("[guard-v2] BLOCKED bare sleep >= 5s", { total });
+      logger?.warn("[guard-v2] BLOCKED bare sleep >= 5s", { total, commandTotal });
       return SLEEP_REASON_PREFIX + buildSleepBlockMessage(`${total} 秒`);
     }
   }
+  // 跨段累计 ≥5s：拦（#1216 新增——拆分形态 sleep 3 && sleep 3）
+  if (commandTotal >= 5) {
+    logger?.warn("[guard-v2] BLOCKED bare sleep >= 5s (cross-segment sum)", { commandTotal });
+    return SLEEP_REASON_PREFIX + buildSleepBlockMessage(`${commandTotal} 秒`);
+  }
+  if (sawInfinite) {
+    logger?.warn("[guard-v2] BLOCKED sleep infinity");
+    return SLEEP_REASON_PREFIX + buildSleepBlockMessage("无限");
+  }
+  // 含不可解析段且其余段合计 <5s：放行（宁漏勿误——变量段不可判，#1126 同口径）
   return null;
 }
 
