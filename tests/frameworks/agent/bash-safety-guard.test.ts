@@ -1603,6 +1603,56 @@ describe("#1207 delta r1/r2：体豁免反转后的攻防两面（检视獭-1207
     const cmd = `python3 - <<'EOF'\nimport os as o\no.remove('src/foo.ts')\nEOF`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
+
+  // ── delta r3（检视 delta 2 终轮 (a)(b) 类修）：变量 mode 与反序列化执行面 ──
+  it("[delta3-a] 变量 mode 内建 open（m='w'）→ 拦（mode 槽位裸标识符不豁免）", () => {
+    const cmd = `python3 - <<'EOF'\nm = 'w'\nopen('src/foo.ts', m)\nEOF`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("[delta3-a] 变量 mode Path.open → 拦（pathlib 签名首参即 mode 槽位）", () => {
+    const cmd = `python3 - <<'EOF'\nm = 'w'\nPath('src/foo.ts').open(m)\nEOF`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("[delta3-a] mode=变量 → 拦（关键字 form 变量值）", () => {
+    const cmd = `python3 - <<'EOF'\nm = 'w'\nopen('src/foo.ts', mode=m)\nEOF`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("[delta3-b] yaml.load 自包含杀主PID → 拦（反序列化执行面）", () => {
+    const cmd = `python3 - <<'EOF'\nimport yaml\nyaml.load('!!python/object/apply:os.system ["kill ${mainPid}"]')\nEOF`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("[delta3-b] np.load allow_pickle=True / 变量旗标 → 拦", () => {
+    for (const body of [
+      `import numpy as np\nnp.load('/tmp/x.npy', allow_pickle=True)`,
+      `import numpy as np\nflag = True\nnp.load('/tmp/x.npy', allow_pickle=flag)`,
+    ]) {
+      const cmd = `python3 - <<'EOF'\n${body}\nEOF`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+    }
+  });
+  it("[delta3-b] joblib.load / dill.load / shelve.open → 拦（与 pickle 同执行面）", () => {
+    for (const body of [
+      "import joblib\njoblib.load('/tmp/x.pkl')",
+      "import dill\ndill.load('/tmp/x.pkl')",
+      "import shelve\ns = shelve.open('/tmp/x.db')",
+    ]) {
+      const cmd = `python3 - <<'EOF'\n${body}\nEOF`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+    }
+  });
+  it("[delta3-放行面] 无 mode/字面 'r'/encoding 关键字/json.load 句柄 → 仍放行（E5 可用性不回归）", () => {
+    for (const body of [
+      "print(open('src/foo.ts').read())",
+      "with open('src/foo.ts', 'r') as f:\n    print(f.read())",
+      "print(open('src/foo.ts', 'r', encoding='utf-8').read())",
+      "from pathlib import Path\nprint(Path('src/foo.ts').open('r').read())",
+      "import json\nprint(json.load(open('src/foo.json')))",
+      "import pandas as pd\ndf = pd.read_csv('data/a.csv')\nprint(df.head())",
+    ]) {
+      const cmd = `python3 - <<'EOF'\n${body}\nEOF`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+    }
+  });
 });
 
 describe("F20260923qbsw 引号盲重定向/复合切断误拦修复（#984 循环拦截事故）", () => {

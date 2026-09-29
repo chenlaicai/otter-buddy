@@ -86,6 +86,14 @@ solution: |
      放行 = 存量缺口，但与已修声明同构）。修复：定界符正则加 -?；<<- 的
      closer 允许行首 TAB（bash 只剥 tab 不剥空格，`^\t*D$` 严格于宽版——
      空格前缀仍不闭合，不重开宽版利用链）；span 增 dash 标记。
+  ⑧ 变量 mode open 与反序列化执行面（delta r3，检视 delta 2 终轮 (a)(b) 类修）：
+     (a) 门② 检查正则误写（\/ 应为 ,）致变量 mode 全部漏过，且 pathlib
+     .open 签名首参即 mode 槽位（无路径位）此前不在检查范围——类修：mode
+     槽位见裸标识符即不豁免（内建 open 首参后任意位置实参 / .open 全部位置
+     实参），mode= 关键字值必须字面 'r'/'rb'；路径位裸标识符（open(path)）
+     不构成写向量，E5 可用性保留。(b) 反序列化执行面全禁：dill/joblib/
+     shelve/marshal/yaml 入危险模块（与 pickle 同执行面——pickle 禁了其他
+     全开等于没堵）；allow_pickle 非字面 False 一律拒（变量旗标穿不过）。
 
   附带：appendDevServerGuidance 改命令感知——只在命令真实命中进程操作形态
   （kill 族/lsof/pkill/killall/restart-service 词元）时附加 dev-server 引导，
@@ -142,8 +150,8 @@ known_limitations:
   - <<- 变体允许行首 TAB 的 closer——空格前缀的 <<- 定界行不闭合（保守侧，
     bash 实际只剥 tab，行为一致）
   - 复合命令 cd <非主仓> && python heredoc 体绝对路径写主仓：modelCdExemption
-    按 cd 落点豁免主仓写检查（grv2 存量行为，#1189），体绝对路径逃逸——本 PR
-    已在 known_limitations 留痕，待独立 issue（不在本 PR 范围）
+    按 cd 落点豁免主仓写检查（grv2 存量行为，#1189），体绝对路径逃逸——
+    已建独立 issue #1240 排期（不在本 PR 范围）
   - issue 1069 受控脚本白名单未落地，误拦无正道逃生通道（独立 issue 排期）
 ---
 

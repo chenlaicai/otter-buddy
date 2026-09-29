@@ -684,15 +684,60 @@ const PY_READONLY_METHODS = new Set([
   "open",                                                                  // Path.open('r')——mode 由 ② 门独立把关
 ]);
 
-/** python 只读门 ②：open 调用的 mode 实参必须是字面 'r'/'rb' 或无（默认 'r'）；
- *  裸位置变量实参（可能是变量 mode）、mode= 关键字、注释掃尾均保守拒。 */
+/** python 只读门 ②：open 调用的 mode 实参必须是字面 'r'/'rb' 或无（默认 'r'）。
+ *  delta 3（检视 delta 2 终轮 (a) 类修）：mode 槽位（首参之后的任意位置实参）
+ *  见裸标识符即不豁免——变量 mode（m='w'; open(p, m)）此前因检查正则误写
+ * （\/ 应为 ,）全部漏过，open 即截断主仓文件。路径位裸标识符（open(p)）
+ *  不构成写向量（无 mode 默认 'r'），保留豁免（E5 主形态可用性）。
+ *  mode= 关键字：值必须字面 'r'/'rb'（变量值/写 mode 均拒）；
+ *  其他关键字实参（encoding='utf-8' 等不影响可写性）字面值放行。 */
+/** 按顶层逗号切分实参串（括号/引号感知——供 open mode 门分类判定用） */
+function splitTopLevelArgs(args: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = "";
+  let inStr: string | null = null;
+  for (const ch of args) {
+    if (inStr) { cur += ch; if (ch === inStr) inStr = null; continue; }
+    if (ch === "'" || ch === '"') { inStr = ch; cur += ch; continue; }
+    if (ch === "(" || ch === "[") depth++;
+    if (ch === ")" || ch === "]") depth--;
+    if (ch === "," && depth === 0) { parts.push(cur); cur = ""; continue; }
+    cur += ch;
+  }
+  parts.push(cur);
+  return parts;
+}
+
+/** 单个位置实参是否可能携带变量 mode（裸标识符/表达式 → true；字面串/数字 → 查写 mode） */
+function positionalArgMayBeVariableMode(p: string): boolean {
+  if (/^(?:['"]|\d)/.test(p)) {
+    const m3 = p.match(/^['"]([rwbax+]*)['"]/);
+    if (m3 && !/^[rb]{1,2}$/.test(m3[1])) return true;                    // 字面写 mode
+    return false;                                                        // 字面 'r'/'rb'/数字
+  }
+  return !/^[A-Za-z_]\w*\s*=/.test(p);                                   // 关键字实参不涉变量 mode；其余（裸标识符/表达式）→ true
+}
+
+/** python 只读门 ②：open 调用的 mode 实参必须是字面 'r'/'rb' 或无（默认 'r'）。
+ *  delta 3（检视 delta 2 终轮 (a) 类修）：mode 槽位（内建 open 首参之后的位置实参 /
+ *  pathlib .open 的全部位置实参——其签名首参即 mode）见裸标识符即不豁免——
+ *  变量 mode（m='w'; open(p, m)）此前因检查正则误写（\/ 应为 ,）全部漏过。
+ *  路径位裸标识符（open(path)）不构成写向量（无 mode 默认 'r'），保留豁免
+ *  （E5 主形态可用性）。mode= 关键字：值必须字面 'r'/'rb'（变量值/写 mode 均拒）。 */
 function pythonOpenModesReadOnly(body: string): boolean {
-  for (const om of body.matchAll(/\bopen\s*\(([^)]*)\)/g)) {
-    const args = om[1];
-    if (/\/\*|\bmode\s*=/.test(args)) return false;
-    if (/\/\s*[A-Za-z_]\w*\s*[,)]/.test(args)) return false;
-    const modes = [...args.matchAll(/['"]([rwbax+]*)['"]/g)].map(m2 => m2[1]);
-    if (modes.some(m3 => !/^[rb]{1,2}$/.test(m3))) return false;
+  // 内建 open（open(path, mode?)）与 pathlib .open（.open(mode?)）两种签名都进本门
+  for (const om of body.matchAll(/(^|[^\w.])(\.?open)\s*\(([^)]*)\)/g)) {
+    const isMethodCall = om[2].startsWith(".");
+    const args = om[3];
+    if (/\/\*/.test(args)) return false;                                 // 注释掃尾不可静态判
+    const kw = args.match(/\bmode\s*=\s*(.+)/);
+    if (kw) {
+      const v = kw[1].replace(/\)\s*$/, "").trim();
+      if (! /^(?:['"][rb]{1,2}['"])$/.test(v)) return false;             // mode= 变量值/写 mode
+    }
+    const modeSlots = splitTopLevelArgs(args).slice(isMethodCall ? 0 : 1);
+    if (modeSlots.some(raw => raw.trim() !== "" && positionalArgMayBeVariableMode(raw.trim()))) return false;
   }
   return true;
 }
@@ -703,8 +748,12 @@ function pythonModuleSurfaceReadOnly(body: string): boolean {
   if (/\bsys\.\w/.test(body) && !/\bsys\.(?:argv|stdin|stdout)\b/.test(body)) return false;
   // delta 2：csv 移出——无代码执行面（写盘由 open mode 门兜底），且文件名字面量
   // 'x.csv' 会被 \bcsv\b 误伤；pickle 保留（反序列化可执行 payload，只读也不行）
-  if (/\b(?:fileinput|mmap|shutil|subprocess|socket|ctypes|pickle|sqlite|urllib|requests|http|ftplib|pty)\b/.test(body)) return false;
+  // delta 3（检视 delta 2 终轮 (b) 类修）：反序列化执行面全禁——pickle 之外
+  // 补 dill/joblib/shelve/marshal/yaml（yaml.load 默认unsafe，safe_load 亦保守
+  // 拦——白名单是例外）；allow_pickle 非字面 False 一律拒（np.load 变量旗标穿不过）
+  if (/\b(?:fileinput|mmap|shutil|subprocess|socket|ctypes|pickle|sqlite|urllib|requests|http|ftplib|pty|dill|joblib|shelve|marshal|yaml)\b/.test(body)) return false;
   if (/\bimport\s+csv\b/.test(body)) return false; // csv 模块 import 仍拦（写入面不靠字面量）
+  if (/\bload\s*\([^)]*allow_pickle\s*=\s*(?!False\b)/.test(body)) return false;
   return true;
 }
 
