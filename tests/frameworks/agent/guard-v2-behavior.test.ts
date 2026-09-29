@@ -214,3 +214,63 @@ describe("V2 拦截面不回归（模型层核心攻击面）", () => {
     expect(checkBashCommandSafety("kill $$", mainPid)).toBeTruthy();
   });
 });
+
+describe("#1207 + #760 A4：xargs 多参数 wrapper 剥除不完整致管道右段漏拦", () => {
+  // 复现（2026-09-29）：echo 42877 | xargs -n1 -I{} kill {} 在 v2 放行——V1 拦。
+  // 根因：effectiveCommand 对 wrapper 词（xargs）只剥「一个」旗标参数（V1
+  // stripCommandPrefixes 是 while 循环连剥全部），xargs -n1 -I{} kill {}
+  // 的有效 argv0 被误判为 "-I{}"，kill 段失认 → 管道右段字面参数判定
+  // （hasLiteralArgs=false）误入字面量主 PID 比对 → 放行。
+  // 修复：wrapper 参数剥除与 V1 对齐为循环连剥（guard ≤8 与 V1 同界）。
+  it("echo 42877 | xargs -n1 -I{} kill {} → 拦（多 wrapper 参数连剥）", () => {
+    expect(checkBashCommandSafety("echo 42877 | xargs -n1 -I{} kill {}", mainPid)).toBeTruthy();
+  });
+  it("echo 42877 | xargs -n1 kill 42877 → 拦（单参数形态不回归）", () => {
+    expect(checkBashCommandSafety("echo 42877 | xargs -n1 kill 42877", mainPid)).toBeTruthy();
+  });
+  it("lsof -t -i :3100 | xargs kill → 拦（stdin 间接来源形态保持）", () => {
+    expect(checkBashCommandSafety("lsof -t -i :3100 | xargs kill", mainPid)).toBeTruthy();
+  });
+  // 误伤对照（修复不得把合法形态拉黑）：非 wrapper 多参数命令正常放行
+  it("git commit -F msg | tail -3 → 放行（非 kill 段不受 wrapper 修复影响）", () => {
+    expect(checkBashCommandSafety("git commit -F msg | tail -3", mainPid)).toBeNull();
+  });
+  it("ls -n1 -I{} 形态参数的非 kill 命令 → 放行", () => {
+    expect(checkBashCommandSafety("printf '%s\\n' a b", mainPid)).toBeNull();
+  });
+  // 连剥扩展面（F20260929hcwd 补充：多 wrapper 叠加/多参数形态）
+  it("echo 42877 | xargs -n1 -I{} -P8 kill {} → 拦（三参数连剥）", () => {
+    expect(checkBashCommandSafety("echo 42877 | xargs -n1 -I{} -P8 kill {}", mainPid)).toBeTruthy();
+  });
+  it("echo 42877 | nice -n 5 xargs kill 42877 → 拦（wrapper 叠加形态）", () => {
+    expect(checkBashCommandSafety("echo 42877 | nice -n 5 xargs kill 42877", mainPid)).toBeTruthy();
+  });
+  it("kill -9 42877 → 拦（信号参数后字面主 PID，剥除不伤信号旗标语义）", () => {
+    expect(checkBashCommandSafety("kill -9 42877", mainPid)).toBeTruthy();
+  });
+});
+
+describe("#1207 对称面：node heredoc 体级危险签名（process.kill 此前无任何判定）", () => {
+  // 修复前探针实证（2026-09-29）：node - <<'EOF' process.kill(42877) 在 main 放行——
+  // V2 判 heredoc 体为数据 + 文本层无 node 体规则。与 python 体判定同构补面。
+  it("node heredoc 体 process.kill(42877) → 拦（对称面主形态）", () => {
+    const cmd = `node - <<'EOF'\nprocess.kill(${mainPid});\nEOF`;
+    expect(checkBashCommandSafety(cmd, mainPid)).toBeTruthy();
+  });
+  it("node heredoc 体 child_process 执行逃逸 → 拦", () => {
+    const cmd = `node - <<'EOF'\nrequire('child_process').execSync('echo hi');\nEOF`;
+    expect(checkBashCommandSafety(cmd, mainPid)).toBeTruthy();
+  });
+  it("node heredoc 体 fs.writeFileSync → 拦（fs 写族）", () => {
+    const cmd = `node - <<'EOF'\nrequire('fs').writeFileSync('src/x.ts', 'x');\nEOF`;
+    expect(checkBashCommandSafety(cmd, mainPid)).toBeTruthy();
+  });
+  it("node heredoc 体纯只读分析 → 放行（readFileSync + console.log）", () => {
+    const cmd = `node - <<'EOF'\nconst fs = require('fs');\nconsole.log(fs.readFileSync('src/x.ts', 'utf8').length);\nEOF`;
+    expect(checkBashCommandSafety(cmd, mainPid)).toBeNull();
+  });
+  it("node heredoc 体 process.pid 读取（无 kill）→ 放行", () => {
+    const cmd = `node - <<'EOF'\nconsole.log(process.pid, process.platform);\nEOF`;
+    expect(checkBashCommandSafety(cmd, mainPid)).toBeNull();
+  });
+});

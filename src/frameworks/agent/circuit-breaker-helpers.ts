@@ -23,8 +23,19 @@ import { loadAllowedServicePorts } from "./allowed-service-ports";
  *   - 已配置：提示用 restart-service 受控脚本 + 已声明的端口列表；
  *   - 未配置：提示「搭档创建 .otter/allowed-service-ports.json 后即可走受控路径」。
  * 静态文案零改动（测试断言友好），追加段动态生成。IO 异常静默退化为原文案。
+ *
+ * #1207（F20260929hcwd）：引导改为命令感知——只在命令真实命中进程操作形态
+ *（kill 族/lsof -ti/pkill/killall/restart-service 自身）时附加。此前无差别附加导致
+ * 只读 python heredoc 探查被拦时文案里出现 dev-server 重启引导（issue #1207
+ * 9/29 09:06 案例：判定层拦的是 heredoc patch 通道，引导层又叠了不相关建议，
+ * 两条线索都没指向真实原因）。
  */
-function appendDevServerGuidance(reason: string, projectRoot: string): string {
+const PROCESS_OPS_SHAPE = /\b(?:p?kill|killall\d?|pgrep|skill|lsof)\b|restart-service/;
+
+function appendDevServerGuidance(reason: string, projectRoot: string, command?: string): string {
+  // 命令感知：非进程操作形态的拦截（heredoc 探查/重定向/主仓写等）不附加 dev-server
+  // 引导——内容与拦截原因无关，只会误导排查方向。command 未传（历史调用方）保持旧行为。
+  if (command !== undefined && !PROCESS_OPS_SHAPE.test(command)) return reason;
   try {
     const allowed = loadAllowedServicePorts(projectRoot);
     if (allowed.length > 0) {
@@ -285,7 +296,7 @@ export function attachCircuitBreaker(
     const rawSafetyBlock = checkBashCommandSafety(command, mainPid, logger, { projectRoot: options?.projectRoot });
     if (!rawSafetyBlock) return false;
     const isSleepBlock = rawSafetyBlock.startsWith(SLEEP_REASON_PREFIX);
-    const safetyBlock = appendDevServerGuidance(stripSleepMarkerIfPresent(rawSafetyBlock), options?.projectRoot ?? process.cwd());
+    const safetyBlock = appendDevServerGuidance(stripSleepMarkerIfPresent(rawSafetyBlock), options?.projectRoot ?? process.cwd(), command);
     logger.warn("[bash-safety-guard] BLOCKED dangerous bash command", {
       otterId,
       mainPid,

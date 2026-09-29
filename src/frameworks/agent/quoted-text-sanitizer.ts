@@ -80,6 +80,55 @@ export function stripHeredocPayloads(command: string): string {
   return blankHeredocBody(command);
 }
 
+/** #1207（F20260929hcwd）：提取全部 heredoc 载荷体原文——供体感知判定
+ *  （bash-safety-guard 的主仓写检测：通道命中后查体写/执行签名，纯只读体放行）。
+ *  闭合/边界语义与 blankHeredocBody 完全一致（同一定界符闭合规则；未闭合 →
+ *  返回已闭合部分的体，调用方在 V2 模型路径使用——未闭合命令 parseOk=false
+ *  走 V1 fail-closed 链，不会到达体感知判定）。 */
+export function extractHeredocBodies(command: string): string[] {
+  const bodies: string[] = [];
+  HEREDOC_OPEN.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = HEREDOC_OPEN.exec(command)) !== null) {
+    const openLineEnd = command.indexOf("\n", m.index);
+    if (openLineEnd === -1) break; // 无换行（单行 <<EOF 后无体）——无体可提取
+    const closerRe = new RegExp(`^[ \\t]*${m[1]}[ \\t]*$`, "gm");
+    closerRe.lastIndex = openLineEnd + 1;
+    const close = closerRe.exec(command);
+    if (!close) break; // 未闭合：与 blankHeredocBody 同 fail-closed 边界
+    bodies.push(command.slice(openLineEnd + 1, close.index));
+  }
+  return bodies;
+}
+
+/** #1207（F20260929hcwd）：提取全部 heredoc 载荷体及位置——供体感知判定
+ *  （bash-safety-guard 的主仓写检测：通道命中后查体写/执行签名，纯只读体放行）。
+ *  闭合/边界语义与 blankHeredocBody 完全一致（同一套定界符闭合规则；未闭合 →
+ *  只返回已闭合部分的 span，调用方在 V2 模型路径使用——未闭合命令 parseOk=false
+ *  走 V1 fail-closed 链，不会到达体感知判定）。 */
+export interface HeredocSpan { header: string; body: string; start: number; end: number }
+export function extractHeredocSpans(command: string): HeredocSpan[] {
+  const spans: HeredocSpan[] = [];
+  HEREDOC_OPEN.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = HEREDOC_OPEN.exec(command)) !== null) {
+    const openLineEnd = command.indexOf("\n", m.index);
+    if (openLineEnd === -1) break; // 无换行（单行 <<EOF 后无体）——无体可提取
+    const closerRe = new RegExp(`^[ \\t]*${m[1]}[ \\t]*$`, "gm");
+    closerRe.lastIndex = openLineEnd + 1;
+    const close = closerRe.exec(command);
+    if (!close) break; // 未闭合：与 blankHeredocBody 同 fail-closed 边界
+    const lineStart = command.lastIndexOf("\n", m.index) + 1;
+    spans.push({
+      header: command.slice(lineStart, openLineEnd),
+      body: command.slice(openLineEnd + 1, close.index),
+      start: openLineEnd + 1,
+      end: close.index,
+    });
+  }
+  return spans;
+}
+
 /** 逐处 heredoc 剥载荷体（闭合行缺失 → 原样返回该处起全部，fail-closed） */
 function blankHeredocBody(command: string): string {
   HEREDOC_OPEN.lastIndex = 0;

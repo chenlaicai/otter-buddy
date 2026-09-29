@@ -15,7 +15,7 @@ import fs from "fs";
 import path from "path";
 import type { Logger } from "@usecases/ports/logger";
 import { loadAllowedServicePorts, extractWhitelistedPortRefs, type AllowedService } from "./allowed-service-ports";
-import { shouldSanitizeForScan, sanitizeQuotedText, stripQuotedTextSpans, stripHeredocPayloads } from "./quoted-text-sanitizer";
+import { shouldSanitizeForScan, sanitizeQuotedText, stripQuotedTextSpans, stripHeredocPayloads, extractHeredocSpans } from "./quoted-text-sanitizer";
 import { findKillSegments, isKillAtCommandPosition } from "./kill-segment-finder";
 
 /** F20260928slan：sleep 命令位置判定——复用 kill-segment-finder 的位置感知
@@ -616,6 +616,73 @@ function extractRedirectTarget(command: string): string | null {
   return m?.[1] ?? null;
 }
 
+// ── #1207（F20260929hcwd）：python heredoc 体感知判定 ──
+// 根因：MAIN_WRITE_PATTERNS[1]（python heredoc patch 通道）按「python3 - <<」通道形态
+// 整体拦，不解析体内容——只读探查（open().read/print）与写补丁（open('w').write）
+// 共用同一通道形态被无差别拦截（issue #1207 9/29 09:06 实时案例）。
+// 修复：通道命中后追加体内容判定——体含写/执行签名才拦，纯只读体放行。
+// 安全性论证：heredoc 体对 shell 层是 stdin 数据（非 shell 语法），python 写危险
+// 只能经 python 进程产生，静态识别 python 写/杀/执行 API 足以区分；识别不了的
+// 保守拦（fail-closed 不变）。跨解释器安全：只豁免首词为 python 的 heredoc——
+// bash/sh heredoc 体是可执行脚本内容（bash <<EOF 直接执行体），永不豁免/永不从
+// 重定向判定中隐去。
+// Known Limitations（与 #1038 DATA_DESTRUCTIVE 同先例留痕）：ctypes 之外的异型
+// 写 API（mmap 映射写、fileinput inplace、os.open+fdopen 链已由 os\.O_ 席标与
+// os\.open 模式覆盖）静态识别不全——混合体（读+写）会因任一写签名命中被拦，
+// 识别不了的新写 API 保守拦，豁免面只收不扩。
+const PY_BODY_WRITE_SIG = new RegExp([
+  // open 写模式：引号内容全是 mode 字符且含 w/a/x 或 +（r+ 系更新模式可写；'r'/'rb' 纯读不命中）
+  String.raw`\bopen\s*\([^)]*['"](?=[rwbaxt+]*[wax+])[rwbaxt+]{1,5}['"]`,
+  String.raw`\bos\.O_(?:RDWR|WRONLY|APPEND|TRUNC|CREAT)\b`,          // os.open 位旗标
+  String.raw`\.\s*write\w*\s*\(`,                                    // .write( .writerow( .write_text( …
+  String.raw`\.\s*dump\s*\(`,                                       // json/pickle/yaml .dump(（dumps 返回串不命中）
+  String.raw`\.\s*to_(?!string\b)\w+\s*\(`,                         // pandas/numpy .to_csv( 等（to_string 返回串不命中）
+  String.raw`\.\s*(?:mkdir|touch|symlink|link|hardlink)\w*\s*\(`,    // pathlib 族
+  String.raw`\bos\.(?:remove|unlink|rename|replace|truncate|chmod|chown|mkdir|makedirs|symlink|link|mkfifo|mknod|kill|killpg)\b`,
+  String.raw`\bos\.(?:system|popen|exec\w*|spawn\w*|fork|startfile)\b`,
+  String.raw`\bkill(?:pg)?\s*\(`,                                     // from os import kill 后裸调 kill(（体级杀进程红线）
+  String.raw`\bshutil\.(?:rmtree|move|copy\w*)\b`,
+  String.raw`\bsubprocess\b`,                                        // 执行逃逸通道
+  String.raw`\bctypes\b`,                                             // 任意 syscall 逃逸
+  String.raw`\b(?:eval|exec)\s*\(`,
+].join("|"), "i");
+
+/** heredoc 开行首词（跳过赋值前缀与 wrapper 词）——解析器判定用 */
+function heredocInterpreter(header: string): string {
+  const words = header.trim().split(/\s+/);
+  let i = 0;
+  while (i < words.length
+    && (/^[A-Za-z_]\w*=/.test(words[i]) || ["sudo", "env", "nohup", "command", "nice", "exec", "time"].includes(words[i]))) i++;
+  return words[i] ?? "";
+}
+
+const isPythonHeader = (header: string): boolean => /^python\d?$/.test(heredocInterpreter(header));
+
+/** 全部 heredoc 体均为「python 解释器 + 只读体」→ true（任一不满足 → false 保守拦）。
+ *  只在 V2 模型路径（原始命令可用）由调用方计算后传入 checkMainCheckoutWrite——
+ *  V1 兑底链收到的是 heredoc 体已剥离的文本，体不可知 → 不传参 → 保守拦。 */
+export function pythonHeredocBodiesReadOnly(command: string): boolean {
+  const spans = extractHeredocSpans(command);
+  if (spans.length === 0) return false; // 无可提取体 → 不豁免
+  return spans.every(sp => isPythonHeader(sp.header) && !PY_BODY_WRITE_SIG.test(sp.body));
+}
+
+/** 从命令文本中把 python heredoc 体等长替换为空格（重定向判定用）。
+ *  依据：python 体内容对 shell 重定向语义不可见（`>` 在 python 体里是比较/重定向
+ *  参数，不是 shell 重定向）；bash/sh 体不是 python（不可隐去——体是可执行内容，
+ *  `bash <<EOF` 直接执行体，隐去即攻击面）。非 python 体原样保留。 */
+function blankPythonHeredocBodies(command: string): string {
+  const spans = extractHeredocSpans(command).filter(sp => isPythonHeader(sp.header));
+  if (spans.length === 0) return command;
+  let out = "";
+  let cursor = 0;
+  for (const sp of spans) {
+    out += command.slice(cursor, sp.start) + " ".repeat(sp.end - sp.start);
+    cursor = sp.end;
+  }
+  return out + command.slice(cursor);
+}
+
 /** 段首内容是否纯赋值前缀（VAR=value 形态，可任意多个） */
 function isPureAssignPrefix(seg: string): boolean {
   const words = seg.split(/\s+/).filter(Boolean);
@@ -651,8 +718,8 @@ function hasRealCdSegment(command: string): boolean {
  *  与 #1038 数据破坏检测的差异：不跟踪 cd（感知对齐方案下 LLM 需显式 cd），
  *  只做「当前文本是否含主仓写形态」的静态判定——简单可靠，无状态。 */
 
-// eslint-disable-next-line complexity -- V1 分支语义保留（echo 纯重定向/data 目标/绝对路径豁免），cd 豁免换模型版
-function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: string): string | null {
+// eslint-disable-next-line complexity -- V1 分支语义保留（echo 纯重定向/data 目标/绝对路径豁免），cd 豁免换模型版 + #1207 heredoc 体感知判定
+function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: string, heredocReadOnly?: boolean): string | null {
   if (!projectRoot) return null; // 无 projectRoot 时保守放行（与 resolvesToMainData 同策略）
   // #1170 根治：模型版 cd 豁免——管道/分号不再杀死豁免（`cd wt && git commit | tail` 放行）
   if (modelCdExemption(command, hasRealCdSegment)) return null;
@@ -668,11 +735,14 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
   // 仅免除 git 写族字面判定，重定向/data 破坏等其余判定照常跑。
   const gitReadonlyCmd = allSegmentsGitReadonly(command);
   if (!gitReadonlyCmd) {
-    for (const pattern of MAIN_WRITE_PATTERNS.slice(1)) {
-      if (pattern.test(command)) {
-        logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (no cd)", { command: command.substring(0, 200) });
-        return MAIN_WRITE_BLOCK_MSG;
-      }
+    for (const [pi, pattern] of MAIN_WRITE_PATTERNS.slice(1).entries()) {
+      if (!pattern.test(command)) continue;
+      // #1207（F20260929hcwd）：pattern[0] 是 python heredoc patch 通道——体感知判定，
+      // 纯只读体放行（写/执行签名、非 python 解释器体均不豁免，见 PY_BODY_WRITE_SIG 注）。
+      // heredocReadOnly 缺省（V1 兑底链：体已剥离不可判定）→ 不豁免，保守拦。
+      if (pi === 0 && heredocReadOnly) continue;
+      logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (no cd)", { command: command.substring(0, 200) });
+      return MAIN_WRITE_BLOCK_MSG;
     }
   }
   // #1038 语义兼容：echo '...' >> file 形态，引号内含 rm/mv/find 敏感词元且目标非 data/ → 放行。
@@ -687,7 +757,12 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
   // （gh issue comment --body 的 HTML 注释/markdown 引用），不是 shell 重定向
   // （#984 循环拦截事故：连拦 3 次中断獭回合，healing 4d692fb6/e671f577）。
   // 危险通道（bash -c/heredoc）内引号不剥离，载荷内重定向仍可见（stripQuotedTextSpans 守住）。
-  const syntaxBasis = stripQuotedTextSpans(command);
+  // #1207（F20260929hcwd）：python heredoc 体先行等长隐去（体内容对 shell 重定向
+  // 语义不可见；bash/sh 体保留——可执行内容不可隐去）。V1 链（heredocReadOnly 未传）
+  // 输入已是体剥离文本，无需再处理。
+  const syntaxBasis = heredocReadOnly !== undefined
+    ? stripQuotedTextSpans(blankPythonHeredocBodies(command))
+    : stripQuotedTextSpans(command);
   // 重定向形态单独判定（D1 处置：abs-target 豁免只适用重定向，不跨 pattern 泄漏——
   // git 写族落点是 .git/cwd 不是重定向目标，`git commit -m x > /dev/null` 高频尾缀形态曾全豁免）
   if (REDIRECT_PATTERN.test(syntaxBasis)) {
@@ -706,6 +781,58 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
     if (!isAbsNonMain) {
       logger?.warn("[bash-safety-guard] BLOCKED main-checkout write via redirect (no cd)", { command: command.substring(0, 200) });
       return MAIN_WRITE_BLOCK_MSG;
+    }
+  }
+  return null;
+}
+
+// ── #1207（F20260929hcwd）：shell/node heredoc 体级危险判定（跨解释器对称面）──
+// python 通道的体判定由 MAIN_WRITE_PATTERNS[1] + 体感知豁免承担；shell/node 通道
+// 此前无任何体级判定（V2 判 heredoc 体为数据 + 文本层无规则）——
+// `bash - <<EOF\nkill <mainPid>\nEOF` / `node - <<EOF process.kill(<mainPid>)` 
+// 直接执行形态漏拦实证（2026-09-29 探针，比 python 误拦更严重：真杀主 PID）。
+// bash/sh/zsh 体是真执行 shell 脚本 → 递归 V1 全量判定（语义精确：体段位判定
+// 与顶层一致，echo kill N 的数据位词元不误拦）；node 体非 shell 语法 → 签名扫描。
+const NODE_BODY_DANGEROUS_SIG = new RegExp([
+  String.raw`\bprocess\s*\.\s*kill(?:pg)?\s*\(`,   // process.kill(
+  String.raw`\bchild_process\b`,                     // 执行逃逸通道
+  String.raw`\b(?:exec|execSync|execFile|spawn|spawnSync)\s*\(`,  // 解构 require 后裸调
+  String.raw`\b(?:writeFile|appendFile|unlink|rmdir|rmSync|chmod|chown|rename|copyFile|mkdir|truncate)\w*\s*\(`,  // fs 写族（含解构导入）
+  String.raw`\bfs\s*\.\s*(?:open|write)\w*\s*\(`,    // fs.open/write 族（fd 写链起点）
+].join("|"), "i");
+
+const NODE_HEREDOC_BODY_MSG = "bash 命令通过 heredoc 向 node 传入含终止进程或文件写/执行操作的脚本体，无法静态确认目标是否针对主进程。该命令不允许：若需终止/重启验证实例，在 worktree 内跑 scripts/alpha.sh stop/start；分析类脚本请去除危险调用后重试，或落盘到 /tmp 后审阅执行；确需此形态时告知搭档人工执行。";
+const SHELL_HEREDOC_BODY_MSG = "bash 命令通过 heredoc 向 shell 传入的脚本体中检测到危险操作（体内容会被直接执行）。该命令不允许：若需终止/重启验证实例，在 worktree 内跑 scripts/alpha.sh stop/start；请把体内容拆成独立命令或落盘 /tmp 后审阅执行；确需此形态时告知搭档人工执行。";
+
+/** shell 解释器头判定（dash/ksh 也直接执行体） */
+const isShellHeader = (header: string): boolean => /^(?:bash|sh|zsh|dash|ksh)(?:\d+)?$/.test(heredocInterpreter(header));
+
+/** heredoc 体级危险判定：shell 体递归 V1 全量链，node 体签名扫描；python 体跳过
+ * （写面由主仓写检测体感知豁免承担，os.kill 已在 PY_BODY_WRITE_SIG）。
+ * V2 模型路径挂点（原始命令）；V1 兑底链输入已剥离体时 extractHeredocSpans
+ * 返回空自然 no-op。已知局限：mainPid 缺失路径（PID 文件损坏）不挂本判定——
+ * 该路径 V1 主链本就保守放行 kill 族，体判定不引入额外缺口；体中嵌套 heredoc
+ * 不再递归（单层判定，嵌套攻击面极窄且闭合体已剥的主基线仍在）。 */
+function checkHeredocScriptBodies(
+  command: string,
+  mainPid: number,
+  logger?: Logger,
+  allowedServices: AllowedService[] = [],
+  projectRoot?: string,
+): string | null {
+  for (const sp of extractHeredocSpans(command)) {
+    if (isShellHeader(sp.header)) {
+      // 体是直接执行的 shell 脚本 → 递归全量判定（含 kill 段/cmdLevel/data 破坏）
+      const r = checkBashCommandSafetyOnText(sp.body, mainPid, logger, allowedServices, projectRoot);
+      if (r) {
+        logger?.warn("[bash-safety-guard] BLOCKED dangerous op in shell heredoc body", { header: sp.header.substring(0, 80) });
+        return `${SHELL_HEREDOC_BODY_MSG}\n【体内命中】${r.split("\n")[0]}`;
+      }
+      continue;
+    }
+    if (/^node(?:\d+)?$/.test(heredocInterpreter(sp.header)) && NODE_BODY_DANGEROUS_SIG.test(sp.body)) {
+      logger?.warn("[bash-safety-guard] BLOCKED node heredoc body with dangerous ops", { header: sp.header.substring(0, 80) });
+      return NODE_HEREDOC_BODY_MSG;
     }
   }
   return null;
@@ -731,7 +858,11 @@ function checkWhenMainPidMissing(
   // F20260922pmgd / #1038：PR 合入与 data 破坏判定不依赖 mainPid（与 kill 族保守放行的
   // 差异：只需命令文本/projectRoot，无退化理由）
   const pidFree = checkPidIndependentRules(command, logger, guardOptions?.projectRoot);
-  return pidFree ? withDiagnostics(pidFree, command, null) : null;
+  if (pidFree) return withDiagnostics(pidFree, command, null);
+  // #1207（F20260929hcwd）：node heredoc 体级签名不依赖 PID（shell 体递归在无 PID
+  // 上下文与 V1 主链同口径保守放行 kill，不引入额外缺口）
+  const bodyHit = checkHeredocScriptBodies(command, 0, logger, [], guardOptions?.projectRoot);
+  return bodyHit ? withDiagnostics(bodyHit, command, null) : null;
 }
 
 /** F20260916gtlr：脱敏扫描路径（#858）——抽为独立函数控制主入口圈复杂度。
@@ -778,8 +909,13 @@ export function checkBashCommandSafety(
     if (scriptKill) return withDiagnostics(scriptKill, command, mainPid);
     const dataDestructive = checkDataDirDestructive(command, logger, projectRoot);
     if (dataDestructive) return withDiagnostics(dataDestructive, command, mainPid);
-    const mainWrite = checkMainCheckoutWrite(command, logger, projectRoot);
+    // #1207（F20260929hcwd）：主仓写检测在原始命令上跑（heredoc 体在场），
+    // 体感知判定在此计算后传入——只豁免纯只读 python heredoc 体
+    const mainWrite = checkMainCheckoutWrite(command, logger, projectRoot, pythonHeredocBodiesReadOnly(command));
     if (mainWrite) return withDiagnostics(mainWrite, command, mainPid);
+    // #1207（F20260929hcwd）：shell/node heredoc 体级危险判定（原始命令，体在场）
+    const bodyHit = checkHeredocScriptBodies(command, mainPid, logger, allowedServices, projectRoot);
+    if (bodyHit) return withDiagnostics(bodyHit, command, mainPid);
     return null;
   }
 
