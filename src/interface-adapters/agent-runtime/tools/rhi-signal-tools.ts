@@ -105,7 +105,7 @@ export function createListRhiSignalsTool(_ctx: ToolContext, signalRepo: SignalRe
   };
   return {
     name: "list_rhi_signals",
-    description: "查询 RHI 健康信号清单（signals 表）. When: 日报处置段拉 critical 清单 / 被派工小獭拉未接单清单作为派工输入 / 面板后端. Not for: 獭间信号（query_signals）. Output: 信号列表（id/类型/severity/处置状态/issue 绑定/note）. GOTCHA: triageStatus 传 'null' 或省略该参数且想看未接单时用 triageStatus='null'——表示 triage_status IS NULL 的未接单信号.",
+    description: "查询 RHI 健康信号清单（signals 表）. When: 日报处置段拉 critical 清单 / 未接单清单查询作为派工输入 / 面板后端. Not for: 獭间信号（query_signals）. Output: 信号列表（id/类型/severity/处置状态/issue 绑定/note）. GOTCHA: triageStatus 传 'null' 或省略该参数且想看未接单时用 triageStatus='null'——表示 triage_status IS NULL 的未接单信号.",
     parameters: {
       type: "object",
       properties: {
