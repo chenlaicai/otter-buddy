@@ -178,7 +178,7 @@ export class RhiSignalAgingWorker {
       errorType: 'other',
       severity: 'medium',
       description: `RHI 信号超龄未处置：${signalType} 共 ${group.length} 条（critical ${criticalCount} 条），最老挂 ${maxAgeDays} 天——${this.describeGroup(group)}`,
-      suggestion: '处置：09:00 每日健康检查任务「未接单存量清点」步逐条归口（triage_signal bind_issue），或在面板处置队列一键归口；归口停滞的核查绑定 issue 进展',
+      suggestion: '处置：09:00 每日健康检查任务「未接单存量清点」步归口（triage_signal bind_issue，同类型多条用 batch_bind 批量），或在面板处置队列一键归口；归口停滞的核查绑定 issue 进展',
       context: {
         source: 'rhi-signal-aging-worker',
         signalType,
