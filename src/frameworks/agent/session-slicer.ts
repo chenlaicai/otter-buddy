@@ -161,7 +161,7 @@ function truncateSpeakText(text: string): string {
   const head = text.slice(0, SPEAK_KEEP_HEAD);
   const tail = text.slice(text.length - SPEAK_KEEP_TAIL);
   const dropped = text.length - SPEAK_KEEP_HEAD - SPEAK_KEEP_TAIL;
-  return `${head}\n…（截断 ${dropped} chars；原文见前世 session jsonl，文件路径附于保留段末尾）\n${tail}`;
+  return `${head}\n…（截断 ${dropped} chars；原文见前世 session jsonl，文件路径若有则附于保留段末尾）\n${tail}`;
 }
 
 /** [from, to) 区间的 context messages（compaction entry 跳过） */
