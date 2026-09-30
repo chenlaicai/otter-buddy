@@ -9,7 +9,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type Database from "better-sqlite3";
 import { initRepositories } from "../../src/bootstrap/repositories";
 import type { Repositories } from "../../src/bootstrap/types";
-import { reconcileRunningInvokes, setupDelayedReconcile } from "../../src/bootstrap/database";
+import { reconcileRunningInvokes } from "../../src/bootstrap/database";
+import { setupDelayedReconcile } from "../../src/bootstrap/invoke-reconcile";
 import { buildApp } from "../../src/app";
 import { createTestDb } from "../helpers/db";
 import { createTestLogger } from "../helpers/logger";
@@ -59,13 +60,13 @@ describe("F20260929roiv 启动窗口期孤儿 invoke 延迟 reconcile", () => {
   });
 
   it("setupDelayedReconcile 返回定时器且可 clearTimeout", () => {
-    const timer = setupDelayedReconcile({ enableDelayedReconcile: true }, db, repos, createTestLogger(), BOOT_TS);
+    const timer = setupDelayedReconcile({ enableDelayedReconcile: true }, db, repos, createTestLogger());
     expect(timer).toBeDefined();
     expect(() => clearTimeout(timer!)).not.toThrow();
   });
 
   it("enableDelayedReconcile=false 时不启动定时器", () => {
-    const timer = setupDelayedReconcile({ enableDelayedReconcile: false }, db, repos, createTestLogger(), BOOT_TS);
+    const timer = setupDelayedReconcile({ enableDelayedReconcile: false }, db, repos, createTestLogger());
     expect(timer).toBeUndefined();
   });
 

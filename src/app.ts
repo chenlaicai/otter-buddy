@@ -26,8 +26,9 @@ import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gat
 import {
   syncApiKeyToAgentAuth, initDatabaseAndModels, initRepositoriesWithDb,
   postInitDatabase, postSyncMigrations, validateModelAliases, shutdownDatabase,
-  verifyEmbeddingVersion, setupDelayedReconcile, reconcileRunningInvokes,
+  verifyEmbeddingVersion,
 } from "./bootstrap/database";
+import { setupDelayedReconcile, createInvokeOrphanReconcileDuty } from "./bootstrap/invoke-reconcile";
 import { createMemoryIndex, syncDocuments, createAndStartRetryWorker } from "./bootstrap/memory";
 import { initUseCases } from "./bootstrap/usecases";
 import { QueryOtterProfile } from "@usecases/otter/query-otter-profile";
@@ -77,7 +78,6 @@ export function createLogger(logDir: string): PinoLogger {
     },
   });
 }
-
 /** buildApp 的可选项：所有路径/副作用均可注入，测试用临时目录 + 关闭全局副作用 */
 export interface BuildAppOptions {
   /** 预构建的配置对象（测试）；与 configPath 二选一，都不传则读 ./config/config.yaml */
@@ -109,7 +109,6 @@ export interface BuildAppOptions {
   /** 测试注入预构建模型（如 initFauxModels），跳过 initModels */
   models?: { model: Model<Api>; modelPool?: ModelPool };
 }
-
 /** buildApp 的返回：完整装配好的系统 + dispose 清理 */
 export interface BuiltApp {
   app: Hono;
@@ -129,7 +128,6 @@ export interface BuiltApp {
   /** 停止调度器、释放 embedding worker、关闭 DB、flush 日志 + metric。幂等。 */
   dispose(): Promise<void>;
 }
-
 /** F20260825sgnw（#401）：装配 RhiScanWorker（依赖注入集中在此，app.ts 主体只调 start/stop） */
 function createRhiScanWorker(deps: {
   db: DatabaseType.Database;
@@ -142,7 +140,6 @@ function createRhiScanWorker(deps: {
 
   // healing 事件源：open 状态全部取（behavior_defect 检测数据面）
   const healingSource = async () => collectHealingEvents(await deps.repos.healingEvent.findOpen(1000));
-
   // 指标快照落库端口（F20260829hviz Fix A）：scanOnce 计算指标写 health_snapshots
   // #447：改从 Repositories DI 消费（healthSnapshot），不再直实例化
   const snapshotRepo = deps.repos.healthSnapshot;
@@ -152,7 +149,6 @@ function createRhiScanWorker(deps: {
   // 健康评分 D5 输入：open 信号计数（issue #595 PR1）。
   // #447：改从 Repositories DI 消费（rhiSignal，与 signalEvent 獭间语义池区分），不再直实例化
   const signalRepo = deps.repos.rhiSignal;
-
   // 成本/产出快照落库端口（#583）：同 repo 的 replaceForDate，独立 metric_type
   const costOutputSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>, metricType?: string) =>
     snapshotRepo.replaceForDate(snapshotDate, rows.map(r => ({
@@ -180,7 +176,6 @@ function createRhiScanWorker(deps: {
     snapshotSink, signalRepo, costOutputSink, sessionsDir, agentSessionSource, costOutputDb: deps.db,
   });
 }
-
 // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- Composition Root 集中装配逻辑
 export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp> {
   const dataDir = options.dataDir ?? "./data";
@@ -205,7 +200,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   if (options.syncAuth ?? true) {
     syncApiKeyToAgentAuth(config.llm, logger);
   }
-
   // ── 数据层初始化 ──
   const { db, otterConfigProvider, model, modelPool, embeddingService, dispose: disposeEmbedding } =
     await initDatabaseAndModels(config, logger, options.models);
@@ -218,7 +212,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   if (!embeddingVersionCheck.vecEnabled) {
     logger.warn(`Embedding vec path disabled due to ${embeddingVersionCheck.reason}`);
   }
-
   // ── 记忆索引 + 文档同步 ──
   const memoryIndex = createMemoryIndex(repos, embeddingService, logger);
   const syncResult = await syncDocuments(repos, memoryIndex, logger, options.rootDir ?? process.cwd());
@@ -227,14 +220,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // F20260812mrcq Part 1：embedding 重试 worker + 存量暗化条目迁移
   // #949：worker 本体不再自持定时器——由下方 PatrolWorker 统一驱动（tickNow 巡检）
   const retryWorker = await createAndStartRetryWorker(repos, embeddingService, logger);
-
   // F20260825sgnw（#401）：RHI 定时采集 worker——每小时跑一轮 采集→链→信号→记忆通道
   // 审视发现 1：对齐 startScheduler 开关模式，测试/CI 可关（否则 buildApp 每次起 setInterval + git 采集副作用）
   const rhiScanWorker = createRhiScanWorker({
     db, repos, embeddingService, logger,
     rootDir: options.rootDir ?? process.cwd(),
   });
-
   // #927：獭间信号老化扫描——独立于 daily review 调度链（9/10-9/13 断档期唯一消费方停摆的教训），
   // pending objection/blocked 悬置 >24h 落 medium healing。
   const signalAgingWorker = new SignalAgingWorker(
@@ -257,24 +248,21 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // F20260929roiv：+ invoke 孤儿 reconcile（带 bootTs 守卫，周期 1h 兜底窗口期漏网；
   //  守卫语义：只清「启动前遗留」，本进程内卡死的 running invoke 不在其范围）。
   // 失败隔离：一家炸了不影响后续家；周期 1h（四家原节奏已对齐，无时钟语义变化）。
-  const bootTs = new Date().toISOString();
   const patrolWorker = new PatrolWorker([
     { name: 'scheduler-reconcile', run: () => schedulerService.reconcileMissedWindowsNow() },
     { name: 'signal-aging', run: async () => { await signalAgingWorker.scanOnce(); } },
     // F20260917trig §3：RHI 信号老化（聚合限流 + 孤儿 healing 清理）——并入巡检循环
     { name: 'rhi-signal-aging', run: async () => { await rhiSignalAgingWorker.scanOnce(); } },
     { name: 'rhi-scan', run: async () => { await rhiScanWorker.scanOnce(); } },
-    { name: 'invoke-orphan-reconcile', run: async () => { await reconcileRunningInvokes(db, repos, logger, bootTs); } },
+    createInvokeOrphanReconcileDuty(db, repos, logger),
     ...(retryWorker ? [{ name: 'embedding-retry', run: () => retryWorker.tickNow() }] : []),
   ], logger);
   if (options.startRhiWorker ?? true) {
     patrolWorker.start();
   }
-
   // F20260929roiv：启动窗口期孤儿 invoke 兜底——延迟 10s 补跑一次 reconcile（带 bootTs 守卫），
   // 覆盖窗口期；fire-and-forget 不阻塞启动，失败仅日志（对齐既有 non-fatal 纪律）。
-  const delayedReconcileTimer = setupDelayedReconcile(options, db, repos, logger, bootTs);
-
+  const delayedReconcileTimer = setupDelayedReconcile(options, db, repos, logger);
   if (modelPool) validateModelAliases(db, modelPool, logger);
   
   // ── 对话工作区 ──
@@ -666,10 +654,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       }
       disposeEmbedding();
       shutdownDatabase(db, logger);
-      if ("flush" in logger && typeof logger.flush === "function") {
-        (logger as PinoLogger).flush();
-      }
+      if ("flush" in logger && typeof logger.flush === "function") { (logger as PinoLogger).flush(); }
     },
   };
 }
-
