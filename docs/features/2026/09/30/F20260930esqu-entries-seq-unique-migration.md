@@ -92,7 +92,7 @@ tags:
 ### 单测与守卫
 
 - 新迁移测试：6/6 通过
-- tests/frameworks/db/ 全量：279/279 通过（含 #506 等价性守卫——schema.ts 与 migration.ts 两处改一致的机制验证）
+- tests/frameworks/db/ 全量：279/279 通过（含 #506 等价性守卫；注意守卫只断言表集合不查索引属性，schema.ts 与 migration.ts 两处改一致的机制验证由新用例 1（新库即 UNIQUE）+ 用例 2（老库迁移后变 UNIQUE）覆盖）
 - 仓库全量：4346/4346 通过
 - tsc --noEmit：0 错误；eslint：0 问题
 
@@ -105,6 +105,16 @@ tags:
 5. 迁移结果：`PRAGMA index_list('entries')` → `idx_entries_conversation_seq` unique=1；entries 行数 31672（迁移前后数据完整，行数差 5 来自 alpha 实例启动自身写入的 system 条目）
 6. 幂等复验：stop → start（--quick）二次启动，迁移日志仅 1 条（判存直接返回）、无 SqliteError、索引保持 UNIQUE
 
+### r1 对抗审视处置（检视獭-906 异模型盲审，review id 5360907489；大獭核验后派修）
+
+r1 结论 0 严重、2 建议，两条均本 PR 内修：
+
+- **发现① TOCTOU**（重复检查在事务外，窗口内并发写重复行会让 CREATE UNIQUE INDEX 抛错上穿，击穿「不阻断启动」契约）：已修——重复检查与 DROP/CREATE 挪进同一事务（写锁下原子化，概率保证变结构保证）；告警顺带补「LIMIT 1 仅示首组，多组重复需多轮清洗重启」说明。同 commit 顺带修正本 PR 自引入的错别字「兑底→兜底」3 处（migration.ts:55 的存量为 cdef4d1e 遗留，不动）。
+- **发现② 宣称失实两处**：已修——(a) 等价性守卫只断言表集合不查索引属性，双改一致的验证归因改到新用例 1+2；(b) createEntriesAtomicBulk → createEntriesAtomic（sqlite-entry-repository.ts:159）。特性文档与 PR 描述同步修正。
+- r1 已核实无问题项（判存逻辑/事务完整性/跨迁移顺序/负面向抛错正确性/测试行为级断言/CI 三闸门）不再改动。
+
+修后全量 4346/4346、tsc 0 错误，待检视獭 delta 复核。
+
 ### pre-existing 声明
 
 alpha 启动日志有一条 level 50：`Patrol duty failed: scheduler-reconcile — Cannot access 'schedulerService' before initialization`（app.ts:257 闭包引用 325 行初始化变量的 TDZ 时序问题）。**pre-existing 证据**：主仓生产日志 `data/logs/otter-buddy.log` 存在同型错误（时间戳 1789518302818 ≈ 2026-09-16，早于本变更 base 1309df0f），与本次 diff 零交集（不含 app.ts）。另附 stash 基线：`git stash -u` 后两个改动测试文件 15/15 通过（证明其余失败源于本变更的约束收紧而非存量缺陷）。
@@ -115,7 +125,7 @@ alpha 启动日志有一条 level 50：`Patrol duty failed: scheduler-reconcile 
 
 ### 负面向验收条目（本次变更破坏了什么旧契约）
 
-1. **「同 conversation 任意 seq 重复写入」的隐性宽容被移除**：旧普通索引下任何绕过 createEntryAtomic 的写路径（直接 SQL、测试造数、未来导入器）写重复 seq 会被数据库拒绝（UNIQUE constraint failed）。全量测试扫描证实受影响的只有 2 个测试文件的造数夹具（均已改为 MAX+1 原子写法，断言零改动）；生产代码无直接 INSERT 重复 seq 的路径（全部经 createEntryAtomic/createEntriesAtomicBulk）。
+1. **「同 conversation 任意 seq 重复写入」的隐性宽容被移除**：旧普通索引下任何绕过 createEntryAtomic 的写路径（直接 SQL、测试造数、未来导入器）写重复 seq 会被数据库拒绝（UNIQUE constraint failed）。全量测试扫描证实受影响的只有 2 个测试文件的造数夹具（均已改为 MAX+1 原子写法，断言零改动）；生产代码无直接 INSERT 重复 seq 的路径（全部经 createEntryAtomic/createEntriesAtomic）。
 2. **两个测试夹具被迫暴露真面目**：backfill-entry-memory-index.test.ts 的 insertEntry（全 conversation seq 恒 1）与 resume-interrupted-service.test.ts 的 seedInterrupted（healing 落账测试 seed 两次同 seq）——旧普通索引下这些偷懒造数合法，恰是 #906 指出的防线缺口的实证。修法为夹具适配（MAX+1，与生产原子插入同款语义），断言本体零改动。
 3. 兜底跳过路径是有意保留的旧契约：重复库不升级 UNIQUE（保留旧行为），靠告警 + 人工清洗 + 重启自愈。
 

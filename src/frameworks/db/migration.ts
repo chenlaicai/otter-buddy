@@ -672,7 +672,7 @@ function rebuildEntriesWithoutTurnId(db: Database.Database): void {
       DROP TABLE entries;
       ALTER TABLE entries_new RENAME TO entries;
       -- #906 注：此处故意建普通索引而非 UNIQUE——含重复 seq 的存量库在本重建中不抛错
-      -- （防御兑底：重复库不阻断 turn 退役），重建后由末尾 ensureEntriesConversationSeqUnique
+      -- （防御兜底：重复库不阻断 turn 退役），重建后由末尾 ensureEntriesConversationSeqUnique
       -- 检测无重复时统一升级 UNIQUE。
       CREATE INDEX IF NOT EXISTS idx_entries_conversation_seq ON entries(conversation_id, sequence_num);
       CREATE INDEX IF NOT EXISTS idx_entries_invoke ON entries(invoke_id);
@@ -2031,8 +2031,10 @@ function humanSizeForIndex(bytes: number): string {
  *  路径绕过原子插入（如直接 SQL/未来批量导入器），重复 seq 会静默破坏序号刻度语义。
  *  语义上 (conversation_id, sequence_num) 本就该唯一——索引加固为 UNIQUE 是补齐欠账而非新增约束。
  *  幂等：PRAGMA index_list 检测 unique 标志，已是 UNIQUE 直接返回；
- *  防御双保险：建索引前 GROUP BY HAVING 查重复，发现重复则 log 告警并跳过（不抛错阻断启动——
- *  生产已验证 0 重复（2026-09-30，31596 行），这是兑底不是主路径；放行旧行为比阻断启动安全）；
+ *  防御双保险：重复检查 + DROP/CREATE 同一事务（r1 审视发现①：检查在事务外时 TOCTOU
+ *  窗口内并发写重复行会让 CREATE UNIQUE INDEX 抛错上穿，击穿「不阻断启动」契约；写锁下原子化后
+ *  概率保证变结构保证）。发现重复则 log 告警并跳过（不抛错阻断启动——生产已验证 0 重复
+ *  （2026-09-30，31596 行），这是兜底不是主路径；放行旧行为比阻断启动安全）；
  *  重建：SQLite 无 ALTER INDEX，DROP 旧普通索引 + CREATE UNIQUE INDEX 事务内完成
  *  （裸 exec 在 DROP 后、CREATE 前中断会丢失查询索引，同 #608 rebuildAttachmentsKindCheck 模式）。
  *  schema.ts:953 已同步改为 CREATE UNIQUE INDEX（新库直接建成 UNIQUE，本函数对它幂等直接返回）。 */
@@ -2043,20 +2045,24 @@ function ensureEntriesConversationSeqUnique(db: Database.Database, logger: Logge
   if (seqIndex?.unique === 1) return;
 
   // 防御双保险：重复 (conversation_id, sequence_num) 下 CREATE UNIQUE INDEX 会抛错。
-  // 生产库已验证 0 重复（2026-09-30），此处是兑底：发现重复则告警跳过，保留旧行为不阻断启动。
-  const duplicates = db.prepare(
-    "SELECT conversation_id, sequence_num, COUNT(*) AS c FROM entries GROUP BY conversation_id, sequence_num HAVING COUNT(*) > 1 LIMIT 1"
-  ).get() as { conversation_id: string; sequence_num: number; c: number } | undefined;
-  if (duplicates) {
-    logger.warn(`[ensureEntriesConversationSeqUnique] 检测到重复 (conversation_id, sequence_num)：` +
-      `conversation_id=${duplicates.conversation_id}, sequence_num=${duplicates.sequence_num}, 重复 ${duplicates.c} 条。` +
-      `跳过 UNIQUE 索引升级（保留旧行为），请人工清洗后重启（#906）`);
-    return;
-  }
+  // 生产库已验证 0 重复（2026-09-30），此处是兜底：发现重复则告警跳过，保留旧行为不阻断启动。
+  // 重复检查与索引重建同事务（r1 审视发现①）：写锁下原子化，消除「检查过但建时已有重复」的 TOCTOU 窗口。
+  const skipped = db.transaction(() => {
+    const duplicates = db.prepare(
+      "SELECT conversation_id, sequence_num, COUNT(*) AS c FROM entries GROUP BY conversation_id, sequence_num HAVING COUNT(*) > 1 LIMIT 1"
+    ).get() as { conversation_id: string; sequence_num: number; c: number } | undefined;
+    if (duplicates) return duplicates;
 
-  db.transaction(() => {
     db.exec("DROP INDEX IF EXISTS idx_entries_conversation_seq");
     db.exec("CREATE UNIQUE INDEX idx_entries_conversation_seq ON entries(conversation_id, sequence_num)");
+    return undefined;
   })();
+
+  if (skipped) {
+    logger.warn(`[ensureEntriesConversationSeqUnique] 检测到重复 (conversation_id, sequence_num)：` +
+      `conversation_id=${skipped.conversation_id}, sequence_num=${skipped.sequence_num}, 重复 ${skipped.c} 条` +
+      `（LIMIT 1 仅示首组，多组重复需多轮清洗重启）。跳过 UNIQUE 索引升级（保留旧行为），请人工清洗后重启（#906）`);
+    return;
+  }
   logger.info('[ensureEntriesConversationSeqUnique] Upgraded idx_entries_conversation_seq to UNIQUE (#906, F20260930esqu)');
 }
