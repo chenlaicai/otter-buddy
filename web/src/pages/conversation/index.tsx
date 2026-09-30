@@ -24,7 +24,7 @@ import { SessionModal, type SessionLiveItem } from './SessionModal'
 import { useScheduledTasks } from './hooks/useScheduledTasks'
 import { useCardBridge } from './hooks/useCardBridge'
 import * as api from '../../api/client'
-import { ApiError } from '../../api/client'
+import { ApiError, InvokeAbortError } from '../../api/client'
 import { consumeSSE } from '../../api/sse'
 
 async function loadInitialData(): Promise<{
@@ -1129,7 +1129,25 @@ export default function ConversationPage() {
       .then(() => {
         showToast('已暂停本会话新任务，发新消息即恢复', 'info')
       })
-      .catch((err) => console.error('Failed to abort invoke:', err))
+      .catch((err) => {
+        console.error('Failed to abort invoke:', err)
+        // F20260930s1x0（issue #1251）：失败时收敛乐观置 aborted 的气泡（还原为 in-flight，
+        // 服务端 invoke.end 事件随后会收敛真实终态），并对「假行动中 409」给专属提示——
+        // 否则搭档点中断无任何反馈，正是本案「无法中断」的体感来源
+        if (!activeId) return
+        setAllMessages(prev => {
+          const list = prev[activeId]
+          if (!list) return prev
+          return { ...prev, [activeId]: list.map(m => m.invokeId === invokeId && m.st === 'otter' && m.status === 'aborted'
+            ? { ...m, status: 'streaming' as const, content: '' }
+            : m) }
+        })
+        if (err instanceof InvokeAbortError && err.code === 'invoke_not_running') {
+          showToast('该行动已不在运行状态（可能是显示状态滞后），无法中断', 'info')
+        } else {
+          showToast('中断请求失败，请稍后重试', 'error')
+        }
+      })
   }, [activeId])
 
   /** F20260913ctlv：右栏中断按钮——invokeId 直锚（无气泡依赖），乐观收敛该 invoke 名下
@@ -1145,7 +1163,23 @@ export default function ConversationPage() {
     })
     api.abortInvoke(invokeId, otterId)
       .then(() => showToast('已中断该獭当前行动', 'info'))
-      .catch((err) => { console.error('Failed to abort invoke:', err); showToast('中断失败', 'error') })
+      .catch((err) => {
+        console.error('Failed to abort invoke:', err)
+        // F20260930s1x0（issue #1251）：失败时收敛乐观置 aborted 的气泡（同上 stopStream）
+        if (!activeId) return
+        setAllMessages(prev => {
+          const list = prev[activeId]
+          if (!list) return prev
+          return { ...prev, [activeId]: list.map(m => m.invokeId === invokeId && m.st === 'otter' && m.status === 'aborted'
+            ? { ...m, status: 'streaming' as const, content: '' }
+            : m) }
+        })
+        if (err instanceof InvokeAbortError && err.code === 'invoke_not_running') {
+          showToast('该獭当前无真实运行中的行动（显示状态可能滞后），无法中断', 'info')
+        } else {
+          showToast('中断失败', 'error')
+        }
+      })
   }, [activeId])
 
   /** F20260913ctlv：右栏重试按钮——复用 retry 端点，重试流事件经 broadcaster 到达
