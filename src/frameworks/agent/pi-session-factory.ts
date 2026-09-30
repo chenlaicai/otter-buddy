@@ -28,6 +28,28 @@ import type { Model, Api } from "@earendil-works/pi-ai";
 import { createAgentSessionStore } from "./agent-session-store";
 import { classifyGuardInterceptReason } from "./guard-intercept-classify";
 import { sanitizeQuotedText } from "./quoted-text-sanitizer";
+
+/**
+ * F20260930gslog：拦截事件落账 context 组装（纯函数，供单测直接验证字段完整性）。
+ * commandHead 对齐 description 命令前缀 120 字符口径（检视建议 2 处置：60 字符可能在长
+ * cd 前缀场景截掉 worktree 路径特征），sanitizeQuotedText 脱敏后再截短（#858 口径）。
+ */
+export function buildGuardInterceptContext(
+  command: string,
+  reason: string,
+  repeated: boolean,
+  priorCount: number,
+): Record<string, unknown> {
+  const rule = classifyGuardInterceptReason(reason);
+  return {
+    layer: "framework",
+    ruleId: rule.ruleId,
+    ruleLayer: rule.layer,
+    commandHead: sanitizeQuotedText(command).substring(0, 120),
+    hasWorktreePath: command.includes("/worktrees/"),
+    ...(repeated ? { repeatedIntercept: priorCount + 1 } : {}),
+  };
+}
 import { SYNTHESIS_EXPLICIT_MAX_TOKENS } from "./narrative-synthesis-engine";
 import type { AgentSessionStore } from "./agent-session-store";
 import { classifyGuardIntercept } from "./guard-intercept-escalation";
@@ -782,9 +804,7 @@ export class PiSessionFactory implements AgentGateway {
         // F20260930gslog：拦截事件结构化——ruleId（指纹分类）+ commandHead（脱敏截短）+
         // hasWorktreePath（#1207 类误报的可聚合特征：命令含 worktree 路径却被判主仓写）。
         // 误报治理从「翻台账数数」升级为 SQL 聚合（#1207 关闭验证自动化）。
-        const rule = classifyGuardInterceptReason(reason);
-        const commandHead = sanitizeQuotedText(command).substring(0, 60);
-        const hasWorktreePath = command.includes("/worktrees/");
+        const context = buildGuardInterceptContext(command, reason, repeated, priorCount);
         return healingRepo.create({
           id: crypto.randomUUID(),
           messageId: ids.messageId ?? "",
@@ -796,14 +816,7 @@ export class PiSessionFactory implements AgentGateway {
           suggestion: repeated
             ? "同一 otter 6h 内 ≥3 次被拦——大概率误拦或正当诉求无出路，优先人工排查并考虑白名单/受控脚本（#844），勿再静默批量 resolve"
             : "LLM 已收到引导提示；若同一 otter 短时间内多次被拦，先排查是否误拦——误拦率上升会侵蚀 LLM 对引导的信任。误报确认时在 resolution.notes 标注【误报 ruleId=…】供聚合",
-          context: {
-            layer: "framework",
-            ruleId: rule.ruleId,
-            ruleLayer: rule.layer,
-            commandHead,
-            hasWorktreePath,
-            ...(repeated ? { repeatedIntercept: priorCount + 1 } : {}),
-          },
+          context,
           status: "open",
           resolution: null,
           createdAt: new Date().toISOString(),
