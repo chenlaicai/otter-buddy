@@ -23,6 +23,8 @@ modules: [docs]
 
 - README.md:27「11 个 skill 为骨架」→「14 个 skill 为骨架」
 - README.md:51「我们的 11 个 skill」→「我们的 14 个 skill」
+- README.en.md:28「11 skills as its skeleton」→「14 skills as its skeleton」（代码审视发现：英文镜像版遗漏，PR #1255 review）
+- README.en.md:52「Our 11 skills」→「Our 14 skills」（同上）
 
 ## 发现链
 
