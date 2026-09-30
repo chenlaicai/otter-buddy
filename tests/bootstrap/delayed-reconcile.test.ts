@@ -2,18 +2,20 @@
  * F20260929roiv 启动窗口期孤儿 invoke 延迟 reconcile 测试。
  *
  * 验证：窗口期写入的 running invoke 会被延迟 reconcile 清理；
+ * bootTs 守卫防误杀本进程活跃 invoke；
  * enableDelayedReconcile 是 BuildAppOptions 的合法字段（编译期检查）。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type Database from "better-sqlite3";
 import { initRepositories } from "../../src/bootstrap/repositories";
 import type { Repositories } from "../../src/bootstrap/types";
-import { reconcileRunningInvokes } from "../../src/bootstrap/database";
+import { reconcileRunningInvokes, setupDelayedReconcile } from "../../src/bootstrap/database";
 import { buildApp } from "../../src/app";
 import { createTestDb } from "../helpers/db";
 import { createTestLogger } from "../helpers/logger";
 
 const T0 = "2026-01-01T00:00:00Z";
+const BOOT_TS = "2026-01-01T00:00:01Z"; // 进程启动时间
 
 describe("F20260929roiv 启动窗口期孤儿 invoke 延迟 reconcile", () => {
   let db: Database.Database;
@@ -30,25 +32,44 @@ describe("F20260929roiv 启动窗口期孤儿 invoke 延迟 reconcile", () => {
     db.close();
   });
 
-  it("延迟 reconcile 清理窗口期写入的 running invoke", async () => {
-    // 先跑一遍 reconcile（模拟启动时的 postInitDatabase）
-    await repos.invoke.failRunningInvokes(new Date().toISOString());
-    expect(db.prepare("SELECT COUNT(*) FROM invokes WHERE status='running'").pluck().get()).toBe(0);
-
-    // 模拟窗口期：reconcile 后、新进程接管前，旧进程写入一条 running invoke
+  it("延迟 reconcile 清理窗口期写入的 running invoke（bootTs 守卫生效）", async () => {
+    // 模拟窗口期：bootTs 之前旧进程写入的 running invoke
     db.prepare("INSERT INTO invokes (id, conversation_id, otter_id, status, started_at) VALUES ('orphan-1', 'conv-1', 'otter-1', 'running', ?)").run(T0);
     expect(db.prepare("SELECT COUNT(*) FROM invokes WHERE status='running'").pluck().get()).toBe(1);
 
-    // 手动触发延迟 reconcile（模拟 5s 后定时器触发）
-    await reconcileRunningInvokes(db, repos, createTestLogger());
+    // 带 bootTs 守卫的 reconcile
+    await reconcileRunningInvokes(db, repos, createTestLogger(), BOOT_TS);
 
     expect(db.prepare("SELECT COUNT(*) FROM invokes WHERE status='running'").pluck().get()).toBe(0);
     const row = db.prepare("SELECT status FROM invokes WHERE id='orphan-1'").get() as { status: string };
     expect(row.status).toBe("failed");
   });
 
+  it("bootTs 守卫防误杀本进程活跃 invoke", async () => {
+    // 本进程启动后创建的 invoke（started_at > bootTs）
+    db.prepare("INSERT INTO invokes (id, conversation_id, otter_id, status, started_at) VALUES ('active-1', 'conv-1', 'otter-1', 'running', ?)").run("2026-01-01T00:00:02Z");
+    expect(db.prepare("SELECT COUNT(*) FROM invokes WHERE status='running'").pluck().get()).toBe(1);
+
+    // 带 bootTs 守卫的 reconcile 不应清理它
+    await reconcileRunningInvokes(db, repos, createTestLogger(), BOOT_TS);
+
+    expect(db.prepare("SELECT COUNT(*) FROM invokes WHERE status='running'").pluck().get()).toBe(1);
+    const row = db.prepare("SELECT status FROM invokes WHERE id='active-1'").get() as { status: string };
+    expect(row.status).toBe("running");
+  });
+
+  it("setupDelayedReconcile 返回定时器且可 clearTimeout", () => {
+    const timer = setupDelayedReconcile({ enableDelayedReconcile: true }, db, repos, createTestLogger(), BOOT_TS);
+    expect(timer).toBeDefined();
+    expect(() => clearTimeout(timer!)).not.toThrow();
+  });
+
+  it("enableDelayedReconcile=false 时不启动定时器", () => {
+    const timer = setupDelayedReconcile({ enableDelayedReconcile: false }, db, repos, createTestLogger(), BOOT_TS);
+    expect(timer).toBeUndefined();
+  });
+
   it("enableDelayedReconcile 是 BuildAppOptions 的合法字段", () => {
-    // 编译期检查：如果字段不存在，tsc 会报错
     const options: Parameters<typeof buildApp>[0] = {
       enableDelayedReconcile: false,
       syncAuth: false,

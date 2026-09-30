@@ -85,10 +85,10 @@ export function initRepositoriesWithDb(db: Database.Database, logger?: Logger): 
  * 指向 system entry——定时任务有自己的重触发语义，误恢复会重复产出）。
  * 失败仅日志不阻断启动（对齐既有 non-fatal 纪律）。
  */
-export async function reconcileRunningInvokes(db: Database.Database, repos: Repositories, logger: Logger): Promise<void> {
+export async function reconcileRunningInvokes(db: Database.Database, repos: Repositories, logger: Logger, beforeTs?: string): Promise<void> {
   let failedInvokes: Awaited<ReturnType<typeof repos.invoke.failRunningInvokes>>;
   try {
-    failedInvokes = await repos.invoke.failRunningInvokes(new Date().toISOString());
+    failedInvokes = await repos.invoke.failRunningInvokes(new Date().toISOString(), beforeTs);
   } catch (err) {
     logger.warn("Failed to reconcile running invokes (non-fatal)", { error: err instanceof Error ? err.message : String(err) });
     return;
@@ -344,15 +344,16 @@ export function setupDelayedReconcile(
   db: Database.Database,
   repos: Repositories,
   logger: Logger,
+  bootTs: string,
 ): ReturnType<typeof setTimeout> | undefined {
   if (!(options.enableDelayedReconcile ?? true)) return undefined;
   const timer = setTimeout(() => {
-    reconcileRunningInvokes(db, repos, logger).catch((err) => {
+    reconcileRunningInvokes(db, repos, logger, bootTs).catch((err) => {
       logger.warn("Delayed reconcile failed (non-fatal)", {
         error: err instanceof Error ? err.message : String(err),
       });
     });
-  }, 5000);
+  }, 10000); // F20260929roiv：无实证依据的保守值，覆盖观测到的 78s 窗口期（见特性文档）
   if (timer.unref) timer.unref();
   return timer;
 }

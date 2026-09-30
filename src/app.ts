@@ -26,7 +26,7 @@ import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gat
 import {
   syncApiKeyToAgentAuth, initDatabaseAndModels, initRepositoriesWithDb,
   postInitDatabase, postSyncMigrations, validateModelAliases, shutdownDatabase,
-  verifyEmbeddingVersion, setupDelayedReconcile,
+  verifyEmbeddingVersion, setupDelayedReconcile, reconcileRunningInvokes,
 } from "./bootstrap/database";
 import { createMemoryIndex, syncDocuments, createAndStartRetryWorker } from "./bootstrap/memory";
 import { initUseCases } from "./bootstrap/usecases";
@@ -254,6 +254,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   // #949：四个「扫台账」同构循环合并为单一巡检 worker（8→5 常驻循环）——
   // 运行时对账（#823）/ Signal Aging（#927）/ RHI Scan（#401）/ Embedding Retry（F20260812mrcq）。
+  // F20260929roiv：+ invoke 孤儿 reconcile（带 bootTs 守卫，周期 1h 兜底窗口期漏网）。
   // 失败隔离：一家炸了不影响后续家；周期 1h（四家原节奏已对齐，无时钟语义变化）。
   const patrolWorker = new PatrolWorker([
     { name: 'scheduler-reconcile', run: () => schedulerService.reconcileMissedWindowsNow() },
@@ -261,15 +262,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     // F20260917trig §3：RHI 信号老化（聚合限流 + 孤儿 healing 清理）——并入巡检循环
     { name: 'rhi-signal-aging', run: async () => { await rhiSignalAgingWorker.scanOnce(); } },
     { name: 'rhi-scan', run: async () => { await rhiScanWorker.scanOnce(); } },
+    { name: 'invoke-orphan-reconcile', run: async () => { await reconcileRunningInvokes(db, repos, logger, bootTs); } },
     ...(retryWorker ? [{ name: 'embedding-retry', run: () => retryWorker.tickNow() }] : []),
   ], logger);
   if (options.startRhiWorker ?? true) {
     patrolWorker.start();
   }
 
-  // F20260929roiv：启动窗口期孤儿 invoke 兜底——延迟 5s 补跑一次 reconcile，
+  // F20260929roiv：启动窗口期孤儿 invoke 兜底——延迟 10s 补跑一次 reconcile（带 bootTs 守卫），
   // 覆盖窗口期；fire-and-forget 不阻塞启动，失败仅日志（对齐既有 non-fatal 纪律）。
-  const delayedReconcileTimer = setupDelayedReconcile(options, db, repos, logger);
+  const bootTs = new Date().toISOString();
+  const delayedReconcileTimer = setupDelayedReconcile(options, db, repos, logger, bootTs);
 
   if (modelPool) validateModelAliases(db, modelPool, logger);
   

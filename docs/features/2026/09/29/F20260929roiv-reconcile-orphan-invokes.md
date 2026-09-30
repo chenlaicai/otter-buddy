@@ -22,12 +22,14 @@ summary: 启动 reconcile 只跑一次导致窗口期写入的 running invoke �
 
 ## 方案
 
-在 `app.ts` 的 `patrolWorker.start()` 后加延迟 5s 的补跑 reconcile：
+在 `app.ts` 的 `patrolWorker.start()` 后加延迟 10s 的补跑 reconcile（带 `bootTs` 守卫），并挂入 PatrolWorker 做 1h 周期兜底：
 
 - `setupDelayedReconcile` 封装到 `database.ts`，保持 `app.ts` 行数合规
+- `failRunningInvokes` 加 `beforeTs` 参数——只清理 bootTs 之前写入的 running invoke，防误杀本进程活跃 invoke
 - `enableDelayedReconcile` 开关对齐 `startRhiWorker` 模式（测试/CI 可关）
 - `dispose` 时 `clearTimeout` 清理定时器
 - fire-and-forget 不阻塞启动，失败仅日志（对齐既有 non-fatal 纪律）
+- 10s 取值无实证依据，注释标注保守值（观测到的事故窗口期约 78s）
 
 ## 改动
 
