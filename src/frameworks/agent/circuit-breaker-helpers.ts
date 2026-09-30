@@ -21,7 +21,7 @@ import { loadAllowedServicePorts } from "./allowed-service-ports";
  * 守卫的静态文案只提供「worktree 隔离/告知搭档」两条路，对外部项目 dev server 重启类
  * 正当诉求失效（6 次变体重试实证）——本函数在拦截发生时检查端口白名单文件是否存在：
  *   - 已配置：提示用 restart-service 受控脚本 + 已声明的端口列表；
- *   - 未配置：提示「搭档创建 .otter/allowed-service-ports.json 后即可走受控路径」。
+ *   - 未配置：提示 restart-service --add 现场声明路径（#1069），或搭档创建白名单文件。
  * 静态文案零改动（测试断言友好），追加段动态生成。IO 异常静默退化为原文案。
  */
 function appendDevServerGuidance(reason: string, projectRoot: string): string {
@@ -29,9 +29,9 @@ function appendDevServerGuidance(reason: string, projectRoot: string): string {
     const allowed = loadAllowedServicePorts(projectRoot);
     if (allowed.length > 0) {
       const ports = allowed.map(s => s.port).join("、");
-      return `${reason}\n【自有项目 dev server】检测到端口白名单（已声明端口：${ports}）。重启自有项目 dev server 请用受控脚本：node scripts/restart-service.mjs <port>（脚本内部做 PID/cwd 校验后终止）。`;
+      return `${reason}\n【自有项目 dev server】检测到端口白名单（已声明端口：${ports}）。重启自有项目 dev server 请用受控脚本：node scripts/restart-service.mjs <port>（脚本内部做 PID/cwd 校验后终止）；端口未声明的可用 --project /abs/path --add 现场声明（#1069）。`;
     }
-    return `${reason}\n【自有项目 dev server】如需重启自有项目的 dev server：请搭档创建 ${projectRoot}/.otter/allowed-service-ports.json（格式见 docs/features/2026/09/14/ 下 F20260914dsrv 文档），然后用受控脚本 node scripts/restart-service.mjs <port>。`;
+    return `${reason}\n【自有项目 dev server】如需重启自有项目的 dev server：node scripts/restart-service.mjs <port> --project /abs/path --add 可现场声明并重启（#1069，脚本内部做 PID/cwd 校验）；或请搭档创建 ${projectRoot}/.otter/allowed-service-ports.json（格式见 docs/features/2026/09/14/ 下 F20260914dsrv 文档）。`;
   } catch {
     return reason;
   }
