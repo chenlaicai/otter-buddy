@@ -254,8 +254,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   // #949：四个「扫台账」同构循环合并为单一巡检 worker（8→5 常驻循环）——
   // 运行时对账（#823）/ Signal Aging（#927）/ RHI Scan（#401）/ Embedding Retry（F20260812mrcq）。
-  // F20260929roiv：+ invoke 孤儿 reconcile（带 bootTs 守卫，周期 1h 兜底窗口期漏网）。
+  // F20260929roiv：+ invoke 孤儿 reconcile（带 bootTs 守卫，周期 1h 兜底窗口期漏网；
+  //  守卫语义：只清「启动前遗留」，本进程内卡死的 running invoke 不在其范围）。
   // 失败隔离：一家炸了不影响后续家；周期 1h（四家原节奏已对齐，无时钟语义变化）。
+  const bootTs = new Date().toISOString();
   const patrolWorker = new PatrolWorker([
     { name: 'scheduler-reconcile', run: () => schedulerService.reconcileMissedWindowsNow() },
     { name: 'signal-aging', run: async () => { await signalAgingWorker.scanOnce(); } },
@@ -271,7 +273,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   // F20260929roiv：启动窗口期孤儿 invoke 兜底——延迟 10s 补跑一次 reconcile（带 bootTs 守卫），
   // 覆盖窗口期；fire-and-forget 不阻塞启动，失败仅日志（对齐既有 non-fatal 纪律）。
-  const bootTs = new Date().toISOString();
   const delayedReconcileTimer = setupDelayedReconcile(options, db, repos, logger, bootTs);
 
   if (modelPool) validateModelAliases(db, modelPool, logger);
