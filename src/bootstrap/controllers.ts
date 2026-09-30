@@ -30,6 +30,7 @@ import { InvokeController } from "@interface-adapters/http/controllers/invoke-co
 import { EntryController } from "@interface-adapters/http/controllers/entry-controller";
 import { MemoryController } from "@interface-adapters/http/controllers/memory-controller";
 import { SkillController, type SkillDirectory } from "@interface-adapters/http/controllers/skill-controller";
+import { PromptController, type PromptDirectory } from "@interface-adapters/http/controllers/prompt-controller";
 import { HealthController } from "@interface-adapters/http/controllers/health-controller";
 import { InboundController } from "@interface-adapters/http/controllers/inbound-controller";
 import { KeyInfoController } from "@interface-adapters/http/controllers/key-info-controller";
@@ -109,6 +110,8 @@ export interface ControllerDeps {
   signalRouter?: SignalRouter;
   /** #576（F20260901emps）：能力库页面数据源（ResourceLoader 适配器）；缺省时路由返回 503 */
   skillDirectory?: SkillDirectory;
+  /** F20260929scfx：能力库全书——系统提示词分节 + 工具清单数据源 */
+  promptDirectory?: PromptDirectory;
 }
 
 function buildChannelController(deps: ControllerDeps) {
@@ -250,6 +253,8 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
     channel: buildChannelController(deps),
     // #576（F20260901emps）：能力库真数据源。测试环境（无 ResourceLoader）可省略，路由层优雅降级
     skills: deps.skillDirectory ? new SkillController(deps.skillDirectory, logger) : undefined,
+    // F20260929scfx：能力库全书三编数据源（卷首心法总纲 + 卷末兵器谱）
+    prompts: deps.promptDirectory ? new PromptController(deps.promptDirectory, logger) : undefined,
     // F20260912avlb：活动页三域台账只读（三 repo + conversation 表 join 在场态）
     activity: buildActivityController(repos, logger),
   };

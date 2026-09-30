@@ -11,6 +11,8 @@ export interface SkillItemDTO {
   name: string;
   /** frontmatter description（三段式契约摘要） */
   description: string;
+  /** F20260929scfx：SKILL.md frontmatter 之后的正文全文（读文件失败降级为空串） */
+  body?: string;
 }
 
 export interface SkillListDTO {
