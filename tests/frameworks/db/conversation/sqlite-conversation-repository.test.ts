@@ -273,6 +273,35 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
     expect(byId["conv-b"]).toBe("awaiting_user");
     expect(byId["conv-c"]).toBe("idle");
   });
+
+  it("事故链路回归（#1249）：孤儿 running invoke 被 reconcile 清理后，左栏状态从 processing 恢复 awaiting_user", async () => {
+    // 事故现场（9/29 13:09 目击）：对话实际等待用户，但 invokes 表残留
+    // 窗口期写入的 running 记录，派生 SQL 判为 processing，左栏滞留「处理中」。
+    // 根因修复 = F20260930roiv（bootTs 守卫 + 周期清理）；本用例锁死事故链路末端的
+    // 状态一致性：reconcile 清理后，同一对话的派生状态必须回到 awaiting_user。
+    await repo.create(conversationFixture());
+    await entryRepo.createEntryAtomic(entryFixture({ yieldTargets: ["user"] }));
+    await invokeRepo.createInvoke({
+      id: "inv-orphan", conversationId: "conv-1", otterId: "otter-1", turnId: "turn-1",
+      status: "running", triggerType: "user_message", triggerSource: "web",
+      toolCallCount: 0, tokenUsage: null, talkingStonePassedTo: null,
+      // 窗口期写入：startedAt 早于新进程 bootTs
+      startedAt: "2026-09-29T12:00:00Z", endedAt: null,
+    } as never);
+
+    // 事故态：孤儿 running 存在 → 左栏 processing
+    const before = await repo.listConversationsWithMeta("user-1");
+    expect(before.items[0].activityStatus).toBe("processing");
+
+    // F20260930roiv 的清理动作：failRunningInvokes(bootTs 守卫) 把窗口期孤儿置 failed
+    const failed = await invokeRepo.failRunningInvokes("2026-09-30T00:00:00Z", "2026-09-29T13:00:00Z");
+    expect(failed).toHaveLength(1);
+    expect(failed[0].id).toBe("inv-orphan");
+
+    // 恢复断言：清理后同一对话派生为 awaiting_user——issue #1249 验证断言的数据层支撑
+    const after = await repo.listConversationsWithMeta("user-1");
+    expect(after.items[0].activityStatus).toBe("awaiting_user");
+  });
 });
 
 describe("SqliteConversationRepository - listConversationsWithMeta 标题搜索（F20260916lpsc）", () => {
