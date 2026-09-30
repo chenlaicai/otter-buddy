@@ -68,8 +68,9 @@ const STRUCTURED_TYPE_SEGMENT_REGEX = new RegExp(
   `^\\[F(${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT})\\]\\[([a-z][a-z-]*)\\]\\[([^\\]]+)\\]`
 );
 
-/** PR 号正则：(#123) */
-const PR_NUMBER_REGEX = /\(#(\d+)\)/;
+/** PR 号正则：取行尾最后一个 (#123)（检视发现 2：首匹配会把标题内 issue 引用错认为
+ *  PR 号——34f6d146「(#776) (#786)」应取 786；squash 合入的 PR 号恒在行尾） */
+const PR_NUMBER_REGEX = /.*\(#(\d+)\)\s*$/;
 
 /**
  * 解析单个 commit message

@@ -122,10 +122,13 @@ export function detectSignals(
 function isNonLogicCarrier(filePath: string): boolean {
   if (isTestFile(filePath)) return true;
   const base = filePath.split("/").pop() ?? "";
-  return /^types?\.[cm]?[jt]s$/i.test(base)
-    || /^index\.[cm]?[jt]s$/i.test(base)             // 转发桶（重导出）
-    || /^(platforms|usecases|main)\.[cm]?[jt]s$/i.test(base) // 组装/入口
-    || /(^|\/)bootstrap\//.test(filePath);            // 启动装配目录
+  // 检视发现 4：types 规则收窄到 bootstrap 装配路径——全仓 basename 排除会误伤
+  // src/frameworks/weixin/types.ts 等 runtime 常量载体（262 行含 WEIXIN_* 导出）；
+  // bootstrap/ 目录下的 types.ts 才是纯装配类型（存量信号 222 即此形态）
+  if (/(^|\/)bootstrap\//.test(filePath)) return true;   // 启动装配目录整体（含其 types.ts）
+  if (/^src\/types?\.[cm]?[jt]s$/i.test(filePath)) return true; // src 根装配类型（存量信号 222 形态；深层域 types.ts 不排除——见 weixin 回归锚）
+  return /^index\.[cm]?[jt]sx?$/i.test(base)             // 转发桶（重导出，含 .tsx/.jsx——检视 4 边界定调）
+    || /^(platforms|usecases|main)\.[cm]?[jt]s$/i.test(base); // 组装/入口（src 根的组装文件）
 }
 
 /** #1214：触发判据——独立修复事件数（同 PR 去重 + 无 PR 号按 sha 计） */
@@ -133,29 +136,45 @@ function countDistinctEvents(entry: { prs: Set<number>; noPrShas: Set<string> })
   return entry.prs.size + entry.noPrShas.size;
 }
 
-/** #1214：evidence 文案——「N 个不同修复事件 + PR 清单 + 首末修复日期」语义澄清 */
+/** #1214：evidence 文案——「N 个不同修复事件 + PR 清单 + 首末修复日期」语义澄清。
+ *  文案分支（检视发现 3）：纯 PR / 纯无 PR / 混合三形态各自不冗余。 */
 function buildRecurrenceEvidence(
   entry: { module: string; file: string; prs: Set<number>; noPrShas: Set<string>; shas: string[]; dates: Date[] },
   windowDays: number,
 ): string {
   const events = countDistinctEvents(entry);
   const prList = [...entry.prs].sort((a, b) => a - b).map(p => `#${p}`);
-  const prText = prList.length ? `PR ${prList.join(", ")}` : "无 PR 号 commit";
-  const noPrText = entry.noPrShas.size ? ` + ${entry.noPrShas.size} 个无 PR 号 commit` : "";
+  const prCount = prList.length;
+  const noPrCount = entry.noPrShas.size;
+  // 检视发现 3：三形态各说一次——纯 PR「PR #a, #b」；纯无 PR「N 个无 PR 号 commit」；
+  // 混合「PR #a, #b + M 个无 PR 号 commit」（不再出现「无 PR 号 commit + N 个无 PR 号 commit」冗余）
+  let eventText: string;
+  if (prCount > 0 && noPrCount === 0) {
+    eventText = `PR ${prList.join(", ")}`;
+  } else if (prCount === 0 && noPrCount > 0) {
+    eventText = `${noPrCount} 个无 PR 号 commit`;
+  } else {
+    eventText = `PR ${prList.join(", ")} + ${noPrCount} 个无 PR 号 commit`;
+  }
   const times = entry.dates.map(d => d.getTime());
   const first = new Date(Math.min(...times)).toISOString().slice(0, 10);
   const last = new Date(Math.max(...times)).toISOString().slice(0, 10);
-  return `[${entry.module}] ${entry.file} 窗口 ${windowDays} 天内 ${events} 个不同修复事件（${prText}${noPrText}；bugfix commit ${entry.shas.length} 个，首末修复 ${first}→${last}）`;
+  return `[${entry.module}] ${entry.file} 窗口 ${windowDays} 天内 ${events} 个不同修复事件（${eventText}；bugfix commit ${entry.shas.length} 个，首末修复 ${first}→${last}）`;
 }
 
-/** bug_recurrence：同模块同文件 bugfix ≥N 个不同 PR/窗口（窄门：不依赖语义聚类）。
- *  #1214 口径修订（承接 #1012 根因分析，9 成 critical 假聚集的修正）：
- *  - 同 PR 去重：同 PR 的多 commit（squash 前链式修复/连锁触碰）计 1 个 PR 复发
- *    事件——触发条件从「bugfix 次 ≥3」改为「不同 PR 数 ≥3」，一个系统性修复
- *    PR 展开 7-9 文件不再连锁触发 7-9 条信号
- *  - 非逻辑载体排除：types/组装/测试文件不计（isNonLogicCarrier）
- *  - occurrences 语义澄清：evidence 补独立 PR 数与首末修复日期（面板不再展示
- *    小时累计数——那是 worker 每小时刷新的「条件持续满足时长」不是修复次数） */
+/** bug_recurrence：同模块同文件 bugfix ≥N 个不同修复事件/窗口（窄门：不依赖语义聚类）。
+ *  #1214 口径修订（承接 #1012 根因分析）：
+ *  - 修复事件去重：同 PR 号的多 commit 计 1 事件；无 PR 号 commit 各计 1 事件
+ *    （noPrShas 非去重——git log sha 唯一，Set 只是容器；措辞是「各计」非「去重」）。
+ *    前提显式化（检视发现 5）：squash/rebase 合入使 commit message 带 (#N)——
+ *    merge-commit 流的中间 commit 无 PR 号会各计 1 事件（当前 321/322 带 PR 号，
+ *    若未来改 merge-commit 流需重评此口径）
+ *  - 适用面如实声明（检视发现 1）：squash 惯例下「同 PR 多 commit」当前为 0 例，
+ *    去重是面向多 commit PR/rebase 形态的口径正确性保障，不是本 PR 的主要收益；
+ *    假聚集主形态（同一根因跨 PR 系列）由后续 severity 分级/系列归因 issue 承载
+ *  - 非逻辑载体排除：types（收窄到 bootstrap 装配路径，检视发现 4——全仓
+ *    basename 排除会误伤 weixin/types.ts 等 runtime 常量载体）/转发桶/组装/测试
+ *  - occurrences 语义澄清：evidence 报独立修复事件数 + PR 清单 + 首末修复日期 */
 function detectBugRecurrence(
   commits: SignalCommitInput[],
   options: DetectOptions,

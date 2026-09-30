@@ -561,10 +561,56 @@ describe("detectSignals #1214 口径修订（bug_recurrence 同 PR 去重 + 载�
     const signals = detectSignals(commits, [], [], { now: NOW });
     const rec = signals.find(s => s.type === "bug_recurrence");
     expect(rec).toBeDefined();
-    expect(rec!.evidence).toContain("无 PR 号");
+    // 检视发现 3：纯无 PR 形态文案不冗余（单短语，不是「无 PR 号 commit + N 个无 PR 号 commit」）
+    expect(rec!.evidence).toContain("3 个无 PR 号 commit");
+    expect(rec!.evidence).not.toContain("无 PR 号 commit +");
   });
 
-  it("#1214 非逻辑载体排除：types.ts / 组装文件 / 测试文件不计复发", () => {
+  it("#1214 混合 PR + 无 PR 计数与文案（检视发现 3 补覆盖）", () => {
+    const commits = [
+      commit("m1", 3, "[F20260801tstw][agent][BugFix] 1 (#801)", ["src/invoker.ts"]),
+      commit("m2", 5, "[F20260801tstw][agent][BugFix] 2 (#802)", ["src/invoker.ts"]),
+      commit("m3", 7, "[F20260801tstw][agent][BugFix] 本地修", ["src/invoker.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    expect(rec!.evidence).toContain("3 个不同修复事件");
+    expect(rec!.evidence).toContain("PR #801, #802 + 1 个无 PR 号 commit");
+  });
+
+  it("#1214 载体排除：bootstrap 目录（含其 types.ts）/ index 转发桶 / 组装文件不计（检视发现 6 补三类）", () => {
+    const commits = [
+      commit("g1", 3, "[F20260801tstw][agent][BugFix] 1 (#811)", ["src/bootstrap/types.ts"]),
+      commit("g2", 5, "[F20260801tstw][agent][BugFix] 2 (#812)", ["src/bootstrap/types.ts"]),
+      commit("g3", 7, "[F20260801tstw][agent][BugFix] 3 (#813)", ["src/bootstrap/types.ts"]),
+      commit("g4", 3, "[F20260801tstw][agent][BugFix] 4 (#814)", ["src/widgets/index.ts"]),
+      commit("g5", 5, "[F20260801tstw][agent][BugFix] 5 (#815)", ["src/widgets/index.ts"]),
+      commit("g6", 7, "[F20260801tstw][agent][BugFix] 6 (#816)", ["src/widgets/index.ts"]),
+      commit("g7", 3, "[F20260801tstw][agent][BugFix] 7 (#817)", ["src/main.ts"]),
+      commit("g8", 5, "[F20260801tstw][agent][BugFix] 8 (#818)", ["src/main.ts"]),
+      commit("g9", 7, "[F20260801tstw][agent][BugFix] 9 (#819)", ["src/main.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    expect(signals.find(s => s.type === "bug_recurrence")).toBeUndefined();
+  });
+
+  it("#1214 载体排除不误伤 runtime 载体 types.ts：非 bootstrap 路径照常计（检视发现 4 回归锚）", () => {
+    const commits = [
+      commit("h1", 3, "[F20260801tstw][weixin][BugFix] 1 (#821)", ["src/frameworks/weixin/types.ts"]),
+      commit("h2", 5, "[F20260801tstw][weixin][BugFix] 2 (#822)", ["src/frameworks/weixin/types.ts"]),
+      commit("h3", 7, "[F20260801tstw][weixin][BugFix] 3 (#823)", ["src/frameworks/weixin/types.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined(); // runtime 常量载体（WEIXIN_* 导出）不再被 basename 排除静音
+    expect(rec!.filePath).toBe("src/frameworks/weixin/types.ts");
+  });
+
+  it("#1214 非逻辑载体排除：组装文件 / 测试文件不计复发；src 根 types.ts 属装配类型同排除", () => {
+    // 注（检视发现 4 处置）：types 规则收窄为「src 根 + bootstrap/」——深层域类型文件
+    // （如 agent-turn-orchestrator/types.ts 纯类型、weixin/types.ts runtime 载体）不再
+    // 全排除：纯类型域文件不达阈无信号（无害），runtime 载体达阈报警（正确，见 weixin 回归锚）
     const commits = [
       commit("e1", 3, "[F20260801tstw][agent][BugFix] 1 (#601)", ["src/types.ts"]),
       commit("e2", 5, "[F20260801tstw][agent][BugFix] 2 (#602)", ["src/types.ts"]),
