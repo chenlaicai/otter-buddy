@@ -104,7 +104,7 @@ export interface BuildAppOptions {
   startRhiWorker?: boolean;
   /** F20260916b1ea：重启自动恢复服务启动开关（对齐 startScheduler 模式；测试/CI 可关） */
   startResume?: boolean;
-  /** F20260929roiv：启动窗口期孤儿 invoke 延迟 reconcile 开关（对齐 startRhiWorker 模式；测试/CI 可关） */
+  /** F20260930roiv：启动窗口期孤儿 invoke 延迟 reconcile 开关（对齐 startRhiWorker 模式；测试/CI 可关） */
   enableDelayedReconcile?: boolean;
   /** 测试注入预构建模型（如 initFauxModels），跳过 initModels */
   models?: { model: Model<Api>; modelPool?: ModelPool };
@@ -245,7 +245,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   // #949：四个「扫台账」同构循环合并为单一巡检 worker（8→5 常驻循环）——
   // 运行时对账（#823）/ Signal Aging（#927）/ RHI Scan（#401）/ Embedding Retry（F20260812mrcq）。
-  // F20260929roiv：+ invoke 孤儿 reconcile（带 bootTs 守卫，周期 1h 兜底窗口期漏网；
+  // F20260930roiv：+ invoke 孤儿 reconcile（带 bootTs 守卫，周期 1h 兜底窗口期漏网；
   //  守卫语义：只清「启动前遗留」，本进程内卡死的 running invoke 不在其范围）。
   // 失败隔离：一家炸了不影响后续家；周期 1h（四家原节奏已对齐，无时钟语义变化）。
   const patrolWorker = new PatrolWorker([
@@ -260,7 +260,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   if (options.startRhiWorker ?? true) {
     patrolWorker.start();
   }
-  // F20260929roiv：启动窗口期孤儿 invoke 兜底——延迟 10s 补跑一次 reconcile（带 bootTs 守卫），
+  // F20260930roiv：启动窗口期孤儿 invoke 兜底——延迟 10s 补跑一次 reconcile（带 bootTs 守卫），
   // 覆盖窗口期；fire-and-forget 不阻塞启动，失败仅日志（对齐既有 non-fatal 纪律）。
   const delayedReconcileTimer = setupDelayedReconcile(options, db, repos, logger);
   if (modelPool) validateModelAliases(db, modelPool, logger);
@@ -628,7 +628,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     dispose: async () => {
       if (disposed) return;
       disposed = true;
-      // F20260929roiv：停延迟 reconcile 定时器（防进程退出后回调炸）
+      // F20260930roiv：停延迟 reconcile 定时器（防进程退出后回调炸）
       if (delayedReconcileTimer) clearTimeout(delayedReconcileTimer);
       // #460：停飞书长连接 WSClient（重连机制会阻止退出，根因之四）
       feishuScan.disposeAll(); // F20260929fsqr：扫码线持有全部飞书 WS 句柄，dispose 时统一停（原 feishuStop 随静态线退役）

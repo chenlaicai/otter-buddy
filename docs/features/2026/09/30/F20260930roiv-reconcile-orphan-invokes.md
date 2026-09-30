@@ -1,5 +1,5 @@
 ---
-id: F20260929roiv
+id: F20260930roiv
 title: 启动窗口期孤儿 invoke 延迟 reconcile
 type: BugFix
 status: implemented
@@ -10,7 +10,7 @@ causal_links:
 summary: 启动 reconcile 只跑一次导致窗口期写入的 running invoke 成为孤儿，左侧栏「处理中」卡死；补延迟 5s reconcile 兜底
 ---
 
-# F20260929roiv 启动窗口期孤儿 invoke 延迟 reconcile
+# F20260930roiv 启动窗口期孤儿 invoke 延迟 reconcile
 
 ## 背景
 

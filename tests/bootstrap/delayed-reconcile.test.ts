@@ -1,5 +1,5 @@
 /**
- * F20260929roiv 启动窗口期孤儿 invoke 延迟 reconcile 测试。
+ * F20260930roiv 启动窗口期孤儿 invoke 延迟 reconcile 测试。
  *
  * 验证：窗口期写入的 running invoke 会被延迟 reconcile 清理；
  * bootTs 守卫防误杀本进程活跃 invoke；
@@ -18,7 +18,7 @@ import { createTestLogger } from "../helpers/logger";
 const T0 = "2026-01-01T00:00:00Z";
 const BOOT_TS = "2026-01-01T00:00:01Z"; // 进程启动时间
 
-describe("F20260929roiv 启动窗口期孤儿 invoke 延迟 reconcile", () => {
+describe("F20260930roiv 启动窗口期孤儿 invoke 延迟 reconcile", () => {
   let db: Database.Database;
   let repos: Repositories;
 

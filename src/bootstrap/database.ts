@@ -338,7 +338,7 @@ export function syncApiKeyToAgentAuth(llmConfig: AppConfig["llm"], logger: Logge
   }
 }
 
-/** F20260929roiv：启动窗口期孤儿 invoke 延迟 reconcile 设置 */
+/** F20260930roiv：启动窗口期孤儿 invoke 延迟 reconcile 设置 */
 export function setupDelayedReconcile(
   options: { enableDelayedReconcile?: boolean },
   db: Database.Database,
@@ -353,7 +353,7 @@ export function setupDelayedReconcile(
         error: err instanceof Error ? err.message : String(err),
       });
     });
-  }, 10000); // F20260929roiv：无实证依据的保守值，覆盖观测到的 78s 窗口期（见特性文档）
+  }, 10000); // F20260930roiv：无实证依据的保守值，覆盖观测到的 78s 窗口期（见特性文档）
   if (timer.unref) timer.unref();
   return timer;
 }

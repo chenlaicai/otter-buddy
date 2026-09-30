@@ -212,7 +212,7 @@ export class SqliteInvokeRepository implements InvokeRepository {
   /** F20260916b1ea 重建：重启 reconcile——running invokes 全部置 failed，
    *  单条 UPDATE...RETURNING 原子返回被标记行详情（消 SELECT-then-UPDATE 竞态，
    *  恢复入队的数据源）。SQLite 3.35+ 支持 RETURNING（better-sqlite3 13.0.3 已验证）。 */
-  /** F20260929roiv 修复：加 started_at 守卫——只清理 bootTs 之前写入的 running invoke，
+  /** F20260930roiv 修复：加 started_at 守卫——只清理 bootTs 之前写入的 running invoke，
    *  防误杀本进程活跃 invoke（延迟 reconcile 触发时本进程可能已创建新 invoke）。 */
   async failRunningInvokes(
     failedAt: string,
