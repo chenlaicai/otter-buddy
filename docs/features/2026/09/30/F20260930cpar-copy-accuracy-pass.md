@@ -42,7 +42,7 @@ T2: skill 索引触发门纯度——adversarial-review / otter-summon 的 Preco
 
 ## 设计取舍
 
-① **指针改法**：「按标题 grep」→「文档 ID + 具体路径 + 记忆检索」三选一可操作锚点。文档 ID（F20260909sentr）是最稳的（frontmatter id 字段，记忆检索直查），路径给全（含日期目录）兜底。
+① **指针改法**：「按标题 grep」→「按文档标题 grep 内容定位 + 记忆检索关键词」双锚点。首版曾用文档 ID（F20260909sentr）——被 lint-prompt-anchors 拦截（判据：编号锚点是出处/决策史，不进每轮注入的 prompt），且 ID 有重生成风险；「按标题 grep 内容」命中 frontmatter title 字段（唯一且稳定），与修复前文案的区别是明确「grep 内容」而非 grep 文件名。
 ② **Precondition 归位而非删除**：两段约束（异体执行原则/召唤前 MUST search_memory）本身正确且重要，只是位置不对——挪进正文「执行约束」节，内容一字不改。adversarial-review 的 Not for 补「实现者自审 → 违反异体执行原则」保持触发门对该排除项的覆盖。
 ③ **全量测试 + lint-skills 双守护**：description 断言含于 4340 用例，frontmatter 结构由 lint-skills 校验（13 warnings 均为存量，无新增）。
 
