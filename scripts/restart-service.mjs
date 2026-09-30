@@ -104,20 +104,17 @@ export function resolvePortEntry({ port, projectDir, add, whitelistPath, allowed
 
   // 检视处置 S1：--add 授权面收窄——projectDir 必须在 allowedRoots（工作根）之下、
   // 不得是根本身、必须真实存在且是目录。范围外终止诉求走搭档手动授权（原语义）。
-  const roots = allowedRoots ?? [];
+  // A2（delta 建议）：roots 与 projectDir 都 realpath 归一后再判边界——与主流程 cwd 校验
+  // 同口径，消「进程经 symlink 启动」的词法/真实路径不一致边角（macOS /var→/private/var 等）
+  const roots = (allowedRoots ?? []).map((r) => { try { return fs.realpathSync(r); } catch { return path.resolve(r); } });
   if (roots.length === 0) {
     return { ok: false, error: "--add 未配置工作根（allowedRoots）——拒绝，请搭档手动编辑白名单声明" };
   }
-  const insideRoot = roots.some((root) => {
-    const rel = path.relative(path.resolve(root), projectDir);
-    return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
-  });
-  if (!insideRoot) {
-    return {
-      ok: false,
-      error: `--add 的 --project (${projectDir}) 必须在 otter 工作根（${roots.join(" / ")}）之内且不得是根本身——范围外的端口声明属搭档授权面，请搭档手动编辑 ${whitelistPath}`,
-    };
-  }
+  let realProjectDir = projectDir;
+  try {
+    realProjectDir = fs.realpathSync(projectDir);
+  } catch { /* 不存在/不可达——在下方存在性检查拦截 */ }
+  // 存在性先行：不存在/不是目录的路径直接拒（A2 realpath 改序后仍保持原语义优先级）
   let isDir = false;
   try {
     isDir = fs.statSync(projectDir).isDirectory();
@@ -125,6 +122,17 @@ export function resolvePortEntry({ port, projectDir, add, whitelistPath, allowed
   if (!isDir) {
     return { ok: false, error: `--project (${projectDir}) 不存在或不是目录——dev server 的项目目录必须真实存在` };
   }
+  const insideRoot = roots.some((root) => {
+    const rel = path.relative(root, realProjectDir);
+    return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+  });
+  if (!insideRoot) {
+    return {
+      ok: false,
+      error: `--add 的 --project (${projectDir}) 必须在 otter 工作根（${allowedRoots?.join(" / ") ?? "未配置"}）之内且不得是根本身——范围外的端口声明属搭档授权面，请搭档手动编辑 ${whitelistPath}`,
+    };
+  }
+  // 写回的 projectDir 用原始声明值（搭档可读），真实路径归一只用于边界判定
 
   // 检视处置 M1：写回加锁（串行化并发 --add，锁内 re-read 消丢更新）+ temp+rename 原子替换
   // （磁盘满/中断不留半截文件）。锁陈旧（>5s）强占防死锁。
@@ -152,8 +160,9 @@ export function resolvePortEntry({ port, projectDir, add, whitelistPath, allowed
   });
 }
 
-/** 检视处置 M1：简版排他锁（open wx 原子争用 + 100ms 轮询 + 陈锁强占）。 */
-export function withLock(lockPath, fn) {
+/** 检视处置 M1：简版排他锁（open wx 原子争用 + 100ms 轮询 + 陈锁强占）。
+ *  模块私有（A1：无外部消费方，不进 d.mts 第二真相源） */
+function withLock(lockPath, fn) {
   const MAX_ATTEMPTS = 30; // ~3s 上限
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
     let fd = null;

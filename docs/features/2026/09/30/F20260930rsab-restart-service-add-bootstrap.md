@@ -6,7 +6,7 @@ change_type: fix
 capability_test: "n/a: 脚本纯逻辑（resolvePortEntry）+ 守卫文案，真 sqlite/LLM 行为面均不涉；9 用例单测 + 4 场景手工冒烟覆盖"
 intent:
   problem: "#844 修复闭环停在代码落地：restart-service.mjs 硬依赖搭档手动创建 allowed-service-ports.json，文件未建期间（#1069 提报时 9 天）同模式拦截复发 4 次——獭被拦后守卫指给的「正道」本身走不通，正当诉求无出路。"
-  expected_effect: "白名单缺失或端口未声明时，獭可用 --project + --add 一次调用完成「声明写回 + 受控重启」；拦截文案同步指路；主进程防线（PID 恒拒 + cwd 归属校验）零松动。30 天内同模式拦截归零或 restart-service 至少被真实使用 1 次（issue 断言）。"
+  expected_effect: "工作根内的 dev server 重启诉求：--project + --add 一次调用完成「声明写回 + 受控重启」；拦截文案同步指路；主进程防线（PID 恒拒 + cwd 归属校验）不变，授权面分层后獭的自助范围限工作根内（范围外仍搭档手动授权）。30 天内同模式拦截归零或 restart-service 至少被真实使用 1 次（issue 断言）。"
   verify_by:
     type: static_only
     reason: "脚本参数解析/白名单写回为确定性文件 IO，9 用例单测（tmp 目录驱动）+ 4 场景真跑冒烟（worktree 沙箱内 --add 全链路）固化；拦截文案为静态字符串拼接由 tsc/回归保障；行为面（獭实际是否走正道）由 issue #1069 验证断言到期回查（2026-10-21，healing guard_intercept 计数 + ls 白名单）"

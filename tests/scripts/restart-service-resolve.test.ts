@@ -135,9 +135,9 @@ describe('#1069 resolvePortEntry（白名单声明解析）', () => {
     if (!r.ok) expect(r.error).toContain('工作根');
   });
 
-  it('S1·攻击面 2：--project 指向工作根之外的系统目录（如 /var/lib/postgresql）+ --add → 拒绝（精确打击面消除）', () => {
+  it('S1·攻击面 2：--project 指向工作根之外的系统目录（/etc，必然存在）+ --add → 拒绝（精确打击面消除）', () => {
     writeWl([]);
-    const r = resolvePortEntry({ port: 5432, projectDir: '/var/lib/postgresql', add: true, whitelistPath: wlPath, allowedRoots });
+    const r = resolvePortEntry({ port: 5432, projectDir: '/etc', add: true, whitelistPath: wlPath, allowedRoots });
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error).toContain('工作根');
