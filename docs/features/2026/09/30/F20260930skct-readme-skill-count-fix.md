@@ -1,8 +1,8 @@
 ---
 doc_type: feature
 id: F20260930skct
-title: README skill 计数订正：11 → 14
-summary: README.md 两处「11 个 skill」与 .pi/skills/ 实际 14 个不符，订正为 14。发现来源：系统能力演示第 04 场对抗审视中，素材獭事实核查自报、检视獭复核确认（README.md:27/:51 两处）。
+title: README skill 计数移除：硬编码计数改为不带计数表述
+summary: README.md / README.en.md 中「N 个 skill」硬编码计数与生长中的 skill 库天然矛盾（11→14 已漂移一次）。按搭档 9/30 产品判断（「计数会一直变，放到 readme 中不合适」），四处全部改为不带计数表述，根治漂移。发现来源：系统能力演示第 04 场对抗审视交叉核实。
 change_type: fix
 capability_test: "n/a——纯文档订正（verify_by=static_only：README 文案计数与 .pi/skills/ 目录数一致性，无运行时行为）"
 intent:
@@ -21,17 +21,27 @@ modules: [docs]
 
 ## 改动
 
-- README.md:27「11 个 skill 为骨架」→「14 个 skill 为骨架」
-- README.md:51「我们的 11 个 skill」→「我们的 14 个 skill」
-- README.en.md:28「11 skills as its skeleton」→「14 skills as its skeleton」（代码审视发现：英文镜像版遗漏，PR #1255 review）
-- README.en.md:52「Our 11 skills」→「Our 14 skills」（同上）
+终态（v2，搭档决策）：四处全部改为不带计数表述——
+
+- README.md:27「14 个 skill 为骨架」→「skill 体系为骨架」
+- README.md:51「我们的 14 个 skill」→「我们的 skill」
+- README.en.md:28「14 skills as its skeleton」→「skills as its skeleton」
+- README.en.md:52「Our 14 skills」→「Our skills」
+
+过程记录（v1）：先按「11→14 计数订正」提交两个 commit（bdad97f3 中文两处、82ead140 英文两处补修——对抗审视发现英文版遗漏），后按搭档 9/30 产品判断改为不带计数表述（计数会一直变，放 README 不合适），根治漂移。
+
+## 决策记录
+
+- v1（计数订正）：演示第 04 场检视獭建议「改 14 或改不带计数表述」二选一，大獭当时选了计数订正
+- v2（移除计数）：搭档 9/30 在 PR #1255 终审时提出「计数会一直变，放到 readme 中不合适」——产品判断，采纳。硬编码计数与生长中的 skill 库天然矛盾，任何数字都会再次漂移
 
 ## 发现链
 
 1. 演示第 02 场：素材獭产出对外介绍素材时事实核查，自报「README 写 11 个 skill，.pi/skills/ 实际 14 个」，素材按 14 采信
 2. 演示第 04 场：检视獭复核确认属实（README.md:27、:51 两处），建议另立修复
 3. 大獭处置：作为演示第 05 场「完整开发流」的真实选题——演示修真实问题，不编造改动
+4. 代码审视：代码检视獭发现英文镜像版 README.en.md 两处遗漏（中文 grep 模式匹配不到英文表述），补修
+5. 终审：搭档判断硬编码计数本身不合适，改为不带计数表述
 
-## 后续风险说明
 
-计数硬编码仍会随 skill 库生长再次漂移。本次不引入「不带计数表述」的写法变更（属措辞决策，超出本次订正范围；如需，由后续 README 措辞迭代处理）。
+
