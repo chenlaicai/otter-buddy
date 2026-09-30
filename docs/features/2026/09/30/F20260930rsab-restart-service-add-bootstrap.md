@@ -33,25 +33,34 @@ created_at: 2026-09-30
 ### 改动清单（3 文件）
 
 1. **scripts/restart-service.mjs**：
-   - 抽出 `resolvePortEntry({port, projectDir, add, whitelistPath})` 纯函数并导出（lint-date-bombs 先例：脚本导出函数供单测 import）；主流程用 main-guard（`import.meta.url === pathToFileURL(process.argv[1])`）包裹，被测试 import 不触发执行
+   - 抽出 `resolvePortEntry({port, projectDir, add, whitelistPath, allowedRoots})` 纯函数并导出（lint-date-bombs 先例）；主流程 main-guard（realpath 消符号链接形态差）
    - 白名单缺失/端口未声明 + 无 --add → 拒绝但错误信息给两条正道（搭档编辑 / --add 现场声明）
-   - --add + --project → 写回白名单（保留既有 entries）后继续原校验链
-   - 损坏 JSON 一律拒绝（--add 不覆盖搭档待修配置）
+   - --add + --project（**工作根内**）→ 锁内 re-read + temp+rename 原子写回（append-only）后继续原校验链
+   - 损坏 JSON 一律拒绝（--add 不覆盖搭档待修配置）；EACCES 与解析失败文案分流
 2. **src/frameworks/agent/circuit-breaker-helpers.ts**：守卫拦截文案两分支同步——已配置分支补「端口未声明的可用 --add 现场声明」；未配置分支把「请搭档创建」降为第二选项，首选 --add 自助路径
 3. **tests/scripts/restart-service-resolve.test.ts**（新增）：9 用例覆盖声明解析全分支
 
-### 安全面论证（不稀释 #844 契约）
+### 安全面论证（#1250 检视 S1 后修正）
 
-`--add` 只解决「声明怎么来的」，不松动任何终止校验：
+初版声称「安全面零松动」不成立：--project 可自选任意目录（含 `/`），cwd 校验在该攻击面下形同虚设，授权主体实际从搭档变成了獭。检视处置后收敛为：
 
-- **白名单不是安全边界，cwd 校验才是**（#844 原设计）：即使獭把任意端口 --add 进白名单，能终止的仍只有「lsof 解析 cwd 在声明目录下」的进程
-- **主进程恒拒**：PID === .otter-buddy.pid 纵深防御在 --add 路径原样执行（校验 ② 在声明解析之后、终止之前，无旁路）
-- **--project 必填约束**：--add 必须显式给出项目目录（拒绝裸 --add），声明是明确动作不是默认行为
-- **不可逆操作防护**：损坏 JSON 不覆盖（搭档待修配置不丢）；写回保留既有 entries（append-only）
+- **授权面分层**：白名单声明=授权动作。已有声明的增删改=搭档手动（原样）；新增声明的自助面=**工作根（otterRoot 上级目录）之内且不得是根本身、必须真实存在的目录**——獭的自助授权限定在自有项目树内，范围外（系统目录/其他项目树）仍须搭档手动编辑
+- **精确打击面消除**：`--project /` / `--project /var/lib/postgresql` 型利用链在入口拒绝（S1 攻击面 1/2 有测试锚定）；工作根本身也拒（攻击面 3）
+- **白名单不是安全边界，cwd 校验 + 主进程 PID 恒拒才是**（#844 原设计）：校验链 ②③ 在 --add 路径原样执行无旁路
+- **主进程防线不变**：PID === .otter-buddy.pid 恒拒（纵深防御）
+- **原子性/并发（M1）**：写回 temp+rename 原子替换；排他锁（open wx 争用 + 5s 陈锁强占）+ 锁内 re-read 防丢更新；重复 --add 同端口幂等复用不重复追加
 
 ## 设计取舍记录（机制判定）
 
-本次不新增机制：--add 是既有受控脚本的参数扩展，校验链（①白名单 ②主进程 PID ③cwd 归属）结构不变，只是「① 的来源」多了自助路径。Modification-Class: narrow-fix。
+本次不新增机制：--add 是既有受控脚本的参数扩展，校验链（①白名单 ②主进程 PID ③cwd 归属）结构不变，只是「① 的来源」多了工作根内的自助路径。Modification-Class: narrow-fix。
+
+### 检视处置记录（检视獭-1250 初轮）
+
+- **S1（严重）采纳·方案 ②**：--add 的 projectDir 界定在 otter 工作根（otterRoot 上级）内且不得是根本身/不存在的路径。理由：①「零松动」声明只对「绝不杀自己」成立，授权主体被换成了獭自授权，不采纳即安全声明失实；②方案 ①（拒绝宽目录 root/home）仍留大段可利用区间，方案 ③（保持全自助改措辞）把安全声明改弱但风险还在——② 自助能力保留（#1069 真实诉求：otter 工作根内的自有项目）且任意进程精确打击面消除。残留接受项：工作根内的目录仍可自助声明（如 ~/.ai 下的其他项目）——cwd 校验仍执行，主进程恒拒，可接受面与搭档手动授权的工作根内项目同级
+- **M1 采纳**：写回原子性（temp+rename）+ 排他锁（陈锁 5s 强占）+ 锁内 re-read；测试覆盖无 .tmp/.lock 残留 + 幂等不重复追加
+- **L1 采纳**：EACCES 与 JSON 解析失败文案分流（权限问题不再误报「解析失败」误导排查）
+- **L2 采纳**：main-guard 用 realpathSync 消符号链接调用形态差（失败仍 fail-safe 不误杀）
+- **L3 采纳**：已配置分支文案补 `<port>` 占位符（指路可直接拷贝）
 
 ### Why（未选替代方案）
 
@@ -63,9 +72,9 @@ created_at: 2026-09-30
 
 ### 测试证据
 
-- **单测**（tests/scripts/restart-service-resolve.test.ts，9 用例）：已声明直取/不一致拒绝/缺失+无 add 拒绝含两正道且不偷偷创建/缺失+add 从空创建写回/未声明+add 保留既有 entries/未声明无 add 拒绝含白名单现状/add 缺 project 拒绝/损坏 JSON 不覆盖原文/main-guard 导入面——全过
-- **回归**：tests/frameworks/agent/allowed-service-ports.test.ts 23 用例全过（守卫放行判定 + 升级判定零回归）
-- **真跑冒烟**（worktree 沙箱）：无参 usage 引导 ✓ / 白名单缺失拒绝+两正道 ✓ / 8123 --add 写回→无监听 exit 0 ✓ / 二次调用免 --add 直达 ✓（测试痕迹已清理）
+- **单测**（tests/scripts/restart-service-resolve.test.ts，17 用例）：原 9 用例 + 检视处置新增 8 用例（S1 攻击面 1/2/3、allowedRoots 未配置拒绝、不存在目录拒绝、工作根边界不影响搭档已声明端口、M1 无 tmp/lock 残留、幂等不重复追加）——全过
+- **回归**：tests/frameworks/agent/allowed-service-ports.test.ts 23 用例全过（守卫放行判定零回归）
+- **真跑冒烟**（worktree 沙箱）：无参 usage 引导 ✓ / 白名单缺失拒绝+两正道 ✓ / **攻击面实证**：`--project /var/lib/postgresql --add` 被拒（工作根外）✓ / 正常路径 ✓
 - **tsc**：0 新增错误（narrow 变更面）
 
 ### Golden Gate

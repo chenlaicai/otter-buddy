@@ -29,9 +29,9 @@ function appendDevServerGuidance(reason: string, projectRoot: string): string {
     const allowed = loadAllowedServicePorts(projectRoot);
     if (allowed.length > 0) {
       const ports = allowed.map(s => s.port).join("、");
-      return `${reason}\n【自有项目 dev server】检测到端口白名单（已声明端口：${ports}）。重启自有项目 dev server 请用受控脚本：node scripts/restart-service.mjs <port>（脚本内部做 PID/cwd 校验后终止）；端口未声明的可用 --project /abs/path --add 现场声明（#1069）。`;
+      return `${reason}\n【自有项目 dev server】检测到端口白名单（已声明端口：${ports}）。重启自有项目 dev server 请用受控脚本：node scripts/restart-service.mjs <port>（脚本内部做 PID/cwd 校验后终止）；端口未声明且项目在 otter 工作根内的，可加 --project /abs/path --add 现场声明（#1069）。`;
     }
-    return `${reason}\n【自有项目 dev server】如需重启自有项目的 dev server：node scripts/restart-service.mjs <port> --project /abs/path --add 可现场声明并重启（#1069，脚本内部做 PID/cwd 校验）；或请搭档创建 ${projectRoot}/.otter/allowed-service-ports.json（格式见 docs/features/2026/09/14/ 下 F20260914dsrv 文档）。`;
+    return `${reason}\n【自有项目 dev server】如需重启自有项目的 dev server：node scripts/restart-service.mjs <port> --project /abs/path --add 可现场声明并重启（#1069，限 otter 工作根内项目，脚本内部做 PID/cwd 校验）；范围外项目请搭档创建 ${projectRoot}/.otter/allowed-service-ports.json（格式见 docs/features/2026/09/14/ 下 F20260914dsrv 文档）。`;
   } catch {
     return reason;
   }

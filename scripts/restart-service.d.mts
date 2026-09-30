@@ -9,12 +9,14 @@ export interface ServicePortEntry {
   projectDir: string;
 }
 
-/** resolvePortEntry 入参（普通对象；文件 IO 限定 whitelistPath 一个文件） */
+/** resolvePortEntry 入参（普通对象；文件 IO 限定 whitelistPath 一个文件；
+ * allowedRoots 为 #1250 检视 S1 处置新增的 --add 授权边界：工作根数组） */
 export interface ResolvePortEntryInput {
   port: number;
   projectDir: string | null;
   add: boolean;
   whitelistPath: string;
+  allowedRoots?: string[];
 }
 
 /** 成功结果：entry + 解析后的声明目录；declared=true 表示本次 --add 写回了白名单 */

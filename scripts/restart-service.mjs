@@ -39,29 +39,35 @@ function die(msg) {
  * #1069：端口声明解析（导出供单测；主流程经 main-guard 保护不会被 import 触发）。
  *
  * 输入/输出均为普通对象，文件 IO 限定在 whitelistPath 一个文件内，测试用 tmp 目录驱动。
+ * 检视处置（S1）：--add 的 projectDir 必须落在 allowedRoots（otter 工作根）之下且
+ * 不得是根本身/不存在的路径——授权面从「搭档手动」扩展为「獭可在工作根内自助」，
+ * 工作根外（系统目录/其他项目树）仍须搭档手动编辑白名单。主进程防线不变。
+ *
  * 语义：
  * - 端口已在白名单 → 直接返回 entry（projectDir 不一致仍拒绝，原语义保留）
  * - 端口不在白名单：
  *   - 无 --add → 拒绝，错误信息含两条正道指引（搭档编辑 / --add 现场声明）
- *   - 有 --add → projectDir 必填；写回白名单（保留既有 entries）后返回
+ *   - 有 --add → projectDir 必填且在工作根内；锁内 re-read 后写回（append-only，
+ *     temp+rename 原子替换）后返回
  * - 白名单文件缺失 → 仅 --add 可从空 services 起步创建；否则拒绝并指引
  * - 白名单 JSON 损坏 → 一律拒绝（--add 也不得覆盖搭档待修的配置）
  */
-export function resolvePortEntry({ port, projectDir, add, whitelistPath }) {
+export function resolvePortEntry({ port, projectDir, add, whitelistPath, allowedRoots }) {
   const readWhitelist = () => {
     try {
       return { found: true, data: JSON.parse(fs.readFileSync(whitelistPath, "utf-8")) };
     } catch (err) {
       if (err && err.code === "ENOENT") return { found: false };
-      throw err; // JSON 损坏等 → 上层统一拒绝（不覆盖）
+      if (err && err.code === "EACCES") throw Object.assign(new Error(`白名单无读取权限（${whitelistPath}）——拒绝，请搭档检查文件权限`), { code: "EACCES-DENIED" });
+      throw Object.assign(new Error(`白名单 JSON 解析失败（${whitelistPath}）——拒绝，请搭档修复后再用（--add 也不覆盖损坏配置）`), { code: "PARSE-DENIED" });
     }
   };
 
   let wl;
   try {
     wl = readWhitelist();
-  } catch {
-    return { ok: false, error: `白名单 JSON 解析失败（${whitelistPath}）——拒绝，请搭档修复后再用（--add 也不覆盖损坏配置）` };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 
   if (!wl.found) {
@@ -89,23 +95,102 @@ export function resolvePortEntry({ port, projectDir, add, whitelistPath }) {
     const current = services.length ? JSON.stringify(services) : "（空）";
     return {
       ok: false,
-      error: `端口 ${port} 不在白名单内。白名单当前：${current}。两条正道：①请搭档编辑 ${whitelistPath} 声明；②重试本命令并加 --project /abs/path --add 现场声明写回（cwd 校验仍执行）`,
+      error: `端口 ${port} 不在白名单内。白名单当前：${current}。两条正道：①请搭档编辑 ${whitelistPath} 声明；②若项目在 otter 工作根（${allowedRoots?.join(" / ") ?? "未配置"}）内，重试本命令并加 --project /abs/path --add 现场声明写回（cwd 校验仍执行）`,
     };
   }
   if (!projectDir) {
     return { ok: false, error: "--add 必须同时给 --project /abs/path（声明该端口归属的项目目录）" };
   }
 
-  // --add 写回：保留既有 entries，追加新声明
-  const nextServices = [...services, { port, projectDir }];
-  const payload = JSON.stringify({ services: nextServices }, null, 2) + "\n";
-  fs.mkdirSync(path.dirname(whitelistPath), { recursive: true });
-  fs.writeFileSync(whitelistPath, payload, "utf-8");
-  return { ok: true, entry: { port, projectDir }, declaredDir: projectDir, declared: true };
+  // 检视处置 S1：--add 授权面收窄——projectDir 必须在 allowedRoots（工作根）之下、
+  // 不得是根本身、必须真实存在且是目录。范围外终止诉求走搭档手动授权（原语义）。
+  const roots = allowedRoots ?? [];
+  if (roots.length === 0) {
+    return { ok: false, error: "--add 未配置工作根（allowedRoots）——拒绝，请搭档手动编辑白名单声明" };
+  }
+  const insideRoot = roots.some((root) => {
+    const rel = path.relative(path.resolve(root), projectDir);
+    return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+  });
+  if (!insideRoot) {
+    return {
+      ok: false,
+      error: `--add 的 --project (${projectDir}) 必须在 otter 工作根（${roots.join(" / ")}）之内且不得是根本身——范围外的端口声明属搭档授权面，请搭档手动编辑 ${whitelistPath}`,
+    };
+  }
+  let isDir = false;
+  try {
+    isDir = fs.statSync(projectDir).isDirectory();
+  } catch { /* 不存在 */ }
+  if (!isDir) {
+    return { ok: false, error: `--project (${projectDir}) 不存在或不是目录——dev server 的项目目录必须真实存在` };
+  }
+
+  // 检视处置 M1：写回加锁（串行化并发 --add，锁内 re-read 消丢更新）+ temp+rename 原子替换
+  // （磁盘满/中断不留半截文件）。锁陈旧（>5s）强占防死锁。
+  fs.mkdirSync(path.dirname(whitelistPath), { recursive: true }); // 锁文件也要落在已存在的目录
+  return withLock(whitelistPath + ".lock", () => {
+    // 锁内 re-read：并发 --add 可能已把本端口声明进去（复用即可）
+    const fresh = (() => {
+      try {
+        return JSON.parse(fs.readFileSync(whitelistPath, "utf-8"));
+      } catch {
+        return null; // 缺失/损坏 → 按空处理（损坏已在上方拦过，此处仅剩被并发写坏的理论态）
+      }
+    })();
+    const freshServices = fresh && Array.isArray(fresh.services) ? fresh.services : [];
+    const already = freshServices.find(s => s && s.port === port);
+    if (already) {
+      return { ok: true, entry: already, declaredDir: path.resolve(already.projectDir), declared: false };
+    }
+    const nextServices = [...freshServices, { port, projectDir }];
+    const payload = JSON.stringify({ services: nextServices }, null, 2) + "\n";
+    const tmpPath = `${whitelistPath}.tmp-${process.pid}`;
+    fs.writeFileSync(tmpPath, payload, "utf-8");
+    fs.renameSync(tmpPath, whitelistPath);
+    return { ok: true, entry: { port, projectDir }, declaredDir: projectDir, declared: true };
+  });
 }
 
-// ── 主流程（main-guard：被测试 import 时不执行）──
-const isMain = import.meta.url === pathToFileURL(process.argv[1] || "").href;
+/** 检视处置 M1：简版排他锁（open wx 原子争用 + 100ms 轮询 + 陈锁强占）。 */
+export function withLock(lockPath, fn) {
+  const MAX_ATTEMPTS = 30; // ~3s 上限
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    let fd = null;
+    try {
+      fd = fs.openSync(lockPath, "wx");
+      fs.writeSync(fd, String(process.pid));
+      fs.closeSync(fd); fd = null;
+      try {
+        return fn();
+      } finally {
+        try { fs.unlinkSync(lockPath); } catch { /* 已被强占清理 */ }
+      }
+    } catch (err) {
+      if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } }
+      if (!err || err.code !== "EEXIST") throw err;
+      // 锁被占：>5s 视为陈锁强占（持有者崩溃残留）
+      try {
+        const st = fs.statSync(lockPath);
+        if (Date.now() - st.mtimeMs > 5000) {
+          try { fs.unlinkSync(lockPath); } catch { /* 竞态：已被释放 */ }
+          continue;
+        }
+      } catch { /* 锁刚好消失，直接重试 */ }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+    }
+  }
+  return { ok: false, error: `白名单写锁争用超时（${lockPath}）——请稍后重试` };
+}
+
+// ── 主流程（main-guard：被测试 import 时不执行；realpath 消符号链接调用的形态差）──
+const isMain = (() => {
+  try {
+    return import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1] || "")).href;
+  } catch {
+    return false;
+  }
+})();
 if (isMain) {
   // ── 参数解析 ──
   const args = process.argv.slice(2);
@@ -124,12 +209,13 @@ if (isMain) {
     else if (args[i] === "--add") { add = true; }
   }
 
-  // ── 校验 ①：端口白名单（含 --add 声明写回，#1069）──
+  // ── 校验 ①：端口白名单（含 --add 声明写回，#1069；allowedRoots=otter 工作根=otterRoot 上级）──
   const resolved = resolvePortEntry({
     port,
     projectDir,
     add,
     whitelistPath: path.join(otterRoot, ".otter", "allowed-service-ports.json"),
+    allowedRoots: [path.resolve(otterRoot, "..")],
   });
   if (!resolved.ok) die(resolved.error);
   const { declaredDir, declared } = resolved;
