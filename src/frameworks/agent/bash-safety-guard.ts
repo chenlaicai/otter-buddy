@@ -15,7 +15,7 @@ import fs from "fs";
 import path from "path";
 import type { Logger } from "@usecases/ports/logger";
 import { loadAllowedServicePorts, extractWhitelistedPortRefs, type AllowedService } from "./allowed-service-ports";
-import { shouldSanitizeForScan, sanitizeQuotedText, stripQuotedTextSpans, stripHeredocPayloads } from "./quoted-text-sanitizer";
+import { shouldSanitizeForScan, sanitizeQuotedText, stripQuotedTextSpans, stripHeredocPayloads, extractHeredocSpans } from "./quoted-text-sanitizer";
 import { findKillSegments, isKillAtCommandPosition } from "./kill-segment-finder";
 
 /** F20260928slan：sleep 命令位置判定——复用 kill-segment-finder 的位置感知
@@ -480,6 +480,12 @@ function checkBashCommandSafetyOnText(
   // 提前判定，两路调用链（正常 / PID 缺失）都覆盖；抽函数控圈复杂度
   const pidFree = checkPidIndependentRules(text, logger, projectRoot);
   if (pidFree) return pidFree;
+  // #1207 delta r1：heredoc 体级判定挂进 V1 OnText 链（检视严重 2b 修正——初版
+  // 漏挂致未闭合 node heredoc 体 process.kill 主 PID 放行）。入口已剥闭合体的输入
+  // 在此 extractHeredocSpans 只命中空白体 → 自然 no-op；未闭合（fail-closed 保留
+  // 原文）时体在场 → 白名单判定生效。与 shell 体递归互调按输入长度严格递减收敛。
+  const bodyHit = checkHeredocScriptBodies(text, { mainPid, logger, allowedServices, projectRoot });
+  if (bodyHit) return bodyHit;
   // F20260928slan：裸 sleep 静默等待检测——独立于 kill 域（感知问题非安全问题），
   // 命中返回带 SLEEP_REASON_PREFIX 标记的文案，出口处由 checkBashCommandSafety 剥离标记
   const sleepBlock = checkSleepCommand(text, logger, { isCommandPosition: isCommandPositionFor });
@@ -585,7 +591,7 @@ const MAIN_WRITE_BLOCK_MSG = "当前 bash 工作目录在主仓（未 cd 到 wor
 const REDIRECT_PATTERN = /(?:^|[;&\n]|&&|\|\|)\s*(?:>|>>|<<<)\s*[^|&;\n]+|(?<!["'\w])\d*>>?\s*[^|&;\n'"]+/;  // 重定向（含 echo x > file 中段形态 + 2> 数字前缀）
 const MAIN_WRITE_PATTERNS = [
   REDIRECT_PATTERN,
-  /(?:^|&&|\|\||[;&\n])\s*python3?\s+-\s*<<[/"']?/,       // python heredoc patch
+  /(?:^|&&|\|\||[;&\n])\s*(?:[\w./-]+\/)?python[\d.]*\s+-\s*<<["']?/,       // python heredoc patch（delta r1：含版本号/路径形态；delta 2：多级+绝对路径）
   // D2：段首锚含单 | / &（`cd /wt | git commit` / `& git commit` 同样是新命令段）
   // F20260924gfpn：① merge → merge(?!-) 负向断言——`git merge-base`（只读）曾被 merge\b
   // 吞成写操作（9/23 台账实测 BLOCKED）；同组其他词审计：commit→commit(?!-tree)（commit-tree
@@ -614,6 +620,271 @@ const COMPOUND_SEPARATOR = /&&|\|\||[;&\n|]/;
 function extractRedirectTarget(command: string): string | null {
   const m = command.match(/\d*>>?\s*["']?([^|&;\n'"\s]+)/);
   return m?.[1] ?? null;
+}
+
+// ── #1207（F20260930l573）：heredoc 体感知判定（delta r1：豁免方向反转）──
+// 根因：MAIN_WRITE_PATTERNS[1]（python heredoc patch 通道）按通道形态整体拦，
+// 只读探查（open().read/print）与写补丁（open('w').write）共用同一通道形态被
+// 无差别拦截（issue #1207 9/29 09:06 实时案例）。
+// delta r1 修正（检视獭-1207 严重 1/2）：初版「写签名 denylist 不命中即豁免」是
+// fail-open——别名 import / __import__ / getattr / pathlib unlink / 计算键等日常
+// 形态 8/8 绕过（端到端利用链实证：真实 bash 写出文件、守卫判 ALLOW）。
+// 反转为**只读白名单**：体被逐条确认为已知只读 API 才豁免，任何白名单外形态
+// （含动态/别名/计算属性/未识别 API）→ 不豁免 → 通道拦截（fail-closed）。
+// 白名单匹配用「分号/换行切分的子语句末表达式」而非全文体 search——
+// 防「只读 API 前缀掩护同语句后半写操作」（read() if open('w') 型）。
+
+/** heredoc 开行首词（跳过赋值前缀与 wrapper 词，basename 归一 /usr/bin/python3）——解释器判定用 */
+function heredocInterpreter(header: string): string {
+  const words = header.trim().split(/\s+/);
+  let i = 0;
+  while (i < words.length
+    && (/^[A-Za-z_]\w*=/.test(words[i]) || ["sudo", "env", "nohup", "command", "nice", "exec", "time"].includes(words[i]))) i++;
+  const w = words[i] ?? "";
+  const base = w.includes("/") ? w.split("/").pop()! : w;
+  return base;
+}
+
+const isPythonHeader = (header: string): boolean => /^python(?:\d+(?:\.\d+)?)?$/.test(heredocInterpreter(header));
+const isNodeHeader = (header: string): boolean => /^node(?:\d+)?$/.test(heredocInterpreter(header));
+const isShellHeader = (header: string): boolean => /^(?:bash|sh|zsh|dash|ksh)(?:\d+)?$/.test(heredocInterpreter(header));
+
+/** python 只读白名单（F20260930l573 delta r1，可调用名门设计）：
+ *  三道门全过才算只读——①体内出现的**所有**可调用名都在白名单集；②无危险
+ *  属性接触面（`os` 模块访问面全量禁——os.kill/system/remove 与 os.getcwd 同以
+ *  `os.` 开头，前缀扫描不可靠）；③无动态形态（__import__ / getattr / globals /
+ *  eval / exec / 内联赋值 lambda / open 无 mode 或 mode 含 w/a/x/+）。
+ *  否定检测先行（fail-closed 基线）+ 肯定白名单收口（豁免是例外）。
+ *  语句切片只是为了提取「调用名」集合，不做逐行正则全匹配——切分边界
+ *  （冒号/括号/字典）由门设计容错，不再依赖语句级完美切分。 */
+const PY_READONLY_CALLS = new Set([
+  "print", "open", "len", "range", "enumerate", "zip", "sorted", "reversed",
+  "sum", "min", "max", "abs", "round", "str", "int", "float", "bool", "list",
+  "dict", "set", "tuple", "isinstance", "repr", "hash", "id", "ord", "chr",
+  "any", "all", "iter", "next", "filter", "map", "divmod", "pow",
+  "re",       // re.findall/search/match/sub/compile 全只读
+  "json",     // json.load/loads 只读；json.dump（写盘）由方法门拦（不在 METHODS）
+  "Path", "PurePath", "PosixPath", "WindowsPath", // pathlib 构造只读；写面由方法门拦（unlink/write_text 等不在 METHODS）
+  "glob",     // glob.glob/iglob 只读（delta 2 高频点：文件探查分析主形态）
+  "pandas", "pd", "numpy", "np",  // 数据分析读面由方法门收口（read_csv 等白名单、to_csv 不在）
+]);
+const PY_READONLY_METHODS = new Set([
+  "read", "readline", "readlines", "read_text", "read_bytes", "load", "loads", "dumps",
+  "listdir", "getcwd", "stat", "exists", "isfile", "isdir", "islink", "walk",
+  "getsize", "getmtime", "abspath", "realpath", "basename", "dirname", "join",
+  "split", "splitext", "match", "search", "findall", "finditer", "subn",
+  "groups", "group", "groupdict", "strip", "lstrip", "rstrip", "replace",
+  "format", "lower", "upper", "title", "capitalize", "startswith", "endswith",
+  "splitlines", "encode", "decode", "keys", "values", "items", "get", "copy",
+  "index", "count", "find", "rfind", "append", "extend", "insert", "pop",
+  "sort", "join", "isdigit", "isalpha", "isspace", "compile", "escape", "fullmatch",
+  "glob", "iglob",                                                        // glob 模块只读 API（delta 2 高频点）
+  "safe_load", "safe_load_all",                                           // yaml 定域化后的纯读面（delta 4，检视 Y6 建议）
+  "read_csv", "read_json", "read_excel", "read_table", "read_parquet",    // pandas 读族（delta 2 高频点）
+  "describe", "head", "tail", "info",                                    // DataFrame 只读探查
+  "open",                                                                  // Path.open('r')——mode 由 ② 门独立把关
+]);
+
+/** python 只读门 ②：open 调用的 mode 实参必须是字面 'r'/'rb' 或无（默认 'r'）。
+ *  delta 3（检视 delta 2 终轮 (a) 类修）：mode 槽位（首参之后的任意位置实参）
+ *  见裸标识符即不豁免——变量 mode（m='w'; open(p, m)）此前因检查正则误写
+ * （\/ 应为 ,）全部漏过，open 即截断主仓文件。路径位裸标识符（open(p)）
+ *  不构成写向量（无 mode 默认 'r'），保留豁免（E5 主形态可用性）。
+ *  mode= 关键字：值必须字面 'r'/'rb'（变量值/写 mode 均拒）；
+ *  其他关键字实参（encoding='utf-8' 等不影响可写性）字面值放行。 */
+/** 按顶层逗号切分实参串（括号/引号感知——供 open mode 门分类判定用） */
+function splitTopLevelArgs(args: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = "";
+  let inStr: string | null = null;
+  for (const ch of args) {
+    if (inStr) { cur += ch; if (ch === inStr) inStr = null; continue; }
+    if (ch === "'" || ch === '"') { inStr = ch; cur += ch; continue; }
+    if (ch === "(" || ch === "[") depth++;
+    if (ch === ")" || ch === "]") depth--;
+    if (ch === "," && depth === 0) { parts.push(cur); cur = ""; continue; }
+    cur += ch;
+  }
+  parts.push(cur);
+  return parts;
+}
+
+/** 单个位置实参是否可能携带变量 mode（裸标识符/表达式 → true；字面串/数字 → 查写 mode） */
+function positionalArgMayBeVariableMode(p: string): boolean {
+  if (/^(?:['"]|\d)/.test(p)) {
+    const m3 = p.match(/^['"]([rwbax+]*)['"]/);
+    if (m3 && !/^[rb]{1,2}$/.test(m3[1])) return true;                    // 字面写 mode
+    return false;                                                        // 字面 'r'/'rb'/数字
+  }
+  return !/^[A-Za-z_]\w*\s*=/.test(p);                                   // 关键字实参不涉变量 mode；其余（裸标识符/表达式）→ true
+}
+
+/** python 只读门 ②：open 调用的 mode 实参必须是字面 'r'/'rb' 或无（默认 'r'）。
+ *  delta 4（检视 delta 3 出口不变式 1/2 类修）：
+ *  不变式 1（检测面 over-broad）：对 body 中**每一个** open( 子串做实参检查，
+ *  不管前字符（.open(/p.open(/io.open(/builtins.open( 全部可见）——禁止用前字符
+ *  正则收窄检测面（delta 3 的 (^|[^\w.]) 让 p.open( 整类不可见，比修复前更窄）。
+ *  内建/方法签名用「匹配串是否以点开头」区分：方法 → 全部位置实参按 mode 槽位
+ *  查；内建 → 首参是路径位（裸标识符不构成写向量——无 mode 默认 'r'），跳过。
+ *  不变式 2（关键字白名单）：关键字仅接受 mode（值必须字面 'r'/'rb'）、
+ *  encoding/errors/newline（值必须字面串）；其余（opener=/closefd=/mode=变量/
+ *  **kwargs）一律不豁免（opener= 可携带任意 callable）。 */
+const PY_OPEN_KNOWN_KEYWORDS = new Set(["mode", "encoding", "errors", "newline"]);
+
+/** 关键字实参白名单判定（不变式 2）：仅 mode（字面 'r'/'rb'）与
+ *  encoding/errors/newline（字面串）可接受；未知关键字（opener=/closefd=）/
+ *  变量值/写 mode → false（不豁免）。非关键字实参返回 null（交位置判定）。 */
+function keywordArgReadOnly(p: string): boolean | null {
+  if (/^\*\*/.test(p)) return false;                                     // **kwargs 不可静态判
+  const kw = p.match(/^([A-Za-z_]\w*)\s*=\s*([\s\S]+)$/);
+  if (!kw) return null;
+  if (!PY_OPEN_KNOWN_KEYWORDS.has(kw[1])) return false;                  // opener=/closefd=/未知关键字
+  const v = kw[2].trim();
+  if (kw[1] === "mode") return /^(?:['"][rb]{1,2}['"])$/.test(v);       // mode= 变量值/写 mode → false
+  return /^(?:['"][^'"]*['"])$/.test(v);                                // encoding/errors/newline 值必须字面串
+}
+
+function pythonOpenModesReadOnly(body: string): boolean {
+  // over-broad（不变式 1）：所有 open( 子串全查（含 .open( / p.open( / io.open( 等）
+  for (const om of body.matchAll(/(\.?open)\s*\(([^)]*)\)/g)) {
+    const isMethodCall = om[1].startsWith(".");
+    const args = om[2];
+    if (/\/\*/.test(args)) return false;                                 // 注释不可静态判
+    let pathArgSeen = false;                                             // 内建签名首参 = 路径位标记
+    for (const raw of splitTopLevelArgs(args)) {
+      const p = raw.trim();
+      if (p === "") continue;
+      const kwVerdict = keywordArgReadOnly(p);
+      if (kwVerdict !== null) {
+        if (!kwVerdict) return false;
+        continue;
+      }
+      // 位置实参：方法签名全部是 mode 槽位；内建签名首参是路径位（裸标识符不构成写向量，跳过）
+      if (isMethodCall || pathArgSeen) {
+        if (positionalArgMayBeVariableMode(p)) return false;
+      } else {
+        pathArgSeen = true;
+      }
+    }
+  }
+  return true;
+}
+
+/** python 只读门 ④：模块接触面否定——os/sys 只放白名单子面，危险模块全禁。 */
+function pythonModuleSurfaceReadOnly(body: string): boolean {
+  if (/\bos\.\w/.test(body) && !/\bos\.(?:getcwd|listdir|walk|stat|path)\b/.test(body)) return false;
+  if (/\bsys\.\w/.test(body) && !/\bsys\.(?:argv|stdin|stdout)\b/.test(body)) return false;
+  // delta 2：csv 移出——无代码执行面（写盘由 open mode 门兜底），且文件名字面量
+  // 'x.csv' 会被 \bcsv\b 误伤；pickle 保留（反序列化可执行 payload，只读也不行）
+  // delta 3（检视 delta 2 终轮 (b) 类修）：反序列化执行面全禁——pickle 之外
+  // 补 dill/joblib/shelve/marshal（yaml 定域化见下——safe_load 白名单化）
+  if (/\b(?:fileinput|mmap|shutil|subprocess|socket|ctypes|pickle|sqlite|urllib|requests|http|ftplib|pty|dill|joblib|shelve|marshal)\b/.test(body)) return false;
+  // delta 4（检视建议项）：yaml 定域化——safe_load 是配置读取高频只读形态
+  // （检视 Y6 实证误拦），只禁 (unsafe_)?load(_all)?（子串级，无括号盲区，
+  // 与不变式 3 同法）；safe_load/safe_load_all 等纯读面放行
+  if (/\bimport\s+yaml\b|\bfrom\s+yaml\s+import/.test(body)) {
+    if (/\byaml\s*\.\s*(?:unsafe_)?load(?:_all)?\s*\(/.test(body)) return false;
+  }
+  if (/\bimport\s+csv\b/.test(body)) return false; // csv 模块 import 仍拦（写入面不靠字面量）
+  // delta 4（不变式 3）：allow_pickle 子串级——body 中出现（非紧邻 =False 字面）
+  // 即不豁免，不做跨括号上下文匹配（delta 3 的 [^)]* 遇嵌套调用即停，
+  // np.load(open(p,'rb'), allow_pickle=True) 穿过）
+  if (/\ballow_pickle\b/.test(body) && !/\ballow_pickle\s*=\s*False\b/.test(body)) return false;
+  if (/\ballow_pickle\s*=\s*[^F\s]/.test(body)) return false;             // allow_pickle 非 False 开头的形态保守拒
+  return true;
+}
+
+function pythonBodyReadOnly(body: string): boolean {
+  // ① 否定检测：动态/危险形态出现即非只读（别名/计算属性本质都是动态面）
+  if (/[`\\]/.test(body)) return false;                                    // 反斜杠续行/转义不可静态判
+  if (/\b(?:__import__|getattr|setattr|delattr|globals|locals|vars|eval|exec|compile|breakpoint)\b/.test(body)) return false;
+  if (/\bimport\s+\w+\s+as\b/.test(body)) {
+    // delta 2：社区标准固定别名放行（pandas as pd / numpy as np）——其余别名
+    //（import os as o 等）仍不豁免（引用面失控）
+    const am = body.match(/\bimport\s+(\w+)\s+as\s+(\w+)\b/g) ?? [];
+    const ok = am.every(s => {
+      const mm = s.match(/\bimport\s+(\w+)\s+as\s+(\w+)\b/)!;
+      return (mm[1] === "pandas" && mm[2] === "pd") || (mm[1] === "numpy" && mm[2] === "np");
+    });
+    if (!ok) return false;
+  }
+  if (/\w\s*\[\s*['"][^'"]*['"]\s*\]\s*\(/.test(body)) return false;     // 计算键调用 obj['x'](...)
+  if (/\blambda\b/.test(body)) return false;
+  // ② open mode 门
+  if (!pythonOpenModesReadOnly(body)) return false;
+  // ③ 可调用名白名单收口：所有 callee 根名与尾方法名都在白名单集
+  const dotted = [...body.matchAll(/\.\s*([A-Za-z_]\w*)\s*\(/g)].map(m2 => m2[1]);
+  const bare = [...body.matchAll(/(?:^|[^\w.])\.?\s*([A-Za-z_]\w*)\s*\(/g)].map(m2 => m2[1]).filter(c => !dotted.includes(c));
+  if (bare.some(c => !PY_READONLY_CALLS.has(c))) return false;
+  if (dotted.some(c => !PY_READONLY_METHODS.has(c))) return false;
+  // ④ 模块接触面门
+  return pythonModuleSurfaceReadOnly(body);
+}
+
+/** node 只读白名单（同构可调用名门）：require 限 fs/util 只读面 +
+ *  fs 只读 API + console + process 只读属性 + 纯 JS 数据语法。 */
+const NODE_READONLY_METHODS = new Set([
+  "readFileSync", "readFile", "existsSync", "statSync", "readdirSync",
+  "readlinkSync", "realpathSync", "accessSync", "constants",
+  "toString", "trim", "split", "slice", "join", "replace", "match", "concat",
+  "toLowerCase", "toUpperCase", "includes", "indexOf", "charAt", "charCodeAt",
+  "padStart", "padEnd", "repeat", "startsWith", "endsWith", "normalize",
+  "log", "error", "warn", "info", "debug", "table", "keys", "values", "entries",
+  "stringify", "parse", "from", "isArray", "push", "map", "filter", "reduce",
+  "forEach", "flat", "sort", "reverse", "test", "exec",
+]);
+
+function nodeBodyReadOnly(body: string): boolean {
+  if (/\\|`/.test(body)) return false;
+  if (/\b(?:eval|Function|setTimeout|setInterval|require\s*\(\s*(?!['"](?:fs|util|path)['"]))/.test(body)) return false;
+  if (/\bprocess\s*\.\s*(?!pid\b|platform\b|argv\b|version\b|cwd\b|stdout\b|stderr\b)/.test(body)) return false;
+  if (/\b(?:child_process|worker_threads|vm|net|http|https|fs\.promises)\b/.test(body)) return false;
+  // 计算成员调用 obj['x'](...)——对 callee 名提取不可见，出现即不豁免（动态面）
+  if (/\]\s*\(/.test(body)) return false;
+  const dotted = [...body.matchAll(/\.\s*([A-Za-z_$][\w$]*)\s*\(/g)].map(m2 => m2[1]);
+  const bare = [...body.matchAll(/(?:^|[^\w$.])([A-Za-z_$][\w$]*)\s*\(/g)].map(m2 => m2[1]).filter(c => !dotted.includes(c));
+  if (bare.some(c => !/^(?:console|JSON|Math|String|Number|Boolean|Array|Object|require|parseInt|parseFloat|isNaN)$/.test(c))) return false;
+  for (const d of dotted) {
+    if (!NODE_READONLY_METHODS.has(d)) return false;
+  }
+  if (/(?:write|append|unlink|rmdir|chmod|chown|rename|copy|mkdir|truncate|openSync|create)/i.test(body)) return false;
+  return true;
+}
+
+/** 全部 heredoc 体均为「已闭合 + 解释器 + 只读白名单」→ true。
+ *  bare（裸定界符）体仅在体不含 $ 与反引号时豁免（无展开面则 bare ≡ quoted；
+ *  $(...) 命令替换是 bare 体的核心危险，出现即不豁免）。未闭合永不豁免。 */
+function scriptBodiesReadOnly(command: string, check: (body: string) => boolean, isHeader: (h: string) => boolean): boolean {
+  const spans = extractHeredocSpans(command);
+  if (spans.length === 0) return false;
+  return spans.every(sp => sp.closed && isHeader(sp.header) && check(sp.body)
+    && (sp.quoted || !/[$`]/.test(sp.body)));
+}
+
+export function pythonHeredocBodiesReadOnly(command: string): boolean {
+  return scriptBodiesReadOnly(command, pythonBodyReadOnly, isPythonHeader);
+}
+
+/** 从命令文本中把「已验证只读」的 script 解释器 heredoc 体等长替换为空格
+ *  （重定向判定用）。依据：验证过的 python/node 体内容对 shell 重定向语义不可见
+ *  （体里 > 是语言内语法不是 shell 重定向）；bare/未闭合/非 python/node 体原样
+ *  保留——bash/sh 体是可执行内容（`bash <<EOF` 直接执行体），体里 `> file` 是
+ *  shell 层真实重定向，隐去即攻击面（delta r1 自查修正：初版对 bare python 体
+ *  也隐去，`python3 - <<EOF\n...\n> src/x` 的体尾重定向会逃过 REDIRECT 判定）。 */
+function blankVerifiedScriptBodies(command: string): string {
+  const spans = extractHeredocSpans(command)
+    .filter(sp => sp.closed && (isPythonHeader(sp.header) && pythonBodyReadOnly(sp.body)
+      || isNodeHeader(sp.header) && nodeBodyReadOnly(sp.body))
+      && (sp.quoted || !/[$`]/.test(sp.body)));
+  if (spans.length === 0) return command;
+  let out = "";
+  let cursor = 0;
+  for (const sp of spans) {
+    out += command.slice(cursor, sp.start) + " ".repeat(sp.end - sp.start);
+    cursor = sp.end;
+  }
+  return out + command.slice(cursor);
 }
 
 /** 段首内容是否纯赋值前缀（VAR=value 形态，可任意多个） */
@@ -651,8 +922,8 @@ function hasRealCdSegment(command: string): boolean {
  *  与 #1038 数据破坏检测的差异：不跟踪 cd（感知对齐方案下 LLM 需显式 cd），
  *  只做「当前文本是否含主仓写形态」的静态判定——简单可靠，无状态。 */
 
-// eslint-disable-next-line complexity -- V1 分支语义保留（echo 纯重定向/data 目标/绝对路径豁免），cd 豁免换模型版
-function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: string): string | null {
+// eslint-disable-next-line complexity -- V1 分支语义保留（echo 纯重定向/data 目标/绝对路径豁免），cd 豁免换模型版 + #1207 heredoc 体感知判定
+function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: string, heredocReadOnly?: boolean): string | null {
   if (!projectRoot) return null; // 无 projectRoot 时保守放行（与 resolvesToMainData 同策略）
   // #1170 根治：模型版 cd 豁免——管道/分号不再杀死豁免（`cd wt && git commit | tail` 放行）
   if (modelCdExemption(command, hasRealCdSegment)) return null;
@@ -668,11 +939,14 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
   // 仅免除 git 写族字面判定，重定向/data 破坏等其余判定照常跑。
   const gitReadonlyCmd = allSegmentsGitReadonly(command);
   if (!gitReadonlyCmd) {
-    for (const pattern of MAIN_WRITE_PATTERNS.slice(1)) {
-      if (pattern.test(command)) {
-        logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (no cd)", { command: command.substring(0, 200) });
-        return MAIN_WRITE_BLOCK_MSG;
-      }
+    for (const [pi, pattern] of MAIN_WRITE_PATTERNS.slice(1).entries()) {
+      if (!pattern.test(command)) continue;
+      // #1207（F20260930l573）：pattern[0] 是 python heredoc patch 通道——体感知判定，
+      // 纯只读体放行（写/执行签名、非 python 解释器体均不豁免，见 PY_BODY_WRITE_SIG 注）。
+      // heredocReadOnly 缺省（V1 兑底链：体已剥离不可判定）→ 不豁免，保守拦。
+      if (pi === 0 && heredocReadOnly) continue;
+      logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (no cd)", { command: command.substring(0, 200) });
+      return MAIN_WRITE_BLOCK_MSG;
     }
   }
   // #1038 语义兼容：echo '...' >> file 形态，引号内含 rm/mv/find 敏感词元且目标非 data/ → 放行。
@@ -687,7 +961,13 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
   // （gh issue comment --body 的 HTML 注释/markdown 引用），不是 shell 重定向
   // （#984 循环拦截事故：连拦 3 次中断獭回合，healing 4d692fb6/e671f577）。
   // 危险通道（bash -c/heredoc）内引号不剥离，载荷内重定向仍可见（stripQuotedTextSpans 守住）。
-  const syntaxBasis = stripQuotedTextSpans(command);
+  // #1207 delta r1：仅「引号定界+已闭合+只读白名单验证通过」的 python/node 体才
+  // 等长隐去（体内容对 shell 重定向语义不可见）；bare/未闭合/白名单外体保留——
+  // 体尾 `> file` 是 shell 层真实重定向，隐去即攻击面。V1 链（heredocReadOnly
+  // 未传）输入已是体剥离文本，无需再处理。
+  const syntaxBasis = heredocReadOnly !== undefined
+    ? stripQuotedTextSpans(blankVerifiedScriptBodies(command))
+    : stripQuotedTextSpans(command);
   // 重定向形态单独判定（D1 处置：abs-target 豁免只适用重定向，不跨 pattern 泄漏——
   // git 写族落点是 .git/cwd 不是重定向目标，`git commit -m x > /dev/null` 高频尾缀形态曾全豁免）
   if (REDIRECT_PATTERN.test(syntaxBasis)) {
@@ -706,6 +986,63 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
     if (!isAbsNonMain) {
       logger?.warn("[bash-safety-guard] BLOCKED main-checkout write via redirect (no cd)", { command: command.substring(0, 200) });
       return MAIN_WRITE_BLOCK_MSG;
+    }
+  }
+  return null;
+}
+
+// ── #1207（F20260930l573）：shell/node heredoc 体级判定（delta r1：白名单反转）──
+// 初版 node 体用危险签名 denylist（不命中即放行）——计算键 p['k'+'ill'] /
+// require()['w'+'riteFileSync'] 等 JS 日常形态绕过（检视獭探针实证），且「V1
+// OnText 挂点」声明失实。delta r1：node 体反转为只读白名单（白名单外一律拦，
+// fail-closed）；挂点：统一入口 + PID 缺失路径 + V1 OnText 链（delta 2 订正：
+// 初版注释「V1 OnText 不挂」为 stale 残留，实际已挂载于 checkBashCommandSafetyOnText——
+// 剥体输入 extractHeredocSpans 只命中空白体自然 no-op；未闭合保留原文时体判定生效）。
+// bash/sh/zsh 体是真执行 shell 脚本 → 递归 V1 全量判定（语义精确：体段位判定
+// 与顶层一致，echo kill N 的数据位词元不误拦）；体中嵌套 shell 解释器 heredoc
+// 不递归判定，出现即拦（delta 2 措辞订正：非「限深一层后拦」——depth=1 时内层
+// shell 体即触发超深分支保守拦，行为为「嵌套即拦」，与 fail-closed 方向一致）。
+
+const NODE_HEREDOC_BODY_MSG = "bash 命令通过 heredoc 向 node 传入非白名单只读形态的脚本体，无法静态确认其安全。该命令不允许：分析类脚本请限定在 fs 只读 API（readFileSync/existsSync/statSync 等）+ console 输出，或落盘到 /tmp 后审阅执行；确需其他形态时告知搭档人工执行。";
+const SHELL_HEREDOC_BODY_MSG = "bash 命令通过 heredoc 向 shell 传入的脚本体中检测到危险操作（体内容会被直接执行）。该命令不允许：若需终止/重启验证实例，在 worktree 内跑 scripts/alpha.sh stop/start；请把体内容拆成独立命令或落盘 /tmp 后审阅执行；确需此形态时告知搭档人工执行。";
+
+/** heredoc 体级判定的调用上下文（参数打包——max-params lint 约束） */
+interface HeredocJudgeCtx {
+  mainPid: number;
+  logger?: Logger;
+  allowedServices: AllowedService[];
+  projectRoot?: string;
+}
+
+/** shell 体分支：递归体级判定（限深）+ V1 全量链；命中返回拦截文案 */
+function judgeShellHeredocBody(sp: { header: string; body: string }, ctx: HeredocJudgeCtx, depth: number): string | null {
+  if (depth <= 0) {
+    return `${SHELL_HEREDOC_BODY_MSG}\n【体内命中】shell 体嵌套超过判定深度上限（保守拦）`;
+  }
+  const inner = checkHeredocScriptBodies(sp.body, ctx, depth - 1);
+  const r = inner ?? checkBashCommandSafetyOnText(sp.body, ctx.mainPid, ctx.logger, ctx.allowedServices, ctx.projectRoot);
+  if (r) {
+    ctx.logger?.warn("[bash-safety-guard] BLOCKED dangerous op in shell heredoc body", { header: sp.header.substring(0, 80) });
+    return `${SHELL_HEREDOC_BODY_MSG}\n【体内命中】${r.split("\n")[0]}`;
+  }
+  return null;
+}
+
+/** heredoc 体级判定（delta r1）：shell 体递归 V1 全量链；python 体由主仓写检测
+ *  的只读白名单豁免路径承担；node 体非 shell 语法无法递归 → 只读白名单反向豁免
+ *  （白名单外一律拦）。挂点：统一入口 + checkWhenMainPidMissing + V1 OnText 链
+ *  （剥体输入自然 no-op；未闭合保留原文时体在场生效）。 */
+function checkHeredocScriptBodies(command: string, ctx: HeredocJudgeCtx, depth = 1): string | null {
+  for (const sp of extractHeredocSpans(command)) {
+    if (isShellHeader(sp.header)) {
+      const hit = judgeShellHeredocBody(sp, ctx, depth);
+      if (hit) return hit;
+      continue;
+    }
+    if (isPythonHeader(sp.header)) continue; // 豁免/拦截由主仓写检测体感知路径承担
+    if (isNodeHeader(sp.header) && !(sp.closed && nodeBodyReadOnly(sp.body) && (sp.quoted || !/[$`]/.test(sp.body)))) {
+      ctx.logger?.warn("[bash-safety-guard] BLOCKED non-readonly node heredoc body", { header: sp.header.substring(0, 80) });
+      return NODE_HEREDOC_BODY_MSG;
     }
   }
   return null;
@@ -731,7 +1068,11 @@ function checkWhenMainPidMissing(
   // F20260922pmgd / #1038：PR 合入与 data 破坏判定不依赖 mainPid（与 kill 族保守放行的
   // 差异：只需命令文本/projectRoot，无退化理由）
   const pidFree = checkPidIndependentRules(command, logger, guardOptions?.projectRoot);
-  return pidFree ? withDiagnostics(pidFree, command, null) : null;
+  if (pidFree) return withDiagnostics(pidFree, command, null);
+  // #1207（F20260930l573）：heredoc 体级判定不依赖 PID（shell 体递归在 PID=0 下
+  // 与 V1 主链同口径保守放行 kill，不引入额外缺口）
+  const bodyHit = checkHeredocScriptBodies(command, { mainPid: 0, logger, allowedServices: [], projectRoot: guardOptions?.projectRoot });
+  return bodyHit ? withDiagnostics(bodyHit, command, null) : null;
 }
 
 /** F20260916gtlr：脱敏扫描路径（#858）——抽为独立函数控制主入口圈复杂度。
@@ -778,8 +1119,13 @@ export function checkBashCommandSafety(
     if (scriptKill) return withDiagnostics(scriptKill, command, mainPid);
     const dataDestructive = checkDataDirDestructive(command, logger, projectRoot);
     if (dataDestructive) return withDiagnostics(dataDestructive, command, mainPid);
-    const mainWrite = checkMainCheckoutWrite(command, logger, projectRoot);
+    // #1207（F20260930l573）：主仓写检测在原始命令上跑（heredoc 体在场），
+    // 体感知判定在此计算后传入——只豁免纯只读 python heredoc 体
+    const mainWrite = checkMainCheckoutWrite(command, logger, projectRoot, pythonHeredocBodiesReadOnly(command));
     if (mainWrite) return withDiagnostics(mainWrite, command, mainPid);
+    // #1207（F20260930l573）：shell/node heredoc 体级危险判定（原始命令，体在场）
+    const bodyHit = checkHeredocScriptBodies(command, { mainPid, logger, allowedServices, projectRoot });
+    if (bodyHit) return withDiagnostics(bodyHit, command, mainPid);
     return null;
   }
 

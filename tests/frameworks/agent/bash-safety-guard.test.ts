@@ -1338,6 +1338,386 @@ describe("F20260922scwd delta D1/D2 绕过形态回归（mimo 二轮检视）", 
   });
 });
 
+describe("#1207：只读 python heredoc 被「heredoc patch」通道误拦（9/29 09:06 实时案例）", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+
+  // 误拦根因：MAIN_WRITE_PATTERNS[1] 按「python3 - <<heredoc」通道形态整体拦，
+  // 不解析 heredoc 体内容——只读探查脚本（open().read / print）与写补丁
+  //（open('w').write）共用同一通道形态，被无差别拦截。
+  // 修复：通道命中后追加体内容判定——体含写特征（open('w')/write(/os.remove 等）
+  // 才拦；纯读形态放行。写形态正则须覆盖管道/重定向到文件的变体。
+  // 安全性：heredoc 体不是 shell 语法（数据），写危险只能经 python 进程产生，
+  // 静态识别 python 写 API 足以区分；识别不了的保守拦（fail-closed 不变）。
+  it("只读 python heredoc（open().read + print）→ 放行（#1207 主形态）", () => {
+    const cmd = `python3 - <<'PYEOF'\nimport re\ns = open('src/frameworks/agent/bash-safety-guard.ts').read()\nprint(len(s))\nPYEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  it("只读 python heredoc 分析形态（re + 变量 + print）→ 放行", () => {
+    const cmd = `python3 - <<'PYEOF'\nimport json, sys\ndata = json.load(open('/tmp/x.json'))\nfor k in data: print(k)\nPYEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  it("heredoc patch 写主仓文件（open 'w' + write）→ 仍拦截（拦截面不回归）", () => {
+    const cmd = `python3 - <<'EOF'\nwith open('src/foo.ts','w') as f: f.write('x')\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("heredoc 体含 os.remove/shutil.rmtree 删除形态 → 仍拦截", () => {
+    const cmd = `python3 - <<'EOF'\nimport os\nos.remove('src/foo.ts')\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("heredoc 体含重定向到文件（> src/x.ts）→ 仍拦截", () => {
+    const cmd = `python3 - <<'EOF'\nprint('x') > open('src/foo.ts','w')\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("python3 script.py（非 heredoc 形态不受影响）→ 原语义保持", () => {
+    const result = checkBashCommandSafety("python3 t.py 2> /wt/error.log", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  // ── 加固签名攻防两面（F20260930l573：体感知豁免的拦截面不回归）──
+  it("heredoc 体 os.kill(主PID) → 仍拦截（体级杀进程红线）", () => {
+    const cmd = `python3 - <<'EOF'\nimport os\nos.kill(${mainPid}, 9)\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("heredoc 体 from os import kill 裸调 → 仍拦截", () => {
+    const cmd = `python3 - <<'EOF'\nfrom os import kill\nkill(${mainPid}, 9)\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("heredoc 体 open 'r+b' 更新模式 → 仍拦截（+ 号可写模式）", () => {
+    const cmd = `python3 - <<'EOF'\nf = open('src/foo.ts', 'r+b')\nf.write(b'x')\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("heredoc 体 os.open O_WRONLY → 仍拦截（fd 写链起点）", () => {
+    const cmd = `python3 - <<'EOF'\nimport os\nfd = os.open('src/foo.ts', os.O_WRONLY)\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("heredoc 体 subprocess 调 shell kill → 仍拦截（执行逃逸）", () => {
+    const cmd = `python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['kill', '${mainPid}'])\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("heredoc 体 json.dump 落盘 → 仍拦截（dump 非 dumps）", () => {
+    const cmd = `python3 - <<'EOF'\nimport json\njson.dump({'a': 1}, open('src/foo.json', 'w'))\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("heredoc 体 shutil.rmtree 主仓 data → 仍拦截（DATA_DESTRUCTIVE 层独立命中）", () => {
+    const cmd = `python3 - <<'EOF'\nimport shutil\nshutil.rmtree('data/metrics')\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("heredoc 体 json.dumps + print → 放行（dumps 返回串非落盘）", () => {
+    const cmd = `python3 - <<'EOF'\nimport json\nprint(json.dumps({'a': 1}))\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+  it("heredoc 体 pathlib read_text → 放行（pathlib 读族）", () => {
+    const cmd = `python3 - <<'EOF'\nfrom pathlib import Path\nprint(Path('src/foo.ts').read_text()[:100])\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+  it("heredoc 体 'rb' 二进制读 → 放行（纯读 mode 不命中写签名）", () => {
+    const cmd = `python3 - <<'EOF'\nwith open('src/foo.ts', 'rb') as f:\n    print(len(f.read()))\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  // ── 跨解释器安全（bash heredoc 体是可执行内容，递归 V1 全量判定）──
+  it("bash heredoc 体真 kill 主PID → 拦（体直接执行，递归判定）", () => {
+    const cmd = `bash - <<'EOF'\nkill ${mainPid}\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("sh heredoc 体真 kill → 拦（dash/ksh 同族）", () => {
+    const cmd = `sh - <<'EOF'\nkill ${mainPid}\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("bash heredoc 体 echo kill 字样 → 放行（词元在数据位，递归是语义级非词元级）", () => {
+    const cmd = `bash - <<'EOF'\necho kill ${mainPid}\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+  it("python heredoc 未闭合 → 拦（fail-closed，体不可信）", () => {
+    const cmd = `python3 - <<'EOF'\nopen('src/foo.ts').read()`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("裸定界符 python heredoc 只读体 → 放行（引号定界同待遇）", () => {
+    const cmd = `python3 - <<EOF\nprint(open('src/foo.ts').read())\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+  it("只读体 + 外层真重定向写主仓 → 仍拦截（体豁免不旁路重定向防线）", () => {
+    const cmd = `python3 - <<'EOF'\nprint(open('src/foo.ts').read())\nEOF\n> src/hacked.txt`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+});
+
+describe("#1207 delta r1/r2：体豁免反转后的攻防两面（检视獭-1207 严重 1/2 + 建议 1/2 + delta 2）", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+  // denylist 版被实证的绕过形态，全部必须保持拦截（fail-closed 白名单后不可回退）
+  it("[严重1] 假闭合利用链（体首 EOF = 0 + 宽版 closer 尾写）→ 拦（closer 已对齐 bash 语义）", () => {
+    const cmd = `python3 - <<'EOF'\nEOF = 0\nopen('/etc/hosts').read()\nEOF   \nopen('/tmp/review1207-marker','w').write('TAIL-WRITE-EXECUTED')\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("[严重1] 别名 import os as o + o.remove → 拦（别名 import 不豁免）", () => {
+    const cmd = `python3 - <<'EOF'\nimport os as o\no.remove('src/foo.ts')\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("[严重1] __import__('os').system('kill 主PID') → 拦（动态 import 不豁免）", () => {
+    const cmd = `python3 - <<'EOF'\n__import__('os').system('kill ${mainPid}')\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("[严重1] getattr 动态 kill → 拦（动态形态不豁免）", () => {
+    const cmd = `python3 - <<'EOF'\ngetattr(__import__('os'),'k'+'ill')(${mainPid})\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("[严重1] pathlib unlink → 拦（Path 方法面白名单外）", () => {
+    const cmd = `python3 - <<'EOF'\nfrom pathlib import Path\nPath('src/foo.ts').unlink()\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("[严重1] fileinput inplace → 拦（原 Known Limitations 点名形态，白名单外）", () => {
+    const cmd = `python3 - <<'EOF'\nimport fileinput\nfor l in fileinput.input('src/x.ts', inplace=True): print(l)\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("[严重2] node 计算键写 ['write'+'FileSync'] → 拦（计算成员调用不豁免）", () => {
+    const cmd = `node - <<'EOF'\nrequire('fs')['write'+'FileSync']('src/x.ts','x')\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("[严重2] node 别名 p['k'+'ill'](主PID) → 拦", () => {
+    const cmd = `node - <<'EOF'\nconst p=process\np['k'+'ill'](${mainPid})\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("[严重2] 未闭合 node heredoc 体 process.kill(主PID) → 拦（V1 OnText 挂点已补）", () => {
+    const cmd = `node - <<'EOF'\nprocess.kill(${mainPid});`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("[建议2] python3.11 版本体写主仓 → 拦（通道含小数点版本）", () => {
+    const cmd = `python3.11 - <<'PY'\nopen('src/foo.ts','w').write('x')\nPY`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("[建议2] /usr/bin/python3 只读体 → 放行（绝对路径解释器不误拦）", () => {
+    const cmd = `/usr/bin/python3 - <<'PY'\nprint(open('src/foo.ts').read())\nPY`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+  it("混合体：只读前缀掩开写 → 拦（open 无 mode 在白名单外）", () => {
+    const cmd = `python3 - <<'EOF'\nprint(open('src/a.ts').read()) if open('src/b.ts','w') else 0\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("bare 体含 $(...) → 拦（展开面在场不豁免）", () => {
+    const cmd = `python3 - <<EOF\n$(touch src/x.ts)\nprint(open('src/foo.ts').read())\nEOF`;
+    const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+  it("open('rb')/无 mode 默认只读/Path.read_text 继续放行（豁免面必要可用性）", () => {
+    for (const body of [
+      "print(open('src/foo.ts').read())",
+      "with open('src/foo.ts', 'rb') as f:\n    print(len(f.read()))",
+      "from pathlib import Path\nprint(Path('src/foo.ts').read_text()[:100])",
+    ]) {
+      const cmd = `python3 - <<'EOF'\n${body}\nEOF`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+    }
+  });
+
+  // ── delta r2（检视獭-1207 delta 2）：<<- dash 定界盲区 + S1 尾巴 + 白名单三高频点 ──
+  it("[delta2严重] <<- bash 体真 kill 主PID → 拦（HEREDOC_OPEN 加 \\-? 后整链可见）", () => {
+    const cmd = "bash - <<-'EOF'\n\tkill " + mainPid + "\n\tEOF";
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("[delta2严重] <<- node 体 process.kill(主PID) → 拦", () => {
+    const cmd = "node - <<-'EOF'\nprocess.kill(" + mainPid + ");\n\tEOF";
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("[delta2严重] <<- node 体 writeFileSync 写主仓 → 拦", () => {
+    const cmd = "node - <<-'EOF'\nrequire('fs').writeFileSync('src/x.ts','x');\n\tEOF";
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("[delta2] <<- python 只读体（tab 缩进 closer）→ 放行（closer 行首 TAB 语义）", () => {
+    const cmd = "python3 - <<-'PY'\n\tprint(open('src/foo.ts').read())\n\tPY";
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+  it("[delta2] <<- bare python 无展开只读体 → 放行", () => {
+    const cmd = "python3 - <<-EOF\nprint(open('src/foo.ts').read())\nEOF";
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+  it("[delta2] <<- bash 体 echo kill 字样（tab 缩进）→ 放行（递归语义级不误拦数据位）", () => {
+    const cmd = "bash - <<-'EOF'\n\techo kill " + mainPid + "\n\tEOF";
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+  it("[delta2-S1] 绝对路径 python 体写主仓 → 拦（多级目录通道）", () => {
+    const cmd = "/usr/local/bin/python3 - <<'PY'\nimport shutil\nshutil.rmtree('data/metrics')\nPY";
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("[delta2-白名单] glob.glob / pandas.read_csv / Path.open('r') 三高频只读 → 放行", () => {
+    for (const body of [
+      "import glob\nprint(glob.glob('src/**/*.ts', recursive=True))",
+      "import pandas as pd\ndf = pd.read_csv('data/a.csv')\nprint(df.head())",
+      "from pathlib import Path\nprint(Path('src/foo.ts').open('r').read())",
+    ]) {
+      const cmd = `python3 - <<'EOF'\n${body}\nEOF`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+    }
+  });
+  it("[delta2-白名单] 写面不豁免：df.to_csv / Path.open('w') / shutil → 拦", () => {
+    for (const body of [
+      "import pandas as pd\ndf = pd.read_csv('a.csv')\ndf.to_csv('src/out.csv')",
+      "from pathlib import Path\nPath('src/x.ts').open('w').write('x')",
+      "import shutil\nshutil.rmtree('data/metrics')",
+    ]) {
+      const cmd = `python3 - <<'EOF'\n${body}\nEOF`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+    }
+  });
+  it("[delta2-白名单] 非标准别名 import os as o 仍不豁免（标准别名只放 pandas as pd / numpy as np）", () => {
+    const cmd = `python3 - <<'EOF'\nimport os as o\no.remove('src/foo.ts')\nEOF`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // ── delta r3（检视 delta 2 终轮 (a)(b) 类修）：变量 mode 与反序列化执行面 ──
+  it("[delta3-a] 变量 mode 内建 open（m='w'）→ 拦（mode 槽位裸标识符不豁免）", () => {
+    const cmd = `python3 - <<'EOF'\nm = 'w'\nopen('src/foo.ts', m)\nEOF`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("[delta3-a] 变量 mode Path.open → 拦（pathlib 签名首参即 mode 槽位）", () => {
+    const cmd = `python3 - <<'EOF'\nm = 'w'\nPath('src/foo.ts').open(m)\nEOF`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("[delta3-a] mode=变量 → 拦（关键字 form 变量值）", () => {
+    const cmd = `python3 - <<'EOF'\nm = 'w'\nopen('src/foo.ts', mode=m)\nEOF`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("[delta3-b] yaml.load 自包含杀主PID → 拦（反序列化执行面）", () => {
+    const cmd = `python3 - <<'EOF'\nimport yaml\nyaml.load('!!python/object/apply:os.system ["kill ${mainPid}"]')\nEOF`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("[delta3-b] np.load allow_pickle=True / 变量旗标 → 拦", () => {
+    for (const body of [
+      `import numpy as np\nnp.load('/tmp/x.npy', allow_pickle=True)`,
+      `import numpy as np\nflag = True\nnp.load('/tmp/x.npy', allow_pickle=flag)`,
+    ]) {
+      const cmd = `python3 - <<'EOF'\n${body}\nEOF`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+    }
+  });
+  it("[delta3-b] joblib.load / dill.load / shelve.open → 拦（与 pickle 同执行面）", () => {
+    for (const body of [
+      "import joblib\njoblib.load('/tmp/x.pkl')",
+      "import dill\ndill.load('/tmp/x.pkl')",
+      "import shelve\ns = shelve.open('/tmp/x.db')",
+    ]) {
+      const cmd = `python3 - <<'EOF'\n${body}\nEOF`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+    }
+  });
+  it("[delta3-放行面] 无 mode/字面 'r'/encoding 关键字/json.load 句柄 → 仍放行（E5 可用性不回归）", () => {
+    for (const body of [
+      "print(open('src/foo.ts').read())",
+      "with open('src/foo.ts', 'r') as f:\n    print(f.read())",
+      "print(open('src/foo.ts', 'r', encoding='utf-8').read())",
+      "from pathlib import Path\nprint(Path('src/foo.ts').open('r').read())",
+      "import json\nprint(json.load(open('src/foo.json')))",
+      "import pandas as pd\ndf = pd.read_csv('data/a.csv')\nprint(df.head())",
+    ]) {
+      const cmd = `python3 - <<'EOF'\n${body}\nEOF`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+    }
+  });
+
+});
+
+describe("#1207 delta r4：检视出口不变式 1-3 矩阵测试（检测面 over-broad × 关键字白名单 × 子串级反序列化）", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+  it("[delta4-X1] pathlib 变量接收者 p.open('w') / p.open(m) → 拦（over-broad 检测面）", () => {
+    for (const body of [
+      "from pathlib import Path\np = Path('src/foo.ts')\np.open('w')",
+      "from pathlib import Path\nm = 'w'\np = Path('src/foo.ts')\np.open(m)",
+    ]) {
+      const cmd = `python3 - <<'PY'\n${body}\nPY`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+    }
+  });
+  it("[delta4-X2/X3] 模块前缀 io.open(p, m) / builtins.open(p, 'w') → 拦", () => {
+    for (const body of [
+      "import io\nm = 'w'\nio.open('src/foo.ts', m)",
+      "import builtins\nbuiltins.open('src/foo.ts', 'w')",
+    ]) {
+      const cmd = `python3 - <<'PY'\n${body}\nPY`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+    }
+  });
+  it("[delta4-X6] opener=/closefd=变量/**kwargs → 拦（关键字白名单，不变式 2）", () => {
+    for (const body of [
+      "import io\nopen('src/foo.ts', 'r', opener=io.open)",
+      "c = True\nopen('src/foo.ts', 'r', closefd=c)",
+      "k = {}\nopen('src/foo.ts', **k)",
+    ]) {
+      const cmd = `python3 - <<'PY'\n${body}\nPY`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+    }
+  });
+  // 不变式 3（反序列化子串级）→ 拦截面
+  it("[delta4-X4/X5] np.load(open(), allow_pickle=True) 嵌套括号 → 拦（子串级无跨括号盲区）", () => {
+    for (const body of [
+      "import numpy as np\nnp.load(open('/tmp/e.npy','rb'), allow_pickle=True)",
+      "import numpy as np\nnp.load((open('/tmp/e.npy','rb')), allow_pickle=True)",
+      "import numpy as np\nv = True\nnp.load(open('/tmp/e.npy','rb'), allow_pickle=v)",
+    ]) {
+      const cmd = `python3 - <<'PY'\n${body}\nPY`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+    }
+  });
+  it("[delta4-X7] yaml.load 定域禁 → 拦（unsafe 面）", () => {
+    const cmd = `python3 - <<'PY'\nimport yaml\nyaml.load(open('data/config.yaml'))\nPY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  // 放行面（Y1-Y6）：E5 可用性 + 检视建议项 yaml.safe_load
+  it("[delta4-Y] open 字面/关键字字面/yaml.safe_load/pandas 只读 → 放行", () => {
+    for (const body of [
+      "import re\ns = open('src/foo.ts').read()\nprint(len(s))",
+      "from pathlib import Path\nprint(open('src/foo.ts', 'r').read())\nprint(Path('src/foo.ts').open('rb').read()[:10])",
+      "print(open('src/foo.ts', encoding='utf-8').read())\nprint(open('src/foo.txt', newline='').read())",
+      "from pathlib import Path\nimport json\nprint(Path('src/foo.ts').open('r').read()[:10])\nprint(json.load(open('src/foo.json')))",
+      "import pandas as pd\ndf = pd.read_csv('data/a.csv')\nprint(df.head())",
+      "import yaml\nprint(yaml.safe_load(open('data/config.yaml')))",
+    ]) {
+      const cmd = `python3 - <<'PY'\n${body}\nPY`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+    }
+  });
+});
+
 describe("F20260923qbsw 引号盲重定向/复合切断误拦修复（#984 循环拦截事故）", () => {
   const mainPid = 42877;
   const projectRoot = "/repo";
