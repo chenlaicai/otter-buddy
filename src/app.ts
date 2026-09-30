@@ -26,7 +26,7 @@ import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gat
 import {
   syncApiKeyToAgentAuth, initDatabaseAndModels, initRepositoriesWithDb,
   postInitDatabase, postSyncMigrations, validateModelAliases, shutdownDatabase,
-  verifyEmbeddingVersion,
+  verifyEmbeddingVersion, setupDelayedReconcile,
 } from "./bootstrap/database";
 import { createMemoryIndex, syncDocuments, createAndStartRetryWorker } from "./bootstrap/memory";
 import { initUseCases } from "./bootstrap/usecases";
@@ -104,6 +104,8 @@ export interface BuildAppOptions {
   startRhiWorker?: boolean;
   /** F20260916b1ea：重启自动恢复服务启动开关（对齐 startScheduler 模式；测试/CI 可关） */
   startResume?: boolean;
+  /** F20260929roiv：启动窗口期孤儿 invoke 延迟 reconcile 开关（对齐 startRhiWorker 模式；测试/CI 可关） */
+  enableDelayedReconcile?: boolean;
   /** 测试注入预构建模型（如 initFauxModels），跳过 initModels */
   models?: { model: Model<Api>; modelPool?: ModelPool };
 }
@@ -264,6 +266,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   if (options.startRhiWorker ?? true) {
     patrolWorker.start();
   }
+
+  // F20260929roiv：启动窗口期孤儿 invoke 兜底——延迟 5s 补跑一次 reconcile，
+  // 覆盖窗口期；fire-and-forget 不阻塞启动，失败仅日志（对齐既有 non-fatal 纪律）。
+  const delayedReconcileTimer = setupDelayedReconcile(options, db, repos, logger);
 
   if (modelPool) validateModelAliases(db, modelPool, logger);
   
@@ -630,6 +636,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     dispose: async () => {
       if (disposed) return;
       disposed = true;
+      // F20260929roiv：停延迟 reconcile 定时器（防进程退出后回调炸）
+      if (delayedReconcileTimer) clearTimeout(delayedReconcileTimer);
       // #460：停飞书长连接 WSClient（重连机制会阻止退出，根因之四）
       feishuScan.disposeAll(); // F20260929fsqr：扫码线持有全部飞书 WS 句柄，dispose 时统一停（原 feishuStop 随静态线退役）
       // F20260829wxch（#213 检视发现2）：停微信长轮询通道——否则 SIGINT/SIGTERM 时

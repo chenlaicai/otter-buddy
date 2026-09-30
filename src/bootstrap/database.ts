@@ -85,7 +85,7 @@ export function initRepositoriesWithDb(db: Database.Database, logger?: Logger): 
  * 指向 system entry——定时任务有自己的重触发语义，误恢复会重复产出）。
  * 失败仅日志不阻断启动（对齐既有 non-fatal 纪律）。
  */
-async function reconcileRunningInvokes(db: Database.Database, repos: Repositories, logger: Logger): Promise<void> {
+export async function reconcileRunningInvokes(db: Database.Database, repos: Repositories, logger: Logger): Promise<void> {
   let failedInvokes: Awaited<ReturnType<typeof repos.invoke.failRunningInvokes>>;
   try {
     failedInvokes = await repos.invoke.failRunningInvokes(new Date().toISOString());
@@ -336,4 +336,23 @@ export function syncApiKeyToAgentAuth(llmConfig: AppConfig["llm"], logger: Logge
     fs.writeFileSync(authPath, JSON.stringify(auth, null, 2), { mode: 0o600 });
     logger.info(`Synced API keys to ${authPath}`);
   }
+}
+
+/** F20260929roiv：启动窗口期孤儿 invoke 延迟 reconcile 设置 */
+export function setupDelayedReconcile(
+  options: { enableDelayedReconcile?: boolean },
+  db: Database.Database,
+  repos: Repositories,
+  logger: Logger,
+): ReturnType<typeof setTimeout> | undefined {
+  if (!(options.enableDelayedReconcile ?? true)) return undefined;
+  const timer = setTimeout(() => {
+    reconcileRunningInvokes(db, repos, logger).catch((err) => {
+      logger.warn("Delayed reconcile failed (non-fatal)", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }, 5000);
+  if (timer.unref) timer.unref();
+  return timer;
 }
