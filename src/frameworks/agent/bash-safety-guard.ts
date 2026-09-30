@@ -1,5 +1,7 @@
 /**
  * Bash 命令安全守卫（F20260830bsgr）。
+ * 宪法：docs/designs/bash-guard-constitution.md——改本文件行为 的 PR 必答三问
+ * （挂哪层/carve-out/退役条件），新规则必须挂靠五层之一，见宪法「生长规则」。
  *
  * 防止 LLM 通过 bash 工具直接 kill 主进程 PID。
  * 8/30 事故根因：小獭 7708a033 在开发任务中执行 `kill 42877` 直接杀了主进程。
