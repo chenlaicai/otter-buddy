@@ -21,17 +21,28 @@ import { loadAllowedServicePorts } from "./allowed-service-ports";
  * 守卫的静态文案只提供「worktree 隔离/告知搭档」两条路，对外部项目 dev server 重启类
  * 正当诉求失效（6 次变体重试实证）——本函数在拦截发生时检查端口白名单文件是否存在：
  *   - 已配置：提示用 restart-service 受控脚本 + 已声明的端口列表；
- *   - 未配置：提示「搭档创建 .otter/allowed-service-ports.json 后即可走受控路径」。
+ *   - 未配置：提示 restart-service --add 现场声明路径（#1069），或搭档创建白名单文件。
  * 静态文案零改动（测试断言友好），追加段动态生成。IO 异常静默退化为原文案。
+ *
+ * #1207（F20260930l573）：引导改为命令感知——只在命令真实命中进程操作形态
+ *（kill 族/lsof -ti/pkill/killall/restart-service 自身）时附加。此前无差别附加导致
+ * 只读 python heredoc 探查被拦时文案里出现 dev-server 重启引导（issue #1207
+ * 9/29 09:06 案例：判定层拦的是 heredoc patch 通道，引导层又叠了不相关建议，
+ * 两条线索都没指向真实原因）。
  */
-function appendDevServerGuidance(reason: string, projectRoot: string): string {
+const PROCESS_OPS_SHAPE = /\b(?:p?kill|killall\d?|pgrep|skill|lsof)\b|restart-service/;
+
+function appendDevServerGuidance(reason: string, projectRoot: string, command?: string): string {
+  // 命令感知：非进程操作形态的拦截（heredoc 探查/重定向/主仓写等）不附加 dev-server
+  // 引导——内容与拦截原因无关，只会误导排查方向。command 未传（历史调用方）保持旧行为。
+  if (command !== undefined && !PROCESS_OPS_SHAPE.test(command)) return reason;
   try {
     const allowed = loadAllowedServicePorts(projectRoot);
     if (allowed.length > 0) {
       const ports = allowed.map(s => s.port).join("、");
-      return `${reason}\n【自有项目 dev server】检测到端口白名单（已声明端口：${ports}）。重启自有项目 dev server 请用受控脚本：node scripts/restart-service.mjs <port>（脚本内部做 PID/cwd 校验后终止）。`;
+      return `${reason}\n【自有项目 dev server】检测到端口白名单（已声明端口：${ports}）。重启自有项目 dev server 请用受控脚本：node scripts/restart-service.mjs <port>（脚本内部做 PID/cwd 校验后终止）；端口未声明且项目在 otter 工作根内的，可加 --project /abs/path --add 现场声明（#1069）。`;
     }
-    return `${reason}\n【自有项目 dev server】如需重启自有项目的 dev server：请搭档创建 ${projectRoot}/.otter/allowed-service-ports.json（格式见 docs/features/2026/09/14/ 下 F20260914dsrv 文档），然后用受控脚本 node scripts/restart-service.mjs <port>。`;
+    return `${reason}\n【自有项目 dev server】如需重启自有项目的 dev server：node scripts/restart-service.mjs <port> --project /abs/path --add 可现场声明并重启（#1069，限 otter 工作根内项目，脚本内部做 PID/cwd 校验）；范围外项目请搭档创建 ${projectRoot}/.otter/allowed-service-ports.json（格式见 docs/features/2026/09/14/ 下 F20260914dsrv 文档）。`;
   } catch {
     return reason;
   }
@@ -285,7 +296,7 @@ export function attachCircuitBreaker(
     const rawSafetyBlock = checkBashCommandSafety(command, mainPid, logger, { projectRoot: options?.projectRoot });
     if (!rawSafetyBlock) return false;
     const isSleepBlock = rawSafetyBlock.startsWith(SLEEP_REASON_PREFIX);
-    const safetyBlock = appendDevServerGuidance(stripSleepMarkerIfPresent(rawSafetyBlock), options?.projectRoot ?? process.cwd());
+    const safetyBlock = appendDevServerGuidance(stripSleepMarkerIfPresent(rawSafetyBlock), options?.projectRoot ?? process.cwd(), command);
     logger.warn("[bash-safety-guard] BLOCKED dangerous bash command", {
       otterId,
       mainPid,

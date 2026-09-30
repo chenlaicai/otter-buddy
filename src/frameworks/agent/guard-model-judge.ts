@@ -49,8 +49,11 @@ const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
 
 // ────────────────────────────── 工具函数 ──────────────────────────────
 
-/** 段的「有效命令名」：剥 wrapper 前缀词与赋值前缀后的 argv0（V1 stripCommandPrefixes 模型版） */
-function effectiveCommand(seg: Segment): { name: string | null; args: Array<string | null>; argWords: Segment["words"] } {
+/** 段的「有效命令名」：剥 wrapper 前缀词与赋值前缀后的 argv0（V1 stripCommandPrefixes 模型版）。
+ *  #1207 delta r1（检视建议 1）：guard≤8 超界（≥9 层 wrapper 叠加）返回 null（kill 判定保守侧）
+ *  而非把 wrapper 词当 argv0——初版超界后 argv0 落在 wrapper 词上 kill 段失认 → 放行方向。
+ *  与 V1 for i<8 同界但超界方向相反（V1 存量面，本 PR 内对齐保守侧）。 */
+function effectiveCommand(seg: Segment): { name: string | null; args: Array<string | null>; argWords: Segment["words"]; wrapperSaturated: boolean } {
   let words = seg.words;
   // 赋值前缀已在模型层拆出（assignments）——直接剥 wrapper 词
   let guard = 0;
@@ -58,21 +61,27 @@ function effectiveCommand(seg: Segment): { name: string | null; args: Array<stri
     const w0 = words[0].evaluated;
     if (w0 !== null && WRAPPER_WORDS.has(w0)) {
       words = words.slice(1);
-      // wrapper 参数（-n1 / 5 / VAR=val）跳过一个（timeout 5 / xargs -n1）
-      if (words.length > 0) {
+      // #1207（F20260930l573）：wrapper 参数连剥——V1 stripCommandPrefixes 的 PREFIX_ARG
+      // 是 while 循环剥全部旗标/数字/赋值参数（xargs -n1 -I{} / nice -n 5 多参数形态），
+      // 此前只剥一个会让 argv0 落在剩余 wrapper 参数上（-I{}），kill 段失认 →
+      // #760 A4 管道右段 kill 形态漏拦回归。与 V1 对齐为循环连剥（guard 同界）。
+      while (words.length > 0) {
         const w1 = words[0].evaluated;
-        if (w1 !== null && (/^-/.test(w1) || /^\d+$/.test(w1) || /^[A-Za-z_]\w*=/.test(w1))) {
-          words = words.slice(1);
-        }
+        if (w1 === null || !(/^-/.test(w1) || /^\d+$/.test(w1) || /^[A-Za-z_]\w*=/.test(w1))) break;
+        words = words.slice(1);
       }
       continue;
     }
     break;
   }
+  // 超界仍未见真命令（剥完首词仍是 wrapper 词 = guard 上限截断）→ 饱和标记，
+  // 由 judgeKillSegment 保守拦（delta r1：返回 name:null 会让段被当非 kill 跳过 = fail-open）
+  const wrapperSaturated = words.length > 0 && words[0].evaluated !== null && WRAPPER_WORDS.has(words[0].evaluated);
   return {
-    name: words[0]?.evaluated ?? null,
+    name: wrapperSaturated ? null : (words[0]?.evaluated ?? null),
     args: words.slice(1).map(w => w.evaluated),
     argWords: words.slice(1),
+    wrapperSaturated,
   };
 }
 
@@ -168,10 +177,16 @@ function judgeKillSegment(
   allowedServices: AllowedService[],
   depth: number,
 ): string | null {
-  const { name } = effectiveCommand(seg);
+  const { name, args, wrapperSaturated } = effectiveCommand(seg);
   // r1-S1：argv0 不可求值（含 var part，如 kill${IFS}42877）→ 首词 lit 前缀检测
   const ifs = matchIfsSplitKillPrefix(seg, mainPid, logger, depth);
   if (ifs) return ifs;
+  // delta r1（检视建议 1）：wrapper 叠加超过静态判定上限 → 段不可判定 → 保守拦
+  //（kill 可能藏在更深处；放行= fail-open，与 #760 血训同向）
+  if (wrapperSaturated) {
+    logger?.warn("[guard-v2] BLOCKED wrapper-saturated segment (beyond static analysis bound)", { mainPid, depth });
+    return "bash 命令的 wrapper 命令（env/nice/timeout 等）叠加层数超过静态判定上限，无法确认段内是否含终止进程操作。该命令不允许：请简化命令结构（减少前缀叠加层数）后重试；无法简化时告知搭档人工执行。";
+  }
   if (name === null) return null;
   const bare = name.includes("/") ? name.split("/").pop()! : name;
   const isPkill = PKILL_NAMES.has(bare);
@@ -206,10 +221,13 @@ function judgeKillSegment(
   // 管道右段：stdin 即间接来源（V1 pipeSourced 语义：lsof|grep|xargs 链尾的
   // kill / xargs kill 从 stdin 读目标——上游存在且非白名单 lsof → 间接拦。
   // 字面参数判定用剥 wrapper 后的参数位（xargs kill 段的 kill 是命令位非参数））
+  // #1207（F20260930l573）：字面参数收窄为「字面量 PID 参数」（纯数字，剥子 shell
+  // 括号尾同 V1 #777 口径）——`kill {}` 的 xargs 占位符不是字面 PID，此前被当
+  // 字面参数放过管道右段间接判定（#760 A4 回归的另一半）。
   const upstream = pipeUpstreamAt(model, segIdx);
   if (upstream && !isWhitelistedLsofSegment(upstream, allowedServices)) {
-    const effArgs = effectiveCommand(seg).args;
-    const hasLiteralArgs = effArgs.some(a => a !== null && !a.startsWith("-"));
+    const effArgs = args;
+    const hasLiteralArgs = effArgs.some(a => a !== null && /^\d+$/.test(a.replace(/^[()]+|[()]+$/g, "")));
     if (!hasLiteralArgs || upstream.words.some(w => w.evaluated === "xargs")) {
       if (killVarSourcedFromWhitelistedLsof(seg, model, allowedServices)) return null;
       logger?.warn("[guard-v2] BLOCKED kill via pipe (stdin-sourced target)", { mainPid, depth });
@@ -674,11 +692,11 @@ function effectiveCommandOfSegment(seg: Segment): string | null {
     const w0 = words[0].evaluated;
     if (w0 !== null && WRAPPER_WORDS_FOR_WRITE.has(w0)) {
       words = words.slice(1);
-      if (words.length > 0) {
+      // #1207（F20260930l573）：参数连剥与 effectiveCommand 同步对齐 V1 语义
+      while (words.length > 0) {
         const w1 = words[0].evaluated;
-        if (w1 !== null && (/^-/.test(w1) || /^\d+$/.test(w1) || /^[A-Za-z_]\w*=/.test(w1))) {
-          words = words.slice(1);
-        }
+        if (w1 === null || !(/^-/.test(w1) || /^\d+$/.test(w1) || /^[A-Za-z_]\w*=/.test(w1))) break;
+        words = words.slice(1);
       }
       continue;
     }
