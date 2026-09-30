@@ -1,6 +1,6 @@
 ---
 task_name: 每日对话健康检查
-budget_bytes: 9200
+budget_bytes: 9600
 ---
 
 请回顾昨天的所有对话，发现系统和海獭们的问题，按问题拆分提交 GitHub issue（label: daily-review）。
@@ -29,7 +29,7 @@ budget_bytes: 9200
 「看见」≠「处置」。拉取后逐条处置，禁止只列数字。处置动作**必须调 `triage_signal` 留痕写库**（对账公式自动生成）：
 
 1. **全部 critical**：`list_rhi_signals(status=open, severity=critical)` 拉清单逐条处置
-2. **逐条三选一**（选完立即留痕）：开 issue/并入 → `bind_issue, issueNumber=N, note=判断依据`；不处置 → `dismiss, note=必填（观察期语义在 note）`；在途 → `in_progress`（前置已 bind_issue）
+2. **逐条三选一**（选完立即留痕）：开 issue/并入 → `bind_issue, issueNumber=N, note=判断依据`；不处置 → `dismiss, note=必填（观察期语义在 note）`；在途 → `in_progress`（前置已 bind_issue）。同类型 >10 条同归口 → `batch_bind`（filterSignalType/filterSeverity + issueNumber，单批 100、truncated 再执行）批量 bind。异质处置（不同类型/不同结论）逐条调用注意：纯 triage_signal 连续 >5 次仍会撞「连续同构调用」守卫——穿插 list_rhi_signals 或按类型分组用 batch_bind 打散节奏
 3. **未接单存量**：`list_rhi_signals(status=open, triageStatus=null)` 全部归口
 4. **warning 扫视**：同类型 ≥5 条指向同一模块 → 按 critical；零散汇总一行
 5. **闭环自检**：「critical N → 开 M/并入 K/dismiss D，M+K+D=N」自动生成；对不上 = 有信号被沉默跳过，补查

@@ -49,6 +49,21 @@ export interface UpsertSignal {
   confidence?: string | null;
 }
 
+/** #1052：批量归口过滤条件（与 healing batchResolveByFilter 同模式） */
+export interface SignalBatchBindFilter {
+  signalType?: string;
+  severity?: string;
+}
+
+/** #1052：批量归口结果（字段名与 healing BatchResolveResult 对齐：matched/truncated/totalMatched） */
+export interface SignalBatchBindResult {
+  matched: number;
+  bound: number;
+  boundIds: number[];
+  truncated: boolean;
+  totalMatched: number;
+}
+
 export class SignalRepository {
   constructor(private readonly db: Database.Database) {}
 
@@ -269,6 +284,71 @@ export class SignalRepository {
       WHERE id = ? AND status = 'open'`)
       .run(now, opts.note.trim(), id);
     return { ok: true, record: this.findById(id) };
+  }
+
+  /** #1052：未接单信号批量归口——150 条逐条 triage_signal 被「连续同构调用」守卫阻断的根治。
+   *  照 healing batchResolveByFilter 成熟模式：单事务 count+match+update 原子执行、
+   *  LIMIT 100 单批、truncated 标志、dryRun 预览。
+   *  语义边界（与单条 bind_issue 的差异，设计取舍见特性文档）：
+   *  - 只作用于未接单（status='open' AND triage_status IS NULL）——已 triaged/
+   *    in_progress 的信号不参与（批量换绑属异质操作，走单条 bind_issue）
+   *  - 每条等价单条 bind_issue：triaged + issue_number + triaged_at + note（COALESCE 保留旧 note）
+   *  - first_seen ASC 先老后新（与 findByTriageStatus 未接单清单同序——处置最久远优先） */
+  batchBindIssue(
+    filter: SignalBatchBindFilter,
+    issueNumber: number,
+    opts: { note?: string; now?: Date; limit?: number; dryRun?: boolean } = {},
+  ): SignalBatchBindResult {
+    const limit = opts.limit ?? 100;
+    const dryRun = opts.dryRun ?? false;
+    const now = (opts.now ?? new Date()).toISOString();
+
+    // Why: 动态 WHERE——固定未接单两条件 + 可选 filter（healing 同模式）
+    const clauses: string[] = ["status = 'open'", "triage_status IS NULL"];
+    const params: unknown[] = [];
+    if (filter.signalType) {
+      clauses.push("signal_type = ?");
+      params.push(filter.signalType);
+    }
+    if (filter.severity) {
+      clauses.push("severity = ?");
+      params.push(filter.severity);
+    }
+    const where = clauses.join(" AND ");
+
+    const countMatched = (): number =>
+      (this.db.prepare(`SELECT COUNT(*) as cnt FROM signals WHERE ${where}`).get(...params) as { cnt: number }).cnt;
+
+    if (dryRun) {
+      const cnt = countMatched();
+      return { matched: cnt, bound: 0, boundIds: [], truncated: false, totalMatched: cnt };
+    }
+
+    // Why: 单事务保证 count + match + update 原子性（healing 同模式）
+    return this.db.transaction(() => {
+      const totalMatched = countMatched();
+      const matchedRows = this.db.prepare(
+        `SELECT id FROM signals WHERE ${where} ORDER BY first_seen ASC LIMIT ?`,
+      ).all(...params, limit) as Array<{ id: number }>;
+      if (matchedRows.length === 0) {
+        return { matched: 0, bound: 0, boundIds: [], truncated: false, totalMatched };
+      }
+      const ids = matchedRows.map((r) => r.id);
+      const placeholders = ids.map(() => "?").join(", ");
+      const bound = this.db.prepare(`UPDATE signals SET
+          triage_status = 'triaged', issue_number = ?, triaged_at = ?,
+          triage_note = COALESCE(?, triage_note)
+        WHERE id IN (${placeholders})`)
+        .run(issueNumber, now, opts.note ?? null, ...ids).changes;
+      return {
+        matched: ids.length,
+        bound,
+        boundIds: ids,
+        // Why: truncated 让调用方知道还有剩余未处置（100 上限截断，需再次执行）
+        truncated: totalMatched > ids.length,
+        totalMatched,
+      };
+    })();
   }
 
   /** F20260917trig：按处置状态查询（list_rhi_signals 工具的 triageStatus 过滤数据源）。
