@@ -160,9 +160,11 @@ function makeHarness(): Harness {
       const invokeId = opts.invokeId ?? crypto.randomUUID();
       const userEntryId = crypto.randomUUID();
       const createdAt = opts.userEntryCreatedAt ?? T0;
+      // #906：entries (conversation_id, sequence_num) 已 UNIQUE——同 conversation 多次
+      // seed（healing 落账测试 seed 两次）不能用硬编码 seq=1，改 MAX+1（与 createEntryAtomic 同款）
       db.prepare(`
         INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, status, sender_name, created_at, completed_at)
-        VALUES (?, 'conv-1', 1, 'user', 'user', 'chen', '开工', NULL, ?, 'completed', '搭档', ?, ?)
+        VALUES (?, 'conv-1', (SELECT COALESCE(MAX(sequence_num), 0) + 1 FROM entries WHERE conversation_id = 'conv-1'), 'user', 'user', 'chen', '开工', NULL, ?, 'completed', '搭档', ?, ?)
       `).run(userEntryId, opts.userYieldTargets === null ? null : JSON.stringify(opts.userYieldTargets ?? [otterId]), createdAt, createdAt);
       db.prepare(`
         INSERT INTO invokes (id, conversation_id, otter_id, status, trigger_entry_id, started_at)
