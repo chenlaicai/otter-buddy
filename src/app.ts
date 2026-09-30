@@ -248,6 +248,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // F20260930roiv：+ invoke 孤儿 reconcile（带 bootTs 守卫，周期 1h 兜底窗口期漏网；
   //  守卫语义：只清「启动前遗留」，本进程内卡死的 running invoke 不在其范围）。
   // 失败隔离：一家炸了不影响后续家；周期 1h（四家原节奏已对齐，无时钟语义变化）。
+  // issue #1252 遗留问题2：构造保持原位（duty 闭包延迟绑定），但 start() 必须移到
+  // initAgentAndScheduler（schedulerService 初始化）之后——PatrolWorker.start 立即同步跑首轮
+  // tick，'scheduler-reconcile' duty 在 schedulerService TDZ 期内执行会抛
+  // "Cannot access 'schedulerService' before initialization"（9/30 启动日志实证）。
   const patrolWorker = new PatrolWorker([
     { name: 'scheduler-reconcile', run: () => schedulerService.reconcileMissedWindowsNow() },
     { name: 'signal-aging', run: async () => { await signalAgingWorker.scanOnce(); } },
@@ -257,12 +261,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     createInvokeOrphanReconcileDuty(db, repos, logger),
     ...(retryWorker ? [{ name: 'embedding-retry', run: () => retryWorker.tickNow() }] : []),
   ], logger);
-  if (options.startRhiWorker ?? true) {
-    patrolWorker.start();
-  }
   // F20260930roiv：启动窗口期孤儿 invoke 兜底——延迟 10s 补跑一次 reconcile（带 bootTs 守卫），
   // 覆盖窗口期；fire-and-forget 不阻塞启动，失败仅日志（对齐既有 non-fatal 纪律）。
   const delayedReconcileTimer = setupDelayedReconcile(options, db, repos, logger);
+  // issue #1252 遗留问题2：patrolWorker.start 原在此处（startRhiWorker 分支）——移至
+  // initAgentAndScheduler 之后（见下）消除 schedulerService TDZ；本标志供 dispose 防御。
+  let patrolWorkerStarted = false;
   if (modelPool) validateModelAliases(db, modelPool, logger);
   
   // ── 对话工作区 ──
@@ -323,6 +327,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics: schedulerMetrics, agentMetrics, dispatchChainEngine, db, appConfig: config, modelPool, otterConfigProvider });
   // F20260920uhuc：统一交接入口回填（otter tool client 延迟绑定）
   agentInvokerRef.current = agentInvoker;
+
+  // issue #1252：patrolWorker.start 移至 schedulerService 初始化之后（TDZ 修复，
+  // 构造块原位——闭包延迟绑定不随位置变化）。
+  if (options.startRhiWorker ?? true) {
+    patrolWorker.start();
+    patrolWorkerStarted = true;
+  }
 
   // ── F20260902sgp2 S2：信号路由器重挂（v2 语义：pending = 派发台账）──
   // rbsg 回滚的两大根因已在 v2 消除：
@@ -645,7 +656,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       // F20260812mrcq Part 1：先停 retry worker 再关 DB
       retryWorker?.stopSync();
       // #949：巡检 worker 统一停（原 RHI/Signal Aging/运行时对账/Embedding Retry 的定时器）
-      await patrolWorker.stop();
+      // issue #1252：start 已移至 initAgentAndScheduler 之后——startRhiWorker=false 时从未
+      // start 的 worker 也可能在 dispose 中被 stop（PatrolWorker.stop 内部冝等，防御冗余）。
+      if (patrolWorkerStarted) {
+        await patrolWorker.stop();
+      }
       // await metric flush 到文件，确保进程退出前数据落盘
       try {
         await metricsRegistry.dispose();
