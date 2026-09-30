@@ -24,7 +24,7 @@ import { loadAllowedServicePorts } from "./allowed-service-ports";
  *   - 未配置：提示「搭档创建 .otter/allowed-service-ports.json 后即可走受控路径」。
  * 静态文案零改动（测试断言友好），追加段动态生成。IO 异常静默退化为原文案。
  *
- * #1207（F20260929hcwd）：引导改为命令感知——只在命令真实命中进程操作形态
+ * #1207（F20260930l573）：引导改为命令感知——只在命令真实命中进程操作形态
  *（kill 族/lsof -ti/pkill/killall/restart-service 自身）时附加。此前无差别附加导致
  * 只读 python heredoc 探查被拦时文案里出现 dev-server 重启引导（issue #1207
  * 9/29 09:06 案例：判定层拦的是 heredoc patch 通道，引导层又叠了不相关建议，

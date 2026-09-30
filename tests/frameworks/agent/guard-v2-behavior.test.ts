@@ -238,7 +238,7 @@ describe("#1207 + #760 A4：xargs 多参数 wrapper 剥除不完整致管道右�
   it("ls -n1 -I{} 形态参数的非 kill 命令 → 放行", () => {
     expect(checkBashCommandSafety("printf '%s\\n' a b", mainPid)).toBeNull();
   });
-  // 连剥扩展面（F20260929hcwd 补充：多 wrapper 叠加/多参数形态）
+  // 连剥扩展面（F20260930l573 补充：多 wrapper 叠加/多参数形态）
   it("echo 42877 | xargs -n1 -I{} -P8 kill {} → 拦（三参数连剥）", () => {
     expect(checkBashCommandSafety("echo 42877 | xargs -n1 -I{} -P8 kill {}", mainPid)).toBeTruthy();
   });

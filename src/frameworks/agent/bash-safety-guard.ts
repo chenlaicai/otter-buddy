@@ -622,7 +622,7 @@ function extractRedirectTarget(command: string): string | null {
   return m?.[1] ?? null;
 }
 
-// ── #1207（F20260929hcwd）：heredoc 体感知判定（delta r1：豁免方向反转）──
+// ── #1207（F20260930l573）：heredoc 体感知判定（delta r1：豁免方向反转）──
 // 根因：MAIN_WRITE_PATTERNS[1]（python heredoc patch 通道）按通道形态整体拦，
 // 只读探查（open().read/print）与写补丁（open('w').write）共用同一通道形态被
 // 无差别拦截（issue #1207 9/29 09:06 实时案例）。
@@ -649,7 +649,7 @@ const isPythonHeader = (header: string): boolean => /^python(?:\d+(?:\.\d+)?)?$/
 const isNodeHeader = (header: string): boolean => /^node(?:\d+)?$/.test(heredocInterpreter(header));
 const isShellHeader = (header: string): boolean => /^(?:bash|sh|zsh|dash|ksh)(?:\d+)?$/.test(heredocInterpreter(header));
 
-/** python 只读白名单（F20260929hcwd delta r1，可调用名门设计）：
+/** python 只读白名单（F20260930l573 delta r1，可调用名门设计）：
  *  三道门全过才算只读——①体内出现的**所有**可调用名都在白名单集；②无危险
  *  属性接触面（`os` 模块访问面全量禁——os.kill/system/remove 与 os.getcwd 同以
  *  `os.` 开头，前缀扫描不可靠）；③无动态形态（__import__ / getattr / globals /
@@ -941,7 +941,7 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
   if (!gitReadonlyCmd) {
     for (const [pi, pattern] of MAIN_WRITE_PATTERNS.slice(1).entries()) {
       if (!pattern.test(command)) continue;
-      // #1207（F20260929hcwd）：pattern[0] 是 python heredoc patch 通道——体感知判定，
+      // #1207（F20260930l573）：pattern[0] 是 python heredoc patch 通道——体感知判定，
       // 纯只读体放行（写/执行签名、非 python 解释器体均不豁免，见 PY_BODY_WRITE_SIG 注）。
       // heredocReadOnly 缺省（V1 兑底链：体已剥离不可判定）→ 不豁免，保守拦。
       if (pi === 0 && heredocReadOnly) continue;
@@ -991,7 +991,7 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
   return null;
 }
 
-// ── #1207（F20260929hcwd）：shell/node heredoc 体级判定（delta r1：白名单反转）──
+// ── #1207（F20260930l573）：shell/node heredoc 体级判定（delta r1：白名单反转）──
 // 初版 node 体用危险签名 denylist（不命中即放行）——计算键 p['k'+'ill'] /
 // require()['w'+'riteFileSync'] 等 JS 日常形态绕过（检视獭探针实证），且「V1
 // OnText 挂点」声明失实。delta r1：node 体反转为只读白名单（白名单外一律拦，
@@ -1069,7 +1069,7 @@ function checkWhenMainPidMissing(
   // 差异：只需命令文本/projectRoot，无退化理由）
   const pidFree = checkPidIndependentRules(command, logger, guardOptions?.projectRoot);
   if (pidFree) return withDiagnostics(pidFree, command, null);
-  // #1207（F20260929hcwd）：heredoc 体级判定不依赖 PID（shell 体递归在 PID=0 下
+  // #1207（F20260930l573）：heredoc 体级判定不依赖 PID（shell 体递归在 PID=0 下
   // 与 V1 主链同口径保守放行 kill，不引入额外缺口）
   const bodyHit = checkHeredocScriptBodies(command, { mainPid: 0, logger, allowedServices: [], projectRoot: guardOptions?.projectRoot });
   return bodyHit ? withDiagnostics(bodyHit, command, null) : null;
@@ -1119,11 +1119,11 @@ export function checkBashCommandSafety(
     if (scriptKill) return withDiagnostics(scriptKill, command, mainPid);
     const dataDestructive = checkDataDirDestructive(command, logger, projectRoot);
     if (dataDestructive) return withDiagnostics(dataDestructive, command, mainPid);
-    // #1207（F20260929hcwd）：主仓写检测在原始命令上跑（heredoc 体在场），
+    // #1207（F20260930l573）：主仓写检测在原始命令上跑（heredoc 体在场），
     // 体感知判定在此计算后传入——只豁免纯只读 python heredoc 体
     const mainWrite = checkMainCheckoutWrite(command, logger, projectRoot, pythonHeredocBodiesReadOnly(command));
     if (mainWrite) return withDiagnostics(mainWrite, command, mainPid);
-    // #1207（F20260929hcwd）：shell/node heredoc 体级危险判定（原始命令，体在场）
+    // #1207（F20260930l573）：shell/node heredoc 体级危险判定（原始命令，体在场）
     const bodyHit = checkHeredocScriptBodies(command, { mainPid, logger, allowedServices, projectRoot });
     if (bodyHit) return withDiagnostics(bodyHit, command, mainPid);
     return null;

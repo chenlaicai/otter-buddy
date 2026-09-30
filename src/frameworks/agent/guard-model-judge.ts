@@ -61,7 +61,7 @@ function effectiveCommand(seg: Segment): { name: string | null; args: Array<stri
     const w0 = words[0].evaluated;
     if (w0 !== null && WRAPPER_WORDS.has(w0)) {
       words = words.slice(1);
-      // #1207（F20260929hcwd）：wrapper 参数连剥——V1 stripCommandPrefixes 的 PREFIX_ARG
+      // #1207（F20260930l573）：wrapper 参数连剥——V1 stripCommandPrefixes 的 PREFIX_ARG
       // 是 while 循环剥全部旗标/数字/赋值参数（xargs -n1 -I{} / nice -n 5 多参数形态），
       // 此前只剥一个会让 argv0 落在剩余 wrapper 参数上（-I{}），kill 段失认 →
       // #760 A4 管道右段 kill 形态漏拦回归。与 V1 对齐为循环连剥（guard 同界）。
@@ -221,7 +221,7 @@ function judgeKillSegment(
   // 管道右段：stdin 即间接来源（V1 pipeSourced 语义：lsof|grep|xargs 链尾的
   // kill / xargs kill 从 stdin 读目标——上游存在且非白名单 lsof → 间接拦。
   // 字面参数判定用剥 wrapper 后的参数位（xargs kill 段的 kill 是命令位非参数））
-  // #1207（F20260929hcwd）：字面参数收窄为「字面量 PID 参数」（纯数字，剥子 shell
+  // #1207（F20260930l573）：字面参数收窄为「字面量 PID 参数」（纯数字，剥子 shell
   // 括号尾同 V1 #777 口径）——`kill {}` 的 xargs 占位符不是字面 PID，此前被当
   // 字面参数放过管道右段间接判定（#760 A4 回归的另一半）。
   const upstream = pipeUpstreamAt(model, segIdx);
@@ -692,7 +692,7 @@ function effectiveCommandOfSegment(seg: Segment): string | null {
     const w0 = words[0].evaluated;
     if (w0 !== null && WRAPPER_WORDS_FOR_WRITE.has(w0)) {
       words = words.slice(1);
-      // #1207（F20260929hcwd）：参数连剥与 effectiveCommand 同步对齐 V1 语义
+      // #1207（F20260930l573）：参数连剥与 effectiveCommand 同步对齐 V1 语义
       while (words.length > 0) {
         const w1 = words[0].evaluated;
         if (w1 === null || !(/^-/.test(w1) || /^\d+$/.test(w1) || /^[A-Za-z_]\w*=/.test(w1))) break;

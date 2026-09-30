@@ -80,7 +80,7 @@ export function stripHeredocPayloads(command: string): string {
   return blankHeredocBody(command);
 }
 
-/** #1207（F20260929hcwd，delta r1 修正）：提取全部 heredoc 载荷 span——供体感知判定。
+/** #1207（F20260930l573，delta r1 修正）：提取全部 heredoc 载荷 span——供体感知判定。
  *  closer 语义与 bash 对齐：定界符必须独占一行（行首无空白、行尾无任何字符——
  *  实测 `EOF   ` 不闭合；此前容忍 [ \t]* 的宽版被检视獭凑出利用链：
  *  体首定义 `EOF = 0` 让 python 合法经过「假闭合行」+ 宽版 closer 误判闭合，

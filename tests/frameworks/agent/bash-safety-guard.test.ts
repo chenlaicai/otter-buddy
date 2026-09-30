@@ -1384,7 +1384,7 @@ describe("#1207：只读 python heredoc 被「heredoc patch」通道误拦（9/2
     expect(result).toBeNull();
   });
 
-  // ── 加固签名攻防两面（F20260929hcwd：体感知豁免的拦截面不回归）──
+  // ── 加固签名攻防两面（F20260930l573：体感知豁免的拦截面不回归）──
   it("heredoc 体 os.kill(主PID) → 仍拦截（体级杀进程红线）", () => {
     const cmd = `python3 - <<'EOF'\nimport os\nos.kill(${mainPid}, 9)\nEOF`;
     const result = checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot });

@@ -1,6 +1,6 @@
 ---
-fid: F20260929hcwd
-id: F20260929hcwd
+fid: F20260930l573
+id: F20260930l573
 title: bash 守卫 #1207 误拦集群修复——heredoc 体感知判定 + V2 wrapper 剥除对齐 + 引导文案命令感知
 summary: >
   #1207 一周 17+ 条误拦的三处根因修复：①只读 python heredoc 被主仓写通道正则
@@ -12,7 +12,7 @@ summary: >
   主 PID 零判定、wrapper 叠加超界 fail-open）。closer 语义对齐 bash（定界符独占
   行），堵死「假闭合行 + 尾段写入」利用链。dev-server 引导文案改命令感知。
   全仓 4373/4373 绿，delta r1 攻防 17 形态全对。
-created: 2026-09-29
+created: 2026-09-30
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 change_type: fix
 status: implemented
@@ -155,7 +155,7 @@ known_limitations:
   - issue 1069 受控脚本白名单未落地，误拦无正道逃生通道（独立 issue 排期）
 ---
 
-# F20260929hcwd：bash 守卫 #1207 误拦集群修复
+# F20260930l573：bash 守卫 #1207 误拦集群修复
 
 ## 问题
 
