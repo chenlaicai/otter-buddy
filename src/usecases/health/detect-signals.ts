@@ -116,7 +116,46 @@ export function detectSignals(
   return signals;
 }
 
-/** bug_recurrence：同模块同文件 bugfix ≥N 次/窗口（窄门：不依赖语义聚类） */
+/** 非逻辑载体文件：类型定义 / 装配组装 / 测试——修复「复发」计数的噪声面（#1214）。
+ *  Why 排除：types.ts 等类型文件被多特性被动触碰是架构使然（类型修改必然扩散），
+ *  组装/测试文件同理——它们不是「同一根因反复修」的载体，计入只会稀释信号区分度。 */
+function isNonLogicCarrier(filePath: string): boolean {
+  if (isTestFile(filePath)) return true;
+  const base = filePath.split("/").pop() ?? "";
+  return /^types?\.[cm]?[jt]s$/i.test(base)
+    || /^index\.[cm]?[jt]s$/i.test(base)             // 转发桶（重导出）
+    || /^(platforms|usecases|main)\.[cm]?[jt]s$/i.test(base) // 组装/入口
+    || /(^|\/)bootstrap\//.test(filePath);            // 启动装配目录
+}
+
+/** #1214：触发判据——独立修复事件数（同 PR 去重 + 无 PR 号按 sha 计） */
+function countDistinctEvents(entry: { prs: Set<number>; noPrShas: Set<string> }): number {
+  return entry.prs.size + entry.noPrShas.size;
+}
+
+/** #1214：evidence 文案——「N 个不同修复事件 + PR 清单 + 首末修复日期」语义澄清 */
+function buildRecurrenceEvidence(
+  entry: { module: string; file: string; prs: Set<number>; noPrShas: Set<string>; shas: string[]; dates: Date[] },
+  windowDays: number,
+): string {
+  const events = countDistinctEvents(entry);
+  const prList = [...entry.prs].sort((a, b) => a - b).map(p => `#${p}`);
+  const prText = prList.length ? `PR ${prList.join(", ")}` : "无 PR 号 commit";
+  const noPrText = entry.noPrShas.size ? ` + ${entry.noPrShas.size} 个无 PR 号 commit` : "";
+  const times = entry.dates.map(d => d.getTime());
+  const first = new Date(Math.min(...times)).toISOString().slice(0, 10);
+  const last = new Date(Math.max(...times)).toISOString().slice(0, 10);
+  return `[${entry.module}] ${entry.file} 窗口 ${windowDays} 天内 ${events} 个不同修复事件（${prText}${noPrText}；bugfix commit ${entry.shas.length} 个，首末修复 ${first}→${last}）`;
+}
+
+/** bug_recurrence：同模块同文件 bugfix ≥N 个不同 PR/窗口（窄门：不依赖语义聚类）。
+ *  #1214 口径修订（承接 #1012 根因分析，9 成 critical 假聚集的修正）：
+ *  - 同 PR 去重：同 PR 的多 commit（squash 前链式修复/连锁触碰）计 1 个 PR 复发
+ *    事件——触发条件从「bugfix 次 ≥3」改为「不同 PR 数 ≥3」，一个系统性修复
+ *    PR 展开 7-9 文件不再连锁触发 7-9 条信号
+ *  - 非逻辑载体排除：types/组装/测试文件不计（isNonLogicCarrier）
+ *  - occurrences 语义澄清：evidence 补独立 PR 数与首末修复日期（面板不再展示
+ *    小时累计数——那是 worker 每小时刷新的「条件持续满足时长」不是修复次数） */
 function detectBugRecurrence(
   commits: SignalCommitInput[],
   options: DetectOptions,
@@ -126,47 +165,23 @@ function detectBugRecurrence(
   const windowDays = options.recurrenceWindowDays ?? 30;
   const reg = SIGNAL_REGISTRY.bug_recurrence;
 
-  // key: module + file -> bugfix commit 列表（窗口内）
-  const byModuleFile = new Map<string, {
-    module: string; file: string;
-    shas: string[]; dates: Date[];
-    /** 窗口内触碰该文件的全类型 commit（bug●→fix● 交替时间轴数据源，Issue #644） */
-    allCommits: SignalDetailCommit[];
-  }>();
-
-  const recurrenceStart = new Date(now.getTime() - windowDays * DAY_MS);
-  for (const c of commits) {
-    if (c.parsed.changeType !== "BugFix" || !c.parsed.module) continue;
-    const date = new Date(c.date);
-    if (date < recurrenceStart) continue;
-
-    // Set 防御（审视建议发现 4）：同 commit 的 filesChanged 若含重复文件名，
-    // 不去重会双计 shas 抬高触发次数——当前 git --name-only 不重复，纯防御性收口
-    for (const file of new Set(c.filesChanged)) {
-      const key = `${c.parsed.module}\u0000${file}`;
-      let entry = byModuleFile.get(key);
-      if (!entry) {
-        entry = { module: c.parsed.module, file, shas: [], dates: [], allCommits: [] };
-        byModuleFile.set(key, entry);
-      }
-      entry.shas.push(c.sha.slice(0, 8));
-      entry.dates.push(date);
-    }
-  }
+  // key: module + file -> bugfix PR 记录（窗口内，同 PR 去重）
+  const byModuleFile = collectBugfixByFile(commits, now, windowDays);
 
   // 第二遍（Issue #644）：为触发文件收集窗口内全类型 commit，见 collectDetailCommits
-  collectDetailCommits(commits, byModuleFile, recurrenceStart);
+  collectDetailCommits(commits, byModuleFile, new Date(now.getTime() - windowDays * DAY_MS));
 
   const signals: DetectedSignal[] = [];
   for (const entry of byModuleFile.values()) {
-    if (entry.shas.length >= threshold) {
+    // #1214：触发判据 = 独立 PR 数 + 无 PR 号事件数（各自去重后求和）≥ threshold
+    if (countDistinctEvents(entry) >= threshold) {
       signals.push({
         type: reg.type,
         name: reg.name,
         severity: reg.severity,
         featureId: null,
         filePath: entry.file,
-        evidence: `[${entry.module}] ${entry.file} 窗口 ${windowDays} 天内 bugfix ${entry.shas.length} 次（${entry.shas.join(", ")}）`,
+        evidence: buildRecurrenceEvidence(entry, windowDays),
         suggestedAction: reg.suggestedAction,
         detail: {
           kind: "bug_recurrence_commits",
@@ -179,12 +194,58 @@ function detectBugRecurrence(
   return signals;
 }
 
+/** #1214：第一遍收集——窗口内 bugfix commit 按模块/文件聚合（同 PR 去重 + 非逻辑载体排除）。
+ *  从 detectBugRecurrence 拆出控复杂度（lint max-complexity）。 */
+interface BugfixFileEntry {
+  module: string;
+  file: string;
+  prs: Set<number>;              // #1214：去重后的独立 PR 集（触发判据）
+  noPrShas: Set<string>;         // 无 PR 号的 commit（squash 前本地修复），按 sha 去重计 1 次/事件
+  shas: string[];
+  dates: Date[];
+  /** 窗口内触碰该文件的全类型 commit（bug●→fix● 交替时间轴数据源，Issue #644） */
+  allCommits: SignalDetailCommit[];
+}
+
+function collectBugfixByFile(
+  commits: SignalCommitInput[],
+  now: Date,
+  windowDays: number,
+): Map<string, BugfixFileEntry> {
+  const byModuleFile = new Map<string, BugfixFileEntry>();
+  const recurrenceStart = new Date(now.getTime() - windowDays * DAY_MS);
+  for (const c of commits) {
+    if (c.parsed.changeType !== "BugFix" || !c.parsed.module) continue;
+    const date = new Date(c.date);
+    if (date < recurrenceStart) continue;
+
+    // Set 防御（审视建议发现 4）：同 commit 的 filesChanged 若含重复文件名，
+    // 不去重会双计 shas 抬高触发次数——当前 git --name-only 不重复，纯防御性收口
+    for (const file of new Set(c.filesChanged)) {
+      // #1214：非逻辑载体不参与复发计数（types/组装/测试——被动触碰非根因载体）
+      if (isNonLogicCarrier(file)) continue;
+      const key = `${c.parsed.module}\u0000${file}`;
+      let entry = byModuleFile.get(key);
+      if (!entry) {
+        entry = { module: c.parsed.module, file, prs: new Set(), noPrShas: new Set(), shas: [], dates: [], allCommits: [] };
+        byModuleFile.set(key, entry);
+      }
+      entry.shas.push(c.sha.slice(0, 8));
+      entry.dates.push(date);
+      // #1214：同 PR 去重——squash 前链式修复算 1 个 PR 复发事件；无 PR 号的按 sha 计
+      if (c.parsed.prNumber !== null) entry.prs.add(c.parsed.prNumber);
+      else entry.noPrShas.add(c.sha);
+    }
+  }
+  return byModuleFile;
+}
+
 /** Issue #644 第二遍收集：为已触发的 (module, file) 填充窗口内全类型 commit 序列（时间升序）。
  *  Why 全类型：只有 bugfix 画不出「引入-修复-回归-再修复」交替节奏，前端时间轴需要 changeType
  *  区分节点（观澜视觉方案 3.1）。窗口滑动时随扫描整体重算覆盖（非 append）。 */
 function collectDetailCommits(
   commits: SignalCommitInput[],
-  byModuleFile: Map<string, { allCommits: SignalDetailCommit[] }>,
+  byModuleFile: Map<string, Pick<BugfixFileEntry, "allCommits"> & { allCommits: SignalDetailCommit[] }>,
   recurrenceStart: Date,
 ): void {
   for (const c of commits) {
