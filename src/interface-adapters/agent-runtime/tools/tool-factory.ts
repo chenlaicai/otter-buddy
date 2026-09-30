@@ -787,7 +787,7 @@ async function isSelfRestartLoop(ctx: ToolContext, healingRepo?: HealingEventRep
 function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepository): AgentTool {
   return {
     name: "restart_otter",
-    description: "重启指定 Otter 的獭生——封存当前 Session（前世），以全新上下文开启新一世. When: Otter 上下文污染需要重置 / 退化熔断触发 / 显式要求重启. Not for: 解散 Otter（销毁身份）→ dissolve_otter. Output: 新 Session ID 确认. GOTCHA: **前世 session 封存不可逆**——前世记录靠交接档案（引擎叙事合成 + 机械供料）注入新世，jsonl 文件保留可审计. TIP: 手动交接时 summary 按交接摘要模板填写——模板与填写要点见特性文档 system-md-entropy-reduction 附录 B（docs/features/ 下按标题 grep 定位）. BOUNDARY: 访问控制——小獭只能重启自己，大獭可重启任意 Otter.",
+    description: "重启指定 Otter 的獭生——封存当前 Session（前世），以全新上下文开启新一世. When: Otter 上下文污染需要重置 / 退化熔断触发 / 显式要求重启. Not for: 解散 Otter（销毁身份）→ dissolve_otter. Output: 新 Session ID 确认. GOTCHA: **前世 session 封存不可逆**——前世记录靠交接档案（引擎叙事合成 + 机械供料）注入新世，jsonl 文件保留可审计. TIP: 手动交接时 summary 按交接摘要模板填写——模板与填写要点见特性文档「system-md-entropy-reduction」附录 B（docs/features/ 下按 slug grep 文件名唯一命中，内容或记忆检索亦可定位）. BOUNDARY: 访问控制——小獭只能重启自己，大獭可重启任意 Otter.",
     parameters: {
       type: "object",
       properties: {

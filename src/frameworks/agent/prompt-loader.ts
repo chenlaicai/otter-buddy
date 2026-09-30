@@ -12,8 +12,8 @@ export function loadPromptFile(filePath: string): string | null {
   return stripFrontmatter(raw);
 }
 
-/** 剥离 YAML frontmatter，返回正文 */
-function stripFrontmatter(content: string): string {
+/** 剥离 YAML frontmatter，返回正文。F20260929scfx 起导出（prompt-controller 复用） */
+export function stripFrontmatter(content: string): string {
   const trimmed = content.trimStart();
   if (!trimmed.startsWith("---")) return content;
 

@@ -20,6 +20,7 @@ import type { WeixinConnectionController } from "./controllers/weixin-connection
 import type { FeishuConnectionController } from "./controllers/feishu-connection-controller";
 import type { ChannelController } from "./controllers/channel-controller";
 import type { SkillController } from "./controllers/skill-controller";
+import type { PromptController } from "./controllers/prompt-controller";
 import type { ActivityController } from "./controllers/activity-controller";
 
 
@@ -50,6 +51,8 @@ export interface Controllers {
   channel?: ChannelController;
   /** #576（F20260901emps）：能力库真数据源端点 */
   skills?: SkillController;
+  /** F20260929scfx：能力库全书——系统提示词分节 + 工具清单端点 */
+  prompts?: PromptController;
   /** F20260912avlb：活动页三域台账只读端点 */
   activity: ActivityController;
   inbound: { optionsEvents: (c: Context) => Response | Promise<Response>; receiveEvents: (c: Context) => Response | Promise<Response>; getStatus: (c: Context) => Response | Promise<Response> };
@@ -110,10 +113,9 @@ function registerDataRoutes(app: Hono, c: Controllers): void {
 
   registerActivityRoutes(app, c);
 
-  // #576（F20260901emps）：能力库页面真数据。未注入（测试环境）时 503，前端降级静态清单
-  if (c.skills) {
-    app.get("/api/skills", (ctx) => c.skills!.list(ctx));
-  }
+  // #576 能力库真数据 + F20260929scfx 全书三编数据源；未注入时 503，前端降级
+  if (c.skills) app.get("/api/skills", (ctx) => c.skills!.list(ctx));
+  if (c.prompts) app.get("/api/prompts", (ctx) => c.prompts!.list(ctx));
   // F20260825rweb（#402）：RHI 面板 API（与 memory 健康端点同前缀，职责分离的 controller）
   app.get("/api/health/overview", (ctx) => c.rhi.overview(ctx));
   app.get("/api/health/signals", (ctx) => c.rhi.signals(ctx));

@@ -1,11 +1,7 @@
 /**
  * buildApp：可测试的系统装配入口（F20260806tstr Part 1，基于 F20260805codx bootstrap 模块）。
- *
- * 与 main.ts 的关系：main.ts 是生产薄入口（本模块的调用方），全部编排在这里。
- * 与 bootstrap/* 的关系：bootstrap 模块是零件，本模块是按序组装 + 提供测试接缝。
- *
- * 无 import 时副作用：所有路径/全局副作用（配置加载、日志文件、auth 同步、
- * 飞书长连接、调度器、静态路由）均可通过 options 注入或关闭。
+ * main.ts 是生产薄入口；bootstrap/* 是零件，本模块按序组装 + 提供测试接缝。
+ * 全局副作用（配置/日志/auth/飞书/调度器/静态路由）均可经 options 注入或关闭。
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -32,6 +28,7 @@ import {
   postInitDatabase, postSyncMigrations, validateModelAliases, shutdownDatabase,
   verifyEmbeddingVersion,
 } from "./bootstrap/database";
+import { setupDelayedReconcile, createInvokeOrphanReconcileDuty } from "./bootstrap/invoke-reconcile";
 import { createMemoryIndex, syncDocuments, createAndStartRetryWorker } from "./bootstrap/memory";
 import { initUseCases } from "./bootstrap/usecases";
 import { QueryOtterProfile } from "@usecases/otter/query-otter-profile";
@@ -65,6 +62,7 @@ import { PatrolWorker } from "@usecases/health/patrol-worker";
 import { collectHealingEvents } from "@usecases/health/healing-collector";
 import type { AgentSessionSource } from "@usecases/health/cost-output-collector";
 import type { CreateSnapshotRow } from "@usecases/health/snapshot-rows";
+import { readSkillBody, readSystemSections, listAllToolSummaries } from "@frameworks/agent/codex-sources";
 
 /** 创建 PinoLogger 实例（stdout + 文件持久化），logDir 不存在时创建 */
 export function createLogger(logDir: string): PinoLogger {
@@ -80,7 +78,6 @@ export function createLogger(logDir: string): PinoLogger {
     },
   });
 }
-
 /** buildApp 的可选项：所有路径/副作用均可注入，测试用临时目录 + 关闭全局副作用 */
 export interface BuildAppOptions {
   /** 预构建的配置对象（测试）；与 configPath 二选一，都不传则读 ./config/config.yaml */
@@ -107,10 +104,11 @@ export interface BuildAppOptions {
   startRhiWorker?: boolean;
   /** F20260916b1ea：重启自动恢复服务启动开关（对齐 startScheduler 模式；测试/CI 可关） */
   startResume?: boolean;
+  /** F20260930roiv：启动窗口期孤儿 invoke 延迟 reconcile 开关（对齐 startRhiWorker 模式；测试/CI 可关） */
+  enableDelayedReconcile?: boolean;
   /** 测试注入预构建模型（如 initFauxModels），跳过 initModels */
   models?: { model: Model<Api>; modelPool?: ModelPool };
 }
-
 /** buildApp 的返回：完整装配好的系统 + dispose 清理 */
 export interface BuiltApp {
   app: Hono;
@@ -130,7 +128,6 @@ export interface BuiltApp {
   /** 停止调度器、释放 embedding worker、关闭 DB、flush 日志 + metric。幂等。 */
   dispose(): Promise<void>;
 }
-
 /** F20260825sgnw（#401）：装配 RhiScanWorker（依赖注入集中在此，app.ts 主体只调 start/stop） */
 function createRhiScanWorker(deps: {
   db: DatabaseType.Database;
@@ -143,7 +140,6 @@ function createRhiScanWorker(deps: {
 
   // healing 事件源：open 状态全部取（behavior_defect 检测数据面）
   const healingSource = async () => collectHealingEvents(await deps.repos.healingEvent.findOpen(1000));
-
   // 指标快照落库端口（F20260829hviz Fix A）：scanOnce 计算指标写 health_snapshots
   // #447：改从 Repositories DI 消费（healthSnapshot），不再直实例化
   const snapshotRepo = deps.repos.healthSnapshot;
@@ -153,7 +149,6 @@ function createRhiScanWorker(deps: {
   // 健康评分 D5 输入：open 信号计数（issue #595 PR1）。
   // #447：改从 Repositories DI 消费（rhiSignal，与 signalEvent 獭间语义池区分），不再直实例化
   const signalRepo = deps.repos.rhiSignal;
-
   // 成本/产出快照落库端口（#583）：同 repo 的 replaceForDate，独立 metric_type
   const costOutputSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>, metricType?: string) =>
     snapshotRepo.replaceForDate(snapshotDate, rows.map(r => ({
@@ -181,7 +176,6 @@ function createRhiScanWorker(deps: {
     snapshotSink, signalRepo, costOutputSink, sessionsDir, agentSessionSource, costOutputDb: deps.db,
   });
 }
-
 // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- Composition Root 集中装配逻辑
 export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp> {
   const dataDir = options.dataDir ?? "./data";
@@ -206,7 +200,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   if (options.syncAuth ?? true) {
     syncApiKeyToAgentAuth(config.llm, logger);
   }
-
   // ── 数据层初始化 ──
   const { db, otterConfigProvider, model, modelPool, embeddingService, dispose: disposeEmbedding } =
     await initDatabaseAndModels(config, logger, options.models);
@@ -219,7 +212,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   if (!embeddingVersionCheck.vecEnabled) {
     logger.warn(`Embedding vec path disabled due to ${embeddingVersionCheck.reason}`);
   }
-
   // ── 记忆索引 + 文档同步 ──
   const memoryIndex = createMemoryIndex(repos, embeddingService, logger);
   const syncResult = await syncDocuments(repos, memoryIndex, logger, options.rootDir ?? process.cwd());
@@ -228,14 +220,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // F20260812mrcq Part 1：embedding 重试 worker + 存量暗化条目迁移
   // #949：worker 本体不再自持定时器——由下方 PatrolWorker 统一驱动（tickNow 巡检）
   const retryWorker = await createAndStartRetryWorker(repos, embeddingService, logger);
-
   // F20260825sgnw（#401）：RHI 定时采集 worker——每小时跑一轮 采集→链→信号→记忆通道
   // 审视发现 1：对齐 startScheduler 开关模式，测试/CI 可关（否则 buildApp 每次起 setInterval + git 采集副作用）
   const rhiScanWorker = createRhiScanWorker({
     db, repos, embeddingService, logger,
     rootDir: options.rootDir ?? process.cwd(),
   });
-
   // #927：獭间信号老化扫描——独立于 daily review 调度链（9/10-9/13 断档期唯一消费方停摆的教训），
   // pending objection/blocked 悬置 >24h 落 medium healing。
   const signalAgingWorker = new SignalAgingWorker(
@@ -255,6 +245,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   // #949：四个「扫台账」同构循环合并为单一巡检 worker（8→5 常驻循环）——
   // 运行时对账（#823）/ Signal Aging（#927）/ RHI Scan（#401）/ Embedding Retry（F20260812mrcq）。
+  // F20260930roiv：+ invoke 孤儿 reconcile（带 bootTs 守卫，周期 1h 兜底窗口期漏网；
+  //  守卫语义：只清「启动前遗留」，本进程内卡死的 running invoke 不在其范围）。
   // 失败隔离：一家炸了不影响后续家；周期 1h（四家原节奏已对齐，无时钟语义变化）。
   const patrolWorker = new PatrolWorker([
     { name: 'scheduler-reconcile', run: () => schedulerService.reconcileMissedWindowsNow() },
@@ -262,12 +254,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     // F20260917trig §3：RHI 信号老化（聚合限流 + 孤儿 healing 清理）——并入巡检循环
     { name: 'rhi-signal-aging', run: async () => { await rhiSignalAgingWorker.scanOnce(); } },
     { name: 'rhi-scan', run: async () => { await rhiScanWorker.scanOnce(); } },
+    createInvokeOrphanReconcileDuty(db, repos, logger),
     ...(retryWorker ? [{ name: 'embedding-retry', run: () => retryWorker.tickNow() }] : []),
   ], logger);
   if (options.startRhiWorker ?? true) {
     patrolWorker.start();
   }
-
+  // F20260930roiv：启动窗口期孤儿 invoke 兜底——延迟 10s 补跑一次 reconcile（带 bootTs 守卫），
+  // 覆盖窗口期；fire-and-forget 不阻塞启动，失败仅日志（对齐既有 non-fatal 纪律）。
+  const delayedReconcileTimer = setupDelayedReconcile(options, db, repos, logger);
   if (modelPool) validateModelAliases(db, modelPool, logger);
   
   // ── 对话工作区 ──
@@ -485,17 +480,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     }
   };
 
-  /** #576（F20260901emps）：能力库页面数据源——ResourceLoader 适配 SkillDirectory 端口。
-   *  与 otter 实际加载的 skill 一致（页面所见即系统所载），替代前端静态快照。
-   *  warmup 前 resourceLoader 可能为 null——返回空列表，前端展示显式空态（不静默空白） */
+  // #576 能力库数据源（F20260929scfx 扩展 body=SKILL.md 正文，读失败降级 ''）；warmup 前 null → 空列表
   const skillDirectory = resourceLoader
-    ? {
-        list: async () => {
-          const { skills } = resourceLoader.getSkills();
-          return skills.map((s: { name: string; description: string }) => ({ name: s.name, description: s.description }));
-        },
-      }
+    ? { list: async () => (await resourceLoader.getSkills()).skills.map((s: { name: string; description: string }) => ({ name: s.name, description: s.description, body: readSkillBody(s.name) })) }
     : undefined;
+
+  // F20260929scfx：卷首心法总纲（SYSTEM.md 按 ## 切分）+ 卷末兵器谱（createTools 真实全集）；读失败降级空
+  const promptDirectory = {
+    getSystemSections: async () => readSystemSections(),
+    listTools: async () => listAllToolSummaries(),
+  };
 
   const controllers = initControllers({
     uc, repos, agentInvoker, appConfig: config, modelPool, settingsRepo: repos.settings,
@@ -585,6 +579,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     registry,
     // #576（F20260901emps）：能力库真数据源
     skillDirectory,
+    // F20260929scfx：能力库全书——系统提示词分节 + 工具清单
+    promptDirectory,
   }, logger);
 
   const app = buildHttpApp(controllers, logger, options.staticRoot ?? path.resolve(import.meta.dirname, "../..", "web/dist"));
@@ -632,6 +628,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     dispose: async () => {
       if (disposed) return;
       disposed = true;
+      // F20260930roiv：停延迟 reconcile 定时器（防进程退出后回调炸）
+      if (delayedReconcileTimer) clearTimeout(delayedReconcileTimer);
       // #460：停飞书长连接 WSClient（重连机制会阻止退出，根因之四）
       feishuScan.disposeAll(); // F20260929fsqr：扫码线持有全部飞书 WS 句柄，dispose 时统一停（原 feishuStop 随静态线退役）
       // F20260829wxch（#213 检视发现2）：停微信长轮询通道——否则 SIGINT/SIGTERM 时
@@ -656,9 +654,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       }
       disposeEmbedding();
       shutdownDatabase(db, logger);
-      if ("flush" in logger && typeof logger.flush === "function") {
-        (logger as PinoLogger).flush();
-      }
+      if ("flush" in logger && typeof logger.flush === "function") { (logger as PinoLogger).flush(); }
     },
   };
 }
