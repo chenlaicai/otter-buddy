@@ -657,7 +657,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       retryWorker?.stopSync();
       // #949：巡检 worker 统一停（原 RHI/Signal Aging/运行时对账/Embedding Retry 的定时器）
       // issue #1252：start 已移至 initAgentAndScheduler 之后——startRhiWorker=false 时从未
-      // start 的 worker 也可能在 dispose 中被 stop（PatrolWorker.stop 内部冝等，防御冗余）。
+      // start 的 worker 也可能在 dispose 中被 stop（PatrolWorker.stop 内部幂等，防御冗余）。
       if (patrolWorkerStarted) {
         await patrolWorker.stop();
       }

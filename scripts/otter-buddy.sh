@@ -7,24 +7,24 @@ LOG_FILE="${PROJECT_DIR}/.otter-buddy.log"
 
 # issue #1252 遗留问题1：端口口径与 loadConfig 对齐（config-service.ts applyDefaults
 # server: { port: d(raw.server?.port, 3000) }）——服务监听端口的唯一裁决者是
-# config/config.yaml 的 server.port，PORT env 不参与端口决策；本脚本此前写死 $PORT
-# （默认 3000），config 端口 ≠ 脚本端口时健康检查查错端口误报 timeout（本案 3102 事故），
-# 反向（config=3000 被占、脚本查其他端口）还会漏检冲突。
+# config/config.yaml 的 server.port；PORT env 不参与服务端端口决策（src/ 全域零消费
+# process.env.PORT），本脚本也不消费——保留 env 层会造成脚本探测口与服务监听口错位，
+# 正是本 PR 要消灭的误报形态（本案 3102 事故）。
 # 优先级：-p/--port 显式覆盖 > config.yaml server.port > 3000。
 resolve_config_port() {
   local cfg="$PROJECT_DIR/config/config.yaml" line
   [ -f "$cfg" ] || return 1
-  line=$(grep -E '^[[:space:]]*port:[[:space:]]*[0-9]+' "$cfg" | head -1) || return 1
-  echo "${line##*port:}" | tr -d ' \t'
+  line=$(grep -E '^[[:space:]]*port:[[:space:]]*"?[0-9]+"?' "$cfg" | head -1) || return 1
+  line="${line##*port:}"
+  echo "${line%#*}" | tr -d " \t\"'"
 }
-CONFIG_PORT="$(resolve_config_port || echo "")"
-PORT="${PORT:-${CONFIG_PORT:-3000}}"
+PORT="$(resolve_config_port || echo 3000)"
 
 # F20260916gtlr：本脚本是纯工具——不携带任何防海獭逻辑。
 # 「海獭不得杀主进程」由 agent 运行时守卫在 tool 调用层拦截（bash-safety-guard），
 # 海獭的一切命令必经 tool 管道，人走终端天然不在拦截域内。
 
-# 解析 -p / --port 参数（显式 -p 覆盖 config/环境推导出的 PORT）
+# 解析 -p / --port 参数（显式 -p 覆盖 config 推导出的 PORT）
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -p|--port) PORT="$2"; shift 2 ;;

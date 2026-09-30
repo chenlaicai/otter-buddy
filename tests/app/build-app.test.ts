@@ -13,7 +13,7 @@ import * as path from "node:path";
 import { buildApp, type BuiltApp } from "../../src/app";
 import { loadConfig, resetConfigForTests } from "../../src/frameworks/config";
 import { initFauxModels } from "../../src/frameworks/llm/models-factory";
-import { createTestLogger } from "../helpers/logger";
+import { createCapturingLogger, type CapturedLogs } from "../helpers/logger";
 
 /** 立即上报 load error 的 stub embedding worker（CJS：tmp 目录无 package.json type:module） */
 const STUB_WORKER = `
@@ -24,6 +24,7 @@ parentPort.postMessage({ type: "error", error: "test stub worker", id: -1 });
 describe("buildApp 组装根启动", () => {
   let tmpDir: string;
   let built: BuiltApp;
+  let capturedLogs: CapturedLogs;
 
   beforeAll(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "otter-buildapp-"));
@@ -45,7 +46,8 @@ describe("buildApp 组装根启动", () => {
       "  port: 0",
     ].join("\n"));
 
-    const logger = createTestLogger();
+    const logger = createCapturingLogger();
+    capturedLogs = logger.captured;
     const config = loadConfig(logger, configPath);
     config.embedding.workerPath = path.join(tmpDir, "stub-worker.cjs");
 
@@ -77,6 +79,13 @@ describe("buildApp 组装根启动", () => {
 
   it("embedding stub 报错后优雅降级：available=false 且启动不炸", () => {
     expect(built.embeddingService.available).toBe(false);
+  });
+
+  // issue #1252 S-2 回归防护：patrolWorker.start() 若被挪回 initAgentAndScheduler 之前，
+  // scheduler-reconcile duty 首轮 tick 的 TDZ ReferenceError 会被 patrol-worker.ts:75
+  // 失败隔离 catch 吞成 error 日志——启动不炸、无断言时不红。此断言封住该回归。
+  it("patrol 首轮 tick 无 scheduler-reconcile TDZ 失败（#1252 回归防护）", () => {
+    expect(capturedLogs.errors.some((m) => m.includes("Patrol duty failed: scheduler-reconcile"))).toBe(false);
   });
 
   it("建獭全链路：POST /api/otters → 真 sqlite 落行 → GET 可取回", async () => {
