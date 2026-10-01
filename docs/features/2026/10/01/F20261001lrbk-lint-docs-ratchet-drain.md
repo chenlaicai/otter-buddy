@@ -1,5 +1,5 @@
 ---
-id: F20260930lrbk
+id: F20261001lrbk
 title: "lint:docs 警告 ratchet 清存量：271→3，历史文档 rename 开口修复"
 summary: |
   lint:docs 警告 ratchet 顶满（271/271），下一份新增警告的文档即撞墙。本特性按五类盘点后清存量：
@@ -14,7 +14,7 @@ capability_test: "n/a: 文档元数据批量订正 + lint 脚本行为变更（A
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 ---
 
-# F20260930lrbk lint:docs 警告 ratchet 清存量
+# F20261001lrbk lint:docs 警告 ratchet 清存量
 
 ## 背景
 
@@ -57,7 +57,7 @@ F20260716i5n2 / F20260826mwrd / F20260826sgpa 被其他历史文档正文以相�
 1. `isAddedOnBranch` 按 oldPath 判历史 → 报「本分支新建才可改」
 2. `checkFrontmatterScope` 用 `-- <newPath>` 单路径 diff，rename 检测被抑制，文件呈现为「全文新增」，行号必然越界 → 拦
 
-修复（F20260930lrbk，机制不是约定，.doc-fix 声明对 rename 通道同样强制）：
+修复（F20261001lrbk，机制不是约定，.doc-fix 声明对 rename 通道同样强制）：
 
 - R 配对改从全量 staged diff（`-M` 显式开启 rename 检测）提取本文件段：
   - similarity index 100% 且无 hunk 且无 Binary 标记 → 纯 rename（内容零变化）→ 放行
