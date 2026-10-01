@@ -89,7 +89,13 @@ export function findViolations() {
     .split("\n")
     .filter(Boolean)
     .map(parseStatusLine)
-    .filter((e) => /^docs\/(features|research)\//.test(e.filePath));
+    // #1273 delta 修复（严重 2）：rename 配对的旧路径也要测——否则「先 mv 出 docs 树再重写 mv 回」
+    // 的两步链中，A+D 退化配对会把树内被删旧路径漏在管辖外（A 侧被判新建、D 侧在树外被过滤）
+    .filter(
+      (e) =>
+        /^docs\/(features|research)\//.test(e.filePath) ||
+        (e.oldPath !== undefined && /^docs\/(features|research)\//.test(e.oldPath))
+    );
 
   if (tracked.length === 0) return { errors: [], degraded: false };
 
@@ -209,9 +215,12 @@ function hunksWithinBounds(diffText, oldFmLastLine, newFmLastLine) {
 /** R 形态 rename 的 frontmatter 边界校验（#1257，F20260930lrbk）。
  *  rename 配对只在全量 staged diff 中呈现（pathspec 单路径过滤会抑制 rename 检测，实测坐实），
  *  故从全量 diff 提取本文件的 rename 段再解析：
- *  - similarity 100% 且无 hunk：纯 rename（内容零变化，文件名级元数据订正）→ 放行
+ *  - similarity index 100% 且无 hunk且无 Binary 标记：纯 rename（内容零变化，文件名级元数据订正）→ 放行
+ *    （#1273 严重 1：零 hunk 单独不充分——含 NUL 字节的文件 diff 呈 Binary 零 hunk，会把整段正文重写
+ *    伪装成纯 rename 绕过；三者同验才放行）
  *  - 有 hunk：rename + 编辑——按 old/new 两侧 frontmatter 边界校验，正文编辑仍拦
  *  - 未匹配到 rename 配对（相似度低于阈值退化为 A+D）：宁拦（大改不是文件名订正）
+ *  - 旧路径在 docs 管辖树外的 R 配对：不进本通道，退回宁拦（#1273 严重 2 跨树逃逸链封口）
  *  .doc-fix 声明在调用侧同样强制（rename 通道不是无声明后门）。 */
 function checkRenameScope(oldPath, newPath, outOfScope) {
   let diff;
@@ -231,8 +240,22 @@ function checkRenameScope(oldPath, newPath, outOfScope) {
     return;
   }
   const section = seg[0];
+  // #1273 delta 修复（严重 2）：R 配对两侧必须都在 docs 管辖树内——旧路径在树外（如先 mv 出树）
+  // 的「rename」不在「文件名级元数据订正」语义内，不进 rename 通道，退回调用侧宁拦
+  const inDocsTree = (p) => /^docs\/(features|research)\//.test(p);
+  if (!inDocsTree(oldPath)) {
+    outOfScope.push(newPath);
+    return;
+  }
   const hunks = [...section.matchAll(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/g)];
-  if (hunks.length === 0) return; // 纯 rename（similarity 100%）→ 内容零变化，放行
+  if (hunks.length === 0) {
+    // #1273 delta 修复（严重 1）：零 hunk ≠ 内容零变化。git 对含 NUL 字节的文件输出
+    // "Binary files ... differ"（零 hunk），二进制渲染绕过会把整段正文重写伪装成纯 rename。
+    // 放行必须同时满足：显式 similarity index 100% + 无 Binary 标记 + 零 hunk。
+    if (/^similarity index 100%$/m.test(section) && !/^Binary files /m.test(section)) return;
+    outOfScope.push(newPath);
+    return;
+  }
   const oldFmLastLine = frontmatterLastLineOf(`HEAD:${oldPath}`);
   const newFmLastLine = frontmatterLastLineOf(`:${newPath}`);
   if (oldFmLastLine === -1 || newFmLastLine === -1) {
