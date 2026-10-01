@@ -149,28 +149,6 @@ describe("lint-historical-docs rename 通道（#1257，F20260930lrbk）", () => 
     fs.rmSync(path.join(repo, ".doc-fix"), { force: true });
   });
 
-  it("#1273 严重 2：旧路径在 docs 树外的 R 配对 → 拒绝（跨树 rename 不进元数据订正通道）", () => {
-    // 先把历史文档 mv 出 docs 树（ 此时 oldPath 在树内 → 仍被管辖，无声明应拦）
-    const outside = "tmp-escaped/F20260101old-escaped.md";
-    fs.mkdirSync(path.join(repo, "tmp-escaped"), { recursive: true });
-    git(repo, ["mv", OLD_DOC, outside]);
-    stageOnly(repo, outside);
-    git(repo, ["add", "--", OLD_DOC]);
-    const err1 = runLintExpectFail(repo);
-    expect(err1).toMatch(/历史特性\/研究文档/);
-    // 修复后：即使配 .doc-fix，旧路径在树内的移出 rename 也要走通道校验——但 newFmLastLine 读
-    // :tmp-escaped/... 有内容（文件本体），oldFmLastLine 读 HEAD:old 也合法，且有完整 hunk（路径行）……
-    // 实际上树外移动在 -M 下 hunks 为空、无 similarity（R100）→ 会被放行；因此本用例用「重写后移出」
-    // 验证内容变更不被零 hunk 通道吞掉：新路径不在树内，无论如何变更不被无声放行
-    fs.writeFileSync(path.join(repo, outside), OLD_DOC_CONTENT.replace("正文内容。", "树外重写。") + "\0");
-    stageOnly(repo, ".");
-    const err2 = runLintExpectFail(repo);
-    expect(err2).toMatch(/历史特性\/研究文档|超出 frontmatter 块/);
-    git(repo, ["reset", "-q", "--", "."]);
-    git(repo, ["checkout", "--", OLD_DOC]);
-    fs.rmSync(path.join(repo, "tmp-escaped"), { recursive: true, force: true });
-  });
-
   it("#1273 严重 2 跨树 A+D 两步链：移出→重写→移回 → 拒绝（oldPath 也入管辖）", () => {
     // 步骤 1：mv 出树（staged）→ lint 拒（含声明也拒：旧路径在树内，移出后 newFmLastLine 读不到树外路径的索引？不，读得到）
     const outside = "tmp-escaped2/F20260101old-out.md";
@@ -194,6 +172,48 @@ describe("lint-historical-docs rename 通道（#1257，F20260930lrbk）", () => 
     git(repo, ["reset", "-q", "--", "."]);
     git(repo, ["checkout", "--", OLD_DOC]);
     fs.rmSync(path.join(repo, "tmp-escaped2"), { recursive: true, force: true });
+    fs.rmSync(path.join(repo, back), { force: true });
+  });
+
+  it("#1273 delta 严重 1（probeD 形态）：树内→树外纯 rename + .doc-fix → 拒绝（移出语义=删除历史文档）", () => {
+    // 第一轮修复只拒了 oldPath 在树外（回迁方向），漏了移出方向——probeD 实测 exit=0
+    const outside = "tmp-escaped3/F20260101old-moved-out.md";
+    fs.mkdirSync(path.join(repo, "tmp-escaped3"), { recursive: true });
+    git(repo, ["mv", OLD_DOC, outside]); // 纯 git mv，R100，内容零变化，但 newPath 在树外
+    fs.writeFileSync(path.join(repo, ".doc-fix"), "把文档移到仓库根目录方便查阅（移出语义=删除）\n");
+    stageOnly(repo, ".");
+    const err = runLintExpectFail(repo);
+    expect(err).toMatch(/历史特性\/研究文档|超出 frontmatter 块/);
+    git(repo, ["reset", "-q", "--", "."]);
+    git(repo, ["checkout", "--", OLD_DOC]);
+    fs.rmSync(path.join(repo, "tmp-escaped3"), { recursive: true, force: true });
+    fs.rmSync(path.join(repo, ".doc-fix"), { force: true });
+  });
+
+  it("#1273 delta 严重 2（probeC 真两 commit 形态）：移出 commit 后重写+移回+删残留 → 拒绝（D 树外渊源入册）", () => {
+    // 与上一用例的本质区别：step1 先真实 commit（不在同一次 staging 里）——
+    // 此形态下 step2 的 staged 区只剩 A（树内回迁）+ D（树外残留删除），第一轮过滤两侧均不命中
+    const outside = "tmp-escaped4/F20260101old-out.md";
+    fs.mkdirSync(path.join(repo, "tmp-escaped4"), { recursive: true });
+    git(repo, ["mv", OLD_DOC, outside]);
+    stageOnly(repo, ".");
+    git(repo, ["commit", "-q", "-m", "step1: move out (attack setup)"]); // step1 落为真 commit
+    // step2：树外彻底重写 → 移回树内新 slug 名 → 删除树外残留
+    const rewritten = "!!! totally rewritten body !!!\n".repeat(20);
+    const back = "docs/features/2026/01/01/F20260101old-back.md";
+    fs.writeFileSync(path.join(repo, outside), rewritten);
+    fs.writeFileSync(path.join(repo, back), rewritten);
+    fs.rmSync(path.join(repo, outside), { force: true });
+    stageOnly(repo, ".");
+    const status = git(repo, ["diff", "--cached", "--name-status"]);
+    expect(status).toMatch(new RegExp(`^A\\t${back}$`, "m")); // A 形态（rename 检测跨 commit 不存）
+    const err = runLintExpectFail(repo);
+    // 回迁 A 判历史（HEAD 无此路径但渊源为历史文档——D 侧渊源入册后整体拦截）
+    expect(err).toMatch(/历史特性\/研究文档|超出 frontmatter 块/);
+    // 收尾：step1 已 commit（OLD_DOC 在其中被 mv 掉），直接 hard reset 回基线
+    git(repo, ["reset", "-q", "--hard"]);
+    git(repo, ["reset", "-q", "--hard", "HEAD~1"]);
+    fs.rmSync(path.join(repo, "tmp-escaped4"), { recursive: true, force: true });
     fs.rmSync(path.join(repo, back), { force: true });
   });
 });
