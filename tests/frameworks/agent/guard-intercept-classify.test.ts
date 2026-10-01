@@ -51,7 +51,11 @@ describe("classifyGuardInterceptReason · 真实文案回归（探针 = 守卫�
   });
 
   it("self_kill_script：python 执行 kill", () => {
-    expectClass("python3 -c \"import os; os.kill(12345, 9)\"", "self_kill_script");
+    // #1275：python3 -c 含 kill 的 one-liner 现在命中主仓写检测（MAIN_WRITE_PATTERNS[1]）先于 kill 链。
+    // 分类器按首条拦截文案归类——主仓写拦截（cwd 未 cd）与 kill 拦截都是合法拦截，分类优先级变化。
+    // 原测试期望 self_kill_script 是 kill 链优先于主仓写的旧行为；#1275 后主仓写检测新增 one-liner 通道，
+    // 判定顺序在 checkBashCommandSafety 主入口中主仓写检测在 kill 链之前（模型路径），故分类为 main_write。
+    expectClass("python3 -c \"import os; os.kill(12345, 9)\"", "main_write");
   });
 
   it("self_kill_eval：eval 拼接 kill", () => {

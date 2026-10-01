@@ -592,6 +592,12 @@ const REDIRECT_PATTERN = /(?:^|[;&\n]|&&|\|\|)\s*(?:>|>>|<<<)\s*[^|&;\n]+|(?<!["
 const MAIN_WRITE_PATTERNS = [
   REDIRECT_PATTERN,
   /(?:^|&&|\|\||[;&\n])\s*(?:[\w./-]+\/)?python[\d.]*\s+-\s*<<["']?/,       // python heredoc patch（delta r1：含版本号/路径形态；delta 2：多级+绝对路径）
+  // #1275：解释器直执行（one-liner）形态——python -c / node -e|--eval。载荷是否只读
+  // 不由正则承担（正则只认通道形态），由 checkMainCheckoutWrite 内的 oneLinerPayloadReadOnly
+  // 白名单豁免判定承担（与 heredoc 体感知判定同架构：通道正则 + 体/载荷白名单）。
+  // python 旗标位 (?:-[A-Za-z]+\s+)* 容许 -u/-q 等常见旗标；-W/-X 带参旗标不识别 → 保守拦。
+  /(?:^|[;&\n]|&&|\|\||\(|\{)\s*(?:[\w./-]+\/)?python[\d.]*\s+(?:-[A-Za-z](?:\s+(?!-)\S+)?\s+)*-c(?:\s*["'`]|\s+(?!["'`])\S)/,
+  /(?:^|[;&\n]|&&|\|\||\(|\{)\s*(?:[\w./-]+\/)?node(?:\d+)?\s+(?:--[A-Za-z-]+(?:\s+[^\s;&|]+)?\s+)*(?:-e|--eval)(?:\s*["'`]|\s+(?!["'`])\S)/,
   // D2：段首锚含单 | / &（`cd /wt | git commit` / `& git commit` 同样是新命令段）
   // F20260924gfpn：① merge → merge(?!-) 负向断言——`git merge-base`（只读）曾被 merge\b
   // 吞成写操作（9/23 台账实测 BLOCKED）；同组其他词审计：commit→commit(?!-tree)（commit-tree
@@ -643,6 +649,49 @@ function heredocInterpreter(header: string): string {
   const w = words[i] ?? "";
   const base = w.includes("/") ? w.split("/").pop()! : w;
   return base;
+}
+
+// ── #1275：解释器直执行（one-liner）形态判定（F20261001a1275）──
+// 盲区实证：9/29 #1252 事故——小獭用 `python3 -c "open('config/config.yaml','w').write(…)"`
+// 在主仓 cwd 绕过主仓写检测（MAIN_WRITE_PATTERNS 只覆盖重定向/python heredoc/git 写族），
+// 污染主仓 config（session entry 417）。与 :316-319 kill 检测侧 `python -c`/`node -e`
+// 形态检测（F20260923glay）是同一盲区在主仓写检测侧的对齐补齐。
+// 判定原则与 heredoc 体感知判定（#1207）同构：只读白名单豁免 + 白名单外保守拦（fail-closed）。
+
+/** 提取脚本语言 one-liner 的载荷（interpreter flag 后的引号实参）。
+ *  只处理引号包裹的单一载荷实参（`python3 -c "…"` / `node -e '…'`）；
+ *  提取失败（无引号实参/形态不识别）返回 null → 调用方保守拦（fail-closed）。
+ *  多行载荷（引号内换行）同样提取——引号扫描用括号深度无关的逐字符 escape 感知。
+ *  非逃逸引号：载荷内同种引号转义（python `\"`）会破坏 escape 扫描——
+ *  python 语义上 `\"` 在双引号载荷内是转义引号（不停引号），JS 同理，行为一致。 */
+function extractOneLinerPayload(command: string, interp: "python" | "node"): string | null {
+  const flag = interp === "python"
+    ? /(?:^|[;&|]|&&|\|\||[\n]|\(|\{)\s*(?:[\w./-]+\/)?python[\d.]*\s+(?:-[A-Za-z]+\s+)*-c\s+(["'`])/g
+    : /(?:^|[;&|]|&&|\|\||[\n]|\(|\{)\s*(?:[\w./-]+\/)?node(?:\d+)?\s+(?:--[A-Za-z-]+(?:\s+[^\s;&|]+)?\s+)*(?:-e|--eval)\s+(["'`])/g;
+  const m = flag.exec(command);
+  if (!m) return null;
+  const quote = m[1];
+  let i = m.index + m[0].length;
+  const start = i;
+  while (i < command.length) {
+    const ch = command[i];
+    if (ch === "\\") { i += 2; continue; }
+    if (ch === quote) return command.slice(start, i);
+    i++;
+  }
+  return null; // 未闭合引号 → 保守拦
+}
+
+/** one-liner 载荷是否只读（python → pythonBodyReadOnly，node → nodeBodyReadOnly）。
+ *  提取失败/白名单外 → false（不豁免）。 */
+function oneLinerPayloadReadOnly(command: string): boolean {
+  // 同一条命令可能同时含 python 与 node one-liner——全部提取成功且全部只读才豁免
+  let sawPayload = false;
+  const py = extractOneLinerPayload(command, "python");
+  if (py !== null) { sawPayload = true; if (!pythonBodyReadOnly(py)) return false; }
+  const js = extractOneLinerPayload(command, "node");
+  if (js !== null) { sawPayload = true; if (!nodeBodyReadOnly(js)) return false; }
+  return sawPayload;
 }
 
 const isPythonHeader = (header: string): boolean => /^python(?:\d+(?:\.\d+)?)?$/.test(heredocInterpreter(header));
@@ -813,6 +862,9 @@ function pythonBodyReadOnly(body: string): boolean {
   if (/\blambda\b/.test(body)) return false;
   // ② open mode 门
   if (!pythonOpenModesReadOnly(body)) return false;
+  // #1275：os 模块 import 面否定（one-liner 常见形态）——os.getcwd/listdir 等白名单子面
+  // 已在④中处理；import os 即不豁免（只读子面也无法静态确认无写面调用，保守拦）。
+  if (/\bimport\s+os\b/.test(body)) return false;
   // ③ 可调用名白名单收口：所有 callee 根名与尾方法名都在白名单集
   const dotted = [...body.matchAll(/\.\s*([A-Za-z_]\w*)\s*\(/g)].map(m2 => m2[1]);
   const bare = [...body.matchAll(/(?:^|[^\w.])\.?\s*([A-Za-z_]\w*)\s*\(/g)].map(m2 => m2[1]).filter(c => !dotted.includes(c));
@@ -838,6 +890,7 @@ const NODE_READONLY_METHODS = new Set([
 function nodeBodyReadOnly(body: string): boolean {
   if (/\\|`/.test(body)) return false;
   if (/\b(?:eval|Function|setTimeout|setInterval|require\s*\(\s*(?!['"](?:fs|util|path)['"]))/.test(body)) return false;
+  // #1275：否定检测扩展——child_process/worker_threads/vm/net/http/https/fs.promises 全禁（执行/网络面）
   if (/\bprocess\s*\.\s*(?!pid\b|platform\b|argv\b|version\b|cwd\b|stdout\b|stderr\b)/.test(body)) return false;
   if (/\b(?:child_process|worker_threads|vm|net|http|https|fs\.promises)\b/.test(body)) return false;
   // 计算成员调用 obj['x'](...)——对 callee 名提取不可见，出现即不豁免（动态面）
@@ -938,6 +991,11 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
   // （`git log > /repo/hacked.txt` 在 main 拦、PR 误放行，拦截侧回归）。白名单语义收窄为：
   // 仅免除 git 写族字面判定，重定向/data 破坏等其余判定照常跑。
   const gitReadonlyCmd = allSegmentsGitReadonly(command);
+  // #1275：one-liner 载荷只读判定只在命令实际含 one-liner 形态时提取一次
+  // （正则通道命中与否的豁免依据）；非 one-liner 命令无提取开销。
+  const oneLinerReadOnly = /\b(?:python[\d.]*\s+(?:-[A-Za-z](?:\s+(?!-)\S+)?\s+)*-c|node(?:\d+)?\s+(?:--[A-Za-z-]+(?:\s+[^\s;&|]+)?\s+)*(?:-e|--eval))(?:\s*["'`]|\s+(?!["'`])\S)/.test(command)
+    ? oneLinerPayloadReadOnly(command)
+    : false;
   if (!gitReadonlyCmd) {
     for (const [pi, pattern] of MAIN_WRITE_PATTERNS.slice(1).entries()) {
       if (!pattern.test(command)) continue;
@@ -945,6 +1003,9 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
       // 纯只读体放行（写/执行签名、非 python 解释器体均不豁免，见 PY_BODY_WRITE_SIG 注）。
       // heredocReadOnly 缺省（V1 兑底链：体已剥离不可判定）→ 不豁免，保守拦。
       if (pi === 0 && heredocReadOnly) continue;
+      // #1275：pattern[1]/pattern[2] 是 one-liner 通道（python -c / node -e）——
+      // 载荷白名单判定：只读载荷放行，白名单外/提取失败保守拦（与 heredoc 体感知同原则）。
+      if ((pi === 1 || pi === 2) && oneLinerReadOnly) continue;
       logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (no cd)", { command: command.substring(0, 200) });
       return MAIN_WRITE_BLOCK_MSG;
     }
