@@ -67,6 +67,48 @@ function isAddedOnBranch(file, ref, oldPath) {
   return hasAdd(file);
 }
 
+/** docs 管辖树路径判定（features|research） */
+function inDocsTreePath(p) {
+  return /^docs\/(features|research)\//.test(p);
+}
+
+/** 路径的 --follow 改名链上是否出现过 docs/features|research 路径。
+ *  #1273 delta 第二轮（严重 2）：用于「删除树外文件」的入册判定——两步逃逸链把历史文档
+ *  mv 出树后留下的残留，其删除动作也是历史文档处置链的一环，不得静默放行。 */
+function hasDocsTreeAncestry(p) {
+  try {
+    const log = git(["log", "--follow", "--format=", "--name-only", "--", p]);
+    return log
+      .split("\n")
+      .some((l) => /^docs\/(features|research)\//.test(l.trim()));
+  } catch {
+    return true; // 链查询失败 → 宁可入册交由后续宁拦逻辑，不放行
+  }
+}
+
+/** D 行渊源判定：该路径 --follow 改名链的「最早新增 commit」是否早于基准分支。
+ *  #1273 delta 第二轮（probeC 实证）：攻击者 step1 把历史文档 mv 出树后，自己的 commit 恰好
+ *  给新路径造出了「分支内 Add」记录，isAddedOnBranch 被这条自造记录骗过 → 豁免删除。
+ *  解法：看链的最早新增落在哪——早于 base = 渊源是历史文档，删除无条件违规；
+ *  落在本分支 = 分支内新建后删除的正常迭代，照常豁免。 */
+function hasHistoricalAncestry(p, ref) {
+  try {
+    const adds = git(["log", "--follow", "--diff-filter=A", "--format=%H", "--", p])
+      .split("\n")
+      .filter(Boolean);
+    if (adds.length === 0) return false; // 从未提交过 → 无渊源可言
+    const root = adds[adds.length - 1]; // 最早新增
+    try {
+      git(["merge-base", "--is-ancestor", root, ref]);
+      return true; // root 是 base 祖先 → 历史文档血统
+    } catch {
+      return false; // root 在 base 之后 → 本分支新增
+    }
+  } catch {
+    return true; // 查询失败宁拦
+  }
+}
+
 /** 解析 staged 状态行（git diff --cached --name-status），返回 {status, path, oldPath} */
 function parseStatusLine(line) {
   const [rawStatus, ...rest] = line.split("\t");
@@ -89,13 +131,21 @@ export function findViolations() {
     .split("\n")
     .filter(Boolean)
     .map(parseStatusLine)
-    // #1273 delta 修复（严重 2）：rename 配对的旧路径也要测——否则「先 mv 出 docs 树再重写 mv 回」
-    // 的两步链中，A+D 退化配对会把树内被删旧路径漏在管辖外（A 侧被判新建、D 侧在树外被过滤）
-    .filter(
-      (e) =>
-        /^docs\/(features|research)\//.test(e.filePath) ||
-        (e.oldPath !== undefined && /^docs\/(features|research)\//.test(e.oldPath))
-    );
+    // #1273 delta（严重 2）第二轮：rename 配对的旧路径也要测（r1 修法）；
+    // 另对「删除树外文件」补渊源入册——两步逃逸链的 step2 会以「删除树外残留」形态出现，
+    // 该文件 --follow 链上有 docs 树内路径（源自历史文档）时纳入管辖；
+    // 删除真树外文件（tmp/笔记等，链上无 docs 路径）不受影响
+    .map((e) =>
+      e.status === "D" && !inDocsTreePath(e.filePath) && e.oldPath === undefined
+        ? { ...e, docsAncestry: hasDocsTreeAncestry(e.filePath) }
+        : e
+    )
+    .filter((e) => {
+      if (inDocsTreePath(e.filePath)) return true;
+      if (e.oldPath !== undefined && inDocsTreePath(e.oldPath)) return true;
+      if (e.status === "D" && e.docsAncestry) return true;
+      return false;
+    });
 
   if (tracked.length === 0) return { errors: [], degraded: false };
 
@@ -112,7 +162,12 @@ export function findViolations() {
     modified.map((e) => [e.filePath, { status: e.status, oldPath: e.oldPath }])
   );
   const errors = modified
-    .filter((e) => !isAddedOnBranch(e.filePath, ref, e.oldPath))
+    .filter((e) => {
+      // 历史文档血统的删除：无条件违规——isAddedOnBranch 会被攻击者自造的 step1 Add 骗过
+      //（probeC 实证）；正常分支内新建后删除的文档链根在 base 之后，走下面原有豁免
+      if (e.status === "D" && e.docsAncestry && hasHistoricalAncestry(e.filePath, ref)) return true;
+      return !isAddedOnBranch(e.filePath, ref, e.oldPath);
+    })
     .map((e) => e.filePath);
   return { errors, entries, degraded: false };
 }
@@ -240,10 +295,11 @@ function checkRenameScope(oldPath, newPath, outOfScope) {
     return;
   }
   const section = seg[0];
-  // #1273 delta 修复（严重 2）：R 配对两侧必须都在 docs 管辖树内——旧路径在树外（如先 mv 出树）
-  // 的「rename」不在「文件名级元数据订正」语义内，不进 rename 通道，退回调用侧宁拦
   const inDocsTree = (p) => /^docs\/(features|research)\//.test(p);
-  if (!inDocsTree(oldPath)) {
+  // #1273 delta 第二轮（严重 2，r1 建议的双侧校验）：R 配对任一侧不在 docs 管辖树内即拒——
+  // 「树内→树外」的移出语义=删除历史文档（step1），「树外→树内」的移入语义=来源不明（step2 回迁），
+  // 都不是「文件名级元数据订正」；只查 oldPath 会漏掉移出方向（delta 复核 probeD 实测坐实）
+  if (!inDocsTree(oldPath) || !inDocsTree(newPath)) {
     outOfScope.push(newPath);
     return;
   }
