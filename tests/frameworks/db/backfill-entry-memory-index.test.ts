@@ -40,8 +40,11 @@ function insertFkParents(db: Database.Database) {
 }
 
 function insertEntry(db: Database.Database, id: string, type: string, body: string) {
+  // #906：entries (conversation_id, sequence_num) 已 UNIQUE——helper 改用 MAX+1
+  // 递增序号（与 createEntryAtomic 同款原子写入语义），不再硬编码 seq=1。
+  // 旧逃懒写法（全 conversation seq 恒 1）恰是 #906 指出的防线缺口实证。
   db.prepare(
-    "INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, status, source, metadata, sender_name, context_tokens, context_tokens_max, created_at, completed_at) VALUES (?, 'conv-1', 1, ?, ?, ?, ?, NULL, NULL, 'completed', NULL, NULL, '', NULL, NULL, '2026-09-20T10:00:00Z', '2026-09-20T10:00:00Z')",
+    "INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, status, source, metadata, sender_name, context_tokens, context_tokens_max, created_at, completed_at) VALUES (?, 'conv-1', (SELECT COALESCE(MAX(sequence_num), 0) + 1 FROM entries WHERE conversation_id = 'conv-1'), ?, ?, ?, ?, NULL, NULL, 'completed', NULL, NULL, '', NULL, NULL, '2026-09-20T10:00:00Z', '2026-09-20T10:00:00Z')",
   ).run(id, type, type === "user" ? "user" : "otter", type === "user" ? "user-1" : "otter-1", body);
 }
 

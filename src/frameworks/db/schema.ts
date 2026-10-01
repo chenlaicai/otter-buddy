@@ -950,7 +950,7 @@ function createEntryTables(db: Database.Database): void {
       FOREIGN KEY (invoke_id) REFERENCES invokes(id)
     );
 
-    CREATE INDEX IF NOT EXISTS idx_entries_conversation_seq ON entries(conversation_id, sequence_num);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_conversation_seq ON entries(conversation_id, sequence_num);
     CREATE INDEX IF NOT EXISTS idx_entries_invoke ON entries(invoke_id);
     CREATE INDEX IF NOT EXISTS idx_entries_type ON entries(entry_type);
     CREATE INDEX IF NOT EXISTS idx_entries_status ON entries(status);
