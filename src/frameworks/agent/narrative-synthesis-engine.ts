@@ -5,7 +5,7 @@
  * - compaction-hook.ts 的七段模板（Pi preparation 视角：messagesToSummarize 序列化 + previousSummary 谱系继承）
  * - synthesis-prompt-builder.ts 的七节模板（DB 视角：状态盘点 §⑤ 机械供料 + prefetch §④/⑥）
  *
- * 统一后所有交接场景（水位/手动/自重启/熔断/首哑复活）共用本引擎构建合成 prompt；
+ * 统一后所有交接场景（水位/手动/自重启/熔断）共用本引擎构建合成 prompt；
  * 影子通道执行合成（pi-session-factory runCompactionSynthesis，inMemory session 直调 LLM）。
  *
  * fail-closed 防线（与 Pi getSummarizationFailure 同立场）：
@@ -14,6 +14,8 @@
  */
 
 import { serializeConversation } from "@earendil-works/pi-coding-agent";
+import type { HandoffDegradeReason } from "@frameworks/agent/session-slicer";
+import { HANDOFF_DEGRADE_REASON_TEXT } from "@frameworks/agent/session-slicer";
 
 /** 合成超时上界（ms）：兜底异常语义——防 LLM 卡死/网络挂起，不是质量闸门（F20260923hsyn）。
  *  实证分布（9/23 日志配对统计）：正常 20-65s，最大真实案例 146s（956k chars prompt）。
@@ -123,7 +125,7 @@ export interface NarrativeSynthesisInput {
   /** 旧 session ID（meta 行 + 谱系行；缺省时用 'unknown'） */
   oldSessionId?: string;
   /** 触发场景 */
-  trigger: '水位' | '手动' | '自重启' | '熔断' | '首哑复活';
+  trigger: '水位' | '手动' | '自重启' | '熔断';
   /** 待压缩的对话历史切片（SDK AgentMessage[]，jsonl 权威源切片的产物） */
   messagesToSummarize: Array<{ role: string; content?: unknown }>;
   /** 上一代摘要（谱系继承：合并式更新，非重置） */
@@ -389,6 +391,9 @@ export function buildMechanicalArchive(input: {
   stateInventoryText?: string;
   recencyWindow?: string;
   fileTrail?: string;
+  /** F20260930hsfx：降级原因（贯穿日志与档案文案——「synthesizePast=false / 失败 / 超时」
+   *  三并列无法区分真空/无 speak/jsonl 读失败等具体形态；唯一枚举一眼定位）。 */
+  degradeReason?: HandoffDegradeReason;
 }): string {
   const ts = new Date().toISOString();
   const shortId = (input.oldSessionId ?? 'unknown').slice(0, 8);
@@ -405,7 +410,8 @@ export function buildMechanicalArchive(input: {
   }
 
   parts.push('### 说明');
-  parts.push('- LLM 叙事合成未执行或降级（synthesizePast=false / 失败 / 超时），本档案为机械转储形态');
+  // F20260930hsfx：reason 具体化——每种降级形态独立文案，不再三并列混淆
+  parts.push(`- ${input.degradeReason ? HANDOFF_DEGRADE_REASON_TEXT[input.degradeReason] : 'LLM 叙事合成未执行或降级，本档案为机械转储形态'}`);
   parts.push('- 完整上下文请查阅：记忆检索（search_messages）、产物（list_artifacts）、上下文（get_context）');
   parts.push('- 上一世 session 文件完整保留在磁盘（Session Chain 可追溯）');
   parts.push('');

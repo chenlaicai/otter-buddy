@@ -5,6 +5,7 @@ import type { UseCases } from "./types";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 import type { DispatchRecordRepository } from "@usecases/dispatch/dispatch-record-repository";
 import type { AgentInvoker } from "../interface-adapters/agent-runtime/agent-invoker";
+import { HANDOFF_SYNTHESIZE_PAST_DEFAULT } from "../interface-adapters/agent-runtime/agent-invoker";
 
 export function buildMemoryClient(uc: UseCases) {
   return {
@@ -252,7 +253,7 @@ export function buildOtterToolClient(
       // F20260920uhuc：restart_otter 工具（大獭重启别人）走统一交接管线——synthesizePast 透传；
       // agentInvoker 未装配时降级域层直透（测试装配兼容）
       restart: (otterId, summary, modelAlias, synthesizePast) => deps?.agentInvoker
-        ? deps.agentInvoker.restartWithUnifiedHandoff(otterId, { selfSummary: summary, modelAlias, synthesizePast: synthesizePast !== false })
+        ? deps.agentInvoker.restartWithUnifiedHandoff(otterId, { selfSummary: summary, modelAlias, synthesizePast: synthesizePast ?? HANDOFF_SYNTHESIZE_PAST_DEFAULT })
         : uc.manageSession.restartSession(otterId, summary, modelAlias),
     },
     context: {
