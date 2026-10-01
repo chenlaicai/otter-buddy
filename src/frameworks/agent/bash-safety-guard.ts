@@ -603,8 +603,10 @@ const MAIN_WRITE_BLOCK_MSG = "当前 bash 工作目录在主仓（未 cd 到 wor
 // ④ 通道/预闸/提取三处正则抽公共常量统一（-W 带参旗标位漂移实证，严重 4）；
 // ⑤ ruby/perl 只读全拦（fail-closed 起步，先堵写面，放行面后续放宽，严重 5）。
 
-/** one-liner 通道锚集——对齐 git 写族（:605 的 [|&]）：单 | / & 同样切段。 */
-const ONELINER_ANCHOR = "(?:^|[;&\\n|]|&&|\\|\\||\\(|\\{)\\s*(?:[\\w./-]+\\/)?";
+/** one-liner 通道锚集——对齐 git 写族（:670 的 [|&] 锚 + env 赋值前缀）。
+ *  单 | / & 同样切段（S-1）；env 赋值前缀（FOO=1 python3 -c …）与包装词
+ *  （env/sudo/nohup/xargs -I{}）在命令位置不改变 one-liner 本质（B3/B4/B8）。 */
+const ONELINER_ANCHOR = "(?:^|[;&\\n|]|&&|\\|\\||\\(|\\{)\\s*(?:[A-Za-z_]\\w*=\\S+\\s+)*(?:[\\w./-]+\\/)?(?:env\\s+|sudo\\s+|nohup\\s+|xargs\\s+(?:-[^\\s]+\\s+)*)?";
 
 /** one-liner 旗标位（python）：容许带参旗标（-W ignore / -X dev）。
  *  单字母旗标后可选一个非 - 开头的参数（`(?:\\s+(?!-)\\S+)?`），循环容许连续多旗标。 */
@@ -1288,8 +1290,23 @@ export function checkBashCommandSafety(
   const result = scan(heredocStripped);
   if (result) return result;
 
+  return scanNormalizedWithOneLinerExemption(heredocStripped, command, scan);
+}
+
+/** Delta 严重 1 处置：归一化二次扫描时 one-liner 只读豁免用原始文本预计算。
+ *  归一化剥引号（require('fs') → require(fs)）导致 nodeBodyReadOnly 白名单断言失败，
+ *  修复：豁免判定用原始命令文本（引号在位），归一化产物不再进 one-liner 通道的白名单判定。 */
+function scanNormalizedWithOneLinerExemption(
+  heredocStripped: string, originalCommand: string, scan: (text: string) => string | null,
+): string | null {
   const normalized = normalizeForDetection(heredocStripped);
-  return normalized !== heredocStripped ? scan(normalized) : null;
+  if (normalized === heredocStripped) return null;
+  const oneLinerReadOnlyOriginal = ONELINER_PRE_GATE.test(originalCommand)
+    ? oneLinerPayloadReadOnly(originalCommand)
+    : false;
+  const normalizedResult = scan(normalized);
+  if (normalizedResult && oneLinerReadOnlyOriginal) return null;
+  return normalizedResult;
 }
 
 // F20260928slan：sleep 检测拆至 sleep-command-guard.ts（控文件行数）——import + re-export 保持 API 稳定

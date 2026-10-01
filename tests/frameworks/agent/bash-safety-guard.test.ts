@@ -1989,9 +1989,12 @@ describe("#1275：解释器直执行（one-liner）形态主仓写检测盲区�
     expect(result).toBeNull();
   });
 
-  it("node -e readFileSync 只读 → 拦截（readFileSync 不在 NODE_READONLY_METHODS 白名单，fail-closed）", () => {
+  it("node -e readFileSync 只读 → 放行（Delta r2：原始文本预计算豁免，归一化产物不进白名单判定）", () => {
+    // S-3/Delta 严重 1 修复：归一化剥引号（require('fs') → require(fs)）导致白名单断言失败的
+    // 误拦，通过归一化前预计算 one-liner 只读豁免（原始文本引号在位）解决。
+    // readFileSync 在 NODE_READONLY_METHODS 白名单内（:952），require 在 bare 白名单（:972）。
     const result = checkBashCommandSafety("node -e \"console.log(require('fs').readFileSync('f','utf8'))\"", mainPid, undefined, { projectRoot });
-    expect(result).not.toBeNull();
+    expect(result).toBeNull();
   });
 
   // ── 放行面：cd worktree 后豁免（模型版 cd 豁免在最前）──
@@ -2081,6 +2084,56 @@ open('config/config.yaml','w').write(src.replace('port: 3000','port: 3102',1))
   it("管道右段只读 python3 -c → 放行（锚集含 | 但载荷只读豁免）", () => {
     expect(checkBashCommandSafety(
       `grep "x" /tmp/f | python3 -c "import sys; print(sys.stdin.read().count('x'))"`,
+      mainPid, undefined, { projectRoot }
+    )).toBeNull();
+  });
+
+  // ── Delta r2：S-3 归一化误拦修复 + B3/B4/B8 包装绕过固化 ──
+  it("Delta r2：node -e require('fs') readFileSync → 放行（原始文本预计算豁免，归一化产物不进白名单判定）", () => {
+    expect(checkBashCommandSafety(
+      `node -e "console.log(require('fs').readFileSync('/tmp/f','utf8').length)"`,
+      mainPid, undefined, { projectRoot }
+    )).toBeNull();
+  });
+
+  it("Delta r2：node -e 写载荷仍拦（豁免不覆盖写）", () => {
+    expect(checkBashCommandSafety(
+      `node -e "require('fs').writeFileSync('config.yaml','x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("Delta r2 B3：FOO=1 python3 -c 写 → 拦截（env 赋值前缀在锚集）", () => {
+    expect(checkBashCommandSafety(
+      `FOO=1 python3 -c "open('config.yaml','w').write('x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("Delta r2 B4：env python3 -c 写 → 拦截（包装词在锚集）", () => {
+    expect(checkBashCommandSafety(
+      `env python3 -c "open('config.yaml','w').write('x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("Delta r2 B4：sudo python3 -c 写 → 拦截", () => {
+    expect(checkBashCommandSafety(
+      `sudo python3 -c "open('config.yaml','w').write('x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("Delta r2 B8：xargs -I{} python3 -c 写 → 拦截", () => {
+    expect(checkBashCommandSafety(
+      `echo f | xargs -I{} python3 -c "open('{}','w').write('x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("Delta r2 B3：FOO=1 python3 -c 只读 → 放行（赋值前缀不影响豁免）", () => {
+    expect(checkBashCommandSafety(
+      `FOO=1 python3 -c "print(open('/tmp/f').read())"`,
       mainPid, undefined, { projectRoot }
     )).toBeNull();
   });
