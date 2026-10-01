@@ -1,6 +1,6 @@
 ---
 id: F20260713m5q3
-title: domain/memory] 记忆领域模块
+title: 记忆领域模块
 doc_type: feature
 
 # 记忆索引

@@ -1,6 +1,6 @@
 ---
 id: F20260716hkv3
-title: memory] 记忆系统多库架构 + 术语库
+title: 记忆系统多库架构 + 术语库
 doc_type: feature
 
 # 记忆索引

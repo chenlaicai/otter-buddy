@@ -1,6 +1,6 @@
 ---
 id: F20260713e8n4
-title: message-streaming-model] 消息流式模型重设计
+title: 消息流式模型重设计
 doc_type: feature
 
 # 记忆索引

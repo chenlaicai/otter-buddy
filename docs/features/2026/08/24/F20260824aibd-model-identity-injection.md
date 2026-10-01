@@ -1,6 +1,6 @@
 ---
 id: F20260824aibd
-title: agent-runtime] 模型身份注入 + 对抗角色异模型分配
+title: 模型身份注入 + 对抗角色异模型分配
 doc_type: feature
 
 # 记忆索引

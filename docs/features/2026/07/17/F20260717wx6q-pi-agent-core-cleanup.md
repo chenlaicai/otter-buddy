@@ -1,6 +1,6 @@
 ---
 id: F20260717wx6q
-title: 预期：无结果
+title: pi-agent-core 迁移遗留清理
 doc_type: feature
 
 # 记忆索引

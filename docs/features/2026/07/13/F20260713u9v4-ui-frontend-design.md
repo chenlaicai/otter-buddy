@@ -1,6 +1,6 @@
 ---
 id: F20260713u9v4
-title: web] UI 前端设计
+title: UI 前端设计
 doc_type: feature
 
 # 记忆索引
