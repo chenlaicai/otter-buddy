@@ -1,6 +1,6 @@
 ---
 id: F20260717gure
-title: memory] 术语库系统概念初始化
+title: 术语库系统概念初始化
 doc_type: feature
 
 # 记忆索引

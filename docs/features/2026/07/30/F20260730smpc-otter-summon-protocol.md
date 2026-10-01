@@ -1,6 +1,6 @@
 ---
 id: F20260730smpc
-title: F20260730smp 大獭召唤小獭协议
+title: 大獭召唤小獭协议
 doc_type: feature
 
 summary: |

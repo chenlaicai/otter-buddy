@@ -1,6 +1,6 @@
 ---
 id: F20260709p4q7
-title: data-model] 数据模型设计（S3）
+title: 数据模型设计（S3）
 doc_type: feature
 
 # 记忆索引
