@@ -1,6 +1,6 @@
 ---
 id: F20260729imlo
-title: lobby-feishu-integration
+title: IM 大厅：飞书接入对话能力
 doc_type: feature
 
 summary: |

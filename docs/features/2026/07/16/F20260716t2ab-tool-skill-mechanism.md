@@ -1,6 +1,6 @@
 ---
 id: F20260716t2ab
-title: tool-skill-mechanism
+title: Otter 系统 Tool/Skill 机制搭建
 doc_type: feature
 
 # 记忆索引

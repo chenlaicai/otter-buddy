@@ -1,6 +1,6 @@
 ---
 id: F20260805abpp
-title: abort-prefill-projection
+title: 中断可见性修复——guard 工具后首字节窗口 + 前端 abort 投影
 doc_type: feature
 
 # 记忆索引

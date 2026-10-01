@@ -1,6 +1,6 @@
 ---
 id: F20260724skch
-title: skill-tool-channel-consolidation
+title: Skill/Tool 信道治理 + Abort 缺陷修复
 doc_type: feature
 
 summary: |

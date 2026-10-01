@@ -2,7 +2,7 @@
 id: F20260821a2b3
 title: 修复 no_yield 重试时 speak 内容丢失的问题
 summary: 修复 handleYieldRetry 调用 prepareForRetry 时，resetForStreaming 无条件删除所有 segments，导致第一次 speak 内容丢失的问题。通过添加 preserveSegments 参数，在 no_yield 重试时保留 speak 内容。
-change_type: bugfix
+change_type: fix
 status: active
 created_at: 2026-08-21
 related_to: []

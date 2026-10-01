@@ -1,6 +1,6 @@
 ---
 id: F20260720esm1
-title: esm-migration-agent-fixes
+title: ESM 迁移 + Agent 运行时适配 + 消息事件模型
 doc_type: feature
 
 # 记忆索引

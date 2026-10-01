@@ -1,6 +1,6 @@
 ---
 id: F20260709x7k3
-title: product-form-definition
+title: product-setup] 产品形态定义（S1）
 doc_type: feature
 
 # 记忆索引

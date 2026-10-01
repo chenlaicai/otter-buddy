@@ -1,6 +1,6 @@
 ---
 id: F20260814mtrc
-title: llm-agent-observability
+title: LLM/Agent 链路可观测性
 doc_type: feature
 
 summary: |

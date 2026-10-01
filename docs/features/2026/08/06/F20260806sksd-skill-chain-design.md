@@ -1,6 +1,6 @@
 ---
 id: F20260806sksd
-title: skill-chain-and-template-design
+title: Skill Chain 与模板设计
 doc_type: feature
 
 summary: |

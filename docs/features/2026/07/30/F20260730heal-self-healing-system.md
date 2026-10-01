@@ -1,6 +1,6 @@
 ---
 id: F20260730heal
-title: self-healing-system
+title: Self-Healing 系统
 doc_type: feature
 
 summary: |

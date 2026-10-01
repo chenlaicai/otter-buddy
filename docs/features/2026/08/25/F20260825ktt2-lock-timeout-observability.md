@@ -8,7 +8,7 @@ summary: |
   超时 reject 前经可选注入的 logger 落结构化 error 日志（lockKey/otterId/waitedMs/
   timeoutMs/holderHeldForMs/queueLength/activeLocks）；healing event 上报因
   messageId/conversationId 在锁层不可得（schema NOT NULL）降级为日志，注释说明边界。
-change_type: bugfix
+change_type: fix
 status: active
 capability_test: "n/a: 纯日志可观测性改动，无 LLM 参与行为"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc

@@ -1,6 +1,6 @@
 ---
 id: F20260820xefif
-title: dependency-upgrades
+title: 统一升级依赖版本（2026-08-20 批次）
 doc_type: feature
 
 summary: |
@@ -11,7 +11,7 @@ causal_links:
     - F20260813x9xh
 
 status: development
-change_type: feature_update
+change_type: feature-update
 tags: [deps, dependencies, upgrade, dependabot]
 modules:
   - package-lock.json

@@ -1,6 +1,6 @@
 ---
 id: F20260817b3pr
-title: tool-factory-rule-descent
+title: tool-factory 领域规则下沉（批次 3 Part B）
 doc_type: feature
 
 summary: |

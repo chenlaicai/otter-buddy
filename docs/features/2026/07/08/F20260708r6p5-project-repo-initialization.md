@@ -1,6 +1,6 @@
 ---
 id: F20260708r6p5
-title: project-repo-initialization
+title: project-setup] 项目代码仓初始化
 doc_type: feature
 
 # 记忆索引

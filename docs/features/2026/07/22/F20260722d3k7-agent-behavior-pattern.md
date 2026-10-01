@@ -1,6 +1,6 @@
 ---
 id: F20260722d3k7
-title: agent-behavior-pattern
+title: AI 行为模式强化
 doc_type: feature
 
 # 记忆索引

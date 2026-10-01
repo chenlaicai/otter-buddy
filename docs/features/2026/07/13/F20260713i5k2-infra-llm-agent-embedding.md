@@ -1,6 +1,6 @@
 ---
 id: F20260713i5k2
-title: infra-llm-agent-embedding
+title: infra] LLM 网关 + Agent 核心 + Embedding 服务
 doc_type: feature
 
 # 记忆索引

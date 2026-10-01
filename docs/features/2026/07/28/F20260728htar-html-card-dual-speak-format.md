@@ -1,6 +1,6 @@
 ---
 id: F20260728htar
-title: html-card-dual-speak-format
+title: HTML 卡片：水獭的第二种发言格式
 doc_type: feature
 summary: |
   为水獭提供第二种发言格式：HTML 卡片（html-card）。日常发言仍是 Markdown；

@@ -1,6 +1,6 @@
 ---
 id: F20260810rsta
-title: agent-restart-otter-tool
+title: Agent 层 restart_otter 工具
 doc_type: feature
 
 summary: |

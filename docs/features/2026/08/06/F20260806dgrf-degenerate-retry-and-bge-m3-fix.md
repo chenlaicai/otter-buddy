@@ -1,6 +1,6 @@
 ---
 id: F20260806dgrf
-title: degenerate-retry-and-bge-m3-fix
+title: degenerate_output 重试修复 + bge-m3 worktree 复用
 doc_type: feature
 
 summary: |

@@ -5,7 +5,7 @@ summary: |
   在 listConversationsWithMeta 的派生活动状态中，当最后一条消息是 otter 发出且发言石传给另一个 otter 时，
   状态应为 processing 而非 awaiting_user。
 status: draft
-change_type: bugfix
+change_type: fix
 tags: ["conversation", "database", "bugfix", "talking-stone", "activity-status"]
 modules: ["src/frameworks/db/conversation/sqlite-conversation-repository.ts"]
 created_in_conversation: bbcfaa33-f036-4493-94de-3faf1c6df6cf
