@@ -70,6 +70,23 @@ jq: error (at <stdin>:0): Cannot index array with string "status"
 3. 限时 8s 跑完整真实脚本（OTTERBAR_MODEL_FILE 指 /tmp）→ model 正常产出，
    无 jq 报错 ✓
 
+**最小回归命令**（上游 API 再变形态时，一行验证修复是否仍兼容）：
+
+```bash
+# 新形态（当前后端）：应输出对象而非报错
+curl -s http://localhost:3000/api/conversations \
+  | jq '(if type == "array" then . else .items end) | length'
+# 旧形态模拟（裸数组）：应输出条目数而非报错
+echo '[{"status":"active"}]' \
+  | jq '(if type == "array" then . else .items end) | map(select(.status == "active")) | length'
+```
+
+**审视建议处置记录**（检视獭-tbar，PR #1276）：
+- 建议 1（`.items // []` 防御性兜底）：评估后不采纳——会把上游 API 故障静默成
+  「显示 0」，比显式报错更难发现；本机工具以「Touch Bar 回归系统默认」为
+  可感知失效信号，显式失败符合定位
+- 建议 2（补最小验证命令）：本节上述两命令即处置
+
 ## 影响范围
 
 - 仅 `scripts/otterbar/status-core.sh` 一文件 4 行
