@@ -6,7 +6,7 @@ change_type: fix
 capability_test: "n/a: 检测器纯函数逻辑（全确定性无 LLM），34 用例单测覆盖三处口径修订全分支"
 intent:
   problem: "bug_recurrence 按文件级统计 30 天窗口 bugfix commit（≥3 触发 critical），两类误报致 9 成假聚集：①同 PR 连锁——一个系统性修复 PR 触碰 7-9 文件/squash 前链式 commit 计多次「复发」；②非逻辑载体污染——types/组装/测试文件被被动触碰计为「复发」载体。critical 常态化（44 条=默认值）淹没真复发信号，每日处置成本爆炸且事实上无人做。"
-  expected_effect: "①载体排除即时生效：非逻辑载体信号（实测 45 条存量中 16 条：13 测试 + 3 bootstrap；注：深层域 types.ts 不排除——agent-turn-orchestrator/types.ts（存量信号 222）3 events 达阈翻回触发，「类型定义反复修」达阈报警是可接受的边界形态）合入后首次扫描即 auto-resolve（resolveStaleSignals 机制，非窗口滑出）；②同 PR 去重为多 commit PR/rebase 形态的口径正确性保障（squash 惯例下当前 0 例适用，如实声明非主要收益）；③同一根因跨 PR 系列展开的聚集（实测 29/45 仍触发，如 conversation/index.tsx 11 事件、app.ts 5 事件）本 PR 不解决——信号本身不算冤杜（真实热点文件被反复触碰），由 severity 分级/系列归因后续 issue #1270 承载；④evidence 语义澄清后面板可区分修复事件与 commit 计数。"
+  expected_effect: "①载体排除即时生效：非逻辑载体信号（实测 45 条存量中 16 条：13 测试 + 3 bootstrap；注：深层域 types.ts 不排除——agent-turn-orchestrator/types.ts（存量信号 222）3 events 达阈翻回触发，「类型定义反复修」达阈报警是可接受的边界形态）合入后首次扫描即 auto-resolve（resolveStaleSignals 机制，非窗口滑出）；②同 PR 去重为多 commit PR/rebase 形态的口径正确性保障（squash 惯例下当前 0 例适用，如实声明非主要收益）；③同一根因跨 PR 系列展开的聚集（实测 29/45 仍触发，如 conversation/index.tsx 11 事件、app.ts 5 事件）本 PR 不解决——信号本身不算冤枉（真实热点文件被反复触碰），由 severity 分级/系列归因后续 issue #1270 承载；④evidence 语义澄清后面板可区分修复事件与 commit 计数。"
   verify_by:
     type: static_only
     reason: "检测器为全确定性纯函数（detectSignals 输入 commit 流输出信号），34 用例覆盖同 PR 去重/无 PR 号 sha 计数/非逻辑载体排除/混合载体不误伤/新 evidence 口径全分支；行为面由存量信号 auto-resolve 速度回查（issue #1214 验证断言，#1012 容器型关闭标准：绑定信号全终态且 14 天无新增，预计 10 月中下旬）"
