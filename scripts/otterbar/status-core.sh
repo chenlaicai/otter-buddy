@@ -50,12 +50,15 @@ fetch_model() {
   fi
   primary=$(check_primary)
   offline_long=false
+  # 兼容两种响应形态：v1 裸数组 / #1119 起分页包装 {items, total}
+  # 归一化在最前面一步完成，后续 jq 逻辑保持原样
   printf '%s' "$data" | jq --argjson fresh "$WORKING_FRESH" \
     --arg primary "$primary" --argjson offline_long "$offline_long" '
     def ts2epoch: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
     def fresh_working: select(.activityStatus == "processing")
       | select((now - ((.lastMessageTs // "1970-01-01T00:00:00Z") | ts2epoch)) < $fresh);
-    [.[] | select(.status == "active")] as $act |
+    (if type == "array" then . else .items end) as $all |
+    [$all[] | select(.status == "active")] as $act |
     {
       v: 1,
       sys_online: true,
