@@ -216,4 +216,50 @@ describe("lint-historical-docs rename 通道（#1257，F20261001lrbk）", () => 
     fs.rmSync(path.join(repo, "tmp-escaped4"), { recursive: true, force: true });
     fs.rmSync(path.join(repo, back), { force: true });
   });
+
+  it("全检-严重 1 向量锁定：fm 插行 + 正文删除（同 staged）→ 拒绝（old-side 坐标对插入不变，插入无法让删除行逃逸）", () => {
+    // 全检獭-1273 报告的向量：fm 插 1 行 + 删正文行 → 实测 8+ 变体均拦（不可复现 exit=0），
+    // 本用例把该向量钉死为永久拦截面，防止未来解析器改动引入回退
+    const rich = `---\nid: F20260101old\ntitle: 旧特性\nchange_type: feature\nstatus: active\n---\n\n# 旧特性\n\n正文内容。\n\n## 追加章节\n\n尾部内容。\n`;
+    git(repo, ["reset", "-q", "--", "."]);
+    fs.writeFileSync(path.join(repo, OLD_DOC), rich);
+    stageOnly(repo, OLD_DOC);
+    git(repo, ["commit", "-q", "-m", "enrich fixture"]); // 富 fixture 落 HEAD（正文行远离 fm 边界）
+    git(repo, ["reset", "-q", "--hard", "HEAD~1"]); // 撤销制造 commit，改用分支重建
+    git(repo, ["commit", "-q", "--allow-empty", "-m", "anchor"]); // 占位，保持 fork 点
+    fs.writeFileSync(path.join(repo, OLD_DOC), rich);
+    git(repo, ["add", "--", OLD_DOC]);
+    git(repo, ["commit", "-q", "-m", "enrich old doc (setup)"]); // 富化版进 HEAD
+    // 攻击 staged：fm 插 1 行（status 行后）+ 删正文行（## 追加章节）
+    fs.writeFileSync(
+      path.join(repo, OLD_DOC),
+      rich.replace("status: active", "status: active\ninjected: x").replace("\n## 追加章节\n", "\n")
+    );
+    fs.writeFileSync(path.join(repo, ".doc-fix"), "声明文本（但含正文删除）\n");
+    stageOnly(repo, ".");
+    const err = runLintExpectFail(repo);
+    expect(err).toMatch(/超出 frontmatter 块|历史特性\/研究文档/);
+    // 收尾
+    git(repo, ["reset", "-q", "--hard"]);
+    git(repo, ["reset", "-q", "--hard", "HEAD~2"]); // 回到基线（enrich + anchor 两个 commit）
+    fs.rmSync(path.join(repo, ".doc-fix"), { force: true });
+  });
+
+  it("全检-严重 1 处置伴生修复回归：hunk 头尾缀上下文不产生幻影坐标（fm 边界行编辑正确判定）", () => {
+    // 原实现把 hunk 头 `@@ -4,0 +4 @@ status: draft` 的尾缀上下文当首行计入坐标（幻影 +1），
+    // fm 边界行编辑存在误拦风险；修复后坐标与 git 语义精确对齐——本用例锁定 fm 末行插入合法放行
+    git(repo, ["reset", "-q", "--", "."]);
+    fs.writeFileSync(
+      path.join(repo, OLD_DOC),
+      OLD_DOC_CONTENT.replace("change_type: feature", "change_type: feature\nstatus: active")
+    );
+    fs.writeFileSync(path.join(repo, ".doc-fix"), "frontmatter 末尾插入字段（合法元数据订正）\n");
+    stageOnly(repo, ".");
+    const r = runLint(repo);
+    expect(`${r.stdout}\n${r.stderr}`).toMatch(/变更均在 frontmatter 块内/);
+    // 收尾
+    git(repo, ["reset", "-q", "--", "."]);
+    git(repo, ["checkout", "--", OLD_DOC]);
+    fs.rmSync(path.join(repo, ".doc-fix"), { force: true });
+  });
 });
