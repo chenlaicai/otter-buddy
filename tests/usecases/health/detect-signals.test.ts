@@ -41,7 +41,7 @@ describe("detectSignals", () => {
     expect(rec!.severity).toBe("critical");
     expect(rec!.filePath).toBe("src/invoker.ts");
     expect(rec!.evidence).toContain("agent");
-    expect(rec!.evidence).toContain("3 次");
+    expect(rec!.evidence).toContain("3 个不同修复事件"); // #1214 新口径：独立 PR 数判据
   });
 
   it("bug_recurrence 不触发：不同文件 / 次数不足 / 窗口外", () => {
@@ -465,7 +465,7 @@ describe("Issue #660：behavior_defect 窗口边界覆盖增强", () => {
 
     const rec = signals.find(s => s.type === "bug_recurrence");
     expect(rec).toBeDefined();
-    expect(rec!.evidence).toContain("3 次"); // 计数不被 healing 事件抬高
+    expect(rec!.evidence).toContain("3 个不同修复事件"); // 计数不被 healing 事件抬高（#1214 口径：独立 PR 数）
     const stall = signals.find(s => s.type === "chain_stall");
     expect(stall).toBeDefined();
     expect(stall!.featureId).toBe("F20260801mx66"); // 判定不被 healing/commit 混入干扰
@@ -522,3 +522,146 @@ describe("Issue #660：behavior_defect 窗口边界覆盖增强", () => {
     expect(bd!.evidence).not.toContain("4 次");
   });
 });
+
+describe("detectSignals #1214 口径修订（bug_recurrence 同 PR 去重 + 载体排除）", () => {
+  // ── #1214 口径修订：同 PR 去重 / 非逻辑载体排除 / occurrences 语义 ──
+
+  it("#1214 同 PR 去重：同 PR 多 commit 只计 1 个修复事件，不再触发（系统性修复不连锁报 7-9 条）", () => {
+    const commits = [
+      // 同 PR #500 的 3 次链式修复（squash 前多 commit）——旧口径 3 次→触发，新口径 1 事件→不触发
+      commit("c1", 3, "[F20260801tstw][agent][BugFix] 1 (#500)", ["src/invoker.ts"]),
+      commit("c2", 5, "[F20260801tstw][agent][BugFix] 2 (#500)", ["src/invoker.ts"]),
+      commit("c3", 7, "[F20260801tstw][agent][BugFix] 3 (#500)", ["src/invoker.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    expect(signals.find(s => s.type === "bug_recurrence")).toBeUndefined();
+  });
+
+  it("#1214 同 PR 去重：不同 PR 各计 1 次，达阈仍触发；evidence 含独立 PR 清单与首末日期", () => {
+    const commits = [
+      commit("c1", 3, "[F20260801tstw][agent][BugFix] 1 (#501)", ["src/invoker.ts"]),
+      commit("c2", 5, "[F20260801tstw][agent][BugFix] 2 (#501)", ["src/invoker.ts"]),
+      commit("c3", 7, "[F20260801tstw][agent][BugFix] 3 (#502)", ["src/invoker.ts"]),
+      commit("c4", 9, "[F20260801tstw][agent][BugFix] 4 (#503)", ["src/invoker.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    expect(rec!.evidence).toContain("3 个不同修复事件"); // #501+#502+#503（c2/c3 去重后）
+    expect(rec!.evidence).toContain("#501");
+    expect(rec!.evidence).toContain("首末修复");
+  });
+
+  it("#1214 无 PR 号 commit 按 sha 计事件（本地修复链）", () => {
+    const commits = [
+      commit("d1", 3, "[F20260801tstw][agent][BugFix] 本地修 1", ["src/invoker.ts"]),
+      commit("d2", 5, "[F20260801tstw][agent][BugFix] 本地修 2", ["src/invoker.ts"]),
+      commit("d3", 7, "[F20260801tstw][agent][BugFix] 本地修 3", ["src/invoker.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    // 检视发现 3：纯无 PR 形态文案不冗余（单短语，不是「无 PR 号 commit + N 个无 PR 号 commit」）
+    expect(rec!.evidence).toContain("3 个无 PR 号 commit");
+    expect(rec!.evidence).not.toContain("无 PR 号 commit +");
+  });
+
+  it("#1214 混合 PR + 无 PR 计数与文案（检视发现 3 补覆盖）", () => {
+    const commits = [
+      commit("m1", 3, "[F20260801tstw][agent][BugFix] 1 (#801)", ["src/invoker.ts"]),
+      commit("m2", 5, "[F20260801tstw][agent][BugFix] 2 (#802)", ["src/invoker.ts"]),
+      commit("m3", 7, "[F20260801tstw][agent][BugFix] 本地修", ["src/invoker.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    expect(rec!.evidence).toContain("3 个不同修复事件");
+    expect(rec!.evidence).toContain("PR #801, #802 + 1 个无 PR 号 commit");
+  });
+
+  it("#1214 载体排除：bootstrap 目录（含其 types.ts）/ index 转发桶 / 组装文件不计（检视发现 6 补三类）", () => {
+    const commits = [
+      commit("g1", 3, "[F20260801tstw][agent][BugFix] 1 (#811)", ["src/bootstrap/types.ts"]),
+      commit("g2", 5, "[F20260801tstw][agent][BugFix] 2 (#812)", ["src/bootstrap/types.ts"]),
+      commit("g3", 7, "[F20260801tstw][agent][BugFix] 3 (#813)", ["src/bootstrap/types.ts"]),
+      commit("g4", 3, "[F20260801tstw][agent][BugFix] 4 (#814)", ["src/widgets/index.ts"]),
+      commit("g5", 5, "[F20260801tstw][agent][BugFix] 5 (#815)", ["src/widgets/index.ts"]),
+      commit("g6", 7, "[F20260801tstw][agent][BugFix] 6 (#816)", ["src/widgets/index.ts"]),
+      commit("g7", 3, "[F20260801tstw][agent][BugFix] 7 (#817)", ["src/main.ts"]),
+      commit("g8", 5, "[F20260801tstw][agent][BugFix] 8 (#818)", ["src/main.ts"]),
+      commit("g9", 7, "[F20260801tstw][agent][BugFix] 9 (#819)", ["src/main.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    expect(signals.find(s => s.type === "bug_recurrence")).toBeUndefined();
+  });
+
+  it("#1214 载体排除不误伤 runtime 载体 types.ts：非 bootstrap 路径照常计（检视发现 4 回归锚）", () => {
+    const commits = [
+      commit("h1", 3, "[F20260801tstw][weixin][BugFix] 1 (#821)", ["src/frameworks/weixin/types.ts"]),
+      commit("h2", 5, "[F20260801tstw][weixin][BugFix] 2 (#822)", ["src/frameworks/weixin/types.ts"]),
+      commit("h3", 7, "[F20260801tstw][weixin][BugFix] 3 (#823)", ["src/frameworks/weixin/types.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined(); // runtime 常量载体（WEIXIN_* 导出）不再被 basename 排除静音
+    expect(rec!.filePath).toBe("src/frameworks/weixin/types.ts");
+  });
+
+  it("delta D1 回归锚：index.tsx 是页面主组件不是 barrel——不排除照常计（存量信号 5 曾被误静音）", () => {
+    const commits = [
+      commit("p1", 3, "[F20260801tstw][web][BugFix] 1 (#831)", ["web/src/pages/conversation/index.tsx"]),
+      commit("p2", 5, "[F20260801tstw][web][BugFix] 2 (#832)", ["web/src/pages/conversation/index.tsx"]),
+      commit("p3", 7, "[F20260801tstw][web][BugFix] 3 (#833)", ["web/src/pages/conversation/index.tsx"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined(); // 页面主组件达阈必须报警
+    expect(rec!.filePath).toBe("web/src/pages/conversation/index.tsx");
+  });
+
+  it("delta D1 边界：index.ts barrel 照常排除，.mts/.cts 形态同样排除", () => {
+    const commits = [
+      commit("q1", 3, "[F20260801tstw][web][BugFix] 1 (#841)", ["src/widgets/index.ts"]),
+      commit("q2", 5, "[F20260801tstw][web][BugFix] 2 (#842)", ["src/widgets/index.ts"]),
+      commit("q3", 7, "[F20260801tstw][web][BugFix] 3 (#843)", ["src/widgets/index.ts"]),
+      commit("q4", 3, "[F20260801tstw][web][BugFix] 4 (#844)", ["src/lib/index.mts"]),
+      commit("q5", 5, "[F20260801tstw][web][BugFix] 5 (#845)", ["src/lib/index.mts"]),
+      commit("q6", 7, "[F20260801tstw][web][BugFix] 6 (#846)", ["src/lib/index.mts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    expect(signals.find(s => s.type === "bug_recurrence")).toBeUndefined();
+  });
+
+  it("#1214 非逻辑载体排除：组装文件 / 测试文件不计复发；src 根 types.ts 属装配类型同排除", () => {
+    // 注（检视发现 4 处置）：types 规则收窄为「src 根 + bootstrap/」——深层域类型文件
+    // （如 agent-turn-orchestrator/types.ts 纯类型、weixin/types.ts runtime 载体）不再
+    // 全排除：纯类型域文件不达阈无信号（无害），runtime 载体达阈报警（正确，见 weixin 回归锚）
+    const commits = [
+      commit("e1", 3, "[F20260801tstw][agent][BugFix] 1 (#601)", ["src/types.ts"]),
+      commit("e2", 5, "[F20260801tstw][agent][BugFix] 2 (#602)", ["src/types.ts"]),
+      commit("e3", 7, "[F20260801tstw][agent][BugFix] 3 (#603)", ["src/types.ts"]),
+      commit("e4", 3, "[F20260801tstw][agent][BugFix] 4 (#604)", ["src/platforms.ts"]),
+      commit("e5", 5, "[F20260801tstw][agent][BugFix] 5 (#605)", ["src/platforms.ts"]),
+      commit("e6", 7, "[F20260801tstw][agent][BugFix] 6 (#606)", ["src/platforms.ts"]),
+      commit("e7", 3, "[F20260801tstw][agent][BugFix] 7 (#607)", ["src/usecases.ts"]),
+      commit("e8", 5, "[F20260801tstw][agent][BugFix] 8 (#608)", ["src/usecases.ts"]),
+      commit("e9", 7, "[F20260801tstw][agent][BugFix] 9 (#609)", ["src/usecases.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    expect(signals.find(s => s.type === "bug_recurrence")).toBeUndefined();
+  });
+
+  it("#1214 混合载体：同批 commit 里逻辑文件仍正常计（排除不误伤）", () => {
+    const commits = [
+      commit("f1", 3, "[F20260801tstw][agent][BugFix] 1 (#701)", ["src/types.ts", "src/invoker.ts"]),
+      commit("f2", 5, "[F20260801tstw][agent][BugFix] 2 (#702)", ["src/types.ts", "src/invoker.ts"]),
+      commit("f3", 7, "[F20260801tstw][agent][BugFix] 3 (#703)", ["src/types.ts", "src/invoker.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    expect(rec!.filePath).toBe("src/invoker.ts"); // 逻辑文件照常触发
+  });
+});
+
+

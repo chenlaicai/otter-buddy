@@ -274,3 +274,19 @@ describe("CommitParser", () => {
     });
   });
 });
+
+// ── #1214 检视发现 2：PR 号取行尾最后一个（squash 追加位），首匹配会错认标题内 issue 引用 ──
+describe("PR 号行尾提取（#1214 检视处置）", () => {
+  it("双号形态：(#776) (#786) 取 786（首匹配错认 776 已修）", () => {
+    const r = parseCommit("abc123", "[F20260916evdb][prompt][Feature Update] 数据核查防再发（#791 复盘） (#791) (#806)\n\nbody");
+    expect(r.prNumber).toBe(806);
+  });
+  it("行尾单号照常提取", () => {
+    const r = parseCommit("abc124", "[F20260930brcb][health][BugFix] 检测器口径修订 (#1259)\n\nbody");
+    expect(r.prNumber).toBe(1259);
+  });
+  it("issue 引用在标题中部且非行尾：无 PR 号（null，不误认）", () => {
+    const r = parseCommit("abc125", "[F20260801tstw][agent][BugFix] 修复 (#776 阶段2) 后续工作\n\nbody");
+    expect(r.prNumber).toBeNull();
+  });
+});
