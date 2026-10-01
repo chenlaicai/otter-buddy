@@ -2010,4 +2010,78 @@ describe("#1275：解释器直执行（one-liner）形态主仓写检测盲区�
     const result = checkBashCommandSafety("python3 -c 'import os; os.kill(42877, 9)'", mainPid, undefined, { projectRoot });
     expect(result).not.toBeNull();
   });
+
+  // ── 检视獭-1278 严重发现固化（绕过形态反向断言 BLOCKED）──
+  it("S-1：管道右段 python3 -c 写 → 拦截（锚集含单 |）", () => {
+    const cmd = `grep "x" /tmp/f | python3 -c "
+import sys
+src = sys.stdin.read()
+open('config/config.yaml','w').write(src.replace('port: 3000','port: 3102',1))
+"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("S-1：管道右段 node -e 写 → 拦截", () => {
+    expect(checkBashCommandSafety(
+      `cat /tmp/f | node -e "require('fs').writeFileSync('config.yaml','x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("S-2：同解释器双 one-liner 只读掩护写 → 拦截（全部载荷只读才豁免）", () => {
+    expect(checkBashCommandSafety(
+      'python3 -c "print(1)" && python3 -c "open(\'config.yaml\',\'w\').write(\'x\')"',
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("S-2：python+node 跨解释器组合 → 拦截（任一非只读即拦）", () => {
+    expect(checkBashCommandSafety(
+      'python3 -c "print(1)" && node -e "require(\'fs\').writeFileSync(\'f\',\'x\')"',
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("S-4：python3 -W ignore -c 只读 → 放行（旗标位同步，通道/提取一致）", () => {
+    expect(checkBashCommandSafety(
+      `python3 -W ignore -c "import json; print(json.dumps({'a':1}))"`,
+      mainPid, undefined, { projectRoot }
+    )).toBeNull();
+  });
+
+  it("S-5：ruby -e 写 → 拦截（fail-closed 起步）", () => {
+    expect(checkBashCommandSafety(
+      `ruby -e "File.write('config/config.yaml','port: 9999')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("S-5：perl -e 写 → 拦截", () => {
+    expect(checkBashCommandSafety(
+      `perl -e 'open(F,">config.yaml"); print F "x"'`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("S-5：ruby -e 只读 → 拦截（fail-closed，先堵写面）", () => {
+    expect(checkBashCommandSafety(
+      `ruby -e "puts File.read('/tmp/f')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  // ── 建议 4：测试矩阵补三维度 ──
+  it("from os import getcwd → 放行（from-import 精确匹配只读子面）", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "from os import getcwd; print(getcwd())"`,
+      mainPid, undefined, { projectRoot }
+    )).toBeNull();
+  });
+
+  it("管道右段只读 python3 -c → 放行（锚集含 | 但载荷只读豁免）", () => {
+    expect(checkBashCommandSafety(
+      `grep "x" /tmp/f | python3 -c "import sys; print(sys.stdin.read().count('x'))"`,
+      mainPid, undefined, { projectRoot }
+    )).toBeNull();
+  });
 });
