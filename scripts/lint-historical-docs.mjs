@@ -238,16 +238,25 @@ function frontmatterLastLineOf(ref) {
 
 /** 逐 hunk 校验：新增行（+）用 new-side 行号比对新边界；删除行（-）用 old-side 行号比对旧边界。
  *  位置判定对两类行统一生效（delta-严重 1：形状判定有洞已退役）。
- *  下一 hunk 边界用行首 "\n@@" 锚定（原 indexOf("@@") 会被 hunk 体内含 @@ 的行干扰，此处顺带收紧）。
+ *  hunk 体从头行行尾（第二个 @@ 之后）开始，下一 hunk 边界用行首 "\n@@" 锚定。
+ *  全检-严重 1 处置修正（#1273）：原实现把 body 起点定在正则匹配串尾，即 hunk 头
+ *  `@@ -a,b +c,d @@ <节尾上下文>` 的尾部上下文（-U0 下 git 会附节尾相邻行）被当首行
+ *  计入坐标——幻影 +1 使 fm 边界附近（尤其 fm 末行插入）的合法元数据编辑被误拦
+ *  （假阳性，over-blocking；实测 8 探针变体中 fm 末插行/fm 删行+插行均被误拦）。
+ *  修复后坐标与 git 语义精确对齐：+行比 newFmLastLine，-行比 oldFmLastLine，
+ *  -U0 下两侧坐标各自真实，插入导致的坐标平移不会让删除行逃出判定（全检报告的
+ *  「删行前移逃逸」方向实测 8 变体均拦，不可复现；真正存在的是反向幻影误拦）。
  *  返回 true = 全部变更行在界内。 */
 function hunksWithinBounds(diffText, oldFmLastLine, newFmLastLine) {
   const hunks = [...diffText.matchAll(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/g)];
   let pos = 0;
   for (const hm of hunks) {
     const hunkStartInDiff = diffText.indexOf(hm[0], pos);
-    pos = hunkStartInDiff + hm[0].length;
+    const headerLineEnd = diffText.indexOf("\n", hunkStartInDiff); // 头行行尾（跳过 @@ 后的节尾上下文后缀）
+    const bodyStart = headerLineEnd === -1 ? diffText.length : headerLineEnd + 1;
+    pos = bodyStart;
     const nextHunk = diffText.indexOf("\n@@", pos);
-    const body = diffText.slice(pos, nextHunk === -1 ? undefined : nextHunk + 1);
+    const body = diffText.slice(bodyStart, nextHunk === -1 ? undefined : nextHunk + 1);
     let oldLine = Number(hm[1]);
     let newLine = Number(hm[3]);
     for (const raw of body.split("\n")) {
