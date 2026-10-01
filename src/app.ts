@@ -265,8 +265,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // 覆盖窗口期；fire-and-forget 不阻塞启动，失败仅日志（对齐既有 non-fatal 纪律）。
   const delayedReconcileTimer = setupDelayedReconcile(options, db, repos, logger);
   // issue #1252 遗留问题2：patrolWorker.start 原在此处（startRhiWorker 分支）——移至
-  // initAgentAndScheduler 之后（见下）消除 schedulerService TDZ；本标志供 dispose 防御。
-  let patrolWorkerStarted = false;
+  // initAgentAndScheduler 之后（见下）消除 schedulerService TDZ。
   if (modelPool) validateModelAliases(db, modelPool, logger);
   
   // ── 对话工作区 ──
@@ -332,7 +331,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // 构造块原位——闭包延迟绑定不随位置变化）。
   if (options.startRhiWorker ?? true) {
     patrolWorker.start();
-    patrolWorkerStarted = true;
   }
 
   // ── F20260902sgp2 S2：信号路由器重挂（v2 语义：pending = 派发台账）──
@@ -655,12 +653,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       schedulerService.stop();
       // F20260812mrcq Part 1：先停 retry worker 再关 DB
       retryWorker?.stopSync();
-      // #949：巡检 worker 统一停（原 RHI/Signal Aging/运行时对账/Embedding Retry 的定时器）
-      // issue #1252：start 已移至 initAgentAndScheduler 之后——startRhiWorker=false 时从未
-      // start 的 worker 也可能在 dispose 中被 stop（PatrolWorker.stop 内部幂等，防御冗余）。
-      if (patrolWorkerStarted) {
-        await patrolWorker.stop();
-      }
+      // #949：巡检 worker 统一停（原 RHI/Signal Aging/运行时对账/Embedding Retry 的定时器）。
+      // issue #1252：start 已移至 initAgentAndScheduler 之后；stop 幂等（timer/inflight 均空安全），
+      // 未 start 时调 stop 仅多一条 info 日志，无需防御标志。
+      await patrolWorker.stop();
       // await metric flush 到文件，确保进程退出前数据落盘
       try {
         await metricsRegistry.dispose();
