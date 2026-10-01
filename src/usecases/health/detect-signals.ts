@@ -122,12 +122,15 @@ export function detectSignals(
 function isNonLogicCarrier(filePath: string): boolean {
   if (isTestFile(filePath)) return true;
   const base = filePath.split("/").pop() ?? "";
-  // 检视发现 4：types 规则收窄到 bootstrap 装配路径——全仓 basename 排除会误伤
-  // src/frameworks/weixin/types.ts 等 runtime 常量载体（262 行含 WEIXIN_* 导出）；
-  // bootstrap/ 目录下的 types.ts 才是纯装配类型（存量信号 222 即此形态）
+  // 检视发现 4：types 规则收窄到 src 根 + bootstrap/——全仓 basename 排除会误伤
+  // src/frameworks/weixin/types.ts 等 runtime 常量载体（262 行含 WEIXIN_* 导出）。
+  // 深层域 types.ts 不排除：纯类型文件（如 agent-turn-orchestrator/types.ts，存量信号 222）
+  // 3 events 达阈时翻回触发——「类型定义反复修」达阈报警是可接受的边界形态（如实记录，非静音）
   if (/(^|\/)bootstrap\//.test(filePath)) return true;   // 启动装配目录整体（含其 types.ts）
-  if (/^src\/types?\.[cm]?[jt]s$/i.test(filePath)) return true; // src 根装配类型（存量信号 222 形态；深层域 types.ts 不排除——见 weixin 回归锚）
-  return /^index\.[cm]?[jt]sx?$/i.test(base)             // 转发桶（重导出，含 .tsx/.jsx——检视 4 边界定调）
+  if (/^src\/types?\.[cm]?[jt]s$/i.test(filePath)) return true; // src 根装配类型；深层域 types.ts 不排除——见 weixin 回归锚
+  // 转发桶（barrel：重导出 .ts/.js）——不含 .tsx/.jsx（delta D1：web/src/pages/*/index.tsx
+  // 是页面主组件不是 barrel，存量最大热点信号 5（11 事件）曾被误静音，回退并加回归锚）
+  return /^index\.[cm]?(t|j)s$/i.test(base)
     || /^(platforms|usecases|main)\.[cm]?[jt]s$/i.test(base); // 组装/入口（src 根的组装文件）
 }
 

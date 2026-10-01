@@ -6,7 +6,7 @@ change_type: fix
 capability_test: "n/a: 检测器纯函数逻辑（全确定性无 LLM），34 用例单测覆盖三处口径修订全分支"
 intent:
   problem: "bug_recurrence 按文件级统计 30 天窗口 bugfix commit（≥3 触发 critical），两类误报致 9 成假聚集：①同 PR 连锁——一个系统性修复 PR 触碰 7-9 文件/squash 前链式 commit 计多次「复发」；②非逻辑载体污染——types/组装/测试文件被被动触碰计为「复发」载体。critical 常态化（44 条=默认值）淹没真复发信号，每日处置成本爆炸且事实上无人做。"
-  expected_effect: "①载体排除即时生效：非逻辑载体信号（实测 45 条存量中 17 条：13 测试 + 3 bootstrap + 1 types）合入后首次扫描即 auto-resolve（resolveStaleSignals 机制，非窗口滑出）；②同 PR 去重为多 commit PR/rebase 形态的口径正确性保障（squash 惯例下当前 0 例适用，如实声明非主要收益）；③同一根因跨 PR 系列展开的聚集（实测 28/45 仍触发，如 conversation/index.tsx 11 事件）本 PR 不解决——信号本身不算冤杜（真实热点文件被反复触碰），由 severity 分级/系列归因后续 issue 承载；④evidence 语义澄清后面板可区分修复事件与 commit 计数。"
+  expected_effect: "①载体排除即时生效：非逻辑载体信号（实测 45 条存量中 16 条：13 测试 + 3 bootstrap；注：深层域 types.ts 不排除——agent-turn-orchestrator/types.ts（存量信号 222）3 events 达阈翻回触发，「类型定义反复修」达阈报警是可接受的边界形态）合入后首次扫描即 auto-resolve（resolveStaleSignals 机制，非窗口滑出）；②同 PR 去重为多 commit PR/rebase 形态的口径正确性保障（squash 惯例下当前 0 例适用，如实声明非主要收益）；③同一根因跨 PR 系列展开的聚集（实测 29/45 仍触发，如 conversation/index.tsx 11 事件、app.ts 5 事件）本 PR 不解决——信号本身不算冤杜（真实热点文件被反复触碰），由 severity 分级/系列归因后续 issue #1270 承载；④evidence 语义澄清后面板可区分修复事件与 commit 计数。"
   verify_by:
     type: static_only
     reason: "检测器为全确定性纯函数（detectSignals 输入 commit 流输出信号），34 用例覆盖同 PR 去重/无 PR 号 sha 计数/非逻辑载体排除/混合载体不误伤/新 evidence 口径全分支；行为面由存量信号 auto-resolve 速度回查（issue #1214 验证断言，#1012 容器型关闭标准：绑定信号全终态且 14 天无新增，预计 10 月中下旬）"
@@ -94,8 +94,8 @@ Golden Gate: n/a（verify_by=static_only——检测器为全确定性纯函数�
 ### 验证断言（issue #1214 回查口径，检视处置后实测口径）
 
 断言分两类时间模型（检视发现 7：resolveStaleSignals 每扫描即消解未检出 open 信号，非等窗口滑出）：
-- **即时类**：17 条载体排除信号（13 测试 + 3 bootstrap + 1 src 根 types）合入后首次扫描即 auto-resolve——回查 sqlite signals 表 bug_recurrence open 计数应降 17
-- **衰减类**：28 条仍触发信号随各自 bugfix commit 衰减出窗（30 天窗）逐步消解，预计 10 月中下旬归零；期间新 evidence（含「N 个不同修复事件」）随扫描 UPDATE 落到存量行
+- **即时类**：16 条载体排除信号（13 测试 + 3 bootstrap；delta D1 修正：原计 17 含被误伤的 index.tsx 页面信号 5，回退 tsx 后实际消解面 16）合入后首次扫描即 auto-resolve——回查 sqlite signals 表 bug_recurrence open 计数应降 16；另信号 222（深层 types.ts，3 events）翻回触发（边界形态如实记录）
+- **衰减类**：29 条仍触发信号随各自 bugfix commit 衰减出窗（30 天窗）逐步消解，预计 10 月中下旬归零；期间新 evidence（含「N 个不同修复事件」）随扫描 UPDATE 落到存量行
 - **存续声明**：同一根因跨 PR 系列的聚集（conversation/index.tsx 型）本 PR 后仍会触发——这是真实热点信号非误报，severity 分级/系列归因由后续 issue 承载（见检视处置记录）
 
 到期：随 #1012 容器型关闭标准（绑定信号全终态且 14 天无新增）一并回查。
@@ -111,6 +111,12 @@ Golden Gate: n/a（verify_by=static_only——检测器为全确定性纯函数�
 - **建议 7（时间模型）采纳**：验证断言区分即时类（17 条首次扫描消解）与衰减类（28 条出窗）——见上方验证断言段
 
 结论词口径：检视獭用了 skill 机械决策表的「需要修改」（严重↔request-changes 对应），与派工措辞「存在以下问题（决策者判断）」同语义，接受不要求统一。
+
+### Delta 处置记录（检视獭-1259 delta 轮：2 新严重）
+
+- **D1（tsx 误伤方向反转）采纳回退**：转发桶规则回退为不含 .tsx/.jsx——web/src/pages/conversation/index.tsx 是 1657 行页面主组件不是 barrel（存量最大热点信号 5 的 11 事件曾被静音）；初轮「边界定调」时把 tsx 加进排除是方向做反。回退后补 2 用例：index.tsx 页面组件达阈必须触发（信号 5 回归锚）+ index.ts/.mts barrel 照常排除
+- **D2（记录失实三连）采纳订正**：①注释「信号 222 不达阈无信号」→ 实为 3 events 恰达阈翻回触发（注释改为「类型定义反复修达阈报警是可接受的边界形态」）；②「17 条构成 13+3+1」→ 实际消解面 16 条（原 17 含被 D1 误伤的信号 5，总数巧合掩盖了名单变化）；③验证断言例证改为 conversation/index.tsx 11 事件 + app.ts 5 事件「仍触发」（与修后代码行为一致）
+- **真实翻转面核对**（检视獭逐条重算）：修 D1 后应为 29 触发 / 16 消解（另有 222 翻回触发）
 
 ## 后续动作
 

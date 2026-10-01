@@ -607,6 +607,31 @@ describe("detectSignals #1214 口径修订（bug_recurrence 同 PR 去重 + 载�
     expect(rec!.filePath).toBe("src/frameworks/weixin/types.ts");
   });
 
+  it("delta D1 回归锚：index.tsx 是页面主组件不是 barrel——不排除照常计（存量信号 5 曾被误静音）", () => {
+    const commits = [
+      commit("p1", 3, "[F20260801tstw][web][BugFix] 1 (#831)", ["web/src/pages/conversation/index.tsx"]),
+      commit("p2", 5, "[F20260801tstw][web][BugFix] 2 (#832)", ["web/src/pages/conversation/index.tsx"]),
+      commit("p3", 7, "[F20260801tstw][web][BugFix] 3 (#833)", ["web/src/pages/conversation/index.tsx"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined(); // 页面主组件达阈必须报警
+    expect(rec!.filePath).toBe("web/src/pages/conversation/index.tsx");
+  });
+
+  it("delta D1 边界：index.ts barrel 照常排除，.mts/.cts 形态同样排除", () => {
+    const commits = [
+      commit("q1", 3, "[F20260801tstw][web][BugFix] 1 (#841)", ["src/widgets/index.ts"]),
+      commit("q2", 5, "[F20260801tstw][web][BugFix] 2 (#842)", ["src/widgets/index.ts"]),
+      commit("q3", 7, "[F20260801tstw][web][BugFix] 3 (#843)", ["src/widgets/index.ts"]),
+      commit("q4", 3, "[F20260801tstw][web][BugFix] 4 (#844)", ["src/lib/index.mts"]),
+      commit("q5", 5, "[F20260801tstw][web][BugFix] 5 (#845)", ["src/lib/index.mts"]),
+      commit("q6", 7, "[F20260801tstw][web][BugFix] 6 (#846)", ["src/lib/index.mts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    expect(signals.find(s => s.type === "bug_recurrence")).toBeUndefined();
+  });
+
   it("#1214 非逻辑载体排除：组装文件 / 测试文件不计复发；src 根 types.ts 属装配类型同排除", () => {
     // 注（检视发现 4 处置）：types 规则收窄为「src 根 + bootstrap/」——深层域类型文件
     // （如 agent-turn-orchestrator/types.ts 纯类型、weixin/types.ts runtime 载体）不再
