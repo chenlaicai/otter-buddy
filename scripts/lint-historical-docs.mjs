@@ -13,7 +13,7 @@
  *   机械边界（F20260922dfch 严重 1 处置）：除声明文件外，每个历史文档的变更行必须全部落在 frontmatter
  *   块内（首个 --- 至次个 ---）；正文实质修改（增/删非空行）即使配 .doc-fix 也拒绝放行——「仅限元数据」
  *   是机制不是约定。提交后由使用者删除 .doc-fix（lint 仅提示；忘删 fail-closed：残留且未变更的声明不开启通道）。
- *   R 形态 rename（#1257，F20260930lrbk）：git mv 产生的 R 配对此前被双重误拦（isAddedOnBranch 按
+ *   R 形态 rename（#1257，F20261001lrbk）：git mv 产生的 R 配对此前被双重误拦（isAddedOnBranch 按
  *   oldPath 判历史 + checkFrontmatterScope 单路径 diff 把 rename 展开成全文新增）——纯 rename
  *   （similarity 100%，内容零变化）本质是文件名级元数据订正。修复：R 配对改从全量 diff 取 hunks，
  *   无 hunks（纯 rename）放行；有 hunks 按 old/new 两侧 frontmatter 边界校验（正文编辑仍拦）；
@@ -267,7 +267,7 @@ function hunksWithinBounds(diffText, oldFmLastLine, newFmLastLine) {
   return true;
 }
 
-/** R 形态 rename 的 frontmatter 边界校验（#1257，F20260930lrbk）。
+/** R 形态 rename 的 frontmatter 边界校验（#1257，F20261001lrbk）。
  *  rename 配对只在全量 staged diff 中呈现（pathspec 单路径过滤会抑制 rename 检测，实测坐实），
  *  故从全量 diff 提取本文件的 rename 段再解析：
  *  - similarity index 100% 且无 hunk且无 Binary 标记：纯 rename（内容零变化，文件名级元数据订正）→ 放行

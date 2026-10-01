@@ -1,5 +1,5 @@
 /**
- * F20260930lrbk（#1257）：R 形态 rename 的 .doc-fix 通道行为锁定。
+ * F20261001lrbk（#1257）：R 形态 rename 的 .doc-fix 通道行为锁定。
  *
  * 与 tests/lint-historical-docs.test.ts（F20260831dgim 主套件）分离成独立文件：
  * 主套件的 describe 体已接近 eslint max-lines-per-function（220）上限，且其既有用例
@@ -69,7 +69,7 @@ afterAll(() => {
   fs.rmSync(repo, { recursive: true, force: true });
 });
 
-describe("lint-historical-docs rename 通道（#1257，F20260930lrbk）", () => {
+describe("lint-historical-docs rename 通道（#1257，F20261001lrbk）", () => {
   it("R100 纯 rename + .doc-fix → 放行（修复前被双重误拦，#1257 的通道）", () => {
     const renamed = "docs/features/2026/01/01/F20260101old-pure-rename.md";
     git(repo, ["mv", OLD_DOC, renamed]); // 纯 git mv，R100，内容零变化
