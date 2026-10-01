@@ -14,6 +14,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import { interceptHealingReport, createManageHealingEventsTool } from "./healing-tools";
 import { createHaltOtterTool, createQuerySignalsTool, createResolveSignalTool, createUnhaltOtterTool, interceptSignalReport } from "./signal-tools";
+import { HANDOFF_SYNTHESIZE_PAST_DEFAULT } from "../agent-invoker";
 import { createTriageSignalTool, createListRhiSignalsTool } from "./rhi-signal-tools";
 import { DomainError } from "@entities/errors";
 import { createWorkspaceTools } from "./workspace-tools";
@@ -815,8 +816,9 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
       const targetOtterId = (params.otterId as string) || ctx.otterId;
       const summary = params.summary as string | undefined;
       const modelAlias = params.modelAlias as string | undefined;
-      // F20260920uhuc：synthesizePast 透传（默认 true——獭最清楚前世价值）
-      const synthesizePast = params.synthesizePast !== false;
+      // F20260930hsfx 层积岩清理：默认值收敛 HANDOFF_SYNTHESIZE_PAST_DEFAULT 单点。
+      //  显式 boolean 收窄：params 是 Record<string, unknown>，boolean schema 已校验，cast 安全。
+      const synthesizePast = (params.synthesizePast as boolean | undefined) ?? HANDOFF_SYNTHESIZE_PAST_DEFAULT;
 
       // 访问控制：获取调用者类型
       const self = await ctx.client.otter.getById(ctx.otterId);

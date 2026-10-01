@@ -39,12 +39,41 @@ const SPEAK_TRUNCATE_CHARS = 1_500;
 const SPEAK_KEEP_HEAD = 750;
 const SPEAK_KEEP_TAIL = 750;
 
+/** F20260930hsfx 降级原因枚举——交接档案降级/合成跳过的每一种形态都有唯一 reason，
+ *  贯穿日志与档案文案，事后排查一眼定位是哪条降级路径（此前「synthesizePast=false /
+ *  失败 / 超时」三并列，无法区分真空 session / 无 speak 有原料 / jsonl 读失败等）。 */
+export type HandoffDegradeReason =
+  | 'user-off'            // 触发方显式 synthesizePast=false——用户选择，非降级
+  | 'empty-session'       // session 真空（0 条 entry）/全 compaction 无普通消息——无原料可合成，跳过合理
+  | 'jsonl-read-fail'     // jsonl 读取/切片失败——原料不可得
+  | 'synthesis-error'     // 合成抛错（含截断 fail-closed）
+  | 'synthesis-timeout'   // 合成超时
+  | 'over-window'         // 合成 prompt 固定段结构性超窗
+  | 'circuit-open';       // 连续失败熔断开启，强制机械档案
+
+/** 各 reason 的档案「说明」节展示文案（buildMechanicalArchive 消费；新增 reason 必登记）。
+ * F20260930hsfx 审视建议1：原 'no-speak-has-material' 值无任何代码消费（无 speak 有原料时
+ *  slice 非空、合成照跑，根本不走机械档案降级路径）——死枚举删除，避免「枚举存在≠有路径」的假象。 */
+export const HANDOFF_DEGRADE_REASON_TEXT: Record<HandoffDegradeReason, string> = {
+  'user-off': '触发方选择跳过前世叙事合成（synthesizePast=false）',
+  'empty-session': '前世 session 无任何消息（空 session，无原料可合成）',
+  'jsonl-read-fail': '前世 session 文件读取失败，无法取得合成原料',
+  'synthesis-error': '叙事合成执行失败（已降级机械转储）',
+  'synthesis-timeout': '叙事合成超时（已降级机械转储）',
+  'over-window': '合成 prompt 超出目标窗口（固定段结构性超窗，已降级机械转储）',
+  'circuit-open': '叙事合成连续失败熔断开启，本次强制机械转储（快速止损）',
+};
+
 /** 切片产出（F20260929kws1 契约：cutPoint 概念退役，四字段语义重新定义，见各字段注释） */
 export interface JsonlSlice {
-  /** 最近 4 条 speak 中最老一条的 entry id（保留段起点——观测/追溯用） */
+  /** 最近 4 条 speak 中最老一条的 entry id（保留段起点——观测/追溯用；
+   *  无 speak 时为 undefined，保留段展示节据此标注「前世无发言」） */
   firstKeptEntryId: string | undefined;
-  /** 第 4 条 speak 之前的全部消息（叙事合成原料——切点从「预算点」变为「第 4 条 speak」，
-   *  原料反而更完整；非空时叙事合成触发条件成立，与「非目标：不改叙事合成器」自洽） */
+  /** 叙事合成原料——F20260930hsfx 起语义为「保留段（最近 4 条 speak）之外的全量消息」：
+   *  倒序取满 4 条 speak 后，从头到此 4 条之前的全部消息。Why 改口径：旧「第 4 条 speak
+   *  之前」会把 gap 消息（toolCall 与 toolResult 对）拦腰切断、且与保留段可能陈旧倒挂
+   *  （mimo 盘点独家发现）——改为「保留段之外」后原料完整、与保留段天然不重不漏。
+   *  无 speak 时 = 全量消息（纯工具前世原料照送合成，不再连坐跳过）。 */
   messagesToSummarize: SlicerMessage[];
   /** 恒空数组——cutPoint 概念退役，不存在「切点所在 turn 的前缀」 */
   turnPrefixMessages: SlicerMessage[];
@@ -65,13 +94,15 @@ export interface JsonlSlice {
  * - 保留段从「预算窗口内全部消息」收窄为「最近 4 条 speak 的纯 text」——
  *   user 消息/注入包/toolResult/thinking/toolCall 参数一律不进保留段
  *   （thinking/toolCall 由检视 S1 实证为日常破顶源）。
- * - 无 speak（首哑前世/纯工具 session）返回 undefined（调用方走降级路径）。
+ * - F20260930hsfx：恒返回结构——只有「session 真空（0 条 entry）」返回 undefined；
+ *   「无 speak 但有原料」返回 keptEntries 为空的 slice（调用方照跑合成，保留段节标注无发言）。
+ *   区分真空与无 speak：前者无原料可合成（跳过合理），后者原料完整不该被保留段空连坐降级。
  */
 export function sliceSessionEntries(
   entries: SessionEntry[],
   options?: { scopeKey?: string },
 ): JsonlSlice | undefined {
-  if (entries.length === 0) return undefined;
+  if (entries.length === 0) return undefined; // 真空 session——无原料，合成跳过的唯一形态
 
   // previousSummary：最近一次 compaction entry 的 summary（跨代谱系种子）
   const latestCompaction = getLatestCompactionEntry(entries);
@@ -86,14 +117,17 @@ export function sliceSessionEntries(
   for (let i = entries.length - 1; i >= 0 && speakIndexes.length < KEEP_SPEAK_COUNT; i--) {
     if (assistantTextOf(entries[i]) !== undefined) speakIndexes.push(i);
   }
-  if (speakIndexes.length === 0) return undefined;
   speakIndexes.reverse(); // 时间正序（旧 → 新）
 
-  // 叙事合成原料：第 4 条 speak 之前的全部消息（含 user/toolResult——合成需要完整脉络）
-  const oldestKeptIndex = speakIndexes[0];
-  const messagesToSummarize = collectMessages(entries, 0, oldestKeptIndex);
+  // 叙事合成原料（F20260930hsfx 口径：保留段之外的全量消息）：
+  //  - 有 speak：从头到最老保留 speak 之前的全部消息（gap 不拦腰切，与保留段不重不漏）；
+  //  - 无 speak（纯工具前世）：全量消息——原料完整，合成照跑（保留段空不再连坐降级）。
+  const messagesToSummarize = speakIndexes.length > 0
+    ? collectMessages(entries, 0, speakIndexes[0])
+    : collectMessages(entries, 0, entries.length);
 
-  // 保留段：重构造为纯 text 消息。Why 必须重构造而非只截 text：serializeConversation
+  // 保留段：重构造为纯 text 消息（无 speak 时为空数组——调用方据此标注「前世无发言」，
+  //  但不妨碍合成原料照送）。Why 必须重构造而非只截 text：serializeConversation
   // 的 assistant 分支会无截断带出 thinking 全文与 toolCall 参数 JSON（检视 S1 实测：
   // thinking 2,485 + 参数 4,346，日常形态即破顶），只截 text 不剥块的「硬顶」是假的。
   // thinking 是过程、toolCall 参数全文在 jsonl 原文——保留段只要「说了什么」。
@@ -115,7 +149,8 @@ export function sliceSessionEntries(
   });
 
   return {
-    firstKeptEntryId: entries[oldestKeptIndex].id,
+    // 无 speak 时保留段为空——firstKeptEntryId 无从指向
+    firstKeptEntryId: speakIndexes.length > 0 ? entries[speakIndexes[0]].id : undefined,
     messagesToSummarize,
     turnPrefixMessages: [],
     isSplitTurn: false,
