@@ -143,6 +143,11 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   /**
    * F20260814qswp：jieba FTS 检索的共享 SQL（searchFTS 与 searchFTSWithHighlight
    * 此前的语句逐字相同，仅 SELECT 列消费方式不同——me.* 本就含 content，统一返回行）。
+   *
+   * #1115 读放大降级：分词后 OR 连接的宽查询对全命中集 bm25 打分（实测 5 词 OR 命中
+   * 11k 行/次耗 13.7ms，主线程同步阻塞）；两段式改为「多词 AND 优先（交集收敛，实测
+   * 同 5 词 AND 命中 23 行耗 2.9ms）→ 空结果再回落 OR（保召回——短查询/停用词过滤后
+   * 单词形态两者等价无额外成本）」。单词条与多词同现场景性能不退化；召回面 OR 段兑底。
    */
   private searchFtsJiebaRows(query: string, filters: SearchFilters): FtsHighlightRow[] {
     // F20260805hybrid: 使用 jieba 分词表支持中文短查询
@@ -150,29 +155,37 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     if (tokenizedQuery.length === 0) return [];
 
     const ct = this.buildContentTypeClause(filters);
-    const ftsQuery = tokenizedQuery.map((t: string) => escapeFtsQuery(t)).join(" OR ");
+    const runFts = (joiner: " AND " | " OR "): FtsHighlightRow[] => {
+      const ftsQuery = tokenizedQuery.map((t: string) => escapeFtsQuery(t)).join(joiner);
+      return this.db.prepare(`
+        SELECT me.*, fts.rank AS bm25_score
+        FROM memory_fts_jieba fts
+        JOIN memory_entries me ON fts.memory_entry_id = me.id
+        WHERE memory_fts_jieba MATCH ?
+          AND (? IS NULL OR me.layer = ?)
+          AND (? IS NULL OR me.granularity = ?)
+          AND (? IS NULL OR me.conversation_id = ?)
+          AND (? IS NULL OR me.created_at >= ?)
+          ${ct.clause}
+        ORDER BY fts.rank
+        LIMIT ?
+      `).all(
+        ftsQuery,
+        filters.layer ?? null, filters.layer ?? null,
+        filters.granularity ?? null, filters.granularity ?? null,
+        filters.conversationId ?? null, filters.conversationId ?? null,
+        filters.createdAfter ?? null, filters.createdAfter ?? null,
+        ...ct.params,
+        DEFAULT_FTS_LIMIT,
+      ) as FtsHighlightRow[];
+    };
 
-    return this.db.prepare(`
-      SELECT me.*, fts.rank AS bm25_score
-      FROM memory_fts_jieba fts
-      JOIN memory_entries me ON fts.memory_entry_id = me.id
-      WHERE memory_fts_jieba MATCH ?
-        AND (? IS NULL OR me.layer = ?)
-        AND (? IS NULL OR me.granularity = ?)
-        AND (? IS NULL OR me.conversation_id = ?)
-        AND (? IS NULL OR me.created_at >= ?)
-        ${ct.clause}
-      ORDER BY fts.rank
-      LIMIT ?
-    `).all(
-      ftsQuery,
-      filters.layer ?? null, filters.layer ?? null,
-      filters.granularity ?? null, filters.granularity ?? null,
-      filters.conversationId ?? null, filters.conversationId ?? null,
-      filters.createdAfter ?? null, filters.createdAfter ?? null,
-      ...ct.params,
-      DEFAULT_FTS_LIMIT,
-    ) as FtsHighlightRow[];
+    // #1115 两段式：多词 AND 优先（交集收敛降读放大）；空结果/单词形回落 OR（保召回）
+    if (tokenizedQuery.length >= 2) {
+      const andRows = runFts(" AND ");
+      if (andRows.length > 0) return andRows;
+    }
+    return runFts(" OR ");
   }
 
   /** vec 表物理存在（不受 disableVec 影响） */

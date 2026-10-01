@@ -55,7 +55,7 @@ export function tokenizeWithJieba(text: string, options?: { doubleWrite?: boolea
  */
 export function tokenizeQuery(query: string): string[] {
   if (!query) return [];
-  const words = getJieba().cut(query, true);
+  const words = getJieba().cut(query, true).filter(w => w.trim().length > 0);
   const filtered = words.filter(word => !STOP_WORDS.has(word));
   // 如果过滤后为空，返回原始分词结果（避免查询无结果）
   return filtered.length > 0 ? filtered : words;
