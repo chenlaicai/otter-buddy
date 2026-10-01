@@ -217,8 +217,7 @@ describe("lint-historical-docs rename 通道（#1257，F20261001lrbk）", () => 
     fs.rmSync(path.join(repo, back), { force: true });
   });
 
-  it("全检-严重 1 向量锁定：fm 插行 + 正文删除（同 staged）→ 拒绝（old-side 坐标对插入不变，插入无法让删除行逃逸）", () => {
-    // 全检獭-1273 报告的向量：fm 插 1 行 + 删正文行 → 实测 8+ 变体均拦（不可复现 exit=0），
+  it("全检-严重 1 向量锁定：fm 插行 + 正文删除（同 staged）→ 拒绝（old-side 坐标对插入不变，插入无法让删除行逃逸）", () => {    // 全检獭-1273 报告的向量：fm 插 1 行 + 删正文行 → 实测 8+ 变体均拦（不可复现 exit=0），
     // 本用例把该向量钉死为永久拦截面，防止未来解析器改动引入回退
     const rich = `---\nid: F20260101old\ntitle: 旧特性\nchange_type: feature\nstatus: active\n---\n\n# 旧特性\n\n正文内容。\n\n## 追加章节\n\n尾部内容。\n`;
     git(repo, ["reset", "-q", "--", "."]);
@@ -259,6 +258,48 @@ describe("lint-historical-docs rename 通道（#1257，F20261001lrbk）", () => 
     expect(`${r.stdout}\n${r.stderr}`).toMatch(/变更均在 frontmatter 块内/);
     // 收尾
     git(repo, ["reset", "-q", "--", "."]);
+    git(repo, ["checkout", "--", OLD_DOC]);
+    fs.rmSync(path.join(repo, ".doc-fix"), { force: true });
+  });
+
+  it("delta-3（全检 probeChain）：链上 rename 后再 R100 无 .doc-fix → 拒绝（链根血统判定封自造 Add 豁免）", () => {
+    // 攻击链：commit1 对历史文档做非 R100 rename（补内容）→ git plain 查询把 rename 目标
+    // 拆段记为「分支内 Add」；commit2 再 R100 时 oldPath 命中这条自造 Add → 误判分支新建豁免。
+    // 修复：R 分支先用 hasHistoricalAncestry(oldPath) 查全历史链根——链根在 base 上则必历史文档，不豁免
+    const mid = "docs/features/2026/01/01/F20260101old-mid.md";
+    const final = "docs/features/2026/01/01/F20260101old-final.md";
+    git(repo, ["reset", "-q", "--", "."]);
+    git(repo, ["checkout", "--", OLD_DOC]);
+    fs.writeFileSync(path.join(repo, mid), OLD_DOC_CONTENT + "\n分支内补充内容（非 R100）。\n");
+    fs.rmSync(path.join(repo, OLD_DOC), { force: true });
+    stageOnly(repo, ".");
+    git(repo, ["commit", "-q", "-m", "step1: non-R100 rename (attack setup)"]);
+    git(repo, ["mv", mid, final]); // commit2: R100 纯 rename，无 .doc-fix
+    stageOnly(repo, ".");
+    const err = runLintExpectFail(repo);
+    expect(err).toMatch(/历史特性\/研究文档|超出 frontmatter 块/);
+    // 收尾：回退 setup commit
+    git(repo, ["reset", "-q", "--hard", "HEAD~1"]);
+    git(repo, ["reset", "-q", "--hard"]);
+    git(repo, ["checkout", "--", OLD_DOC]);
+  });
+
+  it("delta-3 合法面回归：链上 rename + .doc-fix → 放行（血统判定不误伤合法改名）", () => {
+    const mid = "docs/features/2026/01/01/F20260101old-legal-mid.md";
+    const final = "docs/features/2026/01/01/F20260101old-legal-final.md";
+    git(repo, ["reset", "-q", "--", "."]);
+    git(repo, ["checkout", "--", OLD_DOC]);
+    fs.writeFileSync(path.join(repo, mid), OLD_DOC_CONTENT + "\n分支内补充内容。\n");
+    fs.rmSync(path.join(repo, OLD_DOC), { force: true });
+    stageOnly(repo, ".");
+    git(repo, ["commit", "-q", "-m", "step1: non-R100 rename (legit)"]);
+    git(repo, ["mv", mid, final]);
+    fs.writeFileSync(path.join(repo, ".doc-fix"), "链上文件名补 slug 后缀订正（文件名级元数据）\n");
+    stageOnly(repo, ".");
+    const r = runLint(repo);
+    expect(`${r.stdout}\n${r.stderr}`).toMatch(/变更均在 frontmatter 块内/);
+    git(repo, ["reset", "-q", "--hard", "HEAD~1"]);
+    git(repo, ["reset", "-q", "--hard"]);
     git(repo, ["checkout", "--", OLD_DOC]);
     fs.rmSync(path.join(repo, ".doc-fix"), { force: true });
   });

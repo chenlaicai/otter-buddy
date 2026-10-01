@@ -63,7 +63,20 @@ function isAddedOnBranch(file, ref, oldPath) {
       return false;
     }
   };
-  if (oldPath && oldPath !== file) return hasAdd(oldPath); // R 形态：仅按来源路径判定
+  // delta-3（链上 rename 豁免，全检獭 probeChain 实证）：R 形态先做 rename 血统判定——
+  // 沿 oldPath 的 --follow 链找 R 记录，任一 rename 源路径在 base 上存在 → 血统必为历史文档，
+  // 无论分支内有没有自造 Add 记录都不豁免。
+  // 盲区机制：分支内 commit1 对历史文档做非 R100 rename（补内容）时，git plain（非 --follow）
+  // 查询对 rename commit 拆段呈 A+D，新路径被记为「分支内 Add」；后续同分支 commit2 再 R100
+  // 时 oldPath 恰好命中这条自造 Add → 被误判分支新建豁免 → 跳过 rename 通道校验。
+  // 为何不用 cat-file(oldPath on base) 直接判：probeChain 的 oldPath（Fmid）就不在 base 上。
+  // 为何不用 --follow 链根判：follow 对「cp 历史文档微改」的派生文档会把链根误溯到源文档
+  // （相似度启发），误伤分支内合法派生迭代（rntc delta 用例实证；其链上记录是 C 非 R，
+  // 用 R 记录+源存在性可机械区分 rename 血统与 copy 派生）。
+  if (oldPath && oldPath !== file) {
+    if (hasRenameLineageToBase(oldPath, ref)) return false;
+    return hasAdd(oldPath);
+  }
   return hasAdd(file);
 }
 
@@ -90,23 +103,58 @@ function hasDocsTreeAncestry(p) {
  *  #1273 delta 第二轮（probeC 实证）：攻击者 step1 把历史文档 mv 出树后，自己的 commit 恰好
  *  给新路径造出了「分支内 Add」记录，isAddedOnBranch 被这条自造记录骗过 → 豁免删除。
  *  解法：看链的最早新增落在哪——早于 base = 渊源是历史文档，删除无条件违规；
- *  落在本分支 = 分支内新建后删除的正常迭代，照常豁免。 */
+ *  落在本分支 = 分支内新建后删除的正常迭代，照常豁免。
+ *  delta-3 起兼供 isAddedOnBranch 的 R 分支做链根血统判定（同一盲区：自造 Add 骗过 plain 查询）。 */
 function hasHistoricalAncestry(p, ref) {
   try {
     const adds = git(["log", "--follow", "--diff-filter=A", "--format=%H", "--", p])
       .split("\n")
       .filter(Boolean);
     if (adds.length === 0) return false; // 从未提交过 → 无渊源可言
-    const root = adds[adds.length - 1]; // 最早新增
+    const root = adds[adds.length - 1]; // 最早新增（log 逆时序，末位即链根）
     try {
       git(["merge-base", "--is-ancestor", root, ref]);
       return true; // root 是 base 祖先 → 历史文档血统
-    } catch {
-      return false; // root 在 base 之后 → 本分支新增
+    } catch (e) {
+      // merge-base --is-ancestor 用退出码表意：root 非 base 祖先 → 本分支新增（正常路径，非查询错误）
+      if (e.status === 1) return false;
+      return true; // 其他异常（128 等）→ 宁拦
     }
   } catch {
     return true; // 查询失败宁拦
   }
+}
+
+/** rename 血统判定：oldPath 自身在 base 存在，或其 --follow 链上任一 R 记录的源路径在 base 存在。
+ *  #1273 delta-3（probeChain 实证）：封「链上 rename 自造 Add 豁免」——分支内非 R100 rename 的
+ *  目标被 plain 查询记为分支内 Add，后续 R100 的 oldPath 命中它即被误豁免；rename 源在 base 的
+ *  存在性是攻击链伪造不了的。C 记录（copy 派生）不算 rename 血统——cp 派生是分支内新文档（rntc）。
+ *  查询异常宁拦（返回 true 交后续边界校验拦截）。 */
+function hasRenameLineageToBase(oldPath, ref) {
+  try {
+    git(["cat-file", "-e", `${ref}:${oldPath}`]);
+    return true; // oldPath 本身在 base 存在 → 历史 rename 血统
+  } catch {
+    /* 不在 base，继续查链 */
+  }
+  try {
+    // 注意用 --pretty=format: 前缀（裸 @ 开头的 --format= 值被 git 当非法 pretty 名拒掉）
+    const log = git(["log", "--follow", "--name-status", "--pretty=format:@BOUNDARY@", "--", oldPath]);
+    for (const line of log.split("\n")) {
+      if (!/^R\d{2,3}\t/.test(line)) continue; // 只认 rename 记录（C 拷贝/A 新建不算）
+      const cols = line.split("\t");
+      const src = cols[cols.length - 2]; // R 记录：src \t dst
+      try {
+        git(["cat-file", "-e", `${ref}:${src}`]);
+        return true; // rename 源在 base 存在 → 历史 rename 血统
+      } catch {
+        /* 该源不在 base，继续扫链 */
+      }
+    }
+  } catch {
+    return true; // 链查询失败宁拦
+  }
+  return false;
 }
 
 /** 解析 staged 状态行（git diff --cached --name-status），返回 {status, path, oldPath} */
