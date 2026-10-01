@@ -3,13 +3,13 @@ id: F20261001ftsp
 title: FTS5 两段式查询（AND 优先 OR 兜底）
 summary: 检索读放大降级——多词 OR 宽查询全量 bm25 打分改 AND 交集优先，实测 13.7ms→2.9ms（#1115）
 change_type: fix
-capability_test: "n/a: SQL 查询形态改造（确定性逻辑），5 新用例锁行为语义 + 生产库实测性能数字入档"
+capability_test: "n/a: SQL 查询形态改造（确定性逻辑），8 用例锁行为语义（含标点过滤回归锚）+ 生产库实测性能数字入档"
 intent:
   problem: "FTS5 检索在主线程同步执行（better-sqlite3 固有形态），检索高峰（sync_docs 大批量入库/高频 search_memory）时挤压 invoke/SSE/HTTP——#1107 采样显示 ≈90% 主线程时间在 sqlite3_step→fts5NextMethod。onnx 线程池钳制（PR #1114）后残留症状。"
   expected_effect: "多词查询走 AND 交集优先（命中集 11k→23 级收敛），单次检索主线程占用实测 13.7ms→2.9ms（宽词 5 词场景）；AND 空结果回落 OR 保召回；jieba 分词空格 token 修复（此前 AND 段被 '\" \"' 拖空导致两段式失效、永远回落 OR）。"
   verify_by:
     type: static_only
-    reason: "SQL 查询形态改造为确定性逻辑：5 新用例锁行为语义（AND 交集/OR 兜底/单词条等价/filters 贯穿/高亮共享路径）+ 410 回归全绿；性能数字（13.7ms→2.9ms、命中 11228→23）属环境敏感不入单测，由本档实测记录承载；行为面由下轮检索高峰采样回查（主线程 fts5NextMethod 占比应显著下降）"
+    reason: "SQL 查询形态改造为确定性逻辑：8 用例锁行为语义（AND 交集/OR 兜底/单词条等价/filters 贯穿/高亮共享路径/标点过滤回归锚三例）+ 413 回归全绿；性能数字（13.7ms→2.9ms、命中 11228→23）属环境敏感不入单测，由本档实测记录承载；行为面由下轮检索高峰采样回查（主线程 fts5NextMethod 占比应显著下降）"
 created_in_conversation: d7377cfd-8497-4338-9fb5-366967ffe87e
 tags: [memory, fts5, search, performance, main-thread]
 modules: [src/frameworks/db/]
@@ -69,7 +69,7 @@ Modification-Class: narrow-fix——单文件查询形态改造 + tokenizer 一�
 ### 测试证据
 
 - **新增 8 用例**（tests/frameworks/db/memory/fts-two-phase-query.test.ts）：AND 交集命中/OR 兜底保召回/单词条等价/filters 贯穿两段/高亮路径共享/**检视处置 3 用例：含连字符查询 AND 段不旁路（严重 1 回归锚）/纯标点查询返回空/点号井号形态字母数字保留**——全过
-- **回归**：tests/frameworks/db/ + tests/usecases/memory/ 38 文件 410 用例全绿
+- **回归**：tests/frameworks/db/ + tests/usecases/memory/ 38 文件 413 用例全绿
 - **tsc** 0 错
 
 ### 性能实测（生产库 48,234 条，2026-10-01）
@@ -78,7 +78,7 @@ Modification-Class: narrow-fix——单文件查询形态改造 + tokenizer 一�
 
 ### Golden Gate
 
-Golden Gate: n/a（verify_by=static_only——db 层 SQL 查询形态，无 prompt/skill/协议层软代码变更；jieba-tokenizer 的 trim 过滤是纯数据清洗不影响模型可见面）
+Golden Gate: n/a（verify_by=static_only——db 层 SQL 查询形态，无 prompt/skill/协议层软代码变更；jieba-tokenizer 的 Unicode 字母数字过滤是纯数据清洗不影响模型可见面）
 
 ## 检视处置记录（检视獭-1279 初轮：1 严重 + 4 建议）
 

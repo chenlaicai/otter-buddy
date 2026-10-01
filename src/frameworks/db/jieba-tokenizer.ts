@@ -55,7 +55,7 @@ export function tokenizeWithJieba(text: string, options?: { doubleWrite?: boolea
  */
 export function tokenizeQuery(query: string): string[] {
   if (!query) return [];
-  // #1115（检视处置扩大）：过filtro blancos y símbolos——trim 只覆盖空白子类，
+  // #1115（检视处置扩大）：过滤空白与纯标点 token——trim 只覆盖空白子类，
   // 标点 token（cut("health-panel") → ["health","-","panel"]）与空格同病：
   // 零 posting 使 AND 段恒空，含标点查询永远走双段旁路收敛收益。
   // 改为「至少含一个字母或数字」的 Unicode 判定（含中文/CJK/数字，排除纯标点/空白）。
