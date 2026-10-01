@@ -1,6 +1,6 @@
 ---
 id: F20260813mren
-title: memory-relation-layer
+title: 记忆关系层
 summary: |
   记忆关系层：把 flat 的 memory_entries 升级为可声明、可遍历的有向关系图。
   memory_edges 表（4 种边类型，ON CONFLICT 幂等，只禁 chunk 建边，re-sync 边重定向）+ 文档 provenance（frontmatter created_in_conversation 入列）+ 4 个 agent 工具（link_memory/get_related/unlink_memory/sync_docs）。

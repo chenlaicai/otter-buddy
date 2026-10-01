@@ -1,6 +1,6 @@
 ---
 id: F20260817mrp2
-title: memory-repo-dedup
+title: memory repo 级联/插入/检索去重
 doc_type: feature
 
 summary: |

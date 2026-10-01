@@ -1,6 +1,6 @@
 ---
 id: F20260807rpcv
-title: recruiting-conversation-auto-pin
+title: 求职助手对话启动时自动置顶
 doc_type: feature
 
 summary: |

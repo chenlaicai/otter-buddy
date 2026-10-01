@@ -1,6 +1,6 @@
 ---
 id: F20260720qs9y
-title: per-conversation-otter
+title: 每个对话创建独立大獭，移除全局单例大獭
 doc_type: feature
 
 # 记忆索引

@@ -1,6 +1,6 @@
 ---
 id: F20260808daca
-title: fix-new-messages-count-double-counting
+title: 修复新消息计数虚增（去重 + 双通道）
 doc_type: feature
 
 summary: |

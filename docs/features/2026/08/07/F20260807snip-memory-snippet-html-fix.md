@@ -1,6 +1,6 @@
 ---
 id: F20260807snip
-title: memory-snippet-html-fix
+title: 记忆召回返回纯文本 snippet，高亮渲染移至 Web 后端
 doc_type: feature
 
 summary: |

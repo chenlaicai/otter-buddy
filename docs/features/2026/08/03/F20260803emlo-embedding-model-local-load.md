@@ -1,6 +1,6 @@
 ---
 id: F20260803emlo
-title: embedding-model-local-load
+title: Embedding 模型本地加载
 doc_type: feature
 
 summary: |

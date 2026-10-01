@@ -1,6 +1,6 @@
 ---
 id: F20260805cbpt
-title: circuit-breaker-parallel-timeout
+title: 熔断器并行工具调用超时修复
 doc_type: feature
 
 summary: |

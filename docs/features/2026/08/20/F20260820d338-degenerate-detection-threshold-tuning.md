@@ -1,6 +1,6 @@
 ---
 id: F20260820d338
-title: degenerate-detection-threshold-tuning
+title: 退化检测阈值调优
 doc_type: feature
 
 summary: |
@@ -15,7 +15,7 @@ causal_links:
     - "#338"
 
 status: development
-change_type: bugfix
+change_type: fix
 tags: [agent, degenerate, circuit-breaker, resilience, issue-fix]
 modules:
   - src/frameworks/agent/degenerate-detector.ts

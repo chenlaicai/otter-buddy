@@ -1,6 +1,6 @@
 ---
 id: F20260803mval
-title: memory-validator-link-integrity
+title: 记忆系统校验链路完整性
 doc_type: feature
 
 summary: |

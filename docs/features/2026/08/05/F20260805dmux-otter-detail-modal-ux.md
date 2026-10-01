@@ -1,6 +1,6 @@
 ---
 id: F20260805dmux
-title: otter-detail-modal-ux
+title: Otter 详情弹窗对比度与信息架构修复
 doc_type: feature
 
 summary: |

@@ -1,6 +1,6 @@
 ---
 id: F20260811url0
-title: fix-signature-url-and-doc-id-format
+title: 修复PR署名链接和文档ID格式问题
 doc_type: feature
 summary: |
   修复 PR 署名行中的仓库链接（orca-ai → chenlaicai）和 14 个 feature 文档的 ID 格式（后缀必须为 4 位字母数字）。

@@ -2,7 +2,7 @@
 id: F20260819x222
 title: 修复 search_memory 高负载下 embed() 无超时导致卡死
 summary: 修复 search_memory 高负载卡死问题。为 embed() 添加 30s 超时（Promise.race + setTimeout），超时后触发已有的 FTS5-only 降级逻辑，从卡死 10 分钟变为 30s 内返回降级结果。
-change_type: bugfix
+change_type: fix
 status: locked
 created_in_conversation: bbcfaa33-f036-4493-94de-3faf1c6df6cf
 modules:

@@ -1,6 +1,6 @@
 ---
 id: F20260811a3k7
-title: conv-list-timestamp
+title: 左侧聊天列表显示最后消息相对时间
 doc_type: feature
 
 summary: |

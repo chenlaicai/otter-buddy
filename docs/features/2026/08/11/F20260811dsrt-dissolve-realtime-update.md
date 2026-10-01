@@ -1,6 +1,6 @@
 ---
 id: F20260811dsrt
-title: dissolve-realtime-update
+title: 修复解散小獭时右侧栏不实时更新
 doc_type: feature
 
 summary: |

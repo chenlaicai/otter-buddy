@@ -1,6 +1,6 @@
 ---
 id: F20260819rscn
-title: self-restart-continue
+title: 自重启后獭继续工作
 doc_type: feature
 
 summary: |

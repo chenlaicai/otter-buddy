@@ -1,6 +1,6 @@
 ---
 id: F20260806cnp6
-title: repo-hygiene-sweep
+title: 代码仓定期排查清理
 doc_type: feature
 
 summary: |

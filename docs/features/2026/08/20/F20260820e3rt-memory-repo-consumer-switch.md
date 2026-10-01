@@ -1,6 +1,6 @@
 ---
 id: F20260820e3rt
-title: memory-repo-consumer-switch
+title: MemoryRepository 三分 Phase 2——消费者切换 + 共享类型提取
 doc_type: feature
 
 summary: |

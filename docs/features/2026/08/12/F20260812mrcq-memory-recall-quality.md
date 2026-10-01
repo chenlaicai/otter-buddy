@@ -1,6 +1,6 @@
 ---
 id: F20260812mrcq
-title: memory-recall-quality
+title: 记忆召回质量与稳定性优化
 doc_type: feature
 summary: |
   记忆召回质量与稳定性优化，单一 PR 含 4 Part：

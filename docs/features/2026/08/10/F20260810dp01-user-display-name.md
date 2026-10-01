@@ -1,6 +1,6 @@
 ---
 id: F20260810dp01
-title: F20260810dp01-user-display-name
+title: 用户消息气泡显示设置中配置的称呼
 summary: "用户消息气泡显示设置中配置的称呼替代硬编码的\"我\""
 status: development
 created: 2026-08-10

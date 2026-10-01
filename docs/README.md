@@ -11,7 +11,7 @@
 | 字段 | 约束 |
 |------|------|
 | `id` | 格式 `F\d{8}[a-z0-9]{4}`（feature）/ `R\d{8}[a-z0-9]{4}`（research）。8 位日期 = 创建日期（YYYYMMDD）。后缀 4-10 位小写字母数字（4 位推荐，放宽兼容历史）。 |
-| `title` | 非空、非纯空格。建议 kebab-case，与文件名后半段对齐 |
+| `title` | 非空、非纯空格。人类可读描述（中英文皆可）——slug 形态（连字符连接、无空格、无 CJK）报 warning（ratchet 只减不增）；文件名后半段才是 slug 的家（下文「文件名 slug」节） |
 | `summary` | **1-500 字符**。投影用途：卡片渲染、检索摘要、token 效率。详细内容写进 body，不要塞 summary |
 
 ### 路径格式（ID 中的日期与目录必须对应）
@@ -145,7 +145,7 @@ causal_links:
     - F20260803m9q2   # 因果上游（sync 读取，存入 DB metadata）
 
 status: development      # draft / proposed / design / development / active / locked / final / implemented / archived
-change_type: feature     # feature / refactor / fix / prompt / feature-update
+change_type: feature     # feature / refactor / fix / prompt / feature-update（真相源 src/entities/document/known-values.ts）
 tags: [area, concept]
 modules:
   - src/path/to/file.ts

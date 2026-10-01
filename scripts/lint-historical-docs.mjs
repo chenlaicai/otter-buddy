@@ -13,6 +13,11 @@
  *   机械边界（F20260922dfch 严重 1 处置）：除声明文件外，每个历史文档的变更行必须全部落在 frontmatter
  *   块内（首个 --- 至次个 ---）；正文实质修改（增/删非空行）即使配 .doc-fix 也拒绝放行——「仅限元数据」
  *   是机制不是约定。提交后由使用者删除 .doc-fix（lint 仅提示；忘删 fail-closed：残留且未变更的声明不开启通道）。
+ *   R 形态 rename（#1257，F20260930lrbk）：git mv 产生的 R 配对此前被双重误拦（isAddedOnBranch 按
+ *   oldPath 判历史 + checkFrontmatterScope 单路径 diff 把 rename 展开成全文新增）——纯 rename
+ *   （similarity 100%，内容零变化）本质是文件名级元数据订正。修复：R 配对改从全量 diff 取 hunks，
+ *   无 hunks（纯 rename）放行；有 hunks 按 old/new 两侧 frontmatter 边界校验（正文编辑仍拦）；
+ *   相似度 <50% 退化为 A+D 配对的仍宁拦（大改不是文件名订正）。.doc-fix 声明对 rename 通道同样强制。
  *
  * 退出码：0 通过 / 1 有违规 / 2 环境异常（宽松放行，不误伤）。
  */
@@ -89,28 +94,31 @@ export function findViolations() {
   if (tracked.length === 0) return { errors: [], degraded: false };
 
   const modified = tracked.filter((e) => e.status !== "A");
-  if (modified.length === 0) return { errors: [], degraded: false };
+  if (modified.length === 0) return { errors: [], entries: {}, degraded: false };
 
   const ref = baseRef();
   if (!ref) {
     console.warn("[lint:historical-docs] 找不到基准分支（origin/main/main），宽松放行");
-    return { errors: [], degraded: true };
+    return { errors: [], entries: {}, degraded: true };
   }
 
+  const entries = Object.fromEntries(
+    modified.map((e) => [e.filePath, { status: e.status, oldPath: e.oldPath }])
+  );
   const errors = modified
     .filter((e) => !isAddedOnBranch(e.filePath, ref, e.oldPath))
     .map((e) => e.filePath);
-  return { errors, degraded: false };
+  return { errors, entries, degraded: false };
 }
 
 function main() {
-  const { errors } = findViolations();
+  const { errors, entries } = findViolations();
   if (errors.length === 0) process.exit(0);
 
   // 显式开口：staged 区存在 .doc-fix 声明文件（内容≥10字符）+ 每个历史文档变更均在 frontmatter 块内
   const declaration = readDocFixDeclaration();
   if (declaration.ok) {
-    const scope = checkFrontmatterScope(errors);
+    const scope = checkFrontmatterScope(errors, entries);
     if (scope.ok) {
       console.warn(`[lint:historical-docs] .doc-fix 声明文件存在且变更均在 frontmatter 块内，放行 ${errors.length} 个历史文档修改：`);
       for (const f of errors) console.warn(`  M ${f}`);
@@ -150,30 +158,110 @@ function sanitize(s) {
   return s.replace(ansi, "").replace(/[\r\n]+/g, " ");
 }
 
-/** 校验每个历史文档的 staged 变更行全部落在 frontmatter 块内（首个 --- 至次个 ---）。
- *  判定口径（宁拦勿放）：变更行（+/- 开头、非 +++/--- 头）trim 后非空，且行号在 frontmatter 块外 → 超出。
- *  读索引区（git show :<file>）拿新版本的 frontmatter 边界，与 git diff --cached -U0 的 hunk 行号比对。 */
-function checkFrontmatterScope(files) {
-  const outOfScope = [];
-  for (const file of files) {
-    let newContent;
-    try {
-      newContent = git(["show", `:${file}`]);
-    } catch {
-      outOfScope.push(file); // 读取失败（如纯删除）宁拦
-      continue;
-    }
-    const lines = newContent.split("\n");
-    // frontmatter 块：第 1 行 ---，到下一处 --- 为止
-    let fmEnd = -1;
-    if (lines[0] && lines[0].trim() === "---") {
-      for (let i = 1; i < lines.length; i++) {
-        if (lines[i].trim() === "---") { fmEnd = i; break; }
+/** 读 git 引用（`:<path>` 或 `HEAD:<path>`）内容的 frontmatter 结束行号（1-based，含第二个 ---）。
+ *  无合法 frontmatter 块或读取失败返回 -1（调用方宁拦）。 */
+function frontmatterLastLineOf(ref) {
+  let content;
+  try {
+    content = git(["show", ref]);
+  } catch {
+    return -1;
+  }
+  const lines = content.split("\n");
+  if (!(lines[0] && lines[0].trim() === "---")) return -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].trim() === "---") return i + 1; // 1-based
+  }
+  return -1;
+}
+
+/** 逐 hunk 校验：新增行（+）用 new-side 行号比对新边界；删除行（-）用 old-side 行号比对旧边界。
+ *  位置判定对两类行统一生效（delta-严重 1：形状判定有洞已退役）。
+ *  下一 hunk 边界用行首 "\n@@" 锚定（原 indexOf("@@") 会被 hunk 体内含 @@ 的行干扰，此处顺带收紧）。
+ *  返回 true = 全部变更行在界内。 */
+function hunksWithinBounds(diffText, oldFmLastLine, newFmLastLine) {
+  const hunks = [...diffText.matchAll(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/g)];
+  let pos = 0;
+  for (const hm of hunks) {
+    const hunkStartInDiff = diffText.indexOf(hm[0], pos);
+    pos = hunkStartInDiff + hm[0].length;
+    const nextHunk = diffText.indexOf("\n@@", pos);
+    const body = diffText.slice(pos, nextHunk === -1 ? undefined : nextHunk + 1);
+    let oldLine = Number(hm[1]);
+    let newLine = Number(hm[3]);
+    for (const raw of body.split("\n")) {
+      if (raw.startsWith("+")) {
+        if (raw.slice(1).trim() !== "" && newLine > newFmLastLine) return false;
+        newLine++;
+      } else if (raw.startsWith("-")) {
+        if (raw.slice(1).trim() !== "" && oldLine > oldFmLastLine) return false;
+        oldLine++;
+      } else {
+        // 上下文行（-U0 下应无，防御）
+        oldLine++;
+        newLine++;
       }
     }
-    // 无合法 frontmatter 块（行号从 1 计，fmEnd 是 0-based 索引）→ 无法证明变更是元数据级 → 宁拦
-    if (fmEnd === -1) { outOfScope.push(file); continue; }
-    const fmLastLine = fmEnd + 1; // 1-based 行号（含第二个 ---）
+  }
+  return true;
+}
+
+/** R 形态 rename 的 frontmatter 边界校验（#1257，F20260930lrbk）。
+ *  rename 配对只在全量 staged diff 中呈现（pathspec 单路径过滤会抑制 rename 检测，实测坐实），
+ *  故从全量 diff 提取本文件的 rename 段再解析：
+ *  - similarity 100% 且无 hunk：纯 rename（内容零变化，文件名级元数据订正）→ 放行
+ *  - 有 hunk：rename + 编辑——按 old/new 两侧 frontmatter 边界校验，正文编辑仍拦
+ *  - 未匹配到 rename 配对（相似度低于阈值退化为 A+D）：宁拦（大改不是文件名订正）
+ *  .doc-fix 声明在调用侧同样强制（rename 通道不是无声明后门）。 */
+function checkRenameScope(oldPath, newPath, outOfScope) {
+  let diff;
+  try {
+    diff = git(["diff", "--cached", "-U0", "-M"]);
+  } catch {
+    outOfScope.push(newPath);
+    return;
+  }
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // 终点：下一段段头（\n diff --git）或串尾（git() 输出被 trim，末段无尾随换行，$ 不得依赖 \n）
+  const seg = diff.match(
+    new RegExp(`diff --git a/${esc(oldPath)} b/${esc(newPath)}\\n[\\s\\S]*?(?:(?=\\n(?:diff --git ))|$)`)
+  );
+  if (!seg) {
+    outOfScope.push(newPath); // rename 配对未出现（退化 A+D）→ 宁拦
+    return;
+  }
+  const section = seg[0];
+  const hunks = [...section.matchAll(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/g)];
+  if (hunks.length === 0) return; // 纯 rename（similarity 100%）→ 内容零变化，放行
+  const oldFmLastLine = frontmatterLastLineOf(`HEAD:${oldPath}`);
+  const newFmLastLine = frontmatterLastLineOf(`:${newPath}`);
+  if (oldFmLastLine === -1 || newFmLastLine === -1) {
+    outOfScope.push(newPath); // 两侧任一无合法 frontmatter 块 → 宁拦
+    return;
+  }
+  if (!hunksWithinBounds(section, oldFmLastLine, newFmLastLine)) outOfScope.push(newPath);
+}
+
+/** 校验每个历史文档的 staged 变更行全部落在 frontmatter 块内（首个 --- 至次个 ---）。
+ *  判定口径（宁拦勿放）：变更行（+/- 开头、非 +++/--- 头）trim 后非空，且行号在 frontmatter 块外 → 超出。
+ *  读索引区（git show :<file>）拿新版本的 frontmatter 边界，与 git diff --cached -U0 的 hunk 行号比对。
+ *  #1257：entries 携带 name-status 元数据，R 形态 rename 走 checkRenameScope（全量 diff 解析 rename 对）。 */
+function checkFrontmatterScope(files, entries = {}) {
+  const outOfScope = [];
+  for (const file of files) {
+    const entry = entries[file] ?? {};
+    if (entry.oldPath && entry.oldPath !== file) {
+      checkRenameScope(entry.oldPath, file, outOfScope);
+      continue;
+    }
+    const newFmLastLine = frontmatterLastLineOf(`:${file}`);
+    // 无合法 frontmatter 块 / 读取失败（如纯删除）→ 无法证明变更是元数据级 → 宁拦
+    if (newFmLastLine === -1) { outOfScope.push(file); continue; }
+    const oldFmLastLine = frontmatterLastLineOf(`HEAD:${file}`);
+    // 旧版本边界——删除行用 old-side 位置判定（delta-严重 1：形状判定有洞，
+    // 正文行 "Note: important" 形状像 key:value 曾被误放；纯位置判定无此洞）；
+    // HEAD 读不到（理论边角）→ 宁拦
+    if (oldFmLastLine === -1) { outOfScope.push(file); continue; }
 
     let diff;
     try {
@@ -182,51 +270,7 @@ function checkFrontmatterScope(files) {
       outOfScope.push(file);
       continue;
     }
-    // 旧版本（HEAD）的 frontmatter 边界——删除行用 old-side 位置判定（delta-严重 1：形状判定有洞，
-    // 正文行 "Note: important" 形状像 key:value 曾被误放；纯位置判定无此洞）
-    let oldFmLastLine = -1;
-    try {
-      const oldContent = git(["show", `HEAD:${file}`]);
-      const oldLines = oldContent.split("\n");
-      if (oldLines[0] && oldLines[0].trim() === "---") {
-        for (let i = 1; i < oldLines.length; i++) {
-          if (oldLines[i].trim() === "---") { oldFmLastLine = i + 1; break; } // 1-based
-        }
-      }
-    } catch {
-      oldFmLastLine = -1; // HEAD 读不到（理论边角）→ 宁拦
-    }
-    if (oldFmLastLine === -1) { outOfScope.push(file); continue; }
-
-    // 逐 hunk 校验：新增行（+）用 new-side 行号比对新边界；删除行（-）用 old-side 行号比对旧边界。
-    // 位置判定对两类行统一生效，形状分类器退役（delta 复核：死分支注释类一并消失）。
-    let violated = false;
-    const hunks = [...diff.matchAll(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/g)];
-    // diff 中 hunk 之后的行序列属于该 hunk；逐行推进 old/new 两侧行号
-    let pos = 0;
-    for (const hm of hunks) {
-      const hunkStartInDiff = diff.indexOf(hm[0], pos);
-      pos = hunkStartInDiff + hm[0].length;
-      const nextHunk = diff.indexOf("@@", pos);
-      const body = diff.slice(pos, nextHunk === -1 ? undefined : nextHunk);
-      let oldLine = Number(hm[1]);
-      let newLine = Number(hm[3]);
-      for (const raw of body.split("\n")) {
-        if (raw.startsWith("+")) {
-          if (raw.slice(1).trim() !== "" && newLine > fmLastLine) { violated = true; break; }
-          newLine++;
-        } else if (raw.startsWith("-")) {
-          if (raw.slice(1).trim() !== "" && oldLine > oldFmLastLine) { violated = true; break; }
-          oldLine++;
-        } else {
-          // 上下文行（-U0 下应无，防御）
-          oldLine++;
-          newLine++;
-        }
-      }
-      if (violated) break;
-    }
-    if (violated) outOfScope.push(file);
+    if (!hunksWithinBounds(diff, oldFmLastLine, newFmLastLine)) outOfScope.push(file);
   }
   return { ok: outOfScope.length === 0, outOfScope };
 }

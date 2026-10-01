@@ -1,6 +1,6 @@
 ---
 id: F20260806btk7
-title: context-tokens-persist
+title: token 用量随 complete 落库——修复刷新后上下文使用率消失
 doc_type: feature
 
 # 记忆索引

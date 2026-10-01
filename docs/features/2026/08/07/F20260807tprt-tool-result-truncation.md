@@ -1,6 +1,6 @@
 ---
 id: F20260807tprt
-title: tool-result-truncation
+title: 工具结果截断防止上下文退化
 doc_type: feature
 
 summary: |

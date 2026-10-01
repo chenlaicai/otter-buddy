@@ -1,6 +1,6 @@
 ---
 id: F20260811x7k3
-title: fix-scheduled-task-tool-allowlist
+title: 修复 create_scheduled_task 工具未加入允许列表的问题
 doc_type: feature
 
 summary: |
@@ -14,7 +14,7 @@ causal_links:
     - F20260811onst
 
 status: implemented
-change_type: bugfix
+change_type: fix
 tags: [agent, scheduled-task, tool-allowlist, bugfix]
 modules:
   - src/frameworks/agent/session-helpers.ts

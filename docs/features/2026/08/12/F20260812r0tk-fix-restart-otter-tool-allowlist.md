@@ -1,6 +1,6 @@
 ---
 id: F20260812r0tk
-title: fix-restart-otter-tool-allowlist
+title: 修复 restart_otter 工具未加入允许列表的问题
 doc_type: feature
 
 summary: |
@@ -14,7 +14,7 @@ causal_links:
     - F20260810rstart
 
 status: implemented
-change_type: bugfix
+change_type: fix
 tags: [agent, restart-otter, tool-allowlist, bugfix]
 modules:
   - src/frameworks/agent/session-helpers.ts

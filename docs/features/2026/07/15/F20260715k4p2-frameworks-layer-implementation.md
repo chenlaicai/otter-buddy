@@ -1,6 +1,6 @@
 ---
 id: F20260715k4p2
-title: frameworks-layer-implementation
+title: 整洁架构 Frameworks 层实现（Mapper + Pi Agent 网关重设计）
 doc_type: feature
 
 # 记忆索引

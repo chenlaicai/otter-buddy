@@ -1,6 +1,6 @@
 ---
 id: F20260805abcd
-title: agent-error-handling
+title: Agent 错误处理与 Kimi Provider 支持
 doc_type: feature
 
 summary: |

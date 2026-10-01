@@ -1,6 +1,6 @@
 ---
 id: F20260821mcp23
-title: multiagent-coordination-protocol
+title: 多智能体协调协议
 doc_type: feature
 
 # 记忆索引

@@ -1,6 +1,6 @@
 ---
 id: F20260715b8c6
-title: usecases-layer-implementation
+title: 整洁架构 Use Cases 层实现
 doc_type: feature
 
 # 记忆索引

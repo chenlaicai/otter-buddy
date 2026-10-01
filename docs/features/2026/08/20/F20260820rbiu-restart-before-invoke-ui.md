@@ -1,6 +1,6 @@
 ---
 id: F20260820rbiu
-title: restart-before-invoke-ui
+title: Web UI 定时任务 restartBeforeInvoke 配置
 doc_type: feature
 
 # 记忆索引

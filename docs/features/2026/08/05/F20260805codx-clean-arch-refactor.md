@@ -1,6 +1,6 @@
 ---
 id: F20260805codx
-title: clean-arch-refactor
+title: 架构重构：Composition Root 拆分
 doc_type: feature
 
 summary: |

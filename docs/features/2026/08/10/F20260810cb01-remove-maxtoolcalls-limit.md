@@ -1,6 +1,6 @@
 ---
 id: F20260810cb01
-title: remove-maxtoolcalls-limit
+title: 移除熔断器最大工具调用限制
 summary: |
   移除熔断器的 maxToolCalls 限制（原值 40），完全依赖重复检测机制（连续相同+滑动窗口）。
   根因：maxToolCalls 不区分是否重复，对正常工作调用次数也做了限制，容易误杀复杂任务。

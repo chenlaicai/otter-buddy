@@ -1,6 +1,6 @@
 ---
 id: F20260728cbtf
-title: circuit-breaker-toolname-fix
+title: 熔断器工具名字段取错修复
 doc_type: feature
 
 summary: |

@@ -1,6 +1,6 @@
 ---
 id: F20260812emgr
-title: embedding-tasks-migration-missing
+title: embedding_tasks 表迁移缺失 + 启动脚本进程解耦
 doc_type: feature
 
 summary: |
@@ -12,7 +12,7 @@ causal_links:
     - F20260812mrcq
 
 status: implemented
-change_type: bugfix
+change_type: fix
 tags: [db, migration, startup]
 modules:
   - src/frameworks/db/migration.ts

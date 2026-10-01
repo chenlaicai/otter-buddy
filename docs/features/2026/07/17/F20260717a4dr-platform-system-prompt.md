@@ -1,6 +1,6 @@
 ---
 id: F20260717a4dr
-title: platform-system-prompt
+title: 全局平台系统提示词机制
 doc_type: feature
 
 # 记忆索引

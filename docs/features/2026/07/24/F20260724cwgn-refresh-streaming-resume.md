@@ -1,6 +1,6 @@
 ---
 id: F20260724cwgn
-title: refresh-streaming-resume
+title: 刷新页面消息状态误报修复
 doc_type: feature
 
 summary: |

@@ -1,6 +1,6 @@
 ---
 id: F20260821wckn
-title: skills-page-under-construction
+title: skills 页撤假 CRUD 并加"建设中"标注
 doc_type: feature
 
 summary: |

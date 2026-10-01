@@ -1,6 +1,6 @@
 ---
 id: F20260820i333
-title: mention-parsing-server-side
+title: "@提及解析服务端化 + 失败显性化"
 doc_type: feature
 
 summary: |
@@ -12,7 +12,7 @@ causal_links:
     - F20260728htar
 
 status: development
-change_type: bugfix
+change_type: fix
 tags: [conversation, mention, parsing, sse, feishu]
 modules:
   - src/usecases/conversation/mention-parser.ts

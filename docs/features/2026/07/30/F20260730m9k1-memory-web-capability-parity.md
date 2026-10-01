@@ -1,6 +1,6 @@
 ---
 id: F20260730m9k1
-title: memory-web-capability-parity
+title: memory] Web 端记忆能力对齐
 doc_type: feature
 
 # 记忆索引

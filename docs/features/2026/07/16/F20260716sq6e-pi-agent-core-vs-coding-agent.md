@@ -1,6 +1,6 @@
 ---
 id: F20260716sq6e
-title: pi-agent-core-vs-coding-agent
+title: pi-agent-core vs pi-coding-agent 技术选型重新分析
 doc_type: feature
 
 # 记忆索引
