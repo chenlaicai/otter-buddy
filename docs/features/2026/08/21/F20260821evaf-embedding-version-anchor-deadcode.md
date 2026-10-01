@@ -1,6 +1,6 @@
 ---
 id: F20260821evaf
-title: embedding-version-anchor-deadcode-fix
+title: embedding 版本锚死代码修复
 doc_type: feature
 
 summary: |

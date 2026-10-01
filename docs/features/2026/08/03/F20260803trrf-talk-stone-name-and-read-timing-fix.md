@@ -1,6 +1,6 @@
 ---
 id: F20260803trrf
-title: talk-stone-name-and-read-timing-fix
+title: 发言石路由残留修复：目标填名 + 已读推进时序
 doc_type: feature
 
 # 记忆索引

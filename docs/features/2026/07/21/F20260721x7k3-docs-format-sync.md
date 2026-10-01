@@ -1,6 +1,6 @@
 ---
 id: F20260721x7k3
-title: docs-format-sync
+title: 文档格式统一与规范化
 doc_type: feature
 
 # 记忆索引

@@ -1,6 +1,6 @@
 ---
 id: F20260713o4t8
-title: domain-otter
+title: Otter 领域模块
 doc_type: feature
 
 # 记忆索引

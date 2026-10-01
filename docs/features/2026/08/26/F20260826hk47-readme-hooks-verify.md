@@ -2,7 +2,7 @@
 id: F20260826hk47
 title: README 固化 git hooks 激活验证步骤（#476 收尾）
 summary: 在 README「快速开始」安装依赖章节固化 hooksPath 验证步骤，防止钩子配置被环境重置后静默失效复发（#476、F20260821kgts 两次踩坑）。
-change_type: docs
+change_type: feature-update
 status: implemented
 tags: [docs, git-hooks, readme, engineering-hygiene]
 modules: [README.md]

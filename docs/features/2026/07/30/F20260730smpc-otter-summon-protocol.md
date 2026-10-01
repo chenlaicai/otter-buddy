@@ -1,6 +1,6 @@
 ---
 id: F20260730smpc
-title: otter-summon-protocol
+title: 大獭召唤小獭协议
 doc_type: feature
 
 summary: |

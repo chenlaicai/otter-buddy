@@ -1,6 +1,6 @@
 ---
 id: F20260715f4k9
-title: frameworks-layer-implementation
+title: 整洁架构 Frameworks 层实现（DB 连接 + Repository + 网关首版）
 doc_type: feature
 
 # 记忆索引

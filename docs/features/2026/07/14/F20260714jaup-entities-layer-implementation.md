@@ -1,6 +1,6 @@
 ---
 id: F20260714jaup
-title: entities-layer-implementation
+title: 整洁架构 Entities 层实现
 doc_type: feature
 
 # 记忆索引

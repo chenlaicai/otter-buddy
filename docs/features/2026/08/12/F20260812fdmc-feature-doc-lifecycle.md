@@ -1,6 +1,6 @@
 ---
 id: F20260812fdmc
-title: feature-doc-lifecycle
+title: 特性文档生命周期
 doc_type: feature
 
 summary: |

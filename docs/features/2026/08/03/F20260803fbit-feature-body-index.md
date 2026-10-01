@@ -1,6 +1,6 @@
 ---
 id: F20260803fbit
-title: feature-body-index
+title: 特性文档正文索引
 doc_type: feature
 
 summary: |

@@ -1,6 +1,6 @@
 ---
 id: F20260721de6j
-title: observability-logging
+title: 可观测性与日志基础设施
 doc_type: feature
 
 # 记忆索引

@@ -2,7 +2,7 @@
 id: F20260820sktp
 title: 链外 invoke 路径走 DispatchChainEngine 续跑发言链
 summary: 修复 retry 端点和 scheduler 路径直接调 invoke 而不经过 DispatchChainEngine，导致 aggregatedTargets 无人消费、被点名的海獭不被唤醒的问题
-change_type: bugfix
+change_type: fix
 status: implemented
 created_in_conversation: 6872acb4-d914-45fa-825e-a946e35324a7
 capability_test: "n/a: 纯 A 类代码逻辑修复（链引擎路由），无 LLM 参与行为"

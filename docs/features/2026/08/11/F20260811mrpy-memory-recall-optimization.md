@@ -1,6 +1,6 @@
 ---
 id: F20260811mrpy
-title: memory-recall-optimization
+title: 记忆召回链路三项核心优化
 doc_type: feature
 summary: |
   对记忆召回链路做三项核心优化，合起来构成"记忆模型 v2"升级：

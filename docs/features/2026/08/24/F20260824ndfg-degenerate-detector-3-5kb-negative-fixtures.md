@@ -1,6 +1,6 @@
 ---
 id: F20260824ndfg
-title: degenerate-detector-3-5kb-negative-fixtures
+title: DegenerateDetector 3-5KB 区间阴性夹具
 doc_type: feature
 
 summary: |

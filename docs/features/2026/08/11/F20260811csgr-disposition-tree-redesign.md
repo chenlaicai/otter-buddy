@@ -1,6 +1,6 @@
 ---
 id: F20260811csgr
-title: disposition-tree-redesign
+title: 检视模板再设计——决策树驱动的强制对抗处置
 doc_type: feature
 
 summary: |

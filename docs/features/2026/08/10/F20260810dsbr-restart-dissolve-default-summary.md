@@ -1,6 +1,6 @@
 ---
 id: F20260810dsbr
-title: restart-dissolve-default-summary
+title: 修复重启獭生和解散小獭默认摘要硬编码
 doc_type: feature
 
 summary: |
@@ -13,7 +13,7 @@ causal_links:
   to: []
 
 status: development
-change_type: bugfix
+change_type: fix
 tags: [web, ux, modal, summary]
 modules:
   - web/src/pages/conversation/Modals.tsx

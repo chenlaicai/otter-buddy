@@ -1,6 +1,6 @@
 ---
 id: F20260827mtbl
-title: missing-table-migration
+title: 存量库缺表迁移补丁 + reconcile 异常隔离
 summary: |
   修复存量库缺 signal_events / restart_pending_resumes 两表导致重启清理夭折、会话永久"运行中"的缺陷。
   根因：两张表的建表只写进 initSchema（仅新库执行），漏了 migrateDatabase 老库升级路径；reconcileOrphans 的恢复登记抛错又把 failInFlightMessages 核心清理整体带崩。

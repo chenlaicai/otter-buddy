@@ -1,6 +1,6 @@
 ---
 id: F20260827ucrt
-title: otter-create-unify
+title: 统一小獭创建双入口（UI 与大獭工具链对齐）——第 2 轮修订版
 doc_type: feature
 
 # 记忆索引

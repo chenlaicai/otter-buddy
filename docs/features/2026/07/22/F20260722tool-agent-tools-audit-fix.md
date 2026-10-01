@@ -1,6 +1,6 @@
 ---
 id: F20260722tool
-title: agent-tools-audit-fix
+title: Agent 工具审计修复 + 新增 Skill
 doc_type: feature
 
 # 记忆索引

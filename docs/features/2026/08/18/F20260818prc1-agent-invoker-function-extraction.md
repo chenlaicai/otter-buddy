@@ -1,6 +1,6 @@
 ---
 id: F20260818prc1
-title: agent-invoker-function-extraction
+title: agent-invoker 函数抽取（PR-C Phase 1）
 doc_type: feature
 
 summary: |

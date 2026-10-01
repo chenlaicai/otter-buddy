@@ -1,6 +1,6 @@
 ---
 id: F20260709m2n8
-title: capability-module-architecture
+title: 能力模块架构设计（S2）
 doc_type: feature
 
 # 记忆索引

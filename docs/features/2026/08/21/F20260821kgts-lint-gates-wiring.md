@@ -1,6 +1,6 @@
 ---
 id: F20260821kgts
-title: lint-gates-wiring
+title: lint-skills / lint-tool-manifest 接入 pre-commit + CI
 doc_type: feature
 
 summary: |

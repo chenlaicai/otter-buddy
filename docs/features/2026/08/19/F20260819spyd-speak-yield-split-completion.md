@@ -1,6 +1,6 @@
 ---
 id: F20260819spyd
-title: speak-yield-split-completion
+title: speak + yield 双工具拆分补完
 doc_type: feature
 
 summary: |

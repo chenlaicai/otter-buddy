@@ -1,6 +1,6 @@
 ---
 id: F20260821scrt
-title: secrets-write-redaction
+title: secrets 写入前脱敏
 doc_type: feature
 
 summary: |

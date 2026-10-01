@@ -1,9 +1,10 @@
 ---
 id: F20260824rhib
-title: rhi-health-dashboard
+title: RHI：Repo Health Intelligence — 系统健康监控面板
 doc_type: feature
 status: development
-change_type: new_feature
+change_type: feature
+capability_test: "n/a: web 可视化面板 + git 指标计算（A 类），无 LLM 行为承诺；面板尚在 development"
 created_in_conversation: 9e709aca-dd74-42fa-9fe1-4e7bbaf24bdb
 
 summary: |

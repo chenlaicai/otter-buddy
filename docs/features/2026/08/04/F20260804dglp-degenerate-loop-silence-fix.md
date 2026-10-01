@@ -1,6 +1,6 @@
 ---
 id: F20260804dglp
-title: degenerate-loop-silence-fix
+title: 退化输出死循环零拦截修复
 doc_type: feature
 
 summary: |

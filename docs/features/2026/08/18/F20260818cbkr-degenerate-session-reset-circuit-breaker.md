@@ -1,6 +1,6 @@
 ---
 id: F20260818cbkr
-title: degenerate-session-reset-circuit-breaker
+title: 连续退化 → 重启獭生熔断
 doc_type: feature
 
 summary: |

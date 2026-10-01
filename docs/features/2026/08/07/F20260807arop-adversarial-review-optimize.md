@@ -1,6 +1,6 @@
 ---
 id: F20260807arop
-title: adversarial-review-anti-sycophancy
+title: 对抗审视反讨好优化
 doc_type: feature
 
 summary: |
