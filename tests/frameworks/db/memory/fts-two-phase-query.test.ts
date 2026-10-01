@@ -79,4 +79,29 @@ describe('#1115 FTS5 两段式查询（AND 优先 OR 兜底）', () => {
     expect(ids).toContain('e1');
     expect(ids).not.toContain('e2');
   });
+
+  it('检视严重 1 回归锚：标点 token 过滤——含连字符查询 AND 段不旁路', async () => {
+    seed('e1', 'health panel 组件');
+    seed('e2', '只有 panel');
+    // 'health-panel' 分词出 ['-']，若不过滤：AND 段恒空 → 回落 OR → e2 也命中
+    const hits = await repo.searchFTS('health-panel', {});
+    const ids = hits.map(h => h.entryId);
+    expect(ids).toContain('e1');
+    expect(ids).not.toContain('e2'); // AND 段生效：要求 health 与 panel 都出现
+  });
+
+  it('检视严重 1 边界：纯标点查询返回空（不触发任何检索）', async () => {
+    seed('e1', '任意内容');
+    const hits = await repo.searchFTS('，。！', {});
+    expect(hits).toEqual([]);
+  });
+
+  it('检视严重 1 边界：点号/井号形态的字母数字保留', async () => {
+    seed('e1', 'config test local yaml 配置文件');
+    seed('e2', '只有 config');
+    const hits = await repo.searchFTS('config.test.local.yaml', {});
+    const ids = hits.map(h => h.entryId);
+    expect(ids).toContain('e1');
+    expect(ids).not.toContain('e2');
+  });
 });
