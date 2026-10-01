@@ -10,6 +10,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import type { AgentInvoker } from "../../agent-runtime/agent-invoker";
+import { HANDOFF_SYNTHESIZE_PAST_DEFAULT } from "../../agent-runtime/agent-invoker";
 import { handleError, param } from "../http-error";
 import { safeJsonBody } from "../parse-json-body";
 import { toOtterDTO, toOtterSessionDTO } from "../dto/otter-dto";
@@ -127,7 +128,8 @@ export class OtterController {
       const session = this.agentInvoker
         ? await this.agentInvoker.restartWithUnifiedHandoff(id, {
           selfSummary: body.summary,
-          synthesizePast: body.synthesizePast !== false,
+          // F20260930hsfx 层积岩清理：默认值收敛 HANDOFF_SYNTHESIZE_PAST_DEFAULT 单点。
+          synthesizePast: body.synthesizePast ?? HANDOFF_SYNTHESIZE_PAST_DEFAULT,
           modelAlias: body.modelAlias,
         })
         : await this.manageSession.restartSession(id, body.summary, body.modelAlias);

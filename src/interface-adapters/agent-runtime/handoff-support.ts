@@ -57,6 +57,19 @@ export class HandoffState {
   getConsecutiveFailures(otterId: string): number {
     return this.consecutiveFailCount.get(otterId) ?? 0;
   }
+
+  /** F20260930hsfx M2：熔断计数统一入口——一切「合成未成功」的形态（失败/超时/超窗/熔断跳过/
+   *  交接抛错/裸重启保底）都经此单点 +1；一切「换世成功且该清零」的形态经 clear 清零。
+   *  收敛前：水位/熔断/自重启三处 catch 各自吞失败不计数、自重启 bare fallback 不清零——
+   *  「自重启连炸两次合成」会被永久静默熔断（计数永远到不了 2）。统一入口后口径对称：
+   *  每条降级路径要么 note(失败) 要么 clear(成功)，不再有漏计/漏清。 */
+  noteHandoffOutcome(otterId: string, outcome: 'synthesis-failed' | 'succeeded'): void {
+    if (outcome === 'succeeded') {
+      this.clearHandoffFailures(otterId);
+    } else {
+      this.recordHandoffFailure(otterId);
+    }
+  }
 }
 
 /**
