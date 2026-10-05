@@ -190,11 +190,10 @@ describe('restart_otter 自重启循环防护（F20260824srst）', () => {
     vi.clearAllMocks();
   });
 
-  it('session 由自重启创建时，返回系统保护错误', async () => {
-    const ctx = createMockToolContext();
-    // mock healingRepo: 当前 session 由自重启创建
-    const healingRepo = {
-      create: async () => {},
+  /** F20261005srst（#1203）：self_restart 事件指向 new-session-otter-1 的 healingRepo mock（多用例共享） */
+  function createSelfRestartHealingRepo(overrides?: { create?: (e: Record<string, unknown>) => Promise<void> }) {
+    return {
+      create: overrides?.create ?? (async () => {}),
       findById: async () => null,
       findOpen: async () => [],
       findAll: async () => [],
@@ -209,22 +208,33 @@ describe('restart_otter 自重启循环防护（F20260824srst）', () => {
       getStats: async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} }),
       autoStaleDismiss: async () => 0,
     } as unknown as import('@usecases/healing/healing-event-repository').HealingEventRepository;
-    // mock getActiveSession 返回匹配的 session（F20260906srst：显式带 startedAt，验证无用户消息介入时的降级路径——
-    // 不再依赖 Date.parse(undefined)=NaN 的隐式 false；getLastBySenderType 默认 mock 返回 null → last 为空 → 维持拦截）
+  }
+
+  /** mock active session（自重启创建，ageMinutes 分钟前启动） */
+  function mockActiveSession(ctx: ToolContext, ageMinutes: number) {
     (ctx.client.otter.getActiveSession as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: 'new-session-otter-1', otterId: 'otter-1', status: 'active',
-      startedAt: '2026-09-04T13:00:00Z',
+      startedAt: new Date(Date.now() - ageMinutes * 60 * 1000).toISOString(),
     });
+  }
+
+  it('session 由自重启创建时（窗口内），返回系统保护错误', async () => {
+    const ctx = createMockToolContext();
+    const healingRepo = createSelfRestartHealingRepo();
+    // F20260906srst：显式带 startedAt，验证无用户消息介入时的降级路径；
+    // F20261005srst（#1203）：startedAt 用窗口内相对时间（1h 前）——固定旧日期会被时间衰减豁免放行
+    mockActiveSession(ctx, 60);
     const tools = createTools(ctx, healingRepo, createRecordingLogger());
     const restartTool = tools.find(t => t.name === 'restart_otter');
     if (!restartTool) throw new Error('restart_otter tool not found');
 
     const result = await restartTool.execute('call-1', { summary: '测试' });
 
-    // 验证返回系统保护错误
+    // 验证返回系统保护错误（#1203：文案含替代通道引导）
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('系统保护');
     expect(result.content[0].text).toContain('不允许连续自重启');
+    expect(result.content[0].text).toContain('UI 手动重启');
     // 验证 restart 未被调用
     expect(ctx._restartCalls).toHaveLength(0);
   });
@@ -269,31 +279,15 @@ describe('restart_otter 自重启循环防护（F20260824srst）', () => {
 
   it('#811：session 由自重启创建但用户消息已介入 → 放行（不再误拦）', async () => {
     const ctx = createMockToolContext();
-    const healingRepo = {
-      create: async () => {},
-      findById: async () => null,
-      findOpen: async () => [],
-      findAll: async () => [],
-      findByConversation: async () => [],
-      findRecentByOtter: async () => [{
-        id: 'evt-1', errorType: 'self_restart',
-        context: { newSessionId: 'new-session-otter-1' },
-        createdAt: new Date().toISOString(),
-      }],
-      updateStatus: async () => {},
-      resolve: async () => {},
-      getStats: async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} }),
-      autoStaleDismiss: async () => 0,
-    } as unknown as import('@usecases/healing/healing-event-repository').HealingEventRepository;
+    const healingRepo = createSelfRestartHealingRepo();
     // session 由自重启创建，startedAt 早于用户消息
-    (ctx.client.otter.getActiveSession as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: 'new-session-otter-1', otterId: 'otter-1', status: 'active',
-      startedAt: '2026-09-04T12:00:00Z',
-    });
+    // F20261005srst（#1203）：改窗口内相对时间（30min 前）——固定旧日期会被时间衰减豁免短路，
+    // 该用例将不再测介入判据路径（退化为与豁免用例重复）
+    mockActiveSession(ctx, 30);
     // 最新 user entry 晚于 session 创建（搭档重启后发过新指令；批3 切 entries 数据源）
     (ctx.client.conversation.entry.getEntries as ReturnType<typeof vi.fn>) = vi.fn(async (_convId: string, opts?: { entryType?: string }) => {
       if (opts?.entryType === 'user') {
-        return [{ id: 'user-entry-1', entryType: 'user', body: '新指令', senderId: 'chen', senderType: 'user', createdAt: '2026-09-04T13:30:00Z' }];
+        return [{ id: 'user-entry-1', entryType: 'user', body: '新指令', senderId: 'chen', senderType: 'user', createdAt: new Date(Date.now() - 10 * 60 * 1000).toISOString() }];
       }
       return [];
     });
@@ -310,30 +304,13 @@ describe('restart_otter 自重启循环防护（F20260824srst）', () => {
 
   it('#811：用户消息早于 session 创建（重启前的旧消息）→ 仍拦截', async () => {
     const ctx = createMockToolContext();
-    const healingRepo = {
-      create: async () => {},
-      findById: async () => null,
-      findOpen: async () => [],
-      findAll: async () => [],
-      findByConversation: async () => [],
-      findRecentByOtter: async () => [{
-        id: 'evt-1', errorType: 'self_restart',
-        context: { newSessionId: 'new-session-otter-1' },
-        createdAt: new Date().toISOString(),
-      }],
-      updateStatus: async () => {},
-      resolve: async () => {},
-      getStats: async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} }),
-      autoStaleDismiss: async () => 0,
-    } as unknown as import('@usecases/healing/healing-event-repository').HealingEventRepository;
-    (ctx.client.otter.getActiveSession as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: 'new-session-otter-1', otterId: 'otter-1', status: 'active',
-      startedAt: '2026-09-04T13:00:00Z',
-    });
+    const healingRepo = createSelfRestartHealingRepo();
+    // F20261005srst（#1203）：窗口内相对时间（30min 前）——旧固定日期会被时间衰减豁免放行
+    mockActiveSession(ctx, 30);
     // 最新 user entry 早于 session 创建 → 无新介入，维持拦截（批3 切 entries 数据源）
     (ctx.client.conversation.entry.getEntries as ReturnType<typeof vi.fn>) = vi.fn(async (_convId: string, opts?: { entryType?: string }) => {
       if (opts?.entryType === 'user') {
-        return [{ id: 'user-entry-0', entryType: 'user', body: '旧指令', senderId: 'chen', senderType: 'user', createdAt: '2026-09-04T12:00:00Z' }];
+        return [{ id: 'user-entry-0', entryType: 'user', body: '旧指令', senderId: 'chen', senderType: 'user', createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString() }];
       }
       return [];
     });
@@ -347,5 +324,80 @@ describe('restart_otter 自重启循环防护（F20260824srst）', () => {
     expect(result.content[0].text).toContain('系统保护');
     expect(ctx._restartCalls).toHaveLength(0);
     expect(ctx.pendingRestart).toBeUndefined();
+  });
+
+  it('#1203：session 由自重启创建但存活超 2h（窗口外）→ 时间衰减豁免放行', async () => {
+    const ctx = createMockToolContext();
+    const healingRepo = createSelfRestartHealingRepo();
+    // 9/28 现场形态：07:27 自重启创建，12:38 搭档指令重启（间隔 5h）——旧逻辑被拦，新逻辑豁免放行
+    mockActiveSession(ctx, 5 * 60);
+    // 介入判据查询抛错（模拟 9/28 判据失效）——豁免层在其之前生效，查询都不该被触发
+    let interventionQueries = 0;
+    (ctx.client.conversation.entry.getEntries as ReturnType<typeof vi.fn>) = vi.fn(async () => {
+      interventionQueries++;
+      throw new Error('query degraded');
+    });
+    const tools = createTools(ctx, healingRepo, createRecordingLogger());
+    const restartTool = tools.find(t => t.name === 'restart_otter');
+    if (!restartTool) throw new Error('restart_otter tool not found');
+
+    const result = await restartTool.execute('call-1', { summary: '搭档指令重启' });
+
+    // 豁免放行：不拦 + 不再触发介入判据查询
+    expect(result.isError).toBeUndefined();
+    expect(ctx.pendingRestart).toBeDefined();
+    expect(interventionQueries).toBe(0);
+  });
+
+  it('#1203：窗口内判据查询瞬时失败 → 重试一次后成功判定（无介入仍拦，不落降级事件）', async () => {
+    const ctx = createMockToolContext();
+    const createCalls: Array<Record<string, unknown>> = [];
+    const healingRepo = createSelfRestartHealingRepo({ create: async (e) => { createCalls.push(e); } });
+    mockActiveSession(ctx, 30);
+    // 第一次抛错（瞬时故障），第二次成功返回无介入（旧消息）
+    let attempts = 0;
+    (ctx.client.conversation.entry.getEntries as ReturnType<typeof vi.fn>) = vi.fn(async (_convId: string, opts?: { entryType?: string }) => {
+      attempts++;
+      if (attempts === 1) throw new Error('transient');
+      if (opts?.entryType === 'user') {
+        return [{ id: 'user-entry-0', entryType: 'user', body: '旧指令', senderId: 'chen', senderType: 'user', createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString() }];
+      }
+      return [];
+    });
+    const tools = createTools(ctx, healingRepo, createRecordingLogger());
+    const restartTool = tools.find(t => t.name === 'restart_otter');
+    if (!restartTool) throw new Error('restart_otter tool not found');
+
+    const result = await restartTool.execute('call-1', { summary: '测试' });
+
+    // 重试成功 → 正常判定无介入 → 拦截；查询尝试了 2 次；无降级落账
+    expect(attempts).toBe(2);
+    expect(result.isError).toBe(true);
+    expect(createCalls).toHaveLength(0);
+  });
+
+  it('#1203：窗口内判据查询重试后仍失败 → 拦截且降级事件落 healing 台账（不再静默）', async () => {
+    const ctx = createMockToolContext();
+    const createCalls: Array<Record<string, unknown>> = [];
+    const healingRepo = createSelfRestartHealingRepo({ create: async (e) => { createCalls.push(e); } });
+    mockActiveSession(ctx, 30);
+    // 每次都抛错——重试耗尽后降级
+    let attempts = 0;
+    (ctx.client.conversation.entry.getEntries as ReturnType<typeof vi.fn>) = vi.fn(async () => {
+      attempts++;
+      throw new Error('persistent failure');
+    });
+    const tools = createTools(ctx, healingRepo, createRecordingLogger());
+    const restartTool = tools.find(t => t.name === 'restart_otter');
+    if (!restartTool) throw new Error('restart_otter tool not found');
+
+    const result = await restartTool.execute('call-1', { summary: '测试' });
+
+    // 重试耗尽 → 维持拦截 + 降级事件落账（可观测）
+    expect(attempts).toBe(2);
+    expect(result.isError).toBe(true);
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0].errorType).toBe('tool_failure');
+    expect(String(createCalls[0].description)).toContain('判据失效');
   });
 });
