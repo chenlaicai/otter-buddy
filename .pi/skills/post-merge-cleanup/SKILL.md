@@ -46,6 +46,11 @@ PR 合入后的资源回收：worktree、本地分支、远程分支、源头 is
    - `CLOSED`（未合入）→ 报告搭档，终止
 
 3. **清理 worktree**：
+   - **先停实例再删目录**（2026-10-05 孤儿实例事故后插入，实证：fix-1252-port-tdz 的 3194 实例在 worktree 删除后空转 5 天 10 小时、单核打满 99.4% CPU）：删目录不杀进程 = 进程成孤儿且失去最后线索（锁文件随目录消失）。顺序不可反——alpha.sh 随 worktree 一并消失，先删目录就再也停不了。
+     - 查锁文件：`<worktree>/.otter-alpha.json` 存在 → 读其 PID，`kill -0 <pid>` 确认存活 → 在 worktree 内执行 `bash scripts/alpha.sh stop`
+     - 无锁文件兜底（手工 `node dist/src/main.js --port` / detached-launch 直拉的实例无登记）：`pgrep -f "node dist/src/main.js"` 列出候选，逐个用 `lsof -a -p <pid> -d cwd -Fn` 取 cwd，cwd 落在该 worktree 路径下 → `kill <pid>`（cwd 精确匹配 worktree 路径，不误伤主服务与其他 worktree 实例）
+     - 杀不掉的实例 → 记入清理报告呈搭档，不阻塞后续步骤
+     - 无实例 → 跳过，报告中标注「无运行中实例」
    - 从 `git worktree list` 找与该分支关联的 worktree 路径
    - 检测 lock 文件：`ls .git/worktrees/<name>/locked`，存在则删除
    - 检测 dirty state：`git -C <worktree-path> status --porcelain`
