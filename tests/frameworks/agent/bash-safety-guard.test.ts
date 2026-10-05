@@ -2137,4 +2137,81 @@ open('config/config.yaml','w').write(src.replace('port: 3000','port: 3102',1))
       mainPid, undefined, { projectRoot }
     )).toBeNull();
   });
+
 });
+
+describe("#1275 delta r3：引号掩蔽写载荷 + 包装组循环（检视獭-1278 delta r2 复核 2 严重处置）", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+
+  // ── delta r3（检视獭-1278 delta r2 复核 2 严重）：引号掩蔽写 + 包装组组合 ──
+  it("delta r3 H1：node 只读掩护 'node' 掩蔽写 → 拦（引号掩蔽借豁免放行修复）", () => {
+    expect(checkBashCommandSafety(
+      `node -e "console.log(require('fs').readFileSync('/tmp/f','utf8').length)" && 'node' -e "require('fs').writeFileSync('config.yaml','x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("delta r3 H2：python 只读掩护 'python3' 掩蔽写 → 拦", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "print(1)" && 'python3' -c "open('config.yaml','w').write('x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("delta r3 对照：'node' 掩蔽写单独出现 → 拦", () => {
+    expect(checkBashCommandSafety(
+      `'node' -e "require('fs').writeFileSync('config.yaml','x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("delta r3 S-3 不回退：node -e require('fs') readFileSync → 放行（载荷归一化等价）", () => {
+    expect(checkBashCommandSafety(
+      `node -e "console.log(require('fs').readFileSync('/tmp/f','utf8').length)"`,
+      mainPid, undefined, { projectRoot }
+    )).toBeNull();
+  });
+
+  it("delta r3 W1：sudo env python3 -c 写 → 拦（包装组任意形态×顺序）", () => {
+    expect(checkBashCommandSafety(
+      `sudo env python3 -c "open('config.yaml','w').write('x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("delta r3 W2：nohup env python3 -c 写 → 拦", () => {
+    expect(checkBashCommandSafety(
+      `nohup env python3 -c "open('config.yaml','w').write('x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("delta r3 W3：env FOO=1 python3 -c 写 → 拦（赋值前缀与包装词合并循环组）", () => {
+    expect(checkBashCommandSafety(
+      `env FOO=1 python3 -c "open('config.yaml','w').write('x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("delta r3 W4：FOO=1 env python3 -c 写 → 拦（保持）", () => {
+    expect(checkBashCommandSafety(
+      `FOO=1 env python3 -c "open('config.yaml','w').write('x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("delta r3 误拦面：FOO=1 git status / env git status / sudo git status → 放行", () => {
+    expect(checkBashCommandSafety(`FOO=1 git status`, mainPid, undefined, { projectRoot })).toBeNull();
+    expect(checkBashCommandSafety(`env git status`, mainPid, undefined, { projectRoot })).toBeNull();
+    expect(checkBashCommandSafety(`sudo git status`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("delta r3 误拦面：env node -e 只读 → 放行（包装词不改变只读本质）", () => {
+    expect(checkBashCommandSafety(
+      `env node -e "console.log('hello')"`,
+      mainPid, undefined, { projectRoot }
+    )).toBeNull();
+  });
+});
+
