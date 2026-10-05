@@ -128,6 +128,9 @@ function isNonLogicCarrier(filePath: string): boolean {
   // 3 events 达阈时翻回触发——「类型定义反复修」达阈报警是可接受的边界形态（如实记录，非静音）
   if (/(^|\/)bootstrap\//.test(filePath)) return true;   // 启动装配目录整体（含其 types.ts）
   if (/^src\/types?\.[cm]?[jt]s$/i.test(filePath)) return true; // src 根装配类型；深层域 types.ts 不排除——见 weixin 回归锚
+  // #1012 修法 c 补全：schema 演进载体——migration.ts/schema.ts 的 N 修 = N 个独立 schema 演进，
+  // 被动累加非同一根因反复修（与 types/测试同属「载体噪声」，归因报告 10/23 条盲区中 4 条是它们）
+  if (/^(src\/frameworks\/db\/)?(migration|schema)\.[cm]?[jt]s$/i.test(filePath)) return true;
   // 转发桶（barrel：重导出 .ts/.js）——不含 .tsx/.jsx（delta D1：web/src/pages/*/index.tsx
   // 是页面主组件不是 barrel，存量最大热点信号 5（11 事件）曾被误静音，回退并加回归锚）
   return /^index\.[cm]?(t|j)s$/i.test(base)
@@ -139,10 +142,22 @@ function countDistinctEvents(entry: { prs: Set<number>; noPrShas: Set<string> })
   return entry.prs.size + entry.noPrShas.size;
 }
 
+/** #1012 修法 c：severity 分级——
+ *  featureIds ≥ 2（跨特性分散）→ warning（热点活跃假象，系列归因明证非根因反复）；
+ *  featureIds < 2 时退化为原判据：事件数 ≥threshold → critical（同系列或无锚点默认）。
+ *  分级而非过滤：warning 仍出信号（可观察），只是不进 critical 主警报区。 */
+function classifyRecurrenceSeverity(entry: { prs: Set<number>; noPrShas: Set<string>; featureIds: Set<string> }, threshold: number): SignalSeverity | null {
+  const events = countDistinctEvents(entry);
+  if (events < threshold) return null;
+  if (entry.featureIds.size >= 2) return "warning"; // 跨特性分散 = 热点，非根因反复
+  return "critical"; // 同系列（featureIds ≤ 1）或无锚点 = 真腐烂形态
+}
+
 /** #1214：evidence 文案——「N 个不同修复事件 + PR 清单 + 首末修复日期」语义澄清。
- *  文案分支（检视发现 3）：纯 PR / 纯无 PR / 混合三形态各自不冗余。 */
+ *  文案分支（检视发现 3）：纯 PR / 纯无 PR / 混合三形态各自不冗余。
+ *  #1012 修法 c：追加系列归因数据（特性链数 / 修复系列事件数），severity 判据可见。 */
 function buildRecurrenceEvidence(
-  entry: { module: string; file: string; prs: Set<number>; noPrShas: Set<string>; shas: string[]; dates: Date[] },
+  entry: { module: string; file: string; prs: Set<number>; noPrShas: Set<string>; featureIds: Set<string>; shas: string[]; dates: Date[] },
   windowDays: number,
 ): string {
   const events = countDistinctEvents(entry);
@@ -162,7 +177,9 @@ function buildRecurrenceEvidence(
   const times = entry.dates.map(d => d.getTime());
   const first = new Date(Math.min(...times)).toISOString().slice(0, 10);
   const last = new Date(Math.max(...times)).toISOString().slice(0, 10);
-  return `[${entry.module}] ${entry.file} 窗口 ${windowDays} 天内 ${events} 个不同修复事件（${eventText}；bugfix commit ${entry.shas.length} 个，首末修复 ${first}→${last}）`;
+  const fidList = [...entry.featureIds].sort();
+  const seriesText = fidList.length > 0 ? `；特性链 ${fidList.join(", ")}（${fidList.length} 链）` : "";
+  return `[${entry.module}] ${entry.file} 窗口 ${windowDays} 天内 ${events} 个不同修复事件（${eventText}；bugfix commit ${entry.shas.length} 个，首末修复 ${first}→${last}${seriesText}）`;
 }
 
 /** bug_recurrence：同模块同文件 bugfix ≥N 个不同修复事件/窗口（窄门：不依赖语义聚类）。
@@ -177,7 +194,15 @@ function buildRecurrenceEvidence(
  *    假聚集主形态（同一根因跨 PR 系列）由后续 severity 分级/系列归因 issue 承载
  *  - 非逻辑载体排除：types（收窄到 bootstrap 装配路径，检视发现 4——全仓
  *    basename 排除会误伤 weixin/types.ts 等 runtime 常量载体）/转发桶/组装/测试
- *  - occurrences 语义澄清：evidence 报独立修复事件数 + PR 清单 + 首末修复日期 */
+ *  - occurrences 语义澄清：evidence 报独立修复事件数 + PR 清单 + 首末修复日期
+ *  #1012 修法 c（2026-10-05）：severity 分级 + 载体排除补全——
+ *  - 系列归因分级：同特性链修复系列 ≥threshold → critical（真腐烂）；
+ *    跨特性分散 ≥threshold → warning（热点活跃假象）。分级而非过滤（归因报告推荐：
+ *    「同一 bug 修了又坏」仅 2/23=9%，一刀切 critical 让告警失去区分度）
+ *  - 载体排除补全：migration.ts/schema.ts 入非逻辑载体（schema 演进 N 修 = N 个独立演进，
+ *    被动累加非根因反复——归因报告口径盲区 10 条中 4 条是它们）
+ *  - 分键仍为 module+file 不变（归因报告建议改 file_path 唯一——本 PR 不动：
+ *    存量 23 条中无 module 裂分实例，改动收益存疑，留给后续复核） */
 function detectBugRecurrence(
   commits: SignalCommitInput[],
   options: DetectOptions,
@@ -187,7 +212,7 @@ function detectBugRecurrence(
   const windowDays = options.recurrenceWindowDays ?? 30;
   const reg = SIGNAL_REGISTRY.bug_recurrence;
 
-  // key: module + file -> bugfix PR 记录（窗口内，同 PR 去重）
+  // key: module + file -> bugfix PR 记录（窗口内，同 PR 去重 + 系列归因数据源）
   const byModuleFile = collectBugfixByFile(commits, now, windowDays);
 
   // 第二遍（Issue #644）：为触发文件收集窗口内全类型 commit，见 collectDetailCommits
@@ -195,12 +220,13 @@ function detectBugRecurrence(
 
   const signals: DetectedSignal[] = [];
   for (const entry of byModuleFile.values()) {
-    // #1214：触发判据 = 独立 PR 数 + 无 PR 号事件数（各自去重后求和）≥ threshold
-    if (countDistinctEvents(entry) >= threshold) {
+    // #1012 修法 c：分级判据——同系列达阈 critical，分散达阈 warning，未达阈不出信号
+    const severity = classifyRecurrenceSeverity(entry, threshold);
+    if (severity !== null) {
       signals.push({
         type: reg.type,
         name: reg.name,
-        severity: reg.severity,
+        severity,
         featureId: null,
         filePath: entry.file,
         evidence: buildRecurrenceEvidence(entry, windowDays),
@@ -221,8 +247,12 @@ function detectBugRecurrence(
 interface BugfixFileEntry {
   module: string;
   file: string;
-  prs: Set<number>;              // #1214：去重后的独立 PR 集（触发判据）
+  prs: Set<number>;              // #1214：去重后的独立 PR 集（触发判据之一）
   noPrShas: Set<string>;         // 无 PR 号的 commit（squash 前本地修复），按 sha 去重计 1 次/事件
+  /** #1012 修法 c：窗口内 bugfix commit 的 featureId 集（系列归因数据源）。
+   *  同一特性链（featureId）的多次修复视为同一修复系列——真腐烂的信号；
+   *  跨特性分散修复是高迭代热点，非根因反复。 */
+  featureIds: Set<string>;
   shas: string[];
   dates: Date[];
   /** 窗口内触碰该文件的全类型 commit（bug●→fix● 交替时间轴数据源，Issue #644） */
@@ -249,7 +279,7 @@ function collectBugfixByFile(
       const key = `${c.parsed.module}\u0000${file}`;
       let entry = byModuleFile.get(key);
       if (!entry) {
-        entry = { module: c.parsed.module, file, prs: new Set(), noPrShas: new Set(), shas: [], dates: [], allCommits: [] };
+        entry = { module: c.parsed.module, file, prs: new Set(), noPrShas: new Set(), featureIds: new Set(), shas: [], dates: [], allCommits: [] };
         byModuleFile.set(key, entry);
       }
       entry.shas.push(c.sha.slice(0, 8));
@@ -257,6 +287,8 @@ function collectBugfixByFile(
       // #1214：同 PR 去重——squash 前链式修复算 1 个 PR 复发事件；无 PR 号的按 sha 计
       if (c.parsed.prNumber !== null) entry.prs.add(c.parsed.prNumber);
       else entry.noPrShas.add(c.sha);
+      // #1012 修法 c：系列归因数据源
+      if (c.parsed.featureId !== null) entry.featureIds.add(c.parsed.featureId);
     }
   }
   return byModuleFile;

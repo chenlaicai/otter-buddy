@@ -103,10 +103,14 @@ function isNewEnough(fm) {
  */
 async function computeDeclarationStats(files, root) {
   // 获取本次 PR 修改/新增的文件列表（diff 仅含 tracked 修改，untracked 新文档单独列）
+  // #1067 分母修复（2026-10-05）：diff 三种形态只取新增/改名（A/R）——纯删除（D）与纯内容
+  // 修改（M）不算「本期新声明判定」的分母（main 上跑会把全量历史删除/修改文档算进去，
+  // 出现「本期判定 1/246 = 0%」的分母爆炸假象；在 PR 分支上跑时 diff 基线是分支点，
+  // 本形态不受影响——防御的是 main 本地跑的场景）
   let currentFiles = new Set();
   try {
     const diffOutput = execSync(
-      "git diff --name-only origin/main -- docs/features && git ls-files --others --exclude-standard docs/features",
+      "git diff --name-only --diff-filter=AR origin/main -- docs/features && git ls-files --others --exclude-standard docs/features",
       { encoding: "utf8", cwd: root },
     );
     currentFiles = new Set(

@@ -665,3 +665,92 @@ describe("detectSignals #1214 口径修订（bug_recurrence 同 PR 去重 + 载�
 });
 
 
+
+describe("detectSignals #1012 修法 c（系列归因分级 + 载体排除补全）", () => {
+  // ── 系列归因分级：同系列 → critical，跨系列分散 → warning ──
+
+  it("系列归因：同一特性链 ≥3 次修复 → critical（真腐烂主形态）", () => {
+    const commits = [
+      commit("s1", 3, "[F20260920aaaa][agent][BugFix] 链修 1 (#901)", ["src/recovery.ts"]),
+      commit("s2", 5, "[F20260920aaaa][agent][BugFix] 链修 2 (#902)", ["src/recovery.ts"]),
+      commit("s3", 7, "[F20260920aaaa][agent][BugFix] 链修 3 (#903)", ["src/recovery.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    expect(rec!.severity).toBe("critical"); // 同系列 3 事件 = 真腐烂
+    expect(rec!.evidence).toContain("特性链 F20260920aaaa");
+    expect(rec!.evidence).toContain("（1 链）");
+  });
+
+  it("系列归因：跨特性分散 ≥3 次修复 → warning（热点活跃假象）", () => {
+    const commits = [
+      commit("d1", 3, "[F20260920aaaa][agent][BugFix] 独立修 1 (#911)", ["src/orchestrator.ts"]),
+      commit("d2", 5, "[F20260920bbbb][agent][BugFix] 独立修 2 (#912)", ["src/orchestrator.ts"]),
+      commit("d3", 7, "[F20260920cccc][agent][BugFix] 独立修 3 (#913)", ["src/orchestrator.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    expect(rec!.severity).toBe("warning"); // 3 个不同 featureId = 分散，非根因反复
+  });
+
+  it("系列归因：有 FID 无 PR 号的链式本地修复不甩锅（max(featureIds, prs) 防漏报）", () => {
+    const commits = [
+      commit("n1", 3, "[F20260920aaaa][agent][BugFix] 本地链修 1", ["src/recovery.ts"]),
+      commit("n2", 5, "[F20260920aaaa][agent][BugFix] 本地链修 2", ["src/recovery.ts"]),
+      commit("n3", 7, "[F20260920aaaa][agent][BugFix] 本地链修 3", ["src/recovery.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    // featureIds.size=1（<2 退化为原口径）但 noPrShas.size=3 → series = 0 + 3 = 3 ≥ 3 → critical
+    expect(rec!.severity).toBe("critical");
+  });
+
+  it("系列归因：同系列 2 次 + 跨特性 1 次（总量 3 但系列 2）→ warning 不 critical", () => {
+    const commits = [
+      commit("x1", 3, "[F20260920aaaa][agent][BugFix] 链修 1 (#921)", ["src/recovery.ts"]),
+      commit("x2", 5, "[F20260920aaaa][agent][BugFix] 链修 2 (#922)", ["src/recovery.ts"]),
+      commit("x3", 7, "[F20260920bbbb][agent][BugFix] 独立修 (#923)", ["src/recovery.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    expect(rec!.severity).toBe("warning"); // 系列只有 2，总量 3 → 热点
+  });
+
+  // ── 载体排除补全：migration/schema 演进载体 ──
+
+  it("载体排除补全：migration.ts 演进载体不计（N 修 = N 个独立 schema 演进）", () => {
+    const commits = [
+      commit("m1", 3, "[F20260920aaaa][db][BugFix] 迁移 1 (#931)", ["src/frameworks/db/migration.ts"]),
+      commit("m2", 5, "[F20260920bbbb][db][BugFix] 迁移 2 (#932)", ["src/frameworks/db/migration.ts"]),
+      commit("m3", 7, "[F20260920cccc][db][BugFix] 迁移 3 (#933)", ["src/frameworks/db/migration.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    expect(signals.find(s => s.type === "bug_recurrence")).toBeUndefined();
+  });
+
+  it("载体排除补全：schema.ts 演进载体不计", () => {
+    const commits = [
+      commit("sc1", 3, "[F20260920aaaa][db][BugFix] schema 1 (#941)", ["src/frameworks/db/schema.ts"]),
+      commit("sc2", 5, "[F20260920bbbb][db][BugFix] schema 2 (#942)", ["src/frameworks/db/schema.ts"]),
+      commit("sc3", 7, "[F20260920cccc][db][BugFix] schema 3 (#943)", ["src/frameworks/db/schema.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    expect(signals.find(s => s.type === "bug_recurrence")).toBeUndefined();
+  });
+
+  it("载体排除补全不误伤：同目录下其他逻辑文件照常计", () => {
+    const commits = [
+      commit("o1", 3, "[F20260920aaaa][db][BugFix] 连接池 1 (#951)", ["src/frameworks/db/connection-pool.ts"]),
+      commit("o2", 5, "[F20260920bbbb][db][BugFix] 连接池 2 (#952)", ["src/frameworks/db/connection-pool.ts"]),
+      commit("o3", 7, "[F20260920cccc][db][BugFix] 连接池 3 (#953)", ["src/frameworks/db/connection-pool.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    expect(rec!.filePath).toBe("src/frameworks/db/connection-pool.ts");
+  });
+});
