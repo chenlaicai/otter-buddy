@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error 真实现是 .mjs 脚本（无类型声明），运行时 import 纯函数
-import { validateIntent, EXEMPT_IDS, EXEMPT_MAX } from '../../scripts/lint-intent.mjs';
+import { validateIntent, isIntentComplete, EXEMPT_IDS, EXEMPT_MAX } from '../../scripts/lint-intent.mjs';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -62,34 +62,35 @@ describe('lint:intent', () => {
   });
 
   // F20261005imfg（#839）：缺字段文档静默跳过的灰色绕过窗口收口。
-  // 铝免清单 EXEMPT_IDS 从 scripts/intent-exempt-list.txt 加载（模块加载时读 cwd）。
+  // 豁免清单 EXEMPT_IDS 从 scripts/intent-exempt-list.txt 加载（模块加载时读 cwd），
+  // 键 = 仓库根相对路径（审视处置·建议①：id 键有重复 ID 歧义，路径键 fail-closed）。
   describe('missing-intent gate with exempt list (F20261005imfg, #839)', () => {
-    const realExemptId = [...EXEMPT_IDS][0];
+    const realExemptPath = [...EXEMPT_IDS][0];
 
     it('should error on new feature doc missing intent block (not in exempt list)', () => {
       const fm = createBaseFm('feature');
-      const result = validateIntent(fm, 'F20261005xxxx');
+      const result = validateIntent(fm, 'docs/features/2026/10/05/F20261005xxxx-probe.md');
       expect(result.errors.some((e: string) => e.startsWith('Missing intent field for feature'))).toBe(true);
       expect(result.warnings).toHaveLength(0);
     });
 
     it('should error on new prompt doc missing intent block', () => {
       const fm = createBaseFm('prompt');
-      const result = validateIntent(fm, 'F20261005xxxy');
+      const result = validateIntent(fm, 'docs/features/2026/10/05/F20261005xxxy-probe.md');
       expect(result.errors.some((e: string) => e.startsWith('Missing intent field for prompt'))).toBe(true);
     });
 
     it('should error on missing change_type (treated as feature, L0 decision)', () => {
       const fm = createBaseFm('feature');
       delete (fm as Record<string, unknown>).change_type;
-      const result = validateIntent(fm, 'F20261005xxxz');
-      expect(result.errors.some((e: string) => e.includes('change_type 缺失按 feature 判定'))).toBe(true);
+      const result = validateIntent(fm, 'docs/features/2026/10/05/F20261005xxxz-probe.md');
+      expect(result.errors.some((e: string) => e.includes('change_type 缺失/空值按 feature 判定'))).toBe(true);
     });
 
     it('should keep warning for legacy doc in exempt list', () => {
-      expect(realExemptId, '豁免清单应非空（worktree 内跑测试）').toBeDefined();
+      expect(realExemptPath, '豁免清单应非空（worktree 内跑测试）').toBeDefined();
       const fm = createBaseFm('feature');
-      const result = validateIntent(fm, realExemptId);
+      const result = validateIntent(fm, realExemptPath);
       expect(result.errors).toHaveLength(0);
       expect(result.warnings.some((w: string) => w.startsWith('Missing intent field for feature'))).toBe(true);
       expect(result.warnings.some((w: string) => w.includes('存量豁免 #839'))).toBe(true);
@@ -97,7 +98,7 @@ describe('lint:intent', () => {
 
     it('should treat exempt-list prompt doc as warning (not error)', () => {
       const fm = createBaseFm('prompt');
-      const result = validateIntent(fm, realExemptId);
+      const result = validateIntent(fm, realExemptPath);
       expect(result.errors).toHaveLength(0);
       expect(result.warnings.some((w: string) => w.startsWith('Missing intent field for prompt'))).toBe(true);
     });
@@ -105,7 +106,7 @@ describe('lint:intent', () => {
     it('should downgrade bad-schema intent (missing problem) to warning for exempt doc', () => {
       // 2026-09-15 goal/why 自创 schema 存量：intent 块存在但无 problem/expected_effect
       const fm = createBaseFm('feature', { goal: 'x', why: 'y' });
-      const result = validateIntent(fm, realExemptId);
+      const result = validateIntent(fm, realExemptPath);
       expect(result.errors).toHaveLength(0);
       expect(result.warnings.some((w: string) => w.startsWith('Missing intent.problem field'))).toBe(true);
       expect(result.warnings.some((w: string) => w.startsWith('Missing intent.expected_effect field'))).toBe(true);
@@ -114,7 +115,7 @@ describe('lint:intent', () => {
     it('should error on bad-schema intent for non-exempt doc (no sub-window)', () => {
       // 子窗口防御：新文档写 intent: {foo: 1} 不能绕过校验
       const fm = createBaseFm('feature', { foo: 'bar' });
-      const result = validateIntent(fm, 'F20261005xxyz');
+      const result = validateIntent(fm, 'docs/features/2026/10/05/F20261005xxyz-probe.md');
       expect(result.errors).toContain('Missing intent.problem field');
       expect(result.errors).toContain('Missing intent.expected_effect field');
     });
@@ -129,7 +130,7 @@ describe('lint:intent', () => {
       // intent 块存在但 change_type 缺失：problem/expected_effect 按 feature 必填判定，不留子窗口
       const fm = { ...createBaseFm('feature', { expected_effect: 'x returns 400', verify_by: { type: 'behavior_check' } }) };
       delete (fm as Record<string, unknown>).change_type;
-      const result = validateIntent(fm, 'F20261005xxya');
+      const result = validateIntent(fm, 'docs/features/2026/10/05/F20261005xxya-probe.md');
       expect(result.errors).toContain('Missing intent.problem field');
     });
   });
@@ -443,5 +444,53 @@ describe('lint:intent golden_replay record check (F20260917sdpl)', () => {
       const result = validateIntent(fm);
       expect(result.errors).toHaveLength(0);
     });
+  });
+});
+
+// F20261005imfg 审视处置（检视獭-1283 首轮，2026-10-05）锁定用例——独立 describe 控制单函数行数
+describe('lint:intent review-round fixes (F20261005imfg, PR #1283)', () => {
+  // 严重①：「已补齐」判据与豁免触发条件对偶（非豁免身份重跑无任何 "Missing intent" 类
+  // error 才算已补齐）。bad-schema（intent:{goal,why}）从未补齐，isIntentComplete 必须
+  // false——否则主流程误提示移出清单，照做即 CI 红（检视实证）。
+  it('isIntentComplete must NOT report bad-schema doc as complete (severity-1 fix)', () => {
+    const badSchema = createBaseFm('feature', { goal: 'x', why: 'y' });
+    expect(isIntentComplete(badSchema)).toBe(false);
+  });
+
+  it('isIntentComplete must report properly-filled intent as complete', () => {
+    const complete = createBaseFm('feature', {
+      problem: '修复 x',
+      expected_effect: 'lint 退出码 1',
+      verify_by: { type: 'behavior_check' },
+    });
+    expect(isIntentComplete(complete)).toBe(true);
+  });
+
+  it('isIntentComplete must report missing-intent-block doc as incomplete', () => {
+    expect(isIntentComplete(createBaseFm('feature'))).toBe(false);
+  });
+
+  // 严重②：change_type 空值（null/''）与键缺失同口径——原 `=== undefined`/`??` 只兜
+  // undefined，null/'' 双 lint 静默旁路（检视探针实证，存量 0 篇零成本收口）
+  it('should error on null change_type missing intent block (severity-2 fix)', () => {
+    const fm = createBaseFm('feature');
+    (fm as Record<string, unknown>).change_type = null;
+    const result = validateIntent(fm, 'docs/features/2026/10/05/F20261005nul1-probe.md');
+    expect(result.errors.some((e: string) => e.includes('change_type 缺失/空值按 feature 判定'))).toBe(true);
+    expect(result.warnings).toHaveLength(0);
+  });
+
+  it('should error on empty-string change_type missing intent block (severity-2 fix)', () => {
+    const fm = createBaseFm('feature');
+    (fm as Record<string, unknown>).change_type = '';
+    const result = validateIntent(fm, 'docs/features/2026/10/05/F20261005emp1-probe.md');
+    expect(result.errors.some((e: string) => e.includes('change_type 缺失/空值按 feature 判定'))).toBe(true);
+  });
+
+  // 建议①：豁免键是路径非 id——抄豁免文档的 id 到新文件不继承豁免（探针实证）
+  it('copying an exempt doc id into a new file must NOT inherit exemption (advice-1 fix)', () => {
+    const fm = createBaseFm('feature');
+    const result = validateIntent(fm, 'docs/features/2026/10/05/F20260824ax376-copy-probe.md');
+    expect(result.errors.length).toBeGreaterThan(0);
   });
 });

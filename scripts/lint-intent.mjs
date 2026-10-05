@@ -174,14 +174,22 @@ async function computeDeclarationStats(files, root) {
   return stats;
 }
 
-function validateIntent(fm, fileId) {
+function validateIntent(fm, exemptKey) {
   const errors = [];
   const warnings = [];
 
-  // F20261005imfg: 豁免判定——存量冻结清单内的文档缺 intent 块降为 warning。
-  // fileId 缺失（如测试直调纯函数）时不在豁免名单内，按新口径判定。
-  const isExempt = fileId !== undefined && EXEMPT_IDS.has(fileId);
-  const effectiveChangeType = fm.change_type ?? FALLBACK_CHANGE_TYPE;
+  // F20261005imfg 审视处置（建议①）：豁免键 = 文件相对路径（docs/ 起算），非 fm.id。
+  // 原因：实测存在重复 ID（F20260824ax376/F20260903gh698 各 2 篇），id 键下新文档可抄
+  // 豁免清单内 ID 继承豁免（检视探针实证）；路径键下抄 ID 无效（新文件路径必不在清单），
+  // 改名则 fail-closed（脱离清单变 error，diff 显形）。存量重复 ID 不再影响本 gate。
+  // exemptKey 缺失（如测试直调纯函数）时不在豁免名单内，按新口径判定。
+  const isExempt = exemptKey !== undefined && EXEMPT_IDS.has(exemptKey);
+  // F20261005imfg 审视处置（检视獭-1283 严重 2）：`||` 而非 `??`——YAML 空值（`change_type:`）
+  // 解析为 null、空串解析为 ''，均属「缺失」语义；`??` 只兜 undefined 会漏掉这两利形态
+  // （实测静默旁路）。全线统一引用 effectiveChangeType，不再单独读 fm.change_type。
+  const effectiveChangeType = fm.change_type || FALLBACK_CHANGE_TYPE;
+  // F20261005imfg 审视处置（严重 2）：falsy（undefined/null/''）统一按「缺失」出文案
+  const changeTypeMissing = !fm.change_type;
 
   // 检查 intent 字段是否存在
   // F20260924vbsu：verify_by 位置统一收口——唯一合法位置是 intent 块内嵌套式。
@@ -194,22 +202,23 @@ function validateIntent(fm, fileId) {
   }
   if (!fm.intent || typeof fm.intent !== "object") {
     // 根据 change_type 决定是错误还是警告（F20261005imfg: 缺 intent 块收口）
-    const changeType = fm.change_type;
-    if (INTENT_REQUIRED_CHANGE_TYPES.has(changeType) || changeType === undefined) {
+    // 审视处置（严重 2）：effectiveChangeType 已把 undefined/null/'' 全部归入 feature（必填），
+    // 此处不再需要 `|| changeType === undefined` 旁支——空值形态与键缺失同口径拦截
+    if (INTENT_REQUIRED_CHANGE_TYPES.has(effectiveChangeType)) {
       if (isExempt) {
         // 存量豁免：冻结清单内的文档不阻断，但保留可观测提示（ratchet 地板，只减不增）
         warnings.push(
-          `Missing intent field for ${changeType ?? FALLBACK_CHANGE_TYPE}（存量豁免 #839，补齐后请从 scripts/intent-exempt-list.txt 移除）`,
+          `Missing intent field for ${effectiveChangeType}（存量豁免 #839，补齐后请从 scripts/intent-exempt-list.txt 移除）`,
         );
       } else {
         errors.push(
-          changeType === undefined
-            ? `Missing intent field for ${FALLBACK_CHANGE_TYPE}（change_type 缺失按 ${FALLBACK_CHANGE_TYPE} 判定，#839：新文档必须声明 intent 块）`
-            : `Missing intent field for ${changeType}（#839：新文档必须声明 intent 块，存量豁免清单见 scripts/intent-exempt-list.txt）`,
+          changeTypeMissing
+            ? `Missing intent field for ${FALLBACK_CHANGE_TYPE}（change_type 缺失/空值按 ${FALLBACK_CHANGE_TYPE} 判定，#839：新文档必须声明 intent 块）`
+            : `Missing intent field for ${effectiveChangeType}（#839：新文档必须声明 intent 块，存量豁免清单见 scripts/intent-exempt-list.txt）`,
         );
       }
-    } else if (INTENT_RECOMMENDED_CHANGE_TYPES.has(changeType)) {
-      warnings.push(`Recommended intent field for ${changeType}`);
+    } else if (INTENT_RECOMMENDED_CHANGE_TYPES.has(effectiveChangeType)) {
+      warnings.push(`Recommended intent field for ${effectiveChangeType}`);
     }
     return { errors, warnings };
   }
@@ -339,7 +348,18 @@ function validateIntent(fm, fileId) {
   return { errors, warnings };
 }
 
-export { validateIntent, isSoftCodeChange, isNewEnough, VALID_VERIFY_BY_TYPES, SOFT_CODE_ENFORCE_DATE, EXEMPT_MAX, EXEMPT_IDS, EXEMPT_LIST_PATH };
+// F20261005imfg 审视处置（检视獭-1283 严重 1）：「已补齐」判据单一真相源。
+// 豁免降级的 error 全部以 "Missing intent" 开头（缺块/problem/expected_effect 三类），
+// 过期检测的判据必须与之完全对偶：以非豁免身份重跑 validateIntent，
+// 无任何 "Missing intent" 类 error 才算已补齐——否则 bad-schema（intent:{goal,why}）
+// 存量会被误判「已补齐」，照提示移出清单即 CI 红（检视实证）。
+// 导出供测试锁定（main() 消费同一函数，防止判据与豁免触发条件再分叉）。
+function isIntentComplete(fm) {
+  const nonExempt = validateIntent(fm);
+  return nonExempt.errors.every((e) => !e.startsWith("Missing intent"));
+}
+
+export { validateIntent, isSoftCodeChange, isNewEnough, VALID_VERIFY_BY_TYPES, SOFT_CODE_ENFORCE_DATE, EXEMPT_MAX, EXEMPT_IDS, EXEMPT_LIST_PATH, isIntentComplete };
 
 /** 仅作为脚本直接运行时执行 lint 主流程；被测试 import 时只取纯函数，不触发 dist 依赖与文件遍历 */
 const isMain = process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
@@ -360,9 +380,13 @@ async function main() {
   let warnings = 0;
   const files = walk(path.join(root, "docs/features"));
 
-  // F20261005imfg: 过期豁免条目检测——文档已补齐 intent 块但 ID 仍在豁免清单，
-  // 提示移除（ratchet 只减不增的机械推动力；不阻断，但提示要定期清理）
-  const intentPresentIds = new Set();
+  // F20261005imfg: 过期豁免条目检测——已补齐 intent 的文档若 ID 仍在豁免清单，提示移除
+  // （ratchet 只减不增的机械推动力；不阻断，但提示要定期清理）。
+  // 审视处置（检视獭-1283 严重 1）：判据从「intent 块存在」改为 isIntentComplete()
+  // （非豁免身份重跑无 "Missing intent" 类 error）——与豁免触发条件完全对偶，
+  // bad-schema 存量不再被误提示「已补齐」（照做即 CI 红的实证见检视报告）。
+  // 审视处置（建议①）：键改为文件相对路径，与豁免键对齐。
+  const completePaths = new Set();
 
   for (const file of files) {
     const rel = path.relative(root, file);
@@ -374,11 +398,11 @@ async function main() {
       // 缺少 frontmatter 的文件由 lint-docs 处理，这里跳过
       continue;
     }
-    if (frontmatter.intent && typeof frontmatter.intent === "object" && typeof frontmatter.id === "string") {
-      intentPresentIds.add(frontmatter.id);
+    if (isIntentComplete(frontmatter)) {
+      completePaths.add(rel);
     }
 
-    const result = validateIntent(frontmatter, frontmatter.id);
+    const result = validateIntent(frontmatter, rel);
 
     if (result.errors.length > 0) {
       errors++;
@@ -390,16 +414,20 @@ async function main() {
   }
 
   // F20261005imfg: ratchet 上限核对——豁免清单膨胀（>EXEMPT_MAX）阻断；
-  // 收缩时提示同步下调 EXEMPT_MAX（上限是地板的镜像，跟齐才不掩盖膨胀）
+  // 收缩时提示同步下调 EXEMPT_MAX（审视处置·建议②：原注释声称提示但代码未实现，
+  // 已补齐——收缩后若不同步下调，超出实际规模的余量就是回涨空间，与「只减不增」背道而驰）
   const exemptCount = EXEMPT_IDS.size;
   if (exemptCount > EXEMPT_MAX) {
     errors++;
     console.error(`✗ scripts/intent-exempt-list.txt：豁免清单 ${exemptCount} 条超过上限 ${EXEMPT_MAX}（ratchet 只减不增，#839）——新文档缺 intent 块不进豁免，请补齐 intent 声明`);
+  } else if (exemptCount < EXEMPT_MAX) {
+    warnings++;
+    console.warn(`⚠ scripts/intent-exempt-list.txt：清单 ${exemptCount} 条低于上限 ${EXEMPT_MAX}——请同步下调 lint-intent.mjs 内 EXEMPT_MAX 至 ${exemptCount}（消除回涨空间）`);
   }
-  for (const id of EXEMPT_IDS) {
-    if (intentPresentIds.has(id)) {
+  for (const p of EXEMPT_IDS) {
+    if (completePaths.has(p)) {
       warnings++;
-      console.warn(`⚠ ${id} 已补齐 intent 块，请从 scripts/intent-exempt-list.txt 移除（ratchet 只减不增）`);
+      console.warn(`⚠ ${p} 已补齐 intent（非豁免身份重跑无缺字段 error），请从 scripts/intent-exempt-list.txt 移除并同步下调 EXEMPT_MAX（ratchet 只减不增）`);
     }
   }
 
