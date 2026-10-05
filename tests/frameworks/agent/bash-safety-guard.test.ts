@@ -2215,3 +2215,46 @@ describe("#1275 delta r3：引号掩蔽写载荷 + 包装组循环（检视獭-1
   });
 });
 
+describe("#1275 delta r4：python open-mode 门嵌套括号穿透修复（检视獭-1278b S1 处置）", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+
+  it("S1 one-liner 面：open(chr(99),chr(119)) → 拦（chr 白名单穿透 mode 门修复）", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "open(chr(99),chr(119))"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("S1 heredoc 面同洞：open(chr(99),chr(119)) → 拦（#1207 复用同门）", () => {
+    expect(checkBashCommandSafety(
+      `python3 - <<'PYEOF'\nopen(chr(99),chr(119))\nPYEOF`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("S1 对照：open 实参区嵌套只读调用 → 拦（fail-closed，实参区见嵌套 ( 即不豁免）", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "open(chr(46)).read()"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("S1 对照：open 实参区无嵌套括号的只读形态 → 放行（不误拦）", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "print(open('/tmp/f.txt').read())"`,
+      mainPid, undefined, { projectRoot }
+    )).toBeNull();
+    expect(checkBashCommandSafety(
+      `python3 -c "print(len(open('/tmp/f.txt').read()))"`,
+      mainPid, undefined, { projectRoot }
+    )).toBeNull();
+  });
+
+  it("S1 对照：open 直接写 mode → 拦（原有判定不回退）", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "open('/tmp/f.txt','w').write('x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+});

@@ -156,7 +156,9 @@ expect(checkBashCommandSafety(incident, mainPid, undefined, { projectRoot })).to
 
 ## Discovered Issues
 
-无。
+1. **bash -c wrapper 全绕**（检视獭-1278b delta r3 S2，#1285 跟踪）：`bash -c 'node -e "<写载荷>"'` 放行（sh -c / sudo bash -c / echo|bash 同洞）——锚集引号不在段首锚、bash 不在 wrapper 词表；kill 侧有 bash -c 对齐检测而主仓写侧没有。状态：开放，修复方向对齐 kill 侧 bash -c 检测，跟踪 issue #1285。
+2. **包装词表封闭性**（检视獭-1278b delta r3 S3，#1285 跟踪）：`timeout 5` / `watch` / `setsid` / `stdbuf -o0` / `arch` 词表外全放；词表内 `env -i` / `nice -n 5` 带旗标也放——r3 修了「组合×顺序×层数」但词表枚举的封闭性没治。状态：开放，修复方向换结构不扩词表（对齐 heredocInterpreter :709「跳前缀词认解释器」式），跟踪 issue #1285。
+3. **空赋值 FOO= 前缀**（检视獭-1278b delta r3 S4，#1285 跟踪）：`FOO= node -e "<写>"` 放行（本 PR 面）；`FOO= git push origin main` 也放行——预存洞（git 写族锚同款正则，非本 PR 引入，建议顺带修，push 直接触保护分支）。状态：开放，修复方向赋值项改 `\S*`，跟踪 issue #1285。
 
 ## Known Limitations
 

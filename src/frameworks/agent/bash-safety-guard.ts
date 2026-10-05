@@ -872,6 +872,10 @@ function pythonOpenModesReadOnly(body: string): boolean {
     const isMethodCall = om[1].startsWith(".");
     const args = om[2];
     if (/\/\*/.test(args)) return false;                                 // 注释不可静态判
+    // S1 修复（检视獭-1278b delta r3）：实参区见嵌套 `(` 即不豁免（fail-closed）——
+    // [^)]* 遇嵌套括号截断，mode 实参整体不可见（open(chr(99),chr(119)) 穿透）。
+    // 对齐 allow_pickle 门 delta 4 先例（:911 注释同文件同教训）。
+    if (/\(/.test(args)) return false;
     let pathArgSeen = false;                                             // 内建签名首参 = 路径位标记
     for (const raw of splitTopLevelArgs(args)) {
       const p = raw.trim();
