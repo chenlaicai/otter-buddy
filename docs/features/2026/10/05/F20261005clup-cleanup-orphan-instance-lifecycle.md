@@ -1,8 +1,15 @@
 ---
 id: F20261005clup
 title: 合入清理补进程生命周期闭环（孤儿 alpha 实例事故修复）
-summary: 3194 孤儿实例空转 5 天 10 小时打满 CPU 事故的修复——post-merge-cleanup 步骤 3 插入「先停实例再删目录」（锁文件 alpha.sh stop + ps/lsof cwd 匹配兜底），worktree-isolation 补实例登记纪律（手工直拉必须当场 kill）。改动仅限两个 skill 文档，alpha.sh 已具备所需幂等性，无新机制。
+summary: 3194 孤儿实例空转 5 天 10 小时打满 CPU 事故的修复——post-merge-cleanup 步骤 3 插入「先停实例再删目录」（锁文件 alpha.sh stop + ps/lsof cwd 匹配兜底），worktree-isolation 补实例登记纪律（手工直拉必须当场终止）。改动仅限两个 skill 文档，alpha.sh stop 幂等分支与杀伐校验分支已如实描述，无新机制。
 change_type: fix
+capability_test: "文档类修复无 capability_test；Verification 段三条命令实测（pgrep 漏检实证 / ps|grep 命中 / lsof cwd 不误伤）检视獭已独立复现（PR #1296 review）"
+intent:
+  problem: "PR 合入清理只回收文件生命周期（worktree/分支/issue/产物），不回收进程生命周期——3194 实例在 worktree 删后空转 5 天 10 小时单核打满 CPU 的事故实证；手工直拉实例零登记，销毁事件（worktree 删除）不级联到进程"
+  expected_effect: "后续每次 PR 合入清理自动先停实例再删目录（锁文件走 alpha.sh stop，无锁文件走 ps -ax | grep + lsof cwd 精确匹配兜底），手工直拉路径有登记纪律约束，同类孤儿实例事故不再发生"
+  verify_by:
+    type: behavior_check
+    description: "下次 PR 合入清理时观察：cleanup 报告含「无运行中实例」或实例停止记录；兜底命令在 macOS 实测命中（本特性文档 Verification 段三条实测 + 检视獭独立复现）"
 tags: [cleanup, lifecycle, orphan-process, alpha, skill]
 modules: [.pi/skills/post-merge-cleanup, .pi/skills/worktree-isolation]
 created_at: 2026-10-05
@@ -27,19 +34,20 @@ causal_links:
 
 ## 方案
 
-修法决策树① 既有语义内修：cleanup 的职责本来就该覆盖「回收该特性的一切产物」，实例也是产物；alpha.sh stop 已具备幂等性（stop.mjs 对死锁文件返回 `stopped:false` 不报错）。改动仅限两个 skill 文档，无新机制。
+修法决策树① 既有语义内修：cleanup 的职责本来就该覆盖「回收该特性的一切产物」，实例也是产物；alpha.sh stop 已具备幂等性（scripts/alpha.sh cmd_stop：锁文件不存在/无 PID/PID 已死三个分支均幂等返回不报错；另有杀伐校验分支——锁文件 PID 与端口监听者不符时拒绝执行，skill 文档已如实描述该分支的处置路径）。改动仅限两个 skill 文档，无新机制。
 
 ### L1 流程修复（post-merge-cleanup 步骤 3 前置）
 
 删 worktree 前插入「先停实例再删目录」，顺序不可反（alpha.sh 随 worktree 一并消失，先删目录就再也停不了）：
 
-- 有锁文件 `<worktree>/.otter-alpha.json` → 读 PID + `kill -0` 确认 → worktree 内 `bash scripts/alpha.sh stop`
-- 无锁文件兜底：`ps -ax -o pid,command | grep "node dist/src/main.js"` 列候选 → `lsof -a -p <pid> -d cwd -Fn` 取 cwd → cwd 精确匹配该 worktree 路径 → kill
+- 锁文件存在但实例未在跑 → `alpha.sh stop` 幂等返回（"Alpha was not running"，scripts/alpha.sh cmd_stop PID 已死分支），继续清理
+- 锁文件 PID 与端口监听者不符 → `alpha.sh stop` 拒绝执行（cmd_stop 杀伐校验，沿用 F20260831aksp T1：宁可让人裁决不错杀），转人工核实
+- 无锁文件兜底：`ps -ax -o pid,command | grep "dist/src/main.js"` 列候选 → `lsof -a -p <pid> -d cwd -Fn` 取 cwd → cwd 精确匹配该 worktree 路径 → 终止
 - 杀不掉的记入清理报告呈搭档，不阻塞
 
 ### L2 入口收敛（worktree-isolation 验证纪律补充）
 
-「验证服务行为的标准动作」段后补「实例登记纪律」：实例生命周期必须闭环（创建即登记、销毁有级联）；手工直拉零登记，万不得已直拉时验证完必须当场 `kill <pid>`。
+「验证服务行为的标准动作」段后补「实例登记纪律」：实例生命周期必须闭环（创建即登记、销毁有级联）；手工直拉零登记，万不得已直拉时验证完必须当场终止。
 
 ## 关键实现细节：macOS pgrep 坑
 
@@ -56,6 +64,16 @@ causal_links:
 
 - 仅 `.pi/skills/post-merge-cleanup/SKILL.md`（步骤 3 前置实例停止）与 `.pi/skills/worktree-isolation/SKILL.md`（验证纪律补登记纪律）
 - 后续所有 PR 合入清理自动获得进程回收能力；无代码改动，无运行时影响
+
+## 对抗审视记录（2026-10-05，检视獭-1296，request-changes 后处置）
+
+初轮审视 2 严重 4 建议，全部采纳修复：
+- S1（严重）：skill 兜底命令误留 pgrep 漏检形态 → 改 ps|grep 并放宽模式为 `dist/src/main.js`（覆盖绝对路径启动），pgrep 坑注记从特性文档搬入 skill
+- S2（严重）：特性文档引用不存在的 stop.mjs → 更正为 scripts/alpha.sh cmd_stop 实测分支结构（幂等分支 + 杀伐校验拒绝分支如实描述）
+- G1：grep 模式放宽（合入 S1 修复）
+- G2：「先删目录就再也停不了」绝对化措辞 → 弱化为「设计回收路径失效，只剩端口监听扫描等事后补救」
+- G3：补 intent 块（problem/expected_effect/verify_by）+ capability_test 段
+- G4（不本 PR 阻塞）：兜底终止单进程命令与 bash 守卫的交互未实测——守卫对 `kill <pid>` 形态的判定边界需在下次真实 cleanup 演练中验证；已记入本段，若演练被拦则按守卫引导走 restart-service.mjs 或呈搭档
 
 ## 未做（搭档已拍板缓缓）
 
