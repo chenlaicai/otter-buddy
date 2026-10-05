@@ -760,7 +760,10 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
 /** F20260824srst + F20260906srst（#811）: 自重启循环防护——当前 session 是否由自重启创建且无用户消息介入（tool 层第一道防线）
  *  意图来源维度：session 由自重启创建后，若搭档发过新指令（senderType=user 消息晚于 startedAt），
  *  重启是正常运维 → 不拦；纯 LLM 自发（无用户消息介入）才是循环，拦。
+ *  F20261005srst（#1203）三件套：①时间衰减豁免（存活超 2h 不拦，同构 F20260831cbkw 熔断健康窗口）
+ *  ②判据查询重试一次（瞬时故障自愈）③降级落 healing event（判据失效可观测，不再静默）。
  *  Why 走 OtterToolClient 端口：tool 层无 queryMessage 依赖，复用 message 客户端的只读查询。 */
+const SELF_RESTART_LOOP_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
 async function isSelfRestartLoop(ctx: ToolContext, healingRepo?: HealingEventRepository): Promise<boolean> {
   if (!healingRepo) return false;
   const activeSession = await ctx.client.otter.getActiveSession(ctx.otterId).catch(() => null);
@@ -771,14 +774,41 @@ async function isSelfRestartLoop(ctx: ToolContext, healingRepo?: HealingEventRep
     return ectx?.newSessionId === activeSession.id;
   });
   if (!selfRestartCreated) return false;
-  // 用户消息介入检测：查询失败或客户端缺方法时降级为 false（维持拦截，保守）。
-  // F20260913ctlv 收尾批3：数据源切 entries（最新 user entry；messages 停写）
-  try {
-    const lastUsers = await ctx.client.conversation.entry.getEntries(ctx.conversationId, { entryType: 'user', limit: 1 });
-    const last = lastUsers[0];
-    if (last && Date.parse(last.createdAt) >= Date.parse(activeSession.startedAt)) return false;
-  } catch {
-    // 降级：视为无介入，维持拦截
+  // F20261005srst（#1203）：时间衰减豁免——防循环只需防「紧邻连环」（分钟级），
+  // 2h 后仍在工作的 session 不是循环。兕住判据失效类故障（9/28 现场：5h 前的自重启产物被拦）。
+  const sessionAgeMs = Date.now() - Date.parse(activeSession.startedAt);
+  if (sessionAgeMs > SELF_RESTART_LOOP_WINDOW_MS) return false;
+  // 用户消息介入检测：查询失败重试一次（#1203），重试仍失败降级为无介入（维持拦截，保守）
+  // ——但不再静默：降级事件落 healing 台账。F20260913ctlv 收尾批3：数据源切 entries（最新 user entry）
+  const MAX_ATTEMPTS = 2;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const lastUsers = await ctx.client.conversation.entry.getEntries(ctx.conversationId, { entryType: 'user', limit: 1 });
+      const last = lastUsers[0];
+      if (last && Date.parse(last.createdAt) >= Date.parse(activeSession.startedAt)) return false;
+      break; // 查询成功且无介入 → 维持拦截
+    } catch (err) {
+      if (attempt >= MAX_ATTEMPTS) {
+        // #1203：降级可观测——重试后仍失败，落 healing event（判据失效不再静默）
+        await healingRepo.create({
+          id: crypto.randomUUID(),
+          messageId: ctx.currentInvokeId ?? ctx.currentMessageId,
+          conversationId: ctx.conversationId,
+          otterId: ctx.otterId,
+          errorType: 'other',
+          severity: 'low',
+          description: '自重启用户介入判据查询降级（重试后仍失败），维持拦截——判据失效留痕（排查 entries 查询链路）',
+          suggestion: '排查 entries 查询链路健康；若为搭档显式重启被拦，可从 UI 手动重启',
+          context: { sessionId: activeSession.id, layer: 'tool', error: String(err) },
+          status: 'open',
+          resolution: null,
+          createdAt: new Date().toISOString(),
+          resolvedAt: null,
+        }).catch(() => { /* 落账失败不阻断拦截判定 */ });
+      } else {
+        await new Promise(r => setTimeout(r, 50)); // 瞬时故障退避后重试
+      }
+    }
   }
   return true;
 }
@@ -845,7 +875,7 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
       // Why 在 tool 层拦截而非 agent-invoker 层：LLM 调用 restart_otter(self) 时立即返回错误，
       // 避免设置 pendingRestart 后再由 invoker 层拦截——tool 层拦截更早、更省 token。
       if (targetOtterId === ctx.otterId && await isSelfRestartLoop(ctx, healingRepo)) {
-        return errorResponse('[系统保护] 当前 session 已由自重启创建，不允许连续自重启。请通过新消息与獭交互。');
+        return errorResponse('[系统保护] 当前 session 已由自重启创建且未检测到新的用户指令（距上次自重启不足 2h），不允许连续自重启。如确需重启：请搭档从 UI 手动重启，或新开对话重派任务。');
       }
 
       // F20260815rstrt: 自重启时延迟执行——session.prompt() 是原子的，
