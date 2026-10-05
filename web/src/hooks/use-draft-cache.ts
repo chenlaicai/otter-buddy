@@ -65,12 +65,15 @@ export function useDraftCache(conversationId: string | null) {
     }
 
     // 设置新的 debounce timer
-    // Why: 使用 conversationIdRef.current 而非闭包中的 conversationId
-    // 与 beforeunload handler 保持一致，避免 conversationId 变化时闭包捕获旧值
+    // #1132 修复：闭包捕获 conversationId（timer 设置时的值），不用 conversationIdRef.current
+    // Why: debounce 回调的语义是「text 与 conversationId 配对写入」——text 是本对话的输入，
+    // id 必须是输入发生时的对话；读 ref 则 300ms 窗口内切换对话后 ref 已指向新对话，
+    // 旧对话的文本串写进 draft:conv-2。与 beforeunload handler（读 ref 取「最新值」语义）
+    // 刻意不同：那边是「页面关闭前把当前最新草稿存到当前最新对话」，两边是不同命题。
+    // saveDraft 的 useCallback deps=[conversationId] 保证闭包内 conversationId 与调用时同步。
     debounceTimerRef.current = setTimeout(() => {
-      const currentConversationId = conversationIdRef.current
-      if (currentConversationId) {
-        localStorage.setItem(`draft:${currentConversationId}`, text)
+      if (conversationId) {
+        localStorage.setItem(`draft:${conversationId}`, text)
       }
       debounceTimerRef.current = null
     }, 300)
