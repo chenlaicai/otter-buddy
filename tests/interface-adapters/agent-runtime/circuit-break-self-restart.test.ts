@@ -65,9 +65,12 @@ describe('isSessionSelfRestartCreated（F20260824srst + F20261005srst 窗口豁�
     sessionStartedAt?: string;
     lastUserEntryAt?: string | null;
     queryThrows?: boolean;
+    /** 第一次抛错（瞬时故障）后恢复——辐照 wrapper「非最终失败不落账」分支 */
+    queryThrowsOnce?: boolean;
   }) {
     const startedAt = overrides?.sessionStartedAt ?? new Date(Date.now() - 30 * 60 * 1000).toISOString();
     const recordedEvents: Array<Record<string, unknown>> = [];
+    let queryRecovered = false;
     const deps = {
       manageSession: {
         getActiveSession: vi.fn(async () => ({
@@ -86,6 +89,10 @@ describe('isSessionSelfRestartCreated（F20260824srst + F20261005srst 窗口豁�
       entryReader: {
         getEntries: vi.fn(async (_convId: string, opts?: { entryType?: string; limit?: number }) => {
           if (overrides?.queryThrows) throw new Error('db busy');
+          if (overrides?.queryThrowsOnce && !queryRecovered) {
+            queryRecovered = true;
+            throw new Error('transient busy');
+          }
           if (opts?.entryType === 'user') {
             if (overrides?.lastUserEntryAt === null || overrides?.lastUserEntryAt === undefined) return [];
             return [{ id: 'ue-1', entryType: 'user', createdAt: overrides.lastUserEntryAt }];
@@ -154,13 +161,24 @@ describe('isSessionSelfRestartCreated（F20260824srst + F20261005srst 窗口豁�
     expect(recordedEvents[0]).toMatchObject({ errorType: 'tool_failure', messageId: 'msg-42' });
   });
 
-  it('窗口内 + 判据查询重试成功 → 拦截且不落降级事件（对称锚）', async () => {
+  it('查询健康 → 拦截且不落降级事件（对称锚）', async () => {
     const { support, recordedEvents } = buildSupport({
       sessionStartedAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
     });
     // queryThrows 未设 → getEntries 返回空数组（无介入，不抛错）→ 判据正常执行
     await expect(support.isSessionSelfRestartCreated('otter-1', 'conv-1', { invokeId: 'msg-42' })).resolves.toBe(true);
     expect(recordedEvents).toHaveLength(0); // 查询健康时不落降级事件
+  });
+
+  it('瞬时失败重试成功 → 拦截且不落降级事件（wrapper 非最终失败抑制落账锚）', async () => {
+    const { support, recordedEvents } = buildSupport({
+      sessionStartedAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      queryThrowsOnce: true,
+    });
+    // 第一次抛错（isFinal=false wrapper return 不落账）→ 重试成功返回无介入 → 正常拦截
+    // 若 wrapper 的 isFinal 判断被删，非最终失败也会刷降级事件——本锚锁死该分支
+    await expect(support.isSessionSelfRestartCreated('otter-1', 'conv-1', { invokeId: 'msg-42' })).resolves.toBe(true);
+    expect(recordedEvents).toHaveLength(0);
   });
 
   it('无 conversationId（如 scheduler 链路）→ 纯 session 判定（窗口内自重启创建即拦）', async () => {
