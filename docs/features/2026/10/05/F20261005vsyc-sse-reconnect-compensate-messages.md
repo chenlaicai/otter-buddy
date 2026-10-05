@@ -37,37 +37,42 @@ intent:
 3. **发消息时订阅者 +1**：chen 每次发言（15:55/15:56/16:28/16:31）瞬间 subscriber 1→2——这是 POST 发送流的临时订阅；常驻订阅的「1」是页面加载时建立的旧连接
 4. **DB 数据完整**：刷新后消息全出现，证明落库无缺失，纯前端事件消费缺口
 
-## 根因分析
+## 根因分析（检视獭-1292 初轮审视后重写——初版「后台冻结」假说被证伪）
 
-两个复合缺口：
+**服务端证据（DB 实证）**：丢失的 15:55:58 speak 在 invoke_events 有完整记录（event_type='speak'，body 全文 + sequenceNum=780），服务端 emitEvent 组装无缺失。
 
-**缺口 1（主因）：补偿链不对账消息**。F20260922rprf 的重连补偿机制（needsSyncAfterReconnect → 首个 onprogress 触发）只调 syncInvokeStatesFromServer（右栏 invoke 状态）——entry.speak/entry.user 消息事件在断连/冻结窗口丢失后**没有任何补偿拉取**。SSE 无回放，丢了就是丢了。
+**检视獭-1292 的三点击穿初版假说**：
+1. JS 冻结假说不成立：chen 15:55/15:56/16:28 在页面发消息（JS 明确运行），若连接死则看门狗 ≤50s 必重连——但日志零重连 ⇒ onprogress 一直在跑 ⇒「事件积压未被消费」解释不通
+2. 选择性丢失：15:55:58 的 speak 经主 SSE + POST 流**双路径双丢**，3 秒后的 yield **双路径双到**——网络层无法解释选择性（yield 居中条目到、speak 气泡丢）
+3. 常驻连接实证健在：10-01 22:21 建立 → 10-05 16:30:41 chen 手动刷新（client_abort），期间服务端无重启、keep-alive 每 15s 喂活看门狗
 
-**缺口 2（诱因）：看门狗与 JS 冻结同源失效**。40s 活性看门狗靠 setInterval(10s) 检查 lastProgressAt——后台 tab 被 macOS/Chrome timer throttling 节流（interval 降到 ≥60s 甚至冻结）时，看门狗与 onprogress 一起冻结，「连接静默死亡」检测失效。连接实际活着（服务端 keep-alive 持续写），事件积压在 responseText 中未被 JS 消费——恢复可见性的瞬间若 onprogress 补跑，事件其实能到；若浏览器丢弃了积压（内存压缩后 responseText 截断），事件真丢。缺口 1 在两种形态下都是最终兜底。
+**真丢点定位（中高置信，浏览器侧无日志待确认）**：丢在前端 entry.speak 事件消费/渲染链（候选：handler 的 `if (!d.body) return` 静默丢弃、insertBySeq 插入、batcher 合并窗口）。yield 与 speak 的 handler 行为差异（body 必需性、插入器选择）是选择性丢失的机制面。
 
-**为什么 focus 对账没救回来**：F20260921urdo 的 focus/visibilitychange 处理器会调 refreshMessages——但案发时 chen 的「实时渲染」观察发生在 tab 可见状态（他盯着页面看交接），不触发 visibilitychange；且 300ms 防抖窗口内若 JS 刚从节流恢复，focus 事件可能已错过。而 needsSyncAfterReconnect 路径在「连接从未断开」（只是 JS 冻结）时根本不激活。
+**修复策略**：既然精确丢点无法在服务端侧定位（浏览器无日志），修复走「对账兜底架构」——不追求堵住每个丢点，而是保证任何丢点最终收敛：①周期审计挂消息对账（60s，回前台即恢复）②refreshMessages 改尾页快照 + 幂等合并（不依赖游标假设，低位缺口/乱序都能补）③重连补偿链保留消息拉取（真断场景）。三层对账覆盖所有已知形态，无论真丢点在哪。
 
-## 修复
+## 修复（检视处置后：对账兜底架构，三层）
 
-重连补偿链补消息增量（一行实质改动 + effect 依赖）：
+1. **周期审计挂消息对账**（治本案形态——连接健在事件真丢）：既有 60s 周期审计（F20260928icmm）原本只对账右栏 invoke 状态，现在也调 refreshMessages(activeId)。后台 tab 被 timer 节流时 interval 冻结，回前台即恢复——最迟一个周期内补齐。无丢失时幂等合并零写入，成本一单请求/分钟
+2. **refreshMessages 重构：尾页快照 + mergeMessages 幂等合并**（治游标漏补）：弃用 listEntriesAfter 游标（丢失条目 seq 低于本地尾部时永久漏补——本案 15:55 speak seq=780 丢失后 15:56 yield 无 seq 先到，末位游标反指更早条目），改拉尾页 100 条快照 + mergeMessages 同 id 幂等合并，低位缺口/乱序一概能补
+3. **重连补偿链补消息拉取**（治真断形态——#1134 同型）：needsSyncAfterReconnect 激活时与右栏状态同窗拉 refreshMessages
 
-```diff
- if (activeId && needsSyncAfterReconnect) {
-   needsSyncAfterReconnect = false
-   void syncInvokeStatesFromServer(activeId)
-+  void refreshMessages(activeId)  // 增量拉取断连窗口丢失的消息条目
- }
-```
-
-refreshMessages（F20260913ctlv 增量刷新）按本地最新 seq 游标 listEntriesAfter——无新条目零写入，幂等安全；有丢失条目则补进 state 并按聚焦态 ack。
-
-**为什么不改看门狗**：缺口 2 的「看门狗被节流」无法用 JS 自身修复（节流面前一切 timer 平等），治本在服务端事件化心跳（ping data 帧）——但那是独立增强（前端可把「收到 ping」记为活性），与本修复正交。缺口 1 修复后，只要看门狗最终触发重连（tab 回前台 interval 恢复，最迟一次 40s 检查即 abort），补偿链即补齐消息——形成闭环。
+**看门狗不动**：连接健在场景（本案）看门狗本就不该触发；「JS 冻结致看门狗失效」随假说证伪不再是本案根因。
 
 ## 验证
 
 - web 全量 616/616 通过（含既有 SSE/会话回归面）
 - tsc --noEmit 0 错误
-- capability_test: n/a——页面主组件无组件测试基建（mock XHR 流式读取的成本超修复本身）；验证协议：下次后台冻结复现时观察消息自动补齐（预期：切回/唤醒后 ≤10s 内发言出现，无需刷新）
+- capability_test: n/a——页面主组件无组件测试基建（mock XHR 流式读取的成本超修复本身）；验证协议：下次后台冻结复现时观察消息自动补齐（预期：最迟一个审计周期（≤60s）内发言出现，无需刷新）
+
+## 检视处置记录（检视獭-1292 初轮：5 严重 2 建议）
+
+- **严重 1（修复在本案形态永不触发）采纳**：常驻连接 10-01→10-05 健在实证，needsSyncAfterReconnect 从未武装——修复改为周期审计挂消息对账（60s，覆盖「连接健在事件真丢」形态），重连补偿链保留（治真断）
+- **严重 2（refreshMessages 游标漏补低位缺口）采纳**：弃 after 游标，改尾页快照 + mergeMessages 幂等合并（不换 max-seq——居中条目无 seq，换 max-seq 更漏）
+- **严重 3（根因与证据硬冲突）采纳**：JS 冻结假说被三点击穿（chen 发消息时 JS 在运行/双路径双丢双到/speak 与 yield handler 行为差异），根因段重写——真丢点定位于前端 speak 事件消费链（候选 body 必需性检查/insertBySeq/batcher），浏览器侧无日志无法进一步定位；修复策略改为对账兜底架构（不依赖定位丢点）
+- **严重 4（B4 缺 Modification-Class）采纳**：本 commit body 补声明
+- **严重 5（B5 撞车 #1268）仲裁**：hunk 不相交（#1268 @24/1129/1145 vs 本 PR @341-360/826-838），无实质冲突，各自独立合入
+- **建议 6（时延失实）采纳**：≤10s → ≤60s（审计周期 + timer 恢复时延）
+- **建议 7（证据口径）采纳**：「26 条」为初版窄窗扫描口径，改为如实用词
 
 ## 后续动作
 
