@@ -2257,4 +2257,33 @@ describe("#1275 delta r4：python open-mode 门嵌套括号穿透修复（检视
       mainPid, undefined, { projectRoot }
     )).not.toBeNull();
   });
+  // ── delta r4 收尾（大獭裁决：S1 修复本体同族穿透，修完直送终审）──
+  it("delta r4 收尾：open(*a) 位置解包逃逸 → 拦（one-liner 面）", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "a=('config.yaml','w');open(*a)"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("delta r4 收尾：open(*a) heredoc 面 → 拦", () => {
+    expect(checkBashCommandSafety(
+      `python3 - <<'PYEOF'\na=('config.yaml','w')\nopen(*a)\nPYEOF`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("delta r4 收尾对照：Path.open(*a) → 拦（方法面解包同拒）", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "from pathlib import Path; Path.open(*a)"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("delta r4 收尾对照：字面 *('c','w') → 拦（解包字面同拒）", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "open(*('c','w'))"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
 });
+

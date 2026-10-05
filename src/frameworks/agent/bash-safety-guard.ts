@@ -880,6 +880,10 @@ function pythonOpenModesReadOnly(body: string): boolean {
     for (const raw of splitTopLevelArgs(args)) {
       const p = raw.trim();
       if (p === "") continue;
+      // S1 同族修复（检视獭-1278b delta r4）：位置实参遇 `*` 前缀（解包）→ fail-closed
+      // 不豁免——mode 藏在解包元组里完全不可见（open(*a) 穿透，a=('f','w')）。
+      // 对齐 :858 `**kwargs` 同款先例（解包不可静态判即拒）。
+      if (/^\*/.test(p)) return false;
       const kwVerdict = keywordArgReadOnly(p);
       if (kwVerdict !== null) {
         if (!kwVerdict) return false;
