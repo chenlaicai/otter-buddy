@@ -1904,3 +1904,386 @@ describe("checkBashCommandSafety - sleep 检测（F20260928slan）", () => {
     expect(checkBashCommandSafety("echo hi && sleep 30", mainPid)).toContain("wait 工具");
   });
 });
+
+describe("#1275：解释器直执行（one-liner）形态主仓写检测盲区补齐（9/29 #1252 事故实证）", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+
+  // ── 回归锚：事故原文（session entry 417 原样提取，cwd 主仓、无 cd 前缀）──
+  it("#1252 事故原文：python3 -c 写 config/config.yaml → 拦截", () => {
+    const incident = "pwd; python3 -c \"\nsrc = open('config/config.yaml').read()\nassert 'port: 3000' in src\nopen('config/config.yaml','w').write(src.replace('port: 3000','port: 3102',1))\nprint('patched')\"; grep -n \"port:\" config/config.yaml | head -2";
+    const result = checkBashCommandSafety(incident, mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+    expect(result).toContain("当前 bash 工作目录在主仓");
+  });
+
+  // ── 拦截面：写签名载荷（fail-closed）──
+  it("python3 -c 单行写形态（open 'w' + write）→ 拦截", () => {
+    const result = checkBashCommandSafety("python3 -c \"open('config.yaml','w').write('x')\"", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("python3 -c 只读前缀掩护写（read 后 open 'w'）→ 拦截（只读不能掩护写）", () => {
+    const result = checkBashCommandSafety("python3 -c \"s=open('a').read(); open('a','w').write(s)\"", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("python3 -c 写模式 append（open 'a'）→ 拦截", () => {
+    const result = checkBashCommandSafety("python3 -c \"open('f','a').write('x')\"", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("node -e writeFileSync → 拦截", () => {
+    const result = checkBashCommandSafety("node -e \"require('fs').writeFileSync('config.yaml','port: 3102')\"", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("node --eval 等价旗标写形态 → 拦截", () => {
+    const result = checkBashCommandSafety("node --eval \"require('fs').appendFileSync('f','x')\"", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("python3 -c import os（只读子面）→ 拦截（import os 即不豁免，fail-closed）", () => {
+    const result = checkBashCommandSafety("python3 -c 'import os; print(os.getcwd())'", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("python3 -c os.remove（写面）→ 拦截", () => {
+    const blocked = checkBashCommandSafety("python3 -c 'import os; os.remove(\\\"config.yaml\\\")'", mainPid, undefined, { projectRoot });
+    expect(blocked).not.toBeNull();
+  });
+
+  it("python3 -c 动态形态（getattr）→ 拦截（白名单外不豁免）", () => {
+    const result = checkBashCommandSafety("python3 -c \"getattr(__builtins__,'open')('f','w')\"", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("python3 -c 带只读旗标（-u -q）写载荷 → 仍拦截（旗标位容许不影响体判定）", () => {
+    const result = checkBashCommandSafety("python3 -u -q -c \"open('f','w').write('x')\"", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  it("python3 -W ignore -c 写载荷 → 拦截（-W 带参旗标：参数被正确跳过，-c 被识别）", () => {
+    const result = checkBashCommandSafety("python3 -W ignore -c \"open('f','w').write('x')\"", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull(); // 载荷含写 mode → 拦
+  });
+
+  it("python3 -c 无引号载荷（裸标识符）→ 拦截（载荷提取失败 fail-closed）", () => {
+    const result = checkBashCommandSafety("python3 -c print(open('f','w').write('x'))", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  // ── 放行面：纯只读载荷不误拦 ──
+  it("python3 -c 纯只读（print + open read）→ 放行", () => {
+    const result = checkBashCommandSafety("python3 -c \"print(open('config.yaml').read())\"", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  it("python3 -c 只读分析形态（json + print）→ 放行", () => {
+    const result = checkBashCommandSafety("python3 -c \"import json; print(json.dumps({'a':1}))\"", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  it("node -e 纯只读（console.log）→ 放行", () => {
+    const result = checkBashCommandSafety("node -e \"console.log('hello')\"", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  it("node -e readFileSync 只读 → 放行（Delta r2：原始文本预计算豁免，归一化产物不进白名单判定）", () => {
+    // S-3/Delta 严重 1 修复：归一化剥引号（require('fs') → require(fs)）导致白名单断言失败的
+    // 误拦，通过归一化前预计算 one-liner 只读豁免（原始文本引号在位）解决。
+    // readFileSync 在 NODE_READONLY_METHODS 白名单内（:952），require 在 bare 白名单（:972）。
+    const result = checkBashCommandSafety("node -e \"console.log(require('fs').readFileSync('f','utf8'))\"", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  // ── 放行面：cd worktree 后豁免（模型版 cd 豁免在最前）──
+  it("cd worktree 后 python3 -c 写相对路径 → 放行（正道）", () => {
+    const result = checkBashCommandSafety("cd /wt && python3 -c \"open('config.yaml','w').write('x')\"", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  it("cd worktree 后 node -e 写 → 放行", () => {
+    const result = checkBashCommandSafety("cd /wt && node -e \"require('fs').writeFileSync('f','x')\"", mainPid, undefined, { projectRoot });
+    expect(result).toBeNull();
+  });
+
+  // ── 交叉：kill 检测链与主仓写检测链互不回归 ──
+  it("python3 -c os.kill(主PID) → 拦截（kill 链独立命中，不因主仓写豁免放行）", () => {
+    const result = checkBashCommandSafety("python3 -c 'import os; os.kill(42877, 9)'", mainPid, undefined, { projectRoot });
+    expect(result).not.toBeNull();
+  });
+
+  // ── 检视獭-1278 严重发现固化（绕过形态反向断言 BLOCKED）──
+  it("S-1：管道右段 python3 -c 写 → 拦截（锚集含单 |）", () => {
+    const cmd = `grep "x" /tmp/f | python3 -c "
+import sys
+src = sys.stdin.read()
+open('config/config.yaml','w').write(src.replace('port: 3000','port: 3102',1))
+"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("S-1：管道右段 node -e 写 → 拦截", () => {
+    expect(checkBashCommandSafety(
+      `cat /tmp/f | node -e "require('fs').writeFileSync('config.yaml','x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("S-2：同解释器双 one-liner 只读掩护写 → 拦截（全部载荷只读才豁免）", () => {
+    expect(checkBashCommandSafety(
+      'python3 -c "print(1)" && python3 -c "open(\'config.yaml\',\'w\').write(\'x\')"',
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("S-2：python+node 跨解释器组合 → 拦截（任一非只读即拦）", () => {
+    expect(checkBashCommandSafety(
+      'python3 -c "print(1)" && node -e "require(\'fs\').writeFileSync(\'f\',\'x\')"',
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("S-4：python3 -W ignore -c 只读 → 放行（旗标位同步，通道/提取一致）", () => {
+    expect(checkBashCommandSafety(
+      `python3 -W ignore -c "import json; print(json.dumps({'a':1}))"`,
+      mainPid, undefined, { projectRoot }
+    )).toBeNull();
+  });
+
+  it("S-5：ruby -e 写 → 拦截（fail-closed 起步）", () => {
+    expect(checkBashCommandSafety(
+      `ruby -e "File.write('config/config.yaml','port: 9999')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("S-5：perl -e 写 → 拦截", () => {
+    expect(checkBashCommandSafety(
+      `perl -e 'open(F,">config.yaml"); print F "x"'`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("S-5：ruby -e 只读 → 拦截（fail-closed，先堵写面）", () => {
+    expect(checkBashCommandSafety(
+      `ruby -e "puts File.read('/tmp/f')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  // ── 建议 4：测试矩阵补三维度 ──
+  it("from os import getcwd → 放行（from-import 精确匹配只读子面）", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "from os import getcwd; print(getcwd())"`,
+      mainPid, undefined, { projectRoot }
+    )).toBeNull();
+  });
+
+  it("管道右段只读 python3 -c → 放行（锚集含 | 但载荷只读豁免）", () => {
+    expect(checkBashCommandSafety(
+      `grep "x" /tmp/f | python3 -c "import sys; print(sys.stdin.read().count('x'))"`,
+      mainPid, undefined, { projectRoot }
+    )).toBeNull();
+  });
+
+  // ── Delta r2：S-3 归一化误拦修复 + B3/B4/B8 包装绕过固化 ──
+  it("Delta r2：node -e require('fs') readFileSync → 放行（原始文本预计算豁免，归一化产物不进白名单判定）", () => {
+    expect(checkBashCommandSafety(
+      `node -e "console.log(require('fs').readFileSync('/tmp/f','utf8').length)"`,
+      mainPid, undefined, { projectRoot }
+    )).toBeNull();
+  });
+
+  it("Delta r2：node -e 写载荷仍拦（豁免不覆盖写）", () => {
+    expect(checkBashCommandSafety(
+      `node -e "require('fs').writeFileSync('config.yaml','x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("Delta r2 B3：FOO=1 python3 -c 写 → 拦截（env 赋值前缀在锚集）", () => {
+    expect(checkBashCommandSafety(
+      `FOO=1 python3 -c "open('config.yaml','w').write('x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("Delta r2 B4：env python3 -c 写 → 拦截（包装词在锚集）", () => {
+    expect(checkBashCommandSafety(
+      `env python3 -c "open('config.yaml','w').write('x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("Delta r2 B4：sudo python3 -c 写 → 拦截", () => {
+    expect(checkBashCommandSafety(
+      `sudo python3 -c "open('config.yaml','w').write('x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("Delta r2 B8：xargs -I{} python3 -c 写 → 拦截", () => {
+    expect(checkBashCommandSafety(
+      `echo f | xargs -I{} python3 -c "open('{}','w').write('x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("Delta r2 B3：FOO=1 python3 -c 只读 → 放行（赋值前缀不影响豁免）", () => {
+    expect(checkBashCommandSafety(
+      `FOO=1 python3 -c "print(open('/tmp/f').read())"`,
+      mainPid, undefined, { projectRoot }
+    )).toBeNull();
+  });
+
+});
+
+describe("#1275 delta r3：引号掩蔽写载荷 + 包装组循环（检视獭-1278 delta r2 复核 2 严重处置）", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+
+  // ── delta r3（检视獭-1278 delta r2 复核 2 严重）：引号掩蔽写 + 包装组组合 ──
+  it("delta r3 H1：node 只读掩护 'node' 掩蔽写 → 拦（引号掩蔽借豁免放行修复）", () => {
+    expect(checkBashCommandSafety(
+      `node -e "console.log(require('fs').readFileSync('/tmp/f','utf8').length)" && 'node' -e "require('fs').writeFileSync('config.yaml','x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("delta r3 H2：python 只读掩护 'python3' 掩蔽写 → 拦", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "print(1)" && 'python3' -c "open('config.yaml','w').write('x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("delta r3 对照：'node' 掩蔽写单独出现 → 拦", () => {
+    expect(checkBashCommandSafety(
+      `'node' -e "require('fs').writeFileSync('config.yaml','x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("delta r3 S-3 不回退：node -e require('fs') readFileSync → 放行（载荷归一化等价）", () => {
+    expect(checkBashCommandSafety(
+      `node -e "console.log(require('fs').readFileSync('/tmp/f','utf8').length)"`,
+      mainPid, undefined, { projectRoot }
+    )).toBeNull();
+  });
+
+  it("delta r3 W1：sudo env python3 -c 写 → 拦（包装组任意形态×顺序）", () => {
+    expect(checkBashCommandSafety(
+      `sudo env python3 -c "open('config.yaml','w').write('x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("delta r3 W2：nohup env python3 -c 写 → 拦", () => {
+    expect(checkBashCommandSafety(
+      `nohup env python3 -c "open('config.yaml','w').write('x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("delta r3 W3：env FOO=1 python3 -c 写 → 拦（赋值前缀与包装词合并循环组）", () => {
+    expect(checkBashCommandSafety(
+      `env FOO=1 python3 -c "open('config.yaml','w').write('x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("delta r3 W4：FOO=1 env python3 -c 写 → 拦（保持）", () => {
+    expect(checkBashCommandSafety(
+      `FOO=1 env python3 -c "open('config.yaml','w').write('x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("delta r3 误拦面：FOO=1 git status / env git status / sudo git status → 放行", () => {
+    expect(checkBashCommandSafety(`FOO=1 git status`, mainPid, undefined, { projectRoot })).toBeNull();
+    expect(checkBashCommandSafety(`env git status`, mainPid, undefined, { projectRoot })).toBeNull();
+    expect(checkBashCommandSafety(`sudo git status`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("delta r3 误拦面：env node -e 只读 → 放行（包装词不改变只读本质）", () => {
+    expect(checkBashCommandSafety(
+      `env node -e "console.log('hello')"`,
+      mainPid, undefined, { projectRoot }
+    )).toBeNull();
+  });
+});
+
+describe("#1275 delta r4：python open-mode 门嵌套括号穿透修复（检视獭-1278b S1 处置）", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+
+  it("S1 one-liner 面：open(chr(99),chr(119)) → 拦（chr 白名单穿透 mode 门修复）", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "open(chr(99),chr(119))"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("S1 heredoc 面同洞：open(chr(99),chr(119)) → 拦（#1207 复用同门）", () => {
+    expect(checkBashCommandSafety(
+      `python3 - <<'PYEOF'\nopen(chr(99),chr(119))\nPYEOF`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("S1 对照：open 实参区嵌套只读调用 → 拦（fail-closed，实参区见嵌套 ( 即不豁免）", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "open(chr(46)).read()"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("S1 对照：open 实参区无嵌套括号的只读形态 → 放行（不误拦）", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "print(open('/tmp/f.txt').read())"`,
+      mainPid, undefined, { projectRoot }
+    )).toBeNull();
+    expect(checkBashCommandSafety(
+      `python3 -c "print(len(open('/tmp/f.txt').read()))"`,
+      mainPid, undefined, { projectRoot }
+    )).toBeNull();
+  });
+
+  it("S1 对照：open 直接写 mode → 拦（原有判定不回退）", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "open('/tmp/f.txt','w').write('x')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+  // ── delta r4 收尾（大獭裁决：S1 修复本体同族穿透，修完直送终审）──
+  it("delta r4 收尾：open(*a) 位置解包逃逸 → 拦（one-liner 面）", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "a=('config.yaml','w');open(*a)"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("delta r4 收尾：open(*a) heredoc 面 → 拦", () => {
+    expect(checkBashCommandSafety(
+      `python3 - <<'PYEOF'\na=('config.yaml','w')\nopen(*a)\nPYEOF`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("delta r4 收尾对照：Path.open(*a) → 拦（方法面解包同拒）", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "from pathlib import Path; Path.open(*a)"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+
+  it("delta r4 收尾对照：字面 *('c','w') → 拦（解包字面同拒）", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "open(*('c','w'))"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
+  });
+});
+

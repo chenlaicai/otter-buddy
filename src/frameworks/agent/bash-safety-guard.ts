@@ -587,11 +587,82 @@ function withDiagnostics(message: string, scanText: string, mainPid: number | nu
 /** F20260922scwd：主仓写拦截文案（感知对齐保护闸） */
 const MAIN_WRITE_BLOCK_MSG = "当前 bash 工作目录在主仓（未 cd 到 worktree）。落点为主仓的写命令被拦截——若目标在 worktree，请先 cd <worktree 路径> 再执行；若确实要写主仓，用绝对路径（写主仓受 R1 红线约束，请确认意图）。";
 
+// ── #1275：解释器直执行（one-liner）形态判定（F20261005i1275）──
+// 盲区实证：9/29 #1252 事故——小獭用 `python3 -c "open('config/config.yaml','w').write(…)"`
+// 在主仓 cwd 绕过主仓写检测（MAIN_WRITE_PATTERNS 只覆盖重定向/python heredoc/git 写族），
+// 污染主仓 config（session entry 417）。与 :316-319 kill 检测侧 `python -c`/`node -e`/`
+// `perl -e`/`ruby -e` 形态检测（F20260923glay）是同一盲区在主仓写检测侧的对齐补齐。
+// 判定原则与 heredoc 体感知判定（#1207）同构：只读白名单豁免 + 白名单外保守拦（fail-closed）。
+// 检视獭-1278 处置（delta r1）：
+// ① 锚集对齐 git 写族（单 | / & 同样切段——管道右段写载荷绕过实证，严重 1）；
+// ② 提取器循环提取全部同型载荷（`python3 -c "print(1)" && python3 -c "open('w')…"`
+//    只读掩护写实测放行，严重 2）；
+// ③ 豁免判定基准为原始命令文本（checkBashCommandSafety 首次扫描路径），
+//    V1 归一化二次扫描剥载荷内引号（require('fs') → require(fs)）导致白名单断言失败
+//    的误拦不发生在首次扫描（严重 3 的修复口径）；
+// ④ 通道/预闸/提取三处正则抽公共常量统一（-W 带参旗标位漂移实证，严重 4）；
+// ⑤ ruby/perl 只读全拦（fail-closed 起步，先堵写面，放行面后续放宽，严重 5）。
+
+/** one-liner 通道锚集——对齐 git 写族（:670 的 [|&] 锚 + env 赋值前缀）。
+ *  单 | / & 同样切段（S-1）；赋值前缀与包装词合并单一循环组，任意形态×顺序×
+ *  层数匹配（r2 严重 2：sudo env / nohup env / env FOO=1 组合形态曾放行，W1/W2/W3）。 */
+const ONELINER_ANCHOR = "(?:^|[;&\\n|]|&&|\\|\\||\\(|\\{)\\s*(?:(?:[A-Za-z_]\\w*=\\S+|env|sudo|nohup|command|nice|exec|time|xargs(?:\\s+-[^\\s]+)*)\\s+)*(?:[\\w./-]+\\/)?";
+
+/** one-liner 旗标位（python）：容许带参旗标（-W ignore / -X dev）。
+ *  单字母旗标后可选一个非 - 开头的参数（`(?:\\s+(?!-)\\S+)?`），循环容许连续多旗标。 */
+const PY_FLAG_GROUP = "(?:-[A-Za-z](?:\\s+(?!-)\\S+)?\\s+)*";
+
+/** one-liner 旗标位（node）：长旗标带可选参数（--max-old-space-size 4096）。 */
+const NODE_FLAG_GROUP = "(?:--[A-Za-z-]+(?:\\s+[^\\s;&|]+)?\\s+)*";
+
+/** one-liner 载荷形态（引号包裹或无引号裸标识符——后者提取失败 fail-closed）。 */
+const ONELINER_PAYLOAD = "(?:\\s*[\"'`]|\\s+(?![\"'`])\\S)";
+
+/** python -c 通道形态（不含锚集，供通道正则/预闸/提取三处复用）。 */
+const PY_ONELINER_FORM = "python[\\d.]*\\s+" + PY_FLAG_GROUP + "-c" + ONELINER_PAYLOAD;
+
+/** node -e|--eval 通道形态（不含锚集）。 */
+const NODE_ONELINER_FORM = "node(?:\\d+)?\\s+" + NODE_FLAG_GROUP + "(?:-e|--eval)" + ONELINER_PAYLOAD;
+
+/** ruby -e 通道形态（不含锚集）。 */
+const RUBY_ONELINER_FORM = "ruby[\\d.]*\\s+(?:-[A-Za-z]+\\s+)*-e" + ONELINER_PAYLOAD;
+
+/** perl -e 通道形态（不含锚集）。 */
+const PERL_ONELINER_FORM = "perl[\\d.]*\\s+(?:-[A-Za-z]+\\s+)*-e" + ONELINER_PAYLOAD;
+
+type OneLinerInterp = "python" | "node" | "ruby" | "perl";
+
+/** 通道正则（MAIN_WRITE_PATTERNS slice 后 index 1-4）。 */
+const ONELINER_CHANNEL_PATTERNS: Record<OneLinerInterp, RegExp> = {
+  python: new RegExp(ONELINER_ANCHOR + PY_ONELINER_FORM),
+  node: new RegExp(ONELINER_ANCHOR + NODE_ONELINER_FORM),
+  ruby: new RegExp(ONELINER_ANCHOR + RUBY_ONELINER_FORM),
+  perl: new RegExp(ONELINER_ANCHOR + PERL_ONELINER_FORM),
+};
+
+/** 预闸正则（checkMainCheckoutWrite 内 oneLinerReadOnly 预计算用——与通道同源）。 */
+const ONELINER_PRE_GATE = new RegExp("\\b(?:" + PY_ONELINER_FORM + "|" + NODE_ONELINER_FORM + "|" + RUBY_ONELINER_FORM + "|" + PERL_ONELINER_FORM + ")");
+
+/** 提取器正则（引号载荷捕获，g 旗标循环提取全部同型载荷——与通道同源）。 */
+const ONELINER_EXTRACT_PATTERNS: Record<OneLinerInterp, RegExp> = {
+  python: new RegExp(ONELINER_ANCHOR + "python[\\d.]*\\s+" + PY_FLAG_GROUP + "-c\\s+([\"'`])", "g"),
+  node: new RegExp(ONELINER_ANCHOR + "node(?:\\d+)?\\s+" + NODE_FLAG_GROUP + "(?:-e|--eval)\\s+([\"'`])", "g"),
+  ruby: new RegExp(ONELINER_ANCHOR + "ruby[\\d.]*\\s+(?:-[A-Za-z]+\\s+)*-e\\s+([\"'`])", "g"),
+  perl: new RegExp(ONELINER_ANCHOR + "perl[\\d.]*\\s+(?:-[A-Za-z]+\\s+)*-e\\s+([\"'`])", "g"),
+};
+
+
 /** 主仓写操作形态（F20260922scwd）：重定向/heredoc/python patch/git 写族 */
 const REDIRECT_PATTERN = /(?:^|[;&\n]|&&|\|\|)\s*(?:>|>>|<<<)\s*[^|&;\n]+|(?<!["'\w])\d*>>?\s*[^|&;\n'"]+/;  // 重定向（含 echo x > file 中段形态 + 2> 数字前缀）
 const MAIN_WRITE_PATTERNS = [
   REDIRECT_PATTERN,
   /(?:^|&&|\|\||[;&\n])\s*(?:[\w./-]+\/)?python[\d.]*\s+-\s*<<["']?/,       // python heredoc patch（delta r1：含版本号/路径形态；delta 2：多级+绝对路径）
+  // #1275：pattern[1]-pattern[4] 是 one-liner 通道（python -c / node -e / ruby -e / perl -e）。
+  // 载荷是否只读不由正则承担（正则只认通道形态），由下方 oneLinerReadOnly 预计算豁免。
+  ONELINER_CHANNEL_PATTERNS.python,
+  ONELINER_CHANNEL_PATTERNS.node,
+  ONELINER_CHANNEL_PATTERNS.ruby,
+  ONELINER_CHANNEL_PATTERNS.perl,
   // D2：段首锚含单 | / &（`cd /wt | git commit` / `& git commit` 同样是新命令段）
   // F20260924gfpn：① merge → merge(?!-) 负向断言——`git merge-base`（只读）曾被 merge\b
   // 吞成写操作（9/23 台账实测 BLOCKED）；同组其他词审计：commit→commit(?!-tree)（commit-tree
@@ -646,6 +717,56 @@ function heredocInterpreter(header: string): string {
 }
 
 const isPythonHeader = (header: string): boolean => /^python(?:\d+(?:\.\d+)?)?$/.test(heredocInterpreter(header));
+
+/** 提取脚本语言 one-liner 的全部同型载荷（循环提取，非单次——S-2 修复）。
+ *  只处理引号包裹的载荷实参（`python3 -c "…"` / `node -e '…'`）；
+ *  任一载荷提取失败（无引号/未闭合/形态不识别）返回 null → 调用方保守拦（fail-closed）。
+ *  多行载荷（引号内换行）同样提取——引号扫描用逐字符 escape 感知。 */
+function extractOneLinerPayloads(command: string, interp: OneLinerInterp): string[] | null {
+  const pattern = ONELINER_EXTRACT_PATTERNS[interp];
+  pattern.lastIndex = 0;
+  const payloads: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = pattern.exec(command)) !== null) {
+    const quote = m[1];
+    let i = m.index + m[0].length;
+    const start = i;
+    while (i < command.length) {
+      const ch = command[i];
+      if (ch === "\\") { i += 2; continue; }
+      if (ch === quote) break;
+      i++;
+    }
+    if (i >= command.length) return null; // 未闭合引号 → 保守拦
+    payloads.push(command.slice(start, i));
+    pattern.lastIndex = i + 1; // 从闭合引号后继续找下一个同型载荷
+  }
+  return payloads.length > 0 ? payloads : null;
+}
+
+/** ruby/perl 只读白名单（S-5 fail-closed 起步：只读全拦，无豁免面）。
+ *  后续如需放宽，按 python/node 同构建只读白名单（File.read/puts 等）。 */
+function rubyPerlBodyReadOnly(_body: string): boolean {
+  return false;
+}
+
+/** one-liner 载荷是否只读（python → pythonBodyReadOnly，node → nodeBodyReadOnly，
+ *  ruby/perl → 全拦 fail-closed）。全部同型载荷提取成功且全部只读才豁免。 */
+function oneLinerPayloadReadOnly(command: string): boolean {
+  let sawPayload = false;
+  for (const interp of ["python", "node", "ruby", "perl"] as const) {
+    const payloads = extractOneLinerPayloads(command, interp);
+    if (payloads === null) continue; // 该解释器无载荷或提取失败
+    sawPayload = true;
+    const readOnly = interp === "python"
+      ? payloads.every(p => pythonBodyReadOnly(p))
+      : interp === "node"
+        ? payloads.every(p => nodeBodyReadOnly(p))
+        : payloads.every(p => rubyPerlBodyReadOnly(p));
+    if (!readOnly) return false;
+  }
+  return sawPayload;
+}
 const isNodeHeader = (header: string): boolean => /^node(?:\d+)?$/.test(heredocInterpreter(header));
 const isShellHeader = (header: string): boolean => /^(?:bash|sh|zsh|dash|ksh)(?:\d+)?$/.test(heredocInterpreter(header));
 
@@ -751,10 +872,18 @@ function pythonOpenModesReadOnly(body: string): boolean {
     const isMethodCall = om[1].startsWith(".");
     const args = om[2];
     if (/\/\*/.test(args)) return false;                                 // 注释不可静态判
+    // S1 修复（检视獭-1278b delta r3）：实参区见嵌套 `(` 即不豁免（fail-closed）——
+    // [^)]* 遇嵌套括号截断，mode 实参整体不可见（open(chr(99),chr(119)) 穿透）。
+    // 对齐 allow_pickle 门 delta 4 先例（:911 注释同文件同教训）。
+    if (/\(/.test(args)) return false;
     let pathArgSeen = false;                                             // 内建签名首参 = 路径位标记
     for (const raw of splitTopLevelArgs(args)) {
       const p = raw.trim();
       if (p === "") continue;
+      // S1 同族修复（检视獭-1278b delta r4）：位置实参遇 `*` 前缀（解包）→ fail-closed
+      // 不豁免——mode 藏在解包元组里完全不可见（open(*a) 穿透，a=('f','w')）。
+      // 对齐 :858 `**kwargs` 同款先例（解包不可静态判即拒）。
+      if (/^\*/.test(p)) return false;
       const kwVerdict = keywordArgReadOnly(p);
       if (kwVerdict !== null) {
         if (!kwVerdict) return false;
@@ -813,6 +942,11 @@ function pythonBodyReadOnly(body: string): boolean {
   if (/\blambda\b/.test(body)) return false;
   // ② open mode 门
   if (!pythonOpenModesReadOnly(body)) return false;
+  // #1275：os 模块 import 面否定（one-liner 常见形态）——import os 即不豁免（保守拦）。
+  // 建议 3：本门与 ④ 门（os 白名单子面）语义分叉是保守设计——import os 的完整面无法静态
+  // 确认无写面调用（os.remove/system 与 os.getcwd 同以 os. 开头），from os import getcwd
+  // 则可精确匹配只读子面。两语义并存：import 面保守拦，from-import 面按白名单放行。
+  if (/\bimport\s+os\b/.test(body)) return false;
   // ③ 可调用名白名单收口：所有 callee 根名与尾方法名都在白名单集
   const dotted = [...body.matchAll(/\.\s*([A-Za-z_]\w*)\s*\(/g)].map(m2 => m2[1]);
   const bare = [...body.matchAll(/(?:^|[^\w.])\.?\s*([A-Za-z_]\w*)\s*\(/g)].map(m2 => m2[1]).filter(c => !dotted.includes(c));
@@ -838,6 +972,7 @@ const NODE_READONLY_METHODS = new Set([
 function nodeBodyReadOnly(body: string): boolean {
   if (/\\|`/.test(body)) return false;
   if (/\b(?:eval|Function|setTimeout|setInterval|require\s*\(\s*(?!['"](?:fs|util|path)['"]))/.test(body)) return false;
+  // #1275：否定检测扩展——child_process/worker_threads/vm/net/http/https/fs.promises 全禁（执行/网络面）
   if (/\bprocess\s*\.\s*(?!pid\b|platform\b|argv\b|version\b|cwd\b|stdout\b|stderr\b)/.test(body)) return false;
   if (/\b(?:child_process|worker_threads|vm|net|http|https|fs\.promises)\b/.test(body)) return false;
   // 计算成员调用 obj['x'](...)——对 callee 名提取不可见，出现即不豁免（动态面）
@@ -922,8 +1057,11 @@ function hasRealCdSegment(command: string): boolean {
  *  与 #1038 数据破坏检测的差异：不跟踪 cd（感知对齐方案下 LLM 需显式 cd），
  *  只做「当前文本是否含主仓写形态」的静态判定——简单可靠，无状态。 */
 
-// eslint-disable-next-line complexity -- V1 分支语义保留（echo 纯重定向/data 目标/绝对路径豁免），cd 豁免换模型版 + #1207 heredoc 体感知判定
-function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: string, heredocReadOnly?: boolean): string | null {
+// r3：oneLinerReadOnlyOverride 为外部预计算的 one-liner 只读豁免（基座对齐——
+// 豁免判定与拦截判定同一提取基座，差异只允许来自引号形式归一）。
+// 缺省时函数内部自算（旧调用方兼容）；显式传入时以外部值为准。
+// eslint-disable-next-line complexity -- V1 分支语义保留（echo 纯重定向/data 目标/绝对路径豁免），cd 豁免换模型版 + #1207 heredoc 体感知判定 + r3 外部预计算豁免位
+function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: string, heredocReadOnly?: boolean, oneLinerReadOnlyOverride?: boolean): string | null {
   if (!projectRoot) return null; // 无 projectRoot 时保守放行（与 resolvesToMainData 同策略）
   // #1170 根治：模型版 cd 豁免——管道/分号不再杀死豁免（`cd wt && git commit | tail` 放行）
   if (modelCdExemption(command, hasRealCdSegment)) return null;
@@ -938,6 +1076,13 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
   // （`git log > /repo/hacked.txt` 在 main 拦、PR 误放行，拦截侧回归）。白名单语义收窄为：
   // 仅免除 git 写族字面判定，重定向/data 破坏等其余判定照常跑。
   const gitReadonlyCmd = allSegmentsGitReadonly(command);
+  // #1275：one-liner 载荷只读判定只在命令实际含 one-liner 形态时提取一次
+  // （正则通道命中与否的豁免依据）；非 one-liner 命令无提取开销。
+  const oneLinerReadOnly = oneLinerReadOnlyOverride !== undefined
+    ? oneLinerReadOnlyOverride
+    : ONELINER_PRE_GATE.test(command)
+      ? oneLinerPayloadReadOnly(command)
+      : false;
   if (!gitReadonlyCmd) {
     for (const [pi, pattern] of MAIN_WRITE_PATTERNS.slice(1).entries()) {
       if (!pattern.test(command)) continue;
@@ -945,6 +1090,10 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
       // 纯只读体放行（写/执行签名、非 python 解释器体均不豁免，见 PY_BODY_WRITE_SIG 注）。
       // heredocReadOnly 缺省（V1 兑底链：体已剥离不可判定）→ 不豁免，保守拦。
       if (pi === 0 && heredocReadOnly) continue;
+      // #1275：pattern[1]-pattern[4] 是 one-liner 通道（python -c / node -e / ruby -e / perl -e）——
+      // 载荷白名单判定：全部同型载荷提取成功且全部只读才豁免，白名单外/提取失败保守拦。
+      // ruby/perl 只读全拦（fail-closed 起步，S-5）。
+      if (pi >= 1 && pi <= 4 && oneLinerReadOnly) continue;
       logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (no cd)", { command: command.substring(0, 200) });
       return MAIN_WRITE_BLOCK_MSG;
     }
@@ -1053,10 +1202,15 @@ function checkHeredocScriptBodies(command: string, ctx: HeredocJudgeCtx, depth =
 function checkPidIndependentRules(command: string, logger?: Logger, projectRoot?: string): string | null {
   const prMerge = checkPrMergeCommand(command, logger);
   if (prMerge) return prMerge;
-  const mainWrite = checkMainCheckoutWrite(command, logger, projectRoot);
+  const preGate = ONELINER_PRE_GATE.test(command);
+  const oneLinerReadOnly = preGate
+    ? oneLinerPayloadSet(command) !== null
+    : false;
+  const mainWrite = checkMainCheckoutWrite(command, logger, projectRoot, undefined, oneLinerReadOnly);
   if (mainWrite) return mainWrite;
   return checkDataDirDestructive(command, logger, projectRoot);
 }
+
 
 function checkWhenMainPidMissing(
   command: string,
@@ -1154,8 +1308,85 @@ export function checkBashCommandSafety(
   const result = scan(heredocStripped);
   if (result) return result;
 
+  return scanNormalizedWithOneLinerExemption(heredocStripped, command, scan);
+}
+
+/** r2 严重 1 处置：归一化二次扫描的 one-liner 只读豁免收紧为「载荷集合差分安全」。
+ *  基座对齐原则（r3 设计约束）：豁免判定与拦截判定必须基于同一提取基座，差异
+ *  只允许来自引号形式归一——原始文本载荷集合 ⊆ 归一化文本载荷集合才豁免
+ *  （同一载荷引号形式变化如 require('fs')→require(fs) 归一化后仍含原载荷，
+ *  差分为空放行；'node' -e 掩蔽写归一化后出土新载荷，差分非空拦）。 */
+function scanNormalizedWithOneLinerExemption(
+  heredocStripped: string, originalCommand: string, scan: (text: string) => string | null,
+): string | null {
   const normalized = normalizeForDetection(heredocStripped);
-  return normalized !== heredocStripped ? scan(normalized) : null;
+  if (normalized === heredocStripped) return null;
+  const normalizedResult = scan(normalized);
+  if (!normalizedResult) return null;
+  const originalSet = oneLinerPayloadSet(originalCommand);
+  if (!originalSet) return normalizedResult; // 原文提取不出只读集合 → 不豁免
+  // 差分基座对齐补正（r3）：剥引号是唯一允许的文本差异。原文载荷逐一经归一化后
+  // 与归一化产物中的载荷比对——剥引号差异豁免；其他差异（新载荷出土/载荷消失）拦。
+  // 安全门：剥除全部 one-liner 载荷后残余仍命中拦截 → 不豁免（bash -c 载荷等
+  // shell 段被 wrapper 吸收后差分等价误判的护栏，F20260923glay Part A）。
+  const normalizedPayload = oneLinerPayloadSetFromNormalized(normalized);
+  if (normalizedPayload === null) return normalizedResult; // 归一化产物连提取都失败 → 保守拦
+  if (normalizedPayload.size !== originalSet.size) return normalizedResult; // 载荷数变化 → 新段出土，拦
+  const origNormalized = new Set([...originalSet].map(p => normalizeForDetection(p)));
+  for (const np of normalizedPayload) {
+    if (!origNormalized.has(np)) return normalizedResult; // 归一化后载荷不在原集合 → 出土，拦
+  }
+  // 剥除全部 one-liner 载荷后，残余文本仍命中拦截扫描 → 不豁免（危险段在场）
+  const residual = stripOneLinerPayloads(normalized, normalizedPayload);
+  const residualScan = scan(residual);
+  if (residualScan !== null) return normalizedResult;
+  return null; // 载荷集合归一化等价且残余干净 → 豁免放行
+}
+
+/** 提取命令中全部 one-liner 载荷的只读集合——全部同型载荷提取成功且全部只读
+ *  才返回集合；否则返回 null（fail-closed：提取失败/非只读/无载荷都不豁免）。 */
+/** 从文本中剥除全部 one-liner 载荷（等长替换为空格，保持 offset），
+ *  供差分残余扫描用——残余是 one-liner 之外的 shell 段。 */
+function stripOneLinerPayloads(command: string, payloads: Set<string>): string {
+  let result = command;
+  for (const p of payloads) {
+    // 载荷文本替换为等长空格（保 offset），只替换一次（同一载荷多处出现逐次替换）
+    const idx = result.indexOf(p);
+    if (idx >= 0) result = result.slice(0, idx) + " ".repeat(p.length) + result.slice(idx + p.length);
+  }
+  return result;
+}
+
+/** 从归一化文本提取载荷原文（不做只读判定——归一化产物只读白名单已不可信，
+ *  只读性由原文侧担保；此处只做差分比对原料）。 */
+function oneLinerPayloadSetFromNormalized(command: string): Set<string> | null {
+  const all = new Set<string>();
+  let sawPayload = false;
+  for (const interp of ["python", "node", "ruby", "perl"] as const) {
+    const payloads = extractOneLinerPayloads(command, interp);
+    if (payloads === null) continue;
+    sawPayload = true;
+    for (const p of payloads) all.add(p);
+  }
+  return sawPayload ? all : null;
+}
+
+function oneLinerPayloadSet(command: string): Set<string> | null {
+  const all = new Set<string>();
+  let sawPayload = false;
+  for (const interp of ["python", "node", "ruby", "perl"] as const) {
+    const payloads = extractOneLinerPayloads(command, interp);
+    if (payloads === null) continue; // 该解释器无载荷或提取失败
+    sawPayload = true;
+    const readOnly = interp === "python"
+      ? payloads.every(p => pythonBodyReadOnly(p))
+      : interp === "node"
+        ? payloads.every(p => nodeBodyReadOnly(p))
+        : payloads.every(p => rubyPerlBodyReadOnly(p));
+    if (!readOnly) return null;
+    for (const p of payloads) all.add(p);
+  }
+  return sawPayload ? all : null;
 }
 
 // F20260928slan：sleep 检测拆至 sleep-command-guard.ts（控文件行数）——import + re-export 保持 API 稳定
