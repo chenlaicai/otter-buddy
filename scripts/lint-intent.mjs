@@ -184,12 +184,18 @@ function validateIntent(fm, exemptKey) {
   // 改名则 fail-closed（脱离清单变 error，diff 显形）。存量重复 ID 不再影响本 gate。
   // exemptKey 缺失（如测试直调纯函数）时不在豁免名单内，按新口径判定。
   const isExempt = exemptKey !== undefined && EXEMPT_IDS.has(exemptKey);
-  // F20261005imfg 审视处置（检视獭-1283 严重 2）：`||` 而非 `??`——YAML 空值（`change_type:`）
-  // 解析为 null、空串解析为 ''，均属「缺失」语义；`??` 只兜 undefined 会漏掉这两利形态
-  // （实测静默旁路）。全线统一引用 effectiveChangeType，不再单独读 fm.change_type。
-  const effectiveChangeType = fm.change_type || FALLBACK_CHANGE_TYPE;
-  // F20261005imfg 审视处置（严重 2）：falsy（undefined/null/''）统一按「缺失」出文案
-  const changeTypeMissing = !fm.change_type;
+  // F20261005imfg 审视处置（检视獭-1283 严重 2 + delta 轮新发现 2）：
+  // YAML 空值（`change_type:`）解析为 null、空串解析为 ''，均属「缺失」语义，
+  // `??` 只兜 undefined 会漏掉（实测静默旁路）；truthy 非字符串（`[feature]`/`123`/
+  // `true`）同样是绕过形态。typeof 门前置：非字符串一律按缺失口径（feature 必填）。
+  // 全线统一引用 effectiveChangeType，不再单独读 fm.change_type。
+  const isStringChangeType =
+    typeof fm.change_type === "string" && fm.change_type.length > 0;
+  const effectiveChangeType = isStringChangeType
+    ? fm.change_type
+    : FALLBACK_CHANGE_TYPE;
+  // 非字符串（undefined/null/''/数组/数字/布尔）统一按「缺失」出文案
+  const changeTypeMissing = !isStringChangeType;
 
   // 检查 intent 字段是否存在
   // F20260924vbsu：verify_by 位置统一收口——唯一合法位置是 intent 块内嵌套式。

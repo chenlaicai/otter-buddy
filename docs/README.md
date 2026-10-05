@@ -56,7 +56,7 @@ capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
 
 ### intent 块约定（F20261005imfg，#839，lint-intent.mjs 校验）
 
-`change_type` 为 `feature` 或 `prompt` 的 F 文档，frontmatter 必须声明 `intent` 块（`change_type` 缺失时按 `feature` 判定，灰色绕过窗口已收口）：
+`change_type` 为 `feature` 或 `prompt` 的 F 文档，frontmatter 必须声明 `intent` 块（`change_type` 缺失/空值（null/''）/非字符串一律按 `feature` 判定，灰色绕过窗口已收口）：
 
 ```yaml
 change_type: feature
@@ -67,7 +67,7 @@ intent:
     type: behavior_check   # metric_probe | behavior_check | human_judge | capability_test | golden_replay | static_only
 ```
 
-- 缺 `intent` 块 → **error（阻断 commit）**；2026-10-05 前的存量文档在豁免清单 `scripts/intent-exempt-list.txt` 内降为 warning（ratchet 地板，只减不增——补齐 intent 后从清单移除，新增 ID 不进清单）
+- 缺 `intent` 块 → **error（阻断 commit）**；2026-10-05 前的存量文档在豁免清单 `scripts/intent-exempt-list.txt` 内降为 warning（ratchet 地板，只减不增——补齐 intent 后从清单移除，新增路径不进清单；清单键 = 仓库根相对路径）
 - `intent.problem` / `expected_effect` 缺失或空 → error（feature/prompt）
 - `verify_by` 必须是对象且 type 在合法枚举内；`capability_test`/`golden_replay` 要求 expected_effect 可判定（含模糊词 → error）
 - 顶层 `verify_by` 是非法位置（schema 已统一为 intent 块内嵌套式，#1158）

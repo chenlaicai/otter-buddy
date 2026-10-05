@@ -494,3 +494,29 @@ describe('lint:intent review-round fixes (F20261005imfg, PR #1283)', () => {
     expect(result.errors.length).toBeGreaterThan(0);
   });
 });
+
+// F20261005imfg delta 轮新发现 2：truthy 非字符串 change_type（`[feature]`/`123`/`true`）
+// 原双 lint 静默（`||` 只兑 falsy），typeof 门统一按缺失口径拦截（探针实证三形态 EXIT=1）
+describe('lint:intent truthy non-string change_type (F20261005imfg delta round)', () => {
+  it('should error on array-valued change_type missing intent block', () => {
+    const fm = createBaseFm('feature');
+    (fm as Record<string, unknown>).change_type = ['feature'];
+    const result = validateIntent(fm, 'docs/features/2026/10/05/F20261005ary1-probe.md');
+    expect(result.errors.some((e: string) => e.includes('change_type 缺失/空值按 feature 判定'))).toBe(true);
+    expect(result.warnings).toHaveLength(0);
+  });
+
+  it('should error on numeric change_type missing intent block', () => {
+    const fm = createBaseFm('feature');
+    (fm as Record<string, unknown>).change_type = 123;
+    const result = validateIntent(fm, 'docs/features/2026/10/05/F20261005num1-probe.md');
+    expect(result.errors.some((e: string) => e.includes('change_type 缺失/空值按 feature 判定'))).toBe(true);
+  });
+
+  it('should error on boolean change_type missing intent block', () => {
+    const fm = createBaseFm('feature');
+    (fm as Record<string, unknown>).change_type = true;
+    const result = validateIntent(fm, 'docs/features/2026/10/05/F20261005bol1-probe.md');
+    expect(result.errors.some((e: string) => e.includes('change_type 缺失/空值按 feature 判定'))).toBe(true);
+  });
+});
