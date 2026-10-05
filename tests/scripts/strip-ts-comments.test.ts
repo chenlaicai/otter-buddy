@@ -90,11 +90,49 @@ describe("除法与正则的区分（启发式）", () => {
 
   it("除法误判自愈：} 后除法跨行，回退按除法重扫", () => {
     // } 后的 / 被启发式判为正则起始（块结束→新语句位置），但跨行未闭合
-    // → 回退当除法，行内后续内容正常识别
+    // → 回填原文，行内后续内容正常识别
     const src = `const o = {}\n/ 2\n; const t = "F20260707qrst";`;
     const out = stripTsComments(src);
     expect(out).toContain("F20260707qrst"); // 自愈后正常扫描
     expect(out).toContain("/ 2");
+  });
+
+  it("检视发现①（严重）：自愈区间含奇数引号不得卡字符串态——回填原文而非重扫", () => {
+    // {} 后除法误判正则，区间 `a'b` 含奇数引号——旧实现回填 / 后重扫，
+    // ' 开字符串态卡到下一引号，后续注释不剥离（误报）/内容被吞（漏检）
+    const src = `x = {} / a'b\n;\nconst d = "F20260101abcd 决策";\n// F20260202xyza 注释\n`;
+    const out = stripTsComments(src);
+    expect(out).not.toContain("F20260202xyza"); // 行注释正常剥离
+    expect(out).toContain("F20260101abcd"); // 字符串本体保留
+    expect(out.split("\n").length).toBe(src.split("\n").length); // 行号不乱
+  });
+
+  it("检视发现②：if 语句位正则 if (x) /['\"]/.test(s) 后续注释正常剥离", () => {
+    const src = `if (x) /["']/.test(s); // F20260909aaaa 决策\nconst u = "see #4321";`;
+    const out = stripTsComments(src);
+    expect(out).toContain(`/["']/.test(s)`);
+    expect(out).not.toContain("F20260909aaaa"); // 误报路径修复
+    expect(out).toContain("#4321"); // 漏检路径同步修复
+  });
+
+  it("检视发现②变体：嵌套括号 if (foo(a, b)) /re/ 语句位正则", () => {
+    const src = `if (foo(a, b)) /\\d\\//.test(s); // F20260909bbbb\n`;
+    const out = stripTsComments(src);
+    expect(out).not.toContain("F20260909bbbb");
+  });
+
+  it("检视发现③：行首语句位正则不误判为除法", () => {
+    const src = `const a = 1\n/["']/.test(s); // F20260909cccc 决策\n`;
+    const out = stripTsComments(src);
+    expect(out).toContain(`/["']/.test(s)`);
+    expect(out).not.toContain("F20260909cccc");
+  });
+
+  it("检视发现④：EOF 未闭合正则不丢内容（原文保留）并告警", () => {
+    const src = `const a = /unclosed tail #9999`;
+    const out = stripTsComments(src);
+    expect(out).toContain("unclosed tail"); // 不再静默丢弃
+    expect(out).toContain("#9999"); // 丢弃内容里的锚点曾致漏检
   });
 });
 
