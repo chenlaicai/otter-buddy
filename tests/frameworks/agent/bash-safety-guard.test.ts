@@ -2287,3 +2287,117 @@ describe("#1275 delta r4：python open-mode 门嵌套括号穿透修复（检视
   });
 });
 
+
+describe("#1285：主仓写检测残余三洞修复（bash -c 递归 / 包装词表换结构 / 空赋值前缀）", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+  const W = "write payload: require('fs').writeFileSync('/repo/config.yaml','x')";
+  const W_PY = "open('/repo/config.yaml','w').write('x')";
+
+  // ── 洞1：bash -c wrapper 全绕（对齐终止侧检测）——修复前实测全放行 ──
+  it("洞1a：bash -c 'node -e 写' → 拦截（载荷递归走主仓写判定）", () => {
+    expect(checkBashCommandSafety(`bash -c 'node -e "${W}"'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("洞1b：sh -c 'node -e 写' → 拦截", () => {
+    expect(checkBashCommandSafety(`sh -c 'node -e "${W}"'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("洞1c：sudo bash -c 'node -e 写' → 拦截（包装词前缀不影响递归）", () => {
+    expect(checkBashCommandSafety(`sudo bash -c 'node -e "${W}"'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("洞1c2：bash -c 'python3 -c 写' → 拦截（python 载荷同递归）", () => {
+    expect(checkBashCommandSafety(`bash -c 'python3 -c "${W_PY}"'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("洞1d：echo 'node -e 写' | bash → 拦截（管道喂 shell + 上游含 one-liner 载荷）", () => {
+    expect(checkBashCommandSafety(`echo 'node -e "${W}"' | bash`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("洞1 对称放行：bash -c 'node -e 只读' → 放行（载荷只读豁免递归同口径）", () => {
+    expect(checkBashCommandSafety(`bash -c 'node -e "console.log(1)"'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+  it("洞1 对称放行：bash -c 'echo hello' → 放行（纯只读 shell 载荷）", () => {
+    expect(checkBashCommandSafety(`bash -c 'echo hello'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+  it("洞1 对照：bash script.sh → 模型层拦（guard-v2 既有行为：脚本文件参数保守拦，非本层放行面）", () => {
+    // guard-v2 模型层对「bash <脚本文件>」形态保守拦（脚本内容不可静态判定）——
+    // 既有行为，非 #1285 引入；本层（checkSegmentStructuralWrite）对该形态不新增拦截。
+    expect(checkBashCommandSafety(`bash /tmp/analyze.sh`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // ── 洞2：包装词表封闭性（换结构，不扩词表）——段首解析落点判定 ──
+  it("洞2a：timeout 5 node -e 写 → 拦截（已知包装词带参数跳过后落解释器）", () => {
+    expect(checkBashCommandSafety(`timeout 5 node -e "${W}"`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("洞2b：watch -n 1 node -e 写 → 拦截", () => {
+    expect(checkBashCommandSafety(`watch -n 1 node -e "${W}"`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("洞2c：setsid node -e 写 → 拦截", () => {
+    expect(checkBashCommandSafety(`setsid node -e "${W}"`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("洞2d：stdbuf -o0 node -e 写 → 拦截", () => {
+    expect(checkBashCommandSafety(`stdbuf -o0 node -e "${W}"`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("洞2e：arch node -e 写 → 拦截", () => {
+    expect(checkBashCommandSafety(`arch node -e "${W}"`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("洞2f：env -i node -e 写 → 拦截（带旗标形态覆盖）", () => {
+    expect(checkBashCommandSafety(`env -i node -e "${W}"`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("洞2g：nice -n 5 node -e 写 → 拦截（带旗标形态覆盖）", () => {
+    expect(checkBashCommandSafety(`nice -n 5 node -e "${W}"`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("洞2 未知包装词 fail-closed：frobicate node -e 写 → 拦截（词表外保守拦）", () => {
+    expect(checkBashCommandSafety(`frobicate node -e "${W}"`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("洞2 对称放行：timeout 5 node -e 只读 → 放行（包装不改变只读本质）", () => {
+    expect(checkBashCommandSafety(`timeout 5 node -e "console.log(1)"`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+  it("洞2 对称放行：env -i python3 -c 只读 → 放行", () => {
+    expect(checkBashCommandSafety(`env -i python3 -c "print(1)"`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+  it("洞2 误拦面：纯未知命令不含 one-liner → 放行（make/gradle 类不误拦）", () => {
+    expect(checkBashCommandSafety(`make build`, mainPid, undefined, { projectRoot })).toBeNull();
+    expect(checkBashCommandSafety(`gradle assembleDebug`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+  it("洞2 误拦面：timeout 5 grep 只读 → 放行（包装词后非解释器落点不拦）", () => {
+    expect(checkBashCommandSafety(`timeout 5 grep x /tmp/f`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  // ── 洞3：空赋值前缀（预存洞顺带修）──
+  it("洞3a：FOO= node -e 写 → 拦截（空赋值等价赋值前缀）", () => {
+    expect(checkBashCommandSafety(`FOO= node -e "${W}"`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("洞3b：FOO= git commit → 拦截（git 写族锚同款空赋值）", () => {
+    expect(checkBashCommandSafety(`FOO= git commit -m x`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("洞3 对称放行：FOO= node -e 只读 → 放行", () => {
+    expect(checkBashCommandSafety(`FOO= node -e "console.log(1)"`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+  it("洞3 误拦面：FOO= git status → 放行（空赋值 + 只读 git 不误拦）", () => {
+    expect(checkBashCommandSafety(`FOO= git status`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  // ── 自对抗：实现者构造的未修变体（上轮教训：实现者不自对抗，检视必开新洞）──
+  it("自对抗 v1：递归 bash -c 嵌套两层（bash -c 'bash -c 写'）→ 拦截", () => {
+    expect(checkBashCommandSafety(`bash -c 'bash -c "node -e \\"${W}\\""'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("自对抗 v2：混合包装 + 管道（timeout 5 bash -c 写）→ 拦截", () => {
+    expect(checkBashCommandSafety(`timeout 5 bash -c 'node -e "${W}"'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("自对抗 v3：env -i FOO=1 bash -c 写（赋值+旗标+shell 三层包装）→ 拦截", () => {
+    expect(checkBashCommandSafety(`env -i FOO=1 bash -c 'node -e "${W}"'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("自对抗 v4：bash -c 载荷内重定向写 → 拦截（递归基座含重定向通道）", () => {
+    expect(checkBashCommandSafety(`bash -c 'echo hacked > /repo/config.yaml'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("自对抗 v5：bash -c 载荷内 git 写族 → 拦截（递归基座含 git 通道）", () => {
+    expect(checkBashCommandSafety(`bash -c 'git commit -m x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("自对抗 v6：未知包装词 + python 写（词表外 + 非 node 解释器）→ 拦截", () => {
+    expect(checkBashCommandSafety(`ionice -c3 python3 -c "${W_PY}"`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("自对抗 v7 放行面：载荷内引号分隔符是数据（print('a;b|c&d')）→ 放行", () => {
+    expect(checkBashCommandSafety(`python3 -c "print('a;b|c&d')"`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+  it("自对抗 v8 放行面：bash -c 只读多语句载荷 → 放行（载荷内分号不切段）", () => {
+    expect(checkBashCommandSafety(`bash -c 'node -e "console.log(1); console.log(2)"'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+});
