@@ -3,10 +3,10 @@ id: F20261005dswp
 title: debounce 草稿串写修复
 summary: 闭包捕获 conversationId 配对写入——300ms 窗口内切换对话不再把旧对话文本写进新对话草稿（#1132）
 change_type: fix
-capability_test: "n/a: React hook 时序逻辑（确定性），3 新用例含串写场景回归锚 + 11 既有回归全过"
+capability_test: "n/a: React hook 时序逻辑（确定性），7 用例含串写+flush 三形态回归锚 + 11 既有回归全过"
 intent:
   problem: "use-draft-cache 的 debounce 回调（300ms）读 conversationIdRef.current——用户在窗口内切换对话后 ref 已指向新对话，旧对话的输入文本被写进 draft:conv-2（串写）。PR #1131 检视发现（检视獭-draft-fix R2），代码追踪确认但当时未实测。"
-  expected_effect: "debounce 回调闭包捕获 conversationId（timer 设置时值），text 与 id 配对写入：切对话后旧文本落到旧对话的 draft key；beforeunload/cleanup 读 ref 的「最新值」语义保持不变（两边是不同命题）。"
+  expected_effect: "debounce 回调闭包捕获 conversationId（timer 设置时值）保证 text 与 id 配对写入；pending 写入意图（pendingWriteRef）在切换对话时同步 flush 到旧 key（flush-on-switch）——快速切回/新对话输入/beforeunload 三形态竞态下旧对话输入不丢。"
   verify_by:
     type: static_only
     reason: "React hook 时序为确定性逻辑：renderHook + fake timers 的串写场景回归锚（conv-1 输入→切 conv-2→350ms 后断言 draft:conv-1 有值/draft:conv-2 为空）+ 正常路径 + debounce 合并用例；无 LLM 行为面"
@@ -39,16 +39,21 @@ Modification-Class: narrow-fix——单回调闭包化，无新机制。
 ### Why（未选替代方案）
 
 - **回调里校验 ref 与 timer 设置时一致**：等价于闭包捕获但多一层状态（timer 设置时的 id 仍要存起来）——闭包是语言原生机制，更简
-- **切换对话时清 timer**：治标——load effect 已在切换时读新对话草稿，旧 timer 清不清都不影响显示；但清 timer 会丢掉「用户切走前最后 300ms 的输入」的持久化，闭包捕获能保住它（写到旧对话 key，切回来还在）
+- **只闭包捕获、不 flush（初版方案，检视獭-1280 证伪后升级）**：闭包保证「写对 key」，但 pending timer 在 300ms 窗口内没落盘时有三形态竞态——A 快速切回读到空（state/storage 分叉）；B beforeunload 时序把 timer 新文本用 draftRef 旧稿覆盖；C 新对话输入 clearTimeout 掉共享句柄，旧对话 pending 永久丢失。**处置升级为 flush-on-switch**：pending 写入意图（convId+text）存 ref 单一真相源，load effect 检测到切换时同步落盘旧 key 并取消 timer——三形态同治，闭包捕获与 flush 互补（前者保 key 配对，后者保不丢）
 
 ## 验证
 
-### 测试证据（web/src/hooks/draft-debounce-crosstalk.test.ts，3 新用例）
+### 测试证据（web/src/hooks/draft-debounce-crosstalk.test.ts，7 用例）
 
 - **串写场景回归锚**：conv-1 saveDraft → rerender 切 conv-2 → advance 350ms → `draft:conv-1` 有值、`draft:conv-2` 为空
 - 正常路径：不切换对话写到当前 key
 - debounce 合并：连续输入最后一次生效
+- **检视处置三形态回归锚**（flush-on-switch）：形态 A 快速切回 pending 已落盘切回能读到；形态 C 新对话输入不清丢旧对话 pending；形态 B beforeunload pending 新文本优先不被旧稿覆盖；边界 flush 空串=removeItem
 - **既有回归**：use-draft-cache.test.ts 11 用例全过（含 R5/S1 历史修复锚）
+
+## 检视处置记录（检视獭-1280 初轮：1 严重）
+
+- **严重 1（「切回来草稿还在」被三形态证伪）采纳 flush-on-switch**：初版只有闭包捕获——写对 key 但 pending 不落盘时，快速切回分叉（A）、beforeunload 覆盖（B）、新对话输入清掉共享 timer 句柄致旧输入永久丢失（C）。处置：pendingWriteRef（convId+text）为 pending 写入意图单一真相源——load effect 检测切换即 flush 旧 key 并取消 timer；beforeunload/cleanup 卸载路径 pending 优先落盘；clearDraft 清 pending（发送即终态）。4 新用例锚定三形态+空串边界
 
 ### Golden Gate
 
