@@ -348,13 +348,31 @@ export default function ConversationPage() {
         const snapshot = resp.entries.map(mapEntryDTO)
         const before = allMessagesRef.current[convId] || []
         const merged = mergeMessages(before, snapshot)
-        if (merged !== before) {
-          setAllMessages(prev => ({ ...prev, [convId]: mergeMessages(prev[convId] || [], snapshot) }))
+        /** delta A（检视獭-1292 二轮）：回填 mergeMessages 丢弃的窗口外终态条目。
+         *  mergeMessages 的「窗口外终态丢弃」语义保留不动（既有 F2a 用例锁定，与整页
+         *  重载同义），但 60s 周期对账不是用户主动重载——静默清空用户翻页加载的历史
+         *  （loadMoreBefore 每页 20 条写进 allMessages）不可接受。合后按 seq 归位回填。 */
+        const snapshotIds = new Set(snapshot.map(m => m.id))
+        const keepOutside = before.filter(m =>
+          !snapshotIds.has(m.id) && !m.id.startsWith('tmp-') && !m.id.startsWith('err-') && !isInFlight(m))
+        let result = merged
+        if (keepOutside.length > 0) {
+          const mergedIds = new Set(merged.map(m => m.id))
+          for (const m of keepOutside) {
+            if (mergedIds.has(m.id)) continue
+            result = insertBySeq(result, m)
+          }
+        }
+        /** delta B：无实际变化返回原引用——避免每 60s 周期 setState 全列表重渲染 */
+        const changed = result.length !== before.length
+          || result.some((m, i) => m.id !== before[i]?.id || m.status !== before[i]?.status || m.content !== before[i]?.content)
+        if (changed) {
+          setAllMessages(prev => ({ ...prev, [convId]: result }))
         }
         /** F20260921urdo 判定换轨：拉到快照后，若对话处于打开且聚焦状态则 ack。
-         *  merged 直通「ref 旧列表 + 快照」——setState 异步，ref 尚未同步 */
+         *  result 直通「合并结果」——setState 异步，ref 尚未同步 */
         if (convId === activeIdRef.current && document.visibilityState === 'visible' && document.hasFocus()) {
-          ackActiveRead(convId, merged)
+          ackActiveRead(convId, result)
         }
       }
     } catch (err) {
