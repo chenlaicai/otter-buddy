@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error 真实现是 .mjs 脚本（无类型声明），运行时 import 纯函数
-import { validateIntent } from '../../scripts/lint-intent.mjs';
+import { validateIntent, EXEMPT_IDS, EXEMPT_MAX } from '../../scripts/lint-intent.mjs';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -57,8 +57,81 @@ describe('lint:intent', () => {
   it('should require intent for feature', () => {
     const fm = createBaseFm('feature');
     const result = validateIntent(fm);
-    // 真实现：缺 intent 的 feature 给 warning 不阻断（存量宽容策略，脚本注释「存量文档只产生警告」）
-    expect(result.warnings).toContain('Missing intent field for feature');
+    // F20261005imfg（#839）：缺 intent 块的 feature 新文档 → error（灰色绕过窗口收口）
+    expect(result.errors.some((e: string) => e.startsWith('Missing intent field for feature'))).toBe(true);
+  });
+
+  // F20261005imfg（#839）：缺字段文档静默跳过的灰色绕过窗口收口。
+  // 铝免清单 EXEMPT_IDS 从 scripts/intent-exempt-list.txt 加载（模块加载时读 cwd）。
+  describe('missing-intent gate with exempt list (F20261005imfg, #839)', () => {
+    const realExemptId = [...EXEMPT_IDS][0];
+
+    it('should error on new feature doc missing intent block (not in exempt list)', () => {
+      const fm = createBaseFm('feature');
+      const result = validateIntent(fm, 'F20261005xxxx');
+      expect(result.errors.some((e: string) => e.startsWith('Missing intent field for feature'))).toBe(true);
+      expect(result.warnings).toHaveLength(0);
+    });
+
+    it('should error on new prompt doc missing intent block', () => {
+      const fm = createBaseFm('prompt');
+      const result = validateIntent(fm, 'F20261005xxxy');
+      expect(result.errors.some((e: string) => e.startsWith('Missing intent field for prompt'))).toBe(true);
+    });
+
+    it('should error on missing change_type (treated as feature, L0 decision)', () => {
+      const fm = createBaseFm('feature');
+      delete (fm as Record<string, unknown>).change_type;
+      const result = validateIntent(fm, 'F20261005xxxz');
+      expect(result.errors.some((e: string) => e.includes('change_type 缺失按 feature 判定'))).toBe(true);
+    });
+
+    it('should keep warning for legacy doc in exempt list', () => {
+      expect(realExemptId, '豁免清单应非空（worktree 内跑测试）').toBeDefined();
+      const fm = createBaseFm('feature');
+      const result = validateIntent(fm, realExemptId);
+      expect(result.errors).toHaveLength(0);
+      expect(result.warnings.some((w: string) => w.startsWith('Missing intent field for feature'))).toBe(true);
+      expect(result.warnings.some((w: string) => w.includes('存量豁免 #839'))).toBe(true);
+    });
+
+    it('should treat exempt-list prompt doc as warning (not error)', () => {
+      const fm = createBaseFm('prompt');
+      const result = validateIntent(fm, realExemptId);
+      expect(result.errors).toHaveLength(0);
+      expect(result.warnings.some((w: string) => w.startsWith('Missing intent field for prompt'))).toBe(true);
+    });
+
+    it('should downgrade bad-schema intent (missing problem) to warning for exempt doc', () => {
+      // 2026-09-15 goal/why 自创 schema 存量：intent 块存在但无 problem/expected_effect
+      const fm = createBaseFm('feature', { goal: 'x', why: 'y' });
+      const result = validateIntent(fm, realExemptId);
+      expect(result.errors).toHaveLength(0);
+      expect(result.warnings.some((w: string) => w.startsWith('Missing intent.problem field'))).toBe(true);
+      expect(result.warnings.some((w: string) => w.startsWith('Missing intent.expected_effect field'))).toBe(true);
+    });
+
+    it('should error on bad-schema intent for non-exempt doc (no sub-window)', () => {
+      // 子窗口防御：新文档写 intent: {foo: 1} 不能绕过校验
+      const fm = createBaseFm('feature', { foo: 'bar' });
+      const result = validateIntent(fm, 'F20261005xxyz');
+      expect(result.errors).toContain('Missing intent.problem field');
+      expect(result.errors).toContain('Missing intent.expected_effect field');
+    });
+
+    it('should keep EXEMPT_MAX in sync with list size (ratchet floor)', () => {
+      // 清单实际行数不得超过常量上限；同步下调由 lint 主流程在收缩时提示
+      expect(EXEMPT_IDS.size).toBeLessThanOrEqual(EXEMPT_MAX);
+      expect(EXEMPT_IDS.size).toBeGreaterThan(200); // 基线 256，防清单意外清空致 gate 失真
+    });
+
+    it('should require problem/expected_effect with missing change_type (feature fallback)', () => {
+      // intent 块存在但 change_type 缺失：problem/expected_effect 按 feature 必填判定，不留子窗口
+      const fm = { ...createBaseFm('feature', { expected_effect: 'x returns 400', verify_by: { type: 'behavior_check' } }) };
+      delete (fm as Record<string, unknown>).change_type;
+      const result = validateIntent(fm, 'F20261005xxya');
+      expect(result.errors).toContain('Missing intent.problem field');
+    });
   });
 
   it('should recommend intent for bugfix', () => {
