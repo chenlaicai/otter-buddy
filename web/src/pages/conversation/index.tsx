@@ -793,6 +793,11 @@ export default function ConversationPage() {
         if (activeId && needsSyncAfterReconnect) {
           needsSyncAfterReconnect = false
           void syncInvokeStatesFromServer(activeId)
+          /** F20261005vsyc（实时渲染丢失现场）：断连窗口不仅丢 invoke 终态，也丢
+           *  entry.speak/entry.user 消息事件（SSE 无回放）——补偿链只对账右栏状态
+           *  不补消息列表，后台 tab 冻结/连接假死恢复后历史发言永远缺失，直到手动刷新。
+           *  重连成功即增量拉取（refreshMessages 内部按本地最新 seq 游标，无新条目零写入）。 */
+          void refreshMessages(activeId)
         }
       }
 
@@ -844,7 +849,7 @@ export default function ConversationPage() {
       if (livenessTimer) { clearInterval(livenessTimer); livenessTimer = null }
       if (xhr) xhr.abort()
     }
-  }, [activeId, batchUpdateMessages, upsertOtterIfAbsent, refreshParticipantsAfterDissolve, syncInvokeStatesFromServer])
+  }, [activeId, batchUpdateMessages, upsertOtterIfAbsent, refreshParticipantsAfterDissolve, syncInvokeStatesFromServer, refreshMessages])
 
   useEffect(() => {
     for (const otter of Object.values(allOtters).flat()) {
