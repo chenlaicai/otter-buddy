@@ -67,6 +67,7 @@ describe('isSessionSelfRestartCreated（F20260824srst + F20261005srst 窗口豁�
     queryThrows?: boolean;
   }) {
     const startedAt = overrides?.sessionStartedAt ?? new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    const recordedEvents: Array<Record<string, unknown>> = [];
     const deps = {
       manageSession: {
         getActiveSession: vi.fn(async () => ({
@@ -79,7 +80,8 @@ describe('isSessionSelfRestartCreated（F20260824srst + F20261005srst 窗口豁�
           context: { newSessionId: 'sess-1' },
           createdAt: new Date().toISOString(),
         }]),
-        create: vi.fn(async () => {}),
+        // 副作用捕获：落账事件进数组供状态断言（而非 mock 调用参数断言，过 no-restricted-syntax 闸）
+        create: vi.fn(async (e: Record<string, unknown>) => { recordedEvents.push(e); }),
       },
       entryReader: {
         getEntries: vi.fn(async (_convId: string, opts?: { entryType?: string; limit?: number }) => {
@@ -95,7 +97,7 @@ describe('isSessionSelfRestartCreated（F20260824srst + F20261005srst 窗口豁�
       scheduler: { invokeAgent: vi.fn() },
     };
     const support = new CircuitBreakSupport(deps as never);
-    return { support, deps, startedAt };
+    return { support, deps, startedAt, recordedEvents };
   }
 
   it('session 非自重启创建 → false（不拦）', async () => {
@@ -139,15 +141,26 @@ describe('isSessionSelfRestartCreated（F20260824srst + F20261005srst 窗口豁�
     await expect(support.isSessionSelfRestartCreated('otter-1', 'conv-1')).resolves.toBe(true);
   });
 
-  it('窗口内 + 判据查询重试耗尽 → true（保守拦截）+ 降级事件落账（invokeId 透传）', async () => {
-    const { support, deps } = buildSupport({
+  it('窗口内 + 判据查询重试耗尽 → true（保守拦截）+ 降级事件落账（invokeId/errorType 透传）', async () => {
+    const { support, recordedEvents } = buildSupport({
       sessionStartedAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
       queryThrows: true,
     });
     await expect(support.isSessionSelfRestartCreated('otter-1', 'conv-1', { invokeId: 'msg-42' })).resolves.toBe(true);
-    // 降级事件落账：errorType=tool_failure（归因环境侧而非能力侧）+ invokeId 透传（非 unknown）
-    // 行为断言：保守拦截返回 true + 降级 warn 日志可见（而非绑定查询次数）
-    expect(deps.logger.warn).toHaveBeenCalled();
+    // 降级事件落账锚（delta 严重 1，副作用状态断言）：errorType='tool_failure'（归因环境侧
+    // 而非能力侧，防回退成 other 被分账成獭能力失败）+ messageId=透传的 invokeId
+    // （实体层字段名，防回退成 unknown 断追溯锚）
+    expect(recordedEvents).toHaveLength(1);
+    expect(recordedEvents[0]).toMatchObject({ errorType: 'tool_failure', messageId: 'msg-42' });
+  });
+
+  it('窗口内 + 判据查询重试成功 → 拦截且不落降级事件（对称锚）', async () => {
+    const { support, recordedEvents } = buildSupport({
+      sessionStartedAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+    });
+    // queryThrows 未设 → getEntries 返回空数组（无介入，不抛错）→ 判据正常执行
+    await expect(support.isSessionSelfRestartCreated('otter-1', 'conv-1', { invokeId: 'msg-42' })).resolves.toBe(true);
+    expect(recordedEvents).toHaveLength(0); // 查询健康时不落降级事件
   });
 
   it('无 conversationId（如 scheduler 链路）→ 纯 session 判定（窗口内自重启创建即拦）', async () => {
