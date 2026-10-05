@@ -795,7 +795,7 @@ async function isSelfRestartLoop(ctx: ToolContext, healingRepo?: HealingEventRep
           messageId: ctx.currentInvokeId ?? ctx.currentMessageId,
           conversationId: ctx.conversationId,
           otterId: ctx.otterId,
-          errorType: 'other',
+          errorType: 'tool_failure',
           severity: 'low',
           description: '自重启用户介入判据查询降级（重试后仍失败），维持拦截——判据失效留痕（排查 entries 查询链路）',
           suggestion: '排查 entries 查询链路健康；若为搭档显式重启被拦，可从 UI 手动重启',

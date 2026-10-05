@@ -397,7 +397,7 @@ export class CircuitBreakSupport {
    * Why 复用 isCircuitBreakCreatedSession 模式：self_restart 与 circuit_break 的防循环机制同构，
    * 都是 healing_events + context.newSessionId 标记新 session，区别仅在 errorType 语义。
    */
-  async isSessionSelfRestartCreated(otterId: string, conversationId?: string): Promise<boolean> {
+  async isSessionSelfRestartCreated(otterId: string, conversationId?: string, opts?: { invokeId?: string }): Promise<boolean> {
     const session = await this.deps.manageSession.getActiveSession(otterId).catch(() => null);
     if (!session) return false;
     const events = await this.deps.healingRepo.findRecentByOtter(otterId, 'self_restart', 20);
@@ -433,10 +433,10 @@ export class CircuitBreakSupport {
             });
             if (!isFinal) return;
             this.recordHealingEvent({
-              invokeId: 'unknown',
+              invokeId: opts?.invokeId ?? 'unknown',
               conversationId,
               otterId,
-              errorType: 'other',
+              errorType: 'tool_failure',
               severity: 'low',
               description: '自重启用户介入判据查询降级（重试后仍失败），维持拦截——判据失效留痕（排查 entries 查询链路）',
               suggestion: '排查 entries 查询链路健康；若为搭档显式重启被拦，可从 UI 手动重启',

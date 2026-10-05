@@ -397,7 +397,7 @@ describe('restart_otter 自重启循环防护（F20260824srst）', () => {
     expect(attempts).toBe(2);
     expect(result.isError).toBe(true);
     expect(createCalls).toHaveLength(1);
-    expect(createCalls[0].errorType).toBe('other');
+    expect(createCalls[0].errorType).toBe('tool_failure');
     expect(String(createCalls[0].description)).toContain('判据失效');
   });
 });

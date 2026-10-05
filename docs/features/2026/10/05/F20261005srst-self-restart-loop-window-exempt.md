@@ -65,10 +65,17 @@ intent:
 - **为什么维持降级=拦截**：判据失效时放行有真循环风险（scheduler 场景无用户意图）；拦截的代价（搭档手动重启）远小于循环重启的资源浪费。时间衰减豁免已兜住「拦截代价高」的长间隔场景。
 - **Modification-Class**：narrow-fix——既有拦截语义内加豁免条件与可观测性，无新机制（豁免窗口判据同构既有熔断健康窗口，重试与落账为既有模式的局部应用）。
 
+## 检视处置记录（检视獭-1284 初轮：2 严重 2 建议，全部采纳）
+
+- **严重 1（降级事件归因错位）采纳**：errorType='other' 会被 classifyHealingErrorType 兼底归 capability——daily-review 二维分账把 entries 查询链路故障系统性计成「獭能力失败」，与降级可观测的目的背道而驰（同型先例：timeout_retry_exhausted 漏入环境清单被误读，F20260922txes 修过）。修：两处落账改 'tool_failure'（已在环境清单）；枚举保留 'other' 扩展（枚举本身安全，消费方全查过）但不用它落账
+- **严重 2（invoker 层防线零测试）采纳**：新建 tests/interface-adapters/agent-runtime/circuit-break-self-restart.test.ts（11 用例）——hasUserMessageSince 纯函数 5 用例（介入/无介入/空/重试成功回调 isFinal=false/耗尽降级 isFinal=true）+ isSessionSelfRestartCreated 6 用例（非自重启放行/窗口外豁免零查询/窗口内介入放行/窗口内无介入拦截/降级落账 invokeId 透传/无 conversationId 純 session 判定）。invoker 层失败模式（重启被静默丢弃）自此有锚
+- **建议 1（scheduler 慢循环边界）采纳登记**：2h 窗口把绝对拦截变限速 ≤1 次/2h（每次自重启开新 session 时钟归零）——影响有界（速率上限 + self_restart 台账可见），建 issue 跟踪次数上限兑底，不在本 PR 复杂化
+- **建议 2（invokeId 透传）采纳**：isSessionSelfRestartCreated 加 opts.invokeId，agent-invoker 调用点透传 currentMessageId——降级事件不再断 invoke 追溯锚；「两道防线同构实为复制」的窗口常量双定义/重试双实现属既有架构形态（#811 时已两道各自实现），不在本 PR 收敛
+- **B2 漂移订正**：doc 原写 description 含「判据失效留痕（#1203）」——lint-prompt-anchors 剥编号后实文无 #1203（保留「判据失效留痕（排查 entries 查询链路）」），本段订正口径
+
 ## 验证
 
-- 单测 13/13（tests/interface-adapters/agent-runtime/tools/pending-restart.test.ts）：既有 10 用例 + 新增 3 用例（豁免放行且短路判据查询 / 重试一次成功不落账 / 重试耗尽拦截+落账）。
-- 既有用例时间参数修正：3 个用例从固定日期（2026-09-04）改为窗口内相对时间——固定旧日期在时间衰减豁免下会被短路，用例将退化不再测目标路径。
+- 单测 13/13（tests/interface-adapters/agent-runtime/tools/pending-restart.test.ts）：既有 10 用例 + 新增 3 用例（豁免放行且短路判据查询 / 重试一次成功不落账 / 重试耗尽拦截+落账）。既有用例时间参数修正：3 个用例从固定日期（2026-09-04）改为窗口内相对时间——固定旧日期在时间衰减豁免下会被短路，用例将退化不再测目标路径。
 - tsc --noEmit 干净。
 - 反向验证：修复前代码下「豁免放行」用例红（旧逻辑无窗口豁免，5h session 仍拦）——真锚。
 - Golden Gate: n/a（verify_by=behavior_check 指向 issue 断言回查，无 prompt/skill/协议层软代码变更）。
