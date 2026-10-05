@@ -163,4 +163,32 @@ describe("lint-historical-docs 终审处置锁定（F20261001lrbk，#1273）", (
     fs.rmSync(path.join(repo, ".doc-fix"), { force: true });
     git(repo, ["checkout", "--", OLD_DOC]);
   });
+
+  it("delta-5 防误伤锁：仅删 fm 内空行（合法订正）→ 放行（F 型空行误伤回归锁）", () => {
+    // 终审检视备注 2：空行记账补丁前「仅删 fm 空行」被误拦且文案失实；补丁后放行，
+    // 此用例防未来记账逻辑改动回退
+    git(repo, ["reset", "-q", "--", "."]);
+    git(repo, ["checkout", "--", OLD_DOC]);
+    const withBlank =
+      "---\nid: F20260101old\n\ntitle: 旧特性\nchange_type: feature\n---\n\n# 旧特性\n\n正文内容。\n";
+    fs.writeFileSync(path.join(repo, OLD_DOC), withBlank);
+    stageOnly(repo, OLD_DOC);
+    git(repo, ["commit", "-q", "-m", "fm with blank line (fixture in base)"]);
+    git(repo, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    // 合法订正：仅删 fm 内空行
+    fs.writeFileSync(
+      path.join(repo, OLD_DOC),
+      "---\nid: F20260101old\ntitle: 旧特性\nchange_type: feature\n---\n\n# 旧特性\n\n正文内容。\n"
+    );
+    fs.writeFileSync(path.join(repo, ".doc-fix"), "删除 frontmatter 内空行（格式订正）\n");
+    stageOnly(repo, ".");
+    const r = runLint(repo);
+    expect(`${r.stdout}\n${r.stderr}`).toMatch(/变更均在 frontmatter 块内/);
+    // 收尾
+    git(repo, ["reset", "-q", "--hard"]);
+    git(repo, ["reset", "-q", "--hard", "HEAD~1"]);
+    git(repo, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    fs.rmSync(path.join(repo, ".doc-fix"), { force: true });
+    git(repo, ["checkout", "--", OLD_DOC]);
+  });
 });
