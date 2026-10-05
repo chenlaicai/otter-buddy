@@ -143,21 +143,33 @@ function countDistinctEvents(entry: { prs: Set<number>; noPrShas: Set<string> })
 }
 
 /** #1012 修法 c：severity 分级——
- *  featureIds ≥ 2（跨特性分散）→ warning（热点活跃假象，系列归因明证非根因反复）；
- *  featureIds < 2 时退化为原判据：事件数 ≥threshold → critical（同系列或无锚点默认）。
- *  分级而非过滤：warning 仍出信号（可观察），只是不进 critical 主警报区。 */
-function classifyRecurrenceSeverity(entry: { prs: Set<number>; noPrShas: Set<string>; featureIds: Set<string> }, threshold: number): SignalSeverity | null {
+ *  「主体同一 issue」= 最大 issue 引用数 ≥ 窗口内事件数一半 → critical（同根因修复系列，
+ *  #1160 五连 / #1207 集群形态）；跨 issue 分散 → warning（热点活跃假象）；
+ *  无任何 issue 锚点 → critical（防漏报默认）。
+ *  分级而非过滤：warning 仍出信号（可观察），只是不进 critical 主警报区。
+ *  判据细节：prs 也计入 issueRefCounts 统计（squash 流 PR 号是唯一锚点）。「主体线」
+ *  是严格过半（maxRef * 2 > events）：3 修全引用同一 issue 时主体计数 3 > 1.5 过线；
+ *  「2 修同 issue + 1 修独立」混合态 2 ≤ 1.5 不过线判 warning（主体不占优即不按真
+ *  腐烂报）；纯分散（各修仅带自己 PR 号）计数 1 不过线判 warning。为何用占比而非
+ *  issueRefs.size：同系列 commit 各有不同 PR 号，size 口径会把同系列误判成分散（测试实证）。 */
+function classifyRecurrenceSeverity(
+  entry: { prs: Set<number>; noPrShas: Set<string>; shas: string[] },
+  issueRefCounts: Map<number, number>,
+  threshold: number,
+): SignalSeverity | null {
   const events = countDistinctEvents(entry);
   if (events < threshold) return null;
-  if (entry.featureIds.size >= 2) return "warning"; // 跨特性分散 = 热点，非根因反复
-  return "critical"; // 同系列（featureIds ≤ 1）或无锚点 = 真腐烂形态
+  if (issueRefCounts.size === 0) return "critical"; // 无锚点默认 critical 防漏报
+  const maxRef = Math.max(...issueRefCounts.values());
+  if (maxRef * 2 > events) return "critical"; // 主体同一 issue（严格过半）= 同根因系列
+  return "warning"; // 跨 issue 分散 / 主体不占优 = 热点活跃假象
 }
 
 /** #1214：evidence 文案——「N 个不同修复事件 + PR 清单 + 首末修复日期」语义澄清。
  *  文案分支（检视发现 3）：纯 PR / 纯无 PR / 混合三形态各自不冗余。
- *  #1012 修法 c：追加系列归因数据（特性链数 / 修复系列事件数），severity 判据可见。 */
+ *  #1012 修法 c：追加系列归因数据（关联 issue 清单），severity 判据可见。 */
 function buildRecurrenceEvidence(
-  entry: { module: string; file: string; prs: Set<number>; noPrShas: Set<string>; featureIds: Set<string>; shas: string[]; dates: Date[] },
+  entry: { module: string; file: string; prs: Set<number>; noPrShas: Set<string>; issueRefCounts: Map<number, number>; shas: string[]; dates: Date[] },
   windowDays: number,
 ): string {
   const events = countDistinctEvents(entry);
@@ -177,8 +189,8 @@ function buildRecurrenceEvidence(
   const times = entry.dates.map(d => d.getTime());
   const first = new Date(Math.min(...times)).toISOString().slice(0, 10);
   const last = new Date(Math.max(...times)).toISOString().slice(0, 10);
-  const fidList = [...entry.featureIds].sort();
-  const seriesText = fidList.length > 0 ? `；特性链 ${fidList.join(", ")}（${fidList.length} 链）` : "";
+  const issueList = [...entry.issueRefCounts.keys()].sort((a, b) => a - b).map(i => `#${i}`);
+  const seriesText = issueList.length > 0 ? `；关联 issue ${issueList.join(", ")}（${issueList.length} 个）` : "";
   return `[${entry.module}] ${entry.file} 窗口 ${windowDays} 天内 ${events} 个不同修复事件（${eventText}；bugfix commit ${entry.shas.length} 个，首末修复 ${first}→${last}${seriesText}）`;
 }
 
@@ -196,8 +208,8 @@ function buildRecurrenceEvidence(
  *    basename 排除会误伤 weixin/types.ts 等 runtime 常量载体）/转发桶/组装/测试
  *  - occurrences 语义澄清：evidence 报独立修复事件数 + PR 清单 + 首末修复日期
  *  #1012 修法 c（2026-10-05）：severity 分级 + 载体排除补全——
- *  - 系列归因分级：同特性链修复系列 ≥threshold → critical（真腐烂）；
- *    跨特性分散 ≥threshold → warning（热点活跃假象）。分级而非过滤（归因报告推荐：
+ *  - 系列归因分级：同一 issue 反复修 ≥threshold → critical（真腐烂——#1160 五连形态）；
+ *    跨 issue 分散 ≥threshold → warning（热点活跃假象）。分级而非过滤（归因报告推荐：
  *    「同一 bug 修了又坏」仅 2/23=9%，一刀切 critical 让告警失去区分度）
  *  - 载体排除补全：migration.ts/schema.ts 入非逻辑载体（schema 演进 N 修 = N 个独立演进，
  *    被动累加非根因反复——归因报告口径盲区 10 条中 4 条是它们）
@@ -221,7 +233,7 @@ function detectBugRecurrence(
   const signals: DetectedSignal[] = [];
   for (const entry of byModuleFile.values()) {
     // #1012 修法 c：分级判据——同系列达阈 critical，分散达阈 warning，未达阈不出信号
-    const severity = classifyRecurrenceSeverity(entry, threshold);
+    const severity = classifyRecurrenceSeverity(entry, entry.issueRefCounts, threshold);
     if (severity !== null) {
       signals.push({
         type: reg.type,
@@ -249,10 +261,13 @@ interface BugfixFileEntry {
   file: string;
   prs: Set<number>;              // #1214：去重后的独立 PR 集（触发判据之一）
   noPrShas: Set<string>;         // 无 PR 号的 commit（squash 前本地修复），按 sha 去重计 1 次/事件
-  /** #1012 修法 c：窗口内 bugfix commit 的 featureId 集（系列归因数据源）。
-   *  同一特性链（featureId）的多次修复视为同一修复系列——真腐烂的信号；
-   *  跨特性分散修复是高迭代热点，非根因反复。 */
-  featureIds: Set<string>;
+  /** #1012 修法 c：窗口内 bugfix commit 的 issue 引用计数（系列归因数据源）。
+   *  「主体同一 issue」= 同一根因修复系列（真腐烂——#1160 五连、#1207 集群实测形态）；
+   *  跨 issue 分散修复是高迭代热点。
+   *  Why 计数而非 Set：同一系列的 commit 各有不同 PR 号（squash 1:1），Set 口径会把
+   *  同系列误判成分散；计数 + 主体占比判据才能区分。Why 不用 featureId（delta 纠错）：
+   *  本仓 FID↔PR 严格 1:1（全历史实测），FID 判据 critical 分支生产不可达。 */
+  issueRefCounts: Map<number, number>;
   shas: string[];
   dates: Date[];
   /** 窗口内触碰该文件的全类型 commit（bug●→fix● 交替时间轴数据源，Issue #644） */
@@ -279,7 +294,7 @@ function collectBugfixByFile(
       const key = `${c.parsed.module}\u0000${file}`;
       let entry = byModuleFile.get(key);
       if (!entry) {
-        entry = { module: c.parsed.module, file, prs: new Set(), noPrShas: new Set(), featureIds: new Set(), shas: [], dates: [], allCommits: [] };
+        entry = { module: c.parsed.module, file, prs: new Set(), noPrShas: new Set(), issueRefCounts: new Map(), shas: [], dates: [], allCommits: [] };
         byModuleFile.set(key, entry);
       }
       entry.shas.push(c.sha.slice(0, 8));
@@ -287,8 +302,11 @@ function collectBugfixByFile(
       // #1214：同 PR 去重——squash 前链式修复算 1 个 PR 复发事件；无 PR 号的按 sha 计
       if (c.parsed.prNumber !== null) entry.prs.add(c.parsed.prNumber);
       else entry.noPrShas.add(c.sha);
-      // #1012 修法 c：系列归因数据源
-      if (c.parsed.featureId !== null) entry.featureIds.add(c.parsed.featureId);
+      // #1012 修法 c：系列归因数据源——message 内 issue 引用计数（#1160 五连形态）
+      for (const m of c.message.matchAll(/#(\d+)/g)) {
+        const n = Number(m[1]);
+        entry.issueRefCounts.set(n, (entry.issueRefCounts.get(n) ?? 0) + 1);
+      }
     }
   }
   return byModuleFile;

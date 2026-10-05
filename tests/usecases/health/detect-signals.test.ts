@@ -38,7 +38,9 @@ describe("detectSignals", () => {
 
     const rec = signals.find(s => s.type === "bug_recurrence");
     expect(rec).toBeDefined();
-    expect(rec!.severity).toBe("critical");
+    // #1012 修法 c：三修仅带各自 PR 号、无正文 issue 引用 → 分散形态判 warning
+    // （旧断言 critical 是一刀切口径的遗物，新口径下「无共同 issue 主体」= 热点假象）
+    expect(rec!.severity).toBe("warning");
     expect(rec!.filePath).toBe("src/invoker.ts");
     expect(rec!.evidence).toContain("agent");
     expect(rec!.evidence).toContain("3 个不同修复事件"); // #1214 新口径：独立 PR 数判据
@@ -667,57 +669,59 @@ describe("detectSignals #1214 口径修订（bug_recurrence 同 PR 去重 + 载�
 
 
 describe("detectSignals #1012 修法 c（系列归因分级 + 载体排除补全）", () => {
-  // ── 系列归因分级：同系列 → critical，跨系列分散 → warning ──
+  // ── 系列归因分级（delta 纠错：锚点从 featureId 换 issue 引用——
+  //    本仓 FID↔PR 严格 1:1（全历史实测），FID 判据 critical 分支生产不可达；
+  //    issue 引用聚类（#1160 五连 / #1207 集群）是归因报告原案锚点且生产实测存在）──
 
-  it("系列归因：同一特性链 ≥3 次修复 → critical（真腐烂主形态）", () => {
+  it("系列归因：同一 issue 反复修 ≥3 次 → critical（#1160 五连形态，真腐烂）", () => {
     const commits = [
-      commit("s1", 3, "[F20260920aaaa][agent][BugFix] 链修 1 (#901)", ["src/recovery.ts"]),
-      commit("s2", 5, "[F20260920aaaa][agent][BugFix] 链修 2 (#902)", ["src/recovery.ts"]),
-      commit("s3", 7, "[F20260920aaaa][agent][BugFix] 链修 3 (#903)", ["src/recovery.ts"]),
+      commit("s1", 3, "[F20260921aaaa][web][BugFix] 右栏根治（#1160） (#1161)", ["web/src/pages/home/index.tsx"]),
+      commit("s2", 5, "[F20260923bbbb][web][BugFix] 右栏看门狗（#1160 阶段2） (#1179)", ["web/src/pages/home/index.tsx"]),
+      commit("s3", 7, "[F20260928cccc][web][BugFix] 右栏对账（#1160 阶段3） (#1185)", ["web/src/pages/home/index.tsx"]),
     ];
     const signals = detectSignals(commits, [], [], { now: NOW });
     const rec = signals.find(s => s.type === "bug_recurrence");
     expect(rec).toBeDefined();
-    expect(rec!.severity).toBe("critical"); // 同系列 3 事件 = 真腐烂
-    expect(rec!.evidence).toContain("特性链 F20260920aaaa");
-    expect(rec!.evidence).toContain("（1 链）");
+    expect(rec!.severity).toBe("critical"); // 同 issue 3 修 = 真腐烂
+    expect(rec!.evidence).toContain("关联 issue #1160");
   });
 
-  it("系列归因：跨特性分散 ≥3 次修复 → warning（热点活跃假象）", () => {
+  it("系列归因：跨 issue 分散 ≥3 次修复 → warning（热点活跃假象）", () => {
     const commits = [
-      commit("d1", 3, "[F20260920aaaa][agent][BugFix] 独立修 1 (#911)", ["src/orchestrator.ts"]),
-      commit("d2", 5, "[F20260920bbbb][agent][BugFix] 独立修 2 (#912)", ["src/orchestrator.ts"]),
-      commit("d3", 7, "[F20260920cccc][agent][BugFix] 独立修 3 (#913)", ["src/orchestrator.ts"]),
+      commit("d1", 3, "[F20260921aaaa][agent][BugFix] 独立修 1 (#911)", ["src/orchestrator.ts"]),
+      commit("d2", 5, "[F20260922bbbb][agent][BugFix] 独立修 2 (#912)", ["src/orchestrator.ts"]),
+      commit("d3", 7, "[F20260923cccc][agent][BugFix] 独立修 3 (#913)", ["src/orchestrator.ts"]),
     ];
     const signals = detectSignals(commits, [], [], { now: NOW });
     const rec = signals.find(s => s.type === "bug_recurrence");
     expect(rec).toBeDefined();
-    expect(rec!.severity).toBe("warning"); // 3 个不同 featureId = 分散，非根因反复
+    expect(rec!.severity).toBe("warning"); // 无正文 issue 引用，仅各自 PR 号（计数 1，不过 1/3 主体线）= 分散
   });
 
-  it("系列归因：有 FID 无 PR 号的链式本地修复不甩锅（max(featureIds, prs) 防漏报）", () => {
+  it("系列归因：无任何 issue 锚点的本地修复 ≥3 次 → critical（防漏报默认）", () => {
     const commits = [
-      commit("n1", 3, "[F20260920aaaa][agent][BugFix] 本地链修 1", ["src/recovery.ts"]),
-      commit("n2", 5, "[F20260920aaaa][agent][BugFix] 本地链修 2", ["src/recovery.ts"]),
-      commit("n3", 7, "[F20260920aaaa][agent][BugFix] 本地链修 3", ["src/recovery.ts"]),
+      commit("n1", 3, "[F20260921aaaa][agent][BugFix] 本地链修 1", ["src/recovery.ts"]),
+      commit("n2", 5, "[F20260921aaaa][agent][BugFix] 本地链修 2", ["src/recovery.ts"]),
+      commit("n3", 7, "[F20260921aaaa][agent][BugFix] 本地链修 3", ["src/recovery.ts"]),
     ];
     const signals = detectSignals(commits, [], [], { now: NOW });
     const rec = signals.find(s => s.type === "bug_recurrence");
     expect(rec).toBeDefined();
-    // featureIds.size=1（<2 退化为原口径）但 noPrShas.size=3 → series = 0 + 3 = 3 ≥ 3 → critical
+    expect(rec!.severity).toBe("critical"); // 无锚点默认 critical 防漏报
+  });
+
+  it("系列归因：混合形态——同 issue 2 修 + 跨 issue 1 修（主体严格过半）→ critical", () => {
+    const commits = [
+      commit("x1", 3, "[F20260921aaaa][web][BugFix] 右栏修 1（#1160） (#921)", ["web/src/pages/home/index.tsx"]),
+      commit("x2", 5, "[F20260922bbbb][web][BugFix] 右栏修 2（#1160） (#922)", ["web/src/pages/home/index.tsx"]),
+      commit("x3", 7, "[F20260923cccc][web][BugFix] 独立修（#1150） (#923)", ["web/src/pages/home/index.tsx"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    // 主体 #1160 计数 2 严格过半（2*2 > 3）→ 同一根因修复系列成立 → critical；
+    // 剩余 1 个独立修是系列内噪声，不拖成 warning（判据设计：主体占优即按真腐烂报）
     expect(rec!.severity).toBe("critical");
-  });
-
-  it("系列归因：同系列 2 次 + 跨特性 1 次（总量 3 但系列 2）→ warning 不 critical", () => {
-    const commits = [
-      commit("x1", 3, "[F20260920aaaa][agent][BugFix] 链修 1 (#921)", ["src/recovery.ts"]),
-      commit("x2", 5, "[F20260920aaaa][agent][BugFix] 链修 2 (#922)", ["src/recovery.ts"]),
-      commit("x3", 7, "[F20260920bbbb][agent][BugFix] 独立修 (#923)", ["src/recovery.ts"]),
-    ];
-    const signals = detectSignals(commits, [], [], { now: NOW });
-    const rec = signals.find(s => s.type === "bug_recurrence");
-    expect(rec).toBeDefined();
-    expect(rec!.severity).toBe("warning"); // 系列只有 2，总量 3 → 热点
   });
 
   // ── 载体排除补全：migration/schema 演进载体 ──
