@@ -24,7 +24,10 @@
 import { execFileSync } from "node:child_process";
 
 function git(args, opts = {}) {
-  return execFileSync("git", args, { encoding: "utf8", ...opts }).trim();
+  // 全检-5（终审严重 1）：统一禁用 quotePath——默认开启时非 ASCII 路径输出 \3xx 转义形态，
+  // 本脚本的路径过滤/段匹配/show 查询全部打在原始串上恒 miss，CJK 文件名历史文档整类
+  // 逃出门禁（实测：同 staged 改 CJK 文档正文 exit=0 零输出）。所有调用面一次收口。
+  return execFileSync("git", ["-c", "core.quotePath=false", ...args], { encoding: "utf8", ...opts }).trim();
 }
 
 /** 找基准分支引用（origin/main 优先，退化为 main，都无则返回 null 宽松放行） */
@@ -294,10 +297,13 @@ function frontmatterLastLineOf(ref) {
  *  修复后坐标与 git 语义精确对齐：+行比 newFmLastLine，-行比 oldFmLastLine，
  *  -U0 下两侧坐标各自真实，插入导致的坐标平移不会让删除行逃出判定（全检报告的
  *  「删行前移逃逸」方向实测 8 变体均拦，不可复现；真正存在的是反向幻影误拦）。
- *  返回 true = 全部变更行在界内。 */
+ *  全检-5（终审严重 2）新增第三道闸：**闭合标记位移一致性**——head/--- 位移守恒（见下），
+ *  两步攻击的 step1（把闭合 --- 移到 H1 后吞入正文）在此被拦。
+ *  返回 { ok, fmDelta }；fmDelta = fm 区域内净增行数（插入-删除），供位移守恒校验。 */
 function hunksWithinBounds(diffText, oldFmLastLine, newFmLastLine) {
   const hunks = [...diffText.matchAll(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/g)];
   let pos = 0;
+  let fmDelta = 0; // fm 界内 +行数 - -行数（fm 净增行）
   for (const hm of hunks) {
     const hunkStartInDiff = diffText.indexOf(hm[0], pos);
     const headerLineEnd = diffText.indexOf("\n", hunkStartInDiff); // 头行行尾（跳过 @@ 后的节尾上下文后缀）
@@ -309,10 +315,16 @@ function hunksWithinBounds(diffText, oldFmLastLine, newFmLastLine) {
     let newLine = Number(hm[3]);
     for (const raw of body.split("\n")) {
       if (raw.startsWith("+")) {
-        if (raw.slice(1).trim() !== "" && newLine > newFmLastLine) return false;
+        if (raw.slice(1).trim() !== "") {
+          if (newLine > newFmLastLine) return { ok: false, fmDelta };
+          if (newLine <= newFmLastLine) fmDelta++; // 界内插入：计入 fm 净增
+        }
         newLine++;
       } else if (raw.startsWith("-")) {
-        if (raw.slice(1).trim() !== "" && oldLine > oldFmLastLine) return false;
+        if (raw.slice(1).trim() !== "") {
+          if (oldLine > oldFmLastLine) return { ok: false, fmDelta };
+          if (oldLine <= oldFmLastLine) fmDelta--; // 界内删除：计入 fm 净减
+        }
         oldLine++;
       } else {
         // 上下文行（-U0 下应无，防御）
@@ -321,7 +333,19 @@ function hunksWithinBounds(diffText, oldFmLastLine, newFmLastLine) {
       }
     }
   }
-  return true;
+  return { ok: true, fmDelta };
+}
+
+/** 全检-5（终审严重 2）：闭合标记位移一致性校验。
+ *  frontmatter 闭合 --- 是行号语义的锚点，锚点自身可被移动：step1 删原闭合（行 3）+ 在
+ *  正文 H1 后插新闭合（行 5）→ HEAD 边界(3)与索引边界(5)各自「真实」，所有变更行都在各自
+ *  边界内 → 原判定全绿放行，但正文 H1 已被吞进 fm（渲染侧消失）。后续 commit 即可直接改写
+ *  原正文，两步绕过完成。
+ *  守恒律：newFmLastLine 必须 = oldFmLastLine + fmDelta（fm 内净增删行数完全解释边界位移）。
+ *  位移攻击中 fm 内删 1 行（原闭合）+界外插 1 行（新闭合，不计入 fmDelta）→ oldFm(3)+(-1)=2
+ *  ≠ newFm(5) → 拒绝。合法 fm 内增删行（含合法增行）恒满足守恒 → 不误伤。 */
+function fmBoundaryShiftConsistent(oldFmLastLine, newFmLastLine, fmDelta) {
+  return oldFmLastLine + fmDelta === newFmLastLine;
 }
 
 /** R 形态 rename 的 frontmatter 边界校验（#1257，F20261001lrbk）。
@@ -375,7 +399,10 @@ function checkRenameScope(oldPath, newPath, outOfScope) {
     outOfScope.push(newPath); // 两侧任一无合法 frontmatter 块 → 宁拦
     return;
   }
-  if (!hunksWithinBounds(section, oldFmLastLine, newFmLastLine)) outOfScope.push(newPath);
+  const r = hunksWithinBounds(section, oldFmLastLine, newFmLastLine);
+  if (!r.ok || !fmBoundaryShiftConsistent(oldFmLastLine, newFmLastLine, r.fmDelta)) {
+    outOfScope.push(newPath); // 界外变更或闭合标记位移不可由 fm 内增删解释（终审严重 2）
+  }
 }
 
 /** 校验每个历史文档的 staged 变更行全部落在 frontmatter 块内（首个 --- 至次个 ---）。
@@ -406,7 +433,13 @@ function checkFrontmatterScope(files, entries = {}) {
       outOfScope.push(file);
       continue;
     }
-    if (!hunksWithinBounds(diff, oldFmLastLine, newFmLastLine)) outOfScope.push(file);
+    const r = hunksWithinBounds(diff, oldFmLastLine, newFmLastLine);
+    if (
+      !r.ok ||
+      !fmBoundaryShiftConsistent(oldFmLastLine, newFmLastLine, r.fmDelta)
+    ) {
+      outOfScope.push(file); // 界外变更或闭合标记位移不可由 fm 内增删解释（终审严重 2）
+    }
   }
   return { ok: outOfScope.length === 0, outOfScope };
 }

@@ -303,4 +303,5 @@ describe("lint-historical-docs rename 通道（#1257，F20261001lrbk）", () => 
     git(repo, ["checkout", "--", OLD_DOC]);
     fs.rmSync(path.join(repo, ".doc-fix"), { force: true });
   });
+
 });
