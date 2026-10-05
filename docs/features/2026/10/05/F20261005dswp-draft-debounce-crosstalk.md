@@ -34,7 +34,7 @@ created_at: 2026-10-05
 
 ## 设计取舍记录
 
-Modification-Class: narrow-fix——单回调闭包化，无新机制。
+Modification-Class: narrow-fix——单回调闭包化，无新公开机制（内部新增 pendingWriteRef 状态追踪，但不改变任何对外 API/调用方式/消费方语义，检视 delta Δ3）
 
 ### Why（未选替代方案）
 
@@ -48,12 +48,15 @@ Modification-Class: narrow-fix——单回调闭包化，无新机制。
 - **串写场景回归锚**：conv-1 saveDraft → rerender 切 conv-2 → advance 350ms → `draft:conv-1` 有值、`draft:conv-2` 为空
 - 正常路径：不切换对话写到当前 key
 - debounce 合并：连续输入最后一次生效
-- **检视处置三形态回归锚**（flush-on-switch）：形态 A 快速切回 pending 已落盘切回能读到；形态 C 新对话输入不清丢旧对话 pending；形态 B beforeunload pending 新文本优先不被旧稿覆盖；边界 flush 空串=removeItem
+- **检视处置三形态回归锚**（flush-on-switch）：形态 A 快速切回 pending 已落盘切回能读到；形态 C 新对话输入不清丢旧对话 pending；形态 B 切走+新输入+关页面两对话草稿都不丢不覆盖（delta Δ2 改造：原同对话构造下 pending 与 draftRef 恒等，旧实现也绿——恒真锚；改造后对 1e8e055d 实测红）；形态 D 窗口内清空输入不复活已删草稿（delta Δ1 锚）
 - **既有回归**：use-draft-cache.test.ts 11 用例全过（含 R5/S1 历史修复锚）
 
-## 检视处置记录（检视獭-1280 初轮：1 严重）
+## 检视处置记录（检视獭-1280 初轮：1 严重；delta 轮：1 严重 fix-regression + 2 建议，全部采纳）
 
 - **严重 1（「切回来草稿还在」被三形态证伪）采纳 flush-on-switch**：初版只有闭包捕获——写对 key 但 pending 不落盘时，快速切回分叉（A）、beforeunload 覆盖（B）、新对话输入清掉共享 timer 句柄致旧输入永久丢失（C）。处置：pendingWriteRef（convId+text）为 pending 写入意图单一真相源——load effect 检测切换即 flush 旧 key 并取消 timer；beforeunload/cleanup 卸载路径 pending 优先落盘；clearDraft 清 pending（发送即终态）。4 新用例锚定三形态+空串边界
+- **delta 严重 Δ1（fix-regression，采纳）**：S1 路径 saveDraft('') 漏清 pendingWriteRef——saveDraft('x') 后 300ms 窗口内清空，残留 {convId,'x'} 被三条路径（切换 flush/beforeunload/卸载 cleanup）写回复活已删草稿，破坏「手动清空=立即删除不复活」不变量。修：S1 分支补 `pendingWriteRef.current = null`（与 clearDraft「清空即终态」同构）+ 形态 D 回归锚（修复前实测红）
+- **delta 建议 Δ2（采纳）**：4 新用例中 2 个恒真锚——「形态 B」原构造下 saveDraft 已同步 draftRef，pending 与 draftRef 恒等，旧实现也绿；「flush 空串边界」锚的是 S1 同步 removeItem 且 flush else 分支不可达（pending.text 恒非空）。改造：形态 B 改「切走+新输入+关页面」双对话构造（对 1e8e055d 实测红），空串用例改锚 Δ1 本体（形态 D）
+- **delta 建议 Δ3（采纳）**：Modification-Class 措辞与机制面变宽的张力——改「无新公开机制」并补论证（内部 pendingWriteRef 不改变对外 API/调用方式/消费方语义）
 
 ### Golden Gate
 

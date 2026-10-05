@@ -95,28 +95,39 @@ describe('#1132 flush-on-switch（检视处置三形态）', () => {
     expect(localStorage.getItem('draft:conv-2')).toBe('conv-2 的输入')
   })
 
-  it('形态 B：beforeunload 不再覆盖 pending 新文本（写入意图优先）', () => {
-    // 场景：draftRef 是旧稿（load 来的），用户改了输入（pending 新文本未落盘），页面关闭
-    localStorage.setItem('draft:conv-1', 'old')
-    const { result } = renderHook(() => useDraftCache('conv-1'))
-    act(() => { vi.advanceTimersByTime(0) }) // load effect：draft='old', draftRef='old'
-    act(() => { result.current.saveDraft('new') }) // pending=new, draftRef 也已同步 new
-    // 但构造 draftRef 滞后的旧形态：直接触发 beforeunload（用真实事件）
-    // saveDraft 已同步 draftRef，所以这里测的是 pending 优先级路径本身
-    const unloadEvent = new Event('beforeunload')
-    act(() => { window.dispatchEvent(unloadEvent) })
-    expect(localStorage.getItem('draft:conv-1')).toBe('new') // pending 新文本赢，不被旧稿覆盖
-  })
-
-  it('flush 边界：pending 空串 flush 为 removeItem（与 S1 语义一致）', () => {
-    localStorage.setItem('draft:conv-1', '残留')
+  it('形态 B：切走+新输入+关页面——两对话草稿都不丢不覆盖', () => {
+    // delta Δ2 改造：原构造（同对话 saveDraft 后直接 beforeunload）下 pending 与
+    // draftRef 恒等（saveDraft 同步两者），旧实现也绿——恒真锚。改为可区分构造：
+    // 切走+新输入+关页面。旧实现（1e8e055d）下 beforeunload 清掉 timer 后只写
+    // 当前对话，conv-1 未落盘输入永久丢失；新实现 flush-on-switch 已保住 conv-1。
     const { rerender, result } = renderHook(
       ({ convId }: { convId: string | null }) => useDraftCache(convId),
       { initialProps: { convId: 'conv-1' } },
     )
-    act(() => { vi.advanceTimersByTime(0) }) // load '残留'
-    act(() => { result.current.saveDraft('') }) // S1 同步 removeItem + pending 空串
+    act(() => { result.current.saveDraft('conv-1 未落盘的输入') })
+    rerender({ convId: 'conv-2' }) // flush：conv-1 同步落盘
+    act(() => { result.current.saveDraft('conv-2 的新输入') }) // conv-2 pending
+    act(() => { window.dispatchEvent(new Event('beforeunload')) }) // 300ms 内关页面
+    expect(localStorage.getItem('draft:conv-1')).toBe('conv-1 未落盘的输入') // 不丢
+    expect(localStorage.getItem('draft:conv-2')).toBe('conv-2 的新输入')      // 不覆盖
+  })
+
+  it('形态 D（Δ1 fix-regression）：窗口内清空输入——切换/beforeunload 不复活已删草稿', () => {
+    // delta Δ2 改造：原「flush 空串边界」锚的是 S1 同步 removeItem（flush 的
+    // else 分支不可达——saveDraft('') 在 Δ1 前已 return，pending 恒非空）。
+    // 改为锚 Δ1 本体：saveDraft('x') 后 300ms 窗口内清空，pendingWriteRef 必须被清掉，
+    // 否则残留 {conv-1,'x'} 被三条路径写回复活。
+    const { rerender, result } = renderHook(
+      ({ convId }: { convId: string | null }) => useDraftCache(convId),
+      { initialProps: { convId: 'conv-1' } },
+    )
+    act(() => { result.current.saveDraft('x') }) // pending={conv-1,'x'}，timer 未 fire
+    act(() => { result.current.saveDraft('') })  // S1 同步 removeItem；Δ1：清 pending
+    // 路径 1：切换对话 flush——修复前 pending 残留 'x' 写回复活
     rerender({ convId: 'conv-2' })
-    expect(localStorage.getItem('draft:conv-1')).toBeNull() // flush 空串=remove
+    expect(localStorage.getItem('draft:conv-1')).toBeNull() // 不复活
+    // 路径 2：beforeunload pending 优先——修复前同样写回 'x'
+    act(() => { window.dispatchEvent(new Event('beforeunload')) })
+    expect(localStorage.getItem('draft:conv-1')).toBeNull() // 不复活
   })
 })

@@ -84,6 +84,10 @@ export function useDraftCache(conversationId: string | null) {
     // Why: 手动清空语义=立即删除，不等 debounce；与 clearDraft 的 removeItem 同构
     if (!text) {
       localStorage.removeItem(`draft:${conversationId}`)
+      // delta Δ1（fix-regression）：清空即终态，一并清掉 pending 写入意图——
+      // 否则 saveDraft('x') 后窗口内清空，残留 {convId,'x'} 会被三条路径
+      // （切换 flush / beforeunload / 卸载 cleanup）写回复活已删除的草稿
+      pendingWriteRef.current = null
       return
     }
 
