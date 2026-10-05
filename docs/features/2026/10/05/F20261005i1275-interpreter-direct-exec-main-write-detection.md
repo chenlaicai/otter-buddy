@@ -1,5 +1,5 @@
 ---
-id: F20261001a1275
+id: F20261005i1275
 title: "bash 守卫主仓写检测补解释器直执行形态盲区：python3 -c / node -e 载荷白名单判定"
 summary: "9/29 #1252 事故实证：小獭用 `python3 -c \"open('config/config.yaml','w').write(…)\"` 绕过主仓写检测（MAIN_WRITE_PATTERNS 只覆盖重定向/python heredoc/git 写族），污染主仓 config。本次在 MAIN_WRITE_PATTERNS 链路补 one-liner 通道正则（python -c / node -e|--eval），载荷只读白名单豁免复用现有 pythonBodyReadOnly/nodeBodyReadOnly 基础设施（与 #1207 heredoc 体感知判定同架构：通道正则 + 载荷白名单），fail-closed 原则：白名单外/提取失败一律拦。"
 change_type: fix

@@ -587,7 +587,7 @@ function withDiagnostics(message: string, scanText: string, mainPid: number | nu
 /** F20260922scwd：主仓写拦截文案（感知对齐保护闸） */
 const MAIN_WRITE_BLOCK_MSG = "当前 bash 工作目录在主仓（未 cd 到 worktree）。落点为主仓的写命令被拦截——若目标在 worktree，请先 cd <worktree 路径> 再执行；若确实要写主仓，用绝对路径（写主仓受 R1 红线约束，请确认意图）。";
 
-// ── #1275：解释器直执行（one-liner）形态判定（F20261001a1275）──
+// ── #1275：解释器直执行（one-liner）形态判定（F20261005i1275）──
 // 盲区实证：9/29 #1252 事故——小獭用 `python3 -c "open('config/config.yaml','w').write(…)"`
 // 在主仓 cwd 绕过主仓写检测（MAIN_WRITE_PATTERNS 只覆盖重定向/python heredoc/git 写族），
 // 污染主仓 config（session entry 417）。与 :316-319 kill 检测侧 `python -c`/`node -e`/`
