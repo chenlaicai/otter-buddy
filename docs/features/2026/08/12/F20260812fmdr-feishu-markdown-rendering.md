@@ -1,6 +1,6 @@
 ---
 id: F20260812fmdr
-title: feishu-markdown-rendering
+title: 飞书消息渲染适配层 — Markdown 投影
 doc_type: feature
 
 summary: |

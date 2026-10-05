@@ -1,6 +1,6 @@
 ---
 id: F20260810p7zg
-title: scroll-jank-architecture-fix
+title: 彻底根治页面滚动抖动问题
 doc_type: feature
 
 # 记忆索引

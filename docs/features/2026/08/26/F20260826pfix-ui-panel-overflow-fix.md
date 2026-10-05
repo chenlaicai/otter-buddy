@@ -1,6 +1,6 @@
 ---
 id: F20260826pfix
-title: ui-panel-overflow-fix
+title: 海獭面板 UI 展示问题修复（P0）
 doc_type: feature
 
 # 记忆索引
@@ -18,7 +18,7 @@ causal_links:
 
 # 元数据
 status: development
-change_type: bugfix
+change_type: fix
 capability_test: "n/a: 纯前端 UI 组件变更，无 LLM 参与行为；验证走 web 单测（vitest）"
 tags: [web-ui, bugfix, modal, help-icon, accessibility, portal]
 modules: [web/src]

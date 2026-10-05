@@ -6,7 +6,7 @@ summary: |
   正则白名单只有三种（Feature Update/BugFix/New Feature），Design/Refactor 类提交被拒收，
   PR #420 被迫降级用 Feature Update。方案：钩子白名单补录 Design|Refactor（改钩子方向，
   搭档拍板），错误提示文案同步。
-change_type: bugfix
+change_type: fix
 status: active
 capability_test: "n/a: 纯 shell/正则改动，无 LLM 参与行为"
 created_in_conversation: 376077f2-7ebb-442b-943e-c7ce547f4f8a

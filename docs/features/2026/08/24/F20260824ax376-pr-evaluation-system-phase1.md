@@ -2,7 +2,8 @@
 id: F20260824ax376
 title: PR评估体系阶段一：intent字段校验与可观测性增强
 summary: 新增lint:intent脚本，校验F文档frontmatter的intent字段；LogContext和TraceContext增加prId字段；HealingEvent增加introducedByPr字段
-change_type: new_feature
+change_type: feature
+capability_test: "n/a: 静态 lint gate（lint:intent）+ 日志/事件字段增强（A 类），无 LLM 行为承诺"
 status: active
 created_at: 2026-08-24
 created_in_conversation: fe800ef3-488f-40a4-8f2d-39e1c8385971

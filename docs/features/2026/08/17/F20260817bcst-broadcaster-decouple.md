@@ -1,6 +1,6 @@
 ---
 id: F20260817bcst
-title: broadcaster-decouple
+title: "broadcaster 与飞书解耦（issue #281）"
 doc_type: feature
 
 summary: |

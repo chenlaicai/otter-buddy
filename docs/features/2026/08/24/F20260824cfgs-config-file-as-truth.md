@@ -4,7 +4,7 @@ title: config.yaml 作为默认模型的唯一真相源
 summary: |
   删除 applyDefaultModelOverride() 机制，让 config.yaml 的 llm.default 成为默认模型的唯一真相源。
   Settings API 切换默认模型时直接写 config.yaml（write-to-temp + rename），不再写 DB settings 表。
-change_type: feature_update
+change_type: feature-update
 status: active
 capability_test: "n/a: 配置写入行为由单元测试覆盖（config-service.test.ts）"
 created_in_conversation: 5dbd05ca-adfa-4f93-8f75-98d18e5c1564

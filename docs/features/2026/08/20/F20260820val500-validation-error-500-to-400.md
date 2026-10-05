@@ -1,6 +1,6 @@
 ---
 id: F20260820val500
-title: validation-error-500-to-400
+title: 输入校验错误 500→400
 doc_type: feature
 
 summary: |
@@ -13,7 +13,7 @@ causal_links:
     - F20260807fact
 
 status: development
-change_type: bugfix
+change_type: fix
 tags: [api, error-handling, validation, conversation]
 modules:
   - src/usecases/conversation/manage-key-info.ts

@@ -1,6 +1,6 @@
 ---
 id: F20260826avtr
-title: otter-avatars-pixel-art
+title: 海獭像素头像系统
 doc_type: feature
 
 # 记忆索引

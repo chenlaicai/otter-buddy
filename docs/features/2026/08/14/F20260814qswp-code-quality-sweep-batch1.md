@@ -1,6 +1,6 @@
 ---
 id: F20260814qswp
-title: code-quality-sweep-batch1
+title: 代码质量专项清理第一批（行为 bug + 门禁漏洞）
 doc_type: feature
 
 summary: |

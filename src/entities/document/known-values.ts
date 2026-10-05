@@ -34,7 +34,12 @@ export const KNOWN_FEATURE_STATUSES = [
 export const KNOWN_RESEARCH_STATUSES = KNOWN_FEATURE_STATUSES;
 
 /** Research 探索类型。 */
-export const KNOWN_EXPLORATION_TYPES = ["technical", "market", "user-research"] as const;
+export const KNOWN_EXPLORATION_TYPES = [
+  "technical",
+  "market",
+  "user-research",
+  "audit", // #1257：存量 R20260810piab（coding-agent SDK 使用审计）在用；语义真实（对既有实现/依赖的审计型研究），收编而非改文档
+] as const;
 
 export type ChangeType = (typeof KNOWN_CHANGE_TYPES)[number];
 export type FeatureStatus = (typeof KNOWN_FEATURE_STATUSES)[number];

@@ -1,6 +1,6 @@
 ---
 id: F20260818smhr
-title: otter-summon-hard-rule
+title: otter-summon 增加用户明确要求时必须召唤的硬规则
 doc_type: feature
 
 summary: |

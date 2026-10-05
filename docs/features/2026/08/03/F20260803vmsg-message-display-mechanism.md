@@ -1,6 +1,6 @@
 ---
 id: F20260803vmsg
-title: message-display-mechanism
+title: 对话消息展示机制
 doc_type: feature
 
 summary: |

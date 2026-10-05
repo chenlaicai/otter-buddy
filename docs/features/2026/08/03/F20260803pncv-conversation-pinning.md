@@ -1,6 +1,6 @@
 ---
 id: F20260803pncv
-title: conversation-pinning
+title: 对话置顶功能
 doc_type: feature
 
 summary: |

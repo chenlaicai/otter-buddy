@@ -1,6 +1,6 @@
 ---
 id: F20260802hybr
-title: hybrid-architecture
+title: Web 前端混合架构
 doc_type: feature
 
 summary: |

@@ -1,6 +1,6 @@
 ---
 id: F20260806arfp
-title: adversarial-review-focus-protocol
+title: 对抗审视焦点协议与作者处置协议
 doc_type: feature
 
 summary: |

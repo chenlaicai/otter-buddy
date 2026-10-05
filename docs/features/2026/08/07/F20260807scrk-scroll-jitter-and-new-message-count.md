@@ -1,6 +1,6 @@
 ---
 id: F20260807scrk
-title: scroll-jitter-and-new-message-count
+title: 修复消息列表滚动抖动与新消息计数误增长
 doc_type: feature
 
 summary: |

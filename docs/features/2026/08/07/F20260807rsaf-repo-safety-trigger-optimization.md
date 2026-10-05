@@ -1,6 +1,6 @@
 ---
 id: F20260807rsaf
-title: worktree-isolation-trigger-optimization
+title: worktree-isolation skill 触发时机前移
 doc_type: feature
 
 # 记忆索引
@@ -17,7 +17,7 @@ causal_links:
 
 # 元数据
 status: design
-change_type: feature_update
+change_type: feature-update
 tags: [skills, worktree-isolation, worktree, prompt-engineering]
 modules: [.pi/skills/]
 

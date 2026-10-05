@@ -72,9 +72,11 @@ for (const file of files) {
 }
 
 /** Ratchet（#470，#455）: 警告数只许减不许增——与 lint:capability 的 MAX_WARNINGS 同模式。
- *  当前基线构成（F20260827spcs 建立时）：221 title slug + 7 缺 slug 文件名 + 38 旧 change_type
- *  + 2 旧 status（review/reviewed）+ 1 旧 exploration_type。存量文档补齐后可下调本数值。 */
-const MAX_WARNINGS = 271;
+ *  当前基线构成（#1257 清存量后）：仅剩 3 条 filename 缺 slug——
+ *  F20260716i5n2 / F20260826mwrd / F20260826sgpa 被其他历史文档正文以相对链接引用
+ *  （如 c2sg/c3hr/c4sg 的「父方案」链接），rename 会断链，而修链接=改历史正文，
+ *  被 lint:historical-docs 禁止——三者长期豁免，此值即地板。 */
+const MAX_WARNINGS = 3;
 
 if (warnings > MAX_WARNINGS) {
   errors++;

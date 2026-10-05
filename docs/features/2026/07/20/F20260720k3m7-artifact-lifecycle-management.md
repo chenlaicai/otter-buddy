@@ -1,6 +1,6 @@
 ---
 id: F20260720k3m7
-title: artifact-lifecycle-management
+title: LinkedResource 外部产物生命周期管理
 doc_type: feature
 
 # 记忆索引

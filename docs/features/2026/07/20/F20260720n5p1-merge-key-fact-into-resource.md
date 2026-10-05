@@ -1,6 +1,6 @@
 ---
 id: F20260720n5p1
-title: merge-key-fact-into-resource
+title: KeyFact 合并进 LinkedResource 统一制品模型
 doc_type: feature
 
 # 记忆索引

@@ -1,6 +1,6 @@
 ---
 id: F20260811abce
-title: fix-streaming-text-accumulation
+title: 修复非Web通道消息流式文本不显示
 doc_type: feature
 
 summary: |

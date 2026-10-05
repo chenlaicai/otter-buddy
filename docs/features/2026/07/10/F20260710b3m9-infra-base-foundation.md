@@ -1,6 +1,6 @@
 ---
 id: F20260710b3m9
-title: infra-base-foundation
+title: 基础设施基础层
 doc_type: feature
 
 # 记忆索引

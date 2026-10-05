@@ -1,6 +1,6 @@
 ---
 id: F20260728skrp
-title: skill-repo-safety
+title: 拆出 repo-safety skill，修复研发流程入口错位
 doc_type: feature
 
 summary: |

@@ -1,6 +1,6 @@
 ---
 id: F20260810tool
-title: small-otter-coding-tools
+title: 小獭编码工具权限开放
 doc_type: feature
 
 summary: |
@@ -14,7 +14,7 @@ causal_links:
   to: []
 
 status: development
-change_type: feature_update
+change_type: feature-update
 tags: [agent, tools, permissions, small-otter]
 modules:
   - src/frameworks/agent/session-helpers.ts

@@ -1,6 +1,6 @@
 ---
 id: F20260814h2rg
-title: fix-unread-badge
+title: 修复左侧栏未读消息数字小红点不会消失
 doc_type: feature
 
 summary: |

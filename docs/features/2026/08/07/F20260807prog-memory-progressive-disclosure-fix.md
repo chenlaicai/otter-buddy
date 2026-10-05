@@ -1,6 +1,6 @@
 ---
 id: F20260807prog
-title: memory-progressive-disclosure-fix
+title: 记忆召回 detail_level 渐进式披露失效修复
 doc_type: feature
 
 summary: |

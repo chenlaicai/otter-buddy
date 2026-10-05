@@ -1,6 +1,6 @@
 ---
 id: F20260814mbex
-title: memory-recall-proactive-exploration-prompt
+title: 记忆召回的主动背景探索 prompt 优化
 doc_type: feature
 
 summary: |

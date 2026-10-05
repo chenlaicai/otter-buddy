@@ -1,6 +1,6 @@
 ---
 id: F20260826fuid
-title: feishu-user-identity
+title: 飞书群聊多人识别 — sender 姓名快照贯通
 doc_type: feature
 summary: |
   飞书群聊多人识别：消息入库时把发送者 open_id 经通讯录 API 换成姓名，

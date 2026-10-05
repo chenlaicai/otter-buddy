@@ -1,6 +1,6 @@
 ---
 id: F20260807eval
-title: feature-evaluability
+title: 特性可评估性机制
 doc_type: feature
 
 summary: |
