@@ -134,4 +134,33 @@ describe("lint-historical-docs 终审处置锁定（F20261001lrbk，#1273）", (
     git(repo, ["checkout", "--", OLD_DOC]);
     fs.rmSync(path.join(repo, ".doc-fix"), { force: true });
   });
+
+  it("delta-5：fm 含空行的位移攻击（删空行抵账吞 H1）→ 拒绝（fmDelta 含空行记账）", () => {
+    // E1 场景：fm 含 2 空行，攻击 = 删 2 空行（fm 内，抵账）+ 删原闭合 + H1 后插新闭合
+    // 初版 fmDelta 只记非空行 → 删空行不记账 → 守恒等式假通过 → exit=0，H1 被吞
+    git(repo, ["reset", "-q", "--", "."]);
+    git(repo, ["checkout", "--", OLD_DOC]);
+    const blankFm =
+      "---\nid: F20260101old\ntitle: 旧特性\n\nchange_type: feature\n\n---\n\n# 旧特性\n\n正文内容。\n";
+    git(repo, ["add", "--", OLD_DOC]);
+    fs.writeFileSync(path.join(repo, OLD_DOC), blankFm);
+    stageOnly(repo, OLD_DOC);
+    git(repo, ["commit", "-q", "-m", "fm with blank lines (fixture in base)"]);
+    git(repo, ["update-ref", "refs/remotes/origin/main", "HEAD"]); // fixture 进 base
+    // 攻击 staged：删 2 空行 + 删原闭合 + H1 后插新闭合
+    fs.writeFileSync(
+      path.join(repo, OLD_DOC),
+      "---\nid: F20260101old\ntitle: 旧特性\nchange_type: feature\n\n# 旧特性\n---\n\n正文内容。\n"
+    );
+    fs.writeFileSync(path.join(repo, ".doc-fix"), "声明文本足够长xxxxxxxxxxxx\n");
+    stageOnly(repo, ".");
+    const err = runLintExpectFail(repo);
+    expect(err).toMatch(/超出 frontmatter 块|历史特性\/研究文档/);
+    // 收尾
+    git(repo, ["reset", "-q", "--hard"]);
+    git(repo, ["reset", "-q", "--hard", "HEAD~1"]);
+    git(repo, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    fs.rmSync(path.join(repo, ".doc-fix"), { force: true });
+    git(repo, ["checkout", "--", OLD_DOC]);
+  });
 });

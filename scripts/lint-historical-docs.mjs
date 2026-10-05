@@ -315,16 +315,15 @@ function hunksWithinBounds(diffText, oldFmLastLine, newFmLastLine) {
     let newLine = Number(hm[3]);
     for (const raw of body.split("\n")) {
       if (raw.startsWith("+")) {
-        if (raw.slice(1).trim() !== "") {
-          if (newLine > newFmLastLine) return { ok: false, fmDelta };
-          if (newLine <= newFmLastLine) fmDelta++; // 界内插入：计入 fm 净增
-        }
+        // delta-5（空行记账）：空行同样移动边界，fmDelta 计数含空行；
+        // bounds 拦截面保持只拒非空行（空行在界外不构成正文篡改信号，但边界位移必须能解释它）
+        if (newLine <= newFmLastLine) fmDelta++; // 界内插入（含空行）：计入 fm 净增
+        else if (raw.slice(1).trim() !== "") return { ok: false, fmDelta };
         newLine++;
       } else if (raw.startsWith("-")) {
-        if (raw.slice(1).trim() !== "") {
-          if (oldLine > oldFmLastLine) return { ok: false, fmDelta };
-          if (oldLine <= oldFmLastLine) fmDelta--; // 界内删除：计入 fm 净减
-        }
+        // 对称：界内删除（含空行）计入 fm 净减；界外仅非空行拦
+        if (oldLine <= oldFmLastLine) fmDelta--;
+        else if (raw.slice(1).trim() !== "") return { ok: false, fmDelta };
         oldLine++;
       } else {
         // 上下文行（-U0 下应无，防御）
