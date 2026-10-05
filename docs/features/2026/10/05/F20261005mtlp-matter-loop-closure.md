@@ -258,6 +258,6 @@ restart_otter 交接档案现状：交接意图书（自总结）+ 叙事合成 
 | src/frameworks/agent/handoff-package-builder.ts | M | 档案构建注入 open matters |
 | yield 工具链路 | M | 新增可选参数 expects_partner_decision（打标即登记的判据载体） |
 | src/interface-adapters/agent-runtime/tools/ | A | 獭侧 matter 工具：list_matters / transition_matter（P1 就需要——空窗期手动迁移与机械供料查询的执行载体） |
-| packages/web/ 右侧栏 | A | 待办 tab 组件（P1 只读 / P2 交互，样式沿用现有 tab 体系；注意：卡回执「同 cardId 永久关闭」——matter 打回后二次进 WAITING_PARTNER 需獭重发新卡（新 cardId），P2 按钮挂点避开此坑，useCardBridge.ts:120-121） |
+| web/ 右侧栏 | A | 待办 tab 组件（P1 只读 / P2 交互，样式沿用现有 tab 体系；注意：卡回执「同 cardId 永久关闭」——matter 打回后二次进 WAITING_PARTNER 需獭重发新卡（新 cardId），P2 按钮挂点避开此坑，useCardBridge.ts:120-121） |
 | prompts/scheduled/未闭环扫描 | M | 升格为确定性查询（P3） |
 | tests/capability/matter-loop/ | A | 能力测试 |
