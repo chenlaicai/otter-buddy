@@ -1,6 +1,6 @@
 ---
 id: F20260814giim
-title: gitignore-runtime-data-dirs
+title: 忽略 data/ 下的运行时产物目录
 doc_type: feature
 
 summary: |

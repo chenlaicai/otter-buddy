@@ -1,6 +1,6 @@
 ---
 id: F20260814drev
-title: review-loop-baseline-enforcement
+title: 检视闭环两个结构性偏差修复
 doc_type: feature
 
 summary: |

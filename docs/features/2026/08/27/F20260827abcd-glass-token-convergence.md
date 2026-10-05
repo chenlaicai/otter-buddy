@@ -2,7 +2,7 @@
 id: F20260827abcd
 title: 滚动上限与玻璃色/骨架色 token 化收敛
 summary: 将分散在各组件中的滚动上限（5+ 种口径）和玻璃色/状态色/骨架色统一为 CSS 变量 token，实现全局收敛
-change_type: Refactor
+change_type: refactor
 created_in_conversation: e407eda2-1c7b-4e84-b544-f33320febd5f
 ---
 

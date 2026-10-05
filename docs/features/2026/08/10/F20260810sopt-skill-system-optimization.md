@@ -1,6 +1,6 @@
 ---
 id: F20260810sopt
-title: skill-system-optimization
+title: Skill 系统四项优化
 doc_type: feature
 
 summary: |

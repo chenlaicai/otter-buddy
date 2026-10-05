@@ -1,6 +1,6 @@
 ---
 id: F20260723mk75
-title: speak-two-phase-commit
+title: Speak 机制全面修复
 doc_type: feature
 
 summary: |

@@ -1,6 +1,6 @@
 ---
 id: F20260805f146
-title: degenerate-output-gradient-intervention
+title: degenerate_output 梯度介入
 doc_type: feature
 
 summary: |

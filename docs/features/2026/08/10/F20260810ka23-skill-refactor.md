@@ -1,6 +1,6 @@
 ---
 id: F20260810ka23
-title: F20260810ka23-skill-refactor
+title: Skill 系统结构优化
 summary: "Skill 系统结构优化：消除双向 co_loads、提取共享内容到 _shared/、拆分 core-workflow 为查询+排查、收紧触发短语消除跨 skill 重叠"
 status: development
 created: 2026-08-10

@@ -1,6 +1,6 @@
 ---
 id: F20260730sbrt
-title: speak-retry-thinking-only
+title: speak 重试区分 thinking-only + 系统提示词困境上报
 doc_type: feature
 
 summary: |

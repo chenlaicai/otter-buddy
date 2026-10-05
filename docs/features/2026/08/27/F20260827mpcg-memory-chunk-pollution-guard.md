@@ -1,6 +1,6 @@
 ---
 id: F20260827mpcg
-title: memory-chunk-pollution-guard
+title: "memory chunk 污染防线（issue #509）"
 doc_type: feature
 summary: |
   修复 issue #509：memory 检索结果空 chunk 污染（43% 条目 content 空/单字符）+ 同文档重复 chunk 双份入库。

@@ -1,6 +1,6 @@
 ---
 id: F20260813otwn
-title: sub-otter-triggering
+title: 大獭召唤小獭的判断指导
 doc_type: feature
 
 summary: |

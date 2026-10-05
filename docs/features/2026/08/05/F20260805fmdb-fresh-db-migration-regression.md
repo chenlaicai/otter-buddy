@@ -1,6 +1,6 @@
 ---
 id: F20260805fmdb
-title: fresh-db-migration-regression
+title: 全新数据库迁移回归修复
 doc_type: feature
 
 summary: |

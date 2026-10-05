@@ -1,6 +1,6 @@
 ---
 id: F20260813rstrt
-title: restart-otter-and-scheduled-task
+title: 海獭自重启 + 定时任务重启
 doc_type: feature
 
 summary: |

@@ -1,6 +1,6 @@
 ---
 id: F20260724tsrr
-title: talking-stone-routing-reliability
+title: 发言石路由可靠性 + Speak 语义静默 + 对话 UX 修复
 doc_type: feature
 
 summary: |

@@ -6,7 +6,7 @@ summary: |
   存在双处维护风险。本 PR 抽取 `scripts/validate-commit-date.mjs` 作为单一实现，
   钩子和 CI 均调用同一模块；新增 18 条 vitest 持久化测试覆盖 F/R/无 ID/非法日期/DST 边界；
   用 `Intl.DateTimeFormat.formatToParts()` 替代 `toLocaleString` 字符串解析，根除 ~0.3s/roundtrip 理论漂移。
-change_type: feature_update
+change_type: feature-update
 status: active
 capability_test: "n/a: 纯 A 类逻辑（日期校验是确定性代码），无 LLM 参与行为"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc

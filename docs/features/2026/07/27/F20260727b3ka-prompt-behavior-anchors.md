@@ -1,6 +1,6 @@
 ---
 id: F20260727b3ka
-title: prompt-behavior-anchors
+title: SYSTEM.md 原则重写
 doc_type: feature
 
 summary: |

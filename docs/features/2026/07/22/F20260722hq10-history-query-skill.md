@@ -1,6 +1,6 @@
 ---
 id: F20260722hq10
-title: history-query-skill
+title: 对话历史查询 Skill
 doc_type: feature
 
 # 记忆索引

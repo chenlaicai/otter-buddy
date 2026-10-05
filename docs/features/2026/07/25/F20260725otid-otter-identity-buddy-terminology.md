@@ -1,6 +1,6 @@
 ---
 id: F20260725otid
-title: otter-identity-and-buddy-terminology
+title: Otter 身份认知体系 + 搭档术语统一
 doc_type: feature
 
 summary: |

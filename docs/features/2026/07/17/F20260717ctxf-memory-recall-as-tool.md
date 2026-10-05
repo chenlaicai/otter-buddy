@@ -1,6 +1,6 @@
 ---
 id: F20260717ctxf
-title: memory-recall-as-tool
+title: 记忆召回改为主动工具调用
 doc_type: feature
 
 # 记忆索引

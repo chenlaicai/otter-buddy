@@ -1,6 +1,6 @@
 ---
 id: F20260821spcm
-title: speak-communication-model
+title: 聊天室通信模型注入
 doc_type: feature
 
 summary: |
@@ -16,7 +16,7 @@ causal_links:
     - "#357"
 
 status: development
-change_type: feature_update
+change_type: feature-update
 tags: [agent, speak, yield, prompt, retry-policy, observability, multi-otter]
 modules:
   - prompts/identity/BIG_OTTER.md

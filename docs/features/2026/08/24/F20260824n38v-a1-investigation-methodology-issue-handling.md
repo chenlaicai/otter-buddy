@@ -1,6 +1,6 @@
 ---
 id: F20260824n38v
-title: a1-investigation-methodology-issue-handling
+title: 强化 A1 调查方法论 + issue 处理规范
 summary: |
   针对 claim-before-verify 模式问题，对 SYSTEM.md 进行三处改进：A1 调查方法论、A2 能力边界确认、R2 issue 处理规范。
 change_type: prompt

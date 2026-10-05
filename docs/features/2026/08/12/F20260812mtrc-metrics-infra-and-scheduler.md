@@ -1,6 +1,6 @@
 ---
 id: F20260812mtrc
-title: metrics-infra-and-scheduler
+title: Metric 基础设施 + Scheduler 接入
 doc_type: feature
 
 summary: |

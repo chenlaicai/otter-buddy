@@ -1,6 +1,6 @@
 ---
 id: F20260714xk8a
-title: msg-design-review
+title: 对话/消息/Agent 实例设计对照 Snail Shell 审视
 doc_type: feature
 
 # 记忆索引

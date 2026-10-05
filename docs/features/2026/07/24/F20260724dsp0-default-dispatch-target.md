@@ -1,6 +1,6 @@
 ---
 id: F20260724dsp0
-title: default-dispatch-target
+title: 无 @ 发言默认派发：回复最后发言者，兜底大獭
 doc_type: feature
 
 summary: |

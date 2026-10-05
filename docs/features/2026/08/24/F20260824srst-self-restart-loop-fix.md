@@ -3,7 +3,7 @@ id: F20260824srst
 title: 自重启无限循环修复
 summary: |
   修复海獭自重启无限循环 bug。根因是 handleSelfRestartSignal 递归调用时传入原始用户消息（"你重启自己"），新 session 的 LLM 会再次执行 restart_otter(self) → 无限循环。修复方案：消息语义修正（传 continuation message）+ 防循环复用熔断机制（healing_events 上限判定）+ tool 层拦截。
-change_type: bugfix
+change_type: fix
 status: active
 capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
 created_in_conversation: 7d763038-88ae-4a20-bec5-ec0dab156ca7

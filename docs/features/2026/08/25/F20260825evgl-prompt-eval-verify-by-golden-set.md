@@ -2,7 +2,7 @@
 id: F20260825evgl
 title: Prompt/软代码效果评估——verify_by 分层与 golden 场景集
 summary: lint-intent 的 verify_by.type 扩展（capability_test/golden_replay/static_only）+ 软代码 PR 强制声明规则；从项目伤疤沉淀第一批 4 个 golden 可重放场景；采样协议分层约定（n=3/10/20 按改动层级）与防腐机制（来源标注/模型标签/holdout 规则）
-change_type: new_feature
+change_type: feature
 status: active
 created_at: 2026-08-25
 created_in_conversation: c955fe14-ceb0-41fa-a126-28f04523628c

@@ -2,7 +2,7 @@
 id: F20260824m2345
 title: 修复弹窗背景 backdrop-filter 闪烁问题
 summary: 修复系统弹窗打开时背景 scrim 的 backdrop-filter 持续闪烁的问题。通过 React.memo 包裹 Modal 组件和稳定父组件回调引用，防止不必要的 re-render 触发 backdrop-filter 重新合成。
-change_type: bugfix
+change_type: fix
 status: active
 created_at: 2026-08-24
 related_to: []

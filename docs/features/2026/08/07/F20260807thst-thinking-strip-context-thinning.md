@@ -1,6 +1,6 @@
 ---
 id: F20260807thst
-title: thinking-strip-context-thinning
+title: thinking 块上下文瘦身
 doc_type: feature
 
 summary: |

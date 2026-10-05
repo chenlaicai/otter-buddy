@@ -1,6 +1,6 @@
 ---
 id: F20260820bcst
-title: broadcaster-channel-isolation
+title: broadcaster 事件通道改造——broadcast 方法逐通道 catch 隔离
 doc_type: feature
 
 summary: |

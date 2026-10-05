@@ -1,6 +1,6 @@
 ---
 id: F20260729c113
-title: code-quality-fix
+title: 代码质量修复方案
 doc_type: feature
 
 summary: |
