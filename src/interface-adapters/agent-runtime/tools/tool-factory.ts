@@ -14,7 +14,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import { interceptHealingReport, createManageHealingEventsTool } from "./healing-tools";
 import { createHaltOtterTool, createQuerySignalsTool, createResolveSignalTool, createUnhaltOtterTool, interceptSignalReport } from "./signal-tools";
-import { createListMattersTool, createTransitionMatterTool } from "./matter-tools";
+import { createListMattersTool, createTransitionMatterTool, createRegisterMatterTool } from "./matter-tools";
 import { RegisterMatter, matterShortAnchor } from "@usecases/matter/register-matter";
 import { HANDOFF_SYNTHESIZE_PAST_DEFAULT } from "../agent-invoker";
 import { createTriageSignalTool, createListRhiSignalsTool } from "./rhi-signal-tools";
@@ -1409,10 +1409,13 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     tools.push(createListRhiSignalsTool(ctx, ctx.rhiSignalRepo));
   }
   // F20261006mtlp P1：獭侧 matter 工具（待办板查/迁——空窗期通道 A 的执行载体）。
-  // small/big 型均可用：list 是只读查板；transition 的权限由 usecase 守卫兜住
-  // （L2 闭环必须搭档确认，獭不能代执行）。注册条件 = matterRepo 注入。
+  // F20261006mlp2 P2：register_matter 补上「+」登记入口（准入路径 2）的执行载体——
+  // P1 只把 RegisterMatter 接在 yield 打标（路径 1），板上登记回执无工具可达=死链（严重1）。
+  // small/big 型均可用：list/register/transition 的权限由 usecase 守卫兜住
+  // （register 只产 OPEN；transition 的 L2 闭环必须搭档确认）。注册条件 = matterRepo 注入。
   if (matterRepo) {
     tools.push(createListMattersTool(ctx, matterRepo));
+    tools.push(createRegisterMatterTool(ctx, matterRepo));
     tools.push(createTransitionMatterTool(ctx, matterRepo));
   }
   return tools;

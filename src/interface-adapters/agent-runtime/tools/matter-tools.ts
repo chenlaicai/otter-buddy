@@ -1,5 +1,5 @@
 /**
- * Matter 工具（F20261006mtlp P1）：list_matters / transition_matter。
+ * Matter 工具（F20261006mtlp P1：list_matters / transition_matter；F20261006mlp2 P2：register_matter）。
  *
  * 通道 A 代执行（§3.5）：搭档对话直复裁决后，被唤醒獭用本工具代执行板上迁移——
  * `on_behalf_of='partner'` 声明代搭档执行（resolution 必填「代搭档执行：<原话>」留痕），
@@ -15,7 +15,7 @@ import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 import type { MatterRepository } from "@usecases/matter/matter-repository";
 import { ListMatters } from "@usecases/matter/list-matters";
 import { TransitionMatter, type TransitionMatterInput } from "@usecases/matter/transition-matter";
-import { matterShortAnchor } from "@usecases/matter/register-matter";
+import { RegisterMatter, matterShortAnchor } from "@usecases/matter/register-matter";
 import type { MatterState } from "@entities/matter/matter";
 
 const VALID_STATES: readonly string[] = [
@@ -174,6 +174,60 @@ export function createTransitionMatterTool(ctx: ToolContext, matterRepo: MatterR
         on_behalf_of: { type: "string", description: "§3.5 代执行声明：'partner'（代搭档执行裁决）或 ownerOtterId（代 owner 执行）——不填=以自己身份" },
       },
       required: ["matter_id", "to"],
+    },
+    execute: exec,
+  };
+}
+
+/**
+ * register_matter（F20261006mlp2 P2——通道 B 「+」登记入口的执行载体）。
+ *
+ * 板上「登记一件事」按钮合成 html-matter-action register 回执（准入路径 2：搭档
+ * 手动登记，initialState=OPEN），由被唤醒獭用本工具登记到待办板。这补齐了
+ * P1 只把 RegisterMatter 接在 yield 打标路径（准入路径 1）上的缺口——
+ * 回执让獭去登记，但工具面没注册登记工具 = 登记必丢（严重1死链）。
+ *
+ * 准入纪律：登记即 OPEN（搭档手动，非 yield 打标）。title 必填；owner 缺省=
+ * 登记獭自己（认领这件事）；level 缺省不标。防泛滥靠 usecase 白名单语义——
+ * 本工具只是物理载体，登记 action 合法性的真相源是 RegisterMatter 注释里的
+ * 「白名单硬编码在产生路径」（板上入口 = 路径 2）。
+ */
+export function createRegisterMatterTool(ctx: ToolContext, matterRepo: MatterRepository): AgentTool {
+  const exec = async (_id: string, params: Record<string, unknown>): Promise<ReturnType<typeof textResponse>> => {
+    const title = (params.title as string | undefined)?.trim();
+    if (!title) {
+      return errorResponse("[错误] title 必填——一句话说清这件事（如「回头再看的重构项」）。");
+    }
+    const register = new RegisterMatter(matterRepo);
+    try {
+      const created = await register.execute({
+        conversationId: ctx.conversationId,
+        title,
+        ownerOtterId: (params.owner_otter_id as string | undefined)?.trim() || ctx.otterId,
+        level: (params.level as 'L1' | 'L2' | undefined) ?? null,
+        initialState: 'OPEN',
+        waitingOn: null,
+        waitingFor: (params.waiting_for as string | undefined)?.trim() || null,
+      });
+      return textResponse(
+        `[matter] 已登记 ${matterShortAnchor(created.id)}「${created.title}」（状态 OPEN，owner=${(created.ownerOtterId ?? '').slice(0, 8) || '未指派'}）`,
+      );
+    } catch (err) {
+      return errorResponse(`[错误] ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+  return {
+    name: "register_matter",
+    description: "登记本对话一件待办（matters 表——准入路径 2：搭档手动登记）. When: 搭档在待办板点「+」合成 html-matter-action register 回执、獭被唤醒后照做登记（initialState=OPEN）；或獭在对话里识别搭档说「回头再说/记下这件事」主动登记. Not for: L2 决策拍板项（那走 yield 打标自动登记，准入路径 1）/ 迁移状态（用 transition_matter）. Output: 登记确认（新 matter 短锚 + 状态 OPEN）. GOTCHA: ①登记即 OPEN（非 WAITING_PARTNER——那是 yield 打标路径的态）；②owner 缺省=登记獭自己（认领）；③登记后若要知道后续谁接，看板上 owner。",
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "一句话事情名（必填）" },
+        owner_otter_id: { type: "string", description: "负责獭（缺省=登记獭自己认领）" },
+        level: { type: "string", enum: ["L1", "L2"], description: "决策分级（缺省不标；L0 不产生 matter——准入白名单产生不了）" },
+        waiting_for: { type: "string", description: "在等什么动作（一句话，可选）" },
+      },
+      required: ["title"],
     },
     execute: exec,
   };

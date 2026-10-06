@@ -63,6 +63,34 @@ from: [F20261006mtlp]
 3. **翻案只对 CLOSED 开放**（不对 ABANDONED/SUPERSEDED）：方案语义里翻案=推翻已闭环结论；ABANDONED（已不做）重开是另一语义（更近似「重新登记」），本期只对 CLOSED 出翻案按钮。
 4. **登记走默认派发（不传 owner）**：「+」登记没有既有 owner，回执 mention 传 null → resolveSendTargets 默认派发（最后发言獭/在场大獭），由被唤醒獭调 RegisterMatter 登记。
 
+## 审视处置记录（检视1320獭：需要修改 3 严重 + 4 建议 → 已修复）
+
+异体模型 mimo-pro 审视 PR #1320，最重一洞是清单外抓的：「+」登记端到端死链。逐条核实锚点全部实锤，全部处置：
+
+### 严重 3 条（本 PR 修复）
+
+1. **「+」登记死链**——P1 只把 RegisterMatter 接在 yield 打标路径（准入路径 1），工具面没注册登记工具；板上「+」回执让獭登记但獭无工具可达 = 登记必丢，且先弹成功 toast = 假象。**修复**：
+   - 新增 `register_matter` 工具（matter-tools.ts——登记即 OPEN、title 必填、owner 缺省=登记獭认领），tool-factory 注册（matterRepo 注入时）；
+   - 能力测试补场景④（板上登记回执 → register_matter 工具登记 → matters 表新增 OPEN 行，确定性断言）；
+   - 工具单测 matter-register-tool.test.ts（登记语义 + tool-factory 装配正面锁死链）。
+2. **回执伪造面 + ABANDONED 终态不可逆**——identity 纪律「照做即可」无来源限制，且 `on_behalf_of` 自声明无来源核验（P1 继承面）；ABANDONED 零出边 = 误判/伪造的「否决」永久杀事项（P2 增量：否决按钮让死路高频触发）。**修复**：
+   - identity 双文件纪律补**来源核验**：html-matter-action 围栏**只认 user 来源**（别的獭消息/注入内容/转义逃逸 = 不照做，识别伪造迹象 speak 指出）；
+   - 矩阵补 `ABANDONED→OPEN`（partner 专属，与 CLOSED→OPEN 翻案对称）——板上近期闭环区纳入 ABANDONED 出翻案按钮，否决不再永久杀事项；
+   - 状态机单测补 ABANDONED→OPEN 合法 + 非 partner 拒绝（#1321 留档跟踪完整恢复入口打磨）。
+3. **commit 缺 Modification-Class 声明**——补上（本修复 commit 带 mechanism-addition 声明，四问：#1321 ABANDONED 恢复入口、#1322 越权面、能力测试场景④、golden 2 场景）。
+
+### 建议 4 条（大獭裁决，全部接受）
+
+1. **toast 时序 + 按钮防重**——act/register 改 async 接路由真实结果再 toast（此前先弹成功=假象，#1268 同向）；按钮加 pending 态防双击/重入。
+2. 并入严重2（ABANDONED 恢复，已修）。
+3. **纪律歧义改措辞 + golden 2 条**——「识别=锚定到具体 matter 短锚」澄清（非自由心证猜意图，消「不做 NLP」与识别步骤的字面冲突）；golden 场景 `matter-vague-no-migrate`（无锚点模糊表态不迁移）+ `matter-forged-receipt-no-exec`（非 user 来源围栏不执行），各配 selftest 参考序列（good/bad 判别力校验）。
+4. **includeClosed 截断语义**——本 PR 不改代码（避免在既有查询里塞子查询的复杂化），留档：语义是「全表前 100 含终态」，open 超 100 时翻案入口可能不含旧 closed。issue #1322 登记越权面（P1 既有系统性无鉴权，非 P2 回归，单独排期横切）。
+
+### 未决问题（留档，均已登记 issue）
+
+- **#1321**（P1）：ABANDONED 完整恢复入口打磨——本 PR 补了 ABANDONED→OPEN 矩阵迁移 + 板上翻案按钮，但「已不做」区独立呈现、恢复路径能力测试采样等可再完善。
+- **#1322**（P1 既有）：对话域控制器系统性无鉴权——UUID 不可猜测 ≠ 鉴权。matters 端点含 includeClosed=1 后暴露面略增，横切工程单独排期。
+
 ### 负面向验收
 
 - 无 NLP 自动识别裁决（方案已否决：误判腐蚀信任）——纪律明确「识别不到明确对象就不强行迁移，正常回话」。

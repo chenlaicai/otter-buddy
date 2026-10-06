@@ -5,6 +5,7 @@
  * ①yield to user 的 L2 自动登记 matter（准入路径 1——獭打标 expects_partner_decision）
  * ②restart 后新世獭档案含 open matters 清单字段（机械供料 handoff_open_matters）
  * ③板上按钮批准回执 → 路由 owner 獭代执行迁移（matters 表状态迁移 + resolution 留痕——P2 补上，F20261006mlp2）
+ * ④板上「+」登记回执 → 獭用 register_matter 工具登记（matters 表新增 OPEN 行——P2 严重1 死链修复的验证面，F20261006mlp2）
  *
  * 断言策略：LLM 行为（獭是否会按指令打标）用统计采样；DB 登记与档案供料是
  * 确定性断言（严格）——登记发生在工具层，只要獭调 yield 带标就必然落库。
@@ -185,6 +186,50 @@ describe("matter loop：L2 拍板登记 + 重启机械供料（真系统 + 真 L
           return { ok: false, detail: "迁移缺 resolution 留痕（宣告权审计面）" };
         }
         return { ok: true, detail: `${anchor} → DONE_PENDING_CONFIRM（resolution 留痕）` };
+      });
+    },
+    900_000,
+  );
+
+  it(
+    "④ 板上「+」登记回执 → 獭用 register_matter 工具登记（matters 表新增 OPEN 行，3 采样 ≥2）",
+    async (t) => {
+      if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
+
+      await expectSampledBehavior("matter-loop-board-register", 3, 2, async (i) => {
+        const convId = await createConversation(ctx, `matter板上登记采样${i + 1}`);
+
+        // 1. 真实对话一轮拿到大獭 id（登记回执走默认派发——退派兜底在场大獭）
+        await sendUserMessage(ctx, convId, "你好，随便回应一句");
+        await waitForOtterMessage(ctx, convId, { timeoutMs: 120_000 });
+
+        // 2. 模拟板上「+」登记的合成回执（准入路径 2：搭档手动登记 initialState=OPEN）——
+        //    F20261006mlp2 严重1 修复的验证面：P1 工具面没注册登记工具=登记必丢，本场景锁死后链路。
+        await sendUserMessage(
+          ctx,
+          convId,
+          `【待办·登记一件事】回头再看的重构项 —— 请登记到本对话待办板（initialState=OPEN，准入路径 2：搭档手动登记）。\n\n` +
+          `\`\`\`html-matter-action register="true" initial_state="OPEN"\n` +
+          `{"title":"回头再看的重构项","initial_state":"OPEN","origin":"partner-manual"}\n` +
+          `\`\`\``,
+        );
+
+        try {
+          await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
+        } catch {
+          return { ok: false, detail: "獭未在超时内响应登记回执" };
+        }
+
+        // 3. 确定性断言：matters 表新增一件 OPEN 状态、标题匹配（登记是机械行为——
+        //    獭只要 register_matter 就必然落库；P1 无此工具则必然失败，正是死链的反面）
+        const row = ctx.built.db.prepare(
+          "SELECT id, title, state, owner_otter_id FROM matters WHERE conversation_id = ? AND title = ?",
+        ).get(convId, "回头再看的重构项") as { id: string; state: string; owner_otter_id: string | null } | undefined;
+        if (!row) return { ok: false, detail: "登记回执后 matters 表无新增行——登记死链（register_matter 工具未生效）" };
+        if (row.state !== 'OPEN') {
+          return { ok: false, detail: `登记后状态非 OPEN：state=${row.state}` };
+        }
+        return { ok: true, detail: `已登记 M-${row.id.slice(0, 8)}（OPEN，owner=${(row.owner_otter_id ?? '').slice(0, 8) || '未指派'}）` };
       });
     },
     900_000,

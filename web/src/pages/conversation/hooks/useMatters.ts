@@ -74,10 +74,12 @@ export interface UseMattersResult {
   loading: boolean
   /** 近期闭环（closed 清单——折叠「近期闭环」区 = 翻案入口，P2）；created_at DESC 前 N 条 */
   recentClosed: MatterDTO[]
+  /** 正在发送回执的 matter id（按钮 pending/防重——建议1，一个 matter 同时只发一条裁决） */
+  pending: Record<string, boolean>
   /** 板上裁决（通道 B）：合成回执路由 owner 獭代执行；失败 toast 分流（#1268 教训） */
-  act: (matter: MatterDTO, action: MatterAction) => void
+  act: (matter: MatterDTO, action: MatterAction) => Promise<void>
   /** 板上「+」登记（准入路径 2）：合成回执路由默认派发（在场獭/大獭）登记 */
-  register: (title: string) => void
+  register: (title: string) => Promise<void>
 }
 
 /** 近期闭环区条数上限（折叠区低频操作，不铺满面板） */
@@ -91,6 +93,8 @@ export function useMatters(
   const [matters, setMatters] = useState<MatterDTO[]>([])
   const [recentClosed, setRecentClosed] = useState<MatterDTO[]>([])
   const [loading, setLoading] = useState(false)
+  /** 正在发送回执的 matter id（pending/防重——建议1） */
+  const [pending, setPending] = useState<Record<string, boolean>>({})
   /** ref 穿透：act/register 在回调闭包里读最新路由函数（不重建回调） */
   const routeRef = useRef(onRouteToOtter)
   routeRef.current = onRouteToOtter
@@ -105,8 +109,9 @@ export function useMatters(
     ])
       .then(([open, all]) => {
         setMatters(open)
+        // 近期闭环区 = 终态翻案入口：CLOSED（翻案）+ ABANDONED（推翻「不做」恢复，F20261006mlp2 严重2/#1321）
         setRecentClosed(
-          all.filter(m => !['OPEN', 'WAITING_OTTER', 'WAITING_PARTNER', 'DONE_PENDING_CONFIRM'].includes(m.state))
+          all.filter(m => ['CLOSED', 'SUPERSEDED', 'ABANDONED'].includes(m.state))
             .slice(0, RECENT_CLOSED_LIMIT),
         )
       })
@@ -132,38 +137,49 @@ export function useMatters(
    *
    * 失败处理（#1268/F20261006s1x0 教训——失败分支不许静默）：回执路由函数抛错时
    * toast 报错让搭档可重试；发送成功也只表「搭档已表达意图」，不表「已迁移」。
+   *
+   * F20261006mlp2 P2 处置建议1：act 改 async、接路由真实结果再 toast——此前先弹成功
+   * toast 再 fire-and-forget 发回执，发送失败时搭档已看到成功假象。现在 await 路由：
+   * resolve 才弹「已发送请求」，reject 弹「发送失败」。按钮防重由 disabled 态兜（MattersPanel）。
    */
-  const act = useCallback((matter: MatterDTO, action: MatterAction) => {
+  const act = useCallback(async (matter: MatterDTO, action: MatterAction): Promise<void> => {
     const anchor = `M-${matter.id.slice(0, 8)}`
+    // 防重：同一 matter 已有回执在飞则忽略（建议1——防双击/重入并发发两条裁决）
+    if (pending[matter.id]) return
+    setPending(p => ({ ...p, [matter.id]: true }))
     try {
       const body = buildMatterActionBody(matter, action)
       if (!routeRef.current) {
         showToast(`「${anchor}」${ACTION_LABEL[action]}失败：路由通道不可用，请重试`, 'error')
         return
       }
-      routeRef.current(body, matter.ownerOtterId)
+      await routeRef.current(body, matter.ownerOtterId)
       showToast(`已把「${anchor}」${ACTION_LABEL[action]}的请求发给负责獭，迁移完成后板上更新`, 'info')
     } catch {
       showToast(`「${anchor}」${ACTION_LABEL[action]}回执发送失败，请重试`, 'error')
+    } finally {
+      setPending(p => { const n = { ...p }; delete n[matter.id]; return n })
     }
-  }, [])
+  }, [pending])
 
-  /** P2 「+」登记（准入路径 2）：合成登记回执走默认派发（无显式 owner——登记无需 owner） */
-  const register = useCallback((title: string) => {
+  /** P2 「+」登记（准入路径 2）：合成登记回执走默认派发（无显式 owner——登记无需 owner）
+   *  F20261006mlp2 P2 处置严重1：回执让獭用 register_matter 工具登记（工具已补）；
+   *  act/register 均 async 接真实发送结果再 toast（此前先弹成功=假象，#1268 同向）。 */
+  const register = useCallback(async (title: string): Promise<void> => {
     const trimmed = title.trim()
     if (!trimmed) return
     try {
       const body = buildMatterRegisterBody(trimmed)
-      if (routeRef.current) {
-        routeRef.current(body, null)
-        showToast('已把登记请求发给在场獭', 'info')
-      } else {
+      if (!routeRef.current) {
         showToast('登记失败：路由通道不可用', 'error')
+        return
       }
+      await routeRef.current(body, null)
+      showToast('已把登记请求发给在场獭', 'info')
     } catch {
       showToast('登记失败，请重试', 'error')
     }
   }, [])
 
-  return { matters, loading, recentClosed, act, register }
+  return { matters, loading, recentClosed, pending, act, register }
 }

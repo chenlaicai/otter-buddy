@@ -60,7 +60,7 @@ const STATE_ORDER: Record<string, number> = {
 }
 
 /** 面板透传的回执路由通道（index.tsx 的 handleSend mention 路由封装） */
-export type MatterRouteFn = (body: string, ownerOtterId: string | null) => void
+export type MatterRouteFn = (body: string, ownerOtterId: string | null) => void | Promise<void>
 
 /** 主按钮（otter 渐变——采样自 MessageInput 发送键）；次按钮玻璃描边 */
 const BTN_PRIMARY =
@@ -68,34 +68,36 @@ const BTN_PRIMARY =
 const BTN_GHOST =
   'px-2 py-1 rounded-lg text-[10px] font-medium bg-white/40 text-stone-600 border border-white/50 transition hover:bg-white/60 active:scale-95'
 
-/** WAITING_PARTNER 条目按钮组（批准 = otter 渐变主按钮） */
-function WaitingPartnerActions({ onAct }: { onAct: (action: MatterAction) => void }) {
+/** WAITING_PARTNER 条目按钮组（批准 = otter 渐变主按钮；busy 时整组禁用防重——建议1） */
+function WaitingPartnerActions({ onAct, busy }: { onAct: (action: MatterAction) => void; busy?: boolean }) {
   return (
     <div className="flex items-center gap-1 mt-1.5" data-testid="matter-actions-wp">
-      <button style={{ background: OTTER_GRADIENT }} className={BTN_PRIMARY} onClick={() => onAct('approve')}>
+      <button style={{ background: OTTER_GRADIENT }} className={BTN_PRIMARY} disabled={busy} onClick={() => onAct('approve')}>
         批准
       </button>
-      <button className={BTN_GHOST} onClick={() => onAct('sendback')}>打回</button>
-      <button className={BTN_GHOST} onClick={() => onAct('reject')}>否决</button>
+      <button className={BTN_GHOST} disabled={busy} onClick={() => onAct('sendback')}>打回</button>
+      <button className={BTN_GHOST} disabled={busy} onClick={() => onAct('reject')}>否决</button>
     </div>
   )
 }
 
-/** DONE_PENDING_CONFIRM 条目按钮组（确认闭环 = otter 渐变主按钮） */
-function ConfirmActions({ onAct }: { onAct: (action: MatterAction) => void }) {
+/** DONE_PENDING_CONFIRM 条目按钮组（确认闭环 = otter 渐变主按钮；busy 时整组禁用防重） */
+function ConfirmActions({ onAct, busy }: { onAct: (action: MatterAction) => void; busy?: boolean }) {
   return (
     <div className="flex items-center gap-1 mt-1.5" data-testid="matter-actions-dpc">
-      <button style={{ background: OTTER_GRADIENT }} className={BTN_PRIMARY} onClick={() => onAct('confirm_close')}>
+      <button style={{ background: OTTER_GRADIENT }} className={BTN_PRIMARY} disabled={busy} onClick={() => onAct('confirm_close')}>
         确认闭环
       </button>
-      <button className={BTN_GHOST} onClick={() => onAct('confirm_sendback')}>打回</button>
+      <button className={BTN_GHOST} disabled={busy} onClick={() => onAct('confirm_sendback')}>打回</button>
     </div>
   )
 }
 
-/** 近期闭环区条目（翻案入口——低频操作，翻案按钮仅 hover/简洁呈现） */
+/** 近期闭环区条目（翻案/恢复入口——低频操作，翻案按钮仅 hover/简洁呈现） */
 function ClosedItem({ matter, onReopen }: { matter: MatterDTO; onReopen: () => void }) {
   const badge = STATE_BADGE[matter.state] ?? { label: matter.state, className: 'bg-stone-400/15 text-stone-400' }
+  // F20261006mlp2 严重2：CLOSED 与 ABANDONED 都可翻案恢复（ABANDONED 曾是永久死路，#1321 收口）
+  const reversible = matter.state === 'CLOSED' || matter.state === 'ABANDONED'
   return (
     <div className="px-2.5 py-2 rounded-xl glass-card mb-1.5 opacity-80" data-testid="matter-closed-item">
       <div className="flex items-start gap-1.5">
@@ -111,8 +113,8 @@ function ClosedItem({ matter, onReopen }: { matter: MatterDTO; onReopen: () => v
             {matter.resolution.length > 40 ? matter.resolution.slice(0, 40) + '…' : matter.resolution}
           </span>
         )}
-        {matter.state === 'CLOSED' && (
-          <button className={`${BTN_GHOST} flex-shrink-0`} onClick={onReopen} title="翻案重开（CLOSED → OPEN）">
+        {reversible && (
+          <button className={`${BTN_GHOST} flex-shrink-0`} onClick={onReopen} title="翻案重开（CLOSED/ABANDONED → OPEN）">
             翻案
           </button>
         )}
@@ -124,10 +126,12 @@ function ClosedItem({ matter, onReopen }: { matter: MatterDTO; onReopen: () => v
 function MatterItem({
   matter,
   tickNow,
+  busy,
   onAct,
 }: {
   matter: MatterDTO
   tickNow: number
+  busy?: boolean
   onAct: (matter: MatterDTO, action: MatterAction) => void
 }) {
   const badge = STATE_BADGE[matter.state] ?? { label: matter.state, className: 'bg-stone-400/15 text-stone-400' }
@@ -158,10 +162,10 @@ function MatterItem({
         </div>
       )}
       {matter.state === 'WAITING_PARTNER' && (
-        <WaitingPartnerActions onAct={action => onAct(matter, action)} />
+        <WaitingPartnerActions busy={busy} onAct={action => onAct(matter, action)} />
       )}
       {matter.state === 'DONE_PENDING_CONFIRM' && (
-        <ConfirmActions onAct={action => onAct(matter, action)} />
+        <ConfirmActions busy={busy} onAct={action => onAct(matter, action)} />
       )}
     </div>
   )
@@ -216,7 +220,7 @@ export function MattersPanel({
   conversationId: string
   onRouteToOtter?: MatterRouteFn
 }) {
-  const { matters, loading, recentClosed, act, register } = useMatters(conversationId, onRouteToOtter)
+  const { matters, loading, recentClosed, pending, act, register } = useMatters(conversationId, onRouteToOtter)
   const [showClosed, setShowClosed] = useState(false)
   /** 走秒时钟复用容器 tickNow 太贵——这里用惰性 Date.now() 渲染即可（30s 轮询驱动重渲染） */
   const tickNow = Date.now()
@@ -260,7 +264,7 @@ export function MattersPanel({
       ) : (
         <div>
           {sorted.map(m => (
-            <MatterItem key={m.id} matter={m} tickNow={tickNow} onAct={act} />
+            <MatterItem key={m.id} matter={m} tickNow={tickNow} busy={!!pending[m.id]} onAct={act} />
           ))}
         </div>
       )}

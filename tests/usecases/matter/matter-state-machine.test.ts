@@ -160,6 +160,15 @@ describe('matter 状态机：合法迁移矩阵（§2 全量）', () => {
     expect(updated.closedAt).toBeNull();
   });
 
+  it('ABANDONED → OPEN（翻案：推翻「不做」决定重开——F20261006mlp2 严重2 死路收口/#1321）', async () => {
+    await seedMatter('ABANDONED');
+    const updated = await transition.execute({
+      matterId: makeMatter().id, to: 'OPEN', actor: 'partner',
+    });
+    expect(updated.state).toBe('OPEN');
+    expect(updated.closedAt).toBeNull(); // 恢复后清空闭环时间
+  });
+
   it.each([
     ['OPEN', OTHER_OTTER],
     ['WAITING_OTTER', OWNER],
@@ -212,7 +221,6 @@ describe('matter 状态机：非法迁移拒绝', () => {
     ['CLOSED', 'WAITING_OTTER'],
     ['CLOSED', 'DONE_PENDING_CONFIRM'],
     ['SUPERSEDED', 'OPEN'],          // 终态不可逆
-    ['ABANDONED', 'OPEN'],
     ['OPEN', 'CLOSED'],              // 无 DONE_PENDING_CONFIRM 直达闭环
     ['OPEN', 'DONE_PENDING_CONFIRM'],
     ['WAITING_PARTNER', 'OPEN'],     // 无此迁移（打回走 WAITING_OTTER）
@@ -259,6 +267,13 @@ describe('matter 状态机：触发者守卫', () => {
 
   it('翻案（CLOSED→OPEN）只能搭档', async () => {
     await repo.create(makeMatter({ state: 'CLOSED' }));
+    await expect(transition.execute({
+      matterId: makeMatter().id, to: 'OPEN', actor: OWNER,
+    })).rejects.toThrow(/非法迁移触发者/);
+  });
+
+  it('翻案（ABANDONED→OPEN 推翻「不做」）也只能搭档——F20261006mlp2 严重2', async () => {
+    await repo.create(makeMatter({ state: 'ABANDONED' }));
     await expect(transition.execute({
       matterId: makeMatter().id, to: 'OPEN', actor: OWNER,
     })).rejects.toThrow(/非法迁移触发者/);
