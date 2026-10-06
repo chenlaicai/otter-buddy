@@ -59,7 +59,7 @@ docs/README.md「intent 块约定」节：判定口径补「缺失/空值（null
 
 ## 数字订正（delta 轮新发现 1）
 
-F20261005imfg 主文档 :51 与 #1283 PR body 中「245 篇 fix 中 205 篇无 intent」**不实**——实测（frontmatter parser 全量复算，检视獭-1283 与检视獭-1290 独立复测一致）：**fix 271 篇 / 无 intent 228 篇**（当前 main 基线）。原数字系首轮摸底旧基线。注：main 上 change_type 旧拼法（bugfix/feature_update/new_feature 等）已被另一任务链统一为 fix/feature-update，现仅 fix 口径即可表述。#1283 body 已 merged 不可改，以本文档为准。
+F20261005imfg 主文档 :51 与 #1283 PR body 中「245 篇 fix 中 205 篇无 intent」**不实**——实测（frontmatter parser 全量复算，检视獭-1283 与检视獭-1290 独立复测一致）：**fix 271 篇 / 无 intent 228 篇**（基线锚点 @ df776564，2026-10-05 写作时点；main 前移后总篇数随新 fix 文档递增，228 分子稳定）。原数字系首轮摸底旧基线。注：main 上 change_type 旧拼法（bugfix/feature_update/new_feature 等）已被另一任务链统一为 fix/feature-update，现仅 fix 口径即可表述。#1283 body 已 merged 不可改，以本文档为准。
 
 ## 提前合入留痕
 
@@ -67,7 +67,7 @@ PR #1283 于审视循环未收敛时被提前合入（2026-10-05 07:56Z，squash
 
 ## 附录：归一尝试与撤销（append-only 留痕，2026-10-06）
 
-大獭曾拍板「文档归一」（imf2 并入 imfg、删除 imf2，commit 1805a582），理由「冻结语义已被 moving-base 盲区击穿、硬还原是自欺」。**该推理错误**：分支上的违规修改是历史，append-only 铁律约束的是合入 main 的净 diff——imfg 必须保持 main 原版。经搭档纠正后已撤销：imfg 恢复 origin/main 原样（净 diff 零差异），全部订正内容回归本文档承载；moving-base 盲区本身已立 issue #1300 追踪修复。
+大獭曾拍板「文档归一」（imf2 并入 imfg、删除 imf2，commit 1805a582，08:12 rebase 后对应 b94efc7b），理由「冻结语义已被 moving-base 盲区击穿、硬还原是自欺」。**该推理错误**：分支上的违规修改是历史，append-only 铁律约束的是合入 main 的净 diff——imfg 必须保持 main 原版。经搭档纠正后已撤销：imfg 恢复 origin/main 原样（净 diff 零差异），全部订正内容回归本文档承载；moving-base 盲区本身已立 issue #1300 追踪修复。
 
 ## 验证
 
@@ -81,7 +81,7 @@ PR #1283 于审视循环未收敛时被提前合入（2026-10-05 07:56Z，squash
 
 - 首轮（检视獭-1283，2026-10-05）：3 严重 + 3 建议——严重①② + 建议①②③ 已修（PR #1290 首个 commit，delta 复核通过，双检视独立确认）
 - delta 轮（检视獭-1283 + 检视獭-1290，2026-10-05）：处置全部核实通过；新发现 3 条——新 2 新 3 已修（f63cf6a3），新 1（数字订正）+ 严重③定案由本文档承载；待轻量 delta 复核本文档 + f63cf6a3
-- 第三轮 delta（检视獭-1290r3，2026-10-06）：**通过（0 严重 0 建议）**——针对归一 commit 1805a582 的复核确认 imf2 九项内容无丢失并入 imfg；该归一随后经搭档纠正被撤销（append-only 铁律，见附录），本复核结论中「归一形态」作废、「内容完整性核对」结论对本文档继续有效
+- 第三轮 delta（检视獭-1290r3，2026-10-06）：**通过（0 严重 0 建议）**——针对归一 commit（1805a582，rebase 后对应 b94efc7b）的复核确认 imf2 九项内容无丢失并入 imfg；该归一随后经搭档纠正被撤销（append-only 铁律，见附录），本复核结论中「归一形态」作废、「内容完整性核对」结论对本文档继续有效
 
 ## 后续
 
