@@ -1669,6 +1669,8 @@ export default function ConversationPage() {
           }}
           onTriggerScheduledTask={triggerScheduledTask}
           onViewScheduledTaskHistory={(taskId) => setExecutionHistoryTaskId(taskId)}
+          // F20261006mlp2 P2：待办板裁决回执路由——owner 在场显式路由 owner 代执行；owner 已解散传 null 走默认派发（大獭兜底）
+          onRouteToOtter={(body, ownerOtterId) => { handleSend(body, ownerOtterId ? [ownerOtterId] : undefined) }}
           />
         </div>
       </div>
