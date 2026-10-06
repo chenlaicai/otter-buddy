@@ -34,6 +34,15 @@ describe("卡片预设类库（F20261006cssp）", () => {
     }
   });
 
+  it("契约预设节不多报：契约提到的类名必须在清单内（建议 1 双向锁，防手写漂移面）", () => {
+    // 契约「预设类库」节内提到的 .foo 类名 ⊆ 清单（提取节内全部 .xxx，排除样式变量节的 var(--x) 无关内容）
+    const section = HTML_CARD_CONTRACT.split("## 预设类库")[1]?.split("## ")[0] ?? "";
+    expect(section.length).toBeGreaterThan(100);
+    const mentioned = [...new Set([...section.matchAll(/\.([a-zA-Z][\w-]*)/g)].map((m) => m[1]))];
+    const unknown = mentioned.filter((m) => !CARD_PRESET_CLASS_NAMES.includes(m));
+    expect(unknown).toEqual([]);
+  });
+
   it("契约声明「推荐不强制」与覆盖语义（搭档定调入契约）", () => {
     expect(HTML_CARD_CONTRACT).toContain("推荐使用，不强制");
     expect(HTML_CARD_CONTRACT).toContain("优先用预设");
@@ -50,5 +59,19 @@ describe("卡片预设类库（F20261006cssp）", () => {
     for (const hex of rawHex) {
       expect(allowed.has(hex)).toBe(true);
     }
+  });
+
+  it("预设引用的每个 var() 在设计 token 层有声明（严重 1 回归锁：--caramel-600 静默失效事故）", async () => {
+    // 双端同源机械比对：预设 CSS 的 var() 引用 ⊆ HtmlCard CARD_TOKEN_CSS 的声明集
+    const htmlCardPath = new URL("../../../web/src/pages/conversation/HtmlCard.tsx", import.meta.url);
+    const src = await import("node:fs").then((fs) => fs.readFileSync(htmlCardPath, "utf-8"));
+    const tokenBlock = src.match(/CARD_TOKEN_CSS = `:root \{([\s\S]*?)\}`/);
+    expect(tokenBlock).toBeTruthy();
+    const declared = new Set([...tokenBlock![1].matchAll(/--([\w-]+)\s*:/g)].map((m) => m[1]));
+    expect(declared.size).toBeGreaterThanOrEqual(22);
+    const referenced = [...new Set([...CARD_PRESET_CLASSES_CSS.matchAll(/var\(--([\w-]+)\)/g)].map((m) => m[1]))];
+    expect(referenced.length).toBeGreaterThan(0);
+    const missing = referenced.filter((t) => !declared.has(t));
+    expect(missing).toEqual([]);
   });
 });
