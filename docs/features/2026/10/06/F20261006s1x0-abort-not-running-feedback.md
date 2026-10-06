@@ -1,5 +1,5 @@
 ---
-id: F20260930s1x0
+id: F20261006s1x0
 title: 中断失效治理：abort 端点对「假行动中」返回明确错误 + 前端专属提示（issue #1251）
 change_type: fix
 status: implemented
