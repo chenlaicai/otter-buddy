@@ -1021,14 +1021,11 @@ function judgeShellCSegment(
   const payloadHit = checkMainCheckoutWrite({ command: ex.payload, logger: ctx.logger, projectRoot: ctx.projectRoot, depth: ctx.depth - 1 }) !== null;
   if (payloadHit) return true;
   // F20261006gfvl 合并修（原 #1315）：载荷内 rm/mv/find -delete 主仓 data 破坏感知——
-  // segmentDestructive 是 checkDataDirDestructive 的内层判定（独立通道），
-  // bash -c 载荷递归只走 checkMainCheckoutWrite 不含 rm 面。补：载荷逐段过 segmentDestructive。
-  // cwd 用 projectRoot（载荷在 bash -c 内执行时继承当前 shell cwd=主仓根）。
-  if (ctx.projectRoot) {
-    for (const payloadSeg of splitShellSegments(ex.payload)) {
-      if (segmentDestructive(payloadSeg, ctx.projectRoot, ctx.projectRoot).hit) return true;
-    }
-  }
+  // 复用 checkDataDirDestructive 完整通道（含 cd 跟踪循环），不逐段独立 segmentDestructive。
+  // 基座对齐铁律：顶层 cd 豁免（checkDataDirDestructive :452 cd 跟踪）与载荷内 cd 豁免必须同一实现——
+  // 检视獭实证 `bash -c 'cd /wt && rm -rf data'` 误拦（cwd 硬编码 projectRoot 不跟踪载荷内 cd），
+  // 与既有测试「顶层 cd /wt && rm data → 放行」基座不一致。
+  if (ctx.projectRoot && checkDataDirDestructive(ex.payload, ctx.logger, ctx.projectRoot)) return true;
   const tail = seg.slice(ex.consumedEnd).trim();
   // r2 严重 A：载荷引用位置参数（$1-$9/$@/$*/${N}）时参数位内容会被真实执行
   //（`bash -c '$1 $2' x git commit -m y` 真 bash 沙箱实测 touch 落盘）——载荷与
@@ -1887,8 +1884,15 @@ export function checkBashCommandSafety(
     // PR merge 已由模型 argv 位判定，不再跑文本版）
     const scriptKill = checkServiceScriptKill(command, mainPid, logger, projectRoot);
     if (scriptKill) return withDiagnostics(scriptKill, command, mainPid);
-    const dataDestructive = checkDataDirDestructive(command, logger, projectRoot);
-    if (dataDestructive) return withDiagnostics(dataDestructive, command, mainPid);
+    // F20261006gfvl 合并修：bash -c 载荷的 rm 感知由 judgeShellCSegment 的完整通道处理
+    // （含载荷内 cd 跟踪）——V1 层对原始命令的 checkDataDirDestructive 段拆分不剥引号，
+    // `bash -c 'cd /tmp && rm -rf data'` 的引号内 && 被切开导致 cd 跟踪失效误拦。
+    // 跳过：含 bash -c 载荷的命令走 judgeShellCSegment（checkMainCheckoutWrite 内部），
+    // 纯 rm/mv/find 命令（无 bash -c）仍走本层。
+    if (!/(?:bash|sh|zsh|dash|ksh)\d*\s+(?:[+-]\S+\s+)*-c\s/.test(command)) {
+      const dataDestructive = checkDataDirDestructive(command, logger, projectRoot);
+      if (dataDestructive) return withDiagnostics(dataDestructive, command, mainPid);
+    }
     // #1207（F20260930l573）：主仓写检测在原始命令上跑（heredoc 体在场），
     // 体感知判定在此计算后传入——只豁免纯只读 python heredoc 体。
     // #1240 检视 r1：负门触发后内部直接调用 scriptHeredocBodiesReadOnlySegmentAware

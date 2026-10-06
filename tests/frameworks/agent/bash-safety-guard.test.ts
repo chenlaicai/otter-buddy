@@ -2841,3 +2841,40 @@ describe("F20261006gfvl 合并修（原 #1314/#1315，搭档拍板折回本 PR�
     expect(checkBashCommandSafety(`bash -c 'find data -name "*.log" -delete'`, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 });
+
+describe("F20261006gfvl 合并修（rm 载荷 cd 跟踪）：bash -c 载荷内 cd 改变 cwd 的正道放行", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+
+  it("C1: bash -c 'cd /wt && rm -rf data' → 放行（载荷内 cd 到 worktree 后 rm data → worktree 数据）", () => {
+    expect(checkBashCommandSafety(`bash -c 'cd /repo/.otter/worktrees/foo && rm -rf data'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("C2: bash -c 'cd /wt && rm -rf data/metrics' → 放行（同型正道）", () => {
+    expect(checkBashCommandSafety(`bash -c 'cd /repo/.otter/worktrees/foo && rm -rf data/metrics'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("C3: bash -c 'cd /tmp && rm -rf data' → 放行（cd /tmp 后 rm data → /tmp/data）", () => {
+    expect(checkBashCommandSafety(`bash -c 'cd /tmp && rm -rf data'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("C4: bash -c 'cd /tmp && rm -rf /repo/data' → 拦截（cd 后绝对路径主仓 data）", () => {
+    expect(checkBashCommandSafety(`bash -c 'cd /tmp && rm -rf /repo/data'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("C5: bash -c 'rm -rf data/' → 拦截（无 cd 直删主仓 data，不回退）", () => {
+    expect(checkBashCommandSafety(`bash -c 'rm -rf data/'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("C6: bash -c 'rm -rf ./data/' → 拦截（./data 同 data）", () => {
+    expect(checkBashCommandSafety(`bash -c 'rm -rf ./data/'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("C7: bash -c 'rm -r data' → 拦截（rm -r 无 f 变体）", () => {
+    expect(checkBashCommandSafety(`bash -c 'rm -r data'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("C8: bash -o pipefail -c 'rm -rf data/' → 拦截（带值旗标 + rm 载荷）", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -c 'rm -rf data/'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+});
