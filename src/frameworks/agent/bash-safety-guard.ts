@@ -816,8 +816,10 @@ type ShellCExtract =
 
 /** shell 短旗标白名单（-c 前置容许形态，与 PY_FLAG_GROUP 同模式）。
  *  bash/sh/zsh/dash/ksh 共有常见旗标：a b c d e f h i k l m n o p r s t u v x y C E F H T W X
+ *  #1285 r2 严重 B：前缀字符类补 [+-]——bash 的 `+x`（关 xtrace）是合法旗标形态，
+ *  只认 `-` 前缀时 `sh +x -c '写'` 曾绕过。
  *  白名单外（含长旗标 --posix / --norc 等带参形态）→ FAIL_CLOSED。 */
-const SHELL_FLAG_WHITELIST = /^-[abcdefhiklmnoprstuvxyCEFHTWX]+$/;
+const SHELL_FLAG_WHITELIST = /^[+-][abcdefhiklmnoprstuvxyCEFHTWX]+$/;
 
 /** 提取引号包裹的 -c 载荷（extractShellCPayload 内层，抽函数控圈复杂度）。
  *  返回 null = 未闭合引号（fail-closed）。 */
@@ -844,7 +846,9 @@ function extractShellCPayload(seg: string, shellOffset: number): ShellCExtract {
   if (!nameM) return { kind: "FILE" };
   const after = rest.slice(nameM[0].length);
   // 逐 token 扫：白名单短旗标跳过；遇 -c 进载荷提取；其他 → 判 FAIL_CLOSED 或 FILE
-  const argM = after.match(/^((?:\s+-\S+)*?)\s*-c(\s|$)/);
+  // r2 严重 B：旗标 token 形态含 [+-] 前缀（bash `+x` 关 xtrace 合法）——argM 只认
+  // `\s+-\S+` 时 `+x` 不进旗标位，整串匹配失败返回 FILE 放行（`sh +x -c '写'` 曾绕）。
+  const argM = after.match(/^((?:\s+[+-]\S+)*?)\s*-c(\s|$)/);
   if (!argM) {
     // 无 -c：bash script.sh / bash -x script.sh → 文件落点放行
     //（-c 后无空格的空字符串 -c'' 形态走下方载荷为空 → FAIL_CLOSED）
@@ -930,7 +934,7 @@ function wrappedOneLinerPayloadsReadOnly(command: string): boolean {
  *  正则锚只认赋值前缀不认包装词，`env git commit` / `sudo git commit` 曾全放。
  *  比 MAIN_WRITE_PATTERNS[5] 宽：补 push / reset --hard / clean -f 等同属写族但
  *  原正则未覆盖的子命令——段首解析通道既然接了 git 落点，写族口径一次补齐）。 */
-const GIT_WRITE_SUBCOMMAND = /^git\s+(?:-C\s+\S+\s+|--git-dir=\S+\s+|--work-tree=\S+\s+|-c\s+\S+\s+)*(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push|push\b|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
+const GIT_WRITE_SUBCOMMAND = /^git\s+(?:-C\s+\S+\s+|--git-dir=\S+\s+|--work-tree=\S+\s+|-c\s+\S+\s+)*(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push|push\b(?!\s+(?:--dry-run|-n)\b)|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
 
 /** 剥子壳包装（#1285 r1 严重 1 连带形态：`(git commit)` / `{ git commit; }`——
  *  子 shell/命令组剥壳后按同一段判定链重判；剥壳无界循环防护上限 8 层。
@@ -967,10 +971,17 @@ function judgeShellCSegment(
   // 递归：载荷作为独立命令重走主仓写判定（基座对齐——同一 checkMainCheckoutWrite）
   const payloadHit = checkMainCheckoutWrite({ command: ex.payload, logger: ctx.logger, projectRoot: ctx.projectRoot, depth: ctx.depth - 1 }) !== null;
   if (payloadHit) return true;
+  const tail = seg.slice(ex.consumedEnd).trim();
+  // r2 严重 A：载荷引用位置参数（$1-$9/$@/$*/${N}）时参数位内容会被真实执行
+  //（`bash -c '$1 $2' x git commit -m y` 真 bash 沙箱实测 touch 落盘）——载荷与
+  // 剩余段互相看不见是判定链盲区。kill 通道 #1154 r2 同款正则先例（:356 附近）。
+  // 载荷含位置参数引用且参数位非空 → fail-closed 拦（参数位语义是数据还是命令
+  // 由 shell 运行时决定，静态不可分——不逐 token 判定，保守拦）。
+  const refsPositional = /\$\{?(?:0|[1-9]\d*|@|\*)\}?(?![\w$])/.test(ex.payload);
+  if (refsPositional && tail) return true;
   // r1 严重 3：载荷后剩余 token 重新过判定链——`bash -c 'echo a' timeout 5 node -e "写"`
   // 载荷干净但段内第二命令曾裸奔；`env C=k bash -c 'python3 -c "写"' _` 参数位同型。
   // 剩余段按同判定链递归（depth 消耗与载荷递归同级，终止性：consumedEnd 严格右移）。
-  const tail = seg.slice(ex.consumedEnd).trim();
   if (tail) {
     for (const tailSeg of splitShellSegments(tail)) {
       if (judgeSegment(tailSeg, { ...ctx, depth: ctx.depth - 1 })) return true;

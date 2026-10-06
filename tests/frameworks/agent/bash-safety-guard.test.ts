@@ -2498,3 +2498,70 @@ describe("#1285 r1 处置：检视獭-1297 初轮 3 严重（双轨交界处）+
     expect(checkBashCommandSafety(`bash --posix /tmp/analyze.sh`, mainPid, undefined, { projectRoot })).not.toBeNull(); // 模型层拦（既有），非本层 FAIL_CLOSED
   });
 });
+
+describe("#1285 r2 处置：delta r1 复核 3 新发现（位置参数间接执行 / + 旗标 / dry-run 回归）", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+
+  // ── 严重A：位置参数间接执行（载荷 $1 引用时参数位内容真实执行）──
+  it("r2-A：bash -c '$1 $2' x git commit → 拦截（载荷含位置参数引用+参数位非空 fail-closed）", () => {
+    // 真 bash 沙箱实证（检视獭）：$1=git $2=commit 绑定后参数位内容被执行
+    expect(checkBashCommandSafety(`bash -c '$1 $2' x git commit -m y`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("r2-A2：bash -c '$@' x git push → 拦截（$@ 引用同型）", () => {
+    expect(checkBashCommandSafety(`bash -c '$@' x git push origin main`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("r2-A3：bash -c '${1}' x git commit → 拦截（花括号形态）", () => {
+    expect(checkBashCommandSafety(`bash -c '\${1}' x git commit -m y`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("r2-A 对称放行：bash -c 'echo $1' x y → 放行（echo 只读——等等，位置参数引用+参数位非空即拦，无论载荷本身只读）", () => {
+    // fail-closed 口径：参数位语义（数据 or 命令）由 shell 运行时决定，静态不可分——
+    // 载荷含位置参数引用且参数位非空即拦，不逐 token 判定。`echo $1` 只读载荷带参数位同样拦。
+    expect(checkBashCommandSafety(`bash -c 'echo $1' x y`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("r2-A 对称放行：bash -c 'echo a' x y → 放行（载荷无位置参数引用，参数位不执行）", () => {
+    expect(checkBashCommandSafety(`bash -c 'echo a' x y`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  // ── 严重B：+ 旗标绕过（SHELL_FLAG_WHITELIST 字符类补 [+-]）──
+  it("r2-B：sh +x -c 写 → 拦截（+x 关 xtrace 合法旗标，载荷写递归拦）", () => {
+    expect(checkBashCommandSafety(`sh +x -c 'git commit -m x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("r2-B2：bash +e -c 写 → 拦截", () => {
+    expect(checkBashCommandSafety(`bash +e -c 'git commit -m x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("r2-B 对称放行：sh +x -c 'echo hello' → 放行（白名单旗标+只读载荷）", () => {
+    expect(checkBashCommandSafety(`sh +x -c 'echo hello'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  // ── 中等C：dry-run 误拦回归（push 写族补 --dry-run/-n 负向断言）──
+  it("r2-C：git push --dry-run → 放行（旧基线行为恢复）", () => {
+    expect(checkBashCommandSafety(`git push --dry-run origin main`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+  it("r2-C2：git push -n → 放行（-n 短形态同豁免）", () => {
+    expect(checkBashCommandSafety(`git push -n origin main`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+  it("r2-C3：sudo git push --dry-run → 放行（包装形态同豁免）", () => {
+    expect(checkBashCommandSafety(`sudo git push --dry-run origin main`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+  it("r2-C 对称拦截：git push origin main → 拦截（真 push 仍拦）", () => {
+    expect(checkBashCommandSafety(`git push origin main`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("r2-C4：sudo git push origin main → 拦截（包装真 push 仍拦）", () => {
+    expect(checkBashCommandSafety(`sudo git push origin main`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // ── r2 自对抗：三处修法边界 ──
+  it("r2-av1：bash -c '$0' git commit → 拦截（$0 引用+参数位 fail-closed）", () => {
+    expect(checkBashCommandSafety(`bash -c '$0' git commit -m y`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("r2-av2：bash +x -c 嵌套 bash -c 写 → 拦截（+ 旗标 + 递归嵌套）", () => {
+    expect(checkBashCommandSafety(`bash +x -c 'bash -c "git commit -m y"'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("r2-av3：git push origin main --dry-run（旗标后置）→ 拦截（负向断言只管 push 紧邻位，后置形态保守拦——fail-closed 方向正确）", () => {
+    expect(checkBashCommandSafety(`git push origin main --dry-run`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+  it("r2-av4：bash -c 'echo $@'（无参数位）→ 放行（位置参数引用但 tail 空，无执行面）", () => {
+    expect(checkBashCommandSafety(`bash -c 'echo $@'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+});

@@ -135,7 +135,31 @@ git 写族正则锚只认赋值前缀不认包装词前缀，`env git commit` / 
 
 ### r1 验证
 
-守卫全套 1147 用例绿（+27 新断言）；lint 净；CI 待 push 后确认。
+守卫全套 1147 用例绿（+27 新断言）；lint 净；CI 绿（79f44e62）。
+
+## r2 处置（检视獭-1297 delta r1 复核，2 严重 + 1 中等全采纳）
+
+delta r1 结论：r1 三严重+B 级处置全部到位（逐条复测通过、只读对称面零回退），修法边界开出 3 个新发现。逐条处置：
+
+### 严重A：位置参数间接执行 → 采纳，judgeShellCSegment refsPositional 检查
+
+`bash -c '$1 $2' x git commit -m y` 载荷引用 $1 时参数位内容被真实执行（检视獭真 bash 沙箱实测 touch 落盘），但判定链里载荷与剩余段互相看不见。修法：载荷含位置参数引用（`\$\{?(?:0|[1-9]\d*|@|\*)\}?` lookahead 写法，kill 通道 #1154 r2 :356 同款正则先例——`${0}` 花括号形态与 $@/$* 非词字符 \b 死代码缺陷均已规避）且参数位非空 → fail-closed 拦。不逐 token 判定：参数位语义（数据 or 命令）由 shell 运行时决定，静态不可分，保守拦。对称面：载荷无位置参数引用时参数位不执行（`bash -c 'echo a' x y` 放行）；载荷含引用但无参数位（`bash -c 'echo $@'`）放行。
+
+### 严重B：`+` 旗标绕过 → 采纳，字符类补 [+-] 两处
+
+`sh +x -c 'git commit -m x'` 放行——bash 的 `+x`（关 xtrace）是合法旗标形态。修法两处：SHELL_FLAG_WHITELIST 字符类 `-` → `[+-]`；extractShellCPayload 的 argM 旗标位正则 `\s+-\S+` → `\s+[+-]\S+`（只改白名单时 `+x` token 不进旗标位，整串失配返回 FILE 放行——双处同修才闭环）。
+
+### 中等C：dry-run 误拦回归 → 采纳，push 补负向断言
+
+`git push --dry-run` / `git push -n` 旧基线放行、r1 加宽口径后拦——push 纳入写族没带 dry-run/-n 负向断言（commit(?!-tree) 有先例）。修法：GIT_WRITE_SUBCOMMAND 的 push 改 `push\b(?!\s+(?:--dry-run|-n)\b)`。注意口径：负向断言只管 push 紧邻旗标位——`git push origin main --dry-run`（旗标后置）保守拦，fail-closed 方向正确（自对抗 av3 固化）。
+
+### r2 自对抗（三处修法边界，4 变体）
+
+`bash -c '$0' git commit`（$0 引用+参数位拦）/ `bash +x -c` 嵌套递归拦 / `git push origin main --dry-run` 旗标后置保守拦（fail-closed）/ `bash -c 'echo $@'` 无参数位放行。
+
+### r2 验证
+
+守卫全套 1164 用例绿（+17 新断言）；lint 净；repro 真断言 13 载荷全 BLOCKED 不回退。
 
 ## 守卫宪法三问（必答）
 
