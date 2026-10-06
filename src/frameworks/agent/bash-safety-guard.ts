@@ -1592,6 +1592,23 @@ function checkWriteChannels(
   return null;
 }
 
+/** #1240（F20261006c1240）cd 豁免负门判定：模型版 cd 豁免生效时，
+ *  python/node heredoc 体含绝对路径落主仓 → 体非只读拦 / 体只读放行；
+ *  体无绝对路径落主仓 → 放行（cd 豁免原语义）。
+ *  检视 r1 处置（发现 1/2/4）：负门触发后直接体感知拦，
+ *  不再依赖 MAIN_WRITE_PATTERNS[0] 通道正则接力——wrapper（env/sudo）与无 `-` 形态
+ *  通道正则不认（拦截链解耦缺口），node 侧 isNodeHeader 同型首词语义失效。
+ *  返回 null = 放行（含 cd 豁免生效与负门放行两义），BLOCK_MSG = 拦。 */
+function cdExemptionWithVeto(command: string, logger: Logger | undefined, projectRoot: string): string | null {
+  if (!scriptHeredocAbsPathsInsideMain(command, projectRoot)) return null;
+  // 负门触发：体非只读 → 拦（写/执行签名）；体只读 → 放行（纯读探查正道）
+  if (!scriptHeredocBodiesReadOnlySegmentAware(command)) {
+    logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (heredoc abs-path in main, cd-exemption vetoed)", { command: command.substring(0, 200) });
+    return MAIN_WRITE_BLOCK_MSG;
+  }
+  return null;
+}
+
 // eslint-disable-next-line complexity -- V1 分支语义保留（cd 豁免/git 白名单/echo 豁免/重定向 abs 豁免各对应一条已实证形态，见函数内注释）
 function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   const { command, logger, projectRoot, heredocReadOnly, oneLinerReadOnlyOverride } = ctx;
@@ -1600,18 +1617,7 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   // #1170 根治：模型版 cd 豁免——管道/分号不再杀死豁免（`cd wt && git commit | tail` 放行）
   // #1240（F20261006c1240）：cd 豁免加负门——python/node heredoc 体含绝对路径落主仓时不豁免，
   // 防止 `cd /tmp && python3 - <<'PY'…open('<repo>/…','w')…PY` 顶层豁免放行逃逸。
-  // 检视 r1 处置（发现 1/2/4）：负门触发后直接体感知拦（写体拦/纯读体放行），
-  // 不再依赖 MAIN_WRITE_PATTERNS[0] 通道正则接力——wrapper（env/sudo）与无 `-` 形态
-  // 通道正则不认（拦截链解耦缺口），node 侧 isNodeHeader 同型首词语义失效。
-  if (modelCdExemption(command, hasRealCdSegment)) {
-    if (!scriptHeredocAbsPathsInsideMain(command, projectRoot)) return null;
-    // 负门触发：体非只读 → 拦（写/执行签名）；体只读 → 放行（纯读探查正道）
-    if (!scriptHeredocBodiesReadOnlySegmentAware(command)) {
-      logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (heredoc abs-path in main, cd-exemption vetoed)", { command: command.substring(0, 200) });
-      return MAIN_WRITE_BLOCK_MSG;
-    }
-    return null;
-  }
+  if (modelCdExemption(command, hasRealCdSegment)) return cdExemptionWithVeto(command, logger, projectRoot);
   // F20260924gfpn：git 写族字面判定先于只读白名单——写族正则
   // （merge(?!-) 负向断言后）在命令文本上跑，命中即拦；`git stash push` 的 push 在写族
   // 正则内，先于白名单命中，杜绝 stash 白名单词被显式写子命令借壳。
