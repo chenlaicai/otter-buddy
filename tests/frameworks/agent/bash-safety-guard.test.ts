@@ -2878,3 +2878,55 @@ describe("F20261006gfvl 合并修（rm 载荷 cd 跟踪）：bash -c 载荷内 c
     expect(checkBashCommandSafety(`bash -o pipefail -c 'rm -rf data/'`, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 });
+
+describe("F20261006gfvl 合并修（换行 -c 逃逸 + -o 路径 cd 跟踪）：delta 复核处置", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+
+  // 换行 -c 逃逸（处置级发现 1）：-c 孤立于 shell 名外 → FAIL_CLOSED
+  it("N1: bash -e\\n-c 'rm -rf data'（换行分隔） → 拦截（-c 孤立于 shell 名外 FAIL_CLOSED）", () => {
+    expect(checkBashCommandSafety(`bash -e\n-c 'rm -rf data'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("N2: bash -e\\t-c 'rm -rf data'（tab 分隔） → 拦截（tab 不是命令分隔符，同段处理）", () => {
+    expect(checkBashCommandSafety(`bash -e\t-c 'rm -rf data'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("N3: bash\\n-c 'rm -rf data'（纯换行） → 拦截", () => {
+    expect(checkBashCommandSafety(`bash\n-c 'rm -rf data'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // -o 带值路径 cd 跟踪（处置级发现 2）：hasShellC 跳过正则支持带值旗标
+  it("O1: bash -o pipefail -c 'cd /tmp && rm -rf data' → 放行（-o 路径载荷内 cd 跟踪）", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -c 'cd /tmp && rm -rf data'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("O2: bash -o pipefail -c 'cd /wt && rm -rf data' → 放行（worktree 数据正道）", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -c 'cd /repo/.otter/worktrees/foo && rm -rf data'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("O3: bash -o pipefail -c 'cd /tmp && rm -rf /repo/data' → 拦截（cd 后绝对路径主仓 data）", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -c 'cd /tmp && rm -rf /repo/data'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("O4: bash -o pipefail -c 'rm -rf data' → 拦截（无 cd 直删主仓 data）", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -c 'rm -rf data'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // 旗标×cd×rm 矩阵补全（自对抗）
+  it("M1: bash -x -c 'cd /tmp && rm -rf data' → 放行（普通旗标 + cd 正道）", () => {
+    expect(checkBashCommandSafety(`bash -x -c 'cd /tmp && rm -rf data'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("M2: bash -o errexit -o nounset -c 'cd /tmp && rm -rf data' → 放行（多 -o 旗标 + cd 正道）", () => {
+    expect(checkBashCommandSafety(`bash -o errexit -o nounset -c 'cd /tmp && rm -rf data'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("M3: bash +o nounset -c 'cd /tmp && rm -rf data' → 放行（+o 关旗标 + cd 正道）", () => {
+    expect(checkBashCommandSafety(`bash +o nounset -c 'cd /tmp && rm -rf data'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("M4: bash -C -c 'cd /tmp && rm -rf data' → 放行（-C 无参旗标 + cd 正道）", () => {
+    expect(checkBashCommandSafety(`bash -C -c 'cd /tmp && rm -rf data'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+});

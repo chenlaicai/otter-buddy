@@ -1086,6 +1086,10 @@ function judgeSegment(
   }
   // ③c 已知常见词 → 放行
   if (SEGMENT_HEAD_PASS_THROUGH.has(head)) return false;
+  // F20261006gfvl 合并修：`-c` 孤立于 shell 名外（换行/命令分隔符导致 `-c` 段首）→ FAIL_CLOSED。
+  // `bash -e\n-c 'rm -rf data'` 的 `\n` 被 splitShellSegments 当段分隔符，`bash -e` 段放行后
+  // `-c 'rm -rf data'` 段段首是 `-c` 非 shell 名——异常形态，fail-closed 拦（检视獭实证逃逸）。
+  if (head === "-c") return true;
   // ③d 未知落点——词表外包装词（timeout/watch/setsid/stdbuf/arch 曾全放）。
   // fail-closed 收窄版：未知词 + 段内含 one-liner/shell-c 特征才拦——
   // `timeout 5 node -e 写` 是典型包装绕过；纯未知命令（make/gradle build）
@@ -1889,7 +1893,9 @@ export function checkBashCommandSafety(
     // `bash -c 'cd /tmp && rm -rf data'` 的引号内 && 被切开导致 cd 跟踪失效误拦。
     // 跳过：含 bash -c 载荷的命令走 judgeShellCSegment（checkMainCheckoutWrite 内部），
     // 纯 rm/mv/find 命令（无 bash -c）仍走本层。
-    if (!/(?:bash|sh|zsh|dash|ksh)\d*\s+(?:[+-]\S+\s+)*-c\s/.test(command)) {
+    // 旗标组 `(?:\S+\s+)*?` 非贪婪匹配任意 token（含带值旗标的值 token）——
+    // `-o pipefail -c` 的 `pipefail` 值无前缀也能被跳过组消费（检视獭实证 -o 路径误拦）。
+    if (!/(?:bash|sh|zsh|dash|ksh)\d*\s+(?:\S+\s+)*?-c\s/.test(command)) {
       const dataDestructive = checkDataDirDestructive(command, logger, projectRoot);
       if (dataDestructive) return withDiagnostics(dataDestructive, command, mainPid);
     }
