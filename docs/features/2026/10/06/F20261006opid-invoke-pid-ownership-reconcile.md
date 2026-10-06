@@ -1,7 +1,8 @@
 ---
 id: F20261006opid
 title: 重启窗口期孤儿 invoke 根治：pid 归属判据替换时间戳守卫
-type: BugFix
+change_type: fix
+capability_test: "n/a: 进程归属判据 + 存量库迁移，无 LLM 行为面"
 status: implemented
 created_at: 2026-10-06
 created_in_conversation: d7377cfd-8497-4338-9fb5-366967ffe87e
@@ -9,6 +10,9 @@ causal_links:
   - F20260916b1ea
   - F20260930roiv
 summary: invokes 表加 pid 列标记创建进程，孤儿 reconcile 判据从「started_at < bootTs」时间戳守卫升级为 pid 归属（pid 复用场景由时间戳兜底），旧进程晚写入的孤儿不再漏清
+intent:
+  problem: "#1244 的 bootTs 时间戳守卫对 9/29 事故形态（旧进程在新进程 boot 后 ~78s 晚落库，started_at > bootTs）永远跳过——10s 补跑与 1h 兜底同用 bootTs，窗口期孤儿只能等下次重启清理（#1241）"
+  expected_effect: "修复后旧进程晚写入的孤儿（pid != 本进程）无论写入时间均可被 10s 补跑/1h 兜底精确清理；本进程活跃 invoke（本 pid 且晚于 boot）零误杀；pid 复用场景由时间戳第三臂兜底；存量库迁移幂等"
 ---
 
 # F20261006opid 重启窗口期孤儿 invoke 根治：pid 归属判据
@@ -58,3 +62,5 @@ summary: invokes 表加 pid 列标记创建进程，孤儿 reconcile 判据从�
 
 - 本 pid 卡死的 running invoke（进程活着但 invoke 永不结束）不在本判据范围——与 #1244 时代语义一致，属 #905 故障模型议题
 - `getInvokes` 等 API 投影不透出 pid（内部运维字段，前端无消费点）
+- **单进程持有 DB 的世界假设**（检视 r1 发现 2）：豁免 = 本 pid 且晚于 boot 隐含「同库仅一个服务进程」。多进程形态（同 DB 双实例/多机）下进程 B 的活跃 invoke 会被 A 的 1h duty 误标 failed 并入恢复队列（B 回写可能再改回 completed——updateInvokeStatus 无状态守卫）。当前单服务进程独占 DB，该场景不可达；#905 epoch 重构前的过渡期以本条记录为判据的假设边界
+- **恢复消费时延语义**（检视 r1 发现 3）：10s 补跑/1h duty 清理入队（restart_pending_resumes）的恢复项，本进程内无消费者——ResumeInterruptedService.resume() 仅启动时跑一次（3s 延早于 10s 补跑），实际恢复发生在下次重启（读队列 + CAS 认领）。pid 判据让清理从「空转」变「真清」后此路径首次真正激活：**清理（UI 解卡）即时生效，恢复滞后一次重启**。防重三重护栏（INSERT OR IGNORE / claimPendingResume CAS / isOtterAlreadyResumed）已核实无重复执行风险；若需即时恢复，评估 patrol duty 挂 resume 补扫（改动面超 narrow-fix，另行建账）
