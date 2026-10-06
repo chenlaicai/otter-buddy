@@ -850,7 +850,11 @@ function scanShellFlags(tokens: string[]): FlagScan {
     if (/^[+-]o$/.test(tok)) {
       i++; // 消费值 token
       if (i >= tokens.length) return { kind: "FAIL_CLOSED" }; // -o 后无值
-      if (!SHELL_O_OPTNAME_WHITELIST.has(tokens[i])) return { kind: "FAIL_CLOSED" };
+      // F20261006gfvl 合并修（原 #1314）：白名单匹配前剥引号——真 bash 3.2 实测
+      // `bash -o "pipefail" -c 'echo hello'` 合法执行，token 化不剥引号会误拦。
+      // 空格注入面保持拦：`"pipe fail"` 拆词后 `fail"` 白名单外 → FAIL_CLOSED。
+      const optname = tokens[i].replace(/^["']|["']$/g, "");
+      if (!SHELL_O_OPTNAME_WHITELIST.has(optname)) return { kind: "FAIL_CLOSED" };
       continue;
     }
     if (SHELL_FLAG_WHITELIST.test(tok)) continue; // 白名单短旗标（含 -C 无参 noclobber）
@@ -1016,6 +1020,15 @@ function judgeShellCSegment(
   // 递归：载荷作为独立命令重走主仓写判定（基座对齐——同一 checkMainCheckoutWrite）
   const payloadHit = checkMainCheckoutWrite({ command: ex.payload, logger: ctx.logger, projectRoot: ctx.projectRoot, depth: ctx.depth - 1 }) !== null;
   if (payloadHit) return true;
+  // F20261006gfvl 合并修（原 #1315）：载荷内 rm/mv/find -delete 主仓 data 破坏感知——
+  // segmentDestructive 是 checkDataDirDestructive 的内层判定（独立通道），
+  // bash -c 载荷递归只走 checkMainCheckoutWrite 不含 rm 面。补：载荷逐段过 segmentDestructive。
+  // cwd 用 projectRoot（载荷在 bash -c 内执行时继承当前 shell cwd=主仓根）。
+  if (ctx.projectRoot) {
+    for (const payloadSeg of splitShellSegments(ex.payload)) {
+      if (segmentDestructive(payloadSeg, ctx.projectRoot, ctx.projectRoot).hit) return true;
+    }
+  }
   const tail = seg.slice(ex.consumedEnd).trim();
   // r2 严重 A：载荷引用位置参数（$1-$9/$@/$*/${N}）时参数位内容会被真实执行
   //（`bash -c '$1 $2' x git commit -m y` 真 bash 沙箱实测 touch 落盘）——载荷与

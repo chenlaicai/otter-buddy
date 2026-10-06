@@ -2763,3 +2763,81 @@ describe("F20261006gfvl (#1307)：bash -c 带值旗标绕过收口", () => {
     expect(checkBashCommandSafety(`bash -o pipefail -c`, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 });
+
+describe("F20261006gfvl 合并修（原 #1314/#1315，搭档拍板折回本 PR）：引号值误拦 + rm 载荷感知", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+
+  // ── 引号值误拦（原 #1314）：真 bash 3.2 实测合法执行 ──
+  it("Q1: bash -o 双引号 pipefail -c 只读载荷 → 放行（白名单匹配前剥引号）", () => {
+    expect(checkBashCommandSafety(`bash -o "pipefail" -c 'echo hello'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("Q2: bash -o 单引号 pipefail -c 只读载荷 → 放行", () => {
+    expect(checkBashCommandSafety(`bash -o 'pipefail' -c 'echo hello'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("Q3: bash -o 混合引号多旗标 → 放行", () => {
+    expect(checkBashCommandSafety(`bash -o "errexit" -o 'nounset' -c 'ls'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("Q4: bash -o 双引号白名单外 optname → 拦截（剥引号后仍白名单外）", () => {
+    expect(checkBashCommandSafety(`bash -o "evilopt" -c 'echo x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("Q5: bash -o 引号值含空格注入 → 拦截（拆词后白名单外，空格注入面保持拦）", () => {
+    expect(checkBashCommandSafety(`bash -o "pipe fail" -c 'echo x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // ── rm 破坏通道感知（原 #1315）：bash -c 载荷内 rm 主仓 data ──
+  it("R1: bash -c rm -rf data/ → 拦截（载荷内 rm 主仓 data 感知）", () => {
+    expect(checkBashCommandSafety(`bash -c 'rm -rf data/'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("R2: bash -c rm -rf data/metrics → 拦截", () => {
+    expect(checkBashCommandSafety(`bash -c 'rm -rf data/metrics'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("R3: bash -c rm -f data/otter-buddy.db → 拦截", () => {
+    expect(checkBashCommandSafety(`bash -c 'rm -f data/otter-buddy.db'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("R4: bash -o pipefail -c rm -rf data/ → 拦截（带值旗标 + rm 载荷）", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -c 'rm -rf data/'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("R5: bash -c mv data/metrics /tmp/ → 拦截（mv 主仓 data 感知）", () => {
+    expect(checkBashCommandSafety(`bash -c 'mv data/metrics /tmp/'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // rm 负向：非 data 目标放行（不误拦）
+  it("R6: bash -c rm -rf /tmp/scratch → 放行（非主仓 data 目标）", () => {
+    expect(checkBashCommandSafety(`bash -c 'rm -rf /tmp/scratch'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("R7: bash -c rm -f /tmp/x.log → 放行", () => {
+    expect(checkBashCommandSafety(`bash -c 'rm -f /tmp/x.log'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  // 既有语义不回退
+  it("P1: bash -c 只读载荷 → 放行（不回退）", () => {
+    expect(checkBashCommandSafety(`bash -c 'echo hello'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("N1: bash -c kill 载荷 → 拦截（kill 族独立层不回退）", () => {
+    expect(checkBashCommandSafety(`bash -c 'kill ${mainPid}'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // 自对抗补充：引号面嵌套/混合 + rm 面变体
+  it("V1: bash -o 嵌套引号值 → 拦截（剥外层后内层引号残留白名单外）", () => {
+    expect(checkBashCommandSafety(`bash -o "'pipefail'" -c 'echo x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("V2: bash -c rm -r data → 拦截（rm -r 无 f 变体）", () => {
+    expect(checkBashCommandSafety(`bash -c 'rm -r data'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("V3: bash -c find data -delete → 拦截（find -delete 主仓 data 感知）", () => {
+    expect(checkBashCommandSafety(`bash -c 'find data -name "*.log" -delete'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+});

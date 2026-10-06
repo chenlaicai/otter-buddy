@@ -86,6 +86,16 @@ argM 正则 → 逐 token 扫描：
 
 修正：`-C` 移出带值旗标建模，由 SHELL_FLAG_WHITELIST 字符类覆盖（大写 C 已在字符类）。`-C` 后遇非旗标 token（如 `/tmp`）→ FAIL_CLOSED 保守拦（形态异常，不放行）。
 
+### 合并修复决策记录（搭档拍板折回 #1314/#1315）
+
+**背景**：#1313 审视收敛后，检视獭-1311 发现两个同域盲区——引号值误拦（原 #1314，P2）+ rm 破坏通道空隙（原 #1315，P1）。大獭按 #1297 先例立 follow-up issue 拆分，搭档拍板：「你合并在一起，不要开这么多次，整体来看修复都不完整」——同域盲区不拆 issue，折回本 PR 修完整。
+
+**两块修复**：
+
+1. **引号值误拦（原 #1314）**：`scanShellFlags` 白名单匹配前剥引号（`replace(/^["']|["']$/g, "")`——对齐 pathArgsOf 既有口径）。真 bash 3.2 实测 `bash -o "pipefail" -c 'echo hello'` 合法执行，token 化不剥引号会误拦。**空格注入面保持拦**：`"pipe fail"` 拆词后 `fail"` 白名单外 → FAIL_CLOSED。
+
+2. **rm 破坏通道感知（原 #1315）**：`judgeShellCSegment` PAYLOAD 递归处补 `segmentDestructive` 调用——载荷逐段过 rm/mv/find -delete 主仓 data 判定（cwd 用 projectRoot，载荷在 bash -c 内执行时继承当前 shell cwd=主仓根）。**不误拦面**：非 data 目标（/tmp/scratch 等）放行，worktree 内合法 rm 不拦（resolvesToMainData 以 projectRoot 为基准，worktree 路径不在主仓 data 根下）。
+
 ## 影响范围
 
 - `extractShellCPayload` 旗标解析完整性提升——带值旗标的值 token 正确消费并校验。
@@ -118,7 +128,7 @@ probe-1307b.ts：R1-R4（带值旗标 + 危险载荷）全放，N1-N4（白名�
 
 ## Known Limitations
 
-- `rm -rf` 载荷递归不被拦是既有管辖边界（checkDataDirDestructive 独立通道），不是本 issue 引入。建议单独 issue 跟踪「bash -c 载荷递归补 rm/data 破坏通道」。
 - SHELL_FLAG_WHITELIST 字符类盲区：`-opipefail` 等值内联形态匹配字符类放行——真 bash 3.2 实测报错 exit 2（invalid option name，-o 不接受值内联粘连），守卫放行无害（真 bash 拒执行）——字符类任意字母组合盲区是既有设计（#1297），收窄需单独 issue。
-- token 扫描按 `\s+` 切分——引号内空格（`bash -o "pipe fail" -c 'x'`）会把引号拆成多 token，白名单校验失败 FAIL_CLOSED（保守侧，符合 fail-closed 原则）。
+- token 扫描按 `\s+` 切分——引号内空格（`bash -o "pipe fail" -c 'x'`）会把引号拆成多 token，剥引号后白名单校验失败 FAIL_CLOSED（保守侧，符合 fail-closed 原则）。
 - `-` heredoc stdin 标记（`bash - <<'EOF'`）直接返回 FILE 交外层 heredoc 检测——外层 `scriptHeredocBodiesReadOnlySegmentAware` 管体内容，本层不管。
+- rm 载荷感知的 cwd 固定用 projectRoot（载荷继承 shell cwd=主仓根）——worktree 内 `bash -c 'rm -rf ../data/'` 的相对路径解析以 projectRoot 为基准，`../data/` 解析到主仓 data/ 会拦（正确），worktree 内路径不拦（正确）。
