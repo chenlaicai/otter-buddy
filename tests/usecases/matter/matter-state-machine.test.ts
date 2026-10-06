@@ -131,12 +131,23 @@ describe('matter 状态机：合法迁移矩阵（§2 全量）', () => {
     expect(updated.resolvedBy).toBe('partner');
   });
 
-  it('DONE_PENDING_CONFIRM → WAITING_OTTER（搭档打回闭环）', async () => {
+  it('DONE_PENDING_CONFIRM → WAITING_OTTER（搭档打回闭环，显式 waitingOn 生效）', async () => {
     await seedMatter('DONE_PENDING_CONFIRM');
     const updated = await transition.execute({
       matterId: makeMatter().id, to: 'WAITING_OTTER', actor: 'partner', waitingOn: `otter:${OWNER}`,
     });
     expect(updated.state).toBe('WAITING_OTTER');
+    expect(updated.waitingOn).toBe(`otter:${OWNER}`);
+  });
+
+  it('N3：打回路径不指定 waitingOn 时默认 = owner（消灭 stale partner 漏扫）', async () => {
+    await seedMatter('WAITING_PARTNER');
+    const updated = await transition.execute({
+      matterId: makeMatter().id, to: 'WAITING_OTTER', actor: 'partner',
+      resolution: '打回再改',
+    });
+    expect(updated.state).toBe('WAITING_OTTER');
+    expect(updated.waitingOn).toBe(`otter:${OWNER}`); // 默认等 owner 续办，不残留 partner
   });
 
   it('CLOSED → OPEN（搭档翻案重开）', async () => {
@@ -281,8 +292,8 @@ describe('matter 状态机：代执行（§3.5 通道 A——声明后按被代�
     });
     expect(updated.state).toBe('DONE_PENDING_CONFIRM');
     expect(updated.resolution).toBe('代搭档执行：批准按方案A');
-    // 非终态代执行留痕：resolved_by 记被代理者（partner）
-    expect(updated.resolvedBy).toBe('partner');
+    // N1 修订：resolvedBy 统一记实际执行獭（被代理者身份经 resolution 留痕）
+    expect(updated.resolvedBy).toBe(`otter:${OTHER_OTTER}`);
   });
 
   it('獭代搭档宣告闭环：L2 DONE_PENDING_CONFIRM→CLOSED（on_behalf_of=partner 过宣告权守卫）', async () => {
@@ -302,7 +313,7 @@ describe('matter 状态机：代执行（§3.5 通道 A——声明后按被代�
       actor: OTHER_OTTER, onBehalfOf: OWNER, resolution: '代执行：已完成 X',
     });
     expect(updated.state).toBe('DONE_PENDING_CONFIRM');
-    expect(updated.resolvedBy).toBe(`otter:${OWNER}`); // 非终态留痕记被代理者
+    expect(updated.resolvedBy).toBe(`otter:${OTHER_OTTER}`); // N1 修订：记实际执行獭
   });
 
   it('代执行声明不能越矩阵：獭代搭档执行 WAITING_OTTER→WAITING_PARTNER（owner 专属行）仍拒', async () => {

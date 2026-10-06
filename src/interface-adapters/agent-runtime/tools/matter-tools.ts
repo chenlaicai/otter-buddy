@@ -126,15 +126,13 @@ function buildTransitionInput(ctx: ToolContext, params: Record<string, unknown>,
   return input;
 }
 
-/** 代执行声明校验：裁决类/partner 专属迁移代执行时 resolution 必须含留痕 */
+/** 代执行声明校验：on_behalf_of 非空即强制 resolution 留痕（N2——宣告权分权的审计面） */
 function validateProxyParams(params: Record<string, unknown>): string | null {
   const onBehalf = (params.on_behalf_of as string | undefined)?.trim();
   if (!onBehalf) return null;
-  const to = params.to as string;
-  const proxyRows = ['CLOSED', 'ABANDONED', 'DONE_PENDING_CONFIRM', 'WAITING_OTTER'];
   const resolution = (params.resolution as string | undefined)?.trim();
-  if (proxyRows.includes(to) && !resolution) {
-    return '[错误] 代执行裁决类迁移（CLOSED/ABANDONED/DONE_PENDING_CONFIRM/WAITING_OTTER）必须填 resolution——' +
+  if (!resolution) {
+    return `[错误] 代执行迁移（on_behalf_of=${onBehalf}）必须填 resolution——` +
       `代${onBehalf === 'partner' ? '搭档' : '执行'}留痕是宣告权分权的审计面。`;
   }
   return null;
@@ -163,7 +161,7 @@ export function createTransitionMatterTool(ctx: ToolContext, matterRepo: MatterR
   };
   return {
     name: "transition_matter",
-    description: "迁移本对话一件待办的状态（matters 表——状态迁移走 usecase 单入口）. When: 通道 A 对话直复——搭档回复了某件 open matter 的裁决，獭代执行板上迁移并复述确认（on_behalf_of='partner'）；或獭认领 OPEN 事项（→WAITING_OTTER）、宣称完成（→DONE_PENDING_CONFIRM）. Not for: 查清单（用 list_matters）/ 跨对话迁移（守卫拒绝）. Output: 迁移确认（新状态 + 结果/等待方回显）. GOTCHA: ①迁移矩阵守卫（非法组合拒绝）；②触发者守卫——partner 专属迁移（裁决/翻案/不做）须 on_behalf_of='partner' 代执行声明，owner 专属迁移（干完呈拍板/宣称完成）须 owner 自己或 on_behalf_of=<ownerId>；③宣告权——L2 闭环（DONE_PENDING_CONFIRM→CLOSED）必须搭档确认，代执行声明 on_behalf_of='partner' 也算（resolution 必填「代搭档执行：<原话>」）；④闭环类迁移必须填 resolution；⑤代执行时 resolution 写明「代搭档执行：<原话>」留痕.",
+    description: "迁移本对话一件待办的状态（matters 表——状态迁移走 usecase 单入口）. When: 通道 A 对话直复——搭档回复了某件 open matter 的裁决，獭代执行板上迁移并复述确认（on_behalf_of='partner'）；或獭认领 OPEN 事项（→WAITING_OTTER）、宣称完成（→DONE_PENDING_CONFIRM）. Not for: 查清单（用 list_matters）/ 跨对话迁移（守卫拒绝）. Output: 迁移确认（新状态 + 结果/等待方回显）. GOTCHA: ①迁移矩阵守卫（非法组合拒绝）；②触发者守卫——partner 专属迁移（裁决/翻案/不做）须 on_behalf_of='partner' 代执行声明，owner 专属迁移（干完呈拍板/宣称完成）须 owner 自己或 on_behalf_of=<ownerId>；③宣告权——L2 闭环（DONE_PENDING_CONFIRM→CLOSED）必须搭档确认，代执行声明 on_behalf_of='partner' 也算（resolution 必填「代搭档执行：<原话>」）；④闭环类迁移必须填 resolution；⑤代执行（on_behalf_of 非空）任何迁移都必须填 resolution——写明「代搭档执行：<原话>」留痕.",
     parameters: {
       type: "object",
       properties: {

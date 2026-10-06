@@ -89,7 +89,7 @@ causal_links:
 | waiting_for | TEXT | 在等什么动作（一句话，如「选 A 还是 B」「确认处置结果」） |
 | payload | TEXT | 决策请求挂点内容（L2 时 = 简报卡三层结构 JSON）。**简报内容单源**：WAITING_PARTNER 期间简报内容的真相在 payload，消息流内卡片是渲染投影；修订简报 = 改 payload + 重渲染投影，不在流内改卡片原文 |
 | resolution | TEXT | 裁决/闭环结果回写 |
-| resolved_by | TEXT | 闭环宣告者（partner / otter:<id>）——宣告权分权（T4）的可审计留痕，对照 signal_events 的 resolved_by（schema.ts:721-723） |
+| resolved_by | TEXT | 闭环宣告者/实际执行獭（partner / otter:<id>——N1 修订：统一记实际执行者，被代理者身份经 resolution「代搭档执行：<原话>」留痕）——宣告权分权（T4）的可审计留痕，对照 signal_events 的 resolved_by（schema.ts:721-723） |
 | created_at / updated_at / closed_at | TEXT | 时间线 |
 
 索引：(conversation_id, state)、(state)、(waiting_on)。
@@ -275,7 +275,7 @@ restart_otter 交接档案现状：交接意图书（自总结）+ 叙事合成 
 | 方案条目 | 落点 | 状态 |
 |---|---|---|
 | matters 表 + 三索引 | `src/frameworks/db/schema.ts` createMattersTable（幂等 CREATE IF NOT EXISTS，schema.ts:735-767） | ✅ 字段/索引严格按 §1 字段表 |
-| matter 实体与状态机 | `src/entities/matter/matter.ts`（实体+MATTER_OPEN_STATES）+ `matter-transitions.ts`（§2 矩阵 14 条唯一真相源，Map 索引 O(1) 查询） | ✅ |
+| matter 实体与状态机 | `src/entities/matter/matter.ts`（实体+MATTER_OPEN_STATES）+ `matter-transitions.ts`（§2 矩阵 19 entries=创建2+存续17，唯一真相源，Map 索引 O(1) 查询） | ✅ |
 | 迁移守卫单入口 | `src/usecases/matter/transition-matter.ts`——四层守卫：幂等短路 → 矩阵 → 触发者（any_otter 含 owner；§3.5 代执行声明 on_behalf_of 后按被代理者身份过守卫）→ 宣告权（L2 闭环必须 partner，含代执行声明）；repo.transition 条件更新（WHERE state=?）乐观锁 | ✅ 非法迁移拒绝由单测锁定（47→59 用例，审视修复后） |
 | 登记 usecase（准入白名单） | `src/usecases/matter/register-matter.ts`——initialState 只接受 WAITING_PARTNER（路径 1）/ OPEN（路径 2/3）；L0 无登记路径 | ✅ |
 | 獭侧工具 | `src/interface-adapters/agent-runtime/tools/matter-tools.ts` list_matters / transition_matter；经 `ctx.matterRepo` 注入（仿 signalRepo 先例），small/big 均注册（manifest system block + small fallback 白名单） | ✅ |
@@ -284,7 +284,7 @@ restart_otter 交接档案现状：交接意图书（自总结）+ 叙事合成 
 | 机械供料 handoff_open_matters | `agent-invoker.ts collectOpenMatters`（unifiedHandoff 原料收集并行块）→ 注入 assembleHandoffArchive / buildMechanicalArchive 的 `openMatters` 段（「### ④ 机械供料：本对话未闭环事情（matters）」）；`handoff-support.ts` restoreHandoffContext 同步加 `handoff_open_matters` key（与 handoff_file_trail 同模式——D8 后档案走 session.summary，legacy key 消费面保留对称） | ✅ matterRepo 未注入/查询失败降级空串（增强不是硬依赖） |
 | 只读右侧栏 tab | `web/src/pages/conversation/MattersPanel.tsx` + `hooks/useMatters.ts`（GET /api/conversations/:id/matters，30s 轮询仿 useScheduledTasks）；RightPanel.tsx 第五 tab（ClipboardList 图标）；样式沿用现有 tab 体系（glass 面板/glass-card 条目） | ✅ P1 只读：标题/状态徽章/等待时长/owner；排序 WAITING_PARTNER 置顶（热边框）→ DONE_PENDING_CONFIRM → WAITING_OTTER/OPEN；tab 角标只数「等你裁决+待确认闭环」（搭档欠的动作） |
 | 只读 API | `MatterController.listOpenByConversation` + `matter-dto.ts`（P1 只读投影字段全集） | ✅ 写路径（P2 按钮）不经 HTTP |
-| 单元测试 | `tests/usecases/matter/matter-state-machine.test.ts`（矩阵全量+非法拒绝+触发者+宣告权+幂等+代执行+消亡规则，47 用例）；`tests/frameworks/db/matter/sqlite-matter-repository.test.ts`（CRUD+过滤+跨对话隔离，5 用例）；`tests/interface-adapters/agent-runtime/tools/matter-yield-registration.test.ts`（准入+代执行工具面+payload，12 用例） | ✅ 64 用例全绿（审视修复后） |
+| 单元测试 | `tests/usecases/matter/matter-state-machine.test.ts`（矩阵全量+非法拒绝+触发者+宣告权+幂等+代执行+消亡规则，47 用例）；`tests/frameworks/db/matter/sqlite-matter-repository.test.ts`（CRUD+过滤+跨对话隔离，5 用例）；`tests/interface-adapters/agent-runtime/tools/matter-yield-registration.test.ts`（准入+代执行工具面+payload，12 用例） | ✅ 65 用例全绿（审视+N1-N4 修复后） |
 | 能力测试 | `tests/capability/matter-loop/matter-loop.capability.test.ts` 三场景（③为 P2 占位显式跳过） | ✅ 无 LLM 环境 skip（同其他 capability 测试） |
 
 ### 实现期设计决策（方案未细定的部分）
@@ -307,7 +307,7 @@ restart_otter 交接档案现状：交接意图书（自总结）+ 叙事合成 
 
 ### 自检结果（PR Verification）
 
-- 全量单测：319 文件 4660 用例全绿（含本 PR 新增 matter 域 64 用例 + 存量 coding-tools 1 断言更新；唯一改动存量断言 = coding-tools.test.ts small 白名单 29→31，+list_matters/transition_matter 两条 toContain，与本变更同语义）
+- 全量单测：319 文件 4661 用例全绿（含本 PR 新增 matter 域 65 用例 + 存量 coding-tools 1 断言更新；唯一改动存量断言 = coding-tools.test.ts small 白名单 29→31，+list_matters/transition_matter 两条 toContain，与本变更同语义）
 - web 单测：61 文件 618 用例全绿（新增 MattersPanel.test.tsx 2 用例）
 - eslint src/：0 error 0 warning
 - tsc --noEmit（前后端）：干净（web 侧唯一 error hast 为 pre-existing，基线对照确认）
@@ -338,7 +338,7 @@ restart_otter 交接档案现状：交接意图书（自总结）+ 叙事合成 
 
 **建议 6 矩阵越界 2 条**：§2 矩阵 OPEN/WAITING_*→SUPERSEDED/ABANDONED 行扩为含 DONE_PENDING_CONFIRM（DPC 也需要终态出口的语义补全），矩阵行内留痕修订说明；条数注释改实际口径（19 entries = 创建 2 + 存续 17）。
 
-**建议 7 resolved_by 格式**：终态 resolvedBy 归一化 `actor==='partner' ? 'partner' : 'otter:'+actor`（§1 口径）；非终态代执行留痕记被代理者同口径。测试同步。
+**建议 7 resolved_by 格式**：终态 resolvedBy 归一化 `actor==='partner' ? 'partner' : 'otter:'+actor`（§1 口径）；非终态代执行留痕记被代理者同口径。测试同步。（N1 后续修订：resolvedBy 统一单写记实际执行獭，被代理者身份经 resolution 留痕——见 P1 审视修复记录 N1 条。）
 
 **建议 8 repo.transition 接口-实现漂移**：patch 类型删 ownerOtterId/level（SQL UPDATE 只有 8 列——删接口字段不留漂移）。
 
@@ -347,3 +347,17 @@ restart_otter 交接档案现状：交接意图书（自总结）+ 叙事合成 
 **建议 10 机制四问 2/4 显式**：补「谁需要」「后续机制」两条带标签 bullet（此前隐含于背景/§7 分期）。
 
 修复后单测：matter 域 64/64（新增 19 用例：代执行 usecase 5 + dissolve 3 + 工具层 7 + payload/resolvedBy 等 4）。
+
+### Delta 复审 N1-N4 处置记录（2026-10-06 第二轮）
+
+Delta 复审通过（闸门开），新增 4 条建议级。处置：全部快速修掉，无 issue 留痕。
+
+**N1 proxy audit 双写收敛**：删 writeProxyAuditTrail 二次写入——resolvedBy 统一单写记实际执行獭（buildTransitionPatch 一处），被代理者身份经 resolution「代搭档执行：<原话>」留痕（宣告权分权的审计面本就在 resolution）。diff 反而变小，并发窗口随双写消失。
+
+**N2 代执行留痕面扩宽**：validateProxyParams 改 on_behalf_of 非空即强制 resolution（不限 4 目标态）——与 GOTCHA⑤ 承诺对齐。
+
+**N3 打回路径默认 waiting_on**：defaultWaitingOnForTransition 打回路径（任意前态→WAITING_OTTER）未指定时默认 = owner 续办（otter:<ownerId>）——消灭 stale 'partner' 行（dissolve 双扫描 waiting_on/owner 都漏的残留）。认领路径（OPEN→WO）仍默认=认领獭。
+
+**N4 口径尾巴**：§1 resolved_by 描述同步 N1 语义（实际执行獭+被代理者经 resolution 留痕）；§2 矩阵计数句 + 改动范围表「14 条」改实际口径（19 entries）。
+
+修订后单测：matter 域全绿（新增 N3 打回默认 1 用例，resolvedBy 断言随 N1 修订）。
