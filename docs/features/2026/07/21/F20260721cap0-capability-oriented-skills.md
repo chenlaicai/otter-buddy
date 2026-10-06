@@ -1,6 +1,6 @@
 ---
 id: F20260721cap0
-title: capability-oriented-skills
+title: 能力导向 Skill 重构
 doc_type: feature
 
 # 记忆索引

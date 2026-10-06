@@ -1,6 +1,6 @@
 ---
 id: F20260818b2hr
-title: adversarial-review-b2-hard-rule
+title: adversarial-review B2 维度增加硬规则
 doc_type: feature
 
 summary: |

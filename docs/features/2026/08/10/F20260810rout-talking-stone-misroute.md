@@ -1,6 +1,6 @@
 ---
 id: F20260810rout
-title: otter-talking-stone-misroute
+title: 海獭发言权路由错误（talking_stone misroute）
 doc_type: feature
 
 summary: |

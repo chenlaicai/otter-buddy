@@ -1,6 +1,6 @@
 ---
 id: F20260807fact
-title: fact-content-length-limit
+title: fact 资源内容长度上限 500 字符
 doc_type: feature
 
 # 记忆索引
@@ -16,7 +16,7 @@ causal_links:
 
 # 元数据
 status: development
-change_type: feature_update
+change_type: feature-update
 tags: [linked-resource, fact, content-limit, context-window]
 modules: [src/interface-adapters/agent-runtime/tools/, src/usecases/conversation/]
 

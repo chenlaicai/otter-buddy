@@ -1,6 +1,6 @@
 ---
 id: F20260728cbwt
-title: circuit-breaker-event-driven
+title: 熔断器事件驱动两档制改造
 doc_type: feature
 
 summary: |

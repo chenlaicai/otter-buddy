@@ -1,6 +1,6 @@
 ---
 id: F20260820fmtv
-title: fmtrelativetime-future-time
+title: fmtRelativeTime 未来时间处理 + userName 技术债注释
 doc_type: feature
 
 summary: |
@@ -12,7 +12,7 @@ causal_links:
     - F20260811a3k7
 
 status: development
-change_type: bugfix
+change_type: fix
 tags: [ui, frontend, utils, conversation]
 modules:
   - web/src/lib/utils.ts

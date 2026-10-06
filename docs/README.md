@@ -11,7 +11,7 @@
 | 字段 | 约束 |
 |------|------|
 | `id` | 格式 `F\d{8}[a-z0-9]{4}`（feature）/ `R\d{8}[a-z0-9]{4}`（research）。8 位日期 = 创建日期（YYYYMMDD）。后缀 4-10 位小写字母数字（4 位推荐，放宽兼容历史）。 |
-| `title` | 非空、非纯空格。建议 kebab-case，与文件名后半段对齐 |
+| `title` | 非空、非纯空格。人类可读描述（中英文皆可）——slug 形态（连字符连接、无空格、无 CJK）报 warning（ratchet 只减不增）；文件名后半段才是 slug 的家（下文「文件名 slug」节） |
 | `summary` | **1-500 字符**。投影用途：卡片渲染、检索摘要、token 效率。详细内容写进 body，不要塞 summary |
 
 ### 路径格式（ID 中的日期与目录必须对应）
@@ -53,6 +53,24 @@ capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
 - `## Acceptance Test` 定义"什么算解决了"（需求推导 + 权威证据 + 验收场景）
 - `capability_test` 指向"怎么验证"（能力测试用例）
 - 验收执行后，`## Acceptance Test` 的证据判定表格记录结果
+
+### intent 块约定（F20261005imfg，#839，lint-intent.mjs 校验）
+
+`change_type` 为 `feature` 或 `prompt` 的 F 文档，frontmatter 必须声明 `intent` 块（`change_type` 缺失时按 `feature` 判定，灰色绕过窗口已收口）：
+
+```yaml
+change_type: feature
+intent:
+  problem: "一句话：要解决什么问题"
+  expected_effect: "可判定的预期效果（避免「提升/优化/改善」等模糊词）"
+  verify_by:
+    type: behavior_check   # metric_probe | behavior_check | human_judge | capability_test | golden_replay | static_only
+```
+
+- 缺 `intent` 块 → **error（阻断 commit）**；2026-10-05 前的存量文档在豁免清单 `scripts/intent-exempt-list.txt` 内降为 warning（ratchet 地板，只减不增——补齐 intent 后从清单移除，新增 ID 不进清单）
+- `intent.problem` / `expected_effect` 缺失或空 → error（feature/prompt）
+- `verify_by` 必须是对象且 type 在合法枚举内；`capability_test`/`golden_replay` 要求 expected_effect 可判定（含模糊词 → error）
+- 顶层 `verify_by` 是非法位置（schema 已统一为 intent 块内嵌套式，#1158）
 
 ### supersedes 前缀
 
@@ -145,7 +163,7 @@ causal_links:
     - F20260803m9q2   # 因果上游（sync 读取，存入 DB metadata）
 
 status: development      # draft / proposed / design / development / active / locked / final / implemented / archived
-change_type: feature     # feature / refactor / fix / prompt / feature-update
+change_type: feature     # feature / refactor / fix / prompt / feature-update（真相源 src/entities/document/known-values.ts）
 tags: [area, concept]
 modules:
   - src/path/to/file.ts

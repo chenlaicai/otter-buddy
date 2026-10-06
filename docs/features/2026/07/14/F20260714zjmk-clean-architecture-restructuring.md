@@ -1,6 +1,6 @@
 ---
 id: F20260714zjmk
-title: clean-architecture-restructuring
+title: 架构调整：DDD 四层 → 整洁架构
 doc_type: feature
 
 # 记忆索引

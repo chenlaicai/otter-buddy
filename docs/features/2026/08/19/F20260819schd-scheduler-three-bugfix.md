@@ -2,7 +2,7 @@
 id: F20260819schd
 title: 修复 Scheduler 三个 pre-existing bug
 summary: 修复 SchedulerService 中三个 bug：resetConsecutiveFailures 失败覆写 completed execution（#251）、cron 24h 截断提前触发任务（#247）、once 重试机制不一致（#246）。
-change_type: bugfix
+change_type: fix
 status: locked
 created_in_conversation: bbcfaa33-f036-4493-94de-3faf1c6df6cf
 modules:

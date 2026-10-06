@@ -6,7 +6,7 @@
  * 2. 截断：单条 5000 chars → 750+标记+750；≤1500 不动；多 text 块拼接计长（3×600=1800 → 截）
  * 3. 混合块形态（S1 回归）：text 1000 + thinking 3000 + toolCall args 5000 → 序列化不含
  *    thinking/toolCall 内容，总量 ≤6,500 chars（剥块不截 text 的「硬顶」是假的——实证锚）
- * 4. 契约：messagesToSummarize=第 4 条 speak 之前的全部消息；turnPrefixMessages 恒空；isSplitTurn 恒 false
+ * 4. 契约：messagesToSummarize=保留段之外的全量消息（F20260930hsfx 新口径）；turnPrefixMessages 恒空；isSplitTurn 恒 false
  * 5. 回归：user 消息/注入包/toolResult 不进保留段
  */
 import { describe, expect, it } from "vitest";
@@ -106,7 +106,7 @@ describe("F20260929kws1 保留段简化：最近 4 条 speak", () => {
     expect(serialized).not.toContain("用户消息 9");
   });
 
-  it("不足 4 条：全保留；无 assistant text（纯工具前世）返回 undefined 不报错", () => {
+  it("不足 4 条：全保留；无 assistant text（纯工具前世）返回 keptEntries 空但原料照送（F20260930hsfx S1）", async () => {
     const few = [
       makeUserEntry("问"),
       makeAssistantEntry([textBlock("答 1")]),
@@ -120,15 +120,23 @@ describe("F20260929kws1 保留段简化：最近 4 条 speak", () => {
     expect(serialized).toContain("答 1");
     expect(serialized).toContain("答 2");
 
-    // 无 assistant text：thinking+toolCall 纯工具轮不是 speak
+    // F20260930hsfx S1 核心：无 assistant text（纯工具轮前世）不再返回 undefined——
+    //  保留段空（keptEntries=[]）但 messagesToSummarize 照送全量原料，合成不被连坐跳过
+    //  （事故形态：6 秒空 speak session 拿到机械档案，根因是 slice undefined 连坐跳过合成）。
     const toolOnly = [
       makeUserEntry("干活"),
       makeAssistantEntry([thinkingBlock(cn(200)), toolCallBlock("write", { path: "x" })]),
       makeToolResultEntry(),
     ];
-    expect(sliceSessionEntries(toolOnly)).toBeUndefined();
+    const toolSlice = sliceSessionEntries(toolOnly);
+    expect(toolSlice).toBeDefined(); // 不再 undefined（S1 核心断言）
+    expect(toolSlice!.keptEntries.length).toBe(0); // 保留段空
+    expect(toolSlice!.firstKeptEntryId).toBeUndefined(); // 无 speak 起点
+    // 原料 = 保留段之外的全量消息（无 speak 时即全量）：thinking/toolCall assistant + user + toolResult
+    expect(toolSlice!.messagesToSummarize.length).toBeGreaterThan(0);
+    expect(serializeKeptWindow(toolSlice!)).toBe(''); // 保留段空序列化为空串
 
-    // 空数组同样安全
+    // 真空 session（0 条 entry）仍返回 undefined——无原料，合成跳过合理（区分于「无 speak 有原料」）
     expect(sliceSessionEntries([])).toBeUndefined();
   });
 
@@ -193,17 +201,20 @@ describe("F20260929kws1 保留段简化：最近 4 条 speak", () => {
     expect(serialized).toContain("[Assistant]");
   });
 
-  it("契约：messagesToSummarize=第 4 条 speak 之前的全部消息；turnPrefixMessages 恒空；isSplitTurn 恒 false", () => {
+  it("契约：messagesToSummarize=保留段之外的全量消息（F20260930hsfx 新口径）；turnPrefixMessages 恒空；isSplitTurn 恒 false", () => {
     const entries: SessionEntry[] = [];
     for (let i = 0; i < 8; i++) {
       entries.push(makeUserEntry(`用户 ${i}`));
       entries.push(makeAssistantEntry([textBlock(`speak ${i}`)]));
     }
     const slice = sliceSessionEntries(entries)!;
-    // 最近 4 条 speak = speak 4..7（index 9,11,13,15）→ 原料 = index 0-8 共 9 条消息（user 0-3 + speak 0-3 + user 4）
+    // F20260930hsfx 新口径：原料 = 「保留段（最近 4 条 speak）之外的全量消息」。最近 4 条 speak =
+    //  speak 4..7（index 9,11,13,15），原料 = index 0..8 共 9 条（user 0-3 + speak 0-3 + user 4）——
+    //  与旧「第 4 条 speak 之前」数值相同，但语义改为「保留段之外」（无 speak 时取全量，
+    //  不再拦腰切断 gap 消息、不与保留段陈旧倒挂）。
     expect(slice.messagesToSummarize.length).toBe(9);
     expect(slice.messagesToSummarize[0]).toMatchObject({ role: "user" });
-    // 非空原料 → 叙事合成触发条件成立（agent-invoker 依赖此字段非空）
+    // 非空原料 → 叙事合成触发条件成立（agent-invoker 依赖此字段非空；无 speak 时全量消息进原料）
     expect(slice.messagesToSummarize.length).toBeGreaterThan(0);
     // cutPoint 概念退役：无 turn 前缀、不切半轮
     expect(slice.turnPrefixMessages).toEqual([]);

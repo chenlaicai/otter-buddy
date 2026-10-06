@@ -1,6 +1,6 @@
 ---
 id: F20260804rtpr
-title: runtime-provider-registration
+title: 自定义模型 alias 注册进 ModelRuntime provider 注册表
 doc_type: feature
 
 summary: |

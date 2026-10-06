@@ -1,6 +1,6 @@
 ---
 id: F20260721spea
-title: speak-skill
+title: speak Skill：Agent 发言机制
 doc_type: feature
 
 # 记忆索引

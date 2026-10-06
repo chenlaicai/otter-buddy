@@ -1,6 +1,6 @@
 ---
 id: F20260805mspk
-title: mimo-speak-protocol-instability
+title: mimo speak 协议遵从不稳定（发现记录）
 doc_type: feature
 
 summary: |

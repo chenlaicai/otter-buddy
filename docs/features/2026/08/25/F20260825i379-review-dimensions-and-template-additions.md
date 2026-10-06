@@ -1,6 +1,6 @@
 ---
 id: F20260825i379
-title: issue #379 ②⑥ 收尾：审视维度与方案模板增补
+title: "issue #379 ②⑥ 收尾：审视维度与方案模板增补"
 summary: |
   落地 issue #379 的两个轻量采纳项：② 承诺面对账——adversarial-review 的正确性维度加"F 承诺对账"检查项（逐条核对 F 文档声称的功能点 vs 代码实现）；⑥ 字段消费性审查——requirement-analysis 的方案设计模板加"新增 schema 字段必须声明消费方"约束。均为 prompt 层改动，无代码变更。
 change_type: prompt

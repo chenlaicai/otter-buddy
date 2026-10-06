@@ -1,6 +1,6 @@
 ---
 id: F20260727atcc
-title: abort-tool-call-count-fix
+title: 中断消息工具调用计数修复
 doc_type: feature
 
 summary: |

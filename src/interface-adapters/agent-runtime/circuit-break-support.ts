@@ -34,6 +34,15 @@ import type { CircuitBreakInfo, HealingEventInput } from "@usecases/conversation
  */
 const HEALTHY_SESSION_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
 
+/**
+ * F20261005srst（#1203）：自重启循环判定窗口——自重启创建的 session 若已存活超过此时间，
+ * 不再视为循环风险。防循环要防的是「紧邻连环」（分钟级：重启→醒来→又重启）；
+ * 2h 后仍在工作的 session 显然不是循环。同构 F20260831cbkw 熔断健康窗口。
+ * Why: 9/28 现场——session 07:27 由自重启创建，12:38 搭档显式指令重启仍被拦
+ * （用户介入判据失效，原因无日志可查）。该窗口兑住判据失效类故障：5h 前的自重启产物不可能是循环。
+ */
+const SELF_RESTART_LOOP_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
+
 /** 二级触发的窗口推导结果（F20260913ctlv：messages 停写后按 session 时间窗口计，无 turn 推导） */
 interface TurnWindowCount {
   count: number;
@@ -45,20 +54,29 @@ interface TurnWindowCount {
  * F20260906srst（#811）：自重启 session 创建后是否有用户消息介入。
  * 意图来源维度——有用户消息介入的自重启是正常运维（搭档显式指令），不构成循环；
  * 纯 LLM 自发（无用户消息）才是 F20260824srst 威胁模型要拦的循环。
- * 查询失败降级为 false（无介入）——维持拦截，保守。
+ * 查询失败重试一次（F20261005srst #1203：瞬时故障自愈）；重试仍失败降级为 false（无介入）
+ * ——维持拦截，保守，但不再静默：onDegrade 回调供调用方落 healing event（判据失效可观测）。
  * Why 不看 system 消息：scheduler/continuation 触发的链路无用户意图，LLM 在其上自发重启仍属循环。
  */
 export async function hasUserMessageSince(
   queryLastUserMessage: () => Promise<{ createdAt: string } | null>,
   since: string,
+  opts?: { onDegrade?: (err: unknown, isFinal: boolean) => void },
 ): Promise<boolean> {
-  try {
-    const last = await queryLastUserMessage();
-    if (!last) return false;
-    return Date.parse(last.createdAt) >= Date.parse(since);
-  } catch {
-    return false;
+  const MAX_ATTEMPTS = 2;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const last = await queryLastUserMessage();
+      if (!last) return false;
+      return Date.parse(last.createdAt) >= Date.parse(since);
+    } catch (err) {
+      const isFinal = attempt >= MAX_ATTEMPTS;
+      opts?.onDegrade?.(err, isFinal);
+      if (isFinal) return false;
+      await new Promise(r => setTimeout(r, 50)); // 瞬时故障退避后重试
+    }
   }
+  return false;
 }
 
 export class CircuitBreakSupport {
@@ -379,7 +397,7 @@ export class CircuitBreakSupport {
    * Why 复用 isCircuitBreakCreatedSession 模式：self_restart 与 circuit_break 的防循环机制同构，
    * 都是 healing_events + context.newSessionId 标记新 session，区别仅在 errorType 语义。
    */
-  async isSessionSelfRestartCreated(otterId: string, conversationId?: string): Promise<boolean> {
+  async isSessionSelfRestartCreated(otterId: string, conversationId?: string, opts?: { invokeId?: string }): Promise<boolean> {
     const session = await this.deps.manageSession.getActiveSession(otterId).catch(() => null);
     if (!session) return false;
     const events = await this.deps.healingRepo.findRecentByOtter(otterId, 'self_restart', 20);
@@ -388,12 +406,44 @@ export class CircuitBreakSupport {
       return ctx?.newSessionId === session.id;
     });
     if (!selfRestartCreated) return false;
+    // F20261005srst（#1203）：时间衰减豁免——自重启创建的 session 存活超过窗口即不拦。
+    // 9/28 现场：07:27 自重启创建的 session，12:38 搭档指令重启被拦（介入判据失效无日志可查）
+    // ——该层兑住判据失效类故障。同构 F20260831cbkw 熔断健康窗口。
+    const sessionAgeMs = Date.now() - Date.parse(session.startedAt);
+    if (sessionAgeMs > SELF_RESTART_LOOP_WINDOW_MS) {
+      this.deps.logger.info('Self-restart loop window exceeded, allowing restart', {
+        otterId,
+        sessionId: session.id,
+        sessionAgeHours: Math.round(sessionAgeMs / 3600000 * 10) / 10,
+      });
+      return false;
+    }
     // F20260906srst（#811）：session 虽由自重启创建，但此后有用户消息介入 → 正常运维，放行。
     // 判据：最新 user 消息 createdAt >= session.startedAt（continuation message 不落库，不污染判据）。
     if (conversationId) {
       const intervened = await hasUserMessageSince(
         async () => (await this.deps.entryReader.getEntries(conversationId, { entryType: 'user', limit: 1 }))[0] ?? null,
         session.startedAt,
+        {
+          // F20261005srst（#1203）：降级可观测——重试仍失败时落 healing event，
+          // 判据失效不再静默（9/28 两起误拦事后无任何痕迹可归因）。
+          onDegrade: (err, isFinal) => {
+            this.deps.logger.warn('self-restart user-intervention check degraded', {
+              otterId, conversationId, isFinal, error: String(err),
+            });
+            if (!isFinal) return;
+            this.recordHealingEvent({
+              invokeId: opts?.invokeId ?? 'unknown',
+              conversationId,
+              otterId,
+              errorType: 'tool_failure',
+              severity: 'low',
+              description: '自重启用户介入判据查询降级（重试后仍失败），维持拦截——判据失效留痕（排查 entries 查询链路）',
+              suggestion: '排查 entries 查询链路健康；若为搭档显式重启被拦，可从 UI 手动重启',
+              context: { sessionId: session.id, layer: 'invoker' },
+            }).catch(() => { /* 降级落账失败不阻断拦截判定 */ });
+          },
+        },
       );
       if (intervened) return false;
     }

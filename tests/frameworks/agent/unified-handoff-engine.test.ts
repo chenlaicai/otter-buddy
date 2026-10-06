@@ -35,13 +35,35 @@ function makeMessageEntry(id: string, role: "user" | "assistant", text: string, 
 }
 
 describe("sliceSessionEntries（F20260929kws1：最近 4 条 speak）", () => {
-  it("无 assistant text（纯工具前世）→ 返回 undefined；有 speak 的短历史保留全部 speak", () => {
+  it("有 speak 的短历史保留全部 speak；原料 = 保留段之外的消息（F20260930hsfx 口径）", () => {
     const entries = [makeMessageEntry("e1", "user", "你好"), makeMessageEntry("e2", "assistant", "在的")];
     const slice = sliceSessionEntries(entries);
     expect(slice).toBeDefined();
     expect(slice!.keptEntries.length).toBe(1);
-    // 原料 = 最老保留 speak 之前的全部消息（此处 1 条 user 消息）——不再因「短」返回 undefined
+    // 原料 = 最老保留 speak 之前的消息（此处 1 条 user）——短历史同样返回结构，不因「短"降级
     expect(slice!.messagesToSummarize.length).toBe(1);
+  });
+
+  it("F20260930hsfx S1：无 speak 的纯工具前世 → keptEntries 空但 messagesToSummarize 照送全量原料", () => {
+    // 事故形态：6 秒空 speak session 全是工具轮——旧实现 slice undefined 连坐跳过叙事合成，
+    //  新实现保留段空但原料照送，合成正常执行。
+    const toolOnly: never[] = [
+      makeMessageEntry("u1", "user", "查一下日志"),
+      { type: "message", id: "t1", parentId: null, timestamp: "2026-09-18T10:00:01Z",
+        message: { role: "assistant", content: [{ type: "thinking", thinking: "分析中" }, { type: "toolCall", name: "bash", arguments: { cmd: "ls" } }] } } as never,
+      { type: "message", id: "r1", parentId: null, timestamp: "2026-09-18T10:00:02Z",
+        message: { role: "toolResult", content: [{ type: "toolResult", output: "file.txt" }] } } as never,
+    ];
+    const slice = sliceSessionEntries(toolOnly);
+    expect(slice).toBeDefined(); // S1 核心：不再 undefined
+    expect(slice!.keptEntries.length).toBe(0); // 保留段空（无 speak）
+    expect(slice!.firstKeptEntryId).toBeUndefined();
+    expect(serializeKeptWindow(slice!)).toBe(""); // 空保留段序列化为空
+    // 原料 = 保留段之外的全量消息（无 speak 时即全量 3 条：user + toolCall assistant + toolResult）
+    expect(slice!.messagesToSummarize.length).toBe(3);
+
+    // 真空 session（0 条 entry）仍返回 undefined——与「无 speak 有原料」明确区分
+    expect(sliceSessionEntries([])).toBeUndefined();
   });
 
   it("长历史 → 只保留最近 4 条 speak，切出待压缩段与保留段，firstKeptEntryId 有值", () => {
@@ -186,6 +208,27 @@ describe("assembleHandoffArchive + buildMechanicalArchive（V2 档案结构）",
     expect(archive).toContain("① 交接意图书");
     expect(archive).toContain("近期保留段");
     expect(archive).toContain("上一世 session 文件完整保留在磁盘");
+  });
+
+  it("F20260930hsfx S2：机械档案文案带具体降级 reason（不再三并列混淆）", () => {
+    // 每种降级形态有唯一文案——事后排查一眼定位是真空/超时/熔断/超窗哪种。
+    // 审视建议1：断言 8 项 = HandoffDegradeReason 7 个有效枚举值逐一断言 + 1 项向后兼容（不传 reason 回落通用文案）。
+    expect(buildMechanicalArchive({ otterName: "獭", trigger: "手动", degradeReason: "empty-session" }))
+      .toContain("前世 session 无任何消息");
+    expect(buildMechanicalArchive({ otterName: "獭", trigger: "手动", degradeReason: "jsonl-read-fail" }))
+      .toContain("读取失败");
+    expect(buildMechanicalArchive({ otterName: "獭", trigger: "手动", degradeReason: "synthesis-error" }))
+      .toContain("叙事合成执行失败");
+    expect(buildMechanicalArchive({ otterName: "獭", trigger: "手动", degradeReason: "synthesis-timeout" }))
+      .toContain("超时");
+    expect(buildMechanicalArchive({ otterName: "獭", trigger: "熔断", degradeReason: "circuit-open" }))
+      .toContain("熔断开启");
+    expect(buildMechanicalArchive({ otterName: "獭", trigger: "水位", degradeReason: "over-window" }))
+      .toContain("超出目标窗口");
+    expect(buildMechanicalArchive({ otterName: "獭", trigger: "手动", degradeReason: "user-off" }))
+      .toContain("选择跳过前世叙事合成");
+    // 不传 reason（向后兼容）：回落通用文案，不报错
+    expect(buildMechanicalArchive({ otterName: "獭", trigger: "手动" })).toContain("机械转储形态");
   });
 });
 

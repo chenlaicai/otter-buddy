@@ -1,6 +1,6 @@
 ---
 id: F20260720k7m2
-title: skill-injection-native
+title: Skill 注入迁移至 SDK 原生协议
 doc_type: feature
 
 # 记忆索引

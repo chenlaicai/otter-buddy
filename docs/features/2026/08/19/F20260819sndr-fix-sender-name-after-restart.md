@@ -1,6 +1,6 @@
 ---
 id: F20260819sndr
-title: fix-sender-name-after-restart
+title: 修复熔断重启后发送者名显示错误
 doc_type: feature
 
 # 记忆索引

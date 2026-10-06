@@ -1,6 +1,6 @@
 ---
 id: F20260720h7a4
-title: fix-startup-alias-resolution
+title: 修复 TypeScript 路径别名导致的启动失败
 doc_type: feature
 
 # 记忆索引

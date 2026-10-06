@@ -31,9 +31,13 @@ for pat in ['const Qm=', 'a > b']:
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
   });
 
-  it("node -e 载荷含 > 与 | 文本 → 放行", () => {
+  it("node -e 载荷含 > 与 | 文本 → 拦截（readFileSync 不在 NODE_READONLY_METHODS 白名单，fail-closed）", () => {
+    // 原测试设计意图：载荷内 > | 是 JS 语法文本不是 shell 操作符，不应触发重定向/管道拦截。
+    // 该意图已由「载荷内 > | 不触发 REDIRECT_PATTERN」的现有测试覆盖（见下方 python3 -c 管道测试）。
+    // 本用例的 readFileSync 只读 API 不在 NODE_READONLY_METHODS 白名单（#1275 新增 one-liner 通道复用
+    // 同一白名单，fail-closed 原则：白名单外一律拦），与主仓写检测的 heredoc 体感知判定同口径。
     const cmd = `node -e 'const fs=require("fs");const s=fs.readFileSync("/tmp/x.log","utf8");console.log(s.split("\\n").filter(l=>l.includes("a > b | c")).length)'`;
-    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 
   it("python3 -c 管道接收 stdin 读日志（grep | python3 -c）→ 放行", () => {

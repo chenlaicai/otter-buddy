@@ -1,6 +1,6 @@
 ---
 id: F20260727ui6x
-title: dialog-ui-fixes
+title: 对话界面多项 UI 修复
 doc_type: feature
 
 summary: |

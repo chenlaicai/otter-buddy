@@ -1,6 +1,6 @@
 ---
 id: F20260808ctxw
-title: context-window-usage-metrics
+title: 上下文指标改为窗口占用口径
 doc_type: feature
 
 summary: |

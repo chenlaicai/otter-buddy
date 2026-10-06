@@ -1,6 +1,6 @@
 ---
 id: F20260811ke4k
-title: fix-streaming-expand-and-scroll-jank
+title: 修复流式过程终态无法展开与滚动抖动
 doc_type: feature
 
 summary: |

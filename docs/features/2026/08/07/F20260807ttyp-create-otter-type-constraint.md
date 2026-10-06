@@ -1,6 +1,6 @@
 ---
 id: F20260807ttyp
-title: create-otter-type-constraint
+title: create_otter 工具移除 type 参数
 doc_type: feature
 
 summary: |

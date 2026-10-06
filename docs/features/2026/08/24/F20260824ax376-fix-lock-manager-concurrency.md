@@ -3,7 +3,7 @@ id: F20260824ax376
 title: SimpleLockManager 并发安全修复
 summary: |
   修复 SimpleLockManager 锁机制失效：旧版仅检查 waiters 队列长度判断是否有人持有锁，但第一个获取者不入队，导致后续调用者绕过等待、两个操作并发执行。数据结构改为显式跟踪 held 状态，消除 EEXIST 竞态条件。
-change_type: bugfix
+change_type: fix
 status: active
 capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc

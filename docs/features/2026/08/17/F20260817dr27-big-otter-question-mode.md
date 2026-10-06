@@ -1,6 +1,6 @@
 ---
 id: F20260817dr27
-title: big-otter-question-mode
+title: 技术决策权增加提问模式说明
 doc_type: feature
 
 summary: |

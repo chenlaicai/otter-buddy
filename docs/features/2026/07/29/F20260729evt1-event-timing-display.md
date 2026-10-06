@@ -1,6 +1,6 @@
 ---
 id: F20260729evt1
-title: event-timing-display
+title: 流式事件耗时显示 + 实时计时
 doc_type: feature
 
 summary: |

@@ -1,6 +1,6 @@
 ---
 id: F20260806ovgl
-title: overlay-glass-frost
+title: 弹层磨砂玻璃材质修复
 doc_type: feature
 
 summary: |

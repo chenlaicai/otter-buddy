@@ -1,6 +1,6 @@
 ---
 id: F20260818a3mv
-title: model-visible-parity-tool
+title: A3 模型可见内容重建比对工具
 doc_type: feature
 
 summary: |

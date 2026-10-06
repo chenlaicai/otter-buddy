@@ -2,7 +2,7 @@
 id: F20260819m2m4
 title: 记忆召回质量 minor fixes
 summary: 修复 F20260812mrcq 遗留的4个 minor issue：anchor 去重、dead-letter 诊断字段、正则边界、表数量硬编码
-change_type: bugfix
+change_type: fix
 status: active
 created_at: 2026-08-19
 created_in_conversation: bbcfaa33-f036-4493-94de-3faf1c6df6cf

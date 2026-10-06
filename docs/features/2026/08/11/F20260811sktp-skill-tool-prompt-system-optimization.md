@@ -1,6 +1,6 @@
 ---
 id: F20260811sktp
-title: skill-tool-prompt-system-optimization
+title: Skill / Tool / Prompt 系统优化
 doc_type: feature
 
 summary: |

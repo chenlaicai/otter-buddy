@@ -5,6 +5,9 @@
  *               （检视发现 1：测试副本与实现分叉导致假阳性，改为单一真相源）。
  * F20260917sdpl: 软代码 verify_by 声明时间界收口（≥2026-09-17 error）+ golden_replay 执行
  *               记录弱核对（分环境：本地 error / CI 缺文件降 warning）。
+ * F20261005imfg: 缺字段文档静默跳过的灰色绕过窗口收口（#839）——
+ *               change_type ∈ {feature, prompt, 缺失} 且无 intent 块 → error（非豁免清单内文档）；
+ *               存量豁免清单 scripts/intent-exempt-list.txt（ratchet 地板，只减不增）。
  *
  * 检查 F 文档 frontmatter 的 intent 字段，确保每次合入都有明确目标。
  * 依赖：pre-commit hook 已跑 `npm run check`（= build）产出 dist/。
@@ -37,8 +40,31 @@ function walk(dir) {
 }
 
 // Intent 字段校验规则
-const INTENT_REQUIRED_CHANGE_TYPES = new Set(["feature"]);
+// F20261005imfg: prompt 纳入必填（issue #839 拍板方案 1：change_type=feature/prompt 但无
+// intent 块 → error）。prompt 是软代码主力 change_type，缺 intent 时的静默通过是最宽绕过面。
+const INTENT_REQUIRED_CHANGE_TYPES = new Set(["feature", "prompt"]);
 const INTENT_RECOMMENDED_CHANGE_TYPES = new Set(["bugfix", "refactor"]);
+// F20261005imfg: change_type 缺失时视同最严类 feature（L0 定夺，理由见特性文档 F20261005imfg）：
+// lint:docs 对 change_type 缺失零检查正是 #839 暴露的缺口本身，若缺失仍静默则灰色窗口不闭环。
+const FALLBACK_CHANGE_TYPE = "feature";
+
+// F20261005imfg（#839）: 存量豁免清单（ratchet 地板，只减不增）。
+// 收录 2026-10-05 基线上触发缺字段规则的全部文档：change_type ∈ {feature, prompt, 缺失} 且
+// a) 无 intent 块，或 b) intent 块缺 problem/expected_effect（2026-09-15 goal/why 自创 schema）。
+// 清单外文档触发缺字段规则 → error；清单内 → warning（存量豁免）。
+// 数量上限 EXEMPT_MAX 冻结当前规模：往清单加 ID 必须同步上调该值，膨胀在 diff 中显形。
+const EXEMPT_LIST_PATH = "scripts/intent-exempt-list.txt";
+const EXEMPT_MAX = 256;
+
+function loadExemptSet() {
+  const p = path.join(process.cwd(), EXEMPT_LIST_PATH);
+  if (!fs.existsSync(p)) return new Set();
+  const ids = fs.readFileSync(p, "utf8").split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && !l.startsWith("#"));
+  return new Set(ids);
+}
+const EXEMPT_IDS = loadExemptSet();
 // F20260825evgl：扩展软代码域三值。behavior_check 语义保持"人工行为检查"（对齐
 // metric_probe/human_judge 的人工语义），capability_test/golden_replay 是自动采样断言设施，
 // static_only 是纯文字润色的静态守护——分开声明避免混淆两类不同验证设施。
@@ -148,9 +174,14 @@ async function computeDeclarationStats(files, root) {
   return stats;
 }
 
-function validateIntent(fm) {
+function validateIntent(fm, fileId) {
   const errors = [];
   const warnings = [];
+
+  // F20261005imfg: 豁免判定——存量冻结清单内的文档缺 intent 块降为 warning。
+  // fileId 缺失（如测试直调纯函数）时不在豁免名单内，按新口径判定。
+  const isExempt = fileId !== undefined && EXEMPT_IDS.has(fileId);
+  const effectiveChangeType = fm.change_type ?? FALLBACK_CHANGE_TYPE;
 
   // 检查 intent 字段是否存在
   // F20260924vbsu：verify_by 位置统一收口——唯一合法位置是 intent 块内嵌套式。
@@ -162,11 +193,21 @@ function validateIntent(fm) {
     );
   }
   if (!fm.intent || typeof fm.intent !== "object") {
-    // 根据 change_type 决定是错误还是警告
+    // 根据 change_type 决定是错误还是警告（F20261005imfg: 缺 intent 块收口）
     const changeType = fm.change_type;
-    if (INTENT_REQUIRED_CHANGE_TYPES.has(changeType)) {
-      // 存量文档只产生警告，不阻断 commit
-      warnings.push(`Missing intent field for ${changeType}`);
+    if (INTENT_REQUIRED_CHANGE_TYPES.has(changeType) || changeType === undefined) {
+      if (isExempt) {
+        // 存量豁免：冻结清单内的文档不阻断，但保留可观测提示（ratchet 地板，只减不增）
+        warnings.push(
+          `Missing intent field for ${changeType ?? FALLBACK_CHANGE_TYPE}（存量豁免 #839，补齐后请从 scripts/intent-exempt-list.txt 移除）`,
+        );
+      } else {
+        errors.push(
+          changeType === undefined
+            ? `Missing intent field for ${FALLBACK_CHANGE_TYPE}（change_type 缺失按 ${FALLBACK_CHANGE_TYPE} 判定，#839：新文档必须声明 intent 块）`
+            : `Missing intent field for ${changeType}（#839：新文档必须声明 intent 块，存量豁免清单见 scripts/intent-exempt-list.txt）`,
+        );
+      }
     } else if (INTENT_RECOMMENDED_CHANGE_TYPES.has(changeType)) {
       warnings.push(`Recommended intent field for ${changeType}`);
     }
@@ -175,13 +216,17 @@ function validateIntent(fm) {
 
   const intent = fm.intent;
 
-  // 检查 problem 字段
+  // 检查 problem 字段（F20261005imfg: effectiveChangeType 统一口径，change_type 缺失按 feature 判必填；
+  // 存量豁免同口径降级：2026-09-15 goal/why 自创 schema 的 5 篇在此分支触发，冻结豁免）
   if (!intent.problem || typeof intent.problem !== "string") {
-    const changeType = fm.change_type;
-    if (INTENT_REQUIRED_CHANGE_TYPES.has(changeType)) {
-      errors.push("Missing intent.problem field");
-    } else if (INTENT_RECOMMENDED_CHANGE_TYPES.has(changeType)) {
-      warnings.push("Recommended intent.problem field");
+    if (INTENT_REQUIRED_CHANGE_TYPES.has(effectiveChangeType)) {
+      if (isExempt) {
+        warnings.push("Missing intent.problem field（存量豁免 #839，补齐后请从 scripts/intent-exempt-list.txt 移除）");
+      } else {
+        errors.push("Missing intent.problem field");
+      }
+    } else if (INTENT_RECOMMENDED_CHANGE_TYPES.has(effectiveChangeType)) {
+      warnings.push(`Recommended intent.problem field for ${effectiveChangeType}`);
     }
   } else {
     // 检查 problem 是否为空或只包含空白字符
@@ -190,11 +235,14 @@ function validateIntent(fm) {
     }
   }
 
-  // 检查 expected_effect 字段（feature 必填，bugfix/refactor 推荐）
+  // 检查 expected_effect 字段（feature 必填，bugfix/refactor 推荐；存量豁免同口径降级）
   if (!intent.expected_effect || typeof intent.expected_effect !== "string") {
-    const changeType = fm.change_type;
-    if (INTENT_REQUIRED_CHANGE_TYPES.has(changeType)) {
-      errors.push("Missing intent.expected_effect field");
+    if (INTENT_REQUIRED_CHANGE_TYPES.has(effectiveChangeType)) {
+      if (isExempt) {
+        warnings.push("Missing intent.expected_effect field（存量豁免 #839，补齐后请从 scripts/intent-exempt-list.txt 移除）");
+      } else {
+        errors.push("Missing intent.expected_effect field");
+      }
     }
     // bugfix/refactor 可以不填 expected_effect
   } else {
@@ -229,7 +277,7 @@ function validateIntent(fm) {
     // F20260824ax376 存量宽容：2026-09-17 之前的文档统一 warning 不阻断。
     // F20260917sdpl 收口：created_at ≥ ENFORCE_DATE 的新软代码文档缺 verify_by → error
     // （时间界增量收口：新规则管新文档，不追诉存量）。
-    const changeType = fm.change_type;
+    const changeType = effectiveChangeType;
     if (isSoftCodeChange(fm)) {
       if (isNewEnough(fm)) {
         errors.push(
@@ -291,7 +339,7 @@ function validateIntent(fm) {
   return { errors, warnings };
 }
 
-export { validateIntent, isSoftCodeChange, isNewEnough, VALID_VERIFY_BY_TYPES, SOFT_CODE_ENFORCE_DATE };
+export { validateIntent, isSoftCodeChange, isNewEnough, VALID_VERIFY_BY_TYPES, SOFT_CODE_ENFORCE_DATE, EXEMPT_MAX, EXEMPT_IDS, EXEMPT_LIST_PATH };
 
 /** 仅作为脚本直接运行时执行 lint 主流程；被测试 import 时只取纯函数，不触发 dist 依赖与文件遍历 */
 const isMain = process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
@@ -312,6 +360,10 @@ async function main() {
   let warnings = 0;
   const files = walk(path.join(root, "docs/features"));
 
+  // F20261005imfg: 过期豁免条目检测——文档已补齐 intent 块但 ID 仍在豁免清单，
+  // 提示移除（ratchet 只减不增的机械推动力；不阻断，但提示要定期清理）
+  const intentPresentIds = new Set();
+
   for (const file of files) {
     const rel = path.relative(root, file);
     const txt = fs.readFileSync(file, "utf8");
@@ -322,8 +374,11 @@ async function main() {
       // 缺少 frontmatter 的文件由 lint-docs 处理，这里跳过
       continue;
     }
+    if (frontmatter.intent && typeof frontmatter.intent === "object" && typeof frontmatter.id === "string") {
+      intentPresentIds.add(frontmatter.id);
+    }
 
-    const result = validateIntent(frontmatter, rel);
+    const result = validateIntent(frontmatter, frontmatter.id);
 
     if (result.errors.length > 0) {
       errors++;
@@ -331,6 +386,20 @@ async function main() {
     } else if (result.warnings.length > 0) {
       warnings++;
       console.warn(`⚠ ${frontmatter.id || rel}\n    ${result.warnings.join("\n    ")}`);
+    }
+  }
+
+  // F20261005imfg: ratchet 上限核对——豁免清单膨胀（>EXEMPT_MAX）阻断；
+  // 收缩时提示同步下调 EXEMPT_MAX（上限是地板的镜像，跟齐才不掩盖膨胀）
+  const exemptCount = EXEMPT_IDS.size;
+  if (exemptCount > EXEMPT_MAX) {
+    errors++;
+    console.error(`✗ scripts/intent-exempt-list.txt：豁免清单 ${exemptCount} 条超过上限 ${EXEMPT_MAX}（ratchet 只减不增，#839）——新文档缺 intent 块不进豁免，请补齐 intent 声明`);
+  }
+  for (const id of EXEMPT_IDS) {
+    if (intentPresentIds.has(id)) {
+      warnings++;
+      console.warn(`⚠ ${id} 已补齐 intent 块，请从 scripts/intent-exempt-list.txt 移除（ratchet 只减不增）`);
     }
   }
 

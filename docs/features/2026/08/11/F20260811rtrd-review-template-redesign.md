@@ -1,6 +1,6 @@
 ---
 id: F20260811rtrd
-title: review-template-redesign
+title: 检视模板重设计——消灭「记录」黑洞
 doc_type: feature
 
 summary: |

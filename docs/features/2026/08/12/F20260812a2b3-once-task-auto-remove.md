@@ -1,6 +1,6 @@
 ---
 id: F20260812a2b3
-title: once-task-auto-remove
+title: 一次性任务触发后自动删除
 doc_type: feature
 
 summary: |
@@ -12,7 +12,7 @@ causal_links:
     - F20260811onst
 
 status: development
-change_type: feature_update
+change_type: feature-update
 tags: [scheduler, once-task, auto-remove]
 modules:
   - src/usecases/scheduler/

@@ -5,7 +5,7 @@ import { PanelLeft, PanelRight } from 'lucide-react'
 import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask, LocalAttachment } from '../../lib/mappers'
 
 import { mapOtterDTO, mapConversationDTO, mapEntryDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
-import { isInFlight, upsertMessage, insertBySeq, upsertTerminalMessage, insertCenteredByTs } from '../../lib/message-stream'
+import { isInFlight, upsertMessage, insertBySeq, upsertTerminalMessage, insertCenteredByTs, mergeMessages } from '../../lib/message-stream'
 import { applyInvokeStart, applyInvokeEnd, applyInvokeTick, mergeInvokesFromServer, type InvokeStates } from '../../lib/invoke-tracker'
 import { MessageBatcher } from '../../lib/batch-update'
 import { nowTs } from '../../lib/utils'
@@ -334,37 +334,51 @@ export default function ConversationPage() {
     }
   }, [ackActiveRead, syncInvokeStatesFromServer])
 
-  /** 静默刷新消息列表（轮询用，失败不打扰用户，下轮重试） */
-  /** F20260913ctlv 彻底切换：增量刷新（entries after 游标）——SSE 断连兜底。
-   *  时间线实体全部终态（user/speak/居中条目 completed），无 in-flight 轮询需求；
-   *  invoke 运行态由 invoke.start/end 事件驱动 + 刷新时经右栏 API 收敛。 */
+  /** 静默刷新消息列表（轮询/对账用，失败不打扰用户，下轮重试） */
+  /** F20260913ctlv 增量刷新；F20261005vsyc 重构：尾页快照 + mergeMessages 幂等合并。
+   *  Why 弃用 after 游标（listEntriesAfter）：①游标取「列表末位带 seq 条目」——丢失条目
+   *  seq 低于本地尾部时永久漏补（本案 15:55 speak seq=780 丢失后，15:56 yield 无 seq 居中
+   *  条目先到，末位游标反指更早条目）；②列表非全局 seq 有序时末位非最大 seq 同样漏。
+   *  尾页快照 + 幂等合并不依赖游标假设，低位缺口/乱序一概能补（同 id 幂等，窗口外终态
+   *  允许丢弃——与整页重载同语义）。 */
   const refreshMessages = useCallback(async (convId: string) => {
     try {
-      const list = allMessagesRef.current[convId] || []
-      const realEntries = list.filter(m => !m.id.startsWith('tmp-') && !m.id.startsWith('err-') && m.seq != null)
-      const newest = realEntries[realEntries.length - 1]
-      if (!newest?.id) return
-      const resp = await api.listEntriesAfter(convId, newest.id, 100)
+      const resp = await api.listEntries(convId, 100)
       if (resp.entries.length > 0) {
-        const newer = resp.entries.map(mapEntryDTO)
-        // 去重提到 updater 外：ack 直通需要 fresh（updater 外计算基于 ref 镜像，
-        // 与 updater 内 prev 同源同值——列表轮询刷新前 ref 与 state 一致）
-        const existingIds = new Set(list.map(m => m.id))
-        const fresh = newer.filter(e => !existingIds.has(e.id))
-        if (fresh.length > 0) {
-          setAllMessages(prev => {
-            const current = prev[convId] || []
-            const innerIds = new Set(current.map(m => m.id))
-            const inner = fresh.filter(e => !innerIds.has(e.id))
-            if (inner.length === 0) return prev
-            return { ...prev, [convId]: [...current, ...inner] }
-          })
-          /** F20260921urdo 判定换轨：轮询拉到新条目后，若对话处于打开且聚焦状态则 ack。
-           *  msgsOverride 直通「ref 旧列表 + 新增量」——setState 异步，ref 尚未同步，
-           *  读 ref 会 ack 到过期 seq（依赖后续 length-effect 兜底才能拉齐） */
-          if (convId === activeIdRef.current && document.visibilityState === 'visible' && document.hasFocus()) {
-            ackActiveRead(convId, [...list, ...fresh])
+        const snapshot = resp.entries.map(mapEntryDTO)
+        /** delta D（检视獭-1292 三轮，F20260814qswp 同类回归修复）：合并计算全部
+         *  移进函数式 updater——对 fresh prev（批队列最新值）重算，消除 stale-base
+         *  clobber 竞态（SSE batcher 新消息先入队时，闭包 result 基于 allMessagesRef
+         *  旧值算出，直写会覆盖丢新条目——本库 37.5s 静默丢失实证教训同型）。
+         *  无变化 return prev（引用相等 bail out，零写入目标保留）；对比维度含 events
+         *  （mergeMessages「保留 events 更长一方」的修复通路不被静默跳过）。 */
+        setAllMessages(prev => {
+          const before = prev[convId] || []
+          const merged = mergeMessages(before, snapshot)
+          /** delta A：回填 mergeMessages 丢弃的窗口外终态条目（翻页历史不清空） */
+          const snapshotIds = new Set(snapshot.map(m => m.id))
+          const keepOutside = before.filter(m =>
+            !snapshotIds.has(m.id) && !m.id.startsWith('tmp-') && !m.id.startsWith('err-') && !isInFlight(m))
+          let result = merged
+          if (keepOutside.length > 0) {
+            const mergedIds = new Set(merged.map(m => m.id))
+            for (const m of keepOutside) {
+              if (mergedIds.has(m.id)) continue
+              result = insertBySeq(result, m)
+            }
           }
+          /** delta B：无实际变化返回 prev 原引用——React bail out，免全列表重渲染 */
+          const changed = result.length !== before.length
+            || result.some((m, i) => m.id !== before[i]?.id || m.status !== before[i]?.status
+              || m.content !== before[i]?.content || m.events !== before[i]?.events)
+          if (!changed) return prev
+          return { ...prev, [convId]: result }
+        })
+        /** F20260921urdo 判定换轨：拉到快照后，若对话处于打开且聚焦状态则 ack。
+         *  ack 游标语义保守：基于快照实体（用户应读到的最新内容）取游标，
+         *  不依赖 updater 内合并结果（setState 异步）。 */
+        if (convId === activeIdRef.current && document.visibilityState === 'visible' && document.hasFocus()) {
+          ackActiveRead(convId, snapshot)
         }
       }
     } catch (err) {
@@ -793,6 +807,11 @@ export default function ConversationPage() {
         if (activeId && needsSyncAfterReconnect) {
           needsSyncAfterReconnect = false
           void syncInvokeStatesFromServer(activeId)
+          /** F20261005vsyc（实时渲染丢失现场）：断连窗口不仅丢 invoke 终态，也丢
+           *  entry.speak/entry.user 消息事件（SSE 无回放）——补偿链只对账右栏状态
+           *  不补消息列表，后台 tab 冻结/连接假死恢复后历史发言永远缺失，直到手动刷新。
+           *  重连成功即增量拉取（refreshMessages 内部按本地最新 seq 游标，无新条目零写入）。 */
+          void refreshMessages(activeId)
         }
       }
 
@@ -827,13 +846,17 @@ export default function ConversationPage() {
     const auditTimer = setInterval(() => {
       if (disposed) return
       if (activeIdRef.current !== activeId) return
-      const states = invokeStatesRef.current
       // 检视建议 1（PR #1190）：空态也拉——初始拉取全败（含 600ms 重试）且用户不动时，
       // 状态为空、右栏裸奔；「有 running 才拉」的门在此场景不可达（无事件可种 running）。
       // 空态判定为全量拉（频率 60s 一次单请求，成本可忽略）；非空且无 running 才零开销。
-      const hasRunning = Object.values(states).some(s => s.status === 'running')
-      const isEmpty = Object.keys(states).length === 0
+      const hasRunning = Object.values(invokeStatesRef.current).some(s => s.status === 'running')
+      const isEmpty = Object.keys(invokeStatesRef.current).length === 0
       if (hasRunning || isEmpty) void syncInvokeStatesFromServer(activeId)
+      /** F20261005vsyc（检视处置严重 1+3）：消息对账也进周期审计——本案形态（连接健在、
+       *  事件在渲染链路真丢）下 needsSyncAfterReconnect 永不触发，重连补偿链兜不住；
+       *  周期审计在后台 tab 被 timer 节流但回前台即恢复，最迟一个周期内补齐消息列表。
+       *  refreshMessages 已改尾页快照 + 幂等合并，无丢失时零写入，成本一单请求。 */
+      void refreshMessages(activeId)
     }, PERIODIC_AUDIT_INTERVAL_MS)
 
     return () => {
@@ -844,7 +867,7 @@ export default function ConversationPage() {
       if (livenessTimer) { clearInterval(livenessTimer); livenessTimer = null }
       if (xhr) xhr.abort()
     }
-  }, [activeId, batchUpdateMessages, upsertOtterIfAbsent, refreshParticipantsAfterDissolve, syncInvokeStatesFromServer])
+  }, [activeId, batchUpdateMessages, upsertOtterIfAbsent, refreshParticipantsAfterDissolve, syncInvokeStatesFromServer, refreshMessages])
 
   useEffect(() => {
     for (const otter of Object.values(allOtters).flat()) {

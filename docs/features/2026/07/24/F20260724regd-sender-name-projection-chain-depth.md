@@ -1,6 +1,6 @@
 ---
 id: F20260724regd
-title: sender-name-projection-and-chain-depth
+title: 发送者名称投影修复 + 发言链深度治理
 doc_type: feature
 
 summary: |

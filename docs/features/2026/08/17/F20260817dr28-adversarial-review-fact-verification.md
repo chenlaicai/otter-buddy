@@ -1,6 +1,6 @@
 ---
 id: F20260817dr28
-title: adversarial-review-fact-verification
+title: adversarial-review 增加事实验证步骤
 doc_type: feature
 
 summary: |

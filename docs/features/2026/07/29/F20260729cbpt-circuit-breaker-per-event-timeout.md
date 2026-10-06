@@ -1,6 +1,6 @@
 ---
 id: F20260729cbpt
-title: circuit-breaker-per-event-timeout
+title: 熔断器 per-event 超时改造
 doc_type: feature
 
 summary: |

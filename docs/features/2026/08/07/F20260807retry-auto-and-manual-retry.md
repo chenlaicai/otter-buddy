@@ -1,6 +1,6 @@
 ---
 id: F20260807rtry
-title: agent-auto-and-manual-retry
+title: agent 中断自动与手动重试恢复
 doc_type: feature
 
 summary: |

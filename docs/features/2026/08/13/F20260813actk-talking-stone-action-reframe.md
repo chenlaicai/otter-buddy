@@ -1,6 +1,6 @@
 ---
 id: F20260813actk
-title: talking-stone-action-reframe
+title: 发言石 → 行动权 reframe（大獭召唤不派工缺口）
 doc_type: feature
 
 summary: |
