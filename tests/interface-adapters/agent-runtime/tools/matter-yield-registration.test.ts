@@ -86,6 +86,8 @@ describe('yield expects_partner_decision 自动登记 matter（准入路径 1）
       waitingOn: 'partner',
       waitingFor: '方案 A 还是 B，请拍板',
       originMessageId: yieldEntryId,
+      // 简报内容单源（§1）：payload 存 reason 全文
+      payload: JSON.stringify({ brief: '方案 A 还是 B，请拍板' }),
     });
   });
 
@@ -133,5 +135,85 @@ describe('matter 工具注册条件', () => {
     const withoutMatter = createTools(makeCtx(undefined).ctx).map(t => t.name);
     expect(withoutMatter).not.toContain('list_matters');
     expect(withoutMatter).not.toContain('transition_matter');
+  });
+});
+
+describe('transition_matter 代执行（§3.5 通道 A 工具面——S1 修复锁定）', () => {
+  let db: Database.Database;
+  let repo: SqliteMatterRepository;
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    initSchema(db);
+    repo = new SqliteMatterRepository(db);
+  });
+
+  async function seedWaitingPartner(): Promise<string> {
+    const id = crypto.randomUUID();
+    await repo.create({
+      id,
+      conversationId: 'conv-1',
+      title: '拍板事项',
+      originMessageId: null,
+      ownerOtterId: 'otter-owner',
+      level: 'L2',
+      state: 'WAITING_PARTNER',
+      waitingOn: 'partner',
+      waitingFor: '选 A/B',
+      payload: null,
+      resolution: null,
+      resolvedBy: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      closedAt: null,
+    });
+    return id;
+  }
+
+  it('无代执行声明：獭以自己身份执行 partner 专属迁移被拒（S1 断路修复前行为）', async () => {
+    const id = await seedWaitingPartner();
+    const ctx = makeCtx(repo).ctx;
+    const tool = createTools(ctx).find(t => t.name === 'transition_matter')!;
+    const result = await tool.execute('c1', {
+      matter_id: id, to: 'DONE_PENDING_CONFIRM', resolution: '批准',
+    });
+    expect(result.content[0].text).toContain('非法迁移触发者');
+  });
+
+  it('on_behalf_of=partner：代执行声明放行 partner 专属迁移 + resolution 留痕', async () => {
+    const id = await seedWaitingPartner();
+    const ctx = makeCtx(repo).ctx;
+    const tool = createTools(ctx).find(t => t.name === 'transition_matter')!;
+    const result = await tool.execute('c1', {
+      matter_id: id, to: 'DONE_PENDING_CONFIRM',
+      resolution: '代搭档执行：批准按方案A', on_behalf_of: 'partner',
+    });
+    expect(result.content[0].text).toContain('→ DONE_PENDING_CONFIRM');
+    const after = await repo.findById(id);
+    expect(after!.resolution).toBe('代搭档执行：批准按方案A');
+  });
+
+  it('代执行 partner 专属迁移缺 resolution：参数校验拒绝（留痕强制）', async () => {
+    const id = await seedWaitingPartner();
+    const ctx = makeCtx(repo).ctx;
+    const tool = createTools(ctx).find(t => t.name === 'transition_matter')!;
+    const result = await tool.execute('c1', {
+      matter_id: id, to: 'DONE_PENDING_CONFIRM', on_behalf_of: 'partner',
+    });
+    expect(result.content[0].text).toContain('必须填 resolution');
+  });
+
+  it('payload 参数可写入（§1 简报内容单源——R5 修复锁定）', async () => {
+    const id = await seedWaitingPartner();
+    const ctx = makeCtx(repo).ctx;
+    const tool = createTools(ctx).find(t => t.name === 'transition_matter')!;
+    await tool.execute('c1', {
+      matter_id: id, to: 'WAITING_OTTER',
+      waiting_on: 'otter:x', waiting_for: '续办',
+      payload: '{"brief":"三层简报 JSON"}',
+      resolution: '打回再改', on_behalf_of: 'partner',
+    });
+    const after = await repo.findById(id);
+    expect(after!.payload).toBe('{"brief":"三层简报 JSON"}');
   });
 });

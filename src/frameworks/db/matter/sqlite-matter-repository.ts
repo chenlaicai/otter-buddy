@@ -135,16 +135,21 @@ export class SqliteMatterRepository implements MatterRepository {
   }
 
   /**
-   * 等待方消亡规则（§2 等待方生命周期规则①）：owner 獭被解散 →
+   * F20261005mtlp §2 等待方生命周期规则①（审视修订：判定键 = waiting_on 指向的獭，
+   * 补 owner 键双扫——消灭悬挂优先）：**waiting_on 指向的獭**（或 owner）被解散 →
    * 其名下 WAITING_OTTER 的 matter 自动转回 OPEN 待重派（每日扫描兜底发现）。
    * 返回受影响行数（0 = 无悬挂事项，正常态）。
    */
   async reopenForDissolvedOwner(otterId: string, now: string): Promise<number> {
+    // 判定优先级：waiting_on 显式指向 > owner 兜底（仅 waiting_on 为 NULL 时）。
+    // waiting_on=otter:<B>（B 健在）时 owner 消亡不误重开——等待方还在干活；
+    // waiting_on 为 NULL 的老数据/认领路径由 owner 键兜底。
     const result = this.db.prepare(`
       UPDATE matters SET
         state = 'OPEN', waiting_on = NULL, updated_at = ?
-      WHERE owner_otter_id = ? AND state = 'WAITING_OTTER'
-    `).run(now, otterId);
+      WHERE state = 'WAITING_OTTER'
+        AND (waiting_on = ? OR (waiting_on IS NULL AND owner_otter_id = ?))
+    `).run(now, `otter:${otterId}`, otterId);
     return result.changes;
   }
 }

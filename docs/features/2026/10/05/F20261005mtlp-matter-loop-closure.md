@@ -115,8 +115,10 @@ causal_links:
 | DONE_PENDING_CONFIRM → CLOSED | 见宣告权表 | L1=獭自关留痕；L2=必须搭档确认 |
 | DONE_PENDING_CONFIRM → WAITING_OTTER | 搭档 | 「打回」：闭环确认不通过，退给负责獭续办 |
 | CLOSED → OPEN | 搭档 | **翻案**：L1 獭自关后搭档不认可，重开（L2 闭环须搭档确认，理论上不存在翻案入口但保留迁移防误操作不可挽回） |
-| OPEN/WAITING_* → SUPERSEDED | 獭（登记 superseded_by） | 被新 matter 取代 |
-| OPEN/WAITING_* → ABANDONED | 搭档 | 明确不做 |
+| OPEN/WAITING_*/DONE_PENDING_CONFIRM → SUPERSEDED | 獭（登记 superseded_by） | 被新 matter 取代（实现期修订：DPC 同样需要终态出口——獭宣称完成期间出现取代者） |
+| OPEN/WAITING_*/DONE_PENDING_CONFIRM → ABANDONED | 搭档 | 明确不做（实现期修订：DPC 同样需要终态出口） |
+
+（矩阵共 14 条存续迁移 + 创建 2 条；实现 19 entries = 创建 2 + 存续 17，含实现期补的 DONE_PENDING_CONFIRM 两条终态出口——语义上 DPC 也需要 SUPERSEDED/ABANDONED 出口，已在矩阵行内留痕修订。）
 
 **等待方生命周期规则**（消灭无声悬挂）：①waiting_on 指向的獭被解散 → matter 自动转回 OPEN 待重派（每日扫描兜底发现），机械供料只救「重启的獭」，救不了「解散的獭」，故必须有这条；②对话归档 → 该对话 open matters 由搭档选择迁移到指定对话或 ABANDONED 留痕（F20260917swsh 有归档对话先例）；③裁决回执的唤醒目标已消亡 → 只写流内投影不投递，matter 态照常迁移，由扫描兜底重派。
 
@@ -235,7 +237,9 @@ restart_otter 交接档案现状：交接意图书（自总结）+ 叙事合成 
 
 ## 机制预算四问补遗（审视建议采纳）
 
+- **谁需要**：搭档（消费者——国庆放假 N 天回来第一眼看到全部待裁决事项，不翻消息）；獭侧所有需要拍板/续办路由的执行者（owner/代执行獭/大獭）——未闭环清单是打回/唤醒/重派三处的路由依据
 - **失败后果**：matter 机制失效时，搭档可感知表现 = 板上事项停更/不更新——退化为今天的现状（决策埋流里），不是新增危害；内部异常 = 状态迁移拒绝（非法迁移被 usecase 拦截），不伤数据
+- **后续机制**：§7 分期（P2 板上按钮+裁决回执通道、P3 扫描升格+简报卡吸收）；每阶段交付后走同一对抗审视+终审流程
 - **退役条件**：连续 2 周板上 open 数为 0 且搭档无主动查询 = 产生端准入过严或机制无牵引力，启动退役评估（机制预算四问的反面，先软后硬）
 
 ## 验证
@@ -272,7 +276,7 @@ restart_otter 交接档案现状：交接意图书（自总结）+ 叙事合成 
 |---|---|---|
 | matters 表 + 三索引 | `src/frameworks/db/schema.ts` createMattersTable（幂等 CREATE IF NOT EXISTS，schema.ts:735-767） | ✅ 字段/索引严格按 §1 字段表 |
 | matter 实体与状态机 | `src/entities/matter/matter.ts`（实体+MATTER_OPEN_STATES）+ `matter-transitions.ts`（§2 矩阵 14 条唯一真相源，Map 索引 O(1) 查询） | ✅ |
-| 迁移守卫单入口 | `src/usecases/matter/transition-matter.ts`——四层守卫：幂等短路 → 矩阵 → 触发者（any_otter 含 owner，通道 A 代执行路径）→ 宣告权（L2 闭环必须 partner）；repo.transition 条件更新（WHERE state=?）乐观锁 | ✅ 非法迁移拒绝由单测锁定（47 用例） |
+| 迁移守卫单入口 | `src/usecases/matter/transition-matter.ts`——四层守卫：幂等短路 → 矩阵 → 触发者（any_otter 含 owner；§3.5 代执行声明 on_behalf_of 后按被代理者身份过守卫）→ 宣告权（L2 闭环必须 partner，含代执行声明）；repo.transition 条件更新（WHERE state=?）乐观锁 | ✅ 非法迁移拒绝由单测锁定（47→59 用例，审视修复后） |
 | 登记 usecase（准入白名单） | `src/usecases/matter/register-matter.ts`——initialState 只接受 WAITING_PARTNER（路径 1）/ OPEN（路径 2/3）；L0 无登记路径 | ✅ |
 | 獭侧工具 | `src/interface-adapters/agent-runtime/tools/matter-tools.ts` list_matters / transition_matter；经 `ctx.matterRepo` 注入（仿 signalRepo 先例），small/big 均注册（manifest system block + small fallback 白名单） | ✅ |
 | yield 打标参数 | tool-factory.ts yield 工具新增可选参数 `expects_partner_decision`（仅 to 含 'user' 时有意义）；true → registerMatterOnTaggedYield 自动登记（WAITING_PARTNER/L2/owner=调用獭/origin=yield entry id）；**不打标不登记 = 机械防泛滥；默认通过模式不打标 = R8 互斥不登记** | ✅ 登记失败不阻断交棒（审计面非前置条件） |
@@ -280,7 +284,7 @@ restart_otter 交接档案现状：交接意图书（自总结）+ 叙事合成 
 | 机械供料 handoff_open_matters | `agent-invoker.ts collectOpenMatters`（unifiedHandoff 原料收集并行块）→ 注入 assembleHandoffArchive / buildMechanicalArchive 的 `openMatters` 段（「### ④ 机械供料：本对话未闭环事情（matters）」）；`handoff-support.ts` restoreHandoffContext 同步加 `handoff_open_matters` key（与 handoff_file_trail 同模式——D8 后档案走 session.summary，legacy key 消费面保留对称） | ✅ matterRepo 未注入/查询失败降级空串（增强不是硬依赖） |
 | 只读右侧栏 tab | `web/src/pages/conversation/MattersPanel.tsx` + `hooks/useMatters.ts`（GET /api/conversations/:id/matters，30s 轮询仿 useScheduledTasks）；RightPanel.tsx 第五 tab（ClipboardList 图标）；样式沿用现有 tab 体系（glass 面板/glass-card 条目） | ✅ P1 只读：标题/状态徽章/等待时长/owner；排序 WAITING_PARTNER 置顶（热边框）→ DONE_PENDING_CONFIRM → WAITING_OTTER/OPEN；tab 角标只数「等你裁决+待确认闭环」（搭档欠的动作） |
 | 只读 API | `MatterController.listOpenByConversation` + `matter-dto.ts`（P1 只读投影字段全集） | ✅ 写路径（P2 按钮）不经 HTTP |
-| 单元测试 | `tests/usecases/matter/matter-state-machine.test.ts`（矩阵全量+非法拒绝+触发者+宣告权+幂等+消亡规则，42 用例）；`tests/frameworks/db/matter/sqlite-matter-repository.test.ts`（CRUD+过滤+跨对话隔离，5 用例）；`tests/interface-adapters/agent-runtime/tools/matter-yield-registration.test.ts`（准入：打标登记/不打标不登记/to 非 user 不登记/repo 缺省静默跳过，5 用例） | ✅ 52 用例全绿 |
+| 单元测试 | `tests/usecases/matter/matter-state-machine.test.ts`（矩阵全量+非法拒绝+触发者+宣告权+幂等+代执行+消亡规则，47 用例）；`tests/frameworks/db/matter/sqlite-matter-repository.test.ts`（CRUD+过滤+跨对话隔离，5 用例）；`tests/interface-adapters/agent-runtime/tools/matter-yield-registration.test.ts`（准入+代执行工具面+payload，12 用例） | ✅ 64 用例全绿（审视修复后） |
 | 能力测试 | `tests/capability/matter-loop/matter-loop.capability.test.ts` 三场景（③为 P2 占位显式跳过） | ✅ 无 LLM 环境 skip（同其他 capability 测试） |
 
 ### 实现期设计决策（方案未细定的部分）
@@ -303,7 +307,7 @@ restart_otter 交接档案现状：交接意图书（自总结）+ 叙事合成 
 
 ### 自检结果（PR Verification）
 
-- 全量单测：319 文件 4593 用例全绿（含本 PR 新增 52 用例；唯一改动存量断言 = coding-tools.test.ts small 白名单 29→31，+list_matters/transition_matter 两条 toContain，与本变更同语义）
+- 全量单测：319 文件 4660 用例全绿（含本 PR 新增 matter 域 64 用例 + 存量 coding-tools 1 断言更新；唯一改动存量断言 = coding-tools.test.ts small 白名单 29→31，+list_matters/transition_matter 两条 toContain，与本变更同语义）
 - web 单测：61 文件 618 用例全绿（新增 MattersPanel.test.tsx 2 用例）
 - eslint src/：0 error 0 warning
 - tsc --noEmit（前后端）：干净（web 侧唯一 error hast 为 pre-existing，基线对照确认）
@@ -312,8 +316,34 @@ restart_otter 交接档案现状：交接意图书（自总结）+ 叙事合成 
 - **UI 真机自查（RightPanel 改了）**：dev server（vite 5199，VITE_API_TARGET 指向隔离实例 3297）+ Playwright 无头浏览器真机截图 2 张，存对话工作区：
   - `data/workspaces/e871769f-a731-4278-ae21-de3ab4c8eaf8/matter-tab-0-default.png`（默认 tab 页）
   - `data/workspaces/e871769f-a731-4278-ae21-de3ab4c8eaf8/matter-tab-1-list.png`（待办 tab：4 条目 + 角标 2 + 排序/徽章/等待时长/owner 渲染正确）
-- **Golden Gate 与锚点重放评审**：本 PR 触发行可重放的运行时代码 = yield 工具 description/参数面（软代码行为触发语义）+ tool-manifest.json + small fallback 白名单。锚点重放评审交付物：
+- **Golden Gate 与锚点重放评审**：本 PR 触发行可重放的运行时代码 = yield 工具 description/参数面（软代码行为触发语义）+ tool-manifest.json + small fallback 白名单。**Golden Gate: n/a（verify_by=human_judge，无场景可跑——豁免按实质在认定：锚点重放评审交付物即替代交付物）**。锚点重放评审交付物：
   - yield 打标参数 description（`expects_partner_decision`）：「仅 to 包含 'user' 时有意义 true=本交棒是 L2 显式拍板项…默认通过模式与待办互斥：携带默认通过语义的 yield 不打标、不登记」——重放锚点 = 方案 §2「默认通过模式互斥不登记」+ §3 生死线准入路径 1。
   - list_matters / transition_matter description：重放锚点 = §2 迁移矩阵 + 宣告权表 + §7 P1 空窗期设计（通道 A 主路）。
   - 獭身份文件（prompts/identity/SMALL_OTTER.md / BIG_OTTER.md）未改——行为指引经工具 description 注入，不改身份文案（与方案 §6 獭侧纪律 P2 分期一致）。
 - **pre-existing 声明**：web tsc hast error（基线 1 error，未引入）；lint:capability 68 警告为存量过渡期上限（未推高）。
+
+### P1 审视修复记录（2026-10-06，代码审獭 mimo-pro 对抗审视后）
+
+审视结论「需要修改」（4 严重 + 6 建议）。处置：4 严重全部本 PR 修复 + 6 建议全部采纳修复，无驳回。
+
+**S1 通道 A 代执行物理断路（头号严重）**：transition_matter 工具加 `on_behalf_of` 代执行声明参数（'partner' | ownerOtterId）——声明后 TransitionMatter 按被代理者身份过守卫（矩阵 + 触发者 + 宣告权三层不变），partner 专属迁移（裁决/翻案/不做）由獭代搭档执行是空窗期主路（§3.5 对话直复 → 獭落账 → 复述确认）；代执行裁决类迁移必须填 resolution 留痕（工具参数校验强制）。未声明 = 獭以自己身份（守卫照旧）。工具文案 GOTCHA 重写消除自相矛盾。测试锁定：usecase 层 5 用例（声明放行/越矩阵仍拒/越宣告权仍拒）+ 工具层 4 用例（无声明拒绝/声明放行/缺 resolution 拒绝/payload 写入）。
+
+**S2 dissolve hook 判定键偏离**：reopenForDissolvedOwner SQL 改「waiting_on 指向的獭」为判定主键（方案 §2 规则①原文），owner 键仅在 waiting_on 为 NULL 时兜底——非 owner 等待方消亡回 OPEN（消灭悬挂），owner 消亡但 waiting_on 指向健在獭不误重开。补「OPEN→WAITING_OTTER 默认写 waiting_on=otter:<认领獭>」（§2 矩阵 note 语义，usecase defaultWaitingOnForTransition 落实—— previously 靠调用方自觉传参）。测试补 3 用例（非 owner 等待方消亡回 OPEN / owner 消亡等待方健在不误重开 / NULL waiting_on owner 兜底）。
+
+**S3 CI 红（branch behind main）**：大獭已 merge main（d8dfd9cd）推送，随修复 commit 重跑。
+
+**S4 撞车 #1268**：大獭仲裁 #1268 先合、本分支 rebase 时解决 client.ts/helpers.ts 交集（保双方新增）。
+
+**建议 5 payload 无写入载体**：yield 登记把 reason 全文写入 payload（JSON.stringify({brief})）；transition_matter 加可选 payload 参数——§1「简报内容单源」物理落点闭合。测试锁定。
+
+**建议 6 矩阵越界 2 条**：§2 矩阵 OPEN/WAITING_*→SUPERSEDED/ABANDONED 行扩为含 DONE_PENDING_CONFIRM（DPC 也需要终态出口的语义补全），矩阵行内留痕修订说明；条数注释改实际口径（19 entries = 创建 2 + 存续 17）。
+
+**建议 7 resolved_by 格式**：终态 resolvedBy 归一化 `actor==='partner' ? 'partner' : 'otter:'+actor`（§1 口径）；非终态代执行留痕记被代理者同口径。测试同步。
+
+**建议 8 repo.transition 接口-实现漂移**：patch 类型删 ownerOtterId/level（SQL UPDATE 只有 8 列——删接口字段不留漂移）。
+
+**建议 9 Golden Gate 标准豁免行**：PR Verification 补「Golden Gate: n/a（verify_by=human_judge）」标准声明行。
+
+**建议 10 机制四问 2/4 显式**：补「谁需要」「后续机制」两条带标签 bullet（此前隐含于背景/§7 分期）。
+
+修复后单测：matter 域 64/64（新增 19 用例：代执行 usecase 5 + dissolve 3 + 工具层 7 + payload/resolvedBy 等 4）。

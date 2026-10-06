@@ -23,7 +23,8 @@ export interface MatterRepository {
   transition(
     id: string,
     fromState: Matter['state'],
-    patch: Partial<Pick<Matter, 'state' | 'waitingOn' | 'waitingFor' | 'payload' | 'resolution' | 'resolvedBy' | 'ownerOtterId' | 'level'>> & { updatedAt: string; closedAt?: string | null },
+    /** 可迁移字段（与 SQL UPDATE 列一一对应——勿加字段不留 SQL 列：接口-实现漂移即潜伏缺陷） */
+    patch: Partial<Pick<Matter, 'state' | 'waitingOn' | 'waitingFor' | 'payload' | 'resolution' | 'resolvedBy'>> & { updatedAt: string; closedAt?: string | null },
   ): Promise<Matter | null>;
   /**
    * 等待方消亡规则（§2 等待方生命周期规则①）：owner 獭被解散 →

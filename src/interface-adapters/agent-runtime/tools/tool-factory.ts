@@ -140,6 +140,8 @@ async function registerMatterOnTaggedYield(
       initialState: 'WAITING_PARTNER',
       waitingOn: 'partner',
       waitingFor: reason ?? '拍板',
+      // 简报内容单源（§1）：payload 存 reason 全文——板上详情/ P2 简报卡渲染的数据源
+      payload: reason ? JSON.stringify({ brief: reason }) : null,
     });
     return `\n[待办] 已登记 ${matterShortAnchor(matter.id)}（state=WAITING_PARTNER，板上待你裁决）。`;
   } catch (err) {

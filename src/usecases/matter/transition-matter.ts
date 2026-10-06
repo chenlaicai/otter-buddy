@@ -1,14 +1,21 @@
 /**
- * TransitionMatter——状态迁移单入口（F20261005mtlp §2）。
+ * TransitionMatter——状态迁移单入口（F20261005mtlp §2 + §3.5 代执行）。
  *
  * 单一真相源纪律的物理落点：所有状态迁移（獭侧 transition_matter 工具、
  * 板上按钮 P2、扫描器兜底重派）必须走本 usecase，非法迁移在此拒绝。
  *
+ * 代执行（§3.5 通道 A）：被唤醒獭非 owner 时同样可代执行迁移——声明
+ * `onBehalfOf` 后按被代理者身份过守卫，留痕（resolvedBy 记实际执行獭 + actor
+ * 字段记被代理者；非终态迁移只记 actor）。裁决类迁移（partner 专属行）由獭
+ * 代搭档执行是空窗期主路（对话直复 → 獭落账 → 复述确认），不声明 = 獭自己身份。
+ *
  * 守卫分层（各守卫独立方法，execute 只做编排）：
  * 1. 矩阵守卫：from×to 必须在 §2 合法迁移矩阵内（未列入 = 一律非法）
- * 2. 触发者守卫：矩阵条目的 allowed 集合（owner/partner/any_otter/system）
+ * 2. 触发者守卫：矩阵条目的 allowed 集合（owner/partner/any_otter/system），
+ *    触发者身份 = onBehalfOf ?? actor
  * 3. 宣告权守卫（L2 闭环分权）：DONE_PENDING_CONFIRM → CLOSED 时
- *    level=L2 必须搭档确认（actorType='partner'）；L1 獭可自关留痕（搭档可翻案重开）
+ *    level=L2 必须搭档确认（触发者身份须为 partner，可代执行声明）；
+ *    L1 獭可自关留痕（搭档可翻案重开）
  * 4. 幂等：已是目标态短路返回；repo.transition 条件更新（WHERE state = ?）——
  *    并发迁移只有一方成功，另一方读到 changes=0 走幂等/冲突语义
  */
@@ -22,8 +29,10 @@ export interface TransitionMatterInput {
   /** matter ID（短锚 M-xxx 由工具层解析成完整 ID 后传入） */
   matterId: string;
   to: MatterState;
-  /** 触发者：'partner' | otterId（system 仅创建路径，本入口不接受） */
+  /** 实际执行者：'partner' | otterId */
   actor: string;
+  /** §3.5 代执行声明：'partner' | otterId——声明后按被代理者身份过守卫（留痕 actor 字段） */
+  onBehalfOf?: string;
   resolution?: string | null;
   waitingOn?: string | null;
   waitingFor?: string | null;
@@ -43,12 +52,12 @@ function actorAllowed(transition: MatterTransition, actorType: 'partner' | 'owne
   return transition.allowed.includes('any_otter') && actor !== 'partner';
 }
 
-/** 宣告权守卫：L2 matter 的闭环必须搭档确认（§2 闭环宣告权表） */
-function assertCloseAuthority(matter: Matter, to: MatterState, actorType: string): void {
+/** 宣告权守卫：L2 matter 的闭环必须搭档确认（§2 闭环宣告权表；代执行声明也算搭档确认路径） */
+function assertCloseAuthority(matter: Matter, to: MatterState, actorIdentity: string): void {
   if (matter.state === 'DONE_PENDING_CONFIRM' && to === 'CLOSED' && matter.level === 'L2'
-    && actorType !== 'partner') {
+    && actorIdentity !== 'partner') {
     throw new DomainError(
-      '宣告权拒绝：L2 matter 的闭环必须搭档确认（DONE_PENDING_CONFIRM → CLOSED 仅 partner 可触发）',
+      '宣告权拒绝：L2 matter 的闭环必须搭档确认（DONE_PENDING_CONFIRM → CLOSED 仅 partner（含代执行声明）可触发）',
       'validation',
     );
   }
@@ -65,8 +74,16 @@ function defaultWaitingOn(matter: Matter, to: MatterState, requested: string | n
   return matter.waitingOn;
 }
 
-/** 守卫编排：矩阵 + 触发者 + 宣告权（execute 只做编排） */
-function assertTransitionAllowed(matter: Matter, to: MatterState, actor: string): void {
+/** OPEN→WAITING_OTTER 认领语义（§2 矩阵 note「登记 waiting_on=otter:<id>」）：认领者=等待方 */
+function defaultWaitingOnForTransition(matter: Matter, to: MatterState, actor: string, requested: string | null | undefined): string | null {
+  if (matter.state === 'OPEN' && to === 'WAITING_OTTER') {
+    return requested !== undefined ? requested : `otter:${actor}`;
+  }
+  return defaultWaitingOn(matter, to, requested);
+}
+
+/** 守卫编排：矩阵 + 触发者 + 宣告权（execute 只做编排；触发者身份 = 代执行声明 ?? 实际执行者） */
+function assertTransitionAllowed(matter: Matter, to: MatterState, actor: string, onBehalfOf?: string): void {
   const transition = findMatterTransition(matter.state, to);
   if (!transition) {
     throw new DomainError(
@@ -74,15 +91,39 @@ function assertTransitionAllowed(matter: Matter, to: MatterState, actor: string)
       'validation',
     );
   }
-  const actorType = classifyActor(actor, matter.ownerOtterId);
-  if (!actorAllowed(transition, actorType, actor)) {
+  const identity = onBehalfOf ?? actor;
+  const actorType = classifyActor(identity, matter.ownerOtterId);
+  if (!actorAllowed(transition, actorType, identity)) {
     throw new DomainError(
       `非法迁移触发者：${matter.state} → ${to} 只能由 ${transition.allowed.join('/')} 触发，` +
-      `当前触发者 ${actor}（${actorType}）无权`,
+      `当前触发者 ${identity}（${actorType}${onBehalfOf ? `，代执行声明于 ${actor}` : ''}）无权`,
       'validation',
     );
   }
-  assertCloseAuthority(matter, to, actorType);
+  assertCloseAuthority(matter, to, identity);
+}
+
+/** resolvedBy 归一化（§1 口径：partner / otter:<id>） */
+function normalizedActor(actor: string): string {
+  return actor === 'partner' ? 'partner' : `otter:${actor}`;
+}
+
+/** 迁移 patch 构造（execute 只做编排） */
+function buildTransitionPatch(
+  matter: Matter, input: TransitionMatterInput, now: string,
+): Parameters<MatterRepository['transition']>[2] {
+  const isTerminal = input.to === 'CLOSED' || input.to === 'SUPERSEDED' || input.to === 'ABANDONED';
+  return {
+    state: input.to,
+    waitingOn: defaultWaitingOnForTransition(matter, input.to, input.actor, input.waitingOn),
+    waitingFor: input.waitingFor ?? matter.waitingFor,
+    payload: input.payload ?? matter.payload,
+    resolution: input.resolution ?? matter.resolution,
+    // resolvedBy 记实际执行獭（审计谁动了表）；actor 字段记被代理者（partner=搭档裁决）——§3.5
+    resolvedBy: isTerminal ? normalizedActor(input.actor) : matter.resolvedBy,
+    updatedAt: now,
+    ...(isTerminal ? { closedAt: now } : {}),
+  };
 }
 
 export class TransitionMatter {
@@ -100,24 +141,32 @@ export class TransitionMatter {
     }
 
     // ---- 守卫 1+2+3：矩阵 + 触发者 + 宣告权 ----
-    assertTransitionAllowed(matter, input.to, input.actor);
+    assertTransitionAllowed(matter, input.to, input.actor, input.onBehalfOf);
 
-    const now = new Date().toISOString();
     const isTerminal = input.to === 'CLOSED' || input.to === 'SUPERSEDED' || input.to === 'ABANDONED';
-    const updated = await this.repo.transition(matter.id, matter.state, {
-      state: input.to,
-      waitingOn: defaultWaitingOn(matter, input.to, input.waitingOn),
-      waitingFor: input.waitingFor ?? matter.waitingFor,
-      payload: input.payload ?? matter.payload,
-      resolution: input.resolution ?? matter.resolution,
-      resolvedBy: isTerminal ? input.actor : matter.resolvedBy,
-      updatedAt: now,
-      ...(isTerminal ? { closedAt: now } : {}),
-    });
+    const updated = await this.repo.transition(matter.id, matter.state, buildTransitionPatch(matter, input, new Date().toISOString()));
+    // 非终态迁移的代执行留痕：actor 字段记被代理者（复用 resolved_by 列，非终态时本为 null）
+    if (!isTerminal && input.onBehalfOf && updated) {
+      return this.writeProxyAuditTrail(updated, input.onBehalfOf);
+    }
     if (!updated) {
       return this.resolveConcurrentOutcome(matter, input.to, isTerminal);
     }
     return updated;
+  }
+
+  /** 非终态代执行留痕：resolved_by 列记被代理者（审计搭档裁决经由谁落账） */
+  private async writeProxyAuditTrail(updated: Matter, onBehalfOf: string): Promise<Matter> {
+    await this.repo.transition(updated.id, updated.state, {
+      state: updated.state,
+      waitingOn: updated.waitingOn,
+      waitingFor: updated.waitingFor,
+      payload: updated.payload,
+      resolution: updated.resolution,
+      resolvedBy: normalizedActor(onBehalfOf),
+      updatedAt: updated.updatedAt,
+    });
+    return (await this.repo.findById(updated.id)) ?? updated;
   }
 
   /**

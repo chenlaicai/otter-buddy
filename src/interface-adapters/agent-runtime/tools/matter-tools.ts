@@ -1,12 +1,13 @@
 /**
  * Matter 工具（F20261005mtlp P1）：list_matters / transition_matter。
  *
- * 空窗期执行载体（方案 §7 P1）：板上事项可见但裁决仍走对话直复（通道 A），
- * 状态由獭用本工具迁移——刻意的过渡设计，不违反「状态只在 matters 表」。
- * 獭代搭档执行迁移（通道 A）时在 resolution 写明「代搭档执行：<原话摘要>」。
+ * 通道 A 代执行（§3.5）：搭档对话直复裁决后，被唤醒獭用本工具代执行板上迁移——
+ * `on_behalf_of='partner'` 声明代搭档执行（resolution 必填「代搭档执行：<原话>」留痕），
+ * 非 owner 獭代 owner 执行同理（`on_behalf_of=<ownerId>`）。不声明 = 獭以自己身份。
+ * 空窗期裁决仍走对话直复（通道 A），板上按钮（通道 B）在 P2。
  *
- * 权限模型：守卫在 TransitionMatter usecase（矩阵 + 触发者 + 宣告权三层），
- * 工具层不做身份判定——代执行路径（非 owner 獭）由矩阵 allowed=any_otter 兜住。
+ * 权限模型：守卫在 TransitionMatter usecase（矩阵 + 触发者身份 + 宣告权三层），
+ * 工具层透传代执行声明，不做身份判定。
  */
 
 import type { ToolContext, AgentTool } from "@usecases/ports/agent-tools";
@@ -105,18 +106,38 @@ function buildTransitionEcho(m: { id: string; title: string; state: string; reso
 }
 
 /** tool 参数 → usecase 输入（未传字段不给值——null 在 usecase 语义 = 显式清空） */
-function buildTransitionInput(params: Record<string, unknown>, actor: string, matterId: string): TransitionMatterInput {
+function buildTransitionInput(ctx: ToolContext, params: Record<string, unknown>, matterId: string): TransitionMatterInput {
   const input: TransitionMatterInput = {
     matterId,
     to: params.to as MatterState,
-    actor,
+    actor: ctx.otterId,
     resolution: (params.resolution as string | undefined)?.trim() || null,
     waitingFor: (params.waiting_for as string | undefined)?.trim() || null,
   };
   if (params.waiting_on !== undefined) {
     input.waitingOn = (params.waiting_on as string).trim() || null;
   }
+  if (params.payload !== undefined) {
+    input.payload = (params.payload as string).trim() || null;
+  }
+  if (params.on_behalf_of !== undefined) {
+    input.onBehalfOf = (params.on_behalf_of as string).trim() || undefined;
+  }
   return input;
+}
+
+/** 代执行声明校验：裁决类/partner 专属迁移代执行时 resolution 必须含留痕 */
+function validateProxyParams(params: Record<string, unknown>): string | null {
+  const onBehalf = (params.on_behalf_of as string | undefined)?.trim();
+  if (!onBehalf) return null;
+  const to = params.to as string;
+  const proxyRows = ['CLOSED', 'ABANDONED', 'DONE_PENDING_CONFIRM', 'WAITING_OTTER'];
+  const resolution = (params.resolution as string | undefined)?.trim();
+  if (proxyRows.includes(to) && !resolution) {
+    return '[错误] 代执行裁决类迁移（CLOSED/ABANDONED/DONE_PENDING_CONFIRM/WAITING_OTTER）必须填 resolution——' +
+      `代${onBehalf === 'partner' ? '搭档' : '执行'}留痕是宣告权分权的审计面。`;
+  }
+  return null;
 }
 
 /** transition_matter：状态迁移单入口的执行载体（守卫在 usecase 三层） */
@@ -126,7 +147,7 @@ export function createTransitionMatterTool(ctx: ToolContext, matterRepo: MatterR
     if (!matterId?.trim()) {
       return errorResponse("[错误] matter_id 必填——用 list_matters 查清单拿短锚（M-xxxxxxxx）。");
     }
-    const paramError = validateTransitionParams(params);
+    const paramError = validateTransitionParams(params) ?? validateProxyParams(params);
     if (paramError) return errorResponse(paramError);
 
     const resolved = await resolveMatterId(ctx, matterRepo, matterId);
@@ -134,7 +155,7 @@ export function createTransitionMatterTool(ctx: ToolContext, matterRepo: MatterR
 
     const transition = new TransitionMatter(matterRepo);
     try {
-      const updated = await transition.execute(buildTransitionInput(params, ctx.otterId, resolved.id));
+      const updated = await transition.execute(buildTransitionInput(ctx, params, resolved.id));
       return textResponse(buildTransitionEcho(updated));
     } catch (err) {
       return errorResponse(`[错误] ${err instanceof Error ? err.message : String(err)}`);
@@ -142,7 +163,7 @@ export function createTransitionMatterTool(ctx: ToolContext, matterRepo: MatterR
   };
   return {
     name: "transition_matter",
-    description: "迁移本对话一件待办的状态（matters 表——状态迁移走 usecase 单入口）. When: 通道 A 对话直复——搭档回复了某件 open matter 的裁决，獭代执行板上迁移并复述确认；或獭认领 OPEN 事项（→WAITING_OTTER）、宣称完成（→DONE_PENDING_CONFIRM）. Not for: 查清单（用 list_matters）/ 跨对话迁移（守卫拒绝）. Output: 迁移确认（新状态 + 结果/等待方回显）. GOTCHA: ①守卫三层——迁移矩阵（非法组合拒绝）+ 触发者（partner 专属迁移獭不能代执行）+ 宣告权（L2 闭环必须搭档确认，獭不能自关）；②闭环类迁移必须填 resolution（留痕）；③代搭档执行时在 resolution 写明「代搭档执行：<原话摘要>」.",
+    description: "迁移本对话一件待办的状态（matters 表——状态迁移走 usecase 单入口）. When: 通道 A 对话直复——搭档回复了某件 open matter 的裁决，獭代执行板上迁移并复述确认（on_behalf_of='partner'）；或獭认领 OPEN 事项（→WAITING_OTTER）、宣称完成（→DONE_PENDING_CONFIRM）. Not for: 查清单（用 list_matters）/ 跨对话迁移（守卫拒绝）. Output: 迁移确认（新状态 + 结果/等待方回显）. GOTCHA: ①迁移矩阵守卫（非法组合拒绝）；②触发者守卫——partner 专属迁移（裁决/翻案/不做）须 on_behalf_of='partner' 代执行声明，owner 专属迁移（干完呈拍板/宣称完成）须 owner 自己或 on_behalf_of=<ownerId>；③宣告权——L2 闭环（DONE_PENDING_CONFIRM→CLOSED）必须搭档确认，代执行声明 on_behalf_of='partner' 也算（resolution 必填「代搭档执行：<原话>」）；④闭环类迁移必须填 resolution；⑤代执行时 resolution 写明「代搭档执行：<原话>」留痕.",
     parameters: {
       type: "object",
       properties: {
@@ -151,6 +172,8 @@ export function createTransitionMatterTool(ctx: ToolContext, matterRepo: MatterR
         resolution: { type: "string", description: "裁决/闭环结果（闭环类迁移必填；代搭档执行写明「代搭档执行：<原话>」）" },
         waiting_on: { type: "string", description: "迁移后的等待方（otter:<id> / partner / none）" },
         waiting_for: { type: "string", description: "在等什么动作（一句话）" },
+        payload: { type: "string", description: "决策请求挂点（L2 简报三层结构 JSON——呈拍板时附）" },
+        on_behalf_of: { type: "string", description: "§3.5 代执行声明：'partner'（代搭档执行裁决）或 ownerOtterId（代 owner 执行）——不填=以自己身份" },
       },
       required: ["matter_id", "to"],
     },

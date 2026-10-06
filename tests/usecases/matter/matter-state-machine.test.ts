@@ -60,11 +60,11 @@ describe('matter 状态机：合法迁移矩阵（§2 全量）', () => {
     return matter;
   }
 
-  it('OPEN → WAITING_OTTER（獭认领）', async () => {
+  it('OPEN → WAITING_OTTER（獭认领，waiting_on 默认=认领獭——§2 矩阵 note）', async () => {
     await seedMatter('OPEN');
     const updated = await transition.execute({
       matterId: makeMatter().id, to: 'WAITING_OTTER', actor: OTHER_OTTER,
-      waitingOn: `otter:${OTHER_OTTER}`, waitingFor: '续办',
+      waitingFor: '续办',
     });
     expect(updated.state).toBe('WAITING_OTTER');
     expect(updated.waitingOn).toBe(`otter:${OTHER_OTTER}`);
@@ -119,7 +119,7 @@ describe('matter 状态机：合法迁移矩阵（§2 全量）', () => {
     });
     expect(updated.state).toBe('CLOSED');
     expect(updated.closedAt).not.toBeNull();
-    expect(updated.resolvedBy).toBe(OWNER);
+    expect(updated.resolvedBy).toBe(`otter:${OWNER}`); // §1 口径：otter:<id>
   });
 
   it('DONE_PENDING_CONFIRM → CLOSED（L2 搭档确认）', async () => {
@@ -232,7 +232,7 @@ describe('matter 状态机：触发者守卫', () => {
     transition = new TransitionMatter(repo);
   });
 
-  it('partner 专属迁移：WAITING_PARTNER→DONE_PENDING_CONFIRM 獭不能代执行', async () => {
+  it('partner 专属迁移：WAITING_PARTNER→DONE_PENDING_CONFIRM 无代执行声明拒绝（§3.5 声明后放行见下组）', async () => {
     await repo.create(makeMatter({ state: 'WAITING_PARTNER' }));
     await expect(transition.execute({
       matterId: makeMatter().id, to: 'DONE_PENDING_CONFIRM', actor: OWNER,
@@ -253,11 +253,72 @@ describe('matter 状态机：触发者守卫', () => {
     })).rejects.toThrow(/非法迁移触发者/);
   });
 
-  it('owner 专属迁移：WAITING_OTTER→WAITING_PARTNER 非 owner 拒绝', async () => {
+  it('owner 专属迁移：WAITING_OTTER→WAITING_PARTNER 非 owner 无声明拒绝（§3.5 声明后放行见下组）', async () => {
     await repo.create(makeMatter({ state: 'WAITING_OTTER' }));
     await expect(transition.execute({
       matterId: makeMatter().id, to: 'WAITING_PARTNER', actor: OTHER_OTTER,
     })).rejects.toThrow(/非法迁移触发者/);
+  });
+});
+
+describe('matter 状态机：代执行（§3.5 通道 A——声明后按被代理者身份过守卫）', () => {
+  let db: Database.Database;
+  let repo: SqliteMatterRepository;
+  let transition: TransitionMatter;
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    initSchema(db);
+    repo = new SqliteMatterRepository(db);
+    transition = new TransitionMatter(repo);
+  });
+
+  it('獭代搭档执行裁决：WAITING_PARTNER→DONE_PENDING_CONFIRM（on_behalf_of=partner 放行 + 留痕）', async () => {
+    await repo.create(makeMatter({ state: 'WAITING_PARTNER', level: 'L2' }));
+    const updated = await transition.execute({
+      matterId: makeMatter().id, to: 'DONE_PENDING_CONFIRM',
+      actor: OTHER_OTTER, onBehalfOf: 'partner', resolution: '代搭档执行：批准按方案A',
+    });
+    expect(updated.state).toBe('DONE_PENDING_CONFIRM');
+    expect(updated.resolution).toBe('代搭档执行：批准按方案A');
+    // 非终态代执行留痕：resolved_by 记被代理者（partner）
+    expect(updated.resolvedBy).toBe('partner');
+  });
+
+  it('獭代搭档宣告闭环：L2 DONE_PENDING_CONFIRM→CLOSED（on_behalf_of=partner 过宣告权守卫）', async () => {
+    await repo.create(makeMatter({ state: 'DONE_PENDING_CONFIRM', level: 'L2' }));
+    const updated = await transition.execute({
+      matterId: makeMatter().id, to: 'CLOSED',
+      actor: OTHER_OTTER, onBehalfOf: 'partner', resolution: '代搭档执行：确认闭环',
+    });
+    expect(updated.state).toBe('CLOSED');
+    expect(updated.resolvedBy).toBe(`otter:${OTHER_OTTER}`); // 终态记实际执行獭
+  });
+
+  it('獭代 owner 执行：WAITING_OTTER→DONE_PENDING_CONFIRM（on_behalf_of=<ownerId> 放行）', async () => {
+    await repo.create(makeMatter({ state: 'WAITING_OTTER' }));
+    const updated = await transition.execute({
+      matterId: makeMatter().id, to: 'DONE_PENDING_CONFIRM',
+      actor: OTHER_OTTER, onBehalfOf: OWNER, resolution: '代执行：已完成 X',
+    });
+    expect(updated.state).toBe('DONE_PENDING_CONFIRM');
+    expect(updated.resolvedBy).toBe(`otter:${OWNER}`); // 非终态留痕记被代理者
+  });
+
+  it('代执行声明不能越矩阵：獭代搭档执行 WAITING_OTTER→WAITING_PARTNER（owner 专属行）仍拒', async () => {
+    await repo.create(makeMatter({ state: 'WAITING_OTTER' }));
+    await expect(transition.execute({
+      matterId: makeMatter().id, to: 'WAITING_PARTNER',
+      actor: OTHER_OTTER, onBehalfOf: 'partner',
+    })).rejects.toThrow(/非法迁移触发者/);
+  });
+
+  it('代执行声明不能越宣告权：L2 闭环 on_behalf_of=<非 partner> 仍拒', async () => {
+    await repo.create(makeMatter({ state: 'DONE_PENDING_CONFIRM', level: 'L2' }));
+    await expect(transition.execute({
+      matterId: makeMatter().id, to: 'CLOSED',
+      actor: OTHER_OTTER, onBehalfOf: OWNER, resolution: '代执行：自认完成',
+    })).rejects.toThrow(/宣告权拒绝/);
   });
 });
 
@@ -286,7 +347,7 @@ describe('matter 状态机：宣告权分权（L2 闭环必须搭档确认）', 
       matterId: makeMatter().id, to: 'CLOSED', actor: OWNER, resolution: 'L1 自关留痕',
     });
     expect(updated.state).toBe('CLOSED');
-    expect(updated.resolvedBy).toBe(OWNER);
+    expect(updated.resolvedBy).toBe(`otter:${OWNER}`); // §1 口径：otter:<id>
   });
 
   it('L2 DONE_PENDING_CONFIRM → CLOSED 搭档确认放行', async () => {
@@ -358,16 +419,16 @@ describe('RegisterMatter 准入校验', () => {
   });
 });
 
-describe('等待方消亡规则（§2 等待方生命周期规则①）', () => {
+describe('等待方消亡规则（§2 等待方生命周期规则①——判定键 = waiting_on 指向的獭，补 owner 双扫）', () => {
   it('獭解散 → 名下 WAITING_OTTER 事项转回 OPEN；其他态不受影响', async () => {
     const db = new Database(':memory:');
     initSchema(db);
     const repo = new SqliteMatterRepository(db);
     const now = '2026-10-05T12:00:00.000Z';
 
-    await repo.create(makeMatter({ id: 'aaaaaaaa-0000-0000-0000-000000000001', state: 'WAITING_OTTER', ownerOtterId: OWNER }));
+    await repo.create(makeMatter({ id: 'aaaaaaaa-0000-0000-0000-000000000001', state: 'WAITING_OTTER', ownerOtterId: OWNER, waitingOn: `otter:${OWNER}` }));
     await repo.create(makeMatter({ id: 'aaaaaaaa-0000-0000-0000-000000000002', state: 'WAITING_PARTNER', ownerOtterId: OWNER }));
-    await repo.create(makeMatter({ id: 'aaaaaaaa-0000-0000-0000-000000000003', state: 'WAITING_OTTER', ownerOtterId: OTHER_OTTER }));
+    await repo.create(makeMatter({ id: 'aaaaaaaa-0000-0000-0000-000000000003', state: 'WAITING_OTTER', ownerOtterId: OTHER_OTTER, waitingOn: `otter:${OTHER_OTTER}` }));
 
     const changed = await repo.reopenForDissolvedOwner(OWNER, now);
     expect(changed).toBe(1);
@@ -381,6 +442,59 @@ describe('等待方消亡规则（§2 等待方生命周期规则①）', () => 
     expect(after.one!.waitingOn).toBeNull();
     expect(after.one!.updatedAt).toBe(now);
     expect(after.two!.state).toBe('WAITING_PARTNER'); // 等搭档的不受影响
-    expect(after.three!.state).toBe('WAITING_OTTER'); // 别人 owner 的不受影响
+    expect(after.three!.state).toBe('WAITING_OTTER'); // 别人等待方的不受影响
+  });
+
+  it('非 owner 等待方消亡（owner≠waiting_on）也回 OPEN——审视 S2：消灭悬挂优先', async () => {
+    const db = new Database(':memory:');
+    initSchema(db);
+    const repo = new SqliteMatterRepository(db);
+    const now = '2026-10-05T12:00:00.000Z';
+
+    // owner=A，等待方=B（代执行/打回路径产生）；B 解散 → 回 OPEN
+    await repo.create(makeMatter({
+      id: 'bbbbbbbb-0000-0000-0000-000000000001', state: 'WAITING_OTTER',
+      ownerOtterId: OWNER, waitingOn: `otter:${OTHER_OTTER}`,
+    }));
+
+    const changed = await repo.reopenForDissolvedOwner(OTHER_OTTER, now);
+    expect(changed).toBe(1);
+    const after = await repo.findById('bbbbbbbb-0000-0000-0000-000000000001');
+    expect(after!.state).toBe('OPEN');
+    expect(after!.waitingOn).toBeNull();
+  });
+
+  it('owner 消亡但 waiting_on 指向健在的他獭：不误重开（等待方还在干活）', async () => {
+    const db = new Database(':memory:');
+    initSchema(db);
+    const repo = new SqliteMatterRepository(db);
+    const now = '2026-10-05T12:00:00.000Z';
+
+    await repo.create(makeMatter({
+      id: 'cccccccc-0000-0000-0000-000000000001', state: 'WAITING_OTTER',
+      ownerOtterId: OWNER, waitingOn: `otter:${OTHER_OTTER}`,
+    }));
+
+    const changed = await repo.reopenForDissolvedOwner(OWNER, now);
+    expect(changed).toBe(0);
+    const after = await repo.findById('cccccccc-0000-0000-0000-000000000001');
+    expect(after!.state).toBe('WAITING_OTTER'); // owner 不在但等待方 B 健在——不误重开
+  });
+
+  it('waiting_on 为 NULL（owner 键兜底）的 WAITING_OTTER：owner 解散回 OPEN', async () => {
+    const db = new Database(':memory:');
+    initSchema(db);
+    const repo = new SqliteMatterRepository(db);
+    const now = '2026-10-05T12:00:00.000Z';
+
+    await repo.create(makeMatter({
+      id: 'dddddddd-0000-0000-0000-000000000001', state: 'WAITING_OTTER',
+      ownerOtterId: OWNER, waitingOn: null,
+    }));
+
+    const changed = await repo.reopenForDissolvedOwner(OWNER, now);
+    expect(changed).toBe(1);
+    const after = await repo.findById('dddddddd-0000-0000-0000-000000000001');
+    expect(after!.state).toBe('OPEN');
   });
 });
