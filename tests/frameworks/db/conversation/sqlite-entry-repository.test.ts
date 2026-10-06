@@ -80,6 +80,7 @@ async function createTestInvoke(repo: SqliteInvokeRepository, id: string): Promi
     toolCallCount: 0,
     tokenUsageInput: null,
     tokenUsageOutput: null, ctxWindowUsed: null,
+    pid: null,
     metadata: null,
   });
 }

@@ -245,8 +245,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   // #949：四个「扫台账」同构循环合并为单一巡检 worker（8→5 常驻循环）——
   // 运行时对账（#823）/ Signal Aging（#927）/ RHI Scan（#401）/ Embedding Retry（F20260812mrcq）。
-  // F20260930roiv：+ invoke 孤儿 reconcile（带 bootTs 守卫，周期 1h 兜底窗口期漏网；
-  //  守卫语义：只清「启动前遗留」，本进程内卡死的 running invoke 不在其范围）。
+  // #1241（F20261006opid）：+ invoke 孤儿 reconcile（pid 归属判据，周期 1h 兜底；
+  //  判据语义：非本进程 pid 的 running = 旧进程遗留，清理；本 pid 卡死 running 不在其范围——
+  //  旧 bootTs 守卫对「旧进程晚写入」事故形态永远跳过，pid 判据下 1h 兜底真正生效）。
   // 失败隔离：一家炸了不影响后续家；周期 1h（四家原节奏已对齐，无时钟语义变化）。
   // issue #1252 遗留问题2：构造保持原位（duty 闭包延迟绑定），但 start() 必须移到
   // initAgentAndScheduler（schedulerService 初始化）之后——PatrolWorker.start 立即同步跑首轮
@@ -261,8 +262,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     createInvokeOrphanReconcileDuty(db, repos, logger),
     ...(retryWorker ? [{ name: 'embedding-retry', run: () => retryWorker.tickNow() }] : []),
   ], logger);
-  // F20260930roiv：启动窗口期孤儿 invoke 兜底——延迟 10s 补跑一次 reconcile（带 bootTs 守卫），
-  // 覆盖窗口期；fire-and-forget 不阻塞启动，失败仅日志（对齐既有 non-fatal 纪律）。
+  // #1241（F20261006opid）：启动窗口期孤儿 invoke 兜底——延迟 10s 补跑一次 reconcile（pid 归属判据，
+  //  旧进程晚写入的孤儿不再被时间戳守卫跳过）；fire-and-forget 不阻塞启动，失败仅日志。
   const delayedReconcileTimer = setupDelayedReconcile(options, db, repos, logger);
   // issue #1252 遗留问题2：patrolWorker.start 原在此处（startRhiWorker 分支）——移至
   // initAgentAndScheduler 之后（见下）消除 schedulerService TDZ。

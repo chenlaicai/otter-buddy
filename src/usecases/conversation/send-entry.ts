@@ -255,6 +255,8 @@ export class SendEntry {
       tokenUsageInput: null,
       tokenUsageOutput: null,
       ctxWindowUsed: null,
+      /** #1241：进程归属标记——重启后非本 pid 的 running 被判孤儿清理 */
+      pid: process.pid,
       metadata: null,
     };
 
