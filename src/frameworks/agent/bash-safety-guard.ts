@@ -821,6 +821,42 @@ type ShellCExtract =
  *  白名单外（含长旗标 --posix / --norc 等带参形态）→ FAIL_CLOSED。 */
 const SHELL_FLAG_WHITELIST = /^[+-][abcdefhiklmnoprstuvxyCEFHTWX]+$/;
 
+/** F20261006gfvl (#1307)：-o/+o 带值旗标的封闭 optname 白名单（shopt set -o 集）。
+ *  白名单外 fail-closed——不是所有 \w+ 都放（evilopt/monitor 等注入面）。 */
+const SHELL_O_OPTNAME_WHITELIST = new Set([
+  "allexport", "braceexpand", "emacs", "errexit", "errtrace", "functrace",
+  "hashall", "histexpand", "history", "ignoreeof", "interactive-comments",
+  "keyword", "noclobber", "noexec", "noglob", "nolog", "notify",
+  "nounset", "onecmd", "physical", "pipefail", "posix", "privileged",
+  "verbose", "vi", "xtrace",
+]);
+
+/** 旗标扫描结果（extractShellCPayload 内层，抽函数控圈复杂度）。 */
+type FlagScan =
+  | { kind: "C_FOUND" }      // 遇 -c，进载荷提取
+  | { kind: "FILE" }         // 无 -c / 非旗标 token → bash script.sh
+  | { kind: "FAIL_CLOSED" }; // 白名单外旗标/值 → fail-closed
+
+/** 逐 token 扫描 shell 旗标（F20261006gfvl #1307：argM 正则 → 逐 token 扫描）。
+ *  带值旗标（-o/+o/-C）的值 token 一并消费并校验，白名单外 fail-closed。 */
+function scanShellFlags(tokens: string[]): FlagScan {
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    if (tok === "-c") return { kind: "C_FOUND" };
+    // 带值旗标：-o/+o <optname>、-C <dir>
+    if (/^[+-]o$/.test(tok) || tok === "-C") {
+      i++; // 消费值 token
+      if (i >= tokens.length) return { kind: "FAIL_CLOSED" }; // -o 后无值
+      if (tok !== "-C" && !SHELL_O_OPTNAME_WHITELIST.has(tokens[i])) return { kind: "FAIL_CLOSED" };
+      continue;
+    }
+    if (SHELL_FLAG_WHITELIST.test(tok)) continue; // 白名单短旗标
+    if (/^--/.test(tok)) return { kind: "FAIL_CLOSED" }; // 长旗标（V5/V7 已收口）
+    return { kind: "FILE" }; // 非旗标非 -c → bash script.sh
+  }
+  return { kind: "FILE" }; // 无 -c
+}
+
 /** 提取引号包裹的 -c 载荷（extractShellCPayload 内层，抽函数控圈复杂度）。
  *  返回 null = 未闭合引号（fail-closed）。 */
 function scanQuotedPayload(rest: string, i: number, shellOffset: number): ShellCExtract {
@@ -845,26 +881,28 @@ function extractShellCPayload(seg: string, shellOffset: number): ShellCExtract {
   const nameM = rest.match(/^[\w./-]*\/?(?:bash|sh|zsh|dash|ksh)\d*/i);
   if (!nameM) return { kind: "FILE" };
   const after = rest.slice(nameM[0].length);
-  // 逐 token 扫：白名单短旗标跳过；遇 -c 进载荷提取；其他 → 判 FAIL_CLOSED 或 FILE
-  // r2 严重 B：旗标 token 形态含 [+-] 前缀（bash `+x` 关 xtrace 合法）——argM 只认
-  // `\s+-\S+` 时 `+x` 不进旗标位，整串匹配失败返回 FILE 放行（`sh +x -c '写'` 曾绕）。
-  const argM = after.match(/^((?:\s+[+-]\S+)*?)\s*-c(\s|$)/);
-  if (!argM) {
-    // 无 -c：bash script.sh / bash -x script.sh → 文件落点放行
-    //（-c 后无空格的空字符串 -c'' 形态走下方载荷为空 → FAIL_CLOSED）
-    return { kind: "FILE" };
-  }
-  const flagStr = argM[1].trim();
-  if (flagStr) {
-    const flags = flagStr.split(/\s+/);
-    if (!flags.every(f => SHELL_FLAG_WHITELIST.test(f))) return { kind: "FAIL_CLOSED" };
-  }
-  const i = nameM[0].length + argM[0].length;
-  if (i >= rest.length) return { kind: "FAIL_CLOSED" }; // -c 后无载荷
-  const q = rest[i];
-  if (q === "'" || q === '"' || q === "`") return scanQuotedPayload(rest, i, shellOffset);
+  // 逐 token 扫描旗标：白名单短旗标跳过；带值旗标（-o/+o/-C）校验值在封闭白名单内；
+  // 白名单外旗标/值 → FAIL_CLOSED；遇 -c 进载荷提取；其他 → FILE。
+  // r2 严重 B：旗标 token 形态含 [+-] 前缀（bash `+x` 关 xtrace 合法）。
+  // F20261006gfvl (#1307)：argM 正则 `(?:\s+[+-]\S+)*?` 只认 [+-] 前缀 token——
+  // `bash -o pipefail -c 'x'` 的 `pipefail` 值无前缀 → argM 从值后重新匹配 -c 成功、
+  // flagStr 只含 -o（白名单内）→ 值被静默跳过（R1-R4 绕过实锤）。修复：逐 token 扫描，
+  // 带值旗标的值 token 一并消费并校验，白名单外 fail-closed。
+  const tokens = after.trim().split(/\s+/);
+  const scan = scanShellFlags(tokens);
+  if (scan.kind === "FILE") return { kind: "FILE" };
+  if (scan.kind === "FAIL_CLOSED") return { kind: "FAIL_CLOSED" };
+  // scan.kind === "C_FOUND"：旗标扫描已确认 -c 存在且前面全是合法旗标/值。
+  // indexOf 定位第一个 -c（前面全是合法旗标不含 -c，这就是目标）。
+  const cIdx = after.indexOf("-c");
+  let j = nameM[0].length + cIdx + 2; // rest 内 -c 后位置
+  // 跳过 -c 后空白（`bash -c 'payload'` 的 -c 与引号间有空格）
+  while (j < rest.length && /\s/.test(rest[j])) j++;
+  if (j >= rest.length) return { kind: "FAIL_CLOSED" }; // -c 后无载荷
+  const q = rest[j];
+  if (q === "'" || q === '"' || q === "`") return scanQuotedPayload(rest, j, shellOffset);
   // 无引号载荷（bash -c node…）——取至段尾
-  const payload = rest.slice(i).trim();
+  const payload = rest.slice(j).trim();
   return payload ? { kind: "PAYLOAD", payload, consumedEnd: seg.length } : { kind: "FAIL_CLOSED" };
 }
 
