@@ -843,16 +843,23 @@ function scanShellFlags(tokens: string[]): FlagScan {
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i];
     if (tok === "-c") return { kind: "C_FOUND" };
-    // 带值旗标：-o/+o <optname>、-C <dir>
-    if (/^[+-]o$/.test(tok) || tok === "-C") {
+    // 带值旗标：-o/+o <optname>
+    // F20261006gfvl 修正：-C 是无参 noclobber 旗标（大写 C 已在 SHELL_FLAG_WHITELIST 字符类），
+    // 不接值——大獭实测 `bash -C -c 'echo OK'` payload 正常执行，`bash -C /tmp -c 'echo OK'`
+    // 报 /tmp is a directory（/tmp 被当脚本文件名）。原「-C 带值」建模被真 bash 推翻。
+    if (/^[+-]o$/.test(tok)) {
       i++; // 消费值 token
       if (i >= tokens.length) return { kind: "FAIL_CLOSED" }; // -o 后无值
-      if (tok !== "-C" && !SHELL_O_OPTNAME_WHITELIST.has(tokens[i])) return { kind: "FAIL_CLOSED" };
+      if (!SHELL_O_OPTNAME_WHITELIST.has(tokens[i])) return { kind: "FAIL_CLOSED" };
       continue;
     }
-    if (SHELL_FLAG_WHITELIST.test(tok)) continue; // 白名单短旗标
+    if (SHELL_FLAG_WHITELIST.test(tok)) continue; // 白名单短旗标（含 -C 无参 noclobber）
+    if (tok === "-") return { kind: "FILE" }; // heredoc stdin 标记（bash - <<'EOF'）——交外层 heredoc 检测
     if (/^--/.test(tok)) return { kind: "FAIL_CLOSED" }; // 长旗标（V5/V7 已收口）
-    return { kind: "FILE" }; // 非旗标非 -c → bash script.sh
+    // F20261006gfvl 修正：-C 后遇非旗标 token（如 bash -C /tmp -c 'x' 的 /tmp）——
+    // 真 bash 实测 /tmp 被当脚本文件名报 is a directory，payload 不执行。
+    // 但守卫保守拦（fail-closed）：非旗标 token 出现在旗标位 = 形态异常，不放行。
+    return { kind: "FAIL_CLOSED" };
   }
   return { kind: "FILE" }; // 无 -c
 }

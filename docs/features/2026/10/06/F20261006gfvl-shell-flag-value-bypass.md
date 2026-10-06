@@ -76,7 +76,15 @@ argM 正则 → 逐 token 扫描：
 ### 不做（issue 范围外）
 
 - `rm -rf` 载荷递归不被拦：rm 归 checkDataDirDestructive 管（独立通道），不在 MAIN_WRITE_PATTERNS——不带旗标的 `bash -c 'rm -rf data/'` 也放，是既有管辖边界，不是本 issue 引入。建议单独 issue 跟踪。
-- `-C <dir>` 值内容不校验：bash 内部 chdir 不改变守卫 cwd 跟踪，只读无风险。
+- SHELL_FLAG_WHITELIST 字符类盲区：`-opipefail` 值内联形态匹配字符类放行——真 bash 实测是合法 set -o 内联形态，字符类任意字母组合盲区是既有设计（#1297），收窄需单独 issue。
+
+### -C 建模纠错（打回处置决策记录）
+
+初版把 `-C` 当带值旗标（`tok === "-C"` → 消费下一 token）——**真 bash 实测推翻**：
+- `bash -C -c 'echo OK'` → payload 正常执行（`-C` 是无参 noclobber 旗标，不接值）
+- `bash -C /tmp -c 'echo OK'` → 报 `/tmp: is a directory` exit 126（`/tmp` 被当脚本文件名，payload 不执行）
+
+修正：`-C` 移出带值旗标建模，由 SHELL_FLAG_WHITELIST 字符类覆盖（大写 C 已在字符类）。`-C` 后遇非旗标 token（如 `/tmp`）→ FAIL_CLOSED 保守拦（形态异常，不放行）。
 
 ## 影响范围
 
@@ -111,5 +119,6 @@ probe-1307b.ts：R1-R4（带值旗标 + 危险载荷）全放，N1-N4（白名�
 ## Known Limitations
 
 - `rm -rf` 载荷递归不被拦是既有管辖边界（checkDataDirDestructive 独立通道），不是本 issue 引入。建议单独 issue 跟踪「bash -c 载荷递归补 rm/data 破坏通道」。
-- `-C <dir>` 值内容不校验（bash 内部 chdir 只读无风险），若未来 bash 支持 `-C` 写操作需重新评估。
+- SHELL_FLAG_WHITELIST 字符类盲区：`-opipefail` 等值内联形态匹配字符类放行——真 bash 实测是合法 set -o 内联形态，字符类任意字母组合盲区是既有设计（#1297），收窄需单独 issue。
 - token 扫描按 `\s+` 切分——引号内空格（`bash -o "pipe fail" -c 'x'`）会把引号拆成多 token，白名单校验失败 FAIL_CLOSED（保守侧，符合 fail-closed 原则）。
+- `-` heredoc stdin 标记（`bash - <<'EOF'`）直接返回 FILE 交外层 heredoc 检测——外层 `scriptHeredocBodiesReadOnlySegmentAware` 管体内容，本层不管。

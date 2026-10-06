@@ -2686,3 +2686,80 @@ PY`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
   });
 });
+
+describe("F20261006gfvl (#1307)：bash -c 带值旗标绕过收口", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo"; // 假想主仓根，与 #1038 describe 块同口径
+  // 大獭对照矩阵（打回处置）：A 修复前放行是洞，修复后应拦
+  it("A: bash -C -c 写载荷 → 拦截（-C 是无参 noclobber 旗标，不接值——真 bash 实测）", () => {
+    expect(checkBashCommandSafety(`bash -C -c 'git commit -m x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("B: bash -xc 合写旗标 → 拦截（bash file 检测）", () => {
+    expect(checkBashCommandSafety(`bash -xc 'echo OK'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("C: bash -o pipefail -c 写载荷 → 拦截（issue #1307 主洞修复）", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -c 'echo pwned > config/config.yaml'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("D: bash -C /tmp -c 载荷 → 拦截（-C 后非旗标 token 保守拦，真 bash 实测 /tmp 当脚本文件名报 is a directory）", () => {
+    expect(checkBashCommandSafety(`bash -C /tmp -c 'echo OK'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // -o 值位置旗标混淆（自对抗新增）
+  it("E: bash -o -c 'echo x' y → 拦截（-o 吃 -c 当 optname，白名单外 FAIL_CLOSED）", () => {
+    expect(checkBashCommandSafety(`bash -o -c 'echo x' y`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // 正向：白名单 optname 不误拦
+  it("P1: bash -o pipefail -c 只读载荷 → 放行", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -c 'echo hello'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("P2: bash -o errexit -o nounset -c 只读载荷 → 放行", () => {
+    expect(checkBashCommandSafety(`bash -o errexit -o nounset -c 'ls'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("P3: bash -C -c 只读载荷 → 放行（-C 无参旗标白名单内）", () => {
+    expect(checkBashCommandSafety(`bash -C -c 'echo hello'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  // 负向：白名单外 optname fail-closed
+  it("N1: bash -o evilopt -c 载荷 → 拦截（白名单外 optname）", () => {
+    expect(checkBashCommandSafety(`bash -o evilopt -c 'echo x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("N2: bash -o monitor -c 载荷 → 拦截（monitor 不在白名单——job control 安全风险）", () => {
+    expect(checkBashCommandSafety(`bash -o monitor -c 'echo x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("N3: bash --restricted -c 载荷 → 拦截（长旗标 fail-closed 不回退）", () => {
+    expect(checkBashCommandSafety(`bash --restricted -c 'echo x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("N4: bash -o pipefail -c kill 载荷 → 拦截（kill 族独立层）", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -c 'kill ${mainPid}'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // 自对抗补充：值内联/空格注入/混合
+  it("V1: bash -opipefail -c 载荷（值内联） → 放行（-opipefail 匹配 SHELL_FLAG_WHITELIST 字符类——既有盲区，非本 issue 引入）", () => {
+    // SHELL_FLAG_WHITELIST 是字符类 /^[+-][abcdefhiklmnoprstuvxyCEFHTWX]+$/——
+    // -opipefail 的 o/p/i/p/e/f/a/i/l 全在字符类内 → 白名单短旗标放行。
+    // 真 bash 实测 -opipefail 是合法 set -o 内联形态（bash -opipefail -c 'echo OK' 正常执行）。
+    // 字符类白名单的任意字母组合盲区是既有设计（#1297），收窄需单独 issue。
+    expect(checkBashCommandSafety(`bash -opipefail -c 'echo x'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("V2: bash -o 'pipe fail' -c 载荷（值含空格） → 拦截（引号拆分后白名单外）", () => {
+    expect(checkBashCommandSafety(`bash -o 'pipe fail' -c 'echo x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("V3: bash -o pipefail -o evilopt -c 载荷（混合白名单外） → 拦截", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -o evilopt -c 'echo x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("V4: bash -o pipefail -c（无载荷） → 拦截（-c 后无载荷 FAIL_CLOSED）", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -c`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+});
