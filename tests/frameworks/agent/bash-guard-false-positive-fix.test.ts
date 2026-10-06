@@ -371,3 +371,102 @@ describe("F20260924gfpn：拦截侧总回归（该拦的仍拦）", () => {
     expect(checkBashCommandSafety("echo x > file.txt", mainPid, undefined, opts)).not.toBeNull();
   });
 });
+
+describe("F20261006gfpn (#1310)：node -e 日常只读取证放行（8 实证形态覆盖）", () => {
+  // issue #1310 形态 2：python/node 内联脚本含 kill 字样（检索关键词）
+  it("形态2a: python3 -c json 检索含 kill 字样 → 放行", () => {
+    const cmd = `python3 -c "import json; print([l for l in open('data/sessions/x.jsonl') if 'kill' in l][:3])"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, opts)).toBeNull();
+  });
+
+  it("形态2b: node -e fs.readFileSync 检索含 kill 字样（#1310 修复核心） → 放行", () => {
+    const cmd = `node -e "const fs=require('fs'); const lines=fs.readFileSync('data/sessions/x.jsonl','utf8').split('\\n').filter(l=>l.includes('kill')); console.log(lines.length)"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, opts)).toBeNull();
+  });
+
+  it("形态2c: node -e for-of readdirSync 检索含 kill 字样（控制流词 for/if 不入 bare） → 放行", () => {
+    const cmd = `node -e "const fs=require('fs'); for (const f of fs.readdirSync('data/sessions')) { if (f.includes('kill')) console.log(f) }"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, opts)).toBeNull();
+  });
+
+  // 日常取证高频形态
+  it("node -e process.argv/cwd/pid 只读属性查询 → 放行", () => {
+    const cmd = `node -e "console.log(process.argv, process.cwd(), process.pid)"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, opts)).toBeNull();
+  });
+
+  it("node -e process.env 环境查询 → 放行", () => {
+    const cmd = `node -e "console.log(process.env.NODE_ENV)"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, opts)).toBeNull();
+  });
+
+  it("node -e path 模块只读 API（basename/dirname/resolve） → 放行", () => {
+    const cmd = `node -e "const path=require('path'); console.log(path.basename('/a/b/c.txt'), path.dirname('/a/b'), path.resolve('.'))"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, opts)).toBeNull();
+  });
+
+  it("node -e JSON.parse + 数组方法链 → 放行", () => {
+    const cmd = `node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('x.json','utf8')); console.log(d.items.map(i=>i.name).filter(n=>n.length>3).join(','))"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, opts)).toBeNull();
+  });
+
+  // 形态 1/3/4/5 已由 #1297/#1275/#1207 在最新 main 修好（探针实证），此处固化防回归
+  it("形态1: grep 引号内含 worktree otter-buddy.sh 路径字符串 → 放行", () => {
+    const cmd = `grep -rn "otter-buddy.sh restart" src/frameworks/agent/ | head -20`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, opts)).toBeNull();
+  });
+
+  it("形态3: git log -- 含脚本名路径 → 放行", () => {
+    const cmd = `git log --oneline -5 -- scripts/otter-buddy.sh`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, opts)).toBeNull();
+  });
+
+  it("形态4a: grep 引号内含 kill -15 <pid> 文本（取证） → 放行", () => {
+    const cmd = `grep -n "kill -15 31385" data/sessions/abc.jsonl | head -5`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, opts)).toBeNull();
+  });
+
+  it("形态4b: grep 引号内含 otter-buddy.pid 引用 → 放行", () => {
+    const cmd = `grep -rn "otter-buddy.pid" data/sessions/ | head -5`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, opts)).toBeNull();
+  });
+
+  it("形态5: worktree 内 otter-buddy.sh 非3000端口 start → 放行", () => {
+    const cmd = `/repo/.otter/worktrees/fix-x/scripts/otter-buddy.sh start -p 3194`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, opts)).toBeNull();
+  });
+});
+
+describe("F20261006gfpn (#1310)：自对抗变体（≥5）——node -e 写/执行面保持拦截", () => {
+  it("V1: node -e process.kill(42877) → 拦截", () => {
+    expect(checkBashCommandSafety('node -e "process.kill(42877)"', mainPid, undefined, opts)).not.toBeNull();
+  });
+
+  it("V2: node -e require('child_process').exec('kill 42877') → 拦截", () => {
+    expect(checkBashCommandSafety(`node -e "require('child_process').exec('kill 42877')"`, mainPid, undefined, opts)).not.toBeNull();
+  });
+
+  it("V3: node -e fs.writeFileSync 主仓配置 → 拦截", () => {
+    expect(checkBashCommandSafety(`node -e "const fs=require('fs'); fs.writeFileSync('config/config.yaml','x')"`, mainPid, undefined, opts)).not.toBeNull();
+  });
+
+  it("V4: node -e fs.unlinkSync 主仓数据 → 拦截", () => {
+    expect(checkBashCommandSafety(`node -e "const fs=require('fs'); fs.unlinkSync('data/otter-buddy.db')"`, mainPid, undefined, opts)).not.toBeNull();
+  });
+
+  it("V5: node -e fs.rmSync recursive → 拦截", () => {
+    expect(checkBashCommandSafety(`node -e "require('fs').rmSync('data',{recursive:true})"`, mainPid, undefined, opts)).not.toBeNull();
+  });
+
+  it("V6: node -e eval 包装 → 拦截", () => {
+    expect(checkBashCommandSafety(`node -e "eval('process.kill(42877)')"`, mainPid, undefined, opts)).not.toBeNull();
+  });
+
+  it("V7: node -e 模板串内嵌展开（${} 绕过面） → 拦截", () => {
+    expect(checkBashCommandSafety('node -e "const x=`${process.kill(42877)}`"', mainPid, undefined, opts)).not.toBeNull();
+  });
+
+  it("V8: node -e fs.createWriteStream → 拦截", () => {
+    expect(checkBashCommandSafety(`node -e "const fs=require('fs'); fs.createWriteStream('x').end('y')"`, mainPid, undefined, opts)).not.toBeNull();
+  });
+});

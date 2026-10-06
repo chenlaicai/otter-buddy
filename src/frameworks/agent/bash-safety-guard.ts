@@ -1383,18 +1383,31 @@ const NODE_READONLY_METHODS = new Set([
   "log", "error", "warn", "info", "debug", "table", "keys", "values", "entries",
   "stringify", "parse", "from", "isArray", "push", "map", "filter", "reduce",
   "forEach", "flat", "sort", "reverse", "test", "exec",
+  // F20261006gfpn (#1310)：path 模块只读 API（日常取证高频，无写面对应物）
+  "basename", "dirname", "extname", "isAbsolute", "relative", "resolve",
+  // F20261006gfpn (#1310)：process.cwd() 只读方法形态（dotted 门走方法白名单）
+  "cwd",
 ]);
 
-function nodeBodyReadOnly(body: string): boolean {
-  if (/\\|`/.test(body)) return false;
+/** node 体只读白名单（F20260927madr，#1275）：node -e 日常取证（fs.readFileSync 等只读 API）
+ *  放行——F20260905rwcb 防的是 exec 类执行旁路，不是「代码字符串含 kill 字样」。
+ *  白名单法（fail-closed）：体由 require('fs') + 只读方法调用 + 字符串/数组处理构成才豁免。
+ *  F20261006gfpn (#1310) 导出：供探针/测试直调（同基座对齐——豁免与拦截同一函数）。 */
+export function nodeBodyReadOnly(body: string): boolean {
+  // F20261006gfpn (#1310)：反斜杠放行（正则需要 \n 等转义），模板串仍拒（${} 展开面）
+  if (/`/.test(body)) return false;
   if (/\b(?:eval|Function|setTimeout|setInterval|require\s*\(\s*(?!['"](?:fs|util|path)['"]))/.test(body)) return false;
   // #1275：否定检测扩展——child_process/worker_threads/vm/net/http/https/fs.promises 全禁（执行/网络面）
-  if (/\bprocess\s*\.\s*(?!pid\b|platform\b|argv\b|version\b|cwd\b|stdout\b|stderr\b)/.test(body)) return false;
+  // F20261006gfpn (#1310)：process 面扩 env——NODE_ENV 等环境查询是日常只读高频
+  if (/\bprocess\s*\.\s*(?!pid\b|platform\b|argv\b|version\b|cwd\b|stdout\b|stderr\b|env\b)/.test(body)) return false;
   if (/\b(?:child_process|worker_threads|vm|net|http|https|fs\.promises)\b/.test(body)) return false;
   // 计算成员调用 obj['x'](...)——对 callee 名提取不可见，出现即不豁免（动态面）
   if (/\]\s*\(/.test(body)) return false;
   const dotted = [...body.matchAll(/\.\s*([A-Za-z_$][\w$]*)\s*\(/g)].map(m2 => m2[1]);
-  const bare = [...body.matchAll(/(?:^|[^\w$.])([A-Za-z_$][\w$]*)\s*\(/g)].map(m2 => m2[1]).filter(c => !dotted.includes(c));
+  // F20261006gfpn (#1310)：bare 正则要求「标识符后紧跟 ( 且 ( 后非空格/等号」——
+  // 原实现 `\s*\(` 允许标识符与 ( 之间有空格 → for/if/while 条件里的 ( 被误判为函数调用。
+  // 修正：标识符后必须紧跟 (（无空格）才认调用，控制流词 for/if/while 不入 bare。
+  const bare = [...body.matchAll(/(?:^|[^\w$.])([A-Za-z_$][\w$]*)\(/g)].map(m2 => m2[1]).filter(c => !dotted.includes(c));
   if (bare.some(c => !/^(?:console|JSON|Math|String|Number|Boolean|Array|Object|require|parseInt|parseFloat|isNaN)$/.test(c))) return false;
   for (const d of dotted) {
     if (!NODE_READONLY_METHODS.has(d)) return false;
