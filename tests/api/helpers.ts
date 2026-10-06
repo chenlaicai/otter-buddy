@@ -458,6 +458,8 @@ export function createTestApp(deps: TestDeps): Hono {
     broadcaster,
   );
   // F20260913ctlv Phase 4：invoke 只读查询端点——默认内存 stub（测试可用 deps.invokeRepo 覆写）
+  // F20260930s1x0（issue #1251）：注入 agentInvoker（此前未注入，abort 端点走 500 分支），
+  // 默认 mock 缺 abort 方法时按 500 语义 stub——abort 行为断言须显式覆写 deps.agentInvoker
   const invokeCtrl = new InvokeController(
     (deps.invokeRepo ?? {
       getInvokes: async () => [],
@@ -465,6 +467,7 @@ export function createTestApp(deps: TestDeps): Hono {
       getInvokeEvents: async () => [],
     }) as unknown as ConstructorParameters<typeof InvokeController>[0],
     logger,
+    deps.agentInvoker,
   );
   // F20260913ctlv 切换清扫：entries 时间线只读查询端点——默认内存 stub
   const entryCtrl = new EntryController(

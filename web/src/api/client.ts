@@ -30,10 +30,27 @@ const BASE = '/api'
 
 export class ApiError extends Error {
   status: number
-  constructor(message: string, status: number) {
+  /** F20260930s1x0（issue #1251）：透传服务端可机读错误码（如 invoke_not_running），
+   *  前端据此走专属提示而非兜底文案 */
+  code?: string
+  /** F20260930s1x0 delta（PR #1268 审视发现 1）：409 携带的 invoke 真实终态，
+   *  调用方据此直接收敛气泡（等效补发错失的 invoke.end） */
+  invokeStatus?: 'completed' | 'failed' | 'aborted'
+  constructor(message: string, status: number, code?: string, invokeStatus?: 'completed' | 'failed' | 'aborted') {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.code = code
+    this.invokeStatus = invokeStatus
+  }
+}
+
+/** F20260930s1x0（issue #1251）：abort 失败时携带服务端错误码的专属错误类，
+ *  区分「目标并非真实运行（假行动中，#1241 范围）」与「中断链路本身故障（方向②）」 */
+export class InvokeAbortError extends ApiError {
+  constructor(message: string, status: number, code?: string, invokeStatus?: 'completed' | 'failed' | 'aborted') {
+    super(message, status, code, invokeStatus)
+    this.name = 'InvokeAbortError'
   }
 }
 
@@ -44,7 +61,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }))
-    throw new ApiError(body.error ?? res.statusText, res.status)
+    throw new ApiError(body.error ?? res.statusText, res.status, body.code, body.invoke_status)
   }
   if (res.status === 204) return undefined as T
   return res.json()
@@ -158,13 +175,22 @@ export function listEntriesAfter(conversationId: string, after: string, limit = 
   return request(`/conversations/${conversationId}/entries?${qs}`)
 }
 
-/** F20260913ctlv 彻底切换：中止运行中 invoke（Session 弹窗/右栏停止按钮） */
-export function abortInvoke(invokeId: string, otterId: string): Promise<{ status: string }> {
-  return request(`/invokes/${invokeId}/abort`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ otterId }),
-  })
+/** F20260913ctlv 彻底切换：中止运行中 invoke（Session 弹窗/右栏停止按钮）
+ *  F20260930s1x0（issue #1251）：失败统一抛 InvokeAbortError（携带 status/code），
+ *  调用方据此区分「假行动中 409」与「中断链路故障」 */
+export async function abortInvoke(invokeId: string, otterId: string): Promise<{ status: string }> {
+  try {
+    return await request(`/invokes/${invokeId}/abort`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ otterId }),
+    })
+  } catch (err) {
+    if (err instanceof ApiError) {
+      throw new InvokeAbortError(err.message, err.status, err.code, err.invokeStatus)
+    }
+    throw err
+  }
 }
 
 /** F20260913ctlv 彻底切换：重试失败 invoke（前端气泡重试按钮；返回 SSE 流） */

@@ -5,7 +5,7 @@ import { PanelLeft, PanelRight } from 'lucide-react'
 import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask, LocalAttachment } from '../../lib/mappers'
 
 import { mapOtterDTO, mapConversationDTO, mapEntryDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
-import { isInFlight, upsertMessage, insertBySeq, upsertTerminalMessage, insertCenteredByTs, mergeMessages } from '../../lib/message-stream'
+import { isInFlight, upsertMessage, insertBySeq, upsertTerminalMessage, insertCenteredByTs, mergeMessages, settleInvokeToTerminal, rollbackOptimisticAbort } from '../../lib/message-stream'
 import { applyInvokeStart, applyInvokeEnd, applyInvokeTick, mergeInvokesFromServer, type InvokeStates } from '../../lib/invoke-tracker'
 import { MessageBatcher } from '../../lib/batch-update'
 import { nowTs } from '../../lib/utils'
@@ -24,7 +24,7 @@ import { SessionModal, type SessionLiveItem } from './SessionModal'
 import { useScheduledTasks } from './hooks/useScheduledTasks'
 import { useCardBridge } from './hooks/useCardBridge'
 import * as api from '../../api/client'
-import { ApiError } from '../../api/client'
+import { ApiError, InvokeAbortError } from '../../api/client'
 import { consumeSSE } from '../../api/sse'
 
 async function loadInitialData(): Promise<{
@@ -1148,11 +1148,39 @@ export default function ConversationPage() {
         ? { ...m, status: 'aborted' as const, content: m.content || '[中断]' }
         : m) }
     })
+    /** 乐观快照：abort 请求前 in-flight 气泡引用（delta 发现 1：非 409 失败按快照精确回滚，
+     *  旧实现 status==='aborted' 匹配误伤同 invokeId 历史真实终态气泡） */
+    const before = (allMessagesRef.current[activeId] || []).filter(m => m.invokeId === invokeId && isInFlight(m))
     api.abortInvoke(invokeId, target?.si || '')
       .then(() => {
         showToast('已暂停本会话新任务，发新消息即恢复', 'info')
       })
-      .catch((err) => console.error('Failed to abort invoke:', err))
+      .catch((err) => {
+        console.error('Failed to abort invoke:', err)
+        // F20260930s1x0 delta（PR #1268 审视发现 1）：旧实现无差别回滚 streaming + 清空 content，
+        // 但 409 场景无未来 invoke.end（已终态不再发），气泡永久假 streaming——复刻 issue 症状。
+        // delta2（复核发现死链）：入口已在发请求前乐观置 'aborted'，settle 必须按快照匹配
+        // （并集当前 in-flight），否则 409 回来时零匹配、服务端真实终态被静默丢弃。
+        // 分流：409 按服务端真实终态收敛（等效补发错失的 invoke.end）；
+        // 非 409 回滚乐观态（invoke 仍在跑，后续 entry.*/end 事件会接管收敛）且保留 content
+        if (!activeId) return
+        if (err instanceof InvokeAbortError && err.code === 'invoke_not_running') {
+          const terminal = err.invokeStatus === 'failed' || err.invokeStatus === 'completed' ? err.invokeStatus : 'aborted'
+          setAllMessages(prev => {
+            const list = prev[activeId]
+            if (!list) return prev
+            return { ...prev, [activeId]: settleInvokeToTerminal(list, invokeId, terminal, before) }
+          })
+          showToast('该行动已不在运行状态（可能是显示状态滞后），无法中断', 'info')
+        } else {
+          setAllMessages(prev => {
+            const list = prev[activeId]
+            if (!list) return prev
+            return { ...prev, [activeId]: rollbackOptimisticAbort(list, invokeId, before) }
+          })
+          showToast('中断请求失败，请稍后重试', 'error')
+        }
+      })
   }, [activeId])
 
   /** F20260913ctlv：右栏中断按钮——invokeId 直锚（无气泡依赖），乐观收敛该 invoke 名下
@@ -1166,9 +1194,32 @@ export default function ConversationPage() {
         ? { ...m, status: 'aborted' as const, content: m.content || '[中断]' }
         : m) }
     })
+    /** 乐观快照：同 stopStream（delta 发现 1：非 409 失败按快照精确回滚） */
+    const before = (allMessagesRef.current[activeId] || []).filter(m => m.invokeId === invokeId && isInFlight(m))
     api.abortInvoke(invokeId, otterId)
       .then(() => showToast('已中断该獭当前行动', 'info'))
-      .catch((err) => { console.error('Failed to abort invoke:', err); showToast('中断失败', 'error') })
+      .catch((err) => {
+        console.error('Failed to abort invoke:', err)
+        // F20260930s1x0 delta（PR #1268 审视发现 1）：同 stopStream 分流——409 按服务端真实终态
+        // 收敛（delta2：快照匹配，乐观置位后的气泡也收敛）/ 非 409 快照回滚
+        if (!activeId) return
+        if (err instanceof InvokeAbortError && err.code === 'invoke_not_running') {
+          const terminal = err.invokeStatus === 'failed' || err.invokeStatus === 'completed' ? err.invokeStatus : 'aborted'
+          setAllMessages(prev => {
+            const list = prev[activeId]
+            if (!list) return prev
+            return { ...prev, [activeId]: settleInvokeToTerminal(list, invokeId, terminal, before) }
+          })
+          showToast('该獭当前无真实运行中的行动（显示状态可能滞后），无法中断', 'info')
+        } else {
+          setAllMessages(prev => {
+            const list = prev[activeId]
+            if (!list) return prev
+            return { ...prev, [activeId]: rollbackOptimisticAbort(list, invokeId, before) }
+          })
+          showToast('中断失败', 'error')
+        }
+      })
   }, [activeId])
 
   /** F20260913ctlv：右栏重试按钮——复用 retry 端点，重试流事件经 broadcaster 到达
