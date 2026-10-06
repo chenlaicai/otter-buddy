@@ -2743,11 +2743,11 @@ describe("F20261006gfvl (#1307)：bash -c 带值旗标绕过收口", () => {
   });
 
   // 自对抗补充：值内联/空格注入/混合
-  it("V1: bash -opipefail -c 载荷（值内联） → 放行（-opipefail 匹配 SHELL_FLAG_WHITELIST 字符类——既有盲区，非本 issue 引入）", () => {
+  it("V1: bash -opipefail -c 载荷（值内联） → 放行（-opipefail 匹配 SHELL_FLAG_WHITELIST 字符类——既有盲区，非本 issue 引入；真 bash 拒执行，放行无害）", () => {
     // SHELL_FLAG_WHITELIST 是字符类 /^[+-][abcdefhiklmnoprstuvxyCEFHTWX]+$/——
     // -opipefail 的 o/p/i/p/e/f/a/i/l 全在字符类内 → 白名单短旗标放行。
-    // 真 bash 实测 -opipefail 是合法 set -o 内联形态（bash -opipefail -c 'echo OK' 正常执行）。
-    // 字符类白名单的任意字母组合盲区是既有设计（#1297），收窄需单独 issue。
+    // 真 bash 3.2 实测 bash -opipefail -c 报错 exit 2（invalid option name），-o 不接受值内联粘连——
+    // 守卫放行无害（真 bash 拒绝执行），但属 #1297 既有字符类盲区，收窄需单独 issue。
     expect(checkBashCommandSafety(`bash -opipefail -c 'echo x'`, mainPid, undefined, { projectRoot })).toBeNull();
   });
 

@@ -76,7 +76,7 @@ argM 正则 → 逐 token 扫描：
 ### 不做（issue 范围外）
 
 - `rm -rf` 载荷递归不被拦：rm 归 checkDataDirDestructive 管（独立通道），不在 MAIN_WRITE_PATTERNS——不带旗标的 `bash -c 'rm -rf data/'` 也放，是既有管辖边界，不是本 issue 引入。建议单独 issue 跟踪。
-- SHELL_FLAG_WHITELIST 字符类盲区：`-opipefail` 值内联形态匹配字符类放行——真 bash 实测是合法 set -o 内联形态，字符类任意字母组合盲区是既有设计（#1297），收窄需单独 issue。
+- SHELL_FLAG_WHITELIST 字符类盲区：`-opipefail` 值内联形态匹配字符类放行——真 bash 3.2 实测报错 exit 2（invalid option name，-o 不接受值内联粘连），守卫放行无害（真 bash 拒执行）——字符类任意字母组合盲区是既有设计（#1297），收窄需单独 issue。
 
 ### -C 建模纠错（打回处置决策记录）
 
@@ -119,6 +119,6 @@ probe-1307b.ts：R1-R4（带值旗标 + 危险载荷）全放，N1-N4（白名�
 ## Known Limitations
 
 - `rm -rf` 载荷递归不被拦是既有管辖边界（checkDataDirDestructive 独立通道），不是本 issue 引入。建议单独 issue 跟踪「bash -c 载荷递归补 rm/data 破坏通道」。
-- SHELL_FLAG_WHITELIST 字符类盲区：`-opipefail` 等值内联形态匹配字符类放行——真 bash 实测是合法 set -o 内联形态，字符类任意字母组合盲区是既有设计（#1297），收窄需单独 issue。
+- SHELL_FLAG_WHITELIST 字符类盲区：`-opipefail` 等值内联形态匹配字符类放行——真 bash 3.2 实测报错 exit 2（invalid option name，-o 不接受值内联粘连），守卫放行无害（真 bash 拒执行）——字符类任意字母组合盲区是既有设计（#1297），收窄需单独 issue。
 - token 扫描按 `\s+` 切分——引号内空格（`bash -o "pipe fail" -c 'x'`）会把引号拆成多 token，白名单校验失败 FAIL_CLOSED（保守侧，符合 fail-closed 原则）。
 - `-` heredoc stdin 标记（`bash - <<'EOF'`）直接返回 FILE 交外层 heredoc 检测——外层 `scriptHeredocBodiesReadOnlySegmentAware` 管体内容，本层不管。
