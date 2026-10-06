@@ -1,5 +1,5 @@
 ---
-id: F20261005rgxf
+id: F20261006rgxf
 title: lint-prompt-anchors stripTsComments 正则字面量识别修复
 summary: 修复 stripTsComments 手写状态机不识别正则字面量的缺陷——含裸引号正则内的引号被当字符串起始，后续真注释不再剥离、注释内锚点被误报注入面（PR #1126 踩坑现场：tool-factory.ts 被迫改用 RegExp 构造器规避）。方案：状态机新增 inRegex 状态 + 除法/正则区分启发式（回溯前一非空白 token：操作数结尾→除法，关键字/运算符/语句位→正则）+ 跨行/EOF 自愈回填原文。抽独立模块 strip-ts-comments.mjs（同 #1089 anchor-hex-detector 先例），17 用例锁定含裸引号正则、正则内斜杠对、除法不误判、真锚点不回归。
 capability_test: "tests/scripts/strip-ts-comments.test.ts（纯函数 17 用例：正则内裸引号注释剥离（#1126 现场复刻）/正则内斜杠对不误吞/字符类内斜杠不终止/标识符·闭括号·引号后除法不误判/return 后正则识别/if 语句位（含嵌套括号）/行首正则/跨行自愈回填·区间奇数引号不卡态/EOF 告警/真锚点保留/行号保持）"
@@ -22,7 +22,7 @@ causal_links:
 created_at: 2026-10-05
 ---
 
-# F20261005rgxf stripTsComments 正则字面量识别修复
+# F20261006rgxf stripTsComments 正则字面量识别修复
 
 ## 背景
 
