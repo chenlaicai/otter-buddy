@@ -212,4 +212,24 @@ describe("既有行为不回归", () => {
     expect(out).toContain("not a /regex/ here");
     expect(out).not.toContain("F20260808uvwx");
   });
+
+  // glm 终检三轮严重（①括号污染②转义/投降回归③`k-=2`跳错位/H1）组合形态矩阵——
+  // 一次性锁死引号×反斜杠×括号组合空间（检视獭-1282glm 补丁验证 12/12，防「修复引回归」循环）
+  it.each([
+    // [名称, 源码, 断言函数]
+    ["转义引号误报", `if (s.endsWith("\\"")) /["']/.test(s); // F20260921vsds 注释`, (o) => !o.includes("F20260921vsds")],
+    ["转义引号漏检", `if (s.endsWith("\\"")) /\\d\\//.test(s); const d = "see F20260101abcd";`, (o) => o.includes("F20260101abcd")],
+    ["正则类引号误报", `if (/['()]/.test(s)) /["']/.test(s); // F20260921vsds 注释`, (o) => !o.includes("F20260921vsds")],
+    ["正则类引号漏检", `if (/['()]/.test(s)) /\\d\\//.test(s); const d = "see F20260101abcd";`, (o) => o.includes("F20260101abcd")],
+    ["双反斜杠括号误报", `if (s.split("\\\\(")) /["']/.test(s); // F20260921vsds 注释`, (o) => !o.includes("F20260921vsds")],
+    ["双反斜杠括号漏检", `if (s.split("\\\\(")) /\\d\\//.test(s); const d = "see F20260101abcd";`, (o) => o.includes("F20260101abcd")],
+    ["转义引号+括号误报", `if (s.endsWith("(\\"")) /["']/.test(s); // F20260921vsds 注释`, (o) => !o.includes("F20260921vsds")],
+    ["转义引号+括号漏检", `if (s.endsWith("(\\"")) /\\d\\//.test(s); const d = "see F20260101abcd";`, (o) => o.includes("F20260101abcd")],
+    ["双反斜杠误报", `if (s.endsWith("\\\\")) /["']/.test(s); // F20260921vsds 注释`, (o) => !o.includes("F20260921vsds")],
+    ["基线误报", `if (name.endsWith("):")) /["']/.test(name); // F20260921vsds 注释`, (o) => !o.includes("F20260921vsds")],
+    ["基线字符串括号误报", `if (s.includes("(")) /["']/.test(s); // F20260921vsds 注释`, (o) => !o.includes("F20260921vsds")],
+    ["基线字符串括号漏检", `if (s.includes("(")) /\\d\\//.test(s); const d = "see F20260101abcd";`, (o) => o.includes("F20260101abcd")],
+  ])("组合形态矩阵: %s", (_name, src, assert) => {
+    expect(assert(stripTsComments(src))).toBe(true);
+  });
 });
