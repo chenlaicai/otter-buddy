@@ -121,6 +121,26 @@ describe("除法与正则的区分（启发式）", () => {
     expect(out).not.toContain("F20260909bbbb");
   });
 
+  it("glm终检严重①：if 条件字符串内括号不污染回溯——语句位正则不误判除法（漏检方向封口）", () => {
+    // if (s.includes("(")) /["']/; ——字符串内 "(" 污染朴素括号平衡，
+    // 回溯找到错误的开括号 → 正则误判为除法 → 正则体内引号按裸字符串语义扫描
+    // 配对错位吞后续行（漏检方向无自愈兜底——自愈只挂在正则态）。
+    // 修复：matchingOpenParen 对字符串/模板字面量内括号免疫。
+    const src =
+      `if (s.includes("(")) /["']/;\n` +
+      `const meta = { description: "真锚点 F20261006rgxf" };\n` +
+      `const y = 2;`;
+    const out = stripTsComments(src);
+    expect(out).toContain(`/["']/;`); // 正则本体保留
+    expect(out).toContain("F20261006rgxf"); // 后续行字符串锚点不被吞（漏检封口）
+  });
+
+  it("glm终检严重①变体：正则体内 // 吞行尾代码锚点（括号污染 + 漏检双要素）", () => {
+    const src = `if (s.includes(")")) /a\\/\\/b/.test(t); const tag = "F20261006rgxf";`;
+    const out = stripTsComments(src);
+    expect(out).toContain("F20261006rgxf"); // 行尾字符串锚点存活
+  });
+
   it("检视发现③：行首语句位正则不误判为除法", () => {
     const src = `const a = 1\n/["']/.test(s); // F20260909cccc 决策\n`;
     const out = stripTsComments(src);
