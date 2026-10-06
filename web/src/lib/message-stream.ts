@@ -43,31 +43,38 @@ export function insertBySeq(list: LocalMessage[], msg: LocalMessage): LocalMessa
   return [...list.slice(0, pos), msg, ...list.slice(pos)]
 }
 
-/** F20260930s1x0 delta（PR #1268 审视发现 1）：abort 409（假行动中）收敛——
- *  服务端已告知真实终态，本地气泡直接迁移（等效补发错失的 invoke.end）。
- *  与 invoke.end 处理器同款规则：仅 in-flight 气泡收敛（终态气泡不动），
- *  content 保留已流出部分、按终态补兑底文案 */
-export function settleInFlightToTerminal(
+/** F20260930s1x0 delta2（delta 复核发现：初版修复死链）：abort 409（假行动中）按服务端
+ *  真实终态收敛。匹配集 = 快照 ∪ 当前 in-flight：
+ *  - 快照命中（请求前 in-flight）——覆盖已被乐观置为 'aborted' 的气泡。初版只匹配
+ *    isInFlight(current)，而入口在发请求前已乐观置终态，409 回来时恒零匹配，
+ *    服务端真实终态被静默丢弃（completed 显示成「已中断」、failed 掩盖成 '[中断]'）。
+ *  - 当前仍 in-flight——请求期间迟到的同 invoke 气泡（409 = invoke 已终态，不会再有
+ *    invoke.end 收敛它）。
+ *  content：保留已流出内容；乐观置位写入的 '[中断]' 占位在终态非 aborted 时按真实
+ *  终态换文案（与 invoke.end 处理器同款：completed→''、aborted→'[中断]'、failed→'[未完成]'） */
+export function settleInvokeToTerminal(
   list: LocalMessage[],
   invokeId: string,
   terminal: 'completed' | 'failed' | 'aborted',
+  before: LocalMessage[],
 ): LocalMessage[] {
-  return list.map(m =>
-    m.invokeId === invokeId && isInFlight(m)
-      ? {
-          ...m,
-          status: terminal,
-          content: m.content || (terminal === 'completed' ? '' : terminal === 'aborted' ? '[中断]' : '[未完成]'),
-        }
-      : m)
+  const beforeById = new Map(before.map(m => [m.id, m]))
+  const fallback = terminal === 'completed' ? '' : terminal === 'aborted' ? '[中断]' : '[未完成]'
+  return list.map(m => {
+    if (m.invokeId !== invokeId) return m
+    const prev = beforeById.get(m.id)
+    const wasInFlight = prev != null && isInFlight(prev)
+    if (!isInFlight(m) && !wasInFlight) return m
+    const content = m.content === '[中断]' && terminal !== 'aborted' ? fallback : m.content || fallback
+    return { ...m, status: terminal, content }
+  })
 }
 
 /** F20260930s1x0 delta（PR #1268 审视发现 1）：abort 失败（非 409）回滚乐观 aborted——
  *  仅回滚本次乐观置位的气泡：旧实现 status==='aborted' 误伤同 invokeId 的历史真实
- *  aborted 气泡（旧实现 st==='otter' 过滤部分缓解但无法区分历史终态与本次乐观态），
- *  快照精确匹配本次乐观产物；回滚保留 content（乐观置时 m.content || '[中断]' 保留原内容，
- *  清空会丢弃已流出内容——不对称）。原状态丢失问题：回滚目标 streaming 是
- *  isInFlight 两态中的默认展示态，invoke 仍在跑、后续 entry.* 事件会继续刷新 */
+ *  aborted 气泡，快照精确匹配本次乐观产物；回滚保留 content（乐观置时 m.content || '[中断]' 保留原内容，
+ *  清空会丢弃已流出内容——不对称）。delta2（复核建议 3）：状态恢复快照原值
+ *  （streaming/speaking 都还原，不再硬编码 streaming——丢 speaking 快照态）。 */
 export function rollbackOptimisticAbort(
   list: LocalMessage[],
   invokeId: string,
@@ -77,7 +84,7 @@ export function rollbackOptimisticAbort(
   return list.map(m => {
     const prev = beforeById.get(m.id)
     if (!prev || m.invokeId !== invokeId || !isInFlight(prev) || m.status !== 'aborted') return m
-    return { ...m, status: 'streaming' as const, content: m.content === '[中断]' ? prev.content : m.content }
+    return { ...m, status: prev.status, content: m.content === '[中断]' ? prev.content : m.content }
   })
 }
 

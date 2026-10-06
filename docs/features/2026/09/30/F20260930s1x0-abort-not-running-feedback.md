@@ -108,6 +108,21 @@ POST /api/invokes/:id/abort
 
 **更新取舍记录**：「不自动刷新/重查」在 delta 后修正为「409 场景不需拉取——服务端直接告知终态，前端本地收敛」；非 409 场景维持不拉取（invoke 仍在跑，SSE 事件会接管）。
 
+## Delta2 处置记录（2026-10-06，delta 复核不通过后二次修复）
+
+**复核发现（严重）：delta 修复的核心机制在主流路径死链**——两处入口在发 abort 请求前已把 in-flight 气泡乐观置 'aborted'（终态），而 settleInFlightToTerminal 只匹配 isInFlight(current)——409 回来时恒零匹配，服务端真实终态被静默丢弃：completed 显示成「已中断」、failed 被掩盖成 '[中断]'（失败信息丢失）。整个 invoke_status 透传链在主流路径是死代码。
+
+**修复**：
+- settleInFlightToTerminal → settleInvokeToTerminal，匹配集改为**快照 ∪ 当前 in-flight**：快照命中覆盖乐观置位后的气泡（初版死链根因）；并集当前 in-flight 覆盖请求期间迟到的同 invoke 气泡（409 后无未来 end 收敛它）
+- content 规则：保留已流出内容；乐观 '[中断]' 占位在终态非 aborted 时按真实终态换文案（completed→''、failed→'[未完成]'，与 invoke.end 处理器同款）
+- rollbackOptimisticAbort（复核建议 3）：状态恢复快照原值（streaming/speaking 都还原，不再硬编码 streaming）
+- 测试：+端到端语义锁定（乐观置位 → 409/非 409 catch → 收敛/回滚接缝序列），纯函数层缺陷无法通过（初版死链在此测试下必红）
+- React 时序代码核实：allMessagesRef 在 useEffect 同步 = 同步代码里乐观置位后立刻读 ref 拿到的是置位前状态，快照语义正确（index.tsx:98-100）
+
+**复核指出的文档论据过时已修正**：初版处置记录「refreshMessages 增量追加不更新已有气泡」论据基于 merge 前旧代码；#1292 合入后 refreshMessages 已是窗口快照+mergeMessages——但拉取对账仍拿不到真实终态（entries.status 是死字段恒 'completed'，真实终态在 metadata.invokeStatus，send-entry.ts:453-458），服务端 409 直接下发终态仍是正确方向。
+
+**范围外观察（复核提出，未在本 PR 处置）**：mergeMessages + entries.status 死字段组合——本地收敛的 aborted/failed 气泡会在切 tab 触发 refreshMessages 时漂成 'completed'。既有行为，建议与 #1241 一并评估建 issue。
+
 ## 关联
 
 - issue #1251（本修复关闭对象）
