@@ -23,6 +23,7 @@ budget_bytes: 9600
 4. **memory**：`search_memory`（created_after 过滤昨日）——跨会话问题脉络、未闭环任务状态
 5. **RHI 健康信号**：`curl http://localhost:<port>/api/health/overview` 与 `/api/health/signals`——critical 是优先素材
 6. **signal_events**：`query_signals(status=pending)` 查悬置獭间信号（细则见「signal 对账段」；跨对话统计用 sqlite3）
+7. **上下文压缩观测**：`grep '"msg":"SDK compaction failed"' data/logs/otter-buddy.log` 按日计数（日志含脏 unicode，禁 jq）。单日 ≥10 或连续 3 日递增 → 建 bug issue（errorMessage 是症状，根因是上下文爆炸，关联 messageId/otterId 定位）；shadow 配对失衡同理；无异常写「failed=N，健康」
 
 ## RHI 信号处置段（闭环硬规则）
 
@@ -38,9 +39,9 @@ budget_bytes: 9600
 
 误报率比检出率更决定告警系统生死：
 
-1. **昨日信噪统计**（日报末尾固定段）：healing 处置 resolve X / dismiss Y（dismiss 率 = Y/(X+Y)）；RHI 不处置率 L/(M+K+L)（取昨日日报闭环自检行，非 RHI DB）；产给搭档物件数。healing 侧 SQL 与 stale 排除口径见体积预算闸特性文档「出清明细」（人工 dismiss 用时间差 <30 天分离）
-2. **趋势对比**：与近 7 日均值比，dismiss 率/不处置率突增 → 标注「信号源可能劣化」（检索近 7 日日报，覆盖率 <4/7 标注置信低）
-3. **降级建议触发线**：任一信号源/healing 类型连续两周 dismiss 率或不处置率 >50% → 日报显式给「建议降级/关停/调阈值」行（含数据锚点）。覆盖率 <10/14 显式记「数据不足」。未达线时本段一行数字
+1. **昨日信噪统计**（日报末尾固定段）：healing 处置 resolve X / dismiss Y（dismiss 率 = Y/(X+Y)）；RHI 不处置率 L/(M+K+L)（取昨日日报闭环自检行）；产给搭档物件数。SQL 与 stale 口径见体积预算闸文档「出清明细」
+2. **趋势对比**：与近 7 日均值比，dismiss 率/不处置率突增 → 标「信号源可能劣化」（检索近 7 日日报，<4/7 标置信低）
+3. **降级建议触发线**：任一信号源/healing 类型连续两周 dismiss 率或不处置率 >50% → 日报显式给「建议降级/关停/调阈值」行（含数据锚点）；<10/14 记「数据不足」；未达线一行数字
 
 ## 锚点真实性抽查（证据锚点规则的外部强制）
 
@@ -74,6 +75,7 @@ budget_bytes: 9600
 [ ] 7. RHI 处置：critical N → M+K+D=N，逐项已调 triage_signal
 [ ] 8. 锚点抽查：抽查 N/通过 M/失败 K + 模型对照行
 [ ] 9. 观测器信噪比：dismiss 率/不处置率/物件数
+[ ] 10. 压缩观测：failed 计数 + 阈值判断（无异常写"failed=0，健康"）
 ```
 
 ## healing events 消费即处置
@@ -112,8 +114,8 @@ budget_bytes: 9600
 
 **关闭标准必填**（搭档拍板）：每个 issue body 含「关闭标准」段——可验证的关闭条件（什么状态出现就可以关）。写不出关闭标准 = 该 issue 不该存在（应并入其他 issue 或转为文档）。关闭标准与验证断言互补：断言管「修没修好」，关闭标准管「什么时候可以关」。
 
-**断言豁免标注**：确实无法写断言的 issue（如纯决策型「请拍板」、容器型「观察池」），在「验证断言」段首行显式标注 `暂不验证：<原因>`——regression-verify 回查时跳过该 issue，不因无断言段而静默漏检。豁免不是免写——是显式声明「本 issue 的关闭不依赖断言回查」。
+**断言豁免标注**：无法写断言的 issue（纯决策型/容器型），在「验证断言」段首行标 `暂不验证：<原因>`——回查时跳过。豁免不是免写，是显式声明关闭不依赖断言回查。
 
 ## 止损线检查（P0-c）
 
-每日检查评测机制止损线（详规见评测止损线特性文档 2026-09-02；脚本：`node scripts/lint-intent.mjs`）：①观察期新增文档 intent 率 <80% 触发；②`data/metrics/golden-results.jsonl` 从未执行触发；③≥5 PR 自动场景记录且 passed 全 true 触发复审（保留→静默 ≥8 周；样本 <5 顺延记「样本不足」）。触发 → 开 issue（owner=大獭）。
+每日检查评测机制止损线（详规：评测止损线特性文档 2026-09-02；脚本 `node scripts/lint-intent.mjs`）：①观察期新增 intent 率 <80%；②golden-results 从未执行；③≥5 PR 场景 passed 全 true（保留→静默 ≥8 周；<5 样本记「样本不足」）。触发 → 开 issue（owner=大獭）。
