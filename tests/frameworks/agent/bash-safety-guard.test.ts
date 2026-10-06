@@ -2287,6 +2287,7 @@ describe("#1275 delta r4：python open-mode 门嵌套括号穿透修复（检视
   });
 });
 
+<<<<<<< HEAD
 
 describe("#1285：主仓写检测残余三洞修复（bash -c 递归 / 包装词表换结构 / 空赋值前缀）", () => {
   const mainPid = 42877;
@@ -2563,5 +2564,60 @@ describe("#1285 r2 处置：delta r1 复核 3 新发现（位置参数间接执�
   });
   it("r2-av4：bash -c 'echo $@'（无参数位）→ 放行（位置参数引用但 tail 空，无执行面）", () => {
     expect(checkBashCommandSafety(`bash -c 'echo $@'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+});
+=======
+describe("#1240（F20261006c1240）：cd 豁免负门——python heredoc 体绝对路径落主仓", () => {
+  const mainPid = 42877;
+  const projectRoot = "/Users/orca/ai/otter-buddy";
+
+  it("#1240 复现：cd /tmp + python heredoc 绝对路径写主仓 → 拦截", () => {
+    const cmd = `cd /tmp && python3 - <<'PY'
+import shutil
+shutil.rmtree('${projectRoot}/data')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1240：cd /tmp + python heredoc open 绝对路径写主仓 → 拦截", () => {
+    const cmd = `cd /tmp && python3 - <<'PY'
+open('${projectRoot}/config/config.yaml','w').write('hacked')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1240 放行面：cd /tmp + python heredoc 相对路径写 → 放行（cwd 在 /tmp 非主仓）", () => {
+    const cmd = `cd /tmp && python3 - <<'PY'
+open('data/x.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("#1240 放行面：cd /tmp + python heredoc 绝对路径写非主仓 → 放行", () => {
+    const cmd = `cd /tmp && python3 - <<'PY'
+open('/tmp/scratch/out.txt','w').write('x')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("#1240 放行面：cd /tmp + python heredoc 绝对路径读主仓（只读） → 放行", () => {
+    const cmd = `cd /tmp && python3 - <<'PY'
+print(open('${projectRoot}/package.json').read())
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("#1240：cd worktree 正道不受负门影响（体内无绝对路径落主仓）", () => {
+    const cmd = `cd /wt && python3 - <<'PY'
+open('config.yaml','w').write('x')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("#1240：cd worktree + 体写主仓绝对路径 → 拦截（负门挡 cd 豁免，与 cwd 无关）", () => {
+    const cmd = `cd /wt && python3 - <<'PY'
+open('${projectRoot}/data/metrics.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 });
