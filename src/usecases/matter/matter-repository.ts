@@ -1,7 +1,7 @@
 import type { Matter, MatterQueryFilter } from '@entities/matter/matter';
 
 /**
- * Matter 持久化仓库接口（F20261005mtlp P1）。
+ * Matter 持久化仓库接口（F20261006mtlp P1）。
  *
  * 写路径：RegisterMatter（准入白名单三条）+ TransitionMatter（状态迁移单入口）。
  * 读路径：①右侧栏「待办」tab（只读 API）②restart 机械供料（handoff_open_matters）

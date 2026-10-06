@@ -1,5 +1,5 @@
 /**
- * 能力测试：matter loop 闭环链路（F20261005mtlp P1）。
+ * 能力测试：matter loop 闭环链路（F20261006mtlp P1）。
  *
  * 方案验证节锁定三条能力测试场景：
  * ①yield to user 的 L2 自动登记 matter（准入路径 1——獭打标 expects_partner_decision）

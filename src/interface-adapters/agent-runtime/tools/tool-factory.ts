@@ -114,7 +114,7 @@ async function validateMessageHasContent(ctx: ToolContext): Promise<string | nul
 
  
 /**
- * F20261005mtlp P1：准入路径 1——L2 显式拍板项的 yield to user 打标即登记。
+ * F20261006mtlp P1：准入路径 1——L2 显式拍板项的 yield to user 打标即登记。
  * 不打标不登记（防泛滥=机械）；默认通过模式不打标（与 R8 互斥不登记，方案 §2 硬边界）。
  * matterRepo 未注入（旧装配）时静默跳过——登记是增强不是 yield 前置条件。
  * 返回附在交棒回执后的待办注记（空串 = 无登记）。
@@ -226,7 +226,7 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
         // markDispatched 只刷 created 状态行（首次派工时间戳不被后续多轮交棒刷新）
         await updateDispatchLedgerOnYield(ctx, resolvedIds);
 
-        // F20261005mtlp P1：L2 显式拍板项打标自动登记 matter（准入路径 1）
+        // F20261006mtlp P1：L2 显式拍板项打标自动登记 matter（准入路径 1）
         const matterNote = await registerMatterOnTaggedYield(
           ctx, params, resolvedIds, yieldResult.yieldEntry.id,
         );
@@ -1348,7 +1348,7 @@ function createQueryDispatchLedgerTool(ctx: ToolContext): AgentTool {
 export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, workspaceGateway?: WorkspaceGateway, manageScheduledTask?: ManageScheduledTask): AgentTool[] {
   // F20260826mwrd C1：signal 仓库经 ToolContext.signalRepo 注入（避免参数继续膨胀）
   const signalRepo = ctx.signalRepo;
-  // F20261005mtlp P1：matter 仓库经 ToolContext.matterRepo 注入（同 signalRepo 模式）
+  // F20261006mtlp P1：matter 仓库经 ToolContext.matterRepo 注入（同 signalRepo 模式）
   const matterRepo = ctx.matterRepo;
   const tools: AgentTool[] = [
     createSpeakTool(ctx, healingRepo, logger),
@@ -1408,7 +1408,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     tools.push(createTriageSignalTool(ctx, ctx.rhiSignalRepo));
     tools.push(createListRhiSignalsTool(ctx, ctx.rhiSignalRepo));
   }
-  // F20261005mtlp P1：獭侧 matter 工具（待办板查/迁——空窗期通道 A 的执行载体）。
+  // F20261006mtlp P1：獭侧 matter 工具（待办板查/迁——空窗期通道 A 的执行载体）。
   // small/big 型均可用：list 是只读查板；transition 的权限由 usecase 守卫兜住
   // （L2 闭环必须搭档确认，獭不能代执行）。注册条件 = matterRepo 注入。
   if (matterRepo) {

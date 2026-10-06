@@ -106,7 +106,7 @@ export interface HandoffEngineDeps {
     fileTrail?: string;
     /** F20260930hsfx S2：降级原因（贯穿日志与档案文案的唯一枚举） */
     degradeReason?: HandoffDegradeReason;
-    /** F20261005mtlp P1：本对话未闭环 matters 清单（机械供料 handoff_open_matters——
+    /** F20261006mtlp P1：本对话未闭环 matters 清单（机械供料 handoff_open_matters——
      *  确定性字段不进叙事合成，matter 表活在 session 之外，獭生封存 ≠ 事情失传） */
     openMatters?: string;
   }) => string;
@@ -117,7 +117,7 @@ export interface HandoffEngineDeps {
     fileTrail?: string;
     stateInventory?: string;
     recencyWindow?: string;
-    /** F20261005mtlp P1：机械供料——未闭环 matters 清单（同 buildMechanicalArchive 语义） */
+    /** F20261006mtlp P1：机械供料——未闭环 matters 清单（同 buildMechanicalArchive 语义） */
     openMatters?: string;
   }) => string;
   sliceSessionEntries: (entries: unknown[], options?: { scopeKey?: string }) => EngineJsonlSlice | undefined;
@@ -210,7 +210,7 @@ export class AgentInvoker implements AgentTurnPort {
     agentDispatchService?: AgentDispatchService,
     /** F20260920uhuc：统一交接引擎函数包（bootstrap 注入；缺省时统一交接降级机械档案） */
     private readonly engine?: HandoffEngineDeps,
-    /** F20261005mtlp P1：matters 仓库（机械供料 handoff_open_matters 数据源；可选注入） */
+    /** F20261006mtlp P1：matters 仓库（机械供料 handoff_open_matters 数据源；可选注入） */
     private readonly matterRepo?: MatterRepository,
   ) {
     this.agentDispatchService = agentDispatchService;
@@ -1047,7 +1047,7 @@ export class AgentInvoker implements AgentTurnPort {
         this.buildSynthesisPrefetch(conversationId, otterId),
         this.collectJsonlSlice(otterId),
         this.queryOtter.getById(otterId),
-        // F20261005mtlp P1：机械供料 handoff_open_matters——本对话未闭环 matters 清单。
+        // F20261006mtlp P1：机械供料 handoff_open_matters——本对话未闭环 matters 清单。
         // 确定性字段不进叙事合成（matter 表活在 session 之外，獭生封存 ≠ 事情失传）。
         // matterRepo 未注入（旧装配）时降级空——机械供料是增强不是交接硬依赖。
         this.collectOpenMatters(conversationId),
@@ -1427,7 +1427,7 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
   /**
-   * F20261005mtlp P1：机械供料 handoff_open_matters——本对话未闭环 matters 清单。
+   * F20261006mtlp P1：机械供料 handoff_open_matters——本对话未闭环 matters 清单。
    * 确定性字段：即使叙事合成彻底失败（机械降级），pending 清单仍在——
    * matter 表活在 session 之外，獭生封存 ≠ 事情失传。
    * matterRepo 未注入（旧装配/mock）或查询失败 → 降级空串（增强不是硬依赖）。

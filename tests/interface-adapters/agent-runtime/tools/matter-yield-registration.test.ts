@@ -1,5 +1,5 @@
 /**
- * F20261005mtlp P1：yield 打标自动登记 matter 集成测试（准入路径 1）。
+ * F20261006mtlp P1：yield 打标自动登记 matter 集成测试（准入路径 1）。
  *
  * 验证节锁定项「准入白名单（不打标不登记）」：
  * - expects_partner_decision=true + to=['user'] → matters 表自动登记（WAITING_PARTNER/L2/owner=调用獭）

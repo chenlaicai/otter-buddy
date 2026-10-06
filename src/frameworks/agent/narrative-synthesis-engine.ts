@@ -394,7 +394,7 @@ export function buildMechanicalArchive(input: {
   /** F20260930hsfx：降级原因（贯穿日志与档案文案——「synthesizePast=false / 失败 / 超时」
    *  三并列无法区分真空/无 speak/jsonl 读失败等具体形态；唯一枚举一眼定位）。 */
   degradeReason?: HandoffDegradeReason;
-  /** F20261005mtlp P1：本对话未闭环 matters 清单（机械供料 handoff_open_matters） */
+  /** F20261006mtlp P1：本对话未闭环 matters 清单（机械供料 handoff_open_matters） */
   openMatters?: string;
 }): string {
   const ts = new Date().toISOString();
@@ -456,7 +456,7 @@ export function assembleHandoffArchive(params: {
   fileTrail?: string;
   stateInventory?: string;
   recencyWindow?: string;
-  /** F20261005mtlp P1：机械供料——本对话未闭环 matters 清单 */
+  /** F20261006mtlp P1：机械供料——本对话未闭环 matters 清单 */
   openMatters?: string;
 }): string {
   const parts: string[] = ['## 前世档案（新世必读）', ''];

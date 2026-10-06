@@ -85,7 +85,7 @@ export interface BuildCustomToolsParams {
   healingRepo?: HealingEventRepository;
   /** F20260826mwrd C1：signal 工具（halt_otter/query_signals）的仓库 */
   signalRepo?: SignalEventRepository;
-  /** F20261005mtlp P1：matter 工具（list_matters/transition_matter）的仓库 */
+  /** F20261006mtlp P1：matter 工具（list_matters/transition_matter）的仓库 */
   matterRepo?: MatterRepository;
   /** F20260917trig：RHI 信号工具（triage_signal/list_rhi_signals）的仓库 */
   rhiSignalRepo?: SignalRepository;
@@ -114,7 +114,7 @@ export interface BuildCustomToolsResult {
 export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToolsResult {
   const { otterId, conversationId, allowedNames, register, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, signalRepo, rhiSignalRepo, matterRepo, isOtterRunning, logger } = params;
   // F20260826mwrd C1：signalRepo 挂 ToolContext（tool-factory 从 ctx 读，避免 createTools 参数膨胀）
-  // F20261005mtlp P1：matterRepo 同模式挂 ToolContext
+  // F20261006mtlp P1：matterRepo 同模式挂 ToolContext
 
   // F20260815rstrt: 返回 toolContext 引用，供 PiSessionFactory 检查 pendingRestart
   // F20260911pspl：invoke 级字段 getter 化——闭包捕获 ctx 对象，字段读取时

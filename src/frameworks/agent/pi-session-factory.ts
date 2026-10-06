@@ -175,7 +175,7 @@ export interface AgentSessionFactoryConfig {
   signalRepo?: SignalEventRepository;
   /** F20260917trig：RHI 健康信号仓库（signals 表——triage_signal/list_rhi_signals 注册条件） */
   rhiSignalRepo?: SignalRepository;
-  /** F20261005mtlp P1：matters 仓库（list_matters/transition_matter 注册条件） */
+  /** F20261006mtlp P1：matters 仓库（list_matters/transition_matter 注册条件） */
   matterRepo?: MatterRepository;
   /** F20260826mwrd C1：halt 首次注入回调（进程级 ModelRuntimeRegistry 单次注册） */
   onHaltFirstBlock?: (directive: HaltDirective) => void;
@@ -222,7 +222,7 @@ export class PiSessionFactory implements AgentGateway {
       healingRepo?: HealingEventRepository;
       signalRepo?: SignalEventRepository;
       rhiSignalRepo?: SignalRepository;
-      /** F20261005mtlp P1：matters 仓库（list_matters/transition_matter 注册条件） */
+      /** F20261006mtlp P1：matters 仓库（list_matters/transition_matter 注册条件） */
       matterRepo?: MatterRepository;
       onHaltFirstBlock?: (directive: HaltDirective) => void;
       resourceLoader?: ResourceLoader;

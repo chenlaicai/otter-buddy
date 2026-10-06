@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * F20261005mtlp P1：右侧栏「待办」tab 渲染测试。
+ * F20261006mtlp P1：右侧栏「待办」tab 渲染测试。
  *
  * - tab 存在（ClipboardList 图标 + 「待办」标签，id=matters）
  * - 切换后渲染 MattersPanel（空态/列表/角标语义由面板数据驱动——
@@ -67,7 +67,7 @@ afterEach(() => {
   container.remove()
 })
 
-describe('RightPanel 待办 tab（F20261005mtlp P1）', () => {
+describe('RightPanel 待办 tab（F20261006mtlp P1）', () => {
   it('第五 tab「待办」存在（ClipboardList 图标 + 待办标签）', () => {
     renderPanel()
     const tab = container.querySelector('[data-testid="tab-matters"]')

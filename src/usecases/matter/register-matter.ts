@@ -1,5 +1,5 @@
 /**
- * RegisterMatter——准入白名单三条的登记 usecase（F20261005mtlp §3 生死线）。
+ * RegisterMatter——准入白名单三条的登记 usecase（F20261006mtlp §3 生死线）。
  *
  * matter 只能由白名单动作产生：
  * 1. L2 显式拍板项的 yield to user（yield 工具 expects_partner_decision 打标 →

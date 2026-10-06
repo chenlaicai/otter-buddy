@@ -93,7 +93,7 @@ export function getOtterToolNamesForType(
     "link_memory", "get_related", "unlink_memory",
     "sync_docs",
     "query_signals", // F20260826mwrd C1：小獭可查信号台账（halt_otter 仅 big 型）
-    "list_matters", "transition_matter", // F20261005mtlp P1：待办板查/迁（transition 守卫在 usecase）
+    "list_matters", "transition_matter", // F20261006mtlp P1：待办板查/迁（transition 守卫在 usecase）
   ];
 }
 

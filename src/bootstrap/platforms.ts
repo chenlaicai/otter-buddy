@@ -109,7 +109,7 @@ export async function createAgentGateway(options: {
     },
     healingRepo: repos.healingEvent,
     signalRepo: repos.signalEvent,
-    // F20261005mtlp P1：matters 仓库注入——list_matters/transition_matter 注册条件
+    // F20261006mtlp P1：matters 仓库注入——list_matters/transition_matter 注册条件
     matterRepo: repos.matter,
     // F20260917trig：RHI 健康信号仓库注入——triage_signal/list_rhi_signals 注册条件
     // （signals 表，与獭间 signal_events 语义池分离）
@@ -244,7 +244,7 @@ function buildAgentInvoker(o: {
     o.agentDispatchService,
     // F20260920uhuc：统一交接引擎函数包
     o.handoffEngine,
-    // F20261005mtlp P1：matters 仓库——机械供料 handoff_open_matters 数据源
+    // F20261006mtlp P1：matters 仓库——机械供料 handoff_open_matters 数据源
     o.repos.matter,
   );
 }

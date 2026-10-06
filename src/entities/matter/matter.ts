@@ -1,10 +1,10 @@
 /**
- * Matter 实体（F20261005mtlp P1）。
+ * Matter 实体（F20261006mtlp P1）。
  *
  * 待办——per-conversation 承诺台账的一等实体。对话流是通信不是承诺：
  * matter 把「未完成之事」从消息流升格为带状态机的持续工作单元。
  *
- * 设计依据：docs/features/2026/10/05/F20261005mtlp-matter-loop-closure.md
+ * 设计依据：docs/features/2026/10/05/F20261006mtlp-matter-loop-closure.md
  * §1 实体模型（字段表）+ §2 状态机（迁移矩阵 + 等待方生命周期规则）。
  *
  * 与 signal_event 的分工（F20260826mwrd）：signal = 瞬时协调信号（objection/blocked/halt），

@@ -44,9 +44,9 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createHealthSnapshotsTable(db);
     createSignalsTable(db);
     createSignalEventsTable(db);
-    /** F20261005mtlp P1：matters 表（待办——per-conversation 承诺台账）。
+    /** F20261006mtlp P1：matters 表（待办——per-conversation 承诺台账）。
      *  同构 signal_events（F20260826mwrd）但语义不同（持续工作单元 ≠ 瞬时信号），
-     *  不复用。字段/索引严格按 F20261005mtlp §1 字段表。 */
+     *  不复用。字段/索引严格按 F20261006mtlp §1 字段表。 */
     createMattersTable(db);
     /** F20260912avlb：派工台账正式表（本 PR 核心）。dispatch_attempts 与
      * restart_pending_resumes 随 main #886 批次（F20260908rlcp/ctlv）退役。 */
@@ -67,7 +67,7 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     if (logger) {
       const duration = Date.now() - startTime;
       // 42 regular tables + 5 virtual tables (FTS/vec) = 47 total
-      // (含多模态 attachments 2表 + PR4 paper trading 9表 + F20260912avlb dispatch_records + F20261005mtlp matters)
+      // (含多模态 attachments 2表 + PR4 paper trading 9表 + F20260912avlb dispatch_records + F20261006mtlp matters)
       logger.info('Schema initialized', {
         duration,
         tables: 47,
@@ -735,7 +735,7 @@ function createSignalEventsTable(db: Database.Database): void {
   `);
 }
 
-/** Matters 表（F20261005mtlp P1）：待办——per-conversation 承诺台账。
+/** Matters 表（F20261006mtlp P1）：待办——per-conversation 承诺台账。
  *  消费方声明（方案 §1 ⑥纪律）：
  *  读方 = ①右侧栏「待办」tab ②restart 机械供料（handoff_open_matters）
  *      ③三省吾身未闭环扫描（P3）④獭侧 matter 工具（list_matters/transition_matter）

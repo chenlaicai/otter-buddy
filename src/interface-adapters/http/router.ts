@@ -56,7 +56,7 @@ export interface Controllers {
   prompts?: PromptController;
   /** F20260912avlb：活动页三域台账只读端点 */
   activity: ActivityController;
-  /** F20261005mtlp P1：待办板只读端点（matters 表 open 清单） */
+  /** F20261006mtlp P1：待办板只读端点（matters 表 open 清单） */
   matter: MatterController;
   inbound: { optionsEvents: (c: Context) => Response | Promise<Response>; receiveEvents: (c: Context) => Response | Promise<Response>; getStatus: (c: Context) => Response | Promise<Response> };
 }
@@ -155,7 +155,7 @@ function registerScheduledTaskRoutes(app: Hono, c: Controllers): void {
   app.get("/api/scheduled-tasks/:taskId/executions", (ctx) => c.scheduledTask.listExecutions(ctx));
 }
 
-/** F20261005mtlp P1：待办板只读端点（matters 表 open 清单） */
+/** F20261006mtlp P1：待办板只读端点（matters 表 open 清单） */
 function registerMatterRoutes(app: Hono, c: Controllers): void {
   app.get("/api/conversations/:id/matters", (ctx) => c.matter.listOpenByConversation(ctx));
 }

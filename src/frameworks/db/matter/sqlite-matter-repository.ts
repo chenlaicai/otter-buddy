@@ -3,7 +3,7 @@ import type { Matter, MatterQueryFilter } from '@entities/matter/matter';
 import type { MatterRepository } from '@usecases/matter/matter-repository';
 
 /**
- * Matters 的 SQLite 实现（F20261005mtlp P1）。
+ * Matters 的 SQLite 实现（F20261006mtlp P1）。
  * 表结构在 schema.ts createMattersTable 创建（幂等 CREATE IF NOT EXISTS）。
  */
 
@@ -135,7 +135,7 @@ export class SqliteMatterRepository implements MatterRepository {
   }
 
   /**
-   * F20261005mtlp §2 等待方生命周期规则①（审视修订：判定键 = waiting_on 指向的獭，
+   * F20261006mtlp §2 等待方生命周期规则①（审视修订：判定键 = waiting_on 指向的獭，
    * 补 owner 键双扫——消灭悬挂优先）：**waiting_on 指向的獭**（或 owner）被解散 →
    * 其名下 WAITING_OTTER 的 matter 自动转回 OPEN 待重派（每日扫描兜底发现）。
    * 返回受影响行数（0 = 无悬挂事项，正常态）。

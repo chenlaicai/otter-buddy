@@ -3,7 +3,7 @@ import type { MatterDTO } from '../../api/client'
 import { useMatters } from './hooks/useMatters'
 
 /**
- * F20261005mtlp P1：右侧栏「待办」tab——只读最小板。
+ * F20261006mtlp P1：右侧栏「待办」tab——只读最小板。
  *
  * P1 范围（方案 §7）：列出 open 事项（标题/状态徽章/等待时长/owner），不可操作。
  * 裁决仍走对话直复（通道 A），状态由獭用 transition_matter 工具迁移；

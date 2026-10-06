@@ -1,5 +1,5 @@
 /**
- * ListMatters——open 清单查询 usecase（F20261005mtlp P1）。
+ * ListMatters——open 清单查询 usecase（F20261006mtlp P1）。
  *
  * 读路径消费方：①右侧栏「待办」tab 只读 API ②restart 机械供料（handoff_open_matters）
  * ③獭侧 list_matters 工具。按 created_at 倒序，调用方排序展示。

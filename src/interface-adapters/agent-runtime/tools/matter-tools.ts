@@ -1,5 +1,5 @@
 /**
- * Matter 工具（F20261005mtlp P1）：list_matters / transition_matter。
+ * Matter 工具（F20261006mtlp P1）：list_matters / transition_matter。
  *
  * 通道 A 代执行（§3.5）：搭档对话直复裁决后，被唤醒獭用本工具代执行板上迁移——
  * `on_behalf_of='partner'` 声明代搭档执行（resolution 必填「代搭档执行：<原话>」留痕），

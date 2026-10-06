@@ -1,5 +1,5 @@
 /**
- * TransitionMatter——状态迁移单入口（F20261005mtlp §2 + §3.5 代执行）。
+ * TransitionMatter——状态迁移单入口（F20261006mtlp §2 + §3.5 代执行）。
  *
  * 单一真相源纪律的物理落点：所有状态迁移（獭侧 transition_matter 工具、
  * 板上按钮 P2、扫描器兜底重派）必须走本 usecase，非法迁移在此拒绝。
@@ -89,7 +89,7 @@ function assertTransitionAllowed(matter: Matter, to: MatterState, actor: string,
   const transition = findMatterTransition(matter.state, to);
   if (!transition) {
     throw new DomainError(
-      `非法迁移：${matter.state} → ${to} 不在合法迁移矩阵内（F20261005mtlp §2）`,
+      `非法迁移：${matter.state} → ${to} 不在合法迁移矩阵内（F20261006mtlp §2）`,
       'validation',
     );
   }

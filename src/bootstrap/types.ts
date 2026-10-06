@@ -71,7 +71,7 @@ export interface Repositories {
   healingEvent: HealingEventRepository;
   /** F20260826mwrd C1：獭间结构化信号台账（halt 落账；C2 objection/blocked） */
   signalEvent: SignalEventRepository;
-  /** F20261005mtlp P1：待办承诺台账（matters 表——持续工作单元） */
+  /** F20261006mtlp P1：待办承诺台账（matters 表——持续工作单元） */
   matter: MatterRepository;
   /** RHI 健康信号池（issue #447：纳入 DI 注册惯例，与 signalEvent 獭间语义池区分） */
   rhiSignal: SignalRepository;

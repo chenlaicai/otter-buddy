@@ -1,5 +1,5 @@
 ---
-id: F20261005mtlp
+id: F20261006mtlp
 title: 事情闭环机制（Matter Loop）：未完成之事从对话流升格为承诺台账
 summary: 对话流是通信不是承诺——需要搭档拍板的决策会被新一轮自动消息顶走、无声过期。本方案引入 matter（用户侧命名「待办」）一等实体：per-conversation 承诺台账 + 五态状态机（含迁移矩阵守卫与等待方生命周期规则）+ 宣告权沿用决策分级轴（默认通过模式互斥不登记）+ 未闭环清单进 restart 机械供料 + 右侧栏「待办」tab 呈现 + 裁决双通道（对话直复=主路/板上按钮=兜底）。L2 简报卡被吸收为待裁决态呈现形态，未闭环扫描从文本启发式升格为确定性状态查询。
 doc_type: feature
@@ -13,7 +13,7 @@ intent:
     note: "交互与视图效果由搭档日常体验判定（搭档明确要求 UI 高保真稿先行确认）；数据模型与状态机正确性由 vitest 单元测试锁定；重启供料链路由能力测试覆盖"
 capability_test: "tests/capability/matter-loop/matter-loop.capability.test.ts"
 created_in_conversation: e871769f-a731-4278-ae21-de3ab4c8eaf8
-created_at: 2026-10-05
+created_at: 2026-10-06
 tags: [matter-loop, conversation-layout, ux, decision, handoff, scheduled-task]
 modules: [src/frameworks/db/schema.ts, src/entities/, src/usecases/, src/interface-adapters/agent-runtime/handoff-support.ts, packages/web/, prompts/scheduled/]
 causal_links:

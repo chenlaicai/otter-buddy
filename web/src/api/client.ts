@@ -416,7 +416,7 @@ export function listScheduledTasks(conversationId: string): Promise<ScheduledTas
   return request(`/conversations/${conversationId}/scheduled-tasks`)
 }
 
-/** F20261005mtlp P1：待办板 matter（matters 表 open 清单，只读） */
+/** F20261006mtlp P1：待办板 matter（matters 表 open 清单，只读） */
 export interface MatterDTO {
   id: string
   conversationId: string
@@ -435,7 +435,7 @@ export interface MatterDTO {
   closedAt: string | null
 }
 
-/** F20261005mtlp P1：待办板只读 API——列出对话未闭环 matters */
+/** F20261006mtlp P1：待办板只读 API——列出对话未闭环 matters */
 export function listMatters(conversationId: string): Promise<MatterDTO[]> {
   return request(`/conversations/${conversationId}/matters`)
 }

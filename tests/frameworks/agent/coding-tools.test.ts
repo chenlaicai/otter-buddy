@@ -132,8 +132,8 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("get_related");
     expect(tools).toContain("unlink_memory");
     expect(tools).toContain("query_signals"); // F20260826mwrd C1：小獭可查信号台账
-    expect(tools).toContain("list_matters"); // F20261005mtlp P1：小獭可查待办板
-    expect(tools).toContain("transition_matter"); // F20261005mtlp P1：通道 A 代执行迁移（守卫在 usecase）
+    expect(tools).toContain("list_matters"); // F20261006mtlp P1：小獭可查待办板
+    expect(tools).toContain("transition_matter"); // F20261006mtlp P1：通道 A 代执行迁移（守卫在 usecase）
     expect(tools).not.toContain("resolve_signal"); // F20260826mwrd C2：裁决仅 big
     expect(tools).toHaveLength(31);
     // halt_otter / resolve_signal / unhalt_otter 是编排/裁决动作，仅 big 型
