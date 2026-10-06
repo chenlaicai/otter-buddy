@@ -63,7 +63,7 @@ describe("卡片预设类库（F20261006cssp）", () => {
 
   it("预设引用的每个 var() 在设计 token 层有声明（严重 1 回归锁：--caramel-600 静默失效事故）", async () => {
     // 双端同源机械比对：预设 CSS 的 var() 引用 ⊆ HtmlCard CARD_TOKEN_CSS 的声明集
-    const htmlCardPath = new URL("../../../web/src/pages/conversation/HtmlCard.tsx", import.meta.url);
+    const htmlCardPath = new URL("../../web/src/pages/conversation/HtmlCard.tsx", import.meta.url);
     const src = await import("node:fs").then((fs) => fs.readFileSync(htmlCardPath, "utf-8"));
     const tokenBlock = src.match(/CARD_TOKEN_CSS = `:root \{([\s\S]*?)\}`/);
     expect(tokenBlock).toBeTruthy();
