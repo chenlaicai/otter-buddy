@@ -154,6 +154,7 @@ describe("Invoke API（F20260913ctlv）", () => {
         expect(res.status).toBe(409);
         const body = await json(res);
         expect(body.code).toBe("invoke_not_running");
+        expect(body.invoke_status).toBe(status);
         expect(String(body.error)).toContain(status);
         expect(deps.agentInvoker.abort).not.toHaveBeenCalled();
       },

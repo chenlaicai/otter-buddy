@@ -43,6 +43,44 @@ export function insertBySeq(list: LocalMessage[], msg: LocalMessage): LocalMessa
   return [...list.slice(0, pos), msg, ...list.slice(pos)]
 }
 
+/** F20260930s1x0 delta（PR #1268 审视发现 1）：abort 409（假行动中）收敛——
+ *  服务端已告知真实终态，本地气泡直接迁移（等效补发错失的 invoke.end）。
+ *  与 invoke.end 处理器同款规则：仅 in-flight 气泡收敛（终态气泡不动），
+ *  content 保留已流出部分、按终态补兑底文案 */
+export function settleInFlightToTerminal(
+  list: LocalMessage[],
+  invokeId: string,
+  terminal: 'completed' | 'failed' | 'aborted',
+): LocalMessage[] {
+  return list.map(m =>
+    m.invokeId === invokeId && isInFlight(m)
+      ? {
+          ...m,
+          status: terminal,
+          content: m.content || (terminal === 'completed' ? '' : terminal === 'aborted' ? '[中断]' : '[未完成]'),
+        }
+      : m)
+}
+
+/** F20260930s1x0 delta（PR #1268 审视发现 1）：abort 失败（非 409）回滚乐观 aborted——
+ *  仅回滚本次乐观置位的气泡：旧实现 status==='aborted' 误伤同 invokeId 的历史真实
+ *  aborted 气泡（旧实现 st==='otter' 过滤部分缓解但无法区分历史终态与本次乐观态），
+ *  快照精确匹配本次乐观产物；回滚保留 content（乐观置时 m.content || '[中断]' 保留原内容，
+ *  清空会丢弃已流出内容——不对称）。原状态丢失问题：回滚目标 streaming 是
+ *  isInFlight 两态中的默认展示态，invoke 仍在跑、后续 entry.* 事件会继续刷新 */
+export function rollbackOptimisticAbort(
+  list: LocalMessage[],
+  invokeId: string,
+  before: LocalMessage[],
+): LocalMessage[] {
+  const beforeById = new Map(before.map(m => [m.id, m]))
+  return list.map(m => {
+    const prev = beforeById.get(m.id)
+    if (!prev || m.invokeId !== invokeId || !isInFlight(prev) || m.status !== 'aborted') return m
+    return { ...m, status: 'streaming' as const, content: m.content === '[中断]' ? prev.content : m.content }
+  })
+}
+
 /** F20260913ctlv：invoke 边界/yield/system 居中条目插入（无 seq，按 ts 时序）。
  *  从尾部向前找最后一个 ts <= msg.ts 的真实条目，插其后；越过 tmp-/err- 前缀的
  *  乐观/错误条目（它们无 seq 但时间上先于本次獭行动）；全部更新则插头部。

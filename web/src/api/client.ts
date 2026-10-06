@@ -33,19 +33,23 @@ export class ApiError extends Error {
   /** F20260930s1x0（issue #1251）：透传服务端可机读错误码（如 invoke_not_running），
    *  前端据此走专属提示而非兜底文案 */
   code?: string
-  constructor(message: string, status: number, code?: string) {
+  /** F20260930s1x0 delta（PR #1268 审视发现 1）：409 携带的 invoke 真实终态，
+   *  调用方据此直接收敛气泡（等效补发错失的 invoke.end） */
+  invokeStatus?: 'completed' | 'failed' | 'aborted'
+  constructor(message: string, status: number, code?: string, invokeStatus?: 'completed' | 'failed' | 'aborted') {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
+    this.invokeStatus = invokeStatus
   }
 }
 
 /** F20260930s1x0（issue #1251）：abort 失败时携带服务端错误码的专属错误类，
  *  区分「目标并非真实运行（假行动中，#1241 范围）」与「中断链路本身故障（方向②）」 */
 export class InvokeAbortError extends ApiError {
-  constructor(message: string, status: number, code?: string) {
-    super(message, status, code)
+  constructor(message: string, status: number, code?: string, invokeStatus?: 'completed' | 'failed' | 'aborted') {
+    super(message, status, code, invokeStatus)
     this.name = 'InvokeAbortError'
   }
 }
@@ -57,7 +61,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }))
-    throw new ApiError(body.error ?? res.statusText, res.status, body.code)
+    throw new ApiError(body.error ?? res.statusText, res.status, body.code, body.invoke_status)
   }
   if (res.status === 204) return undefined as T
   return res.json()
@@ -183,7 +187,7 @@ export async function abortInvoke(invokeId: string, otterId: string): Promise<{ 
     })
   } catch (err) {
     if (err instanceof ApiError) {
-      throw new InvokeAbortError(err.message, err.status, err.code)
+      throw new InvokeAbortError(err.message, err.status, err.code, err.invokeStatus)
     }
     throw err
   }

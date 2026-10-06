@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { LocalMessage } from './mappers'
-import { isInFlight, isTerminal, upsertMessage, insertBySeq, mergeMessages, findStaleInFlight, upsertTerminalMessage, insertCenteredByTs } from './message-stream'
+import { isInFlight, isTerminal, upsertMessage, insertBySeq, mergeMessages, findStaleInFlight, upsertTerminalMessage, insertCenteredByTs, settleInFlightToTerminal, rollbackOptimisticAbort } from './message-stream'
 
 function msg(overrides: Partial<LocalMessage> = {}): LocalMessage {
   return {
@@ -215,5 +215,77 @@ describe('insertCenteredByTs', () => {
   it('早于全部条目时插头部', () => {
     const next = insertCenteredByTs(base, msg({ id: 'b0', ts: '2026-09-10T05:59:00Z' }))
     expect(next[0].id).toBe('b0')
+  })
+})
+
+describe('settleInFlightToTerminal（F20260930s1x0 delta：abort 409 按服务端真实终态收敛）', () => {
+  it('in-flight 气泡收敛到服务端终态，保留已流出内容', () => {
+    const list = [msg({ id: 'a', invokeId: 'inv-1', status: 'streaming', content: '已流出的前半句' })]
+    const next = settleInFlightToTerminal(list, 'inv-1', 'completed')
+    expect(next[0].status).toBe('completed')
+    expect(next[0].content).toBe('已流出的前半句')
+  })
+  it('aborted 终态无内容时补兑底文案，与 invoke.end 处理器同款', () => {
+    const list = [msg({ id: 'a', invokeId: 'inv-1', status: 'streaming', content: '' })]
+    const next = settleInFlightToTerminal(list, 'inv-1', 'aborted')
+    expect(next[0].status).toBe('aborted')
+    expect(next[0].content).toBe('[中断]')
+  })
+  it('已终态气泡不动（幂等，不重复收敛）', () => {
+    const list = [msg({ id: 'a', invokeId: 'inv-1', status: 'completed', content: '旧终态' })]
+    const next = settleInFlightToTerminal(list, 'inv-1', 'failed')
+    expect(next[0].status).toBe('completed')
+    expect(next[0].content).toBe('旧终态')
+  })
+  it('同 invokeId 多个 in-flight 气泡全部收敛', () => {
+    const list = [
+      msg({ id: 'a', invokeId: 'inv-1', status: 'streaming', content: '部分1' }),
+      msg({ id: 'b', invokeId: 'inv-1', status: 'speaking', content: '' }),
+      msg({ id: 'c', invokeId: 'inv-2', status: 'streaming', content: '其他 invoke' }),
+    ]
+    const next = settleInFlightToTerminal(list, 'inv-1', 'aborted')
+    expect(next[0].status).toBe('aborted')
+    expect(next[1].status).toBe('aborted')
+    expect(next[2].status).toBe('streaming')
+  })
+  it('其他 invokeId 不受影响', () => {
+    const list = [msg({ id: 'a', invokeId: 'inv-2', status: 'streaming', content: 'x' })]
+    const next = settleInFlightToTerminal(list, 'inv-1', 'completed')
+    expect(next[0].status).toBe('streaming')
+  })
+})
+
+describe('rollbackOptimisticAbort（F20260930s1x0 delta：非 409 失败按快照精确回滚）', () => {
+  it('乐观置 aborted 的气泡回滚为 streaming，保留已流出内容（不清空）', () => {
+    const before = [msg({ id: 'a', invokeId: 'inv-1', status: 'streaming', content: '已流出的前半句' })]
+    const current = [msg({ id: 'a', invokeId: 'inv-1', status: 'aborted', content: '已流出的前半句' })]
+    const next = rollbackOptimisticAbort(current, 'inv-1', before)
+    expect(next[0].status).toBe('streaming')
+    expect(next[0].content).toBe('已流出的前半句')
+  })
+  it('乐观置时 content 被兑底为 [中断] 的气泡，回滚恢复快照原内容', () => {
+    // 乐观置为 m.content || '[中断]'：原内容空时被置为 '[中断]'，回滚应还原快照的空内容而非保留占位符
+    const before = [msg({ id: 'a', invokeId: 'inv-1', status: 'streaming', content: '' })]
+    const current = [msg({ id: 'a', invokeId: 'inv-1', status: 'aborted', content: '[中断]' })]
+    const next = rollbackOptimisticAbort(current, 'inv-1', before)
+    expect(next[0].status).toBe('streaming')
+    expect(next[0].content).toBe('')
+  })
+  it('同 invokeId 历史真实 aborted 气泡不被误回滚（旧实现 bug：status 匹配误伤）', () => {
+    const before = [msg({ id: 'hist', invokeId: 'inv-1', status: 'aborted', content: '历史真实终态' })]
+    const current = [msg({ id: 'hist', invokeId: 'inv-1', status: 'aborted', content: '历史真实终态' })]
+    const next = rollbackOptimisticAbort(current, 'inv-1', before)
+    expect(next[0].status).toBe('aborted')
+    expect(next[0].content).toBe('历史真实终态')
+  })
+  it('快照外新增的气泡（请求期间新到达）不受影响', () => {
+    const before = [msg({ id: 'a', invokeId: 'inv-1', status: 'streaming' })]
+    const current = [
+      msg({ id: 'a', invokeId: 'inv-1', status: 'aborted' }),
+      msg({ id: 'new', invokeId: 'inv-1', status: 'aborted', content: '流内新到达' }),
+    ]
+    const next = rollbackOptimisticAbort(current, 'inv-1', before)
+    expect(next[0].status).toBe('streaming')
+    expect(next[1].status).toBe('aborted')
   })
 })
