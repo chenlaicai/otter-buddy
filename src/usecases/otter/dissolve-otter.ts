@@ -25,6 +25,9 @@ export class DissolveOtter {
       /** F20260912avlb：派工台账 dissolve 记账钩子（created/dispatched → dissolved）。
        *  可选注入，失败仅日志。 */
       markDispatchDissolved?: (otterId: string) => Promise<number>;
+      /** F20261006mtlp §2 等待方生命周期规则①：獭解散 → 其名下 WAITING_OTTER 的
+       *  matter 自动转回 OPEN 待重派（消灭无声悬挂；每日扫描兜底）。可选注入，失败仅日志。 */
+      reopenMattersForDissolvedOwner?: (otterId: string) => Promise<number>;
       logger?: { warn(message: string, context?: Record<string, unknown>): void; info?: (message: string, context?: Record<string, unknown>) => void };
     },
   ) {}
@@ -75,6 +78,9 @@ export class DissolveOtter {
     await this.abortOutgoingSignals(otterId);
     await this.abortIncomingSignals(otterId);
 
+    /** F20261006mtlp：待办板等待方消亡规则——名下 WAITING_OTTER 事项转回 OPEN */
+    await this.reopenOwnerMatters(otterId);
+
     /** 5. 销毁 Agent（B5 回归守护） */
     await this.agentGateway.destroy(otterId);
   }
@@ -124,6 +130,20 @@ export class DissolveOtter {
       }
     } catch (e) {
       this.deps.logger?.warn('[signal-ledger] dissolve 出站清算失败（不阻断解散）', { otterId, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  /** F20261006mtlp §2 等待方生命周期规则①：owner 獭解散 → WAITING_OTTER 事项回 OPEN。
+   *  与 4.5/4.6/4.7 同模式：账面清理不阻断 dissolve 主流程，失败仅日志。 */
+  private async reopenOwnerMatters(otterId: string): Promise<void> {
+    if (!this.deps?.reopenMattersForDissolvedOwner) return;
+    try {
+      const reopened = await this.deps.reopenMattersForDissolvedOwner(otterId);
+      if (reopened > 0) {
+        this.deps.logger?.warn(`[matter-loop] dissolve 等待方消亡：已解散獭名下 ${reopened} 件 WAITING_OTTER 事项转回 OPEN 待重派`, { otterId, reopened });
+      }
+    } catch (e) {
+      this.deps.logger?.warn('[matter-loop] dissolve 事项重开失败（不阻断解散）', { otterId, error: e instanceof Error ? e.message : String(e) });
     }
   }
 

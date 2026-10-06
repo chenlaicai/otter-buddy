@@ -542,6 +542,8 @@ export function createTestApp(deps: TestDeps): Hono {
         ),
     /* F20260912avlb：活动页三域台账只读（默认空实现，activity 专项测试另建真 sqlite） */
     activity: {} as any,
+    /* F20261006mtlp P1：待办板只读（默认空实现，matter 专项测试另建真 sqlite） */
+    matter: {} as any,
   };
 
   const app = createRouter(controllers, createTestLogger());

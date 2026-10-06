@@ -13,6 +13,7 @@
 import type { OtterToolClient } from "./otter-tool-client";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import type { SignalRepository } from "@usecases/health/signal-repository";
+import type { MatterRepository } from "@usecases/matter/matter-repository";
 import type { ModelPoolLike } from "./model-pool-like";
 import type { OtterConfigProvider } from "./otter-config-provider";
 
@@ -153,6 +154,8 @@ export interface ToolContext {
   orchestrationWarningShown?: boolean;
   /** F20260826mwrd C1：signal_events 仓库（halt_otter/query_signals 注册条件；invoke 级注入） */
   signalRepo?: SignalEventRepository;
+  /** F20261006mtlp P1：matters 仓库（待办——list_matters/transition_matter 注册条件；invoke 级注入） */
+  matterRepo?: MatterRepository;
   /** F20260917trig：RHI 健康信号仓库（signals 表——triage_signal/list_rhi_signals 注册条件） */
   rhiSignalRepo?: SignalRepository;
   /** F20260909smsp→F20260913ctlv：当前打开的 speak entry ID（speak/yield 检测本轮已发言用）。

@@ -16,6 +16,7 @@ import type { ScheduledTaskRepository } from "@usecases/scheduled-task/scheduled
 import type { ConnectionRepository } from "@usecases/im/connection-repository";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
+import type { MatterRepository } from "@usecases/matter/matter-repository";
 import type { DispatchRecordRepository } from "@usecases/dispatch/dispatch-record-repository";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
@@ -70,6 +71,8 @@ export interface Repositories {
   healingEvent: HealingEventRepository;
   /** F20260826mwrd C1：獭间结构化信号台账（halt 落账；C2 objection/blocked） */
   signalEvent: SignalEventRepository;
+  /** F20261006mtlp P1：待办承诺台账（matters 表——持续工作单元） */
+  matter: MatterRepository;
   /** RHI 健康信号池（issue #447：纳入 DI 注册惯例，与 signalEvent 獭间语义池区分） */
   rhiSignal: SignalRepository;
   /** RHI 指标快照（health_snapshots 表，issue #447） */

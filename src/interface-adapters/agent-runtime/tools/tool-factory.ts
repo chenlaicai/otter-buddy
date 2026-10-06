@@ -14,6 +14,8 @@ import type { Logger } from "@usecases/ports/logger";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import { interceptHealingReport, createManageHealingEventsTool } from "./healing-tools";
 import { createHaltOtterTool, createQuerySignalsTool, createResolveSignalTool, createUnhaltOtterTool, interceptSignalReport } from "./signal-tools";
+import { createListMattersTool, createTransitionMatterTool } from "./matter-tools";
+import { RegisterMatter, matterShortAnchor } from "@usecases/matter/register-matter";
 import { HANDOFF_SYNTHESIZE_PAST_DEFAULT } from "../agent-invoker";
 import { createTriageSignalTool, createListRhiSignalsTool } from "./rhi-signal-tools";
 import { DomainError } from "@entities/errors";
@@ -111,6 +113,66 @@ async function validateMessageHasContent(ctx: ToolContext): Promise<string | nul
 }
 
  
+/**
+ * F20261006mtlp P1：准入路径 1——L2 显式拍板项的 yield to user 打标即登记。
+ * 不打标不登记（防泛滥=机械）；默认通过模式不打标（与 R8 互斥不登记，方案 §2 硬边界）。
+ * matterRepo 未注入（旧装配）时静默跳过——登记是增强不是 yield 前置条件。
+ * 返回附在交棒回执后的待办注记（空串 = 无登记）。
+ */
+async function registerMatterOnTaggedYield(
+  ctx: ToolContext,
+  params: Record<string, unknown>,
+  resolvedIds: string[],
+  yieldEntryId: string,
+): Promise<string> {
+  if (params.expects_partner_decision !== true || !resolvedIds.includes('user') || !ctx.matterRepo) {
+    return '';
+  }
+  try {
+    const register = new RegisterMatter(ctx.matterRepo);
+    const reason = (params.reason as string | undefined)?.trim();
+    const matter = await register.execute({
+      conversationId: ctx.conversationId,
+      title: reason ? reason.slice(0, 200) : '待搭档拍板（yield 未填 reason——下次请填，板上需要一句话事情名）',
+      originMessageId: yieldEntryId,
+      ownerOtterId: ctx.otterId,
+      level: 'L2',
+      initialState: 'WAITING_PARTNER',
+      waitingOn: 'partner',
+      waitingFor: reason ?? '拍板',
+      // 简报内容单源（§1）：payload 存 reason 全文——板上详情/ P2 简报卡渲染的数据源
+      payload: reason ? JSON.stringify({ brief: reason }) : null,
+    });
+    return `\n[待办] 已登记 ${matterShortAnchor(matter.id)}（state=WAITING_PARTNER，板上待你裁决）。`;
+  } catch (err) {
+    // 登记失败不阻断交棒——台账是审计面不是交棒前置条件（与 halt 落账同模式）
+    return `\n[待办] 登记失败（不阻断交棒）：${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+/** SSE entry.yield 发射（前端时间线 yield 条目依赖此事件；拆出控 createYieldTool 行数） */
+async function emitYieldEvent(
+  ctx: ToolContext,
+  yieldResult: { yieldEntry: { id: string }; invokeEndEntry: { id: string } },
+  resolvedIds: string[],
+): Promise<void> {
+  const yieldOtter = await ctx.client.otter.getById(ctx.otterId).catch(() => null);
+  ctx.emitEvent?.({
+    event: "entry.yield",
+    data: {
+      entryId: yieldResult.yieldEntry.id,
+      invokeId: ctx.currentInvokeId!,
+      otterId: ctx.otterId,
+      otterName: yieldOtter?.name ?? ctx.otterId,
+      // F20260921otcl：实体在手直透出生色（大獭 color=null，前端 type 判定品牌棕）
+      otterType: yieldOtter?.type,
+      otterColor: yieldOtter?.color ?? null,
+      yieldTargets: resolvedIds,
+      invokeEndEntryId: yieldResult.invokeEndEntry.id,
+    },
+  });
+}
+
 function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository): AgentTool {
   return {
     name: "yield",
@@ -127,11 +189,14 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
           type: "string",
           description: "（to 包含 'user' 时建议提供）说明为什么需要用户介入。生成理由的过程就是暂停思考的过程。",
         },
+        expects_partner_decision: {
+          type: "boolean",
+          description: "（仅 to 包含 'user' 时有意义）true = 本交棒是 L2 显式拍板项（必须等搭档显式动作，不是默认通过模式）——系统自动登记 matter 到本对话待办板（state=WAITING_PARTNER，owner=你），板上钉住不被消息流顶走。R8 默认通过模式（『我推荐 X，今天内无异议就开工』）与待办互斥：携带默认通过语义的 yield 不打标、不登记。",
+        },
       },
       required: ["to"],
     },
-     
-    // eslint-disable-next-line complexity -- F20260921otcl：+yield 事件身份透传（交棒校验/记账/SSE 同链内聚）
+
     execute: async (_id: string, params: Record<string, unknown>) => {
       // 消息非空校验（有 speak entry 才能交棒）
       const msgError = await validateMessageHasContent(ctx);
@@ -161,24 +226,14 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
         // markDispatched 只刷 created 状态行（首次派工时间戳不被后续多轮交棒刷新）
         await updateDispatchLedgerOnYield(ctx, resolvedIds);
 
-        // SSE entry.yield（前端时间线 yield 条目依赖此事件；invokeEndEntryId 供前端同插入 invoke_end 居中条目）
-        const yieldOtter = await ctx.client.otter.getById(ctx.otterId).catch(() => null);
-        ctx.emitEvent?.({
-          event: "entry.yield",
-          data: {
-            entryId: yieldResult.yieldEntry.id,
-            invokeId: ctx.currentInvokeId!,
-            otterId: ctx.otterId,
-            otterName: yieldOtter?.name ?? ctx.otterId,
-            // F20260921otcl：实体在手直透出生色（大獭 color=null，前端 type 判定品牌棕）
-            otterType: yieldOtter?.type,
-            otterColor: yieldOtter?.color ?? null,
-            yieldTargets: resolvedIds,
-            invokeEndEntryId: yieldResult.invokeEndEntry.id,
-          },
-        });
+        // F20261006mtlp P1：L2 显式拍板项打标自动登记 matter（准入路径 1）
+        const matterNote = await registerMatterOnTaggedYield(
+          ctx, params, resolvedIds, yieldResult.yieldEntry.id,
+        );
 
-        return { ...textResponse("[系统控制信号] 交棒成功，回合结束。"), terminate: true };
+        await emitYieldEvent(ctx, yieldResult, resolvedIds);
+
+        return { ...textResponse(`[系统控制信号] 交棒成功，回合结束。${matterNote}`), terminate: true };
       } catch (err) {
         if (err instanceof DomainError && err.kind === "conflict") {
           return { ...textResponse("[系统控制信号] 本回合行动已交棒，无需重复调用 yield。请停止调用任何工具。"), terminate: true };
@@ -1293,6 +1348,8 @@ function createQueryDispatchLedgerTool(ctx: ToolContext): AgentTool {
 export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, workspaceGateway?: WorkspaceGateway, manageScheduledTask?: ManageScheduledTask): AgentTool[] {
   // F20260826mwrd C1：signal 仓库经 ToolContext.signalRepo 注入（避免参数继续膨胀）
   const signalRepo = ctx.signalRepo;
+  // F20261006mtlp P1：matter 仓库经 ToolContext.matterRepo 注入（同 signalRepo 模式）
+  const matterRepo = ctx.matterRepo;
   const tools: AgentTool[] = [
     createSpeakTool(ctx, healingRepo, logger),
     createYieldTool(ctx, healingRepo),
@@ -1350,6 +1407,13 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
   if (ctx.rhiSignalRepo) {
     tools.push(createTriageSignalTool(ctx, ctx.rhiSignalRepo));
     tools.push(createListRhiSignalsTool(ctx, ctx.rhiSignalRepo));
+  }
+  // F20261006mtlp P1：獭侧 matter 工具（待办板查/迁——空窗期通道 A 的执行载体）。
+  // small/big 型均可用：list 是只读查板；transition 的权限由 usecase 守卫兜住
+  // （L2 闭环必须搭档确认，獭不能代执行）。注册条件 = matterRepo 注入。
+  if (matterRepo) {
+    tools.push(createListMattersTool(ctx, matterRepo));
+    tools.push(createTransitionMatterTool(ctx, matterRepo));
   }
   return tools;
 }

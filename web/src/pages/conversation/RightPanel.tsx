@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, memo } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Star, X, RotateCcw, Check, Copy, Users, Folder, FileText, Timer, Activity, Square } from 'lucide-react'
+import { Plus, Star, X, RotateCcw, Check, Copy, Users, Folder, FileText, Timer, Activity, Square, ClipboardList } from 'lucide-react'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalLinkedResource as LinkedResource, LocalOtterSession as OtterSession, LocalScheduledTask } from '../../lib/mappers'
 import { sortSessionChain } from '../../lib/session-chain'
@@ -9,6 +9,7 @@ import { OtterProfileCard } from '../../components/OtterProfileCard'
 import { fmtTime } from '../../lib/utils'
 import { ScheduledTaskSection } from './ScheduledTaskSection'
 import { WorkspacePanel } from './WorkspacePanel'
+import { MattersPanel } from './MattersPanel'
 import { fmtInvokeElapsed, fmtCtx, type OtterInvokeState } from '../../lib/invoke-tracker'
 
 interface RightPanelProps {
@@ -44,7 +45,7 @@ interface RightPanelProps {
 }
 
 /** 右侧栏 tab 类型 */
-type RightPanelTab = 'participants' | 'resources' | 'tasks' | 'workspace'
+type RightPanelTab = 'participants' | 'resources' | 'tasks' | 'workspace' | 'matters'
 
 export function RightPanel(props: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<RightPanelTab>('participants')
@@ -82,6 +83,7 @@ export function RightPanel(props: RightPanelProps) {
     { id: 'resources', icon: <FileText className="w-4 h-4" />, label: '关键资源' },
     { id: 'tasks', icon: <Timer className="w-4 h-4" />, label: '定时任务' },
     { id: 'workspace', icon: <Folder className="w-4 h-4" />, label: '工作区' },
+    { id: 'matters', icon: <ClipboardList className="w-4 h-4" />, label: '待办' },
   ]
 
   return (
@@ -222,6 +224,10 @@ export function RightPanel(props: RightPanelProps) {
 
         {activeTab === 'workspace' && (
           <WorkspacePanel conversationId={props.conversation.id} />
+        )}
+
+        {activeTab === 'matters' && (
+          <MattersPanel conversationId={props.conversation.id} />
         )}
       </div>
     </aside>

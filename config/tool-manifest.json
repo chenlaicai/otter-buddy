@@ -45,13 +45,15 @@
       ]
     },
     "system": {
-      "description": "系统工具（参与者/卡片/定时/自愈/信号台账查询）",
+      "description": "系统工具（参与者/卡片/定时/自愈/信号台账查询/待办板）",
       "tools": [
         "get_active_participants",
         "get_html_card_contract",
         "create_scheduled_task",
         "manage_healing_events",
-        "query_signals"
+        "query_signals",
+        "list_matters",
+        "transition_matter"
       ]
     },
     "orchestration": {

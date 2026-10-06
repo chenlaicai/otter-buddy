@@ -44,6 +44,10 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createHealthSnapshotsTable(db);
     createSignalsTable(db);
     createSignalEventsTable(db);
+    /** F20261006mtlp P1：matters 表（待办——per-conversation 承诺台账）。
+     *  同构 signal_events（F20260826mwrd）但语义不同（持续工作单元 ≠ 瞬时信号），
+     *  不复用。字段/索引严格按 F20261006mtlp §1 字段表。 */
+    createMattersTable(db);
     /** F20260912avlb：派工台账正式表（本 PR 核心）。dispatch_attempts 与
      * restart_pending_resumes 随 main #886 批次（F20260908rlcp/ctlv）退役。 */
     createDispatchRecordsTable(db);
@@ -62,11 +66,11 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     // 记录 Schema 初始化完成日志
     if (logger) {
       const duration = Date.now() - startTime;
-      // 41 regular tables + 5 virtual tables (FTS/vec) = 46 total
-      // (含多模态 attachments 2表 + PR4 paper trading 9表 + F20260912avlb dispatch_records)
+      // 42 regular tables + 5 virtual tables (FTS/vec) = 47 total
+      // (含多模态 attachments 2表 + PR4 paper trading 9表 + F20260912avlb dispatch_records + F20261006mtlp matters)
       logger.info('Schema initialized', {
         duration,
-        tables: 46,
+        tables: 47,
       });
       /** #506: 补建差集——新库差集=全部表（与现状等价）；老库无缺表时差集为空不打扰 */
       const created = listTableNames(db).filter(t => !tablesBefore.includes(t));
@@ -728,6 +732,38 @@ function createSignalEventsTable(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_signal_events_status ON signal_events(status);
     CREATE INDEX IF NOT EXISTS idx_signal_events_type ON signal_events(type);
     CREATE INDEX IF NOT EXISTS idx_signal_events_target ON signal_events(target_otter_id, created_at);
+  `);
+}
+
+/** Matters 表（F20261006mtlp P1）：待办——per-conversation 承诺台账。
+ *  消费方声明（方案 §1 ⑥纪律）：
+ *  读方 = ①右侧栏「待办」tab ②restart 机械供料（handoff_open_matters）
+ *      ③三省吾身未闭环扫描（P3）④獭侧 matter 工具（list_matters/transition_matter）
+ *  写路径 = usecases/matter 登记/裁决/闭环/翻案 usecase（状态迁移单入口，见 transition-matter.ts）。
+ *  单一真相源纪律：状态只在 matters 表，流内消息只是投影。 */
+function createMattersTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS matters (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      origin_message_id TEXT,
+      owner_otter_id TEXT,
+      level TEXT,
+      state TEXT NOT NULL,
+      waiting_on TEXT,
+      waiting_for TEXT,
+      payload TEXT,
+      resolution TEXT,
+      resolved_by TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      closed_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_matters_conv_state ON matters(conversation_id, state);
+    CREATE INDEX IF NOT EXISTS idx_matters_state ON matters(state);
+    CREATE INDEX IF NOT EXISTS idx_matters_waiting_on ON matters(waiting_on);
   `);
 }
 

@@ -85,8 +85,8 @@ export async function restoreHandoffContext(
   _logger?: Logger,
 ): Promise<void> {
   if (!manageContext) return;
-  const keys = ['handoff_file_trail', 'handoff_recency_window', 'handoff_state_inventory'] as const;
-  const targets = ['fileTrail', 'recencyWindow', 'stateInventory'] as const;
+  const keys = ['handoff_file_trail', 'handoff_recency_window', 'handoff_state_inventory', 'handoff_open_matters'] as const;
+  const targets = ['fileTrail', 'recencyWindow', 'stateInventory', 'openMatters'] as const;
 
   for (let i = 0; i < keys.length; i++) {
     try {
