@@ -188,9 +188,13 @@ export function createTransitionMatterTool(ctx: ToolContext, matterRepo: MatterR
  * 回执让獭去登记，但工具面没注册登记工具 = 登记必丢（严重1死链）。
  *
  * 准入纪律：登记即 OPEN（搭档手动，非 yield 打标）。title 必填；owner 缺省=
- * 登记獭自己（认领这件事）；level 缺省不标。防泛滥靠 usecase 白名单语义——
- * 本工具只是物理载体，登记 action 合法性的真相源是 RegisterMatter 注释里的
- * 「白名单硬编码在产生路径」（板上入口 = 路径 2）。
+ * 登记獭自己（认领这件事）；level 缺省不标。
+ *
+ * 防泛滥边界（如实声明，审视 delta 建议①修正）：RegisterMatter usecase **不做**
+ * 调用方权限校验（它注释明言「调用方权限不在本层」）；本工具只是物理载体。
+ * 防泛滥靠**纪律约束**（identity「待办裁决纪律」——登记仅限搭档板上「+」入口或
+ * 搭档明确说「回头再说」），不做代码层校验。若实战出现獭滥用登记，再收紧准入——
+ * 本期不过度工程。
  */
 export function createRegisterMatterTool(ctx: ToolContext, matterRepo: MatterRepository): AgentTool {
   const exec = async (_id: string, params: Record<string, unknown>): Promise<ReturnType<typeof textResponse>> => {
