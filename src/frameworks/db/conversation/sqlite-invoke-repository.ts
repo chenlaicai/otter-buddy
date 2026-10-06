@@ -8,6 +8,7 @@ import type {
 import type {
   InvokeRepository,
   GetInvokesOptions,
+  FailRunningInvokesGuard,
 } from "@usecases/conversation/invoke-repository";
 
 /** Invoke 表行类型 */
@@ -24,6 +25,7 @@ interface InvokeRow {
   token_usage_input: number | null;
   token_usage_output: number | null;
   ctx_window_used: number | null;
+  pid: number | null;
   metadata: string | null;
 }
 
@@ -43,6 +45,7 @@ function rowToInvoke(row: InvokeRow): Invoke {
     tokenUsageInput: row.token_usage_input,
     tokenUsageOutput: row.token_usage_output,
     ctxWindowUsed: row.ctx_window_used,
+    pid: row.pid ?? null,
     metadata: row.metadata ? (JSON.parse(row.metadata) as Record<string, unknown>) : null,
   };
 }
@@ -75,8 +78,8 @@ export class SqliteInvokeRepository implements InvokeRepository {
       INSERT INTO invokes (
         id, conversation_id, otter_id, status, trigger_entry_id,
         talking_stone_passed_to, started_at, ended_at, tool_call_count,
-        token_usage_input, token_usage_output, ctx_window_used, metadata
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        token_usage_input, token_usage_output, ctx_window_used, pid, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       invoke.id, invoke.conversationId, invoke.otterId, invoke.status,
       invoke.triggerEntryId,
@@ -84,6 +87,7 @@ export class SqliteInvokeRepository implements InvokeRepository {
       invoke.startedAt, invoke.endedAt, invoke.toolCallCount,
       invoke.tokenUsageInput, invoke.tokenUsageOutput,
       invoke.ctxWindowUsed ?? null,
+      invoke.pid ?? null,
       invoke.metadata ? JSON.stringify(invoke.metadata) : null,
     );
   }
@@ -212,11 +216,13 @@ export class SqliteInvokeRepository implements InvokeRepository {
   /** F20260916b1ea 重建：重启 reconcile——running invokes 全部置 failed，
    *  单条 UPDATE...RETURNING 原子返回被标记行详情（消 SELECT-then-UPDATE 竞态，
    *  恢复入队的数据源）。SQLite 3.35+ 支持 RETURNING（better-sqlite3 13.0.3 已验证）。 */
-  /** F20260930roiv 修复：加 started_at 守卫——只清理 bootTs 之前写入的 running invoke，
-   *  防误杀本进程活跃 invoke（延迟 reconcile 触发时本进程可能已创建新 invoke）。 */
+  /** #1241（F20261006opid）判据升级：时间戳守卫 → pid 归属。无 guard = 全量清理
+   *  （启动路径：进程刚起，库里任何 running 都不可能属于本进程）；
+   *  guard.excludePid = 排除本进程 pid（延迟补跑/周期兑底路径）；
+   *  guard.beforeTs = pid 复用兑底（旧进程复用本 pid 时其遗留行写入必早于本进程 boot）。 */
   async failRunningInvokes(
     failedAt: string,
-    beforeTs?: string,
+    guard?: FailRunningInvokesGuard,
   ): Promise<
     Array<{
       id: string;
@@ -225,13 +231,18 @@ export class SqliteInvokeRepository implements InvokeRepository {
       triggerEntryId: string | null;
     }>
   > {
-    const where = beforeTs
-      ? "WHERE status = 'running' AND started_at < ?"
-      : "WHERE status = 'running'";
-    const params = beforeTs ? [failedAt, beforeTs] : [failedAt];
+    // 判据拼装（OR 关系，见 FailRunningInvokesGuard）：清理 = 非本 pid（NULL 亦属旧世界——列引入前存量）
+    // OR 写入早于 boot（pid 复用兜底）。唯一豁免 = 本 pid 且晚于 boot（本进程活跃）。
+    // pid 参数保持数字类型绑定，避免字符串比较导致判据永假。
+    let where = "WHERE status = 'running'";
+    const params: unknown[] = [];
+    if (guard) {
+      where += " AND (pid IS NULL OR pid != ? OR started_at < ?)";
+      params.push(guard.excludePid, guard.beforeTs);
+    }
     const rows = this.db.prepare(
       `UPDATE invokes SET status = 'failed', ended_at = ? ${where} RETURNING id, conversation_id, otter_id, trigger_entry_id`,
-    ).all(...params) as Array<{
+    ).all(failedAt, ...params) as Array<{
       id: string;
       conversation_id: string;
       otter_id: string;

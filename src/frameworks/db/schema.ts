@@ -914,6 +914,9 @@ function createInvokeTables(db: Database.Database): void {
       token_usage_cache_read INTEGER,
       token_usage_cache_write INTEGER,
       ctx_window_used INTEGER,
+      /** #1241：创建本 invoke 的进程 pid——孤儿判据（非本进程 pid 的 running = 旧进程遗留）。
+       *  NULL = pid 列引入前的存量行（启动 reconcile 无条件清理）。 */
+      pid INTEGER,
       metadata TEXT,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id),
       FOREIGN KEY (otter_id) REFERENCES otters(id)
