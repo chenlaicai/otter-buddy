@@ -141,6 +141,35 @@ describe("除法与正则的区分（启发式）", () => {
     expect(out).toContain("F20261006rgxf"); // 行尾字符串锚点存活
   });
 
+  it("glm终检严重②盲区①：转义引号字符串 endsWith(\"\\\"\") 不错位——误报方向", () => {
+    // " \"" 的假开引号：前导 \ 奇偶判定——\" 是转义序列一部分，不构成边界
+    const src = `if (s.endsWith("\\"")) /["']/.test(s); // F20260921vsds 注释`;
+    const out = stripTsComments(src);
+    expect(out).toContain(`/["']/.test(s)`); // 正则本体保留
+    expect(out).not.toContain("F20260921vsds"); // 注释正常剥离（误报封口）
+  });
+
+  it("glm终检严重②盲区①变体：转义引号 + 漏检方向（代码锚点存活）", () => {
+    const src = `if (s.endsWith("\\"")) /\\d\\//.test(s); const d = "see F20260101abcd";`;
+    const out = stripTsComments(src);
+    expect(out).toContain("F20260101abcd"); // 代码内锚点不被吞
+  });
+
+  it("glm终检严重②盲区②：正则字符类成对括号 ['()] 不投降——降级朴素计数（误报方向）", () => {
+    // 正则内 ' 无配对 → 引号跳过失败；但不整体投降，降级回朴素平衡计数
+    // （['() 括号本成对，朴素计数原本正确——投降比朴素更糟）
+    const src = `if (/['()]/.test(s)) /["']/.test(s); // F20260921vsds 注释`;
+    const out = stripTsComments(src);
+    expect(out).toContain(`/["']/.test(s)`);
+    expect(out).not.toContain("F20260921vsds");
+  });
+
+  it("glm终检严重②盲区②变体：['()] 成对括号 + 漏检方向（代码锚点存活）", () => {
+    const src = `if (/['()]/.test(s)) /\\d\\//.test(s); const d = "see F20260101abcd";`;
+    const out = stripTsComments(src);
+    expect(out).toContain("F20260101abcd");
+  });
+
   it("检视发现③：行首语句位正则不误判为除法", () => {
     const src = `const a = 1\n/["']/.test(s); // F20260909cccc 决策\n`;
     const out = stripTsComments(src);
