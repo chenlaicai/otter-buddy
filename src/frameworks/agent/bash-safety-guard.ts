@@ -1479,41 +1479,57 @@ function isInsideMainCheckout(target: string, projectRoot: string): boolean {
   return t === r || t.startsWith(r + path.sep);
 }
 
-/** #1240（F20261005g1240）：python heredoc 体含「绝对路径落主仓」时阻断 cd 豁免。
- *  modelCdExemption 粒度是整条命令——`cd /tmp && python3 - <<'PY'…open('<repo>/data/x','w')…PY`
- *  的 cd 落点非主仓 → 顶层豁免放行，但 heredoc 体内绝对路径操作绕过 cwd 直达主仓（#1240 逃逸）。
- *  本函数是 cd 豁免的负门前置：任一 python heredoc 体（无论只读与否）出现绝对路径字面量
- *  且解析落主仓树 → 返回 true，调用方按「不豁免」走完整判定链（写形态被 MAIN_WRITE_PATTERNS[0]
- *  + 体只读门 拦；纯读形态后续 heredocReadOnly 门放行，不误伤正道）。
- *  判定保守侧：路径解析失败/未闭合体不触发阻断（按既有体判定链处理，不扩面）。 */
-/** #1240：heredoc 解释器判定（负门专用）。
- *  isPythonHeader 是「首词语义」——`cd /tmp && python3 - <<'PY'` 的 header 首词是 cd，
+/** #1240（F20261006c1240）：heredoc 解释器判定（负门专用，python/node 双族）。
+ *  isPythonHeader/isNodeHeader 是「首词语义」——`cd /tmp && python3 - <<'PY'` 的 header 首词是 cd，
  *  提取出 cd 非 python → 整链 filter 为空，负门失效（#1240 正是该形态）。
  *  本函数按 shell 语义取 header 中 `<<` 之前的最后一个命令段（&&/||/;/| 切分），
- *  对该段跑 heredocInterpreter——`cd /tmp && python3 - <<'PY'` → 段 `python3 -` → python。
- *  保守侧：切不出段/段内提取非 python → false（不触发阻断，回到既有判定链）。 */
-function heredocHeaderIsPython(header: string): boolean {
+ *  对该段跑 heredocInterpreter——`cd /tmp && env python3 - <<'PY'` → 段 `env python3 -`
+ *  → heredocInterpreter 跳过 wrapper 词 env → python（wrapper 形态同样识别）。
+ *  保守侧：切不出段/段内提取非目标解释器 → false（不触发阻断，回到既有判定链）。 */
+function heredocHeaderIsInterpreter(header: string, family: "python" | "node"): boolean {
   const beforeOpen = header.split(/<<-?/)[0] ?? "";
   const segs = beforeOpen.split(/&&|\|\||[;|]/).map(s => s.trim()).filter(Boolean);
   const last = segs[segs.length - 1] ?? "";
-  return /^python(?:\d+(?:\.\d+)?)?$/.test(heredocInterpreter(last));
+  const it = heredocInterpreter(last);
+  return family === "python" ? /^python(?:\d+(?:\.\d+)?)?$/.test(it) : /^node(?:\d+)?$/.test(it);
 }
 
-/** #1240：段感知版 python heredoc 体只读判定。
- *  pythonHeredocBodiesReadOnly 用 isPythonHeader（首词语义）——`cd /tmp && python3 - <<'PY'`
- *  形态下体判定失效返回 false（fail-closed）。该形态原靠顶层 cd 豁免放行，体判定结果
- *  从不被消费；#1240 负门触发后（体含绝对路径落主仓 → cd 豁免被阻断）体判定结果首次
- *  被消费——必须用段感知版算出真实只读性，否则纯读探查被误拦（可用性回归）。
- *  与 pythonHeredocBodiesReadOnly 的唯一差异：isHeader 换 heredocHeaderIsPython。 */
-function pythonHeredocBodiesReadOnlySegmentAware(command: string): boolean {
+/** #1240：段感知版脚本 heredoc 体只读判定（python/node 双族）。
+ *  pythonHeredocBodiesReadOnly/nodeHeredocBodiesReadOnly 用 isPythonHeader/isNodeHeader
+ *  （首词语义）——`cd /tmp && python3 - <<'PY'` 形态下体判定失效返回 false（fail-closed）。
+ *  该形态原靠顶层 cd 豁免放行，体判定结果从不被消费；#1240 负门触发后（体含绝对路径
+ *  落主仓 → cd 豁免被阻断）体判定结果被负门直接消费（不再经通道正则接力）——必须用
+ *  段感知版算出真实只读性，否则纯读探查被误拦（可用性回归）。
+ *  体判定逻辑与 #1207 同构：python → pythonBodyReadOnly，node → nodeBodyReadOnly；
+ *  混合族（python+node 多 heredoc）任一非只读/非本族解释器头 → false（fail-closed）。 */
+function scriptHeredocBodiesReadOnlySegmentAware(command: string): boolean {
   const spans = extractHeredocSpans(command);
   if (spans.length === 0) return false;
-  return spans.every(sp => sp.closed && heredocHeaderIsPython(sp.header) && pythonBodyReadOnly(sp.body)
-    && (sp.quoted || !/[$`]/.test(sp.body)));
+  return spans.every(sp => {
+    if (!sp.closed) return false;
+    const isPy = heredocHeaderIsInterpreter(sp.header, "python");
+    const isNode = heredocHeaderIsInterpreter(sp.header, "node");
+    if (!isPy && !isNode) return false;
+    const bodyOk = isPy ? pythonBodyReadOnly(sp.body) : nodeBodyReadOnly(sp.body);
+    return bodyOk && (sp.quoted || !/[$`]/.test(sp.body));
+  });
 }
 
-function pythonHeredocAbsPathsInsideMain(command: string, projectRoot: string): boolean {
-  const spans = extractHeredocSpans(command).filter(sp => sp.closed && heredocHeaderIsPython(sp.header));
+/** #1240（F20261006c1240）：python/node heredoc 体含「绝对路径落主仓」时阻断 cd 豁免。
+ *  modelCdExemption 粒度是整条命令——`cd /tmp && python3 - <<'PY'…open('<repo>/data/x','w')…PY`
+ *  的 cd 落点非主仓 → 顶层豁免放行，但 heredoc 体内绝对路径操作绕过 cwd 直达主仓（#1240 逃逸）。
+ *  本函数是 cd 豁免的负门前置：任一 python/node heredoc 体（无论只读与否）出现绝对路径字面量
+ *  且解析落主仓树 → 返回 true。
+ *  检视 r1 处置（发现 1/2/4）：负门触发后不再依赖 MAIN_WRITE_PATTERNS[0] 通道正则接力——
+ *  通道正则要求 `python[\d.]*\s+-\s*<<` 形态，wrapper（env/sudo python3）与无 `-` 形态
+ *  负门正确触发却拦不住（拦截链解耦缺口）；node 侧 isNodeHeader 同型首词语义失效，
+ *  checkHeredocScriptBodies 白名单门在 cd 前缀形态下同样失效（文档原论证失实）。
+ *  调用方语义：负门 true && 体非只读 → 直接拦（体感知判定不依赖通道形态）；
+ *  负门 true && 体只读 → 放行（纯读探查正道）；负门 false → 回到既有判定链。
+ *  判定保守侧：路径解析失败/未闭合体不触发阻断（按既有体判定链处理，不扩面）。 */
+function scriptHeredocAbsPathsInsideMain(command: string, projectRoot: string): boolean {
+  const spans = extractHeredocSpans(command).filter(sp => sp.closed
+    && (heredocHeaderIsInterpreter(sp.header, "python") || heredocHeaderIsInterpreter(sp.header, "node")));
   for (const sp of spans) {
     // 体内容里绝对路径字面量（POSIX/Windows 两类）；匹配后剥引号/空白归一
     const ABS_PATH = /(?:^|[\s'"=(,])(\/[A-Za-z0-9_~][A-Za-z0-9_~./\\-]*|[A-Za-z]:[\\/][^\s'"),]+)/gm;
@@ -1533,7 +1549,6 @@ function pythonHeredocAbsPathsInsideMain(command: string, projectRoot: string): 
 // r3：oneLinerReadOnlyOverride 为外部预计算的 one-liner 只读豁免（基座对齐——
 // 豁免判定与拦截判定同一提取基座，差异只允许来自引号形式归一）。
 // 缺省时函数内部自算（旧调用方兼容）；显式传入时以外部值为准。
-<<<<<<< HEAD
 /** checkMainCheckoutWrite 参数打包（#1285：max-params lint 约束——洞1 递归
  *  新增 depth 后参数超上限，与 HeredocJudgeCtx 同先例打包） */
 interface MainCheckoutWriteCtx {
@@ -1585,8 +1600,18 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   // #1170 根治：模型版 cd 豁免——管道/分号不再杀死豁免（`cd wt && git commit | tail` 放行）
   // #1240（F20261006c1240）：cd 豁免加负门——python/node heredoc 体含绝对路径落主仓时不豁免，
   // 防止 `cd /tmp && python3 - <<'PY'…open('<repo>/…','w')…PY` 顶层豁免放行逃逸。
-  if (modelCdExemption(command, hasRealCdSegment)
-      && !pythonHeredocAbsPathsInsideMain(command, projectRoot)) return null;
+  // 检视 r1 处置（发现 1/2/4）：负门触发后直接体感知拦（写体拦/纯读体放行），
+  // 不再依赖 MAIN_WRITE_PATTERNS[0] 通道正则接力——wrapper（env/sudo）与无 `-` 形态
+  // 通道正则不认（拦截链解耦缺口），node 侧 isNodeHeader 同型首词语义失效。
+  if (modelCdExemption(command, hasRealCdSegment)) {
+    if (!scriptHeredocAbsPathsInsideMain(command, projectRoot)) return null;
+    // 负门触发：体非只读 → 拦（写/执行签名）；体只读 → 放行（纯读探查正道）
+    if (!scriptHeredocBodiesReadOnlySegmentAware(command)) {
+      logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (heredoc abs-path in main, cd-exemption vetoed)", { command: command.substring(0, 200) });
+      return MAIN_WRITE_BLOCK_MSG;
+    }
+    return null;
+  }
   // F20260924gfpn：git 写族字面判定先于只读白名单——写族正则
   // （merge(?!-) 负向断言后）在命令文本上跑，命中即拦；`git stash push` 的 push 在写族
   // 正则内，先于白名单命中，杜绝 stash 白名单词被显式写子命令借壳。
@@ -1789,10 +1814,10 @@ export function checkBashCommandSafety(
     if (dataDestructive) return withDiagnostics(dataDestructive, command, mainPid);
     // #1207（F20260930l573）：主仓写检测在原始命令上跑（heredoc 体在场），
     // 体感知判定在此计算后传入——只豁免纯只读 python heredoc 体。
-    // #1240：段感知版——`cd /tmp && python3 - <<'PY'` 形态下首词语义版失效返回 false；
-    // 负门不触发时顶层 cd 豁免先 return null 不消费该值（零行为变化），
-    // 负门触发后写体被拦、纯读体正确放行（不被误拦）。
-    const mainWrite = checkMainCheckoutWrite({ command, logger, projectRoot, heredocReadOnly: pythonHeredocBodiesReadOnlySegmentAware(command) });
+    // #1240 检视 r1：负门触发后内部直接调用 scriptHeredocBodiesReadOnlySegmentAware
+    // 体感知拦（不经通道正则接力）；此传入值只服务非 cd 豁免形态（负门未触发面）——
+    // python/node 双族段感知版替换 python-only 版，覆盖 node heredoc 同型失效。
+    const mainWrite = checkMainCheckoutWrite({ command, logger, projectRoot, heredocReadOnly: scriptHeredocBodiesReadOnlySegmentAware(command) });
     if (mainWrite) return withDiagnostics(mainWrite, command, mainPid);
     // #1207（F20260930l573）：shell/node heredoc 体级危险判定（原始命令，体在场）
     const bodyHit = checkHeredocScriptBodies(command, { mainPid, logger, allowedServices, projectRoot });

@@ -58,24 +58,40 @@ PY
 
 ## 设计取舍
 
-- **负门判定保守侧**：未闭合体/路径解析失败不触发阻断（回既有判定链，不扩面）；Windows 盘符路径在 mac/linux 主仓判定下永不落主仓，跳过不阻断。
-- **只拦绝对路径落主仓**：相对路径写（`open('data/x','w')`）语义上落 cd 后的 cwd（/tmp），非主仓——不拦，正道放行。这与 modelCdExemption 的原始语义（cd 落点即工作目录）一致。
-- **Modification-Class**：narrow-fix——既有 cd 豁免语义内加负门条件 + 两个段感知辅助函数，无新机制、不改模型层。
+- **Modification-Class**：narrow-fix——既有 cd 豁免语义内加负门条件 + 段感知辅助函数，无新机制、不改模型层。
+
+## 检视 r1 处置（检视獭-1301，glm）
+
+初轮检视 7 严重 + 1 建议，全部探针实证（修复前后双跑对照）。处置：
+
+- **发现 1（wrapper 形态拦不住，最严重）**：`cd /tmp && env python3 - <<'PY'` + rmtree 主仓——负门正确触发（段切分后 heredocInterpreter 跳过 wrapper 词），cd 豁免被阻断，但 MAIN_WRITE_PATTERNS[0] 通道正则要求 `python[\d.]*\s+-\s*<<` 形态、不认 wrapper 词前缀 → 端到端放行（拦截链「负门→通道正则」解耦缺口）。**采纳建议修复：负门触发后直接体感知拦**——`负门 && !scriptHeredocBodiesReadOnlySegmentAware(command)` 直接返回 BLOCK_MSG，不再依赖通道正则接力（体感知判定不依赖通道形态）。顺带覆盖发现 2 的无 `-` 形态（`python3 <<'PY'`）。
+- **发现 2（无 `-` / cat 管道形态残留）**：无 `-` 形态由发现 1 方案覆盖；**cat 管道形态（`cat <<'PY' | python3 -`）本 PR 不修**——解释器不在 heredoc 头位（最后段是 cat），属另一类判定面（管道右段解释器识别），Known Limitations 补声明 + 建 issue 跟踪。
+- **发现 3（拼接形态兜底声明失实）**：原文档称拼接路径「由 denylist 签名兜底」——实测 `p = os.environ['REPO'] + '/data/x'; open(p,'w')` 端到端放行：负门不触发（拼接片段非落主仓绝对路径字面量）→ cd 豁免 return null 旁路全部写判定，denylist 无消费点。**文档如实改写**（见 Known Limitations）+ 建 issue 跟踪。
+- **发现 4（node 兜底论证错误）**：原文档论证 node 形态安全时引用 checkHeredocScriptBodies 白名单门——但该门用 isNodeHeader（首词语义，与 isPythonHeader 同型陷阱），`cd /tmp && node - <<'JS'` 形态下失效，实测 writeFileSync 主仓放行。**本 PR 负门扩 node**（同构扩展：heredocHeaderIsInterpreter 双族 + 体判定 nodeBodyReadOnly）。
+- **发现 5（CI behind main）**：rebase main 后 force-push。
+- **发现 6（src 注释残留旧编号 F20261005g1240）**：两处改 F20261006c1240。
+- **发现 7（B5 撞车）**：编排知悉项——#1260/#1297/#1301 同文件并行，大獭仲裁合入序。
+- **建议 8（攻击面形态单一）**：补 9 个 r1 用例（wrapper ×2、无 `-`、node 拦/放行 ×2、wrapper 纯读放行、分号拦/放行、cat 管道声明面锚定）。
 
 ## 验证
 
-- 新增 7 用例（tests/frameworks/agent/bash-safety-guard.test.ts，#1275 describe 块内）：
-  - 攻击面 3：#1240 复现（rmtree 主仓 data）、open 写主仓 config、cd worktree + 体写主仓绝对路径（负门挡 cd 豁免，与 cwd 无关）
-  - 放行面 4：相对路径写（cwd /tmp 非主仓）、绝对路径写非主仓（/tmp/scratch）、绝对路径读主仓（纯读探查）、cd worktree 正道（体内无绝对路径落主仓）
-- 全量：守卫测试 370/370（363 基线 + 7 新增）、agent 全目录 1075/1075、tsc --noEmit 干净、eslint 干净。
-- 反向验证：修复前 main 上 7 用例中 3 攻击面全放行（端到端 dbg 实证 r1/r2/r3 全 null）——真锚。
+- 用例（tests/frameworks/agent/bash-safety-guard.test.ts，独立 #1240 describe）：
+  - 攻击面 7：#1240 复现（rmtree 主仓 data）、open 写主仓 config、cd worktree + 体写主仓（负门挡 cd 豁免，与 cwd 无关）、wrapper env/sudo、无 `-` 形态、node writeFileSync
+  - 放行面 8：相对路径写（cwd /tmp 非主仓）、绝对路径写非主仓（/tmp/scratch）、绝对路径读主仓（python/node 纯读探查 ×2）、cd worktree 正道、wrapper env 纯读、分号形态相对路径写
+  - 声明面 1：cat 管道形态当前放行（Known Limitations 锚定，防静默回归被误判为「修复」）
+- 全量：守卫测试 379/379、agent 全目录 1075/1075、tsc --noEmit 干净、eslint 干净。
+- 反向验证：修复前 main 上攻击面全放行（端到端 dbg 实证 + 检视獭 14 形态探针双跑对照）——真锚。
 - Golden Gate: n/a（纯正则/路径判定逻辑，无 prompt/skill/协议层软代码变更）。
 
 ## Known Limitations
 
-- 负门只覆盖 **python** heredoc 体——node/ruby/perl heredoc 体的绝对路径写主仓在 `cd <非主仓>` 形态下仍走顶层豁免（node 体有 #1207 白名单门在 `checkHeredocScriptBodies`，但模型路径下 cd 豁免 return null 同样旁路）。评估：node 体白名单判定在模型路径 1278 行之后独立运行（checkHeredocScriptBodies），非只读体在那一层被拦——python 是唯一「体判定完全挂靠在主仓写检测内」的解释器，故负门单点覆盖即可闭环。ruby/perl heredoc 无体判定链（全拦 fail-closed），不受影响。
-- 体内路径拼接（`os.path.join('/repo', 'data')`、变量接收路径）不在静态字面量覆盖面——与 #1207 白名单判定同型局限，由 denylist 签名（`os.\w` 非白名单即非只读）兜底：拼接形态体必含 `os.path` → 非只读 → 写判定拦，但「落主仓」维度不感知（cd 豁免形态下拼接路径写非主仓也会被拦——保守侧，可接受）。
+- **cat 管道形态（`cat <<'PY' | python3 -`）不覆盖**——解释器不在 heredoc 头位（header 最后段是 cat），负门段切分识别不出 python。该形态在 `cd <非主仓>` 下顶层豁免放行。属另一类判定面（管道右段解释器识别），建 issue 跟踪；测试声明面用例锚定当前行为（防静默变化）。
+- **动态路径拼接不覆盖且无兜底**——`p = os.environ['REPO'] + '/data/x'; open(p,'w')` 形态：负门不触发（体内无落主仓的绝对路径字面量）→ cd 豁免 return null **旁路全部写判定**（含 denylist 签名——它在负门之后的主仓写判定链内，无消费点）。对照：无 cd 前缀时同体被拦（denylist 生效）。cd 豁免形态下该攻击面无防线，建 issue 跟踪（可行方向：负门触发条件扩「体含非只读签名即阻断」——代价是 cd 形态下所有非只读 python heredoc 都被拦，可用性影响需评估）。
+- **ruby/perl heredoc** 无体判定链（全拦 fail-closed），不受 cd 豁免负门影响。
+- 负门判定保守侧：未闭合体/路径解析失败不触发阻断（回既有判定链，不扩面）；Windows 盘符路径在 mac/linux 主仓判定下永不落主仓，跳过不阻断。
+- 只拦绝对路径落主仓：相对路径写（`open('data/x','w')`）语义上落 cd 后的 cwd（/tmp），非主仓——不拦，正道放行。这与 modelCdExemption 的原始语义（cd 落点即工作目录）一致。
 
 ## 后续动作
 
 - 随 PR closes #1240。
+- 建 issue ×2：cat 管道形态识别、动态拼接在 cd 豁免形态下无兜底。

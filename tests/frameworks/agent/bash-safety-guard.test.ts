@@ -2287,8 +2287,6 @@ describe("#1275 delta r4：python open-mode 门嵌套括号穿透修复（检视
   });
 });
 
-<<<<<<< HEAD
-
 describe("#1285：主仓写检测残余三洞修复（bash -c 递归 / 包装词表换结构 / 空赋值前缀）", () => {
   const mainPid = 42877;
   const projectRoot = "/repo";
@@ -2566,7 +2564,7 @@ describe("#1285 r2 处置：delta r1 复核 3 新发现（位置参数间接执�
     expect(checkBashCommandSafety(`bash -c 'echo $@'`, mainPid, undefined, { projectRoot })).toBeNull();
   });
 });
-=======
+
 describe("#1240（F20261006c1240）：cd 豁免负门——python heredoc 体绝对路径落主仓", () => {
   const mainPid = 42877;
   const projectRoot = "/Users/orca/ai/otter-buddy";
@@ -2619,5 +2617,72 @@ PY`;
 open('${projectRoot}/data/metrics.json','w').write('{}')
 PY`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // ── 检视 r1（发现 1/2/4）：负门触发后直接体感知拦——wrapper / 无 `-` / node 同型 ──
+  it("#1240-r1：wrapper 形态 env python3 + 绝对路径写主仓 → 拦截（负门直接拦，不经通道正则）", () => {
+    const cmd = `cd /tmp && env python3 - <<'PY'
+import shutil
+shutil.rmtree('${projectRoot}/data')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1240-r1：wrapper 形态 sudo python3 + 绝对路径写主仓 → 拦截", () => {
+    const cmd = `cd /tmp && sudo python3 - <<'PY'
+open('${projectRoot}/config/config.yaml','w').write('x')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1240-r1：无 - 形态 python3 heredoc + 绝对路径写主仓 → 拦截", () => {
+    const cmd = `cd /tmp && python3 <<'PY'
+open('${projectRoot}/data/x.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1240-r1：node heredoc 体绝对路径写主仓 → 拦截（isNodeHeader 首词语义失效同型修复）", () => {
+    const cmd = `cd /tmp && node - <<'JS'
+require('fs').writeFileSync('${projectRoot}/data/hacked.txt','x')
+JS`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1240-r1 放行面：node heredoc 体绝对路径读主仓（只读） → 放行", () => {
+    const cmd = `cd /tmp && node - <<'JS'
+console.log(require('fs').readFileSync('${projectRoot}/package.json','utf8'))
+JS`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("#1240-r1 放行面：wrapper env python3 + 纯读探查 → 放行（体只读不误拦）", () => {
+    const cmd = `cd /tmp && env python3 - <<'PY'
+print(open('${projectRoot}/package.json').read())
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  // ── 建议 8：形态变体锚定（分号/换行/子 shell 正道）──
+  it("#1240-r1：分号形态 cd /tmp; python3 - heredoc 绝对路径写主仓 → 拦截", () => {
+    const cmd = `cd /tmp; python3 - <<'PY'
+open('${projectRoot}/data/x.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1240-r1 放行面：分号形态 cd /tmp; python3 相对路径写 → 放行（负门不触发）", () => {
+    const cmd = `cd /tmp; python3 - <<'PY'
+open('scratch/out.txt','w').write('x')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  // Known Limitations 声明面：cat 管道形态 / 动态拼接（本 PR 不修，文档声明 + issue 跟踪）
+  it("#1240-r1 声明面：cat 管道形态当前放行（Known Limitations，issue 跟踪）", () => {
+    const cmd = `cd /tmp && cat <<'PY' | python3 -
+open('${projectRoot}/data/x.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
   });
 });
