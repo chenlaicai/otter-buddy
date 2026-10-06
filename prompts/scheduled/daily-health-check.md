@@ -23,7 +23,7 @@ budget_bytes: 9600
 4. **memory**：`search_memory`（created_after 过滤昨日）——跨会话问题脉络、未闭环任务状态
 5. **RHI 健康信号**：`curl http://localhost:<port>/api/health/overview` 与 `/api/health/signals`——critical 是优先素材
 6. **signal_events**：`query_signals(status=pending)` 查悬置獭间信号（细则见「signal 对账段」；跨对话统计用 sqlite3）
-7. **上下文压缩观测**：`grep '"msg":"SDK compaction failed"' data/logs/otter-buddy.log` 按日计数（日志含脏 unicode，禁 jq）。单日 ≥10 或连续 3 日递增 → 建 bug issue（errorMessage 是症状，根因是上下文爆炸，关联 messageId/otterId 定位）；shadow 配对失衡同理；无异常写「failed=N，健康」
+7. **上下文压缩观测**：`grep '"msg":"SDK compaction failed"' data/logs/otter-buddy.log` 按日计数（禁 jq）。≥20 或连续 3 日递增 → 建 bug issue（errorMessage 是症状，根因是上下文爆炸，关联 messageId/otterId）；10-19 记观察行；`compaction-hook` fallback 与 shadow 配对失衡计入异常；无异常写「failed=N，健康」
 
 ## RHI 信号处置段（闭环硬规则）
 
