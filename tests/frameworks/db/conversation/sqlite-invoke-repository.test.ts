@@ -43,6 +43,7 @@ function invokeFixture(overrides: Partial<Invoke> = {}): Invoke {
     tokenUsageInput: null,
     tokenUsageOutput: null,
     ctxWindowUsed: null,
+    pid: null,
     metadata: null,
     ...overrides,
   };

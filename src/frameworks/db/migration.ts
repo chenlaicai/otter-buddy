@@ -182,6 +182,10 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** F20260923icus（#1149）：invokes 表补 cache token 两列（存量库 ALTER，幂等 PRAGMA 探测）。 */
   ensureInvokeCacheColumns(db, logger);
 
+  /** #1241（F20261006opid）：invokes 表补 pid 列（存量库 ALTER，幂等 PRAGMA 探测）。
+   *  孤儿判据数据承载：非本进程 pid 的 running = 旧进程遗留，reconcile 可精确清理。 */
+  ensureInvokesPidColumn(db, logger);
+
   /** #1191（F20260928rmix）：entries → memory_entries 消息索引回填。
    *  #886 删除 indexMessage 后 9/13 至今的对话正文未入记忆——本函数一次性回填
    *  存量（user + speak，双侧剥 html-card 围栏，user 侧拼附件占位投影行），
@@ -1875,6 +1879,16 @@ function ensureOtterColorColumn(db: Database.Database, logger: Logger): void {
   if (!columns.some(col => col.name === 'color')) {
     db.prepare("ALTER TABLE otters ADD COLUMN color TEXT").run();
     logger.info('Added color column to otters table (F20260921otcl)');
+  }
+}
+
+/** #1241（F20261006opid）：invokes 表补 pid 列（存量库）——孤儿判据数据承载。
+ *  幂等：PRAGMA 探测；新库 initSchema 已含（schema.ts 同步登记）。 */
+function ensureInvokesPidColumn(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(invokes)").all() as Array<{ name: string }>;
+  if (!columns.some(col => col.name === 'pid')) {
+    db.prepare("ALTER TABLE invokes ADD COLUMN pid INTEGER").run();
+    logger.info('Added pid column to invokes table (#1241)');
   }
 }
 

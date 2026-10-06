@@ -16,6 +16,8 @@ const invokeFixture = {
   toolCallCount: 3,
   tokenUsageInput: 12000,
   tokenUsageOutput: 3400,
+  ctxWindowUsed: null,
+  pid: null,
   metadata: null,
 };
 

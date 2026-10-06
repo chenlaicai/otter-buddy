@@ -18,6 +18,7 @@ import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider"
 import { backfillSessionLedger } from "@frameworks/db/otter/backfill-session-ledger";
 import { seedTerminologyData } from "@frameworks/db/memory/seed-terminology";
 import type { SyncResult } from "@usecases/document/sync-documents";
+import type { FailRunningInvokesGuard } from "@usecases/conversation/invoke-repository";
 import type { Repositories } from "./types";
 import { initRepositories } from "./repositories";
 
@@ -85,10 +86,10 @@ export function initRepositoriesWithDb(db: Database.Database, logger?: Logger): 
  * 指向 system entry——定时任务有自己的重触发语义，误恢复会重复产出）。
  * 失败仅日志不阻断启动（对齐既有 non-fatal 纪律）。
  */
-export async function reconcileRunningInvokes(db: Database.Database, repos: Repositories, logger: Logger, beforeTs?: string): Promise<void> {
+export async function reconcileRunningInvokes(db: Database.Database, repos: Repositories, logger: Logger, guard?: FailRunningInvokesGuard): Promise<void> {
   let failedInvokes: Awaited<ReturnType<typeof repos.invoke.failRunningInvokes>>;
   try {
-    failedInvokes = await repos.invoke.failRunningInvokes(new Date().toISOString(), beforeTs);
+    failedInvokes = await repos.invoke.failRunningInvokes(new Date().toISOString(), guard);
   } catch (err) {
     logger.warn("Failed to reconcile running invokes (non-fatal)", { error: err instanceof Error ? err.message : String(err) });
     return;
@@ -338,22 +339,6 @@ export function syncApiKeyToAgentAuth(llmConfig: AppConfig["llm"], logger: Logge
   }
 }
 
-/** F20260930roiv：启动窗口期孤儿 invoke 延迟 reconcile 设置 */
-export function setupDelayedReconcile(
-  options: { enableDelayedReconcile?: boolean },
-  db: Database.Database,
-  repos: Repositories,
-  logger: Logger,
-  bootTs: string,
-): ReturnType<typeof setTimeout> | undefined {
-  if (!(options.enableDelayedReconcile ?? true)) return undefined;
-  const timer = setTimeout(() => {
-    reconcileRunningInvokes(db, repos, logger, bootTs).catch((err) => {
-      logger.warn("Delayed reconcile failed (non-fatal)", {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
-  }, 10000); // F20260930roiv：无实证依据的保守值，覆盖观测到的 78s 窗口期（见特性文档）
-  if (timer.unref) timer.unref();
-  return timer;
-}
+/** F20260930roiv：启动窗口期孤儿 invoke 延迟 reconcile 设置已拆至 invoke-reconcile.ts
+ *  （结构性拆分）。本文件曾残留同名死代码副本（app.ts 实际 import 自 invoke-reconcile.ts），
+ *  #1241 顺手清理。 */
