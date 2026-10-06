@@ -605,8 +605,10 @@ const MAIN_WRITE_BLOCK_MSG = "当前 bash 工作目录在主仓（未 cd 到 wor
 
 /** one-liner 通道锚集——对齐 git 写族（:670 的 [|&] 锚 + env 赋值前缀）。
  *  单 | / & 同样切段（S-1）；赋值前缀与包装词合并单一循环组，任意形态×顺序×
- *  层数匹配（r2 严重 2：sudo env / nohup env / env FOO=1 组合形态曾放行，W1/W2/W3）。 */
-const ONELINER_ANCHOR = "(?:^|[;&\\n|]|&&|\\|\\||\\(|\\{)\\s*(?:(?:[A-Za-z_]\\w*=\\S+|env|sudo|nohup|command|nice|exec|time|xargs(?:\\s+-[^\\s]+)*)\\s+)*(?:[\\w./-]+\\/)?";
+ *  层数匹配（r2 严重 2：sudo env / nohup env / env FOO=1 组合形态曾放行，W1/W2/W3）。
+ *  #1285 洞3：赋值前缀 \S+ → \S*——`FOO= node -e "<写>"` 空赋值形态曾放行
+ * （shell 语义上空赋值是合法赋值前缀，与 FOO=1 等价参与环境传递）。 */
+const ONELINER_ANCHOR = "(?:^|[;&\\n|]|&&|\\|\\||\\(|\\{)\\s*(?:(?:[A-Za-z_]\\w*=\\S*|env|sudo|nohup|command|nice|exec|time|xargs(?:\\s+-[^\\s]+)*)\\s+)*(?:[\\w./-]+\\/)?";
 
 /** one-liner 旗标位（python）：容许带参旗标（-W ignore / -X dev）。
  *  单字母旗标后可选一个非 - 开头的参数（`(?:\\s+(?!-)\\S+)?`），循环容许连续多旗标。 */
@@ -651,6 +653,420 @@ const ONELINER_EXTRACT_PATTERNS: Record<OneLinerInterp, RegExp> = {
   perl: new RegExp(ONELINER_ANCHOR + "perl[\\d.]*\\s+(?:-[A-Za-z]+\\s+)*-e\\s+([\"'`])", "g"),
 };
 
+// ── #1285 洞1/洞2：bash -c 载荷递归检测 + 段首包装词结构化判定 ──
+// 设计根源（四轮对抗审视教训：逐洞枚举式修复每轮都开新变体洞——#1275/#1278 枚举
+// 包装词表连爆三轮）。本次换结构：
+//   洞2（包装词表封闭性）：段首 token 解析器（与 heredocInterpreter 同构的
+//     「跳前缀词认解释器」式）——跳过赋值前缀 + 已知包装词（含带旗标形态）后
+//     落在解释器（python/node/ruby/perl）上即按 one-liner 通道判定；落在 shell
+//     解释器（bash/sh/zsh）+ -c 上递归洞1；未知包装词 fail-closed 拦。
+//   洞1（bash -c wrapper）：shell -c 载荷提取后递归跑主仓写判定链（同一基座
+//     checkMainCheckoutWrite——基座对齐：豁免与拦截同一提取基座）。
+// 已知包装词表 + 各自旗标形态（跳过时连旗标参数一并跳）：
+//   env(-i/-u NAME/-C DIR) / nice(-n N) / timeout(DUR) / watch(-n N) / setsid /
+//   stdbuf(-o0/-e0/-i0/-oL…) / arch / sudo / nohup / command / nice / exec / time /
+//   xargs(-I{} 等)。unknown 即拦的取舍：段首解析后落点既非解释器、又非已知只读
+//   常见词、也非已知包装词——静态无法判定其语义，按 fail-closed 拦（与 ruby/perl
+//   只读全拦同先例；误拦面由「已知只读常见词放行表」收口——git/grep/cat/ls/echo/
+//   cd/npm/npx 等高频词在表内不会误拦）。
+
+/** shell 解释器名（洞1 识别面——basename 归一后比对）。 */
+const SHELL_INTERP_NAMES = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
+
+/** one-liner 解释器名 → 通道 key（洞2 落点判定）。 */
+const ONELINER_INTERP_NAMES: Record<string, OneLinerInterp> = {
+  python: "python", python3: "python", node: "node", ruby: "ruby", perl: "perl",
+};
+
+/** 包装词旗标形态表：包装词 → 跳过时吞食后续 token 的规则。
+ *  词表外未知包装词一律 fail-closed——三轮枚举爆破的教训：不扩词表换结构，
+ *  但「已知包装词」仍需一张表承载其旗标语法；表的职责从「枚举全宇宙包装词」
+ *  收窄为「描述已知词的旗标形态」，未知词由结构兜底拦。
+ *  吞食规则（确定性，防贪婪误吞解释器名）：
+ *    flags: 吞连续的 - 开头 token；
+ *    args:  吞「前一 token 是带参旗标」的后随一个非 - token（如 -n 5 / -o0 不同——
+ *           -o0 是合写旗标属 flags；-n 5 分写则 5 属 args）。简单可靠规则：
+ *           flags 吞完后，若最后一个被吞旗标在 takesValue 集合且其本身无内联值
+ *           （长度==2 的短旗标），再吞一个 token；
+ *    assigns: env 专有——吞 FOO=v 形态；
+ *    duration: timeout 专有——旗标吞完后吞一个时长 token（\d 开头或数字+单位）。 */
+interface WrapperSpec {
+  flags?: boolean;   // 吞连续 - 开头 token
+  assigns?: boolean; // 吞 FOO=v token（可夹于 flags 之后）
+  duration?: boolean; // 吞一个时长/数值 token（timeout/watch -n 之外的独立参数）
+}
+const WRAPPER_SPECS: Record<string, WrapperSpec> = {
+  env: { flags: true, assigns: true },
+  nice: { flags: true, duration: true },      // nice -n 5（-n 带值）/ nice -5
+  timeout: { flags: true, duration: true },   // timeout [-s KILL] 5 cmd
+  watch: { flags: true, duration: true },     // watch -n 1 cmd
+  setsid: { flags: true },
+  stdbuf: { flags: true },                    // stdbuf -o0 -eL（值内联旗标）
+  arch: {},
+  sudo: { flags: true },
+  nohup: {},
+  command: { flags: true },
+  exec: { flags: true },
+  time: { flags: true },
+  xargs: { flags: true },                     // xargs -I{}（值内联）——-I {} 分写形态保守不吞（落点 {} 非解释器自然放行交后续层）
+};
+
+/** 段首解析后落点在这些词上 → 明显非解释器/非 shell，放行交后续层判定
+ * （高频只读/构建词，防 fail-closed 误拦面破窗）。 */
+const SEGMENT_HEAD_PASS_THROUGH = new Set([
+  "git", "grep", "cat", "ls", "echo", "cd", "pwd", "find", "head", "tail", "wc",
+  "sort", "uniq", "awk", "sed", "cut", "tr", "diff", "which", "type", "file",
+  "stat", "date", "uname", "whoami", "hostname", "ps", "top", "df", "du", "free",
+  "npm", "npx", "node_modules", "yarn", "pnpm", "tsc", "vitest", "jest", "eslint",
+  "gh", "curl", "wget", "tar", "zip", "unzip", "gzip", "mkdir", "touch", "cp", "mv",
+  "ln", "readlink", "realpath", "basename", "dirname", "true", "false", "test", "[",
+  "jq", "yq", "sqlite3", "lsof", "netstat", "ss", "open", "pbcopy", "pbpaste",
+]);
+
+interface SegmentHead {
+  /** 落点 basename（小写，路径已剥）。空串 = 段为空或纯赋值。 */
+  head: string;
+  /** 落点在全段中的字符 offset（shell -c 载荷定位用）；-1 = 无落点。 */
+  offset: number;
+}
+
+/** 单 token 扫描（tokenizeSegment 内层，抽函数控圈复杂度）。
+ *  从 seg[i]（非空白）扫一个 token，返回 token 文本与扫描后位置；未闭合引号返回 null。 */
+function scanOneToken(seg: string, i: number): { text: string; next: number } | null {
+  let cur = "";
+  let quote: string | null = null;
+  while (i < seg.length) {
+    const ch = seg[i];
+    if (quote) {
+      cur += ch;
+      if (ch === quote) quote = null;
+      else if (ch === "\\" && quote === '"' && i + 1 < seg.length) { cur += seg[i + 1]; i++; }
+      i++;
+      continue;
+    }
+    if (ch === "'" || ch === '"') { quote = ch; cur += ch; i++; continue; }
+    if (/\s/.test(ch)) break;
+    cur += ch; i++;
+  }
+  return quote ? null : { text: cur, next: i };
+}
+
+/** 引号感知 token 化（单/双引号内空格不切；token 保留引号字符）。
+ *  未闭合引号返回 null → 调用方保守拦。 */
+function tokenizeSegment(seg: string): { text: string; offset: number }[] | null {
+  const tokens: { text: string; offset: number }[] = [];
+  let i = 0;
+  while (i < seg.length) {
+    while (i < seg.length && /\s/.test(seg[i])) i++;
+    if (i >= seg.length) break;
+    const tok = scanOneToken(seg, i);
+    if (tok === null) return null; // 未闭合引号 → 解析失败
+    if (tok.text) tokens.push({ text: tok.text, offset: i });
+    i = tok.next;
+  }
+  return tokens;
+}
+
+const tokenBasename = (t: string): string => {
+  const stripped = t.replace(/^["']|["']$/g, "");
+  const base = stripped.includes("/") ? stripped.split("/").pop()! : stripped;
+  return base.toLowerCase();
+};
+
+/** 跳过一个包装词及其旗标参数（parseSegmentHead 内层，抽函数控圈复杂度）。
+ *  确定性吞食（防贪婪误吞解释器名）：flags 连续 - 开头 / assigns FOO=v / duration 单个数值。 */
+function skipWrapperArgs(tokens: { text: string; offset: number }[], k: number, spec: WrapperSpec): number {
+  if (spec.flags) while (k < tokens.length && /^-/.test(tokens[k].text)) k++;
+  if (spec.assigns) while (k < tokens.length && /^[A-Za-z_]\w*=\S*$/.test(tokens[k].text)) k++;
+  if (spec.duration && k < tokens.length && /^\d/.test(tokens[k].text)) k++;
+  return k;
+}
+
+/** 段首 token 解析器（洞2 换结构核心）：跳过「赋值前缀 + 已知包装词（含旗标）」
+ *  后返回落点 token。引号感知——引号内空格不切 token。解析失败（未闭合引号等）
+ *  返回 null → 调用方保守拦。 */
+function parseSegmentHead(seg: string): SegmentHead | null {
+  const tokens = tokenizeSegment(seg);
+  if (tokens === null) return null;
+  if (tokens.length === 0) return { head: "", offset: -1 };
+  let k = 0;
+  for (;;) {
+    if (k >= tokens.length) return { head: "", offset: -1 };
+    const t = tokens[k].text;
+    // 赋值前缀（含空值 #1285 洞3：FOO= 合法赋值）
+    if (/^[A-Za-z_]\w*=\S*$/.test(t)) { k++; continue; }
+    const base = tokenBasename(t);
+    const spec = WRAPPER_SPECS[base];
+    if (!spec) return { head: base, offset: tokens[k].offset };
+    k = skipWrapperArgs(tokens, k + 1, spec);
+  }
+}
+
+/** shell -c 载荷提取三态（#1285 r1 严重 2 处置：null 三态拆分——
+ *  初版 null 单态把「旗标在 -c 前」与「无 -c 文件落点」混同，
+ *  `bash -x -c '写'` 返回 null 被归文件落点放行，注释写「保守拒」实际放行）。
+ *  - FILE：无 -c 形态（bash script.sh）——写面在脚本文件自身，本层放行；
+ *  - FAIL_CLOSED：-c 存在但旗标形态未识别（白名单外）——fail-closed 拦；
+ *  - PAYLOAD：-c 载荷成功提取——payload 供递归判定，consumedEnd 为载荷在段内
+ *    的结束 offset（③b 后继续判定剩余 token 用，r1 严重 3）。 */
+type ShellCExtract =
+  | { kind: "FILE" }
+  | { kind: "FAIL_CLOSED" }
+  | { kind: "PAYLOAD"; payload: string; consumedEnd: number };
+
+/** shell 短旗标白名单（-c 前置容许形态，与 PY_FLAG_GROUP 同模式）。
+ *  bash/sh/zsh/dash/ksh 共有常见旗标：a b c d e f h i k l m n o p r s t u v x y C E F H T W X
+ *  #1285 r2 严重 B：前缀字符类补 [+-]——bash 的 `+x`（关 xtrace）是合法旗标形态，
+ *  只认 `-` 前缀时 `sh +x -c '写'` 曾绕过。
+ *  白名单外（含长旗标 --posix / --norc 等带参形态）→ FAIL_CLOSED。 */
+const SHELL_FLAG_WHITELIST = /^[+-][abcdefhiklmnoprstuvxyCEFHTWX]+$/;
+
+/** 提取引号包裹的 -c 载荷（extractShellCPayload 内层，抽函数控圈复杂度）。
+ *  返回 null = 未闭合引号（fail-closed）。 */
+function scanQuotedPayload(rest: string, i: number, shellOffset: number): ShellCExtract {
+  const q = rest[i];
+  i++;
+  const start = i;
+  while (i < rest.length) {
+    const ch = rest[i];
+    if (ch === "\\") { i += 2; continue; }
+    if (ch === q) {
+      return { kind: "PAYLOAD", payload: rest.slice(start, i), consumedEnd: shellOffset + i + 1 };
+    }
+    i++;
+  }
+  return { kind: "FAIL_CLOSED" }; // 未闭合引号 → fail-closed
+}
+
+/** 从段文本 offset 处判定 shell 调用的 -c 载荷（引号感知，escape 感知）。 */
+function extractShellCPayload(seg: string, shellOffset: number): ShellCExtract {
+  const rest = seg.slice(shellOffset);
+  // shell 名（容许路径/版本号尾缀）
+  const nameM = rest.match(/^[\w./-]*\/?(?:bash|sh|zsh|dash|ksh)\d*/i);
+  if (!nameM) return { kind: "FILE" };
+  const after = rest.slice(nameM[0].length);
+  // 逐 token 扫：白名单短旗标跳过；遇 -c 进载荷提取；其他 → 判 FAIL_CLOSED 或 FILE
+  // r2 严重 B：旗标 token 形态含 [+-] 前缀（bash `+x` 关 xtrace 合法）——argM 只认
+  // `\s+-\S+` 时 `+x` 不进旗标位，整串匹配失败返回 FILE 放行（`sh +x -c '写'` 曾绕）。
+  const argM = after.match(/^((?:\s+[+-]\S+)*?)\s*-c(\s|$)/);
+  if (!argM) {
+    // 无 -c：bash script.sh / bash -x script.sh → 文件落点放行
+    //（-c 后无空格的空字符串 -c'' 形态走下方载荷为空 → FAIL_CLOSED）
+    return { kind: "FILE" };
+  }
+  const flagStr = argM[1].trim();
+  if (flagStr) {
+    const flags = flagStr.split(/\s+/);
+    if (!flags.every(f => SHELL_FLAG_WHITELIST.test(f))) return { kind: "FAIL_CLOSED" };
+  }
+  const i = nameM[0].length + argM[0].length;
+  if (i >= rest.length) return { kind: "FAIL_CLOSED" }; // -c 后无载荷
+  const q = rest[i];
+  if (q === "'" || q === '"' || q === "`") return scanQuotedPayload(rest, i, shellOffset);
+  // 无引号载荷（bash -c node…）——取至段尾
+  const payload = rest.slice(i).trim();
+  return payload ? { kind: "PAYLOAD", payload, consumedEnd: seg.length } : { kind: "FAIL_CLOSED" };
+}
+
+/** splitShellSegments 单字符处理。
+ *  返回消耗后的新 index；命中分隔符时把 cur 推入 segs 并重置。 */
+// eslint-disable-next-line complexity -- 引号/转义/四类分隔符的逐字符状态机，分支与字符类别一一对应，再拆会割裂状态机可读性
+function splitStep(
+  command: string, i: number, state: { quote: string | null; cur: string }, segs: string[],
+): number {
+  const ch = command[i];
+  if (state.quote) {
+    if (ch === "\\") { state.cur += ch + (command[i + 1] ?? ""); return i + 1; }
+    if (ch === state.quote) state.quote = null;
+    state.cur += ch;
+    return i;
+  }
+  if (ch === "'" || ch === '"' || ch === "`") { state.quote = ch; state.cur += ch; return i; }
+  if (ch === ";" || ch === "\n" || ch === "|" || ch === "&") {
+    const double = (ch === "&" && command[i + 1] === "&") || (ch === "|" && command[i + 1] === "|");
+    if (state.cur.trim()) segs.push(state.cur.trim());
+    state.cur = "";
+    return double ? i + 1 : i;
+  }
+  state.cur += ch;
+  return i;
+}
+
+/** 引号感知切段（one-liner 载荷内 ; | & \n 是数据不是 shell 分隔——
+ *  `python3 -c "print('a;b')"` 引号内分号曾被朴素 split 切段造成只读豁免面误判）。
+ *  && / || 视作单一切点。 */
+function splitShellSegments(command: string): string[] {
+  const segs: string[] = [];
+  const state = { quote: null as string | null, cur: "" };
+  for (let i = 0; i < command.length; i++) {
+    i = splitStep(command, i, state, segs);
+  }
+  if (state.cur.trim()) segs.push(state.cur.trim());
+  return segs;
+}
+
+/** one-liner 载荷只读判定（#1285 洞2 基座对齐修复）：
+ *  词表内包装形态（timeout 5 node -e … / env -i python3 -c …）下，既有提取基座
+ * （ONELINER_ANCHOR 词表）与拦截通道（段首解析器）不同源——词表外/带旗标包装
+ *  会让 oneLinerPayloadReadOnly 返回 false，只读载荷被误拦（豁免失明）。
+ *  基座对齐原则：豁免判定与拦截判定必须基于同一提取基座。
+ *  实现：对「段首解析后落点为 one-liner 解释器」的段，剥掉段首前缀（赋值+包装词）
+ *  得到裸解释器起始的剩余文本，在该文本上跑既有 oneLinerPayloadReadOnly——
+ *  提取基座与拦截落点同一解析器产出，词表差异归零。
+ *  全部「落点解释器段」的载荷均提取成功且只读 → true；无此类段 → false。 */
+function wrappedOneLinerPayloadsReadOnly(command: string): boolean {
+  let saw = false;
+  for (const seg of splitShellSegments(command)) {
+    const parsed = parseSegmentHead(seg);
+    if (parsed === null || parsed.offset < 0 || parsed.head === "") continue;
+    const interpKey = ONELINER_INTERP_NAMES[parsed.head.replace(/[\d.]+$/, "")];
+    if (!interpKey) continue;
+    // 落点是 one-liner 解释器——剥前缀后剩余文本上做只读判定（既有白名单基座）
+    const rest = seg.slice(parsed.offset);
+    if (!ONELINER_PRE_GATE.test(rest)) continue; // 非 one-liner 形态（裸脚本调用）不涉及
+    saw = true;
+    if (!oneLinerPayloadReadOnly(rest)) return false;
+  }
+  return saw;
+}
+
+/** git 写子命令判定（#1285 r1 严重 1：段首解析剥包装前缀后落 git 的写族判定——
+ *  正则锚只认赋值前缀不认包装词，`env git commit` / `sudo git commit` 曾全放。
+ *  比 MAIN_WRITE_PATTERNS[5] 宽：补 push / reset --hard / clean -f 等同属写族但
+ *  原正则未覆盖的子命令——段首解析通道既然接了 git 落点，写族口径一次补齐）。 */
+const GIT_WRITE_SUBCOMMAND = /^git\s+(?:-C\s+\S+\s+|--git-dir=\S+\s+|--work-tree=\S+\s+|-c\s+\S+\s+)*(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push|push\b(?!\s+(?:--dry-run|-n)\b)|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
+
+/** 剥子壳包装（#1285 r1 严重 1 连带形态：`(git commit)` / `{ git commit; }`——
+ *  子 shell/命令组剥壳后按同一段判定链重判；剥壳无界循环防护上限 8 层。
+ *  注意：剥壳只在「全段恰好被一对壳包裹」时生效（正则锚定 ^$）——
+ *  多命令组 `{ a; b; }` 剥壳后残留内层分号由 splitShellSegments 切段重判。） */
+function stripSubshellWrap(seg: string): string {
+  let s = seg.trim();
+  for (let n = 0; n < 8; n++) {
+    const m = s.match(/^[({]\s*(.*?)[)}]\s*;?$/s);
+    if (!m) return s;
+    s = m[1].trim().replace(/;+$/, "").trim(); // 命令组壳内尾分号一并剥（`{ git commit; }` 剥壳残留 `git commit;` 曾放行）
+  }
+  return s;
+}
+
+/** 段内是否含子壳/命令组包裹的可疑写形态（#1285 r1 严重 1 连带，预存洞收窄拦）：
+ *  splitShellSegments 不剥壳（引号感知不管括号），`(git commit)` / `{ git commit; }`
+ *  段首是壳字符，parseSegmentHead 落点为 "(" / "{" ——未知落点。模型层（parseOk=true）
+ *  也不识命令组内 git 写族（预存洞，旧基线 git 正则锚同样不含壳字符）。
+ *  fail-closed 收窄：壳落点 + 段内含 git 写族字面即拦（与 ③d 未知落点同策略）。
+ *  剥壳重判（stripSubshellWrap）只覆盖「全段单壳」形态；壳内多命令/嵌套壳由本闸兜底。 */
+const SUBSHELL_GIT_WRITE_GATE = /[({][^)}]*\bgit\s+(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push|push\b|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
+
+/** ③b shell 落点处理（judgeSegment 内层，抽函数控圈复杂度/语句数）：
+ *  三态拆分（r1 严重 2）+ 载荷递归 + 剩余 token 重判（r1 严重 3）。 */
+function judgeShellCSegment(
+  seg: string,
+  offset: number,
+  ctx: { logger?: Logger; projectRoot?: string; oneLinerReadOnly: boolean; depth: number },
+): boolean {
+  const ex = extractShellCPayload(seg, offset);
+  if (ex.kind === "FILE") return false; // bash script.sh——写面在脚本文件自身，不在本层
+  if (ex.kind === "FAIL_CLOSED") return true; // -c 存在但旗标形态白名单外/未闭合 → fail-closed
+  // 递归：载荷作为独立命令重走主仓写判定（基座对齐——同一 checkMainCheckoutWrite）
+  const payloadHit = checkMainCheckoutWrite({ command: ex.payload, logger: ctx.logger, projectRoot: ctx.projectRoot, depth: ctx.depth - 1 }) !== null;
+  if (payloadHit) return true;
+  const tail = seg.slice(ex.consumedEnd).trim();
+  // r2 严重 A：载荷引用位置参数（$1-$9/$@/$*/${N}）时参数位内容会被真实执行
+  //（`bash -c '$1 $2' x git commit -m y` 真 bash 沙箱实测 touch 落盘）——载荷与
+  // 剩余段互相看不见是判定链盲区。kill 通道 #1154 r2 同款正则先例（:356 附近）。
+  // 载荷含位置参数引用且参数位非空 → fail-closed 拦（参数位语义是数据还是命令
+  // 由 shell 运行时决定，静态不可分——不逐 token 判定，保守拦）。
+  const refsPositional = /\$\{?(?:0|[1-9]\d*|@|\*)\}?(?![\w$])/.test(ex.payload);
+  if (refsPositional && tail) return true;
+  // r1 严重 3：载荷后剩余 token 重新过判定链——`bash -c 'echo a' timeout 5 node -e "写"`
+  // 载荷干净但段内第二命令曾裸奔；`env C=k bash -c 'python3 -c "写"' _` 参数位同型。
+  // 剩余段按同判定链递归（depth 消耗与载荷递归同级，终止性：consumedEnd 严格右移）。
+  if (tail) {
+    for (const tailSeg of splitShellSegments(tail)) {
+      if (judgeSegment(tailSeg, { ...ctx, depth: ctx.depth - 1 })) return true;
+    }
+  }
+  return false;
+}
+
+/** 段级判定（checkSegmentStructuralWrite 的单段处理，抽函数控圈复杂度） */
+function judgeSegment(
+  rawSeg: string,
+  ctx: { logger?: Logger; projectRoot?: string; oneLinerReadOnly: boolean; depth: number },
+): boolean {
+  // #1285 r1 严重 1 连带：子壳包装剥壳（`(git commit)` / `{ git commit; }`）
+  const seg = stripSubshellWrap(rawSeg);
+  const parsed = parseSegmentHead(seg);
+  const segHasShellC = /\b(?:bash|sh|zsh|dash|ksh)\d*\s+-c\s/i.test(seg);
+  const segHasOneLiner = ONELINER_PRE_GATE.test(seg);
+  if (parsed === null) {
+    // 解析失败（未闭合引号等）——段内含 one-liner/shell 特征才拦
+    return segHasOneLiner || segHasShellC;
+  }
+  const { head, offset } = parsed;
+  if (head === "") return false;
+  // ③a one-liner 解释器落点（python/node/ruby/perl，含版本号尾缀）
+  const interpKey = ONELINER_INTERP_NAMES[head.replace(/[\d.]+$/, "")];
+  if (interpKey) {
+    // 通道判定：段内含该解释器的 one-liner 形态（-c/-e/--eval）才命中——
+    // 裸 `python3 script.py` 不是 one-liner 通道（写面由重定向/git 族承担）。
+    // 只读豁免：oneLinerReadOnly（全命令基座，与正则通道同一豁免值——
+    // 豁免基座对齐：拦截与豁免同一提取基座，载荷只读性由既有白名单承担）。
+    return segHasOneLiner && !ctx.oneLinerReadOnly;
+  }
+  // ③a' git 落点（#1285 r1 严重 1：词包装 git 写族全绕——正则锚只认赋值前缀，
+  // `env git commit` / `sudo git commit` / `timeout 5 git commit` 曾全放）。
+  // 剥包装前缀后落 git：写子命令拦（GIT_WRITE_SUBCOMMAND 承担，含 git push/
+  // reset --hard/clean -f 等正则锚未覆盖的写族）；只读子命令放行（白名单由
+  // allSegmentsGitReadonly 在上游承担——包装形态下 gitReadonlyCmd=false 会落入
+  // 本层，这里显式放只读防误拦）。
+  if (head === "git") {
+    const rest = seg.slice(offset);
+    return GIT_WRITE_SUBCOMMAND.test(rest);
+  }
+  // ③b shell 解释器落点 → 洞1：提取 -c 载荷递归判定（r1 严重 2：三态拆分）
+  if (SHELL_INTERP_NAMES.has(head.replace(/\d+$/, ""))) {
+    return judgeShellCSegment(seg, offset, ctx);
+  }
+  // ③c 已知常见词 → 放行
+  if (SEGMENT_HEAD_PASS_THROUGH.has(head)) return false;
+  // ③d 未知落点——词表外包装词（timeout/watch/setsid/stdbuf/arch 曾全放）。
+  // fail-closed 收窄版：未知词 + 段内含 one-liner/shell-c 特征才拦——
+  // `timeout 5 node -e 写` 是典型包装绕过；纯未知命令（make/gradle build）
+  // 不含 one-liner 形态不拦（误拦面收口）。
+  return segHasOneLiner || segHasShellC;
+}
+
+/** 主仓写判定的段首结构检测（洞1+洞2 统一入口）。
+ *  判定链（fail-closed 原则）：
+ *  ① 引号感知切段；② 段首解析（跳赋值+包装词）；③ 落点分类（judgeSegment）：
+ *     one-liner 解释器+形态 → 命中；shell 解释器+-c → 载荷递归；未知落点+特征 → 拦。
+ *  返回 true = 命中主仓写通道（拦）。 */
+function checkSegmentStructuralWrite(
+  command: string,
+  logger: Logger | undefined,
+  projectRoot: string | undefined,
+  oneLinerReadOnly: boolean,
+  depth: number,
+): boolean {
+  if (depth <= 0) return true; // 嵌套超深 → 保守拦（与 heredoc 体同先例）
+  const ctx = { logger, projectRoot, oneLinerReadOnly, depth };
+  for (const seg of splitShellSegments(command)) {
+    if (judgeSegment(seg, ctx)) return true;
+  }
+  // 洞1d 补面：管道到 shell 且喂入内容含 one-liner 载荷（echo '…' | bash）
+  if (/\|\s*(?:sudo\s+)?(?:bash|sh|zsh)\b/.test(command) && ONELINER_PRE_GATE.test(command) && !oneLinerReadOnly) {
+    return true;
+  }
+  // r1 严重 1 连带（预存洞）：子壳/命令组内 git 写族 fail-closed 收窄拦——
+  // `(git commit)` 经剥壳重判已被上方段判定覆盖；本闸兜「壳内多命令」形态
+  // （`{ git commit; git push; }`）与模型层不识命令组的缺口（parseOk=true 时
+  //  V1 段判定链不跑——挂点见下方入口侧）。
+  if (SUBSHELL_GIT_WRITE_GATE.test(command)) return true;
+  return false;
+}
+
 
 /** 主仓写操作形态（F20260922scwd）：重定向/heredoc/python patch/git 写族 */
 const REDIRECT_PATTERN = /(?:^|[;&\n]|&&|\|\|)\s*(?:>|>>|<<<)\s*[^|&;\n]+|(?<!["'\w])\d*>>?\s*[^|&;\n'"]+/;  // 重定向（含 echo x > file 中段形态 + 2> 数字前缀）
@@ -669,7 +1085,7 @@ const MAIN_WRITE_PATTERNS = [
   // 是 plumbing 只读，前缀吞噬同型），cherry-pick/apply/rebase/stash push 无 - 开头只读派生。
   // ② 段首锚前加赋值前缀串（[A-Za-z_]\w*=\S+\s+）*——`FOO=1 git commit` 的赋值是 shell
   // 前缀不是子命令，原锚要求 git 紧邻段首会漏此形态（写族判定绕过面）。
-  /(?:^|[|&]|&&|\|\||[;\n])\s*(?:[A-Za-z_]\w*=\S+\s+)*git\s+(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push)\b/,  // git 写族
+  /(?:^|[|&]|&&|\|\||[;\n])\s*(?:[A-Za-z_]\w*=\S*\s+)*git\s+(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push)\b/,  // git 写族（#1285 洞3：赋值前缀 \S+→\S*，空赋值 `FOO= git commit` 同拦）
 ] as const;
 
 /** F20260924gfpn：git 只读子命令白名单（精确全称，非前缀匹配）。
@@ -1060,8 +1476,53 @@ function hasRealCdSegment(command: string): boolean {
 // r3：oneLinerReadOnlyOverride 为外部预计算的 one-liner 只读豁免（基座对齐——
 // 豁免判定与拦截判定同一提取基座，差异只允许来自引号形式归一）。
 // 缺省时函数内部自算（旧调用方兼容）；显式传入时以外部值为准。
-// eslint-disable-next-line complexity -- V1 分支语义保留（echo 纯重定向/data 目标/绝对路径豁免），cd 豁免换模型版 + #1207 heredoc 体感知判定 + r3 外部预计算豁免位
-function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: string, heredocReadOnly?: boolean, oneLinerReadOnlyOverride?: boolean): string | null {
+/** checkMainCheckoutWrite 参数打包（#1285：max-params lint 约束——洞1 递归
+ *  新增 depth 后参数超上限，与 HeredocJudgeCtx 同先例打包） */
+interface MainCheckoutWriteCtx {
+  command: string;
+  logger?: Logger;
+  projectRoot?: string;
+  heredocReadOnly?: boolean;
+  oneLinerReadOnlyOverride?: boolean;
+  /** 洞1 bash -c 递归深度（默认 3，嵌套超深保守拦） */
+  depth?: number;
+}
+/** 写族通道循环（checkMainCheckoutWrite 内层，抽函数控圈复杂度）：
+ *  git 写族/heredoc/one-liner 正则通道 + #1285 段首结构通道。
+ *  命中返回拦截文案，未命中返回 null。 */
+function checkWriteChannels(
+  command: string,
+  ctx: { logger?: Logger; projectRoot?: string; heredocReadOnly?: boolean; oneLinerReadOnly: boolean; depth: number },
+): string | null {
+  for (const [pi, pattern] of MAIN_WRITE_PATTERNS.slice(1).entries()) {
+    if (!pattern.test(command)) continue;
+    // #1207（F20260930l573）：pattern[0] 是 python heredoc patch 通道——体感知判定，
+    // 纯只读体放行（写/执行签名、非 python 解释器体均不豁免，见 PY_BODY_WRITE_SIG 注）。
+    // heredocReadOnly 缺省（V1 兑底链：体已剥离不可判定）→ 不豁免，保守拦。
+    if (pi === 0 && ctx.heredocReadOnly) continue;
+    // #1275：pattern[1]-pattern[4] 是 one-liner 通道（python -c / node -e / ruby -e / perl -e）——
+    // 载荷白名单判定：全部同型载荷提取成功且全部只读才豁免，白名单外/提取失败保守拦。
+    // ruby/perl 只读全拦（fail-closed 起步，S-5）。
+    if (pi >= 1 && pi <= 4 && ctx.oneLinerReadOnly) continue;
+    ctx.logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (no cd)", { command: command.substring(0, 200) });
+    return MAIN_WRITE_BLOCK_MSG;
+  }
+  // #1285 洞1/洞2：正则通道之外的段首结构检测——bash -c 载荷递归（洞1）+
+  // 词表外包装词落点判定（洞2，换结构不扩词表）。与正则通道同一豁免基座
+  // （oneLinerReadOnly），命中同一拦截文案（拦截面同口径）。
+  // 挂点在 git 写族循环内：cd 豁免已过、git 只读白名单未命中才走到——
+  // 与正则通道同一判定位置，无新增豁免面。
+  if (checkSegmentStructuralWrite(command, ctx.logger, ctx.projectRoot, ctx.oneLinerReadOnly, ctx.depth)) {
+    ctx.logger?.warn("[bash-safety-guard] BLOCKED main-checkout write via wrapped one-liner (no cd)", { command: command.substring(0, 200) });
+    return MAIN_WRITE_BLOCK_MSG;
+  }
+  return null;
+}
+
+// eslint-disable-next-line complexity -- V1 分支语义保留（cd 豁免/git 白名单/echo 豁免/重定向 abs 豁免各对应一条已实证形态，见函数内注释）
+function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
+  const { command, logger, projectRoot, heredocReadOnly, oneLinerReadOnlyOverride } = ctx;
+  const depth = ctx.depth ?? 3;
   if (!projectRoot) return null; // 无 projectRoot 时保守放行（与 resolvesToMainData 同策略）
   // #1170 根治：模型版 cd 豁免——管道/分号不再杀死豁免（`cd wt && git commit | tail` 放行）
   if (modelCdExemption(command, hasRealCdSegment)) return null;
@@ -1078,25 +1539,17 @@ function checkMainCheckoutWrite(command: string, logger?: Logger, projectRoot?: 
   const gitReadonlyCmd = allSegmentsGitReadonly(command);
   // #1275：one-liner 载荷只读判定只在命令实际含 one-liner 形态时提取一次
   // （正则通道命中与否的豁免依据）；非 one-liner 命令无提取开销。
+  // #1285 洞2：词表内包装形态下豁免基座补 wrappedOneLinerPayloadsReadOnly——
+  // 拦截（段首解析器）与豁免（ONELINER_ANCHOR 词表）基座不同源时，以剥前缀后
+  // 剩余文本为同一基座重算（基座对齐，timeout/env -i 只读不误拦）。
   const oneLinerReadOnly = oneLinerReadOnlyOverride !== undefined
     ? oneLinerReadOnlyOverride
     : ONELINER_PRE_GATE.test(command)
-      ? oneLinerPayloadReadOnly(command)
+      ? (oneLinerPayloadReadOnly(command) || wrappedOneLinerPayloadsReadOnly(command))
       : false;
   if (!gitReadonlyCmd) {
-    for (const [pi, pattern] of MAIN_WRITE_PATTERNS.slice(1).entries()) {
-      if (!pattern.test(command)) continue;
-      // #1207（F20260930l573）：pattern[0] 是 python heredoc patch 通道——体感知判定，
-      // 纯只读体放行（写/执行签名、非 python 解释器体均不豁免，见 PY_BODY_WRITE_SIG 注）。
-      // heredocReadOnly 缺省（V1 兑底链：体已剥离不可判定）→ 不豁免，保守拦。
-      if (pi === 0 && heredocReadOnly) continue;
-      // #1275：pattern[1]-pattern[4] 是 one-liner 通道（python -c / node -e / ruby -e / perl -e）——
-      // 载荷白名单判定：全部同型载荷提取成功且全部只读才豁免，白名单外/提取失败保守拦。
-      // ruby/perl 只读全拦（fail-closed 起步，S-5）。
-      if (pi >= 1 && pi <= 4 && oneLinerReadOnly) continue;
-      logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (no cd)", { command: command.substring(0, 200) });
-      return MAIN_WRITE_BLOCK_MSG;
-    }
+    const channelHit = checkWriteChannels(command, { logger, projectRoot, heredocReadOnly, oneLinerReadOnly, depth });
+    if (channelHit) return channelHit;
   }
   // #1038 语义兼容：echo '...' >> file 形态，引号内含 rm/mv/find 敏感词元且目标非 data/ → 放行。
   // 豁免粒度收窄到重定向段（检视严重 1 处置）：整条 return null 会连带放行 && 后的 git 写族
@@ -1206,7 +1659,7 @@ function checkPidIndependentRules(command: string, logger?: Logger, projectRoot?
   const oneLinerReadOnly = preGate
     ? oneLinerPayloadSet(command) !== null
     : false;
-  const mainWrite = checkMainCheckoutWrite(command, logger, projectRoot, undefined, oneLinerReadOnly);
+  const mainWrite = checkMainCheckoutWrite({ command, logger, projectRoot, oneLinerReadOnlyOverride: oneLinerReadOnly });
   if (mainWrite) return mainWrite;
   return checkDataDirDestructive(command, logger, projectRoot);
 }
@@ -1275,7 +1728,7 @@ export function checkBashCommandSafety(
     if (dataDestructive) return withDiagnostics(dataDestructive, command, mainPid);
     // #1207（F20260930l573）：主仓写检测在原始命令上跑（heredoc 体在场），
     // 体感知判定在此计算后传入——只豁免纯只读 python heredoc 体
-    const mainWrite = checkMainCheckoutWrite(command, logger, projectRoot, pythonHeredocBodiesReadOnly(command));
+    const mainWrite = checkMainCheckoutWrite({ command, logger, projectRoot, heredocReadOnly: pythonHeredocBodiesReadOnly(command) });
     if (mainWrite) return withDiagnostics(mainWrite, command, mainPid);
     // #1207（F20260930l573）：shell/node heredoc 体级危险判定（原始命令，体在场）
     const bodyHit = checkHeredocScriptBodies(command, { mainPid, logger, allowedServices, projectRoot });
