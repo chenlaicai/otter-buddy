@@ -11,7 +11,7 @@ intent:
   verify_by:
     type: human_judge
     note: "交互与视图效果由搭档日常体验判定（搭档明确要求 UI 高保真稿先行确认）；数据模型与状态机正确性由 vitest 单元测试锁定；重启供料链路由能力测试覆盖"
-capability_test: "n/a: 纯方案设计文档（无运行时代码变更）；实现期 P1 落地时补 tests/capability/matter-loop/（验证节已声明三条能力测试场景）"
+capability_test: "tests/capability/matter-loop/matter-loop.capability.test.ts"
 created_in_conversation: e871769f-a731-4278-ae21-de3ab4c8eaf8
 created_at: 2026-10-05
 tags: [matter-loop, conversation-layout, ux, decision, handoff, scheduled-task]
@@ -261,3 +261,59 @@ restart_otter 交接档案现状：交接意图书（自总结）+ 叙事合成 
 | web/ 右侧栏 | A | 待办 tab 组件（P1 只读 / P2 交互，样式沿用现有 tab 体系；注意：卡回执「同 cardId 永久关闭」——matter 打回后二次进 WAITING_PARTNER 需獭重发新卡（新 cardId），P2 按钮挂点避开此坑，useCardBridge.ts:120-121） |
 | prompts/scheduled/未闭环扫描 | M | 升格为确定性查询（P3） |
 | tests/capability/matter-loop/ | A | 能力测试 |
+
+## P1 实现记录（2026-10-05）
+
+> 本节为实现 PR 追加，不改历史。设计内容（§1-§7）是定稿时的方案；本节记录 P1 实际落地形态与方案的偏差/落实细节。
+
+### 落地清单（对应改动范围表）
+
+| 方案条目 | 落点 | 状态 |
+|---|---|---|
+| matters 表 + 三索引 | `src/frameworks/db/schema.ts` createMattersTable（幂等 CREATE IF NOT EXISTS，schema.ts:735-767） | ✅ 字段/索引严格按 §1 字段表 |
+| matter 实体与状态机 | `src/entities/matter/matter.ts`（实体+MATTER_OPEN_STATES）+ `matter-transitions.ts`（§2 矩阵 14 条唯一真相源，Map 索引 O(1) 查询） | ✅ |
+| 迁移守卫单入口 | `src/usecases/matter/transition-matter.ts`——四层守卫：幂等短路 → 矩阵 → 触发者（any_otter 含 owner，通道 A 代执行路径）→ 宣告权（L2 闭环必须 partner）；repo.transition 条件更新（WHERE state=?）乐观锁 | ✅ 非法迁移拒绝由单测锁定（47 用例） |
+| 登记 usecase（准入白名单） | `src/usecases/matter/register-matter.ts`——initialState 只接受 WAITING_PARTNER（路径 1）/ OPEN（路径 2/3）；L0 无登记路径 | ✅ |
+| 獭侧工具 | `src/interface-adapters/agent-runtime/tools/matter-tools.ts` list_matters / transition_matter；经 `ctx.matterRepo` 注入（仿 signalRepo 先例），small/big 均注册（manifest system block + small fallback 白名单） | ✅ |
+| yield 打标参数 | tool-factory.ts yield 工具新增可选参数 `expects_partner_decision`（仅 to 含 'user' 时有意义）；true → registerMatterOnTaggedYield 自动登记（WAITING_PARTNER/L2/owner=调用獭/origin=yield entry id）；**不打标不登记 = 机械防泛滥；默认通过模式不打标 = R8 互斥不登记** | ✅ 登记失败不阻断交棒（审计面非前置条件） |
+| 等待方消亡规则① | `SqliteMatterRepository.reopenForDissolvedOwner` + DissolveOtter 新 hook `reopenMattersForDissolvedOwner`（失败仅日志——与既有 4.5/4.6/4.7 清账 hook 同模式）；WAITING_OTTER→OPEN 待重派，WAITING_PARTNER（等搭档）不受影响 | ✅ |
+| 机械供料 handoff_open_matters | `agent-invoker.ts collectOpenMatters`（unifiedHandoff 原料收集并行块）→ 注入 assembleHandoffArchive / buildMechanicalArchive 的 `openMatters` 段（「### ④ 机械供料：本对话未闭环事情（matters）」）；`handoff-support.ts` restoreHandoffContext 同步加 `handoff_open_matters` key（与 handoff_file_trail 同模式——D8 后档案走 session.summary，legacy key 消费面保留对称） | ✅ matterRepo 未注入/查询失败降级空串（增强不是硬依赖） |
+| 只读右侧栏 tab | `web/src/pages/conversation/MattersPanel.tsx` + `hooks/useMatters.ts`（GET /api/conversations/:id/matters，30s 轮询仿 useScheduledTasks）；RightPanel.tsx 第五 tab（ClipboardList 图标）；样式沿用现有 tab 体系（glass 面板/glass-card 条目） | ✅ P1 只读：标题/状态徽章/等待时长/owner；排序 WAITING_PARTNER 置顶（热边框）→ DONE_PENDING_CONFIRM → WAITING_OTTER/OPEN；tab 角标只数「等你裁决+待确认闭环」（搭档欠的动作） |
+| 只读 API | `MatterController.listOpenByConversation` + `matter-dto.ts`（P1 只读投影字段全集） | ✅ 写路径（P2 按钮）不经 HTTP |
+| 单元测试 | `tests/usecases/matter/matter-state-machine.test.ts`（矩阵全量+非法拒绝+触发者+宣告权+幂等+消亡规则，42 用例）；`tests/frameworks/db/matter/sqlite-matter-repository.test.ts`（CRUD+过滤+跨对话隔离，5 用例）；`tests/interface-adapters/agent-runtime/tools/matter-yield-registration.test.ts`（准入：打标登记/不打标不登记/to 非 user 不登记/repo 缺省静默跳过，5 用例） | ✅ 52 用例全绿 |
+| 能力测试 | `tests/capability/matter-loop/matter-loop.capability.test.ts` 三场景（③为 P2 占位显式跳过） | ✅ 无 LLM 环境 skip（同其他 capability 测试） |
+
+### 实现期设计决策（方案未细定的部分）
+
+1. **触发者分类序**：classifyActor 按 partner → owner → any_otter 优先级；actorAllowed 补「allowed 含 any_otter 时任意獭（含 owner）可触发」——通道 A 代执行（非 owner 獭）与 owner 自执行都走同一条矩阵行，权限粒度由矩阵行控制而非身份层级。
+2. **幂等语义**：TransitionMatter 入口先做「已是目标态 → 原样返回」短路（同目标重复迁移/并发重试零副作用）；repo.transition 条件更新落空时读回当前态——已到目标态/已闭环则幂等返回，否则报 conflict 让调用方重试。与 resolve_signal 幂等防重同模式。
+3. **waitingOn 三态语义**：undefined=未指定（按目标态默认——WAITING_PARTNER 默认 partner、OPEN 默认清空）、null=显式清空、字符串=指定。工具层未传参时不给值（避免 null 被误读为清空）。
+4. **MatterController 是 Controller 而非 usecase 直挂**：P1 只读面薄（一行 repo 查询+DTO 映射），单建 ListMatters usecase 是过度建设——但 ListMatters 已建（獭侧工具共用），controller 直接吃 repo 是 controller 层薄模式先例（ActivityController 同模式）。P2 按钮写路径进来时再评估是否升 usecase。
+5. **schema 表数日志 46→47**：initSchema 的 tables 计数随 matters 表 +1（migration-equivalence guard 的 8/5 基线快照不需要动——新表落在 DROP 差集模拟路径）。
+
+### 负面向验收（本次变更破坏了什么旧契约）
+
+- **无破坏性变更**：matters 是新表（幂等 CREATE IF NOT EXISTS），老库启动自动补建；yield 新参数可选（缺省 false=旧行为）；matterRepo 全链可选注入（旧 mock/装配不注入时零行为变化）；Controllers 新增 matter 必填字段——tests/api/helpers.ts mock 补 `{} as any`（唯一测试装配面改动）。
+- **small 獭工具面 +2**（list_matters/transition_matter）：白名单扩张是方案内设计（P1 就需要獭侧工具），不是绕过保护。
+- **未绕过任何既有保护**：登记走 RegisterMatter（准入校验 title/initialState 白名单）；迁移走 TransitionMatter（矩阵/触发者/宣告权三层）；HTTP 面无写端点。
+
+### 最简实现检查
+
+已过阶梯：仓库已有同构实现（signal_events 表+signal-tools+resolve_signal 幂等模式）→ 全部复用既有模式，无新框架/新依赖。matters 表与 signal_events 同构（per-conversation+状态+resolution 三件套），状态机是实体层纯 Map（20 行），守卫在 usecase（无 AOP/装饰器）。确认已最简。
+
+### 自检结果（PR Verification）
+
+- 全量单测：319 文件 4593 用例全绿（含本 PR 新增 52 用例；唯一改动存量断言 = coding-tools.test.ts small 白名单 29→31，+list_matters/transition_matter 两条 toContain，与本变更同语义）
+- web 单测：61 文件 618 用例全绿（新增 MattersPanel.test.tsx 2 用例）
+- eslint src/：0 error 0 warning
+- tsc --noEmit（前后端）：干净（web 侧唯一 error hast 为 pre-existing，基线对照确认）
+- lint:capability：OK（68 警告 = 上限，本 PR 文档指针从 n/a 改为真实路径，未推高）
+- **db 迁移类真启动验证（schema.ts 改了表结构）**：生产库（data/otter-buddy.db，1GB / 91 表）备份副本 `/tmp/matter-loop-p1-bootstrap-test.db` 上执行完整启动路径（buildApp 全装配 = initSchema 幂等补建 + migrateDatabase + 全 repo/usecase/controller 装配），12.2s 完成、无 SqliteError；matters 表 + 3 业务索引自动补建、15 字段与 §1 字段表一致；启动后 entries/otters/signal_events/conversations 行数与生产库逐一相等（33259/1317/11/258）——零数据影响。
+- **UI 真机自查（RightPanel 改了）**：dev server（vite 5199，VITE_API_TARGET 指向隔离实例 3297）+ Playwright 无头浏览器真机截图 2 张，存对话工作区：
+  - `data/workspaces/e871769f-a731-4278-ae21-de3ab4c8eaf8/matter-tab-0-default.png`（默认 tab 页）
+  - `data/workspaces/e871769f-a731-4278-ae21-de3ab4c8eaf8/matter-tab-1-list.png`（待办 tab：4 条目 + 角标 2 + 排序/徽章/等待时长/owner 渲染正确）
+- **Golden Gate 与锚点重放评审**：本 PR 触发行可重放的运行时代码 = yield 工具 description/参数面（软代码行为触发语义）+ tool-manifest.json + small fallback 白名单。锚点重放评审交付物：
+  - yield 打标参数 description（`expects_partner_decision`）：「仅 to 包含 'user' 时有意义 true=本交棒是 L2 显式拍板项…默认通过模式与待办互斥：携带默认通过语义的 yield 不打标、不登记」——重放锚点 = 方案 §2「默认通过模式互斥不登记」+ §3 生死线准入路径 1。
+  - list_matters / transition_matter description：重放锚点 = §2 迁移矩阵 + 宣告权表 + §7 P1 空窗期设计（通道 A 主路）。
+  - 獭身份文件（prompts/identity/SMALL_OTTER.md / BIG_OTTER.md）未改——行为指引经工具 description 注入，不改身份文案（与方案 §6 獭侧纪律 P2 分期一致）。
+- **pre-existing 声明**：web tsc hast error（基线 1 error，未引入）；lint:capability 68 警告为存量过渡期上限（未推高）。

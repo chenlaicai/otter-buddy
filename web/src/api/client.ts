@@ -390,6 +390,30 @@ export function listScheduledTasks(conversationId: string): Promise<ScheduledTas
   return request(`/conversations/${conversationId}/scheduled-tasks`)
 }
 
+/** F20261005mtlp P1：待办板 matter（matters 表 open 清单，只读） */
+export interface MatterDTO {
+  id: string
+  conversationId: string
+  title: string
+  originMessageId: string | null
+  ownerOtterId: string | null
+  level: 'L1' | 'L2' | null
+  state: string
+  waitingOn: string | null
+  waitingFor: string | null
+  payload: string | null
+  resolution: string | null
+  resolvedBy: string | null
+  createdAt: string
+  updatedAt: string
+  closedAt: string | null
+}
+
+/** F20261005mtlp P1：待办板只读 API——列出对话未闭环 matters */
+export function listMatters(conversationId: string): Promise<MatterDTO[]> {
+  return request(`/conversations/${conversationId}/matters`)
+}
+
 export function createScheduledTask(conversationId: string, body: CreateScheduledTaskRequestDTO): Promise<ScheduledTaskDTO> {
   return request(`/conversations/${conversationId}/scheduled-tasks`, {
     method: 'POST',

@@ -36,6 +36,7 @@ import { InboundController } from "@interface-adapters/http/controllers/inbound-
 import { KeyInfoController } from "@interface-adapters/http/controllers/key-info-controller";
 import { SettingsController } from "@interface-adapters/http/controllers/settings-controller";
 import { ScheduledTaskController } from "@interface-adapters/http/controllers/scheduled-task-controller";
+import { MatterController } from "@interface-adapters/http/controllers/matter-controller";
 import { ConnectionController } from "@interface-adapters/http/controllers/connection-controller";
 import { RhiController } from "@interface-adapters/http/controllers/rhi-controller";
 import { AttachmentController } from "@interface-adapters/http/controllers/attachment-controller";
@@ -222,6 +223,8 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
     keyInfo: new KeyInfoController(uc.manageKeyInfo, logger),
     settings: new SettingsController(settings, settingsRepo, modelPool, logger, updateDefaultModelInYaml),
     scheduledTask: new ScheduledTaskController(uc.manageScheduledTask, schedulerService, cronParser, logger),
+    // F20261005mtlp P1：待办板只读（matters 表 open 清单——右侧栏第五 tab 数据源）
+    matter: new MatterController(repos.matter, logger),
     connection: new ConnectionController(uc.manageConnection, logger),
     health: new HealthController(featureRepo, researchRepo, embeddingGateway, nodeFs, rootDir, logger),
     rhi: new RhiController(healthSnapshotRepo, signalRepo, rhiScanWorker, logger),

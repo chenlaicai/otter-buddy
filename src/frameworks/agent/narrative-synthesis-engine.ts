@@ -394,6 +394,8 @@ export function buildMechanicalArchive(input: {
   /** F20260930hsfx：降级原因（贯穿日志与档案文案——「synthesizePast=false / 失败 / 超时」
    *  三并列无法区分真空/无 speak/jsonl 读失败等具体形态；唯一枚举一眼定位）。 */
   degradeReason?: HandoffDegradeReason;
+  /** F20261005mtlp P1：本对话未闭环 matters 清单（机械供料 handoff_open_matters） */
+  openMatters?: string;
 }): string {
   const ts = new Date().toISOString();
   const shortId = (input.oldSessionId ?? 'unknown').slice(0, 8);
@@ -421,17 +423,18 @@ export function buildMechanicalArchive(input: {
     parts.push(input.recencyWindow);
     parts.push('');
   }
-  if (input.fileTrail) {
-    parts.push('### 文件轨迹');
-    parts.push(input.fileTrail);
-    parts.push('');
-  }
-  if (input.stateInventoryText) {
-    parts.push('### 活状态盘点');
-    parts.push(input.stateInventoryText);
-    parts.push('');
-  }
+  pushSection(parts, '### 文件轨迹', input.fileTrail);
+  pushSection(parts, '### 活状态盘点', input.stateInventoryText);
+  pushSection(parts, '### 本对话未闭环事情（matters 机械供料）', input.openMatters);
   return parts.join('\n');
+}
+
+/** 条件段落追加（拆出控 buildMechanicalArchive max-statements） */
+function pushSection(parts: string[], heading: string, body: string | undefined): void {
+  if (!body) return;
+  parts.push(heading);
+  parts.push(body);
+  parts.push('');
 }
 
 /**
@@ -453,6 +456,8 @@ export function assembleHandoffArchive(params: {
   fileTrail?: string;
   stateInventory?: string;
   recencyWindow?: string;
+  /** F20261005mtlp P1：机械供料——本对话未闭环 matters 清单 */
+  openMatters?: string;
 }): string {
   const parts: string[] = ['## 前世档案（新世必读）', ''];
 
@@ -491,6 +496,11 @@ export function assembleHandoffArchive(params: {
   if (params.recencyWindow) {
     parts.push('### ④ 机械供料：近期保留段（前世最近 4 条 speak，单条超长已截断）');
     parts.push(params.recencyWindow);
+    parts.push('');
+  }
+  if (params.openMatters) {
+    parts.push('### ④ 机械供料：本对话未闭环事情（matters）');
+    parts.push(params.openMatters);
     parts.push('');
   }
 

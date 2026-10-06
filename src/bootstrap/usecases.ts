@@ -82,12 +82,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const manageSession = new ManageSession(
     repos.otter, agentGateway, manageConversation, manageMemory, logger, otterConfigProvider, modelPool,
   );
-  const dissolveOtter = new DissolveOtter(repos.otter, agentGateway, manageSession, {
-    // F20260908rlcp：旧台账退役——settle/abort 清账随 main #886 批次退役
-    /** F20260912avlb：派工台账 dissolve 记账钩子 */
-    markDispatchDissolved: async (otterId: string) => repos.dispatchRecord.markDissolved(otterId),
-    logger,
-  });
+  const dissolveOtter = buildDissolveOtter(repos, agentGateway, manageSession, logger);
   const manageContext = new ManageContext(repos.otterContext);
   const manageScheduledTask = new ManageScheduledTask(repos.scheduledTask);
   const manageConnection = new ManageConnection(repos.connection, repos.conversation, logger);
@@ -135,6 +130,23 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
     manageWorkspace,
     sendEntry,
   };
+}
+
+/** F20261005mtlp：DissolveOtter 工厂（initUseCases 行数限额拆出） */
+function buildDissolveOtter(
+  repos: Repositories,
+  agentGateway: PiSessionFactory,
+  manageSession: ManageSession,
+  logger: Logger,
+): DissolveOtter {
+  return new DissolveOtter(repos.otter, agentGateway, manageSession, {
+    // F20260908rlcp：旧台账退役——settle/abort 清账随 main #886 批次退役
+    /** F20260912avlb：派工台账 dissolve 记账钩子 */
+    markDispatchDissolved: async (otterId: string) => repos.dispatchRecord.markDissolved(otterId),
+    /** F20261005mtlp §2 等待方消亡规则①：獭解散 → 名下 WAITING_OTTER 事项回 OPEN */
+    reopenMattersForDissolvedOwner: async (otterId: string) => repos.matter.reopenForDissolvedOwner(otterId, new Date().toISOString()),
+    logger,
+  });
 }
 
 /** F20260924wast：web 助理开户工厂（initUseCases 行数限额拆出） */

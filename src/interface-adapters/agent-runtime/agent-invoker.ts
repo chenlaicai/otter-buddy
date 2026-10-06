@@ -29,6 +29,7 @@ import type { HealingEventRepository } from "@usecases/healing/healing-event-rep
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
 import type { ScheduledTaskRepository } from "@usecases/scheduled-task/scheduled-task-repository";
 import type { ManageContext } from "@usecases/otter/manage-context";
+import type { MatterRepository } from "@usecases/matter/matter-repository";
 import type { LinkedResource } from "@entities/conversation/conversation";
 import type { OtterSession } from "@entities/otter/otter-session";
  
@@ -95,14 +96,6 @@ export interface EngineJsonlSlice {
 /** 引擎函数包（bootstrap 注入；缺省时统一交接降级机械档案） */
 export interface HandoffEngineDeps {
   buildNarrativeSynthesisPrompt: (input: EngineSynthesisInput) => string;
-  assembleHandoffArchive: (params: {
-    narrativeSummary?: string;
-    selfSummary?: string;
-    lineage?: string;
-    fileTrail?: string;
-    stateInventory?: string;
-    recencyWindow?: string;
-  }) => string;
   buildMechanicalArchive: (input: {
     otterName: string;
     trigger: string;
@@ -113,6 +106,19 @@ export interface HandoffEngineDeps {
     fileTrail?: string;
     /** F20260930hsfx S2：降级原因（贯穿日志与档案文案的唯一枚举） */
     degradeReason?: HandoffDegradeReason;
+    /** F20261005mtlp P1：本对话未闭环 matters 清单（机械供料 handoff_open_matters——
+     *  确定性字段不进叙事合成，matter 表活在 session 之外，獭生封存 ≠ 事情失传） */
+    openMatters?: string;
+  }) => string;
+  assembleHandoffArchive: (params: {
+    narrativeSummary?: string;
+    selfSummary?: string;
+    lineage?: string;
+    fileTrail?: string;
+    stateInventory?: string;
+    recencyWindow?: string;
+    /** F20261005mtlp P1：机械供料——未闭环 matters 清单（同 buildMechanicalArchive 语义） */
+    openMatters?: string;
   }) => string;
   sliceSessionEntries: (entries: unknown[], options?: { scopeKey?: string }) => EngineJsonlSlice | undefined;
   serializeKeptWindow: (slice: EngineJsonlSlice) => string;
@@ -204,6 +210,8 @@ export class AgentInvoker implements AgentTurnPort {
     agentDispatchService?: AgentDispatchService,
     /** F20260920uhuc：统一交接引擎函数包（bootstrap 注入；缺省时统一交接降级机械档案） */
     private readonly engine?: HandoffEngineDeps,
+    /** F20261005mtlp P1：matters 仓库（机械供料 handoff_open_matters 数据源；可选注入） */
+    private readonly matterRepo?: MatterRepository,
   ) {
     this.agentDispatchService = agentDispatchService;
     this.orchestrator = new AgentTurnOrchestrator(logger, metrics);
@@ -1033,12 +1041,16 @@ export class AgentInvoker implements AgentTurnPort {
       // F20260930hsfx：queryOtter.getById 合并进同一 Promise.all（此前 1047/1118 两处
       //  重复查询）；切片返回值扩为 {slice, degradeReason}——切片失败的降级原因
       //  （empty-session / jsonl-read-fail）随原料一起上抛，供合成跳过与档案文案定位。
-      const [lineageInfo, inventoryText, prefetch, sliceOutcome, otter] = await Promise.all([
+      const [lineageInfo, inventoryText, prefetch, sliceOutcome, otter, openMattersText] = await Promise.all([
         this.resolveHandoffLineage(otterId),
         this.collectInventoryText(conversationId, otterId, workspacePath),
         this.buildSynthesisPrefetch(conversationId, otterId),
         this.collectJsonlSlice(otterId),
         this.queryOtter.getById(otterId),
+        // F20261005mtlp P1：机械供料 handoff_open_matters——本对话未闭环 matters 清单。
+        // 确定性字段不进叙事合成（matter 表活在 session 之外，獭生封存 ≠ 事情失传）。
+        // matterRepo 未注入（旧装配）时降级空——机械供料是增强不是交接硬依赖。
+        this.collectOpenMatters(conversationId),
       ]);
       const { slice, degradeReason: sliceDegradeReason } = sliceOutcome;
       const otterNameResolved = otter?.name ?? otterId;
@@ -1201,6 +1213,7 @@ export class AgentInvoker implements AgentTurnPort {
           fileTrail,
           stateInventory: inventoryText,
           recencyWindow,
+          openMatters: openMattersText,
         })
         : this.engine!.buildMechanicalArchive({
           otterName: otterNameResolved,
@@ -1211,6 +1224,7 @@ export class AgentInvoker implements AgentTurnPort {
           recencyWindow,
           fileTrail,
           degradeReason,
+          openMatters: openMattersText,
         });
 
       // D8 演进：档案走 session.summary 单点写入（不再预写 otter_context 借用式 key），
@@ -1406,6 +1420,43 @@ export class AgentInvoker implements AgentTurnPort {
       return this.engine!.renderStateInventory(inventory);
     } catch (err) {
       this.logger.warn('[handoff] state inventory failed, continuing without', {
+        conversationId, error: err instanceof Error ? err.message : String(err),
+      });
+      return '';
+    }
+  }
+
+  /**
+   * F20261005mtlp P1：机械供料 handoff_open_matters——本对话未闭环 matters 清单。
+   * 确定性字段：即使叙事合成彻底失败（机械降级），pending 清单仍在——
+   * matter 表活在 session 之外，獭生封存 ≠ 事情失传。
+   * matterRepo 未注入（旧装配/mock）或查询失败 → 降级空串（增强不是硬依赖）。
+   */
+  private async collectOpenMatters(conversationId: string): Promise<string> {
+    if (!this.matterRepo) return '';
+    try {
+      const matters = await this.matterRepo.findByConversation(conversationId, { openOnly: true }, 50);
+      if (matters.length === 0) return '';
+      const lines = [
+        `本对话未闭环事情（${matters.length} 件）：`,
+        ...matters.map((m, i) => {
+          const anchor = `M-${m.id.slice(0, 8)}`;
+          const waitingDesc = m.state === 'WAITING_PARTNER'
+            ? `待搭档裁决（${m.waitingFor ?? '拍板'}）`
+            : m.state === 'WAITING_OTTER'
+              ? `獭处理中（owner=${(m.ownerOtterId ?? '?').slice(0, 8)}）`
+              : m.state === 'DONE_PENDING_CONFIRM'
+                ? '待确认闭环'
+                : '待认领';
+          const waitedMs = Date.now() - Date.parse(m.createdAt);
+          const waitedDays = Math.floor(waitedMs / 86_400_000);
+          const waitedText = waitedDays > 0 ? `，已等 ${waitedDays} 天` : '';
+          return `${i + 1}. [${anchor}] ${m.title} —— ${waitingDesc}${waitedText}`;
+        }),
+      ];
+      return lines.join('\n');
+    } catch (err) {
+      this.logger.warn('[handoff] open matters collect failed, continuing without', {
         conversationId, error: err instanceof Error ? err.message : String(err),
       });
       return '';
