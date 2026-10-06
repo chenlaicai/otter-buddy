@@ -85,7 +85,7 @@ causal_links:
 - 洞2：`timeout 5` / `watch -n 1` / `setsid` / `stdbuf -o0` / `arch` / `env -i` / `nice -n 5` + `node -e 写`
 - 洞3：`FOO= node -e 写` / `FOO= git commit -m x`
 
-**修复后**：13/13 转 BLOCKED；守卫测试全套 49 文件 1120 用例全绿（含 #1275/#1207/#984 等历史回归面）；lint（complexity/max-statements/max-params）全净。
+**修复后**：13/13 转 BLOCKED；守卫测试全套 49 文件 1147 用例全绿（含 #1275/#1207/#984 等历史回归面）；lint（complexity/max-statements/max-params）全净。
 
 **对称测试**（每类拦截配只读放行）：
 - bash -c 只读载荷（`console.log(1)` / 多语句 `;` 载荷）→ 放行
@@ -107,7 +107,35 @@ causal_links:
 
 **Golden Gate / 锚点重放**：n/a——本变更是守卫判定逻辑（硬代码），非 prompt/skill/协议层软代码，无行为触发语义改动。
 
-**pre-existing 声明**：无——基线 363/363 全绿后动手，修复后 1120/1120 全绿，零 pre-existing 失败。
+**pre-existing 声明**：无——基线 363/363 全绿后动手，修复后 1147/1147 全绿，零 pre-existing 失败。
+
+## r1 处置（检视獭-1297 初轮 REQUEST_CHANGES，3 严重 + 1 B 级全采纳）
+
+初轮审视结论：三洞修复本体达标（13 载荷实测全拦、误拦面零、基座对齐核验为真同源），但双轨交界处开出 3 个严重。逐条处置：
+
+### 严重1：词包装 git 写族全绕（:973）→ 采纳，git 落点接入段首解析器
+
+git 写族正则锚只认赋值前缀不认包装词前缀，`env git commit` / `sudo git commit` / `timeout 5 git commit` 曾全放（旧基线对照：`env git stash push` 双版本都 ALLOWED，洞2 同型洞在 git 通道漏网）。修法：judgeSegment 新增 ③a' git 落点——剥包装前缀后落 git，`GIT_WRITE_SUBCOMMAND` 判定写子命令（比 MAIN_WRITE_PATTERNS[5] 宽：补 push / reset --hard / clean -f 同写族口径补齐）；只读子命令显式放行防误拦。连带形态 `(git commit)` / `{ git commit; }`（子壳/命令组，**预存洞**——旧基线 git 正则锚同样不含壳字符）：`stripSubshellWrap` 剥壳重判（全段单壳形态）+ `SUBSHELL_GIT_WRITE_GATE` 兜底（壳内多命令 fail-closed 收窄拦，与 ③d 同策略）。验收：8 拦 + 4 放对称断言。
+
+### 严重2：extractShellCPayload 旗标在 -c 前全放（:807）→ 采纳，null 三态拆分
+
+初版 null 单态把「旗标在 -c 前」与「无 -c 文件落点」混同，`bash -x -c '写'` 返回 null 被归文件落点放行（注释写「保守拒」实际放行，判定链语义错误）。修法：`ShellCExtract` 三态——FILE（无 -c，bash script.sh 放行）/ FAIL_CLOSED（-c 存在但旗标白名单外，拦）/ PAYLOAD（提取成功，递归 + consumedEnd）。旗标白名单 `SHELL_FLAG_WHITELIST` 参照 PY_FLAG_GROUP 模式列 shell 共有短旗标（a-y 常用集 + C E F H T W X），长旗标（--posix 等带参形态）白名单外 fail-closed。验收：4 拦 + 1 放（白名单旗标+只读载荷）。
+
+### 严重3：载荷后剩余 token 无人判定（judgeSegment ③b :918）→ 采纳，③b 后继续判定剩余段
+
+`bash -c 'echo a' timeout 5 node -e "写"` 载荷干净就 return，段内第二写命令裸奔。修法：③b 拆出 `judgeShellCSegment`——载荷递归命中即拦；未命中则剩余 token（consumedEnd 之后）按 splitShellSegments 切段重过 judgeSegment（depth 消耗与载荷递归同级，consumedEnd 严格右移保证终止）。参数位变体 `env C=k bash -c 'python3 -c "写"' _` 同型覆盖。验收：2 拦 + 2 放（`_` argv[0] 占位符 / `echo b` 只读剩余段）。
+
+### B 级：tests/repro-1285.test.ts 伪断言 → 采纳，改真断言
+
+原探针全部 `expect(true).toBe(true)`（修复前留档用），改 13 载荷全 `expect(r).not.toBeNull()` 真断言回归。
+
+### r1 自对抗（三处修法边界，6 变体）
+
+嵌套子壳 `((git commit))` 拦 / `bash -i -c` 白名单合写分离形态拦 / bash -c 载荷+剩余段 git 写族拦 / 递归终止性（嵌套 bash -c + 剩余段，depth 消耗不 hang）拦 / `git -C /wt status` 全局旗标+只读放行 / `bash --posix script.sh` 无 -c 不误判 FAIL_CLOSED（模型层既有拦不变）。
+
+### r1 验证
+
+守卫全套 1147 用例绿（+27 新断言）；lint 净；CI 待 push 后确认。
 
 ## 守卫宪法三问（必答）
 

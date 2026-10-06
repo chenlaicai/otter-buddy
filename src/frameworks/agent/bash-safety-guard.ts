@@ -802,29 +802,66 @@ function parseSegmentHead(seg: string): SegmentHead | null {
   }
 }
 
-/** 从段文本 offset 处提取 shell -c 的载荷（引号感知，escape 感知）。
- *  返回 null = 提取失败（无 -c / 无载荷 / 未闭合）→ 调用方保守拦。 */
-function extractShellCPayload(seg: string, shellOffset: number): string | null {
-  const rest = seg.slice(shellOffset);
-  // 跳 shell 名 → 找 -c（容许中间无其他参数；有旗标形态如 bash -x -c 保守拒）
-  const m = rest.match(/^[\w./-]*\/?(?:bash|sh|zsh|dash|ksh)\d*\s+-c\s*/i);
-  if (!m) return null;
-  let i = m[0].length;
-  if (i >= rest.length) return null;
+/** shell -c 载荷提取三态（#1285 r1 严重 2 处置：null 三态拆分——
+ *  初版 null 单态把「旗标在 -c 前」与「无 -c 文件落点」混同，
+ *  `bash -x -c '写'` 返回 null 被归文件落点放行，注释写「保守拒」实际放行）。
+ *  - FILE：无 -c 形态（bash script.sh）——写面在脚本文件自身，本层放行；
+ *  - FAIL_CLOSED：-c 存在但旗标形态未识别（白名单外）——fail-closed 拦；
+ *  - PAYLOAD：-c 载荷成功提取——payload 供递归判定，consumedEnd 为载荷在段内
+ *    的结束 offset（③b 后继续判定剩余 token 用，r1 严重 3）。 */
+type ShellCExtract =
+  | { kind: "FILE" }
+  | { kind: "FAIL_CLOSED" }
+  | { kind: "PAYLOAD"; payload: string; consumedEnd: number };
+
+/** shell 短旗标白名单（-c 前置容许形态，与 PY_FLAG_GROUP 同模式）。
+ *  bash/sh/zsh/dash/ksh 共有常见旗标：a b c d e f h i k l m n o p r s t u v x y C E F H T W X
+ *  白名单外（含长旗标 --posix / --norc 等带参形态）→ FAIL_CLOSED。 */
+const SHELL_FLAG_WHITELIST = /^-[abcdefhiklmnoprstuvxyCEFHTWX]+$/;
+
+/** 提取引号包裹的 -c 载荷（extractShellCPayload 内层，抽函数控圈复杂度）。
+ *  返回 null = 未闭合引号（fail-closed）。 */
+function scanQuotedPayload(rest: string, i: number, shellOffset: number): ShellCExtract {
   const q = rest[i];
-  if (q === "'" || q === '"' || q === "`") {
-    i++;
-    const start = i;
-    while (i < rest.length) {
-      const ch = rest[i];
-      if (ch === "\\") { i += 2; continue; }
-      if (ch === q) return rest.slice(start, i);
-      i++;
+  i++;
+  const start = i;
+  while (i < rest.length) {
+    const ch = rest[i];
+    if (ch === "\\") { i += 2; continue; }
+    if (ch === q) {
+      return { kind: "PAYLOAD", payload: rest.slice(start, i), consumedEnd: shellOffset + i + 1 };
     }
-    return null; // 未闭合 → fail-closed
+    i++;
   }
+  return { kind: "FAIL_CLOSED" }; // 未闭合引号 → fail-closed
+}
+
+/** 从段文本 offset 处判定 shell 调用的 -c 载荷（引号感知，escape 感知）。 */
+function extractShellCPayload(seg: string, shellOffset: number): ShellCExtract {
+  const rest = seg.slice(shellOffset);
+  // shell 名（容许路径/版本号尾缀）
+  const nameM = rest.match(/^[\w./-]*\/?(?:bash|sh|zsh|dash|ksh)\d*/i);
+  if (!nameM) return { kind: "FILE" };
+  const after = rest.slice(nameM[0].length);
+  // 逐 token 扫：白名单短旗标跳过；遇 -c 进载荷提取；其他 → 判 FAIL_CLOSED 或 FILE
+  const argM = after.match(/^((?:\s+-\S+)*?)\s*-c(\s|$)/);
+  if (!argM) {
+    // 无 -c：bash script.sh / bash -x script.sh → 文件落点放行
+    //（-c 后无空格的空字符串 -c'' 形态走下方载荷为空 → FAIL_CLOSED）
+    return { kind: "FILE" };
+  }
+  const flagStr = argM[1].trim();
+  if (flagStr) {
+    const flags = flagStr.split(/\s+/);
+    if (!flags.every(f => SHELL_FLAG_WHITELIST.test(f))) return { kind: "FAIL_CLOSED" };
+  }
+  const i = nameM[0].length + argM[0].length;
+  if (i >= rest.length) return { kind: "FAIL_CLOSED" }; // -c 后无载荷
+  const q = rest[i];
+  if (q === "'" || q === '"' || q === "`") return scanQuotedPayload(rest, i, shellOffset);
   // 无引号载荷（bash -c node…）——取至段尾
-  return rest.slice(i).trim() || null;
+  const payload = rest.slice(i).trim();
+  return payload ? { kind: "PAYLOAD", payload, consumedEnd: seg.length } : { kind: "FAIL_CLOSED" };
 }
 
 /** splitShellSegments 单字符处理。
@@ -889,11 +926,66 @@ function wrappedOneLinerPayloadsReadOnly(command: string): boolean {
   return saw;
 }
 
-/** 段级判定（checkSegmentStructuralWrite 的单段处理，抽函数控圈复杂度） */
-function judgeSegment(
+/** git 写子命令判定（#1285 r1 严重 1：段首解析剥包装前缀后落 git 的写族判定——
+ *  正则锚只认赋值前缀不认包装词，`env git commit` / `sudo git commit` 曾全放。
+ *  比 MAIN_WRITE_PATTERNS[5] 宽：补 push / reset --hard / clean -f 等同属写族但
+ *  原正则未覆盖的子命令——段首解析通道既然接了 git 落点，写族口径一次补齐）。 */
+const GIT_WRITE_SUBCOMMAND = /^git\s+(?:-C\s+\S+\s+|--git-dir=\S+\s+|--work-tree=\S+\s+|-c\s+\S+\s+)*(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push|push\b|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
+
+/** 剥子壳包装（#1285 r1 严重 1 连带形态：`(git commit)` / `{ git commit; }`——
+ *  子 shell/命令组剥壳后按同一段判定链重判；剥壳无界循环防护上限 8 层。
+ *  注意：剥壳只在「全段恰好被一对壳包裹」时生效（正则锚定 ^$）——
+ *  多命令组 `{ a; b; }` 剥壳后残留内层分号由 splitShellSegments 切段重判。） */
+function stripSubshellWrap(seg: string): string {
+  let s = seg.trim();
+  for (let n = 0; n < 8; n++) {
+    const m = s.match(/^[({]\s*(.*?)[)}]\s*;?$/s);
+    if (!m) return s;
+    s = m[1].trim().replace(/;+$/, "").trim(); // 命令组壳内尾分号一并剥（`{ git commit; }` 剥壳残留 `git commit;` 曾放行）
+  }
+  return s;
+}
+
+/** 段内是否含子壳/命令组包裹的可疑写形态（#1285 r1 严重 1 连带，预存洞收窄拦）：
+ *  splitShellSegments 不剥壳（引号感知不管括号），`(git commit)` / `{ git commit; }`
+ *  段首是壳字符，parseSegmentHead 落点为 "(" / "{" ——未知落点。模型层（parseOk=true）
+ *  也不识命令组内 git 写族（预存洞，旧基线 git 正则锚同样不含壳字符）。
+ *  fail-closed 收窄：壳落点 + 段内含 git 写族字面即拦（与 ③d 未知落点同策略）。
+ *  剥壳重判（stripSubshellWrap）只覆盖「全段单壳」形态；壳内多命令/嵌套壳由本闸兜底。 */
+const SUBSHELL_GIT_WRITE_GATE = /[({][^)}]*\bgit\s+(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push|push\b|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
+
+/** ③b shell 落点处理（judgeSegment 内层，抽函数控圈复杂度/语句数）：
+ *  三态拆分（r1 严重 2）+ 载荷递归 + 剩余 token 重判（r1 严重 3）。 */
+function judgeShellCSegment(
   seg: string,
+  offset: number,
   ctx: { logger?: Logger; projectRoot?: string; oneLinerReadOnly: boolean; depth: number },
 ): boolean {
+  const ex = extractShellCPayload(seg, offset);
+  if (ex.kind === "FILE") return false; // bash script.sh——写面在脚本文件自身，不在本层
+  if (ex.kind === "FAIL_CLOSED") return true; // -c 存在但旗标形态白名单外/未闭合 → fail-closed
+  // 递归：载荷作为独立命令重走主仓写判定（基座对齐——同一 checkMainCheckoutWrite）
+  const payloadHit = checkMainCheckoutWrite({ command: ex.payload, logger: ctx.logger, projectRoot: ctx.projectRoot, depth: ctx.depth - 1 }) !== null;
+  if (payloadHit) return true;
+  // r1 严重 3：载荷后剩余 token 重新过判定链——`bash -c 'echo a' timeout 5 node -e "写"`
+  // 载荷干净但段内第二命令曾裸奔；`env C=k bash -c 'python3 -c "写"' _` 参数位同型。
+  // 剩余段按同判定链递归（depth 消耗与载荷递归同级，终止性：consumedEnd 严格右移）。
+  const tail = seg.slice(ex.consumedEnd).trim();
+  if (tail) {
+    for (const tailSeg of splitShellSegments(tail)) {
+      if (judgeSegment(tailSeg, { ...ctx, depth: ctx.depth - 1 })) return true;
+    }
+  }
+  return false;
+}
+
+/** 段级判定（checkSegmentStructuralWrite 的单段处理，抽函数控圈复杂度） */
+function judgeSegment(
+  rawSeg: string,
+  ctx: { logger?: Logger; projectRoot?: string; oneLinerReadOnly: boolean; depth: number },
+): boolean {
+  // #1285 r1 严重 1 连带：子壳包装剥壳（`(git commit)` / `{ git commit; }`）
+  const seg = stripSubshellWrap(rawSeg);
   const parsed = parseSegmentHead(seg);
   const segHasShellC = /\b(?:bash|sh|zsh|dash|ksh)\d*\s+-c\s/i.test(seg);
   const segHasOneLiner = ONELINER_PRE_GATE.test(seg);
@@ -912,12 +1004,19 @@ function judgeSegment(
     // 豁免基座对齐：拦截与豁免同一提取基座，载荷只读性由既有白名单承担）。
     return segHasOneLiner && !ctx.oneLinerReadOnly;
   }
-  // ③b shell 解释器落点 → 洞1：提取 -c 载荷递归判定
+  // ③a' git 落点（#1285 r1 严重 1：词包装 git 写族全绕——正则锚只认赋值前缀，
+  // `env git commit` / `sudo git commit` / `timeout 5 git commit` 曾全放）。
+  // 剥包装前缀后落 git：写子命令拦（GIT_WRITE_SUBCOMMAND 承担，含 git push/
+  // reset --hard/clean -f 等正则锚未覆盖的写族）；只读子命令放行（白名单由
+  // allSegmentsGitReadonly 在上游承担——包装形态下 gitReadonlyCmd=false 会落入
+  // 本层，这里显式放只读防误拦）。
+  if (head === "git") {
+    const rest = seg.slice(offset);
+    return GIT_WRITE_SUBCOMMAND.test(rest);
+  }
+  // ③b shell 解释器落点 → 洞1：提取 -c 载荷递归判定（r1 严重 2：三态拆分）
   if (SHELL_INTERP_NAMES.has(head.replace(/\d+$/, ""))) {
-    const payload = extractShellCPayload(seg, offset);
-    if (payload === null) return false; // bash script.sh——写面在脚本文件自身，不在本层
-    // 递归：载荷作为独立命令重走主仓写判定（基座对齐——同一 checkMainCheckoutWrite）
-    return checkMainCheckoutWrite({ command: payload, logger: ctx.logger, projectRoot: ctx.projectRoot, depth: ctx.depth - 1 }) !== null;
+    return judgeShellCSegment(seg, offset, ctx);
   }
   // ③c 已知常见词 → 放行
   if (SEGMENT_HEAD_PASS_THROUGH.has(head)) return false;
@@ -949,6 +1048,11 @@ function checkSegmentStructuralWrite(
   if (/\|\s*(?:sudo\s+)?(?:bash|sh|zsh)\b/.test(command) && ONELINER_PRE_GATE.test(command) && !oneLinerReadOnly) {
     return true;
   }
+  // r1 严重 1 连带（预存洞）：子壳/命令组内 git 写族 fail-closed 收窄拦——
+  // `(git commit)` 经剥壳重判已被上方段判定覆盖；本闸兜「壳内多命令」形态
+  // （`{ git commit; git push; }`）与模型层不识命令组的缺口（parseOk=true 时
+  //  V1 段判定链不跑——挂点见下方入口侧）。
+  if (SUBSHELL_GIT_WRITE_GATE.test(command)) return true;
   return false;
 }
 

@@ -1,4 +1,5 @@
-// 修复前实测：三洞复现证据（process.chdir(worktree) → main-write 判定生效）
+// #1285 三洞复现载荷的真断言回归（原修复前探针：13 载荷修复前实测全部 ALLOWED，
+// 修复后全部应 BLOCKED——r1 检视 B 级处置：伪断言 expect(true).toBe(true) 改真断言）
 import { describe, it, expect } from "vitest";
 import { checkBashCommandSafety } from "../src/frameworks/agent/bash-safety-guard";
 
@@ -18,13 +19,12 @@ const cases: [string, string][] = [
   ["洞3a 空赋值 one-liner", `FOO= node -e "${W}"`],
   ["洞3b 空赋值 git 写族", `FOO= git commit -m x`],
 ];
-describe("1285 pre-fix repro", () => {
+describe("1285 repro 真断言（修复前 13 载荷实测全 ALLOWED → 修复后应全 BLOCKED）", () => {
   for (const [name, cmd] of cases) {
-    it(name, () => {
+    it(`${name} → 拦截`, () => {
       process.chdir(__dirname);
       const r = checkBashCommandSafety(cmd, 999999, undefined, { projectRoot: __dirname });
-      console.log(name, "→", r ? "BLOCKED" : "ALLOWED(洞)");
-      expect(true).toBe(true); // 仅记录，不断言（修复前洞应为 ALLOWED）
+      expect(r, `${name} 载荷应被拦截：${cmd}`).not.toBeNull();
     });
   }
 });
