@@ -3,7 +3,7 @@ id: F20261006cssp
 title: html-card 预设类库：前端注入 + 契约告知，样式一致性基建
 summary: 高频卡片样式（实测 35 类反复重定义、按钮命名漂移 7 种）沉为前端预注入 CSS——LLM 写卡引用类名不写定义，全系统卡片风格统一 + 省输出 token；推荐不强制，进出有门槛
 change_type: feature
-capability_test: "n/a: 契约文本变更属实 LLM 行为面但 golden 8 场景无写卡路径（召唤/严肃/yield/发言石/首响应/delta/日期/A1），预设节不触及任何场景断言；golden-selftest 12/12 已跑绿佐证。观察项替代：后续卡片自定 CSS 占比与预设覆盖率（B 面行为指标）"
+capability_test: "n/a: 契约文本变更属实 LLM 行为面但 golden 8 场景无写卡路径（召唤/严肃/yield/发言石/首响应/delta/日期/A1），预设节不触及任何场景断言；golden-selftest 全绿佐证。观察项替代：后续卡片自定 CSS 占比与预设覆盖率（B 面行为指标）"
 created_in_conversation: 98bd9fdd-8e28-4de8-b782-b59f46e733dd
 tags: [html-card, css, preset, contract, web]
 modules:

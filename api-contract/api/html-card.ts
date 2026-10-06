@@ -86,5 +86,9 @@ export const CARD_PRESET_CLASSES_CSS = `
 .head .title{font-weight:700;font-size:14px}
 `;
 
-/** 预设类名清单（给契约工具的告知层）——从 CSS 源机械提取，与渲染层永不漂移 */
+/** 预设类名清单（给契约工具的告知层）——从 CSS 源机械提取，与渲染层永不漂移。
+ *  ⚠️ 边界注记（PR #1318 复核建议 3）：本正则无 `{` 锚，会提取伪类/组合选择器片段（如未来加 .btn:hover 会多提 btn）；
+ *  测试侧 card-preset-classes.test.ts 用带 `{` 锚的正则锁「类定义全进清单」——两处故意不同源但需同步维护：
+ *  若预设 CSS 未来引入伪类/组合规则，两处提取会分叉、测试会红——那时应统一为共享提取函数（单独立 issue），
+ *  当前清单全为单类规则，两处等价 */
 export const CARD_PRESET_CLASS_NAMES: string[] = [...new Set([...CARD_PRESET_CLASSES_CSS.matchAll(/\.([a-zA-Z][\w-]*)/g)].map((m) => m[1]))];
