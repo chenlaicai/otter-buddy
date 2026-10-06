@@ -72,8 +72,17 @@ export class InvokeController {
       if (!invoke) {
         return c.json({ error: "invoke not found" }, 404);
       }
+      // F20260930s1x0（issue #1251）：显式 409 + 可机读 code + 真实终态，前端据此提示「并非真实运行」
+      // 并收敛气泡（delta：invoke_status 让前端等效补发错失的 invoke.end，见特性文档处置记录）
       if (invoke.status !== "running") {
-        return c.json({ error: `invoke already in terminal status: ${invoke.status}` }, 409);
+        return c.json(
+          {
+            error: `invoke already in terminal status: ${invoke.status}`,
+            code: "invoke_not_running",
+            invoke_status: invoke.status,
+          },
+          409,
+        );
       }
       if (!this.agentInvoker) {
         return c.json({ error: "agent invoker not configured" }, 500);

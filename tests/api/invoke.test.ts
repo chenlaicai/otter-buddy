@@ -99,4 +99,67 @@ describe("Invoke API（F20260913ctlv）", () => {
       expect(res.status).toBe(404);
     });
   });
+
+  describe("POST /api/invokes/:id/abort", () => {
+    const runningInvoke = { ...invokeFixture, id: "inv-target", status: "running" };
+
+    function makeRepoFor(invoke: Record<string, unknown> | null) {
+      return {
+        getInvokes: vi.fn().mockResolvedValue([]),
+        getInvokeById: vi.fn().mockImplementation(async (id: string) =>
+          invoke && id === "inv-target" ? invoke : null),
+        getInvokeEvents: vi.fn().mockResolvedValue([]),
+      };
+    }
+
+    it("running invoke → 202 且调用 agentInvoker.abort", async () => {
+      deps.invokeRepo = makeRepoFor(runningInvoke);
+      deps.agentInvoker = { invokeConversation: vi.fn(), abort: vi.fn() };
+      app = createTestApp(deps);
+
+      const res = await app.request("/api/invokes/inv-target/abort", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ otterId: "otter-1" }),
+      });
+      expect(res.status).toBe(202);
+      expect(deps.agentInvoker.abort).toHaveBeenCalledWith("otter-1", "inv-target");
+    });
+
+    it("invoke 不存在 → 404", async () => {
+      deps.invokeRepo = makeRepoFor(null);
+      deps.agentInvoker = { invokeConversation: vi.fn(), abort: vi.fn() };
+      app = createTestApp(deps);
+
+      const res = await app.request("/api/invokes/inv-missing/abort", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ otterId: "otter-1" }),
+      });
+      expect(res.status).toBe(404);
+    });
+
+    // F20260930s1x0（issue #1251）：假「行动中」（孤儿 invoke，#1241 场景）abort 必须 409 + 机读码，
+    // 前端据此提示「该行动并非真实运行」而非静默无效果——本案修复的服务端契约
+    it.each(["completed", "failed", "aborted"] as const)(
+      "非 running invoke（%s，含假行动中的孤儿）→ 409 + code=invoke_not_running，且不调 agentInvoker.abort",
+      async (status) => {
+        deps.invokeRepo = makeRepoFor({ ...invokeFixture, id: "inv-target", status });
+        deps.agentInvoker = { invokeConversation: vi.fn(), abort: vi.fn() };
+        app = createTestApp(deps);
+
+        const res = await app.request("/api/invokes/inv-target/abort", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ otterId: "otter-1" }),
+        });
+        expect(res.status).toBe(409);
+        const body = await json(res);
+        expect(body.code).toBe("invoke_not_running");
+        expect(body.invoke_status).toBe(status);
+        expect(String(body.error)).toContain(status);
+        expect(deps.agentInvoker.abort).not.toHaveBeenCalled();
+      },
+    );
+  });
 });
