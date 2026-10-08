@@ -112,6 +112,31 @@ describe("GET /api/unfurl（F20261008csf1）", () => {
     // 全程未发请求（入参校验在 fetch 之前）
   });
 
+  it("SSRF 防护收紧（检视发现 5）：IPv4-mapped / ULA / 链路本地 / 十六进制与十进制 IPv4 被拒", async () => {
+    const ctrl = new UnfurlController(logger);
+    for (const bad of [
+      "http://[::ffff:127.0.0.1]/x",
+      "http://[::ffff:10.0.0.1]/y",
+      "http://[fd12:3456::1]/z",
+      "http://[fe80::1]/w",
+      "http://0x7f000001/",
+      "http://0x7f.0.0.1/",
+      "http://2130706433/",
+      "http://3232235521/", // 192.168.0.1 的十进制形
+      "http://172.20.1.5/v",
+    ]) {
+      const res = await ctrl.get(makeCtx(bad)) as unknown as { status: number };
+      expect(res.status, bad).toBe(400);
+    }
+    // 公网 IPv6 与正常域名不误拦：走到 fetch（mock 返回 og 页 → 200）
+    vi.stubGlobal("fetch", vi.fn(async () => htmlResp(OG_HTML)));
+    for (const ok of ["https://example.com/a", "http://[2606:2800:220:1:248:1893:25c8:1946]/", "http://[2001:4860:4860::8888]/"]) {
+      const res = await ctrl.get(makeCtx(ok)) as unknown as { status: number };
+      expect(res.status, ok).toBe(200);
+    }
+    vi.unstubAllGlobals();
+  });
+
   it("缺 url 参数 → 400", async () => {
     const ctrl = new UnfurlController(logger);
     const res = await ctrl.get(makeCtx(undefined)) as unknown as { status: number };

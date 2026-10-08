@@ -27,6 +27,8 @@ function makeResource(overrides: Partial<LinkedResource> = {}): LinkedResource {
     category: null,
     flagged: false,
     auto: false,
+    status: 'active',
+    createdAt: '',
     ...overrides,
   }
 }

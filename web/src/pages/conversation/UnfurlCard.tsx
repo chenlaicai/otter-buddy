@@ -50,7 +50,10 @@ export async function fetchUnfurl(url: string): Promise<UnfurlData | null> {
 }
 
 /** 裸链检测：正文片段是「只有一个链接、无其他文字」时才出预览卡——
- *  句中链接（如「见 [文档](url)」）不抢排版，保持 GFM 默认行内样式 */
+ *  句中链接（如「见 [文档](url)」）不抢排版，保持 GFM 默认行内样式。
+ *  ⚠️ 仅测试参考实现——生产真相源是 remark-bare-link.ts（mdast 层判定，经
+ *  hProperties 通道传 dataBareUrl）。本函数不进组件树（全仓 grep 仅测试引用），
+ *  留着供单测验证裸链口径与插件实现一致性；改判定规则时两处必须同步 */
 export function isBareUrlText(text: string): string | null {
   const t = text.trim()
   // Markdown 链接形态 [label](url) 不出卡（有作者给的锚文本）

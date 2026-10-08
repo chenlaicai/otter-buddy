@@ -16,18 +16,68 @@ import type { Logger } from "@usecases/ports/logger";
 const UNFURL_TIMEOUT_MS = 5000;
 const UNFURL_MAX_BYTES = 512 * 1024;
 
-/** SSRF 防护：仅放行 http/https，禁 localhost/127.* / 10.* / 172.16-31.* / 192.168.* / ::1。
+/** SSRF 防护：仅放行 http/https，禁 localhost/内网段（点分十进制 + 非点分形式 + IPv6 本地面）。
  *  本系统是本地部署的搭档工具，内网段禁掉不损失真实用途（外部链接预览），但堵掉
- *  「用 unfurl 端点探内网」的显而易见滥用面。 */
-function isBlockedHost(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  if (h === "localhost" || h === "::1" || h.endsWith(".local") || h.endsWith(".internal")) return true;
-  if (/^127\./.test(h)) return true;
-  if (/^10\./.test(h)) return true;
-  if (/^192\.168\./.test(h)) return true;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
-  if (h === "0.0.0.0" || h === "[::1]") return true;
+ *  「用 unfurl 端点探内网」的滥用面。检视发现 5 收紧面：IPv4-mapped（::ffff:10.*
+ *  点分与十六进制两形）、ULA（f[cd]xx:）、链路本地（fe[89ab]x:）、十六进制（0x7f000001）
+ *  与十进制（2130706433）IPv4。治本（DNS 解析后按 IP 判）见特性文档 P2 项，本层纯收紧。
+ *  拆四个小函数：段位判定/点分/非点分/IPv6 各自独立可测（eslint complexity 塑形） */
+
+/** 整数 IPv4 是否内网段：127/8、10/8、0/8、172.16-31/12、192.168/16 */
+function isPrivateIpv4Int(n: number): boolean {
+  const b0 = (n >>> 24) & 0xff;
+  const b1 = (n >>> 16) & 0xff;
+  return b0 === 127 || b0 === 10 || b0 === 0
+    || (b0 === 172 && b1 >= 16 && b1 <= 31)
+    || (b0 === 192 && b1 === 168);
+}
+
+/** 点分十进制 IPv4（含 IPv4-mapped 尾段）是否内网段 */
+function isBlockedDottedQuad(h: string): boolean {
+  const parts = h.split(".").map(Number);
+  if (parts.length !== 4 || parts.some(p => !Number.isInteger(p))) return false;
+  const n = ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+  return isPrivateIpv4Int(n);
+}
+
+/** IPv4 非点分形式：全十六进制（0x7f000001 / 0x7f.0.0.1）与十进制整数（2130706433）。
+ *  十六进制形判定：0x 开头且全串仅 [0-9a-f.]——域名必含 g-z 字母，天然不误拦 */
+function isBlockedAltIpv4(h: string): boolean {
+  if (/^0x[0-9a-f.]+$/.test(h)) {
+    const segs = h.slice(2).split(".").map(s => parseInt(s, 16));
+    if ((segs.length === 4 || segs.length === 1) && segs.every(n => !Number.isNaN(n))) {
+      const n = segs.length === 4
+        ? ((segs[0] << 24) | (segs[1] << 16) | (segs[2] << 8) | segs[3]) >>> 0
+        : segs[0];
+      return isPrivateIpv4Int(n);
+    }
+  }
+  if (/^\d{8,10}$/.test(h)) {
+    const n = parseInt(h, 10);
+    if (n <= 0xffffffff) return isPrivateIpv4Int(n);
+  }
   return false;
+}
+
+/** IPv6 面：IPv4-mapped（点分 + WHATWG 序列化把 ::ffff:127.0.0.1 归一成的十六进制形
+ *  ::ffff:7f00:1）、ULA（fd00-fdff）、链路本地（fe80-febf） */
+function isBlockedIpv6Form(h: string): boolean {
+  const dotted = h.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (dotted) return isBlockedDottedQuad(dotted[1]);
+  const hex = h.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (hex) {
+    const n = ((parseInt(hex[1], 16) << 16) | parseInt(hex[2], 16)) >>> 0;
+    return isPrivateIpv4Int(n);
+  }
+  if (/^f[cd][0-9a-f]{2}:/.test(h)) return true; // ULA
+  return /^fe[89ab][0-9a-f]:/.test(h);           // 链路本地
+}
+
+function isBlockedHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, ""); // 归一化 [::1] / [::ffff:10.0.0.1] 方括号形态
+  if (h === "localhost" || h === "::1" || h.endsWith(".local") || h.endsWith(".internal")) return true;
+  if (h === "0.0.0.0" || h === "0x0.0.0.0") return true;
+  return isBlockedDottedQuad(h) || isBlockedAltIpv4(h) || isBlockedIpv6Form(h);
 }
 
 export interface UnfurlResult {

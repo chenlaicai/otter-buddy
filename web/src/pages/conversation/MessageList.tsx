@@ -256,7 +256,14 @@ export function MessageList({
    *  排序稳定性：message.seq 单调，资源 createdAt 兜底——同刻并列时资源在前（先登记后说话）。 */
   const timeline = useMemo(() => {
     const items: TimelineItem[] = messages.map(m => ({ kind: 'message', ts: m.ts, seq: m.seq ?? 0, message: m }))
-    const artifacts = (linkedResources ?? []).filter(r => ['pr', 'file', 'fact'].includes(r.type))
+    // 窗口下界：消息分页拉取（首拉 50、上翻 20）而 linkedResources 一次全量——
+    // 不设下界时，早于窗口最早消息的产物会聚集在时间轴顶部（检视发现 2：上翻到老区间
+    // 后视口内无诞生位置的卡，顶部悬浮一排旧卡冒充「最早」）。与消息分页语义对齐：
+    // 窗口外产物不显示，上翻加载到覆盖其诞生时刻时自然出现
+    const windowFloor = messages.length ? messages[0].ts : ''
+    const artifacts = (linkedResources ?? [])
+      .filter(r => ['pr', 'file', 'fact'].includes(r.type) && r.status === 'active')
+      .filter(r => (r.createdAt ?? '') >= windowFloor)
     for (const r of artifacts) {
       const ts = r.createdAt ?? ''
       // 找首个 ts >= 资源 createdAt 的消息，插到它前面（诞生于该消息之前）

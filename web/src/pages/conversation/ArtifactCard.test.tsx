@@ -34,7 +34,8 @@ function msg(id: string, ts: string, content = `内容-${id}`): LocalMessage {
 function res(id: string, type: string, createdAt: string, extra: Partial<LocalLinkedResource> = {}): LocalLinkedResource {
   return {
     id, type, url: null, title: `标题-${id}`, content: null,
-    category: null, flagged: false, auto: true, createdAt, ...extra,
+    category: null, flagged: false, auto: true, createdAt,
+    status: 'active', ...extra,
   }
 }
 
@@ -63,7 +64,7 @@ function timelineOrder(): string[] {
   const content = container.querySelector('.overflow-y-auto > div')!
   return Array.from(content.children).map(el =>
     el.matches('[data-message-id]')
-      ? el.getAttribute('data-message-id')
+      ? el.getAttribute('data-message-id') ?? '?'
       : el.querySelector('[data-artifact-id]')?.getAttribute('data-artifact-id')
         ?? '?')
 }
@@ -86,10 +87,10 @@ describe('产物卡混排（F20261008csf1）', () => {
     expect(timelineOrder()).toEqual(['m1', 'p1'])
   })
 
-  it('早于全部消息的登记时间 → 插最前', () => {
+  it('与首消息同刻登记 → 插最前（同刻并列资源在前；早于窗口全部消息的产物被窗口下界过滤，见分页窗口用例）', () => {
     renderTimeline(
       [msg('m1', '2026-10-08T09:00:00Z')],
-      [res('p1', 'pr', '2026-10-08T08:00:00Z')],
+      [res('p1', 'pr', '2026-10-08T09:00:00Z')],
     )
     expect(timelineOrder()).toEqual(['p1', 'm1'])
   })
@@ -128,6 +129,24 @@ describe('产物卡混排（F20261008csf1）', () => {
     // （bg-otter-50/50 是 bg-otter-50 的带透明度变体，toContain 前缀命中）
     const pinnedCard = container.querySelector('[data-artifact-id="f1"]')
     expect(pinnedCard!.className).toContain('bg-otter-50')
+  })
+
+  it('superseded/archived 产物不混排（只认 active，检视发现 4）', () => {
+    renderTimeline(
+      [msg('m1', '2026-10-08T09:00:00Z')],
+      [res('s1', 'pr', '2026-10-08T09:30:00Z', { status: 'superseded' }), res('a1', 'file', '2026-10-08T09:40:00Z', { status: 'archived' })],
+    )
+    expect(timelineOrder()).toEqual(['m1'])
+  })
+
+  it('早于窗口最早消息的产物不显示（分页窗口下界，检视发现 2）', () => {
+    // 模拟分页：首拉最新 2 条（m2/m3），全量产物里 r-old 诞生于 m1 之前（窗口外）
+    renderTimeline(
+      [msg('m2', '2026-10-08T10:00:00Z'), msg('m3', '2026-10-08T11:00:00Z')],
+      [res('r-old', 'fact', '2026-10-08T08:00:00Z'), res('r-in', 'fact', '2026-10-08T10:30:00Z')],
+    )
+    // r-old 不聚集在窗口顶部冒充「最早」，窗口内诞生的 r-in 照常插入
+    expect(timelineOrder()).toEqual(['m2', 'r-in', 'm3'])
   })
 
   it('fact 徽章「事实」/pr 徽章「PR」可见（与消息气泡强区分）', () => {

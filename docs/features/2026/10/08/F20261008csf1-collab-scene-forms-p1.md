@@ -72,24 +72,31 @@ created_at: "2026-10-08T18:50:00+08:00"
 
 **混排定位口径**：linked_resources 无 entry 外键（P1 不加列避免 DB 迁移），用 `createdAt` 与消息 `ts` 对比找首个不早于登记时间的消息插其前；晚于全部消息附末尾。稳定性：同刻并列时资源在前（先登记后说话）。
 
+**窗口下界（检视发现 2 修复）**：消息分页拉取（首拉 50、上翻 20）而 linkedResources 一次全量——不设下界时，早于窗口最早消息的产物会聚集在时间轴顶部冒充「最早」（诞生位置却在窗口外）。修复：timeline 加 `r.createdAt >= messages[0].ts` 下界过滤，窗口外产物不显示，与消息分页语义对齐，上翻加载到覆盖其诞生时刻时自然出现。
+
+**status 过滤（检视发现 4 修复）**：mapper 透出 DTO 的 `status` 字段，timeline 仅混排 `active`——superseded/archived 是退役产物，与继任者并排会误导「存在两个现行 PR」。
+
 **数据流**：DTO `createdAt` 本就在 contract（api-contract/api/key-info.ts:15），仅前端 mapper 透出（`mapLinkedResourceDTO`）→ `index.tsx` 的 `activeLinkedRes` → `ChatView` → `MessageList.timeline`（useMemo 混排）。
 
 ## 测试
 
 | 文件 | 用例数 | 覆盖 |
 |---|---|---|
-| tests/api/unfurl.test.ts | 10 | SSRF 内网段拦截、协议白名单、og 属性两序、`<title>` 兜底、实体解码、非 HTML 降级、og 全空 404 |
+| tests/api/unfurl.test.ts | 11 | SSRF 内网段拦截、协议白名单、**收紧回归（IPv4-mapped 点分/十六进制两形、ULA、链路本地、十六进制与十进制 IPv4，公网 IPv6 不误拦）**、og 属性两序、`<title>` 兜底、实体解码、非 HTML 降级、og 全空 404 |
 | web/…/UnfurlCard.test.tsx | 10 | isBareUrlText 五态（纯 URL/带空白/句中/Markdown 链接/多行）、抓取成功渲染、失败降级、fetchUnfurl 异常返回 null |
-| web/…/ArtifactCard.test.tsx | 7 | createdAt 插入位置三态（中间/末尾/最前）、非 pr-file-fact 不混排、file 首段摘要+展开、钉住切换、徽章可见 |
+| web/…/ArtifactCard.test.tsx | 9 | createdAt 插入位置（中间/末尾/同刻最前）、非 pr-file-fact 不混排、**superseded/archived 不混排**、**分页窗口下界（窗口外老产物不显示）**、file 首段摘要+展开、钉住切换、徽章可见 |
 
-全量回归：后端 5027 + 前端 667 全绿。测试侧修正（实现獭半成品遗留）：`timelineOrder()` helper 需 `matches()` 自查（消息 div 的 data-message-id 在自身不在子节点）；unfurl 成功用例需 6 轮微任务 flush（fetch→Response.json→setState 链）。
+全量回归：后端 5027+1 + 前端 667+2 全绿（本轮检视修复后重跑）。测试侧修正（实现獭半成品遗留）：`timelineOrder()` helper 需 `matches()` 自查（消息 div 的 data-message-id 在自身不在子节点）；unfurl 成功用例需 6 轮微任务 flush（fetch→Response.json→setState 链）。
 
 ## 取舍与已知限制
 
 - **混排只认 pr/file/fact**：url/worktree/branch 类型信息密度低（无 content 本体），混排成噪音——留清单层检索用
 - **钉住是 UI 态**：刷新即失——长期驻留需求等 P3 产物链/检索层系统化解法，P1 不引入持久化复杂度
 - **og 解析靠正则**：极端畸形 meta 会漏——降级普通链接，可接受（预览是增量不是保底）
-- **unfurl 无转链重定向跟踪**：redirect: follow 由 fetch 默认处理，跨域重定向后的 host 不在 SSRF 复查范围（目标站重定向属目标站行为）——已知边界，P2 如需收紧再加
+- **SSRF 守卫纯字符串层**（检视发现 5 已收紧：IPv4-mapped 两形/ULA/链路本地/十六进制与十进制 IPv4）：治本解法是 DNS 解析后按 IP 判（堵 DNS rebinding 与非标准 IP 形），本地单机威胁模型下字符串层够用，P2 如需再收紧。redirect 后 host 不复查（redirect: follow 由 fetch 默认处理）——已知边界，同留 P2
+- **favicon 走 google s2 服务**（浏览器直连）：与「目标站只见服务端 IP」的代理承诺有偏差（Google 可见用户 IP+被预览域名）——本地单机下是隐私洁癖问题，接受；如需消除改走 /api/unfurl 代理 favicon，另开 issue
+- **decodeEntities 双重解码边缘**（`&amp;#39;` 两轮解出 `'`）：频率极低且降级安全（超界码点 catch 后 404），检视獭预判反驳成立，不改
+- **isBareUrlText 保留为测试参考实现**（检视发现 3）：生产真相源在 remark-bare-link.ts，已在函数头标注双源同步义务——不删因单测直接锁它验证口径
 - **同刻消息/产物排序**：资源在前的人为约定（先登记后说话的常见因果），极端并发倒挂无数据可辨
 
 ## 后续（衔接宪法分期）
