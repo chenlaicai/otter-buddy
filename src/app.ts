@@ -315,14 +315,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   /** issue #281：广播总线无条件创建（平台无关），飞书出站作为 channel 注册——
    *  旧实现 messageBroadcaster: feishu?.broadcaster 导致 web-only 部署流式链路断流 */
   const messageBroadcaster = new MessageBroadcaster(logger);
-  // F20260929fsqr（搭档决策）：feishu 静态凭证段退役——扫码双模式（新建/选已有）为唯一接入路径。
-  // 存量配置检测到时告警提示迁移。
-  if (config.feishu) {
-    logger.warn(
-      "Feishu static config is deprecated: scan-based onboarding (create new / select existing app) is now the only path. " +
-      "Remove the `feishu` section from config.yaml and re-onboard via IM page QR scan (existing app: select it on the confirm page).",
-    );
-  }
+  // F20261008fsrm（搭档拍板）：feishu 静态凭证残留全量移除——扫码为唯一接入方式。
+  // config.yaml 残留 feishu 段被静默忽略（config-service 已不读入），无迁移告警。
 
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics: schedulerMetrics, agentMetrics, dispatchChainEngine, db, appConfig: config, modelPool, otterConfigProvider });
   // F20260920uhuc：统一交接入口回填（otter tool client 延迟绑定）

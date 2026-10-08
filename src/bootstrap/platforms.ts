@@ -146,10 +146,11 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     maxChainDepth: appConfig.circuitBreaker.maxChainDepth,
     settingsRepo: repos.settings,
     metrics: options?.agentMetrics,
-    // F20260826fpbd：搭档身份静态判定。appConfig.feishu 可选，未配置时 PartnerResolver 降级（动态推断）
+    // F20260826fpbd：搭档身份静态判定。未配置时 PartnerResolver 降级（动态推断）
     // F20260928wxid：双渠道 ID——微信消息也经链引擎渲染历史，搭档需被认出（含微信 ilink_user_id）
     // F20260928fsqr：外置实例（扫码首号运行时写入）；缺省内部构造保持存量行为
-    partnerResolver: options?.partnerResolver ?? new PartnerResolver(appConfig.feishu?.partnerOpenId, appConfig.weixin?.partnerUserId),
+    // F20261008fsrm：feishu 静态段移除，feishu 锚一律扫码首号（app.ts 全局 resolver）
+    partnerResolver: options?.partnerResolver ?? new PartnerResolver(undefined, appConfig.weixin?.partnerUserId),
     // F20260902sgp2 S1：派发台账注入——所有入口每次派发都记账（链引擎是必经之路，§4.2）。
     // 记账失败仅日志不阻断（硬约束 1）；不注入时链路行为与 sgpv 回滚基线一致。
     // #530 梯度护栏：abort 回调注入（可选——不注入时降级为纯日志）。
@@ -364,13 +365,13 @@ export interface FeishuRuntime {
  * externalId === botKey 过滤归属——多 app 广播互不串扰。
  *
  * 命令门禁锚（D7 双层）：每线独立 resolver——`new PartnerResolver(线ownerOpenId, 首号ownerOpenId?)`；
- * 线主人自己线上可跑命令、首号（部署者）任意线上可跑、陌生人被拦。静态 config app 路径
- * 传 config 锚（ownerOpenId=partnerOpenId），行为等价存量。
+ * 线主人自己线上可跑命令、首号（部署者）任意线上可跑、陌生人被拦。
+ * （静态 config app 路径已随 F20261008fsrm 移除——锚一律来自扫码人/首号。）
  */
 export function buildFeishuRuntime(options: {
   appId: string;
   appSecret: string;
-  /** 命令门禁锚：线 owner（扫码人 / 静态 app 时 = config partnerOpenId） */
+  /** 命令门禁锚：线 owner（扫码人） */
   gateOwnerOpenId?: string;
   /** 命令门禁锚第二锚：全局首号（部署者；仅扫码线非首号时传） */
   globalFirstOwnerOpenId?: string;

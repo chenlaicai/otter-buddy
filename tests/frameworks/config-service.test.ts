@@ -475,3 +475,23 @@ describe("updateDefaultModelInYaml comment preservation (#391)", () => {
     expect(mockRenameSync.mock.calls).toHaveLength(0);
   });
 });
+
+// F20261008fsrm（#1211）：feishu 静态段全量移除——残留段静默忽略，不进 AppConfig
+describe("F20261008fsrm feishu 静态段移除", () => {
+  it("残留 feishu 段（appId/appSecret/partnerOpenId）被静默忽略——cfg.feishu undefined，无 warn 抛错", () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      MINIMAL_YAML + "feishu:\n  appId: cli_test\n  appSecret: secret\n  partnerOpenId: ou_123\n",
+    );
+    const cfg = loadConfig();
+    expect((cfg as unknown as Record<string, unknown>).feishu).toBeUndefined();
+  });
+
+  it("干净配置（无 feishu 段）行为不变", () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(MINIMAL_YAML);
+    const cfg = loadConfig();
+    expect((cfg as unknown as Record<string, unknown>).feishu).toBeUndefined();
+    expect(cfg.llm.default).toBe("main");
+  });
+});
