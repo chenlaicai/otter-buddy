@@ -21,6 +21,8 @@ import { classifyExit, exitKindToOutcome } from "./exit-classifier";
 import { isRetryableGuardAbort, isTimeoutGuardReason, buildRetryFailBody, buildGuardAbortBody, buildUserAbortBody, buildYieldRetryMsg, buildAutoRetryMsg, buildCircuitBreakFailBody, buildCircuitBreakSystemMsg, GUARD_BOUNCE_MAX, GUARD_BOUNCE_WINDOW_MS, buildGuardBounceMsg, buildGuardBounceFailBody, buildGuardBounceEscalationMsg, buildTimeoutRetryExhaustedMsg } from "./retry-policy";
 // #543：api_error 终态限流识别 + 告警文案（配额黑盒修复）
 import { matchRateLimitError, buildRateLimitSystemMsg, buildRateLimitDescription } from "./rate-limit-error";
+// #1247：api_error 终态窗口超限识别 + 告警文案（注入超窗黑盒修复——与 #543 同骨架）
+import { matchContextOverflowError, buildContextOverflowSystemMsg, buildContextOverflowDescription } from "./context-overflow-error";
 // #543 严重发现 1 修复：high 级 rate_limit 事件入 C3 高警队列——大獭不在场时 sendSystem 错过，
 // 下一次 invoke 的 DynamicContext 补送达（复用 F20260826mwrd Part 4 管道，process 级单例直引，
 // 与 interceptHealingReport 同模式；usecase 内部互引无跨层问题）
@@ -278,6 +280,14 @@ export class AgentTurnOrchestrator {
       await this.notifyRateLimit(ctx, match).catch(() => { /* 通知失败不阻断 */ });
     }
 
+    // #1247：窗口超限识别（先限流后超窗——词族互斥，串行判定互不干扰）。
+    // 落账 + 通知与 #543 同模式：均非致命，任一失败不阻断 failTerminal 主路径
+    const ctxMatch = matchContextOverflowError(reason.errorMessage);
+    if (ctxMatch) {
+      await this.recordContextOverflowHealingEvent(ctx, ctxMatch, reason).catch(() => { /* 已在内部记日志 */ });
+      await this.notifyContextOverflow(ctx, ctxMatch).catch(() => { /* 通知失败不阻断 */ });
+    }
+
     // F20260916fst4：首哑判定（exhausted 分支内、healing 落账后）。
     // Why 在 failTerminal 之前判定：failTerminal 会把 failed invoke 入库，count 查询须在其后——
     // 此处 await failTerminal 再查计数语义相同（同 invoke 幂等），先判定可避免 failTerminal
@@ -382,6 +392,63 @@ export class AgentTurnOrchestrator {
       modelAlias,
       exhausted: match.exhausted,
       resetHint: match.resetHint,
+    });
+    await ctx.callbacks.sendSystem(ctx.input.conversationId, msg);
+  }
+
+  /** #1247：context_overflow healing 落账（注入超窗是体积问题，重试无意义 → severity:high）。
+   *  同 #543 严重发现 1 修复：high 级落账成功后入 C3 高警队列，大獭不在场时补送达 */
+  private async recordContextOverflowHealingEvent(
+    ctx: RouteContext,
+    match: NonNullable<ReturnType<typeof matchContextOverflowError>>,
+    reason: ExitReason & { kind: 'api_error' },
+  ): Promise<void> {
+    const modelAlias = this.resolveModelAlias(ctx);
+    try {
+      await ctx.callbacks.recordHealingEvent({
+        invokeId: ctx.input.invokeId,
+        conversationId: ctx.input.conversationId,
+        otterId: ctx.input.otterId,
+        errorType: "context_overflow",
+        severity: "high",
+        description: buildContextOverflowDescription({ modelAlias, match }),
+        suggestion: "缩减注入体积（缩短任务简报/systemPrompt）或改派大窗口模型（kimi/glm 1M 档）——重试同一注入无意义",
+        context: {
+          layer: "orchestrator",
+          modelAlias,
+          requestedTokens: match.requestedTokens ?? null,
+          windowTokens: match.windowTokens ?? null,
+          errorMessage: reason.errorMessage.slice(0, 500),
+        },
+      });
+      // C3 高警入队：体积超窗是终态（重试无意义），与配额耗尽同级处置
+      healingAlertRegistry.enqueue(ctx.input.conversationId, {
+        eventId: crypto.randomUUID(),
+        conversationId: ctx.input.conversationId,
+        otterId: ctx.input.otterId,
+        errorType: "context_overflow",
+        description: buildContextOverflowDescription({ modelAlias, match }),
+        createdAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      ctx.callbacks.logger.error('context_overflow healing_event write FAILED',
+        err instanceof Error ? err : new Error(String(err)),
+        { otterId: ctx.input.otterId, invokeId: ctx.input.invokeId },
+      );
+    }
+  }
+
+  /** #1247：会话内告警（sendSystem + SSE）——注入超窗黑盒的主出口 */
+  private async notifyContextOverflow(
+    ctx: RouteContext,
+    match: NonNullable<ReturnType<typeof matchContextOverflowError>>,
+  ): Promise<void> {
+    const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
+    const modelAlias = this.resolveModelAlias(ctx);
+    const msg = buildContextOverflowSystemMsg({
+      otterName: resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId,
+      modelAlias,
+      match,
     });
     await ctx.callbacks.sendSystem(ctx.input.conversationId, msg);
   }

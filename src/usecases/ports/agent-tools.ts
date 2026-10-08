@@ -22,7 +22,10 @@ import type { OtterConfigProvider } from "./otter-config-provider";
  * 不需要默认模型切换/全量信息。具体 ModelPool 结构化兼容，无需 adapter。
  * 取代 tool-factory 内的重复 ModelPoolLike 定义（双定义消除）。
  */
-export type ToolModelPool = Pick<ModelPoolLike, "hasModel" | "describeModels">;
+export type ToolModelPool = Pick<ModelPoolLike, "hasModel" | "describeModels"> & {
+  /** #1247：create_otter 注入体积预算检查需要窗口查询；可选（旧装配/测试桩未带时 fail-soft 跳过） */
+  getContextWindow?: (alias?: string) => number | undefined;
+};
 
 /** Tool 执行结果（Pi AgentTool 格式） */
 export interface ToolResponse {
