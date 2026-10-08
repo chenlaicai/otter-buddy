@@ -190,6 +190,29 @@ export class CircuitBreakSupport {
     }).length;
   }
 
+  /**
+   * F20261008gduc P0-2：滑窗内 bounce 事件列表（疑似误拦降级通道数据源）。
+   * 与 countRecentGuardBounces 同查询路径，返回 context.ruleId / commandHead 供
+   * orchestrator 判定「连续 N 次命中同一规则」。台账失明时拋错由调用方 fail-closed。
+   */
+  async recentGuardBounceEvents(
+    otterId: string,
+    windowMs: number,
+    currentRuleId?: string,
+  ): Promise<Array<{ ruleId?: string; commandHead?: string; currentRuleId?: string }>> {
+    const since = new Date(Date.now() - windowMs).toISOString();
+    const events = await this.deps.healingRepo.findRecentByOtter(otterId, 'guard_intercept', 50);
+    return events
+      .filter(e => {
+        const ctx = e.context as { bounce?: boolean } | null;
+        return ctx?.bounce === true && e.createdAt >= since;
+      })
+      .map(e => {
+        const ctx = e.context as { ruleId?: string; commandHead?: string } | null;
+        return { ruleId: ctx?.ruleId, commandHead: ctx?.commandHead, currentRuleId };
+      });
+  }
+
   async recordHealingEvent(input: HealingEventInput): Promise<void> {
     try {
       await this.deps.healingRepo.create({

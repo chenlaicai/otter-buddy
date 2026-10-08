@@ -151,6 +151,12 @@ export interface TurnCallbacks {
    * 含调用时刻刚落账的本轮）。上限判定数据源；不可用时拋错由调用方 fail-closed 升级。
    */
   getRecentGuardBounces(otterId: string, windowMs: number): Promise<number>;
+  /**
+   * F20261008gduc P0-2：查询滑窗内 guard bounce 事件列表（疑似误拦降级通道数据源）。
+   * 复用 getRecentGuardBounces 的查询路径（errorType=guard_intercept 且 context.bounced=true），
+   * 但返回完整事件（含 context.ruleId / commandHead）而非仅计数。不可用时拋错由调用方 fail-closed。
+   */
+  getRecentGuardBounceEvents?(otterId: string, windowMs: number, guardReason?: string): Promise<Array<{ ruleId?: string; commandHead?: string; currentRuleId?: string }>>;
   /** F20260818cbkr：当前 active session 是否由熔断创建（上限判定） */
   isSessionCircuitBreakCreated(otterId: string): Promise<boolean>;
   /** F20260818cbkr：熔断是否可用。上限/二级判定依赖 healing_events 状态载体，repo 缺失时禁用并降级为旧 abort 语义 */

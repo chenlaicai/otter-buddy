@@ -112,6 +112,7 @@ const mockManageSession = {
 
 const queryOtter: QueryOtter = { getById: async () => ({ id: "otter-1", name: "大獭", type: "main" }) } as unknown as QueryOtter;
 
+// eslint-disable-next-line max-lines-per-function -- #731 bounce 能力面 10 用例聚合（GB-1~GB-6d + GB-sleep）；mock 基础设施（mockHealingRepo/mockAgentInvoke/yieldRounds 包装）在文件级共享，拆 describe 需重复造共享块，收益不抵成本
 describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731)", () => {
   it("GB-1/GB-2：二拦终态 → 自动回发（failed 过渡+sendSystem 带因+同 invoke 重试）→ 回发后自纠成功闭环", async () => {
     const sendEntry = mockSendEntry();
@@ -343,5 +344,128 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     const finalInvoke = [...sendEntry.store.invokes.values()].find(inv => inv.talkingStonePassedTo?.includes("user-1"));
     expect(finalInvoke?.status).toBe("completed");
     expect(result.invokeId).toBeTruthy();
+
   });
+
+  it("GB-6b：3 连 bounce 命中异规则（mixed ruleId）→ 真违规仍走原 abort 终态（不误判误拦）", async () => {
+    const sendEntry = mockSendEntry();
+    const healing = mockHealingRepo([
+      seedBounceEvent({ context: { bounce: true, ruleId: "self_kill_pidfile" } }),
+      seedBounceEvent({ context: { bounce: true, ruleId: "self_kill_literal" } }),
+      seedBounceEvent({ context: { bounce: true, ruleId: "self_kill_pidfile" } }),
+    ]);
+    const invoke = mockAgentInvoke([{ guard: 2 }]);
+    const invoker = new AgentInvoker(
+      invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
+      mockManageSession, queryOtter, createTestLogger(),
+      undefined, undefined, undefined, undefined, healing.repo,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      sendEntry,
+      { getInvokeEvents: async () => [] } as never,
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "修复任务 X", senderId: "user-1",
+    });
+
+    // 异规则反复撞 = 獭在乱试 → 真违规：仍走原 escalateGuardBounce abort 终态
+    const abortEnds = sendEntry.store.invokeEndCalls.filter(e => e.status === "aborted");
+    expect(abortEnds).toHaveLength(1);
+    const escalationMsg = sendEntry.store.systemBodies.find(b => b.includes("已停止自动回发并中断其发言"));
+    expect(escalationMsg).toBeTruthy();
+    // 不误发疑似误拦通知
+    expect(sendEntry.store.systemBodies.find(b => b.includes("疑似误拦"))).toBeFalsy();
+  });
+
+  it("GB-6c：3 连 bounce 含 unknown ruleId → 无法判同，保守走 abort（fail-closed）", async () => {
+    const sendEntry = mockSendEntry();
+    const healing = mockHealingRepo([
+      seedBounceEvent({ context: { bounce: true, ruleId: "unknown" } }),
+      seedBounceEvent({ context: { bounce: true, ruleId: "unknown" } }),
+      seedBounceEvent({ context: { bounce: true, ruleId: "unknown" } }),
+    ]);
+    const invoke = mockAgentInvoke([{ guard: 2 }]);
+    const invoker = new AgentInvoker(
+      invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
+      mockManageSession, queryOtter, createTestLogger(),
+      undefined, undefined, undefined, undefined, healing.repo,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      sendEntry,
+      { getInvokeEvents: async () => [] } as never,
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "修复任务 X", senderId: "user-1",
+    });
+
+    // unknown 无法归类「同一规则」→ fail-closed 走原 abort
+    const abortEnds = sendEntry.store.invokeEndCalls.filter(e => e.status === "aborted");
+    expect(abortEnds).toHaveLength(1);
+    expect(sendEntry.store.systemBodies.find(b => b.includes("疑似误拦"))).toBeFalsy();
+  });
+
+  it("GB-6d：bounce 事件查询失败（台账失明）→ fail-closed 走 abort，不误判误拦", async () => {
+    const sendEntry = mockSendEntry();
+    const healing = mockHealingRepo([], { failQuery: true });
+    const invoke = mockAgentInvoke([{ guard: 2 }]);
+    const invoker = new AgentInvoker(
+      invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
+      mockManageSession, queryOtter, createTestLogger(),
+      undefined, undefined, undefined, undefined, healing.repo,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      sendEntry,
+      { getInvokeEvents: async () => [] } as never,
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "修复任务 X", senderId: "user-1",
+    });
+
+    // 计数查询失败 → fail-closed 升级 abort（GB-4 语义不回退）
+    const abortEnds = sendEntry.store.invokeEndCalls.filter(e => e.status === "aborted");
+    expect(abortEnds).toHaveLength(1);
+  });
+  it("GB-6a：3 连 bounce 命中同一规则（ruleId 同且非 unknown）→ 疑似误拦降级：疑似误拦通知 + invoke failed 终态 + suspected_false_positive 落账", async () => {
+    const sendEntry = mockSendEntry();
+    const healing = mockHealingRepo([
+      seedBounceEvent({ context: { bounce: true, ruleId: "self_kill_literal" } }),
+      seedBounceEvent({ context: { bounce: true, ruleId: "self_kill_literal" } }),
+      seedBounceEvent({ context: { bounce: true, ruleId: "self_kill_literal" } }),
+    ]);
+    const invoke = mockAgentInvoke([{ guard: 2 }]);
+    const invoker = new AgentInvoker(
+      invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
+      mockManageSession, queryOtter, createTestLogger(),
+      undefined, undefined, undefined, undefined, healing.repo,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      sendEntry,
+      { getInvokeEvents: async () => [] } as never,
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "修复任务 X", senderId: "user-1",
+    });
+
+    // P0-2：同规则 3 连且非 unknown → 疑似误拦降级通道：sendSystem 是「疑似误拦」文案（非「已停止自动回发并中断其发言」）
+    const fpMsg = sendEntry.store.systemBodies.find(b => b.includes("疑似误拦"));
+    expect(fpMsg).toBeTruthy();
+    expect(fpMsg).toContain("self_kill_literal");
+    expect(fpMsg).toContain("请人工核实");
+    expect(fpMsg).not.toContain("已停止自动回发并中断其发言");
+    // 降级通道：invoke 终态 failed（非 aborted——保留手动重试空间，与真违规 abort 区分）
+    const fpFail = sendEntry.store.invokeEndCalls.filter(e => e.status === "failed");
+    expect(fpFail).toHaveLength(1);
+    expect(sendEntry.store.invokeEndCalls.filter(e => e.status === "aborted")).toHaveLength(0);
+    // 落账 suspected_false_positive high（守卫可信度问题需人工跟进）
+    const fpEvent = healing.events.find(e =>
+      e.errorType === "guard_intercept" &&
+      (e.context as { suspectedFalsePositive?: boolean })?.suspectedFalsePositive === true);
+    expect(fpEvent).toBeTruthy();
+    expect(fpEvent?.severity).toBe("high");
+  });
+
 });

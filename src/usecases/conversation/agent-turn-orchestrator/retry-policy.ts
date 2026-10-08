@@ -140,6 +140,33 @@ export function buildGuardBounceEscalationMsg(otterName: string, guardReason?: s
   return `[系统保护] ${otterName} 已连续 ${GUARD_BOUNCE_MAX} 次被 bash 守卫拦截并自动回发，仍在尝试被拦命令——已停止自动回发并中断其发言。请人工介入：排查该獭任务是否涉及进程管理，或核实守卫是否误拦。`;
 }
 
+// ─── F20261008gduc P0-2：同规则 3 连判「疑似误拦」降级通道（#1353 獭失联半小时）───
+
+/** 同规则 bounce 连续命中上限——≥3 次命中同一 ruleId 判疑似误拦，走降级通道而非 abort。 */
+export const GUARD_BOUNCE_SAME_RULE_MAX = 3;
+
+/**
+ * P0-2：疑似误拦的搭档侧通知。同规则 3 连说明命令形态稳定（獭在正确命令上反复撞墙），
+ * 大概率守卫误拦面而非獭顽固违规——此时 abort 是错杀（#1353：獭失联半小时），
+ * 改为请搭档人工核实/临时放行。含命令摘要 + 命中规则 + 重试次数三要素。
+ */
+export function buildGuardBounceSuspectedFpMsg(
+  otterName: string,
+  ruleId: string,
+  commandHead: string,
+  attempt: number,
+): string {
+  return `[系统保护·疑似误拦] ${otterName} 连续 ${attempt} 次被 bash 守卫拦截，命中同一规则（${ruleId}）。命令摘要：${commandHead}。该命令形态稳定反复命中同一规则，大概率是守卫误拦而非违规——已暂停自动回发，请人工核实：确认误拦可临时放行该命令，或修正守卫规则；若确属违规请直接指出。`;
+}
+
+/**
+ * P0-2：降级通道给獭的会话内提示（retry message 注入下一轮 invoke context）。
+ * 不再让它继续撞同一规则（abort 前它已重试 3 次同一形态），引导换写法/报告搭档。
+ */
+export function buildGuardBounceSuspectedFpRetryMsg(ruleId: string): string {
+  return `[系统提醒] 你已连续多次被 bash 守卫拦截且命中同一规则（${ruleId}），系统判断大概率是守卫误拦。请不要再重复相同命令形态：①尝试换一种写法（如显式 cd worktree 路径、拆分命令）；②若确认命令本身正当，speak 向搭档说明情况并请求人工放行；③不要再自动重试相同命令。`;
+}
+
 /** F20260922txes：超时类重试耗尽终态的会话内用户可见提示（L3 升级上报）
  *  口径与 buildUserAbortBody 一致：只写确证事实（重试过、仍超时、可手动重试），不归因模型/网络。 */
 export function buildTimeoutRetryExhaustedMsg(guardReason: string): string {

@@ -2930,3 +2930,50 @@ describe("F20261006gfvl 合并修（换行 -c 逃逸 + -o 路径 cd 跟踪）：
     expect(checkBashCommandSafety(`bash -C -c 'cd /tmp && rm -rf data'`, mainPid, undefined, { projectRoot })).toBeNull();
   });
 });
+
+describe("F20261008gduc P0-1：V1 兜底链 cd 豁免 —— || 备用链不误伤（修复面+不误伤面双侧固化）", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo"; // 假想主仓根——cd 豁免/负门判定不依赖真实路径，避开 mainPid 短路到 mainPidMissing 分支（后者未挂 cd 豁免）
+
+  it("cd worktree && node -e 多行只读 2>/dev/null || node 备用链（parseOk=false 落 V1 兜底链）→ 放行", () => {
+    // #1170 修复只落在 V2 段级、V1 兜底链未同步的复发面：裸 \| 把 || 首字符当管道，
+    // 杀 cd 豁免 → main_write 误拦。本测试固化「修复的一侧」。
+    const cmd = `cd /repo/.otter/worktrees/wt && node -e "console.log(require('fs').readFileSync('a.txt','utf8'))" 2>/dev/null || node -e "console.log('fallback')"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("cd worktree && git status || echo fallback → 放行（|| 不再被当管道杀豁免）", () => {
+    const cmd = `cd /repo/.otter/worktrees/wt && git status || echo "git failed"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  // ─── 不误伤面（拦截侧）：引号假 cd / 平凡 cd / cd 前写命令仍拦（V1 链既有语义不回退）───
+
+  it("引号内 cd 假段（stripQuotedTextSpans 剥引号后无真 cd 段）→ 仍拦截", () => {
+    const cmd = `echo "cd /repo/.otter/worktrees/wt" && git commit -m x`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("cd .（平凡目标不改 cwd，写主仓语义）→ 仍拦截", () => {
+    const cmd = `cd . && git commit -m x`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("cd 前写命令（git commit && cd /tmp，写在 cd 前落主仓）→ 仍拦截", () => {
+    const cmd = `git commit -m x && cd /repo/.otter/worktrees/wt`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("cd worktree & git commit（后台子 shell，cd 效应被切断）→ 仍拦截", () => {
+    const cmd = `cd /repo/.otter/worktrees/wt & git commit -m x`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1240 负门不旁路：cd worktree && python heredoc 体绝对路径写主仓 → 仍拦截", () => {
+    // P0-1 修豁免后必须仍过 cdExemptionWithVeto 负门——#1240 逃逸防线不因 || 修复而失效。
+    const cmd = `cd /repo/.otter/worktrees/wt && python3 - <<'PY'
+open('/repo/data/metrics.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+});

@@ -142,6 +142,7 @@ import { shouldInjectSessionPreamble } from "@frameworks/agent/session-helpers";
 import { isSessionLockConflictError } from "@entities/errors";
 import { MIN_SENSIBLE_CTX_WINDOW, type OtterContextWindowProvider } from "@usecases/ports/otter-context-window-provider";
 import { mapToSSEEvent, mapToInvokeEventInput, extractMessageEndUsage } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
+import { classifyGuardInterceptReason } from "@frameworks/agent/guard-intercept-classify";
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
 import { CircuitBreakSupport } from "./circuit-break-support";
 import type { TurnInput, AttemptDriver, TurnCallbacks, InvokeResultShape, CircuitBreakInfo, FirstDumbInfo, HealingEventInput } from "@usecases/conversation/agent-turn-orchestrator/types";
@@ -602,6 +603,15 @@ export class AgentInvoker implements AgentTurnPort {
       getRecentGuardBounces: async (otterId: string, windowMs: number) => {
         if (!this.circuitBreak) throw new Error('guard bounce count unavailable: healing repo not configured');
         return this.circuitBreak.countRecentGuardBounces(otterId, windowMs);
+      },
+
+      // F20261008gduc P0-2：疑似误拦降级通道数据源——滑窗内 bounce 事件列表（含 ruleId/commandHead）。
+      // classifyGuardInterceptReason 在 frameworks 层（guard-intercept-classify），usecases 禁直 import
+      // （D39 分层）——分类动作在 interface-adapters 回调实现内完成，orchestrator 只消费归一后的 currentRuleId。
+      getRecentGuardBounceEvents: async (otterId: string, windowMs: number, guardReason?: string) => {
+        if (!this.circuitBreak) throw new Error('guard bounce events unavailable: healing repo not configured');
+        const currentRuleId = guardReason ? classifyGuardInterceptReason(guardReason).ruleId : undefined;
+        return this.circuitBreak.recentGuardBounceEvents(otterId, windowMs, currentRuleId);
       },
 
       isCircuitBreakerEnabled: () => !!this.circuitBreak,
