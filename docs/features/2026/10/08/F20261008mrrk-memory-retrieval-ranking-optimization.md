@@ -1,9 +1,9 @@
 ---
-id: F20260923ntq3
+id: F20261008mrrk
 title: 记忆检索排序优化：现状链路核实与候选方向
 doc_type: feature
 summary: |
-  记忆检索排序优化的起点文档（设计阶段，本 PR 无代码改动）。现状排序管线：
+  记忆检索排序优化的起点特性文档（设计阶段，本 PR 无代码改动）。现状排序管线：
   FTS5(BM25) + Vec 双路召回 → 每 source top-3 预聚合 → 加权 RRF 融合（alpha 0.4、
   bothBoost 1.2）→ rerank 五信号乘法堆叠 final = rrf × time_decay × frequency ×
   user_flag × conversation_boost（search-engine.ts:183），无量纲归一化；仓内无排序
@@ -11,9 +11,15 @@ summary: |
   体感验收。候选方向依 R20260826rcmm「度量>召回>提炼」排序：Phase 0 golden 查询集
   + nDCG 评测基线先行，Phase 1 在基线保护下做信号归一化融合。触发本特性的具体
   痛点场景待搭档补充。
+  （FID 顺延：F20260923ntq3 → F20261008mrrk，2026-10-08 rebase 至最新 main 时更新。）
 change_type: feature
+intent:
+  problem: "记忆检索排序无质量评测（golden 集/nDCG 缺失）且 rerank 五信号乘法堆叠无量纲归一化——排序改动只能凭单测锁定+体感验收，证明行为还在但不证明排对了，排序退化只能靠搭档事后口头反馈发现"
+  expected_effect: "设计文档本身无行为改动；为后续 Phase 0（golden 查询集 + nDCG 评测基线，成为排序改动合入门禁）与 Phase 1（基线保护下的信号归一化融合）提供经代码实查的现状链路与方案骨架"
+  verify_by:
+    type: static_only
 capability_test: "n/a: 设计阶段文档，仅盘点现状与候选方向，无行为改动；实现提交时补 capability 用例"
-created: 2026-09-23
+created_at: 2026-10-08
 created_in_conversation: 08054326-2bef-42c0-ad6d-a9e91640c9e9
 causal_links:
   from: [R20260826rcmm, F20260811mrpy, F20260902rcp1, F20260917cvid]
@@ -24,10 +30,12 @@ modules:
   - src/frameworks/db/memory/sqlite-memory-repository.ts
 ---
 
-# 记忆检索排序优化（F20260923ntq3）
+# 记忆检索排序优化（F20261008mrrk，原 F20260923ntq3）
 
 > 状态：设计阶段起点文档。本文先落**现状链路核实**与**候选方向**；触发痛点与方案
-> 收敛见「下一步」。文中锚点均为 2026-09-23 对 `origin/main`（22135240）实查。
+> 收敛见「下一步」。文中锚点均为 2026-09-23 对 `origin/main`（22135240）实查，
+> 2026-10-08 rebase 至最新 main 时全量复核（`search-engine.ts`/`search-memory.ts`
+> 零变更锚点仍准；`sqlite-memory-repository.ts` 经 F20261001ftsp 两段式查询改造行号漂移已订正）。
 
 ## 背景
 
@@ -36,18 +44,22 @@ modules:
 评估基线校准，改动效果好坏目前无从度量。方向框架依 R20260826rcmm 的优先级结论：
 **度量 > 召回 > 提炼**——先建评测基线，再动排序信号。
 
-## 现状链路（2026-09-23 代码实查）
+## 现状链路（2026-09-23 代码实查，2026-10-08 rebase 复核）
 
 | 阶段 | 行为 | 锚点 |
 |---|---|---|
-| 召回 | FTS5 BM25（`ORDER BY fts.rank`）+ Vec 相似度检索，Vec 阈值 0.3 | `sqlite-memory-repository.ts:156,165`；`search-engine.ts:11-12` |
+| 召回 | FTS5 BM25（`ORDER BY fts.rank`）+ Vec 相似度检索，Vec 阈值 0.3 | `sqlite-memory-repository.ts:161,170`；`search-engine.ts:11-12` |
 | 预聚合 | 每 source 最多保留 top-3 chunk，防长文档霸占 limit（双路同规则） | `search-memory.ts:481,484,717-749` |
 | RRF 融合 | 加权 RRF：`alpha` 默认 0.4（偏信任 FTS），双路命中 `bothBoost` 1.2 | `search-engine.ts:71-74,137` |
 | rerank | `final = rrf × time_decay × frequency × user_flag × conversation_boost` 五信号直接连乘 | `search-engine.ts:46-54`（公式注释）、`:166`（rerank 入口）、`:183`（finalScore） |
-| 时间衰减 | 通用条目半衰期 7 天（`config.yaml.example:72`），文档层（feature/research）90 天 | `search-engine.ts:20-23,181-182` |
+| 时间衰减 | 通用条目半衰期 7 天（`config/config.yaml.example:70-71`），文档层（feature/research）90 天 | `search-engine.ts:20-23,181-182` |
 | 本对话加成 | 本对话来源条目 ×1.5（乘法，rerank 阶段） | `search-engine.ts:16-18,189` |
 | 同源去重加分 | 按 source 去重取最优，多 chunk 命中 +0.01/个（上限 5） | `search-memory.ts:562-564,678,705-709` |
 | 可解释性 | `debug=true` 注入中间分量（rrfScore/timeDecay/frequencyBoost/multiHitCount） | `search-memory.ts:68,80,98` |
+
+> 2026-10-08 复核新事实：9/23 后合入的 F20261001ftsp（#1279）在 FTS 召回层引入
+> 两段式查询（AND 交集优先、OR 兜底，检索读放大降 79%），只影响查询构造不影响
+> 排序信号——本文档的排序管线描述不受影响，评测基线设计时需以该版本为基线。
 
 ## 问题
 
