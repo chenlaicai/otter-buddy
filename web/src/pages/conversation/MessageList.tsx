@@ -267,13 +267,18 @@ export function MessageList({
    *  写入统一经 programScroll 登账本（不破第一轮账本完备性）。
    *  注意：不能读「渲染前旧高度」做差值补偿——useLayoutEffect 时 DOM 已 commit。pinned
    *  场景无需差值：直接贴底即是目标位置。依赖全量跑（无 deps）：流式期间每轮 commit 都是
-   *  高度变化点，逐次同步贴底，代价是 floating 时早退（一次 ref 读）。 */
+   *  高度变化点，逐次同步贴底，代价是 floating 时早退（一次 ref 读）。
+   *  防误修：与 RO 链对同一高度变化可能「双写」（f1fx commit 写一次 + RO 回调再写一次）——
+   *  幂等无害（两次都写 scrollHeight），不要为「去重」拆任一条链。 */
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return
     // W8 restore 消费优先（F20261008w8lt）：上翻加载的头部追加——恢复用户视觉位置，
     // 且优先于 pin 贴底（否则贴底先写、restore 判定读到贴底后位置而误判「已离开顶部」）
     const restorePending = pendingScrollRestoreRef.current
+    // 消费门不变量（检视建议）：「头部追加必换 messages[0].id」依赖消息源保证——
+    // insertCenteredByTs 按 ts 插入，历史消息 ts 均早于现有头部（服务端按 seq 分页返回）。
+    // 若未来出现「头部追加但首 id 不变」的消息源（如 prepend 同 ts 批次），本门将漏消费。
     if (restorePending !== null && messages.length > 0 && lastFirstIdRef.current !== messages[0]?.id) {
       pendingScrollRestoreRef.current = null // 消费即闭环
       const grewAtHead = prevMessagesLenRef.current < messages.length
