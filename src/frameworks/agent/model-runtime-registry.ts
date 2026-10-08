@@ -90,11 +90,15 @@ export class ModelRuntimeRegistry {
 
       /** 创建 ResourceLoader：通过 SDK 原生协议注入 skills（替代手动拼接） */
       if (!this.resourceLoader) {
-        const { DefaultResourceLoader, getAgentDir } = piCodingAgent;
+        const { DefaultResourceLoader, getAgentDir, createToolSearchExtension } = piCodingAgent;
         this.resourceLoader = this.resourceLoaderOverride ?? new DefaultResourceLoader({
           cwd: process.cwd(), agentDir: getAgentDir(),
           noContextFiles: true, // #496 屏蔽祖先 CLAUDE.md（Claude Code 指令污染 otter agent；.pi/SYSTEM.md 不受影响）
-          extensionFactories: [{
+          // F20261008tecn（EazoTack 工具瘦身 v1）：注册 pi 1.1 内置 tool_search 扩展
+          // （BM25 检索 deferred 工具）。SDK 模式不自动加载内置扩展（pi docs/sdk.md），
+          // 需显式加入 extensionFactories。注册为 inactive，由 session 的 tools 激活清单
+          // 按需启用（pi-session-factory._createSessionWithTools 有 deferred 工具时才加 tool_search）。
+          extensionFactories: [createToolSearchExtension(), {
             name: "otter-hooks",
             hidden: true,
             // ExtensionAPI.on 的 overload 不包含 "context"/"before_agent_start"，需要 any 绕过

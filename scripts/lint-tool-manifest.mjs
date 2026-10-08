@@ -2,6 +2,7 @@
 /**
  * F20260820a4rt: otter-type 工具路由 manifest 校验（commit-time gate）。
  * F20260821a5cb: 新增 capabilityBlocks / groups 校验。
+ * F20261008tecn: 新增 toolExposure 校验。
  *
  * 校验项：
  * 1. schemaVersion 必须为 1 或 2
@@ -11,6 +12,8 @@
  * 5. capabilityBlocks 结构校验（v2+）
  * 6. groups 引用校验（引用的块名必须在 capabilityBlocks 中存在）
  * 7. capabilityBlocks 内工具名存在性校验
+ * 8. toolExposure 不变量（F20261008tecn）：coding 工具（read/write/edit/bash/grep/find/ls）
+ *    不得标 deferred——session 构造瞬间会被声明，激活集重建无法修正
  *
  * 退出码：0 通过 / 1 有错误。
  */
@@ -274,6 +277,20 @@ if (manifest && dbTypes) {
 const registeredTools = parseRegisteredTools();
 if (manifest && registeredTools) {
   validateToolNames(manifest, registeredTools);
+}
+
+// F20261008tecn（检视发现 1）：deferred ∩ coding 工具集 = ∅ 静态校验
+// 不变量：deferred 工具名不得出现在 coding 工具集（getCodingToolsForOtterType 硬编码 7 个）。
+// 违反时 pi SDK 在 session 构造瞬间经 allowedTools×_isDeclarable 路径把它推入激活集，
+// setActiveToolsByName 修正不了已发生的第一次请求窗口（详见 F20261008tecn 变更清单 4）。
+// coding 集与 session-helpers.ts getCodingToolsForOtterType 单一真相源同口径（lint 无法 import ts，人工同步）。
+const CODING_TOOLS = ["read", "write", "edit", "bash", "grep", "find", "ls"];
+if (manifest?.toolExposure) {
+  for (const [toolName, exposure] of Object.entries(manifest.toolExposure)) {
+    if (exposure === "deferred" && CODING_TOOLS.includes(toolName)) {
+      error(`toolExposure["${toolName}"]=deferred 但它是 coding 工具（会进 filteredCodingTools）——coding 工具不可标 deferred，session 构造瞬间会被声明给模型，激活集重建无法修正（F20261008tecn 不变量）`);
+    }
+  }
 }
 
 if (errors > 0) {
