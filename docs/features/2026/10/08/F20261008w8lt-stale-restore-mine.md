@@ -104,5 +104,6 @@ useLayoutEffect 每 commit 同步贴底（pinned 时）——消灭 RO→rAF 的
 
 - 监测卡（跳变标记器）仍可用——用户主系统若再现跳变，console 帧数据可继续对时
 - e2e 护栏依赖 alpha + 复刻会话数据，CI 集成待定（本地护栏价值已兑现）
+  - **护栏咬合力边界（二轮复核残留观察）**：逐帧断言目前是形式性的——用户卡无桥（HtmlCard.tsx:70 `interactive=false` 不注册 setHeight 桥）→ iframe 高度恒 CARD_MIN_HEIGHT，名义 600px 刺激实际增量 124px < 阈值 190px，补偿链全死时逐帧断言不会红；当前护栏咬合力 100% 由终态断言（≤8px，已反向验证有牙）承担。将来升级：复刻数据预置 agent 交互卡（桥上报真实高度）后逐帧断言可装牙
   - **复刻环境新坑（10/8 晚 e2e 收尾时踩）**：复刻库只拷了 entries 没拷 conversation_participants，发消息后端 400（"Cannot resolve default dispatch target"），乐观消息回滚 → B 用例 `toHaveCount(beforeCount+1)` 假失败。修法：给复刻会话补一行 participants（active 大獭，last_read_seq=当前最大 seq）。另注意 e2e 会唤醒 alpha 里的大獭 invoke（复刻环境专用，无妨）
 - 一轮 F20261008scpg 的价值重申：状态机/账本机制正确且必要（本轮 D3 修复依赖 pinRef），只是没覆盖 W8 这颗旧雷
