@@ -3,9 +3,12 @@
  * 场景锚：10/8 alpha 取证 v8——loadMore 恢复把贴顶用户甩到 top=3634（滚动比例 31%）。
  * 修复后断言：msgs 增长瞬间 top 不发生 >500px 向下跳增（restore 甩出即红）。
  * 依赖 alpha 实例（E2E_BASE_URL）与复刻的 reseach 会话数据（本地 sqlite 注入）——
- * 无 alpha 环境时由 playwright config 的 baseURL 门控自然失败，CI 需带 alpha 或跳过。
+ * 无数据环境显式 skip（与 frame-guard 同款门控）：CI 空库下 boundingBox() 为 null、
+ * 滚轮序列不执行、idx=-1 静默假绿，宁可 skip 不要假防护（检视发现 8）。
  */
 import { test, expect } from '@playwright/test'
+// 环境门控：无复刻会话数据时显式 skip（诚实输出，不产假绿）
+test.skip(!process.env.E2E_REPLICA_DATA, '需要复刻会话数据（E2E_REPLICA_DATA=1 + E2E_BASE_URL 指向含数据实例）')
 const CONV = '325ef7b7-8e42-4edc-9abf-eae8f332a2c4'
 const SAMPLER = `
   window.__f = []

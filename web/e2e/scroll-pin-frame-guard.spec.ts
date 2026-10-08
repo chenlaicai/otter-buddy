@@ -56,6 +56,18 @@ function isViolation(dist: number, viewport: number) {
   return dist > Math.max(viewport * 0.4, 150)
 }
 
+/** 终态断言辅助：采样末尾 N 帧均 ≤ 阈值（检视发现 6——峰值合规但终态停底不回的回归，
+ *  逐帧断言抓不到：实验 3 实锤 600px 卡无补偿时 finalDist=124 恰在阈值下停住） */
+async function assertFinalPinned(page: import('@playwright/test').Page, tag: string) {
+  const frames = await page.evaluate(() => (window as unknown as { __frames: number[] }).__frames)
+  const tail = frames.slice(-10)
+  const finalDist = tail.length ? Math.max(...tail) : 0
+  console.log(`[${tag}] finalDist(末10帧max)=${finalDist}`)
+  // 终态容限：补链完成后的残余间隙（rAF 合帧/RO 精度级），不是阈值百分比——
+  // RO 冷启动死亡场景（发现 5）终态停底 124px 就是这断言要抓的形态
+  expect(finalDist, `${tag} 终态距底 ${finalDist}px 未归零`).toBeLessThanOrEqual(8)
+}
+
 /** 进入复刻会话、等真实消息渲染、贴底（pinned 语义） */
 async function gotoBottomPinned(page: import('@playwright/test').Page) {
   await page.goto(`/conversation/${CONV}`)
@@ -76,17 +88,24 @@ async function assertNoJump(page: import('@playwright/test').Page, tag: string) 
   expect(violation.length, `闪跳帧序列：${frames.slice(0, 60).join(',')}`).toBe(0)
 }
 
-/** 经输入框真实发送一条 html-card 消息，返回「展开渲染」按钮 locator */
+/** 经输入框真实发送一条 html-card 消息，返回「展开渲染」按钮 locator（唯一锚定）。
+ *  锚定纪律：不能靠位置（nth/last）——发卡会唤醒 alpha 大獭，其回复流持续追加条目，
+ *  位置锚在轮询间隙会漂到别的卡上（实锤：B 的 .last() 曾指到大獭回复里的卡）。
+ *  唯一不变量用围栏 meta title（html-card.ts:47 parseCardTitle 解析 info string 的
+ *  title="..."，渲染在卡头 HtmlCard.tsx:102）——卡体内 <title> 标签只进 iframe srcdoc，
+ *  卡头恒显「未命名卡片」，锚不上（同样实锤过） */
 async function sendCardMessage(page: import('@playwright/test').Page, cardBody: string) {
-  const marked = cardBody.replace('<title>', `<title>f1fx-probe-${Date.now()} `)
+  const ts = Date.now()
+  ;(page as unknown as { _lastCardTs: number })._lastCardTs = ts // 断言阶段复用同一时间戳锚定
   const input = page.locator('textarea').first()
   const beforeCount = await page.locator(MSG_SEL).count()
-  await input.fill('```html-card\n' + marked + '\n```')
+  await input.fill(`\`\`\`html-card title="f1fx-probe-${ts}"\n${cardBody}\n\`\`\``)
   await input.press('Enter')
-  // 乐观消息渲染后消息数 +1（不等文本——历史卡也含 f1fx-probe，靠索引锚定新消息）
+  // 乐观消息渲染后消息数 +1（不等文本——历史卡也含 f1fx-probe，靠 count 锚定发生）
   await expect(page.locator(MSG_SEL)).toHaveCount(beforeCount + 1, { timeout: 15_000 })
-  const msg = page.locator(MSG_SEL).nth(beforeCount)
-  return msg.getByRole('button', { name: '展开渲染' })
+  // 卡头渲染 meta title 文本（HtmlCard.tsx:102），用它唯一定位本张卡
+  const cardHeader = page.locator('[data-card-id]', { hasText: `f1fx-probe-${ts}` }).first()
+  return cardHeader.getByRole('button', { name: '展开渲染' })
 }
 
 test.describe('F20261008f1fx 贴底零闪跳护栏', () => {
@@ -97,16 +116,27 @@ test.describe('F20261008f1fx 贴底零闪跳护栏', () => {
     await page.addInitScript(SAMPLER)
     await gotoBottomPinned(page)
 
-    // 开采样 → 真实发送一条消息（走输入框 UI：React commit/流式/账本 全路径生效）
+    // 开采样 → 真实发送一张 600px 高卡并展开（检视发现 6：普通文本 27~108px < 判据下限 150px，
+    // 刺激量不足护栏恒绿——修不好也红不了；折叠态只渲染按钮 ~108px 也不够，必须点「展开渲染」
+    // 让 iframe 内 600px div 真实渲染，单次增量 >阈值才能钉住补偿链）
     await page.evaluate(() => { (window as unknown as { __samplerOn: boolean }).__samplerOn = true })
-    const input = page.locator('textarea').first()
-    await input.fill(`f1fx-A 护栏消息 ${Date.now()}`)
-    await input.press('Enter')
+    const expandBtn = await sendCardMessage(page, '<title>f1fx-A 高卡</title><div style="height:600px">A 护栏大卡刺激源</div>')
+    await expandBtn.click()
     // 等用户消息真实渲染（React commit 驱动的高度变化已发生）
-    await page.waitForTimeout(2000) // 覆盖乐观消息渲染 + 后端回执替换的后续 commit
+    await page.waitForTimeout(2000) // 覆盖乐观消息渲染 + 展开动画 transition + 后端回执替换的后续 commit
     await page.evaluate(() => { (window as unknown as { __samplerOn: boolean }).__samplerOn = false })
 
     await assertNoJump(page, 'f1fx-A')
+    await assertFinalPinned(page, 'f1fx-A')
+    // 刺激源验收（防「发卡失败/渲染异常 → 刺激不足又恒绿」）：卡所在消息高度必须超阈值。
+    // 锚卡容器而非展开按钮——展开后按钮已改名「收起」，按钮 locator 失效（实锄）；
+    // 时间戳从 helper 存到 page 对象上取回（A 用例断言阶段复用发卡时刻的同一锄）
+    const cardTs = (page as unknown as { _lastCardTs: number })._lastCardTs
+    const viewport = await page.evaluate(() => (window as unknown as { __findScroller(): HTMLElement }).__findScroller().clientHeight)
+    const cardH = await page.locator('[data-card-id]', { hasText: `f1fx-probe-${cardTs}` }).first()
+      .evaluate(el => el.closest('[data-message-id]')?.getBoundingClientRect().height ?? 0)
+    console.log(`[f1fx-A] 刺激源高度=${cardH}px 阈值=${Math.max(viewport * 0.4, 150)}px`)
+    expect(cardH).toBeGreaterThan(Math.max(viewport * 0.4, 150))
   })
 
   test('B: pinned 下卡片 iframe 高度突变（真实 HtmlCard 组件）——RO 兜底链不出现长时掉底', async ({ page }) => {
@@ -134,5 +164,8 @@ test.describe('F20261008f1fx 贴底零闪跳护栏', () => {
     await page.evaluate(() => { (window as unknown as { __samplerOn: boolean }).__samplerOn = false })
 
     await assertNoJump(page, 'f1fx-B')
+    // 终态断言（检视发现 6 实验三：RO 链死/无补偿时终态停底 124px 不回，逐帧阈值抓不到——
+    // finalDist 归零断言是 RO 冷启动修复（发现 5）的天然验收）
+    await assertFinalPinned(page, 'f1fx-B')
   })
 })

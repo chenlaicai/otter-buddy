@@ -377,9 +377,13 @@ export function MessageList({
     return () => { contentObserver?.disconnect(); viewportObserver?.disconnect(); cancelAnimationFrame(rafPinIdRef.current) }
     // Why: 依赖 conversationId——容器带 key 切会话时重建，需重挂 observer；state 入 deps——
     // loading/no-llm 分支不渲染滚动容器（ref 为 null 提前返回），回 normal 时需重挂；
-    // 其余状态经 ref 读取，无需重订阅
+    // hasMessages 入 deps（F20261008f1fx 检视发现 5）：冷启动/首次打开会话首渲染 messages=[]
+    // 走空态分支（不渲染滚动容器），effect 挂载时 refs=null 早退；随后消息到达 deps 无变化
+    // 永不重跑——RO 链自 F20260907sgpt 起在冷启动会话从未挂载（插桩实锤：组件 RO 零 fire，
+    // 同页对照 RO fire 3 次）。布尔翻转 0→1 恰好触发重挂，重挂时基线重置已由上方
+    // prevContentHeightRef/prevViewportHeightRef = 0 处理；其余状态经 ref 读取，无需重订阅
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationId, state])
+  }, [conversationId, state, messages.length > 0])
 
   /** F20261008scpg 滚动事件归因：先账本（程序写入自证），后用户位移分类。
    * 分类序：回锚优先于脱锚——clamp 落底/用户滚到底都是安全方向（默认意图=跟随）；
