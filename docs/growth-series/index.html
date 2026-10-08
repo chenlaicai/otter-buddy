@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>獭群成长记 · 全季目录</title>
+<style>
+  :root {
+    --paper: #f6f2ea; --card: #fffdf8; --ink: #2b2a26; --muted: #8b857a;
+    --primary: #2f5d62; --primary-soft: #eaf1f0; --accent: #d96f4e; --accent-soft: #fbeee8; --line: #e7dfd2;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--paper); color: var(--ink); font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; line-height: 1.7; padding: 40px 20px; }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  header { text-align: center; margin-bottom: 36px; }
+  .season { display: inline-block; font-size: 12px; letter-spacing: 2px; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 2px 14px; margin-bottom: 12px; }
+  h1 { font-size: 34px; color: var(--primary); }
+  .sub { color: var(--muted); font-size: 14px; margin-top: 8px; }
+  .intro { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 22px; font-size: 14px; margin-bottom: 28px; }
+  .intro b { color: var(--primary); }
+  .ep { display: flex; gap: 16px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; margin-bottom: 12px; text-decoration: none; color: inherit; transition: border-color .15s, transform .15s; }
+  .ep:hover { border-color: var(--primary); transform: translateY(-1px); }
+  .num { flex-shrink: 0; width: 44px; height: 44px; border-radius: 50%; background: var(--primary-soft); color: var(--primary); font-weight: 700; display: flex; align-items: center; justify-content: center; font-size: 17px; }
+  .ep.finale .num { background: var(--accent-soft); color: var(--accent); }
+  .info h2 { font-size: 17px; color: var(--primary); }
+  .ep.finale .info h2 { color: var(--accent); }
+  .info p { font-size: 13px; color: var(--muted); margin-top: 3px; }
+  .tag { display: inline-block; font-size: 11px; background: var(--primary-soft); color: var(--primary); border-radius: 4px; padding: 0 6px; margin-left: 6px; vertical-align: 2px; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 32px; line-height: 1.9; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="season">第一季 · 全 8 集</div>
+    <h1>🦦 獭群成长记</h1>
+    <div class="sub">一个 AI 团队是怎么长到今天的——如实记录，含打脸、走弯路与自己给自己开刀</div>
+  </header>
+
+  <div class="intro">
+    <b>观前须知</b>：本剧全部取材于 otter-buddy 项目的真实设计文档与运行记录。对白为剧场演绎，所有标注「原话」处均为文档直接引用；事件、数字、时间线无虚构。没有「AI 好厉害」——2026 年那是标配；只有「当时为什么这么蠢，以及怎么变聪明的」。
+  </div>
+
+  <a class="ep" href="ep01.html">
+    <div class="num">1</div>
+    <div class="info"><h2>出生</h2><p>通讯录里的 AI、没有 session 的乌托邦——连设计它的架构师第一天都没搞懂它</p></div>
+  </a>
+  <a class="ep" href="ep02.html">
+    <div class="num">2</div>
+    <div class="info"><h2>失忆</h2><p>「有没有记忆系统我感觉都一样」——一句差评逼出的渐进披露与溯源行</p></div>
+  </a>
+  <a class="ep" href="ep03.html">
+    <div class="num">3</div>
+    <div class="info"><h2>不许自审</h2><p>写代码的不许审自己的代码——另一只 AI 抓出了 fail-open</p></div>
+  </a>
+  <a class="ep" href="ep04.html">
+    <div class="num">4</div>
+    <div class="info"><h2>红绿灯</h2><p>写完代码忘了合入的乌龙、消失的发言、以及一套三色信号协议</p></div>
+  </a>
+  <a class="ep" href="ep05.html">
+    <div class="num">5</div>
+    <div class="info"><h2>膨胀</h2><p>规矩越立越多，行为越来越歪——清零 8 天回潮 168 处，人治不行上机械闸</p></div>
+  </a>
+  <a class="ep" href="ep06.html">
+    <div class="num">6</div>
+    <div class="info"><h2>红线</h2><p>你敢让 AI 动你的仓库吗——五条红线与「合了吧」三个字过不了的安检</p></div>
+  </a>
+  <a class="ep" href="ep07.html">
+    <div class="num">7</div>
+    <div class="info"><h2>自己盯自己</h2><p>每天给自己做体检的系统，查出了自己身上的 6 处病</p></div>
+  </a>
+  <a class="ep finale" href="ep08.html">
+    <div class="num">8</div>
+    <div class="info"><h2>今天<span class="tag">大结局</span></h2><p>现状快照与诚实账本：接住了什么、搞砸了什么、至今干不了什么</p></div>
+  </a>
+
+  <footer>
+    獭群成长记 · 内部技术社区连载 · 取材 otter-buddy 真实档案<br>
+    「这不叫自动化，这叫有同事。」
+  </footer>
+</div>
+</body>
+</html>
