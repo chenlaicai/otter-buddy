@@ -38,10 +38,18 @@ const mainPid = 42877;
 const projectRoot = "/repo"; // 假想主仓根，与 gduc 段同口径（避开 mainPid 短路分支）
 const WT = "/repo/.otter/worktrees/wt";
 
-/** 双链双跑探针：同一命令在 parseOk 强制 true / false 下各判一次。 */
+/** 双链双跑探针：同一命令在 parseOk 强制 true / false 下各判一次。
+ * 审视处置（PR #1368 §3.1）：断言 mock 真拦截（liveness 守卫）——vi.mock 用 alias 路径
+ * 拦被测模块内部相对 import，靠 vitest alias 解析对齐（当前生效，升级易破坏）。若拦截
+ * 静默失效 → 双跑同路径 → 一致性平凡成立 → 虚绿。本断言把「守卫失灵」从静默虚绿变红灯。
+ */
 function dualRun(command: string): { parseOk: string | null; fallback: string | null } {
+  vi.mocked(modelParseOk).mockClear();
   vi.mocked(modelParseOk).mockReturnValue(true);
   const viaModel = checkBashCommandSafety(command, mainPid, undefined, { projectRoot });
+  expect(vi.mocked(modelParseOk),
+    "mock 失活：modelParseOk 未被调用——vi.mock 未拦截被测模块内部 import，双链一致性测试已静默虚绿（割裂回归不会报警）。检查 vitest alias 解析与 @frameworks/agent/guard-model-judge 路径对齐",
+  ).toHaveBeenCalled();
   vi.mocked(modelParseOk).mockReturnValue(false);
   const viaFallback = checkBashCommandSafety(command, mainPid, undefined, { projectRoot });
   return { parseOk: viaModel, fallback: viaFallback };

@@ -74,7 +74,8 @@ beforeAll(() => {
     structuredEvent("s4", `${y2}T03:00:00.000Z`, "cd /repo/wt && git status", "main_write", "r1_gate"),
     // 非 guard_intercept → 不入候选
     { id: "s5", errorType: "tool_error", description: "unrelated", context: {}, createdAt: `${y}T03:00:00.000Z` },
-    // 旧格式：context 无 ruleId、description 无命令前缀 → 容错行（unknown + 占位命令头）
+    // 旧格式：context 无 ruleId、description 无命令前缀 → 审视处置（#1368 §3.3）
+    // 后 SQL 层直接排除（无 ruleId 且无命令前缀 = 无法裁决的纯噪声，如 bounce 计数事件）
     { id: "s6", errorType: "guard_intercept", description: "旧格式自由文本无命令前缀", context: {}, createdAt: `${y}T06:00:00.000Z` },
     // description 反查路径：context 缺 commandHead 但 description 有命令前缀
     {
@@ -105,12 +106,13 @@ describe("generate-guard-replay.mjs（F20261008gdcc 项 4）", () => {
     const { outJsonPath } = runScript();
     expect(existsSync(outJsonPath)).toBe(true);
     const payload = JSON.parse(readFileSync(outJsonPath, "utf8"));
-    // s1+s3+s6+s7 入候选；s2 去重、s4 窗外、s5 类型外
-    expect(payload.totalIntercepts).toBe(5);
-    expect(payload.uniqueSamples).toBe(4);
+    // s1+s3+s7 入候选；s2 去重、s4 窗外、s5 类型外、s6 被 SQL 口径过滤（§3.3）
+    expect(payload.totalIntercepts).toBe(4);
+    expect(payload.uniqueSamples).toBe(3);
     const byId = new Map<string, { id: string; ruleId: string; ruleLayer: string; commandHead: string; commandHeadSanitized: string; verdict: string | null }>(
       payload.samples.map((s: { id: string }) => [s.id, s]),
     );
+    expect(byId.has("s6")).toBe(false); // 无 ruleId 且无命令前缀 → SQL 排除（非 unknown 候选）
     // 结构化字段透传
     const s1 = byId.get("s1");
     const s3 = byId.get("s3");
@@ -126,13 +128,17 @@ describe("generate-guard-replay.mjs（F20261008gdcc 项 4）", () => {
     expect(s1?.commandHeadSanitized).toBe("cd /repo/wt && git commit -m x");
   });
 
-  it("旧格式容错：context 无 ruleId + description 无命令前缀 → unknown 行不炸", () => {
+  it("旧格式容错（§3.3 口径后）：无 ruleId 但 description 带命令前缀的真样本仍入候选（json 兼容旧格式）；纯噪声事件被排除", () => {
     const { outJsonPath } = runScript();
     const payload = JSON.parse(readFileSync(outJsonPath, "utf8"));
+    // s7：context 有 ruleId 但无 commandHead → 入候选，commandHead 从 description 反查
+    const s7 = payload.samples.find((s: { id: string }) => s.id === "s7");
+    expect(s7).toBeTruthy();
+    expect(s7.ruleId).toBe("data_destructive");
+    expect(s7.commandHead).toContain("ls | grep");
+    // s6：无 ruleId 且 description 无命令前缀 → SQL 口径排除（bounce 计数事件类噪声）
     const s6 = payload.samples.find((s: { id: string }) => s.id === "s6");
-    expect(s6).toBeTruthy();
-    expect(s6.ruleId).toBe("unknown");
-    expect(s6.commandHead).toBe("(无法提取命令——description 无命令前缀)");
+    expect(s6).toBeUndefined();
   });
 
   it("description 反查：context 缺 commandHead 时从命令前缀段提取", () => {

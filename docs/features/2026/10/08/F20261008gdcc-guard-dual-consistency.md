@@ -70,10 +70,16 @@ created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
 
 ## 验证
 
-- 双链一致性 9 例全绿；revert #1360 修复实测 3 例红（割裂探针有效性自证）
+- 双链一致性 9 例全绿；revert #1360 修复实测 3 例红（割裂探针有效性自证）；mock-liveness 守卫自证（PR #1368 审视 §3.1 处置：断言被破坏时 9 例全红且失败文案带「mock 失活」指引——静默失效变红灯失效）
 - 生成器单测 5 例全绿（临时 sqlite 种子库 → 子进程跑脚本 → 断言产出 JSON）
 - 生成器实测：对真实库跑通（2026-10-07 样本 1 条导出，恰为 `ls | grep` 被 data_destructive 误拦形态）
 - 全仓 vitest 回归无新增失败；tsc --noEmit 通过
+
+## 审视处置（PR #1368 review follow-up，检视獭1360 报告）
+
+1. **§3.1 mock-liveness 守卫（MEDIUM）**：vi.mock 用 alias 路径拦被测模块内部相对 import，靠 vitest alias 解析对齐——失效态是静默虚绿（双跑同路径→一致性平凡成立）。处置：`dualRun` 加 `expect(vi.mocked(modelParseOk)).toHaveBeenCalled()`（mockClear 后断言真被调用），失效变红灯；实测断言破坏时 9 例全红。
+2. **§3.3 replay 口径（LOW-MEDIUM）**：SQL 加 `json_extract(context,'$.ruleId') IS NOT NULL OR description LIKE '%（命令前缀：%'`——真对齐 #1360 数据源口径（排除 bounce 计数事件噪声），兼容旧格式真样本；时区修正 targetDate/窗口统一 UTC 日界（旧实现本地「昨日」与 UTC 窗错位约 8h）。单测同步（s6 纯噪声改断言被排除）。
+3. **§3.5 措辞（LOW）**：prompt 恢复「含大獭/小獭」抽样范围约束；压缩声称订正为「硬规则语义全保留（关键词有缩写/合并：须 6→5、禁 2→1）」——原文「14 处全保留」计数不精确（检视獭实测）。
 
 ## 后续
 

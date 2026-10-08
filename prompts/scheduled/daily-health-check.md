@@ -39,7 +39,7 @@ budget_bytes: 9600
 
 ## 锚点真实性抽查（证据锚点规则的外部强制，抓编造现形）
 
-1. **抽样**：跨对话检索昨日含 file:line 锚点的断言，抽 5-10 条（不足 5 全量）。用 search_memory（message + created_after）或 sqlite3；**禁 search_messages**（只搜当前对话，独立 session 空集假阳性）
+1. **抽样**：跨对话检索昨日含 file:line 锚点的断言，抽 5-10 条（含大獭/小獭；不足 5 全量）。用 search_memory（message + created_after）或 sqlite3；**禁 search_messages**（只搜当前对话，独立 session 空集假阳性）
 2. **异体核对（硬规则）**：抽查獭与被抽查獭**必须不同模型**（model_alias 对照）；同模型样本改派异体，无条件时降级标「同模型抽查，置信降级」
 3. **核对**：每条 read 打开对应文件行——文件存在、行号在文件内、内容与断言实质相符
 4. **产出**：抽查 N/通过 M/失败 K（失败附对话 ID+断言原文+实际内容）+ 模型对照行；任一不通过开 P1 issue（[prompt]，标题含「编造锚点」）；同一獭 7 日 ≥2 次升 P0

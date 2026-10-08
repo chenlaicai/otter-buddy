@@ -39,10 +39,12 @@ if (!existsSync(dbPath)) {
   process.exit(2);
 }
 
-// 日期窗口：--date 或默认昨天（本地时区）
+// 日期窗口：--date 或默认昨天（UTC 日界，审视处置 PR #1368 §3.3：healing_events.created_at
+// 是 UTC ISO 串，窗口用 UTC 日界；targetDate 也用 getUTC* 同源，避免本地时区「昨日」与
+// UTC 窗错位—— Asia/Shanghai 下旧实现窗口偏移约 8h）
 const targetDate = argOf("--date", (() => {
   const d = new Date(Date.now() - 24 * 3600 * 1000);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 })());
 const since = `${targetDate}T00:00:00.000Z`;
 const until = `${targetDate}T23:59:59.999Z`;
@@ -50,12 +52,18 @@ const until = `${targetDate}T23:59:59.999Z`;
 const { default: Database } = await import("better-sqlite3");
 const db = new Database(dbPath, { readonly: true });
 
-// context 含 ruleId 的结构化拦截事件（#1360 数据源口径）；时间窗按 UTC 日界
+// 审视处置（PR #1368 §3.3）：SQL 层强制 #1360 数据源口径——拦截结构化事件
+// （context.ruleId 存在），排除 bounce 计数事件（无 ruleId，落 unknown/无法提取命令
+// 噪声候选）；json_extract 兼旧格式真样本（无 ruleId 但 description 带命令前缀）
 const rows = db.prepare(`
   SELECT id, otter_id, description, context, created_at
   FROM healing_events
   WHERE error_type = 'guard_intercept'
     AND created_at >= ? AND created_at <= ?
+    AND (
+      json_extract(context, '$.ruleId') IS NOT NULL
+      OR description LIKE '%（命令前缀：%'
+    )
   ORDER BY created_at ASC
 `).all(since, until);
 
