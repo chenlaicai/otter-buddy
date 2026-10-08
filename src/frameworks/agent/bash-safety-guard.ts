@@ -1681,11 +1681,45 @@ function cdExemptionWithVeto(command: string, logger: Logger | undefined, projec
   return null;
 }
 
-// eslint-disable-next-line complexity -- V1 分支语义保留（cd 豁免/git 白名单/echo 豁免/重定向 abs 豁免各对应一条已实证形态，见函数内注释）
+/** F20261008h304（#1304）：数据型 heredoc 体等长隐去——cat/tee 等非解释器 heredoc 的体是
+ *  纯文件内容，无 shell 执行语义；体内 git 写族/one-liner 字样是数据不是操作，主仓写
+ *  判定不应看见（当日实拦：体含 `git stash push` 字样被当真写拦、体含 `node -e \"…\"`
+ *  转义引号使载荷提取失败保守拦——healing 47c443e7/f80f7559）。
+ *  判据全保守（任一不满足即保留原文 fail-closed）：① closed；② 非解释器头
+ *  （python/node/bash 体是真执行面，保持可见由体级判定承担）；③ 开行无管道 |
+ *  与命令替换 $()（`cat <<EOF | bash` 体经下游真执行，隐去即攻击面）；
+ *  ④ quoted 定界或体无 $ `（裸定界体经 shell 展开可被解释）；⑤ 裸定界体无
+ *  kill 词元——仅作用于裸定界（shell 可展开面）；quoted 数据体不查 kill：
+ *  kill 族通道有独立的剥体基座（C2 探针对照实证，不消费本通道文本），
+ *  对 quoted 体重复检查是纯负收益（delta r1 检视发现 1：体内运维笔记
+ *  「kill 旧进程」字样被残留误拦，#1304 同族）。
+ *  落点：仅 git 写族/one-liner 通道判定基座（与重定向通道既有的
+ *  stripQuotedTextSpans 基座语义不同源，不共用）。 */
+function blankDataHeredocBodies(command: string): string {
+  const spans = extractHeredocSpans(command).filter(sp => sp.closed
+    && !isPythonHeader(sp.header) && !isNodeHeader(sp.header) && !isShellHeader(sp.header)
+    && !/[|]/.test(sp.header) && !/\$\(/.test(sp.header)
+    && (sp.quoted || (!/[$`]/.test(sp.body) && !/\bkill\b/.test(sp.body))));
+  if (spans.length === 0) return command;
+  let out = "";
+  let cursor = 0;
+  for (const sp of spans) {
+    out += command.slice(cursor, sp.start);
+    out += " ".repeat(sp.end - sp.start);
+    cursor = sp.end;
+  }
+  return out + command.slice(cursor);
+}
+
+// eslint-disable-next-line complexity -- V1 分支语义保留（cd 豁免/git 白名单/echo 豁免/重定向 abs 豁免各对应一条已实证形态，见函数内注释）；F20261008h304 后 18，新增分支仅 scanForWriteChannels 基座一处
 function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   const { command, logger, projectRoot, heredocReadOnly, oneLinerReadOnlyOverride } = ctx;
   const depth = ctx.depth ?? 3;
   if (!projectRoot) return null; // 无 projectRoot 时保守放行（与 resolvesToMainData 同策略）
+  // F20261008h304（#1304）：git 写族/one-liner 通道基座换数据体剥除文本（判据见
+  // blankDataHeredocBodies 注释）；cd 豁免/重定向/白名单仍用原始文本（cd 段与重定向
+  // 落点是真实 shell 语义，且重定向通道已有自己的剥体基座）。
+  const scanForWriteChannels = blankDataHeredocBodies(command);
   // #1170 根治：模型版 cd 豁免——管道/分号不再杀死豁免（`cd wt && git commit | tail` 放行）
   // #1240（F20261006c1240）：cd 豁免加负门——python/node heredoc 体含绝对路径落主仓时不豁免，
   // 防止 `cd /tmp && python3 - <<'PY'…open('<repo>/…','w')…PY` 顶层豁免放行逃逸。
@@ -1708,11 +1742,11 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   // 剩余文本为同一基座重算（基座对齐，timeout/env -i 只读不误拦）。
   const oneLinerReadOnly = oneLinerReadOnlyOverride !== undefined
     ? oneLinerReadOnlyOverride
-    : ONELINER_PRE_GATE.test(command)
-      ? (oneLinerPayloadReadOnly(command) || wrappedOneLinerPayloadsReadOnly(command))
+    : ONELINER_PRE_GATE.test(scanForWriteChannels)
+      ? (oneLinerPayloadReadOnly(scanForWriteChannels) || wrappedOneLinerPayloadsReadOnly(scanForWriteChannels))
       : false;
   if (!gitReadonlyCmd) {
-    const channelHit = checkWriteChannels(command, { logger, projectRoot, heredocReadOnly, oneLinerReadOnly, depth });
+    const channelHit = checkWriteChannels(scanForWriteChannels, { logger, projectRoot, heredocReadOnly, oneLinerReadOnly, depth });
     if (channelHit) return channelHit;
   }
   // #1038 语义兼容：echo '...' >> file 形态，引号内含 rm/mv/find 敏感词元且目标非 data/ → 放行。
