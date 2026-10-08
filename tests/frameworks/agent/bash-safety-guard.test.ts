@@ -2930,3 +2930,83 @@ describe("F20261006gfvl 合并修（换行 -c 逃逸 + -o 路径 cd 跟踪）：
     expect(checkBashCommandSafety(`bash -C -c 'cd /tmp && rm -rf data'`, mainPid, undefined, { projectRoot })).toBeNull();
   });
 });
+
+describe("F20261008gduc P0-1：V1 兜底链 cd 豁免 —— || 备用链不误伤（修复面+不误伤面双侧固化）", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo"; // 假想主仓根——cd 豁免/负门判定不依赖真实路径，避开 mainPid 短路到 mainPidMissing 分支（后者未挂 cd 豁免）
+
+  it("cd worktree && node -e 写 worktree 文件 || node 备用链（parseOk=false 落 V1 兜底链）→ 放行（修复靶点：main 上 BLOCK、修复后 ALLOW）", () => {
+    // #1170 修复只落在 V2 段级、V1 兜底链未同步的复发面：裸 \| 把 || 首字符当管道，
+    // 杀 cd 豁免 → main_write 误拦。审視处置（PR #1360 §3.1）：用例改为 worktree **写**——
+    // 只读用例在未修复的 main 上同样放行，不演示修复（复发盲区：revert 后测试仍绿）。
+    // 本例在 main 正则下 BLOCK（写主仓 cwd 判定 + 豁免被杀），修复后 ALLOW——真演示修复。
+    const cmd = `cd /repo/.otter/worktrees/wt && node -e "require('fs').writeFileSync('/repo/.otter/worktrees/wt/data/x','1')" || node -e "console.log('fallback')"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  // ─── 管道/备用链语义钉住（审視处置 §3.1：真管道不误放 + 负门不被 || 旁路）───
+
+  it("cd worktree && git commit | tail（真管道单行，V2 段级语义）→ 放行（#1170：管道右段不影响首段 cd 链豁免）", () => {
+    // #1170 修复在 V2 的行为锚点：管道右段在子进程不影响首段链 cwd——git commit 本身在
+    // worktree 内合法。钉住当前语义防漂移；若未来收紧此处（改拦），红灯强制走审视。
+    const cmd = `cd /repo/.otter/worktrees/wt && git commit -m x | tail -1`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("cd worktree && node -e 写 worktree 文件 | tail（真管道，parseOk=false 落 V1 链）→ 仍拦截（管道杀 V1 豁免不因 || 修复而变）", () => {
+    // 不误伤面钉住：真管道在 V1 兜底链仍杀豁免（lookaround 正则只放 ||，不放 |）。
+    // node -e 载荷含换行 → parseOk=false 落 V1 链，恰好是本次修复面的「不误伤一侧」。
+    const cmd = `cd /repo/.otter/worktrees/wt && node -e "require('fs').writeFileSync('/repo/.otter/worktrees/wt/data/x','1')" | tail -1`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1240 负门不因 || 旁路：cd worktree && python heredoc 体绝对路径写主仓（带 || echo）→ 仍拦截", () => {
+    // heredoc 多行载荷 parseOk=false 落 V1 兜底链，恰好是 || 修复面——
+    // 钉住「豁免修正不击穿 #1240 负门」（heredoc 体绝对路径写主仓不豁免）。
+    const cmd = `cd /repo/.otter/worktrees/wt && python3 - <<'PY' || echo "py failed"
+open('/repo/data/metrics.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1240 负门不因 || 旁路（data 破坏面）：cd worktree && rm -rf 主仓 data && git status || echo → 仍拦截", () => {
+    // data_destructive 负门与 || 修复正交：修复不扩大 data/ 破坏面的豁免。
+    const cmd = `cd /repo/.otter/worktrees/wt && rm -rf /repo/data && git status || echo "failed"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("cd worktree && git status || echo fallback → 放行（|| 不再被当管道杀豁免；只读对照）", () => {
+    const cmd = `cd /repo/.otter/worktrees/wt && git status || echo "git failed"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  // ─── 不误伤面（拦截侧）：引号假 cd / 平凡 cd / cd 前写命令仍拦（V1 链既有语义不回退）───
+
+  it("引号内 cd 假段（stripQuotedTextSpans 剥引号后无真 cd 段）→ 仍拦截", () => {
+    const cmd = `echo "cd /repo/.otter/worktrees/wt" && git commit -m x`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("cd .（平凡目标不改 cwd，写主仓语义）→ 仍拦截", () => {
+    const cmd = `cd . && git commit -m x`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("cd 前写命令（git commit && cd /tmp，写在 cd 前落主仓）→ 仍拦截", () => {
+    const cmd = `git commit -m x && cd /repo/.otter/worktrees/wt`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("cd worktree & git commit（后台子 shell，cd 效应被切断）→ 仍拦截", () => {
+    const cmd = `cd /repo/.otter/worktrees/wt & git commit -m x`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1240 负门不旁路：cd worktree && python heredoc 体绝对路径写主仓 → 仍拦截", () => {
+    // P0-1 修豁免后必须仍过 cdExemptionWithVeto 负门——#1240 逃逸防线不因 || 修复而失效。
+    const cmd = `cd /repo/.otter/worktrees/wt && python3 - <<'PY'
+open('/repo/data/metrics.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+});
