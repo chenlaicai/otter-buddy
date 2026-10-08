@@ -3,6 +3,11 @@ id: F20261008gs01
 title: "獭群成长记第一季：8 集 HTML 小剧场入库（docs/growth-series/）"
 summary: "内部技术社区系列帖《獭群成长记》全 8 集 + 目录页入库 docs/growth-series/，并配套重写双语 README（README.md + README.en.md）：从「三支柱叙事 + 5 图堆叠」改为「30 秒看懂 → 系统日常叙事段（闪光点从故事里长出，不用表格罗列）→ 协作演示 → 成长记入坑链接 → 快速开始」，图片从 5 张收敛到 2 张，进阶配置收进折叠区。闪光点表格初版被搭档否定（「显得 low、太刻意」），改为六个日常场景叙事段（早上派活下午收 PR / 吵架有规矩 / 记得你忘了的事 / 重启不重置 / 三道闸 / 每日自检）。定位：项目活文档 + 社区连载底稿 + 仓库门面翻新。"
 change_type: feature
+intent:
+  problem: "otter-buddy 的成长故事与差异化设计散落在 issue/记忆/PR 里，对外读者（内部社区同事 + 仓库访客）没有一个可读的入口；README 内容陈旧且堆叠图片，无法让人快速看懂这是什么"
+  expected_effect: "docs/growth-series/ 提供 8 集可读的剧场式成长记录（浏览器打开 index.html 可通读）；双语 README 重写后图片从 5 张收敛到 2 张、结构变为 30 秒看懂 + 叙事日常段 + 成长记链接，读者首页 1 分钟内能理解系统定位与差异点"
+  verify_by:
+    type: human_judge
 capability_test: "n/a: 纯文档内容（HTML 静态页，无运行时代码）；验证方式为人工通读 + 锚点抽查（素材库 materials.md 全量锚点清单）"
 created_in_conversation: 38f73fa8-f77e-443b-969b-1e5a1a83317b
 modules:
