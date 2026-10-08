@@ -4,7 +4,12 @@ title: bash 守卫 P1 治理——双链一致性测试（parseOk 强制双跑�
 summary: guard-mechanism-review 建议项 3/4 落地：①同一命令强制 parseOk=true/false 双跑断言判定一致（vi.mock 切换零生产改动，cd 豁免族 + one-liner 豁免族 9 例，revert #1360 修复实测 3 例红）——S1 类割裂从生产现场前移到 CI；②scripts/generate-guard-replay.mjs 候选生成器（按日筛选/反查/去重/脱敏，期望值人工裁决不机械生成）+ daily-health-check 固化段，把「修复-回归循环」（#1207→#1304、#1170→#1360）的原料从人工翻台账变成每日自动供给
 type: Enhancement
 date: 2026-10-08
-capability_test: "n/a: 测试治理基座与运维脚本，验证走单测（dual-consistency 9 例 + 脚本单测 5 例）与实测探针（revert 红已验证）"
+capability_test: "n/a: 测试治理基座与运维脚本，验证走单测（dual-consistency 9 例 + 脚本单测 5 例）与实测探针（revert 红已验证），无独立 LLM 能力面"
+intent:
+  problem: "守卫 V1/V2 双判定链独立演化，「修复只落一侧」的复发循环已两次实证（#1207→#1304、#1170→#1360）且无 CI 级防线——S1 类割裂只能靠生产误拦数日后人工归因；误拦现场固化靠人工翻 healing 台账手写用例，9/28 replay 之后无补充机制，不固化就重演"
+  expected_effect: "同一命令 parseOk 双跑判定不一致时 CI 红灯（revert #1360 修复实测 3 例红，恢复后全绿）；daily-health-check 每日产出 guard_intercept replay 候选并裁决固化，误拦现场从人工翻台账变为每日自动供给"
+  verify_by:
+    type: behavior_check
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
 ---
 
