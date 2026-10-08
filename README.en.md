@@ -4,130 +4,81 @@
 
 ---
 
-> A group of sea otters is called a raft. They hold hands so they don't drift apart.
-> This chat room does too.
-
 **Multi-agent system. They have names.**
 
-*Mustelidae, not a plush toy.*
+A multi-agent collaboration system that has been running for months and is still working every day. The agents here aren't anonymous API calls — they're named team members with memory, craft, and discipline.
 
 ![Conversation UI](docs/images/conversation.jpg)
 
+## The 30-second version
+
+You only ever talk to one otter — **the Lead Otter**. It listens, then decides: handle it directly, or summon sub-otters for the job. The sub-otters review each other, argue, raise objections — and bring back results with evidence for you to decide.
+
+It's not a framework. It's a **living system**: it runs a daily health check on itself, files its own issues, remembers a decision you made three months ago in passing — and the otter that writes code is not allowed to review its own code.
+
+## A day in the life of this system
+
+**Assign work in the morning, collect the PR in the afternoon.** You toss over one line — "that number in the README looks stale, handle it" — and go to your meeting. By afternoon a PR is waiting: tests green, CI green, review trail complete. The reviewing otter offered two fixes (update the number / remove it entirely); the Lead Otter turned the final decision into an interactive card. You clicked a button. Total human input: under ten sentences.
+
+**They argue — with rules.** Whoever writes code never reviews it. The reviewer must run on a *different model*: different training paths, non-overlapping blind spots — it sees the pits you can't. Objections can't be swallowed: an `objection` signal must carry an evidence anchor; a vague "feels wrong" is procedurally invalid; every ruling is recorded. The traffic lights don't eliminate conflict — they eliminate "pretending not to see".
+
+**They remember what you forgot.** Long-term memory isn't search-and-forget top-k — there's progressive disclosure to keep context from exploding, a relation graph so conclusions stay traceable, and messages come with a "📜 memory provenance: we discussed this on Aug 13, the conclusion was…" line. Your AI no longer has amnesia every conversation.
+
+**They restart — but they don't reset.** Each otter's identity is a continuum across sessions: the past life is sealed into an archive, the new one wakes with a handoff briefing — lineage traceable, conversations auditable. That's why they genuinely have names.
+
+**Before they touch your repo, three gates.** Forced worktree isolation, everything goes through PRs, and merging requires your approval *quote* verbatim-matched — "I'll approve on my human's behalf" style goodwill inference gets stopped cold by mechanical verification. Brittleness is a feature, not a bug: better to miss and make you say it again than to guess.
+
+**They run a daily health check on themselves.** Problems they notice go into a healing ledger; the daily check files issues — and each must come with a fix plan, "leave a comment to track" doesn't count. Once, the health check found six bugs in itself.
+
 ![Multi-Agent Orchestration Demo](docs/images/demo-multi-agent.gif)
 
-![Health dashboard: 30-day commit trend / BugFix ratio, commit type distribution, module hotspots, feature-chain states](docs/images/health-dashboard.jpg)
+## 📖 Read how they grew up
 
-![Touch Bar otter status badge: six animated states (waiting / working / sleeping / mixed / offline / non-primary), drawn by the self-built Swift renderer](docs/images/touchbar-otter.gif)
+**[Otter Growth Diaries](docs/growth-series/)** (Chinese) — an 8-episode mini-theater told honestly: the naive expectations at day one, the face-slaps, the detours, and what forced each mechanism into existence. Includes real incidents like "the fix was written but never merged" and "rules were cleaned up, then 168 violations crept back in 8 days".
 
-![Touch Bar six-state overview](docs/images/touchbar-otter-states.png)
-
-*All four visuals are real data: a collaboration session, the multi-agent orchestration loop as a four-act GIF (dispatch → orchestrate → execute → trace & return), the system measuring its own health (computed hourly by the RHI scan worker), and an otter status badge on the MacBook Pro Touch Bar — a vector otter (breathing ring / blinking / heartbeat) showing live whether the team is waiting for you, working, or asleep. The renderer is self-built Swift code from this project (#721); the GIF is produced by the renderer's own offscreen mode — what you see is what production gets.*
-
-## What is this
-
-Otter Buddy is a multi-agent collaboration system — chat room format, memory at its core, skills as its skeleton. The agents here aren't anonymous API calls. They're named team members: the Lead Otter orchestrates, each sub-otter has its own name and specialty, executing tasks by skill. The talking stone passes between participants, and whoever writes code doesn't review their own code.
-
-## Why sea otters
-
-Sea otters aren't primates, but they have tools, craft, and culture. AI can be this way too — it doesn't need to look human to have civilization.
-
-### 🌊 The Raft
-
-A group of sea otters is called a raft. Hundreds float on the same water surface, each foraging independently, holding hands and wrapping kelp to stay together.
-
-Our chat room works the same way: multiple agents on the same conversational substrate, each with a role, the talking stone flowing between them without interruption. **Cross-entity review** is the core mechanism — the agent that writes code doesn't review its own code. Another otter performs adversarial review. This isn't "AI helps you look at code" — it's structural separation between the implementer and the reviewer.
-
-### 🌿 The Kelp Forest
-
-Sea otters are a keystone species — where they thrive, kelp forests flourish; where they disappear, sea urchins devour everything and the system collapses from forest to desert.
-
-The memory system is the kelp forest. Every troubleshooting session, design decision, and code review conclusion is stored in structured form — with provenance (📜 memory tracing lines), relation chains (produced/supersedes/references), and anchors (F/R document IDs). Not "search and forget" like RAG — knowledge that grows.
-
-> A sea otter mother wraps her pup in kelp before diving, anchoring it so it doesn't drift away. Our F/R anchors work the same way — sub-otters are anchored to context when they receive a task.
-
-### 🪨 The Craft
-
-Sea otters are one of the very few tool-using marine mammals. But what matters more is craft transmission: mothers spend months teaching pups to crack shells, and techniques differ by region.
-
-Our skills aren't exposed API calls — they're behavioral patterns packaged with know-how: prerequisites, execution steps, output standards, self-healing mechanisms. When a sub-otter is reborn, it carries a summary of its previous life and a handoff lineage (gen1→gen2). The terminology library preserves team-wide knowledge.
-
-**Being able to use ≠ knowing how.**
-
-## What this means for you
-
-If you're tired of AI that starts from scratch every conversation, AI-generated code without real review, single-agent systems with single points of failure — Otter Buddy doesn't offer "a smarter AI." It offers a **non-primate way to organize intelligence.** Agents with memory, names, and collaborative discipline.
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|------------|
-| Runtime | Node.js 22 (LTS) |
-| Language | TypeScript |
-| Backend Framework | Hono |
-| Database | better-sqlite3 |
-| Test Framework | Vitest |
-| Lint | ESLint (flat config) |
-| Package Manager | npm |
+> No "look how smart our AI is" — only "why we were dumb back then, and how we got smarter".
 
 ## Quick Start
 
-### Prerequisites
-
-- Node.js 22 (LTS)
-- npm
-- LLM API Key (OpenAI or Anthropic)
-
-### Configure
-
 ```bash
-cp config/config.yaml.example config/config.yaml
+# Prerequisites: Node.js 22 + npm + an LLM API Key (OpenAI / Anthropic / Kimi etc.)
+cp config/config.yaml.example config/config.yaml   # fill in your API key
+./scripts/otter-buddy.sh start                     # install → build → start
 ```
 
-Edit `config/config.yaml` and set your LLM API Key:
+Open http://localhost:3000 and start chatting. Multi-model mixing: configure multiple `llm.models[]` (alias + provider) in `config.yaml` — different otters can run on different models.
+
+<details>
+<summary><b>Advanced configuration</b> (ports / alpha validation env / multimodal declaration / git hooks / .env migration)</summary>
+
+### Startup script & ports
+
+`scripts/otter-buddy.sh` provides start / stop / restart / status. Multiple worktrees can run on different ports (`-p 3001`) without interfering.
+
+### Alpha validation environment (port constitution)
+
+`scripts/alpha.sh` manages worktree validation instances (F20260917alph): ports auto-allocated from the 3100-3198 even range, isolated data root `~/.otter/alpha/<worktree-hash>/`. **Never kill the main service on port 3000** — an occupied port is the answer; pick another one.
+
+### Model input capability declaration (multimodal)
+
+Models without vision must explicitly declare `input: ["text"]` — otherwise the template implicitly inherits `["text","image"]` and injected images cause silent hallucination (verified in F20260827mmdu). With the declaration, the SDK downgrades images to text placeholders automatically.
 
 ```yaml
 llm:
   models:
-    - alias: default
-      provider: openai      # openai / anthropic / kimi-coding
-      model: gpt-4o
-      apiKey: sk-...        # Your LLM API Key
+    - alias: glm
+      provider: anthropic
+      model: glm-5.3
+      input: ["text"]             # can't see images — must declare
+    - alias: glm-flash
+      input: ["text", "image"]    # supports vision
 ```
 
-> `config/config.yaml` is in `.gitignore` and will not be committed.
+### Verify git hooks
 
-### Start
-
-```bash
-./scripts/otter-buddy.sh start
-```
-
-The startup script automatically: installs dependencies → builds backend → builds frontend → starts the server.
-
-Open http://localhost:3000 to start chatting.
-
-> Custom port: `./scripts/otter-buddy.sh start -p 3001`. `stop` / `restart` / `status` commands work the same way.
-
-## Advanced Configuration
-
-### Startup script
-
-`scripts/otter-buddy.sh` provides service management commands, supporting multiple worktrees on different ports:
-
-```bash
-./scripts/otter-buddy.sh start [-p port]   # Build and start
-./scripts/otter-buddy.sh stop [-p port]    # Stop
-./scripts/otter-buddy.sh restart [-p port] # Restart
-./scripts/otter-buddy.sh status            # Check status
-```
-
-Each worktree manages its own service independently. `stop`/`restart` only affects the current worktree. If the port is occupied by another worktree, the script shows the PID for you to decide.
+`npm install`'s `prepare` script points hooks at `.githooks/`; if external tools override this, all hooks **silently stop working** (#476, #684 on record). Verify once after install: `npm run hooks:check`; run `npm run prepare` to self-heal.
 
 ### Migrating from .env
-
-If you previously used `.env`, map your environment variables to `config/config.yaml`:
 
 | Environment variable | config.yaml field |
 |---------------------|-------------------|
@@ -137,92 +88,41 @@ If you previously used `.env`, map your environment variables to `config/config.
 | `OTTER_BUDDY_PORT` | `server.port` |
 | `OTTER_BUDDY_DB_PATH` | `database.path` |
 
-### Model Input Capability Declaration (multimodal)
+</details>
 
-`llm.models[]` supports an optional `input` field to explicitly declare model input capabilities — **this is the single source of truth for image injection downgrade**:
+## Why sea otters
 
-```yaml
-llm:
-  models:
-    - alias: glm
-      provider: anthropic
-      model: glm-5.3
-      input: ["text"]        # This model can't see images — without declaration, template implicitly inherits ["text","image"], causing silent hallucination
-    - alias: glm-flash
-      input: ["text", "image"]  # Supports vision
-```
+Sea otters aren't primates, but they have tools, craft, and culture. A group of otters is called a raft — floating on the same water, each foraging independently, holding hands and wrapping kelp so nobody drifts away.
 
-Rule (confirmed by F20260827mmdu): **Models without vision must explicitly declare `input: ["text"]`** — the anthropic provider template defaults to `input: ["text","image"]`. Without declaration, SDK injects images into models that can't see them, producing hallucinations (glm-5.3 returns 200 but thinking says "can't see images"). With declaration, SDK's `downgradeUnsupportedImages` automatically downgrades to text placeholders.
+This system works the same way: the raft is collaboration (one conversational substrate, a talking stone passed around), the kelp forest is memory (conclusions stored and growing, not searched and forgotten), and craft is skill (behavioral patterns with know-how, not exposed API calls).
 
-### Verify git hooks
-
-`npm install`'s `prepare` script points hooks at the repo's `.githooks/` (commit-msg / pre-commit / pre-push / pre-merge-commit). If this config gets overridden by external tools or environment, all hooks silently stop working (#476, F20260821kgts, #684). Verify after install:
-
-```bash
-npm run hooks:check
-# Expected: core.hooksPath=.githooks ✓ (relative paths resolve against the repo root, works inside worktrees)
-# Exits 1 when broken; run npm run prepare (or npm run hooks:fix) to self-heal
-```
-
-### Contributing
-
-**Issues are welcome** — bug reports, ideas, and feature suggestions are all valuable contributions.
-**Pull requests are not accepted for now.** This is a personal research project; the maintainer's bandwidth is limited. If you'd like to see a change, please open an issue describing it instead.
-
-For internal development conventions, see [CONTRIBUTING.md](./CONTRIBUTING.md).
+AI doesn't need to look human to have civilization.
 
 ## System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │  Web Frontend (React + Vite)                         │
-│  web/ → http://localhost:5173 (dev) / :3000 (prod)   │
 │  Pages: Chat · Memory · Skills · Settings            │
 └──────────────────┬──────────────────────────────────┘
                    │ /api/* (REST + SSE)
 ┌──────────────────▼──────────────────────────────────┐
-│  Backend (Hono + Node.js)                            │
-│  src/main.ts → http://localhost:3000                  │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ │
-│  │ Controllers  │ │ Use Cases    │ │ Frameworks   │ │
-│  │ (HTTP/REST)  │→│ (Business)   │→│ (DB/LLM/Emb) │ │
-│  └──────────────┘ └──────────────┘ └──────────────┘ │
+│  Backend (Hono + Node.js + TypeScript, Clean Arch)   │
+│  Controllers → Use Cases → Frameworks                │
 │  ┌──────────────┐                                    │
-│  │ Agent Runtime│ (Pi Agent + Tools)                 │
+│  │ Agent Runtime│ (Pi Agent + Tools + Skills)        │
 │  └──────────────┘                                    │
-└─────────────────────────────────────────────────────┘
-                   │
-        ┌──────────┴──────────┐
-        │ SQLite (better-sqlite3) │
-        │ Vectors (sqlite-vec)    │
+└──────────────────┬──────────────────────────────────┘
+        ┌──────────▼──────────┐
+        │ SQLite (better-sqlite3 + sqlite-vec vectors) │
         └─────────────────────┘
 ```
 
-## Project Structure
+## Contributing
 
-```
-otter-buddy/
-├── api-contract/     # Shared TypeScript types (DTO + SSE events)
-├── web/              # React frontend (Vite + Tailwind CSS)
-│   ├── src/          # Frontend source (React components, API client)
-│   ├── index.html    # Chat page entry
-│   ├── memory.html   # Memory page entry
-│   ├── skills.html   # Skills page entry
-│   └── settings.html # Settings page entry
-├── src/              # Backend source (Clean Architecture)
-│   ├── frameworks/       # Framework layer (DB, LLM, Embedding, Config)
-│   ├── usecases/         # Use case layer (business logic)
-│   ├── interface-adapters/# Interface adapters (HTTP controllers, Agent Runtime)
-│   └── main.ts           # Composition Root (dependency injection)
-├── tests/            # Tests
-├── .github/          # GitHub config (CI, issue templates, PR template, etc.)
-├── .githooks/        # Git hooks (commit conventions, branch protection)
-├── docs/             # Project documentation
-├── package.json
-├── tsconfig.json
-├── eslint.config.mjs
-└── vitest.config.ts
-```
+Issues are welcome — bug reports, ideas, and feature suggestions are all valuable contributions. Pull requests are not accepted for now: this is a personal research project with limited maintainer bandwidth. If you'd like a change, open an issue describing it.
+
+For internal development conventions, see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 

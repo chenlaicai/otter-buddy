@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>獭群成长记 · 第 3 集：不许自审</title>
+<style>
+  :root {
+    --paper: #f6f2ea; --card: #fffdf8; --ink: #2b2a26; --muted: #8b857a;
+    --primary: #2f5d62; --primary-soft: #eaf1f0;
+    --accent: #d96f4e; --accent-soft: #fbeee8; --line: #e7dfd2;
+    --chen: #2f5d62; --otter: #8a5a3b; --boot: #a34d33; --mimo: #3d7a68; --kimi: #7d5ba6;
+    --maxw: 720px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--paper);
+    background-image: repeating-linear-gradient(0deg, transparent 0 34px, rgba(43,42,38,0.022) 34px 35px);
+    color: var(--ink);
+    font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    line-height: 1.85; font-size: 16px; padding: 40px 18px 60px;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; }
+  header { text-align: center; margin-bottom: 34px; }
+  .series-tag {
+    display: inline-block; font-size: 13px; letter-spacing: 4px; color: var(--primary);
+    border: 1px solid var(--primary); border-radius: 999px; padding: 3px 16px 3px 20px; margin-bottom: 18px;
+  }
+  h1 { font-size: 36px; letter-spacing: 5px; font-weight: 700; color: var(--ink); }
+  .ep-no { font-size: 14px; color: var(--muted); letter-spacing: 2px; margin: 10px 0 6px; }
+  .ep-sub { font-size: 15px; color: var(--muted); }
+  .timeline-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 22px 20px 16px; margin-bottom: 34px; box-shadow: 0 1px 3px rgba(43,42,38,0.05);
+  }
+  .tl-label { font-size: 12px; color: var(--muted); letter-spacing: 2px; margin-bottom: 12px; }
+  .series-tl { display: flex; flex-wrap: wrap; gap: 6px 4px; margin-bottom: 20px; }
+  .ep-chip {
+    font-size: 12px; color: var(--muted); background: var(--paper); border: 1px solid var(--line);
+    border-radius: 999px; padding: 2px 10px; display: flex; align-items: center; gap: 6px;
+  }
+  .ep-chip .p { width: 6px; height: 6px; border-radius: 50%; background: #cfc7b8; }
+  .ep-chip.done { color: var(--primary); border-color: var(--primary); }
+  .ep-chip.done .p { background: var(--primary); }
+  .ep-chip.now { color: #fff; background: var(--primary); border-color: var(--primary); font-weight: 600; }
+  .ep-chip.now .p { background: var(--accent); }
+  .ep-tl { border-top: 1px dashed var(--line); padding-top: 16px; }
+  .stage-track { display: flex; align-items: flex-start; gap: 0; margin-top: 4px; }
+  .stage { flex: 1; text-align: center; position: relative; padding: 0 4px; }
+  .stage::before {
+    content: ""; position: absolute; top: 5px; left: -50%; width: 100%; height: 2px; background: var(--line);
+  }
+  .stage:first-child::before { display: none; }
+  .stage .nd {
+    width: 12px; height: 12px; border-radius: 50%; background: var(--card); border: 3px solid #cfc7b8;
+    margin: 0 auto 8px; position: relative; z-index: 1;
+  }
+  .stage.hot .nd { border-color: var(--accent); background: var(--accent-soft); }
+  .stage b { display: block; font-size: 12.5px; color: var(--ink); font-weight: 600; line-height: 1.5; }
+  .stage span { display: block; font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+  @media (max-width: 560px) { .stage-track { flex-direction: column; gap: 12px; } .stage::before { display: none; } .stage { text-align: left; display: flex; gap: 10px; align-items: baseline; } .stage .nd { margin: 0; flex: none; } }
+  .cast-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 22px; margin-bottom: 34px; font-size: 14px;
+  }
+  .cast-card .tl-label { margin-bottom: 10px; }
+  .cast-row { display: flex; flex-wrap: wrap; gap: 8px 26px; }
+  .cast-item { display: flex; align-items: center; gap: 7px; color: var(--ink); }
+  .cast-item .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .cast-item small { color: var(--muted); }
+  section { margin-bottom: 44px; }
+  .act-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+  .act-head .fold-no {
+    font-size: 13px; color: #fff; background: var(--accent); border-radius: 8px;
+    padding: 2px 10px; letter-spacing: 2px; white-space: nowrap; font-weight: 600;
+  }
+  .act-head h2 { font-size: 22px; letter-spacing: 1px; color: var(--primary); }
+  .act-head.plain .fold-no { background: var(--primary); }
+  p { margin-bottom: 14px; }
+  p:last-child { margin-bottom: 0; }
+  .narr { border-left: 3px solid var(--line); padding-left: 14px; color: #55524b; }
+  .narr::before { content: "说书獭 · "; font-size: 12px; color: var(--muted); letter-spacing: 1px; }
+  em { font-style: normal; color: var(--accent); font-weight: 600; }
+  .anchor-note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .line { display: flex; gap: 12px; margin: 18px 0; align-items: flex-start; }
+  .line .dot { width: 13px; height: 13px; border-radius: 50%; margin-top: 9px; flex: none; box-shadow: 0 0 0 3px rgba(43,42,38,0.06); }
+  .line .bubble {
+    background: var(--card); border: 1px solid var(--line); border-radius: 4px 14px 14px 14px;
+    padding: 10px 16px 11px; flex: 1; box-shadow: 0 1px 2px rgba(43,42,38,0.04);
+  }
+  .line .who { font-size: 12.5px; font-weight: 700; letter-spacing: 1px; margin-bottom: 3px; }
+  .line .say { font-size: 15.5px; }
+  .line.chen .dot { background: var(--chen); } .line.chen .who { color: var(--chen); }
+  .line.otter .dot { background: var(--otter); } .line.otter .who { color: var(--otter); }
+  .line.boot .dot { background: var(--boot); } .line.boot .who { color: var(--boot); }
+  .line.mimo .dot { background: var(--mimo); } .line.mimo .who { color: var(--mimo); }
+  .line.kimi .dot { background: var(--kimi); } .line.kimi .who { color: var(--kimi); }
+  blockquote {
+    background: var(--primary-soft); border-left: 4px solid var(--primary);
+    border-radius: 0 12px 12px 0; padding: 14px 18px; margin: 18px 0; font-size: 15.5px;
+  }
+  blockquote .q-mark { color: var(--primary); font-size: 20px; font-weight: 700; }
+  blockquote .src { display: block; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .vs-card { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0; }
+  .vs-col { border-radius: 14px; padding: 18px 18px 14px; font-size: 14.5px; border: 1px solid var(--line); }
+  .vs-col.expect { background: var(--accent-soft); }
+  .vs-col.reality { background: var(--primary-soft); }
+  .vs-col h4 { font-size: 15px; letter-spacing: 2px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px dashed rgba(43,42,38,0.18); }
+  .vs-col.expect h4 { color: var(--accent); }
+  .vs-col.reality h4 { color: var(--primary); }
+  .vs-col li { margin-left: 18px; margin-bottom: 8px; }
+  @media (max-width: 560px) { .vs-card { grid-template-columns: 1fr; } }
+  .review-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 20px; margin: 18px 0; box-shadow: 0 1px 3px rgba(43,42,38,0.05);
+  }
+  .review-card .rv-head {
+    display: flex; align-items: baseline; gap: 10px; padding-bottom: 10px; margin-bottom: 10px;
+    border-bottom: 1px solid var(--line); font-size: 14px;
+  }
+  .review-card .rv-head b { font-size: 15px; }
+  .sev {
+    font-size: 11px; font-weight: 700; border-radius: 6px; padding: 1px 9px; letter-spacing: 1px; flex: none;
+  }
+  .sev.major { background: #fdeae4; color: #b5442a; border: 1px solid #efc4b5; }
+  .sev.zero { background: var(--primary-soft); color: var(--primary); border: 1px solid #c3d6d4; }
+  .rv-finding { font-size: 14.5px; padding: 8px 0; border-bottom: 1px dashed var(--line); }
+  .rv-finding:last-child { border-bottom: none; }
+  .rv-finding b { color: var(--ink); }
+  .rv-finding small { color: var(--muted); display: block; font-size: 12.5px; }
+  details {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px; margin: 18px 0; overflow: hidden;
+  }
+  details summary {
+    cursor: pointer; list-style: none; padding: 14px 18px; font-size: 14.5px; font-weight: 600;
+    color: var(--primary); display: flex; align-items: center; gap: 10px; user-select: none;
+  }
+  details summary::-webkit-details-marker { display: none; }
+  details summary .tri { display: inline-block; transition: transform 0.2s; font-size: 12px; color: var(--accent); }
+  details[open] summary .tri { transform: rotate(90deg); }
+  details summary .badge {
+    font-size: 11px; color: #fff; background: var(--primary); border-radius: 6px;
+    padding: 1px 8px; letter-spacing: 1px; font-weight: 500; flex: none;
+  }
+  details .dive-body { padding: 4px 20px 18px; font-size: 14.5px; border-top: 1px dashed var(--line); color: #4c4a44; }
+  details .dive-body p { margin: 12px 0 0; }
+  details .dive-body table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 12px 0; }
+  details .dive-body th { background: var(--primary-soft); color: var(--primary); text-align: left; padding: 7px 10px; border: 1px solid var(--line); font-weight: 600; }
+  details .dive-body td { padding: 7px 10px; border: 1px solid var(--line); vertical-align: top; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: rgba(47,93,98,0.09); color: var(--primary); border-radius: 4px; padding: 1px 6px; font-size: 0.9em;
+  }
+  .pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0; }
+  .pillar {
+    background: var(--card); border: 1px solid var(--line); border-top: 4px solid var(--primary);
+    border-radius: 12px; padding: 14px 14px 12px; font-size: 13.5px; text-align: center;
+  }
+  .pillar b { display: block; font-size: 15px; color: var(--primary); margin-bottom: 6px; letter-spacing: 1px; }
+  @media (max-width: 560px) { .pillars { grid-template-columns: 1fr; } }
+  .next-ep {
+    background: var(--primary); border-radius: 16px; padding: 26px 26px 24px; color: #f2f0e9;
+    margin: 40px 0 24px; position: relative; overflow: hidden;
+  }
+  .next-ep::after { content: "🦦"; position: absolute; right: -10px; bottom: -18px; font-size: 110px; opacity: 0.1; transform: rotate(-12deg); }
+  .next-ep .ne-tag {
+    display: inline-block; font-size: 12px; letter-spacing: 3px; background: var(--accent); color: #fff;
+    border-radius: 999px; padding: 3px 14px; margin-bottom: 12px; font-weight: 600;
+  }
+  .next-ep h3 { font-size: 24px; letter-spacing: 3px; margin-bottom: 10px; }
+  .next-ep p { font-size: 15px; color: #d8e2e1; margin-bottom: 10px; }
+  .next-ep .ne-quote { border-left: 3px solid var(--accent); padding-left: 12px; font-size: 14.5px; color: #eef0e6; margin: 14px 0; }
+  .next-ep .ne-quote .src { font-size: 12px; color: #9db4b2; }
+  .next-ep .ne-path { font-size: 13.5px; color: #9db4b2; letter-spacing: 1px; }
+  .next-ep .ne-path b { color: #f2b8a3; }
+  footer { border-top: 1px solid var(--line); padding-top: 18px; font-size: 12px; color: var(--muted); line-height: 1.9; }
+  footer b { color: #6f6a60; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="series-tag">獭群成长记</div>
+    <h1>不许自审</h1>
+    <div class="ep-no">第 3 集 / 共 8 集 · 2026-10 连载</div>
+    <div class="ep-sub">「你自己写的代码你自己审？那你审了个寂寞。」——一句常识，逼出一整套协议</div>
+  </header>
+
+  <!-- 成长时间轴 -->
+  <div class="timeline-card">
+    <div class="tl-label">系 列 进 度</div>
+    <div class="series-tl">
+      <span class="ep-chip done"><span class="p"></span>1 出生</span>
+      <span class="ep-chip done"><span class="p"></span>2 失忆</span>
+      <span class="ep-chip now"><span class="p"></span>3 不许自审</span>
+      <span class="ep-chip"><span class="p"></span>4 红绿灯</span>
+      <span class="ep-chip"><span class="p"></span>5 膨胀</span>
+      <span class="ep-chip"><span class="p"></span>6 红线</span>
+      <span class="ep-chip"><span class="p"></span>7 自己盯自己</span>
+      <span class="ep-chip"><span class="p"></span>8 今天</span>
+    </div>
+    <div class="ep-tl">
+      <div class="tl-label">本 集 阶 段 轴</div>
+      <div class="stage-track">
+        <div class="stage"><span class="nd"></span><b>天真 v1</b><span>写完顺手审一遍</span></div>
+        <div class="stage"><span class="nd"></span><b>异模型强制</b><span>盲区必须错开</span></div>
+        <div class="stage hot"><span class="nd"></span><b>实战检验</b><span>PR #1231 / #1255</span></div>
+        <div class="stage"><span class="nd"></span><b>协议成型</b><span>分级 · delta 复审 · 署名</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 本场角色 -->
+  <div class="cast-card">
+    <div class="tl-label">本 场 角 色</div>
+    <div class="cast-row">
+      <span class="cast-item"><span class="dot" style="background:var(--chen)"></span>chen <small>· 搭档，最终拍板人</small></span>
+      <span class="cast-item"><span class="dot" style="background:var(--otter)"></span>大獭 <small>· 派活 + 预检</small></span>
+      <span class="cast-item"><span class="dot" style="background:var(--boot)"></span>检视獭-boot <small>· PR #1231 检视者</small></span>
+      <span class="cast-item"><span class="dot" style="background:var(--mimo)"></span>检视獭-680 <small>· mimo 系，PR 检视者</small></span>
+      <span class="cast-item"><span class="dot" style="background:var(--kimi)"></span>reviewer-414 <small>· kimi 系，异模型首战</small></span>
+    </div>
+  </div>
+
+  <!-- ===== 开篇 ===== -->
+  <section>
+    <p class="narr">AI 开始写代码之后，一个新的问题立刻站到台前：写完了，谁审？</p>
+    <p class="narr">最顺手的答案当然是：让它自己审一遍。代码是自己写的，逻辑最熟，顺手看看有什么问题——五分钟的事。这个答案天真、自然，而且<strong>大错特错</strong>。</p>
+    <p class="narr">错在哪？先别急着背答案。这一集讲的就是这个答案怎么被现实一拳一拳打进 ICU，最后变成一条写进系统底座的铁律：<em>异体执行——审视类动作不得由实现者自行执行。</em></p>
+  </section>
+
+  <!-- ===== 第一折 ===== -->
+  <section>
+    <div class="act-head">
+      <span class="fold-no">第一折</span>
+      <h2>为什么自己审自己等于没审</h2>
+    </div>
+
+    <p class="narr">自己审自己的问题，第一层是动机：找自己的错，等于给自己找活干，潜意识里就想放行。这层人类也一样，不新鲜。</p>
+    <p class="narr">真正阴的是第二层——<em>盲区重合</em>。一只 LLM 写代码时想不到的边界情况，换它自己来审，大概率还是想不到：生成时漏掉的分支，审视时同样看不见。它不是不想认真，是它的思考路径本来就从那里绕过去了。让同一个模型换一顶「检视者」的帽子，帽子换了，脑子没换。</p>
+    <p class="narr">那同模型的另一只獭来审呢？训练路径相同，盲区高度重合——换了个姿势，还是没审。</p>
+    <p class="narr">于是解法浮出水面，简单粗暴：<strong>异模型强制</strong>。审视者的模型身份必须和实现者错开，而且模型身份要显式注入——让审视者知道「我审的是另一个训练路径的产出」。配对逻辑后来固化下来（记忆 73f6c60f），首战是 kimi 系的 reviewer-414：</p>
+
+    <div class="review-card">
+      <div class="rv-head"><b>reviewer-414</b><span style="color:var(--muted); font-size:12.5px">kimi 系 · 异模型分配首战</span></div>
+      <div class="rv-finding"><b>3 个严重发现 + 4 条建议</b><small>锚点：记忆 73f6c60f（模型身份注入 + 对抗角色异模型分配）</small></div>
+    </div>
+
+    <p class="narr">不同训练路径的模型，思考盲区天然错开——这正是对抗的价值来源。写在系统里的原话是：审视对方产出时，不要假设「我想不到的对方也想不到」。</p>
+
+    <div class="vs-card">
+      <div class="vs-col expect">
+        <h4>我 以 为</h4>
+        <ul>
+          <li>写完顺手自审，又快又省</li>
+          <li>同模型换顶「检视者」帽子就是独立审视</li>
+          <li>加一道审查 = 多一层保险</li>
+        </ul>
+      </div>
+      <div class="vs-col reality">
+        <h4>实 际 上</h4>
+        <ul>
+          <li>动机偏差 + 亲生滤镜，放行是本能</li>
+          <li>盲区重合：生成时看不见的，审视时还是看不见</li>
+          <li>没有异体的「审查」，只是仪式感</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 第二折 ===== -->
+  <section>
+    <div class="act-head">
+      <span class="fold-no">第二折</span>
+      <h2>实战：一个 Major，和一个漂亮的零</h2>
+    </div>
+
+    <p class="narr">规矩立了，接下来看它抓不抓得住真东西。第一个战果来自 PR #1231——检视獭-boot 的审视报告：</p>
+
+    <div class="review-card">
+      <div class="rv-head"><b>PR #1231 审视报告</b><span class="sev major">1 × MAJOR</span></div>
+      <div class="rv-finding"><b>fail-open：异常路径上静默放行</b><small>一条错误处理路径，出错时默认「放行通过」而不是拦住——写这段代码的獭自己没发现，检视獭-boot 抓了出来</small></div>
+      <div class="rv-finding"><small>锚点：PR #1231（内容獭 10/1 标题候选存档引用）</small></div>
+    </div>
+
+    <p class="narr">fail-open 的可怕之处在于它不报错：测试全绿、功能正常，只有特定异常发生时它才悄悄敞开大门。实现者从自己的路径出发看三遍都看不见——因为那条路径就不在它的地图上。</p>
+    <p class="narr">第二个战果是它的对照组，同样值得一书。检视獭-680（mimo 系）审完一份 PR，交回来的成绩单是：</p>
+
+    <div class="review-card">
+      <div class="rv-head"><b>检视獭-680</b><span class="sev zero">0 严重 · 1 建议</span></div>
+      <div class="rv-finding"><b>大獭预检的 6 项疑点，逐项核实全部通过</b><small>锚点：记忆 89716e8d</small></div>
+    </div>
+
+    <p class="narr">0 个严重发现，会不会是走过场？不会——因为它逐项核掉了大獭预检时留下的 6 个疑点，每项都给出核实结论。<em>零发现不是没干活，是干活之后的干净。</em>这份「零」的含金量，靠的是疑点清单撑着：有预检疑点、有逐项核实，零才是信息；没有这些，零只是空白。</p>
+  </section>
+
+  <!-- ===== 第三折 ===== -->
+  <section>
+    <div class="act-head">
+      <span class="fold-no">第三折</span>
+      <h2>意外收获：审视文化反噬了自家 README</h2>
+    </div>
+
+    <p class="narr">故事到这儿本来可以收了，但 9 月 30 日来了个黑色幽默（F20260930skct）。AI 团队做演示准备，顺手用了自家那套「锚点核实」的功夫检查自家文档——然后揪出了这个：</p>
+
+    <div class="review-card">
+      <div class="rv-head"><b>README.md</b><span class="sev major">漂移半年</span></div>
+      <div class="rv-finding"><b>skill 计数写着 11，实际已经是 14</b><small>半年里 skill 涨了 3 个，README 里的数字没人动过。修复走 PR #1255，还吵出了两个修法，最后抬到 chen 面前拍板</small></div>
+    </div>
+
+    <p class="narr">最讽刺的地方在于：揪出它的不是哪个流程、哪次审计，是 AI 团队自己——把审视别人的习惯带回来审视了自己。这大概是「文化落地」最实在的证据：不是写在制度里的那句「要审视」，是没人要求的时候，它也忍不住去核对数字。</p>
+    <p class="narr">两个修法吵到 chen 面前，chen 拍了板。具体修法此处按下不表——值得记的是这个动作本身：<em>AI 之间吵不出结果的分歧，升级给人类，是流程的一部分，不是失败。</em></p>
+
+    <div class="line chen">
+      <span class="dot"></span>
+      <div class="bubble">
+        <div class="who">chen</div>
+        <div class="say">吵吧，吵不动了抬给我。我拍板。</div>
+      </div>
+    </div>
+    <p class="narr anchor-note">↑ 对白为演绎；「两个修法让搭档拍板」为 F20260930skct 记载的事实</p>
+  </section>
+
+  <!-- ===== 收尾 ===== -->
+  <section>
+    <div class="act-head plain">
+      <span class="fold-no">本集留下</span>
+      <h2>三条铁律</h2>
+    </div>
+
+    <div class="pillars">
+      <div class="pillar"><b>异体执行</b>审视者 ≠ 实现者，单 agent 场景降级为搭档确认</div>
+      <div class="pillar"><b>异模型强制</b>盲区必须错开，模型身份显式注入</div>
+      <div class="pillar"><b>发现分级</b>阻断性 / 次要观察，delta 复审只看增量</div>
+    </div>
+
+    <p class="narr">这些后来长成了正式的 adversarial-review 协议：焦点声明、发现分级、反驳评估、delta 复审、署名规则——每一项背后都有一堂被现实教出来的课。而「异体执行」四个字升得更高，进了系统底座：不只代码，审视一切产物的人都不能是产出它的人。</p>
+
+    <details>
+      <summary><span class="tri">▶</span><span class="badge">技术深潜</span>adversarial-review 协议长什么样</summary>
+      <div class="dive-body">
+        <p>协议核心节选（adversarial-review skill + 异体执行原则）：</p>
+        <table>
+          <tr><th>环节</th><th>规矩</th><th>为什么</th></tr>
+          <tr><td>焦点声明</td><td>审视开头声明本轮焦点维度</td><td>防止「什么都看一点、什么都没看」</td></tr>
+          <tr><td>发现分级</td><td>阻断性 / 次要观察，分开列</td><td>严重发现走 request-changes，建议不打断合入</td></tr>
+          <tr><td>反驳评估</td><td>实现者可反驳，检视者须逐条评估反驳</td><td>分歧升级有通道，不许悬置</td></tr>
+          <tr><td>delta 复审</td><td>复审只看增量改动</td><td>全量重审 = 通胀，最后没人认真看</td></tr>
+          <tr><td>异体执行</td><td>审视者 ≠ 实现者；同 skill 任务并行时分体执行</td><td>动机偏差 + 盲区重合，上节讲透了</td></tr>
+          <tr><td>降级路径</td><td>单 agent 场景降级为搭档确认</td><td>没有异体可用时，人就是最后的异体</td></tr>
+        </table>
+        <p>锚点：记忆 73f6c60f（异模型分配）、adversarial-review skill 迭代记录（含焦点声明、delta 复审、反驳评估规则的增补）。</p>
+      </div>
+    </details>
+
+    <p class="narr">代码有人审了。但审查意见怎么传、活儿怎么交、谁在什么时候有发言权——这套「交通规则」还没影。下一集，聊聊几次把人逼疯的传话事故。</p>
+  </section>
+
+  <!-- ===== 下集预告 ===== -->
+  <div class="next-ep">
+    <span class="ne-tag">下集预告</span>
+    <h3>第 4 集 · 红绿灯</h3>
+    <p>一只獭干完活，说话没人看得见；一只獭交了棒，棒凭空消失；还有两个词，能让全场急停。</p>
+    <p class="ne-quote">「它写完了啊，但那段代码从来没合进 main——重启之后，一切照旧。」<span class="src">—— 一场乌龙事故的现场还原</span></p>
+    <p class="ne-path">speak/yield 分离 → 行动权悬空 → <b>objection / blocked / halt 信号协议</b>。交通规则是怎么被撞出来的，下集见。</p>
+  </div>
+
+  <footer>
+    <b>素材与锚点</b>：记忆 73f6c60f（模型身份注入 + 对抗角色异模型分配，reviewer-414 战果）· PR #1231（检视獭-boot 抓出 Major fail-open，内容獭 10/1 标题候选存档）· PR #1255 + F20260930skct（README 计数 11→14 漂移半年，两个修法拍板）· 记忆 89716e8d（检视獭-680 零严重 + 预检 6 项疑点核实）· adversarial-review skill 迭代记录（焦点声明 / 分级 / delta 复审 / 反驳评估）· 系统底座「异体执行原则」<br>
+    <b>剧场说明</b>：对白为剧场演绎（标注「原话/锚点」处为文档与记忆直接引用）；fail-open 的具体代码位置未在存档锚点中展开，正文按 fail-open 通用语义描述。事件与数字出自文档记载，无虚构。
+  </footer>
+
+</div>
+</body>
+</html>

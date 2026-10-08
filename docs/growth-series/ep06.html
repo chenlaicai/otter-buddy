@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>獭群成长记 · 第 6 集：红线</title>
+<style>
+  :root {
+    --paper: #f6f2ea; --card: #fffdf8; --ink: #2b2a26; --muted: #8b857a;
+    --primary: #2f5d62; --primary-soft: #eaf1f0;
+    --accent: #d96f4e; --accent-soft: #fbeee8; --line: #e7dfd2;
+    --chen: #2f5d62; --otter: #8a5a3b; --deep: #4a5a8a; --gate: #8a3b52;
+    --maxw: 720px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--paper);
+    background-image: repeating-linear-gradient(0deg, transparent 0 34px, rgba(43,42,38,0.022) 34px 35px);
+    color: var(--ink);
+    font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    line-height: 1.85; font-size: 16px; padding: 40px 18px 60px;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; }
+  header { text-align: center; margin-bottom: 34px; }
+  .series-tag {
+    display: inline-block; font-size: 13px; letter-spacing: 4px; color: var(--primary);
+    border: 1px solid var(--primary); border-radius: 999px; padding: 3px 16px 3px 20px; margin-bottom: 18px;
+  }
+  h1 { font-size: 40px; letter-spacing: 6px; font-weight: 700; color: var(--ink); }
+  .ep-no { font-size: 14px; color: var(--muted); letter-spacing: 2px; margin: 10px 0 6px; }
+  .ep-sub { font-size: 15px; color: var(--muted); }
+  .timeline-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 22px 20px 16px; margin-bottom: 34px; box-shadow: 0 1px 3px rgba(43,42,38,0.05);
+  }
+  .tl-label { font-size: 12px; color: var(--muted); letter-spacing: 2px; margin-bottom: 12px; }
+  .series-tl { display: flex; flex-wrap: wrap; gap: 6px 4px; margin-bottom: 20px; }
+  .ep-chip {
+    font-size: 12px; color: var(--muted); background: var(--paper); border: 1px solid var(--line);
+    border-radius: 999px; padding: 2px 10px; display: flex; align-items: center; gap: 6px;
+  }
+  .ep-chip .p { width: 6px; height: 6px; border-radius: 50%; background: #cfc7b8; }
+  .ep-chip.done { color: var(--primary); border-color: var(--primary); }
+  .ep-chip.done .p { background: var(--primary); }
+  .ep-chip.now { color: #fff; background: var(--primary); border-color: var(--primary); font-weight: 600; }
+  .ep-chip.now .p { background: var(--accent); }
+  .ep-tl { border-top: 1px dashed var(--line); padding-top: 16px; }
+  .ep-tl-items { display: flex; flex-wrap: wrap; gap: 10px 18px; }
+  .ep-tl-item { font-size: 13px; color: var(--ink); display: flex; align-items: baseline; gap: 6px; }
+  .ep-tl-item b { color: var(--accent); font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .ep-tl-item span { color: var(--muted); }
+  .cast-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 22px; margin-bottom: 34px; font-size: 14px;
+  }
+  .cast-card .tl-label { margin-bottom: 10px; }
+  .cast-row { display: flex; flex-wrap: wrap; gap: 8px 26px; }
+  .cast-item { display: flex; align-items: center; gap: 7px; color: var(--ink); }
+  .cast-item .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .cast-item small { color: var(--muted); }
+  section { margin-bottom: 44px; }
+  .act-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+  .act-head .fold-no {
+    font-size: 13px; color: #fff; background: var(--accent); border-radius: 8px;
+    padding: 2px 10px; letter-spacing: 2px; white-space: nowrap; font-weight: 600;
+  }
+  .act-head h2 { font-size: 22px; letter-spacing: 1px; color: var(--primary); }
+  .act-head.plain .fold-no { background: var(--primary); }
+  p { margin-bottom: 14px; }
+  p:last-child { margin-bottom: 0; }
+  .narr { border-left: 3px solid var(--line); padding-left: 14px; color: #55524b; }
+  .narr::before { content: "说书獭 · "; font-size: 12px; color: var(--muted); letter-spacing: 1px; }
+  em { font-style: normal; color: var(--accent); font-weight: 600; }
+  .anchor-note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .line { display: flex; gap: 12px; margin: 18px 0; align-items: flex-start; }
+  .line .dot { width: 13px; height: 13px; border-radius: 50%; margin-top: 9px; flex: none; box-shadow: 0 0 0 3px rgba(43,42,38,0.06); }
+  .line .bubble {
+    background: var(--card); border: 1px solid var(--line); border-radius: 4px 14px 14px 14px;
+    padding: 10px 16px 11px; flex: 1; box-shadow: 0 1px 2px rgba(43,42,38,0.04);
+  }
+  .line .who { font-size: 12.5px; font-weight: 700; letter-spacing: 1px; margin-bottom: 3px; }
+  .line .say { font-size: 15.5px; }
+  .line.chen .dot { background: var(--chen); } .line.chen .who { color: var(--chen); }
+  .line.otter .dot { background: var(--otter); } .line.otter .who { color: var(--otter); }
+  .line.deep .dot { background: var(--deep); } .line.deep .who { color: var(--deep); }
+  blockquote {
+    background: var(--primary-soft); border-left: 4px solid var(--primary);
+    border-radius: 0 12px 12px 0; padding: 14px 18px; margin: 18px 0; font-size: 15.5px;
+  }
+  blockquote .q-mark { color: var(--primary); font-size: 20px; font-weight: 700; }
+  blockquote .src { display: block; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .redline-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 6px 22px; margin: 18px 0; box-shadow: 0 1px 3px rgba(43,42,38,0.05);
+  }
+  .rl-item { padding: 11px 0; border-bottom: 1px dashed var(--line); display: flex; gap: 12px; align-items: baseline; }
+  .rl-item:last-child { border-bottom: none; }
+  .rl-item .rl-no {
+    font-size: 11px; color: #fff; background: var(--gate); border-radius: 6px;
+    padding: 1px 8px; flex: none; letter-spacing: 1px; font-weight: 700;
+  }
+  .rl-item b { font-size: 15px; }
+  .rl-item small { display: block; color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+  .repo-map {
+    background: #35393b; border-radius: 14px; padding: 18px; margin: 18px 0;
+    box-shadow: 0 2px 6px rgba(43,42,38,0.15);
+  }
+  .repo-map-head { color: #b9c2c3; font-size: 12px; text-align: center; margin-bottom: 14px; letter-spacing: 1px; }
+  .repo-main {
+    border: 1.5px solid #c9503c; border-radius: 10px; padding: 10px 14px; text-align: center;
+    color: #e8e4da; font-size: 13.5px; margin-bottom: 6px; background: rgba(201,80,60,0.08);
+  }
+  .repo-main .lock { color: #e08a75; font-size: 11.5px; display: block; }
+  .repo-link { text-align: center; color: #8f999a; font-size: 16px; line-height: 1; margin-bottom: 6px; }
+  .wt-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .wt-box {
+    border: 1px dashed #6b7476; border-radius: 8px; padding: 8px 6px; text-align: center;
+    color: #b9c2c3; font-size: 11.5px; font-family: ui-monospace, Menlo, monospace;
+  }
+  .wt-box.new { border-color: #5d8f87; color: #9fc7bf; border-style: solid; }
+  .repo-caption { color: #8f999a; font-size: 12px; text-align: center; margin-top: 10px; }
+  .gate-check {
+    background: var(--card); border: 1px solid #efc4b5; border-radius: 14px;
+    padding: 18px 20px; margin: 18px 0; box-shadow: 0 1px 3px rgba(43,42,38,0.05);
+  }
+  .gate-check .gc-head {
+    font-size: 13px; color: var(--gate); letter-spacing: 2px; margin-bottom: 10px;
+    font-weight: 700;
+  }
+  .gate-row {
+    display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px;
+    margin: 6px 0; font-size: 14px;
+  }
+  .gate-row .verdict { flex: none; font-size: 12px; font-weight: 700; border-radius: 6px; padding: 2px 9px; letter-spacing: 1px; }
+  .gate-row.pass { background: var(--primary-soft); }
+  .gate-row.pass .verdict { color: #fff; background: var(--primary); }
+  .gate-row.fail { background: #fdeae4; }
+  .gate-row.fail .verdict { color: #fff; background: #c9503c; }
+  .gate-row code { background: transparent; font-size: 13px; }
+  .vs-card { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0; }
+  .vs-col { border-radius: 14px; padding: 18px 18px 14px; font-size: 14.5px; border: 1px solid var(--line); }
+  .vs-col.expect { background: var(--accent-soft); }
+  .vs-col.reality { background: var(--primary-soft); }
+  .vs-col h4 { font-size: 15px; letter-spacing: 2px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px dashed rgba(43,42,38,0.18); }
+  .vs-col.expect h4 { color: var(--accent); }
+  .vs-col.reality h4 { color: var(--primary); }
+  .vs-col li { margin-left: 18px; margin-bottom: 8px; }
+  @media (max-width: 560px) { .vs-card { grid-template-columns: 1fr; } }
+  details {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px; margin: 18px 0; overflow: hidden;
+  }
+  details summary {
+    cursor: pointer; list-style: none; padding: 14px 18px; font-size: 14.5px; font-weight: 600;
+    color: var(--primary); display: flex; align-items: center; gap: 10px; user-select: none;
+  }
+  details summary::-webkit-details-marker { display: none; }
+  details summary .tri { display: inline-block; transition: transform 0.2s; font-size: 12px; color: var(--accent); }
+  details[open] summary .tri { transform: rotate(90deg); }
+  details summary .badge {
+    font-size: 11px; color: #fff; background: var(--primary); border-radius: 6px;
+    padding: 1px 8px; letter-spacing: 1px; font-weight: 500; flex: none;
+  }
+  details .dive-body { padding: 4px 20px 18px; font-size: 14.5px; border-top: 1px dashed var(--line); color: #4c4a44; }
+  details .dive-body p { margin: 12px 0 0; }
+  details .dive-body table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 12px 0; }
+  details .dive-body th { background: var(--primary-soft); color: var(--primary); text-align: left; padding: 7px 10px; border: 1px solid var(--line); font-weight: 600; }
+  details .dive-body td { padding: 7px 10px; border: 1px solid var(--line); vertical-align: top; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: rgba(47,93,98,0.09); color: var(--primary); border-radius: 4px; padding: 1px 6px; font-size: 0.9em;
+  }
+  .pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0; }
+  .pillar {
+    background: var(--card); border: 1px solid var(--line); border-top: 4px solid var(--primary);
+    border-radius: 12px; padding: 14px 14px 12px; font-size: 13.5px; text-align: center;
+  }
+  .pillar b { display: block; font-size: 15px; color: var(--primary); margin-bottom: 6px; letter-spacing: 1px; }
+  @media (max-width: 560px) { .pillars { grid-template-columns: 1fr; } }
+  .next-ep {
+    background: var(--primary); border-radius: 16px; padding: 26px 26px 24px; color: #f2f0e9;
+    margin: 40px 0 24px; position: relative; overflow: hidden;
+  }
+  .next-ep::after { content: "🦦"; position: absolute; right: -10px; bottom: -18px; font-size: 110px; opacity: 0.1; transform: rotate(-12deg); }
+  .next-ep .ne-tag {
+    display: inline-block; font-size: 12px; letter-spacing: 3px; background: var(--accent); color: #fff;
+    border-radius: 999px; padding: 3px 14px; margin-bottom: 12px; font-weight: 600;
+  }
+  .next-ep h3 { font-size: 24px; letter-spacing: 3px; margin-bottom: 10px; }
+  .next-ep p { font-size: 15px; color: #d8e2e1; margin-bottom: 10px; }
+  .next-ep .ne-quote { border-left: 3px solid var(--accent); padding-left: 12px; font-size: 14.5px; color: #eef0e6; margin: 14px 0; }
+  .next-ep .ne-quote .src { font-size: 12px; color: #9db4b2; }
+  .next-ep .ne-path { font-size: 13.5px; color: #9db4b2; letter-spacing: 1px; }
+  .next-ep .ne-path b { color: #f2b8a3; }
+  footer { border-top: 1px solid var(--line); padding-top: 18px; font-size: 12px; color: var(--muted); line-height: 1.9; }
+  footer b { color: #6f6a60; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="series-tag">獭群成长记</div>
+    <h1>红&nbsp;线</h1>
+    <div class="ep-no">第 6 集 / 共 8 集 · 2026-10 连载</div>
+    <div class="ep-sub">第一次把真仓库的钥匙交给 AI——设计的第一驱动力，是恐惧</div>
+  </header>
+
+  <!-- 成长时间轴 -->
+  <div class="timeline-card">
+    <div class="tl-label">系 列 进 度</div>
+    <div class="series-tl">
+      <span class="ep-chip done"><span class="p"></span>1 出生</span>
+      <span class="ep-chip done"><span class="p"></span>2 失忆</span>
+      <span class="ep-chip done"><span class="p"></span>3 不许自审</span>
+      <span class="ep-chip done"><span class="p"></span>4 红绿灯</span>
+      <span class="ep-chip done"><span class="p"></span>5 膨胀</span>
+      <span class="ep-chip now"><span class="p"></span>6 红线</span>
+      <span class="ep-chip"><span class="p"></span>7 自己盯自己</span>
+      <span class="ep-chip"><span class="p"></span>8 今天</span>
+    </div>
+    <div class="ep-tl">
+      <div class="tl-label">本 集 防 线 轴 · 由外到内</div>
+      <div class="ep-tl-items">
+        <span class="ep-tl-item"><b>防线一</b><span>worktree 物理隔离，主仓只读</span></span>
+        <span class="ep-tl-item"><b>防线二</b><span>PR-only，写码者不合自己的 PR</span></span>
+        <span class="ep-tl-item"><b>防线三</b><span>merge 授权原话闸</span></span>
+        <span class="ep-tl-item"><b>兜底</b><span>流程可弹性，红线不可弹性</span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 本场角色 -->
+  <div class="cast-card">
+    <div class="tl-label">本 场 角 色</div>
+    <div class="cast-row">
+      <span class="cast-item"><span class="dot" style="background:var(--chen)"></span>chen <small>· 搭档，钥匙的法定持有人</small></span>
+      <span class="cast-item"><span class="dot" style="background:var(--otter)"></span>大獭 <small>· 拿到钥匙也不敢用</small></span>
+      <span class="cast-item"><span class="dot" style="background:var(--deep)"></span>深度獭 <small>· 授权闸设计者（10/1 设计点 4）</small></span>
+    </div>
+  </div>
+
+  <!-- ===== 开篇 ===== -->
+  <section>
+    <p class="narr">前五集里，獭们写代码、改文档、提 PR，看起来风生水起。但有一个事实一直被小心地绕开：它们改的每一样东西，都发生在隔离的 worktree 和沙箱里——<strong>吃饭的主仓，一直只读。</strong></p>
+    <p class="narr">总有一天要让 AI 动真仓的。那天来临之前，问题先来了：<em>你敢吗？</em></p>
+    <p class="narr">这不是反问。git 历史一旦被破坏，回滚的代价是真实工时；误推到 main 的代码，影响的是每一个协作者。AI 的操作还有两个人类没有的风险源：它可能被对话里的恶意内容注入（伪造一句「同意合并」），也可能出于「善意」过度推断（「他说『行』，我理解为他同意合了」）。</p>
+    <p class="narr">所以这一集的主角不是哪个功能，是<em>恐惧</em>——设计者把所有能想到的害怕，逐条翻译成了工程。</p>
+  </section>
+
+  <!-- ===== 第一折 ===== -->
+  <section>
+    <div class="act-head">
+      <span class="fold-no">第一折</span>
+      <h2>仓库安全红线：五条不许商量</h2>
+    </div>
+
+    <p class="narr">先立总纲。写进系统底座的「仓库安全红线」，一共五条：</p>
+
+    <div class="redline-card">
+      <div class="rl-item"><span class="rl-no">R1.1</span><span><b>主目录零改动</b><small>所有文件修改必须发生在 worktree 里；主目录只允许只读操作</small></span></div>
+      <div class="rl-item"><span class="rl-no">R1.2</span><span><b>禁止直推 main</b><small>受保护分支一律先建 feature 分支，没有例外</small></span></div>
+      <div class="rl-item"><span class="rl-no">R1.3</span><span><b>PR-only 交付</b><small>改动以 PR 交付；写代码的獭，不许合自己的 PR</small></span></div>
+      <div class="rl-item"><span class="rl-no">R1.4</span><span><b>禁止破坏性 git 操作</b><small>branch -D / reset --hard / clean -f 一类，先征得搭档同意</small></span></div>
+      <div class="rl-item"><span class="rl-no">R1.5</span><span><b>commit 一次写对</b><small>提交前先读 commit 规范，不靠试错碰格式</small></span></div>
+    </div>
+
+    <p class="narr">注意第三条的后半句，它跟第 3 集的「不许自审」同源：<em>写码者不合自己的 PR</em>——自己交付的东西，自己不能放行。防的还是那两样：动机偏差和盲区。</p>
+    <p class="narr">还有一条元规则压在五条之上：<strong>流程步骤可以弹性，安全红线不可以。</strong>搭档可以喊停任何流程、跳过任何审视（记录决策后放行）——唯独红线，喊了停也得绕着走。</p>
+  </section>
+
+  <!-- ===== 第二折 ===== -->
+  <section>
+    <div class="act-head">
+      <span class="fold-no">第二折</span>
+      <h2>worktree 隔离：让 AI 在防弹屋里干活</h2>
+    </div>
+
+    <p class="narr">红线的第一条落地成物理结构（记忆 68508907）：每只獭接到活，先领一间独立工房——worktree，统一放在 <code>.otter/worktrees/</code> 下，跟项目根走。它在自己的工房里怎么折腾，主仓毫发无伤。</p>
+
+    <div class="repo-map">
+      <div class="repo-map-head">仓 库 地 图</div>
+      <div class="repo-main">📂 主仓 · main<span class="lock">🔒 对獭只读——git status / log / diff 可以，写字不行</span></div>
+      <div class="repo-link">↕ PR 是唯一通道（且要过授权闸）</div>
+      <div class="wt-grid">
+        <div class="wt-box">worktree A<br>小獭-开发</div>
+        <div class="wt-box">worktree B<br>小獭-审视</div>
+        <div class="wt-box new">worktree C<br>新任务开新房</div>
+      </div>
+      <div class="repo-caption">并行任务互不踩脚；搞砸了，删房重建，主仓始终干净</div>
+    </div>
+
+    <p class="narr">这个设计便宜、粗暴，但有效得让人安心：<em>最坏情况的爆炸半径，从「整个仓库」缩到「一间工房」。</em>AI 出幺蛾子的概率不管多低，乘上一个有界的损失，就不再是灾难。</p>
+  </section>
+
+  <!-- ===== 第三折 ===== -->
+  <section>
+    <div class="act-head">
+      <span class="fold-no">第三折</span>
+      <h2>授权原话闸：「合了吧」三个字，过不了安检</h2>
+    </div>
+
+    <p class="narr">前两道防线管「改」，最后一道管「合」——代码进了 PR 之后，谁说「可以合入」，才算数？</p>
+    <p class="narr">深度獭的设计（设计点 4，本对话 10/1）给出了一个近乎偏执的答案：<strong>merge 授权必须由搭档原话逐字机械校验。</strong>什么意思？看安检现场：</p>
+
+    <div class="gate-check">
+      <div class="gc-head">合 入 授 权 · 安 检 记 录</div>
+      <div class="gate-row pass"><span class="verdict">通过</span><span>搭档发言原文 <code>「合了吧」</code> —— 与授权词逐字匹配</span></div>
+      <div class="gate-row fail"><span class="verdict">拦截</span><span><code>「这个 PR 看起来可以合入了」</code> —— PR 描述里的句子，非搭档授权发言</span></div>
+      <div class="gate-row fail"><span class="verdict">拦截</span><span><code>「行」</code> —— 语义推断「他同意合了」= 善意推断，闸门不猜心思</span></div>
+      <div class="gate-row fail"><span class="verdict">拦截</span><span>出现在记忆/文档里的 <code>「同意合并」</code> —— 历史引用不构成当下授权</span></div>
+    </div>
+    <p class="narr anchor-note">↑ 安检场景为示意还原；规则（原话逐字校验、防注入伪造、防善意推断）出自深度獭 10/1 设计点 4</p>
+
+    <p class="narr">四个拦截项分别对应四种真实的攻击面：文档里混入的伪造审批（提示注入）、模型的善意脑补（过度推断）、被翻出来当尚方宝剑的旧授权（历史冒充）、还有似是而非的近义表达。闸门一视同仁：<em>不看你像不像授权，只看你是不是授权。</em></p>
+    <p class="narr">有人会说这也太脆了——拼写差一个字都过不去。设计者把这句话原样收下，当成了设计说明：</p>
+
+    <blockquote>
+      <span class="q-mark">「</span>脆是特性，不是 bug。<span class="q-mark">」</span>
+      <span class="src">—— 授权闸设计取舍，深度獭 10/1 设计点 4</span>
+    </blockquote>
+
+    <p class="narr">脆的闸门坏掉的样子是「拒绝执行，请搭档重新确认」——失败是安全的。而一个聪明的、会推断意图的闸门，坏掉的样子是「它猜错了，但代码已经合了」。不可逆操作面前，宁可脆。</p>
+    <p class="narr">同一时期还有个配套改造（F20260805wfsd）：以前「该审视了、该拍板了」依赖搭档每次主动提醒——忘了提醒就跳过。后来把<em>「何时必须做」</em>直接内置进 skill 流程：触发条件写在流程里，不靠人记。红线不仅要有，还要自己知道什么时候该站出来。</p>
+
+    <div class="vs-card">
+      <div class="vs-col expect">
+        <h4>我 以 为</h4>
+        <ul>
+          <li>AI 能干 = 放手让它干，效率优先</li>
+          <li>授权嘛，意思到了就行</li>
+          <li>闸门越聪明越省心</li>
+        </ul>
+      </div>
+      <div class="vs-col reality">
+        <h4>实 际 上</h4>
+        <ul>
+          <li>不可逆操作面前，爆炸半径优先于效率</li>
+          <li>「意思到了」的判断者会被注入、会脑补</li>
+          <li>授权闸故意做笨：逐字匹配，失败即安全</li>
+        </ul>
+      </div>
+    </div>
+
+    <details>
+      <summary><span class="tri">▶</span><span class="badge">技术深潜</span>三道防线的威胁模型对照</summary>
+      <div class="dive-body">
+        <p>把三道防线按「防的是什么」排开，能看到一个清晰的责任矩阵：</p>
+        <table>
+          <tr><th>防线</th><th>防的威胁</th><th>失效模式</th><th>为什么可信</th></tr>
+          <tr><td>worktree 隔离</td><td>AI 误操作 / 幻觉改错文件</td><td>删工房重建，损失有界</td><td>物理结构，不依赖模型自觉</td></tr>
+          <tr><td>PR-only + 不合自己的</td><td>自我放行 / 质量漂移</td><td>另一只獭审视后才可合</td><td>异体执行原则（第 3 集伏笔回收）</td></tr>
+          <tr><td>授权原话闸</td><td>提示注入伪造审批 / 善意推断 / 历史冒充</td><td>拒绝执行，请重新授权</td><td>逐字机械校验，零语义理解</td></tr>
+        </table>
+        <p>设计哲学一以贯之：<strong>凡是不可逆的操作，验证机制必须比操作者更笨。</strong>聪明的验证会被更聪明的攻击骗过；笨的验证只认一件事，而那件事只有真正的授权人拿得出来。</p>
+      </div>
+    </details>
+  </section>
+
+  <!-- ===== 收尾 ===== -->
+  <section>
+    <div class="act-head plain">
+      <span class="fold-no">本集留下</span>
+      <h2>镣铐清单</h2>
+    </div>
+
+    <div class="pillars">
+      <div class="pillar"><b>有界爆炸半径</b>worktree 物理隔离，最坏损失一间工房</div>
+      <div class="pillar"><b>异体放行</b>PR-only，写码者永不自合</div>
+      <div class="pillar"><b>笨闸门</b>授权逐字校验，脆是特性不是 bug</div>
+    </div>
+
+    <p class="narr">给 AI 上镣铐，听起来像不信任。做完才发现恰恰相反：<em>镣铐是信任的前提。</em>因为最坏情况有界、放行权在我手里，我才敢真的放手让它们干活。安全设计不是限制能力的墙，是敢用能力的地基。</p>
+    <p class="narr">红线画好了，獭们守规矩干活。但一套系统跑久了，会以另一种方式烂掉——不是违规，是腐朽：没人注意的角落里，环环相扣的流程悄悄断了。下一集：让系统自己盯自己。</p>
+  </section>
+
+  <!-- ===== 下集预告 ===== -->
+  <div class="next-ep">
+    <span class="ne-tag">下集预告</span>
+    <h3>第 7 集 · 自己盯自己</h3>
+    <p>系统跑久了会烂，这是熵，不是意外。于是它们给自己建了体检中心：每日健康检查，数据源清单缺一项不许出报告。</p>
+    <p class="ne-quote">「体检系统自己也有病——对撞确认，飞轮断了 6 环。」<span class="src">—— 本系列最诚实的一幕</span></p>
+    <p class="ne-path">healing 台账 → 每日体检硬门禁 → <b>断环修复闭环</b>。医生给自己开刀，下集见。</p>
+  </div>
+
+  <footer>
+    <b>素材与锚点</b>：仓库安全红线现行条款（系统底座注入面）· 记忆 68508907（worktree 跟项目根走 <code>.otter/worktrees/</code>）· 深度獭设计点 4（本对话 2026-10-01 发言：授权原话逐字校验、防注入伪造审批、防模型善意推断、「脆是特性不是 bug」）· F20260805wfsd（主动行为触发：从搭档提醒到流程内置）<br>
+    <b>剧场说明</b>：对白与安检场景为剧场演绎；红线五条为现行规则原文摘录，授权闸规则出自设计点 4 记载。「第一次动真仓」的原始决策讨论暂无存档锚点，开篇按机制动机抽象表述，未虚构具体对话。
+  </footer>
+
+</div>
+</body>
+</html>
