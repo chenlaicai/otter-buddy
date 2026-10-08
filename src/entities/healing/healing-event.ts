@@ -16,6 +16,10 @@ export type HealingErrorType =
   | 'guard_intercept'
   /** #543：模型限流/配额耗尽（api_error 终态识别；context 含 modelAlias/exhausted/resetHint） */
   | 'rate_limit'
+  /** #1247：模型上下文窗口超限（400 注入超窗终态；context 含 modelAlias/requestedTokens/windowTokens）。
+   *  与 rate_limit 分界：限流是「频率/配额」（重试或改派即恢复），超窗是「体积」（重试无意义，
+   *  必须缩注入或换大窗口模型）——两类处置方向不同，混账会误导体检归因 */
+  | 'context_overflow'
   /** F20260922txes：超时类自动重试耗尽终态（L1 重试后仍超时，L3 升级上报数据源） */
   | 'timeout_retry_exhausted'
   /** F20260904tflp：工具使用感受反馈（海獭主动报难用/多余/过度设计；description 以 [tool:工具名] 前缀标识） */
@@ -38,6 +42,7 @@ export type HealingFailureClass = 'environment' | 'capability';
 export const HEALING_ENVIRONMENT_TYPES: readonly HealingErrorType[] = [
   'tool_failure',   // 工具故障/超时/429（环境侧）
   'rate_limit',     // 模型配额耗尽（供应商侧）
+  'context_overflow', // #1247：注入超窗（模型窗口容量侧——环境给定，非獭能力失败）
   'circuit_break',  // 熔断执行（系统保护动作）
   'self_restart',   // 自重启执行（系统保护动作）
   // F20260922txes：超时自动重试耗尽（环境侧——超时是模型/网络环境信号，非獭能力失败；
