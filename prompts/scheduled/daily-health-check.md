@@ -3,17 +3,15 @@ task_name: 每日对话健康检查
 budget_bytes: 9600
 ---
 
-请回顾昨天的所有对话，发现系统和海獭们的问题，按问题拆分提交 GitHub issue（label: daily-review）。
+请回顾昨天的所有对话，发现系统和海獭们的问题，按问题拆分提交 GitHub issue（label: daily-review）。分析维度：用户情绪（吐槽/强烈措辞）、系统问题（bug/工具故障/流程缺陷）、海獭行为（违规/遗漏流程/判断失误）。
 
-请判断如何处理：自己干 / 派小獭并行。参考 otter-summon skill 的判断示例。
-
-关注点：用户情绪信号、系统问题、海獭行为。没信号就不报，宁缺毋滥。
+请判断如何处理：自己干 / 派小獭并行。参考 otter-summon skill 的判断示例。关注点没信号就不报，宁缺毋滥。
 
 ## 范围约束
 
 只找 otter-buddy 自身系统的优化点，其他项目的对话反馈/报错忽略。跨对话 memory 信号先验证归属（路径/PR/issue 指向本仓）；无法确认的不报。
 
-## 必须检查的数据源
+## 必须检查的数据源（先跑完全部数据源再开始分析；调查纪律全量按 SYSTEM.md A1）
 
 **sqlite3 直查前置纪律**：直查前先 `curl -s http://localhost:3000/api/settings` 确认 dbPath——data/ 下可能残留同名废弃库，错查得出「零事件」假象。关键数字双源验证，单源标「未交叉验证」。
 
@@ -25,37 +23,26 @@ budget_bytes: 9600
 6. **signal_events**：`query_signals(status=pending)` 查悬置獭间信号（细则见「signal 对账段」；跨对话统计用 sqlite3）
 7. **上下文压缩观测**：`grep '"msg":"SDK compaction failed"' data/logs/otter-buddy.log` 按日计数（禁 jq）。≥20 或连续 3 日递增 → 建 bug issue（errorMessage 是症状，根因是上下文爆炸，关联 messageId/otterId）；10-19 记观察行；hook fallback 与 shadow 失衡计入异常；无异常写「failed=N，健康」
 
-## RHI 信号处置段（闭环硬规则）
+## RHI 信号处置段（闭环硬规则：「看见」≠「处置」，禁止只列数字；处置必须调 triage_signal 留痕）
 
-「看见」≠「处置」。拉取后逐条处置，禁止只列数字。处置动作**必须调 `triage_signal` 留痕写库**（对账公式自动生成）：
-
-1. **全部 critical**：`list_rhi_signals(status=open, severity=critical)` 拉清单逐条处置
-2. **逐条三选一**（选完立即留痕）：开 issue/并入 → `bind_issue, note=判断依据`；不处置 → `dismiss, note=必填`；在途 → `in_progress`。同类型 >10 条 → `batch_bind` 批量归口。注意：纯 triage_signal 连续 >5 次撞「连续同构调用」守卫——穿插 list_rhi_signals 或按类型分组 batch_bind 打散
+1. **全部 critical**：`list_rhi_signals(status=open, severity=critical)` 逐条处置
+2. **逐条三选一**（立即留痕）：开 issue/并入 → `bind_issue, note=依据`；不处置 → `dismiss, note=必填`；在途 → `in_progress`。同类型 >10 条用 `batch_bind`。注意：纯 triage_signal 连续 >5 次撞「连续同构」守卫——穿插 list_rhi_signals 或分组 batch_bind 打散
 3. **未接单存量**：`list_rhi_signals(status=open, triageStatus=null)` 全部归口
 4. **warning 扫视**：同类型 ≥5 条指向同一模块 → 按 critical；零散汇总一行
-5. **闭环自检**：「critical N → 开 M/并入 K/dismiss D，M+K+D=N」自动生成；对不上 = 有信号被沉默跳过，补查
+5. **闭环自检**：「critical N → 开 M/并入 K/dismiss D，M+K+D=N」；对不上 = 有信号被沉默跳过，补查
 
-## 观测器信噪比自监控
+## 观测器信噪比自监控（误报率比检出率更决定告警系统生死）
 
-误报率比检出率更决定告警系统生死：
+1. **昨日统计**（日报末尾固定段）：healing resolve X / dismiss Y（dismiss 率 = Y/(X+Y)）；RHI 不处置率 L/(M+K+L)（取昨日日报闭环自检行）；产给搭档物件数。SQL 与 stale 口径见体积预算闸文档「出清明细」（人工 dismiss 用时间差 <30 天分离）
+2. **趋势**：与近 7 日均值比，突增 → 标「信号源可能劣化」（检索近 7 日日报，<4/7 标置信低）
+3. **降级触发线**：任一信号源/healing 类型连续两周 dismiss 率或不处置率 >50% → 日报给「建议降级/关停/调阈值」行（含数据锚点）；<10/14 记「数据不足」；未达线一行数字
 
-1. **昨日信噪统计**（日报末尾固定段）：healing 处置 resolve X / dismiss Y（dismiss 率 = Y/(X+Y)）；RHI 不处置率 L/(M+K+L)（取昨日日报闭环自检行，非 RHI DB）；产给搭档物件数。SQL 与 stale 口径见体积预算闸文档「出清明细」（人工 dismiss 用时间差 <30 天分离）
-2. **趋势对比**：与近 7 日均值比，dismiss 率/不处置率突增 → 标「信号源可能劣化」（检索近 7 日日报，<4/7 标置信低）
-3. **降级建议触发线**：任一信号源/healing 类型连续两周 dismiss 率或不处置率 >50% → 日报显式给「建议降级/关停/调阈值」行（含数据锚点）；<10/14 记「数据不足」；未达线一行数字
+## 锚点真实性抽查（证据锚点规则的外部强制，抓编造现形）
 
-## 锚点真实性抽查（证据锚点规则的外部强制）
-
-锚点规则靠自觉存在「真假锚点混合」绕过——本段每日抽查，抓编造现形：
-
-1. **抽样**：跨对话检索昨日含 file:line 锚点的断言，抽 5-10 条（含大獭/小獭；不足 5 全量）。途径：search_memory（message + created_after）或 sqlite3 直查；**禁止 search_messages**（只搜当前对话，独立 session 空集假阳性）
-2. **异体核对（硬规则）**：抽查獭与被抽查发言的獭**必须不同模型**（消息模型经 otter_sessions.model_alias 对照）。同模型样本 → 改派异体复核；无条件时降级标注「同模型抽查，置信降级」
-3. **核对**：每条用 read 打开对应文件行——文件存在、行号在文件内、内容与断言实质相符
-4. **产出**：「锚点抽查段」——抽查 N/通过 M/失败 K（失败附对话 ID + 断言原文 + 实际内容）+ 模型对照行
-5. **处置**：任一不通过 → 开 P1 issue（[prompt]，标题含「编造锚点」）；同一獭 7 日 ≥2 次 → 升 P0
-
-## 分析纪律
-
-调查纪律全量按 SYSTEM.md A1 执行。此处只留任务特有约束：**先跑完上方全部数据源再开始分析**。
+1. **抽样**：跨对话检索昨日含 file:line 锚点的断言，抽 5-10 条（不足 5 全量）。用 search_memory（message + created_after）或 sqlite3；**禁 search_messages**（只搜当前对话，独立 session 空集假阳性）
+2. **异体核对（硬规则）**：抽查獭与被抽查獭**必须不同模型**（model_alias 对照）；同模型样本改派异体，无条件时降级标「同模型抽查，置信降级」
+3. **核对**：每条 read 打开对应文件行——文件存在、行号在文件内、内容与断言实质相符
+4. **产出**：抽查 N/通过 M/失败 K（失败附对话 ID+断言原文+实际内容）+ 模型对照行；任一不通过开 P1 issue（[prompt]，标题含「编造锚点」）；同一獭 7 日 ≥2 次升 P0
 
 ## 噪声带对照
 
@@ -66,54 +53,32 @@ budget_bytes: 9600
 产出前先列数据源引用清单逐项自查，漏一项不许产出（每项注明来源：issue 编号/对话 ID/事件 ID；无异常写「无异常」）：
 
 ```
-[ ] 1. 对话历史
-[ ] 2. GitHub issues / PRs
-[ ] 3. self-healing events
-[ ] 4. memory
-[ ] 5. RHI 健康信号
-[ ] 6. signal_events
-[ ] 7. RHI 处置：critical N → M+K+D=N，逐项已调 triage_signal
-[ ] 8. 锚点抽查：抽查 N/通过 M/失败 K + 模型对照行
-[ ] 9. 观测器信噪比：dismiss 率/不处置率/物件数
-[ ] 10. 压缩观测：failed 计数 + 阈值判断（无异常写"failed=0，健康"）
+[ ] 1. 对话历史  [ ] 2. GitHub issues/PRs  [ ] 3. self-healing events  [ ] 4. memory
+[ ] 5. RHI 健康信号  [ ] 6. signal_events  [ ] 7. RHI 处置：critical N → M+K+D=N 已调 triage_signal
+[ ] 8. 锚点抽查：N/M/K + 模型对照  [ ] 9. 信噪比：dismiss 率/不处置率/物件数  [ ] 10. 压缩观测：failed 计数（无异常写"failed=0，健康"）
 ```
 
-## 守卫误拦样本固化段（修复-回归循环的治理项；方案细节见 docs/features/ 下本批次特性文档）
+## 守卫误拦样本固化段（细节见 docs/features/ 本批次特性文档）
 
-昨日 guard_intercept 样本是「修复-回归循环」的原料（bash 守卫两次家族性复发：修好一侧另一侧未同步，几年内三次重演）——不固化就重演。每日：
+昨日 guard_intercept 样本是「修复-回归循环」的原料（已三次重演），每日：
 
-1. **跑候选生成器**：`node scripts/generate-guard-replay.mjs --db <curl /api/settings 得到的 dbPath 绝对路径>`（产出 `data/guard-replay-candidates-<昨日>.json`；无拦截则日报写一行「守卫样本固化：0 条，跳过」）
-2. **逐条裁决**（verdict 字段）：`ALLOW`（误拦——命令正当被拦，写明哪条规则误拦及理由）/ `BLOCK`（规则内拦截——值得固化为负门样本）/ `SKIP`（一次性/含敏感内容/不可复现，写理由）。裁决依据真实现场：可用 search_memory 查该命令当时的后续（獭是否换写法绕过 = 误拦旁证）
-3. **固化**：verdict 非 SKIP 的样本追加到 `tests/frameworks/agent/guard-v2-real-replay.test.ts`（既有 replay 用例文件，格式对齐文件内既有 it 块：注释含日期/獭/现场，断言 = 裁决值；commandHead 用原样非脱敏值，敏感段人工改写）。追完成后跑 `npx vitest run tests/frameworks/agent/guard-v2-real-replay.test.ts` 确认新用例与期望一致——**期望值与实际判定不符时不要改期望值凑绿**，先确认裁决是否错（裁决错改裁决；真割裂（双链判定不一致）按 issue 报）
-4. **留痕**：日报守卫固化段写「拦截 N → 候选 M → 固化 K / SKIP S」，已固化样本在候选 JSON 里补 verdict 后同 commit 提交（data/ 不入 git 则只在日报留档）
+1. `node scripts/generate-guard-replay.mjs --db <curl /api/settings 得到的 dbPath>`；无拦截日报写「固化：0 条」
+2. 逐条填 verdict：`ALLOW`（误拦）/ `BLOCK`（规则内负门样本）/ `SKIP`（一次性/敏感/不可复现）；误拦旁证 = 查该命令后续是否换写法绕过
+3. 非 SKIP 追加到 `tests/frameworks/agent/guard-v2-real-replay.test.ts`（对齐既有 it 块，断言 = 裁决值）并跑该文件；期望不符先疑裁决错勿凑绿，双链不一致按 issue 报
+4. 日报留痕「拦截 N → 候选 M → 固化 K / SKIP S」
 
-边界：本段只处理 guard_intercept（不碰其他 errorType）；误拦面成规模的（同 ruleId ≥3 条）不逐条固化，开 issue 走规则修正（修规则优于钉样本）。
+边界：同 ruleId ≥3 条成规模误拦改开 issue 修规则。
 
 ## healing events 消费即处置
 
-分析过的 self-healing events 必须在本次产出内处置完毕：
-
-- **无需修复**（自愈按设计拦截/单次偶发）：立即 `resolve`，notes 写判定依据
-- **需要修复**：证据写进 issue body 后**立即 resolve**（notes 引用 issue 编号）
-- **处置权**：首个消费任务拥有处置权，后续不得推翻，存疑在 issue 评论
-- **覆盖核实**：query 默认 50 条 + 单 status——errorType 过滤逐一排查；处置完重跑 query 确认无遗漏，产出写「昨日 N → resolved M / open K」
+- **无需修复**（自愈按设计/单次偶发）：立即 `resolve`，notes 写判定依据
+- **需要修复**：证据写进 issue body 后**立即 resolve**（notes 引用 issue 号）
+- **处置权**：首个消费任务拥有，后续不得推翻，存疑在 issue 评论
+- **覆盖核实**：query 默认 50 条 + 单 status——errorType 过滤逐一排查；处置完重跑确认无遗漏，产出写「昨日 N → resolved M / open K」
 
 ## signal 对账段（獭间信号协议消费方闭环）
 
-`query_signals(status=pending)` 逐项检查：
-
-- **悬置异议**：pending objection/blocked 超 24h 未裁决 = 违反裁决义务，提 issue（含 ID+时长+对话）
-- **异常异议率**：同一小獭单日 ≥3 条被 dismissed——列发起者统计，连续两日提 issue
-- **裁决质量抽样**：抽 2-3 条已裁决信号，核实 resolution 有理由且锚点成立，不成立提 issue
-- **halt 台账**：query_signals(type=halt) 看「谁停了谁」是否合理，无理由 halt 提 issue
-
-无悬置、无异常写「signal 对账：无异常」。
-
-## 分析维度
-
-- **用户情绪**：对话吐槽、issue 标题强烈措辞
-- **系统问题**：bug / 工具故障 / 流程缺陷
-- **海獭行为**：违规 / 遗漏流程 / 判断失误
+`query_signals(status=pending)` 逐项：悬置 objection/blocked 超 24h 未裁决 → 提 issue（含 ID+时长+对话）；同一小獭单日 ≥3 条被 dismissed → 列发起者统计，连续两日提 issue；抽 2-3 条已裁决信号核实 resolution 有理由且锚点成立，不成立提 issue；query_signals(type=halt) 看「谁停了谁」是否合理，无理由 halt 提 issue。无悬置无异常写「signal 对账：无异常」。
 
 ## issue 产出规范
 
