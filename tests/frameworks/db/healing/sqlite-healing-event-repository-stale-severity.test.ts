@@ -91,4 +91,18 @@ describe("SqliteHealingEventRepository severity 分层（#1356）", () => {
       expect((await repo.findById("resolved-high"))!.status).toBe("resolved");
     });
   });
+
+  describe("ageOutHighAndNotify 跨进程 race（审视 D 修复）", () => {
+    it("双连接（双实例）先后跑 age-out：后到者取回空，不重复推送提醒", async () => {
+      await repo.create(seedEvent({ id: "race-high", severity: "high", createdAt: daysAgo(3) }));
+      const repoB = new SqliteHealingEventRepository(db); // 同库第二连接，模拟另一进程实例
+
+      const first = await repo.ageOutHighAndNotify(2);
+      const second = await repoB.ageOutHighAndNotify(2);
+
+      expect(first.map(e => e.id)).toEqual(["race-high"]); // 先到者拿到提醒推送权
+      expect(second).toEqual([]); // 后到者空——原 SELECT+UPDATE 两步形态两边都会拿到同一批行，重复推 alert
+      expect((await repo.findById("race-high"))!.status).toBe("dismissed");
+    });
+  });
 });

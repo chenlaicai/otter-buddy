@@ -120,15 +120,16 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
   async ageOutHighAndNotify(staleDays: number): Promise<HealingEvent[]> {
     const cutoff = new Date(Date.now() - staleDays * 24 * 60 * 60 * 1000).toISOString();
     const now = new Date().toISOString();
+    // 审视 D 修复：UPDATE ... RETURNING 原子取回「本进程实际 dismiss 的行」——
+    // 跨进程双实例同时跑 age-out 时，后到者 WHERE status='open' 匹配 0 行、RETURNING 空，
+    // 不会重复推送提醒（原 SELECT+UPDATE 两步不看 changes，两边都认为自己 dismiss 成功）。
+    // better-sqlite3 同步事务保证同进程原子；数据面 UPDATE 本身幂等，此处修复的是提醒面重复。
     return this.db.transaction(() => {
-      const rows = this.db.prepare(
-        `SELECT * FROM healing_events WHERE status = 'open' AND severity = 'high' AND created_at < ?`,
-      ).all(cutoff) as HealingEventRow[];
-      if (rows.length === 0) return [];
-      this.db.prepare(`
+      const rows = this.db.prepare(`
         UPDATE healing_events SET status = 'dismissed', resolved_at = ?
         WHERE status = 'open' AND severity = 'high' AND created_at < ?
-      `).run(now, cutoff);
+        RETURNING *
+      `).all(now, cutoff) as HealingEventRow[];
       return rows.map(rowToHealingEvent);
     })();
   }

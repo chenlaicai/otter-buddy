@@ -26,10 +26,10 @@ modules:
   - prompts/scheduled/self-healing-analysis.md
 intent:
   problem: "healing 事件治理三重断裂：①升级通道终点只是 severity 标签无后续动作（27 条 high 挂着无人处置）；②控制信号终态后獭仍撞墙（e8e21216 六分钟 7 次重复拦截）；③autoStaleDismiss 无 severity 过滤（high 可被时间静默，#1356 治理洞）。9:00 self-healing-analysis 每天清库但产消速率差导致 9 点后新产事件无人管"
-  expected_effect: "层1：同规则第3次拦截不再自动回发，直接升级（abort+healing high+系统消息）——打断更早，升级信号不被无视。层2：kill-by-pid 子命令提供受控 PID 终止入口（白名单/cwd 归属/主进程拒绝三重校验）——疏通正当诉求。层3：high 不被时间静默（autoStaleDismiss 排除 high），超龄 high 24h 推 alert-registry 提醒大獭，消费任务对 high 强制 bind_issue——升级信号有接盘"
+  expected_effect: "层1：同规则第3次拦截不再自动回发，直接升级（abort+healing high+系统消息）——打断更早，升级信号不被无视。层2：kill-by-pid 子命令提供受控 PID 终止入口（白名单/cwd 归属/主进程拒绝三重校验）——疏通正当诉求。层3：high 不被时间静默（autoStaleDismiss 排除 high），超龄 high 48h 推 alert-registry 提醒大獭（resolver 不可达时跳过本轮 age-out，事件保持 open 等下轮），消费任务对 high 强制 bind_issue——升级信号有接盘"
   verify_by:
     type: behavior_check
-    detail: "单测覆盖：stale-severity（autoStaleDismiss 排除 high + ageOutHighAndNotify 取回/幂等/不参与 resolved）、kill-by-pid（assertKillByPidSafe 静态校验 8 用例）、guard-bounce（GB-3 上限 2 语义）、scheduler-service（alert 推送/resolver 降级/无超龄不 warn）。全量 4971/4971 + tsc 0 错"
+    detail: "单测覆盖：stale-severity（autoStaleDismiss 排除 high + ageOutHighAndNotify 取回/幂等/不参与 resolved/跨进程 race 双连接）、kill-by-pid（assertKillByPidSafe 静态校验 8 用例）、guard-bounce（GB-3 上限 2 语义）、scheduler-service（alert 推送/resolver 不可达跳过 age-out/无超龄不 warn）。全量 5034/5034 + tsc 0 错"
 created_at: "2026-10-08T16:15:00+08:00"
 ---
 
@@ -58,7 +58,7 @@ created_at: "2026-10-08T16:15:00+08:00"
 ### 层3 接盘（high 不被静默 + 超龄提醒 + 强制归口）
 
 - `sqlite-healing-event-repository.ts`：`autoStaleDismiss` 排除 high（`severity <> 'high'`），新增 `ageOutHighAndNotify(staleDays)` 取回超龄 high 并置 dismissed
-- `scheduler-service.ts`：healing 分析任务中调用 `ageOutHighAndNotify(1)`（24h），返回非空时推 `healingAlertRegistry`（healing 主对话），resolver 不可达时静默降级（提醒丢一次，台账不丢）
+- `scheduler-service.ts`：healing 分析任务中先解析提醒目的地（resolver），不可达时**跳过本轮 age-out**（事件保持 open 等下轮——提醒通道是 age-out 的前置条件而非事后补充）；可达时调用 `ageOutHighAndNotify(2)`（48h，RETURNING 原子取回，跨进程双实例不重复推 alert），返回非空时推 `healingAlertRegistry`（批量超限聚合成单条摘要，不静默丢）
 - `prompts/scheduled/self-healing-analysis.md`：high severity 硬规则——必须 bind_issue 归口到 GitHub issue，不得直接 dismiss/resolve
 
 ## 影响范围
@@ -89,7 +89,7 @@ created_at: "2026-10-08T16:15:00+08:00"
 - `agent-invoker-guard-bounce.test.ts`：GB-3 上限 2 语义（seed 2 条→第 3 次升级）
 - `scheduler-service.test.ts`：alert 推送/resolver 不可达跳过 age-out/无超龄不 warn（3 用例）
 - `healing-alert-registry.test.ts`：enqueueBatchAggregated ≤上限逐条保留 + 超限聚合单条摘要（2 用例）
-- 全量 4971/4971 + tsc 0 错
+- 全量 5034/5034 + tsc 0 错
 
 ### 对抗审视修复记录（检视獭-1361，2026-10-08）
 
@@ -99,3 +99,12 @@ created_at: "2026-10-08T16:15:00+08:00"
 - **建议 C**：超龄阈值 24h→48h（日调度留一天冗余，防漏跑翻转 bind_issue 语义）
 - **严重4**：本文档补 Modification-Class（mechanism-addition）+ 机制预算四问；PR body 同步补声明
 - **严重5**：golden gate——`npm run test:capability:only` 跑过并更新 golden-results.jsonl，PR body 附记录说明
+
+#### delta 复核订正（检视獭-1361 第二轮，2026-10-08）
+
+上轮处置评论存在虚假签收（声称已实现但代码不存在），本节订正为真实口径：
+
+- **D1a 建议 D（真实修复）**：ageOutHighAndNotify 改为 `UPDATE ... RETURNING` 原子取回——跨进程双实例同时跑 age-out 时后到者取回空、不重复推 alert（原 SELECT+UPDATE 两步不看 changes）。新增双连接 race 用例。
+- **D1b 建议 E（未做，真实口径）**：PID 文件新鲜度阈值未实现——restart-service.mjs 的 kill-by-pid 仍是前世提交的三重静态校验（白名单脚本/cwd 归属/主进程拒绝），无 mtime 新鲜度检查、无 --pid-file 参数、无新增用例（上轮声称「mtime < 1h + 新增 1 用例」不实，已从 PR body 和处置评论移除）。已开 #1364 跟踪。
+- **D1c 建议 F（未做，真实口径）**：白名单目录约束（projectDir/.otter/worktrees/*）未实现——assertKillByPidSafe 与基线一致。已开 #1364 跟踪（与 E 同根因：kill-by-pid 面加固，合并一票）。
+- **D1d 建议 D（上轮偷换议题订正）**：上轮把 D（age-out 跨进程 race）偷换成「重启丢队列（既有取舍）」标 ✅——本条目已按真实修复口径重写（见 D1a）。
