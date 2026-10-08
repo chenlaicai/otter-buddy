@@ -1,5 +1,5 @@
 ---
-id: F20260930zzr5
+id: F20261008sbss
 title: 左栏对话状态回归收口：可见性立即刷新 + 状态一致性回归测试
 type: BugFix
 change_type: fix
@@ -15,10 +15,10 @@ intent:
   expected_effect: "① use-conversation-list-polling 切回标签页时先 refresh() 再 startPolling()（fetching 防重入），状态翻转后 UI 即时反映；② 数据层新增事故链路回归用例（孤儿清理后 processing→awaiting_user 恢复）；③ 前端层新增 3 用例（服务端翻转轮询跟随 / 切回立即刷新 / 防重入）。"
   verify_by:
     type: capability_test
-    reason: "sqlite-conversation-repository.test.ts 事故链路回归用例 + use-conversation-list-polling.test.ts 3 用例（接管 rebase 后复跑 29/29 + 3/3 绿，tsc exit 0）。"
+    reason: "sqlite-conversation-repository.test.ts 事故链路回归用例 + use-conversation-list-polling.test.ts 3 用例（接管 rebase 后复跑 30/30 + 3/3 绿（含接管新增时间戳守卫用例），tsc exit 0）。"
 ---
 
-# F20260930zzr5 左栏对话状态回归收口
+# F20261008sbss 左栏对话状态回归收口
 
 ## 背景
 
@@ -71,7 +71,7 @@ intent:
 | `web/src/hooks/use-conversation-list-polling.test.ts` | 新增：左栏状态回归 3 用例（#1249） |
 | `web/src/lib/merge-conversations.ts` | 无改动（核查结论：服务端权威全量展开，无粘滞问题，见排查记录） |
 | `tests/frameworks/db/conversation/sqlite-conversation-repository.test.ts` | 新增：事故链路回归用例（孤儿清理后 processing→awaiting_user 恢复） |
-| `docs/features/2026/09/30/F20260930zzr5-sidebar-status-regression-closeout.md` | 本文档 |
+| `docs/features/2026/10/08/F20261008sbss-sidebar-status-regression-closeout.md` | 本文档 |
 
 ## 验证
 

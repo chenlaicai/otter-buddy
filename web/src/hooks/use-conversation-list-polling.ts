@@ -63,7 +63,7 @@ export function useConversationListPolling(
       if (document.hidden) {
         stopPolling()
       } else {
-        // F20260930zzr5：切回标签页立即刷一次，不等首个 5s tick——
+        // F20261008sbss：切回标签页立即刷一次，不等首个 5s tick——
         // 隐藏期间服务端状态已变（如 processing → awaiting_user），
         // 檅留的旧 badge 会误导「是否轮到我」的判断（issue #1249）
         refresh()

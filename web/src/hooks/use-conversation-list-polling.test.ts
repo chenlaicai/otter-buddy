@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * useConversationListPolling 回归测试（F20260930zzr5 / issue #1249）
+ * useConversationListPolling 回归测试（F20261008sbss / issue #1249）
  *
  * 事故链路：对话实际 awaiting_user，左侧栏仍显示「处理中」。
  * 根因层（孤儿 running invoke）已由 F20260930roiv 延迟 reconcile 修复；
