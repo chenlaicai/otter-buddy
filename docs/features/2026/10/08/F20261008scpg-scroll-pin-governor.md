@@ -225,7 +225,7 @@ W5（首次渲染）、W7（跳转，置 floating）、W8（恢复，经 program
 | W3 content observer | **保留**，守卫改为 pinRef，写入经 programScroll('pin') 登记 | 唯一贴底写入通道（渲染后写入不变，渲染前守卫语义化） |
 | W4 viewport observer | **并入** W3 同一守卫（视口缩小时 pinned → 贴底） | 同为高度变化补偿，一个状态一个写入 |
 | W5 首次渲染贴底 | 保留，mount 后 pinRef 初始化为 pinned，写入经 programScroll('init') 登记 | 行为不变 |
-| W6 跳底按钮 | **修复**：ref 直连（经 props/回调传入 index.tsx）+ 锚点存在性守卫；点击即置 pinned 并经 programScroll('pin') 登记 | T5；登记使 smooth 滚动终态回锚有合法来源 |
+| W6 跳底按钮 | **修复**：ref 直连（经 props/回调传入 index.tsx）+ 锚点存在性守卫；点击即置 pinned 并经 programScroll('pin') 登记；**删除 index.tsx:424 旧 querySelector 路径**——所有滚动写入必须经 programScroll 登记自证，不得存在账本外写入 | T5；登记使 smooth 滚动终态回锚有合法来源；旧路径保留将成为未登记的第二写入通道，破坏账本完备性（delta 审视发现 2） |
 | W7 跳转消息 | 保留；跳转后置 floating（U2 暂定），写入经 programScroll('jump') 登记 | 不扩大范围 |
 | W8 上翻恢复 | 保留；写入经 programScroll('restore') 登记 | 账本归因需要（写入自证） |
 | onAtBottomChange 对外语义 | **现状澄清**（审视建议发现 2）：该 prop 在 MessageListProps 中 dangling（ChatView 未透传、零消费方）；实际跨组件管线是 index.tsx:72 自建 isAtBottomRef 经 ChatView 共享 ref 透传给 MessageList 直接写入，index.tsx:521/:550 新消息计数直接读该 ref，:901 会话切换置 true。迁移：ref 更名 pinRef、共享透传形状不变、语义从几何快照升级为状态机；删除 dangling 的 onAtBottomChange | 保持管线形状，实现者无需在 ChatView 找不存在的 prop |
@@ -270,9 +270,9 @@ W5（首次渲染）、W7（跳转，置 floating）、W8（恢复，经 program
 
 ## 9. 影响范围
 
-- **改动**：web/src/pages/conversation/MessageList.tsx（状态机 + observer 归一 + 意图监听）、index.tsx（跳底按钮 ref 直连、onPinChange 更名对接）
+- **改动**：web/src/pages/conversation/MessageList.tsx（状态机 + 账本 + observer 归一 + 意图监听）、index.tsx（跳底按钮 ref 直连替换 querySelector 路径、点击置 pinned、新消息计数/会话切换对接 pinRef）
 - **行为变化**：① 流式期间贴底不再有瞬间停摆（用户不可感知，纯修复）；② 用户轻微上滚（<100px）后到底自动回锚——比现状更宽容（现状 100px 外即永久脱锚直至手动点按钮）；③ 跳底按钮从「无效」变「有效」
-- **不受影响**：上翻加载历史与位置恢复、执行历史跳转、消息流数据链、未读计数逻辑（onPinChange 语义等价 onAtBottomChange）、移动端布局
+- **不受影响**：上翻加载历史与位置恢复、执行历史跳转、消息流数据链、未读计数逻辑（消费方直读 pinRef，语义从几何快照升级为状态机）、移动端布局
 - **风险**：意图事件监听的平台差异（触控板惯性、屏幕阅读器滚动）→ V5/V9 验证清单覆盖；如个别平台漏抓，退化行为是「回锚不及时」而非「上跳」，劣化方向安全。账本 ε 容差与过期时长需实测校准（流式增长漂移、smooth 滚动时长跨浏览器差异），退化方向是「归因偶发失误」，行为回到现状级，无数据风险
 
 ## 10. 验证
