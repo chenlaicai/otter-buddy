@@ -21,6 +21,7 @@ import { SkillController } from "../../src/interface-adapters/http/controllers/s
 import { PromptController } from "../../src/interface-adapters/http/controllers/prompt-controller";
 import type { MemoryRepository } from "../../src/usecases/memory/memory-repository";
 import { KeyInfoController } from "../../src/interface-adapters/http/controllers/key-info-controller";
+import { UnfurlController } from "../../src/interface-adapters/http/controllers/unfurl-controller";
 import { SettingsController, type SettingsConfig } from "../../src/interface-adapters/http/controllers/settings-controller";
 import { ScheduledTaskController } from "../../src/interface-adapters/http/controllers/scheduled-task-controller";
 import { buildModelPool } from "../../src/frameworks/llm/model-pool";
@@ -544,6 +545,8 @@ export function createTestApp(deps: TestDeps): Hono {
     activity: {} as any,
     /* F20261006mtlp P1：待办板只读（默认空实现，matter 专项测试另建真 sqlite） */
     matter: {} as any,
+    /* F20261008csf1 P1：unfurl 真实现（无外部依赖，抓取走全局 fetch 可被测试 stub） */
+    unfurl: new UnfurlController(logger),
   };
 
   const app = createRouter(controllers, createTestLogger());

@@ -183,6 +183,8 @@ export interface LocalLinkedResource {
   category: string | null
   flagged: boolean
   auto: boolean
+  /** F20261008csf1 P1：登记时间——中间栏产物卡按时间轴混排的定位依据 */
+  createdAt?: string
 }
 
 /** 前端本地 OtterSession 类型 */
@@ -314,6 +316,8 @@ export function mapLinkedResourceDTO(dto: LinkedResourceDTO): LocalLinkedResourc
     category: dto.category,
     flagged: dto.userFlagged,
     auto: dto.autoLinked,
+    // F20261008csf1 P1：登记时间透出（产物卡混排时间轴定位）
+    createdAt: dto.createdAt,
   }
 }
 
