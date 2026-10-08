@@ -293,8 +293,11 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
     const before = await repo.listConversationsWithMeta("user-1");
     expect(before.items[0].activityStatus).toBe("processing");
 
-    // F20260930roiv 的清理动作：failRunningInvokes(bootTs 守卫) 把窗口期孤儿置 failed
-    const failed = await invokeRepo.failRunningInvokes("2026-09-30T00:00:00Z", "2026-09-29T13:00:00Z");
+    // F20260930roiv 的清理动作：failRunningInvokes(guard 守卫) 把窗口期孤儿置 failed
+    //  （rebase 适配：签名演进 bootTs: string → guard: FailRunningInvokesGuard，F20261005g1240）
+    const failed = await invokeRepo.failRunningInvokes("2026-09-30T00:00:00Z", {
+      excludePid: process.pid, beforeTs: "2026-09-29T13:00:00Z",
+    });
     expect(failed).toHaveLength(1);
     expect(failed[0].id).toBe("inv-orphan");
 
