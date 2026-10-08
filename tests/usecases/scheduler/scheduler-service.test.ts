@@ -2682,6 +2682,65 @@ describe('#1272: 补偿触发风暴防护（catch-up storm guard）', () => {
     // 0 触发 = 饿死，同样错）
     expect(taskRepo._executions.size).toBe(1);
   });
+
+  it('触发后 expected 推进到未来：不再重复触发，排队任务下轮被消费（#1272 检视发现 2）', async () => {
+    // 恒过去 mock 无法区分「配额闸放行排队任务」与「同一 overdue 任务被反复重触发」——
+    // 本用状态化 mock 复刻真实 croner 语义：首次返回过去（overdue），之后返回未来。
+    const now = new Date('2026-10-01T04:00:00.000Z');
+    vi.setSystemTime(now);
+
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendEntry = createMockSendEntry();
+    const entryRepo = createMockEntryRepo();
+    const agentInvoke = createMockAgentInvoke();
+
+    // 状态化 mock：按 cron 表达式计数，首次返回过去、之后返回未来（模拟 croner nextRun）
+    const overdueTime = new Date('2026-10-01T03:00:00.000Z');
+    const futureTime = new Date('2026-10-01T05:00:00.000Z');
+    const callCounts = new Map<string, number>();
+    const cronParser = {
+      getNextTime: vi.fn((cron: string) => {
+        const n = (callCounts.get(cron) ?? 0) + 1;
+        callCounts.set(cron, n);
+        return n === 1 ? overdueTime : futureTime;
+      }),
+    };
+
+    // 两任务同对话（配额 1）：A 首轮触发，B 排队；若触发后 expected 不推进，
+    // 下轮 A 会被重复触发（execution≥3）；正确行为：A 推进后 B 被消费，恰 2 条各 1 次
+    taskRepo._store.set('task-A', makeTask({
+      id: 'task-A', conversationId: 'conv-same', cron: '0 9 * * *',
+      lastTriggeredAt: '2026-10-01T01:00:00.000Z',
+    }));
+    taskRepo._store.set('task-B', makeTask({
+      id: 'task-B', conversationId: 'conv-same', cron: '0 10 * * *',
+      lastTriggeredAt: '2026-10-01T01:00:00.000Z',
+    }));
+    convRepo._addConversation('conv-same', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+    });
+
+    await service.start();
+    await vi.advanceTimersByTimeAsync(0); // flush 首轮 tick + triggerTask 微任务链
+    // 首轮：A 触发（同对话配额 1），B 被拒排队
+    expect(taskRepo._executions.size).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(300_100); // 下一轮 tick（5min 节拍）
+    // 次轮：A 的 expected 已被 fireCatchup 刷新到未来（不再 overdue）；B 消费配额触发。
+    // 若 expected 不推进（回归），A 会再次 overdue → 消费配额 → B 继续排队，size 仍 1 但 A 双发。
+    expect(taskRepo._executions.size).toBe(2);
+    const triggeredTasks = [...taskRepo._executions.values()].map(e => e.taskId as string).sort();
+    expect(triggeredTasks).toEqual(['task-A', 'task-B']);
+  });
 });
 
 // ─── #641: claim 前检查 running execution 测试 ─────────────────
