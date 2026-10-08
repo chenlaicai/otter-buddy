@@ -386,10 +386,21 @@ describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
   });
 
   it("#1277：全 compaction entry 极端形态 → reason=compaction-only（与真空/读失败区分归因）", async () => {
-    // sliceSessionEntries 恒返回结构——但「全 compaction、零普通消息」时 slicer 返回 undefined，
-    //  collectJsonlSlice 须把它标为 compaction-only 而非笼统 empty-session（排查可定位极端形态）。
+    // 真实代码路径（检视严重1修正）：sliceSessionEntries 恒返回结构——全 compaction 时 slice 非空
+    //  但 messagesToSummarize 为空（messageFromEntry 跳过 compaction）。旧版本归因假设 slice=undefined
+    //  在真实路径不可达。正确路径：slice 非空 → hasMaterial=false → !hasMaterial 分支按 compactionOnly
+    //  标记标 compaction-only。
     const sdk = makeSdkPort({ entries: [{ type: "compaction", id: "c1", summary: "前世摘要" }] });
-    const engine = makeEngine({ sliceSessionEntries: () => undefined }); // 全 compaction 形态 slicer 返回 undefined
+    const engine = makeEngine({
+      sliceSessionEntries: () => ({
+        firstKeptEntryId: "c1",
+        messagesToSummarize: [], // 全 compaction：零普通消息原料
+        keptEntries: [{ id: "c1", type: "compaction" }],
+        previousSummary: "前世摘要",
+        isSplitTurn: false,
+        turnPrefixMessages: [],
+      }) as unknown as EngineJsonlSlice,
+    });
     const sendEntry = { bodies: [] as string[] };
     const invoker = makeInvokerWithEngine({ sdk, engine, sendEntry });
 
