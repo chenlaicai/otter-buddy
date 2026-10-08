@@ -29,6 +29,9 @@ export interface HealingEventRepository {
     resolution: HealingResolution,
     options?: { limit?: number; dryRun?: boolean },
   ): Promise<BatchResolveResult>;
+  /** F20261008gfrc：按 batch filter 计数（批量闸探测 high 匹配数）——
+   *  与 batchResolveByFilter 同 WHERE 语义，只 count 不更新 */
+  countByFilter(filter: HealingEventBatchFilter): Promise<number>;
 }
 
 /** 批量 resolve 过滤条件（全 AND） */
@@ -38,6 +41,8 @@ export interface HealingEventBatchFilter {
   errorType?: HealingErrorType;
   createdBefore?: string; // ISO timestamp
   createdAfter?: string;  // ISO timestamp
+  /** F20261008gfrc：severity 筛选（批量闸探测 high 匹配数用） */
+  severity?: 'low' | 'medium' | 'high';
 }
 
 /** 批量 resolve 结果 */
