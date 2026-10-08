@@ -7,11 +7,11 @@ summary: |
   FTS5(BM25) + Vec 双路召回 → 每 source top-3 预聚合 → 加权 RRF 融合（alpha 0.4、
   bothBoost 1.2）→ rerank 五信号乘法堆叠 final = rrf × time_decay × frequency ×
   user_flag × conversation_boost（search-engine.ts:183），无量纲归一化；仓内无排序
-  质量评测（memory-recall.capability.test.ts:8 自述仅行为不变量），历次调参只能凭
+  质量评测（tests/capability/memory-recall.capability.test.ts:8 自述仅行为不变量），历次调参只能凭
   体感验收。候选方向依 R20260826rcmm「度量>召回>提炼」排序：Phase 0 golden 查询集
   + nDCG 评测基线先行，Phase 1 在基线保护下做信号归一化融合。触发本特性的具体
   痛点场景待搭档补充。
-  （FID 顺延：F20260923ntq3 → F20261008mrrk，2026-10-08 rebase 至最新 main 时更新。）
+  （FID 顺延：F20260923ntq3 → F20261008mrrk，2026-10-08。）
 change_type: feature
 intent:
   problem: "记忆检索排序无质量评测（golden 集/nDCG 缺失）且 rerank 五信号乘法堆叠无量纲归一化——排序改动只能凭单测锁定+体感验收，证明行为还在但不证明排对了，排序退化只能靠搭档事后口头反馈发现"
@@ -52,7 +52,7 @@ modules:
 | 预聚合 | 每 source 最多保留 top-3 chunk，防长文档霸占 limit（双路同规则） | `search-memory.ts:481,484,717-749` |
 | RRF 融合 | 加权 RRF：`alpha` 默认 0.4（偏信任 FTS），双路命中 `bothBoost` 1.2 | `search-engine.ts:71-74,137` |
 | rerank | `final = rrf × time_decay × frequency × user_flag × conversation_boost` 五信号直接连乘 | `search-engine.ts:46-54`（公式注释）、`:166`（rerank 入口）、`:183`（finalScore） |
-| 时间衰减 | 通用条目半衰期 7 天（`config/config.yaml.example:70-71`），文档层（feature/research）90 天 | `search-engine.ts:20-23,181-182` |
+| 时间衰减 | 通用条目半衰期 7 天（`config/config.yaml.example:72`），文档层（feature/research）90 天 | `search-engine.ts:20-23,181-182` |
 | 本对话加成 | 本对话来源条目 ×1.5（乘法，rerank 阶段） | `search-engine.ts:16-18,189` |
 | 同源去重加分 | 按 source 去重取最优，多 chunk 命中 +0.01/个（上限 5） | `search-memory.ts:562-564,678,705-709` |
 | 可解释性 | `debug=true` 注入中间分量（rrfScore/timeDecay/frequencyBoost/multiHitCount） | `search-memory.ts:68,80,98` |
