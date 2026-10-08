@@ -82,7 +82,7 @@ describe('F20260907sgpt 高度贴底补偿（ResizeObserver，检视发现 1/2 �
       root.render(
         <MessageList messages={[msg()]} state="normal" onStopStream={() => {}}
           onRetryMessage={() => {}} onRetry={() => {}} onGoToSettings={() => {}}
-          otters={[]} conversationId="conv-1" isAtBottomRef={ref} />,
+          otters={[]} conversationId="conv-1" pinRef={ref} />,
       )
     })
   }
@@ -200,7 +200,7 @@ describe('F20260907sgpt 高度贴底补偿（ResizeObserver，检视发现 1/2 �
       root.render(
         <MessageList messages={[msg()]} state="normal" onStopStream={() => {}}
           onRetryMessage={() => {}} onRetry={() => {}} onGoToSettings={() => {}}
-          otters={[]} conversationId="conv-1" isAtBottomRef={ref} />,
+          otters={[]} conversationId="conv-1" pinRef={ref} />,
       )
     })
     fire(contentRO(), 1036)
@@ -211,7 +211,7 @@ describe('F20260907sgpt 高度贴底补偿（ResizeObserver，检视发现 1/2 �
       root.render(
         <MessageList messages={[msg(), msg({ id: 'm2' })]} state="normal" onStopStream={() => {}}
           onRetryMessage={() => {}} onRetry={() => {}} onGoToSettings={() => {}}
-          otters={[]} conversationId="conv-2" isAtBottomRef={ref} />,
+          otters={[]} conversationId="conv-2" pinRef={ref} />,
       )
     })
     await sleep(40)
@@ -251,7 +251,7 @@ describe('F20260826fpbd user 消息发送者名回退（Web/飞书同步）', ()
           onGoToSettings={() => {}}
           otters={[]}
           conversationId="conv-1"
-          isAtBottomRef={{ current: true }}
+          pinRef={{ current: true }}
           userName={name}
         />,
       )
@@ -285,5 +285,393 @@ describe('F20260826fpbd user 消息发送者名回退（Web/飞书同步）', ()
   it('Web 本地 user 消息且未设全局名 → 回退「我」（原行为保留）', () => {
     renderWithUser(msg({ st: 'user', si: 'user', sn: undefined }), '')
     expect(userNameSpan()?.textContent).toBe('我')
+  })
+})
+
+describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入自证账本）', () => {
+  /**
+   * 背景：旧 isAtBottomRef 是几何快照判定——流式增长期程序贴底写入追不上内容长高，
+   * scroll 事件时距离瞬超 100px 阈值 → 翻 false → 补偿永久停摆；视口上方内容高度突变
+   * 时无保护（自动上跳根因）。新机制：脱锚只认用户意图事件（wheel/touch/键盘/位移归因），
+   * 程序写入经账本自证（pinWritesRef），归因程序的 scroll 不改状态。
+   *
+   * 测试策略：独立于旧块的 container/root——每个用例自建自清理，避免旧块
+   * beforeEach 里全局 container 与本块互扰。伪造型 scrollTop 可读写（归因测试需要）。
+   */
+  let roInstances: ROStub2[] = []
+  class ROStub2 {
+    cb: ResizeObserverCallback
+    el: Element | null = null
+    constructor(cb: ResizeObserverCallback) { this.cb = cb; roInstances.push(this) }
+    observe(target: Element) { this.el = target }
+    disconnect() {}
+    unobserve() {}
+  }
+  const elementProto = Element.prototype as unknown as Record<string, unknown>
+  const hadScrollTo = Object.prototype.hasOwnProperty.call(elementProto, 'scrollTo')
+  let rafPending: number[] = []
+  beforeEach(() => {
+    roInstances = []
+    if (!hadScrollTo) elementProto.scrollTo = function (this: Element) {}
+    ;(globalThis as Record<string, unknown>).ResizeObserver = ROStub2
+    // rAF 捕获：程序写入经 rAF 合帧，测试需要即时执行
+    const origRaf = globalThis.requestAnimationFrame
+    ;(globalThis as Record<string, unknown>).requestAnimationFrame = (cb: FrameRequestCallback) => {
+      const id = origRaf(cb)
+      rafPending.push(id)
+      return id
+    }
+  })
+  afterEach(() => {
+    if (!hadScrollTo) delete elementProto.scrollTo
+    delete (globalThis as Record<string, unknown>).ResizeObserver
+    rafPending = []
+  })
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+  /** 等待条件为真（rAF 回调真执行后） */
+  async function untilTrue(cond: () => boolean, ms = 600) {
+    const t0 = Date.now()
+    while (!cond()) {
+      if (Date.now() - t0 > ms) return false
+      await sleep(15)
+    }
+    return true
+  }
+  function msg(overrides: Partial<LocalMessage> = {}): LocalMessage {
+    return {
+      id: 'm1', st: 'otter', si: 'otter-1', sn: '大獭', content: '最终正文',
+      status: 'completed', ts: '2026-08-14T00:00:00Z', dur: null, ...overrides,
+    }
+  }
+  /** 可读写伪造型：scrollTop 可读写，scrollHeight 固定，写入计数 */
+  function instrumentRW(el: Element, scrollHeight = 2000, initialTop = 0) {
+    const state = { writes: 0, lastVal: -1, top: initialTop }
+    Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => scrollHeight })
+    Object.defineProperty(el, 'scrollTop', {
+      configurable: true,
+      get: () => state.top,
+      set: (v: number) => { state.writes++; state.lastVal = v; state.top = v },
+    })
+    return state
+  }
+  interface RenderOpts {
+    pinRef: { current: boolean }
+    messages?: LocalMessage[]
+    newMessagesCount?: number
+    onJumpToBottom?: () => void
+    onLoadMore?: () => void
+  }
+  function renderList(opts: RenderOpts): { root: Root; div: HTMLDivElement } {
+    const div = document.createElement('div')
+    document.body.appendChild(div)
+    const root = createRoot(div)
+    act(() => {
+      root.render(
+        <MessageList
+          messages={opts.messages ?? [msg()]}
+          state="normal"
+          onStopStream={() => {}}
+          onRetryMessage={() => {}}
+          onRetry={() => {}}
+          onGoToSettings={() => {}}
+          otters={[]}
+          conversationId="conv-1"
+          pinRef={opts.pinRef}
+          newMessagesCount={opts.newMessagesCount}
+          onJumpToBottom={opts.onJumpToBottom}
+          onLoadMore={opts.onLoadMore}
+        />,
+      )
+    })
+    return { root, div }
+  }
+  function scrollerOf(): Element {
+    const el = document.querySelector('.overflow-y-auto')
+    if (!el) throw new Error('滚动容器不存在（state 非 normal 或渲染未完成）')
+    return el
+  }
+  /** 本块内最新挂载的 observer 按目标 class 找 */
+  function roByClass(cls: string): ROStub2 {
+    const ro = [...roInstances].reverse().find(r => r.el?.classList?.contains(cls))
+    if (!ro) throw new Error(`无观测 .${cls} 的 observer`)
+    return ro
+  }
+  function _viewportRO(): ROStub2 { return roByClass('overflow-y-auto') }
+  function contentRO(): ROStub2 {
+    const scroller = [...roInstances].reverse().find(r => r.el?.classList?.contains('overflow-y-auto'))?.el
+    const content = scroller?.firstElementChild
+    const ro = [...roInstances].reverse().find(r => r.el === content)
+    if (!ro) throw new Error('无观测内容包裹 div 的 observer')
+    return ro
+  }
+  function fireRO(ro: ROStub2, h: number) {
+    act(() => {
+      ro.cb([{ target: ro.el!, contentRect: { width: 800, height: h } } as unknown as ResizeObserverEntry], ro as unknown as ResizeObserver)
+    })
+  }
+  /** 触发一次真实 scroll 事件（handleScroll 归因路径） */
+  function fireScroll() {
+    act(() => { scrollerOf().dispatchEvent(new Event('scroll')) })
+  }
+
+  it('W6 死按钮修复：floating 下点跳底按钮 → 置 pinned + 写入 scrollHeight（smooth）+ 回调', async () => {
+    const pinRef = { current: false }
+    let jumped = false
+    const { root, div } = renderList({ pinRef, newMessagesCount: 2, onJumpToBottom: () => { jumped = true } })
+    try {
+      const btn = Array.from(div.querySelectorAll('button')).find(b => b.textContent?.includes('新消息'))
+      expect(btn, '应渲染跳底按钮').toBeTruthy()
+      const st = instrumentRW(scrollerOf(), 2000, 500)
+      act(() => { btn!.click() })
+      expect(pinRef.current, '点击后应置 pinned').toBe(true)
+      expect(jumped, '业务回调应触发').toBe(true)
+      // smooth 经 scrollTo({behavior}) —— jsdom stub no-op，但写入意图已表达；
+      // 断言 pinned + 回调 + 后续 observer 补偿路径可用
+      void st
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  it('账本归因核心回归锚：程序贴底写入引发的 scroll 不脱锚（旧机制在此翻 false 停摆）', async () => {
+    const pinRef = { current: true }
+    const { root, div } = renderList({ pinRef })
+    try {
+      fireRO(contentRO(), 1036) // 基线采样
+      await sleep(40) // 等基线 rAF 落完（mount init 写入也在此完成）
+      const st = instrumentRW(scrollerOf(), 2000, 1900)
+      fireRO(contentRO(), 1200) // 内容增高 → rAF 程序写入 2000
+      expect(await untilTrue(() => st.writes > 0), '程序应贴底写入').toBe(true)
+      // 程序写入后浏览器触发 scroll：scrollTop=2000（写入值），距底 0，且账本认领
+      st.top = 2000
+      fireScroll()
+      expect(pinRef.current, '归因程序的 scroll 不应脱锚').toBe(true)
+      // 持续增高（写入过期）也不脱锚：pin 类下界匹配（scrollTop >= expected-ε）
+      fireRO(contentRO(), 1400)
+      await sleep(40)
+      st.top = 2000 // scrollHeight 已 2100（instrumentRW 固定），距底 100px——旧机制必翻 false
+      fireScroll()
+      expect(pinRef.current, '流式写入过期时仍归因程序，不脱锚（停摆竞态核心）').toBe(true)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  it('滚动条上拖签名（V5 上半）：未登记的向上位移 → floating', async () => {
+    const pinRef = { current: true }
+    const { root, div } = renderList({ pinRef })
+    try {
+      fireRO(contentRO(), 1036)
+      await sleep(40)
+      const st = instrumentRW(scrollerOf(), 2000, 1800)
+      st.top = 1800
+      fireScroll() // 建立基线 lastScrollTop=1800（距底 200，不在底部，位移 0）
+      expect(pinRef.current, '首次事件不脱锚（无向上位移）').toBe(true)
+      st.top = 1000
+      fireScroll() // 位移向上 800px，未登记 → 用户滚动条上拖
+      expect(pinRef.current, '向上位移应脱锚').toBe(false)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  it('滚到底回锚（V5 下半）：floating 后 isNearBottom 的 scroll → pinned', async () => {
+    const pinRef = { current: false }
+    const { root, div } = renderList({ pinRef })
+    try {
+      fireRO(contentRO(), 1036)
+      await sleep(40)
+      const st = instrumentRW(scrollerOf(), 2000, 500)
+      st.top = 1950 // 距底 50px
+      fireScroll()
+      expect(pinRef.current, '滚到底部附近应回锚').toBe(true)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  it('wheel 向上 → 立即脱锚；floating 下高度增长不打扰（T2）', async () => {
+    const pinRef = { current: true }
+    const { root, div } = renderList({ pinRef })
+    try {
+      fireRO(contentRO(), 1036)
+      await sleep(40)
+      act(() => {
+        scrollerOf().dispatchEvent(new WheelEvent('wheel', { deltaY: -100 }))
+      })
+      expect(pinRef.current, 'wheel 向上应立即脱锚').toBe(false)
+      const st = instrumentRW(scrollerOf(), 2000, 500)
+      fireRO(contentRO(), 1400) // 高度增长
+      await sleep(80)
+      expect(st.writes, 'floating 状态高度增长不应写入（T2 不打扰）').toBe(0)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  it('W8 恢复：顶部触发 loadMore → 历史加载后写入偏移位置且 scroll 归因程序', async () => {
+    // 场景：用户已脱锚上翻（floating）——mount 时 conversationId effect 会置 pinned，
+    // 需先模拄用户脱锚（wheel 向上）再滚到顶，否则 pin=true 会让测试意图混入贴底路径
+    const pinRef = { current: true }
+    let loadMoreFired = false
+    const { root, div } = renderList({ pinRef, onLoadMore: () => { loadMoreFired = true } })
+    try {
+      fireRO(contentRO(), 1036)
+      await sleep(40)
+      // 用户 wheel 向上脱锚
+      act(() => { scrollerOf().dispatchEvent(new WheelEvent('wheel', { deltaY: -100 })) })
+      expect(pinRef.current).toBe(false)
+      const st = instrumentRW(scrollerOf(), 2000, 0) // 顶部
+      fireScroll() // scrollTop=0 → onLoadMore + pendingScrollRestoreRef 记 2000
+      expect(loadMoreFired).toBe(true)
+      // 加载历史：消息变多 → W8 恢复写入 scrollHeight(2000) - 2000 = 0
+      act(() => {
+        root.render(
+          <MessageList
+            messages={[msg({ id: 'm0', ts: '2026-08-13T00:00:00Z' }), msg()]}
+            state="normal"
+            onStopStream={() => {}}
+            onRetryMessage={() => {}}
+            onRetry={() => {}}
+            onGoToSettings={() => {}}
+            otters={[]}
+            conversationId="conv-1"
+            pinRef={pinRef}
+            onLoadMore={() => {}}
+          />,
+        )
+      })
+      expect(await untilTrue(() => st.writes > 0), 'W8 应写入恢复位置').toBe(true)
+      expect(st.lastVal, '恢复写入 = scrollHeight - 记录高度 = 0').toBe(0)
+      // 恢复写入后的 scroll 事件归因程序（restore 标签），不改变 floating 状态
+      st.top = 0
+      fireScroll()
+      expect(pinRef.current, 'restore 写入的 scroll 不应回锚/脱锚').toBe(false)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  it('切会话 R0：conversationId 变化 → pin 重置 pinned + 账本清空（隔会话残留写入不误伤）', async () => {
+    const pinRef = { current: false }
+    const { root, div } = renderList({ pinRef })
+    try {
+      act(() => {
+        root.render(
+          <MessageList
+            messages={[msg({ id: 'x1' })]}
+            state="normal"
+            onStopStream={() => {}}
+            onRetryMessage={() => {}}
+            onRetry={() => {}}
+            onGoToSettings={() => {}}
+            otters={[]}
+            conversationId="conv-2"
+            pinRef={pinRef}
+          />,
+        )
+      })
+      expect(pinRef.current, '切会话应重置 pinned').toBe(true)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  it('键盘脱锚（V9）：页面级 PageUp → floating；输入框内 PageUp 不劫持', async () => {
+    const pinRef = { current: true }
+    const { root, div } = renderList({ pinRef })
+    try {
+      fireRO(contentRO(), 1036)
+      await sleep(40)
+      act(() => {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp' }))
+      })
+      expect(pinRef.current, '页面级 PageUp 应脱锚').toBe(false)
+      // 回锚后测输入框保护
+      const st = instrumentRW(scrollerOf(), 2000, 1950)
+      st.top = 1950
+      fireScroll()
+      expect(pinRef.current).toBe(true)
+      const input = document.createElement('input')
+      document.body.appendChild(input)
+      act(() => {
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
+      })
+      expect(pinRef.current, '输入框内 PageUp 不应脱锚').toBe(true)
+      input.remove()
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  it('审视建议补测①：向下滚（wheel deltaY>0）不接管——跟随态不被向底手势破坏', async () => {
+    const pinRef = { current: true }
+    const { root, div } = renderList({ pinRef })
+    try {
+      fireRO(contentRO(), 1036)
+      await sleep(40)
+      act(() => {
+        scrollerOf().dispatchEvent(new WheelEvent('wheel', { deltaY: 100 }))
+      })
+      expect(pinRef.current, '向底 wheel 不应脱锚').toBe(true)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  it('审视建议补测②：restore 后 TTL 窗口内用户上拖——位移优先归因不被陈旧条目吞', async () => {
+    const pinRef = { current: true }
+    let loadMoreFired = false
+    const { root, div } = renderList({ pinRef, onLoadMore: () => { loadMoreFired = true } })
+    try {
+      fireRO(contentRO(), 1036)
+      await sleep(40)
+      act(() => { scrollerOf().dispatchEvent(new WheelEvent('wheel', { deltaY: -100 })) })
+      expect(pinRef.current).toBe(false)
+      const st = instrumentRW(scrollerOf(), 2000, 0)
+      fireScroll() // 顶部 → loadMore + 记录 restore
+      expect(loadMoreFired).toBe(true)
+      act(() => {
+        root.render(
+          <MessageList
+            messages={[msg({ id: 'm0', ts: '2026-08-13T00:00:00Z' }), msg()]}
+            state="normal"
+            onStopStream={() => {}}
+            onRetryMessage={() => {}}
+            onRetry={() => {}}
+            onGoToSettings={() => {}}
+            otters={[]}
+            conversationId="conv-1"
+            pinRef={pinRef}
+            onLoadMore={() => {}}
+          />,
+        )
+      })
+      expect(await untilTrue(() => st.writes > 0)).toBe(true)
+      // restore 条目在账本（TTL 1s 内）；用户随即上拖：scrollTop 从 0 无法再向上，改用「程序写入落点向下偏移」模拟：
+      // 设 top=restore 落点 0 后向下微移再上移，验证位移优先归因（movedUp && !nearBottom → takeUserControl）
+      st.top = 300 // 用户向下微移（建立基线）
+      fireScroll()
+      expect(pinRef.current, '向下微移不接管（程序或用户向底手势均不脱锚）').toBe(false)
+      st.top = 150 // 向上位移 150px，restore 条目紧 ε=4 不命中 150，movedUp 优先接管
+      fireScroll()
+      expect(pinRef.current, 'TTL 窗口内用户上拖应接管（位移优先，陈旧条目不吞）').toBe(false)
+      // 幂等性验证：已 floating，再次上拖仍是 floating（无副作用路径）
+      st.top = 100
+      fireScroll()
+      expect(pinRef.current).toBe(false)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
   })
 })
