@@ -35,6 +35,24 @@ export const HTML_CARD_CONTRACT = `# HTML 卡片写作契约
 - 冷色点缀（薰衣草）：var(--lavender-400)、var(--lavender-500)——标签、辅助分类
 - 语义色：var(--paper) 卡片底色、var(--ink) 主文字、var(--ink-3) 次要文字、var(--line) 分隔线/描边
 
+## 预设类库（推荐使用，不强制）
+
+以下类已预注入渲染环境，直接写 class 引用，无需在卡片内定义 <style>（省 token + 全部卡片风格统一）：
+
+- 布局容器：.wrap（卡根容器）/.topic（话题块卡片）/.section（小节）/.grid + .cols-2/.cols-3（多栏）/.foot（尾注）/.hint（分隔提示行）
+- 徽章标签：.badges（徽章行容器）/.badge + 变体 .badge-ok/.badge-warn/.badge-info
+- 文本语义：.k（加粗关键词）/.sec（小标题）/.mut（次要文字）/.ok（正面强调）/.warn（警示强调）/.alt（引用块/侧注）
+- 数据行：.kv + .key/.val（键值行）/.meta（元信息）
+- 条形图：.bars（图容器）/.bar-row + .bar-name/.bar-track/.bar-fill + 变体 .bar-fill-warn/.bar-fill-dim/.bar-val
+- 表格：.tbl（th 自动底色）
+- 按钮：.btns（按钮行容器）/.btn + .btn-primary（主操作）
+- 卡头：.head + .title（概览条/卡头）
+
+使用规则：
+- **优先用预设，自定样式仅当预设不覆盖或搭档点名要定制时**——日常简报/汇报用预设保一致性；点名绚丽/定制设计时自由写，表达力不受限
+- 预设在卡片内联 <style> 之前解析——同优先级时你的内联样式胜出，可局部覆盖；**注意**：.key/.val/.title 等组合选择器预设（如 .kv .key）specificity 更高，覆盖它们需用 style 属性或更高优先级选择器
+- 预设不含美学上限：配色、字体、氛围等永远开放手写
+
 ## 交互 API（收集用户输入）
 
 卡片可携带表单/按钮。用户填完后由卡片脚本调用注入的桥 API 提交：

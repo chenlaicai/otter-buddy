@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Hash, ShieldCheck, AlertTriangle } from 'lucide-react'
-import { CARD_MAX_BYTES, CARD_MAX_PER_MESSAGE, CARD_MIN_HEIGHT, byteLength } from '../../lib/html-card'
+import { CARD_MAX_BYTES, CARD_MAX_PER_MESSAGE, CARD_MIN_HEIGHT, CARD_PRESET_CLASSES_CSS, byteLength } from '../../lib/html-card'
 import { registerCard, unregisterCard } from '../../lib/card-registry'
 import { buildCardBridgeScript } from '../../lib/card-bridge'
 
@@ -10,7 +10,7 @@ const CARD_TOKEN_CSS = `:root {
   --otter-400:#A88260; --otter-500:#8B6F47; --otter-600:#6B5638; --otter-700:#52402C;
   --otter-800:#3A2E1F; --otter-900:#2A2014;
   --teal-300:#7BC5C5; --teal-400:#4A9B9B; --teal-500:#3A8B8B; --teal-600:#2A7B7B;
-  --caramel-400:#D9A57B; --caramel-500:#C9956B;
+  --caramel-400:#D9A57B; --caramel-500:#C9956B; --caramel-600:#8F6234;
   --lavender-400:#9B8AC8; --lavender-500:#8B7AB8;
   --paper:#FFFDF9; --ink:#3A2E1F; --ink-3:#5F5447; --line:rgba(42,32,20,0.14);
 }
@@ -20,10 +20,11 @@ body { margin:0; padding:12px; background:var(--paper); color:var(--ink);
 /** CSP：default-src 'none' 断外网；form-action 'none' 堵表单外泄；脚本仅限内联（桥 + AI 脚本同上下文） */
 const CARD_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'"
 
-/** 组装 iframe srcdoc：CSP meta + 设计 token + 桥脚本（仅可交互卡片）+ AI HTML */
+/** 组装 iframe srcdoc：CSP meta + 设计 token + 预设类库（F20261006cssp）+ 桥脚本（仅可交互卡片）+ AI HTML
+ *  预设类注入在 AI HTML 之前——卡片内联 <style> 晚于预设解析，同 specificity 时后者胜出，天然可覆盖 */
 function buildCardSrcdoc(html: string, cardId: string, interactive: boolean): string {
   const bridge = interactive ? `<script>${buildCardBridgeScript(cardId)}</script>` : ''
-  return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${CARD_CSP}"><style>${CARD_TOKEN_CSS}</style></head><body>${html}${bridge}</body></html>`
+  return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${CARD_CSP}"><style>${CARD_TOKEN_CSS}</style><style>${CARD_PRESET_CLASSES_CSS}</style></head><body>${html}${bridge}</body></html>`
 }
 
 export interface HtmlCardProps {

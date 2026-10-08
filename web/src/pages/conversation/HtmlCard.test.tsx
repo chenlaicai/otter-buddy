@@ -76,3 +76,30 @@ describe('collapse→re-expand 回归（loadCount 进入 expanded 即重置）',
     expect(container.textContent).toContain('已失效')
   })
 })
+
+describe('预设类库注入（F20261006cssp）', () => {
+  it('展开态 srcdoc 注入预设类 CSS 与设计 token（顺序：token 先、预设后、AI HTML 最后）', () => {
+    renderCard(true)
+    clickButton('展开渲染')
+    const iframe = container.querySelector('iframe')
+    expect(iframe).toBeTruthy()
+    const doc = iframe!.getAttribute('srcdoc') || ''
+    // 预设类在 srcdoc 中
+    expect(doc).toContain('.topic{')
+    expect(doc).toContain('.bar-fill{')
+    expect(doc).toContain('.btn-primary{')
+    // 顺序校验：token CSS → 预设 CSS → AI HTML
+    const tokenPos = doc.indexOf('--otter-50')
+    const presetPos = doc.indexOf('.topic{')
+    const htmlPos = doc.indexOf('卡片内容')
+    expect(tokenPos).toBeGreaterThan(-1)
+    expect(presetPos).toBeGreaterThan(tokenPos)
+    expect(htmlPos).toBeGreaterThan(presetPos)
+  })
+
+  it('折叠态不注入（srcdoc 为空，预设 CSS 不进 DOM）', () => {
+    renderCard(true)
+    const iframe = container.querySelector('iframe')
+    expect(iframe).toBeFalsy()
+  })
+})
