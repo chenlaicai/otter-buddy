@@ -424,6 +424,11 @@ export function MessageList({
       // 不劫持输入框光标移动（V9）：目标为输入元素时上翻键属于文本编辑语义
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      // 防御性过滤（代码审视建议 1，前提经核实不成立：iframe 内键盘事件受同源文档隔离，
+      // 不会传播到宿主 window——card-bridge.ts 仅监听 load，无键盘转发）。保留作为未来
+      // 事件桥接引入时的护栏：目标属于其他文档（iframe）时忽略；window 目标（无
+      // ownerDocument）仍处理——测试与辅助技术依赖 window 级分发
+      if (t && typeof t.ownerDocument !== 'undefined' && t.ownerDocument !== document) return
       takeUserControl()
     }
     el.addEventListener('wheel', onWheel, { passive: true, capture: true })

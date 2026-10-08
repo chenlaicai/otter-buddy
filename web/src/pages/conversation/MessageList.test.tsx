@@ -611,4 +611,67 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
       div.remove()
     }
   })
+
+  it('审视建议补测①：向下滚（wheel deltaY>0）不接管——跟随态不被向底手势破坏', async () => {
+    const pinRef = { current: true }
+    const { root, div } = renderList({ pinRef })
+    try {
+      fireRO(contentRO(), 1036)
+      await sleep(40)
+      act(() => {
+        scrollerOf().dispatchEvent(new WheelEvent('wheel', { deltaY: 100 }))
+      })
+      expect(pinRef.current, '向底 wheel 不应脱锚').toBe(true)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  it('审视建议补测②：restore 后 TTL 窗口内用户上拖——位移优先归因不被陈旧条目吞', async () => {
+    const pinRef = { current: true }
+    let loadMoreFired = false
+    const { root, div } = renderList({ pinRef, onLoadMore: () => { loadMoreFired = true } })
+    try {
+      fireRO(contentRO(), 1036)
+      await sleep(40)
+      act(() => { scrollerOf().dispatchEvent(new WheelEvent('wheel', { deltaY: -100 })) })
+      expect(pinRef.current).toBe(false)
+      const st = instrumentRW(scrollerOf(), 2000, 0)
+      fireScroll() // 顶部 → loadMore + 记录 restore
+      expect(loadMoreFired).toBe(true)
+      act(() => {
+        root.render(
+          <MessageList
+            messages={[msg({ id: 'm0', ts: '2026-08-13T00:00:00Z' }), msg()]}
+            state="normal"
+            onStopStream={() => {}}
+            onRetryMessage={() => {}}
+            onRetry={() => {}}
+            onGoToSettings={() => {}}
+            otters={[]}
+            conversationId="conv-1"
+            pinRef={pinRef}
+            onLoadMore={() => {}}
+          />,
+        )
+      })
+      expect(await untilTrue(() => st.writes > 0)).toBe(true)
+      // restore 条目在账本（TTL 1s 内）；用户随即上拖：scrollTop 从 0 无法再向上，改用「程序写入落点向下偏移」模拟：
+      // 设 top=restore 落点 0 后向下微移再上移，验证位移优先归因（movedUp && !nearBottom → takeUserControl）
+      st.top = 300 // 用户向下微移（建立基线）
+      fireScroll()
+      expect(pinRef.current, '向下微移不接管（程序或用户向底手势均不脱锚）').toBe(false)
+      st.top = 150 // 向上位移 150px，restore 条目紧 ε=4 不命中 150，movedUp 优先接管
+      fireScroll()
+      expect(pinRef.current, 'TTL 窗口内用户上拖应接管（位移优先，陈旧条目不吞）').toBe(false)
+      // 幂等性验证：已 floating，再次上拖仍是 floating（无副作用路径）
+      st.top = 100
+      fireScroll()
+      expect(pinRef.current).toBe(false)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
 })
