@@ -78,6 +78,17 @@ budget_bytes: 9600
 [ ] 10. 压缩观测：failed 计数 + 阈值判断（无异常写"failed=0，健康"）
 ```
 
+## 守卫误拦样本固化段（修复-回归循环的治理项；方案细节见 docs/features/ 下本批次特性文档）
+
+昨日 guard_intercept 样本是「修复-回归循环」的原料（bash 守卫两次家族性复发：修好一侧另一侧未同步，几年内三次重演）——不固化就重演。每日：
+
+1. **跑候选生成器**：`node scripts/generate-guard-replay.mjs --db <curl /api/settings 得到的 dbPath 绝对路径>`（产出 `data/guard-replay-candidates-<昨日>.json`；无拦截则日报写一行「守卫样本固化：0 条，跳过」）
+2. **逐条裁决**（verdict 字段）：`ALLOW`（误拦——命令正当被拦，写明哪条规则误拦及理由）/ `BLOCK`（规则内拦截——值得固化为负门样本）/ `SKIP`（一次性/含敏感内容/不可复现，写理由）。裁决依据真实现场：可用 search_memory 查该命令当时的后续（獭是否换写法绕过 = 误拦旁证）
+3. **固化**：verdict 非 SKIP 的样本追加到 `tests/frameworks/agent/guard-v2-real-replay.test.ts`（既有 replay 用例文件，格式对齐文件内既有 it 块：注释含日期/獭/现场，断言 = 裁决值；commandHead 用原样非脱敏值，敏感段人工改写）。追完成后跑 `npx vitest run tests/frameworks/agent/guard-v2-real-replay.test.ts` 确认新用例与期望一致——**期望值与实际判定不符时不要改期望值凑绿**，先确认裁决是否错（裁决错改裁决；真割裂（双链判定不一致）按 issue 报）
+4. **留痕**：日报守卫固化段写「拦截 N → 候选 M → 固化 K / SKIP S」，已固化样本在候选 JSON 里补 verdict 后同 commit 提交（data/ 不入 git 则只在日报留档）
+
+边界：本段只处理 guard_intercept（不碰其他 errorType）；误拦面成规模的（同 ruleId ≥3 条）不逐条固化，开 issue 走规则修正（修规则优于钉样本）。
+
 ## healing events 消费即处置
 
 分析过的 self-healing events 必须在本次产出内处置完毕：
