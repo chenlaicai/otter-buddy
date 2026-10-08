@@ -73,14 +73,42 @@ import { loadToolManifest, type ToolManifest } from "../config/tool-manifest-loa
 
 /**
  * F20261008tecn：读取 manifest 的 toolExposure 段（进程内缓存，仅首次读盘）。
- * manifest 缺失/不合规时返回 undefined——全部工具保持 direct（现状行为，fail-open）。
+ * manifest 缺失/不合规时返回 undefined——全部工具保持 direct（现状行为，fail-open），
+ * 但打 info 日志让失效可被日志检索发现（检视发现 4：静默失效不可观测）。
  */
 let cachedToolExposure: Record<string, "direct" | "deferred"> | undefined | null = null;
-function loadToolExposureFromManifest(projectRoot: string, logger: { warn: (msg: string) => void; error: (msg: string) => void }): Record<string, "direct" | "deferred"> | undefined {
+function loadToolExposureFromManifest(projectRoot: string, logger: { info: (msg: string) => void; warn: (msg: string) => void; error: (msg: string) => void }): Record<string, "direct" | "deferred"> | undefined {
   if (cachedToolExposure !== null) return cachedToolExposure ?? undefined;
   const manifest: ToolManifest | null = loadToolManifest(projectRoot, logger);
   cachedToolExposure = manifest?.toolExposure ?? null;
+  if (!cachedToolExposure) {
+    // manifest 存在但无 toolExposure 段（或 manifest 整体解析失败——后者 loadToolManifest 已打 error）
+    logger.info("[tool-exposure] manifest 无 toolExposure 段或解析失败，全部工具 direct（不瘦身）——若非预期请检查 config/tool-manifest.json");
+  }
   return cachedToolExposure ?? undefined;
+}
+
+/**
+ * F20261008tecn（检视发现 2 修复）：计算 session 激活集的纯函数。
+ *
+ * 语义：激活集 = coding 工具 ∪ direct 自定义工具 ∪（有 deferred 时）tool_search。
+ * deferred 工具**不进激活集**（已注册、未激活、可搜索——pi tool_search 只搜非激活工具）。
+ *
+ * 为什么抽纯函数：pi SDK 的 tools 数组同时充当注册白名单与初始激活清单（耦合，详见
+ * _createSessionWithTools 注释），激活集重建是本机制的核心语义——抽离后单测直接锁死，
+ * 防 pi SDK 升级改变 _isActivatable/_isDeclarable 语义时无护栏（检视发现 2：冒烟一次性不可回归）。
+ *
+ * 不变量（lint-tool-manifest.mjs 静态校验兕底，检视发现 1）：deferred 工具名不得出现在
+ * coding 工具集内——否则 session 构造瞬间被 allowedTools×_isDeclarable 路径推入激活集，
+ * setActiveToolsByName 修正不了已发生的第一次请求窗口。
+ */
+export function computeActiveToolNames(
+  codingToolNames: readonly string[],
+  customTools: ReadonlyArray<{ name: string; exposure?: "direct" | "deferred" }>,
+): string[] {
+  const hasDeferred = customTools.some(t => t.exposure === "deferred");
+  const directCustom = customTools.filter(t => t.exposure !== "deferred").map(t => t.name);
+  return [...codingToolNames, ...directCustom, ...(hasDeferred ? ["tool_search"] : [])];
 }
 import { updateLastReadSeq } from "@frameworks/db/conversation/conversation-repository-mixins";
 import { readSessionEntries } from "./session-slicer";
@@ -1091,8 +1119,8 @@ export class PiSessionFactory implements AgentGateway {
     // deferred 工具必须留在白名单内（否则被 _isAllowedTool 剔除出注册表，tool_search
     // 搜不到），但留在 tools 数组里又会被立即激活声明（initialActiveToolNames 语义，
     // agent-session.js _isActivatable 对具名非 MCP 工具恒真）。两者耦合无法在 SDK
-    // 入参层分离，故创建后立即用 setActiveToolsByName 重建激活集：只含 coding 工具
-    // + direct 自定义工具 + tool_search。deferred 工具保持「已注册、未激活、可搜索」
+    // 入参层分离，故创建后立即重建激活集（纯函数 computeActiveToolNames，单测锁语义）：
+    // 只含 coding 工具 + direct 自定义工具 + tool_search。deferred 工具保持「已注册、未激活、可搜索」
     // 状态——这是 pi 的 tool_search 发现机制（非激活工具中 BM25 检索）的前提。
     const hasDeferred = filteredCustomTools.some(t => t.exposure === "deferred");
     const { session } = await piCodingAgent.createAgentSession({
@@ -1105,8 +1133,8 @@ export class PiSessionFactory implements AgentGateway {
       settingsManager: settingsManager ?? undefined,
     });
     if (hasDeferred) {
-      const directCustomToolNames = filteredCustomTools.filter(t => t.exposure !== "deferred").map(t => t.name);
-      session.setActiveToolsByName([...filteredCodingTools, ...directCustomToolNames, "tool_search"]);
+      // F20261008tecn（检视发现 2）：激活集计算抽纯函数 computeActiveToolNames，单测锁语义
+      session.setActiveToolsByName(computeActiveToolNames(filteredCodingTools, filteredCustomTools));
     }
     this.logger.debug('[createSession] createAgentSession returned', { otterId });
 

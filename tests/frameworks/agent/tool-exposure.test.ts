@@ -81,3 +81,38 @@ describe("F20261008tecn: toolExposure 打标", () => {
     expect(text).toBe("ok");
   });
 });
+
+/**
+ * F20261008tecn（检视发现 2 修复）：激活集计算纯函数测试。
+ * 锁死核心语义：激活集 = coding ∪ direct 自定义 ∪（有 deferred 时）tool_search，
+ * deferred 永不进激活集。防 pi SDK 升级改变 _isActivatable/_isDeclarable 语义时无护栏。
+ */
+import { computeActiveToolNames } from "@frameworks/agent/pi-session-factory";
+
+describe("F20261008tecn: computeActiveToolNames 激活集语义", () => {
+  it("有 deferred 工具：激活集 = coding + direct 自定义 + tool_search，deferred 排除", () => {
+    const custom = [
+      { name: "speak" },
+      { name: "add_terminology", exposure: "deferred" as const },
+      { name: "halt_otter", exposure: "deferred" as const },
+      { name: "search_memory" },
+    ];
+    const active = computeActiveToolNames(["bash", "read"], custom);
+    expect(active).toEqual(["bash", "read", "speak", "search_memory", "tool_search"]);
+    expect(active).not.toContain("add_terminology");
+    expect(active).not.toContain("halt_otter");
+  });
+
+  it("无 deferred 工具：不注入 tool_search，行为与现状等价", () => {
+    const custom = [{ name: "speak" }, { name: "search_memory" }];
+    const active = computeActiveToolNames(["bash", "read"], custom);
+    expect(active).toEqual(["bash", "read", "speak", "search_memory"]);
+    expect(active).not.toContain("tool_search");
+  });
+
+  it("全 deferred：只剩 coding + tool_search（极端边界）", () => {
+    const custom = [{ name: "add_terminology", exposure: "deferred" as const }];
+    const active = computeActiveToolNames(["bash"], custom);
+    expect(active).toEqual(["bash", "tool_search"]);
+  });
+});

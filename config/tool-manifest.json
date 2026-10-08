@@ -10,11 +10,6 @@
     "query_dispatch_ledger": "deferred",
     "list_rhi_signals": "deferred",
     "triage_signal": "deferred",
-    "unhalt_otter": "deferred",
-    "halt_otter": "deferred",
-    "resolve_signal": "deferred",
-    "merge_pr": "deferred",
-    "restart_otter": "deferred",
     "workspace_info": "deferred",
     "get_html_card_contract": "deferred"
   },
