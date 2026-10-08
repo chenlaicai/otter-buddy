@@ -1,9 +1,10 @@
 import type Database from 'better-sqlite3';
 import type { Matter, MatterQueryFilter } from '@entities/matter/matter';
 import type { MatterRepository } from '@usecases/matter/matter-repository';
+import type { MatterSweepStall, MatterSweepStalledRow } from '@usecases/matter/matter-sweep';
 
 /**
- * Matters 的 SQLite 实现（F20261006mtlp P1）。
+ * Matters 的 SQLite 实现（F20261006mtlp P1；F20261008mlp3 P3：扫描升格扩展）。
  * 表结构在 schema.ts createMattersTable 创建（幂等 CREATE IF NOT EXISTS）。
  */
 
@@ -152,5 +153,74 @@ export class SqliteMatterRepository implements MatterRepository {
     `).run(now, `otter:${otterId}`, otterId);
     return result.changes;
   }
-}
 
+  /**
+   * F20261008mlp3 P3：跨对话停滞扫描（未闭环扫描升格——确定性数据源）。
+   * 停滞定义（方案 §7 P3）：OPEN 无人认领 / WAITING_PARTNER 积压——跨日未收尾（24h 基准）。
+   * 只读；调用方（三省吾身大獭）负责提醒，不做自动处置。
+   */
+  async stalledOpen(nowIso: string, stallThresholdIso: string, limit = 200): Promise<MatterSweepStall[]> {
+    const rows = this.db.prepare(`
+      SELECT id, conversation_id, title, owner_otter_id, level, state,
+             waiting_on, waiting_for, created_at, updated_at
+      FROM matters
+      WHERE state = 'OPEN'
+         OR (state = 'WAITING_PARTNER' AND updated_at <= ?)
+      ORDER BY updated_at ASC
+      LIMIT ?
+    `).all(stallThresholdIso, limit) as Array<Pick<MatterRow,
+      'id' | 'conversation_id' | 'title' | 'owner_otter_id' | 'level' | 'state' | 'waiting_on' | 'waiting_for' | 'created_at' | 'updated_at'>>;
+    return rows.map(r => ({
+      id: r.id,
+      conversationId: r.conversation_id,
+      title: r.title,
+      ownerOtterId: r.owner_otter_id,
+      level: (r.level as Matter['level']) ?? null,
+      state: r.state as Matter['state'],
+      waitingOn: r.waiting_on,
+      waitingFor: r.waiting_for,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      stalledHours: Math.max(0, Math.round((Date.parse(nowIso) - Date.parse(r.updated_at)) / 3_600_000)),
+    }));
+  }
+
+  /**
+   * F20261008mlp3 P3：漏登记的 L2 待裁决项发现（准入路径 3 兜底——可执行化）。
+   * 严重3修复：①SQL 排除已登记 matter（LEFT JOIN origin_message_id——"漏登记"语义落进查询）；
+   * ②输出带 originMessageId + registeredMatterId，调用方按去重键判定（不用肉眼甄别）；
+   * ③expects_partner_decision 未持久化（schema 无此列），SQL 层面无法区分 L2 拍板与
+   * 例行交棒——兜底半径如实声明为「yield-to-user 未登记增量」，L2 甄别留给调用方
+   * （payload 含 brief 或 reason 含拍板语义时权重更高）。只读；调用方决定是否补登记。
+   */
+  async unregisteredYieldsToUser(sinceIso: string, limit = 100): Promise<MatterSweepStalledRow[]> {
+    const rows = this.db.prepare(`
+      SELECT e.id, e.conversation_id, e.created_at, e.sender_id, e.sender_name, e.yield_targets, e.body,
+             m.id AS registered_matter_id, m.origin_message_id AS matter_origin
+      FROM entries e
+      LEFT JOIN matters m ON m.origin_message_id = e.id
+      WHERE e.entry_type = 'yield'
+        AND e.created_at >= ?
+        AND e.yield_targets LIKE '%"user"%'
+        AND m.id IS NULL
+      ORDER BY e.created_at DESC
+      LIMIT ?
+    `).all(sinceIso, limit) as Array<{
+      id: string; conversation_id: string; created_at: string;
+      sender_id: string | null; sender_name: string; yield_targets: string | null; body: string | null;
+      registered_matter_id: string | null; matter_origin: string | null;
+    }>;
+    return rows.map(r => ({
+      id: r.id,
+      conversationId: r.conversation_id,
+      createdAt: r.created_at,
+      senderId: r.sender_id,
+      senderName: r.sender_name,
+      yieldTargets: r.yield_targets,
+      body: r.body,
+      // 去重键：matter 登记时 origin_message_id = yield entry id（P1 准入路径 1 锁定）
+      originMessageId: r.id,
+      registeredMatterId: r.registered_matter_id,
+    }));
+  }
+}
