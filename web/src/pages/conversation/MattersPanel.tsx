@@ -161,12 +161,53 @@ function MatterItem({
           {matter.ownerOtterId ? `owner ${matter.ownerOtterId.slice(0, 8)}` : ''}
         </div>
       )}
+      {/* F20261008mlp3 P3 严重2修复：板上简报呈现——WAITING_PARTNER 条目展开 payload 简报
+          三层结构（§6 吸收语义：卡片被顶走后 matter 兜底，板上看不到简报=兜底残缺）。
+          payload 为 JSON 字符串，解析失败降级为原文展示（不阻断面板渲染）。 */}
+      {matter.payload && matter.state === 'WAITING_PARTNER' && (
+        <MatterBrief payload={matter.payload} />
+      )}
       {matter.state === 'WAITING_PARTNER' && (
         <WaitingPartnerActions busy={busy} onAct={action => onAct(matter, action)} />
       )}
       {matter.state === 'DONE_PENDING_CONFIRM' && (
         <ConfirmActions busy={busy} onAct={action => onAct(matter, action)} />
       )}
+    </div>
+  )
+}
+
+/**
+ * MatterBrief（F20261008mlp3 P3 严重2修复）：板上简报呈现——payload 简报三层结构。
+ * 方案 §6 吸收语义：卡片是 matter 处于 WAITING_PARTNER 态的呈现形态；卡片被顶走后
+ * matter 兜底——板上必须能看到简报内容，否则兜底残缺。
+ * payload 为 JSON 字符串（P1 准入路径 1 锁定：JSON.stringify({ brief: '...' })），
+ * 解析失败降级为原文展示（不阻断面板渲染）。
+ */
+function MatterBrief({ payload }: { payload: string }) {
+  const [expanded, setExpanded] = useState(false)
+  let brief: string | null
+  try {
+    const parsed = JSON.parse(payload) as Record<string, unknown>
+    brief = typeof parsed.brief === 'string' ? parsed.brief : null
+  } catch {
+    brief = null
+  }
+  const display = brief ?? payload
+  const preview = display.length > 80 ? display.slice(0, 80) + '…' : display
+  return (
+    <div className="mt-1.5 pt-1.5 border-t border-stone-200/50" data-testid="matter-brief">
+      <button
+        className="text-[9px] text-stone-500 hover:text-stone-700 transition text-left w-full"
+        onClick={() => setExpanded(!expanded)}
+        title={expanded ? '收起简报' : '展开简报全文'}
+      >
+        <span className="font-medium">简报：</span>
+        {expanded ? display : preview}
+        {display.length > 80 && (
+          <span className="text-stone-400 ml-1">{expanded ? '▲' : '▼'}</span>
+        )}
+      </button>
     </div>
   )
 }

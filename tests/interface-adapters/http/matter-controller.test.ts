@@ -41,12 +41,15 @@ function makeRepo(all: Matter[]): MatterRepository {
   return {
     create: async () => {},
     findById: async () => null,
-    findByConversation: async (_c, filter) => {
+    findByConversation: async (_c: string, filter?: import('@entities/matter/matter').MatterQueryFilter) => {
       const rows = filter?.openOnly ? all.filter((m) => m.state !== "CLOSED" && m.state !== "SUPERSEDED" && m.state !== "ABANDONED") : all;
       return rows;
     },
     transition: async () => null,
     reopenForDissolvedOwner: async () => 0,
+    // F20261008mlp3 P3 建议8修复：补 stalledOpen/unregisteredYieldsToUser stub 还原单断言
+    stalledOpen: async () => [],
+    unregisteredYieldsToUser: async () => [],
   } as MatterRepository;
 }
 

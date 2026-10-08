@@ -1,4 +1,5 @@
 import type { Matter, MatterQueryFilter } from '@entities/matter/matter';
+import type { MatterSweepStall, MatterSweepStalledRow } from './matter-sweep';
 
 /**
  * Matter 持久化仓库接口（F20261006mtlp P1）。
@@ -31,4 +32,17 @@ export interface MatterRepository {
    * 其名下 WAITING_OTTER 的 matter 自动转回 OPEN 待重派（每日扫描兜底）。
    */
   reopenForDissolvedOwner(otterId: string, now: string): Promise<number>;
+
+  /**
+   * F20261008mlp3 P3：跨对话停滞扫描（未闭环扫描升格——确定性数据源）。
+   * 停滞定义（方案 §7 P3）：OPEN 无人认领 / WAITING_PARTNER 积压——跨日未收尾（24h 基准）。
+   * 只读；调用方（三省吾身大獭）负责提醒，不做自动处置。
+   */
+  stalledOpen(nowIso: string, stallThresholdIso: string, limit?: number): Promise<MatterSweepStall[]>;
+
+  /**
+   * F20261008mlp3 P3：漏登记的 L2 待裁决项发现（准入路径 3 兜底——可执行化）。
+   * 只读；调用方去重 + 决定是否补登记。
+   */
+  unregisteredYieldsToUser(sinceIso: string, limit?: number): Promise<MatterSweepStalledRow[]>;
 }

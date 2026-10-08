@@ -1,5 +1,6 @@
 /**
- * Matter 工具（F20261006mtlp P1：list_matters / transition_matter；F20261006mlp2 P2：register_matter）。
+ * Matter 工具（F20261006mtlp P1：list_matters / transition_matter；F20261006mlp2 P2：register_matter；
+ * F20261008mlp3 P3：matter_sweep 跨对话停滞扫描——未闭环扫描升格的确定性数据源）。
  *
  * 通道 A 代执行（§3.5）：搭档对话直复裁决后，被唤醒獭用本工具代执行板上迁移——
  * `on_behalf_of='partner'` 声明代搭档执行（resolution 必填「代搭档执行：<原话>」留痕），
@@ -16,6 +17,7 @@ import type { MatterRepository } from "@usecases/matter/matter-repository";
 import { ListMatters } from "@usecases/matter/list-matters";
 import { TransitionMatter, type TransitionMatterInput } from "@usecases/matter/transition-matter";
 import { RegisterMatter, matterShortAnchor } from "@usecases/matter/register-matter";
+import { MatterSweep, type MatterSweepStall, type MatterSweepStalledRow } from "@usecases/matter/matter-sweep";
 import type { MatterState } from "@entities/matter/matter";
 
 const VALID_STATES: readonly string[] = [
@@ -235,4 +237,77 @@ export function createRegisterMatterTool(ctx: ToolContext, matterRepo: MatterRep
     },
     execute: exec,
   };
+}
+
+/**
+ * matter_sweep（F20261008mlp3 P3——未闭环扫描升格的确定性数据源）。
+ *
+ * 跨对话停滞扫描：OPEN 无人认领 / WAITING_PARTNER 积压——跨日未收尾（24h 基准）。
+ * 只读；调用方（三省吾身大獭）负责提醒，不做自动处置。
+ *
+ * 权限模型：仅大獭型注册（session-helpers getOtterToolNamesForType 白名单控制），
+ * small 型不持有——跨对话查询权与编排权对齐（P3 定案：扫描跑在三省吾身对话，
+ * matter 工具按对话隔离，跨对话查询需要大獭专属工具）。
+ */
+export function createMatterSweepTool(ctx: ToolContext, matterRepo: MatterRepository): AgentTool {
+  const exec = async (_id: string, params: Record<string, unknown>): Promise<ReturnType<typeof textResponse>> => {
+    const sweep = new MatterSweep(matterRepo);
+    const now = params.now ? new Date(params.now as string) : new Date();
+    if (isNaN(now.getTime())) {
+      return errorResponse("[错误] now 参数不是合法时间戳（ISO 8601）。");
+    }
+    const result = await sweep.execute(now, (params.yield_lookback_days as number) ?? 7);
+
+    const lines: string[] = [];
+    if (result.stalled.length > 0) {
+      lines.push(`停滞 matter（${result.stalled.length} 件）：`);
+      for (const m of result.stalled) {
+        lines.push(formatStallLine(m));
+      }
+    } else {
+      lines.push("停滞 matter：无");
+    }
+
+    lines.push("");
+    if (result.unregisteredYields.length > 0) {
+      lines.push(`候选漏登记 yield（${result.unregisteredYields.length} 条，近 ${(params.yield_lookback_days as number) ?? 7} 天，已排除已登记 matter）：`);
+      for (const y of result.unregisteredYields) {
+        lines.push(formatYieldLine(y));
+      }
+      lines.push("（已登记 matter 的 yield 条目已被 SQL 排除，输出带 originMessageId 去重键——L2 拍板与例行交棒的甄别看 body/payload 含拍板语义）");
+    } else {
+      lines.push("候选漏登记 yield：无");
+    }
+
+    return textResponse(lines.join("\n"));
+  };
+  return {
+    name: "matter_sweep",
+    description: "跨对话停滞扫描（未闭环扫描升格——确定性数据源）. When: 三省吾身每日 7:30 扫描，或獭主动排查跨对话未闭环事项. Not for: 本对话 matters 清单（用 list_matters）/ 迁移状态（用 transition_matter）/ 扫描结果是提醒素材不是处置指令——边界条款「只提醒不处置」. Output: 停滞 matter 列表（短锚+标题+状态+等待方+等待时长）+ 候选漏登记 yield 列表（近 7 天超阈未登记 matter 的 yield 条目）. GOTCHA: ①停滞定义 = OPEN 无人认领 / WAITING_PARTNER 积压（24h 基准）；②提醒语义 = 让等待有声（含短锚+等待时长+等谁的什么动作），不是催办不是自动处置；③跨对话查询权仅大獭型持有（small 型白名单不含本工具）；④yield 兜底半径 = 近 7 天超阈未登记 matter 的 yield 条目，去重键 = originMessageId。",
+    parameters: {
+      type: "object",
+      properties: {
+        now: { type: "string", description: "扫描基准时间（ISO 8601，缺省=当前时间——测试可注入）" },
+        yield_lookback_days: { type: "number", description: "yield 兜底回看天数（默认 7 天）" },
+      },
+    },
+    execute: exec,
+  };
+}
+
+/** 停滞 matter 单行格式化（短锚+标题+状态+等待方+等待时长） */
+function formatStallLine(m: MatterSweepStall): string {
+  const anchor = matterShortAnchor(m.id);
+  const stateLabel = m.state === 'OPEN' ? 'OPEN（无人认领）' : 'WAITING_PARTNER（积压）';
+  const waitDesc = m.waitingOn
+    ? `等待 ${m.waitingOn}${m.waitingFor ? `（${m.waitingFor}）` : ''}`
+    : '无明确等待方';
+  return `[${anchor}] ${m.title}\n  状态: ${stateLabel} · ${m.stalledHours}h 未动 · ${waitDesc}`;
+}
+
+/** 漏登记 yield 单行格式化（yield 条目锚点+去重键+来源+时间） */
+function formatYieldLine(y: MatterSweepStalledRow): string {
+  const shortId = y.id.slice(0, 8);
+  const bodyPreview = y.body ? (y.body.length > 60 ? y.body.slice(0, 60) + '…' : y.body) : '';
+  return `[yield:${shortId}] ${y.senderName || y.senderId || '未知獭'} · ${y.createdAt}\n  originMessageId=${y.originMessageId}\n  ${bodyPreview}`;
 }
