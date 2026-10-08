@@ -2,6 +2,7 @@
 /**
  * F20260820a4rt: otter-type 工具路由 manifest 校验（commit-time gate）。
  * F20260821a5cb: 新增 capabilityBlocks / groups 校验。
+ * F20261008tecn: 新增 toolExposure 校验。
  *
  * 校验项：
  * 1. schemaVersion 必须为 1 或 2
@@ -11,6 +12,8 @@
  * 5. capabilityBlocks 结构校验（v2+）
  * 6. groups 引用校验（引用的块名必须在 capabilityBlocks 中存在）
  * 7. capabilityBlocks 内工具名存在性校验
+ * 8. toolExposure 不变量（F20261008tecn）：coding 工具（read/write/edit/bash/grep/find/ls）
+ *    不得标 deferred——session 构造瞬间会被声明，激活集重建无法修正
  *
  * 退出码：0 通过 / 1 有错误。
  */
