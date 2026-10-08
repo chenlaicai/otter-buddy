@@ -22,6 +22,9 @@ export interface HealingEventRow {
   created_at: string;
   resolved_at: string | null;
   introduced_by_pr: string | null;
+  /** #1271（F20261008hbbd）：归口链两列，可缺省（新列旧库兼容读） */
+  bound_issue?: number | null;
+  bound_at?: string | null;
 }
 
 /** DB Row -> Entity */
@@ -51,6 +54,8 @@ export function rowToHealingEvent(row: HealingEventRow): HealingEvent {
     createdAt: row.created_at,
     resolvedAt: row.resolved_at,
     introducedByPr: row.introduced_by_pr || undefined,
+    boundIssue: row.bound_issue ?? null,
+    boundAt: row.bound_at ?? null,
   };
 }
 
@@ -71,5 +76,7 @@ export function eventToRow(event: HealingEvent): HealingEventRow {
     created_at: event.createdAt,
     resolved_at: event.resolvedAt,
     introduced_by_pr: event.introducedByPr || null,
+    bound_issue: event.boundIssue ?? null,
+    bound_at: event.boundAt ?? null,
   };
 }

@@ -41,6 +41,8 @@ function makeDeps(): { repo: SignalRepository; healing: HealingEventRepository &
     async ageOutHighAndNotify() { return []; },
     async batchResolveByFilter() { return { matched: 0, resolved: 0, resolvedIds: [] }; },
     async countByFilter() { return 0; },
+    // #1271（F20261008hbbd）：接口新增方法的 mock（本测试不触 batch_bind，占位满足类型）
+    async batchBindIssue() { return { matched: 0, bound: 0, boundIds: [], truncated: false, totalMatched: 0 }; },
   };
   return { repo, healing };
 }

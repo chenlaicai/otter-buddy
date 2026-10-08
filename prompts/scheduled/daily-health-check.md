@@ -84,6 +84,7 @@ budget_bytes: 9600
 
 - **无需修复**（自愈按设计拦截/单次偶发）：立即 `resolve`，notes 写判定依据
 - **需要修复**：证据写进 issue body 后**立即 resolve**（notes 引用 issue 编号）
+- **同族批量归口**：同 ruleId 事件族 >10 条同归口 → `batch_bind`（issueNumber + filterErrorType/filterRuleId），逐条仅用于异质处置；修复合入后 `batch_resolve` + `filterBoundIssue=<N>` 收尾
 - **处置权**：首个消费任务拥有处置权，后续不得推翻，存疑在 issue 评论
 - **覆盖核实**：query 默认 50 条 + 单 status——errorType 过滤逐一排查；处置完重跑 query 确认无遗漏，产出写「昨日 N → resolved M / open K」
 

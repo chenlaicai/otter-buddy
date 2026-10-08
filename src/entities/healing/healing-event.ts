@@ -100,6 +100,11 @@ export interface HealingEvent {
   context: Record<string, unknown> | null;
   status: HealingEventStatus;
   resolution: HealingResolution | null;
+  /** #1271：归口的 GitHub issue 编号（F20261008hbbd）。bind≠resolve——归口是结构化认领
+   *  （对齐 RHI signals 的 issue_number 字段化先例），事件保持 open 直到修复合入后走 resolve。 */
+  boundIssue?: number | null;
+  /** #1271：归口时间（ISO），与 boundIssue 成对写入 */
+  boundAt?: string | null;
   /** PR ID（PR 评估体系：问题引入的 PR） */
   introducedByPr?: string;
   createdAt: string;

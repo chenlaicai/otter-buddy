@@ -196,6 +196,12 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** #906（F20260930esqu）：entries 表 (conversation_id, sequence_num) 普通索引升级 UNIQUE（存量库）。
  *  schema.ts 新库已建成 UNIQUE；存量库同名普通索引需 DROP+CREATE 重建（见函数头注）。 */
   ensureEntriesConversationSeqUnique(db, logger);
+
+  /** #1271（F20261008hbbd）：healing_events 表添加 bound_issue / bound_at 两列（存量库迁移）。
+ *  归口链结构化：batch_bind 写入，bind≠resolve（对齐 RHI signals.issue_number 字段化先例）。
+ *  schema.ts 新库已含两列；存量库跑不到 initSchema 的 CREATE 分支，需 ALTER 补列。
+ *  幂等：PRAGMA 检测（同 ensureSignalsTriageColumns 模式）。 */
+  ensureHealingEventsBoundIssueColumns(db, logger);
 }
 
 /**
@@ -2079,4 +2085,22 @@ function ensureEntriesConversationSeqUnique(db: Database.Database, logger: Logge
     return;
   }
   logger.info('[ensureEntriesConversationSeqUnique] Upgraded idx_entries_conversation_seq to UNIQUE (#906, F20260930esqu)');
+}
+
+/** #1271（F20261008hbbd）：healing_events 补 bound_issue / bound_at 两列（存量库）。
+ *  同 ensureSignalsTriageColumns 模式——存量库列补丁不进 initSchema 的 CREATE，
+ *  只在这里 ALTER 补旧库。两列全部 nullable，存量行为零变化。
+ *  新库由 schema.ts initSchema 直接建成（含 idx_healing_events_bound_issue 索引）；
+ *  存量库补列后索引由下方 CREATE INDEX IF NOT EXISTS 补建（SQLite ALTER ADD COLUMN 无法带索引）。 */
+function ensureHealingEventsBoundIssueColumns(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(healing_events)").all() as Array<{ name: string }>;
+  const add = (name: string, ddl: string) => {
+    if (!columns.some(col => col.name === name)) {
+      db.prepare(`ALTER TABLE healing_events ADD COLUMN ${ddl}`).run();
+      logger.info(`Added ${name} column to healing_events table (#1271)`);
+    }
+  };
+  add('bound_issue', 'bound_issue INTEGER DEFAULT NULL');
+  add('bound_at', 'bound_at TEXT DEFAULT NULL');
+  db.exec("CREATE INDEX IF NOT EXISTS idx_healing_events_bound_issue ON healing_events(bound_issue)");
 }

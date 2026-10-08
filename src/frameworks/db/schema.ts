@@ -598,7 +598,11 @@ function createHealingEventTables(db: Database.Database): void {
       resolution TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       resolved_at TEXT,
-      introduced_by_pr TEXT
+      introduced_by_pr TEXT,
+      -- #1271（F20261008hbbd）：归口链结构化——bound_issue 与 RHI signals.issue_number 同语义
+      -- （字段化先例，可 SQL 聚合）；bind≠resolve，归口后事件保持 open 直到修复合入
+      bound_issue INTEGER,
+      bound_at TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_healing_events_status ON healing_events(status);
@@ -609,6 +613,9 @@ function createHealingEventTables(db: Database.Database): void {
     -- F20260903ah68 S3.5：GateBanner 2s 轮询按 conversation 查 healing（getGateState）——
     -- mimo 审视焦点4：无此索引时每次查询全表扫，healing_events 增长后成性能瓶颈
     CREATE INDEX IF NOT EXISTS idx_healing_events_conversation ON healing_events(conversation_id, error_type, created_at);
+    -- #1271（F20261008hbbd）：归口链查询索引——batch_bind 作用面探测（bound_issue IS NULL）
+    -- 与修复合入后按 issue 收尾（bound_issue = N）都是高频路径，无索引全表扫
+    CREATE INDEX IF NOT EXISTS idx_healing_events_bound_issue ON healing_events(bound_issue);
   `);
 
   // F20260824ax376: 存量数据库迁移——introduced_by_pr 列
@@ -616,6 +623,14 @@ function createHealingEventTables(db: Database.Database): void {
   // 策略：不引入独立迁移框架，保持 initSchema 幂等可重复调用的设计
   try {
     db.exec(`ALTER TABLE healing_events ADD COLUMN introduced_by_pr TEXT`);
+  } catch {
+    // 列已存在，忽略
+  }
+  // #1271（F20261008hbbd）：存量库迁移——归口链两列。同 introduced_by_pr 幂等模式（F20260930esqu 迁移自检先例：
+  // 生产副本真启动验证见 PR Verification 节）
+  try {
+    db.exec(`ALTER TABLE healing_events ADD COLUMN bound_issue INTEGER`);
+    db.exec(`ALTER TABLE healing_events ADD COLUMN bound_at TEXT`);
   } catch {
     // 列已存在，忽略
   }
