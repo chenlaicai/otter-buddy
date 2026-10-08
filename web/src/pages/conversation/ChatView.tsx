@@ -19,7 +19,7 @@ interface ChatViewProps {
   otters: Otter[]
   // 滚动 props 透传
   conversationId: string
-  isAtBottomRef: RefObject<boolean>
+  pinRef: RefObject<boolean>
   newMessagesCount?: number
   onJumpToBottom?: () => void
   onLoadMore?: () => void
@@ -93,7 +93,7 @@ export function ChatView(props: ChatViewProps) {
         onGoToSettings={props.onGoToSettings}
         otters={props.otters}
         conversationId={props.conversationId}
-        isAtBottomRef={props.isAtBottomRef}
+        pinRef={props.pinRef}
         newMessagesCount={props.newMessagesCount}
         onJumpToBottom={props.onJumpToBottom}
         onLoadMore={props.onLoadMore}
