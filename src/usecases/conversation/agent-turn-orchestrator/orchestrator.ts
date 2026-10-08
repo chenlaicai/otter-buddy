@@ -18,7 +18,7 @@ import { toRetryLabel } from "@usecases/ports/agent-metrics-port";
 import { getTraceContext } from "@usecases/ports/trace-context";
 import type { ExitReason } from "./exit-classifier";
 import { classifyExit, exitKindToOutcome } from "./exit-classifier";
-import { isRetryableGuardAbort, isTimeoutGuardReason, buildRetryFailBody, buildGuardAbortBody, buildUserAbortBody, buildYieldRetryMsg, buildAutoRetryMsg, buildCircuitBreakFailBody, buildCircuitBreakSystemMsg, GUARD_BOUNCE_MAX, GUARD_BOUNCE_WINDOW_MS, buildGuardBounceMsg, buildGuardBounceFailBody, buildGuardBounceEscalationMsg, buildTimeoutRetryExhaustedMsg } from "./retry-policy";
+import { isRetryableGuardAbort, isTimeoutGuardReason, buildRetryFailBody, buildGuardAbortBody, buildUserAbortBody, buildYieldRetryMsg, buildAutoRetryMsg, buildCircuitBreakFailBody, buildCircuitBreakSystemMsg, GUARD_BOUNCE_MAX, GUARD_BOUNCE_WINDOW_MS, buildGuardBounceMsg, buildGuardBounceFailBody, buildGuardBounceEscalationMsg, buildTimeoutRetryExhaustedMsg, buildGuardBounceSuspectedFpMsg, buildGuardBounceSuspectedFpRetryMsg } from "./retry-policy";
 // #543：api_error 终态限流识别 + 告警文案（配额黑盒修复）
 import { matchRateLimitError, buildRateLimitSystemMsg, buildRateLimitDescription } from "./rate-limit-error";
 // #1247：api_error 终态窗口超限识别 + 告警文案（注入超窗黑盒修复——与 #543 同骨架）
@@ -726,6 +726,17 @@ export class AgentTurnOrchestrator {
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
     const otterName = resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId;
 
+    // F20261008gduc P0-2：超限且滑窗内 bounce 全部命中同一规则（ruleId 同且非 unknown）
+    // → 判「疑似误拦」走降级通道（通知搭档 + 引导獭换写法），而非静默 abort——
+    // 同规则命中说明命令形态稳定（獭在正确命令上反复撞墙），abort 是错杀（#1353）。
+    // 真违规（异规则反复撞 / unknown 无法归类）仍走原 escalateGuardBounce abort 终态。
+    if (!countQueryFailed && priorBounces >= GUARD_BOUNCE_MAX) {
+      const sameRule = await this.detectSameRuleBounce(ctx, guardReason);
+      if (sameRule) {
+        return this.deescalateGuardBounceSuspectedFp(ctx, guardReason, otterName, sameRule, priorBounces);
+      }
+    }
+
     // 超限 / 计数不可信 → 停止自动回发，升级上报（healing high 由 abortTerminal 终态分支落）
     // F20261008hcpa（#1356 层1 打断）：升级附守卫生态指引——e8e21216 案例显示即使升级后
     // 獭仍会继续撞墙（6 分钟 7 次），在消息里给出正道出口比静默 abort 更能止撞。
@@ -748,6 +759,91 @@ export class AgentTurnOrchestrator {
     } catch { /* 计数落账失败不阻断回发；上限判定失明时下轮 fail-closed 升级 */ }
 
     return this.executeGuardBounce(ctx, guardReason, otterName, priorBounces + 1);
+  }
+
+  /**
+   * F20261008gduc P0-2：判定滑窗内拦截是否全部命中与本轮同一 ruleId（疑似误拦）。
+   * 数据源 getRecentGuardBounceEvents（拦截结构化事件——每条对应一轮拦截，含
+   * ruleId/ruleLayer/commandHead；含首轮首拦，比 bounce 计数多一轮，判定语义更严）。
+   * 不可用/查询失败返回 null（fail-closed 回 abort 升级，不误判误拦放行真违规）。
+   */
+  private async detectSameRuleBounce(
+    ctx: RouteContext,
+    guardReason: string,
+  ): Promise<{ ruleId: string; ruleLayer?: string; commandHead: string } | null> {
+    if (!ctx.callbacks.getRecentGuardBounceEvents) return null;
+    let events: Array<{ ruleId?: string; ruleLayer?: string; commandHead?: string; currentRuleId?: string; currentRuleLayer?: string }>;
+    try {
+      events = await ctx.callbacks.getRecentGuardBounceEvents(ctx.input.otterId, GUARD_BOUNCE_WINDOW_MS, guardReason);
+    } catch (err) {
+      this.logger.error('guard bounce ruleId query FAILED — fail-closed to abort escalation',
+        err instanceof Error ? err : new Error(String(err)),
+        { otterId: ctx.input.otterId, conversationId: ctx.input.conversationId },
+      );
+      return null;
+    }
+    if (events.length === 0) return null;
+    // currentRuleId 由 agent-invoker 侧分类（classifyGuardInterceptReason 在 frameworks 层，
+    // usecases 禁直 import——D39 分层约束，分类动作在回调实现内完成，orchestrator 只消费结果）
+    const currentRule = events[0].currentRuleId;
+    if (!currentRule || currentRule === "unknown") return null; // 本轮规则不可归类 → 无法判同，保守走 abort
+    const sameRuleId = events.every(e => e.ruleId === currentRule);
+    if (!sameRuleId) return null;
+    // 审视处置（PR #1360 §3.2）：events 是 DESC 序（最新在前，sqlite-healing-event-repository
+    // ORDER BY created_at DESC）——commandHead 取 events[0]（最新一次被拦命令），非 events 末尾（最旧）。
+    const latest = events[0];
+    return {
+      ruleId: currentRule,
+      ruleLayer: latest.currentRuleLayer,
+      commandHead: latest.commandHead ?? "（无命令摘要）",
+    };
+  }
+
+  /**
+   * F20261008gduc P0-2：疑似误拦降级通道——中断自动重试循环（本轮不再回发），
+   * 搭档侧发「疑似误拦」通知（含命令摘要+命中规则+重试次数，请人工核实/临时放行），
+   * 会话内给獭降级提示（下一轮 invoke context，引导换写法/报告搭档而非继续撞同一规则）。
+   * 不 abort 终态：invoke 保持 failed（可手动重试），区别于 escalateGuardBounce 的 aborted。
+   */
+  private async deescalateGuardBounceSuspectedFp(
+    ctx: RouteContext,
+    guardReason: string,
+    otterName: string,
+    sameRule: { ruleId: string; ruleLayer?: string; commandHead: string },
+    priorBounces: number,
+  ): Promise<TurnResult> {
+    this.logger.warn('Guard bounce same-rule suspected false positive — deescalating to partner notification', {
+      otterId: ctx.input.otterId,
+      conversationId: ctx.input.conversationId,
+      ruleId: sameRule.ruleId,
+      priorBounces,
+    });
+    // ① 搭档侧「疑似误拦」通知（含三要素：命令摘要/命中规则/重试次数；高危层中性化）
+    try {
+      await ctx.callbacks.sendSystem(
+        ctx.input.conversationId,
+        buildGuardBounceSuspectedFpMsg(otterName, sameRule.ruleId, sameRule.commandHead, priorBounces + 1, sameRule.ruleLayer),
+      );
+    } catch { /* 通知失败不阻断降级流程 */ }
+    // ② invoke 终态化 failed（非 aborted——保留手动重试空间，且与真违规 abort 语义区分）
+    await this.finalizeInvokeFailed(ctx.input, buildGuardBounceSuspectedFpRetryMsg(sameRule.ruleId, sameRule.ruleLayer), ctx.callbacks, ctx.startTime);
+    // ③ 落账 suspected_false_positive 事件（severity high——疑似误拦是守卫可信度问题，需人工跟进）
+    try {
+      await ctx.callbacks.recordHealingEvent({
+        invokeId: ctx.input.invokeId,
+        conversationId: ctx.input.conversationId,
+        otterId: ctx.input.otterId,
+        errorType: "guard_intercept",
+        severity: "high",
+        description: `疑似误拦降级：${otterName} 连续 ${priorBounces + 1} 次 bounce 命中同一规则 ${sameRule.ruleId}，命令摘要：${sameRule.commandHead}`,
+        suggestion: "请人工核实守卫是否误拦该命令形态；确认误拦可临时放行或修规则。疑似误拦会错杀獭发言（#1353）。",
+        context: { layer: "orchestrator", suspectedFalsePositive: true, ruleId: sameRule.ruleId, commandHead: sameRule.commandHead, bounceCount: priorBounces + 1, guardReason },
+      });
+    } catch { /* 落账失败不阻断降级通道 */ }
+    return {
+      invokeId: ctx.input.invokeId,
+      duration: Date.now() - ctx.startTime,
+    };
   }
 
   /** #731：bounce 超限升级——停止自动回发，abort 终态 + 会话内用户可见通知 */

@@ -45,6 +45,7 @@
 | modelCdExemption 顶层豁免粒度：`cd <非主仓> && python heredoc 体绝对路径写主仓` 逃逸 | **开放** | #1240 |
 | 命令结构层 vs 脚本体层不分：开发獭命令中嵌守卫文案样本（kill 字样）被全文匹配误拦 | **部分缓解**（F20260930l573/#1239：python heredoc 体感知判定已合入——纯只读体放行；但 dev-server 引导误附、非 python 形态的误拦残余仍在，#1239 未覆盖） | F20260930l573（#1239，已合入）；残余面待观察 |
 | shell 重定向截断（`> data/…`）、路径前段 glob 变形（`dat[glob]…`）不覆盖 | 已知局限（#1038 首版声明） | bash-safety-guard.ts 文件头注释 |
+| S1 双链割裂：V1 兜底链 `hasRealCdSegment` 裸 `\|` 分支把 `\|\|` 备用链当管道误杀 cd 豁免（与 V2 段级语义割裂，#1170 修复只落 V2 的复发面） | **已修复**（F20261008gduc/#1360：lookaround 形态对齐 V2 语义，worktree 写用例钉住修复） | F20261008gduc（#1360） |
 | unknown 兜底事件在代码里归 self_kill 层（guard-intercept-classify.ts:61），按层聚合时污染 L1 统计 | 已知（聚合时建议剔 unknown 单列） | F20260930gslog 实现注记 |
 
 新洞发现时：先入本表 + issue，再修——**洞的公开是守卫可信度的一部分**（对齐 Anthropic 安全公告的透明实践）。

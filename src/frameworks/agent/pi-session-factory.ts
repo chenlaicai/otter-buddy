@@ -34,6 +34,12 @@ import { sanitizeQuotedText } from "./quoted-text-sanitizer";
  * commandHead 对齐 description 命令前缀 120 字符口径（检视建议 2 处置：60 字符可能在长
  * cd 前缀场景截掉 worktree 路径特征），sanitizeQuotedText 脱敏后再截短（#858 口径）。
  */
+/**
+ * F20261008gduc P0-2：导出 classifyGuardInterceptReason 供 orchestrator 熔断降级通道用
+ * （usecases 层禁直 import frameworks——D39/#429 分层约束，经本模块 re-export 收口）。
+ */
+export { classifyGuardInterceptReason };
+
 export function buildGuardInterceptContext(
   command: string,
   reason: string,
