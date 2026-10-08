@@ -2686,3 +2686,247 @@ PY`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
   });
 });
+
+describe("F20261006gfvl (#1307)：bash -c 带值旗标绕过收口", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo"; // 假想主仓根，与 #1038 describe 块同口径
+  // 大獭对照矩阵（打回处置）：A 修复前放行是洞，修复后应拦
+  it("A: bash -C -c 写载荷 → 拦截（-C 是无参 noclobber 旗标，不接值——真 bash 实测）", () => {
+    expect(checkBashCommandSafety(`bash -C -c 'git commit -m x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("B: bash -xc 合写旗标 → 拦截（bash file 检测）", () => {
+    expect(checkBashCommandSafety(`bash -xc 'echo OK'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("C: bash -o pipefail -c 写载荷 → 拦截（issue #1307 主洞修复）", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -c 'echo pwned > config/config.yaml'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("D: bash -C /tmp -c 载荷 → 拦截（-C 后非旗标 token 保守拦，真 bash 实测 /tmp 当脚本文件名报 is a directory）", () => {
+    expect(checkBashCommandSafety(`bash -C /tmp -c 'echo OK'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // -o 值位置旗标混淆（自对抗新增）
+  it("E: bash -o -c 'echo x' y → 拦截（-o 吃 -c 当 optname，白名单外 FAIL_CLOSED）", () => {
+    expect(checkBashCommandSafety(`bash -o -c 'echo x' y`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // 正向：白名单 optname 不误拦
+  it("P1: bash -o pipefail -c 只读载荷 → 放行", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -c 'echo hello'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("P2: bash -o errexit -o nounset -c 只读载荷 → 放行", () => {
+    expect(checkBashCommandSafety(`bash -o errexit -o nounset -c 'ls'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("P3: bash -C -c 只读载荷 → 放行（-C 无参旗标白名单内）", () => {
+    expect(checkBashCommandSafety(`bash -C -c 'echo hello'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  // 负向：白名单外 optname fail-closed
+  it("N1: bash -o evilopt -c 载荷 → 拦截（白名单外 optname）", () => {
+    expect(checkBashCommandSafety(`bash -o evilopt -c 'echo x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("N2: bash -o monitor -c 载荷 → 拦截（monitor 不在白名单——job control 安全风险）", () => {
+    expect(checkBashCommandSafety(`bash -o monitor -c 'echo x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("N3: bash --restricted -c 载荷 → 拦截（长旗标 fail-closed 不回退）", () => {
+    expect(checkBashCommandSafety(`bash --restricted -c 'echo x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("N4: bash -o pipefail -c kill 载荷 → 拦截（kill 族独立层）", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -c 'kill ${mainPid}'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // 自对抗补充：值内联/空格注入/混合
+  it("V1: bash -opipefail -c 载荷（值内联） → 放行（-opipefail 匹配 SHELL_FLAG_WHITELIST 字符类——既有盲区，非本 issue 引入；真 bash 拒执行，放行无害）", () => {
+    // SHELL_FLAG_WHITELIST 是字符类 /^[+-][abcdefhiklmnoprstuvxyCEFHTWX]+$/——
+    // -opipefail 的 o/p/i/p/e/f/a/i/l 全在字符类内 → 白名单短旗标放行。
+    // 真 bash 3.2 实测 bash -opipefail -c 报错 exit 2（invalid option name），-o 不接受值内联粘连——
+    // 守卫放行无害（真 bash 拒绝执行），但属 #1297 既有字符类盲区，收窄需单独 issue。
+    expect(checkBashCommandSafety(`bash -opipefail -c 'echo x'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("V2: bash -o 'pipe fail' -c 载荷（值含空格） → 拦截（引号拆分后白名单外）", () => {
+    expect(checkBashCommandSafety(`bash -o 'pipe fail' -c 'echo x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("V3: bash -o pipefail -o evilopt -c 载荷（混合白名单外） → 拦截", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -o evilopt -c 'echo x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("V4: bash -o pipefail -c（无载荷） → 拦截（-c 后无载荷 FAIL_CLOSED）", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -c`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+});
+
+describe("F20261006gfvl 合并修（原 #1314/#1315，搭档拍板折回本 PR）：引号值误拦 + rm 载荷感知", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+
+  // ── 引号值误拦（原 #1314）：真 bash 3.2 实测合法执行 ──
+  it("Q1: bash -o 双引号 pipefail -c 只读载荷 → 放行（白名单匹配前剥引号）", () => {
+    expect(checkBashCommandSafety(`bash -o "pipefail" -c 'echo hello'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("Q2: bash -o 单引号 pipefail -c 只读载荷 → 放行", () => {
+    expect(checkBashCommandSafety(`bash -o 'pipefail' -c 'echo hello'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("Q3: bash -o 混合引号多旗标 → 放行", () => {
+    expect(checkBashCommandSafety(`bash -o "errexit" -o 'nounset' -c 'ls'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("Q4: bash -o 双引号白名单外 optname → 拦截（剥引号后仍白名单外）", () => {
+    expect(checkBashCommandSafety(`bash -o "evilopt" -c 'echo x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("Q5: bash -o 引号值含空格注入 → 拦截（拆词后白名单外，空格注入面保持拦）", () => {
+    expect(checkBashCommandSafety(`bash -o "pipe fail" -c 'echo x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // ── rm 破坏通道感知（原 #1315）：bash -c 载荷内 rm 主仓 data ──
+  it("R1: bash -c rm -rf data/ → 拦截（载荷内 rm 主仓 data 感知）", () => {
+    expect(checkBashCommandSafety(`bash -c 'rm -rf data/'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("R2: bash -c rm -rf data/metrics → 拦截", () => {
+    expect(checkBashCommandSafety(`bash -c 'rm -rf data/metrics'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("R3: bash -c rm -f data/otter-buddy.db → 拦截", () => {
+    expect(checkBashCommandSafety(`bash -c 'rm -f data/otter-buddy.db'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("R4: bash -o pipefail -c rm -rf data/ → 拦截（带值旗标 + rm 载荷）", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -c 'rm -rf data/'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("R5: bash -c mv data/metrics /tmp/ → 拦截（mv 主仓 data 感知）", () => {
+    expect(checkBashCommandSafety(`bash -c 'mv data/metrics /tmp/'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // rm 负向：非 data 目标放行（不误拦）
+  it("R6: bash -c rm -rf /tmp/scratch → 放行（非主仓 data 目标）", () => {
+    expect(checkBashCommandSafety(`bash -c 'rm -rf /tmp/scratch'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("R7: bash -c rm -f /tmp/x.log → 放行", () => {
+    expect(checkBashCommandSafety(`bash -c 'rm -f /tmp/x.log'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  // 既有语义不回退
+  it("P1: bash -c 只读载荷 → 放行（不回退）", () => {
+    expect(checkBashCommandSafety(`bash -c 'echo hello'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("N1: bash -c kill 载荷 → 拦截（kill 族独立层不回退）", () => {
+    expect(checkBashCommandSafety(`bash -c 'kill ${mainPid}'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // 自对抗补充：引号面嵌套/混合 + rm 面变体
+  it("V1: bash -o 嵌套引号值 → 拦截（剥外层后内层引号残留白名单外）", () => {
+    expect(checkBashCommandSafety(`bash -o "'pipefail'" -c 'echo x'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("V2: bash -c rm -r data → 拦截（rm -r 无 f 变体）", () => {
+    expect(checkBashCommandSafety(`bash -c 'rm -r data'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("V3: bash -c find data -delete → 拦截（find -delete 主仓 data 感知）", () => {
+    expect(checkBashCommandSafety(`bash -c 'find data -name "*.log" -delete'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+});
+
+describe("F20261006gfvl 合并修（rm 载荷 cd 跟踪）：bash -c 载荷内 cd 改变 cwd 的正道放行", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+
+  it("C1: bash -c 'cd /wt && rm -rf data' → 放行（载荷内 cd 到 worktree 后 rm data → worktree 数据）", () => {
+    expect(checkBashCommandSafety(`bash -c 'cd /repo/.otter/worktrees/foo && rm -rf data'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("C2: bash -c 'cd /wt && rm -rf data/metrics' → 放行（同型正道）", () => {
+    expect(checkBashCommandSafety(`bash -c 'cd /repo/.otter/worktrees/foo && rm -rf data/metrics'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("C3: bash -c 'cd /tmp && rm -rf data' → 放行（cd /tmp 后 rm data → /tmp/data）", () => {
+    expect(checkBashCommandSafety(`bash -c 'cd /tmp && rm -rf data'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("C4: bash -c 'cd /tmp && rm -rf /repo/data' → 拦截（cd 后绝对路径主仓 data）", () => {
+    expect(checkBashCommandSafety(`bash -c 'cd /tmp && rm -rf /repo/data'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("C5: bash -c 'rm -rf data/' → 拦截（无 cd 直删主仓 data，不回退）", () => {
+    expect(checkBashCommandSafety(`bash -c 'rm -rf data/'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("C6: bash -c 'rm -rf ./data/' → 拦截（./data 同 data）", () => {
+    expect(checkBashCommandSafety(`bash -c 'rm -rf ./data/'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("C7: bash -c 'rm -r data' → 拦截（rm -r 无 f 变体）", () => {
+    expect(checkBashCommandSafety(`bash -c 'rm -r data'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("C8: bash -o pipefail -c 'rm -rf data/' → 拦截（带值旗标 + rm 载荷）", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -c 'rm -rf data/'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+});
+
+describe("F20261006gfvl 合并修（换行 -c 逃逸 + -o 路径 cd 跟踪）：delta 复核处置", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+
+  // 换行 -c 逃逸（处置级发现 1）：-c 孤立于 shell 名外 → FAIL_CLOSED
+  it("N1: bash -e\\n-c 'rm -rf data'（换行分隔） → 拦截（-c 孤立于 shell 名外 FAIL_CLOSED）", () => {
+    expect(checkBashCommandSafety(`bash -e\n-c 'rm -rf data'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("N2: bash -e\\t-c 'rm -rf data'（tab 分隔） → 拦截（tab 不是命令分隔符，同段处理）", () => {
+    expect(checkBashCommandSafety(`bash -e\t-c 'rm -rf data'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("N3: bash\\n-c 'rm -rf data'（纯换行） → 拦截", () => {
+    expect(checkBashCommandSafety(`bash\n-c 'rm -rf data'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // -o 带值路径 cd 跟踪（处置级发现 2）：hasShellC 跳过正则支持带值旗标
+  it("O1: bash -o pipefail -c 'cd /tmp && rm -rf data' → 放行（-o 路径载荷内 cd 跟踪）", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -c 'cd /tmp && rm -rf data'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("O2: bash -o pipefail -c 'cd /wt && rm -rf data' → 放行（worktree 数据正道）", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -c 'cd /repo/.otter/worktrees/foo && rm -rf data'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("O3: bash -o pipefail -c 'cd /tmp && rm -rf /repo/data' → 拦截（cd 后绝对路径主仓 data）", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -c 'cd /tmp && rm -rf /repo/data'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("O4: bash -o pipefail -c 'rm -rf data' → 拦截（无 cd 直删主仓 data）", () => {
+    expect(checkBashCommandSafety(`bash -o pipefail -c 'rm -rf data'`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // 旗标×cd×rm 矩阵补全（自对抗）
+  it("M1: bash -x -c 'cd /tmp && rm -rf data' → 放行（普通旗标 + cd 正道）", () => {
+    expect(checkBashCommandSafety(`bash -x -c 'cd /tmp && rm -rf data'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("M2: bash -o errexit -o nounset -c 'cd /tmp && rm -rf data' → 放行（多 -o 旗标 + cd 正道）", () => {
+    expect(checkBashCommandSafety(`bash -o errexit -o nounset -c 'cd /tmp && rm -rf data'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("M3: bash +o nounset -c 'cd /tmp && rm -rf data' → 放行（+o 关旗标 + cd 正道）", () => {
+    expect(checkBashCommandSafety(`bash +o nounset -c 'cd /tmp && rm -rf data'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("M4: bash -C -c 'cd /tmp && rm -rf data' → 放行（-C 无参旗标 + cd 正道）", () => {
+    expect(checkBashCommandSafety(`bash -C -c 'cd /tmp && rm -rf data'`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+});
