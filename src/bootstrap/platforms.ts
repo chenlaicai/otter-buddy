@@ -146,10 +146,11 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     maxChainDepth: appConfig.circuitBreaker.maxChainDepth,
     settingsRepo: repos.settings,
     metrics: options?.agentMetrics,
-    // F20260826fpbd：搭档身份静态判定。appConfig.feishu 可选，未配置时 PartnerResolver 降级（动态推断）
+    // F20260826fpbd：搭档身份静态判定。未配置时 PartnerResolver 降级（动态推断）
     // F20260928wxid：双渠道 ID——微信消息也经链引擎渲染历史，搭档需被认出（含微信 ilink_user_id）
     // F20260928fsqr：外置实例（扫码首号运行时写入）；缺省内部构造保持存量行为
-    partnerResolver: options?.partnerResolver ?? new PartnerResolver(appConfig.feishu?.partnerOpenId, appConfig.weixin?.partnerUserId),
+    // F20261008fsrm：feishu 静态段移除，feishu 锚一律扫码首号（app.ts 全局 resolver）
+    partnerResolver: options?.partnerResolver ?? new PartnerResolver(undefined, appConfig.weixin?.partnerUserId),
     // F20260902sgp2 S1：派发台账注入——所有入口每次派发都记账（链引擎是必经之路，§4.2）。
     // 记账失败仅日志不阻断（硬约束 1）；不注入时链路行为与 sgpv 回滚基线一致。
     // #530 梯度护栏：abort 回调注入（可选——不注入时降级为纯日志）。
