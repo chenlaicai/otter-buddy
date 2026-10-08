@@ -71,6 +71,7 @@ intent:
 
 ## 后续（非本次范围）
 
+- pi-telemetry 定性（审视 F4）：新增传递依赖为纯契约包（零运行时依赖、本仓零 import），无行为面影响
 - 1.x 的 codemode / tool_search / MCP 内置等 CLI 侧能力与 SDK 消费面正交，暂无接入计划
 - `agent_settled` 的 `aborted` 字段、`durationMs` 事件：我们的 sdk-invoke-port 走 prompt 返回值而非事件订阅，接入需改事件监听架构，留待观测器需要时
 - pi-telemetry 新传递依赖的允许脚本审批（npm approve-scripts）在部署侧处理
