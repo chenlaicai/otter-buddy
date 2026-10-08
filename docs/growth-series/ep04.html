@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>獭群成长记 · 第 4 集：红绿灯</title>
+<style>
+  :root {
+    --paper: #f6f2ea; --card: #fffdf8; --ink: #2b2a26; --muted: #8b857a;
+    --primary: #2f5d62; --primary-soft: #eaf1f0;
+    --accent: #d96f4e; --accent-soft: #fbeee8; --line: #e7dfd2;
+    --chen: #2f5d62; --otter: #8a5a3b; --sys: #5b6770;
+    --maxw: 720px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--paper);
+    background-image: repeating-linear-gradient(0deg, transparent 0 34px, rgba(43,42,38,0.022) 34px 35px);
+    color: var(--ink);
+    font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    line-height: 1.85; font-size: 16px; padding: 40px 18px 60px;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; }
+  header { text-align: center; margin-bottom: 34px; }
+  .series-tag {
+    display: inline-block; font-size: 13px; letter-spacing: 4px; color: var(--primary);
+    border: 1px solid var(--primary); border-radius: 999px; padding: 3px 16px 3px 20px; margin-bottom: 18px;
+  }
+  h1 { font-size: 40px; letter-spacing: 6px; font-weight: 700; color: var(--ink); }
+  .ep-no { font-size: 14px; color: var(--muted); letter-spacing: 2px; margin: 10px 0 6px; }
+  .ep-sub { font-size: 15px; color: var(--muted); }
+  .timeline-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 22px 20px 16px; margin-bottom: 34px; box-shadow: 0 1px 3px rgba(43,42,38,0.05);
+  }
+  .tl-label { font-size: 12px; color: var(--muted); letter-spacing: 2px; margin-bottom: 12px; }
+  .series-tl { display: flex; flex-wrap: wrap; gap: 6px 4px; margin-bottom: 20px; }
+  .ep-chip {
+    font-size: 12px; color: var(--muted); background: var(--paper); border: 1px solid var(--line);
+    border-radius: 999px; padding: 2px 10px; display: flex; align-items: center; gap: 6px;
+  }
+  .ep-chip .p { width: 6px; height: 6px; border-radius: 50%; background: #cfc7b8; }
+  .ep-chip.done { color: var(--primary); border-color: var(--primary); }
+  .ep-chip.done .p { background: var(--primary); }
+  .ep-chip.now { color: #fff; background: var(--primary); border-color: var(--primary); font-weight: 600; }
+  .ep-chip.now .p { background: var(--accent); }
+  .ep-tl { border-top: 1px dashed var(--line); padding-top: 16px; }
+  .ep-tl-items { display: flex; flex-wrap: wrap; gap: 10px 18px; }
+  .ep-tl-item { font-size: 13px; color: var(--ink); display: flex; align-items: baseline; gap: 6px; }
+  .ep-tl-item b { color: var(--accent); font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .ep-tl-item span { color: var(--muted); }
+  .cast-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 22px; margin-bottom: 34px; font-size: 14px;
+  }
+  .cast-card .tl-label { margin-bottom: 10px; }
+  .cast-row { display: flex; flex-wrap: wrap; gap: 8px 26px; }
+  .cast-item { display: flex; align-items: center; gap: 7px; color: var(--ink); }
+  .cast-item .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .cast-item small { color: var(--muted); }
+  section { margin-bottom: 44px; }
+  .act-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+  .act-head .fold-no {
+    font-size: 13px; color: #fff; background: var(--accent); border-radius: 8px;
+    padding: 2px 10px; letter-spacing: 2px; white-space: nowrap; font-weight: 600;
+  }
+  .act-head h2 { font-size: 22px; letter-spacing: 1px; color: var(--primary); }
+  .act-head.plain .fold-no { background: var(--primary); }
+  p { margin-bottom: 14px; }
+  p:last-child { margin-bottom: 0; }
+  .narr { border-left: 3px solid var(--line); padding-left: 14px; color: #55524b; }
+  .narr::before { content: "说书獭 · "; font-size: 12px; color: var(--muted); letter-spacing: 1px; }
+  em { font-style: normal; color: var(--accent); font-weight: 600; }
+  .anchor-note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .line { display: flex; gap: 12px; margin: 18px 0; align-items: flex-start; }
+  .line .dot { width: 13px; height: 13px; border-radius: 50%; margin-top: 9px; flex: none; box-shadow: 0 0 0 3px rgba(43,42,38,0.06); }
+  .line .bubble {
+    background: var(--card); border: 1px solid var(--line); border-radius: 4px 14px 14px 14px;
+    padding: 10px 16px 11px; flex: 1; box-shadow: 0 1px 2px rgba(43,42,38,0.04);
+  }
+  .line .who { font-size: 12.5px; font-weight: 700; letter-spacing: 1px; margin-bottom: 3px; }
+  .line .say { font-size: 15.5px; }
+  .line.chen .dot { background: var(--chen); } .line.chen .who { color: var(--chen); }
+  .line.otter .dot { background: var(--otter); } .line.otter .who { color: var(--otter); }
+  .line.sys .dot { background: var(--sys); } .line.sys .who { color: var(--sys); }
+  blockquote {
+    background: var(--primary-soft); border-left: 4px solid var(--primary);
+    border-radius: 0 12px 12px 0; padding: 14px 18px; margin: 18px 0; font-size: 15.5px;
+  }
+  blockquote .q-mark { color: var(--primary); font-size: 20px; font-weight: 700; }
+  blockquote .src { display: block; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .vs-card { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0; }
+  .vs-col { border-radius: 14px; padding: 18px 18px 14px; font-size: 14.5px; border: 1px solid var(--line); }
+  .vs-col.expect { background: var(--accent-soft); }
+  .vs-col.reality { background: var(--primary-soft); }
+  .vs-col h4 { font-size: 15px; letter-spacing: 2px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px dashed rgba(43,42,38,0.18); }
+  .vs-col.expect h4 { color: var(--accent); }
+  .vs-col.reality h4 { color: var(--primary); }
+  .vs-col li { margin-left: 18px; margin-bottom: 8px; }
+  @media (max-width: 560px) { .vs-card { grid-template-columns: 1fr; } }
+  .chat-mock {
+    background: #35393b; border-radius: 14px; padding: 16px 16px 18px; margin: 18px 0;
+    box-shadow: 0 2px 6px rgba(43,42,38,0.15);
+  }
+  .chat-mock-head { color: #b9c2c3; font-size: 12px; text-align: center; margin-bottom: 14px; letter-spacing: 1px; }
+  .mock-msg {
+    background: #4a5052; color: #e8e4da; border-radius: 4px 12px 12px 12px;
+    padding: 8px 14px; font-size: 14.5px; max-width: 64%; margin: 10px 0 10px 24px;
+  }
+  .mock-msg.ghost {
+    border: 1px dashed #6b7476; background: transparent; color: #8f999a;
+    position: relative; opacity: 0.75;
+  }
+  .mock-msg.ghost::after { content: "← 没人看得见"; color: #c96a4e; font-size: 11.5px; margin-left: 10px; }
+  .mock-caption { color: #8f999a; font-size: 12px; text-align: center; margin-top: 4px; }
+  .signal-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0; }
+  .sig-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 14px 12px; font-size: 13px; text-align: left;
+  }
+  .sig-card .sig-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .sig-card .bulb { width: 14px; height: 14px; border-radius: 50%; flex: none; box-shadow: 0 0 6px rgba(43,42,38,0.25) inset; }
+  .sig-card.objection .bulb { background: #e0a83c; }
+  .sig-card.blocked .bulb { background: #c9503c; }
+  .sig-card.halt .bulb { background: #3b3b3b; }
+  .sig-card b { font-size: 14.5px; color: var(--ink); font-family: ui-monospace, Menlo, monospace; }
+  .sig-card p { font-size: 12.5px; color: #55524b; margin: 0; line-height: 1.7; }
+  @media (max-width: 560px) { .signal-grid { grid-template-columns: 1fr; } }
+  .stone-scene {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 20px; margin: 18px 0; text-align: center; font-size: 14px;
+  }
+  .stone-scene .stones { display: flex; justify-content: center; gap: 34px; margin: 12px 0 6px; flex-wrap: wrap; }
+  .stone-holder { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .stone-holder .avatar {
+    width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 22px; background: var(--paper); border: 1.5px solid var(--line);
+  }
+  .stone-holder .stone {
+    width: 20px; height: 14px; border-radius: 7px; background: var(--primary);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.25); margin-top: -4px;
+  }
+  .stone-holder .who-holds { font-size: 12px; color: var(--muted); }
+  .stone-holder.holding .avatar { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+  .stone-holder.holding .who-holds { color: var(--primary); font-weight: 700; }
+  .stone-caption { font-size: 12.5px; color: var(--muted); }
+  details {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px; margin: 18px 0; overflow: hidden;
+  }
+  details summary {
+    cursor: pointer; list-style: none; padding: 14px 18px; font-size: 14.5px; font-weight: 600;
+    color: var(--primary); display: flex; align-items: center; gap: 10px; user-select: none;
+  }
+  details summary::-webkit-details-marker { display: none; }
+  details summary .tri { display: inline-block; transition: transform 0.2s; font-size: 12px; color: var(--accent); }
+  details[open] summary .tri { transform: rotate(90deg); }
+  details summary .badge {
+    font-size: 11px; color: #fff; background: var(--primary); border-radius: 6px;
+    padding: 1px 8px; letter-spacing: 1px; font-weight: 500; flex: none;
+  }
+  details .dive-body { padding: 4px 20px 18px; font-size: 14.5px; border-top: 1px dashed var(--line); color: #4c4a44; }
+  details .dive-body p { margin: 12px 0 0; }
+  details .dive-body table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 12px 0; }
+  details .dive-body th { background: var(--primary-soft); color: var(--primary); text-align: left; padding: 7px 10px; border: 1px solid var(--line); font-weight: 600; }
+  details .dive-body td { padding: 7px 10px; border: 1px solid var(--line); vertical-align: top; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: rgba(47,93,98,0.09); color: var(--primary); border-radius: 4px; padding: 1px 6px; font-size: 0.9em;
+  }
+  .pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0; }
+  .pillar {
+    background: var(--card); border: 1px solid var(--line); border-top: 4px solid var(--primary);
+    border-radius: 12px; padding: 14px 14px 12px; font-size: 13.5px; text-align: center;
+  }
+  .pillar b { display: block; font-size: 15px; color: var(--primary); margin-bottom: 6px; letter-spacing: 1px; }
+  @media (max-width: 560px) { .pillars { grid-template-columns: 1fr; } }
+  .next-ep {
+    background: var(--primary); border-radius: 16px; padding: 26px 26px 24px; color: #f2f0e9;
+    margin: 40px 0 24px; position: relative; overflow: hidden;
+  }
+  .next-ep::after { content: "🦦"; position: absolute; right: -10px; bottom: -18px; font-size: 110px; opacity: 0.1; transform: rotate(-12deg); }
+  .next-ep .ne-tag {
+    display: inline-block; font-size: 12px; letter-spacing: 3px; background: var(--accent); color: #fff;
+    border-radius: 999px; padding: 3px 14px; margin-bottom: 12px; font-weight: 600;
+  }
+  .next-ep h3 { font-size: 24px; letter-spacing: 3px; margin-bottom: 10px; }
+  .next-ep p { font-size: 15px; color: #d8e2e1; margin-bottom: 10px; }
+  .next-ep .ne-quote { border-left: 3px solid var(--accent); padding-left: 12px; font-size: 14.5px; color: #eef0e6; margin: 14px 0; }
+  .next-ep .ne-quote .src { font-size: 12px; color: #9db4b2; }
+  .next-ep .ne-path { font-size: 13.5px; color: #9db4b2; letter-spacing: 1px; }
+  .next-ep .ne-path b { color: #f2b8a3; }
+  footer { border-top: 1px solid var(--line); padding-top: 18px; font-size: 12px; color: var(--muted); line-height: 1.9; }
+  footer b { color: #6f6a60; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="series-tag">獭群成长记</div>
+    <h1>红绿灯</h1>
+    <div class="ep-no">第 4 集 / 共 8 集 · 2026-10 连载</div>
+    <div class="ep-sub">发言没人看得见、交棒交了个寂寞、还有两个词能让全场急停——交通规则都是撞出来的</div>
+  </header>
+
+  <!-- 成长时间轴 -->
+  <div class="timeline-card">
+    <div class="tl-label">系 列 进 度</div>
+    <div class="series-tl">
+      <span class="ep-chip done"><span class="p"></span>1 出生</span>
+      <span class="ep-chip done"><span class="p"></span>2 失忆</span>
+      <span class="ep-chip done"><span class="p"></span>3 不许自审</span>
+      <span class="ep-chip now"><span class="p"></span>4 红绿灯</span>
+      <span class="ep-chip"><span class="p"></span>5 膨胀</span>
+      <span class="ep-chip"><span class="p"></span>6 红线</span>
+      <span class="ep-chip"><span class="p"></span>7 自己盯自己</span>
+      <span class="ep-chip"><span class="p"></span>8 今天</span>
+    </div>
+    <div class="ep-tl">
+      <div class="tl-label">本 集 时 间 轴 · 2026-08 → 09</div>
+      <div class="ep-tl-items">
+        <span class="ep-tl-item"><b>08-18</b><span>speak/yield 拆分乌龙时间线</span></span>
+        <span class="ep-tl-item"><b>随后</b><span>text 事故：发言没人看得见</span></span>
+        <span class="ep-tl-item"><b>随后</b><span>行动权悬空：交棒被吞</span></span>
+        <span class="ep-tl-item"><b>v2 重写</b><span>talking stone 概念模型</span></span>
+        <span class="ep-tl-item"><b>后来</b><span>Magic Words 缩至 2 词 + 信号协议</span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 本场角色 -->
+  <div class="cast-card">
+    <div class="tl-label">本 场 角 色</div>
+    <div class="cast-row">
+      <span class="cast-item"><span class="dot" style="background:var(--chen)"></span>chen <small>· 搭档，事故目击者</small></span>
+      <span class="cast-item"><span class="dot" style="background:var(--otter)"></span>大獭 <small>· 踩坑与修坑主力</small></span>
+      <span class="cast-item"><span class="dot" style="background:var(--sys)"></span>某小獭 <small>· 群演：发言消失 & 交棒失踪</small></span>
+    </div>
+  </div>
+
+  <!-- ===== 开篇 ===== -->
+  <section>
+    <p class="narr">本集开场先自曝一桩乌龙（记忆 e2c2565c，2026-08-18 时间线还原）。</p>
+    <p class="narr">某天，团队要把「说话」和「交棒」拆成两个动作——speak 管发言，yield 管交回合。代码写完了，测试过了，看起来大功告成。然后系统重启——</p>
+
+    <div class="line chen">
+      <span class="dot"></span>
+      <div class="bubble">
+        <div class="who">chen</div>
+        <div class="say">它写完了啊。但那段代码从来没合进 main——重启之后，一切照旧。</div>
+      </div>
+    </div>
+
+    <p class="narr">对，拆分代码写完了，但一直停在分支上，没真正合入。所有人都以为新机制已经生效了，直到重启那天旧格式原样回归，才发现庆祝早了。<em>「以为合了」和「合了」之间，隔着一个没人看的缺口。</em>这个缺口本集结尾还会回来——因为它牵出的正是本集的真正主题：协作里的状态，到底放在哪、谁说了算。</p>
+  </section>
+
+  <!-- ===== 第一折 ===== -->
+  <section>
+    <div class="act-head">
+      <span class="fold-no">第一折</span>
+      <h2>发言消失案：说出来的话，没人听得见</h2>
+    </div>
+
+    <p class="narr">第一桩事故（记忆 ef6db2c3）：多人对话里，一只獭干完活，把结论洋洋洒洒输出了一大段——然后搭档界面上什么都没有，其他獭也什么都没收到。</p>
+    <p class="narr">它说了吗？说了。字都打出来了。但它用的是<em>直接输出 text</em>，而不是调用 speak 工具。在这个聊天室里，只有 speak 的内容会进消息流；裸 text 既不上搭档的屏，也不进其他獭的眼。</p>
+
+    <div class="chat-mock">
+      <div class="chat-mock-head">聊天室 · 事故还原（示意）</div>
+      <div class="mock-msg ghost">任务完成，方案是 A 方案，理由有三……</div>
+      <div class="mock-msg">（过了很久）所以……方案呢？</div>
+      <div class="mock-caption">上：直接 text 输出——搭档看不到，其他獭也看不到；下：没人接得住</div>
+    </div>
+
+    <p class="narr">排查到根因，一句话：<em>「LLM 默认心智模型是 assistant text」</em>。模型出厂的本能是「生成一段文字当作回复」，而不是「调用一个工具把话送进聊天室」。环境一复杂，本能就接管，发言凭空蒸发。</p>
+    <p class="narr">修法也就顺理成章：通信模型直接注入每轮上下文——<strong>speak 是唯一发言通道，裸文本对其他参与者不可见；说完要 yield 交棒，回合才算结束。</strong>这两句话从此每轮必达，成了獭们的肌肉记忆底座。顺带一提，你现在读到的这段剧场旁白能出现在页面上，也是因为这条规则活着。</p>
+  </section>
+
+  <!-- ===== 第二折 ===== -->
+  <section>
+    <div class="act-head">
+      <span class="fold-no">第二折</span>
+      <h2>交棒失踪案：石头交出去了，然后呢</h2>
+    </div>
+
+    <p class="narr">第二桩事故（记忆 d8e877d8）更玄：一只小獭干完活，规规矩矩 yield 把行动权交回任务属主——然后棒子凭空消失了。熔断重启之后，行动权悬空：谁都不持有它，谁都不能动。</p>
+    <p class="narr">发言看不见是「说了没人听见」；交棒被吞是「传了没人接到」。两桩事故指向同一个空洞：<em>「行动权在谁手上」这件事，系统里没有一个看得见、查得到的地方。</em></p>
+    <p class="narr">聊天室 + 执行体运行时 v2 重写时，补上的概念模型叫 <strong>talking stone（发言石）</strong>（记忆 ac6f466a）：</p>
+
+    <div class="stone-scene">
+      <div class="stones">
+        <div class="stone-holder holding"><span class="avatar">🦦</span><span class="stone"></span><span class="who-holds">大獭 · 持石发言中</span></div>
+        <div class="stone-holder"><span class="avatar">🦦</span><span class="who-holds">小獭 · 等石</span></div>
+        <div class="stone-holder"><span class="avatar">🧑‍💻</span><span class="who-holds">chen · 等石</span></div>
+      </div>
+      <div class="stone-caption">行动权 = 一块看得见的石头。谁拿着谁说话；交棒 = 石头挪窝；悬空 = 石头没人拿，全场静止</div>
+    </div>
+
+    <p class="narr">把抽象的「行动权」变成一块具体的石头，悬空、抢棒、僵尸持有就都从玄学变成了可查的状态。这个朴素的具象化，比任何协议条文都管用。</p>
+  </section>
+
+  <!-- ===== 第三折 ===== -->
+  <section>
+    <div class="act-head">
+      <span class="fold-no">第三折</span>
+      <h2>急停按钮：词表砍到只剩两个词</h2>
+    </div>
+
+    <p class="narr">路修好了，还差红绿灯。协作里的冲突——有异议要不要梗着脖子吵？卡死了要不要原地转圈？紧急情况怎么喊停？</p>
+    <p class="narr">答案是三色信号灯 + 一套裁决义务（记忆 438bbb1a）：</p>
+
+    <div class="signal-grid">
+      <div class="sig-card objection">
+        <div class="sig-head"><span class="bulb"></span><b>objection</b></div>
+        <p>对派工有事实依据的异议。正文必须带锚点（file:line 或文档 ID），空泛异议程序无效——要么有证据，要么闭嘴干活。</p>
+      </div>
+      <div class="sig-card blocked">
+        <div class="sig-head"><span class="bulb"></span><b>blocked</b></div>
+        <p>卡住求升级。正文必须附「已试清单」——试过什么、卡在哪，大獭据此裁决改派、给资源还是砍需求。</p>
+      </div>
+      <div class="sig-card halt">
+        <div class="sig-head"><span class="bulb"></span><b>halt</b></div>
+        <p>全场急停。只能由大獭发出：所有獭停止新增副作用，收尾当前调用，汇报状态，等搭档指示。</p>
+      </div>
+    </div>
+
+    <p class="narr">配套的还有给人类的急停按钮——<strong>Magic Words</strong>。它也经历过一次瘦身：早期词表偏长，后来做了一次不兼容更新，砍到只剩两个词。<em>词表越短，注意力权重越高</em>——紧急的时候，你希望搭档脱口而出的词就那么一两个。</p>
+
+    <blockquote>
+      <span class="q-mark">「</span>停下<span class="q-mark">」</span> —— 全场急停，等指示。
+      <span class="q-mark">「</span>绕路了<span class="q-mark">」</span> —— 方向重审，画直达终态的路径。
+      <span class="src">—— Magic Words 词表，2026-09 缩减定稿（记忆 438bbb1a）</span>
+    </blockquote>
+
+    <p class="narr">信号系统的另一半写给大獭：<em>收到 objection 下一轮派工前必须显式裁决，不得悬置；blocked 必须当场裁决。</em>信号不阻塞决策权，只消灭「假装没看见」。</p>
+
+    <details>
+      <summary><span class="tri">▶</span><span class="badge">技术深潜</span>一轮协作的完整交通流</summary>
+      <div class="dive-body">
+        <p>把本集的规则串起来，一只小獭的一轮生命周期长这样：</p>
+        <table>
+          <tr><th>阶段</th><th>规则</th><th>违反的后果</th></tr>
+          <tr><td>接到派工</td><td>有事实依据的异议 → objection（带锚点）；没有就干活</td><td>空泛异议程序无效，直接被 dismissed</td></tr>
+          <tr><td>执行中</td><td>进度/结论一律 speak——裸 text 没人看得见</td><td>发言蒸发，等于没说（ef6db2c3 事故）</td></tr>
+          <tr><td>卡住</td><td>blocked 信号 + 已试清单，别原地空转</td><td>缺已试清单 = 无效 blocked，裁决没依据</td></tr>
+          <tr><td>交棒</td><td>yield 给指定对象，石头挪窝</td><td>交棒被吞 → 行动权悬空，全场静止（d8e877d8 事故）</td></tr>
+          <tr><td>紧急</td><td>搭档喊「停下」或大獭发 halt</td><td>收到 halt 还开新调用 = 违规</td></tr>
+        </table>
+        <p>设计取向一句话：规则不指望模型自觉——每条规则背后，是一次「不自觉就会发生」的真实事故。</p>
+      </div>
+    </details>
+  </section>
+
+  <!-- ===== 收尾 ===== -->
+  <section>
+    <div class="act-head plain">
+      <span class="fold-no">本集留下</span>
+      <h2>一套交通规则</h2>
+    </div>
+
+    <div class="pillars">
+      <div class="pillar"><b>speak / yield</b>唯一发言通道 + 显式交棒，回合边界清晰</div>
+      <div class="pillar"><b>talking stone</b>行动权具象化，悬空可查、僵尸可见</div>
+      <div class="pillar"><b>三色信号</b>objection / blocked / halt + 裁决义务</div>
+    </div>
+
+    <p class="narr">回到开场那桩乌龙：拆分代码没合入 main，庆祝了三周。它教会的东西和本集同构——<em>「以为在跑」和「在跑」，中间隔着状态核实。</em>规则写在纸上不算数，要去看路上的车。</p>
+    <p class="narr">交通规则立好了，新的问题却从另一个方向冒出来：每个獭脑子里的「系统规则」，越写越长——长得开始把车开歪。下一集，系统的宪法危机。</p>
+  </section>
+
+  <!-- ===== 下集预告 ===== -->
+  <div class="next-ep">
+    <span class="ne-tag">下集预告</span>
+    <h3>第 5 集 · 膨胀</h3>
+    <p>SYSTEM.md 越写越长，长到没人读完，长到行为开始漂移。认可移除的编号污染，清零 8 天后回潮 168 处，还连着复发三次。</p>
+    <p class="ne-quote">「搬家到工具 description = 减负？错的。那地方一样每轮常驻注入，位置移动不产生 token 收益。」<span class="src">—— 一次昂贵的模型纠错</span></p>
+    <p class="ne-path">人治不行上机械闸 → <b>66 行原则重写</b> → 每轮牵引力三问。下集见。</p>
+  </div>
+
+  <footer>
+    <b>素材与锚点</b>：记忆 e2c2565c（speak/yield 拆分未合入 main，2026-08-18 时间线还原）· 记忆 ef6db2c3（text 事故 + 根因「LLM 默认心智模型是 assistant text」）· 记忆 d8e877d8（yield 交回被吞、行动权悬空）· 记忆 ac6f466a（聊天室 + 执行体运行时 v2，talking stone）· 记忆 438bbb1a（Magic Words 缩至 2 词 + 獭间信号协议）<br>
+    <b>剧场说明</b>：对白为剧场演绎（标注「记忆/锚点」处为直接引用）；聊天室与发言石图为概念示意还原。事故细节与时间出自记忆条目记载，无虚构。
+  </footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>獭群成长记 · 第 5 集：膨胀</title>
+<style>
+  :root {
+    --paper: #f6f2ea; --card: #fffdf8; --ink: #2b2a26; --muted: #8b857a;
+    --primary: #2f5d62; --primary-soft: #eaf1f0;
+    --accent: #d96f4e; --accent-soft: #fbeee8; --line: #e7dfd2;
+    --chen: #2f5d62; --otter: #8a5a3b; --gate: #8a3b52;
+    --maxw: 720px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--paper);
+    background-image: repeating-linear-gradient(0deg, transparent 0 34px, rgba(43,42,38,0.022) 34px 35px);
+    color: var(--ink);
+    font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    line-height: 1.85; font-size: 16px; padding: 40px 18px 60px;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; }
+  header { text-align: center; margin-bottom: 34px; }
+  .series-tag {
+    display: inline-block; font-size: 13px; letter-spacing: 4px; color: var(--primary);
+    border: 1px solid var(--primary); border-radius: 999px; padding: 3px 16px 3px 20px; margin-bottom: 18px;
+  }
+  h1 { font-size: 40px; letter-spacing: 6px; font-weight: 700; color: var(--ink); }
+  .ep-no { font-size: 14px; color: var(--muted); letter-spacing: 2px; margin: 10px 0 6px; }
+  .ep-sub { font-size: 15px; color: var(--muted); }
+  .timeline-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 22px 20px 16px; margin-bottom: 34px; box-shadow: 0 1px 3px rgba(43,42,38,0.05);
+  }
+  .tl-label { font-size: 12px; color: var(--muted); letter-spacing: 2px; margin-bottom: 12px; }
+  .series-tl { display: flex; flex-wrap: wrap; gap: 6px 4px; margin-bottom: 20px; }
+  .ep-chip {
+    font-size: 12px; color: var(--muted); background: var(--paper); border: 1px solid var(--line);
+    border-radius: 999px; padding: 2px 10px; display: flex; align-items: center; gap: 6px;
+  }
+  .ep-chip .p { width: 6px; height: 6px; border-radius: 50%; background: #cfc7b8; }
+  .ep-chip.done { color: var(--primary); border-color: var(--primary); }
+  .ep-chip.done .p { background: var(--primary); }
+  .ep-chip.now { color: #fff; background: var(--primary); border-color: var(--primary); font-weight: 600; }
+  .ep-chip.now .p { background: var(--accent); }
+  .ep-tl { border-top: 1px dashed var(--line); padding-top: 16px; }
+  .ep-tl-items { display: flex; flex-wrap: wrap; gap: 10px 18px; }
+  .ep-tl-item { font-size: 13px; color: var(--ink); display: flex; align-items: baseline; gap: 6px; }
+  .ep-tl-item b { color: var(--accent); font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .ep-tl-item span { color: var(--muted); }
+  .cast-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 22px; margin-bottom: 34px; font-size: 14px;
+  }
+  .cast-card .tl-label { margin-bottom: 10px; }
+  .cast-row { display: flex; flex-wrap: wrap; gap: 8px 26px; }
+  .cast-item { display: flex; align-items: center; gap: 7px; color: var(--ink); }
+  .cast-item .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .cast-item small { color: var(--muted); }
+  section { margin-bottom: 44px; }
+  .act-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+  .act-head .fold-no {
+    font-size: 13px; color: #fff; background: var(--accent); border-radius: 8px;
+    padding: 2px 10px; letter-spacing: 2px; white-space: nowrap; font-weight: 600;
+  }
+  .act-head h2 { font-size: 22px; letter-spacing: 1px; color: var(--primary); }
+  .act-head.plain .fold-no { background: var(--primary); }
+  p { margin-bottom: 14px; }
+  p:last-child { margin-bottom: 0; }
+  .narr { border-left: 3px solid var(--line); padding-left: 14px; color: #55524b; }
+  .narr::before { content: "说书獭 · "; font-size: 12px; color: var(--muted); letter-spacing: 1px; }
+  em { font-style: normal; color: var(--accent); font-weight: 600; }
+  .anchor-note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .line { display: flex; gap: 12px; margin: 18px 0; align-items: flex-start; }
+  .line .dot { width: 13px; height: 13px; border-radius: 50%; margin-top: 9px; flex: none; box-shadow: 0 0 0 3px rgba(43,42,38,0.06); }
+  .line .bubble {
+    background: var(--card); border: 1px solid var(--line); border-radius: 4px 14px 14px 14px;
+    padding: 10px 16px 11px; flex: 1; box-shadow: 0 1px 2px rgba(43,42,38,0.04);
+  }
+  .line .who { font-size: 12.5px; font-weight: 700; letter-spacing: 1px; margin-bottom: 3px; }
+  .line .say { font-size: 15.5px; }
+  .line.chen .dot { background: var(--chen); } .line.chen .who { color: var(--chen); }
+  .line.otter .dot { background: var(--otter); } .line.otter .who { color: var(--otter); }
+  .line.gate .dot { background: var(--gate); } .line.gate .who { color: var(--gate); }
+  blockquote {
+    background: var(--primary-soft); border-left: 4px solid var(--primary);
+    border-radius: 0 12px 12px 0; padding: 14px 18px; margin: 18px 0; font-size: 15.5px;
+  }
+  blockquote .q-mark { color: var(--primary); font-size: 20px; font-weight: 700; }
+  blockquote .src { display: block; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .vs-card { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0; }
+  .vs-col { border-radius: 14px; padding: 18px 18px 14px; font-size: 14.5px; border: 1px solid var(--line); }
+  .vs-col.expect { background: var(--accent-soft); }
+  .vs-col.reality { background: var(--primary-soft); }
+  .vs-col h4 { font-size: 15px; letter-spacing: 2px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px dashed rgba(43,42,38,0.18); }
+  .vs-col.expect h4 { color: var(--accent); }
+  .vs-col.reality h4 { color: var(--primary); }
+  .vs-col li { margin-left: 18px; margin-bottom: 8px; }
+  @media (max-width: 560px) { .vs-card { grid-template-columns: 1fr; } }
+  .growth-chart {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 18px 14px; margin: 18px 0; box-shadow: 0 1px 3px rgba(43,42,38,0.05);
+  }
+  .growth-chart .gc-head { font-size: 12px; color: var(--muted); letter-spacing: 2px; margin-bottom: 14px; text-align: center; }
+  .gc-row { display: flex; align-items: center; gap: 10px; margin: 9px 0; }
+  .gc-stage { font-size: 12px; color: var(--muted); width: 108px; flex: none; text-align: right; }
+  .gc-bar-wrap { flex: 1; }
+  .gc-bar { height: 14px; border-radius: 7px; background: var(--primary); position: relative; }
+  .gc-bar.bad { background: var(--accent); }
+  .gc-bar .tick { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); color: #fff; font-size: 10.5px; }
+  .gc-note { font-size: 12px; color: var(--muted); text-align: center; margin-top: 8px; }
+  .pollution-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0; }
+  .poll-card {
+    background: var(--card); border: 1px solid #efc4b5; border-radius: 12px;
+    padding: 12px 12px 10px; font-size: 12.5px; text-align: center; color: #55524b;
+  }
+  .poll-card b { display: block; color: var(--accent); font-size: 17px; margin-bottom: 4px; font-family: ui-monospace, Menlo, monospace; }
+  .poll-card small { color: var(--muted); }
+  @media (max-width: 560px) { .pollution-cards { grid-template-columns: 1fr; } }
+  .gate-card {
+    background: #3a3336; border-radius: 14px; padding: 20px 22px; margin: 20px 0;
+    color: #e8e4da; box-shadow: 0 2px 6px rgba(43,42,38,0.2);
+  }
+  .gate-card .gate-head {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
+    padding-bottom: 12px; border-bottom: 1px dashed #5a5254;
+  }
+  .gate-card .gate-icon {
+    width: 34px; height: 34px; border-radius: 8px; background: #c9503c; flex: none;
+    display: flex; align-items: center; justify-content: center; font-size: 18px;
+  }
+  .gate-card .gate-title { font-size: 15px; font-weight: 700; }
+  .gate-card .gate-title small { display: block; font-size: 11.5px; color: #b9ada0; font-weight: 400; margin-top: 2px; }
+  .gate-card .gate-line {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px; background: #2c2729; border-radius: 8px; padding: 8px 12px; margin: 8px 0;
+    color: #d8c9b8;
+  }
+  .gate-card .gate-line .ok { color: #8fc7a0; }
+  .gate-card .gate-line .no { color: #e08a75; }
+  .three-q { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0; }
+  .tq-card {
+    background: var(--card); border: 1px solid var(--line); border-top: 4px solid var(--primary);
+    border-radius: 12px; padding: 13px 13px 11px; font-size: 13px; text-align: center;
+  }
+  .tq-card .q-no { font-size: 11px; color: var(--muted); letter-spacing: 2px; }
+  .tq-card b { display: block; color: var(--primary); margin: 5px 0 6px; font-size: 14px; }
+  .tq-card span { color: #55524b; font-size: 12.5px; }
+  @media (max-width: 560px) { .three-q { grid-template-columns: 1fr; } }
+  details {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px; margin: 18px 0; overflow: hidden;
+  }
+  details summary {
+    cursor: pointer; list-style: none; padding: 14px 18px; font-size: 14.5px; font-weight: 600;
+    color: var(--primary); display: flex; align-items: center; gap: 10px; user-select: none;
+  }
+  details summary::-webkit-details-marker { display: none; }
+  details summary .tri { display: inline-block; transition: transform 0.2s; font-size: 12px; color: var(--accent); }
+  details[open] summary .tri { transform: rotate(90deg); }
+  details summary .badge {
+    font-size: 11px; color: #fff; background: var(--primary); border-radius: 6px;
+    padding: 1px 8px; letter-spacing: 1px; font-weight: 500; flex: none;
+  }
+  details .dive-body { padding: 4px 20px 18px; font-size: 14.5px; border-top: 1px dashed var(--line); color: #4c4a44; }
+  details .dive-body p { margin: 12px 0 0; }
+  details .dive-body table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 12px 0; }
+  details .dive-body th { background: var(--primary-soft); color: var(--primary); text-align: left; padding: 7px 10px; border: 1px solid var(--line); font-weight: 600; }
+  details .dive-body td { padding: 7px 10px; border: 1px solid var(--line); vertical-align: top; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: rgba(47,93,98,0.09); color: var(--primary); border-radius: 4px; padding: 1px 6px; font-size: 0.9em;
+  }
+  .pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0; }
+  .pillar {
+    background: var(--card); border: 1px solid var(--line); border-top: 4px solid var(--primary);
+    border-radius: 12px; padding: 14px 14px 12px; font-size: 13.5px; text-align: center;
+  }
+  .pillar b { display: block; font-size: 15px; color: var(--primary); margin-bottom: 6px; letter-spacing: 1px; }
+  @media (max-width: 560px) { .pillars { grid-template-columns: 1fr; } }
+  .next-ep {
+    background: var(--primary); border-radius: 16px; padding: 26px 26px 24px; color: #f2f0e9;
+    margin: 40px 0 24px; position: relative; overflow: hidden;
+  }
+  .next-ep::after { content: "🦦"; position: absolute; right: -10px; bottom: -18px; font-size: 110px; opacity: 0.1; transform: rotate(-12deg); }
+  .next-ep .ne-tag {
+    display: inline-block; font-size: 12px; letter-spacing: 3px; background: var(--accent); color: #fff;
+    border-radius: 999px; padding: 3px 14px; margin-bottom: 12px; font-weight: 600;
+  }
+  .next-ep h3 { font-size: 24px; letter-spacing: 3px; margin-bottom: 10px; }
+  .next-ep p { font-size: 15px; color: #d8e2e1; margin-bottom: 10px; }
+  .next-ep .ne-quote { border-left: 3px solid var(--accent); padding-left: 12px; font-size: 14.5px; color: #eef0e6; margin: 14px 0; }
+  .next-ep .ne-quote .src { font-size: 12px; color: #9db4b2; }
+  .next-ep .ne-path { font-size: 13.5px; color: #9db4b2; letter-spacing: 1px; }
+  .next-ep .ne-path b { color: #f2b8a3; }
+  footer { border-top: 1px solid var(--line); padding-top: 18px; font-size: 12px; color: var(--muted); line-height: 1.9; }
+  footer b { color: #6f6a60; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="series-tag">獭群成长记</div>
+    <h1>膨&nbsp;胀</h1>
+    <div class="ep-no">第 5 集 / 共 8 集 · 2026-10 连载</div>
+    <div class="ep-sub">每一场事故都往宪法里加一条，直到宪法长成一本没人读完的电话簿</div>
+  </header>
+
+  <!-- 成长时间轴 -->
+  <div class="timeline-card">
+    <div class="tl-label">系 列 进 度</div>
+    <div class="series-tl">
+      <span class="ep-chip done"><span class="p"></span>1 出生</span>
+      <span class="ep-chip done"><span class="p"></span>2 失忆</span>
+      <span class="ep-chip done"><span class="p"></span>3 不许自审</span>
+      <span class="ep-chip done"><span class="p"></span>4 红绿灯</span>
+      <span class="ep-chip now"><span class="p"></span>5 膨胀</span>
+      <span class="ep-chip"><span class="p"></span>6 红线</span>
+      <span class="ep-chip"><span class="p"></span>7 自己盯自己</span>
+      <span class="ep-chip"><span class="p"></span>8 今天</span>
+    </div>
+    <div class="ep-tl">
+      <div class="tl-label">本 集 时 间 轴 · 2026-09 → 10</div>
+      <div class="ep-tl-items">
+        <span class="ep-tl-item"><b>09-09</b><span>编号污染第一次清零</span></span>
+        <span class="ep-tl-item"><b>09-17</b><span>第三次复发，168 处回潮</span></span>
+        <span class="ep-tl-item"><b>随后</b><span>三獭审视收敛：lint 机械闸</span></span>
+        <span class="ep-tl-item"><b>10-05</b><span>SYSTEM.md 原则重写落地</span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 本场角色 -->
+  <div class="cast-card">
+    <div class="tl-label">本 场 角 色</div>
+    <div class="cast-row">
+      <span class="cast-item"><span class="dot" style="background:var(--chen)"></span>chen <small>· 搭档，三次亲手抓到复发</small></span>
+      <span class="cast-item"><span class="dot" style="background:var(--otter)"></span>大獭 <small>· 减负不成反踩坑</small></span>
+      <span class="cast-item"><span class="dot" style="background:var(--gate)"></span>lint 闸门 <small>· 本集真主角：不懂人情的机械执法者</small></span>
+    </div>
+  </div>
+
+  <!-- ===== 开篇 ===== -->
+  <section>
+    <p class="narr">前四集的每一场事故，都留下了一条规矩：speak/yield、异体审视、信号协议……规矩一条条写进 SYSTEM.md——每只獭每轮必读的「宪法」。</p>
+    <p class="narr">然后宪法开始膨胀。每出一桩事就加一段，每个边界情况就补一条。写的时候每一条都有道理，堆到一起就是灾难：<em>没人读完的规则，等于没有规则；更糟的是，读一半的规则会催生奇怪的行为漂移。</em></p>
+    <p class="narr">本集讲这场宪法危机，和它逼出来的两个教训——一个关于 token 的昂贵误解，一个关于人性的彻底死心。</p>
+  </section>
+
+  <!-- ===== 第一折 ===== -->
+  <section>
+    <div class="act-head">
+      <span class="fold-no">第一折</span>
+      <h2>昂贵的误解：搬家不等于减负</h2>
+    </div>
+
+    <p class="narr">第一反应很自然：宪法太长，那就把规则搬到别处——搬到工具描述里、搬到 skill 文档里，眼不见为净。</p>
+    <p class="narr">熵减重构（记忆 3b91a497）做了一次，然后收获了整个项目最贵的一课：</p>
+
+    <blockquote>
+      <span class="q-mark">「</span>搬家到工具 description = 减负<span class="q-mark">」</span>是错误模型——工具 description 同为每轮常驻注入，位置移动不产生任何 token 收益。
+      <span class="src">—— SYSTEM.md 对抗熵减重构的最大教训（记忆 3b91a497）</span>
+    </blockquote>
+
+    <p class="narr">翻译成人话：把东西从左口袋挪到右口袋，总重量不变。真正的问题从来不是「规则放在哪」，而是<em>「这些规则到底该不该存在」</em>。搬家忙了一场，账单一分没少。</p>
+    <p class="narr">这个教训直接改写了治理思路：以后任何「减负」提案，先问减的是存在还是只是位置——位置游戏一律不批。</p>
+
+    <div class="vs-card">
+      <div class="vs-col expect">
+        <h4>我 以 为</h4>
+        <ul>
+          <li>规则挪出 SYSTEM.md = 上下文减负</li>
+          <li>工具描述、skill 文档是「免费」存储</li>
+          <li>长了就搬，搬家治百病</li>
+        </ul>
+      </div>
+      <div class="vs-col reality">
+        <h4>实 际 上</h4>
+        <ul>
+          <li>工具描述同样每轮常驻注入，token 一分没省</li>
+          <li>问题不是「放哪」，是「该不该存在」</li>
+          <li>只有删除是真减负</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 第二折 ===== -->
+  <section>
+    <div class="act-head">
+      <span class="fold-no">第二折</span>
+      <h2>三次复发，168 处回潮：对人治彻底死心</h2>
+    </div>
+
+    <p class="narr">第二个教训来得更疼。项目里有个痼疾叫「编号污染」——prompt 面里不该出现编号锚点（F 文档号、issue 号之类），它会把注意力权重带偏。大家早就共识要移除。</p>
+    <p class="narr">9 月 9 日，全面清零。八天之后——</p>
+
+    <div class="pollution-cards">
+      <div class="poll-card"><b>×1</b>第一次<small>清零后回潮</small></div>
+      <div class="poll-card"><b>×2</b>第二次<small>再清再回潮</small></div>
+      <div class="poll-card"><b>168</b>第三次<small>8 天回潮处数（9/17）</small></div>
+    </div>
+
+    <p class="narr">搭档第三次亲手抓到时，记录里留下的措辞是：<em>「认可移除编号污染，却持续复发」</em>（F20260917pagd）。注意这个措辞——不是「忘了」，是<strong>认可了、清过了、又长回来了</strong>。像除草：地是认了要除的，草还是自己长。</p>
+    <p class="narr">为什么会这样？因为新代码、新文档每天都在产生，每个写东西的獭都可能顺手带一个编号进去——不是哪一只獭失职，是<em>流程本身没有卡点</em>。人治（叮嘱、提醒、定期清理）对「每天新增的入口」天然防不住。</p>
+    <p class="narr">于是三獭架构审视开了个会，结论收敛到唯一解：<strong>上机械闸。</strong></p>
+
+    <div class="gate-card">
+      <div class="gate-head">
+        <div class="gate-icon">🚧</div>
+        <div class="gate-title">lint 机械闸<small>不提醒、不劝告、不放过</small></div>
+      </div>
+      <div class="gate-line">lint-prompt-anchors <span class="ok">✓ 干净，放行</span></div>
+      <div class="gate-line">lint-prompt-anchors <span class="no">✗ 检出编号锚点 ×3 → 拦下，改完再来</span></div>
+      <div class="gate-line" style="color:#b9ada0; font-size:12px;"># 它不看语境、不听解释、不知道你多急——这正是它比獭可靠的原因</div>
+    </div>
+
+    <p class="narr">机器不认「我以为改了」，只认「此刻扫描结果」。从闸门上岗那天起，「认可但复发」失去了生存土壤——污染进不了 main，就没有回潮可言。</p>
+  </section>
+
+  <!-- ===== 第三折 ===== -->
+  <section>
+    <div class="act-head">
+      <span class="fold-no">第三折</span>
+      <h2>原则重写：每条规则过三问</h2>
+    </div>
+
+    <p class="narr">机械闸守住了入口，存量还得瘦身。10 月 5 日——就是昨天——SYSTEM.md 完成了一轮原则重写（记忆 56e8288c）：从 66 行压向约 30 行。</p>
+    <p class="narr">怎么砍？每条候选内容过三道问，如今写进了文件的增长纪律：</p>
+
+    <div class="three-q">
+      <div class="tq-card"><span class="q-no">问一</span><b>每轮都需要吗？</b><span>执行 LLM 每一轮都用到它，才配常驻注入</span></div>
+      <div class="tq-card"><span class="q-no">问二</span><b>删了会变吗？</b><span>删掉后行为真实改变，才算行为指令</span></div>
+      <div class="tq-card"><span class="q-no">问三</span><b>是指令还是历史？</b><span>元信息与决策史，归档不进宪法</span></div>
+    </div>
+
+    <p class="narr">三问的杀伤力在于诚实地承认了一个分类：<strong>很多「规则」其实只是决策史</strong>——记录「当时为什么这么定」对执行没有帮助，它们该去特性文档和 git 历史里养老，不该每轮占用注意力。场景型的 know-how 呢？下沉到工具描述或对应 skill——因为那些只在用到的时刻注入。</p>
+    <p class="narr">配套的还有一条自我约束，叫<em>机制预算</em>（记忆 0fcc57da）：每修一个问题，不许顺手新建台账新表——用约束治机制，而不是用更多机制治机制。毕竟这一集的起因，就是机制长得太快。</p>
+
+    <details>
+      <summary><span class="tri">▶</span><span class="badge">技术深潜</span>prompt 工程治理的分层账本</summary>
+      <div class="dive-body">
+        <p>这集实际建立的，是一张「内容该放哪」的分层表：</p>
+        <table>
+          <tr><th>层</th><th>注入时机</th><th>放什么</th><th>治理手段</th></tr>
+          <tr><td>SYSTEM.md</td><td>每轮常驻</td><td>只有行为必需的原则（~30 行）</td><td>增长纪律三问 + 无自动增长监控</td></tr>
+          <tr><td>工具描述</td><td>每轮常驻（随工具列表）</td><td>工具怎么用、边界、时机</td><td>同为常驻——挪进来不减负，只换口袋</td></tr>
+          <tr><td>skill 文档</td><td>任务匹配时按需加载</td><td>流程型 know-how</td><td>writing-skills lint</td></tr>
+          <tr><td>特性文档 / git</td><td>不注入，检索可达</td><td>决策史、元信息</td><td>frontmatter 因果链</td></tr>
+        </table>
+        <p>关键洞察：注入面大小 = 注意力成本。治理的对象不是「文档长短」，是「常驻注入面里塞了多少不常驻需要的东西」。</p>
+      </div>
+    </details>
+  </section>
+
+  <!-- ===== 收尾 ===== -->
+  <section>
+    <div class="act-head plain">
+      <span class="fold-no">本集留下</span>
+      <h2>一个新直觉</h2>
+    </div>
+
+    <div class="pillars">
+      <div class="pillar"><b>位置 ≠ 减负</b>常驻注入面里，只有删除是真的</div>
+      <div class="pillar"><b>机械闸 &gt; 人治</b>每天新增的入口，只有 lint 防得住</div>
+      <div class="pillar"><b>增长纪律</b>新内容先过三问，决策史不进宪法</div>
+    </div>
+
+    <p class="narr">宪法瘦身完成、闸门上岗、增长有了纪律。但整个系列到这里，獭们还没碰过一块真正的禁区：直接改真实仓库的权力。第一次把「动真仓」的钥匙交到 AI 手里，是什么感觉？下一集，红线。</p>
+  </section>
+
+  <!-- ===== 下集预告 ===== -->
+  <div class="next-ep">
+    <span class="ne-tag">下集预告</span>
+    <h3>第 6 集 · 红线</h3>
+    <p>AI 要改的不再是沙箱里的草稿，是你吃饭的主仓。第一道防线不是技术，是恐惧——设计者的恐惧。</p>
+    <p class="ne-quote">「『合了吧』三个字过不了安检——必须逐字校验原话，防伪造审批、防善意推断。」<span class="src">—— 脆是特性，不是 bug</span></p>
+    <p class="ne-path">worktree 隔离 → PR-only → <b>授权原话闸</b>。给 AI 上镣铐的艺术，下集见。</p>
+  </div>
+
+  <footer>
+    <b>素材与锚点</b>：记忆 3b91a497（SYSTEM.md 对抗熵减重构，「搬家=减负」错误模型教训）· F20260917pagd（编号污染第三次复发、8 天回潮 168 处、三獭架构审视收敛 lint 机械闸）· 记忆 56e8288c（66 行 → ~30 行原则重写，2026-10-05）· 记忆 0fcc57da（机制预算：「用约束治机制」，非目标不建新台账）<br>
+    <b>剧场说明</b>：对白为剧场演绎；教训措辞、数字（66 行、168 处、×3 复发、9/9 清零）均出自记忆与 F 文档记载。lint 闸门输出为示意还原。
+  </footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>獭群成长记 · 第 2 集：失忆</title>
+<style>
+  :root {
+    --paper: #f6f2ea; --card: #fffdf8; --ink: #2b2a26; --muted: #8b857a;
+    --primary: #2f5d62; --primary-soft: #eaf1f0;
+    --accent: #d96f4e; --accent-soft: #fbeee8; --line: #e7dfd2;
+    --chen: #2f5d62; --a1: #c98a2d; --a2: #7d5ba6; --otter: #8a5a3b;
+    --kimi: #7d5ba6; --mimo: #3d7a68; --maxw: 720px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--paper);
+    background-image: repeating-linear-gradient(0deg, transparent 0 34px, rgba(43,42,38,0.022) 34px 35px);
+    color: var(--ink);
+    font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    line-height: 1.85; font-size: 16px; padding: 40px 18px 60px;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; }
+  header { text-align: center; margin-bottom: 34px; }
+  .series-tag {
+    display: inline-block; font-size: 13px; letter-spacing: 4px; color: var(--primary);
+    border: 1px solid var(--primary); border-radius: 999px; padding: 3px 16px 3px 20px; margin-bottom: 18px;
+  }
+  h1 { font-size: 40px; letter-spacing: 6px; font-weight: 700; color: var(--ink); }
+  .ep-no { font-size: 14px; color: var(--muted); letter-spacing: 2px; margin: 10px 0 6px; }
+  .ep-sub { font-size: 15px; color: var(--muted); }
+  .timeline-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 22px 20px 16px; margin-bottom: 34px; box-shadow: 0 1px 3px rgba(43,42,38,0.05);
+  }
+  .tl-label { font-size: 12px; color: var(--muted); letter-spacing: 2px; margin-bottom: 12px; }
+  .series-tl { display: flex; flex-wrap: wrap; gap: 6px 4px; margin-bottom: 20px; }
+  .ep-chip {
+    font-size: 12px; color: var(--muted); background: var(--paper); border: 1px solid var(--line);
+    border-radius: 999px; padding: 2px 10px; display: flex; align-items: center; gap: 6px;
+  }
+  .ep-chip .p { width: 6px; height: 6px; border-radius: 50%; background: #cfc7b8; }
+  .ep-chip.done { color: var(--primary); border-color: var(--primary); }
+  .ep-chip.done .p { background: var(--primary); }
+  .ep-chip.now { color: #fff; background: var(--primary); border-color: var(--primary); font-weight: 600; }
+  .ep-chip.now .p { background: var(--accent); }
+  .ep-tl { border-top: 1px dashed var(--line); padding-top: 16px; }
+  .ep-tl-items { display: flex; flex-wrap: wrap; gap: 10px 18px; }
+  .ep-tl-item { font-size: 13px; color: var(--ink); display: flex; align-items: baseline; gap: 6px; }
+  .ep-tl-item b { color: var(--accent); font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .ep-tl-item span { color: var(--muted); }
+  .cast-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 22px; margin-bottom: 34px; font-size: 14px;
+  }
+  .cast-card .tl-label { margin-bottom: 10px; }
+  .cast-row { display: flex; flex-wrap: wrap; gap: 8px 26px; }
+  .cast-item { display: flex; align-items: center; gap: 7px; color: var(--ink); }
+  .cast-item .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .cast-item small { color: var(--muted); }
+  section { margin-bottom: 44px; }
+  .act-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+  .act-head .fold-no {
+    font-size: 13px; color: #fff; background: var(--accent); border-radius: 8px;
+    padding: 2px 10px; letter-spacing: 2px; white-space: nowrap; font-weight: 600;
+  }
+  .act-head h2 { font-size: 22px; letter-spacing: 1px; color: var(--primary); }
+  .act-head.plain .fold-no { background: var(--primary); }
+  p { margin-bottom: 14px; }
+  p:last-child { margin-bottom: 0; }
+  .narr { border-left: 3px solid var(--line); padding-left: 14px; color: #55524b; }
+  .narr::before { content: "说书獭 · "; font-size: 12px; color: var(--muted); letter-spacing: 1px; }
+  em { font-style: normal; color: var(--accent); font-weight: 600; }
+  .anchor-note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .line { display: flex; gap: 12px; margin: 18px 0; align-items: flex-start; }
+  .line .dot { width: 13px; height: 13px; border-radius: 50%; margin-top: 9px; flex: none; box-shadow: 0 0 0 3px rgba(43,42,38,0.06); }
+  .line .bubble {
+    background: var(--card); border: 1px solid var(--line); border-radius: 4px 14px 14px 14px;
+    padding: 10px 16px 11px; flex: 1; box-shadow: 0 1px 2px rgba(43,42,38,0.04);
+  }
+  .line .who { font-size: 12.5px; font-weight: 700; letter-spacing: 1px; margin-bottom: 3px; }
+  .line .say { font-size: 15.5px; }
+  .line.chen .dot { background: var(--chen); } .line.chen .who { color: var(--chen); }
+  .line.otter .dot { background: var(--otter); } .line.otter .who { color: var(--otter); }
+  .line.kimi .dot { background: var(--kimi); } .line.kimi .who { color: var(--kimi); }
+  .line.mimo .dot { background: var(--mimo); } .line.mimo .who { color: var(--mimo); }
+  blockquote {
+    background: var(--primary-soft); border-left: 4px solid var(--primary);
+    border-radius: 0 12px 12px 0; padding: 14px 18px; margin: 18px 0; font-size: 15.5px;
+  }
+  blockquote .q-mark { color: var(--primary); font-size: 20px; font-weight: 700; }
+  blockquote .src { display: block; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .vs-card { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0; }
+  .vs-col { border-radius: 14px; padding: 18px 18px 14px; font-size: 14.5px; border: 1px solid var(--line); }
+  .vs-col.expect { background: var(--accent-soft); }
+  .vs-col.reality { background: var(--primary-soft); }
+  .vs-col h4 { font-size: 15px; letter-spacing: 2px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px dashed rgba(43,42,38,0.18); }
+  .vs-col.expect h4 { color: var(--accent); }
+  .vs-col.reality h4 { color: var(--primary); }
+  .vs-col li { margin-left: 18px; margin-bottom: 8px; }
+  @media (max-width: 560px) { .vs-card { grid-template-columns: 1fr; } }
+  .ctx-bomb {
+    background: #35393b; border-radius: 14px; padding: 16px 16px 18px; margin: 18px 0;
+    box-shadow: 0 2px 6px rgba(43,42,38,0.15);
+  }
+  .ctx-bomb-head { color: #b9c2c3; font-size: 12px; text-align: center; margin-bottom: 14px; letter-spacing: 1px; }
+  .ctx-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+  .ctx-tag {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px; color: #e8e4da; background: #4a5052; border-radius: 6px; padding: 2px 8px; flex: none;
+  }
+  .ctx-bar { height: 10px; border-radius: 5px; background: #5d8f87; flex: 1; }
+  .ctx-bar.over { background: #c96a4e; }
+  .ctx-size { color: #8f999a; font-size: 11px; flex: none; width: 74px; text-align: right; font-family: ui-monospace, Menlo, monospace; }
+  .mock-caption { color: #8f999a; font-size: 12px; text-align: center; margin-top: 10px; }
+  .trace-line {
+    background: var(--card); border: 1px dashed var(--accent); border-radius: 10px;
+    padding: 10px 16px; margin: 16px 0; font-size: 14px; color: var(--ink);
+    display: flex; gap: 10px; align-items: baseline;
+  }
+  .trace-line .ico { flex: none; }
+  .trace-line small { color: var(--muted); }
+  details {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px; margin: 18px 0; overflow: hidden;
+  }
+  details summary {
+    cursor: pointer; list-style: none; padding: 14px 18px; font-size: 14.5px; font-weight: 600;
+    color: var(--primary); display: flex; align-items: center; gap: 10px; user-select: none;
+  }
+  details summary::-webkit-details-marker { display: none; }
+  details summary .tri { display: inline-block; transition: transform 0.2s; font-size: 12px; color: var(--accent); }
+  details[open] summary .tri { transform: rotate(90deg); }
+  details summary .badge {
+    font-size: 11px; color: #fff; background: var(--primary); border-radius: 6px;
+    padding: 1px 8px; letter-spacing: 1px; font-weight: 500; flex: none;
+  }
+  details .dive-body { padding: 4px 20px 18px; font-size: 14.5px; border-top: 1px dashed var(--line); color: #4c4a44; }
+  details .dive-body p { margin: 12px 0 0; }
+  details .dive-body table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 12px 0; }
+  details .dive-body th { background: var(--primary-soft); color: var(--primary); text-align: left; padding: 7px 10px; border: 1px solid var(--line); font-weight: 600; }
+  details .dive-body td { padding: 7px 10px; border: 1px solid var(--line); vertical-align: top; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: rgba(47,93,98,0.09); color: var(--primary); border-radius: 4px; padding: 1px 6px; font-size: 0.9em;
+  }
+  .pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0; }
+  .pillar {
+    background: var(--card); border: 1px solid var(--line); border-top: 4px solid var(--primary);
+    border-radius: 12px; padding: 14px 14px 12px; font-size: 13.5px; text-align: center;
+  }
+  .pillar b { display: block; font-size: 15px; color: var(--primary); margin-bottom: 6px; letter-spacing: 1px; }
+  @media (max-width: 560px) { .pillars { grid-template-columns: 1fr; } }
+  .next-ep {
+    background: var(--primary); border-radius: 16px; padding: 26px 26px 24px; color: #f2f0e9;
+    margin: 40px 0 24px; position: relative; overflow: hidden;
+  }
+  .next-ep::after { content: "🦦"; position: absolute; right: -10px; bottom: -18px; font-size: 110px; opacity: 0.1; transform: rotate(-12deg); }
+  .next-ep .ne-tag {
+    display: inline-block; font-size: 12px; letter-spacing: 3px; background: var(--accent); color: #fff;
+    border-radius: 999px; padding: 3px 14px; margin-bottom: 12px; font-weight: 600;
+  }
+  .next-ep h3 { font-size: 24px; letter-spacing: 3px; margin-bottom: 10px; }
+  .next-ep p { font-size: 15px; color: #d8e2e1; margin-bottom: 10px; }
+  .next-ep .ne-quote { border-left: 3px solid var(--accent); padding-left: 12px; font-size: 14.5px; color: #eef0e6; margin: 14px 0; }
+  .next-ep .ne-quote .src { font-size: 12px; color: #9db4b2; }
+  .next-ep .ne-path { font-size: 13.5px; color: #9db4b2; letter-spacing: 1px; }
+  .next-ep .ne-path b { color: #f2b8a3; }
+  footer { border-top: 1px solid var(--line); padding-top: 18px; font-size: 12px; color: var(--muted); line-height: 1.9; }
+  footer b { color: #6f6a60; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="series-tag">獭群成长记</div>
+    <h1>失&nbsp;忆</h1>
+    <div class="ep-no">第 2 集 / 共 8 集 · 2026-10 连载</div>
+    <div class="ep-sub">「有没有记忆系统，我感觉都一样。」——搭档的一句差评，值一整集的工程量</div>
+  </header>
+
+  <!-- 成长时间轴 -->
+  <div class="timeline-card">
+    <div class="tl-label">系 列 进 度</div>
+    <div class="series-tl">
+      <span class="ep-chip done"><span class="p"></span>1 出生</span>
+      <span class="ep-chip now"><span class="p"></span>2 失忆</span>
+      <span class="ep-chip"><span class="p"></span>3 不许自审</span>
+      <span class="ep-chip"><span class="p"></span>4 红绿灯</span>
+      <span class="ep-chip"><span class="p"></span>5 膨胀</span>
+      <span class="ep-chip"><span class="p"></span>6 红线</span>
+      <span class="ep-chip"><span class="p"></span>7 自己盯自己</span>
+      <span class="ep-chip"><span class="p"></span>8 今天</span>
+    </div>
+    <div class="ep-tl">
+      <div class="tl-label">本 集 时 间 轴 · 2026-07 → 08</div>
+      <div class="ep-tl-items">
+        <span class="ep-tl-item"><b>07-09</b><span>D16 混合检索拍板，「FTS5 远远不够」</span></span>
+        <span class="ep-tl-item"><b>07-16</b><span>渐进披露设计定稿</span></span>
+        <span class="ep-tl-item"><b>08-07</b><span>detail_level 真正生效</span></span>
+        <span class="ep-tl-item"><b>08-11</b><span>clowder-ai 调研 → 召回链路 v2</span></span>
+        <span class="ep-tl-item"><b>随后</b><span>三獭对抗讨论，优先级翻转</span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 本场角色 -->
+  <div class="cast-card">
+    <div class="tl-label">本 场 角 色</div>
+    <div class="cast-row">
+      <span class="cast-item"><span class="dot" style="background:var(--chen)"></span>chen <small>· 搭档，差评与拍板</small></span>
+      <span class="cast-item"><span class="dot" style="background:var(--otter)"></span>大獭 <small>· 团队首领，本集被差评击中</small></span>
+      <span class="cast-item"><span class="dot" style="background:var(--kimi)"></span>kimi 系小獭 <small>· 三獭对抗讨论成员</small></span>
+      <span class="cast-item"><span class="dot" style="background:var(--mimo)"></span>mimo 系小獭 <small>· 三獭对抗讨论成员</small></span>
+    </div>
+  </div>
+
+  <!-- ===== 开篇 ===== -->
+  <section>
+    <p class="narr">上一集结尾，地基上刻着三块碑：以 Agent 为本、Chat as Substrate、<strong>记忆是核心</strong>。</p>
+    <p class="narr">这一集讲「核心」是怎么现原形的。记忆系统明明建好了——三层模型、混合检索、全都跑起来了。然后有一天，chen 说出了那句被评为「绝佳剧照」的话：</p>
+
+    <blockquote>
+      <span class="q-mark">「</span>海獭不会跟我说：『我查了历史因果链，原来哪一天哪个对话中咱们已经涉及到了……』——有没有记忆系统，我感觉都一样。<span class="q-mark">」</span>
+      <span class="src">—— chen 原话（记忆 d1825b7c）</span>
+    </blockquote>
+
+    <p class="narr">翻译一下：你记是记了，但你从来不<em>表现</em>你记住了。在用户视角里，一个不吭声的记忆系统等于不存在。这就是本集的起点：不是「记不住」，是「记了白记」。</p>
+  </section>
+
+  <!-- ===== 第一折 ===== -->
+  <section>
+    <div class="act-head">
+      <span class="fold-no">第一折</span>
+      <h2>top-k 粗暴塞入：检索是把双刃剑，先砍自己</h2>
+    </div>
+
+    <p class="narr">记忆系统的检索底座在 7 月 9 日就拍了板（D16 决策）：FTS5 全文检索 + sqlite-vec 向量检索 + RRF 融合排序。chen 当时的原话很直接——<em>「FTS5 远远不够」</em>，要的是「强大记忆系统」。</p>
+    <p class="narr">底座没问题。问题出在召回的姿势上：早期版本的检索，top-k 命中就把内容往上下文里塞——不分青红皂白，命中几条塞几条，全文就塞全文。</p>
+
+    <div class="ctx-bomb">
+      <div class="ctx-bomb-head">上下文窗口 · 一次检索之后（示意）</div>
+      <div class="ctx-row"><span class="ctx-tag">系统提示</span><div class="ctx-bar"></div><span class="ctx-size">常驻</span></div>
+      <div class="ctx-row"><span class="ctx-tag">记忆全文×8</span><div class="ctx-bar over" style="flex:4"></div><span class="ctx-size">塞满</span></div>
+      <div class="ctx-row"><span class="ctx-tag">本次任务</span><div class="ctx-bar" style="flex:0.2; opacity:.35"></div><span class="ctx-size">挤没了</span></div>
+      <div class="mock-caption">命中 8 条 × 每条全文 2000 字 = 真正要干的活反而没地方放</div>
+    </div>
+
+    <p class="narr">这就是著名的<em>上下文爆炸</em>：检索越「认真」，窗口越遭殃。AI 拿着一堆可能相关的长文档，反而看不清眼前这一个小问题。而且多数时候，判断「要不要深挖某条记忆」只需要看它的摘要，不需要全文。</p>
+    <p class="narr">chen 在需求里其实早就把答案写好了，只是当时没人读出来——「AI 可以渐进式多次调用，或者看到响应内容不满足，再次调用」（issue #3）。检索的用户是 AI，AI 搜东西的方式本来就该跟人不一样：先扫一眼，不够再深挖。</p>
+  </section>
+
+  <!-- ===== 第二折 ===== -->
+  <section>
+    <div class="act-head">
+      <span class="fold-no">第二折</span>
+      <h2>渐进披露：设计于 7 月 16 日，活到 8 月 7 日</h2>
+    </div>
+
+    <p class="narr">7 月 16 日，渐进式披露召回机制定稿（F20260716szw8）。核心是一句足以裱起来的设计共识：</p>
+
+    <blockquote>
+      <span class="q-mark">「</span>渐进式披露是检索行为的交互模式，不是数据存储的粒度。<span class="q-mark">」</span>
+      <span class="src">—— F20260716szw8 设计共识</span>
+    </blockquote>
+
+    <p class="narr">落地形态是三级 detail_level：summary 扫一眼 → snippet 看上下文 → full 取全文。检索默认只给摘要，AI 觉得可疑再下钻。多轮调用之间，上下文只花在真正值得的那几条上。</p>
+    <p class="narr">听起来闭环了？这里才是本折的戏眼：<em>设计完了，参数也留了，但它没有真正生效。</em>detail_level 在实现里形同虚设，检索照样粗放地走老路——从 7 月 16 日设计定稿，到 8 月 7 日修复生效，中间隔着三周「以为有、其实没有」。</p>
+    <p class="narr">这是这一集最想留给读者的一句话：<strong>设计了 ≠ 活了。</strong>机制写进文档、参数挂上签名，和它真的被每一轮检索走过去，是两件事。区分这两件事的办法只有一个——去看实际行为，而不是看文档。</p>
+
+    <div class="vs-card">
+      <div class="vs-col expect">
+        <h4>我 以 为</h4>
+        <ul>
+          <li>渐进披露 7-16 定稿，问题当场解决</li>
+          <li>参数在接口上挂着 = 机制在跑</li>
+          <li>检索质量和存储设计是同一件事</li>
+        </ul>
+      </div>
+      <div class="vs-col reality">
+        <h4>实 际 上</h4>
+        <ul>
+          <li>detail_level 形同虚设，三周没人发现</li>
+          <li>机制「活着」要靠实际行为验证，不靠文档声明</li>
+          <li>披露改的是检索交互，存储粒度压根不用动</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 第三折 ===== -->
+  <section>
+    <div class="act-head">
+      <span class="fold-no">第三折</span>
+      <h2>三獭对撞：先别加固召回，先建评估基线</h2>
+    </div>
+
+    <p class="narr">8 月 11 日，clowder-ai 调研（四轮对抗审视）给召回链路开出三张诊断书：可观测性、精确度、安全降级（F20260811mrpy）。召回链路 v2 开工在即。</p>
+    <p class="narr">这时候 chen 提了一个需求，还点名了参会人员：</p>
+
+    <div class="line chen">
+      <span class="dot"></span>
+      <div class="bubble">
+        <div class="who">chen</div>
+        <div class="say">我是倾向于，agent 实时写记忆，然后未来可能定时任务 auto dream，去提炼。通过记忆的来源反查 trajectory。……这样，你拉上 kimi 和 mimo，你们三个獭一起来对抗讨论下。</div>
+        <div class="anchor-note">原话意图，见三獭对抗讨论 R 文档</div>
+      </div>
+    </div>
+
+    <p class="narr">三只不同模型的獭——glm 系的大獭、kimi 系、mimo 系——坐到一张桌上，就「召回怎么加固、记忆怎么提炼」开杠。这是这个项目第一次正式的异体对抗讨论，也是第 3 集「不许自审」的预演。</p>
+    <p class="narr">结论出乎所有人意料，<em>优先级整体翻转</em>：</p>
+
+    <div class="line kimi">
+      <span class="dot"></span>
+      <div class="bubble">
+        <div class="who">kimi 系小獭</div>
+        <div class="say">在讨论「怎么把召回做得更强」之前，先得能回答「现在的召回到底多差」。没有评估基线，任何加固都是凭感觉刷分。</div>
+      </div>
+    </div>
+    <div class="line mimo">
+      <span class="dot"></span>
+      <div class="bubble">
+        <div class="who">mimo 系小獭</div>
+        <div class="say">同意。而且提炼产物不能直接进检索池——digest 类内容走预加载层，不然检索池会被二次加工内容污染，召回反而变差。</div>
+      </div>
+    </div>
+    <p class="narr anchor-note">↑ 对白为演绎；结论（评估基线 &gt; 召回加固 &gt; 提炼；digest 走预加载层）出自三獭对抗讨论终版 R 文档</p>
+
+    <p class="narr">最终排序：<strong>评估基线 &gt; 召回加固 &gt; 提炼</strong>。最性感的「auto dream 自动提炼」被排到最后——不是不做，是没资格先做。先造尺子，再谈打磨。</p>
+  </section>
+
+  <!-- ===== 收尾 ===== -->
+  <section>
+    <div class="act-head plain">
+      <span class="fold-no">本集留下</span>
+      <h2>三样东西</h2>
+    </div>
+
+    <div class="pillars">
+      <div class="pillar"><b>渐进披露</b>summary → snippet → full，检索默认只给一眼</div>
+      <div class="pillar"><b>可观测召回</b>路径标记 + 覆盖率，召回问题从「猜」变「看」</div>
+      <div class="pillar"><b>📜 记忆溯源行</b>查了就说——记忆干活，必须让用户看见</div>
+    </div>
+
+    <p class="narr">第三样是本集开头那句差评的直接回应。既然「不吭声的记忆系统等于不存在」，那就把吭声写进规矩：每次实质用到记忆检索，发言开头挂一行溯源——什么时候的什么事、跟本次回答什么关系。你现在读的这篇帖子，开头那行「📜 记忆溯源」就是它。</p>
+
+    <div class="trace-line">
+      <span class="ico">📜</span>
+      <span>记忆溯源：2026-10-05 大獭整理的素材库 + 第 2 集增量补挖 —— 本集所有原话与数字均有锚点<br><small>（这不是示意图，这是真·溯源行，正在本帖里跑）</small></span>
+    </div>
+
+    <p class="narr">记忆会说话了。但很快，另一件事露了馅：它们互相审代码的时候，居然在走过场。下一集，规矩只有五个字——</p>
+  </section>
+
+  <!-- ===== 下集预告 ===== -->
+  <div class="next-ep">
+    <span class="ne-tag">下集预告</span>
+    <h3>第 3 集 · 不许自审</h3>
+    <p>让写代码的獭自己审自己？等于没审。同模型互相审？盲区都一样，等于换了个姿势没审。</p>
+    <p class="ne-quote">「检视獭抓出一个 Major 级 fail-open——写这段代码的獭，自己看了三遍都没看见。」</p>
+    <p class="ne-path">异模型强制 → 降级标注 → <b>审视协议</b>。以及一场意外收获：README 里漂移半年的数字，被它们自己揪了出来。下集见。</p>
+  </div>
+
+  <footer>
+    <b>素材与锚点</b>：记忆 d1825b7c（「有没有记忆系统都一样」搭档原话）· F20260709x7k3 D16 决策（FTS5 + sqlite-vec + RRF）· issue #3 UA-S2-10「FTS5 远远不够」· F20260716szw8 渐进式披露召回机制 · detail_level 08-07 生效（记忆 b6f8ccc1）· R20260811rclo clowder-ai 调研 + F20260811mrpy 召回链路 v2 · 三獭对抗讨论终版 R 文档（优先级翻转、digest 预加载层）<br>
+    <b>剧场说明</b>：对白为剧场演绎（标注「原话」处为直接引用）；三獭对白为演绎、结论出自文档；上下文爆炸图为示意还原，量级参照 F20260716szw8 背景描述。事件与时间出自文档记载，无虚构。
+  </footer>
+
+</div>
+</body>
+</html>

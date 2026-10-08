@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>獭群成长记 · 第 7 集：自己盯自己</title>
+<style>
+  :root {
+    --paper: #f6f2ea; --card: #fffdf8; --ink: #2b2a26; --muted: #8b857a;
+    --primary: #2f5d62; --primary-soft: #eaf1f0;
+    --accent: #d96f4e; --accent-soft: #fbeee8; --line: #e7dfd2;
+    --chen: #2f5d62; --otter: #8a5a3b; --mimo: #3d7a68; --kimi: #7d5ba6;
+    --maxw: 720px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--paper);
+    background-image: repeating-linear-gradient(0deg, transparent 0 34px, rgba(43,42,38,0.022) 34px 35px);
+    color: var(--ink);
+    font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    line-height: 1.85; font-size: 16px; padding: 40px 18px 60px;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; }
+  header { text-align: center; margin-bottom: 34px; }
+  .series-tag {
+    display: inline-block; font-size: 13px; letter-spacing: 4px; color: var(--primary);
+    border: 1px solid var(--primary); border-radius: 999px; padding: 3px 16px 3px 20px; margin-bottom: 18px;
+  }
+  h1 { font-size: 32px; letter-spacing: 4px; font-weight: 700; color: var(--ink); }
+  .ep-no { font-size: 14px; color: var(--muted); letter-spacing: 2px; margin: 10px 0 6px; }
+  .ep-sub { font-size: 15px; color: var(--muted); }
+  .timeline-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 22px 20px 16px; margin-bottom: 34px; box-shadow: 0 1px 3px rgba(43,42,38,0.05);
+  }
+  .tl-label { font-size: 12px; color: var(--muted); letter-spacing: 2px; margin-bottom: 12px; }
+  .series-tl { display: flex; flex-wrap: wrap; gap: 6px 4px; margin-bottom: 20px; }
+  .ep-chip {
+    font-size: 12px; color: var(--muted); background: var(--paper); border: 1px solid var(--line);
+    border-radius: 999px; padding: 2px 10px; display: flex; align-items: center; gap: 6px;
+  }
+  .ep-chip .p { width: 6px; height: 6px; border-radius: 50%; background: #cfc7b8; }
+  .ep-chip.done { color: var(--primary); border-color: var(--primary); }
+  .ep-chip.done .p { background: var(--primary); }
+  .ep-chip.now { color: #fff; background: var(--primary); border-color: var(--primary); font-weight: 600; }
+  .ep-chip.now .p { background: var(--accent); }
+  .ep-tl { border-top: 1px dashed var(--line); padding-top: 16px; }
+  .ep-tl-items { display: flex; flex-wrap: wrap; gap: 10px 18px; }
+  .ep-tl-item { font-size: 13px; color: var(--ink); display: flex; align-items: baseline; gap: 6px; }
+  .ep-tl-item b { color: var(--accent); font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .ep-tl-item span { color: var(--muted); }
+  .cast-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 22px; margin-bottom: 34px; font-size: 14px;
+  }
+  .cast-card .tl-label { margin-bottom: 10px; }
+  .cast-row { display: flex; flex-wrap: wrap; gap: 8px 26px; }
+  .cast-item { display: flex; align-items: center; gap: 7px; color: var(--ink); }
+  .cast-item .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .cast-item small { color: var(--muted); }
+  section { margin-bottom: 44px; }
+  .act-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+  .act-head .fold-no {
+    font-size: 13px; color: #fff; background: var(--accent); border-radius: 8px;
+    padding: 2px 10px; letter-spacing: 2px; white-space: nowrap; font-weight: 600;
+  }
+  .act-head h2 { font-size: 22px; letter-spacing: 1px; color: var(--primary); }
+  .act-head.plain .fold-no { background: var(--primary); }
+  p { margin-bottom: 14px; }
+  p:last-child { margin-bottom: 0; }
+  .narr { border-left: 3px solid var(--line); padding-left: 14px; color: #55524b; }
+  .narr::before { content: "说书獭 · "; font-size: 12px; color: var(--muted); letter-spacing: 1px; }
+  em { font-style: normal; color: var(--accent); font-weight: 600; }
+  .anchor-note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .line { display: flex; gap: 12px; margin: 18px 0; align-items: flex-start; }
+  .line .dot { width: 13px; height: 13px; border-radius: 50%; margin-top: 9px; flex: none; box-shadow: 0 0 0 3px rgba(43,42,38,0.06); }
+  .line .bubble {
+    background: var(--card); border: 1px solid var(--line); border-radius: 4px 14px 14px 14px;
+    padding: 10px 16px 11px; flex: 1; box-shadow: 0 1px 2px rgba(43,42,38,0.04);
+  }
+  .line .who { font-size: 12.5px; font-weight: 700; letter-spacing: 1px; margin-bottom: 3px; }
+  .line .say { font-size: 15.5px; }
+  .line.chen .dot { background: var(--chen); } .line.chen .who { color: var(--chen); }
+  .line.otter .dot { background: var(--otter); } .line.otter .who { color: var(--otter); }
+  .line.mimo .dot { background: var(--mimo); } .line.mimo .who { color: var(--mimo); }
+  .line.kimi .dot { background: var(--kimi); } .line.kimi .who { color: var(--kimi); }
+  blockquote {
+    background: var(--primary-soft); border-left: 4px solid var(--primary);
+    border-radius: 0 12px 12px 0; padding: 14px 18px; margin: 18px 0; font-size: 15.5px;
+  }
+  blockquote .q-mark { color: var(--primary); font-size: 20px; font-weight: 700; }
+  blockquote .src { display: block; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .gate-hp {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 20px 14px; margin: 18px 0; box-shadow: 0 1px 3px rgba(43,42,38,0.05);
+  }
+  .gate-hp .gh-title { font-size: 13px; color: var(--gate, #8a3b52); letter-spacing: 2px; font-weight: 700; margin-bottom: 10px; color: #8a3b52; }
+  .gh-item { display: flex; gap: 10px; align-items: baseline; padding: 9px 0; border-bottom: 1px dashed var(--line); font-size: 14.5px; }
+  .gh-item:last-child { border-bottom: none; }
+  .gh-item .gh-chk { color: #8a3b52; font-weight: 700; flex: none; font-size: 13px; }
+  .gh-item b { font-weight: 700; }
+  .gh-item small { display: block; color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+  .flywheel {
+    background: #35393b; border-radius: 14px; padding: 20px 18px 16px; margin: 20px 0;
+    box-shadow: 0 2px 6px rgba(43,42,38,0.15);
+  }
+  .flywheel .fw-head { color: #b9c2c3; font-size: 12px; text-align: center; margin-bottom: 16px; letter-spacing: 1px; }
+  .fw-links { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; }
+  .fw-node {
+    font-size: 12px; padding: 5px 10px; border-radius: 8px; text-align: center; line-height: 1.5;
+    color: #d8e2e1; background: #4a5052; border: 1px solid #5d6769;
+  }
+  .fw-node small { display: block; color: #8f999a; font-size: 10.5px; }
+  .fw-arrow { color: #6b7476; font-size: 14px; flex: none; }
+  .fw-arrow.broken { color: #e08a75; position: relative; }
+  .fw-arrow.broken::after {
+    content: "✕"; position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+    color: #e08a75; font-size: 11px; font-weight: 700;
+  }
+  .fw-legend { color: #8f999a; font-size: 11.5px; text-align: center; margin-top: 12px; }
+  .fw-legend .bx { color: #e08a75; font-weight: 700; }
+  .break-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 16px 0; }
+  .break-item {
+    background: var(--card); border: 1px solid #efc4b5; border-radius: 10px;
+    padding: 10px 14px; font-size: 13px; color: #55524b;
+  }
+  .break-item b { color: #b5442a; display: block; margin-bottom: 3px; font-size: 13.5px; }
+  @media (max-width: 560px) { .break-list { grid-template-columns: 1fr; } }
+  .vs-card { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0; }
+  .vs-col { border-radius: 14px; padding: 18px 18px 14px; font-size: 14.5px; border: 1px solid var(--line); }
+  .vs-col.expect { background: var(--accent-soft); }
+  .vs-col.reality { background: var(--primary-soft); }
+  .vs-col h4 { font-size: 15px; letter-spacing: 2px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px dashed rgba(43,42,38,0.18); }
+  .vs-col.expect h4 { color: var(--accent); }
+  .vs-col.reality h4 { color: var(--primary); }
+  .vs-col li { margin-left: 18px; margin-bottom: 8px; }
+  @media (max-width: 560px) { .vs-card { grid-template-columns: 1fr; } }
+  details {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px; margin: 18px 0; overflow: hidden;
+  }
+  details summary {
+    cursor: pointer; list-style: none; padding: 14px 18px; font-size: 14.5px; font-weight: 600;
+    color: var(--primary); display: flex; align-items: center; gap: 10px; user-select: none;
+  }
+  details summary::-webkit-details-marker { display: none; }
+  details summary .tri { display: inline-block; transition: transform 0.2s; font-size: 12px; color: var(--accent); }
+  details[open] summary .tri { transform: rotate(90deg); }
+  details summary .badge {
+    font-size: 11px; color: #fff; background: var(--primary); border-radius: 6px;
+    padding: 1px 8px; letter-spacing: 1px; font-weight: 500; flex: none;
+  }
+  details .dive-body { padding: 4px 20px 18px; font-size: 14.5px; border-top: 1px dashed var(--line); color: #4c4a44; }
+  details .dive-body p { margin: 12px 0 0; }
+  details .dive-body table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 12px 0; }
+  details .dive-body th { background: var(--primary-soft); color: var(--primary); text-align: left; padding: 7px 10px; border: 1px solid var(--line); font-weight: 600; }
+  details .dive-body td { padding: 7px 10px; border: 1px solid var(--line); vertical-align: top; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: rgba(47,93,98,0.09); color: var(--primary); border-radius: 4px; padding: 1px 6px; font-size: 0.9em;
+  }
+  .pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0; }
+  .pillar {
+    background: var(--card); border: 1px solid var(--line); border-top: 4px solid var(--primary);
+    border-radius: 12px; padding: 14px 14px 12px; font-size: 13.5px; text-align: center;
+  }
+  .pillar b { display: block; font-size: 15px; color: var(--primary); margin-bottom: 6px; letter-spacing: 1px; }
+  @media (max-width: 560px) { .pillars { grid-template-columns: 1fr; } }
+  .next-ep {
+    background: var(--primary); border-radius: 16px; padding: 26px 26px 24px; color: #f2f0e9;
+    margin: 40px 0 24px; position: relative; overflow: hidden;
+  }
+  .next-ep::after { content: "🦦"; position: absolute; right: -10px; bottom: -18px; font-size: 110px; opacity: 0.1; transform: rotate(-12deg); }
+  .next-ep .ne-tag {
+    display: inline-block; font-size: 12px; letter-spacing: 3px; background: var(--accent); color: #fff;
+    border-radius: 999px; padding: 3px 14px; margin-bottom: 12px; font-weight: 600;
+  }
+  .next-ep h3 { font-size: 24px; letter-spacing: 3px; margin-bottom: 10px; }
+  .next-ep p { font-size: 15px; color: #d8e2e1; margin-bottom: 10px; }
+  .next-ep .ne-quote { border-left: 3px solid var(--accent); padding-left: 12px; font-size: 14.5px; color: #eef0e6; margin: 14px 0; }
+  .next-ep .ne-quote .src { font-size: 12px; color: #9db4b2; }
+  .next-ep .ne-path { font-size: 13.5px; color: #9db4b2; letter-spacing: 1px; }
+  .next-ep .ne-path b { color: #f2b8a3; }
+  footer { border-top: 1px solid var(--line); padding-top: 18px; font-size: 12px; color: var(--muted); line-height: 1.9; }
+  footer b { color: #6f6a60; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="series-tag">獭群成长记</div>
+    <h1>自己盯自己</h1>
+    <div class="ep-no">第 7 集 / 共 8 集 · 2026-10 连载</div>
+    <div class="ep-sub">系统跑久会烂，这不是意外，是熵——所以医生也得给自己开刀</div>
+  </header>
+
+  <!-- 成长时间轴 -->
+  <div class="timeline-card">
+    <div class="tl-label">系 列 进 度</div>
+    <div class="series-tl">
+      <span class="ep-chip done"><span class="p"></span>1 出生</span>
+      <span class="ep-chip done"><span class="p"></span>2 失忆</span>
+      <span class="ep-chip done"><span class="p"></span>3 不许自审</span>
+      <span class="ep-chip done"><span class="p"></span>4 红绿灯</span>
+      <span class="ep-chip done"><span class="p"></span>5 膨胀</span>
+      <span class="ep-chip done"><span class="p"></span>6 红线</span>
+      <span class="ep-chip now"><span class="p"></span>7 自己盯自己</span>
+      <span class="ep-chip"><span class="p"></span>8 今天</span>
+    </div>
+    <div class="ep-tl">
+      <div class="tl-label">本 集 时 间 轴 · 2026-08 → 10</div>
+      <div class="ep-tl-items">
+        <span class="ep-tl-item"><b>08-24</b><span>体检硬门禁：数据源清单缺一不许产出</span></span>
+        <span class="ep-tl-item"><b>08-25</b><span>RHI 守门人诞生（后废除——机制也会死）</span></span>
+        <span class="ep-tl-item"><b>09-16</b><span>验证断言闭环 + regression-verify</span></span>
+        <span class="ep-tl-item"><b>10 月</b><span>飞轮对撞：确认 6 个断环</span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 本场角色 -->
+  <div class="cast-card">
+    <div class="tl-label">本 场 角 色</div>
+    <div class="cast-row">
+      <span class="cast-item"><span class="dot" style="background:var(--chen)"></span>chen <small>· 搭档，硬门禁的立法者</small></span>
+      <span class="cast-item"><span class="dot" style="background:var(--otter)"></span>大獭 <small>· 体检中心主任兼病人</small></span>
+      <span class="cast-item"><span class="dot" style="background:var(--mimo)"></span>飞轮獭 <small>· mimo 系，对撞审计搭档</small></span>
+      <span class="cast-item"><span class="dot" style="background:var(--kimi)"></span>kimi-分析獭-v2 <small>· 数据源门禁的建议者（issue #352）</small></span>
+    </div>
+  </div>
+
+  <!-- ===== 开篇 ===== -->
+  <section>
+    <p class="narr">一套系统刚上线时是崭新的：每条流程都被认真走，每个 issue 都有人管。跑上两个月呢？角落里开始积灰——某类产出没人消费了，某个 PR 合了但漏了收尾，某条口径冲突的告警每天报、没人看。<em>没有哪一天它突然烂掉，它是每天烂一点点。</em></p>
+    <p class="narr">对付这种烂法，靠人盯是不可能的——搭档不是运维。于是这个项目做了一个它自己的题眼才会做的决定：<strong>让系统自己盯自己。</strong></p>
+    <p class="narr">先说好，这个决定听起来很酷，做起来全是坑。本集就是坑的编年史——包括体检系统自己查出病来的那一幕。</p>
+  </section>
+
+  <!-- ===== 第一折 ===== -->
+  <section>
+    <div class="act-head">
+      <span class="fold-no">第一折</span>
+      <h2>每日体检：不靠自觉，靠硬门禁</h2>
+    </div>
+
+    <p class="narr">「自己盯自己」的地基是每日健康检查（daily-health-check）：每天定时跑一遍，产出日报和 issue。但早期版本有个致命软肋——<em>AI 写日报太容易「看起来很健康」</em>：感觉良好、措辞积极、结论先行。kimi-分析獭-v2 在 issue #352 里点破了这一点，于是 8 月 24 日落了一条硬门禁（F20260824dhck）：</p>
+
+    <div class="gate-hp">
+      <div class="gh-title">体 检 硬 门 禁</div>
+      <div class="gh-item"><span class="gh-chk">✓</span><span><b>数据源引用清单必填</b><small>产出日报/issue 之前，必须列出全部数据来源——漏一项，不许产出。想下结论？先把证据摆出来</small></span></div>
+      <div class="gh-item"><span class="gh-chk">✓</span><span><b>issue 必须带修复方案</b><small>只写「留评论跟踪」不算合格产出——代码/配置/prompt/流程，四选一，写清楚怎么修</small></span></div>
+      <div class="gh-item"><span class="gh-chk">✓</span><span><b>锚点真实性抽查</b><small>每天抽 5-10 条昨日的 file:line 锚点断言，逐项核对——防 AI 编行号，「AI 监督 AI」的证据文化</small></span></div>
+    </div>
+
+    <p class="narr">9 月 16 日又补了一环（F20260916rgsv）：issue 规范新增<em>「验证断言」</em>必填段——断言是什么、怎么检查、到期日期，<strong>可证伪才合规</strong>。配套一个 regression-verify 定时任务，每天 11:00 扫一遍 closed issue 回查：说好的「修好了」，到底验证过没有。</p>
+    <p class="narr">这套门禁的哲学跟第 5 集一脉相承：不指望 AI 自觉诚实，指望<em>让不诚实变得无法产出</em>。没有数据源的结论，门都出不去。</p>
+  </section>
+
+  <!-- ===== 第二折 ===== -->
+  <section>
+    <div class="act-head">
+      <span class="fold-no">第二折</span>
+      <h2>机制的死亡：RHI 守门人的一生</h2>
+    </div>
+
+    <p class="narr">在讲反转之前，插播一场机制界的葬礼。</p>
+    <p class="narr">8 月 25 日，为了守护一套健康信号体系（RHI），系统设计了一个「守门人」角色——专门盯健康信号、卡质量关口的机制。设计初衷很正：信号体系这么重要，得有专人守。</p>
+    <p class="narr">后来呢？<em>废除了。</em></p>
+    <p class="narr">原因不展开细讲（机制演化本身值得单独一集），但这个案例留在本集的价值在于它示范的态度：这个项目里，<strong>机制不是法律，是实验品</strong>。守门人跑了一段时间，被发现不合身，就被送走了——没有「花了功夫设计的东西必须留着」的沉没成本执念。第 5 集说「每条规则要过三问」，这里补上它的镜像：<em>规则不仅要证明自己该出生，还得持续证明自己值得活着。</em></p>
+
+    <div class="line chen">
+      <span class="dot"></span>
+      <div class="bubble">
+        <div class="who">chen</div>
+        <div class="say">机制本身也会迭代，也会死亡。该废就废，别给机制办葬礼。</div>
+      </div>
+    </div>
+    <p class="narr anchor-note">↑ 对白为演绎；「RHI 守门人诞生后废除、机制本身也会迭代死亡」为素材库存载事实（记忆 302dd938 附近，F20260825rweb）</p>
+  </section>
+
+  <!-- ===== 第三折 ===== -->
+  <section>
+    <div class="act-head">
+      <span class="fold-no">第三折</span>
+      <h2>反转：体检系统自己也有病</h2>
+    </div>
+
+    <p class="narr">现在，本集的正戏。既然有了体检中心，一个自然的问题浮出来：<em>体检系统自己健康吗？</em></p>
+    <p class="narr">10 月，大獭拉上飞轮獭（mimo 系）做了一次「对撞审计」——两只獭独立梳理同一条「issue/healing 闭环飞轮」，再互相砸对方的结论。对撞的结果，砸出 6 个断环：</p>
+
+    <div class="flywheel">
+      <div class="fw-head">issue / healing 闭 环 飞 轮 · 对 撞 审 计 后</div>
+      <div class="fw-links">
+        <span class="fw-node">发现问题<small>体检/healing</small></span>
+        <span class="fw-arrow">→</span>
+        <span class="fw-node">立 issue<small>带修复方案</small></span>
+        <span class="fw-arrow broken">→</span>
+        <span class="fw-node">修复<small>改代码/配置</small></span>
+        <span class="fw-arrow broken">→</span>
+        <span class="fw-node">验证<small>断言回查</small></span>
+        <span class="fw-arrow broken">→</span>
+        <span class="fw-node">合入<small>PR 流程</small></span>
+        <span class="fw-arrow broken">→</span>
+        <span class="fw-node">清理<small>善后收尾</small></span>
+        <span class="fw-arrow broken">→</span>
+        <span class="fw-node">反哺体检<small>口径归一</small></span>
+      </div>
+      <div class="fw-legend">理想闭环全绿 · 现实：<span class="bx">✕ × 6</span> ——环环有断点</div>
+    </div>
+
+    <p class="narr">六个断环，每一个都是「设计上该转、实际上没转」的齿轮（issue/healing 闭环飞轮文档记载）：</p>
+
+    <div class="break-list">
+      <div class="break-item"><b>产出消费真空 · 36 条</b>运行中产出的东西没有下游接——造了没人用</div>
+      <div class="break-item"><b>PR 合入漏网 · #566</b>合了，但善后流程没触发</div>
+      <div class="break-item"><b>口径冲突 · #600</b>同一条 healing 事件两处口径打架，每日体检都在复发，没人裁决</div>
+      <div class="break-item"><b>RHI 特性链挂 6 天</b>链条断了六天才有人发现——发现机制本身迟到</div>
+    </div>
+    <p class="narr anchor-note">断环 5、6 细节见 issue/healing 闭环飞轮文档；上列四条为文档明确记载的代表性断环</p>
+
+    <p class="narr">最扎心的是 #600 那条：<em>体检每天报告同一个问题，报告了等于没报告。</em>告警疲劳不是人类的专利，系统也会得——每条断环单独看都是小事，合起来就是「体检中心自己的血脂超标」。</p>
+    <p class="narr">对撞审计的产出不是绝望，是一份修复清单和一纸闭环协议：断环逐个接上，消费真空建台账，口径冲突上裁决。医生态度很好——先给自己开刀。</p>
+
+    <div class="vs-card">
+      <div class="vs-col expect">
+        <h4>我 以 为</h4>
+        <ul>
+          <li>建了体检系统 = 系统健康有保障</li>
+          <li>AI 日报结论积极 = 一切正常</li>
+          <li>机制设计好就一劳永逸</li>
+        </ul>
+      </div>
+      <div class="vs-col reality">
+        <h4>实 际 上</h4>
+        <ul>
+          <li>体检系统自己断了 6 环，要靠对撞审计才现形</li>
+          <li>没有数据源清单的日报 = 赛博安慰剂</li>
+          <li>机制会腐朽（守门人也死了），要持续证明活着</li>
+        </ul>
+      </div>
+    </div>
+
+    <details>
+      <summary><span class="tri">▶</span><span class="badge">技术深潜</span>自愈协议与体检体系的全貌</summary>
+      <div class="dive-body">
+        <p>「自己盯自己」实际是三层结构：</p>
+        <table>
+          <tr><th>层</th><th>机制</th><th>硬约束</th></tr>
+          <tr><td>发现层</td><td>每日体检（daily-health-check）+ healing 事件台账</td><td>数据源清单缺一项不许产出；issue 必带修复方案</td></tr>
+          <tr><td>验证层</td><td>验证断言必填段 + regression-verify 定时回查</td><td>断言/检查方式/到期日期，可证伪才合规；每日 11:00 扫 closed issue</td></tr>
+          <tr><td>审计层</td><td>锚点真实性抽查 + 飞轮对撞审计（异体对撞）</td><td>日抽 5-10 条 file:line 核对防编造；双獭独立梳理互砸</td></tr>
+        </table>
+        <p><strong>为什么对撞要两只不同模型的獭？</strong>第 3 集的答案在这里复用：同模型盲区重合，独立梳理会犯同款错。异体对撞才能把「体检的体检」做实——这层递归没有尽头，但每做一层，烂的速度就慢一截。</p>
+        <p>锚点：F20260824dhck（数据源门禁）、F20260916rgsv（验证断言 + regression-verify）、issue/healing 闭环飞轮文档（6 断环）、R5 自愈协议。</p>
+      </div>
+    </details>
+  </section>
+
+  <!-- ===== 收尾 ===== -->
+  <section>
+    <div class="act-head plain">
+      <span class="fold-no">本集留下</span>
+      <h2>一个递归</h2>
+    </div>
+
+    <div class="pillars">
+      <div class="pillar"><b>硬门禁体检</b>数据源清单缺一不许产出，诚实是逼出来的</div>
+      <div class="pillar"><b>可证伪断言</b>「修好了」必须能被回查，说好的要验证</div>
+      <div class="pillar"><b>异体对撞</b>体检的体检交给另一只獭，递归监督</div>
+    </div>
+
+    <p class="narr">自己盯自己的真正含义，不是「我保证没问题」，而是<em>「我有制度化的方式发现自己的问题，包括这套制度本身的问题」</em>。飞轮断了 6 环不丢人，丢人的是断着没人知道。</p>
+    <p class="narr">七集下来：它们出生、失忆、学会被审视、立了交通规则、给宪法瘦身、戴上镣铐、开始给自己体检。最后一集，把这些拼成一张今天的照片——接住过什么、搞砸过什么、还干不了什么。全剧终之前，先看看现在几点了。</p>
+  </section>
+
+  <!-- ===== 下集预告 ===== -->
+  <div class="next-ep">
+    <span class="ne-tag">下集预告 · 大结局</span>
+    <h3>第 8 集 · 今天</h3>
+    <p>现状快照：14 个 skill 在岗、多模型排班、每日 issue 自动处理、12 场实演手册。还有一本不会出现在 README 里的账——</p>
+    <p class="ne-quote">「搞砸清单：写完没合 main 的拆分、断过 6 环的飞轮、漂移半年的数字……以及它们现在都怎么样了。」<span class="src">—— 诚实账本</span></p>
+    <p class="ne-path">接住什么 · 搞砸什么 · <b>还干不了什么</b>。以及，接下来想长成什么样。下集见。</p>
+  </div>
+
+  <footer>
+    <b>素材与锚点</b>：F20260824dhck（每日健康检查数据源引用清单硬门禁，kimi-分析獭-v2 issue #352 建议落地）· F20260916rgsv（验证断言必填段 + regression-verify 定时任务）· issue/healing 闭环飞轮文档（大獭 + 飞轮獭对撞确认 6 断环：消费真空 36 条 / PR #566 漏网 / #600 口径冲突每日复发 / RHI 特性链挂 6 天）· 记忆 302dd938 附近 + F20260825rweb（RHI 守门人诞生与废除）· R5 自愈协议、daily-health-check issue 产出规范<br>
+    <b>剧场说明</b>：对白为剧场演绎；断环数字与 issue 编号出自飞轮文档记载。飞轮图为概念示意还原，节点名称按文档语义标注。事件与时间出自文档记载，无虚构。
+  </footer>
+
+</div>
+</body>
+</html>
