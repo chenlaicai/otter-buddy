@@ -1688,17 +1688,18 @@ function cdExemptionWithVeto(command: string, logger: Logger | undefined, projec
  *  判据全保守（任一不满足即保留原文 fail-closed）：① closed；② 非解释器头
  *  （python/node/bash 体是真执行面，保持可见由体级判定承担）；③ 开行无管道 |
  *  与命令替换 $()（`cat <<EOF | bash` 体经下游真执行，隐去即攻击面）；
- *  ④ quoted 定界或体无 $ `（裸定界体经 shell 展开可被解释——含体内 $()/反引
- *  号形态，回归 B4：判据只查 header 会漏体首 $() 形态）；⑤ 体不含 kill 族词元
- *  （裸定界体展开后可能拼出 kill 路径，保守不隐）。
+ *  ④ quoted 定界或体无 $ `（裸定界体经 shell 展开可被解释）；⑤ 裸定界体无
+ *  kill 词元——仅作用于裸定界（shell 可展开面）；quoted 数据体不查 kill：
+ *  kill 族通道有独立的剥体基座（C2 探针对照实证，不消费本通道文本），
+ *  对 quoted 体重复检查是纯负收益（delta r1 检视发现 1：体内运维笔记
+ *  「kill 旧进程」字样被残留误拦，#1304 同族）。
  *  落点：仅 git 写族/one-liner 通道判定基座（与重定向通道既有的
  *  stripQuotedTextSpans 基座语义不同源，不共用）。 */
 function blankDataHeredocBodies(command: string): string {
   const spans = extractHeredocSpans(command).filter(sp => sp.closed
     && !isPythonHeader(sp.header) && !isNodeHeader(sp.header) && !isShellHeader(sp.header)
     && !/[|]/.test(sp.header) && !/\$\(/.test(sp.header)
-    && (sp.quoted || !/[$`]/.test(sp.body))
-    && !/\bkill\b/.test(sp.body));
+    && (sp.quoted || (!/[$`]/.test(sp.body) && !/\bkill\b/.test(sp.body))));
   if (spans.length === 0) return command;
   let out = "";
   let cursor = 0;

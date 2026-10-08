@@ -48,6 +48,29 @@ describe("F20261008h304：误拦修复面——cat 型 heredoc 体含写操作�
     )).toBeNull();
   });
 
+  it("quoted 体含 kill 字样（运维笔记）→ 放行（delta r1 严重发现 1）", () => {
+    expect(checkBashCommandSafety(
+      `cat > /tmp/ops-notes.md <<'EOF'
+# 运维笔记
+kill 旧进程前先确认 PID
+git stash push 保存现场
+EOF
+echo done`,
+      mainPid, undefined, opts,
+    )).toBeNull();
+  });
+
+  it("裸定界体含 kill 词元 → 不剥除保持拦截（判据⑤收窄后的保守面）", () => {
+    expect(checkBashCommandSafety(
+      `cat > /tmp/ops.sh <<EOF
+kill $OLD_PID
+git stash push
+EOF
+echo ok`,
+      mainPid, undefined, opts,
+    )).not.toBeNull();
+  });
+
   it("体含 heredoc 字样的双层嵌套（体内 EOF 文本）→ 放行", () => {
     expect(checkBashCommandSafety(
       `cat > /tmp/x.md <<'EOF'\ncat > /tmp/y.md <<'INNER'\nsome content\nINNER\necho done\nEOF\necho ok`,
