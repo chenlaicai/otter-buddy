@@ -166,6 +166,15 @@ function MarkdownContent({ children, variant = 'otter-body', messageId = '', aut
 
 
 
+/** F20261008scpg scroll-pin 状态机常量：账本过期时长 / 归因匹配容差 / touch 脱锚位移阈值 */
+const LEDGER_TTL_MS = 1000
+const LEDGER_EPS_PX = 4
+const TOUCH_UNPIN_PX = 10
+/** 程序写入语义标签：pin=贴底补偿/跳底按钮/mount 起始贴底；restore=上翻加载恢复（init 已并入 pin——
+ *  mount 贴底本就是 pin 语义，且账本 expected=scrollHeight 不会是 0，避免小值陈旧条目误吞位移归因） */
+type ScrollWriteTag = 'pin' | 'restore'
+interface ScrollLedgerEntry { expected: number; tag: ScrollWriteTag; interrupted: boolean; ts: number }
+
 interface MessageListProps {
   messages: Message[]
   state: 'normal' | 'empty' | 'loading' | 'error' | 'no-llm'
@@ -176,12 +185,14 @@ interface MessageListProps {
   otters: Otter[]
   /** 会话 ID（用于 key，切换会话强制 remount） */
   conversationId: string
-  isAtBottomRef: RefObject<boolean>
+  /** F20261008scpg：是否贴底跟随的单一事实源（true=pinned）。语义从旧 isAtBottomRef 的
+   *  几何快照升级为意图驱动状态机——共享 ref 透传形状不变（index 新消息计数/发言回底直读写） */
+  pinRef: RefObject<boolean>
   newMessagesCount?: number
+  /** 跳底按钮回调：滚动与置 pin 在本组件内完成，回调只承担计数清零等业务侧处理 */
   onJumpToBottom?: () => void
   onLoadMore?: () => void
   loadingMore?: boolean
-  onAtBottomChange?: (atBottom: boolean) => void
   unreadSeparatorSeq?: number | null
   highlightMessageId?: string | null
   /** 用户在设置中配置的称呼，用于消息气泡旁的名称显示 */
@@ -196,8 +207,8 @@ function isNearBottom(el: HTMLElement, threshold = 100): boolean {
 
 export function MessageList({
   messages, state, onStopStream, onRetryMessage, onRetry, onGoToSettings, otters,
-  conversationId, isAtBottomRef, newMessagesCount = 0, onJumpToBottom, onLoadMore,
-  loadingMore, onAtBottomChange,
+  conversationId, pinRef, newMessagesCount = 0, onJumpToBottom, onLoadMore,
+  loadingMore,
   unreadSeparatorSeq, highlightMessageId,
   userName,
 }: MessageListProps) {
@@ -214,42 +225,50 @@ export function MessageList({
   /** F20260907sgpt：上次采样的内容高度 / 视口高度（两个 observer 各自记各自的） */
   const prevContentHeightRef = useRef(0)
   const prevViewportHeightRef = useRef(0)
+  /** F20261008scpg scroll-pin 状态机——pinRef（true=pinned）是「是否贴底跟随」的单一事实源。
+   * 语义升级：旧 isAtBottomRef 是几何快照（每次 scroll 事件重判 isNearBottom），流式增长期
+   * 程序贴底写入追不上内容长高 → 事件时距离瞬超 100px 阈值 → 翻 false → 补偿永久停摆 →
+   * 视口上方内容高度突变时无保护（自动上跳根因）。新语义意图驱动：
+   * - 脱锚（pinned→floating）：仅用户意图——wheel 上滚 / touch 上翻 / 键盘上翻 /
+   *   未被账本认领的向上位移（滚动条上拖无专门事件，位移方向是其唯一可观测签名）
+   * - 回锚（floating→pinned）：滚至底部附近（isNearBottom，含 clamp 落底）/ 点跳底按钮
+   * - 高度变化：不改状态；pinned → 统一贴底补偿，floating → 不打扰
+   * 程序写入经 write ledger 自证身份（programScroll 统一入口），不污染用户意图状态 */
+  const pinWritesRef = useRef<ScrollLedgerEntry[]>([])
+  const rafPinIdRef = useRef(0)
+  const lastScrollTopRef = useRef(0)
+  const touchStartYRef = useRef<number | null>(null)
 
-  /** 滚动到底部 */
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
-    const el = scrollRef.current
-    if (!el) return
-    el.scrollTo({ top: el.scrollHeight, behavior })
+  /** 程序性滚动统一入口：所有代码发起的 scrollTop 写入必须走这里（写入点收敛）。
+   * 账本完备性依赖此不变量——账本外写入会被归因为用户行为 */
+  const programScroll = useCallback((el: HTMLElement, target: number, tag: ScrollWriteTag, behavior: ScrollBehavior = 'auto') => {
+    if (behavior === 'auto') el.scrollTop = target
+    else el.scrollTo({ top: target, behavior })
+    const now = Date.now()
+    pinWritesRef.current = pinWritesRef.current.filter(e => now - e.ts < LEDGER_TTL_MS && !e.interrupted)
+    pinWritesRef.current.push({ expected: target, tag, interrupted: false, ts: now })
   }, [])
 
-  /** 消息数量变化时：如果之前在底部，自动滚到底部；如果有待恢复的滚动位置，恢复它 */
+  /** 用户接管滚动：置 floating + 打断在途程序写入（待执行的 rAF 贴底在执行时重读 pin 放弃） */
+  const takeUserControl = useCallback(() => {
+    pinRef.current = false
+    for (const e of pinWritesRef.current) e.interrupted = true
+  }, [pinRef])
+
+  /** F20261008scpg（W2/W8 拆分）：本 effect 只保留 W8——上翻加载历史的滚动位置恢复。
+   * 旧 W2「条数增加且在底部→贴底」「条数减少（切会话）→贴底」两个分支删除：
+   * - 条数增加必然伴随内容高度增大，由 content observer 统一补偿（写入点收敛，消双写竞态）
+   * - 切会话由 R0 接管（容器 key remount 的 mount 贴底 + conversationId effect 置 pinned） */
   useEffect(() => {
     const prevLen = prevMessagesLenRef.current
     prevMessagesLenRef.current = messages.length
-    // 消息没变，不处理
     if (messages.length === prevLen) return
-
-    // 有待恢复的滚动位置（上翻加载历史后）
     if (pendingScrollRestoreRef.current !== null) {
       const el = scrollRef.current
-      if (el) {
-        const newScrollHeight = el.scrollHeight
-        el.scrollTop = newScrollHeight - pendingScrollRestoreRef.current
-      }
+      if (el) programScroll(el, el.scrollHeight - pendingScrollRestoreRef.current, 'restore')
       pendingScrollRestoreRef.current = null
-      return
     }
-
-    // 消息减少（切换会话），直接滚到底部
-    if (messages.length < prevLen) {
-      requestAnimationFrame(() => scrollToBottom())
-      return
-    }
-    // 消息增加且在底部，滚到底部
-    if (isAtBottomRef.current) {
-      requestAnimationFrame(() => scrollToBottom())
-    }
-  }, [messages.length, scrollToBottom, isAtBottomRef])
+  }, [messages.length, programScroll])
 
   /** F20260907sgpt：高度贴底补偿（双 ResizeObserver，检视发现 1 修正版）。
    *
@@ -272,8 +291,8 @@ export function MessageList({
    * - 内容高度减小（流式面板折叠等）：scrollHeight 缩短自然把视口推近底部，
    *   isNearBottom 重判，无需补偿；视口增大（banner 消失/窗口拉大）同理不补
    * - requestAnimationFrame 合帧：高频 resize（流式渲染）下每帧至多补偿一次
-   * - 上翻加载历史的 preserve-scroll（pendingScrollRestoreRef 路径）互斥：用户上翻中
-   *   isAtBottomRef=false，本机制不动作
+   * - 上翻加载历史的 preserve-scroll（pendingScrollRestoreRef 路径）互斥：用户脱锚后
+   *   pin=false（F20261008scpg：意图状态机），本机制不动作
    * - 依赖 [conversationId]：滚动容器带 key={conversationId}，切会话时容器重建，
    *   mount-only 会观测已卸载元素而失效——切会话时重挂 observer 并重置采样基线 */
   useEffect(() => {
@@ -283,9 +302,11 @@ export function MessageList({
     prevContentHeightRef.current = 0
     prevViewportHeightRef.current = 0
     const rafPinToBottom = () => {
-      requestAnimationFrame(() => {
+      cancelAnimationFrame(rafPinIdRef.current) // 合帧：高频 resize 下每帧至多补偿一次
+      rafPinIdRef.current = requestAnimationFrame(() => {
         const sc = scrollRef.current
-        if (sc && isAtBottomRef.current) sc.scrollTop = sc.scrollHeight
+        // F20261008scpg：执行时重读 pin——rAF 排队期间用户接管则放弃写入（防「抢滚动条」）
+        if (sc && pinRef.current) programScroll(sc, sc.scrollHeight, 'pin')
       })
     }
     const contentObserver = content ? new ResizeObserver(entries => {
@@ -295,7 +316,7 @@ export function MessageList({
       const grew = h > prevContentHeightRef.current
       prevContentHeightRef.current = h
       if (!grew) return // 内容缩短：scrollHeight 缩短自然贴底，不补
-      if (!isAtBottomRef.current) return // 用户不在底部：任何高度变化都不打扰
+      if (!pinRef.current) return // F20261008scpg：用户 floating（自由阅读）：任何高度变化都不打扰
       rafPinToBottom()
     }) : null
     const viewportObserver = viewport ? new ResizeObserver(entries => {
@@ -305,55 +326,124 @@ export function MessageList({
       const shrank = h < prevViewportHeightRef.current
       prevViewportHeightRef.current = h
       if (!shrank) return // 视口增大：底部内容更可见，不补
-      if (!isAtBottomRef.current) return
+      if (!pinRef.current) return
       rafPinToBottom() // 视口被压缩（loadingMore 等）：底部内容被推出视口，拉回
     }) : null
     if (content && contentObserver) contentObserver.observe(content)
     if (viewport && viewportObserver) viewportObserver.observe(viewport)
-    return () => { contentObserver?.disconnect(); viewportObserver?.disconnect() }
-    // Why: 依赖 conversationId——容器带 key 切会话时重建，需重挂 observer；
+    return () => { contentObserver?.disconnect(); viewportObserver?.disconnect(); cancelAnimationFrame(rafPinIdRef.current) }
+    // Why: 依赖 conversationId——容器带 key 切会话时重建，需重挂 observer；state 入 deps——
+    // loading/no-llm 分支不渲染滚动容器（ref 为 null 提前返回），回 normal 时需重挂；
     // 其余状态经 ref 读取，无需重订阅
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationId])
+  }, [conversationId, state])
 
-  /** 滚动事件处理：检测是否在底部 + 触发加载更多 */
+  /** F20261008scpg 滚动事件归因：先账本（程序写入自证），后用户位移分类。
+   * 分类序：回锚优先于脱锚——clamp 落底/用户滚到底都是安全方向（默认意图=跟随）；
+   * 向上位移脱锚只认「不在底部附近」的位移（滚动条上拖/键盘上翻的无事件兑底签名）。
+   * F20260921urdo 判定换轨退役：到底标记已读回调（onReachBottom）已删除（打开路径已 ack） */
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
-
-    const atBottom = isNearBottom(el)
-    isAtBottomRef.current = atBottom
-    onAtBottomChange?.(atBottom)
-
-    // F20260921urdo 判定换轨退役：到底标记已读回调（onReachBottom）删除——
-    // 已读判定不再依赖滚动几何
-
-    // 到达顶部，触发加载更多
+    const now = Date.now()
+    pinWritesRef.current = pinWritesRef.current.filter(e => now - e.ts < LEDGER_TTL_MS && !e.interrupted)
+    /** 向上位移且不在底部：用户接管优先——滚动条上拖兑底签名。程序 pin 写入永远
+     *  向底部（不会向上移），匹配到的条目若视口实际向上则必是用户在程序写入后接管 */
+    const movedUp = el.scrollTop < lastScrollTopRef.current - 1
+    const nearBottom = isNearBottom(el)
+    if (movedUp && !nearBottom) {
+      takeUserControl()
+    } else {
+      let attributed = false
+      for (let i = pinWritesRef.current.length - 1; i >= 0; i--) {
+        const e = pinWritesRef.current[i]
+        // pin 目标=写入时底部，流式增长下只升不降，取下界匹配；restore 需精确落位取紧容差
+        const hit = e.tag === 'pin'
+          ? el.scrollTop >= e.expected - LEDGER_EPS_PX
+          : Math.abs(el.scrollTop - e.expected) <= LEDGER_EPS_PX
+        if (!hit) continue
+        pinWritesRef.current.splice(i, 1)
+        attributed = true
+        if (e.tag === 'pin' && nearBottom) {
+          pinRef.current = true // 终态幂等确认（跳底按钮 smooth 滚动到达的合法回锚来源）
+        }
+        break
+      }
+      if (!attributed) {
+        if (nearBottom) {
+          pinRef.current = true
+        }
+      }
+    }
+    // 到达顶部，触发加载更多（位置触发，与 pin 状态无关）
     if (el.scrollTop === 0 && onLoadMore && !loadingMore) {
       // 记录当前滚动高度，加载后恢复
       pendingScrollRestoreRef.current = el.scrollHeight
       onLoadMore()
     }
-  }, [onLoadMore, loadingMore, onAtBottomChange, isAtBottomRef])
+    lastScrollTopRef.current = el.scrollTop
+  }, [onLoadMore, loadingMore, pinRef, takeUserControl])
 
-  /** 首次渲染滚到底部 */
+  /** 首次渲染滚到底部（R0：mount 即 pinned——容器带 key，切会话 remount 时同样经此贴底） */
   useEffect(() => {
     if (messages.length > 0) {
       requestAnimationFrame(() => {
-        scrollToBottom()
-        // F20260921urdo 判定换轨退役：到底标记已读回调删除（打开路径已 ack）
+        const el = scrollRef.current
+        if (el) programScroll(el, el.scrollHeight, 'pin')
       })
     }
-    // Why: 有意 mount-only。若补 messages.length 会在用户上翻阅读历史时把每条新消息
-    // 都强拉回底部（增量滚动由上方 messages.length effect 按 isAtBottomRef 门控负责）。
+    // Why: mount-only（同旧 W5 语义）。增量贴底由 content observer 统一负责（F20261008scpg 删 W2 双写）。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** 切换会话时重置状态 */
+  /** 切换会话时重置状态（R0：新会话 pinned 起步；账本/采样基线一并清空） */
   useEffect(() => {
-    isAtBottomRef.current = true
+    pinRef.current = true
     prevMessagesLenRef.current = 0
-  }, [conversationId, isAtBottomRef])
+    pinWritesRef.current = []
+    lastScrollTopRef.current = 0
+    cancelAnimationFrame(rafPinIdRef.current)
+  }, [conversationId, pinRef])
+
+  /** F20261008scpg 意图事件监听：wheel/touch/键盘上滚 = 用户意图脱锚（capture+passive，不拦截不感知几何）。
+   * 这三条是「有专门事件」的输入通道；滚动条拖动等无事件手势由 handleScroll 的位移归因兑底覆盖 */
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el || state !== 'normal') return
+    const onWheel = (e: WheelEvent) => { if (e.deltaY < 0) takeUserControl() }
+    const onTouchStart = (e: TouchEvent) => { touchStartYRef.current = e.touches[0]?.clientY ?? null }
+    const onTouchMove = (e: TouchEvent) => {
+      const startY = touchStartYRef.current
+      const cur = e.touches[0]?.clientY
+      // 手指下移超阈值 = 内容上翻（脱锚方向）
+      if (startY == null || cur == null) return
+      if (cur - startY > TOUCH_UNPIN_PX) takeUserControl()
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'PageUp' && e.key !== 'Home' && e.key !== 'ArrowUp') return
+      // 不劫持输入框光标移动（V9）：目标为输入元素时上翻键属于文本编辑语义
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      // 防御性过滤（代码审视建议 1，前提经核实不成立：iframe 内键盘事件受同源文档隔离，
+      // 不会传播到宿主 window——card-bridge.ts 仅监听 load，无键盘转发）。保留作为未来
+      // 事件桥接引入时的护栏：目标属于其他文档（iframe）时忽略；window 目标（无
+      // ownerDocument）仍处理——测试与辅助技术依赖 window 级分发
+      if (t && typeof t.ownerDocument !== 'undefined' && t.ownerDocument !== document) return
+      takeUserControl()
+    }
+    el.addEventListener('wheel', onWheel, { passive: true, capture: true })
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: true })
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      el.removeEventListener('wheel', onWheel, { capture: true })
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchmove', onTouchMove)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+    // Why: 同 observer effect——conversationId（容器 key 重建）+ state（loading 分支无容器）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId, state])
 
   // —— 条件渲染分支（hooks 全部执行完毕后才能 return，见文件内 F20260814qswp 注释）——
   if (state === 'no-llm') {
@@ -428,7 +518,17 @@ export function MessageList({
       </div>
       {newMessagesCount > 0 && onJumpToBottom && (
         <button
-          onClick={onJumpToBottom}
+          onClick={() => {
+            // F20261008scpg W6 修复：滚动与置 pin 在组件内完成（ref 直连滚动容器）；
+            // onJumpToBottom 回调只承担计数清零等业务侧处理。旧版 index.tsx 用
+            // querySelector('[data-message-list]') 找容器，该属性渲染端不存在（死按钮）
+            const sc = scrollRef.current
+            if (sc) {
+              pinRef.current = true
+              programScroll(sc, sc.scrollHeight, 'pin', 'smooth')
+            }
+            onJumpToBottom()
+          }}
           className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-full shadow-glow text-sm text-white transition hover:scale-105"
           style={{ background: 'linear-gradient(135deg,#A88260,#8B6F47)' }}
         >

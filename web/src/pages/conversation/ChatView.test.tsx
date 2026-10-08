@@ -33,8 +33,8 @@ function pngFile(name = 'shot.png'): File {
 
 function renderChatView(onSend = vi.fn()) {
   const conversation = { id: 'conv-1', title: 't', status: 'active' } as unknown as LocalConversation
-  const isAtBottomRef = createRef<boolean>() as React.MutableRefObject<boolean>
-  isAtBottomRef.current = true
+  const pinRef = createRef<boolean>() as React.MutableRefObject<boolean>
+  pinRef.current = true
   const utils = render(
     <ChatView
       conversation={conversation}
@@ -48,7 +48,7 @@ function renderChatView(onSend = vi.fn()) {
       onArchive={vi.fn()}
       otters={[] as LocalOtter[]}
       conversationId="conv-1"
-      isAtBottomRef={isAtBottomRef}
+      pinRef={pinRef}
     />
   )
   const textarea = utils.container.querySelector('textarea')!

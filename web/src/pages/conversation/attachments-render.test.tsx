@@ -42,7 +42,7 @@ function render(messages: LocalMessage[]) {
         onGoToSettings={() => {}}
         otters={[]}
         conversationId="conv-1"
-        isAtBottomRef={{ current: true }}
+        pinRef={{ current: true }}
       />,
     )
   })

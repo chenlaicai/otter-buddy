@@ -68,8 +68,8 @@ export default function ConversationPage() {
     if (isLgUp && isMdUp) { setLeftDrawerOpen(false); setRightDrawerOpen(false) }
   }, [isLgUp, isMdUp])
 
-  // 滚动状态
-  const isAtBottomRef = useRef(true)
+  // 滚动状态（F20261008scpg：更名 pinRef——语义从几何快照升级为 scroll-pin 状态机的贴底跟随标志）
+  const pinRef = useRef(true)
   const [newMessagesCount, setNewMessagesCount] = useState(0)
   // 双向分页状态
   const [hasMoreBefore, setHasMoreBefore] = useState(false)
@@ -418,13 +418,9 @@ export default function ConversationPage() {
     }
   }, [ackActiveRead, refreshMessages, syncInvokeStatesFromServer])
 
-  /** 点击"新消息 N 条"浮窗：滚到底部 + 清零计数 */
+  /** 点击"新消息 N 条"浮窗：滚动与置 pin 由 MessageList 内部完成（ref 直连，F20261008scpg 修复死按钮）；
+   *  此处只清计数。旧 querySelector('[data-message-list]') 路径已删除（属性渲染端不存在） */
   const handleJumpToBottom = useCallback(() => {
-    // 找到滚动容器，滚到底部
-    const scrollEl = document.querySelector('[data-message-list]') as HTMLElement
-    if (scrollEl) {
-      scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: 'smooth' })
-    }
     setNewMessagesCount(0)
   }, [])
 
@@ -518,7 +514,7 @@ export default function ConversationPage() {
           added = true
           return [...current, userMsg]
         })
-        if (added) { const atBottom = isAtBottomRef.current; if (!atBottom) setNewMessagesCount(c => c + 1) }
+        if (added) { if (!pinRef.current) setNewMessagesCount(c => c + 1) }
       },
       'entry.speak': (data) => {
         /** speak entry 全量 body——speak 是原子工具调用（无流式生命周期），落库即 completed。
@@ -547,7 +543,7 @@ export default function ConversationPage() {
         if (d.otterId) {
           upsertOtterIfAbsent(d.otterId, d.otterName, activeId, { type: d.otterType, color: d.otterColor })
         }
-        if (added) { const atBottom = isAtBottomRef.current; if (!atBottom) setNewMessagesCount(c => c + 1) }
+        if (added) { if (!pinRef.current) setNewMessagesCount(c => c + 1) }
       },
       // F20260913ctlv 收尾：entry.complete 事件已退役（后端无发射点；speak 气泡终态由 invoke.end 收敛）
       'entry.failed': (data) => {
@@ -898,7 +894,7 @@ export default function ConversationPage() {
     /** F20260904smsj：发言 = 已看完全部（聊天通用语义）——立即 ack 到当前最新 +
      *  强制回底部 + 清未读分隔线，消除「分隔线定位 × 自动滚底门控」竞争导致的视口上跳。
      *  F20260921urdo：markRead 内联块收拢为 ackActiveRead 统一入口。 */
-    isAtBottomRef.current = true
+    pinRef.current = true // F20261008scpg：发言 = 回底跟随（后续新消息经 content observer 贴底）
     setNewMessagesCount(0)
     setUnreadSeparatorSeq(null)
     ackActiveRead(activeId)
@@ -1630,7 +1626,7 @@ export default function ConversationPage() {
         >
           <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
         </div>
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => navigate('/settings')} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => navigate('/settings')} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} pinRef={pinRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} />
         {/* 右栏：≥lg 常驻；<lg 抽屉化。md~lg 区间聊天区 = 全宽 - 左栏(224px)，不再被右栏挤 <500px */}
         <div
           id="right-panel-drawer"
