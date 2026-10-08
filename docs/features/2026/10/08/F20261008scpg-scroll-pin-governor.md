@@ -302,5 +302,24 @@ W5（首次渲染）、W7（跳转，置 floating）、W8（恢复，经 program
 | web/src/pages/conversation/MessageList.tsx | 修改 | scroll-pin 状态机（替代 isAtBottomRef）+ 程序写入自证账本；意图事件监听（wheel/touch/key）+ 位移方向归因；W3+W4 归一为单一补偿通道；W2/W8 同居 effect 拆分（保 W8 删贴底）；删除 dangling 的 onAtBottomChange |
 | web/src/pages/conversation/index.tsx | 修改 | 跳底按钮 ref 直连 + 锚点存在性守卫 + 点击置 pinned；新消息计数（:521/:550）读 pinRef（形状不变）；会话切换（:901）置 pinned |
 | web/src/pages/conversation/ChatView.tsx | 修改 | 共享 ref 透传更名（isAtBottomRef → pinRef，形状不变）；无 onAtBottomChange——该 prop 从未在此透传（dangling，见 §6.4 澄清） |
-| web/src/pages/conversation/MessageList.test.tsx | 修改/新增 | 状态机单元测试 + 跳底按钮测试 |
+| web/src/pages/conversation/MessageList.test.tsx | 修改/新增 | 状态机单元测试（8 用例：账本归因/停摆竞态形态/滚动条上拖签名/回锚/wheel/W8/切会话 R0/键盘 V9）+ 跳底按钮测试 |
+
+## 12. 实现记录（f086031f）
+
+与方案的偏差（均经全量测试验证：61 文件 644 用例全绿，tsc/eslint 干净）：
+
+1. **init 标签并入 pin**：实现中发现 mount 贴底（原 init 标签）单独成类存在账本小值风险
+   （首帧 scrollHeight 小，下界匹配下陈旧条目会吞掉后续向下位移的归因）——mount 贴底
+   本就是 pin 语义，统一后 expected=scrollHeight 恒为当下底部值，风险消除
+2. **归因优先级重排：用户向上位移 > 账本匹配**。原设计（先账本后位移）存在漏洞：程序
+   pin 写入后用户拖滚动条上移，scroll 事件可能先命中账本条目（下界匹配命中低值条目）
+   而被归因程序——吞掉用户接管。实现序：movedUp && !nearBottom → 用户接管优先；
+   仅程序写入永远向底（不会向上移），视口向上只可能是用户行为，此序安全
+3. **账本条目 interrupted 后即失去归因资格**（过滤时直接清除，非仅跳过）：用户接管后
+   在途程序写入的陈旧条目不再参与后续归因，防止其吞掉后续用户位移
+4. **测试暴露的 mount 时序细节**：conversationId effect 在 mount 即置 pinned——测试场景
+   若要验证 floating 路径需先模拟用户脱锚（已按此修正 W8 用例）
+
+方案伪码中未列的其余细节（合帧 cancelAnimationFrame、意图监听随 state/conversationId
+重挂、rAF 执行时重读 pin）与方案 §6.2/6.3 一致。
 | docs/features/2026/10/08/F20261008scpg-scroll-pin-governor.md | 新增 | 本文档 |
