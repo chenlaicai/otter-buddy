@@ -92,6 +92,11 @@ export interface BuildCustomToolsParams {
   /** #927：目标獭活跃性查询（halt_otter 打标前检查），透传到 ToolContext */
   isOtterRunning?: (otterId: string) => boolean;
   logger: Logger;
+  /**
+   * F20261008tecn（EazoTack 工具瘦身 v1）：工具暴露级别映射（来自 config/tool-manifest.json toolExposure 段）。
+   * 未提供时全部 direct（现状行为）。deferred 工具不声明给模型，由 tool_search 按需激活。
+   */
+  toolExposure?: Record<string, "direct" | "deferred">;
 }
 
 /** buildCustomTools 返回类型 */
@@ -101,6 +106,12 @@ export interface BuildCustomToolsResult {
     label: string;
     description: string;
     parameters: Record<string, unknown>;
+    /**
+     * F20261008tecn：pi ToolExposure 暴露级别。direct（默认，声明给模型）或
+     * deferred（不声明，tool_search BM25 命中后激活——低频工具移出每轮必达 token 预算）。
+     * pi 语义见 pi-coding-agent 1.1.0 extensions/types.d.ts ToolExposure。
+     */
+    exposure?: "direct" | "deferred";
     execute: (toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolResponse>;
   }>;
   toolContext: ToolContext;
@@ -112,7 +123,7 @@ export interface BuildCustomToolsResult {
  * onUpdate/ctx SDK 特有，Otter 工具不需要，忽略。
  */
 export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToolsResult {
-  const { otterId, conversationId, allowedNames, register, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, signalRepo, rhiSignalRepo, matterRepo, isOtterRunning, logger } = params;
+  const { otterId, conversationId, allowedNames, register, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, signalRepo, rhiSignalRepo, matterRepo, isOtterRunning, logger, toolExposure } = params;
   // F20260826mwrd C1：signalRepo 挂 ToolContext（tool-factory 从 ctx 读，避免 createTools 参数膨胀）
   // F20261006mtlp P1：matterRepo 同模式挂 ToolContext
 
@@ -154,6 +165,10 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
       label: t.name,
       description: t.description,
       parameters: t.parameters,
+      // F20261008tecn：manifest toolExposure 段打标——deferred 工具不声明给模型，
+      // 由 tool_search（BM25）按需激活；未配置的工具保持 direct（现状）。
+      // 注意：deferred 工具的 description 是 tool_search 的索引语料，不可为空。
+      ...(toolExposure?.[t.name] === "deferred" ? { exposure: "deferred" as const } : {}),
       execute: async (toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal) => {
         const result = await t.execute(toolCallId, params, signal);
         const truncated = truncateToolResult(result);
