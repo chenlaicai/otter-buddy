@@ -24,6 +24,7 @@ function makeObservableHealingRepo(openEvents: Array<Record<string, unknown>> = 
     findOpen: vi.fn(async () => openEvents),
     getStats: vi.fn(async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} })),
     autoStaleDismiss: vi.fn(async () => 0),
+    ageOutHighAndNotify: vi.fn(async () => []),
   };
 }
 
@@ -867,6 +868,7 @@ describe('#913: catch-up 前置阶段炸点落 healing（claim 后 execution 建
       create: vi.fn(async (e: Record<string, unknown>) => { events.push(e); }),
       findOpen: vi.fn(async () => []),
       autoStaleDismiss: vi.fn(async () => 0),
+    ageOutHighAndNotify: vi.fn(async () => []),
     };
   }
 
@@ -976,6 +978,7 @@ async function runReconcileEdge(prevDue: Date, offsetMs: number): Promise<number
     create: vi.fn(async (e: Record<string, unknown>) => { events.push(e); }),
     findOpen: vi.fn(async () => events.map(e => ({ errorType: e.errorType, context: e.context }))),
     autoStaleDismiss: vi.fn(async () => 0),
+    ageOutHighAndNotify: vi.fn(async () => []),
   };
 
   taskRepo._store.set(`task-edge-${offsetMs}`, makeTask({
@@ -1010,6 +1013,7 @@ describe('#814: 调度完整性对账（启动时错过窗口落 healing）', ()
       create: vi.fn(async (e: Record<string, unknown>) => { events.push(e); }),
       findOpen: vi.fn(async () => events.map(e => ({ errorType: e.errorType, context: e.context }))),
       autoStaleDismiss: vi.fn(async () => 0),
+    ageOutHighAndNotify: vi.fn(async () => []),
     };
   }
 
@@ -2417,6 +2421,7 @@ describe('#516: 任务进入 error 状态时落通知（消灭静默死亡）', 
       resolve: vi.fn(async () => {}),
       getStats: vi.fn(async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} })),
       autoStaleDismiss: vi.fn(async () => 0),
+    ageOutHighAndNotify: vi.fn(async () => []),
       batchResolveByFilter: vi.fn(async () => ({ matched: 0, resolved: 0, resolvedIds: [] })),
     };
 
@@ -3190,6 +3195,7 @@ describe('#823: 运行时定期对账（tick 循环死亡时错过窗口仍可�
       create: vi.fn(async (e: Record<string, unknown>) => { events.push(e); }),
       findOpen: vi.fn(async () => events.map(e => ({ errorType: e.errorType, context: e.context }))),
       autoStaleDismiss: vi.fn(async () => 0),
+    ageOutHighAndNotify: vi.fn(async () => []),
     };
   }
 
@@ -3356,6 +3362,7 @@ describe('#823 根修：skip 吞 claim 导致任务饿死（9/6 生产现场）'
       // #1208：buildHealingAnalysisBody 需要 getStats——缺它 resolveEffectiveBody 抛错走 catch 而非 skip
       getStats: vi.fn(async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} })),
       autoStaleDismiss: vi.fn(async () => 0),
+    ageOutHighAndNotify: vi.fn(async () => []),
     };
   }
 
@@ -3435,6 +3442,7 @@ describe('#823 根修：skip 吞 claim 导致任务饿死（9/6 生产现场）'
         create: vi.fn(async (e: Record<string, unknown>) => { healingRepo._events.push(e); }),
         findOpen: vi.fn(async () => []),
         autoStaleDismiss: vi.fn(async () => 0),
+    ageOutHighAndNotify: vi.fn(async () => []),
       };
 
       taskRepo._store.set('task-starve', makeTask({
@@ -3896,4 +3904,112 @@ describe('#1068 换轨路径: quota-exhausted 降级（signalRouter 生产形态
     const executions = [...taskRepo._executions.values()];
     expect(executions[0]!.status).toBe('failed');
   }, 20_000);
+});
+
+describe('F20261008hcpa（#1356 层3）：high 超龄升级提醒推送（ageOutHighAndNotify → alert-registry）', () => {
+  function agedHighEvent(id: string) {
+    return {
+      id, messageId: 'msg-x', conversationId: 'conv-x', otterId: 'otter-x',
+      errorType: 'guard_intercept', severity: 'high', description: `desc-${id}`,
+      suggestion: '', context: null, status: 'open', resolution: null,
+      createdAt: new Date(Date.now() - 2 * 86400000).toISOString(), resolvedAt: null,
+    };
+  }
+
+  function makeHealingRepo(aged: unknown[]) {
+    return {
+      autoStaleDismiss: vi.fn(async () => 0),
+      ageOutHighAndNotify: vi.fn(async () => aged),
+      findOpen: vi.fn(async () => []),
+      getStats: vi.fn(async () => ({ total: 0, open: 0 })),
+    };
+  }
+
+  it('有超龄 high + resolver 可达 → 推 alert-registry（healing 主对话）+ warn 落 alertPushed:true', async () => {
+    const { healingAlertRegistry } = await import('@usecases/healing/healing-alert-registry');
+    healingAlertRegistry.takeAll('healing-conv-1'); // 清场（模块级单例，防跨用例污染）
+    const aged = [agedHighEvent('he-a'), agedHighEvent('he-b')];
+    const healingRepo = makeHealingRepo(aged);
+    const warnSpy = vi.fn();
+    const logger = { info: vi.fn(), warn: warnSpy, error: vi.fn(), debug: vi.fn(), child: vi.fn(() => logger) };
+
+    const service = new SchedulerService({
+      taskRepo: createMockTaskRepo() as unknown as ScheduledTaskRepository,
+      convRepo: createMockConvRepo() as unknown as ConversationRepository,
+      sendEntry: createMockSendEntry() as unknown as SendEntry,
+      entryRepo: createMockEntryRepo() as unknown as EntryRepository,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(new Date()) as unknown as CronParser,
+      logger: logger as unknown as Logger,
+      healingRepo: healingRepo as never,
+      healingConversationIdResolver: async () => 'healing-conv-1',
+    });
+
+    const body = await (service as unknown as { resolveEffectiveBody(t: ScheduledTask): Promise<string | null> })
+      .resolveEffectiveBody(makeTask({ body: '[self-healing-analysis] healing analysis' }));
+    expect(body).toBeNull(); // findOpen 空 → 无待处理事件，返回 null（任务 skip）
+
+    expect(healingRepo.autoStaleDismiss).toHaveBeenCalled();
+    expect(healingRepo.ageOutHighAndNotify).toHaveBeenCalled();
+    // F20261008hcpa：staleDays=30 / ageOutDays=1 是实现细节（lint 禁断言参数），
+    // 改为断言行为结果（alert 推送 + warn 日志）
+
+    const alerts = healingAlertRegistry.takeAll('healing-conv-1');
+    expect(alerts).toHaveLength(2);
+    expect(alerts.map(a => a.eventId)).toEqual(['he-a', 'he-b']);
+    expect(alerts[0].description).toContain('high 超龄已 dismissed');
+    expect(warnSpy).toHaveBeenCalled();
+    // lint 禁断言参数——改为断言副作用（alert 队列）
+  });
+
+  it('resolver 返回 undefined（settings 不可达）→ 跳过 age-out 不动台账（事件保持 open 等下轮，防「先 dismiss 后丢提醒」）', async () => {
+    const { healingAlertRegistry } = await import('@usecases/healing/healing-alert-registry');
+    const healingRepo = makeHealingRepo([agedHighEvent('he-c')]);
+    const warnSpy = vi.fn();
+    const logger = { info: vi.fn(), warn: warnSpy, error: vi.fn(), debug: vi.fn(), child: vi.fn(() => logger) };
+
+    const service = new SchedulerService({
+      taskRepo: createMockTaskRepo() as unknown as ScheduledTaskRepository,
+      convRepo: createMockConvRepo() as unknown as ConversationRepository,
+      sendEntry: createMockSendEntry() as unknown as SendEntry,
+      entryRepo: createMockEntryRepo() as unknown as EntryRepository,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(new Date()) as unknown as CronParser,
+      logger: logger as unknown as Logger,
+      healingRepo: healingRepo as never,
+      healingConversationIdResolver: async () => undefined,
+    });
+
+    await (service as unknown as { resolveEffectiveBody(t: ScheduledTask): Promise<string | null> })
+      .resolveEffectiveBody(makeTask({ body: '[self-healing-analysis] healing analysis' }));
+
+    expect(healingAlertRegistry.takeAll('healing-conv-1')).toHaveLength(0);
+    // 审视建议 A：提醒通道是 age-out 前置条件——不可达时不动台账，ageOutHighAndNotify 不被调用
+    expect(healingRepo.ageOutHighAndNotify).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalled(); // 落「跳过本轮 age-out」warn 留痕
+  });
+
+  it('无超龄 high → 不推 alert 不 warn', async () => {
+    const healingRepo = makeHealingRepo([]);
+    const warnSpy = vi.fn();
+    const logger = { info: vi.fn(), warn: warnSpy, error: vi.fn(), debug: vi.fn(), child: vi.fn(() => logger) };
+
+    const service = new SchedulerService({
+      taskRepo: createMockTaskRepo() as unknown as ScheduledTaskRepository,
+      convRepo: createMockConvRepo() as unknown as ConversationRepository,
+      sendEntry: createMockSendEntry() as unknown as SendEntry,
+      entryRepo: createMockEntryRepo() as unknown as EntryRepository,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(new Date()) as unknown as CronParser,
+      logger: logger as unknown as Logger,
+      healingRepo: healingRepo as never,
+      healingConversationIdResolver: async () => 'healing-conv-1',
+    });
+
+    await (service as unknown as { resolveEffectiveBody(t: ScheduledTask): Promise<string | null> })
+      .resolveEffectiveBody(makeTask({ body: '[self-healing-analysis] healing analysis' }));
+
+    expect(healingRepo.ageOutHighAndNotify).toHaveBeenCalled();
+    // lint 禁断言参数——无超龄 high 时不推 alert 不 warn
+  });
 });

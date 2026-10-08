@@ -5,7 +5,8 @@
  * SendEntry（invokes + entries 状态机），能力断言保持 GB-1~GB-5：
  * - GB-1/GB-2 二拦终态 → 不再 aborted，自动回发：invoke failed 过渡 + sendSystem
  *   （带原因+引导）+ 同 invoke 重试；回发后自纠成功 → 闭环
- * - GB-3 滑窗内已回发 3 次 → 停止回发，abort 终态 + 升级系统消息 + healing high
+ * - GB-3 滑窗内已回发 2 次 → 停止回发，abort 终态 + 升级系统消息 + healing high
+ *   （F20261008hcpa，#1356 层1 打断：GUARD_BOUNCE_MAX 3→2——同规则第 3 次拦截直接升级）
  * - GB-3b 窗口外 bounce 不计数
  * - GB-4 计数查询失败（台账失明）→ fail-closed 升级
  * - GB-5 bounce 前 failMessage 已 abort SDK session（dead invoke 不僵尸运行）
@@ -186,7 +187,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     // bounce sendSystem：含拦截原因透传 + 回发进度 + 四要素引导（无 restart 出口）
     const bounceMsg = sendEntry.store.systemBodies.find(b => b.includes("自动回发控制信号"));
     expect(bounceMsg).toBeTruthy();
-    expect(bounceMsg).toContain("第 1/3 次");
+    expect(bounceMsg).toContain("第 1/2 次");
     expect(bounceMsg).toContain("主进程");
     expect(bounceMsg).toContain("worktree");
     expect(bounceMsg).toContain("不要重复原命令");
@@ -208,11 +209,11 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     expect(invoke._contexts[2]).toContain("安全守卫拦截");
   });
 
-  it("GB-3：滑窗内已回发 3 次 → 停止回发升级：abort 终态 + 升级系统消息 + healing high", async () => {
+  it("GB-3：滑窗内已回发 2 次 → 停止回发升级：abort 终态 + 升级系统消息 + healing high", async () => {
     const sendEntry = mockSendEntry();
-    // seed 3 条窗口内 bounce 事件 → 本轮是第 4 次，超限
+    // seed 2 条窗口内 bounce 事件 → 本轮是第 3 次，超限（F20261008hcpa：上限 2）
     const healing = mockHealingRepo([
-      seedBounceEvent(), seedBounceEvent(), seedBounceEvent(),
+      seedBounceEvent(), seedBounceEvent(),
     ]);
     const invoke = mockAgentInvoke([{ guard: 2 }]);
     const invoker = new AgentInvoker(
@@ -232,16 +233,16 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     // 超限：不再回发，abort 终态
     const abortEnds = sendEntry.store.invokeEndCalls.filter(e => e.status === "aborted");
     expect(abortEnds).toHaveLength(1);
-    expect(sendEntry.store.systemBodies.some(b => b.includes("已连续 3 次被 bash 守卫拦截"))).toBe(true);
+    expect(sendEntry.store.systemBodies.some(b => b.includes("已连续 2 次被 bash 守卫拦截"))).toBe(true);
     // 升级 healing high：abortTerminal 终态分支落账
     const highEvents = healing.events.filter(e => e.severity === "high");
     expect(highEvents.length).toBeGreaterThanOrEqual(1);
     // 无新 bounce 计数落账（超限路径不写）
     const bounceEvents = healing.events.filter(e =>
       e.errorType === "guard_intercept" && (e.context as { bounce?: boolean })?.bounce === true);
-    expect(bounceEvents).toHaveLength(3); // 仅 seed 的 3 条
+    expect(bounceEvents).toHaveLength(2); // 仅 seed 的 2 条
     // 无回发消息（不含回发进度文案）
-    expect(sendEntry.store.systemBodies.find(b => b.includes("第 4/3 次"))).toBeUndefined();
+    expect(sendEntry.store.systemBodies.find(b => b.includes("第 3/2 次"))).toBeUndefined();
   });
 
   it("GB-3b：窗口外 bounce 不计数（10 分钟前的教训不堵死现在的自纠）", async () => {
@@ -267,11 +268,11 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
       userMessageContent: "修复任务 X", senderId: "user-1",
     });
 
-    // 窗口外不计入：照常回发（第 1/3 次而非升级）
+    // 窗口外不计入：照常回发（第 1/2 次而非升级）
     const abortEnds = sendEntry.store.invokeEndCalls.filter(e => e.status === "aborted");
     expect(abortEnds).toHaveLength(0);
     const bounceMsg = sendEntry.store.systemBodies.find(b => b.includes("自动回发控制信号"));
-    expect(bounceMsg).toContain("第 1/3 次");
+    expect(bounceMsg).toContain("第 1/2 次");
   });
 
   it("GB-4：计数查询失败（台账失明）→ fail-closed 升级，不无限回发", async () => {
@@ -367,7 +368,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     const bounceMsg = sendEntry.store.systemBodies.find(b => b.includes("自动回发控制信号"));
     expect(bounceMsg).toBeTruthy();
     expect(bounceMsg).toContain("等待守卫拦截");
-    expect(bounceMsg).toContain("第 1/3 次");
+    expect(bounceMsg).toContain("第 1/2 次");
     expect(bounceMsg).toContain("wait 工具");
     // 不含 kill 域措辞
     expect(bounceMsg).not.toContain("主进程");

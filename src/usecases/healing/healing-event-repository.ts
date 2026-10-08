@@ -12,8 +12,14 @@ export interface HealingEventRepository {
   updateStatus(id: string, status: HealingEventStatus): Promise<void>;
   resolve(id: string, resolution: HealingResolution): Promise<void>;
   getStats(): Promise<HealingEventStats>;
-  /** 自动清理：dismiss 超过 N 天未更新的 open 事件 */
+  /** 自动清理：dismiss 超过 N 天未更新的 open 事件。
+   *  F20261008hcpa（#1356 选 A）：high 升级信号（如 #844 变体重试 ≥3 次升级）永不
+   *  被时间静默——排除 high 走独立通道（ageOutHighAndNotify 推 healing-alert-registry）。 */
   autoStaleDismiss(staleDays: number): Promise<number>;
+  /** F20261008hcpa（#1356 选 A）：查超龄 high open 事件并置 dismissed（升级提醒通道）。
+   *  返回被处置的事件供调度层推 alert-registry——high 是升级信号，
+   *  即使超龄也不能无声消失（与 autoStaleDismiss 的 low/medium 静默语义分层）。 */
+  ageOutHighAndNotify(staleDays: number): Promise<HealingEvent[]>;
 
   /**
    * F20260825b424：按 filter 批量 resolve，替代逐条 ID 操作。

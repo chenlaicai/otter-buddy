@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 /**
  * 自有项目 dev server 受控重启脚本（#844，F20260914dsrv，方案 B；#1069 补 bootstrap）。
+ * F20261008hcpa（#1356 层2 疏通）：kill-by-pid 子命令——指定 PID 受控终止。
  *
- * 用途：bash 守卫生态内唯一合法的「终止自有项目 dev server」入口。
+ * 用途：bash 守卫生态内唯一合法的「终止自有项目 dev server / 受控进程」入口。
  *   restart-service.mjs <port> [--project /abs/path]              # 重启白名单内端口
  *   restart-service.mjs <port> --project /abs/path --add          # 声明并写回白名单，随后重启（#1069）
+ *   restart-service.mjs kill-by-pid <pid> --project /abs/path     # 按 PID 受控终止（F20261008hcpa）
  *
  * 守卫设计契约（为什么这样写）：
  * - 本脚本的命令行形态（restart-service.mjs 3100）不含任何 kill/pkill 词元，
@@ -192,6 +194,35 @@ function withLock(lockPath, fn) {
   return { ok: false, error: `白名单写锁争用超时（${lockPath}）——请稍后重试` };
 }
 
+// ── F20261008hcpa：kill-by-pid 纯校验逻辑（导出供单测；主流程经 main-guard 保护）──
+
+/**
+ * kill-by-pid 校验（F20261008hcpa，#1356 层2 疏通）。
+ *
+ * 纯函数——PID 存活/cwd 归属的 lsof 探测由调用方（主流程）做，本函数只校验
+ * 「可静态判定的不变式」：PID 合法性、主进程/自身/父进程拒绝、projectDir 在工作根内。
+ * 返回 { ok: true } 或 { ok: false, error }。
+ */
+export function assertKillByPidSafe({ pid, projectDir, mainPid, selfPid, selfPpid, allowedRoot }) {
+  if (!Number.isInteger(pid) || pid <= 1) {
+    return { ok: false, error: `PID ${pid} 非法（须 >1——init/launchd 恒拒）` };
+  }
+  if (!projectDir) {
+    return { ok: false, error: "kill-by-pid 必须带 --project /abs/path 声明归属目录" };
+  }
+  const relRoot = path.relative(allowedRoot, projectDir);
+  if (relRoot.startsWith("..") || path.isAbsolute(relRoot) || relRoot === "") {
+    return { ok: false, error: `--project (${projectDir}) 必须在 otter 工作根 (${allowedRoot}) 之下且非根本身` };
+  }
+  if (mainPid !== null && pid === mainPid) {
+    return { ok: false, error: `PID ${pid} 是 otter-buddy 主进程——拒绝终止` };
+  }
+  if (pid === selfPid || pid === selfPpid) {
+    return { ok: false, error: `PID ${pid} 是本脚本自身/父进程——拒绝` };
+  }
+  return { ok: true };
+}
+
 // ── 主流程（main-guard：被测试 import 时不执行；realpath 消符号链接调用的形态差）──
 const isMain = (() => {
   try {
@@ -203,6 +234,57 @@ const isMain = (() => {
 if (isMain) {
   // ── 参数解析 ──
   const args = process.argv.slice(2);
+
+  // F20261008hcpa（#1356 层2 疏通）：kill-by-pid 子命令——指定 PID 受控终止。
+  // 场景：僵尸进程/测试残留进程按 PID 精确终止（端口路由不适用时）。
+  // 安全不变式与端口路径同构：②主进程拒绝 ③cwd 归属校验，只是换了个寻址方式。
+  if (args[0] === "kill-by-pid") {
+    const pid = parseInt(args[1] ?? "", 10);
+    if (!Number.isInteger(pid) || pid <= 1) {
+      console.error("用法: restart-service.mjs kill-by-pid <pid> --project /abs/path");
+      console.error("  pid     : 要终止的进程 PID（>1，init/launchd 恒拒）");
+      console.error("  --project: 项目目录（必填——kill-by-pid 无白名单声明语义，须现场给出归属目录）");
+      process.exit(1);
+    }
+    // 剩余 lsof 探测（进程存在性/cwd 归属）留在本流程（#844 原口径：手工冒烟覆盖）
+    let kbProjectDir = null;
+    for (let i = 2; i < args.length; i++) {
+      if (args[i] === "--project" && args[i + 1]) { kbProjectDir = path.resolve(args[i + 1]); i++; }
+    }
+    let kbMainPid = null;
+    try {
+      kbMainPid = parseInt(fs.readFileSync(path.join(otterRoot, ".otter-buddy.pid"), "utf-8").trim(), 10) || null;
+    } catch { /* PID 文件缺失 = 主进程未运行 */ }
+    const kbCheck = assertKillByPidSafe({
+      pid,
+      projectDir: kbProjectDir,
+      mainPid: kbMainPid,
+      selfPid: process.pid,
+      selfPpid: process.ppid,
+      allowedRoot: path.resolve(otterRoot, ".."),
+    });
+    if (!kbCheck.ok) die(kbCheck.error);
+    // 校验 ③：cwd 归属
+    let kbCwd = null;
+    try {
+      kbCwd = execFileSync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], { encoding: "utf-8" });
+    } catch { /* 进程可能已退出 */ }
+    const kbMatch = kbCwd && kbCwd.match(/^n(.+)$/m);
+    const kbProcCwd = kbMatch ? kbMatch[1] : null;
+    if (!kbProcCwd) die(`无法解析 PID ${pid} 的工作目录（进程不存在或刚退出）——拒绝`);
+    const kbRel = path.relative(kbProjectDir, kbProcCwd);
+    if (kbRel.startsWith("..") || path.isAbsolute(kbRel)) {
+      die(`PID ${pid} 的 cwd (${kbProcCwd}) 不在声明项目目录 (${kbProjectDir}) 下——拒绝终止`);
+    }
+    try {
+      process.kill(pid, "SIGTERM");
+      console.log(`[restart-service] kill-by-pid: SIGTERM → PID ${pid}（cwd ${kbProcCwd}，校验通过）`);
+    } catch (err) {
+      die(`kill(${pid}) 失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+    process.exit(0);
+  }
+
   const port = parseInt(args[0] ?? "", 10);
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
     console.error("用法: restart-service.mjs <port> [--project /abs/path] [--add]");

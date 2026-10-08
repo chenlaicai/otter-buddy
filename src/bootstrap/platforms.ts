@@ -64,6 +64,7 @@ import { WeixinGatewayAdapter } from "@interface-adapters/weixin/weixin-gateway-
 import { WeixinMessageProcessor } from "@interface-adapters/weixin/message-processor";
 import { ensureHealingConversation } from "@usecases/healing/ensure-healing-conversation";
 import { ensureHealingScheduler } from "@usecases/healing/ensure-healing-scheduler";
+import { HEALING_CONVERSATION_KEY } from "@usecases/healing/constants";
 import { ProcessInboundRecruit } from "@usecases/recruiting/process-inbound-recruit";
 import { GetBridgeStatus } from "@usecases/recruiting/get-bridge-status";
 import { ensureRecruitingConversation } from "@usecases/recruiting/ensure-recruiting-conversation";
@@ -294,6 +295,15 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
       manageScheduledTask: uc.manageScheduledTask,
       manageSession: uc.manageSession,
       healingRepo: repos.healingEvent,
+      // F20261008hcpa（#1356 层3）：high 超龄升级提醒的推送目的地（healing 主对话）——
+      // 懒解析：healing 对话由 ensureHealingConversation 异步引导创建，构造期 settings 未就绪
+      healingConversationIdResolver: async () => {
+        try {
+          return await repos.settings.get(HEALING_CONVERSATION_KEY) ?? undefined;
+        } catch {
+          return undefined; // settings 不可达时静默降级：提醒丢一次，台账不丢
+        }
+      },
       metrics,
       dispatchChainEngine,
       modelPool,

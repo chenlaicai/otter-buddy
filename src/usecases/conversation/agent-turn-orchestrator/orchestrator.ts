@@ -738,6 +738,8 @@ export class AgentTurnOrchestrator {
     }
 
     // 超限 / 计数不可信 → 停止自动回发，升级上报（healing high 由 abortTerminal 终态分支落）
+    // F20261008hcpa（#1356 层1 打断）：升级附守卫生态指引——e8e21216 案例显示即使升级后
+    // 獭仍会继续撞墙（6 分钟 7 次），在消息里给出正道出口比静默 abort 更能止撞。
     if (countQueryFailed || priorBounces >= GUARD_BOUNCE_MAX) {
       return this.escalateGuardBounce(ctx, guardReason, otterName, priorBounces, countQueryFailed);
     }

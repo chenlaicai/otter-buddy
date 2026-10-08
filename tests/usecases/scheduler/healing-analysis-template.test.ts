@@ -71,6 +71,7 @@ function createMockHealingRepo(openCount = 1) {
   }));
   return {
     autoStaleDismiss: vi.fn(async () => 0),
+    ageOutHighAndNotify: vi.fn(async () => []),
     getStats: vi.fn(async () => ({
       open: openCount, resolved: 0, dismissed: 0,
       byType: { 工具故障: openCount }, bySeverity: { low: openCount },
