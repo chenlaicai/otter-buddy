@@ -121,15 +121,16 @@ intent:
 | 存量行为 | **零变化**——新列全 nullable，旧读写路径（SELECT * 自动带新列，mapper 容缺省）不受影响；batch_resolve 不传新 filter 时行为与 main 完全一致 |
 | high 批量闸 | 微调：未归口 high 仍拦（本体不变）；已归口 high 可随 filterBoundIssue 收尾（新增豁免面，见测试锁定） |
 | 循环守卫 | batch_bind 单次调用归口 ≤100 条——同族 >100 条时 truncated=true 提示再次执行，天然绕开「逐条同构调用」守卫 |
-| #1361 撞车 | 同 healing 仓储域但文件不重叠（#1361 触 alert-registry/self-healing-analysis/restart-service；本 PR 触 repository/schema/migration/tools/daily-health-check）。#1361 时间序先合，本 PR rebase 兜底 |
+| #1361 撞车 | 同 healing 域且**重叠 3 文件**（sqlite-healing-event-repository.ts / healing-event-repository.ts / rhi-signal-aging-worker.test.ts，r1-S3 订正：首版「文件不重叠」宣称失实）。#1361 时间序先合，本 PR rebase 兜底——三文件冲突面已预判（本 PR 触仓储尾部 append + 接口扩展，#1361 触告警/提醒链路，语义区隔但同文件需手工合并） |
 | prompts 范围 | 只补 daily-health-check.md 一行（#1361 未触碰该文件）；self-healing-analysis.md **不动**（#1361 正在改，PR 合入后其 bind_issue 规则文本与本工具语义已兼容） |
 
 ## 已知边界
 
 - **批量换绑不支持**：已归口事件换 issue 需逐条判断（设计取舍，防误操作级联）
+- **issue 存在性不校验（r1-S2 订正）**：工具层只校验正整数格式。幻觉 issue 编号的两步链风险（bind 到不存在 #N → filterBoundIssue=N 收尾 → high 静默终结）确实可达——缓解：工具 description 已提示「bind 前 gh issue view 确认」；收尾动作本身是「修复合入已验证」的显式声明。机棧性校验（bind 时 gh 查询）属新网络依赖与失败面，本期不承载，消费端纪律承担
 - **ruleId 过滤依赖落账质量**：46 条旧格式无 ruleId 事件不能按指纹归口，只能时间窗归口或随来源升级自然消化
-- **issue 存在性不校验**：工具层校验正整数格式，GitHub 侧有效性由调用方保证（无效编号 = 死链接，事件状态无恙）
 - **query action 未透出 bound 字段过滤**：query 走 findAll 内存过滤，batch 面（dryRun/countByFilter）已覆盖聚合需求；query 加 filter 属锦上添花，本期不做
+- **#1361 语义交互（r1-S3 声明）**：#1361 层3 的超龄 high 推 alert-registry 逻辑不识别 bound_issue——已归口的超龄 high 仍会被推提醒（预期内：issue 内讨论是它们的归宿，但提醒不会因归口而止）。若需感知归口状态属 #1361 后续演进，不在本 PR 范围
 
 ## 验证
 
@@ -138,3 +139,16 @@ intent:
 - 全量 5028/5033：5 个失败均为 pre-existing flaky（guard-intercept-classify 的动态 import 竞争超时——main 基线 stash 复现同样超时，与本 PR 无关；cost-output-collector/lint-historical-docs 系列单跑全绿，全量并行 IO 争抢超时）
 - **生产副本真启动**：主库 1.17GB 一致性复制 → 新代码 migrateDatabase 101ms 完成补列 + 索引 → 幂等重跑 65ms 不炸 → main_write 可归口面 71 条行为验证通过 → 副本删除
 - 修复前失败证据：main 基线上 batch_bind action 不存在（工具返回「未知操作」）、ruleId/boundIssue 过滤不存在（countByFilter 不识别）
+
+## r1 对抗审视处置记录（检视獭-1365，mimo-pro）
+
+**结论：需要修改（3 严重 + 3 建议）→ 全部处置（处置 commit 见 PR）**
+
+| 发现 | 定级 | 处置 |
+|---|---|---|
+| S1 探测面/更新面 WHERE 不对称——普通 batch_resolve 顺带终结已归口 high | 严重（PoC 实锤） | ✅ 修复：batch_resolve 未传 filterBoundIssue 时 filter 强制 `boundIssue: null`（更新面与探测面对称）。已归口事件必须走显式 filterBoundIssue=N 收尾——收尾动作本身就是「修复合入已验证」的声明。+场景 X 锁定用例（h1 已归口 high + l1 low → 普通批量 → resolved=0，h1 保持 open+bound） |
+| S2 假 issue 两步链静默处置 high | 严重 | ✅ 最低处置（按检视建议）：工具 description 补「issueNumber 须真实存在，bind 前 gh issue view 确认」+ 已知边界订正（首版「事件状态无恙」在 bind→resolve 链下失实，已改写）。机械校验属新网络依赖，本期不承载 |
+| S3 B5 描述宣称失实——与 #1361 实际重叠 3 文件 | 严重 | ✅ 特性文档影响范围表订正（重叠文件清单 + 冲突面预判）+ PR 描述订正。顺序承诺（#1361 先合）不变 |
+| A1 dryRun matched 语义与真实执行不一致 | 建议 | ✅ batchResolveByFilter dryRun 分支补 truncated/totalMatched，matched=min(count,limit)——150 条时消费端看到分批预告而非以为一次干完。+用例（工具层+仓储层双验） |
+| A2 schema.ts 双 ALTER 共用单 try/catch | 建议 | ✅ 每列独立 try/catch——半迁移状态不再被整体吞掉 |
+| A3 B7 机械不通过（golden results 无记录） | 建议 | ✅ 环境事实声明：本机 LLM 未配置（OTTER_TEST_LLM_API_KEY 缺失），golden 采样在 CI/搭档环境执行——与 #1254 F20260930esqu 同款声明 |

@@ -627,9 +627,14 @@ function createHealingEventTables(db: Database.Database): void {
     // 列已存在，忽略
   }
   // #1271（F20261008hbbd）：存量库迁移——归口链两列。同 introduced_by_pr 幂等模式（F20260930esqu 迁移自检先例：
-  // 生产副本真启动验证见 PR Verification 节）
+  // 生产副本真启动验证见 PR Verification 节）。r1-A2：每列独立 try/catch——共用单块时
+  // 第一列成功第二列抛错会被整体吞掉，半迁移状态只能靠 migration.ts 兜底，双路径不一致
   try {
     db.exec(`ALTER TABLE healing_events ADD COLUMN bound_issue INTEGER`);
+  } catch {
+    // 列已存在，忽略
+  }
+  try {
     db.exec(`ALTER TABLE healing_events ADD COLUMN bound_at TEXT`);
   } catch {
     // 列已存在，忽略

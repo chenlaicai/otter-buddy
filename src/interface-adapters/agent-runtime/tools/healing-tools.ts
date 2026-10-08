@@ -71,9 +71,13 @@ async function handleBatchResolve(
     createdBefore: params.filterCreatedBefore as string | undefined,
     createdAfter: params.filterCreatedAfter as string | undefined,
     // #1271（F20261008hbbd）：ruleId / boundIssue 透传——修复合入后的收尾环：
-    // batch_resolve + filterBoundIssue=<N> 把该 issue 归口的事件族批量终结
+    // batch_resolve + filterBoundIssue=<N> 把该 issue 归口的事件族批量终结。
+    // ⚠️ 未传 filterBoundIssue 时强制 boundIssue: null（更新面与探测面对称，r1-S1）：
+    // 否则普通批量（如「清理残留」型 filterErrorType 批处置）会把已归口 high 顺带静默
+    // 终结——bind≠resolve 生命周期被后门击穿（已归口事件必须走显式 filterBoundIssue=N
+    // 收尾，收尾动作本身就是「修复合入已验证」的声明）
     ruleId: params.filterRuleId as string | undefined,
-    boundIssue: params.filterBoundIssue as number | null | undefined,
+    boundIssue: (params.filterBoundIssue as number | null | undefined) ?? null,
   };
   const resolution = {
     action: ((params.resolutionAction as string) ?? 'no_action') as HealingResolutionAction,
@@ -219,7 +223,7 @@ export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: Hea
   };
   return {
     name: "manage_healing_events",
-    description: "查询和管理 healing events（系统自愈问题记录）. When: 查看自愈检测到的问题 / 标记已解决或忽略 / 同族事件批量归口到 issue. Not for: 主动注入 healing 标记 → 走 speak 的 healing 块. Output: 问题列表或处置确认（action: query/resolve/dismiss/batch_resolve/batch_bind）. query 默认过滤健康探针心跳事件（includeProbe: true 可含，仅诊断用）. batch_resolve: 按 filter 批量处置（filterStatus/filterErrorType/filterRuleId/filterBoundIssue/filterCreatedBefore/filterCreatedAfter 替代 eventIds），单批上限 100，建议先 dryRun 预览再真实执行；响应含 truncated=true 时需再次执行处理剩余批次. ⚠️批量闸：未归口 high 事件禁批量静默——先 batch_bind 归口（high 的推荐路径）或逐条处置；已归口（bound）high 可随 issue 收尾批量 resolve（filterBoundIssue=N）. batch_bind：按 filter 批量归口到 GitHub issue（bind≠resolve，事件保持 open 直到修复合入后收尾）——issueNumber 必填 + 至少一个过滤条件（防异质归口），guard_intercept 事件族按 filterErrorType=guard_intercept + filterRuleId=<指纹> 分组归口；high 不设闸（归口是结构化认领非静默，恰是 high 的推荐去向）；只作用未归口 open 事件；单批 100，truncated=true 需再次执行. GOTCHA: resolve/dismiss 部分失败时返回 isError——需检查响应中失败计数.",
+    description: "查询和管理 healing events（系统自愈问题记录）. When: 查看自愈检测到的问题 / 标记已解决或忽略 / 同族事件批量归口到 issue. Not for: 主动注入 healing 标记 → 走 speak 的 healing 块. Output: 问题列表或处置确认（action: query/resolve/dismiss/batch_resolve/batch_bind）. query 默认过滤健康探针心跳事件（includeProbe: true 可含，仅诊断用）. batch_resolve: 按 filter 批量处置（filterStatus/filterErrorType/filterRuleId/filterBoundIssue/filterCreatedBefore/filterCreatedAfter 替代 eventIds），单批上限 100，建议先 dryRun 预览再真实执行；响应含 truncated=true 时需再次执行处理剩余批次. ⚠️批量闸：未归口 high 事件禁批量静默——先 batch_bind 归口（high 的推荐路径）或逐条处置；已归口（bound）high 可随 issue 收尾批量 resolve（filterBoundIssue=N）. batch_bind：按 filter 批量归口到 GitHub issue（bind≠resolve，事件保持 open 直到修复合入后收尾）——issueNumber 必填且须为真实存在的 issue 编号（幻觉编号会使后续 filterBoundIssue 收尾静默终结 high，bind 前用 gh issue view 确认）+ 至少一个过滤条件（防异质归口），guard_intercept 事件族按 filterErrorType=guard_intercept + filterRuleId=<指纹> 分组归口；high 不设闸（归口是结构化认领非静默，恰是 high 的推荐去向）；只作用未归口 open 事件；单批 100，truncated=true 需再次执行. GOTCHA: resolve/dismiss 部分失败时返回 isError——需检查响应中失败计数.",
     parameters: {
       type: "object",
       properties: {

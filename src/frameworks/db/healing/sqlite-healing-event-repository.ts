@@ -217,12 +217,19 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
     // F20261008gfrc：WHERE 构建抽入 buildBatchWhere（与 countByFilter 同语义）
     const { where, params } = this.buildBatchWhere(filter);
 
-    // dryRun: 只返回匹配数
+    // dryRun: 返回匹配数 + 分批预告（#1271 r1-A1：truncated/totalMatched 与真实执行同语义——
+    // 150 条时消费端应看到 truncated=true 提醒需多轮，而非以为一次能干完）
     if (dryRun) {
       const countRow = this.db.prepare(
         `SELECT COUNT(*) as cnt FROM healing_events WHERE ${where}`,
       ).get(...params) as { cnt: number };
-      return { matched: countRow.cnt, resolved: 0, resolvedIds: [] };
+      return {
+        matched: Math.min(countRow.cnt, limit),
+        resolved: 0,
+        resolvedIds: [],
+        truncated: countRow.cnt > limit,
+        totalMatched: countRow.cnt,
+      };
     }
 
     // Why: 单事务保证 count + match + update 原子性

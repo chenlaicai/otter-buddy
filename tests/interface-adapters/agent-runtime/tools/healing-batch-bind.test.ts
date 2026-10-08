@@ -150,6 +150,25 @@ describe('manage_healing_events batch_bind 工具层', () => {
     expect(body.totalMatched).toBe(150);
   });
 
+  it('r1-A1：batch_resolve dryRun 的 matched/truncated 与真实执行同语义', async () => {
+    for (let i = 0; i < 150; i++) {
+      await repo.create(seedEvent({ id: 'e-' + i, errorType: 'tool_failure', severity: 'low', context: null }));
+    }
+    const r = await tool.execute('c1', { action: 'batch_resolve', dryRun: true, filterErrorType: 'tool_failure' });
+    const body = JSON.parse(r.content[0].text);
+    expect(body.dryRun).toBe(true);
+    expect(body.matched).toBe(100); // 单批上限而非全量 count——与真实执行对齐
+    // 仓储层直验同语义
+    const raw = await repo.batchResolveByFilter(
+      { errorType: 'tool_failure' },
+      { action: 'no_action', decidedBy: 'agent', decidedAt: new Date().toISOString(), notes: '' },
+      { dryRun: true },
+    );
+    expect(raw.truncated).toBe(true);
+    expect(raw.totalMatched).toBe(150);
+    expect(raw.matched).toBe(100);
+  });
+
   it('high 事件可 batch_bind（不设闸——归口是结构化认领，恰是 high 推荐去向）', async () => {
     await repo.create(seedEvent({ id: 'e1', errorType: 'guard_intercept', severity: 'high', context: { ruleId: 'r-x' } }));
     await repo.create(seedEvent({ id: 'e2', errorType: 'guard_intercept', severity: 'high', context: { ruleId: 'r-x' } }));
@@ -187,6 +206,21 @@ describe('manage_healing_events batch_bind 工具层', () => {
     }
     const h3 = await repo.findById('h3');
     expect(h3?.status).toBe('open'); // 未归口 high 不被误伤
+  });
+
+  it('r1-S1 场景 X：不传 filterBoundIssue 的普通批量不终结已归口事件（更新面隔离）', async () => {
+    // PoC 复刻：h1（high，已归口 #42，open）+ l1（low）→ 普通 batch_resolve
+    await repo.create(seedEvent({ id: 'h1', errorType: 'tool_failure', severity: 'high', context: null }));
+    await repo.create(seedEvent({ id: 'l1', errorType: 'tool_failure', severity: 'low', context: null }));
+    await repo.batchBindIssue({ errorType: 'tool_failure' }, 42); // h1/l1 都归口
+
+    // 普通「清理残留」型批处置（不传 filterBoundIssue）——修复后更新面限定未归口域
+    const r = await tool.execute('c1', { action: 'batch_resolve', filterErrorType: 'tool_failure' });
+    const body = JSON.parse(r.content[0].text);
+    expect(body.resolved).toBe(0); // 已归口事件不被顺带终结
+    const h1 = await repo.findById('h1');
+    expect(h1?.status).toBe('open'); // bind≠resolve 生命周期保持
+    expect(h1?.boundIssue).toBe(42);
   });
 });
 
