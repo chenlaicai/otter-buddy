@@ -1,5 +1,5 @@
 ---
-id: F20261005sacd
+id: F20261008sacd
 title: bug_recurrence 系列归因分级 + 载体排除补全（#1012 修法 c）
 summary: severity 分级（同系列 critical / 跨特性分散 warning）+ migration/schema 入载体排除 + lint 本期分母修复 + 日检 golden 对账——告警从一刀切 critical 恢复区分度
 change_type: fix
@@ -9,6 +9,9 @@ intent:
   expected_effect: "新触发信号：跨 issue 分散形态降 warning；migration/schema 载体不触发；同 issue 主体严格过半报 critical（#1160 五连形态）。**能力边界（delta r1 D1 裁决 b）**：集群爆发形态（每次修复开新 issue 号，如 bash 守卫 21 修 28 个号全计数 1）机械判据判 warning——该形态靠专项 issue 兜底（守卫宪法 #1260 在途），不试图用 token 相似度等启发式覆盖。存量 23 条处置：dismiss 10 盲区 + 4 专项 issue 立项。"
   verify_by:
     type: capability_test
+created_at: 2026-10-05
+renumbered_at: 2026-10-08
+renumber_note: "编号自 F20261005sacd 顺延至合入日（搭档裁决 2026-10-08）——#1167 先例"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 tags: [health, signal, bug-recurrence, 系列归因, 载体排除]
 modules: [src/usecases/health, scripts, prompts/scheduled]
