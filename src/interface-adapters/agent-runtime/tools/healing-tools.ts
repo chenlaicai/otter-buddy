@@ -90,6 +90,8 @@ async function handleBatchResolve(
   // resolve 不受本闸限制——摩擦加在批量面，不是禁止处置本身）。
   // Why 工具层而非 SQL 层：闸语义是「拒绝批量、引导逐条」的交互约束，repo 层保持纯数据操作；
   // count 用独立方法而非 findAll（100 条上限的 findAll 对 >100 匹配集会漏检 high）。
+  // ⚠️ countByFilter 探测不设 LIMIT 是闸正确性关键——若加 LIMIT 与更新面「对齐」会让
+  // >100 匹配集的 high 漏检 → 闸失效（更新面 LIMIT 是事务分批语义，探测面必须全量）。
   const highCount = await healingRepo.countByFilter({ ...filter, severity: 'high' });
   if (highCount > 0) {
     return errorResponse(
