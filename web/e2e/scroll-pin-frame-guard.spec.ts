@@ -78,12 +78,15 @@ async function assertNoJump(page: import('@playwright/test').Page, tag: string) 
 
 /** 经输入框真实发送一条 html-card 消息，返回「展开渲染」按钮 locator */
 async function sendCardMessage(page: import('@playwright/test').Page, cardBody: string) {
+  const marked = cardBody.replace('<title>', `<title>f1fx-probe-${Date.now()} `)
   const input = page.locator('textarea').first()
-  await input.fill('```html-card\n' + cardBody + '\n```')
+  const beforeCount = await page.locator(MSG_SEL).count()
+  await input.fill('```html-card\n' + marked + '\n```')
   await input.press('Enter')
-  const btn = page.getByRole('button', { name: '展开渲染' }).last()
-  await expect(btn).toBeVisible({ timeout: 15_000 })
-  return btn
+  // 乐观消息渲染后消息数 +1（不等文本——历史卡也含 f1fx-probe，靠索引锚定新消息）
+  await expect(page.locator(MSG_SEL)).toHaveCount(beforeCount + 1, { timeout: 15_000 })
+  const msg = page.locator(MSG_SEL).nth(beforeCount)
+  return msg.getByRole('button', { name: '展开渲染' })
 }
 
 test.describe('F20261008f1fx 贴底零闪跳护栏', () => {
@@ -116,12 +119,7 @@ test.describe('F20261008f1fx 贴底零闪跳护栏', () => {
     // 按钮必然可见（复刻会话实测：现成卡全在折叠历史里，视口内 0 张）。
     // 不走 DOM 直插——iframe 的 transition-[height] duration-200 由真实 HtmlCard
     // 组件（HtmlCard.tsx:137）产生，正是 RO 链的设计覆盖源。
-    await sendCardMessage(page, '<title>f1fx-B 护栏卡</title><p>height transition probe</p>')
-    await page.evaluate(() => {
-      const btns = Array.from(document.querySelectorAll('button')).filter(b => b.textContent === '展开渲染') as HTMLElement[]
-      btns[btns.length - 1].dataset.f1fxProbe = '1'
-    })
-    const expandBtn = page.locator('button[data-f1fx-probe="1"]')
+    const expandBtn = await sendCardMessage(page, '<title>f1fx-B 护栏卡</title><p>height transition probe</p>')
     // 发卡后 scroller 被乐观消息撑高——归位到底部（等效用户贴底）再开采样
 
     // 贴底 + 开采样 → 点展开（按钮已在视口内，click 无 scrollIntoView 位移）：
