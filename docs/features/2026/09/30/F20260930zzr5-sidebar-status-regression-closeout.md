@@ -2,6 +2,7 @@
 id: F20260930zzr5
 title: 左栏对话状态回归收口：可见性立即刷新 + 状态一致性回归测试
 type: BugFix
+change_type: fix
 status: implemented
 created_at: 2026-09-30
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
@@ -9,6 +10,12 @@ causal_links:
   - F20260806actv
   - F20260930roiv
 summary: issue #1249 左栏「处理中」滞留：根因层已由 #1244 修复，本特性收口显示层——可见性恢复立即刷新 + 数据/前端两层回归测试
+intent:
+  problem: "issue #1249：9/29 13:09 搭档目击对话实际等待用户（awaiting_user），左侧栏仍显示「处理中」。数据层根因（重启窗口期孤儿 running invoke）已由 F20260930roiv/#1244 修复；显示层次因：轮询 hook 切回标签页时不立即刷新，旧 badge 最长滞留 5s；且事故链路末端（孤儿清理后状态恢复）无回归测试。"
+  expected_effect: "① use-conversation-list-polling 切回标签页时先 refresh() 再 startPolling()（fetching 防重入），状态翻转后 UI 即时反映；② 数据层新增事故链路回归用例（孤儿清理后 processing→awaiting_user 恢复）；③ 前端层新增 3 用例（服务端翻转轮询跟随 / 切回立即刷新 / 防重入）。"
+  verify_by:
+    type: capability_test
+    reason: "sqlite-conversation-repository.test.ts 事故链路回归用例 + use-conversation-list-polling.test.ts 3 用例（接管 rebase 后复跑 29/29 + 3/3 绿，tsc exit 0）。"
 ---
 
 # F20260930zzr5 左栏对话状态回归收口
