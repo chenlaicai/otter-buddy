@@ -3962,7 +3962,7 @@ describe('F20261008hcpa（#1356 层3）：high 超龄升级提醒推送（ageOut
     // lint 禁断言参数——改为断言副作用（alert 队列）
   });
 
-  it('resolver 返回 undefined（settings 不可达）→ 不推 alert，但台账 warn 仍落（alertPushed:false）', async () => {
+  it('resolver 返回 undefined（settings 不可达）→ 跳过 age-out 不动台账（事件保持 open 等下轮，防「先 dismiss 后丢提醒」）', async () => {
     const { healingAlertRegistry } = await import('@usecases/healing/healing-alert-registry');
     const healingRepo = makeHealingRepo([agedHighEvent('he-c')]);
     const warnSpy = vi.fn();
@@ -3984,8 +3984,9 @@ describe('F20261008hcpa（#1356 层3）：high 超龄升级提醒推送（ageOut
       .resolveEffectiveBody(makeTask({ body: '[self-healing-analysis] healing analysis' }));
 
     expect(healingAlertRegistry.takeAll('healing-conv-1')).toHaveLength(0);
-    expect(warnSpy).toHaveBeenCalled();
-    // lint 禁断言参数——改为断言副作用（alert 队列空）
+    // 审视建议 A：提醒通道是 age-out 前置条件——不可达时不动台账，ageOutHighAndNotify 不被调用
+    expect(healingRepo.ageOutHighAndNotify).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalled(); // 落「跳过本轮 age-out」warn 留痕
   });
 
   it('无超龄 high → 不推 alert 不 warn', async () => {

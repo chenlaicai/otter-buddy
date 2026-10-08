@@ -110,8 +110,8 @@ describe("buildAutoRetryMsg", () => {
 });
 
 describe("#731 guard bounce 文案与常量", () => {
-  it("GUARD_BOUNCE_MAX 默认 3 次（有界防护）", () => {
-    expect(GUARD_BOUNCE_MAX).toBe(3);
+  it("GUARD_BOUNCE_MAX 默认 2 次（#1356 层1 打断：第 3 次拦截前即升级，消灭终态后连环撞墙形态）", () => {
+    expect(GUARD_BOUNCE_MAX).toBe(2);
   });
 
   it("GUARD_BOUNCE_WINDOW_MS 默认 10 分钟滑窗", () => {
@@ -120,7 +120,7 @@ describe("#731 guard bounce 文案与常量", () => {
 
   it("buildGuardBounceMsg：回发进度 + 透传拦截原因 + 四要素引导（无 restart 出口）", () => {
     const msg = buildGuardBounceMsg("bash_safety:测试拦截原因文案", 2);
-    expect(msg).toContain("第 2/3 次");
+    expect(msg).toContain("第 2/2 次");
     expect(msg).toContain("自动回发控制信号");
     expect(msg).toContain("测试拦截原因文案");
     // 复用四要素口径
@@ -141,7 +141,7 @@ describe("#731 guard bounce 文案与常量", () => {
   it("buildGuardBounceEscalationMsg：升级文案含次数 + 人工介入引导 + 误拦排查提示", () => {
     const msg = buildGuardBounceEscalationMsg("mimo");
     expect(msg).toContain("mimo");
-    expect(msg).toContain("已连续 3 次");
+    expect(msg).toContain("已连续 2 次");
     expect(msg).toContain("停止自动回发");
     expect(msg).toContain("请人工介入");
     expect(msg).toContain("误拦");

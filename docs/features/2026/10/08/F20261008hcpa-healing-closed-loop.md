@@ -71,13 +71,31 @@ created_at: "2026-10-08T16:15:00+08:00"
 ## 取舍
 
 - **上限 2 而非 1**：第 1 次拦截仍给自纠机会（bounce 回发），第 2 次再拦说明獭没听懂，第 3 次直接升级——比 3 次更早，但保留了自纠窗口
-- **24h 而非 30 天**：high 超龄提醒窗口比 staleDays(30) 紧 30 倍——升级信号挂 24h 无人处置就推大獭，不等月度清理
-- **resolver 懒解析**：healing 主对话 ID 经 settings 仓异步解析（构造期 ensureHealingConversation 可能未就绪），不可达时静默降级——提醒可丢一次，台账不丢
+- **48h 而非 24h（审视建议 C 采纳）**：日调度每天一班，24h 阈值与调度零冗余——漏跑一天（进程停摆/调度故障）即翻转 bind_issue 语义；48h 留一天调度冗余，仍然远紧于 30 天 staleDays
+- **resolver 懒解析 + 不可达跳过（审视建议 A 采纳）**：healing 主对话 ID 经 settings 仓异步解析（构造期 ensureHealingConversation 可能未就绪），不可达时**跳过本轮 age-out**（事件保持 open 等下轮，而非「先 dismiss 后丢提醒」）——提醒通道是 age-out 的前置条件而非事后补充
+- **alert 超限聚合（审视建议 B 采纳）**：批量推送改走 enqueueBatchAggregated——≤20 逐条保留，超限聚合成单条摘要（类型计数 + ids），提醒不静默丢
+
+**Modification-Class**：`mechanism-addition`（alert 注入链路/age-out 独立通道/kill-by-pid 子命令/分层处置是新堩机制，非既有逻辑参数调优；guard bounce 上限 3→2 部分为 narrow-fix）。机制预算四问：
+
+1. **新能力**：①超龄 high 独立 age-out 通道（推 alert-registry 提醒）；②restart-service kill-by-pid 子命令；③healing 消费任务对 high 强制 bind_issue（prompt 硬规则 + fallback 同步）
+2. **预算理由**：#1356 治理洞——high 升级信号被时间静默/无提醒通道/正当诉求无出口，三层均为填补既有治理链路缺口，非能力扩张
+3. **退役路径**：若 healing 事件总量长期低位（告警通道饱和度指标 <5% 持续 30 天），age-out 提醒通道可退役；kill-by-pid 随端口路径同进退
+4. **越界检查**：alert-registry 仍为进程级内存队列（不落库、不跨进程），台账 healing_events 仍是唯一持久化真相源；kill-by-pid 与端口路径同构三重校验（白名单/cwd/主进程），无新增豁免面
 
 ## 验证
 
 - `sqlite-healing-event-repository-stale-severity.test.ts`：autoStaleDismiss 排除 high、ageOutHighAndNotify 取回/幂等/不参与 resolved（4 用例）
 - `restart-service-kill-by-pid.test.ts`：assertKillByPidSafe 静态校验（8 用例：PID 合法性/主进程/自身/projectDir 边界）
 - `agent-invoker-guard-bounce.test.ts`：GB-3 上限 2 语义（seed 2 条→第 3 次升级）
-- `scheduler-service.test.ts`：alert 推送/resolver 降级/无超龄不 warn（3 用例）
+- `scheduler-service.test.ts`：alert 推送/resolver 不可达跳过 age-out/无超龄不 warn（3 用例）
+- `healing-alert-registry.test.ts`：enqueueBatchAggregated ≤上限逐条保留 + 超限聚合单条摘要（2 用例）
 - 全量 4971/4971 + tsc 0 错
+
+### 对抗审视修复记录（检视獭-1361，2026-10-08）
+
+- **严重1**：retry-policy.test.ts 三处断言同步（GUARD_BOUNCE_MAX=2、第 2/2 次、已连续 2 次）；HEALING_FALLBACK_PROMPT 补 high 硬规则段落（与模板逐字节同步，模板守卫测试机械校验）
+- **建议 A**：resolver 解析前置于 age-out 事务之前，不可达时跳过（事件保持 open 等下轮）
+- **建议 B**：enqueueBatchAggregated 超限聚合，提醒不静默丢
+- **建议 C**：超龄阈值 24h→48h（日调度留一天冗余，防漏跑翻转 bind_issue 语义）
+- **严重4**：本文档补 Modification-Class（mechanism-addition）+ 机制预算四问；PR body 同步补声明
+- **严重5**：golden gate——`npm run test:capability:only` 跑过并更新 golden-results.jsonl，PR body 附记录说明

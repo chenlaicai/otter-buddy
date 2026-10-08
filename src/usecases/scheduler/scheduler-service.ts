@@ -923,28 +923,36 @@ export class SchedulerService {
   }
 
   /** F20261008hcpa（#1356 层3）：high 超龄事件推 healing-alert-registry。
-   *  从 resolveEffectiveBody 抽出降复杂度——职责独立（提醒推送 vs body 解析）。 */
+   *  从 resolveEffectiveBody 抽出降复杂度——职责独立（提醒推送 vs body 解析）。
+   *  审视建议 A：resolver 解析前置于事务之前（ageOutHighAndNotify 之前）——不可达时
+   *  跳过 age-out（事件保持 open 等下轮，而非「先 dismiss 后发现丢提醒」）；
+   *  审视建议 B：改走 enqueueBatchAggregated，超限聚合不静默丢。 */
   private async notifyAgedHighEvents(): Promise<void> {
     if (!this.healingRepo) return;
-    const agedHigh = await this.healingRepo.ageOutHighAndNotify(1);
-    if (agedHigh.length === 0) return;
+    // 先解析提醒目的地：不可达（healing 主对话未就绪等）则本轮不动台账——
+    // 提醒通道是 age-out 的前置条件而非事后补充，避免「已 dismissed 但提醒没送出」
     const targetConversationId = await this.healingConversationIdResolver?.();
-    if (targetConversationId) {
-      for (const e of agedHigh) {
-        healingAlertRegistry.enqueue(targetConversationId, {
-          eventId: e.id,
-          conversationId: e.conversationId,
-          otterId: e.otterId,
-          errorType: e.errorType,
-          description: `[high 超龄已 dismissed（24h 无人处置）] ${e.description}`,
-          createdAt: e.createdAt,
-        });
-      }
+    if (!targetConversationId) {
+      this.logger.warn('healing 提醒目的地不可达，跳过本轮 high 超龄 age-out（事件保持 open 等下轮）');
+      return;
     }
-    this.logger.warn('healing high 事件超龄 24h，已 dismiss 并推送升级提醒', {
+    const agedHigh = await this.healingRepo.ageOutHighAndNotify(2);
+    if (agedHigh.length === 0) return;
+    healingAlertRegistry.enqueueBatchAggregated(
+      targetConversationId,
+      agedHigh.map(e => ({
+        eventId: e.id,
+        conversationId: e.conversationId,
+        otterId: e.otterId,
+        errorType: e.errorType,
+        description: `[high 超龄已 dismissed（48h 无人处置）] ${e.description}`,
+        createdAt: e.createdAt,
+      })),
+    );
+    this.logger.warn('healing high 事件超龄 48h，已 dismiss 并推送升级提醒', {
       count: agedHigh.length,
       ids: agedHigh.map(e => e.id),
-      alertPushed: Boolean(targetConversationId),
+      alertPushed: true,
     });
   }
 
@@ -971,8 +979,8 @@ export class SchedulerService {
     }
     try {
       // F20261008hcpa（#1356 选 A）：autoStaleDismiss 现排除 high（low/medium 可时间静默）；
-      // high 超龄走独立通道——ageOutHighAndNotify(1) 取回后推 healing-alert-registry，
-      // 24h 挂账（比 30 天 staleDays 紧 30 倍）即提醒大獭「该事件已超龄 dismissed，请跟进」。
+      // high 超龄走独立通道——ageOutHighAndNotify(2) 取回后推 healing-alert-registry，
+      // 48h 挂账（比 30 天 staleDays 紧得多、留一天调度冗余防漏跑翻转）即提醒大獭「该事件已超龄 dismissed，请跟进」。
       // 推送目的地固定 healing 主对话（定时任务对话结束后该对话仍是大獭在场的主通道）。
       await this.healingRepo.autoStaleDismiss(30);
       await this.notifyAgedHighEvents();
@@ -1658,6 +1666,8 @@ export const HEALING_FALLBACK_PROMPT = `## Self-Healing 定期分析任务
 {{HEALING_DATA}}
 
 ## 处置权检查（前置，口径协议）
+
+**high severity 硬规则**：severity 为 high 的 open 事件**必须** bind_issue 归口到 GitHub issue（逐条处置、写明修复方案），不得直接 dismiss/resolve——high 是升级信号（守卫变体重试计数升级产出），静默处置会让「正当诉求无出路」的信号消失。确属误报时须先建 issue 说明误判理由、bind 后才能在 issue 内讨论关闭。
 
 处置任何 open 事件前，先检查其是否已被其他任务处置过口径：
 - 事件关联了 daily-review issue（resolutionNotes 引用 issue 编号 / issue body 内含该事件证据）→ **不重复处置、不推翻**——首个消费它的任务（通常是 9:00 健康检查）拥有处置权；发现其处置存疑时，在对应 issue 评论说明，**不改事件状态**
