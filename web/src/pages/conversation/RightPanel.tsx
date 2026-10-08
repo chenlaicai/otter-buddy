@@ -42,6 +42,8 @@ interface RightPanelProps {
   onDeleteScheduledTask: (taskId: string) => void
   onTriggerScheduledTask: (taskId: string) => void
   onViewScheduledTaskHistory: (taskId: string) => void
+  /** F20261006mlp2 P2：待办板裁决回执路由（handleSend 的 mention 路由封装——owner 为空时默认派发） */
+  onRouteToOtter?: (body: string, ownerOtterId: string | null) => void
 }
 
 /** 右侧栏 tab 类型 */
@@ -227,7 +229,7 @@ export function RightPanel(props: RightPanelProps) {
         )}
 
         {activeTab === 'matters' && (
-          <MattersPanel conversationId={props.conversation.id} />
+          <MattersPanel conversationId={props.conversation.id} onRouteToOtter={props.onRouteToOtter} />
         )}
       </div>
     </aside>

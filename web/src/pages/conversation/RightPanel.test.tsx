@@ -114,10 +114,21 @@ describe('RightPanel tab 切换', () => {
     expect(tree).not.toBeNull()
   })
 
+  it('第五 tab「待办」存在且切换渲染 MattersPanel（F20261006mtlp/mlp2）', async () => {
+    renderPanel([], [])
+    const mattersTab = container.querySelector('[data-testid="tab-matters"]')
+    expect(mattersTab).not.toBeNull()
+    expect(mattersTab!.textContent).toContain('待办')
+    // mock fetch（useMatters 拉 open + 含 closed 两路，无后端时静默失败 → 空态）
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([]), { status: 200 })))
+    switchTab('matters')
+    await act(async () => { await new Promise<void>(r => setTimeout(r, 0)) })
+    expect(container.querySelector('[data-testid="matters-panel"]')).not.toBeNull()
+  })
+
   it('切换 tab 时应保持各 tab 的状态', () => {
     const resources = [makeResource({ type: 'fact', content: '测试事实' })]
     renderPanel(resources, [])
-
     switchTab('resources')
     expect(container.textContent).toContain('测试事实')
 

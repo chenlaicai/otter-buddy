@@ -14,12 +14,11 @@
  *
  * 退出码：0 通过 / 1 有违规 / 2 环境异常（宽松放行，不误伤）。
  *
- * 已知限制（审视发现 6/10，记录在案不阻塞）：stripTsComments 不解析正则字面量——
- * description 字符串内若含形如 /\d\// 的正则字面量，可能误吞其后内容致漏检；
- * name: 属性关闭状态机存在跨行窗口。当前注入面 description 全为纯文本，零实际漏检；
- * 若未来引入含正则字面量的 description，须先升级扫描器（用 TS parser 替代手写状态机）。
+ * name: 属性关闭状态机存在跨行窗口（审视发现 6/10，记录在案不阻塞）。
+ * 正则字面量识别已在 #1128 修复（scripts/strip-ts-comments.mjs，含除法/正则区分启发式）。
  */
 import { execFileSync } from "node:child_process";
+import { stripTsComments } from "./strip-ts-comments.mjs";
 import { readFileSync, existsSync } from "node:fs";
 
 const ANCHOR_RE = /F20\d{6}[a-z0-9]{4}|#\d{3,}\b/g; // F+8位日期+4随机缀；issue 号不限位数（防年份到期静默失效）
@@ -109,41 +108,6 @@ if (whitelist.length > WHITELIST_MAX) {
       `删旧才能加新——白名单只加不审 = gate 空转（治理判据见特性文档）`
   );
   process.exit(1);
-}
-
-/** 剥离 TS 源码中的注释（块注释+行注释），保留字符串字面量——锚点在注释里是合法的决策史归位 */
-function stripTsComments(src) {
-  let out = "";
-  let i = 0;
-  let inStr = null; // ' " `
-  while (i < src.length) {
-    const c = src[i];
-    const next = src[i + 1];
-    if (inStr) {
-      out += c;
-      if (c === "\\") { out += next ?? ""; i += 2; continue; }
-      if (c === inStr) inStr = null;
-      i++;
-      continue;
-    }
-    if (c === '"' || c === "'" || c === "`") { inStr = c; out += c; i++; continue; }
-    if (c === "/" && next === "/") {
-      while (i < src.length && src[i] !== "\n") i++;
-      continue;
-    }
-    if (c === "/" && next === "*") {
-      i += 2;
-      while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) {
-        if (src[i] === "\n") out += "\n"; // 保行号
-        i++;
-      }
-      i += 2;
-      continue;
-    }
-    out += c;
-    i++;
-  }
-  return out;
 }
 
 const violations = [];

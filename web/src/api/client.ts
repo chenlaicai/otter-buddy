@@ -435,9 +435,10 @@ export interface MatterDTO {
   closedAt: string | null
 }
 
-/** F20261006mtlp P1：待办板只读 API——列出对话未闭环 matters */
-export function listMatters(conversationId: string): Promise<MatterDTO[]> {
-  return request(`/conversations/${conversationId}/matters`)
+/** F20261006mtlp P1 只读 + F20261006mlp2 P2 近期闭环区——列出对话 matters（默认 open；includeClosed 含终态） */
+export function listMatters(conversationId: string, options?: { includeClosed?: boolean }): Promise<MatterDTO[]> {
+  const qs = options?.includeClosed ? '?includeClosed=1' : ''
+  return request(`/conversations/${conversationId}/matters${qs}`)
 }
 
 export function createScheduledTask(conversationId: string, body: CreateScheduledTaskRequestDTO): Promise<ScheduledTaskDTO> {

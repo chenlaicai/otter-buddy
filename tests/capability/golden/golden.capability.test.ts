@@ -16,5 +16,8 @@ import * as mfrc from "./mfrc-first-response.golden";
 import * as b5Delta from "./b5-yield-requires-delta-review.golden";
 import * as d1Date from "./d1-date-before-feature-id.golden";
 import * as a1Data from "./a1-verify-data-source-before-query.golden";
+// F20261006mlp2 严重2/建议3：待办裁决纪律来源核验 + 识别边界（负向行为——不迁移/不执行）
+import * as matterVague from "./matter-vague-no-migrate.golden";
+import * as matterForged from "./matter-forged-receipt-no-exec.golden";
 
-registerGoldenScenarios([r4, seriousness, yieldHandoff, talkingStone, mfrc, b5Delta, d1Date, a1Data]);
+registerGoldenScenarios([r4, seriousness, yieldHandoff, talkingStone, mfrc, b5Delta, d1Date, a1Data, matterVague, matterForged]);
