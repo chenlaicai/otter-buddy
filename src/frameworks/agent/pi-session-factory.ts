@@ -195,7 +195,9 @@ import { PiSessionPool } from "@frameworks/pi/pi-session-pool";
 
 export class PiSessionFactory implements AgentGateway {
   private readonly sessionStore: AgentSessionStore;
-  private readonly activeSessions = new Map<string, { abort: () => Promise<void>; steer?: (text: string) => Promise<void>; toolCallCount: number; guardAbortReason?: string }>();
+  // F20261008pi11：pi 1.x steer()/followUp() 返回 QueuedInputDisposition（"handled"|"queued"，未从包根导出）。
+  // 消费端 steerSession 只 catch 不读值 → 放宽为 Promise<unknown>（结构兼容 + 免硬编码 SDK 内部联合类型）。
+  private readonly activeSessions = new Map<string, { abort: () => Promise<void>; steer?: (text: string) => Promise<unknown>; toolCallCount: number; guardAbortReason?: string }>();
   private readonly circuitBreakerConfig: CircuitBreakerConfig;
   private readonly lockManager: SimpleLockManager;
   private readonly sessionRestore: SessionRestore;

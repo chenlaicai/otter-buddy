@@ -34,9 +34,10 @@ export const CWD_PREFIX_TAG = "[cwd:";
  * 包装 bash ToolDefinition 的 execute，在输出文本前注入 [cwd: <dir>] 前缀。
  * 感知对齐核心：LLM 每轮看到真实执行目录，自行修正心理模型误差。
  *
- * 注入位置：成功返回的 content[0].text 开头；错误场景（exit code/timeout/abort）
- * 由 SDK 抛 Error，文本在 error.message 里——同样注入前缀（LLM 需要知道
- * 失败命令是在哪跑的）。
+ * 注入位置：成功返回的 content[0].text 开头；错误场景——pi 0.x 抛 Error（文本在
+ * error.message）→ 前缀注入 message 后 rethrow；pi 1.x（F20261008pi11）改为 resolve
+ * isError:true 的结构化结果（command_response 语义：结果就是给模型看的，不再 throw）
+ * → 前缀注入 text 开头后照常 resolve。两条路径都保留「失败命令在哪跑的」感知。
  *
  * @param base bash 工具定义（createBashToolDefinition 返回值）
  * @param cwd session 构造时的固定 cwd（主仓根）——即 ctx?.cwd || cwd 的 fallback
@@ -54,7 +55,8 @@ export function wrapBashWithCwdPrefix(base: ToolDefinition, cwd: string): ToolDe
       const actualCwd = ctx?.cwd || cwd;
       try {
         const result = await base.execute(toolCallId, params, signal, onUpdate as never, ctx as never) as AgentToolResultLike;
-        // 成功路径：content[0].text 注入前缀
+        // 成功与 isError（pi 1.x 失败语义）路径统一：content[0].text 注入前缀。
+        // isError:true 时前缀保证「失败命令在哪跑的」感知不丢失；structuredContent 原样保留。
         const first = result.content?.[0];
         if (first?.type === "text" && typeof first.text === "string") {
           first.text = `${CWD_PREFIX_TAG} ${actualCwd}]\n${first.text}`;
