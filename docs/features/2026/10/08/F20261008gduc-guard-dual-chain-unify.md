@@ -4,6 +4,12 @@ title: bash 守卫 P0 双修复——V1 兜底链 cd 豁免 || 误伤修正 + �
 summary: V1 兜底链 hasRealCdSegment 裸 \| 正则把 || 备用链当管道杀 cd 豁免（#1170 修复只落 V2 复发面，近 7 天 main_write 误拦 93 条）修正为 lookaround 形态 + 熔断同规则 3 连判疑似误拦走降级通道（通知搭档 + invoke failed + suspected_false_positive 落账），治 #1353 獭失联半小时；异规则/unknown/查询失败仍 abort 不误判
 type: BugFix
 date: 2026-10-08
+capability_test: "n/a: 守卫正则修正与熔断降级分支逻辑，验证走单测（bash-safety-guard P0-1 6 例 / agent-invoker-guard-bounce P0-2 4 例），无独立 LLM 能力面"
+intent:
+  problem: "#1170 修复只落在 V2 段级语义，V1 兜底链 hasRealCdSegment 裸 \\| 正则把 || 备用链首字符当管道杀 cd 豁免，多行载荷 parseOk=false 落 V1 链时同一形态复发误拦（近 7 天 main_write 误拦 93 条，39 条含 worktree 路径）；guard bounce 熔断只数次数不看规则标识，连续 3 次命中同一 ruleId（同一误拦面）时自动重试注定失败却静默 abort，#1353 实证獭失联半小时"
+  expected_effect: "|| 备用链不再被当管道杀 cd 豁免（与同函数切分正则语义对齐），cd 豁免生效后仍过 cdExemptionWithVeto 负门（#1240 不旁路）；同规则 3 连判疑似误拦走降级通道（通知搭档含命令摘要/命中规则/重试次数 + invoke failed 终态 + suspected_false_positive high 落账），异规则/unknown/查询失败仍走原 abort 终态"
+  verify_by:
+    type: behavior_check
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
 status: implemented
 pr: ""
