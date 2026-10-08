@@ -37,6 +37,17 @@ const ONCE_RETRY_DELAY_MS = 65_000; // 65 秒（避开 claimTask 60s 窗口）
  *  同步涨到最多 5min（可接受，见特性文档 timer-diet）。quartz/celery beat 模式：
  *  定时扫描 active 任务，比对墙钟，迟到即补触发 */
 const POLL_INTERVAL_MS = 300_000;
+
+/** #1272：轮询 catch-up 每轮全局配额（所有对话合计）。
+ *  Why 3：issue #1272 建议同轮重任务 ≤3；跨对话风暴主要是资源压力，
+ *  同对话堆积才是上下文爆炸主因（由 CATCHUP_CONV_QUOTA 另行限制）。 */
+const CATCHUP_GLOBAL_QUOTA = 3;
+
+/** #1272：轮询 catch-up 每轮同对话配额。
+ *  Why 1：多任务同对话同轮注入 = 每条任务指令都是完整上下文负担（6 份数据源+
+ *  全量数据的10/1现场），且会被同一执行 session 串行消化；配 1 让同对话任务
+ *  逐轮串行注入，每轮间隔一个 POLL_INTERVAL_MS。 */
+const CATCHUP_CONV_QUOTA = 1;
 /** #775 执行级看门狗轮询：任务触发后按此间隔探测「台账在途尝试 + 产出活性」。
  *  #516 静默窗是「无产出才判死」的容忍窗；换轨后信号可能被闸门冻结（用户停机/限流熔断），
  *  静默窗判死会误杀「被闸门保留、等待恢复」的信号——判活优先看台账（in_progress 即活），
@@ -317,6 +328,13 @@ export class SchedulerService {
   private async tickReal(): Promise<void> {
     const tasks = await this.getAllActiveTasks();
     const now = Date.now();
+    // #1272：catch-up 配额闸门——停机/冻结恢复后首轮 tick 会扫到全部 overdue 任务，
+    // 无配额则同轮全部 fire-and-forget（10/1 现场：9 任务同秒注入同一对话 → 上下文爆炸 +
+    // 循环守卫熔断）。配额双重：每轮全局 CATCHUP_GLOBAL_QUOTA（跨对话总量），每轮同对话
+    // CATCHUP_CONV_QUOTA（防单对话堆积——风暴危害主要是同对话注入，跨对话只是资源压力）。
+    // 超额任务自然留到下轮 tick（POLL_INTERVAL_MS=5min 节拍），自然错峰。
+    let globalQuotaLeft = CATCHUP_GLOBAL_QUOTA;
+    const convQuotaLeft = new Map<string, number>();
     for (const task of tasks) {
       // once 任务走 setTimeout，轮询不干预
       if (task.scheduleType === 'once') continue;
@@ -331,23 +349,15 @@ export class SchedulerService {
       }
 
       // #823 根修之二：expected 已过但 lastTriggeredAt 已被刷新（无对应 execution 的
-      // trigger——如 claim 后被 skip/前置炸）→ 旧 expected 已失效，必须重算（getNextTime(now)），
-      // 否则本 tick 静默放过、而 expected 缓存永不更新 = 任务永久饿死（9/6 现场主根因）。
-      if (expected.getTime() <= now && task.lastTriggeredAt && now - new Date(task.lastTriggeredAt).getTime() <= POLL_INTERVAL_MS) {
-        // lastTriggeredAt 比 expected 新：有人触发过（无论成败）→ expected 重算推进
-        const refreshed = this.cronParser.getNextTime(task.cron, task.timezone);
-        if (refreshed.getTime() !== expected.getTime()) {
-          this.nextExpectedTrigger.set(task.id, refreshed);
-          expected = refreshed;
-          this.logger.info(`Polling: task ${task.id} expected refreshed after recent trigger`, {
-            taskId: task.id, nextExpectedAt: refreshed.toISOString(),
-          });
-        }
-      }
+      // trigger——如 claim 后被 skip/前置炸）→ 旧 expected 已失效，必须重算（getNextTime(now)）。
+      expected = this.refreshStaleExpected(task, expected, now);
 
       // 比对墙钟：预期触发时间已过 → 迟到，补触发
       // #640 防重复：lastTriggeredAt 在 POLL_INTERVAL_MS 内 → 已被 setTimeout 快路径触发，跳过
       if (expected.getTime() <= now && (!task.lastTriggeredAt || now - new Date(task.lastTriggeredAt).getTime() > POLL_INTERVAL_MS)) {
+        // #1272：配额闸门——超额任务不丢，留到下轮 tick 自然错峰（迟到≠立即）
+        if (!this.tryConsumeCatchupQuota(task, globalQuotaLeft, convQuotaLeft)) continue;
+        globalQuotaLeft = this.consumeGlobalQuota(globalQuotaLeft);
         const driftMs = now - expected.getTime();
         this.logger.info(`Polling: task ${task.id} overdue by ${driftMs}ms, triggering catch-up`, {
           taskId: task.id,
@@ -355,24 +365,73 @@ export class SchedulerService {
           driftMs,
         });
         // 补触发（不阻塞后续任务扫描）
-        void this.triggerTask(task).catch(error => {
-          this.logger.error(`Polling: catch-up trigger failed for task ${task.id}`, error as Error);
-        }).then(() => {
-          // 触发后重新计算下次预期时间（无论成功失败都重算）
-          try {
-            const nextExpected = this.cronParser.getNextTime(task.cron, task.timezone);
-            this.nextExpectedTrigger.set(task.id, nextExpected);
-            // 同步刷新 setTimeout 快路径
-            this.scheduleNext(task);
-          } catch (e) {
-            this.logger.error(`Polling: failed to reschedule task ${task.id}`, e as Error);
-          }
-        });
+        this.fireCatchup(task);
       } else {
         // 未到期：记录下次预期时间（可观测性）
         this.logger.debug(`Polling: task ${task.id} next expected at ${expected.toISOString()}`);
       }
     }
+  }
+
+  /** #823 根修之二（tickReal 抽取）：expected 已过但 lastTriggeredAt 已被刷新
+   *  （无对应 execution 的 trigger——如 claim 后被 skip/前置炸）→ 旧 expected 已失效，
+   *  必须重算（getNextTime(now)），否则本 tick 静默放过、而 expected 缓存永不更新
+   *  = 任务永久饿死（9/6 现场主根因）。 */
+  private refreshStaleExpected(task: ScheduledTask, expected: Date, now: number): Date {
+    if (!(expected.getTime() <= now && task.lastTriggeredAt && now - new Date(task.lastTriggeredAt).getTime() <= POLL_INTERVAL_MS)) {
+      return expected;
+    }
+    // lastTriggeredAt 比 expected 新：有人触发过（无论成败）→ expected 重算推进
+    const refreshed = this.cronParser.getNextTime(task.cron, task.timezone);
+    if (refreshed.getTime() !== expected.getTime()) {
+      this.nextExpectedTrigger.set(task.id, refreshed);
+      this.logger.info(`Polling: task ${task.id} expected refreshed after recent trigger`, {
+        taskId: task.id, nextExpectedAt: refreshed.toISOString(),
+      });
+      return refreshed;
+    }
+    return expected;
+  }
+
+  /** #1272：配额检查与消耗（tickReal 抽取，控 complexity）。
+   *  返回 false = 配额已尽应跳过（缓存保持 overdue 留到下轮）；true = 已消耗额度放行。
+   *  Why 仅消耗同对话额度：globalQuotaLeft 是 tickReal 局部变量（每轮重置），
+   *  内联减比传引用/返回 tuple 更直白，故拆两步。 */
+  private tryConsumeCatchupQuota(task: ScheduledTask, globalQuotaLeft: number, convQuotaLeft: Map<string, number>): boolean {
+    const convQuota = convQuotaLeft.get(task.conversationId) ?? CATCHUP_CONV_QUOTA;
+    if (globalQuotaLeft <= 0 || convQuota <= 0) {
+      this.logger.info(`Polling: catch-up quota exhausted for task ${task.id}, deferring to next tick`, {
+        taskId: task.id,
+        conversationId: task.conversationId,
+        globalQuotaLeft,
+        convQuotaLeft: convQuota,
+      });
+      return false;
+    }
+    convQuotaLeft.set(task.conversationId, convQuota - 1);
+    return true;
+  }
+
+  /** #1272：全局配额递减（tickReal 抽取，语义显式化） */
+  private consumeGlobalQuota(current: number): number {
+    return current - 1;
+  }
+
+  /** #1272：fire-and-forget 补触发 + 触发后重算缓存与 setTimeout 快路径（tickReal 抽取）。 */
+  private fireCatchup(task: ScheduledTask): void {
+    void this.triggerTask(task).catch(error => {
+      this.logger.error(`Polling: catch-up trigger failed for task ${task.id}`, error as Error);
+    }).then(() => {
+      // 触发后重新计算下次预期时间（无论成功失败都重算）
+      try {
+        const nextExpected = this.cronParser.getNextTime(task.cron, task.timezone);
+        this.nextExpectedTrigger.set(task.id, nextExpected);
+        // 同步刷新 setTimeout 快路径
+        this.scheduleNext(task);
+      } catch (e) {
+        this.logger.error(`Polling: failed to reschedule task ${task.id}`, e as Error);
+      }
+    });
   }
 
   /** 手动触发任务 */
@@ -413,6 +472,24 @@ export class SchedulerService {
     const wasCapped = delay > maxDelay;
 
     const timer = setTimeout(async () => {
+      // #1272：冻结唤醒 drift 检查。mac 睡眠期间 setTimeout 全部冻结，唤醒瞬间
+      // 同批多个任务的 timer 同秒到期 fire——若真实触发时刻落后预期超过一个轮询周期
+      // （POLL_INTERVAL_MS），说明这是冻结后补偿而非准时触发：放弃直发（直发 = 同轮
+      // 9 任务风暴注入同一对话，10/1 现场 12:04:07 同秒 9 execution 实证），
+      // 把 expected 缓存回填为已过时刻，交给 tick 配额闸门分轮补触发（每轮全局≤3、
+      // 同对话≤1）。drift 在一个轮询周期内 = 正常调度抖动，照旧直发。
+      const driftMs = nextTrigger.getTime() - Date.now();
+      if (driftMs < -POLL_INTERVAL_MS) {
+        this.logger.info(`Task ${task.id} timer fired with drift ${-driftMs}ms (suspected freeze/thaw), deferring to tick quota`, {
+          taskId: task.id,
+          expectedAt: nextTrigger.toISOString(),
+          driftMs: -driftMs,
+        });
+        // 缓存回填已过时刻：下轮 tick 扫描到 overdue 走配额补触发；
+        // 不重排 setTimeout（重排的 next 仍可能是过去时刻 → 再 fire 再拦的空转循环）
+        this.nextExpectedTrigger.set(task.id, nextTrigger);
+        return;
+      }
       if (wasCapped) {
         // #247: 24h 截断后只重新调度，不触发任务。
         // 原代码在此处调用 triggerTask 会导致月级/周级 cron 任务

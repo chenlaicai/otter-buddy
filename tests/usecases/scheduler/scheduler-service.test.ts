@@ -2589,6 +2589,101 @@ describe('#640: 轮询补触发（tick polling catch-up）', () => {
   });
 });
 
+// ─── #1272: 停机/冻结补偿触发风暴防护 ─────────────────────
+
+describe('#1272: 补偿触发风暴防护（catch-up storm guard）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('轮询 catch-up 每轮全局配额：9 个 overdue 任务同轮最多触发 3 个', async () => {
+    const now = new Date('2026-10-01T04:00:00.000Z');
+    vi.setSystemTime(now);
+
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendEntry = createMockSendEntry();
+    const entryRepo = createMockEntryRepo();
+    const agentInvoke = createMockAgentInvoke();
+    // 所有任务的下一次触发时间都在 1 小时前 → 全部 overdue
+    const overdueTime = new Date('2026-10-01T03:00:00.000Z');
+    const cronParser = createMockCronParser(overdueTime);
+
+    for (let i = 1; i <= 9; i++) {
+      taskRepo._store.set(`task-${i}`, makeTask({
+        id: `task-${i}`,
+        conversationId: `conv-${i}`,
+        // lastTriggeredAt 远早于 overdue 窗口 → 不被 5min 防重复窗口拦
+        lastTriggeredAt: '2026-10-01T01:00:00.000Z',
+      }));
+      convRepo._addConversation(`conv-${i}`, { status: 'active' });
+    }
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+    });
+
+    await service.start();
+    // start() 内 scheduleNext 用 getNextTime()（=overdueTime 过去时刻）调 setTimeout(delay<=0)
+    // → 立即到期 fire。冻结唤醒场景：任务真实 next 在过去 → 修复后这些 fire 应被 drift 检查
+    // 转交 tick 配额管（而不是直接 triggerTask 9 连发）
+    await vi.advanceTimersByTimeAsync(100);
+
+    // 修复后：全局配额 3 —— 前 3 个触发，后 6 个留到下轮（全部 9 连发 = 风暴；
+    // 0 触发 = 配额闸门空转、任务被饿死，同样错）
+    expect(taskRepo._executions.size).toBe(3);
+  });
+
+  it('轮询 catch-up 每轮同对话配额：同对话 5 个 overdue 任务同轮最多触发 1 个', async () => {
+    const now = new Date('2026-10-01T04:00:00.000Z');
+    vi.setSystemTime(now);
+
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendEntry = createMockSendEntry();
+    const entryRepo = createMockEntryRepo();
+    const agentInvoke = createMockAgentInvoke();
+    const overdueTime = new Date('2026-10-01T03:00:00.000Z');
+    const cronParser = createMockCronParser(overdueTime);
+
+    // 5 个任务全部挂同一对话（复刻三省吾身现场）
+    for (let i = 1; i <= 5; i++) {
+      taskRepo._store.set(`task-${i}`, makeTask({
+        id: `task-${i}`,
+        conversationId: 'conv-same',
+        lastTriggeredAt: '2026-10-01T01:00:00.000Z',
+      }));
+    }
+    convRepo._addConversation('conv-same', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+    });
+
+    await service.start();
+    await vi.advanceTimersByTimeAsync(100);
+    // 修复后：同对话配额 1 —— 首轮恰 1 个触发，其余留到下轮（5 连发 = 同对话风暴；
+    // 0 触发 = 饿死，同样错）
+    expect(taskRepo._executions.size).toBe(1);
+  });
+});
+
 // ─── #641: claim 前检查 running execution 测试 ─────────────────
 
 describe('#641: claim 前检查 running execution', () => {
