@@ -84,6 +84,23 @@ async function handleBatchResolve(
     return textResponse(JSON.stringify({ dryRun: true, matched: result.matched }, null, 2));
   }
 
+  // F20261008gfrc（三步走③·裁决摩擦）：匹配集中含 high severity 时拒绝批量 resolve——
+  // high 事件（变体重试计数升级类）是「正当诉求无出路」的升级信号，一键静默
+  // 会把它淹没在批量处置里。先 count 高危数，>0 则 errorResponse 逼逐条处置（逐条
+  // resolve 不受本闸限制——摩擦加在批量面，不是禁止处置本身）。
+  // Why 工具层而非 SQL 层：闸语义是「拒绝批量、引导逐条」的交互约束，repo 层保持纯数据操作；
+  // count 用独立方法而非 findAll（100 条上限的 findAll 对 >100 匹配集会漏检 high）。
+  // ⚠️ countByFilter 探测不设 LIMIT 是闸正确性关键——若加 LIMIT 与更新面「对齐」会让
+  // >100 匹配集的 high 漏检 → 闸失效（更新面 LIMIT 是事务分批语义，探测面必须全量）。
+  const highCount = await healingRepo.countByFilter({ ...filter, severity: 'high' });
+  if (highCount > 0) {
+    return errorResponse(
+      `[错误] 匹配集中含 ${highCount} 条 high severity 事件——high 是升级信号（变体重试计数升级），禁止批量静默。` +
+      `请先 query 定位这些事件逐条处置（action=resolve/dismiss 带 eventIds 不受此限）；` +
+      `确认批量面安全后，可用 filterErrorType/filterCreatedBefore 等收窄 filter 避开 high 再批量。`,
+    );
+  }
+
   const result = await healingRepo.batchResolveByFilter(filter, resolution, { limit: 100 });
   return textResponse(JSON.stringify({
     matched: result.matched, resolved: result.resolved,
@@ -134,7 +151,7 @@ export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: Hea
   };
   return {
     name: "manage_healing_events",
-    description: "查询和管理 healing events（系统自愈问题记录）. When: 查看自愈检测到的问题 / 标记已解决或忽略. Not for: 主动注入 healing 标记 → 走 speak 的 healing 块. Output: 问题列表或处置确认（action: query/resolve/dismiss/batch_resolve）. query 默认过滤健康探针心跳事件（includeProbe: true 可含，仅诊断用）. batch_resolve: 按 filter 批量处置（用 filterStatus/filterErrorType/filterCreatedBefore/filterCreatedAfter 替代 eventIds），单批上限 100，建议先 dryRun 预览再真实执行；响应含 truncated=true 时需再次执行处理剩余批次. GOTCHA: resolve/dismiss 部分失败时返回 isError——需检查响应中失败计数.",
+    description: "查询和管理 healing events（系统自愈问题记录）. When: 查看自愈检测到的问题 / 标记已解决或忽略. Not for: 主动注入 healing 标记 → 走 speak 的 healing 块. Output: 问题列表或处置确认（action: query/resolve/dismiss/batch_resolve）. query 默认过滤健康探针心跳事件（includeProbe: true 可含，仅诊断用）. batch_resolve: 按 filter 批量处置（用 filterStatus/filterErrorType/filterCreatedBefore/filterCreatedAfter 替代 eventIds），单批上限 100，建议先 dryRun 预览再真实执行；响应含 truncated=true 时需再次执行处理剩余批次. ⚠️批量闸：匹配集中含 high severity 事件时拒绝执行——high 是升级信号禁批量静默，先逐条处置（eventIds 路径不受限）或收窄 filter 避开 high. GOTCHA: resolve/dismiss 部分失败时返回 isError——需检查响应中失败计数.",
     parameters: {
       type: "object",
       properties: {

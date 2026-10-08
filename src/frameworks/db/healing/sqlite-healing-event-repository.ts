@@ -111,22 +111,23 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
     return result.changes;
   }
 
-  async batchResolveByFilter(
-    filter: HealingEventBatchFilter,
-    resolution: HealingResolution,
-    options?: { limit?: number; dryRun?: boolean },
-  ): Promise<BatchResolveResult> {
-    const limit = options?.limit ?? 100;
-    const dryRun = options?.dryRun ?? false;
+  /** F20261008gfrc：批量闸的 high 探测——与 batchResolveByFilter 同 WHERE 语义，只 count。
+   *  抽 buildBatchWhere 供两路复用，防止闸与更新面的判定漂移。 */
+  async countByFilter(filter: HealingEventBatchFilter): Promise<number> {
+    const { where, params } = this.buildBatchWhere(filter);
+    const row = this.db.prepare(
+      `SELECT COUNT(*) as cnt FROM healing_events WHERE ${where}`,
+    ).get(...params) as { cnt: number };
+    return row.cnt;
+  }
 
-    // Why: 动态构建 WHERE 子句——filter 全字段可选，AND 拼接
+  /** F20261008gfrc：batch WHERE 构建抽出（countByFilter / batchResolveByFilter 共用） */
+  private buildBatchWhere(filter: HealingEventBatchFilter): { where: string; params: unknown[] } {
     const clauses: string[] = [];
     const params: unknown[] = [];
-
     const status = filter.status ?? 'open';
     clauses.push('status = ?');
     params.push(status);
-
     if (filter.errorType) {
       clauses.push('error_type = ?');
       params.push(filter.errorType);
@@ -139,8 +140,23 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
       clauses.push('created_at > ?');
       params.push(filter.createdAfter);
     }
+    if (filter.severity) {
+      clauses.push('severity = ?');
+      params.push(filter.severity);
+    }
+    return { where: clauses.join(' AND '), params };
+  }
 
-    const where = clauses.join(' AND ');
+  async batchResolveByFilter(
+    filter: HealingEventBatchFilter,
+    resolution: HealingResolution,
+    options?: { limit?: number; dryRun?: boolean },
+  ): Promise<BatchResolveResult> {
+    const limit = options?.limit ?? 100;
+    const dryRun = options?.dryRun ?? false;
+
+    // F20261008gfrc：WHERE 构建抽入 buildBatchWhere（与 countByFilter 同语义）
+    const { where, params } = this.buildBatchWhere(filter);
 
     // dryRun: 只返回匹配数
     if (dryRun) {
