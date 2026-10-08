@@ -93,6 +93,13 @@ useLayoutEffect 每 commit 同步贴底（pinned 时）——消灭 RO→rAF 的
 - **真实浏览器**：scroll-restore-guard.spec.ts 逐帧断言——修复前 `top 0→3634 甩出`，修复后 `0→0 保持`（同一场景重放）
 - 全量 62 文件 652 用例绿；tsc/eslint 干净
 
+### 5.1 二轮 delta 复核追加修复（b6ce9850，检视发现 5/6/8）
+
+- **RO 观察器冷启动死亡（发现 5，main 上就有的存量缺陷）**：空态分支不渲染滚动容器 × RO effect deps 只有 `[conversationId, state]`——冷启动/首次打开会话时 effect 挂载瞬间 refs=null 早退，消息到达后 deps 无变化永不重跑，RO 链自 F20260907sgpt 起在冷启动会话从未挂载（检视獭插桩实锤：组件 RO 零 fire）。修复：deps 补 `messages.length > 0` 布尔（空→非空翻转恰触发重挂，基线重置已有）。「时好时坏」之谜的机制解：侧栏切回已缓存会话 RO 正常，冷启动会话 RO 恒死
+- **护栏判据硬化（发现 6）**：①A 刺激从普通文本（27~108px < 阈值 190）换为 600px 高卡+展开，附刺激源验收断言（卡高 > 阈值，防发卡失败恒绿）；②A/B 补终态归零断言（末 10 帧 max ≤8px——峰值合规但终态停底不回的回归，逐帧阈值抓不到）；③卡锄定用围栏 meta title 时间戳（nth/last 位置锄会漂——发卡会唤醒 alpha 大獭，其回复流把位置锚挤走；卡体 <title> 只进 iframe 不渲染卡头）
+- **反向验证（检视要求）**：临时注入 `__REV_PROBE` 禁用 RO 重挂修复 → A 用例终态断言咬住（124px 未归零，复现检视实验 2 形态）；恢复修复后 A/B 双绿（finalDist=0）。B 对冷启动回归天然不敏感（其场景消息已渲染，非冷启动路径）——A 终态断言是 RO 冷启动回归的唯一 e2e 哨兵
+- **scroll-restore-guard.spec.ts 补环境门控（发现 8，前轮处置声明与 diff 事实不符的补做）**：CI 空库下 v9 走 `idx=-1 → if 跳过` 静默假绿，补 `test.skip(!E2E_REPLICA_DATA)` 与 frame-guard 同款
+
 ## 6. 遗留
 
 - 监测卡（跳变标记器）仍可用——用户主系统若再现跳变，console 帧数据可继续对时
