@@ -385,6 +385,29 @@ describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
     expect(sendEntry.bodies.some(b => b.includes("无任何消息"))).toBe(false);
   });
 
+  it("#1277：全 compaction entry 极端形态 → reason=compaction-only（与真空/读失败区分归因）", async () => {
+    // sliceSessionEntries 恒返回结构——但「全 compaction、零普通消息」时 slicer 返回 undefined，
+    //  collectJsonlSlice 须把它标为 compaction-only 而非笼统 empty-session（排查可定位极端形态）。
+    const sdk = makeSdkPort({ entries: [{ type: "compaction", id: "c1", summary: "前世摘要" }] });
+    const engine = makeEngine({ sliceSessionEntries: () => undefined }); // 全 compaction 形态 slicer 返回 undefined
+    const sendEntry = { bodies: [] as string[] };
+    const invoker = makeInvokerWithEngine({ sdk, engine, sendEntry });
+
+    const session = await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true });
+
+    expect(session.id).toBe("sess-new");
+    expect(sdk.synthPrompts).toEqual([]); // 无普通消息原料，合成跳过合理
+    expect(engine.mechanical).toEqual(["手动"]); // 机械档案兜底
+    // reason 归因：显「compaction 摘要」专属文案，不是真空的「无任何消息」也不是读失败的「读取失败」
+    const doneMsg = sendEntry.bodies.find(b => b.includes("前世已封存"));
+    expect(doneMsg).toBeDefined();
+    expect(doneMsg!).toContain("机械档案");
+    expect(doneMsg!).toContain("compaction"); // #1277：专属文案含 compaction 字样
+    expect(doneMsg!).toContain("无普通消息");
+    expect(doneMsg!).not.toContain("无任何消息"); // 与真空 session 区分
+    expect(doneMsg!).not.toContain("读取失败"); // 与读失败区分
+  });
+
   it("S2：合成失败 → 完成文案带 reason（synthesis-error 对搭档可见）", async () => {
     const sdk = makeSdkPort({ synth: async () => { throw new Error("synth down"); } });
     const engine = makeEngine();

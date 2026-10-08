@@ -1072,6 +1072,8 @@ export class AgentInvoker implements AgentTurnPort {
       // F20260930hsfx：slice 恒返回结构——slice undefined 只有「真空 session / jsonl 读失败」
       //  两种形态（reason 随 sliceDegradeReason 上抛）；「无 speak 有原料」slice 非空、
       //  keptEntries=[]，保留段标注「前世无发言」但原料照送合成。两种形态都降级 DB 兜底保留段。
+      //  #1277：全 compaction 形态 slice 也为 undefined——由 collectJsonlSlice 区分标为
+      //  'compaction-only'（非 empty-session），档案/完成文案按枚举文案区分「真空」与「全压缩」。
       const hasKept = !!slice && (slice.keptEntries?.length ?? 0) > 0;
       const recencyBase = slice
         ? hasKept
@@ -1101,12 +1103,10 @@ export class AgentInvoker implements AgentTurnPort {
       //  强制，非用户选择）；M4 的 synthesizePast=false 只控制「跑不跑合成」，不影响 reason 归因。
       const priorFailures = this.handoffState.getConsecutiveFailures(otterId);
       const skipSynthesisByCircuitBreaker = priorFailures >= 2;
-      // 原料非空判定（S1）：slice 恒返回结构后，slice undefined = 真空/jsonl 读失败（原料不可得）；
+      // 原料非空判定（S1）：slice 恒返回结构后，slice undefined = 真空/jsonl 读失败/全 compaction（原料不可得）；
       //  slice 非空则看 messagesToSummarize（保留段之外全量，含无 speak 时的全量消息）。
-      //  第三形态（全 compaction entry、无普通消息）：slice 非空（恒返回结构）但 messagesToSummarize
-      //   为空（messageFromEntry 跳过 compaction）——hasMaterial=false 落到下方 !hasMaterial 分支，
-      //   sliceDegradeReason=undefined 时兜底 empty-session。注释如实（delta 建议1）：不虚构「slice
-      //   undefined」分支，该形态 slicer 返回结构非 undefined。
+      //  第三形态（全 compaction entry、无普通消息）：collectJsonlSlice 标为 'compaction-only'（#1277），
+      //   slice undefined 走同分支降级机械档案，reason 不再笼统为空 session。
       const hasMaterial = !!slice && slice.messagesToSummarize.length > 0;
       if (skipSynthesisByCircuitBreaker) {
         // F20260930hsfx S2/M5：熔断开启——reason 贯穿日志 + 完成文案可见
@@ -1129,7 +1129,7 @@ export class AgentInvoker implements AgentTurnPort {
         degradeReason = 'user-off';
       } else if (!hasMaterial) {
         // 原料不可得——真空 session / jsonl 读失败，合成跳过合理（S1：不再因保留段空误闯此分支）
-        degradeReason = sliceDegradeReason; // 'empty-session' | 'jsonl-read-fail' | undefined
+        degradeReason = sliceDegradeReason; // 'empty-session' | 'compaction-only' | 'jsonl-read-fail' | undefined
         this.logger.info('[handoff] no material to synthesize, mechanical archive only', {
           otterId, trigger, degradeReason,
         });
@@ -1366,9 +1366,12 @@ export class AgentInvoker implements AgentTurnPort {
       // scopeKey=otterId——切片观测日志按獭归因（[keeprecent-slice] cut；密度告警已随估算机制退役）
       const slice = this.engine?.sliceSessionEntries(entries as never, { scopeKey: otterId });
       // slice 非空（恒返回结构）：keptEntries 可能为空（无 speak 有原料）——原料照送合成。
-      // slice 为 undefined 仅剩「全 compaction entry、无普通消息」形态——无 user/assistant 消息
-      //  可合成，同 empty-session 语义（审视建议3：第三形态补 reason，不再漏标）。
-      return { slice, degradeReason: slice ? undefined : 'empty-session' };
+      // slice 为 undefined 只剩两种形态，须区分（#1277）：
+      //  - entries 全 compaction、零普通消息 → 'compaction-only'（极端形态，排查可定位）
+      //  - slicer 防御性 undefined（理论不可达，恒返回结构）→ 'jsonl-read-fail'（切面异常语义）
+      if (slice) return { slice, degradeReason: undefined };
+      const hasNonCompaction = entries.some(e => (e as { type?: string }).type !== 'compaction');
+      return { slice, degradeReason: hasNonCompaction ? 'jsonl-read-fail' : 'compaction-only' };
     } catch (err) {
       this.logger.warn('[handoff] jsonl slice failed, degrading', {
         otterId, error: err instanceof Error ? err.message : String(err), degradeReason: 'jsonl-read-fail',
