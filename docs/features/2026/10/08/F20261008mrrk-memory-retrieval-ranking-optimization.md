@@ -8,17 +8,16 @@ summary: |
   bothBoost 1.2）→ rerank 五信号乘法堆叠 final = rrf × time_decay × frequency ×
   user_flag × conversation_boost（search-engine.ts:183），无量纲归一化；仓内无排序
   质量评测（tests/capability/memory-recall.capability.test.ts:8 自述仅行为不变量），历次调参只能凭
-  体感验收。候选方向依 R20260826rcmm「度量>召回>提炼」排序：Phase 0 golden 查询集
-  + nDCG 评测基线先行，Phase 1 在基线保护下做信号归一化融合。触发本特性的具体
-  痛点场景待搭档补充。
-  （FID 顺延：F20260923ntq3 → F20261008mrrk，2026-10-08。）
+  体感验收。方向依 R20260826rcmm：Phase 0 已落地 golden 评测套件（32 条四层查询 +
+  37 条确定性语料 + nDCG/MRR，地板 0.789/0.803/0.911 随 npm test 进 CI），
+  Phase 1 信号归一化待基线保护下实施。（FID 顺延：F20260923ntq3 → F20261008mrrk。）
 change_type: feature
 intent:
   problem: "记忆检索排序无质量评测（golden 集/nDCG 缺失）且 rerank 五信号乘法堆叠无量纲归一化——排序改动只能凭单测锁定+体感验收，证明行为还在但不证明排对了，排序退化只能靠搭档事后口头反馈发现"
   expected_effect: "设计文档本身无行为改动；为后续 Phase 0（golden 查询集 + nDCG 评测基线，成为排序改动合入门禁）与 Phase 1（基线保护下的信号归一化融合）提供经代码实查的现状链路与方案骨架"
   verify_by:
     type: static_only
-capability_test: "n/a: 设计阶段文档，仅盘点现状与候选方向，无行为改动；实现提交时补 capability 用例"
+capability_test: "tests/usecases/memory/golden-eval.test.ts"
 created_at: 2026-10-08
 created_in_conversation: 08054326-2bef-42c0-ad6d-a9e91640c9e9
 causal_links:
@@ -145,4 +144,65 @@ modules:
 - [ ] 确认优化方向：评测基线先行 + 信号归一化（含 R3 备选路径认可）
 - [ ] 确认 golden 查询集规模与标注投入（30-50 条，谁标、抽查比例）
 - [ ] 裁决三份在途文档的去留合并
-- [ ] 通过后拆两个实现 PR：Phase 0 / Phase 1 分开交付
+- [ ] 通过后拆两个实现 PR：Phase 0 / Phase 1 分开交付（Phase 0 已完成，见下方实现记录）
+
+## Phase 0 实现记录（2026-10-08）
+
+搭档 2026-10-08 10:05 拍板「实现也带上」，本节补记 Phase 0 落地事实。
+
+### 交付物
+
+| 组件 | 位置 | 说明 |
+|---|---|---|
+| 指标纯函数 | `tests/usecases/memory/ranking-metrics.ts` | nDCG@K / MRR / mean；线性增益（分级 3/2/1/0），无生产依赖 |
+| 指标单测 | `tests/usecases/memory/ranking-metrics.test.ts` | 14 例手算期望值锁定（独立推导，非实现回代） |
+| golden 语料+查询集 | `tests/usecases/memory/golden-corpus.ts` | 37 条确定性 fixture + 32 条四层查询 + 权重预设，合成种子集声明 |
+| 评测 runner+地板 | `tests/usecases/memory/golden-eval.test.ts` | 全链路指标 + 地板断言 + 防腐化结构断言 |
+| 便捷脚本 | `package.json` | `npm run eval:golden`（本地复跑/基线更新入口） |
+
+CI 接入方式：套件落在 tests/ 下随 `npm test` 进 check job（vitest include tests/**），
+无独立 workflow 新增——门禁复用现有路径，PR 内可见指标输出（console 日志）。
+
+### 设计取舍
+
+- **指标增益线性而非指数**（未用 2^rel−1）：三级标注下方差过大，单条核心 miss 与
+  多条弱相关命中的权衡被放大；线性增益对排序 PR 前后对比更稳。
+- **时间确定性用动态相对时间**：语料 createdAt 全部 `daysAgo(N)` 运行时求值（#1126
+  动态日期模式），相对年龄恒定 → time_decay 输入恒定；不写死 ISO 日期（lint:date-bombs）。
+- **检索副作用隔离**：`SearchMemory.search` 会递增 retrieval_count
+  （search-memory.ts:571 incrementRetrievalCounts），评测在每条查询后重置
+  memory_weights 并重放 WEIGHT_PRESETS——否则查询顺序污染 frequency 信号、指标不可重复。
+- **Vec 路径口径（已知边界）**：CI check job 无 bge-m3 下载步骤（golden-selftest
+  job 才有），真模型进不了这条门禁；评测 mock EmbeddingGateway available=false，
+  searchVec 跳过、召回降级纯 FTS——与 tests/usecases/memory 现有 search 测试同口径。
+  覆盖面如实声明：**评测覆盖 FTS+预聚合+RRF+rerank 四信号；Vec 召回与 bothBoost
+  在本套件为 FTS-only 降级形态**，真 Vec 评测待 capability 层后续接入。
+- **地板取首跑值向下取整 3 位**：本地 3 次复跑完全一致（确定性验证），向下取整
+  吸收浮点末位，语义仍是「不许变差」。下降需证明测量噪声或语义预期变化（后者
+  需搭档确认），上升可直接改数字。
+- **debug 分值通道**：Phase 0 指标计算不依赖中间分值——设计文档「数据来源用 debug
+  分值」（search-memory.ts:68）指 Phase 1 标定系数时的诊断需求；本 Phase 零生产代码
+  变更，debug 通道保持不动。
+
+### 基线数字（首跑锁定，2026-10-08）
+
+| 指标 | 首跑值 | 地板（向下取整 3 位） |
+|---|---|---|
+| nDCG@5 | 0.7891 | 0.789 |
+| nDCG@10 | 0.8034 | 0.803 |
+| MRR | 0.9115 | 0.911 |
+
+口径：n=32，全链路 SearchMemory.search（FTS-only 形态），limit=10，权重预设重放，
+查询间权重重置。本地 3 次复跑完全一致；CI 同口径（check job 无模型下载，同样
+FTS-only）。
+
+### 已知边界与后续
+
+- **合成种子集**：条目与标注为人工构造（golden-corpus.ts 头注声明），非真实使用
+  数据；真实数据校准需搭档抽查（R2）。种子集基线只锁定当前管线行为，不代表
+  真实分布上的质量水位——数字本身不宣胜，只做回归地板。
+- **分层覆盖**：fact 8 / history 8 / document 10 / conversation 6（32 条，在 30-50 区间）；
+  语料 contentType 六类全覆盖（message/fact/feature/feature_chunk/research/research_chunk）、
+  年龄 1~365 天、3 对话 + 跨对话(null)、user_flagged 与 retrieval_count 预设各一。
+- **Phase 1 衔接**：信号归一化 PR 必须附前后 nDCG 对比（R1）；真 Vec 口径评测与
+  golden 集真实数据校准列为后续独立工作。
