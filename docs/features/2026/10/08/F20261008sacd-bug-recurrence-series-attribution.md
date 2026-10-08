@@ -6,7 +6,7 @@ change_type: fix
 capability_test: "n/a: 确定性检测逻辑（无 LLM 行为面），7 新增用例含系列归因三形态 + 载体排除边界 + 39 既有回归全过"
 intent:
   problem: "bug_recurrence 信号 43% 是口径盲区（测试/bootstrap/schema 载体混入 critical），30% 真腐烂（bash 守卫 12 连败/恢复机制三次推翻/压缩链路 5 连「根治」）与 26% 热点活跃假象同报 critical，告警失去区分度——搭档无法从 23 条 critical 里看出哪 7 条是真烂（归因报告：工作区 issue-1012-归因分析.md）。#1259 口径修订 10/1 合入但服务未重启从未生效，23 条按旧口径刷数。"
-  expected_effect: "新触发信号：跨 issue 分散形态降 warning；migration/schema 载体不触发；同 issue 主体严格过半报 critical（#1160 五连形态）。**能力边界（delta r1 D1 裁决 b）**：集群爆发形态（每次修复开新 issue 号，如 bash 守卫 21 修 28 个号全计数 1）机械判据判 warning——该形态靠专项 issue 兜底（守卫宪法 #1260 在途），不试图用 token 相似度等启发式覆盖。存量 23 条处置：dismiss 10 盲区 + 4 专项 issue 立项。"
+  expected_effect: "新触发信号：跨 issue 分散形态降 warning；migration/schema 载体不触发；同 issue 主体严格过半报 critical（#1160 五连形态）。**能力边界（delta r1 D1 裁决 b + r3 补全）**：两种失效形态均判 warning——①集群爆发（每次修复开新 issue 号，bash 守卫 21 修 28 号全计数 1）②主体占比稀释（活跃热点文件的真系列混入同期其他修复，如 index.tsx 30 天窗 12 BugFix 中 #1160 计 3、6≤12 不过半）——严格过半线只在低热度文件上可达。两种形态靠专项 issue 兜底（守卫宪法 #1260 在途），不试图用 token 相似度等启发式覆盖。存量 23 条处置：dismiss 10 盲区 + 4 专项 issue 立项。"
   verify_by:
     type: capability_test
 created_at: 2026-10-05
@@ -95,3 +95,9 @@ modules: [src/usecases/health, scripts, prompts/scheduled]
 - **D2（intent 未同步换锚）**：expected_effect 原文「同特性链反复修仍报 critical」是 r0 FID 判据表述，已随 D1 一并改写为 issue 引用判据 + 能力边界声明。
 - **D3（rebase）**：已 rebase 到 main 614a6a61（含 #1317），daily-health-check.md 冲突按仲裁解决——#1317 精简版为基底 + 保留 golden 对账段 + 恢复限定语（非 RHI DB / 时间差<30天 / regression-verify 跳过），体积出清至预算内（增量纪律）。
 - **建议 5（golden 豁免措辞）**：PR body 同步修订（见 PR 描述）。
+
+## 检视 r3 处置记录（检视獭-1289b，2026-10-08）
+
+- **严重 1（回放测试集合截断致判定翻转）→ 认账修复**：复核数学坐实——index.tsx 30 天窗 12 BugFix、#1160 计 3、6≤12 不过半，生产判 warning；我的回放用例 2/3 只放 3-4 修子集 → critical，以「生产真实固化」之名行集合截断之实（偏差第三次出现，更隐蔽）。修复：①新增【回放】全量稀释形态用例（12 修、计 3 → warning，与生产判定一致）②用例 2/3 改名【单元】并订正注释（判据目标形态的单元验证，非生产全量）③expected_effect 能力边界补第二种失效机制（稀释）。
+- **严重 2（rebase 冲突解决丢两处「提 issue」动作）→ 认账修复**：git 三方对比坐实 main/本 PR 双方父本都有「不成立的提 issue」「无理由 halt 提 issue」，我的冲突产物静默丢失且处置声明未提。修复：两动作恢复 + 等量出清（signal 对账段前导措辞）+ 本记录显式声明。成因自查：解冲突时取 HEAD 侧该段是我此前出清过的版本，未逐行比对 da187728 侧语义——「出清过的基底」不等于「语义守恒的基底」。
+- **建议 1（signal 对账段零回归防线 + golden 豁免措辞）**：golden 措辞本 PR 顺带改；对账段 token 存在性断言防线建 issue 另行立项（属新增机制，本 PR 已带两严重修复不扩面）。

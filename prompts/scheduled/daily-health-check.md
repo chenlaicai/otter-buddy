@@ -89,12 +89,12 @@ budget_bytes: 9600
 
 ## signal 对账段（獭间信号协议消费方闭环）
 
-`query_signals(status=pending)` 扫悬置信号，逐项检查：
+`query_signals(status=pending)` 逐项检查：
 
-- **悬置异议**：pending objection/blocked 超 24h 未裁决 = 违反裁决义务，提 issue（含 signal ID + 时长 + 对话）
+- **悬置异议**：pending objection/blocked 超 24h 未裁决 = 违反裁决义务，提 issue（含 ID+时长+对话）
 - **异常异议率**：同一小獭单日 ≥3 条被 dismissed——列发起者统计，连续两日提 issue
-- **裁决质量抽样**：抽 2-3 条已裁决信号，核实 resolution 有理由且锚点成立
-- **halt 台账**：query_signals(type=halt) 看「谁停了谁」是否合理
+- **裁决质量抽样**：抽 2-3 条已裁决信号，核实 resolution 有理由且锚点成立，不成立提 issue
+- **halt 台账**：query_signals(type=halt) 看「谁停了谁」是否合理，无理由 halt 提 issue
 
 无悬置、无异常写「signal 对账：无异常」。
 

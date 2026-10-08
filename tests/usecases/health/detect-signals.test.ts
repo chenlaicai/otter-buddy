@@ -782,8 +782,9 @@ describe("detectSignals 存量信号回放（delta r1 D1 处置：真实生产 m
     expect(rec!.severity).toBe("warning");
   });
 
-  it("【回放】#1160 五连形态（正文引用同 issue ≥过半）→ critical（判据有效面）", () => {
-    // 生产真实形态：右栏链 3 修正文全引 #1160（实测 maxRef=3 > 1.5）——判据设计的目标形态
+  it("【单元】#1160 系列目标形态（正文引用同 issue 严格过半）→ critical（判据单元验证）", () => {
+    // 判据目标形态的单元验证（非生产全量——生产 index.tsx 30 天窗 12 BugFix、#1160 计 3、
+    // 6≤12 不过半判 warning，见下一用例【回放】稀释形态）。此处验证判据在过半时的行为
     const commits = [
       commit("rc1", 3, "[F20260921aaaa][web][BugFix] 右栏根治（#1160） (#1161)", ["web/src/pages/home/index.tsx"]),
       commit("rc2", 5, "[F20260923bbbb][web][BugFix] 右栏看门狗（#1160 阶段2） (#1179)", ["web/src/pages/home/index.tsx"]),
@@ -795,8 +796,10 @@ describe("detectSignals 存量信号回放（delta r1 D1 处置：真实生产 m
     expect(rec!.severity).toBe("critical");
   });
 
-  it("【回放】混合真实形态：主体 #1160 计 3 + 独立 #1150 计 1（4 修）→ critical", () => {
-    // 生产真实形态：index.tsx 10 修里 #1160 正文计 3、其余各 1——主体占优仍过线
+  it("【单元】混合形态：主体 #1160 计 3/4 修（严格过半）→ critical（判据单元验证）", () => {
+    // 判据目标形态的单元验证：3×2>4 严格过半 → critical。
+    // ⚠ 原注释「index.tsx 10 修计 3 主体占优仍过线」与生产判定相反（6≤10 判 warning）——
+    // 检视 r3 严重 1 指出集合截断致判定翻转，生产全量断言见下一用例
     const commits = [
       commit("rh1", 3, "[F20260921aaaa][web][BugFix] 右栏根治（#1160） (#1161)", ["web/src/pages/conversation/index.tsx"]),
       commit("rh2", 5, "[F20260923bbbb][web][BugFix] 右栏看门狗（#1160 阶段2） (#1179)", ["web/src/pages/conversation/index.tsx"]),
@@ -806,7 +809,35 @@ describe("detectSignals 存量信号回放（delta r1 D1 处置：真实生产 m
     const signals = detectSignals(commits, [], [], { now: NOW });
     const rec = signals.find(s => s.type === "bug_recurrence");
     expect(rec).toBeDefined();
-    // #1160 计 3，3*2 > 4 严格过半 → critical：真实混合形态下判据有效面成立
+    // 3*2 > 4 严格过半 → critical（判据单元验证；生产稀释形态见下）
     expect(rec!.severity).toBe("critical");
+  });
+
+  it("【回放】index.tsx 全量稀释形态（30 天窗 12 BugFix、#1160 计 3、6≤12 不过半）→ warning（能力边界如实）", () => {
+    // 生产全量回放（检视 r3 严重 1 处置）：活跃热点文件的真系列被同期其他修复稀释——
+    // git log 实测 12 个 BugFix 唯一 PR 号（#1292/#1268/#1251/#1185/#1179/#1161/#1095/#1076/#1072/#993/#963/#922 等），
+    // #1160 正文引用计 3，3*2=6 ≤ 12 不过半 → warning。
+    // 这是能力边界的第二种失效机制（第一种：集群爆发全计数 1）——严格过半线在活跃文件上不可达
+    const prMessages: Array<[string, string]> = [
+      ["d1", "[F20260924ircc][web][BugFix] 右栏状态回归根治：分离防双拉门控与断连重连补偿语义（#1160） (#1161)"],
+      ["d2", "[F20260928icmm][web][BugFix] 右栏状态缓存模型换轨：弱合并退役，对账可覆盖本地（#1160 根治·阶段1） (#1179)"],
+      ["d3", "[F20260928audt][web][BugFix] 右栏长尾兜底：60s 周期对账（#1160 阶段2） (#1185)"],
+      ["d4", "[F20261001mmmq][web][BugFix] 独立修 A (#1268)"],
+      ["d5", "[F20261001nnnp][web][BugFix] 独立修 B (#1251)"],
+      ["d6", "[F20260930oooz][web][BugFix] 独立修 C (#1095)"],
+      ["d7", "[F20260929pppa][web][BugFix] 独立修 D (#1076)"],
+      ["d8", "[F20260929qqqs][web][BugFix] 独立修 E (#1072)"],
+      ["d9", "[F20260926rrrt][web][BugFix] 独立修 F (#993)"],
+      ["d10", "[F20260925sssv][web][BugFix] 独立修 G (#963)"],
+      ["d11", "[F20260924tttx][web][BugFix] 独立修 H (#922)"],
+      ["d12", "[F20261005uuuk][web][BugFix] 独立修 I (#1292)"],
+    ];
+    const commits = prMessages.map(([sha, msg], i) => commit(sha, 3 + i, msg, ["web/src/pages/conversation/index.tsx"]));
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    // 全量集合下 #1160 计 3、events=12，3*2=6 ≤ 12 → warning：真系列被稀释，
+    // 与生产判定一致（r1 id 5 / r3 独立复算双源）
+    expect(rec!.severity).toBe("warning");
   });
 });
