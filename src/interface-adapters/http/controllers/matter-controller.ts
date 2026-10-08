@@ -5,9 +5,10 @@ import { handleError, param } from '../http-error';
 import { toMatterDTO } from '../dto/matter-dto';
 
 /**
- * Matter 控制器（F20261006mtlp P1）——只读。
- * P1 范围：右侧栏「待办」tab 列出 open 事项（标题/状态徽章/等待时长/owner），不可操作。
- * 写路径（裁决/闭环/打回）在 P2 板上按钮 + 獭侧 transition_matter 工具，不经 HTTP。
+ * Matter 控制器（F20261006mtlp P1 只读 + F20261006mlp2 P2 近期闭环区）。
+ * P2 范围：右侧栏「待办」tab 交互层的只读数据源——open 清单 + 折叠「近期闭环」区
+ * （closed 清单，翻案入口）。写路径（裁决/闭环/打回/登记）在 P2 仍不经 HTTP：
+ * 板上按钮合成回执路由 owner 獭代执行（特性文档「按钮挂点架构定案」）。
  */
 export class MatterController {
   constructor(
@@ -15,11 +16,14 @@ export class MatterController {
     private readonly logger: Logger,
   ) {}
 
-  /** 列出对话的未闭环 matters（open 清单——P1 只读板数据源） */
+  /** 列出对话 matters——默认 open 清单（P1 只读板数据源）；?includeClosed=1 含终态（P2 近期闭环区） */
   async listOpenByConversation(c: Context): Promise<Response> {
     try {
       const conversationId = param(c, 'id');
-      const matters = await this.matterRepo.findByConversation(conversationId, { openOnly: true }, 100);
+      const includeClosed = c.req.query('includeClosed') === '1';
+      const matters = includeClosed
+        ? await this.matterRepo.findByConversation(conversationId, undefined, 100)
+        : await this.matterRepo.findByConversation(conversationId, { openOnly: true }, 100);
       return c.json(matters.map(toMatterDTO));
     } catch (err) {
       return handleError(c, err, this.logger);

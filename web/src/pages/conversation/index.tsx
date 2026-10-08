@@ -1669,6 +1669,10 @@ export default function ConversationPage() {
           }}
           onTriggerScheduledTask={triggerScheduledTask}
           onViewScheduledTaskHistory={(taskId) => setExecutionHistoryTaskId(taskId)}
+          // F20261006mlp2 P2：待办板裁决回执路由——owner 在场显式路由 owner 代执行；owner 已解散传 null 走默认派发（大獭兜底）。
+          // F20261006mlp2 P2 处置严重1/建议1：handleSend 返回 Promise（成功 resolve / 失败 throw），
+          // onRouteToOtter 改 async 让 useMatters 的 act/register 能接真实发送结果再 toast——不再 fire-and-forget。
+          onRouteToOtter={async (body, ownerOtterId) => { await handleSend(body, ownerOtterId ? [ownerOtterId] : undefined) }}
           />
         </div>
       </div>

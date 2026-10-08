@@ -137,6 +137,13 @@ const TRANSITIONS: ReadonlyMap<string, MatterTransition> = new Map([
     allowed: ['partner'],
     note: '搭档明确不做',
   }],
+  // ABANDONED → OPEN：误杀恢复（F20261006mlp2 严重2——否决/误判永久杀事项的死路收口）。
+  // 与 CLOSED→OPEN 翻案对称：搭档可推翻「不做」决定重开。issue #1321。
+  ['ABANDONED->OPEN', {
+    from: 'ABANDONED', to: 'OPEN',
+    allowed: ['partner'],
+    note: '翻案：搭档推翻「不做」决定，重开（防误判/伪造否决永久杀事项）',
+  }],
 ].map(([key, t]) => [key as string, t as MatterTransition]));
 
 /** 查询一条迁移是否存在于合法矩阵 */
