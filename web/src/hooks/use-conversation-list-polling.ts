@@ -23,12 +23,14 @@ export function useConversationListPolling(
     let timer: ReturnType<typeof setInterval> | null = null
 
     let fetching = false // 防重入：visible 立即刷新与 interval tick 撞车时跳过本次
+    let stale = false // 卸载后忽略响应——避免组件已卸载仍写状态（React 18 严格模式双调用场景）
 
     async function refresh() {
       if (fetching) return
       fetching = true
       try {
         const { items } = await api.listConversations()
+        if (stale) return // 已卸载，丢弃结果
         setConversations(prev => {
           const firstPage = items.map(mapConversationDTO)
           // Why: 分页追加的对话在首屏轮询结果中不存在——按 id 保留，
@@ -39,7 +41,7 @@ export function useConversationListPolling(
           return mergeConversations(prev, merged)
         })
       } catch {
-        console.error('Failed to poll conversations')
+        if (!stale) console.error('Failed to poll conversations')
       } finally {
         fetching = false
       }
@@ -75,6 +77,7 @@ export function useConversationListPolling(
     }
 
     return () => {
+      stale = true // 标记卸载，后续响应丢弃
       stopPolling()
       document.removeEventListener('visibilitychange', handleVisibility)
     }

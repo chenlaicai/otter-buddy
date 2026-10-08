@@ -295,6 +295,8 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
 
     // F20260930roiv 的清理动作：failRunningInvokes(guard 守卫) 把窗口期孤儿置 failed
     //  （rebase 适配：签名演进 bootTs: string → guard: FailRunningInvokesGuard，F20261005g1240）
+    //  事故形态复刻：该 invoke 无 pid 字段（旧世界存量，列引入前写入）→ pid IS NULL 命中清理，
+    //   与本进程 pid 无关；startedAt < beforeTs 同为满足但非判据主力（OR 语义，检视严重2核实）。
     const failed = await invokeRepo.failRunningInvokes("2026-09-30T00:00:00Z", {
       excludePid: process.pid, beforeTs: "2026-09-29T13:00:00Z",
     });
@@ -304,6 +306,40 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
     // 恢复断言：清理后同一对话派生为 awaiting_user——issue #1249 验证断言的数据层支撑
     const after = await repo.listConversationsWithMeta("user-1");
     expect(after.items[0].activityStatus).toBe("awaiting_user");
+  });
+
+  it("时间戳守卫回归（#1240/F20261005g1240）：pid 复用兜底——本 pid 但 startedAt < beforeTs 的遗留行被清理，晚于 boot 的活跃 invoke 不误杀", async () => {
+    // 检视獭-1269 严重2指出：事故链路用例的 invoke 无 pid（NULL 分支命中），beforeTs 成死条件——
+    //  时间戳守卫语义（pid 复用场景：上代进程复用本 pid 时靠时间区分）无回归锚。本用例补上：
+    //  判据 OR 关系 = pid IS NULL / pid≠本pid / started_at < beforeTs 任一命中即清理（sqlite-invoke-repository.ts:234）。
+    await repo.create(conversationFixture());
+    await entryRepo.createEntryAtomic(entryFixture({ yieldTargets: ["user"] }));
+    // 形态①：pid 恰复用本进程 pid，但写入早于 boot（上代进程遗留）→ 时间戳分支命中，应清理
+    await invokeRepo.createInvoke({
+      id: "inv-stale-same-pid", conversationId: "conv-1", otterId: "otter-1", turnId: "turn-1",
+      status: "running", triggerType: "user_message", triggerSource: "web",
+      toolCallCount: 0, tokenUsage: null, talkingStonePassedTo: null,
+      pid: process.pid, startedAt: "2026-09-29T12:00:00Z", endedAt: null,
+    } as never);
+    // 形态②：本进程活跃 invoke（pid 本 pid + 写入晚于 boot）→ 唯一豁免，不清理
+    await invokeRepo.createInvoke({
+      id: "inv-active", conversationId: "conv-1", otterId: "otter-1", turnId: "turn-2",
+      status: "running", triggerType: "user_message", triggerSource: "web",
+      toolCallCount: 0, tokenUsage: null, talkingStonePassedTo: null,
+      pid: process.pid, startedAt: "2026-09-30T01:00:00Z", endedAt: null,
+    } as never);
+
+    const failed = await invokeRepo.failRunningInvokes("2026-09-30T00:00:00Z", {
+      excludePid: process.pid, beforeTs: "2026-09-29T13:00:00Z",
+    });
+
+    // beforeTs 是唯一区分判据：pid 相同，早写入被清、晚写入豁免——死条件情形（篡 beforeTs 到
+    //  startedAt 之后）下形态①会漏清（断言变红），真锚成立。
+    expect(failed.map(f => f.id)).toEqual(["inv-stale-same-pid"]);
+
+    // 活跃 invoke 仍 running → 左栏 processing（豁免生效，不误杀）
+    const after = await repo.listConversationsWithMeta("user-1");
+    expect(after.items[0].activityStatus).toBe("processing");
   });
 });
 

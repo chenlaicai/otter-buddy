@@ -49,6 +49,15 @@ intent:
 
 `use-conversation-list-polling.ts`：`handleVisibility` 切回时先 `refresh()` 再 `startPolling()`。刷新逻辑抽为独立 `refresh()` 函数，加 `fetching` 防重入标志（慢请求挂起期间 tick/visible 不叠加拉取）。
 
+### 设计取舍（改动 A 的机制判定四问——检视獭-1269 严重1 要求补记）
+
+改动 A 含机制增量（`fetching` 防重入标志 + `refresh()` 抽函数 + visible 立即刷新分支），按 `mechanism-addition` 口径补四问：
+
+1. **谁需要它**：左栏用户——切回标签页时需立即看到最新对话状态（不等 5s tick），否则旧 badge 滞留期间用户误以为仍在处理中、错过响应窗口（issue #1249 目击形态）
+2. **失败后果**：无 fetching 防重入 → 慢请求挂起期间 tick 与 visible 刷新叠加并发拉取，响应乱序到达时旧数据可能覆盖新数据（merge 粘滞变体）；无 visible 立即刷新 → 事故形态原样存在
+3. **后续机制**：fetching 标志引入新状态，潜在泄漏路径=请求永不 settle（then/catch 双分支均复位，检视核实无泄漏；`finally` 化是更稳形态，当前 catch 复位已够）
+4. **退役条件**：当 SSE/WebSocket 推送替代轮询时，整个 polling 机制（含本防重入）一并退役——当前轮询是既有架构，本特性不引入新范式
+
 ### 改动 B：两层回归测试（issue #1249 验证断言）
 
 1. **数据层** `tests/frameworks/db/conversation/sqlite-conversation-repository.test.ts`：新增「事故链路回归」用例——孤儿 running invoke 存在时派生 processing（事故态断言）→ `failRunningInvokes`（bootTs 守卫）清理 → 同一对话派生恢复 awaiting_user（恢复断言）。锁死「清理后状态一致性」这一事故链路末端
