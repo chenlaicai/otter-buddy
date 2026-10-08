@@ -92,16 +92,21 @@ describe("SqliteHealingEventRepository severity 分层（#1356）", () => {
     });
   });
 
-  describe("ageOutHighAndNotify 跨进程 race（审视 D 修复）", () => {
-    it("双连接（双实例）先后跑 age-out：后到者取回空，不重复推送提醒", async () => {
+  describe("ageOutHighAndNotify 二次调用幂等视图（审视 D 修复验证面）", () => {
+    it("先后两次 age-out：第二次取回空，不重复推送提醒", async () => {
+      // 注意：better-sqlite3 同连接内事务顺序执行，本用例验证的是「取回与置 dismissed 原子化后，
+      // 二次调用拿到空集」的幂等视图，不是真正的跨进程并发判别（旧 SELECT+UPDATE 实现在本用例
+      // 形态下同样能过——真并发需两进程同时进入 SELECT 与 UPDATE 之间的窗口）。
+      // RETURNING 改造的跨进程 race 消除是机制层面的：UPDATE 的 WHERE status='open' 匹配
+      // 与行更新在同一 SQL 语句内原子完成，不存在两步窗口。
       await repo.create(seedEvent({ id: "race-high", severity: "high", createdAt: daysAgo(3) }));
-      const repoB = new SqliteHealingEventRepository(db); // 同库第二连接，模拟另一进程实例
+      const repoB = new SqliteHealingEventRepository(db); // 同库第二实例（同连接池，顺序调用）
 
       const first = await repo.ageOutHighAndNotify(2);
       const second = await repoB.ageOutHighAndNotify(2);
 
       expect(first.map(e => e.id)).toEqual(["race-high"]); // 先到者拿到提醒推送权
-      expect(second).toEqual([]); // 后到者空——原 SELECT+UPDATE 两步形态两边都会拿到同一批行，重复推 alert
+      expect(second).toEqual([]); // 后到者空
       expect((await repo.findById("race-high"))!.status).toBe("dismissed");
     });
   });
