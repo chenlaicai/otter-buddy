@@ -253,7 +253,7 @@ v2 扩充（近邻干扰簇 13 条 + E 层高区分度查询 12 条）后我们�
 - **合成种子集**：条目与标注为人工构造（golden-corpus.ts 头注声明），非真实使用
   数据；真实数据校准需搭档抽查（R2）。种子集基线只锁定当前管线行为，不代表
   真实分布上的质量水位——数字本身不宣胜，只做回归地板。
-- **分层覆盖**：fact 8 / history 8 / document 10 / conversation 6 / 高区分度探针 12
+- **分层覆盖**：fact 9 / history 8 / document 10 / conversation 6 / 高区分度探针 11
   （E 层，共 44 条，在 30-50 区间）；语料 50 条：contentType 六类全覆盖
   （message/fact/feature/feature_chunk/research/research_chunk）、年龄 1~365 天、
   3 对话 + 跨对话(null)、近邻干扰簇 5 组（13 条）、user_flagged 与 retrieval_count

@@ -267,6 +267,8 @@ export const GOLDEN_QUERIES: GoldenQuery[] = [
     expected: { "g-fact-08": 3 } },
   { id: "A8", layer: "fact", query: "记忆层 document 状态转换",
     expected: { "g-fact-10": 3 } },
+  { id: "A9", layer: "fact", query: "rerank 信号 哪个 标记",
+    expected: { "g-fact-06": 3, "g-feat-01-c3": 2 } },
 
   // B. 历史脉络（8 条）
   { id: "B1", layer: "history", query: "排序优化 为什么 先做 评测基线",
@@ -359,8 +361,6 @@ export const GOLDEN_QUERIES: GoldenQuery[] = [
   { id: "E11", layer: "probe", query: "检索 排序 评测 稳定",
     currentConversationId: CONV_ALPHA,
     expected: { "g-clu-05b": 3, "g-msg-08": 2 } },
-  { id: "E12", layer: "fact", query: "rerank 信号 哪个 标记",
-    expected: { "g-fact-06": 3, "g-feat-01-c3": 2 } },
 ];
 
 /** 探针层守卫数据：E 层查询的期望标注必须引用近邻干扰簇（区分度存在性） */
