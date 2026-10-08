@@ -1,7 +1,7 @@
 ---
 id: F20261008h304
 title: bash 守卫 cat 型 heredoc 体剥除基座：数据体对 git 写族/one-liner 通道不可见（#1304）
-summary: checkMainCheckoutWrite 内两套基座不一致——重定向通道在剥体基座判定而 git 写族/one-liner 通道吃原始 command，cat > file <<'EOF' 的体内容（纯文件数据）中 git stash push / node -e \"…\" 字样被当真写操作拦；修复为新增 blankDataHeredocBodies：非解释器头、closed、开行无管道无 $()、quoted 定界或体无 $/反引号、体无 kill 词元——全判据保守满足才等长隐去，落点仅 git 写族/one-liner 通道。
+summary: checkMainCheckoutWrite 内两套基座不一致——重定向通道在剥体基座判定而 git 写族/one-liner 通道吃原始 command，cat > file <<'EOF' 的体内容（纯文件数据）中 git stash push / node -e \"…\" 字样被当真写操作拦；修复为新增 blankDataHeredocBodies：非解释器头、closed、开行无管道无 $()、quoted 定界或体无 $/反引号/终止词（裸定界体保守面，delta r1 收窄）——全判据保守满足才等长隐去，落点仅 git 写族/one-liner 通道。
 change_type: feature
 capability_test: "tests/frameworks/agent/bash-guard-heredoc-body-strip.test.ts"
 modules:
@@ -62,7 +62,7 @@ cat 型 heredoc 的体是纯文件内容（写入目标文件的数据），无 
   && 开行无管道 |（cat <<EOF | bash 体经下游真执行）
   && 开行无命令替换 $(
   && (quoted 定界 || 体无 $ `)（裸定界体经 shell 展开可被解释）
-  && 体无 kill 词元（保守）
+  && 裸定界体无终止词元（保守；quoted 体不查——delta r1 收窄）
 → 体区域等长替换为空格，仅用于 git 写族/one-liner 通道判定
 ```
 
@@ -107,7 +107,7 @@ cat 型 heredoc 的体是纯文件内容（写入目标文件的数据），无 
 ## 取舍
 
 - **等长空格替换 vs 删除**：等长保 span 偏移稳定（与 blankVerifiedScriptBodies 同构），避免正则回溯性能退化
-- **判据⑤ kill 词元**：对裸定界体已有判据④兜底，quoted 体 kill 字样理论无执行面；但 kill 是最高危目标，多一层保守换审计安心
+- **判据五终止词元（delta r1 收窄）**：初版对全部体查终止词，检视发现 1 实证为纯负收益——终止词族通道有独立剥体基座（C2 探针对照），quoted 数据体的终止词字样（运维笔记形态）被残留误拦（#1304 同族）。收窄后：仅裸定界体（shell 可展开面）查终止词；quoted 体全放行，+2 回归用例锁定
 - **凌晨 4 条 gh 族实拦未逐字节回放**：healing commandHead 截断 120 字符，无法全量回放——同族判定（cd worktree + gh 只读 + heredoc 上下文），修复后观察
 
 ## 后续动作
