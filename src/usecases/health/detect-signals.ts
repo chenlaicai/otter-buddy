@@ -128,6 +128,9 @@ function isNonLogicCarrier(filePath: string): boolean {
   // 3 events 达阈时翻回触发——「类型定义反复修」达阈报警是可接受的边界形态（如实记录，非静音）
   if (/(^|\/)bootstrap\//.test(filePath)) return true;   // 启动装配目录整体（含其 types.ts）
   if (/^src\/types?\.[cm]?[jt]s$/i.test(filePath)) return true; // src 根装配类型；深层域 types.ts 不排除——见 weixin 回归锚
+  // #1012 修法 c 补全：schema 演进载体——migration.ts/schema.ts 的 N 修 = N 个独立 schema 演进，
+  // 被动累加非同一根因反复修（与 types/测试同属「载体噪声」，归因报告 10/23 条盲区中 4 条是它们）
+  if (/^(src\/frameworks\/db\/)?(migration|schema)\.[cm]?[jt]s$/i.test(filePath)) return true;
   // 转发桶（barrel：重导出 .ts/.js）——不含 .tsx/.jsx（delta D1：web/src/pages/*/index.tsx
   // 是页面主组件不是 barrel，存量最大热点信号 5（11 事件）曾被误静音，回退并加回归锚）
   return /^index\.[cm]?(t|j)s$/i.test(base)
@@ -139,10 +142,34 @@ function countDistinctEvents(entry: { prs: Set<number>; noPrShas: Set<string> })
   return entry.prs.size + entry.noPrShas.size;
 }
 
+/** #1012 修法 c：severity 分级——
+ *  「主体同一 issue」= 最大 issue 引用数 ≥ 窗口内事件数一半 → critical（同根因修复系列，
+ *  #1160 五连 / #1207 集群形态）；跨 issue 分散 → warning（热点活跃假象）；
+ *  无任何 issue 锚点 → critical（防漏报默认）。
+ *  分级而非过滤：warning 仍出信号（可观察），只是不进 critical 主警报区。
+ *  判据细节：prs 也计入 issueRefCounts 统计（squash 流 PR 号是唯一锚点）。「主体线」
+ *  是严格过半（maxRef * 2 > events）：3 修全引用同一 issue 时主体计数 3 > 1.5 过线；
+ *  「2 修同 issue + 1 修独立」混合态 2 ≤ 1.5 不过线判 warning（主体不占优即不按真
+ *  腐烂报）；纯分散（各修仅带自己 PR 号）计数 1 不过线判 warning。为何用占比而非
+ *  issueRefs.size：同系列 commit 各有不同 PR 号，size 口径会把同系列误判成分散（测试实证）。 */
+function classifyRecurrenceSeverity(
+  entry: { prs: Set<number>; noPrShas: Set<string>; shas: string[] },
+  issueRefCounts: Map<number, number>,
+  threshold: number,
+): SignalSeverity | null {
+  const events = countDistinctEvents(entry);
+  if (events < threshold) return null;
+  if (issueRefCounts.size === 0) return "critical"; // 无锚点默认 critical 防漏报
+  const maxRef = Math.max(...issueRefCounts.values());
+  if (maxRef * 2 > events) return "critical"; // 主体同一 issue（严格过半）= 同根因系列
+  return "warning"; // 跨 issue 分散 / 主体不占优 = 热点活跃假象
+}
+
 /** #1214：evidence 文案——「N 个不同修复事件 + PR 清单 + 首末修复日期」语义澄清。
- *  文案分支（检视发现 3）：纯 PR / 纯无 PR / 混合三形态各自不冗余。 */
+ *  文案分支（检视发现 3）：纯 PR / 纯无 PR / 混合三形态各自不冗余。
+ *  #1012 修法 c：追加系列归因数据（关联 issue 清单），severity 判据可见。 */
 function buildRecurrenceEvidence(
-  entry: { module: string; file: string; prs: Set<number>; noPrShas: Set<string>; shas: string[]; dates: Date[] },
+  entry: { module: string; file: string; prs: Set<number>; noPrShas: Set<string>; issueRefCounts: Map<number, number>; shas: string[]; dates: Date[] },
   windowDays: number,
 ): string {
   const events = countDistinctEvents(entry);
@@ -162,7 +189,9 @@ function buildRecurrenceEvidence(
   const times = entry.dates.map(d => d.getTime());
   const first = new Date(Math.min(...times)).toISOString().slice(0, 10);
   const last = new Date(Math.max(...times)).toISOString().slice(0, 10);
-  return `[${entry.module}] ${entry.file} 窗口 ${windowDays} 天内 ${events} 个不同修复事件（${eventText}；bugfix commit ${entry.shas.length} 个，首末修复 ${first}→${last}）`;
+  const issueList = [...entry.issueRefCounts.keys()].sort((a, b) => a - b).map(i => `#${i}`);
+  const seriesText = issueList.length > 0 ? `；关联 issue ${issueList.join(", ")}（${issueList.length} 个）` : "";
+  return `[${entry.module}] ${entry.file} 窗口 ${windowDays} 天内 ${events} 个不同修复事件（${eventText}；bugfix commit ${entry.shas.length} 个，首末修复 ${first}→${last}${seriesText}）`;
 }
 
 /** bug_recurrence：同模块同文件 bugfix ≥N 个不同修复事件/窗口（窄门：不依赖语义聚类）。
@@ -177,7 +206,15 @@ function buildRecurrenceEvidence(
  *    假聚集主形态（同一根因跨 PR 系列）由后续 severity 分级/系列归因 issue 承载
  *  - 非逻辑载体排除：types（收窄到 bootstrap 装配路径，检视发现 4——全仓
  *    basename 排除会误伤 weixin/types.ts 等 runtime 常量载体）/转发桶/组装/测试
- *  - occurrences 语义澄清：evidence 报独立修复事件数 + PR 清单 + 首末修复日期 */
+ *  - occurrences 语义澄清：evidence 报独立修复事件数 + PR 清单 + 首末修复日期
+ *  #1012 修法 c（2026-10-05）：severity 分级 + 载体排除补全——
+ *  - 系列归因分级：同一 issue 反复修 ≥threshold → critical（真腐烂——#1160 五连形态）；
+ *    跨 issue 分散 ≥threshold → warning（热点活跃假象）。分级而非过滤（归因报告推荐：
+ *    「同一 bug 修了又坏」仅 2/23=9%，一刀切 critical 让告警失去区分度）
+ *  - 载体排除补全：migration.ts/schema.ts 入非逻辑载体（schema 演进 N 修 = N 个独立演进，
+ *    被动累加非根因反复——归因报告口径盲区 10 条中 4 条是它们）
+ *  - 分键仍为 module+file 不变（归因报告建议改 file_path 唯一——本 PR 不动：
+ *    存量 23 条中无 module 裂分实例，改动收益存疑，留给后续复核） */
 function detectBugRecurrence(
   commits: SignalCommitInput[],
   options: DetectOptions,
@@ -187,7 +224,7 @@ function detectBugRecurrence(
   const windowDays = options.recurrenceWindowDays ?? 30;
   const reg = SIGNAL_REGISTRY.bug_recurrence;
 
-  // key: module + file -> bugfix PR 记录（窗口内，同 PR 去重）
+  // key: module + file -> bugfix PR 记录（窗口内，同 PR 去重 + 系列归因数据源）
   const byModuleFile = collectBugfixByFile(commits, now, windowDays);
 
   // 第二遍（Issue #644）：为触发文件收集窗口内全类型 commit，见 collectDetailCommits
@@ -195,12 +232,13 @@ function detectBugRecurrence(
 
   const signals: DetectedSignal[] = [];
   for (const entry of byModuleFile.values()) {
-    // #1214：触发判据 = 独立 PR 数 + 无 PR 号事件数（各自去重后求和）≥ threshold
-    if (countDistinctEvents(entry) >= threshold) {
+    // #1012 修法 c：分级判据——同系列达阈 critical，分散达阈 warning，未达阈不出信号
+    const severity = classifyRecurrenceSeverity(entry, entry.issueRefCounts, threshold);
+    if (severity !== null) {
       signals.push({
         type: reg.type,
         name: reg.name,
-        severity: reg.severity,
+        severity,
         featureId: null,
         filePath: entry.file,
         evidence: buildRecurrenceEvidence(entry, windowDays),
@@ -221,8 +259,15 @@ function detectBugRecurrence(
 interface BugfixFileEntry {
   module: string;
   file: string;
-  prs: Set<number>;              // #1214：去重后的独立 PR 集（触发判据）
+  prs: Set<number>;              // #1214：去重后的独立 PR 集（触发判据之一）
   noPrShas: Set<string>;         // 无 PR 号的 commit（squash 前本地修复），按 sha 去重计 1 次/事件
+  /** #1012 修法 c：窗口内 bugfix commit 的 issue 引用计数（系列归因数据源）。
+   *  「主体同一 issue」= 同一根因修复系列（真腐烂——#1160 五连、#1207 集群实测形态）；
+   *  跨 issue 分散修复是高迭代热点。
+   *  Why 计数而非 Set：同一系列的 commit 各有不同 PR 号（squash 1:1），Set 口径会把
+   *  同系列误判成分散；计数 + 主体占比判据才能区分。Why 不用 featureId（delta 纠错）：
+   *  本仓 FID↔PR 严格 1:1（全历史实测），FID 判据 critical 分支生产不可达。 */
+  issueRefCounts: Map<number, number>;
   shas: string[];
   dates: Date[];
   /** 窗口内触碰该文件的全类型 commit（bug●→fix● 交替时间轴数据源，Issue #644） */
@@ -249,7 +294,7 @@ function collectBugfixByFile(
       const key = `${c.parsed.module}\u0000${file}`;
       let entry = byModuleFile.get(key);
       if (!entry) {
-        entry = { module: c.parsed.module, file, prs: new Set(), noPrShas: new Set(), shas: [], dates: [], allCommits: [] };
+        entry = { module: c.parsed.module, file, prs: new Set(), noPrShas: new Set(), issueRefCounts: new Map(), shas: [], dates: [], allCommits: [] };
         byModuleFile.set(key, entry);
       }
       entry.shas.push(c.sha.slice(0, 8));
@@ -257,6 +302,11 @@ function collectBugfixByFile(
       // #1214：同 PR 去重——squash 前链式修复算 1 个 PR 复发事件；无 PR 号的按 sha 计
       if (c.parsed.prNumber !== null) entry.prs.add(c.parsed.prNumber);
       else entry.noPrShas.add(c.sha);
+      // #1012 修法 c：系列归因数据源——message 内 issue 引用计数（#1160 五连形态）
+      for (const m of c.message.matchAll(/#(\d+)/g)) {
+        const n = Number(m[1]);
+        entry.issueRefCounts.set(n, (entry.issueRefCounts.get(n) ?? 0) + 1);
+      }
     }
   }
   return byModuleFile;

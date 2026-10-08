@@ -38,7 +38,9 @@ describe("detectSignals", () => {
 
     const rec = signals.find(s => s.type === "bug_recurrence");
     expect(rec).toBeDefined();
-    expect(rec!.severity).toBe("critical");
+    // #1012 修法 c：三修仅带各自 PR 号、无正文 issue 引用 → 分散形态判 warning
+    // （旧断言 critical 是一刀切口径的遗物，新口径下「无共同 issue 主体」= 热点假象）
+    expect(rec!.severity).toBe("warning");
     expect(rec!.filePath).toBe("src/invoker.ts");
     expect(rec!.evidence).toContain("agent");
     expect(rec!.evidence).toContain("3 个不同修复事件"); // #1214 新口径：独立 PR 数判据
@@ -665,3 +667,177 @@ describe("detectSignals #1214 口径修订（bug_recurrence 同 PR 去重 + 载�
 });
 
 
+
+describe("detectSignals #1012 修法 c（系列归因分级 + 载体排除补全）", () => {
+  // ── 系列归因分级（delta 纠错：锚点从 featureId 换 issue 引用——
+  //    本仓 FID↔PR 严格 1:1（全历史实测），FID 判据 critical 分支生产不可达；
+  //    issue 引用聚类（#1160 五连 / #1207 集群）是归因报告原案锚点且生产实测存在）──
+
+  it("系列归因：同一 issue 反复修 ≥3 次 → critical（#1160 五连形态，真腐烂）", () => {
+    const commits = [
+      commit("s1", 3, "[F20260921aaaa][web][BugFix] 右栏根治（#1160） (#1161)", ["web/src/pages/home/index.tsx"]),
+      commit("s2", 5, "[F20260923bbbb][web][BugFix] 右栏看门狗（#1160 阶段2） (#1179)", ["web/src/pages/home/index.tsx"]),
+      commit("s3", 7, "[F20260928cccc][web][BugFix] 右栏对账（#1160 阶段3） (#1185)", ["web/src/pages/home/index.tsx"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    expect(rec!.severity).toBe("critical"); // 同 issue 3 修 = 真腐烂
+    expect(rec!.evidence).toContain("关联 issue #1160");
+  });
+
+  it("系列归因：跨 issue 分散 ≥3 次修复 → warning（热点活跃假象）", () => {
+    const commits = [
+      commit("d1", 3, "[F20260921aaaa][agent][BugFix] 独立修 1 (#911)", ["src/orchestrator.ts"]),
+      commit("d2", 5, "[F20260922bbbb][agent][BugFix] 独立修 2 (#912)", ["src/orchestrator.ts"]),
+      commit("d3", 7, "[F20260923cccc][agent][BugFix] 独立修 3 (#913)", ["src/orchestrator.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    expect(rec!.severity).toBe("warning"); // 无正文 issue 引用，仅各自 PR 号（计数 1，不过 1/3 主体线）= 分散
+  });
+
+  it("系列归因：无任何 issue 锚点的本地修复 ≥3 次 → critical（防漏报默认）", () => {
+    const commits = [
+      commit("n1", 3, "[F20260921aaaa][agent][BugFix] 本地链修 1", ["src/recovery.ts"]),
+      commit("n2", 5, "[F20260921aaaa][agent][BugFix] 本地链修 2", ["src/recovery.ts"]),
+      commit("n3", 7, "[F20260921aaaa][agent][BugFix] 本地链修 3", ["src/recovery.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    expect(rec!.severity).toBe("critical"); // 无锚点默认 critical 防漏报
+  });
+
+  it("系列归因：混合形态——同 issue 2 修 + 跨 issue 1 修（主体严格过半）→ critical", () => {
+    const commits = [
+      commit("x1", 3, "[F20260921aaaa][web][BugFix] 右栏修 1（#1160） (#921)", ["web/src/pages/home/index.tsx"]),
+      commit("x2", 5, "[F20260922bbbb][web][BugFix] 右栏修 2（#1160） (#922)", ["web/src/pages/home/index.tsx"]),
+      commit("x3", 7, "[F20260923cccc][web][BugFix] 独立修（#1150） (#923)", ["web/src/pages/home/index.tsx"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    // 主体 #1160 计数 2 严格过半（2*2 > 3）→ 同一根因修复系列成立 → critical；
+    // 剩余 1 个独立修是系列内噪声，不拖成 warning（判据设计：主体占优即按真腐烂报）
+    expect(rec!.severity).toBe("critical");
+  });
+
+  // ── 载体排除补全：migration/schema 演进载体 ──
+
+  it("载体排除补全：migration.ts 演进载体不计（N 修 = N 个独立 schema 演进）", () => {
+    const commits = [
+      commit("m1", 3, "[F20260920aaaa][db][BugFix] 迁移 1 (#931)", ["src/frameworks/db/migration.ts"]),
+      commit("m2", 5, "[F20260920bbbb][db][BugFix] 迁移 2 (#932)", ["src/frameworks/db/migration.ts"]),
+      commit("m3", 7, "[F20260920cccc][db][BugFix] 迁移 3 (#933)", ["src/frameworks/db/migration.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    expect(signals.find(s => s.type === "bug_recurrence")).toBeUndefined();
+  });
+
+  it("载体排除补全：schema.ts 演进载体不计", () => {
+    const commits = [
+      commit("sc1", 3, "[F20260920aaaa][db][BugFix] schema 1 (#941)", ["src/frameworks/db/schema.ts"]),
+      commit("sc2", 5, "[F20260920bbbb][db][BugFix] schema 2 (#942)", ["src/frameworks/db/schema.ts"]),
+      commit("sc3", 7, "[F20260920cccc][db][BugFix] schema 3 (#943)", ["src/frameworks/db/schema.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    expect(signals.find(s => s.type === "bug_recurrence")).toBeUndefined();
+  });
+
+  it("载体排除补全不误伤：同目录下其他逻辑文件照常计", () => {
+    const commits = [
+      commit("o1", 3, "[F20260920aaaa][db][BugFix] 连接池 1 (#951)", ["src/frameworks/db/connection-pool.ts"]),
+      commit("o2", 5, "[F20260920bbbb][db][BugFix] 连接池 2 (#952)", ["src/frameworks/db/connection-pool.ts"]),
+      commit("o3", 7, "[F20260920cccc][db][BugFix] 连接池 3 (#953)", ["src/frameworks/db/connection-pool.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    expect(rec!.filePath).toBe("src/frameworks/db/connection-pool.ts");
+  });
+});
+
+describe("detectSignals 存量信号回放（delta r1 D1 处置：真实生产 message 做测试数据）", () => {
+  // 背景：delta r1 发现「测试构造形态 ≠ 生产形态」连续两轮存在——手工构造的理想形态
+  // （3 修全引同一 issue）过线，真实数据（集群爆发、每次开新 issue 号）全降 warning。
+  // 本组用例把生产真实 message 固化为回归锥，确保判据行为与声明的能力边界一致。
+  // 裁决：b 路线——机械判据对集群爆发形态判 warning，靠专项 issue 兜底（#1260 宪法在途），
+  // 知情声明落在特性文档 intent 与 PR body。
+
+  it("【回放】bash 守卫集群爆发形态（21 修 28 个号全计数 1）→ warning（能力边界如实）", () => {
+    // 生产真实形态捕样：bash-safety-guard.ts 30 天窗 21 修，issue/PR 号各不相同（#777→#850→#984→#1120→…）
+    // 抽 3 条代表性 message（最小可判样本）：每次修复开新 issue 号 + 各自 PR 号，主体计数全 1
+    const commits = [
+      commit("rb1", 3, "[F20260916xxxx][guard][BugFix] 守卫修 1：误拦收口 (#777) (#990)", ["src/frameworks/agent/bash-safety-guard.ts"]),
+      commit("rb2", 5, "[F20260923yyyy][guard][BugFix] 守卫修 2：heredoc 判定 (#984) (#1120)", ["src/frameworks/agent/bash-safety-guard.ts"]),
+      commit("rb3", 7, "[F20260930zzzz][guard][BugFix] 守卫修 3：体感知拦 (#1207) (#1239)", ["src/frameworks/agent/bash-safety-guard.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    // 每号计数 1，主体不过半（1*2 > 3 不成立）→ warning。这是声明的能力边界：
+    // 集群爆发形态（真腐烂）靠专项 issue 兜底（#1260 守卫宪法），机械判据不试图覆盖
+    expect(rec!.severity).toBe("warning");
+  });
+
+  it("【单元】#1160 系列目标形态（正文引用同 issue 严格过半）→ critical（判据单元验证）", () => {
+    // 判据目标形态的单元验证（非生产全量——生产 index.tsx 30 天窗 12 BugFix、#1160 计 3、
+    // 6≤12 不过半判 warning，见下一用例【回放】稀释形态）。此处验证判据在过半时的行为
+    const commits = [
+      commit("rc1", 3, "[F20260921aaaa][web][BugFix] 右栏根治（#1160） (#1161)", ["web/src/pages/home/index.tsx"]),
+      commit("rc2", 5, "[F20260923bbbb][web][BugFix] 右栏看门狗（#1160 阶段2） (#1179)", ["web/src/pages/home/index.tsx"]),
+      commit("rc3", 7, "[F20260928cccc][web][BugFix] 右栏对账（#1160 阶段3） (#1185)", ["web/src/pages/home/index.tsx"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    expect(rec!.severity).toBe("critical");
+  });
+
+  it("【单元】混合形态：主体 #1160 计 3/4 修（严格过半）→ critical（判据单元验证）", () => {
+    // 判据目标形态的单元验证：3×2>4 严格过半 → critical。
+    // ⚠ 原注释「index.tsx 10 修计 3 主体占优仍过线」与生产判定相反（6≤10 判 warning）——
+    // 检视 r3 严重 1 指出集合截断致判定翻转，生产全量断言见下一用例
+    const commits = [
+      commit("rh1", 3, "[F20260921aaaa][web][BugFix] 右栏根治（#1160） (#1161)", ["web/src/pages/conversation/index.tsx"]),
+      commit("rh2", 5, "[F20260923bbbb][web][BugFix] 右栏看门狗（#1160 阶段2） (#1179)", ["web/src/pages/conversation/index.tsx"]),
+      commit("rh3", 7, "[F20260928cccc][web][BugFix] 右栏对账（#1160 阶段3） (#1185)", ["web/src/pages/conversation/index.tsx"]),
+      commit("rh4", 9, "[F20260930dddd][web][BugFix] 独立修（#1150） (#1159)", ["web/src/pages/conversation/index.tsx"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    // 3*2 > 4 严格过半 → critical（判据单元验证；生产稀释形态见下）
+    expect(rec!.severity).toBe("critical");
+  });
+
+  it("【回放】index.tsx 全量稀释形态（30 天窗 12 BugFix、#1160 计 3、6≤12 不过半）→ warning（能力边界如实）", () => {
+    // 生产全量回放（检视 r3 严重 1 处置）：活跃热点文件的真系列被同期其他修复稀释——
+    // git log 实测 12 个 BugFix 唯一 PR 号（#1292/#1268/#1251/#1185/#1179/#1161/#1095/#1076/#1072/#993/#963/#922 等），
+    // #1160 正文引用计 3，3*2=6 ≤ 12 不过半 → warning。
+    // 这是能力边界的第二种失效机制（第一种：集群爆发全计数 1）——严格过半线在活跃文件上不可达
+    const prMessages: Array<[string, string]> = [
+      ["d1", "[F20260924ircc][web][BugFix] 右栏状态回归根治：分离防双拉门控与断连重连补偿语义（#1160） (#1161)"],
+      ["d2", "[F20260928icmm][web][BugFix] 右栏状态缓存模型换轨：弱合并退役，对账可覆盖本地（#1160 根治·阶段1） (#1179)"],
+      ["d3", "[F20260928audt][web][BugFix] 右栏长尾兜底：60s 周期对账（#1160 阶段2） (#1185)"],
+      ["d4", "[F20261001mmmq][web][BugFix] 独立修 A (#1268)"],
+      ["d5", "[F20261001nnnp][web][BugFix] 独立修 B (#1251)"],
+      ["d6", "[F20260930oooz][web][BugFix] 独立修 C (#1095)"],
+      ["d7", "[F20260929pppa][web][BugFix] 独立修 D (#1076)"],
+      ["d8", "[F20260929qqqs][web][BugFix] 独立修 E (#1072)"],
+      ["d9", "[F20260926rrrt][web][BugFix] 独立修 F (#993)"],
+      ["d10", "[F20260925sssv][web][BugFix] 独立修 G (#963)"],
+      ["d11", "[F20260924tttx][web][BugFix] 独立修 H (#922)"],
+      ["d12", "[F20261005uuuk][web][BugFix] 独立修 I (#1292)"],
+    ];
+    const commits = prMessages.map(([sha, msg], i) => commit(sha, 3 + i, msg, ["web/src/pages/conversation/index.tsx"]));
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    // 全量集合下 #1160 计 3、events=12，3*2=6 ≤ 12 → warning：真系列被稀释，
+    // 与生产判定一致（r1 id 5 / r3 独立复算双源）
+    expect(rec!.severity).toBe("warning");
+  });
+});

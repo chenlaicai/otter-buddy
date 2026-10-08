@@ -183,7 +183,9 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     const rec = open.find(s => s.signal_type === "bug_recurrence");
     expect(rec).toBeDefined();
     expect(rec!.evidence).toContain("src/invoker.ts");
-    expect(rec!.severity).toBe("critical");
+    // 修 1 (#11)/修 2 (#12)/修 3 (#13) = 跨 issue 分散形态（每号计数 1，主体不过半）
+    // ——#1012 修法 c 后判 warning（分级而非过滤：仍出信号，不进 critical 主警报区）
+    expect(rec!.severity).toBe("warning");
   });
 
   it("重复扫描 occurrences 累加不重复开行", async () => {
