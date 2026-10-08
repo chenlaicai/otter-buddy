@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, createContext, useContext, useMemo, isValidElement, type CSSProperties, type ComponentProps, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useCallback, createContext, useContext, useMemo, isValidElement, type CSSProperties, type ComponentProps, type RefObject } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Element as HastElement } from 'hast'
@@ -220,8 +220,10 @@ export function MessageList({
    * 内容变化不触发回调（检视发现 1，mimo）；包裹 div 是普通 block，高度随内容真实变化 */
   const contentRef = useRef<HTMLDivElement>(null)
   const prevMessagesLenRef = useRef(messages.length)
-  /** 上翻加载历史时，记录需要恢复的滚动位置差值 */
+  /** 上翻加载历史时，记录待恢复的距顶距离（F20261008w8lt：语义重定义——旧版记 scrollHeight） */
   const pendingScrollRestoreRef = useRef<number | null>(null)
+  /** 头部消息 id 采样：区分「头部追加（上翻加载）」与「尾部追加（新消息）」 */
+  const lastFirstIdRef = useRef<string | null>(null)
   /** F20260907sgpt：上次采样的内容高度 / 视口高度（两个 observer 各自记各自的） */
   const prevContentHeightRef = useRef(0)
   const prevViewportHeightRef = useRef(0)
@@ -255,20 +257,56 @@ export function MessageList({
     for (const e of pinWritesRef.current) e.interrupted = true
   }, [pinRef])
 
-  /** F20261008scpg（W2/W8 拆分）：本 effect 只保留 W8——上翻加载历史的滚动位置恢复。
-   * 旧 W2「条数增加且在底部→贴底」「条数减少（切会话）→贴底」两个分支删除：
-   * - 条数增加必然伴随内容高度增大，由 content observer 统一补偿（写入点收敛，消双写竞态）
-   * - 切会话由 R0 接管（容器 key remount 的 mount 贴底 + conversationId effect 置 pinned） */
-  useEffect(() => {
-    const prevLen = prevMessagesLenRef.current
-    prevMessagesLenRef.current = messages.length
-    if (messages.length === prevLen) return
-    if (pendingScrollRestoreRef.current !== null) {
-      const el = scrollRef.current
-      if (el) programScroll(el, el.scrollHeight - pendingScrollRestoreRef.current, 'restore')
-      pendingScrollRestoreRef.current = null
+  /** F20261008f1fx 零间隙贴底（H1 修复）：DOM commit 后、浏览器绘制前同步写入底部（useLayoutEffect 同步语义，
+   *  非 useEffect——后者在绘制后，间隙仍在）。第一轮（F20261008scpg）的 RO→rAF 链存在
+   *  结构性 1-2 帧间隙：内容突变那帧贴底用户滚动条比例骤降（视觉=跳到中间），下一帧才
+   *  补偿回来——大量级突变（卡片撑高数百 px）时肉眼可见。useLayoutEffect 在绘制前同步写，
+   *  间隙帧归零。
+   *  与 RO 链分工：本 effect 捕 React commit 驱动的高度变化（新消息/流式增量/重渲染）；
+   *  transition/CSS/iframe 驱动的高度变化不走 React commit，仍由 RO 链兑底。
+   *  写入统一经 programScroll 登账本（不破第一轮账本完备性）。
+   *  注意：不能读「渲染前旧高度」做差值补偿——useLayoutEffect 时 DOM 已 commit。pinned
+   *  场景无需差值：直接贴底即是目标位置。依赖全量跑（无 deps）：流式期间每轮 commit 都是
+   *  高度变化点，逐次同步贴底，代价是 floating 时早退（一次 ref 读）。 */
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    // W8 restore 消费优先（F20261008w8lt）：上翻加载的头部追加——恢复用户视觉位置，
+    // 且优先于 pin 贴底（否则贴底先写、restore 判定读到贴底后位置而误判「已离开顶部」）
+    const restorePending = pendingScrollRestoreRef.current
+    if (restorePending !== null && messages.length > 0 && lastFirstIdRef.current !== messages[0]?.id) {
+      pendingScrollRestoreRef.current = null // 消费即闭环
+      const grewAtHead = prevMessagesLenRef.current < messages.length
+      const stillNearTop = el.scrollTop < el.clientHeight
+      if (grewAtHead && stillNearTop) {
+        // 用户在上翻读历史：脱锚跟随——否则内容高度变化把用户从历史位置拉回底部
+        pinRef.current = false
+        programScroll(el, el.scrollTop + restorePending, 'restore')
+      }
+      prevMessagesLenRef.current = messages.length
+      lastFirstIdRef.current = messages[0]?.id ?? null
+      return
     }
-  }, [messages.length, programScroll])
+    if (!pinRef.current) return
+    programScroll(el, el.scrollHeight, 'pin')
+  })
+
+  /** F20261008w8lt 上翻加载历史的滚动位置恢复（W8 重写）。
+   * 旧实现两缺陷（alpha 帧级取证 + stale-restore-mine.test.tsx 确定性复现）：
+   * ①记录「触发时刻 scrollHeight」，恢复用 scrollTop = 新 sh − 旧 sh——用户在顶部触发时
+   *   距顶距离是 0，与 scrollHeight 无关；旧公式把「保持距顶」错算成「保持距底」量级错位，
+   *   长会话里把用户从阅读位置甩到滚动条中部（10/8 自动上跳主凶之一）
+   * ②武装无闭环：loadMoreBefore 早退（hasMoreBefore=false）时武装了永不消费，之后任何
+   *   length 增长（新消息/聚焦刷新）引爆陈旧 restore——「贴底看最新消息时突然跳到中间」
+   * 修法：改记「距顶距离」（视觉位置直接量）+ 双守卫（仅头部追加消费 + 用户仍在顶部才写入）。 */
+  useEffect(() => {
+    // F20261008w8lt：restore 判定/写入已搬至上方 useLayoutEffect（commit 前同步、
+    // 优先于 pin 贴底，防「贴底先写→restore 判定误读」竞态）。本 effect 退役为采样维护：
+    // 上一轮未消费的武装在此静默解除（如 loadMore 早退无内容、用户已离开顶部等）——
+    // 不埋雷：任何陈旧 pending 最多存活到下一次 commit。
+    prevMessagesLenRef.current = messages.length
+    if (messages.length > 0) lastFirstIdRef.current = messages[0]?.id ?? null
+  }, [messages])
 
   /** F20260907sgpt：高度贴底补偿（双 ResizeObserver，检视发现 1 修正版）。
    *
@@ -377,8 +415,8 @@ export function MessageList({
     }
     // 到达顶部，触发加载更多（位置触发，与 pin 状态无关）
     if (el.scrollTop === 0 && onLoadMore && !loadingMore) {
-      // 记录当前滚动高度，加载后恢复
-      pendingScrollRestoreRef.current = el.scrollHeight
+      // 记录距顶距离（用户视觉位置直接量——scrollTop=0 时为 0，与 scrollHeight 无关）
+      pendingScrollRestoreRef.current = el.scrollTop
       onLoadMore()
     }
     lastScrollTopRef.current = el.scrollTop

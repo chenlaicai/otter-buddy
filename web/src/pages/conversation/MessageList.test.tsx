@@ -347,6 +347,7 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
   function instrumentRW(el: Element, scrollHeight = 2000, initialTop = 0) {
     const state = { writes: 0, lastVal: -1, top: initialTop }
     Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => scrollHeight })
+    Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => 660 }) // F20261008w8lt：stillNearTop 守卫需要
     Object.defineProperty(el, 'scrollTop', {
       configurable: true,
       get: () => state.top,
@@ -527,9 +528,9 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
       act(() => { scrollerOf().dispatchEvent(new WheelEvent('wheel', { deltaY: -100 })) })
       expect(pinRef.current).toBe(false)
       const st = instrumentRW(scrollerOf(), 2000, 0) // 顶部
-      fireScroll() // scrollTop=0 → onLoadMore + pendingScrollRestoreRef 记 2000
+      fireScroll() // scrollTop=0 → onLoadMore + pendingScrollRestoreRef 记 scrollTop=0（F20261008w8lt：距顶语义）
       expect(loadMoreFired).toBe(true)
-      // 加载历史：消息变多 → W8 恢复写入 scrollHeight(2000) - 2000 = 0
+      // 加载历史：头部追加 → useLayoutEffect 恢复写入 scrollTop(0) + pending(0) = 0
       act(() => {
         root.render(
           <MessageList
@@ -546,8 +547,9 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
           />,
         )
       })
-      expect(await untilTrue(() => st.writes > 0), 'W8 应写入恢复位置').toBe(true)
-      expect(st.lastVal, '恢复写入 = scrollHeight - 记录高度 = 0').toBe(0)
+      // F20261008w8lt：restore 在 useLayoutEffect 同步写（commit 期），不再需要轮询等待
+      expect(st.writes > 0, 'W8 应写入恢复位置').toBe(true)
+      expect(st.lastVal, '恢复写入 = scrollTop(0) + pending(0) = 0（距顶保持）').toBe(0)
       // 恢复写入后的 scroll 事件归因程序（restore 标签），不改变 floating 状态
       st.top = 0
       fireScroll()
