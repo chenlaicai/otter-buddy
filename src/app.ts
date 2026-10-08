@@ -523,6 +523,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     weixinLoginSessions,
     feishuScan: { ...feishuScan, onAppDeleted: async (appId) => { if (!disposed) feishuScan.onAppDeleted(appId); } },
     weixinAccountStore,
+    // #1211：存量 feishu 静态凭证段检测（启动时 config.feishu 非空即 true）——
+    // 透传到 /api/channels/status 顶层 deprecatedFeishuConfig，IM 页渲染迁移引导。
+    // 与启动时的英文 warn（上方 F20260929fsqr 块）同源，只是多一条用户可见出口。
+    deprecatedFeishuConfig: Boolean(config.feishu),
     // F20260920imax：扫码后按名开助理线（必填名；闭环封装 ensureConnection + 开户）
     // F20260928wxid：userName 不走本闭包——controller 建线后直接写 metadata（与 PATCH user-name 对称）
     provisionWeixinAssistantLine: async (accountId, name) => {

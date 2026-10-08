@@ -18,6 +18,8 @@ export class ChannelController {
   constructor(
     private readonly registry: ChannelStatusRegistry,
     private readonly weixinAccountStore?: WeixinAccountStorePort,
+    /** #1211：存量 feishu 静态凭证段检测——响应顶层携带 deprecatedFeishuConfig 供 IM 页渲染迁移引导 */
+    private readonly deprecatedFeishuConfig?: boolean,
   ) {}
 
   /**
@@ -25,6 +27,8 @@ export class ChannelController {
    * 
    * 响应格式：
    * ```jsonc
+   * // 顶层 deprecatedFeishuConfig（#1211）：仅当存量 config.yaml 仍保留 feishu 静态凭证段时
+   * // 出现（true）——IM 页据此渲染迁移引导而非「未配置」
    * { "channels": [
    *     { "channelId": "weixin-mtgv10dc", "kind": "weixin",
    *       "state": { "kind": "token_stale", "since": 1788231415, "errmsg": "session timeout" },
@@ -92,6 +96,11 @@ export class ChannelController {
       }
     }
     
-    return c.json({ channels });
+    // #1211：存量 feishu 静态凭证段检测——响应顶层携带 deprecatedFeishuConfig，
+    // IM 页据此渲染迁移引导（而非误导性的「未配置」）
+    return c.json({
+      channels,
+      ...(this.deprecatedFeishuConfig ? { deprecatedFeishuConfig: true } : {}),
+    });
   }
 }

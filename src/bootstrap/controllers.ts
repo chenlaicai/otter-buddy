@@ -107,6 +107,9 @@ export interface ControllerDeps {
   provisionWeixinAssistantLine?: (accountId: string, name: string) => Promise<{ conversationId: string; title: string }>;
   /** 通道状态注册表（F20260901chun：统一 IM 页 + 真实健康状态） */
   registry?: ChannelStatusRegistry;
+  /** #1211：存量 feishu 静态凭证段检测（app.ts 注入 Boolean(config.feishu)）——
+   *  true 时 /api/channels/status 携带 deprecatedFeishuConfig，IM 页渲染迁移引导 */
+  deprecatedFeishuConfig?: boolean;
   /** F20260901sgpv P1：信号路由器（主入口调度收敛；未注入时 MC/ADS/RIS 降级直连链） */
   signalRouter?: SignalRouter;
   /** #576（F20260901emps）：能力库页面数据源（ResourceLoader 适配器）；缺省时路由返回 503 */
@@ -117,7 +120,7 @@ export interface ControllerDeps {
 
 function buildChannelController(deps: ControllerDeps) {
   if (!deps.registry) return undefined;
-  return new ChannelController(deps.registry, deps.weixinAccountStore);
+  return new ChannelController(deps.registry, deps.weixinAccountStore, deps.deprecatedFeishuConfig);
 }
 
 function buildAttachmentInjection(deps: ControllerDeps, appConfig: AppConfig, repos: Repositories, logger: Logger) {

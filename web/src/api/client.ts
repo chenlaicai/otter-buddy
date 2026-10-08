@@ -780,6 +780,9 @@ export interface ChannelStatusDTO {
 
 export interface ChannelStatusResponseDTO {
   channels: ChannelStatusDTO[];
+  /** #1211：存量 feishu 静态凭证段检测（仅 true 时携带）——飞书“未配置”时若此项为 true，
+   *  渲染迁移引导而非误导性“未配置” */
+  deprecatedFeishuConfig?: boolean;
 }
 
 export function getChannelStatus(): Promise<ChannelStatusResponseDTO> {

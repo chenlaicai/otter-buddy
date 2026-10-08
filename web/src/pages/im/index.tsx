@@ -19,6 +19,9 @@ const POLL_INTERVAL_MS = 5000
 export default function ImPage() {
   // 通道状态
   const [channelStatus, setChannelStatus] = useState<ChannelStatusDTO[]>([])
+  // #1211：存量 feishu 静态凭证段检测（/api/channels/status 顶层 deprecatedFeishuConfig）——
+  // true 时飞书区块顶部渲染迁移引导条（旧配置已退役，避免误导性的「未配置」）
+  const [deprecatedFeishuConfig, setDeprecatedFeishuConfig] = useState(false)
   const pollTimer = useRef<number | null>(null)
 
   // 微信账号
@@ -144,6 +147,7 @@ export default function ImPage() {
     try {
       const resp = await api.getChannelStatus()
       setChannelStatus(resp.channels)
+      setDeprecatedFeishuConfig(resp.deprecatedFeishuConfig === true)
     } catch {
       showToast('加载通道状态失败', 'error')
     }
@@ -443,6 +447,20 @@ export default function ImPage() {
                 加 bot 好友即用
               </span>
             </div>
+
+            {/* #1211：存量静态凭证迁移引导——检测到旧 feishu 段时置顶提示，
+                指向扫码迁移（选已有应用）；完整步骤内嵌，不依赖外部链接
+                （web SPA 无 docs 静态服务，外链会 fallback 到首页成死链） */}
+            {deprecatedFeishuConfig && (
+              <div className="mb-4 rounded-xl border border-amber-200/70 bg-amber-50/80 px-4 py-3" data-testid="feishu-migration-banner">
+                <p className="text-xs font-medium text-amber-800">
+                  检测到旧版飞书静态凭证配置（config.yaml feishu 段已退役）
+                </p>
+                <p className="mt-1.5 text-xs leading-relaxed text-amber-700">
+                  飞书接入已切换为扫码模式，请迁移：① 删除 config.yaml 中整个 feishu: 段（含 partnerOpenId）→ ② 重启 otter-buddy → ③ 在本页扫码，确认页选「选择已有应用」重新接入原应用。历史对话绑定不受影响。完整说明见仓库 docs/user-guide/feishu-setup.md「从旧静态凭证迁移」节。
+                </p>
+              </div>
+            )}
 
             {/* 三步引导：未配置态指向扫码流程，已配置态指向加好友开聊（F20260929fsqr 扫码文案对齐） */}
             <div className="space-y-2.5 mb-4">

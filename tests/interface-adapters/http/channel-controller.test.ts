@@ -106,4 +106,26 @@ describe("ChannelController.getStatus", () => {
     expect(body.channels[0].state.kind).toBe("token_stale");
     expect(body.channels[1].state.kind).toBe("error_backoff");
   });
+
+  // #1211：deprecatedFeishuConfig 透传——存量 feishu 静态段检测，仅 true 时携带
+  it("#1211 deprecatedFeishuConfig=true：响应顶层携带迁移标记", async () => {
+    const registry = makeRegistry([]);
+    const controller = new ChannelController(registry, undefined, true);
+    const { ctx, getBody } = makeContext();
+    await controller.getStatus(ctx);
+    const body = getBody();
+    expect(body.deprecatedFeishuConfig).toBe(true);
+    expect(body.channels).toHaveLength(0);
+  });
+
+  it("#1211 deprecatedFeishuConfig 缺省（无旧段）：响应不携带字段（非 false 污染）", async () => {
+    const registry = makeRegistry([]);
+    const accountStore = makeAccountStore([{ id: "acc1" }]);
+    const controller = new ChannelController(registry, accountStore);
+    const { ctx, getBody } = makeContext();
+    await controller.getStatus(ctx);
+    const body = getBody();
+    expect(body.deprecatedFeishuConfig).toBeUndefined();
+    expect(body.channels).toHaveLength(1);
+  });
 });
