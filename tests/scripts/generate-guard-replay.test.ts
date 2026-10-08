@@ -84,6 +84,10 @@ beforeAll(() => {
       context: { ruleId: "data_destructive", ruleLayer: "r1_gate" },
       createdAt: `${y}T07:00:00.000Z`,
     },
+    // delta 处置（检视獭1360 实测）：畸形 context（非法 JSON）——json_valid 守卫前
+    // json_extract 会抛 "malformed JSON" 崩生成器；守卫后不炸不入选
+    { id: "s8", errorType: "guard_intercept", description: "畸形 context 行（截断 JSON）", context: "{ruleId:\"main_write\",trunc", createdAt: `${y}T08:00:00.000Z` },
+    { id: "s9", errorType: "guard_intercept", description: "畸形 context 行（纯文本）", context: "not-json-at-all", createdAt: `${y}T09:00:00.000Z` },
   ];
   for (const s of seeds) db.exec(seedEvent(s));
   db.close();
@@ -147,6 +151,16 @@ describe("generate-guard-replay.mjs（F20261008gdcc 项 4）", () => {
     const s7 = payload.samples.find((s: { id: string }) => s.id === "s7");
     expect(s7.ruleId).toBe("data_destructive"); // context 透传
     expect(s7.commandHead).toContain("ls | grep");
+  });
+
+  it("畸形 context（非法 JSON）不炸生成器：json_valid 守卫排除，不入选不崩溃（delta 处置）", () => {
+    const { outJsonPath } = runScript();
+    const payload = JSON.parse(readFileSync(outJsonPath, "utf8"));
+    // s8/s9 畸形行被 json_valid 短路排除（守卫前 json_extract 抛错崩 .all()）
+    expect(payload.samples.find((s: { id: string }) => s.id === "s8")).toBeUndefined();
+    expect(payload.samples.find((s: { id: string }) => s.id === "s9")).toBeUndefined();
+    // 正常候选不受影响
+    expect(payload.uniqueSamples).toBe(3);
   });
 
   it("--date 指定窗：只取该日事件", () => {

@@ -3,13 +3,13 @@ task_name: 每日对话健康检查
 budget_bytes: 9600
 ---
 
-请回顾昨天的所有对话，发现系统和海獭们的问题，按问题拆分提交 GitHub issue（label: daily-review）。分析维度：用户情绪（吐槽/强烈措辞）、系统问题（bug/工具故障/流程缺陷）、海獭行为（违规/遗漏流程/判断失误）。
+回顾昨日全部对话，发现系统和海獭的问题，按问题拆分提 GitHub issue（label: daily-review）。分析维度：用户情绪（吐槽/强烈措辞）、系统问题（bug/工具故障/流程缺陷）、海獭行为（违规/漏流程/误判）。
 
-请判断如何处理：自己干 / 派小獭并行。参考 otter-summon skill 的判断示例。关注点没信号就不报，宁缺毋滥。
+自己干 / 派小獭并行（参考 otter-summon skill 判断示例）。没信号就不报，宁缺毋滥。
 
 ## 范围约束
 
-只找 otter-buddy 自身系统的优化点，其他项目的对话反馈/报错忽略。跨对话 memory 信号先验证归属（路径/PR/issue 指向本仓）；无法确认的不报。
+只找 otter-buddy 自身系统的优化点，其他项目的反馈/报错忽略。跨对话 memory 信号先验证归属（路径/PR/issue 指向本仓）；无法确认的不报。
 
 ## 必须检查的数据源（先跑完全部数据源再开始分析；调查纪律全量按 SYSTEM.md A1）
 
@@ -58,13 +58,13 @@ budget_bytes: 9600
 [ ] 8. 锚点抽查：N/M/K + 模型对照  [ ] 9. 信噪比：dismiss 率/不处置率/物件数  [ ] 10. 压缩观测：failed 计数（无异常写"failed=0，健康"）
 ```
 
-## 守卫误拦样本固化段（细节见 docs/features/ 本批次特性文档）
+## 守卫误拦样本固化段（细节见 docs/features/ 本批特性文档；「昨日」= UTC 日界，CST 上午跑含昨日下午属预期）
 
 昨日 guard_intercept 样本是「修复-回归循环」的原料（已三次重演），每日：
 
 1. `node scripts/generate-guard-replay.mjs --db <curl /api/settings 得到的 dbPath>`；无拦截日报写「固化：0 条」
-2. 逐条填 verdict：`ALLOW`（误拦）/ `BLOCK`（规则内负门样本）/ `SKIP`（一次性/敏感/不可复现）；误拦旁证 = 查该命令后续是否换写法绕过
-3. 非 SKIP 追加到 `tests/frameworks/agent/guard-v2-real-replay.test.ts`（对齐既有 it 块，断言 = 裁决值）并跑该文件；期望不符先疑裁决错勿凑绿，双链不一致按 issue 报
+2. 逐条填 verdict：`ALLOW`（误拦）/ `BLOCK`（规则内负门样本）/ `SKIP`（一次性/敏感/不可复现）；误拦旁证 = 查后续是否换写法绕过
+3. 非 SKIP 追加到 `tests/frameworks/agent/guard-v2-real-replay.test.ts`（对齐既有 it 块，断言 = 裁决值）并跑该文件；期望不符先疑裁决错勿凑绿，双链不一致提 issue
 4. 日报留痕「拦截 N → 候选 M → 固化 K / SKIP S」
 
 边界：同 ruleId ≥3 条成规模误拦改开 issue 修规则。

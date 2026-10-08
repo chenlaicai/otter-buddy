@@ -54,14 +54,17 @@ const db = new Database(dbPath, { readonly: true });
 
 // 审视处置（PR #1368 §3.3）：SQL 层强制 #1360 数据源口径——拦截结构化事件
 // （context.ruleId 存在），排除 bounce 计数事件（无 ruleId，落 unknown/无法提取命令
-// 噪声候选）；json_extract 兼旧格式真样本（无 ruleId 但 description 带命令前缀）
+// 噪声候选）；json_extract 兼旧格式真样本（无 ruleId 但 description 带命令前缀）。
+// delta 处置（检视獭1360 实测）：json_extract 遇非法 JSON 抛 "malformed SQL JSON" 而非
+// 返 NULL——旧查询无 json_extract、JS 层 try-catch 容错，本处置曾把容错挪成脆点（fix-injected
+// 回归）。加 json_valid(context) 短路守卫：畸形行不炸不入选（可达性低但日跑生产库，宁可漏一条旧格式也不崩生成器）。
 const rows = db.prepare(`
   SELECT id, otter_id, description, context, created_at
   FROM healing_events
   WHERE error_type = 'guard_intercept'
     AND created_at >= ? AND created_at <= ?
     AND (
-      json_extract(context, '$.ruleId') IS NOT NULL
+      (json_valid(context) AND json_extract(context, '$.ruleId') IS NOT NULL)
       OR description LIKE '%（命令前缀：%'
     )
   ORDER BY created_at ASC
