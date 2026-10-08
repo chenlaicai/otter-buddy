@@ -605,13 +605,14 @@ export class AgentInvoker implements AgentTurnPort {
         return this.circuitBreak.countRecentGuardBounces(otterId, windowMs);
       },
 
-      // F20261008gduc P0-2：疑似误拦降级通道数据源——滑窗内 bounce 事件列表（含 ruleId/commandHead）。
+      // F20261008gduc P0-2：疑似误拦降级通道数据源——滑窗内 bounce 事件列表（含 ruleId/ruleLayer/commandHead）。
       // classifyGuardInterceptReason 在 frameworks 层（guard-intercept-classify），usecases 禁直 import
-      // （D39 分层）——分类动作在 interface-adapters 回调实现内完成，orchestrator 只消费归一后的 currentRuleId。
+      // （D39 分层）——分类动作在 interface-adapters 回调实现内完成，orchestrator 只消费归一后的
+      // currentRuleId/currentRuleLayer。PR #1360 §3.5 处置：layer 随分类归一，供高危层文案中性化判定。
       getRecentGuardBounceEvents: async (otterId: string, windowMs: number, guardReason?: string) => {
         if (!this.circuitBreak) throw new Error('guard bounce events unavailable: healing repo not configured');
-        const currentRuleId = guardReason ? classifyGuardInterceptReason(guardReason).ruleId : undefined;
-        return this.circuitBreak.recentGuardBounceEvents(otterId, windowMs, currentRuleId);
+        const cls = guardReason ? classifyGuardInterceptReason(guardReason) : undefined;
+        return this.circuitBreak.recentGuardBounceEvents(otterId, windowMs, cls?.ruleId, cls?.layer);
       },
 
       isCircuitBreakerEnabled: () => !!this.circuitBreak,

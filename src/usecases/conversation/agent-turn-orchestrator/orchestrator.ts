@@ -760,16 +760,17 @@ export class AgentTurnOrchestrator {
   }
 
   /**
-   * F20261008gduc P0-2：判定滑窗内 bounce 是否全部命中与本轮同一 ruleId（疑似误拦）。
-   * 数据源 getRecentGuardBounceEvents（与计数同路径）；不可用/查询失败返回 null
-   * （fail-closed 回 abort 升级，不误判误拦放行真违规）。
+   * F20261008gduc P0-2：判定滑窗内拦截是否全部命中与本轮同一 ruleId（疑似误拦）。
+   * 数据源 getRecentGuardBounceEvents（拦截结构化事件——每条对应一轮拦截，含
+   * ruleId/ruleLayer/commandHead；含首轮首拦，比 bounce 计数多一轮，判定语义更严）。
+   * 不可用/查询失败返回 null（fail-closed 回 abort 升级，不误判误拦放行真违规）。
    */
   private async detectSameRuleBounce(
     ctx: RouteContext,
     guardReason: string,
-  ): Promise<{ ruleId: string; commandHead: string } | null> {
+  ): Promise<{ ruleId: string; ruleLayer?: string; commandHead: string } | null> {
     if (!ctx.callbacks.getRecentGuardBounceEvents) return null;
-    let events: Array<{ ruleId?: string; commandHead?: string; currentRuleId?: string }>;
+    let events: Array<{ ruleId?: string; ruleLayer?: string; commandHead?: string; currentRuleId?: string; currentRuleLayer?: string }>;
     try {
       events = await ctx.callbacks.getRecentGuardBounceEvents(ctx.input.otterId, GUARD_BOUNCE_WINDOW_MS, guardReason);
     } catch (err) {
@@ -786,8 +787,14 @@ export class AgentTurnOrchestrator {
     if (!currentRule || currentRule === "unknown") return null; // 本轮规则不可归类 → 无法判同，保守走 abort
     const sameRuleId = events.every(e => e.ruleId === currentRule);
     if (!sameRuleId) return null;
-    const last = events[events.length - 1];
-    return { ruleId: currentRule, commandHead: last.commandHead ?? "（无命令摘要）" };
+    // 审视处置（PR #1360 §3.2）：events 是 DESC 序（最新在前，sqlite-healing-event-repository
+    // ORDER BY created_at DESC）——commandHead 取 events[0]（最新一次被拦命令），非 events 末尾（最旧）。
+    const latest = events[0];
+    return {
+      ruleId: currentRule,
+      ruleLayer: latest.currentRuleLayer,
+      commandHead: latest.commandHead ?? "（无命令摘要）",
+    };
   }
 
   /**
@@ -800,7 +807,7 @@ export class AgentTurnOrchestrator {
     ctx: RouteContext,
     guardReason: string,
     otterName: string,
-    sameRule: { ruleId: string; commandHead: string },
+    sameRule: { ruleId: string; ruleLayer?: string; commandHead: string },
     priorBounces: number,
   ): Promise<TurnResult> {
     this.logger.warn('Guard bounce same-rule suspected false positive — deescalating to partner notification', {
@@ -809,15 +816,15 @@ export class AgentTurnOrchestrator {
       ruleId: sameRule.ruleId,
       priorBounces,
     });
-    // ① 搭档侧「疑似误拦」通知（含三要素：命令摘要/命中规则/重试次数）
+    // ① 搭档侧「疑似误拦」通知（含三要素：命令摘要/命中规则/重试次数；高危层中性化）
     try {
       await ctx.callbacks.sendSystem(
         ctx.input.conversationId,
-        buildGuardBounceSuspectedFpMsg(otterName, sameRule.ruleId, sameRule.commandHead, priorBounces + 1),
+        buildGuardBounceSuspectedFpMsg(otterName, sameRule.ruleId, sameRule.commandHead, priorBounces + 1, sameRule.ruleLayer),
       );
     } catch { /* 通知失败不阻断降级流程 */ }
     // ② invoke 终态化 failed（非 aborted——保留手动重试空间，且与真违规 abort 语义区分）
-    await this.finalizeInvokeFailed(ctx.input, buildGuardBounceSuspectedFpRetryMsg(sameRule.ruleId), ctx.callbacks, ctx.startTime);
+    await this.finalizeInvokeFailed(ctx.input, buildGuardBounceSuspectedFpRetryMsg(sameRule.ruleId, sameRule.ruleLayer), ctx.callbacks, ctx.startTime);
     // ③ 落账 suspected_false_positive 事件（severity high——疑似误拦是守卫可信度问题，需人工跟进）
     try {
       await ctx.callbacks.recordHealingEvent({

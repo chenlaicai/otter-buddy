@@ -141,30 +141,51 @@ export function buildGuardBounceEscalationMsg(otterName: string, guardReason?: s
 }
 
 // ─── F20261008gduc P0-2：同规则 3 连判「疑似误拦」降级通道（#1353 獭失联半小时）───
+// 同规则阈值复用 GUARD_BOUNCE_MAX（=3）——审视处置：曾有独立常量 GUARD_BOUNCE_SAME_RULE_MAX
+// 但未被消费形成误导，已删除；降级触发条件 = priorBounces >= GUARD_BOUNCE_MAX 且滑窗 bounce
+// 全部命中同一 ruleId（orchestrator detectSameRuleBounce）。
 
-/** 同规则 bounce 连续命中上限——≥3 次命中同一 ruleId 判疑似误拦，走降级通道而非 abort。 */
-export const GUARD_BOUNCE_SAME_RULE_MAX = 3;
+/** 宪法高危分层（bash-guard-constitution「一、分层原则」）——命中这些层的规则时通知文案中性化。 */
+const HIGH_RISK_RULE_LAYERS = new Set(["self_kill", "bypass_guard"]);
+
+/** P0-2 审视处置（PR #1360 §3.5）：高危规则（kill 族/防绕过）的「大概率误拦」预判可能诱导搭档放行真违规——文案中性化判定。 */
+export function isHighRiskRuleLayer(ruleLayer?: string): boolean {
+  return ruleLayer !== undefined && HIGH_RISK_RULE_LAYERS.has(ruleLayer);
+}
 
 /**
  * P0-2：疑似误拦的搭档侧通知。同规则 3 连说明命令形态稳定（獭在正确命令上反复撞墙），
  * 大概率守卫误拦面而非獭顽固违规——此时 abort 是错杀（#1353：獭失联半小时），
  * 改为请搭档人工核实/临时放行。含命令摘要 + 命中规则 + 重试次数三要素。
+ * 审视处置（PR #1360 §3.5）：高危规则层（self_kill/bypass_guard）不预判「大概率误拦」——
+ * 改中性文案请搭档核实命令正当性，防预判诱导放行真违规；低危层（r1_gate/permission/habit）
+ * 保留误拦倾向判断。
  */
 export function buildGuardBounceSuspectedFpMsg(
   otterName: string,
   ruleId: string,
   commandHead: string,
   attempt: number,
+  ruleLayer?: string,
 ): string {
-  return `[系统保护·疑似误拦] ${otterName} 连续 ${attempt} 次被 bash 守卫拦截，命中同一规则（${ruleId}）。命令摘要：${commandHead}。该命令形态稳定反复命中同一规则，大概率是守卫误拦而非违规——已暂停自动回发，请人工核实：确认误拦可临时放行该命令，或修正守卫规则；若确属违规请直接指出。`;
+  const head = `[系统保护·疑似误拦] ${otterName} 连续 ${attempt} 次被 bash 守卫拦截，命中同一规则（${ruleId}）。命令摘要：${commandHead}。`;
+  if (isHighRiskRuleLayer(ruleLayer)) {
+    return `${head}已暂停自动回发，请人工核实此命令是否正当：若属守卫误拦可临时放行该命令或修正守卫规则；若确属违规（该规则涉及主进程安全/防绕过）请直接指出，不要放行。`;
+  }
+  return `${head}该命令形态稳定反复命中同一规则，大概率是守卫误拦而非违规——已暂停自动回发，请人工核实：确认误拦可临时放行该命令，或修正守卫规则；若确属违规请直接指出。`;
 }
 
 /**
  * P0-2：降级通道给獭的会话内提示（retry message 注入下一轮 invoke context）。
  * 不再让它继续撞同一规则（abort 前它已重试 3 次同一形态），引导换写法/报告搭档。
+ * 审视处置（PR #1360 §3.5）：高危规则层不预判「大概率误拦」——与搭档侧通知同口径中性化。
  */
-export function buildGuardBounceSuspectedFpRetryMsg(ruleId: string): string {
-  return `[系统提醒] 你已连续多次被 bash 守卫拦截且命中同一规则（${ruleId}），系统判断大概率是守卫误拦。请不要再重复相同命令形态：①尝试换一种写法（如显式 cd worktree 路径、拆分命令）；②若确认命令本身正当，speak 向搭档说明情况并请求人工放行；③不要再自动重试相同命令。`;
+export function buildGuardBounceSuspectedFpRetryMsg(ruleId: string, ruleLayer?: string): string {
+  const head = `[系统提醒] 你已连续多次被 bash 守卫拦截且命中同一规则（${ruleId}）。`;
+  if (isHighRiskRuleLayer(ruleLayer)) {
+    return `${head}请不要再重复相同命令形态：①尝试换一种写法（如显式 cd worktree 路径、拆分命令）；②若确认命令本身正当，speak 向搭档说明情况并请求人工核实；③不要再自动重试相同命令。`;
+  }
+  return `${head}系统判断大概率是守卫误拦。请不要再重复相同命令形态：①尝试换一种写法（如显式 cd worktree 路径、拆分命令）；②若确认命令本身正当，speak 向搭档说明情况并请求人工放行；③不要再自动重试相同命令。`;
 }
 
 /** F20260922txes：超时类重试耗尽终态的会话内用户可见提示（L3 升级上报）

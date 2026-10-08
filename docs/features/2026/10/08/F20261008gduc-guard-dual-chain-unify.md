@@ -72,12 +72,23 @@ causal_links: ["F20261008gfrc", "F20260928grv2", "F20261006c1240"]
 - **真违规的特征是异规则/探索性**——獭在试探不同写法时会命中不同规则（kill 族、写族、sleep 族混杂），规则标识的熵高。
 - **#1353 实证**：獭已经 cd 了 worktree，引导文案说「请 cd worktree 再执行」但獭已经 cd 了——死路循环，abort 后獭失联半小时。
 
-**数据源**：healing_events context 已有的 ruleId（F20260930gslog 台账结构化，guard-intercept-classify.ts 分类）。新增 `getRecentGuardBounceEvents` 回调（TurnCallbacks 可选），复用 `countRecentGuardBounces` 查询路径，返回完整事件（含 ruleId/commandHead）而非仅计数。
+**数据源**：healing_events context 已有的 ruleId（F20260930gslog 台账结构化，guard-intercept-classify.ts 分类）。新增 `getRecentGuardBounceEvents` 回调（TurnCallbacks 可选），查询拦截结构化事件（pi-session-factory 落账，context 含 ruleId/ruleLayer/commandHead）。
+
+**审视轮处置（PR #1360 review follow-up）**：
+
+1. **§3.1 复发盲区（MEDIUM）**：原两条放行用例是只读命令、main 上也过，revert 修复测试仍绿——本家族两次复发（#1207→#1304、#1170）的机制。处置：放行用例改为 worktree **写**形态（main BLOCK→修复后 ALLOW，真演示修复，revert 验证红已实测）；补真管道钉住（V2 语义 git commit\|tail 放行 + V1 链 node 写\|tail 仍拦）；补 `||` 负门组合（heredoc 写主仓 + data 破坏面仍拦）。
+2. **§3.2 commandHead 取最旧（LOW-MEDIUM）**：events 是 DESC 序（sqlite-healing-event-repository ORDER BY created_at DESC），原 `events[events.length-1]` 取到最旧——改 `events[0]`（最新），测试钉住。
+3. **§3.3 死代码（LOW）**：`GUARD_BOUNCE_SAME_RULE_MAX` 定义未被消费（实际阈值复用 `GUARD_BOUNCE_MAX`）——删除，文档口径改「复用 GUARD_BOUNCE_MAX」。
+4. **§3.5 高危规则通知中性化（LOW）**：「大概率误拦」预判对高危层（self_kill/bypass_guard）可能诱导搭档放行真违规——`buildGuardBounceSuspectedFpMsg`/`buildGuardBounceSuspectedFpRetryMsg` 增加可选 `ruleLayer` 参数，高危层改中性文案（请核实正当性 + 明示不要放行），低危层（r1_gate/permission/habit）保留预判。layer 穿 D39 分层链：classifyGuardInterceptReason 归一 → agent-invoker 注入 → orchestrator 消费。
+5. **数据源修正（delta 新发现，生产级）**：原实现按 `bounce:true` 过滤 bounce 计数事件取 ruleId——但生产链路上 bounce 计数事件（orchestrator 落账）context 只有 `{layer,guardReason,bounceAttempt}` 无 ruleId；带 ruleId 的结构化事件（pi-session-factory 落账）不带 bounce 标记被过滤排除。测试靠 seed 伪造 `context:{bounce:true,ruleId:…}` 虚绿——生产上降级通道永不触发（死通道）。处置：数据源改为拦截结构化事件（context.ruleId 存在性过滤，每条对应一轮拦截，含首轮首拦、判定语义更严）；测试 seed 换真实生产形态（framework 结构化 + bounce 计数两类并存）。
+6. **宪法顺带维护**：「四、已知洞」补 S1 双链割裂条目（已修复，#1360）。
+7. **§3.4 灰区（不进本 PR）**：`cd WT && 写主仓绝对路径` 灰区收紧（豁免判定增加写目标 worktree 归属校验）单开 issue 跟踪。
 
 ## 影响范围
 
 - `src/frameworks/agent/bash-safety-guard.ts`：`hasRealCdSegment` :1529 正则修正（1 处字符级变更）
-- `src/usecases/conversation/agent-turn-orchestrator/retry-policy.ts`：新增 `GUARD_BOUNCE_SAME_RULE_MAX` + `buildGuardBounceSuspectedFpMsg` + `buildGuardBounceSuspectedFpRetryMsg`
+- `docs/designs/bash-guard-constitution.md`：「四、已知洞」补 S1 双链割裂条目（宪法修改契约：守卫相关 PR 顺带维护）
+- `src/usecases/conversation/agent-turn-orchestrator/retry-policy.ts`：新增 `buildGuardBounceSuspectedFpMsg`（含高危层中性化分支）+ `buildGuardBounceSuspectedFpRetryMsg`（同口径）+ `isHighRiskRuleLayer`；同规则阈值复用 `GUARD_BOUNCE_MAX`（审视处置：独立常量 `GUARD_BOUNCE_SAME_RULE_MAX` 未被消费已删除，防误导）
 - `src/usecases/conversation/agent-turn-orchestrator/orchestrator.ts`：`handleGuardBounce` 插入同规则判定分支 + 新增 `detectSameRuleBounce` / `deescalateGuardBounceSuspectedFp` 两方法
 - `src/usecases/conversation/agent-turn-orchestrator/types.ts`：`TurnCallbacks` 新增可选 `getRecentGuardBounceEvents`
 - `src/interface-adapters/agent-runtime/circuit-break-support.ts`：新增 `recentGuardBounceEvents` 查询
@@ -85,13 +96,17 @@ causal_links: ["F20261008gfrc", "F20260928grv2", "F20261006c1240"]
 
 ## 验证
 
-- P0-1 回归测试（6 例）：
-  - 修复面：`cd wt && node -e 多行只读 2>/dev/null || node 备用链`（parseOk=false 落 V1 兜底链）放行；`cd wt && git status || echo fallback` 放行
+- P0-1 回归测试（11 例）：
+  - 修复面（revert 验证红已实测——旧正则下本例 BLOCK，修复后 ALLOW）：`cd wt && node -e 写 worktree 文件 || node 备用链`（parseOk=false 落 V1 兜底链）放行；`cd wt && git status || echo fallback` 放行（只读对照）
+  - 管道语义钉住：`cd wt && git commit | tail`（单行 parseOk=true 走 V2 段级）放行（#1170 V2 行为锚点）；`cd wt && node -e 写 worktree | tail`（parseOk=false 落 V1 链）仍拦（管道杀 V1 豁免不因 || 修复而变）
+  - 负门组合：#1240 heredoc 体写主仓（带 `|| echo`）仍拦；data 破坏面（`rm -rf /repo/data … || echo`）仍拦
   - 不误伤面：`cd wt & git commit`（后台子 shell）仍拦；引号假 cd 仍拦；`cd .` 平凡目标仍拦；cd 前写命令仍拦；#1240 heredoc 负门仍拦
-- P0-2 回归测试（4 例）：
-  - 同规则 3 连（ruleId 同且非 unknown）→ 降级通道：疑似误拦通知 + invoke failed 终态 + suspected_false_positive high 落账
-  - 异规则 3 连（mixed ruleId）→ 仍走原 abort 终态
-  - unknown ruleId 3 连 → fail-closed 走 abort
-  - 事件查询失败（台账失明）→ fail-closed 走 abort
-- 全仓 `npx vitest run`：5022 例全绿（基线 3941 → 修复后 5022，新增 81 例含本特性 10 例）
+- P0-2 回归测试（5 例，GB-6 系列）：
+  - GB-6a 同规则 3 连低危层（main_write/r1_gate）→ 降级通道：「大概率误拦」保留 + 命令摘要取最新（DESC 序 events[0]，§3.2 钉住）+ suspected_false_positive high 落账
+  - GB-6e 同规则 3 连高危层（self_kill/self_kill 层）→ 降级但通知中性化：不含「大概率误拦」预判、改「请核实此命令是否正当…不要放行」（搭档通知与獭提示双口径）
+  - GB-6b 异规则 3 连（mixed ruleId）→ 仍走原 abort 终态
+  - GB-6c unknown ruleId 3 连 → fail-closed 走 abort
+  - GB-6d 事件查询失败（台账失明）→ fail-closed 走 abort
+  - 测试 seed 形态对齐生产：framework 结构化事件（ruleId/ruleLayer/commandHead）+ bounce 计数事件两类并存（数据源修正后的真实落账形态，防 seed 脱节虚绿）
+- 全仓 `npx vitest run`：审查处置后全绿（revert 修复验证：gduc 段 11 例中修复靶点用例红，其余全绿——修复被用例钉住）
 - `npx tsc --noEmit`：通过

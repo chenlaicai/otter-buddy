@@ -191,25 +191,30 @@ export class CircuitBreakSupport {
   }
 
   /**
-   * F20261008gduc P0-2：滑窗内 bounce 事件列表（疑似误拦降级通道数据源）。
-   * 与 countRecentGuardBounces 同查询路径，返回 context.ruleId / commandHead 供
-   * orchestrator 判定「连续 N 次命中同一规则」。台账失明时拋错由调用方 fail-closed。
+   * F20261008gduc P0-2：滑窗内拦截结构化事件列表（疑似误拦降级通道数据源）。
+   * 审视处置修正（PR #1360 delta）：数据源口径改为「拦截结构化事件」（pi-session-factory
+   * buildGuardInterceptHook 落账，context.ruleId 存在性过滤）而非 bounce:true 计数事件——
+   * 生产链路上 bounce 计数事件（orchestrator 落账）context 只有 {layer,guardReason,bounceAttempt}，
+   * 无 ruleId/commandHead；按 bounce 过滤会把降级判定数据源架空成死代码（每轮拦截同时落
+   * 结构化事件，数量对齐且多一轮首拦，判定语义更严）。台账失明时拋错由调用方 fail-closed。
+   * PR #1360 §3.5 处置：历史事件 layer 从落账 context.ruleLayer 取；本轮 currentRuleLayer 由调用方传入。
    */
   async recentGuardBounceEvents(
     otterId: string,
     windowMs: number,
     currentRuleId?: string,
-  ): Promise<Array<{ ruleId?: string; commandHead?: string; currentRuleId?: string }>> {
+    currentRuleLayer?: string,
+  ): Promise<Array<{ ruleId?: string; ruleLayer?: string; commandHead?: string; currentRuleId?: string; currentRuleLayer?: string }>> {
     const since = new Date(Date.now() - windowMs).toISOString();
     const events = await this.deps.healingRepo.findRecentByOtter(otterId, 'guard_intercept', 50);
     return events
       .filter(e => {
-        const ctx = e.context as { bounce?: boolean } | null;
-        return ctx?.bounce === true && e.createdAt >= since;
+        const ctx = e.context as { ruleId?: string } | null;
+        return e.createdAt >= since && typeof ctx?.ruleId === 'string' && ctx.ruleId.length > 0;
       })
       .map(e => {
-        const ctx = e.context as { ruleId?: string; commandHead?: string } | null;
-        return { ruleId: ctx?.ruleId, commandHead: ctx?.commandHead, currentRuleId };
+        const ctx = e.context as { ruleId?: string; ruleLayer?: string; commandHead?: string } | null;
+        return { ruleId: ctx?.ruleId, ruleLayer: ctx?.ruleLayer, commandHead: ctx?.commandHead, currentRuleId, currentRuleLayer };
       });
   }
 
