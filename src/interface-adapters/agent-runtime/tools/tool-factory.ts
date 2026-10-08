@@ -14,7 +14,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import { interceptHealingReport, createManageHealingEventsTool } from "./healing-tools";
 import { createHaltOtterTool, createQuerySignalsTool, createResolveSignalTool, createUnhaltOtterTool, interceptSignalReport } from "./signal-tools";
-import { createListMattersTool, createTransitionMatterTool, createRegisterMatterTool } from "./matter-tools";
+import { createListMattersTool, createTransitionMatterTool, createRegisterMatterTool, createMatterSweepTool } from "./matter-tools";
 import { RegisterMatter, matterShortAnchor } from "@usecases/matter/register-matter";
 import { HANDOFF_SYNTHESIZE_PAST_DEFAULT } from "../agent-invoker";
 import { createTriageSignalTool, createListRhiSignalsTool } from "./rhi-signal-tools";
@@ -1417,6 +1417,10 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     tools.push(createListMattersTool(ctx, matterRepo));
     tools.push(createRegisterMatterTool(ctx, matterRepo));
     tools.push(createTransitionMatterTool(ctx, matterRepo));
+    // F20261008mlp3 P3：matter_sweep 跨对话停滞扫描——未闭环扫描升格的确定性数据源。
+    // 仅 big 型注册（session-helpers getOtterToolNamesForType 白名单控制），small 型不持有——
+    // 跨对话查询权与编排权对齐（扫描跑在三省吾身对话，matter 工具按对话隔离）。
+    tools.push(createMatterSweepTool(ctx, matterRepo));
   }
   return tools;
 }

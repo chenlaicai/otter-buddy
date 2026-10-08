@@ -186,4 +186,46 @@ describe('MattersPanel P2 板上裁决（F20261006mlp2 回执代执行通道 B�
     click(reopenBtn)
     expect(onRoute).toHaveBeenCalledWith(expect.stringContaining('to="OPEN"'), null)
   })
+
+  it('WAITING_PARTNER 条目渲染 payload 简报（F20261008mlp3 P3 严重2修复——板上简报呈现）', async () => {
+    const m = matter({
+      id: 'gggg7777-0000-4000-8000-000000000007',
+      title: '方案拍板',
+      state: 'WAITING_PARTNER',
+      ownerOtterId: 'owner-1',
+      payload: JSON.stringify({ brief: '方案 A：性能优先；方案 B：体验优先。推荐 A。' }),
+    })
+    mockFetchAll([m], [])
+    renderPanel()
+    await flush()
+    const brief = container.querySelector('[data-testid="matter-brief"]')
+    expect(brief).not.toBeNull()
+    expect(brief!.textContent).toContain('方案 A：性能优先')
+  })
+
+  it('payload 为 null 的 WAITING_PARTNER 条目不渲染简报区', async () => {
+    const m = matter({ id: 'hhhh8888-0000-4000-8000-000000000008', title: '无简报事项', state: 'WAITING_PARTNER', ownerOtterId: 'owner-1', payload: null })
+    mockFetchAll([m], [])
+    renderPanel()
+    await flush()
+    expect(container.querySelector('[data-testid="matter-brief"]')).toBeNull()
+  })
+
+  it('payload 非法 JSON 降级原文展示（不阻断面板渲染）', async () => {
+    const m = matter({ id: 'iiii9999-0000-4000-8000-000000000009', title: '坏 payload', state: 'WAITING_PARTNER', ownerOtterId: 'owner-1', payload: 'not-json' })
+    mockFetchAll([m], [])
+    renderPanel()
+    await flush()
+    const brief = container.querySelector('[data-testid="matter-brief"]')
+    expect(brief).not.toBeNull()
+    expect(brief!.textContent).toContain('not-json')
+  })
+
+  it('OPEN 条目不渲染简报区（仅 WAITING_PARTNER 态呈现简报——§6 吸收语义）', async () => {
+    const m = matter({ id: 'jjjj0000-0000-4000-8000-000000000010', title: 'OPEN 事项', state: 'OPEN', payload: JSON.stringify({ brief: '不该显示' }) })
+    mockFetchAll([m], [])
+    renderPanel()
+    await flush()
+    expect(container.querySelector('[data-testid="matter-brief"]')).toBeNull()
+  })
 })
