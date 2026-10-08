@@ -274,7 +274,7 @@ export function createMatterSweepTool(ctx: ToolContext, matterRepo: MatterReposi
       for (const y of result.unregisteredYields) {
         lines.push(formatYieldLine(y));
       }
-      lines.push("（严重3修复：SQL 已 LEFT JOIN 排除已登记 matter，输出带 originMessageId——去重键=originMessageId；expects_partner_decision 未持久化，L2 甄别看 body/payload 含拍板语义）");
+      lines.push("（已登记 matter 的 yield 条目已被 SQL 排除，输出带 originMessageId 去重键——L2 拍板与例行交棒的甄别看 body/payload 含拍板语义）");
     } else {
       lines.push("候选漏登记 yield：无");
     }

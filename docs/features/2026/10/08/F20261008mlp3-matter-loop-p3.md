@@ -1,7 +1,7 @@
 ---
 id: F20261008mlp3
 title: 待办（Matter Loop）P3：未闭环扫描升格 + 简报卡吸收收尾
-summary: F20261006mtlp 的 P3 期（收官）。两块：①未闭环扫描升格——prompts/scheduled/未闭环扫描.md 从「search_memory 捞回头再说」文本启发式切到 matter_sweep 确定性查询（跨对话停滞扫描：OPEN 无人认领 / WAITING_PARTNER 积压 24h 基准），准入路径 3 兜底保留（漏登记 yield 发现）；②简报卡吸收收尾——调研确认 P1/P2 已覆盖（yield 打标登记 payload 含 brief、板上呈现、html-matter-action 回执代执行），无剩余落地项。
+summary: F20261006mtlp 的 P3 期（收官）。两块：①未闭环扫描升格——prompts/scheduled/未闭环扫描.md 从「search_memory 捞回头再说」文本启发式切到 matter_sweep 确定性查询（跨对话停滞扫描：OPEN 无人认领 / WAITING_PARTNER 积压 24h 基准），准入路径 3 兜底保留（anti-join 排除已登记 matter + originMessageId 去重键）；②简报卡吸收收尾——初判「P1/P2 已覆盖」经检视证伪（MattersPanel.tsx 零 payload 渲染），大獭裁决补呈现路线：MatterBrief 组件落板上简报三层结构（WAITING_PARTNER 态渲染，JSON 解析失败降级原文展示）。
 doc_type: feature
 change_type: feature
 intent:
@@ -54,11 +54,11 @@ from: [F20261006mlp2]
 ## 简报卡吸收收尾的调研结论
 
 **调研项**（任务简报候选点）：
-1. WAITING_PARTNER 条目展开 payload 简报三层结构——P2 已落（MattersPanel.tsx 渲染 payload）。
+1. WAITING_PARTNER 条目展开 payload 简报三层结构——初判「P2 已落」，经检视证伪：MattersPanel.tsx 零 payload 渲染（前端唯一命中是 test fixture payload: null），MatterItem 无展开详情、waitingFor 行 CSS truncate。大獭裁决补呈现路线：MatterBrief 组件落板上简报三层结构。
 2. otterCard.submit 卡片提交与 matter 迁移联动——P2 走 html-matter-action 回执通道（非卡片通道），卡片批了 matter 同步消解由獭代执行 transition_matter 完成。
 3. 简报内容单源纪律——P1 yield 打标登记 payload 含 brief（matter-yield-registration.test.ts 锁定），真相在 payload，流内卡片是渲染投影。
 
-**结论：简报卡吸收已完毕，无剩余落地项。** P1/P2 已覆盖方案 §6「L2 简报卡被吸收：卡片是 matter 处于 WAITING_PARTNER 态的呈现形态；卡片未被批也有 matter 兜底」。
+**结论（初判——经检视证伪后修正）**：初判「简报卡吸收已完毕，无剩余落地项」基于「P2 已落板上呈现」的失实论据。检视发现 MattersPanel.tsx 零 payload 渲染，板上无法达简报三层结构——兜底残缺。大獭裁决走补呈现路线：MatterBrief 组件已落地（见「审视修复记录」节严重 2）。P1/P2 已覆盖的其余两项（payload 存 brief、html-matter-action 回执代执行）经检视核实属实。
 
 ## P3 实现记录
 
@@ -77,14 +77,14 @@ from: [F20261006mlp2]
 1. **停滞定义口径**：OPEN = 全捞（「无人认领」积压语义，登记即停滞候选）；WAITING_PARTNER = 24h 阈（「积压」语义，跨日未收尾）。方案 §3 既有 24h 基准沿用，但 OPEN 不过滤——否则「刚登记就提醒」太吵，且 OPEN 本就无人认领。
 2. **漏登记 yield 兜底半径**：近 7 天 yield_targets 含 user 的 yield 条目，按 originMessageId 去重。7 天外的不捞（漏登记不会跨周仍高频提醒）；yield_targets 不含 user 的不捞（非 L2 拍板项）。
 3. **P1 漏项留痕**：方案空窗期说明承诺「P1 落地后扫描 prompt 同步小改（日巡读 open matters）」实际未落（git log 核实 未闭环扫描.md 最后改动 #1053 9/20）——P3 大改一并覆盖（prompt 整体重写）。
-4. **简报卡吸收**：调研确认 P1/P2 已覆盖，无剩余落地项（见上节）。
+4. **简报卡吸收**：初判「P1/P2 已覆盖」经检视证伪（MattersPanel.tsx 零 payload 渲染），大獭裁决补呈现路线——MatterBrief 组件已落地（见「审视修复记录」节严重 2）。
 
 ### 负面向验收
 
 - [x] 扫描产出从文本启发式切到确定性查询（matter_sweep 工具调用）——**实现：prompt 重写 + 工具落地**
 - [x] 停滞定义：OPEN 无人认领 / WAITING_PARTNER 积压——24h 基准——**实现：stalledOpen 语义 + 测试锁定**
 - [x] 提醒含 matter ID + 等待时长——**实现：matter_sweep 返回 stalledHours + 短锚**
-- [x] 准入路径 3 兜底：漏登记 yield 发现——**实现：unregisteredYieldsToUser（严重3修复后——SQL LEFT JOIN 排除已登记 + 输出去重键）+ 测试锁定**
+- [x] 准入路径 3 兜底：漏登记 yield 发现——**实现：unregisteredYieldsToUser（严重3修复后——SQL LEFT JOIN 排除已登记 + 输出去重键）+ anti-join 排除语义 2 用例锁定（delta-A 补）**
 
 ### 审视修复记录（检视1341獭 4 严重 + 5 建议）
 
@@ -109,7 +109,22 @@ from: [F20261006mlp2]
 
 **建议 8（matter-controller.test.ts `as unknown as` 双断言弱化接口检查）**：补 `stalledOpen`/`unregisteredYieldsToUser` 两个 stub 还原单断言。
 
-**建议 9（tool-manifest.json 未登记 matter_sweep/register_matter）**：big="*" 通配成立，声明债——建 issue 或后续补，不在本 PR 范围。
+**建议 9（tool-manifest.json 未登记 matter_sweep/register_matter）**：big="*" 通配成立，声明债——不在本 PR 范围，已建 issue #1349 跟踪（delta-D 兑现承诺）。
+
+### Delta 修复记录（检视1341獭 4 条轻量订正，第三轮复核项）
+
+**delta-A（anti-join 排除语义测试缺口）**：seedMatter 补 `originMessageId` 字段，新增 2 用例——已登记 matter 的 yield 条目不命中 / 未登记 matter 的 yield 条目命中（去重键 originMessageId 断言）。验收措辞订正为「anti-join 排除语义 2 用例锁定」。
+
+**delta-B（记忆索引污染——frontmatter summary 失实表述就地订正）**：
+- frontmatter summary：「调研确认 P1/P2 已覆盖…无剩余落地项」→「初判经检视证伪…大獭裁决补呈现路线：MatterBrief 组件落板上简报三层结构」
+- 调研项 1：「P2 已落」→「初判经检视证伪：MattersPanel.tsx 零 payload 渲染…大獭裁决补呈现路线」
+- 实现期决策 4：「调研确认 P1/P2 已覆盖」→「初判经检视证伪…MatterBrief 组件已落地」
+
+**delta-C（运行时污染——工具输出去「严重3」黑话）**：matter_sweep 输出文本「（严重3修复：…）」→「（已登记 matter 的 yield 条目已被 SQL 排除…L2 拍板与例行交棒的甄别看 body/payload 含拍板语义）」——运行时语义一行，执行者不再看到无上下文的审视编号。
+
+**delta-D（承诺未兑现——建议 7/9 两条 issue 已建）**：
+- 建议 7（覆盖面收窄）：issue #1348 跟踪「未登记搁置表态不在扫描范围，登记习惯未成」
+- 建议 9（tool-manifest 声明债）：issue #1349 跟踪「matter_sweep/register_matter 未登记 tool-manifest.json，big=* 通配成立但声明债」
 
 ### 自检结果
 
