@@ -78,7 +78,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "tsc-alias": "^1.9.5",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.70.0",
+    "typescript-eslint": "^8.71.0",
     "vitest": "^5.0.1"
   },
   "allowScripts": {
