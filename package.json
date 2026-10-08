@@ -79,7 +79,7 @@
     "tsc-alias": "^1.9.5",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.70.0",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.3"
   },
   "allowScripts": {
     "better-sqlite3@13.0.1": true,
