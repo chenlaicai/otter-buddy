@@ -357,6 +357,74 @@ async function checkModelQuotaHint(
   }
 }
 
+/** #1247 + #543 + F20260908efmd：create_otter 前置校验链（modelAlias 合法性 → 注入预算 → 配额提示）。
+ *  拆出 execute 主体以控 createCreateOtterTool 行数（max-lines-per-function）；
+ *  返回 errorResponse 文本则硬拦，quotaHint 为提示性尾注（不拦）。 */
+async function validateCreateOtterParams(
+  ctx: ToolContext,
+  healingRepo: HealingEventRepository | undefined,
+  params: Record<string, unknown>,
+): Promise<{ hardError?: string; targetAlias?: string; explicitAlias?: string; quotaHint: string }> {
+  const modelAlias = params.modelAlias as string | undefined;
+  if (modelAlias && modelAlias.trim().length > 0 && ctx.modelPool && !ctx.modelPool.hasModel(modelAlias)) {
+    const available = ctx.modelPool.describeModels().map(m => m.alias).join(", ");
+    return { hardError: `[错误] 未知的模型别名「${modelAlias}」。可用模型：${available}`, quotaHint: '' };
+  }
+
+  /** #543：目标模型近 24h 配额耗尽提示（显式 alias 用显式的，未传用默认模型；
+   *  getDefaultAlias 缺失（mock/旧装配）时跳过默认模型检查——提示性功能不硬依赖） */
+  const pool = ctx.modelPool as (ToolModelPool & { getDefaultAlias?: () => string }) | undefined;
+  const targetAlias = modelAlias?.trim() || pool?.getDefaultAlias?.();
+  const quotaHint = await checkModelQuotaHint(healingRepo, targetAlias);
+
+  /** #1247：注入体积预算硬拦（在创建前——不产生僵尸参与者记录）。
+   *  pool 窄接口未带 getContextWindow 时跳过（旧装配 fail-soft） */
+  const ctxBudgetError = buildCtxOverflowBudgetError({
+    systemPrompt: params.systemPrompt as string,
+    modelPool: ctx.modelPool,
+    targetAlias,
+  });
+  return ctxBudgetError
+    ? { hardError: ctxBudgetError, targetAlias, explicitAlias: modelAlias?.trim(), quotaHint }
+    : { targetAlias, explicitAlias: modelAlias?.trim(), quotaHint };
+}
+
+/** #1247：create_otter 注入体积预算前置检查——窗口装不下时创建阶段即拦，不让小獭生下来就死（#1247 改进点 2）。
+ *  估算式：systemPrompt 字符数 × 密度上限 + 固定注入底线 ≥ 窗口 × 安全比 → 硬拦。
+ *  - 密度上限 CTX_DENSITY_TOK_PER_CHAR = 1.5：F20260923hsyn 夹逼定标实测中文密度 ~1.443 tok/char，
+ *    取整为上限值（低估 token 会漏拦，宁可高估少量误拦——误拦可换模型/减简报绕开）
+ *  - 固定注入底线 BASE_INJECTION_TOKENS = 30_000：工具定义 #1230 实测 27K + 身份段余量。
+ *    首请求 = 工具定义 + 身份段 + systemPrompt + 首条 user 消息，前两者是常量占大头
+ *  - 安全比 WINDOW_SAFETY_RATIO = 0.8：留输出 token 空间（窗口含输入+输出）
+ *  Why 硬拦而非提示：与配额不同，注入体积是确定事实（prompt 长度可测），不随时间恢复；
+ *  首请求必死与配额「可能已恢复」语义不同。估算器路线已被 F20260929kws1 三度返工否定，
+ *  但那是「对话切片预算弹性」场景；此处是创建时点一次性粗测（只需保守上界，不需精确预算），
+ *  密度上限取整 + 固定底线正是「可测的精确测、不可测的用保守值」哲学。
+ *  Why fail-soft：窗口未配置（getContextWindow undefined）时跳过——不硬依赖装配完整，
+ *  同 checkModelQuotaHint 先例（提示性防线不阻断主流程）。 */
+const CTX_DENSITY_TOK_PER_CHAR = 1.5;
+const BASE_INJECTION_TOKENS = 30_000;
+const WINDOW_SAFETY_RATIO = 0.8;
+/** 合理下限：窗口配置小于此值视为异常配置，跳过检查（不误拦） */
+const MIN_SENSIBLE_WINDOW = 8_000;
+
+function buildCtxOverflowBudgetError(p: {
+  systemPrompt: string;
+  modelPool: ToolModelPool | undefined;
+  targetAlias: string | undefined;
+}): string {
+  const window = p.modelPool?.getContextWindow?.(p.targetAlias);
+  if (window === undefined || window < MIN_SENSIBLE_WINDOW) return '';
+  const promptTokens = Math.ceil(p.systemPrompt.length * CTX_DENSITY_TOK_PER_CHAR);
+  const estInjection = promptTokens + BASE_INJECTION_TOKENS;
+  if (estInjection < window * WINDOW_SAFETY_RATIO) return '';
+  const promptCharsK = Math.round(p.systemPrompt.length / 1000);
+  return `[错误] systemPrompt 注入体积超预算：估算首请求注入 ≈${Math.round(estInjection / 1000)}K tokens（prompt ${promptCharsK}K 字符 × 密度上限 1.5 + 固定注入 30K），` +
+    `已超目标模型 ${p.targetAlias} 窗口（${window.toLocaleString()} tokens）× 0.8 安全线。` +
+    `该模型装不下此注入——首条请求必被 API 400 拒（kimi-256k 实证，重试无意义）。` +
+    `请缩减 systemPrompt（目标 <${Math.floor((window * WINDOW_SAFETY_RATIO - BASE_INJECTION_TOKENS) / CTX_DENSITY_TOK_PER_CHAR).toLocaleString()} 字符），或改派大窗口模型（如 kimi/glm 的 1M 档）。`;
+}
+
 function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepository): AgentTool {
   return {
     name: "create_otter",
@@ -370,20 +438,10 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
       },
       required: ["name", "systemPrompt"],
     },
-  // eslint-disable-next-line complexity -- #543：+配额前置提示分支（校验链顺序内聚，拆分无增益）+ F20260908efmd modelAlias 校验
     execute: async (_id: string, params: Record<string, unknown>) => {
-      // 校验 modelAlias
-      const modelAlias = params.modelAlias as string | undefined;
-      if (modelAlias && modelAlias.trim().length > 0 && ctx.modelPool && !ctx.modelPool.hasModel(modelAlias)) {
-        const available = ctx.modelPool.describeModels().map(m => m.alias).join(", ");
-        return errorResponse(`[错误] 未知的模型别名「${modelAlias}」。可用模型：${available}`);
-      }
-
-      /** #543：目标模型近 24h 配额耗尽提示（显式 alias 用显式的，未传用默认模型；
-       *  getDefaultAlias 缺失（mock/旧装配）时跳过默认模型检查——提示性功能不硬依赖） */
-      const pool = ctx.modelPool as (ToolModelPool & { getDefaultAlias?: () => string }) | undefined;
-      const targetAlias = modelAlias?.trim() || pool?.getDefaultAlias?.();
-      const quotaHint = await checkModelQuotaHint(healingRepo, targetAlias);
+      // #1247 + #543：前置校验链（别名合法性 → 注入预算 → 配额提示）拆入独立函数控行数
+      const { hardError, quotaHint, explicitAlias } = await validateCreateOtterParams(ctx, healingRepo, params);
+      if (hardError) return errorResponse(hardError);
 
       /** 检查是否已有同名参与者 */
       const existing = await ctx.client.conversation.participant.getActive(ctx.conversationId);
@@ -396,7 +454,7 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
         type: "small" as const,
         systemPrompt: params.systemPrompt as string,
         parentOtterId: ctx.otterId,
-        modelAlias: modelAlias?.trim() || undefined,
+        modelAlias: explicitAlias || undefined,
         // F20260921otcl：出生挑色域——工具链创建即在当前对话内
         conversationId: ctx.conversationId,
       });
