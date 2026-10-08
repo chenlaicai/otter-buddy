@@ -32,8 +32,20 @@ export interface ToolManifest {
   defaultType: string;
   /** 能力块定义（v2+，可选） */
   capabilityBlocks?: Record<string, CapabilityBlock>;
+  /**
+   * F20261008tecn（EazoTack 工具瘦身 v1）：工具暴露级别映射（可选）。
+   * 未列出的工具保持 direct（声明给模型，现状行为）。
+   * "deferred"：不声明给模型，由 pi 1.1 tool_search（BM25）按需搜出激活——
+   * 低频工具从每轮必达 token 预算中移出，搜索命中后才进入上下文。
+   * 仅支持 "direct" | "deferred" 两个值（codemode/model-only/hidden 是 pi 内部语义，不开放配置）。
+   */
+  toolExposure?: Record<string, "direct" | "deferred">;
   types: Record<string, ToolManifestType>;
 }
+
+/** toolExposure 字段的合法值域（导出供 lint 与单测共用） */
+export const TOOL_EXPOSURE_VALUES = ["direct", "deferred"] as const;
+export type ConfigurableToolExposure = (typeof TOOL_EXPOSURE_VALUES)[number];
 
 /** manifest 文件路径（相对于项目根目录） */
 const MANIFEST_RELATIVE_PATH = "config/tool-manifest.json";
@@ -120,14 +132,44 @@ function validateManifest(
   const typesError = validateTypes(obj.types, blocks, logger);
   if (typesError) return null;
 
+  // F20261008tecn：校验 toolExposure（可选字段，v2+）
+  const exposure = validateToolExposure(obj.toolExposure, logger);
+  if (exposure === "error") return null;
+
   const types = obj.types as Record<string, ToolManifestType>;
 
   return {
     schemaVersion: obj.schemaVersion as number,
     defaultType: obj.defaultType as string,
     ...(blocks ? { capabilityBlocks: blocks } : {}),
+    ...(exposure ? { toolExposure: exposure } : {}),
     types,
   };
+}
+
+/**
+ * F20261008tecn：校验 toolExposure 结构。
+ * 可选字段。校验：值必须是 "direct" | "deferred"；键必须是字符串。
+ * 返回解析后的映射；字段缺失返回 undefined；不合规返回 "error" 字符串哨兵（区分 null 映射）。
+ */
+function validateToolExposure(
+  raw: unknown,
+  logger?: { error: (msg: string) => void },
+): Record<string, "direct" | "deferred"> | undefined | "error" {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    logger?.error("[tool-manifest] toolExposure 必须是工具名→\"direct\"|\"deferred\" 的对象，fallback 到硬编码默认值");
+    return "error";
+  }
+  const result: Record<string, "direct" | "deferred"> = {};
+  for (const [toolName, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!(TOOL_EXPOSURE_VALUES as readonly string[]).includes(value as string)) {
+      logger?.error(`[tool-manifest] toolExposure["${toolName}"] 值必须为 direct 或 deferred，实际为 ${JSON.stringify(value)}，fallback 到硬编码默认值`);
+      return "error";
+    }
+    result[toolName] = value as "direct" | "deferred";
+  }
+  return result;
 }
 
 function validateSchemaVersion(
