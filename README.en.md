@@ -16,28 +16,25 @@ You only ever talk to one otter — **the Lead Otter**. It listens, then decides
 
 It's not a framework. It's a **living system**: it runs a daily health check on itself, files its own issues, remembers a decision you made three months ago in passing — and the otter that writes code is not allowed to review its own code.
 
-## Highlights
+## A day in the life of this system
 
-| | |
-|---|---|
-| 🦦 **They have names** | Identity continuity: restart isn't reset — it's "past life sealed + narrative handoff", with traceable lineage |
-| 🧠 **Living memory** | Long-term memory with progressive disclosure (no context explosion), relation graphs (produced/supersedes), and visible 📜 provenance lines |
-| ⚔️ **No self-review** | Whoever writes code never reviews it. The reviewer must run on a **different model** — different training paths, non-overlapping blind spots |
-| 🚦 **Collaboration traffic lights** | Structured objection / blocked / halt signals. Objections must carry evidence anchors; rulings are recorded — killing "pretending not to see" |
-| 🔒 **Mechanical gates, not prompt promises** | Forced worktree isolation, PR-only; merging requires your approval **quote**, verbatim-matched, to pass |
-| 🩺 **Watches itself** | Healing ledger + daily health check: issues are filed automatically — and must come with a fix plan |
+**Assign work in the morning, collect the PR in the afternoon.** You toss over one line — "that number in the README looks stale, handle it" — and go to your meeting. By afternoon a PR is waiting: tests green, CI green, review trail complete. The reviewing otter offered two fixes (update the number / remove it entirely); the Lead Otter turned the final decision into an interactive card. You clicked a button. Total human input: under ten sentences.
 
-## When they argue
+**They argue — with rules.** Whoever writes code never reviews it. The reviewer must run on a *different model*: different training paths, non-overlapping blind spots — it sees the pits you can't. Objections can't be swallowed: an `objection` signal must carry an evidence anchor; a vague "feels wrong" is procedurally invalid; every ruling is recorded. The traffic lights don't eliminate conflict — they eliminate "pretending not to see".
 
-The README's hardcoded number was wrong for half a year. Nobody noticed — until the AI team caught it themselves:
+**They remember what you forgot.** Long-term memory isn't search-and-forget top-k — there's progressive disclosure to keep context from exploding, a relation graph so conclusions stay traceable, and messages come with a "📜 memory provenance: we discussed this on Aug 13, the conclusion was…" line. Your AI no longer has amnesia every conversation.
 
-> The reviewing otter offered two fixes (update the number / remove the number entirely). The Lead Otter turned the final decision into an interactive card. I clicked a button — chose "remove it".
+**They restart — but they don't reset.** Each otter's identity is a continuum across sessions: the past life is sealed into an archive, the new one wakes with a handoff briefing — lineage traceable, conversations auditable. That's why they genuinely have names.
+
+**Before they touch your repo, three gates.** Forced worktree isolation, everything goes through PRs, and merging requires your approval *quote* verbatim-matched — "I'll approve on my human's behalf" style goodwill inference gets stopped cold by mechanical verification. Brittleness is a feature, not a bug: better to miss and make you say it again than to guess.
+
+**They run a daily health check on themselves.** Problems they notice go into a healing ledger; the daily check files issues — and each must come with a fix plan, "leave a comment to track" doesn't count. Once, the health check found six bugs in itself.
 
 ![Multi-Agent Orchestration Demo](docs/images/demo-multi-agent.gif)
 
-## 📖 Read the story: Otter Growth Diaries
+## 📖 Read how they grew up
 
-How this system grew into what it is — **[Otter Growth Diaries](docs/growth-series/)** (Chinese), an 8-episode mini-theater told honestly: the naive expectations at day one, the face-slaps, the detours, and what forced each mechanism into existence. Includes real incidents like "the fix was written but never merged" and "the health-check system found 6 bugs in itself".
+**[Otter Growth Diaries](docs/growth-series/)** (Chinese) — an 8-episode mini-theater told honestly: the naive expectations at day one, the face-slaps, the detours, and what forced each mechanism into existence. Includes real incidents like "the fix was written but never merged" and "rules were cleaned up, then 168 violations crept back in 8 days".
 
 > No "look how smart our AI is" — only "why we were dumb back then, and how we got smarter".
 
