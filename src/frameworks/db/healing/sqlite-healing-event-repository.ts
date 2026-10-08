@@ -104,11 +104,33 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
   async autoStaleDismiss(staleDays: number): Promise<number> {
     const cutoff = new Date(Date.now() - staleDays * 24 * 60 * 60 * 1000).toISOString();
     const now = new Date().toISOString();
+    // F20261008hcpa（#1356 选 A）：severity <> 'high'——high 升级信号不被时间静默，
+    // 走 ageOutHighAndNotify 独立通道（推 alert-registry 提醒后再 dismiss）。
     const result = this.db.prepare(`
       UPDATE healing_events SET status = 'dismissed', resolved_at = ?
-      WHERE status = 'open' AND created_at < ?
+      WHERE status = 'open' AND created_at < ? AND severity <> 'high'
     `).run(now, cutoff);
     return result.changes;
+  }
+
+  /** F20261008hcpa（#1356 选 A）：超龄 high open 事件「先取后置 dismissed」。
+   *  返回被处置事件供调度层推 healing-alert-registry——high 即使超龄也须留痕提醒，
+   *  不能无声消失（与 autoStaleDismiss 的静默语义分层）。同一事务内完成取+置，
+   *  防「取到了但 dismiss 失败」致下轮重复提醒。 */
+  async ageOutHighAndNotify(staleDays: number): Promise<HealingEvent[]> {
+    const cutoff = new Date(Date.now() - staleDays * 24 * 60 * 60 * 1000).toISOString();
+    const now = new Date().toISOString();
+    return this.db.transaction(() => {
+      const rows = this.db.prepare(
+        `SELECT * FROM healing_events WHERE status = 'open' AND severity = 'high' AND created_at < ?`,
+      ).all(cutoff) as HealingEventRow[];
+      if (rows.length === 0) return [];
+      this.db.prepare(`
+        UPDATE healing_events SET status = 'dismissed', resolved_at = ?
+        WHERE status = 'open' AND severity = 'high' AND created_at < ?
+      `).run(now, cutoff);
+      return rows.map(rowToHealingEvent);
+    })();
   }
 
   /** F20261008gfrc：批量闸的 high 探测——与 batchResolveByFilter 同 WHERE 语义，只 count。

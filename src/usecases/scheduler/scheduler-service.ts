@@ -12,6 +12,7 @@ import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
 import type { Entry } from '@entities/conversation/entry';
 import type { Logger } from '@usecases/ports/logger';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
+import { healingAlertRegistry } from '@usecases/healing/healing-alert-registry';
 import { classifyHealingErrorType, HEALING_ENVIRONMENT_TYPES, HEALING_FEEDBACK_TYPES } from '@entities/healing/healing-event';
 import type { SchedulerMetricsPort } from './scheduler-metrics-port';
 import type { DispatchChainEngine } from '@usecases/conversation/dispatch-chain-engine';
@@ -101,6 +102,9 @@ export interface SchedulerServiceOptions {
   manageScheduledTask?: ManageScheduledTask;
   manageSession?: ManageSession;
   healingRepo?: HealingEventRepository;
+  /** F20261008hcpa（#1356 层3）：healing 主对话 ID 异步解析器（settings 仓懒解析——
+   *  healing 对话由 ensureHealingConversation 引导创建，构造期 settings 可能未就绪）。 */
+  healingConversationIdResolver?: () => Promise<string | undefined>;
   /** F20260902sgp2 S4b：派发台账（可选）——看门狗台账终态判活 */
   /** #775 S4a 换轨：信号路由器（可选注入）。注入后定时任务触发 = 投信号 → 路由器点火
    *  （过闸门+台账记账）；未注入回退直连链（回滚面，与 sgpv 降级基线同语义）。 */
@@ -153,6 +157,8 @@ export class SchedulerService {
   /** #1208：regression-verify 本轮 skip 的原因（resolveEffectiveBody 写入，skip 落账/心跳消费后清除）。
    *  实例字段而非返回值——resolveEffectiveBody 签名不变（调用方多），且原因只服务 skip 路径。 */
   private lastRegressionSkipReason?: 'gh-cli-failure' | 'no-due-assertions';
+  /** F20261008hcpa（#1356 层3）：healing 主对话 ID 异步解析器（settings 仓懒解析）。 */
+  private readonly healingConversationIdResolver?: () => Promise<string | undefined>;
   /** #1208：claim 因对话不存在/非 active 被拒时由 claimAndValidateTask 置位，
    *  catch 块据此跳过 skipped execution 落账（任务已 disable，落账无意义）。消费后清除。 */
   private conversationDisabledInClaim = false;
@@ -167,6 +173,7 @@ export class SchedulerService {
     this.cronParser = options.cronParser;
     this.logger = options.logger;
     this.healingRepo = options.healingRepo;
+    this.healingConversationIdResolver = options.healingConversationIdResolver;
     this.signalRouter = options.signalRouter;
     this.metrics = options.metrics;
     this.dispatchChainEngine = options.dispatchChainEngine;
@@ -915,6 +922,32 @@ export class SchedulerService {
     }
   }
 
+  /** F20261008hcpa（#1356 层3）：high 超龄事件推 healing-alert-registry。
+   *  从 resolveEffectiveBody 抽出降复杂度——职责独立（提醒推送 vs body 解析）。 */
+  private async notifyAgedHighEvents(): Promise<void> {
+    if (!this.healingRepo) return;
+    const agedHigh = await this.healingRepo.ageOutHighAndNotify(1);
+    if (agedHigh.length === 0) return;
+    const targetConversationId = await this.healingConversationIdResolver?.();
+    if (targetConversationId) {
+      for (const e of agedHigh) {
+        healingAlertRegistry.enqueue(targetConversationId, {
+          eventId: e.id,
+          conversationId: e.conversationId,
+          otterId: e.otterId,
+          errorType: e.errorType,
+          description: `[high 超龄已 dismissed（24h 无人处置）] ${e.description}`,
+          createdAt: e.createdAt,
+        });
+      }
+    }
+    this.logger.warn('healing high 事件超龄 24h，已 dismiss 并推送升级提醒', {
+      count: agedHigh.length,
+      ids: agedHigh.map(e => e.id),
+      alertPushed: Boolean(targetConversationId),
+    });
+  }
+
   /** 解析任务实际触发的 body：含 [self-healing-analysis] 占位符时动态替换为 healing 分析 prompt。
    *  含 [regression-verify] 占位符时替换为验证断言回查 prompt（#1004）。
    *  返回 null 表示跳过本次触发（无待处理项）。 */
@@ -937,7 +970,12 @@ export class SchedulerService {
       return task.body;
     }
     try {
+      // F20261008hcpa（#1356 选 A）：autoStaleDismiss 现排除 high（low/medium 可时间静默）；
+      // high 超龄走独立通道——ageOutHighAndNotify(1) 取回后推 healing-alert-registry，
+      // 24h 挂账（比 30 天 staleDays 紧 30 倍）即提醒大獭「该事件已超龄 dismissed，请跟进」。
+      // 推送目的地固定 healing 主对话（定时任务对话结束后该对话仍是大獭在场的主通道）。
       await this.healingRepo.autoStaleDismiss(30);
+      await this.notifyAgedHighEvents();
     } catch (err) {
       this.logger.warn('autoStaleDismiss failed, continuing with analysis', { error: err instanceof Error ? err.message : String(err) });
     }
@@ -1780,7 +1818,7 @@ export async function buildRegressionVerifyHeartbeat(
         action: 'no_action',
         decidedBy: 'agent',
         decidedAt: nowIso,
-        notes: '#1208 心跳写入即 resolved（#751 同型）：心跳是状态记录不是要处置的问题，不进 open 池',
+        notes: '心跳写入即 resolved（健康探针同型）：心跳是状态记录不是要处置的问题，不进 open 池',
       },
       createdAt: nowIso,
       resolvedAt: nowIso,

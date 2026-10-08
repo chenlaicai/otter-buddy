@@ -100,8 +100,13 @@ export function buildRestartResumeFailedInvokeMsg(): string {
  * #731：单獭 guard bounce 自动回发上限（GUARD_BOUNCE_WINDOW_MS 窗口内）。
  * 超限停止自动回发，升级上报（healing high + 会话内系统消息）。
  * 拦截是反馈信号不是断头台——但反馈被无视 N 次后必须见人。
+ *
+ * F20261008hcpa（#1356 层1 打断）：上限 3→2——同规则第 3 次拦截不再自动回发，
+ * 直接走升级（abort 终态 + 系统消息 + healing high）。升级后的 healing 事件
+ * （severity high）由层3 接盘：消费任务强制 bind_issue，24h 无人处置推 alert-registry。
+ * 搭档终审语义不变：「反馈被无视 N 次后必须见人」，N 从 3 收紧到 2（打断更早）。
  */
-export const GUARD_BOUNCE_MAX = 3;
+export const GUARD_BOUNCE_MAX = 2;
 
 /**
  * #731：bounce 计数窗口（ms）——限「同时失控的自循环」；
