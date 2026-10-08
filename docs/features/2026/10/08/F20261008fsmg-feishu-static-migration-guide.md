@@ -8,7 +8,7 @@ intent:
   problem: "存量 config.yaml 保留 feishu 段的用户重启后飞书静默消失，仅后端一行英文 warn（app.ts:322），IM 页无任何引导——用户不知道要迁移也不知道怎么迁"
   expected_effect: "IM 页飞书区块出现 amber 迁移引导条：是什么（旧配置退役）+ 怎么办（删段重启 + 扫码选已有应用）+ 完整文档指引"
   verify_by:
-    type: automated_tests
+    type: behavior_check
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 created_at: 2026-10-08
 causal_links:
@@ -85,6 +85,7 @@ config.feishu（启动时快照，静态）
 - 无行为变更路径：无旧 feishu 段的部署（绝大多数）API 响应与 UI 完全不变
 - 有旧段部署：IM 页飞书区块多一条 amber 引导条，其余不变
 - 风险低：纯增量透传 + 条件渲染，不触碰通道状态机 / 扫码流程 / 配置解析
+- **边界声明（审视 R1）**：残缺 feishu 段（只留 encryptKey 等非凭证键、缺 appId/appSecret）会被 buildFeishuConfig（config-service.ts:537-539）静默丢弃 → config.feishu 为空 → 不渲染引导条。此类用户与 #1194 启动 warn 同源自洽（warn 也不触发），不属本特性回归；如需覆盖另行立项
 
 ## 后续
 
