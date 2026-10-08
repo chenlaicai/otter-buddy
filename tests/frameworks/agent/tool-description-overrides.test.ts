@@ -101,9 +101,20 @@ describe("buildToolDescriptionOverrides", () => {
     const base = buildBase();
     const overrides = buildToolDescriptionOverrides(base, ["bash"], cwd);
     const bashOverride = overrides[0];
-    await expect(
-      bashOverride.execute("test-call", { command: "exit 42" }, undefined, undefined, undefined as never)
-    ).rejects.toThrow(/^\[cwd: .+\]\n/);
+    // F20261008pi11：pi 1.x 失败语义从 throw Error 改为 resolve isError:true 结构化结果
+    // （command_response 语义）。断言改为：失败结果同样携带前缀，保证 cwd 感知不丢。
+    const result = await bashOverride.execute(
+      "test-call",
+      { command: "exit 42" },
+      undefined,
+      undefined,
+      undefined as never
+    ) as { content: Array<{ type: string; text?: string }>; isError?: boolean };
+    expect(result.isError).toBe(true);
+    expect(result.content[0].type).toBe("text");
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).toMatch(/^\[cwd: .+\]\n/);
+    expect(text).toContain("Command exited with code 42");
   });
 
   it("无 sessionCwd 时 bash 覆写退化为纯描述覆写（向后兼容）", () => {
