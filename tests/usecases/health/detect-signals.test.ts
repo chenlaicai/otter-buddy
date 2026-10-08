@@ -758,3 +758,55 @@ describe("detectSignals #1012 修法 c（系列归因分级 + 载体排除补全
     expect(rec!.filePath).toBe("src/frameworks/db/connection-pool.ts");
   });
 });
+
+describe("detectSignals 存量信号回放（delta r1 D1 处置：真实生产 message 做测试数据）", () => {
+  // 背景：delta r1 发现「测试构造形态 ≠ 生产形态」连续两轮存在——手工构造的理想形态
+  // （3 修全引同一 issue）过线，真实数据（集群爆发、每次开新 issue 号）全降 warning。
+  // 本组用例把生产真实 message 固化为回归锥，确保判据行为与声明的能力边界一致。
+  // 裁决：b 路线——机械判据对集群爆发形态判 warning，靠专项 issue 兜底（#1260 宪法在途），
+  // 知情声明落在特性文档 intent 与 PR body。
+
+  it("【回放】bash 守卫集群爆发形态（21 修 28 个号全计数 1）→ warning（能力边界如实）", () => {
+    // 生产真实形态捕样：bash-safety-guard.ts 30 天窗 21 修，issue/PR 号各不相同（#777→#850→#984→#1120→…）
+    // 抽 3 条代表性 message（最小可判样本）：每次修复开新 issue 号 + 各自 PR 号，主体计数全 1
+    const commits = [
+      commit("rb1", 3, "[F20260916xxxx][guard][BugFix] 守卫修 1：误拦收口 (#777) (#990)", ["src/frameworks/agent/bash-safety-guard.ts"]),
+      commit("rb2", 5, "[F20260923yyyy][guard][BugFix] 守卫修 2：heredoc 判定 (#984) (#1120)", ["src/frameworks/agent/bash-safety-guard.ts"]),
+      commit("rb3", 7, "[F20260930zzzz][guard][BugFix] 守卫修 3：体感知拦 (#1207) (#1239)", ["src/frameworks/agent/bash-safety-guard.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    // 每号计数 1，主体不过半（1*2 > 3 不成立）→ warning。这是声明的能力边界：
+    // 集群爆发形态（真腐烂）靠专项 issue 兜底（#1260 守卫宪法），机械判据不试图覆盖
+    expect(rec!.severity).toBe("warning");
+  });
+
+  it("【回放】#1160 五连形态（正文引用同 issue ≥过半）→ critical（判据有效面）", () => {
+    // 生产真实形态：右栏链 3 修正文全引 #1160（实测 maxRef=3 > 1.5）——判据设计的目标形态
+    const commits = [
+      commit("rc1", 3, "[F20260921aaaa][web][BugFix] 右栏根治（#1160） (#1161)", ["web/src/pages/home/index.tsx"]),
+      commit("rc2", 5, "[F20260923bbbb][web][BugFix] 右栏看门狗（#1160 阶段2） (#1179)", ["web/src/pages/home/index.tsx"]),
+      commit("rc3", 7, "[F20260928cccc][web][BugFix] 右栏对账（#1160 阶段3） (#1185)", ["web/src/pages/home/index.tsx"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    expect(rec!.severity).toBe("critical");
+  });
+
+  it("【回放】混合真实形态：主体 #1160 计 3 + 独立 #1150 计 1（4 修）→ critical", () => {
+    // 生产真实形态：index.tsx 10 修里 #1160 正文计 3、其余各 1——主体占优仍过线
+    const commits = [
+      commit("rh1", 3, "[F20260921aaaa][web][BugFix] 右栏根治（#1160） (#1161)", ["web/src/pages/conversation/index.tsx"]),
+      commit("rh2", 5, "[F20260923bbbb][web][BugFix] 右栏看门狗（#1160 阶段2） (#1179)", ["web/src/pages/conversation/index.tsx"]),
+      commit("rh3", 7, "[F20260928cccc][web][BugFix] 右栏对账（#1160 阶段3） (#1185)", ["web/src/pages/conversation/index.tsx"]),
+      commit("rh4", 9, "[F20260930dddd][web][BugFix] 独立修（#1150） (#1159)", ["web/src/pages/conversation/index.tsx"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    // #1160 计 3，3*2 > 4 严格过半 → critical：真实混合形态下判据有效面成立
+    expect(rec!.severity).toBe("critical");
+  });
+});

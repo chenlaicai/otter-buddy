@@ -6,7 +6,7 @@ change_type: fix
 capability_test: "n/a: 确定性检测逻辑（无 LLM 行为面），7 新增用例含系列归因三形态 + 载体排除边界 + 39 既有回归全过"
 intent:
   problem: "bug_recurrence 信号 43% 是口径盲区（测试/bootstrap/schema 载体混入 critical），30% 真腐烂（bash 守卫 12 连败/恢复机制三次推翻/压缩链路 5 连「根治」）与 26% 热点活跃假象同报 critical，告警失去区分度——搭档无法从 23 条 critical 里看出哪 7 条是真烂（归因报告：工作区 issue-1012-归因分析.md）。#1259 口径修订 10/1 合入但服务未重启从未生效，23 条按旧口径刷数。"
-  expected_effect: "新触发信号中跨特性分散形态降为 warning 不进 critical 主警报区；migration.ts/schema.ts 不再触发；同特性链反复修仍报 critical。存量 23 条处置：dismiss 10 条盲区 + 4 专项 issue 立项（守卫判定引擎/恢复机制/压缩链路/右栏观察）。"
+  expected_effect: "新触发信号：跨 issue 分散形态降 warning；migration/schema 载体不触发；同 issue 主体严格过半报 critical（#1160 五连形态）。**能力边界（delta r1 D1 裁决 b）**：集群爆发形态（每次修复开新 issue 号，如 bash 守卫 21 修 28 个号全计数 1）机械判据判 warning——该形态靠专项 issue 兜底（守卫宪法 #1260 在途），不试图用 token 相似度等启发式覆盖。存量 23 条处置：dismiss 10 盲区 + 4 专项 issue 立项。"
   verify_by:
     type: capability_test
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
@@ -85,3 +85,10 @@ modules: [src/usecases/health, scripts, prompts/scheduled]
 
 - 负面向验收：本次变更**放宽**了 bug_recurrence 触发面（部分原 critical 降 warning）——风险是真腐烂被降档漏报。缓释：同系列形态（featureIds ≤ 1）仍 critical；warning 信号仍出可观察；归因复核验证断言兜底
 - 废弃资源：无（纯检测逻辑改动，无旧路径/配置迁移）
+
+## Delta r1 处置记录（D1/D2/D3，2026-10-08 大獭接手）
+
+- **D1（判据真实有效性）裁决：b 路线**。独立复核实测坐实检视数据：bash-safety-guard.ts 30 天窗 21 修、28 个 issue/PR 号全部计数 1——集群爆发形态在 issue 引用判据下全降 warning。a 路线（token 相似度辅判）引入调参成本与误报面，弃。处置：①expected_effect 如实声明能力边界（见 frontmatter）；②新增「存量信号回放」测试组——用生产真实 message 固化两类形态的判定行为（集群爆发→warning / #1160 五连→critical / 混合主体过半→critical），堵死「测试构造形态 ≠ 生产形态」偏差（检视连续两轮点名的模式）。
+- **D2（intent 未同步换锚）**：expected_effect 原文「同特性链反复修仍报 critical」是 r0 FID 判据表述，已随 D1 一并改写为 issue 引用判据 + 能力边界声明。
+- **D3（rebase）**：已 rebase 到 main 614a6a61（含 #1317），daily-health-check.md 冲突按仲裁解决——#1317 精简版为基底 + 保留 golden 对账段 + 恢复限定语（非 RHI DB / 时间差<30天 / regression-verify 跳过），体积出清至预算内（增量纪律）。
+- **建议 5（golden 豁免措辞）**：PR body 同步修订（见 PR 描述）。
