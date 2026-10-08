@@ -20,6 +20,12 @@ tags:
   - unfurl
   - product-form
 created_at: "2026-10-08T18:50:00+08:00"
+intent:
+  problem: "宪法 F20261008csfw 定义了「产物=主体×时刻×形态」的六形态分类，但中间栏现状只有言语气泡（✅）与卡类（html-card✅）两种展示形态：图类只能点新窗口看原图（打断对话现场）、裸链只显示域名路径（零信息增量）、pr/file/fact 产物只在右栏清单里按类型排列（与时间现场无关，同伴产出了什么要离开现场才能看到）。"
+  expected_effect: "① 图类：点击原位 lightbox 放大，Esc/点遮罩关闭；② 链类：裸链段落渲染 unfurl 预览卡（标题+描述+站点），抓取失败降级普通链接；③ 文类：pr/file/fact 摘要卡按 createdAt 混排进时间轴诞生位置（fact 全文直出、file 首段摘要+展开），与消息气泡视觉强区分；④ 上翻加载到老区间时窗口外产物不聚集顶部冒充最早（分页窗口下界）。"
+  verify_by:
+    type: capability_test
+    reason: "tests/api/unfurl.test.ts 11 用例（SSRF 拦截含收紧回归/og 解析/降级）+ web UnfurlCard.test.tsx 10 + ArtifactCard.test.tsx 9（混排位置/窗口下界/status 过滤/钉住）+ 全量回归后端 5028 + 前端 669 绿，tsc 双侧零错；对抗审视（检视獭-1362）初轮 2 严重 + 5 建议全部处置，delta 复核通过。"
 ---
 
 # 协作现场形态补全 P1
