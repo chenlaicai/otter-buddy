@@ -42,7 +42,7 @@ function entry(
     conversationId,
     granularity: "coarse",
     content,
-    metadata: { corpus: "golden-seed-v1" },
+    metadata: { corpus: "golden-seed-v2" },
     createdAt: daysAgoIso(ageDays),
   };
 }
@@ -173,17 +173,71 @@ export const CORPUS: MemoryEntry[] = [
   entry("g-feat-07", "document", "feature", 55,
     "F20260803chunk 多 chunk 聚合：按 source 去重与 chunk 最高分代表排序",
     null),
+
+  // ── 近邻干扰簇（v2 扩充，检视发现 2 处置：压候选池过窄问题）──
+  // 每簇同一主题多侧面条目：FTS 词汇重叠高难区分，期望排序由 rerank 信号
+  // （本对话加成/新鲜度/标记）决定——让基线对排序质量敏感，而不只是召回存在性。
+
+  // 簇1：worktree 主题三侧面（越狱 1/90 天 vs 本对话 4 天）
+  entry("g-clu-01a", "historical", "message", 90,
+    "对话记录：worktree 清理规范讨论——合入后删除 worktree 目录与远程分支的时机，留在旧对话",
+    CONV_GAMMA),
+  entry("g-clu-01b", "working", "message", 4,
+    "本对话：worktree 隔离红线重申——主目录只读，改动全部在 feature 分支 worktree 内提交",
+    CONV_ALPHA),
+  entry("g-clu-01c", "historical", "message", 30,
+    "对话记录：worktree 命名规范讨论——特性分支与 worktree 目录同名便于追踪",
+    CONV_BETA),
+
+  // 簇2：评测主题三侧面（查询在 alpha，最新答案在 alpha）
+  entry("g-clu-02a", "historical", "message", 60,
+    "对话记录：旧评测方案讨论——当时想用人工评分，后来废弃",
+    CONV_GAMMA),
+  entry("g-clu-02b", "working", "message", 2,
+    "本对话：评测指标定为 nDCG 与 MRR，回归地板进 CI",
+    CONV_ALPHA),
+  entry("g-clu-02c", "historical", "message", 45,
+    "对话记录：评测语料讨论——合成种子集定案，真实数据校准待定",
+    CONV_BETA),
+
+  // 簇3：部署/CI 主题（fact 层，新鲜度区分：当前 7 天 vs 旧 120 天）
+  entry("g-clu-03a", "historical", "fact", 120,
+    "旧部署流程：手动 npm test 后人工合并，现已废弃",
+    null),
+  entry("g-clu-03b", "working", "fact", 7,
+    "当前 CI 门禁：check/e2e/golden-selftest 三 job 全绿才可合入，PR 须与 main 同步",
+    null),
+  entry("g-clu-03c", "historical", "fact", 90,
+    "CI 历史事故：日期炸弹 #1165 因 lint 收窄误报刷屏被无视，次日引爆主分支",
+    null),
+
+  // 簇4：记忆分层主题（fact 层，新鲜度区分 + 弱干扰）
+  entry("g-clu-04a", "historical", "fact", 200,
+    "旧分层方案：两分层 working/archive，后改为三层引入 document",
+    null),
+  entry("g-clu-04b", "working", "fact", 5,
+    "当前分层：working 7 天半衰期、document 90 天半衰期，时间衰减按层取常数",
+    null),
+
+  // 簇5：检索主题（message 层，本对话加成区分）
+  entry("g-clu-05a", "historical", "message", 70,
+    "旧对话：检索慢的抱怨——大库上 FTS 查询延迟高，后来建了索引",
+    CONV_GAMMA),
+  entry("g-clu-05b", "working", "message", 3,
+    "本对话：检索排序评测的 runner 跑通全链路，指标稳定",
+    CONV_ALPHA),
 ];
 
 /** 权重预设：fact-06 搭档标记（user_flag 信号）；fact-01/fact-06 有检索历史（frequency 信号） */
 export const WEIGHT_PRESETS: WeightPreset[] = [
   { entryId: "g-fact-06", userFlagged: true, retrievalCount: 5 },
   { entryId: "g-fact-01", retrievalCount: 3 },
+  { entryId: "g-clu-03b", retrievalCount: 4 }, // 簇3：当前 CI 门禁事实常被引用（frequency 区分）
 ];
 
 /** ── golden 查询集（32 条，四层分层）────────────────────────── */
 
-export type QueryLayer = "fact" | "history" | "document" | "conversation";
+export type QueryLayer = "fact" | "history" | "document" | "conversation" | "probe";
 
 export interface GoldenQuery {
   id: string;
@@ -273,4 +327,41 @@ export const GOLDEN_QUERIES: GoldenQuery[] = [
   { id: "D6", layer: "conversation", query: "语料 contentType 时间 分布",
     currentConversationId: CONV_ALPHA,
     expected: { "g-msg-09": 3, "g-feat-06": 1 } },
+
+  // E. 高区分度排序探针（v2 新增，检视发现 2 处置；layer=probe）
+  // 特征：候选池 ≥3 条近邻干扰，FTS 词汇重叠难分；期望排序依赖 rerank 信号
+  //（本对话加成/新鲜度/标记），把「排得好不好」与「能不能搜到」分开。
+  { id: "E1", layer: "probe", query: "worktree 改动 提交 规范",
+    currentConversationId: CONV_ALPHA,
+    expected: { "g-clu-01b": 3, "g-fact-01": 2, "g-clu-01c": 1, "g-clu-01a": 1 } },
+  { id: "E2", layer: "probe", query: "worktree 清理 时机",
+    currentConversationId: CONV_ALPHA,
+    expected: { "g-clu-01a": 3, "g-clu-01c": 2, "g-clu-01b": 1 } },
+  { id: "E3", layer: "probe", query: "评测 指标 方案 讨论",
+    currentConversationId: CONV_ALPHA,
+    expected: { "g-clu-02b": 3, "g-clu-02c": 2, "g-clu-02a": 1 } },
+  { id: "E4", layer: "probe", query: "评测 语料 谁来定",
+    currentConversationId: CONV_ALPHA,
+    expected: { "g-clu-02c": 3, "g-clu-02a": 1, "g-clu-02b": 2 } },
+  { id: "E5", layer: "probe", query: "CI 门禁 合入 条件",
+    expected: { "g-clu-03b": 3, "g-clu-03a": 1, "g-clu-03c": 2 } },
+  { id: "E6", layer: "probe", query: "部署 流程 废弃 之前",
+    expected: { "g-clu-03a": 3, "g-clu-03b": 1 } },
+  { id: "E7", layer: "probe", query: "CI 事故 日期炸弹",
+    expected: { "g-clu-03c": 3, "g-msg-04": 2 } },
+  { id: "E8", layer: "probe", query: "记忆 分层 半衰期 当前",
+    expected: { "g-clu-04b": 3, "g-clu-04a": 1, "g-fact-10": 2 } },
+  { id: "E9", layer: "probe", query: "分层 方案 旧 两层",
+    expected: { "g-clu-04a": 3, "g-clu-04b": 1 } },
+  { id: "E10", layer: "probe", query: "检索 延迟 慢 抱怨",
+    currentConversationId: CONV_ALPHA,
+    expected: { "g-clu-05a": 3, "g-clu-05b": 1 } },
+  { id: "E11", layer: "probe", query: "检索 排序 评测 稳定",
+    currentConversationId: CONV_ALPHA,
+    expected: { "g-clu-05b": 3, "g-msg-08": 2 } },
+  { id: "E12", layer: "fact", query: "rerank 信号 哪个 标记",
+    expected: { "g-fact-06": 3, "g-feat-01-c3": 2 } },
 ];
+
+/** 探针层守卫数据：E 层查询的期望标注必须引用近邻干扰簇（区分度存在性） */
+export const PROBE_CLUSTER_PREFIXES = ["g-clu-"] as const;

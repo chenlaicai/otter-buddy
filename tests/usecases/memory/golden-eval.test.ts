@@ -42,17 +42,25 @@ const PROD_MEMORY_CONFIG = {
   frequencyBoostFactor: 0.1,
 };
 
-/** 首跑锁定基线（2026-10-08，本地 3 次复跑完全一致：0.7891/0.8034/0.9115）。
+/** 首跑锁定基线（v2 扩充后重录，2026-10-08，本地 3 次复跑完全一致）。
  *  地板取首跑值向下取整 3 位小数（吸收浮点末位，语义仍是「不许变差」）。
+ *  ⚠️ 地板灵敏度声明（检视发现 2）：本种子集上 rerank 五信号对指标是净负贡献
+ *  （全信号中性化反事实：nDCG@5 0.7998 > 基线 0.6732）——地板只能拦「变差」，
+ *  不能证明「变好」；Phase 1 改 rerank 的 PR 绿灯必须附逐信号前后对比，禁单看
+ *  地板（见特性文档 Phase 0 实现记录「反事实与地板灵敏度」节）。
  *  改动排序管线的行为 PR 必须重跑本套件并更新地板（上升可改数字，下降须先
- *  证明是测量噪声或语义预期变化——后者需搭档确认，见特性文档 Phase 0 记录）。 */
+ *  证明是测量噪声或语义预期变化——后者需搭档确认）。 */
 export const BASELINE = {
-  ndcg5: 0.789,
-  ndcg10: 0.803,
-  mrr: 0.911,
+  ndcg5: 0.673,
+  ndcg10: 0.707,
+  mrr: 0.811,
 } as const;
 
 function mockEmbeddingGateway(): EmbeddingGateway {
+  // F20261008mrrk 检视处置：现有 search 测试同口径的 mock——真实降级机制是
+  // searchVec 内 embed() 抛异常被 catch（search-memory.ts searchVec），available
+  // 字段在 search 路径不被读（仅 bootstrap/健康检查消费）。这里 embed() 抛异常
+  // 即复现真实降级分支（FTS-only）。
   return {
     available: false,
     async embed(): Promise<Float32Array> {
@@ -62,12 +70,12 @@ function mockEmbeddingGateway(): EmbeddingGateway {
 }
 
 describe("golden 评测集结构断言（防语料腐化）", () => {
-  it("查询数 30-50 条且四层齐备（覆盖度守卫）", () => {
+  it("查询数 30-50 条且五层齐备（覆盖度守卫）", () => {
     expect(GOLDEN_QUERIES.length).toBeGreaterThanOrEqual(30);
     expect(GOLDEN_QUERIES.length).toBeLessThanOrEqual(50);
     const layers = new Set(GOLDEN_QUERIES.map((q) => q.layer));
-    for (const l of ["fact", "history", "document", "conversation"] as const) {
-      expect(layers.has(l), `layer ${l} 缺失`).toBe(true);
+    for (const l of ["fact", "history", "document", "conversation", "probe"] as const) {
+      expect(layers.has(l as never), `layer ${l} 缺失`).toBe(true);
     }
   });
 
@@ -79,6 +87,13 @@ describe("golden 评测集结构断言（防语料腐化）", () => {
       for (const [id] of Object.entries(q.expected)) {
         expect(corpusIds.has(id), `${q.id} 标注了语料外条目 ${id}`).toBe(true);
       }
+    }
+  });
+
+  it("探针层引用近邻簇：E 层查询标注必须含 g-clu- 条目（区分度守卫）", () => {
+    for (const q of GOLDEN_QUERIES.filter((x) => x.layer === "probe")) {
+      const hasCluster = Object.keys(q.expected).some((id) => id.startsWith("g-clu-"));
+      expect(hasCluster, `${q.id} 探针未引用近邻簇——区分度退化`).toBe(true);
     }
   });
 
@@ -98,8 +113,6 @@ describe("golden 评测集结构断言（防语料腐化）", () => {
       expect(age).toBeGreaterThan(0);
       expect(age).toBeLessThan(400); // 全部年龄 ≤ 365 天
     }
-    const distinctAges = new Set(CORPUS.map((e) => e.createdAt));
-    expect(distinctAges.size).toBeLessThanOrEqual(CORPUS.length); // 允许 chunk 与父条目同龄
   });
 });
 
@@ -108,14 +121,9 @@ describe("golden 评测 runner：全链路指标 + 回归地板", () => {
   let repo: SqliteMemoryRepository;
   let searchMemory: SearchMemory;
 
-  /** 重置权重到预设状态：清空检索副作用 + 重放 WEIGHT_PRESETS */
+  /** 重置权重到预设状态：清空检索副作用（检索递增 retrieval_count）+ 重放 WEIGHT_PRESETS */
   function resetWeights(): void {
-    db.prepare("UPDATE memory_weights SET retrieval_count = 0, last_retrieved_at = NULL").run();
-    const apply = db.prepare(
-      "UPDATE memory_weights SET user_flagged = 0, retrieval_count = 0 WHERE memory_entry_id = ?",
-    );
-    const all = db.prepare("SELECT memory_entry_id FROM memory_weights").all() as Array<{ memory_entry_id: string }>;
-    for (const { memory_entry_id } of all) apply.run(memory_entry_id);
+    db.prepare("UPDATE memory_weights SET user_flagged = 0, retrieval_count = 0, last_retrieved_at = NULL").run();
     const setPreset = db.prepare(
       "UPDATE memory_weights SET user_flagged = ?, retrieval_count = ? WHERE memory_entry_id = ?",
     );
