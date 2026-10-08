@@ -365,13 +365,13 @@ export interface FeishuRuntime {
  * externalId === botKey 过滤归属——多 app 广播互不串扰。
  *
  * 命令门禁锚（D7 双层）：每线独立 resolver——`new PartnerResolver(线ownerOpenId, 首号ownerOpenId?)`；
- * 线主人自己线上可跑命令、首号（部署者）任意线上可跑、陌生人被拦。静态 config app 路径
- * 传 config 锚（ownerOpenId=partnerOpenId），行为等价存量。
+ * 线主人自己线上可跑命令、首号（部署者）任意线上可跑、陌生人被拦。
+ * （静态 config app 路径已随 F20261008fsrm 移除——锚一律来自扫码人/首号。）
  */
 export function buildFeishuRuntime(options: {
   appId: string;
   appSecret: string;
-  /** 命令门禁锚：线 owner（扫码人 / 静态 app 时 = config partnerOpenId） */
+  /** 命令门禁锚：线 owner（扫码人） */
   gateOwnerOpenId?: string;
   /** 命令门禁锚第二锚：全局首号（部署者；仅扫码线非首号时传） */
   globalFirstOwnerOpenId?: string;
