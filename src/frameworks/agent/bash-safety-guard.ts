@@ -1140,6 +1140,13 @@ const MAIN_WRITE_PATTERNS = [
   ONELINER_CHANNEL_PATTERNS.node,
   ONELINER_CHANNEL_PATTERNS.ruby,
   ONELINER_CHANNEL_PATTERNS.perl,
+  // #1308（F20261008cphr）：cat 管道 heredoc 通道——`cat <<'PY' | python3 -` 体经管道
+  // 进入解释器真执行，无 cd 形态下 pattern[1] 不认（要求 python 在 `<<` 前）。
+  // 与 pattern[1] 同豁免基座：heredocReadOnly（scriptHeredocBodiesReadOnlySegmentAware
+  // 含管道右段识别，纯读体放行，写体不豁免保守拦）。左段词表（cat/tee 外数据通道词）
+  // 不限制——右段解释器才是执行面判定锚；通道形态只认紧邻单管道，`| |` 空段不命中。
+  /(?:^|&&|\|\||[;&\n])\s*(?:[\w./-]+\s+)?<<\s*["']?[A-Za-z_][\w-]*["']?\s*(?<!\|)\|(?!\|)\s*(?:sudo\s+|env\s+|command\s+|nice\s+|nohup\s+|exec\s+|time\s+)*(?:[\w./-]+\/)?python[\d.]*\s*-/,
+  /(?:^|&&|\|\||[;&\n])\s*(?:[\w./-]+\s+)?<<\s*["']?[A-Za-z_][\w-]*["']?\s*(?<!\|)\|(?!\|)\s*(?:sudo\s+|env\s+|command\s+|nice\s+|nohup\s+|exec\s+|time\s+)*(?:[\w./-]+\/)?node\s*-/,
   // D2：段首锚含单 | / &（`cd /wt | git commit` / `& git commit` 同样是新命令段）
   // F20260924gfpn：① merge → merge(?!-) 负向断言——`git merge-base`（只读）曾被 merge\b
   // 吞成写操作（9/23 台账实测 BLOCKED）；同组其他词审计：commit→commit(?!-tree)（commit-tree
@@ -1563,13 +1570,33 @@ function isInsideMainCheckout(target: string, projectRoot: string): boolean {
  *  本函数按 shell 语义取 header 中 `<<` 之前的最后一个命令段（&&/||/;/| 切分），
  *  对该段跑 heredocInterpreter——`cd /tmp && env python3 - <<'PY'` → 段 `env python3 -`
  *  → heredocInterpreter 跳过 wrapper 词 env → python（wrapper 形态同样识别）。
+ *  #1308（F20261008cphr）：管道右段识别——`cat <<'PY' | python3 -` 的 header
+ *  `<<` 前最后段是 cat，但体实际进入管道右段的 python 执行。按真管道（非 ||）切
+ *  header，任一右段段首（跳 wrapper）是目标解释器 → 按解释器体判定。多级管道
+ *  `cat <<PY | grep x | python3 -` 循环判定每个右段。tee/grep 等数据通道右段
+ *  不命中（体不执行，语义归 #1304 数据体剥除）。
  *  保守侧：切不出段/段内提取非目标解释器 → false（不触发阻断，回到既有判定链）。 */
 function heredocHeaderIsInterpreter(header: string, family: "python" | "node"): boolean {
   const beforeOpen = header.split(/<<-?/)[0] ?? "";
   const segs = beforeOpen.split(/&&|\|\||[;|]/).map(s => s.trim()).filter(Boolean);
   const last = segs[segs.length - 1] ?? "";
   const it = heredocInterpreter(last);
-  return family === "python" ? /^python(?:\d+(?:\.\d+)?)?$/.test(it) : /^node(?:\d+)?$/.test(it);
+  if (family === "python" ? /^python(?:\d+(?:\.\d+)?)?$/.test(it) : /^node(?:\d+)?$/.test(it)) {
+    return true;
+  }
+  // #1308：开行右段识别——`<<` 定界符之后的同头行剩余部分（`<<'PY' | python3 -` 的
+  // `| python3 -`）。定界符域（段 0，`<<'PY'`）跳过，逐右段判定；真管道切分
+  // （\|\|| 形态不是管道连接，归段内文本），与 hasRealCdSegment 的 lookaround 语义对齐。
+  const afterOpen = header.split(/<<-?/).slice(1).join("<<") ?? "";
+  for (const seg of afterOpen.split(/\|\||(?<!\|)\|(?!\|)/).slice(1)) {
+    const t = seg.trim();
+    if (!t) continue;
+    const segInterp = heredocInterpreter(t);
+    if (family === "python" ? /^python(?:\d+(?:\.\d+)?)?$/.test(segInterp) : /^node(?:\d+)?$/.test(segInterp)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** #1240：段感知版脚本 heredoc 体只读判定（python/node 双族）。
@@ -1647,14 +1674,7 @@ function checkWriteChannels(
 ): string | null {
   for (const [pi, pattern] of MAIN_WRITE_PATTERNS.slice(1).entries()) {
     if (!pattern.test(command)) continue;
-    // #1207（F20260930l573）：pattern[0] 是 python heredoc patch 通道——体感知判定，
-    // 纯只读体放行（写/执行签名、非 python 解释器体均不豁免，见 PY_BODY_WRITE_SIG 注）。
-    // heredocReadOnly 缺省（V1 兑底链：体已剥离不可判定）→ 不豁免，保守拦。
-    if (pi === 0 && ctx.heredocReadOnly) continue;
-    // #1275：pattern[1]-pattern[4] 是 one-liner 通道（python -c / node -e / ruby -e / perl -e）——
-    // 载荷白名单判定：全部同型载荷提取成功且全部只读才豁免，白名单外/提取失败保守拦。
-    // ruby/perl 只读全拦（fail-closed 起步，S-5）。
-    if (pi >= 1 && pi <= 4 && ctx.oneLinerReadOnly) continue;
+    if (writeChannelExempt(pi, ctx)) continue;
     ctx.logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (no cd)", { command: command.substring(0, 200) });
     return MAIN_WRITE_BLOCK_MSG;
   }
@@ -1668,6 +1688,21 @@ function checkWriteChannels(
     return MAIN_WRITE_BLOCK_MSG;
   }
   return null;
+}
+
+/** #1308（F20261008cphr）：写族通道豁免判定（从 checkWriteChannels 循环体抽出，控圈复杂度）。
+ *  通道豁免三档，同一基座原则：
+ *  - pi=0（python heredoc patch，#1207）与 pi=5/6（cat 管道 heredoc，#1308 新增）：
+ *    吃 heredocReadOnly（scriptHeredocBodiesReadOnlySegmentAware，含管道右段识别）
+ *    ——纯读体放行，写体不豁免保守拦；heredocReadOnly 缺省（V1 兑底链体已剥离
+ *    不可判定）→ 不豁免，保守拦。
+ *  - pi=1..4（one-liner 通道，#1275）：吃 oneLinerReadOnly（全部同型载荷提取成功
+ *    且全部只读才豁免，白名单外/提取失败保守拦；ruby/perl 只读全拦 fail-closed 起步 S-5）。 */
+function writeChannelExempt(pi: number, ctx: { heredocReadOnly?: boolean; oneLinerReadOnly: boolean }): boolean {
+  if (pi === 0 && ctx.heredocReadOnly) return true;
+  if (pi >= 1 && pi <= 4 && ctx.oneLinerReadOnly) return true;
+  if ((pi === 5 || pi === 6) && ctx.heredocReadOnly) return true;
+  return false;
 }
 
 /** #1240（F20261006c1240）cd 豁免负门判定：模型版 cd 豁免生效时，
