@@ -4,6 +4,14 @@ title: "锚点版本纪律：adversarial-review 依赖包内文件锚点必须�
 summary: "#1372 排查结论：PR #1338 检视獭引用 agent-session.d.ts:208 实际类型在 173 行（35 行偏移）——非编造锚点，是升级期同机多 worktree 版本混位（0.84.4/0.86.x/1.1.0 并存）下 grep 命中真实、行号虚标的机械性误标。修复：adversarial-review SKILL.md 事实验证步补「锚点版本纪律」——node_modules 等依赖包内文件锚点必须注明所读版本号与来源路径，行号无版本信息时降级为「符号名+版本」引用。"
 change_type: prompt
 capability_test: "n/a: skill 文本单行纪律增补（docs-config 级 prompt 微调），无运行时行为面；验证面 = 文本落位 + 既有套件回归（skill 文件改动有 lint-prompt-anchors 扫描兜底）"
+intent:
+  problem: "依赖升级期多 worktree/多版本并存时，检视獭引用 node_modules 内文件的裸 file:line 锚点无法定位（实证：同版本包类型声明行号被虚标 35 行，语义全真唯行号错——混位现场跨版本混读/转写拼接误差），锚点纪律文件自身对「依赖包锚点必须带版本」零约束"
+  expected_effect: "检视报告引用依赖包内文件锚点时必带版本号与来源路径，行号虚标在混位期可被消费方当场识别降级；同类误标不再以「精确锚点」形态进入处置流程"
+  verify_by:
+    type: static_only
+    description: "纯文本纪律增补——验证 = 文本落位 grep 命中 + CI lint-prompt-anchors 通过；无 prompt 运行时行为面可回归（静态守护，见 lint-intent.mjs 四选一分类）"
+  
+Golden Gate: n/a（verify_by=static_only——skill 文本纪律增补，无 prompt/skill 执行面变更；「Golden Gate: n/a」声明按 B7 豁免口径显式落位）
 created_in_conversation: d7377cfd-8497-4338-9fb5-366967ffe87e
 causal_links:
   - "F20261008pi11"
@@ -25,7 +33,7 @@ created_at: "2026-10-09T17:42:00+08:00"
 | 断言 | 证据 |
 |---|---|
 | 类型名/类型值/「未从包根导出」全部真实成立 | 主仓 node_modules @1.1.0 复验：`:173 export type QueuedInputDisposition = "handled" \| "queued"` |
-| 「读了老版本 0.86.x」不成立 | 0.84.4（collab-room-v2 worktree 实测）该类型**不存在**（仅 `_steeringMessages`）——低版本说不通 |
+| 「读了老版本 0.86.x」不成立 | 0.84.4（collab-room-v2 worktree 实测）该类型**不存在**（仅 `_steeringMessages`）——低版本说不通（时效性注记：0.84.4 现场为 2026-10-09 快照，后续清理后本条不可复验，结论已由当日实测固化） |
 | 「diff 行号」不成立 | PR #1338 files 无该 .d.ts（纯包内文件，不在 diff） |
 | 版本混位条件成立 | 同机 ≥3 份 node_modules：主仓 1.1.0 / deps-upgrade-1009 1.1.0 / collab-room-v2 0.84.4；升级期 0.86.x 必然在位过 |
 
