@@ -46,7 +46,10 @@ export class SqliteResearchRepository implements ResearchRepository {
   }
 
   async updateStatus(id: string, status: ResearchStatus): Promise<void> {
-    this.db.prepare("UPDATE research SET status = ? WHERE id = ?").run(status, id);
+    // #1385：changes=0（ID 不存在）时 fail-closed 抛错——better-sqlite3 UPDATE 不匹配
+    // 返回 changes=0 但不抛错，静默吞掉 = sync 产物状态流转假成功（同 #1370 族模式）
+    const result = this.db.prepare("UPDATE research SET status = ? WHERE id = ?").run(status, id);
+    if (result.changes === 0) throw new Error(`research 不存在: ${id}`);
   }
 
   /** F20260803mval: upsert 场景更新文档内容（内容指纹变了） */
