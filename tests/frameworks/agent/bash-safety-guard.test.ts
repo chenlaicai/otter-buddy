@@ -2687,7 +2687,7 @@ PY`;
   });
 });
 
-describe("#1308（F20261008cphr）：cat 管道 heredoc 逃逸收口——负门/通道双基座扩管道右段解释器识别", () => {
+describe("#1308（F20261009cphr）：cat 管道 heredoc 逃逸收口——负门/通道双基座扩管道右段解释器识别", () => {
   const mainPid = 42877;
   const projectRoot = "/Users/orca/ai/otter-buddy";
 

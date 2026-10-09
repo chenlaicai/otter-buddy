@@ -1,5 +1,5 @@
 ---
-id: F20261008cphr
+id: F20261009cphr
 title: "bash 守卫 cat 管道 heredoc 逃逸收口：负门/通道双基座扩管道右段解释器识别（#1308）"
 summary: "cat <<'PY' | python3 - 形态下守卫负门（cd 豁免 veto）与通道正则（无 cd 形态）均不识别——管道右段解释器在 `<<` 定界符之后，两套判定基座都只看 `<<` 之前。修复：heredocHeaderIsInterpreter 扩「管道右段解释器识别」（负门/体只读判定双消费同基座）+ MAIN_WRITE_PATTERNS 新增 cat 管道通道 2 条（无 cd 形态，豁免同 pattern[0] 吃 heredocReadOnly）。"
 change_type: fix
@@ -21,7 +21,7 @@ intent:
     type: behavior_check
 ---
 
-# F20261008cphr cat 管道 heredoc 逃逸收口（#1308）
+# F20261009cphr cat 管道 heredoc 逃逸收口（#1308）
 
 ## 背景
 

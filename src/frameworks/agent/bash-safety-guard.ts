@@ -1140,7 +1140,7 @@ const MAIN_WRITE_PATTERNS = [
   ONELINER_CHANNEL_PATTERNS.node,
   ONELINER_CHANNEL_PATTERNS.ruby,
   ONELINER_CHANNEL_PATTERNS.perl,
-  // #1308（F20261008cphr）：cat 管道 heredoc 通道——`cat <<'PY' | python3 -` 体经管道
+  // #1308（F20261009cphr）：cat 管道 heredoc 通道——`cat <<'PY' | python3 -` 体经管道
   // 进入解释器真执行，无 cd 形态下 pattern[1] 不认（要求 python 在 `<<` 前）。
   // 与 pattern[1] 同豁免基座：heredocReadOnly（scriptHeredocBodiesReadOnlySegmentAware
   // 含管道右段识别，纯读体放行，写体不豁免保守拦）。左段词表（cat/tee 外数据通道词）
@@ -1572,7 +1572,7 @@ function isInsideMainCheckout(target: string, projectRoot: string): boolean {
  *  本函数按 shell 语义取 header 中 `<<` 之前的最后一个命令段（&&/||/;/| 切分），
  *  对该段跑 heredocInterpreter——`cd /tmp && env python3 - <<'PY'` → 段 `env python3 -`
  *  → heredocInterpreter 跳过 wrapper 词 env → python（wrapper 形态同样识别）。
- *  #1308（F20261008cphr）：管道右段识别——`cat <<'PY' | python3 -` 的 header
+ *  #1308（F20261009cphr）：管道右段识别——`cat <<'PY' | python3 -` 的 header
  *  `<<` 前最后段是 cat，但体实际进入管道右段的 python 执行。按真管道（非 ||）切
  *  header，任一右段段首（跳 wrapper）是目标解释器 → 按解释器体判定。多级管道
  *  `cat <<PY | grep x | python3 -` 循环判定每个右段。tee/grep 等数据通道右段
@@ -1694,7 +1694,7 @@ function checkWriteChannels(
   return null;
 }
 
-/** #1308（F20261008cphr）：写族通道豁免判定（从 checkWriteChannels 循环体抽出，控圈复杂度）。
+/** #1308（F20261009cphr）：写族通道豁免判定（从 checkWriteChannels 循环体抽出，控圈复杂度）。
  *  通道豁免三档，同一基座原则：
  *  - pi=0（python heredoc patch，#1207）与 pi=5/6（cat 管道 heredoc，#1308 新增）：
  *    吃 heredocReadOnly（scriptHeredocBodiesReadOnlySegmentAware，含管道右段识别）
