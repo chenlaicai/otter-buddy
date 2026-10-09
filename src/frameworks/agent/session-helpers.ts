@@ -218,7 +218,7 @@ export class SimpleLockManager {
       // Why(#599): 世代不匹配 = 锁已被 stale 接管者夺走。此时动锁状态会
       // 干扰新持有者（错误释放或错误移交），本次 release 必须是 no-op。
       // 【判定次序陷阱（检视 A-1）】generation 恒判在先（结构性短路）：无 epoch
-      //  路径（reset/destroy/損毁后重建/handoff 等调用点不传 epoch）里 generation
+      //  路径（reset/destroy/损毁后重建/handoff 等调用点不传 epoch）里 generation
       //  是**唯一** steal 防线，不是可退役的兑底——若当「epoch 在场时可省」删掉
       //  这行，所有无 epoch 路径的互斥静默破坏。
       if (lock.generation !== myGeneration) return;

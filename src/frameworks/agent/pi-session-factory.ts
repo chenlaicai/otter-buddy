@@ -1081,7 +1081,9 @@ export class PiSessionFactory implements AgentGateway {
    *  现役合法持有者可逐自己条目，stale 旧 invoke 不可）。hitEpoch 缺失时所有权冻结
    *  + warn（D3 fail-loud 对齐，不静默）。行为面安全方向：条目 epoch 保持原值
    *  （铸造它的更早 invoke），后续 _evictPooledIfOwned 会因 epoch 不匹配而跳过，
-   *  不会误逐；拒绝池命中本身不可取（每次冷启动是行为大变），降级面止于 warn。 */
+   *  **不误逐新 invoke 的条目**（delta 附注①：并非「绝不被逐出」——铸造者自己的
+   *  zombie 清理若携原 epoch 仍会命中，与旧代码持平非回归）；拒绝池命中本身
+   *  不可取（每次冷启动是行为大变），降级面止于 warn。 */
   private _transferPoolOwnership(existing: { epoch?: InvokeEpoch }, otterId: string): void {
     const hitEpoch = invokeEpochStorage.getStore();
     if (hitEpoch) {
