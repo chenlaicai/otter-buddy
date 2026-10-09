@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { assertUpdated } from "../assert-updated";
 import type {
   ArtifactStatus,
   Conversation,
@@ -105,8 +106,12 @@ export class SqliteConversationRepository implements ConversationRepository {
   async updateStatus(id: string, status: ConversationStatus, timestamp: string): Promise<void> {
     // F20260922cgrp：弱状态两态——completed 退役，只剩 archived 写入路径
     if (status === "archived") {
-      this.db.prepare(`UPDATE conversations SET status = 'archived', archived_at = ?, updated_at = ? WHERE id = ?`)
+      // #1391：changes=0（ID 不存在）时 fail-closed 抛错（#1370 族模式）。上游
+      // manage-conversation.archive 已有 getById 前置防护（not_found + canArchiveConversation
+      // 拦重复归档），此处抛错只在「前置检查与写入间的删除竞态窗口」触发，不改变幂等语义
+      const result = this.db.prepare(`UPDATE conversations SET status = 'archived', archived_at = ?, updated_at = ? WHERE id = ?`)
         .run(timestamp, timestamp, id);
+      assertUpdated(result, 'conversation', id);
     } else {
       throw new Error(`Unsupported status transition: ${status}`);
     }
