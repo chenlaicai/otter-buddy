@@ -1,6 +1,6 @@
 ---
 task_name: 每日对话健康检查
-budget_bytes: 9600
+budget_bytes: 10500
 ---
 
 回顾昨日全部对话，发现系统和海獭的问题，按问题拆分提 GitHub issue（label: daily-review）。分析维度：用户情绪、系统问题（bug/工具故障/流程缺陷）、海獭行为（违规/漏流程/误判）。自己干 / 派小獭并行。没信号就不报，宁缺毋滥。只找本系统优化点，跨对话 memory 信号先验证归属。
@@ -36,6 +36,10 @@ budget_bytes: 9600
 2. **纪律类 → 只提醒**：file/fact/url 类单对话 > 10 → 日报列清单提醒大獭人工归档
 3. **报告**（产出表固定行）：`产物对账: 归档 N ｜ 存量 active M ｜ 待人工 K`
 
+## worktree/分支收敛段（判定矩阵真相源：post-merge-cleanup）
+
+`git worktree list --porcelain` + `git branch --list 'feature/*' 'fix/*' 'feat/*' 'chore/*' 'refactor/*' 'hotfix/*'` 全量扫，逐分支 `gh pr list --head <b> --state all --json number,state --limit 1` 关联 PR 终态，按矩阵处置：MERGED/CLOSED + 干净 → **自动清理**（先停实例再删目录，走 post-merge-cleanup 含硬验证闸）+ 产物 archived；MERGED/CLOSED + dirty → 日报列待搭档裁决；OPEN → 跳过；无 PR + 干净 → mtime >7 天且无 otter-claim 认领（两证缺一即保留标「疑似在途」）→ 废弃候选；无 PR + dirty → WIP 待认领。报告行：`worktree 收敛: 自动清 N ｜ 跳过 OPEN M ｜ 待裁决 K`。对账：active worktree 产物 url 不在 `git worktree list` → archived。
+
 ## 观测器信噪比自监控（误报率比检出率更决定告警生死）
 
 1. **昨日统计**（日报末尾固定段）：healing resolve X / dismiss Y（dismiss 率 = Y/(X+Y)）；RHI 不处置率 L/(M+K+L)（取昨日日报闭环自检行）；产给搭档物件数。人工 dismiss 用时间差 <30 天分离
@@ -61,6 +65,7 @@ budget_bytes: 9600
 [ ] 5. RHI 健康信号  [ ] 6. signal_events  [ ] 7. RHI 处置：critical N → M+K+D=N 已调 triage_signal
 [ ] 8. 锚点抽查：N/M/K + 模型对照  [ ] 9. 信噪比：dismiss 率/不处置率/物件数  [ ] 10. 压缩观测：failed 计数
 [ ] 11. 产物对账：归档 N ｜ 存量 active M ｜ 待人工 K
+[ ] 12. worktree 收敛：自动清 N ｜ 跳过 OPEN M ｜ 待裁决 K
 ```
 
 ## 守卫误拦样本固化段（「昨日」= UTC 日界）
