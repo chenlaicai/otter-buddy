@@ -341,9 +341,50 @@ export default function ConversationPage() {
    *  条目先到，末位游标反指更早条目）；②列表非全局 seq 有序时末位非最大 seq 同样漏。
    *  尾页快照 + 幂等合并不依赖游标假设，低位缺口/乱序一概能补（同 id 幂等，窗口外终态
    *  允许丢弃——与整页重载同语义）。 */
+  /**
+   * F20261009rwqa（三轮上跳根治）：快照窗口对齐——刷新拉取的条目必须 ⊆ 当前已加载窗口 ∪ 新条目。
+   * 旧版固定拉尾页 100 条：首屏只装 50 条的长会话，周期审计（60s）/焦点对账/SSE 重连补偿
+   * 任一触发都会把窗口外的 50 条历史塞进列表（实测 sh +8817px、贴底用户被推离），
+   * 且每分钟重复暴增——「历史对话更容易跳」的根因。
+   * 修复：after=oldest 游标升序拉取（listEntriesAfter）——拉已加载窗口头部之后的全部条目
+   * （窗口内状态更新 + 新条目），快照下界 ≡ 已加载下界，永不引入窗口外历史。
+   * Why after 而非历史弃用决策：F20260921 弃的是「末位游标」（列表尾部 seq——低位缺口时反指
+   * 更早条目漏补）；头部游标无此问题——窗口内条目已在本地，低位缺口不存在，新条目 seq 恒 > oldest。
+   * 边界：①游标取首个非 tmp-/err- 真实条目（乐观条目无后端 seq，查不到会 fail-closed 返空，
+   * 刷新退化但无害）；②oldest 后超 200 条（断连数小时后首刷等极端态）：ASC+LIMIT 截断的是
+   * 最新端（检视 S2 实锤：注释初版写的「尾部恒在快照内」方向反了）——循环翻页拉到尾，
+   * 上限 5 轮（首请求 200 + 5 轮翻页，封顶 1200 条/6 请求）防失控：仍超限则放弃窗口对齐、
+   * 使用已拉到的部分快照（保最旧侧 1200 条、丢最新端缺口——无额外请求，不存在回退拉取分支；
+   * 最新端缺口无法自愈——游标恒锚窗口头，静止窗口下刷新恒返回同一 1200 条，SSE 只补
+   * 断连后新产生的条目；补齐靠重进会话（首屏拉尾页盖住最新）或上翻扩窗（游标前移扩大
+   * 可达范围））。
+   * 进循环条件：游标后条目总数 > 200——与单轮增量无关。用户上翻 loadMoreBefore 扩窗后
+   * （每页 20 条），窗口 >200 时每轮审计都会进循环（每轮 2+ 请求、O(窗口) 传输）——
+   * 这是 after=oldest 设计的已知取舍（F20260921 末位游标低位缺口风险不可回退）。
+   * in-flight 游标语义：tmp-/err- 乐观条目按 id 前缀排除、不作游标，但游标本身可以是
+   * in-flight 状态的真实条目（如活跃獭正在流式的 speak 是窗口最旧真实条目时）——无 correctness
+   * 问题：该条目在后端存在（sqlite-entry-repository getEntriesAfter 查得到），拉它之后的
+   * 增量恰是所需；其自身状态收敛由 mergeMessages 保活逻辑承担（message-stream.ts isLocalOnly：
+   * 快照未覆盖的 in-flight 保留）。 */
   const refreshMessages = useCallback(async (convId: string) => {
     try {
-      const resp = await api.listEntries(convId, 100)
+      const loaded = allMessagesRef.current[convId] || []
+      const oldestId = loaded.find(m => !m.id.startsWith('tmp-') && !m.id.startsWith('err-'))?.id
+      let resp = oldestId
+        ? await api.listEntriesAfter(convId, oldestId, 200)
+        : await api.listEntries(convId, 100)
+      // S2 修复：hasMore=true 说明截断了最新端——游标推进到快照末位继续拉，直到取全或达上限。
+      // 不能 fallback 尾页拉取（会放弃窗口对齐，极端场景窗口外暴增回归——本案要杀的形态）
+      if (oldestId) {
+        let pages = 0
+        while (resp.hasMore && pages < 5) {
+          const last = resp.entries[resp.entries.length - 1]
+          if (!last?.id) break
+          const next = await api.listEntriesAfter(convId, last.id, 200)
+          resp = { entries: [...resp.entries, ...next.entries], hasMore: next.hasMore }
+          pages++
+        }
+      }
       if (resp.entries.length > 0) {
         const snapshot = resp.entries.map(mapEntryDTO)
         /** delta D（检视獭-1292 三轮，F20260814qswp 同类回归修复）：合并计算全部
