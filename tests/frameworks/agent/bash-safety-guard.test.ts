@@ -2678,12 +2678,157 @@ PY`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
   });
 
-  // Known Limitations 声明面：cat 管道形态 / 动态拼接（本 PR 不修，文档声明 + issue 跟踪）
-  it("#1240-r1 声明面：cat 管道形态当前放行（Known Limitations，issue 跟踪）", () => {
+  // Known Limitations 声明面：cat 管道形态已被 #1308 修复——原声明面用例（放行锚定）反转
+  it("#1308（反转 #1240-r1 声明面）：cat 管道形态 → 拦截（负门管道右段识别，洞已修）", () => {
     const cmd = `cd /tmp && cat <<'PY' | python3 -
 open('${projectRoot}/data/x.json','w').write('{}')
 PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+});
+
+describe("#1308（F20261009cphr）：cat 管道 heredoc 逃逸收口——负门/通道双基座扩管道右段解释器识别", () => {
+  const mainPid = 42877;
+  const projectRoot = "/Users/orca/ai/otter-buddy";
+
+  // ── A 场景：cd 豁免 + cat 管道 + 体写主仓（负门 veto）──
+  it("#1308 复现：cd /tmp + cat 管道 + python 体绝对路径写主仓 → 拦截", () => {
+    const cmd = `cd /tmp && cat <<'PY' | python3 -
+import shutil
+shutil.rmtree('${projectRoot}/data')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1308：cd worktree + cat 管道 + 体写主仓绝对路径 → 拦截（负门与 cwd 无关）", () => {
+    const cmd = `cd /wt && cat <<'PY' | python3 -
+open('${projectRoot}/data/metrics.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1308：多级管道 cd /tmp + cat | grep | python3 - + 体写主仓 → 拦截（负门右段循环判定）", () => {
+    const cmd = `cd /tmp && cat <<'PY' | grep -v '^#' | python3 -
+open('${projectRoot}/data/x.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1308：wrapper 右段 env python3 管道 + 体写主仓 → 拦截", () => {
+    const cmd = `cd /tmp && cat <<'PY' | env python3 -
+open('${projectRoot}/data/x.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1308：node 管道形态 cat <<'JS' | node - + 体写主仓 → 拦截", () => {
+    const cmd = `cd /tmp && cat <<'JS' | node -
+require('fs').writeFileSync('${projectRoot}/data/hacked.txt','x')
+JS`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // ── B 场景：无 cd 裸 cat 管道（通道层）──
+  it("#1308：无 cd 裸 cat 管道 + 体绝对路径写主仓 → 拦截（通道正则 + heredocReadOnly）", () => {
+    const cmd = `cat <<'PY' | python3 -
+open('${projectRoot}/data/x.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1308：无 cd 裸 cat 管道 + 体相对路径写（cwd=主仓）→ 拦截（与 python 直连同判）", () => {
+    const cmd = `cat <<'PY' | python3 -
+open('data/x.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1308：无 cd 裸 cat 管道 node 形态 + 体写主仓 → 拦截", () => {
+    const cmd = `cat <<'JS' | node -
+require('fs').writeFileSync('${projectRoot}/data/hacked.txt','x')
+JS`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // ── 放行面（防误拦）──
+  it("#1308 放行面：cd /tmp + cat 管道 + 体纯读主仓绝对路径 → 放行（纯读探查正道）", () => {
+    const cmd = `cd /tmp && cat <<'PY' | python3 -
+print(open('${projectRoot}/package.json').read()[:10])
+PY`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("#1308 放行面：cd /tmp + cat 管道 + 相对路径写（cwd=/tmp）→ 放行（负门不触发）", () => {
+    const cmd = `cd /tmp && cat <<'PY' | python3 -
+open('scratch/out.txt','w').write('x')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("#1308 放行面：cat 管道 + 体写非主仓绝对路径 → 放行", () => {
+    const cmd = `cd /tmp && cat <<'PY' | python3 -
+open('/tmp/probe-ok.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("#1308 放行面：无 cd + cat 管道 + 体纯读 → 放行（heredocReadOnly 豁免，与 pattern[1] 同语义）", () => {
+    const cmd = `cat <<'PY' | python3 -
+print(open('${projectRoot}/package.json').read()[:10])
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("#1308 放行面：tee 右段是数据体语义（体不执行）——cd /tmp + cat | tee 落 /tmp + 体内主仓字样 → 放行", () => {
+    const cmd = `cd /tmp && cat <<'PY' | tee /tmp/notes.txt
+open('${projectRoot}/data/x.json','w') 只是文档示例字样，不会执行
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  // ── 检视 r1 发现 1：strip-tab 形态（`<<-`）──
+  it("#1308-r1：无 cd 裸 cat 管道 strip-tab 形态（<<-PY）+ 体写主仓 → 拦截（通道 <<-? 覆盖）", () => {
+    const cmd = `cat <<-PY | python3 -
+open('${projectRoot}/data/x.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1308-r1：strip-tab 带引号定界符（<<-'PY'）无 cd + 体写主仓 → 拦截", () => {
+    const cmd = `cat <<-'PY' | python3 -
+open('${projectRoot}/data/x.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1308-r1：cd 形态 strip-tab 管道（<<-PY）+ 体写主仓 → 拦截（负门双形态覆盖）", () => {
+    const cmd = `cd /tmp && cat <<-PY | python3 -
+open('${projectRoot}/data/x.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // ── 检视 r1 发现 2：短路或（||）形态——右侧不执行，体是纯数据 ──
+  it("#1308-r1 放行面：cd + cat <<PY || python3 - + 体写主仓字样 → 放行（|| 短路，python 不执行，负门不触发）", () => {
+    const cmd = `cd /tmp && cat <<'PY' || python3 -
+open('${projectRoot}/data/x.json','w')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("#1308-r1 放行面：无 cd + cat <<PY || python3 - + 体写主仓字样 → 放行（通道 lookaround 排除 ||，双链一致）", () => {
+    const cmd = `cat <<'PY' || python3 -
+open('${projectRoot}/data/x.json','w')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  // ── 回归面：python 直连负门不回归 ──
+  it("#1308 回归：python 直连形态负门仍拦（管道分支不破坏原判定）", () => {
+    const cmd = `cd /tmp && python3 - <<'PY'
+open('${projectRoot}/data/x.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 });
 
