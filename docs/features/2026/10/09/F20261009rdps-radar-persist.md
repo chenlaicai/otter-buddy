@@ -4,6 +4,11 @@ title: "AI 雷达持久化入库：脚本与任务模板迁出对话工作区"
 summary: "「每日 AI 雷达」定时任务的脚本（radar/）与任务指令此前只存在于「外部洞察」对话专属工作区（gitignore 区），形成持久化孤儿——备份脚本不覆盖 workspaces/、同事克隆仓库拿不到资产、误删不可恢复。本次对齐仓内既有模式（prompts/scheduled/ 模板 git 化，PR #428/#784）：脚本入 scripts/radar/、任务模板入 prompts/scheduled/（reconciler 启动自动同步 DB body）、月度剪枝任务模板同步入库。scan.mjs 仅一处适配：输出目录参数化（运行时数据不进仓库），抓取逻辑零改动。"
 change_type: refactor
 capability_test: "n/a: 无 src/ 改动。scan.mjs 参数化后实测三源抓取跑通（2026-10-09：HN 14 条/GitHub 30 个/Anthropic 10 篇，零错误，产物落 /tmp/radar-test-data/raw/2026-10-09.json）；模板入库后由 reconciler 启动对账自动同步 DB（机制见 src/usecases/scheduler/prompt-template-reconciler.ts）"
+intent:
+  problem: "「每日 AI 雷达」「月度剪枝审视」两任务的脚本与指令只存在于「外部洞察」对话工作区（gitignore 区）：备份脚本不覆盖 workspaces/、克隆仓库拿不到资产、误删不可恢复——持久化孤儿。仓内既有模式（prompts/scheduled/ 模板 git 化 + reconciler 启动对账）未复用。"
+  solution: "资产分层归位：脚本入 scripts/radar/（scan.mjs 仅输出目录参数化，抓取逻辑零改动）；任务模板入 prompts/scheduled/（reconciler 启动自动同步 DB body）；运行时数据留在工作区不动。"
+  expected_effect: "雷达资产获得 git 级持久化与可克隆性；同事复用从「手动拷工作区」变为「克隆仓库即得」；备份盲区风险敞口闭合。"
+verify_by: "① diff scripts/radar/scan.mjs 与原工作区版：除输出目录参数化外逐行一致；② sqlite3 查 scheduled_tasks.name 与两模板 frontmatter task_name 逐字匹配；③ node scripts/radar/scan.mjs <任意目录> 跑通三源；④ scheduler 重启后 sqlite3 查 DB body 已同步为模板内容（reconciler 对账）"
 created_in_conversation: 9d6ffef1-c9b2-48f9-b2ac-0751090f3ebf
 causal_links:
   - issue: "428"
@@ -64,6 +69,10 @@ daily-ai-radar.md 模板体相对 DB 现值有两处有意变更：第 1 步执�
 - scan.mjs 参数化版实测（2026-10-09 09:2x）：`node scripts/radar/scan.mjs /tmp/radar-test-data` 跑通，三源零错误（HN 14 / GitHub 30 / Anthropic 10），产物结构与原版一致（date/generatedAt/sources 三键）
 - 模板 frontmatter task_name 与 DB 任务名精确匹配：「每日 AI 雷达」「月度剪枝审视（D3 剪枝出口）」（sqlite3 核对）
 - reconciler 匹配规则核对：task_name 精确匹配 + 无 dynamic 标记 → 启动对账必命中
+
+## 已知差异（检视建议留痕）
+
+合入后若 scheduler 未重启，reconciler 未跑，明早 8:30 雷达任务仍执行 DB 旧 body（指向工作区 radar/scan.mjs，文件仍在原处，可正常执行）——无害过渡态，重启后自动收敛到新模板。工作区 radar/ 原件在过渡期后可清理（不在本 PR 范围）。
 
 ## 上线后动作
 
