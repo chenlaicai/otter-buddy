@@ -126,6 +126,8 @@ import { SessionRestore } from "./session-restore";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import { IdentityBuilder } from "./identity-builder";
 import { buildCustomTools, createInvokeRegister, resetInvokeRegister, type InvokeRegister } from "./tool-builder";
+// F20261009tsts（#1371）：会话级 tool_search（替代 SDK createToolSearchExtension，免疫 ctx stale）
+import { buildSessionToolSearchTool, type ToolSearchSessionHolder } from "./tool-search-tool";
 // F20260904cg77（#776）：编码工具描述覆写（「如何正确使用工具」归位工具自身描述）
 import { buildToolDescriptionOverrides, buildPiBuiltinToolDefinitions } from "./tool-description-overrides";
 // F20260901mbfx（审计 F5）：readOnly 合成的自定义工具白名单（只读查询类）
@@ -1118,7 +1120,7 @@ export class PiSessionFactory implements AgentGateway {
     );
 
     this.logger.debug('[createSession] Calling createAgentSession', { otterId, modelAlias: resolvedAlias });
-    // F20261008tecn：有 deferred 工具时激活 tool_search（pi 1.1 内置扩展，BM25 检索
+    // F20261008tecn：有 deferred 工具时激活 tool_search（BM25 检索
     // getAllTools() 中 exposure 为 deferred/codemode 的工具，命中后加入激活集）。
     //
     // 激活集重建（关键）：pi SDK 的 tools 数组同时充当注册白名单与初始激活清单——
@@ -1129,11 +1131,16 @@ export class PiSessionFactory implements AgentGateway {
     // 只含 coding 工具 + direct 自定义工具 + tool_search。deferred 工具保持「已注册、未激活、可搜索」
     // 状态——这是 pi 的 tool_search 发现机制（非激活工具中 BM25 检索）的前提。
     const hasDeferred = filteredCustomTools.some(t => t.exposure === "deferred");
+    // F20261009tsts（#1371）：tool_search 改会话级 customTools 路径（免疫 extension
+    // runtime 失效——共享 loader 的 runtime 被任一 session dispose 后永久 stale，三会话
+    // 三连实证；机制详见 tool-search-tool.ts 头注）。holder 延迟绑定：customTools 入参
+    // 在 session 创建前就要传，session 引用创建后回填。
+    const toolSearchHolder: ToolSearchSessionHolder = {};
     const { session } = await piCodingAgent.createAgentSession({
       model: resolvedModel,
       sessionManager,
       tools: [...filteredCodingTools, ...filteredCustomTools.map(t => t.name), ...(hasDeferred ? ["tool_search"] : [])],
-      customTools: [...descriptionOverrides, ...filteredCustomTools],
+      customTools: [...descriptionOverrides, ...filteredCustomTools, ...(hasDeferred ? [buildSessionToolSearchTool(toolSearchHolder)] : [])],
       resourceLoader: resourceLoader ?? undefined,
       modelRuntime: modelRuntime ?? undefined,
       settingsManager: settingsManager ?? undefined,
@@ -1141,6 +1148,8 @@ export class PiSessionFactory implements AgentGateway {
     if (hasDeferred) {
       // F20261008tecn（检视发现 2）：激活集计算抽纯函数 computeActiveToolNames，单测锁语义
       session.setActiveToolsByName(computeActiveToolNames(filteredCodingTools, filteredCustomTools));
+      // F20261009tsts：回填 session 引用（tool_search execute 经 holder 拿到新鲜的每会话对象）
+      toolSearchHolder.session = session;
     }
     this.logger.debug('[createSession] createAgentSession returned', { otterId });
 
