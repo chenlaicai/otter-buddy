@@ -2,13 +2,15 @@
  * F20261009rwqa 回归锚：60s 周期审计点消息数不暴增（修复前 50→100、sh +8817px；
  * 修复后 n=50+新条目数，top 仅正常贴底跟随）。依赖探针 spec 已删（R1），本 spec 自含采样。
  */
-import { test } from '@playwright/test'
+import { test, expect } from '@playwright/test'
 import { execSync } from 'node:child_process'
 
 const CONV = '325ef7b7-8e42-4edc-9abf-eae8f332a2c4'
 const DB = process.env.HOME + '/.otter/alpha/51259f75/otter-buddy.db'
 
 test.skip(!process.env.E2E_REPLICA_DATA, 'need replica')
+
+test.setTimeout(90_000) // 12×5s 采样 + 页面加载，默认 30s 必炸（检视 D1）
 
 test('消息数时序：注入后 DOM 消息增长路径', async ({ page }) => {
   await page.goto(`/conversation/${CONV}`)
@@ -39,9 +41,16 @@ test('消息数时序：注入后 DOM 消息增长路径', async ({ page }) => {
     console.log('[inj] t=10s 注入完成')
   }, 10000)
 
-  // 每 5s 采样消息数
+  // 每 5s 采样消息数；末尾断言（检视 D1：无断言则修复回退也绿）：
+  // ①全程不暴增（任何采样点 n ≤ 初始+注入数）；②审计点后新条目可见（快照拉全）
+  const samples: number[] = []
   for (let i = 1; i <= 12; i++) {
     await page.waitForTimeout(5000)
-    console.log(`[n${i * 5}] ` + JSON.stringify(await snap()))
+    const s = await snap()
+    samples.push(s.n)
+    console.log(`[n${i * 5}] ` + JSON.stringify(s))
   }
+  const maxN = Math.max(...samples)
+  expect(maxN, `60s 内消息数暴增（窗口外历史回流）：max=${maxN}`).toBeLessThanOrEqual(51)
+  expect(samples[samples.length - 1], '审计点后注入条目应可见').toBeGreaterThanOrEqual(51)
 })
