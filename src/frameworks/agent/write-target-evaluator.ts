@@ -58,8 +58,12 @@ const GIT_WRITE_SUBCOMMAND = /^git\s+(?:-C\s+\S+\s+|--git-dir=\S+\s+|--work-tree
 /** Python/JS 等脚本解释器（载荷族——Phase 1 显式回落） */
 const SCRIPT_RUNNERS = new Set(["python", "python3", "node", "perl", "ruby", "osascript"]);
 
-/** worktree 区前缀（主仓树下的 worktree 物理目录不是主仓工作树——pathWithinMain 排除） */
-const WORKTREE_PREFIX_RE = /(^|\/)\.otter\/worktrees(\/|$)/;
+/** worktree 区前缀（主仓树下的 worktree 物理目录不是主仓工作树——pathWithinMain 排除）。
+ *  审视 §3.3（PR #1381）：只认 root 级（^<root>/.otter/worktrees/），不匹配嵌套 decoy
+ *  （/repo/data/.otter/worktrees/... 是主仓内容区，不得误排）。 */
+function isWorktreeRegion(p: string, root: string): boolean {
+  return p.startsWith(`${root}/.otter/worktrees/`) || p === `${root}/.otter/worktrees`;
+}
 
 const DYNAMIC_RE = /[$`]/;
 
@@ -78,7 +82,7 @@ function hasPayloadFlag(seg: Segment): boolean {
 export function pathWithinMain(absPath: string, projectRoot: string): boolean {
   const p = normalizePath(absPath);
   const root = normalizePath(projectRoot);
-  if (WORKTREE_PREFIX_RE.test(p.slice(root.length))) return false;
+  if (isWorktreeRegion(p, root)) return false;
   if (p === root) return true;
   return p.startsWith(root.endsWith("/") ? root : `${root}/`);
 }
@@ -111,26 +115,39 @@ function resolveAssign(name: string, segments: Segment[]): string | null {
 
 // ────────────────────────────── cwd 跟踪 ──────────────────────────────
 
-/** var part 提名：$NAME 形态取变量名；其余形态 null（cmdsub/$1 等不溯） */
-function varNameOf(w: Word): string | null {
-  const varPart = w.parts.find((p: { type: string }) => p.type === "var");
-  if (!varPart) return null;
+/** cd 目标词是否「纯 $VAR 词」：单 var part（无字面后缀/前缀拼接）。
+ *  审视 §3.1（PR #1381，严重）：$W/../../main 形态 evaluated=null，若只取 var 段名
+ *  溯源赋值会丢弃字面后缀爬升 → 假放行真主仓写（红线逃逸 + fail-closed 破防）。
+ *  修法（检视獭给）：只认纯 $VAR 词；带任何字面后缀/前缀一律 null 回落。
+ *  语料负门已钉：c-po-01/02（$W/..、$W/../../../）。 */
+function isPureVarWord(w: Word): string | null {
+  if (w.parts.length !== 1 || w.parts[0].type !== "var") return null;
+  const varPart = w.parts[0];
   const name = varPart.text.replace(/^\$\{?(\w+)\}?$/, "$1");
-  return name === varPart.text ? null : name;
+  return name !== varPart.text ? name : null; // 匹配上（name≠text）返回变量名；未匹配（形态怪异）回落
 }
 
-/** 从词对象求 cd 目标（evaluated 直取 / var part 同命令溯源）。null = 不可解。 */
+/** 从词对象求 cd 目标（evaluated 直取 / 纯 $VAR 词同命令溯源）。null = 不可解。
+ *  审视 §3.1 修订：非纯 var 词（含字面后缀 $W/..、前缀拼接）一律 null——
+  * 「求值不出」必须回落保守侧，不能错误求值后放行。 */
 function evalCdTarget(seg: Segment, segments: Segment[], cwd: string): string | null {
   const w1: Word | undefined = seg.words[1];
   if (!w1) return null;
   let target: string | null = w1.evaluated;
-  if (target === null || DYNAMIC_RE.test(target)) {
-    const name = target === null ? varNameOf(w1) : target.replace(/^\$\{?(\w+)\}?$/, "$1");
-    if (name === null || name === "") return null; // cmdsub/形态不匹配：溯源不出
+  if (target === null) {
+    // evaluated=null = 词含 var/cmdsub/动态 part——只认「纯 $VAR 词」溯源；其余一律回落
+    const name = isPureVarWord(w1);
+    if (name === null) return null;
+    target = resolveAssign(name, segments);
+  } else if (DYNAMIC_RE.test(target)) {
+    // evaluated 值内含动态段（如 "$W/x" 部分展开）：同为非纯形态，回落
+    const name = isPureVarWord(w1);
+    if (name === null) return null;
     target = resolveAssign(name, segments);
   }
   if (target === null || target === "-" || DYNAMIC_RE.test(target)) return null;
-  return evalPath(target, cwd);
+  const _p = evalPath(target, cwd);
+  return _p;
 }
 
 /** 语句序 cwd 跟踪：返回最终 cwd 或 null（不可解）。

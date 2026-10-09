@@ -91,6 +91,14 @@ add(`bash -c 'touch ${M}/x'`, "BLOCK", "synthetic", "bash-c 递归命中主仓")
 add(`bash -c 'cd ${WT} && touch a'`, "ALLOW", "synthetic", "bash-c 递归 wt");
 add(`echo $(date) > /tmp/f`, "ALLOW", "synthetic", "cmdsub 在读侧，落点 tmp");
 add(`cd $(dirname x)/../main && touch y`, "UNEVAL_UNKNOWN", "synthetic", "BC-6 cmdsub 变形回落");
+// 审视 §3.1 负门（PR #1381 严重：$VAR 拼接后缀爬升曾假放行真主仓写）——永久钉住回落
+add(`W=${WT}; cd $W/../.. && touch foo`, "UNEVAL_UNKNOWN", "synthetic", "负门：$W/.. 爬升回落（§3.1）");
+add(`W=${WT}; cd $W/../../../main && touch foo`, "UNEVAL_UNKNOWN", "synthetic", "负门：$W/../../../main 深爬升回落（§3.1 逃逸形态原样）");
+add(`W=${WT}; cd $W/sub && touch foo`, "UNEVAL_UNKNOWN", "synthetic", "负门：$W/字面后缀拼接回落（非纯 $VAR 词）");
+add(`cd ${WT}/.. && touch foo`, "UNEVAL_UNKNOWN", "synthetic", "负门：evaluated 含 .. 回落");
+// 审视 §3.3 负门：嵌套 decoy 不得被 worktree 排除误豁免
+add(`touch ${M}/data/.otter/worktrees/decoy/f`, "BLOCK", "synthetic", "负门：嵌套 decoy 非主仓 worktree 区（§3.3）");
+add(`echo x > ${M}/data/.otter/worktrees/decoy/f`, "BLOCK", "synthetic", "负门：decoy 重定向拦（§3.3）");
 
 // 解析失败
 add(`echo "unclosed`, "UNEVAL_UNKNOWN", "synthetic", "parse-failed 回落");

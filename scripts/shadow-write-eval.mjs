@@ -101,6 +101,11 @@ for (const s of corpus.samples) {
 
 const judged = rows.filter(r => r.status !== "UNADJUDGED");
 const by = k => judged.filter(r => r.status === k);
+// §3.2 处置：回落率双分母如实呈现（已裁决子集 / 语料全集）——75 条台账未裁决前不出达标结论
+const fallbackSubset = +(summaryFallbackTemp(judged) / judged.length * 100).toFixed(1);
+function summaryFallbackTemp(list) {
+  return list.filter(r => r.status === "FALLBACK").length;
+}
 const summary = {
   generatedAt: new Date().toISOString(),
   corpus: corpusPath,
@@ -118,15 +123,36 @@ const summary = {
 // 判据核算
 const covered = judged.filter(r => r.evalVerdict !== "FALLBACK");
 summary.coveredRate = judged.length ? +(covered.length / judged.length * 100).toFixed(1) : 0;
-summary.fallbackRate = judged.length ? +(summary.FALLBACK / judged.length * 100).toFixed(1) : 100;
-summary.pass = summary.RED_LINE_ESCAPE === 0 && summary.EVAL_OVERBLOCK === 0 && summary.fallbackRate <= 50;
+summary.fallbackRateSubset = fallbackSubset; // 分母=已裁决子集（参考值）
+summary.fallbackRateFull = +(summary.FALLBACK / corpus.samples.length * 100).toFixed(1); // 分母=语料全集（判据口径）
+// §3.2 处置：族内成功率（分母=该族全部样本——Phase 1 声称覆盖族：已裁决非 UNEVAL_UNKNOWN 期望的样本）
+const familySamples = judged.filter(r => r.expect !== "UNEVAL_UNKNOWN");
+const familyEvaluated = familySamples.filter(r => r.evalVerdict !== "FALLBACK");
+summary.familyTotal = familySamples.length;
+summary.familyEvaluated = familyEvaluated.length;
+summary.familySuccessRate = familySamples.length ? +(familyEvaluated.length / familySamples.length * 100).toFixed(1) : 0;
+// pass 三项：红线/误放/回落率（全集分母）+ 族内成功率 ≥90%（§3.2 补强制）+ 未裁决=0（全集达标前提）
+summary.pass = summary.RED_LINE_ESCAPE === 0 && summary.EVAL_OVERBLOCK === 0
+  && summary.fallbackRateFull <= 50 && summary.familySuccessRate >= 90 && unadjudged === 0;
+summary.blockers = [];
+if (summary.RED_LINE_ESCAPE > 0) summary.blockers.push(`红线逃逸 ${summary.RED_LINE_ESCAPE} 例（判据 =0）`);
+if (summary.EVAL_OVERBLOCK > 0) summary.blockers.push(`误拦 ${summary.EVAL_OVERBLOCK} 例（判据 =0）`);
+if (summary.fallbackRateFull > 50) summary.blockers.push(`全集回落率 ${summary.fallbackRateFull}%（判据 ≤50%）`);
+if (summary.familySuccessRate < 90) summary.blockers.push(`族内成功率 ${summary.familySuccessRate}%（判据 ≥90%）`);
+if (unadjudged > 0) summary.blockers.push(`未裁决样本 ${unadjudged} 条——达标结论必须建立在全量语料上（§3.2 处置）`);
 
 mkdirSync(dirname(reportPath), { recursive: true });
 writeFileSync(reportPath, `${JSON.stringify({ summary, rows }, null, 2)}\n`);
 
 console.log(`[shadow] 语料 ${summary.total}（已裁决 ${summary.judged} / 未裁决 ${unadjudged}）`);
 console.log(`[shadow] AGREE=${summary.AGREE} FALLBACK=${summary.FALLBACK} EVAL_GAIN=${summary.EVAL_GAIN} OVERBLOCK=${summary.EVAL_OVERBLOCK} RED_LINE_ESCAPE=${summary.RED_LINE_ESCAPE} BOTH_DIVERGE=${summary.BOTH_DIVERGE} ERROR=${summary.ERROR}`);
-console.log(`[shadow] 全集回落率=${summary.fallbackRate}%（判据 ≤50%）`);
-console.log(summary.pass ? "[shadow] ✅ 切换判据达标（预注册三项全过）" : "[shadow] ❌ 切换判据未达标——停在影子态，旧链不动");
+console.log(`[shadow] 回落率：全集分母=${summary.fallbackRateFull}%（判据 ≤50%）｜已裁决子集=${summary.fallbackRateSubset}%（参考）`);
+console.log(`[shadow] 族内成功率=${summary.familySuccessRate}%（${summary.familyEvaluated}/${summary.familyTotal}，判据 ≥90%）`);
+if (summary.pass) {
+  console.log("[shadow] ✅ 切换判据达标（预注册四项全过，全量语料）");
+} else {
+  console.log("[shadow] ❌ 切换判据未达标——停在影子态，旧链不动");
+  for (const b of summary.blockers) console.log(`[shadow]   · ${b}`);
+}
 console.log(`[shadow] 报告：${reportPath}`);
 process.exit(summary.pass ? 0 : 1);
