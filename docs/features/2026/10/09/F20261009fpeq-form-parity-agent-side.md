@@ -44,7 +44,7 @@ intent:
 | 💬 言语 | speak 正文 md | 气泡（现有） |
 | 🗂 卡类 | ```html-card 围栏 | HtmlCard 沙盒，默认折叠 |
 | 🎮 活类 | ```html-card-play 围栏 | 默认展开运行 + 自动登记产物（tool-factory.ts:85 autoRegisterPlayableCards） |
-| 🔗 链类 | URL 裸写**独占一段**（勿 [label](url)、勿句中） | remark-bare-link 插件 mdast 层判定 → unfurl 预览卡（web UnfurlCard.tsx:57-69） |
+| 🔗 链类 | URL 裸写**独占一段**（勿 [label](url)、勿句中） | remark-bare-link 插件 mdast 层判定（生产真相源 web/src/lib/remark-bare-link.ts:21-31）→ unfurl 预览卡（web UnfurlCard.tsx:57-69 为单测口径佐证） |
 | 📄 文类 | create_linked_resource 登记产物 | 摘要卡按 createdAt 混排进时间轴（ArtifactCard） |
 | 🖼 图类 | **獭侧暂无发图通道**——lightbox 只作用消息 attachments，speak 无附件写入源（agent-invoker.ts:779 注释「speak 工具暂无附件写入源」）。本特性不补此能力，只在指引中诚实标注边界 | — |
 
@@ -55,7 +55,7 @@ intent:
 **关键取舍**：
 - **选择映射放 speak 描述正文而非 references**：F20260825hcpg 注释明示「行为触发类引导必须在工具 description（每请求随 tools 参数注入），references 指针对『要不要用』的决策无效」——形态选择正是「要不要用」的决策
 - **场景映射表放契约工具不挤 SYSTEM.md**：get_html_card_contract 是写卡前必调的天然触达点（speak 描述已引导必调），场景级映射（PR 流程/审视报告/终审简报各节点出什么形态）放这里；SYSTEM.md 只保留 R 层规则不扩
-- **身份 prompt 只加一段最小意识**：体积纪律——BIG_OTTER.md 现 11.4KB，本特性净增 <500B，只写「形态平权意识 + 一句最常见纠偏（PR 呈递）」，详细映射指向工具描述与契约
+- **身份 prompt 只加一段最小意识**：体积纪律——BIG_OTTER.md 净增实测 +422B / SMALL_OTTER.md +377B（均 <500B），只写「形态平权意识 + 一句最常见纠偏（PR 呈递）」，详细映射指向工具描述与契约
 - **链类写法纠正常见误用**：`[label](url)` 与句中链接不出 unfurl 卡（判定规则实测），指引必须写明「独占一段」这个反直觉动作
 
 **省事声明论证**：本特性被描述为「最小增量」——依据是增量纪律（注入面体积预算 #1030 立的闸），每处注入都过了「删掉会改变行为吗」三问；替代方案（SYSTEM.md 新增 R 条）被否：R 层管规则不管场景映射，且体积纪律禁止 SYSTEM.md 继续膨胀。

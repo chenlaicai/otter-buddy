@@ -115,7 +115,7 @@ otterCard.submit({
 | 呈递 PR / 外部资源 | 🔗 链类 | URL 裸写**独占一段**（勿 [label](url)、勿句中夹带——独占一段才自动 unfurl 预览卡；编排者动作） |
 | PR/文档/报告/fact 交付 | 📄 文类 | create_linked_resource 登记（摘要卡自动混排进时间轴） |
 | L2 终审简报 | 🗂 卡类 | html-card 议题汇报卡（title 承载 3 秒层结论） |
-| 审视报告 | 🗂 卡类或言语 | 严重发现清单用卡，纯文字结论用言语 |
+| 审视报告 | 🗂 卡类或言语 | PR 审视走 PR review + 对话只发轻量通知（言语）；文档审视才在对话出完整报告卡 |
 
 典型组合（呈 PR）：正文 1-2 句结论 → PR URL 裸链独占一段（unfurl 卡）→ create_linked_resource 登记（摘要卡）→ 需要拍板时一张议题汇报卡。
 
