@@ -133,6 +133,7 @@ import { buildToolDescriptionOverrides, buildPiBuiltinToolDefinitions } from "./
 // F20260901mbfx（审计 F5）：readOnly 合成的自定义工具白名单（只读查询类）
 import { SYNTHESIS_READ_ONLY_TOOL_WHITELIST } from "./synthesis-prompt-builder";
 import { ModelRuntimeRegistry, otterInvokeStorage } from "./model-runtime-registry";
+import { invokeEpochStorage, mintEpoch, type InvokeEpoch } from "./invoke-epoch";
 import type { PiCodingAgentModule } from "./model-runtime-registry";
 import type { ResourceLoader } from "@earendil-works/pi-coding-agent";
 import { createEventHandler } from "./agent-event-utils";
@@ -247,7 +248,10 @@ export class PiSessionFactory implements AgentGateway {
   private readonly sessionStore: AgentSessionStore;
   // F20261008pi11：pi 1.x steer()/followUp() 返回 QueuedInputDisposition（"handled"|"queued"，未从包根导出）。
   // 消费端 steerSession 只 catch 不读值 → 放宽为 Promise<unknown>（结构兼容 + 免硬编码 SDK 内部联合类型）。
-  private readonly activeSessions = new Map<string, { abort: () => Promise<void>; steer?: (text: string) => Promise<unknown>; toolCallCount: number; guardAbortReason?: string }>();
+  // F20261009epoc：条目携带铸造它的 invoke 的 epoch（S4）——finally delete 只在 epoch 引用
+  // 匹配时执行（stale steal 后旧 invoke 苏醒不得删新 invoke 的条目）。epoch 缺失 = 铸造点
+  // 未执行（真 bug），set 侧拒绝注册 + warn（D3 fail-loud）。
+  private readonly activeSessions = new Map<string, { abort: () => Promise<void>; steer?: (text: string) => Promise<unknown>; toolCallCount: number; guardAbortReason?: string; epoch?: InvokeEpoch }>();
   private readonly circuitBreakerConfig: CircuitBreakerConfig;
   private readonly lockManager: SimpleLockManager;
   private readonly sessionRestore: SessionRestore;
@@ -260,7 +264,10 @@ export class PiSessionFactory implements AgentGateway {
   /** F20260911pspl：池化后的 session 持有（session + invoke 级寄存器 + 工具上下文）。
    *  F20260913ctlv 整合（PR #886 merge main）：rlcp 热池退役，本池为唯一基座。 */
   private readonly pool: PiSessionPool;
-  private readonly poolMeta = new Map<string, { session: AgentSession; toolContext: ToolContext; register: InvokeRegister; otterType: string }>();
+  /** F20261009epoc（D5）：池条目记录归属 epoch——冷启动铸造它的 invoke 的 epoch；
+   *  池命中时转移到命中它的 invoke（合法复用 = 所有权转移，#904 语义保持：
+   *  现役合法持有者可逐，stale 旧 invoke 不可）。 */
+  private readonly poolMeta = new Map<string, { session: AgentSession; toolContext: ToolContext; register: InvokeRegister; otterType: string; epoch?: InvokeEpoch }>();
 
   constructor(
     private readonly cfg: {
@@ -705,14 +712,32 @@ export class PiSessionFactory implements AgentGateway {
     const nestedStore = otterInvokeStorage.getStore();
     if (nestedStore && nestedStore.otterId === otterId) {
       this.logger.debug('[invoke] nested invoke within ALS context, bypassing lock', { otterId, readOnly: options?.readOnly ?? false });
+      // F20261009epoc（D5）：嵌套 invoke 继承外层 epoch（不 mint）——嵌套与外层
+      // 共享 session/池条目，独立 epoch 会让外层清理钩子误判嵌套资源为旧世界。
+      // 继承来源 = invokeEpochStorage 外层 store；读到 undefined 走 D3 降级面
+      // （池/寄存器/清理 fail-loud，锁 fail-soft）。
       return await this._invokeInternal(otterId, message, options);
     }
-    const release = await this.lockManager.acquire(`session:${otterId}`);
-    try {
-      return await this._invokeInternal(otterId, message, options);
-    } finally {
-      release();
-    }
+    // F20261009epoc（D4 铸造点，r3-E-1 判据唯一化）：mint/继承的分支判据锁死到
+    // 上方 :705 嵌套检查（otterInvokeStorage，判据零变化）——判非嵌套 → 必铸
+    // 新对象 + 遮蔽式 invokeEpochStorage.run(e_new)：即使该 store 里残留可读的
+    // 外层 epoch（如非对称失效场景）也被新对象遮蔽，不构成「继承」。
+    // 【关键对是首跳】外层 eA（残留可读）vs 遮蔽铸的 eB——只要遮蔽成立，eB 及
+    // 后续铸币永不与任何存活旧对象重合；eB/eC 第二跳（steal 后旧 release 持
+    // eB vs 新持有者 eC）只是同一不变式的自然延伸。防后人只锁第二跳（检视獭
+    // r3 终核建议）：锁的第一跳遮蔽才是等价性根基。
+    const epoch = mintEpoch(otterId, options?.currentInvokeId ?? options?.messageId ?? `invoke:${otterId}`);
+    // 遮蔽式 run：锁 acquire（原 :710）在内读 epoch；整个 invoke 链（池/寄存器/
+    // 清理钩子/_executeWithSession）都在 epoch 作用域内。otterInvokeStorage.run
+    // （:918，含 identityPrefix 构建）原位不动，不与本通道耦合。
+    return await invokeEpochStorage.run(epoch, async () => {
+      const release = await this.lockManager.acquire(`session:${otterId}`, undefined, epoch);
+      try {
+        return await this._invokeInternal(otterId, message, options);
+      } finally {
+        release();
+      }
+    });
   }
 
   /** invoke() 内部版本（不带锁） */
@@ -800,7 +825,11 @@ export class PiSessionFactory implements AgentGateway {
         resetInvokeRegister(existing.register, options?.messageId, { currentInvokeId: options?.currentInvokeId, emitEvent: options?.emitEvent });
         const turnText = existing.register.turnText;
         const sessionKey = options?.messageId ? `${otterId}:${options.messageId}` : otterId;
-        this.activeSessions.set(sessionKey, { abort: () => existing.session.abort(), steer: (text: string) => existing.session.steer?.(text) ?? Promise.resolve(), toolCallCount: 0 });
+        // F20261009epoc：合法池命中 = 所有权转移到命中它的 invoke（#904 语义保持：
+        // 现役合法持有者可逐自己条目，stale 旧 invoke 不可）。寄存器注册同携 epoch。
+        const hitEpoch = invokeEpochStorage.getStore();
+        if (hitEpoch) existing.epoch = hitEpoch;
+        this._registerActiveSession(sessionKey, existing.session);;
         return { session: existing.session, sessionKey, toolContext: existing.toolContext, turnText, isPooled: true, createdNew: false };
       }
     }
@@ -817,9 +846,17 @@ export class PiSessionFactory implements AgentGateway {
     const { session, sessionKey, toolContext } = await this._createSessionWithTools(
       otterId, otterConfig.otterType, options, sessionManager, register, options?.readOnly,
     );
-    this.poolMeta.set(otterId, { session, toolContext, register, otterType: otterConfig.otterType });
-    // 入池：adopt（宿主自建的 session 由池接管驱逐生命周期）
-    this.pool.adopt(otterId, session);
+    // F20261009epoc（D3 fail-loud）：池条目必须携带 epoch——epoch 缺失 = 铸造点未执行
+    // （真 bug），拒绝入池 + warn（不入池的后果：session 用完即弃不复用，bug 现形
+    // 而非静默带病入池）。与 markStale 同为池层归属判定的数据基座。
+    const coldEpoch = invokeEpochStorage.getStore();
+    if (!coldEpoch) {
+      this._warnEpochMissing('pool-adopt', otterId);
+    } else {
+      this.poolMeta.set(otterId, { session, toolContext, register, otterType: otterConfig.otterType, epoch: coldEpoch });
+      // 入池：adopt（宿主自建的 session 由池接管驱逐生命周期）
+      this.pool.adopt(otterId, session);
+    }
     return { session, sessionKey, toolContext, turnText: register.turnText, isPooled: false, createdNew };
   }
 
@@ -988,7 +1025,11 @@ export class PiSessionFactory implements AgentGateway {
           throw err;
         } finally {
           unregisterToolCall?.(); cleanupOutputGuard(); unsubscribe();
-          this.activeSessions.delete(sessionKey);
+          // F20261009epoc（S4 裸露面收口）：finally delete 只在「条目 epoch === 本 invoke
+          // epoch」（对象引用相等）时执行——stale steal 后旧 invoke 苏醒不再删掉新 invoke
+          // 的条目（原无条件 delete 是方案识别的第 5 处裸露面，比防御点 1-3 更危险）。
+          // 同键嵌套共享 epoch（D5）→ 仍会删（known-boundary，与旧行为持平，见特性文档）。
+          this._deleteActiveSessionIfOwned(sessionKey);
           // F20260826mwrd C1：invoke 生命周期结束，清理 halt 持续 block 状态——
           // 改派后新 invoke 不受旧 halt 影响（halt 指令已随本 invoke 的 block 注入达成使命）
           haltRegistry.endInvoke(otterId);
@@ -997,7 +1038,7 @@ export class PiSessionFactory implements AgentGateway {
           // agent-invoker 层递归 invoke 完成：那时池里还是旧 session——restart 语义
           // 要求「下轮新 session」，故在消费点同步 evict（#904 归属校验防 stale 双活误逐）。
           if (toolContext.pendingRestart) {
-            this._evictPooledIfOwned(otterId, toolContext);
+            this._evictPooledIfOwned(otterId);
           }
 
           // #904：pendingRestart 消费点的归属校验见 _evictPooledIfOwned 方法注释
@@ -1017,17 +1058,77 @@ export class PiSessionFactory implements AgentGateway {
   /** #904：pendingRestart 消费点的归属校验 evict。
    *  三条件叠加的误逐场景（issue #904）：旧 invoke 卡死超 300s → stale steal（#599）放行
    *  新 invoke 冷启动新 session 入池 → 旧 invoke 苏醒收尾时 pendingRestart 已置位 →
-   *  按 otterId 无条件 evict 会逐出新 invoke 的新 session。归属校验：池内条目的
-   *  toolContext 必须是本 invoke 的才逐（stale steal 后旧 session 已出池成孤儿，
-   *  池内只会是新 invoke 的）；不匹配则跳过——旧孤儿 session 由旧 invoke 生命周期托管。 */
-  private _evictPooledIfOwned(otterId: string, toolContext: ToolContext): void {
-    if (this.poolMeta.get(otterId)?.toolContext !== toolContext) {
+   *  按 otterId 无条件 evict 会逐出新 invoke 的新 session。
+   *  F20261009epoc：归属判定换 epoch（原 toolContext 引用比对）——判定语义不变
+   *  （只逐自己的），判定来源统一到 epoch 对象身份（池命中时 epoch 随所有权转移，
+   *  stale steal 后池内只会是新 invoke 的 epoch）。不匹配则跳过——旧孤儿 session
+   *  由旧 invoke 生命周期托管。epoch 缺失走 D3 fail-loud（拒绝 evict + warn）。 */
+  private _evictPooledIfOwned(otterId: string): void {
+    const epoch = invokeEpochStorage.getStore();
+    if (!epoch) {
+      this._warnEpochMissing('evict-pooled-if-owned', otterId);
+      return;
+    }
+    if (this.poolMeta.get(otterId)?.epoch !== epoch) {
       // #904 可观测性：归属拦截本身留 debug 信号（stale steal 入口已有 warn，此处非异常）
       this.logger.debug('pendingRestart evict skipped: pooled entry owned by newer invoke', { otterId });
       return;
     }
     this.pool.evict(otterId);
     this.poolMeta.delete(otterId);
+  }
+
+  /** F20261009epoc（S4）：寄存器注册——条目携带铸造它的 invoke 的 epoch。
+   *  epoch 缺失 = 铸造点未执行（D3 fail-loud）：拒绝注册 + warn 计数打点。
+   *  有意取舍：拒绝注册意味着该 invoke 运行期 abort/steer 入口缺失（行为不同于
+   *  旧代码的无条件 set）——「双轨并存 = 根因复制」的优先级高于降级面完全等价
+   *  （方案 D3），降级发生 = epoch 关键路径失效信号，不允许静默。 */
+  private _registerActiveSession(sessionKey: string, session: AgentSession): void {
+    const epoch = invokeEpochStorage.getStore();
+    if (!epoch) {
+      this._warnEpochMissing('active-sessions-register', sessionKey);
+      return;
+    }
+    this.activeSessions.set(sessionKey, {
+      abort: () => session.abort(),
+      steer: (text: string) => session.steer?.(text) ?? Promise.resolve(),
+      toolCallCount: 0,
+      epoch,
+    });
+  }
+
+  /** F20261009epoc（S4 裸露面收口）：finally delete 仅在「条目 epoch === 本 invoke epoch」
+   *  （对象引用相等）时执行。stale steal 后旧 invoke 苏醒不删新 invoke 条目（原
+   *  :991 无条件 delete 是方案识别的第 5 处裸露面）。同键嵌套共享外层 epoch（D5）
+   *  → 仍会删（known-boundary：与旧行为持平，裸 otterId 共键场景，见特性文档 D5）。 */
+  private _deleteActiveSessionIfOwned(sessionKey: string): void {
+    const entry = this.activeSessions.get(sessionKey);
+    if (!entry) return;
+    const epoch = invokeEpochStorage.getStore();
+    if (!epoch) {
+      this._warnEpochMissing('active-sessions-delete', sessionKey);
+      return;
+    }
+    if (entry.epoch !== epoch) {
+      this.logger.debug('[invoke] activeSessions delete skipped: entry owned by newer invoke (epoch mismatch)', { sessionKey });
+      return;
+    }
+    this.activeSessions.delete(sessionKey);
+  }
+
+  /** F20261009epoc（D3 降级观测）：epoch 缺失的 warn 计数打点（:1024 同模式）。
+   *  降级发生 = epoch 关键路径失效信号（铸造点错位/ALS 断裂），不允许静默；
+   *  同 site 限频 1 次/分钟防热路径日志洪水，每站点首次必打。 */
+  private readonly epochWarnAt = new Map<string, number>();
+  private _warnEpochMissing(site: string, subject: string): void {
+    const now = Date.now();
+    const last = this.epochWarnAt.get(site) ?? 0;
+    if (now - last < 60_000) return;
+    this.epochWarnAt.set(site, now);
+    this.logger.warn('[invoke-epoch] epoch missing from ALS context, operation refused (mint point not executed?)', {
+      site, subject,
+      hint: 'invoke() 入口应 mint 并 invokeEpochStorage.run；直接调 internal 方法的测试需自建 epoch 上下文',
+    });
   }
 
   /**
@@ -1172,7 +1273,7 @@ export class PiSessionFactory implements AgentGateway {
     }
 
     const sessionKey = options?.messageId ? `${otterId}:${options.messageId}` : otterId;
-    this.activeSessions.set(sessionKey, { abort: () => session.abort(), steer: (text: string) => session.steer?.(text) ?? Promise.resolve(), toolCallCount: 0 });
+    this._registerActiveSession(sessionKey, session);
 
     return { session, sessionKey, toolContext };
   }

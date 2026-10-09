@@ -117,7 +117,15 @@ export function getOtterToolNamesForType(
 export const HANDOFF_LOCK_WAITER_TIMEOUT_MS = 120_000;
 
 export class SimpleLockManager {
-  private locks = new Map<string, { held: boolean; heldAt: number | null; generation: number; waiters: Array<() => void> }>();
+  // F20261009epoc（#905）：锁条目记录当前持有者 epoch（对象引用）——steal 接管时
+  //  由新 acquire 者带入自己的 epoch，旧持有者 release 闭包比对「锁当前 epoch 对象
+  //  === 闭包捕获的 epoch 对象」（引用相等）不等则 no-op。等价性（方案取舍表）：
+  //  「锁 generation 的本质是锁位易主事件计数」→ epoch 收编后「steal = 新 invoke
+  //  （新 epoch 对象）接管锁位，旧 release 引用不等 → no-op」——同键跨 steal 的
+  //  前后持有者（含嵌套链）不共享 epoch 对象（r3-E-1 判据唯一化保证）。
+  //  **generation 计数器保留为内部兑底（D3 fail-soft）**：锁是热路径不能 fail-loud，
+  //  epoch 缺失（ALS 断裂/非 invoke 路径调用锁）时回退纯计数器比对，行为与旧版完全一致。
+  private locks = new Map<string, { held: boolean; heldAt: number | null; generation: number; holderEpoch?: object; waiters: Array<() => void> }>();
   private readonly defaultTimeout: number;
   /** #599：锁持有超龄阈值——超过该时长视为 stale，等待中的 acquire 可强制接管 */
   private readonly stealThresholdMs: number;
@@ -145,7 +153,7 @@ export class SimpleLockManager {
     else this.handoffModeKeys.delete(key);
   }
 
-  async acquire(key: string, timeoutMs?: number): Promise<() => void> {
+  async acquire(key: string, timeoutMs?: number, /** F20261009epoc：本 invoke 的 epoch（对象引用，从 invokeEpochStorage 传入）；缺省回退 generation 计数器 */ epoch?: object): Promise<() => void> {
     const timeout = timeoutMs ?? (this.handoffModeKeys.has(key) ? HANDOFF_LOCK_WAITER_TIMEOUT_MS : this.defaultTimeout);
     const waitStartedAt = Date.now();
     let lock = this.locks.get(key);
@@ -181,6 +189,8 @@ export class SimpleLockManager {
           },
         );
         lock.generation += 1;
+        // F20261009epoc：steal 接管 = 锁位易主——接管者在下方赋值区写入自己的 epoch，
+        //  旧持有者的 release 引用不等 → no-op（epoch 在场时；缺席时 generation +1 已兑底）
         // fall through：不走等待队列，直接接管（下方 held/heldAt 赋值）
       } else {
         await this.waitForLock(key, lock, timeout, waitStartedAt);
@@ -191,6 +201,11 @@ export class SimpleLockManager {
     lock.heldAt = Date.now();
     /** Why(#599): 捕获本次持有世代——release 时世代不匹配（已被 steal）则 no-op */
     const myGeneration = lock.generation;
+    /** F20261009epoc：本持有者的 epoch（对象引用）——release 时与锁当前 holderEpoch
+     *  引用比对。epoch 路径与 generation 路径双轨互兑（D3）：本 acquire 带 epoch 时
+     *  两者都记录；不带 epoch（非 invoke 路径）时仅 generation 生效（旧版行为）。 */
+    const myEpoch = epoch;
+    lock.holderEpoch = epoch;
 
     // Why: released 标志防止 double release（调用方意外多次调用 release 函数）
     let released = false;
@@ -200,6 +215,11 @@ export class SimpleLockManager {
       // Why(#599): 世代不匹配 = 锁已被 stale 接管者夺走。此时动锁状态会
       // 干扰新持有者（错误释放或错误移交），本次 release 必须是 no-op。
       if (lock.generation !== myGeneration) return;
+      // F20261009epoc：epoch 引用比对（epoch 在场时优先于 generation）——锁位易主
+      //  （steal）后锁的 holderEpoch 已是接管者的对象，旧持有者闭包捕获的不等 → no-op。
+      //  正常路径（waiter 队列接力/直接释放）持有者唯一，引用必相等。
+      //  双轨兑底：release 侧 epoch 缺席（如极旧闭包）时仅上方 generation 判定生效。
+      if (myEpoch !== undefined && lock.holderEpoch !== myEpoch) return;
 
       const next = lock.waiters.shift();
       if (next) {
