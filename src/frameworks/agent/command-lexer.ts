@@ -203,7 +203,18 @@ export function lex(text: string): LexResult {
       }
       return;
     }
-    // $'...' ANSI-C 引用 / $"..." locale 引用 → unknown（含转义语义，不可静态求值）/ 按双引号处理
+    // #1374（F20261009qdlq）raw-quote 回退：双引号内 $ 紧邻引号（$" / $'）无特殊
+    // 语义——grep "^npm|^$" / grep "^a$'" 中 $ 是正则锚定字面量，引号是外层闭合。
+    // 真 ANSI-C/locale 引用不会出现在双引号内，greedy indexOf 会把该形态误判为
+    // 引用未闭合 → 连带外层引号 fail → parseOk=false → cd 豁免退化。按字面 $ 回
+    // 退，引号留给外层引号扫描消费；词首 $'/$"（quoted=false）维持原处理（详见
+    // 特性文档）。
+    if (quoted === "double" && (next === "'" || next === '"')) {
+      parts.push({ type: "lit", text: "$", quoted });
+      i++;
+      return;
+    }
+    // $'...' ANSI-C / $"..." locale → unknown / 按双引号处理
     if (next === "'") {
       const close = text.indexOf("'", i + 2);
       if (close === -1) {
@@ -217,7 +228,6 @@ export function lex(text: string): LexResult {
       return;
     }
     if (next === '"') {
-      // $"..."：语义同双引号——rare，保守按 unknown（不可求值）
       const close = text.indexOf('"', i + 2);
       if (close === -1) {
         parts.push({ type: "unknown", text: text.slice(start, n), quoted });

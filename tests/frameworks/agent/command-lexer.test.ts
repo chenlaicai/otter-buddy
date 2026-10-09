@@ -230,3 +230,60 @@ describe("command-lexer golden token 流", () => {
     });
   });
 });
+
+describe("#1374（F20261009qdlq）：双引号内 $ 紧邻闭引号的 raw-quote 回退", () => {
+  // $" 歧义：① locale 引用 $\"...\"（词首，有配对闭引号）；② $ 正则锚定 + 词闭引号
+  // （grep \"^npm|^$\"——$ 是字面量，" 是外层双引号的闭合）。greedy indexOf 把②误判
+  // 为①的未闭合 → 连带外层引号 fail → parseOk=false → cd 豁免退化 4 连拦。回退仅在
+  // 外层引号上下文（quoted="double"）生效：此时 $" 中的 " 定是外层闭合（真 locale
+  // 引用不会出现在双引号内），$ 按字面量入 parts，" 留给外层引号扫描消费，不 fail。
+  // 词首 $"（quoted=null）维持 locale 处理不变。
+  it("issue 复现：grep -vE \"^npm|^$\" → parseOk=true（cd 豁免不退化）", () => {
+    const r = lex('grep -vE "^npm|^$" | head -5');
+    expect(r.parseOk).toBe(true);
+    expect(r.issues).toHaveLength(0);
+  });
+  it("$ 锚定行尾：grep \"x$\" → parseOk=true", () => {
+    expect(lex('grep "x$"').parseOk).toBe(true);
+  });
+  it("无管道同形态：grep -vE \"^a|^$\" → parseOk=true", () => {
+    expect(lex('grep -vE "^a|^$"').parseOk).toBe(true);
+  });
+  it("真 locale 引用不受影响：echo $\"hello world\" → unknown 且 parseOk=true", () => {
+    const r = lex('echo $"hello world"');
+    expect(r.parseOk).toBe(true);
+    expect(r.tokens[1].word!.parts[0].type).toBe("unknown");
+  });
+  it("locale 未闭合维持 fail（保守）：echo $\"abc → parseOk=false", () => {
+    expect(lex('echo $"abc').parseOk).toBe(false);
+  });
+  it("词首残缺配对维持 fail（保守）：echo $\"a\"b\"c → parseOk=false", () => {
+    expect(lex('echo $"a"b"c').parseOk).toBe(false);
+  });
+  it("引号内 $\" 复合形态：echo \"a$\"b\" → parseOk=false（残余 b\" 未闭合，保守 fail 锁定现状）", () => {
+    // $" 在双引号内 → raw-quote 回退（$ 字面量，" 闭外层）；残余 b" 为未闭合双引号 →
+    // 外层扫描 fail。bash 实际语义是引号拼接（"a$" + b"...），词法层不追嵌套语义——
+    // 保守 fail 与本修复目标形态（$ 紧邻词尾闭引号）无交集，锁定现状。
+    expect(lex('echo "a$"b"').parseOk).toBe(false);
+  });
+  it("$VAR 不受影响：echo \"$HOME\" → var part 正常展开标注", () => {
+    const r = lex('echo "$HOME"');
+    expect(r.parseOk).toBe(true);
+    expect(r.tokens[1].word!.parts.some(p => p.type === "var")).toBe(true);
+  });
+  it("孪生形态（检视发现 S1）：grep \"^a$'\" → parseOk=true（$' ANSI-C 分支同款回退）", () => {
+    // $' 与 $" 同款歧义：双引号内 $ 紧邻词尾闭引号——真 ANSI-C 引用不会出现在
+    // 双引号内，按字面 $ 回退，' 留给外层引号扫描消费。词首 $' 维持不变（下一条用例）。
+    const r = lex("grep \"^a$'\"");
+    expect(r.parseOk).toBe(true);
+    expect(r.issues).toHaveLength(0);
+  });
+  it("孪生词首真 ANSI-C 不受影响：echo $'a\\n' → unknown 且 parseOk=true", () => {
+    const r = lex("echo $'a\\n'");
+    expect(r.parseOk).toBe(true);
+    expect(r.tokens[1].word!.parts[0].type).toBe("unknown");
+  });
+  it("孪生未闭合维持 fail（保守）：echo \"a$' → parseOk=false", () => {
+    expect(lex("echo \"a$'").parseOk).toBe(false);
+  });
+});
