@@ -13,6 +13,7 @@ import type {
   GetEntriesOptions,
 } from "@usecases/conversation/entry-repository";
 import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
+import { assertUpdated } from "../assert-updated";
 import { escapeFtsQuery } from "../fts-utils";
 
 /** Entry 表行类型 */
@@ -195,15 +196,16 @@ export class SqliteEntryRepository implements EntryRepository {
     status: EntryStatus,
     completedAt?: string,
   ): Promise<void> {
-    if (completedAt) {
-      this.db.prepare(
-        "UPDATE entries SET status = ?, completed_at = ? WHERE id = ?",
-      ).run(status, completedAt, entryId);
-    } else {
-      this.db.prepare(
-        "UPDATE entries SET status = ? WHERE id = ?",
-      ).run(status, entryId);
-    }
+    // #1403：changes=0（ID 不存在）时 fail-closed 抛错（#1370 族模式收尾，断言收敛至 assertUpdated）。
+    // 当前全仓零调用方（恢复流改写走别的路径），fail-closed 是防御未知未来调用方的静默假成功。
+    const result = completedAt
+      ? this.db.prepare(
+          "UPDATE entries SET status = ?, completed_at = ? WHERE id = ?",
+        ).run(status, completedAt, entryId)
+      : this.db.prepare(
+          "UPDATE entries SET status = ? WHERE id = ?",
+        ).run(status, entryId);
+    assertUpdated(result, "entry", entryId);
   }
 
   async updateEntryBody(entryId: string, body: string): Promise<void> {

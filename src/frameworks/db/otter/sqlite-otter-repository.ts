@@ -9,6 +9,7 @@ import type {
   OtterRepository,
 } from "@usecases/otter/otter-repository";
 import { rowToOtter, rowToSession, type OtterRow, type SessionRow } from "./otter-mapper";
+import { assertUpdated } from "../assert-updated";
 
 export class SqliteOtterRepository implements OtterRepository {
   constructor(private readonly db: Database.Database) {}
@@ -76,10 +77,13 @@ export class SqliteOtterRepository implements OtterRepository {
   }
 
   async dissolve(otterId: string, dissolvedAt: string): Promise<void> {
-    this.db.prepare(`
+    // #1403：changes=0（ID 不存在）时 fail-closed 抛错（#1370 族模式收尾，断言收敛至 assertUpdated）。
+    // 上游 dissolve-otter.ts 有 getById + canDissolveOtter 双层前置防护，抛错只在删除竞态窗口触发。
+    const result = this.db.prepare(`
       UPDATE otters SET status = 'dissolved', dissolved_at = ?
       WHERE id = ?
     `).run(dissolvedAt, otterId);
+    assertUpdated(result, "otter", otterId);
   }
 
   async deleteOtter(otterId: string): Promise<void> {

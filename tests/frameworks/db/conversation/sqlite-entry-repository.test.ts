@@ -192,6 +192,13 @@ describe("SqliteEntryRepository - 条目基础操作", () => {
       expect(loaded!.status).toBe("completed");
       expect(loaded!.completedAt).toBe("2026-09-10T00:02:00Z");
     });
+
+    it("#1403：不存在的 ID 抛错（changes=0 不静默成功，含/不含 completedAt 两形态）", async () => {
+      await expect(repo.updateEntryStatus("entry-nonexistent", "completed"))
+        .rejects.toThrow(/entry 不存在/);
+      await expect(repo.updateEntryStatus("entry-nonexistent", "completed", "2026-09-10T00:02:00Z"))
+        .rejects.toThrow(/entry 不存在/);
+    });
   });
 
   describe("updateEntryBody", () => {
