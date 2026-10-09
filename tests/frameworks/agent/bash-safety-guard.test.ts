@@ -2832,6 +2832,132 @@ PY`;
   });
 });
 
+describe("#1309（F20261009dpve）：cd 豁免负门第二触发条件——动态路径源签名阻断", () => {
+  const mainPid = 42877;
+  const projectRoot = "/Users/orca/ai/otter-buddy";
+
+  // ── 拦截面：动态路径源 + 写面 ──
+  it("#1309 复现：cd /tmp + os.environ 拼接 + open 写 → 拦截（动态源负门）", () => {
+    const cmd = `cd /tmp && python3 - <<'PY'
+import os
+p = os.environ['REPO'] + '/data/x'
+open(p,'w').write('x')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1309：cd /tmp + from os import environ 形态 + 写 → 拦截", () => {
+    const cmd = `cd /tmp && python3 - <<'PY'
+from os import environ
+open(environ['REPO'] + '/data/x','w').write('x')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1309：cd /tmp + os.getenv 拼接 + 写 → 拦截", () => {
+    const cmd = `cd /tmp && python3 - <<'PY'
+import os
+open(os.getenv('REPO') + '/data/x','w').write('x')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1309：cd /tmp + input() 动态路径 + 写 → 拦截", () => {
+    const cmd = `cd /tmp && python3 - <<'PY'
+open(input() + '/data/x','w').write('x')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1309：cd /tmp + sys.argv 拼接 + 写 → 拦截", () => {
+    const cmd = `cd /tmp && python3 - <<'PY'
+import sys
+open(sys.argv[1] + '/data/x','w').write('x')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1309：node 形态 cd /tmp + process.env 拼接 + writeFileSync → 拦截", () => {
+    const cmd = `cd /tmp && node - <<'JS'
+require('fs').writeFileSync(process.env.REPO + '/data/x', 'x')
+JS`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1309：cat 管道形态（#1308 基座）+ os.environ 拼接写 → 拦截（动态源负门覆盖管道形态）", () => {
+    const cmd = `cd /tmp && cat <<'PY' | python3 -
+import os
+open(os.environ['REPO'] + '/data/x','w').write('x')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // ── 放行面：动态源 + 纯读（探查正道）──
+  it("#1309 放行面：cd /tmp + os.environ 纯读打印 → 拦（声明面：import os 使体判定 fail-closed，与无 cd 链同判——只读豁免需 from os import / os.path 形态）", () => {
+    const cmd = `cd /tmp && python3 - <<'PY'
+import os
+print(os.environ.get('HOME', 'unset'))
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1309 放行面：cd /tmp + from os import environ 纯读（无写面）→ 放行（白名单子面只读豁免）", () => {
+    const cmd = `cd /tmp && python3 - <<'PY'
+from os import environ
+print(environ.get('HOME', 'unset'))
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("#1309 放行面：node cd /tmp + process.env 纯读 → 放行", () => {
+    const cmd = `cd /tmp && node - <<'JS'
+console.log(process.env.HOME)
+JS`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  // ── 放行面：非动态源的正道写 ──
+  it("#1309 放行面：cd /tmp + 相对路径写（无动态源）→ 放行（正道不误伤）", () => {
+    const cmd = `cd /tmp && python3 - <<'PY'
+open('scratch/out.txt','w').write('x')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("#1309 放行面：纯程序内字符串拼接（无动态源/无绝对路径）→ 放行", () => {
+    const cmd = `cd /tmp && python3 - <<'PY'
+p = '/data/'
+q = p + 'x.json'
+print(q)
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("#1309 放行面：动态源 + 写非主仓绝对路径可见 → 绝对路径负门路径，体非只读拦——错，此例应拦。改为：动态源+写非主仓可见路径 → 拦（动态源签名优先）", () => {
+    // 语义校正：os.environ['TMP'] + '/x' 落点不可静态判定，动态源负门应拦
+    const cmd = `cd /tmp && python3 - <<'PY'
+import os
+open(os.environ['TMP'] + '/x.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // ── 回归面：#1240 绝对路径负门不回归 ──
+  it("#1309 回归：cd + 绝对路径写主仓（无动态源）→ 仍拦（#1240 原语义）", () => {
+    const cmd = `cd /tmp && python3 - <<'PY'
+open('${projectRoot}/data/x.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1309 回归：cd + 绝对路径纯读主仓 → 仍放行（#1240 只读正道）", () => {
+    const cmd = `cd /tmp && python3 - <<'PY'
+print(open('${projectRoot}/package.json').read()[:10])
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+});
+
 describe("F20261006gfvl (#1307)：bash -c 带值旗标绕过收口", () => {
   const mainPid = 42877;
   const projectRoot = "/repo"; // 假想主仓根，与 #1038 describe 块同口径
