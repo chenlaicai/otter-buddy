@@ -1,0 +1,121 @@
+---
+id: F20261009s6ej6
+title: 重启獭生路径统一 + 262K 档合成预算重新定标
+doc_type: feature
+change_type: fix
+created: 2026-10-09
+summary: |
+  修复两个问题：①小獭重启没有系统消息——conversation_otters 表缺 invite_otter 写入记录
+  导致 resolveFirstConversationId 找不到对话降级 bareRestart，查询层加 fallback 到
+  conversation_participants；②kimi-256k 合成必然 400 失败——262K 档预算按
+  密度 1.443 token/char 定标但实测 ≥ 1.511，新预算 138,788 chars（最小失败 173,485 × 0.8），
+  废弃跨窗口线性缩放假设改为分档定标。
+created_in_conversation: 74abdc91-d743-4cf9-816c-aacfee433c8f
+modules:
+  - src/frameworks/db/conversation/sqlite-conversation-repository.ts
+  - src/frameworks/agent/narrative-synthesis-engine.ts
+  - src/interface-adapters/http/controllers/otter-controller.ts
+  - tests/frameworks/db/conversation/sqlite-conversation-repository.test.ts
+  - tests/frameworks/agent/handoff-synthesis-budget.test.ts
+  - tests/interface-adapters/unified-handoff.test.ts
+  - tests/interface-adapters/agent-invoker.test.ts
+---
+
+## 问题一：小獭重启没有系统消息（⏳/✅ 反馈缺失）
+
+### 根因
+
+`restartWithUnifiedHandoff` 内部当 `resolveFirstConversationId` 找不到对话时降级为 `bareRestart()`，完全跳过 unified handoff 管线（不发系统消息）。
+
+进一步追查 `resolveFirstConversationId` 找不到对话的原因：`conversation_otters` 表只在创建对话时写入，后来通过 `invite_otter` 加入对话的獭只写 `conversation_participants` 不写 `conversation_otters`。小獭通常不是对话创建者，所以 `conversation_otters` 里没有它们的记录，导致查不到对话。
+
+**生产日志证据**（2026-10-09）：
+```
+[manual-restart] No conversation found, restarting bare
+otterId=c7b73c29...（实现獭-csfw）
+otterId=bac2e6bb...（检视獭-滚动二轮）
+otterId=cb4b05a1...（守卫修复獭）
+otterId=308cd13e...（实现獭-475）
+```
+以上全部是 small 类型獭，且它们都有 `conversation_participants` 记录但无 `conversation_otters` 记录。
+
+### 修法
+
+**查询层兼容**：修改 `sqlite-conversation-repository.ts` 的 `getIdsByOtterId`，当 `conversation_otters` 查不到时 fallback 查 `conversation_participants`（`status='active'`）。两表数据不一致是 schema 层面的历史遗留，不在本 PR 修 schema/迁移数据，只在查询层做兼容。
+
+**入口统一**：删除 `otter-controller.ts` 的三元兜底（`agentInvoker ? : manageSession.restartSession`），生产环境 agentInvoker 始终注入；未注入时显式报错而非静默走无消息路径。
+
+### 机制识别检查点判定
+
+逐项打勾：
+- □ 新增配置字段/枚举/开关 → **未命中**
+- □ 新增状态生命周期 → **未命中**
+- □ 新增定时任务/后台进程 → **未命中**
+- □ 新增信号类型/消息格式 → **未命中**（复用现有 entry.system 通道）
+- □ 新增持久化存储 → **未命中**
+- □ 新增决策分支（结果被记住并在后续影响行为）→ **未命中**（fallback 查询不改变决策路径，只是让已有决策找到正确数据）
+- □ 新增跨模块调用路径 → **未命中**（不新增调用关系，只是给已有查询加 fallback）
+
+→ **修法决策树①：既有机制语义内修（缺啥补啥）**
+
+**Modification-Class: narrow-fix**
+
+---
+
+## 问题二：kimi-256k 重启合成必然降级机械档案（预算定标错误）
+
+### 真实失败样本（2026-10-09 下午日志实锤）
+
+| 时间 | promptChars | historyBudgetChars | 结果 |
+|------|-------------|-------------------|------|
+| 11:01 自重启 | 180,520 | 175,944 | 400 失败 |
+| 11:03 自重启 | 174,753 | 174,382 | 400 失败 |
+| 11:04 自重启 | 177,942 | 178,141 | 400 失败 |
+| 16:24 手动 | 181,513 | 179,331 | 400 失败 |
+| 16:24 手动 | 173,485 | 178,786 | 400 失败 |
+| 16:25 手动 | 175,288 | 178,849 | 400 失败 |
+| 16:27 手动 | 181,133 | 177,337 | 400 失败 |
+
+全部 262K 档，全部失败。最小失败 = **173,485 chars**。
+
+### 根因分析
+
+现行预算 `synthesisFullBudgetChars(262144) = 181,688 chars`（= 227,110 × 0.8），但真实数据显示：
+- 173,485 chars 的 prompt 被 API 判超 262,144 tokens → 实际密度 ≥ **1.511 token/char**
+- 旧定标假设密度 = 1/0.693 ≈ **1.443 token/char**
+- 换算率定低了 ~5%，预算线虚高 ~7K chars，导致所有 trim 到 173K-181K 的 prompt 全被 API 打回
+
+### 新定标（夹逼法）
+
+- **262K 档**：最小失败 173,485 × 0.8 = **138,788 chars**
+- **1M 档**：现行值 726,752 chars **保留**（最大成功 726,586 < 726,752 在真实数据上成立，无 1M 档失败样本驱动调整）
+- **跨窗口线性缩放假设废弃**：两档密度不对称（262K ≥ 1.511 vs 1M ≤ 1.443），不再用统一比率，改为按窗口档位分别定标
+- **未知档位 fallback**：保守密度 1.6 token/char 推算（介于两档实测之间）
+
+### 密度推算验证
+
+- 262K 档：173,485 chars 超 262,144 tokens → 密度 ≥ 1.511
+- 1M 档：726,586 chars 未超 1,048,576 tokens → 密度 ≤ 1.443
+- 新预算 138,788 chars 对应 262,144 tokens 的密度 = 1.889，留有 ~25% 密度方差余量
+
+### 测试同步
+
+- `handoff-synthesis-budget.test.ts`：262K 档断言从 181,688 改为 138,788；新增 1M 档 726,752 断言；新增未知档位 fallback 断言
+- `unified-handoff.test.ts`：预检测试的 `synthesisFullBudgetChars` stub 同步更新
+- `agent-invoker.test.ts`：watermark 测试的 engine stub 同步更新
+- 不误裁边界测试：15 万 chars 改为 12 万 chars（< 138,788 预算）
+
+## 影响范围
+
+- 262K 档合成预算收紧 ~24%（181,688 → 138,788），会多裁一些历史段，但杜绝了 400 失败 + 降级机械档案的确定性损失
+- 1M 档预算不变，行为不变
+- 小獭重启现在能找到对话并走 unified handoff 管线，系统消息正常发出
+- controller 在 agentInvoker 未注入时从静默降级改为显式报错（测试装配需注入 agentInvoker 或接受 500）
+
+## 验证
+
+- [x] `tests/frameworks/db/conversation/sqlite-conversation-repository.test.ts`：3 个新测试（fallback、去重、left 状态过滤）全部通过
+- [x] `tests/frameworks/agent/handoff-synthesis-budget.test.ts`：24 个测试全部通过
+- [x] `tests/interface-adapters/unified-handoff.test.ts` + `agent-invoker.test.ts`：48 个测试全部通过
+- [x] `npx tsc --noEmit` 类型检查通过
+- [x] 119 个测试文件 1975 个测试全部通过

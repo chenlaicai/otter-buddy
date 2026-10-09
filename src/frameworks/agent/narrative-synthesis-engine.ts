@@ -26,16 +26,27 @@ export const NARRATIVE_SYNTHESIS_TIMEOUT_MS = 300_000;
  *  定标（夹逼法，只用实测成败样本，不依赖容量/密度推导链，锚点见特性文档「全量合成样本回放」）：
  *    最小失败 227,110 chars（09-24 大獭重启）× 0.8 余量（防内容密度方差 ~20%）= 181,688 chars @262K 窗口；
  *    已知最大成功（262K 档）41,951 chars < 181,688 ✓。
- *  跨窗口泛化：按窗口占比缩放（精确分数，不写三位小数——262144×0.693=181,664 漂移 24 chars）——
- *    1M 窗口 → 726,752 chars。注意（保守外推，安全方向）：1M 档最大成功 956,403 > 726,752——
- *    (726,752, 956,403] 区间现状可全量合成，修复后最老 ~24% 会被裁（确定的保真代价，接受：
- *    裁方向安全不漏放 400；1M 保真特例留待实测失败样本驱动再调，观测锚 = trim 日志）。
- *  夹逼缺口 (41,951, 227,110) 内无成败样本——0.8× 因子即此缺口的残余风险定价。
+ *  F20261009rsuf 重新定标（2026-10-09 真实失败样本 4 例，全部 262K 档）：
+ *    最小失败 173,485 chars（16:24:51 手动重启，promptChars trim 后值）× 0.8 = 138,788 chars。
+ *    密度推算：173,485 chars 超 262,144 tokens → 实际密度 ≥ 1.511 token/char，
+ *    显著高于 0.693 倒数的 1.443——旧定标低估了 262K 档的内容密度。
+ *    新预算 138,788 chars 对应密度 1.889 token/char，留有 ~25% 密度方差余量。
+ *  跨窗口泛化：不再用统一比率缩放（F20260924swin 假设不成立——两档密度不对称：
+ *    1M 档最大成功 726,586 chars 对应密度 ≤ 1.443，低于 262K 档实测 ≥ 1.511）。
+ *    改为按窗口档位分别定标：262K → 138,788；1M → 726,752（现行值保留，
+ *    1M 档最大成功 726,586 < 726,752 在真实数据上成立，无 1M 档失败样本驱动调整）。
+ *  夹逼缺口：(41,951, 173,485) 内无成败样本——0.8× 因子即此缺口的残余风险定价。
  *  预算对象 = 全文（含固定段）；trim 内部用「全文预算 − 固定段实测」裁历史段，
  *  公式内不再扣固定段（实测在 trim 内单点扣，此处只定天花板）。 */
-const SYNTHESIS_BUDGET_WINDOW_RATIO = 181_688 / 262_144;
+const SYNTHESIS_BUDGET_BY_WINDOW: Record<number, number> = {
+  262_144: 138_788,  // 262K 档：最小失败 173,485 × 0.8
+  1_048_576: 726_752, // 1M 档：现行值保留（最大成功 726,586 < 726,752）
+};
 export function synthesisFullBudgetChars(contextWindowTokens: number): number {
-  return Math.floor(contextWindowTokens * SYNTHESIS_BUDGET_WINDOW_RATIO);
+  // 精确匹配已知窗口档位；未命中档位用保守密度 1.6 token/char 推算（介于两档实测之间）
+  const known = SYNTHESIS_BUDGET_BY_WINDOW[contextWindowTokens];
+  if (known !== undefined) return known;
+  return Math.floor(contextWindowTokens / 1.6);
 }
 
 /** F20260924swin：显式合成 max_tokens（与 pi-session-factory 调用侧同值，单一真相源）。

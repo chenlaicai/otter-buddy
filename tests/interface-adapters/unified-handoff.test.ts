@@ -104,8 +104,8 @@ function makeEngine(overrides?: Partial<HandoffEngineDeps>): HandoffEngineDeps &
   const mechanical: string[] = [];
   return {
     prompts, archives, mechanical,
-    // delta 复核建议4 同步：必填后 stub 默认实现（与真实同口径 0.693 占比）
-    synthesisFullBudgetChars: (w: number) => Math.floor(w * 0.693),
+    // F20261009rsuf 同步：分档定标 stub（262K → 138,788；其他 → 保守密度 1.6 token/char）
+    synthesisFullBudgetChars: (w: number) => w === 262_144 ? 138_788 : Math.floor(w / 1.6),
     buildNarrativeSynthesisPrompt: (input) => {
       prompts.push(JSON.stringify({ trigger: input.trigger, hasSelf: !!input.selfSummary, msgs: input.messagesToSummarize.length }));
       return "[合成prompt]";
@@ -770,11 +770,11 @@ describe("需求变更（2026-09-20）：交接进度系统消息 + 水位按模
 
   it("F20260923hspx+F20260924swin 合成超窗预检：prompt 超全文预算 → 跳过合成走机械档案（动机案例回归）", async () => {
     // Why：9/23 实测 566K chars prompt 超 kimi-256k 262K 窗口 400，白等 96s 才降级。
-    //  预检应在合成前拦下。F20260924swin 口径：预算 = synthesisFullBudgetChars(262144) = 181,688
-    //  （夹逼定标——引擎端口注入同函数，预检与 trim 共享唯一预算对象）。
+    //  预检应在合成前拦下。F20261009rsuf 口径：预算 = synthesisFullBudgetChars(262144) = 138,788
+    //  （262K 档重新定标——2026-10-09 4 例真实失败样本最小 173,485 × 0.8）。
     const engine = makeEngine({
-      buildNarrativeSynthesisPrompt: () => "x".repeat(200_000), // > 181,688 预算 → 拦下
-      synthesisFullBudgetChars: (w: number) => Math.floor(w * (181_688 / 262_144)),
+      buildNarrativeSynthesisPrompt: () => "x".repeat(200_000), // > 138,788 预算 → 拦下
+      synthesisFullBudgetChars: (w: number) => w === 262_144 ? 138_788 : Math.floor(w / 1.6),
     });
     const synthCalls: string[] = [];
     const invoker = makeInvokerWithEngine({
@@ -792,8 +792,8 @@ describe("需求变更（2026-09-20）：交接进度系统消息 + 水位按模
 
   it("F20260923hspx+F20260924swin 合成超窗预检：prompt 在预算内 → 正常合成（不误杀）", async () => {
     const engine = makeEngine({
-      buildNarrativeSynthesisPrompt: () => "x".repeat(100_000), // < 181,688 预算 → 放行
-      synthesisFullBudgetChars: (w: number) => Math.floor(w * (181_688 / 262_144)),
+      buildNarrativeSynthesisPrompt: () => "x".repeat(100_000), // < 138,788 预算 → 放行
+      synthesisFullBudgetChars: (w: number) => w === 262_144 ? 138_788 : Math.floor(w / 1.6),
     });
     const synthCalls: string[] = [];
     const invoker = makeInvokerWithEngine({

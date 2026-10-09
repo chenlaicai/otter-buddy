@@ -125,14 +125,18 @@ export class OtterController {
       }
       // F20260920uhuc：统一交接管线——synthesizePast 透传（缺省 true，向后兼容旧客户端）；
       // 忙碌（running invoke）拒绝 409（DomainError conflict 映射）；合成失败降级机械档案
-      const session = this.agentInvoker
-        ? await this.agentInvoker.restartWithUnifiedHandoff(id, {
-          selfSummary: body.summary,
-          // F20260930hsfx 层积岩清理：默认值收敛 HANDOFF_SYNTHESIZE_PAST_DEFAULT 单点。
-          synthesizePast: body.synthesizePast ?? HANDOFF_SYNTHESIZE_PAST_DEFAULT,
-          modelAlias: body.modelAlias,
-        })
-        : await this.manageSession.restartSession(id, body.summary, body.modelAlias);
+      // F20261009rsuf：三元兜底删除——agentInvoker 未注入时不再静默降级 manageSession.restartSession
+      //  （裸路径不发系统消息，重启入口分裂为两条路的根因）。生产装配始终注入；测试装配缺省时
+      //  显式报错而非悄悄走无消息路径。
+      if (!this.agentInvoker) {
+        throw new DomainError("Restart service unavailable: agentInvoker not configured", "validation");
+      }
+      const session = await this.agentInvoker.restartWithUnifiedHandoff(id, {
+        selfSummary: body.summary,
+        // F20260930hsfx 层积岩清理：默认值收敛 HANDOFF_SYNTHESIZE_PAST_DEFAULT 单点。
+        synthesizePast: body.synthesizePast ?? HANDOFF_SYNTHESIZE_PAST_DEFAULT,
+        modelAlias: body.modelAlias,
+      });
       return c.json(toOtterSessionDTO(session), 201);
     } catch (err) {
       return handleError(c, err, this.logger);
