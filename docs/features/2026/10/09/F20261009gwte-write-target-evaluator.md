@@ -4,7 +4,13 @@ title: bash 守卫 main_write 判定替换——写落点静态求值器（cwd �
 summary: 机制审视建议 5 立项 v2：main_write 判定从「命令词黑名单猜意图」换轨「写落点静态求值看事实」——Phase 1 只做 shell 形态族（重定向/cd/cp/mv/git/tee，覆盖误拦 ~60%），Python/JS 载荷族显式 unevaluated 回落（Phase 2 候选：窄字面量提取，不做完整 AST）；求值不出 fail-closed 回落旧链，shadow 语料库 ≥100 例三跑对比预注册判据不盲切。kill 族/进程保护防线不动；不过度设计 exotic 攻击场景（搭档定调）
 type: Design
 date: 2026-10-09
-capability_test: "n/a: 设计方案文档，实现验证走 shadow 对比（replay 语料）+ 双链一致性测试 + 全量单测"
+capability_test: "n/a: 设计方案文档，实现验证走 shadow 对比（语料库 ≥100 例三跑）+ 双链一致性测试 + 全量单测"
+intent:
+  problem: "main_write 判定靠命令词黑名单猜意图——白名单枚举面跟不上实际负载（S3 打地鼠）、cd WT 后写主仓灰区（#1363）、新写形态等误拦发生才加 pattern（S1 家族两次复发），近 7 天 main_write 误拦 96 条"
+  expected_effect: "Phase 1 影子态：求值器（shell 族落点求值）+ 语料库 ≥100 例 + shadow 三跑达标（红线 0/误放 0/回落率 ≤50%），零生产行为变更；切换决策等全量数据 + BC-1/BC-3 频次呈搭档拍板"
+  verify_by:
+    type: behavior_check
+change_type: feature
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
 ---
 
