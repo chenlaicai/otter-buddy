@@ -79,6 +79,13 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
         // 复用 lastSpeakMessageId 字段存 entry id。
         ctx.lastSpeakMessageId = speakEntry.id;
 
+        // F20261009csp2 活类产物登记挂钩：宪法「产物=主体×时刻×形态」——活类卡是产物就该进
+        // 时间轴混排体系（P1 已铺好）。best-effort：登记失败不阻断发言（卡片本身已落库，
+        // 只是少一张摘要卡）；title 取围栏 title 属性，content 提供可检索摘要
+        await autoRegisterPlayableCards(ctx, cleanBody, speakEntry.id).catch((err) =>
+          logger?.warn?.(`playable-card register failed: ${err instanceof Error ? err.message : String(err)}`),
+        );
+
         return {
           ...textResponse("[系统控制信号] 已记录发言，继续工作。"),
           terminate: false,
@@ -92,6 +99,32 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       }
     },
   };
+}
+
+/** F20261009csp2：活类卡自动产物登记。宪法「产物=主体×时刻×形态」——活类卡
+ *  （html-card-play 围栏）是产物，自动登记为 fact 类 linked_resource，进 P1 的时间轴
+ *  混排体系（不登记则「现场有这东西但链上查无此人」）。content 放可检索摘要（title +
+ *  围栏内文本片段），url 留空（活类本体在消息原文里，get_message 可回看） */
+async function autoRegisterPlayableCards(ctx: ToolContext, body: string, entryId: string): Promise<void> {
+  if (!body.includes("html-card-play")) return;
+  const fence = /(?:```|~~~)html-card-play([^\n]*)\n([\s\S]*?)(?:\n(?:```|~~~))/g;
+  let m: RegExpExecArray | null;
+  while ((m = fence.exec(body)) !== null) {
+    const metaRaw = m[1] || "";
+    const html = m[2] || "";
+    const titleMatch = /title="([^"]*)"/.exec(metaRaw);
+    const title = titleMatch ? titleMatch[1] : "未命名活类卡";
+    // 摘要：去标签后的文本前 180 字（fact content ≤500 字限制内）
+    const textContent = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180);
+    await ctx.client.resource.link({
+      conversationId: ctx.conversationId,
+      resourceType: "fact",
+      title: `🎮 ${title}`,
+      content: `活类产物（html-card-play，entry ${entryId}）：${textContent || "（无可提取文本）"}`,
+      category: "playable-card",
+      linkedBy: ctx.otterId,
+    });
+  }
 }
 
 /** F20260821i336（F20260912avlb 改造）：yield 成功后记账派工——行动权首次/再次交给目标獭。

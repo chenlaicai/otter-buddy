@@ -87,7 +87,7 @@ function CardAwareCode({ className, children, node, ...props }: CodeComponentPro
   const ctx = useContext(CardRenderContext)
   const text = String(children).replace(/\n$/, '')
 
-  if (className === 'language-html-card') {
+  if (className === 'language-html-card' || className === 'language-html-card-play') {
     // 事件流文本的 fenceIndex 与 message.body 不对应，一律源码块（不进 registry）
     if (ctx.variant === 'event-log') return highlightSource('html', text)
     // fenceIndex 经 remark 插件 hProperties 通道写入（mdast→hast 不透传任意 data key）。
@@ -95,6 +95,8 @@ function CardAwareCode({ className, children, node, ...props }: CodeComponentPro
     const rawFenceIndex = node?.properties?.dataFenceIndex
     if (rawFenceIndex == null) return highlightSource('html', text)
     const fenceIndex = Number(rawFenceIndex)
+    // F20261009csp2：活类标记（html-card-play 围栏由插件写入）
+    const playable = node?.properties?.dataPlayable === true
     // react-markdown 9.1：meta 在 hast data 上，不在 node.meta
     const meta = (node?.data as { meta?: string } | undefined)?.meta
     const cardId = `${ctx.messageId}:${fenceIndex}`
@@ -108,6 +110,7 @@ function CardAwareCode({ className, children, node, ...props }: CodeComponentPro
         interactive={ctx.variant === 'otter-body'}
         authorId={ctx.authorId}
         cardSchemaVersion={ctx.cardSchemaVersion}
+        playable={playable}
       />
     )
   }
@@ -127,7 +130,7 @@ function CardAwarePre({ children, node, ...props }: ComponentProps<'pre'> & { no
   void node
   if (isValidElement(children)) {
     const cls = (children.props as { className?: string }).className
-    if (cls === 'language-html-card' || cls === 'language-html-card-reply') return <>{children}</>
+    if (cls === 'language-html-card' || cls === 'language-html-card-play' || cls === 'language-html-card-reply') return <>{children}</>
   }
   return <pre {...props}>{children}</pre>
 }
