@@ -8,7 +8,13 @@ intent:
   problem: "「每日 AI 雷达」「月度剪枝审视」两任务的脚本与指令只存在于「外部洞察」对话工作区（gitignore 区）：备份脚本不覆盖 workspaces/、克隆仓库拿不到资产、误删不可恢复——持久化孤儿。仓内既有模式（prompts/scheduled/ 模板 git 化 + reconciler 启动对账）未复用。"
   solution: "资产分层归位：脚本入 scripts/radar/（scan.mjs 仅输出目录参数化，抓取逻辑零改动）；任务模板入 prompts/scheduled/（reconciler 启动自动同步 DB body）；运行时数据留在工作区不动。"
   expected_effect: "雷达资产获得 git 级持久化与可克隆性；同事复用从「手动拷工作区」变为「克隆仓库即得」；备份盲区风险敞口闭合。"
-verify_by: "① diff scripts/radar/scan.mjs 与原工作区版：除输出目录参数化外逐行一致；② sqlite3 查 scheduled_tasks.name 与两模板 frontmatter task_name 逐字匹配；③ node scripts/radar/scan.mjs <任意目录> 跑通三源；④ scheduler 重启后 sqlite3 查 DB body 已同步为模板内容（reconciler 对账）"
+  verify_by:
+    type: manual_evidence
+    assertions:
+      - "diff scripts/radar/scan.mjs 与原工作区版：除输出目录参数化外逐行一致"
+      - "sqlite3 查 scheduled_tasks.name 与两模板 frontmatter task_name 逐字匹配"
+      - "node scripts/radar/scan.mjs <任意目录> 跑通三源（2026-10-09 实测：HN 14/GitHub 30/Anthropic 10 零错误）"
+      - "scheduler 重启后 sqlite3 查 DB body 已同步为模板内容（reconciler 对账）"
 created_in_conversation: 9d6ffef1-c9b2-48f9-b2ac-0751090f3ebf
 causal_links:
   - issue: "428"
