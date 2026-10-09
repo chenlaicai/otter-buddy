@@ -1,8 +1,7 @@
 import { useState, useRef, useCallback, useEffect, memo } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Star, X, RotateCcw, Check, Copy, Users, Folder, FileText, Timer, Activity, Square, ClipboardList } from 'lucide-react'
-import { OTTER_GRADIENT } from '../../lib/otter-colors'
-import type { LocalConversation as Conversation, LocalOtter as Otter, LocalLinkedResource as LinkedResource, LocalOtterSession as OtterSession, LocalScheduledTask } from '../../lib/mappers'
+import { Plus, RotateCcw, Users, Folder, Timer, Activity, Square, ClipboardList } from 'lucide-react'
+import type { LocalConversation as Conversation, LocalOtter as Otter, LocalOtterSession as OtterSession, LocalScheduledTask } from '../../lib/mappers'
 import { sortSessionChain } from '../../lib/session-chain'
 import { OtterAvatar } from '../../components/OtterAvatar'
 import { OtterProfileCard } from '../../components/OtterProfileCard'
@@ -24,15 +23,13 @@ interface RightPanelProps {
   onAbortInvoke?: (otterId: string, invokeId: string) => void
   /** F20260913ctlv：重试失败/中断 invoke（右栏按钮；POST /api/invokes/:id/retry） */
   onRetryInvoke?: (otterId: string) => void
-  linkedResources: LinkedResource[]
+  /** F20261009csf3：linkedResources/onAddFact/onToggleResourceFlag/onAddLinkedResource/onDeleteLinkedResource
+   *  随关键资源 tab 退役——产物展示走中间栏时间轴（ChatView 的 linkedResources prop），
+   *  管理（登记/标旗/删除）走对话通道（create_linked_resource 等工具） */
   onCreateSmallOtter: () => void
   onDissolveOtter: (otterId: string) => void
   onRestartOtter: (otterId: string) => void
   onOpenOtterDetail: (otterId: string) => void
-  onAddFact: (content: string, category: string) => void
-  onToggleResourceFlag: (id: string) => void
-  onAddLinkedResource: () => void
-  onDeleteLinkedResource: (id: string) => void
   // 定时任务 props
   scheduledTasks: LocalScheduledTask[]
   scheduledTasksLoading: boolean
@@ -46,14 +43,13 @@ interface RightPanelProps {
   onRouteToOtter?: (body: string, ownerOtterId: string | null) => void
 }
 
-/** 右侧栏 tab 类型 */
-type RightPanelTab = 'participants' | 'resources' | 'tasks' | 'workspace' | 'matters'
+/** 右侧栏 tab 类型（F20261009csf3：resources/关键资源 tab 已退役——产物改由中间栏时间轴混排展示
+ *  （F20261008csf1 摘要卡 + F20261009csp2 活类登记），手动登记/标旗/删除走对话通道，
+ *  搭档拍板方案 A「彻底退役，平时主要海獭间用」） */
+type RightPanelTab = 'participants' | 'tasks' | 'workspace' | 'matters'
 
 export function RightPanel(props: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<RightPanelTab>('participants')
-  const [showKfForm, setShowKfForm] = useState(false)
-  const [kfContent, setKfContent] = useState('')
-  const [kfCategory, setKfCategory] = useState('')
   /** F20260914rtsp：走秒驱动——有任一 running 时 1s interval 重渲染右栏（无 running 停，AT-3）。
  *  Why 容器级单定时器：N 獭 N 定时器无意义；现状仅靠对话列表轮询（5s）间接 re-render 搭便车，
  *  页面隐藏即完全定格（F20260805actv 副作用，见 F20260914rtsp P1） */
@@ -65,24 +61,9 @@ export function RightPanel(props: RightPanelProps) {
     return () => clearInterval(t)
   }, [anyRunning])
 
-  function handleAddFact() {
-    if (!kfContent.trim()) return
-    props.onAddFact(kfContent, kfCategory)
-    setKfContent('')
-    setKfCategory('')
-    setShowKfForm(false)
-  }
-
-  /** 选择「链接」类型时关闭内联表单、打开链接弹窗（复用现有 modal 流程） */
-  function handlePickLink() {
-    setShowKfForm(false)
-    props.onAddLinkedResource()
-  }
-
-  /** tab 配置 */
+  /** tab 配置（F20261009csf3：resources tab 移除） */
   const tabs: Array<{ id: RightPanelTab; icon: React.ReactNode; label: string }> = [
     { id: 'participants', icon: <Users className="w-4 h-4" />, label: '参与者' },
-    { id: 'resources', icon: <FileText className="w-4 h-4" />, label: '关键资源' },
     { id: 'tasks', icon: <Timer className="w-4 h-4" />, label: '定时任务' },
     { id: 'workspace', icon: <Folder className="w-4 h-4" />, label: '工作区' },
     { id: 'matters', icon: <ClipboardList className="w-4 h-4" />, label: '待办' },
@@ -141,57 +122,6 @@ export function RightPanel(props: RightPanelProps) {
           </div>
         )}
 
-        {activeTab === 'resources' && (
-          <div className="p-4">
-            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-2 flex justify-between items-center">
-              关键资源
-              <button
-                onClick={() => setShowKfForm(!showKfForm)}
-                className="text-stone-400 hover:text-otter-500 w-5 h-5 flex items-center justify-center rounded"
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </button>
-            </h3>
-            {showKfForm && (
-              <div className="glass-card rounded-xl p-2.5 mb-2 flex flex-col gap-1.5">
-                <input
-                  value={kfContent}
-                  onChange={e => setKfContent(e.target.value)}
-                  placeholder="事实内容"
-                  className="form-input text-xs"
-                />
-                <input
-                  value={kfCategory}
-                  onChange={e => setKfCategory(e.target.value)}
-                  placeholder="分类 (可选)"
-                  className="form-input text-xs"
-                />
-                <div className="flex gap-1.5 justify-end">
-                  <button onClick={handlePickLink} className="px-2.5 py-1 text-xs text-teal-500">改为添加链接…</button>
-                  <button onClick={() => setShowKfForm(false)} className="px-2.5 py-1 text-xs text-stone-500">取消</button>
-                  <button
-                    onClick={handleAddFact}
-                    className="px-2.5 py-1 text-xs text-white rounded-lg"
-                    style={{ background: OTTER_GRADIENT }}
-                  >
-                    添加事实
-                  </button>
-                </div>
-              </div>
-            )}
-            <div>
-              {props.linkedResources.length === 0 && (
-                <div className="text-[11px] text-stone-400 px-1.5 py-1">暂无关键资源</div>
-              )}
-              {props.linkedResources.map(r => (
-                r.type === 'fact'
-                  ? <FactItem key={r.id} fact={r} onToggleFlag={() => props.onToggleResourceFlag(r.id)} onDelete={() => props.onDeleteLinkedResource(r.id)} />
-                  : <LinkedResourceItem key={r.id} resource={r} onDelete={() => props.onDeleteLinkedResource(r.id)} />
-              ))}
-            </div>
-          </div>
-        )}
-
         {activeTab === 'tasks' && (
           <div className="p-4">
             <h3 className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-2 flex justify-between items-center">
@@ -243,83 +173,6 @@ function isTouchDevice() {
     _isTouchDevice = typeof window !== 'undefined' && !!window.matchMedia?.('(hover: none)').matches
   }
   return _isTouchDevice
-}
-
-/** F20260827rsux：资源详情悬浮卡——取代原生 title tooltip。
- *  Why: ①条目截断后 value 只能悬停看原生灰条，无样式且超长不换行不可复制；
- *  ②快速复制是硬需求（PR 号、路径、事实文本都是要贴到别处用的）。
- *  How: Portal + fixed 定位摆脱 aside overflow-y-auto 剪裁（F20260826pfix 同模式）。
- *  卡内文本 wrap 不截断可选中；右上角一键复制（clipboard API + execCommand 降级）。
- *  copyText 显式传入要复制的纯文本（检视发现 2：fact 卡的 category 徽章是展示元数据，
- *  不得混入剪贴板——innerText 方案对链接类碰巧对，对 fact 类是噪音，改为调用方声明式传入）。 */
-function ResourceHoverCard({ x, y, copyText, children }: { x: number; y: number; copyText: string; children: React.ReactNode }) {
-  const [copied, setCopied] = useState(false)
-  const bodyRef = useRef<HTMLDivElement>(null)
-  const copy = () => {
-    // 优先 copyText；防御性回退 innerText（调用方未传时兜底，不应对外暴露）
-    const t = copyText || bodyRef.current?.innerText || ''
-    if (!t) return
-    const done = () => { setCopied(true); setTimeout(() => setCopied(false), 1500) }
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(t).then(done).catch(() => { if (legacyCopy(t)) done() })
-    } else if (legacyCopy(t)) done()
-  }
-  return createPortal(
-    <div
-      className="fixed z-50"
-      style={{ left: Math.max(8, Math.min(x, window.innerWidth - 296)), top: Math.min(y, window.innerHeight - 160) }}
-    >
-      <div className="relative glass-strong rounded-2xl p-3 w-[280px] shadow-bubble">
-        <button
-          onClick={copy}
-          title="复制全文"
-          className="absolute top-2 right-2 p-1 rounded-md text-stone-400 hover:text-otter-500 hover:bg-white/40 transition"
-        >
-          {copied ? <Check className="w-3.5 h-3.5 text-teal-500" /> : <Copy className="w-3.5 h-3.5" />}
-        </button>
-        <div ref={bodyRef} className="text-xs text-stone-600 leading-relaxed break-all whitespace-pre-wrap pr-6 select-text">
-          {children}
-        </div>
-      </div>
-    </div>,
-    document.body,
-  )
-}
-
-/** 非安全上下文（局域网 IP 访问 dev server 等）无 clipboard API 时的降级复制。
- *  F20260827rsux：与 Modals.tsx 同实现（该处为未导出的私有函数，这里内联一份，待后续统一提取） */
-function legacyCopy(text: string): boolean {
-  const ta = document.createElement('textarea')
-  ta.value = text
-  ta.style.position = 'fixed'
-  ta.style.opacity = '0'
-  document.body.appendChild(ta)
-  ta.select()
-  let ok = false
-  try { ok = document.execCommand('copy') } catch { /* 降级也失败则静默，hover 卡仍展示全文 */ }
-  document.body.removeChild(ta)
-  return ok
-}
-
-/** F20260827rsux：资源条目 hover 态（400ms debounce + rect 快照，与 OtterParticipantCard 快览卡同节奏） */
-function useResourceHover() {
-  const [hovering, setHovering] = useState(false)
-  const [rect, setRect] = useState<DOMRect | null>(null)
-  const rowRef = useRef<HTMLDivElement>(null)
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  const onEnter = useCallback(() => {
-    if (isTouchDevice()) return
-    timer.current = setTimeout(() => {
-      if (rowRef.current) setRect(rowRef.current.getBoundingClientRect())
-      setHovering(true)
-    }, 400)
-  }, [])
-  const onLeave = useCallback(() => {
-    clearTimeout(timer.current)
-    setHovering(false)
-  }, [])
-  useEffect(() => () => clearTimeout(timer.current), [])
-  return { rowRef, hovering, rect, onEnter, onLeave }
 }
 
 /**
@@ -520,76 +373,3 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
   )
 })
 
-function FactItem({ fact: f, onToggleFlag, onDelete }: { fact: LinkedResource; onToggleFlag: () => void; onDelete: () => void }) {
-  const h = useResourceHover()
-  return (
-    <div
-      ref={h.rowRef}
-      onMouseEnter={h.onEnter}
-      onMouseLeave={h.onLeave}
-      className="flex items-start gap-1.5 px-1.5 py-1 rounded-lg hover:bg-white/30 transition group"
-    >
-      <span
-        onClick={onToggleFlag}
-        className={`cursor-pointer mt-0.5 ${f.flagged ? 'text-amber-400' : 'text-stone-300'}`}
-      >
-        <Star className="w-3.5 h-3.5" fill={f.flagged ? 'currentColor' : 'none'} />
-      </span>
-      <span className="text-xs text-stone-600 flex-1 min-w-0 flex flex-col gap-1">
-        {/* F20260827rsux：原生 title tooltip 升级为悬浮详情卡（全文 + 一键复制） */}
-        <span className="truncate">{f.content}</span>
-        {f.category && (
-          <span className="text-[9px] text-stone-400 bg-white/30 px-1.5 py-0.5 rounded-full w-fit">
-            {f.category}
-          </span>
-        )}
-      </span>
-      <span
-        onClick={onDelete}
-        className="opacity-0 group-hover:opacity-100 text-red-400 mt-0.5 cursor-pointer"
-      >
-        <X className="w-3 h-3" />
-      </span>
-      {h.hovering && h.rect && (
-        <ResourceHoverCard x={h.rect.left} y={h.rect.bottom + 4} copyText={f.content ?? ''}>
-          {f.category && <span className="inline-block text-[9px] text-stone-400 bg-white/40 px-1.5 py-0.5 rounded-full mr-1">{f.category}</span>}
-          {f.content}
-        </ResourceHoverCard>
-      )}
-    </div>
-  )
-}
-
-function LinkedResourceItem({ resource: r, onDelete }: { resource: LinkedResource; onDelete: () => void }) {
-  const h = useResourceHover()
-  return (
-    <div
-      ref={h.rowRef}
-      onMouseEnter={h.onEnter}
-      onMouseLeave={h.onLeave}
-      className="flex items-center gap-1.5 px-1.5 py-1 rounded-lg hover:bg-white/30 transition group"
-    >
-      {/* 与 FactItem 统一为 stone 色系：链接类资源加类型色块，长标题截断（F20260827rsux：详情看悬浮卡） */}
-      <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-skeleton text-stone-500 uppercase flex-shrink-0">{r.type}</span>
-      <span className="text-xs text-stone-600 truncate flex-1">
-        {r.title || r.url || '(无标题)'}
-      </span>
-      {r.auto && (
-        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-teal-400/15 text-teal-500 flex-shrink-0">自动</span>
-      )}
-      <span
-        onClick={onDelete}
-        className="opacity-0 group-hover:opacity-100 text-red-400 cursor-pointer"
-      >
-        <X className="w-3 h-3" />
-      </span>
-      {h.hovering && h.rect && (
-        <ResourceHoverCard x={h.rect.left} y={h.rect.bottom + 4} copyText={[r.title, r.url].filter(Boolean).join('\n')}>
-          {r.title && <span className="block font-semibold text-stone-700 mb-1">{r.title}</span>}
-          {r.url && <span className="block text-teal-600 break-all">{r.url}</span>}
-          {!r.title && !r.url && <span className="text-stone-400">(无内容)</span>}
-        </ResourceHoverCard>
-      )}
-    </div>
-  )
-}

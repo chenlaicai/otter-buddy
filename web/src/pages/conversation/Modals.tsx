@@ -45,7 +45,6 @@ export type ModalState =
   | { type: 'dissolve'; otterId: string }
   | { type: 'restart'; otterId: string }
   | { type: 'otter-detail'; otterId: string }
-  | { type: 'link-resource' }
 
 interface ModalsProps {
   modal: ModalState
@@ -57,7 +56,6 @@ interface ModalsProps {
   onConfirmCreateOtter: (form: CreateOtterFormValue) => void
   onConfirmDissolve: (summary: string) => void
   onConfirmRestart: (summary: string, modelAlias?: string, synthesizePast?: boolean) => void
-  onConfirmLinkResource: (type: string, url: string, title: string) => void
   onOpenRestart: (otterId: string) => void
   onOpenDissolve: (otterId: string) => void
 }
@@ -77,7 +75,6 @@ export function ConversationModals(props: ModalsProps) {
            新语义：onConfirmRestart 触发即关弹窗 + 即时 toast，重活留在后台。 */}
       {modal.type === 'restart' && <RestartModal {...props} />}
       {modal.type === 'otter-detail' && modal.otterId && <OtterDetailModal key={modal.otterId} {...props} />}
-      {modal.type === 'link-resource' && <LinkResourceModal {...props} />}
     </>
   )
 }
@@ -866,44 +863,4 @@ function OtterDetailModal(props: ModalsProps) {
   )
 }
 
-function LinkResourceModal(props: ModalsProps) {
-  const [type, setType] = useState('')
-  const [url, setUrl] = useState('')
-  const [title, setTitle] = useState('')
-
-  return (
-    <Modal
-      isOpen
-      onClose={props.onClose}
-      title="添加关键资源"
-      width="420px"
-      footer={
-        <>
-          <ModalButton onClick={props.onClose}>取消</ModalButton>
-          <ModalButton variant="primary" onClick={() => {
-            if (!url.trim()) return
-            props.onConfirmLinkResource(type || 'url', url, title || url)
-            setType(''); setUrl(''); setTitle('')
-          }}>
-            链接
-          </ModalButton>
-        </>
-      }
-    >
-      <div className="space-y-3">
-        <div>
-          <label className="block text-xs font-medium text-stone-600 mb-1.5">资源类型（开放机制）</label>
-          <input value={type} onChange={e => setType(e.target.value)} className="form-input w-full" placeholder="如: pr, file, url, branch..." />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-stone-600 mb-1.5">URL</label>
-          <input value={url} onChange={e => setUrl(e.target.value)} className="form-input w-full" placeholder="https://..." />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-stone-600 mb-1.5">标题（可选）</label>
-          <input value={title} onChange={e => setTitle(e.target.value)} className="form-input w-full" placeholder="资源标题" />
-        </div>
-      </div>
-    </Modal>
-  )
-}
+/* F20261009csf3：LinkResourceModal 随关键资源 tab 退役移除（入口与调用方均已删） */
