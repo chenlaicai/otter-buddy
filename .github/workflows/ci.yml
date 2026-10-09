@@ -91,7 +91,7 @@ jobs:
         run: npm ci
 
       # F20260821kgts: lint gates 接入 CI（#366 PR-2：纪律≠机制，只挂 pre-commit 会被 --no-verify 绕过）
-      # 以下四个只读源文件、零构建依赖，放 build 前获得快速反馈
+      # 以下只读源文件、零构建依赖，放 build 前获得快速反馈
       - name: Run fast lint gates (skills / tool-manifest / tests / capability-docs)
         run: |
           npm run lint:skills
@@ -102,6 +102,14 @@ jobs:
           node scripts/lint-prompt-anchors.mjs --full
           # #1173 / F20260929dbmb: 时间炸弹收窄扫描 v2（E1/E2 error 阻断 + W1 基线守恒）
           npm run lint:date-bombs
+
+      # F20261009hcig（#1281）：历史文档不可变门禁接 CI——补齐执行面缺口（--no-verify 可整体
+      # 绕过 pre-commit；其余 7 个 lint gate 均有 CI 对应，唯此门禁缺席）。--base 逐 commit 模式：
+      # 对 origin/main..HEAD 每个 commit 重放 pre-commit 同等校验，.doc-fix 配对语义保真
+      # （声明与历史文档变更必须同 commit）。零构建依赖（只调 git），放 build 前；
+      # fetch-depth: 0 保证 origin/main 可解析（fork PR 等异常场景宽松放行，见特性文档）。
+      - name: Run historical docs immutability gate (per-commit, base-diff mode)
+        run: node scripts/lint-historical-docs.mjs --base origin/main
 
       - name: Run full project checks
         run: npm run check
