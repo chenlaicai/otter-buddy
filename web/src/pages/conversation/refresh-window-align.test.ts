@@ -21,7 +21,7 @@ function msg(id: string, seq: number, body: string): LocalMessage {
   } as unknown as LocalMessage
 }
 
-describe('F20261010rwq 快照窗口对齐', () => {
+describe('F20261009rwqa 快照窗口对齐', () => {
   it('mergeMessages：快照=窗口内+新条目时，结果不引入窗口外历史（50→52 而非 50→100）', () => {
     // 已加载窗口：seq 51-100（长会话首屏尾页 50 条）
     const loaded: LocalMessage[] = Array.from({ length: 50 }, (_, i) => msg(`m-${i + 51}`, i + 51, `历史 ${i + 51}`))
