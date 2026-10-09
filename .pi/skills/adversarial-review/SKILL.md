@@ -83,6 +83,8 @@ category: technique
 
 4. **事实验证**：对于涉及数据库 schema、API 接口、配置约束等硬事实的判断，先读取相关源文件验证，不凭假设下结论。审查报告中区分「已验证的事实」和「基于假设的推断」。对于 schema 相关的发现，强制附上 schema 文件的引用（file:line）。
 
+   **锚点版本纪律（#1372 实证：升级期多 worktree 版本混位，检视獭 grep 命中真实但行号虚标 35 行）**：引用 `node_modules/` 等依赖包内文件的 `file:line` 锚点时，必须同时注明所读**版本号与来源路径**（如 `agent-session.d.ts:173 @1.1.0（主仓 node_modules）`——npm 包版本不在文件路径内，裸行号在同机多 worktree/多版本并存时无法定位）。行号无版本信息时降级为「类型名/符号名 + 版本」引用，行号仅作辅助。
+
 5. **独立核实**：直接运行测试和构建，不只检查开发者的结果。
 
 6. **输出报告到 PR**：先将检视结论 post 到 PR（按步骤 6a 的 state 决策表带 request-changes/approve/comment），再在 otter 对话中发轻量通知。报告中的处置栏格式见 `references/author-response-protocol.md`；多轮审视的收敛判据与终止条件见 `references/review-loop.md`。
