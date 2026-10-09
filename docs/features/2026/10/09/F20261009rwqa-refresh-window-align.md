@@ -63,14 +63,16 @@ intent:
 ```ts
 const loaded = allMessagesRef.current[convId] || []
 const oldestId = loaded.find(m => !m.id.startsWith('tmp-') && !m.id.startsWith('err-'))?.id
-const resp = oldestId
+let resp = oldestId
   ? await api.listEntriesAfter(convId, oldestId, 200)  // after 游标升序：窗口内更新 + 新条目
   : await api.listEntries(convId, 100)                   // 空列表退化：原尾页语义
+// S2：hasMore=true 说明截断了最新端——游标推进到快照末位循环翻页，封顶 5 轮（1200 条/6 请求）
+while (resp.hasMore && pages < 5) { resp = merge(resp, await api.listEntriesAfter(convId, lastId, 200)) }
 ```
 
 ### 3.1 Why after 而非历史弃用决策
 
-F20260921 弃用的是「**末位**游标」（列表尾部 seq——低位缺口时反指更早条目漏补）。本案用**头部游标**（oldest）+ after 语义：拉 oldest 之后全部（升序 ≤200）——窗口内条目已在本地（低位缺口不存在），新条目 seq 恒 > oldest。语义互补不冲突。
+F20260921 弃用的是「**末位**游标」（列表尾部 seq——低位缺口时反指更早条目漏补）。本案用**头部游标**（oldest）+ after 语义：拉 oldest 之后全部（升序，单页 200，S2 循环翻页封顶 1200）——窗口内条目已在本地（低位缺口不存在），新条目 seq 恒 > oldest。语义互补不冲突。
 
 ### 3.2 边界
 
@@ -78,8 +80,8 @@ F20260921 弃用的是「**末位**游标」（列表尾部 seq——低位缺�
 |---|---|
 | oldest 是 tmp-/err- 乐观条目 | find 跳过取首个真实条目；全乐观（无真实）退化尾页拉取 |
 | oldestId 在后端不存在（删除等） | getEntriesAfter fail-closed 返 []，刷新退化但无害 |
-| oldest 后超 200 条（断连数小时首刷） | ASC+LIMIT 截最新端（检视 S2 实锤，初版注释方向写反）——循环翻页拉到尾（游标推进至快照末位继续拉），上限 5 轮翻页（首请求 200 + 5×200，封顶 1200 条/6 请求）防失控；仍超限则放弃窗口对齐、回退尾页语义（窗口外历史被带入，重进会话可再对齐——loadMoreBefore 只拉更旧历史，对最新端缺口无效）。进循环条件：游标后条目总数 >200（与单轮增量无关——上翻扩窗后窗口 >200 时每轮审计必进循环，每轮 2+ 请求、O(窗口) 传输；after=oldest 设计的已知取舍） |
-| in-flight 游标语义 | oldest 取本地窗口头，in-flight（乐观条目）恒在窗口尾部——窗口内 in-flight 的状态收敛由 mergeMessages 保活逻辑承担（message-stream.ts isLocalOnly：快照未覆盖的 in-flight 保留），游标选择不受影响 |
+| oldest 后超 200 条（断连数小时首刷） | ASC+LIMIT 截最新端（检视 S2 实锤，初版注释方向写反）——循环翻页拉到尾（游标推进至快照末位继续拉），上限 5 轮翻页（首请求 200 + 5×200，封顶 1200 条/6 请求）防失控；仍超限则放弃窗口对齐、使用已拉到的部分快照（保最旧侧 1200 条、丢最新端——无额外请求，不存在回退拉取分支；最新端缺口靠后续 SSE/刷新自愈）。进循环条件：游标后条目总数 >200（与单轮增量无关——上翻扩窗后窗口 >200 时每轮审计必进循环，每轮 2+ 请求、O(窗口) 传输；after=oldest 设计的已知取舍） |
+| in-flight 游标语义 | tmp-/err- 乐观条目按 id 前缀排除、不作游标；游标本身可以是 in-flight 状态的真实条目（如活跃獭流式中的 speak 是窗口最旧真实条目时）——该条目在后端存在、拉其后增量恰是所需，其自身状态收敛由 mergeMessages 保活逻辑承担（message-stream.ts isLocalOnly：快照未覆盖的 in-flight 保留） |
 
 ### 3.3 不变量（单测钉死）
 
@@ -90,6 +92,7 @@ F20260921 弃用的是「**末位**游标」（列表尾部 seq——低位缺�
 ## 4. 验证
 
 - **场景重放**（e2e tri-msg-count，同修复前场景）：t=60s 审计点 n=50→**51**（仅注入的 1 条新消息），top +87px（新消息高度的正常贴底跟随）——修复前 n=50→100/150、sh +8817px
+- **S2 翻页验证**（e2e s2-paging-verify.spec.ts）：gap 220 条场景 refresh 后 n=50→270（拉全 50+220），尾条=注入的最后一条「220/220」——修复前该场景尾条停在 seq+200 处（最新 20 条不可达）。CI 恒 skip（E2E_REPLICA_DATA 门控）
 - **三层监控**（tri-scroll-leftpanel3）：60s 静置 0 事件（修复前左栏 +26px）
 - 单测：新增 refresh-window-align.test.ts 3 例全绿；全量 67 文件 673 用例绿；tsc/eslint 干净
 - 最简检查：已过——改动一处调用点（10 行含注释），复用既有 listEntriesAfter API 与 mergeMessages 幂等性，无新依赖新组件

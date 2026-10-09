@@ -354,14 +354,16 @@ export default function ConversationPage() {
    * 刷新退化但无害）；②oldest 后超 200 条（断连数小时后首刷等极端态）：ASC+LIMIT 截断的是
    * 最新端（检视 S2 实锤：注释初版写的「尾部恒在快照内」方向反了）——循环翻页拉到尾，
    * 上限 5 轮（首请求 200 + 5 轮翻页，封顶 1200 条/6 请求）防失控：仍超限则放弃窗口对齐、
-   * 回退尾页语义（窗口外历史被带入，重进会话可再对齐——loadMoreBefore 只拉更旧历史，
-   * 对最新端缺口无效）。
+   * 使用已拉到的部分快照（保最旧侧 1200 条、丢最新端缺口——无额外请求，不存在回退拉取分支；
+   * 最新端缺口靠后续 SSE/刷新自愈——缺口条目 seq 高于快照末位，后续 after 游标仍会拉到）。
    * 进循环条件：游标后条目总数 > 200——与单轮增量无关。用户上翻 loadMoreBefore 扩窗后
    * （每页 20 条），窗口 >200 时每轮审计都会进循环（每轮 2+ 请求、O(窗口) 传输）——
    * 这是 after=oldest 设计的已知取舍（F20260921 末位游标低位缺口风险不可回退）。
-   * in-flight 游标语义：oldest 取本地窗口头，in-flight（乐观条目）恒在窗口尾部——窗口内
-   * in-flight 的状态收敛由 mergeMessages 保活逻辑承担（message-stream.ts isLocalOnly：
-   * 快照未覆盖的 in-flight 保留），游标选择不受影响。 */
+   * in-flight 游标语义：tmp-/err- 乐观条目按 id 前缀排除、不作游标，但游标本身可以是
+   * in-flight 状态的真实条目（如活跃獭正在流式的 speak 是窗口最旧真实条目时）——无 correctness
+   * 问题：该条目在后端存在（sqlite-entry-repository getEntriesAfter 查得到），拉它之后的
+   * 增量恰是所需；其自身状态收敛由 mergeMessages 保活逻辑承担（message-stream.ts isLocalOnly：
+   * 快照未覆盖的 in-flight 保留）。 */
   const refreshMessages = useCallback(async (convId: string) => {
     try {
       const loaded = allMessagesRef.current[convId] || []
