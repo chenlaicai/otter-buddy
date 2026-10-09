@@ -1773,6 +1773,17 @@ describe("F20260923qbsw 引号盲重定向/复合切断误拦修复（#984 循�
     const result = checkBashCommandSafety("cd /wt | git commit -m y", mainPid, undefined, { projectRoot });
     expect(result).not.toBeNull();
   });
+
+  // ── #1374：双引号内 $ 紧邻闭引号（grep "^npm|^$"）raw-quote 回退 → cd 豁免不退化 ──
+  it("#1374：cd worktree && git commit | grep -vE \"^npm|^$\" | head → 放行（词法 $\" raw-quote 回退，cd 豁免不退化）", () => {
+    const cmd = `cd /wt && git commit -F msg.txt | grep -vE "^npm|^$" | head -5`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("#1374：cd worktree && git commit | grep '^npm'（单引号对照组）→ 放行（词法本就 OK）", () => {
+    const cmd = `cd /wt && git commit -F msg.txt | grep -vE '^npm' | head -5`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
 });
 
 describe("F20260923qbsw 补充：排查期高频只读命令误拦回归（9/23 早《压缩交接紧急修复》现场）", () => {

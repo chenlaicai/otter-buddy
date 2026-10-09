@@ -133,6 +133,46 @@ describe("command-lexer golden token 流", () => {
     });
   });
 
+  describe("#1374（F20261009qdlq）：双引号内 $ 紧邻闭引号的 raw-quote 回退", () => {
+    // $" 歧义：① locale 引用 $\"...\"（有配对闭引号）；② $ 正则锚定 + 词闭引号
+    // （grep \"^npm|^$\"）。greedy indexOf 把②误判为①未闭合 → 连带外层引号 fail →
+    // parseOk=false → cd 豁免退化误拦（issue 4 连拦实证）。回退：闭引号后词尾内无
+    // 更多 \" 时按②处理（$ 字面量，\" 留给外层引号扫描），不 fail。
+    it("issue 复现：grep -vE \"^npm|^$\" → parseOk=true（cd 豁免不退化）", () => {
+      const r = lex('grep -vE "^npm|^$" | head -5');
+      expect(r.parseOk).toBe(true);
+      expect(r.issues).toHaveLength(0);
+    });
+    it("$ 锚定行尾：grep \"x$\" → parseOk=true", () => {
+      expect(lex('grep "x$"').parseOk).toBe(true);
+    });
+    it("无管道同形态：grep -vE \"^a|^$\" → parseOk=true", () => {
+      expect(lex('grep -vE "^a|^$"').parseOk).toBe(true);
+    });
+    it("真 locale 引用不受影响：echo $\"hello world\" → unknown 且 parseOk=true", () => {
+      const r = lex('echo $"hello world"');
+      expect(r.parseOk).toBe(true);
+      expect(r.tokens[1].word!.parts[0].type).toBe("unknown");
+    });
+    it("locale 未闭合维持 fail（保守）：echo $\"abc → parseOk=false", () => {
+      expect(lex('echo $"abc').parseOk).toBe(false);
+    });
+    it("词首残缺配对维持 fail（保守）：echo $\"a\"b\"c → parseOk=false", () => {
+      expect(lex('echo $"a"b"c').parseOk).toBe(false);
+    });
+    it("引号内 $\" 复合形态：echo \"a$\"b\" → parseOk=false（残余 b\" 未闭合，保守 fail 锁定现状）", () => {
+      // $" 在双引号内 → raw-quote 回退（$ 字面量，" 闭外层）；残余 b" 为未闭合双引号 →
+      // 外层扫描 fail。bash 实际语义是引号拼接（\"a$\" + b\"...），词法层不追嵌套语义——
+      // 保守 fail 与本修复目标形态（$ 紧邻词尾闭引号）无交集，锁定现状。
+      expect(lex('echo "a$"b"').parseOk).toBe(false);
+    });
+    it("$VAR 不受影响：echo \"$HOME\" → var part 正常展开标注", () => {
+      const r = lex('echo "$HOME"');
+      expect(r.parseOk).toBe(true);
+      expect(r.tokens[1].word!.parts.some(p => p.type === "var")).toBe(true);
+    });
+  });
+
   describe("子 shell 与函数定义（r1-S1）", () => {
     it("裸子 shell (kill 42877) → ( ) 操作符 + 词法成功（#777 攻击面）", () => {
       expect(toSnapshot("(kill 42877)")).toBe("[op:( w:kill w:42877 op:)] ok=true");

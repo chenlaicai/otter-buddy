@@ -217,7 +217,19 @@ export function lex(text: string): LexResult {
       return;
     }
     if (next === '"') {
-      // $"..."：语义同双引号——rare，保守按 unknown（不可求值）
+      // #1374（F20261009qdlq）raw-quote 回退：$" 形态歧义——bash 里 $ 后跟 " 有两种
+      // 解释：① locale 引用 $"..."（词首，有配对闭引号）；② $ 正则锚定等字面量 + 词
+      // 闭引号（grep "^npm|^$"——$ 是字面量，" 是外层双引号的闭合）。greedy indexOf
+      // 把②误判为①的未闭合 → 连带外层引号 fail → parseOk=false → cd 豁免退化 4 连拦。
+      // 回退仅在外层引号上下文（quoted="double"）生效：此时 $" 中的 " 定是外层闭合
+      // （真 locale 引用不会出现在双引号内——$" 在双引号内无 locale 语义），按字面 $
+      // 入 parts，" 留给外层引号扫描消费，不 fail。词首 $"（quoted=null）维持 locale
+      // 处理不变——真 locale $"hello world" / 未闭合 $"abc 行为与修复前完全一致。
+      if (quoted === "double") {
+        parts.push({ type: "lit", text: "$", quoted });
+        i++;
+        return;
+      }
       const close = text.indexOf('"', i + 2);
       if (close === -1) {
         parts.push({ type: "unknown", text: text.slice(start, n), quoted });
