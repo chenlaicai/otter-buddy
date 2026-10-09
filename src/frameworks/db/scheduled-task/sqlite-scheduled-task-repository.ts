@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { assertUpdated } from '../assert-updated';
 import type {
   ScheduledTask,
   ScheduledTaskExecution,
@@ -89,9 +90,11 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
   }
 
   async updateStatus(id: string, status: ScheduledTaskStatus, updatedAt: string): Promise<void> {
-    this.db.prepare(
+    // #1391：changes=0（ID 不存在）时 fail-closed 抛错（#1370 族模式，断言收敛至 assertUpdated）
+    const result = this.db.prepare(
       'UPDATE scheduled_tasks SET status = ?, updated_at = ? WHERE id = ?',
     ).run(status, updatedAt, id);
+    assertUpdated(result, 'scheduled task', id);
   }
 
   async delete(id: string): Promise<void> {

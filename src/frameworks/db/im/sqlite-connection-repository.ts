@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { assertUpdated } from "../assert-updated";
 import type { Connection, ConnectionSession, ConnectionStatus } from "@entities/im/connection";
 import type { ConnectionRepository } from "@usecases/im/connection-repository";
 
@@ -87,9 +88,12 @@ export class SqliteConnectionRepository implements ConnectionRepository {
   }
 
   async updateStatus(id: string, status: ConnectionStatus, timestamp: string): Promise<void> {
-    this.db.prepare(
+    // #1391：changes=0（ID 不存在）时 fail-closed 抛错（#1370 族模式，断言收敛至 assertUpdated）。
+    // 注：本方法当前无生产调用方（manage-connection 未使用），fail-closed 护住未来调用路径
+    const result = this.db.prepare(
       "UPDATE connections SET status = ?, updated_at = ? WHERE id = ?"
     ).run(status, timestamp, id);
+    assertUpdated(result, 'connection', id);
   }
 
   /** F20260920imax 增量五：合并式 metadata 更新（bot 锚定路由的 lastChatId） */

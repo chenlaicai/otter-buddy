@@ -554,7 +554,13 @@ export class SchedulerService {
       } catch (error) {
         this.logger.error(`Failed to trigger once task ${task.id}, starting retry`, error as Error);
         // 触发失败，走 once 专用重试
-        await this.triggerOnceWithRetry(task, ONCE_MAX_RETRIES);
+        // #1394 审视修复：本处位于 catch 块内 await——若重试链内部抛错（如 #1391
+        // fail-closed「scheduled task 不存在」、getById DB 错误），会从本 async
+        // setTimeout 回调逃逸成 unhandledRejection → main.ts 全局处理器 process.exit(1)
+        // 杀掉整个进程。重试链自身故障仅落日志告警，不杀进程。
+        await this.triggerOnceWithRetry(task, ONCE_MAX_RETRIES).catch(err => {
+          this.logger.error(`Once task ${task.id} retry chain crashed`, err as Error);
+        });
       }
     }, delay);
 

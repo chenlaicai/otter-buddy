@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import type { HealingEvent, HealingEventStats, HealingEventStatus, HealingResolution } from '@entities/healing/healing-event';
 import type { HealingEventRepository, HealingEventBatchFilter, BatchResolveResult, BatchBindResult } from '@usecases/healing/healing-event-repository';
 import { rowToHealingEvent, eventToRow, type HealingEventRow } from './healing-event-mapper';
+import { assertUpdated } from '../assert-updated';
 
 export class SqliteHealingEventRepository implements HealingEventRepository {
   constructor(private readonly db: Database.Database) {}
@@ -66,19 +67,21 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
     const now = new Date().toISOString();
     // #1370：changes=0（ID 不存在）时 fail-closed 抛错——better-sqlite3 UPDATE 不匹配
     // 返回 changes=0 但不抛错，吞掉会让上层 Promise.allSettled 全 fulfilled → 回执假成功
+    // （#1391 断言收敛至 assertUpdated）
     const result = this.db.prepare(
       'UPDATE healing_events SET status = ?, resolved_at = ? WHERE id = ?',
     ).run(status, status === 'resolved' || status === 'dismissed' ? now : null, id);
-    if (result.changes === 0) throw new Error(`healing event 不存在: ${id}`);
+    assertUpdated(result, 'healing event', id);
   }
 
   async resolve(id: string, resolution: HealingResolution): Promise<void> {
     const now = new Date().toISOString();
     // #1370：同上，changes=0 fail-closed——「消费即处置」闭环的回执可信度靠此保证
+    // （#1391 断言收敛至 assertUpdated）
     const result = this.db.prepare(
       'UPDATE healing_events SET status = ?, resolution = ?, resolved_at = ? WHERE id = ?',
     ).run('resolved', JSON.stringify(resolution), now, id);
-    if (result.changes === 0) throw new Error(`healing event 不存在: ${id}`);
+    assertUpdated(result, 'healing event', id);
   }
 
   async getStats(): Promise<HealingEventStats> {
