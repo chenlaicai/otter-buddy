@@ -4,6 +4,12 @@ title: worktree 生命周期闭环：出生登记 + 每日收敛 + 清理硬验�
 summary: 22 个 worktree 残留（9 个对应已终结 PR）的根因治理——worktree 在系统里非一等公民（无登记、无收敛、无验证、无防护），四层闭环一次落地
 change_type: prompt
 capability_test: "n/a: 纯 skill/prompt 文本改动，无代码路径；验收靠 lint-prompt-size（体积闸）+ 后续 daily 执行面观察"
+intent:
+  problem: "worktree 在系统里非一等公民：无登记（产物登记 0 条 vs 磁盘 22 个）、无收敛（合入事件靠搭档人肉广播，9 个已终结 PR 残留跨 15 天）、无验证（清理无回查，#1389 汇报✅后目录仍在磁盘）、无防护（检视獭留 detached HEAD+脏文件卡死清理）——四缺口同源，补丁式逐个修只会再次复发（8/24 建 cleanup skill 后 46 天又积 9 个）"
+  expected_effect: "worktree 创建即登记产物（fetch→add→登记四动作链）；daily 扫描按判定矩阵自动清「已终结+干净」项、dirty 只报告；清理报告每✅有零命中回查支撑；检视獭 worktree 内零副作用——30 天窗口残留数稳定 <3"
+  verify_by:
+    type: behavior_check
+    detail: "首跑 daily 应自动清 ~7 个干净残留；后续 30 天窗口残留数 <3（活跃 PR 水平波动）为达标"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 causal_links:
   - F20261009arlz（产物生命周期对账，同为「资源一等公民化」脉络）
@@ -77,7 +83,16 @@ modules: [.pi/skills, prompts/scheduled]
 
 A/B 两协议的召唤要求均加：检视獭在 worktree 内禁 checkout/switch（含 detached HEAD）、禁改文件、禁副作用命令；临时材料落盘 /tmp；结束前 `git status --porcelain` 自检零输出，非零当场归位并声明。写进大獭派工模板 = 每次召唤自动注入，不依赖检视獭自觉。
 
-### 2.5 约束与取舍
+### 2.5 约束与取舍（含机制预算四问）
+
+### 机制预算四问（Modification-Class: mechanism-addition 自答）
+
+- **① 谁需要它**：搭档（不再需要记住每次合入后说「已合入/收拾一下」，磁盘残留不再堆积成批处理任务）；daily-health-check 流程（获得确定性扫描面，不再依赖机会性触发）；清理执行獭（获得可机械回查的✅判据，消灭虚报）。
+- **② 失败后果**：可感知——磁盘残留继续堆积（现状 22 个，占空间且干拢盘点）；更实质的是信任成本：收敛段若成新虚报源（报告自动清 N 但目录仍在），比不收敛更糟——这正是硬验证闸与报告行四桶对账的设计动机。
+- **③ 后续机制创造的新状态**：自动清理误删风险（矩阵已锁死：dirty 一律不删、无 PR 两证缺一即保留、detached-HEAD 一律待裁决——误删路径为空）；报告四桶与磁盘不一致（硬验证闸回查兑底）；budget 超 DB CHECK 上限 10000B（lint-prompt-size CI 闸拦截，当前 10700 为 lint 口径，同步入库时超限会被拦——已验证当前同步路径体积）；收敛段自身漏扫（路径拼接/分支 glob 漏形态，走 daily 日报的自监控反射环）。
+- **④ 退役条件**：连续 30 天报告行「自动清 0 ｜ 待裁决 0 ｜ 登记缺失 0」且磁盘无残留——生命周期闭环已内化为默认行为，扫描段可简化退役（呈搭档确认后走 monthly-prune-review 剪枝）。
+
+### 取舍表
 
 - **budget override 9600 → 10500**：daily-health-check 加收敛段的必要代价（增量 ~900B；lint-prompt-size CI 硬闸，override 须特性文档记理由——即本节）。取舍：判定矩阵全文放 skill（真相源），daily prompt 只放压缩行动版——prompt 是给每天执行的 LLM 看的操作指令，不是文档。
 - **纯文本改动，零新代码**：daily-health-check 本是 LLM 执行的体检 prompt，扫描命令序列写进去即生效，无新依赖、无 schema 变更。
@@ -96,9 +111,13 @@ A/B 两协议的召唤要求均加：检视獭在 worktree 内禁 checkout/switc
 
 ## 4. 验证
 
-- `node scripts/lint-prompt-size.mjs`：0 超预算 / 0 警告（daily-health-check.md 10499B ≤ 10500 override）
+- `node scripts/lint-prompt-size.mjs`：0 超预算 / 0 警告（daily-health-check.md 10627B ≤ 10700 override）
+- `node scripts/lint-docs.mjs`：764 docs OK，3 warnings（存量，非本 PR 引入）
+- `node scripts/lint-intent.mjs`：exit 0（首提漏 intent 块被 CI 拦，检视发现 B6 后补齐）
 - 四文件 diff 纯插入（36 insertions / 1 行 budget 值修改），无既有内容删改——三次编辑误删（#1210 实证段、PR diff 附送行）均在当轮发现并恢复，git diff 逐行复核确认
-- 判定矩阵与批量扫尾既有「零 commit ≠ 废弃」纪律对齐，无语义冲突
+- 判定矩阵与批量扫尾既有「零 commit ≠ 废弃」纪律对齐（检视后发现首版阈值 >7 天与真相源 >48h 矛盾、精确匹配护栏丢失，已回真源修正：阈值 48h + 精确匹配 + detached-HEAD 待裁决路径 + 四桶报告行）
+
+Golden Gate: n/a（verify_by=behavior_check 指向 daily 执行面观察与残留数窗口，无 prompt 回归断言场景可跑——本 PR 改的 daily-health-check prompt 本身明日 7:30 首跑即是行为验证）
 
 ### 后续观察面（非本 PR 验收项）
 
