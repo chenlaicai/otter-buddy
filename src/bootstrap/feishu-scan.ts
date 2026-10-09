@@ -95,7 +95,7 @@ export function setupFeishuScanChannels(options: {
       stopFeishuRuntime(appId);
       const rt = buildFeishuRuntime({
         appId, appSecret,
-        gateOwnerOpenId: ownerOpenId, // delta 检视严重 2：退役后不再回写 config.feishu.partnerOpenId（与「搭档锚一律扫码首号」决策对齐）
+        gateOwnerOpenId: ownerOpenId, // 搭档锚一律扫码首号（F20260929fsqr 决策，F20261008fsrm 静态段移除后无 config 回写路径）
         globalFirstOwnerOpenId: firstOwnerNow,
         appConfig: config, uc, repos, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, registry, signalRouter,
       });
@@ -114,7 +114,7 @@ export function setupFeishuScanChannels(options: {
     const rt = buildFeishuRuntime({
       appId: app.appId,
       appSecret: app.appSecret,
-      gateOwnerOpenId: app.ownerOpenId, // delta 检视严重 2：退役后不再回写 config.feishu.partnerOpenId（与「搭档锚一律扫码首号」决策对齐）
+      gateOwnerOpenId: app.ownerOpenId, // 搭档锚一律扫码首号（F20260929fsqr 决策，F20261008fsrm 静态段移除后无 config 回写路径）
       globalFirstOwnerOpenId: feishuFirstOwner(),
       appConfig: config, uc, repos, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, registry, signalRouter,
     });

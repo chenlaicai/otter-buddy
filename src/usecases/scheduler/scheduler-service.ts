@@ -12,6 +12,7 @@ import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
 import type { Entry } from '@entities/conversation/entry';
 import type { Logger } from '@usecases/ports/logger';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
+import { healingAlertRegistry } from '@usecases/healing/healing-alert-registry';
 import { classifyHealingErrorType, HEALING_ENVIRONMENT_TYPES, HEALING_FEEDBACK_TYPES } from '@entities/healing/healing-event';
 import type { SchedulerMetricsPort } from './scheduler-metrics-port';
 import type { DispatchChainEngine } from '@usecases/conversation/dispatch-chain-engine';
@@ -37,6 +38,17 @@ const ONCE_RETRY_DELAY_MS = 65_000; // 65 秒（避开 claimTask 60s 窗口）
  *  同步涨到最多 5min（可接受，见特性文档 timer-diet）。quartz/celery beat 模式：
  *  定时扫描 active 任务，比对墙钟，迟到即补触发 */
 const POLL_INTERVAL_MS = 300_000;
+
+/** #1272：轮询 catch-up 每轮全局配额（所有对话合计）。
+ *  Why 3：issue #1272 建议同轮重任务 ≤3；跨对话风暴主要是资源压力，
+ *  同对话堆积才是上下文爆炸主因（由 CATCHUP_CONV_QUOTA 另行限制）。 */
+const CATCHUP_GLOBAL_QUOTA = 3;
+
+/** #1272：轮询 catch-up 每轮同对话配额。
+ *  Why 1：多任务同对话同轮注入 = 每条任务指令都是完整上下文负担（6 份数据源+
+ *  全量数据的10/1现场），且会被同一执行 session 串行消化；配 1 让同对话任务
+ *  逐轮串行注入，每轮间隔一个 POLL_INTERVAL_MS。 */
+const CATCHUP_CONV_QUOTA = 1;
 /** #775 执行级看门狗轮询：任务触发后按此间隔探测「台账在途尝试 + 产出活性」。
  *  #516 静默窗是「无产出才判死」的容忍窗；换轨后信号可能被闸门冻结（用户停机/限流熔断），
  *  静默窗判死会误杀「被闸门保留、等待恢复」的信号——判活优先看台账（in_progress 即活），
@@ -90,6 +102,9 @@ export interface SchedulerServiceOptions {
   manageScheduledTask?: ManageScheduledTask;
   manageSession?: ManageSession;
   healingRepo?: HealingEventRepository;
+  /** F20261008hcpa（#1356 层3）：healing 主对话 ID 异步解析器（settings 仓懒解析——
+   *  healing 对话由 ensureHealingConversation 引导创建，构造期 settings 可能未就绪）。 */
+  healingConversationIdResolver?: () => Promise<string | undefined>;
   /** F20260902sgp2 S4b：派发台账（可选）——看门狗台账终态判活 */
   /** #775 S4a 换轨：信号路由器（可选注入）。注入后定时任务触发 = 投信号 → 路由器点火
    *  （过闸门+台账记账）；未注入回退直连链（回滚面，与 sgpv 降级基线同语义）。 */
@@ -142,6 +157,8 @@ export class SchedulerService {
   /** #1208：regression-verify 本轮 skip 的原因（resolveEffectiveBody 写入，skip 落账/心跳消费后清除）。
    *  实例字段而非返回值——resolveEffectiveBody 签名不变（调用方多），且原因只服务 skip 路径。 */
   private lastRegressionSkipReason?: 'gh-cli-failure' | 'no-due-assertions';
+  /** F20261008hcpa（#1356 层3）：healing 主对话 ID 异步解析器（settings 仓懒解析）。 */
+  private readonly healingConversationIdResolver?: () => Promise<string | undefined>;
   /** #1208：claim 因对话不存在/非 active 被拒时由 claimAndValidateTask 置位，
    *  catch 块据此跳过 skipped execution 落账（任务已 disable，落账无意义）。消费后清除。 */
   private conversationDisabledInClaim = false;
@@ -156,6 +173,7 @@ export class SchedulerService {
     this.cronParser = options.cronParser;
     this.logger = options.logger;
     this.healingRepo = options.healingRepo;
+    this.healingConversationIdResolver = options.healingConversationIdResolver;
     this.signalRouter = options.signalRouter;
     this.metrics = options.metrics;
     this.dispatchChainEngine = options.dispatchChainEngine;
@@ -317,6 +335,13 @@ export class SchedulerService {
   private async tickReal(): Promise<void> {
     const tasks = await this.getAllActiveTasks();
     const now = Date.now();
+    // #1272：catch-up 配额闸门——停机/冻结恢复后首轮 tick 会扫到全部 overdue 任务，
+    // 无配额则同轮全部 fire-and-forget（10/1 现场：9 任务同秒注入同一对话 → 上下文爆炸 +
+    // 循环守卫熔断）。配额双重：每轮全局 CATCHUP_GLOBAL_QUOTA（跨对话总量），每轮同对话
+    // CATCHUP_CONV_QUOTA（防单对话堆积——风暴危害主要是同对话注入，跨对话只是资源压力）。
+    // 超额任务自然留到下轮 tick（POLL_INTERVAL_MS=5min 节拍），自然错峰。
+    let globalQuotaLeft = CATCHUP_GLOBAL_QUOTA;
+    const convQuotaLeft = new Map<string, number>();
     for (const task of tasks) {
       // once 任务走 setTimeout，轮询不干预
       if (task.scheduleType === 'once') continue;
@@ -331,23 +356,15 @@ export class SchedulerService {
       }
 
       // #823 根修之二：expected 已过但 lastTriggeredAt 已被刷新（无对应 execution 的
-      // trigger——如 claim 后被 skip/前置炸）→ 旧 expected 已失效，必须重算（getNextTime(now)），
-      // 否则本 tick 静默放过、而 expected 缓存永不更新 = 任务永久饿死（9/6 现场主根因）。
-      if (expected.getTime() <= now && task.lastTriggeredAt && now - new Date(task.lastTriggeredAt).getTime() <= POLL_INTERVAL_MS) {
-        // lastTriggeredAt 比 expected 新：有人触发过（无论成败）→ expected 重算推进
-        const refreshed = this.cronParser.getNextTime(task.cron, task.timezone);
-        if (refreshed.getTime() !== expected.getTime()) {
-          this.nextExpectedTrigger.set(task.id, refreshed);
-          expected = refreshed;
-          this.logger.info(`Polling: task ${task.id} expected refreshed after recent trigger`, {
-            taskId: task.id, nextExpectedAt: refreshed.toISOString(),
-          });
-        }
-      }
+      // trigger——如 claim 后被 skip/前置炸）→ 旧 expected 已失效，必须重算（getNextTime(now)）。
+      expected = this.refreshStaleExpected(task, expected, now);
 
       // 比对墙钟：预期触发时间已过 → 迟到，补触发
       // #640 防重复：lastTriggeredAt 在 POLL_INTERVAL_MS 内 → 已被 setTimeout 快路径触发，跳过
       if (expected.getTime() <= now && (!task.lastTriggeredAt || now - new Date(task.lastTriggeredAt).getTime() > POLL_INTERVAL_MS)) {
+        // #1272：配额闸门——超额任务不丢，留到下轮 tick 自然错峰（迟到≠立即）
+        if (!this.tryConsumeCatchupQuota(task, globalQuotaLeft, convQuotaLeft)) continue;
+        globalQuotaLeft = this.consumeGlobalQuota(globalQuotaLeft);
         const driftMs = now - expected.getTime();
         this.logger.info(`Polling: task ${task.id} overdue by ${driftMs}ms, triggering catch-up`, {
           taskId: task.id,
@@ -355,24 +372,73 @@ export class SchedulerService {
           driftMs,
         });
         // 补触发（不阻塞后续任务扫描）
-        void this.triggerTask(task).catch(error => {
-          this.logger.error(`Polling: catch-up trigger failed for task ${task.id}`, error as Error);
-        }).then(() => {
-          // 触发后重新计算下次预期时间（无论成功失败都重算）
-          try {
-            const nextExpected = this.cronParser.getNextTime(task.cron, task.timezone);
-            this.nextExpectedTrigger.set(task.id, nextExpected);
-            // 同步刷新 setTimeout 快路径
-            this.scheduleNext(task);
-          } catch (e) {
-            this.logger.error(`Polling: failed to reschedule task ${task.id}`, e as Error);
-          }
-        });
+        this.fireCatchup(task);
       } else {
         // 未到期：记录下次预期时间（可观测性）
         this.logger.debug(`Polling: task ${task.id} next expected at ${expected.toISOString()}`);
       }
     }
+  }
+
+  /** #823 根修之二（tickReal 抽取）：expected 已过但 lastTriggeredAt 已被刷新
+   *  （无对应 execution 的 trigger——如 claim 后被 skip/前置炸）→ 旧 expected 已失效，
+   *  必须重算（getNextTime(now)），否则本 tick 静默放过、而 expected 缓存永不更新
+   *  = 任务永久饿死（9/6 现场主根因）。 */
+  private refreshStaleExpected(task: ScheduledTask, expected: Date, now: number): Date {
+    if (!(expected.getTime() <= now && task.lastTriggeredAt && now - new Date(task.lastTriggeredAt).getTime() <= POLL_INTERVAL_MS)) {
+      return expected;
+    }
+    // lastTriggeredAt 比 expected 新：有人触发过（无论成败）→ expected 重算推进
+    const refreshed = this.cronParser.getNextTime(task.cron, task.timezone);
+    if (refreshed.getTime() !== expected.getTime()) {
+      this.nextExpectedTrigger.set(task.id, refreshed);
+      this.logger.info(`Polling: task ${task.id} expected refreshed after recent trigger`, {
+        taskId: task.id, nextExpectedAt: refreshed.toISOString(),
+      });
+      return refreshed;
+    }
+    return expected;
+  }
+
+  /** #1272：配额检查与消耗（tickReal 抽取，控 complexity）。
+   *  返回 false = 配额已尽应跳过（缓存保持 overdue 留到下轮）；true = 已消耗额度放行。
+   *  Why 仅消耗同对话额度：globalQuotaLeft 是 tickReal 局部变量（每轮重置），
+   *  内联减比传引用/返回 tuple 更直白，故拆两步。 */
+  private tryConsumeCatchupQuota(task: ScheduledTask, globalQuotaLeft: number, convQuotaLeft: Map<string, number>): boolean {
+    const convQuota = convQuotaLeft.get(task.conversationId) ?? CATCHUP_CONV_QUOTA;
+    if (globalQuotaLeft <= 0 || convQuota <= 0) {
+      this.logger.info(`Polling: catch-up quota exhausted for task ${task.id}, deferring to next tick`, {
+        taskId: task.id,
+        conversationId: task.conversationId,
+        globalQuotaLeft,
+        convQuotaLeft: convQuota,
+      });
+      return false;
+    }
+    convQuotaLeft.set(task.conversationId, convQuota - 1);
+    return true;
+  }
+
+  /** #1272：全局配额递减（tickReal 抽取，语义显式化） */
+  private consumeGlobalQuota(current: number): number {
+    return current - 1;
+  }
+
+  /** #1272：fire-and-forget 补触发 + 触发后重算缓存与 setTimeout 快路径（tickReal 抽取）。 */
+  private fireCatchup(task: ScheduledTask): void {
+    void this.triggerTask(task).catch(error => {
+      this.logger.error(`Polling: catch-up trigger failed for task ${task.id}`, error as Error);
+    }).then(() => {
+      // 触发后重新计算下次预期时间（无论成功失败都重算）
+      try {
+        const nextExpected = this.cronParser.getNextTime(task.cron, task.timezone);
+        this.nextExpectedTrigger.set(task.id, nextExpected);
+        // 同步刷新 setTimeout 快路径
+        this.scheduleNext(task);
+      } catch (e) {
+        this.logger.error(`Polling: failed to reschedule task ${task.id}`, e as Error);
+      }
+    });
   }
 
   /** 手动触发任务 */
@@ -413,6 +479,24 @@ export class SchedulerService {
     const wasCapped = delay > maxDelay;
 
     const timer = setTimeout(async () => {
+      // #1272：冻结唤醒 drift 检查。mac 睡眠期间 setTimeout 全部冻结，唤醒瞬间
+      // 同批多个任务的 timer 同秒到期 fire——若真实触发时刻落后预期超过一个轮询周期
+      // （POLL_INTERVAL_MS），说明这是冻结后补偿而非准时触发：放弃直发（直发 = 同轮
+      // 9 任务风暴注入同一对话，10/1 现场 12:04:07 同秒 9 execution 实证），
+      // 把 expected 缓存回填为已过时刻，交给 tick 配额闸门分轮补触发（每轮全局≤3、
+      // 同对话≤1）。drift 在一个轮询周期内 = 正常调度抖动，照旧直发。
+      const driftMs = nextTrigger.getTime() - Date.now();
+      if (driftMs < -POLL_INTERVAL_MS) {
+        this.logger.info(`Task ${task.id} timer fired with drift ${-driftMs}ms (suspected freeze/thaw), deferring to tick quota`, {
+          taskId: task.id,
+          expectedAt: nextTrigger.toISOString(),
+          driftMs: -driftMs,
+        });
+        // 缓存回填已过时刻：下轮 tick 扫描到 overdue 走配额补触发；
+        // 不重排 setTimeout（重排的 next 仍可能是过去时刻 → 再 fire 再拦的空转循环）
+        this.nextExpectedTrigger.set(task.id, nextTrigger);
+        return;
+      }
       if (wasCapped) {
         // #247: 24h 截断后只重新调度，不触发任务。
         // 原代码在此处调用 triggerTask 会导致月级/周级 cron 任务
@@ -838,6 +922,40 @@ export class SchedulerService {
     }
   }
 
+  /** F20261008hcpa（#1356 层3）：high 超龄事件推 healing-alert-registry。
+   *  从 resolveEffectiveBody 抽出降复杂度——职责独立（提醒推送 vs body 解析）。
+   *  审视建议 A：resolver 解析前置于事务之前（ageOutHighAndNotify 之前）——不可达时
+   *  跳过 age-out（事件保持 open 等下轮，而非「先 dismiss 后发现丢提醒」）；
+   *  审视建议 B：改走 enqueueBatchAggregated，超限聚合不静默丢。 */
+  private async notifyAgedHighEvents(): Promise<void> {
+    if (!this.healingRepo) return;
+    // 先解析提醒目的地：不可达（healing 主对话未就绪等）则本轮不动台账——
+    // 提醒通道是 age-out 的前置条件而非事后补充，避免「已 dismissed 但提醒没送出」
+    const targetConversationId = await this.healingConversationIdResolver?.();
+    if (!targetConversationId) {
+      this.logger.warn('healing 提醒目的地不可达，跳过本轮 high 超龄 age-out（事件保持 open 等下轮）');
+      return;
+    }
+    const agedHigh = await this.healingRepo.ageOutHighAndNotify(2);
+    if (agedHigh.length === 0) return;
+    healingAlertRegistry.enqueueBatchAggregated(
+      targetConversationId,
+      agedHigh.map(e => ({
+        eventId: e.id,
+        conversationId: e.conversationId,
+        otterId: e.otterId,
+        errorType: e.errorType,
+        description: `[high 超龄已 dismissed（48h 无人处置）] ${e.description}`,
+        createdAt: e.createdAt,
+      })),
+    );
+    this.logger.warn('healing high 事件超龄 48h，已 dismiss 并推送升级提醒', {
+      count: agedHigh.length,
+      ids: agedHigh.map(e => e.id),
+      alertPushed: true,
+    });
+  }
+
   /** 解析任务实际触发的 body：含 [self-healing-analysis] 占位符时动态替换为 healing 分析 prompt。
    *  含 [regression-verify] 占位符时替换为验证断言回查 prompt（#1004）。
    *  返回 null 表示跳过本次触发（无待处理项）。 */
@@ -860,7 +978,12 @@ export class SchedulerService {
       return task.body;
     }
     try {
+      // F20261008hcpa（#1356 选 A）：autoStaleDismiss 现排除 high（low/medium 可时间静默）；
+      // high 超龄走独立通道——ageOutHighAndNotify(2) 取回后推 healing-alert-registry，
+      // 48h 挂账（比 30 天 staleDays 紧得多、留一天调度冗余防漏跑翻转）即提醒大獭「该事件已超龄 dismissed，请跟进」。
+      // 推送目的地固定 healing 主对话（定时任务对话结束后该对话仍是大獭在场的主通道）。
       await this.healingRepo.autoStaleDismiss(30);
+      await this.notifyAgedHighEvents();
     } catch (err) {
       this.logger.warn('autoStaleDismiss failed, continuing with analysis', { error: err instanceof Error ? err.message : String(err) });
     }
@@ -1544,6 +1667,8 @@ export const HEALING_FALLBACK_PROMPT = `## Self-Healing 定期分析任务
 
 ## 处置权检查（前置，口径协议）
 
+**high severity 硬规则**：severity 为 high 的 open 事件**必须** bind_issue 归口到 GitHub issue（逐条处置、写明修复方案），不得直接 dismiss/resolve——high 是升级信号（守卫变体重试计数升级产出），静默处置会让「正当诉求无出路」的信号消失。确属误报时须先建 issue 说明误判理由、bind 后才能在 issue 内讨论关闭。
+
 处置任何 open 事件前，先检查其是否已被其他任务处置过口径：
 - 事件关联了 daily-review issue（resolutionNotes 引用 issue 编号 / issue body 内含该事件证据）→ **不重复处置、不推翻**——首个消费它的任务（通常是 9:00 健康检查）拥有处置权；发现其处置存疑时，在对应 issue 评论说明，**不改事件状态**
 - **原子性兑底**：若事件仍 open 但 \`created_at\` 时间早于今日 09:00 且无 resolutionNotes，先查今日 daily-review open issue 的 body 是否含该事件的 messageId（事件证据）→ 命中说明 9:00 任务已写入证据但 resolve 失败，在对应 issue 评论注明后**由本任务代为 resolve**（resolutionNotes 引用 issue 编号 + 代resolve说明）→ 无命中则按下方步骤正常处置
@@ -1703,7 +1828,7 @@ export async function buildRegressionVerifyHeartbeat(
         action: 'no_action',
         decidedBy: 'agent',
         decidedAt: nowIso,
-        notes: '#1208 心跳写入即 resolved（#751 同型）：心跳是状态记录不是要处置的问题，不进 open 池',
+        notes: '心跳写入即 resolved（健康探针同型）：心跳是状态记录不是要处置的问题，不进 open 池',
       },
       createdAt: nowIso,
       resolvedAt: nowIso,

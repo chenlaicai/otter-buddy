@@ -207,6 +207,7 @@ describe('restart_otter 自重启循环防护（F20260824srst）', () => {
       resolve: async () => {},
       getStats: async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} }),
       autoStaleDismiss: async () => 0,
+      ageOutHighAndNotify: async () => [],
     } as unknown as import('@usecases/healing/healing-event-repository').HealingEventRepository;
   }
 
@@ -265,6 +266,7 @@ describe('restart_otter 自重启循环防护（F20260824srst）', () => {
       resolve: async () => {},
       getStats: async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} }),
       autoStaleDismiss: async () => 0,
+      ageOutHighAndNotify: async () => [],
     } as unknown as import('@usecases/healing/healing-event-repository').HealingEventRepository;
     const tools = createTools(ctx, healingRepo, createRecordingLogger());
     const restartTool = tools.find(t => t.name === 'restart_otter');

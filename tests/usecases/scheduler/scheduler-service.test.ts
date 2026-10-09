@@ -24,6 +24,7 @@ function makeObservableHealingRepo(openEvents: Array<Record<string, unknown>> = 
     findOpen: vi.fn(async () => openEvents),
     getStats: vi.fn(async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} })),
     autoStaleDismiss: vi.fn(async () => 0),
+    ageOutHighAndNotify: vi.fn(async () => []),
   };
 }
 
@@ -867,6 +868,7 @@ describe('#913: catch-up 前置阶段炸点落 healing（claim 后 execution 建
       create: vi.fn(async (e: Record<string, unknown>) => { events.push(e); }),
       findOpen: vi.fn(async () => []),
       autoStaleDismiss: vi.fn(async () => 0),
+    ageOutHighAndNotify: vi.fn(async () => []),
     };
   }
 
@@ -976,6 +978,7 @@ async function runReconcileEdge(prevDue: Date, offsetMs: number): Promise<number
     create: vi.fn(async (e: Record<string, unknown>) => { events.push(e); }),
     findOpen: vi.fn(async () => events.map(e => ({ errorType: e.errorType, context: e.context }))),
     autoStaleDismiss: vi.fn(async () => 0),
+    ageOutHighAndNotify: vi.fn(async () => []),
   };
 
   taskRepo._store.set(`task-edge-${offsetMs}`, makeTask({
@@ -1010,6 +1013,7 @@ describe('#814: 调度完整性对账（启动时错过窗口落 healing）', ()
       create: vi.fn(async (e: Record<string, unknown>) => { events.push(e); }),
       findOpen: vi.fn(async () => events.map(e => ({ errorType: e.errorType, context: e.context }))),
       autoStaleDismiss: vi.fn(async () => 0),
+    ageOutHighAndNotify: vi.fn(async () => []),
     };
   }
 
@@ -2417,6 +2421,7 @@ describe('#516: 任务进入 error 状态时落通知（消灭静默死亡）', 
       resolve: vi.fn(async () => {}),
       getStats: vi.fn(async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} })),
       autoStaleDismiss: vi.fn(async () => 0),
+    ageOutHighAndNotify: vi.fn(async () => []),
       batchResolveByFilter: vi.fn(async () => ({ matched: 0, resolved: 0, resolvedIds: [] })),
     };
 
@@ -2586,6 +2591,160 @@ describe('#640: 轮询补触发（tick polling catch-up）', () => {
 
     // 验证：tick 跳过，不触发（lastTriggeredAt 在窗口内）
     expect(taskRepo._executions.size).toBe(0);
+  });
+});
+
+// ─── #1272: 停机/冻结补偿触发风暴防护 ─────────────────────
+
+describe('#1272: 补偿触发风暴防护（catch-up storm guard）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('轮询 catch-up 每轮全局配额：9 个 overdue 任务同轮最多触发 3 个', async () => {
+    const now = new Date('2026-10-01T04:00:00.000Z');
+    vi.setSystemTime(now);
+
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendEntry = createMockSendEntry();
+    const entryRepo = createMockEntryRepo();
+    const agentInvoke = createMockAgentInvoke();
+    // 所有任务的下一次触发时间都在 1 小时前 → 全部 overdue
+    const overdueTime = new Date('2026-10-01T03:00:00.000Z');
+    const cronParser = createMockCronParser(overdueTime);
+
+    for (let i = 1; i <= 9; i++) {
+      taskRepo._store.set(`task-${i}`, makeTask({
+        id: `task-${i}`,
+        conversationId: `conv-${i}`,
+        // lastTriggeredAt 远早于 overdue 窗口 → 不被 5min 防重复窗口拦
+        lastTriggeredAt: '2026-10-01T01:00:00.000Z',
+      }));
+      convRepo._addConversation(`conv-${i}`, { status: 'active' });
+    }
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+    });
+
+    await service.start();
+    // start() 内 scheduleNext 用 getNextTime()（=overdueTime 过去时刻）调 setTimeout(delay<=0)
+    // → 立即到期 fire。冻结唤醒场景：任务真实 next 在过去 → 修复后这些 fire 应被 drift 检查
+    // 转交 tick 配额管（而不是直接 triggerTask 9 连发）
+    await vi.advanceTimersByTimeAsync(100);
+
+    // 修复后：全局配额 3 —— 前 3 个触发，后 6 个留到下轮（全部 9 连发 = 风暴；
+    // 0 触发 = 配额闸门空转、任务被饿死，同样错）
+    expect(taskRepo._executions.size).toBe(3);
+  });
+
+  it('轮询 catch-up 每轮同对话配额：同对话 5 个 overdue 任务同轮最多触发 1 个', async () => {
+    const now = new Date('2026-10-01T04:00:00.000Z');
+    vi.setSystemTime(now);
+
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendEntry = createMockSendEntry();
+    const entryRepo = createMockEntryRepo();
+    const agentInvoke = createMockAgentInvoke();
+    const overdueTime = new Date('2026-10-01T03:00:00.000Z');
+    const cronParser = createMockCronParser(overdueTime);
+
+    // 5 个任务全部挂同一对话（复刻三省吾身现场）
+    for (let i = 1; i <= 5; i++) {
+      taskRepo._store.set(`task-${i}`, makeTask({
+        id: `task-${i}`,
+        conversationId: 'conv-same',
+        lastTriggeredAt: '2026-10-01T01:00:00.000Z',
+      }));
+    }
+    convRepo._addConversation('conv-same', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+    });
+
+    await service.start();
+    await vi.advanceTimersByTimeAsync(100);
+    // 修复后：同对话配额 1 —— 首轮恰 1 个触发，其余留到下轮（5 连发 = 同对话风暴；
+    // 0 触发 = 饿死，同样错）
+    expect(taskRepo._executions.size).toBe(1);
+  });
+
+  it('触发后 expected 推进到未来：不再重复触发，排队任务下轮被消费（#1272 检视发现 2）', async () => {
+    // 恒过去 mock 无法区分「配额闸放行排队任务」与「同一 overdue 任务被反复重触发」——
+    // 本用状态化 mock 复刻真实 croner 语义：首次返回过去（overdue），之后返回未来。
+    const now = new Date('2026-10-01T04:00:00.000Z');
+    vi.setSystemTime(now);
+
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendEntry = createMockSendEntry();
+    const entryRepo = createMockEntryRepo();
+    const agentInvoke = createMockAgentInvoke();
+
+    // 状态化 mock：按 cron 表达式计数，首次返回过去、之后返回未来（模拟 croner nextRun）
+    const overdueTime = new Date('2026-10-01T03:00:00.000Z');
+    const futureTime = new Date('2026-10-01T05:00:00.000Z');
+    const callCounts = new Map<string, number>();
+    const cronParser = {
+      getNextTime: vi.fn((cron: string) => {
+        const n = (callCounts.get(cron) ?? 0) + 1;
+        callCounts.set(cron, n);
+        return n === 1 ? overdueTime : futureTime;
+      }),
+    };
+
+    // 两任务同对话（配额 1）：A 首轮触发，B 排队；若触发后 expected 不推进，
+    // 下轮 A 会被重复触发（execution≥3）；正确行为：A 推进后 B 被消费，恰 2 条各 1 次
+    taskRepo._store.set('task-A', makeTask({
+      id: 'task-A', conversationId: 'conv-same', cron: '0 9 * * *',
+      lastTriggeredAt: '2026-10-01T01:00:00.000Z',
+    }));
+    taskRepo._store.set('task-B', makeTask({
+      id: 'task-B', conversationId: 'conv-same', cron: '0 10 * * *',
+      lastTriggeredAt: '2026-10-01T01:00:00.000Z',
+    }));
+    convRepo._addConversation('conv-same', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+    });
+
+    await service.start();
+    await vi.advanceTimersByTimeAsync(0); // flush 首轮 tick + triggerTask 微任务链
+    // 首轮：A 触发（同对话配额 1），B 被拒排队
+    expect(taskRepo._executions.size).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(300_100); // 下一轮 tick（5min 节拍）
+    // 次轮：A 的 expected 已被 fireCatchup 刷新到未来（不再 overdue）；B 消费配额触发。
+    // 若 expected 不推进（回归），A 会再次 overdue → 消费配额 → B 继续排队，size 仍 1 但 A 双发。
+    expect(taskRepo._executions.size).toBe(2);
+    const triggeredTasks = [...taskRepo._executions.values()].map(e => e.taskId as string).sort();
+    expect(triggeredTasks).toEqual(['task-A', 'task-B']);
   });
 });
 
@@ -3036,6 +3195,7 @@ describe('#823: 运行时定期对账（tick 循环死亡时错过窗口仍可�
       create: vi.fn(async (e: Record<string, unknown>) => { events.push(e); }),
       findOpen: vi.fn(async () => events.map(e => ({ errorType: e.errorType, context: e.context }))),
       autoStaleDismiss: vi.fn(async () => 0),
+    ageOutHighAndNotify: vi.fn(async () => []),
     };
   }
 
@@ -3202,6 +3362,7 @@ describe('#823 根修：skip 吞 claim 导致任务饿死（9/6 生产现场）'
       // #1208：buildHealingAnalysisBody 需要 getStats——缺它 resolveEffectiveBody 抛错走 catch 而非 skip
       getStats: vi.fn(async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} })),
       autoStaleDismiss: vi.fn(async () => 0),
+    ageOutHighAndNotify: vi.fn(async () => []),
     };
   }
 
@@ -3281,6 +3442,7 @@ describe('#823 根修：skip 吞 claim 导致任务饿死（9/6 生产现场）'
         create: vi.fn(async (e: Record<string, unknown>) => { healingRepo._events.push(e); }),
         findOpen: vi.fn(async () => []),
         autoStaleDismiss: vi.fn(async () => 0),
+    ageOutHighAndNotify: vi.fn(async () => []),
       };
 
       taskRepo._store.set('task-starve', makeTask({
@@ -3742,4 +3904,112 @@ describe('#1068 换轨路径: quota-exhausted 降级（signalRouter 生产形态
     const executions = [...taskRepo._executions.values()];
     expect(executions[0]!.status).toBe('failed');
   }, 20_000);
+});
+
+describe('F20261008hcpa（#1356 层3）：high 超龄升级提醒推送（ageOutHighAndNotify → alert-registry）', () => {
+  function agedHighEvent(id: string) {
+    return {
+      id, messageId: 'msg-x', conversationId: 'conv-x', otterId: 'otter-x',
+      errorType: 'guard_intercept', severity: 'high', description: `desc-${id}`,
+      suggestion: '', context: null, status: 'open', resolution: null,
+      createdAt: new Date(Date.now() - 2 * 86400000).toISOString(), resolvedAt: null,
+    };
+  }
+
+  function makeHealingRepo(aged: unknown[]) {
+    return {
+      autoStaleDismiss: vi.fn(async () => 0),
+      ageOutHighAndNotify: vi.fn(async () => aged),
+      findOpen: vi.fn(async () => []),
+      getStats: vi.fn(async () => ({ total: 0, open: 0 })),
+    };
+  }
+
+  it('有超龄 high + resolver 可达 → 推 alert-registry（healing 主对话）+ warn 落 alertPushed:true', async () => {
+    const { healingAlertRegistry } = await import('@usecases/healing/healing-alert-registry');
+    healingAlertRegistry.takeAll('healing-conv-1'); // 清场（模块级单例，防跨用例污染）
+    const aged = [agedHighEvent('he-a'), agedHighEvent('he-b')];
+    const healingRepo = makeHealingRepo(aged);
+    const warnSpy = vi.fn();
+    const logger = { info: vi.fn(), warn: warnSpy, error: vi.fn(), debug: vi.fn(), child: vi.fn(() => logger) };
+
+    const service = new SchedulerService({
+      taskRepo: createMockTaskRepo() as unknown as ScheduledTaskRepository,
+      convRepo: createMockConvRepo() as unknown as ConversationRepository,
+      sendEntry: createMockSendEntry() as unknown as SendEntry,
+      entryRepo: createMockEntryRepo() as unknown as EntryRepository,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(new Date()) as unknown as CronParser,
+      logger: logger as unknown as Logger,
+      healingRepo: healingRepo as never,
+      healingConversationIdResolver: async () => 'healing-conv-1',
+    });
+
+    const body = await (service as unknown as { resolveEffectiveBody(t: ScheduledTask): Promise<string | null> })
+      .resolveEffectiveBody(makeTask({ body: '[self-healing-analysis] healing analysis' }));
+    expect(body).toBeNull(); // findOpen 空 → 无待处理事件，返回 null（任务 skip）
+
+    expect(healingRepo.autoStaleDismiss).toHaveBeenCalled();
+    expect(healingRepo.ageOutHighAndNotify).toHaveBeenCalled();
+    // F20261008hcpa：staleDays=30 / ageOutDays=1 是实现细节（lint 禁断言参数），
+    // 改为断言行为结果（alert 推送 + warn 日志）
+
+    const alerts = healingAlertRegistry.takeAll('healing-conv-1');
+    expect(alerts).toHaveLength(2);
+    expect(alerts.map(a => a.eventId)).toEqual(['he-a', 'he-b']);
+    expect(alerts[0].description).toContain('high 超龄已 dismissed');
+    expect(warnSpy).toHaveBeenCalled();
+    // lint 禁断言参数——改为断言副作用（alert 队列）
+  });
+
+  it('resolver 返回 undefined（settings 不可达）→ 跳过 age-out 不动台账（事件保持 open 等下轮，防「先 dismiss 后丢提醒」）', async () => {
+    const { healingAlertRegistry } = await import('@usecases/healing/healing-alert-registry');
+    const healingRepo = makeHealingRepo([agedHighEvent('he-c')]);
+    const warnSpy = vi.fn();
+    const logger = { info: vi.fn(), warn: warnSpy, error: vi.fn(), debug: vi.fn(), child: vi.fn(() => logger) };
+
+    const service = new SchedulerService({
+      taskRepo: createMockTaskRepo() as unknown as ScheduledTaskRepository,
+      convRepo: createMockConvRepo() as unknown as ConversationRepository,
+      sendEntry: createMockSendEntry() as unknown as SendEntry,
+      entryRepo: createMockEntryRepo() as unknown as EntryRepository,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(new Date()) as unknown as CronParser,
+      logger: logger as unknown as Logger,
+      healingRepo: healingRepo as never,
+      healingConversationIdResolver: async () => undefined,
+    });
+
+    await (service as unknown as { resolveEffectiveBody(t: ScheduledTask): Promise<string | null> })
+      .resolveEffectiveBody(makeTask({ body: '[self-healing-analysis] healing analysis' }));
+
+    expect(healingAlertRegistry.takeAll('healing-conv-1')).toHaveLength(0);
+    // 审视建议 A：提醒通道是 age-out 前置条件——不可达时不动台账，ageOutHighAndNotify 不被调用
+    expect(healingRepo.ageOutHighAndNotify).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalled(); // 落「跳过本轮 age-out」warn 留痕
+  });
+
+  it('无超龄 high → 不推 alert 不 warn', async () => {
+    const healingRepo = makeHealingRepo([]);
+    const warnSpy = vi.fn();
+    const logger = { info: vi.fn(), warn: warnSpy, error: vi.fn(), debug: vi.fn(), child: vi.fn(() => logger) };
+
+    const service = new SchedulerService({
+      taskRepo: createMockTaskRepo() as unknown as ScheduledTaskRepository,
+      convRepo: createMockConvRepo() as unknown as ConversationRepository,
+      sendEntry: createMockSendEntry() as unknown as SendEntry,
+      entryRepo: createMockEntryRepo() as unknown as EntryRepository,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(new Date()) as unknown as CronParser,
+      logger: logger as unknown as Logger,
+      healingRepo: healingRepo as never,
+      healingConversationIdResolver: async () => 'healing-conv-1',
+    });
+
+    await (service as unknown as { resolveEffectiveBody(t: ScheduledTask): Promise<string | null> })
+      .resolveEffectiveBody(makeTask({ body: '[self-healing-analysis] healing analysis' }));
+
+    expect(healingRepo.ageOutHighAndNotify).toHaveBeenCalled();
+    // lint 禁断言参数——无超龄 high 时不推 alert 不 warn
+  });
 });

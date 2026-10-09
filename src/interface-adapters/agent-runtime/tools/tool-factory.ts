@@ -481,10 +481,19 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
       /** F20260824aibd: 回包含模型信息，让大獭对模型分配有即时反馈 */
       const config = ctx.otterConfigProvider?.getConfig(otter.id);
       const modelLabel = config?.modelAlias ? `，模型：${config.modelAlias}` : '';
+      /** F20261008gfrc（三步走③·元规则预告）：创建时点告知变体重试计数升级规则——
+       *  小獭被守卫拦后变体重试，6h 内 ≥3 次自动升 high 落账（#844 guard-intercept-escalation），
+       *  高频被拦大概率是误拦或正当诉求无出路。预告让大獭在派工阶段就把「被拦报 blocked、
+       *  勿变体重试」写进 systemPrompt，从源头减少升级事件而非事后处置。 */
+      const retryEscalationHint =
+        '\n⚠️ 元规则预告：小獭被 bash 守卫拦截后若变体重试，6h 内 ≥3 次将自动升级 high 事件落账' +
+        '（大概率误拦或正当诉求无出路）。建议派工 systemPrompt 里写明：被拦勿变体绕试，' +
+        '带上命中详情用 <signal type=blocked> 升级报告。';
       /** F20260813actk C3：回包提示就位待命状态（串行场景教育）；#543：附配额提示 */
       return textResponse(
         `Otter created: ${otter.id} (${otter.name}${modelLabel}). 已就位待命，但尚未开工——` +
         `你需要在随后的 yield 里把行动权（to=["${otter.name}"]）传给它，它才会执行。` +
+        retryEscalationHint +
         quotaHint
       );
     },

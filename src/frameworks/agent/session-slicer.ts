@@ -44,7 +44,8 @@ const SPEAK_KEEP_TAIL = 750;
  *  失败 / 超时」三并列，无法区分真空 session / 无 speak 有原料 / jsonl 读失败等）。 */
 export type HandoffDegradeReason =
   | 'user-off'            // 触发方显式 synthesizePast=false——用户选择，非降级
-  | 'empty-session'       // session 真空（0 条 entry）/全 compaction 无普通消息——无原料可合成，跳过合理
+  | 'empty-session'       // session 真空（0 条 entry）——无原料可合成，跳过合理
+  | 'compaction-only'     // 全 compaction entry、零普通消息（极端形态，slice 非空但原料为空）——与真空区分（#1277）
   | 'jsonl-read-fail'     // jsonl 读取/切片失败——原料不可得
   | 'synthesis-error'     // 合成抛错（含截断 fail-closed）
   | 'synthesis-timeout'   // 合成超时
@@ -57,6 +58,8 @@ export type HandoffDegradeReason =
 export const HANDOFF_DEGRADE_REASON_TEXT: Record<HandoffDegradeReason, string> = {
   'user-off': '触发方选择跳过前世叙事合成（synthesizePast=false）',
   'empty-session': '前世 session 无任何消息（空 session，无原料可合成）',
+  // #1277：全 compaction 极端形态专属文案——与真空区分，排查一眼定位「slicer 有 entry 但零普通消息」
+  'compaction-only': '前世 session 只有 compaction 摘要、无普通消息（极端形态，无原料可合成）',
   'jsonl-read-fail': '前世 session 文件读取失败，无法取得合成原料',
   'synthesis-error': '叙事合成执行失败（已降级机械转储）',
   'synthesis-timeout': '叙事合成超时（已降级机械转储）',
@@ -213,6 +216,13 @@ function collectMessages(entries: SessionEntry[], from: number, to: number): Sli
 function messageFromEntry(entry: SessionEntry): SlicerMessage | undefined {
   if (entry.type === 'compaction') return undefined;
   return sessionEntryToContextMessages(entry)[0];
+}
+
+/** #1277：全 compaction entry 极端形态判定（entries 非空且全部为 compaction）——
+ *  交接降级归因专用：该形态 slice 非空但 messagesToSummarize 为空（messageFromEntry 跳过
+ *  compaction），hasMaterial=false 走机械档案，reason 应标 compaction-only 而非笼统空 session。 */
+export function isCompactionOnlyEntries(entries: SessionEntry[]): boolean {
+  return entries.length > 0 && entries.every(e => e.type === 'compaction');
 }
 
 // ============================================================================

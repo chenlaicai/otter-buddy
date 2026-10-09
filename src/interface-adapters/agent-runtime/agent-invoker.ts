@@ -11,7 +11,7 @@
  */
 
 import type { HandoffDegradeReason } from "@frameworks/agent/session-slicer";
-import { HANDOFF_DEGRADE_REASON_TEXT } from "@frameworks/agent/session-slicer";
+import { HANDOFF_DEGRADE_REASON_TEXT, isCompactionOnlyEntries } from "@frameworks/agent/session-slicer";
 import type { SdkInvokePort, AgentStreamEvent, DynamicContext, SynthesisRunResult } from "@usecases/ports/sdk-invoke-port";
 import type { SendEntry } from "@usecases/conversation/send-entry";
 import type { QueryMessage } from "@usecases/conversation/query-message";
@@ -142,6 +142,7 @@ import { shouldInjectSessionPreamble } from "@frameworks/agent/session-helpers";
 import { isSessionLockConflictError } from "@entities/errors";
 import { MIN_SENSIBLE_CTX_WINDOW, type OtterContextWindowProvider } from "@usecases/ports/otter-context-window-provider";
 import { mapToSSEEvent, mapToInvokeEventInput, extractMessageEndUsage } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
+import { classifyGuardInterceptReason } from "@frameworks/agent/guard-intercept-classify";
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
 import { CircuitBreakSupport } from "./circuit-break-support";
 import type { TurnInput, AttemptDriver, TurnCallbacks, InvokeResultShape, CircuitBreakInfo, FirstDumbInfo, HealingEventInput } from "@usecases/conversation/agent-turn-orchestrator/types";
@@ -604,6 +605,16 @@ export class AgentInvoker implements AgentTurnPort {
         return this.circuitBreak.countRecentGuardBounces(otterId, windowMs);
       },
 
+      // F20261008gduc P0-2：疑似误拦降级通道数据源——滑窗内 bounce 事件列表（含 ruleId/ruleLayer/commandHead）。
+      // classifyGuardInterceptReason 在 frameworks 层（guard-intercept-classify），usecases 禁直 import
+      // （D39 分层）——分类动作在 interface-adapters 回调实现内完成，orchestrator 只消费归一后的
+      // currentRuleId/currentRuleLayer。PR #1360 §3.5 处置：layer 随分类归一，供高危层文案中性化判定。
+      getRecentGuardBounceEvents: async (otterId: string, windowMs: number, guardReason?: string) => {
+        if (!this.circuitBreak) throw new Error('guard bounce events unavailable: healing repo not configured');
+        const cls = guardReason ? classifyGuardInterceptReason(guardReason) : undefined;
+        return this.circuitBreak.recentGuardBounceEvents(otterId, windowMs, cls?.ruleId, cls?.layer);
+      },
+
       isCircuitBreakerEnabled: () => !!this.circuitBreak,
 
       isSessionCircuitBreakCreated: async (otterId: string) => {
@@ -1052,7 +1063,7 @@ export class AgentInvoker implements AgentTurnPort {
         // matterRepo 未注入（旧装配）时降级空——机械供料是增强不是交接硬依赖。
         this.collectOpenMatters(conversationId),
       ]);
-      const { slice, degradeReason: sliceDegradeReason } = sliceOutcome;
+      const { slice, degradeReason: sliceDegradeReason, compactionOnly } = sliceOutcome;
       const otterNameResolved = otter?.name ?? otterId;
       // M5：换模型换世——目标模型与当前 active session 模型不同则重置熔断计数（此前模型卡死
       //  连炸 2 次熔断后，换模型本可解锁却被旧计数永久锁住；换模型=换合成行为主体，旧失败不迁移）。
@@ -1072,6 +1083,9 @@ export class AgentInvoker implements AgentTurnPort {
       // F20260930hsfx：slice 恒返回结构——slice undefined 只有「真空 session / jsonl 读失败」
       //  两种形态（reason 随 sliceDegradeReason 上抛）；「无 speak 有原料」slice 非空、
       //  keptEntries=[]，保留段标注「前世无发言」但原料照送合成。两种形态都降级 DB 兜底保留段。
+      //  #1277：全 compaction 形态 slice 也非空（恒返回结构），但 messagesToSummarize 为空——
+      //  由 !hasMaterial 分支按 compactionOnly 标记标为 'compaction-only'（非 empty-session），
+      //  档案/完成文案按枚举文案区分「真空」与「全压缩」。
       const hasKept = !!slice && (slice.keptEntries?.length ?? 0) > 0;
       const recencyBase = slice
         ? hasKept
@@ -1103,10 +1117,8 @@ export class AgentInvoker implements AgentTurnPort {
       const skipSynthesisByCircuitBreaker = priorFailures >= 2;
       // 原料非空判定（S1）：slice 恒返回结构后，slice undefined = 真空/jsonl 读失败（原料不可得）；
       //  slice 非空则看 messagesToSummarize（保留段之外全量，含无 speak 时的全量消息）。
-      //  第三形态（全 compaction entry、无普通消息）：slice 非空（恒返回结构）但 messagesToSummarize
-      //   为空（messageFromEntry 跳过 compaction）——hasMaterial=false 落到下方 !hasMaterial 分支，
-      //   sliceDegradeReason=undefined 时兜底 empty-session。注释如实（delta 建议1）：不虚构「slice
-      //   undefined」分支，该形态 slicer 返回结构非 undefined。
+      //  第三形态（全 compaction entry、无普通消息）：slice 非空但 messagesToSummarize 为空——
+      //   !hasMaterial 分支按 compactionOnly 标记标为 'compaction-only'（#1277），不再笼统为空 session。
       const hasMaterial = !!slice && slice.messagesToSummarize.length > 0;
       if (skipSynthesisByCircuitBreaker) {
         // F20260930hsfx S2/M5：熔断开启——reason 贯穿日志 + 完成文案可见
@@ -1128,8 +1140,10 @@ export class AgentInvoker implements AgentTurnPort {
         // 触发方显式关闭合成——用户选择，非降级（档案文案如实标注）
         degradeReason = 'user-off';
       } else if (!hasMaterial) {
-        // 原料不可得——真空 session / jsonl 读失败，合成跳过合理（S1：不再因保留段空误闯此分支）
-        degradeReason = sliceDegradeReason; // 'empty-session' | 'jsonl-read-fail' | undefined
+        // 原料不可得——真空 session / jsonl 读失败 / 全 compaction 极端形态（S1：不再因保留段空误闯此分支）
+        // #1277：slice 非空但 messagesToSummarize 为空 + entries 全 compaction → 'compaction-only'
+        //  （该形态下 collectJsonlSlice 的 degradeReason 是 undefined，不能再用兜底 empty-session 笼统归因）
+        degradeReason = sliceDegradeReason ?? (compactionOnly ? 'compaction-only' : undefined);
         this.logger.info('[handoff] no material to synthesize, mechanical archive only', {
           otterId, trigger, degradeReason,
         });
@@ -1352,28 +1366,32 @@ export class AgentInvoker implements AgentTurnPort {
    *  原实现 `entries ? undefined : 'empty-session'` 把读失败标成 empty-session、真空标成 undefined，
    *  排查被引向完全相反方向。现拆成显式分支对齐。
    *  entries 读取门面缺失（mock/旧装配）归入 jsonl-read-fail；切片异常亦同。 */
-  private async collectJsonlSlice(otterId: string): Promise<{ slice: EngineJsonlSlice | undefined; degradeReason: HandoffDegradeReason | undefined }> {
+  // 原料不可得时的降级 reason 上抛结构（#1277：含 compactionOnly 判定标记，供 hasMaterial 分支细分归因）
+  private async collectJsonlSlice(otterId: string): Promise<{ slice: EngineJsonlSlice | undefined; degradeReason: HandoffDegradeReason | undefined; compactionOnly: boolean }> {
     try {
       const entries = await this.agentInvoke.readCurrentSessionEntries?.(otterId);
       if (!entries) {
         // 读失败 / 门面缺失——不是真空 session（真空是 [] 有结构），归入 jsonl-read-fail
-        return { slice: undefined, degradeReason: 'jsonl-read-fail' };
+        return { slice: undefined, degradeReason: 'jsonl-read-fail', compactionOnly: false };
       }
       if (entries.length === 0) {
         // 真空 session（0 条 entry，空数组有结构）——无原料，合成跳过合理（区分于「无 speak 有原料」）
-        return { slice: undefined, degradeReason: 'empty-session' };
+        return { slice: undefined, degradeReason: 'empty-session', compactionOnly: false };
       }
+      const compactionOnly = isCompactionOnlyEntries(entries as never);
       // scopeKey=otterId——切片观测日志按獭归因（[keeprecent-slice] cut；密度告警已随估算机制退役）
       const slice = this.engine?.sliceSessionEntries(entries as never, { scopeKey: otterId });
       // slice 非空（恒返回结构）：keptEntries 可能为空（无 speak 有原料）——原料照送合成。
-      // slice 为 undefined 仅剩「全 compaction entry、无普通消息」形态——无 user/assistant 消息
-      //  可合成，同 empty-session 语义（审视建议3：第三形态补 reason，不再漏标）。
-      return { slice, degradeReason: slice ? undefined : 'empty-session' };
+      // 全 compaction 极端形态（#1277）：slice 非空但 messagesToSummarize 为空（compaction 被
+      //  messageFromEntry 跳过），此处只上抛 compactionOnly 标记，reason 由 !hasMaterial 分支标定。
+      // slice 为 undefined 仅剩防御性形态（slicer 恒返回结构，理论不可达）→ 'jsonl-read-fail'（切面异常语义）
+      if (slice) return { slice, degradeReason: undefined, compactionOnly };
+      return { slice, degradeReason: 'jsonl-read-fail', compactionOnly };
     } catch (err) {
       this.logger.warn('[handoff] jsonl slice failed, degrading', {
         otterId, error: err instanceof Error ? err.message : String(err), degradeReason: 'jsonl-read-fail',
       });
-      return { slice: undefined, degradeReason: 'jsonl-read-fail' };
+      return { slice: undefined, degradeReason: 'jsonl-read-fail', compactionOnly: false };
     }
   }
 

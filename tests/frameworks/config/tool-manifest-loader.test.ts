@@ -474,3 +474,70 @@ describe("getToolNamesFromManifest", () => {
     expect(result).toEqual(["speak", "yield", "search_memory"]);
   });
 });
+
+/**
+ * F20261008tecn（EazoTack 工具瘦身 v1）：toolExposure 段解析与校验。
+ * 覆盖：合法解析/字段缺失/非法值/非对象/非字符串键名。
+ */
+describe("loadToolManifest toolExposure (F20261008tecn)", () => {
+  beforeEach(() => {
+    cleanup();
+  });
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("should parse toolExposure when valid", () => {
+    createManifest({
+      schemaVersion: 2,
+      defaultType: "big",
+      toolExposure: {
+        add_terminology: "deferred",
+        speak: "direct",
+      },
+      types: { big: { description: "大獭", tools: "*" } },
+    });
+    const result = loadToolManifest(TEST_DIR, undefined);
+    expect(result).not.toBeNull();
+    expect(result?.toolExposure).toEqual({ add_terminology: "deferred", speak: "direct" });
+  });
+
+  it("should return manifest without toolExposure when field absent", () => {
+    createManifest({
+      schemaVersion: 2,
+      defaultType: "big",
+      types: { big: { description: "大獭", tools: "*" } },
+    });
+    const result = loadToolManifest(TEST_DIR, undefined);
+    expect(result).not.toBeNull();
+    expect(result?.toolExposure).toBeUndefined();
+  });
+
+  it("should reject manifest with invalid exposure value", () => {
+    const errors: string[] = [];
+    const logger = { error: (m: string) => errors.push(m), warn: () => {} };
+    createManifest({
+      schemaVersion: 2,
+      defaultType: "big",
+      toolExposure: { add_terminology: "codemode" },
+      types: { big: { description: "大獭", tools: "*" } },
+    });
+    const result = loadToolManifest(TEST_DIR, logger);
+    expect(result).toBeNull();
+    expect(errors.some(m => m.includes("direct 或 deferred"))).toBe(true);
+  });
+
+  it("should reject manifest when toolExposure is an array", () => {
+    const errors: string[] = [];
+    const logger = { error: (m: string) => errors.push(m), warn: () => {} };
+    createManifest({
+      schemaVersion: 2,
+      defaultType: "big",
+      toolExposure: ["deferred"],
+      types: { big: { description: "大獭", tools: "*" } },
+    });
+    const result = loadToolManifest(TEST_DIR, logger);
+    expect(result).toBeNull();
+    expect(errors.some(m => m.includes("toolExposure"))).toBe(true);
+  });
+});

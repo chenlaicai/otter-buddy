@@ -1,5 +1,7 @@
 /**
  * Bash 命令安全守卫（F20260830bsgr）。
+ * 宪法：docs/designs/bash-guard-constitution.md——改本文件行为 的 PR 必答三问
+ * （挂哪层/carve-out/退役条件），新规则必须挂靠五层之一，见宪法「生长规则」。
  *
  * 防止 LLM 通过 bash 工具直接 kill 主进程 PID。
  * 8/30 事故根因：小獭 7708a033 在开发任务中执行 `kill 42877` 直接杀了主进程。
@@ -1526,7 +1528,11 @@ function isPureAssignPrefix(seg: string): boolean {
  *  须为 cd（赋值前缀后 cd 前再出现其他命令段 → 该段不是 cd，不豁免）。 */
 function hasRealCdSegment(command: string): boolean {
   const basis = stripQuotedTextSpans(command);
-  if (/(?<!&)&(?!&)|\|/.test(basis)) return false; // (?<!&)&(?!&) 防 && 误命中
+  // F20261008gduc：裸 \| 会把 || 备用链首字符当管道命中（#1170 修复只落在 V2 段级
+  // 语义、V1 兜底链未同步的复发面，近 7 天 main_write 误拦大头）。与同函数下一行
+  // 切分正则（认识 \|\|）对齐——带 lookaround 的负向断言只命中真管道；
+  // || 备用链放行拆开两条各自判定的路径，真管道（| tail）仍在此杀豁免。
+  if (/(?<!&)&(?!&)|(?<!\|)\|(?!\|)/.test(basis)) return false; // (?<!&)&(?!&) 防 && 误命中；\| 带 lookaround 防 || 误命中
   const segs = basis.split(/&&|\|\||[;\n]/).map(s => s.trim()).filter(Boolean);
   let first = "";
   for (const s of segs) {

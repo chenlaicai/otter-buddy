@@ -34,6 +34,12 @@ import { sanitizeQuotedText } from "./quoted-text-sanitizer";
  * commandHead 对齐 description 命令前缀 120 字符口径（检视建议 2 处置：60 字符可能在长
  * cd 前缀场景截掉 worktree 路径特征），sanitizeQuotedText 脱敏后再截短（#858 口径）。
  */
+/**
+ * F20261008gduc P0-2：导出 classifyGuardInterceptReason 供 orchestrator 熔断降级通道用
+ * （usecases 层禁直 import frameworks——D39/#429 分层约束，经本模块 re-export 收口）。
+ */
+export { classifyGuardInterceptReason };
+
 export function buildGuardInterceptContext(
   command: string,
   reason: string,
@@ -68,6 +74,48 @@ import type { MatterRepository } from "@usecases/matter/matter-repository";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildMessageWithContext } from "./session-helpers";
+// F20261008tecn（EazoTack 工具瘦身 v1）：manifest toolExposure 段读取
+import { loadToolManifest, type ToolManifest } from "../config/tool-manifest-loader";
+
+/**
+ * F20261008tecn：读取 manifest 的 toolExposure 段（进程内缓存，仅首次读盘）。
+ * manifest 缺失/不合规时返回 undefined——全部工具保持 direct（现状行为，fail-open），
+ * 但打 info 日志让失效可被日志检索发现（检视发现 4：静默失效不可观测）。
+ */
+let cachedToolExposure: Record<string, "direct" | "deferred"> | undefined | null = null;
+function loadToolExposureFromManifest(projectRoot: string, logger: { info: (msg: string) => void; warn: (msg: string) => void; error: (msg: string) => void }): Record<string, "direct" | "deferred"> | undefined {
+  if (cachedToolExposure !== null) return cachedToolExposure ?? undefined;
+  const manifest: ToolManifest | null = loadToolManifest(projectRoot, logger);
+  cachedToolExposure = manifest?.toolExposure ?? null;
+  if (!cachedToolExposure) {
+    // manifest 存在但无 toolExposure 段（或 manifest 整体解析失败——后者 loadToolManifest 已打 error）
+    logger.info("[tool-exposure] manifest 无 toolExposure 段或解析失败，全部工具 direct（不瘦身）——若非预期请检查 config/tool-manifest.json");
+  }
+  return cachedToolExposure ?? undefined;
+}
+
+/**
+ * F20261008tecn（检视发现 2 修复）：计算 session 激活集的纯函数。
+ *
+ * 语义：激活集 = coding 工具 ∪ direct 自定义工具 ∪（有 deferred 时）tool_search。
+ * deferred 工具**不进激活集**（已注册、未激活、可搜索——pi tool_search 只搜非激活工具）。
+ *
+ * 为什么抽纯函数：pi SDK 的 tools 数组同时充当注册白名单与初始激活清单（耦合，详见
+ * _createSessionWithTools 注释），激活集重建是本机制的核心语义——抽离后单测直接锁死，
+ * 防 pi SDK 升级改变 _isActivatable/_isDeclarable 语义时无护栏（检视发现 2：冒烟一次性不可回归）。
+ *
+ * 不变量（lint-tool-manifest.mjs 静态校验兕底，检视发现 1）：deferred 工具名不得出现在
+ * coding 工具集内——否则 session 构造瞬间被 allowedTools×_isDeclarable 路径推入激活集，
+ * setActiveToolsByName 修正不了已发生的第一次请求窗口。
+ */
+export function computeActiveToolNames(
+  codingToolNames: readonly string[],
+  customTools: ReadonlyArray<{ name: string; exposure?: "direct" | "deferred" }>,
+): string[] {
+  const hasDeferred = customTools.some(t => t.exposure === "deferred");
+  const directCustom = customTools.filter(t => t.exposure !== "deferred").map(t => t.name);
+  return [...codingToolNames, ...directCustom, ...(hasDeferred ? ["tool_search"] : [])];
+}
 import { updateLastReadSeq } from "@frameworks/db/conversation/conversation-repository-mixins";
 import { readSessionEntries } from "./session-slicer";
 import type { SessionEntryLike } from "@usecases/ports/sdk-invoke-port";
@@ -1019,11 +1067,15 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /** 创建带工具配置的 AgentSession（F20260911pspl：invoke 级字段走寄存器，不再按 invoke 新建） */
-  // eslint-disable-next-line max-params, complexity, max-statements -- Phase 2: readOnly 参数增加工具过滤；F20260904cg77 描述覆写接线 +1 语句（覆写本体在 tool-description-overrides.ts，此处仅组装）
+  // eslint-disable-next-line max-params, complexity, max-statements, max-lines-per-function -- Phase 2: readOnly 参数增加工具过滤；F20260904cg77 描述覆写接线（覆写本体在 tool-description-overrides.ts，此处仅组装）；F20261008tecn exposure 接线（manifest 读取 + 激活集重建，机制注释见 _activateDeferredToolSearch）
   private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, sessionManager: SessionManager, register: InvokeRegister, readOnly?: boolean) {
     const conversationId = options?.conversationId ?? "";
     const otterToolNames = this.buildOtterToolWhitelist(otterType);
-    const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, allowedNames: otterToolNames, register, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, signalRepo: this.cfg.signalRepo, rhiSignalRepo: this.cfg.rhiSignalRepo, matterRepo: this.cfg.matterRepo, isOtterRunning: (id: string) => this.isRunning(id), logger: this.logger });
+    // F20261008tecn（EazoTack 工具瘦身 v1）：从 manifest 读取 toolExposure 段，
+    // deferred 工具不声明给模型，由 tool_search 按需激活。readOnly（合成路径）
+    // 不启用 tool_search——工具已白名单过滤，搜索能力只会扩大合成面。
+    const toolExposure = readOnly ? undefined : loadToolExposureFromManifest(process.cwd(), this.logger);
+    const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, allowedNames: otterToolNames, register, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, signalRepo: this.cfg.signalRepo, rhiSignalRepo: this.cfg.rhiSignalRepo, matterRepo: this.cfg.matterRepo, isOtterRunning: (id: string) => this.isRunning(id), logger: this.logger, ...(toolExposure ? { toolExposure } : {}) });
     const codingTools = getCodingToolsForOtterType(otterType);
     // F20260825hndf Phase 2：readOnly 模式只保留 read 工具，排除 write/edit/bash
     const filteredCodingTools = readOnly ? codingTools.filter(t => t === 'read') : codingTools;
@@ -1066,15 +1118,30 @@ export class PiSessionFactory implements AgentGateway {
     );
 
     this.logger.debug('[createSession] Calling createAgentSession', { otterId, modelAlias: resolvedAlias });
+    // F20261008tecn：有 deferred 工具时激活 tool_search（pi 1.1 内置扩展，BM25 检索
+    // getAllTools() 中 exposure 为 deferred/codemode 的工具，命中后加入激活集）。
+    //
+    // 激活集重建（关键）：pi SDK 的 tools 数组同时充当注册白名单与初始激活清单——
+    // deferred 工具必须留在白名单内（否则被 _isAllowedTool 剔除出注册表，tool_search
+    // 搜不到），但留在 tools 数组里又会被立即激活声明（initialActiveToolNames 语义，
+    // agent-session.js _isActivatable 对具名非 MCP 工具恒真）。两者耦合无法在 SDK
+    // 入参层分离，故创建后立即重建激活集（纯函数 computeActiveToolNames，单测锁语义）：
+    // 只含 coding 工具 + direct 自定义工具 + tool_search。deferred 工具保持「已注册、未激活、可搜索」
+    // 状态——这是 pi 的 tool_search 发现机制（非激活工具中 BM25 检索）的前提。
+    const hasDeferred = filteredCustomTools.some(t => t.exposure === "deferred");
     const { session } = await piCodingAgent.createAgentSession({
       model: resolvedModel,
       sessionManager,
-      tools: [...filteredCodingTools, ...filteredCustomTools.map(t => t.name)],
+      tools: [...filteredCodingTools, ...filteredCustomTools.map(t => t.name), ...(hasDeferred ? ["tool_search"] : [])],
       customTools: [...descriptionOverrides, ...filteredCustomTools],
       resourceLoader: resourceLoader ?? undefined,
       modelRuntime: modelRuntime ?? undefined,
       settingsManager: settingsManager ?? undefined,
     });
+    if (hasDeferred) {
+      // F20261008tecn（检视发现 2）：激活集计算抽纯函数 computeActiveToolNames，单测锁语义
+      session.setActiveToolsByName(computeActiveToolNames(filteredCodingTools, filteredCustomTools));
+    }
     this.logger.debug('[createSession] createAgentSession returned', { otterId });
 
     // F20260909mthl：按模型配置设置思考深度（session 每次 invoke 重建，故每次创建后都设）。

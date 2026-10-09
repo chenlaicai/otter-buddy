@@ -22,24 +22,34 @@ export function useConversationListPolling(
 
     let timer: ReturnType<typeof setInterval> | null = null
 
+    let fetching = false // 防重入：visible 立即刷新与 interval tick 撞车时跳过本次
+    let stale = false // 卸载后忽略响应——避免组件已卸载仍写状态（React 18 严格模式双调用场景）
+
+    async function refresh() {
+      if (fetching) return
+      fetching = true
+      try {
+        const { items } = await api.listConversations()
+        if (stale) return // 已卸载，丢弃结果
+        setConversations(prev => {
+          const firstPage = items.map(mapConversationDTO)
+          // Why: 分页追加的对话在首屏轮询结果中不存在——按 id 保留，
+          // 新数据放前、保留的后续页放后，排序以服务端首屏为准
+          const merged = visibleIds
+            ? [...firstPage, ...prev.filter(p => visibleIds.has(p.id) && !firstPage.some(n => n.id === p.id))]
+            : firstPage
+          return mergeConversations(prev, merged)
+        })
+      } catch {
+        if (!stale) console.error('Failed to poll conversations')
+      } finally {
+        fetching = false
+      }
+    }
+
     function startPolling() {
       if (timer) return // 防重入：重复 visible 事件不会双开 interval
-      timer = setInterval(async () => {
-        try {
-          const { items } = await api.listConversations()
-          setConversations(prev => {
-            const firstPage = items.map(mapConversationDTO)
-            // Why: 分页追加的对话在首屏轮询结果中不存在——按 id 保留，
-            // 新数据放前、保留的后续页放后，排序以服务端首屏为准
-            const merged = visibleIds
-              ? [...firstPage, ...prev.filter(p => visibleIds.has(p.id) && !firstPage.some(n => n.id === p.id))]
-              : firstPage
-            return mergeConversations(prev, merged)
-          })
-        } catch {
-          console.error('Failed to poll conversations')
-        }
-      }, 5000)
+      timer = setInterval(refresh, 5000)
     }
 
     function stopPolling() {
@@ -53,6 +63,10 @@ export function useConversationListPolling(
       if (document.hidden) {
         stopPolling()
       } else {
+        // F20261008sbss：切回标签页立即刷一次，不等首个 5s tick——
+        // 隐藏期间服务端状态已变（如 processing → awaiting_user），
+        // 檅留的旧 badge 会误导「是否轮到我」的判断（issue #1249）
+        refresh()
         startPolling()
       }
     }
@@ -63,6 +77,7 @@ export function useConversationListPolling(
     }
 
     return () => {
+      stale = true // 标记卸载，后续响应丢弃
       stopPolling()
       document.removeEventListener('visibilitychange', handleVisibility)
     }
