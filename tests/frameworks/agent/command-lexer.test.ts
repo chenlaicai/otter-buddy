@@ -271,4 +271,19 @@ describe("#1374（F20261009qdlq）：双引号内 $ 紧邻闭引号的 raw-quote
     expect(r.parseOk).toBe(true);
     expect(r.tokens[1].word!.parts.some(p => p.type === "var")).toBe(true);
   });
+  it("孪生形态（检视发现 S1）：grep \"^a$'\" → parseOk=true（$' ANSI-C 分支同款回退）", () => {
+    // $' 与 $" 同款歧义：双引号内 $ 紧邻词尾闭引号——真 ANSI-C 引用不会出现在
+    // 双引号内，按字面 $ 回退，' 留给外层引号扫描消费。词首 $' 维持不变（下一条用例）。
+    const r = lex("grep \"^a$'\"");
+    expect(r.parseOk).toBe(true);
+    expect(r.issues).toHaveLength(0);
+  });
+  it("孪生词首真 ANSI-C 不受影响：echo $'a\\n' → unknown 且 parseOk=true", () => {
+    const r = lex("echo $'a\\n'");
+    expect(r.parseOk).toBe(true);
+    expect(r.tokens[1].word!.parts[0].type).toBe("unknown");
+  });
+  it("孪生未闭合维持 fail（保守）：echo \"a$' → parseOk=false", () => {
+    expect(lex("echo \"a$'").parseOk).toBe(false);
+  });
 });

@@ -205,6 +205,15 @@ export function lex(text: string): LexResult {
     }
     // $'...' ANSI-C 引用 / $"..." locale 引用 → unknown（含转义语义，不可静态求值）/ 按双引号处理
     if (next === "'") {
+      // #1374 孪生形态（F20261009qdlq）：$' 与 $" 同款歧义——grep "^a$'" 中 $ 是
+      // 正则锚定、' 是外层单引号的闭合。真 ANSI-C 引用不会出现在双引号内（$' 在
+      // 双引号内无转义语义，就是字面 $+'），quoted="double" 上下文按字面 $ 回退，
+      // ' 留给外层引号扫描消费，不 fail。词首 $'（quoted=null）维持 ANSI-C 处理不变。
+      if (quoted === "double") {
+        parts.push({ type: "lit", text: "$", quoted });
+        i++;
+        return;
+      }
       const close = text.indexOf("'", i + 2);
       if (close === -1) {
         parts.push({ type: "unknown", text: text.slice(start, n), quoted });
