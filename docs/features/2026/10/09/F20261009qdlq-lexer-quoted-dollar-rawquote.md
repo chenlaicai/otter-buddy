@@ -8,7 +8,7 @@ created_in_conversation: d7377cfd-8497-4338-9fb5-366967ffe87e
 modules: [src/frameworks/agent/command-lexer.ts, tests/frameworks/agent/command-lexer.test.ts, tests/frameworks/agent/bash-safety-guard.test.ts]
 tags: [guard, lexer, false-positive, cd-exemption]
 issues: [1374]
-status: done
+status: implemented
 ---
 
 ## 背景
