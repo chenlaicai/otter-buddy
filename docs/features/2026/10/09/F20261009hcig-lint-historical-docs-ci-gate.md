@@ -93,7 +93,7 @@ pre-commit 模式下 .doc-fix 与历史文档变更天然同 commit（同一 sta
 | 取舍 | 决策 | 替代方案（否决理由） |
 |---|---|---|
 | CI 扫描粒度 | 逐 commit 迭代校验 | range 聚合（单次 diff base..HEAD）：**否决**——.doc-fix 配对语义崩塌，「无关 commit 塞声明+独立 commit 篡改」即绕过，新开绕过面 |
-| merge commit 处置 | **跳过**（warn 提示，不进判定） | first-parent diff 检查：**实测否决**——本仓 CI up-to-date gate 强制 PR rebase/merge main，main 的 squash 合入会把 .doc-fix 创建/删除对消出净 diff（#1375 两个 R099 实证），「PR merge main」时 merge commit 的 first-parent diff 必然包含 main 来的合法历史文档变更 → 必红，误报面不可接受；evil merge 的真正逃生通道（squash 对消后进 main）与普通 PR 同构，机械层在 merge-into-main 环节本就无扫描，属 review 层保护面。跳过不损失实质拦截面：非 merge commit 逐个全量重放 |
+| merge commit 处置 | **跳过**（warn 提示，不进判定） | first-parent diff 检查：**实测否决**——本仓 CI up-to-date gate 强制 PR rebase/merge main，main 的 squash 合入会把 .doc-fix 创建/删除对消出净 diff（#1375 两个 R099 实证），「PR merge main」时 merge commit 的 first-parent diff 必然包含 main 来的合法历史文档变更 → 必红，误报面不可接受。**恣意口子定性（审视订正）**：跳过意味着 merge 路径无机械拦截，evil merge 成为与 --no-verify 同等易行的绕过通道（与普通 PR 恰在本 gate 分道——普通 PR 非 merge commit 逐个全量重放被拦，evil merge 放行）；不修的依据是所有廉价 evil-merge 检测器均有不可接受误报面：first-parent/net-diff 会因 .doc-fix 对消误拦合法配对订正，`git merge-tree` 会误报合法手工冲突解决 merge；误报优先级有 F20260922rntc 教训支撑。保护面归 review 层 |
 | base ref 不可解析 | 宽松放行 exit 0 + stderr 提示 | fail-closed（exit 1/2）：**否决**——fork PR 的 origin/main 指向 fork 自己、浅克隆等非恶意场景会被误伤；此时 pre-commit 门禁仍在本仓内生效，缺口不会重新打开 |
 | --base 缺参数 | exit 2（调用错误立即红） | 宽松放行：**否决**——这是 CI 配置写错（如 --base 拼错），静默放行等于 gate 假装在岗 |
 | 退出码语义 | 0 通过（含宽松放行）/ 1 违规 / 2 调用错误 | 沿用原 0/1/2 骨架（原 2=环境异常宽松放行；新 2=调用错误红）。CI 模式下环境异常并入 0（宽松放行），调用错误独占 2——语义更精确且 pre-commit 路径零变化 |
@@ -127,7 +127,7 @@ pre-commit 模式下 .doc-fix 与历史文档变更天然同 commit（同一 sta
 ## 已知边界
 
 1. **fork PR 宽松窗口**：fork 仓库内 origin/main 指向 fork 自己的 main，--base 解析成功但基准是 fork 的——fork 内篡改不触发。合入本仓时走本仓 CI（actions/checkout 拉的是本仓 + PR head），窗口不进入主线。
-2. **merge commit 不检查**：evil merge（merge commit 手工塞内容）不被本 gate 拦截——实测取舍，保护面归 review 层。pre-commit 同样不拦 merge commit 的第二父内容（pre-commit 只看 staged 区，merge --no-ff 提交时 staged 含冲突解决结果，但正常流程下该内容来自两侧分支各自的已检 commit）。
+2. **merge commit 不检查（已知恣意口子）**：evil merge（merge commit 手工塞内容）不被本 gate 拦截——实测取舍，保护面归 review 层。恣意口子定性（审视订正）：这是与 `--no-verify` 同等易行的绕过通道（本 PR 封了后者的 PR 路径，前者保持敞开）；不修的依据是廉价检测器误报面不可接受（见取舍表）。pre-commit 同样不拦 merge commit 的第二父内容（pre-commit 只看 staged 区，merge --no-ff 提交时 staged 含冲突解决结果，但正常流程下该内容来自两侧分支各自的已检 commit）。
 3. **main 上 squash 对消 .doc-fix 的 commit 不再可见配对**：如 #1375 的 e351f3c5——它已在本仓 main 上（本 gate 的 base），不在任何 PR 的 range 内，不构成拦截对象；但「PR 分支 merge main」时它会进入 merge commit 的 first-parent diff——这正是 merge commit 跳过的直接原因（否则必红）。
 4. **rebase 工作流不受 3 影响**：rebase 后 main 的 squash commit 不在新 range 内（up-to-date gate 要求 rebase or merge，两种形态都已实测/推演覆盖——merge 形态冒烟 exit 0）。
 

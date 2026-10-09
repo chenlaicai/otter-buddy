@@ -28,12 +28,15 @@
  *   （无关 commit 塞声明 + 独立 commit 改历史文档 = 新绕过面）。
  *   ref 侧切换：:file → <commit>:file、HEAD:file → <commit>^:file、isAddedOnBranch 的 log 上界
  *   HEAD → <commit>^（精确重放 pre-commit 时点语义：pre-commit 运行时 HEAD 即待提交 commit 的父）。
- *   merge commit 跳过不检查（实测修正）：曾设计按 first-parent diff 检查（封 evil merge），
+ *   merge commit 跳过不检查（实测取舍）：曾设计按 first-parent diff 检查（封 evil merge），
  *   但实测发现误报面不可接受——本仓 CI up-to-date gate 强制 PR 分支 rebase/merge main，而
  *   main 的 squash 合入会把 .doc-fix 创建/删除对消出净 diff（如 #1375 两个 R099）：
  *   「PR merge main」时 merge commit 的 first-parent diff 会把 main 来的变更记入本 PR → 必红。
- *   邪恶 merge 的真正逃生通道（squash 对消后进 main）与普通 PR 同构，机械层在 merge 进
- *   main 环节本就无扫描；非 merge commit 仍逐个全量重放，实质拦截面不损失。取舍详见特性文档。
+ *   如实声明恣意口子：跳过意味着 merge commit 路径无机械拦截，evil merge 成为与
+ *   --no-verify 同等易行的绕过通道（与普通 PR 恰在本 gate 分道——普通 PR 的非 merge
+ *   commit 逐个全量重放被拦）。不修的依据：廉价 evil-merge 检测器均有不可接受误报面
+ *   （first-parent/net-diff 会因 .doc-fix 对消误拦合法配对订正；merge-tree 会误报
+ *   合法手工冲突解决），取舍为「跳过 + 归 review 层」。恣意口子定性与论证详见特性文档。
  *   环境异常（--base ref 不可解析 / rev-list 失败）宽松放行 exit 0——fork PR、浅克隆等场景
  *   fail-closed 会误伤；--base 缺参数属调用错误，exit 2 立即红。
  *
@@ -381,7 +384,8 @@ function runBaseMode(baseRefArg) {
     const isMerge = parents.length >= 2;
     if (isMerge) {
       // 语义与取舍见文件头注：merge commit 跳过（实测「PR merge main + squash 对消 .doc-fix」
-      // 误报面不可接受）；邪恶 merge 逃生通道与 squash 对消同构，属 review 层保护面
+      // 误报面不可接受）；恣意口子如实声明：evil merge 成为与 --no-verify 同级易行的绕过，
+      // 归 review 层（廉价检测器误报面不可接受，论证见特性文档）
       console.warn(
         `[lint:historical-docs] 跳过 merge commit ${sha.slice(0, 8)}（非 merge commit 逐个全量校验，F20261009hcig）`
       );
