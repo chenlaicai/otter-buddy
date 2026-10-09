@@ -37,6 +37,7 @@ import { KeyInfoController } from "@interface-adapters/http/controllers/key-info
 import { SettingsController } from "@interface-adapters/http/controllers/settings-controller";
 import { ScheduledTaskController } from "@interface-adapters/http/controllers/scheduled-task-controller";
 import { MatterController } from "@interface-adapters/http/controllers/matter-controller";
+import { UnfurlController } from "@interface-adapters/http/controllers/unfurl-controller";
 import { ConnectionController } from "@interface-adapters/http/controllers/connection-controller";
 import { RhiController } from "@interface-adapters/http/controllers/rhi-controller";
 import { AttachmentController } from "@interface-adapters/http/controllers/attachment-controller";
@@ -225,6 +226,8 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
     scheduledTask: new ScheduledTaskController(uc.manageScheduledTask, schedulerService, cronParser, logger),
     // F20261006mtlp P1：待办板只读（matters 表 open 清单——右侧栏第五 tab 数据源）
     matter: new MatterController(repos.matter, logger),
+    // F20261008csf1 P1：链类 unfurl 预览卡数据源（og 元数据代理抓取，无外部依赖）
+    unfurl: new UnfurlController(logger),
     connection: new ConnectionController(uc.manageConnection, logger),
     health: new HealthController(featureRepo, researchRepo, embeddingGateway, nodeFs, rootDir, logger),
     rhi: new RhiController(healthSnapshotRepo, signalRepo, rhiScanWorker, logger),

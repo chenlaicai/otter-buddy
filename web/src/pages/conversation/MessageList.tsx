@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import type { Element as HastElement } from 'hast'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { AlertTriangle, Square, Copy, Check, Clock, RotateCcw, FileText, Zap, Moon, ArrowRight } from 'lucide-react'
+import { AlertTriangle, Square, Copy, Check, Clock, RotateCcw, FileText, Zap, Moon, ArrowRight, X } from 'lucide-react'
 import type { LocalMessage as Message, LocalOtter as Otter, LocalAttachment } from '../../lib/mappers'
 import { deriveEntryType, centeredEntryText } from '../../lib/mappers'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
@@ -15,8 +15,12 @@ import { fmtTokens, ctxPercent, fmtTime } from '../../lib/utils'
 import { fmtBytes } from '../../lib/attachments'
 import { parseCardTitle } from '../../lib/html-card'
 import { remarkHtmlCardIndex } from '../../lib/remark-html-card-index'
+import { remarkBareLink } from '../../lib/remark-bare-link'
 import { HtmlCard } from './HtmlCard'
 import { SignalBadge } from './SignalBadge'
+import { UnfurlCard } from './UnfurlCard'
+import { ArtifactCard } from './ArtifactCard'
+import type { LocalLinkedResource } from '../../lib/mappers'
 import { resolveDisplayName } from './display-name'
 
 /** 复制按钮 */
@@ -128,6 +132,20 @@ function CardAwarePre({ children, node, ...props }: ComponentProps<'pre'> & { no
   return <pre {...props}>{children}</pre>
 }
 
+/** F20261008csf1 P1：a 组件——裸链段落升级为 unfurl 预览卡（链类形态）。
+ *  判定不在组件层做：react-markdown 传给 components 的 hast 节点无 .parent 指针
+ *  （unist 树不回填父指针），拿不到段落上下文——改由 remark 插件（remark-bare-link）
+ *  在 mdast 层判定，经 hProperties 通道写入 dataBareUrl（与 html-card fenceIndex 同构），
+ *  组件从 node.properties 读。fail-closed：标记缺失时维持行内链接 */
+function UnfurlAwareLink({ href, children, node, ...props }: ComponentProps<'a'> & { node?: unknown }) {
+  void children
+  const bareUrl = (node as { properties?: { dataBareUrl?: string } } | undefined)?.properties?.dataBareUrl
+  if (href && bareUrl && bareUrl === href) {
+    return <UnfurlCard url={href} />
+  }
+  return <a href={href} target="_blank" rel="noopener noreferrer" {...props}>{children}</a>
+}
+
 function PreWrapP({ children, node, ...props }: ComponentProps<'p'> & { node?: unknown }) {
   void node
   return <p style={{ whiteSpace: 'pre-wrap' }} {...props}>{children}</p>
@@ -135,13 +153,14 @@ function PreWrapP({ children, node, ...props }: ComponentProps<'p'> & { node?: u
 
 /** 三变体各持一份模块级 components 映射（内联定义每次渲染新建引用 → react-markdown 以引用为
  *  element type → 流式期间已展开卡片反复重挂载、表单状态丢失；模块级常量引用稳定且变体间隔离） */
-const otterBodyComponents: Components = { code: CardAwareCode, pre: CardAwarePre, p: PreWrapP }
-const userBodyComponents: Components = { code: CardAwareCode, pre: CardAwarePre, p: PreWrapP }
+const otterBodyComponents: Components = { code: CardAwareCode, pre: CardAwarePre, p: PreWrapP, a: UnfurlAwareLink }
+const userBodyComponents: Components = { code: CardAwareCode, pre: CardAwarePre, p: PreWrapP, a: UnfurlAwareLink }
 const eventLogComponents: Components = { code: CardAwareCode, pre: CardAwarePre, p: PreWrapP }
 
 const REMARK_PLUGINS: NonNullable<ComponentProps<typeof ReactMarkdown>['remarkPlugins']> = [
   [remarkGfm, { singleTilde: false }],
   remarkHtmlCardIndex,
+  remarkBareLink,
 ]
 
 /** Markdown 渲染组件（GFM + 代码高亮 + HTML 卡片路由） */
@@ -175,6 +194,11 @@ const TOUCH_UNPIN_PX = 10
 type ScrollWriteTag = 'pin' | 'restore'
 interface ScrollLedgerEntry { expected: number; tag: ScrollWriteTag; interrupted: boolean; ts: number }
 
+/** F20261008csf1 P1：混排时间线条目——消息气泡 or 文类产物摘要卡 */
+type TimelineItem =
+  | { kind: 'message'; ts: string; seq: number; message: Message }
+  | { kind: 'artifact'; ts: string; seq: -1; resource: LocalLinkedResource }
+
 interface MessageListProps {
   messages: Message[]
   state: 'normal' | 'empty' | 'loading' | 'error' | 'no-llm'
@@ -197,6 +221,8 @@ interface MessageListProps {
   highlightMessageId?: string | null
   /** 用户在设置中配置的称呼，用于消息气泡旁的名称显示 */
   userName?: string
+  /** F20261008csf1 P1：文类产物摘要卡数据源（linked_resources，pr/file/fact 类型混排进时间轴） */
+  linkedResources?: LocalLinkedResource[]
   /** 信号轨迹（F20260902u5tr）：服务端推导的投石信号投递状态（可选，未加载时不渲染轨迹） */
 }
 
@@ -210,8 +236,45 @@ export function MessageList({
   conversationId, pinRef, newMessagesCount = 0, onJumpToBottom, onLoadMore,
   loadingMore,
   unreadSeparatorSeq, highlightMessageId,
-  userName,
+  userName, linkedResources,
 }: MessageListProps) {
+  /** F20261008csf1 P1：产物卡「钉住」逃生口——前端 UI 状态不落持久化（宪法 P1 允许，
+   *  取舍见特性文档）：钉住的卡在「贴时间轴插入」的同时保持在视口底部附近可及——
+   *  实现取最简语义：钉住的卡渲染两份会违反时间轴纯净性，故钉住的卡从时间原位
+   *  高亮为「已钉住」状态即可（视觉标识 + 取消入口），不做空间位移 */
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set())
+  const togglePin = useCallback((id: string) => {
+    setPinnedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }, [])
+  /** 混排时间线：消息 + 产物卡（文类）按时间序插到其登记位置（宪法：产物在其诞生位置插入）。
+   *  定位口径：linkedResource 无 entry 外键（P1 不加列——避免 DB 迁移），用 createdAt 与
+   *  消息 ts 对比找首个不早于登记时间的消息插在其前；晚于全部消息则附末尾（=「最新消息位」）。
+   *  排序稳定性：message.seq 单调，资源 createdAt 兜底——同刻并列时资源在前（先登记后说话）。 */
+  const timeline = useMemo(() => {
+    const items: TimelineItem[] = messages.map(m => ({ kind: 'message', ts: m.ts, seq: m.seq ?? 0, message: m }))
+    // 窗口下界：消息分页拉取（首拉 50、上翻 20）而 linkedResources 一次全量——
+    // 不设下界时，早于窗口最早消息的产物会聚集在时间轴顶部（检视发现 2：上翻到老区间
+    // 后视口内无诞生位置的卡，顶部悬浮一排旧卡冒充「最早」）。与消息分页语义对齐：
+    // 窗口外产物不显示，上翻加载到覆盖其诞生时刻时自然出现
+    const windowFloor = messages.length ? messages[0].ts : ''
+    const artifacts = (linkedResources ?? [])
+      .filter(r => ['pr', 'file', 'fact'].includes(r.type) && r.status === 'active')
+      .filter(r => (r.createdAt ?? '') >= windowFloor)
+    for (const r of artifacts) {
+      const ts = r.createdAt ?? ''
+      // 找首个 ts >= 资源 createdAt 的消息，插到它前面（诞生于该消息之前）
+      let insertIdx = items.length
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].ts >= ts) { insertIdx = i; break }
+      }
+      items.splice(insertIdx, 0, { kind: 'artifact', ts, seq: -1, resource: r })
+    }
+    return items
+  }, [messages, linkedResources])
   /** F20260814qswp：全部 hooks 前置于任何条件 return——旧实现 no-llm/loading/empty 分支
    *  的早退位于 hooks 声明之前，同一挂载实例上 state 切换会导致 hooks 数量变化而崩溃 */
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -549,16 +612,21 @@ export function MessageList({
         <div ref={contentRef}>
         {/* F20260913ctlv：活动段分组（「新一轮」分隔线）已退役——彻底切换后无轮次概念，
             时间线就是 entries 按序流，invoke 边界由居中条目（⚡/🌙/→）表达 */}
-        {messages.map(m => (
-          <div key={m.id} data-message-id={m.id}>
-            {unreadSeparatorSeq != null && m.seq === unreadSeparatorSeq && (
+        {/* F20261008csf1 P1：混排渲染——产物摘要卡（文类）插在其登记时间对应的消息位置 */}
+        {timeline.map(item => item.kind === 'artifact' ? (
+          <div key={`artifact-${item.resource.id}`} className="flex justify-center my-2 animate-slideIn">
+            <ArtifactCard resource={item.resource} pinned={pinnedIds.has(item.resource.id)} onTogglePin={togglePin} />
+          </div>
+        ) : (
+          <div key={item.message.id} data-message-id={item.message.id}>
+            {unreadSeparatorSeq != null && item.message.seq === unreadSeparatorSeq && (
               <div className="flex items-center gap-2 my-2 mx-auto" style={{ maxWidth: '72%' }}>
                 <div className="flex-1 h-px bg-teal-400/40" />
                 <span className="text-[10px] text-teal-500 font-medium px-2">未读消息</span>
                 <div className="flex-1 h-px bg-teal-400/40" />
               </div>
             )}
-            <MessageItem message={m} otters={otters} onStopStream={onStopStream} onRetryMessage={onRetryMessage} highlighted={highlightMessageId === m.id} userName={userName} />
+            <MessageItem message={item.message} otters={otters} onStopStream={onStopStream} onRetryMessage={onRetryMessage} highlighted={highlightMessageId === item.message.id} userName={userName} />
           </div>
         ))}
         </div>
@@ -600,11 +668,51 @@ export function MessageList({
   )
 }
 
-/** 多模态 Phase 1：消息内附件渲染。图片网格缩略图（点击新窗口看原图）+
- *  document/audio/video 文件卡（点击下载；audio 用原生控件回放，#608）。
+/** F20261008csf1 P1：图类内联 lightbox——点击缩略图原位放大（遮罩层），再点关闭。
+ *  宪法「缩略即全文，点击放大」：不跳新窗口（原实现 target=_blank 打断对话现场）。
+ *  Esc/点击遮罩关闭；防滚动穿透（body overflow 临时锁定）。 */
+function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [onClose])
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 cursor-zoom-out"
+      onClick={onClose}
+      role="dialog"
+      aria-label="图片预览"
+    >
+      <button
+        className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition"
+        onClick={onClose}
+        aria-label="关闭"
+      >
+        <X className="w-5 h-5" />
+      </button>
+      <img
+        src={src}
+        alt={alt}
+        className="max-w-[92vw] max-h-[88vh] object-contain rounded-lg shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      />
+    </div>
+  )
+}
+
+/** 多模态 Phase 1：消息内附件渲染。图片网格缩略图（点击原位放大——F20261008csf1 图类
+ *  内联 lightbox 取代原新窗口打开）+ document/audio/video 文件卡（点击下载；audio 用原生
+ *  控件回放，#608）。
  *  同一端点 /api/attachments/:id，image inline / 其他 attachment。
  *  为什么用后端端点而非 base64 内嵌：DTO 只带引用（id/尺寸），消息体积不变，缓存友好（immutable） */
 function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: boolean }) {
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
   const images = atts.filter(a => a.kind === 'image')
   const audios = atts.filter(a => a.kind === 'audio')
   // document + video 均为文件卡下载样式（检视建议 4：显式命名，未来 video 需特殊渲染时从此处拆出）
@@ -614,14 +722,19 @@ function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: bo
       {images.length > 0 && (
         <div className={`grid gap-1.5 ${images.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
           {images.map(a => (
-            <a key={a.id} href={`/api/attachments/${a.id}`} target="_blank" rel="noopener noreferrer" className="block">
+            <button
+              key={a.id}
+              onClick={() => setLightbox({ src: `/api/attachments/${a.id}`, alt: a.originalName })}
+              className="block text-left cursor-zoom-in"
+              aria-label={`放大查看 ${a.originalName}`}
+            >
               <img
                 src={`/api/attachments/${a.id}`}
                 alt={a.originalName}
                 loading="lazy"
-                className={`rounded-xl object-cover cursor-zoom-in hover:opacity-90 transition ${images.length > 1 ? 'w-full aspect-square' : 'max-w-[260px] max-h-[260px]'} ${isUser ? 'border border-white/60' : 'border border-black/5'}`}
+                className={`rounded-xl object-cover hover:opacity-90 transition ${images.length > 1 ? 'w-full aspect-square' : 'max-w-[260px] max-h-[260px]'} ${isUser ? 'border border-white/60' : 'border border-black/5'}`}
               />
-            </a>
+            </button>
           ))}
         </div>
       )}
@@ -648,6 +761,7 @@ function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: bo
           ))}
         </div>
       )}
+      {lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}
     </div>
   )
 }
