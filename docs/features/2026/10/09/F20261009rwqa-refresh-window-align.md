@@ -1,6 +1,7 @@
 ---
 id: F20261009rwqa
 title: 对话页上跳三轮根治：refreshMessages 快照窗口对齐
+summary: "对话页自动上跳三轮修复：前两轮（scroll-pin 状态机、W8/RO 修复）后仍上跳且左侧栏也跳——本轮帧级取证锁定数据层真凶：refreshMessages 快照宽 100≠首屏 50，长会话每 60s 审计把窗口外 50 条历史塞进列表（实测 scrollHeight +8800px）。修复：after=oldest 游标升序拉取对齐窗口，只补增量不塞历史。"
 created: 2026-10-09
 created_in_conversation: 27398619-8e0b-4147-8230-93e23f1a01ac
 status: implemented
