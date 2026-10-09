@@ -49,13 +49,14 @@ intent:
 
 ### B. DDL 同块引用静态门（scripts/lint-schema-ddl.mjs）
 
-**规则**：对 src/frameworks/db/schema.ts / migration.ts 的每个 CREATE INDEX 语句，其引用的列必须满足其一——
+**规则**：对 src/frameworks/db/schema.ts / migration.ts 的每个 CREATE [UNIQUE] INDEX 语句（含无 IF NOT EXISTS 的裸索引），其引用的列必须满足其一——
 - A) 同块 CREATE TABLE 定义了该列（全新库场景）；
-- B) 同文件存在 ALTER TABLE 补列语句且位置在索引块之前（存量库场景，补列先于索引执行）。
+- B) 同文件存在更早的 CREATE TABLE 在**其自身括号定义体内**定义了该列（括号计数器限定，防跨表前缀吞并：messages 前缀一路吞到 messages_meta 同名列的假放行）；
+- C) 同文件存在 ALTER TABLE 补列语句且位置在索引块之前（存量库场景，补列先于索引执行）。
 
-两者都不满足 = 违规（#1365 形态：索引在补列之前，存量库必炸）。
+三者都不满足 = 违规（#1365 形态：索引在补列之前，存量库必炸）。
 
-**豁免**：块内显式注释 `lint-schema:allow-index-before-column`（须附理由）——migration.ts 的表重建场景（RENAME 后建索引，列由旧表继承）全部走此豁免，共 8 处。
+**豁免**：块内显式注释 `lint-schema:allow-index-before-column`（须附理由）——migration.ts 三类场景走此豁免：①表重建（RENAME 后建索引，列由旧表继承）10 处；②PRAGMA 探测幂等补列（`add()` 内有列存在守卫，索引紧随补列）1 处；③跨文件引用+索引重建（entries 表由 schema.ts 定义、#906 DROP+CREATE 升级 UNIQUE）1 处。合计 12 处。
 
 **为什么是静态门而不是只靠冒烟**：冒烟覆盖「快照形态回放」，静态门覆盖「规则本身」——快照可能滞后于 schema 演进，静态门不依赖快照新鲜度，两道互补。
 
@@ -63,18 +64,18 @@ intent:
 
 ## 改动范围
 
-- `scripts/lint-schema-ddl.mjs`（新增，~80 行）
+- `scripts/lint-schema-ddl.mjs`（新增，~130 行；检视 S1 处置后扩面：UNIQUE 索引 + db.exec 双引号块 + db.prepare(...).run() 单行块 + 路径 B 同文件更早 CREATE TABLE）
 - `tests/app/build-app-existing-db.test.ts`（新增，~140 行）
 - `scripts/smoke-boot.sh`（追加存量库冒烟段，+12 行）
 - `package.json`（check 链追加 lint:schema，+1 行；scripts 追加 lint:schema，+1 行）
-- `src/frameworks/db/migration.ts`（8 处豁免标记注释，+8 行）
+- `src/frameworks/db/migration.ts`（12 处豁免标记（11 处新增行 + 1 处行内改造），+12 行）
 
 ## 验证
 
 - **全新库冒烟**：build-app.test.ts 7/7 绿（既有）
 - **存量库冒烟**：build-app-existing-db.test.ts 4/4 绿（新增）
 - **fail-closed**：#1365 坏形态必炸 `no such column: bound_issue`（实测）
-- **lint:schema**：clean main 0 违规；migration.ts 8 处豁免标记后 OK
+- **lint:schema**：clean main 0 违规；migration.ts 12 处豁免标记后 OK（含 entries 跨文件引用 1 处）
 - **check 链**：build + lint + lint:schema + smoke:boot 全绿（exit=0）
 - **无方案外变更**：diff 仅上述 5 个文件
 

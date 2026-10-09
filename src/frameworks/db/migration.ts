@@ -2085,7 +2085,7 @@ function ensureEntriesConversationSeqUnique(db: Database.Database, logger: Logge
     if (duplicates) return duplicates;
 
     db.exec("DROP INDEX IF EXISTS idx_entries_conversation_seq");
-    db.exec("CREATE UNIQUE INDEX idx_entries_conversation_seq ON entries(conversation_id, sequence_num)");
+    db.exec("-- lint-schema:allow-index-before-column——跨文件引用+索引重建：entries 表由 schema.ts:995 CREATE TABLE 定义（conversation_id/sequence_num 建表即有）；本块是 #906 把旧索引升级为 UNIQUE 的 DROP+CREATE 重建，列必然已存在\nCREATE UNIQUE INDEX idx_entries_conversation_seq ON entries(conversation_id, sequence_num)");
     return undefined;
   })();
 
@@ -2113,5 +2113,5 @@ function ensureHealingEventsBoundIssueColumns(db: Database.Database, logger: Log
   };
   add('bound_issue', 'bound_issue INTEGER DEFAULT NULL');
   add('bound_at', 'bound_at TEXT DEFAULT NULL');
-  db.exec("CREATE INDEX IF NOT EXISTS idx_healing_events_bound_issue ON healing_events(bound_issue)");
+  db.exec("-- lint-schema:allow-index-before-column——PRAGMA 探测幂等补列：add() 内部有 if (!columns.some(...)) 守卫，列已存在时 ALTER 不执行；本索引是 #1390 修复后从 schema.ts 挪来的存量库补建，安全。\nCREATE INDEX IF NOT EXISTS idx_healing_events_bound_issue ON healing_events(bound_issue)");
 }
