@@ -183,7 +183,7 @@ function validateIntent(fm, exemptKey) {
   const warnings = [];
 
   // F20261005imfg 审视处置（建议①）：豁免键 = 文件相对路径（docs/ 起算），非 fm.id。
-  // 原因：实测存在重复 ID（F20260824ax376/F20260903gh698 各 2 篇），id 键下新文档可抄
+  // 原因：历史上存在重复 ID（#1274 治理前 F20260824ax376/F20260903gh698 各 2 篇），id 键下新文档可抄
   // 豁免清单内 ID 继承豁免（检视探针实证）；路径键下抄 ID 无效（新文件路径必不在清单），
   // 改名则 fail-closed（脱离清单变 error，diff 显形）。存量重复 ID 不再影响本 gate。
   // exemptKey 缺失（如测试直调纯函数）时不在豁免名单内，按新口径判定。

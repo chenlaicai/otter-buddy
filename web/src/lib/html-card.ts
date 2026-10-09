@@ -117,10 +117,12 @@ export function deriveRepliedCardIds(messages: Array<{ content: string; st: stri
 }
 
 /** body 中 html-card 围栏数量（fenceIndex 存在性判据：fenceIndex < 数量即围栏仍在）。
- *  挂起预览的自动丢弃用：用户收起卡片（iframe unmount）时围栏仍在，不丢预览 */
+ *  挂起预览的自动丢弃用：用户收起卡片（iframe unmount）时围栏仍在，不丢预览。
+ *  F20261009csp2 检视处置 2：活类围栏（html-card-play）计入——否则 useCardBridge 的
+ *  cardFencePresent 对活类卡判假，submit 预览挂起即被瞬丢（游戏回传成绩闭环失效） */
 export function countCardFences(body: string): number {
   if (!body.includes('html-card')) return 0
-  return collectCodeNodes(body).filter(c => c.lang === 'html-card').length
+  return collectCodeNodes(body).filter(c => c.lang === 'html-card' || c.lang === 'html-card-play').length
 }
 
 /** 构造卡片回执 body：人类可读摘要 + html-card-reply JSON 围栏（cardId 关联，非 title） */
