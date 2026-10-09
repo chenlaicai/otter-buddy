@@ -1610,7 +1610,10 @@ function heredocHeaderIsInterpreter(header: string, family: "python" | "node"): 
  *  落主仓 → cd 豁免被阻断）体判定结果被负门直接消费（不再经通道正则接力）——必须用
  *  段感知版算出真实只读性，否则纯读探查被误拦（可用性回归）。
  *  体判定逻辑与 #1207 同构：python → pythonBodyReadOnly，node → nodeBodyReadOnly；
- *  混合族（python+node 多 heredoc）任一非只读/非本族解释器头 → false（fail-closed）。 */
+ *  混合族（python+node 多 heredoc）任一非只读 → false（fail-closed）；
+ *  非解释器 heredoc（cat/tee 数据体）不参与判定（跳过）——与 blankDataHeredocBodies
+ *  同语义：数据体无 shell 执行语义，非本族不属负门触发条件（负门仅锚解释器体），
+ *  若要求非解释器体也「只读」则 python 只读 + cat 数据正道被误拦（检视 r1 P1）。 */
 function scriptHeredocBodiesReadOnlySegmentAware(command: string): boolean {
   const spans = extractHeredocSpans(command);
   if (spans.length === 0) return false;
@@ -1618,7 +1621,7 @@ function scriptHeredocBodiesReadOnlySegmentAware(command: string): boolean {
     if (!sp.closed) return false;
     const isPy = heredocHeaderIsInterpreter(sp.header, "python");
     const isNode = heredocHeaderIsInterpreter(sp.header, "node");
-    if (!isPy && !isNode) return false;
+    if (!isPy && !isNode) return true; // 非解释器 heredoc（cat/tee 数据体）与体只读性无关，跳过
     const bodyOk = isPy ? pythonBodyReadOnly(sp.body) : nodeBodyReadOnly(sp.body);
     return bodyOk && (sp.quoted || !/[$`]/.test(sp.body));
   });

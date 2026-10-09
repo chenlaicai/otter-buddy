@@ -2956,6 +2956,28 @@ print(open('${projectRoot}/package.json').read()[:10])
 PY`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
   });
+
+  // ── 检视 r1 P1 修复：多 heredoc 混合（python 只读 + cat 数据）正道不误拦 ──
+  it("#1309 检视 r1 P1：python 只读 + cat 数据 heredoc 混合 → 放行（非解释器数据体不参与体判定）", () => {
+    const cmd = `cd /tmp && python3 - <<'PY'
+print('hello')
+PY
+cat <<'EOF'
+some data payload
+EOF`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("#1309 检视 r1 P1：python 写 + cat 数据混合 → 仍拦（动态源负门触发时 cat 数据体不误放行）", () => {
+    const cmd = `cd /tmp && python3 - <<'PY'
+import os
+open(os.environ['REPO'] + '/data/x','w').write('x')
+PY
+cat <<'EOF'
+some data payload
+EOF`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
 });
 
 describe("F20261006gfvl (#1307)：bash -c 带值旗标绕过收口", () => {

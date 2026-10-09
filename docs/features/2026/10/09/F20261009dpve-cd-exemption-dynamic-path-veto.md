@@ -72,10 +72,19 @@ cd 豁免负门加第二触发条件：`scriptHeredocBodiesTouchDynamicPathSourc
 
 - **失败证据链**：修复前探针 A/E ALLOW（本文档「背景」节，探针 /tmp/probe-1309.mjs）。
 - **修复后**：同探针 A/E → BLOCK；B/C/D 放行保持；F（cat 管道形态）BLOCK——#1308 基座自动覆盖。
-- **测试**：#1309 14 用例（拦截 7：os.environ/from import environ/getenv/input/sys.argv/node/cat 管道 + 语义校正 1；放行 4：from import 纯读/node 纯读/相对路径写/程序内拼接；回归 2：#1240 绝对路径负门拦/只读放行 + import os 纯读声明面 1）。全量 5138 绿（342 文件），lint 0，tsc 0。
+- **测试**：#1309 16 用例（拦截 7：os.environ/from import environ/getenv/input/sys.argv/node/cat 管道 + 语义校正 1；放行 4：from import 纯读/node 纯读/相对路径写/程序内拼接；回归 2：#1240 绝对路径负门拦/只读放行 + import os 纯读声明面 1；检视 r1 P1 修复 2：python 只读+cat 数据放行 / python 动态源写+cat 数据拦）。全量 5123 绿（342 文件），lint 0，tsc 0。
 - **双链一致性**：A 场景 cd 形态与无 cd 形态均 BLOCK（修复前 cd ALLOW / 无 cd BLOCK 不对称）。
+
+## 检视处置记录
+
+**r1（检视獭-1382）**：1 严重 + 2 建议。
+
+- **P1 多 heredoc 混合正道误拦（采纳，已修）**：`scriptHeredocBodiesReadOnlySegmentAware` 对非解释器 heredoc（cat/tee 数据体）在 every() 中直接 false——python 只读 + cat 数据的正道组合（先跑只读探查脚本再写数据文件）被误拦，且 parent commit 放行（本单引入的回归）。修法：非解释器 heredoc 不参与体判定（跳过），与 blankDataHeredocBodies 同语义——数据体无 shell 执行语义，负门仅锚解释器体。补 2 用例：python 只读 + cat 数据 → 放行；python 动态源写 + cat 数据 → 仍拦（动态源负门触发时不被 cat 体放行）。
+- **建议 1 签名命中注释/字符串（采纳方向，留档不扩面）**：`\b(?:os\.)?environ\b` 会命中注释/字符串字面量（`# os.environ is a dict`）。剥除注释/字符串需引入 python 语法解析，复杂度远超收益；实际误伤需「体含注释/字符串中的签名字样 + 负门触发 + 体只读判定失败」三重叠加，概率极低。Known Limitations 声明此面。
+- **建议 2 node/python 语言间不对称（接受现状）**：node `process.env` 纯读放行 vs python `import os` + `os.environ` 纯读拦——#1207 fail-closed 既有语义（无 cd 链同判），非本单引入；已在「误伤面声明」段说明。
 
 ## Known Limitations
 
 - 动态源签名是保守子集：`os.getenv` 之外的间接动态形态（如 `open(__file__ + '/../x')`、`chr()` 构造路径）不触发本负门——前者落点可见可判（file 锚），后者已有 `pythonBodyReadOnly` 门 ① 否定检测（`__` 前缀/eval 族）覆盖。
+- 签名会命中注释/字符串字面量（`# os.environ` / `print("os.environ")`）→ 负门触发 + 体判定 fail-closed → 拦。属保守侧误拦（需三重叠加），剥除注释/字符串需语法解析，复杂度远超收益（检视 r1 建议 1 处置）。
 - shell 层环境变量（`$REPO` 裸定界体展开）不在本单范围——裸定界体的 `$` 已被 `scriptHeredocBodiesReadOnlySegmentAware` 的 `sp.quoted || !/[$`]/` 条件拒绝豁免（fail-closed）。
