@@ -3,7 +3,8 @@
 # a) 无 intent 块（251 篇：feature 191 / prompt 35 / change_type 空值或缺失 25）
 # b) intent 块存在但缺 problem/expected_effect（5 篇，2026-09-15 goal/why 自创 schema）
 # 键 = 仓库根相对路径（与 lint-intent.mjs main() 的 rel 同口径；审视处置·建议①：id 键存在
-# 重复 ID 歧义（F20260824ax376/F20260903gh698 各 2 篇），新文档可抄豁免清单内 id 继承豁免——
+# 重复 ID 可乘之机（#1274 治理前 F20260824ax376/F20260903gh698 各 2 篇，新文档可抄豁免清单内
+# id 继承豁免——检视探针实证；治理后 id 唯一性由 lint:docs 把守，本注释留档历史口径）——
 # 路径键下抄 id 无效，改名则脱离清单 fail-closed 变 error）
 # 规则：
 # 1. 清单内路径触发缺字段规则 → warning（存量豁免，不阻断 commit）
