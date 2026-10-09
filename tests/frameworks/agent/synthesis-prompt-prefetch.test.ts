@@ -33,7 +33,54 @@ describe("F20260901mbfx §④/⑥ 机械预取", () => {
     expect(prompt).toContain("otter_context keys: task_status, next_step");
     expect(prompt).toContain("pr res-abcd「边界修复 PR」");
     expect(prompt).toContain("fact res-ffff");
-    expect(prompt).toContain("active 产物（2 个）");
+    expect(prompt).toContain("active 产物（2 个，最近 2 个）");
+  });
+
+  it("F20261009arlz L3：产物超 5 个时按 createdAt 倒序截断为最近 5 个", () => {
+    const prompt = buildSynthesisPrompt({
+      otterName: "大獭",
+      oldSessionId: "sess1234-xxxx",
+      trigger: "70%阈值",
+      prefetch: {
+        activeArtifacts: [
+          { id: "res-000000000001", resourceType: "pr", title: "最旧", createdAt: "2026-10-01T00:00:00Z" },
+          { id: "res-000000000002", resourceType: "pr", title: "旧2", createdAt: "2026-10-02T00:00:00Z" },
+          { id: "res-000000000003", resourceType: "pr", title: "旧3", createdAt: "2026-10-03T00:00:00Z" },
+          { id: "res-000000000004", resourceType: "pr", title: "旧4", createdAt: "2026-10-04T00:00:00Z" },
+          { id: "res-000000000005", resourceType: "pr", title: "旧5", createdAt: "2026-10-05T00:00:00Z" },
+          { id: "res-000000000006", resourceType: "pr", title: "次新", createdAt: "2026-10-06T00:00:00Z" },
+          { id: "res-000000000007", resourceType: "pr", title: "最新", createdAt: "2026-10-07T00:00:00Z" },
+        ],
+      },
+    });
+
+    expect(prompt).toContain("active 产物（7 个，最近 5 个）");
+    // 最新 5 个出现，最旧 2 个被截断
+    expect(prompt).toContain("「最新」");
+    expect(prompt).toContain("「次新」");
+    expect(prompt).toContain("「旧3」");
+    expect(prompt).not.toContain("「最旧」");
+    expect(prompt).not.toContain("「旧2」");
+    expect(prompt).not.toContain("超 15 个");
+  });
+
+  it("F20261009arlz L3：active 产物超 15 个时追加僵尸警示行", () => {
+    const arts = Array.from({ length: 20 }, (_, i) => ({
+      id: `res-00000000${String(i).padStart(4, "0")}`,
+      resourceType: "pr",
+      title: `产物${i}`,
+      createdAt: `2026-10-${String(i + 1).padStart(2, "0")}T00:00:00Z`,
+    }));
+    const prompt = buildSynthesisPrompt({
+      otterName: "大獭",
+      oldSessionId: "sess1234-xxxx",
+      trigger: "70%阈值",
+      prefetch: { activeArtifacts: arts },
+    });
+
+    expect(prompt).toContain("active 产物（20 个，最近 5 个）");
+    expect(prompt).toContain("active 产物超 15 个（当前 20）");
+    expect(prompt).toContain("建议走产物对账");
   });
 
   it("prefetch 空产物时明说'无'，不留歧义", () => {

@@ -1555,9 +1555,9 @@ export class AgentInvoker implements AgentTurnPort {
     const prefetch: SynthesisPrefetch = {};
     if (results[0].status === 'fulfilled') prefetch.contextKeys = Object.keys(results[0].value);
     if (results[1].status === 'fulfilled') {
-      prefetch.activeArtifacts = (results[1].value as Array<{ id: string; resourceType: string; title?: string; status?: string }>)
+      prefetch.activeArtifacts = (results[1].value as Array<{ id: string; resourceType: string; title?: string; status?: string; createdAt?: string }>)
         .filter(a => !a.status || a.status === 'active')
-        .map(a => ({ id: a.id, resourceType: a.resourceType, title: a.title }));
+        .map(a => ({ id: a.id, resourceType: a.resourceType, title: a.title, createdAt: a.createdAt }));
     }
     if (results[2].status === 'fulfilled' && results[2].value.length > 0) prefetch.recentUserMessages = results[2].value;
     return Object.keys(prefetch).length > 0 ? prefetch : undefined;
