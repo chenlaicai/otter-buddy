@@ -1,0 +1,1 @@
+#1274 元数据订正：两个历史特性文档的 frontmatter id 与其他文档重复（F20260824ax376 / F20260903gh698 各 2 篇共用），id 是 sync_docs 入库主键——重复致后同步覆盖前同步（fix-lock 篇内容已在记忆库丢失）。本次对换新 id 方做 id 行订正 + git mv 同步文件名与目录（id 日期段须匹配路径），正文一字不动；rename 通道 + frontmatter 边界校验按 lint-historical-docs 机制放行。

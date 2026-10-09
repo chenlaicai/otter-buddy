@@ -1,5 +1,5 @@
 ---
-id: F20260903gh698
+id: F20261009bgfm
 title: 'bash 守卫误报两模式修复：位置感知匹配 + bash-c 引号支持'
 summary: |
   bash-safety-guard 误报两模式修复（#698）：(1) eval 词元在命令位置限定（eval-activation-
