@@ -1610,7 +1610,10 @@ function heredocHeaderIsInterpreter(header: string, family: "python" | "node"): 
  *  落主仓 → cd 豁免被阻断）体判定结果被负门直接消费（不再经通道正则接力）——必须用
  *  段感知版算出真实只读性，否则纯读探查被误拦（可用性回归）。
  *  体判定逻辑与 #1207 同构：python → pythonBodyReadOnly，node → nodeBodyReadOnly；
- *  混合族（python+node 多 heredoc）任一非只读/非本族解释器头 → false（fail-closed）。 */
+ *  混合族（python+node 多 heredoc）任一非只读 → false（fail-closed）；
+ *  非解释器 heredoc（cat/tee 数据体）不参与判定（跳过）——与 blankDataHeredocBodies
+ *  同语义：数据体无 shell 执行语义，非本族不属负门触发条件（负门仅锚解释器体），
+ *  若要求非解释器体也「只读」则 python 只读 + cat 数据正道被误拦（检视 r1 P1）。 */
 function scriptHeredocBodiesReadOnlySegmentAware(command: string): boolean {
   const spans = extractHeredocSpans(command);
   if (spans.length === 0) return false;
@@ -1618,7 +1621,7 @@ function scriptHeredocBodiesReadOnlySegmentAware(command: string): boolean {
     if (!sp.closed) return false;
     const isPy = heredocHeaderIsInterpreter(sp.header, "python");
     const isNode = heredocHeaderIsInterpreter(sp.header, "node");
-    if (!isPy && !isNode) return false;
+    if (!isPy && !isNode) return true; // 非解释器 heredoc（cat/tee 数据体）与体只读性无关，跳过
     const bodyOk = isPy ? pythonBodyReadOnly(sp.body) : nodeBodyReadOnly(sp.body);
     return bodyOk && (sp.quoted || !/[$`]/.test(sp.body));
   });
@@ -1712,15 +1715,39 @@ function writeChannelExempt(pi: number, ctx: { heredocReadOnly?: boolean; oneLin
 /** #1240（F20261006c1240）cd 豁免负门判定：模型版 cd 豁免生效时，
  *  python/node heredoc 体含绝对路径落主仓 → 体非只读拦 / 体只读放行；
  *  体无绝对路径落主仓 → 放行（cd 豁免原语义）。
+ *  #1309（F20261009dpve）：第二触发条件——体含动态路径源签名即阻断（与
+ *  绝对路径无关）。根因：负门只锚绝对路径字面量，路径来自环境变量/外部输入时
+ *  字面量不存在 → 负门失明，cd 豁免 return null 旁路全部写判定（含 denylist——
+ *  它在负门之后的主仓写判定链内，无消费点）。无 cd 链靠 pythonBodyReadOnly
+ *  fail-closed（import os 即 false → 通道不豁免）拦住同体，cd 链缺等价防线。
+ *  签名小而准（攻击链核心是「路径来自外部可控源」）：python 的
+ *  os.environ/environ/getenv/input(/sys.argv，node 的 process.env；动态源
+ *  遇 open 写面即拦（与绝对路径负门同构：只读体仍放行——纯读探查正道）。
+ *  纯程序内字符串拼接（p='/data/'; q=p+'x'）不拦——落点要么可见（绝对路径
+ *  负门管）要么与主仓无关，不加宽松拼接签名避免误伤正道。
  *  检视 r1 处置（发现 1/2/4）：负门触发后直接体感知拦，
  *  不再依赖 MAIN_WRITE_PATTERNS[0] 通道正则接力——wrapper（env/sudo）与无 `-` 形态
  *  通道正则不认（拦截链解耦缺口），node 侧 isNodeHeader 同型首词语义失效。
  *  返回 null = 放行（含 cd 豁免生效与负门放行两义），BLOCK_MSG = 拦。 */
+const PY_DYNAMIC_PATH_SOURCE = /\b(?:os\.)?environ\b|\bgetenv\s*\(|\binput\s*\(|\bsys\.argv\b/;
+const NODE_DYNAMIC_PATH_SOURCE = /\bprocess\.env\b/;
+function scriptHeredocBodiesTouchDynamicPathSource(command: string): boolean {
+  for (const sp of extractHeredocSpans(command)) {
+    if (!sp.closed) continue;
+    if (heredocHeaderIsInterpreter(sp.header, "python") && PY_DYNAMIC_PATH_SOURCE.test(sp.body)) return true;
+    if (heredocHeaderIsInterpreter(sp.header, "node") && NODE_DYNAMIC_PATH_SOURCE.test(sp.body)) return true;
+  }
+  return false;
+}
+
 function cdExemptionWithVeto(command: string, logger: Logger | undefined, projectRoot: string): string | null {
-  if (!scriptHeredocAbsPathsInsideMain(command, projectRoot)) return null;
-  // 负门触发：体非只读 → 拦（写/执行签名）；体只读 → 放行（纯读探查正道）
+  const absPathVeto = scriptHeredocAbsPathsInsideMain(command, projectRoot);
+  const dynamicVeto = !absPathVeto && scriptHeredocBodiesTouchDynamicPathSource(command);
+  if (!absPathVeto && !dynamicVeto) return null;
+  // 负门触发：体非只读 → 拦（写/执行签名）；体只读 → 放行（纯读探查正道）。
+  // 两触发条件同构消费：绝对路径负门拦「可见落点」面，动态源负门拦「不可见落点」面。
   if (!scriptHeredocBodiesReadOnlySegmentAware(command)) {
-    logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (heredoc abs-path in main, cd-exemption vetoed)", { command: command.substring(0, 200) });
+    logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (heredoc body vetoed under cd exemption)", { command: command.substring(0, 200), dynamic: dynamicVeto });
     return MAIN_WRITE_BLOCK_MSG;
   }
   return null;
