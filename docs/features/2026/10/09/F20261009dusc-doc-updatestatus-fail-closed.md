@@ -26,7 +26,7 @@ PR #1383（#1370 healing 假成功修复）检视报告 Discovered Issue：`sqli
 
 **机制识别检查点（动手前判定）**：四问全未命中——不改语义边界、不引入新机制、无退役条件问题、无后续机制依赖——判定 narrow-fix 一行留痕。
 
-**同族模式排查（范围修正）**：#1385 范围限定 feature/research 两仓。对抗审视（PR #1389）另发现 3 处同族残留——scheduled-task / im-connection / conversation 仓 updateStatus 同模式不看 changes，跟进取 issue #1391。
+**同族模式排查（范围修正）**：#1385 范围限定 feature/research 两仓。对抗审视（PR #1389）另发现 3 处同族残留——scheduled-task / im-connection / conversation 仓 updateStatus 同模式不看 changes，跟进 issue #1391。
 
 ## 验证
 
