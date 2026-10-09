@@ -110,6 +110,138 @@ describe("buildToolSignature", () => {
     expect(buildToolSignature("create_otter")).toBe("create_otter");
     expect(buildToolSignature("create_otter", {})).toBe("create_otter");
   });
+
+  // ---- #475：带实体参数的管理工具签名 ----
+
+  it("merge_pr 签名含 prNumber——不同 PR 不算重复", () => {
+    expect(buildToolSignature("merge_pr", { prNumber: 1381 })).toBe("merge_pr: 1381");
+    expect(buildToolSignature("merge_pr", { prNumber: 1382 })).toBe("merge_pr: 1382");
+    expect(buildToolSignature("merge_pr")).toBe("merge_pr");
+    expect(buildToolSignature("merge_pr", {})).toBe("merge_pr");
+  });
+
+  it("halt_otter/unhalt_otter 签名取 otterId，缺失时回退 otterName", () => {
+    expect(buildToolSignature("halt_otter", { otterId: "ot-1" })).toBe("halt_otter: ot-1");
+    expect(buildToolSignature("unhalt_otter", { otterName: "小獭甲" })).toBe("unhalt_otter: 小獭甲");
+    expect(buildToolSignature("halt_otter", { otterId: "ot-1", otterName: "小獭甲" })).toBe("halt_otter: ot-1");
+    expect(buildToolSignature("halt_otter", {})).toBe("halt_otter");
+  });
+
+  it("transition_matter 签名含 matter_id——不同 matter 不算重复", () => {
+    expect(buildToolSignature("transition_matter", { matter_id: "M-a1b2c3d4" })).toBe("transition_matter: M-a1b2c3d4");
+    expect(buildToolSignature("transition_matter", { matter_id: "M-e5f6g7h8" })).toBe("transition_matter: M-e5f6g7h8");
+    expect(buildToolSignature("transition_matter", { to: "CLOSED" })).toBe("transition_matter");
+  });
+
+  it("get_message 签名含 messageId", () => {
+    expect(buildToolSignature("get_message", { messageId: "msg-1" })).toBe("get_message: msg-1");
+    expect(buildToolSignature("get_message", { messageId: "msg-2" })).toBe("get_message: msg-2");
+    expect(buildToolSignature("get_message")).toBe("get_message");
+  });
+
+  it("get_memory_detail 签名含 ids 摘要——不同 ids 集合不算重复", () => {
+    const a = buildToolSignature("get_memory_detail", { ids: ["id-1"] });
+    const b = buildToolSignature("get_memory_detail", { ids: ["id-2"] });
+    const aRetry = buildToolSignature("get_memory_detail", { ids: ["id-1"] });
+    expect(a).toBe("get_memory_detail: id-1");
+    expect(a).not.toBe(b);
+    expect(a).toBe(aRetry);
+    // 长列表压成 数量+指纹
+    const long1 = buildToolSignature("get_memory_detail", { ids: ["i1", "i2", "i3", "i4"] });
+    const long2 = buildToolSignature("get_memory_detail", { ids: ["i1", "i2", "i3", "i5"] });
+    expect(long1).toContain("get_memory_detail: 4#");
+    expect(long1).not.toBe(long2);
+    expect(buildToolSignature("get_memory_detail", { ids: [] })).toBe("get_memory_detail");
+    expect(buildToolSignature("get_memory_detail", {})).toBe("get_memory_detail");
+  });
+
+  it("get_related 签名含 entry_id", () => {
+    expect(buildToolSignature("get_related", { entry_id: "e-1" })).toBe("get_related: e-1");
+    expect(buildToolSignature("get_related", { entry_id: "e-2", depth: 2 })).toBe("get_related: e-2");
+    expect(buildToolSignature("get_related", {})).toBe("get_related");
+  });
+
+  it("manage_healing_events 签名 = action + 过滤特征，无特征时退化为 action 级", () => {
+    expect(buildToolSignature("manage_healing_events", { action: "resolve", eventIds: ["ev-1"] }))
+      .toBe("manage_healing_events: resolve [ev-1]");
+    expect(buildToolSignature("manage_healing_events", { action: "resolve", eventIds: ["ev-2"] }))
+      .toBe("manage_healing_events: resolve [ev-2]");
+    expect(buildToolSignature("manage_healing_events", { action: "batch_resolve", filterBoundIssue: 1015 }))
+      .toBe("manage_healing_events: batch_resolve [bound:1015]");
+    expect(buildToolSignature("manage_healing_events", { action: "batch_bind", filterErrorType: "guard_intercept", filterRuleId: "r-9" }))
+      .toBe("manage_healing_events: batch_bind [r-9,guard_intercept]");
+    // 无过滤特征：同 action 连发仍算重复（query 连发是卡壳语义）
+    expect(buildToolSignature("manage_healing_events", { action: "query" }))
+      .toBe("manage_healing_events: query");
+    expect(buildToolSignature("manage_healing_events", { action: "query", status: "open" }))
+      .toBe("manage_healing_events: query");
+    expect(buildToolSignature("manage_healing_events", {})).toBe("manage_healing_events");
+  });
+
+  it("manage_healing_events：issueNumber / 时间窗 / bound:issue: 前缀互不混淆（#475 审视补充）", () => {
+    // batch_bind 归口目标 issueNumber 入签名——bind 到不同 issue 是不同操作
+    expect(buildToolSignature("manage_healing_events", { action: "batch_bind", issueNumber: 1398 }))
+      .toBe("manage_healing_events: batch_bind [issue:1398]");
+    expect(buildToolSignature("manage_healing_events", { action: "batch_bind", issueNumber: 1401 }))
+      .not.toBe(buildToolSignature("manage_healing_events", { action: "batch_bind", issueNumber: 1398 }));
+    // bound:N 与 issue:N 是不同参数不同前缀——filterBoundIssue=1015 与 issueNumber=1015 不同签名
+    expect(buildToolSignature("manage_healing_events", { action: "batch_bind", filterBoundIssue: 1015 }))
+      .not.toBe(buildToolSignature("manage_healing_events", { action: "batch_bind", issueNumber: 1015 }));
+    // 时间窗过滤特征：不同窗分批是不同操作
+    expect(buildToolSignature("manage_healing_events", { action: "batch_resolve", filterCreatedBefore: "2026-10-01T00:00:00Z" }))
+      .toBe("manage_healing_events: batch_resolve [before:2026-10-01T00:00:00Z]");
+    expect(buildToolSignature("manage_healing_events", { action: "batch_resolve", filterCreatedAfter: "2026-10-09T00:00:00Z" }))
+      .not.toBe(buildToolSignature("manage_healing_events", { action: "batch_resolve", filterCreatedBefore: "2026-10-01T00:00:00Z" }));
+    // 无效值不入签名
+    expect(buildToolSignature("manage_healing_events", { action: "batch_bind", issueNumber: "NaN" }))
+      .toBe("manage_healing_events: batch_bind");
+  });
+
+  it("eventIds 超 5 个收敛为「前 5 + 计数 + 指纹」——100 ID 不直拼签名（#475 审视补充）", () => {
+    const many = Array.from({ length: 100 }, (_, i) => `evt-20261009-${String(i).padStart(3, "0")}`);
+    const sig = buildToolSignature("manage_healing_events", { action: "resolve", eventIds: many });
+    expect(sig.length).toBeLessThanOrEqual(200);
+    expect(sig).toContain("+95#");
+    // 全量参与指纹：增删任一 ID 换指纹
+    const removed = many.slice(0, 99);
+    expect(buildToolSignature("manage_healing_events", { action: "resolve", eventIds: removed }))
+      .not.toBe(sig);
+    const added = [...many, "evt-extra"];
+    expect(buildToolSignature("manage_healing_events", { action: "resolve", eventIds: added }))
+      .not.toBe(sig);
+    // 同一批 100 ID 重试签名稳定
+    expect(buildToolSignature("manage_healing_events", { action: "resolve", eventIds: [...many] })).toBe(sig);
+    // ≤5 仍直拼
+    expect(buildToolSignature("manage_healing_events", { action: "resolve", eventIds: ["ev-1", "ev-2", "ev-3", "ev-4", "ev-5"] }))
+      .toBe("manage_healing_events: resolve [ev-1,ev-2,ev-3,ev-4,ev-5]");
+  });
+
+  it("超长签名出口 cap 200：截断+指纹，不同超长内容仍可区分（#475 审视补充）", () => {
+    // bash 多段命令拼出超长签名
+    const longBashA = Array.from({ length: 40 }, () => "git status").join(" && ");
+    const sigA = buildToolSignature("bash", { command: longBashA });
+    expect(sigA.length).toBeLessThanOrEqual(200);
+    expect(sigA.endsWith("…") || sigA.includes("#")).toBe(true);
+    const longBashB = Array.from({ length: 39 }, () => "git status").join(" && ");
+    expect(buildToolSignature("bash", { command: longBashB })).not.toBe(sigA);
+  });
+
+  it("register_matter 签名含 title 内容指纹——不同标题不算重复", () => {
+    const a = buildToolSignature("register_matter", { title: "修熔断误报" });
+    const b = buildToolSignature("register_matter", { title: "写特性文档" });
+    const aRetry = buildToolSignature("register_matter", { title: "修熔断误报" });
+    expect(a).toContain("register_matter#");
+    expect(a).not.toBe(b);
+    expect(a).toBe(aRetry);
+    expect(buildToolSignature("register_matter", {})).toBe("register_matter");
+  });
+
+  it("无参查询工具保留名称兜底（设计决策：连续 5 次无参调用正是卡壳目标语义）", () => {
+    expect(buildToolSignature("get_active_participants")).toBe("get_active_participants");
+    expect(buildToolSignature("get_context")).toBe("get_context");
+    expect(buildToolSignature("list_matters", {})).toBe("list_matters");
+    expect(buildToolSignature("list_artifacts")).toBe("list_artifacts");
+  });
 });
 
 describe("ToolCallCircuitBreaker", () => {
@@ -233,6 +365,35 @@ describe("ToolCallCircuitBreaker", () => {
     expect(retry().action).toBe("allow");
     expect(retry().action).toBe("allow");
     // 第 4 次重复解散同一只 → steer
+    expect(retry().action).toBe("steer");
+  });
+
+  it("批量管理操作不同实体不误报——PR 合入/halt/迁移 matter 混合序列 (#475)", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig(),
+      "big-otter",
+      createTestLogger(),
+    );
+
+    for (let i = 1; i <= 6; i++) {
+      expect(cb.check("merge_pr", { prNumber: 1300 + i }).action).toBe("allow");
+      expect(cb.check("halt_otter", { otterId: `ot-${i}` }).action).toBe("allow");
+      expect(cb.check("transition_matter", { matter_id: `M-${i}` }).action).toBe("allow");
+      expect(cb.check("manage_healing_events", { action: "resolve", eventIds: [`ev-${i}`] }).action).toBe("allow");
+    }
+  });
+
+  it("同一实体连续操作仍累计——merge 同一 PR 超限触发 steer (#475 边界)", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({ maxConsecutiveIdentical: 3 }),
+      "big-otter",
+      createTestLogger(),
+    );
+
+    const retry = () => cb.check("merge_pr", { prNumber: 1381 });
+    expect(retry().action).toBe("allow");
+    expect(retry().action).toBe("allow");
+    expect(retry().action).toBe("allow");
     expect(retry().action).toBe("steer");
   });
 });
