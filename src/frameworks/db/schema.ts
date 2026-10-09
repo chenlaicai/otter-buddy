@@ -4,7 +4,11 @@ import type { Logger } from "@usecases/ports/logger";
 
 /**
  * 初始化全部 Schema（幂等，可重复调用）。
- * 所有 CREATE 使用 IF NOT EXISTS，禁止 ALTER TABLE。单事务内执行。
+ * 所有 CREATE 使用 IF NOT EXISTS，单事务内执行。
+ * 存量库补列例外：引入新列时可在建表块之后用「每列独立 try/catch 的 ALTER」幂等补列（先例：
+ * introduced_by_pr / bound_issue / bound_at）——但索引/约束不得写在建表块内：存量库
+ * IF NOT EXISTS no-op 后列尚不存在，会抛 no such column（#1390 事故教训），
+ * 必须排在全部补列之后（同款约束见 migration.ts）。
  *
  * F20260827mgux（#506）后本函数承担双职责：新库建全表 + 老库补缺失表（bootstrap 无条件执行）。
  * ⚠️ 由此产生的约束：破坏性 schema 变更（改列类型/删列）不能只改这里的 CREATE——
@@ -613,9 +617,6 @@ function createHealingEventTables(db: Database.Database): void {
     -- F20260903ah68 S3.5：GateBanner 2s 轮询按 conversation 查 healing（getGateState）——
     -- mimo 审视焦点4：无此索引时每次查询全表扫，healing_events 增长后成性能瓶颈
     CREATE INDEX IF NOT EXISTS idx_healing_events_conversation ON healing_events(conversation_id, error_type, created_at);
-    -- #1271（F20261008hbbd）：归口链查询索引——batch_bind 作用面探测（bound_issue IS NULL）
-    -- 与修复合入后按 issue 收尾（bound_issue = N）都是高频路径，无索引全表扫
-    CREATE INDEX IF NOT EXISTS idx_healing_events_bound_issue ON healing_events(bound_issue);
   `);
 
   // F20260824ax376: 存量数据库迁移——introduced_by_pr 列
@@ -639,6 +640,10 @@ function createHealingEventTables(db: Database.Database): void {
   } catch {
     // 列已存在，忽略
   }
+  // #1271（F20261008hbbd）：归口链查询索引——batch_bind 作用面探测（bound_issue IS NULL）
+  // 与修复合入后按 issue 收尾（bound_issue = N）都是高频路径，无索引全表扫。
+  // 必须放在补列之后：索引在建表块内时存量库（IF NOT EXISTS no-op、列尚不存在）启动即炸
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_healing_events_bound_issue ON healing_events(bound_issue)`);
 }
 
 /** Web 用户已读状态（消息级，与 otter 的 last_read_seq 独立）。
