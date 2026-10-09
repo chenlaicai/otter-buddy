@@ -48,6 +48,8 @@ P1/P2 合入后，产物在中间栏时间轴有了形态化展示（fact 全文
 
 **保留不动**：API 层（`api.linkResource/flagResource/deleteLinkedResource`）——服务端工具（create_linked_resource 等）与中间栏时间轴数据源（getKeyResources → ChatView.linkedResources）仍消费；`activeLinkedRes` 数据流保留（ChatView 消费）。
 
+**⭐星标（userFlagged）链路审计（检视发现 3 精确化）**：字段与 GET 链路（DTO→mapper→LocalLinkedResource）保留，但 `api.flagResource` 前端零调用、agent 侧也无标旗工具（artifact-tools 仅 list_artifacts/update_artifact_status）——flagged 实际成为**只读死数据**（可显示、不可变更）。本 PR 接受此状态：搭档拍板「平时主要海獭间用」已知晓管理入口移除；若未来需要标旗，由 agent 侧工具补写入口（后端 PATCH 端点仍在）。
+
 ## 排查记录
 
 - 删除过程中手滑引入过两个自伤：① ModalsProps 误删重写造成 RestartModal 双实例渲染（双 fetch 抢状态，RestartModal 测试 4 例全挂）——定位 diff 后修；② ctxAction 函数体残留半截。两者均被测试当场抓住，全量回归后干净。
@@ -55,7 +57,7 @@ P1/P2 合入后，产物在中间栏时间轴有了形态化展示（fact 全文
 
 ## 取舍与已知限制
 
-- **⭐星标（userFlagged）UI 入口随 tab 消失**：字段与 API 保留，如未来需要可由时间轴卡补挂（P2 拍板时搭档已知晓此取舍）
+- **⭐星标（userFlagged）UI 入口随 tab 消失**：flagged 成只读死数据（见上文链路审计）——显示链路完整，写入口待未来 agent 工具补
 - **手动添加产物走对话**：搭档侧要记事直接说（海獭 create_linked_resource），与「协作现场=对话+形态化产物」的世界观一致
 - **清理性删除约 300 行**（组件+表单+弹窗+测试），右栏信息密度下降，符合「个体运行态」定位（F20260913ctlv）
 

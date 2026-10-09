@@ -1,7 +1,6 @@
 import { useState, useRef, useCallback, useEffect, memo } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, X, RotateCcw, Check, Users, Folder, Timer, Activity, Square, ClipboardList } from 'lucide-react'
-import { OTTER_GRADIENT } from '../../lib/otter-colors'
+import { Plus, RotateCcw, Users, Folder, Timer, Activity, Square, ClipboardList } from 'lucide-react'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalOtterSession as OtterSession, LocalScheduledTask } from '../../lib/mappers'
 import { sortSessionChain } from '../../lib/session-chain'
 import { OtterAvatar } from '../../components/OtterAvatar'

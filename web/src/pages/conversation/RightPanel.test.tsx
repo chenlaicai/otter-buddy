@@ -17,25 +17,10 @@ import type { LocalConversation as Conversation, LocalOtter as Otter, LocalLinke
 let container: HTMLDivElement
 let root: Root
 
-function makeResource(overrides: Partial<LinkedResource> = {}): LinkedResource {
-  return {
-    id: 'r1',
-    type: 'fact',
-    url: null,
-    title: '',
-    content: '',
-    category: null,
-    flagged: false,
-    auto: false,
-    status: 'active',
-    createdAt: '',
-    ...overrides,
-  }
-}
 
 const noop = () => {}
 
-function renderPanel(resources: LinkedResource[], otters: Otter[] = [], extra: { sessions?: Record<string, OtterSession[]>; invokeStates?: import('../../lib/invoke-tracker').InvokeStates } = {}) {
+function renderPanel(_resources: LinkedResource[], otters: Otter[] = [], extra: { sessions?: Record<string, OtterSession[]>; invokeStates?: import('../../lib/invoke-tracker').InvokeStates } = {}) {
   const conversation = { id: 'c1', title: '测试对话', createdAt: '' } as unknown as Conversation
   const sessions: Record<string, OtterSession[]> = extra.sessions ?? {}
   act(() => {
