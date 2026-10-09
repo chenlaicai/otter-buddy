@@ -37,6 +37,8 @@ describe("重启獭生全链路（F20260805rsto 集成）", () => {
   let gateway: ReturnType<typeof fakeAgentGateway>;
   let memoryTransitions: Array<{ from: string; to: string }>;
   let app: Hono;
+  let manageSession: ManageSession;
+  let createOtter: CreateOtter;
 
   beforeEach(() => {
     db = new Database(":memory:");
@@ -55,8 +57,15 @@ describe("重启獭生全链路（F20260805rsto 集成）", () => {
       }),
     };
 
-    const manageSession = new ManageSession(repo, gateway, conversationQuery, memoryLayer, createTestLogger());
-    const createOtter = new CreateOtter(repo, gateway, createTestLogger());
+    manageSession = new ManageSession(repo, gateway, conversationQuery, memoryLayer, createTestLogger());
+    createOtter = new CreateOtter(repo, gateway, createTestLogger());
+    // F20261009s6ej6：controller 三元兜底删除后必须注入 agentInvoker。本集成测试目标是
+    //  manageSession 层的 restart 业务逻辑（记忆转历史/换世/backfill），stub 直接委托
+    //  manageSession.restartSession 保持被测语义不变（agentInvoker 那层另有专测）。
+    const agentInvokerStub = {
+      restartWithUnifiedHandoff: (otterId: string, params: { selfSummary?: string; modelAlias?: string }) =>
+        manageSession.restartSession(otterId, params.selfSummary, params.modelAlias),
+    };
     const controller = new OtterController(
       createOtter,
       {} as DissolveOtter,
@@ -64,6 +73,10 @@ describe("重启獭生全链路（F20260805rsto 集成）", () => {
       /** restart 控制器会查 otter 类型（小獭拒重启，F20260805rsto），stub 为大獭 */
       { getById: async () => ({ type: "big" }) } as unknown as QueryOtter,
       createTestLogger(),
+      undefined, // configProvider
+      undefined, // queryOtterProfile
+      undefined, // modelPool
+      agentInvokerStub,
     );
     app = new Hono();
     app.post("/api/otters/:id/restart", (c) => controller.restart(c));
@@ -190,5 +203,30 @@ describe("重启獭生全链路（F20260805rsto 集成）", () => {
     const adopted = await repo.getActiveSession(otter.id);
     expect(adopted!.id).toBe("backfilled-by-invoke");
     expect(adopted!.summary).toBe("竞态前情");
+  });
+
+  it("F20261009s6ej6（检视 A1）：agentInvoker 未注入 → 500（服务端装配缺失，非客户端 400）", async () => {
+    const bareController = new OtterController(
+      createOtter,
+      {} as DissolveOtter,
+      manageSession,
+      { getById: async () => ({ type: "big" }) } as unknown as QueryOtter,
+      createTestLogger(),
+      undefined, // configProvider
+      undefined, // queryOtterProfile
+      undefined, // modelPool
+      undefined, // agentInvoker——故意不注入
+    );
+    const bareApp = new Hono();
+    bareApp.post("/api/otters/:id/restart", (c) => bareController.restart(c));
+
+    const res = await bareApp.request("/api/otters/any-id/restart", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(500);
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain("agentInvoker not configured");
   });
 });

@@ -122,7 +122,7 @@ export class SqliteConversationRepository implements ConversationRepository {
       "SELECT conversation_id FROM conversation_otters WHERE otter_id = ?",
     ).all(otterId) as { conversation_id: string }[];
     if (rows.length > 0) return rows.map(r => r.conversation_id);
-    // F20261009rsuf：fallback 查 conversation_participants——小獭经 invite_otter 加入对话
+    // F20261009s6ej6：fallback 查 conversation_participants——小獭经 invite_otter 加入对话
     //  只写 participants 不写 conversation_otters（两表数据不一致的历史遗留），导致
     //  resolveFirstConversationId 找不到对话 → restartWithUnifiedHandoff 降级 bare restart
     //  → 无系统消息（搭档点小獭重启獭生按钮没有 ⏳/✅ 反馈的根因）。

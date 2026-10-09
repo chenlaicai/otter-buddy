@@ -11,7 +11,7 @@ import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import type { AgentInvoker } from "../../agent-runtime/agent-invoker";
 import { HANDOFF_SYNTHESIZE_PAST_DEFAULT } from "../../agent-runtime/agent-invoker";
-import { handleError, param } from "../http-error";
+import { handleError, HttpError, param } from "../http-error";
 import { safeJsonBody } from "../parse-json-body";
 import { toOtterDTO, toOtterSessionDTO } from "../dto/otter-dto";
 import type { CreateOtterRequestDTO } from "../dto/otter-dto";
@@ -125,11 +125,12 @@ export class OtterController {
       }
       // F20260920uhuc：统一交接管线——synthesizePast 透传（缺省 true，向后兼容旧客户端）；
       // 忙碌（running invoke）拒绝 409（DomainError conflict 映射）；合成失败降级机械档案
-      // F20261009rsuf：三元兜底删除——agentInvoker 未注入时不再静默降级 manageSession.restartSession
-      //  （裸路径不发系统消息，重启入口分裂为两条路的根因）。生产装配始终注入；测试装配缺省时
-      //  显式报错而非悄悄走无消息路径。
+      // F20261009s6ej6（检视 A1）：三元兜底删除——agentInvoker 未注入时不再静默降级
+      //  manageSession.restartSession（裸路径不发系统消息，重启入口分裂为两条路的根因）。
+      //  用 HttpError 500 而非 DomainError「validation」（→400）：服务端装配缺失是服务端错误，
+      //  与同控制器 getProfile 缺配置返 501 同口径（非客户端语义）。
       if (!this.agentInvoker) {
-        throw new DomainError("Restart service unavailable: agentInvoker not configured", "validation");
+        throw new HttpError("Restart service unavailable: agentInvoker not configured", 500);
       }
       const session = await this.agentInvoker.restartWithUnifiedHandoff(id, {
         selfSummary: body.summary,

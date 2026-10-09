@@ -119,7 +119,7 @@ describe("SqliteConversationRepository - 对话基础操作", () => {
       expect(result).toBeNull();
     });
 
-    it("F20261009rsuf：conversation_otters 无记录时 fallback 查 conversation_participants", async () => {
+    it("F20261009s6ej6：conversation_otters 无记录时 fallback 查 conversation_participants", async () => {
       // Why：小獭经 invite_otter 加入对话只写 participants 不写 conversation_otters（历史遗留），
       //  导致 restartWithUnifiedHandoff 的 resolveFirstConversationId 找不到对话 → 裸重启无系统消息。
       insertOtter(db, "otter-1");
@@ -134,7 +134,7 @@ describe("SqliteConversationRepository - 对话基础操作", () => {
       expect(ids).toEqual(["conv-1"]);
     });
 
-    it("F20261009rsuf：两表都有记录时优先 conversation_otters，不重复", async () => {
+    it("F20261009s6ej6：两表都有记录时优先 conversation_otters，不重复", async () => {
       insertOtter(db, "otter-1");
       await repo.create(conversationFixture(), ["otter-1"]);
       db.prepare(`
@@ -146,7 +146,7 @@ describe("SqliteConversationRepository - 对话基础操作", () => {
       expect(ids).toEqual(["conv-1"]); // 去重，不返回两次
     });
 
-    it("F20261009rsuf：participants 中 left 状态不返回（只认 active）", async () => {
+    it("F20261009s6ej6：participants 中 left 状态不返回（只认 active）", async () => {
       insertOtter(db, "otter-1");
       await repo.create(conversationFixture());
       db.prepare(`

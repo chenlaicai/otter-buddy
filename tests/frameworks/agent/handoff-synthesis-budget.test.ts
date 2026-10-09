@@ -30,8 +30,8 @@ function makeMessages(count: number, charsEach: number) {
   }));
 }
 
-describe("synthesisFullBudgetChars（F20260924swin 夹逼定标 + F20261009rsuf 262K 档重新定标）", () => {
-  it("262K 窗口 → 138,788 chars（最小失败 173,485 × 0.8，2026-10-09 4 例真实失败样本）", () => {
+describe("synthesisFullBudgetChars（F20260924swin 夹逼定标 + F20261009s6ej6 262K 档重新定标）", () => {
+  it("262K 窗口 → 138,788 chars（最小失败 173,485 × 0.8，2026-10-09 7 例真实失败样本）", () => {
     expect(synthesisFullBudgetChars(262_144)).toBe(138_788);
   });
   it("1M 窗口 → 726,752 chars（分档定标，不再跨窗口线性缩放——两档密度不对称）", () => {
@@ -176,7 +176,7 @@ describe("buildNarrativeSynthesisPrompt 集成裁剪（F20260923hsyn + F20260924
     expect(trimLog!.promptChars).toBe(prompt.length);
   });
 
-  it("F20261009rsuf 不误裁边界：12 万 chars（< 预算 138,788）→ dropped=0", () => {
+  it("F20261009s6ej6 不误裁边界：12 万 chars（< 预算 138,788）→ dropped=0", () => {
     const msgs = makeMessages(5, 22_000); // ≈11 万 chars
     let trimLog: { droppedCount: number } | undefined;
     buildNarrativeSynthesisPrompt({
