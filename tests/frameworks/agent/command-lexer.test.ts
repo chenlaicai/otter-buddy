@@ -132,8 +132,6 @@ describe("command-lexer golden token 流", () => {
       expect(toSnapshot('echo $"x"')).toContain("w?(unknown)");
     });
   });
-
-  describe("#1374（F20261009qdlq）：双引号内 $ 紧邻闭引号的 raw-quote 回退", () => {
     // $" 歧义：① locale 引用 $\"...\"（有配对闭引号）；② $ 正则锚定 + 词闭引号
     // （grep \"^npm|^$\"）。greedy indexOf 把②误判为①未闭合 → 连带外层引号 fail →
     // parseOk=false → cd 豁免退化误拦（issue 4 连拦实证）。回退：闭引号后词尾内无
@@ -268,5 +266,6 @@ describe("command-lexer golden token 流", () => {
       expect(r.parseOk).toBe(true);
       expect(dt).toBeLessThan(30);
     });
-  });
 });
+
+describe("#1374（F20261009qdlq）：双引号内 $ 紧邻闭引号的 raw-quote 回退", () => {
