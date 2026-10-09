@@ -1,0 +1,979 @@
+{
+  "generatedAt": "2026-10-09T04:22:40.063Z",
+  "dbPath": "/Users/orca/ai/otter-buddy/data/otter-buddy.db",
+  "counts": {
+    "synthetic": 49,
+    "replay": 5,
+    "ledger": 67
+  },
+  "samples": [
+    {
+      "id": "c001",
+      "command": "cd /repo/.otter/worktrees/wt && echo x > out.txt",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "redirect→wt 放行"
+    },
+    {
+      "id": "c002",
+      "command": "cd /repo/.otter/worktrees/wt && echo x >> log.txt",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "append→wt"
+    },
+    {
+      "id": "c003",
+      "command": "echo x > /repo/hacked.txt",
+      "expect": "BLOCK",
+      "verdict": "BLOCK",
+      "source": "synthetic",
+      "note": "redirect→主仓 拦"
+    },
+    {
+      "id": "c004",
+      "command": "cat a > /tmp/f",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "redirect→tmp"
+    },
+    {
+      "id": "c005",
+      "command": "echo x > $TARGET",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": "UNEVAL_UNKNOWN",
+      "source": "synthetic",
+      "note": "动态目标回落"
+    },
+    {
+      "id": "c006",
+      "command": "grep -r pattern src/ > /repo/report.txt",
+      "expect": "BLOCK",
+      "verdict": "BLOCK",
+      "source": "synthetic",
+      "note": "读命令重定向主仓（S4 亲历族）"
+    },
+    {
+      "id": "c007",
+      "command": "cd /repo/.otter/worktrees/wt && touch a.txt b.txt",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "touch→wt"
+    },
+    {
+      "id": "c008",
+      "command": "cp x /repo/data/secret",
+      "expect": "BLOCK",
+      "verdict": "BLOCK",
+      "source": "synthetic",
+      "note": "cp→主仓"
+    },
+    {
+      "id": "c009",
+      "command": "cd /repo/.otter/worktrees/wt && cp a b",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "cp wt 内"
+    },
+    {
+      "id": "c010",
+      "command": "tee /repo/x < input",
+      "expect": "BLOCK",
+      "verdict": "BLOCK",
+      "source": "synthetic",
+      "note": "tee→主仓"
+    },
+    {
+      "id": "c011",
+      "command": "cd /repo/.otter/worktrees/wt && tee out.log < in.log",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "tee→wt"
+    },
+    {
+      "id": "c012",
+      "command": "cd /repo/.otter/worktrees/wt && mv old new",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "mv wt 内"
+    },
+    {
+      "id": "c013",
+      "command": "mv f /repo/data/f",
+      "expect": "BLOCK",
+      "verdict": "BLOCK",
+      "source": "synthetic",
+      "note": "mv→主仓"
+    },
+    {
+      "id": "c014",
+      "command": "cd /repo/.otter/worktrees/wt && mkdir -p sub/deep",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "mkdir→wt"
+    },
+    {
+      "id": "c015",
+      "command": "mkdir -p /repo/data/newdir",
+      "expect": "BLOCK",
+      "verdict": "BLOCK",
+      "source": "synthetic",
+      "note": "mkdir→主仓"
+    },
+    {
+      "id": "c016",
+      "command": "cd /repo/.otter/worktrees/wt && git commit -m x",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "git→wt"
+    },
+    {
+      "id": "c017",
+      "command": "cd /repo/.otter/worktrees/wt && git add -A && git commit -F /tmp/msg.txt",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "git 链 wt"
+    },
+    {
+      "id": "c018",
+      "command": "git -C /repo commit -m x",
+      "expect": "BLOCK",
+      "verdict": "BLOCK",
+      "source": "synthetic",
+      "note": "#1363 灰区正例"
+    },
+    {
+      "id": "c019",
+      "command": "cd /repo/.otter/worktrees/wt && git push origin HEAD",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "push from wt"
+    },
+    {
+      "id": "c020",
+      "command": "cd /repo && git commit -m x",
+      "expect": "BLOCK",
+      "verdict": "BLOCK",
+      "source": "synthetic",
+      "note": "BC-1 主仓 cwd commit"
+    },
+    {
+      "id": "c021",
+      "command": "cd /repo/.otter/worktrees/wt && git status && git log --oneline -3",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "git 读族无落点"
+    },
+    {
+      "id": "c022",
+      "command": "cd /repo/.otter/worktrees/wt && git rebase -i HEAD~2",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "rebase wt"
+    },
+    {
+      "id": "c023",
+      "command": "W=/repo/.otter/worktrees/wt; cd $W && git commit -m x",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "同命令赋值溯源→wt"
+    },
+    {
+      "id": "c024",
+      "command": "W=/repo; cd $W && git commit -m x",
+      "expect": "BLOCK",
+      "verdict": "BLOCK",
+      "source": "synthetic",
+      "note": "同命令赋值溯源→主仓"
+    },
+    {
+      "id": "c025",
+      "command": "cd $WT && git commit -m x",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": "UNEVAL_UNKNOWN",
+      "source": "synthetic",
+      "note": "BC-5 父 shell 环境变量回落"
+    },
+    {
+      "id": "c026",
+      "command": "cd /repo/.otter/worktrees/wt & touch /repo/x",
+      "expect": "BLOCK",
+      "verdict": "BLOCK",
+      "source": "synthetic",
+      "note": "& 后段继承主仓 cwd"
+    },
+    {
+      "id": "c027",
+      "command": "pushd /repo && touch x",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": "UNEVAL_UNKNOWN",
+      "source": "synthetic",
+      "note": "pushd 回落"
+    },
+    {
+      "id": "c028",
+      "command": "cd /repo/../elsewhere && touch x",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": "UNEVAL_UNKNOWN",
+      "source": "synthetic",
+      "note": ".. 爬升保守回落"
+    },
+    {
+      "id": "c029",
+      "command": "cd /repo/.otter/worktrees/wt && cd sub && touch f",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "链式 cd"
+    },
+    {
+      "id": "c030",
+      "command": "python3 -c \"open('/repo/data/x','w').write('hi')\"",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": "UNEVAL_UNKNOWN",
+      "source": "synthetic",
+      "note": "审视 S1 锚点回落"
+    },
+    {
+      "id": "c031",
+      "command": "node -e \"require('fs').writeFileSync('/repo/x','1')\"",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": "UNEVAL_UNKNOWN",
+      "source": "synthetic",
+      "note": "载荷族回落"
+    },
+    {
+      "id": "c032",
+      "command": "python3 -c \"print(open('a.txt').read())\"",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": "UNEVAL_UNKNOWN",
+      "source": "synthetic",
+      "note": "只读载荷也回落（行为不变）"
+    },
+    {
+      "id": "c033",
+      "command": "cd /repo/.otter/worktrees/wt && node -e \"console.log(1)\"",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": "UNEVAL_UNKNOWN",
+      "source": "synthetic",
+      "note": "wt 内载荷仍回落（行为不变）"
+    },
+    {
+      "id": "c034",
+      "command": "bash -c 'touch /repo/x'",
+      "expect": "BLOCK",
+      "verdict": "BLOCK",
+      "source": "synthetic",
+      "note": "bash-c 递归命中主仓"
+    },
+    {
+      "id": "c035",
+      "command": "bash -c 'cd /repo/.otter/worktrees/wt && touch a'",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "bash-c 递归 wt"
+    },
+    {
+      "id": "c036",
+      "command": "echo $(date) > /tmp/f",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "cmdsub 在读侧，落点 tmp"
+    },
+    {
+      "id": "c037",
+      "command": "cd $(dirname x)/../main && touch y",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": "UNEVAL_UNKNOWN",
+      "source": "synthetic",
+      "note": "BC-6 cmdsub 变形回落"
+    },
+    {
+      "id": "c038",
+      "command": "W=/repo/.otter/worktrees/wt; cd $W/../.. && touch foo",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": "UNEVAL_UNKNOWN",
+      "source": "synthetic",
+      "note": "负门：$W/.. 爬升回落（§3.1）"
+    },
+    {
+      "id": "c039",
+      "command": "W=/repo/.otter/worktrees/wt; cd $W/../../../main && touch foo",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": "UNEVAL_UNKNOWN",
+      "source": "synthetic",
+      "note": "负门：$W/../../../main 深爬升回落（§3.1 逃逸形态原样）"
+    },
+    {
+      "id": "c040",
+      "command": "W=/repo/.otter/worktrees/wt; cd $W/sub && touch foo",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": "UNEVAL_UNKNOWN",
+      "source": "synthetic",
+      "note": "负门：$W/字面后缀拼接回落（非纯 $VAR 词）"
+    },
+    {
+      "id": "c041",
+      "command": "cd /repo/.otter/worktrees/wt/.. && touch foo",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": "UNEVAL_UNKNOWN",
+      "source": "synthetic",
+      "note": "负门：evaluated 含 .. 回落"
+    },
+    {
+      "id": "c042",
+      "command": "touch /repo/data/.otter/worktrees/decoy/f",
+      "expect": "BLOCK",
+      "verdict": "BLOCK",
+      "source": "synthetic",
+      "note": "负门：嵌套 decoy 非主仓 worktree 区（§3.3）"
+    },
+    {
+      "id": "c043",
+      "command": "echo x > /repo/data/.otter/worktrees/decoy/f",
+      "expect": "BLOCK",
+      "verdict": "BLOCK",
+      "source": "synthetic",
+      "note": "负门：decoy 重定向拦（§3.3）"
+    },
+    {
+      "id": "c044",
+      "command": "echo \"unclosed",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": "UNEVAL_UNKNOWN",
+      "source": "synthetic",
+      "note": "parse-failed 回落"
+    },
+    {
+      "id": "c045",
+      "command": "git commit -m \"msg with $(cat f)\"",
+      "expect": "BLOCK",
+      "verdict": "BLOCK",
+      "source": "synthetic",
+      "note": "cmdsub 在引文数据侧不影响 git 落点=cwd；shadow 首跑旧链也拦，期望修正为 BLOCK"
+    },
+    {
+      "id": "c046",
+      "command": "cd /repo/.otter/worktrees/wt && bash - <<'EOF'\ntouch a.txt\nEOF",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "bash heredoc 递归 wt"
+    },
+    {
+      "id": "c047",
+      "command": "bash - <<'EOF'\ntouch /repo/x\nEOF",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "裸定界体=数据（模型层不递归，#1171 口径）旧链放行，求值器同口径放行=行为不变；写主仓裸体现状放行属守卫已知洞非本层变更"
+    },
+    {
+      "id": "c048",
+      "command": "ls -la && git status",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "纯读空集"
+    },
+    {
+      "id": "c049",
+      "command": "cd /repo/.otter/worktrees/wt && cat f.txt | grep x | wc -l",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "管道读族"
+    },
+    {
+      "id": "c050",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/invoke-periodic-audit && F=web/src/pages/conversation/index.tsx && cp $F /tmp/bak.tsx",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": "UNEVAL_UNKNOWN",
+      "source": "replay-928",
+      "note": "E1 现场：cp $F 动态源——源动态不影响落点判定，cp 落点 /tmp 放行（但 $F 在 words evaluated 为 null → dynamic-path 回落，行为不变）"
+    },
+    {
+      "id": "c051",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/capability-entries-bridge && git stash push -- tests/capability/helpers/audit-fixtures.ts",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "replay-928",
+      "note": "E3 现场"
+    },
+    {
+      "id": "c052",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/guard-v2-redesign && git add -A && git commit -F /tmp/commit-p3.txt 2>&1 | tail -5",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "replay-928",
+      "note": "E4 #1170 主形态"
+    },
+    {
+      "id": "c053",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/guard-v2-redesign && git checkout main -- src/x.ts",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "replay-928",
+      "note": "checkout 非写族词表：求值器无落点放行=旧行为；shadow 首跑归因后修正"
+    },
+    {
+      "id": "c054",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/wx-bridge && rm -rf node_modules/.cache && npm run build",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "replay-928",
+      "note": "rm/npm 非本层判定（data_destructive 层）；求值器无落点放行=旧行为；shadow 首跑归因后修正"
+    },
+    {
+      "id": "c055",
+      "command": "git push -u origin feat/otter-quest-rpg 2>&1 | tail -3",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c056",
+      "command": "git add docs/features/2026/10/09/F20261009oqtd-otter-quest-rpg-game.md docs/review/F20261009oqtd-initial-disposition.md",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c057",
+      "command": "head -5 prompts/scheduled/daily-health-check.md; echo ===; node -e \"\nconst fs=require('fs');\nconst c=fs.readFileSync('pr",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c058",
+      "command": "git push -u origin fix/1374-quoted-dollar-locale 2>&1 | tail -3",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c059",
+      "command": "git add src/frameworks/agent/command-lexer.ts tests/frameworks/agent/command-lexer.test.ts tests/frameworks/agent/bash-s",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c060",
+      "command": "rm -rf dist-probe && git add src/frameworks/agent/command-lexer.ts tests/frameworks/agent/command-lexer.test.ts tests/fr",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c061",
+      "command": "cat > docs/features/2026/10/09/F20261009qdlq-lexer-quoted-dollar-rawquote.md <<'FDOC'\n---\nid: F20261009qdlq\ntitle: \"命令词法",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c062",
+      "command": "npx tsc -p . --outDir dist-probe 2>&1 | tail -3 && node -e \"\nimport('./dist-probe/src/frameworks/agent/command-model.js'",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c063",
+      "command": "ls dist/src/frameworks/agent/command-model.js 2>/dev/null && node -e \"\nconst { parseOnce } = require('./dist/src/framewo",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c064",
+      "command": "python3 -c \"\nimport json\npath='/Users/orca/ai/otter-buddy/data/sessions/2026-10-08T02-37-51-558Z_01a1195f-ce46-778d-ba1b",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c065",
+      "command": "cd /tmp && export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t && LINT=/tmp/histl",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c066",
+      "command": "R1=$(head -1 /tmp/r1.txt) && node -e \"\nconst { createHash } = require('crypto');\nconst fs = require('fs');\nconst token =",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c067",
+      "command": "set -e\nexport GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t\nLINT=/tmp/lint-hist-ne",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c068",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/guard-write-target-evaluator && rm -f tests/tmp-probe-gwte.test.ts && ech",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c069",
+      "command": "git push origin fix/1309-dynamic-path-veto 2>&1",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c070",
+      "command": "git push origin fix/1309-dynamic-path-veto && gh pr checks 1382 --watch --interval 30 2>&1 | tail -6",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c071",
+      "command": "cat > /tmp/commit-msg-1309-delta.txt <<'EOF'\n[F20261009dpve][guard][BugFix] 检视 r1 处置：多 heredoc 混合正道误拦修复（P1）\n\n- scriptHer",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c072",
+      "command": "cd /Users/orca/ai/others/colink/.otter/worktrees/feat-dm-history-drawer/dev/backend && node -e \"\nconst jwt = require('js",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c073",
+      "command": "cat > /tmp/probe-1382.mts << 'PROBE'\nimport { checkBashCommandSafety } from \"/Users/orca/ai/otter-buddy/.otter/worktrees",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c074",
+      "command": "cd /Users/orca/ai/others/colink/.otter/worktrees/feat-dm-history-drawer/dev/backend && PORT=31030 DB_USER=root DB_PASSWO",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=sleep_block（期望待人工裁决）"
+    },
+    {
+      "id": "c075",
+      "command": "git -C /Users/orca/ai/otter-buddy/.otter/worktrees/fix-1309-dynamic-path-veto rebase origin/main",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c076",
+      "command": "git fetch origin main && git rebase origin/main && git status --short && git log --oneline -3",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c077",
+      "command": "git fetch origin main && git rebase origin/main && git status --short",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c078",
+      "command": "grep -rn \"bcrypt\" /Users/orca/ai/others/colink/dev/backend/package.json | head -2; HASH=$(mysql -uroot -proot echo_offic",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c079",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/guard-write-target-evaluator && python3 -c \"\np = 'scripts/build-write-XXX",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c080",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/workforms-retire && git commit --author=\"大獭 <otter-buddy>\" -F /tmp/csf3-commit-msg.",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c081",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/workforms-retire && git commit --author=\"大獭 <otter-buddy>\" -m \"[F20261009csf3][web]",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c082",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/guard-write-target-evaluator && python3 -c \"\nimport json\nd = json.load(op",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c083",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/workforms-retire && node -e \"\nconst fs=require('fs');\nconst p='web/src/pages/conver",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c084",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/workforms-retire && node -e \"\nconst fs = require('fs');\nconst p = 'web/src/pages/co",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c085",
+      "command": "mv ~/Desktop/ai-radar ~/.Trash/ai-radar-$(date +%s) && ls ~/Desktop/ai-radar 2>&1 | head -1",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=data_destructive（期望待人工裁决）"
+    },
+    {
+      "id": "c086",
+      "command": "rm -rf ~/Desktop/ai-radar && ls ~/Desktop/ | grep -c \"ai-radar\" || echo \"已删除，桌面上无残留\"",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=data_destructive（期望待人工裁决）"
+    },
+    {
+      "id": "c087",
+      "command": "node -e \"const p=require('./node_modules/@earendil-works/pi-coding-agent/package.json'); console.log('exports:', JSON.st",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c088",
+      "command": "for id in F20261008mlp3 F20261006obsv F20260929svfy F20260929rdsp; do f=$(find docs/features -name \"${id}*\" | head -1);",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c089",
+      "command": "cd ~/ai/others/colink && rm -rf .otter/worktrees/feat-dm-message-ops/dev/frontend/node_modules .otter/worktrees/feat-dm-",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=data_destructive（期望待人工裁决）"
+    },
+    {
+      "id": "c090",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/radar-persist && node -e \"\nconst title = '[F20261009rdps][Refactor] AI 雷达",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c091",
+      "command": "python3 -c \"import ast; ast.parse(open('fetch_anthropic.py').read()); print('py syntax OK')\" && node --check scan.mjs &&",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c092",
+      "command": "gh issue view 1305 --json state --jq '.state' 2>&1; gh issue comment 1305 --body \"进程名规则误拦新实证 ×2（2026-10-09 self-healing",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c093",
+      "command": "node /tmp/guard-probe3.mjs 2>&1 | grep -E \"BLOCKED|^\\[\" | head -10; echo \"===\"; cat > /tmp/guard-probe4.mjs << 'PREG'\n//",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c094",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/playable-forms/web && node -e \"\n// 三个围栏连续写（无空行分隔）时 markdown 是否解析成三个独立 cod",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c095",
+      "command": "cd /Users/orca/ai/otter-buddy && sleep 45; gh pr checks 1373 2>&1 | head -8; gh pr view 1373 --json mergeable,state --jq",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=sleep_block（期望待人工裁决）"
+    },
+    {
+      "id": "c096",
+      "command": "git -C /Users/orca/ai/otter-buddy/.otter/worktrees/playable-forms merge origin/main --no-edit 2>&1 | tail -2 && git -C /",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c097",
+      "command": "git checkout main 2>&1 | tail -1 && git worktree add .otter/worktrees/playable-forms feat/playable-forms 2>&1 | tail -1",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c098",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/fix-1274-doc-id-dup && sleep 45 && gh run list --branch fix/1274-doc-id-d",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=sleep_block（期望待人工裁决）"
+    },
+    {
+      "id": "c099",
+      "command": "kill -0 41140 2>/dev/null && echo \"实例存活\" ; cd .otter/worktrees/scroll-f1-fix && bash scripts/alpha.sh stop 2>&1 | tail -",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=script_file_exec（期望待人工裁决）"
+    },
+    {
+      "id": "c100",
+      "command": "python3 -c \"\nimport datetime, collections\nc = collections.Counter()\nwith open('/Users/orca/ai/otter-buddy/data/workspace",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c101",
+      "command": "grep '\"msg\":\"SDK compaction failed\"' data/logs/otter-buddy.log | python3 -c \"\nimport sys,json,collections\nc=collections.",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c102",
+      "command": "cd .otter/worktrees/fix-1308-cat-pipe-heredoc && node -e \"const p = require('./dist/src/frameworks/agent/compiled-patter",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c103",
+      "command": "python3 -c \"\nfrom lunardate import LunarDate\nfrom datetime import date, timedelta\n\ntoday = date(2026, 10, 9)\ntargets = {",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c104",
+      "command": "cd ~/ai/others/colink/dev/backend && nohup env $(grep -vE \"^#|^$\" ~/ai/others/colink/data/.env | tr '\\n' ' ') node dist/",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=sleep_block（期望待人工裁决）"
+    },
+    {
+      "id": "c105",
+      "command": "git push origin --delete feature/healing-batch-bind-1271",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c106",
+      "command": "git push origin --delete feature/healing-batch-bind-1271 2>&1 | tail -2",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c107",
+      "command": "git -c http.proxy= -c https.proxy= push origin --delete feature/healing-batch-bind-1271 2>&1 | tail -2; echo ---; git wo",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c108",
+      "command": "git worktree remove /Users/orca/ai/otter-buddy/.otter/worktrees/healing-batch-bind-1271 && git branch -D feature/healing",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c109",
+      "command": "cd .otter/worktrees/scroll-f1-fix && sleep 20 && gh pr checks 1367 2>&1 | head -6",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-09 ruleId=sleep_block（期望待人工裁决）"
+    },
+    {
+      "id": "c110",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/guard-dual-consistency && git show origin/main:prompts/scheduled/daily-he",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-08 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c111",
+      "command": "sleep 30; cd /Users/orca/ai/otter-buddy/.otter/worktrees/guard-dual-consistency && gh pr checks 1368 2>&1 | head -5",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-08 ruleId=sleep_block（期望待人工裁决）"
+    },
+    {
+      "id": "c112",
+      "command": "cd .otter/worktrees/fix-1308-cat-pipe-heredoc && git commit -F msg-1308.txt 2>&1 | grep -vE \"^npm|^$\" | head -5 && git l",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-08 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c113",
+      "command": "cd .otter/worktrees/fix-1308-cat-pipe-heredoc && cp ../../data/workspaces/d7377cfd-8497-4338-9fb5-366967ffe87e/commit-ms",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-08 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c114",
+      "command": "cd .otter/worktrees/fix-1308-cat-pipe-heredoc && git commit --author=\"大獭 <otter-buddy>\" -F ../../data/workspaces/d7377cf",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-08 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c115",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/fix-1308-cat-pipe-heredoc && git commit --author=\"大獭 <otter-buddy>\" -F ..",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-08 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c116",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/fix-1308-cat-pipe-heredoc && git commit --author=\"大獭 <otter-buddy>\" -m \"[",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-08 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c117",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/healing-batch-bind-1271 && cp src/interface-adapters/agent-runtime/tools/",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-08 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c118",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/guard-dual-consistency && python3 -c \"\np = 'src/frameworks/agent/bash-saf",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-08 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c119",
+      "command": "node -e \"\nconst { chromium } = require('/Users/orca/ai/otter-buddy/.otter/worktrees/collab-scene-forms/web/node_modules/",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-08 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c120",
+      "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/collab-scene-forms/web && node -e \"\nconst { chromium } = require('playwri",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-08 ruleId=main_write（期望待人工裁决）"
+    },
+    {
+      "id": "c121",
+      "command": "git push origin --delete fix/guard-dual-chain-unify 2>&1 | tail -2",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": null,
+      "source": "ledger",
+      "note": "台账 2026-10-08 ruleId=main_write（期望待人工裁决）"
+    }
+  ]
+}
