@@ -9,6 +9,8 @@ dynamic: true
 
 ## 处置权检查（前置，口径协议）
 
+**high severity 硬规则**：severity 为 high 的 open 事件**必须** bind_issue 归口到 GitHub issue（逐条处置、写明修复方案），不得直接 dismiss/resolve——high 是升级信号（守卫变体重试计数升级产出），静默处置会让「正当诉求无出路」的信号消失。确属误报时须先建 issue 说明误判理由、bind 后才能在 issue 内讨论关闭。
+
 处置任何 open 事件前，先检查其是否已被其他任务处置过口径：
 - 事件关联了 daily-review issue（resolutionNotes 引用 issue 编号 / issue body 内含该事件证据）→ **不重复处置、不推翻**——首个消费它的任务（通常是 9:00 健康检查）拥有处置权；发现其处置存疑时，在对应 issue 评论说明，**不改事件状态**
 - **原子性兑底**：若事件仍 open 但 `created_at` 时间早于今日 09:00 且无 resolutionNotes，先查今日 daily-review open issue 的 body 是否含该事件的 messageId（事件证据）→ 命中说明 9:00 任务已写入证据但 resolve 失败，在对应 issue 评论注明后**由本任务代为 resolve**（resolutionNotes 引用 issue 编号 + 代resolve说明）→ 无命中则按下方步骤正常处置

@@ -65,6 +65,32 @@ describe('healingAlertRegistry 纯逻辑', () => {
     expect(got[0].eventId).toBe('e5'); // 最旧的 e0-e4 被丢弃
     expect(got[19].eventId).toBe('e24');
   });
+
+  it('F20261008hcpa 审视建议 B：enqueueBatchAggregated ≤上限逐条保留', () => {
+    const alerts = Array.from({ length: 20 }, (_, i) => ({ eventId: `e${i}`, conversationId: 'conv-1', otterId: 'o1', errorType: 't', description: `d${i}`, createdAt: 't' }));
+    healingAlertRegistry.enqueueBatchAggregated('conv-1', alerts);
+    const got = healingAlertRegistry.takeAll('conv-1');
+    expect(got).toHaveLength(20);
+    expect(got[0].eventId).toBe('e0'); // 不丢第一条
+    expect(got[19].eventId).toBe('e19');
+  });
+
+  it('F20261008hcpa 审视建议 B：enqueueBatchAggregated 超限聚合成单条摘要（不静默丢）', () => {
+    const alerts = [
+      ...Array.from({ length: 12 }, (_, i) => ({ eventId: `a${i}`, conversationId: 'conv-1', otterId: 'o1', errorType: 'tool_failure', description: 'd', createdAt: 't' })),
+      ...Array.from({ length: 9 }, (_, i) => ({ eventId: `b${i}`, conversationId: 'conv-1', otterId: 'o1', errorType: '检索缺失', description: 'd', createdAt: 't' })),
+    ]; // 21 > 20：超限
+    healingAlertRegistry.enqueueBatchAggregated('conv-1', alerts);
+    const got = healingAlertRegistry.takeAll('conv-1');
+    expect(got).toHaveLength(1); // 聚合为单条
+    expect(got[0].description).toContain('超限聚合');
+    expect(got[0].description).toContain('21 条');
+    expect(got[0].description).toContain('tool_failure×12');
+    expect(got[0].description).toContain('检索缺失×9');
+    expect(got[0].description).toContain('a0'); // ids 全量可见
+    expect(got[0].description).toContain('b8');
+    expect(got[0].description).toContain('manage_healing_events'); // 指引查台账全量
+  });
 });
 
 describe('interceptHealingReport C3 高危路由', () => {

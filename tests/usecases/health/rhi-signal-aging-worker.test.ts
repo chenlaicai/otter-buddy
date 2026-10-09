@@ -38,6 +38,7 @@ function makeDeps(): { repo: SignalRepository; healing: HealingEventRepository &
     },
     async getStats() { return { total: events.length, open: events.filter(e => e.status === "open").length } as never; },
     async autoStaleDismiss() { return 0; },
+    async ageOutHighAndNotify() { return []; },
     async batchResolveByFilter() { return { matched: 0, resolved: 0, resolvedIds: [] }; },
     async countByFilter() { return 0; },
   };

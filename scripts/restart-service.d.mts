@@ -34,3 +34,15 @@ export interface ResolvePortEntryErr {
 }
 
 export declare function resolvePortEntry(input: ResolvePortEntryInput): ResolvePortEntryOk | ResolvePortEntryErr;
+
+/** F20261008hcpa（#1356 层2 疏通）：kill-by-pid 静态校验入参 */
+export interface KillByPidCheckInput {
+  pid: number;
+  projectDir: string | null;
+  mainPid: number | null;
+  selfPid: number;
+  selfPpid: number;
+  allowedRoot: string;
+}
+
+export declare function assertKillByPidSafe(input: KillByPidCheckInput): ResolvePortEntryOk | ResolvePortEntryErr;
