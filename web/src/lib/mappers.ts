@@ -183,6 +183,11 @@ export interface LocalLinkedResource {
   category: string | null
   flagged: boolean
   auto: boolean
+  /** F20261008csf1 P1：产物状态（active 才混排——superseded/archived 是退役产物，
+   *  与继任者并排出现会误导「存在两个现行 PR」，检视发现 4） */
+  status: 'active' | 'superseded' | 'archived'
+  /** F20261008csf1 P1：登记时间——中间栏产物卡按时间轴混排的定位依据 */
+  createdAt?: string
 }
 
 /** 前端本地 OtterSession 类型 */
@@ -314,6 +319,9 @@ export function mapLinkedResourceDTO(dto: LinkedResourceDTO): LocalLinkedResourc
     category: dto.category,
     flagged: dto.userFlagged,
     auto: dto.autoLinked,
+    // F20261008csf1 P1：登记时间透出（产物卡混排时间轴定位）
+    createdAt: dto.createdAt,
+    status: dto.status,
   }
 }
 

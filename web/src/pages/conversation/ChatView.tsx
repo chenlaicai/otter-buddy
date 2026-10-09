@@ -1,6 +1,6 @@
 import { type RefObject } from 'react'
 import { Archive, ShieldAlert } from 'lucide-react'
-import type { LocalConversation as Conversation, LocalOtter as Otter, LocalMessage as Message } from '../../lib/mappers'
+import type { LocalConversation as Conversation, LocalOtter as Otter, LocalMessage as Message, LocalLinkedResource as LinkedResource } from '../../lib/mappers'
 import type { CardPreview } from './hooks/useCardBridge'
 import { MessageList } from './MessageList'
 import { MessageInput } from './MessageInput'
@@ -28,6 +28,8 @@ interface ChatViewProps {
   highlightMessageId?: string | null
   /** 用户在设置中配置的称呼 */
   userName?: string
+  /** F20261008csf1 P1：文类产物摘要卡数据源 */
+  linkedResources?: LinkedResource[]
   /** 卡片提交待确认预览（输入框上方单槽位） */
   cardPreview?: CardPreview | null
   onConfirmCard?: () => void
@@ -101,6 +103,7 @@ export function ChatView(props: ChatViewProps) {
         unreadSeparatorSeq={props.unreadSeparatorSeq}
         highlightMessageId={props.highlightMessageId}
         userName={props.userName}
+        linkedResources={props.linkedResources}
       />
 
       {/* 卡片提交预览槽位（强制且永久，无直接发送开关）：summary 全文 + data JSON 全文默认可见 */}

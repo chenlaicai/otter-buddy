@@ -23,6 +23,7 @@ import type { SkillController } from "./controllers/skill-controller";
 import type { PromptController } from "./controllers/prompt-controller";
 import type { ActivityController } from "./controllers/activity-controller";
 import type { MatterController } from "./controllers/matter-controller";
+import type { UnfurlController } from "./controllers/unfurl-controller";
 
 
 export interface Controllers {
@@ -58,6 +59,8 @@ export interface Controllers {
   activity: ActivityController;
   /** F20261006mtlp P1：待办板只读端点（matters 表 open 清单） */
   matter: MatterController;
+  /** F20261008csf1 P1：链类 unfurl 预览卡数据端点（og 元数据代理抓取） */
+  unfurl: UnfurlController;
   inbound: { optionsEvents: (c: Context) => Response | Promise<Response>; receiveEvents: (c: Context) => Response | Promise<Response>; getStatus: (c: Context) => Response | Promise<Response> };
 }
 
@@ -160,6 +163,11 @@ function registerMatterRoutes(app: Hono, c: Controllers): void {
   app.get("/api/conversations/:id/matters", (ctx) => c.matter.listOpenByConversation(ctx));
 }
 
+/** F20261008csf1 P1：链类 unfurl——GET /api/unfurl?url=，失败 404 前端降级普通链接 */
+function registerUnfurlRoutes(app: Hono, c: Controllers): void {
+  app.get("/api/unfurl", (ctx) => c.unfurl.get(ctx));
+}
+
 function registerConnectionRoutes(app: Hono, c: Controllers): void {
   app.get("/api/connections", (ctx) => c.connection.list(ctx));
   app.post("/api/connections", (ctx) => c.connection.create(ctx));
@@ -242,6 +250,7 @@ export function createRouter(ctrl: Controllers, logger: Logger): Hono {
   registerDataRoutes(app, ctrl);
   registerScheduledTaskRoutes(app, ctrl);
   registerMatterRoutes(app, ctrl);
+  registerUnfurlRoutes(app, ctrl);
   registerConnectionRoutes(app, ctrl);
   registerInboundRoutes(app, ctrl);
   registerWorkspaceRoutes(app, ctrl);
