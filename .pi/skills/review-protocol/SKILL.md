@@ -33,6 +33,7 @@ PR 创建（或方案落盘）后，交付不算完成——必须经独立审�
 
 1. **召唤检视獭**：召唤检视獭（见 `otter-summon` skill）。小獭只有 read 权限、且 cwd 是主仓（相对路径会解析到主仓旧代码），systemPrompt 中必须：
    - 要求其先 read `adversarial-review` skill 再动手
+   - **worktree 只读纪律（2026-10-09 检视残留双实锤后补）**：检视獭在 worktree 内禁止 checkout/switch（含 detached HEAD）、禁止修改/新建/删除任何文件、禁止跑会留副作用的命令（构建产物/日志落盘）——静态核验只读，需要的临时材料落盘到 /tmp。检视结束前 `git -C <worktree> status --porcelain` 自检必须零输出，非零→当场归位并在报告中声明。实证：检视獭切 detached HEAD + 改语料文件未归位，worktree 成 dirty 状态卡死后续清理，清理端只能降级人工裁决
    - 附上审视对象：`gh pr diff` 全文（大 PR 可落盘成文件后给绝对路径；落盘到仓库外如 /tmp，勿写入 worktree 污染 git status）
    - 附上 worktree 的绝对路径——静态核验（对照测试文件、周边代码）必须以 worktree 内文件为准；主仓是 PR 合入前的旧代码
    - 附上本次测试与构建的运行结果（标注为实现者自报），供其静态核验
@@ -57,6 +58,7 @@ PR 创建（或方案落盘）后，交付不算完成——必须经独立审�
 
 1. **召唤检视獭**：召唤检视獭（见 `otter-summon` skill），其 systemPrompt 中必须：
    - 要求先 read `adversarial-review` skill 再动手
+   - **worktree 只读纪律**（同 A 协议第 1 步：禁 checkout/改文件/副作用命令，结束前 status 自检零输出）
    - 附上方案全文，或方案文件在 worktree 内的绝对路径（小獭 cwd 是主仓，相对路径会解析到主仓旧代码）
 2. **处置审视报告**：收到审视报告后先校验合规性（含"本轮焦点"声明、发现分级、file:line 引用），不合规直接打回重做——与代码 PR 审视同款门禁。然后按 `../adversarial-review/references/author-response-protocol.md` 的**作者处置协议**逐条处置（每条发现强制走决策树——回答"改了让系统变好还是变更差"，更好→修订/写待办，更差→带证据反驳；不作为不允许）：
    - 接受并修订

@@ -59,6 +59,11 @@ PR 合入后的资源回收：worktree、本地分支、远程分支、源头 is
      - 有未提交变更 → **不自动删除**，报告搭档决策
      - 干净 → `git worktree remove <path>`（失败重试一次，仍失败记录跳过）
    - 清理元数据残留：检查 `.git/worktrees/<name>/` 是否还存在，存在则 `rm -rf`
+   - **硬验证闸（2026-10-09 虚报实证后补）**：每步清理动作后必须回查存在性，退出码 + 磁盘状态双重确认，失败必进报告 ERROR 段——「命令执行了」≠「清理成功」，汇报 ✅ 必须对齐磁盘真实状态（事故实证：dirty worktree 使 remove 默认拒绝，执行者未查退出码照样汇报「已清理」，目录在磁盘又躺了半天）：
+     - worktree 删后：`git worktree list | grep <path>` 零命中 + `<path>/.git` 文件不存在 → 才算 ✅；任一仍存在 → ❌ 进报告，禁止打勾
+     - 分支删后：`git branch --list <branch>` 零命中才算 ✅
+     - 远程分支删后：`git ls-remote --heads origin <branch>` 零命中才算 ✅
+     - 零命中检查本身失败（命令报错）→ 同样 ❌，不得当成功
 
 4. **删除本地分支**：
    - **保护分支检查**：若分支名为 `main` / `develop` / `production`（或仓库定义的保护分支），**跳过**，不删除
@@ -123,6 +128,18 @@ PR 合入后的资源回收：worktree、本地分支、远程分支、源头 is
 5. **执行清理**：确认后逐项执行上述单 PR 清理流程
 
 ## 产出
+
+### 清理状态对账（硬闸：报告必须与磁盘/远程真实状态一致）
+
+清理报告里的每个 ✅ 必须由硬验证闸的回查结果支撑（见工作流第 3 步）。「自以为清了」与「真清了」的差距就是残留的来源（2026-10-09 实证：汇报 ✅ 后目录又在磁盘躺了半天）。对账口径：
+
+| 项 | ✅ 判据（全部满足才打勾） |
+|---|---|
+| worktree | `git worktree list` 零命中 + `<path>/.git` 不存在 + `.git/worktrees/<name>/` 元数据目录不存在 |
+| 本地分支 | `git branch --list <branch>` 零命中 |
+| 远程分支 | `git ls-remote --heads origin <branch>` 零命中 |
+| 源头 issue | `gh issue view <N> --json state` 为 CLOSED |
+
 
 ### 单 PR 清理报告
 
