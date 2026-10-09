@@ -1,0 +1,11 @@
+[F20261008cphr][guard][BugFix] 检视 r1 处置：strip-tab 形态通道覆盖 + 短路或负门切分修正 (#1308)
+
+- 发现 1（严重，采纳）：通道 pattern[5]/[6] 的 << 改 <<-?——cat <<-PY | python3 - 双形态漏（含 <<-'PY' 带引号定界符），与 HEREDOC_OPEN 基座对齐。负门实际命中（复核探针），检视獭「负门同样失配」断言与实测不符——修的是通道侧。
+- 发现 2（建议，采纳）：负门 afterOpen 切分正则去掉 || 分支改纯 lookaround 单管道——cd + cat <<PY || python3 - 误拦且与无 cd 通道链判定相反（双链不一致）。初版引入（非 #1240 存量，检视归因有误）。
+- 发现 3（建议，不采纳建账）：pi===5/6 魔数与数组位置硬耦合——与既有 pi===0/1..4 同模式，结构化映射属独立重构，#1376 跟踪。
+- 测试：新增 5 用例（strip-tab 三形态拦 + 短路或双链一致放行）；全量 5054 绿；lint 0。
+- 探针复核：strip-tab 三形态 BLOCK；短路或双形态 ALLOW；A/B/C/D/E 回归保持。
+
+Closes #1308
+
+🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by 大獭

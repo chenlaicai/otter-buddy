@@ -2786,6 +2786,43 @@ PY`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
   });
 
+  // ── 检视 r1 发现 1：strip-tab 形态（`<<-`）──
+  it("#1308-r1：无 cd 裸 cat 管道 strip-tab 形态（<<-PY）+ 体写主仓 → 拦截（通道 <<-? 覆盖）", () => {
+    const cmd = `cat <<-PY | python3 -
+open('${projectRoot}/data/x.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1308-r1：strip-tab 带引号定界符（<<-'PY'）无 cd + 体写主仓 → 拦截", () => {
+    const cmd = `cat <<-'PY' | python3 -
+open('${projectRoot}/data/x.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1308-r1：cd 形态 strip-tab 管道（<<-PY）+ 体写主仓 → 拦截（负门双形态覆盖）", () => {
+    const cmd = `cd /tmp && cat <<-PY | python3 -
+open('${projectRoot}/data/x.json','w').write('{}')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  // ── 检视 r1 发现 2：短路或（||）形态——右侧不执行，体是纯数据 ──
+  it("#1308-r1 放行面：cd + cat <<PY || python3 - + 体写主仓字样 → 放行（|| 短路，python 不执行，负门不触发）", () => {
+    const cmd = `cd /tmp && cat <<'PY' || python3 -
+open('${projectRoot}/data/x.json','w')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("#1308-r1 放行面：无 cd + cat <<PY || python3 - + 体写主仓字样 → 放行（通道 lookaround 排除 ||，双链一致）", () => {
+    const cmd = `cat <<'PY' || python3 -
+open('${projectRoot}/data/x.json','w')
+PY`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
   // ── 回归面：python 直连负门不回归 ──
   it("#1308 回归：python 直连形态负门仍拦（管道分支不破坏原判定）", () => {
     const cmd = `cd /tmp && python3 - <<'PY'

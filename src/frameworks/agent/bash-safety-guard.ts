@@ -1144,9 +1144,11 @@ const MAIN_WRITE_PATTERNS = [
   // 进入解释器真执行，无 cd 形态下 pattern[1] 不认（要求 python 在 `<<` 前）。
   // 与 pattern[1] 同豁免基座：heredocReadOnly（scriptHeredocBodiesReadOnlySegmentAware
   // 含管道右段识别，纯读体放行，写体不豁免保守拦）。左段词表（cat/tee 外数据通道词）
-  // 不限制——右段解释器才是执行面判定锚；通道形态只认紧邻单管道，`| |` 空段不命中。
-  /(?:^|&&|\|\||[;&\n])\s*(?:[\w./-]+\s+)?<<\s*["']?[A-Za-z_][\w-]*["']?\s*(?<!\|)\|(?!\|)\s*(?:sudo\s+|env\s+|command\s+|nice\s+|nohup\s+|exec\s+|time\s+)*(?:[\w./-]+\/)?python[\d.]*\s*-/,
-  /(?:^|&&|\|\||[;&\n])\s*(?:[\w./-]+\s+)?<<\s*["']?[A-Za-z_][\w-]*["']?\s*(?<!\|)\|(?!\|)\s*(?:sudo\s+|env\s+|command\s+|nice\s+|nohup\s+|exec\s+|time\s+)*(?:[\w./-]+\/)?node\s*-/,
+  // 不限制——右段解释器才是执行面判定锚；通道形态只认紧邻单管道，`| |` 空段不命中；
+  // lookaround 排除 `||`（短路或，右侧不执行）；`<<-?` 覆盖 strip-tab 形态（检视 r1
+  // 发现 1：`cat <<-PY | python3 -` 双形态漏，与 HEREDOC_OPEN 基座对齐）。
+  /(?:^|&&|\|\||[;&\n])\s*(?:[\w./-]+\s+)?<<-?\s*["']?[A-Za-z_][\w-]*["']?\s*(?<!\|)\|(?!\|)\s*(?:sudo\s+|env\s+|command\s+|nice\s+|nohup\s+|exec\s+|time\s+)*(?:[\w./-]+\/)?python[\d.]*\s*-/,
+  /(?:^|&&|\|\||[;&\n])\s*(?:[\w./-]+\s+)?<<-?\s*["']?[A-Za-z_][\w-]*["']?\s*(?<!\|)\|(?!\|)\s*(?:sudo\s+|env\s+|command\s+|nice\s+|nohup\s+|exec\s+|time\s+)*(?:[\w./-]+\/)?node\s*-/,
   // D2：段首锚含单 | / &（`cd /wt | git commit` / `& git commit` 同样是新命令段）
   // F20260924gfpn：① merge → merge(?!-) 负向断言——`git merge-base`（只读）曾被 merge\b
   // 吞成写操作（9/23 台账实测 BLOCKED）；同组其他词审计：commit→commit(?!-tree)（commit-tree
@@ -1586,9 +1588,11 @@ function heredocHeaderIsInterpreter(header: string, family: "python" | "node"): 
   }
   // #1308：开行右段识别——`<<` 定界符之后的同头行剩余部分（`<<'PY' | python3 -` 的
   // `| python3 -`）。定界符域（段 0，`<<'PY'`）跳过，逐右段判定；真管道切分
-  // （\|\|| 形态不是管道连接，归段内文本），与 hasRealCdSegment 的 lookaround 语义对齐。
+  // lookaround 语义（单管道，`||` 短路或不是管道连接——右侧命令不执行，归段内文本），
+  // 与通道 pattern[5]/[6] 及 hasRealCdSegment 的 lookaround 语义对齐（检视 r1 发现 2：
+  // 初版把 `||` 当切分符，cd+短路或形态误拦且与无 cd 通道链判定相反）。
   const afterOpen = header.split(/<<-?/).slice(1).join("<<") ?? "";
-  for (const seg of afterOpen.split(/\|\||(?<!\|)\|(?!\|)/).slice(1)) {
+  for (const seg of afterOpen.split(/(?<!\|)\|(?!\|)/).slice(1)) {
     const t = seg.trim();
     if (!t) continue;
     const segInterp = heredocInterpreter(t);
