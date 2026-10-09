@@ -26,7 +26,7 @@ PR #1383（#1370 healing 假成功修复）检视报告 Discovered Issue：`sqli
 
 **机制识别检查点（动手前判定）**：四问全未命中——不改语义边界、不引入新机制、无退役条件问题、无后续机制依赖——判定 narrow-fix 一行留痕。
 
-**同族模式排查**：全仓扫描 `.run(` 后不接 changes 检查的 UPDATE 调用点，命中处为迁移脚本（症状命中才更新的幂等语义）、upsert ON CONFLICT（不存在即插入，语义本就允许 no-match）、批量改写（dispatch markDispatched 等，按状态条件批量更新）——均非「按 ID 更新单实体」模式，不在本 issue 范围。
+**同族模式排查（范围修正）**：#1385 范围限定 feature/research 两仓。对抗审视（PR #1389）另发现 3 处同族残留——scheduled-task / im-connection / conversation 仓 updateStatus 同模式不看 changes，跟进取 issue #1391。
 
 ## 验证
 
