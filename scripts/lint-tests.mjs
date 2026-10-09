@@ -52,7 +52,11 @@ const allowDdlFiles = [];
 // seed 提取（INSERT 直插 messages/otters，非 DDL 但携带 allow-ddl 标记文件入豁免清单）；
 // ③attachments-kind-migration.test.ts——#608 存量库迁移回归，此前漏登记（存量遗留，
 // 本次测试范围触及该文件一并归队）
-const MAX_ALLOW_DDL_FILES = 9;
+// 9→10（F20261009hixo）：tests/frameworks/db/schema.test.ts——
+// #1390 存量库 healing_events 补列/索引顺序回归：需建 #1365 前旧形状表（无 bound_issue/bound_at）
+// 验证 initSchema 对存量库补列后再建索引不炸——被测对象就是「旧 schema → 新 schema」
+// 启动迁移本身，与 migration.test.ts 同类场景
+const MAX_ALLOW_DDL_FILES = 10;
 
 for (const file of walk(path.join(root, "tests"))) {
   const rel = path.relative(root, file);
