@@ -203,17 +203,19 @@ export function lex(text: string): LexResult {
       }
       return;
     }
-    // $'...' ANSI-C 引用 / $"..." locale 引用 → unknown（含转义语义，不可静态求值）/ 按双引号处理
+    // #1374（F20261009qdlq）raw-quote 回退：双引号内 $ 紧邻引号（$" / $'）无特殊
+    // 语义——grep "^npm|^$" / grep "^a$'" 中 $ 是正则锚定字面量，引号是外层闭合。
+    // 真 ANSI-C/locale 引用不会出现在双引号内，greedy indexOf 会把该形态误判为
+    // 引用未闭合 → 连带外层引号 fail → parseOk=false → cd 豁免退化。按字面 $ 回
+    // 退，引号留给外层引号扫描消费；词首 $'/$"（quoted=false）维持原处理（详见
+    // 特性文档）。
+    if (quoted === "double" && (next === "'" || next === '"')) {
+      parts.push({ type: "lit", text: "$", quoted });
+      i++;
+      return;
+    }
+    // $'...' ANSI-C / $"..." locale → unknown / 按双引号处理
     if (next === "'") {
-      // #1374 孪生形态（F20261009qdlq）：$' 与 $" 同款歧义——grep "^a$'" 中 $ 是
-      // 正则锚定、' 是外层单引号的闭合。真 ANSI-C 引用不会出现在双引号内（$' 在
-      // 双引号内无转义语义，就是字面 $+'），quoted="double" 上下文按字面 $ 回退，
-      // ' 留给外层引号扫描消费，不 fail。词首 $'（quoted=null）维持 ANSI-C 处理不变。
-      if (quoted === "double") {
-        parts.push({ type: "lit", text: "$", quoted });
-        i++;
-        return;
-      }
       const close = text.indexOf("'", i + 2);
       if (close === -1) {
         parts.push({ type: "unknown", text: text.slice(start, n), quoted });
@@ -226,19 +228,6 @@ export function lex(text: string): LexResult {
       return;
     }
     if (next === '"') {
-      // #1374（F20261009qdlq）raw-quote 回退：$" 形态歧义——bash 里 $ 后跟 " 有两种
-      // 解释：① locale 引用 $"..."（词首，有配对闭引号）；② $ 正则锚定等字面量 + 词
-      // 闭引号（grep "^npm|^$"——$ 是字面量，" 是外层双引号的闭合）。greedy indexOf
-      // 把②误判为①的未闭合 → 连带外层引号 fail → parseOk=false → cd 豁免退化 4 连拦。
-      // 回退仅在外层引号上下文（quoted="double"）生效：此时 $" 中的 " 定是外层闭合
-      // （真 locale 引用不会出现在双引号内——$" 在双引号内无 locale 语义），按字面 $
-      // 入 parts，" 留给外层引号扫描消费，不 fail。词首 $"（quoted=null）维持 locale
-      // 处理不变——真 locale $"hello world" / 未闭合 $"abc 行为与修复前完全一致。
-      if (quoted === "double") {
-        parts.push({ type: "lit", text: "$", quoted });
-        i++;
-        return;
-      }
       const close = text.indexOf('"', i + 2);
       if (close === -1) {
         parts.push({ type: "unknown", text: text.slice(start, n), quoted });
