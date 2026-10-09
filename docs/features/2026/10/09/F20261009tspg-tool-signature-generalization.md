@@ -114,7 +114,9 @@ set_context、search_* 等）由 #1399 跟踪，不在本 PR 扩散。
 - 修复前失败证据：main 上 `buildToolSignature("merge_pr", { prNumber: 1381 })`
   与 `{ prNumber: 1382 }` 返回同一签名 `"merge_pr"`（名称兜底）——批量合入
   6 个 PR 序列第 6 次即触发 steer（阈值 5）。
-- 单元测试 44/44 通过（新增 11 个用例覆盖 9 工具正反向 + 既有 33 个零回归）：
+- 单元测试 47/47 通过（新增 14 个用例覆盖 9 工具正反向 + 既有 33 个零回归；
+  其中 3 个为 #475 审视处置轮补充：issueNumber/时间窗/前缀混淆互斥、
+  eventIds 收敛、出口 cap）：
   - 正向：不同实体 → 签名不同不累计（merge_pr/halt/transition_matter/
     get_message/get_memory_detail/get_related/manage_healing_events/
     register_matter 各有不同实体用例）
