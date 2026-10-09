@@ -202,6 +202,7 @@ interface WriteTarget {
 - **语料库**：tests/fixtures/guard-write-eval-corpus.json ≥100 例（replay 存量 + 台账回捞 + 形态补齐），作为 shadow 脚本与单测共同数据源
 - **既有回归**：全量 bash-safety-guard.test.ts（:1190 按 BC-1 修订）+ #1368 双链一致性 9 例 + replay 9 例
 - **shadow 对比报告**：语料全量三跑矩阵（切换判据预注册：红线区 0 / 误放 0 / Phase 1 族内成功率 ≥90% 且全集回落率 ≤50%）
+  - **报告存放惯例**：原始报告落对话工作区（`data/workspaces/<conversation-id>/`），不进 git——`data/` 是运行时数据目录（先例：F20260911col2 误入库数据移除），且报告含本机绝对路径；特性文档只记统计结论，审计需要原始文件时从工作区取。`.gitignore` 已加 `data/guard-shadow-report-*` 防回归（2026-10-09 误提交移除）
 - **BC 核对**：BC-1~6 逐条在 shadow 报告中给出实测频次与最终处置
 
 ## 改动范围

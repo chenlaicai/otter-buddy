@@ -107,3 +107,7 @@ tests/capability/golden/results.jsonl
 
 # stock-cli cache
 .cache/stock/
+
+# Guard shadow 评估报告（F202609gwte，shadow 三跑实测输出——运行时产物含本机
+# 绝对路径，审计真相在特性文档统计 + 对话工作区，不进 git；2026-10-09 误提交移除的防回归）
+data/guard-shadow-report-*
