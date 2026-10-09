@@ -351,15 +351,29 @@ export default function ConversationPage() {
    * Why after 而非历史弃用决策：F20260921 弃的是「末位游标」（列表尾部 seq——低位缺口时反指
    * 更早条目漏补）；头部游标无此问题——窗口内条目已在本地，低位缺口不存在，新条目 seq 恒 > oldest。
    * 边界：①游标取首个非 tmp-/err- 真实条目（乐观条目无后端 seq，查不到会 fail-closed 返空，
-   * 刷新退化但无害）；②oldest 后条目超 200 条（挂机 3+ 小时未刷新极端态）时快照截断头部外
-   * 条目——窗口外终态由下方 keepOutside 回填，新条目不丢（列表尾部恒在快照内）。 */
+   * 刷新退化但无害）；②oldest 后超 200 条（断连数小时后首刷等极端态）：ASC+LIMIT 截断的是
+   * 最新端（检视 S2 实锤：注释初版写的「尾部恒在快照内」方向反了）——循环翻页拉到尾，
+   * 上限 5 轮（1000 条）防失控：超限场景丢弃更低批次，靠 loadMoreBefore 翻页/重进会话补全。
+   * 在场用户 60s 审计单轮增量恒 <200，永不进循环。 */
   const refreshMessages = useCallback(async (convId: string) => {
     try {
       const loaded = allMessagesRef.current[convId] || []
       const oldestId = loaded.find(m => !m.id.startsWith('tmp-') && !m.id.startsWith('err-'))?.id
-      const resp = oldestId
+      let resp = oldestId
         ? await api.listEntriesAfter(convId, oldestId, 200)
         : await api.listEntries(convId, 100)
+      // S2 修复：hasMore=true 说明截断了最新端——游标推进到快照末位继续拉，直到取全或达上限。
+      // 不能 fallback 尾页拉取（会放弃窗口对齐，极端场景窗口外暴增回归——本案要杀的形态）
+      if (oldestId) {
+        let pages = 0
+        while (resp.hasMore && pages < 5) {
+          const last = resp.entries[resp.entries.length - 1]
+          if (!last?.id) break
+          const next = await api.listEntriesAfter(convId, last.id, 200)
+          resp = { entries: [...resp.entries, ...next.entries], hasMore: next.hasMore }
+          pages++
+        }
+      }
       if (resp.entries.length > 0) {
         const snapshot = resp.entries.map(mapEntryDTO)
         /** delta D（检视獭-1292 三轮，F20260814qswp 同类回归修复）：合并计算全部

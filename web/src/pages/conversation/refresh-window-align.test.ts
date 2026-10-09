@@ -6,7 +6,7 @@
  * 贴底用户被推离。修复：快照按已加载列表 oldest 游标拉尾页（before=oldest.id）。
  *
  * 本测试直接驱动组件级行为太重（index.tsx 全链 mock 面大）——改为单测两层不变量：
- * ①API 层：listEntries(convId, 100, oldestId) 生成 before 查询参数（client.ts 契约）；
+ * ①API 层：listEntriesAfter(convId, oldestId, 200) 生成 after 查询参数（client.ts 契约）；
  * ②合并层：mergeMessages(已加载 50, 快照=窗口内 50+新 2) 结果 = 52 条（不含窗口外历史）。
  * 组件层「refreshMessages 传 oldest 游标」由 e2e tri-msg-count 场景重放覆盖（回归锚）。
  */
@@ -25,7 +25,7 @@ describe('F20261010rwq 快照窗口对齐', () => {
   it('mergeMessages：快照=窗口内+新条目时，结果不引入窗口外历史（50→52 而非 50→100）', () => {
     // 已加载窗口：seq 51-100（长会话首屏尾页 50 条）
     const loaded: LocalMessage[] = Array.from({ length: 50 }, (_, i) => msg(`m-${i + 51}`, i + 51, `历史 ${i + 51}`))
-    // 修复后快照语义：before=oldest(m-51) 拉尾页 → 窗口内 50 条 + 到达的新 2 条（seq 101/102）
+    // 修复后快照语义：after=oldest(m-51) 升序拉取 → 窗口内 50 条 + 到达的新 2 条（seq 101/102）
     const snapshot: LocalMessage[] = [
       ...loaded,
       msg('m-101', 101, '新消息 1'),

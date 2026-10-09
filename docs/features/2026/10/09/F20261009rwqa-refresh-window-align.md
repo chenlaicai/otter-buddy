@@ -78,7 +78,7 @@ F20260921 弃用的是「**末位**游标」（列表尾部 seq——低位缺�
 |---|---|
 | oldest 是 tmp-/err- 乐观条目 | find 跳过取首个真实条目；全乐观（无真实）退化尾页拉取 |
 | oldestId 在后端不存在（删除等） | getEntriesAfter fail-closed 返 []，刷新退化但无害 |
-| oldest 后超 200 条（挂机 3+ 小时） | 快照截断头部外条目——窗口外终态由 keepOutside 回填，新条目不丢（尾部恒在快照内） |
+| oldest 后超 200 条（断连数小时首刷） | ASC+LIMIT 截最新端（检视 S2 实锤，初版注释方向写反）——循环翻页拉到尾，上限 5 轮/1000 条防失控；超限丢弃更低批次靠 loadMoreBefore 补全。在场用户 60s 审计单轮增量恒 <200，永不进循环 |
 
 ### 3.3 不变量（单测钉死）
 
@@ -104,4 +104,6 @@ refreshMessages 的全部触发方受益：60s 周期审计、窗口 focus/visib
 ## 7. 遗留
 
 - 左栏 +26px 跳变是次级症状（左栏轮询重渲染 clamp），主修复后实测未复现；若搭档仍感知，单独治左栏滚动位置保持（LeftPanel sessionStorage 已有恢复机制，可扩展为轮询期间保持）
-- e2e tri-* 系列 spec 留在仓库（回归锚）：依赖复刻环境，CI 恒 skip（E2E_REPLICA_DATA 门控）
+- e2e tri-msg-count 留仓作回归锚（依赖复刻环境，CI 恒 skip——E2E_REPLICA_DATA 门控）；其余 6 个取证 spec 已删（探针依赖死链，检视 R1）
+- **组件层覆盖缺口（检视 R3）**：refreshMessages 游标传递的组件级测试缺失——单测覆盖合并层/API 层，但「index.tsx 真实调用链传 oldest 游标 + S2 翻页循环」唯一覆盖是需复刻库+60s 窗口的 e2e（CI 永不跑）。后续若做组件测试基建（index.tsx mock 面收敛）可补
+- 另案：lint-docs.mjs 动态 import dist/ validator——本地陈旧 dist 会假绿误导预检（检视附注）。建 issue 跟踪

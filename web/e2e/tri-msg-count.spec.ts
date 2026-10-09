@@ -1,5 +1,6 @@
 /**
- * F20261010 消息暴增取证：卡片 2→3、sh +8817px。数 DOM 消息数与内容来源。
+ * F20261009rwqa 回归锚：60s 周期审计点消息数不暴增（修复前 50→100、sh +8817px；
+ * 修复后 n=50+新条目数，top 仅正常贴底跟随）。依赖探针 spec 已删（R1），本 spec 自含采样。
  */
 import { test } from '@playwright/test'
 import { execSync } from 'node:child_process'
