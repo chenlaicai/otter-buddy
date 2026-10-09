@@ -35,14 +35,14 @@ intent:
 
 1. 首屏加载 `api.listEntries(convId, 50)`（index.tsx:286）——长会话（实测《reseach》1293 条）只装最新 50 条
 2. 60s 周期审计定时器触发 `refreshMessages`（index.tsx `PERIODIC_AUDIT_INTERVAL_MS = 60_000`）
-3. 旧版 refreshMessages 固定拉尾页 `api.listEntries(convId, 100)`——**100 条**
+3. 旧版 refreshMessages 固定拉尾页 `api.listEntries(convId, 100)`——快照 **100 条** vs 已加载 **50 条**
 4. `mergeMessages`（message-stream.ts:160）以快照为主体合成 → 列表 50→100 条
-5. 上方凭空多出 50 条历史 ≈ +8817px（实测 sh 6667→15489）
+5. 上方凭空多出 50 条历史 ≈ +8817px（修复前场景实测 sh 6667→15489，注入点《reseach》会话 1293 条/已加载 50 条）
 6. 贴底用户：scrollTop 被推离（视觉「跳一下」）；中部阅读：内容位移（「跳到中间」感知）
 
 ### 2.2 实测证据（复刻环境，端口 3198）
 
-- **修复前**（tri-msg-count.spec.ts）：t=0~55s 稳定（n=50，sh=6667，贴底）→ t=60s 整（恰为审计点）→ n=50→100、sh=6633→15544、scrollTop 6206→15068 十连帧跳变
+- **修复前**（tri-msg-count.spec.ts）：t=0~55s 稳定（n=50，sh=6667，贴底）→ t=60s 整（恰为审计点）→ n=50→100、sh=6633→15544（+8911，与 §2.1 +8817 为同场景不同轮实测差）、scrollTop 6206→15068 十连帧跳变
 - **时序锁定**：注入发生在 t=10s，暴动恰在 t=55-60s——与 60s 周期审计对齐，排除 SSE/轮询（5s 周期）嫌疑
 - **左栏次级症状**（tri-scroll-leftpanel3.spec.ts）：后台会话 entry 注入后 5s（左栏轮询周期），左栏 scrollTop 自动 +26px（from=352 to=378）——列表重渲染致项高度变化，浏览器 clamp
 
@@ -78,7 +78,8 @@ F20260921 弃用的是「**末位**游标」（列表尾部 seq——低位缺�
 |---|---|
 | oldest 是 tmp-/err- 乐观条目 | find 跳过取首个真实条目；全乐观（无真实）退化尾页拉取 |
 | oldestId 在后端不存在（删除等） | getEntriesAfter fail-closed 返 []，刷新退化但无害 |
-| oldest 后超 200 条（断连数小时首刷） | ASC+LIMIT 截最新端（检视 S2 实锤，初版注释方向写反）——循环翻页拉到尾，上限 5 轮/1000 条防失控；超限丢弃更低批次靠 loadMoreBefore 补全。在场用户 60s 审计单轮增量恒 <200，永不进循环 |
+| oldest 后超 200 条（断连数小时首刷） | ASC+LIMIT 截最新端（检视 S2 实锤，初版注释方向写反）——循环翻页拉到尾（游标推进至快照末位继续拉），上限 5 轮/1000 条防失控；仍超限则说明断连期间新增 >1000 条，放弃窗口对齐、回退尾页语义（窗口外历史被带入，用户翻页或重进会话可再对齐——极端态的可接受退化，与空列表退化同语义）。在场用户 60s 审计单轮增量恒 <200，永不进循环 |
+| in-flight 游标语义 | oldest 取本地窗口头，in-flight（乐观条目）恒在窗口尾部——窗口内 in-flight 的状态收敛由 mergeMessages 保活逻辑承担（message-stream.ts isLocalOnly：快照未覆盖的 in-flight 保留），游标选择不受影响 |
 
 ### 3.3 不变量（单测钉死）
 

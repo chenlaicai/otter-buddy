@@ -342,7 +342,7 @@ export default function ConversationPage() {
    *  尾页快照 + 幂等合并不依赖游标假设，低位缺口/乱序一概能补（同 id 幂等，窗口外终态
    *  允许丢弃——与整页重载同语义）。 */
   /**
-   * F20261010rwq（三轮上跳根治）：快照窗口对齐——刷新拉取的条目必须 ⊆ 当前已加载窗口 ∪ 新条目。
+   * F20261009rwqa（三轮上跳根治）：快照窗口对齐——刷新拉取的条目必须 ⊆ 当前已加载窗口 ∪ 新条目。
    * 旧版固定拉尾页 100 条：首屏只装 50 条的长会话，周期审计（60s）/焦点对账/SSE 重连补偿
    * 任一触发都会把窗口外的 50 条历史塞进列表（实测 sh +8817px、贴底用户被推离），
    * 且每分钟重复暴增——「历史对话更容易跳」的根因。
@@ -353,8 +353,12 @@ export default function ConversationPage() {
    * 边界：①游标取首个非 tmp-/err- 真实条目（乐观条目无后端 seq，查不到会 fail-closed 返空，
    * 刷新退化但无害）；②oldest 后超 200 条（断连数小时后首刷等极端态）：ASC+LIMIT 截断的是
    * 最新端（检视 S2 实锤：注释初版写的「尾部恒在快照内」方向反了）——循环翻页拉到尾，
-   * 上限 5 轮（1000 条）防失控：超限场景丢弃更低批次，靠 loadMoreBefore 翻页/重进会话补全。
-   * 在场用户 60s 审计单轮增量恒 <200，永不进循环。 */
+   * 上限 5 轮（1000 条）防失控：仍超限则放弃窗口对齐、回退尾页语义（窗口外历史被带入，
+   * 用户翻页或重进会话可再对齐——极端态的可接受退化，与空列表退化同语义）。
+   * 在场用户 60s 审计单轮增量恒 <200，永不进循环。
+   * in-flight 游标语义：oldest 取本地窗口头，in-flight（乐观条目）恒在窗口尾部——窗口内
+   * in-flight 的状态收敛由 mergeMessages 保活逻辑承担（message-stream.ts isLocalOnly：
+   * 快照未覆盖的 in-flight 保留），游标选择不受影响。 */
   const refreshMessages = useCallback(async (convId: string) => {
     try {
       const loaded = allMessagesRef.current[convId] || []

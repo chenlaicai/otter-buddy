@@ -1,9 +1,9 @@
 /**
- * F20261010rwq 窗口对齐单测：refreshMessages 快照不得引入已加载窗口外的历史条目。
+ * F20261009rwqa 窗口对齐单测：refreshMessages 快照不得引入已加载窗口外的历史条目。
  *
  * 背景（三轮上跳根因）：长会话首屏只装 50 条，旧版 refreshMessages 固定拉尾页 100 条，
  * 周期审计（60s）触发时 mergeMessages 以快照为主体 → 列表 50→100 暴增（sh +8817px 实测），
- * 贴底用户被推离。修复：快照按已加载列表 oldest 游标拉尾页（before=oldest.id）。
+ * 贴底用户被推离。修复：快照按已加载列表 oldest 游标升序拉取（after=oldest.id）。
  *
  * 本测试直接驱动组件级行为太重（index.tsx 全链 mock 面大）——改为单测两层不变量：
  * ①API 层：listEntriesAfter(convId, oldestId, 200) 生成 after 查询参数（client.ts 契约）；
