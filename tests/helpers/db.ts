@@ -11,9 +11,11 @@ import { migrateDatabase } from "@frameworks/db/migration";
 import { createTestLogger } from "./logger";
 
 /**
- * 创建内存 sqlite 并初始化完整生产 schema。调用方负责 afterEach 中 db.close()。
- * initSchema 只建基础表结构；历史补丁列（session_file、model_alias 等）由
- * migrateDatabase（幂等）补齐——与生产 fresh-DB 路径（F20260805fmdb 修复后）一致。
+ * 创建 sqlite 测试库并初始化完整生产 schema。调用方负责 afterEach 中 db.close()。
+ * 默认内存库；传 path 时建文件库（F20261008gdcc：子进程场景——被测脚本独立打开
+ * 同一文件，内存库跨进程不可见）。initSchema 只建基础表结构；历史补丁列
+ * （session_file、model_alias 等）由 migrateDatabase（幂等）补齐——与生产
+ * fresh-DB 路径（F20260805fmdb 修复后）一致。
  *
  * 与生产 initDatabase（src/frameworks/db/database.ts）对齐：加载 sqlite-vec。
  * 不加载则 memory_vec 不存在、vec 路径测试静默零覆盖且无信号（#944 现场：
@@ -21,8 +23,8 @@ import { createTestLogger } from "./logger";
  * 加载失败直接抛——测试环境必须能加载 vec；生产 D22 降级是生产容错，
  * 不是测试默认形态。
  */
-export function createTestDb(): Database.Database {
-  const db = new Database(":memory:");
+export function createTestDb(path?: string): Database.Database {
+  const db = new Database(path ?? ":memory:");
   db.pragma("foreign_keys = ON");
   loadSqliteVec(db);
   initSchema(db);
