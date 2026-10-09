@@ -9,7 +9,7 @@ intent:
   solution: "资产分层归位：脚本入 scripts/radar/（scan.mjs 仅输出目录参数化，抓取逻辑零改动）；任务模板入 prompts/scheduled/（reconciler 启动自动同步 DB body）；运行时数据留在工作区不动。"
   expected_effect: "雷达资产获得 git 级持久化与可克隆性；同事复用从「手动拷工作区」变为「克隆仓库即得」；备份盲区风险敞口闭合。"
   verify_by:
-    type: manual_evidence
+    type: behavior_check
     assertions:
       - "diff scripts/radar/scan.mjs 与原工作区版：除输出目录参数化外逐行一致"
       - "sqlite3 查 scheduled_tasks.name 与两模板 frontmatter task_name 逐字匹配"
