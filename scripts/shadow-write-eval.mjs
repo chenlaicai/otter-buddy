@@ -89,8 +89,20 @@ for (const s of corpus.samples) {
     oldVerdict = "OLD-ERROR";
   }
 
+  // F20261009phs2 shadow 口径修复：①求值器只判 main_write 维度（落点求值），其他规则族
+  // （sleep_block / data_destructive 等）的拦截不在其判定域。verdict=BLOCK 且求值器 ALLOW
+  // 时，若裁决注明跨规则（note 含 EXPECTED-CROSS 或 ruleId=<非 main_write 族>），该样本
+  // 不计红线逃逸——逃逸语义仅限「main_write 维度被求值器有把握放行」。
+  // ②truncated-payload：ledger 样本 commandHead 截断 120 字符，多行载荷不完整（引号
+  // 不闭合）→ 求值器回落是源数据上限非覆盖缺口（全形态由合成样本钉死）。
+  // 两类样本均从切换判据分母剔除，单独计数披露（否则判据永远背着语料源的锅）。
+  const isCrossRule = /EXPECTED-CROSS|ruleId=(?!main_write)\S+/.test(s.note ?? "");
+  const isTruncatedPayload = /truncated-payload/.test(s.note ?? "");
+
   let status;
   if (evalVerdict === "EVAL-ERROR" || oldVerdict === "OLD-ERROR") status = "ERROR";
+  else if (isCrossRule && expect === "BLOCK" && evalVerdict === "ALLOW") status = "EXPECTED-CROSS-RULE"; // 跨规则：剔除判据
+  else if (isTruncatedPayload && evalVerdict === "FALLBACK") status = "TRUNCATED-PAYLOAD"; // 截断载荷：源数据上限，剔除判据
   else if (evalVerdict === "FALLBACK") status = "FALLBACK"; // 回落：终态=旧链（shadow 记录回落事实）
   else if (evalVerdict === expect && oldVerdict === expect) status = "AGREE";
   else if (evalVerdict !== expect && oldVerdict === expect) status = evalVerdict === "BLOCK" ? "EVAL-OVERBLOCK" : "RED-LINE-ESCAPE";
@@ -102,7 +114,6 @@ for (const s of corpus.samples) {
 const judged = rows.filter(r => r.status !== "UNADJUDGED");
 const by = k => judged.filter(r => r.status === k);
 // §3.2 处置：回落率双分母如实呈现（已裁决子集 / 语料全集）——75 条台账未裁决前不出达标结论
-const fallbackSubset = +(summaryFallbackTemp(judged) / judged.length * 100).toFixed(1);
 function summaryFallbackTemp(list) {
   return list.filter(r => r.status === "FALLBACK").length;
 }
@@ -118,15 +129,19 @@ const summary = {
   EVAL_OVERBLOCK: by("EVAL-OVERBLOCK").length,
   RED_LINE_ESCAPE: by("RED-LINE-ESCAPE").length,
   BOTH_DIVERGE: by("BOTH-DIVERGE").length,
+  EXPECTED_CROSS_RULE: by("EXPECTED-CROSS-RULE").length,
+  TRUNCATED_PAYLOAD: by("TRUNCATED-PAYLOAD").length,
   ERROR: by("ERROR").length,
 };
-// 判据核算
-const covered = judged.filter(r => r.evalVerdict !== "FALLBACK");
-summary.coveredRate = judged.length ? +(covered.length / judged.length * 100).toFixed(1) : 0;
-summary.fallbackRateSubset = fallbackSubset; // 分母=已裁决子集（参考值）
-summary.fallbackRateFull = +(summary.FALLBACK / corpus.samples.length * 100).toFixed(1); // 分母=语料全集（判据口径）
+// 判据核算（F20261009phs2：跨规则/截断载荷样本从判据分母剔除——求值器只判 main_write
+//  维度且只对完整命令负责，别族拦截/源数据截断样本不进逃逸/回落率/族内成功率核算）
+const criterionJudged = judged.filter(r => r.status !== "EXPECTED-CROSS-RULE" && r.status !== "TRUNCATED-PAYLOAD");
+const covered = criterionJudged.filter(r => r.evalVerdict !== "FALLBACK");
+summary.coveredRate = criterionJudged.length ? +(covered.length / criterionJudged.length * 100).toFixed(1) : 0;
+summary.fallbackRateSubset = +(summaryFallbackTemp(criterionJudged) / (criterionJudged.length || 1) * 100).toFixed(1); // 分母=判据内已裁决子集（参考值）
+summary.fallbackRateFull = +(summary.FALLBACK / (corpus.samples.length - summary.EXPECTED_CROSS_RULE - summary.TRUNCATED_PAYLOAD) * 100).toFixed(1); // 分母=语料全集-跨规则-截断载荷（判据口径）
 // §3.2 处置：族内成功率（分母=该族全部样本——Phase 1 声称覆盖族：已裁决非 UNEVAL_UNKNOWN 期望的样本）
-const familySamples = judged.filter(r => r.expect !== "UNEVAL_UNKNOWN");
+const familySamples = criterionJudged.filter(r => r.expect !== "UNEVAL_UNKNOWN");
 const familyEvaluated = familySamples.filter(r => r.evalVerdict !== "FALLBACK");
 summary.familyTotal = familySamples.length;
 summary.familyEvaluated = familyEvaluated.length;
@@ -145,7 +160,7 @@ mkdirSync(dirname(reportPath), { recursive: true });
 writeFileSync(reportPath, `${JSON.stringify({ summary, rows }, null, 2)}\n`);
 
 console.log(`[shadow] 语料 ${summary.total}（已裁决 ${summary.judged} / 未裁决 ${unadjudged}）`);
-console.log(`[shadow] AGREE=${summary.AGREE} FALLBACK=${summary.FALLBACK} EVAL_GAIN=${summary.EVAL_GAIN} OVERBLOCK=${summary.EVAL_OVERBLOCK} RED_LINE_ESCAPE=${summary.RED_LINE_ESCAPE} BOTH_DIVERGE=${summary.BOTH_DIVERGE} ERROR=${summary.ERROR}`);
+console.log(`[shadow] AGREE=${summary.AGREE} FALLBACK=${summary.FALLBACK} EVAL_GAIN=${summary.EVAL_GAIN} OVERBLOCK=${summary.EVAL_OVERBLOCK} RED_LINE_ESCAPE=${summary.RED_LINE_ESCAPE} BOTH_DIVERGE=${summary.BOTH_DIVERGE} CROSS_RULE=${summary.EXPECTED_CROSS_RULE} ERROR=${summary.ERROR}`);
 console.log(`[shadow] 回落率：全集分母=${summary.fallbackRateFull}%（判据 ≤50%）｜已裁决子集=${summary.fallbackRateSubset}%（参考）`);
 console.log(`[shadow] 族内成功率=${summary.familySuccessRate}%（${summary.familyEvaluated}/${summary.familyTotal}，判据 ≥90%）`);
 if (summary.pass) {
