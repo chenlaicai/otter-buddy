@@ -129,4 +129,4 @@ issue #1274（2026-10-01，#1257 清 lint:docs 存量时发现）+ #1283 检视�
 - [x] lint:intent 727 docs OK / lint:capability 68 warnings（上限不变）/ lint-prompt-anchors / lint:date-bombs / lint:skills / lint:tool-manifest 全绿
 - [x] 全量测试回归：`npx vitest run` → 339 files / 5076 tests 全绿
 - [x] 最简实现检查：已过——lint:docs 既有遍历内加纯函数检查，无新脚本/新依赖/新遍历；处置记录集中在一份特性文档，不散落
-- [ ] sync_docs 后 search_memory 按 F20261009slmc / F20261009bgfm 可检索（worktree sync + 合并后主仓收敛两步，见 PR Verification）
+- [x] sync_docs 后 search_memory 按 F20261009slmc / F20261009bgfm 可检索（worktree 内 sync_docs 实跑：synced 3 / archived 1；search_memory 按 F20261009slmc 命中 SimpleLockManager 并发修复内容（fix-lock 重插成功）、按 F20261009bgfm 命中误报两模式内容（首插）；F20260903gh698 记录只剩 kill-position 内容。主仓合并后 sync 幂等收敛）
