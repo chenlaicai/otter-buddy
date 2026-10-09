@@ -280,7 +280,7 @@ pi-session-factory.invoke() 入口（嵌套检查之后、锁 acquire :710 之�
 | ALS vs 显式传参 | ALS | 每层显式传 epoch | 显式传参改动面大 5-10 倍，ALS 是 Node 标准实践；既有 otterInvokeStorage 已实证横跨全执行（r1-A3） |
 | 锁 generation 收编 | epoch 对象引用替代计数器 | 两套并存 | **等价性论证（r1-S3，r2 订正 D-2）**：锁 generation 的本质是「锁位易主事件计数」——steal 时 +1，旧持有者 release 对易主锁 no-op。epoch 收编后：steal = 新 invoke（新 epoch 对象）接管锁位，旧 invoke 的 release 闭包持有旧 epoch 对象，引用不等 → no-op。**等价性成立的条件（r2 订正）**：同键跨 steal 的前后持有者（含嵌套链）不共享 epoch 对象——注意不是 r1 版的「每个 invoke 的 epoch 唯一」（嵌套继承恰恰共享外层对象）。窗口封闭机理（r3-E-1 判据唯一化）：mint/继承分支锁死到 :705 嵌套判定——判嵌套→跳锁不 mint；判非嵌套→必铸新对象遮蔽式 run 后抢锁。「共享 epoch 对象且抢锁」在任何失效组合下不可达。~~嵌套继承外层 epoch 意味着不会产生窗口~~ **r1 版因果倒置已订正（D-2）**：嵌套共享同一 epoch 对象恰是该窗口的成因形态，窗口真正被时序互斥封闭。非对称失效窗口已消除——R5 r3 改写为不可达证明。r1-S3 指出的「同一身份跨 steal 再持锁位」分叉场景：正常变体被因果律（重启递归前提是上轮已释放，agent-invoker.ts:1872）挡住；降级混合态变体由 D3 降级面声明覆盖 |
 | 原子切换 vs 渐进 | 原子（一个 PR） | 分四 PR 逐点迁移 | 渐进期双轨并存 = 同一概念两套判定，恰是 #905 要消灭的病 |
-| 降级策略 | 分面降级（锁 fail-soft / 其余 fail-loud） | 全 fail-soft | r1-S2：笼统 fail-soft = 隐性双轨（旧机制常驻保留，恰是取舍表定性为病的形态）。分面后：锁保留内部 generation 兜底（热路径不能挂），其余 fail-loud + warn 计数（epoch 缺失 = 真 bug） |
+| 降级策略 | 分面降级（锁 fail-soft / 其余 fail-loud） | 全 fail-soft | r1-S2：笼统 fail-soft = 隐性双轨（旧机制常驻保留，恰是取舍表定性为病的形态）。分面后：锁保留内部 generation（热路径不能挂，且是非 invoke 调用点的唯一防线——检视 A-1 订正：非「可退役兜底」），其余 fail-loud + warn 计数（epoch 缺失 = 真 bug） |
 
 ## 机制识别检查点
 
@@ -342,7 +342,7 @@ actor 模型），epoch 作为中间抽象应随之退役。信号：invoke 不�
 | 文件 | 操作 | 说明 |
 |---|---|---|
 | `src/frameworks/agent/invoke-epoch.ts` | 新增 | InvokeEpoch 值对象 + invokeEpochStorage 独立 ALS（r2 双 ALS，见 D4） |
-| `src/frameworks/agent/session-helpers.ts` | 修改 | SimpleLockManager generation → epoch 对象比对（内部保留 generation 兜底） |
+| `src/frameworks/agent/session-helpers.ts` | 修改 | SimpleLockManager generation → epoch 对象比对（generation 保留：非 invoke 调用点唯一防线，不可退役） |
 | `src/frameworks/agent/pi-session-factory.ts` | 修改 | 池 markStale + 寄存器 activeSessions 归属换 epoch；invoke() 入口 mint + invokeEpochStorage.run（嵌套检查后、锁 acquire 前）；:918 otterInvokeStorage 原位不动 |
 | invoke 清理路径（toolContext 归属处） | 修改 | 归属判定换 epoch |
 | ~~DB schema/migration~~ | ~~修改~~ **已砍（r1-S1）** | — |
@@ -375,12 +375,16 @@ actor 模型），epoch 作为中间抽象应随之退役。信号：invoke 不�
 ### 变异验证（亲跑，双向）
 
 1. **锁收编回退**（session-helpers.ts epoch 判定改 `if (false && …)` 禁用）→
-   invoke-epoch.test.ts 12 例**全绿不红**。这不是测试缺口而是等价性实证：steal 在
-   同一锁条目对象上 generation+1，zombie 闭包捕获的世代号必然失配（条目删除重建
-   后 zombie 闭包引用旧对象、新条目不可达）——epoch 引用比对与 generation 计数器
-   在锁语义上行为等价，正是方案取舍表「锁 generation 收编」行等价性论证的机械
-   实证。判别性用例（锁条目删除重建后 zombie 迟到 release）已入 case 2，锁定该
-   世代链行为无论走哪条判定都不得释放新持有者的锁。
+   invoke-epoch.test.ts 12 例**全绿不红**。**定性（检视 A-2 订正）：变异不红是必要
+   非充分证据，单独不构成等价性证明**（同样符合「epoch 判定路径不可达」的解释）。
+   等价性的真正依据是 acquire 点结构论证（检视轮独立给出）：全仓唯一传 epoch 的
+   acquire 调用点是 invoke() 路径（pi-session-factory.ts:734，每次 mint 新对象），
+   reset/destroy/損毁后重建/handoff 等其余调用点（:341/:369/:406/:681）传
+   undefined，嵌套不取锁（:715）——「同键跨 steal 的前后持有者持同一 epoch 对象」
+   在当前调用拓扑下结构不可达，两判定全路径同真同假。变异实验与判别性用例
+   （锁条目删除重建后 zombie 迟到 release，case 2）是行为面佐证，与结构论证
+   互为印证。epoch 判定的价值不在纠正现存行为差异，而在语义统一与拓扑演进免疫
+   （未来新增传 epoch 的 acquire 点时无需重新论证互斥）。
 2. **finally delete epoch 匹配回退**（_deleteActiveSessionIfOwned 改回无条件
    delete）→ case 3 + case 4 混合场景 2 例**精准变红**（其余 10 例绿），恢复后
    全绿。裸露面收口行为被测试锁定。
@@ -407,10 +411,11 @@ actor 模型），epoch 作为中间抽象应随之退役。信号：invoke 不�
   （epoch 匹配才删，S4 收口）。
 - **池（poolMeta）**：条目携带 epoch；冷启动入池时写入（缺失 → 拒绝入池 + warn，
   不带病入池）；池命中时 epoch 随所有权转移到命中它的 invoke（#904 语义保持：
-  现役合法持有者可逐，stale 旧 invoke 不可）。
+  现役合法持有者可逐，stale 旧 invoke 不可）；hitEpoch 缺失时所有权冻结 +
+  warn（检视 A-3，D3 fail-loud 对齐）。
 - **清理钩子（_evictPooledIfOwned，#904）**：归属判定从 toolContext 引用比对换
   epoch 引用比对，签名去掉 toolContext 参数；epoch 缺失拒绝 evict + warn（D3）。
-- **降级分面（D3）**：锁 fail-soft（generation 兜底保留）；池/寄存器/清理钩子
+- **降级分面（D3）**：锁 fail-soft（generation 保留：非 invoke 调用点唯一防线，不可退役——检视 A-1 订正）；池/寄存器/清理钩子
   fail-loud（拒绝操作 + _warnEpochMissing 限频 warn 打点，:1024 同模式，同 site
   1 次/分钟防热路径日志洪水，首次必打）。
 - **pid 判据不动（D1）**：DB 层零改动，invoke-pid-reconcile.test.ts 回归锁定。
@@ -426,6 +431,13 @@ actor 模型），epoch 作为中间抽象应随之退役。信号：invoke 不�
 3. **模块位**：任务书疑虑 [agent] 是否黑名单——实查 module-tags.ts 在
    MODULE_BANNED_TAGS（agent 已除名，F20260924mseu），改用 [session]（锁/池/寄存器/
    invoke 生命周期均在其语义域）。
+4. **change_type 与 Modification-Class 口径（检视 A-4）**：frontmatter
+   change_type=refactor 与 commit Modification-Class: mechanism-addition 是两个
+   维度非冲突——前者是文档分类枚举（fix/feature/feature-update/refactor/prompt，
+   现行枚举无 mechanism 值），后者是变更性质标注（同 F20261005i1285 先例：
+   change_type: fix + Modification-Class: mechanism-addition 并存）。本 PR 行为面
+   是重构（等价替换），新增的 ALS 传播通道与 epoch 值对象生命周期构成新机制，
+   两标注各自成立。
 
 ### 已知边界（锁定测试划定）
 
@@ -434,3 +446,19 @@ actor 模型），epoch 作为中间抽象应随之退役。信号：invoke 不�
 - 既有单测直接调内部方法（_acquirePooled/_evictPooledIfOwned）的用例，更新为
   withEpoch 自建 epoch 上下文（模拟公共入口铸造职责）；公共 invoke() 路径零变化
   （锁旁路 3 例未动一字绿过）。
+
+### 审视处置记录（初轮 comment 留痕后，2026-10-09）
+
+检视獭初轮 0 严重 / 4 建议，逐条处置（commit 2：见 git log）：
+
+- **A-1 注释陷阱订正**：session-helpers.ts:218 注释「epoch 在场时优先于
+  generation」与实现相反（generation 恒判在先，结构性短路）——已改写为「判定
+  次序陷阱」注释，写明无 epoch 调用点（reset/destroy/損毁后重建/handoff）里
+  generation 是唯一 steal 防线不是可退役兑底；类头部与特性文档 D3 三处措辞同步
+  订正（「兜底」→「唯一防线，不可退役」）。
+- **A-2 定性换论据**：实现记录「变异不红=等价性实证」重写为 acquire 点结构论证
+  （唯一传 epoch 的调用点是 invoke() 路径且每次 mint 新对象，「同键跨 steal 持
+  同一对象」结构不可达）；变异实验降级为行为面佐证，与结构论证互为印证。
+- **A-3 池命中 fail-loud 对齐**：hitEpoch 缺失时所有权冻结 + warn
+  （_warnEpochMissing site=pool-hit-ownership）；:832 双分号顺手修。
+- **A-4 口径对齐**：见实现偏差 4——两维度各自成立，不互改。

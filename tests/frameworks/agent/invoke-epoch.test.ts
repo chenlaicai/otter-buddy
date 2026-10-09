@@ -23,6 +23,7 @@ import { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import { otterInvokeStorage } from "@frameworks/agent/model-runtime-registry";
 import { invokeEpochStorage, mintEpoch, type InvokeEpoch } from "@frameworks/agent/invoke-epoch";
 import { SimpleLockManager } from "@frameworks/agent/session-helpers";
+import { createInvokeRegister } from "@frameworks/agent/tool-builder";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
 
 function makeFactory() {
@@ -302,6 +303,72 @@ describe("F20261009epoc case 7：非对称失效（r3-E-1 遮蔽式 run）", () 
     await factory.invoke("o1", "m");
     expect(acquiredEpochs).toHaveLength(1);
     expect(acquiredEpochs[0]).toBeDefined();
+    db.close();
+  });
+});
+
+describe("F20261009epoc（检视 A-3）：池命中所有权转移降级面", () => {
+  it("hitEpoch 缺失时所有权冻结 + warn（D3 fail-loud 对齐）——新 invoke 不接管条目", async () => {
+    const db = createTestDb();
+    const warnSpy = vi.fn();
+    const factory = new PiSessionFactory({
+      db,
+      sessionDir: ":memory:",
+      otterToolClient: {} as never,
+      model: null as never,
+      createTools: () => [],
+      otterConfigProvider: {
+        getConfig: () => ({ systemPrompt: undefined, otterType: "big", modelAlias: null }),
+        setConfig: () => {},
+        deleteConfig: () => {},
+      } as never,
+      otterRepo: new SqliteOtterRepository(db),
+    }, { info: vi.fn(), warn: warnSpy, debug: vi.fn(), error: vi.fn(), child: vi.fn() } as never);
+    const internals = factory as unknown as {
+      poolMeta: Map<string, { session: object; toolContext: object; register: ReturnType<typeof createInvokeRegister>; epoch?: InvokeEpoch } & Record<string, unknown>>;
+    };
+    // 既有池条目（铸造它的更早 invoke）
+    const ownerEpoch = mintEpoch("o1", "inv-owner");
+    const entry = { session: {}, toolContext: {}, register: createInvokeRegister(), epoch: ownerEpoch };
+    internals.poolMeta.set("o1", entry);
+
+    // 直接调转移方法（epoch 缺失上下文）
+    (factory as unknown as { _transferPoolOwnership: (e: { epoch?: InvokeEpoch }, id: string) => void })._transferPoolOwnership(entry, "o1");
+
+    expect(entry.epoch).toBe(ownerEpoch); // 所有权冻结：不被 undefined 覆写
+    const hits = warnSpy.mock.calls.filter(([, ctx]) => (ctx as { site?: string })?.site === "pool-hit-ownership");
+    expect(hits).toHaveLength(1); // warn 打点（fail-loud 观测）
+    db.close();
+  });
+
+  it("hitEpoch 在场：所有权正常转移（回归锁定）", async () => {
+    const db = createTestDb();
+    const factory = new PiSessionFactory({
+      db,
+      sessionDir: ":memory:",
+      otterToolClient: {} as never,
+      model: null as never,
+      createTools: () => [],
+      otterConfigProvider: {
+        getConfig: () => ({ systemPrompt: undefined, otterType: "big", modelAlias: null }),
+        setConfig: () => {},
+        deleteConfig: () => {},
+      } as never,
+      otterRepo: new SqliteOtterRepository(db),
+    }, createTestLogger());
+    const internals = factory as unknown as {
+      poolMeta: Map<string, { epoch?: InvokeEpoch } & Record<string, unknown>>;
+    };
+    const ownerEpoch = mintEpoch("o1", "inv-owner");
+    const hitEpoch = mintEpoch("o1", "inv-hit");
+    const entry = { session: {}, toolContext: {}, register: createInvokeRegister(), epoch: ownerEpoch };
+    internals.poolMeta.set("o1", entry);
+
+    await invokeEpochStorage.run(hitEpoch, () => {
+      (factory as unknown as { _transferPoolOwnership: (e: { epoch?: InvokeEpoch }, id: string) => void })._transferPoolOwnership(entry, "o1");
+      return Promise.resolve();
+    });
+    expect(entry.epoch).toBe(hitEpoch); // 转移到命中它的 invoke
     db.close();
   });
 });

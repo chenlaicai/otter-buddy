@@ -826,10 +826,9 @@ export class PiSessionFactory implements AgentGateway {
         const turnText = existing.register.turnText;
         const sessionKey = options?.messageId ? `${otterId}:${options.messageId}` : otterId;
         // F20261009epoc：合法池命中 = 所有权转移到命中它的 invoke（#904 语义保持：
-        // 现役合法持有者可逐自己条目，stale 旧 invoke 不可）。寄存器注册同携 epoch。
-        const hitEpoch = invokeEpochStorage.getStore();
-        if (hitEpoch) existing.epoch = hitEpoch;
-        this._registerActiveSession(sessionKey, existing.session);;
+        // 现役合法持有者可逐自己条目，stale 旧 invoke 不可）——见 _transferPoolOwnership
+        this._transferPoolOwnership(existing, otterId);
+        this._registerActiveSession(sessionKey, existing.session);
         return { session: existing.session, sessionKey, toolContext: existing.toolContext, turnText, isPooled: true, createdNew: false };
       }
     }
@@ -1076,6 +1075,20 @@ export class PiSessionFactory implements AgentGateway {
     }
     this.pool.evict(otterId);
     this.poolMeta.delete(otterId);
+  }
+
+  /** F20261009epoc（检视 A-3）：池命中时所有权转移到命中它的 invoke（#904 语义保持：
+   *  现役合法持有者可逐自己条目，stale 旧 invoke 不可）。hitEpoch 缺失时所有权冻结
+   *  + warn（D3 fail-loud 对齐，不静默）。行为面安全方向：条目 epoch 保持原值
+   *  （铸造它的更早 invoke），后续 _evictPooledIfOwned 会因 epoch 不匹配而跳过，
+   *  不会误逐；拒绝池命中本身不可取（每次冷启动是行为大变），降级面止于 warn。 */
+  private _transferPoolOwnership(existing: { epoch?: InvokeEpoch }, otterId: string): void {
+    const hitEpoch = invokeEpochStorage.getStore();
+    if (hitEpoch) {
+      existing.epoch = hitEpoch;
+    } else {
+      this._warnEpochMissing('pool-hit-ownership', otterId);
+    }
   }
 
   /** F20261009epoc（S4）：寄存器注册——条目携带铸造它的 invoke 的 epoch。
