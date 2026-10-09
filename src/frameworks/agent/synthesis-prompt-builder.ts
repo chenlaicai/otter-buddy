@@ -41,8 +41,8 @@ export const SYNTHESIS_READ_ONLY_TOOL_WHITELIST: ReadonlySet<string> = new Set([
 export interface SynthesisPrefetch {
   /** otter_context 的 key 名列表（不含值——新 session 用 get_context 自取） */
   contextKeys?: string[];
-  /** active 产物清单（ID + 类型 + 标题） */
-  activeArtifacts?: Array<{ id: string; resourceType: string; title?: string }>;
+  /** active 产物清单（ID + 类型 + 标题 + createdAt——F20261009arlz 渲染层按时间倒序截断用） */
+  activeArtifacts?: Array<{ id: string; resourceType: string; title?: string; createdAt?: string }>;
   /** 最近搭档（用户）消息原文，按时间正序，供 §⑥ 挑选引用 */
   recentUserMessages?: string[];
 }
@@ -163,8 +163,17 @@ function formatPrefetchSection(prefetch?: SynthesisPrefetch): string {
     if (prefetch.activeArtifacts.length === 0) {
       lines.push('- active 产物: 无');
     } else {
-      const arts = prefetch.activeArtifacts.map(a => `${a.resourceType} ${a.id.slice(0, 8)}${a.title ? `「${a.title}」` : ''}`);
-      lines.push(`- active 产物（${prefetch.activeArtifacts.length} 个）: ${arts.join(' ｜ ')}`);
+      // F20261009arlz L3 注入瘦身：全量列表（实证 33 条含过半僵尸）→ 计数 + 最近 5 条（createdAt 倒序）。
+      // 合成 LLM 只需取材写一句「最近：XXX」摘要，全量列表是纯噪音；超量警示让计数本身成为健康信号。
+      const total = prefetch.activeArtifacts.length;
+      const recent = [...prefetch.activeArtifacts]
+        .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
+        .slice(0, 5);
+      const arts = recent.map(a => `${a.resourceType} ${a.id.slice(0, 8)}${a.title ? `「${a.title}」` : ''}`);
+      lines.push(`- active 产物（${total} 个，最近 ${recent.length} 个）: ${arts.join(' ｜ ')}`);
+      if (total > 15) {
+        lines.push(`- ⚠️ active 产物超 15 个（当前 ${total}），清单可能含僵尸，建议走产物对账（daily-health-check 产物清单对账段）`);
+      }
     }
   }
   return lines.length > 0 ? lines.join('\n') : '- （无预取数据，可用只读工具自查）';
