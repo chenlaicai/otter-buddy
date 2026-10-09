@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { truncateToolResult, textResponse, MAX_TOOL_RESULT_CHARS } from "@usecases/ports/agent-tools";
-import { validateSpeakBody, hasCardFences } from "../../src/interface-adapters/agent-runtime/tools/tool-helpers";
+import { validateSpeakBody, hasCardFences, extractPlayableCardSummary } from "../../src/interface-adapters/agent-runtime/tools/tool-helpers";
 
 /** F20260915hcel：validateSpeakBody 新校验逻辑测试 */
 describe("validateSpeakBody（F20260915hcel 弹性化）", () => {
@@ -220,5 +220,58 @@ describe("truncateToolResult", () => {
     const result = textResponse("[]");
     const truncated = truncateToolResult(result);
     expect(truncated.content[0].text).toBe("[]");
+  });
+});
+
+/** F20261009csp2 补丁：活类卡登记摘要提取——script/style 源码不得漏进摘要（乱码卡实证） */
+describe("extractPlayableCardSummary（活类卡登记摘要）", () => {
+  const gameHtml = `<div><div style="display:none">终章灰盒试玩：先占卜获取情报，召唤洞察獭补自测盲区，最后念出封印咒语。</div><div id="screen">镜湖。水面没有倒影。</div><div id="hud">幼獭 HP 100</div></div>
+<script>
+(function(){
+  var S = { hp:100, mp:60, divined:false, ally:false };
+  var TALKS = ['"力气就是一切。"', '"同伴？我自己就是全部。"'];
+})();
+</script>`;
+
+  it("script 源码不漏进摘要（修复前此用例失败：摘要以 (function(){ 开头）", () => {
+    const summary = extractPlayableCardSummary(gameHtml);
+    expect(summary.startsWith("终章灰盒试玩")).toBe(true);
+    expect(summary).not.toContain("(function");
+    expect(summary).not.toContain("hp:100");
+  });
+
+  it("纯 script 卡退化为空摘要（登记侧显示「无可提取文本」）", () => {
+    const onlyScript = '<div id="app"></div><script>var x = 1;</script>';
+    expect(extractPlayableCardSummary(onlyScript)).toBe("");
+  });
+
+  it("style 块同样被剥除", () => {
+    const withStyle = "<style>.hp{color:red}</style><div>血条 UI</div>";
+    expect(extractPlayableCardSummary(withStyle)).toBe("血条 UI");
+  });
+
+  it("maxLen 截断生效", () => {
+    const long = "<div>" + "很长".repeat(200) + "</div>";
+    expect(extractPlayableCardSummary(long, 50).length).toBe(50);
+  });
+});
+
+/** 检视处置 A1/A2（PR #1396 对抗审视，检视獭1396 报告） */
+describe("extractPlayableCardSummary（检视处置补丁）", () => {
+  it("A1：未闭合 script（截断卡）不漏源码——剥到结尾", () => {
+    const truncated = '<div>镜湖开场文案</div><script>var S = { hp:100, mp:60, divined:false';
+    const summary = extractPlayableCardSummary(truncated);
+    expect(summary.startsWith("镜湖开场文案")).toBe(true);
+    expect(summary).not.toContain("hp:100");
+    expect(summary).not.toContain("var S");
+  });
+
+  it("A2：截断不产生孤立代理对（emoji 安全）", () => {
+    const emoji = "🦦⚔️🐲".repeat(50); // 每字符 ≥1 个多码元 emoji
+    const summary = extractPlayableCardSummary("<div>" + emoji + "</div>", 10);
+    expect(summary).not.toMatch(/[\uD800-\uDBFF]$/); // 尾部不是高代理
+    expect(summary).not.toMatch(/^[\uDC00-\uDFFF]/); // 开头不是低代理
+    // 码点数恰为 10
+    expect(Array.from(summary).length).toBe(10);
   });
 });
