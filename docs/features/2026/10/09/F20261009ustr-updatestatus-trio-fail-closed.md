@@ -1,7 +1,7 @@
 ---
 id: F20261009ustr
 title: updateStatus fail-closed 三仓收尾 + assertUpdated 断言收敛（#1391）
-summary: "#1370 族模式收尾：scheduled-task / im-connection / conversation 三仓 updateStatus 对 changes=0 抛错；同时将散点复制 6 处的 fail-closed 断言收敛至公共 helper assertUpdated"
+summary: "#1370 族模式收尾：scheduled-task / im-connection / conversation 三仓 updateStatus 对 changes=0 抛错；同时将散点复制 4 处的 fail-closed 断言收敛至公共 helper assertUpdated"
 change_type: fix
 capability_test: "n/a: DB 回执语义修复，验证走单测（三仓 updatestatus 七用例），无独立 LLM 能力面"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
@@ -46,7 +46,7 @@ repo 层 `updateStatus` 对 `changes === 0` 抛错（`<实体> 不存在: <id>`�
 
 **建议 2 采纳**：healing `resolve()`（sqlite-healing-event-repository.ts:83）同文件同模式收敛至 assertUpdated（第 7 处）；「散点复制 5 处」计数失实修正为 4 处。
 
-**建议 3 采纳（措辞收紧）**：「收尾」措辞限定为 updateStatus 方法名口径（7/7 全收敛）；按族模式自述定义，otter dissolve（:78-83）与 entry updateEntryStatus（:193-207，零调用方）仍是同族成员，另建后续 issue 跟进，不在本 PR 扩面。
+**建议 3 采纳（措辞收紧）**：「收尾」措辞限定为 updateStatus 方法名口径（6/6 全收敛）+ resolve 1 处 = assertUpdated 共 7 处调用点；按族模式自述定义，otter dissolve（:78-83）与 entry updateEntryStatus（:193-207，零调用方）仍是同族成员，另建后续 issue 跟进，不在本 PR 扩面。
 
 ### assertUpdated 公共断言收敛
 
@@ -56,7 +56,7 @@ repo 层 `updateStatus` 对 `changes === 0` 抛错（`<实体> 不存在: <id>`�
 
 ### 最简实现检查
 
-已过——三仓修复无更简路径（repo 层 fail-closed 是 #1383/#1385 已验证的最小修法）；收敛 helper 是净减重复（6 处 × 2 行 → 1 处定义 + 6 处单行调用）。
+已过——三仓修复无更简路径（repo 层 fail-closed 是 #1383/#1385 已验证的最小修法）；收敛 helper 是净减重复（7 处 × 2 行 → 1 处定义 + 7 处单行调用）。
 
 ## 验证
 
