@@ -77,10 +77,11 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
   async resolve(id: string, resolution: HealingResolution): Promise<void> {
     const now = new Date().toISOString();
     // #1370：同上，changes=0 fail-closed——「消费即处置」闭环的回执可信度靠此保证
+    // （#1391 断言收敛至 assertUpdated）
     const result = this.db.prepare(
       'UPDATE healing_events SET status = ?, resolution = ?, resolved_at = ? WHERE id = ?',
     ).run('resolved', JSON.stringify(resolution), now, id);
-    if (result.changes === 0) throw new Error(`healing event 不存在: ${id}`);
+    assertUpdated(result, 'healing event', id);
   }
 
   async getStats(): Promise<HealingEventStats> {
