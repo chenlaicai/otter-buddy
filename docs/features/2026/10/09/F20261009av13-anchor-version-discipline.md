@@ -11,7 +11,7 @@ intent:
     type: static_only
     description: "纯文本纪律增补——验证 = 文本落位 grep 命中 + CI lint-prompt-anchors 通过；无 prompt 运行时行为面可回归（静态守护，见 lint-intent.mjs 四选一分类）"
   
-Golden Gate: n/a（verify_by=static_only——skill 文本纪律增补，无 prompt/skill 执行面变更；「Golden Gate: n/a」声明按 B7 豁免口径显式落位）
+Golden Gate: n/a（verify_by=static_only——skill 文本纪律增补，无 prompt/skill 执行面变更；n/a 声明按 B7 豁免口径显式落位）
 created_in_conversation: d7377cfd-8497-4338-9fb5-366967ffe87e
 causal_links:
   - "F20261008pi11"
