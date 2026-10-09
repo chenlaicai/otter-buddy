@@ -3,7 +3,7 @@ id: F20261009arlz
 title: 产物清单生命周期完整修复：类型终态矩阵 + 机械兜底 + 注入瘦身
 summary: 产物清单机制完整重构——三混杂（生命周期/场景/系统）分层修复：L1 类型×终态矩阵定义「什么叫活着」、L2 每日机械兜底自动归档机械可判死物、L3 合成 LLM 注入从全量列表瘦身到计数+最近5标题；配套存量33个active大清账
 change_type: feature
-capability_test: n/a
+capability_test: n/a（Golden Gate 豁免——behavior_check 人工核验型，非自动 gate 类）
 intent:
   problem: "产物清单三混杂：生命周期（33 active 里 11 个已合入 PR + 2 个已删实体仍 active）、场景（合成 LLM §④ 注入全量 33 条僵尸列表挤上下文）、系统（archived 不影响记忆是有意设计但语义未显式化，无人归档）"
   expected_effect: "L1 类型×终态矩阵定义活死边界；L2 daily-health-check 产物对账段机械归档可判死物；L3 注入瘦身到计数+最近5标题，合成 prompt 减负；存量 33 active 清账"
@@ -135,8 +135,8 @@ causal_links:
 
 风险：
 1. **机械误判**：pr 类产物与 PR 号的关联靠登记时的 url/title 解析，解析失败的跳过不判（fail-safe 方向：漏判留 active，不误杀）
-2. **L2 与 post-merge-cleanup 双执行**：同一产物可能被两处归档——update_artifact_status 对已 archived 的再操作是幂等/报错安全方向，无冲突
-3. **体积出清误删活规则**：出清对象是「分析纪律」节（与 SYSTEM.md A1 完全重复的指针段）等纯冗余，不动行为指令
+2. **L2 与 post-merge-cleanup 双执行**：同一产物可能被两处归档——update_artifact_status 对已 archived 的再操作会 conflict 报错（非幂等，`src/entities/conversation/conversation.ts:124`），但 L2 对账段仅对 active 产物操作（list 过滤 active），双执行安全靠「只动 active」的入口过滤而非幂等性，无冲突
+3. **体积出清误删活规则**：出清对象是与 SYSTEM.md A1 重复的指针段、括号内冗余注记等纯冗余；行为指令/操作法不动（对抗审视发现出清曾误删 5 处操作法——golden 软代码 PR 识别法/healing query 50 条上限/hook fallback 计入异常/双链不一致提 issue/分组 batch_bind，已全部恢复）
 
 ## 验证
 
