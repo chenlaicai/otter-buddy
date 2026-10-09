@@ -22,7 +22,12 @@ import { pathToFileURL } from "node:url";
 /** #1274 / F20261009fdid: id 唯一性检查（纯函数，供测试 import）。
  *  entries: Array<{ rel: string, id?: string }>（rel = 仓库根相对路径）。
  *  返回 Map<重复 id, 文件路径列表>；缺 id 的条目跳过（缺 id 由
- *  validateXxxFrontmatter 管辖，不属重复语义）。 */
+ *  validateXxxFrontmatter 管辖，不属重复语义）。
+ *
+ *  ⚠️ 与 fid-format 门的隐式耦合（检视 S3）：本检查按字面量精确比对 id，
+ *  大小写/空白/前缀等变体之所以不构成绕过，依赖 dist 侧 validateFeatureId
+ *  （fid-format.ts 严校验）在前置路径上已拦——若未来 format 门放宽（如允许
+ *  大小写不敏感域），此处需同步引入规范化比对，否则变体可逃过重复检查。 */
 export function findDuplicateIds(entries) {
   const byId = new Map();
   for (const e of entries) {

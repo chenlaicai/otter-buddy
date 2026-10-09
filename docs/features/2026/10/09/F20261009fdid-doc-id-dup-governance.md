@@ -104,7 +104,7 @@ issue #1274（2026-10-01，#1257 清 lint:docs 存量时发现）+ #1283 检视�
 
 ## 设计取舍
 
-- **为何 rename 到 2026/10/09 而非留在原目录**：validateFilePath 强制 id 日期段 = 目录路径（src/entities/document/frontmatter-validator.ts:185），新 id 含 20261009 → 留在 08/24 或 09/03 目录会被 lint:docs 报 error（File path does not match expected）。挪目录是唯一合法路径。
+- **为何 rename 到 2026/10/09 而非留在原目录**：validateFilePath 强制 id 日期段 = 目录路径（src/entities/document/frontmatter-validator.ts:185），新 id 含 20261009 → 留在 08/24 或 09/03 目录会被 lint:docs 报 error（File path does not match expected）。挪目录是唯一合法路径。**新 id 日期段口径（检视 S1）**：用治理日 2026-10-09 而非创作日——代价是 frontmatter created_at 仍为原创作日而 id 日期段是换 id 日，两者语义不同（id 日期段=「该 id 的诞生日」而非「文档内容的创作日」）。备选「新 id 沿用创作日日期段」被否：validateFilePath 强制目录路径与日期段一致，沿用旧日期段就得留在旧目录，与新 id 查重隔离性（新旧同目录易混淆）冲突，且 lint date-bombs 门对 2026-10-09 前后日期无影响。本口径与 #1168/#1126 的 FID 顺延先例一致（顺延即改日期段）。
 - **为何 fix-lock/false-positive-modes 换 id 而非保留方换**：保留方判定标准 = 外部引用语义全指向它 + 记忆库在场记录是它。换错方向会把 6+ 处外部引用和记忆库在场记录全部切断。
 - **历史文档正文一字不动**：lint-historical-docs 铁律。false-positive-modes 的「模式1 修复归属失实」问题如实记录在本特性文档核对表，不回改历史正文。
 - **lint 检查放 lint:docs 而非新脚本**：lint:docs 已遍历全文档解析 frontmatter，加检查项是既有机制语义内补缺（修法决策树①）；新建脚本反而重复遍历。
@@ -129,4 +129,30 @@ issue #1274（2026-10-01，#1257 清 lint:docs 存量时发现）+ #1283 检视�
 - [x] lint:intent 727 docs OK / lint:capability 68 warnings（上限不变）/ lint-prompt-anchors / lint:date-bombs / lint:skills / lint:tool-manifest 全绿
 - [x] 全量测试回归：`npx vitest run` → 339 files / 5076 tests 全绿
 - [x] 最简实现检查：已过——lint:docs 既有遍历内加纯函数检查，无新脚本/新依赖/新遍历；处置记录集中在一份特性文档，不散落
-- [x] sync_docs 后 search_memory 按 F20261009slmc / F20261009bgfm 可检索（worktree 内 sync_docs 实跑：synced 3 / archived 1；search_memory 按 F20261009slmc 命中 SimpleLockManager 并发修复内容（fix-lock 重插成功）、按 F20261009bgfm 命中误报两模式内容（首插）；F20260903gh698 记录只剩 kill-position 内容。主仓合并后 sync 幂等收敛）
+- [x] sync_docs 后 search_memory 按 F20261009slmc / F20261009bgfm 可检索（worktree 内 sync_docs 实跑：synced 3 / archived 1；search_memory 按 F20261009slmc 命中 SimpleLockManager 并发修复内容（fix-lock 重插成功）、按 F20261009bgfm 命中误报两模式内容（首插）；F20260903gh698 记录只剩 kill-position 内容）
+- [ ] **收尾环（合并后主仓执行，检视 S1 修正后的 durable 验收判据）**：主仓根跑 sync_docs（默认 rootDir）→ 验收判据是生产库 features 表 F20261009slmc / F20261009bgfm / F20261009fdid 的 **status = active**（仅「search_memory 可检索」不合格——archived 记录同样可被检索到，拦不住归档态）
+
+## 已知边界（检视 r1 处置：共享记忆库 sync 归档脆弱性）
+
+**现象（10/09 实测）**：生产库 features 表中 F20261009slmc / F20261009bgfm / F20261009fdid 及保留方 F20260824ax376 一度全部 status=archived。
+
+**机制（sync-documents.ts:321 archiveDeletedDocuments）**：sync 按 rootDir 扫描磁盘，库内任何 active 记录的 filePath 在该 rootDir 下不存在 → 归档。本项目多 worktree + 主仓共存，每个 rootDir 树的文件集合不同：
+- worktree sync 时：主仓重命名后的新路径不在 worktree 树（若记录 filePath 是主仓形态）→ 归档；更隐蔽的是保留方 ax376——它库内记录的 filePath 曾是 fix-lock 旧路径（重复 id 时代的错乱写入），rename 后该路径在任何树都不存在 → 被 worktree sync 归档（本 PR worktree sync 的 archived:1 即它）。
+- 主仓 sync（合并前）同理：PR 分支的新路径不在主仓树 → 再归档。
+
+**影响**：合并前的任何中间 sync 都是搅动源；最终以合并后主仓根的 sync 为准收敛（见收尾环）。
+
+**根治方向（不在本 PR 范围）**：sync 归档按 rootDir 限定本树来源的记录（如按入库 root 打标，只归档自己树的记录），或 archiveDeletedDocuments 对「 filePath 在其它已知 root 存在」做交叉检查。建议另立 issue 跟踪。
+
+### 模式1 修复归属失实的可发现性（检视 S2）
+
+false-positive-modes 篇（新 id F20261009bgfm）正文声称「模式1 本次修」，但模式1（eval 词元命令位置限定）实际由 F20260902gvrd（PR #757，前一天）修复——kill-position-fp 篇记述正确。历史正文不可改（lint-historical-docs 禁止），本核对表如实留档。检视 S2 建议的 .doc-fix 通道订正不采用：该通道仅限元数据订正（id 对齐/格式订正），修正事实性叙述属内容修改、按通道语义应走 supersede 新文档——但本失实是同 commit 双篇撞 id 时代的记述出入，杀伤面小（两篇各自自洽），单独立 supersede 文档不成比例，本节即为可发现性留档（新 id 的 relates-to 链 + 本节均可检索到该出入）。若后续有人按 bgfm 篇追溯模式1 修复，以本节为准。
+
+## 对抗审视 r1 处置记录（检视獭-1375，1 严重 + 3 建议）
+
+| 发现 | 处置 |
+|---|---|
+| **严重 1** fix-lock 重插未达 durable 终态（生产库 status=archived，「search_memory 可检索」验收口径拦不住归档态） | 采纳：验收判据改「features.status = active」+ 新增「收尾环」条目（合并后主仓根 sync 复核）+ 新增「已知边界（共享记忆库 sync 归档脆弱性）」节（含机制、双向影响面、根治方向另立 issue） |
+| 建议 S1 新 id 日期段口径未声明 | 采纳：设计取舍段补口径（id 日期段=诞生日语义，与 FID 顺延先例一致，备选创作日方案被否及理由） |
+| 建议 S2 模式1 归属失实可发现性增强 | 部分采纳：不用 .doc-fix（通道语义限元数据订正，事实叙述修改应走 supersede，不成比例）——以本文档专节留档 + relates-to 链承载可发现性，并修正简报转述误差（原文是「声称模式1 本次修」非「声称 PR #760」） |
+| 建议 S3 findDuplicateIds 与 format 门隐式耦合 | 采纳：lint-docs.mjs 函数 JSDoc 补耦合声明（未来 format 门放宽需同步引入规范化比对） |
