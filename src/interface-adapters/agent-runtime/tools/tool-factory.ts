@@ -104,18 +104,27 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
 /** F20261009csp2：活类卡自动产物登记。宪法「产物=主体×时刻×形态」——活类卡
  *  （html-card-play 围栏）是产物，自动登记为 fact 类 linked_resource，进 P1 的时间轴
  *  混排体系（不登记则「现场有这东西但链上查无此人」）。content 放可检索摘要（title +
- *  围栏内文本片段），url 留空（活类本体在消息原文里，get_message 可回看） */
+ *  围栏内文本片段），url 留空（活类本体在消息原文里，get_message 可回看）。
+ *  检视处置 3：markdown 解析口径（remark parse mdast 遍历，与前端 collectCodeNodes 同构）
+ *  取代手写正则——正则与解析器对四反引号/嵌套围栏形态会分裂（漏登/假登记） */
 async function autoRegisterPlayableCards(ctx: ToolContext, body: string, entryId: string): Promise<void> {
   if (!body.includes("html-card-play")) return;
-  const fence = /(?:```|~~~)html-card-play([^\n]*)\n([\s\S]*?)(?:\n(?:```|~~~))/g;
-  let m: RegExpExecArray | null;
-  while ((m = fence.exec(body)) !== null) {
-    const metaRaw = m[1] || "";
-    const html = m[2] || "";
-    const titleMatch = /title="([^"]*)"/.exec(metaRaw);
-    const title = titleMatch ? titleMatch[1] : "未命名活类卡";
+  const { remark } = await import("remark");
+  const remarkParse = (await import("remark-parse")).default;
+  const tree = remark().use(remarkParse).parse(body);
+  type MdNode = { type?: string; lang?: string | null; meta?: string | null; value?: string; children?: MdNode[] };
+  const playCards: { meta: string | null; value: string }[] = [];
+  const visit = (node: MdNode) => {
+    if (node.type === "code" && node.lang === "html-card-play") {
+      playCards.push({ meta: node.meta ?? null, value: node.value ?? "" });
+    }
+    if (node.children) for (const child of node.children) visit(child);
+  };
+  visit(tree as MdNode);
+  for (const card of playCards) {
+    const title = parseCardMetaTitle(card.meta) ?? "未命名活类卡";
     // 摘要：去标签后的文本前 180 字（fact content ≤500 字限制内）
-    const textContent = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180);
+    const textContent = card.value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180);
     await ctx.client.resource.link({
       conversationId: ctx.conversationId,
       resourceType: "fact",
@@ -125,6 +134,13 @@ async function autoRegisterPlayableCards(ctx: ToolContext, body: string, entryId
       linkedBy: ctx.otterId,
     });
   }
+}
+
+/** 围栏 meta 里的 title="..."（与服务端 speak 校验的 title 必填同口径，遇到首个引号截断） */
+function parseCardMetaTitle(meta: string | null | undefined): string | null {
+  if (!meta) return null;
+  const m = /(?:^|\s)title="([^"]*)"/.exec(meta);
+  return m && m[1] ? m[1] : null;
 }
 
 /** F20260821i336（F20260912avlb 改造）：yield 成功后记账派工——行动权首次/再次交给目标獭。

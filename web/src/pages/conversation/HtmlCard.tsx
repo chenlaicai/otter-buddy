@@ -69,7 +69,9 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId,
   )
   /** 展开时向 registry 登记 contentWindow ↔ cardId（source 白名单 + 高度回写 + 作者路由）。
    *  进入 expanded 即重置 loadCount（user 卡片无桥也要重置：collapse→re-expand 会重挂载 iframe，
-   *  不重置则二次 load 计数沿用旧值，被误判为导航逃逸而降级 invalid） */
+   *  不重置则二次 load 计数沿用旧值，被误判为导航逃逸而降级 invalid）。
+   *  F20261009csp2 检视处置 1：deps 加 runNonce——重启重挂载是新 iframe 的首次 load，
+   *  不重置则计到 2 误判逃逸；同时 re-register 新 contentWindow（旧 win 已随卸载失联） */
   useEffect(() => {
     if (view !== 'expanded') return
     loadCountRef.current = 0
@@ -78,7 +80,7 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId,
     if (!win) return
     registerCard({ cardId, authorId, contentWindow: win, setHeight })
     return () => unregisterCard(cardId, win)
-  }, [view, interactive, cardId, authorId])
+  }, [view, interactive, cardId, authorId, runNonce])
 
   /** 导航逃逸事后检测：首次 load 是 srcdoc 正常挂载；二次 load = location/meta refresh 导航，销毁降级 */
   const handleLoad = () => {

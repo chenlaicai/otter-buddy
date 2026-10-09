@@ -112,6 +112,28 @@ describe('活类卡（html-card-play，F20261009csp2）', () => {
     // 服务端同口径拒绝（speak 校验把 play 围栏计入卡数——集成测试在 tests/ 侧）
   })
 
+  it('重启后新 iframe 首次 load 不误判逃逸（检视处置 1 回归钉）', () => {
+    render('```html-card-play title="x"\n<p>game</p>\n```')
+    const card = cardEl('m1:0')!
+    const iframe1 = card.querySelector('iframe')!
+    const restartBtn = Array.from(card.querySelectorAll('button')).find(b => b.textContent === '重启')!
+    act(() => { restartBtn.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    const iframe2 = card.querySelector('iframe')!
+    expect(iframe2).not.toBeNull()
+    // 新 iframe 触发 onLoad（首次）——不得降级 invalid（runNonce 重置 loadCount）
+    act(() => { iframe2.dispatchEvent(new Event('load')) })
+    const cardAfter = cardEl('m1:0')!
+    expect(cardAfter.textContent).not.toContain('已拒绝渲染')
+    expect(cardAfter.querySelector('iframe')).not.toBeNull()
+    void iframe1
+  })
+
+  it('活类围栏计入 countCardFences（检视处置 2 回归钉：submit 预览不瞬丢）', async () => {
+    const { countCardFences } = await import('../../lib/html-card')
+    expect(countCardFences('```html-card-play title="g"\n<canvas></canvas>\n```')).toBe(1)
+    expect(countCardFences('```html-card title="a"\n<p>1</p>\n```\n\n```html-card-play title="g"\n<canvas></canvas>\n```')).toBe(2)
+  })
+
   it('普通 html-card 行为不变（默认折叠，无活类徽章）', () => {
     render('```html-card title="普通卡"\n<p>hi</p>\n```')
     const card = cardEl('m1:0')!

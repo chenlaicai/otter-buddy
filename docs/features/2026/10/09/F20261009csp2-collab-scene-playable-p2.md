@@ -3,7 +3,7 @@ id: F20261009csp2
 title: "协作现场形态补全 P2：活类可玩模式——html-card-play 围栏（默认展开运行 + 生命周期控制 + 产物登记挂钩）"
 summary: "落实宪法 F20261008csfw P2：活类（游戏/demo/小工具）获得专属围栏 html-card-play——默认展开运行（折叠态没有玩法）、🎮 运行标识、暂停/重启控制（卸载即停/重挂归零）；与普通卡共享全部沙盒安全边界与卡数/体积预算；发言后自动登记为产物进时间轴混排。沙盒安全评估结论：现有边界（opaque origin + CSP 断网 + 逃逸检测）对可玩形态足够，不新增权限面。"
 change_type: feature
-capability_test: "n/a: 能力验证面 = web PlayableCard.test.tsx（6 用例：默认展开/徽章/暂停/重启/fenceIndex 共享/超预算降级）+ tests/interface-adapters/tool-helpers.test.ts（25 用例含活类预算共享 3 例）——普通 vitest 套件"
+capability_test: "n/a: 能力验证面 = web PlayableCard.test.tsx（8 用例：默认展开/徽章/暂停/重启/重启不误判逃逸/fenceIndex 共享/countCardFences 计活类/超预算降级）+ tests/interface-adapters/tool-helpers.test.ts（25 用例含活类预算共享 3 例）。golden 豁免声明（沿 #1318 先例）：契约工具新增活类章节属 LLM 行为面变更，但 golden 场景集无写卡路径场景，无可跑 gate——由 capability/golden-selftest 12 例绿佐证未退化"
 created_in_conversation: 325ef7b7-8e42-4edc-9abf-eae8f332a2c4
 causal_links:
   - "F20261008csfw"
@@ -77,7 +77,7 @@ intent:
 ### 服务端
 
 - `countCardFences`/`measureCardFenceBytes`：正则 `(?:\`\`\`|~~~)html-card(?!-reply)` 同时计住两种围栏——play 是 html-card 的带后缀形态，天然入计；无代码分叉
-- `autoRegisterPlayableCards`（tool-factory）：speak 落库后扫描 play 围栏，逐张登记 fact 类产物（title=`🎮 {围栏title}`，content=title+去标签文本前 180 字摘要，category=`playable-card`）。**best-effort**：登记失败仅 warn 不阻断发言（卡片本体已落库，损失的只是时间轴摘要卡）
+- `autoRegisterPlayableCards`（tool-factory）：speak 落库后扫描 play 围栏，逐张登记 fact 类产物（title=`🎮 {围栏title}`，content=title+去标签文本前 180 字摘要，category=`playable-card`）。**best-effort**：登记失败仅 warn 不阻断发言（卡片本体已落库，损失的只是时间轴摘要卡）。检视处置 3：改用 remark parse mdast 遍历（与前端 collectCodeNodes 同构）取代手写正则——正则对四反引号/嵌套围栏形态与 markdown 解析器有口径分裂。登记 await 串行在 speak 返回前（观察项，接受：登记是本地 DB 写，毫秒级，不值得为此并行化引入复杂度）
 - 契约工具（html-card-contract-tool）补「活类卡」章节：语法/预算共享/自动登记说明
 
 ### 产物登记的取舍
@@ -88,10 +88,10 @@ intent:
 
 | 文件 | 用例 | 覆盖 |
 |---|---|---|
-| web PlayableCard.test.tsx | 6 | 默认展开+徽章+控制钮、暂停卸载、重启重挂载（iframe key 变化）、fenceIndex 共享（1 普通+1 活类=0,1）、超预算降级、普通卡行为回归 |
+| web PlayableCard.test.tsx | 8 | 默认展开+徽章+控制钮、暂停卸载、重启重挂载（iframe key 变化）、**重启后首次 load 不误判逃逸（检视处置 1 回归钉）**、fenceIndex 共享（1 普通+1 活类=0,1）、**countCardFences 计活类围栏（检视处置 2 回归钉：submit 预览不瞬丢）**、超预算降级、普通卡行为回归 |
 | tests tool-helpers.test.ts | +3（共 25） | 1 普通+1 活类通过、+1 活类被拒（共享预算）、纯活类单卡通过 + hasCardFences |
 
-排查记录：超预算降级块此前无 `data-card-id`（既有缺口，非本 PR 引入但被测试暴露）——已补，第三张卡可被定位断言。
+排查记录：超预算降级块此前无 `data-card-id`（既有缺口，非本 PR 引入但被测试暴露）——已补，第三张卡可被定位断言。检视獭抓到两个 jsdom 盲区 bug：重启不重置 loadCount（误判导航逃逸降级 invalid）+ registry 失联（高度回写/submit 路由死）——effect deps 补 runNonce；前端 countCardFences 不计 play（submit 预览瞬丢）——计入。两者均已加回归钉。
 
 ## 取舍与已知限制
 
