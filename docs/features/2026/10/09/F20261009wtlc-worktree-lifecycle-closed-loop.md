@@ -89,7 +89,7 @@ A/B 两协议的召唤要求均加：检视獭在 worktree 内禁 checkout/switc
 
 - **① 谁需要它**：搭档（不再需要记住每次合入后说「已合入/收拾一下」，磁盘残留不再堆积成批处理任务）；daily-health-check 流程（获得确定性扫描面，不再依赖机会性触发）；清理执行獭（获得可机械回查的✅判据，消灭虚报）。
 - **② 失败后果**：可感知——磁盘残留继续堆积（现状 22 个，占空间且干拢盘点）；更实质的是信任成本：收敛段若成新虚报源（报告自动清 N 但目录仍在），比不收敛更糟——这正是硬验证闸与报告行四桶对账的设计动机。
-- **③ 后续机制创造的新状态**：自动清理误删风险（矩阵已锁死：dirty 一律不删、无 PR 两证缺一即保留、detached-HEAD 一律待裁决——误删路径为空）；报告四桶与磁盘不一致（硬验证闸回查兑底）；budget 超 DB CHECK 上限 10000B（lint-prompt-size CI 闸拦截，当前 10700 为 lint 口径，同步入库时超限会被拦——已验证当前同步路径体积）；收敛段自身漏扫（路径拼接/分支 glob 漏形态，走 daily 日报的自监控反射环）。
+- **③ 后续机制创造的新状态**：自动清理误删风险（矩阵已锁死：dirty 一律不删、无 PR 两证缺一即保留、detached-HEAD 一律待裁决——误删路径为空）；报告四桶与磁盘不一致（硬验证闸回查兑底）；budget 超 DB CHECK 上限（schema.ts scheduled_tasks.body 的 length(body) <= 10000，单位是字符非字节；当前 6073 字符余量 3927，同步安全）或超 lint override（lint-prompt-size CI 闸拦截，当前 override 10700B）；收敛段自身漏扫（路径拼接/分支 glob 漏形态，走 daily 日报的自监控反射环）。
 - **④ 退役条件**：连续 30 天报告行「自动清 0 ｜ 待裁决 0 ｜ 登记缺失 0」且磁盘无残留——生命周期闭环已内化为默认行为，扫描段可简化退役（呈搭档确认后走 monthly-prune-review 剪枝）。
 
 ### 取舍表
@@ -100,12 +100,13 @@ A/B 两协议的召唤要求均加：检视獭在 worktree 内禁 checkout/switc
 
 ## 3. 影响范围
 
-| 文件 | 变更 |
+| 文件 | 变更（以 git diff origin/main --stat 为准） |
 |---|---|
-| .pi/skills/worktree-isolation/SKILL.md | +出生登记段（+1 行锚点） |
-| .pi/skills/post-merge-cleanup/SKILL.md | +硬验证闸（+10）+ 清理状态对账产出节（+11） |
-| prompts/scheduled/daily-health-check.md | +收敛段（+16 压缩后）+ 检查清单第 12 项 + budget 9600→10500 |
-| .pi/skills/review-protocol/SKILL.md | A 协议 +只读纪律、B 协议 +引用（+4） |
+| .pi/skills/worktree-isolation/SKILL.md | +出生登记段（+1） |
+| .pi/skills/post-merge-cleanup/SKILL.md | +硬验证闸 + 清理状态对账产出节（+17） |
+| prompts/scheduled/daily-health-check.md | +收敛段 + 检查清单第 12 项 + budget 9600→10700（+6/1改） |
+| .pi/skills/review-protocol/SKILL.md | A 协议 +只读纪律、B 协议 +引用（+2） |
+| 特性文档（本档） | +131 |
 
 存量 22 个 worktree 不由本 PR 处置（治本 PR 不夹带治标动作）——9 个残留的清理交由落地后第一次每日收敛自动完成（全部符合「已终结 + 干净」或「dirty 待裁决」路径，unread-reform 等 WIP 走裁决线）。
 
@@ -128,4 +129,4 @@ Golden Gate: n/a（verify_by=behavior_check 指向 daily 执行面观察与残�
 
 - **L1 拍板**：纯 skill/prompt 落地，不建自动 webhook——理由见 2.5。搭档已确认方向（「你要有全局眼光来看待」——方案一体化，不再拆分呈选）。
 - **治标/治本分离**：本 PR 只治本；9 个存量残留由新机制首跑自动消化（它们恰好是矩阵各路径的活样本）。
-- budget override 理由：见 2.5 第一条。
+- budget override 理由：见 §2.5「取舍表」第一条（四问小节插入后指针限定到子表）。
