@@ -125,17 +125,142 @@ function fileToolSignature(toolName: string, a: Record<string, unknown>): string
   return digest ? `${toolName}: ${path}#${digest}` : `${toolName}: ${path}`;
 }
 
+/** 实体工具签名：工具名 + 实体标识；标识缺失时退回工具名（连续缺参被 steer 是合理纠错信号）。F20260826d464 先例泛化（#475） */
+function entityToolSignature(toolName: string, key: string, value: unknown): string {
+  return typeof value === "string" && value ? `${toolName}: ${value}` : toolName;
+}
+
 /** Otter 管理工具签名：dissolve/restart 取 otterId；create 取 name。F20260826d464 */
 function otterToolSignature(toolName: string, a: Record<string, unknown>): string | null {
   if (toolName === "dissolve_otter" || toolName === "restart_otter") {
-    const id = a.otterId;
-    return typeof id === "string" && id ? `${toolName}: ${id}` : toolName;
+    return entityToolSignature(toolName, "otterId", a.otterId);
   }
   if (toolName === "create_otter") {
-    const name = a.name;
-    return typeof name === "string" && name ? `${toolName}: ${name}` : toolName;
+    return entityToolSignature(toolName, "name", a.name);
   }
   return null;
+}
+
+function pushIfString(parts: string[], value: unknown): void {
+  if (typeof value === "string" && value) parts.push(value);
+}
+
+function pushIfPrefixed(parts: string[], prefix: string, value: unknown): void {
+  if (typeof value === "string" && value) parts.push(`${prefix}:${value}`);
+}
+
+/** eventIds 直拼上限：超出收敛为「前 N + 计数 + 指纹」（与 get_memory_detail >2 摘要同构），防 100 ID 直拼进 steer 文本与 warn 日志 */
+const HEALING_EVENT_IDS_INLINE_MAX = 5;
+
+/**
+ * 收集 manage_healing_events 的过滤特征（行为维度）。
+ * query 侧旋钮（status/errorType/includeProbe）不入签名——查询旋钮非实体标识，
+ * 同 action 连发正是卡壳语义（特性文档 2.3 设计决策，F20261009tspg）。
+ */
+function healingFilterParts(a: Record<string, unknown>): string[] {
+  const parts: string[] = [];
+  if (Array.isArray(a.eventIds)) {
+    const ids = a.eventIds.filter((x): x is string => typeof x === "string" && Boolean(x));
+    if (ids.length > HEALING_EVENT_IDS_INLINE_MAX) {
+      const rest = ids.length - HEALING_EVENT_IDS_INLINE_MAX;
+      const head = ids.slice(0, HEALING_EVENT_IDS_INLINE_MAX).join(",");
+      parts.push(`${head},+${rest}#${contentDigest(ids.join(","))}`);
+    } else {
+      parts.push(...ids);
+    }
+  }
+  // bound:N 是 batch_resolve 收尾过滤；issue:N 是 batch_bind 归口目标——两个不同参数不同前缀，避免同值混淆
+  if (typeof a.filterBoundIssue === "number" && Number.isFinite(a.filterBoundIssue)) {
+    parts.push(`bound:${a.filterBoundIssue}`);
+  }
+  if (typeof a.issueNumber === "number" && Number.isFinite(a.issueNumber)) {
+    parts.push(`issue:${a.issueNumber}`);
+  }
+  pushIfString(parts, a.filterRuleId);
+  pushIfString(parts, a.filterErrorType);
+  pushIfPrefixed(parts, "status", a.filterStatus);
+  pushIfPrefixed(parts, "sev", a.filterSeverity);
+  pushIfPrefixed(parts, "before", a.filterCreatedBefore);
+  pushIfPrefixed(parts, "after", a.filterCreatedAfter);
+  return parts;
+}
+
+/**
+ * manage_healing_events 签名：action + 过滤特征（行为维度）。
+ * 同一 action 不同过滤特征不算重复（resolve 不同 event / bind 到不同 issue /
+ * 按不同时间窗分批都是不同操作）；无过滤特征时同 action 连发保留兜底——
+ * query 连发正是卡壳语义（#475）。
+ * 已知限制（特性文档 2.3）：truncated=true 续跑是协议规定的合法重复，同签名累计；
+ * 跨调用批次状态会破坏签名无状态性，接受该限制。
+ */
+function healingEventsSignature(a: Record<string, unknown>): string {
+  const action = typeof a.action === "string" && a.action ? a.action : "";
+  const parts = healingFilterParts(a);
+  if (!action && parts.length === 0) return "manage_healing_events";
+  return parts.length > 0
+    ? `manage_healing_events: ${action} [${parts.join(",")}]`
+    : `manage_healing_events: ${action}`;
+}
+
+function haltOtterSignature(toolName: string, a: Record<string, unknown>): string {
+  const id = typeof a.otterId === "string" && a.otterId
+    ? a.otterId
+    : (typeof a.otterName === "string" && a.otterName ? a.otterName : "");
+  return entityToolSignature(toolName, "otterId|otterName", id);
+}
+
+function mergePrSignature(a: Record<string, unknown>): string {
+  const pr = a.prNumber;
+  if (typeof pr === "number" && Number.isFinite(pr)) return `merge_pr: ${pr}`;
+  if (typeof pr === "string" && pr) return `merge_pr: ${pr}`;
+  return "merge_pr";
+}
+
+function memoryDetailSignature(a: Record<string, unknown>): string {
+  if (Array.isArray(a.ids) && a.ids.length > 0) {
+    const ids = a.ids.filter((x): x is string => typeof x === "string" && Boolean(x));
+    if (ids.length > 0) {
+      return ids.length <= 2
+        ? `get_memory_detail: ${ids.join(",")}`
+        : `get_memory_detail: ${ids.length}#${contentDigest(ids.join("\n"))}`;
+    }
+  }
+  return "get_memory_detail";
+}
+
+function registerMatterSignature(a: Record<string, unknown>): string {
+  const title = typeof a.title === "string" ? a.title : "";
+  return title ? `register_matter#${contentDigest(title)}` : "register_matter";
+}
+
+/**
+ * 带实体参数的管理工具签名（#475，F20260826d464 先例泛化）：
+ * 批量操作不同实体（合入不同 PR、halt 不同 otter、迁移不同 matter、查不同消息/记忆）
+ * 不算重复；同一实体连续操作才累计。标识缺失时退回工具名。
+ * 设计哲学（F20260728cbwt）：签名只取「行为」（实体标识），忽略无关参数值。
+ */
+function managementToolSignature(toolName: string, a: Record<string, unknown>): string | null {
+  switch (toolName) {
+    case "merge_pr":
+      return mergePrSignature(a);
+    case "halt_otter":
+    case "unhalt_otter":
+      return haltOtterSignature(toolName, a);
+    case "transition_matter":
+      return entityToolSignature(toolName, "matter_id", a.matter_id);
+    case "get_message":
+      return entityToolSignature(toolName, "messageId", a.messageId);
+    case "get_memory_detail":
+      return memoryDetailSignature(a);
+    case "get_related":
+      return entityToolSignature(toolName, "entry_id", a.entry_id);
+    case "manage_healing_events":
+      return healingEventsSignature(a);
+    case "register_matter":
+      return registerMatterSignature(a);
+    default:
+      return null;
+  }
 }
 
 /**
@@ -145,8 +270,22 @@ function otterToolSignature(toolName: string, a: Record<string, unknown>): strin
  *
  * F20260820d338：speak 加入 body 内容指纹——连续 speak 不同内容不算重复，
  * 同一 speak 内容反复输出才累计（与 write/edit 同理）。
+ * F20261009tspg：出口统一 capSignature——签名会注入 steer 提示与 warn 日志，
+ * 任何路径的超长签名（如 100 eventIds）收敛为截断+指纹。
  */
 export function buildToolSignature(toolName: string, args?: unknown): string {
+  return capSignature(rawToolSignature(toolName, args));
+}
+
+/** 签名长度上限：触发 steer 时签名注入 LLM 纠正提示，卡壳时 token 最不该浪费 */
+const SIGNATURE_MAX_LENGTH = 200;
+
+function capSignature(sig: string): string {
+  if (sig.length <= SIGNATURE_MAX_LENGTH) return sig;
+  return `${sig.slice(0, SIGNATURE_MAX_LENGTH - 12)}#…${contentDigest(sig)}`;
+}
+
+function rawToolSignature(toolName: string, args?: unknown): string {
   const a = (args ?? {}) as Record<string, unknown>;
   if (toolName === "bash" && typeof a.command === "string") {
     const sig = bashCommandSignature(a.command);
@@ -163,6 +302,9 @@ export function buildToolSignature(toolName: string, args?: unknown): string {
   // F20260826d464：otter 管理工具签名含实体标识——批量解散/重启不同 otter 不算重复
   const otterSig = otterToolSignature(toolName, a);
   if (otterSig !== null) return otterSig;
+  // #475：带实体参数的管理工具签名——批量管理操作不同实体不算重复（merge_pr/halt/transition 等）
+  const mgmtSig = managementToolSignature(toolName, a);
+  if (mgmtSig !== null) return mgmtSig;
   return toolName;
 }
 
