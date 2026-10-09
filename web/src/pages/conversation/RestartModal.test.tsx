@@ -33,7 +33,6 @@ function renderRestartModal(onConfirmRestart: (s: string, m?: string, sp?: boole
       onConfirmCreateOtter={() => {}}
       onConfirmDissolve={() => {}}
       onConfirmRestart={onConfirmRestart}
-      onConfirmLinkResource={() => {}}
       onOpenRestart={() => {}}
       onOpenDissolve={() => {}}
     />,
