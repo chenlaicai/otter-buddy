@@ -8,19 +8,21 @@
 /** 前后端共享常量，单一真相源在 @contract/api/html-card */
 import { CARD_MAX_PER_MESSAGE, CARD_MAX_BYTES } from "@contract/api/html-card";
 
-/** F20260804hcob: html-card 围栏匹配（``` 与 ~~~ 两种合法围栏，与渲染侧对齐），排除 html-card-reply（回执围栏，不算卡片） */
+/** F20260804hcob: html-card 围栏匹配（``` 与 ~~~ 两种合法围栏，与渲染侧对齐）。
+ *  F20261009csp2：html-card-play 是 html-card 的带后缀形态，(?!-reply) 负向断言不会误伤它，
+ *  同一正则同时计住两种围栏——活类与普通卡共享单消息卡数预算（2+2=4 绕限不可能） */
 const HTML_CARD_FENCE = /(?:```|~~~)html-card(?!-reply)/;
 /** 全局匹配版本（用于 countCardFences） */
 const HTML_CARD_FENCE_GLOBAL = /(?:```|~~~)html-card(?!-reply)/g;
 
-/** 统计 body 中的 html-card 围栏数量（``` 与 ~~~ 两种合法围栏，排除 html-card-reply） */
+/** 统计 body 中的 html-card 围栏数量（含 html-card-play 活类围栏，``` 与 ~~~ 两种合法围栏） */
 function countCardFences(body: string): number {
   if (!body.includes('html-card')) return 0;
   const matches = body.match(HTML_CARD_FENCE_GLOBAL);
   return matches ? matches.length : 0;
 }
 
-/** 提取 body 中每张 html-card 围栏的内容字节数（UTF-8）。
+/** 提取 body 中每张 html-card 围栏的内容字节数（UTF-8，含活类围栏）。
  *  F20260916hcel：校验口径是「单卡 ≤CARD_MAX_BYTES」，只量围栏内 HTML，不量正文散文。 */
 function measureCardFenceBytes(body: string): number[] {
   if (!body.includes('html-card')) return [];

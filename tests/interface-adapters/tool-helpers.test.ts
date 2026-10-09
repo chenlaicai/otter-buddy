@@ -30,6 +30,21 @@ describe("validateSpeakBody（F20260915hcel 弹性化）", () => {
     expect(result).toContain("最多支持 2 张");
   });
 
+  it("F20261009csp2：活类与普通卡共享卡数预算（1 普通 + 1 活类通过；+1 活类被拒）", () => {
+    const two = '```html-card title="A"\n<div>a</div>\n```\n```html-card-play title="游戏"\n<canvas></canvas>\n```';
+    expect(validateSpeakBody(undefined, two)).toBeNull();
+    const three = two + '\n```html-card-play title="又一个"\n<canvas></canvas>\n```';
+    const result = validateSpeakBody(undefined, three);
+    expect(result).toContain("3 张");
+    expect(result).toContain("最多支持 2 张");
+  });
+
+  it("F20261009csp2：纯活类卡 1 张通过，体积校验与普通卡同口径", () => {
+    const one = '```html-card-play title="贪吃蛇"\n<canvas id="g"></canvas>\n```';
+    expect(validateSpeakBody(undefined, one)).toBeNull();
+    expect(hasCardFences(one)).toBe(true);
+  });
+
   it("单卡 64KB 边界通过（恰好 65536 字节）", () => {
     const content = "x".repeat(65536 - 20); // 留点余量给围栏语法
     const body = `\`\`\`html-card title="大卡"\n${content}\n\`\`\``;
