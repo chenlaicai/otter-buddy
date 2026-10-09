@@ -120,13 +120,13 @@ issue #1274（2026-10-01，#1257 清 lint:docs 存量时发现）+ #1283 检视�
 - `tests/lint/lint-docs.test.ts`（新建，5 锁定用例）
 - `docs/features/2026/10/09/F20261009fdid-doc-id-dup-governance.md`（本文档）
 
-## 验证
+## 验证（全部实跑）
 
-- [ ] 单测：`npx vitest run tests/lint/lint-docs.test.ts` → 5/5 绿（PR Verification 实跑输出）
-- [ ] lint:docs 全库绿：`npm run build && npm run lint:docs`（id 唯一性检查上线即绿）
-- [ ] lint:docs 红-绿验证：临时构造重复 id fixture → 检查命中 error（PR Verification 实跑输出）
-- [ ] lint:historical-docs：rename + .doc-fix 声明过闸（commit 时实跑）
-- [ ] lint:intent / lint:capability / lint-prompt-anchors / lint:date-bombs 全绿
-- [ ] 全量测试回归（npx vitest run）
-- [ ] sync_docs 后 search_memory 按 F20261009slmc / F20261009bgfm 可检索（合并后收尾环）
-- [ ] 最简实现检查：已过——lint:docs 既有遍历内加纯函数检查，无新脚本/新依赖/新遍历；处置记录集中在一份特性文档，不散落
+- [x] 单测：`npx vitest run tests/lint/lint-docs.test.ts` → 5/5 绿（08:57 实跑：Test Files 1 passed / Tests 5 passed）
+- [x] lint:docs 全库绿：`npm run lint:docs` → 741 docs OK，3 warnings（基线不变，id 唯一性检查上线即绿）
+- [x] lint:docs 红-绿验证：构造 F20261009slmc 重复 fixture → 命中 `[duplicate id] F20261009slmc 被 2 个文件共用` error；删除后复跑绿（exit=0）
+- [x] lint:historical-docs：rename + .doc-fix 声明过闸（commit 时实跑输出：`放行 2 个历史文档修改`；R99% + id 行编辑走两侧 frontmatter 边界校验路径）
+- [x] lint:intent 727 docs OK / lint:capability 68 warnings（上限不变）/ lint-prompt-anchors / lint:date-bombs / lint:skills / lint:tool-manifest 全绿
+- [x] 全量测试回归：`npx vitest run` → 339 files / 5076 tests 全绿
+- [x] 最简实现检查：已过——lint:docs 既有遍历内加纯函数检查，无新脚本/新依赖/新遍历；处置记录集中在一份特性文档，不散落
+- [ ] sync_docs 后 search_memory 按 F20261009slmc / F20261009bgfm 可检索（worktree sync + 合并后主仓收敛两步，见 PR Verification）
