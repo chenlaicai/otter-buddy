@@ -13,8 +13,14 @@ export const CARD_MAX_BYTES = 65536;
 
 /** 卡片 schema 版本：F20260916hcel 引入（保留字段，供未来默认状态变化用）。
  *  speak 工具创建含 html-card 的条目时写入 metadata.cardSchemaVersion。
- *  当前所有卡默认 collapsed（搭档 9/16 拍板）。 */
+ *  当前所有卡默认 collapsed（搭档 9/16 拍板）；唯一例外：F20261009csp2 活类卡
+ *  （html-card-play 围栏）默认展开运行——活类的感知动词是「玩」，折叠态没有玩法。 */
 export const CARD_SCHEMA_VERSION = 2;
+
+/** F20261009csp2：活类围栏语言标记。与 html-card 共享渲染沙盒/体积预算/单消息卡数预算，
+ *  差异仅三点：默认展开运行、头部「🎮 运行中」徽章、暂停/重启控制。
+ *  服务端校验把 play 围栏计入卡数（同一预算，防 2+2 = 4 张卡绕限）。 */
+export const CARD_PLAY_FENCE_LANG = "html-card-play";
 
 /** 卡片 iframe 高度区间（像素）。
  *  CARD_MIN_HEIGHT = 展开初始高度（小起步防跳变过量，随后桥 ResizeObserver 自动撑高/缩回到内容真实高度）；

@@ -41,13 +41,20 @@ export interface HtmlCardProps {
   /** F20260916hcel：html-card schema版本，保留为将来可能的默认状态变化留口子。
    *  当前所有卡默认 collapsed（搭档 9/16 拍板） */
   cardSchemaVersion?: number
+  /** F20261009csp2 活类：html-card-play 围栏——默认展开运行 + 🎮 徽章 + 暂停/重启控制。
+   *  宪法 F20261008csfw：活类感知动词是「玩」，折叠态没有玩法 */
+  playable?: boolean
 }
 
 type CardView = 'collapsed' | 'expanded' | 'source' | 'invalid'
 
-function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId }: HtmlCardProps) {
-  /** F20260916hcel：所有卡默认折叠（搭档 9/16 纠正——曾误执行为「新卡默认展开」） */
-  const [view, setView] = useState<CardView>('collapsed')
+function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId, playable }: HtmlCardProps) {
+  /** F20260916hcel：所有卡默认折叠（搭档 9/16 纠正——曾误执行为「新卡默认展开」）；
+   *  F20261009csp2 唯一例外：活类卡默认展开运行（宪法：折叠态没有玩法） */
+  const [view, setView] = useState<CardView>(playable ? 'expanded' : 'collapsed')
+  /** F20261009csp2 活类重启控制：nonce 变化强制重挂载 iframe（脚本状态归零重跑）。
+   *  暂停 = 收起（卸载 iframe 即停脚本，无需 kill 通道）；重启 = 回 expanded + 新 nonce */
+  const [runNonce, setRunNonce] = useState(0)
   /** F20260929ahgt：agent 不再管高度——初始固定 CARD_MIN_HEIGHT（小起步防视觉跳变过量），
    *  展开后桥 ResizeObserver 上报真实内容高度（clamp [1, CARD_MAX_HEIGHT]，可撑可缩）。
    *  旧卡的 data-height 属性自此为无害冗余，不再解析。 */
@@ -60,10 +67,11 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId 
     () => (view === 'expanded' ? buildCardSrcdoc(code, cardId, interactive) : ''),
     [view, code, cardId, interactive],
   )
-
   /** 展开时向 registry 登记 contentWindow ↔ cardId（source 白名单 + 高度回写 + 作者路由）。
    *  进入 expanded 即重置 loadCount（user 卡片无桥也要重置：collapse→re-expand 会重挂载 iframe，
-   *  不重置则二次 load 计数沿用旧值，被误判为导航逃逸而降级 invalid） */
+   *  不重置则二次 load 计数沿用旧值，被误判为导航逃逸而降级 invalid）。
+   *  F20261009csp2 检视处置 1：deps 加 runNonce——重启重挂载是新 iframe 的首次 load，
+   *  不重置则计到 2 误判逃逸；同时 re-register 新 contentWindow（旧 win 已随卸载失联） */
   useEffect(() => {
     if (view !== 'expanded') return
     loadCountRef.current = 0
@@ -72,7 +80,7 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId 
     if (!win) return
     registerCard({ cardId, authorId, contentWindow: win, setHeight })
     return () => unregisterCard(cardId, win)
-  }, [view, interactive, cardId, authorId])
+  }, [view, interactive, cardId, authorId, runNonce])
 
   /** 导航逃逸事后检测：首次 load 是 srcdoc 正常挂载；二次 load = location/meta refresh 导航，销毁降级 */
   const handleLoad = () => {
@@ -85,7 +93,7 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId 
   /** 预算兜底：第 3 张起降级为源码块 */
   if (fenceIndex >= CARD_MAX_PER_MESSAGE) {
     return (
-      <div className="my-2 rounded-xl border border-stone-200/60 bg-white/40 overflow-hidden">
+      <div className="my-2 rounded-xl border border-stone-200/60 bg-white/40 overflow-hidden" data-card-id={cardId}>
         <div className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-stone-400">
           <AlertTriangle className="w-3 h-3" />
           超出单消息卡片上限（{CARD_MAX_PER_MESSAGE} 张），已降级为源码
@@ -100,7 +108,9 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId 
       <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-stone-600">
         <Hash className="w-3 h-3 text-stone-400 flex-shrink-0" />
         <span className="font-medium truncate flex-1">{title || '未命名卡片'}</span>
-        <span className="text-[10px] px-1.5 py-0.5 rounded bg-otter-400/15 text-otter-600 flex-shrink-0">HTML 卡片</span>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${playable ? 'bg-teal-400/20 text-teal-700' : 'bg-otter-400/15 text-otter-600'}`}>
+          {playable ? '🎮 活类 · 运行中' : 'HTML 卡片'}
+        </span>
         {oversize && (
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-status-stalled text-amber-700 flex-shrink-0" title={`卡片超出 ${CARD_MAX_BYTES / 1024}KB 体积预算`}>
             超 {CARD_MAX_BYTES / 1024}KB
@@ -113,7 +123,8 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId 
           </>
         ) : view === 'expanded' ? (
           <>
-            <button className={btnCls} onClick={() => setView('collapsed')}>收起</button>
+            {playable && <button className={btnCls} onClick={() => { setRunNonce(n => n + 1); setHeight(CARD_MIN_HEIGHT) }}>重启</button>}
+            <button className={btnCls} onClick={() => { setView('collapsed'); setHeight(CARD_MIN_HEIGHT) }}>{playable ? '暂停' : '收起'}</button>
             <button className={btnCls} onClick={() => setView('source')}>看源码</button>
           </>
         ) : view === 'source' ? (
@@ -128,6 +139,8 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId 
       {view === 'expanded' && (
         <>
           <iframe
+            /* F20261009csp2：key 含 runNonce——活类重启时强制重挂载，脚本状态归零 */
+            key={`${cardId}:${runNonce}`}
             ref={iframeRef}
             /* 绝不加 allow-same-origin：保持 opaque origin 隔离 */
             sandbox={interactive ? 'allow-scripts' : ''}
@@ -139,7 +152,7 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId 
           />
           <div className="flex items-center gap-1 px-3 py-1 text-[10px] text-stone-400">
             <ShieldCheck className="w-3 h-3" />
-            沙箱渲染中
+            {playable ? '沙盒运行中 · 暂停即停' : '沙箱渲染中'}
           </div>
         </>
       )}
