@@ -341,9 +341,25 @@ export default function ConversationPage() {
    *  条目先到，末位游标反指更早条目）；②列表非全局 seq 有序时末位非最大 seq 同样漏。
    *  尾页快照 + 幂等合并不依赖游标假设，低位缺口/乱序一概能补（同 id 幂等，窗口外终态
    *  允许丢弃——与整页重载同语义）。 */
+  /**
+   * F20261010rwq（三轮上跳根治）：快照窗口对齐——刷新拉取的条目必须 ⊆ 当前已加载窗口 ∪ 新条目。
+   * 旧版固定拉尾页 100 条：首屏只装 50 条的长会话，周期审计（60s）/焦点对账/SSE 重连补偿
+   * 任一触发都会把窗口外的 50 条历史塞进列表（实测 sh +8817px、贴底用户被推离），
+   * 且每分钟重复暴增——「历史对话更容易跳」的根因。
+   * 修复：after=oldest 游标升序拉取（listEntriesAfter）——拉已加载窗口头部之后的全部条目
+   * （窗口内状态更新 + 新条目），快照下界 ≡ 已加载下界，永不引入窗口外历史。
+   * Why after 而非历史弃用决策：F20260921 弃的是「末位游标」（列表尾部 seq——低位缺口时反指
+   * 更早条目漏补）；头部游标无此问题——窗口内条目已在本地，低位缺口不存在，新条目 seq 恒 > oldest。
+   * 边界：①游标取首个非 tmp-/err- 真实条目（乐观条目无后端 seq，查不到会 fail-closed 返空，
+   * 刷新退化但无害）；②oldest 后条目超 200 条（挂机 3+ 小时未刷新极端态）时快照截断头部外
+   * 条目——窗口外终态由下方 keepOutside 回填，新条目不丢（列表尾部恒在快照内）。 */
   const refreshMessages = useCallback(async (convId: string) => {
     try {
-      const resp = await api.listEntries(convId, 100)
+      const loaded = allMessagesRef.current[convId] || []
+      const oldestId = loaded.find(m => !m.id.startsWith('tmp-') && !m.id.startsWith('err-'))?.id
+      const resp = oldestId
+        ? await api.listEntriesAfter(convId, oldestId, 200)
+        : await api.listEntries(convId, 100)
       if (resp.entries.length > 0) {
         const snapshot = resp.entries.map(mapEntryDTO)
         /** delta D（检视獭-1292 三轮，F20260814qswp 同类回归修复）：合并计算全部
