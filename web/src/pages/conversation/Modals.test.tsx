@@ -55,7 +55,6 @@ function renderDetailModal(sessions: OtterSession[]) {
         onConfirmCreateOtter={noop}
         onConfirmDissolve={noop}
         onConfirmRestart={noop}
-        onConfirmLinkResource={noop}
         onOpenRestart={noop}
         onOpenDissolve={noop}
       />
@@ -191,7 +190,6 @@ describe('OtterDetailModal 世数链摘要折叠', () => {
           onConfirmCreateOtter={noop}
           onConfirmDissolve={noop}
           onConfirmRestart={noop}
-          onConfirmLinkResource={noop}
           onOpenRestart={noop}
           onOpenDissolve={noop}
         />
@@ -223,7 +221,6 @@ function renderCreateModal(onConfirm: (form: unknown) => void) {
         onConfirmCreateOtter={onConfirm as () => void}
         onConfirmDissolve={noop}
         onConfirmRestart={noop}
-        onConfirmLinkResource={noop}
         onOpenRestart={noop}
         onOpenDissolve={noop}
       />
@@ -328,7 +325,6 @@ function renderRestartModal(onConfirm: (summary: string, modelAlias?: string) =>
         onConfirmCreateOtter={noop}
         onConfirmDissolve={noop}
         onConfirmRestart={onConfirm}
-        onConfirmLinkResource={noop}
         onOpenRestart={noop}
         onOpenDissolve={noop}
       />
@@ -403,7 +399,6 @@ function renderNewConvModal(onConfirm: (title: string, modelAlias?: string) => v
         onConfirmCreateOtter={noop}
         onConfirmDissolve={noop}
         onConfirmRestart={noop}
-        onConfirmLinkResource={noop}
         onOpenRestart={noop}
         onOpenDissolve={noop}
       />

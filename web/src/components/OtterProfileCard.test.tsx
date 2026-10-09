@@ -115,17 +115,12 @@ describe('hover 400ms debounce 时序（PR-3）', () => {
         conversation={makeConversation()}
         otters={[makeOtter()]}
         sessions={{ 'o-test': [makeSession()] }}
-        linkedResources={[]}
         scheduledTasks={[]}
         scheduledTasksLoading={false}
         onCreateSmallOtter={() => {}}
         onDissolveOtter={() => {}}
         onRestartOtter={() => {}}
         onOpenOtterDetail={() => {}}
-        onAddFact={() => {}}
-        onToggleResourceFlag={() => {}}
-        onAddLinkedResource={() => {}}
-        onDeleteLinkedResource={() => {}}
         onToggleScheduledTask={() => {}}
         onCreateScheduledTask={() => {}}
         onEditScheduledTask={() => {}}

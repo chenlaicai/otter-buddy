@@ -1480,53 +1480,8 @@ export default function ConversationPage() {
       })
   }
 
-  async function confirmLinkResource(type: string, url: string, title: string) {
-    if (!activeId) return
-    try {
-      const dto = await api.linkResource(activeId, {
-        resourceType: type || 'url', url, title, linkedBy: 'user', autoLinked: false,
-      })
-      setAllLinkedRes(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), mapLinkedResourceDTO(dto)] }))
-      setModal({ type: 'none' }); showToast('资源已链接', 'success')
-    } catch { showToast('链接失败', 'error') }
-  }
-
-  async function addFact(content: string, category: string) {
-    if (!activeId) return
-    try {
-      const dto = await api.linkResource(activeId, { resourceType: 'fact', content, category, linkedBy: 'user', autoLinked: false })
-      setAllLinkedRes(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), mapLinkedResourceDTO(dto)] }))
-      showToast('关键资源已添加', 'success')
-    } catch { showToast('添加失败', 'error') }
-  }
-
-  async function toggleResourceFlag(id: string) {
-    if (!activeId) return
-    const res = allLinkedRes[activeId]?.find(r => r.id === id)
-    if (!res) return
-    const newFlagged = !res.flagged
-    setAllLinkedRes(prev => ({
-      ...prev,
-      [activeId]: (prev[activeId] || []).map(r => r.id === id ? { ...r, flagged: newFlagged } : r),
-    }))
-    try {
-      await api.flagResource(activeId, id, newFlagged)
-    } catch {
-      showToast('标记失败', 'error')
-      setAllLinkedRes(prev => ({
-        ...prev,
-        [activeId]: (prev[activeId] || []).map(r => r.id === id ? { ...r, flagged: !newFlagged } : r),
-      }))
-    }
-  }
-
-  async function deleteLinkedResource(id: string) {
-    if (!activeId) return
-    try {
-      await api.deleteLinkedResource(activeId, id)
-      setAllLinkedRes(prev => ({ ...prev, [activeId]: (prev[activeId] || []).filter(r => r.id !== id) }))
-    } catch { showToast('删除失败', 'error') }
-  }
+  /* F20261009csf3：confirmLinkResource/addFact/toggleResourceFlag/deleteLinkedResource 四个管理函数
+   *  随关键资源 tab 退役移除（无 UI 调用方）——操作改走对话通道。链接弹窗同步移除 */
 
   async function ctxAction(action: string, cid: string) {
     closeCtxMenu()
@@ -1643,15 +1598,12 @@ export default function ConversationPage() {
           }}
           onAbortInvoke={handleAbortInvoke}
           onRetryInvoke={handleRetryInvoke}
-          linkedResources={activeLinkedRes}
+          /* F20261009csf3：linkedResources 及其管理 props 随关键资源 tab 退役——
+             产物展示走中间栏时间轴（ChatView），管理走对话通道 */
           onCreateSmallOtter={() => setModal({ type: 'create-otter' })}
           onDissolveOtter={(oid) => setModal({ type: 'dissolve', otterId: oid })}
           onRestartOtter={(oid) => setModal({ type: 'restart', otterId: oid })}
           onOpenOtterDetail={(oid) => setModal({ type: 'otter-detail', otterId: oid })}
-          onAddFact={addFact}
-          onToggleResourceFlag={toggleResourceFlag}
-          onAddLinkedResource={() => setModal({ type: 'link-resource' })}
-          onDeleteLinkedResource={deleteLinkedResource}
           // 定时任务 props
           scheduledTasks={scheduledTasks}
           scheduledTasksLoading={scheduledTasksLoading}
@@ -1687,7 +1639,7 @@ export default function ConversationPage() {
         </>
       )}
 
-      <ConversationModals modal={modal} otters={activeOtters} sessions={sessions} onClose={handleCloseModal} onConfirmNewConv={confirmNewConv} onConfirmArchive={confirmArchive} onConfirmCreateOtter={confirmCreateOtter} onConfirmDissolve={confirmDissolve} onConfirmRestart={confirmRestart} onConfirmLinkResource={confirmLinkResource} onOpenRestart={handleOpenRestart} onOpenDissolve={handleOpenDissolve} />
+      <ConversationModals modal={modal} otters={activeOtters} sessions={sessions} onClose={handleCloseModal} onConfirmNewConv={confirmNewConv} onConfirmArchive={confirmArchive} onConfirmCreateOtter={confirmCreateOtter} onConfirmDissolve={confirmDissolve} onConfirmRestart={confirmRestart} onOpenRestart={handleOpenRestart} onOpenDissolve={handleOpenDissolve} />
 
       {/* 定时任务 Modal */}
       {scheduledTaskModal.type !== 'none' && (
