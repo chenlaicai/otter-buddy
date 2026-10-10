@@ -9,6 +9,11 @@ change_type: feature
 capability_test: tests/frameworks/feishu/feishu-qr-onboarding.test.ts
 tags: [im, feishu, qr-login, registerApp, addons, sender-identity]
 modules: [src/frameworks/feishu/, src/interface-adapters/feishu/]
+intent:
+  problem: "扫码新建 app 权限/通讯录范围缺失致发言人真名解析失败：正文拼 [b2d82e] 退化前缀污染消息体，且每人扫码都要手动补权限（治标不治本）"
+  expected_effect: "新扫码 app 出生即带真名两权限（确认页显式授权）；正文永远纯文本，名字只走气泡上方 sender_name；解析失败降级可读「飞书·尾6位」"
+  verify_by:
+    type: behavior_check
 causal_links:
   - F20260929fsqr（扫码接入本体——本特性给它的建 app 流程补权限声明）
   - F20260918imas（p2p 自动开户与显示名——旧「ID 尾部回退」形态被本特性可读化）
@@ -110,5 +115,6 @@ addons: {
 ## 已知边界（不在本特性范围）
 
 - **存量 app（csg-feishu01）**：addons 只影响新扫码；搭档已于今日手动补权限/范围，存量线不受影响
-- **通讯录可用范围**：`contact:contact.base:readonly` 授权后，app 可用范围内用户返回真名；范围外用户仍脱敏（飞书平台行为，代码侧以可读兜底承接）
+- **通讯录可用范围（addons 接不住的直接后果，易误判 bug）**：`contact:contact.base:readonly` 授权后，若用户不在 app 通讯录可用范围内，飞书仍脱敏剥掉 name 字段——**新扫码 app 首条消息可能仍走「飞书·尾6位」兜底**，需扫码人在开放平台将可用范围设为全员/圈入自己后才返真名。这是正常降级路径而非链路故障，勿重走排查
+- **addons 逐级依赖与静默风险**：`im:chat.members:read` 名实来自飞书 99991672 错误信息自列的合法 scope 清单（本仓 API 实测），但 SDK AppAddons 文档明确「未知名被确认页静默丢弃」（types/index.d.ts @1.74.0）；addons 能力本身依赖飞书平台灰度前置——若新扫码 app 确认页未见增量权限项，需按此链排查而非误判为代码缺陷
 - **群聊成员名解析**：本特性只声明 `im:chat.members:read` 权限；群消息路径的成员名缓存/解析逻辑是后续增量（未动 group path 代码）

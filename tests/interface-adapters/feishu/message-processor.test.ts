@@ -52,7 +52,7 @@ describe("FeishuMessageProcessor senderName 快照（F20260826fuid）", () => {
     expect(input.senderDisplayName).toBe("张三");
   });
 
-  it("网关返回 null 时降级为可读兑底「飞书·尾6位」，消息照常入库（F20261010fspm）", async () => {
+  it("网关返回 null 时降级为可读兜底「飞书·尾6位」，消息照常入库（F20261010fspm）", async () => {
     const m = makeMocks();
     m.getUserName.mockResolvedValue(null);
     const processor = new FeishuMessageProcessor(m.deps);
@@ -65,7 +65,7 @@ describe("FeishuMessageProcessor senderName 快照（F20260826fuid）", () => {
     expect(m.send.mock.calls.length).toBe(1);
   });
 
-  it("网关抛异常时不阻塞消息处理（可读兑底降级，F20261010fspm）", async () => {
+  it("网关抛异常时不阻塞消息处理（可读兜底降级，F20261010fspm）", async () => {
     const m = makeMocks();
     m.getUserName.mockRejectedValue(new Error("network down"));
     const processor = new FeishuMessageProcessor(m.deps);
