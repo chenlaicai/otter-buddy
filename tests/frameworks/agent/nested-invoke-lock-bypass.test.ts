@@ -20,7 +20,15 @@ import { createTestDb } from "../../helpers/db";
 import { createTestLogger } from "../../helpers/logger";
 import { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import { otterInvokeStorage } from "@frameworks/agent/model-runtime-registry";
+import { invokeEpochStorage, mintEpoch } from "@frameworks/agent/invoke-epoch";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
+
+/** F20261009epoc：直接调 _acquirePooled 需自建 epoch 上下文（公共 invoke() 入口
+ *  铸造；直接调内部方法的单测模拟该入口职责），否则命中 D3 fail-loud 面。 */
+let epochSeq = 0;
+function withEpoch<T>(fn: () => Promise<T>): Promise<T> {
+  return invokeEpochStorage.run(mintEpoch("test-otter", `test-invoke-${++epochSeq}`), fn);
+}
 
 type FakeSession = {
   isStreaming: boolean;
@@ -194,18 +202,20 @@ describe("#896 嵌套 invoke 锁旁路", () => {
 describe("#896 池层 streaming 保护（PR #897 检视严重 1）", () => {
   it("嵌套 invoke（ALS 同 otterId）遇 streaming session 抛错降级——不出池、不顶替外层 session", async () => {
     const { internals, sessions, db, getCreateCount } = makePoolFactory();
-    const first = await internals._acquirePooled("o1", { messageId: "m1" });
+    const first = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m1" }));
     expect(getCreateCount()).toBe(1);
 
     // 外层 invoke 进行中：session streaming
     sessions.get("o1")!.isStreaming = true;
 
     // 嵌套 invoke（ALS store 同 otterId）撞上 streaming → 必须抛错（由钩子 catch 降级），
-    // 且不得出池/顶替（外层 session 仍是池条目）
+    // 且不得出池/顶替（外层 session 仍是池条目）。
+    // F20261009epoc：嵌套路径继承外层 epoch（invokeEpochStorage 随 ALS 链传播），
+    // 模拟时用真实嵌套形态——外层 run 内再调，两个 ALS 都有 store。
     await expect(
       otterInvokeStorage.run(
         { otterPromptConfig: undefined, identityPrefix: "", otterId: "o1" },
-        () => internals._acquirePooled("o1", { messageId: "nested" }),
+        () => withEpoch(() => internals._acquirePooled("o1", { messageId: "nested" })),
       ),
     ).rejects.toThrow(/nested invoke while outer invoke is streaming/);
 
@@ -218,11 +228,13 @@ describe("#896 池层 streaming 保护（PR #897 检视严重 1）", () => {
 
   it("真并发（无 ALS store）遇 streaming session 照常 stale 出池冷启动（#599 语义不变）", async () => {
     const { internals, sessions, db, getCreateCount } = makePoolFactory();
-    const first = await internals._acquirePooled("o1", { messageId: "m1" });
+    const first = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m1" }));
     sessions.get("o1")!.isStreaming = true;
 
-    // 裸调用（无 store）→ stale steal 场景：出池 + 冷启动
-    const second = await internals._acquirePooled("o1", { messageId: "m2" });
+    // 裸调用（无 otterInvokeStorage store）→ stale steal 场景：出池 + 冷启动。
+    // F20261009epoc：真并发来自不同 async context（各自独立 epoch）——withEpoch 模拟新
+    // invoke 的独立 epoch 上下文。
+    const second = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m2" }));
     expect(second.isPooled).toBe(false);
     expect(getCreateCount()).toBe(2);
     expect(sessions.get("o1")!.disposed).toBe(false); // 出池不 dispose（旧 invoke 生命周期托管）

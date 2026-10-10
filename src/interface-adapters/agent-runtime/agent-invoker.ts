@@ -1710,7 +1710,11 @@ export class AgentInvoker implements AgentTurnPort {
 
   /** F20260917rsta：取 otter 关联的第一个对话 ID（无对话时返回 undefined，不阻塞重启）
    *  经 manageSession.conversationQuery 窄接口（ConversationQueryGateway.getIdsByOtterId），
-   *  不经 queryOtter（它只管 otter 元数据） */
+   *  不经 queryOtter（它只管 otter 元数据）
+   *  F20261009s6ej6（检视 A5 标注）：ids[0] 取查询结果第一条，多对话小獭的 ⏳/✅ 可能发到
+   *  非搭档当前所在对话。getIdsByOtterId 无 ORDER BY，返回序未定义。此为既有语义，本次
+   *  未改（选对话策略是独立议题）；fallback 路径同样受此法影响。若未来要精准定位当前对话，
+   *  需在调用侧传 conversationId 参数（controller 已持有）。*/
   private async resolveFirstConversationId(otterId: string): Promise<string | undefined> {
     try {
       const ids = await this.manageSession.conversationQuery.getIdsByOtterId(otterId);

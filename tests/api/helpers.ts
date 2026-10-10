@@ -559,6 +559,7 @@ export function createTestApp(deps: TestDeps): Hono {
 
 /** 创建类型安全的 mock deps，各测试按需覆盖 */
 export function createMockDeps(): TestDeps {
+  const manageSession = mockMethods(["createSession", "getActiveSession", "archiveSession", "getSessionHistory", "setSessionSummary", "restartSession"]) as Record<string, any>;
   return {
     // F20260922cgrp delta：complete 退役（弱状态两态管理），mock 方法名同步删除
     manageConversation: mockMethods(["create", "getById", "archive", "getIdsByOtterId", "getAllIds", "listWithMeta", "pin", "unpin"]),
@@ -587,7 +588,14 @@ export function createMockDeps(): TestDeps {
     manageReadState: { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) },
     createOtterUseCase: mockMethods(["execute"]),
     dissolveOtterUseCase: mockMethods(["execute"]),
-    manageSession: mockMethods(["createSession", "getActiveSession", "archiveSession", "getSessionHistory", "setSessionSummary", "restartSession"]),
+    manageSession,
+    // F20261009s6ej6：controller 三元兜底删除后必须注入 agentInvoker。默认委托到
+    //  manageSession.restartSession——裸路径 API 测试（restart 端点 HTTP 行为）的 mock 语义不变。
+    //  统一交接路径测试显式覆写 deps.otterRestartAutoHandoff（F20260920uhuc 用例已如此）。
+    otterRestartAutoHandoff: {
+      restartWithUnifiedHandoff: vi.fn((otterId: string, params: { selfSummary?: string; modelAlias?: string }) =>
+        manageSession.restartSession(otterId, params.selfSummary, params.modelAlias)),
+    } as unknown as import("@interface-adapters/agent-runtime/agent-invoker").AgentInvoker,
     queryOtter: mockMethods(["getById", "getBigOtter"]),
     searchMemory: mockMethods(["search", "searchSimilar"]),
     scanDarkEntries: mockMethods(["execute"]),
