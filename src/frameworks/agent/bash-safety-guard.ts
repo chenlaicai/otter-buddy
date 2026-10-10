@@ -1274,6 +1274,8 @@ const PY_READONLY_CALLS = new Set([
   "Path", "PurePath", "PosixPath", "WindowsPath", // pathlib 构造只读；写面由方法门拦（unlink/write_text 等不在 METHODS）
   "glob",     // glob.glob/iglob 只读（delta 2 高频点：文件探查分析主形态）
   "pandas", "pd", "numpy", "np",  // 数据分析读面由方法门收口（read_csv 等白名单、to_csv 不在）
+  "Counter", "defaultdict", "OrderedDict",  // #1416：collections 只读聚合器（构造面；写盘/执行面由方法门拦）
+  "math", "ceil", "floor", "sqrt",  // #1416：math 纯计算模块（无 IO 面）
 ]);
 const PY_READONLY_METHODS = new Set([
   "read", "readline", "readlines", "read_text", "read_bytes", "load", "loads", "dumps",
@@ -1290,6 +1292,9 @@ const PY_READONLY_METHODS = new Set([
   "read_csv", "read_json", "read_excel", "read_table", "read_parquet",    // pandas 读族（delta 2 高频点）
   "describe", "head", "tail", "info",                                    // DataFrame 只读探查
   "open",                                                                  // Path.open('r')——mode 由 ② 门独立把关
+  "update",                                                                // #1416：set/dict.update——原地聚合非写盘（keys.update(x.keys()) 日常统计形态，今晨 dbe4f743 实证）
+  "add",                                                                   // #1416：set.add——同上原地集合操作
+  "most_common", "elements",                                              // #1416：Counter 只读探查面
 ]);
 
 /** python 只读门 ②：open 调用的 mode 实参必须是字面 'r'/'rb' 或无（默认 'r'）。
@@ -1457,6 +1462,10 @@ const NODE_READONLY_METHODS = new Set([
   "basename", "dirname", "extname", "isAbsolute", "relative", "resolve",
   // F20261006gfpn (#1310)：process.cwd() 只读方法形态（dotted 门走方法白名单）
   "cwd",
+  // #1416：EventEmitter.on——流式读取最常用形态（process.stdin.on('data',…)
+  //  管道消费 curl/grep 输出的日常取证，今晨 90d8307f 实证）；监听器注册无
+  //  写盘/执行面，回调体内的写调用仍被方法门/写词门拦
+  "on",
 ]);
 
 /** node 体只读白名单（F20260927madr，#1275）：node -e 日常取证（fs.readFileSync 等只读 API）
@@ -1469,7 +1478,7 @@ export function nodeBodyReadOnly(body: string): boolean {
   if (/\b(?:eval|Function|setTimeout|setInterval|require\s*\(\s*(?!['"](?:fs|util|path)['"]))/.test(body)) return false;
   // #1275：否定检测扩展——child_process/worker_threads/vm/net/http/https/fs.promises 全禁（执行/网络面）
   // F20261006gfpn (#1310)：process 面扩 env——NODE_ENV 等环境查询是日常只读高频
-  if (/\bprocess\s*\.\s*(?!pid\b|platform\b|argv\b|version\b|cwd\b|stdout\b|stderr\b|env\b)/.test(body)) return false;
+  if (/\bprocess\s*\.\s*(?!pid\b|platform\b|argv\b|version\b|cwd\b|stdout\b|stderr\b|env\b|stdin\b)/.test(body)) return false; // #1416：扩 stdin——流式消费面（process.stdin.on('data',…) 管道取证形态，今晨六连拦 90d8307f 实证）
   if (/\b(?:child_process|worker_threads|vm|net|http|https|fs\.promises)\b/.test(body)) return false;
   // 计算成员调用 obj['x'](...)——对 callee 名提取不可见，出现即不豁免（动态面）
   if (/\]\s*\(/.test(body)) return false;
