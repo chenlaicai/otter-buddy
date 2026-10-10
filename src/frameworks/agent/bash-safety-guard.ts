@@ -1398,8 +1398,10 @@ function pythonModuleSurfaceReadOnly(body: string): boolean {
   // delta 2：csv 移出——无代码执行面（写盘由 open mode 门兜底），且文件名字面量
   // 'x.csv' 会被 \bcsv\b 误伤；pickle 保留（反序列化可执行 payload，只读也不行）
   // delta 3（检视 delta 2 终轮 (b) 类修）：反序列化执行面全禁——pickle 之外
-  // 补 dill/joblib/shelve/marshal（yaml 定域化见下——safe_load 白名单化）
-  if (/\b(?:fileinput|mmap|shutil|subprocess|socket|ctypes|pickle|sqlite|urllib|requests|http|ftplib|pty|dill|joblib|shelve|marshal)\b/.test(body)) return false;
+  // 补 dill/joblib/shelve/marshal（yaml 定域化见下——safe_load 白名单化）；#1423 审视发现①：
+  //  补 dbm——dbm.open 缺省 mode='c' 创建可写（pythonOpenModesReadOnly 假设缺省='r'
+  //  的例外面），与 shelve/sqlite 同族数据库写模块，不入白名单直接拒
+  if (/\b(?:fileinput|mmap|shutil|subprocess|socket|ctypes|pickle|sqlite|urllib|requests|http|ftplib|pty|dill|joblib|shelve|marshal|dbm)\b/.test(body)) return false;
   // delta 4（检视建议项）：yaml 定域化——safe_load 是配置读取高频只读形态
   // （检视 Y6 实证误拦），只禁 (unsafe_)?load(_all)?（子串级，无括号盲区，
   // 与不变式 3 同法）；safe_load/safe_load_all 等纯读面放行

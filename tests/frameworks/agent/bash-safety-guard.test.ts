@@ -3384,3 +3384,33 @@ print(dict(Counter(os.listdir('.'))))
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 });
+
+// ══════════ #1423 审视发现①处置：dbm 危险模块补位（fail-open 漏拦闭合） ══════════
+// 检视獭1360 实测：import dbm 后 dbm.open 缺省 mode='c' 创建可写（pythonOpenModesReadOnly
+// 假设缺省='r' 的例外面）+ db['k']='v' 赋值写——双路漏拦。dbm 与 shelve/sqlite 同族数据库
+// 写模块，补进危险模块名单（import 面整体拒，模块门兜住赋值写形态）。
+describe("#1423 审视处置：dbm 危险模块补位", () => {
+  const mainPid2 = 42877;
+  const projectRoot2 = "/repo";
+
+  it("拦截负门：import dbm; dbm.open('data/db')（缺省 'c' 创建可写）→ 拦", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "import dbm; db=dbm.open('data/db'); db.update({})"`,
+      mainPid2, undefined, { projectRoot: projectRoot2 },
+    )).not.toBeNull();
+  });
+
+  it("拦截负门：dbm 赋值写 db['k']='v'（模块门兜住无调用名的赋值写形态）→ 拦", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "import dbm; db=dbm.open('data/db','r'); db['k']='v'"`,
+      mainPid2, undefined, { projectRoot: projectRoot2 },
+    )).not.toBeNull();
+  });
+
+  it("正道不误伤：json/collections 只读形态（本 PR 放行面）不受 dbm 补位影响", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "import json; from collections import Counter; d=json.load(open('data/x.json')); print(dict(Counter(x.get('r') for x in d)))"`,
+      mainPid2, undefined, { projectRoot: projectRoot2 },
+    )).toBeNull();
+  });
+});
