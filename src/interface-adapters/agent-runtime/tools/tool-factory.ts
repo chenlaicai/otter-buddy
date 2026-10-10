@@ -6,7 +6,7 @@ import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool } from "./message-tools";
 /** 前后端共享常量，单一真相源在 @contract/api/html-card */
 import { CARD_SCHEMA_VERSION } from "@contract/api/html-card";
-import { validateSpeakBody, hasCardFences } from "./tool-helpers";
+import { validateSpeakBody, hasCardFences, extractPlayableCardSummary } from "./tool-helpers";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 
 import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE, GROUP_ID_REQUIRED_TYPES, GROUP_ID_REQUIRED_MESSAGE_PREFIX } from "@usecases/conversation/manage-key-info";
@@ -123,8 +123,10 @@ async function autoRegisterPlayableCards(ctx: ToolContext, body: string, entryId
   visit(tree as MdNode);
   for (const card of playCards) {
     const title = parseCardMetaTitle(card.meta) ?? "未命名活类卡";
-    // 摘要：去标签后的文本前 180 字（fact content ≤500 字限制内）
-    const textContent = card.value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180);
+    // 摘要：去标签后的文本前 180 字（fact content ≤500 字限制内）。
+    // F20261009csp2 补丁：extractPlayableCardSummary 先剥 script/style 整块再删标签——
+    // 游戏卡九成内容是 script 源码，旧正则会把 "(function(){ var S = …" 漏进摘要（乱码卡实证）
+    const textContent = extractPlayableCardSummary(card.value);
     await ctx.client.resource.link({
       conversationId: ctx.conversationId,
       resourceType: "fact",
