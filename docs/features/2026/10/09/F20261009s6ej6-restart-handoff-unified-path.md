@@ -142,8 +142,11 @@ fallback 改动意味着：小獭经 invite 加入的对话，重启时工作记
 
 ## 验证
 
-- [x] `tests/frameworks/db/conversation/sqlite-conversation-repository.test.ts`：3 个新测试（fallback、去重、left 状态过滤）全部通过
-- [x] `tests/frameworks/agent/handoff-synthesis-budget.test.ts`：24 个测试全部通过
-- [x] `tests/interface-adapters/unified-handoff.test.ts` + `agent-invoker.test.ts`：48 个测试全部通过
+- [x] `sqlite-conversation-repository.test.ts`：3 个新测试（fallback、去重、left 状态过滤）全部通过
+- [x] `handoff-synthesis-budget.test.ts`：24 个测试全部通过
+- [x] `unified-handoff.test.ts` + `agent-invoker.test.ts`：48 个测试全部通过
+- [x] `restart-flow.integration.test.ts`：5 个测试全过（含新增 agentInvoker 未注入 → 500 测试）
+- [x] `tests/api/otter.test.ts`：23 个测试全过（createMockDeps 注入 otterRestartAutoHandoff stub 后裸路径 mock 语义保持）
 - [x] `npx tsc --noEmit` 类型检查通过
-- [x] 119 个测试文件 1975 个测试全部通过
+- [x] 受影响域 86 文件 843 测试全过
+- [x] **CI 三灯全绿**（check 3m44s / e2e 2m32s / golden-selftest 1m8s）——rebase 后 lint:docs / lint:intent 首次真实执行通过（检视 S1 硬门槛）
