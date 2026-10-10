@@ -61,8 +61,10 @@ describe("零干预对照：影子挂载前后守卫判定逐条一致", () => {
       return session.abort.mock.calls.length;
     };
     const baseline = runWith(undefined);
-    const withShadow = runWith((input) => {
-      if (!input.command) throw new Error("bad input");
+    // S3 处置（审视 #1420）：无条件 throw——原形态 `if (!input.command) throw` 在非空
+    // 命令集下永不触发，是虚证；本处真实钉住「回调抛错 → abort 照常发射」
+    const withShadow = runWith(() => {
+      throw new Error("shadow callback boom (unconditional)");
     });
     expect(withShadow).toBe(baseline);
     expect(baseline).toBeGreaterThan(0); // 对照集内确有拦截（防全放行的平凡绿）

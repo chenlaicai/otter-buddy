@@ -9,11 +9,12 @@
  * 4. context 字段口径——oldVerdict/evaluatorWouldAllow/oldRuleId/commandHead
  * 5. fire-and-forget——sink.create reject 不抛出
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   recordShadowEval,
   shadowEvaluate,
   buildShadowEvalContext,
+  __resetShadowEvalStateForTest,
   SHADOW_EVAL_ERROR_TYPE,
   type ShadowHealingSink,
 } from "@frameworks/agent/shadow-eval-recorder";
@@ -39,6 +40,11 @@ function freshOtter(): string {
   seq += 1;
   return `otter-shadow-${seq}`;
 }
+
+/** 防抖/聚合是模块级单例——顶层每例重置隔离（S1/S2 处置：全部 describe 生效） */
+beforeEach(() => {
+  __resetShadowEvalStateForTest();
+});
 
 describe("shadowEvaluate - 三态投影", () => {
   it("evaluated 且落点全在主仓外 → evaluatorWouldAllow", () => {
@@ -109,7 +115,7 @@ describe("recordShadowEval - 双向信息量过滤", () => {
     expect(String(ev.description)).toContain("EVAL_GAIN");
   });
 
-  it("双方同判拦（旧链拦 + 求值器也判拦）→ 不落账", () => {
+  it("双方同判拦（旧链 main_write 拦 + 求值器也判拦）→ 落 same_block（S2 处置：三态全量，族内判据逐条证据）", () => {
     const sink = mockSink();
     recordShadowEval({
       command: `git add ${ROOT}/docs/x.md`, // 主仓 cwd 相对路径：求值器判主仓
@@ -120,10 +126,11 @@ describe("recordShadowEval - 双向信息量过滤", () => {
       sink,
       now: 1_000,
     });
-    expect(sink.events).toHaveLength(0);
+    expect(sink.events).toHaveLength(1);
+    expect((sink.events[0].context as Record<string, unknown>).subkind).toBe("same_block");
   });
 
-  it("求值器 unevaluated 回落 → 不落账（无论旧链拦否）", () => {
+  it("求值器 unevaluated 回落：旧链 main_write 拦 → 落 family_fallback；旧链放 → 不落（无信息量）", () => {
     const sink = mockSink();
     recordShadowEval({
       command: `W=${ROOT}/.otter/worktrees/wt; cd $W/sub && touch foo`, // 回落形态
@@ -134,16 +141,19 @@ describe("recordShadowEval - 双向信息量过滤", () => {
       sink,
       now: 1_000,
     });
+    expect(sink.events).toHaveLength(1);
+    expect((sink.events[0].context as Record<string, unknown>).subkind).toBe("family_fallback");
+    const sink2 = mockSink();
     recordShadowEval({
       command: `W=${ROOT}/.otter/worktrees/wt; cd $W/sub && touch foo`,
       oldBlock: null,
       otterId: freshOtter(),
       ids: {},
       projectRoot: ROOT,
-      sink,
+      sink: sink2,
       now: 1_000,
     });
-    expect(sink.events).toHaveLength(0);
+    expect(sink2.events).toHaveLength(0);
   });
 });
 
@@ -202,17 +212,93 @@ describe("recordShadowEval - 防抖与 fail-safe", () => {
 });
 
 describe("buildShadowEvalContext - 口径字段", () => {
-  it("拦截事件带 oldRuleId 指纹分类；放行事件记 none；commandHead 脱敏截短", () => {
+  it("拦截事件带 oldRuleId 指纹分类；放行事件记 none；commandHead 脱敏截短；subkind 分桶键在位", () => {
     const outcome = shadowEvaluate(`cd ${ROOT}/.otter/worktrees/wt && git add src/x.ts`, ROOT);
-    const blocked = buildShadowEvalContext(outcome, `cd ${ROOT}/.otter/worktrees/wt && git add src/x.ts`, MAIN_WRITE_REASON);
+    const blocked = buildShadowEvalContext(outcome, `cd ${ROOT}/.otter/worktrees/wt && git add src/x.ts`, MAIN_WRITE_REASON, "miss_block_candidate");
     expect(blocked.oldVerdict).toBe("BLOCK");
     expect(blocked.oldRuleId).toBe("main_write");
+    expect(blocked.subkind).toBe("miss_block_candidate");
     expect(String(blocked.commandHead).length).toBeLessThanOrEqual(120);
     expect(blocked.hasWorktreePath).toBe(true);
 
-    const allowed = buildShadowEvalContext(outcome, "anything", null);
+    const allowed = buildShadowEvalContext(outcome, "anything", null, "eval_gain");
     expect(allowed.oldVerdict).toBe("ALLOW");
     expect(allowed.oldRuleId).toBe("none");
+  });
+});
+
+/** 防抖/聚合状态重置已由顶层 beforeEach 统一覆盖 */
+describe("S1 处置：维度过滤——别族拦截不落个体候选，只进聚合计数", () => {
+  it("sleep 拦截 + 求值器 wouldAllow → 不落个体（维度外，防假红线）", () => {
+    const sink = mockSink();
+    recordShadowEval({
+      command: "sleep 15",
+      oldBlock: "检测到你使用了 sleep 等待（约 15 秒）。裸 sleep 会让搭档看到长时间静默黑盒。",
+      otterId: freshOtter(), ids: {}, projectRoot: ROOT, sink, now: 1_000,
+    });
+    const individuals = sink.events.filter(e => (e.context as Record<string, unknown>).kind === "shadow_eval");
+    expect(individuals).toHaveLength(0); // 维度外不落个体
+    const aggs = sink.events.filter(e => (e.context as Record<string, unknown>).kind === "shadow_eval_aggregate");
+    expect(aggs).toHaveLength(0); // 未到窗不刷（计数在进程内）
+  });
+
+  it("kill 族拦截 + 求值器 wouldAllow → 不落个体；data_destructive 同理", () => {
+    const sink = mockSink();
+    recordShadowEval({ command: "kill 12345", oldBlock: "针对主进程 PID 的终止命令", otterId: freshOtter(), ids: {}, projectRoot: ROOT, sink, now: 1_000 });
+    recordShadowEval({ command: "rm -rf data/x", oldBlock: "主仓 data/ 破坏性命令拦截", otterId: freshOtter(), ids: {}, projectRoot: ROOT, sink, now: 1_100 });
+    expect(sink.events.filter(e => (e.context as Record<string, unknown>).kind === "shadow_eval")).toHaveLength(0);
+  });
+
+  it("main_write 拦 + 求值器 wouldAllow → 仍落 miss_block_candidate（正道不误伤）", () => {
+    const sink = mockSink();
+    recordShadowEval({
+      command: `cd ${ROOT}/.otter/worktrees/wt && git add src/x.ts`,
+      oldBlock: MAIN_WRITE_REASON, otterId: freshOtter(), ids: {}, projectRoot: ROOT, sink, now: 1_000,
+    });
+    const ev = sink.events[0];
+    expect((ev.context as Record<string, unknown>).subkind).toBe("miss_block_candidate");
+    expect((ev.context as Record<string, unknown>).oldRuleId).toBe("main_write");
+  });
+});
+
+describe("S2 处置：main_write 三态全量落账 + 聚合计数到窗刷新", () => {
+
+
+  it("same_block（旧链 main_write 拦+求值器同判拦）→ 落个体 subkind=same_block", () => {
+    const sink = mockSink();
+    recordShadowEval({
+      command: `git add ${ROOT}/docs/x.md`, // 求值器判主仓写
+      oldBlock: MAIN_WRITE_REASON, otterId: freshOtter(), ids: {}, projectRoot: ROOT, sink, now: 1_000,
+    });
+    expect((sink.events[0].context as Record<string, unknown>).subkind).toBe("same_block");
+  });
+
+  it("family_fallback（旧链 main_write 拦+求值器回落）→ 落个体 subkind=family_fallback", () => {
+    const sink = mockSink();
+    recordShadowEval({
+      command: `W=${ROOT}/.otter/worktrees/wt; cd $W/sub && touch foo`, // #1381 负门形态：回落
+      oldBlock: MAIN_WRITE_REASON, otterId: freshOtter(), ids: {}, projectRoot: ROOT, sink, now: 1_000,
+    });
+    expect((sink.events[0].context as Record<string, unknown>).subkind).toBe("family_fallback");
+  });
+
+  it("聚合计数到阈值窗刷新一条 aggregate 记录（判据③④数据源）", () => {
+    const sink = mockSink();
+    const otter = freshOtter();
+    // 3 条：sleep 维度外 / main_write 同判拦 / EVAL_GAIN；再拼到阈值（500）触发刷新
+    recordShadowEval({ command: "sleep 15", oldBlock: "裸 sleep 会让搭档看到长时间静默黑盒", otterId: otter, ids: {}, projectRoot: ROOT, sink, now: 1_000 });
+    recordShadowEval({ command: `git add ${ROOT}/docs/x.md`, oldBlock: MAIN_WRITE_REASON, otterId: otter, ids: {}, projectRoot: ROOT, sink, now: 1_100 });
+    recordShadowEval({ command: `cd ${ROOT}/.otter/worktrees/wt && git add ${ROOT}/docs/y.md`, oldBlock: null, otterId: otter, ids: {}, projectRoot: ROOT, sink, now: 1_200 });
+    for (let i = 0; i < 500; i++) {
+      recordShadowEval({ command: `ls -la dir${i}`, oldBlock: null, otterId: otter, ids: {}, projectRoot: ROOT, sink, now: 1_300 + i });
+    }
+    const aggs = sink.events.filter(e => (e.context as Record<string, unknown>).kind === "shadow_eval_aggregate");
+    expect(aggs.length).toBeGreaterThanOrEqual(1);
+    const agg = aggs[0].context as Record<string, unknown>;
+    expect(agg.total).toBe(500); // 第 500 条触发阈值刷新（计数含触发条）
+    expect(agg.dimensionMismatchBlocked).toBe(1);
+    expect(agg.mainWriteBlockEvaluated).toBe(1);
+    expect(agg.individualsLogged).toBe(2); // 同判拦 + eval_gain
   });
 });
 

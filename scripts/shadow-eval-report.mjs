@@ -5,11 +5,19 @@
  *
  * 用法：node scripts/shadow-eval-report.mjs [--db <dbPath>] [--days N]
  *
- * 聚合维度（判据预注册见 F20261010gshw 特性文档「观察期判据」节）：
- * - 真误拦候选（oldVerdict=BLOCK + evaluatorWouldAllow）：逐条列出待人工裁决；
- *   已裁决数（resolution 非空）+ 真误放数（人工裁 BLOCK 保持拦截 = 求值器判错）
- * - EVAL_GAIN（oldVerdict=ALLOW + evaluatorWouldBlock）：按 ruleId/落点聚合
- * - 判据线：真误放（人工裁 BLOCK）> 0 → 建议停止切换
+ * 数据源两形态（审视 r1 S2 处置后的口径）：
+ * - 个体记录（kind=shadow_eval，subkind 分桶）：真误拦候选（人工裁决队列）/
+ *   EVAL_GAIN / same_block / family_fallback（族内判据逐条证据，防抖后口径）
+ * - 聚合记录（kind=shadow_eval_aggregate）：进程内计数器按窗落账——全量
+ *   total/evaluated/unevaluated（pre-dedup 流量口径），判据③④（覆盖率/回落率）数据源
+ *
+ * 判据口径（预注册，F20261010gshw 特性文档「观察期判据」节 + r1 处置）：
+ * - ① 红线（真误放）：miss_block_candidate 人工裁 BLOCK > 0 → 建议停止切换回炉
+ *   ——仅 main_write 维度拦截进候选池（S1 维度过滤，sleep/kill 别族拦截不进）
+ * - ② 族内成功率：same_block / (same_block + miss_block_candidate + family_fallback)
+ *   ≥ 90%（个体记录口径）
+ * - ③ 全量回落率：Σ unevaluated / Σ total（聚合记录口径）≤ 50%
+ * - ④ EVAL_GAIN：按 oldRuleId 聚合（none = 旧链无规则可拦），收益量化不设线
  */
 import { createRequire } from "node:module";
 
@@ -41,18 +49,47 @@ const parsed = rows.map(r => {
   return { ...r, ctx };
 });
 
-const missBlock = parsed.filter(r => r.ctx.oldVerdict === "BLOCK" && r.ctx.evaluatorWouldAllow === true);
-const evalGain = parsed.filter(r => r.ctx.oldVerdict === "ALLOW" && r.ctx.evaluatorWouldBlock === true);
+const individuals = parsed.filter(r => r.ctx.kind === "shadow_eval");
+const aggregates = parsed.filter(r => r.ctx.kind === "shadow_eval_aggregate");
 
-// 人工裁决状态：resolution 含「真误放」= 求值器判错（判据红线）；含「确认误拦」= 求值器对
+// ── 个体分桶（S1 处置：subkind 键；旧数据无 subkind 兼容——按形态推断） ──
+const bySub = (sub) => individuals.filter(r => r.ctx.subkind === sub
+  || (r.ctx.subkind === undefined && (sub === "miss_block_candidate" ? (r.ctx.oldVerdict === "BLOCK" && r.ctx.evaluatorWouldAllow === true) : false)));
+const missBlock = bySub("miss_block_candidate");
+const evalGain = individuals.filter(r => r.ctx.subkind === "eval_gain"
+  || (r.ctx.subkind === undefined && r.ctx.oldVerdict === "ALLOW" && r.ctx.evaluatorWouldBlock === true));
+const sameBlock = bySub("same_block");
+const familyFallback = bySub("family_fallback");
+
+// 人工裁决状态（miss_block_candidate 队列）：resolution 含「真误放」= 求值器判错（判据红线）；
+// 「确认误拦」= 求值器对；「维度外」= r1 处置前误入池的样本（剔除不计）
 const missAdjudicated = missBlock.filter(r => r.resolution && r.resolution.trim() !== "");
 const trueMissPlaced = missAdjudicated.filter(r => /真误放/.test(r.resolution));
 const confirmedMiss = missAdjudicated.filter(r => /确认误拦/.test(r.resolution));
+const dimExcluded = missAdjudicated.filter(r => /维度外/.test(r.resolution));
 
-console.log(`[shadow-eval-report] 近 ${days} 天观察记录 ${parsed.length} 条（db=${dbPath}）`);
-console.log(`  真误拦候选：${missBlock.length} 条（已裁决 ${missAdjudicated.length}：确认误拦 ${confirmedMiss.length} / 真误放 ${trueMissPlaced.length} / 未裁决 ${missBlock.length - missAdjudicated.length}）`);
-console.log(`  EVAL_GAIN：${evalGain.length} 条`);
-console.log(`  判据线：真误放（人工裁 BLOCK）= ${trueMissPlaced.length} ${trueMissPlaced.length > 0 ? "⚠️ >0 —— 建议停止切换回炉（F20261010gshw 判据）" : "✅（判据 0）"}`);
+// ── 聚合计数（S2 处置：判据③ 全量回落率） ──
+const aggTotal = aggregates.reduce((s, r) => s + (Number(r.ctx.total) || 0), 0);
+const aggUneval = aggregates.reduce((s, r) => s + (Number(r.ctx.unevaluated) || 0), 0);
+const aggDimMismatch = aggregates.reduce((s, r) => s + (Number(r.ctx.dimensionMismatchBlocked) || 0), 0);
+const fallbackRate = aggTotal > 0 ? ((aggUneval / aggTotal) * 100).toFixed(1) : "n/a";
+
+// ── 族内成功率（判据②，个体口径） ──
+const familyDenom = sameBlock.length + missBlock.length + familyFallback.length;
+const familyRate = familyDenom > 0 ? ((sameBlock.length / familyDenom) * 100).toFixed(1) : "n/a";
+
+console.log(`[shadow-eval-report] 近 ${days} 天观察记录 ${parsed.length} 条（个体 ${individuals.length} + 聚合窗 ${aggregates.length}；db=${dbPath}）`);
+
+console.log(`\n── 判据四项（预注册口径，r1 处置后）──`);
+console.log(`  ① 红线（真误放，人工裁 BLOCK）= ${trueMissPlaced.length} ${trueMissPlaced.length > 0 ? "⚠️ >0 —— 建议停止切换回炉（F20261010gshw 判据）" : "✅（判据 0）"}`);
+console.log(`  ② 族内成功率 = ${familyRate}%（${sameBlock.length}/${familyDenom}，判据 ≥90%${familyDenom > 0 && Number(familyRate) >= 90 ? " ✅" : familyDenom > 0 ? " ❌" : "（暂无数据）"}）`);
+console.log(`  ③ 全量回落率 = ${fallbackRate}%（Σ${aggUneval}/Σ${aggTotal} 聚合口径，判据 ≤50%${aggTotal > 0 && Number(fallbackRate) <= 50 ? " ✅" : aggTotal > 0 ? " ❌" : "（暂无数据）"}）`);
+console.log(`  ④ EVAL_GAIN = ${evalGain.length} 条（收益量化，不设线）`);
+
+console.log(`\n── 个体分桶（防抖后口径）──`);
+console.log(`  真误拦候选：${missBlock.length}（已裁决 ${missAdjudicated.length}：确认误拦 ${confirmedMiss.length} / 真误放 ${trueMissPlaced.length} / 维度外剔除 ${dimExcluded.length} / 未裁决 ${missBlock.length - missAdjudicated.length}）`);
+console.log(`  same_block：${sameBlock.length} ｜ family_fallback：${familyFallback.length} ｜ eval_gain：${evalGain.length}`);
+console.log(`  聚合维度外拦截（sleep/kill 等别族，S1 过滤）：${aggDimMismatch}`);
 
 // EVAL_GAIN 按旧 ruleId 聚合（none = 旧链无规则可拦）
 const gainByRule = {};
@@ -61,7 +98,7 @@ for (const r of evalGain) {
   gainByRule[key] = (gainByRule[key] ?? 0) + 1;
 }
 if (Object.keys(gainByRule).length > 0) {
-  console.log("  EVAL_GAIN 按旧链 ruleId 聚合：");
+  console.log(`\n  EVAL_GAIN 按旧链 ruleId 聚合：`);
   for (const [k, v] of Object.entries(gainByRule).sort((a, b) => b[1] - a[1])) console.log(`    ${k}: ${v}`);
 }
 
@@ -80,4 +117,5 @@ if (pending.length > 0) {
 console.log(`
 裁决操作（manage_healing_events 或 DB update）：
   确认求值器对（旧链误拦）→ resolution 写「确认误拦：<理由>」
-  求值器判错（该拦没拦）→ resolution 写「真误放：<理由>」——触发判据红线`);
+  求值器判错（该拦没拦）→ resolution 写「真误放：<理由>」——触发判据①红线
+  维度外样本（r1 处置前误入池）→ resolution 写「维度外：<理由>」——剔除不计`);

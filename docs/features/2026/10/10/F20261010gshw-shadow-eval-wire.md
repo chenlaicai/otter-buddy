@@ -52,17 +52,20 @@ causal_links:
 
 ### 记录器：shadow-eval-recorder.ts（纯函数核 + fire-and-forget 落账）
 
-**双向信息量过滤**（只记有对照价值的形态）：
+**个体四桶 + 聚合计数**（r1 审视处置后：S1 维度过滤 + S2 判据数据源）：
 
-| 形态 | oldBlock | 求值器 | 落账 | 语义 |
-|---|---|---|---|---|
-| 真误拦候选 | 拦 | evaluated 会放 | ✅ severity=low | **观察期核心信号**：旧链可能误拦，逐条人工裁决 |
-| EVAL_GAIN | 放 | evaluated 会拦 | ✅ severity=low | 旧链漏拦面实战发现（预期高频：#1363 灰区族 cd worktree 后写主仓——旧链豁免整条，求值器按落点判拦）；记录不告警 |
-| 双方同判拦 | 拦 | 会拦 | ❌ | 无对照信息 |
-| 双方同判放 | 放 | 会放 | ❌ | 无对照信息 |
-| 求值器回落 | 任意 | unevaluated | ❌ | 求值器无意见（fail-closed 面不进观察判据） |
+| 形态 | oldBlock | 求值器 | 个体落账 | subkind | 语义 |
+|---|---|---|---|---|---|
+| 真误拦候选 | **main_write 拦** | evaluated 会放 | ✅ | miss_block_candidate | **观察期核心信号**：逐条人工裁决；真误放（人工裁 BLOCK）>0 → 停止切换回炉 |
+| 同判拦 | main_write 拦 | evaluated 会拦 | ✅ | same_block | 族内成功率分子（逐条证据，S2 补齐） |
+| 族内回落 | main_write 拦 | unevaluated | ✅ | family_fallback | 族内成功率分母（fail-closed 面，S2 补齐） |
+| EVAL_GAIN | 放 | evaluated 会拦 | ✅ | eval_gain | 旧链漏拦面实战发现（预期高频：#1363 灰区族 cd worktree 后写主仓）；记录不告警 |
+| **维度外** | **别族拦**（sleep/kill/data_destructive…） | 任意 | ❌（计数进聚合） | — | **S1**：求值器只判写落点，别族拦截+wouldAllow 是维度边界非误拦候选——混入会假触发「真误放>0 停止切换」红线 |
+| 同判放 | 放 | 会放 | ❌（计数进聚合） | — | 无对照信息 |
 
-**context 字段**（SQL 可聚合，对齐 #1360 结构化事件纪律）：`oldVerdict / evaluatorWouldAllow / evaluatorWouldBlock / targetPaths(≤3) / unevalReason / oldRuleId(指纹分类，放行记 none) / commandHead(脱敏截短 120) / hasWorktreePath`。
+**聚合计数器**（S2）：pre-dedup 全量累计（total/evaluated/unevaluated/mainWriteBlock×2/dimensionMismatchBlocked/unknownBlocked/individualsLogged），按窗（60min 或 500 条，逐调用检查——守卫路径禁副作用定时器）落单条 `kind=shadow_eval_aggregate` 记录——判据③全量回落率数据源。个体记录防抖后口径，与聚合的流量口径在报告脚本里分列。
+
+**context 字段**（SQL 可聚合，对齐 #1360 结构化事件纪律）：`kind(shadow_eval) / subkind(四桶) / oldVerdict / evaluatorWouldAllow / evaluatorWouldBlock / targetPaths(≤3) / unevalReason / oldRuleId(指纹分类，放行记 none) / commandHead(脱敏截短 120) / hasWorktreePath`；聚合记录额外携带计数器全量与窗口时间戳。
 
 **零干预铁律（三层）**：
 1. 判定链本体零改动（checkBashCommandSafety 未动）
@@ -71,16 +74,27 @@ causal_links:
 
 **旁路防抖**：同 otter 同命令 10min 窗内只记一次（#1353 连环拦截台账放大先例的 shadow 侧治理）。healingRepo 缺失时回调不构造（影子静默关，零依赖启动）。
 
-### 观察期判据（预注册）
+### 观察期判据（预注册 + r1 处置修订：四项全部可测）
 
-- **真误放（人工裁 BLOCK）> 0 → 停止切换回炉**——求值器会放的命令被人工确认该拦，说明 fail-closed 面有实战缺口，题库验证不足以背书
-- 确认误拦（人工裁放行）累计——量化求值器切换收益
-- EVAL_GAIN 聚合——按 oldRuleId 分组看旧链漏拦面分布（none=旧链无规则可拦的形态）
-- 判据线沿用 gwte 预注册四项（红线 0/误放 0/族内 ≥90%/回落 ≤50%），观察期数据是「实战版」语料来源
+- ① **红线**：真误放（miss_block_candidate 人工裁 BLOCK）> 0 → **停止切换回炉**（S1 维度过滤后候选池只含 main_write 拦截——sleep/kill 别族拦截不进池，假红线链消除）
+- ② **族内成功率**：same_block / (same_block + miss_block_candidate + family_fallback) ≥ 90%（个体记录口径，S2 补齐逐条证据）
+- ③ **全量回落率**：Σ unevaluated / Σ total ≤ 50%（聚合记录口径，S2 新增数据源）
+- ④ **EVAL_GAIN**：按 oldRuleId 分组看旧链漏拦面分布（none=旧链无规则可拦），收益量化不设线
+- 裁决三态：确认误拦 / 真误放 / 维度外（r1 处置前误入池样本剔除不计）
 
 ### 观察统计：scripts/shadow-eval-report.mjs
 
-`node scripts/shadow-eval-report.mjs [--db <path>] [--days N]`——聚合真误拦候选（已裁决/未裁决/确认误拦/真误放）+ EVAL_GAIN 按 ruleId 聚合 + 判据红线实时提示 + 未裁决清单（人工裁决工作面）+ 裁决操作指引（resolution 写「确认误拦：<理由>」或「真误放：<理由>」）。畸形 context 容错跳过（#1368 json_extract 同型教训：日跑生产库必须抗畸形数据）。
+`node scripts/shadow-eval-report.mjs [--db <path>] [--days N]`——判据四项实时核算（①红线计数 ②族内成功率 ③全量回落率聚合口径 ④EVAL_GAIN 聚合）+ 个体分桶统计（含维度外剔除计数）+ 未裁决清单（人工裁决工作面）+ 裁决三态操作指引（确认误拦/真误放/维度外）。畸形 context 容错跳过（#1368 json_extract 同型教训：日跑生产库必须抗畸形数据）；r1 前旧数据（无 subkind）兼容推断。
+
+## #1420 对抗审视处置（r1，检视矬1360 报告 901e8439）
+
+| 发现 | 级别 | 处置 | 说明 |
+|---|---|---|---|
+| S1 维度错配污染判据（sleep/kill 别族拦截混入候选池→假触发停止切换红线） | 🔴 严重 | **已修** | miss_block_candidate 只认旧链 main_write 维度拦截（classifyGuardInterceptReason 复用，与 #1411 §3.2「main_write 完整命令子集」口径一致）；别族拦截计数进聚合 dimensionMismatchBlocked（可观测不进判据）；裁决指引加第三态「维度外」。测试双向钉死：sleep/kill/data_destructive 拦+wouldAllow→不落个体；main_write 拦+wouldAllow→落候选 |
+| S2 判据③④无数据源（同判+回落全丢，覆盖率/回落率算不出） | 🔴 严重 | **已修** | 双数据源：①main_write 拦截全量三态个体落账（same_block/family_fallback 补齐族内判据逐条证据）②聚合计数器按窗落单条 aggregate 记录（全量回落率可算）。同判放仍不落个体（防膨胀，计数进聚合）；聚合为 pre-dedup 流量口径与个体防抖后口径分列 |
+| S3 zero-impact 测试回调 throw 虚证（`if (!cmd) throw` 永不触发） | 🔵 建议 | **已修** | 改无条件 throw，真实钉住「回调抛错→abort 照常发射」 |
+
+处置附带：个体四桶 subkind 字段进 context（报告分桶键）；旧数据无 subkind 报告兼容推断；测试顶层 beforeEach 重置模块级聚合/防抖状态（跨 describe 泄漏治理）。
 
 ## 设计取舍
 
@@ -115,12 +129,12 @@ docs/features/2026/10/10/F20261010gshw-*.md         （本文档）
 
 | 验证项 | 结果 |
 |---|---|
-| 影子记录器单测 | 14/14（三态投影/双向过滤/防抖窗/fail-safe/context 口径/零干预接线集成） |
-| 零干预对照 | 2/2：判定链基线（9 命令族含 #1360 修复面、#1381 负门、#1240 heredoc 负门、kill 族）与挂影子前后 abort 行为逐条一致 |
+| 影子记录器单测 | 20/20（r1 处置后：三态投影/四桶过滤/S1 维度过滤双向/S2 聚合到窗刷新/防抖窗/fail-safe/context 口径/零干预集成） |
+| 零干预对照 | 2/2：判定链基线（9 命令族含 #1360 修复面、#1381 负门、#1240 heredoc 负门、kill 族）与挂影子前后 abort 行为逐条一致；**S3 处置：回调无条件 throw，abort 照常被钉住** |
 | agent 目录全量 | 55 文件 1431/1431 |
 | 全仓 | 354 文件 5297/5297（基线 5266 + 新增 31） |
 | eslint | 0 error（复杂度拆函数达标） |
-| 报告脚本自证 | 合成 7 例（含畸形 context/窗外）聚合口径全部核对通过 |
+| 报告脚本自证 | 合成 13 例（含 r1 处置后 subkind 分桶/聚合记录/畸形 context/窗外/legacy 无 subkind 兼容）判据四项口径全部核对通过 |
 
 ## 影响范围
 
