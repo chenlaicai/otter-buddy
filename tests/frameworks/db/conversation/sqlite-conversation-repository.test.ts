@@ -118,6 +118,45 @@ describe("SqliteConversationRepository - 对话基础操作", () => {
       const result = await repo.getById("nonexistent");
       expect(result).toBeNull();
     });
+
+    it("F20261009s6ej6：conversation_otters 无记录时 fallback 查 conversation_participants", async () => {
+      // Why：小獭经 invite_otter 加入对话只写 participants 不写 conversation_otters（历史遗留），
+      //  导致 restartWithUnifiedHandoff 的 resolveFirstConversationId 找不到对话 → 裸重启无系统消息。
+      insertOtter(db, "otter-1");
+      await repo.create(conversationFixture());
+      // 不经 conversation_otters，直接写 participants（模拟 invite_otter 路径）
+      db.prepare(`
+        INSERT INTO conversation_participants (id, conversation_id, otter_id, status, created_at)
+        VALUES ('p-1', 'conv-1', 'otter-1', 'active', '2026-10-09T00:00:00Z')
+      `).run();
+
+      const ids = await repo.getIdsByOtterId("otter-1");
+      expect(ids).toEqual(["conv-1"]);
+    });
+
+    it("F20261009s6ej6：两表都有记录时优先 conversation_otters，不重复", async () => {
+      insertOtter(db, "otter-1");
+      await repo.create(conversationFixture(), ["otter-1"]);
+      db.prepare(`
+        INSERT INTO conversation_participants (id, conversation_id, otter_id, status, created_at)
+        VALUES ('p-1', 'conv-1', 'otter-1', 'active', '2026-10-09T00:00:00Z')
+      `).run();
+
+      const ids = await repo.getIdsByOtterId("otter-1");
+      expect(ids).toEqual(["conv-1"]); // 去重，不返回两次
+    });
+
+    it("F20261009s6ej6：participants 中 left 状态不返回（只认 active）", async () => {
+      insertOtter(db, "otter-1");
+      await repo.create(conversationFixture());
+      db.prepare(`
+        INSERT INTO conversation_participants (id, conversation_id, otter_id, status, created_at, left_at)
+        VALUES ('p-1', 'conv-1', 'otter-1', 'left', '2026-10-09T00:00:00Z', '2026-10-09T01:00:00Z')
+      `).run();
+
+      const ids = await repo.getIdsByOtterId("otter-1");
+      expect(ids).toEqual([]);
+    });
   });
 
   describe("updateStatus", () => {

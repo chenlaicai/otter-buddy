@@ -30,12 +30,15 @@ function makeMessages(count: number, charsEach: number) {
   }));
 }
 
-describe("synthesisFullBudgetChars（F20260924swin 夹逼定标：trim 与预检共享的唯一预算对象）", () => {
-  it("262K 窗口 → 181,688 chars（最小失败 227,110 × 0.8）", () => {
-    expect(synthesisFullBudgetChars(262_144)).toBe(181_688);
+describe("synthesisFullBudgetChars（F20260924swin 夹逼定标 + F20261009s6ej6 262K 档重新定标）", () => {
+  it("262K 窗口 → 138,788 chars（最小失败 173,485 × 0.8，2026-10-09 7 例真实失败样本）", () => {
+    expect(synthesisFullBudgetChars(262_144)).toBe(138_788);
   });
-  it("跨窗口按占比缩放：1M → 726,752（保守外推，安全方向）", () => {
+  it("1M 窗口 → 726,752 chars（分档定标，不再跨窗口线性缩放——两档密度不对称）", () => {
     expect(synthesisFullBudgetChars(1_048_576)).toBe(726_752);
+  });
+  it("未知窗口档位 → 保守密度 1.6 token/char 推算（介于两档实测之间）", () => {
+    expect(synthesisFullBudgetChars(524_288)).toBe(Math.floor(524_288 / 1.6));
   });
   it("trim 与预检同一对象：trim 裁满的产物天然过预检（全文口径，不自拦）", () => {
     // trim 内部预算 = 全文预算 − 固定段实测 − trim-note 预留 → trim 后全文 ≤ 全文预算 = 预检阈值 → 放行
@@ -173,8 +176,8 @@ describe("buildNarrativeSynthesisPrompt 集成裁剪（F20260923hsyn + F20260924
     expect(trimLog!.promptChars).toBe(prompt.length);
   });
 
-  it("F20260924swin 不误裁边界：15 万 chars（< 预算 181,688）→ dropped=0", () => {
-    const msgs = makeMessages(5, 28_000); // ≈14 万 chars
+  it("F20261009s6ej6 不误裁边界：12 万 chars（< 预算 138,788）→ dropped=0", () => {
+    const msgs = makeMessages(5, 22_000); // ≈11 万 chars
     let trimLog: { droppedCount: number } | undefined;
     buildNarrativeSynthesisPrompt({
       ...base,
