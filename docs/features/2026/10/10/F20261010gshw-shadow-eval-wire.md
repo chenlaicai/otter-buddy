@@ -6,6 +6,13 @@ created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
 status: implemented
 merge_pr: 1420
 modification_class: new-feature
+intent:
+  problem: "求值器 Phase 1+2 题库验证（141 例语料）后缺真实考场数据：题库 ≠ 实战，切换决策需要真实判定路径的对照证据"
+  expected_effect: "每条真实 bash 命令获得求值器旁听判定（只记录不干预），双向对照落 healing_events；观察期积累真误拦候选（人工裁决）与 EVAL_GAIN（旧链漏拦面）数据，为切换 PR 提供实战证据"
+  verify_by:
+    type: behavior_check
+capability_test: "tests/frameworks/agent/shadow-eval-recorder.test.ts"
+change_type: feature
 tags: [guard, shadow, evaluator, observability]
 causal_links:
   - F20261008gduc（双链统一+熔断降级——求值器家族的 P0 前置）
