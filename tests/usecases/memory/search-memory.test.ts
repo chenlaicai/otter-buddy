@@ -107,6 +107,22 @@ describe("SearchMemory - progressive disclosure", () => {
     expect(first.content).toContain("记忆系统");
   });
 
+  it("#1398 回归：非 full 模式 drillDown 参数形态与 get_memory_detail schema 对齐（ids 数组）", async () => {
+    const result = await searchMemory.search({ query: "记忆系统", limit: 5, detailLevel: "summary" });
+
+    expect(result.entries.length).toBeGreaterThan(0);
+    const withDrill = result.entries.filter(e => e.drillDown !== undefined);
+    expect(withDrill.length).toBeGreaterThan(0);
+    for (const e of withDrill) {
+      expect(e.drillDown!.tool).toBe("get_memory_detail");
+      /** #1398：schema 要求 ids 数组——若回退为 { id } 单数形态本断言即红（修复前失败锚） */
+      expect(e.drillDown!.params).toHaveProperty("ids");
+      expect(Array.isArray(e.drillDown!.params.ids)).toBe(true);
+      expect((e.drillDown!.params.ids as string[])[0]).toBe(e.id);
+      expect(e.drillDown!.params).not.toHaveProperty("id");
+    }
+  });
+
   it("FTS5 snippet 模式返回纯文本（高亮在 Web 后端处理）", async () => {
     const result = await searchMemory.search({ query: "渐进式", limit: 5, detailLevel: "snippet" });
 
@@ -133,73 +149,6 @@ describe("SearchMemory - progressive disclosure", () => {
       /** content 也应被裁剪 */
       expect(longEntry.content).toBe(longEntry.snippet);
     }
-  });
-
-  it("snippet 降级：vec-only 结果截取前 200 字符", async () => {
-    /** 构造 vec-only 场景：FTS 不命中，vec 命中 */
-    const longContent = "A".repeat(500) + "关键词在此处出现";
-    const longEntry: MemoryEntry = { ...BASE_ENTRY, id: "e-long", content: longContent };
-
-    /** mock repo：FTS 返回空，vec 返回 longEntry */
-    const mockRepo = {
-      hasVecTable: () => true,
-      /* #576: listRecent 不在此测试范围 */
-      listRecent: async () => [] as never[],
-      isVecEnabled: () => true,
-      searchFTSWithHighlight: async () => [],
-      searchFTS: async () => [],
-      searchVec: async () => [{ entryId: "e-long", distance: 0.1, entry: longEntry }],
-      getWeights: async () => [{ memoryEntryId: "e-long", retrievalCount: 0, lastRetrievedAt: null, userFlagged: false }],
-      getById: async () => null,
-      getEmbedding: async () => null,
-      getDetails: async () => [],
-      storeEntry: async () => {},
-      storeEmbedding: async () => {},
-      incrementRetrievalCounts: async () => {},
-      flagMemory: async () => {},
-      updateLayerByConversation: async () => {},
-      deleteBySource: async () => {},
-      replaceEntryBySource: async () => {},
-      replaceEntriesBySource: async () => {},
-      deleteBySourceAndType: async () => {},
-      getEmbeddingMeta: async () => ({}),
-      setEmbeddingMeta: async () => {},
-      scanDarkEntries: async () => ({ entries: [], total: 0, vecDisabled: false }),
-      hasEmbeddings: async () => new Map(),
-      enqueueRetry: async () => {},
-      claimPendingTasks: async () => [],
-      markTaskDone: async () => {},
-      markTaskAttemptFailed: async () => {},
-      getBySourceId: async () => null,
-      findNeighborsByChunkIndex: async () => [],
-      findNeighborsByTime: async () => [],
-      createEdge: async () => "edge-id",
-      getEdgesByEntry: async () => [],
-      getEdgeById: async () => null,
-      deleteEdge: async () => {},
-      deleteEdgesByEntryIds: async () => {},
-      getEntriesByConversation: async () => [],
-    } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
-
-    const mockEmbedding: EmbeddingGateway = {
-      available: true,
-      embed: async () => new Float32Array([0.1, 0.2, 0.3]),
-    };
-
-    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, currentConversationBoost: 1.5, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    const vecOnlySearch = new SearchMemory(mockRepo, mockRepo, mockEmbedding, searchEngine, createTestLogger());
-
-    const result = await vecOnlySearch.search({ query: "关键词", limit: 5, detailLevel: "snippet" });
-    expect(result.entries.length).toBe(1);
-    const first = result.entries[0];
-    expect(first.id).toBe("e-long");
-    /** vec-only 降级：应截取 content 前 200 字符，无 <b> 高亮标记 */
-    expect(first.snippet).toBeDefined();
-    expect(first.snippet!.length).toBeLessThanOrEqual(200);
-    expect(first.snippet).not.toContain("<b>");
-    /** content 也应被裁剪，不应返回 500 字全文 */
-    expect(first.content).toBe(first.snippet);
-    expect(first.content.length).toBeLessThanOrEqual(200);
   });
 
   it("向后兼容：不传 detail_level 时默认使用 snippet", async () => {
@@ -340,6 +289,75 @@ describe("SearchMemory - progressive disclosure", () => {
   it("ManageMemory.getDetails 超过批量上限抛出错误", async () => {
     const tooManyIds = Array.from({ length: 101 }, (_, i) => `id-${i}`);
     await expect(manageMemory.getDetails(tooManyIds)).rejects.toThrow(/exceeds limit/);
+  });
+});
+
+describe("SearchMemory - vec-only snippet 降级（自带 mock，与主套件解耦）", () => {
+  it("snippet 降级：vec-only 结果截取前 200 字符", async () => {
+    /** 构造 vec-only 场景：FTS 不命中，vec 命中 */
+    const longContent = "A".repeat(500) + "关键词在此处出现";
+    const longEntry: MemoryEntry = { ...BASE_ENTRY, id: "e-long", content: longContent };
+
+    /** mock repo：FTS 返回空，vec 返回 longEntry */
+    const mockRepo = {
+      hasVecTable: () => true,
+      /* #576: listRecent 不在此测试范围 */
+      listRecent: async () => [] as never[],
+      isVecEnabled: () => true,
+      searchFTSWithHighlight: async () => [],
+      searchFTS: async () => [],
+      searchVec: async () => [{ entryId: "e-long", distance: 0.1, entry: longEntry }],
+      getWeights: async () => [{ memoryEntryId: "e-long", retrievalCount: 0, lastRetrievedAt: null, userFlagged: false }],
+      getById: async () => null,
+      getEmbedding: async () => null,
+      getDetails: async () => [],
+      storeEntry: async () => {},
+      storeEmbedding: async () => {},
+      incrementRetrievalCounts: async () => {},
+      flagMemory: async () => {},
+      updateLayerByConversation: async () => {},
+      deleteBySource: async () => {},
+      replaceEntryBySource: async () => {},
+      replaceEntriesBySource: async () => {},
+      deleteBySourceAndType: async () => {},
+      getEmbeddingMeta: async () => ({}),
+      setEmbeddingMeta: async () => {},
+      scanDarkEntries: async () => ({ entries: [], total: 0, vecDisabled: false }),
+      hasEmbeddings: async () => new Map(),
+      enqueueRetry: async () => {},
+      claimPendingTasks: async () => [],
+      markTaskDone: async () => {},
+      markTaskAttemptFailed: async () => {},
+      getBySourceId: async () => null,
+      findNeighborsByChunkIndex: async () => [],
+      findNeighborsByTime: async () => [],
+      createEdge: async () => "edge-id",
+      getEdgesByEntry: async () => [],
+      getEdgeById: async () => null,
+      deleteEdge: async () => {},
+      deleteEdgesByEntryIds: async () => {},
+      getEntriesByConversation: async () => [],
+    } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
+
+    const mockEmbedding: EmbeddingGateway = {
+      available: true,
+      embed: async () => new Float32Array([0.1, 0.2, 0.3]),
+    };
+
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, currentConversationBoost: 1.5, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const vecOnlySearch = new SearchMemory(mockRepo, mockRepo, mockEmbedding, searchEngine, createTestLogger());
+
+    const result = await vecOnlySearch.search({ query: "关键词", limit: 5, detailLevel: "snippet" });
+    expect(result.entries.length).toBe(1);
+    const first = result.entries[0];
+    expect(first.id).toBe("e-long");
+    /** vec-only 降级：应截取 content 前 200 字符，无 <b> 高亮标记 */
+    expect(first.snippet).toBeDefined();
+    expect(first.snippet!.length).toBeLessThanOrEqual(200);
+    expect(first.snippet).not.toContain("<b>");
+    /** content 也应被裁剪，不应返回 500 字全文 */
+    expect(first.content).toBe(first.snippet);
+    expect(first.content.length).toBeLessThanOrEqual(200);
   });
 });
 
@@ -617,6 +635,12 @@ describe("SearchMemory - F20260812mrcq Part 3 anchor 短路", () => {
     expect(result.entries.length).toBeGreaterThan(0);
     expect(result.entries[0].source).toBe("anchor");
     expect(result.entries[0].sourceId).toBe("F20260812mrcq");
+    // #1398 回归：anchor 短路路径的 drillDown.params 也必须是 { ids } 数组形态
+    const anchorEntry = result.entries[0];
+    expect(anchorEntry.drillDown).toBeDefined();
+    expect(Array.isArray(anchorEntry.drillDown!.params.ids)).toBe(true);
+    expect(anchorEntry.drillDown!.params.ids).toContain("anchor-1");
+    expect(anchorEntry.drillDown!.params).not.toHaveProperty("id");
   });
 
   it("P3-AT-3: ID + 其他词，anchor 短路 + 剩余走 RRF", async () => {
@@ -812,6 +836,10 @@ describe("SearchMemory - F20260812mrcq Part 2 context-expand", () => {
     // 所有 contextEntries source = context-expand
     for (const ctx of result.contextEntries!) {
       expect(ctx.source).toBe("context-expand");
+      // #1398 回归：context-expand 邻域条目的 drillDown.params 也必须是 { ids } 数组形态
+      expect(ctx.drillDown).toBeDefined();
+      expect(Array.isArray(ctx.drillDown!.params.ids)).toBe(true);
+      expect(ctx.drillDown!.params).not.toHaveProperty("id");
     }
   });
 
