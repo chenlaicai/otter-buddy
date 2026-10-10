@@ -16,7 +16,7 @@
     "lint:docs": "node scripts/lint-docs.mjs",
     "pretest": "npm run lint",
     "test": "vitest run",
-    "check": "npm run build && npm run lint && npm run smoke:boot",
+    "check": "npm run build && npm run lint && npm run lint:schema && npm run smoke:boot",
     "download:bge-m3": "node scripts/download-bge-m3.mjs",
     "start": "npm run build && node dist/src/main.js",
     "test:capability": "npm run build && vitest run --config vitest.capability.config.ts",
@@ -31,7 +31,8 @@
     "lint:intent": "node scripts/lint-intent.mjs",
     "lint:date-bombs": "node scripts/lint-date-bombs.mjs",
     "lint:prompt-anchors": "node scripts/lint-prompt-anchors.mjs",
-    "smoke:boot": "bash scripts/smoke-boot.sh"
+    "smoke:boot": "bash scripts/smoke-boot.sh",
+    "lint:schema": "node scripts/lint-schema-ddl.mjs"
   },
   "keywords": [],
   "author": "",

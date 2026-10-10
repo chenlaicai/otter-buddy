@@ -56,7 +56,11 @@ const allowDdlFiles = [];
 // #1390 存量库 healing_events 补列/索引顺序回归：需建 #1365 前旧形状表（无 bound_issue/bound_at）
 // 验证 initSchema 对存量库补列后再建索引不炸——被测对象就是「旧 schema → 新 schema」
 // 启动迁移本身，与 migration.test.ts 同类场景
-const MAX_ALLOW_DDL_FILES = 10;
+// 10→11（F20261009smex）：tests/app/build-app-existing-db.test.ts——
+// #1390 存量库形态冒烟：需手写 DDL 回退 healing_events 到 #1365 前形态（删掉
+// bound_issue/bound_at 重建 14 列旧表），被测对象就是「旧 schema → 新 schema」
+// 的补列迁移本身，与 migration.test.ts 同类场景
+const MAX_ALLOW_DDL_FILES = 11;
 
 for (const file of walk(path.join(root, "tests"))) {
   const rel = path.relative(root, file);
