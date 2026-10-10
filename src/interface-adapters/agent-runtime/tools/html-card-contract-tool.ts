@@ -36,7 +36,7 @@ export const HTML_CARD_CONTRACT = `# HTML 卡片写作契约
 
 - 默认展开运行，头部「🎮 活类 · 运行中」徽章，搭档可暂停（卸载即停）/重启（脚本归零重跑）
 - 与 html-card 共享单消息 ${CARD_MAX_PER_MESSAGE} 张卡数预算（1 普通 + 1 活类 = 2 张，合法；再多会被拒）
-- 发言后自动登记为产物（fact 类，时间轴上会出现摘要卡）——不用手动 create_linked_resource
+- 发言后自动登记为产物（fact 类，时间轴上会出现摘要卡）——不用手动 create_linked_resource。摘要提取规则（PR #1396）：<script>/<style> 块整块剔除，只取 HTML 文本。若卡内九成是 script（游戏卡常态），建议在 HTML 里写一段隐藏 div（style="display:none"）承载人话摘要——否则摘要只能取可见文案；若除 script/style 外无可见文本，摘要卡会退化成「（无可提取文本）」
 - 游戏循环建议 rAF/setTimeout 自带节制；暂停卸载时脚本随之销毁，无需清理钩子
 
 ## 样式变量
