@@ -137,11 +137,10 @@ export class FeishuMessageProcessor {
       return;
     }
 
-    // 发送者姓名前缀——bot 对话内多家人消息分得清谁在说（飞书有真姓名；
-    // 展示维度，非路由维度——路由只看 bot）
-    const senderName = await this.resolveAssistantName(msg.senderId);
-    const prefixedText = `[${senderName}] ${msg.text}`;
-    await this.deliverToConversation(msg, conversation.id, connection.id, msg.senderId, prefixedText);
+    // F20261010fspm：发送者身份只走 sender_name 快照（气泡上方 senderDisplayName），
+    // 不再拼进消息体——旧前缀 [名字] 在解析失败时退化成 [b2d82e] 污染正文。
+    // 发言人区分：agent 侧 resolveUserEntryLabel（搭档(真名)/访客快照名/可读兜底）三级标签。
+    await this.deliverToConversation(msg, conversation.id, connection.id, msg.senderId, msg.text);
   }
 
   /** F20260920imax：消息投递公共尾部（专线/群聊两路共用）：媒体→入库→fanout→dispatch */
@@ -368,19 +367,22 @@ export class FeishuMessageProcessor {
     });
   }
 
-  /** F20260826fuid：open_id → 姓名。网关未注入/解析失败返回 null，永不阻塞消息入库 */
+  /** F20260826fuid：open_id → 姓名。网关未注入返回 null，永不阻塞消息入库。
+   *  F20261010fspm：解析失败不再返回裸 null——落可读兜底「飞书·尾6位」，替代旧
+   *  「[b2d82e] 正文前缀」的退化形态；快照维度，agent 侧按发言人逐一区分。 */
   private async resolveSenderName(senderId: string): Promise<string | null> {
     if (!this.deps.feishuUserInfo) return null;
     try {
-      return await this.deps.feishuUserInfo.getUserName(senderId);
+      return (await this.deps.feishuUserInfo.getUserName(senderId))
+        ?? `飞书·${this.idTail(senderId)}`;
     } catch {
-      return null;
+      return `飞书·${this.idTail(senderId)}`;
     }
   }
 
-  /** F20260918imas：助理对话显示名（p2p 对端）——解析失败回退 id 尾部，不阻塞开户 */
-  private async resolveAssistantName(senderId: string): Promise<string> {
-    return (await this.resolveSenderName(senderId)) ?? (senderId.length > 6 ? senderId.slice(-6) : senderId);
+  /** F20261010fspm：open_id 尾 6 位可读兜底（仅 ID 足长时截尾，短 ID 原样） */
+  private idTail(senderId: string): string {
+    return senderId.length > 6 ? senderId.slice(-6) : senderId;
   }
 
   private triggerAgentDispatch(

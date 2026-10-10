@@ -117,16 +117,29 @@ export class FeishuLoginSessionManager {
     return { ...session };
   }
 
-  /** registerApp 选项拼装（拆出控 start 复杂度）：QR 回调 + appPreset 预填 + 取消信号。
+  /** registerApp 选项拼装（拆出控 start 复杂度）：QR 回调 + appPreset 预填 + 权限集声明 + 取消信号。
    *  D3 演进（搭档决策 2026-09-29）：不传 createOnly——SDK 确认页原生双入口
    *  （创建新 app / 选择已有 app），选已有时显示 diff 由用户显式再授权，
    *  webhook 覆盖风险从「隐藏入口」改为「确认页可见」；同 id 重绑由 onSuccess
-   *  upsert + runtime 替换（#591 语义）幂等承接 */
+   *  upsert + runtime 替换（#591 语义）幂等承接。
+   *  F20261010fspm：addons 增量权限声明（additive——不传 preset:false，默认模板
+   *  底座保留，业务 scope 分层叠加）。扫码模板默认不带通讯录/群成员读权限，
+   *  导致新 app 首条消息发言人真名解析失败（脱敏返回无 name 字段），只能
+   *  事后手动去开放平台补——治本：出生即声明，确认页由扫码人显式授权。 */
   private buildRegisterOptions(session: FeishuLoginSession, signal: AbortSignal, name?: string) {
     const id = session.id;
     return {
       source: "otter-buddy",
       signal,
+      // F20261010fspm：发言人真名所需的两个应用身份权限（展示维度，非路由维度）
+      addons: {
+        scopes: {
+          tenant: [
+            "contact:contact.base:readonly", // p2p 发言人真名（通讯录基本信息）
+            "im:chat.members:read",          // 群聊发言人真名（群成员读取）
+          ],
+        },
+      },
       onQRCodeReady: ({ url }: { url: string; expireIn?: number }) => {
         if (session.status === "cancelled") return; // QR 异步到达时可能已取消——不覆写终态
         session.qrcodeUrl = url;
