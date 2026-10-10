@@ -33,4 +33,15 @@ fi
 
 echo "==> [smoke:boot] 运行 buildApp 全栈装配冒烟测试（真 sqlite + faux LLM）..."
 npx vitest run "$SMOKE_TEST" --reporter=dot
-echo "==> [smoke:boot] 通过：系统可完成全栈装配并服务请求"
+
+# F20261009smex: 存量库形态冒烟（#1390 事故防线 A）——全新库绿 ≠ 存量库能起。
+EXISTING_DB_TEST="tests/app/build-app-existing-db.test.ts"
+if [ ! -f "$EXISTING_DB_TEST" ]; then
+  echo "==> [smoke:boot] 失败：存量库冒烟测试文件不存在：$EXISTING_DB_TEST" >&2
+  echo "    门槛 fail-close：测试被移动/改名/删除时必须同步更新本脚本，否则视为启动无保障。" >&2
+  exit 1
+fi
+echo "==> [smoke:boot] 运行存量库形态冒烟测试（#1365 前 schema 快照 + initDatabaseAndModels）..."
+npx vitest run "$EXISTING_DB_TEST" --reporter=dot
+
+echo "==> [smoke:boot] 通过：系统可完成全栈装配并服务请求（全新库 + 存量库双形态）"
