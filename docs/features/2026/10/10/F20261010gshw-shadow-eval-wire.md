@@ -4,6 +4,7 @@ title: 写落点求值器影子接线（观察模式）——真实判定路径�
 summary: 求值器 Phase 1（#1381）+ Phase 2（#1411）过 141 例语料 shadow 后的下一步：接进真实判定路径只记录不干预。挂点 abortOnUnsafeBash（唯一看到全部 bash 命令+旧链裁决的位置），双向信息量过滤落 healing_events（errorType=guard_eval_shadow）——真误拦候选（旧链拦+求值器会放，观察期判据核心信号）与 EVAL_GAIN（旧链放+求值器会拦，旧链漏拦面实战发现）；其余形态不落账防台账膨胀。零干预铁律三层（判定链零改动/回调异常吞掉/写入失败仅日志）+ 旁路防抖 10min。配套观察统计脚本（聚合+裁决指引）。
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
 status: implemented
+merge_pr: 1420
 modification_class: new-feature
 tags: [guard, shadow, evaluator, observability]
 causal_links:
