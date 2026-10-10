@@ -111,3 +111,6 @@ tests/capability/golden/results.jsonl
 # Guard shadow 评估报告（F202609gwte，shadow 三跑实测输出——运行时产物含本机
 # 绝对路径，审计真相在特性文档统计 + 对话工作区，不进 git；2026-10-09 误提交移除的防回归）
 data/guard-shadow-report-*
+# Guard replay 固化候选样本（F20261008gdcc 引入的守卫拦截 replay 自动化——
+# 每日任务链从 healing_events 提取当日拦截样本供 replay 固化，运行时产物不进 git）
+data/guard-replay-candidates-*
