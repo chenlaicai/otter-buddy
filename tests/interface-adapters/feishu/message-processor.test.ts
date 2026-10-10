@@ -52,27 +52,28 @@ describe("FeishuMessageProcessor senderName 快照（F20260826fuid）", () => {
     expect(input.senderDisplayName).toBe("张三");
   });
 
-  it("网关返回 null 时 senderDisplayName 为 null，消息照常入库", async () => {
+  it("网关返回 null 时降级为可读兜底「飞书·尾6位」，消息照常入库（F20261010fspm）", async () => {
     const m = makeMocks();
     m.getUserName.mockResolvedValue(null);
     const processor = new FeishuMessageProcessor(m.deps);
 
-    await processor.process({ chatId: "oc_1", text: "你好", senderId: "ou_x", messageId: "om_1" });
+    await processor.process({ chatId: "oc_1", text: "你好", senderId: "ou_fd591d5e8545150e06d6aa7b5cb2d82e", messageId: "om_1" });
 
-    const input = m.send.mock.calls[0][0] as { senderDisplayName?: string | null };
-    expect(input.senderDisplayName).toBeNull();
+    const input = m.send.mock.calls[0][0] as { senderDisplayName?: string | null; body?: string };
+    expect(input.senderDisplayName).toBe("飞书·b2d82e");
+    expect(input.body).toBe("你好"); // 正文无前缀污染
     expect(m.send.mock.calls.length).toBe(1);
   });
 
-  it("网关抛异常时不阻塞消息处理（senderDisplayName null 降级）", async () => {
+  it("网关抛异常时不阻塞消息处理（可读兜底降级，F20261010fspm）", async () => {
     const m = makeMocks();
     m.getUserName.mockRejectedValue(new Error("network down"));
     const processor = new FeishuMessageProcessor(m.deps);
 
-    await expect(processor.process({ chatId: "oc_1", text: "你好", senderId: "ou_x", messageId: "om_1" })).resolves.toBeUndefined();
+    await expect(processor.process({ chatId: "oc_1", text: "你好", senderId: "ou_fd591d5e8545150e06d6aa7b5cb2d82e", messageId: "om_1" })).resolves.toBeUndefined();
 
     const input = m.send.mock.calls[0][0] as { senderDisplayName?: string | null };
-    expect(input.senderDisplayName).toBeNull();
+    expect(input.senderDisplayName).toBe("飞书·b2d82e");
   });
 
   it("未注入网关时走原路径（不解析姓名）", async () => {

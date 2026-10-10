@@ -177,4 +177,20 @@ describe("FeishuLoginSessionManager 状态机（registerApp mock）", () => {
     await vi.waitFor(() => expect(errorLog).toHaveBeenCalled());
     expect(mgr.get(s.id)!.status).toBe("success");
   });
+
+  it("F20261010fspm：registerApp 携带 addons 增量权限（发言人真名两权限，治本扫码 app 权限缺失）", async () => {
+    let capturedOpts: { addons?: { scopes?: { tenant?: string[] } } } | undefined;
+    registerAppSpy.mockImplementation(async (opts) => {
+      capturedOpts = opts as typeof capturedOpts;
+      opts.onQRCodeReady({ url: "https://x", expireIn: 300 });
+      return { client_id: "cli_addons", client_secret: "s" } as never;
+    });
+    const mgr = new FeishuLoginSessionManager({ logger, onSuccess: async () => {} });
+    mgr.start();
+    await vi.waitFor(() => expect(capturedOpts).toBeDefined());
+    // additive 语义：不传 preset:false（保留默认模板底座），只叠加业务 scope
+    expect(capturedOpts!.addons?.scopes?.tenant).toEqual(
+      expect.arrayContaining(["contact:contact.base:readonly", "im:chat.members:read"]),
+    );
+  });
 });
