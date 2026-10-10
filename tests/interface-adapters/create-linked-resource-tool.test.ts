@@ -139,3 +139,58 @@ describe("create_linked_resource 工具层 F20260829gvid groupId 必填校验（
     expect(linkCalls).toHaveLength(1);
   });
 });
+
+/** 检视处置 D2(a)（PR #1396 delta 第 2 轮）：speak 调用点集成测试——
+ *  守护 autoRegisterPlayableCards 挂钩不回退：含 html-card-play 围栏的 speak body
+ *  必须登记 fact，且 content 摘要 = extractPlayableCardSummary 输出（script 源码不漏入）。 */
+function makeSpeakToolForPlayableCard() {
+  const linkCalls: Array<{ title?: string; content?: string; category?: string }> = [];
+  const client = {
+    conversation: {
+      entry: {
+        createSpeakEntry: async (input: { body: string }) => ({
+          id: "entry-1", entryType: "speak", sequenceNum: 1, createdAt: "2026-10-09T00:00:00Z",
+          body: input.body,
+        }),
+      },
+    },
+    resource: {
+      link: async (input: { title?: string; content?: string; category?: string }) => {
+        linkCalls.push(input);
+        return { id: "res-1", resourceType: "fact", status: "active", groupId: null };
+      },
+    },
+  } as unknown as OtterToolClient;
+
+  const ctx: ToolContext = {
+    client, otterId: "otter-1", conversationId: "conv-1",
+    currentMessageId: "msg-1", currentInvokeId: "invoke-1",
+  };
+  const tool = createTools(ctx).find(t => t.name === "speak")!;
+  return { tool, linkCalls };
+}
+
+describe("speak 活类卡自动登记（调用点守卫，issue #1401 当场修）", () => {
+  it("含 html-card-play 围栏的 speak 登记 fact，摘要先剥 script 源码", async () => {
+    const { tool, linkCalls } = makeSpeakToolForPlayableCard();
+
+    const body = '开场。\n```html-card-play title="镜湖"\n<div>镜湖开场文案</div><script>var S = { hp:100 };</script>\n```';
+    const res = await tool.execute("c1", { body });
+
+    expect(res.content[0].text).toContain("已记录发言");
+    expect(linkCalls).toHaveLength(1);
+    expect(linkCalls[0].title).toContain("镜湖");
+    expect(linkCalls[0].category).toBe("playable-card");
+    expect(linkCalls[0].content).toContain("镜湖开场文案");
+    expect(linkCalls[0].content).not.toContain("hp:100");
+    expect(linkCalls[0].content).not.toContain("var S");
+  });
+
+  it("无 html-card-play 围栏的 speak 不登记", async () => {
+    const { tool, linkCalls } = makeSpeakToolForPlayableCard();
+
+    await tool.execute("c1", { body: '普通发言。\n```html-card title="普卡"\n<div>x</div>\n```' });
+
+    expect(linkCalls).toHaveLength(0);
+  });
+});

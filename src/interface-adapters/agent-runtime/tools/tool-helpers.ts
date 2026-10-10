@@ -69,3 +69,17 @@ export function validateSpeakBody(turnAssistantText: string | undefined, cleanBo
 export function hasCardFences(body: string): boolean {
   return countCardFences(body) > 0;
 }
+
+/** F20261009csp2 活类卡（html-card-play）登记摘要提取（tool-factory autoRegisterPlayableCards 使用）。
+ *  修复：先剥 <script>/<style> 整块再删标签——script 内容是 JS 源码不是文案，
+ *  只删标签会把源码漏进摘要（实证：quest RPG 卡摘要成了 "(function(){ var S = …"）。
+ *  卡片作者若要摘要可控，可在 HTML 里写一段隐藏 div（display:none）承载人话摘要。 */
+export function extractPlayableCardSummary(html: string, maxLen = 180): string {
+  const stripped = html
+    .replace(/<(script|style)\b[^>]*>[\s\S]*?(?:<\/\1>|$)/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  // 按码点切而非 UTF-16 码元：slice 会切断 emoji 代理对产生孤立代理（渲染乱码，与本 bug 同症状）
+  return Array.from(stripped).slice(0, maxLen).join("");
+}
