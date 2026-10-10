@@ -165,9 +165,9 @@ add(`node -e "fs.writeFileSync('/tmp/probe.txt', 'x')"`, "ALLOW", "synthetic", "
 add(`node -e "fs.writeFileSync('${M}/data/hack.txt', 'x')"`, "BLOCK", "synthetic", "P2 窄提取拦截侧：字面量写主仓 → 拦");
 add(`cd ${WT} && node -e "fs.writeFileSync('${M}/src/escape.txt', 'x')"`, "BLOCK", "synthetic", "P2 窄提取拦截侧：cwd 在 wt 但写主仓 → 拦");
 add(`python3 -c "open('${M}/data/x','w').write('hi')"`, "BLOCK", "synthetic", "P2 窄提取拦截侧：python open('w') 写主仓 → 拦");
-add(`node -e "fs.writeFileSync(process.argv[1], 'x')" ${M}/data/x`, "UNEVAL_UNKNOWN", "synthetic", "P2 窄提取边界：argv 动态路径 → 回落（不做值传播）");
-add(`node -e "const p='${M}/da' + 'ta/x'; fs.writeFileSync(p, 'x')"`, "UNEVAL_UNKNOWN", "synthetic", "P2 窄提取边界：字符串拼接路径 → 回落（不做常量折叠）");
-add(`python3 -c "import sys; open(sys.argv[1],'w').write('x')" /tmp/x`, "UNEVAL_UNKNOWN", "synthetic", "P2 窄提取边界：sys.argv → 回落");
+add(`node -e "fs.writeFileSync(process.argv[1], 'x')" ${M}/data/x`, "BLOCK", "synthetic", "P2 窄提取：argv[1] 值传播命中主仓 → 拦（#1411 处置：node -e 无脚本文件插入 argv，argvBase off-by-one 修正）");
+add(`node -e "const p='${M}/da' + 'ta/x'; fs.writeFileSync(p, 'x')"`, "UNEVAL_UNKNOWN", "synthetic", "P2 窄提取边界：变量赋值后拼接不追踪 → 回落（直连拼接折叠实已实现）");
+add(`python3 -c "import sys; open(sys.argv[1],'w').write('x')" /tmp/x`, "ALLOW", "synthetic", "P2 窄提取：sys.argv[1] 值传播落 /tmp → 放行（#1411 处置后语义升级，旧期望 UNEVAL_UNKNOWN）");
 add(`cd ${WT} && node -e "\n${LIT}\n"`, "ALLOW", "synthetic", "P2 窄提取：多行只读载荷（台账截断族全形态锚）→ 放行");
 add(`cd /repo/.otter/worktrees/wt && node -e "\n${LIT_REL}\n"`, "ALLOW", "synthetic", "P2 窄提取：多行载荷含相对路径字面量 cwd=wt → 放行");
 add(`node -e "import('${M}/dist-probe/x.js')"`, "UNEVAL_UNKNOWN", "synthetic", "P2 窄提取负门：主仓路径字面量只读也回落（c062 口径）");
@@ -179,6 +179,12 @@ add(`cd ${WT} && git push origin HEAD 2>&1 | tail -3`, "ALLOW", "synthetic", "P2
 add(`git add docs/features/x.md`, "BLOCK", "synthetic", "P2 git add index：主仓 cwd 相对路径 → 拦");
 add(`cd ${WT} && git add -A && git commit -F /tmp/msg.txt`, "ALLOW", "synthetic", "P2 git add index：wt cwd → 放行（#1170 主形态）");
 add(`git -C ${WT} add src/x.ts`, "ALLOW", "synthetic", "P2 git add index：-C wt → 放行");
+// ── #1411 审视处置负门（PR #1411 §3.1 红线逃逸修复 + argvBase off-by-one）──
+add(`node -e "fs.writeFileSync('${WT}/../../../main/y', 'z')"`, "UNEVAL_UNKNOWN", "synthetic", "#1411 负门：绝对路径 .. 爬升（逃逸形态原样）——Phase 1 c99/c100 负门同款编码：不在覆盖域，期望回落+旧链兜底，绝不假放行");
+add(`node -e "fs.writeFileSync('${WT}/x'+'/../../../main/y', 'z')"`, "UNEVAL_UNKNOWN", "synthetic", "#1411 负门：拼接折叠后含 .. 同拒——负门同款编码：期望回落");
+add(`node -e "fs.writeFileSync(process.argv[2], 'x')" /tmp/a ${M}/b`, "BLOCK", "synthetic", "#1411 负门：argv[2] 映射第二实参（off-by-one 修正后正确拦截，曾误判 ALLOW）");
+add(`node -e "fs.writeFileSync(process.argv[1], 'x')" /tmp/a`, "ALLOW", "synthetic", "#1411 放行侧：argv[1] 值传播正确映射外部落点");
+add(`python3 -c "open(sys.argv[1],'w').write('x')" ${M}/data/x`, "BLOCK", "synthetic", "#1411 拦截侧：python sys.argv[1] 主仓实参 → 拦（拦截增强，旧回落）");
 
 const counts = {
   synthetic: samples.filter(s => s.source === "synthetic").length,

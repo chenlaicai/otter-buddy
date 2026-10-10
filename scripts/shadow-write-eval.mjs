@@ -89,13 +89,15 @@ for (const s of corpus.samples) {
     oldVerdict = "OLD-ERROR";
   }
 
-  // F20261009phs2 shadow 口径修复：①求值器只判 main_write 维度（落点求值），其他规则族
+  // F20261009phs2 shadow 口径修复（预注册判据说明——#1411 审视 §3.2 处置）：①求值器只判 main_write 维度（落点求值），其他规则族
   // （sleep_block / data_destructive 等）的拦截不在其判定域。verdict=BLOCK 且求值器 ALLOW
   // 时，若裁决注明跨规则（note 含 EXPECTED-CROSS 或 ruleId=<非 main_write 族>），该样本
   // 不计红线逃逸——逃逸语义仅限「main_write 维度被求值器有把握放行」。
   // ②truncated-payload：ledger 样本 commandHead 截断 120 字符，多行载荷不完整（引号
   // 不闭合）→ 求值器回落是源数据上限非覆盖缺口（全形态由合成样本钉死）。
-  // 两类样本均从切换判据分母剔除，单独计数披露（否则判据永远背着语料源的锅）。
+  // 两类样本均从切换判据分母剔除（预注册：判据量的是求值器职责域内的表现，语料源缺陷
+  // 与别族拦截不是求值器的覆盖缺口）；剔除数单独披露在 CROSS_RULE/TRUNCATED_PAYLOAD
+  // 计数字段，达标结论口径 = 「main_write 完整命令子集」。
   const isCrossRule = /EXPECTED-CROSS|ruleId=(?!main_write)\S+/.test(s.note ?? "");
   const isTruncatedPayload = /truncated-payload/.test(s.note ?? "");
 
@@ -164,7 +166,11 @@ console.log(`[shadow] AGREE=${summary.AGREE} FALLBACK=${summary.FALLBACK} EVAL_G
 console.log(`[shadow] 回落率：全集分母=${summary.fallbackRateFull}%（判据 ≤50%）｜已裁决子集=${summary.fallbackRateSubset}%（参考）`);
 console.log(`[shadow] 族内成功率=${summary.familySuccessRate}%（${summary.familyEvaluated}/${summary.familyTotal}，判据 ≥90%）`);
 if (summary.pass) {
-  console.log("[shadow] ✅ 切换判据达标（预注册四项全过，全量语料）");
+  // §3.2 口径标注：达标是「main_write 维度×完整命令子集」达标——分母剔除了跨规则样本
+  // （别族拦截不计求值器账，EXPECTED-CROSS-RULE）与截断载荷（ledger commandHead
+  // 截断 120 字符多行载荷不完整，源数据上限非覆盖缺口，全形态由合成样本钉死）。
+  // 剔除数见 CROSS_RULE/TRUNCATED_PAYLOAD 计数，逐条在 rows 里可查。
+  console.log(`[shadow] ✅ 切换判据达标（预注册四项全过；口径：main_write 完整命令子集，剔除跨规则 ${summary.EXPECTED_CROSS_RULE} / 截断 ${summary.TRUNCATED_PAYLOAD}，全量语料 ${summary.total} 例）`);
 } else {
   console.log("[shadow] ❌ 切换判据未达标——停在影子态，旧链不动");
   for (const b of summary.blockers) console.log(`[shadow]   · ${b}`);

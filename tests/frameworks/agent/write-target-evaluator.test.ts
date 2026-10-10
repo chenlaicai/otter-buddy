@@ -187,12 +187,13 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
       expect(r.kind).toBe("unevaluated");
     });
 
-    it("拦截侧负门：argv 动态路径（process.argv[1]）→ 回落（不做值传播之外的猜）", () => {
+    it("拦截侧：argv 动态路径（process.argv[1] 值传播）→ evaluated 命中主仓（#1411 处置：argvBase off-by-one 修正——node -e 无脚本文件插入 argv，首实参在 argv[1]）", () => {
       const r = evaluateWriteTargets(`node -e "fs.writeFileSync(process.argv[1], 'x')" ${ROOT}/data/x`, ROOT);
-      expect(r.kind).toBe("unevaluated");
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") expect(r.targets.some(t => pathWithinMain(t.path, ROOT))).toBe(true);
     });
 
-    it("拦截侧负门：字符串拼接路径（'/repo/da'+'ta/x'）→ 回落（不做常量折叠之外的跨语句传播）", () => {
+    it("拦截侧负门：字符串拼接路径（'/repo/da'+'ta/x'）→ 回落（不追踪变量赋值的拼接——折叠/值传播实已实现，变量赋值后传递不追踪）", () => {
       const r = evaluateWriteTargets(`node -e "const p='/repo/da' + 'ta/x'; fs.writeFileSync(p, 'x')"`, ROOT);
       expect(r.kind).toBe("unevaluated");
     });
@@ -201,6 +202,38 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
       const r = evaluateWriteTargets(`python3 -c "print(open('/tmp/a.txt').read())"`, ROOT);
       expect(r.kind).toBe("evaluated");
       if (r.kind === "evaluated") expect(r.targets.some(t => pathWithinMain(t.path, ROOT))).toBe(false);
+    });
+
+    it("拦截侧负门：node -e 载荷含 .. 爬升字面量（§3.1 逃逸形态原样：<wt>/../../../main/y）→ 回落（爬升不猜）", () => {
+      const r = evaluateWriteTargets(`node -e "fs.writeFileSync('${WT}/../../../main/y', 'z')"`, ROOT);
+      expect(r).toEqual({ kind: "unevaluated", reason: "heredoc-script-payload" });
+    });
+
+    it("拦截侧负门：node -e 载荷字符串拼接 .. 爬升（'<wt>/x'+'/../../../main/y'）→ 回落（折叠后含 .. 同拒）", () => {
+      const r = evaluateWriteTargets(`node -e "fs.writeFileSync('${WT}/x'+'/../../../main/y', 'z')"`, ROOT);
+      expect(r).toEqual({ kind: "unevaluated", reason: "heredoc-script-payload" });
+    });
+
+    it("拦截侧：node -e argv[2] 映射第二实参（off-by-one 修正后）→ evaluated 落第二实参落点（曾误判 ALLOW 真值主仓）", () => {
+      // argvBase=1 修正后 argv[2]=第二实参。此形态曾因 off-by-one 误判 ALLOW（真值 /repo/b）
+      const r = evaluateWriteTargets(`node -e "fs.writeFileSync(process.argv[2], 'x')" /tmp/a ${ROOT}/b`, ROOT);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") {
+        expect(r.targets.some(t => t.path === `${ROOT}/b`)).toBe(true);
+        expect(r.targets.some(t => pathWithinMain(t.path, ROOT))).toBe(true);
+      }
+    });
+
+    it("放行侧：node -e argv[1] 落 /tmp（值传播正确映射）→ evaluated 外部落点", () => {
+      const r = evaluateWriteTargets(`node -e "fs.writeFileSync(process.argv[1], 'x')" /tmp/a`, ROOT);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") expect(r.targets.some(t => pathWithinMain(t.path, ROOT))).toBe(false);
+    });
+
+    it("拦截侧：python3 -c open(sys.argv[1],'w') 主仓实参 → evaluated 命中主仓（拦截增强，旧回落）", () => {
+      const r = evaluateWriteTargets(`python3 -c "open(sys.argv[1],'w').write('x')" ${ROOT}/data/x`, ROOT);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") expect(r.targets.some(t => pathWithinMain(t.path, ROOT))).toBe(true);
     });
   });
 

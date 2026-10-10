@@ -453,13 +453,14 @@ function evalScriptReadTargets(script: string, argvMap: Map<number, string>): { 
   return { paths };
 }
 
-/** 从载荷文本提取静态绝对路径字面量（引号内、无 $/` 展开、/ 开头）。 */
+/** 从载荷文本提取静态绝对路径字面量（引号内、无 $/` 展开、/ 开头）。
+ *  #1411 §3.1 口径统一：含 .. 的字面量不再跳过——交由调用方字面量闸 fail-closed
+ *  （.. 解析结果不猜，与 evalPath 同源口径；披露侧由调用方跳过）。 */
 function extractAbsPathLiterals(script: string): string[] {
   const out: string[] = [];
   for (const m of script.matchAll(/["'`](\/[A-Za-z0-9_./+@-]+)["'`]/g)) {
     const p = m[1];
     if (/[$`]/.test(p)) continue;
-    if (p.includes("..")) continue; // 爬升不猜（与 evalPath 同口径）
     out.push(normalizePath(p));
   }
   return [...new Set(out)];
@@ -486,10 +487,14 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
       return "heredoc-script-payload";
     }
   }
-  // 载荷后参数词（argv 值传播原料：node -e s A B → argv[2]=A argv[3]=B；python -c s A → sys.argv[1]=A）
+  // 载荷后参数词（argv 值传播原料）——实测口径（#1411 处置实证）：
+  //   node -e s A B → process.argv=[execPath, A, B]（无脚本文件插入 argv）→ argv[1]=A
+  //   python3 -c s A → sys.argv=['-c', A] → argv[1]=A
+  // 两者首实参位都是 1。旧代码 node 取 2 是 off-by-one：argv[2] 映射到第一实参而真值
+  // 是第二实参——`node -e "fs.writeFileSync(process.argv[2],'x')" /tmp/a /repo/b` 曾
+  // 被求值器按 argv[2]=/tmp/a 判 ALLOW，真实落点 /repo/b（主仓）——同通道假放行。
   const tailArgs = seg.words.slice(flagIdx + 2).map(w => w.evaluated);
-  const bare = bareName(seg.argv0);
-  const argvBase = bare !== null && bare.startsWith("python") ? 1 : 2;
+  const argvBase = 1;
   const argvMap = new Map<number, string>();
   tailArgs.forEach((v, i) => {
     if (v !== null) argvMap.set(argvBase + i, v);
@@ -504,7 +509,12 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
       // 相对路径：脚本写落点 = 进程 cwd（syscall 语义）——cwd 是求值器已跟踪事实，
       //  直接拼接（c123 `open('sub/rel.txt','w')` cwd=wt → 落 wt；cwd=主仓 → 落主仓）。
       //  evalPath 处理动态词面（$VAR/`cmd` → null → 回落）。
-      const resolved = p.startsWith("/") ? normalizePath(p) : evalPath(p, acc.cwd);
+      // 审视 §3.1（PR #1411 严重）：绝对/相对统一走 evalPath——`..`/$/`/~ 一律拒（回落）。
+      //  绝对路径曾用 normalizePath 直取（不解析 ..），`<wt>/../../../main/y` 字面量含
+      //  worktree 前缀 → pathWithinMain 判非主仓 → 假放行真主仓写（OS 解析 .. 后落主仓）。
+      //  evalPath 绝对分支语义与 normalizePath 等同，本修只收窄「含 .. 的绝对路径」：
+      //  ALLOW → 回落，无放行面扩大。语料负门 c137/c138（§3.1 逃逸形态原样钉回落）。
+      const resolved = evalPath(p, acc.cwd);
       if (resolved === null) return "heredoc-script-payload";
       acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index });
     }
@@ -521,12 +531,16 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
   if (SCRIPT_READ_TOKENS.test(script) || /\bopen\s*\(/.test(script)) {
     const rd = evalScriptReadTargets(script, argvMap);
     for (const p of rd?.paths ?? []) {
-      const resolved = p.startsWith("/") ? normalizePath(p) : evalPath(p, acc.cwd);
+      // §3.1 同口径：读侧落点披露统一走 evalPath——含 .. 的读路径不猜爬升结果，
+      //  披露无拦截语义，求值不出跳过即可（不构成回落理由）
+      const resolved = evalPath(p, acc.cwd);
       if (resolved !== null) acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index });
     }
   }
   const paths = extractAbsPathLiterals(script);
-  if (paths.some(p => pathWithinMain(p, projectRoot))) return "heredoc-script-payload";
+  // #1411 §3.1：含 .. 的绝对字面量 fail-closed——解析结果不猜（旧：跳过 → 字面量闸
+  //  漏判 `'/wt/../../../main/config.json'` 这类主仓耦合信号；跳过=闸的盲区）
+  if (paths.some(p => p.includes("..") || pathWithinMain(p, projectRoot))) return "heredoc-script-payload";
   for (const p of paths) acc.targets.push({ path: p, via: "cmd-arg", segmentIndex: acc.index });
   // 相对路径字面量披露（不进门判定——只读侧 cwd 拼接为事实锚，求值不出跳过即可）
   for (const m of script.matchAll(/["'`]([A-Za-z0-9_.][A-Za-z0-9_./-]*\/[A-Za-z0-9_./-]+)["'`]/g)) {

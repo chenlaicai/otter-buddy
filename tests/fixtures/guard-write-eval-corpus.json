@@ -1101,11 +1101,11 @@
     {
       "id": "c128",
       "command": "node -e \"fs.writeFileSync(process.argv[1], 'x')\" /repo/data/x",
-      "expect": "UNEVAL_UNKNOWN",
-      "verdict": "UNEVAL_UNKNOWN",
+      "expect": "BLOCK",
+      "verdict": "BLOCK",
       "verdictBy": "synthetic-preset",
       "source": "synthetic",
-      "note": "P2 窄提取边界：argv 动态路径 → 回落（不做值传播）"
+      "note": "P2 窄提取：argv[1] 值传播命中主仓 → 拦（#1411 处置：node -e 无脚本文件插入 argv，argvBase off-by-one 修正，旧期望 UNEVAL_UNKNOWN）"
     },
     {
       "id": "c129",
@@ -1114,16 +1114,16 @@
       "verdict": "UNEVAL_UNKNOWN",
       "verdictBy": "synthetic-preset",
       "source": "synthetic",
-      "note": "P2 窄提取边界：字符串拼接路径 → 回落（不做常量折叠）"
+      "note": "P2 窄提取边界：变量赋值后拼接不追踪 → 回落（直连拼接折叠/argv 值传播实已实现）"
     },
     {
       "id": "c130",
       "command": "python3 -c \"import sys; open(sys.argv[1],'w').write('x')\" /tmp/x",
-      "expect": "UNEVAL_UNKNOWN",
-      "verdict": "UNEVAL_UNKNOWN",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
       "verdictBy": "synthetic-preset",
       "source": "synthetic",
-      "note": "P2 窄提取边界：sys.argv → 回落"
+      "note": "P2 窄提取：sys.argv[1] 值传播落 /tmp → 放行（#1411 处置后语义升级，旧期望 UNEVAL_UNKNOWN）"
     },
     {
       "id": "c131",
@@ -1178,6 +1178,46 @@
       "verdictBy": "BLOCK",
       "source": "synthetic",
       "note": "P2 口径修正负门：sleep_block 规则拦（非 main_write 维度），求值器 main_write 判 ALLOW 属 EXPECTED-CROSS-RULE 非 ESCAPE"
+    },
+    {
+      "id": "c137",
+      "command": "node -e \"fs.writeFileSync('/repo/.otter/worktrees/wt/../../../main/y', 'z')\"",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": "UNEVAL_UNKNOWN",
+      "source": "synthetic",
+      "note": "#1411 负门：绝对路径 .. 爬升（逃逸形态原样）（Phase 1 c99/c100 负门同款编码：不在覆盖域，期望回落+旧链兜底）"
+    },
+    {
+      "id": "c138",
+      "command": "node -e \"fs.writeFileSync('/repo/.otter/worktrees/wt/x'+'/../../../main/y', 'z')\"",
+      "expect": "UNEVAL_UNKNOWN",
+      "verdict": "UNEVAL_UNKNOWN",
+      "source": "synthetic",
+      "note": "#1411 负门：拼接折叠后含 .. 同拒 （负门同款编码：期望回落）"
+    },
+    {
+      "id": "c139",
+      "command": "node -e \"fs.writeFileSync(process.argv[2], 'x')\" /tmp/a /repo/b",
+      "expect": "BLOCK",
+      "verdict": "BLOCK",
+      "source": "synthetic",
+      "note": "#1411 负门：argv[2] 映射第二实参（off-by-one 修正后正确拦截，曾误判 ALLOW）"
+    },
+    {
+      "id": "c140",
+      "command": "node -e \"fs.writeFileSync(process.argv[1], 'x')\" /tmp/a",
+      "expect": "ALLOW",
+      "verdict": "ALLOW",
+      "source": "synthetic",
+      "note": "#1411 放行侧：argv[1] 值传播正确映射外部落点"
+    },
+    {
+      "id": "c141",
+      "command": "python3 -c \"open(sys.argv[1],'w').write('x')\" /repo/data/x",
+      "expect": "BLOCK",
+      "verdict": "BLOCK",
+      "source": "synthetic",
+      "note": "#1411 拦截侧：python sys.argv[1] 主仓实参 → 拦（拦截增强，旧回落）"
     }
   ]
 }
