@@ -99,7 +99,7 @@ export interface RetrievalResultEntry extends MemoryEntry {
   debug?: RetrievalDebugInfo;
   /**
    * F20260811mrpy Part 2：detail_level != "full" 时填充，告知调用方用什么工具拿全文。
-   * 形如 { tool: "get_memory_detail", params: { id } }
+   * 形如 { tool: "get_memory_detail", params: { ids: [id] } }——参数形态与目标工具 schema 一致（#1398）
    */
   drillDown?: { tool: string; params: Record<string, unknown> };
 }
@@ -267,7 +267,7 @@ export class SearchMemory {
       source: "anchor",
       snippet: snippetText,
       drillDown: detailLevel !== "full"
-        ? { tool: "get_memory_detail", params: { id: entry.id } }
+        ? { tool: "get_memory_detail", params: { ids: [entry.id] } }
         : undefined,
     };
   }
@@ -314,7 +314,7 @@ export class SearchMemory {
           content: this.extractSummaryContent(nb.content),  // #542：summary 契约首句，不再置空
           score: 0,  // 不参与 RRF 比较
           source: "context-expand",
-          drillDown: { tool: "get_memory_detail", params: { id: nb.id } },
+          drillDown: { tool: "get_memory_detail", params: { ids: [nb.id] } },
           snippet: nb.content.slice(0, SNIPPET_FALLBACK_LENGTH),
         });
       }
@@ -586,9 +586,9 @@ export class SearchMemory {
         // #542：非 full 模式 content 由 buildSnippet 投影（summary=原文首句 / snippet=匹配窗口），
         // 不再置空——空 content 会摧毁 summary 模式的信息价值（渐进式披露的裁剪在 buildSnippet）
         const base = detailLevel === "full" ? h.entry : { ...h.entry };
-        /** F20260811mrpy Part 2：detail_level != "full" 时填充 drillDown hint */
+        /** F20260811mrpy Part 2：detail_level != "full" 时填充 drillDown hint（#1398：参数形态与 get_memory_detail schema 对齐——ids 数组） */
         const drillDown = detailLevel && detailLevel !== "full"
-          ? { tool: "get_memory_detail", params: { id: h.entryId } }
+          ? { tool: "get_memory_detail", params: { ids: [h.entryId] } }
           : undefined;
         /** F20260811mrpy Part 1：debug=true 时注入中间分值
          *  F20260902rcp1 审视修复：timeDecay 按层传半衰期——document 层用 90 天，
