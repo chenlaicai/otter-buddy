@@ -74,7 +74,7 @@ intent:
 
 - 删除 `viewportObserver`（观测滚动容器、「视口减小且贴底→拉回」的 ResizeObserver）及其 `prevViewportHeightRef` 采样基线
 - contentObserver（观测内容包裹 div）原样保留，独扛内容高度增长的贴底补偿
-- 净变更约 -40 行（含注释更新），`Modification-Class: deletion`，机制识别清单全项未命中（纯删除，无新增配置/状态/定时/信号/存储/分支）
+- 净变更约 -40 行（含注释更新），`Modification-Class: deletion`（限定生产面：生产代码纯删除无机制新增；测试侧新增 TOP_SAMPLER/场景 C/E2E_DB 覆盖属测试脚手架，不计入机制预算——检视建议 4 备注），机制识别清单全项未命中
 
 ### 3.2 行为变化与取舍（诚实记录）
 
@@ -89,7 +89,7 @@ intent:
 
 ### 3.3 换设计选项（记录在案，未采納）
 
-**R3：重开 CSS scroll anchoring**（`overflow-anchor: auto`）。8/13 关它的原始理由（Virtuoso 指令打架）已随 Virtuoso 移除而消失。它能让 free 态获得浏览器级锚定（内容在锚点上方变化时视口稳定），但与贴底跟随（pin 态需要持续滚到底）的交互未经本项目验证，需专项 e2e 钉死。**若本轮后仍有残余滚动症状，R3 是下一张牌**（与 #1397 遗留的「180px 偶发」「闪顶回弹」症状处置同口径）。
+**R3：重开 CSS scroll anchoring**（`overflow-anchor: auto`）。⚠️ 归因订正（检视建议 3）：8/13 关它的原始理由是通用的「防止浏览器自动调整滚动位置」（F20260813scrl:70，防抖设计的一部分），**并非** Virtuoso 指令打架本身——前提并未随 Virtuoso 移除自动消失，重开可能重新引入当初要防的抖动。它能让 free 态获得浏览器级锚定（内容在锚点上方变化时视口稳定），但与贴底跟随（pin 态需要持续滚到底）的交互未经本项目验证。**若后续仍需打这张牌：先专项 e2e 验证「重开锚定后既有四锚不回归 + 原始抖动不重现」，不可默认前提成立**（与 #1397 遗留的「180px 偶发」「闪顶回弹」症状处置同口径）。
 
 ## 4. 验证
 
@@ -99,7 +99,7 @@ intent:
   - contentObserver 既有 8 个行为用例全部保留通过
   - 全量 671/671 绿
 - **e2e 场景 C**（scroll-pin-frame-guard.spec.ts，真实浏览器）：贴底下输入框逐行 Shift+Enter 输入 10 行，断言任何采样帧 scrollTop 偏离首帧 ≤4px（旧 bug ~23px/行累计 ~230px）；刺激源验收防恒绿（输入框末态高 >60px 证明 autoResize 真实生效）。依赖复刻环境（E2E_REPLICA_DATA 门控，CI 恒 skip——与既有 tri-msg-count 等同口径）
-- **断言对象选择**：本场景断言 scrollTop 本身而非距底距离——视口高度变化时距底距离**合法地**变小（clientHeight 缩了），用距底断言会把合法变化误判为跳变
+- **断言对象选择**：本场景断言 scrollTop 本身而非距底距离——视口高度变化时距底距离**合法地**变大（dist=sh−top−ch，clientHeight 缩小而 top/sh 不变；检视建议 2 订正：初稿误写「变小」），用距底断言会把合法变化误判为跳变
 
 ## 5. 影响范围
 

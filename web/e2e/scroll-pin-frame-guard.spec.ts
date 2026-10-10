@@ -59,8 +59,8 @@ function isViolation(dist: number, viewport: number) {
 /** F20261010vwst 场景 C 专用：scrollTop 稳定性采样器——逐帧记录 scroller 的 scrollTop。
  *
  * 与 SAMPLER（距底距离）不同：本场景断言的是「内容不动」而非「贴底跟随」——
- * 视口高度变化（输入框撑高）时距底距离会合法地变小（视口 clientHeight 缩了），
- * 用距底距离断言会把合法变化误判为跳变，改直接盯 scrollTop。 */
+ * 视口高度变化（输入框撑高）时距底距离会合法地变大（dist=sh−top−ch，clientHeight 缩
+ * 小而 top/sh 不变），用距底距离断言会把合法变化误判为跳变，改直接盯 scrollTop。 */
 const TOP_SAMPLER = `
   window.__tops = []
   window.__topSamplerOn = false
@@ -192,7 +192,7 @@ test.describe('F20261008f1fx 贴底零闪跳护栏', () => {
   test('C (F20261010vwst): 贴底下输入框输入多行（视口被压缩）——scrollTop 帧级稳定，无程序性顶起', async ({ page }) => {
     // 场景源头：搭档 10-10 报告「输入多行时中间栏消息跳动」——旧 viewportObserver 把输入框
     // autoResize 撑高当成需要贴底拉回的信号，每敲一个换行程序性 scrollTop += 一行高（~23px）。
-    // 断言对象是 scrollTop 本身（不是距底）：视口高度变化时距底距离合法地变小（clientHeight 缩了），
+    // 断言对象是 scrollTop 本身（不是距底）：视口高度变化时距底距离合法地变大（dist=sh−top−ch，
     // 用距底断言会误判；scrollTop 不动才是「内容稳定」的正确判据。
     // ⚠️ 依赖真实 autoResize：input.fill 不触发键盘事件链，必须逐个 press Shift+Enter。
     // ⚠️ 避开干扰源：不发送（Enter 发送会追加消息、内容高度变化引入 contentObserver 合法补偿）
