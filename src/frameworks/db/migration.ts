@@ -358,6 +358,8 @@ function rebuildEntriesAndEdges(db: Database.Database, remap: (id: string) => st
 /** swap 主表/edges + 重建索引（事务内步骤 4）。 */
 function swapRebuiltTables(db: Database.Database): void {
   db.exec(`
+    -- lint-schema:allow-index-before-column——表重建场景：索引建在 RENAME 后的新表上，
+    -- 列由旧表结构继承保证存在，非 #1390 形态（索引不依赖块外补列）。
     DROP TABLE memory_entries;
     ALTER TABLE memory_entries_new RENAME TO memory_entries;
     DROP TABLE memory_edges;
@@ -546,6 +548,7 @@ function rebuildAttachmentsKindCheck(db: Database.Database, logger: Logger): voi
       SELECT id, sha256, file_path, original_name, mime_type, kind, size_bytes, width, height, caption, uploader_id, created_at FROM attachments;
       DROP TABLE attachments;
       ALTER TABLE attachments_new RENAME TO attachments;
+      -- lint-schema:allow-index-before-column——表重建场景：索引建在 RENAME 后的新表上，列由旧表继承
       CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_sha ON attachments(sha256, uploader_id);
       CREATE INDEX IF NOT EXISTS idx_attachments_uploader ON attachments(uploader_id);
     `);
@@ -611,6 +614,7 @@ function rebuildExecutionsWithoutTurnId(db: Database.Database): void {
         SELECT id, task_id, triggered_at, completed_at, status, error_message, message_id FROM scheduled_task_executions;
       DROP TABLE scheduled_task_executions;
       ALTER TABLE scheduled_task_executions_retire RENAME TO scheduled_task_executions;
+      -- lint-schema:allow-index-before-column——表重建场景：索引建在 RENAME 后的新表上，列由旧表继承
       CREATE INDEX IF NOT EXISTS idx_executions_task ON scheduled_task_executions(task_id, triggered_at);
     `);
 }
@@ -644,6 +648,7 @@ function dropLinkedResourcesTurnStamps(db: Database.Database): void {
         SELECT id, conversation_id, resource_type, url, title, content, category, user_flagged, metadata, linked_by, otter_id, auto_linked, created_at, status, group_id, superseded_by FROM linked_resources;
       DROP TABLE linked_resources;
       ALTER TABLE linked_resources_retire RENAME TO linked_resources;
+      -- lint-schema:allow-index-before-column——表重建场景：索引建在 RENAME 后的新表上，列由旧表继承
       -- D1（复检 delta）：索引恢复——与 schema.ts 建表定义逐一对齐（同批其余重建函数同款）
       CREATE INDEX IF NOT EXISTS idx_linked_resources_conversation_id ON linked_resources(conversation_id);
       CREATE INDEX IF NOT EXISTS idx_linked_resources_type ON linked_resources(resource_type);
@@ -682,6 +687,7 @@ function rebuildEntriesWithoutTurnId(db: Database.Database): void {
       DROP TABLE entries;
       ALTER TABLE entries_new RENAME TO entries;
       -- #906 注：此处故意建普通索引而非 UNIQUE——含重复 seq 的存量库在本重建中不抛错
+      -- lint-schema:allow-index-before-column——表重建场景：索引建在 RENAME 后的新表上，列由旧表继承
       -- （防御兜底：重复库不阻断 turn 退役），重建后由末尾 ensureEntriesConversationSeqUnique
       -- 检测无重复时统一升级 UNIQUE。
       CREATE INDEX IF NOT EXISTS idx_entries_conversation_seq ON entries(conversation_id, sequence_num);
@@ -711,6 +717,7 @@ function rebuildParticipantsWithoutTurnColumns(db: Database.Database): void {
       SELECT id, conversation_id, otter_id, status, created_at, left_at, last_read_seq FROM conversation_participants;
       DROP TABLE conversation_participants;
       ALTER TABLE conversation_participants_new RENAME TO conversation_participants;
+      -- lint-schema:allow-index-before-column——表重建场景：索引建在 RENAME 后的新表上，列由旧表继承
       CREATE INDEX IF NOT EXISTS idx_participants_conversation_id ON conversation_participants(conversation_id);
       CREATE INDEX IF NOT EXISTS idx_participants_otter_id ON conversation_participants(otter_id);
       CREATE INDEX IF NOT EXISTS idx_participants_status ON conversation_participants(status);
@@ -1020,6 +1027,7 @@ function rebuildDocumentTablesDropCheck(db: Database.Database, logger: Logger): 
         SELECT id, title, summary, change_type, status, tags, modules, causal_links_from, supersedes, file_path, created_at FROM features;
         DROP TABLE features;
         ALTER TABLE features_new RENAME TO features;
+        -- lint-schema:allow-index-before-column——表重建场景：索引建在 RENAME 后的新表上，列由旧表继承
         CREATE INDEX IF NOT EXISTS idx_features_status ON features(status);
         CREATE INDEX IF NOT EXISTS idx_features_created_at ON features(created_at);
       `);
@@ -1045,6 +1053,7 @@ function rebuildDocumentTablesDropCheck(db: Database.Database, logger: Logger): 
         SELECT id, title, summary, exploration_type, status, tags, conclusion, causal_links_from, supersedes, file_path, created_at FROM research;
         DROP TABLE research;
         ALTER TABLE research_new RENAME TO research;
+        -- lint-schema:allow-index-before-column——表重建场景：索引建在 RENAME 后的新表上，列由旧表继承
         CREATE INDEX IF NOT EXISTS idx_research_status ON research(status);
         CREATE INDEX IF NOT EXISTS idx_research_created_at ON research(created_at);
         CREATE INDEX IF NOT EXISTS idx_research_exploration_type ON research(exploration_type);
@@ -1340,6 +1349,7 @@ function rebuildExecutionsStatusCheck(db: Database.Database, logger: Logger): vo
         SELECT id, task_id, triggered_at, completed_at, status, error_message, message_id FROM scheduled_task_executions;
       DROP TABLE scheduled_task_executions;
       ALTER TABLE scheduled_task_executions_new RENAME TO scheduled_task_executions;
+      -- lint-schema:allow-index-before-column——表重建场景：索引建在 RENAME 后的新表上，列由旧表继承
       CREATE INDEX IF NOT EXISTS idx_executions_task ON scheduled_task_executions(task_id, triggered_at);
     `);
     })();
@@ -1859,6 +1869,7 @@ function rebuildExecutionsDropMessagesFk(db: Database.Database, logger: Logger):
         SELECT id, task_id, triggered_at, completed_at, status, error_message, message_id FROM scheduled_task_executions;
       DROP TABLE scheduled_task_executions;
       ALTER TABLE scheduled_task_executions_new RENAME TO scheduled_task_executions;
+      -- lint-schema:allow-index-before-column——表重建场景：索引建在 RENAME 后的新表上，列由旧表继承
       CREATE INDEX IF NOT EXISTS idx_executions_task ON scheduled_task_executions(task_id, triggered_at);
     `);
     })();
@@ -2074,7 +2085,7 @@ function ensureEntriesConversationSeqUnique(db: Database.Database, logger: Logge
     if (duplicates) return duplicates;
 
     db.exec("DROP INDEX IF EXISTS idx_entries_conversation_seq");
-    db.exec("CREATE UNIQUE INDEX idx_entries_conversation_seq ON entries(conversation_id, sequence_num)");
+    db.exec("-- lint-schema:allow-index-before-column——跨文件引用+索引重建：entries 表由 schema.ts:995 CREATE TABLE 定义（conversation_id/sequence_num 建表即有）；本块是 #906 把旧索引升级为 UNIQUE 的 DROP+CREATE 重建，列必然已存在\nCREATE UNIQUE INDEX idx_entries_conversation_seq ON entries(conversation_id, sequence_num)");
     return undefined;
   })();
 
@@ -2102,5 +2113,5 @@ function ensureHealingEventsBoundIssueColumns(db: Database.Database, logger: Log
   };
   add('bound_issue', 'bound_issue INTEGER DEFAULT NULL');
   add('bound_at', 'bound_at TEXT DEFAULT NULL');
-  db.exec("CREATE INDEX IF NOT EXISTS idx_healing_events_bound_issue ON healing_events(bound_issue)");
+  db.exec("-- lint-schema:allow-index-before-column——PRAGMA 探测幂等补列：add() 内部有 if (!columns.some(...)) 守卫，列已存在时 ALTER 不执行；本索引是 #1390 修复后从 schema.ts 挪来的存量库补建，安全。\nCREATE INDEX IF NOT EXISTS idx_healing_events_bound_issue ON healing_events(bound_issue)");
 }
