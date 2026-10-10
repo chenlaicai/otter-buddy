@@ -3314,3 +3314,103 @@ PY`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 });
+
+// ══════════ #1416（F20261010pyro）：python open 读写模式 + collections/statistics 只读面 + node stdin 流消费 ══════════
+// 今晨六连拦实证（healing_events 90d8307f/84f36e21/74b90294/3b399252/f748f676/d643a911，2026-10-10T00:25-00:50Z）：
+// 每日体检解析 JSON 的只读载荷被 main_write 误拦。根因三处白名单缺词（枚举滞后）：
+//   ① keys.update(x.keys()) —— update 不在 PY_READONLY_METHODS（dbe4f743）
+//   ② dict(Counter(...)) —— Counter 不在 PY_READONLY_CALLS（dbe4f743）
+//   ③ process.stdin.on('data',…) —— stdin 不在 node process 负向白名单 + on 不在 NODE_READONLY_METHODS（90d8307f）
+// 注：issue 描述的「open() 缺省模式被当写」已在早期修复处理（pythonOpenModesReadOnly），
+//   本组用例固化该行为 + 补三缺词。写模式负门（'w'/'a'/'+' 形态）全部保持拦截。
+describe("#1416：脚本只读载荷白名单补位（open 模式门已有行为 + 三缺词）", () => {
+  const mainPid = 42877;
+  const projectRoot = "/repo";
+  it("只读：python3 -c json.load(open()) 缺省模式（issue 现场形态）→ 放行", () => {
+    const cmd = `python3 -c "
+import json
+d=json.load(open('data/guard-replay-candidates-2026-10-09.json'))
+print(type(d), len(d) if isinstance(d,list) else d.keys())
+"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("只读：heredoc Counter 统计 + keys.update（事件 86a4e81b 原样骨架）→ 放行", () => {
+    const cmd = `python3 - <<'EOF'
+import json
+d=json.load(open('data/x.json'))
+from collections import Counter
+print(dict(Counter(str(x.get('ruleId')) for x in d)))
+keys=set()
+for x in d[:5]: keys.update(x.keys())
+print(sorted(keys))
+EOF`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("只读：curl | node -e process.stdin.on 流消费（事件 90d8307f 原样）→ 放行", () => {
+    const cmd = `curl -s "http://localhost:3000/api/health/signals?status=open" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).signals.length))"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("只读：math 纯计算（from math import ceil）→ 放行", () => {
+    expect(checkBashCommandSafety(`python3 -c "from math import ceil; print(ceil(1.5))"`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("拦截负门：open 写模式主仓 → 仍拦截", () => {
+    expect(checkBashCommandSafety(`python3 -c "open('config/config.yaml','w').write('x')"`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("拦截负门：stdin 回调内 writeFileSync（借 on/update 之名行写）→ 仍拦截", () => {
+    const cmd = `node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>require('fs').writeFileSync('config/x','y'))"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("拦截负门：Counter 体内 os.system → 仍拦截", () => {
+    const cmd = `python3 -c "
+from collections import Counter
+import os
+print(dict(Counter(os.listdir('.'))))
+"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("拦截负门：stdin 回调内 eval → 仍拦截", () => {
+    expect(checkBashCommandSafety(`node -e "process.stdin.on('data',c=>eval(c))"`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("拦截负门：on 监听 child_process.exec → 仍拦截", () => {
+    const cmd = `node -e "const {exec}=require('child_process');process.stdin.on('data',c=>exec(c))"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+});
+
+// ══════════ #1423 审视发现①处置：dbm 危险模块补位（fail-open 漏拦闭合） ══════════
+// 检视獭1360 实测：import dbm 后 dbm.open 缺省 mode='c' 创建可写（pythonOpenModesReadOnly
+// 假设缺省='r' 的例外面）+ db['k']='v' 赋值写——双路漏拦。dbm 与 shelve/sqlite 同族数据库
+// 写模块，补进危险模块名单（import 面整体拒，模块门兜住赋值写形态）。
+describe("#1423 审视处置：dbm 危险模块补位", () => {
+  const mainPid2 = 42877;
+  const projectRoot2 = "/repo";
+
+  it("拦截负门：import dbm; dbm.open('data/db')（缺省 'c' 创建可写）→ 拦", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "import dbm; db=dbm.open('data/db'); db.update({})"`,
+      mainPid2, undefined, { projectRoot: projectRoot2 },
+    )).not.toBeNull();
+  });
+
+  it("拦截负门：dbm 赋值写 db['k']='v'（模块门兜住无调用名的赋值写形态）→ 拦", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "import dbm; db=dbm.open('data/db','r'); db['k']='v'"`,
+      mainPid2, undefined, { projectRoot: projectRoot2 },
+    )).not.toBeNull();
+  });
+
+  it("正道不误伤：json/collections 只读形态（本 PR 放行面）不受 dbm 补位影响", () => {
+    expect(checkBashCommandSafety(
+      `python3 -c "import json; from collections import Counter; d=json.load(open('data/x.json')); print(dict(Counter(x.get('r') for x in d)))"`,
+      mainPid2, undefined, { projectRoot: projectRoot2 },
+    )).toBeNull();
+  });
+});
