@@ -6,7 +6,9 @@ import { test, expect } from '@playwright/test'
 import { execSync } from 'node:child_process'
 
 const CONV = '325ef7b7-8e42-4edc-9abf-eae8f332a2c4'
-const DB = process.env.HOME + '/.otter/alpha/51259f75/otter-buddy.db'
+// F20261010vwst：DB 路径可用环境变量覆盖（E2E_DB）——复刻数据根会随 worktree hash 变化，
+// 写死 51259f75 只匹配上上轮排查的 alpha；缺省保持旧值不破坏既有调用
+const DB = process.env.E2E_DB ?? process.env.HOME + '/.otter/alpha/51259f75/otter-buddy.db'
 
 test.skip(!process.env.E2E_REPLICA_DATA, 'need replica')
 

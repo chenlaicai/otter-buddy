@@ -56,6 +56,26 @@ function isViolation(dist: number, viewport: number) {
   return dist > Math.max(viewport * 0.4, 150)
 }
 
+/** F20261010vwst 场景 C 专用：scrollTop 稳定性采样器——逐帧记录 scroller 的 scrollTop。
+ *
+ * 与 SAMPLER（距底距离）不同：本场景断言的是「内容不动」而非「贴底跟随」——
+ * 视口高度变化（输入框撑高）时距底距离会合法地变小（视口 clientHeight 缩了），
+ * 用距底距离断言会把合法变化误判为跳变，改直接盯 scrollTop。 */
+const TOP_SAMPLER = `
+  window.__tops = []
+  window.__topSamplerOn = false
+  ;(() => {
+    const loop = () => {
+      if (window.__topSamplerOn) {
+        const el = window.__findScroller ? window.__findScroller() : null
+        if (el) window.__tops.push(el.scrollTop)
+      }
+      requestAnimationFrame(loop)
+    }
+    requestAnimationFrame(loop)
+  })()
+`
+
 /** 终态断言辅助：采样末尾 N 帧均 ≤ 阈值（检视发现 6——峰值合规但终态停底不回的回归，
  *  逐帧断言抓不到：实验 3 实锤 600px 卡无补偿时 finalDist=124 恰在阈值下停住） */
 async function assertFinalPinned(page: import('@playwright/test').Page, tag: string) {
@@ -167,5 +187,39 @@ test.describe('F20261008f1fx 贴底零闪跳护栏', () => {
     // 终态断言（检视发现 6 实验三：RO 链死/无补偿时终态停底 124px 不回，逐帧阈值抓不到——
     // finalDist 归零断言是 RO 冷启动修复（发现 5）的天然验收）
     await assertFinalPinned(page, 'f1fx-B')
+  })
+
+  test('C (F20261010vwst): 贴底下输入框输入多行（视口被压缩）——scrollTop 帧级稳定，无程序性顶起', async ({ page }) => {
+    // 场景源头：搭档 10-10 报告「输入多行时中间栏消息跳动」——旧 viewportObserver 把输入框
+    // autoResize 撑高当成需要贴底拉回的信号，每敲一个换行程序性 scrollTop += 一行高（~23px）。
+    // 断言对象是 scrollTop 本身（不是距底）：视口高度变化时距底距离合法地变小（clientHeight 缩了），
+    // 用距底断言会误判；scrollTop 不动才是「内容稳定」的正确判据。
+    // ⚠️ 依赖真实 autoResize：input.fill 不触发键盘事件链，必须逐个 press Shift+Enter。
+    // ⚠️ 避开干扰源：不发送（Enter 发送会追加消息、内容高度变化引入 contentObserver 合法补偿）
+    await page.addInitScript(SAMPLER) // 提供 __findScroller
+    await page.addInitScript(TOP_SAMPLER)
+    await gotoBottomPinned(page)
+
+    const input = page.locator('textarea').first()
+    await input.click()
+    // 输入 10 行文本，每行一个 Shift+Enter 换行——旧 bug 下累计被顶起 ≈ 10 行高（>> 允差）
+    await page.evaluate(() => { (window as unknown as { __topSamplerOn: boolean }).__topSamplerOn = true })
+    for (let i = 0; i < 10; i++) {
+      await input.pressSequentially(`行${i + 1}`, { delay: 20 })
+      await input.press('Shift+Enter')
+    }
+    await page.waitForTimeout(800) // 覆盖 autoResize 重排 + 可能的 rAF 补偿窗口
+    await page.evaluate(() => { (window as unknown as { __topSamplerOn: boolean }).__topSamplerOn = false })
+
+    const tops = await page.evaluate(() => (window as unknown as { __tops: number[] }).__tops)
+    const first = tops.length ? tops[0] : 0
+    const maxDrift = tops.length ? Math.max(...tops.map(t => Math.abs(t - first))) : 0
+    const inputH = await input.evaluate(el => el.getBoundingClientRect().height)
+    console.log(`[vwst-C] frames=${tops.length} scrollTop首帧=${first} maxDrift=${maxDrift}px 输入框末态高=${inputH}px`)
+    // 刺激源验收（防恒绿）：输入框必须真实长高了（10 行 × ~23px > 初始 1 行），
+    // 否则测试没触发视口压缩，断言无证明力
+    expect(inputH, '输入框应随多行输入撑高（autoResize 生效）').toBeGreaterThan(60)
+    // 帧级稳定：任何帧 scrollTop 偏离首帧 ≤ 4px（亚像素舍入级；旧 bug 每行 ~23px，10 行累计 ~230px）
+    expect(maxDrift, `scrollTop 帧漂移 ${maxDrift}px 超允许值（帧序列前 60：${tops.slice(0, 60).join(',')}）`).toBeLessThanOrEqual(4)
   })
 })
