@@ -45,7 +45,7 @@ intent:
 
 ### 2.2 八轮共有的结构性根因
 
-8/13 弃用 react-virtuoso 那轮（F20260813scrl）同时关闭了浏览器原生滚动锚定（`overflow-anchor: none`，防 Virtuoso 三套滚动指令交叉打架的遗留）。从此「视觉稳定」的责任 100% 落在自研代码上，而自研代码的履职方式是**枚举高度变化源**：
+8/13 弃用 react-virtuoso 那轮（F20260813scrl）同时关闭了浏览器原生滚动锚定（`overflow-anchor: none`，原文理由是通用的「防止浏览器自动调整滚动位置」防抖设计——归因订正见 §3.3，检视建议 3）。从此「视觉稳定」的责任 100% 落在自研代码上，而自研代码的履职方式是**枚举高度变化源**：
 
 - 信号 chip 异步到达 → 9/7 加 contentObserver（F20260907sgpt）
 - 视口被指示条压缩 → 9/7 同轮加 viewportObserver
@@ -98,7 +98,7 @@ intent:
   - 删除两个旧锚（「视口减小→贴底拉回」「视口增大→不写」——锚定的是被删机制本身）
   - contentObserver 既有 8 个行为用例全部保留通过
   - 全量 671/671 绿
-- **e2e 场景 C**（scroll-pin-frame-guard.spec.ts，真实浏览器）：贴底下输入框逐行 Shift+Enter 输入 10 行，断言任何采样帧 scrollTop 偏离首帧 ≤4px（旧 bug ~23px/行累计 ~230px）；刺激源验收防恒绿（输入框末态高 >60px 证明 autoResize 真实生效）。依赖复刻环境（E2E_REPLICA_DATA 门控，CI 恒 skip——与既有 tri-msg-count 等同口径）
+- **e2e 场景 C**（scroll-pin-frame-guard.spec.ts，真实浏览器）：贴底下输入框逐行 Shift+Enter 输入 10 行，断言任何采样帧 scrollTop 偏离首帧 ≤4px（旧 bug ~23px/行累计 ~230px）；刺激源验收防恒绿（输入框末态高 >60px 证明 autoResize 真实生效）。依赖复刻环境（E2E_REPLICA_DATA 门控，CI 恒 skip——与既有 tri-msg-count 等同口径）。**CI 缺口跟踪决策（检视建议 4 处置）**：不单独立 issue——复刻环境 e2e 是全仓系统性缺口（场景 C/A/B/tri-msg-count/scroll-restore-guard 五个 spec 同批门控），单独立 issue 会掩盖真实范围；复刻环境 CI 化若立项应作为全仓统一议题处理（记录在案，非遗忘）
 - **断言对象选择**：本场景断言 scrollTop 本身而非距底距离——视口高度变化时距底距离**合法地**变大（dist=sh−top−ch，clientHeight 缩小而 top/sh 不变；检视建议 2 订正：初稿误写「变小」），用距底断言会把合法变化误判为跳变
 
 ## 5. 影响范围
