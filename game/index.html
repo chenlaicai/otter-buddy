@@ -724,6 +724,19 @@ cv.addEventListener("click", function (e) {
     else say("镜湖", "湖水很静。\n灰色的倒影沉在湖底——它在等八块田全部点亮。");
     return;
   }
+  // 教学进行中（problem/act/effect 含封印门）：画布点击一律短路为提醒，
+  // 不触发 replay/引导——否则 replay 会清空按钮区、覆盖封印门 DOM，误触即死档（#1427 检视严重2）
+  if (S.phase !== "idle") {
+    if (S.phase === "effect") {
+      if (S.spotIdx === 7 && !S.done.lab) say("进行中 · 封印中", "试验田正在等待封印。\n在下方输入「合入」两个字，完成最后一步。");
+      else say("进行中", "看完了？点下方按钮继续。");
+    } else if (S.phase === "act") {
+      say("进行中", "跟着下方按钮操作这一步。");
+    } else {
+      say("进行中", "这一步还没开始——点下方按钮。");
+    }
+    return;
+  }
   if (S.done[sp.id]) { replay(sp); return; }
   var idx = spotIndex(sp);
   if (idx !== S.spotIdx) {
@@ -731,8 +744,6 @@ cv.addEventListener("click", function (e) {
     return;
   }
   if (S.phase === "idle") { openProblem(sp); return; }
-  if (S.phase === "effect") { say("进行中", "看完了？点下方按钮继续。"); return; }
-  say("进行中", "用下方按钮推进这一步。");
 });
 
 /* ---------- 对话与三段式 ---------- */
@@ -772,7 +783,7 @@ var SCRIPTS = {
     act: { t:"幼獭在荒田挖坑，把「今天发生的事」埋进去，盖上土。", s:"——「播种」：把经历变成种子。（看，田里已经冒芽了）", btn:"💧 浇一瓢水" },
     effect: { t:"种子破土、抽穗（零等待，画面即时生长），三株记忆麦子成熟，一颗 🌾 入了背包。", s:"幼獭有了第一个记忆：它记得今天了。",
       map:"播种 = 记忆入库：发生过的事写下来，不再丢失。otter-buddy 的每条记忆都有出处、可回溯——就像这颗种子，谁种的、种在哪，都查得到。",
-      btn:"去「种子库」→" }
+      btn:"去隔壁「种子库」→" }
   },
   seedbox: {
     problem: { t:"「这个坑，上周是不是踩过？」\n幼獭挠头——明明种过一样的种子，细节想不起来，只能重种一遍。", s:"重复劳动，是农场里最大的浪费。", btn:"📖 打开种子库" },

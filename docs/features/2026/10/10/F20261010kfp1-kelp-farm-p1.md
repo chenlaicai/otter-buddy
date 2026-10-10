@@ -5,6 +5,12 @@ summary: "海藻农场 P1 落地：game/index.html 在 P0 基础上扩展为 8 �
 change_type: feature
 capability_tags: [game, readme-growth]
 capability_test: "n/a: game/ 为纯静态内容产品（零运行时依赖、不进主系统构建/测试面），验证 = 工作区 Playwright 程序化自检（36/36：8 点位闭环/封印门校验/背包/镜湖/回看/零报错/零外链/步进≤276ms）+ 像素取证 + 人工验收（方案 verify_by=human_judge T1-T8 的 P1 子集）；CI 面为 lint 无新增（game/ 已入 eslint ignores）"
+intent:
+  problem: "P0（#1422）只验了点位 1 三段式手感；P1 使命是把 8 个能力点位全部落地且教学梯度不崩（方案 §7 分期：点位 2-8 + 每点位 ≤15s、全流程 ≤3 分钟），同时偿还 #1422 检视遗留（发现 3 静态层预烘焙 / 发现 5 SPOTS 元数据单源）。"
+  expected_effect: "① 8 点位三段式全部走通且映射卡文案与方案 §2 点位表保真；② 试验田封印门逐字校验「合入」（错拒/对过/无死锁）；③ 步进反馈 <3s、最大步进实测 ≤276ms；④ 60fps 稳态（预烘焙生效）；⑤ 热区/光环/标签单源无漂移。"
+  verify_by:
+    type: behavior_check
+    reason: "Playwright 程序化走查（8 点位状态机逐段点击断言 bag/文案/映射卡/封印门错拒对过/回看/零报错零外链/步进间隔）+ 像素取证（关键坐标色值命中）+ 检视獭1427 亲测复跑。证据：selftest 36/36 PASS、pixels 60fps/811 色、检视报告（PR #1427 review comment）。"
 created: 2026-10-10
 created_in_conversation: cb80d695-bce9-4b83-9f2a-98618242acd0
 causal_links:
