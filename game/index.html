@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>獭之传说 · 海藻农场</title>
+<style>
+  :root { --bg:#0d1524; --panel:#15203010; --line:#2a3a52; --text:#e6eef8; --dim:#8fa3ba; --accent:#5fd6ae; --purple:#957ff0; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { background:var(--bg); color:var(--text); font-family:ui-monospace,Menlo,monospace; }
+  body { min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:14px 10px 40px; }
+  .frame { width:100%; max-width:760px; }
+  .topbar { display:flex; justify-content:space-between; align-items:center; padding:2px 2px 10px; }
+  .brand { font-size:13px; color:var(--dim); }
+  .brand b { color:var(--text); }
+  .skip { font-size:12px; color:var(--dim); text-decoration:none; border-bottom:1px dashed var(--line); }
+  .skip:hover { color:var(--accent); }
+  .screen-wrap { position:relative; border:3px solid var(--line); border-radius:10px; overflow:hidden; background:#0a1220; box-shadow:0 8px 40px rgba(0,0,0,.5); }
+  canvas#screen { display:block; width:100%; image-rendering:pixelated; }
+  .hint-chip { position:absolute; top:8px; left:8px; font-size:11px; background:rgba(10,18,32,.85); border:1px solid var(--line); padding:4px 10px; border-radius:6px; color:var(--dim); pointer-events:none; }
+  .hint-chip em { color:var(--accent); font-style:normal; }
+  .dialog { margin-top:12px; border:3px solid var(--line); border-radius:10px; background:#152030; padding:12px 14px; min-height:116px; position:relative; }
+  .dialog .tag { position:absolute; top:-10px; left:12px; font-size:11px; background:#152030; border:1px solid var(--line); border-radius:4px; padding:2px 8px; color:var(--accent); letter-spacing:.1em; }
+  .dialog .say { font-size:13.5px; line-height:1.85; white-space:pre-wrap; }
+  .dialog .say.dim { color:var(--dim); font-size:12px; }
+  .dialog .mapline { margin-top:8px; padding:7px 10px; border-left:3px solid var(--purple); background:rgba(149,127,240,.08); font-size:12px; border-radius:0 6px 6px 0; }
+  .actions { margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; }
+  .btn { padding:9px 18px; border-radius:8px; border:2px solid var(--accent); background:rgba(95,214,174,.12); color:var(--text); font-family:inherit; font-size:13px; cursor:pointer; }
+  .btn:hover { background:rgba(95,214,174,.3); }
+  .btn.ghost { border-color:var(--line); background:none; color:var(--dim); }
+  .statusbar { margin-top:10px; display:flex; align-items:center; gap:10px; font-size:12px; color:var(--dim); }
+  .statusbar .bag { display:flex; gap:4px; font-size:15px; min-width:20px; }
+  .statusbar .who { color:var(--text); }
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="topbar">
+    <div class="brand">🦦 <b>獭之传说 · 海藻农场</b> — 能力说明书，伪装成了一个农场</div>
+    <a class="skip" href="https://github.com/chenlaicai/otter-buddy" target="_blank" rel="noopener">跳过游戏看 README ↗</a>
+  </div>
+  <div class="screen-wrap">
+    <canvas id="screen" width="480" height="270"></canvas>
+    <div class="hint-chip" id="hint">3 分钟通关 · 点击画面互动 · <em>发光处可交互</em></div>
+  </div>
+  <div class="dialog" id="dialog">
+    <div class="tag" id="dlgTag">开场</div>
+    <div class="say" id="dlgSay">一只幼獭漂到了这片荒芜的海藻农场……</div>
+    <div class="say dim" id="dlgSub">田是灰的，背包是空的，身边没有队友。点点什么，让这里活起来。</div>
+    <div class="mapline" id="dlgMap" style="display:none"></div>
+  </div>
+  <div class="actions" id="actions"></div>
+  <div class="statusbar"><span>🦦</span><span class="who" id="who">一只一无所有的幼獭</span><span style="flex:1"></span><span>背包</span><span class="bag" id="bag"></span></div>
+</div>
+
+<script>
+(function () {
+"use strict";
+/* ============================================================
+   獭之传说·海藻农场 P0 —— 16×16 tile 精绘像素版
+   分辨率 480×270（30×17 tiles）。三层着色纪律：
+   轮廓（最暗）→ 本体（中间调）→ 高光（最亮）。
+   ============================================================ */
+var cv = document.getElementById("screen");
+var ctx = cv.getContext("2d");
+var W = 480, H = 270, T = 16;
+
+/* ---------- 调色板（夜色调，参考星露谷夜色：冷蓝底+暖光点缀） ---------- */
+var P = {
+  // 夜空
+  sky0:"#0c1626", sky1:"#132038", sky2:"#1b2d4a", sky3:"#24405f",
+  star:"#cfe2f5", starDim:"#6f88a8",
+  moon:"#f5f0dc", moonHi:"#ffffff", moonGlow:"rgba(245,240,220,0.10)",
+  // 水
+  w0:"#173a54", w1:"#1f4a68", w2:"#2b5f83", w3:"#3d7aa0", wHi:"#8fd0e8", wGlow:"rgba(160,220,240,0.25)",
+  // 地面
+  grassDk:"#233c22", grass0:"#2e4c2c", grass1:"#365632", grass2:"#3f6139", grassHi:"#4d7043",
+  path0:"#4a4030", path1:"#57493a", pathHi:"#6a5a46",
+  soil0:"#3e3020", soil1:"#4d3c28", soilHi:"#66502f", soilWet:"#352818",
+  furrow:"#2c2115",
+  // 木
+  wood0:"#4a3018", wood1:"#63421f", wood2:"#7d5730", woodHi:"#95683b", nail:"#2b2018",
+  // 屋顶
+  roof0:"#5e2420", roof1:"#7a3328", roof2:"#96453a", roofHi:"#b25a48",
+  // 角色（海獭棕）
+  ot0:"#3a2415", ot1:"#54351c", ot2:"#6f4826", ot3:"#8a5c31",
+  belly:"#d9c09a", bellyHi:"#efe0bd", face:"#c9a06a", nose:"#241812",
+  eyeW:"#f5f2e8", eyeK:"#1a1210", scarf:"#3f7ec9", scarfDk:"#2d5e9a",
+  hat0:"#8a7030", hat1:"#a8894a", hatHi:"#c9ab6a",
+  // 植物
+  sprout0:"#3f7a2e", sprout1:"#57a03f", sproutHi:"#79c258",
+  stalk0:"#5d8a3a", stalk1:"#79a84b",
+  wheat0:"#b09240", wheat1:"#d1af52", wheatHi:"#eccb6e",
+  kelp0:"#1d5a40", kelp1:"#2d7a55",
+  // 杂项
+  glass:"rgba(190,230,245,0.35)", glassHi:"#dff4fc", stone0:"#5a6470", stone1:"#78828e",
+  straw0:"#a8894a", straw1:"#c9ab6a", strawHi:"#e2cb8d",
+  ladybug:"#c9382e", ladybugDk:"#8f221b",
+  shadow:"rgba(8,14,24,0.35)",
+  glow:"#5fd6ae", glowDim:"rgba(95,214,174,0.4)",
+  warm:"rgba(255,190,90,0.16)", warmCore:"#ffcf7a",
+  firefly:"#ffe89a",
+  uiTxt:"#e6eef8",
+  fence0:"#3a2a16", fence1:"#54401f", fenceHi:"#6d5430",
+  bush0:"#1d3a1c", bush1:"#2b5027", bush2:"#3a6630", bushHi:"#4d7d3c",
+  flower0:"#d9a0c0", flower1:"#e8c069", flower2:"#9fc3e8",
+  rock0:"#4a545e", rock1:"#5f6a75", rockHi:"#7d8894",
+  kelpFar:"#163a2c", kelpFarHi:"#1f4f3a"
+};
+
+function px(x, y, c) { ctx.fillStyle = c; ctx.fillRect(x, y, 1, 1); }
+function rect(x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); }
+function shadow(w, x, y, w2) { ctx.fillStyle = P.shadow; ctx.fillRect(x, y, w2 || w, 2); }
+
+/* ---------- tile 绘制器（每 tile 16×16，带内部纹理） ---------- */
+// 草地 tile（v 变体做噪声错落）
+function tileGrass(ox, oy, v) {
+  rect(ox, oy, T, T, P.grass1);
+  var noise = [
+    [2,3],[7,1],[12,5],[4,9],[10,11],[14,13],[1,14],[8,6],[13,2],[5,13],[11,8],[3,6]
+  ];
+  for (var i = 0; i < noise.length; i++) {
+    var nx = (noise[i][0] + v * 5) % 16, ny = (noise[i][1] + v * 3) % 16;
+    px(ox + nx, oy + ny, (i + v) % 3 === 0 ? P.grass2 : ((i + v) % 3 === 1 ? P.grassDk : P.grass0));
+  }
+  // 草叶簇
+  var tufts = [[4,12],[11,4],[14,9]];
+  for (var j = 0; j < tufts.length; j++) {
+    var tx = ox + (tufts[j][0] + v * 7) % 15, ty = oy + tufts[j][1];
+    px(tx, ty, P.grass0); px(tx + 1, ty - 1, P.grass1); px(tx, ty - 1, P.grass2); px(tx - 1, ty, P.grass0);
+  }
+}
+// 耕地 tile（湿润土壤+垄沟）
+function tileSoil(ox, oy, wet) {
+  rect(ox, oy, T, T, wet ? P.soilWet : P.soil1);
+  // 三条垄沟
+  for (var fy = 2; fy < T; fy += 5) {
+    rect(ox + 1, oy + fy, T - 2, 2, P.furrow);
+    px(ox + 3 + (fy % 4), oy + fy, P.soil0); px(ox + 11, oy + fy + 1, P.soil0);
+  }
+  // 土壤颗粒高光
+  var g = [[5,1],[9,4],[2,8],[13,9],[7,13],[12,14],[4,11]];
+  for (var i = 0; i < g.length; i++) px(ox + g[i][0], oy + g[i][1], wet ? P.soil1 : P.soilHi);
+}
+// 水面 tile（动画帧 f:0/1/2 波光位移）
+function tileWater(ox, oy, f) {
+  rect(ox, oy, T, T, P.w1);
+  // 深水斑
+  px(ox + 3, oy + 4, P.w0); px(ox + 12, oy + 9, P.w0); px(ox + 7, oy + 13, P.w0);
+  px(ox + 10, oy + 2, P.w2); px(ox + 4, oy + 10, P.w2);
+  // 波光（随帧水平漂移）
+  var rows = [3, 8, 13];
+  for (var r = 0; r < rows.length; r++) {
+    var wy = oy + rows[r];
+    var wx = ox + ((r * 6 + f * 3) % 12) + 1;
+    rect(wx, wy, 5, 1, P.w3);
+    if ((r + f) % 2 === 0) rect(wx + 1, wy, 2, 1, P.wHi);
+  }
+}
+
+/* ---------- sprites（多层着色角色） ---------- */
+var SPR = {
+  // 幼獭 24×16：星露谷式斜侧姿态——小头+长身+尾，四层着色（轮廓/深背/浅背/脸腹）
+  pup1: [
+    "..oooooo..............",
+    ".o444444o.............",
+    "o4444444444ooo........",
+    "o433333333333344oo....",
+    "o43fffFFffFFf333344o..",
+    "o43fWfFFffFFfWf3334o..",
+    "o43fffffnnfffff3334o..",
+    ".o33ffffffffff333o....",
+    ".o33bbbbbbbbbb33o.....",
+    "o33bbbbbbbbbbbb33o....",
+    "o33bbBBBBBBBBbb33o....",
+    ".o33bbBBBBBBBB33o.....",
+    ".o333bbbbbbbb333o.....",
+    "..oo33bbbb33oo........",
+    "....o33333o...........",
+    ".....oooo............."
+  ],
+  pup2: [ // 游动帧：尾部上摆
+    "..oooooo..............",
+    ".o444444o.............",
+    "o4444444444ooo........",
+    "o433333333333344oo....",
+    "o43fffFFffFFf333344o..",
+    "o43fWfFFffFFfWf3334o..",
+    "o43fffffnnfffff3334o..",
+    ".o33ffffffffff333o....",
+    ".o33bbbbbbbbbb33o.....",
+    "o33bbbbbbbbbbbb33o....",
+    "o33bbBBBBBBBBbb33o....",
+    ".o33bbBBBBBBBB33o.....",
+    "..o33bbbbbbbb33oo.....",
+    "...oo33bbbb33o33o.....",
+    "....o333333o..o3o.....",
+    ".....ooooo.....o......"
+  ],
+  neighbor: [ // 邻居獭（蓝围巾，同形体）
+    "..oooooo..............",
+    ".o444444o.............",
+    "o4444444444ooo........",
+    "o433333333333344oo....",
+    "o43fffFFffFFf333344o..",
+    "o43fWfFFffFFfWf3334o..",
+    "o43fffffnnfffff3334o..",
+    ".o3ssssssssssss3o....",
+    ".ossSSSSSSSSSSsso.....",
+    "o33bbbbbbbbbbbb33o....",
+    "o33bbBBBBBBBBbb33o....",
+    ".o33bbBBBBBBBB33o.....",
+    ".o333bbbbbbbb333o.....",
+    "..oo33bbbb33oo........",
+    "....o33333o...........",
+    ".....oooo............."
+  ],
+  elder: [ // 老农獭（草帽，同形体）
+    "....hhhhhhhhhh........",
+    "...hHHHHHHHHHhh.......",
+    "..hHHHHHHHHHHHhh......",
+    "..oo44444444ooo.......",
+    ".o43ffffffffff334o....",
+    "o43fGGffffGGff334o....",
+    "o43fffffnnfffff334o...",
+    ".o33ffffffffff333o....",
+    ".o33bbbbbbbbbb33o.....",
+    "o33bbbbbbbbbbbb33o....",
+    "o33bbBBBBBBBBbb33o....",
+    ".o33bbBBBBBBBB33o.....",
+    ".o333bbbbbbbb333o.....",
+    "..oo33bbbb33oo........",
+    "....o33333o...........",
+    ".....oooo............."
+  ]
+};
+var KEY = { o:P.ot0, "1":P.ot1, "2":P.ot2, "3":P.ot3, b:P.belly, B:P.bellyHi, f:P.face, F:P.ot3, W:P.eyeW, K:P.eyeK, n:P.nose, s:P.scarf, S:P.scarfDk, h:P.hat0, H:P.hat1, g:P.hatHi, G:"#5a4630" };
+function drawSpr(name, ox, oy) {
+  var g = SPR[name];
+  for (var y = 0; y < g.length; y++) for (var x = 0; x < g[y].length; x++) {
+    var ch = g[y][x]; if (ch === "." || ch === " ") continue;
+    px(ox + x, oy + y, KEY[ch] || P.ot3);
+  }
+}
+
+/* ---------- 物件精绘 ---------- */
+function drawCrate(ox, oy) { // 种子库木箱 20×16
+  shadow(0, ox + 1, oy + 15, 18);
+  rect(ox, oy, 20, 16, P.wood1);
+  // 横板缝
+  rect(ox, oy + 5, 20, 1, P.wood0); rect(ox, oy + 11, 20, 1, P.wood0);
+  // 竖框
+  rect(ox, oy, 2, 16, P.wood2); rect(ox + 18, oy, 2, 16, P.wood2);
+  rect(ox + 8, oy, 1, 16, P.wood0);
+  // 顶沿
+  rect(ox, oy, 20, 2, P.woodHi);
+  // 钉子
+  px(ox + 3, oy + 3, P.nail); px(ox + 15, oy + 3, P.nail); px(ox + 3, oy + 13, P.nail); px(ox + 15, oy + 13, P.nail);
+  // 木纹
+  px(ox + 5, oy + 8, P.wood0); px(ox + 6, oy + 8, P.wood0); px(ox + 12, oy + 9, P.woodHi);
+}
+function drawHut(ox, oy) { // 瓢虫屋 26×22（红顶+暖窗）
+  shadow(0, ox + 2, oy + 21, 22);
+  // 墙
+  rect(ox + 3, oy + 8, 20, 14, P.wood1);
+  // 墙横木纹
+  rect(ox + 3, oy + 12, 20, 1, P.wood0); rect(ox + 3, oy + 17, 20, 1, P.wood0);
+  // 屋顶（鳞片瓦三层）
+  for (var r = 0; r < 3; r++) {
+    var rw = 26 - r * 6, rx = ox + r * 3, ry = oy + r * 4;
+    rect(rx, ry, rw, 5, r === 0 ? P.roof0 : (r === 1 ? P.roof1 : P.roof2));
+    for (var s = 0; s < rw; s += 4) { px(rx + s, ry + 1, r === 2 ? P.roofHi : P.roof1); px(rx + s + 2, ry + 3, P.roof0); }
+  }
+  rect(ox, oy + 12, 26, 2, P.roof0);
+  // 门（暖光）
+  rect(ox + 11, oy + 14, 6, 8, "#2b1c10");
+  rect(ox + 12, oy + 16, 4, 6, "#f5c86a");
+  // 暖光晕
+  ctx.fillStyle = P.warm; ctx.fillRect(ox + 6, oy + 12, 16, 12);
+  // 窗
+  rect(ox + 5, oy + 13, 4, 4, "#f5c86a"); px(ox + 6, oy + 14, "#2b1c10"); px(ox + 8, oy + 14, "#2b1c10");
+}
+function drawGlassDome(ox, oy) { // 试验田玻璃罩 24×20
+  shadow(0, ox + 1, oy + 19, 22);
+  // 罩体（半透明）
+  ctx.fillStyle = P.glass; ctx.fillRect(ox + 2, oy - 4, 20, 22);
+  // 玻璃高光斜线
+  for (var i = 0; i < 8; i++) px(ox + 5 + i, oy - 1 + i, P.glassHi);
+  px(ox + 7, oy + 2, P.glassHi); px(ox + 8, oy + 3, P.glassHi);
+  // 底座石沿
+  rect(ox, oy + 16, 24, 3, P.stone0);
+  rect(ox + 2, oy + 16, 20, 1, P.stone1);
+  // 罩内一颗试验苗
+  px(ox + 12, oy + 13, P.sprout1); px(ox + 11, oy + 14, P.sprout0); px(ox + 13, oy + 14, P.sprout0);
+}
+function drawHaystack(ox, oy) { // 休耕田干草垛 20×12
+  shadow(0, ox + 1, oy + 11, 18);
+  rect(ox, oy + 4, 20, 8, P.straw0);
+  rect(ox + 3, oy, 14, 5, P.straw1);
+  rect(ox + 5, oy - 3, 10, 4, P.strawHi);
+  // 草纹
+  for (var i = 0; i < 6; i++) { px(ox + 2 + i * 3, oy + 6, P.strawHi); px(ox + 3 + i * 3, oy + 9, P.straw0); }
+  px(ox + 7, oy + 2, P.straw0); px(ox + 11, oy + 1, P.straw0);
+}
+function drawSeedboxSign(ox, oy) { // 小木牌
+  rect(ox + 2, oy + 8, 2, 6, P.wood1);
+  rect(ox, oy + 4, 10, 5, P.wood2);
+  rect(ox + 1, oy + 5, 8, 1, P.woodHi);
+}
+/* 作物生长 4 阶段（播在田心上） */
+function drawFenceH(ox, oy, segs) { // 水平木栏
+  for (var i = 0; i < segs; i++) {
+    var fx = ox + i * 12;
+    // 桩
+    rect(fx, oy - 6, 2, 12, P.fence1); px(fx, oy - 6, P.fenceHi); px(fx + 1, oy + 5, P.fence0);
+    // 横板
+    rect(fx, oy - 4, 12, 2, P.fence1); rect(fx, oy, 12, 2, P.fence1);
+    px(fx + 4, oy - 4, P.fence0); px(fx + 9, oy + 1, P.fence0); px(fx + 6, oy - 3, P.fenceHi);
+  }
+}
+function drawBush(ox, oy, v) { // 灌木丛（三团圆冠）
+  ctx.fillStyle = P.shadow; ctx.fillRect(ox + 1, oy + 9, 14, 2);
+  rect(ox + 1, oy + 4, 14, 6, P.bush1);
+  rect(ox + 3, oy + 1, 10, 4, P.bush2);
+  rect(ox + 5, oy - 2, 6, 3, P.bush1);
+  // 叶簇高光/暗部
+  px(ox + 5 + v, oy, P.bushHi); px(ox + 9, oy + 1, P.bushHi); px(ox + 6, oy + 3, P.bushHi);
+  px(ox + 2, oy + 6, P.bush0); px(ox + 13, oy + 5, P.bush0); px(ox + 8, oy + 7, P.bush0);
+  px(ox + 4, oy + 4, P.bush2); px(ox + 11, oy + 3, P.bush2);
+}
+function drawFlower(ox, oy, kind) { // 野花（三色轮换）
+  var c = kind === 0 ? P.flower0 : (kind === 1 ? P.flower1 : P.flower2);
+  rect(ox, oy - 2, 1, 4, P.sprout0);
+  px(ox - 1, oy - 3, c); px(ox + 1, oy - 3, c); px(ox, oy - 4, c); px(ox, oy - 2, c);
+  px(ox - 1, oy - 1, P.grass1); px(ox + 1, oy, P.grass1);
+}
+function drawRock(ox, oy, s) { // 石头（两档大小）
+  if (s) { rect(ox, oy + 2, 10, 5, P.rock1); rect(ox + 2, oy, 6, 3, P.rockHi); rect(ox + 1, oy + 1, 8, 2, P.rock1); px(ox, oy + 6, P.rock0); px(ox + 9, oy + 4, P.rock0); }
+  else { rect(ox, oy + 3, 6, 3, P.rock1); rect(ox + 1, oy + 2, 4, 2, P.rockHi); px(ox, oy + 5, P.rock0); }
+}
+function drawKelpFar(ox, oy, hgt) { // 远景海藻（背景摇曳）
+  for (var i = 0; i < 3; i++) {
+    var kx = ox + i * 5, sway = Math.floor(S.tick / 40 + i) % 2;
+    for (var y = 0; y < hgt - (i % 2) * 3; y++) {
+      px(kx + (y > hgt / 2 ? sway : 0), oy - y, y % 4 === 0 ? P.kelpFarHi : P.kelpFar);
+      if (y % 5 === 2) px(kx + 1 + (y > hgt / 2 ? sway : 0), oy - y, P.kelpFar);
+    }
+  }
+}
+
+function drawCrop(stage, cx, cy) {
+  if (stage === 0) { px(cx, cy, P.wheat0); px(cx + 1, cy, P.soilHi); return; }
+  if (stage === 1) { // 破土芽
+    px(cx, cy, P.sprout0); px(cx, cy - 1, P.sprout1); px(cx + 1, cy, P.sprout0);
+    return;
+  }
+  if (stage === 2) { // 双叶苗
+    px(cx, cy, P.sprout0); rect(cx, cy - 2, 1, 3, P.sprout1);
+    px(cx - 2, cy - 3, P.sprout1); px(cx - 1, cy - 2, P.sproutHi); px(cx + 1, cy - 3, P.sprout1); px(cx + 2, cy - 2, P.sproutHi);
+    return;
+  }
+  // stage 3：麦穗成熟
+  rect(cx, cy - 5, 1, 6, P.stalk0); px(cx - 1, cy - 2, P.stalk1); px(cx + 1, cy - 3, P.stalk1);
+  px(cx - 1, cy - 4, P.wheat0); px(cx + 1, cy - 4, P.wheat0);
+  rect(cx - 1, cy - 7, 3, 3, P.wheat1); px(cx, cy - 8, P.wheatHi); px(cx - 1, cy - 7, P.wheatHi); px(cx + 1, cy - 6, P.wheat0);
+}
+
+/* ---------- 场景布局 ---------- */
+var SPOTS = [
+  { id:"plant",   x:38,  y:186, name:"荒田",   p0:true,  tw:3, th:2 },
+  { id:"seedbox", x:118, y:196, name:"种子库",  p0:false },
+  { id:"fert",    x:196, y:200, name:"板结田",  p0:false, tw:2, th:2 },
+  { id:"fallow",  x:272, y:198, name:"休耕田",  p0:false },
+  { id:"ladybug", x:368, y:192, name:"瓢虫屋",  p0:false },
+  { id:"neighbor",x:60,  y:120, name:"邻居獭",  p0:false },
+  { id:"elder",   x:230, y:118, name:"老农獭",  p0:false },
+  { id:"lab",     x:340, y:112, name:"试验田",  p0:false },
+  { id:"lake",    x:392, y:16,  name:"镜湖",    p0:false }
+];
+var S = { started:false, phase:"idle", bag:[], tick:0 };
+
+/* ---------- 场景绘制 ---------- */
+function drawSky() {
+  // 四段夜空渐变
+  rect(0, 0, W, 24, P.sky0);
+  rect(0, 24, W, 22, P.sky1);
+  rect(0, 46, W, 20, P.sky2);
+  rect(0, 66, W, 12, P.sky3);
+  // 星（闪烁）
+  var stars = [[16,10],[42,30],[80,8],[130,22],[170,40],[210,12],[260,30],[330,8],[370,26],[430,18],[455,38],[100,48],[300,50]];
+  for (var i = 0; i < stars.length; i++) {
+    var tw = Math.floor((S.tick / 30 + i * 3) % 6);
+    px(stars[i][0], stars[i][1], tw < 2 ? P.star : P.starDim);
+    if (tw < 1) { px(stars[i][0] - 1, stars[i][1], P.starDim); px(stars[i][0] + 1, stars[i][1], P.starDim); }
+  }
+  // 月亮 + 双层晕
+  var mx0 = 60, my0 = 18;
+  ctx.fillStyle = P.moonGlow; ctx.fillRect(mx0 - 12, my0 - 12, 28, 28);
+  rect(mx0, my0, 10, 10, P.moon);
+  rect(mx0 + 1, my0 + 1, 8, 8, P.moonHi);
+  px(mx0 + 3, my0 + 3, P.moon); px(mx0 + 6, my0 + 5, P.moon); px(mx0 + 4, my0 + 7, P.moon);
+}
+function drawLake() {
+  var lx = 376, ly = 8, lw = 96, lh = 68;
+  // 湖岸石沿
+  ctx.fillStyle = P.grassDk; ctx.fillRect(lx - 4, ly + lh - 4, lw + 8, 8);
+  // 水面 tiles
+  var f = Math.floor(S.tick / 18) % 3;
+  for (var ty = 0; ty < lh / T; ty++) for (var tx0 = 0; tx0 < lw / T; tx0++) {
+    tileWater(lx + tx0 * T, ly + ty * T, (f + tx0 + ty) % 3);
+  }
+  // 岸边泡沫
+  for (var i = 0; i < lw; i += 5) px(lx + i + (f % 2), ly, P.wHi);
+  // 月亮倒影
+  var refY = ly + 8;
+  for (var rr = 0; rr < 3; rr++) rect(lx + 40 - 4 + (rr % 2) * 2, refY + rr * 3, 8 - rr * 2, 1, "rgba(245,240,220,0.45)");
+  // 镜湖牌（木牌）
+  drawSeedboxSign(lx + 40, ly + lh + 2);
+}
+function drawGround() {
+  // 草地铺 tile（v 变体按坐标错开）
+  for (var ty = 0; ty * T < H - 76; ty++) for (var tx0 = 0; tx0 * T < W; tx0++) {
+    tileGrass(tx0 * T, 76 + ty * T, (tx0 * 7 + ty * 13) % 8);
+  }
+  // 中间小径（从幼獭到田）
+  for (var py = 168; py < 196; py += 1) {
+    var pw = 5;
+    for (var pxx = 216 - pw; pxx < 216 + pw; pxx++) {
+      if (pxx % 7 !== 3) px(pxx, py, (pxx + py) % 5 === 0 ? P.pathHi : ((pxx + py) % 3 === 0 ? P.path0 : P.path1));
+    }
+  }
+  // 远景海藻（沿地平线摇曳）
+  drawKelpFar(10, 78, 14); drawKelpFar(150, 78, 11); drawKelpFar(320, 78, 13);
+  // 农场围栏（上沿一圈）
+  drawFenceH(96, 86, 8); drawFenceH(240, 86, 8);
+  // 灌木（角落+中景）
+  drawBush(8, 96, 1); drawBush(452, 100, 2); drawBush(140, 100, 0); drawBush(310, 104, 1);
+  // 野花（草地散布，三色）
+  var fl = [[28,140,0],[64,168,1],[98,146,2],[150,162,0],[186,138,1],[240,156,2],[300,144,0],[330,170,1],[404,136,2],[132,222,0],[252,226,1],[420,218,2]];
+  for (var fi = 0; fi < fl.length; fi++) drawFlower(fl[fi][0], fl[fi][1], fl[fi][2]);
+  // 石头
+  drawRock(88, 128, true); drawRock(352, 150, false); drawRock(160, 240, false); drawRock(432, 250, true);
+}
+function drawPlots() {
+  // 点位1 荒田：3×2 土壤 tile（激活后湿土）
+  var sp = SPOTS[0];
+  var wet = S.started && (S.phase === "effect" || S.phase === "done");
+  var locked = !S.started;
+  for (var r = 0; r < 2; r++) for (var c = 0; c < 3; c++) {
+    if (locked) { ctx.globalAlpha = 0.45; }
+    tileSoil(sp.x + c * T, sp.y + r * T, wet);
+    ctx.globalAlpha = 1;
+  }
+  // 板结田：干裂土 2×2（P1 解锁前灰态）
+  var fe = SPOTS[2];
+  ctx.globalAlpha = 0.45;
+  for (var r2 = 0; r2 < 2; r2++) for (var c2 = 0; c2 < 2; c2++) tileSoil(fe.x + c2 * T, fe.y + r2 * T, false);
+  // 干裂纹
+  rect(fe.x + 6, fe.y + 7, 8, 1, "#241a10"); rect(fe.x + 20, fe.y + 12, 6, 1, "#241a10"); rect(fe.x + 12, fe.y + 22, 7, 1, "#241a10");
+  ctx.globalAlpha = 1;
+}
+function drawCropStage() {
+  var sp = SPOTS[0];
+  if (!S.started) return;
+  var stage = 0;
+  if (S.phase === "act") stage = 2;
+  if (S.phase === "effect" || S.phase === "done") stage = 3;
+  if (stage > 0) {
+    drawCrop(stage, sp.x + 12, sp.y + 12);
+    drawCrop(stage, sp.x + 32, sp.y + 10);
+    drawCrop(stage, sp.x + 22, sp.y + 26);
+  }
+}
+function drawObjects() {
+  var lock = function (fn) { if (!S.started) ctx.globalAlpha = 0.45; fn(); ctx.globalAlpha = 1; };
+  lock(function(){ drawCrate(SPOTS[1].x, SPOTS[1].y); });
+  lock(function(){ drawHaystack(SPOTS[3].x, SPOTS[3].y); });
+  lock(function(){ drawHut(SPOTS[4].x, SPOTS[4].y); });
+  lock(function(){ drawGlassDome(SPOTS[7].x, SPOTS[7].y); });
+  // 角色
+  lock(function(){ drawSpr("neighbor", SPOTS[5].x, SPOTS[5].y); });
+  lock(function(){ drawSpr("elder", SPOTS[6].x, SPOTS[6].y); });
+  // 瓢虫点缀（瓢虫屋旁，爬行动画）
+  var lbx = SPOTS[4].x + 30, lby = SPOTS[4].y + 24 + (Math.floor(S.tick / 30) % 2);
+  px(lbx, lby, P.ladybug); px(lbx + 1, lby, P.ladybugDk); px(lbx, lby - 1, P.ladybug);
+}
+function drawFireflies() {
+  if (!S.started) return;
+  var flies = [[100,150],[250,140],[320,170],[180,120],[420,150],[70,100]];
+  for (var i = 0; i < flies.length; i++) {
+    var t = S.tick / 25 + i * 11;
+    var fx = flies[i][0] + Math.floor(Math.sin(t) * 6);
+    var fy = flies[i][1] + Math.floor(Math.cos(t * 1.3) * 4);
+    var on = Math.floor(t * 2) % 3 !== 0;
+    if (on) { px(fx, fy, P.firefly); ctx.fillStyle = "rgba(255,232,154,0.22)"; ctx.fillRect(fx - 2, fy - 2, 5, 5); }
+  }
+}
+function drawPlayer() {
+  var frame = Math.floor(S.tick / 36) % 2;
+  var ox = 210, oy = 210 + (frame === 1 ? 1 : 0);
+  shadow(0, ox + 2, oy + 15, 14);
+  drawSpr(frame === 0 ? "pup1" : "pup2", ox, oy);
+}
+function drawGlowRing() {
+  if (!S.started) return;
+  var target = null;
+  if (S.phase === "idle" || S.phase === "problem" || S.phase === "act") target = SPOTS[0];
+  if (!target) return;
+  var pulse = Math.floor(S.tick / 24) % 2 === 0;
+  var x = target.x + 24, y = target.y + 14;
+  ctx.strokeStyle = pulse ? "rgba(95,214,174,0.9)" : P.glowDim;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x - 27.5, y - 14.5, 55, 32);
+  if (pulse) {
+    px(x, y - 17, P.glow); px(x - 3, y - 19, P.glow); px(x + 3, y - 19, P.glow); px(x, y - 21, P.glow);
+  }
+}
+function drawLabels() {
+  ctx.font = "7px monospace"; ctx.textAlign = "center";
+  for (var i = 0; i < SPOTS.length; i++) {
+    var sp = SPOTS[i];
+    var on = S.started && sp.p0;
+    ctx.fillStyle = on ? "#5fd6ae" : "rgba(143,163,186,0.55)";
+    ctx.fillText(on ? sp.name : "???", sp.x + 12, sp.y - 5);
+  }
+  ctx.textAlign = "left";
+  if (S.phase === "done") { ctx.font = "8px monospace"; ctx.fillStyle = P.glow; ctx.fillText("✓", SPOTS[0].x + 46, SPOTS[0].y - 5); }
+}
+
+function render() {
+  S.tick++;
+  ctx.clearRect(0, 0, W, H);
+  drawSky();
+  drawGround();
+  drawLake();
+  drawPlots();
+  drawCropStage();
+  drawObjects();
+  drawPlayer();
+  drawFireflies();
+  drawGlowRing();
+  drawLabels();
+  requestAnimationFrame(render);
+}
+
+/* ---------- 交互 ---------- */
+function hitSpot(mx, my) {
+  for (var i = 0; i < SPOTS.length; i++) {
+    var sp = SPOTS[i];
+    if (mx >= sp.x - 8 && mx <= sp.x + 56 && my >= sp.y - 16 && my <= sp.y + 36) return sp;
+  }
+  return null;
+}
+cv.addEventListener("click", function (e) {
+  var r = cv.getBoundingClientRect();
+  var mx = Math.round((e.clientX - r.left) * (W / r.width));
+  var my = Math.round((e.clientY - r.top) * (H / r.height));
+  var sp = hitSpot(mx, my);
+  if (!sp) return;
+  if (!S.started) { say("开场", "幼獭还在打盹。先点「出发」。"); return; }
+  if (!sp.p0) { say("引导", "「" + sp.name + "」还是灰的——P1 会点亮它。\n当前先去发光的「荒田」。"); return; }
+  if (S.phase === "idle") { startProblem(); return; }
+  if (S.phase === "done") { say("提示", "P0 完成。作物已在背包 🌾"); return; }
+  say("提示", "播种中……点下方按钮推进。");
+});
+
+/* ---------- 对话与三段式 ---------- */
+function say(tag, text, sub, map) {
+  document.getElementById("dlgTag").textContent = tag;
+  document.getElementById("dlgSay").textContent = text;
+  document.getElementById("dlgSub").textContent = sub || "";
+  var m = document.getElementById("dlgMap");
+  if (map) { m.style.display = "block"; m.textContent = "🗺️ " + map; } else { m.style.display = "none"; }
+}
+function actions(list) {
+  var box = document.getElementById("actions"); box.innerHTML = "";
+  (list || []).forEach(function (b) {
+    var btn = document.createElement("button");
+    btn.className = "btn" + (b.ghost ? " ghost" : "");
+    btn.textContent = b.label; btn.onclick = b.fn; box.appendChild(btn);
+  });
+}
+function addBag(emoji) {
+  S.bag.push(emoji);
+  var s = document.createElement("span"); s.textContent = emoji;
+  document.getElementById("bag").appendChild(s);
+}
+function startProblem() {
+  S.phase = "problem";
+  say("① 问题任务", "幼獭不记得昨天。\n「昨天工具放哪了？」——翻遍农场，找不到。每次醒来都是全新的一天。", "它需要的，是把经历过的事变成能留下的东西。");
+  actions([{ label:"🌰 种下一颗「今天的记忆」", fn:startAct }]);
+}
+function startAct() {
+  S.phase = "act";
+  say("② 引入能力", "幼獭在荒田挖坑，把「今天发生的事」埋进去，盖上土。", "——「播种」：把经历变成种子。（看，田里已经冒芽了）");
+  actions([{ label:"💧 浇一瓢水", fn:startEffect }]);
+}
+function startEffect() {
+  S.phase = "effect";
+  addBag("🌾");
+  document.getElementById("who").textContent = "记得今天的幼獭";
+  say("③ 效果达成", "种子破土、抽穗（零等待，画面即时生长），三株记忆麦子成熟，一颗 🌾 入了背包。", "幼獭有了第一个记忆：它记得今天了。",
+    "播种 = 记忆入库：发生过的事写下来，不再丢失。otter-buddy 的每条记忆都有出处、可回溯——就像这颗种子，谁种的、种在哪，都查得到。");
+  actions([
+    { label:"↻ 再看一遍", ghost:true, fn:function(){ S.phase="idle"; say("提示","点画面中发光的荒田，重看三段式。"); actions([]); } },
+    { label:"✅ P0 到此（P1 点亮全部）", fn:finish }
+  ]);
+}
+function finish() {
+  S.phase = "done";
+  document.getElementById("hint").innerHTML = "P0 完成 · 刷新重玩 · <em>P1 将点亮其余 8 个点位</em>";
+  say("P0 灰盒 · 完", "点位 1「播种」三段式闭环：问题（不记得昨天）→ 能力（种下记忆）→ 效果（🌾 入背包）。", "框架已验证。P1：种子库/板结田/休耕/瓢虫屋/邻居/老农/试验田，然后镜湖终战。");
+  actions([]);
+}
+say("开场", "一只幼獭漂到了这片荒芜的海藻农场。", "田是灰的，背包是空的，身边没有队友。");
+actions([{ label:"👉 出发", fn:function () {
+  S.started = true;
+  say("第一幕 · 一无所有", "只有一块田亮着——那就从它开始。", "其他点位灰态可见：逐个点亮，农场会慢慢活过来。（点发光的荒田）");
+  actions([]);
+}}]);
+render();
+})();
+</script>
+</body>
+</html>
