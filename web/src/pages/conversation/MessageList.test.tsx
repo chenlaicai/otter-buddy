@@ -33,16 +33,20 @@ function msg(overrides: Partial<LocalMessage> = {}): LocalMessage {
   }
 }
 
-describe('F20260907sgpt 高度贴底补偿（ResizeObserver，检视发现 1/2 修正版）', () => {
+describe('F20260907sgpt 高度贴底补偿 + F20261010vwst 视口稳定优先（单 observer 化）', () => {
   /**
    * 背景：信号轨迹 chip / 徽标 / 流式面板折叠等不改 messages.length 的高度变化曾无任何补偿，
    * 用户在底部时视口周期性上跳（搭档 09-07 第五次报告同类现象）。
    *
-   * 检视发现 1/2（mimo）后的结构：双 observer——contentObserver 观测内容包裹 div
-   * （contentRef，contentRect.height = 内容总高度），viewportObserver 观测滚动容器
-   * （scrollRef，contentRect.height = 视口布局高度）。测试按实例的 observe(target)
-   * 分辨 observer 身份，分别 fire。
+   * F20261010vwst 结构性变更：原双 observer（content + viewport）中的 viewportObserver
+   * 被整体删除——它把「输入框 autoResize / loadingMore 指示条 / 窗口缩小」等一切视口高度
+   * 变化源都当成「需要贴底拉回」，导致贴底用户每输入一个换行就被程序性顶起一行（搭档
+   * 10-10 报告）。视口高度变化时浏览器对 scrollTop 的 clamp 语义天然保证内容稳定，无需
+   * 程序补偿；内容高度变化（该跟随的场景）由 contentObserver 独扛。
+   * 视口稳定的行为级验证在 e2e（scroll-pin-frame-guard.spec.ts 场景 C，真实浏览器），
+   * jsdom 无布局引擎，此处断言响应路径的结构性不存在：无任何 observer 观测滚动容器。
    *
+   * contentObserver 测试按实例的 observe(target) 分辨 observer 身份后 fire。
    * jsdom 无布局引擎（scrollHeight 恒 0）：实例级 defineProperty 伪造型 scrollHeight
    * 并计数 scrollTop 写入，断言「发生了写入且写的是 scrollHeight」。
    * 另有结构断言（observe target 检查）锁定观测对象正确性——这是检视发现 1 的回归锚。
@@ -87,21 +91,16 @@ describe('F20260907sgpt 高度贴底补偿（ResizeObserver，检视发现 1/2 �
     })
   }
 
-  /** 按观测目标找 observer 实例——滚动容器的直接子 div = 内容包裹（contentRef 指向） */
-  function roByTargetClass(cls: string): ROStub {
-    const ro = roInstances.find(r => r.el?.classList?.contains(cls))
-    expect(ro, `应有观测 .${cls} 的 observer`).toBeTruthy()
-    return ro!
-  }
   function contentRO(): ROStub {
-    // 内容包裹 div 无语义 class——结构上：scrollRef 容器（overflow-y-auto）的首个子 div
-    const scroller = roInstances.map(r => r.el).find(el => el?.classList?.contains('overflow-y-auto'))
+    // 内容包裹 div 无语义 class——结构上：scrollRef 容器（overflow-y-auto）的首个子 div。
+    // F20261010vwst：viewportObserver 已删，不再有 observer 观测滚动容器——改从 DOM 直取
+    // （scroller.firstElementChild），再在 roInstances 里找观测它的实例
+    const scroller = document.querySelector('.overflow-y-auto')
     const content = scroller?.firstElementChild
     const ro = roInstances.find(r => r.el === content)
     expect(ro, '应有观测内容包裹 div 的 observer').toBeTruthy()
     return ro!
   }
-  function viewportRO(): ROStub { return roByTargetClass('overflow-y-auto') }
 
   function fire(ro: ROStub, h: number) {
     act(() => {
@@ -128,17 +127,19 @@ describe('F20260907sgpt 高度贴底补偿（ResizeObserver，检视发现 1/2 �
     return instrument(el)
   }
 
-  it('结构：contentObserver 观测内容包裹 div，viewportObserver 观测滚动容器（检视发现 1 回归锚）', () => {
+  it('结构（F20261010vwst）：仅 contentObserver 存在，无任何 observer 观测滚动容器（视口高度变化无程序响应路径）', () => {
     renderAtBottom({ current: true })
-    // 两个 observer 都存在
-    expect(roInstances.length).toBe(2)
-    // viewport observer 观测的是滚动容器本身
-    expect(viewportRO().el?.classList.contains('overflow-y-auto')).toBe(true)
+    // 单 observer：内容包裹 div 的观测者，别无分号
+    expect(roInstances.length, '应只存在 contentObserver 一个 observer').toBe(1)
     // content observer 观测的是滚动容器的第一个子元素（内容包裹 div），而非滚动容器自身
     const content = contentRO().el!
     expect(content.tagName).toBe('DIV')
     expect(content.classList.contains('overflow-y-auto')).toBe(false)
     expect(content.parentElement?.classList.contains('overflow-y-auto')).toBe(true)
+    // 无任何 observer 观测滚动容器——视口高度变化（输入框撑高/指示条/窗口 resize）
+    // 不再存在程序性贴底响应路径（行为级验证在 e2e 场景 C：真实浏览器逐帧断言 scrollTop 稳定）
+    const scrollerObserved = roInstances.some(r => r.el?.classList.contains('overflow-y-auto'))
+    expect(scrollerObserved, '滚动容器不应被任何 observer 观测').toBe(false)
   })
 
   it('内容高度增大且在底部 → scrollTop 被写为 scrollHeight（贴底补偿，信号 chip 弹出场景）', async () => {
@@ -173,25 +174,8 @@ describe('F20260907sgpt 高度贴底补偿（ResizeObserver，检视发现 1/2 �
     expect(st.writes).toBe(0)
   })
 
-  it('视口高度减小（GateBanner 出现压缩视口）且在底部 → 贴底拉回', async () => {
-    renderAtBottom({ current: true })
-    fire(viewportRO(), 800) // 基线
-    await sleep(40)
-    const st = instrumentScroller()
-    fire(viewportRO(), 740) // 视口被压 60px
-    expect(await untilTrue(() => st.writes > 0), '视口压缩时应贴底拉回').toBe(true)
-    expect(st.lastVal).toBe(2000)
-  })
-
-  it('视口高度增大（GateBanner 消失）→ 不写 scrollTop', async () => {
-    renderAtBottom({ current: true })
-    fire(viewportRO(), 740) // 基线
-    await sleep(40)
-    const st = instrumentScroller()
-    fire(viewportRO(), 800) // 视口增大
-    await sleep(60)
-    expect(st.writes).toBe(0)
-  })
+  // F20261010vwst 删除的两个旧锚（视口高度减小→贴底拉回 / 视口增大→不写）——其锚定的
+  // viewportObserver 补偿分支被整体删除，删除理由与行为取舍见特性文档
 
   it('切会话：observer 重挂（旧实例 disconnect，新实例观测新容器），采样基线重置', async () => {
     const ref = { current: true }
@@ -391,15 +375,9 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     if (!el) throw new Error('滚动容器不存在（state 非 normal 或渲染未完成）')
     return el
   }
-  /** 本块内最新挂载的 observer 按目标 class 找 */
-  function roByClass(cls: string): ROStub2 {
-    const ro = [...roInstances].reverse().find(r => r.el?.classList?.contains(cls))
-    if (!ro) throw new Error(`无观测 .${cls} 的 observer`)
-    return ro
-  }
-  function _viewportRO(): ROStub2 { return roByClass('overflow-y-auto') }
   function contentRO(): ROStub2 {
-    const scroller = [...roInstances].reverse().find(r => r.el?.classList?.contains('overflow-y-auto'))?.el
+    // F20261010vwst：viewportObserver 已删，无 observer 观测滚动容器——从 DOM 直取 scroller
+    const scroller = document.querySelector('.overflow-y-auto')
     const content = scroller?.firstElementChild
     const ro = [...roInstances].reverse().find(r => r.el === content)
     if (!ro) throw new Error('无观测内容包裹 div 的 observer')
