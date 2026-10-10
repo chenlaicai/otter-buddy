@@ -17,7 +17,15 @@ import { createTestDb } from "../../helpers/db";
 import { createTestLogger } from "../../helpers/logger";
 import { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import { createInvokeRegister, resetInvokeRegister } from "@frameworks/agent/tool-builder";
+import { invokeEpochStorage, mintEpoch } from "@frameworks/agent/invoke-epoch";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
+
+/** F20261009epoc：直接调 _acquirePooled 需自建 epoch 上下文（公共 invoke() 入口
+ *  铸造；直接调内部方法的单测模拟该入口职责），否则命中 D3 fail-loud 面。 */
+let epochSeq = 0;
+function withEpoch<T>(fn: () => Promise<T>): Promise<T> {
+  return invokeEpochStorage.run(mintEpoch("test-otter", `test-invoke-${++epochSeq}`), fn);
+}
 
 type FakeSession = {
   isStreaming: boolean;
@@ -87,7 +95,7 @@ function makeFactory() {
 describe("F20260911pspl 池命中路径（_acquirePooled）", () => {
   it("二次 invoke 复用同一 session（不重建），寄存器被重置", async () => {
     const { internals, db, getCreateCount } = makeFactory();
-    const first = await internals._acquirePooled("o1", { messageId: "m1" });
+    const first = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m1" }));
     expect(first.isPooled).toBe(false);
     expect(getCreateCount()).toBe(1);
 
@@ -98,7 +106,7 @@ describe("F20260911pspl 池命中路径（_acquirePooled）", () => {
     meta.register.dispatchWarningShown = true;
     meta.register.pendingDispatches.set("x", "y");
 
-    const second = await internals._acquirePooled("o1", { messageId: "m2" });
+    const second = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m2" }));
     expect(second.isPooled).toBe(true);
     expect(second.session).toBe(first.session); // 同一对象，未重建
     expect(getCreateCount()).toBe(1); // createSession 未被再调
@@ -113,13 +121,14 @@ describe("F20260911pspl 池命中路径（_acquirePooled）", () => {
 
   it("stale streaming 会话：命中仍 streaming 时标记出池（不 dispose）并冷启动（#599 防御）", async () => {
     const { internals, sessions, db, getCreateCount } = makeFactory();
-    const first = await internals._acquirePooled("o1", { messageId: "m1" });
+    const first = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m1" }));
     expect(getCreateCount()).toBe(1);
 
     // 模拟 stale steal：旧 invoke 仍挂 streaming
     sessions.get("o1")!.isStreaming = true;
 
-    const second = await internals._acquirePooled("o1", { messageId: "m2" });
+    // 新 invoke（独立 epoch 上下文，真并发形态）遇 stale streaming → 出池 + 冷启动
+    const second = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m2" }));
     expect(second.isPooled).toBe(false); // 走冷启动
     expect(getCreateCount()).toBe(2); // 重建
     // 旧 session 不被 dispose（旧 invoke 仍在跑，dispose 会撕裂它）——出池后由旧 invoke 生命周期托管
@@ -131,11 +140,11 @@ describe("F20260911pspl 池命中路径（_acquirePooled）", () => {
   it("F20260913ctlv 整合移植：readOnly 绕过池——不复用/不入池（修 main #894 潜在回归）", async () => {
     const { internals, db, getCreateCount } = makeFactory();
     // 先普通 invoke 入池
-    const first = await internals._acquirePooled("o1", { messageId: "m1" });
+    const first = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m1" }));
     expect(getCreateCount()).toBe(1);
 
     // readOnly invoke：即使池有命中条目也不复用（工具集是全量的，readOnly 需过滤）
-    const ro = await internals._acquirePooled("o1", { messageId: "m2", readOnly: true });
+    const ro = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m2", readOnly: true }));
     expect(ro.isPooled).toBe(false);
     expect(getCreateCount()).toBe(2); // 重建（带工具过滤）
     expect(ro.session).not.toBe(first.session);
@@ -146,7 +155,7 @@ describe("F20260911pspl 池命中路径（_acquirePooled）", () => {
 
   it("F20260913ctlv 整合移植：池命中刷新 currentInvokeId/emitEvent/lastSpeakEntryId（不刷新则挂错 invoke）", async () => {
     const { internals, db } = makeFactory();
-    await internals._acquirePooled("o1", { messageId: "m1", currentInvokeId: "inv-1" });
+    await withEpoch(() => internals._acquirePooled("o1", { messageId: "m1", currentInvokeId: "inv-1" }));
     const meta = internals.poolMeta.get("o1")!;
     expect(meta.register.currentInvokeId).toBe("inv-1");
 
@@ -155,7 +164,7 @@ describe("F20260911pspl 池命中路径（_acquirePooled）", () => {
     meta.register.emitEvent = () => {};
 
     const emit2 = () => {};
-    const second = await internals._acquirePooled("o1", { messageId: "m2", currentInvokeId: "inv-2", emitEvent: emit2 });
+    const second = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m2", currentInvokeId: "inv-2", emitEvent: emit2 }));
     expect(second.isPooled).toBe(true);
     // ctlv 三字段全部刷新为本轮值
     expect(meta.register.currentInvokeId).toBe("inv-2");
@@ -168,13 +177,13 @@ describe("F20260911pspl 池命中路径（_acquirePooled）", () => {
     const { factory, internals, db } = makeFactory();
     // 冷启动 createdNew=true → 身份标记
     internals._restoreOrCreateSession = async () => ({ sessionManager: {}, createdNew: true });
-    await internals._acquirePooled("o1", undefined);
+    await withEpoch(() => internals._acquirePooled("o1", undefined));
     expect(internals.pendingIdentity.has("o1")).toBe(true);
 
     // 池命中 → _invokeInternal 判定 needsIdentity=false（身份已在 session 上下文）
     // 注：完整 _invokeInternal 链路在 identity-prefix.test.ts 覆盖（mock 层不同），
     // 此处直接验证池命中后 pendingIdentity 不影响 isPooled 语义。
-    const hit = await internals._acquirePooled("o1", undefined);
+    const hit = await withEpoch(() => internals._acquirePooled("o1", undefined));
     expect(hit.isPooled).toBe(true);
     expect(hit.createdNew).toBe(false);
     db.close();
