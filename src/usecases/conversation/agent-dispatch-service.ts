@@ -1,4 +1,5 @@
 import type { EntryRepository } from "./entry-repository";
+import type { SenderType } from "@entities/conversation/entry";
 import type { AgentTurnPort } from "@usecases/ports/agent-turn-port";
 import type { InjectionPayload } from "./attachment-injection-service";
 import type { Logger } from "@usecases/ports/logger";
@@ -39,12 +40,16 @@ export class AgentDispatchService {
     /** F20260913ctlv 彻底切换：entries 解析的目标——传入时直连链点火（IM 入口不再写 messages 信号行，
      *  路由器的 messages 扫描路径对 IM 失效；显式目标直连链是唯一点火路径） */
     resolvedTargets?: string[];
+    /** F20261012swsg（#1430 首轮严重1）：触发消息来源——安全词扫描闸的真相源，由调用方显式声明：
+     *  IM 用户消息传 "user"（feishu/weixin），合成文本（首哑告警等）传 "system"。缺省不扫描（漏报方向安全）。
+     *  不在本入口硬编码——dispatch() 是共享入口，合成文本曾被当用户消息扫描注入假急停提醒。 */
+    triggerSenderType?: SenderType;
   }): Promise<AgentDispatchResult> {
-    const { conversationId, userMessageContent, senderId, injection, messageId, resolvedTargets } = input;
+    const { conversationId, userMessageContent, senderId, injection, messageId, resolvedTargets, triggerSenderType } = input;
     try {
       // F20260913ctlv 彻底切换：IM 入口带显式目标时直连链（entries 目标）
       if (this.deps.signalRouter && resolvedTargets && resolvedTargets.length > 0) {
-        this.fireDirectChain(conversationId, userMessageContent, senderId, resolvedTargets, injection);
+        this.fireDirectChain(conversationId, userMessageContent, senderId, resolvedTargets, { injection, triggerSenderType });
         return {};
       }
 
@@ -60,7 +65,7 @@ export class AgentDispatchService {
         return {};
       }
 
-      return this.dispatchLegacyChain(conversationId, userMessageContent, senderId, injection);
+      return this.dispatchLegacyChain(conversationId, userMessageContent, senderId, injection, triggerSenderType);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.deps.logger.error('Agent 派发异常', err instanceof Error ? err : new Error(msg), { conversationId });
@@ -74,6 +79,7 @@ export class AgentDispatchService {
     userMessageContent: string,
     senderId: string,
     injection?: InjectionPayload,
+    triggerSenderType?: SenderType,
   ): Promise<AgentDispatchResult> {
     const firstTurnTargets = await this.resolveFirstTurnTargets(conversationId);
     if (firstTurnTargets.length === 0) {
@@ -93,8 +99,9 @@ export class AgentDispatchService {
       senderId,
       initialTargets: firstTurnTargets,
       triggerMessageId: triggerEntries[0]?.id,
-      // F20261012swsg（#1430）：触发为最新 user entry（同上）——安全词扫描闸放行
-      triggerSenderType: "user",
+      // F20261012swsg（#1430）：来源由 dispatch() 调用方声明透传——合成文本传 system 不进扫描；
+      // 缺省不扫描（漏报方向安全）
+      triggerSenderType,
       ...(injection?.images && { images: injection.images }),
       invokeFn: async (params) => {
         const invokeResult = await this.deps.agentInvokePort.invokeConversation({
@@ -122,14 +129,17 @@ export class AgentDispatchService {
   /** resolveFirstTurnTargets：读库最新 user 消息的 talkingStonePassedTo 定目标（旧路径，路由器未注入时降级）。
    *  F20260901sgpv P1 已知竞态（四入口勘测硬约束 1）：并发两条 user 消息时可能读到错误目标——
    *  信号路由路径（消息自带目标）不受此影响；旧路径随 P2 链驱动替换一并退役 */
-  /** F20260913ctlv：IM 显式目标直连链（fire-and-forget，与 invokeTarget 同款语义） */
+  /** F20260913ctlv：IM 显式目标直连链（fire-and-forget，与 invokeTarget 同款语义）。
+   *  F20261012swsg：来源由 dispatch() 调用方声明——IM 用户消息 user / 合成文本 system，
+   *  不在此处硬编码（共享入口，合成文本曾被当用户消息扫描——#1430 首轮严重1）。 */
   private fireDirectChain(
     conversationId: string,
     userMessageContent: string,
     senderId: string,
     targets: string[],
-    injection?: InjectionPayload,
+    opts?: { injection?: InjectionPayload; triggerSenderType?: SenderType },
   ): void {
+    const { injection, triggerSenderType } = opts ?? {};
     void (async () => {
       try {
         await this.deps.dispatchChainEngine.executeChain({
@@ -137,8 +147,8 @@ export class AgentDispatchService {
           userMessageContent,
           senderId,
           initialTargets: targets,
-          // F20261012swsg（#1430）：IM 直连链触发消息为用户消息——安全词扫描闸放行
-          triggerSenderType: "user",
+          // F20261012swsg（#1430）：来源由 dispatch() 调用方声明透传
+          triggerSenderType,
           ...(injection?.images && { images: injection.images }),
           invokeFn: (params) => this.deps.agentInvokePort.invokeConversation({
             otterId: params.otterId,

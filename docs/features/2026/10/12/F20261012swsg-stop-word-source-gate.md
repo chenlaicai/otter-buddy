@@ -40,7 +40,7 @@ causal_links:
 
 ## 1. 背景与事故
 
-2026-10-12 08:29，大獭（restart 后干净上下文首轮）在「外部洞察」对话被「每日 AI 雷达」定时任务唤醒后，发言「收到『停下』，按急停执行了」并急停 yield user——**用户从未发过「停下」**（08:59 搭档指认：「这是严重bug……我根本没说过」）。11:57 同款误报二次复现，触发源为 system 合成消息（[首哑告警] 转发，内嵌文案模板自身的「停下」例句）。
+2026-10-12 08:29，大獭（restart 后干净上下文首轮）在「外部洞察」对话被「每日 AI 雷达」定时任务唤醒后，发言「收到『停下』，按急停执行了」并急停 yield user——**用户从未发过「停下」**（08:59 搭档指认：「这是严重bug……我根本没说过」）。11:57 同款误报二次复现，触发源为 system 合成消息（[首哑告警] 转发，内嵌被截断的 speak 摘要与处置决策树文本）。**11:57 事发链路勘定（首轮审视后核验修正）**：agent-invoker 首哑处置 → `dispatch()` 共享入口 → fireDirectChain 直连链（issue 实录『含处置决策树』全仓唯一命中该路径）——非本文初版归因的 signal-router 路径；两条路径修复前均无来源闸，修复后均已封。
 
 影响面（issue #1430 实录）：
 - 雷达任务 prompt 自 2026-09-21 起每次触发都注入同款假 reminder——「LLM 每次都正确忽略」不可依赖（干净上下文首轮即误判）；
@@ -53,6 +53,7 @@ causal_links:
 1. **扫描点不区分来源**：`dispatch-chain-engine.ts` 对首 hop 触发消息全文 `scanStopWords`，无 senderType 判定——注释自述「用户原始消息」，但参数实际可能是 scheduler system entry；
 2. **定时链路把 scheduler prompt 当触发消息传入**：`scheduler-service.ts`（直连链）与 `signal-router.ts`（invokeTarget）均以 system entry body 为 `userMessageContent` 调 `executeChain`；
 3. **reminder 措辞固定声称「用户消息」**：与事实不符，误导下游 LLM 归因（08:29 事故直接推手）；
+4. **dispatch() 共享入口无来源声明**（首轮对抗审视严重 1，处置见 §5）：feishu/weixin（IM 用户消息）与 agent-invoker 首哑合成告警共用 `dispatch()` 入口，入口侧无法区分文本来源——首哑合成文本（含原派工任务原文/提醒模板例句）被当用户消息扫描（11:57 事发路径）。
 4. **无证据锚点**：下游无法机械核实「提醒声称的命中」对应哪条真实消息。
 
 行为层（大獭自认，issue 留痕，prompt 层无法机械修复）：注入文本 ≠ 用户原话，`search_messages` 返回空已是决定性反证仍照做——A1 违例。
@@ -98,15 +99,31 @@ causal_links:
 | 文件 | 变更 |
 |---|---|
 | `src/usecases/signal/stop-word-scanner.ts` | `resolveTriggerSource` 来源机械推导 + `StopWordScanEvidence` + `buildEvidenceAnchor`（缺字段降级「未提供」）；`buildReminder` 来源措辞如实 + 锚点行；`scanStopWords(message, evidence?)` |
-| `src/usecases/conversation/dispatch-chain-engine.ts` | `executeChain`/`executeChainInner` 增 `triggerSenderType`/`triggerSequenceNum`；扫描闸 `triggerSenderType === "user"` 才扫描，evidence 机械透传 |
-| 8 个调用点 | `triggerSenderType` 显式标注：user——message-controller（dispatchTurnLoop，另透传 `userMessage.sequenceNum`）、agent-dispatch-service（legacy 链 + IM 直连链）；system——scheduler-service（定时 prompt）、invoke-controller（重试续跑合成指令）、process-inbound-recruit（bridge 合成批次）、resume-interrupted-service（重启续跑合成指令）；透传——signal-router（`signal.senderType`，user 信号可扫，system 合成消息/首哑告警转发不扫） |
+| `src/usecases/conversation/dispatch-chain-engine.ts` | `executeChain`/`executeChainInner` 增 `triggerSenderType`/`triggerSequenceNum`/`triggerSenderName`；`buildStopWordReminder` 私有方法（扫描闸 `triggerSenderType === "user"` 才扫描，evidence 机械透传） |
+| `src/usecases/conversation/agent-dispatch-service.ts` | **首轮严重1 处置**：`dispatch()` 增 `triggerSenderType` 由调用方显式声明（入口不硬编码），透传到 fireDirectChain（opts 包）与 dispatchLegacyChain |
+| feishu/weixin message-processor + agent-invoker | dispatch() 调用点显式声明：IM 用户消息 `"user"`、首哑合成告警 `"system"`（11:57 事发路径封禁） |
+| `src/usecases/conversation/signal-router.ts` | invokeTarget 透传 `signal.senderType` + `sequenceNum`（建议1：SignalView 增 seq 位，router 主路径锚点 seq 可达）+ `senderName`（建议2：evidence hint 位） |
+| `src/usecases/scheduler/scheduler-service.ts`、`src/usecases/recruiting/process-inbound-recruit.ts`、`src/interface-adapters/http/controllers/invoke-controller.ts`、`resume-interrupted-service.ts` | executeChain 调用点显式标 `triggerSenderType: "system"` |
+| `src/interface-adapters/http/controllers/message-controller.ts` | dispatchTurnLoop 标 `"user"` + 透传 `userMessage.sequenceNum`（fallback 分支） |
+| 测试 | `stop-word-scanner.test.ts`（锚点+来源推导 8 用例）、`dispatch-chain-engine.test.ts`（扫描闸 4 用例）、**新增 `agent-dispatch-source-gate.test.ts`（接线层 4 用例——首轮严重1 指出的测试盲区）**、`agent-invoker-first-dumb.test.ts`（增首哑 source=system 断言） |
+
+### 5.1 首轮对抗审视处置（检视獭1443：1 严重 + 2 建议，全部接受）
+
+| 发现 | 处置 |
+|---|---|
+| 严重1：dispatch() 共享入口硬标 user，首哑合成文本仍被扫 | ✅ 修：来源改由调用方显式声明（feishu/weixin=user、首哑=system、缺省不扫描），透传两条子路径；新增接线层测试 4 用例 + 首哑断言（盲区修复） |
+| 建议1：seq 位生产不可达（只有 fallback 分支透传），「主入口透传」宣称与换轨事实不符 | ✅ 修：SignalView 增 `sequenceNum`，entryToSignalView 机械透传，invokeTarget 传 `triggerSequenceNum`——router 主路径（生产主干）seq 可达，宣称转真 |
+| 建议2：`来源=scheduler` 生产不可达，「三态达成」宣称有张力 | ✅ 修：evidence 增 hint 位（router 透传 `signal.senderName`，scheduler 前缀可识别）+ **宣称修正**（如下） |
+| 11:57 归因错误（文档归到 router 路径） | ✅ 修：实录核验后更正为 dispatch() 直连链（首哑告警），文档与 signal-router 注释同步修正 |
+
+**宣称修正（建议2 根治）**：来源枚举推导（user|scheduler|system|otter|未知）已实现且单测全覆盖；但**生产渲染受扫描闸限制当前恒输出 user**（闸内只扫 user 来源）——scheduler/system/otter/未知分支是推导能力预留（直调 API 与 T1 开非用户扫描后生效），不是当前生产可达行为。初版「三态达成」的表述已撤回，以本段为准。
 
 ## 6. 验证
 
 **bugfix 失败证据链（红 → 绿）**：
 - **修复前（红，11 failed）**：新增 #1430 用例失败方向即 bug 机械复现——`#1430 system 合成消息（案发形态：雷达 prompt 自带「停下，」）不扫描不注入` 失败于 `expected ... not to contain '[L2 安全词检测]'`（假 reminder 今天确实会被注入）；锚点用例失败于 reminder 无锚点。完整输出存档 `data/workspaces/3241317b-99d6-4d78-9248-ff208a7461bc/red-1430.txt`
-- **修复后（绿，70 passed）**：`tests/usecases/signal/stop-word-scanner.test.ts + tests/usecases/conversation/dispatch-chain-engine.test.ts` 全绿（59 既有 + 11 新增），存档 `green-1430.txt`
-- **全量**：355 test files / 5367 tests 全绿；`npm run build` 0、`npm run lint` 0
+- **修复后（绿，79 passed）**：`tests/usecases/signal/stop-word-scanner.test.ts + tests/usecases/conversation/dispatch-chain-engine.test.ts + tests/usecases/conversation/agent-dispatch-source-gate.test.ts + tests/interface-adapters/agent-invoker-first-dumb.test.ts` 全绿（首轮整改后定向重跑）
+- **全量**：356 test files / 5371 tests 全绿；`npm run build` 0、`npm run lint` 0
 - pre-existing 声明：无（全量零失败，无需基线对照）
 
 **Golden Gate**：n/a（verify_by=behavior_check 但 golden corpus 无安全词场景锚点可跑，行为面由单测机械断言锁定——比 LLM 重放更强的回归保证）。
@@ -116,6 +133,7 @@ causal_links:
 
 issue #1430 评论区协调要求的落实情况：
 1. ✅ reminder 模板携带机械锚点 `[证据: msgId=<uuid> seq=<n> 来源=<...>]`——锚点由消息系统机械拼接（`buildEvidenceAnchor`），不经 LLM 书写
-2. ✅ 来源枚举三态达成且 superset（user|scheduler|system|otter|未知）——11:57 复现的 system 合成消息来源可表示，二值枚举不漏
+2. ✅ 来源枚举推导三态+superset（user|scheduler|system|otter|未知）实现且单测覆盖——11:57 复现的 system 合成消息来源可表示，二值枚举不漏（生产渲染范围见 §5.1 宣称修正——受扫描闸限制当前恒 user，枚举位为 T1 开闸预留）
 3. ✅ 无锚点时降级标注由模板生成器机械拼接（逐字段「未提供」/「未知」），不走 prompt 层
-4. **seq 透传面如实说明**：message-controller 主入口透传 `userMessage.sequenceNum`；signal-router/scheduler 等路径的触发 entry seq 未在既有参数面暴露，seq 位降级「未提供」（不为锚点强行扩 SignalView/scheduler 参数面——增量 PR 可按 T1 落地节奏补）
+4. **seq 透传面（首轮建议1 处置后更新）**：router 主路径经 SignalView.sequenceNum 透传（生产主干可达）；message-controller fallback 分支经 `userMessage.sequenceNum` 透传；scheduler-service 直连链路径的 anchor entry seq 未在既有参数面暴露，seq 位降级「未提供」（不为锚点强行扩 scheduler 参数面——增量 PR 可按 T1 落地节奏补）
+5. **来源枚举宣称**：推导能力三态+superset 单测全覆盖；生产渲染受扫描闸限制当前恒 user（详见 §5.1 宣称修正）
