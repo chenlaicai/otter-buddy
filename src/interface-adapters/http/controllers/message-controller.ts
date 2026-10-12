@@ -313,6 +313,8 @@ export class MessageController {
       senderId: body.senderId, allTargets, images: injection?.images,
       // F20260902sgp2 S1：触发消息 ID（派发台账首 hop 记账）
       triggerMessageId: userMessage.id,
+      // F20261012swsg（#1430）：触发消息序列号（安全词证据锚点 seq 位）
+      triggerSequenceNum: userMessage.sequenceNum,
     })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
@@ -367,9 +369,9 @@ export class MessageController {
   /** Turn 级调度循环：派发一批 otter → 等待全部完成 → 聚合 turn → 派发下一轮 */
   private async dispatchTurnLoop(
     targets: string[],
-    ctx: { conversationId: string; userMessageContent: string; senderId: string; allTargets: Set<string>; images?: Array<{ type: "image"; data: string; mimeType: string }>; triggerMessageId?: string },
+    ctx: { conversationId: string; userMessageContent: string; senderId: string; allTargets: Set<string>; images?: Array<{ type: "image"; data: string; mimeType: string }>; triggerMessageId?: string; triggerSequenceNum?: number },
   ): Promise<void> {
-    const { conversationId, userMessageContent, senderId, allTargets, images, triggerMessageId } = ctx;
+    const { conversationId, userMessageContent, senderId, allTargets, images, triggerMessageId, triggerSequenceNum } = ctx;
 
     // 使用 DispatchChainEngine 执行发言链（事件通过 broadcastEvent 统一推送到订阅者）
     await this.dispatchChainEngine.executeChain({
@@ -379,6 +381,10 @@ export class MessageController {
       initialTargets: targets,
       // F20260902sgp2 S1：触发消息 ID（首 hop 派发记账）
       triggerMessageId,
+      // F20261012swsg（#1430）：触发消息恒为 user entry（sendMessage 主入口）——安全词扫描闸放行，
+      // seq 透传作证据锚点
+      triggerSenderType: "user",
+      triggerSequenceNum,
       ...(images && { images }),
       invokeFn: async (params) => {
         for (const id of params.otterId ? [params.otterId] : []) allTargets.add(id);

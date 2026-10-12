@@ -14,7 +14,7 @@
  * - routePendingSignals → routeSignal（事件驱动路由）
  * - 档位概念移除：NORMAL/URGENT/HALT → followUp（默认）/ steer（标急）/ abort（session 方法调用）
  */
-import type { Entry } from "@entities/conversation/entry";
+import type { Entry, SenderType } from "@entities/conversation/entry";
 import type { EntryRepository } from "./entry-repository";
 import type { ConversationRepository } from "./conversation-repository";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -353,6 +353,9 @@ export class SignalRouter {
           initialTargets: [otterId],
           invokeFn: (params) => this.deps.invokeFn(params),
           triggerMessageId: signal.id,
+          // F20261012swsg（#1430）：信号触发消息来源透传——安全词扫描闸只放行 user 信号，
+          // system 合成消息（首哑告警转发等）/scheduler 锚点不进扫描（11:57 二次复现根因）
+          triggerSenderType: signal.senderType as SenderType,
         });
       } catch (err) {
         this.deps.logger.error("SignalRouter invoke 失败", err instanceof Error ? err : new Error(String(err)), {

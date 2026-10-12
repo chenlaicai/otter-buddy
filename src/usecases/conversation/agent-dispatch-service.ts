@@ -93,6 +93,8 @@ export class AgentDispatchService {
       senderId,
       initialTargets: firstTurnTargets,
       triggerMessageId: triggerEntries[0]?.id,
+      // F20261012swsg（#1430）：触发为最新 user entry（同上）——安全词扫描闸放行
+      triggerSenderType: "user",
       ...(injection?.images && { images: injection.images }),
       invokeFn: async (params) => {
         const invokeResult = await this.deps.agentInvokePort.invokeConversation({
@@ -135,6 +137,8 @@ export class AgentDispatchService {
           userMessageContent,
           senderId,
           initialTargets: targets,
+          // F20261012swsg（#1430）：IM 直连链触发消息为用户消息——安全词扫描闸放行
+          triggerSenderType: "user",
           ...(injection?.images && { images: injection.images }),
           invokeFn: (params) => this.deps.agentInvokePort.invokeConversation({
             otterId: params.otterId,

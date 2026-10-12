@@ -1101,6 +1101,9 @@ export class SchedulerService {
         userMessageContent: body ?? task.body,
         senderId: task.senderId,
         initialTargets: task.talkingStonePassedTo,
+        // F20261012swsg（#1430）：定时任务 prompt 是 scheduler 合成文本（senderType='system'）——
+        // 不进安全词扫描（案发源头：雷达 prompt 自带「停下，」被误扫）。此路径永不触发 L2 急停提醒。
+        triggerSenderType: "system",
         // F20260902sgp2 S1：定时任务链记账——trigger 为任务锚点消息（anchorMessageId
         // 由调用方注入；无锚时首 hop 不记账，仅 hop 2+ 按 yield 出处记，不阻断）
         triggerMessageId: anchorMessageId,

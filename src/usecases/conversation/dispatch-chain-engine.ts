@@ -14,6 +14,7 @@ import type { HealingEventRepository } from "@usecases/healing/healing-event-rep
 import { randomUUID } from "node:crypto";
 // F20260826mwrd C3（Part 6）：L2 安全词扫描
 import { scanStopWords } from "@usecases/signal/stop-word-scanner";
+import type { SenderType } from "@entities/conversation/entry";
 
 export interface ChainHopResult {
   otterReply?: string;
@@ -138,6 +139,11 @@ export class DispatchChainEngine {
       /** F20260902sgp2 S1：触发消息 ID（首 hop 记账）。缺省时跳过首 hop 记账（链路零变化）。
        *  hop 2+ 记账用 yield 出处消息 ID，与此参数无关。 */
       triggerMessageId?: string;
+      /** F20261012swsg（#1430）：触发消息来源（安全词扫描闸 + 证据锚点）。只对 user 来源扫描；
+       *  缺省/非 user 一律不扫描（漏报方向安全，退化纯 L1 prompt 检测）。 */
+      triggerSenderType?: SenderType;
+      /** F20261012swsg：触发消息序列号（证据锚点 seq 位，机械透传） */
+      triggerSequenceNum?: number;
       /** #775：账面来源穿透（路由器点火的记账原点在路由器；不穿透则终态行恒标 'chain'，S2 观察期标签失真）。 */
       ledgerSource?: "chain" | "router" | "retry";
       /** F20260908rlcp：恢复侧 steer 去重——已消化的 msg id 从未读注入剔除 */
@@ -159,13 +165,17 @@ export class DispatchChainEngine {
       images?: Array<{ type: "image"; data: string; mimeType: string }>;
       /** F20260902sgp2 S1：触发消息 ID（首 hop 记账） */
       triggerMessageId?: string;
+      /** F20261012swsg（#1430）：触发消息来源（安全词扫描闸） */
+      triggerSenderType?: SenderType;
+      /** F20261012swsg：触发消息序列号（证据锚点 seq 位） */
+      triggerSequenceNum?: number;
       /** #775：台账账面来源（穿透到首 hop 记账行，缺省 'chain'） */
       ledgerSource?: "chain" | "router" | "retry";
       /** F20260908rlcp：恢复侧 steer 去重 */
       excludeMessageIds?: Set<string>;
     },
   ): Promise<{ otterReply?: string }> {
-    const { conversationId, userMessageContent, senderId, initialTargets, invokeFn, callbacks, images, triggerMessageId, ledgerSource, excludeMessageIds } = params;
+    const { conversationId, userMessageContent, senderId, initialTargets, invokeFn, callbacks, images, triggerMessageId, triggerSenderType, triggerSequenceNum, ledgerSource, excludeMessageIds } = params;
     let targets = initialTargets;
     let depth = 0;
     let lastOtterReply: string | undefined;
@@ -177,10 +187,21 @@ export class DispatchChainEngine {
     // F20260826mwrd C3（Part 6）：L2 安全词扫描——用户原始消息命中独立成词「停下」时
     // 生成 reminder，附在每个 hop 的消息末尾（首 hop 原文扫描；不硬拦，LLM 语境确认）。
     // 扫描失败不影响主流程（退化纯 L1 prompt 检测，与现状等价）。
+    // F20261012swsg（#1430 假急停）：扫描闸收窄到 user 来源触发消息——scheduler prompt /
+    // system 合成消息 / 重试续跑指令等非用户文本不进扫描（案发：雷达 prompt 自带「停下，」
+    // 被误扫注入「用户消息命中」假提醒致假急停）。失效方向：来源漏传/误标 → 不扫描 =
+    // 漏报方向，退化纯 L1（scanner 既定安全方向）。reminder 带机械证据锚点供下游核实归因。
     let stopWordReminder: string | null = null;
-    try {
-      stopWordReminder = scanStopWords(userMessageContent).reminder;
-    } catch { /* 扫描器异常降级为无 reminder */ }
+    if (triggerSenderType === "user") {
+      try {
+        stopWordReminder = scanStopWords(userMessageContent, {
+          messageId: triggerMessageId,
+          sequenceNum: triggerSequenceNum,
+          senderType: triggerSenderType,
+          senderHint: senderId,
+        }).reminder;
+      } catch { /* 扫描器异常降级为无 reminder */ }
+    }
 
     let pendingSteerText: string | undefined; // #530 护栏 steer 文案，从上一 hop 传递到下一 hop
 

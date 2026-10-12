@@ -8,7 +8,7 @@
  * - reminder 文本含语境确认引导（不硬拦）
  */
 import { describe, it, expect } from 'vitest';
-import { scanStopWords } from '@usecases/signal/stop-word-scanner';
+import { scanStopWords, resolveTriggerSource } from '@usecases/signal/stop-word-scanner';
 
 describe('scanStopWords 形态 1：完全相等（去首尾标点/空白）', () => {
   it('纯「停下」命中', () => {
@@ -111,5 +111,47 @@ describe('scanStopWords reminder 语义', () => {
 
   it('未命中时 reminder 为 null（零开销）', () => {
     expect(scanStopWords('正常消息').reminder).toBeNull();
+  });
+});
+
+describe('reminder 证据锚点（F20261012acpt T1 插槽，#1430）', () => {
+  it('带证据：锚点机械拼接 msgId/seq/来源', () => {
+    const r = scanStopWords('停下', { messageId: 'msg-1', sequenceNum: 7, senderType: 'user', senderHint: 'ou_x' });
+    expect(r.reminder).toContain('[证据: msgId=msg-1 seq=7 来源=user]');
+  });
+
+  it('无锚点：逐字段降级「未提供」，不编造', () => {
+    const r = scanStopWords('停下');
+    expect(r.reminder).toContain('[证据: msgId=未提供 seq=未提供 来源=未知]');
+  });
+
+  it('seq=0 合法值不降级为未提供', () => {
+    const r = scanStopWords('停下', { messageId: 'm', sequenceNum: 0, senderType: 'user' });
+    expect(r.reminder).toContain('seq=0');
+  });
+
+  it('非 user 来源措辞如实（触发消息（来源：…），不冒称用户消息——#1430 假急停根因之一）', () => {
+    const r = scanStopWords('停下', { senderType: 'system', senderHint: 'scheduler:每日 AI 雷达' });
+    expect(r.reminder).toContain('触发消息（来源：scheduler）');
+    expect(r.reminder).not.toContain('用户消息命中');
+  });
+});
+
+describe('resolveTriggerSource 来源机械推导（三态 + otter）', () => {
+  it('user / otter 直映射', () => {
+    expect(resolveTriggerSource('user')).toBe('user');
+    expect(resolveTriggerSource('otter')).toBe('otter');
+  });
+
+  it('system + scheduler: 前缀（senderName 形态）→ scheduler', () => {
+    expect(resolveTriggerSource('system', 'scheduler:每日 AI 雷达')).toBe('scheduler');
+    expect(resolveTriggerSource('system', 'scheduler:影子日报')).toBe('scheduler');
+  });
+
+  it('system 无前缀 → system；来源缺失 → 未知（机械降级，不猜）', () => {
+    expect(resolveTriggerSource('system')).toBe('system');
+    expect(resolveTriggerSource('system', 'boss-zhipin-bridge')).toBe('system');
+    expect(resolveTriggerSource(undefined)).toBe('未知');
+    expect(resolveTriggerSource(null, null)).toBe('未知');
   });
 });
