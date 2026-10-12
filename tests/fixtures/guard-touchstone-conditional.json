@@ -1,0 +1,4040 @@
+{
+ "meta": {
+  "plan": "bash-guard-one-shot-plan.md v3",
+  "adjudication_standard": "§3.2.1 证明演算三条规则（v3）",
+  "contract": "进库冻结；verdict 二值；CI 断言 SKIP=0；追加须双签+呈报",
+  "double_sign": "review-one-shot-plan-delta 双签结论（检视獭1360 2026-10-12 18:34 + 大獭签）+ git pull 修正口径",
+  "generated_at": "2026-10-12T10:52:25.895869Z",
+  "generated_by": "守卫修复獭（重刷期望+冻结，派工单 2026-10-12 18:36）",
+  "pool": "条件期望库（无 cd cwd 不可反查——worktree→ALLOW / 主仓→BLOCK 双态各跑）",
+  "count": 103,
+  "restate_changes": {
+   "git_policy_flip": 68,
+   "to_conditional": 108,
+   "o2_pooled": 26,
+   "o2_excl": 20,
+   "ledger_dispose": 8
+  },
+  "total_conserved": 1006,
+  "dedup_note": "截断态 unique 1006 → 全文恢复后命令级 unique 988（17 组恢复撞车已合并，双签处置为准）"
+ },
+ "entries": [
+  {
+   "id": "TS-c062",
+   "command": "npx tsc -p . --outDir dist-probe 2>&1 | tail -3 && node -e \"\nimport('./dist-probe/src/frameworks/agent/command-model.js').then(({ parseOnce }) => {\n  const cases = [\n    ['issue 复现', 'cd /repo/.otter/worktrees/wt && git commit -F m.txt | grep -vE \\\"^npm|^\\$\\\" | head -5'],\n    ['无管道', 'grep -vE \\\"^a|^\\$\\\"'],\n    ['锚定行尾', 'grep \\\"x\\$\\\"'],\n    ['真 locale', 'echo \\$\\\"hello world\\\"'],\n    ['locale 未闭合', 'echo \\$\\\"abc'],\n    ['残缺配对', 'echo \\$\\\"a\\\"b\\\"c'],\n    ['变量不受影响', 'echo \\\"\\$HOME\\\"'],\n    ['\\$ 后跟单引号', 'echo \\$\\'x\\''],\n  ];\n  for (const [label, cmd] of cases) {\n    const m = parseOnce(cmd);\n    console.log((m.parseOk ? 'OK  ' : 'FAIL'), label, JSON.stringify(cmd), m.issues);\n  }\n});\n\"",
+   "adjudication": [
+    "台账复裁处置：检视獭驳平 ALLOW 放水口（--outDir dist-probe 相对路径）→ 改条件期望",
+    "条件期望（双签口径）：台账复裁：无 cd 相对路径写（检视獭驳放水口）",
+    "归一去重合并：同命令 2 条目合并（双签处置为准/保留最早锚点）"
+   ],
+   "kind": "signed_dispo",
+   "source": {
+    "types": [
+     "guard_intercept",
+     "ledger_1009"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "8153e861-2c9d-4e75-91ca-dae2828891ac",
+      "ts": "2026-10-09T03:46:28.357Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     },
+     {
+      "source": "ledger_1009",
+      "id": "c062",
+      "verdict_1009": "BLOCK",
+      "expect_old": "UNEVAL_UNKNOWN",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决） [truncated-payload: commandHead 120 字符截"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "BLOCK",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": "检视獭驳平 ALLOW 放水口（--outDir dist-probe 相对路径）→ 改条件期望"
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-c061",
+   "command": "cat > docs/features/2026/10/09/F20261009qdlq-lexer-quoted-dollar-rawquote.md <<'FDOC'\n---\nid: F20261009qdlq\ntitle: \"命令词法层 $\\\" raw-quote 回退：双引号内 $ 紧邻闭引号不再误吞外层引号（#1374）\"\nsummary: \"词法 scanExpansion 对 $\\\" 一律按 locale 引用 $\\\"...\\\" 找配对闭引号——grep \\\"^npm|^$\\\" 形态（$ 是正则锚定、\\\" 是外层闭合）被误判 locale 未闭合，连带外层引号 fail → parseOk=false → modelCdExemption 退化 false → cd worktree + git commit + grep 管道被误拦（4 连拦实证）。修复：闭引号后词尾内无更多 \\\" 时按字面 $ 回退（raw-quote 形态），闭引号留给外层引号扫描消费。\"\nchange_type: fix\ncapability_test: \"tests/capability/ n/a: bash 守卫词法层纯代码逻辑单测（词法 7 用例 + 守卫端到端 2 用例），非 prompt 行为面\"\ncreated_in_conversation: d7377cfd-8497-4338-9fb5-366967ffe87e\nmodules: [src/frameworks/agent/command-lexer.ts, tests/frameworks/agent/command-lexer.test.ts, tests/frameworks/agent/bash-safety-guard.test.ts]\ntags: [guard, lexer, false-positive, cd-exemption]\nissues: [1374]\nstatus: done\n---\n\n## 背景\n\n#1374（P1）：`cd <worktree> && git commit -F msg.txt | grep -vE \"^npm|^$\" | head -5` 形态被 MAIN_WRITE_BLOCK_MSG 拦截——cd 已指到 worktree，git commit 落点不在主仓，属误拦。2026-10-08 晚大獭因此 4 连拦（含一次系统熔断中断发言），最终去管道绕路提交。\n\n## 根因\n\n`command-lexer.ts` `scanExpansion` 对 `$\"` 分发一律按 locale 引用 `$\"...\"` 处理：`indexOf('\"', i+2)` 找配对闭引号。bash 里 `$` 后跟 `\"` 有两种解释：\n\n1. **locale 引用**：`$\"...\"`（有配对闭引号）\n2. **raw-quote**：`$` 是正则锚定等字面量，`\"` 是外层双引号的闭合（如 `grep \"^npm|^$\"`）\n\ngreedy `indexOf` 把②误判为①的未闭合 → `fail(\"unclosed locale quote\")` → 连带外层引号扫描也 fail（`unclosed double quote`）→ `parseOk=false` → `modelCdExemption` 首行 `parseOnce` 失败直接退化 false → cd 豁免失效 → git 写族正则命中 → 拦。\n\n探针实证（修复前 dist）：`grep -vE \"^npm|^$\"` → parseOk=false（issues: unclosed locale quote @16 / unclosed double quote @9）；同形态单引号 / 无 `$` 版本 parseOk=true。\n\n## 修复设计\n\n**raw-quote 回退**（narrow-fix，command-lexer.ts `scanExpansion` `$\"` 分支）：\n\n- `indexOf('\"', i+2)` 找不到闭引号 → 定是②形态（行尾再无引号，`\"` 即外层闭合）→ `$` 按字面量 lit part 入栈，`\"` 留给外层引号扫描消费，不 fail\n- 找到闭引号但闭引号后词尾内（至空白/操作符）无更多 `\"` → 同②处理（`$\"` 中的 `\"` 即外层闭合，如 `echo \"$HOME$\"` 假设形态）\n- 词尾内仍有 `\"` → 维持①未闭合 fail（保守：`echo $\"abc` / `echo $\"a\"b\"c` 残缺形态仍拦）\n\n**取舍**：\n- 不做「$ 后单字符是否正则锚定字符」语义判定——词法层不做语义，只修「不该 fail 的 fail」\n- 真 locale `$\"hello world\"` 不受影响（闭引号后词尾内无更多 `\"`——wait，这个形态也命中②规则？不：`$\"hello world\"` 中 `$` 在词首，`\"` 开引号，`hello world` 体内，`\"` 闭引号——close 在词尾，词尾内无更多 `\"`，会走②回退把 `$` 当字面量、`\"` 留给外层扫描——外层扫描从 `hello world\"` 开始会找错引号！）\n\n**修正**：回退判据收紧——`$\"` 的 `\"` 必须是**外层引号上下文内**的闭合（`quoted === \"double\"`）。词首 `$\"`（quoted=null）维持 locale 处理不变。探针矩阵验证：`echo $\"hello world\"` → unknown 且 parseOk=true（locale 语义保持）；`grep \"^x$\"` → parseOk=true（raw-quote 回退）。\n\n## 验证\n\n- **失败证据链**：修复前探针（probe-1374c.mjs 对 dist）`grep \"^x$\"` / `grep \"x$\"` 等 4 形态 FAIL。\n- **修复后**：同探针全 OK；locale 未闭合/残缺配对维持 FAIL（保守面不破）；`$VAR` 展开不受影响。\n- **测试**：词法层 7 用例（拦截面 3：locale 未闭合/残缺配对/真 locale 语义保持；修复面 3：issue 复现/锚定行尾/无管道同形态；回归 1：$VAR）+ 守卫端到端 2 用例（cd worktree + git commit + grep `\"^npm|^$\"` 管道 → 放行；单引号对照组）。全量 5123 绿（342 文件），lint 0，tsc 0。\n\n## Known Limitations\n\n- 引号内 `$\"` 后紧跟词内 `\"` 的复合形态（如 `echo \"a$\"b\"`）词尾判据可能误判——此形态本身罕见且语义模糊，维持保守 fail 可接受。\n- `$\"` 在词首且真未闭合（`echo $\"abc`）仍 fail——与修复前一致，未扩大攻击面。\nFDOC\necho done",
+   "adjudication": [
+    "台账复裁处置：检视獭驳平 ALLOW 放水口（cat > docs/features/… 相对路径）→ 改条件期望",
+    "条件期望（双签口径）：台账复裁：无 cd 相对路径写（检视獭驳放水口）",
+    "归一去重合并：同命令 2 条目合并（双签处置为准/保留最早锚点）"
+   ],
+   "kind": "signed_dispo",
+   "source": {
+    "types": [
+     "guard_intercept",
+     "ledger_1009"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "f72e4b38-ae0c-4116-ac11-4b9a1901da97",
+      "ts": "2026-10-09T03:52:13.459Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     },
+     {
+      "source": "ledger_1009",
+      "id": "c061",
+      "verdict_1009": "BLOCK",
+      "expect_old": "UNEVAL_UNKNOWN",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "BLOCK",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": "检视獭驳平 ALLOW 放水口（cat > docs/features/… 相对路径）→ 改条件期望"
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-3d1b9439",
+   "command": "WT=/repo/.otter/worktrees/wt && python3 - << 'EOF'\nimport re\np = f\"{'/repo/.otter/worktrees/wt'}/src/usecases/conversation/agent-turn-orchestrator/orchestrator.ts\"\ns = open(p).read()\ns = s.replace(\n  \"await ctx.callbacks.updateInvokeTokenUsage?.(input.invokeId, result.tokenUsage.input, result.tokenUsage.output);\",\n  \"await ctx.callbacks.updateInvokeTokenUsage?.(input.invokeId, result.tokenUsage.input, result.tokenUsage.output, result.tokenUsage.cacheRead, result.tokenUsage.cacheWrite);\"\n)\nopen(p, 'w').write(s)\nprint(\"orchestrator done\")\n\n# types.ts: updateInvokeTokenUsage 签名\np2 = \"/repo/.otter/worktrees/wt/src/usecases/conversation/agent-turn-orchestrator/types.ts\"\ns2 = open(p2).read()\ns2 = s2.replace(\n  \"updateInvokeTokenUsage?(invokeId: string, input: number, output: number): Promise<void>;\",\n  \"updateInvokeTokenUsage?(invokeId: string, input: number, output: number, cacheRead?: number, cacheWrite?: number): Promise<void>;\"\n)\nopen(p2, 'w').write(s2)\nprint(\"types callback done\")\nEOF",
+   "adjudication": [
+    "§3.2.1-1 写证据落点全树外→按落点判放行",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "3d1b9439-c9b3-41b3-a7f0-e3cdb11ddc37",
+      "ts": "2026-09-23T10:23:48.920Z",
+      "conversation_id": "98bd9fdd-8e28-4de8-b782-b59f46e733dd",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-0",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "f2cca199",
+   "command": "git add -A && git commit -F /tmp/commit-msg-guard-r1.txt 2>&1 | tail -12",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "f2cca199-c133-48ef-bf4c-b56a04857440",
+      "ts": "2026-09-23T14:12:52.101Z",
+      "conversation_id": "a9260c50-cef6-412e-a0b4-282287a13103",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     },
+     {
+      "source": "guard_intercept",
+      "event_id": "f6d42452-930f-4c53-9d93-99bc5b52a717",
+      "ts": "2026-09-23T14:13:06.312Z",
+      "conversation_id": "a9260c50-cef6-412e-a0b4-282287a13103",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "9fb61a78",
+   "command": "git add docs/features/2026/10/05/F20261005mtlp-matter-loop-closure.md && git commit --author \"大獭 <otter-buddy>\" -m \"[F20261005mtlp][Design] 事情闭环机制方案：未完成之事从对话流升格为承诺台账\n\nModification-Class: mechanism-addition\n\n搭档国庆后回三省吾身对话，待决策被新一日消息顶走无声过期。方案引入\nmatter 一等实体：per-conversation 承诺台账 + 五态状态机 + 宣告权沿用\n决策分级轴 + 未闭环清单进 restart 机械供料 + 对话头部事情板。设计经\n大獭+思澜双獭头脑风暴收敛，搭档拍板落方案（对话 e871769f）。\n\n🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by 大獭\" 2>&1 | tail -5",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "9fb61a78-14a1-4345-bd5e-f3e937c88107",
+      "ts": "2026-10-05T06:59:13.856Z",
+      "conversation_id": "e871769f-a731-4278-ae21-de3ab4c8eaf8",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     },
+     {
+      "source": "guard_intercept",
+      "event_id": "69493a47-3c0b-4819-9bc7-67a39fe55594",
+      "ts": "2026-10-05T06:59:56.050Z",
+      "conversation_id": "e871769f-a731-4278-ae21-de3ab4c8eaf8",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "53ae7e3f",
+   "command": "git pull --rebase origin fix/1374-quoted-dollar-locale 2>&1 | tail -3 && git push origin fix/1374-quoted-dollar-locale 2>&1 | tail -3",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "53ae7e3f-a271-43d0-9acf-ca28b550bdf6",
+      "ts": "2026-10-09T05:17:50.694Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     },
+     {
+      "source": "guard_intercept",
+      "event_id": "a32b9eb7-7334-4e9e-b95a-7c1cfc2335ea",
+      "ts": "2026-10-09T05:17:50.779Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "b4548ceb",
+   "command": "git rebase origin/main 2>&1 | tail -2 && git push origin pr1390-rebase:fix/healing-bound-issue-index-order --force-with-lease 2>&1 | tail -1",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "b4548ceb-9409-4464-abe4-020a47ca2ec1",
+      "ts": "2026-10-09T06:29:02.255Z",
+      "conversation_id": "a23f0f4a-612c-46e9-8d83-be648ced720e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     },
+     {
+      "source": "guard_intercept",
+      "event_id": "8835e4b1-8b0c-40d8-9606-126257c53772",
+      "ts": "2026-10-09T06:29:02.296Z",
+      "conversation_id": "a23f0f4a-612c-46e9-8d83-be648ced720e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "b1c9e7ec",
+   "command": "mkdir -p /repo/.otter/local-stash-backup && git diff > /repo/.otter/local-stash-backup/capability-tests-20260924.patch && wc -l /repo/.otter/local-stash-backup/capability-tests-20260924.patch && git stash push -m \"capability tests local wip backup 2026-09-24 (pre main update for gfpn activation)\" && git pull --ff-only && git log --oneline -1",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "b1c9e7ec-15cb-4aa1-98ec-fc221a7ebb4f",
+      "ts": "2026-09-24T02:13:45.647Z",
+      "conversation_id": "7b41e085-5c21-4bd1-adfe-dc3ef051753d",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "7f84dabb",
+   "command": "test -f .doc-fix && git add .doc-fix docs/features/2026/09/17/F20260917mfrc-memory-first-recall.md docs/features/2026/09/23/F20260923icus-invoke-cache-usage.md docs/features/2026/09/24/F20260924vbsu-verify-by-schema-unify.md && git commit --author=\"大獭 <otter-buddy>\" -F /tmp/commit-msg-vbsu-fix.txt 2>&1 | tail -4",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "7f84dabb-ccd6-4af1-bb6c-78ac240466ed",
+      "ts": "2026-09-24T04:41:41.923Z",
+      "conversation_id": "156a6abc-1640-47c2-bba7-399e1ccf030f",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "5a91ab99",
+   "command": "git commit -m \"[F20261001a1275][guard][docs] 特性文档目录顺延至合入日 10/05（merge 带入 main 后重排）\" --author=\"大獭 <otter-buddy>\" && git push origin fix/issue-1275-interpreter-exec && echo PUSHED",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "5a91ab99-e6e6-4641-a0b3-59c5a31217aa",
+      "ts": "2026-10-05T08:00:28.920Z",
+      "conversation_id": "dd453bf3-4035-4a1e-91e3-c3602dcdd473",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "20ce6949",
+   "command": "git commit -m \"[F20261005i1275][guard][docs] 特性文档顺延至合入日：F20261001a1275 → F20261005i1275（ID/目录/源码注释同步，merge origin/main 带入今日合入）\" --author=\"大獭 <otter-buddy>\" && git push origin fix/issue-1275-interpreter-exec && echo PUSHED",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "20ce6949-611e-4b6d-9b1c-d5d8dbbdc4a4",
+      "ts": "2026-10-05T08:03:00.341Z",
+      "conversation_id": "dd453bf3-4035-4a1e-91e3-c3602dcdd473",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "551c3496",
+   "command": "git add docs/features/2026/10/05/F20261005i1275-interpreter-direct-exec-main-write-detection.md src/frameworks/agent/bash-safety-guard.ts && git commit --amend --no-edit --author=\"大獭 <otter-buddy>\" 2>&1 | tail -2 && git push origin fix/issue-1275-interpreter-exec --force-with-lease 2>&1 | tail -2 && echo PUSHED && gh api \"repos/chenlaicai/otter-buddy/contents/docs/features/2026/10/05/F20261005i1275-interpreter-direct-exec-main-write-detection.md?ref=fix/issue-1275-interpreter-exec\" --jq '.content' | base64 -d | head -2",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "551c3496-a601-44c5-a324-069d0f968179",
+      "ts": "2026-10-05T08:59:57.276Z",
+      "conversation_id": "dd453bf3-4035-4a1e-91e3-c3602dcdd473",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "9ccffbef",
+   "command": "git add docs/features/2026/10/05/F20261005mtlp-matter-loop-closure.md && git commit --author \"大獭 <otter-buddy>\" -m \"[F20261005mtlp][conversation][Design] 第二轮审视处置：owner字段+yield打标判据+獭侧工具+涟漪清扫\n\nModification-Class: mechanism-addition\n\n复核獭（glm）第二轮完整审视 5 严重 5 建议全修：补 owner_otter_id（打回/\n唤醒/重派路由依据）、准入判据载体=yield 可选参数 expects_partner_decision\n（防泛滥机械/防漏报纪律+扫描兜底如实声明）、獭侧 matter 工具入改动范围\n表（P1 就需要）、修订涟漪清扫（summary/§1 残留旧落点）、同步 main 解 CI；\n矛盾裁决时序语义、日巡停滞提醒、cardId 永久关闭坑标注、分期验收标准、\n非负责獭代执行路径。\n\n🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by 大獭\" 2>&1 | tail -2 && git push 2>&1 | tail -1",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "9ccffbef-9424-4d59-afc2-7d521a7099ec",
+      "ts": "2026-10-05T09:18:03.597Z",
+      "conversation_id": "e871769f-a731-4278-ae21-de3ab4c8eaf8",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "7d997965",
+   "command": "git add docs/features/2026/10/05/F20261005mtlp-matter-loop-closure.md && git commit --author \"大獭 <otter-buddy>\" -m \"[F20261005mtlp][conversation][Design] 复核獭delta复核后微修：改动范围表路径笔误 packages/web/→web/\n\nModification-Class: mechanism-addition\n\n🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by 大獭\" 2>&1 | tail -1 && git push 2>&1 | tail -1",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "7d997965-cdf4-4107-9438-e5bc6b1aeb1d",
+      "ts": "2026-10-05T09:21:03.677Z",
+      "conversation_id": "e871769f-a731-4278-ae21-de3ab4c8eaf8",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "823f1d1a",
+   "command": "git commit --author \"实现獭 <otter-buddy>\" -m \"[F20261005mtlp][conversation][New Feature] 待办机制 P1 后端闭环+只读右侧栏tab\n\nModification-Class: mechanism-addition\n\nmatters 表（15 字段 3 索引）+ 状态机迁移守卫（16 条矩阵+宣告权 L2 守卫）\n+ 獭侧 list_matters/transition_matter 工具 + yield expects_partner_decision\n打标登记 + handoff_open_matters 机械供料 + 只读待办 tab（第五 tab，\nClipboardList）+ dissolve hook 等待方消亡回 OPEN。52 单测+能力测试，\ndb 迁移真启动验证（生产副本 1GB 无 SqliteError 零数据影响），UI 截图取证。\n\n🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by 实现獭\" 2>&1 | tail -2 && git push 2>&1 | tail -1",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "823f1d1a-843e-4929-91d2-d2814ef1224b",
+      "ts": "2026-10-06T00:03:56.371Z",
+      "conversation_id": "e871769f-a731-4278-ae21-de3ab4c8eaf8",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "57067d07",
+   "command": "git add -A && git commit --author \"实现獭 <otter-buddy>\" -m \"[F20261005mtlp][conversation][BugFix] P1审视修复：代执行on_behalf_of+dissolve判定键+payload载体\n\nModification-Class: mechanism-addition\n\n代码审獭（mimo-pro）4严重6建议全修：transition_matter 新增 on_behalf_of\n代执行声明（按被代理者身份过三层守卫，裁决类强制 resolution 留痕）、\ndissolve hook 判定键改 waiting_on 主键+owner 兜底、payload 写入载体\n（yield 登记写 brief+工具加 payload 参数）、矩阵 DPC 出口补齐、resolved_by\n格式归一化、接口-实现漂移收敛。后端 4660/4660，方案文档同步修订。\n\n🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by 实现獭\" 2>&1 | tail -2 && git push 2>&1 | tail -1",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "57067d07-f480-4027-8c27-84acb92d76db",
+      "ts": "2026-10-06T00:51:48.175Z",
+      "conversation_id": "e871769f-a731-4278-ae21-de3ab4c8eaf8",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "35d4df4c",
+   "command": "grep -c \"<<<<<<<\\|>>>>>>>\" src/frameworks/agent/bash-safety-guard.ts tests/frameworks/agent/bash-safety-guard.test.ts; git add -A && git rebase --continue 2>&1 | tail -5",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "35d4df4c-6976-42f6-a760-9441f4d50807",
+      "ts": "2026-10-06T03:17:08.932Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "afea1142",
+   "command": "git rm --cached .commit-msg-r1.txt 2>&1 | tail -1; git add src/frameworks/agent/bash-safety-guard.ts tests/frameworks/agent/bash-safety-guard.test.ts && GIT_EDITOR=true git rebase --continue 2>&1 | tail -5",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "afea1142-fb31-48e6-b42d-ee306fcf55df",
+      "ts": "2026-10-06T03:22:47.339Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "1b9bae4f",
+   "command": "git add scripts/restart-service.d.mts && git commit --author=\"大獭 <otter-buddy>\" -F /repo/data/workspaces/wsid/commit-msg.txt",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "1b9bae4f-825e-4ec5-88d6-69412ee97210",
+      "ts": "2026-10-08T08:24:10.014Z",
+      "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "6c93a372",
+   "command": "git -c http.proxy= -c https.proxy= push origin --delete fix/1277-compaction-only-reason 2>&1 | tail -2; git worktree list | grep 1277; echo \"worktree removed: $?\"",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "6c93a372-78dd-442f-889d-8e8b29a0a2c0",
+      "ts": "2026-10-08T08:27:44.582Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "6f581d5a",
+   "command": "git -c http.proxy= -c https.proxy= push origin --delete fix/1277-compaction-only-reason",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "6f581d5a-3c36-4c56-aabf-5253f83bdc72",
+      "ts": "2026-10-08T08:27:49.160Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "2f4ded67",
+   "command": "git add -A && git commit -F /repo/data/workspaces/wsid/commit-msg-v2.txt",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "2f4ded67-f5ce-4146-b213-00adbd3762f2",
+      "ts": "2026-10-08T08:54:52.376Z",
+      "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "274dd34b",
+   "command": "git add -A && git commit -F .commit-msg.txt 2>/dev/null || (cp /repo/data/workspaces/wsid/commit-msg-v2.txt .commit-msg.txt && git commit -F .commit-msg.txt && rm .commit-msg.txt)",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "274dd34b-5e04-459d-a2d9-a294c680586b",
+      "ts": "2026-10-08T08:57:31.231Z",
+      "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "2304a714",
+   "command": "git reset HEAD .commit-msg.txt 2>/dev/null; git add -A && git commit -F .commit-msg.txt",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "2304a714-c886-4b3a-90ef-a5bb5089c71f",
+      "ts": "2026-10-08T08:58:04.317Z",
+      "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "cf4b4d7a",
+   "command": "git add -A && git commit -F .commit-msg.txt",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "cf4b4d7a-3ae8-49ef-a8fc-b8703c9da8f1",
+      "ts": "2026-10-08T08:59:43.798Z",
+      "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "c5735626",
+   "command": "git rm --cached -f .commit-msg.txt --quiet && git add -A && git commit -F .commit-msg.txt && rm -f .commit-msg.txt",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "c5735626-8495-4fdd-9fdf-b794ec9f4d3e",
+      "ts": "2026-10-08T09:05:58.171Z",
+      "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "08642480",
+   "command": "git add -A && git commit -F .cleanup-msg.txt --no-verify && rm -f .cleanup-msg.txt && git log --oneline -2",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "08642480-5204-4cd7-a154-56f250529cc3",
+      "ts": "2026-10-08T09:07:31.937Z",
+      "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "71f5c062",
+   "command": "git add -A && git reset --soft HEAD~2 && git commit -F .squash-msg.txt --no-verify && rm -f .squash-msg.txt && git log --oneline -2 && git status --porcelain",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "71f5c062-484d-4783-90fd-31f72e8191fc",
+      "ts": "2026-10-08T09:08:53.724Z",
+      "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "c0f19eb8",
+   "command": "rm -f .squash-msg.txt && git add -A && git commit --amend --no-edit --no-verify && git log --oneline -1 && git show --stat HEAD | head -25",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "c0f19eb8-8a11-4035-a49d-847bec9538de",
+      "ts": "2026-10-08T09:09:26.959Z",
+      "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "a7ae968d",
+   "command": "git -c http.proxy= -c https.proxy= push origin --delete feature/healing-batch-bind-1271 2>&1 | tail -2; echo ---; git worktree list | grep 1271 || echo \"worktree-clean\"; git branch | grep 1271 || echo \"branch-clean\"",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查",
+    "归一去重合并：同命令 2 条目合并（双签处置为准/保留最早锚点）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "a7ae968d-5c60-425a-856d-d2413f0e697b",
+      "ts": "2026-10-09T00:44:40.641Z",
+      "conversation_id": "a9260c50-cef6-412e-a0b4-282287a13103",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     },
+     {
+      "source": "ledger_1009",
+      "id": "c107",
+      "verdict_1009": "ALLOW",
+      "expect_old": "UNEVAL_UNKNOWN",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "8977f242",
+   "command": "git add src/frameworks/agent/command-lexer.ts tests/frameworks/agent/command-lexer.test.ts tests/frameworks/agent/bash-safety-guard.test.ts docs/features/2026/10/09/F20261009qdlq-lexer-quoted-dollar-rawquote.md && git commit --author=\"大獭 <otter-buddy>\" -F /repo/data/workspaces/wsid/commit-msg-1374.txt 2>&1 | tail -5 && git log --oneline -1",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "8977f242-5084-4fda-a9e8-6af87cde1309",
+      "ts": "2026-10-09T03:56:45.867Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "8b7976bd",
+   "command": "rm -rf dist-probe && git add src/frameworks/agent/command-lexer.ts tests/frameworks/agent/command-lexer.test.ts tests/frameworks/agent/bash-safety-guard.test.ts docs/features/2026/10/09/F20261009qdlq-lexer-quoted-dollar-rawquote.md && git commit --author=\"大獭 <otter-buddy>\" -F /repo/data/workspaces/wsid/commit-msg-1374.txt 2>&1 | tail -3 && git log --oneline -1",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查",
+    "归一去重合并：同命令 2 条目合并（双签处置为准/保留最早锚点）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "8b7976bd-bee4-4a2a-8bf1-a87ae55391ee",
+      "ts": "2026-10-09T03:57:11.201Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     },
+     {
+      "source": "ledger_1009",
+      "id": "c060",
+      "verdict_1009": "BLOCK",
+      "expect_old": "UNEVAL_UNKNOWN",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "f97f5435",
+   "command": "git add src/frameworks/agent/command-lexer.ts tests/frameworks/agent/command-lexer.test.ts tests/frameworks/agent/bash-safety-guard.test.ts docs/features/2026/10/09/F20261009qdlq-lexer-quoted-dollar-rawquote.md && git commit --author=\"大獭 <otter-buddy>\" -F ../../../../../data/workspaces/d7377cfd-8497-4338-9fb5-366967ffe87e/commit-msg-1374.txt 2>&1 | tail -3 && git log --oneline -1",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "f97f5435-c881-4980-b257-8abf0e559813",
+      "ts": "2026-10-09T03:57:23.921Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "d7d5df2a",
+   "command": "git add src/frameworks/agent/command-lexer.ts tests/frameworks/agent/command-lexer.test.ts tests/frameworks/agent/bash-safety-guard.test.ts docs/features/2026/10/09/F20261009qdlq-lexer-quoted-dollar-rawquote.md && git commit --author=\"大獭 <otter-buddy>\" -F /repo/data/workspaces/wsid/commit-msg-1374.txt 2>&1 | tail -3 && git log --oneline -1",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "d7d5df2a-7aa1-49b1-8489-5e86bd8bffd4",
+      "ts": "2026-10-09T03:59:29.020Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "0d914603",
+   "command": "git add src/frameworks/agent/command-lexer.ts tests/frameworks/agent/command-lexer.test.ts tests/frameworks/agent/bash-safety-guard.test.ts docs/features/2026/10/09/F20261009qdlq-lexer-quoted-dollar-rawquote.md && git commit --no-verify --author=\"大獭 <otter-buddy>\" -F /repo/data/workspaces/wsid/commit-msg-1374.txt 2>&1 | tail -3 && git log --oneline -1",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查",
+    "归一去重合并：同命令 2 条目合并（双签处置为准/保留最早锚点）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "0d914603-34f7-4f9d-b27c-ae8385dd762a",
+      "ts": "2026-10-09T04:00:39.983Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     },
+     {
+      "source": "ledger_1009",
+      "id": "c059",
+      "verdict_1009": "BLOCK",
+      "expect_old": "UNEVAL_UNKNOWN",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "d3ed7247",
+   "command": "git add docs/features/2026/10/09/F20261009oqtd-otter-quest-rpg-game.md docs/review/F20261009oqtd-initial-disposition.md && git commit --author=\"大獭 <otter-buddy>\" -m \"[F20261009oqtd][docs] 獭之传说方案：README 游戏化获客——GitHub Pages 回合制 RPG（机制与系统能力同构 + 屠龙者循环终章）\" 2>&1 | tail -5",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "d3ed7247-76f8-4be8-bd79-3cb69e2a1be1",
+      "ts": "2026-10-09T04:09:40.548Z",
+      "conversation_id": "cb80d695-bce9-4b83-9f2a-98618242acd0",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "eab2bddd",
+   "command": "git add docs/features/2026/10/09/F20261009oqtd-otter-quest-rpg-game.md docs/review/F20261009oqtd-initial-disposition.md && git -c user.name='大獭' -c user.email='otter-buddy@localhost' commit -m '[F20261009oqtd][docs] 獭之传说方案：README 游戏化获客——GitHub Pages 回合制 RPG（机制与系统能力同构 + 屠龙者循环终章）' 2>&1 | tail -5",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "eab2bddd-fd9a-4e87-b4ae-5f21d46bbd0d",
+      "ts": "2026-10-09T04:09:53.530Z",
+      "conversation_id": "cb80d695-bce9-4b83-9f2a-98618242acd0",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "d0a13758",
+   "command": "git add docs/features/2026/10/09/F20261009oqtd-otter-quest-rpg-game.md docs/review/F20261009oqtd-initial-disposition.md && git commit -m '[F20261009oqtd][docs] 獭之传说方案：README 游戏化获客——GitHub Pages 回合制 RPG（机制与系统能力同构 + 屠龙者循环终章）' 2>&1 | tail -3 && git log -1 --format='%an <%ae>'",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "d0a13758-4de9-4007-8255-7bbf68743808",
+      "ts": "2026-10-09T04:11:02.936Z",
+      "conversation_id": "cb80d695-bce9-4b83-9f2a-98618242acd0",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "7c3a6371",
+   "command": "git add docs/features/2026/10/09/F20261009oqtd-otter-quest-rpg-game.md docs/review/F20261009oqtd-initial-disposition.md && git commit -m '[F20261009oqtd][docs] 獭之传说方案：README 游戏化获客——GitHub Pages 回合制 RPG（机制与系统能力同构 + 屠龙者循环终章）' 2>&1 | tail -3 && git log -1 --format='%an <%ae> %h'",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "7c3a6371-1c4b-441f-8c32-ab0e14a502ae",
+      "ts": "2026-10-09T04:11:48.580Z",
+      "conversation_id": "cb80d695-bce9-4b83-9f2a-98618242acd0",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "e5f922ec",
+   "command": "git add tests/frameworks/agent/command-lexer.test.ts && git commit --no-verify --author=\"大獭 <otter-buddy>\" -m \"[F20261009qdlq][guard][BugFix] 测试结构调整：#1374 describe 块移出顶层避免 max-lines-per-function 超限\" 2>&1 | tail -3 && git push origin fix/1374-quoted-dollar-locale 2>&1 | tail -3",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "e5f922ec-c45d-447a-8ddf-19d8cc5e6bae",
+      "ts": "2026-10-09T05:17:36.617Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "6f55439e",
+   "command": "git add tests/frameworks/agent/command-lexer.test.ts && git commit --no-verify --author=\"大獭 <otter-buddy>\" -m \"[F20261009qdlq][guard][BugFix] 测试结构修正：补全 describe 闭合括号（语法错误修复）\" 2>&1 | tail -2 && git push origin fix/1374-quoted-dollar-locale 2>&1 | tail -2",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "6f55439e-e2fd-4648-baad-eb38c59520b5",
+      "ts": "2026-10-09T06:23:02.001Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "39894844",
+   "command": "git add tests/frameworks/db/schema.test.ts && git commit --amend --no-edit --author=\"大獭 <otter-buddy>\" 2>&1 | tail -2 && git log --oneline -1",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "39894844-1725-4435-90e9-3a1fd562551e",
+      "ts": "2026-10-09T06:23:40.683Z",
+      "conversation_id": "a23f0f4a-612c-46e9-8d83-be648ced720e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "c056",
+   "command": "git add docs/features/2026/10/09/F20261009oqtd-otter-quest-rpg-game.md docs/review/F20261009oqtd-initial-disposition.md",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "ledger_1009",
+      "id": "c056",
+      "verdict_1009": "BLOCK",
+      "expect_old": "UNEVAL_UNKNOWN",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "BLOCK",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "c134",
+   "command": "git add docs/features/2026/10/09/F-example.md",
+   "adjudication": [
+    "条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "synthetic_probe",
+      "id": "c134",
+      "expect_old": "BLOCK",
+      "note": "P2 index 写：主仓 cwd git add → index 落主仓 .git → 拦"
+     }
+    ]
+   },
+   "recheck": {
+    "old_verdict_1009": "(无)",
+    "v2_expect": "条件期望",
+    "diff": true,
+    "basis": ""
+   },
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-84ad63fa",
+   "command": "git fetch origin main && git rebase origin/main && git status --short",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept",
+     "ledger_1009"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "84ad63fa-32c0-4b2d-97f5-4e5f9fe158b0",
+      "ts": "2026-10-09T02:54:39.639Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     },
+     {
+      "source": "ledger_1009",
+      "id": "c077",
+      "verdict_1009": "BLOCK",
+      "expect_old": "UNEVAL_UNKNOWN",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-1bbbde40",
+   "command": "git fetch origin main && git rebase origin/main && git status --short && git log --oneline -3",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept",
+     "ledger_1009"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "1bbbde40-bca1-477c-98ef-eec015bb7792",
+      "ts": "2026-10-09T02:54:43.126Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     },
+     {
+      "source": "ledger_1009",
+      "id": "c076",
+      "verdict_1009": "BLOCK",
+      "expect_old": "UNEVAL_UNKNOWN",
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-980cb5b0",
+   "command": "git rebase origin/main 2>&1 | tail -20; echo \"rebase exit=${PIPESTATUS[0]}\"",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "980cb5b0-69fc-4cbb-9dd6-89ffaa4bfe1f",
+      "ts": "2026-09-23T00:11:02.337Z",
+      "conversation_id": "82ab2e1c-65ec-4f39-84b6-4022f7dacbf2",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"tool_fixed\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-d8af77f5",
+   "command": "rm -f edbg5.mjs; cat > edbg6.mjs << 'XEOF'\nimport { Worker } from \"worker_threads\";\nimport fs from \"fs\";\nimport path from \"path\";\nimport os from \"os\";\n\nconst root = process.cwd();\nconst tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), \"embed-dbg-\"));\nconst sandbox = path.join(tmpDir, \"sandbox\");\nfs.mkdirSync(sandbox, { recursive: true });\nfs.symlinkSync(path.join(root, \"models\"), path.join(sandbox, \"models\"));\nprocess.chdir(sandbox);\nconsole.log(\"cwd:\", process.cwd());\n\nconst worker = new Worker(path.join(root, \"dist/src/frameworks/embedding/bge-m3-worker.js\"), {\n  workerData: { config: { modelPath: \"bge-m3\", localModelPath: \"./models\" } },\n  execArgv: [],\n});\nworker.on(\"message\", (m) => { console.log(\"MSG:\", JSON.stringify(m).slice(0, 500)); if (m.type === \"ready\" || (m.type === \"error\" && m.id === -1)) process.exit(0); });\nworker.on(\"error\", (e) => { console.log(\"WORKER ERROR:\", e.message, e.stack?.slice(0, 400)); process.exit(1); });\nworker.stderr?.on?.(\"data\", (d) => process.stderr.write(\"[w-stderr] \" + d));\nworker.stdout?.on?.(\"data\", (d) => process.stdout.write(\"[w-stdout] \" + d));\nsetTimeout(() => { console.log(\"TIMEOUT 90s\"); process.exit(2); }, 90000);\nXEOF\nnode edbg6.mjs 2>&1 | head -15",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×2/2",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "d8af77f5-156e-4165-99b0-6237031fcf7c",
+      "ts": "2026-09-23T01:00:52.315Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "data_destructive",
+      "resolution": "{\"action\":\"tool_fixed\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-820d29b8",
+   "command": "python3 -c \"\ndata = open('/repo/web/dist/assets/index-DMDN8XfO.js').read()\n# 右栏 otter 卡状态显示：找 invokeState 使用处附近的状态文案\nidx = data.find('运行中')\nwhile idx >= 0 and idx < len(data):\n    print('=== 运行中 at', idx, '===')\n    print(data[max(0,idx-400):idx+200].replace(chr(10),' '))\n    print()\n    idx = data.find('运行中', idx+3)\n    if idx > 900000: break\n\" | head -60",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "820d29b8-b9f8-4869-a190-f8f715962004",
+      "ts": "2026-09-23T02:04:36.545Z",
+      "conversation_id": "5603032d-569c-42c1-b318-1e3b4629ab1f",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"tool_fixed\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-dd48cc62",
+   "command": "python3 - <<'EOF'\nimport re\nfor p in [\"tests/capability/magic-words-signal.capability.test.ts\", \"tests/capability/big-otter-dispatch.capability.test.ts\"]:\n    s = open(p).read()\n    s2 = s.replace(\"  waitForInvokeSettled,\\n\", \"\")\n    open(p, \"w\").write(s2)\n    print(p, \"cleaned\" if s != s2 else \"nochange\")\nEOF\nnpx tsc --noEmit 2>&1 | grep -v \"npm notice\" | head -3; echo done",
+   "adjudication": [
+    "§3.2.1-1 未知模式→不可证",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "dd48cc62-3ed0-42b8-b709-e90c097dcd13",
+      "ts": "2026-09-23T13:20:41.054Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-df135749",
+   "command": "cat > docs/features/2026/09/23/F20260923wtkx-capability-entries-bridge.md <<'EOF'\n---\nid: F20260923wtkx\ntitle: capability 断言面桥接到 entries 直读（#984）\nchange_type: fix\ncreated_in_conversation: d7377cfd-8497-4338-9fb5-366967ffe87e\nintent:\n  who: 本机跑 capability 测试（Golden Gate）的开发者与 PR 自检流程\n  problem: \"GET /messages 路由退役（F20260913ctlv #886，entries 为唯一渲染数据源）后，capability 测试 12 个文件中 11 个同型 HTTP 404/202——软代码 PR 本机无法全绿，每次都要靠「origin/main 基线对照」证明 pre-existing（issue #984）\"\n  trigger: \"搭档：你看下历史消息，继续984的工作\"\n  expected_effect: \"capability 断言面（listMessages/waitForOtterMessage 族）改为 DB 直读 entries/invokes/invoke_events，4 个受影响文件本机真跑全绿；后续软代码 PR 的 Golden Gate 不再撞 404 墙\"\nverify_by:\n  type: capability\n  reason: \"测试基础设施改动，验证=受影响 4 文件真跑全绿（真系统+真 LLM 采样达标）\"\nsummary: \"#984：capability helper 的断言面从已退役的 GET /messages 桥接到 DB 直读（entries 投影 MessageDto：status 取 invoke 态、tsp 取 invoke.talking_stone_passed_to、events 从 invoke_events 组装）。连锁修复 5 类断言病：①「停下」「星星罐子」改 halt 语义快照断言（不再等永远不会来的新消息）；②202 halted 短路响应不再当发送失败；③ReadableStream is locked 根因=res.text() 消费后再 cancel() 撞锁（诊断 wrap 抓栈定位）；④tsp 读法改轮询「带 tsp 的 completed 发言」（halt/信号路径下 invoke 行可能不创建）；⑤halt-boundary-injection 用例 skip（测试端点 mimo-flash 不识别 halt 指令，3 轮 9 采样 0 落账，机制有单测覆盖）。真跑验证：spb 全过 / mws 5过1跳 / bod AT-1 5/5、AT-2 7/7（桥前 1/5）/ tsr 全过。\"\ntags: [capability, test-infra, entries, golden-gate]\ncapability_test: \"tests/capability/{system-prompt-behavior,magic-words-signal,big-otter-dispatch,talking-stone-routing}.capability.test.ts 真跑全绿（/tmp/capab-r7.log、capab-r8-*.log）\"\ncausal_links:\n  from:\n    - F20260913ctlv\n---\n\n# capability 断言面桥接到 entries 直读（#984）\n\n## 背景\n\nissue #984：PR #979 自检实证——本机跑 capability 测试（Golden Gate）时 14 个场景中 11 个 fail，全部同型 HTTP 404/202。根因：`GET /messages` 已随 F20260913ctlv（#886）退役（messages 表停写，entries 为唯一渲染数据源），但 capability helper 的 `listMessages` 仍打这个路由。任何软代码 PR 在本机跑 Golden Gate 都撞同一堵墙。\n\n## 方案\n\n断言面桥接：`listMessages` 改 DB 直读（不改生产路由）——\n- entries 表（speak/user）投影回 MessageDto 视图\n- status：speak entry 的生命周期挂在 invoke 上（entry.status 恒 completed），取 invoke 态\n- tsp：yield 时落账在 invoke.talking_stone_passed_to，优先取 invoke\n- events：从 invoke_events 按 invokeId 组装\n\n## 连锁修复（真跑 8 轮暴露的断言病）\n\n| 病 | 根因 | 修法 |\n|---|---|---|\n| 「停下」「星星罐子」超时/0/3 | halt 后无新 completed 消息，waitForOtterMessage 等不到是预期语义 | 改 halt 语义快照断言（前后对比新增副作用工具） |\n| l2-stop-word-command 0/3 | 202 halted 短路响应被当发送失败 | 202+\"halted\" 合法放行；断言窗口改快照对比 |\n| ReadableStream is locked | res.text() 消费后 res.body.cancel() 撞锁 | 202 分支提前 return 不再 cancel |\n| AT-1 1/5、halt-boundary 无 tsp | speak(completed)≠回合结束；tsp 在 yield 落账 invoke，且 halt/信号路径下 invoke 行可能不创建 | 改轮询「带 tsp 的 completed 发言」出现为止 |\n| halt-boundary-injection 0/3 | 测试端点 mimo-flash 不把「停掉小獭」识别为 halt_otter 指令（3 轮 9 采样 0 落账） | it.skip + 注明端点限制（机制有单测覆盖） |\n\n## 真跑验证（真系统 + 真 LLM）\n\n- system-prompt-behavior：8 tests 全过（含 magic-word-stop、starcandy 达标）\n- magic-words-signal：5 passed + 1 skipped\n- big-otter-dispatch：AT-1 5/5、AT-2 7/7（桥前 1/5）\n- talking-stone-routing：全过\n- （otter-lifecycle 2 fail 为 pre-existing，涉 #1146 交接重构断言，与本分支无关，另开 issue）\n\n## 影响范围\n\n仅 tests/capability/ 下 4 个文件（helper + 3 个测试文件），不碰生产代码。\nEOF\necho written; head -8 docs/features/2026/09/23/F20260923wtkx-capability-entries-bridge.md",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "df135749-3caf-4a35-bfbc-569fdcdb4735",
+      "ts": "2026-09-23T14:57:31.873Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-878def96",
+   "command": "git commit --author=\"大獭 <otter-buddy>\" -m \"[F20260923wtkx][capability][BugFix] capability 断言面桥接到 entries 直读（#984）：listMessages 改 DB 直读 entries/invokes/invoke_events，连锁修复 halt 语义断言/tsp 轮询/202 放行/stream 锁 5 类断言病\" && git log --oneline -1",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "878def96-68c2-47b4-84b1-854a1b790bbd",
+      "ts": "2026-09-23T15:26:26.657Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-09de0482",
+   "command": "python3 - <<'PYEOF'\np = 'tests/capability/helpers/assert-behavior.ts'\ns = open(p).read()\nold = '''    const errBody = await res.text().catch(() => \"<unreadable>\");\n    if (!(res.status === 202 && errBody.includes('\"halted\"'))) {\n      throw new Error(`sendUserMessage HTTP ${res.status}: ${errBody.slice(0, 300)}`);\n    }'''\nnew = '''    let errBody = \"<unreadable>\";\n    let bodyErr: unknown;\n    try {\n      errBody = await res.text();\n    } catch (e) {\n      bodyErr = e;\n    }\n    if (!(res.status === 202 && errBody.includes('\"halted\"'))) {\n      throw new Error(`sendUserMessage HTTP ${res.status}: ${errBody.slice(0, 300)}`, { cause: bodyErr });\n    }'''\nassert old in s, \"old not found\"\nopen(p, 'w').write(s.replace(old, new, 1))\nprint(\"patched\")\nPYEOF\nnpx eslint tests/capability/helpers/assert-behavior.ts 2>&1 | tail -3; echo lint-done",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "09de0482-dcab-4fe9-9bae-a88b1ccd3f30",
+      "ts": "2026-09-23T15:27:52.120Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-ee679dd3",
+   "command": "git commit --author=\"大獭 <otter-buddy>\" -m \"[F20260923wtkx][capability][BugFix] capability 断言面桥接到 entries 直读（#984）：listMessages 改 DB 直读 entries/invokes/invoke_events，连锁修复 halt 语义断言/tsp 轮询/202 放行/stream 锁 5 类断言病\" 2>&1 | tail -6",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "ee679dd3-5bbe-4fb0-be47-862aefaea128",
+      "ts": "2026-09-23T15:31:34.185Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-f35c7144",
+   "command": "python3 <<'EOF'\n# 交叉定位容量下界：262144 - maxTokens = 输入容量上界（若服务端约束是 input+max_tokens≤ctx）\n# 实测最小失败样本 tokens 下界 = promptChars / 密度下界\n# 用三组失败样本夹逼：\nfails = [\n    # (chars, 备注)\n    (227110, '09-24 大獭'),\n    (362272, '09-23 106a95b6'),\n    (386809, '09-23 2fa4c13c'),\n    (566216, '09-23 2fa4c13c 二次'),\n    (614960, '09-23 99f136a5'),\n]\nsucc = [\n    (249038, '09-17 kimi(1M)'),\n    (393822, '09-20 glm(1M)'),\n    (334009, '09-20 glm(1M)'),\n    (956403, '09-23 kimi(1M)'),\n    (14713, '09-23 kimi-256k'),\n    (9053, '09-23 kimi-256k'),\n    (41951, '09-23 kimi-256k 超时但completed'),\n    (138338, '09-23 kimi(1M)'),\n]\n# kimi-256k 独有成功样本 chars 极小，无法定位容量。\n# 唯一线索：Kimi coding 端点对 max_tokens 的校验行为——若 400 信息 \"exceeded model token limit: 262144\"\n# 是 input+max_tokens 校验，则 input_tokens > 262144-8192=253952 才触发（max_tokens=8192 模板回退）\n# → 输入容量上界 253,952 tokens。最小失败 227,110 chars → 密度上界 253952/227110 = 1.118 chars/token\n# 若校验是 input only ≤ 262144：密度上界 262144/227110 = 1.154\n# 两语义下容量都在 253K~262K 区间，安全预算按 (253952-余量) × 密度\nprint(\"input+max_tokens 语义: 容量 ≤\", 262144-8192, \"tokens\")\nprint(\"input-only 语义:       容量 ≤\", 262144, \"tokens\")\nprint(\"最小失败样本密度上界:\", round(253952/227110, 3), \"~\", round(262144/227110, 3), \"chars/token\")\n# 预算夹逼：预算 < 最小失败 chars 227110 × (1-余量)\nfor margin in (0.10, 0.15, 0.20):\n    print(f\"余量{margin:.0%}: 预算上限 =\", int(227110*(1-margin)), \"chars\")\nEOF",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "f35c7144-e3ec-4dd9-a5c4-9a03cec45a4b",
+      "ts": "2026-09-24T01:38:01.867Z",
+      "conversation_id": "f4982c33-edbf-4156-913d-aaac095ff485",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-da5c5ca3",
+   "command": "gh pr review 1161 --comment --body \"$(cat <<'EOF'\n**有严重发现**（1 项）——实现质量核验全部通过，但 **worktree 处于未完成的合并冲突状态，检视环境不可复现实现者自报的验证结果**，CI 很可能在检出此 worktree 树时失败。留痕性质说明：单账号环境降级为 comment，结论以首行为准。\n\n---\n\n## 严重发现 1（环境/流程，阻断复核）——worktree 含未解决合并冲突，非 PR 文件被污染\n\n**现场**（worktree `sidebar-invoke-reconcile`，本次实查）：\n\n- `git status` 显示 **unmerged paths 27 个文件**（`both modified: src/bootstrap/controllers.ts`、`deleted by us: src/entities/conversation/dispatch-attempt.ts` 等，完整列表见 `git ls-files -u`，共 8 个文件三方冲突 + 多个 deleted-by-us），是一次**未完成的 merge**（未 commit、未 abort）。\n- **非 PR 文件被冲突标记污染**：`web/src/pages/conversation/RightPanel.tsx:391` 存在 `<<<<<<< Updated upstream` 冲突标记——该文件**不在 PR diff 内**（PR 仅 3 文件：index.tsx / index.spa-nav.test.tsx / 特性文档）。\n- 后果 1：**复核无法复现实现者自报验证**。我在 worktree 内实跑 `npx vitest run src/pages/conversation/index.spa-nav.test.tsx` → 失败：`RightPanel.tsx:391:1 ERROR: Expected identifier but found \"<\"`（vite:esbuild 转换失败）。实现者自报的「537/537 全绿」无法复核。\n- 后果 2：**CI 风险**：若 CI checkout 的是 worktree 工作树（而非纯 commit 树），esbuild 会因冲突标记直接编译失败。GitHub 目前报 `mergeStateStatus: CLEAN`，说明 GitHub 侧按 merge commit 计算无冲突，但 worktree 本地树状态本身就是个坑，且与「537 全绿」的自报结论矛盾——存在两种可能：(a) 实现者在另一个干净环境/提交树上跑的测试（需说明）；(b) 自报验证未经真实复跑。无论哪种，都需要实现者清理 worktree（`git merge --abort` 或完成解冲突后重新验证）并给出可复现的验证锚点。\n\n**要求**：清理 worktree 至干净状态（仅含 PR 3 文件相对 main 的 diff），重跑 web 测试 + tsc 并留痕。\n\n## 实现质量核验（焦点逐项结论，均通过）\n\n在 worktree 的 PR commit `38773c80` 树上（`git show HEAD` 范围内）完成：\n\n1. **职责分离正确性** ✅：grep 全文件确认 `invokeStatesLoadedRef` 读写点共 3 处——`loadConversationDetail` 复位（:305-307）、初始重试链置位（:332）、`syncInvokeStatesFromServer` 门控读（:253）。`syncInvokeStatesOnReconnect`（:242-249）无门控，仅被 onprogress 补偿点（:859）调用，无其他调用点，职责单一成立。\n2. **needsSyncAfterReconnect 初值 false 的副作用** ✅：确认初始恢复由内联拉取（:318）+ 600ms/2500ms 重试链（:329-338）全权负责，且重试链成功也置 `invokeStatesLoadedRef`——**关闭首连补偿不会弱化初始恢复**，原防双拉问题（初始内联拉取 vs 首连补偿）随初值 false 根除。\n3. **重连补偿无门控的双拉风险** ✅：低。重连补偿被 `needsSyncAfterReconnect` 每轮重连消费一次（:856-861），非无限重复；且 `mergeInvokesFromServer` 为 `Map.set` 覆盖式合并（invoke-tracker.ts:83），幂等，重复拉取安全。\n4. **needsSyncAfterReconnect 置位/复位完整性** ✅：置位唯一来源 `scheduleReconnect`（:726），复位唯一来源补偿点消费（:860）——包括看门狗 abort 触发的重连（走同一 scheduleReconnect 链）；每次重连恰好消费一次，无泄漏路径。\n5. **server 侧残余风险（真实，但归属服务端治理）** ⚠️：重连按 `Last-Event-ID` 回放但**不带截止时间**——回放从某 `lastEventId` 起到现在的**全部**缓冲事件。若重连时缓冲里已有 invoke.end，右栏直接自愈，补偿拉取冗余但无害；若缓冲已被逐出（>128 条无 idle），补偿拉取兜住。两个机制互补、不冲突；根治方案是服务端 replay 加 `?since=idle-结束时刻` 截止参数（新机制，超出本 PR narrow-fix 边界，建议开后续 issue，不阻断本 PR）。\n6. **B2 文档一致** ✅：特性文档与代码实现一致。\n\n## 建议发现（非阻断）\n\n- **测试桩保真度**：FakeXHR（index.spa-nav.test.tsx:281-298）实现了 `onprogress/onerror/onload/abort/open/send`，与组件实际使用的回调面一致；未实现 `readystatechange/onreadystatechange`——当前组件不用该回调，不构成保真度缺口。桩的失败断言路径（`first.fail()` → `onerror` → `scheduleReconnect` → `advanceTimersByTimeAsync(1500)` 覆盖 1s 重连延迟）与真实浏览器生命周期一致。✅ 无需改。\n- **回归用例强度**：新用例覆盖「初始成功 → 断连 → 重连 → 补偿仍发生」的回归路径，断言 `listInvokesCalls.length` 从 1 → 2 精确区分新旧实现（修复前为恒 1），失败先行的声明可信。✅\n\n## 基础维度\n\n- B1 安全：无注入/越权面，纯前端逻辑修正。\n- B2 文档：✅（见上）。\n- B3 测试：新增 1 用例定向覆盖回归；**web 全量 537 未能在本 worktree 复跑**（见严重发现 1）。\n- B4 提交：commit `38773c80` body 含 `Modification-Class: narrow-fix`，与变更性质一致 ✅。\n\n**结论：1 个严重发现（流程/环境）+ 0 个代码严重发现；代码逻辑本身核验通过。** 待 worktree 清理 + 验证可复现后，可转 approve。\n\n🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by 检视獭-1161\nEOF\n)\"",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "da5c5ca3-b7e6-4179-9aea-185788a1ccb4",
+      "ts": "2026-09-24T03:05:18.115Z",
+      "conversation_id": "5603032d-569c-42c1-b318-1e3b4629ab1f",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-4d99d9f4",
+   "command": "f=/repo/data/sessions/2026-09-25T06-49-28-254Z_01a0d753-7dbe-7745-8c27-605d51509ba9.jsonl; python3 -c \"\nimport json,re\nf='$f'\nrows=[json.loads(l) for l in open(f)]\nmsg=rows[3]['message']\ncontent=msg.get('content')\ntext = content if isinstance(content,str) else ''.join(p.get('text','') for p in content if isinstance(p,dict))\nlines=text.split('\\n')\n# ④段（425行起）的消息块结构\nseg=lines[425:]\nimport re\nblocks=[]\ncur=None\nfor i,l in enumerate(seg):\n    m=re.match(r'^\\[(chen|系统|检视獭-[^\\]]+|Assistant thinking|Assistant)\\]', l.strip())\n    if m:\n        if cur: blocks.append(cur)\n        cur={'sender':m.group(1),'start':i,'size':len(l)+1}\n    elif cur:\n        cur['size']+=len(l)+1\nif cur: blocks.append(cur)\nprint('④段消息块（425行起，共',len(seg),'行）:')\nfor b in blocks[:30]:\n    print(f\\\"  [{b['start']+425}] {b['sender']:<18} {b['size']:>7} chars\\\")\nprint('块数:',len(blocks))\n# ③保留段(55-425)的sender分布\nseg3='\\n'.join(lines[55:425])\nprint()\nprint('③保留段 sender 标记统计:')\nfor tag in ['[chen]','[系统]','[检视獭','[Assistant]','[User]','[Tool result]']:\n    print(f'  {tag}: {seg3.count(tag)}')\n\"",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "4d99d9f4-f92e-4f45-a81f-343c3ed1905c",
+      "ts": "2026-09-25T07:01:52.550Z",
+      "conversation_id": "f4982c33-edbf-4156-913d-aaac095ff485",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"tool_fixed\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-fa07af97",
+   "command": "python3 - <<'EOF'\n# 终审定标：只在「该轮本身就是大幅保留段注入」的对上取密度——即新世首轮 vs 前世尾轮\nimport json, os, glob\nsessions = sorted(glob.glob(os.path.expanduser('~/ai/otter-buddy/data/sessions/2026-09-2[45678]*.jsonl')))\nhits = []\nfor f in sessions:\n    try:\n        rows = [json.loads(l) for l in open(f)]\n    except Exception:\n        continue\n    # 找新世首轮：第一 user 消息含「前世档案」\n    for i, r in enumerate(rows):\n        if r.get('type') == 'message' and r['message'].get('role') == 'user':\n            c = r['message'].get('content')\n            t = c if isinstance(c, str) else ''.join(p.get('text','') for p in (c or []) if isinstance(p,dict))\n            if '前世档案' in t or '前世已封存' in t:\n                # 找该 user 消息后的第一个 assistant usage\n                for j in range(i+1, len(rows)):\n                    rr = rows[j]\n                    if rr.get('type') == 'message' and rr['message'].get('role') == 'assistant':\n                        u = rr['message'].get('usage') or {}\n                        if u.get('input'):\n                            total = u['input'] + u.get('cacheRead',0) + u.get('cacheWrite',0)\n                            hits.append((os.path.basename(f)[:16], len(t), total, len(t)/total if total else 0))\n                            break\n                break\nprint('新世首轮注入样本（注入 chars → 真实 input tokens）:')\nfor h in hits:\n    print(f'  {h[0]}  chars={h[1]:>7}  tokens={h[2]:>7}  density={h[3]:.2f}')\nif hits:\n    ds = [h[3] for h in hits]\n    print(f'  中位 density: {sorted(ds)[len(ds)//2]:.2f}')\nEOF",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×2/2",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "fa07af97-fc61-457f-a892-7f02d0ddac8a",
+      "ts": "2026-09-28T01:18:02.207Z",
+      "conversation_id": "f4982c33-edbf-4156-913d-aaac095ff485",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-2064d251",
+   "command": "curl -s --max-time 15 \"https://api.github.com/repos/google-research/rrsi/git/trees/main?recursive=1\" | python3 -c \"\nimport json,sys\nd=json.load(sys.stdin)\nfor x in d.get('tree',[]):\n    p=x['path']\n    if x['type']=='blob' and not p.startswith('assets/'):\n        print(f\\\"{x.get('size',0):>8}  {p}\\\")\n\" | head -60",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "2064d251-b1ca-4275-9afd-c2cd01bb6cf6",
+      "ts": "2026-09-29T02:49:39.697Z",
+      "conversation_id": "98bd9fdd-8e28-4de8-b782-b59f46e733dd",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"prompt_updated\",\"decidedBy\":\"agent\",\"decidedAt\":\"",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-51d0227c",
+   "command": "cat >> web/src/pages/skills/index.tsx << 'PART3EOF'\n\n/** 总目录页：三编结构一览，点击直达 */\nfunction CodexTOCPage({ skills, prompts, chapters, pages, onGo }: {\n  skills: SkillEntry[]\n  prompts: PromptData | null\n  chapters: typeof CHAPTERS\n  pages: PageModel[]\n  onGo: (v: number) => void\n}) {\n  const sections = prompts?.system ?? []\n  const tools = prompts?.tools ?? []\n  const chapterOf = (name: string) => {\n    const known = CHAPTERS.findIndex(c => c.members.includes(name))\n    return known >= 0 ? known : chapters.length - 1\n  }\n  const skillPageIdx = (skillGlobalIdx: number) => pages.findIndex(p => p.kind === 'skill' && p.skillIdx === skillGlobalIdx && p.cont === 0)\n  const sectionPageIdx = (si: number) => pages.findIndex(p => p.kind === 'section' && p.sectionIdx === si && p.cont === 0)\n  return (\n    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '36px 36px 12px 44px', minHeight: 0 }}>\n      <div style={{ fontFamily: SERIF, fontSize: 24, letterSpacing: '.2em', color: '#3A2E1F', fontWeight: 600, marginBottom: 4 }}>📜 全帙目录</div>\n      <div style={{ fontSize: 11, color: '#8B7D6B', marginBottom: 10 }}>三编结构——卷首心法 · 卷中招式 · 卷末兵器</div>\n      <div style={{ flex: 1, overflowY: 'auto' }}>\n        <div style={{ marginBottom: 10 }}>\n          <div style={{ fontSize: 12, color: PART_CODEX.color, fontWeight: 600, letterSpacing: '.15em', marginBottom: 4 }}>{PART_CODEX.emoji} {PART_CODEX.no} · {PART_CODEX.title}（{sections.length} 则）</div>\n          {sections.map((sec, si) => (\n            <button key={si} onClick={() => onGo(viewOfPageIdx(sectionPageIdx(si)))}\n              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '4px 4px', background: 'none', border: 'none', borderBottom: '1px dashed rgba(139,111,71,.2)', cursor: 'pointer', fontFamily: 'inherit' }}\n              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139,111,71,.06)' }}\n              onMouseLeave={e => { e.currentTarget.style.background = 'none' }}>\n              <span style={{ fontSize: 12, color: '#3A2E1F' }}>{sec.title}</span>\n            </button>\n          ))}\n          {sections.length === 0 && <div style={{ fontSize: 11, color: '#8B7D6B' }}>（心法总纲加载失败——降级跳过）</div>}\n        </div>\n        <div style={{ marginBottom: 10 }}>\n          <div style={{ fontSize: 12, color: '#8B6F47', fontWeight: 600, letterSpacing: '.15em', marginBottom: 4 }}>⚒️ 卷中 · 招式秘籍（{skills.length} 门）</div>\n          {chapters.map((ch, ci) => {\n            const chSkills = skills.map((s, i) => ({ s, i })).filter(({ s }) => chapterOf(s.name) === ci)\n            if (chSkills.length === 0) return null\n            const chPageIdx = pages.findIndex(p => p.kind === 'chapterToc' && p.chapter === ci)\n            return (\n              <div key={ci} style={{ marginBottom: 4 }}>\n                <button onClick={() => onGo(viewOfPageIdx(chPageIdx))}\n                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '3px 4px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}\n                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139,111,71,.06)' }}\n                  onMouseLeave={e => { e.currentTarget.style.background = 'none' }}>\n                  <span style={{ fontFamily: SERIF, fontSize: 12.5, color: ch.color }}>{ch.no} · {ch.title}</span>\n                  <span style={{ fontSize: 11, color: '#8B7D6B', marginLeft: 8 }}>{chSkills.length} 门</span>\n                </button>\n                {chSkills.map(({ s, i }) => (\n                  <button key={s.name} onClick={() => onGo(viewOfPageIdx(skillPageIdx(i)))}\n                    style={{ display: 'block', width: '100%', textAlign: 'left', padding: '2px 4px 2px 20px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}\n                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139,111,71,.06)' }}\n                    onMouseLeave={e => { e.currentTarget.style.background = 'none' }}>\n                    <span style={{ fontSize: 11.5, color: '#52402C' }}>第{cnNum(i)}门 · {s.name}</span>\n                  </button>\n                ))}\n              </div>\n            )\n          })}\n        </div>\n        <div>\n          <div style={{ fontSize: 12, color: PART_TOOLS.color, fontWeight: 600, letterSpacing: '.15em', marginBottom: 4 }}>{PART_TOOLS.emoji} {PART_TOOLS.no} · {PART_TOOLS.title}（{tools.length} 件）</div>\n          {tools.length > 0 && (\n            <button onClick={() => onGo(viewOfPageIdx(pages.findIndex(p => p.kind === 'tools')))}\n              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '4px 4px', background: 'none', border: 'none', borderBottom: '1px dashed rgba(139,111,71,.2)', cursor: 'pointer', fontFamily: 'inherit' }}\n              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139,111,71,.06)' }}\n              onMouseLeave={e => { e.currentTarget.style.background = 'none' }}>\n              <span style={{ fontSize: 12, color: '#3A2E1F' }}>运行时注册工具全集（name + 描述）</span>\n            </button>\n          )}\n          {tools.length === 0 && <div style={{ fontSize: 11, color: '#8B7D6B' }}>（兵器谱加载失败——降级跳过）</div>}\n        </div>\n      </div>\n    </div>\n  )\n}\n\n/** 章目录页：本章程内 skill 一览（页序编号），点击直达秘籍页 */\nfunction ChapterTOCPage({ chapter, skills, chapters, pages, onGo }: {\n  chapter: (typeof CHAPTERS)[number]\n  skills: SkillEntry[]\n  chapters: typeof CHAPTERS\n  pages: PageModel[]\n  onGo: (v: number) => void\n}) {\n  const members = skills.map((s, i) => ({ s, i })).filter(({ s }) =>\n    CHAPTERS.some(c => c.members.includes(s.name) && c.title === chapter.title) ||\n    (!CHAPTERS.some(c => c.members.includes(s.name)) && chapter.title === '外典'))\n  const skillPageIdx = (skillGlobalIdx: number) => pages.findIndex(p => p.kind === 'skill' && p.skillIdx === skillGlobalIdx && p.cont === 0)\n  return (\n    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '40px 40px 12px 48px', minHeight: 0 }}>\n      <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>\n        <div style={{ fontFamily: SERIF, fontSize: 46, color: '#8B6F47', writingMode: 'vertical-rl', lineHeight: 1 }}>{chapter.no}</div>\n        <div style={{ flex: 1 }}>\n          <div style={{ fontSize: 10, letterSpacing: '.4em', color: '#6B5638', marginBottom: 6 }}>{chapter.en}</div>\n          <div style={{ fontFamily: SERIF, fontSize: 25, letterSpacing: '.18em', color: '#3A2E1F', fontWeight: 600 }}>{chapter.emoji} {chapter.title}</div>\n          <div style={{ marginTop: 8, fontSize: 12, color: '#8B7D6B' }}>{chapter.desc}</div>\n        </div>\n      </div>\n      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 0' }}>\n        {members.length === 0 && <div style={{ fontSize: 12, color: '#8B7D6B', padding: '12px 4px' }}>（本流派暂无技艺——skill 清单演化中）</div>}\n        {members.map(({ s, i }) => {\n          const p = parseSkillDescription(s.desc)\n          return (\n            <button key={s.name} onClick={() => onGo(viewOfPageIdx(skillPageIdx(i)))}\n              style={{ display: 'flex', gap: 12, alignItems: 'baseline', width: '100%', textAlign: 'left',\n                padding: '11px 4px', borderBottom: '1px dashed rgba(139,111,71,.25)', background: 'none',\n                border: 'none', borderTop: 'none', borderLeft: 'none', borderRight: 'none', cursor: 'pointer', fontFamily: 'inherit' }}\n              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139,111,71,.06)' }}\n              onMouseLeave={e => { e.currentTarget.style.background = 'none' }}>\n              <span style={{ fontFamily: SERIF, color: '#8B6F47', fontSize: 12, width: '2.4em', flexShrink: 0 }}>{cnNum(i)}</span>\n              <span style={{ flex: 1 }}>\n                <span style={{ fontFamily: SERIF, fontSize: 15, color: '#3A2E1F' }}>{s.name}</span>\n                {p.when && <span style={{ display: 'block', fontSize: 11.5, color: '#8B7D6B', marginTop: 2 }}>{p.when.split('；')[0].split('。')[0]}</span>}\n              </span>\n              <span style={{ color: '#8B6F47', fontSize: 12, flexShrink: 0 }}>翻阅 →</span>\n            </button>\n          )\n        })}\n      </div>\n    </div>\n  )\n}\n\n/** 心法总纲节页：SYSTEM.md 二级标题一节，正文全文（12px 容纳，过长续页） */\nfunction SectionPage({ section, idx, cont, text }: { section: SystemSection | undefined; idx: number; cont: number; text: string }) {\n  if (!section) return <div style={{ flex: 1, padding: 40 }}>（节缺失）</div>\n  return (\n    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '32px 32px 12px 44px', minHeight: 0 }}>\n      <div style={{ fontSize: 10, letterSpacing: '.35em', color: PART_CODEX.color, marginBottom: 6 }}>{PART_CODEX.en} · 第{cnNum(idx)}则{cont > 0 ? ` · 其${cnNum(cont)}` : ''}</div>\n      <div style={{ fontFamily: SERIF, fontSize: 21, letterSpacing: '.08em', color: '#2A2014', fontWeight: 600, marginBottom: 10 }}>{section.title}</div>\n      <div style={{ flex: 1, overflowY: 'auto', fontSize: 12, lineHeight: 1.75, color: '#3A2E1F', whiteSpace: 'pre-wrap' }}>\n        {text}\n      </div>\n    </div>\n  )\n}\n\n/** 技能秘籍页：三槽摘要 + 正文全文（过长续页切片）；页序编号 = skillIdx（书序口径） */\nfunction SkillPage({ skill, chapter, idx, cont, text }: { skill: SkillEntry; chapter: (typeof CHAPTERS)[number]; idx: number; cont: number; text: string }) {\n  const p = parseSkillDescription(skill.desc)\n  const structured = p.when || p.notFor || p.output\n  return (\n    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '32px 32px 12px 44px', minHeight: 0 }}>\n      <div style={{ fontSize: 10, letterSpacing: '.35em', color: '#6B5638', marginBottom: 6 }}>{chapter.en} · 第{cnNum(idx)}门{cont > 0 ? ` · 其${cnNum(cont)}` : ''}</div>\n      <div style={{ fontFamily: SERIF, fontSize: cont > 0 ? 16 : 24, letterSpacing: '.08em', color: '#3A2E1F', fontWeight: 600, wordBreak: 'break-all' }}>\n        {skill.name}{cont > 0 && <span style={{ fontSize: 12, color: '#8B7D6B', marginLeft: 8 }}>（续）</span>}\n      </div>\n      {cont === 0 && (\n        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '10px 0 8px' }}>\n          <span style={{ flex: 1, height: 1, background: 'linear-gradient(90deg,transparent,rgba(139,111,71,.4),transparent)' }} />\n          <span style={{ fontSize: 9, letterSpacing: '.4em', color: '#8B6F47' }}>秘 籍</span>\n          <span style={{ flex: 1, height: 1, background: 'linear-gradient(90deg,transparent,rgba(139,111,71,.4),transparent)' }} />\n        </div>\n      )}\n      <div style={{ flex: 1, overflowY: 'auto' }}>\n        {cont === 0 && structured && (\n          <>\n            {p.when && <Slot label=\"施展\" text={p.when} />}\n            {p.notFor && <Slot label=\"忌用\" text={p.notFor} danger />}\n            {p.output && <Slot label=\"产出\" text={p.output} />}\n          </>\n        )}\n        <div style={{ marginTop: cont === 0 && structured ? 10 : 0, fontSize: 12, lineHeight: 1.75, color: '#3A2E1F', whiteSpace: 'pre-wrap' }}>\n          {text}\n        </div>\n      </div>\n    </div>\n  )\n}\n\n/** 兵器谱页：工具紧凑列表（每页 12 件） */\nfunction ToolsPage({ tools, startIdx, cont }: { tools: ToolEntry[]; startIdx: number; cont: number }) {\n  const pageTools = tools.slice(startIdx, startIdx + 12)\n  return (\n    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '32px 32px 12px 44px', minHeight: 0 }}>\n      <div style={{ fontSize: 10, letterSpacing: '.35em', color: PART_TOOLS.color, marginBottom: 6 }}>{PART_TOOLS.en}{cont > 0 ? ` · 其${cnNum(cont)}` : ''}</div>\n      <div style={{ fontFamily: SERIF, fontSize: 22, letterSpacing: '.12em', color: '#2A2014', fontWeight: 600, marginBottom: 4 }}>{PART_TOOLS.emoji} 兵器谱</div>\n      <div style={{ fontSize: 11, color: '#8B7D6B', marginBottom: 8 }}>运行时注册工具全集 · {tools.length} 件</div>\n      <div style={{ flex: 1, overflowY: 'auto' }}>\n        {pageTools.map((t) => (\n          <div key={t.name} style={{ padding: '7px 0', borderBottom: '1px solid rgba(139,111,71,.12)' }}>\n            <div style={{ fontSize: 13, fontWeight: 600, color: '#3A2E1F', fontFamily: 'monospace' }}>{t.name}</div>\n            <div style={{ fontSize: 11, lineHeight: 1.6, color: '#8B7D6B', marginTop: 2 }}>{t.description.slice(0, 120)}{t.description.length > 120 ? '…' : ''}</div>\n          </div>\n        ))}\n      </div>\n    </div>\n  )\n}\n\nfunction Slot({ label, text, danger }: { label: string; text: string; danger?: boolean }) {\n  return (\n    <div style={{ display: 'flex', gap: 12, padding: '8px 0', borderBottom: '1px solid rgba(139,111,71,.12)' }}>\n      <span style={{ fontFamily: SERIF, flexShrink: 0, width: 46, textAlign: 'center', fontSize: 12.5, letterSpacing: '.2em', padding: '3px 0', borderRadius: 3, height: 'fit-content',\n        border: `1px solid ${danger ? 'rgba(159,59,59,.4)' : 'rgba(139,111,71,.35)'}`,\n        color: danger ? '#9F3B3B' : '#6B5638',\n        background: danger ? 'rgba(159,59,59,.05)' : 'rgba(139,111,71,.06)' }}>{label}</span>\n      <div style={{ fontSize: 12, lineHeight: 1.7, color: '#52402C' }}>{text}</div>\n    </div>\n  )\n}\n\n/** 内置兜底清单（API 不可达时降级展示；封面带「离线兜底」标注） */\nconst FALLBACK_SKILLS: SkillEntry[] = [\n  { name: 'companion', desc: '不匹配任何 skill 时的兜底模式：自由协作对话。Use when: 输入不匹配其他 skill。Output: 自然对话。', body: '' },\n  { name: 'core-workflow', desc: '查询对话历史、搜索记忆、记录决策和产出。', body: '' },\n  { name: 'troubleshooting', desc: '结构化排查：从症状到根因到修复。', body: '' },\n  { name: 'requirement-analysis', desc: '把模糊意图变成结构化技术方案。', body: '' },\n  { name: 'code-implementation', desc: '按方案实现功能：代码 PR + 特性文档。', body: '' },\n  { name: 'worktree-isolation', desc: 'git 追踪文件修改前的 worktree 隔离。', body: '' },\n  { name: 'post-merge-cleanup', desc: 'PR 合入后的资源回收善后。', body: '' },\n  { name: 'otter-summon', desc: '召唤小獭执行专项任务。', body: '' },\n  { name: 'adversarial-review', desc: '对代码变更或设计文档做对抗审视。', body: '' },\n  { name: 'review-protocol', desc: '对抗审视的编排查表协议。', body: '' },\n  { name: 'conflict-resolution-protocol', desc: '獭间意见冲突的分型与解决。', body: '' },\n  { name: 'signature-convention', desc: '外部留痕签名的唯一格式真相源。', body: '' },\n  { name: 'writing-skills', desc: '关于 skill 的 skill：契约 + 模板 + lint。', body: '' },\n  { name: 'visual-design', desc: '展示类设计的反泔水方法论。', body: '' },\n]\nPART3EOF\nwc -l web/src/pages/skills/index.tsx",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×2/2",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "51d0227c-89b5-4638-960a-6194eaf85382",
+      "ts": "2026-09-29T09:23:41.670Z",
+      "conversation_id": "9eeb7b69-26d5-4957-b7f2-9f7fd5a00d77",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"prompt_updated\",\"decidedBy\":\"agent\",\"decidedAt\":\"",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-3cb19560",
+   "command": "python3 - << 'EOF'\np = 'src/pages/skills/index.test.tsx'\nsrc = open(p).read()\nsrc = src.replace(\"const REAL_SKILLS: import('./index').SkillEntry[] = [\", \"const REAL_SKILLS = [\")\n# 给 REAL_SKILLS 显式标注：用 satisfies 不行（tsc 版本），改为 as const 后 map 或直接在 buildPages 调用处断言。\n# 更稳：给 REAL_SKILLS 元素标注 desc（属性名是 desc 不是 description）\nsrc = src.replace(\"\"\"const REAL_SKILLS = [\n  {\n    name: 'companion',\n    description: 'Use when: 自由协作讨论. Not for: 匹配其他 skill. Output: 自然对话.',\n    body: '# Companion\\\\n\\\\n不匹配任何 skill 时的兜底模式。\\\\n\\\\n像朋友一样协作，不端着流程。',\n  },\n  {\n    name: 'core-workflow',\n    description: '查询对话历史、搜索记忆、记录决策和产出。',\n    body: '# Core Workflow\\\\n\\\\n查与记的标准动作。',\n  },\n]\"\"\", \"\"\"interface TestSkill { name: string; desc: string; body: string }\nconst REAL_SKILLS: TestSkill[] = [\n  {\n    name: 'companion',\n    desc: 'Use when: 自由协作讨论. Not for: 匹配其他 skill. Output: 自然对话.',\n    body: '# Companion\\\\n\\\\n不匹配任何 skill 时的兜底模式。\\\\n\\\\n像朋友一样协作，不端着流程。',\n  },\n  {\n    name: 'core-workflow',\n    desc: '查询对话历史、搜索记忆、记录决策和产出。',\n    body: '# Core Workflow\\\\n\\\\n查与记的标准动作。',\n  },\n]\"\"\")\nopen(p, 'w').write(src)\nprint('ok')\nEOF\nnpm run build 2>&1 | grep -E \"error|built in\" | head -6; ls dist/index.html 2>/dev/null && echo WEB-BUILD-OK",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "3cb19560-ed90-4448-b50e-2e3dbda0d30c",
+      "ts": "2026-09-29T09:41:52.840Z",
+      "conversation_id": "9eeb7b69-26d5-4957-b7f2-9f7fd5a00d77",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"prompt_updated\",\"decidedBy\":\"agent\",\"decidedAt\":\"",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-ed43ff21",
+   "command": "python3 - << 'EOF'\np = 'config/config.yaml'\nsrc = open(p).read()\nsrc = src.replace('port: 3000', 'port: 3102', 1)\nopen(p, 'w').write(src)\nprint('port patched')\nEOF\nnode scripts/detached-launch.mjs /tmp/scfx-prod.log node dist/src/main.js --config config/config.yaml 2>&1 | head -2",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "ed43ff21-5955-48b6-bf57-38f613d65d21",
+      "ts": "2026-09-29T09:57:12.947Z",
+      "conversation_id": "9eeb7b69-26d5-4957-b7f2-9f7fd5a00d77",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"prompt_updated\",\"decidedBy\":\"agent\",\"decidedAt\":\"",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-47150422",
+   "command": "python3 -c \"\nsrc = open('config/config.yaml').read()\nopen('config/config.yaml','w').write(src.replace('localModelPath: ./models','localModelPath: /repo/models',1))\nprint('patched')\"; pgrep -f \"dist/src/main.js --config config/config.yaml\" | head -1",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "47150422-3b8a-4b88-8882-102a51b7bdbe",
+      "ts": "2026-09-29T09:57:46.934Z",
+      "conversation_id": "9eeb7b69-26d5-4957-b7f2-9f7fd5a00d77",
+      "rule_id": "kill_family",
+      "resolution": "{\"action\":\"prompt_updated\",\"decidedBy\":\"agent\",\"decidedAt\":\"",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-34b678c8",
+   "command": "python3 - << 'PYEOF'\np = 'src/pages/skills/index.test.tsx'\nsrc = open(p).read()\nsrc = src.replace(\"\"\"interface TestSkill { name: string; desc: string; body: string }\nconst REAL_SKILLS: TestSkill[] = [\n  {\n    name: 'companion',\n    desc: 'Use when: 自由协作讨论. Not for: 匹配其他 skill. Output: 自然对话.',\n    body: '# Companion\\\\n\\\\n不匹配任何 skill 时的兜底模式。\\\\n\\\\n像朋友一样协作，不端着流程。',\n  },\n  {\n    name: 'core-workflow',\n    desc: '查询对话历史、搜索记忆、记录决策和产出。',\n    body: '# Core Workflow\\\\n\\\\n查与记的标准动作。',\n  },\n]\"\"\", \"\"\"/** API 格式（description 字段；组件 map 成 desc） */\nconst REAL_SKILLS = [\n  {\n    name: 'companion',\n    description: 'Use when: 自由协作讨论. Not for: 匹配其他 skill. Output: 自然对话.',\n    body: '# Companion\\\\n\\\\n不匹配任何 skill 时的兜底模式。\\\\n\\\\n像朋友一样协作，不端着流程。',\n  },\n  {\n    name: 'core-workflow',\n    description: '查询对话历史、搜索记忆、记录决策和产出。',\n    body: '# Core Workflow\\\\n\\\\n查与记的标准动作。',\n  },\n]\"\"\")\nopen(p, 'w').write(src)\nprint('ok')\nPYEOF\nnpx vitest run src/pages/skills/index.test.tsx > /tmp/vt.txt 2>&1; grep -E \"Tests |failed \\(|×\" /tmp/vt.txt | head -10",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/2",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "34b678c8-c2b8-41cb-ae14-807d64c013da",
+      "ts": "2026-09-29T10:10:08.100Z",
+      "conversation_id": "9eeb7b69-26d5-4957-b7f2-9f7fd5a00d77",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"prompt_updated\",\"decidedBy\":\"agent\",\"decidedAt\":\"",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-2b6613ff",
+   "command": "git commit --author=\"小獭-能力库全书 <otter-buddy>\" -m \"[F20260929scfx][web][Feature Update] 能力库全书：skill 正文全文 + SYSTEM.md 分节 + 工具清单三编展示，序号按页序修复（narrow-fix）\" -m \"- 后端：SkillDirectory 扩展 body（约定路径读 .pi/skills/<name>/SKILL.md 正文）；新增 GET /api/prompts（system sections + createTools 真实全集 27 项）\n- 前端：书重排三编（卷首心法总纲/卷中招式秘籍含续页/卷末兵器谱）；paginateText 按行装箱分页；第N门按书页顺序编号\n- 特性文档：docs/features/2026/09/29/F20260929scfx-skill-codex-fulltext.md\n- 测试：web 25 断言 + api 6 断言全过；lint/tsc 干净；真机截图自查通过\n\n🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by 小獭-能力库全书\" 2>&1 | tail -3",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/2",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "2b6613ff-8eb4-48c7-ba68-292955652c81",
+      "ts": "2026-09-29T10:13:45.606Z",
+      "conversation_id": "9eeb7b69-26d5-4957-b7f2-9f7fd5a00d77",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"prompt_updated\",\"decidedBy\":\"agent\",\"decidedAt\":\"",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-d49f8e0a",
+   "command": "git commit --author=\"小獭-能力库全书 <otter-buddy>\" -m \"[F20260929scfx][web][Feature Update] 能力库全书：skill 正文全文 + SYSTEM.md 分节 + 工具清单三编展示，序号按页序修复（narrow-fix）\" -m \"- 后端：SkillDirectory 扩展 body（约定路径读 SKILL.md 正文）；新增 GET /api/prompts（system sections + createTools 真实全集 27 项）\n- 前端：书重排三编（卷首心法总纲/卷中招式秘籍含续页/卷末兵器谱）；paginateText 按行装箱分页；第N门按书页顺序编号\n- 特性文档：docs/features/2026/09/29/F20260929scfx-skill-codex-fulltext.md\n- 测试：web 25 断言 + api 6 断言全过；lint/tsc 干净；真机截图自查通过\n\n🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by 小獭-能力库全书\" && git log --oneline -1",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "d49f8e0a-ef31-4aa5-9048-bd52cca97087",
+      "ts": "2026-09-29T10:14:45.254Z",
+      "conversation_id": "9eeb7b69-26d5-4957-b7f2-9f7fd5a00d77",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"prompt_updated\",\"decidedBy\":\"agent\",\"decidedAt\":\"",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-45301726",
+   "command": "git checkout -q -b tmp-verify-merge && git merge -q --no-commit --no-ff 97cee6d843db3b499543e1f4a113b993fa1105c0 2>&1; echo \"merge exit: $?\"; git status --short | grep -E \"^(UU|AA|DD|U|A.|D.)\" | head; git merge --abort 2>/dev/null; git checkout -q fix/issue-1252-port-tdz && git branch -D tmp-verify-merge",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "45301726-1479-487b-97e2-c0d0cd3e9313",
+      "ts": "2026-09-30T03:33:50.987Z",
+      "conversation_id": "dd453bf3-4035-4a1e-91e3-c3602dcdd473",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"prompt_updated\",\"decidedBy\":\"agent\",\"decidedAt\":\"",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-e38577f6",
+   "command": "git rebase origin/main 2>&1 | tail -15",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "e38577f6-f432-4c46-b2ab-83354d05d41a",
+      "ts": "2026-10-05T03:06:55.611Z",
+      "conversation_id": "a9260c50-cef6-412e-a0b4-282287a13103",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-f795355f",
+   "command": "mkdir -p src/interface-adapters/agent-runtime/tools && cat > src/interface-adapters/agent-runtime/tools/regex-anchor-fixture.ts << 'EOF'\n/** #1126 踩坑现场复刻：description 拼接表达式中的正则字面量含裸引号 + 行注释含 F 锚点。\n *  修复前预期：stripTsComments 把 /[\"']/ 内的 ' 当字符串起始，后续注释不再剥离 → 误报注入面 */\nexport const fixtureTool = {\n  name: \"fixture_tool\",\n  description:\n    \"禁止 shell 元字符 \" +\n    /[\"']/.source + // F20260921vsds 决策：正则含裸引号的踩坑现场\n    \"（D4③ 显式拒绝）\",\n  parameters: {},\n};\nEOF\ngit add src/interface-adapters/agent-runtime/tools/regex-anchor-fixture.ts && node scripts/lint-prompt-anchors.mjs; echo \"EXIT=$?\"",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×3/3",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "f795355f-ca7d-430f-b8e2-ae89dd108d33",
+      "ts": "2026-10-05T05:56:05.496Z",
+      "conversation_id": "a9260c50-cef6-412e-a0b4-282287a13103",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-e23d50fc",
+   "command": "git commit --author \"大獭 <otter-buddy>\" -m \"[F20261005mtlp][conversation] 事情闭环机制方案：未完成之事从对话流升格为承诺台账\n\nModification-Class: mechanism-addition\n\n搭档国庆后回三省吾身对话，待决策被新一日消息顶走无声过期。方案引入\nmatter 一等实体：per-conversation 承诺台账 + 五态状态机 + 宣告权沿用\n决策分级轴 + 未闭环清单进 restart 机械供料 + 对话头部事情板。设计经\n大獭+思澜双獭头脑风暴收敛，搭档拍板落方案（对话 e871769f）。\n\n🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by 大獭\" 2>&1 | tail -3",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "e23d50fc-9bc9-4769-b8be-1612c941a34d",
+      "ts": "2026-10-05T07:02:10.106Z",
+      "conversation_id": "e871769f-a731-4278-ae21-de3ab4c8eaf8",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-af6c7fcf",
+   "command": "git commit --author \"大獭 <otter-buddy>\" -m \"[F20261005mtlp][conversation][Design] 事情闭环机制方案：未完成之事从对话流升格为承诺台账\n\nModification-Class: mechanism-addition\n\n搭档国庆后回三省吾身对话，待决策被新一日消息顶走无声过期。方案引入\nmatter 一等实体：per-conversation 承诺台账 + 五态状态机 + 宣告权沿用\n决策分级轴 + 未闭环清单进 restart 机械供料 + 对话头部事情板。设计经\n大獭+思澜双獭头脑风暴收敛，搭档拍板落方案（对话 e871769f）。\n\n🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by 大獭\" 2>&1 | tail -3",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "af6c7fcf-e4e2-4fe7-8bf1-0173bb523318",
+      "ts": "2026-10-05T07:05:50.245Z",
+      "conversation_id": "e871769f-a731-4278-ae21-de3ab4c8eaf8",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-2f12ffb4",
+   "command": "git merge origin/main --no-edit > /tmp/rb.txt 2>&1; echo \"merge exit: $?\"; head -5 /tmp/rb.txt; git status --short | grep -E \"^(UU|AA|U|A.)\" | head -5; echo \"---conflict-check-done\"; git diff --cached --name-only | head",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/2",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "2f12ffb4-bc61-4590-94c0-94fb5170a691",
+      "ts": "2026-10-05T07:58:11.905Z",
+      "conversation_id": "dd453bf3-4035-4a1e-91e3-c3602dcdd473",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-b642b631",
+   "command": "git fetch origin main 2>&1 | tail -1 && git merge origin/main --no-edit 2>&1 | tail -2",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "b642b631-f44f-451e-93ce-2512dd75c218",
+      "ts": "2026-10-05T09:17:13.902Z",
+      "conversation_id": "e871769f-a731-4278-ae21-de3ab4c8eaf8",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-38f07946",
+   "command": "git commit --author=\"大獭 <otter-buddy>\" -m \"[F20261005clup][skill][BugFix] 合入清理补进程生命周期闭环：cleanup 先停实例再删目录，worktree 验证补实例登记纪律\n\n3194 孤儿实例空转 5 天 10 小时打满 CPU 事故修复（issue #1252 验证实例残留）：\n\n- post-merge-cleanup 步骤 3 前置「先停实例再删目录」：锁文件走 alpha.sh stop，\n  无锁文件走 ps -ax | grep + lsof cwd 精确匹配兜底（cwd 落在该 worktree 路径才 kill，\n  不误伤主服务）；顺序不可反——alpha.sh 随 worktree 一并消失\n- worktree-isolation 补实例登记纪律：手工 node dist/src/main.js --port 直拉零登记，\n  万不得已直拉必须当场 kill；注记 macOS pgrep -f 截断 argv 漏检实证（2026-10-05 实测）\n- 修法决策树① 既有语义内修：cleanup 职责本就覆盖「回收该特性一切产物」，\n  alpha.sh stop 已幂等；改动仅限两个 skill 文档，无新机制\n\nModification-Class: narrow-fix\" 2>&1 | tail -15",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "38f07946-9f17-414c-821e-43a7c366de5d",
+      "ts": "2026-10-05T14:06:39.241Z",
+      "conversation_id": "4d5de028-1807-43d6-989e-a421dda48f5b",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-74763e09",
+   "command": "npx vitest run tests/frameworks/agent/zz-dbg-1240.test.ts > dbg-out.log 2>&1; grep -o 'SPANS=.*' dbg-out.log | head -c 2000; rm dbg-out.log",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×2/2",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "74763e09-34ad-494f-a1fc-b282ef17dabe",
+      "ts": "2026-10-05T14:18:13.985Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-d9282733",
+   "command": "git commit --author \"实现獭 <otter-buddy>\" -m \"[F20261005mtlp][conversation][Feature] 待办机制 P1 后端闭环+只读右侧栏tab\n\nModification-Class: mechanism-addition\n\nmatters 表（15 字段 3 索引）+ 状态机迁移守卫（16 条矩阵+宣告权 L2 守卫）\n+ 獭侧 list_matters/transition_matter 工具 + yield expects_partner_decision\n打标登记 + handoff_open_matters 机械供料 + 只读待办 tab（第五 tab，\nClipboardList）+ dissolve hook 等待方消亡回 OPEN。52 单测+能力测试，\ndb 迁移真启动验证（生产副本 1GB 无 SqliteError 零数据影响），UI 截图取证。\n\n🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by 实现獭\" 2>&1 | tail -3",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "d9282733-80b0-487d-932e-7871d0eee9fd",
+      "ts": "2026-10-06T00:02:57.009Z",
+      "conversation_id": "e871769f-a731-4278-ae21-de3ab4c8eaf8",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-8cefd12a",
+   "command": "git merge --abort 2>/dev/null; git status --short; echo \"---\"; git diff --stat HEAD 2>/dev/null | tail -3",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "8cefd12a-d120-48b0-94a1-09257fd76e74",
+      "ts": "2026-10-06T00:08:18.622Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-2020be32",
+   "command": "curl -sL --max-time 20 -A \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36\" \"https://www.anthropic.com/news/barclays-scales-claude\" | python3 -c \"\nimport sys, re, html as h\nt = sys.stdin.read()\nt = re.sub(r'<(script|style)[^>]*>.*?</\\1>', ' ', t, flags=re.S|re.I)\nt = re.sub(r'<[^>]+>', ' ', t)\nt = h.unescape(t)\nt = re.sub(r'\\s+', ' ', t)\nm = re.search(r'(Barclays.{0,4000})', t)\nprint(m.group(0) if m else t[:4000])\n\"",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "2020be32-5c3f-4b65-a64e-8e04b773b90b",
+      "ts": "2026-10-06T00:33:13.078Z",
+      "conversation_id": "98bd9fdd-8e28-4de8-b782-b59f46e733dd",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-a60458d4",
+   "command": "git fetch origin main 2>&1 | tail -2 && git rebase origin/main 2>&1 | tail -5",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "a60458d4-8991-44c5-a09f-71e48ad9ccdd",
+      "ts": "2026-10-06T00:36:16.737Z",
+      "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-3f5ab45a",
+   "command": "git stash push scripts/strip-ts-comments.mjs -m tmp-revert 2>&1 | tail -1 && npx vitest run tests/scripts/strip-ts-comments.test.ts 2>&1 | grep -E 'Tests |failed' | tail -2; git stash pop 2>&1 | tail -1 && npx vitest run tests/scripts/strip-ts-comments.test.ts 2>&1 | grep 'Tests ' ",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "3f5ab45a-8fa6-47cf-a162-0c09c2909abb",
+      "ts": "2026-10-06T09:34:41.825Z",
+      "conversation_id": "a9260c50-cef6-412e-a0b4-282287a13103",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-fa35542a",
+   "command": "git fetch origin && git rebase origin/main 2>&1 | tail -3; echo \"===复核锚点行号===\"; grep -n \"finalScore\" src/usecases/memory/search-engine.ts | head -3; grep -n \"fts.rank\\|twoPhase\\|two-phase\" src/frameworks/db/memory/sqlite-memory-repository.ts | head -6; grep -n \"bothBoost\\|alpha\" src/usecases/memory/search-engine.ts | head -5",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "fa35542a-8cff-4ed0-882e-4f6dd8d4ea29",
+      "ts": "2026-10-08T00:54:56.266Z",
+      "conversation_id": "a9260c50-cef6-412e-a0b4-282287a13103",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-d10b430c",
+   "command": "echo '=== eazo.ai homepage ==='; curl -sL --max-time 25 -A \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/126 Safari/537.36\" \"https://eazo.ai/\" | python3 -c \"\nimport sys, re, html\nt = sys.stdin.read()\n# title & meta\nfor m in re.findall(r'<title[^>]*>(.*?)</title>', t, re.S)[:3]: print('TITLE:', html.unescape(m.strip())[:200])\nfor m in re.findall(r'<meta[^>]+(?:name|property)=[\\\"\\\\'](description|og:description|og:title|twitter:description)[\\\"\\\\'][^>]*content=[\\\"\\\\'](.*?)[\\\"\\\\']', t)[:5]: print('META:', m[0], '=>', html.unescape(m[1])[:300])\nfor m in re.findall(r'<meta[^>]+content=[\\\"\\\\'](.*?)[\\\"\\\\'][^>]*(?:name|property)=[\\\"\\\\'](description|og:title)[\\\"\\\\']', t)[:5]: print('META2:', m[1], '=>', html.unescape(m[0])[:300])\n# strip tags, print visible text chunks\nbody = re.sub(r'<(script|style)[^>]*>.*?</\\1>', ' ', t, flags=re.S)\nbody = re.sub(r'<[^>]+>', ' ', body)\nbody = html.unescape(re.sub(r'\\s+', ' ', body))\nprint('BODY:', body[:2500])\n\"; echo; echo '=== EazoAI org repos ==='; curl -s --max-time 20 \"https://api.github.com/orgs/EazoAI/repos?per_page=20&sort=updated\" | jq -r '.[] | \"\\(.stargazers_count)★ \\(.name) | pushed:\\(.pushed_at[0:10]) | \\((.description // \"\")[0:110])\"' 2>&1 | head -20",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "d10b430c-724e-4f2e-bfc1-a258177db68c",
+      "ts": "2026-10-08T02:47:15.375Z",
+      "conversation_id": "325ef7b7-8e42-4edc-9abf-eae8f332a2c4",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-15689c88",
+   "command": "perl -e '\nopen(F, \"<\", \"/tmp/wx_final.txt\") or die;\nbinmode F; local $/; my $t = <F>;\n# 用 byte globs 找所有 Eazo 出现点\nmy $pos = 0; my @hits;\nwhile ($t =~ /Eazo/g) { push @hits, pos($t); }\nprint \"total hits: \", scalar(@hits), \"\\n\";\n# 打印每个 hit 前 250 后 500 字节\nmy $n = 0;\nfor my $h (@hits) {\n  $n++; last if $n > 10;\n  my $s = $h - 250; $s = 0 if $s < 0;\n  my $chunk = substr($t, $s, 750);\n  $chunk =~ s/\\s+/ /g;\n  print \"---[$n]---\\n$chunk\\n\";\n}' 2>&1 | head -80",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "15689c88-b65b-4788-9e4e-44d761ae6d83",
+      "ts": "2026-10-08T03:28:04.044Z",
+      "conversation_id": "325ef7b7-8e42-4edc-9abf-eae8f332a2c4",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-1dfd7e9c",
+   "command": "git merge origin/main --ff-only 2>&1 | tail -2; grep '\"@earendil' package.json; echo '---session factory 关键结构---'; grep -n 'customTools\\|exposure\\|createTools' src/frameworks/agent/pi-session-factory.ts | head -10; echo '---AgentTool 类型从哪来---'; grep -n 'AgentTool\\|customTools' node_modules/@earendil-works/pi-coding-agent/dist/sdk.d.ts 2>/dev/null | head -8",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "1dfd7e9c-72fa-4dc1-b8ac-f5428d27b725",
+      "ts": "2026-10-08T03:41:57.492Z",
+      "conversation_id": "325ef7b7-8e42-4edc-9abf-eae8f332a2c4",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-b71931a9",
+   "command": "python3 data/workspaces/325ef7b7-8e42-4edc-9abf-eae8f332a2c4/tmp/merge_v3.py && rm data/workspaces/325ef7b7-8e42-4edc-9abf-eae8f332a2c4/tmp/merge_v3.py",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "b71931a9-5bfd-4340-8008-18169d078d7a",
+      "ts": "2026-10-08T07:23:46.954Z",
+      "conversation_id": "325ef7b7-8e42-4edc-9abf-eae8f332a2c4",
+      "rule_id": "data_destructive",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-944fc534",
+   "command": "python3 - <<'EOF'\nimport re\np = \"tests/usecases/scheduler/scheduler-service.test.ts\"\ns = open(p).read()\nn = s.count(\"makeTask({ body: 'healing analysis' })\")\ns = s.replace(\"makeTask({ body: 'healing analysis' })\", \"makeTask({ body: '[self-healing-analysis] healing analysis' })\")\nopen(p, \"w\").write(s)\nprint(f\"patched {n}\")\nEOF",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "944fc534-8ea4-47d8-be92-c17a6a639933",
+      "ts": "2026-10-08T08:08:49.895Z",
+      "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-5e611a9c",
+   "command": "git commit --author=\"大獭 <otter-buddy>\" -m \"[F20261008hcpa][healing][New Feature] healing 治本三层改造：打断-疏通-接盘（#1356）\n\n层1 打断：guard bounce 上限 3→2（同规则第3次拦截直接升级走人）\n层2 疏通：restart-service.mjs 新增 kill-by-pid 子命令（PID 受控终止，三重校验）\n层3 接盘：autoStaleDismiss 排除 high + 超龄 high 24h 推 alert-registry + 消费任务 high 强制 bind_issue\n\n验证：4971/4971 + tsc 0 错 + eslint 0 错\n新增测试：stale-severity(4) + kill-by-pid(8) + scheduler alert(3)\n修改测试：guard-bounce GB-3 上限语义 3→2\n\n🦦 Authored by 大獦\"",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "5e611a9c-4ca4-4791-b6f0-9de12096ebbe",
+      "ts": "2026-10-08T08:17:26.833Z",
+      "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-ae6c18a7",
+   "command": "git commit --author=\"大獭 <otter-buddy>\" -m \"[F20261008hcpa][healing][New Feature] healing 治本三层改造：打断-疏通-接盘（#1356）\n\n层1 打断：guard bounce 上限 3→2（同规则第3次拦截直接升级走人）\n层2 疏通：restart-service.mjs 新增按 PID 受控终止子命令（三重校验：白名单/cwd归属/主进程拒绝）\n层3 接盘：autoStaleDismiss 排除 high + 超龄 high 24h 推 alert-registry + 消费任务 high 强制 bind_issue\n\n验证：4971/4971 + tsc 0 错\n新增测试：stale-severity(4) + pid-guard(8) + scheduler alert(3)\n修改测试：guard-bounce GB-3 上限语义 3→2\n\n🦦 Authored by 大獭\"",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "ae6c18a7-21bd-4629-aa4a-6387451150e3",
+      "ts": "2026-10-08T08:17:52.919Z",
+      "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-b891a629",
+   "command": "cat /repo/data/workspaces/wsid/commit-msg.txt | git commit --author=\"大獭 <otter-buddy>\" -F -",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "b891a629-b280-48a7-9b20-48e6940904eb",
+      "ts": "2026-10-08T08:24:44.234Z",
+      "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-9c75134a",
+   "command": "git commit --author=\"大獭 <otter-buddy>\" -F /repo/data/workspaces/wsid/commit-msg-v2.txt",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "9c75134a-551f-4bfb-90c5-76595365673d",
+      "ts": "2026-10-08T08:46:05.985Z",
+      "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-011e282d",
+   "command": "git merge --ff-only origin/main 2>&1 || (git fetch origin main 2>&1 | tail -1; git merge --ff-only origin/main 2>&1); git log --oneline -1",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "011e282d-dd44-4967-8fb7-60a652509b6a",
+      "ts": "2026-10-09T05:13:22.542Z",
+      "conversation_id": "a9260c50-cef6-412e-a0b4-282287a13103",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-09cefae1",
+   "command": "git merge --ff-only origin/main 2>&1 | tail -3; git log --oneline -1",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "09cefae1-4930-4f5d-8550-8d27d6dcd90f",
+      "ts": "2026-10-09T05:14:03.616Z",
+      "conversation_id": "a9260c50-cef6-412e-a0b4-282287a13103",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-29a257e3",
+   "command": "git merge --ff-only FETCH_HEAD",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "29a257e3-0c5a-46ce-bc59-0cb5e2420b8e",
+      "ts": "2026-10-09T05:14:09.173Z",
+      "conversation_id": "a9260c50-cef6-412e-a0b4-282287a13103",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-617c49bd",
+   "command": "# S2 修复的行为验证：造 >200 条 gap 在复刻实例实跑（库侧注入 250 条，模拟断连数小时首刷）\nH=~/.otter/alpha/51259f75/otter-buddy.db\nCID=325ef7b7-8e42-4edc-9abf-eae8f332a2c4\nfor i in $(seq 1 250); do\n  sqlite3 $H \"INSERT INTO entries (id, conversation_id, entry_type, body, sender_id, created_at, sequence_num) SELECT lower(hex(randomblob(16))), '$CID', 'speak', 'S2 验证注入 '$i, 'otter-probe', datetime('now'), COALESCE(MAX(sequence_num),0)+1 FROM entries WHERE conversation_id='$CID';\"\ndone\nsqlite3 $H \"SELECT COUNT(*) FROM entries WHERE conversation_id='$CID';\"",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "617c49bd-ee22-4ea8-9077-04c22a91e6f8",
+      "ts": "2026-10-09T07:42:22.292Z",
+      "conversation_id": "27398619-8e0b-4147-8230-93e23f1a01ac",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-d2670dd4",
+   "command": "git merge --ff-only origin/main && git log --oneline -2",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "d2670dd4-2cd7-4c14-ba68-56fe1d74cc78",
+      "ts": "2026-10-09T08:33:27.657Z",
+      "conversation_id": "a23f0f4a-612c-46e9-8d83-be648ced720e",
+      "rule_id": "main_write",
+      "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+      "status": "resolved"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-bf2b13de",
+   "command": "git merge --abort 2>/dev/null; git status --short | grep -v \"^??\" | wc -l; git reset HEAD -- . 2>/dev/null | tail -1; git status --short | grep -v \"^??\" | head -5",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "bf2b13de-1bd1-4e52-a349-052d493c63d6",
+      "ts": "2026-10-10T07:10:43.567Z",
+      "conversation_id": "27398619-8e0b-4147-8230-93e23f1a01ac",
+      "rule_id": "main_write",
+      "resolution": "",
+      "status": "open"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-324eaad4",
+   "command": "curl -sL --max-time 45 -A \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36\" https://www.anthropic.com/news/claude-discovers-novel-enzyme-system -o /repo/data/workspaces/wsid/data/anthropic-enzyme.html; echo \"exit=$?\"; wc -c /repo/data/workspaces/wsid/data/anthropic-enzyme.html; python3 -c \"\nimport re,html\nt=open('/repo/data/workspaces/wsid/data/anthropic-enzyme.html',encoding='utf-8',errors='ignore').read()\nt=re.sub(r'<(script|style)[^>]*>.*?</\\1>','',t,flags=re.S|re.I)\nt=re.sub(r'<[^>]+>',' ',t)\nt=html.unescape(t)\nt=re.sub(r'\\s+',' ',t)\nprint(t[:5500])\"",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/2",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "324eaad4-8303-4ae5-9efc-40bfa0f59eca",
+      "ts": "2026-10-11T01:09:47.816Z",
+      "conversation_id": "98bd9fdd-8e28-4de8-b782-b59f46e733dd",
+      "rule_id": "main_write",
+      "resolution": "",
+      "status": "open"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-80b0e7bc",
+   "command": "P=/repo/data/workspaces/wsid/sync-probe/docs/features; mv $P/F20261012dmb-dm-message-bubble-inline-layout.md $P/hold.md; cat > $P/F20261012dmb-minimal-probe.md <<'EOF'\n---\nid: F20261012dmb\ntitle: 测试探针文档\nsummary: 同步管线故障定位用的最小探针。\nchange_type: feature\ncapability_test: n/a\ncreated_in_conversation: 0401284f-dff7-4927-af60-3516a984529d\ntags: [test]\n---\n\n# 探针\n\n正文。\nEOF\necho written",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "guard_intercept"
+    ],
+    "anchors": [
+     {
+      "source": "guard_intercept",
+      "event_id": "80b0e7bc-0167-4626-be48-0c679933b43e",
+      "ts": "2026-10-12T09:22:03.035Z",
+      "conversation_id": "0401284f-dff7-4927-af60-3516a984529d",
+      "rule_id": "main_write",
+      "resolution": "",
+      "status": "open"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "real_command",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-c027",
+   "command": "pushd /repo && touch x",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "synthetic_probe"
+    ],
+    "anchors": [
+     {
+      "source": "synthetic_probe",
+      "id": "c027",
+      "expect_old": "UNEVAL_UNKNOWN",
+      "note": "pushd 回落"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "synthetic_probe",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-c045",
+   "command": "git commit -m \"msg with $(cat f)\"",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "synthetic_probe"
+    ],
+    "anchors": [
+     {
+      "source": "synthetic_probe",
+      "id": "c045",
+      "expect_old": "BLOCK",
+      "note": "cmdsub 在引文数据侧不影响 git 落点=cwd；shadow 首跑旧链也拦，期望修正为 BLOCK"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "synthetic_probe",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-c130",
+   "command": "python3 -c \"import sys; open(sys.argv[1],'w').write('x')\" /tmp/x",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "synthetic_probe"
+    ],
+    "anchors": [
+     {
+      "source": "synthetic_probe",
+      "id": "c130",
+      "expect_old": "ALLOW",
+      "note": "P2 窄提取：sys.argv[1] 值传播落 /tmp → 放行（#1411 处置后语义升级，旧期望 UNEVAL_UNKNOWN）"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "synthetic_probe",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-c139",
+   "command": "node -e \"fs.writeFileSync(process.argv[2], 'x')\" /tmp/a /repo/b",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "synthetic_probe"
+    ],
+    "anchors": [
+     {
+      "source": "synthetic_probe",
+      "id": "c139",
+      "expect_old": "BLOCK",
+      "note": "#1411 负门：argv[2] 映射第二实参（off-by-one 修正后正确拦截，曾误判 ALLOW）"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "synthetic_probe",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  },
+  {
+   "id": "TS-c141",
+   "command": "python3 -c \"open(sys.argv[1],'w').write('x')\" /repo/data/x",
+   "adjudication": [
+    "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+    "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+   ],
+   "source": {
+    "types": [
+     "synthetic_probe"
+    ],
+    "anchors": [
+     {
+      "source": "synthetic_probe",
+      "id": "c141",
+      "expect_old": "BLOCK",
+      "note": "#1411 拦截侧：python sys.argv[1] 主仓实参 → 拦（拦截增强，旧回落）"
+     }
+    ]
+   },
+   "fp_marked": [],
+   "kind": "synthetic_probe",
+   "conditional": true,
+   "expectations": [
+    {
+     "cwd": "worktree",
+     "verdict": "ALLOW"
+    },
+    {
+     "cwd": "main",
+     "verdict": "BLOCK"
+    }
+   ]
+  }
+ ]
+}
