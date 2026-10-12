@@ -4,7 +4,7 @@ title: "獭之传说·镜湖终战 P2：五段式终战 + 429 换獭 + 封印咒
 summary: "镜湖终战 P2 落地：game/index.html 在 P1 的 8 点位农场之上接入终章战斗——五段式（占卜/召唤/结界/洞察/刺入）映射 otter-buddy 五能力打「过去的自己」，含 429 哑火→换獭配额轮换、战败重生（前世封存叙事）、封印咒语门（逐字校验「合入」错拒对过）。数值保底：正路最坏 90≤100 必胜、纯硬莽数学必败。Playwright selftest 20/20 PASS（含 429 确定性验证、8 点位回归与战斗态画布点击回归）。"
 change_type: feature
 capability_tags: [game, readme-growth]
-capability_test: "n/a: game/ 为纯静态内容产品（零运行时依赖、不进主系统构建/测试面），验证 = 工作区 Playwright 程序化自检（18/18：8 点位回归/终战开启/纯硬莽必败/五段式正路/429 哑火确定性/换獭/翻倍刺入/封印错拒对过/通关落版/零 pageerror）+ 真机截图取证 + 人工验收（方案 verify_by=human_judge T1-T8 的 P2 子集）；CI 面为 lint 无新增（game/ 已入 eslint ignores）"
+capability_test: "n/a: game/ 为纯静态内容产品（零运行时依赖、不进主系统构建/测试面），验证 = 工作区 Playwright 程序化自检（20/20：8 点位回归/战斗态画布点击回归/终战开启/纯硬莽必败/五段式正路/429 哑火确定性/换獭/翻倍刺入/封印错拒对过/通关落版/零 pageerror）+ 真机截图取证 + 人工验收（方案 verify_by=human_judge T1-T8 的 P2 子集）；CI 面为 lint 无新增（game/ 已入 eslint ignores）"
 intent:
   problem: "P0（#1422）/P1（#1427）交付了农场 8 点位，终章预告悬空（lakePreview 只有文案没有战斗）；P2 使命是把方案 §7 的镜湖终战落地——用游戏机制把 otter-buddy 的五项核心能力（记忆/召唤/隔离/审视/授权合入）演成一场能赢能输的战斗，收官产品叙事。"
   expected_effect: "① 五段式正路（占卜→召唤→结界→洞察→刺入）走通且保底必胜；② 纯硬莽数学必败（100% 走不通）；③ 429 哑火→换獭机制可确定性复现；④ 封印咒语逐字校验「合入」错拒对过；⑤ 8 点位回归零破坏；⑥ 零 pageerror。"
