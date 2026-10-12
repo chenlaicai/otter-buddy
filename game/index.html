@@ -413,21 +413,34 @@ var SPOTS = [
   { id:"lake",     order:9, x:376, y:8,   w:96, h:68, name:"镜湖",   icon:"🔮", labelBelow:true, stand:[360,92] }
 ];
 function spotIndex(sp) { for (var i = 0; i < SPOTS.length; i++) if (SPOTS[i].id === sp.id) return i; return -1; }
+function spotById(id) { for (var i = 0; i < SPOTS.length; i++) if (SPOTS[i].id === id) return SPOTS[i]; return null; }
 function hotRect(sp) { return { x:sp.x - 10, y:sp.y - 16, w:sp.w + 20, h:sp.h + 26 }; }
 
 /* ---------- 状态 ---------- */
 var S = {
-  started:false, phase:"idle", spotIdx:0,
+  started:false, phase:"idle", activeId:null,
   bag:[], tick:0,
   done:{}, allDone:false,
   flags:{},             // aphids/eggs/wilt/pile/slow/magnify/trial/matured
   player:{ x:210, y:210, tx:210, ty:210, speed:1.5 },
-  floats:[], sparkles:[],
+  floats:[], sparkles:[], smokes:[],
   dirty:true
 };
 function markDirty() { S.dirty = true; }
 function playerWalk(to, speed) { S.player.tx = to[0]; S.player.ty = to[1]; if (speed) S.player.speed = speed; }
 function pushFloat(x, y, txt) { S.floats.push({ x:x, y:y, txt:txt, age:0 }); }
+function pushSmoke(x, y) {
+  S.smokes.push({ x:x, y:y, vx:(Math.random() - 0.5) * 0.25, vy:-0.16 - Math.random() * 0.22, life:70 + Math.random() * 50, c:Math.random() < 0.5 ? "#2e2a3c" : "#413b55" });
+}
+function drawSmoke() {
+  for (var i = S.smokes.length - 1; i >= 0; i--) {
+    var m = S.smokes[i];
+    px(Math.round(m.x), Math.round(m.y), m.c);
+    if (m.life < 40) px(Math.round(m.x) + 1, Math.round(m.y), m.c);
+    m.x += m.vx; m.y += m.vy;
+    if (--m.life <= 0) S.smokes.splice(i, 1);
+  }
+}
 function pushSparkle(x, y, n) {
   for (var i = 0; i < (n || 1); i++) {
     S.sparkles.push({
@@ -492,8 +505,7 @@ function drawLakeBase() {
 /* ---------- 场景绘制（状态相关层，进 bake） ---------- */
 function isLit(sp) {
   if (sp.id === "lake") return S.allDone;
-  var idx = spotIndex(sp);
-  return S.done[sp.id] || idx === S.spotIdx;
+  return true; // 自由探索：八块田全部可交互，用「闪光点」引导发现（搭档试玩反馈②）
 }
 function drawPlots() {
   // 点位1 荒田：3×2 土壤
@@ -505,7 +517,7 @@ function drawPlots() {
   ctx.globalAlpha = 1;
   // 记忆麦子（act 双叶 / done 成熟）
   var st = 0;
-  if (S.done.plant) st = 3; else if (S.spotIdx === 0 && S.phase === "act") st = 2;
+  if (S.done.plant) st = 3; else if (S.activeId === "plant" && S.phase === "act") st = 2;
   if (st > 0 && !lock1) {
     drawCrop(st, sp.x + 12, sp.y + 12); drawCrop(st, sp.x + 32, sp.y + 10); drawCrop(st, sp.x + 22, sp.y + 26);
     // 蚜虫（瓢虫屋问题演出）
@@ -608,7 +620,7 @@ function drawFireflies() {
   }
 }
 function drawSeedCards() { // 种子库检索演出（act 阶段）
-  if (!(S.spotIdx === 1 && S.phase === "act")) return;
+  if (!(S.activeId === "seedbox" && S.phase === "act")) return;
   var hot = Math.floor(S.tick / 20) % 3;
   var pos = [[110,182],[121,179],[132,182]];
   for (var i = 0; i < 3; i++) {
@@ -652,11 +664,31 @@ function drawPlayer() {
     px(ox - 2, oy - 2, "#8fd0e8"); px(ox + 20, oy - 3, "#8fd0e8"); px(ox - 1, oy + 4, "#8fd0e8");
   }
 }
+var DARKKEY = { o:"#120e1e", "1":"#231d38", "2":"#2e2747", "3":"#3b3259", b:"#231d38", B:"#2e2747", f:"#4d4270", F:"#231d38", W:"#ff5d5d", K:"#120e1e", n:"#171226", s:"#2e2747", S:"#231d38", v:"#2e2747", V:"#231d38", h:"#231d38", H:"#2e2747", g:"#3b3259", G:"#171226" };
+function drawSprKey(name, ox, oy, key) {
+  var g = SPR[name];
+  for (var y = 0; y < g.length; y++) for (var x = 0; x < g[y].length; x++) {
+    var ch = g[y][x]; if (ch === "." || ch === " ") continue;
+    px(ox + x, oy + y, key[ch] || "#2e2747");
+  }
+}
+function drawBoss() { // 镜湖 BOSS「过去的大獭」：幼獭同形体的暗色倒影 + 红瞳（搭档试玩反馈①）
+  var bx = 432, by = 28 + (Math.floor(S.tick / 40) % 2);
+  shadow(0, bx + 2, by + 15, 14);
+  drawSprKey("pup1", bx, by, DARKKEY);
+}
+function drawBattleFx() {
+  if (S.mode !== "battle") return;
+  if (S.tick % 8 === 0) pushSmoke(434 + Math.random() * 18, 26 + Math.random() * 12);
+  drawBoss();
+  drawSmoke();
+}
 function drawGlowRing() {
   if (!S.started) return;
+  if (S.mode === "battle") return; // 终战演出以 BOSS 为焦点，不再打农场光环
   var target = null, purple = false;
   if (S.allDone) { target = SPOTS[8]; purple = true; }
-  else if (S.phase === "idle" || S.phase === "problem" || S.phase === "act") target = SPOTS[S.spotIdx];
+  else if (S.activeId) target = spotById(S.activeId); // 教学进行中：光环跟着当前点位
   if (!target) return;
   var hr = hotRect(target);
   var pulse = Math.floor(S.tick / 24) % 2 === 0;
@@ -692,6 +724,13 @@ function drawAmbientSparkles() { // 各点位完成后的周期性环境光
   if (S.done.fallow && S.tick % 44 === 0) pushSparkle(298 + S.tick % 10, 203, 1);
   if ((S.flags.matured || S.done.lab) && S.tick % 36 === 0) pushSparkle(346 + S.tick % 14, 114 + S.tick % 10, 1);
   if (S.allDone && S.tick % 30 === 0) pushSparkle(390 + (S.tick * 7) % 70, 20 + (S.tick * 11) % 40, 1);
+  // 「闪光点」：未完成点位周期性微光——自由探索的发现引导（搭档试玩反馈②）
+  if (S.started && !S.allDone) {
+    for (var d = 0; d < 8; d++) {
+      var dsp = SPOTS[d];
+      if (!S.done[dsp.id] && (S.tick + d * 31) % 160 < 5) pushSparkle(dsp.x + 8 + (S.tick % 5), dsp.y + 6, 1);
+    }
+  }
 }
 
 function render() {
@@ -708,6 +747,7 @@ function render() {
   drawHelpers();
   drawMagnifier();
   drawAmbientSparkles();
+  drawBattleFx();
   drawPlayer();
   drawGlowRing();
   drawFloatsAndSparkles();
@@ -746,7 +786,7 @@ cv.addEventListener("click", function (e) {
   // 不触发 replay/引导——否则 replay 会清空按钮区、覆盖封印门 DOM，误触即死档（#1427 检视严重2）
   if (S.phase !== "idle") {
     if (S.phase === "effect") {
-      if (S.spotIdx === 7 && !S.done.lab) say("进行中 · 封印中", "试验田正在等待封印。\n在下方输入「合入」两个字，完成最后一步。");
+      if (S.activeId === "lab" && !S.done.lab) say("进行中 · 封印中", "试验田正在等待封印。\n在下方输入「合入」两个字，完成最后一步。");
       else say("进行中", "看完了？点下方按钮继续。");
     } else if (S.phase === "act") {
       say("进行中", "跟着下方按钮操作这一步。");
@@ -756,12 +796,7 @@ cv.addEventListener("click", function (e) {
     return;
   }
   if (S.done[sp.id]) { replay(sp); return; }
-  var idx = spotIndex(sp);
-  if (idx !== S.spotIdx) {
-    say("引导", "「" + sp.name + "」还在灰暗中。\n先去发光的「" + SPOTS[S.spotIdx].name + "」。");
-    return;
-  }
-  if (S.phase === "idle") { openProblem(sp); return; }
+  openProblem(sp); // 自由探索：任何未完成点位都可开工，无固定顺序（搭档试玩反馈②）
 });
 
 /* ---------- 对话与三段式 ---------- */
@@ -880,7 +915,7 @@ var SCRIPTS = {
 
 /* ---------- 三段式状态机 ---------- */
 function openProblem(sp) {
-  var sc = SCRIPTS[sp.id]; S.phase = "problem";
+  var sc = SCRIPTS[sp.id]; S.phase = "problem"; S.activeId = sp.id; playerWalk(sp.stand, 2);
   if (sc.problem.on) sc.problem.on();
   say("① 问题任务", sc.problem.t, sc.problem.s);
   actions([{ label:sc.problem.btn, fn:function () { openAct(sp); } }]);
@@ -908,18 +943,18 @@ function replay(sp) {
   actions([]);
 }
 function advance() {
-  S.phase = "idle"; S.spotIdx++;
-  if (S.spotIdx >= 8) {
+  S.phase = "idle"; S.activeId = null;
+  var left = 0;
+  for (var i = 0; i < 8; i++) if (!S.done[SPOTS[i].id]) left++;
+  if (left <= 0) {
     S.allDone = true;
     hintEl.innerHTML = "P1 完成 🎉 · <em>镜湖亮了</em>";
     playerWalk(SPOTS[8].stand, 1.5);
     say("P1 · 完成", "八块田全部点亮！\n背包里的八件东西，就是 otter-buddy 的八种日常。", "湖那边，有什么亮了……（点镜湖）");
     actions([]); markDirty(); return;
   }
-  var nx = SPOTS[S.spotIdx];
-  hintEl.innerHTML = "点位 " + nx.order + "/8 · <em>" + nx.name + "</em>";
-  playerWalk(nx.stand, 1.5);
-  say("解锁", "「" + nx.name + "」亮起来了——农场又活了一点。", "点发光的「" + nx.name + "」开始。");
+  hintEl.innerHTML = "已点亮 " + (8 - left) + "/8 · <em>自由探索</em>";
+  say("收获", "这一手你学会了。\n农场没有固定顺序——还有 " + left + " 块田在闪光。", "想去哪块，就点哪块。");
   actions([]); markDirty();
 }
 /* 试验田特殊流程：收成 → 「合入」封印仪式 */
@@ -1117,9 +1152,9 @@ function bEnding() {
 say("开场", "一只幼獭漂到了这片荒芜的海藻农场。", "田是灰的，背包是空的，身边没有队友。");
 actions([{ label:"👉 出发", fn:function () {
   S.started = true;
-  hintEl.innerHTML = "点位 1/8 · <em>荒田</em>";
+  hintEl.innerHTML = "8 块田在闪光 · <em>想先去哪块都行</em>";
   playerWalk(SPOTS[0].stand, 1.5);
-  say("第一幕 · 一无所有", "只有一块田亮着——那就从它开始。\n八块田，一只獭，三分钟。", "其他点位灰态可见：逐个点亮，农场会慢慢活起来。（点发光的荒田）");
+  say("第一幕 · 一无所有", "八块田都在闪着微光——想先去哪块，就去哪块。\n八块田，一只獭，三分钟。", "每块田都有一个麻烦在等你：发现问题、引入能力、看到效果。（点任意闪光的田）");
   actions([]);
   markDirty();
 }}]);
