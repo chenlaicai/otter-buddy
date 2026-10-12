@@ -1,12 +1,12 @@
 ---
 id: F20261012kfp4
 title: "獭之传说·海藻农场 P4：像素可读性根治（内部分辨率翻倍）+ visual-design 全面视觉打磨"
-summary: "P4 视觉层交付（用户反馈「pixel 太大了，种子库这些字都看不清」）：① 可读性根治——canvas 内部分辨率 480×270→960×540（setTransform(2,2)，逻辑坐标系与绘制代码零改动，烘焙层同步），标签 7px→bold 10px（物理像素×2）+ 3px 描边光晕 + CJK 字体栈，✓ 改 measureText 定位；显示层去 pixelated 改平滑缩放（960 backing 对 754 CSS 为降采样，nearest-neighbor 会抽行）。② HTML UI 按 visual-design redesign 重做（硬边游戏面板：硬投影画布→teal 铭牌 tag→实心 CTA 按压反馈→分段 HP 条→背包 chips），修复 hint-chip 元素选择器 bug（提示牌一直不可见）。③ 场景光影：天空 4 色带→13 级量化渐变、月晕方块→径向渐变、暗角、镜湖三边暗沿+岸牌让位。机制/文案/数值零改动。验证以 p2-selftest.mjs 实跑输出为准 + 死锁探针 + DPR2 前后对比截图。"
+summary: "P4 视觉层交付（用户反馈「pixel 太大了，种子库这些字都看不清」）：① 可读性根治——canvas 内部分辨率 480×270→960×540（setTransform(2,2)，逻辑坐标系与绘制代码零改动，烘焙层同步），标签 7px→bold 10px（物理像素×2）+ 3px 描边光晕 + CJK 字体栈，✓ 改 measureText 定位；显示层去 pixelated 改平滑缩放（960 backing 对 754 CSS 为降采样，nearest-neighbor 会抽行）。② HTML UI 按 visual-design redesign 重做（硬边游戏面板：硬投影画布→teal 铭牌 tag→实心 CTA 按压反馈→分段 HP 条→背包 chips），修复 hint-chip 元素选择器 bug（样式全失效：浮牌形态与定位丢失））。③ 场景光影：天空 4 色带→13 级量化渐变、月晕方块→径向渐变、暗角、镜湖三边暗沿+岸牌让位。机制/文案/数值零改动。验证以 p2-selftest.mjs 实跑输出为准 + 死锁探针 + DPR2 前后对比截图。"
 change_type: feature
 capability_tags: [game, readme-growth]
 capability_test: "n/a: game/ 为纯静态内容产品（零运行时依赖、不进主系统构建/测试面），验证 = 工作区 p2-selftest.mjs 全量实跑 PASS（含新增「种子库标签物理像素存在」像素取证用例，用例总数不减，以实跑输出为准）+ pr1435 死锁探针回归 ✓ 未死锁 + DPR2 前后对比截图人工验收；CI 面为 lint 无新增（game/ 已入 eslint ignores）"
 intent:
-  problem: "上线后搭档带回用户反馈（原话）：「1.用户反馈 pixel 太大了，里面的『种子库』这些字都看不清。像素必须再优化一下 2.……现在咱们能力已上线，现在全力来优化 ui 和游戏体验这些」。根因（可复核）：canvas 内部分辨率仅 480×270（game/index.html canvas 属性）+ image-rendering:pixelated 拉伸显示，场景标签 ctx.font 7px monospace 中文在任何显示尺寸下都糊；HTML UI 层（.dialog/.btn/.hpbar/.statusbar）为无层级默认样式，且 hint-chip 选择器 bug 导致提示牌全程不可见。"
+  problem: "上线后搭档带回用户反馈（原话）：「1.用户反馈 pixel 太大了，里面的『种子库』这些字都看不清。像素必须再优化一下 2.……现在咱们能力已上线，现在全力来优化 ui 和游戏体验这些」。根因（可复核）：canvas 内部分辨率仅 480×270（game/index.html canvas 属性）+ image-rendering:pixelated 拉伸显示，场景标签 ctx.font 7px monospace 中文在任何显示尺寸下都糊；HTML UI 层（.dialog/.btn/.hpbar/.statusbar）为无层级默认样式，且 hint-chip 选择器 bug 导致提示牌样式全失效（浮牌形态与定位丢失，提示语退化为画布下沿裸文本行——检视实测 base 版裸文本可见，原「全程不可见」归因不实，已订正）。"
   expected_effect: "① 场景标签（种子库/荒田/试验田等）在同视角对比下清晰可读：物理像素翻倍（bold 10px×RS2）+ 描边光晕拉平草地纹理上的对比度；② 画布渲染告别 nearest-neighbor 粗块：内部 2× 采样 + 平滑缩放；③ HTML UI 层有明确视觉动线（画布主视觉→对话铭牌→实心 CTA→状态栏降噪），hint-chip 正常显示；④ 场景光影有纵深（量化渐变天空/柔月晕/暗角/湖岸）；⑤ 机制零改动：点位/三段式/五段式战斗/封印门状态机语义不变，3 秒反馈约束不变。"
   verify_by:
     type: human_judge
@@ -33,7 +33,7 @@ P0-P3（#1422/#1427/#1435/#1442）游戏上线后，搭档带回两条用户/自
 |---|---|---|
 | 内部分辨率仅 480×270 | canvas width/height 属性 | 480 backing 被拉到 ~754 CSS px，image-rendering:pixelated 做 nearest-neighbor 不规则放大（1/2 CSS px 混排，块状感） |
 | 标签 7px monospace 中文 | `ctx.font = "7px monospace"` | 7px 中文字形信息量不足，任何放大都是马赛克 |
-| 提示牌不可见 | CSS 选择器 `hint-chip`（元素选择器） vs HTML `class="hint-chip"` | 选择器匹配不到，样式全失效，被 `overflow:hidden` 挤出视口 |
+| 提示牌样式失效 | CSS 选择器 `hint-chip`（元素选择器） vs HTML `class="hint-chip"` | 选择器匹配不到，样式全失效：无浮牌形态、无定位，提示语退化为普通流式裸文本（检视实测 base 版仍以裸行可见，非「被 `overflow:hidden` 挤出视口不可见」——原归因已订正） |
 
 ## 目标
 
