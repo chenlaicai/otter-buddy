@@ -24,6 +24,7 @@ import type { PromptController } from "./controllers/prompt-controller";
 import type { ActivityController } from "./controllers/activity-controller";
 import type { MatterController } from "./controllers/matter-controller";
 import type { UnfurlController } from "./controllers/unfurl-controller";
+import type { QuotaController } from "./controllers/quota-controller";
 
 
 export interface Controllers {
@@ -61,6 +62,8 @@ export interface Controllers {
   matter: MatterController;
   /** F20261008csf1 P1：链类 unfurl 预览卡数据端点（og 元数据代理抓取） */
   unfurl: UnfurlController;
+  /** F20261012qtbc：配额看板（三家控制台余量）只读端点 + 登录辅助 */
+  quota: QuotaController;
   inbound: { optionsEvents: (c: Context) => Response | Promise<Response>; receiveEvents: (c: Context) => Response | Promise<Response>; getStatus: (c: Context) => Response | Promise<Response> };
 }
 
@@ -131,7 +134,26 @@ function registerDataRoutes(app: Hono, c: Controllers): void {
   app.get("/api/health/trends", (ctx) => c.rhi.trends(ctx));
   app.get("/api/health/score", (ctx) => c.rhi.score(ctx));
   app.get("/api/health/cost-output", (ctx) => c.rhi.costOutput(ctx));
+  // F20261012qtbc：配额看板——余量快照（refresh=1 强制重采）+ 弹登录窗
+  registerQuotaRoutes(app, c);
   registerRhiWriteRoutes(app, c);
+  registerMemoryRoutes(app, c);
+  app.get("/api/conversations/:id/key-resources", (ctx) => c.keyInfo.getKeyResources(ctx));
+  app.post("/api/conversations/:id/resources", (ctx) => c.keyInfo.linkResource(ctx));
+  app.patch("/api/conversations/:id/resources/:resourceId", (ctx) => c.keyInfo.flagResource(ctx));
+  app.delete("/api/conversations/:id/resources/:resourceId", (ctx) => c.keyInfo.deleteLinkedResource(ctx));
+  app.get("/api/settings", (ctx) => c.settings.getSettings(ctx));
+  app.put("/api/settings", (ctx) => c.settings.updateSettings(ctx));
+}
+
+/** F20261012qtbc：配额看板路由（拆出以守 registerDataRoutes 语句数上限） */
+function registerQuotaRoutes(app: Hono, c: Controllers): void {
+  app.get("/api/quota", (ctx) => c.quota.getQuota(ctx));
+  app.post("/api/quota/login", (ctx) => c.quota.login(ctx));
+}
+
+/** 记忆域路由（F20261012qtbc 拆出，守 registerDataRoutes 语句数上限；行为不变） */
+function registerMemoryRoutes(app: Hono, c: Controllers): void {
   app.get("/api/memory/search", (ctx) => c.memory.search(ctx));
   // #576（F20260901emps）：记忆搜索页初始态数据源（最近记忆，非检索）
   app.get("/api/memory/recent", (ctx) => c.memory.recent(ctx));
@@ -140,12 +162,6 @@ function registerDataRoutes(app: Hono, c: Controllers): void {
   app.get("/api/memory/dark-entries", (ctx) => c.memory.getDarkEntries(ctx));
   app.get("/api/memory/:id", (ctx) => c.memory.getById(ctx));
   app.patch("/api/memory/:id/flag", (ctx) => c.memory.flag(ctx));
-  app.get("/api/conversations/:id/key-resources", (ctx) => c.keyInfo.getKeyResources(ctx));
-  app.post("/api/conversations/:id/resources", (ctx) => c.keyInfo.linkResource(ctx));
-  app.patch("/api/conversations/:id/resources/:resourceId", (ctx) => c.keyInfo.flagResource(ctx));
-  app.delete("/api/conversations/:id/resources/:resourceId", (ctx) => c.keyInfo.deleteLinkedResource(ctx));
-  app.get("/api/settings", (ctx) => c.settings.getSettings(ctx));
-  app.put("/api/settings", (ctx) => c.settings.updateSettings(ctx));
 }
 
 function registerScheduledTaskRoutes(app: Hono, c: Controllers): void {

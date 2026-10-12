@@ -547,6 +547,8 @@ export function createTestApp(deps: TestDeps): Hono {
     matter: {} as any,
     /* F20261008csf1 P1：unfurl 真实现（无外部依赖，抓取走全局 fetch 可被测试 stub） */
     unfurl: new UnfurlController(logger),
+    /* F20261012qtbc：配额端点 mock（逻辑专项测试在 tests/usecases/quota，此处仅满足装配） */
+    quota: {} as any,
   };
 
   const app = createRouter(controllers, createTestLogger());
