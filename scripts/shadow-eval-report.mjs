@@ -75,14 +75,17 @@ const aggDimMismatch = aggregates.reduce((s, r) => s + (Number(r.ctx.dimensionMi
 const fallbackRate = aggTotal > 0 ? ((aggUneval / aggTotal) * 100).toFixed(1) : "n/a";
 
 // ── 族内成功率（判据②，个体口径） ──
-const familyDenom = sameBlock.length + missBlock.length + familyFallback.length;
-const familyRate = familyDenom > 0 ? ((sameBlock.length / familyDenom) * 100).toFixed(1) : "n/a";
+// 族内成功率：分子含「确认误拦」裁决（r1 处置：人工裁决求值器对的候选计入成功，否则虚低）；
+// 分母剔除「维度外」误入样本（r1 前数据兼容）
+const familyDenom = sameBlock.length + missBlock.length + familyFallback.length - dimExcluded.length;
+const familyNumer = sameBlock.length + confirmedMiss.length;
+const familyRate = familyDenom > 0 ? ((familyNumer / familyDenom) * 100).toFixed(1) : "n/a";
 
 console.log(`[shadow-eval-report] 近 ${days} 天观察记录 ${parsed.length} 条（个体 ${individuals.length} + 聚合窗 ${aggregates.length}；db=${dbPath}）`);
 
 console.log(`\n── 判据四项（预注册口径，r1 处置后）──`);
 console.log(`  ① 红线（真误放，人工裁 BLOCK）= ${trueMissPlaced.length} ${trueMissPlaced.length > 0 ? "⚠️ >0 —— 建议停止切换回炉（F20261010gshw 判据）" : "✅（判据 0）"}`);
-console.log(`  ② 族内成功率 = ${familyRate}%（${sameBlock.length}/${familyDenom}，判据 ≥90%${familyDenom > 0 && Number(familyRate) >= 90 ? " ✅" : familyDenom > 0 ? " ❌" : "（暂无数据）"}）`);
+console.log(`  ② 族内成功率 = ${familyRate}%（${familyNumer}/${familyDenom}，分子含确认误拦裁决，判据 ≥90%${familyDenom > 0 && Number(familyRate) >= 90 ? " ✅" : familyDenom > 0 ? " ❌" : "（暂无数据）"}）`);
 console.log(`  ③ 全量回落率 = ${fallbackRate}%（Σ${aggUneval}/Σ${aggTotal} 聚合口径，判据 ≤50%${aggTotal > 0 && Number(fallbackRate) <= 50 ? " ✅" : aggTotal > 0 ? " ❌" : "（暂无数据）"}）`);
 console.log(`  ④ EVAL_GAIN = ${evalGain.length} 条（收益量化，不设线）`);
 

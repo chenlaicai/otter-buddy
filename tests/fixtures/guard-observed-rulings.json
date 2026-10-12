@@ -1,0 +1,208 @@
+{
+ "_meta": {
+  "purpose": "PR #1433 对抗审视严重1 处置：观察期「确认误拦」台账真实命令回归夹具（禁合成形态替代）。",
+  "source": "healing_events(error_type=guard_eval_shadow, subkind=miss_block_candidate, resolution.notes 含确认误拦) 22 条裁决 → invoke_events 精确 commandHead 反查 21 条成功（1 条未反查：curl -s -o /dev/null -w 形态）。反查脚本语义见 PR 描述。",
+  "generatedAt": "2026-10-12",
+  "projectRoot": "/Users/orca/ai/otter-buddy",
+  "expectations": {
+   "rescue-terminal": "switch=1 终局 ALLOW 且 switch=0（旧链）为 BLOCK——同时断言双态，锁「终局放行语义」（回落到旧链会回 BLOCK 而红灯）。",
+   "residual-block": "switch=1 仍 BLOCK（fail-closed 残余误拦——载荷只读面/known-gap 回落，如实钉住，防未来放宽误当修复面）；switch=0 亦 BLOCK（旧链同判）。",
+   "parity-allow": "两链同放（非本 PR 修复面）。"
+  },
+  "counts": {
+   "residual-block": 18,
+   "rescue-terminal": 3
+  }
+ },
+ "cases": [
+  {
+   "id": "r001",
+   "ts": "2026-10-10T03:22:24.515Z",
+   "commandHead": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/kelp-farm-p0 && npx playwright --",
+   "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/kelp-farm-p0 && npx playwright --version 2>/dev/null && node -e \"\nconst { chromium } = require('playwright');\n(async () => {\n  const browser = await chromium.launch();\n  const page = await browser.newPage({ viewport: { width: 720, height: 900 } });\n  await page.goto('file://' + process.cwd() + '/game/index.html');\n  // 开局\n  await page.click('text=👉 开始');\n  await page.click('[data-id=\\\"plant\\\"]');\n  await page.click('text=🌰 那就现在种下一颗「今天的记忆」');\n  await page.click('text=💧 浇一瓢水');\n  await page.waitForTimeout(300);\n  const bag = await page.evaluate(() => document.getElementById('bag').textContent);\n  const name = await page.evaluate(() => document.getElementById('otterName').textContent);\n  const phase = await page.evaluate(() => document.querySelector('.stage .phase').textContent);\n  const mapLine = await page.evaluate(() => { const m = document.querySelector('.stage .map'); return m ? m.textContent : 'MISSING'; });\n  await page.screenshot({ path: '/tmp/kelp-p0-effect.png', fullPage: true });\n  await page.click('text=✅ P0 灰盒到此（点位 2-8 见方案 P1）');\n  await page.waitForTimeout(200);\n  await page.screenshot({ path: '/tmp/kelp-p0-done.png', fullPage: true });\n  console.log('bag=' + bag + ' | name=' + name + ' | phase=' + phase);\n  console.log('map=' + (mapLine !== 'MISSING' ? 'OK' : 'MISSING'));\n  await browser.close();\n})().catch(e => { console.error('FAIL', e.message); process.exit(1); });\n\" 2>&1 | tail -4",
+   "oldChain": "BLOCK",
+   "expect": "BLOCK",
+   "kind": "residual-block"
+  },
+  {
+   "id": "r002",
+   "ts": "2026-10-10T03:23:26.821Z",
+   "commandHead": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/kelp-farm-p0 && node -e \"import('",
+   "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/kelp-farm-p0 && node -e \"import('playwright').then(m=>console.log('esm-ok')).catch(e=>console.log('esm-fail:'+e.code))\" && node --input-type=module -e \"import { chromium } from 'playwright-core'; console.log('core-ok', typeof chromium.launch)\" 2>&1 | head -2",
+   "oldChain": "BLOCK",
+   "expect": "BLOCK",
+   "kind": "residual-block"
+  },
+  {
+   "id": "r003",
+   "ts": "2026-10-10T03:26:11.217Z",
+   "commandHead": "curl -sL --max-time 20 \"https://earendil.com/posts/pi-durable/\" -o /tmp/pidurabl",
+   "command": "curl -sL --max-time 20 \"https://earendil.com/posts/pi-durable/\" -o /tmp/pidurable.html && python3 -c \"\nimport re,html\nt=open('/tmp/pidurable.html').read()\nt=re.sub(r'<script.*?</script>','',t,flags=re.S); t=re.sub(r'<style.*?</style>','',t,flags=re.S)\nt=re.sub(r'<[^>]+>',' ',t); t=html.unescape(t); t=re.sub(r'\\s+',' ',t)\nprint(t[:4500])\"",
+   "oldChain": "BLOCK",
+   "expect": "BLOCK",
+   "kind": "residual-block"
+  },
+  {
+   "id": "r004",
+   "ts": "2026-10-10T03:37:17.946Z",
+   "commandHead": "CONV1=a96b6941-d6f3-458e-8c85-5b07269773e3; CONV2=3f087f6c-bdd1-4d64-8363-ab8011",
+   "command": "CONV1=a96b6941-d6f3-458e-8c85-5b07269773e3; CONV2=3f087f6c-bdd1-4d64-8363-ab801120e41d; CSRF=$(python3 -c \"import json;print(json.load(open('/tmp/chen-login.json'))['csrfToken'])\")\n# 1. chen 置顶 chen2 会话\ncurl -s -b /tmp/chen.cookies -X PATCH \"http://127.0.0.1:31020/v1/direct-messages/$CONV1/preference\" -H \"Content-Type: application/json\" -H \"X-CSRF-Token: $CSRF\" -d '{\"pinned\":true}' | head -c 200; echo \" <-pin\"\n# 2. chenshaoguo2 登录并向 chenshaoguo 发未读消息\ncurl -s -c /tmp/csg2.cookies -X POST http://127.0.0.1:31020/v1/auth/login -H \"Content-Type: application/json\" -d '{\"username\":\"chenshaoguo2\",\"password\":\"dmops2026\"}' -o /tmp/csg2-login.json; CSRF2=$(python3 -c \"import json;print(json.load(open('/tmp/csg2-login.json'))['csrfToken'])\")\ncurl -s -b /tmp/csg2.cookies -X POST \"http://127.0.0.1:31020/v1/direct-messages/$CONV2/messages\" -H \"Content-Type: application/json\" -H \"X-CSRF-Token: $CSRF2\" -d '{\"content\":\"周六的评审材料我整理好了，你看下要不要加进议程？\"}' | head -c 150; echo \" <-msg1\"\ncurl -s -b /tmp/csg2.cookies -X POST \"http://127.0.0.1:31020/v1/direct-messages/$CONV2/messages\" -H \"Content-Type: application/json\" -H \"X-CSRF-Token: $CSRF2\" -d '{\"content\":\"另外会议室改到 302 了，记得同步给大家。\"}' | head -c 150; echo \" <-msg2\"",
+   "oldChain": "BLOCK",
+   "expect": "BLOCK",
+   "kind": "residual-block"
+  },
+  {
+   "id": "r005",
+   "ts": "2026-10-10T03:37:26.265Z",
+   "commandHead": "cd /Users/orca/ai/others/colink/.otter/worktrees/feat-dm-pin-mute && CONV1=a96b6",
+   "command": "cd /Users/orca/ai/others/colink/.otter/worktrees/feat-dm-pin-mute && CONV1=a96b6941-d6f3-458e-8c85-5b07269773e3; CONV2=3f087f6c-bdd1-4d64-8363-ab801120e41d; CSRF=$(python3 -c \"import json;print(json.load(open('/tmp/chen-login.json'))['csrfToken'])\"); curl -s -b /tmp/chen.cookies -X PATCH \"http://127.0.0.1:31020/v1/direct-messages/$CONV1/preference\" -H \"Content-Type: application/json\" -H \"X-CSRF-Token: $CSRF\" -d '{\"pinned\":true}' | head -c 200; echo \" <-pin\"",
+   "oldChain": "BLOCK",
+   "expect": "BLOCK",
+   "kind": "residual-block"
+  },
+  {
+   "id": "r006",
+   "ts": "2026-10-10T03:41:38.478Z",
+   "commandHead": "cp /Users/orca/ai/otter-buddy/data/workspaces/7b41e085-5c21-4bd1-adfe-dc3ef05175",
+   "command": "cp /Users/orca/ai/otter-buddy/data/workspaces/7b41e085-5c21-4bd1-adfe-dc3ef051753d/commit-msg-1416fix.txt /tmp/cm-1416.txt && cd /Users/orca/ai/otter-buddy/.otter/worktrees/guard-open-mode && cp /tmp/cm-1416.txt commit-msg.tmp && git add src/frameworks/agent/bash-safety-guard.ts tests/frameworks/agent/bash-safety-guard.test.ts docs/features/2026/10/10/F20261010pyro-script-readonly-whitelist.md && git commit -F commit-msg.tmp --author=\"守卫修复獭 <otter-buddy>\" > /tmp/c10.log 2>&1; echo \"exit=$?\"; git log --oneline -1; rm -f commit-msg.tmp",
+   "oldChain": "BLOCK",
+   "expect": "ALLOW",
+   "kind": "rescue-terminal"
+  },
+  {
+   "id": "r007",
+   "ts": "2026-10-10T06:15:29.628Z",
+   "commandHead": "cd /Users/orca/ai/others/colink/dev/backend && node -e \"require('@nestjs/core');",
+   "command": "cd /Users/orca/ai/others/colink/dev/backend && node -e \"require('@nestjs/core'); console.log('nest core 可解析')\" 2>&1 | head -2; ls ../../node_modules/.bin/nest 2>/dev/null && echo \"根 nest bin OK\"; npx nest --version 2>&1 | head -1",
+   "oldChain": "BLOCK",
+   "expect": "BLOCK",
+   "kind": "residual-block"
+  },
+  {
+   "id": "r008",
+   "ts": "2026-10-10T07:53:09.174Z",
+   "commandHead": "cd /Users/orca/.npm/_npx/705bc6b22212b352 && node -e \"\nconst {chromium} = requir",
+   "command": "cd /Users/orca/.npm/_npx/705bc6b22212b352 && node -e \"\nconst {chromium} = require('playwright');\n(async()=>{ const b = await chromium.launch(); const p = await b.newPage(); await p.goto('about:blank'); console.log('chromium OK 1.63'); await b.close(); })().catch(e=>{console.error('FAIL:', e.message.split('\\n')[0]); process.exit(1);})\n\" 2>&1; cd /Users/orca/.npm/_npx/db89d7302a373f10 && node -e \"\nconst {chromium} = require('playwright');\n(async()=>{ const b = await chromium.launch(); const p = await b.newPage(); await p.goto('about:blank'); console.log('chromium OK 1.62.1'); await b.close(); })().catch(e=>{console.error('FAIL:', e.message.split('\\n')[0]); process.exit(1);})\n\" 2>&1",
+   "oldChain": "BLOCK",
+   "expect": "BLOCK",
+   "kind": "residual-block"
+  },
+  {
+   "id": "r009",
+   "ts": "2026-10-10T08:08:38.937Z",
+   "commandHead": "ls /Users/orca/ai/otter-buddy/data/workspaces/cb80d695-bce9-4b83-9f2a-98618242ac",
+   "command": "ls /Users/orca/ai/otter-buddy/data/workspaces/cb80d695-bce9-4b83-9f2a-98618242acd0/ && node -e \"try{require.resolve('playwright-core');console.log('pw ok')}catch(e){console.log('no pw in main')}\" 2>&1",
+   "oldChain": "BLOCK",
+   "expect": "BLOCK",
+   "kind": "residual-block"
+  },
+  {
+   "id": "r010",
+   "ts": "2026-10-10T08:10:54.934Z",
+   "commandHead": "cd /Users/orca/ai/otter-buddy/data/workspaces/cb80d695-bce9-4b83-9f2a-98618242ac",
+   "command": "cd /Users/orca/ai/otter-buddy/data/workspaces/cb80d695-bce9-4b83-9f2a-98618242acd0 && node -e \"\nimport('playwright-core').then(async pw => {\n  const fs = await import('node:fs');\n  const path = await import('node:path');\n  const { pathToFileURL } = await import('node:url');\n  const chrome = '/Users/orca/Library/Caches/ms-playwright';\n  const dir = fs.readdirSync(chrome).filter(d=>d.startsWith('chromium')).sort().reverse()[0];\n  const exe = path.join(chrome, dir, 'chrome-mac', 'headless_shell');\n  const game = pathToFileURL('/Users/orca/ai/otter-buddy/.otter/worktrees/kelp-farm-p1/game/index.html').href;\n  const b = await pw.chromium.launch({ executablePath: exe });\n  const p = await b.newPage();\n  const errs = [];\n  p.on('pageerror', e => errs.push('pageerror: '+e.message));\n  await p.goto(game);\n  await p.waitForTimeout(300);\n\n  async function flow(autoMerge) {\n    const r = { diverge:null, postAdvance:null, errs:null };\n    // start\n    await p.click('#actions .btn');\n    for (let i = 0; i < 8; i++) {\n      const cur = await p.evaluate(() => window.__state.spotIdx);\n      // click the active spot\n      await p.evaluate((i) => {\n        const s = window.__spots[i];\n        document.getElementById('screen').dispatchEvent(new MouseEvent('click', {\n          clientX: document.getElementById('screen').getBoundingClientRect().left + (s.x + s.w/2) * (document.getElementById('screen').getBoundingClientRect().width/480),\n          clientY: document.getElementById('screen').getBoundingClientRect().top + (s.y + s.h/2) * (document.getElementById('screen').getBoundingClientRect().height/270),\n          bubbles: true\n        }));\n      }, cur);\n      await p.click('#actions .btn'); // openAct\n      await p.click('#actions .btn'); // openEffect\n      if (i === 7) {\n        if (autoMerge) {\n          // diverge: click a completed spot while seal gate open\n          await p.evaluate(() => {\n            const s = window.__spots[0];\n            const cv = document.getElementById('screen');\n            cv.dispatchEvent(new MouseEvent('click', {\n              clientX: cv.getBoundingClientRect().left + (s.x + s.w/2) * (cv.getBoundingClientRect().width/480),\n              clientY: cv.getBoundingClientRect().top + (s.y + s.h/2) * (cv.getBoundingClientRect().height/270),\n              bubbles: true\n            }));\n          });\n          r.diverge = {\n            tag: await p.textContent('#dlgTag'),\n            inpVisible: await p.isVisible('.merge input'),\n            btnCount: await p.locator('#actions .btn').count()\n          };\n          // then merge correctly\n          await p.fill('.merge input', '合入');\n          await p.click('.merge .btn');\n        }\n      }\n      // advance\n      await p.click('#actions .btn');\n      if (i === 6) {\n        // after 7th advance, player walking to lab; spotIdx = 7, phase idle\n        // click lab while walking\n        await p.evaluate(() => {\n          const s = window.__spots[7];\n          const cv = document.getElementById('screen');\n          cv.dispatchEvent(new MouseEvent('click', {\n            clientX: cv.getBoundingClientRect().left + (s.x + s.w/2) * (cv.getBoundingClientRect().width/480),\n            clientY: cv.getBoundingClientRect().top + (s.y + s.h/2) * (cv.getBoundingClientRect().height/270),\n            bubbles: true\n          }));\n        });\n        r.postAdvance = {\n          tag: await p.textContent('#dlgTag'),\n          phase: await p.evaluate(() => window.__state.phase)\n        };\n        // recover: click lab again (now phase='problem', ok)\n        await p.evaluate(() => {\n          const s = window.__spots[7];\n          const cv = document.getElementById('screen');\n          cv.dispatchEvent(new MouseEvent('click', {\n            clientX: cv.getBoundingClientRect().left + (s.x + s.w/2) * (cv.getBoundingClientRect().width/480),\n            clientY: cv.getBoundingClientRect().top + (s.y + s.h/2) * (cv.getBoundingClientRect().height/270),\n            bubbles: true\n          }));\n        });\n      }\n    }\n    r.errs = errs.slice();\n    return r;\n  }\n\n  const out = await flow(true);\n  console.log(JSON.stringify(out, null, 2));\n  await b.close();\n});\n\" 2>&1",
+   "oldChain": "BLOCK",
+   "expect": "BLOCK",
+   "kind": "residual-block"
+  },
+  {
+   "id": "r011",
+   "ts": "2026-10-10T08:13:15.447Z",
+   "commandHead": "ssh-add ~/.ssh/id_rsa 2>&1 | head -1; cd /Users/orca/ai/otter-buddy/.otter/workt",
+   "command": "ssh-add ~/.ssh/id_rsa 2>&1 | head -1; cd /Users/orca/ai/otter-buddy/.otter/worktrees/viewport-stability && git push --force-with-lease origin feature/viewport-stability 2>&1 | tail -2",
+   "oldChain": "BLOCK",
+   "expect": "ALLOW",
+   "kind": "rescue-terminal"
+  },
+  {
+   "id": "r012",
+   "ts": "2026-10-10T08:13:20.209Z",
+   "commandHead": "ssh-add ~/.ssh/id_rsa 2>&1 | head -1 && cd /Users/orca/ai/otter-buddy/.otter/wor",
+   "command": "ssh-add ~/.ssh/id_rsa 2>&1 | head -1 && cd /Users/orca/ai/otter-buddy/.otter/worktrees/viewport-stability && git push --force-with-lease origin feature/viewport-stability 2>&1 | tail -2",
+   "oldChain": "BLOCK",
+   "expect": "ALLOW",
+   "kind": "rescue-terminal"
+  },
+  {
+   "id": "r013",
+   "ts": "2026-10-10T08:13:27.032Z",
+   "commandHead": "cd /Users/orca/ai/otter-buddy && gh api repos/chenlaicai/otter-buddy/commits/fe1",
+   "command": "cd /Users/orca/ai/otter-buddy && gh api repos/chenlaicai/otter-buddy/commits/fe12969d --jq '.files[] | {filename, patch: .patch}' 2>&1 | python3 -c \"import json,sys; [print(f['filename'],'\\n',f.get('patch','(no patch)')) for f in json.load(sys.stdin)]\" | head -120",
+   "oldChain": "BLOCK",
+   "expect": "BLOCK",
+   "kind": "residual-block"
+  },
+  {
+   "id": "r014",
+   "ts": "2026-10-10T08:13:41.145Z",
+   "commandHead": "curl -sf -m 8 https://github.com -o /dev/null && echo \"https reachable\" || echo ",
+   "command": "curl -sf -m 8 https://github.com -o /dev/null && echo \"https reachable\" || echo \"https unreachable\"; cd /Users/orca/ai/otter-buddy/.otter/worktrees/viewport-stability && git remote set-url origin https://github.com/chenlaicai/otter-buddy.git && git push --force-with-lease origin feature/viewport-stability 2>&1 | tail -2; git remote set-url origin git@github.com:chenlaicai/otter-buddy.git",
+   "oldChain": "BLOCK",
+   "expect": "BLOCK",
+   "kind": "residual-block"
+  },
+  {
+   "id": "r015",
+   "ts": "2026-10-10T08:18:00.587Z",
+   "commandHead": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/kelp-farm-p1 && grep -n \"hardsoil",
+   "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/kelp-farm-p1 && grep -n \"hardsoil\\|farmer\\|elder\\|silt\" game/index.html | head; python3 -c \"\nimport re\nsrc = open('game/index.html').read()\nm = re.search(r'var SCRIPTS = \\{(.*?)\\n\\};', src, re.S)\nprint([k for k in re.findall(r'^\\s{2}(\\w+): \\{', m.group(1), re.M)])\n\"",
+   "oldChain": "BLOCK",
+   "expect": "BLOCK",
+   "kind": "residual-block"
+  },
+  {
+   "id": "r016",
+   "ts": "2026-10-10T08:33:21.518Z",
+   "commandHead": "cd /Users/orca/ai/others/colink/dev/frontend && node -e \"\nconst sharp = require(",
+   "command": "cd /Users/orca/ai/others/colink/dev/frontend && node -e \"\nconst sharp = require('sharp').catch ? null : null;\n\" 2>/dev/null; ls /Users/orca/ai/others/colink/dev/frontend/node_modules | grep -iE \"^sharp$|^jimp$\" | head -2; sips -Z 1100 --setProperty format jpeg --setProperty formatOptions 55 /Users/orca/ai/otter-buddy/data/workspaces/e2819402-5088-4e64-9420-fca091d3e040/screenshots/v2-2-hover-others.png --out /Users/orca/ai/otter-buddy/data/workspaces/e2819402-5088-4e64-9420-fca091d3e040/screenshots/v2-2.jpg 2>&1 | tail -1 && ls -la /Users/orca/ai/otter-buddy/data/workspaces/e2819402-5088-4e64-9420-fca091d3e040/screenshots/v2-2.jpg | awk '{print $5}'",
+   "oldChain": "BLOCK",
+   "expect": "BLOCK",
+   "kind": "residual-block"
+  },
+  {
+   "id": "r017",
+   "ts": "2026-10-10T08:51:23.671Z",
+   "commandHead": "cd /Users/orca/ai/others/colink/.otter/worktrees/fix-dm-enter-jump/dev/frontend ",
+   "command": "cd /Users/orca/ai/others/colink/.otter/worktrees/fix-dm-enter-jump/dev/frontend && grep -n \"const isMine\" src/features/colink/DirectMessagePage.tsx && sed -n \"$(grep -n 'const isMine' src/features/colink/DirectMessagePage.tsx | cut -d: -f1)p\" src/features/colink/DirectMessagePage.tsx; grep -n \"justifyContent={isMine\" src/features/colink/DirectMessagePage.tsx | head -2; curl -s -b /tmp/cookies.txt \"http://localhost:31020/v1/direct-messages/3f087f6c-bdd1-4d64-8363-ab801120e41d/messages?limit=100\" | python3 -c \"\nimport sys, json\nmsgs = json.load(sys.stdin)\nfor m in msgs:\n    if m['id'].startswith('m') or '你好' in (m.get('content') or '') or '我是' in (m.get('content') or ''):\n        print(m['senderId'][:8], (m.get('content') or m.get('createdAt',''))[:20])\n\" | head -8",
+   "oldChain": "BLOCK",
+   "expect": "BLOCK",
+   "kind": "residual-block"
+  },
+  {
+   "id": "r018",
+   "ts": "2026-10-10T09:25:16.649Z",
+   "commandHead": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/kelp-farm-p2 && node -e \"\nconst f",
+   "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/kelp-farm-p2 && node -e \"\nconst fs = require('fs');\nconst html = fs.readFileSync('game/index.html', 'utf8');\nconst m = html.match(/<script>([\\s\\S]*)<\\/script>/);\ntry { new Function(m[1]); console.log('SYNTAX OK'); } catch (e) { console.log('SYNTAX ERROR: ' + e.message); }\n\" && grep -n \"function lakePreview\" game/index.html | head -2",
+   "oldChain": "BLOCK",
+   "expect": "BLOCK",
+   "kind": "residual-block"
+  },
+  {
+   "id": "r019",
+   "ts": "2026-10-11T01:05:22.734Z",
+   "commandHead": "python3 -c \"\nfrom lunardate import LunarDate\nfrom datetime import date\ntoday = d",
+   "command": "python3 -c \"\nfrom lunardate import LunarDate\nfrom datetime import date\ntoday = date(2026, 10, 11)\n\ncustomers = [\n    ('何若兰', '3月11日', '公历'),\n    ('陈利', '3月20日', '公历'),\n    ('美云姐', '3月初七', '农历'),\n    ('张姐', '7月初五', '农历'),\n    ('李秀梅', '11月28日', '公历'),\n]\n\nimport re\nfor name, b, cal in customers:\n    if cal == '公历':\n        m = re.match(r'(\\d+)月(\\d+)日', b)\n        month, day = int(m.group(1)), int(m.group(2))\n        # 下一个生日：今年已过则算明年\n        try:\n            nd = date(today.year, month, day)\n        except ValueError:\n            nd = None\n        if nd is None or nd < today:\n            nd = date(today.year+1, month, day)\n    else:\n        m = re.match(r'(\\d+)月(初[一二三四五六七八九十]|[\\d十]+)日', b)\n        lmonth = int(m.group(1))\n        d = m.group(2)\n        lday = 10 if d == '初十' else (8 if d=='初八' else (7 if d=='初七' else (5 if d=='初五' else int(d.replace('十','0') if '十' in d else d))))\n        # 初X = X\n        if d.startswith('初'):\n            lday = '一二三四五六七八九十'.index(d[1]) + 1\n        # 下一个：试今年再试明年\n        nd = None\n        for y in (today.year, today.year+1):\n            try:\n                ld = LunarDate(y, lmonth, lday)\n                nd = ld.toSolarDate()\n                if nd >= today:\n                    break\n            except Exception as e:\n                # 可能闰月等，试 SolLunar\n                nd = None\n        if nd is None or nd < today:\n            try:\n                nd = LunarDate(today.year+1, lmonth, lday).toSolarDate()\n            except Exception as e:\n                nd = None\n    delta = (nd - today).days\n    weekday = ['周一','周二','周三','周四','周五','周六','周日'][nd.weekday()]\n    print(f'{name} | {b}({cal}) | 下次生日: {nd} {weekday} | 距今 {delta} 天')\n\"\n",
+   "oldChain": "BLOCK",
+   "expect": "BLOCK",
+   "kind": "residual-block"
+  },
+  {
+   "id": "r020",
+   "ts": "2026-10-12T02:19:25.024Z",
+   "commandHead": "curl -s \"https://open.feishu.cn/document/server-docs/contact-v3/user/get\" | pyth",
+   "command": "curl -s \"https://open.feishu.cn/document/server-docs/contact-v3/user/get\" | python3 -c \"\nimport sys,re,html\nt=sys.stdin.read()\n# 找脱敏/字段相关文本\nt2=re.sub(r'<script[\\s\\S]*?</script>','',t)\nt2=re.sub(r'<style[\\s\\S]*?</style>','',t2)\nt2=re.sub(r'<[^>]+>',' ',t2)\nt2=html.unescape(t2)\nt2=re.sub(r'\\s+',' ',t2)\nfor kw in ['脱敏','mobile_visible','name','可见','权限']:\n    for m in re.finditer(kw,t2):\n        s=max(0,m.start()-80); print('...',t2[s:m.end()+120],'...'); break\n\" 2>&1 | head -30",
+   "oldChain": "BLOCK",
+   "expect": "BLOCK",
+   "kind": "residual-block"
+  },
+  {
+   "id": "r021",
+   "ts": "2026-10-12T02:23:00.405Z",
+   "commandHead": "python3 -c \"\nimport re, html\nt = open('/tmp/feishu_doc.html').read()\nt2 = re.sub",
+   "command": "python3 -c \"\nimport re, html\nt = open('/tmp/feishu_doc.html').read()\nt2 = re.sub(r'<script[\\s\\S]*?</script>', ' ', t)\nt2 = re.sub(r'<[^>]+>', ' ', t2)\nt2 = html.unescape(re.sub(r'\\s+', ' ', t2))\nprint(t2[:2000])\n\"",
+   "oldChain": "BLOCK",
+   "expect": "BLOCK",
+   "kind": "residual-block"
+  }
+ ]
+}

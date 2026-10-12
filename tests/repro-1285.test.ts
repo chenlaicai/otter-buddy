@@ -1,9 +1,15 @@
 // #1285 三洞复现载荷的真断言回归（原修复前探针：13 载荷修复前实测全部 ALLOWED，
 // 修复后全部应 BLOCKED——r1 检视 B 级处置：伪断言 expect(true).toBe(true) 改真断言）
+// F20261012gesw：W 载荷落点改为动态主仓内路径（__dirname 同盘符下的主仓 config）——
+//  原硬编码 '/repo/config.yaml' 在真实 projectRoot 下是外部路径，求值器主判按落点
+//  事实放行（守卫管辖本仓而非全盘）；本组用例的防御意图是「赋值前缀/包装词不绕过」，
+//  路径需在 projectRoot 树内才成立。
+import path from "node:path";
 import { describe, it, expect } from "vitest";
 import { checkBashCommandSafety } from "../src/frameworks/agent/bash-safety-guard";
 
-const W = "write payload: require('fs').writeFileSync('/repo/config.yaml','x')";
+const MAIN_CONFIG = path.join(__dirname, "config-write-probe.yaml"); // projectRoot 树内（tests/ 下假想写目标）
+const W = `write payload: require('fs').writeFileSync('${MAIN_CONFIG}','x')`;
 const cases: [string, string][] = [
   ["洞1a bash -c", `bash -c 'node -e "${W}"'`],
   ["洞1b sh -c", `sh -c 'node -e "${W}"'`],

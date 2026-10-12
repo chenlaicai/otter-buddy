@@ -25,6 +25,7 @@ import { findKillSegments, isKillAtCommandPosition } from "./kill-segment-finder
 const isCommandPositionFor = (text: string, pattern: RegExp): boolean => isKillAtCommandPosition(text, pattern);
 import { allSegmentsGitReadonly } from "./git-readonly-whitelist";
 import { checkWithModel, modelParseOk, modelCdExemption } from "./guard-model-judge";
+import { evaluateWriteTargets, pathWithinMain } from "./write-target-evaluator";
 
 export type { AllowedService };
 
@@ -1863,11 +1864,89 @@ function rewriteMainWriteBlockMsg(sessionCwd?: string): string {
   return MAIN_WRITE_BLOCK_MSG;
 }
 
- 
+/** F20261012gesw：求值器主判（切换本体）——返回 null=不适用（回落旧链）/
+ *  "ALLOW"=终局放行 / "BLOCK"=终局拦截。拆出控主函数语句数与嵌套深度。 */
+/** F20261012gesw 换岗主判三态（审视严重1 处置 + 焦点(a)漏拦收口）。返回 "ALLOW"=终局放行 /
+ *  "BLOCK"=终局拦截 / null=不适用（回落旧链）。判定序：
+ *  ① known-gap 词面/knownGap target（建议3）→ null；
+ *  ② unevaluated → null；
+ *  ③ 真写空（write 缺省 true 过滤后）→ null——「零披露放行臂」收回：零目标 ≠ 只读
+ *    （git commit / push --dry-run 写 .git 无文件参数、bash -o pipefail -c 空载荷均零目标，
+ *    终局放行打破三条既有负门；read/unknown/write 三态正向认定收编求值器 v2）；
+ *  ④ 任一真写落主仓（pathWithinMain）→ BLOCK（#1363 灰区闭合权威保留，含 cd 豁免面）；
+ *  ⑤ 真写全树外 → 载荷证明门（下）→ ALLOW。
+ *  载荷证明门：脚本解释器/eval 形态的终局 ALLOW 必须由「真实（非 /dev/null 汇点）树外写」
+ *  证明 + 无嵌套执行面词面。汇点-only 判据与嵌套执行面（execSync/subprocess/os.system/
+ *  反引号/exec()/Function()——2026-10-12 实测 15 形态 old=BLOCK→new=ALLOW 漏拦）一律
+ *  null 回落旧链关键词网；载荷只读探针（kelp node -e 族）无真实写证明同样回落，残余
+ *  误拦如实记归求值器 v2。known-gap 两层消费：(a) outFile 词面 knownGap target；
+ *  (b) 顶层 KNOWN_GAP_OUTPUT_TOKENS（install/dd of= 无 outFile 可标）——不终局只回落
+ *  （建议3，`curl -o 主仓 && echo>/tmp/z` 短路结构风险记档）。 */
+const KNOWN_GAP_OUTPUT_TOKENS = /\b(?:curl|wget)\b[^\n]*(?:-[oO]\s|--output(?:=|\s))|\binstall\s|(?:^|[\s;|&])dd\s+[^\n]*\bof=/;
+/** 载荷面识别：脚本解释器 -c/-e、heredoc、eval——嵌套语义，求值器对载荷内容不可见。 */
+const SCRIPT_PAYLOAD_FACE = /\b(?:python|python3|node|perl|ruby)\b[^\n]*\s-(?:c|e)\b|<<|\beval\b/;
+function evaluatorPrimaryVerdict(command: string, projectRoot: string, logger?: Logger): "ALLOW" | "BLOCK" | null {
+  // 只认真写 targets（write!==false）——只读路径披露（open('data/x') 读、路径字面量）
+  //  绝不构成拦截依据（#1416 家族；否则只读解析载荷全被误拦）。
+  //  终局仅限「求值器证明有写」：真写 targets 非空且全部在主仓树外（且非载荷面）
+  //  → ALLOW；任一真写落主仓 → BLOCK。真写 targets 空（write 缺省 true）＝无法证明有写
+  //  （fail-closed）→ 旧链兜底。
+  if (KNOWN_GAP_OUTPUT_TOKENS.test(command)) return null; // 建议3(b)：known-gap 词面不终局只回落
+  const ev = evaluateWriteTargets(command, projectRoot);
+  if (ev.kind !== "evaluated") return null; // unevaluated → 旧链全量兜底
+  if (ev.targets.some(t => t.knownGap === true)) return null; // 建议3(a)：outFile 词面求值缺口回落
+  const writeTargets = ev.targets.filter(t => t.write !== false);
+  if (writeTargets.length === 0) return null; // ③ 空真写一律回落（零披露放行臂收回——零目标≠只读）
+  const mainWriteHit = writeTargets.some(t => pathWithinMain(t.path, projectRoot));
+  if (mainWriteHit) {
+    logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (evaluator, hit)", { command: command.substring(0, 200) });
+    return "BLOCK";
+  }
+  // ⑤ 载荷面一律不终局 ALLOW（delta eba7c738 收口——载荷证明门退化为禁放闸）：
+  //  载荷内容对求值器不可见，「未提取写动词 + 非词表执行面 + 拼接变形 × 真实树外写
+  //  诱饵」的组合空间开放（实测反例集：夹具 15 形态负门 + delta 6 形态逃逸——
+  //  __import__ 拼接 / getattr 拿 system / truncateSync 未知动词等，词表军备竞赛
+  //  无胜算——#1207→#1304、#1170→#1360 修复-回归循环同族教训）。载荷段一律回落
+  //  旧链关键词网（与切换前同判，类闭合）；载荷只读探针残余误拦收编 v2（#1438 预注册）。
+  //  BLOCK 方向不受此门限制（mainWriteHit 前置终局拦——#1363 灰区闭合保持；
+  //  入外部门会使 BLOCK 方向一并失效，实测红灯坐实）。
+  if (SCRIPT_PAYLOAD_FACE.test(command)) return null;
+  return "ALLOW"; // 非载荷面：真写落点全在主仓树外（worktree/tmp/外部项目）且已证
+}
+
+// eslint-disable-next-line complexity, max-statements -- V1 分支语义保留（cd 豁免/git 白名单/echo 豁免/重定向 abs 豁免各对应一条已实证形态，见函数内注释）；F20261008h304 后 18；F20261012gesw 换岗入口 +1（拆 evaluatorPrimaryVerdict 后仍 26 语句——历史豁免面注释链皆必要锚点）
 function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   const { command, logger, projectRoot, sessionCwd, heredocReadOnly, oneLinerReadOnlyOverride } = ctx;
   const depth = ctx.depth ?? 3;
   if (!projectRoot) return null; // 无 projectRoot 时保守放行（与 resolvesToMainData 同策略）
+  // F20261012gesw（切换 PR，F20261009gwte 方案模块 3）：main_write 维度换脑——写落点
+  //  求值器（Phase 1 #1381 + Phase 2 #1411 + 观察期 1405 条红线 0）主判：
+  //  - evaluated 且任一落点在主仓树内（pathWithinMain，含 worktree 区 root 级排除）
+  //    → 终局 BLOCK（旧链不再跑——词面正则的黑名单语义被落点事实取代）
+  //  - evaluated 且全部落点在主仓树外 → 终局 ALLOW（return null；观察期 23/23 裁决
+  //    实证这面正是旧链误拦集中营：colink/kelp 项目操作、curl -o /tmp、worktree 提交）
+  //  - unevaluated → 回落下方旧链全量判定（兜底网不删；#1395 家族等旧链缺陷面
+  //    仅在求值器看不懂的形态上残留，观察期实测这些形态占少数）
+  //  回退开关：OTTER_GUARD_EVAL_SWITCH=0 环境变量（预注册回退条件：生产 1 例真误放
+  //  即回退；开关读取无缓存，重启进程即生效）。kill/data/sleep 等其他维度不经本函数。
+  //  深度限制：heredoc/bash -c 递归载荷（depth<3）不接求值器主判——保持体级保守语义，
+  //  避免嵌套语义在换脑首版被扩大攻击面（保守取舍，观察期数据未覆盖嵌套形态）。
+  if ((process.env.OTTER_GUARD_EVAL_SWITCH ?? "1") !== "0" && depth >= 3) {
+    // 求值器主判仅限顶层平面命令：含 bash -c / heredoc / 包装词载荷形态仍走旧链
+    // 全量判定（judgeShellCSegment 内挂 data 破坏载荷感知、heredoc 体负门、包装词
+    //  深度递归等多道纵深——嵌套载荷的求值器语义覆盖未过观察期验证，切换首版不
+    //  扩大攻击面；实测回归坐实：`bash -c 'mv data/metrics /tmp/'` 求值器判 /tmp
+    //  终局放行会旁路 data 载荷感知）。脚本解释器载荷（python -c/node -e 等）不入
+    //  此外部门、由 evaluatorPrimaryVerdict 的载荷证明门把关终局 ALLOW 方向
+    //  （BLOCK 方向保留主判权威——#1363 cd 豁免面的灰区闭合不能回退）。
+    const hasNestedPayload = /\b(?:ba|z|da|k)?sh\b[^\n]*\s-c\s|<<|\b(?:timeout|env|sudo|nohup|watch|xargs)\b/.test(command);
+    if (!hasNestedPayload) {
+      const verdict = evaluatorPrimaryVerdict(command, projectRoot, logger);
+      if (verdict === "BLOCK") return MAIN_WRITE_BLOCK_MSG;
+      if (verdict === "ALLOW") return null; // 求值器终局放行：真写落点全在主仓树外
+      // null → 旧链全量兜底（unevaluated / 无真写 token）
+    }
+  }
   // F20261008h304（#1304）：git 写族/one-liner 通道基座换数据体剥除文本（判据见
   // blankDataHeredocBodies 注释）；cd 豁免/重定向/白名单仍用原始文本（cd 段与重定向
   // 落点是真实 shell 语义，且重定向通道已有自己的剥体基座）。

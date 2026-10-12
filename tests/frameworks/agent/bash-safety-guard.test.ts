@@ -1087,9 +1087,9 @@ describe("#1038 主仓 data/ 破坏性命令拦截", () => {
     expect(result).not.toBeNull();
   });
 
-  it("normalize 变形：rm 数据在引号内数据位（echo 'rm -rf data' 文本）→ 放行（不误拦文案）", () => {
+  it("normalize 变形：rm 数据在引号内数据位（echo 'rm -rf data' >> notes.md）→ 拦（F20261012gesw：重定向落点主仓 cwd 是真写事实，引号内文本豁免不再旁路落点判定——BC-2 行为变更）", () => {
     const result = checkBashCommandSafety("echo 'rm -rf data/metrics' >> notes.md", mainPid, undefined, { projectRoot });
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
   });
 });
 
@@ -1187,9 +1187,9 @@ describe("F20260922scwd 主仓写拦截（感知对齐保护闸）", () => {
     expect(result).toBeNull();
   });
 
-  it("cd /repo && git commit -m 'x'（cd 主仓后 git 写）→ 放行（显式意图）", () => {
+  it("cd /repo && git commit -m 'x'（BC-1 预注册变更：cd 主仓后 git 写）→ 拦截（求值器主判按落点事实，显式意图豁免退役——F20261012gesw 换岗）", () => {
     const result = checkBashCommandSafety("cd /repo && git commit -m 'x'", mainPid, undefined, { projectRoot });
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
   });
 
   it("echo x > /wt/file.txt（绝对路径写非主仓）→ 放行", () => {
@@ -1273,15 +1273,15 @@ describe("F20260922scwd 检视严重 1/2 绕过形态回归（mimo 终审检视�
     expect(result).toBeNull();
   });
 
-  it("cd worktree && echo x > file.txt（段首真 cd + 相对路径写）→ 放行", () => {
+  it("cd worktree && echo x > file.txt（相对 cd 到主仓子目录——落点主仓树内，F20261012gesw 按落点事实判拦；worktree 隔离正道是绝对路径 cd .otter/worktrees/*，见下条）", () => {
     const result = checkBashCommandSafety("cd worktree && echo x > file.txt", mainPid, undefined, { projectRoot });
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
   });
 
   // ── #1038 语义保持：纯 echo 引号文本仍放行 ──
-  it("echo 'rm -rf data/metrics' >> notes.md（纯 echo 引号文本无复合）→ 放行（#1038 语义保持）", () => {
+  it("echo 'rm -rf data/metrics' >> notes.md（#1038 语义收窄：引号内文本不拦，但重定向落主仓 cwd 拦——F20261012gesw BC-2 行为变更，落点事实优先）", () => {
     const result = checkBashCommandSafety("echo 'rm -rf data/metrics' >> notes.md", mainPid, undefined, { projectRoot });
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
   });
 });
 
@@ -3257,9 +3257,10 @@ describe("F20261008gduc P0-1：V1 兜底链 cd 豁免 —— || 备用链不误�
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
   });
 
-  it("cd worktree && node -e 写 worktree 文件 | tail（真管道，parseOk=false 落 V1 链）→ 仍拦截（管道杀 V1 豁免不因 || 修复而变）", () => {
-    // 不误伤面钉住：真管道在 V1 兜底链仍杀豁免（lookaround 正则只放 ||，不放 |）。
-    // node -e 载荷含换行 → parseOk=false 落 V1 链，恰好是本次修复面的「不误伤一侧」。
+  it("cd worktree && node -e 写 worktree 文件 | tail → 拦（delta eba7c738 收口：载荷面一律不终局放——回落旧链；该载荷形态误拦面归 #1438 v2 正向证明回收）", () => {
+    // delta 复核实测：载荷证明门（真写证明+执行面词表）被 6 形态击穿（词表军备无胜算），
+    // 收口为「载荷面禁终局放」——node -e 载荷回落旧链（old=BLOCK 同判）。非载荷面修复
+    // （cp / ssh-add 管道族）由语料夹具 3 条 rescue 钉住；#1240 主仓负门由独立用例钉住。
     const cmd = `cd /repo/.otter/worktrees/wt && node -e "require('fs').writeFileSync('/repo/.otter/worktrees/wt/data/x','1')" | tail -1`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
   });

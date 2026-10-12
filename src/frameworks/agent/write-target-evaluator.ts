@@ -50,6 +50,13 @@ export interface WriteTarget {
   via: "redirect" | "cmd-arg" | "heredoc-body" | "git";
   /** 溯源段号 */
   segmentIndex: number;
+  /** 求值写落点（真写判定缺省面 true；建议3 known-gap：curl -o/wget -O/install/dd of=
+   *  是写词表缺口——outFile 词面命中时不进 targets 也不进真写集，主判显式回落）。
+   *  F20261012gesw 换岗主判语义见 evaluatorPrimaryVerdict 文档块（三态 + 空真写双闸）。 */
+  write?: boolean;
+  /** 建议3：known-gap 写落点词面（curl -o/wget -O/install/dd of= 的 outFile 位置）——
+   *  词面命中时主判回落旧链，绝不终局放行（fail-closed 的 known-gap 通道）。 */
+  knownGap?: boolean;
 }
 
 export type WriteEvalResult =
@@ -113,7 +120,12 @@ function isScriptRunnerSeg(seg: Segment): boolean {
  *  的分界线画在 .otter/ 之外（c080/c081 .otter/workforms-retire 误拦实证：求值器判
  *  BLOCK 但台账裁决 ALLOW——.otter/ 是獭运行时区，不是搭档的仓内容）。
  *  data/workspaces 豁免由调用方政策层另行处理——本函数只报事实。 */
-const OTTER_RUNTIME_REGIONS = ["/.otter/worktrees/", "/.otter/workforms"];
+// 运行时区域（主仓树下但不属代码树）：worktrees 隔离区 / 对话工作区 sandbox（
+//  F20260923hsyn：data/workspaces 是 runtime sandbox 非追踪代码，重定向落工作区
+//  旧链有豁免先例；F20261012gesw 切换把同口径带进求值器主判——否则工作区写全被
+//  误拦，观察期外新增回归）/ 旧 workforms。metrics|logs 等其余 data/ 不在豁免面
+//  （data_destructive 维度另有防线，main_write 只管代码树）。
+const OTTER_RUNTIME_REGIONS = ["/.otter/worktrees/", "/.otter/workforms", "/data/workspaces/"];
 export function pathWithinMain(absPath: string, projectRoot: string): boolean {
   const p = normalizePath(absPath);
   const root = normalizePath(projectRoot);
@@ -187,22 +199,41 @@ function evalCdTarget(seg: Segment, segments: Segment[], cwd: string): string | 
   return _p;
 }
 
-/** 语句序 cwd 跟踪：返回最终 cwd 或 null（不可解）。
- *  - joiner 为 & 或 | 的段是子 shell/管道上下文，其 cd 不影响后续段（与 modelCdExemption 子 shell 化语义同源）
- *  - cd 同命令内赋值溯源；pushd/popd Phase 1 不覆盖（回落） */
-function trackCwd(segments: Segment[], startCwd: string): string | null {
-  let cwd = startCwd;
+// trackCwd 已由 evalSegmentCwds（段级 cwd，F20261012gesw 切换实测修复）取代
+
+/** F20261012gesw（切换 PR实测修复）：段级 cwd——段 i 的求值 cwd =「之前所有对外
+ *  可见 cd 的累积」（正向即时推进），而非整命令最终 cwd。两个实测错位形态：
+ *  - `git commit && cd /tmp`：旧逻辑从最终 cwd（/tmp）反向求 git 段——git commit
+ *    真实落点在 cd 前的主仓 cwd，旧算法把 commit 算到 /tmp（漏拦）
+ *  - `cd /wt & git commit`（joiner 标在右段）：真实 shell 中 & 右段与左段并发，
+ *    git commit 在主仓跑；旧算法（cd 段 joiner="" 正常推进 → 终点 /wt）把 git 段
+ *    落点算到 /wt。修正：joiner 为 & / | 的段，其求值 cwd 回退到该 joiner 之前的
+ *    基准 cwd（管道/并发右段不继承左侧链内 cd——左侧 cd 效应被管道/并发切断）
+ *  cd 段自身仍按推进后 cwd 求值（cd 目标即落点披露口径不变）。 */
+function evalSegmentCwds(segments: Segment[], startCwd: string): string[] | null {
+  const cwds: string[] = [];
+  let mainCwd = startCwd;   // 主链 cwd（&& / ; / 无 joiner 段推进）
+  const forkCwd = startCwd; // 并发/管道右段基准（不继承左侧 cd——恒为起点）
   for (const seg of segments) {
-    if (seg.joiner === "&" || seg.joiner === "|") continue; // 子 shell/管道：cd 不外溢
-    const bare = bareName(seg.argv0);
-    if (bare === "pushd" || bare === "popd") return null;
-    if (bare === "cd") {
-      const resolved = evalCdTarget(seg, segments, cwd);
-      if (resolved === null) return null;
-      cwd = resolved;
+    let segCwd: string;
+    if (seg.joiner === "&" || seg.joiner === "|") {
+      segCwd = forkCwd;
+    } else {
+      segCwd = mainCwd;
+    }
+    cwds.push(segCwd);
+    // 主链 cd 推进（&/| 段内的 cd 不外溢——与 trackCwd 同口径）
+    if (seg.joiner !== "&" && seg.joiner !== "|") {
+      const bare = bareName(seg.argv0);
+      if (bare === "pushd" || bare === "popd") return null;
+      if (bare === "cd") {
+        const resolved = evalCdTarget(seg, segments, mainCwd);
+        if (resolved === null) return null;
+        mainCwd = resolved;
+      }
     }
   }
-  return cwd;
+  return cwds;
 }
 
 // ────────────────────────────── 段级求值 ──────────────────────────────
@@ -546,14 +577,14 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
       // §3.1 同口径：读侧落点披露统一走 evalPath——含 .. 的读路径不猜爬升结果，
       //  披露无拦截语义，求值不出跳过即可（不构成回落理由）
       const resolved = evalPath(p, acc.cwd);
-      if (resolved !== null) acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index });
+      if (resolved !== null) acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index, write: false });
     }
   }
   const paths = extractAbsPathLiterals(script);
   // #1411 §3.1：含 .. 的绝对字面量 fail-closed——解析结果不猜（旧：跳过 → 字面量闸
   //  漏判 `'/wt/../../../main/config.json'` 这类主仓耦合信号；跳过=闸的盲区）
   if (paths.some(p => p.includes("..") || pathWithinMain(p, projectRoot))) return "heredoc-script-payload";
-  for (const p of paths) acc.targets.push({ path: p, via: "cmd-arg", segmentIndex: acc.index });
+  for (const p of paths) acc.targets.push({ path: p, via: "cmd-arg", segmentIndex: acc.index, write: false });
   // 相对路径字面量披露（不进门判定——只读侧 cwd 拼接为事实锚，求值不出跳过即可）
   for (const m of script.matchAll(/["'`]([A-Za-z0-9_.][A-Za-z0-9_./-]*\/[A-Za-z0-9_./-]+)["'`]/g)) {
     const rel = m[1];
@@ -562,7 +593,7 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
     // （固有只读、非写落点）——不披露为 target；动态拼接目标不豁免（目标不可静态判定）
     if (isModuleLoadLiteralTarget(script, m)) continue;
     const resolved = evalPath(rel, acc.cwd);
-    if (resolved !== null) acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index });
+    if (resolved !== null) acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index, write: false });
   }
   return "extracted"; // 窄提取成功——调用方跳过 detectScriptPayload 短路，段求值继续
 }
@@ -630,19 +661,14 @@ function detectScriptPayload(model: CommandModel): boolean {
 /** 从既有模型求值。子模型（bash -c/cmdsub）先各自 trackCwd 再求值（子 shell cd 链独立——
  *  首跑实测教训：默认主仓根会漏子模型内 cd，bash -c 'cd wt && touch a' 误报主仓落点）。 */
 function evaluateFromModel(model: CommandModel, projectRoot: string): WriteEvalResult {
-  const tracked = trackCwd(model.segments, projectRoot);
+  const tracked = evalSegmentCwds(model.segments, projectRoot);
   if (tracked === null) return { kind: "unevaluated", reason: "cwd-unresolvable" };
 
   const acc: SegmentEvalAcc = { targets: [], index: 0 };
-  let cwd = tracked;
-  for (const seg of model.segments) {
-    const err = evalSegment(seg, cwd, acc, projectRoot);
+  for (let si = 0; si < model.segments.length; si++) {
+    const seg = model.segments[si];
+    const err = evalSegment(seg, tracked[si], acc, projectRoot);
     if (err !== null) return { kind: "unevaluated", reason: err };
-    // 段内 cd 推进（与 trackCwd 同口径）
-    if (seg.joiner !== "&" && seg.joiner !== "|" && bareName(seg.argv0) === "cd") {
-      const r = evalCdTarget(seg, model.segments, cwd);
-      if (r !== null) cwd = r;
-    }
     acc.index++;
   }
   return { kind: "evaluated", targets: acc.targets };
