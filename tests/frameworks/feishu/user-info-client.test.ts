@@ -203,6 +203,20 @@ describe("聊天成员数据源 getChatMemberNames（F20261012cmmn）", () => {
     expect(calls).toBe(2);
   });
 
+  it("空成员表缓存空 Map：二次调用复用缓存不出网（设计取舍锁定，检视发现 4）", async () => {
+    let calls = 0;
+    const { client } = makeClient((async () => {
+      calls += 1;
+      return membersResponse([]);
+    }) as unknown as typeof fetch);
+
+    const first = await client.getChatMemberNames("oc_empty");
+    expect(first?.size).toBe(0);
+    const second = await client.getChatMemberNames("oc_empty");
+    expect(second?.size).toBe(0);
+    expect(calls).toBe(1);
+  });
+
   it("请求 URL 指向 im chat members 接口且带 open_id 类型参数", async () => {
     const urls: string[] = [];
     const { client } = makeClient((async (input: Parameters<typeof fetch>[0]) => {

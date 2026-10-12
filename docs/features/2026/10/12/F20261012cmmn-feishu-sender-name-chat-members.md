@@ -5,7 +5,7 @@ created: 2026-10-12
 title: 飞书发言人姓名解析改走聊天成员接口（真名链路修复）
 summary: "PR #1426 后真名仍未解析——contact/v3/users 对授权范围外用户返回脱敏对象（code 0 但无 name），实测 im/v1/chats/{chat_id}/members（im:chat.members:read，#1426 已注入）直接返回成员 name。本次把发言人姓名解析的主数据源切到聊天成员映射（id→name），contact 单查降为备用源，兜底「飞书·尾6位」保留。单聊/群聊的发言人从此都出真名，无需飞书后台任何手动配置。"
 change_type: fix
-capability_test: 'n/a: 数据源切换修复，行为由 user-info-client/message-processor 共 11 个新增用例守护（见验证节）'
+capability_test: 'n/a: 数据源切换修复，行为由 user-info-client/message-processor 共 10 个新增用例守护（见验证节）'
 created_in_conversation: b7ba808d-be14-4369-9b13-8f9d077c5441
 tags: [im, feishu, sender-identity, chat-members, user-info, name-resolution]
 modules:
@@ -69,7 +69,7 @@ causal_links:
 - `src/usecases/im/feishu-user-info-gateway.ts`：端口加 `getChatMemberNames(chatId)`（含数据源选型的 why 注释）
 - `src/frameworks/feishu/user-info-client.ts`：实现 chat members 拉取（缓存 + 在途合并 + 分页 + null 不缓存），模式与 getUserName 同构
 - `src/interface-adapters/feishu/message-processor.ts`：resolveSenderName 加 chatId 参数，双路降级（chat members → contact → 可读兜底）
-- 测试：user-info-client 6 个新用例（映射/缓存/失败重试/并发合并/翻页/URL 形态）+ message-processor 3 个新用例（真名优先/未命中降级/异常降级）+ 2 处 mock 适配（断言零改动）
+- 测试：user-info-client 6 个新用例（映射/缓存/失败重试/并发合并/翻页/URL 形态）+ message-processor 3 个新用例（真名优先/未命中降级/异常降级）+ 空成员表缓存锁定 1 个（检视发现 4 处置）+ 2 处 mock 适配（断言零改动）
 
 ## 验证
 

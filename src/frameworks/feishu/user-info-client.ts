@@ -29,6 +29,8 @@ const USER_ENDPOINT = "https://open.feishu.cn/open-apis/contact/v3/users/";
 const CHAT_MEMBERS_ENDPOINT = "https://open.feishu.cn/open-apis/im/v1/chats/";
 /** 翻页防御上限：飞书单页 100 人，20 页 = 2000 成员，远超真实会话规模 */
 const CHAT_MEMBERS_MAX_PAGES = 20;
+/** 网关永不阻塞消息主链路：单次出网超时即降级（F20261012cmmn 检视发现 2 处置——防热路径挂起） */
+const FETCH_TIMEOUT_MS = 15 * 1000;
 
 /** 缓存 TTL：飞书姓名变更低频，10 分钟足够 */
 const CACHE_TTL_MS = 10 * 60 * 1000;
@@ -78,7 +80,9 @@ export class FeishuUserInfoClient implements FeishuUserInfoGateway {
   }
 
   /** F20261012cmmn：chat_id → 成员 id→姓名 映射。缓存/在途合并语义与 getUserName
-   *  同构；失败返回 null 不缓存（可重试），空成员表缓存空 Map（有效数据）。 */
+   *  同构；失败返回 null 不缓存（可重试），空成员表缓存空 Map（有效数据）。
+   *  @returns 成员映射——**只读契约**：指向缓存内部 Map，调用方不得增删改（返回副本
+   *   会在消息热路径白拷贝，更差）；需要可变副本请自行 new Map(result)。 */
   async getChatMemberNames(chatId: string): Promise<Map<string, string> | null> {
     if (!chatId) return null;
 
@@ -103,12 +107,23 @@ export class FeishuUserInfoClient implements FeishuUserInfoGateway {
       const token = await this.tokenManager.getAccessToken();
       const names = new Map<string, string>();
       let pageToken = "";
+      let exhausted = false;
 
       for (let page = 0; page < CHAT_MEMBERS_MAX_PAGES; page++) {
         const next = await this.fetchChatMembersPage(chatId, token, pageToken, names);
         if (next === null) return null; // 业务失败：不缓存，可重试
-        if (next === "") break; // 无更多页
+        if (next === "") { exhausted = true; break; } // 无更多页
         pageToken = next;
+      }
+
+      // 检视发现 1 处置：翻页达上限时映射不完整，必须可观测（仍缓存——截断部分
+      // 也足以服务常见会话，且缓存防配额风暴；下次 TTL 过期自愈重拉）
+      if (!exhausted) {
+        this.logger.warn("Feishu chat members truncated at page cap", {
+          chatId,
+          pages: CHAT_MEMBERS_MAX_PAGES,
+          collected: names.size,
+        });
       }
 
       this.chatMembersCache.set(chatId, { names, fetchedAt: Date.now() });
@@ -130,7 +145,10 @@ export class FeishuUserInfoClient implements FeishuUserInfoGateway {
   ): Promise<string | null> {
     const url = `${CHAT_MEMBERS_ENDPOINT}${encodeURIComponent(chatId)}/members`
       + `?member_id_type=open_id&page_size=100${pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : ""}`;
-    const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
     const data = (await response.json()) as {
       code: number;
       msg: string;
@@ -158,6 +176,7 @@ export class FeishuUserInfoClient implements FeishuUserInfoGateway {
       const token = await this.tokenManager.getAccessToken();
       const response = await fetch(`${USER_ENDPOINT}${encodeURIComponent(openId)}?user_id_type=open_id`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
       const data = (await response.json()) as {
         code: number;

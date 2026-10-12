@@ -28,7 +28,8 @@ export interface FeishuUserInfoGateway {
    * 实现方应做进程内缓存（chat_id → 成员映射）与在途合并，失败返回 null
    * 由调用方降级 getUserName / 可读兜底，永不阻塞消息主链路。
    *
-   * @returns 成员映射；API 失败返回 null（空成员表返回空 Map，与失败可区分）
+   * @returns 成员映射（**只读契约**：可能为缓存内部 Map 引用，调用方不得增删改，
+   *   需要可变副本自行 new Map(result)）；API 失败返回 null（空成员表返回空 Map，与失败可区分）
    */
   getChatMemberNames(chatId: string): Promise<Map<string, string> | null>;
 }
