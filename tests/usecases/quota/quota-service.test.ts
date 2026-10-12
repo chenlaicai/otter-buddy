@@ -126,14 +126,32 @@ describe("QuotaService", () => {
     expect(calls.filter(c => c === "glm")).toHaveLength(2);
   });
 
-  it("openLogin 后清缓存：下次读取即重采", async () => {
+  it("openLogin 后清缓存：下次读取即重采（A2 非阻塞启动）", async () => {
     const nowRef = { t: 0 };
     const { session, calls } = fakeSession([captureResult([{ url: "u", status: 200, json: GLM_PAYLOAD }])]);
     const svc = makeService(session, nowRef);
     await svc.getSnapshot();
-    await svc.openLogin("glm");
+    svc.openLogin("glm");
     expect(calls).toContain("login:glm");
     await svc.getSnapshot();
     expect(calls.filter(c => c === "glm")).toHaveLength(2);
+  });
+
+  it("A4：并发 getSnapshot 共享同一次采集（in-flight 去重）", async () => {
+    const nowRef = { t: 0 };
+    const { session, calls } = fakeSession([captureResult([{ url: "u", status: 200, json: GLM_PAYLOAD }])]);
+    const svc = makeService(session, nowRef);
+    const [a, b] = await Promise.all([svc.getSnapshot(), svc.getSnapshot()]);
+    expect(calls.filter(c => c === "glm")).toHaveLength(1);
+    expect(a.providers[0]!.fetchedAt).toBe(b.providers[0]!.fetchedAt);
+  });
+
+  it("A2：重复 openLogin 不重复弹窗（in-flight 守卫）", async () => {
+    const nowRef = { t: 0 };
+    const { session, calls } = fakeSession([captureResult([{ url: "u", status: 200, json: GLM_PAYLOAD }])]);
+    const svc = makeService(session, nowRef);
+    svc.openLogin("glm");
+    svc.openLogin("glm");
+    expect(calls.filter(c => c === "login:glm")).toHaveLength(1);
   });
 });

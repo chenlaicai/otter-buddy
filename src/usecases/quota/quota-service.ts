@@ -33,6 +33,10 @@ interface CacheEntry {
 
 export class QuotaService {
   private readonly cache = new Map<QuotaProviderId, CacheEntry>();
+  /** A4（对抗审视）：并发去重——并发读取共享同一次采集，不重复开浏览器 */
+  private inflightSnapshot: Promise<QuotaSnapshot> | null = null;
+  /** A2（对抗审视）：登录窗在飞标记（防重复弹窗） */
+  private readonly loginInflight = new Set<QuotaProviderId>();
 
   constructor(
     private readonly opts: {
@@ -45,7 +49,16 @@ export class QuotaService {
     },
   ) {}
 
-  async getSnapshot(options?: { refresh?: boolean }): Promise<QuotaSnapshot> {
+  getSnapshot(options?: { refresh?: boolean }): Promise<QuotaSnapshot> {
+    if (this.inflightSnapshot) return this.inflightSnapshot;
+    const run = this.getSnapshotInner(options).finally(() => {
+      this.inflightSnapshot = null;
+    });
+    this.inflightSnapshot = run;
+    return run;
+  }
+
+  private async getSnapshotInner(options?: { refresh?: boolean }): Promise<QuotaSnapshot> {
     const ttl = this.opts.ttlMs ?? DEFAULT_TTL_MS;
     const now = (this.opts.now ?? Date.now)();
     let usedCache = false;
@@ -62,12 +75,28 @@ export class QuotaService {
     return { providers, stale: usedCache };
   }
 
-  /** 弹登录窗（面板按钮触发）；完成后清缓存，下次刷新重采 */
-  async openLogin(provider: QuotaProviderId): Promise<void> {
+  /** 弹登录窗（面板按钮触发）——A2：立即返回（status=started），不阻塞 HTTP 连接过反代假失败；
+   *  窗口完成（搭档关窗）后再清一次缓存。 */
+  openLogin(provider: QuotaProviderId): void {
     const spec = this.opts.providers.find(p => p.id === provider);
     if (!spec) throw new Error(`unknown quota provider: ${provider}`);
-    await this.opts.session.openLogin(spec);
-    this.cache.delete(provider);
+    if (this.loginInflight.has(provider)) return; // 已有登录窗开着
+    this.loginInflight.add(provider);
+    this.cache.delete(provider); // 立即失效，下次刷新即重采
+    void this.opts.session
+      .openLogin(spec)
+      .catch(err => {
+        this.opts.logger.error(`[quota] ${spec.label} 登录窗异常: ${err instanceof Error ? err.message : String(err)}`);
+      })
+      .finally(() => {
+        this.loginInflight.delete(provider);
+        this.cache.delete(provider);
+      });
+  }
+
+  /** A1（对抗审视）：挂 app dispose 链，退出时释放浏览器会话 */
+  async dispose(): Promise<void> {
+    await this.opts.session.shutdown?.();
   }
 
   private async collectOne(spec: QuotaProviderSpec): Promise<ProviderQuota> {

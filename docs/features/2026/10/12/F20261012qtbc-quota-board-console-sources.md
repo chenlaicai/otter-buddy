@@ -93,6 +93,27 @@ QuotaSnapshot { providers[], stale }
 - **验证边界声明**：端到端真实数据流需搭档扫码登录后才能冒烟（MiMo/Kimi 字段映射按首登实测锁定，锁定过程与 raw 样本记入本文档「实施记录」节）
 - 最简实现检查：已过阶梯——仓库无既有采集实现可复用；Playwright 是 web 已装依赖族（不引新家族）；归一化纯函数无框架
 
+## 对抗审视记录（检视獭-qtbc，2026-10-12，PR #1445）
+
+**结论：需要修改（3 严重 + 6 建议）→ 处置如下，待 delta 复核**。完整报告在 PR review 评论（single source of truth）。
+
+| # | 级 | 发现 | 处置 | 结果 |
+|---|----|------|------|------|
+| S1 | 严重 | check CI 红：分支落后 origin/main（#1443 合入） | rebase 到最新 origin/main 后 force-with-lease 重推 | 已修 |
+| S2 | 严重 | fail-closed 反向缺口：启发式「自信猜数」（Kimi 全量 /apiv2 进归一化 + 通用词 key 任意命中；MiMo BFS 首个通用字段对象即返回）→ 可能带 ok 态展示错数 | 三重加固：①Kimi match 收窄到订阅/配额语义 RPC path；②Kimi 窗口名严格白名单 + 至少两个数字 + 时序点黑名单；③MiMo 要求 currentPlan* 签名字段 + 时序点防护 | 已修 + 7 条反例测试固化 |
+| S3 | 严重 | 与 open PR #1369（deps 升级）撞车 package.json/lock | **仲裁（大獭）：#1369 时间序优先先合，本 PR 合前再 rebase 一次**（依赖新增仅 1 行，机械解决）；合并顺序呈搭档终审时一并告知 | 已裁决 |
+
+| # | 级 | 发现 | 处置 | 结果 |
+|---|----|------|------|------|
+| A1 | 建议 | shutdown() 未接 dispose 链 | 已接：service.dispose() → session.shutdown()，挂 app.ts dispose 链（检视实测无残留故风险低，顺手闭环） | 已修 |
+| A2 | 建议 | 登录 POST 阻塞 180s 过反代假失败 | 改非阻塞：POST 立即返回 {status:'started'} + in-flight 防重弹 + 面板自动补 3 次延迟刷新 | 已修 |
+| A3 | 建议 | 登录跳转无短路，首屏最坏 ~90s | 采集等待循环里检测到跳登录页即 break | 已修 |
+| A4 | 建议 | 并发采集无 in-flight 去重 | QuotaService in-flight promise 去重（并发共享一次采集） | 已修 |
+| A5 | 建议 | 重置时间过期渲染成「重置-」 | 过期态显式渲染「已重置」 | 已修 |
+| A6 | 建议 | GLM currentValue 语义待首登核对 | 归入首登锁定清单（连同 MiMo/Kimi 字段映射一并人工比对） | 记录 |
+
+无发现项（检视獭显式记录）：Modification-Class 一致 ✓；生命周期除 A1 外全部正确 ✓；零侵入 grep 干净、/api/quota 不堵事件循环 ✓；独立复跑 quota 17/17、web 4/4、tsc 0 ✓。
+
 ## 实施记录
 
 （实现过程中的决策与修正，追加不改历史）

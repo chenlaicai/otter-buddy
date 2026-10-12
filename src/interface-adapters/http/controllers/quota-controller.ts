@@ -29,7 +29,7 @@ export class QuotaController {
     }
   }
 
-  /** POST /api/quota/login —— 弹登录窗（阻塞至搭档关窗或超时，故设长超时） */
+  /** POST /api/quota/login —— 启动登录窗后立即返回（A2：不阻塞 HTTP 连接，防反代超时假失败） */
   async login(c: Context): Promise<Response> {
     try {
       const body = await c.req.json<{ provider?: string }>().catch(() => ({}) as { provider?: string });
@@ -37,10 +37,15 @@ export class QuotaController {
       if (!PROVIDER_IDS.includes(provider as QuotaProviderId)) {
         return c.json({ error: `unknown provider: ${String(provider)}` }, 400);
       }
-      await this.service.openLogin(provider as QuotaProviderId);
-      return c.json({ status: "ok" });
+      this.service.openLogin(provider as QuotaProviderId);
+      return c.json({ status: "started" });
     } catch (err) {
       return handleError(c, err, this.logger);
     }
+  }
+
+  /** A1（对抗审视）：挂 app dispose 链 */
+  dispose(): Promise<void> {
+    return this.service.dispose();
   }
 }

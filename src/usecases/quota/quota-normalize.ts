@@ -123,6 +123,20 @@ function collectObjects(root: unknown, maxNodes = 200): Array<Record<string, unk
   return out;
 }
 
+/* ---------- S2 加固（对抗审视 2026-10-12）：防「自信猜数」 ---------- */
+
+/** 时序数据点黑名单键：命中则该对象是日/时粒度统计点，不是窗口——跳过 */
+const TIME_SERIES_KEYS = new Set(["date", "day", "timestamp", "statDate", "dateStr", "statTime"]);
+
+function looksLikeTimeSeriesPoint(obj: Record<string, unknown>): boolean {
+  return Object.keys(obj).some(k => TIME_SERIES_KEYS.has(k));
+}
+
+/** 启发式命中必须至少两个数字（used/limit/remaining 中 ≥2），单字段不成立窗 */
+function hasEnoughNumbers(used: number | null, limit: number | null, remaining: number | null): boolean {
+  return [used, limit, remaining].filter(v => v !== null).length >= 2;
+}
+
 /* ---------- GLM：/monitor/usage/quota/limit ---------- */
 
 export function normalizeGlm(payload: unknown): QuotaWindow[] | null {
@@ -146,8 +160,12 @@ export function normalizeGlm(payload: unknown): QuotaWindow[] | null {
 /* ---------- MiMo：/api/v1/tokenPlan/* ---------- */
 
 export function normalizeMimo(payload: unknown): QuotaWindow[] | null {
-  // 字段依据静态分析（currentPlanRemainingValue/currentPlanUsage），首登冒烟后锁定
+  // 字段依据静态分析（currentPlanRemainingValue/currentPlanUsage），首登冒烟后锁定。
+  // S2 加固：要求 currentPlan* 签名字段才认——通用 used/remaining 字段的对象一律不猜。
   for (const obj of collectObjects(payload)) {
+    if (looksLikeTimeSeriesPoint(obj)) continue; // S2 加固：日/时粒度统计点不是窗口
+    const hasSignature = Object.keys(obj).some(k => k.startsWith("currentPlan"));
+    if (!hasSignature) continue;
     const used = firstNumber(obj, ["currentPlanUsage", "used", "usage", "usedValue", "consumed"]);
     const remaining = firstNumber(obj, ["currentPlanRemainingValue", "remaining", "remain", "left", "surplus"]);
     const limit = firstNumber(obj, ["currentPlanLimit", "limit", "total", "totalValue", "quota"]);
@@ -160,17 +178,22 @@ export function normalizeMimo(payload: unknown): QuotaWindow[] | null {
 
 /* ---------- Kimi：/apiv2 connect-RPC（字段未定名，启发式 + 首登锁定） ---------- */
 
+/** S2 加固：窗口名严格白名单（归一化后精确匹配），杜绝 timestamp_hour 之类的通用词误命中 */
+const KIMI_WINDOW_KEY = /^(fivehour(s)?|5h|hourly|week|weekly|sevendays?|7d|month|monthly|total)$/;
+
 export function normalizeKimi(payload: unknown): QuotaWindow[] | null {
   const windows: QuotaWindow[] = [];
   for (const obj of collectObjects(payload)) {
+    if (looksLikeTimeSeriesPoint(obj)) continue;
     for (const [key, value] of Object.entries(obj)) {
       if (!isRecord(value)) continue;
-      if (!/(five.?hour|hourly|hour|5h|week|seven|month|total|plan)/i.test(key)) continue;
+      if (!KIMI_WINDOW_KEY.test(key.replace(/[_-]/g, "").toLowerCase())) continue;
       const used = firstNumber(value, ["used", "usage", "usedValue", "consumed", "currentValue"]);
       const limit = firstNumber(value, ["limit", "total", "totalValue", "quota", "showLimitCount"]);
       const remaining = firstNumber(value, ["remaining", "remain", "left"]);
       const resetAt = parseResetAt(value.resetAt ?? value.resetTime ?? value.reset_time ?? value.nextResetTime);
-      if (used === null && remaining === null && limit === null) continue;
+      // S2 加固：至少两个数字才成窗（防单字段对象借窗口名蒙混）
+      if (!hasEnoughNumbers(used, limit, remaining)) continue;
       windows.push(buildWindow(humanizeKey(key), { used, limit, remaining, resetAt }, windows.length));
     }
   }

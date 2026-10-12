@@ -645,6 +645,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       feishuScan.disposeAll();
       // F20260901chun：防御性清空通道状态注册表（防未来加事件监听/定时器泄漏）
       registry?.clear();
+      // F20261012qtbc A1（对抗审视）：配额采集浏览器会话挂 dispose 链（防 chromium 残留）
+      await controllers.quota.dispose();
       schedulerService.stop();
       // F20260812mrcq Part 1：先停 retry worker 再关 DB
       retryWorker?.stopSync();

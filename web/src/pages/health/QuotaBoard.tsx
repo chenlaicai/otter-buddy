@@ -33,11 +33,12 @@ function formatReset(iso: string | null): string {
   if (Number.isNaN(d.getTime())) return ''
   const now = Date.now()
   const diff = d.getTime() - now
-  const abs = (v: number) => `${v < 0 ? '-' : ''}`
-  const hh = Math.floor(Math.abs(diff) / 3_600_000)
-  const mm = Math.floor((Math.abs(diff) % 3_600_000) / 60_000)
   const when = `${d.getMonth() + 1}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-  return diff >= 0 ? `⏱ ${when} 重置（剩 ${hh}h${mm}m）` : `⏱ ${when} 重置${abs(diff)}`
+  // A5（对抗审视）：过期时刻不得渲染成「重置-」，明确显示已重置
+  if (diff < 0) return `⏱ ${when} 已重置`
+  const hh = Math.floor(diff / 3_600_000)
+  const mm = Math.floor((diff % 3_600_000) / 60_000)
+  return `⏱ ${when} 重置（剩 ${hh}h${mm}m）`
 }
 
 function isExhausted(w: QuotaWindowDTO): boolean {
@@ -150,10 +151,13 @@ export function QuotaBoard() {
   }, [load])
 
   const onLogin = async (provider: ProviderQuotaDTO['provider']) => {
-    showToast('浏览器窗口即将弹出，请在窗口内扫码登录（关窗即完成）', 'info')
+    // A2（对抗审视）：登录非阻塞启动；完成后自动补几次刷新（搭档不用手动点）
+    showToast('登录窗已打开，请在弹出的浏览器窗口内扫码登录（关窗即完成）', 'info')
     try {
       await api.triggerQuotaLogin(provider)
-      await load(true)
+      for (const delay of [30_000, 90_000, 150_000]) {
+        window.setTimeout(() => { void load(true) }, delay)
+      }
     } catch (err) {
       showToast(err instanceof Error ? err.message : '登录失败', 'error')
     }

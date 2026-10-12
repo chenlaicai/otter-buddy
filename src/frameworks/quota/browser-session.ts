@@ -96,6 +96,8 @@ export class QuotaBrowserSession implements QuotaCaptureSession {
       await page.goto(spec.consoleUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline && responses.length === 0) {
+        // A3（对抗审视）：已跳登录页则短路，不再空等采集超时（首屏最坏 90s → 即时）
+        if (isLoginUrl(page.url())) break;
         await page.waitForTimeout(300);
       }
       // 首个命中后再等一小段，容忍同页多个配额响应（如 detail + usage）

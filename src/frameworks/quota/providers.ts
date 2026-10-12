@@ -19,7 +19,8 @@ export const QUOTA_PROVIDERS: QuotaProviderSpec[] = [
     id: "kimi",
     label: "Kimi",
     consoleUrl: "https://www.kimi.com/code/console",
-    match: (url) => url.includes("/apiv2"),
+    // S2 加固：只收订阅/配额语义的 RPC（apiv2 网关下还有大量无关 RPC，全收会给归一化喂入歧义数据）
+    match: (url) => url.includes("/apiv2/") && /(subscription|membership|quota|usage|plan|benefit|credit|stat)/i.test(url),
     normalize: normalizeKimi,
   },
   {

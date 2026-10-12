@@ -63,6 +63,14 @@ describe("MiMo 归一化（/api/v1/tokenPlan/*，单余量形态）", () => {
   it("识别不出配额语义字段 → null（fail-closed，不猜数字）", () => {
     expect(spec("mimo").normalize({ code: 0, data: { cashBalance: 3.5, giftBalance: 0 } })).toBeNull();
   });
+
+  it("S2 加固：无 currentPlan* 签名字段的通用对象不猜数", () => {
+    expect(spec("mimo").normalize({ data: { used: 1, remaining: 2 } })).toBeNull();
+  });
+
+  it("S2 加固：带日期的统计点不冒充总量", () => {
+    expect(spec("mimo").normalize({ list: [{ date: "2026-10-12", currentPlanUsage: 5 }] })).toBeNull();
+  });
 });
 
 describe("Kimi 归一化（/apiv2 启发式，首登后锁定字段映射）", () => {
@@ -87,6 +95,19 @@ describe("Kimi 归一化（/apiv2 启发式，首登后锁定字段映射）", (
 
   it("无配额语义结构 → null（fail-closed）", () => {
     expect(spec("kimi").normalize({ user: { id: "cp1", nickname: "Joy" } })).toBeNull();
+  });
+
+  it("S2 加固：通用词 key（hour/plan 等）不再蒙混", () => {
+    expect(spec("kimi").normalize({ timestamp_hour: { used: 1, limit: 2 } })).toBeNull();
+    expect(spec("kimi").normalize({ plan: { used: 1, limit: 2 } })).toBeNull();
+  });
+
+  it("S2 加固：单数字对象不成窗", () => {
+    expect(spec("kimi").normalize({ weekly: { used: 5 } })).toBeNull();
+  });
+
+  it("S2 加固：带日期的时序点不冒充窗口", () => {
+    expect(spec("kimi").normalize({ day: "2026-10-12", fiveHour: { used: 1, limit: 2 } })).toBeNull();
   });
 });
 

@@ -35,4 +35,6 @@ export interface QuotaProviderSpec {
 export interface QuotaCaptureSession {
   capture(spec: QuotaProviderSpec, timeoutMs?: number): Promise<CaptureResult>;
   openLogin(spec: QuotaProviderSpec, waitMs?: number): Promise<void>;
+  /** 可选：释放资源（浏览器会话）；挂 dispose 链时调用（A1，对抗审视） */
+  shutdown?(): Promise<void>;
 }
