@@ -5,6 +5,11 @@ summary: "搭档主用智谱 GLM / Kimi / MiMo 三家订阅账号，此前每次
 change_type: feature
 capability_tags: [quota, web-ui, playwright, health-panel]
 capability_test: "n/a: 纯展示看板特性。验证 = 单测（三家响应归一化 fixture + TTL 缓存/登录态判定）+ web 组件测试（渲染态）+ Playwright 真机截图自检（UI 视觉变更硬规则）+ 首次真实登录冒烟（需搭档扫码，见「验证」节的验证边界声明）"
+intent:
+  problem: "搭档主用智谱 GLM / Kimi / MiMo 三家订阅账号，每次查 5 小时/本周余量都要逐个开控制台网页；系统内无查看入口，且三家 API key 均无余量查询接口（实测 ~30 端点全 404），唯一数据源是控制台网页接口"
+  expected_effect: "健康面板「配额」Tab 并排展示三家真实余量（与控制台同源数据，按各家真实窗口形态：GLM 5h+周、Kimi 5h+7日、MiMo 单余量）+ 重置时间 + 耗尽态；登录过期亮「需登录」+ 扫码弹窗一次；纯展示——不进观测数据、不影响调度与模型选择、无通知开关"
+  verify_by:
+    type: behavior_check
 created: 2026-10-12
 created_in_conversation: 11806e11-1cac-4d00-b263-badff1a80f2b
 tags: [quota, playwright, health-panel, web-ui]
