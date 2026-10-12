@@ -1,16 +1,16 @@
 ---
 id: F20261012kfp2
 title: "獭之传说·镜湖终战 P2：五段式终战 + 429 换獭 + 封印咒语门"
-summary: "镜湖终战 P2 落地：game/index.html 在 P1 的 8 点位农场之上接入终章战斗——五段式（占卜/召唤/结界/洞察/刺入）映射 otter-buddy 五能力打「过去的自己」，含 429 哑火→换獭配额轮换、战败重生（前世封存叙事）、封印咒语门（逐字校验「合入」错拒对过）。数值保底：正路最坏 90≤100 必胜、纯硬莽数学必败。Playwright selftest 20/20 PASS（含 429 确定性验证、8 点位回归与战斗态画布点击回归）。"
+summary: "镜湖终战 P2 落地：game/index.html 在 P1 的 8 点位农场之上接入终章战斗——五段式（占卜/召唤/结界/洞察/刺入）映射 otter-buddy 五能力打「过去的自己」，含 429 哑火→换獭配额轮换、战败重生（前世封存叙事）、封印咒语门（逐字校验「合入」错拒对过）。数值保底：正路最坏 90≤100 必胜、纯硬莽数学必败。Playwright selftest 22/22 PASS（含 429 确定性验证、8 点位回归、自由顺序与 BOSS 演出回归）。"
 change_type: feature
 capability_tags: [game, readme-growth]
-capability_test: "n/a: game/ 为纯静态内容产品（零运行时依赖、不进主系统构建/测试面），验证 = 工作区 Playwright 程序化自检（20/20：8 点位回归/战斗态画布点击回归/终战开启/纯硬莽必败/五段式正路/429 哑火确定性/换獭/翻倍刺入/封印错拒对过/通关落版/零 pageerror）+ 真机截图取证 + 人工验收（方案 verify_by=human_judge T1-T8 的 P2 子集）；CI 面为 lint 无新增（game/ 已入 eslint ignores）"
+capability_test: "n/a: game/ 为纯静态内容产品（零运行时依赖、不进主系统构建/测试面），验证 = 工作区 Playwright 程序化自检（22/22：8 点位回归/自由顺序/闪光点/BOSS 演出/战斗态画布点击回归/终战开启/纯硬莽必败/五段式正路/429 哑火确定性/换獭/翻倍刺入/封印错拒对过/通关落版/零 pageerror）+ 真机截图取证 + 人工验收（方案 verify_by=human_judge T1-T8 的 P2 子集）；CI 面为 lint 无新增（game/ 已入 eslint ignores）"
 intent:
   problem: "P0（#1422）/P1（#1427）交付了农场 8 点位，终章预告悬空（lakePreview 只有文案没有战斗）；P2 使命是把方案 §7 的镜湖终战落地——用游戏机制把 otter-buddy 的五项核心能力（记忆/召唤/隔离/审视/授权合入）演成一场能赢能输的战斗，收官产品叙事。"
   expected_effect: "① 五段式正路（占卜→召唤→结界→洞察→刺入）走通且保底必胜；② 纯硬莽数学必败（100% 走不通）；③ 429 哑火→换獭机制可确定性复现；④ 封印咒语逐字校验「合入」错拒对过；⑤ 8 点位回归零破坏；⑥ 零 pageerror。"
   verify_by:
     type: behavior_check
-    reason: "Playwright 程序化走查（五段式显式序列逐段断言文案/状态/按钮，429 哑火用强制 RNG 窗口确定性触发，纯硬莽 30 轮内必死断言，封印错拒对过，通关落版）+ 三帧截图取证。证据：selftest 18/18 PASS（p2-selftest.mjs）、截图 p2-battle-start/seal/ending.png。"
+    reason: "Playwright 程序化走查（五段式显式序列逐段断言文案/状态/按钮，429 哑火用强制 RNG 窗口确定性触发，纯硬莽 30 轮内必死断言，封印错拒对过，通关落版）+ 三帧截图取证。证据：selftest 22/22 PASS（p2-selftest.mjs）、截图 p2-battle-start/seal/ending.png。"
 created: 2026-10-12
 created_in_conversation: cb80d695-bce9-4b83-9f2a-98618242acd0
 causal_links:
@@ -96,13 +96,14 @@ causal_links:
 
 ## 验证
 
-- **selftest 20/20 PASS**（p2-selftest.mjs，真实 headless Chromium 驱动）：8 点位回归 / 终战开启 / 首按钮组 / 战斗中点画布不影响按钮 / 纯硬莽必败→重生 / 战败后点画布「重新挑战」保留（防死档回归）/ 重新挑战 / 占卜命中 / 洞察獭就位 / 结界 / 洞察首刀必中 / 刺入入口出现 / 429 哑火（确定性）/ 换獭 / 刺入收尾 BOSS 倒下 / 封印错拒 / 对过通关落版 / 通关按钮 / 零 pageerror
+- **selftest 22/22 PASS**（p2-selftest.mjs，真实 headless Chromium 驱动）：8 点位回归 / 自由顺序开工 / 闪光点微光 / BOSS 红瞳像素 / 完成按钮无导航承诺 / 终战开启 / 首按钮组 / 战斗中点画布不影响按钮 / 纯硬莽必败→重生 / 战败后点画布「重新挑战」保留（防死档回归）/ 重新挑战 / 占卜命中 / 洞察獭就位 / 结界 / 洞察首刀必中 / 刺入入口出现 / 429 哑火（确定性）/ 换獭 / 刺入收尾 BOSS 倒下 / 封印错拒 / 对过通关落版 / 通关按钮 / 零 pageerror
 - **截图证据**（工作区）：p2-battle-start.png / p2-seal.png / p2-ending.png
 - **最简实现检查**：已过阶梯（仓库已有：P1 三段式/say/actions 复用；无新依赖；单文件增量 159 行无新文件）——确认已最简
 - **语法**：零 pageerror 即运行时语法验证（game/ 不进构建面，lint 已 ignores）
 
 ## 本次变更对旧特性做了什么
 
+- **P0「渐进解锁」契约被自由探索取代**：F20261010kfp0 的「仅 1 个发光」「唯一可点」契约自 2026-10-12 试玩迭代起失效（游戏机制随搭档反馈演进），本文档为现行为真相源；P0 文档保留为历史记录不改（lint-historical-docs 正文禁改）
 - P1 的「镜湖终章预告」（lakePreview）升级为终战本体入口：S.allDone 点镜湖 → lakeBattle()；lakePreview 保留为未完成态兜底
 - P1 的试验田封印门机制在终章复用（bWin 的封印咒语门与之同构，验收「错拒对过」两态）
 - P1 其余（8 点位/背包/称号/预烘焙/SPOTS 单源）零改动

@@ -412,7 +412,6 @@ var SPOTS = [
   { id:"lab",      order:8, x:340, y:112, w:24, h:24, name:"试验田", icon:"🧪", gift:"🧪", stand:[306,148] },
   { id:"lake",     order:9, x:376, y:8,   w:96, h:68, name:"镜湖",   icon:"🔮", labelBelow:true, stand:[360,92] }
 ];
-function spotIndex(sp) { for (var i = 0; i < SPOTS.length; i++) if (SPOTS[i].id === sp.id) return i; return -1; }
 function spotById(id) { for (var i = 0; i < SPOTS.length; i++) if (SPOTS[i].id === id) return SPOTS[i]; return null; }
 function hotRect(sp) { return { x:sp.x - 10, y:sp.y - 16, w:sp.w + 20, h:sp.h + 26 }; }
 
@@ -511,14 +510,11 @@ function drawPlots() {
   // 点位1 荒田：3×2 土壤
   var sp = SPOTS[0];
   var wet = S.done.plant;
-  var lock1 = !isLit(sp);
-  if (lock1) ctx.globalAlpha = 0.45;
   for (var r = 0; r < 2; r++) for (var c = 0; c < 3; c++) tileSoil(sp.x + c * T, sp.y + r * T, wet);
-  ctx.globalAlpha = 1;
   // 记忆麦子（act 双叶 / done 成熟）
   var st = 0;
   if (S.done.plant) st = 3; else if (S.activeId === "plant" && S.phase === "act") st = 2;
-  if (st > 0 && !lock1) {
+  if (st > 0) {
     drawCrop(st, sp.x + 12, sp.y + 12); drawCrop(st, sp.x + 32, sp.y + 10); drawCrop(st, sp.x + 22, sp.y + 26);
     // 蚜虫（瓢虫屋问题演出）
     if (S.flags.aphids) {
@@ -835,15 +831,13 @@ var SCRIPTS = {
     problem: { t:"幼獭不记得昨天。\n「昨天工具放哪了？」——翻遍农场，找不到。每次醒来都是全新的一天。", s:"它需要的，是把经历过的事变成能留下的东西。", btn:"🌰 种下一颗「今天的记忆」" },
     act: { t:"幼獭在荒田挖坑，把「今天发生的事」埋进去，盖上土。", s:"——「播种」：把经历变成种子。（看，田里已经冒芽了）", btn:"💧 浇一瓢水" },
     effect: { t:"种子破土、抽穗（零等待，画面即时生长），三株记忆麦子成熟，一颗 🌾 入了背包。", s:"幼獭有了第一个记忆：它记得今天了。",
-      map:"播种 = 记忆入库：发生过的事写下来，不再丢失。otter-buddy 的每条记忆都有出处、可回溯——就像这颗种子，谁种的、种在哪，都查得到。",
-      btn:"去隔壁「种子库」→" }
+      map:"播种 = 记忆入库：发生过的事写下来，不再丢失。otter-buddy 的每条记忆都有出处、可回溯——就像这颗种子，谁种的、种在哪，都查得到。" }
   },
   seedbox: {
     problem: { t:"「这个坑，上周是不是踩过？」\n幼獭挠头——明明种过一样的种子，细节想不起来，只能重种一遍。", s:"重复劳动，是农场里最大的浪费。", btn:"📖 打开种子库" },
     act: { t:"木箱打开：标签、日期、谁种的——每颗种子都有档案。\n三张卡亮起，一张变绿：命中旧种子！", s:"好记性不如翻记录。", btn:"✨ 取出命中的种子" },
     effect: { t:"旧种子直接发芽，免重种！3 秒内，答案就位。", s:"不用从头再来，因为早就种下了。",
       map:"种子库 = 记忆检索：一句关键词，旧结论直接复用。otter-buddy 的记忆带溯源——哪次对话、谁说的，查得到。",
-      btn:"去「板结田」→",
       on:function () { pushSparkle(128, 190, 8); pushSparkle(62, 200, 6); pushFloat(128, 186, "命中 · 免重种"); } }
   },
   fert: {
@@ -854,8 +848,7 @@ var SCRIPTS = {
       btn:"🌱 见证速度恢复",
       on:function () { S.flags.slow = false; playerWalk([152, 240], 3); } },
     effect: { t:"幼獭一步并两步，速度回来了！板结的田冒出新芽。", s:"轻装，但该记的都在。",
-      map:"施肥翻耕 = 上下文管理：太长的历史自动浓缩成摘要，行动不减速。该记的都在，只是不再全部背着走。",
-      btn:"去「休耕田」→" }
+      map:"施肥翻耕 = 上下文管理：太长的历史自动浓缩成摘要，行动不减速。该记的都在，只是不再全部背着走。" }
   },
   fallow: {
     problem: { t:"这块田连种一百季，产量骤降——\n怎么浇都长不好（看那几株蔫的）。", s:"再好的田，也需要歇一季。",
@@ -864,7 +857,6 @@ var SCRIPTS = {
     act: { t:"残茬翻进土里，慢慢变成堆肥。", s:"结束不是清零，是转化。", btn:"🌾 等待转化" },
     effect: { t:"「+50%」——下一世的第一季，会长得更好。", s:"这一季的经验没有浪费。",
       map:"休耕 = 前世封存：一段经历浓缩成交接档案，交给下一世的自己。海獭重启带着摘要落地，不是从零开始。",
-      btn:"去「瓢虫屋」→",
       on:function () { S.flags.wilt = false; pushFloat(282, 196, "+50%"); pushFloat(290, 190, "+50%"); pushFloat(276, 202, "+50%"); pushSparkle(300, 204, 8); } }
   },
   ladybug: {
@@ -874,7 +866,6 @@ var SCRIPTS = {
     act: { t:"红灯笼似的小屋立在田边，住着爱吃蚜虫的房客。", s:"不用你管，它们自己上工。", btn:"🛡️ 看瓢虫出动" },
     effect: { t:"瓢虫出动，蚜虫清零。巡田记录本多了一行：「已自动处理」。", s:"你只看台账，不用守着。",
       map:"瓢虫屋 = 自愈 healing：小问题系统自己修、留记录可查。修复过程落台账，回看得到。",
-      btn:"去「邻居獭」→",
       on:function () { S.flags.aphids = false; pushFloat(392, 188, "已自动处理"); pushSparkle(381, 203, 6); } }
   },
   neighbor: {
@@ -884,7 +875,6 @@ var SCRIPTS = {
     act: { t:"蓝围巾小獭放下茶杯：「哪块田先收？」\n它身后的绿围巾小獭也探出了头。", s:"说清楚要什么，比什么都自己扛更难，也更值。", btn:"🦦 分工开工" },
     effect: { t:"三只獭分工，速度快了一倍。\n中途一只打了个哈欠（配额用完 zZz）——换下一只顶上，不停工。", s:"会累没关系，轮换就行。",
       map:"邻居小獭 = 多獭协作：专长分工、并行干活；小獭会累（429 配额），编排者负责轮换补位。",
-      btn:"去「老农獭」→",
       on:function () { S.flags.pile = false; pushFloat(96, 205, "分工 ×3"); } }
   },
   elder: {
@@ -896,7 +886,6 @@ var SCRIPTS = {
       on:function () { S.flags.magnify = true; } },
     effect: { t:"虫卵显形、标记、清除，这一季收成保住了。", s:"多一双眼睛，少一场灾。",
       map:"老农 = 异体审视：写代码的獭不给自己签通过单。改动必须换一双眼睛看——发现问题才算数。",
-      btn:"去「试验田」→",
       on:function () { S.flags.magnify = false; S.flags.eggs = false; pushFloat(64, 196, "虫卵已清除"); pushSparkle(64, 202, 6); } }
   },
   lab: {
@@ -928,13 +917,18 @@ function openAct(sp) {
   actions([{ label:sc.act.btn, fn:function () { openEffect(sp); } }]);
   markDirty();
 }
+function nextBtnLabel() { // 自由探索：完成按钮如实描述收尾行为，不承诺导航（#1435 delta 严重1）
+  var left = 0;
+  for (var i = 0; i < 8; i++) if (!S.done[SPOTS[i].id]) left++;
+  return left <= 0 ? "去镜湖 →" : "✓ 掌握了 · 换下一块闪光的田";
+}
 function openEffect(sp) {
   var sc = SCRIPTS[sp.id]; S.phase = "effect";
   if (sc.effect.custom) { sc.effect.on && sc.effect.on(); markDirty(); labHarvest(); return; } // 试验田：礼物在「合入」后才入包（labMerged）
   if (!S.done[sp.id]) { S.done[sp.id] = true; addBag(sp.gift); setWho(WHO[sp.id] || "幼獭"); }
   if (sc.effect.on) sc.effect.on();
   say("③ 效果达成", sc.effect.t, sc.effect.s, sc.effect.map);
-  actions([{ label:sc.effect.btn, fn:advance }]);
+  actions([{ label: sc.effect.btn || nextBtnLabel(), fn:advance }]);
   markDirty();
 }
 function replay(sp) {
@@ -986,7 +980,7 @@ function labMerged() {
   pushSparkle(352, 116, 20); pushFloat(352, 108, "🎉 已合入主田");
   say("③ 效果达成 · 已合入", "🎉 已合入！金色的麦子流进主田粮仓。\n验证过、你亲口批准——才进主干。", "这道门，机械校验原话，谁都绕不过。",
     "试验田 = worktree 隔离 + PR + 授权原话：改动在隔离环境验证、进 PR 审视，最后搭档亲口说出「合入」（机械校验原话命中），才真的进主干。");
-  actions([{ label:"去镜湖 →", fn:advance }]);
+  actions([{ label: nextBtnLabel(), fn:advance }]);
   markDirty();
 }
 function lakePreview() {
