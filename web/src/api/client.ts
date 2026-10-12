@@ -818,3 +818,41 @@ export function getActivityDispatch(params?: { conversationId?: string; status?:
   const qs = q.toString()
   return request(`/activity/dispatch${qs ? `?${qs}` : ''}`, { signal })
 }
+
+// ── Quota（F20261012qtbc：三家控制台余量统一展示，纯展示不进观测） ──
+
+export type QuotaProviderId = 'glm' | 'kimi' | 'mimo'
+export type ProviderQuotaStatus = 'ok' | 'needs-login' | 'error'
+
+export interface QuotaWindowDTO {
+  key: string
+  label: string
+  used: number | null
+  limit: number | null
+  remaining: number | null
+  remainingRatio: number | null
+  resetAt: string | null
+}
+
+export interface ProviderQuotaDTO {
+  provider: QuotaProviderId
+  label: string
+  status: ProviderQuotaStatus
+  windows: QuotaWindowDTO[]
+  fetchedAt: string
+  error?: string
+}
+
+export interface QuotaSnapshotDTO {
+  providers: ProviderQuotaDTO[]
+  stale: boolean
+}
+
+export function getQuota(refresh = false, signal?: AbortSignal): Promise<QuotaSnapshotDTO> {
+  return request(`/quota${refresh ? '?refresh=1' : ''}`, { signal })
+}
+
+/** 弹有头浏览器窗扫码登录（阻塞至搭档关窗或 3 分钟超时，调用方自行提示） */
+export function triggerQuotaLogin(provider: QuotaProviderId): Promise<{ status: string }> {
+  return request('/quota/login', { method: 'POST', body: JSON.stringify({ provider }) })
+}
