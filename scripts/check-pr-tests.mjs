@@ -2,7 +2,8 @@
 /**
  * 测试弱化防线（F20261012orcl，吸收 F20261012acpt T2 意图并机械化）。
  *
- * 语义：PR diff 中测试路径（tests/ 目录、*.test.*、*.spec.*）出现删除行时，
+ * 语义：PR diff 中测试路径（tests/ 目录、*.test.*、*.spec.*）或验收装置文件
+ * （oracle/ 三件套、闸/lint 脚本、检视规程、CI 工作流、git hooks）出现删除行时，
  * 要求 PR body 含「## 测试改动声明」段且带「方向：收紧|放宽」字段；放宽必须附非空理由。
  * 不判语义（好坏留给检视獭），只机械判：声明存在 + 方向字段 + 放宽理由非空。
  *
@@ -20,8 +21,19 @@ import { pathToFileURL } from "node:url";
 
 const TEST_PATH_RE = /(^tests\/)|(\.test\.[^/]+$)|(\.spec\.[^/]+$)/;
 
+/**
+ * 验收装置文件（闸本体）——放宽/删除验收装置与删测试同级，必须声明显形。
+ * 射程：oracle/ 件套（含 lock/waivers/registry）、闸与 lint 脚本、检视规程、CI 工作流、git hooks。
+ */
+const VERIFY_APPARATUS_RE =
+  /(^oracle\/)|(^scripts\/(check|lint)-[^/]*\.mjs$)|(^\.githooks\/)|(^\.github\/workflows\/)|(^\.pi\/skills\/adversarial-review\/)/;
+
 export function isTestPath(p) {
   return TEST_PATH_RE.test(p);
+}
+
+export function isVerifyApparatusPath(p) {
+  return VERIFY_APPARATUS_RE.test(p);
 }
 
 /** git diff --numstat 行解析：`added\tdeleted\t<path>`；改名形态 `old => new` / `dir/{a => b}.ts` */
@@ -107,13 +119,22 @@ function main() {
   }
 
   const files = parseNumstat(diff);
-  const triggering = files.filter((f) => (isTestPath(f.path) || (f.oldPath && isTestPath(f.oldPath))) && f.deleted > 0);
+  const triggering = files.filter(
+    (f) =>
+      (isTestPath(f.path) ||
+        isVerifyApparatusPath(f.path) ||
+        (f.oldPath && (isTestPath(f.oldPath) || isVerifyApparatusPath(f.oldPath)))) &&
+      f.deleted > 0,
+  );
   if (triggering.length === 0) {
-    console.log("[check-pr-tests] OK（测试路径无删除行，无需声明）");
+    console.log("[check-pr-tests] OK（测试/验收装置路径无删除行，无需声明）");
     process.exit(0);
   }
-  console.log(`[check-pr-tests] 测试路径出现删除行 ${triggering.length} 个文件：`);
-  for (const f of triggering) console.log(`  - ${f.path}（-${f.deleted} / +${f.added}）`);
+  console.log(`[check-pr-tests] 测试/验收装置路径出现删除行 ${triggering.length} 个文件：`);
+  for (const f of triggering) {
+    const kind = isVerifyApparatusPath(f.path) ? "验收装置" : "测试";
+    console.log(`  - [${kind}] ${f.path}（-${f.deleted} / +${f.added}）`);
+  }
 
   let body = null;
   if (args.bodyFile) {
@@ -123,7 +144,7 @@ function main() {
   }
   if (body === null) {
     console.error(
-      "[check-pr-tests] ✗ 测试改动含删除行但无 PR body 可核——CI 需注入 PR_BODY 环境变量或传 --pr-body-file（fail-closed，不放行）",
+      "[check-pr-tests] ✗ 测试/验收装置改动含删除行但无 PR body 可核——CI 需注入 PR_BODY 环境变量或传 --pr-body-file（fail-closed，不放行）",
     );
     process.exit(1);
   }
@@ -136,10 +157,11 @@ function main() {
 ## 测试改动声明
 方向：收紧   # 或 放宽
 理由：删除的是重复/失效断言，覆盖不变   # 方向=放宽时必填
+（验收装置文件（oracle/ 件套/闸脚本/检视规程/CI/hooks）的删改同样在此闸射程）
 `);
     process.exit(1);
   }
-  console.log("[check-pr-tests] OK（测试改动声明已登记）");
+  console.log("[check-pr-tests] OK（测试/验收装置改动声明已登记）");
   process.exit(0);
 }
 

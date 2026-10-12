@@ -3,8 +3,8 @@
   "algorithm": "sha256",
   "files": {
     "oracle/invariants.json": "d1ff282f5f3c1992c0213efe085c978d2a2e67a8224ca5bc9cf42152a4261d06",
-    "scripts/check-oracle.mjs": "26d23420fd006ddb21d5f5dbb160e43c71a3eca3fb692fffa2e58d576a771ef7",
+    "scripts/check-oracle.mjs": "4ed9336733b1ea02349416e74867c9bf69bda580cd89736241f742277726bfa9",
     "oracle/waivers.json": "c312bd2f1f4a1ebed86c08b3ccba9814e50ead8ea0e832798ca56f0358532a75"
   },
-  "combined": "1d00bc5d02e7723f926da62dfe29fe17907030f12f29321bc546ae4a99da9147"
+  "combined": "2d082792eec6e20cf9445e4bd0cc607f6352466ccd785b7f8284ba71c7a413fa"
 }

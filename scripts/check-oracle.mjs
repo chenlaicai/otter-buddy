@@ -5,8 +5,9 @@
  * 语义：
  * - oracle/invariants.json 登记「必须在位」的纪律语义（pattern 为子串，`re:` 前缀为正则）；
  *   逐条校验目标文件仍含该语义，缺失 → FAIL（exit 1）。
- * - 防篡改：oracle/lock.json 记录 registry / checker 自身 / waivers 三件的 sha256；
+ * - 防静默篡改：oracle/lock.json 记录 registry / checker 自身 / waivers 三件的 sha256；
  *   不符或缺失 → exit 2「registry/checker 被改动，需 --update-lock 并走 waiver 评审」。
+ *   强度边界：lock 防的是静默篡改；--update-lock 一把梭机器拦不住（流程锁：变更进 diff + 评审兕住）。
  * - waiver：oracle/waivers.json 条目 {invariant_id, reason, approved_by, expires}；
  *   有效期内（今天 ≤ expires，expires 是最后有效日）且条目 waiver_eligible=true 的缺失
  *   降为 WARN（exit 0）；过期 waiver 无效（缺失即 FAIL）。
@@ -75,7 +76,7 @@ export function writeLock(root) {
 export function verifyLock(root) {
   const abs = path.join(root, LOCK_PATH);
   if (!fs.existsSync(abs)) {
-    return { ok: false, reason: `${LOCK_PATH} 缺失——registry/checker/waivers 无防篡改基线` };
+    return { ok: false, reason: `${LOCK_PATH} 缺失——registry/checker/waivers 无防静默篡改基线` };
   }
   let recorded;
   try {
@@ -333,8 +334,10 @@ function main() {
   }
 
   const total = registry.invariants.length;
+  const boundary =
+    "｜边界：lock 防静默篡改；--update-lock 为流程锁（变更须走 waiver 评审，diff 显形）";
   if (failures.length === 0 && errors.length === 0 && waived.length === 0) {
-    console.log(`[lint:oracle] PASS（${total}/${total} 条在位，lock OK）`);
+    console.log(`[lint:oracle] PASS（${total}/${total} 条在位，lock OK）${boundary}`);
     process.exit(0);
   }
   for (const f of failures) {
@@ -345,7 +348,7 @@ function main() {
   }
   for (const e of errors) console.error(`✗ waiver 配置：${e}`);
   if (exitCode === 0) {
-    console.log(`[lint:oracle] PASS(WARN)（${total - waived.length}/${total} 在位，${waived.length} 条 waiver 降级；lock OK）`);
+    console.log(`[lint:oracle] PASS(WARN)（${total - waived.length}/${total} 在位，${waived.length} 条 waiver 降级；lock OK）${boundary}`);
   } else {
     console.error(`\n[lint:oracle] FAIL（缺失 ${failures.length} / 配置错误 ${errors.length}，lock OK）——修复语义或走 waiver（oracle/waivers.json）后重跑`);
   }
