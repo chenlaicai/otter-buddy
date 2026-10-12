@@ -31,6 +31,9 @@
     "lint:intent": "node scripts/lint-intent.mjs",
     "lint:date-bombs": "node scripts/lint-date-bombs.mjs",
     "lint:prompt-anchors": "node scripts/lint-prompt-anchors.mjs",
+    "lint:oracle": "node scripts/check-oracle.mjs",
+    "lint:pr-tests": "node scripts/check-pr-tests.mjs",
+    "lint:evidence-anchors": "node scripts/lint-evidence-anchors.mjs",
     "smoke:boot": "bash scripts/smoke-boot.sh",
     "lint:schema": "node scripts/lint-schema-ddl.mjs"
   },

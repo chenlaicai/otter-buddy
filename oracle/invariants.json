@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "invariants": [
+    {
+      "id": "dhc-no-bare-numbers",
+      "file": "prompts/scheduled/daily-health-check.md",
+      "pattern": "禁止只列数字",
+      "rationale": "体检报告「只列数字不看内容」的闭环硬规则——2026-10-12 出清删纪律语义事故中被删的 4 处之一，删掉即体检报告退回只报数字的退化形态（当天 diff 一路绿灯到 delta 复核才被人眼抓）",
+      "waiver_eligible": true
+    },
+    {
+      "id": "dhc-assertion-evidence",
+      "file": "prompts/scheduled/daily-health-check.md",
+      "pattern": "失败附断言原文+实际内容",
+      "rationale": "抽查失败必须附断言原文+实际内容（反自述的证据纪律）——2026-10-12 出清删纪律语义事故被删 4 处之一，删掉后抽查失败只剩结论无证据，与表扬漏采教训（机器锚点才修好）同构失守",
+      "waiver_eligible": true
+    },
+    {
+      "id": "dhc-issue-verification-assertion",
+      "file": "prompts/scheduled/daily-health-check.md",
+      "pattern": "re:每个 issue body 含「验证断言」段",
+      "rationale": "issue 必带可证伪验证断言（三字段含到期日）——2026-10-12 出清删纪律语义事故被删 4 处之一，删掉后 issue 退回「写不出断言也照开」的问题定义不清形态",
+      "waiver_eligible": true
+    },
+    {
+      "id": "dhc-issue-close-criteria",
+      "file": "prompts/scheduled/daily-health-check.md",
+      "pattern": "re:每个 issue body 含「关闭标准」段",
+      "rationale": "issue 必带可验证关闭标准（搭档拍板的闭环纪律）——2026-10-12 出清删纪律语义事故被删 4 处之一，删掉后 issue 无关闭判据变僵尸 issue",
+      "waiver_eligible": true
+    },
+    {
+      "id": "system-magic-stop",
+      "file": ".pi/SYSTEM.md",
+      "pattern": "| 「停下」 |",
+      "rationale": "Magic Words 手动拉闸的急停行——安全底线指令，删/改即失去全场急停能力（P0 不可逆风险的最后人工闸），不可豁免",
+      "waiver_eligible": false
+    },
+    {
+      "id": "system-magic-divert",
+      "file": ".pi/SYSTEM.md",
+      "pattern": "| 「绕路了」 |",
+      "rationale": "Magic Words 方向重审行——搭档喊停捷径/局部最优的人工闸，删/改即失去方向纠偏手段，不可豁免",
+      "waiver_eligible": false
+    },
+    {
+      "id": "system-magic-trigger-scope",
+      "file": ".pi/SYSTEM.md",
+      "pattern": "仅搭档当前指令触发",
+      "rationale": "Magic Words 触发边界（引用/复述/讨论历史不触发）——2026-10-12 假急停 #1430 的来源盲扫描注入假「停下」即缺此边界的同构失守，删掉即回到盲触发，不可豁免",
+      "waiver_eligible": false
+    },
+    {
+      "id": "docs-delivery-dual-number",
+      "file": "docs/README.md",
+      "pattern": "已产出 X / 其中已验证 Y",
+      "rationale": "交付双数字模板（已产出/其中已验证）——F20261012acpt T3（G3 进度与质量混同）的落点，删掉即汇报退回只报产出不报验证的假进度形态",
+      "waiver_eligible": true
+    },
+    {
+      "id": "review-no-self-report-evidence",
+      "file": ".pi/skills/adversarial-review/references/review-dimensions.md",
+      "pattern": "处置自述不作证据",
+      "rationale": "反自述核验规程（核验必须对照 diff/命令输出/文件原文）——momo5502 案例「worker 自述注入」教训的本仓落点，删掉即检视退回采信「我验证了」自述的假核验形态",
+      "waiver_eligible": true
+    }
+  ]
+}

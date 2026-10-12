@@ -44,6 +44,8 @@ End-to-end verification failure must be reported as a 严重发现 in the review
 
 **pre-existing 声明核验**：作者自检报告中的「pre-existing / 与本次变更无关」失败声明，若未附 `git stash -u` 复跑或 `origin/main` 基线对照证据，直接打回——无证据 = 未验证（历史现场：5 个自引入失败被误报为与己无关）。检视者可自行抽查：`git stash -u` 或 checkout 基线单跑，验证声明是否成立。
 
+**处置自述不作证据（反自述核验规程，硬规则）**：核验必须对照 diff / 命令输出 / 文件原文——「我验证了」「已修复」类处置自述本身不构成证据，「我验证了」必须附验证记录锚点（file:line / 命令 + 实际输出 / 文档 ID）；测试弱化判定以 check-pr-tests 的机器输出为证据，不采信作者对测试改动的口头说明；无锚点的自述核验按「证据不足」处置（与 author-response-protocol 同源：无证据的反驳等同未处置）。
+
 **教训段三要素核查（含教训段的 PR 必查）**：PR 新增/修订了「#xxx 教训/现场」类段落（skill/prompt/SYSTEM.md/特性文档）时，逐段核对「不这么做的现场」三要素——①当时的错误现象 ②导致的后果 ③定位过程；缺任一要素 = 建议发现打回（半成品教训是 3.8% 形态，EPD 对照）。判定示例与模糊地带（流水账/多行分布）见 writing-skills SKILL.md 5b 节。存量教训段不回改，只管本 PR 新增/修订。
 
 ### B4. Change Identity Consistency
