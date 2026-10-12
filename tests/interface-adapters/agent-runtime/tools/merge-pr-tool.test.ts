@@ -394,6 +394,20 @@ describe('#1431 时间维度闸（过期原话不得授权）+ 通用短话术�
     expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
   });
 
+  it('T1d 时间解析异常（createdAt 非法）→ fail-closed 拒绝，不得静默跳过时间闸', async () => {
+    stubGh('OPEN', '2026-09-22T02:00:00.000Z');
+    const entries = [
+      { id: 'ue-badtime', entryType: 'user', senderType: 'user', senderId: 'user', body: '1095合入，你更新下', sequenceNum: 451, createdAt: 'not-a-date' },
+    ];
+    const getEntriesMock = vi.fn().mockResolvedValue(entries);
+    const linkMock = vi.fn().mockResolvedValue({ id: 'res-1' });
+    const tool = findMergePr(makeCtx(linkMock, getEntriesMock));
+    const result = await tool.execute('t1d', { prNumber: 1095, partnerApproval: '1095合入，你更新下' });
+    expect(JSON.stringify(result)).toContain('过期授权');
+    expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
+    expect(linkMock).not.toHaveBeenCalled();
+  });
+
   it('T2a 通用短话术不含 PR 号（「合吧」）→ 拒绝并引导带 PR 号显式确认（防跨 PR 误配）', async () => {
     stubGh('OPEN');
     const wholeEntries = [
@@ -423,6 +437,18 @@ describe('#1431 时间维度闸（过期原话不得授权）+ 通用短话术�
     // 「这个可以合了，合吧」实义字 8 ≥6，不走短话术闸
     const result = await tool.execute('t2c', { prNumber: 1095, partnerApproval: '这个可以合了，合吧' });
     expect(JSON.stringify(result)).toContain('已合入');
+  });
+
+  it('T2d 数字子串不算含目标号（目标 #437 配「1437合」）→ 拒绝（防子串误认精确授权）', async () => {
+    stubGh('OPEN');
+    const entries = [
+      { id: 'ue-sub', entryType: 'user', senderType: 'user', senderId: 'user', body: '1437合', sequenceNum: 351, createdAt: '2026-09-22T03:20:00.000Z' },
+    ];
+    const getEntriesMock = vi.fn().mockResolvedValue(entries);
+    const tool = findMergePr(makeCtx(vi.fn(), getEntriesMock));
+    const result = await tool.execute('t2d', { prNumber: 437, partnerApproval: '1437合' });
+    expect(JSON.stringify(result)).toContain('显式确认');
+    expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
   });
 });
 

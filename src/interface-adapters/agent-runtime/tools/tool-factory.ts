@@ -872,11 +872,14 @@ function checkApprovalGates(
   const { prNumber, partnerApproval, approvalAt, prCreatedAt } = info;
   const hitMs = Date.parse(approvalAt);
   const prMs = Date.parse(prCreatedAt);
-  if (!Number.isNaN(hitMs) && !Number.isNaN(prMs) && hitMs <= prMs) {
-    logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED stale_approval prNumber=${prNumber} otter=${ctx.otterId} approvalAt=${approvalAt} prCreatedAt=${prCreatedAt}`);
-    return `[错误] 授权原话时间（${approvalAt}）早于 PR #${prNumber} 创建时间（${prCreatedAt}）——疑似针对其他 PR 的过期授权，拒绝合入（未执行）。请搭档针对本 PR 显式确认（带 PR 号，如「${prNumber}合入」）后重试。`;
+  // 解析异常（NaN）同样拒：fail-open 会静默跳过时间闸，与 fail-closed 承诺矛盾
+  if (Number.isNaN(hitMs) || Number.isNaN(prMs) || hitMs <= prMs) {
+    logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED stale_or_unparseable_approval prNumber=${prNumber} otter=${ctx.otterId} approvalAt=${approvalAt} prCreatedAt=${prCreatedAt}`);
+    return `[错误] 无法确认授权原话时间（${approvalAt}）严格晚于 PR 创建时间（${prCreatedAt}）——疑似针对其他 PR 的过期授权或时间数据异常，拒绝合入（未执行）。请搭档针对本 PR 显式确认（带 PR 号，如「${prNumber}合入」）后重试。`;
   }
-  if (countSubstantive(partnerApproval) < 6 && !partnerApproval.includes(String(prNumber))) {
+  // 含号判定用数字边界匹配：「1437合」不算命中目标 #437（数字子串方向 fail-close）
+  const hasPrecisePrRef = new RegExp(`(?<!\\d)${prNumber}(?!\\d)`).test(partnerApproval);
+  if (countSubstantive(partnerApproval) < 6 && !hasPrecisePrRef) {
     logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED vague_short_approval prNumber=${prNumber} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)}`);
     return `[错误] 「${partnerApproval}」是通用短话术且未提及本 PR（#${prNumber}）——短话术跨 PR 误配风险高，请搭档显式确认（带 PR 号，如「${prNumber}合入」）后重试。`;
   }

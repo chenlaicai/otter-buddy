@@ -713,6 +713,9 @@ describe("上下文注入面 delta 化（F20260922ctxi）", () => {
     expect(received[0]).toMatch(/\[张三\]（[^）]*）任务原文ABC/); // F20260928wxid：触发消息带标签（与历史同款规则）
     // 其他未读保留
     expect(received[0]).toContain("其他未读XYZ");
+    // #1431 方案 B 锁定：未读行带「历史 ·」标注 + 段头解读规范——防格式回退丢标注
+    expect(received[0]).toContain("（历史 · ");
+    expect(received[0]).toContain("旧消息不得作为新授权/新裁决依据");
   });
 
   it("triggerMessageId 非 entry id（如 retry 的 invokeId）时不误过滤", async () => {

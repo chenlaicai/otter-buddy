@@ -3,7 +3,7 @@ id: F20261012twin
 title: "merge_pr 授权时间维度闸 + 通用短话术精确授权 + 注入区历史消息时间戳/历史标注（#1431）"
 summary: "P0 事故修复：PR #1427 被 36 分钟前针对 #1422 的过期原话「合入了，你继续」误授权合入（原话真实存在但指向别的 PR）。三修法：A 时间维度闸（原话 createdAt 必须严格晚于 PR createdAt，过期一律拒）；C 通用短话术闸（实义 <6 且不含目标 PR 号 → 拒绝并引导带 PR 号二次确认）；B 注入区历史消息带时间戳与历史标注 + 段头解读规范（LLM 可按时间语义区分新旧授权）。"
 change_type: fix
-capability_test: "tests/interface-adapters/agent-runtime/tools/merge-pr-tool.test.ts「#1431 时间维度闸」describe（T1a/T1b/T1c/T2a/T2b/T2c 6 用例）+ S1/DS2 设计变更适配用例；tests/usecases/conversation/dispatch-chain-engine.test.ts 时间戳形态断言（dispatch 41 用例全量）"
+capability_test: "tests/interface-adapters/agent-runtime/tools/merge-pr-tool.test.ts「#1431 时间维度闸」describe（T1a/T1b/T1c/T1d/T2a/T2b/T2c/T2d 8 用例）+ S1/DS2 设计变更适配用例；tests/usecases/conversation/dispatch-chain-engine.test.ts 时间戳形态断言 +「历史 ·」/段头解读注记锁定断言（dispatch 41 用例全量）；tests/interface-adapters/http/dispatch-turn-loop.test.ts 同格式消费方适配"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 intent:
   problem: "merge_pr 授权校验只做文本命中不做时间维度：注入区/恢复路径重放的旧消息可被当新授权消费——2026-10-10 PR #1427 被 36 分钟前针对 #1422 的原话「合入了，你继续」误授权合入（seq 443 @2026-10-10T07:29:02Z vs PR createdAt 08:05:02Z）。且「合入了」「继续」类通用短话术天然易跨 PR 误配；注入区消息无时间戳，LLM 无法区分「刚说的话」与「86 分钟前的旧话」。"
@@ -15,6 +15,7 @@ modules:
   - src/usecases/conversation/dispatch-chain-engine.ts
   - tests/interface-adapters/agent-runtime/tools/merge-pr-tool.test.ts
   - tests/usecases/conversation/dispatch-chain-engine.test.ts
+  - tests/interface-adapters/http/dispatch-turn-loop.test.ts
 tags:
   - merge-pr
   - authorization-gate
@@ -87,16 +88,16 @@ S1/DS2 两条 F20260929mpav 旧锁的正向用例从「裸短话术放行」调�
 ## 6. 验证
 
 - `npx vitest run` 两域 **69/69 全绿**（dispatch-chain 41 + merge-pr 28）；`tsc --noEmit` 0 error
-- 新增 6 用例：T1a 事故重放转拒 / T1b 回归锁 / T1c 同毫秒边界拒 / T2a 短话术引导拒 / T2b 带号短话术放行 / T2c 长话术不误伤
-- 既有 41 条 dispatch 断言全部适配时间戳形态（`toMatch(/\[X\]（[^）]*）text/)`），L2 安全词块断言不受影响
+- 新增 8 用例：T1a 事故重放转拒 / T1b 回归锁 / T1c 同毫秒边界拒 / T1d 时间解析异常 fail-closed 拒 / T2a 短话术引导拒 / T2b 带号短话术放行 / T2c 长话术不误伤 / T2d 数字子串不算含号拒
+- 既有 dispatch 断言全部适配时间戳形态（`toMatch(/\[X\]（[^）]*）text/)`），L2 安全词块断言不受影响；http 域 dispatch-turn-loop.test.ts 同格式消费方同步适配（首轮检视 S1），「历史 ·」/段头解读注记由锁定断言兜底
 
 ## 7. 设计取舍与已知限制（如实声明）
 
 1. **重放判定盲区**：「真未读」与「消费游标回退重放」在数据面不可区分（issue 已注明待修复方核实）。本方案不猜根因：时间戳 + 历史标注把时间语义交给 LLM，最后一道物理闸由 3.1 兜底。治本（恢复逻辑不重放已消费消息 / 消费游标持久化）归 unread-reform 域（worktree 在场，未撞车——开工三问核实过）
 2. **恢复路径的触发消息时间戳**：#613 恢复流重放的原始发言带当前时间而非原发言时间——授权面不受影响（3.1 按 entry.createdAt 判，恢复条目的 createdAt 是真实的）
-3. **短话术阈值 6**：「这个可以合了」（实义 5）会被引导二次确认——多一轮往返换零误配，P0 后的取向；阈值可按使用反馈再校准
+3. **短话术阈值 6**：「可以合了」（实义 4）会被引导二次确认——多一轮往返换零误配，P0 后的取向；阈值可按使用反馈再校准（注意「这个可以合了」实义 6 已过线不拦，阈值卡在严格小于）
 4. 健康检查曾疑「恢复侧 excludeMessageIds 与重放的关系」——本次不动该路径（scope 外）
 
 ## 8. 机制识别检查点命中项的回归保护
 
-注入格式变化由 41 条 dispatch 断言锁定（时间戳形态 + 既有语义断言全部适配），未来格式回退（丢时间戳）直接测试红。
+注入格式变化由 dispatch-chain 41 条断言 + http 域 dispatch-turn-loop 适配断言 +「历史 ·」/段头解读注记锁定断言共同锁定（时间戳形态 + 既有语义断言全部适配），未来格式回退（丢时间戳/丢标注）直接测试红。

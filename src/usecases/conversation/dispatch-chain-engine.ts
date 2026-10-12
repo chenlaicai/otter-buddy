@@ -815,7 +815,9 @@ export class DispatchChainEngine {
     // #1431 方案 B：注入行时间戳（月日时分，Asia/Shanghai）——历史消息带时间语义，
     // LLM 可区分「搭档刚说的」与「很久以前说的」（事故：86 分钟前旧话被当新授权）。
     const fmtTime = (iso?: string | null): string => {
-      const t = iso ? new Date(iso) : now;
+      const t = iso == null ? now : new Date(iso);
+      // 解析异常不得伪装成当前时间（历史行会变成「历史 · 当前时间」的误导形态）
+      if (Number.isNaN(t.getTime())) return '时间未知';
       return t.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
     };
     // #1431 方案 B：注入区解读规范——历史行（含重启恢复/历史收缩路径的重放）不得作为新授权/新裁决依据。
@@ -859,7 +861,7 @@ export class DispatchChainEngine {
     const formatEntry = (m: typeof filtered[number]): string => {
       const label = this.resolveUnreadSenderLabel(m, senderId, partnerLabel, staticResolver, names);
       const text = stripHtmlCardsOnly(m.body ?? '');
-      return `[${label}]（历史 · ${fmtTime(m.createdAt)}）${text}${this.appendUnreadAttachmentLine(m.attachments as AttachmentRef[] | undefined)}`;
+      return `[${label}]（历史 · ${m.createdAt == null ? '时间未知' : fmtTime(m.createdAt)}）${text}${this.appendUnreadAttachmentLine(m.attachments as AttachmentRef[] | undefined)}`;
     };
     const formatted = filtered.map(formatEntry).join('\n');
 
