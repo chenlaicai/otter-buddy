@@ -65,10 +65,12 @@ function findMergePr(ctx: ToolContext, logger?: Logger) {
   return tool!;
 }
 
-/** gh 调用编排：view 返回 state；merge 返回成功 */
-function stubGh(state: string, mergeStdout = 'Merged PR #1095') {
+/** gh 调用编排：view 返回 {state,createdAt} JSON（#1431：checkPrMergeable 拉 state,createdAt 供时间窗校验）；merge 返回成功。
+ *  DEFAULT_PR_CREATED_AT 早于 DEFAULT_USER_ENTRIES 全部消息时间——既有放行用例在时间窗下不回归。 */
+const DEFAULT_PR_CREATED_AT = '2026-09-22T02:00:00.000Z';
+function stubGh(state: string, prCreatedAt = DEFAULT_PR_CREATED_AT, mergeStdout = 'Merged PR #1095') {
   execFileMock.mockImplementation((cmd: string, args: string[], _opts: unknown, cb: (e: Error | null, r?: { stdout: string; stderr: string }) => void) => {
-    if (args[1] === 'view') cb(null, { stdout: `${state}\n`, stderr: '' });
+    if (args[1] === 'view') cb(null, { stdout: JSON.stringify({ state, createdAt: prCreatedAt }), stderr: '' });
     else if (args[1] === 'merge') cb(null, { stdout: `${mergeStdout}\n`, stderr: '' });
     else cb(new Error(`unexpected gh args: ${args.join(' ')}`));
   });
@@ -271,15 +273,15 @@ describe('F20260929mpav 原话校验闸（无原话不允许合入）', () => {
     expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
   });
 
-  it('S1 短引用整条等值豁免：搭档独立回「好」/「合吧」（整条就是授权）→ 放行；从长句抠「合吧」→ 拒', async () => {
+  it('S1 短引用整条等值豁免（+#1431 短话术闸）：整条「1095 合吧」（含 PR 号精确授权）→ 放行；从长句抠「合吧」→ 拒', async () => {
     stubGh('OPEN');
-    // 整条等值：搭档独立成条说「合吧」
+    // 整条等值：搭档独立成条说「1095 合吧」——#1431 起短话术须带目标 PR 号（裸「合吧」见 T2a 引导用例）
     const wholeEntries = [
-      { id: 'ue-short', entryType: 'user', senderType: 'user', senderId: 'user', body: '合吧', sequenceNum: 331, createdAt: '2026-09-29T04:30:00.000Z' },
+      { id: 'ue-short', entryType: 'user', senderType: 'user', senderId: 'user', body: '1095 合吧', sequenceNum: 331, createdAt: '2026-09-29T04:30:00.000Z' },
     ];
     let getEntriesMock = vi.fn().mockResolvedValue(wholeEntries);
     let tool = findMergePr(makeCtx(vi.fn(), getEntriesMock));
-    let result = await tool.execute('v11a', { prNumber: 1095, partnerApproval: '合吧' });
+    let result = await tool.execute('v11a', { prNumber: 1095, partnerApproval: '1095 合吧' });
     expect(JSON.stringify(result)).toContain('已合入');
     // 从长句抠短片段：搭档说「CI 绿了，先不合吧，等会儿」，抠「合吧」→ 拒
     const longEntries = [
@@ -329,14 +331,18 @@ describe('F20260929mpav 原话校验闸（无原话不允许合入）', () => {
     expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
   });
 
-  it('DS2 邻字豁免边界：前邻非否定字（「就合入吧」抠「合入吧」不够 4 字走整条，改引 4 字「就合入吧」）→ 照常放行', async () => {
+  it('DS2 邻字豁免边界（+#1431 短话术闸）：抠「合入吧」不够 4 字走整条 → 拒；改引「就合入吧，1095」（含 PR 号精确授权）→ 放行', async () => {
     stubGh('OPEN');
     const entries = [
-      { id: 'ue-ds2b', entryType: 'user', senderType: 'user', senderId: 'user', body: 'CI 绿了就合入吧，别的先不动', sequenceNum: 352, createdAt: '2026-09-29T04:51:00.000Z' },
+      { id: 'ue-ds2b', entryType: 'user', senderType: 'user', senderId: 'user', body: 'CI 绿了就合入吧，1095 别的先不动', sequenceNum: 352, createdAt: '2026-09-29T04:51:00.000Z' },
     ];
     const getEntriesMock = vi.fn().mockResolvedValue(entries);
     const tool = findMergePr(makeCtx(vi.fn(), getEntriesMock));
-    const result = await tool.execute('v15', { prNumber: 1095, partnerApproval: '就合入吧' });
+    // 邻字边界保持：3 字摘录「合入吧」（前邻「就」非否定字）不够 4 字 → 整条等值不成立 → 拒
+    const excerpt = await tool.execute('v15a', { prNumber: 1095, partnerApproval: '合入吧' });
+    expect(JSON.stringify(excerpt)).toContain('未在搭档历史消息中命中');
+    // 连续子串含 PR 号：verification 过 + 短话术闸过（实义 8 ≥ 6）→ 合入
+    const result = await tool.execute('v15', { prNumber: 1095, partnerApproval: '就合入吧，1095' });
     expect(JSON.stringify(result)).toContain('已合入');
   });
 
@@ -350,6 +356,105 @@ describe('F20260929mpav 原话校验闸（无原话不允许合入）', () => {
     const result = await tool.execute('v16', { prNumber: 1095, partnerApproval: '同意合入' });
     expect(JSON.stringify(result)).toContain('未在搭档历史消息中命中');
     expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
+  });
+});
+
+describe('#1431 时间维度闸（过期原话不得授权）+ 通用短话术二次确认', () => {
+  beforeEach(() => {
+    execFileMock.mockReset();
+  });
+
+  it('T1a 事故重放：原话时间早于 PR 创建 → 拒绝（疑似针对其他 PR 的过期授权），不 merge 不落审计', async () => {
+    // 事故锚（#1431）：原话 seq 443 @ 07:29:02Z 针对 #1422；PR #1427 创建于 08:05:02Z——原话早于 PR 存在 36 分钟
+    stubGh('OPEN', '2026-10-10T08:05:02.000Z');
+    const entries = [
+      { id: 'ue-443', entryType: 'user', senderType: 'user', senderId: 'user', body: '合入了，你继续', sequenceNum: 443, createdAt: '2026-10-10T07:29:02.182Z' },
+    ];
+    const getEntriesMock = vi.fn().mockResolvedValue(entries);
+    const linkMock = vi.fn().mockResolvedValue({ id: 'res-1' });
+    const tool = findMergePr(makeCtx(linkMock, getEntriesMock));
+    const result = await tool.execute('t1a', { prNumber: 1427, partnerApproval: '合入了，你继续' });
+    expect(JSON.stringify(result)).toContain('过期授权');
+    expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
+    expect(linkMock).not.toHaveBeenCalled();
+  });
+
+  it('T1b 时间合法回归锁：原话晚于 PR 创建 → 照常放行合入', async () => {
+    stubGh('OPEN', '2026-09-22T02:00:00.000Z');
+    const tool = findMergePr(makeCtx());
+    const result = await tool.execute('t1b', { prNumber: 1095, partnerApproval: '1095合入，你更新下' });
+    expect(JSON.stringify(result)).toContain('已合入');
+  });
+
+  it('T1c 边界：原话时间与 PR 创建同毫秒（非严格晚于）→ 拒绝（授权须在 PR 存在之后发出）', async () => {
+    stubGh('OPEN', '2026-09-22T03:00:00.000Z');
+    const tool = findMergePr(makeCtx());
+    const result = await tool.execute('t1c', { prNumber: 1095, partnerApproval: '1095合入，你更新下' });
+    expect(JSON.stringify(result)).toContain('过期授权');
+    expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
+  });
+
+  it('T1d 时间解析异常（createdAt 非法）→ fail-closed 拒绝，不得静默跳过时间闸', async () => {
+    stubGh('OPEN', '2026-09-22T02:00:00.000Z');
+    const entries = [
+      { id: 'ue-badtime', entryType: 'user', senderType: 'user', senderId: 'user', body: '1095合入，你更新下', sequenceNum: 451, createdAt: 'not-a-date' },
+    ];
+    const getEntriesMock = vi.fn().mockResolvedValue(entries);
+    const linkMock = vi.fn().mockResolvedValue({ id: 'res-1' });
+    const tool = findMergePr(makeCtx(linkMock, getEntriesMock));
+    const result = await tool.execute('t1d', { prNumber: 1095, partnerApproval: '1095合入，你更新下' });
+    expect(JSON.stringify(result)).toContain('过期授权');
+    expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
+    expect(linkMock).not.toHaveBeenCalled();
+  });
+
+  it('T2a 通用短话术不含 PR 号（「合吧」）→ 拒绝并引导带 PR 号显式确认（防跨 PR 误配）', async () => {
+    stubGh('OPEN');
+    const wholeEntries = [
+      { id: 'ue-short', entryType: 'user', senderType: 'user', senderId: 'user', body: '合吧', sequenceNum: 331, createdAt: '2026-09-22T03:10:00.000Z' },
+    ];
+    const getEntriesMock = vi.fn().mockResolvedValue(wholeEntries);
+    const tool = findMergePr(makeCtx(vi.fn(), getEntriesMock));
+    const result = await tool.execute('t2a', { prNumber: 1095, partnerApproval: '合吧' });
+    expect(JSON.stringify(result)).toContain('显式确认');
+    expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
+  });
+
+  it('T2b 短话术带 PR 号（「1095合」）→ 精确授权放行', async () => {
+    stubGh('OPEN');
+    const entries = [
+      { id: 'ue-num', entryType: 'user', senderType: 'user', senderId: 'user', body: '就 1095合', sequenceNum: 341, createdAt: '2026-09-22T03:15:00.000Z' },
+    ];
+    const getEntriesMock = vi.fn().mockResolvedValue(entries);
+    const tool = findMergePr(makeCtx(vi.fn(), getEntriesMock));
+    const result = await tool.execute('t2b', { prNumber: 1095, partnerApproval: '1095合' });
+    expect(JSON.stringify(result)).toContain('已合入');
+  });
+
+  it('T2c 非短话术（≥6 实义字）不含 PR 号照常放行——短话术闸不误伤长授权', async () => {
+    stubGh('OPEN');
+    const tool = findMergePr(makeCtx());
+    // 「这个可以合了，合吧」实义字 8 ≥6，不走短话术闸
+    const result = await tool.execute('t2c', { prNumber: 1095, partnerApproval: '这个可以合了，合吧' });
+    expect(JSON.stringify(result)).toContain('已合入');
+  });
+
+  it('T2d 数字子串不算含目标号（目标 #437 配「1437合」）→ 拒绝（防子串误认精确授权）', async () => {
+    stubGh('OPEN');
+    const entries = [
+      { id: 'ue-sub', entryType: 'user', senderType: 'user', senderId: 'user', body: '1437合', sequenceNum: 351, createdAt: '2026-09-22T03:20:00.000Z' },
+    ];
+    const getEntriesMock = vi.fn().mockResolvedValue(entries);
+    const tool = findMergePr(makeCtx(vi.fn(), getEntriesMock));
+    const result = await tool.execute('t2d', { prNumber: 437, partnerApproval: '1437合' });
+    expect(JSON.stringify(result)).toContain('显式确认');
+    expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
+  });
+});
+
+describe('SG2 畸形返回兜底（原 F20260929mpav 用例）', () => {
+  beforeEach(() => {
+    execFileMock.mockReset();
   });
 
   it('SG2 畸形返回兜底：getEntries 返回非数组 → fail-closed 拒绝', async () => {
