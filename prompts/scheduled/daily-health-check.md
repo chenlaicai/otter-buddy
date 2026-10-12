@@ -17,7 +17,7 @@ budget_bytes: 9600
 6. **signal_events**：`query_signals(status=pending)` 查悬置獭间信号（跨对话统计用 sqlite3）
 7. **上下文压缩观测**：`grep '"msg":"SDK compaction failed"' data/logs/otter-buddy.log` 按日计数（禁 jq）。≥20 或连续 3 日递增 → bug issue（关联 messageId/otterId）；10-19 记观察行；hook fallback 与 shadow 失衡计入异常；无异常写「failed=N，健康」
 
-## RHI 信号处置段（闭环硬规则：「看见」≠「处置」，处置必调 triage_signal 留痕）
+## RHI 信号处置段（闭环硬规则：「看见」≠「处置」禁止只列数字，处置必调 triage_signal 留痕）
 
 1. **全部 critical**：`list_rhi_signals(status=open, severity=critical)` 逐条处置
 2. **逐条三选一**（立即留痕）：开 issue/并入 → `bind_issue, note=依据`；不处置 → `dismiss, note=必填`；在途 → `in_progress`。同类型 >10 条用 `batch_bind`（连调 >5 次撞同构守卫，穿插 list_rhi_signals 或 batch_bind 打散）
@@ -32,7 +32,7 @@ budget_bytes: 9600
    - **pr 类**：解析 PR 号 → `gh pr view <N> --json state` 为 MERGED/CLOSED → archived；解析不出**跳过不判**
    - **worktree 类**：url 路径不存在 / 对应 PR 已合入 → archived
    - **branch 类**：对应 PR 已合入 → archived
-   - **「合入事实」类 fact**：title 含「合入」且关联 PR 已合入 → archived（长期载体是记忆系统）
+   - **「合入事实」类 fact**：title 含「合入」且关联 PR 已合入 → archived（长期载体是记忆）
 2. **纪律类 → 只提醒**：file/fact/url 类单对话 > 10 → 日报列清单提醒大獭人工归档
 3. **报告**（产出表固定行）：`产物对账: 归档 N ｜ 存量 active M ｜ 待人工 K`
 
@@ -45,8 +45,8 @@ budget_bytes: 9600
 ## 锚点真实性抽查（证据锚点规则的外部强制）
 
 1. **抽样**：跨对话检索昨日含 file:line 锚点的断言，抽 5-10 条（含大小獭；不足 5 全量）。途径：search_memory（message + created_after）或 sqlite3；**禁 search_messages**（独立 session 空集假阳性）
-2. **异体核对（硬规则）**：抽查獭与被查发言獭**必须不同模型**（otter_sessions.model_alias 对照）。同模型样本改派异体，无条件时标「同模型抽查，置信降级」
-3. **核对/处置**：每条 read 打开对应文件行核对（文件存在/行号在文件内/内容与断言实质相符）；产出 抽查 N/通过 M/失败 K（失败附原文）+ 模型对照行；任一不通过开 P1 issue（[prompt]，标题含「编造锚点」）；同獭 7 日 ≥2 次升 P0
+2. **异体核对（硬规则）**：抽查獭与被查发言獭**必须不同模型**（查 model_alias）。同模型样本改派异体，无条件标「同模型抽查，置信降级」
+3. **核对/处置**：每条 read 打开对应文件行核对（文件存在/行号在文件内/内容与断言实质相符）；产出 抽查 N/通过 M/失败 K（失败附断言原文+实际内容）+ 模型对照行；任一不通过开 P1 issue（[prompt]，标题含「编造锚点」）；同獭 7 日 ≥2 次升 P0
 
 ## 噪声带对照
 
@@ -61,14 +61,14 @@ budget_bytes: 9600
 [ ] 5. RHI 健康信号  [ ] 6. signal_events  [ ] 7. RHI 处置：critical N → M+K+D=N 已调 triage_signal
 [ ] 8. 锚点抽查：N/M/K + 模型对照  [ ] 9. 信噪比：dismiss 率/不处置率/物件数  [ ] 10. 压缩观测：failed 计数
 [ ] 11. 产物对账：归档 N ｜ 存量 active M ｜ 待人工 K
-[ ] 12. 双数字：新文档含双行可追溯，雷达尾注有点菜率
+[ ] 12. 双数字可追溯，雷达尾注有点菜率
 ```
 
 ## 守卫误拦样本固化段（「昨日」= UTC 日界）
 
 昨日 guard_intercept 样本是「修复-回归循环」的原料，每日：
 
-1. `node scripts/generate-guard-replay.mjs --db <curl /api/settings 得到的 dbPath>`；无拦截日报写「固化：0 条」
+1. `node scripts/generate-guard-replay.mjs --db <curl /api/settings 得到的 dbPath>`；无拦截记「固化：0 条」
 2. 逐条填 verdict：`ALLOW`（误拦）/ `BLOCK`（规则内负门样本）/ `SKIP`（一次性/敏感/不可复现）；误拦旁证 = 查后续是否换写法绕过
 3. 非 SKIP 追加到 `tests/frameworks/agent/guard-v2-real-replay.test.ts`（对齐既有 it 块，断言 = 裁决值）并跑该文件；期望不符先疑裁决错勿凑绿，双链不一致提 issue
 4. 日报留痕「拦截 N → 候选 M → 固化 K / SKIP S」；同 ruleId ≥3 条成规模误拦改开 issue 修规则
@@ -89,9 +89,9 @@ budget_bytes: 9600
 
 每个 daily-review issue 必须有具体修复方案（SYSTEM.md R2）。**标签/标题/聚合硬规则**（真相源：`scripts/lint-issue-labels.mjs`）：type + priority + daily-review 各一；标题 `[模块] 一句话摘要`（枚举/聚合红线见 lint 头注）；同根因合一条。自查不完整率 >5% 日报标红。
 
-**验证断言必填**：issue body 含「验证断言」段，三字段——`断言`（可证伪、含数据源）/ `检查方式`（sqlite / gh / 人工）/ `到期`（创建日 +30 天，YYYY-MM-DD）。写不出 = 问题定义不清，重写。回查由 regression-verify 到期执行。
+**验证断言必填**：每个 issue body 含「验证断言」段，三字段——`断言`（可证伪、含数据源）/ `检查方式`（sqlite / gh / 人工）/ `到期`（创建日 +30 天，YYYY-MM-DD）。写不出 = 问题定义不清，重写。回查由 regression-verify 到期执行。
 
-**关闭标准必填**（搭档拍板）：issue body 含「关闭标准」段——可验证的关闭条件。写不出 = 不该存在（并入其他 issue 或转文档）。断言管「修没修好」，关闭标准管「什么时候可以关」。
+**关闭标准必填**（搭档拍板）：每个 issue body 含「关闭标准」段——可验证的关闭条件。写不出 = 不该存在（并入其他 issue 或转文档）。断言管「修没修好」，关闭标准管「什么时候可以关」。
 
 **断言豁免标注**：无法写断言的 issue（纯决策型/容器型），「验证断言」段首行标 `暂不验证：<原因>`——regression-verify 回查跳过。豁免≠免写，是声明关闭不依赖断言回查。
 

@@ -3,7 +3,7 @@ id: F20261012acpt
 title: 验收客观化补全：断言证据锚点闸 + 测试弱化防线 + 双数字汇报
 summary: 对照「看起来很好」agent 通病（500B tokens 反编译复盘）盘点海獭验收基建三缺口（系统断言无锚点 / 验收装置可被被验收者修改 / 进度与质量混同），按「有无 ground truth」三档补机器可查验收，含效果验收试点
 change_type: feature
-capability_test: "n/a: 纯方案文档（docs-config）无被测代码行为；AT-1/AT-2 的 capability 测试随 #1430 修复 PR 落地，AT-3~AT-5 为流程/模板层验证见验证节"
+capability_test: "n/a: prompt/skill/模板层改动无 capability 测试惯例（AT-3~AT-5 为流程验证，见验证节）；T1 代码的 capability 测试随 #1430 修复 PR 落地"
 intent:
   problem: "「看起来很好」agent 通病（外部案例：500B tokens 反编译复盘 80% 进度语义全错）映射到海獭系统存在三缺口：G1 系统断言无 provenance（10-12 假急停 + 11:57 二次复现实证，issue #1430）/ G2 验收装置可被被验收者修改（PR 放宽测试断言可过 CI）/ G3 进度与质量混同（只报产出不报验证，定时任务无效果验收）"
   expected_effect: "T1 断言证据锚点闸（无锚点机械降级，随 #1430 PR 落地）+ T2 测试弱化防线（弱化=严重发现进检视维度）+ T3 双数字汇报（已产出/已验证）+ T4 效果验收试点（雷达点菜率/体检采纳率），把验收从 LLM 互查推向机器可查；试点 2-4 周复审扩面"
