@@ -183,6 +183,8 @@ causal_links:
 | prompts/scheduled/daily-ai-radar.md | 改 | 尾注点菜率（delta 复核订正：初稿误写 radar/prompt-template.md） |
 | prompts/scheduled/daily-health-check.md | 改 | 双数字/效果指标抽查项 |
 
+> **实现状态**：T2–T4 落地改动随本 PR 交付（检视维度条目/PR 模板/docs 模板/两份定时任务 prompt，合入即生效）；T1 代码改动随 #1430 修复 PR 走（同文件域跨线协调，见 #1430 评论：锚点插槽预留/带上均可，勿堵死）。
+
 ## 检视处置记录（第一轮，鉴微 2026-10-12）
 
 重对抗门结论：**确认治本**（观察条件：扩面承诺进验收路径 + 建议 1 落实为机械侧）。0 严重发现，7 条建议全部采纳。

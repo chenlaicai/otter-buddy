@@ -15,6 +15,10 @@ Explain the motivation for this change.
 
 -
 
+## 测试改动声明
+
+（无测试改动写「无」）改动的测试文件、原因、断言是收紧还是放宽（放宽须充分理由）：
+
 ## Affected Areas
 
 - [ ] `src/*`

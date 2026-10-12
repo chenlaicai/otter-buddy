@@ -17,10 +17,10 @@ budget_bytes: 9600
 6. **signal_events**：`query_signals(status=pending)` 查悬置獭间信号（跨对话统计用 sqlite3）
 7. **上下文压缩观测**：`grep '"msg":"SDK compaction failed"' data/logs/otter-buddy.log` 按日计数（禁 jq）。≥20 或连续 3 日递增 → bug issue（关联 messageId/otterId）；10-19 记观察行；hook fallback 与 shadow 失衡计入异常；无异常写「failed=N，健康」
 
-## RHI 信号处置段（闭环硬规则：「看见」≠「处置」禁止只列数字；处置必调 triage_signal 留痕）
+## RHI 信号处置段（闭环硬规则：「看见」≠「处置」，处置必调 triage_signal 留痕）
 
 1. **全部 critical**：`list_rhi_signals(status=open, severity=critical)` 逐条处置
-2. **逐条三选一**（立即留痕）：开 issue/并入 → `bind_issue, note=依据`；不处置 → `dismiss, note=必填`；在途 → `in_progress`。同类型 >10 条用 `batch_bind`（纯 triage_signal 连调 >5 次撞「同构」守卫——穿插 list_rhi_signals 或分组 batch_bind 打散）
+2. **逐条三选一**（立即留痕）：开 issue/并入 → `bind_issue, note=依据`；不处置 → `dismiss, note=必填`；在途 → `in_progress`。同类型 >10 条用 `batch_bind`（连调 >5 次撞同构守卫，穿插 list_rhi_signals 或 batch_bind 打散）
 3. **未接单存量**：`list_rhi_signals(status=open, triageStatus=null)` 全部归口；**warning 扫视**：同类型 ≥5 条指向同一模块 → 按 critical，零散汇总一行
 4. **闭环自检**：「critical N → 开 M/并入 K/dismiss D，M+K+D=N」；对不上 = 有信号被沉默跳过，补查
 
@@ -44,9 +44,9 @@ budget_bytes: 9600
 
 ## 锚点真实性抽查（证据锚点规则的外部强制）
 
-1. **抽样**：跨对话检索昨日含 file:line 锚点的断言，抽 5-10 条（含大獭/小獭；不足 5 全量）。途径：search_memory（message + created_after）或 sqlite3；**禁 search_messages**（独立 session 空集假阳性）
-2. **异体核对（硬规则）**：抽查獭与被抽查发言的獭**必须不同模型**（otter_sessions.model_alias 对照）。同模型样本改派异体，无条件时降级标「同模型抽查，置信降级」
-3. **核对/处置**：每条 read 打开对应文件行核对（文件存在/行号在文件内/内容与断言实质相符）；产出 抽查 N/通过 M/失败 K（失败附断言原文+实际内容）+ 模型对照行；任一不通过开 P1 issue（[prompt]，标题含「编造锚点」）；同獭 7 日 ≥2 次升 P0
+1. **抽样**：跨对话检索昨日含 file:line 锚点的断言，抽 5-10 条（含大小獭；不足 5 全量）。途径：search_memory（message + created_after）或 sqlite3；**禁 search_messages**（独立 session 空集假阳性）
+2. **异体核对（硬规则）**：抽查獭与被查发言獭**必须不同模型**（otter_sessions.model_alias 对照）。同模型样本改派异体，无条件时标「同模型抽查，置信降级」
+3. **核对/处置**：每条 read 打开对应文件行核对（文件存在/行号在文件内/内容与断言实质相符）；产出 抽查 N/通过 M/失败 K（失败附原文）+ 模型对照行；任一不通过开 P1 issue（[prompt]，标题含「编造锚点」）；同獭 7 日 ≥2 次升 P0
 
 ## 噪声带对照
 
@@ -61,6 +61,7 @@ budget_bytes: 9600
 [ ] 5. RHI 健康信号  [ ] 6. signal_events  [ ] 7. RHI 处置：critical N → M+K+D=N 已调 triage_signal
 [ ] 8. 锚点抽查：N/M/K + 模型对照  [ ] 9. 信噪比：dismiss 率/不处置率/物件数  [ ] 10. 压缩观测：failed 计数
 [ ] 11. 产物对账：归档 N ｜ 存量 active M ｜ 待人工 K
+[ ] 12. 双数字：新文档含双行可追溯，雷达尾注有点菜率
 ```
 
 ## 守卫误拦样本固化段（「昨日」= UTC 日界）
@@ -88,11 +89,11 @@ budget_bytes: 9600
 
 每个 daily-review issue 必须有具体修复方案（SYSTEM.md R2）。**标签/标题/聚合硬规则**（真相源：`scripts/lint-issue-labels.mjs`）：type + priority + daily-review 各一；标题 `[模块] 一句话摘要`（枚举/聚合红线见 lint 头注）；同根因合一条。自查不完整率 >5% 日报标红。
 
-**验证断言必填**：每个 issue body 含「验证断言」段，三字段——`断言`（可证伪、含数据源）/ `检查方式`（sqlite / gh / 人工）/ `到期`（创建日 +30 天，YYYY-MM-DD）。写不出 = 问题定义不清，重写。回查由 regression-verify 到期执行。
+**验证断言必填**：issue body 含「验证断言」段，三字段——`断言`（可证伪、含数据源）/ `检查方式`（sqlite / gh / 人工）/ `到期`（创建日 +30 天，YYYY-MM-DD）。写不出 = 问题定义不清，重写。回查由 regression-verify 到期执行。
 
-**关闭标准必填**（搭档拍板）：每个 issue body 含「关闭标准」段——可验证的关闭条件。写不出 = 不该存在（并入其他 issue 或转文档）。断言管「修没修好」，关闭标准管「什么时候可以关」。
+**关闭标准必填**（搭档拍板）：issue body 含「关闭标准」段——可验证的关闭条件。写不出 = 不该存在（并入其他 issue 或转文档）。断言管「修没修好」，关闭标准管「什么时候可以关」。
 
-**断言豁免标注**：无法写断言的 issue（纯决策型/容器型），「验证断言」段首行标 `暂不验证：<原因>`——regression-verify 回查跳过。豁免不是免写，是显式声明关闭不依赖断言回查。
+**断言豁免标注**：无法写断言的 issue（纯决策型/容器型），「验证断言」段首行标 `暂不验证：<原因>`——regression-verify 回查跳过。豁免≠免写，是声明关闭不依赖断言回查。
 
 ## 止损线检查（P0-c）
 
