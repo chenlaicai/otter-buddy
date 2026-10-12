@@ -202,7 +202,7 @@ export class FeishuMessageProcessor {
   ): Promise<void> {
     // F20260913ctlv 彻底切换：飞书用户消息唯一落点 = entries（messages 表停写 UI 消息）。
     // 目标解析在 SendEntry 内完成；路由点火用 entries 目标。
-    const senderDisplayName = await this.resolveSenderName(ids.senderId);
+    const senderDisplayName = await this.resolveSenderName(ids.senderId, ids.chatId);
     const { entry: userEntry, talkingStonePassedTo, mentionFeedback } = await this.deps.sendEntry.sendUserEntry({
       conversationId: ids.conversationId,
       senderId: ids.senderId,
@@ -369,12 +369,19 @@ export class FeishuMessageProcessor {
 
   /** F20260826fuid：open_id → 姓名。网关未注入返回 null，永不阻塞消息入库。
    *  F20261010fspm：解析失败不再返回裸 null——落可读兜底「飞书·尾6位」，替代旧
-   *  「[b2d82e] 正文前缀」的退化形态；快照维度，agent 侧按发言人逐一区分。 */
-  private async resolveSenderName(senderId: string): Promise<string | null> {
+   *  「[b2d82e] 正文前缀」的退化形态；快照维度，agent 侧按发言人逐一区分。
+   *  F20261012cmmn：主数据源换聊天成员映射（im chat members 实测带 name）；
+   *  contact users 对授权范围外用户脱敏（code 0 但无 name）降为备用源。 */
+  private async resolveSenderName(senderId: string, chatId: string): Promise<string | null> {
     if (!this.deps.feishuUserInfo) return null;
+    // 主路径：聊天成员映射（发消息者必在会话成员里，实测不脱敏）
     try {
-      return (await this.deps.feishuUserInfo.getUserName(senderId))
-        ?? `飞书·${this.idTail(senderId)}`;
+      const fromChat = (await this.deps.feishuUserInfo.getChatMemberNames(chatId))?.get(senderId);
+      if (fromChat) return fromChat;
+    } catch { /* 逐层降级：chat members 失败不挡 contact 链 */ }
+    // 备用路径：contact 单查（可能脱敏返回 null）
+    try {
+      return (await this.deps.feishuUserInfo.getUserName(senderId)) ?? `飞书·${this.idTail(senderId)}`;
     } catch {
       return `飞书·${this.idTail(senderId)}`;
     }

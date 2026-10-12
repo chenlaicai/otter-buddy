@@ -21,6 +21,17 @@ import type { FeishuAccessTokenManager } from "./access-token-manager";
  */
 const USER_ENDPOINT = "https://open.feishu.cn/open-apis/contact/v3/users/";
 
+/**
+ * F20261012cmmn：聊天成员接口（im:chat.members:read，#1426 已随扫码注入）。
+ * 选它做发言人姓名主数据源的原因：contact/v3/users 对授权范围外用户返回
+ * 脱敏对象（code 0 但无 name），而本接口直接返回成员 name（2026-10-12 实测）。
+ */
+const CHAT_MEMBERS_ENDPOINT = "https://open.feishu.cn/open-apis/im/v1/chats/";
+/** 翻页防御上限：飞书单页 100 人，20 页 = 2000 成员，远超真实会话规模 */
+const CHAT_MEMBERS_MAX_PAGES = 20;
+/** 网关永不阻塞消息主链路：单次出网超时即降级（F20261012cmmn 检视发现 2 处置——防热路径挂起） */
+const FETCH_TIMEOUT_MS = 15 * 1000;
+
 /** 缓存 TTL：飞书姓名变更低频，10 分钟足够 */
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -29,10 +40,19 @@ interface CacheEntry {
   fetchedAt: number;
 }
 
+interface ChatMembersCacheEntry {
+  names: Map<string, string>;
+  fetchedAt: number;
+}
+
 export class FeishuUserInfoClient implements FeishuUserInfoGateway {
   private readonly cache = new Map<string, CacheEntry>();
   /** 在途请求表：open_id → 未决请求。同步段写入，并发调用者在 fetch 出网前即可复用 */
   private readonly inflight = new Map<string, Promise<string | null>>();
+  /** F20261012cmmn：chat_id → 成员映射缓存（与 open_id 缓存同 TTL 语义） */
+  private readonly chatMembersCache = new Map<string, ChatMembersCacheEntry>();
+  /** F20261012cmmn：chat_id → 在途请求，合并同 chat 并发（与 inflight 同构） */
+  private readonly chatMembersInflight = new Map<string, Promise<Map<string, string> | null>>();
 
   constructor(
     private readonly tokenManager: FeishuAccessTokenManager,
@@ -59,11 +79,104 @@ export class FeishuUserInfoClient implements FeishuUserInfoGateway {
     return request;
   }
 
+  /** F20261012cmmn：chat_id → 成员 id→姓名 映射。缓存/在途合并语义与 getUserName
+   *  同构；失败返回 null 不缓存（可重试），空成员表缓存空 Map（有效数据）。
+   *  @returns 成员映射——**只读契约**：指向缓存内部 Map，调用方不得增删改（返回副本
+   *   会在消息热路径白拷贝，更差）；需要可变副本请自行 new Map(result)。 */
+  async getChatMemberNames(chatId: string): Promise<Map<string, string> | null> {
+    if (!chatId) return null;
+
+    const cached = this.chatMembersCache.get(chatId);
+    if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+      return cached.names;
+    }
+
+    const existing = this.chatMembersInflight.get(chatId);
+    if (existing) return existing;
+
+    // Why: finally 清表而非 then —— 与 getUserName 同理，失败结果不得驻留在途表
+    const request = this.fetchChatMemberNames(chatId).finally(() => {
+      this.chatMembersInflight.delete(chatId);
+    });
+    this.chatMembersInflight.set(chatId, request);
+    return request;
+  }
+
+  private async fetchChatMemberNames(chatId: string): Promise<Map<string, string> | null> {
+    try {
+      const token = await this.tokenManager.getAccessToken();
+      const names = new Map<string, string>();
+      let pageToken = "";
+      let exhausted = false;
+
+      for (let page = 0; page < CHAT_MEMBERS_MAX_PAGES; page++) {
+        const next = await this.fetchChatMembersPage(chatId, token, pageToken, names);
+        if (next === null) return null; // 业务失败：不缓存，可重试
+        if (next === "") { exhausted = true; break; } // 无更多页
+        pageToken = next;
+      }
+
+      // 检视发现 1 处置：翻页达上限时映射不完整，必须可观测（仍缓存——截断部分
+      // 也足以服务常见会话，且缓存防配额风暴；下次 TTL 过期自愈重拉）
+      if (!exhausted) {
+        this.logger.warn("Feishu chat members truncated at page cap", {
+          chatId,
+          pages: CHAT_MEMBERS_MAX_PAGES,
+          collected: names.size,
+        });
+      }
+
+      this.chatMembersCache.set(chatId, { names, fetchedAt: Date.now() });
+      this.logger.info("Feishu chat members resolved", { chatId, count: names.size });
+      return names;
+    } catch (err) {
+      this.logger.warn("Feishu chat members request error", { chatId, error: err instanceof Error ? err.message : String(err) });
+      return null;
+    }
+  }
+
+  /** 拉一页成员并合并进 names。
+   *  @returns 下一页 page_token；无更多页返回 ""；业务失败返回 null */
+  private async fetchChatMembersPage(
+    chatId: string,
+    token: string,
+    pageToken: string,
+    names: Map<string, string>,
+  ): Promise<string | null> {
+    const url = `${CHAT_MEMBERS_ENDPOINT}${encodeURIComponent(chatId)}/members`
+      + `?member_id_type=open_id&page_size=100${pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : ""}`;
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    const data = (await response.json()) as {
+      code: number;
+      msg: string;
+      data?: {
+        items?: Array<{ member_id?: string; name?: string }>;
+        has_more?: boolean;
+        page_token?: string;
+      };
+    };
+
+    if (data.code !== 0) {
+      this.logger.warn("Feishu chat members query failed", { chatId, code: data.code, msg: data.msg });
+      return null;
+    }
+
+    for (const item of data.data?.items ?? []) {
+      if (item.member_id && item.name) names.set(item.member_id, item.name);
+    }
+
+    return data.data?.has_more && data.data.page_token ? data.data.page_token : "";
+  }
+
   private async fetchUserName(openId: string): Promise<string | null> {
     try {
       const token = await this.tokenManager.getAccessToken();
       const response = await fetch(`${USER_ENDPOINT}${encodeURIComponent(openId)}?user_id_type=open_id`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
       const data = (await response.json()) as {
         code: number;
