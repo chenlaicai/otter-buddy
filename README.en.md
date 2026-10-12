@@ -10,6 +10,14 @@ A multi-agent collaboration system that has been running for months and is still
 
 ![Conversation UI](docs/images/conversation.jpg)
 
+## 🎮 Play 3 minutes before you read
+
+**[Otter Tales: Kelp Farm](https://chenlaicai.github.io/otter-buddy/)** — a pixel farm game that turns "understanding this system" into play: sowing = memory ingestion, seed library = retrieval, fertilizing = context management, fallow = restart with past-life archive, ladybug house = healing, neighbor otters = summoning collaboration, the old farmer reviews your field = cross-review, the test plot = worktree + PR. Beat the "past otter" deep in Mirror Lake, and you've used every capability of this system with your own hands.
+
+![Otter Tales: Kelp Farm](docs/images/kelp-farm-game.png)
+
+Zero install, just open and play: **https://chenlaicai.github.io/otter-buddy/**
+
 ## The 30-second version
 
 You only ever talk to one otter — **the Lead Otter**. It listens, then decides: handle it directly, or summon sub-otters for the job. The sub-otters review each other, argue, raise objections — and bring back results with evidence for you to decide.
