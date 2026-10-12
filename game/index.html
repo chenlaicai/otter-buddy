@@ -212,20 +212,9 @@ function tileGrass(ox, oy, v) {
   }
 }
 // 耕地 tile（湿润土壤+垄沟）
-function tileSoil(ox, oy, wet) {
-  rect(ox, oy, T, T, wet ? P.soilWet : P.soil1);
-  // 三条垄沟
-  for (var fy = 2; fy < T; fy += 5) {
-    rect(ox + 1, oy + fy, T - 2, 2, P.furrow);
-    px(ox + 3 + (fy % 4), oy + fy, P.soil0); px(ox + 11, oy + fy + 1, P.soil0);
-  }
-  // 土壤颗粒高光
-  var g = [[5,1],[9,4],[2,8],[13,9],[7,13],[12,14],[4,11]];
-  for (var i = 0; i < g.length; i++) px(ox + g[i][0], oy + g[i][1], wet ? P.soil1 : P.soilHi);
-}
 // 水面 tile（动画帧 f:0/1/2 波光位移）
 function tileWater(ox, oy, f) {
-  rect(ox, oy, T, T, P.w1);
+  // P5b：不再填平色底——渐变水面由 drawLakeWater 铺底，本函数只画斑与波光
   // 深水斑
   px(ox + 3, oy + 4, P.w0); px(ox + 12, oy + 9, P.w0); px(ox + 7, oy + 13, P.w0);
   px(ox + 10, oy + 2, P.w2); px(ox + 4, oy + 10, P.w2);
@@ -671,6 +660,13 @@ function drawLakeBase() {
   ctx.fillRect(lx - 3, ly, 3, lh);
   ctx.fillRect(lx + lw, ly, 3, lh);
   ctx.fillStyle = P.grassDk; ctx.fillRect(lx - 4, ly + lh - 4, lw + 8, 8);
+  // P5b 岸边过渡带：湿痕行 + 岸石 + 左岸芦苇（陆侧装饰，不碰 BOSS 取证区 x≥428/y≤58）
+  rect(lx - 4, ly + lh - 4, lw + 8, 1, "#2b4a37");
+  px(lx + 16, ly + lh + 1, P.stoneHi); px(lx + 17, ly + lh + 1, P.stone0);
+  px(lx + 44, ly + lh + 2, P.stone); px(lx + 45, ly + lh + 2, P.stone0);
+  px(lx + 72, ly + lh + 1, P.stoneHi); px(lx + 73, ly + lh + 1, P.stone0);
+  rect(lx - 6, ly + lh - 10, 1, 10, "#3f6b45"); rect(lx - 5, ly + lh - 8, 1, 8, "#4d7f52");
+  px(lx - 6, ly + lh - 11, "#8a7a55"); px(lx - 5, ly + lh - 9, "#a8905f");
   drawSeedboxSign(lx + 8, ly + lh + 2); // 岸牌左移：给镜湖标签（labelBelow）让出中心位
 }
 /* ---------- 场景绘制（状态相关层，进 bake） ---------- */
@@ -678,29 +674,55 @@ function isLit(sp) {
   if (sp.id === "lake") return S.allDone;
   return true; // 自由探索：八块田全部可交互，用「闪光点」引导发现（搭档试玩反馈②）
 }
-function drawPlantBed(x, y, w, h, wet) { // P5 播种田打样：木框抬升苗床——连续垄沟替代逐 tile 断垄
-  ctx.fillStyle = P.shadow; ctx.fillRect(x - 3, y + h - 1, w + 6, 5); // 床底接地影
-  rect(x - 3, y - 3, w + 6, h + 6, P.wood1);                        // 木框（3px 环）
-  rect(x - 3, y - 3, w + 6, 1, P.woodHi); rect(x - 3, y + h + 2, w + 6, 1, P.wood0);
-  rect(x - 3, y - 3, 1, h + 6, P.woodHi); rect(x + w + 2, y - 3, 1, h + 6, P.wood0);
-  rect(x - 1, y - 1, w + 2, h + 2, P.soil0);                         // 床内暗界（AO）
-  rect(x, y, w, h, wet ? P.soilWet : P.soil1);                       // 床土
-  var rows = [6, 13, 20, 27];
-  for (var r = 0; r < rows.length; r++) {
-    rect(x + 2, y + rows[r], w - 4, 2, P.furrow);
-    rect(x + 2, y + rows[r] + 2, w - 4, 1, wet ? P.soil0 : P.soilHi);
+/* ---------- P5b 共享苗床 helper（八田单点改风格：chen 验收单开著，返工要有界） ---------- */
+function drawPlotFrame(x, y, w, h, kind) { // 抬升框：接地影 + 3px 框环 + 三向光
+  var c1 = kind === "wood" ? P.wood1 : P.stone;
+  var hi = kind === "wood" ? P.woodHi : P.stoneHi;
+  var dk = kind === "wood" ? P.wood0 : P.stone0;
+  ctx.fillStyle = P.shadow; ctx.fillRect(x - 3, y + h - 1, w + 6, 5);
+  rect(x - 3, y - 3, w + 6, 3, c1); rect(x - 3, y + h, w + 6, 3, c1);
+  rect(x - 3, y, 3, h, c1); rect(x + w, y, 3, h, c1);
+  rect(x - 3, y - 3, w + 6, 1, hi); rect(x - 3, y - 3, 1, h + 6, hi);
+  rect(x - 3, y + h + 2, w + 6, 1, dk); rect(x + w + 2, y - 3, 1, h + 6, dk);
+}
+function drawPlotSoil(x, y, w, h, wet, rows) { // AO 暗界 + 床土 + 连续垄沟（跨 tile 不断）+ 土坷垃
+  rect(x - 1, y - 1, w + 2, h + 2, P.soil0);
+  rect(x, y, w, h, wet ? P.soilWet : P.soil1);
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (r + 2 > h) continue;
+    rect(x + 2, y + r, w - 4, 2, P.furrow);
+    if (r + 3 <= h) rect(x + 2, y + r + 2, w - 4, 1, wet ? P.soil0 : P.soilHi);
   }
-  var rnd = makeRnd(77); // 土珂垃（固定种子，rebake 不抖）
-  for (var i = 0; i < 26; i++) {
+  var rnd = makeRnd(77);
+  for (var c = 0; c < 26; c++) {
     var cX = x + 1 + Math.floor(rnd() * (w - 2)), cY = y + 1 + Math.floor(rnd() * (h - 2));
     px(cX, cY, wet ? P.soil1 : P.soilHi);
   }
+}
+function drawPlotPosts(x, y, w, h, kind) { // 四角桩：木钉扣 / 石榫头（画在床土之上）
   var posts = [[x - 4, y - 4], [x + w + 1, y - 4], [x - 4, y + h + 1], [x + w + 1, y + h + 1]];
   for (var p = 0; p < 4; p++) {
     var pX = posts[p][0], pY = posts[p][1];
-    rect(pX, pY, 4, 5, P.wood2); rect(pX, pY, 4, 1, P.woodHi);
-    px(pX + 3, pY + 1, P.wood0); px(pX + 1, pY + 3, P.nail);
+    if (kind === "wood") {
+      rect(pX, pY, 4, 5, P.wood2); rect(pX, pY, 4, 1, P.woodHi);
+      px(pX + 3, pY + 1, P.wood0); px(pX + 1, pY + 3, P.nail);
+    } else {
+      rect(pX, pY, 4, 5, P.stone); rect(pX, pY, 4, 1, P.stoneHi);
+      px(pX + 3, pY + 1, P.stone0); px(pX + 1, pY + 3, P.nail);
+    }
   }
+}
+function drawPlotPatio(x, y, w, h) { // 石坪内面（接缝分块）——老农点位用
+  rect(x, y, w, h, P.stone);
+  rect(x + Math.floor(w / 3), y, 1, h, P.stone0);
+  rect(x + Math.floor(2 * w / 3), y, 1, h, P.stone0);
+  rect(x, y + Math.floor(h / 2), w, 1, P.stone0);
+}
+function drawPlantBed(x, y, w, h, wet) { // P5 打样苗床——现走共享 helper，风格调整单点传播到八田
+  drawPlotFrame(x, y, w, h, "wood");
+  drawPlotSoil(x, y, w, h, wet, [6, 13, 20, 27]);
+  drawPlotPosts(x, y, w, h, "wood");
 }
 function drawPlots() {
   // 点位1 荒田：P5 打样苗床（木框抬升床，其余田块第二批逐个精修）
@@ -723,19 +745,50 @@ function drawPlots() {
       for (var ei = 0; ei < eg.length; ei++) px(eg[ei][0], eg[ei][1], P.flower1);
     }
   }
-  // 板结田：干裂土 2×2 → 翻耕后湿土+新芽
+  // P5b：其余 7 田逐块套模板（共享 helper，风格单点传播；干湿/阶段语义全保留）
+  // 点位2 种子库：木框土床（湿=已播种），木箱由 drawObjects 压在床上
+  var sb = SPOTS[1];
+  drawPlotFrame(sb.x, sb.y, sb.w, sb.h, "wood");
+  drawPlotSoil(sb.x, sb.y, sb.w, sb.h, S.done.seedbox, [5, 11]);
+  drawPlotPosts(sb.x, sb.y, sb.w, sb.h, "wood");
+  // 点位3 板结田：木框土床（湿=已施肥），干裂/翻耕覆盖层语义不变
   var fe = SPOTS[2];
   var feDone = S.done.fert;
-  for (var r2 = 0; r2 < 2; r2++) for (var c2 = 0; c2 < 2; c2++) tileSoil(fe.x + c2 * T, fe.y + r2 * T, feDone);
+  drawPlotFrame(fe.x, fe.y, fe.w, fe.h, "wood");
+  drawPlotSoil(fe.x, fe.y, fe.w, fe.h, feDone, [6, 13, 20, 27]);
+  drawPlotPosts(fe.x, fe.y, fe.w, fe.h, "wood");
   if (!feDone) {
     rect(fe.x + 6, fe.y + 7, 8, 1, "#241a10"); rect(fe.x + 20, fe.y + 12, 6, 1, "#241a10"); rect(fe.x + 12, fe.y + 22, 7, 1, "#241a10");
   } else {
     px(fe.x + 5, fe.y + 4, P.sprout1); px(fe.x + 14, fe.y + 9, P.sprout1); px(fe.x + 24, fe.y + 3, P.sprout1);
     px(fe.x + 9, fe.y + 25, P.sproutHi); px(fe.x + 22, fe.y + 24, P.sprout1); px(fe.x + 4, fe.y + 16, P.sprout1);
   }
+  // 点位4 休耕田：木框恒干土床（休耕不浇水），草垛/残簜演出不变
+  var fw = SPOTS[3];
+  drawPlotFrame(fw.x, fw.y, fw.w, fw.h, "wood");
+  drawPlotSoil(fw.x, fw.y, fw.w, fw.h, false, [4, 9]);
+  drawPlotPosts(fw.x, fw.y, fw.w, fw.h, "wood");
+  // 点位5 瓢虫屋：木框草地庭院（屋体由 drawObjects 压上）
+  var lb = SPOTS[4];
+  drawPlotFrame(lb.x, lb.y, lb.w, lb.h, "wood");
+  drawPlotPosts(lb.x, lb.y, lb.w, lb.h, "wood");
+  // 点位6 邻居：木框草地花圃
+  var nb = SPOTS[5];
+  drawPlotFrame(nb.x, nb.y, nb.w, nb.h, "wood");
+  drawPlotPosts(nb.x, nb.y, nb.w, nb.h, "wood");
+  // 点位7 老农：石坪（接缝分块 + 石框石桩）
+  var ed = SPOTS[6];
+  drawPlotFrame(ed.x, ed.y, ed.w, ed.h, "stone");
+  drawPlotPatio(ed.x, ed.y, ed.w, ed.h);
+  drawPlotPosts(ed.x, ed.y, ed.w, ed.h, "stone");
+  // 点位8 试验田：石框土床（湿=已合入），玻璃罩由 drawObjects 压上
+  var lb2 = SPOTS[7];
+  drawPlotFrame(lb2.x, lb2.y, lb2.w, lb2.h, "stone");
+  drawPlotSoil(lb2.x, lb2.y, lb2.w, lb2.h, S.done.lab, [5, 12, 19, 26, 33]);
+  drawPlotPosts(lb2.x, lb2.y, lb2.w, lb2.h, "stone");
   // 休耕田残茬（问题演出）
   if (S.flags.wilt) drawWilt(296, 206);
-  // 协作点位：农活堆积（问题演出）
+  // 协作点位：农活堆积（问题演出，压在种子库床沿上）
   if (S.flags.pile) drawPile(94, 208);
 }
 function drawObjects() {
@@ -792,12 +845,25 @@ function drawStars() {
 function drawLakeWater() {
   var lx = 376, ly = 8, lw = 96, lh = 68;
   var f = Math.floor(S.tick / 18) % 3;
+  // P5b 水面渐变：上（远岸映天光）亮 → 下（近岸深水）暗，4 档量化带（整像素行）
+  for (var b = 0; b < 4; b++) {
+    var y0 = ly + b * 16, y1 = y0 + 16;
+    rect(lx, y0, lw, 16, lerpHex("#2f6591", "#163a63", b / 3));
+  }
   for (var ty = 0; ty < lh / T; ty++) for (var tx0 = 0; tx0 < lw / T; tx0++) {
     tileWater(lx + tx0 * T, ly + ty * T, (f + tx0 + ty) % 3);
   }
   for (var i = 0; i < lw; i += 5) px(lx + i + (f % 2), ly, P.wHi);
-  var refY = ly + 8;
-  for (var rr = 0; rr < 3; rr++) rect(lx + 40 - 4 + (rr % 2) * 2, refY + rr * 3, 8 - rr * 2, 1, "rgba(245,240,220,0.45)");
+  // P5b 月光反射：左上对角银光带 + 散点（固定种子每帧同位，静态稳定；禁区 x≥428 避开 BOSS 取证区）
+  var rnd = makeRnd(5150);
+  for (var gm = 0; gm < 22; gm++) {
+    var gx = lx + 6 + Math.floor(rnd() * 40), gy = ly + 4 + Math.floor(rnd() * 30);
+    px(gx, gy, rnd() > 0.6 ? "#d7ecff" : "#9fc4e8");
+  }
+  for (var k = 0; k < 10; k++) {
+    px(lx + 8 + k * 3, ly + 6 + k * 3, k % 3 === 0 ? "#d7ecff" : "#9fc4e8");
+    px(lx + 10 + k * 3, ly + 7 + k * 3, "#9fc4e8");
+  }
 }
 function drawLadybugPatrol() {
   if (!S.done.ladybug) return;

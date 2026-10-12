@@ -1,7 +1,7 @@
 ---
 id: F20261012kfp4
 title: "獭之传说·海藻农场 P4：像素可读性根治（内部分辨率翻倍）+ visual-design 全面视觉打磨"
-summary: "P4 视觉层交付（用户反馈「pixel 太大了，种子库这些字都看不清」）：① 可读性根治——canvas 内部分辨率 480×270→960×540（setTransform(2,2)，逻辑坐标系与绘制代码零改动，烘焙层同步），标签 7px→bold 10px（物理像素×2）+ 3px 描边光晕 + CJK 字体栈，✓ 改 measureText 定位；显示层去 pixelated 改平滑缩放（960 backing 对 754 CSS 为降采样，nearest-neighbor 会抽行）。② HTML UI 按 visual-design redesign 重做（硬边游戏面板：硬投影画布→teal 铭牌 tag→实心 CTA 按压反馈→分段 HP 条→背包 chips），修复 hint-chip 元素选择器 bug（样式全失效：浮牌形态与定位丢失））。③ 场景光影：天空 4 色带→13 级量化渐变、月晕方块→径向渐变、暗角、镜湖三边暗沿+岸牌让位。机制/文案/数值零改动。验证以 p2-selftest.mjs 实跑输出为准 + 死锁探针 + DPR2 前后对比截图。"
+summary: "P4 视觉层交付（用户反馈「pixel 太大了，种子库这些字都看不清」）：① 可读性根治——canvas 内部分辨率 480×270→960×540（setTransform(2,2)，逻辑坐标系与绘制代码零改动，烘焙层同步），标签 7px→bold 10px（物理像素×2）+ 3px 描边光晕 + CJK 字体栈，✓ 改 measureText 定位；显示层去 pixelated 改平滑缩放（960 backing 对 754 CSS 为降采样，nearest-neighbor 会抽行）。② HTML UI 按 visual-design redesign 重做（硬边游戏面板：硬投影画布→teal 铭牌 tag→实心 CTA 按压反馈→分段 HP 条→背包 chips），修复 hint-chip 元素选择器 bug（样式全失效：浮牌形态与定位丢失）。③ 场景光影：天空 4 色带→13 级量化渐变、月晕方块→径向渐变、暗角、镜湖三边暗沿+岸牌让位。机制/文案/数值零改动。验证以 p2-selftest.mjs 实跑输出为准 + 死锁探针 + DPR2 前后对比截图。"
 change_type: feature
 capability_tags: [game, readme-growth]
 capability_test: "n/a: game/ 为纯静态内容产品（零运行时依赖、不进主系统构建/测试面），验证 = 工作区 p2-selftest.mjs 全量实跑 PASS（含新增「种子库标签物理像素存在」像素取证用例，用例总数不减，以实跑输出为准）+ pr1435 死锁探针回归 ✓ 未死锁 + DPR2 前后对比截图人工验收；CI 面为 lint 无新增（game/ 已入 eslint ignores）"
