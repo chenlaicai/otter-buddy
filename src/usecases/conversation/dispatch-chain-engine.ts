@@ -107,7 +107,7 @@ export class DispatchChainEngine {
       healingRepo?: HealingEventRepository;
       /** F20260913ctlv 彻底切换：entries/invoke 仓库（未读注入 + hop 产出判定数据源）。
        *  未注入时（旧装配/测试桩）降级读 messages——生产装配必注入。 */
-      entryRepo?: { getUnreadEntries(conversationId: string, otterId: string): Promise<Array<{ id: string; entryType: string; senderType: string | null; senderId: string | null; body: string | null; senderName: string; sequenceNum: number; invokeId: string | null; yieldTargets: string[] | null; attachments?: Array<{ kind: string; originalName: string }> }>>; getEntries(conversationId: string, options?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; entryType: string; senderType: string | null; senderId: string | null; body: string | null; senderName: string; sequenceNum: number; invokeId: string | null; yieldTargets: string[] | null }>> };
+      entryRepo?: { getUnreadEntries(conversationId: string, otterId: string): Promise<Array<{ id: string; entryType: string; senderType: string | null; senderId: string | null; body: string | null; senderName: string; sequenceNum: number; invokeId: string | null; yieldTargets: string[] | null; createdAt?: string | null; attachments?: Array<{ kind: string; originalName: string }> }>>; getEntries(conversationId: string, options?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; entryType: string; senderType: string | null; senderId: string | null; body: string | null; senderName: string; sequenceNum: number; invokeId: string | null; yieldTargets: string[] | null }>> };
       invokeRepo?: { getInvokeById(invokeId: string): Promise<{ id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null } | null> };
       /** F20260920trrt：闲置预警新口径（seq 差 + 时间护栏）读时聚合接口。
        *  SQLite 实现已提供；测试桩可部分 mock（可选方法，未注入时预警降级为 null）。 */
@@ -806,15 +806,20 @@ export class DispatchChainEngine {
   ): Promise<{ message: string; batchMaxSeq: number }> {
     // F20260819idnw：闲置小獭预警（增强功能，失败不影响主流程）
     // 必须在早返回路径之前计算，否则无未读消息时预警会被跳过
-    let idleWarning: string | null = null;
-    try {
-      idleWarning = await this.buildIdleOttersWarning(conversationId, otterId);
-    } catch { /* 预警失败不影响主流程 */ }
+    const idleWarning = await this.buildIdleOttersWarning(conversationId, otterId).catch(() => null); /* 预警失败不影响主流程 */
 
     // F20260829cach: 分钟级当前时间（Asia/Shanghai）——补偿 system prompt 日粒度锚点的新鲜度损失。
     // 分钟级=每轮变化，按「有变化的才注入」原则合规，每轮注入。
     const now = new Date();
     const timeAnchor = now.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+    // #1431 方案 B：注入行时间戳（月日时分，Asia/Shanghai）——历史消息带时间语义，
+    // LLM 可区分「搭档刚说的」与「很久以前说的」（事故：86 分钟前旧话被当新授权）。
+    const fmtTime = (iso?: string | null): string => {
+      const t = iso ? new Date(iso) : now;
+      return t.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+    };
+    // #1431 方案 B：注入区解读规范——历史行（含重启恢复/历史收缩路径的重放）不得作为新授权/新裁决依据。
+    const historyNote = '> 注：标注「历史」的行是本轮之前的消息（重启恢复/历史收缩路径可能重放），括号内为发言时间；旧消息不得作为新授权/新裁决依据。';
 
     // F20260913ctlv 彻底切换：未读注入读 entries（user/system/speak），messages 停写后旧数据源只会读到空集
     const unreadAll = this.deps.entryRepo
@@ -842,8 +847,7 @@ export class DispatchChainEngine {
     );
 
     if (filtered.length === 0) {
-      let result = `${rosterSegment}## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 对话历史（你上次发言后的消息）\n[${triggerLabel}] ${userMessageContent}`;
-      if (idleWarning) result += `\n\n${idleWarning}`;
+      const result = `${rosterSegment}## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 对话历史（你上次发言后的消息）\n${historyNote}\n[${triggerLabel}]（${fmtTime()}）${userMessageContent}${idleWarning ? `\n\n${idleWarning}` : ''}`;
       return { message: result, batchMaxSeq };
     }
     const names = await this.resolveSenderNames(filtered);
@@ -855,16 +859,13 @@ export class DispatchChainEngine {
     const formatEntry = (m: typeof filtered[number]): string => {
       const label = this.resolveUnreadSenderLabel(m, senderId, partnerLabel, staticResolver, names);
       const text = stripHtmlCardsOnly(m.body ?? '');
-      return `[${label}] ${text}${this.appendUnreadAttachmentLine(m.attachments as AttachmentRef[] | undefined)}`;
+      return `[${label}]（历史 · ${fmtTime(m.createdAt)}）${text}${this.appendUnreadAttachmentLine(m.attachments as AttachmentRef[] | undefined)}`;
     };
     const formatted = filtered.map(formatEntry).join('\n');
 
     // F20260928wxid（检视建议 2）：触发消息带发送者标签（triggerLabel 已在前置段计算）——
     // 原本读批剔除后裸文追加，一问一答流（窗口唯一消息即触发消息）称呼不进海獭视野
-    let result = `${rosterSegment}## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n[${triggerLabel}] ${userMessageContent}`;
-    if (idleWarning) {
-      result += `\n\n${idleWarning}`;
-    }
+    const result = `${rosterSegment}## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 对话历史（你上次发言后的消息）\n${historyNote}\n${formatted}\n\n[${triggerLabel}]（${fmtTime()}）${userMessageContent}${idleWarning ? `\n\n${idleWarning}` : ''}`;
     return { message: result, batchMaxSeq };
   }
 
