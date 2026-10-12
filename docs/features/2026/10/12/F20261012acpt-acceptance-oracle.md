@@ -52,7 +52,7 @@ causal_links:
 **三缺口（本方案要补的）**：
 - **G1 系统断言无 provenance**：安全词扫描的 reminder 文案「用户消息命中安全词『停下』」（stop-word-scanner.ts:51 附近模板、dispatch-chain-engine.ts:182 注入）不附消息锚点、不区分来源——2026-10-12 假急停实证（定时任务 prompt 被当用户消息扫描，LLM 归因错误无人可查，issue #1430）。A1 证据锚点是对话纪律，管不住**系统注入的断言**。
 - **G2 验收装置可被被验收者修改**：实现者可在 PR 中放宽/删除测试断言过 CI（「改验证脚本」的同构场景）；adversarial-review 维度无「测试弱化」专项认定；能力测试基线改动无声明要求。
-- **G3 进度与质量混同**：汇报惯例只报产出数（PR/任务/issue 数），不报「其中已验证几个」〔凭印象归纳，置信度中——无机械统计支撑〕；定时任务「跑完」≠「有效果」无效果验收（雷达自 9 月起每日运行〔调度任务「每日 AI 雷达」〕，radar/prompt-template.md 无任何效果指标条款〔可 grep 核实〕——「看起来在跑」的现行形态）。
+- **G3 进度与质量混同**：汇报惯例只报产出数（PR/任务/issue 数），不报「其中已验证几个」〔凭印象归纳，置信度中——无机械统计支撑〕；定时任务「跑完」≠「有效果」无效果验收（雷达自 9 月起每日运行〔调度任务「每日 AI 雷达」〕，prompts/scheduled/daily-ai-radar.md 无任何效果指标条款〔可 grep 核实；delta 复核订正：初稿误写为工作区副本路径 radar/prompt-template.md，仓库真相源为本路径〕——「看起来在跑」的现行形态）。
 
 ## 目标
 
@@ -120,7 +120,7 @@ causal_links:
 - dispatch 链安全词扫描链路（T1，随 #1430 PR）
 - adversarial-review skill（T2 维度新增）
 - 特性文档模板 / PR 模板（T2、T3）
-- radar prompt-template、daily-health-check prompt（T4）
+- prompts/scheduled/daily-ai-radar.md、daily-health-check prompt（T4）
 - 无破坏性变更；T1 reminder 文案格式变化是 prompt 级行为变化，capability 测试覆盖
 
 ## 风险与约束
@@ -175,7 +175,7 @@ causal_links:
 | src/usecases/conversation/dispatch-chain-engine.ts | 改 | 传消息元数据、来源判定（随 #1430 PR） |
 | .pi/skills/adversarial-review/references/review-dimensions.md | 改 | 测试弱化条目 + 验收者隔离顺序 |
 | docs 模板（特性文档/PR 描述模板） | 改 | 测试改动声明 + 双数字 |
-| radar/prompt-template.md | 改 | 尾注点菜率 |
+| prompts/scheduled/daily-ai-radar.md | 改 | 尾注点菜率（delta 复核订正：初稿误写 radar/prompt-template.md） |
 | prompts/scheduled/daily-health-check.md | 改 | 双数字/效果指标抽查项 |
 
 ## 检视处置记录（第一轮，鉴微 2026-10-12）
@@ -193,3 +193,5 @@ causal_links:
 | 7 | 事实/推断未分栏 + 文档自身无锚点断言 | 采纳 | 背景节：机制归因标注推断属性；G3 断言补锚点/置信度降级标注 |
 
 观察条件落点：扩面承诺 → 四问④中间复盘点（试点 2–4 周复审）；建议 1 机械侧 → T1 做法 3 已落实。
+
+**Delta 复核（鉴微 2026-10-12）**：复核后通过——6 条全部解决、建议 7 附锚点路径订正（radar/prompt-template.md → prompts/scheduled/daily-ai-radar.md，55 行 G3 断言、123 行影响范围、178 行改动范围表三处同源错均已在本 commit 订正；鉴微实测真实 prompt 确无效果度量条款，实质主张为真）；观察条件两项均闭合，治本结论维持。
