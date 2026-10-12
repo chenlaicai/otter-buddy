@@ -183,7 +183,10 @@ var P = {
   // P1 新增
   scarf2:"#3f9e6a", scarf2Dk:"#2d7a50",
   aphid:"#86b35c", cardC:"#d8c9a8", cardEdge:"#6b5a3f",
-  wiltStalk:"#6b5a3f", wiltHi:"#8a7a55"
+  wiltStalk:"#6b5a3f", wiltHi:"#8a7a55",
+  // P5 星露谷风背景精绘（第一批）
+  tlFar:"#132536", tlNear:"#1a3a2b", tlNearHi:"#24503a", tlNearDk:"#142e20",
+  cl0:"#26405f", cl1:"#41628c", clDk:"#1a2c44"
 };
 
 function px(x, y, c) { ctx.fillStyle = c; ctx.fillRect(x, y, 1, 1); }
@@ -392,12 +395,21 @@ function drawSeedboxSign(ox, oy) { // 小木牌
   rect(ox, oy + 4, 10, 5, P.wood2);
   rect(ox + 1, oy + 5, 8, 1, P.woodHi);
 }
-function drawFenceH(ox, oy, segs) { // 水平木栏
+function drawFenceH(ox, oy, segs) { // P5 木栏重绘：立柱（柱帽+侧光）压双横杆，带接地影（原两杆平贴读作直尺）
+  ctx.fillStyle = P.shadow; ctx.fillRect(ox - 1, oy + 6, segs * 12 + 5, 2);
   for (var i = 0; i < segs; i++) {
     var fx = ox + i * 12;
-    rect(fx, oy - 6, 2, 12, P.fence1); px(fx, oy - 6, P.fenceHi); px(fx + 1, oy + 5, P.fence0);
-    rect(fx, oy - 4, 12, 2, P.fence1); rect(fx, oy, 12, 2, P.fence1);
-    px(fx + 4, oy - 4, P.fence0); px(fx + 9, oy + 1, P.fence0); px(fx + 6, oy - 3, P.fenceHi);
+    rect(fx, oy - 4, 12, 2, P.fence1); rect(fx, oy - 4, 12, 1, P.fenceHi);
+    rect(fx, oy, 12, 2, P.fence1); rect(fx, oy, 12, 1, P.fenceHi);
+    px(fx + 11, oy - 4, P.fence0); px(fx + 11, oy, P.fence0);
+  }
+  for (var j = 0; j <= segs; j++) {
+    var fx2 = ox + j * 12;
+    rect(fx2, oy - 7, 3, 13, P.fence1);
+    rect(fx2, oy - 7, 1, 13, P.fenceHi);
+    rect(fx2 + 2, oy - 7, 1, 13, P.fence0);
+    rect(fx2 - 1, oy - 8, 5, 2, P.fenceHi);
+    px(fx2 + 4, oy - 6, P.fence0); px(fx2 + 1, oy + 5, P.fence0);
   }
 }
 function drawBush(ox, oy, v) { // 灌木丛（三团圆冠）
@@ -543,6 +555,11 @@ function drawSkyBase() {
     var y0 = Math.floor(i * skyH / steps), y1 = Math.floor((i + 1) * skyH / steps);
     rect(0, y0, W, y1 - y0, lerpHex(P.sky0, P.sky3, i / (steps - 1)));
   }
+  // P5：低空浮云（静态烘焙；云位避开全部星点与月晕半径）
+  drawCloud(64, 36, 64);
+  drawCloud(248, 46, 46);
+  // P5：远景树线剪影（贴地平线，根部被后续草地层掩埋）
+  drawTreeline();
   // 月晕：径向渐变（原 fillRect 半透明方块在分辨率翻倍后可见方形硬边）
   // P4 位置：60→200——hint-chip 修复后可见，占位左上角会盖住月亮
   var mx0 = 200, my0 = 16, mcx = mx0 + 5, mcy = my0 + 5;
@@ -561,21 +578,90 @@ function drawVignette() { // P4：暗角——视觉动线收束到场景中心�
   g.addColorStop(1, "rgba(4,8,16,0.38)");
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
 }
+function makeRnd(seed0) { var s = seed0; return function () { s = (s * 16807) % 2147483647; return s / 2147483647; }; }
+function drawCloud(cx, cy, w) { // P5 夜空浮云：三叠鼓包体+月光顶缘+底影（静态，无漂移动画）
+  rect(cx + 2, cy + 1, w - 4, 7, P.cl0);                                       // 主体带
+  rect(cx + Math.floor(w * 0.14), cy - 6, Math.floor(w * 0.72), 8, P.cl0);      // 中鼓
+  rect(cx + Math.floor(w * 0.3), cy - 11, Math.floor(w * 0.4), 7, P.cl0);       // 顶鼓
+  rect(cx + Math.floor(w * 0.32), cy - 11, Math.floor(w * 0.36), 1, P.cl1);     // 月光顶缘（两层）
+  rect(cx + Math.floor(w * 0.18), cy - 6, Math.floor(w * 0.6), 1, P.cl1);
+  rect(cx + 6, cy, 14, 1, P.cl1);
+  rect(cx + 4, cy + 7, w - 8, 1, P.clDk);                                       // 底影
+  px(cx + 2, cy + 5, P.clDk); px(cx + w - 3, cy + 4, P.clDk);
+}
+function drawTreeline() { // P5 远景树线：两层剪影圆冠贴地平线（远层偏蓝显距离，近层墨绿+顶光）
+  var base = 80;
+  for (var x = -4; x < 384; x += 4) {
+    var h = 7 + Math.round(3 * Math.sin(x * 0.13) + 2.4 * Math.sin(x * 0.043 + 1.7));
+    rect(x, base - h, 4, h + 6, P.tlFar);
+  }
+  var tr = [[26, 15], [78, 12], [132, 16], [172, 13], [236, 15], [292, 17], [352, 12]];
+  for (var i = 0; i < tr.length; i++) {
+    var tX = tr[i][0], tH = tr[i][1];
+    rect(tX - 8, base - tH, 16, tH + 6, P.tlNear);
+    rect(tX - 6, base - tH - 4, 12, 6, P.tlNear);
+    rect(tX - 3, base - tH - 7, 6, 4, P.tlNear);
+    rect(tX - 6, base - tH - 4, 12, 1, P.tlNearHi);
+    rect(tX - 3, base - tH - 7, 6, 1, P.tlNearHi);
+    rect(tX + 8, base - tH, 2, tH + 6, P.tlNearDk);
+    px(tX - 5, base - tH - 3, P.tlNearHi);
+  }
+}
 function drawGroundBase() {
   for (var ty = 0; ty * T < H - 76; ty++) for (var tx0 = 0; tx0 * T < W; tx0++) {
     tileGrass(tx0 * T, 76 + ty * T, (tx0 * 7 + ty * 13) % 8);
   }
-  for (var py = 168; py < 196; py += 1) {
-    var pw = 5;
-    for (var pxx = 216 - pw; pxx < 216 + pw; pxx++) {
-      if (pxx % 7 !== 3) px(pxx, py, (pxx + py) % 5 === 0 ? P.pathHi : ((pxx + py) % 3 === 0 ? P.path0 : P.path1));
-    }
-  }
+  drawMeadow(); // P5：草地色斑（固定种子，任意 rebake 视觉一致，防状态切换时草丛跳变）
+  drawPathMain(); // P5：纵向路（穿栅栏缺口 x192..240）+ 岔路
+  drawLane();     // P5：横贯主路（踩踏土径，压在底行田块与行走线之下）
   drawFenceH(96, 86, 8); drawFenceH(240, 86, 8);
   drawBush(8, 96, 1); drawBush(452, 100, 2); drawBush(140, 100, 0); drawBush(310, 104, 1);
-  var fl = [[28,140,0],[64,168,1],[98,146,2],[150,162,0],[186,138,1],[240,156,2],[300,144,0],[330,170,1],[404,136,2],[132,222,0],[252,226,1],[420,218,2]];
+  drawBush(56, 84, 0); drawBush(348, 84, 2); // P5：栅栏线灌木（压住地平线单调段）
+  var fl = [[28,140,0],[64,168,1],[98,146,2],[150,162,0],[186,138,1],[240,156,2],[300,144,0],[330,170,1],[404,136,2],[132,222,0],[252,226,1],[420,218,2],[70,256,1],[318,258,0]];
   for (var fi = 0; fi < fl.length; fi++) drawFlower(fl[fi][0], fl[fi][1], fl[fi][2]);
   drawRock(88, 128, true); drawRock(352, 150, false); drawRock(160, 240, false); drawRock(432, 250, true);
+}
+function drawMeadow() { // P5 草地色斑：亮簇/暗渍交替的软块+碎点，打破整幅均质草纹
+  var rnd = makeRnd(20261012);
+  for (var i = 0; i < 30; i++) {
+    var mX = 8 + Math.floor(rnd() * 458), mY = 88 + Math.floor(rnd() * 168);
+    var light = i % 3 !== 0;
+    var mW = 6 + Math.floor(rnd() * 10), mH = 3 + Math.floor(rnd() * 3);
+    rect(mX, mY, mW, mH, light ? P.grass2 : P.grassDk);
+    rect(mX + 2, mY - 1, Math.max(3, mW - 5), 1, light ? P.grassHi : P.grass0);
+    for (var k = 0; k < 5; k++) px(mX + Math.floor(rnd() * mW), mY + Math.floor(rnd() * mH), light ? P.grassHi : P.grass0);
+  }
+}
+function pathSpeckle(x, y) {
+  return (x * 7 + y * 13) % 9 === 0 ? P.pathHi : ((x * 5 + y * 3) % 7 === 0 ? P.path0 : P.path1);
+}
+function drawLane() { // P5 横贯主路：上下缘波浪的踩踏土径，草絲咬边，左右满幅出血
+  for (var x = 0; x < W; x++) {
+    var y0 = 234 + Math.round(Math.sin(x * 0.11) * 1.6 + Math.sin(x * 0.031) * 1.4);
+    var y1 = 250 + Math.round(Math.sin(x * 0.083 + 2) * 1.5);
+    for (var y = y0; y <= y1; y++) px(x, y, pathSpeckle(x, y));
+    if ((x * 3) % 5 === 0) px(x, y0 - 1, P.grass2); else if (x % 4 === 0) px(x, y0 - 1, P.grass0);
+    if ((x * 7) % 6 === 0) px(x, y1 + 1, P.grass0);
+  }
+}
+function drawPathMain() { // P5 纵向路：从树线根部（y76）穿过栅栏缺口直下，北端接主路
+  for (var y = 76; y < 202; y++) {
+    var xa = 207 + Math.round(Math.sin(y * 0.09) * 1.6);
+    var xb = 225 + Math.round(Math.sin(y * 0.07 + 1.3) * 1.6);
+    for (var x = xa; x <= xb; x++) px(x, y, pathSpeckle(x, y));
+    if (y % 3 === 0) px(xa - 1, y, P.grass0);
+    if (y % 4 === 1) px(xb + 1, y, P.grass0);
+  }
+  // 岔路横出（y193..199）→ 南下接主横路（fert/fallow 空档 x232..247，板结田会盖住接触缘）
+  for (var sy = 193; sy < 200; sy++) {
+    var sxa = 214 + Math.round(Math.sin(sy * 0.5) * 2);
+    for (var sx = sxa; sx <= 240; sx++) px(sx, sy, pathSpeckle(sx, sy));
+  }
+  for (var fy = 196; fy < 242; fy++) {
+    var fxa = 232 + Math.round(Math.sin(fy * 0.13) * 1.5);
+    var fxb = 247 + Math.round(Math.sin(fy * 0.11 + 1) * 1.5);
+    for (var fx = fxa; fx <= fxb; fx++) px(fx, fy, pathSpeckle(fx, fy));
+  }
 }
 function drawLakeBase() {
   var lx = 376, ly = 8, lw = 96, lh = 68;
@@ -592,11 +678,35 @@ function isLit(sp) {
   if (sp.id === "lake") return S.allDone;
   return true; // 自由探索：八块田全部可交互，用「闪光点」引导发现（搭档试玩反馈②）
 }
+function drawPlantBed(x, y, w, h, wet) { // P5 播种田打样：木框抬升苗床——连续垄沟替代逐 tile 断垄
+  ctx.fillStyle = P.shadow; ctx.fillRect(x - 3, y + h - 1, w + 6, 5); // 床底接地影
+  rect(x - 3, y - 3, w + 6, h + 6, P.wood1);                        // 木框（3px 环）
+  rect(x - 3, y - 3, w + 6, 1, P.woodHi); rect(x - 3, y + h + 2, w + 6, 1, P.wood0);
+  rect(x - 3, y - 3, 1, h + 6, P.woodHi); rect(x + w + 2, y - 3, 1, h + 6, P.wood0);
+  rect(x - 1, y - 1, w + 2, h + 2, P.soil0);                         // 床内暗界（AO）
+  rect(x, y, w, h, wet ? P.soilWet : P.soil1);                       // 床土
+  var rows = [6, 13, 20, 27];
+  for (var r = 0; r < rows.length; r++) {
+    rect(x + 2, y + rows[r], w - 4, 2, P.furrow);
+    rect(x + 2, y + rows[r] + 2, w - 4, 1, wet ? P.soil0 : P.soilHi);
+  }
+  var rnd = makeRnd(77); // 土珂垃（固定种子，rebake 不抖）
+  for (var i = 0; i < 26; i++) {
+    var cX = x + 1 + Math.floor(rnd() * (w - 2)), cY = y + 1 + Math.floor(rnd() * (h - 2));
+    px(cX, cY, wet ? P.soil1 : P.soilHi);
+  }
+  var posts = [[x - 4, y - 4], [x + w + 1, y - 4], [x - 4, y + h + 1], [x + w + 1, y + h + 1]];
+  for (var p = 0; p < 4; p++) {
+    var pX = posts[p][0], pY = posts[p][1];
+    rect(pX, pY, 4, 5, P.wood2); rect(pX, pY, 4, 1, P.woodHi);
+    px(pX + 3, pY + 1, P.wood0); px(pX + 1, pY + 3, P.nail);
+  }
+}
 function drawPlots() {
-  // 点位1 荒田：3×2 土壤
+  // 点位1 荒田：P5 打样苗床（木框抬升床，其余田块第二批逐个精修）
   var sp = SPOTS[0];
   var wet = S.done.plant;
-  for (var r = 0; r < 2; r++) for (var c = 0; c < 3; c++) tileSoil(sp.x + c * T, sp.y + r * T, wet);
+  drawPlantBed(sp.x, sp.y, sp.w, sp.h, wet);
   // 记忆麦子（act 双叶 / done 成熟）
   var st = 0;
   if (S.done.plant) st = 3; else if (S.activeId === "plant" && S.phase === "act") st = 2;
