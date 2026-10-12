@@ -530,7 +530,6 @@ function drawPlots() {
   // 板结田：干裂土 2×2 → 翻耕后湿土+新芽
   var fe = SPOTS[2];
   var feDone = S.done.fert;
-  if (!isLit(fe)) ctx.globalAlpha = 0.45;
   for (var r2 = 0; r2 < 2; r2++) for (var c2 = 0; c2 < 2; c2++) tileSoil(fe.x + c2 * T, fe.y + r2 * T, feDone);
   if (!feDone) {
     rect(fe.x + 6, fe.y + 7, 8, 1, "#241a10"); rect(fe.x + 20, fe.y + 12, 6, 1, "#241a10"); rect(fe.x + 12, fe.y + 22, 7, 1, "#241a10");
@@ -538,27 +537,24 @@ function drawPlots() {
     px(fe.x + 5, fe.y + 4, P.sprout1); px(fe.x + 14, fe.y + 9, P.sprout1); px(fe.x + 24, fe.y + 3, P.sprout1);
     px(fe.x + 9, fe.y + 25, P.sproutHi); px(fe.x + 22, fe.y + 24, P.sprout1); px(fe.x + 4, fe.y + 16, P.sprout1);
   }
-  ctx.globalAlpha = 1;
   // 休耕田残茬（问题演出）
   if (S.flags.wilt) drawWilt(296, 206);
   // 协作点位：农活堆积（问题演出）
   if (S.flags.pile) drawPile(94, 208);
 }
 function drawObjects() {
-  var lock = function (sp, fn) { if (!isLit(sp)) ctx.globalAlpha = 0.45; fn(); ctx.globalAlpha = 1; };
-  lock(SPOTS[1], function () { drawCrate(SPOTS[1].x, SPOTS[1].y, S.done.seedbox); });
-  lock(SPOTS[3], function () { drawHaystack(SPOTS[3].x, SPOTS[3].y); });
-  lock(SPOTS[4], function () { drawHut(SPOTS[4].x, SPOTS[4].y); });
-  lock(SPOTS[7], function () {
-    drawGlassDome(SPOTS[7].x, SPOTS[7].y);
-    // 罩内试验苗（act 双叶 / matured 金穗）
-    var dx = SPOTS[7].x + 12, dy = SPOTS[7].y + 13;
-    if (S.flags.matured || S.done.lab) drawCrop(3, dx, dy);
-    else if (S.flags.trial) drawCrop(2, dx, dy);
-    else { px(dx, dy, P.sprout1); px(dx - 1, dy + 1, P.sprout0); px(dx + 1, dy + 1, P.sprout0); }
-  });
-  lock(SPOTS[5], function () { drawSpr("neighbor", SPOTS[5].x, SPOTS[5].y); });
-  lock(SPOTS[6], function () { drawSpr("elder", SPOTS[6].x, SPOTS[6].y); });
+  // 自由探索后点位恒亮（isLit 恒 true），lock 包裹已无意义拆为直调（#1435 delta R2 建议3 清残留）
+  drawCrate(SPOTS[1].x, SPOTS[1].y, S.done.seedbox);
+  drawHaystack(SPOTS[3].x, SPOTS[3].y);
+  drawHut(SPOTS[4].x, SPOTS[4].y);
+  drawGlassDome(SPOTS[7].x, SPOTS[7].y);
+  // 罩内试验苗（act 双叶 / matured 金穗）
+  var dx = SPOTS[7].x + 12, dy = SPOTS[7].y + 13;
+  if (S.flags.matured || S.done.lab) drawCrop(3, dx, dy);
+  else if (S.flags.trial) drawCrop(2, dx, dy);
+  else { px(dx, dy, P.sprout1); px(dx - 1, dy + 1, P.sprout0); px(dx + 1, dy + 1, P.sprout0); }
+  drawSpr("neighbor", SPOTS[5].x, SPOTS[5].y);
+  drawSpr("elder", SPOTS[6].x, SPOTS[6].y);
   // 瓢虫点缀（瓢虫屋旁，静态一只）
   var lbx = SPOTS[4].x + 30, lby = SPOTS[4].y + 24;
   px(lbx, lby, P.ladybug); px(lbx + 1, lby, P.ladybugDk);
