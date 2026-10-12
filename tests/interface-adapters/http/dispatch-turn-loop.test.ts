@@ -273,8 +273,8 @@ describe("dispatchTurnLoop 深度上限", () => {
     expect(contexts[0]).toContain("- 小獭");
     expect(contexts[0]).not.toContain("otterId:");
     expect(contexts[0]).toContain("'user'");
-    /** 历史消息用名字标注，不用 UUID */
-    expect(contexts[0]).toContain("[小獭] 万象更新");
+    /** 历史消息用名字标注，不用 UUID（时间戳形态：[名字]（时间）text，#1431） */
+    expect(contexts[0]).toMatch(/\[小獭\]（[^）]*）万象更新/);
     expect(contexts[0]).not.toContain("[otter-x]");
   });
 });

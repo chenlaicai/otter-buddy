@@ -394,7 +394,7 @@ describe("buildMessageWithContext 闲置预警集成", () => {
 
     // 预警失败不影响主流程，结果仍包含发言流（历史未读 + 触发发言流末尾）
     expect(result).toContain("## 对话历史");
-    expect(result).toContain("[otter-1] msg\n\n[搭档] hi"); // F20260928wxid：触发消息带标签
+    expect(result).toMatch(/\[otter-1\]（[^）]*）msg\n\n\[搭档\]（[^）]*）hi/); // F20260928wxid：触发消息带标签（时间戳形态 #1431）
     expect(result).not.toContain("系统提示");
   });
 });
@@ -409,7 +409,7 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
-    expect(result).toContain("[张三] 我是张三的消息");
+    expect(result).toMatch(/\[张三\]（[^）]*）我是张三的消息/);
   });
 
   it("多条 user 消息不同快照名可区分", async () => {
@@ -422,8 +422,8 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
-    expect(result).toContain("[张三] 第一条");
-    expect(result).toContain("[李四] 第二条");
+    expect(result).toMatch(/\[张三\]（[^）]*）第一条/);
+    expect(result).toMatch(/\[李四\]（[^）]*）第二条/);
   });
 
   it("当前 sender 无快照时回退「搭档」标签", async () => {
@@ -435,7 +435,7 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
-    expect(result).toContain("[搭档] 在吗");
+    expect(result).toMatch(/\[搭档\]（[^）]*）在吗/);
   });
 
   it("其他 user 发言者无快照时保留裸 open_id（不冒充搭档）", async () => {
@@ -447,8 +447,8 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
-    expect(result).toContain("[ou_zhangsan] 我是谁");
-    expect(result).not.toContain("[搭档] 我是谁");
+    expect(result).toMatch(/\[ou_zhangsan\]（[^）]*）我是谁/);
+    expect(result).not.toMatch(/\[搭档\]（[^）]*）我是谁/);
   });
 
   it("快照名仅空白时视为无快照", async () => {
@@ -460,7 +460,7 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
-    expect(result).toContain("[搭档] 在吗");
+    expect(result).toMatch(/\[搭档\]（[^）]*）在吗/);
   });
 });
 
@@ -486,7 +486,7 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
     const engine = makeEngine(m, "ou_chen");
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
 
-    expect(result).toContain("[搭档] 看看这个");
+    expect(result).toMatch(/\[搭档\]（[^）]*）看看这个/);
   });
 
   // F20260928wxid（检视建议 3）：搭档带自报快照名渲染「搭档(joy)」；无快照回退泛称
@@ -500,8 +500,8 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
     const engine = makeEngine(m, "ou_chen");
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
 
-    expect(result).toContain("[搭档(joy)] 带称呼");
-    expect(result).toContain("[搭档] 无称呼");
+    expect(result).toMatch(/\[搭档\(joy\)\]（[^）]*）带称呼/);
+    expect(result).toMatch(/\[搭档\]（[^）]*）无称呼/);
   });
 
   it("F20260928wxid：访客消息带快照名 → [快照名]，不冒充搭档", async () => {
@@ -513,8 +513,8 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
     const engine = makeEngine(m, "ou_chen");
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
 
-    expect(result).toContain("[游客甲] 路过");
-    expect(result).not.toContain("[搭档] 路过");
+    expect(result).toMatch(/\[游客甲\]（[^）]*）路过/);
+    expect(result).not.toMatch(/\[搭档\]（[^）]*）路过/);
   });
 
   it("F20260928wxid（检视建议 2）：触发消息带发送者标签——一问一答流称呼也进视野", async () => {
@@ -528,7 +528,7 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
     // senderId=ou_chen（搭档）触发，exclude 集=空（不传），triggerMessageId=e-trig 反查快照
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "我是谁", "ou_chen", "## 在场成员", undefined, "e-trig");
 
-    expect(result).toContain("[搭档(joy)] 我是谁");
+    expect(result).toMatch(/\[搭档\(joy\)\]（[^）]*）我是谁/);
   });
 
   it("静态模式：访客触发本次派发也无 partnerLabel（动态推断旧病修复）", async () => {
@@ -540,8 +540,8 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
     const engine = makeEngine(m, "ou_chen");
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
 
-    expect(result).toContain("[ou_joy] 我也觉得行");
-    expect(result).not.toContain("[搭档] 我也觉得行");
+    expect(result).toMatch(/\[ou_joy\]（[^）]*）我也觉得行/);
+    expect(result).not.toMatch(/\[搭档\]（[^）]*）我也觉得行/);
   });
 
   it("静态模式：访客有快照名时显示真名", async () => {
@@ -553,7 +553,7 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
     const engine = makeEngine(m, "ou_chen");
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
 
-    expect(result).toContain("[Joy] 哈哈");
+    expect(result).toMatch(/\[Joy\]（[^）]*）哈哈/);
   });
 
   it("静态模式：Web 'user' 恒为搭档", async () => {
@@ -565,7 +565,7 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
     const engine = makeEngine(m, "ou_chen");
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "user", "## 在场成员");
 
-    expect(result).toContain("[搭档] Web 来的");
+    expect(result).toMatch(/\[搭档\]（[^）]*）Web 来的/);
   });
 
   it("降级（未配置）：维持 #488 行为——当前 sender 无快照仍标搭档", async () => {
@@ -577,7 +577,7 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
     const engine = makeEngine(m, undefined);
     const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
 
-    expect(result).toContain("[搭档] 在吗");
+    expect(result).toMatch(/\[搭档\]（[^）]*）在吗/);
   });
 
   it("buildRoster：静态模式下访客触发时追加「当前说话者非搭档」提示", async () => {
@@ -635,7 +635,8 @@ describe("L2 安全词扫描接线（F20260826mwrd C3 Part 6）", () => {
     expect(received).toHaveLength(1);
     expect(received[0]).toContain("[L2 安全词检测]");
     expect(received[0]).toContain("Magic Words");
-    expect(received[0]).toContain("## 对话历史（你上次发言后的消息）\n[搭档] 停下"); // F20260928wxid：触发消息带标签（原文保留流末尾）
+    expect(received[0]).toContain("## 对话历史（你上次发言后的消息）");
+    expect(received[0]).toMatch(/\[搭档\]（[^）]*）停下/); // F20260928wxid：触发消息带标签（原文保留流末尾，时间戳形态 #1431）
   });
 
   it("命令形态「快停下，都别乱动」也注入 reminder", async () => {
@@ -666,7 +667,8 @@ describe("上下文注入面 delta 化（F20260922ctxi）", () => {
     // 同 roster 重复调用 → 不再拼接（修复前每条消息都带一份逐字节相同的名册）
     const second = await engine.buildMessageWithContext("conv-1", "otter-1", "再 hi", "user-1", "## 在场成员\n- 大獭");
     expect(second.message).not.toContain("## 在场成员");
-    expect(second.message).toContain("## 对话历史（你上次发言后的消息）\n[搭档] 再 hi"); // F20260928wxid
+    expect(second.message).toContain("## 对话历史（你上次发言后的消息）");
+    expect(second.message).toMatch(/\[搭档\]（[^）]*）再 hi/); // F20260928wxid（时间戳形态 #1431）
     expect(second.message).toContain("## 当前时间");
 
     // roster 变化（成员进出/访客提示）→ 重新注入
@@ -708,9 +710,12 @@ describe("上下文注入面 delta 化（F20260922ctxi）", () => {
     expect(received).toHaveLength(1);
     // 修复前同一文本双份（实测 269+257 字符）：对话历史一份 + 触发消息一份
     expect(received[0].split("任务原文ABC").length - 1).toBe(1);
-    expect(received[0]).toContain("[张三] 任务原文ABC"); // F20260928wxid：触发消息带标签（与历史同款规则）
+    expect(received[0]).toMatch(/\[张三\]（[^）]*）任务原文ABC/); // F20260928wxid：触发消息带标签（与历史同款规则）
     // 其他未读保留
     expect(received[0]).toContain("其他未读XYZ");
+    // #1431 方案 B 锁定：未读行带「历史 ·」标注 + 段头解读规范——防格式回退丢标注
+    expect(received[0]).toContain("（历史 · ");
+    expect(received[0]).toContain("旧消息不得作为新授权/新裁决依据");
   });
 
   it("triggerMessageId 非 entry id（如 retry 的 invokeId）时不误过滤", async () => {
@@ -731,7 +736,7 @@ describe("上下文注入面 delta 化（F20260922ctxi）", () => {
         return { messageId: "m-x" };
       },
     });
-    expect(received[0]).toContain("[张三] 旧消息"); // 未读保留，不过滤
+    expect(received[0]).toMatch(/\[张三\]（[^）]*）旧消息/); // 未读保留，不过滤
   });
 });
 

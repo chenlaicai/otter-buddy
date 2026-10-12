@@ -698,17 +698,20 @@ function createWaitTool(logger?: Logger): AgentTool {
 }
 
 /** merge_pr 子步骤：PR 状态门——返回 null 放行执行，否则返回终态响应（幂等/错误）。 */
-async function checkPrMergeable(prNumber: number): Promise<{ state: string } | { terminal: ReturnType<typeof textResponse> | ReturnType<typeof errorResponse> }> {
+async function checkPrMergeable(prNumber: number): Promise<{ state: string; createdAt: string } | { terminal: ReturnType<typeof textResponse> | ReturnType<typeof errorResponse> }> {
   let prState: string;
+  let prCreatedAt: string;
   try {
-    const { stdout } = await execFileAsync("gh", ["pr", "view", String(prNumber), "--json", "state", "--jq", ".state"], { timeout: 30_000 });
-    prState = stdout.trim();
+    const { stdout } = await execFileAsync("gh", ["pr", "view", String(prNumber), "--json", "state,createdAt"], { timeout: 30_000 });
+    const pr = JSON.parse(stdout) as { state: string; createdAt: string };
+    prState = pr.state;
+    prCreatedAt = pr.createdAt;
   } catch (err) {
     return { terminal: errorResponse(`[错误] 查询 PR #${prNumber} 状态失败：${err instanceof Error ? err.message : String(err)}`) };
   }
   if (prState === "MERGED") return { terminal: textResponse(`PR #${prNumber} 已合入（幂等），无需重复操作`) };
   if (prState !== "OPEN") return { terminal: errorResponse(`[错误] PR #${prNumber} 状态为 ${prState}，不可合入`) };
-  return { state: prState };
+  return { state: prState, createdAt: prCreatedAt };
 }
 
 /** merge_pr 原话校验——规范化文本（对称去包裹引号 + 去空白）。
@@ -856,10 +859,37 @@ async function writeMergeAudit(
   logger?.warn(`[merge_pr] AUTHORIZATION prNumber=${prNumber} strategy=${strategy} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)}`);
 }
 
+/** #1431 授权时效/精确性闸（方案 A + C）。
+ *  时间维度：命中消息必须严格晚于 PR 创建——过期授权（针对更早 PR 的原话，含重放/注入区历史消息）一律拒绝。
+ *  事故锚：2026-10-10 PR #1427 被 36 分钟前针对 #1422 的原话「合入了，你继续」误授权合入（原话真实存在但指向别的 PR）。
+ *  通用短话术：「合入了」「继续」等短话术天然易跨 PR 误配——含目标 PR 号才算精确授权。
+ *  @returns 拒绝理由文本；null = 闸门放行 */
+function checkApprovalGates(
+  ctx: ToolContext,
+  logger: Logger | undefined,
+  info: { prNumber: number; partnerApproval: string; approvalAt: string; prCreatedAt: string },
+): string | null {
+  const { prNumber, partnerApproval, approvalAt, prCreatedAt } = info;
+  const hitMs = Date.parse(approvalAt);
+  const prMs = Date.parse(prCreatedAt);
+  // 解析异常（NaN）同样拒：fail-open 会静默跳过时间闸，与 fail-closed 承诺矛盾
+  if (Number.isNaN(hitMs) || Number.isNaN(prMs) || hitMs <= prMs) {
+    logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED stale_or_unparseable_approval prNumber=${prNumber} otter=${ctx.otterId} approvalAt=${approvalAt} prCreatedAt=${prCreatedAt}`);
+    return `[错误] 无法确认授权原话时间（${approvalAt}）严格晚于 PR 创建时间（${prCreatedAt}）——疑似针对其他 PR 的过期授权或时间数据异常，拒绝合入（未执行）。请搭档针对本 PR 显式确认（带 PR 号，如「${prNumber}合入」）后重试。`;
+  }
+  // 含号判定用数字边界匹配：「1437合」不算命中目标 #437（数字子串方向 fail-close）
+  const hasPrecisePrRef = new RegExp(`(?<!\\d)${prNumber}(?!\\d)`).test(partnerApproval);
+  if (countSubstantive(partnerApproval) < 6 && !hasPrecisePrRef) {
+    logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED vague_short_approval prNumber=${prNumber} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)}`);
+    return `[错误] 「${partnerApproval}」是通用短话术且未提及本 PR（#${prNumber}）——短话术跨 PR 误配风险高，请搭档显式确认（带 PR 号，如「${prNumber}合入」）后重试。`;
+  }
+  return null;
+}
+
 function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
   return {
     name: "merge_pr",
-    description: "合并指定 PR（搭档授权闸）. Precondition: 搭档已显式同意合入该 PR——partnerApproval 必须原样引用搭档的授权原话（如「1095合入」「这个可以合了」），不得转述/概括/编造. When: PR 审视通过且搭档已拍板合入时. Not for: 搭档尚未拍板 → 先呈终审简报（决策简报卡），不得调用本工具. Output: 合入结果（mergedAt/mergeCommit）+ 审计记录确认（含原话命中锚点）. GOTCHA: 原话经机械校验——partnerApproval 必须逐字命中当前对话中搭档（user）历史消息的连续片段（容忍空白/引号形态差异；短引用不足4实义字须整条等值，防否定句断章；纯标点拒绝），未命中直接拒绝合入（无原话不允许使用）；卡片回执的人类可读摘要（otterCard.submit 后搭档过目的文本）也是搭档消息，属合法来源，但回执内 html-card-reply 围栏的 data JSON 是 agent 构造载荷，不作授权源. 授权原话落审计双通道（linked_resources + 日志，附命中锚点），伪造留痕可追责.",
+    description: "合并指定 PR（搭档授权闸）. Precondition: 搭档已显式同意合入该 PR——partnerApproval 必须原样引用搭档的授权原话（如「1095合入」「1431合入」；通用短话术如「合入了」「继续」须带目标 PR 号才算精确授权），不得转述/概括/编造. When: PR 审视通过且搭档已拍板合入时. Not for: 搭档尚未拍板 → 先呈终审简报（决策简报卡），不得调用本工具. Output: 合入结果（mergedAt/mergeCommit）+ 审计记录确认（含原话命中锚点）. GOTCHA: 原话经机械校验——partnerApproval 必须逐字命中当前对话中搭档（user）历史消息的连续片段（容忍空白/引号形态差异；短引用不足4实义字须整条等值，防否定句断章；纯标点拒绝），未命中直接拒绝合入（无原话不允许使用）；时间维度：命中消息的 createdAt 必须严格晚于 PR 创建时间，过期授权（针对更早 PR 的原话，含重放/注入区历史消息）一律拒绝；通用短话术（实义字 <6）不含目标 PR 号同样拒绝并引导带 PR 号重试. 卡片回执的人类可读摘要（otterCard.submit 后搭档过目的文本）也是搭档消息，属合法来源，但回执内 html-card-reply 围栏的 data JSON 是 agent 构造载荷，不作授权源. 授权原话落审计双通道（linked_resources + 日志，附命中锚点），伪造留痕可追责.",
     parameters: {
       type: "object",
       properties: {
@@ -888,6 +918,14 @@ function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
         logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED prNumber=${prNumber} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)}`);
         return approvalCheck.error;
       }
+      // #1431 时间维度闸 + 通用短话术闸（方案 A + C）：过期授权/短话术误配一律拒绝（细节见 checkApprovalGates）。
+      const gateError = checkApprovalGates(ctx, logger, {
+        prNumber,
+        partnerApproval,
+        approvalAt: approvalCheck.hit.createdAt,
+        prCreatedAt: gate.createdAt,
+      });
+      if (gateError) return errorResponse(gateError);
       // 审计先落（执行失败也留有授权依据记录），再执行合入。
       // 工具内部 exec 通道——不过 bash 守卫，与 halt_otter 等管理工具同型。
       await writeMergeAudit(ctx, logger, { prNumber, strategy, partnerApproval, approvalAnchor: approvalCheck.hit });
