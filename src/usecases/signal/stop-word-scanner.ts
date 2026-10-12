@@ -46,22 +46,70 @@ export interface StopWordScanResult {
   reminder: string | null;
 }
 
+/**
+ * 触发来源标注（F20261012acpt T1 证据锚点枚举）：user | scheduler | system | otter。
+ * 三态（user|scheduler|system）为 T1 基线要求，otter 为机械诚实补全（来源信息存在时不归并）。
+ */
+export type TriggerSourceLabel = "user" | "scheduler" | "system" | "otter" | "未知";
+
+/**
+ * 来源机械推导（#1430）：user/otter 直映射；system 细分 scheduler（senderName/senderId
+ * 形如 `scheduler:每日 AI 雷达`）；来源信息缺失 → 「未知」（机械降级，不猜）。
+ */
+export function resolveTriggerSource(senderType?: string | null, senderHint?: string | null): TriggerSourceLabel {
+  if (senderType === "user") return "user";
+  if (senderType === "otter") return "otter";
+  if (senderType === "system") {
+    return senderHint && /^scheduler[:：]/i.test(senderHint.trim()) ? "scheduler" : "system";
+  }
+  return "未知";
+}
+
+/** 扫描证据上下文（机械来源——msgId/seq 由消息系统透传，不经 LLM 书写） */
+export interface StopWordScanEvidence {
+  /** 触发消息 ID（entry id） */
+  messageId?: string;
+  /** 触发消息序列号 */
+  sequenceNum?: number;
+  /** 触发消息 senderType */
+  senderType?: string | null;
+  /** 来源细分提示（senderId 或 senderName，scheduler: 前缀判定用） */
+  senderHint?: string | null;
+}
+
+/**
+ * 证据锚点（F20261012acpt T1 插槽）：模板生成器机械拼接，缺字段降级「未提供」，不编造、
+ * 不经 LLM 书写。下游 LLM 可按锚点机械核实「提醒声称的命中」对应哪条真实消息。
+ */
+function buildEvidenceAnchor(evidence?: StopWordScanEvidence): string {
+  const msgId = evidence?.messageId?.trim() || "未提供";
+  const seq = evidence?.sequenceNum !== undefined && evidence.sequenceNum !== null ? String(evidence.sequenceNum) : "未提供";
+  const source = resolveTriggerSource(evidence?.senderType, evidence?.senderHint);
+  return `[证据: msgId=${msgId} seq=${seq} 来源=${source}]`;
+}
+
 /** reminder 文本（SYSTEM.md Magic Words「停下」条目的执行引导） */
-function buildReminder(matched: string[]): string {
-  return `[L2 安全词检测] 用户消息命中安全词「${matched.join('」「')}」（形态：后侧为硬边界）。`
+function buildReminder(matched: string[], evidence?: StopWordScanEvidence): string {
+  const source = resolveTriggerSource(evidence?.senderType, evidence?.senderHint);
+  // #1430 假急停根因之一：reminder 固定声称「用户消息」误导下游归因。来源措辞如实：
+  // user 保持既有措辞（行为面零变化）；其他来源显式标注，下游 LLM 能正确归因。
+  const sourceDesc = source === "user" ? "用户消息" : `触发消息（来源：${source}）`;
+  return `[L2 安全词检测] ${sourceDesc}命中安全词「${matched.join('」「')}」（形态：后侧为硬边界）。`
     + '请确认这是安全指令还是讨论/引用：\n'
     + '- 若是指令：立即按 SYSTEM.md Magic Words 执行——停止当前所有动作（不发新工具调用、不写新文件），'
     + '如场上有运行中小獭，用 halt_otter 对其打标，然后等搭档指示；\n'
     + '- 若是讨论/引用（如「这个词叫停下」）：正常对话，不触发急停。\n'
+    + `证据锚点：${buildEvidenceAnchor(evidence)}\n`
     + '失效方向说明：漏报（变体未命中）时退化为纯 L1 prompt 检测，与现状等价，无新增风险。';
 }
 
 /**
  * 扫描用户消息是否命中安全词（独立成词形态）。
  *
- * @param message 用户消息原文（不预处理——reminder 语境判断交给 LLM，扫描只管形态匹配）
+ * @param message 触发消息原文（不预处理——reminder 语境判断交给 LLM，扫描只管形态匹配）
+ * @param evidence 证据锚点上下文（机械透传；缺省时锚点逐字段降级「未提供」）
  */
-export function scanStopWords(message: string): StopWordScanResult {
+export function scanStopWords(message: string, evidence?: StopWordScanEvidence): StopWordScanResult {
   if (!message) return { matched: [], reminder: null };
 
   const matched = new Set<string>();
@@ -85,5 +133,5 @@ export function scanStopWords(message: string): StopWordScanResult {
   }
 
   if (matched.size === 0) return { matched: [], reminder: null };
-  return { matched: [...matched], reminder: buildReminder([...matched]) };
+  return { matched: [...matched], reminder: buildReminder([...matched], evidence) };
 }

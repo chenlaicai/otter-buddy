@@ -2054,6 +2054,9 @@ export class AgentInvoker implements AgentTurnPort {
         userMessageContent: dispatchMessage,
         senderId: 'system',
         resolvedTargets: bigOtterIds,
+        // F20261012swsg（#1430）：合成告警文本非用户消息——显式声明 system 来源，不进安全词扫描
+        // （案发路径：dispatchMessage 含原派工任务原文/提醒模板例句，曾被当用户消息扫描注入假急停提醒）
+        triggerSenderType: 'system',
       });
       this.logger.info('[first-dumb] big otter dispatched for first-dumb recovery', {
         otterId: signal.otterId,

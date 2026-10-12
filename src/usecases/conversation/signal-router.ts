@@ -14,7 +14,7 @@
  * - routePendingSignals → routeSignal（事件驱动路由）
  * - 档位概念移除：NORMAL/URGENT/HALT → followUp（默认）/ steer（标急）/ abort（session 方法调用）
  */
-import type { Entry } from "@entities/conversation/entry";
+import type { Entry, SenderType } from "@entities/conversation/entry";
 import type { EntryRepository } from "./entry-repository";
 import type { ConversationRepository } from "./conversation-repository";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -60,6 +60,8 @@ export interface SignalView {
   signalMeta: string | null;
   status: string;
   senderType: string;
+  /** F20261012swsg（#1430）：触发 entry 序号（安全词证据锚点 seq 位，机械透传） */
+  sequenceNum?: number;
   /** F20260913ctlv：注入方式（目标 running 时）——steer=打断默认/followUp=排队；
    *  入口 sendMessage 按 body.mode 落 entry.metadata.injectionMode，路由时消费 */
   injectionMode?: "steer" | "followUp";
@@ -283,6 +285,7 @@ export class SignalRouter {
       signalMeta: entry.metadata?.signalMeta ?? null,
       status: entry.status ?? "completed",
       senderType: entry.senderType ?? "",
+      sequenceNum: entry.sequenceNum,
       injectionMode: entry.metadata?.injectionMode,
       markConsumed: async (action) => this.markEntrySignalConsumed(entry, action),
     };
@@ -353,6 +356,12 @@ export class SignalRouter {
           initialTargets: [otterId],
           invokeFn: (params) => this.deps.invokeFn(params),
           triggerMessageId: signal.id,
+          // F20261012swsg（#1430）：信号触发消息来源透传——安全词扫描闸只放行 user 信号，
+          // system 合成消息/scheduler 锚点不进扫描。注意 11:57 二次复现实际走的是 dispatch()
+          // 直连链（首哑告警，见 agent-invoker），非本路径——两条路径均已按来源封闸。
+          triggerSenderType: signal.senderType as SenderType,
+          triggerSequenceNum: signal.sequenceNum,
+          triggerSenderName: signal.senderName,
         });
       } catch (err) {
         this.deps.logger.error("SignalRouter invoke 失败", err instanceof Error ? err : new Error(String(err)), {

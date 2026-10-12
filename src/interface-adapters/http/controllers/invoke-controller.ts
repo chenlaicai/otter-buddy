@@ -165,6 +165,8 @@ export class InvokeController {
         senderId: "user",
         initialTargets: [otterId],
         triggerMessageId: triggerAnchor,
+        // F20261012swsg（#1430）：重试续跑指令是合成文本非用户消息——不进安全词扫描
+        triggerSenderType: "system",
         invokeFn: async (params) => {
           const r = await this.agentInvoker!.invokeConversation({
             otterId: params.otterId,

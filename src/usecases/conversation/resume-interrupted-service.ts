@@ -276,6 +276,8 @@ export class ResumeInterruptedService {
           senderId: "",
           initialTargets: [item.otterId],
           triggerMessageId: item.invokeId,
+          // F20261012swsg（#1430）：重启续跑指令是合成文本——不进安全词扫描
+          triggerSenderType: "system",
           invokeFn: captureInvokeFn,
         });
       } catch (chainErr) {

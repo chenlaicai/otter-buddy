@@ -94,12 +94,15 @@ function mockInvokeRepo(count: number) {
   } as never;
 }
 
-/** dispatch mock：记录 userMessageContent + 调用顺序入 orderLog（行为断言面，非调用次数断言） */
-function mockDispatchService(orderLog: string[], captured?: { message?: string }): AgentDispatchService {
+/** dispatch mock：记录 userMessageContent + 来源声明 + 调用顺序入 orderLog（行为断言面，非调用次数断言） */
+function mockDispatchService(orderLog: string[], captured?: { message?: string; source?: string }): AgentDispatchService {
   return {
-    dispatch: async (input: { resolvedTargets?: string[]; userMessageContent?: string }) => {
+    dispatch: async (input: { resolvedTargets?: string[]; userMessageContent?: string; triggerSenderType?: string }) => {
       orderLog.push("dispatch");
-      if (captured) captured.message = input.userMessageContent;
+      if (captured) {
+        captured.message = input.userMessageContent;
+        captured.source = input.triggerSenderType;
+      }
       return { dispatchedTo: input.resolvedTargets ?? [] };
     },
   } as unknown as AgentDispatchService;
@@ -118,6 +121,7 @@ describe("F20260916fst4 agent-invoker 首哑信号消费", () => {
   it("_firstDumb → dispatch 被调且 resolvedTargets 为大獭（alert 入队 + system entry 已发）", async () => {
     const sendEntry = mockSendEntry();
     const orderLog: string[] = [];
+    const captured: { message?: string; source?: string } = {};
     instrumentAlertEnqueue(orderLog);
     try {
       const invoker = new AgentInvoker(
@@ -132,7 +136,7 @@ describe("F20260916fst4 agent-invoker 首哑信号消费", () => {
         undefined, undefined, undefined, undefined, undefined, undefined,
         sendEntry,
         mockInvokeRepo(1),
-        mockDispatchService(orderLog),
+        mockDispatchService(orderLog, captured),
       );
 
       await invoker.invokeConversation({
@@ -147,6 +151,8 @@ describe("F20260916fst4 agent-invoker 首哑信号消费", () => {
 
       // 可观察行为 1：dispatch 被调且目标为大獭
       expect(orderLog).toContain("dispatch");
+      // 可观察行为 3（#1430 首轮严重1）：首哑合成文本显式声明 system 来源——不进安全词扫描
+      expect(captured.source).toBe("system");
       // 可观察行为 2：alert 入队（C3 通道）+ system entry（搭档可见留痕）
       expect(orderLog).toContain("enqueue");
       expect(sendEntry.store.systemBodies.some(b => b.includes("首哑告警"))).toBe(true);

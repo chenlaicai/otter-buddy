@@ -612,8 +612,15 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
 });
 
 describe("L2 安全词扫描接线（F20260826mwrd C3 Part 6）", () => {
-  /** executeChain 集成：用户消息命中「停下」→ invokeFn 收到的消息带 reminder 后缀 */
-  async function runChain(userMessage: string) {
+  /** executeChain 集成：用户消息命中「停下」→ invokeFn 收到的消息带 reminder 后缀。
+   *  F20261012swsg（#1430）：triggerSenderType 缺省 "user"（调用方显式透传才是生产语义）；
+   *  omitTriggerSource 模拟来源未透传（应不扫描）。 */
+  async function runChain(userMessage: string, opts: {
+    triggerSenderType?: "user" | "otter" | "system";
+    triggerSequenceNum?: number;
+    triggerMessageId?: string;
+    omitTriggerSource?: boolean;
+  } = {}) {
     const m = makeMocks();
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const received: string[] = [];
@@ -622,6 +629,9 @@ describe("L2 安全词扫描接线（F20260826mwrd C3 Part 6）", () => {
       userMessageContent: userMessage,
       senderId: "user-1",
       initialTargets: ["otter-1"],
+      ...(opts.omitTriggerSource ? {} : { triggerSenderType: opts.triggerSenderType ?? "user" }),
+      ...(opts.triggerSequenceNum !== undefined ? { triggerSequenceNum: opts.triggerSequenceNum } : {}),
+      ...(opts.triggerMessageId ? { triggerMessageId: opts.triggerMessageId } : {}),
       invokeFn: async (params) => {
         received.push(params.userMessageContent);
         return { messageId: "m-x" };
@@ -652,6 +662,30 @@ describe("L2 安全词扫描接线（F20260826mwrd C3 Part 6）", () => {
   it("普通消息零注入（不污染上下文）", async () => {
     const received = await runChain("帮我看下今天的行情");
     expect(received[0]).not.toContain("[L2 安全词检测]");
+  });
+
+  // F20261012swsg（#1430 假急停）：扫描闸收窄到 user 来源——非用户触发消息不进扫描
+  it("#1430 system 合成消息（案发形态：雷达 prompt 自带「停下，」）不扫描不注入", async () => {
+    const received = await runChain("若 scan.mjs 报错，先重跑一次，仍失败则发简报说明故障并停下，不要自行改脚本", { triggerSenderType: "system" });
+    expect(received).toHaveLength(1);
+    expect(received[0]).not.toContain("[L2 安全词检测]");
+    expect(received[0]).not.toContain("证据锚点");
+  });
+
+  it("#1430 otter 触发消息不扫描不注入", async () => {
+    const received = await runChain("收到「停下」，按急停执行了", { triggerSenderType: "otter" });
+    expect(received[0]).not.toContain("[L2 安全词检测]");
+  });
+
+  it("#1430 来源缺省（未透传）不扫描——漏报方向安全，退化 L1", async () => {
+    const received = await runChain("停下", { omitTriggerSource: true });
+    expect(received[0]).not.toContain("[L2 安全词检测]");
+  });
+
+  it("#1430 user 命中带机械证据锚点（msgId/seq/来源=user）且措辞保持「用户消息」", async () => {
+    const received = await runChain("停下", { triggerMessageId: "t-entry-9", triggerSequenceNum: 42 });
+    expect(received[0]).toContain("[证据: msgId=t-entry-9 seq=42 来源=user]");
+    expect(received[0]).toContain("用户消息命中安全词");
   });
 });
 

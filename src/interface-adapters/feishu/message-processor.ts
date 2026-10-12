@@ -412,6 +412,8 @@ export class FeishuMessageProcessor {
       injection,
       messageId,
       resolvedTargets,
+      // F20261012swsg（#1430）：IM 用户消息显式声明来源——安全词扫描闸放行
+      triggerSenderType: "user",
     }).then(result => {
       if (result.error) {
         this.deps.logger.error("Agent dispatch failed", undefined, {

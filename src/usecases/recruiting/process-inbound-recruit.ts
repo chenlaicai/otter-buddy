@@ -259,6 +259,8 @@ export class ProcessInboundRecruit {
       senderId: 'boss-zhipin-bridge',
       initialTargets: [bigOtterId],
       triggerMessageId,
+      // F20261012swsg（#1430）：招聘批次为 bridge 合成文本（system 来源）——不进安全词扫描
+      triggerSenderType: "system",
       invokeFn,
     });
   }
