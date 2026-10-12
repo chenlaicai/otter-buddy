@@ -155,7 +155,7 @@ describe("check-oracle 红→绿（出清删纪律语义事故重演）", () => 
   });
 });
 
-describe("check-oracle 防篡改（lock）", () => {
+describe("check-oracle 防静默篡改（lock）", () => {
   it("篡改 registry 不同步 lock → exit 2", () => {
     const root = makeFixture();
     fs.appendFileSync(path.join(root, "oracle", "invariants.json"), "\n");
@@ -163,7 +163,7 @@ describe("check-oracle 防篡改（lock）", () => {
     expect(r.status).toBe(2);
   });
 
-  it("篡改 checker 自身 → exit 2（验证脚本也在防篡改面内）", () => {
+  it("篡改 checker 自身 → exit 2（验证脚本也在防静默篡改面内）", () => {
     const root = makeFixture();
     fs.appendFileSync(path.join(root, "scripts", "check-oracle.mjs"), "\n// tampered\n");
     const r = runChecker(root);
@@ -206,7 +206,7 @@ describe("check-oracle waiver 机制", () => {
     expect(r.json.waived.map((w: any) => w.id)).toContain("dhc-no-bare-numbers");
   });
 
-  it("改 waivers 不同步 lock → exit 2（waiver 本身也在防篡改面内）", () => {
+  it("改 waivers 不同步 lock → exit 2（waiver 本身也在防静默篡改面内）", () => {
     const root = makeFixture();
     writeWaivers(root, [
       {

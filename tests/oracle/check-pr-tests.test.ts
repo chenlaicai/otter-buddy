@@ -9,7 +9,7 @@ import * as path from "node:path";
 import { execFileSync, execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 // @ts-expect-error 真实现是 .mjs 脚本（无类型声明），import 纯函数
-import { isTestPath, parseNumstat, checkDeclaration } from "../../scripts/check-pr-tests.mjs";
+import { isTestPath, isVerifyApparatusPath, parseNumstat, checkDeclaration } from "../../scripts/check-pr-tests.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const PR_TESTS = path.join(REPO_ROOT, "scripts", "check-pr-tests.mjs");
@@ -21,11 +21,12 @@ afterAll(() => {
   }
 });
 
-function makeGitRepo(kind: "test-file" | "src-file"): string {
+function makeGitRepo(kind: "test-file" | "src-file" | "apparatus-file"): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "prtests-"));
   tmpDirs.push(dir);
   execSync("git init -q && git config user.email t@t && git config user.name t", { cwd: dir });
-  const rel = kind === "test-file" ? "tests/sample.test.ts" : "src/sample.ts";
+  const rel =
+    kind === "test-file" ? "tests/sample.test.ts" : kind === "apparatus-file" ? "oracle/invariants.json" : "src/sample.ts";
   const abs = path.join(dir, rel);
   fs.mkdirSync(path.dirname(abs), { recursive: true });
   fs.writeFileSync(abs, ["line one", "expect(result).toBe(1);", "line three"].join("\n"));
@@ -81,6 +82,17 @@ describe("isTestPath / parseNumstat", () => {
     expect(isTestPath("src/a.spec.ts")).toBe(true);
     expect(isTestPath("src/main.ts")).toBe(false);
   });
+  it("验收装置路径判定（闸本体同射程）", () => {
+    expect(isVerifyApparatusPath("oracle/lock.json")).toBe(true);
+    expect(isVerifyApparatusPath("oracle/invariants.json")).toBe(true);
+    expect(isVerifyApparatusPath("scripts/check-oracle.mjs")).toBe(true);
+    expect(isVerifyApparatusPath("scripts/lint-evidence-anchors.mjs")).toBe(true);
+    expect(isVerifyApparatusPath(".githooks/pre-commit")).toBe(true);
+    expect(isVerifyApparatusPath(".github/workflows/ci.yml")).toBe(true);
+    expect(isVerifyApparatusPath(".pi/skills/adversarial-review/references/review-dimensions.md")).toBe(true);
+    expect(isVerifyApparatusPath("scripts/backup-runtime-data.mjs")).toBe(false);
+    expect(isVerifyApparatusPath("src/main.ts")).toBe(false);
+  });
   it("numstat 解析含删除行", () => {
     const rows = parseNumstat("1\t2\ttests/a.test.ts\n5\t0\tsrc/b.ts\n");
     expect(rows).toHaveLength(2);
@@ -120,5 +132,17 @@ describe("check-pr-tests 集成（真实 git diff + 真 CLI）", () => {
   it("绿：非测试文件删除 → 无需声明", () => {
     const dir = makeGitRepo("src-file");
     expect(runPrTests(dir, "").status).toBe(0);
+  });
+
+  it("红：验收装置文件（oracle/ 件套）删改无声明 → FAIL（闸本体同射程）", () => {
+    const dir = makeGitRepo("apparatus-file");
+    const r = runPrTests(dir, "");
+    expect(r.status).toBe(1);
+    expect(r.output).toContain("验收装置");
+  });
+
+  it("绿：验收装置删改带声明（方向收紧）→ PASS", () => {
+    const dir = makeGitRepo("apparatus-file");
+    expect(runPrTests(dir, "## 测试改动声明\n方向：收紧").status).toBe(0);
   });
 });
