@@ -729,6 +729,14 @@ cv.addEventListener("click", function (e) {
   var sp = hitSpot(mx, my);
   if (!sp) return;
   if (!S.started) { say("开场", "幼獭还在打盹。先点「出发」。"); return; }
+  // 战斗态（进行中/战败重生/封印中）：画布点击一律短路为提醒——防止 replay() 清空按钮区或 lakeBattle() 重入导致误触死档
+  // （#1435 检视严重1，同型先例 P1 封印门软锁死 #1427 检视严重2）
+  if (S.mode === "battle") {
+    if (B.seal) say("进行中 · 封印中", "镜湖正在等待封印。\n在下方输入「合入」两个字，完成最后一步。");
+    else if (B.over) say("重生", "这一战已经结束。\n点下方「重新挑战」再战，或先回田里看看。");
+    else say("终战进行中", "现在不是逛农场的时候。\n在下方按钮操作。");
+    return;
+  }
   if (sp.id === "lake") {
     if (S.allDone) lakeBattle();
     else say("镜湖", "湖水很静。\n灰色的倒影沉在湖底——它在等八块田全部点亮。");
@@ -956,6 +964,9 @@ function lakePreview() {
 /* ============ P2 终章 · 镜湖五段式终战 ============ */
 var B = { on:false, hp:100, mp:60, foe:100, foeTalk:0, divined:false, ally:false, allyTired:false, allyFresh:false, insight:false, shield:0, selfChain:0, turn:1, busy:false, over:false, seal:false, barrier:false };
 function lakeBattle() {
+  // S.mode 战斗生命周期单源：进战置位（"battle"）→ bEnding 清位；bLose 不清位（重生态在生命周期内，画布守卫依赖此状态）
+  // 每次进战先重置 B，防上一场残余状态（#1435 检视严重1/S1）
+  resetBattle();
   B.on = true; S.mode = "battle";
   document.getElementById("battlebar").style.display = "flex";
   document.getElementById("hint").innerHTML = "终章 · 镜湖终战 · <em>五段式</em>";
@@ -990,6 +1001,7 @@ function bTurn() {
     bSay("敌方回合", t + "沉默了 " + (lag / 1000).toFixed(1) + " 秒……\n它的招式描述越来越长，长到溢出对话框。（上下文在吃掉它）");
   }
   setTimeout(function () {
+    if (B.over || B.seal) return; // 终局已定（封印门/重生/通关）：敌方不再结算——双亡竞态守卫（#1435 检视严重2）
     var extra = B.shield > 0 ? 0 : 3;
     var dmg = 6 + Math.floor(Math.random() * 4) + extra;
     if (B.shield > 0) {
@@ -1003,6 +1015,7 @@ function bTurn() {
       bSay("敌方回合", "💥 " + t + "硬莽过来，你受到 " + dmg + " 点伤害。");
     }
     B.foeTalk++; bUpdate();
+    if (B.foe <= 0) return; // boss 已死：bWin 挂起收束——双亡时胜者优先，不再判战败（#1435 检视严重2）
     if (B.hp <= 0) { bLose(); return; }
     B.turn++; B.busy = false; bButtons();
   }, lag);
