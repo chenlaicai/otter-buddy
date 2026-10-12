@@ -5,42 +5,92 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>獭之传说 · 海藻农场</title>
 <style>
-  :root { --bg:#0d1524; --panel:#15203010; --line:#2a3a52; --text:#e6eef8; --dim:#8fa3ba; --accent:#5fd6ae; --purple:#957ff0; }
+  :root {
+    --bg:#0d1524; --bg-deep:#04070d; --panel:#152030; --panel-deep:#0a1220;
+    --line:#2a3a52; --line-hi:#3d5170; --text:#e6eef8; --dim:#8fa3ba;
+    --accent:#5fd6ae; --accent-hi:#7ee8c4; --accent-ink:#06231a;
+    --purple:#957ff0; --danger:#c96a5a;
+  }
   * { margin:0; padding:0; box-sizing:border-box; }
   html,body { background:var(--bg); color:var(--text); font-family:ui-monospace,Menlo,monospace; }
-  body { min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:14px 10px 40px; }
+  body {
+    min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:14px 10px 40px;
+    background-image:radial-gradient(1300px 460px at 50% -8%, rgba(36,64,95,.42) 0%, rgba(13,21,36,0) 72%);
+  }
   .frame { width:100%; max-width:760px; }
-  .topbar { display:flex; justify-content:space-between; align-items:center; padding:2px 2px 10px; }
-  .brand { font-size:13px; color:var(--dim); }
-  .brand b { color:var(--text); }
-  .skip { font-size:12px; color:var(--dim); text-decoration:none; border-bottom:1px dashed var(--line); }
-  .skip:hover { color:var(--accent); }
-  .screen-wrap { position:relative; border:3px solid var(--line); border-radius:10px; overflow:hidden; background:#0a1220; box-shadow:0 8px 40px rgba(0,0,0,.5); }
-  canvas#screen { display:block; width:100%; image-rendering:pixelated; }
-  hint-chip { position:absolute; top:8px; left:8px; font-size:11px; background:rgba(10,18,32,.85); border:1px solid var(--line); padding:4px 10px; border-radius:6px; color:var(--dim); pointer-events:none; }
-  .hint-chip em { color:var(--accent); font-style:normal; }
-  .hpbar { margin-top:10px; display:flex; gap:16px; align-items:center; font-size:12px; }
-  .hpbar .bar { position:relative; width:140px; height:10px; background:#0a1220; border:1px solid var(--line); border-radius:5px; overflow:hidden; }
-  .hpbar .bar i { position:absolute; inset:0; background:var(--accent); transition:width .3s; }
-  .hpbar .bar.foe i { background:#c96a5a; }
-  .hpbar .bar .shield { position:absolute; top:0; bottom:0; right:0; background:rgba(149,127,240,.55); }
-  .battle-acts { margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; }
-  .dialog { margin-top:12px; border:3px solid var(--line); border-radius:10px; background:#152030; padding:12px 14px; min-height:116px; position:relative; }
-  .dialog .tag { position:absolute; top:-10px; left:12px; font-size:11px; background:#152030; border:1px solid var(--line); border-radius:4px; padding:2px 8px; color:var(--accent); letter-spacing:.1em; }
-  .dialog .say { font-size:13.5px; line-height:1.85; white-space:pre-wrap; }
-  .dialog .say.dim { color:var(--dim); font-size:12px; }
-  .dialog .mapline { margin-top:8px; padding:7px 10px; border-left:3px solid var(--purple); background:rgba(149,127,240,.08); font-size:12px; border-radius:0 6px 6px 0; }
-  .actions { margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-  .btn { padding:9px 18px; border-radius:8px; border:2px solid var(--accent); background:rgba(95,214,174,.12); color:var(--text); font-family:inherit; font-size:13px; cursor:pointer; }
-  .btn:hover { background:rgba(95,214,174,.3); }
-  .btn.ghost { border-color:var(--line); background:none; color:var(--dim); }
+  .topbar { display:flex; justify-content:space-between; align-items:baseline; padding:2px 2px 12px; gap:12px; }
+  .brand { font-size:13px; color:var(--dim); letter-spacing:.02em; }
+  .brand b { color:var(--text); font-weight:700; }
+  .skip { font-size:12px; color:var(--dim); text-decoration:none; border-bottom:1px dashed var(--line-hi); padding-bottom:1px; white-space:nowrap; }
+  .skip:hover { color:var(--accent); border-bottom-color:var(--accent); }
+  .screen-wrap {
+    position:relative; border:3px solid var(--line-hi); border-radius:10px; overflow:hidden;
+    background:#0a1220; box-shadow:0 6px 0 var(--bg-deep), 0 0 0 1px var(--bg-deep), 0 20px 50px rgba(0,0,0,.5);
+  }
+  /* P4：内部分辨率 960×540（逻辑 480×270 ×2），平滑缩放——pixelated 降采样会产生抽行锯齿 */
+  canvas#screen { display:block; width:100%; image-rendering:auto; }
+  .hint-chip {
+    position:absolute; top:10px; left:10px; font-size:11.5px; background:rgba(4,7,13,.92);
+    border:1px solid var(--line-hi); border-left:3px solid var(--accent); padding:5px 12px;
+    border-radius:0 6px 6px 0; color:var(--dim); pointer-events:none; letter-spacing:.03em;
+    box-shadow:0 2px 10px rgba(0,0,0,.45);
+  }
+  .hint-chip em { color:var(--accent); font-style:normal; font-weight:700; }
+  .dialog {
+    margin-top:20px; border:3px solid var(--line-hi); border-radius:10px; background:var(--panel);
+    padding:16px 18px 14px; min-height:116px; position:relative; box-shadow:0 5px 0 var(--bg-deep);
+  }
+  .dialog .tag {
+    position:absolute; top:-12px; left:14px; font-size:11.5px; background:var(--accent);
+    color:var(--accent-ink); border-radius:5px; padding:3px 10px; font-weight:700; letter-spacing:.12em;
+    box-shadow:0 2px 0 var(--bg-deep);
+  }
+  .dialog .say { font-size:14.5px; line-height:1.85; white-space:pre-wrap; color:#eef4fb; }
+  .dialog .say.dim { color:var(--dim); font-size:12.5px; line-height:1.7; margin-top:6px; }
+  .dialog .mapline {
+    margin-top:10px; padding:8px 12px; border:1px solid rgba(149,127,240,.35); border-left:4px solid var(--purple);
+    background:rgba(149,127,240,.10); font-size:12.5px; line-height:1.7; border-radius:0 6px 6px 0; color:#ddd7fb;
+  }
+  .actions { margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .btn {
+    padding:10px 18px; border-radius:6px; border:2px solid var(--bg-deep);
+    background:var(--accent); color:var(--accent-ink); font-family:inherit; font-size:14px;
+    font-weight:700; cursor:pointer; box-shadow:3px 3px 0 var(--bg-deep);
+    transition:transform .06s ease, box-shadow .06s ease, background-color .12s ease;
+  }
+  .btn:hover { background:var(--accent-hi); transform:translate(-1px,-1px); box-shadow:4px 4px 0 var(--bg-deep); }
+  .btn:active { transform:translate(2px,2px); box-shadow:1px 1px 0 var(--bg-deep); }
+  .btn:focus-visible { outline:2px solid var(--purple); outline-offset:2px; }
+  .btn.ghost { border-color:var(--line-hi); background:#131e33; color:var(--dim); font-weight:400; }
+  .btn.ghost:hover { background:#1a2846; color:var(--text); transform:none; box-shadow:3px 3px 0 var(--bg-deep); }
   .merge { display:flex; gap:8px; align-items:center; }
-  .merge input { background:#0a1220; border:2px solid var(--line); color:var(--text); padding:8px 12px; border-radius:8px; font-family:inherit; font-size:13px; width:150px; outline:none; }
-  .merge input:focus { border-color:var(--accent); }
-  .merge input.err { border-color:#c96a5a; }
-  .statusbar { margin-top:10px; display:flex; align-items:center; gap:10px; font-size:12px; color:var(--dim); }
-  .statusbar .bag { display:flex; gap:4px; font-size:15px; min-width:20px; }
-  .statusbar .who { color:var(--text); }
+  .merge input {
+    background:var(--bg-deep); border:2px solid var(--line-hi); color:var(--text); padding:9px 12px;
+    border-radius:6px; font-family:inherit; font-size:14px; width:160px; outline:none;
+    transition:border-color .12s ease, box-shadow .12s ease;
+  }
+  .merge input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(95,214,174,.18); }
+  .merge input.err { border-color:var(--danger); animation:nudge .18s ease-in-out 2; }
+  @keyframes nudge { 0%,100% { transform:translateX(0); } 25% { transform:translateX(-3px); } 75% { transform:translateX(3px); } }
+  .statusbar {
+    margin-top:14px; padding-top:10px; border-top:1px dashed var(--line);
+    display:flex; align-items:center; gap:10px; font-size:12px; color:var(--dim);
+  }
+  .statusbar .bag { display:flex; gap:5px; font-size:15px; min-width:20px; }
+  .statusbar .bag span { background:var(--panel-deep); border:1px solid var(--line); border-radius:4px; padding:1px 4px; }
+  .statusbar .who { color:var(--text); font-weight:700; }
+  .hpbar {
+    margin-top:12px; display:flex; gap:16px; align-items:center; font-size:12px;
+    background:#101b2e; border:2px solid var(--line-hi); border-radius:8px; padding:9px 14px;
+    box-shadow:0 4px 0 var(--bg-deep);
+  }
+  .hpbar .bar { position:relative; width:150px; height:14px; background:#060b14; border:2px solid var(--bg-deep); border-radius:3px; overflow:hidden; }
+  .hpbar .bar i {
+    position:absolute; inset:0; background-color:var(--accent); transition:width .3s;
+    background-image:repeating-linear-gradient(90deg, rgba(4,7,13,.32) 0 2px, rgba(0,0,0,0) 2px 12px);
+  }
+  .hpbar .bar.foe i { background-color:#c96a5a; }
+  .hpbar .bar .shield { position:absolute; top:0; bottom:0; right:0; background:rgba(149,127,240,.55); border-left:2px solid #b9a9ff; }
 </style>
 </head>
 <body>
@@ -50,7 +100,7 @@
     <a class="skip" href="https://github.com/chenlaicai/otter-buddy" target="_blank" rel="noopener">跳过游戏看 README ↗</a>
   </div>
   <div class="screen-wrap">
-    <canvas id="screen" width="480" height="270"></canvas>
+    <canvas id="screen" width="960" height="540"></canvas>
     <div class="hint-chip" id="hint">8 个点位 · 约 3 分钟 · <em>发光处可交互</em></div>
   </div>
   <div class="dialog" id="dialog">
@@ -71,15 +121,23 @@
 (function () {
 "use strict";
 /* ============================================================
-   獭之传说·海藻农场 P1 —— 16×16 tile 精绘像素版 · 8 点位全量
-   分辨率 480×270（30×17 tiles）。三层着色纪律：
-   轮廓（最暗）→ 本体（中间调）→ 高光（最亮）。
+   獭之传说·海藻农场 P4 —— 16×16 tile 精绘像素版 · 8 点位全量
+   逻辑分辨率 480×270（30×17 tiles）· 物理分辨率 960×540（P4 内部分辨率翻倍）。
+   三层着色纪律：轮廓（最暗）→ 本体（中间调）→ 高光（最亮）。
    架构：静态层预烘焙（状态变更时 rebake，帧循环只画动画）
    + SPOTS 元数据统一（w/h 单源驱动热区/光环/标签）。
+   P4：ctx/sctx 统一 setTransform(2,2)——绘制代码全在逻辑坐标系不变，
+   文字/线条物理像素 ×2（7px 中文马赛克根因修复），显示层平滑缩放。
    ============================================================ */
 var cv = document.getElementById("screen");
 var ctx = cv.getContext("2d");
 var W = 480, H = 270, T = 16;
+var RS = 2; // 物理分辨率倍率（P4）：逻辑坐标 × RS = 画布实际像素
+ctx.setTransform(RS, 0, 0, RS, 0, 0);
+/* P4 标签/浮字字体：bold 10px（原 7px 中文在任何分辨率下都糊）——
+   物理像素 = 10×RS = 20，含 CJK 字体栈保证中文走系统字形而非 fallback */
+var FONT = "bold 10px ui-monospace, Menlo, PingFang SC, Microsoft YaHei, monospace";
+var FONT_S = "9px ui-monospace, Menlo, PingFang SC, Microsoft YaHei, monospace";
 
 /* ---------- 调色板（夜色调，参考星露谷夜色：冷蓝底+暖光点缀） ---------- */
 var P = {
@@ -453,8 +511,9 @@ function pushSparkle(x, y, n) {
 
 /* ---------- 静态层预烘焙（发现3：状态变更 rebake，帧循环只画动画） ---------- */
 var staticCv = document.createElement("canvas");
-staticCv.width = W; staticCv.height = H;
+staticCv.width = W * RS; staticCv.height = H * RS;
 var sctx = staticCv.getContext("2d");
+sctx.setTransform(RS, 0, 0, RS, 0, 0);
 function bake() {
   var keep = ctx; ctx = sctx;
   sctx.clearRect(0, 0, W, H);
@@ -463,22 +522,44 @@ function bake() {
   drawLakeBase();
   drawPlots();
   drawObjects();
+  drawVignette(); // P4：暗角收束视线（在对象层之上、标签层之下——标签保持最亮）
   drawLabels();
   ctx = keep;
   S.dirty = false;
 }
 
 /* ---------- 场景绘制（静态基底层） ---------- */
+function lerpHex(c1, c2, t) {
+  function v(c) { return [parseInt(c.substr(1, 2), 16), parseInt(c.substr(3, 2), 16), parseInt(c.substr(5, 2), 16)]; }
+  var a = v(c1), b = v(c2);
+  return "rgb(" + Math.round(a[0] + (b[0] - a[0]) * t) + ","
+    + Math.round(a[1] + (b[1] - a[1]) * t) + ","
+    + Math.round(a[2] + (b[2] - a[2]) * t) + ")";
+}
 function drawSkyBase() {
-  rect(0, 0, W, 24, P.sky0);
-  rect(0, 24, W, 22, P.sky1);
-  rect(0, 46, W, 20, P.sky2);
-  rect(0, 66, W, 12, P.sky3);
-  var mx0 = 60, my0 = 18;
-  ctx.fillStyle = P.moonGlow; ctx.fillRect(mx0 - 12, my0 - 12, 28, 28);
+  // P4：4 档硬边色带 → 13 级量化渐变（夜空纵深，仍是整像素行、不糊）
+  var steps = 13, skyH = 78;
+  for (var i = 0; i < steps; i++) {
+    var y0 = Math.floor(i * skyH / steps), y1 = Math.floor((i + 1) * skyH / steps);
+    rect(0, y0, W, y1 - y0, lerpHex(P.sky0, P.sky3, i / (steps - 1)));
+  }
+  // 月晕：径向渐变（原 fillRect 半透明方块在分辨率翻倍后可见方形硬边）
+  // P4 位置：60→200——hint-chip 修复后可见，占位左上角会盖住月亮
+  var mx0 = 200, my0 = 16, mcx = mx0 + 5, mcy = my0 + 5;
+  var mg = ctx.createRadialGradient(mcx, mcy, 3, mcx, mcy, 26);
+  mg.addColorStop(0, "rgba(245,240,220,0.32)");
+  mg.addColorStop(0.45, "rgba(245,240,220,0.10)");
+  mg.addColorStop(1, "rgba(245,240,220,0)");
+  ctx.fillStyle = mg; ctx.fillRect(mcx - 26, mcy - 26, 52, 52);
   rect(mx0, my0, 10, 10, P.moon);
   rect(mx0 + 1, my0 + 1, 8, 8, P.moonHi);
   px(mx0 + 3, my0 + 3, P.moon); px(mx0 + 6, my0 + 5, P.moon); px(mx0 + 4, my0 + 7, P.moon);
+}
+function drawVignette() { // P4：暗角——视觉动线收束到场景中心，边缘田块微沉
+  var g = ctx.createRadialGradient(W / 2, H / 2 + 8, 130, W / 2, H / 2 + 8, 300);
+  g.addColorStop(0, "rgba(4,8,16,0)");
+  g.addColorStop(1, "rgba(4,8,16,0.38)");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
 }
 function drawGroundBase() {
   for (var ty = 0; ty * T < H - 76; ty++) for (var tx0 = 0; tx0 * T < W; tx0++) {
@@ -498,8 +579,13 @@ function drawGroundBase() {
 }
 function drawLakeBase() {
   var lx = 376, ly = 8, lw = 96, lh = 68;
+  // P4：三边暗沿柔化硬矩形切割（原仅底边有草沿，左/上/右是生硬直线）
+  ctx.fillStyle = P.shadow;
+  ctx.fillRect(lx - 3, ly - 3, lw + 6, 3);
+  ctx.fillRect(lx - 3, ly, 3, lh);
+  ctx.fillRect(lx + lw, ly, 3, lh);
   ctx.fillStyle = P.grassDk; ctx.fillRect(lx - 4, ly + lh - 4, lw + 8, 8);
-  drawSeedboxSign(lx + 40, ly + lh + 2);
+  drawSeedboxSign(lx + 8, ly + lh + 2); // 岸牌左移：给镜湖标签（labelBelow）让出中心位
 }
 /* ---------- 场景绘制（状态相关层，进 bake） ---------- */
 function isLit(sp) {
@@ -560,22 +646,33 @@ function drawObjects() {
   px(lbx, lby, P.ladybug); px(lbx + 1, lby, P.ladybugDk);
 }
 function drawLabels() {
-  ctx.font = "7px monospace"; ctx.textAlign = "center";
+  ctx.font = FONT; ctx.textAlign = "center";
+  // P4 可读性：3px 暗色描边光晕（标签压在草地纹理上，对比度靠描边拉平）
+  ctx.lineJoin = "round"; ctx.lineWidth = 3;
+  ctx.strokeStyle = "rgba(4,7,13,0.9)";
   for (var i = 0; i < SPOTS.length; i++) {
     var sp = SPOTS[i];
     var on = isLit(sp);
-    var ly = sp.labelBelow ? sp.y + sp.h + 12 : sp.y - 5;
+    var ly = sp.labelBelow ? sp.y + sp.h + 14 : sp.y - 5;
     var lx = sp.x + sp.w / 2;
-    ctx.fillStyle = on ? "#5fd6ae" : "rgba(143,163,186,0.55)";
-    ctx.fillText(on ? sp.name : "???", lx, ly);
-    if (S.done[sp.id]) { ctx.fillStyle = "#5fd6ae"; ctx.fillText("✓", lx + (sp.name.length * 7) / 2 + 5, ly); }
+    var txt = on ? sp.name : "???";
+    ctx.strokeText(txt, lx, ly);
+    ctx.fillStyle = on ? "#5fd6ae" : "rgba(143,163,186,0.7)";
+    ctx.fillText(txt, lx, ly);
+    if (S.done[sp.id]) {
+      // P4：✓ 位置改 measureText 实测宽度（原 length×7 是 7px 等宽估算，字重/字号一变就叠字）
+      var tw = ctx.measureText(txt).width;
+      ctx.strokeText("✓", lx + tw / 2 + 7, ly);
+      ctx.fillStyle = "#5fd6ae";
+      ctx.fillText("✓", lx + tw / 2 + 7, ly);
+    }
   }
-  ctx.textAlign = "left";
+  ctx.textAlign = "left"; ctx.lineJoin = "miter"; ctx.lineWidth = 1;
 }
 
 /* ---------- 动画层（每帧绘制，量级 ~1k draw calls） ---------- */
 function drawStars() {
-  var stars = [[16,10],[42,30],[80,8],[130,22],[170,40],[210,12],[260,30],[330,8],[370,26],[430,18],[455,38],[100,48],[300,50]];
+  var stars = [[16,10],[42,30],[80,8],[130,22],[170,40],[244,10],[260,30],[330,8],[370,26],[430,18],[455,38],[100,48],[300,50]];
   for (var i = 0; i < stars.length; i++) {
     var tw = Math.floor((S.tick / 30 + i * 3) % 6);
     px(stars[i][0], stars[i][1], tw < 2 ? P.star : P.starDim);
@@ -630,7 +727,7 @@ function drawHelpers() { // 协作点位完成后：帮工獭 + 429 轮换 zZz
   drawSpr("helper2", 146, 220);
   var sleeping = Math.floor(S.tick / 90) % 2; // 0=蓝围巾睡 1=绿围巾睡
   var zx = sleeping === 0 ? 98 : 152, zy = sleeping === 0 ? 210 : 216;
-  ctx.font = "7px monospace"; ctx.fillStyle = "#8fa3ba";
+  ctx.font = FONT_S; ctx.fillStyle = "#8fa3ba";
   ctx.fillText("zZz", zx, zy - Math.floor(S.tick / 12) % 3);
 }
 function drawMagnifier() { // 老农验田演出（act 阶段）
@@ -699,9 +796,12 @@ function drawGlowRing() {
 function drawFloatsAndSparkles() {
   for (var i = S.floats.length - 1; i >= 0; i--) {
     var f = S.floats[i];
-    ctx.font = "8px monospace"; ctx.fillStyle = "#ffd97a"; ctx.textAlign = "center";
-    ctx.fillText(f.txt, f.x, f.y - f.age * 0.3);
-    ctx.textAlign = "left";
+    ctx.font = FONT; ctx.textAlign = "center";
+    ctx.lineJoin = "round"; ctx.lineWidth = 3; ctx.strokeStyle = "rgba(4,7,13,0.85)";
+    var fy = Math.round(f.y - f.age * 0.3);
+    ctx.strokeText(f.txt, f.x, fy);
+    ctx.fillStyle = "#ffd97a"; ctx.fillText(f.txt, f.x, fy);
+    ctx.textAlign = "left"; ctx.lineJoin = "miter"; ctx.lineWidth = 1;
     if (++f.age > 70) S.floats.splice(i, 1);
   }
   for (var j = S.sparkles.length - 1; j >= 0; j--) {
@@ -729,7 +829,7 @@ function render() {
   S.tick++;
   if (S.dirty) bake();
   ctx.clearRect(0, 0, W, H);
-  ctx.drawImage(staticCv, 0, 0);
+  ctx.drawImage(staticCv, 0, 0, W, H); // 源 960×540 → 逻辑 480×270（设备像素 1:1，零插值）
   drawStars();
   drawKelpFar(10, 78, 14); drawKelpFar(150, 78, 11); drawKelpFar(320, 78, 13);
   drawLakeWater();
@@ -967,6 +1067,8 @@ function labHarvest() {
   }
   btn.onclick = tryMerge;
   inp.addEventListener("keydown", function (e) { if (e.key === "Enter") tryMerge(); });
+  // P4 交互反馈：重新输入即清除错误态（原 err 类/错误提示占位符一旦挂上就永不复位）
+  inp.addEventListener("input", function () { inp.classList.remove("err"); inp.placeholder = "输入「合入」"; });
   wrap.appendChild(inp); wrap.appendChild(btn); box.appendChild(wrap);
   inp.focus();
 }
@@ -1128,6 +1230,8 @@ function bWin() {
   }
   btn.onclick = trySeal;
   inp.addEventListener("keydown", function (e) { if (e.key === "Enter") trySeal(); });
+  // P4 交互反馈：重新输入即清除错误态（同试验田封印门）
+  inp.addEventListener("input", function () { inp.classList.remove("err"); inp.placeholder = "输入封印咒语……"; });
   wrap.appendChild(inp); wrap.appendChild(btn); box.appendChild(wrap);
   inp.focus();
 }
