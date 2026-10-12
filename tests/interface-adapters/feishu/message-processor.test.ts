@@ -15,6 +15,7 @@ function makeMocks() {
     mentionFeedback: null,
   });
   const getUserName = vi.fn();
+  const getChatMemberNames = vi.fn();
   const broadcast = vi.fn().mockResolvedValue(undefined);
 
   const deps = {
@@ -31,12 +32,12 @@ function makeMocks() {
     } as unknown as import("@usecases/conversation/send-entry").SendEntry,
     commandDispatcher: {} as unknown as CommandDispatcher,
     feishuGateway: { replyText: vi.fn() } as unknown as FeishuGateway,
-    feishuUserInfo: { getUserName } as unknown as FeishuUserInfoGateway,
+    feishuUserInfo: { getUserName, getChatMemberNames } as unknown as FeishuUserInfoGateway,
     agentDispatchService: { dispatch: vi.fn().mockResolvedValue({}) } as unknown as AgentDispatchService,
     messageBroadcaster: { broadcast, broadcastEvent: vi.fn() } as unknown as MessageBroadcaster,
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger,
   };
-  return { deps, send, getUserName, broadcast };
+  return { deps, send, getUserName, getChatMemberNames, broadcast };
 }
 
 describe("FeishuMessageProcessor senderName 快照（F20260826fuid）", () => {
@@ -63,6 +64,43 @@ describe("FeishuMessageProcessor senderName 快照（F20260826fuid）", () => {
     expect(input.senderDisplayName).toBe("飞书·b2d82e");
     expect(input.body).toBe("你好"); // 正文无前缀污染
     expect(m.send.mock.calls.length).toBe(1);
+  });
+
+  it("chat members 映射命中真名时优先用真名，contact 脱敏（null）不再退化兜底（F20261012cmmn）", async () => {
+    const m = makeMocks();
+    // 复刻实测现场：chat members 接口返回真名，contact users 接口 code 0 但无 name（脱敏）
+    m.getChatMemberNames.mockResolvedValue(new Map([["ou_fd591d5e8545150e06d6aa7b5cb2d82e", "陈绍国"]]));
+    m.getUserName.mockResolvedValue(null);
+    const processor = new FeishuMessageProcessor(m.deps);
+
+    await processor.process({ chatId: "oc_e1e114c7", text: "hi", senderId: "ou_fd591d5e8545150e06d6aa7b5cb2d82e", messageId: "om_1" });
+
+    const input = m.send.mock.calls[0][0] as { senderDisplayName?: string | null };
+    expect(input.senderDisplayName).toBe("陈绍国");
+  });
+
+  it("chat members 未命中发言人时退回 contact 查询链（F20261012cmmn）", async () => {
+    const m = makeMocks();
+    m.getChatMemberNames.mockResolvedValue(new Map([["ou_other", "李四"]]));
+    m.getUserName.mockResolvedValue("王五");
+    const processor = new FeishuMessageProcessor(m.deps);
+
+    await processor.process({ chatId: "oc_1", text: "hi", senderId: "ou_zhangsan", messageId: "om_1" });
+
+    const input = m.send.mock.calls[0][0] as { senderDisplayName?: string | null };
+    expect(input.senderDisplayName).toBe("王五");
+  });
+
+  it("chat members 查询抛异常时降级 contact 链，不阻塞消息（F20261012cmmn）", async () => {
+    const m = makeMocks();
+    m.getChatMemberNames.mockRejectedValue(new Error("chat api down"));
+    m.getUserName.mockResolvedValue("张三");
+    const processor = new FeishuMessageProcessor(m.deps);
+
+    await processor.process({ chatId: "oc_1", text: "hi", senderId: "ou_zhangsan", messageId: "om_1" });
+
+    const input = m.send.mock.calls[0][0] as { senderDisplayName?: string | null };
+    expect(input.senderDisplayName).toBe("张三");
   });
 
   it("网关抛异常时不阻塞消息处理（可读兜底降级，F20261010fspm）", async () => {

@@ -46,7 +46,7 @@ function makeDeps() {
       agentDispatchService: { dispatch: vi.fn().mockResolvedValue({}) } as never,
       messageBroadcaster: { broadcastEvent: vi.fn() } as never,
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as never,
-      feishuUserInfo: { getUserName: vi.fn().mockResolvedValue("朵朵") } as never,
+      feishuUserInfo: { getUserName: vi.fn().mockResolvedValue("朵朵"), getChatMemberNames: vi.fn().mockResolvedValue(null) } as never,
     } as never,
     manageConnection, assistantSession, sentEntries, noted, entered,
   };
