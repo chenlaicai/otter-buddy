@@ -21,6 +21,15 @@ import type { FeishuAccessTokenManager } from "./access-token-manager";
  */
 const USER_ENDPOINT = "https://open.feishu.cn/open-apis/contact/v3/users/";
 
+/**
+ * F20261012cmmn：聊天成员接口（im:chat.members:read，#1426 已随扫码注入）。
+ * 选它做发言人姓名主数据源的原因：contact/v3/users 对授权范围外用户返回
+ * 脱敏对象（code 0 但无 name），而本接口直接返回成员 name（2026-10-12 实测）。
+ */
+const CHAT_MEMBERS_ENDPOINT = "https://open.feishu.cn/open-apis/im/v1/chats/";
+/** 翻页防御上限：飞书单页 100 人，20 页 = 2000 成员，远超真实会话规模 */
+const CHAT_MEMBERS_MAX_PAGES = 20;
+
 /** 缓存 TTL：飞书姓名变更低频，10 分钟足够 */
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -29,10 +38,19 @@ interface CacheEntry {
   fetchedAt: number;
 }
 
+interface ChatMembersCacheEntry {
+  names: Map<string, string>;
+  fetchedAt: number;
+}
+
 export class FeishuUserInfoClient implements FeishuUserInfoGateway {
   private readonly cache = new Map<string, CacheEntry>();
   /** 在途请求表：open_id → 未决请求。同步段写入，并发调用者在 fetch 出网前即可复用 */
   private readonly inflight = new Map<string, Promise<string | null>>();
+  /** F20261012cmmn：chat_id → 成员映射缓存（与 open_id 缓存同 TTL 语义） */
+  private readonly chatMembersCache = new Map<string, ChatMembersCacheEntry>();
+  /** F20261012cmmn：chat_id → 在途请求，合并同 chat 并发（与 inflight 同构） */
+  private readonly chatMembersInflight = new Map<string, Promise<Map<string, string> | null>>();
 
   constructor(
     private readonly tokenManager: FeishuAccessTokenManager,
@@ -57,6 +75,82 @@ export class FeishuUserInfoClient implements FeishuUserInfoGateway {
     });
     this.inflight.set(openId, request);
     return request;
+  }
+
+  /** F20261012cmmn：chat_id → 成员 id→姓名 映射。缓存/在途合并语义与 getUserName
+   *  同构；失败返回 null 不缓存（可重试），空成员表缓存空 Map（有效数据）。 */
+  async getChatMemberNames(chatId: string): Promise<Map<string, string> | null> {
+    if (!chatId) return null;
+
+    const cached = this.chatMembersCache.get(chatId);
+    if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+      return cached.names;
+    }
+
+    const existing = this.chatMembersInflight.get(chatId);
+    if (existing) return existing;
+
+    // Why: finally 清表而非 then —— 与 getUserName 同理，失败结果不得驻留在途表
+    const request = this.fetchChatMemberNames(chatId).finally(() => {
+      this.chatMembersInflight.delete(chatId);
+    });
+    this.chatMembersInflight.set(chatId, request);
+    return request;
+  }
+
+  private async fetchChatMemberNames(chatId: string): Promise<Map<string, string> | null> {
+    try {
+      const token = await this.tokenManager.getAccessToken();
+      const names = new Map<string, string>();
+      let pageToken = "";
+
+      for (let page = 0; page < CHAT_MEMBERS_MAX_PAGES; page++) {
+        const next = await this.fetchChatMembersPage(chatId, token, pageToken, names);
+        if (next === null) return null; // 业务失败：不缓存，可重试
+        if (next === "") break; // 无更多页
+        pageToken = next;
+      }
+
+      this.chatMembersCache.set(chatId, { names, fetchedAt: Date.now() });
+      this.logger.info("Feishu chat members resolved", { chatId, count: names.size });
+      return names;
+    } catch (err) {
+      this.logger.warn("Feishu chat members request error", { chatId, error: err instanceof Error ? err.message : String(err) });
+      return null;
+    }
+  }
+
+  /** 拉一页成员并合并进 names。
+   *  @returns 下一页 page_token；无更多页返回 ""；业务失败返回 null */
+  private async fetchChatMembersPage(
+    chatId: string,
+    token: string,
+    pageToken: string,
+    names: Map<string, string>,
+  ): Promise<string | null> {
+    const url = `${CHAT_MEMBERS_ENDPOINT}${encodeURIComponent(chatId)}/members`
+      + `?member_id_type=open_id&page_size=100${pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : ""}`;
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const data = (await response.json()) as {
+      code: number;
+      msg: string;
+      data?: {
+        items?: Array<{ member_id?: string; name?: string }>;
+        has_more?: boolean;
+        page_token?: string;
+      };
+    };
+
+    if (data.code !== 0) {
+      this.logger.warn("Feishu chat members query failed", { chatId, code: data.code, msg: data.msg });
+      return null;
+    }
+
+    for (const item of data.data?.items ?? []) {
+      if (item.member_id && item.name) names.set(item.member_id, item.name);
+    }
+
+    return data.data?.has_more && data.data.page_token ? data.data.page_token : "";
   }
 
   private async fetchUserName(openId: string): Promise<string | null> {
