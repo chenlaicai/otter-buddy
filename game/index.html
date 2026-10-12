@@ -17,8 +17,14 @@
   .skip:hover { color:var(--accent); }
   .screen-wrap { position:relative; border:3px solid var(--line); border-radius:10px; overflow:hidden; background:#0a1220; box-shadow:0 8px 40px rgba(0,0,0,.5); }
   canvas#screen { display:block; width:100%; image-rendering:pixelated; }
-  .hint-chip { position:absolute; top:8px; left:8px; font-size:11px; background:rgba(10,18,32,.85); border:1px solid var(--line); padding:4px 10px; border-radius:6px; color:var(--dim); pointer-events:none; }
+  hint-chip { position:absolute; top:8px; left:8px; font-size:11px; background:rgba(10,18,32,.85); border:1px solid var(--line); padding:4px 10px; border-radius:6px; color:var(--dim); pointer-events:none; }
   .hint-chip em { color:var(--accent); font-style:normal; }
+  .hpbar { margin-top:10px; display:flex; gap:16px; align-items:center; font-size:12px; }
+  .hpbar .bar { position:relative; width:140px; height:10px; background:#0a1220; border:1px solid var(--line); border-radius:5px; overflow:hidden; }
+  .hpbar .bar i { position:absolute; inset:0; background:var(--accent); transition:width .3s; }
+  .hpbar .bar.foe i { background:#c96a5a; }
+  .hpbar .bar .shield { position:absolute; top:0; bottom:0; right:0; background:rgba(149,127,240,.55); }
+  .battle-acts { margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; }
   .dialog { margin-top:12px; border:3px solid var(--line); border-radius:10px; background:#152030; padding:12px 14px; min-height:116px; position:relative; }
   .dialog .tag { position:absolute; top:-10px; left:12px; font-size:11px; background:#152030; border:1px solid var(--line); border-radius:4px; padding:2px 8px; color:var(--accent); letter-spacing:.1em; }
   .dialog .say { font-size:13.5px; line-height:1.85; white-space:pre-wrap; }
@@ -55,6 +61,10 @@
   </div>
   <div class="actions" id="actions"></div>
   <div class="statusbar"><span>🦦</span><span class="who" id="who">一只一无所有的幼獭</span><span style="flex:1"></span><span>背包</span><span class="bag" id="bag"></span></div>
+<div class="hpbar" id="battlebar" style="display:none">
+  <span>🦦 幼獭</span><div class="bar"><i id="hpSelf" style="width:100%"></i><div class="shield" id="shSelf" style="width:0"></div></div>
+  <span>🐲 过去的大獭</span><div class="bar foe"><i id="hpFoe" style="width:100%"></i></div>
+</div>
 </div>
 
 <script>
@@ -720,7 +730,7 @@ cv.addEventListener("click", function (e) {
   if (!sp) return;
   if (!S.started) { say("开场", "幼獭还在打盹。先点「出发」。"); return; }
   if (sp.id === "lake") {
-    if (S.allDone) lakePreview();
+    if (S.allDone) lakeBattle();
     else say("镜湖", "湖水很静。\n灰色的倒影沉在湖底——它在等八块田全部点亮。");
     return;
   }
@@ -941,6 +951,153 @@ function lakePreview() {
   say("终章预告 · 镜湖", "湖面泛起涟漪。水里那只更大的、灰色的獭抬起了头。\n它不记得任何事，也不相信任何獭——它是没遇到过你的、过去的自己。", "终战将至（P2）。带上你的八件能力：记忆、检索、上下文、封存、自愈、协作、审视、隔离合入。",
     "这八件事，otter-buddy 每天都在做。接下来，用它打一场硬仗。");
   actions([]);
+}
+
+/* ============ P2 终章 · 镜湖五段式终战 ============ */
+var B = { on:false, hp:100, mp:60, foe:100, foeTalk:0, divined:false, ally:false, allyTired:false, allyFresh:false, insight:false, shield:0, selfChain:0, turn:1, busy:false, over:false, seal:false, barrier:false };
+function lakeBattle() {
+  B.on = true; S.mode = "battle";
+  document.getElementById("battlebar").style.display = "flex";
+  document.getElementById("hint").innerHTML = "终章 · 镜湖终战 · <em>五段式</em>";
+  playerWalk([400, 92], 2);
+  say("终章 · 镜湖", "🌫️ 水面没有倒影——或者说，倒影自己站了起来。\n\n「过去的大獭」从镜中走出：拒绝记忆、拒绝同伴、凡事硬莽的你。\n\n它 100 HP，眼神里全是你曾经的自信。", "图鉴提示：🔮 先占卜，永远不会错。", null);
+  bButtons();
+  markDirty();
+}
+function bSay(tag, t, sub) { say(tag, t, sub, null); }
+function bUpdate() {
+  document.getElementById("hpSelf").style.width = Math.max(0, B.hp) + "%";
+  document.getElementById("hpFoe").style.width = Math.max(0, B.foe) + "%";
+  document.getElementById("shSelf").style.width = Math.min(60, B.shield * 6) + "%";
+}
+function bButtons() {
+  var list = [];
+  list.push({ label:"🔮 占卜", fn:actDivine, ghost:!!B.divined });
+  list.push({ label:B.insight ? "🗡️ 顺着漏洞刺入" : "🗡️ 硬莽攻击", fn:actAttack, ghost:B.insight });
+  if (!B.ally) list.push({ label:"✨ 召唤洞察獭", fn:actSummon });
+  if (B.ally && !B.allyTired) {
+    list.push({ label:B.allyFresh ? "🔍 洞察獭·审视（首刀必中）" : "🔍 洞察獭·审视", fn:actInsight, ghost:!B.allyFresh && !!B.insight });
+  }
+  if (B.allyTired) list.push({ label:"✨ 换獭（429 哑火后）", fn:actSummon });
+  if (!B.barrier && !B.shield) list.push({ label:"🛡️ 结界（试验田学的）", fn:actBarrier });
+  actions(list);
+}
+function bTurn() {
+  // boss 自言自语越来越长（上下文爆炸演出，间隔递增封顶 1.2s）
+  var lag = Math.min(B.foeTalk * 250, 1200);
+  var t = "过去的大獭";
+  if (B.foeTalk > 1) {
+    bSay("敌方回合", t + "沉默了 " + (lag / 1000).toFixed(1) + " 秒……\n它的招式描述越来越长，长到溢出对话框。（上下文在吃掉它）");
+  }
+  setTimeout(function () {
+    var extra = B.shield > 0 ? 0 : 3;
+    var dmg = 6 + Math.floor(Math.random() * 4) + extra;
+    if (B.shield > 0) {
+      var absorbed = Math.min(B.shield, dmg);
+      B.shield -= absorbed; dmg -= absorbed;
+      bSay("敌方回合", "🛡️ 结界吸收了 " + absorbed + " 点伤害。（试验田的隔离，你也替自己用上了）");
+    }
+    if (dmg > 0) {
+      B.hp -= dmg;
+      pushFloat(240, 130, "-" + dmg);
+      bSay("敌方回合", "💥 " + t + "硬莽过来，你受到 " + dmg + " 点伤害。");
+    }
+    B.foeTalk++; bUpdate();
+    if (B.hp <= 0) { bLose(); return; }
+    B.turn++; B.busy = false; bButtons();
+  }, lag);
+}
+function bLose() {
+  B.over = true;
+  document.getElementById("battlebar").style.display = "none";
+  say("重生", "🌑 你倒下了。\n\n但獭的死亡不是终点——前世已封存成档案，新一世带着交接摘要醒来。\n\n谱系 +1。图鉴已记录：「纯硬莽打不赢它。」", "——这次试试：先占卜。");
+  actions([{ label:"🔄 重新挑战", fn:function () { resetBattle(); lakeBattle(); } }]);
+}
+function resetBattle() {
+  B.hp = 100; B.mp = 60; B.foe = 100; B.foeTalk = 0; B.divined = false; B.ally = false; B.allyTired = false; B.allyFresh = false; B.insight = false; B.shield = 0; B.selfChain = 0; B.turn = 1; B.busy = false; B.over = false; B.seal = false; B.barrier = false;
+  bUpdate();
+}
+function actDivine() {
+  if (B.busy || B.over) return; B.busy = true; actions([]);
+  B.divined = true;
+  bSay("🔮 占卜", "占卜展开……记忆浮现：");
+  setTimeout(function () {
+    bSay("🔮 占卜 · 命中旧档案", "「有獭击败过它。档案写着：它拒绝召唤、拒绝占卜、每回合自言自语越来越久——上下文在吃掉它。它的自测毫无用处，它从不让别的獭审视自己。」\n\n📜 弱点已入图鉴：多线程围攻；审视照出逻辑漏洞。", "（这就是种子库的动作——翻出旧结论，免重种。占卜 = search_memory）");
+    B.busy = false; bButtons();
+  }, 500);
+}
+function actAttack() {
+  if (B.busy || B.over) return; B.busy = true; actions([]);
+  B.selfChain++;
+  if (B.insight) {
+    var d1 = 14 + Math.floor(Math.random() * 5);
+    B.foe -= d1; bUpdate(); pushFloat(424, 40, "-" + d1);
+    bSay("🗡️ 顺着漏洞刺入", "你顺着洞察獭照出的漏洞刺入 -" + d1 + "！\n它没防住——它从不理解「被审视」是什么。");
+  } else {
+    var d2 = 3 + Math.floor(Math.random() * 3);
+    B.foe -= d2; bUpdate(); pushFloat(424, 40, "-" + d2);
+    bSay("🗡️ 硬莽一击", "你硬莽一击 -" + d2 + "……它皮糙肉厚。数学不站在你这边。", B.divined ? "（情报已有，但缺队友——召唤一只洞察獭？）" : "（这一击毫无情报支撑。先占卜？）");
+  }
+  if (B.foe <= 0) { setTimeout(bWin, 400); return; }
+  setTimeout(bTurn, 400);
+}
+function actSummon() {
+  if (B.busy || B.over) return; B.busy = true; actions([]);
+  var wasTired = B.allyTired;
+  B.ally = true; B.allyTired = false; B.allyFresh = true; B.selfChain = 0;
+  bSay("✨ 召唤", wasTired ? "你举起发言石：「换獭——上一只的配额见底，重新召唤！」" : "你举起发言石：「召唤——洞察獭！」");
+  setTimeout(function () {
+    bSay("✨ 洞察獭就位", "🔍 洞察獭就位：「我替你看它自己看不见的东西。」", (wasTired ? "新獭带着新配额上阵——首刀必中。（邻居小獭教的：会累就换，不停工）\n" : "") + "召唤 = create_otter + 配额轮换");
+    B.busy = false; bButtons();
+  }, 500);
+}
+function actInsight() {
+  if (B.busy || B.over) return; B.busy = true; actions([]);
+  if (!B.allyFresh && Math.random() < 0.15) {
+    B.allyTired = true;
+    bSay("🔍 哑火（429）", "洞察獭的剑挥到一半——哑火了。\n它疲惫地坐下：「配额见底……再召唤一只新獭吧，新獭有新配额。」", "资源管理：召唤兽也有体力。哑火后重新召唤，首刀必中。");
+    setTimeout(bTurn, 600);
+  } else {
+    B.insight = true;
+    var d = 8 + Math.floor(Math.random() * 5);
+    B.foe -= d; bUpdate(); pushFloat(424, 36, "-" + d);
+    bSay("🔍 洞察獭·审视", "洞察獭凝视着它：「你的逻辑第 " + (2 + Math.floor(Math.random() * 7)) + " 环就是断的——你从不验证自己的前提。」\n✨ 漏洞显形 -" + d + "！你的下一次攻击伤害翻倍（顺着漏洞刺入）。", "老农教的：自己的产出，自己看不出问题。审视 = 异体执行，不是自测。");
+    if (B.foe <= 0) { setTimeout(bWin, 400); return; }
+    setTimeout(bTurn, 400);
+  }
+  B.allyFresh = false;
+}
+function actBarrier() {
+  if (B.busy || B.over) return; B.busy = true; actions([]);
+  B.barrier = true; B.shield = 12;
+  bUpdate();
+  bSay("🛡️ 结界", "你张开结界——隔离罩将你与它的输出隔开。\n接下来它的攻击先被吸收。", "试验田里你已经隔离过一次。结界 = worktree 隔离：改动不直接进主干，先隔离验证。");
+  setTimeout(bTurn, 500);
+}
+function bWin() {
+  B.over = true; B.seal = true;
+  document.getElementById("battlebar").style.display = "none";
+  pushSparkle(424, 40, 20);
+  say("🐲 倒下", "过去的大獭跪倒在镜湖边。\n它抬起头，第一次露出疲惫之外的表情：\n\n「……原来我一直缺的不是力气。」\n\n✨ 封印需要最后一步——授权原话。只有搭档亲口说出咒语，封印才会落下。", "咒语两个字。试验田你已经打过一次。", null);
+  var box = actions([]);
+  var wrap = document.createElement("div"); wrap.className = "merge";
+  var inp = document.createElement("input"); inp.placeholder = "输入封印咒语……"; inp.maxLength = 4;
+  var btn = document.createElement("button"); btn.className = "btn"; btn.textContent = "🔏 落下封印";
+  function trySeal() {
+    if (inp.value.trim() === "合入") { bEnding(); return; }
+    inp.classList.add("err"); inp.value = ""; inp.placeholder = "原话不符，再试";
+    bSay("封印未通过", "封印没有反应——不是授权原话。咒语必须是搭档亲口的那两个字。", "提示：「合入」。试验田你已经打过一次。");
+  }
+  btn.onclick = trySeal;
+  inp.addEventListener("keydown", function (e) { if (e.key === "Enter") trySeal(); });
+  wrap.appendChild(inp); wrap.appendChild(btn); box.appendChild(wrap);
+  inp.focus();
+}
+function bEnding() {
+  S.mode = null; B.seal = false;
+  pushSparkle(424, 40, 30);
+  say("🔏 封印落下 · 通关", "过去的大獭化作光点，融入你的身体。\n\n┌─────────────────────┐\n│  你击败了 Lv.1 的自己  │\n└─────────────────────┘\n\n幼獭的剪影长大了。身后站着这一路上召唤过的所有队友。\n\nThey have names.\n\n🦦 《獭之传说》完", "如果这 3 分钟有趣——欢迎看看真正的它们：");
+  actions([{ label:"↗ github.com/chenlaicai/otter-buddy", fn:function () { window.open("https://github.com/chenlaicai/otter-buddy", "_blank"); } }]);
 }
 
 /* ---------- 开场 ---------- */
