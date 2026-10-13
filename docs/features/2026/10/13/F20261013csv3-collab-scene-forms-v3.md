@@ -3,6 +3,11 @@ id: F20261013csv3
 title: "协作现场形态落地 v3：第一性原理重构——折叠态增密 + unfurl 去网络赌博 + 供给纪律"
 summary: "针对「重构后毫无优化感」的实证排查（unfurl 41% 静默失败、89% 发言纯文本、折叠态信息密度为零），从第一性原理重推三条设计原则：①任何形态的渲染不得依赖实时网络（数据先行，渲染是已备数据的纯函数）；②折叠态必须承载有效信息摘要；③形态供给从软约定升级为显式信号机制。单 PR 交付：ArtifactCard 增密、UnfurlCard 落库持久化+gh 结构化取数、简报卡分级展开默认、折叠态摘要行、工具调用显式信号开关。"
 change_type: feature
+intent:
+  problem: "unfurl 41% 静默失败（渲染时实时抓取超时/无 og，退纯文本且无人察觉）、折叠态信息密度为零（HtmlCard 折叠只有标题、ArtifactCard 只有类型徽章）、形态供给靠软约定（L2 议题卡被埋折叠态、工具调用过程无显式信号）"
+  expected_effect: "已抓取 URL 卡断网可渲染（读库）；同一条消息不再有两种渲染命运（三态显式：ok/pending 骨架/failed 卡）；PR 产物卡显示 diff stat+状态徽章；importance=high 简报卡默认展开；工具调用明细可通过开关批量投影查看"
+  verify_by:
+    type: behavior_check
 capability_test: "tests/api/unfurl.test.ts"
 created_in_conversation: 6b8384a6-6c88-495f-8edb-7ef2175dcc2e
 causal_links:
