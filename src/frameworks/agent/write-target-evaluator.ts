@@ -39,7 +39,8 @@
  * 纯函数：无状态、无 IO、不写任何存储（机制识别检查点通过）。
  */
 import { parseOnce, type CommandModel, type Segment } from "./command-model";
-import { proveNoWrite, DYNAMIC_IMPORT_FACE, openCallUnknownMode } from "./write-word-face";
+import { proveNoWrite, DYNAMIC_IMPORT_FACE, openCallUnknownMode, payloadWriteFaceHit, SCRIPT_EXEC_FACE } from "./write-word-face";
+import { isCheckOnlySeg, checkOnlyFileArgs, SCRIPT_RUNNERS, isScriptRunnerSeg, detectScriptPayload, resolvePayloadScript } from "./payload-extract-aux";
 import type { Word } from "./command-lexer";
 
 // ────────────────────────────── 类型 ──────────────────────────────
@@ -78,8 +79,7 @@ const TARGET_ARG_COMMANDS = new Set(["tee", "cp", "mv", "touch", "mkdir"]);
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- 对齐锚（见上注释）
 const GIT_WRITE_SUBCOMMAND = /^git\s+(?:-C\s+\S+\s+|--git-dir=\S+\s+|--work-tree=\S+\s+|-c\s+\S+\s+)*(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push|push\b(?!\s+(?:--dry-run|-n)\b)(?!\s+\S+\s+(?:--delete|:))(?![^|;&]*(?:--delete|(?::\s*refs\/)))|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
 
-/** Python/JS 等脚本解释器（载荷族——Phase 1 显式回落） */
-const SCRIPT_RUNNERS = new Set(["python", "python3", "node", "perl", "ruby", "osascript"]);
+/** Python/JS 等脚本解释器（载荷族）→ payload-extract-aux.SCRIPT_RUNNERS（单一真相源） */
 
 /** worktree 区前缀（主仓树下的 worktree 物理目录不是主仓工作树——pathWithinMain 排除）。
  *  审视 §3.3（PR #1381）：只认 root 级（^<root>/.otter/worktrees/），不匹配嵌套 decoy
@@ -96,16 +96,6 @@ const DYNAMIC_RE = /[$`]/;
 
 function bareName(argv0: string | null): string | null {
   return argv0?.split("/").pop() ?? argv0;
-}
-
-function hasPayloadFlag(seg: Segment): boolean {
-  return seg.words.some(w => w.evaluated === "-c" || w.evaluated === "-e" || w.evaluated === "-");
-}
-
-/** 段是否脚本解释器段（argv0 命中 SCRIPT_RUNNERS） */
-function isScriptRunnerSeg(seg: Segment): boolean {
-  const bare = bareName(seg.argv0);
-  return bare !== null && SCRIPT_RUNNERS.has(bare);
 }
 
 /** 路径是否落在主仓工作树内（projectRoot 前缀判定，排除 worktrees 前缀）。
@@ -478,8 +468,16 @@ function extractAbsPathLiterals(script: string): string[] {
 
 /** 脚本段窄提取。返回 null=不适用（非脚本段/无载荷）；"heredoc-script-payload"=回落。 */
 // eslint-disable-next-line max-statements, complexity -- 窄提取双形态（写调用求值/只读字面量闸）× 双闸负门，分支与 gwte 方案 Phase 2 取舍表一一对应
-function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: SegmentEvalAcc & { cwd: string }): "skip" | "heredoc-script-payload" | "extracted" {
+function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: SegmentEvalAcc & { cwd: string }, commandText: string): "skip" | "heredoc-script-payload" | "extracted" {
   if (!isScriptRunnerSeg(seg)) return "skip";
+  // 病型 A（拍板 2026-10-13）：check-only=语法检查（读脚本不执行）→ 读侧入账直接提取（先于载荷旗标判定）。
+  if (isCheckOnlySeg(seg)) {
+    for (const f of checkOnlyFileArgs(seg)) {
+      const resolved = evalPath(f, acc.cwd);
+      if (resolved !== null) acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index, access: "read" });
+    }
+    return "extracted";
+  }
   const flagIdx = seg.words.findIndex(w => w.evaluated === "-e" || w.evaluated === "-c");
   if (flagIdx < 0) return "skip"; // script.py 文件形态/无载荷旗标：Phase 1 行为（回落）由调用方兜底
   const payloadWord = seg.words[flagIdx + 1];
@@ -489,19 +487,19 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
   //  （`node -e "…require('fs')…"`）触发词法 fail-closed，evaluated=null 但 parts 全 lit
   //  （引号上下文已剥，无展开）——此时拼接 parts 仍得静态载荷；parts 含任何非 lit/escape
   //  展开段（var/cmdsub/arithmetic）→ 真不可求值，回落不猜。
-  let script = payloadWord.evaluated;
-  if (script === null) {
-    if (payloadWord.parts.every(p => p.type === "lit" || p.type === "escape")) {
-      script = payloadWord.parts.map(p => p.text).join("");
-    } else {
-      return "heredoc-script-payload";
-    }
-  }
+  // 病型 B/C（拍板 2026-10-13）：载荷脚本解析——引号自散架走重组 span（C，方案 a，负门②交界→回落）；
+  //  否则 evaluated 优先、null 时 cmdsub 拼原文（B）；var/arith 不猜；负门①写词面→回落（下行 cMode 闸）。
+  const { script, cMode } = resolvePayloadScript(payloadWord, seg.words[flagIdx], commandText);
+  if (script === null) return "heredoc-script-payload";
+  // 病型 C 负门①（硬性，跨段藏写不许遮蔽）：重组 span 内写词面/写调用 → 仍回落。
+  if (cMode && (SCRIPT_WRITE_TOKENS.test(script) || payloadWriteFaceHit(script))) return "heredoc-script-payload";
   // 规则 2/规则 1 优先（证明演算 §3.2.1）：载荷含动态 import/未知 mode open → 一律不可证
   //  （能力 8 只豁免字面量读披露；写 mode open 交形态 A 落点提取，不在此闸）
   if (DYNAMIC_IMPORT_FACE.test(script) || openCallUnknownMode(script)) {
     return "heredoc-script-payload";
   }
+  // 规则 2 附带闸（能力 5，拍板 2026-10-13）：exec 类裸调用（new Function/eval/exec/...）一律不可证——窄提取不得绕过词面证的 exec 拦（残余面 TS-ef0d6be4 族钉死）。
+  if (SCRIPT_EXEC_FACE.test(script)) return "heredoc-script-payload";
   // 载荷后参数词（argv 值传播原料）——实测口径（#1411 处置实证）：
   //   node -e s A B → process.argv=[execPath, A, B]（无脚本文件插入 argv）→ argv[1]=A
   //   python3 -c s A → sys.argv=['-c', A] → argv[1]=A
@@ -574,7 +572,7 @@ function hasNarrowExtractableScriptSeg(model: CommandModel, projectRoot: string)
   const probe: SegmentEvalAcc & { cwd: string } = { targets: [], index: 0, cwd: projectRoot };
   const check = (m: CommandModel): boolean => {
     for (const seg of m.segments) {
-      if (evalScriptPayloadNarrow(seg, projectRoot, probe) === "extracted") return true;
+      if (evalScriptPayloadNarrow(seg, projectRoot, probe, m.raw) === "extracted") return true;
     }
     return m.payloads.some(p => p.model !== null && check(p.model));
   };
@@ -582,12 +580,12 @@ function hasNarrowExtractableScriptSeg(model: CommandModel, projectRoot: string)
 }
 
 /** 单段求值：脚本窄提取（Phase 2）→ 脚本载荷族回落 → 重定向 → git add（Phase 2）→ git 写族 → 词表命令。返回 null 表示该段无 unevaluated。 */
-function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot: string): UnevalReason | null {
+function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot: string, commandText: string): UnevalReason | null {
   const bare = bareName(seg.argv0);
   const accWithCwd: SegmentEvalAcc & { cwd: string } = Object.assign(acc, { cwd });
 
   // Phase 2 窄提取：可静态求值的只读脚本载荷段，不等 Phase 1 整段回落就放行
-  const narrow = evalScriptPayloadNarrow(seg, projectRoot, accWithCwd);
+  const narrow = evalScriptPayloadNarrow(seg, projectRoot, accWithCwd, commandText);
   if (narrow === "heredoc-script-payload") return "heredoc-script-payload";
 
   // Python/JS 等脚本载荷族：Phase 1 显式回落（审视 S1 锚点：载荷 model 是 shell 模型非脚本 AST）。
@@ -609,23 +607,7 @@ function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot
 
 // ────────────────────────────── 主入口 ──────────────────────────────
 
-/** 先行载荷族检测：段级 argv0 命中脚本解释器且带载荷特征 → Phase 1 回落。
- *  parseOk=false 也要走此检测（python 函数调用括号触发词法 function-definition
- *  fail-closed 的命令，segments 仍可读——审视 S1 补充实测：command-lexer.ts:514）。
- *  递归模型 payloads 里 kind=bash-c 的不算（bash -c 是 shell，走递归求值）。 */
-function detectScriptPayload(model: CommandModel): boolean {
-  const checkSegments = (segments: CommandModel["segments"]): boolean =>
-    segments.some(seg => {
-      const bare = bareName(seg.argv0);
-      if (bare === null || !SCRIPT_RUNNERS.has(bare)) return false;
-      return hasPayloadFlag(seg) || seg.words.some(w => w.parts.some(p => p.type === "cmdsub" || p.type === "var"));
-    });
-  if (checkSegments(model.segments)) return true;
-  for (const p of model.payloads) {
-    if (p.model && detectScriptPayload(p.model)) return true;
-  }
-  return false;
-}
+// detectScriptPayload → payload-extract-aux（载荷族检测，能力 5 迁移）
 
 /** 从既有模型求值。子模型（bash -c/cmdsub）先各自 trackCwd 再求值（子 shell cd 链独立——
  *  首跑实测教训：默认主仓根会漏子模型内 cd，bash -c 'cd wt && touch a' 误报主仓落点）。
@@ -637,7 +619,7 @@ function evaluateFromModel(model: CommandModel, projectRoot: string, startCwd: s
   const acc: SegmentEvalAcc = { targets: [], index: 0 };
   let cwd = tracked;
   for (const seg of model.segments) {
-    const err = evalSegment(seg, cwd, acc, projectRoot);
+    const err = evalSegment(seg, cwd, acc, projectRoot, model.raw);
     if (err !== null) return { kind: "unevaluated", reason: err };
     // 段内 cd 推进（与 trackCwd 同口径）
     if (seg.joiner !== "&" && seg.joiner !== "|" && bareName(seg.argv0) === "cd") {

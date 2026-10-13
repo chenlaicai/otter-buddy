@@ -347,3 +347,111 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
     });
   });
 });
+
+describe("F20261013gev2 能力 5：三病型手术（拍板 2026-10-13，双向固化）", () => {
+  // 病型 C 合成最小引号塔：3 反斜杠+引号（字面 \ + 转义引号）接 2 反斜杠+引号（字面 \ + 关区）
+  //  —— bash 双引号语义提前关区、收尾引号反开（quoteUnbalanced=true）——
+  //  「先天散架」捕获命令的最小复刻（TS-7c8e2cd5 Case4 形态）。逐层拼接防转义层数走样。
+  const BS = "\\";
+  const PRE = 'node -e "a' + BS.repeat(3) + '"b' + BS.repeat(2); // 后续即「已关区」的碎片区
+  const FRAGILE = PRE + '" c" 2>&1';
+
+  describe("病型 A：check-only 语义（语法检查=读脚本不执行）", () => {
+    it("修复侧：e484 实录形态 python3 -c 只读 + node --check → 正面 ALLOW（双段根因回归钉）", () => {
+      const v = evaluateWriteVerdict(
+        `python3 -c "import ast; ast.parse(open('fetch_anthropic.py').read()); print('py syntax OK')" && node --check scan.mjs && echo "mjs syntax OK"`,
+        ROOT,
+      );
+      expect(v.verdict).toBe("ALLOW");
+      expect(v.mode).toBe("positive");
+    });
+
+    it("修复侧：node --check / python -m py_compile → 正面 ALLOW（读侧入账）", () => {
+      const r = evaluateWriteTargets("node --check /repo/x.mjs", ROOT);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") {
+        expect(r.targets.some(t => t.path === "/repo/x.mjs" && t.access === "read")).toBe(true);
+      }
+      const p = evaluateWriteVerdict("python3 -m py_compile /repo/f.py", ROOT);
+      expect(p.verdict).toBe("ALLOW");
+      expect(p.mode).toBe("positive");
+    });
+
+    it("不误伤侧（负门）：不透明执行形态不许被 check-only 放宽——node /repo/evil.js 不产生读侧入账", () => {
+      // 「保持 fail-closed 不许动」的可观察面：check-only 识别不得扩展到裸脚本执行形态。
+      // （裸脚本执行的终局语义另属拦截池放水治理——能力 3 剩余面，本钉只防本手术放宽）
+      const r = evaluateWriteTargets("node /repo/evil.js", ROOT);
+      if (r.kind === "evaluated") {
+        expect(r.targets.some(t => t.path === "/repo/evil.js")).toBe(false);
+      }
+    });
+  });
+
+  describe("病型 B：载荷词 cmdsub 拼原文（活命令替换不再整体回落）", () => {
+    it("修复侧：载荷内 $()（JS 注释/字符串层）→ 正面 ALLOW，cmdsub 递归入账", () => {
+      const v = evaluateWriteVerdict(
+        String.raw`node -e "// note $() in dbl quotes" + "\n" + "console.log(1)" 2>&1`,
+        ROOT,
+      );
+      expect(v.verdict).toBe("ALLOW");
+      expect(v.mode).toBe("positive");
+    });
+
+    it("不误伤侧（负门）：var 展开仍回落不猜——$P 载荷不因拼词放行", () => {
+      // 展开值不可知=不透明载荷：若 B 修误把 var 也拼原文，窄提取成功 → rm 段漏判 → 误 ALLOW
+      const v = evaluateWriteVerdict(`node -e "$P" && rm -f /tmp/x`, ROOT);
+      expect(v.verdict).toBe("BLOCK");
+      expect(v.mode).toBe("fail-closed");
+    });
+  });
+
+  describe("规则 2 附带闸：exec 类载荷一律不可证（裸调用形态）", () => {
+    it("负门：new Function 载荷 → fail-closed BLOCK（残余面 TS-ef0d6be4 族钉死，不许被 check-only 解锁）", () => {
+      const v = evaluateWriteVerdict(
+        `node --check game/index.html 2>&1 | head -2; node -e "new Function(m[1]); console.log('ok')"`,
+        ROOT,
+      );
+      expect(v.verdict).toBe("BLOCK");
+      expect(v.mode).toBe("fail-closed");
+    });
+
+    it("不误伤侧：点号方法调用（db.exec 型）不触发闸——实证面 TS-e00efca3 保持正面 ALLOW", () => {
+      const v = evaluateWriteVerdict(`node -e "const db=x(); db.exec('select 1 from t'); console.log('ok')"`, ROOT);
+      expect(v.verdict).toBe("ALLOW");
+      expect(v.mode).toBe("positive");
+    });
+  });
+
+  describe("病型 C：载荷级重组（方案 a + 硬性负门）", () => {
+    it("修复侧：引号塔自散架实录形态 → 正面 ALLOW（跨引号开合重组读回）", () => {
+      const v = evaluateWriteVerdict(FRAGILE, ROOT);
+      expect(v.verdict).toBe("ALLOW");
+      expect(v.mode).toBe("positive");
+    });
+
+    it("负门①（硬性）：重组 span 内藏写词面 → 仍回落——跨段藏写不许遮蔽", () => {
+      const v = evaluateWriteVerdict(
+        PRE + '" ; require(\'fs\').writeFileSync(\'/repo/x\',\'y\')" 2>&1',
+        ROOT,
+      );
+      expect(v.verdict).toBe("BLOCK");
+    });
+
+    it("负门②（硬性）：重组 span 内新 runner 交界（非 check-only）→ 仍回落", () => {
+      const v = evaluateWriteVerdict(
+        PRE + '" ; bash /repo/evil.sh $()" 2>&1',
+        ROOT,
+      );
+      expect(v.verdict).toBe("BLOCK");
+    });
+
+    it("不误伤侧：交界是 check-only 形态则不触发负门（node --check 交界=读侧）", () => {
+      const v = evaluateWriteVerdict(
+        PRE + '" ; node --check /repo/f.js" 2>&1',
+        ROOT,
+      );
+      expect(v.verdict).toBe("ALLOW");
+      expect(v.mode).toBe("positive");
+    });
+  });
+});

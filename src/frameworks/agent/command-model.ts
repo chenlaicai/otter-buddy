@@ -55,6 +55,8 @@ export interface CommandModel {
   payloads: Payload[];
   parseOk: boolean;    // 词法层 + 递归层全成功
   issues: string[];
+  /** 原始命令文本（能力 5 病型 C 载荷重组需要 span 切片——保真不重建） */
+  raw: string;
 }
 
 // ────────────────────────────── 常量 ──────────────────────────────
@@ -353,5 +355,5 @@ export function parseOnce(text: string, depth = 0): CommandModel {
     seg.args = seg.words.slice(1).map(w => w.evaluated);
   }
 
-  return { segments, payloads, parseOk, issues };
+  return { segments, payloads, parseOk, issues, raw: text };
 }

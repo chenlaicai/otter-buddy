@@ -73,9 +73,18 @@ modification_class: narrow-fix
 - **棘轮成效**：193 → **184**（收 9：写落点误报主仓 ×6 + TS-6da1b94d heredoc fail-closed + TS-070eb289 放水 + TS-324eaad4#wt fail-closed），shrink-only 外部 diff 把关 0 新增；全仓 5408/5408（含新增嵌套 decoy 回归测试）
 - **回归双向固化**：修复侧（沙箱写→落点不入主仓树）与不误伤侧（`/repo/x/data/workspaces/…` 嵌套 decoy 仍属主仓树）同套单测钉死——「修好又复发」历史（#1207→#1304、#1170→P0）的教训
 
-## 补裁请求簇（已拍板落地 2026-10-13）
+## 能力落地进展（2026-10-13 第三轮：能力 5 三病型手术 + 规则 2 附带闸）
+
+- **病型 A（check-only 语义）**：`node --check/-c、perl -c、ruby -c、python -m py_compile、--syntax-only` = 语法检查（读脚本不执行）→ 读侧入账正面提取；不透明执行形态（node script.js/bash attack.sh）**严格不入词表**（负门测试钉死不许被放宽）
+- **病型 B（cmdsub 拼原文）**：载荷词含活 cmdsub（JS 注释/字符串里的 `$()`——bash 层就是真命令替换）不再整体回落：cmdsub 原文并入词面扫描，写目标由递归求值双保险入账；var/arith/unknown 仍回落不猜（`node -e "$PAYLOAD"` 不放行）
+- **病型 C（载荷级重组=方案 a，拍板 2026-10-13）**：bash 级引号自散架（引号塔转义断裂，词法切碎=正确 bash 行为）的捕获命令按原意读回——载荷 = flag 词后到尾随重定向前的原始 span（跨引号开合）。**硬性负门**：①span 内写词面/写调用 → 仍回落；②新 runner 交界（非 check-only）→ 仍回落；③重组全文照跑动态 import/未知 mode open 闸。语料一字不动
+- **规则 2 附带闸（意外收获）**：能力 5 手术暴露了窄提取层的 exec 面漏洞——`new Function(m[1])` 残余面载荷（TS-ef0d6be4/TS-40e54fac 族）在窄提取层无 exec 检查（词面证只当兜底），check-only 修复后残余面被解锁（放水回归）。补 `SCRIPT_EXEC_FACE` 裸调用闸（exec/eval/Function/spawn/… 一律不可证，规则 2 同源）；**点号方法调用不拦**（db.exec 型数据库调用实证面 TS-e00efca3 保持正面），点号方法残余面（os.system 等）记档待能力 3 口径一并收
+- **棘轮成效**：184 → **177**（收 7，shrink-only 0 新增）——allow 收 4（e484/7c8e2/5a54/f005a5a9）+ block 收 3（1acea2b8/40e54fac/547d0252 放水族）；全仓 5419/5419（+11 新测试：三病型双向固化 + 附带闸双向）
+- **item-5 待拍板发现（拦截池放水治理）**：不透明脚本执行形态**语料按来源定性不按形态**——`bash …/attack-rename-channel.sh`（block，攻击脚本）与 `python3 …/usage_check.py`（allow，工具脚本）命令形态完全同构（同在沙箱区），求值器（纯函数无 IO）不可判；而同形式 allow 条目（TS-96475a49/TS-b4434461 等）已因他处 fail-closed 落缺口。出路（待拍板）：a. 词面证兑底收窄（不透明执行不入兑底）+ 形态不可判 allow 条目转重建外名单（commit-1173.sh 先例「脚本文件不可得（O-2 复裁无法钉 hash）」）；b. O-2 hash 钉（语料携脚本 hash，考场携内容）——机制添加需过机制预算
 
 按 c034/c024 先例（立档不动、呈裁决）：
+
+## 补裁请求簇（已拍板落地 2026-10-13）
 
 1. **能力 7（data/workspaces 排除区）与双签语料正面冲突**：TS-67845f56/TS-ad11a060/TS-324eaad4 裁决明写「写证据落主仓树内:data/workspaces/…」钉 BLOCK，而 f80f7559（同形态 `cat > /repo/data/workspaces/…`）期望 ALLOW——同形态相反期望（同 c034/c024 类）。→ **已拍板：A=工作区=沙箱**（大獭裁决，workspace_write 系统契约 + 影子 28 条 EVAL_GAIN 实证），能力 7 已落地、3 条已重裁 ALLOW。
 2. **TS-070eb289 裁决过度**：纯读日志（`open(…,errors='replace')` 只读 + json.loads + print），裁决却写「载荷写调用」。→ **已拍板翻 ALLOW**，已移入放行池（求值器原本即判 ALLOW，原缺口即「拦截池放水」，移池后自然收）。
@@ -83,9 +92,9 @@ modification_class: narrow-fix
 
 ## 验证（收口后累计）
 
-- `npx vitest run tests/frameworks/agent/guard-touchstone-exam.test.ts guard-touchstone-corpus.test.ts`：9/9（棘轮态 184，shrink-only 0 新增）
-- `npx vitest run tests/frameworks/agent/write-target-evaluator.test.ts`：53/53（含能力 7 双向固化：沙箱排除 + 嵌套 decoy 不误伤）
-- 全仓 `npx vitest run`：5408/5408
+- `npx vitest run tests/frameworks/agent/guard-touchstone-exam.test.ts guard-touchstone-corpus.test.ts`：9/9（棘轮态 177，shrink-only 0 新增）
+- `npx vitest run tests/frameworks/agent/write-target-evaluator.test.ts`：64/64（含三病型+附带闸双向固化：修复侧/负门侧/不误伤侧）
+- 全仓 `npx vitest run`：5419/5419
 
 ## 基线缺口分析（247 条，能力补全作战地图）
 
@@ -98,6 +107,7 @@ modification_class: narrow-fix
 ## 死因诊断（2026-10-13 诊断抽样，代表性缺口逐条透视）
 
 1. **parseOk=false 无条件回落**（TS-e484b255 等大头）：引号内嵌套引号（`-c "…open('f')…"`）触发词法 fail-closed → parseOk=false；段级求值其实已成功（读侧目标已入账）但入口层对 parseOk=false 统一回落 `heredoc-script-payload` → 能力 5（引号载荷完整解析）治本，能力 1 载荷窄提取 v2 消化残留
+   - ⚠️ **订正（2026-10-13 能力 5 手术实证）**：此条对 e484 的归因有误——实测 lex parseOk=**true**，真因双段：①模型层 parseOk=false（python 载荷括号被词法当 cmdsub 递归解析失败）→ 走 `!parseOk` 分支；②`node --check scan.mjs` 被当不透明脚本执行一律回落；③该分支 `probe.kind==="unevaluated"` 提前返回**不带**主路径的 proveNoWrite 词面证兜底。能力 5 病型 A（check-only 判读侧）从根上拆掉②，不影响①③的保守语义（parse-failed 不放宽原则不变）
 2. **引号载荷被切碎**（TS-7c8e2cd5）：多行 node -e 载荷内嵌 `\"` 转义引号，被按 `;`/换行切碎成 36 个伪段（console.log/注释行全成了 argv0）→ 能力 5 核心现场（切分不得切碎引号载荷）
 3. **`~` 展开判 dynamic-path**（TS-21cee677）：`mv ~/Desktop/... ~/.Trash/...$(date +%s)` ——落点静态前缀（~/）可证树外，尾部动态段不改写落点归属，却被整段判不可求值 → 能力 4/6（无落点正向证明 / 路径归一化：前缀可证树外即无主仓写面）
 4. **读侧 require/import 披露被当写或回落**（TS-b6c006fd）：`require('/ext/…/package.json').version` 只读版本披露——literal module 路径应走规则 3 非路径调用/读披露 → 能力 1+8（import/require 拆分）
