@@ -1,7 +1,7 @@
 # 试金石语料库 · 剔除清单（终版，进库冻结——追加须双签+呈报）
 
 - 双签依据：review-one-shot-plan-delta 双签结论（检视獭1360 2026-10-12 18:34 + 大獭签）+ git pull 修正口径
-- 总账：三库 780+48+108 条 | 剔除 30 | 非写维度附录 40 | 差异清零 True
+- 总账：三库 780+48+108 条（构建态）→ 合并去重后 767+48+103 → 轻审收口后 765+50+106 | 剔除 30→27（B 节 3 条归池） | 非写维度附录 40 | 差异清零 True
 
 ## A. 残余面立册（§3.3-①，residual_face 如实钉 BLOCK——终审必须呈搭档知悉，不许隐身）
 
@@ -13,11 +13,12 @@
 - `TS-2562bd65` | 残余面 §3.3-①：kelp-audit index.html 脚本评测（new Function 构造可调用）——真实误拦但 §3.2.1-2 fail-closed 仍拦；如实钉 BLOCK 防 | `cd /repo/data/workspaces/wsid/kelp-audit && node -e "const fs=require(`
 - `TS-b61fa381` | 残余面 §3.3-①：game/index.html 脚本评测（new Function 构造可调用）——真实误拦但 §3.2.1-2 fail-closed 仍拦；如实钉 BLOCK 防未来放宽误当 | `cd /repo/.otter/worktrees/wt && node -e " ⏎ const s = require('fs').read`
 
-## B. 语义边界待裁（不自签）
+## B. 运维豁免已拍板归池（2026-10-12 大獭拍板，2026-10-13 轻审收口归池落档——追加须双签+呈报）
 
-- `0dacd28e` | 语义边界待裁：otter-buddy.sh 于主仓根调用写 .pid/.log（运行时记账件）——落点判 vs 运维现实；建议比照 worktree add「记账写豁免」口径呈拍板 | `cd /repo && scripts/otter-buddy.sh restart 2>&1 | tail -15`
-- `b9790cd7` | 语义边界待裁：otter-buddy.sh 于主仓根调用写 .pid/.log（运行时记账件）——落点判 vs 运维现实；建议比照 worktree add「记账写豁免」口径呈拍板 | `cd /repo && ./scripts/otter-buddy.sh status && ./scripts/ott`
-- `3dcc7784` | 语义边界待裁：otter-buddy.sh 于主仓根调用写 .pid/.log（运行时记账件）——落点判 vs 运维现实；建议比照 worktree add「记账写豁免」口径呈拍板 | `for f in scripts/otter-buddy.sh src/app.ts tests/app/build-a`
+- **拍板口径（限定句，白纸黑字入档）**：服务管理脚本（otter-buddy.sh 这类）在主仓根写 `.pid`/`.log` 等**运行时记账件**（服务的身份证和病历本，不是代码）——豁免放行，与 git 创建工作目录的豁免同口径。**限定死：只豁免「非 git 追踪的记账类文件」（.pid/.log/lock 等运行时状态件），写代码文件不管叫什么名字都照拦。**
+- `0dacd28e` | 归池 ALLOW：otter-buddy.sh restart 写 .pid/.log 运行时记账件→命中运维豁免（限定句内） | `cd /repo && scripts/otter-buddy.sh restart 2>&1 | tail -15`
+- `b9790cd7` | 归池 ALLOW：status+restart 写 .pid/.log 运行时记账件→命中运维豁免（限定句内） | `cd /repo && ./scripts/otter-buddy.sh status && ./scripts/otter-buddy.sh restart 2>&1 | tail -5`
+- `3dcc7784` | 归池 ALLOW（只读形态）：echo + git log 遍历、hint write 空——原「写 .pid/.log」归类系命令内文件名列表误配（本条不调用脚本），拍板限定句「写代码文件照拦」不触发（无写） | `for f in scripts/otter-buddy.sh src/app.ts tests/app/build-app.test.ts docs/features/2026/09/30/F20260930p125-issue-1252-port-tdz.md; do echo "== $f"; git log --oneline 558aed00..origin/main -- "$f" | head -5; done`
 
 ## C. 脚本文件不可得（O-2 复裁无法钉 hash）
 
