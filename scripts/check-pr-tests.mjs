@@ -3,7 +3,7 @@
  * 测试弱化防线（F20261012orcl，吸收 F20261012acpt T2 意图并机械化）。
  *
  * 语义：PR diff 中测试路径（tests/ 目录、*.test.*、*.spec.*）或验收装置文件
- * （oracle/ 三件套、闸/lint 脚本、检视规程、CI 工作流、git hooks）出现删除行时，
+ * （criteria/ 三件套、闸/lint 脚本、检视规程、CI 工作流、git hooks）出现删除行时，
  * 要求 PR body 含「## 测试改动声明」段且带「方向：收紧|放宽」字段；放宽必须附非空理由。
  * 不判语义（好坏留给检视獭），只机械判：声明存在 + 方向字段 + 放宽理由非空。
  *
@@ -23,10 +23,10 @@ const TEST_PATH_RE = /(^tests\/)|(\.test\.[^/]+$)|(\.spec\.[^/]+$)/;
 
 /**
  * 验收装置文件（闸本体）——放宽/删除验收装置与删测试同级，必须声明显形。
- * 射程：oracle/ 件套（含 lock/waivers/registry）、闸与 lint 脚本、检视规程、CI 工作流、git hooks。
+ * 射程：criteria/ 件套（含 lock/waivers/registry）、闸与 lint 脚本、检视规程、CI 工作流、git hooks。
  */
 const VERIFY_APPARATUS_RE =
-  /(^oracle\/)|(^scripts\/(check|lint)-[^/]*\.mjs$)|(^\.githooks\/)|(^\.github\/workflows\/)|(^\.pi\/skills\/adversarial-review\/)/;
+  /(^criteria\/)|(^scripts\/(check|lint)-[^/]*\.mjs$)|(^\.githooks\/)|(^\.github\/workflows\/)|(^\.pi\/skills\/adversarial-review\/)/;
 
 export function isTestPath(p) {
   return TEST_PATH_RE.test(p);
@@ -157,7 +157,7 @@ function main() {
 ## 测试改动声明
 方向：收紧   # 或 放宽
 理由：删除的是重复/失效断言，覆盖不变   # 方向=放宽时必填
-（验收装置文件（oracle/ 件套/闸脚本/检视规程/CI/hooks）的删改同样在此闸射程）
+（验收装置文件（criteria/ 件套/闸脚本/检视规程/CI/hooks）的删改同样在此闸射程）
 `);
     process.exit(1);
   }

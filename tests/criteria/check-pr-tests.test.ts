@@ -26,7 +26,7 @@ function makeGitRepo(kind: "test-file" | "src-file" | "apparatus-file"): string 
   tmpDirs.push(dir);
   execSync("git init -q && git config user.email t@t && git config user.name t", { cwd: dir });
   const rel =
-    kind === "test-file" ? "tests/sample.test.ts" : kind === "apparatus-file" ? "oracle/invariants.json" : "src/sample.ts";
+    kind === "test-file" ? "tests/sample.test.ts" : kind === "apparatus-file" ? "criteria/invariants.json" : "src/sample.ts";
   const abs = path.join(dir, rel);
   fs.mkdirSync(path.dirname(abs), { recursive: true });
   fs.writeFileSync(abs, ["line one", "expect(result).toBe(1);", "line three"].join("\n"));
@@ -83,9 +83,9 @@ describe("isTestPath / parseNumstat", () => {
     expect(isTestPath("src/main.ts")).toBe(false);
   });
   it("验收装置路径判定（闸本体同射程）", () => {
-    expect(isVerifyApparatusPath("oracle/lock.json")).toBe(true);
-    expect(isVerifyApparatusPath("oracle/invariants.json")).toBe(true);
-    expect(isVerifyApparatusPath("scripts/check-oracle.mjs")).toBe(true);
+    expect(isVerifyApparatusPath("criteria/lock.json")).toBe(true);
+    expect(isVerifyApparatusPath("criteria/invariants.json")).toBe(true);
+    expect(isVerifyApparatusPath("scripts/check-criteria.mjs")).toBe(true);
     expect(isVerifyApparatusPath("scripts/lint-evidence-anchors.mjs")).toBe(true);
     expect(isVerifyApparatusPath(".githooks/pre-commit")).toBe(true);
     expect(isVerifyApparatusPath(".github/workflows/ci.yml")).toBe(true);
@@ -134,7 +134,7 @@ describe("check-pr-tests 集成（真实 git diff + 真 CLI）", () => {
     expect(runPrTests(dir, "").status).toBe(0);
   });
 
-  it("红：验收装置文件（oracle/ 件套）删改无声明 → FAIL（闸本体同射程）", () => {
+  it("红：验收装置文件（criteria/ 件套）删改无声明 → FAIL（闸本体同射程）", () => {
     const dir = makeGitRepo("apparatus-file");
     const r = runPrTests(dir, "");
     expect(r.status).toBe(1);

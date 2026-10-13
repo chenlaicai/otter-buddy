@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "algorithm": "sha256",
+  "files": {
+    "criteria/invariants.json": "d1ff282f5f3c1992c0213efe085c978d2a2e67a8224ca5bc9cf42152a4261d06",
+    "scripts/check-criteria.mjs": "1cef5f1566711e615f83b40b2ae004c86706e7f450ab8b66a877dd35a1fc9b4f",
+    "criteria/waivers.json": "c312bd2f1f4a1ebed86c08b3ccba9814e50ead8ea0e832798ca56f0358532a75"
+  },
+  "combined": "26952eb2bf98bc966d64c164ca4a9b49270798a2d8324846c143d779da072f6c"
+}

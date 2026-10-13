@@ -1,5 +1,5 @@
 /**
- * F20261012orcl: 验收 Oracle 机器闸——checker 红→绿 fixture 测试。
+ * F20261012orcl: 验收判据闸——checker 红→绿 fixture 测试。
  *
  * 红→绿用例 = 2026-10-12「出清删纪律语义」真实事故的重演：那个删掉 4 处纪律语义的
  * diff 今天一路绿灯（无闸），在本闸下必须 FAIL；完整文件必须 PASS。
@@ -13,23 +13,23 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const CHECKER = path.join(REPO_ROOT, "scripts", "check-oracle.mjs");
+const CHECKER = path.join(REPO_ROOT, "scripts", "check-criteria.mjs");
 
-/** fixture 拷贝对象：registry 目标文件 + oracle 件套 + checker 自身（lock 覆盖面含 checker） */
+/** fixture 拷贝对象：registry 目标文件 + criteria 件套 + checker 自身（lock 覆盖面含 checker） */
 const FIXSTER_FILES = [
   "prompts/scheduled/daily-health-check.md",
   ".pi/SYSTEM.md",
   "docs/README.md",
   ".pi/skills/adversarial-review/references/review-dimensions.md",
-  "oracle/invariants.json",
-  "oracle/waivers.json",
-  "scripts/check-oracle.mjs",
+  "criteria/invariants.json",
+  "criteria/waivers.json",
+  "scripts/check-criteria.mjs",
 ];
 
 const tmpDirs: string[] = [];
 
 function makeFixture(): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "oracle-fixture-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "criteria-fixture-"));
   tmpDirs.push(root);
   for (const rel of FIXSTER_FILES) {
     const src = path.join(REPO_ROOT, rel);
@@ -76,7 +76,7 @@ function editFile(root: string, rel: string, from: string, to: string) {
 
 function writeWaivers(root: string, waivers: unknown[]) {
   fs.writeFileSync(
-    path.join(root, "oracle", "waivers.json"),
+    path.join(root, "criteria", "waivers.json"),
     JSON.stringify({ version: 1, waivers }, null, 2) + "\n",
   );
 }
@@ -96,7 +96,7 @@ afterEach(() => {
   }
 });
 
-describe("check-oracle 红→绿（出清删纪律语义事故重演）", () => {
+describe("check-criteria 红→绿（出清删纪律语义事故重演）", () => {
   it("绿：完整文件 → PASS（exit 0）", () => {
     const root = makeFixture();
     const r = runChecker(root);
@@ -155,24 +155,24 @@ describe("check-oracle 红→绿（出清删纪律语义事故重演）", () => 
   });
 });
 
-describe("check-oracle 防静默篡改（lock）", () => {
+describe("check-criteria 防静默篡改（lock）", () => {
   it("篡改 registry 不同步 lock → exit 2", () => {
     const root = makeFixture();
-    fs.appendFileSync(path.join(root, "oracle", "invariants.json"), "\n");
+    fs.appendFileSync(path.join(root, "criteria", "invariants.json"), "\n");
     const r = runChecker(root);
     expect(r.status).toBe(2);
   });
 
   it("篡改 checker 自身 → exit 2（验证脚本也在防静默篡改面内）", () => {
     const root = makeFixture();
-    fs.appendFileSync(path.join(root, "scripts", "check-oracle.mjs"), "\n// tampered\n");
+    fs.appendFileSync(path.join(root, "scripts", "check-criteria.mjs"), "\n// tampered\n");
     const r = runChecker(root);
     expect(r.status).toBe(2);
   });
 
   it("lock.json 缺失 → exit 2", () => {
     const root = makeFixture();
-    fs.rmSync(path.join(root, "oracle", "lock.json"));
+    fs.rmSync(path.join(root, "criteria", "lock.json"));
     const r = runChecker(root);
     expect(r.status).toBe(2);
     // --json 模式错误信息在 stdout 的 errors 字段（CI 消费口径）
@@ -181,14 +181,14 @@ describe("check-oracle 防静默篡改（lock）", () => {
 
   it("--update-lock 显式更新后恢复 PASS", () => {
     const root = makeFixture();
-    fs.appendFileSync(path.join(root, "oracle", "invariants.json"), "\n");
+    fs.appendFileSync(path.join(root, "criteria", "invariants.json"), "\n");
     expect(runChecker(root).status).toBe(2);
     expect(runChecker(root, ["--update-lock"]).status).toBe(0);
     expect(runChecker(root).status).toBe(0);
   });
 });
 
-describe("check-oracle waiver 机制", () => {
+describe("check-criteria waiver 机制", () => {
   it("合法 waiver（未过期）→ PASS(WARN) exit 0", () => {
     const root = makeFixture();
     writeWaivers(root, [

@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 /**
- * 验收 Oracle 机器闸——不变量 registry 在位性 PASS/FAIL checker（F20261012orcl）。
+ * 验收判据闸——不变量 registry 在位性 PASS/FAIL checker（F20261012orcl）。
  *
  * 语义：
- * - oracle/invariants.json 登记「必须在位」的纪律语义（pattern 为子串，`re:` 前缀为正则）；
+ * - criteria/invariants.json 登记「必须在位」的纪律语义（pattern 为子串，`re:` 前缀为正则）；
  *   逐条校验目标文件仍含该语义，缺失 → FAIL（exit 1）。
- * - 防静默篡改：oracle/lock.json 记录 registry / checker 自身 / waivers 三件的 sha256；
+ * - 防静默篡改：criteria/lock.json 记录 registry / checker 自身 / waivers 三件的 sha256；
  *   不符或缺失 → exit 2「registry/checker 被改动，需 --update-lock 并走 waiver 评审」。
  *   强度边界：lock 防的是静默篡改；--update-lock 一把梭机器拦不住（流程锁：变更进 diff + 评审兕住）。
- * - waiver：oracle/waivers.json 条目 {invariant_id, reason, approved_by, expires}；
+ * - waiver：criteria/waivers.json 条目 {invariant_id, reason, approved_by, expires}；
  *   有效期内（今天 ≤ expires，expires 是最后有效日）且条目 waiver_eligible=true 的缺失
  *   降为 WARN（exit 0）；过期 waiver 无效（缺失即 FAIL）。
  *
  * 退出码：0 通过（可含 WARN）/ 1 不变量缺失、waiver 配置非法 / 2 lock 不符或 registry 非法。
- * 用法：node scripts/check-oracle.mjs [--json] [--update-lock] [--root <dir>]
+ * 用法：node scripts/check-criteria.mjs [--json] [--update-lock] [--root <dir>]
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -22,15 +22,15 @@ import { pathToFileURL } from "node:url";
 
 /** lock 覆盖面：registry + checker 自身 + waivers——只锁 registry 则改 checker 让它永远 PASS 即绕闸 */
 export const LOCK_TARGETS = [
-  "oracle/invariants.json",
-  "scripts/check-oracle.mjs",
-  "oracle/waivers.json",
+  "criteria/invariants.json",
+  "scripts/check-criteria.mjs",
+  "criteria/waivers.json",
 ];
 /** waiver 数量 ratchet 上限——超限即红，防 waiver 堆积变成静默豁免清单（只减不增语义） */
 export const WAIVER_MAX = 10;
-const LOCK_PATH = "oracle/lock.json";
-const REGISTRY_PATH = "oracle/invariants.json";
-const WAIVERS_PATH = "oracle/waivers.json";
+const LOCK_PATH = "criteria/lock.json";
+const REGISTRY_PATH = "criteria/invariants.json";
+const WAIVERS_PATH = "criteria/waivers.json";
 const ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -280,7 +280,7 @@ function main() {
   try {
     registry = readJson(REGISTRY_PATH, args.root);
   } catch (e) {
-    const msg = `[lint:oracle] ${REGISTRY_PATH} 读取/解析失败：${e.message}`;
+    const msg = `[lint:criteria] ${REGISTRY_PATH} 读取/解析失败：${e.message}`;
     if (args.json) console.log(JSON.stringify({ ok: false, exitCode: 2, errors: [msg] }));
     else console.error(msg);
     process.exit(2);
@@ -290,7 +290,7 @@ function main() {
     if (args.json) {
       console.log(JSON.stringify({ ok: false, exitCode: 2, errors: regErrors, lock: { ok: false } }, null, 2));
     } else {
-      console.error("[lint:oracle] registry 非法（按 tamper 处置，需 --update-lock 并走 waiver 评审）：");
+      console.error("[lint:criteria] registry 非法（按 tamper 处置，需 --update-lock 并走 waiver 评审）：");
       for (const e of regErrors) console.error(`  ✗ ${e}`);
     }
     process.exit(2);
@@ -298,7 +298,7 @@ function main() {
 
   if (args.updateLock) {
     const lock = writeLock(args.root);
-    console.log(`[lint:oracle] lock 已更新（${LOCK_TARGETS.join(" / ")}）：combined ${lock.combined.slice(0, 16)}…`);
+    console.log(`[lint:criteria] lock 已更新（${LOCK_TARGETS.join(" / ")}）：combined ${lock.combined.slice(0, 16)}…`);
     process.exit(0);
   }
 
@@ -307,7 +307,7 @@ function main() {
     if (args.json) {
       console.log(JSON.stringify({ ok: false, exitCode: 2, errors: [lockResult.reason], lock: lockResult }, null, 2));
     } else {
-      console.error(`[lint:oracle] ✗ ${lockResult.reason}`);
+      console.error(`[lint:criteria] ✗ ${lockResult.reason}`);
     }
     process.exit(2);
   }
@@ -337,7 +337,7 @@ function main() {
   const boundary =
     "｜边界：lock 防静默篡改；--update-lock 为流程锁（变更须走 waiver 评审，diff 显形）";
   if (failures.length === 0 && errors.length === 0 && waived.length === 0) {
-    console.log(`[lint:oracle] PASS（${total}/${total} 条在位，lock OK）${boundary}`);
+    console.log(`[lint:criteria] PASS（${total}/${total} 条在位，lock OK）${boundary}`);
     process.exit(0);
   }
   for (const f of failures) {
@@ -348,9 +348,9 @@ function main() {
   }
   for (const e of errors) console.error(`✗ waiver 配置：${e}`);
   if (exitCode === 0) {
-    console.log(`[lint:oracle] PASS(WARN)（${total - waived.length}/${total} 在位，${waived.length} 条 waiver 降级；lock OK）${boundary}`);
+    console.log(`[lint:criteria] PASS(WARN)（${total - waived.length}/${total} 在位，${waived.length} 条 waiver 降级；lock OK）${boundary}`);
   } else {
-    console.error(`\n[lint:oracle] FAIL（缺失 ${failures.length} / 配置错误 ${errors.length}，lock OK）——修复语义或走 waiver（oracle/waivers.json）后重跑`);
+    console.error(`\n[lint:criteria] FAIL（缺失 ${failures.length} / 配置错误 ${errors.length}，lock OK）——修复语义或走 waiver（criteria/waivers.json）后重跑`);
   }
   process.exit(exitCode);
 }
