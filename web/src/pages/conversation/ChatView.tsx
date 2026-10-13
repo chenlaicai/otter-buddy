@@ -1,5 +1,5 @@
 import { type RefObject } from 'react'
-import { Archive, ShieldAlert } from 'lucide-react'
+import { Archive, ShieldAlert, Activity } from 'lucide-react'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalMessage as Message, LocalLinkedResource as LinkedResource } from '../../lib/mappers'
 import type { CardPreview } from './hooks/useCardBridge'
 import { MessageList } from './MessageList'
@@ -30,6 +30,9 @@ interface ChatViewProps {
   userName?: string
   /** F20261008csf1 P1：文类产物摘要卡数据源 */
   linkedResources?: LinkedResource[]
+  /** F20261013csv3 T5：过程明细开关（内存态——刷新回默认关闭） */
+  showProcessDetail?: boolean
+  onToggleProcessDetail?: () => void
   /** 卡片提交待确认预览（输入框上方单槽位） */
   cardPreview?: CardPreview | null
   onConfirmCard?: () => void
@@ -74,6 +77,21 @@ export function ChatView(props: ChatViewProps) {
         </div>
         {c && (
           <div className="flex gap-1.5">
+            {/* F20261013csv3 T5：过程明细开关——内存态，刷新回默认关闭 */}
+            {props.onToggleProcessDetail && (
+              <button
+                onClick={props.onToggleProcessDetail}
+                className={`px-2.5 py-1 text-xs font-medium rounded-lg transition flex items-center gap-1 ${
+                  props.showProcessDetail
+                    ? 'bg-otter-400/20 text-otter-600'
+                    : 'glass-card text-stone-600 hover:bg-white/50'
+                }`}
+                title="显示工具调用过程明细（刷新后恢复默认关闭）"
+              >
+                <Activity className="w-3 h-3" />
+                {props.showProcessDetail ? '过程明细 · 开' : '过程明细'}
+              </button>
+            )}
             <button
               onClick={props.onArchive}
               disabled={c.status === 'archived'}

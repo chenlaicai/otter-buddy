@@ -71,37 +71,48 @@ describe('isBareUrlText（裸链判定）', () => {
   })
 })
 
-describe('UnfurlCard 降级行为', () => {
-  it('fetch 失败时渲染普通链接（与未接本特性前一致）', async () => {
+describe('UnfurlCard 降级行为（F20261013csv3 三态）', () => {
+  it('fetch 失败时渲染显式失败卡（不再静默退纯文本——P1 原则：失败是显式状态）', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 404 })))
     renderOne('https://example.com/down')
-    // 等 effect 落定
-    await act(async () => { await Promise.resolve() })
-    await act(async () => { await Promise.resolve() })
+    for (let i = 0; i < 6; i++) {
+      await act(async () => { await Promise.resolve() })
+    }
+    expect(container.textContent).toContain('预览抓取失败')
+    // 原链仍可点击（host 显示）
     const a = container.querySelector('a[href="https://example.com/down"]')
     expect(a).not.toBeNull()
-    expect(a!.textContent).toContain('example.com')
-    // 不应有卡片结构
-    expect(container.querySelector('[class*="rounded-xl"]')).toBeNull()
   })
 
   it('抓取成功时渲染预览卡（标题+描述+站点）', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-      url: 'https://example.com/x',
-      title: '示例标题',
-      description: '示例描述',
-      image: null,
-      siteName: '示例站',
-      host: 'example.com',
+      status: 'ok',
+      data: {
+        url: 'https://example.com/x',
+        title: '示例标题',
+        description: '示例描述',
+        image: null,
+        siteName: '示例站',
+        host: 'example.com',
+      },
     }), { status: 200, headers: { 'Content-Type': 'application/json' } })))
     renderOne('https://example.com/x')
-    // 等 effect 落定：fetch mock → resp.json() → setState 是多跳微任务链
-    //（Response.json() 在 Node 18+ 返回新 Promise），两轮 flush 冲不干净
     for (let i = 0; i < 6; i++) {
       await act(async () => { await Promise.resolve() })
     }
     expect(container.textContent).toContain('示例标题')
     expect(container.textContent).toContain('示例站 · example.com')
+  })
+
+  it('pending 态渲染骨架卡（aria-busy）', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      status: 'pending', url: 'https://example.com/pending-only',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })))
+    renderOne('https://example.com/pending-only')
+    for (let i = 0; i < 4; i++) {
+      await act(async () => { await Promise.resolve() })
+    }
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull()
   })
 
   it('句中链接维持行内样式（不出预览卡）', async () => {

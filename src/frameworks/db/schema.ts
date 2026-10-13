@@ -35,6 +35,7 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createMemoryTables(db);
     createTerminologyTables(db);
     createConversationInfoTables(db);
+    createUnfurlCacheTable(db);
     createOtterTables(db);
     createParticipantTables(db);
     createAgentSessionsTable(db);
@@ -306,6 +307,31 @@ function createTerminologyTables(db: Database.Database): void {
       definition,
       context,
       tokenize = 'trigram'
+    );
+  `);
+}
+
+/** F20261013csv3 T1：unfurl 预览缓存表——P1「数据先行」原则的持久化载体。
+ *  抓取结果（含失败）落库，渲染读库不触网；fetched_at 走应用层 ISO 8601 写入
+ *  （不设 SQL DEFAULT，防空格格式与 ISO 混排产生字典序偏移——R2）。
+ *  source 三分支 TTL：og 永久 / failed 7 天窗口 / github-api 24h SWR（A3）。
+ *  state/additions/deletions：github-api 记录的结构化字段（T2 PR 卡 join 投影数据源——
+ *  方案 DDL 与 T2 数据流存在张力，本实现按数据流要求补列，记录在特性文档实现偏差节）。 */
+function createUnfurlCacheTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS unfurl_cache (
+      url TEXT PRIMARY KEY,
+      title TEXT,
+      description TEXT,
+      image TEXT,
+      site_name TEXT,
+      host TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'og',
+      state TEXT,
+      additions INTEGER,
+      deletions INTEGER,
+      error TEXT,
+      fetched_at TEXT NOT NULL
     );
   `);
 }

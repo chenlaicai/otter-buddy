@@ -20,6 +20,7 @@ import type { MatterRepository } from "@usecases/matter/matter-repository";
 import type { DispatchRecordRepository } from "@usecases/dispatch/dispatch-record-repository";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
+import type { SqliteUnfurlCacheRepository } from "@frameworks/db/conversation/sqlite-unfurl-cache-repository";
 import type { AttachmentRepository } from "@usecases/conversation/attachment-repository";
 import type { EntryRepository } from "@usecases/conversation/entry-repository";
 import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
@@ -80,6 +81,8 @@ export interface Repositories {
   /** F20260908rlcp：旧派发台账退役（dispatchAttempt 随 main #886 批次退役）。
    * F20260912avlb：派工台账正式表（客观生命周期 created/dispatched/dissolved）——本 PR 核心，保留 */
   dispatchRecord: DispatchRecordRepository;
+  /** F20260913csv3 T1：unfurl 预览缓存（P1 数据先行——抓取结果落库，渲染读库） */
+  unfurlCache: SqliteUnfurlCacheRepository;
   /** 多模态 Phase 1：附件 repo（上传管线 + 消息组装共用） */
   attachment: AttachmentRepository;
   /** F20260913ctlv：条目仓库（取代 messages + message_segments） */

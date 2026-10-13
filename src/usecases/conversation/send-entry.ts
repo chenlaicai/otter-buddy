@@ -31,6 +31,7 @@ import { resolveSpeakerName } from "./speaker-resolver";
 import { resolveTargetsForSend, type ResolveTargetsDeps } from "./resolve-send-targets";
 import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
 import { buildUserIndexBody, loadAttachmentRefs } from "./send-entry-index-helpers";
+import { triggerUnfurlPrefetch } from "./send-entry-unfurl-scan";
 
 /** 用户发送条目输入 */
 export interface SendUserEntryInput {
@@ -122,15 +123,24 @@ export class SendEntry {
      *  #1191（F20260928rmix）：memoryIndex —— #886 删旧 SendMessage 时三处 indexMessage
      *  调用随消息体消失，9/13 后对话正文不再入记忆（search_memory 失明 15 天）。
      *  此处接回：user/speak 落库后非阻断索引（语义对齐旧 SendMessage：
-     *  user 侧 buildIndexBody 含附件投影，speak/abort 侧剥 html-card 围栏） */
-    private readonly aux: { logger: Logger; resolveDeps?: ResolveTargetsDeps; memoryIndex?: MemoryIndexGateway },
+     *  user 侧 buildIndexBody 含附件投影，speak/abort 侧剥 html-card 围栏）
+     *  F20261013csv3 T1：unfurlPrefetch（可选）——裸 URL 独占行 → 后台抓取落库。
+     *  非阻断语义：sendUserEntry/createSpeakEntry 落库后同步触发，失败仅 warn。 */
+    private readonly aux: {
+      logger: Logger;
+      resolveDeps?: ResolveTargetsDeps;
+      memoryIndex?: MemoryIndexGateway;
+      unfurlPrefetch?: (urls: string[]) => void;
+    },
   ) {
     this.logger = aux.logger;
     this.memoryIndex = aux.memoryIndex;
+    this.unfurlPrefetch = aux.unfurlPrefetch;
   }
 
   private readonly logger: Logger;
   private readonly memoryIndex?: MemoryIndexGateway;
+  private readonly unfurlPrefetch?: (urls: string[]) => void;
 
   /** #1191：索引消息正文到记忆系统（非阻断——失败仅 warn，文字优先送达）。
    *  sourceId = entry.id（#942 ID 统一后投影主键即源 id，幂等对齐） */
@@ -203,6 +213,11 @@ export class SendEntry {
       }
     }
 
+    // F20261013csv3 T1：预抓取钩子（非阻断——发送路径不等待网络）。URL 扫描规则
+    // 与前端 bare-url 插件同一口径：行内（含行首）裸 http/https URL，独占一段
+    // （```html-card 围栏体内的链接由卡片自身渲染，不算裸链不触发预抓取）。
+    this.triggerUnfurlPrefetch(input.body);
+
     this.logger.info('User entry sent', {
       conversationId: input.conversationId,
       entryId: created.id,
@@ -222,6 +237,13 @@ export class SendEntry {
   }
 
   /** #1191：user 侧索引正文 = 剥围栏正文 + 附件占位投影行（旧 SendMessage buildIndexBody 同构） */
+
+  /** F20261013csv3 T1：预抓取触发——裸 URL 扫描（纯函数）+ 非阻断分发。
+   *  扫描口径与前端 bare-url 插件一致：行内（含行首）http/https URL 独占一段才算裸链
+   *  （围栏体内的链接由卡片自身渲染）。异常仅 warn——预抓取永不阻断发送路径。 */
+  private triggerUnfurlPrefetch(body: string): void {
+    triggerUnfurlPrefetch(body, this.unfurlPrefetch, this.logger);
+  }
 
   /** 组装 user entry metadata：显式 metadata / senderDisplayName / injectionMode 三者合并（可同存） */
   private buildUserEntryMetadata(input: SendUserEntryInput): EntryMetadata | null {
@@ -324,6 +346,9 @@ export class SendEntry {
     };
 
     const created = await this.entryRepo.createEntryAtomic(entry);
+
+    // F20261013csv3 T1：预抓取钩子（非阻断）——user/speak 共用同一扫描口径
+    this.triggerUnfurlPrefetch(input.body);
 
     this.logger.info('Speak entry created', {
       entryId: created.id,
