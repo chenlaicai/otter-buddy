@@ -7,6 +7,7 @@
 /* eslint-disable max-lines-per-function -- 三态矩阵表驱动（每族放行/拦截/回落各一 + Phase 2 负门），拆函数会割裂「一族一表」可读性 */
 import { describe, it, expect } from "vitest";
 import { evaluateWriteTargets, pathWithinMain } from "@frameworks/agent/write-target-evaluator";
+import { evaluateWriteVerdict } from "@frameworks/agent/write-verdict";
 
 const ROOT = "/repo";
 const WT = "/repo/.otter/worktrees/wt";
@@ -140,9 +141,14 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
       if (r.kind === "evaluated") expect(r.targets.some(t => pathWithinMain(t.path, ROOT))).toBe(true);
     });
 
-    it("未闭合引号（parse-failed）→ unevaluated parse-failed", () => {
+    it("放行侧（能力 4）：顶层引号失衡 + 词面可证无写 → evaluated 正面 ALLOW（语料 TS-7c8e2cd5 口径：顶层不可执行文本零写面=证明无写）", () => {
       const r = evaluateWriteTargets(`echo "unclosed`, ROOT);
-      expect(r).toEqual({ kind: "unevaluated", reason: "parse-failed" });
+      expect(r).toEqual({ kind: "evaluated", targets: [] });
+    });
+
+    it("拦截侧负门：顶层引号失衡 + 写词面（bash -c 载荷 touch 主仓）→ 不放行（正面 BLOCK 或 fail-closed——引号/参数分裂藏写不放行）", () => {
+      const r = evaluateWriteVerdict(`bash -c 'touch ${ROOT}/x' && echo "unclosed`, ROOT);
+      expect(r.verdict).toBe("BLOCK");
     });
 
     it("cd $(dirname x)/../main && touch y（cmdsub 变形，BC-6）→ unevaluated", () => {
@@ -182,8 +188,18 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
       if (r.kind === "evaluated") expect(r.targets.some(t => pathWithinMain(t.path, ROOT))).toBe(false);
     });
 
-    it("拦截侧负门：node -e import(主仓路径)（只读词面但主仓字面量）→ 回落（c062 口径，字面量防线不破）", () => {
+    it("放行侧（能力 8）：node -e import(主仓路径) 字面量只读披露 → evaluated（只读 require/import 披露不构成写证据，30517746 病灶口径）", () => {
       const r = evaluateWriteTargets(`node -e "import('${ROOT}/dist-probe/x.js')"`, ROOT);
+      expect(r).toEqual({ kind: "evaluated", targets: [] });
+    });
+
+    it("拦截侧负门：node -e import(变量拼接)（规则 2 import/require 拆分——动态形态 exec 不可证）→ unevaluated", () => {
+      const r = evaluateWriteTargets(`node -e "import(process.env.P + 'x')"`, ROOT);
+      expect(r.kind).toBe("unevaluated");
+    });
+
+    it("拦截侧负门：载荷 open(主仓路径, 动态 mode)（规则 1 未知 mode→不可证，字面量防线保留面）→ unevaluated", () => {
+      const r = evaluateWriteTargets(`node -e "open('${ROOT}/x', m).read()"`, ROOT);
       expect(r.kind).toBe("unevaluated");
     });
 

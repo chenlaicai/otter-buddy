@@ -1,0 +1,95 @@
+/**
+ * write-word-face：词面证（F20261013gev2 能力 1-4，证明演算 §3.2.1 三条规则）。
+ *
+ * 规则 1（路径调用三分类）：写证据（写 mode/写 API/重定向）→ 落点判；读证据 → 只读不参与写证明；
+ *   未知 mode/不可求值 → 不可证（fail-closed）。
+ * 规则 2（exec 类）：运行时获得/构造的可调用执行一律不可证——exec/eval/system/popen/execSync/
+ *   spawn/fork/import_module/__import__/getattr/Function/constructor/反引号/$(...) 递归、管道入
+ *   shell；import/require 拆分：字面量模块名 → 规则 3 非路径调用（副作用残余记档），变量/拼接/路径
+ *   形态 → exec 不可证。
+ * 规则 3（非路径调用）：纯计算/网络等无文件路径字面量实参的调用不参与证明。
+ * 证明无写 = 无写词面 ∧ 无隐式写词面 ∧ 无重定向落点 ∧ 无 exec 类 ∧ 载荷写调用=0。
+ *
+ * 词面证（能力 4 无落点正向证明）的适用面：结构不可信（parseOk=false/窄提取失败）时的正向证明
+ *   兜底——扫的是**原文**，引号/参数分裂无法把写词面藏出扫描面（正是残余面「引号/参数分裂逃逸」的
+ *   对偶防线）；反向不放宽：任何写面存在即不可证。载荷内引号失衡（递归 payload 解析失败）不走本
+ *   通道——TS-c020 残余面钉死 fail-closed（payload-parse-failed），防「放宽误当修复面」。
+ */
+/** 能力 2：写词面命令族（裸词面——落点可字面量求值者由结构化通道收，其余不可证） */
+const WRITE_FACE_WORDS = /(?:^|[\s;&|()`$])(?:touch|mkdir|rmdir|rm|mv|cp|tee|install|dd|truncate|ln|chmod|chown|chgrp|mknod|mkfifo|shred)(?:\s|$)/;
+/** 能力 2：原地编辑词面（sed -i / perl -pi / ruby -pi 族——写面=原文件） */
+const INPLACE_FACE = /(?:^|[\s;&|()`$])(?:sed\s+-[^\s]*i|perl\s+(?:-\w*p\w*|-[ip]\b)|ruby\s+(?:-\w*p\w*|-[ip]\b))/;
+/** 能力 2：参数即落点（curl -o / wget -O / dd of=） */
+const ARG_TARGET_FACE = /(?:^|[\s;&|()`$])(?:curl|wget)\s+[^\n]*\s-[oO]\s|(?:^|[\s;&|()`$])dd\s+[^\n]*\bof=/;
+/** 能力 3：隐式写词面（元操作——写面在 cwd/仓，落点=cwd） */
+const IMPLICIT_WRITE_FACE =
+  /\bgit\s+(?:commit|amend|merge|rebase|cherry-pick|reset|revert|checkout|switch|restore|stash|clean|worktree\s+(?:add|remove|move|prune|repair)|branch\s+-[DdMm]|tag\b)|\b(?:npm|pnpm|yarn)\s+(?:install|i\b|ci\b|update|add|publish|pack|unpublish|link|dedupe)|\bpip3?\s+install|\bgem\s+install|\bcargo\s+(?:install|build|test|publish)|\bgo\s+(?:install|build|get)|\b(?:apt|apt-get|dnf|yum|brew|apk)\s+install|\bmake(?:\s|$)/;
+/** 能力 1 规则 2：exec 类词面（可调用执行/递归构造） */
+const EXEC_FACE =
+  /\b(?:exec|execSync|execFile|spawn|spawnSync|fork|system|popen|eval|Function|__import__|import_module|getattr)\s*\(|\b(?:child_process|subprocess)\b|\bos\.(?:system|popen)\b|(?<!\\)[`$]\(|(?<=[\s;(=])<\(|(?<=[\s;)=])>\(|\beval\s+["'$]|(?<=[\s;&)])[|]{1,2}\s*(?:sudo\s+)?(?:ba|z|k)?sh\b|(?<=[\s;&)])[|]{1,2}\s*(?:python3?|node|perl|ruby)\b/;
+/** 能力 1 规则 2：import/require 拆分——变量/拼接/路径形态 → exec 不可证（首参紧随字面量字符串=读披露放行） */
+export const DYNAMIC_IMPORT_FACE = /\b(?:require|import)\s*\(\s*(?!['"][^'"]*['"])/;
+/** 能力 1 规则 1：脚本载荷写调用（写证据——出现即有写面，落点另行求值） */
+const PAYLOAD_WRITE_FACE =
+  /\b(?:writeFileSync|appendFileSync|renameSync|unlinkSync|rmSync|mkdirSync|rmdirSync|truncateSync)\s*\(|\bfs\.(?:write|writev)\s*\(|\bos\.(?:remove|rename|mkdir|makedirs|rmdir|mknod|replace)\s*\(|\bshutil\.(?:copy|copy2|copytree|move|rmtree)\s*\(|\.\s*(?:writelines|truncate|unlink)\s*\(|(?<!stdout)(?<!stderr)\.\s*write\s*\(/;
+/** 重定向落点词面（排除 fd 复制 2>&1/>&2、比较/箭头 =>/->/<=/>=）；&>/<>/>> 单列 */
+const REDIRECT_FACE = /(?:&>{1,2}|<>|(?<![=\-<>&])>{1,2}(?!&|\(|=|\s*\/dev\/(?:null|std(?:out|err))))/;
+
+export function openCallUnknownMode(script: string): boolean {
+  for (const { args } of openCallSites(script)) {
+    const argsTrimmed = args.map(a => a.trim()).filter(a => a !== "" && !/^\w+\s*=/.test(a));
+    const mode = (argsTrimmed[1] ?? "").replace(/^['"]|['"]$/g, "");
+    if (argsTrimmed.length >= 2 && mode === "") return true; // mode 非字面量 → 未知 → 不可证
+  }
+  return false;
+}
+
+/** open() 调用点三分类（规则 1）：1 参=读；mode 字面量含 w/a/x/+ =写；mode 不可读字面量=未知→不可证。 */
+function openCallWriteHits(script: string): boolean {
+  for (const { args } of openCallSites(script)) {
+    const argsTrimmed = args.map(a => a.trim()).filter(a => a !== "" && !/^\w+\s*=/.test(a)); // kwargs（encoding=/errors=…）不是 mode
+    const mode = (argsTrimmed[1] ?? "").replace(/^['"]|['"]$/g, "");
+    if (argsTrimmed.length >= 2 && mode === "") return true; // mode 非字面量 → 未知 → 不可证
+    if (argsTrimmed.length >= 2 && !/^[rR][bBtT]?$/.test(mode)) return true; // 非纯读 mode → 写/未知 → 不可证
+  }
+  return false;
+}
+
+/** open() 调用点扫描（括号配平取实参表）。 */
+function openCallSites(script: string): Array<{ args: string[] }> {
+  const out: Array<{ args: string[] }> = [];
+  const re = /\bopen\s*\(/g;
+  let m = re.exec(script);
+  while (m !== null) {
+    let depth = 1;
+    let j = re.lastIndex;
+    const args: string[] = [];
+    let cur = "";
+    while (j < script.length && depth > 0) {
+      const c = script[j];
+      if (c === "(") depth++;
+      else if (c === ")") { depth--; if (depth === 0) { args.push(cur); break; } }
+      else if (c === "," && depth === 1) { args.push(cur); cur = ""; j++; continue; }
+      cur += c;
+      j++;
+    }
+    out.push({ args });
+    m = re.exec(script);
+  }
+  return out;
+}
+
+/** 词面证（能力 4）：原文级证明无写——所有写面/隐式写/exec 类/载荷写调用均为 0。 */
+export function proveNoWrite(command: string): boolean {
+  return !(
+    WRITE_FACE_WORDS.test(command)
+    || INPLACE_FACE.test(command)
+    || ARG_TARGET_FACE.test(command)
+    || IMPLICIT_WRITE_FACE.test(command)
+    || EXEC_FACE.test(command)
+    || DYNAMIC_IMPORT_FACE.test(command)
+    || PAYLOAD_WRITE_FACE.test(command)
+    || REDIRECT_FACE.test(command)
+    || openCallWriteHits(command)
+  );
+}

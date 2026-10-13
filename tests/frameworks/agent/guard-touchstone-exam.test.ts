@@ -16,7 +16,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { evaluateWriteVerdict } from '../../../src/frameworks/agent/write-target-evaluator';
+import { evaluateWriteVerdict } from '../../../src/frameworks/agent/write-verdict';
 
 const FIXTURES = join(__dirname, '..', '..', 'fixtures');
 interface Entry {
@@ -101,8 +101,9 @@ function expectRatchet(pool: 'allow' | 'block' | 'cond', actual: GapMap): void {
   const known = KNOWN_GAPS[pool];
   const knownKeys = Object.keys(known).sort();
   if (process.env.EXAM_REGEN === '1') {
-    // 再生模式：全量缺口并入棘轮清单（仅限开发期基线/有意重定基，评审看 diff）
-    KNOWN_GAPS[pool] = { ...known, ...actual };
+    // 再生模式：按池**替换**（闭合缺口随之移除——收缩可见）；仅限开发期基线/有意重定基，
+    // 评审看 diff，配套 shrink-only 验证（新缺口=回归）
+    KNOWN_GAPS[pool] = { ...actual };
     writeFileSync(GAPS_FILE, JSON.stringify(KNOWN_GAPS, null, 2));
     console.error('EXAM_REGEN:', pool, 'gaps =', Object.keys(KNOWN_GAPS[pool]).length);
     return;

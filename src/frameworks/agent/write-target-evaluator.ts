@@ -39,6 +39,7 @@
  * 纯函数：无状态、无 IO、不写任何存储（机制识别检查点通过）。
  */
 import { parseOnce, type CommandModel, type Segment } from "./command-model";
+import { proveNoWrite, DYNAMIC_IMPORT_FACE, openCallUnknownMode } from "./write-word-face";
 import type { Word } from "./command-lexer";
 
 // ────────────────────────────── 类型 ──────────────────────────────
@@ -115,6 +116,10 @@ function isScriptRunnerSeg(seg: Segment): boolean {
  *  的分界线画在 .otter/ 之外（c080/c081 .otter/workforms-retire 误拦实证：求值器判
  *  BLOCK 但台账裁决 ALLOW——.otter/ 是獭运行时区，不是搭档的仓内容）。
  *  data/workspaces 豁免由调用方政策层另行处理——本函数只报事实。 */
+// 能力 7（data/workspaces 沙箱排除）**暂不落地**：双签语料正面冲突待拍板——TS-67845f56/
+//  TS-ad11a060/TS-324eaad4 裁决明写「写证据落主仓树内:data/workspaces/…」钉 BLOCK，而 f80f7559
+//  （同形态工作区写）期望 ALLOW——同形态相反期望待双签重裁；拍板后本行随重裁一起落地（特性文档
+//  「能力 7 冲突」节有全链证据）。
 const OTTER_RUNTIME_REGIONS = ["/.otter/worktrees/", "/.otter/workforms"];
 export function pathWithinMain(absPath: string, projectRoot: string): boolean {
   const p = normalizePath(absPath);
@@ -489,6 +494,11 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
       return "heredoc-script-payload";
     }
   }
+  // 规则 2/规则 1 优先（证明演算 §3.2.1）：载荷含动态 import/未知 mode open → 一律不可证
+  //  （能力 8 只豁免字面量读披露；写 mode open 交形态 A 落点提取，不在此闸）
+  if (DYNAMIC_IMPORT_FACE.test(script) || openCallUnknownMode(script)) {
+    return "heredoc-script-payload";
+  }
   // 载荷后参数词（argv 值传播原料）——实测口径（#1411 处置实证）：
   //   node -e s A B → process.argv=[execPath, A, B]（无脚本文件插入 argv）→ argv[1]=A
   //   python3 -c s A → sys.argv=['-c', A] → argv[1]=A
@@ -644,27 +654,51 @@ function evaluateFromModel(model: CommandModel, projectRoot: string, startCwd: s
  * @param startCwd 命令启动 cwd（默认 projectRoot；条件期望双态各跑用：worktree 态传 worktree 路径）
  * @returns evaluated（targets 可为空集=求值成功且无写落点）或 unevaluated（回落）
  */
+/** shell 递归载荷求值（能力 4 词面证集成）：子落点入账（子 shell cd 链独立）。
+ *  返回 targets=全部子模型求值成功；uneval=存在不可证子模型（词面证放行仅限全证无写）。 */
+function collectShellPayloadTargets(
+  model: CommandModel, command: string, projectRoot: string, startCwd: string, scriptSegNarrowed: boolean,
+): { targets: WriteTarget[] } | { uneval: UnevalReason } {
+  const targets: WriteTarget[] = [];
+  for (const p of model.payloads) {
+    if (p.kind === "heredoc-quoted") continue;
+    if (p.model === null) {
+      return { uneval: p.depth >= 2 ? "depth-exceeded" : "parse-failed" };
+    }
+    if (scriptSegNarrowed && p.kind === "cmdsub" && !p.model.parseOk && !detectScriptPayload(p.model)) continue; // 垃圾 cmdsub 跳过
+    const sub = evaluateFromModel(p.model, projectRoot, startCwd);
+    if (sub.kind === "unevaluated") {
+      // 能力 4：载荷求值失败但原文词面可证无写 → 正面 ALLOW；parse-failed 豁免（载荷内引号/
+      //  参数分裂逃逸=残余面钉死 fail-closed，不走词面放宽）
+      if (sub.reason !== "parse-failed" && proveNoWrite(command)) return { targets };
+      return { uneval: sub.reason };
+    }
+    targets.push(...sub.targets);
+  }
+  return { targets };
+}
+
 // eslint-disable-next-line complexity -- 入口路由（parseOk 探针 + 载荷递归 + 主模型求值）三分支各对应一条已声明语义（Phase 1/Phase 2 口径注释）
 export function evaluateWriteTargets(command: string, projectRoot: string, startCwd: string = projectRoot): WriteEvalResult {
   const model: CommandModel = parseOnce(command, 0);
 
-  // 先行载荷族检测（不依赖 parseOk——python 函数调用括号触发词法 fail-closed 时
-  // segments 仍可读；此类命令本就属 Phase 1 回落族，先命中正确语义）。
-  // Phase 2 例外：存在可窄提取的脚本载荷段时跳过短路，交给段级窄提取（gduc S1
-  //  多行载荷常态面——双引号内嵌单引号触发词法 fail-closed 但 parts 全 lit 可拼）。
+  // 先行载荷族检测（不依赖 parseOk——可窄提取的脚本载荷段跳过短路，交给段级窄提取）。
   if (detectScriptPayload(model) && !hasNarrowExtractableScriptSeg(model, projectRoot)) {
+    // 能力 4：载荷不可窄提取但原文词面可证无写 → 正面 ALLOW；否则 fail-closed。
+    if (proveNoWrite(command)) return { kind: "evaluated", targets: [] };
     return { kind: "unevaluated", reason: "heredoc-script-payload" };
   }
   if (!model.parseOk) {
-    // Phase 2：多行载荷命令常态 parseOk=false（嵌套单引号），但 segments/words 仍可读。
-    //  词法层 segments 可读时继续段级求值——前提是至少一段求值出了实质落点信息
-    //  （脚本窄提取成功 / git/词表/重定向落点）；全部段零落点（词面求值不出，如
-    //  `echo "unclosed` 的唯一参数词 evaluated=null）→ evaluated 空集是假信息，
-    //  回落 parse-failed 保 Phase 1 保守语义。词法彻底失败（segments 空）同口径回落。
+    // Phase 2：多行载荷命令常态 parseOk=false（嵌套单引号），但 segments/words 仍可读——
+    //  至少一段求出实质落点才走正常路径；全部段零落点且无载荷/窄提取面 → evaluated 空集
+    //  是假信息，回落 parse-failed 保 Phase 1 保守语义。词法彻底失败（segments 空）同口径。
     if (model.segments.length === 0) return { kind: "unevaluated", reason: "parse-failed" };
     const probe = evaluateFromModel(model, projectRoot, startCwd);
     if (probe.kind === "unevaluated") return probe;
-    if (probe.targets.length === 0 && !hasNarrowExtractableScriptSeg(model, projectRoot)) {
+    if (probe.targets.length === 0 && !hasNarrowExtractableScriptSeg(model, projectRoot) && model.payloads.length === 0) {
+      // 能力 4：词面可证无写 → 正面 ALLOW；否则保 Phase 1 保守语义。有 shell 递归载荷时
+      //  不提前返回——bash -c 'touch 主仓' 子落点必须先入账（单测负门实证的放水面）。
+      if (proveNoWrite(command)) return { kind: "evaluated", targets: [] };
       return { kind: "unevaluated", reason: "parse-failed" };
     }
     // 探针已证明可求值——走正常路径（幂等纯函数，重求值无副作用）
@@ -676,46 +710,14 @@ export function evaluateWriteTargets(command: string, projectRoot: string, start
   //  cmdsub 子模型（parseOk=false、段全是脚本 token 碎片、非脚本载荷族）不构成独立回落
   //  理由——同一事实的重复保守（c032 `print(open(...).read())` 假 $( 族实证）。
   const scriptSegNarrowed = hasNarrowExtractableScriptSeg(model, projectRoot);
-  const subTargets: WriteTarget[] = [];
-  for (const p of model.payloads) {
-    if (p.kind === "heredoc-quoted") continue;
-    if (p.model === null) {
-      return { kind: "unevaluated", reason: p.depth >= 2 ? "depth-exceeded" : "parse-failed" };
-    }
-    if (scriptSegNarrowed && p.kind === "cmdsub" && !p.model.parseOk && !detectScriptPayload(p.model)) continue; // 垃圾 cmdsub 跳过
-    const sub = evaluateFromModel(p.model, projectRoot, startCwd);
-    if (sub.kind === "unevaluated") {
-      return { kind: "unevaluated", reason: sub.reason === "parse-failed" ? "parse-failed" : sub.reason };
-    }
-    subTargets.push(...sub.targets);
-  }
+  const payloadResult = collectShellPayloadTargets(model, command, projectRoot, startCwd, scriptSegNarrowed);
+  if ("uneval" in payloadResult) return { kind: "unevaluated", reason: payloadResult.uneval };
+  const subTargets: WriteTarget[] = payloadResult.targets;
 
   const main = evaluateFromModel(model, projectRoot, startCwd);
-  if (main.kind === "unevaluated") return main;
+  if (main.kind === "unevaluated") {
+    if (main.reason !== "parse-failed" && proveNoWrite(command)) return { kind: "evaluated", targets: subTargets };
+    return main;
+  }
   return { kind: "evaluated", targets: [...main.targets, ...subTargets] };
-}
-
-// ────────────────────────────── 终局裁决（judge 考试判据） ──────────────────────────────
-
-/** 终局裁决结果（能力 8 口径：只读披露不构成写证据，read 目标不参与拦截判定）。
- *  mode=positive：求值成功并按落点/正向证明得出终局结论；
- *  mode=fail-closed：求值不出/不可证（§3.3 读不出终局）——BLOCK 是 v2 的终局态，
- *  残余面（residual_face）即以此态如实钉 BLOCK。 */
-export type WriteVerdictResult =
-  | { verdict: "ALLOW"; mode: "positive"; targets: WriteTarget[] }
-  | { verdict: "BLOCK"; mode: "positive"; targets: WriteTarget[]; mainHits: WriteTarget[] }
-  | { verdict: "BLOCK"; mode: "fail-closed"; reason: UnevalReason };
-
-/** 终局裁决（纯函数）：bash 命令写判定的 v2 判据——
- *  · evaluated 且写落点 ∩ 主仓树内 → BLOCK（positive，落点证据）
- *  · evaluated 且写落点 ∩ 主仓树内 = ∅ → ALLOW（positive，含证明无写/只读披露）
- *  · unevaluated → BLOCK（fail-closed，§3.3）
- *  只读披露（access=read）不构成写证据（能力 8/证明演算规则 3）。
- *  「judge 考试」（guard-touchstone-exam）与影子投影同用本判据，口径不得分叉。 */
-export function evaluateWriteVerdict(command: string, projectRoot: string, startCwd: string = projectRoot): WriteVerdictResult {
-  const r = evaluateWriteTargets(command, projectRoot, startCwd);
-  if (r.kind === "unevaluated") return { verdict: "BLOCK", mode: "fail-closed", reason: r.reason };
-  const mainHits = r.targets.filter(t => t.access === "write" && pathWithinMain(t.path, projectRoot));
-  if (mainHits.length > 0) return { verdict: "BLOCK", mode: "positive", targets: r.targets, mainHits };
-  return { verdict: "ALLOW", mode: "positive", targets: r.targets };
 }

@@ -59,7 +59,22 @@ modification_class: narrow-fix
 
 机制识别检查点逐项：新增配置字段/枚举/开关 ✗；新增状态生命周期 ✗；新增定时任务/后台进程 ✗；新增信号类型/消息格式 ✗；**新增持久化 ✓（guard-touchstone-exam-gaps.json 开发棘轮清单）**——为何命中但不涉净新增机制：该文件是开发期测试夹具（能力完成即删的临时棘轮，退役条件已写死在文件头与本节），非生产机制面、无运行时消费者；不为它开机制预算，收尾时随棘轮清零一并删除。
 
-## 验证
+## 能力落地进展（2026-10-13 第一轮：能力 1 规则 2 闸 + 能力 2/3 词面表 + 能力 4 词面证）
+
+- **词面证 proveNoWrite（能力 4）落地**：结构不可信时的正向证明兜底——原文级扫写词面（能力 2 词表）/原地编辑/参数即落点/隐式写元操作（能力 3）/exec 类（规则 2）/动态 import/载荷写调用/open 三分类/重定向落点；全部为零=证明无写→正面 ALLOW，否则 fail-closed
+- **能力 1 规则 2/规则 1 闸**：载荷含动态 import（变量/拼接）或未知 mode open → 不可证；exec 词面仅在词面证层拦（结构化层不拦——避免正则/HTML 文本假阳性回归，实测教训）
+- **棘轮成效**：247 → **193**（收 56：allow 49 / block 7 放水修回）；全仓 5407/5407；单测改写为能力 8 新口径 + 三态负门（动态 import→拦 / 未知 mode open→拦 / 引号失衡藏写→拦）
+- **实测教训入档**：①词面证 exec 词面不可进结构化层（`|sh`/`<(h1`/`$(curl` 在正则/HTML/良性 cmdsub 里假阳性拉崩 19 条）②写 mode open 交形态 A 落点提取，不能进不可证闸（argv 映射/相对路径提取是它的活）③parseOk=false 早退必须先给 shell 递归载荷入账机会（bash -c 'touch 主仓' 子目标不能丢）
+
+## 补裁请求簇（2 条新增缺口 + 3 条能力 7 冲突，需拍板/双签补签）
+
+按 c034/c024 先例（立档不动、呈裁决）：
+
+1. **能力 7（data/workspaces 排除区）与双签语料正面冲突**：TS-67845f56/TS-ad11a060/TS-324eaad4 裁决明写「写证据落主仓树内:data/workspaces/…」钉 BLOCK，而 f80f7559（同形态 `cat > /repo/data/workspaces/…`）期望 ALLOW——同形态相反期望（同 c034/c024 类）。拍板方向：A=工作区=沙箱（能力 7 落地 + 3 条重裁）或 B=工作区=树内（能力 7 收窄）。
+2. **TS-070eb289 裁决过度**：纯读日志（`open(…,errors='replace')` 只读 + json.loads + print），裁决却写「载荷写调用」——建议翻 ALLOW（词面证已证无写）。
+3. **TS-c01c323c 基线清单时代错漏 + 能力 7 簇**：基线清单生成早于 evalTargetArgCommand 的 access 位修复（mv 族落点当时不可见）；其裁决「写证据落点全树外」又是工作区写——随能力 7 拍板一并收。
+
+## 验证（收口后累计）
 
 - `npx vitest run tests/frameworks/agent/guard-touchstone-exam.test.ts`：3/3（棘轮态，247 缺口基线）
 - `npx vitest run tests/frameworks/agent/write-target-evaluator.test.ts shadow-eval-recorder.test.ts`：既有 69 用例全绿（access 位与影子写过滤零回归）
