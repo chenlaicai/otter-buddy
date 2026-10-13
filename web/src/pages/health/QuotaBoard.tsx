@@ -13,13 +13,13 @@ import * as api from '../../api/client'
 import type { ProviderQuotaDTO, QuotaWindowDTO } from '../../api/client'
 import { showToast } from '../../components/Toast'
 
-/** 余量比例 → 条色（≥50% 绿 / ≥20% 橙 / 以下红） */
-function barColor(ratio: number | null, exhausted: boolean): string {
+/** 已用占比 → 条色（<50% 绿 / ≥50% 橙 / ≥80% 红 / 耗尽红） */
+function barColor(usedRatio: number | null, exhausted: boolean): string {
   if (exhausted) return 'bg-rose-500'
-  if (ratio === null) return 'bg-stone-300'
-  if (ratio >= 0.5) return 'bg-emerald-500'
-  if (ratio >= 0.2) return 'bg-amber-500'
-  return 'bg-rose-500'
+  if (usedRatio === null) return 'bg-stone-300'
+  if (usedRatio >= 0.8) return 'bg-rose-500'
+  if (usedRatio >= 0.5) return 'bg-amber-500'
+  return 'bg-emerald-500'
 }
 
 function formatNum(n: number | null): string {
@@ -47,8 +47,9 @@ function isExhausted(w: QuotaWindowDTO): boolean {
 
 function WindowRow({ w }: { w: QuotaWindowDTO }) {
   const exhausted = isExhausted(w)
-  const ratio = w.remainingRatio
-  const widthPct = exhausted ? 100 : ratio !== null ? Math.round(ratio * 100) : 100
+  // 血条只展示已用量：已用占比 = 1 - remainingRatio（null 时不渲染条）
+  const usedRatio = w.remainingRatio !== null ? 1 - w.remainingRatio : null
+  const widthPct = usedRatio !== null ? Math.round(usedRatio * 100) : 0
   return (
     <div className="mt-3" data-testid={`quota-window-${w.key}`}>
       <div className="flex items-baseline justify-between">
@@ -57,17 +58,18 @@ function WindowRow({ w }: { w: QuotaWindowDTO }) {
           <span className="text-xs font-semibold text-rose-600">耗尽</span>
         ) : (
           <span className="text-xs text-stone-600">
-            剩 {ratio !== null ? `${Math.round(ratio * 100)}%` : '—'}
-            {w.remaining !== null ? ` · ${formatNum(w.remaining)}` : ''}
+            已用 {usedRatio !== null ? `${Math.round(usedRatio * 100)}%` : '—'}
           </span>
         )}
       </div>
-      <div className="h-2 mt-1 rounded-full bg-stone-100 overflow-hidden">
-        <div
-          className={`h-full rounded-full ${barColor(ratio, exhausted)}`}
-          style={{ width: `${widthPct}%` }}
-          data-testid={`quota-bar-${w.key}`}
-        />
+      <div className="h-2 mt-1 rounded-full bg-stone-200 overflow-hidden">
+        {usedRatio !== null && (
+          <div
+            className={`h-full rounded-full ${barColor(usedRatio, exhausted)}`}
+            style={{ width: `${widthPct}%` }}
+            data-testid={`quota-bar-${w.key}`}
+          />
+        )}
       </div>
       <div className="flex items-baseline justify-between mt-1">
         <span className="text-[10px] text-stone-400">

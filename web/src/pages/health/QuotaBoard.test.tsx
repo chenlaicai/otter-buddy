@@ -87,10 +87,16 @@ describe('QuotaBoard', () => {
     unmount()
   })
 
-  it('余量比例分档配色：0.34 琥珀、耗尽红', async () => {
+  it('血条展示已用量：已用 66% 橙、耗尽红满条', async () => {
     const { container, unmount } = await renderBoard()
-    expect(container.querySelector('[data-testid="quota-bar-5h"]')!.className).toContain('bg-amber-500')
-    expect(container.querySelector('[data-testid="quota-bar-week"]')!.className).toContain('bg-rose-500')
+    // 已用占比 = 1 - remainingRatio；5h 窗 remainingRatio=0.34 → 已用 66% → 橙
+    const bar5h = container.querySelector('[data-testid="quota-bar-5h"]') as HTMLElement;
+    expect(bar5h.className).toContain('bg-amber-500')
+    expect(bar5h.style.width).toBe('66%')
+    // 周窗 remainingRatio=0 → 已用 100% → 红满条
+    const barWeek = container.querySelector('[data-testid="quota-bar-week"]') as HTMLElement;
+    expect(barWeek.className).toContain('bg-rose-500')
+    expect(barWeek.style.width).toBe('100%')
     expect(container.textContent).toContain('耗尽')
     unmount()
   })
