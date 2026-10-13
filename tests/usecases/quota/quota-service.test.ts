@@ -9,14 +9,16 @@ import type { CaptureResult, CapturedResponse, QuotaCaptureSession, QuotaProvide
 import { QUOTA_PROVIDERS } from "@frameworks/quota/providers";
 import type { Logger } from "@usecases/ports/logger";
 
-function stubLogger(): Logger {
-  const logger: Logger = {
-    info: () => undefined,
+function stubLogger(): Logger & { infos: string[] } {
+  const infos: string[] = [];
+  const logger = {
+    infos,
+    info: (msg: string) => { infos.push(msg); },
     warn: () => undefined,
     error: () => undefined,
     debug: () => undefined,
     child: () => logger,
-  };
+  } as unknown as Logger & { infos: string[] };
   return logger;
 }
 
@@ -32,8 +34,8 @@ const GLM_PAYLOAD = {
   },
 };
 
-function captureResult(responses: CapturedResponse[], finalUrl = glmSpec.consoleUrl): CaptureResult {
-  return { responses, finalUrl, redirectedToLogin: /login|passport|signin|auth/i.test(finalUrl), visitedUrls: [] };
+function captureResult(responses: CapturedResponse[], finalUrl = glmSpec.consoleUrl, visitedUrls: string[] = []): CaptureResult {
+  return { responses, finalUrl, redirectedToLogin: /login|passport|signin|auth/i.test(finalUrl), visitedUrls };
 }
 
 /** 脚本化假会话：按调用序回放结果，记录调用轨迹 */
@@ -55,11 +57,11 @@ function fakeSession(script: Array<CaptureResult | Error>) {
   return { session, calls };
 }
 
-function makeService(session: QuotaCaptureSession, nowRef: { t: number }) {
+function makeService(session: QuotaCaptureSession, nowRef: { t: number }, opts?: { logger?: Logger }) {
   return new QuotaService({
     session,
     providers: [glmSpec],
-    logger: stubLogger(),
+    logger: opts?.logger ?? stubLogger(),
     now: () => nowRef.t,
   });
 }
@@ -83,6 +85,20 @@ describe("QuotaService", () => {
     const { session } = fakeSession([captureResult([], "https://bigmodel.cn/login?next=%2F")]);
     const snap = await makeService(session, { t: 0 }).getSnapshot();
     expect(snap.providers[0]!.status).toBe("needs-login");
+  });
+
+  it("诊断：空捕获 + 未跳登录 → error 且落 visitedUrls 日志（区分「未登录」与「端点改了」）", async () => {
+    const logger = stubLogger();
+    const visited = ["https://www.kimi.com/code", "https://www.kimi.com/apiv2/ConfigService/GetConfig"];
+    const { session } = fakeSession([captureResult([], "https://www.kimi.com/code", visited)]);
+    const snap = await makeService(session, { t: 0 }, { logger }).getSnapshot();
+    // 空捕获 + finalUrl 非登录页 → 不是 needs-login，是 error（端点可能改了）
+    expect(snap.providers[0]!.status).toBe("error");
+    // 诊断日志落 visitedUrls
+    const diagLog = logger.infos.find(m => m.includes("未捕获响应"));
+    expect(diagLog).toBeDefined();
+    expect(diagLog).toContain("finalUrl=https://www.kimi.com/code");
+    expect(diagLog).toContain("kimi.com/apiv2");
   });
 
   it("fail-closed：结构未识别 → error（不猜数字）", async () => {

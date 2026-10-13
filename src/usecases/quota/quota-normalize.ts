@@ -147,13 +147,11 @@ function hasEnoughNumbers(used: number | null, limit: number | null, remaining: 
  *   - nextResetTime = 毫秒时间戳（仅部分窗口有）
  */
 
-/** GLM 窗口展示名：unit/number 是枚举不是人话——按窗口额度形态给语义名 */
+/** GLM 窗口展示名：unit 是稳定枚举（3=5h 窗、6=周窗），usage 额度会随套餐调整——优先按 unit 判别 */
 function glmWindowLabel(item: Record<string, unknown>, index: number): string {
-  const usage = firstNumber(item, ["usage"]);
-  if (usage !== null) {
-    if (usage <= 30000) return "5 小时";
-    if (usage <= 200000) return "本周";
-  }
+  const unit = firstNumber(item, ["unit"]);
+  if (unit === 3) return "5 小时";
+  if (unit === 6) return "本周";
   return `限额 ${index + 1}`;
 }
 
@@ -167,6 +165,7 @@ export function normalizeGlm(payload: unknown): QuotaWindow[] | null {
     if (!isRecord(item)) return;
     const label = glmWindowLabel(item, i);
     const used = firstNumber(item, ["currentValue", "used"]);
+    // usage 是 GLM 真实总量字段（2026-10-13 锁定）；limit/total 仅为防御性兜底，GLM 若未来加回同名字段可能需调整优先级
     const limit = firstNumber(item, ["usage", "limit", "total"]);
     const remaining = firstNumber(item, ["remaining"]);
     const resetAt = parseResetAt(item.nextResetTime ?? item.resetTime ?? item.reset_time);
