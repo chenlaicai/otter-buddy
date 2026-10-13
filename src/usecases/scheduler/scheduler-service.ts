@@ -26,6 +26,7 @@ import { reconcilePromptTemplates } from './prompt-template-reconciler';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { getRepoRoot } from '@frameworks/repo-root';
+import { haltRegistry } from '@usecases/signal/halt-registry';
 
 /** once 任务重试参数 */
 const ONCE_MAX_RETRIES = 3;
@@ -38,6 +39,22 @@ const ONCE_RETRY_DELAY_MS = 65_000; // 65 秒（避开 claimTask 60s 窗口）
  *  同步涨到最多 5min（可接受，见特性文档 timer-diet）。quartz/celery beat 模式：
  *  定时扫描 active 任务，比对墙钟，迟到即补触发 */
 const POLL_INTERVAL_MS = 300_000;
+
+/** #1449：running 执行体滞留挤占阈值（2h）。
+ *  案发背景（10-11/12 生产现场）：watchExecutionByLedger 无静默窗（换轨路径专属）——
+ *  闸门冻结/网关断连/进程 hang 时信号永不被点燃，isMessageSettled 永 false，
+ *  看门狗空转 24h 硬上限才释放执行位；期间同任务后续触发全部被 claimAndValidateTask
+ *  的 24h 防僵尸判定挡下（2 日 5 次 skip + 当日日报缺失）。
+ *  三个消费点共享本阈值：
+ *  ① 轮询级孤儿扫描（reapStaleRunningExecutions）——超阈值 → fail + halt + healing；
+ *  ② claim 防僵尸判定（claimAndValidateTask）——2h 未清理即视为僵尸放行（阈值倒挂消除）；
+ *  ③ 挤占 skip 落账（recordPreemptionSkipHealing）——触发被拒即见（此前 skip 行仅 DB 可查）。
+ *  Why 2h：正常任务时长上限 ~1h（日报级），2h 留一倍余量；1h 内即便闸门锁死自愈失败，
+ *  挤占 healing 也已落账可见（软路径），2h 是硬兜底的机械释放。 */
+const RUNNING_STUCK_THRESHOLD_MS = 2 * 60 * 60 * 1000;
+/** #1449：挤占 skip 落 healing 的同任务节流窗（1h）——挤占态持续时多次触发
+ *  （如每日补丁清单双触发）只落一条，防告警刷屏；节流状态存内存（重启重置可接受）。 */
+const PREEMPTION_SKIP_HEALING_THROTTLE_MS = 60 * 60 * 1000;
 
 /** #1272：轮询 catch-up 每轮全局配额（所有对话合计）。
  *  Why 3：issue #1272 建议同轮重任务 ≤3；跨对话风暴主要是资源压力，
@@ -123,6 +140,9 @@ export interface SchedulerServiceOptions {
   /** #1068: 模型池（可选）——quota-exhausted 降级重试时解析默认模型/选 fallback。
    *  未注入时降级路径整体跳过（与 manageSession 缺失同语义：warn 后走原失败路径）。 */
   modelPool?: ModelPoolLike;
+  /** #1449：目标獭是否活跃执行中（可选）——孤儿 running 执行扫描的判活回调。
+   *  未注入按「无存活」处理（保守清理）。 */
+  isOtterRunning?: (otterId: string) => boolean;
 }
 
 export class SchedulerService {
@@ -138,6 +158,10 @@ export class SchedulerService {
   private readonly entryRepo: EntryRepository;
   private readonly messageBroadcaster?: MessageBroadcaster;
   private readonly agentInvokePort: AgentTurnPort;
+  /** #1449：isRunning 委托（可选）——孤儿执行扫描判定「running 行是否有存活执行方」。
+   *  缺省 = 无存活（最保守：判不出活就当死，机械清理比等 24h 安全）。
+   *  生产由 AgentInvoker（委托 PiSessionFactory.isRunning）注入；测试注入假实现。 */
+  private readonly isOtterRunning?: (otterId: string) => boolean;
   private readonly cronParser: CronParser;
   private readonly logger: Logger;
   private readonly healingRepo?: HealingEventRepository;
@@ -162,6 +186,9 @@ export class SchedulerService {
   /** #1208：claim 因对话不存在/非 active 被拒时由 claimAndValidateTask 置位，
    *  catch 块据此跳过 skipped execution 落账（任务已 disable，落账无意义）。消费后清除。 */
   private conversationDisabledInClaim = false;
+  /** #1449：挤占 skip 落 healing 的节流时间戳（taskId → 上次落账 epoch ms）。
+   *  内存态即可：进程重启后挤占现场已由孤儿扫描清理，重复落账风险随现场消失。 */
+  private readonly preemptionSkipHealingAt = new Map<string, number>();
 
   constructor(options: SchedulerServiceOptions) {
     this.taskRepo = options.taskRepo;
@@ -170,6 +197,7 @@ export class SchedulerService {
     this.entryRepo = options.entryRepo;
     this.messageBroadcaster = options.messageBroadcaster;
     this.agentInvokePort = options.agentInvokePort;
+    this.isOtterRunning = options.isOtterRunning;
     this.cronParser = options.cronParser;
     this.logger = options.logger;
     this.healingRepo = options.healingRepo;
@@ -323,6 +351,137 @@ export class SchedulerService {
     });
   }
 
+  /** #1449：孤儿 running 执行扫描——轮询级兜底（启动对账 failAllRunningExecutions 只清
+   *  重启现场，本扫描清「进程活着但执行假死」现场：闸门冻结/网关断连/进程 hang）。
+   *  判定：running 且 triggeredAt 超 RUNNING_STUCK_THRESHOLD_MS 且目标獭无存活 session
+   *  → halt（先标记，阻断未来复活——若执行方其实在跑只是獭口径没查到，halt 让它停手
+   *  向人报告，好过静默继续占住执行位）→ execution 置 failed → 落 healing（high）。
+   *  Why halt 在 update 之前：执行方真活着时，先收到停手指令再看到账面翻篇，
+   *  顺序反了会出现「账面已死、执行还跑」的竞态窗口。 */
+  private async reapStaleRunningExecutions(): Promise<void> {
+    let tasks: ScheduledTask[];
+    try {
+      tasks = await this.getAllActiveTasks();
+    } catch (err) {
+      this.logger.warn('孤儿扫描: 任务清单获取失败，本轮跳过（不阻塞 tick）', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    const cutoff = Date.now() - RUNNING_STUCK_THRESHOLD_MS;
+    for (const task of tasks) {
+      try {
+        await this.reapStaleRunningExecutionsForTask(task, cutoff);
+      } catch (err) {
+        this.logger.warn('孤儿扫描: 单任务扫描失败（继续其他任务）', {
+          taskId: task.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  /** #1449：单任务孤儿清理（reapStaleRunningExecutions 抽取，控复杂度）。 */
+  private async reapStaleRunningExecutionsForTask(task: ScheduledTask, cutoff: number): Promise<void> {
+    const executions = await this.taskRepo.getExecutions(task.id, { limit: 10 });
+    for (const exec of executions) {
+      if (exec.status !== 'running') continue;
+      if (new Date(exec.triggeredAt).getTime() > cutoff) continue;
+      const targetOtter = task.talkingStonePassedTo[0];
+      // 判不出活按死处理（未注入 isOtterRunning 的装配=降级基线，机械清理比等 24h 安全）
+      if (targetOtter && this.isOtterRunning?.(targetOtter)) continue;
+      // halt 先于账面翻篇（见 reapStaleRunningExecutions 头注释）
+      if (targetOtter) {
+        try {
+          haltRegistry.mark({
+            id: crypto.randomUUID(),
+            targetOtterId: targetOtter,
+            fromOtterId: 'scheduler',
+            fromOtterName: `scheduler:${task.name}`,
+            conversationId: task.conversationId,
+            reason: `孤儿执行清理：任务「${task.name}」的 running 执行体滞留超 ${RUNNING_STUCK_THRESHOLD_MS / 3_600_000}h（闸门冻结/进程假死嫌疑），已置 failed 释放执行位。若你实际仍在执行，请立即报告并停止新增副作用。`,
+            issuedAt: new Date().toISOString(),
+          });
+        } catch { /* halt 打标失败不阻塞账面清理 */ }
+      }
+      await this.taskRepo.updateExecutionStatus(exec.id, {
+        status: 'failed',
+        completedAt: new Date().toISOString(),
+        errorMessage: `孤儿执行清理：running 滞留超 ${RUNNING_STUCK_THRESHOLD_MS / 3_600_000}h 且无存活执行方，轮询扫描机械释放`,
+      });
+      this.logger.warn('孤儿扫描: running 执行已机械释放', {
+        taskId: task.id, executionId: exec.id, triggeredAt: exec.triggeredAt, targetOtter,
+      });
+      await this.recordReapHealing(task, exec.id);
+    }
+  }
+
+  /** #1449：孤儿清理落 healing（high——日报缺失级事故，值得被看见）。失败仅日志。 */
+  private async recordReapHealing(task: ScheduledTask, executionId: string): Promise<void> {
+    if (!this.healingRepo) return;
+    try {
+      await this.healingRepo.create({
+        id: crypto.randomUUID(),
+        messageId: '',
+        conversationId: task.conversationId,
+        otterId: task.talkingStonePassedTo[0] ?? '',
+        errorType: 'other',
+        severity: 'high',
+        description: `定时任务「${task.name}」running 执行体滞留超 ${RUNNING_STUCK_THRESHOLD_MS / 3_600_000}h，轮询扫描机械释放`,
+        suggestion: '核查该时段是否用户停机/限流冻结或网关断连；若为闸门冻结滞留属已知形态，恢复后由补扫消化',
+        context: {
+          taskId: task.id,
+          executionId,
+          thresholdMs: RUNNING_STUCK_THRESHOLD_MS,
+          reapedAt: new Date().toISOString(),
+        },
+        status: 'open',
+        resolution: null,
+        createdAt: new Date().toISOString(),
+        resolvedAt: null,
+      });
+    } catch (err) {
+      this.logger.warn('孤儿扫描: healing 落账失败（不阻塞）', {
+        taskId: task.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /** #1449：挤占 skip 落 healing（low）——触发被拒即见，不等 2h 硬兜底。
+   *  同任务 1h 节流防刷屏；失败不阻塞（skip 行已落 DB，本通道是可见性增强）。 */
+  private async recordPreemptionSkipHealing(task: ScheduledTask): Promise<void> {
+    if (!this.healingRepo) return;
+    const last = this.preemptionSkipHealingAt.get(task.id) ?? 0;
+    if (Date.now() - last < PREEMPTION_SKIP_HEALING_THROTTLE_MS) return;
+    this.preemptionSkipHealingAt.set(task.id, Date.now());
+    try {
+      await this.healingRepo.create({
+        id: crypto.randomUUID(),
+        messageId: '',
+        conversationId: task.conversationId,
+        otterId: task.talkingStonePassedTo[0] ?? '',
+        errorType: 'other',
+        severity: 'low',
+        description: `定时任务「${task.name}」触发被 running 执行挤占跳过（与错过窗口对账互补：对账管错过窗口，本条管挤占根因）`,
+        suggestion: `若连续出现，说明有执行体滞留——轮询扫描将在 ${RUNNING_STUCK_THRESHOLD_MS / 3_600_000}h 阈值机械释放；人工排查可核查目标獭是否被闸门冻结`,
+        context: {
+          taskId: task.id,
+          skippedAt: new Date().toISOString(),
+        },
+        status: 'open',
+        resolution: null,
+        createdAt: new Date().toISOString(),
+        resolvedAt: null,
+      });
+    } catch (err) {
+      this.logger.warn('挤占 skip healing 落账失败（不阻塞）', {
+        taskId: task.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   /** #640: 轮询 tick——扫描所有 active 任务，比对预期触发时间与墙钟，
    *  越过即触发（迟到即补跑），记录 drift 值用于可观测性。 */
   /** #823 可注入 tick（测试替换为 noop，隔离轮询补触发干扰，专注对账定时器验证） */
@@ -333,6 +492,9 @@ export class SchedulerService {
   }
 
   private async tickReal(): Promise<void> {
+    // #1449：孤儿 running 执行扫描先于任务扫描——上轮 tick 注入的任务若已滞留，
+    // 本轮先释放其执行位，避免本轮 catch-up 被自己上一轮的僵尸挡住。
+    await this.reapStaleRunningExecutions();
     const tasks = await this.getAllActiveTasks();
     const now = Date.now();
     // #1272：catch-up 配额闸门——停机/冻结恢复后首轮 tick 会扫到全部 overdue 任务，
@@ -1004,12 +1166,23 @@ export class SchedulerService {
     // #641: 检查是否存在未超时的 running execution，避免重复触发竞态
     // 同 task 存在 running execution → 拒绝 claim，记 skipped（非 failed）
     const runningExecutions = await this.taskRepo.getExecutions(task.id, { limit: 5 });
-    const hasRunning = runningExecutions.some(exec =>
+    const stuckExecutions = runningExecutions.filter(exec => exec.status === 'running');
+    // #1449：僵尸判定阈值从 24h（MAX_CHAIN_TIMEOUT_MS）收紧到 2h（RUNNING_STUCK_THRESHOLD_MS）——
+    //   轮询扫描（reapStaleRunningExecutions）每 5min 会在 2h 阈值机械清理滞留执行体，
+    //   此处 2h 未清理即视为「扫描未及」的僵尸直接放行（阈值倒挂消除：防僵尸窗 ≤ 清理窗）。
+    //   双轨执行（触发内 24h 看门狗 + 轮询 2h 清理）让「真卡住」与「假卡住」窗口相差 12 倍，
+    //   挤占 skip 不再静默到次日。
+    //   顺序：先即时清理超龄僵尸（reap 内部只对超阈值且无存活执行方的行动手），
+    //   再判 2h 内活跃行——「该挡的挡住、僵尸不挡路」两个语义一次达成。
+    await this.reapPreemptingExecutions(task, stuckExecutions);
+    const hasRunning = stuckExecutions.some(exec =>
       exec.status === 'running' &&
-      // 未超时判断：triggeredAt 在 MAX_CHAIN_TIMEOUT_MS 内（防僵尸 execution 无限阻塞）
-      new Date(exec.triggeredAt).getTime() > Date.now() - MAX_CHAIN_TIMEOUT_MS
+      Date.now() - new Date(exec.triggeredAt).getTime() < RUNNING_STUCK_THRESHOLD_MS
     );
     if (hasRunning) {
+      // #1449：挤占 skip 落 healing（low，1h 节流）——触发被拒即见，与 #814 错过对账互补。
+      //   fire-and-forget 不阻塞 claim 拒绝主路径（落账失败只少一条可见性记录）。
+      void this.recordPreemptionSkipHealing(task);
       throw new DomainError('Task already has a running execution, skipping this trigger', 'validation');
     }
 
@@ -1023,6 +1196,45 @@ export class SchedulerService {
       this.conversationDisabledInClaim = true; // #1208：告知 catch 块本任务已 disable，skip 落账无意义
       await this.taskRepo.updateStatus(task.id, 'disabled', now);
       throw new DomainError('Conversation is not active', 'validation');
+    }
+  }
+
+  /** #1449：挤占触发点即时清理（claimAndValidateTask 抽取）。
+   *  与轮询扫描同判据 + 一道额外保险：已被 halt 打标的执行方直接判死（halt=已发停手令，
+   *  isRunning 残留的 streaming session 只是未收尾的尸身）。
+   *  用户停机/限流冻结场景 isRunning=true 且未 halt → 不动它（信号保留语义由补扫消化）。 */
+  private async reapPreemptingExecutions(
+    task: ScheduledTask,
+    runningExecutions: Array<{ id: string; status: string; triggeredAt: string }>,
+  ): Promise<void> {
+    const cutoff = Date.now() - RUNNING_STUCK_THRESHOLD_MS;
+    for (const exec of runningExecutions) {
+      if (new Date(exec.triggeredAt).getTime() > cutoff) continue;
+      const targetOtter = task.talkingStonePassedTo[0];
+      const halted = targetOtter ? haltRegistry.isHalted(targetOtter) : false;
+      if (!halted && targetOtter && this.isOtterRunning?.(targetOtter)) continue;
+      if (targetOtter && !halted) {
+        try {
+          haltRegistry.mark({
+            id: crypto.randomUUID(),
+            targetOtterId: targetOtter,
+            fromOtterId: 'scheduler',
+            fromOtterName: `scheduler:${task.name}`,
+            conversationId: task.conversationId,
+            reason: `孤儿执行清理（挤占触发点）：任务「${task.name}」的 running 执行体滞留超 ${RUNNING_STUCK_THRESHOLD_MS / 3_600_000}h，已置 failed 释放执行位。若你实际仍在执行，请立即报告并停止新增副作用。`,
+            issuedAt: new Date().toISOString(),
+          });
+        } catch { /* halt 打标失败不阻塞账面清理 */ }
+      }
+      await this.taskRepo.updateExecutionStatus(exec.id, {
+        status: 'failed',
+        completedAt: new Date().toISOString(),
+        errorMessage: `孤儿执行清理（挤占触发点）：running 滞留超 ${RUNNING_STUCK_THRESHOLD_MS / 3_600_000}h 且无存活执行方，即时释放`,
+      });
+      this.logger.warn('挤占触发点：孤儿 running 执行已即时释放', {
+        taskId: task.id, executionId: exec.id, triggeredAt: exec.triggeredAt, targetOtter, halted,
+      });
+      await this.recordReapHealing(task, exec.id);
     }
   }
 
