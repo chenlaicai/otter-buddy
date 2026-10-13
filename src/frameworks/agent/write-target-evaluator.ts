@@ -115,12 +115,15 @@ function isScriptRunnerSeg(seg: Segment): boolean {
  *  獭自己的隔离工作区）不算主仓工作树——落点是「獭的自治沙盒内」还是「搭档的项目内容」
  *  的分界线画在 .otter/ 之外（c080/c081 .otter/workforms-retire 误拦实证：求值器判
  *  BLOCK 但台账裁决 ALLOW——.otter/ 是獭运行时区，不是搭档的仓内容）。
- *  data/workspaces 豁免由调用方政策层另行处理——本函数只报事实。 */
-// 能力 7（data/workspaces 沙箱排除）**暂不落地**：双签语料正面冲突待拍板——TS-67845f56/
-//  TS-ad11a060/TS-324eaad4 裁决明写「写证据落主仓树内:data/workspaces/…」钉 BLOCK，而 f80f7559
-//  （同形态工作区写）期望 ALLOW——同形态相反期望待双签重裁；拍板后本行随重裁一起落地（特性文档
-//  「能力 7 冲突」节有全链证据）。
-const OTTER_RUNTIME_REGIONS = ["/.otter/worktrees/", "/.otter/workforms"];
+ *  data/workspaces（对话工作区沙箱）同口径并入排除区——能力 7 拍板落地（下注释）。 */
+// 能力 7（data/workspaces 沙箱排除）**已落地**：2026-10-13 大獭拍板（补裁簇 A 方案：工作区=
+//  沙箱，依据 workspace_write 系统契约 + 影子 28 条 EVAL_GAIN 误判实证）——data/workspaces/ 是
+//  搭档给獭的沙箱文件柜，写沙箱不算写主仓；root 级锚定防嵌套 decoy（/repo/x/data/workspaces/…
+//  是主仓内容区，不得误排），与 .otter/worktrees 同口径。同形态语料随拍板重裁：TS-67845f56/
+//  TS-ad11a060/TS-324eaad4/TS-070eb289 → ALLOW（原裁决把沙箱写当主仓写系裁决错误），f80f7559
+//  保持（特性文档「补裁请求簇」节全链证据）。注意豁免域只到**写落点**——不透明脚本载荷的
+//  fail-closed 不受本区影响（block 池 attack-rename-channel.sh 等残余面仍如实钉 BLOCK）。
+const OTTER_RUNTIME_REGIONS = ["/.otter/worktrees/", "/.otter/workforms", "/data/workspaces/"];
 export function pathWithinMain(absPath: string, projectRoot: string): boolean {
   const p = normalizePath(absPath);
   const root = normalizePath(projectRoot);

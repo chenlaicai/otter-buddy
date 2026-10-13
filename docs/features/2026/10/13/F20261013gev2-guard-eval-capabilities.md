@@ -66,19 +66,26 @@ modification_class: narrow-fix
 - **棘轮成效**：247 → **193**（收 56：allow 49 / block 7 放水修回）；全仓 5407/5407；单测改写为能力 8 新口径 + 三态负门（动态 import→拦 / 未知 mode open→拦 / 引号失衡藏写→拦）
 - **实测教训入档**：①词面证 exec 词面不可进结构化层（`|sh`/`<(h1`/`$(curl` 在正则/HTML/良性 cmdsub 里假阳性拉崩 19 条）②写 mode open 交形态 A 落点提取，不能进不可证闸（argv 映射/相对路径提取是它的活）③parseOk=false 早退必须先给 shell 递归载荷入账机会（bash -c 'touch 主仓' 子目标不能丢）
 
-## 补裁请求簇（2 条新增缺口 + 3 条能力 7 冲突，需拍板/双签补签）
+## 能力落地进展（2026-10-13 第二轮：能力 7 沙箱排除 + 补裁簇拍板落地）
+
+- **能力 7（A 方案：工作区=沙箱）落地**：`pathWithinMain` 排除区补 `^<root>/data/workspaces/`（root 级锚定防嵌套 decoy，与 .otter/worktrees 同口径）——2026-10-13 大獭拍板，依据 workspace_write 系统契约 + 影子 28 条 EVAL_GAIN 误判实证；豁免域只到**写落点**，不透明脚本载荷 fail-closed 不受影响（block 池 attack-rename-channel.sh 等残余面仍如实钉 BLOCK）
+- **补裁簇重裁落地**：TS-67845f56/TS-ad11a060/TS-324eaad4（原裁决把沙箱写当主仓写系裁决错误）+ TS-070eb289（纯读非写，原「载荷写调用」裁决过度）→ 重裁 ALLOW 移入放行池，原裁决以 `[重裁前裁决（已废）]` 前缀留痕；f80f7559 保持；TS-c01c323c 随之收；冻结计数 763/52/106 → 767/49/105（守恒 921）
+- **棘轮成效**：193 → **184**（收 9：写落点误报主仓 ×6 + TS-6da1b94d heredoc fail-closed + TS-070eb289 放水 + TS-324eaad4#wt fail-closed），shrink-only 外部 diff 把关 0 新增；全仓 5408/5408（含新增嵌套 decoy 回归测试）
+- **回归双向固化**：修复侧（沙箱写→落点不入主仓树）与不误伤侧（`/repo/x/data/workspaces/…` 嵌套 decoy 仍属主仓树）同套单测钉死——「修好又复发」历史（#1207→#1304、#1170→P0）的教训
+
+## 补裁请求簇（已拍板落地 2026-10-13）
 
 按 c034/c024 先例（立档不动、呈裁决）：
 
-1. **能力 7（data/workspaces 排除区）与双签语料正面冲突**：TS-67845f56/TS-ad11a060/TS-324eaad4 裁决明写「写证据落主仓树内:data/workspaces/…」钉 BLOCK，而 f80f7559（同形态 `cat > /repo/data/workspaces/…`）期望 ALLOW——同形态相反期望（同 c034/c024 类）。拍板方向：A=工作区=沙箱（能力 7 落地 + 3 条重裁）或 B=工作区=树内（能力 7 收窄）。
-2. **TS-070eb289 裁决过度**：纯读日志（`open(…,errors='replace')` 只读 + json.loads + print），裁决却写「载荷写调用」——建议翻 ALLOW（词面证已证无写）。
-3. **TS-c01c323c 基线清单时代错漏 + 能力 7 簇**：基线清单生成早于 evalTargetArgCommand 的 access 位修复（mv 族落点当时不可见）；其裁决「写证据落点全树外」又是工作区写——随能力 7 拍板一并收。
+1. **能力 7（data/workspaces 排除区）与双签语料正面冲突**：TS-67845f56/TS-ad11a060/TS-324eaad4 裁决明写「写证据落主仓树内:data/workspaces/…」钉 BLOCK，而 f80f7559（同形态 `cat > /repo/data/workspaces/…`）期望 ALLOW——同形态相反期望（同 c034/c024 类）。→ **已拍板：A=工作区=沙箱**（大獭裁决，workspace_write 系统契约 + 影子 28 条 EVAL_GAIN 实证），能力 7 已落地、3 条已重裁 ALLOW。
+2. **TS-070eb289 裁决过度**：纯读日志（`open(…,errors='replace')` 只读 + json.loads + print），裁决却写「载荷写调用」。→ **已拍板翻 ALLOW**，已移入放行池（求值器原本即判 ALLOW，原缺口即「拦截池放水」，移池后自然收）。
+3. **TS-c01c323c 基线清单时代错漏 + 能力 7 簇**：基线清单生成早于 evalTargetArgCommand 的 access 位修复（mv 族落点当时不可见）；其裁决「写证据落点全树外」又是工作区写。→ **已随能力 7 一并收**（考试缺口消失）。
 
 ## 验证（收口后累计）
 
-- `npx vitest run tests/frameworks/agent/guard-touchstone-exam.test.ts`：3/3（棘轮态，247 缺口基线）
-- `npx vitest run tests/frameworks/agent/write-target-evaluator.test.ts shadow-eval-recorder.test.ts`：既有 69 用例全绿（access 位与影子写过滤零回归）
-- 全仓 `npx vitest run`：5404/5404
+- `npx vitest run tests/frameworks/agent/guard-touchstone-exam.test.ts guard-touchstone-corpus.test.ts`：9/9（棘轮态 184，shrink-only 0 新增）
+- `npx vitest run tests/frameworks/agent/write-target-evaluator.test.ts`：53/53（含能力 7 双向固化：沙箱排除 + 嵌套 decoy 不误伤）
+- 全仓 `npx vitest run`：5408/5408
 
 ## 基线缺口分析（247 条，能力补全作战地图）
 
@@ -98,7 +105,7 @@ modification_class: narrow-fix
 
 ## 下一步（派工单节奏：每 2-3 个能力报进展）
 
-1. 能力 5（段级 cwd + 引号载荷完整解析）+ 能力 1（窄提取 v2 + 证明演算）先行——heredoc-script-payload 141 条是最大缺口面
-2. 能力 2/3（写词面族 + 隐式写元操作）清拦截池放水
-3. 能力 4/6/7/8 收尾 + §4.2.1 组合负门专项（perl -pi 藏 exec / 载荷写×汇点写 / 隐式写×显式写混合）
+1. 能力 5（段级 cwd + 引号载荷完整解析）+ 能力 1 结构化侧（heredoc 写调用提取）——heredoc-script-payload 残余面是最大缺口
+2. 能力 3 剩余面（push 远端口径）+ 能力 1 证明演算三条规则（路径调用三分类/exec 类不可证/import-require 拆分）清拦截池放水
+3. 能力 6（路径归一化）收尾 + §4.2.1 组合负门专项（perl -pi 藏 exec / 载荷写×汇点写 / 隐式写×显式写混合）
 4. 棘轮清零 → 删除清单 → 考试升级 CI 验收门 → PR 交对抗审视（检视獭1360，含其欠的 2 条补签）

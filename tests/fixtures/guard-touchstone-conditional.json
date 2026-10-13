@@ -7,7 +7,7 @@
     "generated_at": "2026-10-12T10:52:25.895869Z",
     "generated_by": "守卫修复獭（重刷期望+冻结，派工单 2026-10-12 18:36）",
     "pool": "条件期望库（无 cd cwd 不可反查——worktree→ALLOW / 主仓→BLOCK 双态各跑）",
-    "count": 106,
+    "count": 105,
     "restate_changes": {
       "git_policy_flip": 68,
       "to_conditional": 108,
@@ -3773,43 +3773,6 @@
             "event_id": "bf2b13de-1bd1-4e52-a349-052d493c63d6",
             "ts": "2026-10-10T07:10:43.567Z",
             "conversation_id": "27398619-8e0b-4147-8230-93e23f1a01ac",
-            "rule_id": "main_write",
-            "resolution": "",
-            "status": "open"
-          }
-        ]
-      },
-      "fp_marked": [],
-      "kind": "real_command",
-      "conditional": true,
-      "expectations": [
-        {
-          "cwd": "worktree",
-          "verdict": "ALLOW"
-        },
-        {
-          "cwd": "main",
-          "verdict": "BLOCK"
-        }
-      ]
-    },
-    {
-      "id": "TS-324eaad4",
-      "command": "curl -sL --max-time 45 -A \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36\" https://www.anthropic.com/news/claude-discovers-novel-enzyme-system -o /repo/data/workspaces/wsid/data/anthropic-enzyme.html; echo \"exit=$?\"; wc -c /repo/data/workspaces/wsid/data/anthropic-enzyme.html; python3 -c \"\nimport re,html\nt=open('/repo/data/workspaces/wsid/data/anthropic-enzyme.html',encoding='utf-8',errors='ignore').read()\nt=re.sub(r'<(script|style)[^>]*>.*?</\\1>','',t,flags=re.S|re.I)\nt=re.sub(r'<[^>]+>',' ',t)\nt=html.unescape(t)\nt=re.sub(r'\\s+',' ',t)\nprint(t[:5500])\"",
-      "adjudication": [
-        "§3.2.1-1 写证据→按落点判，主仓树内×1/2",
-        "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
-      ],
-      "source": {
-        "types": [
-          "guard_intercept"
-        ],
-        "anchors": [
-          {
-            "source": "guard_intercept",
-            "event_id": "324eaad4-8303-4ae5-9efc-40bfa0f59eca",
-            "ts": "2026-10-11T01:09:47.816Z",
-            "conversation_id": "98bd9fdd-8e28-4de8-b782-b59f46e733dd",
             "rule_id": "main_write",
             "resolution": "",
             "status": "open"

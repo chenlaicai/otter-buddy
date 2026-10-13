@@ -327,11 +327,21 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
       if (r.kind === "evaluated") expect(r.targets).toHaveLength(0);
     });
 
-    it("data/workspaces 豁免：写 /repo/data/workspaces/... → evaluated 落点在主仓树（调用方豁免政策不在求值器内——落点如实报）", () => {
+    it("data/workspaces 沙箱排除（能力 7 拍板落地）：写 /repo/data/workspaces/... → evaluated 但落点不在主仓树", () => {
       const r = evaluateWriteTargets("touch /repo/data/workspaces/conv1/f", ROOT);
       expect(r.kind).toBe("evaluated");
       if (r.kind === "evaluated") {
-        // 求值器如实报落点（在主仓树内）；豁免判定属调用方（政策与事实分层）
+        // 能力 7（2026-10-13 拍板）：对话工作区=沙箱——写沙箱不算写主仓，落点不入主仓树
+        expect(r.targets.some(t => pathWithinMain(t.path, ROOT))).toBe(false);
+      }
+    });
+
+    it("data/workspaces 排除区不误伤嵌套 decoy（root 级锚定）：/repo/x/data/workspaces/... 仍属主仓树", () => {
+      // 修复的一侧（上例沙箱放行）与不能误伤的一侧（本例嵌套 decoy 仍拦）双向固化——
+      // 排除区是 ^<root>/data/workspaces/ 前缀，不得扫到 /repo/<任意>/data/workspaces/…
+      const r = evaluateWriteTargets("touch /repo/x/data/workspaces/conv1/f", ROOT);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") {
         expect(r.targets.some(t => pathWithinMain(t.path, ROOT))).toBe(true);
       }
     });
