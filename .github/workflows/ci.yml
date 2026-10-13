@@ -102,8 +102,8 @@ jobs:
           node scripts/lint-prompt-anchors.mjs --full
           # #1173 / F20260929dbmb: 时间炸弹收窄扫描 v2（E1/E2 error 阻断 + W1 基线守恒）
           npm run lint:date-bombs
-          # F20261012orcl: 验收 Oracle 机器闸——不变量 registry 在位性 + lock 防静默篡改自校验
-          npm run lint:oracle
+          # F20261012orcl: 验收判据闸——不变量 registry 在位性 + lock 防静默篡改自校验
+          npm run lint:criteria
 
       # F20261009hcig（#1281）：历史文档不可变门禁接 CI——补齐执行面缺口（--no-verify 可整体
       # 绕过 pre-commit；其余 7 个 lint gate 均有 CI 对应，唯此门禁缺席）。--base 逐 commit 模式：
@@ -124,7 +124,7 @@ jobs:
       - name: Run intent lint gate
         run: npm run lint:intent
 
-      # F20261012orcl: 验收 Oracle 机器闸 PR 侧——测试弱化声明闸（删测试行必须登记声明）
+      # F20261012orcl: 验收判据闸 PR 侧——测试弱化声明闸（删测试行必须登记声明）
       - name: Run test-weakening declaration gate (check-pr-tests)
         if: github.event_name == 'pull_request'
         env:

@@ -14,10 +14,10 @@ describe("lint-evidence-anchors 检测逻辑", () => {
   });
 
   it("锚点识别：file:line / 文档 ID / issue 号 / 命令 / 路径", () => {
-    expect(hasAnchor("依据 scripts/check-oracle.mjs:10")).toBe(true);
+    expect(hasAnchor("依据 scripts/check-criteria.mjs:10")).toBe(true);
     expect(hasAnchor("见 F20261012orcl 特性文档")).toBe(true);
     expect(hasAnchor("修复 #1430")).toBe(true);
-    expect(hasAnchor("跑过 `node scripts/check-oracle.mjs`")).toBe(true);
+    expect(hasAnchor("跑过 `node scripts/check-criteria.mjs`")).toBe(true);
     expect(hasAnchor("全部通过。")).toBe(false);
   });
 
@@ -29,7 +29,7 @@ describe("lint-evidence-anchors 检测逻辑", () => {
 
   it("验证节有断言有锚点 → 不 warn", () => {
     const warnings = checkText(
-      "## 验证\n全部通过（tests/oracle/check-oracle.test.ts 13/13 绿，输出见 `node scripts/check-oracle.mjs`）。",
+      "## 验证\n全部通过（tests/criteria/check-criteria.test.ts 13/13 绿，输出见 `node scripts/check-criteria.mjs`）。",
     );
     expect(warnings).toHaveLength(0);
   });

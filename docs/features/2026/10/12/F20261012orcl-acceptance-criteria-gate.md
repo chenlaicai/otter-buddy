@@ -1,25 +1,25 @@
 ---
 id: F20261012orcl
-title: 验收 Oracle 机器闸：不变量 registry + PASS/FAIL checker + 防静默篡改 + 测试弱化防线
+title: 验收判据闸：不变量 registry + PASS/FAIL checker + 防静默篡改 + 测试弱化防线
 summary: |
-  把纪律/验收从口头指令变成机器闸：oracle/invariants.json 登记不可丢的纪律语义，
-  scripts/check-oracle.mjs 逐条机器判 PASS/FAIL，oracle/lock.json hash 防静默篡改，
+  把纪律/验收从口头指令变成机器闸：criteria/invariants.json 登记不可丢的纪律语义，
+  scripts/check-criteria.mjs 逐条机器判 PASS/FAIL，criteria/lock.json hash 防静默篡改，
   scripts/check-pr-tests.mjs 拦测试弱化无声明，CI 接线红绿即验收。
   动机：3 场事故（假急停 #1430、出清删 4 处纪律语义、表扬漏采）全是纸面纪律失守、无机器拦截。
   主机制：registry + PASS/FAIL checker + lock 防静默篡改 + waiver 有效期 + CI gate。
 change_type: feature
-capability_test: "n/a: 机器闸属静态校验层（文件语义在位性 + diff 声明判定），无真 LLM 能力面；行为验证走 tests/oracle/ fixture 红→绿（verify_by=behavior_check）"
+capability_test: "n/a: 机器闸属静态校验层（文件语义在位性 + diff 声明判定），无真 LLM 能力面；行为验证走 tests/criteria/ fixture 红→绿（verify_by=behavior_check）"
 created_in_conversation: 98bd9fdd-8e28-4de8-b782-b59f46e733dd
 created_at: "2026-10-12"
 doc_type: feature
-tags: [lint, oracle, ci, engineering-hygiene]
+tags: [lint, criteria, ci, engineering-hygiene]
 modules:
-  - scripts/check-oracle.mjs
+  - scripts/check-criteria.mjs
   - scripts/check-pr-tests.mjs
   - scripts/lint-evidence-anchors.mjs
-  - oracle/invariants.json
-  - oracle/waivers.json
-  - oracle/lock.json
+  - criteria/invariants.json
+  - criteria/waivers.json
+  - criteria/lock.json
   - .github/workflows/ci.yml
   - .githooks/pre-commit
   - package.json
@@ -31,12 +31,12 @@ causal_links:
     - F20260821kgts
 intent:
   problem: "纪律/验收全写在 prompt 与文档里（口头指令），无机器闸——删/放宽纪律语义与验收断言的 diff 无人拦截（出清删 4 处纪律语义一路绿灯到 delta 复核才被人眼抓、测试弱化可过 CI、处置自述被当证据采信）"
-  expected_effect: "删/放宽纪律语义与验收断言的 diff 被 check-oracle / check-pr-tests 机器当场拦截（exit 1，0 人工）；registry/checker/waivers 被篡改不同步 lock 时 exit 2；过期 waiver 失效即红；测试弱化无「## 测试改动声明」即红"
+  expected_effect: "删/放宽纪律语义与验收断言的 diff 被 check-criteria / check-pr-tests 机器当场拦截（exit 1，0 人工）；registry/checker/waivers 被篡改不同步 lock 时 exit 2；过期 waiver 失效即红；测试弱化无「## 测试改动声明」即红"
   verify_by:
     type: behavior_check
 ---
 
-# F20261012orcl: 验收 Oracle 机器闸
+# F20261012orcl: 验收判据闸
 
 ## 背景与需求
 
@@ -44,7 +44,7 @@ intent:
 
 搭档指令（原话）：「你一次性做完，不要搞什么p0~4，有需要分这么多个Pr啊，不都是一个特性吗」——一个特性一个 PR 一次交齐。
 
-外部洞察（momo5502「500+ Billion Tokens Later: Letting AI Agents Decompile A First-Person Shooter」，https://momo5502.com/posts/2026-10-09-game-decompilation/ ）的教训：正确性必须机器可判 PASS/FAIL——装 oracle 前 80% 进度全是假象、reviewer 全漏、worker 自述注入；装后 reviewer 撤裁、便宜模型逆袭。三条可迁移结论：①正确性必须机器可判 PASS/FAIL；②留解释空间就会作弊；③验证脚本本身要防篡改（他们 CI hash 了验证脚本）。
+外部洞察（momo5502「500+ Billion Tokens Later: Letting AI Agents Decompile A First-Person Shooter」，https://momo5502.com/posts/2026-10-09-game-decompilation/ ）的教训：正确性必须机器可判 PASS/FAIL——装 oracle 前 80% 进度全是假象、reviewer 全漏、worker 自述注入；装后 reviewer 撤裁、便宜模型逆袭。（词源一处：博文给自己那套字节比对器起名 The Oracle，借的是测试理论术语 test oracle/测试预言——判定结果对错的客观准则；本仓机制命名不沿用，叫「验收判据闸」，取自本特性设计稿「验收判据」用词。）三条可迁移结论：①正确性必须机器可判 PASS/FAIL；②留解释空间就会作弊；③验证脚本本身要防静默篡改（他们 CI hash 了验证脚本）。
 
 映射到海獭系统的三缺口（吸收 F20261012acpt G1-G3 分析）：
 
@@ -84,13 +84,13 @@ intent:
 
 | # | 交付物 | 形态 | 治什么 |
 |---|--------|------|--------|
-| 1 | `oracle/invariants.json` | 不变量 registry（id/file/pattern/rationale/waiver_eligible，种子 ≥9 条） | 纪律语义「必须在位」有登记 |
-| 2 | `scripts/check-oracle.mjs` | PASS/FAIL checker（`--json` / `--update-lock`；exit 0/1/2） | 缺失即红，0 人工 |
-| 3 | `oracle/lock.json` + `oracle/waivers.json` | 防静默篡改 lock（sha256）+ waiver（含 expires，数量 ratchet 上限） | 改闸必须显形；放宽必须审批且会过期 |
+| 1 | `criteria/invariants.json` | 不变量 registry（id/file/pattern/rationale/waiver_eligible，种子 ≥9 条） | 纪律语义「必须在位」有登记 |
+| 2 | `scripts/check-criteria.mjs` | PASS/FAIL checker（`--json` / `--update-lock`；exit 0/1/2） | 缺失即红，0 人工 |
+| 3 | `criteria/lock.json` + `criteria/waivers.json` | 防静默篡改 lock（sha256）+ waiver（含 expires，数量 ratchet 上限） | 改闸必须显形；放宽必须审批且会过期 |
 | 4 | `scripts/check-pr-tests.mjs` | 测试弱化防线（diff 删测试行 → 要求「## 测试改动声明」+ 方向；放宽要理由） | G2 机械化 |
 | 5a | `scripts/lint-evidence-anchors.mjs` | 断言证据锚点轻量规则（warn 起步，改动态 + PR body） | G1 报告侧 |
 | 5b | `review-dimensions.md` 增补「处置自述不作证据」硬规程 | 软代码（行为触发语义） | 反自述核验 |
-| 6 | `tests/oracle/*.test.ts` | 红→绿 fixture、lock 篡改、waiver 过期、测试弱化用例 | 闸自身的验收装置 |
+| 6 | `tests/criteria/*.test.ts` | 红→绿 fixture、lock 篡改、waiver 过期、测试弱化用例 | 闸自身的验收装置 |
 | 7 | CI / pre-commit 接线 + npm scripts | `.github/workflows/ci.yml`、`.githooks/pre-commit`、`package.json` | 执行面（纪律≠机制，--no-verify 绕不过 CI） |
 
 ### checker 语义（核心判定表）
@@ -110,7 +110,7 @@ intent:
 本次修复是否涉及以下任一项（清单：troubleshooting skill 修法决策树节）：
 
 - ☑ **新增配置字段/枚举/开关**——registry 条目 schema（id/file/pattern/rationale/waiver_eligible）、waiver 条目 schema（invariant_id/reason/approved_by/expires）
-- ☑ **新增持久化存储（文件）**——oracle/ 三件套（invariants.json / waivers.json / lock.json）
+- ☑ **新增持久化存储（文件）**——criteria/ 三件套（invariants.json / waivers.json / lock.json）
 - ☑ **新增决策分支（结果被记住并影响后续行为）**——lock 不符 → exit 2、waiver 有效/过期 → WARN/FAIL 的分支直接决定 CI 红绿与合入命运
 - ☐ 状态生命周期 / ☐ 定时任务 / ☐ 信号类型 / ☐ 跨模块调用路径——均无（checker 是单进程只读脚本）
 
@@ -122,7 +122,7 @@ intent:
 
 ### 机制预算四问
 
-① **谁需要它**：检视獭（验收核验者）——核验纪律语义在位性不再靠人眼通读 diff，checker 输出直接当证据；CI（机器执行面，对每个 PR 生效）；每只提交 PR 的海獭（被闸者，红绿即验收信号）；搭档/大獭（终审时看 oracle PASS/FAIL 而非自述）。3 场事故的共同受害方是搭档（拿到纪律退化的体检报告、被假急停打断流程）。
+① **谁需要它**：检视獭（验收核验者）——核验纪律语义在位性不再靠人眼通读 diff，checker 输出直接当证据；CI（机器执行面，对每个 PR 生效）；每只提交 PR 的海獭（被闸者，红绿即验收信号）；搭档/大獭（终审时看判据 PASS/FAIL 而非自述）。3 场事故的共同受害方是搭档（拿到纪律退化的体检报告、被假急停打断流程）。
 
 ② **失败后果**：用户可感知损害，不是内部指标异常——(a) 纪律语义被删无人知 → 体检报告退回「只列数字」的退化形态（今天差一点发生）；(b) 测试被放宽过 CI → 回归逃逸、用户踩 bug；(c) 验收自述可注入 → 假进度被当真进度（momo5502 案例的 80% 假象同构）。不装闸的失败后果本周已真实发生 3 次。
 
@@ -132,7 +132,7 @@ intent:
 - waiver 堆积不清理——数量 ratchet 上限（WAIVER_MAX，超限 error）+ expires 强制过期即 FAIL（到期 waiver 不清就红，机械推动清理）；
 - lock 更新变走过场——机器拦不住「--update-lock 一把梭」，靠流程锁：lock.json 变更必进 PR diff，检视按「改闸必须显形」核对 waiver 评审留痕。
 
-④ **退役条件**：(a) 纪律语义全部迁入可执行测试/代码断言（prompt 层不再承担行为约束）时，registry 的 prompt 在位性检查冗余可退役；(b) 试点 2–4 周复盘点后 oracle 零拦截、检视从未消费其输出、waiver 零使用 → 说明闸位不对，重定位或删除。**中间复盘点**：试点 2–4 周复审一次（拦截数 / 误报率 / waiver 使用率 / lock 更新频次），无复审记录则本机制视为长期化并需搭档知情。
+④ **退役条件**：(a) 纪律语义全部迁入可执行测试/代码断言（prompt 层不再承担行为约束）时，registry 的 prompt 在位性检查冗余可退役；(b) 试点 2–4 周复盘点后 判据闸零拦截、检视从未消费其输出、waiver 零使用 → 说明闸位不对，重定位或删除。**中间复盘点**：试点 2–4 周复审一次（拦截数 / 误报率 / waiver 使用率 / lock 更新频次），无复审记录则本机制视为长期化并需搭档知情。
 
 ### 取舍表
 
@@ -140,24 +140,24 @@ intent:
 |------|------|----------|------|
 | lock 覆盖面 | hash 三文件：registry + checker 自身 + waivers | 只 hash registry | 规格教训③「验证脚本本身要防篡改」——只锁 registry 则改 checker 让它永远 PASS 即绕闸 |
 | lock 形态 | 逐文件 sha256 map + 组合 hash | 单一组合字符串 | 诊断更细（哪件被改一眼可见）；信息量严格不小于规格要求，防静默篡改语义不变 |
-| waiver 形态 | `oracle/waivers.json`（结构化 + expires + 数量 ratchet 上限） | 沿用 intent-exempt-list 文本清单惯例 | exempt-list 是「存量冻结」语义（只减不增），waiver 是「临时放宽」语义（必须会过期）——文本清单无 expires 字段，达成不了「过期即失效」语义，按规格口径允许新造并在此说明 |
+| waiver 形态 | `criteria/waivers.json`（结构化 + expires + 数量 ratchet 上限） | 沿用 intent-exempt-list 文本清单惯例 | exempt-list 是「存量冻结」语义（只减不增），waiver 是「临时放宽」语义（必须会过期）——文本清单无 expires 字段，达成不了「过期即失效」语义，按规格口径允许新造并在此说明 |
 | check-pr-tests 触发口径 | 测试路径**任何删除行**即触发声明要求 | 净删除（删>增）才触发 | 净额口径漏「删 2 加 2 空断言」的零净弱化；声明成本一行，闸漏成本是 G2 失守——取严 |
 | 测试弱化判定深度 | 只判声明存在 + 方向字段 + 放宽理由非空 | LLM 判语义 | 「不判语义」是刻意边界：语义判定留给检视獭，机器管「声明必须显形」——留解释空间就会作弊，机器闸只管可机械判定的最小面 |
 | 5a 分级 | warn 起步（不阻断） | 直接 fail | 存量验证节大量无锚点，直接 fail 炸存量；先告警积累观测基线，复盘点收紧为 fail 或接 date-bombs 式基线守恒（只减不增） |
 | 5a 范围 | 本次改动的 F 文档 + PR body | 全树扫描 | 责任面是本 PR 改的文档；全树存量误报不属本 PR 修复义务 |
 | check-pr-tests 执行面 | 仅 CI（pull_request 事件） | + pre-commit | 声明载体是 PR body，commit 时不存在——本地无判定对象 |
-| lint:oracle 执行面 | pre-commit + CI 双挂 | 只挂一处 | lint-gate 家族惯例（只挂 pre-commit 会被 --no-verify 绕） |
+| lint:criteria 执行面 | pre-commit + CI 双挂 | 只挂一处 | lint-gate 家族惯例（只挂 pre-commit 会被 --no-verify 绕） |
 | T3 双数字落点 | docs/README.md 模板段 + registry 保护 | 再改 daily-health-check 加抽查项 | 控制注入面改动（daily-health-check 是高频注入 prompt，非本特性必要不动）；registry 保护已给模板段上闸 |
-| check-pr-tests 触发面 | 测试路径 + 验收装置文件（oracle/ 件套/闸脚本/检视规程/CI/hooks） | 仅测试路径 | 检视轮建议②：放宽验收装置与删测试同级，必须声明显形（闸本体同射程）；lock.json 常规重写也会触发声明——接受此 friction，改闸显形哲学的自然代价 |
-| 措辞强度 | 「防静默篡改」+ 流程锁边界提示（checker PASS 行附边界） | 沿用「防篡改」泛称 | 检视轮建议③：实测强度=防静默篡改+流程锁（--update-lock 一把梭实证），不过度声称是 Oracle 的本分 |
+| check-pr-tests 触发面 | 测试路径 + 验收装置文件（criteria/ 件套/闸脚本/检视规程/CI/hooks） | 仅测试路径 | 检视轮建议②：放宽验收装置与删测试同级，必须声明显形（闸本体同射程）；lock.json 常规重写也会触发声明——接受此 friction，改闸显形哲学的自然代价 |
+| 措辞强度 | 「防静默篡改」+ 流程锁边界提示（checker PASS 行附边界） | 沿用「防篡改」泛称 | 检视轮建议③：实测强度=防静默篡改+流程锁（--update-lock 一把梭实证），不过度声称是判据闸的本分 |
 
 ## 验收标准（本特性的「字节匹配」等价物）
 
 | 编号 | 场景 | 操作 | 预期结果 |
 |------|------|------|----------|
-| AT-1 红 | 出清删纪律语义事故重演 | fixture 删「禁止只列数字」（及今天被删的 4 处） | `check-oracle` FAIL（exit 1，明细含条目 id）——今天这个 diff 一路绿灯 |
+| AT-1 红 | 出清删纪律语义事故重演 | fixture 删「禁止只列数字」（及今天被删的 4 处） | `check-criteria` FAIL（exit 1，明细含条目 id）——今天这个 diff 一路绿灯 |
 | AT-2 绿 | 完整文件 | 完整 registry 目标文件 | PASS（exit 0） |
-| AT-3 篡改 | 改 registry/checker/waivers 不同步 lock | 任意 oracle 件套改动后直跑 | exit 2「需 --update-lock 并走 waiver 评审」 |
+| AT-3 篡改 | 改 registry/checker/waivers 不同步 lock | 任意 criteria 件套改动后直跑 | exit 2「需 --update-lock 并走 waiver 评审」 |
 | AT-4 waiver | 合法 waiver / 过期 waiver | 缺失条目 + 未过期 waiver / 过期 waiver | PASS(WARN) / FAIL |
 | AT-5 测试弱化 | 测试删断言无声明；带声明；放宽无理由 | check-pr-tests 三态 | FAIL / PASS / FAIL |
 | AT-6 锚点 | 验证断言无锚点 | lint-evidence-anchors | warn（ratchet 起步） |
@@ -168,7 +168,7 @@ intent:
 
 ## 设计决策
 
-（取舍见「设计取舍」段。检视轮处置记录（2026-10-12，实现者铸闸处置，鉴微 delta 复核）：①「测试弱化=严重」语义判定标准随 #1441 关闭丢失 + 证据措辞 overclaim → 接受：四形态判定标准（断言删除/放宽/跳过/mock 替换）搬入 review-dimensions.md 检视规程，「机器输出为证据」校准为「机器只证声明显形，语义判定按标准由检视出」；②check-pr-tests 触发面不含验收装置 → 接受：射程扩至 oracle/ 件套、闸/lint 脚本、.githooks、CI 工作流、adversarial-review 规程，补 3 用例；③「防篡改」overclaim → 接受：全线校准「防静默篡改」+ checker 输出附边界提示；附注 1（PR 模板未吸收声明段）→ 不改：check-pr-tests 报错文案含完整格式引导，PR body 模板属另域，本 PR body 已 dogfood；附注 2（全量未复跑）→ 已补：处置改动后全量重跑。）
+（取舍见「设计取舍」段。检视轮处置记录（2026-10-12，实现者铸闸处置，鉴微 delta 复核）：①「测试弱化=严重」语义判定标准随 #1441 关闭丢失 + 证据措辞 overclaim → 接受：四形态判定标准（断言删除/放宽/跳过/mock 替换）搬入 review-dimensions.md 检视规程，「机器输出为证据」校准为「机器只证声明显形，语义判定按标准由检视出」；②check-pr-tests 触发面不含验收装置 → 接受：射程扩至 criteria/ 件套、闸/lint 脚本、.githooks、CI 工作流、adversarial-review 规程，补 3 用例；③「防篡改」overclaim → 接受：全线校准「防静默篡改」+ checker 输出附边界提示；附注 1（PR 模板未吸收声明段）→ 不改：check-pr-tests 报错文案含完整格式引导，PR body 模板属另域，本 PR body 已 dogfood；附注 2（全量未复跑）→ 已补：处置改动后全量重跑。）
 
 ## 实现细节
 
@@ -176,16 +176,16 @@ intent:
 
 | 文件 | 性质 | 内容 |
 |------|------|------|
-| `oracle/invariants.json` | 新增 | 不变量 registry v1，9 条种子（每条 rationale 带出处） |
-| `oracle/waivers.json` | 新增 | waiver 空清单（version + waivers 数组） |
-| `oracle/lock.json` | 新增 | 三件套 sha256（逐文件 map + combined） |
-| `scripts/check-oracle.mjs` | 新增 | PASS/FAIL checker（~280 行，`--json`/`--update-lock`/`--root`，导出纯函数供测试） |
+| `criteria/invariants.json` | 新增 | 不变量 registry v1，9 条种子（每条 rationale 带出处） |
+| `criteria/waivers.json` | 新增 | waiver 空清单（version + waivers 数组） |
+| `criteria/lock.json` | 新增 | 三件套 sha256（逐文件 map + combined） |
+| `scripts/check-criteria.mjs` | 新增 | PASS/FAIL checker（~280 行，`--json`/`--update-lock`/`--root`，导出纯函数供测试） |
 | `scripts/check-pr-tests.mjs` | 新增 | 测试弱化防线（diff 删测试行 → 声明闸） |
 | `scripts/lint-evidence-anchors.mjs` | 新增 | 断言证据锚点 lint（warn 起步） |
-| `tests/oracle/*.test.ts` | 新增 | 39 用例（红→绿/防静默篡改/waiver/声明闸含验收装置射程/锚点检测） |
-| `.github/workflows/ci.yml` | 修改 | fast lint gates 加 `lint:oracle`；新增两个 PR 侧 gate step（注入 PR_BODY） |
-| `.githooks/pre-commit` | 修改 | 末尾加 `npm run lint:oracle`（家族惯例双挂） |
-| `package.json` | 修改 | `lint:oracle` / `lint:pr-tests` / `lint:evidence-anchors` scripts |
+| `tests/criteria/*.test.ts` | 新增 | 39 用例（红→绿/防静默篡改/waiver/声明闸含验收装置射程/锚点检测） |
+| `.github/workflows/ci.yml` | 修改 | fast lint gates 加 `lint:criteria`；新增两个 PR 侧 gate step（注入 PR_BODY） |
+| `.githooks/pre-commit` | 修改 | 末尾加 `npm run lint:criteria`（家族惯例双挂） |
+| `package.json` | 修改 | `lint:criteria` / `lint:pr-tests` / `lint:evidence-anchors` scripts |
 | `docs/README.md` | 修改 | 新增「交付双数字（汇报强制）」段（T3 落点，受 registry 保护） |
 | `.pi/skills/adversarial-review/references/review-dimensions.md` | 修改 | B3 增补「处置自述不作证据」硬规程（T5，软代码） |
 
@@ -210,29 +210,29 @@ intent:
 **绿基线**（完整仓库）：
 
 ```
-$ node scripts/check-oracle.mjs
-[lint:oracle] PASS（9/9 条在位，lock OK）
+$ node scripts/check-criteria.mjs
+[lint:criteria] PASS（9/9 条在位，lock OK）
 ```
 
 **红**（fixture 重演「出清删 4 处纪律语义」事故 diff——今天这个 diff 一路绿灯到 delta 复核）：
 
 ```
 $ sed -i '' 's/禁止只列数字//;s/失败附断言原文+实际内容//;s/每个 issue body 含「验证断言」段/issue body/;s/每个 issue body 含「关闭标准」段/issue body/' "$FIX/prompts/scheduled/daily-health-check.md"
-$ node scripts/check-oracle.mjs --root "$FIX"
+$ node scripts/check-criteria.mjs --root "$FIX"
 ✗ dhc-no-bare-numbers  prompts/scheduled/daily-health-check.md
     语义缺失——期望 pattern：禁止只列数字
 ✗ dhc-assertion-evidence  prompts/scheduled/daily-health-check.md
     语义缺失——期望 pattern：失败附断言原文+实际内容
     （另有 ✗ dhc-issue-verification-assertion / ✗ dhc-issue-close-criteria 两条同格式明细，逐字实录中略）
 
-[lint:oracle] FAIL（缺失 4 / 配置错误 0，lock OK）——修复语义或走 waiver（oracle/waivers.json）后重跑
+[lint:criteria] FAIL（缺失 4 / 配置错误 0，lock OK）——修复语义或走 waiver（criteria/waivers.json）后重跑
 exit:1
 ```
 
 **测试套件**（36 用例全绿，含 lock 篡改→exit 2、waiver 过期→FAIL、弱化无声明→FAIL、放宽无理由→FAIL 等负面向用例）：
 
 ```
-$ npx vitest run tests/oracle/
+$ npx vitest run tests/criteria/
  Test Files  3 passed (3)
       Tests  36 passed (36)
 ```
@@ -272,13 +272,13 @@ $ npm run test:capability
 
 | 指标 | 口径 | 取数处 |
 |------|------|--------|
-| oracle 拦截数 | CI 红灯中 lint:oracle/check-pr-tests 导致的失败次数 | CI run 详情 |
-| oracle 通过率 | lint:oracle PASS 次数 / 执行次数 | CI run 详情 |
-| waiver 使用率 | waivers.json 条目数 / 过期未清理数 | oracle/waivers.json |
+| 判据闸拦截数 | CI 红灯中 lint:criteria/check-pr-tests 导致的失败次数 | CI run 详情 |
+| 判据闸通过率 | lint:criteria PASS 次数 / 执行次数 | CI run 详情 |
+| waiver 使用率 | waivers.json 条目数 / 过期未清理数 | criteria/waivers.json |
 | 检视复核工时 | 检视轮中「人眼抓纪律语义删除」发生的次数（目标趋零） | 检视报告 |
 | 便宜模型任务占比 | 可机械验收任务（lint/闸类）派给低价模型的比例 | 派工记录 |
 
-复盘点（2026-10-26 前后）：拦截数/误报率/waiver 使用率/lock 更新频次——若 oracle 零拦截且检视从未消费其输出 → 按④退役条件重定位或删除；无复审记录则本机制视为长期化并需搭档知情。
+复盘点（2026-10-26 前后）：拦截数/误报率/waiver 使用率/lock 更新频次——若 判据闸零拦截且检视从未消费其输出 → 按④退役条件重定位或删除；无复审记录则本机制视为长期化并需搭档知情。
 
 ## 本次变更对旧特性做了什么
 
