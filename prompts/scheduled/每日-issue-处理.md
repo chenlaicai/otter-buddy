@@ -32,6 +32,7 @@ task_name: 每日 issue 处理
 - 一次一个 PR，遵循 R1 安全红线（worktree 隔离、PR-only 交付）
 - actionable 每天上限 **3 条**（防爆量；超过时按 bug > tech-debt、同级按创建时间从早到晚排序，剩余顺延）
 - **认领三问（防跨对话撞车）**：每条开工前必查（历史撞车实证）：① issue 是否已有他人 otter-claim 认领且无 release（`gh issue view <N> --json comments`）；② 是否有 open PR 引用（`gh pr list --state open --search "<N>"`）；③ `git worktree list` 有无相关目录且零 commit（**零 commit ≠ 废弃**，只可能是「在途」）。任一命中 → 跳过并标注原因。认领动作详见 worktree-isolation skill 步骤 2——开工前必读
+- **开工前独立核实案发现场**：动手修前必须独立核实 issue body 中的案发现场描述是否属实（查日志/跑命令/读代码，不靠 issue 内的方案当结论）；issue body 内的方案一律视为假设，不继承不采纳，核实后自行给出修复方案
 
 ## 数据源（含只读事实核实）
 
