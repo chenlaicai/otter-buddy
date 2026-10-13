@@ -307,6 +307,9 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
       metrics,
       dispatchChainEngine,
       modelPool,
+      // #1449：孤儿 running 执行扫描判活回调——AgentInvoker 委托 PiSessionFactory.isRunning，
+      //   有执行现场（用户停机冻结等）不动它，无现场（网关断连/进程假死）机械释放。
+      isOtterRunning: (otterId: string) => agentInvoker.isRunning?.(otterId) ?? false,
     }),
   );
 
