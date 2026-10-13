@@ -93,9 +93,18 @@
     margin-top:14px; padding-top:10px; border-top:1px dashed var(--line);
     display:flex; align-items:center; gap:10px; font-size:12px; color:var(--dim);
   }
-  .statusbar .bag { display:flex; gap:5px; font-size:15px; min-width:20px; }
-  .statusbar .bag span { background:var(--panel-deep); border:1px solid var(--line); border-radius:4px; padding:1px 4px; }
+  .statusbar .bag { display:none; } /* P7：背包格隐藏（内部逻辑与测试锚保留，进度看形象） */
   .statusbar .who { color:var(--text); font-weight:700; }
+  /* P7：成长形象——形象即进度，每收一件装备进一档 */
+  .hero-wrap { position:relative; display:inline-flex; align-items:center; }
+  #hero { width:48px; height:60px; image-rendering:pixelated; }
+  #hero.flash { animation:evoflash .8s ease; }
+  @keyframes evoflash { 0% { filter:brightness(1); } 25% { filter:brightness(2.2) drop-shadow(0 0 8px rgba(255,220,120,.9)); } 100% { filter:brightness(1); } }
+  .hero-lv { color:var(--accent); font-weight:700; letter-spacing:.02em; margin-left:2px; }
+  .evo-float { position:absolute; left:50%; bottom:100%; transform:translateX(-50%); white-space:nowrap; font-size:11px; font-weight:700; color:#ffd779; background:var(--panel-deep); border:1px solid var(--accent); border-radius:6px; padding:2px 8px; pointer-events:none; animation:evorise .9s ease forwards; }
+  @keyframes evorise { 0% { opacity:0; transform:translateX(-50%) translateY(6px); } 15% { opacity:1; } 100% { opacity:0; transform:translateX(-50%) translateY(-22px); } }
+  .evo-spark { position:absolute; left:50%; top:50%; width:4px; height:4px; border-radius:50%; background:#ffd779; pointer-events:none; animation:evoburst .8s ease forwards; }
+  @keyframes evoburst { 0% { opacity:1; transform:translate(-50%,-50%) rotate(var(--a)) translateY(0); } 100% { opacity:0; transform:translate(-50%,-50%) rotate(var(--a)) translateY(-26px); } }
   .hpbar {
     margin-top:12px; display:flex; gap:16px; align-items:center; font-size:12px;
     background:#101b2e; border:2px solid var(--line-hi); border-radius:8px; padding:9px 14px;
@@ -153,8 +162,7 @@
   .topbtn { background:rgba(10,18,32,.9); border:1px solid var(--line-hi); color:var(--dim); font-family:inherit; font-size:12px; padding:3px 10px; border-radius:5px; cursor:pointer; white-space:nowrap; }
   .topbtn:hover { color:var(--accent); border-color:var(--accent); }
   /* ────── P6：收获爽感微动效（≤0.4s，不阻塞） ────── */
-  .statusbar .bag span.pop { animation:baggrow .32s ease; }
-  @keyframes baggrow { 0% { transform:scale(.3); } 70% { transform:scale(1.35); } 100% { transform:scale(1); } }
+  /* （P7：原入包弹跳 baggrow 已随背包格展示一并隐藏——内部逻辑保留） */
 </style>
 </head>
 <body>
@@ -177,7 +185,7 @@
       <div class="actions" id="actions"></div>
     </div>
   </div>
-  <div class="statusbar"><span>🦦</span><span class="who" id="who">一只一无所有的幼獭</span><span style="flex:1"></span><span>背包</span><span class="bag" id="bag"></span></div>
+  <div class="statusbar"><span class="hero-wrap"><canvas id="hero" width="24" height="30" data-tier="0"></canvas></span><span class="hero-lv" id="heroLv">Lv.0 幼獭</span><span class="who" id="who">一只一无所有的幼獭</span><span style="flex:1"></span><span class="bag" id="bag"></span></div>
 <div class="hpbar" id="battlebar" style="display:none">
   <span>🦦 幼獭</span><div class="bar"><i id="hpSelf" style="width:100%"></i><div class="shield" id="shSelf" style="width:0"></div></div>
   <span>🐲 过去的大獭</span><div class="bar foe"><i id="hpFoe" style="width:100%"></i></div>
@@ -1108,6 +1116,7 @@ function render() {
   drawAmbientSparkles();
   drawBattleFx();
   drawPlayer();
+  drawHero();
   drawGlowRing();
   drawFloatsAndSparkles();
   requestAnimationFrame(render);
@@ -1195,6 +1204,7 @@ function fitBubble() { // 气泡自适应：优先说话者头顶；放不下翻
   else { dlg.classList.remove("upside"); nudge = Math.max(0, 4 + h - anchorPx); }
   dlg.style.setProperty("--nudge", nudge + "px");
 }
+window.addEventListener("resize", fitBubble); // P7：窗口缩放后重算气泡几何（检视 R2 建议——否则 --nudge 按旧高度算会 stale）
 function actions(list) {
   var box = document.getElementById("actions"); box.innerHTML = "";
   if (list && list.length) { // 有待点按钮：取消淡散、气泡驻留；空列表（纯旁白）则让淡散计时自然生效
@@ -1211,10 +1221,59 @@ function actions(list) {
 }
 function addBag(emoji) {
   S.bag.push(emoji);
-  var s = document.createElement("span"); s.textContent = emoji; s.className = "pop"; // P6 收获爽感：入包弹跳
+  var s = document.createElement("span"); s.textContent = emoji; s.className = "pop"; // 内部逻辑与测试锚保留（格子已隐藏）
   document.getElementById("bag").appendChild(s);
+  evolve(); // P7：每收一件装备 → 形象进一档
 }
 function setWho(t) { document.getElementById("who").textContent = t; }
+/* ---------- P7：成长形象（形象即进度——每完成一个点位多一件装备） ---------- */
+var EVO = ["幼獭", "记忆獭", "检索獭", "轻装獭", "传承獭", "自愈獭", "群行獭", "明察獭", "战神獭"];
+var heroLv = 0;
+var heroCv = document.getElementById("hero");
+var heroCtx = heroCv.getContext("2d");
+function drawHero() {
+  var t = S.tick, n = S.bag.length, g = heroCtx;
+  g.clearRect(0, 0, 24, 30);
+  var oy = 4 + Math.floor(t / 32) % 2;  // 呼吸浮动
+  var blink = (t % 240) < 12;           // 眨眼
+  var wag = Math.floor(t / 20) % 2;     // 摇尾
+  function r(x, y, w, h, c) { g.fillStyle = c; g.fillRect(x, y + oy, w, h); }
+  if (n >= 4) { r(4, 8, 2, 12, "#39588f"); r(18, 8, 2, 12, "#39588f"); r(4, 7, 1, 1, "#4a6eb0"); r(19, 7, 1, 1, "#4a6eb0"); } // T4 斗篷
+  r(2, 15 + wag, 2, 2, "#5b3d24");                                                        // 尾巴
+  r(6, 4, 12, 4, "#6f4826"); r(5, 6, 14, 2, "#5b3d24"); r(7, 5, 10, 3, "#8a5c31");     // 头三层
+  r(6, 8, 12, 10, "#6f4826"); r(7, 9, 10, 9, "#8a5c31");                                // 身
+  r(8, 11, 8, 6, "#d9c09a"); r(9, 12, 6, 4, "#efe0bd");                                 // 腹高光
+  if (blink) { r(9, 6, 2, 1, "#1a1210"); r(14, 6, 2, 1, "#1a1210"); }
+  else { r(9, 5, 1, 1, "#f5f2e8"); r(10, 5, 1, 1, "#1a1210"); r(14, 5, 1, 1, "#f5f2e8"); r(15, 5, 1, 1, "#1a1210"); }
+  r(11, 7, 2, 1, "#241812"); r(6, 3, 1, 1, "#5b3d24"); r(17, 3, 1, 1, "#5b3d24");       // 鼻+耳
+  r(6, 18, 4, 2, "#5b3d24"); r(14, 18, 4, 2, "#5b3d24");                                // 脚
+  if (n >= 1) r(7, 14, 10, 1, "#7d5730");                                                // T1 草绳腰带
+  if (n >= 2) { r(18, 11, 1, 5, "#78828e"); r(18, 10, 1, 1, "#9aa4b0"); }                // T2 石斧
+  if (n >= 3) { r(5, 12, 2, 2, "#5a6470"); r(17, 12, 2, 2, "#5a6470"); }                 // T3 护腕
+  if (n >= 5) r(11, 10, 1, 1, "#ffd779");                                                // T5 金勋章
+  if (n >= 6) r(6, 4, 12, 1, "#c9382e");                                                 // T6 红头带（额头）
+  if (n >= 7) { r(6, 4, 12, 1, "#4fc3d6"); r(9, 4, 1, 1, "#ffe9a8"); r(14, 4, 1, 1, "#ffe9a8"); } // T7 额上目镜（升级头带）
+  if (n >= 8) { // T8 战神：金冠 + 光环粒子
+    r(9, 3, 6, 2, "#ffd779"); r(9, 2, 1, 1, "#ffe9a8"); r(12, 2, 1, 1, "#ffe9a8"); r(15, 2, 1, 1, "#ffe9a8");
+    var sp = [[2 + Math.floor(t / 12) % 4, 5], [21 - Math.floor(t / 12) % 4, 7], [3, 20 - Math.floor(t / 12) % 4], [21, 19 + Math.floor(t / 12) % 4]];
+    g.fillStyle = "#ffe9a8"; g.fillRect(sp[Math.floor(t / 12) % 4][0], sp[Math.floor(t / 12) % 4][1], 1, 1);
+  }
+}
+function evolve() {
+  var n = S.bag.length;
+  heroCv.setAttribute("data-tier", String(n));
+  document.getElementById("heroLv").textContent = "Lv." + n + " " + EVO[Math.min(n, 8)];
+  if (n <= heroLv) return;
+  heroLv = n;
+  var w = document.querySelector(".hero-wrap");
+  var f = document.createElement("span"); f.className = "evo-float"; f.textContent = "🦦 大獭 Lv." + n;
+  w.appendChild(f); setTimeout(function () { f.remove(); }, 900);
+  for (var i = 0; i < 6; i++) {
+    var s = document.createElement("span"); s.className = "evo-spark"; s.style.setProperty("--a", (i * 60) + "deg");
+    w.appendChild(s); (function (sp) { setTimeout(function () { sp.remove(); }, 800); })(s);
+  }
+  heroCv.classList.remove("flash"); void heroCv.offsetWidth; heroCv.classList.add("flash"); // 仪式感：闪一下
+}
 /* ---------- P6：獭之图鉴（可选深读层） ---------- */
 var CAPS = {
   plant:"记忆播种", seedbox:"记忆检索", fert:"上下文管理", fallow:"前世封存",
