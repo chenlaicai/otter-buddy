@@ -50,6 +50,8 @@ export interface WriteTarget {
   via: "redirect" | "cmd-arg" | "heredoc-body" | "git";
   /** 溯源段号 */
   segmentIndex: number;
+  /** 访问类型（能力 8：只读披露不构成写证据）——只有 write 参与拦截判定，read 是事实披露 */
+  access: "write" | "read";
 }
 
 export type WriteEvalResult =
@@ -230,7 +232,7 @@ function evalRedirects(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRe
     if (r.target === null) return "dynamic-path";
     const resolved = evalPath(r.target, cwd);
     if (resolved === null) return "dynamic-path";
-    acc.targets.push({ path: resolved, via: "redirect", segmentIndex: acc.index });
+    acc.targets.push({ path: resolved, via: "redirect", segmentIndex: acc.index, access: "write" });
   }
   return null;
 }
@@ -285,7 +287,7 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
   if (sub === "stash" && rest[0] !== "push") return null;
   const base = cTarget !== null ? evalPath(cTarget, cwd) : cwd;
   if (base === null) return "dynamic-path";
-  acc.targets.push({ path: workTreeOverride !== null ? (evalPath(workTreeOverride, cwd) ?? base) : base, via: "git", segmentIndex: acc.index });
+  acc.targets.push({ path: workTreeOverride !== null ? (evalPath(workTreeOverride, cwd) ?? base) : base, via: "git", segmentIndex: acc.index, access: "write" });
   return null;
 }
 
@@ -304,7 +306,7 @@ function evalTargetArgCommand(bare: string, seg: Segment, cwd: string, acc: Segm
   for (const d of destArgs) {
     const resolved = evalPath(d, cwd);
     if (resolved === null) return "dynamic-path";
-    acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index });
+    acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index, access: "write" });
   }
   return null;
 }
@@ -341,7 +343,7 @@ function evalGitAdd(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReaso
   const base = cTarget !== null ? evalPath(cTarget, cwd) : cwd;
   if (base === null) return "dynamic-path";
   // 落点①：索引（主仓侧元数据——无 -C 时 cwd 是主仓才构成主仓写；有 -C 时 base 是目标仓）
-  acc.targets.push({ path: base, via: "git", segmentIndex: acc.index });
+  acc.targets.push({ path: base, via: "git", segmentIndex: acc.index, access: "write" });
   // 落点②：add 路径参数（add 的语义是"从工作树读文件写入索引"——路径相对工作树根/cwd；
   //  主仓 cwd 下 `git add docs/x.md` 的相对路径落主仓工作树，判拦的实证依据）
   const pathBase = workTreeOverride !== null ? (evalPath(workTreeOverride, cwd) ?? base) : base;
@@ -355,7 +357,7 @@ function evalGitAdd(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReaso
       const v = w.evaluated as string;
       const resolved = evalPath(v, pathBase);
       if (resolved === null) return "dynamic-path";
-      acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index });
+      acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index, access: "write" });
     }
   }
   return null;
@@ -516,7 +518,7 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
       //  ALLOW → 回落，无放行面扩大。语料负门 c137/c138（§3.1 逃逸形态原样钉回落）。
       const resolved = evalPath(p, acc.cwd);
       if (resolved === null) return "heredoc-script-payload";
-      acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index });
+      acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index, access: "write" });
     }
     return "extracted"; // 写调用落点已真实求值——不再走路径字面量闸（写的就是这些）
   }
@@ -534,20 +536,20 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
       // §3.1 同口径：读侧落点披露统一走 evalPath——含 .. 的读路径不猜爬升结果，
       //  披露无拦截语义，求值不出跳过即可（不构成回落理由）
       const resolved = evalPath(p, acc.cwd);
-      if (resolved !== null) acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index });
+      if (resolved !== null) acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index, access: "read" });
     }
   }
   const paths = extractAbsPathLiterals(script);
   // #1411 §3.1：含 .. 的绝对字面量 fail-closed——解析结果不猜（旧：跳过 → 字面量闸
   //  漏判 `'/wt/../../../main/config.json'` 这类主仓耦合信号；跳过=闸的盲区）
   if (paths.some(p => p.includes("..") || pathWithinMain(p, projectRoot))) return "heredoc-script-payload";
-  for (const p of paths) acc.targets.push({ path: p, via: "cmd-arg", segmentIndex: acc.index });
+  for (const p of paths) acc.targets.push({ path: p, via: "cmd-arg", segmentIndex: acc.index, access: "read" });
   // 相对路径字面量披露（不进门判定——只读侧 cwd 拼接为事实锚，求值不出跳过即可）
   for (const m of script.matchAll(/["'`]([A-Za-z0-9_.][A-Za-z0-9_./-]*\/[A-Za-z0-9_./-]+)["'`]/g)) {
     const rel = m[1];
     if (rel.startsWith("/") || rel.includes("..") || /[$`]/.test(rel)) continue;
     const resolved = evalPath(rel, acc.cwd);
-    if (resolved !== null) acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index });
+    if (resolved !== null) acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index, access: "read" });
   }
   return "extracted"; // 窄提取成功——调用方跳过 detectScriptPayload 短路，段求值继续
 }
@@ -613,9 +615,10 @@ function detectScriptPayload(model: CommandModel): boolean {
 }
 
 /** 从既有模型求值。子模型（bash -c/cmdsub）先各自 trackCwd 再求值（子 shell cd 链独立——
- *  首跑实测教训：默认主仓根会漏子模型内 cd，bash -c 'cd wt && touch a' 误报主仓落点）。 */
-function evaluateFromModel(model: CommandModel, projectRoot: string): WriteEvalResult {
-  const tracked = trackCwd(model.segments, projectRoot);
+ *  首跑实测教训：默认主仓根会漏子模型内 cd，bash -c 'cd wt && touch a' 误报主仓落点）。
+ *  startCwd = 命令启动时的 cwd（默认 projectRoot）——条件期望双态各跑的维度参数。 */
+function evaluateFromModel(model: CommandModel, projectRoot: string, startCwd: string): WriteEvalResult {
+  const tracked = trackCwd(model.segments, startCwd);
   if (tracked === null) return { kind: "unevaluated", reason: "cwd-unresolvable" };
 
   const acc: SegmentEvalAcc = { targets: [], index: 0 };
@@ -637,11 +640,12 @@ function evaluateFromModel(model: CommandModel, projectRoot: string): WriteEvalR
  * 求值命令的写落点集合（Phase 1：shell 形态族）。
  *
  * @param command 原始命令文本
- * @param projectRoot 主仓根（绝对路径）——cwd 起点与「主仓工作树」判定基准
- * @returns evaluated（targets 可为空集=求值成功且无写落点）或 unevaluated（回落旧链）
+ * @param projectRoot 主仓根（绝对路径）——「主仓工作树」判定基准
+ * @param startCwd 命令启动 cwd（默认 projectRoot；条件期望双态各跑用：worktree 态传 worktree 路径）
+ * @returns evaluated（targets 可为空集=求值成功且无写落点）或 unevaluated（回落）
  */
 // eslint-disable-next-line complexity -- 入口路由（parseOk 探针 + 载荷递归 + 主模型求值）三分支各对应一条已声明语义（Phase 1/Phase 2 口径注释）
-export function evaluateWriteTargets(command: string, projectRoot: string): WriteEvalResult {
+export function evaluateWriteTargets(command: string, projectRoot: string, startCwd: string = projectRoot): WriteEvalResult {
   const model: CommandModel = parseOnce(command, 0);
 
   // 先行载荷族检测（不依赖 parseOk——python 函数调用括号触发词法 fail-closed 时
@@ -658,7 +662,7 @@ export function evaluateWriteTargets(command: string, projectRoot: string): Writ
     //  `echo "unclosed` 的唯一参数词 evaluated=null）→ evaluated 空集是假信息，
     //  回落 parse-failed 保 Phase 1 保守语义。词法彻底失败（segments 空）同口径回落。
     if (model.segments.length === 0) return { kind: "unevaluated", reason: "parse-failed" };
-    const probe = evaluateFromModel(model, projectRoot);
+    const probe = evaluateFromModel(model, projectRoot, startCwd);
     if (probe.kind === "unevaluated") return probe;
     if (probe.targets.length === 0 && !hasNarrowExtractableScriptSeg(model, projectRoot)) {
       return { kind: "unevaluated", reason: "parse-failed" };
@@ -679,14 +683,39 @@ export function evaluateWriteTargets(command: string, projectRoot: string): Writ
       return { kind: "unevaluated", reason: p.depth >= 2 ? "depth-exceeded" : "parse-failed" };
     }
     if (scriptSegNarrowed && p.kind === "cmdsub" && !p.model.parseOk && !detectScriptPayload(p.model)) continue; // 垃圾 cmdsub 跳过
-    const sub = evaluateFromModel(p.model, projectRoot);
+    const sub = evaluateFromModel(p.model, projectRoot, startCwd);
     if (sub.kind === "unevaluated") {
       return { kind: "unevaluated", reason: sub.reason === "parse-failed" ? "parse-failed" : sub.reason };
     }
     subTargets.push(...sub.targets);
   }
 
-  const main = evaluateFromModel(model, projectRoot);
+  const main = evaluateFromModel(model, projectRoot, startCwd);
   if (main.kind === "unevaluated") return main;
   return { kind: "evaluated", targets: [...main.targets, ...subTargets] };
+}
+
+// ────────────────────────────── 终局裁决（judge 考试判据） ──────────────────────────────
+
+/** 终局裁决结果（能力 8 口径：只读披露不构成写证据，read 目标不参与拦截判定）。
+ *  mode=positive：求值成功并按落点/正向证明得出终局结论；
+ *  mode=fail-closed：求值不出/不可证（§3.3 读不出终局）——BLOCK 是 v2 的终局态，
+ *  残余面（residual_face）即以此态如实钉 BLOCK。 */
+export type WriteVerdictResult =
+  | { verdict: "ALLOW"; mode: "positive"; targets: WriteTarget[] }
+  | { verdict: "BLOCK"; mode: "positive"; targets: WriteTarget[]; mainHits: WriteTarget[] }
+  | { verdict: "BLOCK"; mode: "fail-closed"; reason: UnevalReason };
+
+/** 终局裁决（纯函数）：bash 命令写判定的 v2 判据——
+ *  · evaluated 且写落点 ∩ 主仓树内 → BLOCK（positive，落点证据）
+ *  · evaluated 且写落点 ∩ 主仓树内 = ∅ → ALLOW（positive，含证明无写/只读披露）
+ *  · unevaluated → BLOCK（fail-closed，§3.3）
+ *  只读披露（access=read）不构成写证据（能力 8/证明演算规则 3）。
+ *  「judge 考试」（guard-touchstone-exam）与影子投影同用本判据，口径不得分叉。 */
+export function evaluateWriteVerdict(command: string, projectRoot: string, startCwd: string = projectRoot): WriteVerdictResult {
+  const r = evaluateWriteTargets(command, projectRoot, startCwd);
+  if (r.kind === "unevaluated") return { verdict: "BLOCK", mode: "fail-closed", reason: r.reason };
+  const mainHits = r.targets.filter(t => t.access === "write" && pathWithinMain(t.path, projectRoot));
+  if (mainHits.length > 0) return { verdict: "BLOCK", mode: "positive", targets: r.targets, mainHits };
+  return { verdict: "ALLOW", mode: "positive", targets: r.targets };
 }
