@@ -16,6 +16,12 @@ export interface EmbeddingGateway {
   readonly available: boolean;
   embed(text: string): Promise<Float32Array>;
   /**
+   * F20261013ebps：批量 embed——一次调用处理多条文本，
+   * 实现方内部走 batch 推理（吞吐远高于逐条 embed）。
+   * 可选——mock 实现可不提供，调用方用 typeof === "function" 守卫。
+   */
+  embedBatch?(texts: string[]): Promise<Float32Array[]>;
+  /**
    * 返回当前 worker 加载的模型元信息（F20260811mrpy Part 3）。
    * 可选——避免破坏现有 mock 实现。bootstrap 校验时通过 typeof === "function" 守卫。
    * worker ready 后才可用，内部会 waitForReady。

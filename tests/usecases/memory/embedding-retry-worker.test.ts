@@ -227,6 +227,64 @@ describe("EmbeddingRetryWorker - F20260812mrcq Part 1", () => {
     expect(finalStatus!.status).toBe("dead");
     expect(finalStatus!.attempts).toBe(3);
   });
+
+  describe("F20261013ebps 熔断", () => {
+    it("连续 3 次全失败 tick 后熔断暂停消费", async () => {
+      // 插入 10 条任务（BATCH_LIMIT=10，一次 tick claim 全部）
+      for (let i = 0; i < 10; i++) {
+        insertEntry(`cb-${i}`, `content-${i}`);
+        await repo.enqueueRetry(`cb-${i}`, new Error("init"));
+      }
+
+      const failGw = makeEmbeddingGateway(async () => { throw new Error("always fails"); });
+      const worker = new EmbeddingRetryWorker(repo, repo, repo, failGw, createTestLogger(), 30_000, 3);
+
+      // 3 次全失败 tick
+      for (let round = 0; round < 3; round++) {
+        db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second')`).run();
+        await worker.tickNow();
+      }
+
+      // 验证熔断：第 4 次 tick 不消费（attempts 不再增长）
+      const beforeAttempts = db.prepare(
+        `SELECT SUM(attempts) as total FROM embedding_tasks WHERE status='pending'`
+      ).get() as { total: number };
+
+      db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second')`).run();
+      await worker.tickNow();
+
+      const afterAttempts = db.prepare(
+        `SELECT SUM(attempts) as total FROM embedding_tasks WHERE status='pending'`
+      ).get() as { total: number };
+
+      // 熔断中——attempts 不变（未消费）
+      expect(afterAttempts.total).toBe(beforeAttempts.total);
+    });
+
+    it("有成功即重置熔断计数", async () => {
+      for (let i = 0; i < 10; i++) {
+        insertEntry(`reset-${i}`, `content-${i}`);
+        await repo.enqueueRetry(`reset-${i}`, new Error("init"));
+      }
+
+      // 先 2 次全失败
+      const failGw = makeEmbeddingGateway(async () => { throw new Error("fail"); });
+      const failWorker = new EmbeddingRetryWorker(repo, repo, repo, failGw, createTestLogger(), 30_000, 3);
+      for (let round = 0; round < 2; round++) {
+        db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second')`).run();
+        await failWorker.tickNow();
+      }
+
+      // 换成成功 gateway——1 次成功 tick 重置计数
+      const okGw = makeEmbeddingGateway(async () => SAMPLE_VEC);
+      const okWorker = new EmbeddingRetryWorker(repo, repo, repo, okGw, createTestLogger(), 30_000, 3);
+      db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second')`).run();
+      await okWorker.tickNow();
+
+      // 全部成功——task 清空，vec 写入
+      expect(getVecCount()).toBe(10);
+    });
+  });
 });
 
 describe("F20260812mrcq Part 1 审视 M3 - createAndStartRetryWorker 存量迁移", () => {
