@@ -102,7 +102,7 @@ jobs:
           node scripts/lint-prompt-anchors.mjs --full
           # #1173 / F20260929dbmb: 时间炸弹收窄扫描 v2（E1/E2 error 阻断 + W1 基线守恒）
           npm run lint:date-bombs
-          # F20261012orcl: 验收判据闸——不变量 registry 在位性 + lock 防静默篡改自校验
+          # F20261013crit: 验收判据闸——不变量 registry 在位性 + lock 防静默篡改自校验
           npm run lint:criteria
 
       # F20261009hcig（#1281）：历史文档不可变门禁接 CI——补齐执行面缺口（--no-verify 可整体
@@ -124,14 +124,14 @@ jobs:
       - name: Run intent lint gate
         run: npm run lint:intent
 
-      # F20261012orcl: 验收判据闸 PR 侧——测试弱化声明闸（删测试行必须登记声明）
+      # F20261013crit: 验收判据闸 PR 侧——测试弱化声明闸（删测试行必须登记声明）
       - name: Run test-weakening declaration gate (check-pr-tests)
         if: github.event_name == 'pull_request'
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: npm run lint:pr-tests -- --base origin/main
 
-      # F20261012orcl: 断言证据锚点轻量规则（warn 起步，ratchet）
+      # F20261013crit: 断言证据锚点轻量规则（warn 起步，ratchet）
       - name: Run evidence-anchor lint (warn-level)
         if: github.event_name == 'pull_request'
         env:

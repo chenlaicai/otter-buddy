@@ -30,5 +30,5 @@ node scripts/lint-prompt-anchors.mjs
 # #1173 / F20260929dbmb: 时间炸弹静态扫描（收窄版 v2 重生）——E1 校验函数 / E2 窗口 API
 # 是 error 阻断；W1 it 块共现 warning 按 W1_BASELINE 守恒（只减不增）
 npm run lint:date-bombs
-# F20261012orcl: 验收判据闸——不变量 registry 在位性 + lock 防静默篡改自校验
+# F20261013crit: 验收判据闸——不变量 registry 在位性 + lock 防静默篡改自校验
 npm run lint:criteria

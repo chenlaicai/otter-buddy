@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 验收判据闸——不变量 registry 在位性 PASS/FAIL checker（F20261012orcl）。
+ * 验收判据闸——不变量 registry 在位性 PASS/FAIL checker（F20261013crit）。
  *
  * 语义：
  * - criteria/invariants.json 登记「必须在位」的纪律语义（pattern 为子串，`re:` 前缀为正则）；

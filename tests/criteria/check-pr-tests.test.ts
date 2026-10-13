@@ -1,5 +1,5 @@
 /**
- * F20261012orcl: 测试弱化防线（check-pr-tests）——删断言无声明 FAIL / 带声明+理由 PASS /
+ * F20261013crit: 测试弱化防线（check-pr-tests）——删断言无声明 FAIL / 带声明+理由 PASS /
  * 放宽无理由 FAIL。集成用例走真实 tmp git 仓库 + 真 CLI。
  */
 import { describe, it, expect, afterAll } from "vitest";

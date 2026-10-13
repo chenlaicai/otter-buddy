@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 测试弱化防线（F20261012orcl，吸收 F20261012acpt T2 意图并机械化）。
+ * 测试弱化防线（F20261013crit，吸收 F20261012acpt T2 意图并机械化）。
  *
  * 语义：PR diff 中测试路径（tests/ 目录、*.test.*、*.spec.*）或验收装置文件
  * （criteria/ 三件套、闸/lint 脚本、检视规程、CI 工作流、git hooks）出现删除行时，

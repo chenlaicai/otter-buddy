@@ -1,5 +1,5 @@
 /**
- * F20261012orcl: 断言证据锚点轻量规则（lint-evidence-anchors）——验证性断言无锚点 → warn。
+ * F20261013crit: 断言证据锚点轻量规则（lint-evidence-anchors）——验证性断言无锚点 → warn。
  * warn 级起步（不阻断），测试锁检测逻辑本身（断言识别 / 锚点识别 / 章节提取）。
  */
 import { describe, it, expect } from "vitest";
@@ -15,7 +15,7 @@ describe("lint-evidence-anchors 检测逻辑", () => {
 
   it("锚点识别：file:line / 文档 ID / issue 号 / 命令 / 路径", () => {
     expect(hasAnchor("依据 scripts/check-criteria.mjs:10")).toBe(true);
-    expect(hasAnchor("见 F20261012orcl 特性文档")).toBe(true);
+    expect(hasAnchor("见 F20261013crit 特性文档")).toBe(true);
     expect(hasAnchor("修复 #1430")).toBe(true);
     expect(hasAnchor("跑过 `node scripts/check-criteria.mjs`")).toBe(true);
     expect(hasAnchor("全部通过。")).toBe(false);

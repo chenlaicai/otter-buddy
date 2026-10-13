@@ -1,5 +1,5 @@
 ---
-id: F20261012orcl
+id: F20261013crit
 title: 验收判据闸：不变量 registry + PASS/FAIL checker + 防静默篡改 + 测试弱化防线
 summary: |
   把纪律/验收从口头指令变成机器闸：criteria/invariants.json 登记不可丢的纪律语义，
@@ -36,7 +36,9 @@ intent:
     type: behavior_check
 ---
 
-# F20261012orcl: 验收判据闸
+# F20261013crit: 验收判据闸
+
+> 编号溯源：原 F20261012orcl（2026-10-12 创建），2026-10-13 特性编号顺延（日期段 10/12→10/13，后缀 orcl→crit 去 oracle 残留）改为现号。
 
 ## 背景与需求
 

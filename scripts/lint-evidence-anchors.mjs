@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 断言证据锚点轻量规则（F20261012orcl，吸收 F20261012acpt T1 报告侧意图；ratchet 起步）。
+ * 断言证据锚点轻量规则（F20261013crit，吸收 F20261012acpt T1 报告侧意图；ratchet 起步）。
  *
  * 规则：验证/Verification 类章节中的验证性断言（「通过/已验证/全绿」类）必须带机器锚点
  * （file:line / 命令引用 / 文档 ID / issue 号 / 代码或文档路径）；有断言、全章节零锚点 → warn。
