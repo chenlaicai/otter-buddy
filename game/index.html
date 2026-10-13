@@ -36,21 +36,27 @@
     box-shadow:0 2px 10px rgba(0,0,0,.45);
   }
   .hint-chip em { color:var(--accent); font-style:normal; font-weight:700; }
+  /* P6 气泡化：从下方常驻文本面板改为画布内上方浮层（顶部中央字幕带）——
+     只在对话时出现、不遮任何可交互点位（覆盖区 = 天空/树线）、点击穿透到画布 */
   .dialog {
-    margin-top:20px; border:3px solid var(--line-hi); border-radius:10px; background:var(--panel);
-    padding:16px 18px 14px; min-height:116px; position:relative; box-shadow:0 5px 0 var(--bg-deep);
+    position:absolute; top:46px; left:18%; right:18%; max-width:520px;
+    background:rgba(8,14,24,.90); border:2px solid var(--line-hi); border-radius:10px;
+    padding:12px 14px; pointer-events:none; box-shadow:0 6px 24px rgba(0,0,0,.5);
+    transition:opacity .18s ease;
   }
   .dialog .tag {
-    position:absolute; top:-12px; left:14px; font-size:11.5px; background:var(--accent);
-    color:var(--accent-ink); border-radius:5px; padding:3px 10px; font-weight:700; letter-spacing:.12em;
-    box-shadow:0 2px 0 var(--bg-deep);
+    display:inline-block; font-size:11px; background:var(--accent);
+    color:var(--accent-ink); border-radius:5px; padding:2px 9px; font-weight:700; letter-spacing:.1em;
+    box-shadow:0 2px 0 var(--bg-deep); margin-bottom:7px;
   }
-  .dialog .say { font-size:14.5px; line-height:1.85; white-space:pre-wrap; color:#eef4fb; }
-  .dialog .say.dim { color:var(--dim); font-size:12.5px; line-height:1.7; margin-top:6px; }
+  .dialog .say { font-size:13.5px; line-height:1.7; white-space:pre-wrap; color:#eef4fb; }
+  .dialog .say.dim { color:var(--dim); font-size:12px; line-height:1.6; margin-top:5px; }
   .dialog .mapline {
-    margin-top:10px; padding:8px 12px; border:1px solid rgba(149,127,240,.35); border-left:4px solid var(--purple);
-    background:rgba(149,127,240,.10); font-size:12.5px; line-height:1.7; border-radius:0 6px 6px 0; color:#ddd7fb;
+    margin-top:7px; padding:5px 10px; border:1px solid rgba(149,127,240,.35); border-left:3px solid var(--purple);
+    background:rgba(149,127,240,.10); font-size:11.5px; line-height:1.5; border-radius:0 5px 5px 0; color:#ddd7fb;
   }
+  /* 气泡内仅可交互元素（按钮/输入框）接事件，文本区（含 mapline 短签）点击穿透回画布——防挡点位 */
+  .dialog .btn, .dialog .merge { pointer-events:auto; }
   .actions { margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
   .btn {
     padding:10px 18px; border-radius:6px; border:2px solid var(--bg-deep);
@@ -91,30 +97,104 @@
   }
   .hpbar .bar.foe i { background-color:#c96a5a; }
   .hpbar .bar .shield { position:absolute; top:0; bottom:0; right:0; background:rgba(149,127,240,.55); border-left:2px solid #b9a9ff; }
+  /* ────── P6：开场信 ────── */
+  .letter {
+    position:fixed; inset:0; z-index:40; display:flex; align-items:center; justify-content:center;
+    background:rgba(4,7,13,.86); transition:opacity .35s ease;
+  }
+  .letter.gone { opacity:0; pointer-events:none; }
+  .letter-card {
+    width:min(430px, 90vw); background:#efe3c4; color:#3b2f1a; border-radius:4px;
+    border:2px solid #cbb98c; box-shadow:0 10px 0 rgba(4,7,13,.55), 0 24px 60px rgba(0,0,0,.5);
+    padding:26px 30px 22px; transform:rotate(-.4deg);
+    font-family:Georgia, "Songti SC", "STSong", serif; line-height:1.9; font-size:14.5px;
+  }
+  .letter-card h2 { font-size:13px; letter-spacing:.35em; color:#8a7448; font-weight:400; margin-bottom:14px; }
+  .letter-card p { margin:0 0 10px; }
+  .letter-card .sign { text-align:right; font-size:13px; color:#7a6540; margin:14px 0 18px; }
+  .letter-card .seal { display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:50%; background:var(--accent); color:var(--accent-ink); font-size:17px; box-shadow:0 2px 0 rgba(4,7,13,.35); margin-right:10px; vertical-align:middle; }
+  .letter-card .btn { font-family:ui-monospace, Menlo, monospace; }
+  /* ────── P6：獭之图鉴 ────── */
+  .codex {
+    position:fixed; inset:0; z-index:30; display:flex; align-items:center; justify-content:center;
+    background:rgba(4,7,13,.82); padding:16px;
+  }
+  .codex-panel {
+    width:min(560px, 94vw); max-height:86vh; overflow:auto; background:var(--panel);
+    border:3px solid var(--line-hi); border-radius:10px; box-shadow:0 8px 0 var(--bg-deep), 0 24px 60px rgba(0,0,0,.5);
+    padding:18px 20px;
+  }
+  .codex-panel header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  .codex-panel header b { font-size:15px; letter-spacing:.08em; }
+  .codex .iconbtn { background:none; border:1px solid var(--line-hi); color:var(--dim); border-radius:5px; padding:3px 9px; cursor:pointer; font-family:inherit; }
+  .codex .iconbtn:hover { color:var(--text); border-color:var(--accent); }
+  .codex-intro { font-size:12.5px; color:var(--dim); line-height:1.7; padding:8px 10px; border-left:3px solid var(--accent); background:rgba(95,214,174,.07); margin-bottom:12px; }
+  .codex-reread { font-size:12px; color:var(--purple); background:none; border:none; border-bottom:1px dashed var(--purple); cursor:pointer; font-family:inherit; padding:0 0 1px; margin-bottom:12px; }
+  .codex-panel ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
+  .codex-panel li { border:1px solid var(--line); border-radius:7px; padding:9px 12px; font-size:12.5px; }
+  .codex-panel li b { display:block; margin-bottom:3px; font-size:13px; }
+  .codex-panel li p { margin:0; color:var(--dim); line-height:1.65; }
+  .codex-panel li.on { border-color:rgba(95,214,174,.45); background:rgba(95,214,174,.05); }
+  .codex-panel li.on b { color:var(--accent); }
+  .codex-panel li.off { opacity:.55; }
+  .codex-foot { margin-top:12px; font-size:11.5px; color:var(--dim); }
+  .codex-foot a { color:var(--accent); text-decoration:none; border-bottom:1px dashed var(--accent); }
+  .topbtn { background:rgba(10,18,32,.9); border:1px solid var(--line-hi); color:var(--dim); font-family:inherit; font-size:12px; padding:3px 10px; border-radius:5px; cursor:pointer; white-space:nowrap; }
+  .topbtn:hover { color:var(--accent); border-color:var(--accent); }
+  /* ────── P6：收获爽感微动效（≤0.4s，不阻塞） ────── */
+  .statusbar .bag span.pop { animation:baggrow .32s ease; }
+  @keyframes baggrow { 0% { transform:scale(.3); } 70% { transform:scale(1.35); } 100% { transform:scale(1); } }
 </style>
 </head>
 <body>
 <div class="frame">
   <div class="topbar">
     <div class="brand">🦦 <b>獭之传说 · 海藻农场</b> — 能力说明书，伪装成了一个农场</div>
-    <a class="skip" href="https://github.com/chenlaicai/otter-buddy" target="_blank" rel="noopener">跳过游戏看 README ↗</a>
+    <span style="display:flex; gap:10px; align-items:center">
+      <button class="topbtn" id="codexBtn" type="button">📖 獭之图鉴</button>
+      <a class="skip" href="https://github.com/chenlaicai/otter-buddy" target="_blank" rel="noopener">跳过游戏看 README ↗</a>
+    </span>
   </div>
   <div class="screen-wrap">
     <canvas id="screen" width="960" height="540"></canvas>
     <div class="hint-chip" id="hint">8 个点位 · 约 3 分钟 · <em>发光处可交互</em></div>
+    <div class="dialog" id="dialog">
+      <div class="tag" id="dlgTag">开场</div>
+      <div class="say" id="dlgSay">一只幼獭漂到了这片荒芜的海藻农场……</div>
+      <div class="say dim" id="dlgSub">田是灰的，背包是空的，身边没有队友。点点什么，让这里活起来。</div>
+      <div class="mapline" id="dlgMap" style="display:none"></div>
+      <div class="actions" id="actions"></div>
+    </div>
   </div>
-  <div class="dialog" id="dialog">
-    <div class="tag" id="dlgTag">开场</div>
-    <div class="say" id="dlgSay">一只幼獭漂到了这片荒芜的海藻农场……</div>
-    <div class="say dim" id="dlgSub">田是灰的，背包是空的，身边没有队友。点点什么，让这里活起来。</div>
-    <div class="mapline" id="dlgMap" style="display:none"></div>
-  </div>
-  <div class="actions" id="actions"></div>
   <div class="statusbar"><span>🦦</span><span class="who" id="who">一只一无所有的幼獭</span><span style="flex:1"></span><span>背包</span><span class="bag" id="bag"></span></div>
 <div class="hpbar" id="battlebar" style="display:none">
   <span>🦦 幼獭</span><div class="bar"><i id="hpSelf" style="width:100%"></i><div class="shield" id="shSelf" style="width:0"></div></div>
   <span>🐲 过去的大獭</span><div class="bar foe"><i id="hpFoe" style="width:100%"></i></div>
 </div>
+</div>
+
+<!-- P6：开场信（一封旧信定世界观与目标 → 点击转场进农场） -->
+<div class="letter" id="letter" style="display:none">
+  <div class="letter-card">
+    <h2>一封旧信</h2>
+    <p>致漂到这里的你：</p>
+    <p>你是一只幼獭，继承了一块荒芜的海藻农场。<br>八块田荒着；湖里，沉着「过去的自己」。</p>
+    <p>别怕——你不需要记住一切，<br>只需要让这里活起来。</p>
+    <p>去吧。夜里，镜湖在等你。</p>
+    <div class="sign"><span class="seal">🦦</span>—— 一只从镜湖回来的獭</div>
+    <button class="btn letter-btn" id="letterBtn" type="button">收下信 · 出发 🌱</button>
+  </div>
+</div>
+
+<!-- P6：獭之图鉴（可选深读层：能力映射全文 + 旧信重读；不读也能通关） -->
+<div class="codex" id="codex" style="display:none">
+  <div class="codex-panel">
+    <header><b>📖 獭之图鉴</b><button class="iconbtn" id="codexClose" type="button">✕ 收起</button></header>
+    <div class="codex-intro">这是《Multi-agent system. They have names.》的可玩版：你在这座农场「种」下的八件事，就是 otter-buddy 每天在做的八种能力。点亮一块田，解锁一条。</div>
+    <button class="codex-reread" id="codexLetter" type="button">✉️ 重读那封信</button>
+    <ul id="codexList"></ul>
+    <div class="codex-foot">真正的它们：<a href="https://github.com/chenlaicai/otter-buddy" target="_blank" rel="noopener">github.com/chenlaicai/otter-buddy</a></div>
+  </div>
 </div>
 
 <script>
@@ -478,7 +558,7 @@ function hotRect(sp) { return { x:sp.x - 10, y:sp.y - 16, w:sp.w + 20, h:sp.h + 
 var S = {
   started:false, phase:"idle", activeId:null,
   bag:[], tick:0,
-  done:{}, allDone:false,
+  done:{}, allDone:false, codex:{},
   flags:{},             // aphids/eggs/wilt/pile/slow/magnify/trial/matured
   player:{ x:210, y:210, tx:210, ty:210, speed:1.5 },
   floats:[], sparkles:[], smokes:[],
@@ -1069,12 +1149,13 @@ cv.addEventListener("click", function (e) {
 
 /* ---------- 对话与三段式 ---------- */
 var hintEl = document.getElementById("hint");
-function say(tag, text, sub, map) {
+function say(tag, text, sub, map, mapText) {
   document.getElementById("dlgTag").textContent = tag;
   document.getElementById("dlgSay").textContent = text;
   document.getElementById("dlgSub").textContent = sub || "";
   var m = document.getElementById("dlgMap");
-  if (map) { m.style.display = "block"; m.textContent = "🗺️ " + map; } else { m.style.display = "none"; }
+  // P6：长映射全文收进图鉴，气泡里只留「已收录」短签（信息不丢，多一层收集乐趣）
+  if (map) { m.style.display = "block"; m.textContent = "🗺️ " + (mapText || map); } else { m.style.display = "none"; }
 }
 function actions(list) {
   var box = document.getElementById("actions"); box.innerHTML = "";
@@ -1087,10 +1168,42 @@ function actions(list) {
 }
 function addBag(emoji) {
   S.bag.push(emoji);
-  var s = document.createElement("span"); s.textContent = emoji;
+  var s = document.createElement("span"); s.textContent = emoji; s.className = "pop"; // P6 收获爽感：入包弹跳
   document.getElementById("bag").appendChild(s);
 }
 function setWho(t) { document.getElementById("who").textContent = t; }
+/* ---------- P6：獭之图鉴（可选深读层） ---------- */
+var CAPS = {
+  plant:"记忆播种", seedbox:"记忆检索", fert:"上下文管理", fallow:"前世封存",
+  ladybug:"自愈 healing", neighbor:"多獭协作", elder:"异体审视", lab:"隔离试种 · 授权原话"
+};
+function codexChip(id) { return "已收录《" + CAPS[id] + "》· 图鉴里随时可查"; }
+function registerCodex(id) { S.codex[id] = true; }
+var codexEl = document.getElementById("codex");
+function renderCodex() {
+  var ul = document.getElementById("codexList"); ul.innerHTML = "";
+  for (var i = 0; i < SPOTS.length - 1; i++) {
+    var sp = SPOTS[i];
+    var li = document.createElement("li");
+    if (S.codex[sp.id]) {
+      li.className = "on";
+      li.innerHTML = "<b>" + sp.name + " · " + CAPS[sp.id] + "</b><p>" + SCRIPTS[sp.id].effect.map + "</p>";
+    } else {
+      li.className = "off";
+      li.innerHTML = "<b>🔒 " + sp.name + "</b><p>去闪光的田看看——点亮后解锁这一条。</p>";
+    }
+    ul.appendChild(li);
+  }
+}
+document.getElementById("codexBtn").onclick = function () { renderCodex(); codexEl.style.display = "flex"; };
+document.getElementById("codexClose").onclick = function () { codexEl.style.display = "none"; };
+var letterEl = document.getElementById("letter");
+document.getElementById("codexLetter").onclick = function () { codexEl.style.display = "none"; letterEl.style.display = "flex"; letterEl.classList.remove("gone"); };
+function juice(sp) { // P6 爽点：能力落地的爆花 + 图鉴入账提示（sparkle 取证区在完成前无此层，非恒真不破）
+  var cx = Math.round(sp.x + sp.w / 2), cy = Math.round(sp.y + sp.h / 2);
+  pushSparkle(cx, cy, 10);
+  pushFloat(cx, cy - 10, "📖 图鉴 +1");
+}
 
 /* ---------- 剧本（P1：8 点位数据驱动三段式） ---------- */
 var WHO = {
@@ -1100,75 +1213,75 @@ var WHO = {
 };
 var SCRIPTS = {
   plant: {
-    problem: { t:"幼獭不记得昨天。\n「昨天工具放哪了？」——翻遍农场，找不到。每次醒来都是全新的一天。", s:"它需要的，是把经历过的事变成能留下的东西。", btn:"🌰 种下一颗「今天的记忆」" },
-    act: { t:"幼獭在荒田挖坑，把「今天发生的事」埋进去，盖上土。", s:"——「播种」：把经历变成种子。（看，田里已经冒芽了）", btn:"💧 浇一瓢水" },
-    effect: { t:"种子破土、抽穗（零等待，画面即时生长），三株记忆麦子成熟，一颗 🌾 入了背包。", s:"幼獭有了第一个记忆：它记得今天了。",
+    problem: { t:"幼獭不记得昨天。\n「昨天的东西，放哪了？」", s:"它需要的，是把经历过的事变成留得下的东西。", btn:"🌰 种下一颗「今天的记忆」" },
+    act: { t:"把「今天发生的事」埋进土里，盖好。\n（看，已经冒芽了）", s:"——「播种」：把经历变成种子。", btn:"💧 浇一瓢水" },
+    effect: { t:"抽穗、成熟，三株记忆麦。\n🌾——今天，它记得住了。", s:"幼獭有了第一个记忆：它记得今天了。",
       map:"播种 = 记忆入库：发生过的事写下来，不再丢失。otter-buddy 的每条记忆都有出处、可回溯——就像这颗种子，谁种的、种在哪，都查得到。" }
   },
   seedbox: {
-    problem: { t:"「这个坑，上周是不是踩过？」\n幼獭挠头——明明种过一样的种子，细节想不起来，只能重种一遍。", s:"重复劳动，是农场里最大的浪费。", btn:"📖 打开种子库" },
-    act: { t:"木箱打开：标签、日期、谁种的——每颗种子都有档案。\n三张卡亮起，一张变绿：命中旧种子！", s:"好记性不如翻记录。", btn:"✨ 取出命中的种子" },
-    effect: { t:"旧种子直接发芽，免重种！3 秒内，答案就位。", s:"不用从头再来，因为早就种下了。",
+    problem: { t:"「这个坑，上周是不是踩过？」\n种子种过，细节想不起来。", s:"重复劳动，是农场里最大的浪费。", btn:"📖 打开种子库" },
+    act: { t:"木箱里每颗种子都有档案。\n一张标签变绿——命中旧种子！", s:"好记性不如翻记录。", btn:"✨ 取出命中的种子" },
+    effect: { t:"旧种子直接发芽，免重种！\n3 秒内，答案就位。", s:"不用从头再来，因为早就种下了。",
       map:"种子库 = 记忆检索：一句关键词，旧结论直接复用。otter-buddy 的记忆带溯源——哪次对话、谁说的，查得到。",
       on:function () { pushSparkle(128, 190, 8); pushSparkle(62, 200, 6); pushFloat(128, 186, "命中 · 免重种"); } }
   },
   fert: {
-    problem: { t:"田越种越多，幼獭越来越慢——\n走路拖不动脚，说话开始卡顿（看它爬……）。", s:"记得太多、什么都背着，反而迈不开步。",
+    problem: { t:"田越种越多，幼獭越来越慢。\n（看它爬……）", s:"记得太多、什么都背着，反而迈不开步。",
       btn:"🚿 施肥翻耕",
       on:function () { S.flags.slow = true; playerWalk([150, 244], 0.25); } },
-    act: { t:"给板结的田施肥翻耕。硬土块碎开，重新松软。", s:"不是删掉记忆，是把重的部分压成养分。",
+    act: { t:"给板结的田施肥翻耕，硬土块碎开。", s:"不是删掉记忆，是把重的部分压成养分。",
       btn:"🌱 见证速度恢复",
       on:function () { S.flags.slow = false; playerWalk([152, 240], 3); } },
-    effect: { t:"幼獭一步并两步，速度回来了！板结的田冒出新芽。", s:"轻装，但该记的都在。",
+    effect: { t:"一步并两步！速度回来了。", s:"轻装，但该记的都在。",
       map:"施肥翻耕 = 上下文管理：太长的历史自动浓缩成摘要，行动不减速。该记的都在，只是不再全部背着走。" }
   },
   fallow: {
-    problem: { t:"这块田连种一百季，产量骤降——\n怎么浇都长不好（看那几株蔫的）。", s:"再好的田，也需要歇一季。",
+    problem: { t:"连种一百季，怎么浇都长不好。\n（看那几株蔫的）", s:"再好的田，也需要歇一季。",
       btn:"♻️ 让田休耕",
       on:function () { S.flags.wilt = true; } },
     act: { t:"残茬翻进土里，慢慢变成堆肥。", s:"结束不是清零，是转化。", btn:"🌾 等待转化" },
-    effect: { t:"「+50%」——下一世的第一季，会长得更好。", s:"这一季的经验没有浪费。",
+    effect: { t:"「+50%」——下一世的第一季，\n会长得更好。", s:"这一季的经验没有浪费。",
       map:"休耕 = 前世封存：一段经历浓缩成交接档案，交给下一世的自己。海獭重启带着摘要落地，不是从零开始。",
       on:function () { S.flags.wilt = false; pushFloat(282, 196, "+50%"); pushFloat(290, 190, "+50%"); pushFloat(276, 202, "+50%"); pushSparkle(300, 204, 8); } }
   },
   ladybug: {
-    problem: { t:"每次收获后，蚜虫总要来偷袭一轮（叶子上那些绿点）。\n幼獭不可能 24 小时盯着农场。", s:"小问题不断，大问题就永远排不上队。",
+    problem: { t:"收获后，蚜虫总来一轮。\n不可能 24 小时盯着田。", s:"小问题不断，大问题就永远排不上队。",
       btn:"🐞 建一座瓢虫屋",
       on:function () { S.flags.aphids = true; } },
-    act: { t:"红灯笼似的小屋立在田边，住着爱吃蚜虫的房客。", s:"不用你管，它们自己上工。", btn:"🛡️ 看瓢虫出动" },
-    effect: { t:"瓢虫出动，蚜虫清零。巡田记录本多了一行：「已自动处理」。", s:"你只看台账，不用守着。",
+    act: { t:"红顶小屋立在田边，房客上岗。", s:"不用你管，它们自己上工。", btn:"🛡️ 看瓢虫出动" },
+    effect: { t:"瓢虫出动，蚜虫清零。\n巡田记录：「已自动处理」。", s:"你只看台账，不用守着。",
       map:"瓢虫屋 = 自愈 healing：小问题系统自己修、留记录可查。修复过程落台账，回看得到。",
       on:function () { S.flags.aphids = false; pushFloat(392, 188, "已自动处理"); pushSparkle(381, 203, 6); } }
   },
   neighbor: {
-    problem: { t:"收获季到了，农活堆积如山——\n收麦、翻晒、装仓，一只獭干不完。", s:"什么都自己干，就什么都干不快。",
+    problem: { t:"收获季，农活堆成山。\n一只獭干不完。", s:"什么都自己干，就什么都干不快。",
       btn:"🚪 敲开邻居的门",
       on:function () { S.flags.pile = true; } },
-    act: { t:"蓝围巾小獭放下茶杯：「哪块田先收？」\n它身后的绿围巾小獭也探出了头。", s:"说清楚要什么，比什么都自己扛更难，也更值。", btn:"🦦 分工开工" },
-    effect: { t:"三只獭分工，速度快了一倍。\n中途一只打了个哈欠（配额用完 zZz）——换下一只顶上，不停工。", s:"会累没关系，轮换就行。",
+    act: { t:"蓝围巾小獭放下茶杯：「哪块田先收？」", s:"说清楚要什么，比什么都自己扛更值。", btn:"🦦 分工开工" },
+    effect: { t:"三只獭分工，速度翻倍。\n一只打哈欠——换下一只顶上。", s:"会累没关系，轮换就行。",
       map:"邻居小獭 = 多獭协作：专长分工、并行干活；小獭会累（429 配额），编排者负责轮换补位。",
       on:function () { S.flags.pile = false; pushFloat(96, 205, "分工 ×3"); } }
   },
   elder: {
-    problem: { t:"幼獭查自己的麦田三遍：「没虫，特别健康！」\n直到路过的老农瞥了一眼：「叶背面，卵。」", s:"自己的产出，自己看不出问题。",
+    problem: { t:"「没虫，特别健康！」\n老农瞥了一眼：「叶背面，卵。」", s:"自己的产出，自己看不出问题。",
       btn:"👴 请老农进田",
       on:function () { S.flags.eggs = true; } },
     act: { t:"放大镜贴着叶背，一寸寸扫过。", s:"他不是更聪明，只是没有你的立场。",
       btn:"🔍 标记虫害",
       on:function () { S.flags.magnify = true; } },
-    effect: { t:"虫卵显形、标记、清除，这一季收成保住了。", s:"多一双眼睛，少一场灾。",
+    effect: { t:"虫卵显形、标记、清除。\n这一季收成保住了。", s:"多一双眼睛，少一场灾。",
       map:"老农 = 异体审视：写代码的獭不给自己签通过单。改动必须换一双眼睛看——发现问题才算数。",
       on:function () { S.flags.magnify = false; S.flags.eggs = false; pushFloat(64, 196, "虫卵已清除"); pushSparkle(64, 202, 6); } }
   },
   lab: {
-    problem: { t:"上次，新品种没试种直接进主田——\n一场病害，传染了整季收成。", s:"主干上的每个改动，都值得先隔离看看。",
+    problem: { t:"上次没试种直接进主田——\n病害传了整季。", s:"主干上的每个改动，都值得先隔离看看。",
       btn:"🧪 进试验田隔离试种" },
-    act: { t:"新种子进玻璃罩：隔离试种，病害传不出去。\n罩子里的苗，肉眼可见地拔高。", s:"长得好不好，罩子里看得清清楚楚。",
+    act: { t:"新种子进玻璃罩：隔离试种。\n罩子里的苗，肉眼可见地拔高。", s:"长得好不好，罩子里看得清清楚楚。",
       btn:"🌾 等待试验收成",
       on:function () { S.flags.trial = true; } },
     effect: { custom:true,
       // t/s/map 供完成后回看（replay）使用；首次流程走 labHarvest 特殊演出
-      t:"试验丰收，你亲手打出「合入」——金色麦子流进主田粮仓。",
+      t:"试验丰收。最后一道门：亲手开。",
       s:"验证过、亲口批准，才进主干。",
       map:"试验田 = worktree 隔离 + PR + 授权原话：改动在隔离环境验证、进 PR 审视，搭档亲口说「合入」才进主干。" }
   }
@@ -1199,13 +1312,14 @@ function openEffect(sp) {
   if (sc.effect.custom) { sc.effect.on && sc.effect.on(); markDirty(); labHarvest(); return; } // 试验田：礼物在「合入」后才入包（labMerged）
   if (!S.done[sp.id]) { S.done[sp.id] = true; addBag(sp.gift); setWho(WHO[sp.id] || "幼獭"); }
   if (sc.effect.on) sc.effect.on();
-  say("③ 效果达成", sc.effect.t, sc.effect.s, sc.effect.map);
+  registerCodex(sp.id); juice(sp); // P6：图鉴入账 + 能力落地爆花
+  say("③ 效果达成", sc.effect.t, sc.effect.s, sc.effect.map, codexChip(sp.id));
   actions([{ label: sc.effect.btn || nextBtnLabel(), fn:advance }]);
   markDirty();
 }
 function replay(sp) {
   var sc = SCRIPTS[sp.id];
-  say("已掌握 ✓", sc.effect.t, sc.effect.s, sc.effect.map);
+  say("已掌握 ✓", sc.effect.t, sc.effect.s, sc.effect.map, codexChip(sp.id));
   actions([]);
 }
 function advance() {
@@ -1216,19 +1330,20 @@ function advance() {
     S.allDone = true;
     hintEl.innerHTML = "P1 完成 🎉 · <em>镜湖亮了</em>";
     playerWalk(SPOTS[8].stand, 1.5);
-    say("P1 · 完成", "八块田全部点亮！\n背包里的八件东西，就是 otter-buddy 的八种日常。", "湖那边，有什么亮了……（点镜湖）");
+    say("P1 · 完成", "八块田全部点亮！\n背包里这八件，就是 otter-buddy 的八种日常。", "湖那边，有什么亮了……（点镜湖）");
     actions([]); markDirty(); return;
   }
   hintEl.innerHTML = "已点亮 " + (8 - left) + "/8 · <em>自由探索</em>";
-  say("收获", "这一手你学会了。\n农场没有固定顺序——还有 " + left + " 块田在闪光。", "想去哪块，就点哪块。");
+  say("收获", "这一手你学会了。\n还有 " + left + " 块田在闪光。", "想去哪块，就点哪块。");
   actions([]); markDirty();
 }
 /* 试验田特殊流程：收成 → 「合入」封印仪式 */
 function labHarvest() {
   S.flags.matured = true; markDirty();
   pushSparkle(352, 118, 10);
-  say("③ 效果达成 · 试验丰收", "试验田丰收，麦穗金黄。✨\n但进主田粮仓前，还有最后一道门。", "系统不猜你的意思——门要你亲手开。",
-    "试验田 = worktree 隔离：改动在隔离环境验证、进 PR 审视。最后的门，在下面。");
+  say("③ 效果达成 · 试验丰收", "试验田丰收，麦穗金黄。✨\n但进主田前，还有最后一道门。", "系统不猜你的意思——门要你亲手开。",
+    "试验田 = worktree 隔离：改动在隔离环境验证、进 PR 审视。最后的门，在下面。",
+    "已收录《隔离试种 · 授权原话》· 图鉴里随时可查");
   var box = actions([]);
   var wrap = document.createElement("div"); wrap.className = "merge";
   var inp = document.createElement("input");
@@ -1251,15 +1366,17 @@ function labHarvest() {
 function labMerged() {
   var sp = SPOTS[7];
   if (!S.done.lab) { S.done.lab = true; addBag(sp.gift); setWho(WHO.lab); }
+  registerCodex("lab"); juice(sp);
   pushSparkle(352, 116, 20); pushFloat(352, 108, "🎉 已合入主田");
   say("③ 效果达成 · 已合入", "🎉 已合入！金色的麦子流进主田粮仓。\n验证过、你亲口批准——才进主干。", "这道门，机械校验原话，谁都绕不过。",
-    "试验田 = worktree 隔离 + PR + 授权原话：改动在隔离环境验证、进 PR 审视，最后搭档亲口说出「合入」（机械校验原话命中），才真的进主干。");
+    "试验田 = worktree 隔离 + PR + 授权原话：改动在隔离环境验证、进 PR 审视，最后搭档亲口说出「合入」（机械校验原话命中），才真的进主干。",
+    codexChip("lab"));
   actions([{ label: nextBtnLabel(), fn:advance }]);
   markDirty();
 }
 function lakePreview() {
   pushSparkle(424, 40, 10);
-  say("终章预告 · 镜湖", "湖面泛起涟漪。水里那只更大的、灰色的獭抬起了头。\n它不记得任何事，也不相信任何獭——它是没遇到过你的、过去的自己。", "终战将至（P2）。带上你的八件能力：记忆、检索、上下文、封存、自愈、协作、审视、隔离合入。",
+  say("终章预告 · 镜湖", "湖面泛起涟漪。更大的灰獭抬起了头。\n它是没遇到过你的、过去的自己。", "终战将至。带上八件能力：记忆、检索、上下文、封存、自愈、协作、审视、隔离合入。",
     "这八件事，otter-buddy 每天都在做。接下来，用它打一场硬仗。");
   actions([]);
 }
@@ -1274,7 +1391,7 @@ function lakeBattle() {
   document.getElementById("battlebar").style.display = "flex";
   document.getElementById("hint").innerHTML = "终章 · 镜湖终战 · <em>五段式</em>";
   playerWalk([400, 92], 2);
-  say("终章 · 镜湖", "🌫️ 水面没有倒影——或者说，倒影自己站了起来。\n\n「过去的大獭」从镜中走出：拒绝记忆、拒绝同伴、凡事硬莽的你。\n\n它 100 HP，眼神里全是你曾经的自信。", "图鉴提示：🔮 先占卜，永远不会错。", null);
+  say("终章 · 镜湖", "🌫️ 水面没有倒影——倒影站了起来。\n「过去的大獭」：拒绝记忆、拒绝同伴、凡事硬莽的你。", "图鉴提示：🔮 先占卜，永远不会错。", null);
   bButtons();
   markDirty();
 }
@@ -1326,7 +1443,7 @@ function bTurn() {
 function bLose() {
   B.over = true;
   document.getElementById("battlebar").style.display = "none";
-  say("重生", "🌑 你倒下了。\n\n但獭的死亡不是终点——前世已封存成档案，新一世带着交接摘要醒来。\n\n谱系 +1。图鉴已记录：「纯硬莽打不赢它。」", "——这次试试：先占卜。");
+  say("重生", "🌑 你倒下了。\n但前世已封存成档案——新一世带着交接摘要醒来。", "这次试试：先占卜。再硬莽。");
   actions([{ label:"🔄 重新挑战", fn:function () { resetBattle(); lakeBattle(); } }]);
 }
 function resetBattle() {
@@ -1338,7 +1455,7 @@ function actDivine() {
   B.divined = true;
   bSay("🔮 占卜", "占卜展开……记忆浮现：");
   setTimeout(function () {
-    bSay("🔮 占卜 · 命中旧档案", "「有獭击败过它。档案写着：它拒绝召唤、拒绝占卜、每回合自言自语越来越久——上下文在吃掉它。它的自测毫无用处，它从不让别的獭审视自己。」\n\n📜 弱点已入图鉴：多线程围攻；审视照出逻辑漏洞。", "（这就是种子库的动作——翻出旧结论，免重种。占卜 = search_memory）");
+    bSay("🔮 占卜 · 命中旧档案", "📜 命中：「有獭击败过它。」\n弱点已入图鉴：多线程围攻；审视照出逻辑漏洞。", "（这就是种子库的动作——翻出旧结论，免重种。占卜 = search_memory）");
     B.busy = false; bButtons();
   }, 500);
 }
@@ -1377,7 +1494,7 @@ function actInsight() {
     B.insight = true;
     var d = 8 + Math.floor(Math.random() * 5);
     B.foe -= d; bUpdate(); pushFloat(424, 36, "-" + d);
-    bSay("🔍 洞察獭·审视", "洞察獭凝视着它：「你的逻辑第 " + (2 + Math.floor(Math.random() * 7)) + " 环就是断的——你从不验证自己的前提。」\n✨ 漏洞显形 -" + d + "！你的下一次攻击伤害翻倍（顺着漏洞刺入）。", "老农教的：自己的产出，自己看不出问题。审视 = 异体执行，不是自测。");
+    bSay("🔍 洞察獭·审视", "「你的逻辑第 N 环就是断的——你从不验证前提。」\n✨ 漏洞显形 -" + d + "！下一次攻击翻倍。", "老农教的：自己的产出，自己看不出问题。审视 = 异体执行，不是自测。");
     if (B.foe <= 0) { setTimeout(bWin, 400); return; }
     setTimeout(bTurn, 400);
   }
@@ -1394,7 +1511,7 @@ function bWin() {
   B.over = true; B.seal = true;
   document.getElementById("battlebar").style.display = "none";
   pushSparkle(424, 40, 20);
-  say("🐲 倒下", "过去的大獭跪倒在镜湖边。\n它抬起头，第一次露出疲惫之外的表情：\n\n「……原来我一直缺的不是力气。」\n\n✨ 封印需要最后一步——授权原话。只有搭档亲口说出咒语，封印才会落下。", "咒语两个字。试验田你已经打过一次。", null);
+  say("🐲 倒下", "过去的大獭跪倒在镜湖边：\n「……原来我一直缺的不是力气。」\n\n✨ 封印最后一步：授权原话——只有搭档亲口说，封印才落下。", "咒语两个字。试验田你已经打过一次。", null);
   var box = actions([]);
   var wrap = document.createElement("div"); wrap.className = "merge";
   var inp = document.createElement("input"); inp.placeholder = "输入封印咒语……"; inp.maxLength = 4;
@@ -1414,20 +1531,27 @@ function bWin() {
 function bEnding() {
   S.mode = null; B.seal = false;
   pushSparkle(424, 40, 30);
-  say("🔏 封印落下 · 通关", "过去的大獭化作光点，融入你的身体。\n\n┌─────────────────────┐\n│  你击败了 Lv.1 的自己  │\n└─────────────────────┘\n\n幼獭的剪影长大了。身后站着这一路上召唤过的所有队友。\n\nThey have names.\n\n🦦 《獭之传说》完", "如果这 3 分钟有趣——欢迎看看真正的它们：");
+  say("🔏 封印落下 · 通关", "过去的大獭化作光点，融入你的身体。\n\n你击败了 Lv.1 的自己。\n\nThey have names.\n\n🦦 《獭之传说》完", "如果这 3 分钟有趣——欢迎看看真正的它们：");
   actions([{ label:"↗ github.com/chenlaicai/otter-buddy", fn:function () { window.open("https://github.com/chenlaicai/otter-buddy", "_blank"); } }]);
 }
 
-/* ---------- 开场 ---------- */
-say("开场", "一只幼獭漂到了这片荒芜的海藻农场。", "田是灰的，背包是空的，身边没有队友。");
-actions([{ label:"👉 出发", fn:function () {
-  S.started = true;
-  hintEl.innerHTML = "8 块田在闪光 · <em>想先去哪块都行</em>";
-  playerWalk(SPOTS[0].stand, 1.5);
-  say("第一幕 · 一无所有", "八块田都在闪着微光——想先去哪块，就去哪块。\n八块田，一只獭，三分钟。", "每块田都有一个麻烦在等你：发现问题、引入能力、看到效果。（点任意闪光的田）");
-  actions([]);
+/* ---------- 开场（P6：一封信 → 转场进农场） ---------- */
+function beginFarm() {
+  letterEl.classList.add("gone");
+  setTimeout(function () { letterEl.style.display = "none"; }, 360); // 纯视觉淡出，不阻塞操作
+  say("第一幕 · 一无所有", "八块田在闪——想点哪块，点哪块。", "每块田一个麻烦：发现 → 引入 → 看到。", null);
+  actions([{ label:"👉 出发", fn:function () {
+    S.started = true;
+    hintEl.innerHTML = "8 块田在闪光 · <em>想先去哪块都行</em>";
+    playerWalk(SPOTS[0].stand, 1.5);
+    say("第一幕 · 一无所有", "八块田都在闪——想点哪块，点哪块。", "每块田一个麻烦：发现 → 引入 → 看到。（点任意闪光的田）");
+    actions([]);
+    markDirty();
+  }}]);
   markDirty();
-}}]);
+}
+document.getElementById("letterBtn").onclick = beginFarm;
+letterEl.style.display = "flex";
 render();
 })();
 </script>
