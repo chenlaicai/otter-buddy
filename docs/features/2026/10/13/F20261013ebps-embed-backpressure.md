@@ -56,6 +56,12 @@ tags:
 - `replaceChunksBySource` 改用 `fireAndForgetEmbedBatch`：embedBatch 可用时走批量，不可用时回落逐条
 - batch 整体失败（背压/超时）→ 逐条入 retry 队列，不丢失
 
+### 对抗审视补充（PR #1465 round 1）：sync 批量路径槽位流速控制
+
+检视发现：sync 启动期 612 篇文档的 `replaceChunksBySource` 虽被串行 await，但每篇的 embed 是 fire-and-forget——前一批 batch 未完成，下一批就已发起。背压上限 50 slot，前 50 篇即可耗尽，第 51 篇起全部背压 reject 走 retry 慢路径，批量收益被背压拒绝切断。
+
+修复：`EmbeddingGateway.acquireSlot?()` 新增可选方法——in-flight 满时挂起等空闲槽（FIFO 唤醒，每次出队只放一个防惊群；超时/dispose 路径同样释放槽位）。`fireAndForgetEmbedBatch` 发起 batch 前先 acquireSlot——**软限流替代硬溢出**，sync 速度由 worker 真实吞吐节流，batch 收益不被背压拒绝切断。背压 reject 保留为非 sync 路径（单条 embed、retry）的防浪兜底。
+
 ## 验证
 
 - TypeScript 编译零错误
@@ -65,15 +71,16 @@ tags:
 
 ## 影响范围
 
-- embedding-service.ts：新增背压 + embedBatch，既有 embed() 行为不变（仅加了 in-flight 检查）
+- embedding-service.ts：新增背压 + embedBatch + acquireSlot 槽位流速控制，既有 embed() 行为不变（仅加了 in-flight 检查）
 - bge-m3-worker.ts：新增 embed-batch 消息处理，既有 embed 消息处理不变
 - embedding-retry-worker.ts：新增熔断计数，既有 tick 逻辑不变（仅加了全失败计数和熔断跳过）
-- store-memory.ts：`replaceChunksBySource` 的 embed 路径从逐条改为批量（embedBatch 不可用时回落逐条，行为等价）
-- embedding-gateway.ts：新增可选 embedBatch 方法（不破坏既有实现）
+- store-memory.ts：`replaceChunksBySource` 的 embed 路径从逐条改为批量（embedBatch 不可用时回落逐条，行为等价）；发起 batch 前先 acquireSlot 软限流
+- embedding-gateway.ts：新增可选 embedBatch + acquireSlot 方法（不破坏既有实现）
 
 ## 取舍
 
 - **背压上限 50**：bge-m3 单条 ~500ms，50 条 = ~25s 排队上限，低于 30s 超时阈值。太大则排队超时，太小则吞吐不足。
 - **熔断阈值 3 次**：PatrolWorker 1h 驱动，3 次 = 3h 全失败才熔断。太短会误熔断（暂时性抖动），太长则 worker 淹太久。
 - **batch 大小由调用方控制**：`replaceChunksBySource` 传入全部 chunk（通常 5-20 条/文档），sync 612 篇文档逐篇调用——每篇一个 batch，天然分批。
+- **batch 超时按条数缩放（上限 120s）**：worker 串行处理消息，排队时间 = 前面 batch 处理时间之和。上限 120s 是"排队+推理"的总预算——正常情况（acquireSlot 限流后 ≤50 batch in-flight，每 batch ≤20 条）排队 ≤ 50×20×0.5s/有效并发，足够；极端排队超时 reject 走 retry 兜底（不丢数据，retry 逐条 embed 排队更短）。这是设计预期，非计算疏漏（对抗审视 #1465 建议发现 2 的裁决）。
 - **不实现 worker 自愈重启**：背压+熔断防淹没后，worker 不会被淹死。真正卡死（ONNX segfault 等）走 exit 事件 → ready=false → 后续 embed 走 FTS 降级。自愈重启增加复杂度，当前场景不需要。

@@ -73,6 +73,8 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   private disposed = false;
   private readonly pendingRequests = new Map<number, PendingRequest>();
   private readonly pendingBatchRequests = new Map<number, PendingBatchRequest>();
+  /** F20261013ebps：等待空槽的 waiter 队列（acquireSlot 挂起在此，出队释放时唤醒） */
+  private readonly slotWaiters: Array<() => void> = [];
   private readonly readyState: ReadyState = { ready: false, loadError: null, waiters: [] };
   /** F20260811mrpy Part 3：worker ready 时缓存的模型元信息 */
   private cachedMeta: EmbedModelMeta | null = null;
@@ -144,6 +146,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       const pending = this.pendingRequests.get(msg.id);
       if (!pending) return;
       this.pendingRequests.delete(msg.id);
+      this.releaseSlot();
       if (msg.type === "result") {
         pending.resolve(msg.embedding);
       } else {
@@ -155,8 +158,31 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       const pending = this.pendingBatchRequests.get(msg.id);
       if (!pending) return;
       this.pendingBatchRequests.delete(msg.id);
+      this.releaseSlot();
       pending.resolve(msg.embeddings);
     }
+  }
+
+  /**
+   * F20261013ebps：等待一个空闲 in-flight 槽位（满时挂起至空出）。
+   * sync 批量路径用此做流速控制——前一批完成才发下一批，替代背压 reject 硬溢出入 retry 队列。
+   * dispose 时全部 waiter 立即放行，由调用方后续 embed 的 disposed 检查拦截。
+   */
+  acquireSlot(): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    const maxInFlight = EmbeddingServiceImpl.testMaxInFlightOverride ?? EmbeddingServiceImpl.MAX_IN_FLIGHT;
+    if (this.pendingRequests.size + this.pendingBatchRequests.size < maxInFlight) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      this.slotWaiters.push(resolve);
+    });
+  }
+
+  /** in-flight 出队后唤醒一个槽位 waiter（FIFO，每出队一次只放一个，防惊群） */
+  private releaseSlot(): void {
+    const waiter = this.slotWaiters.shift();
+    if (waiter) waiter();
   }
 
   /** F20261013ebps：worker error 处理（从 setupHandlers 拆出） */
@@ -228,6 +254,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     const timeoutPromise = new Promise<Float32Array>((_, reject) => {
       timer = setTimeout(() => {
         this.pendingRequests.delete(id);
+        this.releaseSlot();
         reject(new Error(`Embed timeout after ${timeoutMs}ms, falling back to FTS5-only`));
       }, timeoutMs);
     });
@@ -272,6 +299,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     const timeoutPromise = new Promise<Float32Array[]>((_, reject) => {
       timer = setTimeout(() => {
         this.pendingBatchRequests.delete(id);
+        this.releaseSlot();
         reject(new Error(`Embed batch timeout after ${timeoutMs}ms (${texts.length} texts)`));
       }, timeoutMs);
     });
@@ -302,6 +330,10 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       reject(new Error("EmbeddingService disposed")),
     );
     this.pendingBatchRequests.clear();
+    // dispose 放行全部槽位 waiter——挂起的 sync 循环恢复后由 embed 的 disposed 检查拦截
+    while (this.slotWaiters.length > 0) {
+      this.slotWaiters.shift()!();
+    }
     this.worker.terminate();
   }
 }

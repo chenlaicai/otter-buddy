@@ -560,3 +560,105 @@ describe("StoreMemory - F20260915midu 投影 ID 统一", () => {
     expect(ids[0]).toMatch(/^[0-9a-f]{8}-/);
   });
 });
+
+describe("StoreMemory - F20261013ebps 批量 embed + 槽位流速控制", () => {
+  const chunkInputs = (n: number): MemoryEntryInput[] =>
+    Array.from({ length: n }, (_, i) => ({
+      ...SAMPLE_INPUT,
+      contentType: "feature_chunk" as const,
+      sourceTable: "features",
+      sourceId: "F20261013ebps",
+      content: `chunk 内容 ${i}，长度足够通过校验`,
+    }));
+
+  it("replaceChunksBySource：gateway 支持 embedBatch 时走批量路径，逐条 embed 不被调用", async () => {
+    const repo = statefulRepo();
+    let singleCalls = 0;
+    let batchCalls = 0;
+    const embedding: EmbeddingGateway = {
+      available: true,
+      embed: async () => {
+        singleCalls++;
+        return new Float32Array([0.1]);
+      },
+      embedBatch: async (texts: string[]) => {
+        batchCalls++;
+        return texts.map(() => new Float32Array([0.1]));
+      },
+    };
+    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
+
+    const ids = await store.replaceChunksBySource(chunkInputs(3));
+    // fire-and-forget——等 microtask 队列排空后断言
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(ids).toHaveLength(3);
+    expect(batchCalls).toBe(1);
+    expect(singleCalls).toBe(0);
+    expect(repo.storedEmbeddings).toHaveLength(3);
+  });
+
+  it("replaceChunksBySource：gateway 无 embedBatch 时回落逐条 fireAndForgetEmbed", async () => {
+    const repo = statefulRepo();
+    let singleCalls = 0;
+    const embedding: EmbeddingGateway = {
+      available: true,
+      embed: async () => {
+        singleCalls++;
+        return new Float32Array([0.1]);
+      },
+    };
+    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
+
+    await store.replaceChunksBySource(chunkInputs(3));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(singleCalls).toBe(3);
+    expect(repo.storedEmbeddings).toHaveLength(3);
+  });
+
+  it("replaceChunksBySource：embedBatch 失败时逐条入 retry 队列，不丢失", async () => {
+    const repo = statefulRepo();
+    const retried: string[] = [];
+    repo.enqueueRetry = async (id: string) => {
+      retried.push(id);
+    };
+    const embedding: EmbeddingGateway = {
+      available: true,
+      embed: async () => new Float32Array([0.1]),
+      embedBatch: async () => {
+        throw new Error("Embedding backpressure: in-flight limit reached");
+      },
+    };
+    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
+
+    await store.replaceChunksBySource(chunkInputs(4));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(retried).toHaveLength(4);
+    expect(repo.storedEmbeddings).toHaveLength(0);
+  });
+
+  it("replaceChunksBySource：支持 acquireSlot 时发起 batch 前先等空闲槽（软限流，检视 #1465 严重发现 1）", async () => {
+    const repo = statefulRepo();
+    const events: string[] = [];
+    const embedding: EmbeddingGateway = {
+      available: true,
+      embed: async () => new Float32Array([0.1]),
+      acquireSlot: async () => {
+        events.push("acquire");
+      },
+      embedBatch: async (texts: string[]) => {
+        events.push("batch");
+        return texts.map(() => new Float32Array([0.1]));
+      },
+    };
+    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
+
+    await store.replaceChunksBySource(chunkInputs(2));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(events).toEqual(["acquire", "batch"]);
+    expect(repo.storedEmbeddings).toHaveLength(2);
+  });
+});

@@ -221,14 +221,25 @@ export class StoreMemory {
    * F20261013ebps：批量 fire-and-forget embedding。
    * 优先走 embedBatch（一次 postMessage），失败时回落逐条 fireAndForgetEmbed。
    * 每条失败独立入 retry 队列——batch 内部分失败不拖累健康 chunk。
+   *
+   * 流速控制（对抗审视 #1465 严重发现 1）：sync 启动期 600+ 文档串行 await
+   * replaceChunksBySource，但 embed 是 fire-and-forget——前一批未完成后一批已发起，
+   * 前 50 篇即可耗尽背压 slot，第 51 篇起全部 reject 走 retry 慢路径。
+   * 发起 batch 前先 acquireSlot 挂起等空闲槽——软限流替代硬溢出，sync 速度
+   * 由 worker 真实吞吐节流，batch 收益不被背压拒绝切断。
+   * acquireSlot 不可用（mock / 旧实现）时保持原行为。
    */
   private fireAndForgetEmbedBatch(items: Array<{ id: string; content: string }>): void {
     if (items.length === 0) return;
 
     const gateway = this.embeddingGateway;
     if (typeof gateway.embedBatch === "function") {
+      const embedBatch = gateway.embedBatch.bind(gateway);
       const texts = items.map(item => this.truncateForEmbed(item.content));
-      gateway.embedBatch(texts)
+      const ready = typeof gateway.acquireSlot === "function"
+        ? gateway.acquireSlot()
+        : Promise.resolve();
+      ready.then(() => embedBatch(texts))
         .then((embeddings) => {
           for (let i = 0; i < items.length; i++) {
             this.writer.storeEmbedding(items[i].id, embeddings[i]).catch((err) => {

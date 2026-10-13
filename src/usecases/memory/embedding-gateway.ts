@@ -16,6 +16,11 @@ export interface EmbeddingGateway {
   readonly available: boolean;
   embed(text: string): Promise<Float32Array>;
   /**
+   * F20261013ebps：等待一个空闲 in-flight 槽位（满时挂起至空出），
+   * 供 sync 批量路径做流速控制——替代背压 reject 硬溢出入 retry 队列。
+   */
+  acquireSlot?(): Promise<void>;
+  /**
    * F20261013ebps：批量 embed——一次调用处理多条文本，
    * 实现方内部走 batch 推理（吞吐远高于逐条 embed）。
    * 可选——mock 实现可不提供，调用方用 typeof === "function" 守卫。
