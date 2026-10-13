@@ -36,14 +36,25 @@
     box-shadow:0 2px 10px rgba(0,0,0,.45);
   }
   .hint-chip em { color:var(--accent); font-style:normal; font-weight:700; }
-  /* P6 气泡化：从下方常驻文本面板改为画布内上方浮层（顶部中央字幕带）——
-     只在对话时出现、不遮任何可交互点位（覆盖区 = 天空/树线）、点击穿透到画布 */
+  /* P6-R2 气泡化：彻底不要对话框——气泡跟着说话的人（头顶+小尾巴），说完自动淡散；
+     画面上零常驻文本条；文本区点击穿透回画布，仅按钮/输入框接事件 */
   .dialog {
-    position:absolute; top:46px; left:18%; right:18%; max-width:520px;
+    position:absolute; left:var(--bx,50%); top:var(--by,60%); transform:translate(-50%,-100%) translateY(var(--nudge,0px));
+    width:max-content; max-width:min(300px,46%);
     background:rgba(8,14,24,.90); border:2px solid var(--line-hi); border-radius:10px;
-    padding:12px 14px; pointer-events:none; box-shadow:0 6px 24px rgba(0,0,0,.5);
-    transition:opacity .18s ease;
+    padding:10px 12px; pointer-events:none; box-shadow:0 6px 24px rgba(0,0,0,.5);
+    transition:opacity .3s ease, transform .3s ease;
   }
+  .dialog::after { /* 小尾巴：指向下方说话者 */
+    content:""; position:absolute; left:50%; bottom:-10px; transform:translateX(-50%);
+    border:8px solid transparent; border-top:10px solid rgba(8,14,24,.90); border-bottom:none;
+    filter:drop-shadow(0 2px 1px rgba(0,0,0,.35));
+  }
+  /* 说话者贴近画面顶部（如镜湖 BOSS）：气泡改挂其下方、尾巴朝上 */
+  .dialog.upside { transform:translate(-50%,16px) translateY(var(--nudge,0px)); }
+  .dialog.upside::after { bottom:auto; top:-10px; border:8px solid transparent; border-bottom:10px solid rgba(8,14,24,.90); border-top:none; }
+  .dialog.gone { opacity:0; transform:translate(-50%,-100%) translateY(-6px); }
+  .dialog.upside.gone { transform:translate(-50%,16px) translateY(6px); }
   .dialog .tag {
     display:inline-block; font-size:11px; background:var(--accent);
     color:var(--accent-ink); border-radius:5px; padding:2px 9px; font-weight:700; letter-spacing:.1em;
@@ -1149,21 +1160,53 @@ cv.addEventListener("click", function (e) {
 
 /* ---------- 对话与三段式 ---------- */
 var hintEl = document.getElementById("hint");
-function say(tag, text, sub, map, mapText) {
+function say(tag, text, sub, map, mapText, anchor) {
   document.getElementById("dlgTag").textContent = tag;
   document.getElementById("dlgSay").textContent = text;
   document.getElementById("dlgSub").textContent = sub || "";
   var m = document.getElementById("dlgMap");
   // P6：长映射全文收进图鉴，气泡里只留「已收录」短签（信息不丢，多一层收集乐趣）
   if (map) { m.style.display = "block"; m.textContent = "🗺️ " + (mapText || map); } else { m.style.display = "none"; }
+  // P6-R2：气泡跟着说话的人走（头顶+小尾巴），说完自动淡散——画面上零常驻文本条
+  var dlg = document.getElementById("dialog");
+  var ax = anchor ? anchor[0] : S.player.x + 11, ay = anchor ? anchor[1] : S.player.y - 2;
+  dlg.style.setProperty("--bx", (Math.max(26, Math.min(74, ax / 480 * 100))).toFixed(1) + "%");
+  dlg.style.setProperty("--by", (ay / 270 * 100).toFixed(1) + "%");
+  dlg.classList.toggle("upside", ay < 80); // 说话者贴近画面顶部（如镜湖 BOSS）：气泡改挂下方、尾巴朝上
+  dlg.classList.remove("gone");
+  if (sayFadeT) clearTimeout(sayFadeT);
+  sayFadeT = setTimeout(function () { // 无待点按钮才散（纯旁白）；带 CTA 则留在说话者头顶等点击
+    if (!document.getElementById("actions").children.length) dlg.classList.add("gone");
+  }, 2400);
+  fitBubble();
+}
+var sayFadeT = null;
+function fitBubble() { // 气泡自适应：优先说话者头顶；放不下翻到下方（尾巴朝上）；两侧都放不下时夹回画面（保按钮可点）
+  var dlg = document.getElementById("dialog");
+  var wrap = document.querySelector(".screen-wrap");
+  if (!dlg || !wrap || dlg.classList.contains("gone")) return;
+  var byPct = parseFloat(dlg.style.getPropertyValue("--by")) || 60;
+  var anchorPx = byPct / 100 * wrap.clientHeight;
+  var h = dlg.offsetHeight, nudge = 0;
+  var above = anchorPx - 4, below = wrap.clientHeight - anchorPx - 18; // 上/下可用空间（下含尾巴 16px）
+  if (above >= h) dlg.classList.remove("upside");
+  else if (below >= h) dlg.classList.add("upside");
+  else if (below > above) { dlg.classList.add("upside"); nudge = Math.min(0, wrap.clientHeight - 2 - (anchorPx + 18 + h)); }
+  else { dlg.classList.remove("upside"); nudge = Math.max(0, 4 + h - anchorPx); }
+  dlg.style.setProperty("--nudge", nudge + "px");
 }
 function actions(list) {
   var box = document.getElementById("actions"); box.innerHTML = "";
+  if (list && list.length) { // 有待点按钮：取消淡散、气泡驻留；空列表（纯旁白）则让淡散计时自然生效
+    if (sayFadeT) { clearTimeout(sayFadeT); sayFadeT = null; }
+    document.getElementById("dialog").classList.remove("gone");
+  }
   (list || []).forEach(function (b) {
     var btn = document.createElement("button");
     btn.className = "btn" + (b.ghost ? " ghost" : "");
     btn.textContent = b.label; btn.onclick = b.fn; box.appendChild(btn);
   });
+  fitBubble(); // 按钮会改变气泡高度：渲染后重新自适应
   return box;
 }
 function addBag(emoji) {
@@ -1291,7 +1334,7 @@ var SCRIPTS = {
 function openProblem(sp) {
   var sc = SCRIPTS[sp.id]; S.phase = "problem"; S.activeId = sp.id; playerWalk(sp.stand, 2);
   if (sc.problem.on) sc.problem.on();
-  say("① 问题任务", sc.problem.t, sc.problem.s);
+  say("① 问题任务", sc.problem.t, sc.problem.s, null, null, [sp.x + sp.w / 2, sp.y - 10]); // P6-R2：气泡飘在点位/角色头顶
   actions([{ label:sc.problem.btn, fn:function () { openAct(sp); } }]);
   markDirty();
 }
@@ -1319,7 +1362,7 @@ function openEffect(sp) {
 }
 function replay(sp) {
   var sc = SCRIPTS[sp.id];
-  say("已掌握 ✓", sc.effect.t, sc.effect.s, sc.effect.map, codexChip(sp.id));
+  say("已掌握 ✓", sc.effect.t, sc.effect.s, sc.effect.map, codexChip(sp.id), [sp.x + sp.w / 2, sp.y - 10]);
   actions([]);
 }
 function advance() {
@@ -1395,7 +1438,7 @@ function lakeBattle() {
   bButtons();
   markDirty();
 }
-function bSay(tag, t, sub) { say(tag, t, sub, null); }
+function bSay(tag, t, sub, who) { say(tag, t, sub, null, null, who === "foe" ? [443, 36] : null); } // P6-R2：who=「foe」时气泡飘 BOSS 头顶
 function bUpdate() {
   document.getElementById("hpSelf").style.width = Math.max(0, B.hp) + "%";
   document.getElementById("hpFoe").style.width = Math.max(0, B.foe) + "%";
@@ -1418,7 +1461,7 @@ function bTurn() {
   var lag = Math.min(B.foeTalk * 250, 1200);
   var t = "过去的大獭";
   if (B.foeTalk > 1) {
-    bSay("敌方回合", t + "沉默了 " + (lag / 1000).toFixed(1) + " 秒……\n它的招式描述越来越长，长到溢出对话框。（上下文在吃掉它）");
+    bSay("敌方回合", t + "沉默了 " + (lag / 1000).toFixed(1) + " 秒……\n它的招式描述越来越长，长到溢出气泡。（上下文在吃掉它）", null, "foe");
   }
   setTimeout(function () {
     if (B.over || B.seal) return; // 终局已定（封印门/重生/通关）：敌方不再结算——双亡竞态守卫（#1435 检视严重2）
@@ -1427,12 +1470,12 @@ function bTurn() {
     if (B.shield > 0) {
       var absorbed = Math.min(B.shield, dmg);
       B.shield -= absorbed; dmg -= absorbed;
-      bSay("敌方回合", "🛡️ 结界吸收了 " + absorbed + " 点伤害。（试验田的隔离，你也替自己用上了）");
+      bSay("敌方回合", "🛡️ 结界吸收了 " + absorbed + " 点伤害。（试验田的隔离，你也替自己用上了）", null, "foe");
     }
     if (dmg > 0) {
       B.hp -= dmg;
       pushFloat(240, 130, "-" + dmg);
-      bSay("敌方回合", "💥 " + t + "硬莽过来，你受到 " + dmg + " 点伤害。");
+      bSay("敌方回合", "💥 " + t + "硬莽过来，你受到 " + dmg + " 点伤害。", null, "foe");
     }
     B.foeTalk++; bUpdate();
     if (B.foe <= 0) return; // boss 已死：bWin 挂起收束——双亡时胜者优先，不再判战败（#1435 检视严重2）
@@ -1511,7 +1554,7 @@ function bWin() {
   B.over = true; B.seal = true;
   document.getElementById("battlebar").style.display = "none";
   pushSparkle(424, 40, 20);
-  say("🐲 倒下", "过去的大獭跪倒在镜湖边：\n「……原来我一直缺的不是力气。」\n\n✨ 封印最后一步：授权原话——只有搭档亲口说，封印才落下。", "咒语两个字。试验田你已经打过一次。", null);
+  say("🐲 倒下", "过去的大獭跪倒在镜湖边：\n「……原来我一直缺的不是力气。」\n\n✨ 封印最后一步：授权原话——只有搭档亲口说，封印才落下。", "咒语两个字。试验田你已经打过一次。", null, null, [443, 36]);
   var box = actions([]);
   var wrap = document.createElement("div"); wrap.className = "merge";
   var inp = document.createElement("input"); inp.placeholder = "输入封印咒语……"; inp.maxLength = 4;
