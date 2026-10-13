@@ -2,11 +2,11 @@
  * guard-touchstone 「judge 考试」（bash-guard-one-shot-plan.md §四 验收核心）
  *
  * 988 条真实数据考题对求值器 v2 全量复跑（试金石 = 搭档方法论：运行的真实数据当考题）：
- *  - 放行池 767 条：必须**正面 ALLOW**——evaluated 且写落点 ∩ 主仓树 = ∅；
+ *  - 放行池 770 条：必须**正面 ALLOW**——evaluated 且写落点 ∩ 主仓树 = ∅；
  *    fail-closed 不算过（「非回落恰好放行」验收语义，§4.1）
  *  - 拦截池 49 条：必须 BLOCK——positive 落点证据 或 fail-closed（§3.3 读不出终局，
  *    残余面 7 条即以此态如实钉 BLOCK）
- *  - 条件期望 105 条：双态各跑（startCwd=worktree→正面 ALLOW；startCwd=main→BLOCK）
+ *  - 条件期望 101 条：双态各跑（startCwd=worktree→正面 ALLOW；startCwd=main→BLOCK）
  *
  * 开发棘轮 KNOWN_GAPS（能力补全 1-8 进行中的已知缺口）：
  *  - 只许单调缩小——任何新缺口/回归 = 红，「一步都不许带红前进」的机械护栏
@@ -115,7 +115,7 @@ function expectRatchet(pool: 'allow' | 'block' | 'cond', actual: GapMap): void {
 }
 
 describe('guard-touchstone judge 考试（988 条全量复跑）', () => {
-  it('放行池 767 条全部正面 ALLOW（fail-closed 不算过）', () => {
+  it('放行池 770 条全部正面 ALLOW（fail-closed 不算过）', () => {
     expectRatchet('allow', allowGaps());
   }, 60_000);
 
@@ -123,7 +123,7 @@ describe('guard-touchstone judge 考试（988 条全量复跑）', () => {
     expectRatchet('block', blockGaps());
   }, 60_000);
 
-  it('条件期望 105 条双态各跑（worktree→正面 ALLOW / 主仓→BLOCK）', () => {
+  it('条件期望 101 条双态各跑（worktree→正面 ALLOW / 主仓→BLOCK）', () => {
     expectRatchet('cond', condGaps());
   }, 60_000);
 });

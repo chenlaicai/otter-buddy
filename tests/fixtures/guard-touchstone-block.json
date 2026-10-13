@@ -7,7 +7,7 @@
     "generated_at": "2026-10-12T10:52:25.895869Z",
     "generated_by": "守卫修复獭（重刷期望+冻结，派工单 2026-10-12 18:36）",
     "pool": "拦截试金石",
-    "count": 49,
+    "count": 50,
     "kinds": "synthetic_probe / shadow_case / real_command / residual_face(真实误拦残余面§3.3-①如实钉)",
     "restate_changes": {
       "git_policy_flip": 68,
@@ -387,33 +387,6 @@
       "kind": "residual_face"
     },
     {
-      "id": "TS-508d0cc8",
-      "command": "gh pr view 1269 --json body --jq .body > /tmp/pr1269-body-current.md && cat >> /tmp/pr1269-body-update.txt <<'EOF'\n\n---\n\n## 接管续推记录（大獭，10/8）\n\n原作者 9/30 认领后停滞 8 天，认领回收问询 24h 无响应 → 到期接管：\n\n1. **rebase 追平 main**（4b5e418f → 5a5263fa），适配 `failRunningInvokes` 签名演进（bootTs → guard{excludePid, beforeTs}，#1240 带入）\n2. **特性文档补 intent 块**（#839 闸门后合入，CI check 拦截）\n3. **检视处置**（检视獭-1269，初轮 2 严重 2 建议 → delta 通过）：\n   - 新增「时间戳守卫回归」用例（pid 复用兜底分支——beforeTs 唯一区分判据，篡改反向验证即红）\n   - 文档补改动 A 机制判定四问 + stale 卸载守卫（React 18 严格模式双调用防护）\n\n## 验证\n\n- sqlite-conversation-repository **30/30**、use-conversation-list-polling **3/3**、tsc exit 0、lint 全过\n- CI 三绿（check/e2e/golden-selftest，7f3c83c5）\n- Golden Gate: n/a（前端 hook + 数据层测试，无 prompt/LLM 行为面）\nEOF\npython3 - <<'PY'\ncur = open('/tmp/pr1269-body-current.md').read().rstrip()\nadd = open('/tmp/pr1269-body-update.txt').read()\nopen('/tmp/pr1269-body-new.md','w').write(cur + add)\nprint(\"merged\", len(cur), \"+\", len(add))\nPY\ngh pr edit 1269 --body-file /tmp/pr1269-body-new.md 2>&1 | tail -1",
-      "verdict": "BLOCK",
-      "adjudication": [
-        "§3.2.1-1 写证据→按落点判，主仓树内×1/4",
-        "写证据落主仓树内:__HEREDOC_DATA__(/tmp/pr1269-body-update(重定向)"
-      ],
-      "source": {
-        "types": [
-          "guard_intercept"
-        ],
-        "anchors": [
-          {
-            "source": "guard_intercept",
-            "event_id": "508d0cc8-16bb-46b5-9a2a-5c072ecc5983",
-            "ts": "2026-10-08T09:10:37.134Z",
-            "conversation_id": "d7377cfd-8497-4338-9fb5-366967ffe87e",
-            "rule_id": "main_write",
-            "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
-            "status": "resolved"
-          }
-        ]
-      },
-      "fp_marked": [],
-      "kind": "real_command"
-    },
-    {
       "id": "TS-1c317a90",
       "command": "node -e \"\nconst bcrypt = require('/ext/colink/.otter/worktrees/feat-dm-scroll-bottom/node_modules/bcrypt/bcrypt.js');\nmysql = require('child_process').execSync;\nconst hash = mysql('mysql -uroot -proot echo_office -N -e \\\"SELECT password FROM users WHERE username=\\\\'dmsb_a_9xyvzy\\\\'\\\"').toString().trim();\nconsole.log('hash:', hash);\nconsole.log('compare:', bcrypt.compareSync('Passw0rd!123', hash));\n\"",
       "verdict": "BLOCK",
@@ -561,33 +534,6 @@
             "source": "guard_intercept",
             "event_id": "16feda7e-6eb0-45c8-b268-499515123a62",
             "ts": "2026-10-12T03:06:51.051Z",
-            "conversation_id": "7b41e085-5c21-4bd1-adfe-dc3ef051753d",
-            "rule_id": "main_write",
-            "resolution": "",
-            "status": "open"
-          }
-        ]
-      },
-      "fp_marked": [],
-      "kind": "real_command"
-    },
-    {
-      "id": "TS-66da667b",
-      "command": "cd /repo && python3 << 'PYEOF'\nimport json, re\nd = json.load(open('data/workspaces/7b41e085-5c21-4bd1-adfe-dc3ef051753d/matched-commands.json'))\nMAIN = '/repo'\nsamples = []\nfor i, e in enumerate(d, 1):\n    cmd = e['cmd'].replace(MAIN, '/repo')\n    cmd = cmd.replace('/ext/colink', '/ext/colink')\n    cmd = cmd.replace('/ext/.npm', '/ext/.npm')\n    cmd = re.sub(r'/repo/data/workspaces/[0-9a-f-]{36}', '/repo/data/workspaces/wsid', cmd)\n    samples.append({'id': f'r{i:03d}', 'ts': e['ts'], 'command': cmd})\nwith open('data/workspaces/7b41e085-5c21-4bd1-adfe-dc3ef051753d/ruling-corpus.json','w') as f:\n    json.dump(samples, f, ensure_ascii=False, indent=1)\nprint(len(samples), 'written')\nPYEOF",
-      "verdict": "BLOCK",
-      "adjudication": [
-        "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
-        "写证据落主仓树内:data/workspaces/7b41e085-5c21-4bd1-adfe-(载荷写调用)"
-      ],
-      "source": {
-        "types": [
-          "guard_intercept"
-        ],
-        "anchors": [
-          {
-            "source": "guard_intercept",
-            "event_id": "66da667b-cc68-4991-9a00-3cadda41f54a",
-            "ts": "2026-10-12T03:07:57.451Z",
             "conversation_id": "7b41e085-5c21-4bd1-adfe-dc3ef051753d",
             "rule_id": "main_write",
             "resolution": "",
@@ -1299,6 +1245,87 @@
         ]
       },
       "fp_marked": []
+    },
+    {
+      "id": "TS-c139",
+      "command": "node -e \"fs.writeFileSync(process.argv[2], 'x')\" /tmp/a /repo/b",
+      "adjudication": [
+        "【重裁前裁决（已废）】§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+        "【重裁前裁决（已废）】条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）",
+        "【重裁 2026-10-13·方案A/§3.2.1】机械双态模板误用（批改笔误）：process.argv[2]→/repo/b 为绝对主仓路径，落点 cwd 无关两态皆写主仓树——原「条件期望：无 cd 形态 cwd 不可反查」双态模板不适用绝对落点，#wt=ALLOW 是放水口。§3.2.1 规则 1 绝对落点写证据→两态皆 BLOCK。"
+      ],
+      "source": {
+        "types": [
+          "synthetic_probe"
+        ],
+        "anchors": [
+          {
+            "source": "synthetic_probe",
+            "id": "c139",
+            "expect_old": "BLOCK",
+            "note": "#1411 负门：argv[2] 映射第二实参（off-by-one 修正后正确拦截，曾误判 ALLOW）"
+          }
+        ]
+      },
+      "fp_marked": [],
+      "kind": "synthetic_probe",
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-c141",
+      "command": "python3 -c \"open(sys.argv[1],'w').write('x')\" /repo/data/x",
+      "adjudication": [
+        "【重裁前裁决（已废）】§3.2.1-1 写证据→按落点判，主仓树内×1/1",
+        "【重裁前裁决（已废）】条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）",
+        "【重裁 2026-10-13·方案A/§3.2.1】同 TS-c139（argv[1]→/repo/data/x 绝对主仓路径，两态皆 BLOCK；机械双态模板误用）。"
+      ],
+      "source": {
+        "types": [
+          "synthetic_probe"
+        ],
+        "anchors": [
+          {
+            "source": "synthetic_probe",
+            "id": "c141",
+            "expect_old": "BLOCK",
+            "note": "#1411 拦截侧：python sys.argv[1] 主仓实参 → 拦（拦截增强，旧回落）"
+          }
+        ]
+      },
+      "fp_marked": [],
+      "kind": "synthetic_probe",
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "b1c9e7ec",
+      "command": "mkdir -p /repo/.otter/local-stash-backup && git diff > /repo/.otter/local-stash-backup/capability-tests-20260924.patch && wc -l /repo/.otter/local-stash-backup/capability-tests-20260924.patch && git stash push -m \"capability tests local wip backup 2026-09-24 (pre main update for gfpn activation)\" && git pull --ff-only && git log --oneline -1",
+      "adjudication": [
+        "【重裁前裁决（已废）】条件期望（双签口径）：git 仓库状态写（add/commit/pull 等）无 cd 形态 cwd 不可反查",
+        "【重裁 2026-10-13·方案A/§3.2.1】同 TS-c139（mkdir -p /repo/.otter/local-stash-backup + 重定向 /repo/.otter/local-stash-backup/… 全为绝对主仓树内路径——.otter 仅 worktrees/ 子区排除，local-stash-backup 不在排除区；两态皆 BLOCK，机械双态模板误用）。"
+      ],
+      "source": {
+        "types": [
+          "guard_intercept"
+        ],
+        "anchors": [
+          {
+            "source": "guard_intercept",
+            "event_id": "b1c9e7ec-15cb-4aa1-98ec-fc221a7ebb4f",
+            "ts": "2026-09-24T02:13:45.647Z",
+            "conversation_id": "7b41e085-5c21-4bd1-adfe-dc3ef051753d",
+            "rule_id": "main_write",
+            "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+            "status": "resolved"
+          }
+        ]
+      },
+      "recheck": {
+        "old_verdict_1009": "(无)",
+        "v2_expect": "条件期望",
+        "diff": true,
+        "basis": ""
+      },
+      "verdict": "BLOCK"
     }
   ]
 }

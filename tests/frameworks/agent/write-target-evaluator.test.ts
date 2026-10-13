@@ -284,8 +284,16 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
       if (r.kind === "evaluated") expect(r.targets.some(t => pathWithinMain(t.path, ROOT))).toBe(false);
     });
 
-    it("拦截侧负门：git push origin HEAD（cwd=主仓）→ evaluated 命中主仓（普通 push 不放行）", () => {
+    it("放行侧：git push origin HEAD（远端目标）→ evaluated 空集（双签口径 2026-10-12：外部写不落本地树）", () => {
+      // 【期望变更（已废：普通 push 主仓 cwd 判写）】双签口径明文「git push（远端目标）归非写放行」
+      // （TS-6a5cc1b2「gh issue comment（外部写不落本地树）」同族；语料 10 条 push 条目同判）
       const r = evaluateWriteTargets("git push origin HEAD", ROOT);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") expect(r.targets.some(t => pathWithinMain(t.path, ROOT))).toBe(false);
+    });
+
+    it("拦截侧负门：git push 本地路径目标（push /repo/x）→ 按落点判命中主仓（本地例外不随远端口径放行）", () => {
+      const r = evaluateWriteTargets("git push /repo/x feature/y", ROOT);
       expect(r.kind).toBe("evaluated");
       if (r.kind === "evaluated") expect(r.targets.some(t => pathWithinMain(t.path, ROOT))).toBe(true);
     });
@@ -296,8 +304,10 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
       if (r.kind === "evaluated") expect(r.targets.some(t => pathWithinMain(t.path, ROOT))).toBe(false);
     });
 
-    it("拦截侧：git push 主仓 cwd 带 2>&1 管道 → 仍拦（fd 复制不放行真写）", () => {
-      const r = evaluateWriteTargets("git push origin HEAD 2>&1 | tail -3", ROOT);
+    it("拦截侧：git commit 主仓 cwd 带 2>&1 管道 → 仍拦（fd 复制不放行真写）", () => {
+      // 【期望变更（已废：push 版）】命令体换真写写族（commit）——原用例以 push 为写载体，
+      //  push 远端=非写后该载体不再构成真写；负门语义（fd 复制不救真写）由 commit 写族继续钉住。
+      const r = evaluateWriteTargets("git commit -m x 2>&1 | tail -3", ROOT);
       expect(r.kind).toBe("evaluated");
       if (r.kind === "evaluated") expect(r.targets.some(t => pathWithinMain(t.path, ROOT))).toBe(true);
     });
@@ -450,6 +460,117 @@ describe("F20261013gev2 能力 5：三病型手术（拍板 2026-10-13，双向�
         PRE + '" ; node --check /repo/f.js" 2>&1',
         ROOT,
       );
+      expect(v.verdict).toBe("ALLOW");
+      expect(v.mode).toBe("positive");
+    });
+  });
+});
+
+describe("F20261013gev2 能力 1：heredoc 体脚本投递（stdin 载荷=脚本，双向固化）", () => {
+  describe("放行侧（正面 ALLOW）", () => {
+    it("python3 - <<'EOF' 只读体（无写调用）→ 正面 ALLOW（TS-76af6ee1 形态）", () => {
+      const cmd = "cd /repo/.otter/worktrees/wt && python3 - <<'EOF'\nimport subprocess\nr = subprocess.run(['node', '/tmp/launch.mjs', '/tmp/app.log'], cwd='/tmp', capture_output=True, text=True)\nprint('launcher:', r.stdout.strip()[:50])\nEOF";
+      const v = evaluateWriteVerdict(cmd, ROOT);
+      expect(v.verdict).toBe("ALLOW");
+      expect(v.mode).toBe("positive");
+    });
+
+    it("cd wt && python3 - <<'EOF' 体写 worktree 相对路径 → 正面 ALLOW（落点随调用 cwd）", () => {
+      const cmd = `cd ${WT} && python3 - <<'EOF'\nwith open('out.txt', 'w') as f:\n    f.write('x')\nEOF`;
+      const v = evaluateWriteVerdict(cmd, ROOT);
+      expect(v.verdict).toBe("ALLOW");
+      expect(v.mode).toBe("positive");
+    });
+
+    it("bash - <<'EOF' 体写 /tmp → 正面 ALLOW（shell 体递归求值，体外落点不拦）", () => {
+      const v = evaluateWriteVerdict("bash - <<'EOF'\ntouch /tmp/x\nEOF", ROOT);
+      expect(v.verdict).toBe("ALLOW");
+      expect(v.mode).toBe("positive");
+    });
+
+    it("数据 heredoc 负门：cat > /tmp/d.txt <<'EOF' 体含 touch 主仓 → 仍正面 ALLOW（体=数据不执行，#1171 语义保持）", () => {
+      const v = evaluateWriteVerdict("cat > /tmp/d.txt <<'EOF'\ntouch /repo/x\nEOF", ROOT);
+      expect(v.verdict).toBe("ALLOW");
+      expect(v.mode).toBe("positive");
+    });
+
+    it("sh -n <<'EOF'（语法检查不执行体）→ 正面 ALLOW（体写词面不构成写事实）", () => {
+      const v = evaluateWriteVerdict("sh -n <<'EOF'\ntouch /repo/x\nEOF", ROOT);
+      expect(v.verdict).toBe("ALLOW");
+      expect(v.mode).toBe("positive");
+    });
+  });
+
+  describe("拦截侧（主仓落点/回落均 BLOCK）", () => {
+    it("bash - <<'EOF' 体 touch 主仓 → BLOCK 落点证据（TS-c047 放水面钉回）", () => {
+      const v = evaluateWriteVerdict("bash - <<'EOF'\ntouch /repo/x\nEOF", ROOT);
+      expect(v.verdict).toBe("BLOCK");
+      if (v.verdict === "BLOCK" && v.mode === "positive") {
+        expect(v.mainHits.map(t => t.path)).toContain("/repo/x");
+      } else {
+        throw new Error(`expected positive BLOCK, got ${JSON.stringify(v)}`);
+      }
+    });
+
+    it("cd wt && python3 - <<'EOF' 体写主仓绝对路径 → BLOCK 落点证据", () => {
+      const cmd = `cd ${WT} && python3 - <<'EOF'\nopen('/repo/x', 'w').write('y')\nEOF`;
+      const v = evaluateWriteVerdict(cmd, ROOT);
+      expect(v.verdict).toBe("BLOCK");
+      if (v.verdict === "BLOCK" && v.mode === "positive") {
+        expect(v.mainHits.map(t => t.path)).toContain("/repo/x");
+      } else {
+        throw new Error(`expected positive BLOCK, got ${JSON.stringify(v)}`);
+      }
+    });
+
+    it("node <<'EOF' 体 writeFileSync 主仓 → BLOCK 落点证据（JS 体同判据）", () => {
+      const v = evaluateWriteVerdict("node <<'EOF'\nrequire('fs').writeFileSync('/repo/x', 'y')\nEOF", ROOT);
+      expect(v.verdict).toBe("BLOCK");
+    });
+
+    it("条件双态：bash - <<'EOF' touch out.txt——cwd=主仓 BLOCK / cwd=wt ALLOW（相对落点随调用 cwd）", () => {
+      const cmd = "bash - <<'EOF'\ntouch out.txt\nEOF";
+      const main = evaluateWriteVerdict(cmd, ROOT, ROOT);
+      expect(main.verdict).toBe("BLOCK");
+      const wt = evaluateWriteVerdict(cmd, ROOT, WT);
+      expect(wt.verdict).toBe("ALLOW");
+      expect(wt.mode).toBe("positive");
+    });
+  });
+
+  describe("回落负门（不可证不猜）", () => {
+    it("裸定界体含展开（$/`）→ fail-closed（展开值不猜）", () => {
+      const v = evaluateWriteVerdict("python3 - <<EOF\nopen('$F', 'w')\nEOF", ROOT);
+      expect(v.verdict).toBe("BLOCK");
+      if (v.verdict === "BLOCK" && v.mode === "fail-closed") {
+        expect(v.reason).toBe("heredoc-script-payload");
+      } else {
+        throw new Error(`expected fail-closed, got ${JSON.stringify(v)}`);
+      }
+    });
+
+    it("体含 exec 裸调用 → fail-closed（规则 2 附带闸对 heredoc 体同效）", () => {
+      const v = evaluateWriteVerdict("python3 - <<'EOF'\neval('x')\nEOF", ROOT);
+      expect(v.verdict).toBe("BLOCK");
+      if (v.verdict === "BLOCK" && v.mode === "fail-closed") {
+        expect(v.reason).toBe("heredoc-script-payload");
+      } else {
+        throw new Error(`expected fail-closed, got ${JSON.stringify(v)}`);
+      }
+    });
+
+    it("体含主仓路径字面量 + 全词面证不成立（带写重定向）→ fail-closed（字面量闸同判据，不因投递形态破防）", () => {
+      const v = evaluateWriteVerdict("python3 - <<'EOF' > /tmp/log\nimport json\nd = json.load(open('/repo/data/cfg.json'))\nprint(d)\nEOF", ROOT);
+      expect(v.verdict).toBe("BLOCK");
+      if (v.verdict === "BLOCK" && v.mode === "fail-closed") {
+        expect(v.reason).toBe("heredoc-script-payload");
+      } else {
+        throw new Error(`expected fail-closed, got ${JSON.stringify(v)}`);
+      }
+    });
+
+    it("体只读主仓字面量但全词面无写 → 词面证正面 ALLOW（能力 4 豁免对 heredoc 体同效）", () => {
+      const v = evaluateWriteVerdict("python3 - <<'EOF'\nimport json\nd = json.load(open('/repo/data/cfg.json'))\nprint(d)\nEOF", ROOT);
       expect(v.verdict).toBe("ALLOW");
       expect(v.mode).toBe("positive");
     });

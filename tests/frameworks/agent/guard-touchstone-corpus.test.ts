@@ -103,11 +103,11 @@ describe('guard-touchstone 三库冻结完整性', () => {
     }
   });
 
-  it('全量遍历：三库合计与构建记录守恒（命令级 unique 921 条：767+49+105，2026-10-13 补裁簇重裁后）', () => {
+  it('全量遍历：三库合计与构建记录守恒（命令级 unique 921 条：770+50+101，2026-10-13 补裁簇重裁后（方案A 语义模型批））', () => {
     expect(all.length).toBe(allow.meta.count + block.meta.count + cond.meta.count);
-    expect(allow.meta.count).toBe(767);
-    expect(block.meta.count).toBe(49);
-    expect(cond.meta.count).toBe(105);
+    expect(allow.meta.count).toBe(770);
+    expect(block.meta.count).toBe(50);
+    expect(cond.meta.count).toBe(101);
     // 变更计数锚（重刷期望前后差异，详见 touchstone-recheck-diff.md）
     expect(allow.meta.restate_changes).toMatchObject({
       git_policy_flip: 68, to_conditional: 108, o2_pooled: 26, o2_excl: 20, ledger_dispose: 8,

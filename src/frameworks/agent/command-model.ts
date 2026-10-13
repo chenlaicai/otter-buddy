@@ -30,6 +30,9 @@ export interface Segment {
   redirects: RedirTarget[];
   /** 段内注释文本（# 后内容——V1 pipe-to-shell 口径保持：注释词样计入上游检测） */
   commentText: string | null;
+  /** 本段 heredoc 体（能力 1：`<<`/`<<-` stdin 投递）。脚本投递（解释器段）与数据投递
+   *  （cat/tee 等）由接收段 argv0 判定、求值层消费；模型层载荷收集口径不变（#1171 保持） */
+  heredocs: Array<{ body: string; delimQuoted: boolean }>;
   /** 赋值前缀 W=/path（Ad1：独立段表示——赋值不进 args） */
   assignments: Array<{ name: string; value: string | null }>;
   /** 含展开的赋值词（P=$(lsof …)——词本体含 cmdsub part，供白名单溯源） */
@@ -72,7 +75,7 @@ function isRedirOp(op: string): boolean {
 }
 
 /** bash -c / sh -c 载荷识别（方案 D5 矩阵 #8/#10） */
-const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
+export const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
 /** 脚本载荷解释器（one-liner 执行通道） */
 const SCRIPT_RUNNERS = new Set(["python", "python3", "node", "perl", "ruby", "osascript"]);
 
@@ -89,7 +92,7 @@ function buildSegments(tokens: Token[], text: string): { segments: Segment[]; su
   let i = 0;
 
   function emptySegment(joiner: string): Segment {
-    return { argv0: null, args: [], words: [], redirects: [], assignments: [], assignWords: [], subshell: false, joiner, commentText: null };
+    return { argv0: null, args: [], words: [], redirects: [], assignments: [], assignWords: [], subshell: false, joiner, commentText: null, heredocs: [] };
   }
 
   function flushSegment(nextJoiner: string): void {
@@ -160,7 +163,13 @@ function buildSegments(tokens: Token[], text: string): { segments: Segment[]; su
       continue;
     }
     if (t.type === "heredoc") {
-      // heredoc 载荷在模型层统一收集（见 collectPayloads）——这里不处理
+      // 模型层载荷收集（collectPayloads）口径不变；体另按接收段挂 Segment.heredocs——
+      // heredoc token 在词流中的位置即接收段（scanHeredoc 在 `<<` 处就地发射），
+      // 能力 1 求值层原料（脚本投递 vs 数据投递的判定事实源）
+      const hd = t.heredoc!;
+      if (hd.bodySpan) {
+        cur.heredocs.push({ body: text.slice(hd.bodySpan.start, hd.bodySpan.end), delimQuoted: hd.delimQuoted });
+      }
       i++;
       continue;
     }

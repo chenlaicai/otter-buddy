@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- F20261013smrj 语义模型手术（撤拟合规则+三分类+git 口径）与能力 1 heredoc 递归后 457>450；提取通道/段通道的结构性拆分随能力 3 收尾 PR 一并做（避免语义修正 PR 夹带零语义拆分撑大审查面，先例 platforms.ts/rhi-controller.ts） */
 /**
  * F20261009gwte Phase 1：bash 写落点静态求值器（shell 形态族）。
  *
@@ -38,8 +39,8 @@
  *
  * 纯函数：无状态、无 IO、不写任何存储（机制识别检查点通过）。
  */
-import { parseOnce, type CommandModel, type Segment } from "./command-model";
-import { proveNoWrite, DYNAMIC_IMPORT_FACE, openCallUnknownMode, payloadWriteFaceHit, SCRIPT_EXEC_FACE } from "./write-word-face";
+import { parseOnce, SHELL_INTERPRETERS, type CommandModel, type Segment } from "./command-model";
+import { proveNoWrite, DYNAMIC_IMPORT_FACE, openCallUnknownMode, payloadWriteFaceHit, SCRIPT_EXEC_FACE, classifyOpenModeArg } from "./write-word-face";
 import { isCheckOnlySeg, checkOnlyFileArgs, SCRIPT_RUNNERS, isScriptRunnerSeg, detectScriptPayload, resolvePayloadScript } from "./payload-extract-aux";
 import type { Word } from "./command-lexer";
 
@@ -273,12 +274,23 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
   if (sub === undefined || sub === null) return null;
   // 写族口径与旧链 GIT_WRITE_SUBCOMMAND 同源（单一真相源在旧链，改动须两侧同步）
   const isWrite = sub === "commit" || sub === "rebase" || sub === "merge" || sub === "cherry-pick"
-    || sub === "apply" || sub === "reset" || sub === "clean" || sub === "push" || sub === "stash";
+    || sub === "apply" || sub === "reset" || sub === "clean" || sub === "push" || sub === "stash"
+    || sub === "pull"; // 双签终版（2026-10-12）：pull=fetch+merge/rebase 归写按落点判（检视獭驳回「pull 非写」）
   if (!isWrite) return null;
   const rest = words.slice(i + 1).map(w => w.evaluated).filter((v): v is string => v !== null);
   if (sub === "push") {
     if (rest.some(a => a === "--dry-run" || a === "-n")) return null;
     if (rest.some(a => a === "--delete" || a.startsWith(":"))) return null; // remote ref 删除：远端侧操作不落本地主仓树（Phase 2 c105/c131-c133）
+    // 双签口径（2026-10-12 复裁签）：git push（远端目标）=外部写不落本地树→非写放行；
+    //  push 目标为本地路径/`.`（罕见）时例外按落点判——落点=该本地路径仓库。
+    const pos = rest.filter(a => !a.startsWith("-"));
+    const repo = pos[0] ?? "";
+    const isLocalRepo = repo === "." || repo.startsWith("/") || repo.startsWith("~") || /^\.{1,2}(\/|$)/.test(repo);
+    if (!isLocalRepo) return null; // 远端目标（remote 名/URL/缺省 tracking）→ 非写，无落点
+    const localResolved = evalPath(repo, cwd);
+    if (localResolved === null) return "dynamic-path";
+    acc.targets.push({ path: localResolved, via: "cmd-arg", segmentIndex: acc.index, access: "write" });
+    return null;
   }
   if (sub === "reset" && !rest.some(a => a === "--hard")) return null;
   if (sub === "clean" && !rest.some(a => /^-[a-zA-Z]*f/.test(a))) return null;
@@ -397,6 +409,7 @@ function foldStringConcat(expr: string): string | null {
 /** 写调用落点求值：在载荷文本中找写调用词面，其首个路径参数可静态求值 → 返回路径；
  *  写调用存在但路径不可求值 → 返回 null（调用方回落）。argv 值传播：argvMap[N] 提供
  *  process.argv[2+N]/sys.argv[1+N] 的实际参数词（node -e s A → argv[2]=A；python -c s A → sys.argv[1]=A）。 */
+
 function evalScriptWriteTargets(script: string, argvMap: Map<number, string>): { paths: string[] } | null {
   const paths: string[] = [];
   // node: xxxSync('path', ...) / fs.writeFile('path', ...) / open('path','w')
@@ -406,9 +419,10 @@ function evalScriptWriteTargets(script: string, argvMap: Map<number, string>): {
     paths.push(arg);
   }
   // python: open('path', 'w'/'a'/'r+'/...)——读模式 open('p') / open('p','r') 不算写
-  for (const m of script.matchAll(/\bopen\s*\(\s*([^,)]+)(?:\s*,\s*["'`]([^"'`]*)["'`])?/g)) {
-    const mode = m[2] ?? "r";
-    if (!/^[wa][+bt]*$|^r\+$|^x/.test(mode)) continue; // 读模式不判写
+  for (const m of script.matchAll(/\bopen\s*\(\s*([^,)]+)(\s*,\s*([^,)]*))?/g)) {
+    const kind = classifyOpenModeArg(m[3], m[3] !== undefined);
+    if (kind === "read") continue; // 默认/纯读模式=非写嫌疑
+    if (kind === "unknown") return null; // mode 不可证 → 回落（fail-closed）
     const arg = resolveScriptArg(m[1], argvMap);
     if (arg === null) return null;
     paths.push(arg);
@@ -443,9 +457,9 @@ function evalScriptReadTargets(script: string, argvMap: Map<number, string>): { 
     paths.push(arg);
   }
   // python open 读模式（open('p') / open('p','r')）——写模式已在写通道处理
-  for (const m of script.matchAll(/\bopen\s*\(\s*([^,)]+)(?:\s*,\s*["'`]([^"'`]*)["'`])?/g)) {
-    const mode = m[2] ?? "r";
-    if (/^[wa][+bt]*$|^r\+$|^x/.test(mode)) continue; // 写模式不在这里（写通道已收/已回落）
+  for (const m of script.matchAll(/\bopen\s*\(\s*([^,)]+)(\s*,\s*([^,)]*))?/g)) {
+    const kind = classifyOpenModeArg(m[3], m[3] !== undefined);
+    if (kind !== "read") continue; // 写/未知模式不在读侧
     const arg = resolveScriptArg(m[1], argvMap);
     if (arg === null) continue;
     paths.push(arg);
@@ -467,7 +481,7 @@ function extractAbsPathLiterals(script: string): string[] {
 }
 
 /** 脚本段窄提取。返回 null=不适用（非脚本段/无载荷）；"heredoc-script-payload"=回落。 */
-// eslint-disable-next-line max-statements, complexity -- 窄提取双形态（写调用求值/只读字面量闸）× 双闸负门，分支与 gwte 方案 Phase 2 取舍表一一对应
+// eslint-disable-next-line max-lines-per-function, max-statements, complexity -- F20261013smrj 载荷三通道（heredoc/-e-c/文件）+ open 三分类 + 形态A/B 双形态后 63 行/48 语句/复杂度 31；窄提取通道拆分随能力 3 收尾 PR（先例 clients.ts max-lines-per-function + 本函数既有 max-statements 豁免合并）
 function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: SegmentEvalAcc & { cwd: string }, commandText: string): "skip" | "heredoc-script-payload" | "extracted" {
   if (!isScriptRunnerSeg(seg)) return "skip";
   // 病型 A（拍板 2026-10-13）：check-only=语法检查（读脚本不执行）→ 读侧入账直接提取（先于载荷旗标判定）。
@@ -479,17 +493,34 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
     return "extracted";
   }
   const flagIdx = seg.words.findIndex(w => w.evaluated === "-e" || w.evaluated === "-c");
-  if (flagIdx < 0) return "skip"; // script.py 文件形态/无载荷旗标：Phase 1 行为（回落）由调用方兜底
-  const payloadWord = seg.words[flagIdx + 1];
-  if (!payloadWord) return "skip";
-  // 载荷词必须全字面可求值（含 var/cmdsub 拼接 → evaluated=null → 回落，不猜）
-  // 载荷词必须全字面可求值。多行载荷常态（gduc S1 实证面）：双引号体内嵌单引号字面量
-  //  （`node -e "…require('fs')…"`）触发词法 fail-closed，evaluated=null 但 parts 全 lit
-  //  （引号上下文已剥，无展开）——此时拼接 parts 仍得静态载荷；parts 含任何非 lit/escape
-  //  展开段（var/cmdsub/arithmetic）→ 真不可求值，回落不猜。
-  // 病型 B/C（拍板 2026-10-13）：载荷脚本解析——引号自散架走重组 span（C，方案 a，负门②交界→回落）；
-  //  否则 evaluated 优先、null 时 cmdsub 拼原文（B）；var/arith 不猜；负门①写词面→回落（下行 cMode 闸）。
-  const { script, cMode } = resolvePayloadScript(payloadWord, seg.words[flagIdx], commandText);
+  let script: string | null;
+  let cMode = false;
+  let tailArgs: Array<string | null> = [];
+  if (flagIdx >= 0) {
+    // 载荷词必须全字面可求值。多行载荷常态（gduc S1 实证面）：双引号体内嵌单引号字面量
+    //  （`node -e "…require('fs')…"`）触发词法 fail-closed，evaluated=null 但 parts 全 lit
+    //  （引号上下文已剥，无展开）——此时拼接 parts 仍得静态载荷；parts 含任何非 lit/escape
+    //  展开段（var/cmdsub/arithmetic）→ 真不可求值，回落不猜。
+    // 病型 B/C（拍板 2026-10-13）：载荷脚本解析——引号自散架走重组 span（C，方案 a，负门②交界→回落）；
+    //  否则 evaluated 优先、null 时 cmdsub 拼原文（B）；var/arith 不猜；负门①写词面→回落（下行 cMode 闸）。
+    const payloadWord = seg.words[flagIdx + 1];
+    if (!payloadWord) return "skip";
+    const res = resolvePayloadScript(payloadWord, seg.words[flagIdx], commandText);
+    script = res.script;
+    cMode = res.cMode;
+    tailArgs = seg.words.slice(flagIdx + 2).map(w => w.evaluated);
+  } else if (seg.heredocs.length === 1) {
+    // 能力 1（heredoc 体脚本投递，派工 2026-10-13）：解释器段无 -e/-c 载荷而带 heredoc 体
+    //  → 体=stdin 投递的脚本载荷（`python3 - <<'EOF'` / `node <<EOF`），与 -e/-c 载荷同判据
+    //  窄提取。裸定界体含展开（$/`）→ 不猜回落（与载荷展开口径同）；数据投递（cat/tee 等
+    //  非解释器段 heredoc）不进本通道——#1171 引号定界=绝对数据语义保持。
+    const hd = seg.heredocs[0];
+    if (!hd.delimQuoted && /[$`]/.test(hd.body)) return "heredoc-script-payload";
+    script = hd.body;
+  } else {
+    // script.py 文件形态/无载荷旗标/多体：Phase 1 行为（回落）由调用方兜底
+    return "skip";
+  }
   if (script === null) return "heredoc-script-payload";
   // 病型 C 负门①（硬性，跨段藏写不许遮蔽）：重组 span 内写词面/写调用 → 仍回落。
   if (cMode && (SCRIPT_WRITE_TOKENS.test(script) || payloadWriteFaceHit(script))) return "heredoc-script-payload";
@@ -500,13 +531,8 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
   }
   // 规则 2 附带闸（能力 5，拍板 2026-10-13）：exec 类裸调用（new Function/eval/exec/...）一律不可证——窄提取不得绕过词面证的 exec 拦（残余面 TS-ef0d6be4 族钉死）。
   if (SCRIPT_EXEC_FACE.test(script)) return "heredoc-script-payload";
-  // 载荷后参数词（argv 值传播原料）——实测口径（#1411 处置实证）：
-  //   node -e s A B → process.argv=[execPath, A, B]（无脚本文件插入 argv）→ argv[1]=A
-  //   python3 -c s A → sys.argv=['-c', A] → argv[1]=A
-  // 两者首实参位都是 1。旧代码 node 取 2 是 off-by-one：argv[2] 映射到第一实参而真值
-  // 是第二实参——`node -e "fs.writeFileSync(process.argv[2],'x')" /tmp/a /repo/b` 曾
-  // 被求值器按 argv[2]=/tmp/a 判 ALLOW，真实落点 /repo/b（主仓）——同通道假放行。
-  const tailArgs = seg.words.slice(flagIdx + 2).map(w => w.evaluated);
+  // 载荷后参数词（argv 值传播）：node -e 与 python -c 首实参位都是 argv[1]（#1411 off-by-one
+  //  修复实证：argv 错位曾致 /repo/b 假放行）。
   const argvBase = 1;
   const argvMap = new Map<number, string>();
   tailArgs.forEach((v, i) => {
@@ -514,53 +540,35 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
   });
   // 形态A：写调用落点求值（真实求值——写哪报哪，路径不可求值才回落）
   const hasWriteCall = SCRIPT_WRITE_TOKENS.test(script);
+  const wr = hasWriteCall ? evalScriptWriteTargets(script, argvMap) : null;
+  const rd = SCRIPT_READ_TOKENS.test(script) || /\bopen\s*\(/.test(script) ? evalScriptReadTargets(script, argvMap) : null;
+  // 【拟合规则撤除（方案 A，2026-10-13）】C'''/C4 假写证据已撤——zdebug 12 条误伤实证，F20261013smrj。
   if (hasWriteCall) {
-    const wr = evalScriptWriteTargets(script, argvMap);
     if (wr === null) return "heredoc-script-payload"; // 写调用存在但路径求值不出 → 保守回落
     if (wr.paths.length === 0) return "heredoc-script-payload"; // 写词面命中但未匹配到调用形态（方法调用/write 属性等）→ 回落
     for (const p of wr.paths) {
-      // 相对路径：脚本写落点 = 进程 cwd（syscall 语义）——cwd 是求值器已跟踪事实，
-      //  直接拼接（c123 `open('sub/rel.txt','w')` cwd=wt → 落 wt；cwd=主仓 → 落主仓）。
-      //  evalPath 处理动态词面（$VAR/`cmd` → null → 回落）。
-      // 审视 §3.1（PR #1411 严重）：绝对/相对统一走 evalPath——`..`/$/`/~ 一律拒（回落）。
-      //  绝对路径曾用 normalizePath 直取（不解析 ..），`<wt>/../../../main/y` 字面量含
-      //  worktree 前缀 → pathWithinMain 判非主仓 → 假放行真主仓写（OS 解析 .. 后落主仓）。
-      //  evalPath 绝对分支语义与 normalizePath 等同，本修只收窄「含 .. 的绝对路径」：
-      //  ALLOW → 回落，无放行面扩大。语料负门 c137/c138（§3.1 逃逸形态原样钉回落）。
       const resolved = evalPath(p, acc.cwd);
-      if (resolved === null) return "heredoc-script-payload";
+      if (resolved === null) return "heredoc-script-payload"; // 写落点含 .. 等不可信形态——§3.1 不猜爬升结果，回落
       acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index, access: "write" });
     }
-    return "extracted"; // 写调用落点已真实求值——不再走路径字面量闸（写的就是这些）
   }
-  // 形态B：只读载荷——读调用落点同样求值（读哪报哪；cwd 相对路径拼接）。
-  //  路径字面量闸（安全负门，决定放行/回落）：只看静态引号绝对路径字面量（require/import
-  //  目标、配置路径、日志路径——出现在任何代码位置都算主仓耦合信号），∩ 主仓树非空 →
-  //  回落旧链（c062 import() 主仓路径回落；c100 载荷引用主仓 data 路径回落——求值器
-  //  不猜运行时读取后果，字面量防线不破）。
-  //  targets 记录（事实披露，只读路径绝不构成拦截依据）：读调用路径 + 绝对字面量 +
-  //  相对路径字面量按 cwd 拼接（c083/c084 `p='web/src/...'` cwd=外部仓 → 外部落点，
-  //  shadow 报告看得见求值器「读哪」的事实）。
-  if (SCRIPT_READ_TOKENS.test(script) || /\bopen\s*\(/.test(script)) {
-    const rd = evalScriptReadTargets(script, argvMap);
-    for (const p of rd?.paths ?? []) {
-      // §3.1 同口径：读侧落点披露统一走 evalPath——含 .. 的读路径不猜爬升结果，
-      //  披露无拦截语义，求值不出跳过即可（不构成回落理由）
+  // 【拟合规则撤除（方案 A）】A' 主仓字面量闸已撤——依据 TS-66da667b 翻正 + TS-ee23c745 双签，F20261013smrj。
+  // 形态B：只读载荷（无写调用）——读落点披露（读哪报哪）+ 路径字面量闸（安全负门，只读载荷
+  //  专属：写载荷落点已由形态A正面判定）：绝对路径字面量 ∩ 主仓树非空 → 回落旧链
+  //  （c062/c100 语义——不猜运行时读取后果，字面量防线不破）。
+  if (rd !== null) {
+    for (const p of rd.paths) {
+      // §3.1：读侧披露走 evalPath，含 .. 不猜（披露无拦截语义，跳过即可）
       const resolved = evalPath(p, acc.cwd);
       if (resolved !== null) acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index, access: "read" });
     }
   }
-  const paths = extractAbsPathLiterals(script);
-  // #1411 §3.1：含 .. 的绝对字面量 fail-closed——解析结果不猜（旧：跳过 → 字面量闸
-  //  漏判 `'/wt/../../../main/config.json'` 这类主仓耦合信号；跳过=闸的盲区）
-  if (paths.some(p => p.includes("..") || pathWithinMain(p, projectRoot))) return "heredoc-script-payload";
-  for (const p of paths) acc.targets.push({ path: p, via: "cmd-arg", segmentIndex: acc.index, access: "read" });
-  // 相对路径字面量披露（不进门判定——只读侧 cwd 拼接为事实锚，求值不出跳过即可）
-  for (const m of script.matchAll(/["'`]([A-Za-z0-9_.][A-Za-z0-9_./-]*\/[A-Za-z0-9_./-]+)["'`]/g)) {
-    const rel = m[1];
-    if (rel.startsWith("/") || rel.includes("..") || /[$`]/.test(rel)) continue;
-    const resolved = evalPath(rel, acc.cwd);
-    if (resolved !== null) acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index, access: "read" });
+  if (!hasWriteCall) {
+    const paths = extractAbsPathLiterals(script);
+    // #1411 §3.1：含 .. 的绝对字面量 fail-closed——解析结果不猜（旧：跳过 → 字面量闸
+    //  漏判 `'/wt/../../../main/config.json'` 这类主仓耦合信号；跳过=闸的盲区）
+    if (paths.some(p => p.includes("..") || pathWithinMain(p, projectRoot))) return "heredoc-script-payload";
+    for (const p of paths) acc.targets.push({ path: p, via: "cmd-arg", segmentIndex: acc.index, access: "read" });
   }
   return "extracted"; // 窄提取成功——调用方跳过 detectScriptPayload 短路，段求值继续
 }
@@ -580,6 +588,7 @@ function hasNarrowExtractableScriptSeg(model: CommandModel, projectRoot: string)
 }
 
 /** 单段求值：脚本窄提取（Phase 2）→ 脚本载荷族回落 → 重定向 → git add（Phase 2）→ git 写族 → 词表命令。返回 null 表示该段无 unevaluated。 */
+// eslint-disable-next-line complexity -- 段求值路由（窄提取/载荷回落/heredoc 递归/重定向/git/词表）六通道各对应一条已声明语义，合并会制造分支遮蔽
 function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot: string, commandText: string): UnevalReason | null {
   const bare = bareName(seg.argv0);
   const accWithCwd: SegmentEvalAcc & { cwd: string } = Object.assign(acc, { cwd });
@@ -591,6 +600,27 @@ function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot
   // Python/JS 等脚本载荷族：Phase 1 显式回落（审视 S1 锚点：载荷 model 是 shell 模型非脚本 AST）。
   //  窄提取已过的段（narrow==="extracted"）不再走本行——窄提取承诺双闸全过。
   if (narrow === "skip" && bare !== null && SCRIPT_RUNNERS.has(bare)) return "heredoc-script-payload";
+
+  // 能力 1（heredoc 体脚本投递）：shell 解释器段 heredoc 体=stdin 投递脚本，与 bash -c 载荷
+  //  同判据递归求值（TS-c047 放水实证）；-n 不递归；不可证→回落（能力 4 词面证同判据）。
+  if (bare !== null && SHELL_INTERPRETERS.has(bare) && !seg.args.includes("-c") && !seg.args.includes("-n") && seg.heredocs.length > 0) {
+    for (const hd of seg.heredocs) {
+      const sub = evaluateFromModel(parseOnce(hd.body, 1), projectRoot, cwd);
+      if (sub.kind === "unevaluated") {
+        if (sub.reason === "parse-failed" || !proveNoWrite(commandText)) return sub.reason;
+        continue;
+      }
+      acc.targets.push(...sub.targets);
+    }
+  }
+
+  // 【拟合规则撤除（派工 2026-10-13 方案 A 语义模型）】D'（gh pr edit/merge/close/
+  //  reopen/create→cwd 假写证据）已撤——gh 家族远端变更是「外部写不落本地树」（双签
+  //  口径 TS-6a5cc1b2 明文），语料压倒性一致：gh pr edit（TS-c084/c085/TS-324eaad4/
+  //  TS-3b2fd2b2/TS-05537e52）、gh pr create（TS-a4c2ffa4）、gh issue create/comment
+  //  （TS-fea396ea/TS-c092）、gh pr review --comment（TS-9e996401/TS-7715da07）全
+  //  ALLOW。TS-508d0cc8 的「主仓树内×1/4」证据自身错误（__HEREDOC_DATA__(/tmp/...)
+  //  落主仓树内——/tmp 不在主仓树内），按同构对重裁与 TS-a6dfe989 判到一致（双 ALLOW）。
 
   const err = evalRedirects(seg, cwd, acc);
   if (err !== null) return err;

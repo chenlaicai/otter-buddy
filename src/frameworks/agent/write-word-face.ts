@@ -43,28 +43,61 @@ const REDIRECT_FACE = /(?:&>{1,2}|<>|(?<![=\-<>&])>{1,2}(?!&|\(|=|\s*\/dev\/(?:n
 /** 能力 5 病型 C 负门（拍板 2026-10-13）：重组 span 写词面探测——写词面族全量。
  *  不含 exec/重定向面：$()/重定向由递归载荷求值与段级判定各自入账，且引号塔载荷内
  *  JS 比较符/测试字符串会误伤；写词面（含隐式写元操作/原地编辑/参数即落点/载荷写调用/
- *  open 写 mode）命中即有写面，跨段藏写不许遮蔽。 */
+ *  open 写 mode/未知 mode）命中即有写面，跨段藏写不许遮蔽。 */
 export function payloadWriteFaceHit(script: string): boolean {
   return WRITE_FACE_WORDS.test(script) || INPLACE_FACE.test(script) || ARG_TARGET_FACE.test(script)
-    || IMPLICIT_WRITE_FACE.test(script) || PAYLOAD_WRITE_FACE.test(script) || openCallWriteHits(script);
+    || IMPLICIT_WRITE_FACE.test(script) || PAYLOAD_WRITE_FACE.test(script) || openCallWriteHits(script) || openCallUnknownMode(script);
 }
 
 export function openCallUnknownMode(script: string): boolean {
   for (const { args } of openCallSites(script)) {
-    const argsTrimmed = args.map(a => a.trim()).filter(a => a !== "" && !/^\w+\s*=/.test(a));
-    const mode = (argsTrimmed[1] ?? "").replace(/^['"]|['"]$/g, "");
-    if (argsTrimmed.length >= 2 && mode === "") return true; // mode 非字面量 → 未知 → 不可证
+    if (openModeOf(args) === "unknown") return true; // mode 不可证 → fail-closed（默认读模式不触发）
   }
   return false;
 }
 
-/** open() 调用点三分类（规则 1）：1 参=读；mode 字面量含 w/a/x/+ =写；mode 不可读字面量=未知→不可证。 */
+/** open() mode 三分类（§3.2.1 规则 1）：read=缺省（python 默认读模式=非写嫌疑）/纯读字面量；
+ *  write=写 mode 字面量（w/a/x/+ 族）；unknown=mode 非字面量（变量/调用/空字面量）→ 不可证。
+ *  mode= kwarg（open(p, mode='w')）取其值；非 mode kwarg（encoding=/buffering=…）不算 mode。 */
+function openModeOf(args: string[]): "read" | "write" | "unknown" {
+  for (const a of args) {
+    const kw = /^mode\s*=\s*(.+)$/.exec(a.trim());
+    if (kw !== null) return classifyModeLiteral(kw[1]);
+  }
+  const positional = args.map(a => a.trim()).filter(a => a !== "" && !/^\w+\s*=/.test(a));
+  if (positional.length < 2) return "read"; // 默认读模式=非写嫌疑
+  return classifyModeLiteral(positional[1]);
+}
+
+/** open() 第二实参三分类（提取通道共用）：read=缺省（python 默认读=非写嫌疑）/纯读字面量（含
+ *  perl "<"）；write=写 mode 字面量（w/a/x/+ 族、r+、perl ">"/">>"/"+<"）；unknown=非字面量
+ *  （变量/调用/空）/语义不明 → 不可证。mode= kwarg 取值；非 mode kwarg 不算 mode。 */
+export function classifyOpenModeArg(rawMode: string | undefined, hasSecond: boolean): "read" | "write" | "unknown" {
+  if (!hasSecond) return "read"; // 默认读模式=非写嫌疑
+  const t = (rawMode ?? "").trim();
+  const kw = /^mode\s*=\s*(.+)$/.exec(t);
+  const val = kw !== null ? kw[1].trim() : t;
+  if (kw === null && /^\w+\s*=/.test(t)) return "read"; // 非 mode kwarg（encoding=/buffering=…）
+  return classifyModeLiteral(val);
+}
+
+function classifyModeLiteral(val: string): "read" | "write" | "unknown" {
+  const lit = /^["'`]([^"'`]*)["'`]$/.exec(val.trim());
+  if (lit === null) return "unknown"; // mode 非字面量 → 不可证
+  const mode = lit[1];
+  // python：r 只读 / w a x 写 / r+ 读写；perl："<" 只读 / ">" ">>" "+<" "+>" "+>>" 写
+  if (/^[wa][+bt]*$|^r\+$|^x/.test(mode)) return "write";
+  if (/^[rR][bBtT]?$/.test(mode)) return "read";
+  if (/^<+$/.test(mode)) return "read"; // perl 只读模式
+  if (/^\+?[<>]/.test(mode)) return "write"; // perl 写模式（含读写 +<）
+  return "unknown"; // 字面量但语义不明（''/'U'/'|-' 等）→ 不可证
+}
+
+/** open() 调用点三分类（规则 1）：写 mode 字面量=写证据；未知 mode 由 openCallUnknownMode
+ *  收（不可证回落），不再当写证据（语义模型：不可证≠已证写）；默认/纯读=非写嫌疑。 */
 function openCallWriteHits(script: string): boolean {
   for (const { args } of openCallSites(script)) {
-    const argsTrimmed = args.map(a => a.trim()).filter(a => a !== "" && !/^\w+\s*=/.test(a)); // kwargs（encoding=/errors=…）不是 mode
-    const mode = (argsTrimmed[1] ?? "").replace(/^['"]|['"]$/g, "");
-    if (argsTrimmed.length >= 2 && mode === "") return true; // mode 非字面量 → 未知 → 不可证
-    if (argsTrimmed.length >= 2 && !/^[rR][bBtT]?$/.test(mode)) return true; // 非纯读 mode → 写/未知 → 不可证
+    if (openModeOf(args) === "write") return true;
   }
   return false;
 }
@@ -105,5 +138,6 @@ export function proveNoWrite(command: string): boolean {
     || PAYLOAD_WRITE_FACE.test(command)
     || REDIRECT_FACE.test(command)
     || openCallWriteHits(command)
+    || openCallUnknownMode(command)
   );
 }
