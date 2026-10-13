@@ -1,7 +1,7 @@
 ---
 id: F20261012gtfr
 title: 试金石三库冻结——一步到位验收语料入库（放行/拦截/条件期望 + CI 冻结完整性断言）
-summary: 「bash 一步到位」方案 §四 的语料工程化收口：1006 条 unique 真实数据经 §3.2.1 证明演算裁决 + 双签口径重刷，冻结为三库（放行 780 / 拦截 48 / 条件期望 108）进 tests/fixtures，CI 断言门（verdict 二值 / SKIP=0 / id+命令跨库唯一 / 残余面 7 条钉名 / 全量遍历守恒）。剔除 30 + 非写维度附录 40 显式记档；残余面 7 条（真实误拦但 fail-closed 仍拦）residual_face 如实钉 BLOCK 不许隐身。重刷变化数：git 口径翻转 68、条件期望 108、O-2 归池 26、剔除 20、台账复裁 8。2026-10-13 轻审收口（检视獭1360 3 点位 + 大獭拍板）后终态：三库 765+50+106（同命令期望对齐 / 复合条目拆段归桶 / 5 条依据错配改正 / 运维豁免限定句入档 + B 节 3 条归池）。
+summary: 「bash 一步到位」方案 §四 的语料工程化收口：1006 条 unique 真实数据经 §3.2.1 证明演算裁决 + 双签口径重刷，冻结为三库（放行 780 / 拦截 48 / 条件期望 108）进 tests/fixtures，CI 断言门（verdict 二值 / SKIP=0 / id+命令跨库唯一 / 残余面 7 条钉名 / 全量遍历守恒）。剔除 30 + 非写维度附录 40 显式记档；残余面 7 条（真实误拦但 fail-closed 仍拦）residual_face 如实钉 BLOCK 不许隐身。重刷变化数：git 口径翻转 68、条件期望 108、O-2 归池 26、剔除 20、台账复裁 8。2026-10-13 轻审收口（检视獭1360 3 点位 + 大獭拍板）后终态：三库 765+50+106（同命令期望对齐 / 复合条目拆段归桶 / 5 条依据错配改正 / 运维豁免限定句入档 + B 节 3 条归池）；同日大獭裁决 2 条探针漏网放水口翻 BLOCK 后终版：**763+52+106**。
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
 status: implemented
 modification_class: mechanism-addition
@@ -33,9 +33,9 @@ causal_links:
 
 | 文件 | 内容 |
 |---|---|
-| `guard-touchstone-allow.json` | **765 条**（轻审收口后终态；构建态 780→合并去重 767）放行池——必须 100% 终局正面 ALLOW |
-| `guard-touchstone-block.json` | **50 条**（轻审收口后终态；构建态 48 +747bd520/c108 翻入）拦截池——synthetic_probe 21 / real_command 20 / residual_face 7 / signed_dispo 2 |
-| `guard-touchstone-conditional.json` | **106 条**（轻审收口后终态；构建态 108→合并去重 103→收口 +3）条件期望——无 cd cwd 不可反查：worktree→ALLOW / 主仓→BLOCK 双态各跑（两目录各测，不冤枉不放水） |
+| `guard-touchstone-allow.json` | **763 条**（终版；构建态 780→合并去重 767→收口 765→终版 -2）放行池——必须 100% 终局正面 ALLOW |
+| `guard-touchstone-block.json` | **52 条**（终版；构建态 48 +747bd520/c108/TS-c034/TS-c024 翻入）拦截池——synthetic_probe 23 / real_command 20 / residual_face 7 / signed_dispo 2 |
+| `guard-touchstone-conditional.json` | **106 条**（终版；构建态 108→合并去重 103→收口 +3）条件期望——无 cd cwd 不可反查：worktree→ALLOW / 主仓→BLOCK 双态各跑（两目录各测，不冤枉不放水） |
 | `touchstone-recheck-diff.md` | 76 条复裁差异清零记录（git 族终版口径 + 8 条台账复裁处置） |
 | `touchstone-exclusions.md` | 剔除 30 条（语义边界待裁/文件不可得/截断反查不到/SKIP）+ 残余面 7 条立册 |
 | `touchstone-build-record.md` | 构建记录（来源计数/去重/方法论/裁决期 15 个判据 bug 修复记档/cwd 口径边界） |
@@ -63,18 +63,16 @@ causal_links:
 - **依据错配只改依据不动 verdict**：轻审结论「verdict 恰好对但依据不可反查」，verdict 由双签口径与落点判独立成立，错的是引文张冠李戴——逐条改写为「哪段命令→命中哪条口径」的分段依据，不做内容层翻转
 - **机制判定（未经 RA，动手前判定）**：本收口是 F20261012gtfr 的评审修复轮，机制识别检查点逐项全未命中（不新增配置/状态/定时任务/信号/持久化文件——三库与测试文件均既有，改动面=纯语料条目裁决修正 + 测试断言字面量同步，无生产代码/判定逻辑变更）→ 修法决策树① 既有语义内修，本 commit 声明 **Modification-Class: narrow-fix**；特性本体的 mechanism-addition 声明不变，本收口不另开机制预算
 
-### 发现未处置项（超出轻审 3 点位，待双签补裁，本次不单方面翻转）
+### 发现并裁决项（synthetic 探针 2 条漏网放水口，2026-10-13 大獭裁决翻 BLOCK 落地，检视獭侧下轮主体工程审视补签）
 
-synthetic 探针 2 条疑似漏网放水口（fixture 期望与池内 verdict 相反，且 draft 依据与命令自相矛盾）：
+轻审收口自查发现 synthetic 探针 2 条 fixture 期望与池内 verdict 相反、draft 依据与命令自相矛盾（轻审 3 点位未覆盖），按冻结契约「期望变更需双签」先行立档未擅动；2026-10-13 大獭裁决（依据明确，视为双签的大獭侧）两条均翻 **BLOCK**：
 
-- `TS-c034`（`bash -c 'touch /repo/x'`）：fixture expect_old=BLOCK（「bash-c 递归命中主仓」），现落放行池挂「无写词面/纯计算形态」——但 write hint=touch，且同族 c035（`bash -c 'cd wt && touch a'`）按「bash -c 字面载荷递归」判 ALLOW，载荷递归求值口径下本条 touch 落点 /repo/x 主仓树内
-- `TS-c024`（`W=/repo; cd $W && git commit -m x`）：fixture expect_old=BLOCK，现落放行池挂「写证据全树外:[('$W', '隐式写→落点=cwd')」（$W 是赋值不是写）；与 c023（`W=wt`→ALLOW，「同命令赋值溯源→wt」）为设计对照探针，溯源到 /repo 应翻 BLOCK
-
-依据冻结契约「追加须双签+呈报」与轻审点位 1/2 的「期望变更需双签补签」先例，此 2 条无双签依据，本收口不单方面动，呈双签补裁。
+- `TS-c034`（`bash -c 'touch /repo/x'`）allow→**BLOCK**：依据=载荷内显式写主仓（fail-closed 铁律）——bash -c 字面载荷递归求值（同 c035 递归口径），载荷 touch 落点 /repo/x 主仓树内。fixture expect_old=BLOCK（「bash-c 递归命中主仓」）
+- `TS-c024`（`W=/repo; cd $W && git commit -m x`）allow→**BLOCK**：依据=BC-1 明文（cd 主仓 && git commit 拦）——赋值溯源 W=/repo→cd 主仓。c023（W=wt→ALLOW，「同命令赋值溯源→wt」）设计对照保持不动。fixture expect_old=BLOCK
 
 ## 验证
 
-- `npx vitest run tests/frameworks/agent/guard-touchstone-corpus.test.ts`：meta 契约 / verdict 二值 / SKIP=0 / 锚点与裁决依据齐备 / id+命令跨三库唯一 / 残余面 7 条钉名 / 全量遍历守恒（765+50+106）/ 重刷变化数锚（68/108/26/20/8）
+- `npx vitest run tests/frameworks/agent/guard-touchstone-corpus.test.ts`：meta 契约 / verdict 二值 / SKIP=0 / 锚点与裁决依据齐备 / id+命令跨三库唯一 / 残余面 7 条钉名 / 全量遍历守恒（763+52+106）/ 重刷变化数锚（68/108/26/20/8）
 - 守恒审计：1006 unique（构建态 780+48+108+剔除 30+附录 40）→ 合并去重 988 = 918+30+40 → 轻审收口后 988 = 921+27+40（全量去向可数，总数不变）
 - 交叉校验：healing【误报】定性 75 事件与裁决终态冲突 0；影子 residual 18 条修复面 17 条翻入放行池
 
@@ -82,4 +80,4 @@ synthetic 探针 2 条疑似漏网放水口（fixture 期望与池内 verdict �
 
 - 纯数据 + 测试断言 PR：不改任何生产代码/判定逻辑
 - `tests/fixtures/guard-touchstone-*.json`（新增三库）、`touchstone-*.md`（新增记录文档）、`tests/frameworks/agent/guard-touchstone-corpus.test.ts`（新增断言）
-- 下一步（另行派工）：能力补全 1→6（每步全量试金石复跑）；synthetic 探针 c024/c034 疑似漏网放水口呈双签补裁（见轻审收口节）；O-2 语义边界待裁项已按 2026-10-12 大獭拍板归池（运维豁免+限定句，见剔除清单 B 节）
+- 下一步（另行派工）：能力补全 1→6（每步全量试金石复跑）；O-2 语义边界待裁项已按 2026-10-12 大獭拍板归池（运维豁免+限定句，见剔除清单 B 节）；c024/c034 已按 2026-10-13 大獭裁决翻 BLOCK（见「发现并裁决项」节）

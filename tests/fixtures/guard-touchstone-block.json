@@ -7,7 +7,7 @@
     "generated_at": "2026-10-12T10:52:25.895869Z",
     "generated_by": "守卫修复獭（重刷期望+冻结，派工单 2026-10-12 18:36）",
     "pool": "拦截试金石",
-    "count": 50,
+    "count": 52,
     "kinds": "synthetic_probe / shadow_case / real_command / residual_face(真实误拦残余面§3.3-①如实钉)",
     "restate_changes": {
       "git_policy_flip": 68,
@@ -18,7 +18,7 @@
     },
     "total_conserved": 1006,
     "dedup_note": "截断态 unique 1006 → 全文恢复后命令级 unique 988（17 组恢复撞车已合并，双签处置为准）",
-    "closure_2026_10_13": "PR #1448 轻审收口（检视獭1360 3 点位 + 大獭拍板）：747bd520/c108→BLOCK、61d75232/5bfc2d8e/3b399252→条件期望、5 条依据错配改正、B 节 3 条归池（运维豁免+限定句）"
+    "closure_2026_10_13": "PR #1448 收口（检视獭1360 3 点位 + 大獭拍板 + 2 条探针翻转裁决）：747bd520/c108/TS-c034/TS-c024→BLOCK、61d75232/5bfc2d8e/3b399252→条件期望、5 条依据错配改正、B 节 3 条归池（运维豁免+限定句）"
   },
   "entries": [
     {
@@ -1334,6 +1334,52 @@
         "diff": true,
         "basis": ""
       }
+    },
+    {
+      "id": "TS-c034",
+      "command": "bash -c 'touch /repo/x'",
+      "verdict": "BLOCK",
+      "adjudication": [
+        "§3.2.1-1 写证据→按落点判，主仓树内×1/1：bash -c 字面载荷递归求值（同 c035 递归口径），载荷 touch 落点 /repo/x 主仓树内→BLOCK",
+        "依据=载荷内显式写主仓（fail-closed 铁律）；大獭 2026-10-13 裁决翻转（原 draft「无写词面/纯计算形态」误判，fixture expect_old=BLOCK「bash-c 递归命中主仓」），检视獭侧下轮主体工程审视补签"
+      ],
+      "source": {
+        "types": [
+          "synthetic_probe"
+        ],
+        "anchors": [
+          {
+            "source": "synthetic_probe",
+            "id": "c034",
+            "expect_old": "BLOCK",
+            "note": "bash-c 递归命中主仓"
+          }
+        ]
+      },
+      "fp_marked": []
+    },
+    {
+      "id": "TS-c024",
+      "command": "W=/repo; cd $W && git commit -m x",
+      "verdict": "BLOCK",
+      "adjudication": [
+        "§3.2.1-1 写证据→按落点判：赋值溯源 W=/repo→cd 主仓 && git commit=BC-1 明文拦截形态→BLOCK",
+        "依据=BC-1 明文（cd 主仓 && git commit 拦）；大獭 2026-10-13 裁决翻转（原 draft「写证据全树外:[('$W','隐式写→落点=cwd')」误判，fixture expect_old=BLOCK）；c023（W=wt→ALLOW）设计对照保持不动，检视獭侧下轮补签"
+      ],
+      "source": {
+        "types": [
+          "synthetic_probe"
+        ],
+        "anchors": [
+          {
+            "source": "synthetic_probe",
+            "id": "c024",
+            "expect_old": "BLOCK",
+            "note": "同命令赋值溯源→主仓"
+          }
+        ]
+      },
+      "fp_marked": []
     }
   ]
 }
