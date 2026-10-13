@@ -198,6 +198,8 @@ export interface LocalLinkedResource {
     title: string | null
     description: string | null
     error: string | null
+    /** PR/issue 状态（open/merged/closed/draft）——与 UnfurlCard 徽章同口径 */
+    state: string | null
     additions: number | null
     deletions: number | null
   } | null

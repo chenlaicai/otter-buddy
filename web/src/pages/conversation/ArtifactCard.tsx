@@ -82,13 +82,19 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
           <Icon className="w-3 h-3" />
           {badge.label}
         </span>
-        {/* T2：PR 状态徽章（unfurl join 投影——source='github-api' 时携带） */}
-        {resource.type === 'pr' && unfurl?.source === 'github-api' && unfurl.title && (
+        {/* T2：PR 状态徽章（unfurl join 投影 state 字段——检视发现 1：曾退用
+            title.includes 猜状态，closed/draft 误显「开放中」；与 UnfurlCard 徽章同口径） */}
+        {resource.type === 'pr' && unfurl?.source === 'github-api' && unfurl.state && (
           <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${
-            unfurl.title.toLowerCase().includes('merged') ? 'bg-lavender-400/20 text-lavender-500'
-            : 'bg-teal-400/20 text-teal-600'
+            unfurl.state === 'MERGED' ? 'bg-lavender-400/20 text-lavender-500'
+            : unfurl.state === 'OPEN' ? 'bg-teal-400/20 text-teal-600'
+            : unfurl.state === 'CLOSED' ? 'bg-stone-300/40 text-stone-500'
+            : 'bg-amber-400/20 text-amber-600'
           }`}>
-            {unfurl.title.toLowerCase().includes('merged') ? '已合并' : '开放中'}
+            {unfurl.state === 'MERGED' ? '已合并'
+              : unfurl.state === 'OPEN' ? '开放中'
+              : unfurl.state === 'CLOSED' ? '已关闭'
+              : '草稿'}
           </span>
         )}
         <span className="text-sm font-medium text-stone-700 truncate flex-1">{resource.title}</span>

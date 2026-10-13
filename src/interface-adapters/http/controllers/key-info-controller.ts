@@ -107,6 +107,7 @@ export class KeyInfoController {
         title: row.title,
         description: row.description,
         error: row.error,
+        state: row.state,
         additions: row.additions,
         deletions: row.deletions,
       },
