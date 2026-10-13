@@ -4069,7 +4069,7 @@ describe('#1449 running 执行体滞留挤占治理', () => {
   beforeEach(() => { haltRegistry.resetForTest(); vi.useFakeTimers({ toFake: ['Date'] }); });
   afterEach(() => { haltRegistry.resetForTest(); vi.useRealTimers(); });
 
-  it('挤占触发点即时清理：滞留超 2h 且无存活执行方 → fail + halt + high healing + 本轮放行', async () => {
+  it('挤占触发点即时清理：滞留超 2h 且无存活执行方 → fail + high healing + 本轮放行（无 halt 污染）', async () => {
     const { service, taskRepo, agentInvoke, healingRepo } = setupStuck({
       isOtterRunning: () => false,
     });
@@ -4081,13 +4081,28 @@ describe('#1449 running 执行体滞留挤占治理', () => {
     const stuck = taskRepo._executions.get('stuck-exec-1')!;
     expect(stuck.status).toBe('failed');
     expect(String(stuck.errorMessage)).toContain('孤儿执行清理');
-    // halt 已打标（阻断假死执行方未来复活）
-    expect(haltRegistry.isHalted('otter-1')).toBe(true);
     // high healing 已落
     expect(healingRepo._events.some(e => e.severity === 'high')).toBe(true);
     // 本轮触发放行（新 execution 建立 + agent 被调用）
     expect(result.executionId).toBeDefined();
     expect(agentInvoke.invokeConversation).toHaveBeenCalled();
+  });
+
+  it('防污染：reap 判死清理后不向 haltRegistry 打标（halt 是 invoke 作用域人用停手令，无活跃 invoke 打标=孤儿指令会 block 新触发）', async () => {
+    // 回归 S1（PR #1459 第一轮审视严重发现）：reap 曾在判死分支 haltRegistry.mark，
+    // 导致放行的新触发第一个 tool_call 吃到残留 halt 被 block——本 PR 治的病以新形态复发。
+    const { service, taskRepo, agentInvoke } = setupStuck({
+      isOtterRunning: () => false,
+    });
+
+    const result = await service.trigger('task-1');
+
+    // reap 翻篇 + 新触发放行成立……
+    expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('failed');
+    expect(result.executionId).toBeDefined();
+    expect(agentInvoke.invokeConversation).toHaveBeenCalled();
+    // ……且 haltRegistry 对该獭零残留（无 pending/active 指令）
+    expect(haltRegistry.isHalted('otter-1')).toBe(false);
   });
 
   it('挤占 skip 落 healing（low）：滞留未超 2h → 本轮 skip + low healing 落账', async () => {
@@ -4151,7 +4166,7 @@ describe('#1449 running 执行体滞留挤占治理', () => {
     expect(agentInvoke.invokeConversation).toHaveBeenCalled();
   });
 
-  it('轮询级扫描兜底：tickReal 先 reap 再扫任务——滞留超 2h 无存活 → fail + healing，后续 catch-up 不被自己僵尸挡', async () => {
+  it('轮询级扫描兜底：tickReal 先 reap 再扫任务——滞留超 2h 无存活 → fail + healing 且无 halt 污染', async () => {
     const { service, taskRepo, healingRepo } = setupStuck({
       stuckAgeMs: 3 * HOURS,
       isOtterRunning: () => false,
@@ -4162,6 +4177,8 @@ describe('#1449 running 执行体滞留挤占治理', () => {
     // reap 已翻篇滞留执行 + 落 high healing
     expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('failed');
     expect(healingRepo._events.some(e => e.severity === 'high')).toBe(true);
+    // 轮询 reap 同样不打 halt（S1 回归锁定）
+    expect(haltRegistry.isHalted('otter-1')).toBe(false);
   });
 
   it('未注入 isOtterRunning（降级装配）→ 判不出活按死处理，超阈值即清理', async () => {

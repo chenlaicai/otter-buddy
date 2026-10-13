@@ -354,10 +354,12 @@ export class SchedulerService {
   /** #1449：孤儿 running 执行扫描——轮询级兜底（启动对账 failAllRunningExecutions 只清
    *  重启现场，本扫描清「进程活着但执行假死」现场：闸门冻结/网关断连/进程 hang）。
    *  判定：running 且 triggeredAt 超 RUNNING_STUCK_THRESHOLD_MS 且目标獭无存活 session
-   *  → halt（先标记，阻断未来复活——若执行方其实在跑只是獭口径没查到，halt 让它停手
-   *  向人报告，好过静默继续占住执行位）→ execution 置 failed → 落 healing（high）。
-   *  Why halt 在 update 之前：执行方真活着时，先收到停手指令再看到账面翻篇，
-   *  顺序反了会出现「账面已死、执行还跑」的竞态窗口。 */
+   *  → execution 置 failed → 落 healing（high）。
+   *  Why 不 halt：halt 是 invoke 作用域的人用停手令（halt-registry 头注释：消费对象是
+   *  进行中的 invoke，打标前活跃性检查从入口杜绝孤儿指令）——reap 恰恰在「判定无存活
+   *  执行现场」分支动手，此时 mark = 无消费对象的孤儿指令，会跨 invoke 残留 block 本 reap
+   *  放行的新触发（tool_call 钩子全 session 生效），治的病以新形态复发。
+   *  「执行方真活着但 isRunning 漏报」的低概率场景由 high healing 承担可见性。 */
   private async reapStaleRunningExecutions(): Promise<void> {
     let tasks: ScheduledTask[];
     try {
@@ -390,20 +392,9 @@ export class SchedulerService {
       const targetOtter = task.talkingStonePassedTo[0];
       // 判不出活按死处理（未注入 isOtterRunning 的装配=降级基线，机械清理比等 24h 安全）
       if (targetOtter && this.isOtterRunning?.(targetOtter)) continue;
-      // halt 先于账面翻篇（见 reapStaleRunningExecutions 头注释）
-      if (targetOtter) {
-        try {
-          haltRegistry.mark({
-            id: crypto.randomUUID(),
-            targetOtterId: targetOtter,
-            fromOtterId: 'scheduler',
-            fromOtterName: `scheduler:${task.name}`,
-            conversationId: task.conversationId,
-            reason: `孤儿执行清理：任务「${task.name}」的 running 执行体滞留超 ${RUNNING_STUCK_THRESHOLD_MS / 3_600_000}h（闸门冻结/进程假死嫌疑），已置 failed 释放执行位。若你实际仍在执行，请立即报告并停止新增副作用。`,
-            issuedAt: new Date().toISOString(),
-          });
-        } catch { /* halt 打标失败不阻塞账面清理 */ }
-      }
+      // 账面翻篇 + high healing 落账，不 halt——halt 是 invoke 作用域的人用停手令
+      //（halt-registry 头注释：无活跃 invoke 打标=孤儿指令，跨 invoke 残留污染下一次触发）。
+      // 「执行方真活着但 isRunning 漏报」的低概率场景由 healing 落账承担可见性，不需要 halt 兜底。
       await this.taskRepo.updateExecutionStatus(exec.id, {
         status: 'failed',
         completedAt: new Date().toISOString(),
@@ -1213,19 +1204,8 @@ export class SchedulerService {
       const targetOtter = task.talkingStonePassedTo[0];
       const halted = targetOtter ? haltRegistry.isHalted(targetOtter) : false;
       if (!halted && targetOtter && this.isOtterRunning?.(targetOtter)) continue;
-      if (targetOtter && !halted) {
-        try {
-          haltRegistry.mark({
-            id: crypto.randomUUID(),
-            targetOtterId: targetOtter,
-            fromOtterId: 'scheduler',
-            fromOtterName: `scheduler:${task.name}`,
-            conversationId: task.conversationId,
-            reason: `孤儿执行清理（挤占触发点）：任务「${task.name}」的 running 执行体滞留超 ${RUNNING_STUCK_THRESHOLD_MS / 3_600_000}h，已置 failed 释放执行位。若你实际仍在执行，请立即报告并停止新增副作用。`,
-            issuedAt: new Date().toISOString(),
-          });
-        } catch { /* halt 打标失败不阻塞账面清理 */ }
-      }
+      // 账面翻篇 + healing，不 halt（同 reapStaleRunningExecutionsForTask 头注释——
+      // halt 无活跃 invoke 消费=孤儿指令，会 block 本 reap 放行的新触发，治的病以新形态复发）。
       await this.taskRepo.updateExecutionStatus(exec.id, {
         status: 'failed',
         completedAt: new Date().toISOString(),
