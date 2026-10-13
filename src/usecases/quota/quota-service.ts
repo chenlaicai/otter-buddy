@@ -103,9 +103,16 @@ export class QuotaService {
     const fetchedAt = new Date().toISOString();
     try {
       const result = await this.opts.session.capture(spec, this.opts.captureTimeoutMs ?? 20_000);
+      // 未捕获到任何配额响应也落证据：跳转到哪、阶段内见到哪些请求——区分「未登录」与「端点改了」
+      if (result.responses.length === 0) {
+        this.opts.logger.info(
+          `[quota] ${spec.id} 未捕获响应 finalUrl=${result.finalUrl} visited=${JSON.stringify(result.visitedUrls.slice(-20))}`,
+        );
+      }
       const authBlocked =
         result.redirectedToLogin ||
-        result.responses.some(r => r.status === 401 || r.status === 403);
+        result.responses.some(r => r.status === 401 || r.status === 403) ||
+        (result.responses.length === 0 && /login|passport|signin/i.test(result.finalUrl));
       if (authBlocked) {
         return this.put(spec, {
           provider: spec.id,

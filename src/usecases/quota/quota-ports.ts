@@ -17,6 +17,8 @@ export interface CaptureResult {
   finalUrl: string;
   /** 页面被跳去登录页 */
   redirectedToLogin: boolean;
+  /** 采集阶段页面发出的全部请求 URL（诊断用：区分「未登录」与「端点改了」） */
+  visitedUrls: string[];
 }
 
 /** 数据源规格（框架层注册表实现；normalize 为领域纯函数绑定） */

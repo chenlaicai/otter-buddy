@@ -80,8 +80,10 @@ export class QuotaBrowserSession implements QuotaCaptureSession {
     const ctx = await this.ensureContext();
     const page = await ctx.newPage();
     const responses: CapturedResponse[] = [];
+    const visitedUrls: string[] = [];
     const onResp = async (res: { url(): string; status(): number; json(): Promise<unknown> }): Promise<void> => {
       const url = res.url();
+      visitedUrls.push(url);
       if (!spec.match(url)) return;
       try {
         const json = await res.json();
@@ -108,7 +110,7 @@ export class QuotaBrowserSession implements QuotaCaptureSession {
       await page.close().catch(() => undefined);
     }
     const settledUrl = finalUrl ?? spec.consoleUrl;
-    return { responses, finalUrl: settledUrl, redirectedToLogin: isLoginUrl(settledUrl) };
+    return { responses, finalUrl: settledUrl, redirectedToLogin: isLoginUrl(settledUrl), visitedUrls };
   }
 
   private async loginOnce(spec: QuotaProviderSpec, waitMs: number): Promise<void> {

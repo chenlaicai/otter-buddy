@@ -22,17 +22,18 @@ function stubLogger(): Logger {
 
 const glmSpec = QUOTA_PROVIDERS.find(p => p.id === "glm")!;
 
+// 真实响应结构（2026-10-13 首登冒烟锁定）：usage=窗口总量、currentValue=已用、remaining=剩余
 const GLM_PAYLOAD = {
   data: {
     limits: [
-      { title: "5 小时", currentValue: 250, showLimitCount: 1000, nextResetTime: "2026-10-12 18:00:00" },
-      { title: "本周", currentValue: 1000, showLimitCount: 1000, nextResetTime: "2026-10-15 12:46:05" },
+      { type: "CREDIT_LIMIT", unit: 3, number: 5, usage: 28000, currentValue: 250, remaining: 27750, percentage: 0 },
+      { type: "CREDIT_LIMIT", unit: 6, number: 1, usage: 140000, currentValue: 140000, remaining: 0, percentage: 100, nextResetTime: 1792039565977 },
     ],
   },
 };
 
 function captureResult(responses: CapturedResponse[], finalUrl = glmSpec.consoleUrl): CaptureResult {
-  return { responses, finalUrl, redirectedToLogin: /login|passport|signin|auth/i.test(finalUrl) };
+  return { responses, finalUrl, redirectedToLogin: /login|passport|signin|auth/i.test(finalUrl), visitedUrls: [] };
 }
 
 /** 脚本化假会话：按调用序回放结果，记录调用轨迹 */

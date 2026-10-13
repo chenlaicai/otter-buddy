@@ -1,7 +1,9 @@
 /**
  * F20261012qtbc：三家配额响应归一化单测（纯函数，无浏览器）。
- * fixture 字段依据 2026-10-12 静态逆向结论（GLM limits 项字段已定名；
- * MiMo currentPlan* / Kimi 启发式为首登前的初版映射，首登冒烟后锁定）。
+ * fixture 字段依据 2026-10-13 首登冒烟真实响应锁定（quota-raw-capture.json）：
+ *  - GLM：data.limits[] = { usage(总量), currentValue(已用), remaining(剩余), nextResetTime(毫秒) }
+ *  - MiMo：data.monthUsage.items[] / data.usage.items[] = { name, used, limit, percent }
+ *  - Kimi：字段未定名（/apiv2 connect-RPC），启发式 + 首登锁定
  */
 import { describe, it, expect } from "vitest";
 import { parseResetAt, buildWindow } from "@usecases/quota/quota-normalize";
@@ -9,34 +11,38 @@ import { QUOTA_PROVIDERS } from "@frameworks/quota/providers";
 
 const spec = (id: "glm" | "kimi" | "mimo") => QUOTA_PROVIDERS.find(p => p.id === id)!;
 
-describe("GLM 归一化（/monitor/usage/quota/limit 真实字段名）", () => {
+describe("GLM 归一化（/monitor/usage/quota 真实字段名，2026-10-13 锁定）", () => {
+  // 真实响应：usage=窗口总量、currentValue=已用、remaining=剩余、nextResetTime=毫秒时间戳
   const payload = {
+    code: 200,
     data: {
-      level: "pro",
+      level: "max",
       limits: [
-        { title: "5 小时", currentValue: 660_000, showLimitCount: 1_000_000, nextResetTime: "2026-10-12 18:00:00" },
-        { title: "本周", currentValue: 1_000_000, showLimitCount: 1_000_000, nextResetTime: "2026-10-15 12:46:05" },
+        { type: "CREDIT_LIMIT", unit: 3, number: 5, usage: 28000, currentValue: 6600, remaining: 21400, percentage: 23 },
+        { type: "CREDIT_LIMIT", unit: 6, number: 1, usage: 140000, currentValue: 140000, remaining: 0, percentage: 100, nextResetTime: 1792039565977 },
       ],
     },
   };
 
-  it("limits[] → 两个窗口（5h / week），剩余比例与差值正确", () => {
+  it("limits[] → 两个窗口（5h / week），usage=limit、currentValue=used、remaining 直取", () => {
     const windows = spec("glm").normalize(payload)!;
     expect(windows).toHaveLength(2);
     expect(windows[0]!.key).toBe("5h");
-    expect(windows[0]!.used).toBe(660_000);
-    expect(windows[0]!.limit).toBe(1_000_000);
-    expect(windows[0]!.remaining).toBe(340_000);
-    expect(windows[0]!.remainingRatio).toBeCloseTo(0.34, 5);
+    expect(windows[0]!.label).toBe("5 小时");
+    expect(windows[0]!.used).toBe(6600);
+    expect(windows[0]!.limit).toBe(28000);
+    expect(windows[0]!.remaining).toBe(21400);
+    expect(windows[0]!.remainingRatio).toBeCloseTo(21400 / 28000, 5);
     expect(windows[1]!.key).toBe("week");
-    // 耗尽态：used == limit → remaining 0
+    expect(windows[1]!.label).toBe("本周");
+    // 耗尽态：remaining=0
     expect(windows[1]!.remaining).toBe(0);
     expect(windows[1]!.remainingRatio).toBe(0);
   });
 
-  it("nextResetTime 'YYYY-MM-DD HH:mm:ss' 解析为 ISO（本地时区）", () => {
+  it("nextResetTime 毫秒时间戳解析为 ISO", () => {
     const windows = spec("glm").normalize(payload)!;
-    expect(windows[0]!.resetAt).toBe(new Date(2026, 9, 12, 18, 0, 0).toISOString());
+    expect(windows[1]!.resetAt).toBe(new Date(1792039565977).toISOString());
   });
 
   it("空 limits / 无 limits → null（fail-closed）", () => {
@@ -46,30 +52,44 @@ describe("GLM 归一化（/monitor/usage/quota/limit 真实字段名）", () => 
   });
 });
 
-describe("MiMo 归一化（/api/v1/tokenPlan/*，单余量形态）", () => {
-  it("currentPlanUsage + currentPlanRemainingValue → 单窗口，总量 = used + remaining", () => {
-    const windows = spec("mimo").normalize({
-      code: 0,
-      data: { currentPlanUsage: 20_000, currentPlanRemainingValue: 80_000 },
-    })!;
+describe("MiMo 归一化（/api/v1/tokenPlan/usage 真实字段名，2026-10-13 锁定）", () => {
+  // 真实响应：data.monthUsage.items[] 与 data.usage.items[]，项 = { name, used, limit, percent }
+  const usagePayload = {
+    code: 0,
+    data: {
+      monthUsage: { percent: 0.47, items: [{ name: "month_total_token", used: 214317515490, limit: 456000000000, percent: 0.47 }] },
+      usage: { percent: 0.47, items: [
+        { name: "plan_total_token", used: 214317515490, limit: 456000000000, percent: 0.47 },
+        { name: "compensation_total_token", used: 0, limit: 0, percent: 0 },
+      ] },
+    },
+  };
+
+  it("monthUsage.items[] → 本月额度窗口（used/limit 直取，remaining 推导）", () => {
+    const windows = spec("mimo").normalize(usagePayload)!;
+    // 「套餐总量」与「本月额度」数值相同（月套餐）→ 去重只留本月额度
     expect(windows).toHaveLength(1);
-    expect(windows[0]!.key).toBe("total");
-    expect(windows[0]!.used).toBe(20_000);
-    expect(windows[0]!.remaining).toBe(80_000);
-    expect(windows[0]!.limit).toBe(100_000);
-    expect(windows[0]!.remainingRatio).toBeCloseTo(0.8, 5);
+    expect(windows[0]!.key).toBe("month");
+    expect(windows[0]!.label).toBe("本月额度");
+    expect(windows[0]!.used).toBe(214317515490);
+    expect(windows[0]!.limit).toBe(456000000000);
+    expect(windows[0]!.remaining).toBe(456000000000 - 214317515490);
+    expect(windows[0]!.remainingRatio).toBeCloseTo(0.53, 2);
+  });
+
+  it("detail 响应（套餐信息无 items）→ null（fail-closed）", () => {
+    expect(spec("mimo").normalize({ code: 0, data: { planCode: "pro:year", planName: "Pro" } })).toBeNull();
   });
 
   it("识别不出配额语义字段 → null（fail-closed，不猜数字）", () => {
     expect(spec("mimo").normalize({ code: 0, data: { cashBalance: 3.5, giftBalance: 0 } })).toBeNull();
   });
 
-  it("S2 加固：无 currentPlan* 签名字段的通用对象不猜数", () => {
-    expect(spec("mimo").normalize({ data: { used: 1, remaining: 2 } })).toBeNull();
-  });
-
-  it("S2 加固：带日期的统计点不冒充总量", () => {
-    expect(spec("mimo").normalize({ list: [{ date: "2026-10-12", currentPlanUsage: 5 }] })).toBeNull();
+  it("补偿额度 used=0/limit=0 不成窗", () => {
+    const w = spec("mimo").normalize({
+      data: { usage: { items: [{ name: "compensation_total_token", used: 0, limit: 0, percent: 0 }] } },
+    });
+    expect(w).toBeNull();
   });
 });
 

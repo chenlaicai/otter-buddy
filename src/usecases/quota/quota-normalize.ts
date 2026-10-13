@@ -137,7 +137,25 @@ function hasEnoughNumbers(used: number | null, limit: number | null, remaining: 
   return [used, limit, remaining].filter(v => v !== null).length >= 2;
 }
 
-/* ---------- GLM：/monitor/usage/quota/limit ---------- */
+/* ---------- GLM：/monitor/usage/quota ----------
+ * 真实响应（2026-10-13 首登冒烟锁定）：
+ *   data.limits[] = { type: 'CREDIT_LIMIT', unit, number, usage, currentValue, remaining, percentage, nextResetTime? }
+ *   - usage       = 窗口配额总量（5h 窗 28000 / 周窗 140000）
+ *   - currentValue= 已用量
+ *   - remaining   = 剩余量
+ *   - percentage  = 已用百分比（0-100）
+ *   - nextResetTime = 毫秒时间戳（仅部分窗口有）
+ */
+
+/** GLM 窗口展示名：unit/number 是枚举不是人话——按窗口额度形态给语义名 */
+function glmWindowLabel(item: Record<string, unknown>, index: number): string {
+  const usage = firstNumber(item, ["usage"]);
+  if (usage !== null) {
+    if (usage <= 30000) return "5 小时";
+    if (usage <= 200000) return "本周";
+  }
+  return `限额 ${index + 1}`;
+}
 
 export function normalizeGlm(payload: unknown): QuotaWindow[] | null {
   if (!isRecord(payload)) return null;
@@ -147,33 +165,74 @@ export function normalizeGlm(payload: unknown): QuotaWindow[] | null {
   const windows: QuotaWindow[] = [];
   limits.forEach((item, i) => {
     if (!isRecord(item)) return;
-    const label = firstString(item, ["title", "name", "label"]) ?? `限额 ${i + 1}`;
-    const used = firstNumber(item, ["currentValue", "used", "usage"]);
-    const limit = firstNumber(item, ["showLimitCount", "limit", "total", "totalCount"]);
+    const label = glmWindowLabel(item, i);
+    const used = firstNumber(item, ["currentValue", "used"]);
+    const limit = firstNumber(item, ["usage", "limit", "total"]);
+    const remaining = firstNumber(item, ["remaining"]);
     const resetAt = parseResetAt(item.nextResetTime ?? item.resetTime ?? item.reset_time);
     if (used === null && limit === null) return;
-    windows.push(buildWindow(label, { used, limit, resetAt }, i));
+    windows.push(buildWindow(label, { used, limit, remaining, resetAt }, i));
   });
   return windows.length > 0 ? windows : null;
 }
 
-/* ---------- MiMo：/api/v1/tokenPlan/* ---------- */
+/* ---------- MiMo：/api/v1/tokenPlan/usage ----------
+ * 真实响应（2026-10-13 首登冒烟锁定）：
+ *   data.monthUsage.items[] = { name: 'month_total_token', used, limit, percent }  ← 月度窗口
+ *   data.usage.items[]      = { name: 'plan_total_token' | 'compensation_total_token', used, limit, percent }
+ * 套餐信息在 /tokenPlan/detail（planName/currentPeriodEnd），归一化只取用量窗。
+ */
+
+/** MiMo 窗口展示名：items[].name 是机器码——翻译成搭档语言 */
+function mimoWindowLabel(name: string): string {
+  if (name === "month_total_token") return "本月额度";
+  if (name === "plan_total_token") return "套餐总量";
+  if (name === "compensation_total_token") return "补偿额度";
+  return name;
+}
 
 export function normalizeMimo(payload: unknown): QuotaWindow[] | null {
-  // 字段依据静态分析（currentPlanRemainingValue/currentPlanUsage），首登冒烟后锁定。
-  // S2 加固：要求 currentPlan* 签名字段才认——通用 used/remaining 字段的对象一律不猜。
-  for (const obj of collectObjects(payload)) {
-    if (looksLikeTimeSeriesPoint(obj)) continue; // S2 加固：日/时粒度统计点不是窗口
-    const hasSignature = Object.keys(obj).some(k => k.startsWith("currentPlan"));
-    if (!hasSignature) continue;
-    const used = firstNumber(obj, ["currentPlanUsage", "used", "usage", "usedValue", "consumed"]);
-    const remaining = firstNumber(obj, ["currentPlanRemainingValue", "remaining", "remain", "left", "surplus"]);
-    const limit = firstNumber(obj, ["currentPlanLimit", "limit", "total", "totalValue", "quota"]);
-    if (used === null && remaining === null) continue;
-    const label = firstString(obj, ["title", "name", "label"]) ?? "总量";
-    return [buildWindow(label, { used, limit, remaining }, 0)];
+  if (!isRecord(payload)) return null;
+  const data = isRecord(payload.data) ? payload.data : payload;
+
+  const windows: QuotaWindow[] = [];
+  const seen = new Set<string>();
+  for (const groupKey of ["monthUsage", "usage"] as const) {
+    collectMimoItems(data[groupKey], seen, windows);
   }
-  return null;
+  // 月套餐场景「套餐总量」与「本月额度」数值相同——去重只留本月额度
+  if (windows.length >= 2) {
+    const month = windows.find(w => w.key === "month");
+    const total = windows.find(w => w.key === "total");
+    if (month && total && month.used === total.used && month.limit === total.limit) {
+      return windows.filter(w => w.key !== "total");
+    }
+  }
+  return windows.length > 0 ? windows : null;
+}
+
+/** 从 monthUsage/usage 组提取 items[]，逐项成窗（跳过重复名与零额度项） */
+function collectMimoItems(group: unknown, seen: Set<string>, windows: QuotaWindow[]): void {
+  if (!isRecord(group)) return;
+  const items = group.items;
+  if (!Array.isArray(items)) return;
+  for (const item of items) {
+    const window = mimoItemToWindow(item, seen, windows.length);
+    if (window) windows.push(window);
+  }
+}
+
+/** 单个 item → QuotaWindow；null = 跳过（非对象/缺字段/重复名/零额度） */
+function mimoItemToWindow(item: unknown, seen: Set<string>, index: number): QuotaWindow | null {
+  if (!isRecord(item)) return null;
+  const name = firstString(item, ["name"]);
+  const used = firstNumber(item, ["used"]);
+  const limit = firstNumber(item, ["limit"]);
+  if (name === null || (used === null && limit === null)) return null;
+  if (seen.has(name)) return null;
+  seen.add(name);
+  if ((limit ?? 0) <= 0 && (used ?? 0) <= 0) return null; // 零额度项不成窗
+  return buildWindow(mimoWindowLabel(name), { used, limit }, index);
 }
 
 /* ---------- Kimi：/apiv2 connect-RPC（字段未定名，启发式 + 首登锁定） ---------- */
