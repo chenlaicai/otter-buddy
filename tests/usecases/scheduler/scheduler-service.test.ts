@@ -12,6 +12,7 @@ import { DomainError } from '@entities/errors';
 import { SessionLockConflictError } from '@entities/errors';
 import type { Logger } from '@usecases/ports/logger';
 import type { DispatchChainEngine } from '@usecases/conversation/dispatch-chain-engine';
+import { haltRegistry } from '@usecases/signal/halt-registry';
 
 // ─── 辅助工具 ─────────────────────────────────────────────
 
@@ -4011,5 +4012,180 @@ describe('F20261008hcpa（#1356 层3）：high 超龄升级提醒推送（ageOut
 
     expect(healingRepo.ageOutHighAndNotify).toHaveBeenCalled();
     // lint 禁断言参数——无超龄 high 时不推 alert 不 warn
+  });
+});
+
+// ─── #1449：running 执行体滞留挤占治理 ────────────────────
+
+describe('#1449 running 执行体滞留挤占治理', () => {
+  const HOURS = 3_600_000;
+
+  /** 造一个带孤儿 running 执行的任务（mock 覆盖 getExecutions 使其可见预置滞留行） */
+  function setupStuck(opts: {
+    stuckAgeMs?: number;
+    isOtterRunning?: (id: string) => boolean;
+  } = {}) {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const entryRepo = createMockEntryRepo();
+    const sendEntry = createMockSendEntry();
+    const agentInvoke = createMockAgentInvoke();
+    const healingRepo = makeObservableHealingRepo();
+    const stuckAt = new Date(Date.now() - (opts.stuckAgeMs ?? 3 * HOURS)).toISOString();
+
+    const task = makeTask({ lastTriggeredAt: stuckAt });
+    taskRepo._store.set(task.id, task);
+    convRepo._addConversation(task.conversationId, { status: 'active' });
+    // 预置滞留 running 执行（绕过 claim 直接插行，模拟「点火后假死」现场）
+    taskRepo._executions.set('stuck-exec-1', {
+      id: 'stuck-exec-1', taskId: task.id, triggeredAt: stuckAt,
+      completedAt: null, status: 'running', errorMessage: null, messageId: null,
+    });
+    // 覆盖默认空实现：让 claim/reap 看见预置的滞留行（与真实 repo 同型——按 triggeredAt 倒序+limit）
+    taskRepo.getExecutions = vi.fn(async (taskId?: string, options?: { limit?: number }) => {
+      let rows = Array.from(taskRepo._executions.values()).filter(e => e.taskId === taskId);
+      rows.sort((a, b) => String(b.triggeredAt).localeCompare(String(a.triggeredAt)));
+      if (options?.limit != null) rows = rows.slice(0, options.limit);
+      return rows;
+    }) as unknown as typeof taskRepo.getExecutions;
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(new Date(Date.now() + 60_000)) as unknown as CronParser,
+      logger: mockLogger,
+      healingRepo: healingRepo as never,
+      tickImpl: async () => {}, // 轮询隔离：手动调 tickReal / trigger
+      isOtterRunning: opts.isOtterRunning,
+    });
+    return { service, taskRepo, convRepo, agentInvoke, healingRepo, task, stuckAt };
+  }
+
+  // Why 只冻 Date 不冻定时器：trigger 路径的看门狗/超时 race 依赖真实 setTimeout
+  // （5min 单次 invoke 超时定时器必须在 invoke resolve 后能被 clearTimeout）
+  beforeEach(() => { haltRegistry.resetForTest(); vi.useFakeTimers({ toFake: ['Date'] }); });
+  afterEach(() => { haltRegistry.resetForTest(); vi.useRealTimers(); });
+
+  it('挤占触发点即时清理：滞留超 2h 且无存活执行方 → fail + high healing + 本轮放行（无 halt 污染）', async () => {
+    const { service, taskRepo, agentInvoke, healingRepo } = setupStuck({
+      isOtterRunning: () => false,
+    });
+
+    // 手动触发（=挤占触发点）——旧行为：直接 skip；新行为：先清理再放行
+    const result = await service.trigger('task-1');
+
+    // 滞留执行被翻篇为 failed
+    const stuck = taskRepo._executions.get('stuck-exec-1')!;
+    expect(stuck.status).toBe('failed');
+    expect(String(stuck.errorMessage)).toContain('孤儿执行清理');
+    // high healing 已落
+    expect(healingRepo._events.some(e => e.severity === 'high')).toBe(true);
+    // 本轮触发放行（新 execution 建立 + agent 被调用）
+    expect(result.executionId).toBeDefined();
+    expect(agentInvoke.invokeConversation).toHaveBeenCalled();
+  });
+
+  it('防污染：reap 判死清理后不向 haltRegistry 打标（halt 是 invoke 作用域人用停手令，无活跃 invoke 打标=孤儿指令会 block 新触发）', async () => {
+    // 回归 S1（PR #1459 第一轮审视严重发现）：reap 曾在判死分支 haltRegistry.mark，
+    // 导致放行的新触发第一个 tool_call 吃到残留 halt 被 block——本 PR 治的病以新形态复发。
+    const { service, taskRepo, agentInvoke } = setupStuck({
+      isOtterRunning: () => false,
+    });
+
+    const result = await service.trigger('task-1');
+
+    // reap 翻篇 + 新触发放行成立……
+    expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('failed');
+    expect(result.executionId).toBeDefined();
+    expect(agentInvoke.invokeConversation).toHaveBeenCalled();
+    // ……且 haltRegistry 对该獭零残留（无 pending/active 指令）
+    expect(haltRegistry.isHalted('otter-1')).toBe(false);
+  });
+
+  it('挤占 skip 落 healing（low）：滞留未超 2h → 本轮 skip + low healing 落账', async () => {
+    const { service, taskRepo, healingRepo } = setupStuck({
+      stuckAgeMs: 30 * 60_000, // 30min，未超 2h 阈值
+      isOtterRunning: () => true,
+    });
+
+    const err = await service.trigger('task-1').catch(e => e);
+    expect(err.message).toContain('already has a running execution');
+
+    // skip 行已落（#1208 语义保持）
+    const skipped = [...taskRepo._executions.values()].filter(e => e.status === 'skipped');
+    expect(skipped.length).toBe(1);
+    // low healing 落账（挤占即见）
+    expect(healingRepo._events.some(e =>
+      e.severity === 'low' && String(e.description).includes('挤占')
+    )).toBe(true);
+    // 滞留执行未被清理（未超阈值 + 獭活着）
+    expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('running');
+  });
+
+  it('挤占 skip healing 同任务 1h 节流：连续两次挤占只落一条 low', async () => {
+    const { service, healingRepo } = setupStuck({
+      stuckAgeMs: 30 * 60_000,
+      isOtterRunning: () => true,
+    });
+
+    await service.trigger('task-1').catch(() => {});
+    await service.trigger('task-1').catch(() => {});
+
+    const lows = healingRepo._events.filter(e => e.severity === 'low' && String(e.description).includes('挤占'));
+    expect(lows.length).toBe(1);
+  });
+
+  it('用户停机场景保护：滞留超 2h 但獭仍 running（闸门冻结）→ 不清仓、信号保留由补扫消化', async () => {
+    const { service, taskRepo } = setupStuck({
+      stuckAgeMs: 3 * HOURS,
+      isOtterRunning: () => true, // 獭有存活 session（用户停机冻结形态）
+    });
+
+    await service.trigger('task-1').catch(() => {});
+    // 滞留执行未被翻篇——信号保留语义由补扫消化，scheduler 不抢刽子手
+    expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('running');
+  });
+
+  it('已 halt 打标的执行方视为死亡：isRunning=true 但 halt 已标 → 仍清仓放行', async () => {
+    const { service, taskRepo, agentInvoke } = setupStuck({
+      stuckAgeMs: 3 * HOURS,
+      isOtterRunning: () => true, // streaming 残留但已被发过停手令
+    });
+    haltRegistry.mark({
+      id: 'halt-1', targetOtterId: 'otter-1', fromOtterId: 'boss', fromOtterName: '大獭',
+      conversationId: 'conv-1', reason: 'test halt', issuedAt: new Date().toISOString(),
+    });
+
+    const result = await service.trigger('task-1');
+
+    expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('failed');
+    expect(result.executionId).toBeDefined();
+    expect(agentInvoke.invokeConversation).toHaveBeenCalled();
+  });
+
+  it('轮询级扫描兜底：tickReal 先 reap 再扫任务——滞留超 2h 无存活 → fail + healing 且无 halt 污染', async () => {
+    const { service, taskRepo, healingRepo } = setupStuck({
+      stuckAgeMs: 3 * HOURS,
+      isOtterRunning: () => false,
+    });
+
+    await (service as unknown as { tickReal(): Promise<void> }).tickReal();
+
+    // reap 已翻篇滞留执行 + 落 high healing
+    expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('failed');
+    expect(healingRepo._events.some(e => e.severity === 'high')).toBe(true);
+    // 轮询 reap 同样不打 halt（S1 回归锁定）
+    expect(haltRegistry.isHalted('otter-1')).toBe(false);
+  });
+
+  it('未注入 isOtterRunning（降级装配）→ 判不出活按死处理，超阈值即清理', async () => {
+    const { service, taskRepo } = setupStuck({ stuckAgeMs: 3 * HOURS /* 无 isOtterRunning */ });
+
+    const result = await service.trigger('task-1');
+    expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('failed');
+    expect(result.executionId).toBeDefined();
   });
 });

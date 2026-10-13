@@ -39,4 +39,9 @@ export interface AgentTurnPort {
 
   /** 中止 Agent 生成 */
   abort(otterId: string, messageId: string): void;
+
+  /** #1449：目标獭是否有存活执行现场（activeSessions / 池内 streaming）。
+   *  可选——scheduler 孤儿 running 执行扫描判活用；未实现按「无存活」处理（保守清理）。
+   *  AgentInvoker 委托 PiSessionFactory.isRunning（U3 口径同源）。 */
+  isRunning?(otterId: string): boolean;
 }

@@ -859,6 +859,13 @@ export class AgentInvoker implements AgentTurnPort {
     this.agentInvoke.abort(otterId, invokeId);
   }
 
+  /** #1449：目标獭是否有存活执行现场——委托 SdkInvokePort.isRunning
+   *  （PiSessionFactory：activeSessions + 池内 streaming 的 U3 口径同源）。
+   *  scheduler 孤儿 running 执行扫描判活消费；端口未实现按无存活（false）。 */
+  isRunning(otterId: string): boolean {
+    return this.agentInvoke.isRunning?.(otterId) ?? false;
+  }
+
   /** 构建 DynamicContext：会话摘要（前情）。记忆召回由 agent 通过 search_memory tool 主动触发。
    *  F20260922ctxi：换世首轮注入——sessionSummary/workspacePath 仅在新世首轮注入（session 尚无
    *  user 消息），后续轮次历史里已有原文，不再重复拼接（实测每轮重复 ~780 字符逐字节相同）。
