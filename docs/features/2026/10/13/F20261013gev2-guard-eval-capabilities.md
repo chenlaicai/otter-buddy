@@ -73,6 +73,14 @@ modification_class: narrow-fix
 | 拦截 22 | 全部放水（求值器判 ALLOW 但必须拦） | 能力 1/2/3：residual_face 的 new Function exec 类、heredoc-quoted 被当纯数据跳过（bash - <<'EOF' 实为脚本）、checkout/隐式写段 |
 | 条件 34 | heredoc fail-closed ×15、放水 ×14、正面 BLOCK 误报 ×3、dynamic-path ×1、cwd-unresolvable ×1 | 双态各有短板 |
 
+## 死因诊断（2026-10-13 诊断抽样，代表性缺口逐条透视）
+
+1. **parseOk=false 无条件回落**（TS-e484b255 等大头）：引号内嵌套引号（`-c "…open('f')…"`）触发词法 fail-closed → parseOk=false；段级求值其实已成功（读侧目标已入账）但入口层对 parseOk=false 统一回落 `heredoc-script-payload` → 能力 5（引号载荷完整解析）治本，能力 1 载荷窄提取 v2 消化残留
+2. **引号载荷被切碎**（TS-7c8e2cd5）：多行 node -e 载荷内嵌 `\"` 转义引号，被按 `;`/换行切碎成 36 个伪段（console.log/注释行全成了 argv0）→ 能力 5 核心现场（切分不得切碎引号载荷）
+3. **`~` 展开判 dynamic-path**（TS-21cee677）：`mv ~/Desktop/... ~/.Trash/...$(date +%s)` ——落点静态前缀（~/）可证树外，尾部动态段不改写落点归属，却被整段判不可求值 → 能力 4/6（无落点正向证明 / 路径归一化：前缀可证树外即无主仓写面）
+4. **读侧 require/import 披露被当写或回落**（TS-b6c006fd）：`require('/ext/…/package.json').version` 只读版本披露——literal module 路径应走规则 3 非路径调用/读披露 → 能力 1+8（import/require 拆分）
+5. **拦截池放水的两型**：heredoc-quoted 被当纯数据跳过（`bash - <<'EOF'` 体内是真脚本）；exec 类（new Function/递归可调用）无检出 → 能力 1（exec 类一律不可证）+ 能力 3（隐式写词面）
+
 ## 下一步（派工单节奏：每 2-3 个能力报进展）
 
 1. 能力 5（段级 cwd + 引号载荷完整解析）+ 能力 1（窄提取 v2 + 证明演算）先行——heredoc-script-payload 141 条是最大缺口面
