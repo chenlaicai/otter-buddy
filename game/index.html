@@ -1116,7 +1116,7 @@ cv.addEventListener("click", function (e) {
   var my = Math.round((e.clientY - r.top) * (H / r.height));
   var sp = hitSpot(mx, my);
   if (!sp) return;
-  if (!S.started) { say("开场", "幼獭还在打盹。先点「出发」。"); return; }
+  if (!S.started) { say("开场", "幼獭还在打盹。先收下那封信。"); return; }
   // 战斗态（进行中/战败重生/封印中）：画布点击一律短路为提醒——防止 replay() 清空按钮区或 lakeBattle() 重入导致误触死档
   // （#1435 检视严重1，同型先例 P1 封印门软锁死 #1427 检视严重2）
   if (S.mode === "battle") {
@@ -1494,7 +1494,7 @@ function actInsight() {
     B.insight = true;
     var d = 8 + Math.floor(Math.random() * 5);
     B.foe -= d; bUpdate(); pushFloat(424, 36, "-" + d);
-    bSay("🔍 洞察獭·审视", "「你的逻辑第 N 环就是断的——你从不验证前提。」\n✨ 漏洞显形 -" + d + "！下一次攻击翻倍。", "老农教的：自己的产出，自己看不出问题。审视 = 异体执行，不是自测。");
+    bSay("🔍 洞察獭·审视", "「你的逻辑有一环是断的——你从不验证前提。」\n✨ 漏洞显形 -" + d + "！下一次攻击翻倍。", "老农教的：自己的产出，自己看不出问题。审视 = 异体执行，不是自测。");
     if (B.foe <= 0) { setTimeout(bWin, 400); return; }
     setTimeout(bTurn, 400);
   }
@@ -1539,15 +1539,12 @@ function bEnding() {
 function beginFarm() {
   letterEl.classList.add("gone");
   setTimeout(function () { letterEl.style.display = "none"; }, 360); // 纯视觉淡出，不阻塞操作
-  say("第一幕 · 一无所有", "八块田在闪——想点哪块，点哪块。", "每块田一个麻烦：发现 → 引入 → 看到。", null);
-  actions([{ label:"👉 出发", fn:function () {
-    S.started = true;
-    hintEl.innerHTML = "8 块田在闪光 · <em>想先去哪块都行</em>";
-    playerWalk(SPOTS[0].stand, 1.5);
-    say("第一幕 · 一无所有", "八块田都在闪——想点哪块，点哪块。", "每块田一个麻烦：发现 → 引入 → 看到。（点任意闪光的田）");
-    actions([]);
-    markDirty();
-  }}]);
+  if (S.started) return; // 回读只收信，不重放开场初始化（#1451 检视严重1：曾清空按钮区 → 教学/战斗/封印门死档）
+  S.started = true; // P6 检视建议4：收下信即开局——砍掉中间多余的「👉 出发」二次确认（双跳冗余）
+  hintEl.innerHTML = "8 块田在闪光 · <em>想先去哪块都行</em>";
+  playerWalk(SPOTS[0].stand, 1.5);
+  say("第一幕 · 一无所有", "八块田都在闪——想点哪块，点哪块。", "每块田一个麻烦：发现 → 引入 → 看到。（点任意闪光的田）");
+  actions([]);
   markDirty();
 }
 document.getElementById("letterBtn").onclick = beginFarm;
