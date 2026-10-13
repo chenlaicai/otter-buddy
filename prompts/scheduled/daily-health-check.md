@@ -86,7 +86,7 @@ budget_bytes: 9600
 
 ## issue 产出规范
 
-每个 daily-review issue 必须有具体修复方案（SYSTEM.md R2）。**标签/标题/聚合硬规则**（真相源：`scripts/lint-issue-labels.mjs`）：type + priority + daily-review 各一；标题 `[模块] 一句话摘要`（枚举/聚合红线见 lint 头注）；同根因合一条。自查不完整率 >5% 日报标红。
+每个 daily-review issue 必须含案发现场（证据真实、含锚点）与影响（SYSTEM.md R2）。方案段改为两态可选——「已排查结论」（附排查过程证据链）或「排查方向（假设，未验证）」（显式标置信度）；禁止无排查过程的裸方案。案发现场段保持强制且要求证据锚点。修复方案不是必填——写不出时标「暂不修复：<原因>」。**标签/标题/聚合硬规则**（真相源：`scripts/lint-issue-labels.mjs`）：type + priority + daily-review 各一；标题 `[模块] 一句话摘要`（枚举/聚合红线见 lint 头注）；同根因合一条。自查不完整率 >5% 日报标红。
 
 **验证断言必填**：每个 issue body 含「验证断言」段，三字段——`断言`（可证伪、含数据源）/ `检查方式`（sqlite / gh / 人工）/ `到期`（创建日 +30 天，YYYY-MM-DD）。写不出 = 问题定义不清，重写。回查由 regression-verify 到期执行。
 
