@@ -41,7 +41,20 @@ export interface EntryDTO {
   completedAt: string | null;
   /** 附件引用（仅 speak/user 条目；非空时携带——entry_attachments JOIN 投影） */
   attachments?: EntryAttachmentDTO[];
+  /** F20261013csv3 T5：过程明细开关（?includeEvents=true 时携带）——折叠后的工具调用
+   *  步（foldInvokeEvents 同源投影），error 摘要 ≤200 字符，每 invoke ≤20 条。
+   *  开销注意：开关打开时 N+1 变批量（invoke_events 表按 invokeId IN 一次取回），
+   *  默认 false（关闭态读端点语义不变，零额外查询）。 */
+  events?: FoldedStepDTO[];
 }
+
+/** T5：折叠后的工具调用步 DTO（foldInvokeEvents 投影——call/think/speak/error/user 五形） */
+export type FoldedStepDTO =
+  | { kind: "call"; name: string; args?: unknown; result?: unknown; isError?: boolean; pending: boolean; interrupted?: boolean; ts: string; tsEnd?: string }
+  | { kind: "think"; text: string; ts: string }
+  | { kind: "speak"; body: string; ts: string }
+  | { kind: "error"; message: string; ts: string }
+  | { kind: "user"; text: string; ts: string };
 
 /** GET /api/conversations/:id/entries 响应 */
 export interface EntriesResponseDTO {

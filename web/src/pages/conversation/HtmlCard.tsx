@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Hash, ShieldCheck, AlertTriangle } from 'lucide-react'
-import { CARD_MAX_BYTES, CARD_MAX_PER_MESSAGE, CARD_MIN_HEIGHT, CARD_PRESET_CLASSES_CSS, byteLength } from '../../lib/html-card'
+import { CARD_MAX_BYTES, CARD_MAX_PER_MESSAGE, CARD_MIN_HEIGHT, CARD_PRESET_CLASSES_CSS, byteLength, type CardImportance } from '../../lib/html-card'
 import { registerCard, unregisterCard } from '../../lib/card-registry'
 import { buildCardBridgeScript } from '../../lib/card-bridge'
 
@@ -41,6 +41,10 @@ export interface HtmlCardProps {
   /** F20260916hcel：html-card schema版本，保留为将来可能的默认状态变化留口子。
    *  当前所有卡默认 collapsed（搭档 9/16 拍板） */
   cardSchemaVersion?: number
+  /** F20261013csv3 T4：卡片重要性——`high` 默认展开（不豁免单消息卡片预算） */
+  importance?: CardImportance
+  /** F20261013csv3 T3：折叠态摘要行（纯文本，≤120 字符；null = 无有效摘要） */
+  foldedSummary?: string | null
   /** F20261009csp2 活类：html-card-play 围栏——默认展开运行 + 🎮 徽章 + 暂停/重启控制。
    *  宪法 F20261008csfw：活类感知动词是「玩」，折叠态没有玩法 */
   playable?: boolean
@@ -48,10 +52,11 @@ export interface HtmlCardProps {
 
 type CardView = 'collapsed' | 'expanded' | 'source' | 'invalid'
 
-function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId, playable }: HtmlCardProps) {
-  /** F20260916hcel：所有卡默认折叠（搭档 9/16 纠正——曾误执行为「新卡默认展开」）；
-   *  F20261009csp2 唯一例外：活类卡默认展开运行（宪法：折叠态没有玩法） */
-  const [view, setView] = useState<CardView>(playable ? 'expanded' : 'collapsed')
+function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId, playable, importance = 'normal', foldedSummary = null }: HtmlCardProps) {
+  /** F20260916hcel：所有卡默认折叠（搭档 9/16 拍板）；
+   *  F20261009csp2 例外①：活类卡默认展开运行（宪法：折叠态没有玩法）；
+   *  F20261013csv3 T4 例外②：importance=high 卡默认展开（简报卡分级——L2 议题不埋折叠态） */
+  const [view, setView] = useState<CardView>(playable || importance === 'high' ? 'expanded' : 'collapsed')
   /** F20261009csp2 活类重启控制：nonce 变化强制重挂载 iframe（脚本状态归零重跑）。
    *  暂停 = 收起（卸载 iframe 即停脚本，无需 kill 通道）；重启 = 回 expanded + 新 nonce */
   const [runNonce, setRunNonce] = useState(0)
@@ -108,6 +113,11 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId,
       <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-stone-600">
         <Hash className="w-3 h-3 text-stone-400 flex-shrink-0" />
         <span className="font-medium truncate flex-1">{title || '未命名卡片'}</span>
+        {importance === 'high' && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 bg-caramel-400/20 text-caramel-600" title="importance=high：默认展开的简报卡">
+            简报
+          </span>
+        )}
         <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${playable ? 'bg-teal-400/20 text-teal-700' : 'bg-otter-400/15 text-otter-600'}`}>
           {playable ? '🎮 活类 · 运行中' : 'HTML 卡片'}
         </span>
@@ -136,6 +146,11 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId,
           </>
         )}
       </div>
+      {view === 'collapsed' && foldedSummary && (
+        <div className="px-3 pb-2 text-[11px] text-stone-500 leading-relaxed border-t border-stone-100/60 pt-1.5">
+          {foldedSummary}
+        </div>
+      )}
       {view === 'expanded' && (
         <>
           <iframe

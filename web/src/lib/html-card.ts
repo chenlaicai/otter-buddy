@@ -48,6 +48,59 @@ export function parseCardTitle(meta: string | null | undefined): string | null {
   return parseMetaAttr(meta, 'title')
 }
 
+/** F20261013csv3 T4：卡片重要性分级（`importance="high"` 默认展开）。
+ *  只有两档：normal（默认，折叠）/ high（默认展开）；不是 `high` 一律按 normal
+ *  （含缺失/解析失败——降级安全方向是折叠）。约束：high 不豁免单消息卡片预算
+ *  （CARD_MAX_PER_MESSAGE），防止把 high 当预算旁路。 */
+export type CardImportance = 'normal' | 'high'
+
+/** 解析 importance 属性。缺省/非法值返回 'normal'（绝不抛错——meta 解析失败按 normal 处理） */
+export function parseCardImportance(meta: string | null | undefined): CardImportance {
+  const v = parseMetaAttr(meta, 'importance')
+  return v === 'high' ? 'high' : 'normal'
+}
+
+/** 折叠态摘要行最大字符数（T3） */
+export const CARD_FOLDED_SUMMARY_MAX_CHARS = 120
+
+/** F20261013csv3 T3：从卡片 HTML 提取折叠态摘要行。
+ *  口径（与既有卡面摘要互不依赖，纯展示层派生）：
+ *  - 跳过 <script>/<style>/<textarea> 内容（脚本/样式不是给人看的）
+ *  - 纯标点行视同空（装饰性分隔线等不产出信息）
+ *  - 顺序取首个非空文本片段，截断至 CARD_FOLDED_SUMMARY_MAX_CHARS
+ *  Why：旧折叠态只显示标题——「89% 发言纯文本」的宪法失稳现状下，卡片自身也须
+ *  承担折叠态信息增量，否则折叠等于零信息。 */
+export function extractFoldedSummary(html: string): string | null {
+  // 1. 剥 script/style/textarea（含内容体，大小写不敏感）
+  const stripped = html
+    .replace(/<(script|style|textarea)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<(script|style|textarea)\b[^>]*\/>/gi, ' ')
+  // 2. 剥全部标签，只留文本（块级标签换行保留行结构——行级判定依赖之；开+闭都换行）
+  const text = stripped
+    .replace(/<(div|p|h[1-6]|li|tr|td|th|section|article|header|footer|blockquote|ul|ol|table)\b[^>]*>/gi, '\n')
+    .replace(/<\/(div|p|h[1-6]|li|tr|td|th|section|article|header|footer|blockquote|ul|ol|table)\b[^>]*>/gi, '\n')
+    .replace(/<br\b[^>]*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+  // 3. 行级扫描：首个「非空且非纯标点」的文本片段
+  const PUNCT_ONLY = /^[\s—–_*=~·•◦▪▫│┃┊┈┉┄┅╌╍-]+$/
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0)
+  for (const line of lines) {
+    if (PUNCT_ONLY.test(line)) continue // 纯标点视同空
+    const collapsed = line.replace(/\s+/g, ' ').trim()
+    if (collapsed.length === 0) continue
+    return collapsed.length > CARD_FOLDED_SUMMARY_MAX_CHARS
+      ? collapsed.slice(0, CARD_FOLDED_SUMMARY_MAX_CHARS - 1) + '…'
+      : collapsed
+  }
+  return null
+}
+
 export interface CardPayloadValidation {
   ok: boolean
   error?: string

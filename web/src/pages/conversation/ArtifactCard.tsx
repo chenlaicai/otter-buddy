@@ -23,15 +23,17 @@ const TYPE_BADGES: Record<string, { label: string; icon: typeof FileText; badgeC
   fact: { label: '事实', icon: Lightbulb, badgeClass: 'bg-amber-50 text-amber-600 border-amber-200/60' },
 }
 
-/** 摘要截断：file 类型卡片内最多显示的字数（首段摘要语义，不追求全文） */
-const FILE_SNIPPET_MAX = 220
+/** F20261013csv3 T2：file/fact 卡折叠态摘要行最大字符数——content 首行摘要 */
+const FOLDED_SNIPPET_MAX = 120
 
-function fileSnippet(content: string): string {
-  // 首段摘要：取第一个空行之前的文本（markdown 段落语义），超限截断
-  const firstPara = content.split(/\n\s*\n/)[0] ?? ''
-  const cleaned = firstPara.replace(/\s+/g, ' ').trim()
-  if (cleaned.length <= FILE_SNIPPET_MAX) return cleaned
-  return cleaned.slice(0, FILE_SNIPPET_MAX) + '…'
+/** content 首行摘要：取首个非空行，截断至 FOLDED_SNIPPET_MAX（T2——file 卡折叠态信息增量） */
+function firstLineSnippet(content: string | null): string | null {
+  if (!content) return null
+  const firstLine = content.split('\n').map(l => l.trim()).find(l => l.length > 0)
+  if (!firstLine) return null
+  return firstLine.length > FOLDED_SNIPPET_MAX
+    ? firstLine.slice(0, FOLDED_SNIPPET_MAX - 1) + '…'
+    : firstLine
 }
 
 export function ArtifactCard({ resource, pinned, onTogglePin }: {
@@ -52,14 +54,19 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
       // fact 全文 ≤500 字（FACT_CONTENT_MAX_LENGTH），卡内直出——这就是「结论卡」的信息增量
       return <p className="text-sm text-stone-700 leading-relaxed whitespace-pre-wrap break-words">{resource.content}</p>
     }
-    if (resource.content) {
-      return <p className="text-sm text-stone-600 leading-relaxed">{fileSnippet(resource.content)}</p>
+    // T2：file 卡折叠态摘要行（content 首行摘要）——不再只有标题+URL
+    const snippet = firstLineSnippet(resource.content)
+    if (snippet) {
+      return <p className="text-sm text-stone-600 leading-relaxed">{snippet}</p>
     }
     if (resource.url) {
       return <p className="text-xs text-stone-400 truncate">{resource.url}</p>
     }
     return null
   })()
+
+  // T2：PR 卡 unfurl join 投影（后端 LinkedResourceDTO.unfurl——diff stat + 状态徽章数据源）
+  const unfurl = resource.unfurl
 
   return (
     <div
@@ -75,6 +82,21 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
           <Icon className="w-3 h-3" />
           {badge.label}
         </span>
+        {/* T2：PR 状态徽章（unfurl join 投影 state 字段——检视发现 1：曾退用
+            title.includes 猜状态，closed/draft 误显「开放中」；与 UnfurlCard 徽章同口径） */}
+        {resource.type === 'pr' && unfurl?.source === 'github-api' && unfurl.state && (
+          <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${
+            unfurl.state === 'MERGED' ? 'bg-lavender-400/20 text-lavender-500'
+            : unfurl.state === 'OPEN' ? 'bg-teal-400/20 text-teal-600'
+            : unfurl.state === 'CLOSED' ? 'bg-stone-300/40 text-stone-500'
+            : 'bg-amber-400/20 text-amber-600'
+          }`}>
+            {unfurl.state === 'MERGED' ? '已合并'
+              : unfurl.state === 'OPEN' ? '开放中'
+              : unfurl.state === 'CLOSED' ? '已关闭'
+              : '草稿'}
+          </span>
+        )}
         <span className="text-sm font-medium text-stone-700 truncate flex-1">{resource.title}</span>
         <button
           onClick={() => onTogglePin(resource.id)}
@@ -85,6 +107,19 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
         </button>
       </div>
       {body}
+      {/* T2：PR 卡 diff stat（unfurl join 投影——additions/deletions 仅 github-api PR 记录携带） */}
+      {resource.type === 'pr' && unfurl?.additions != null && unfurl?.deletions != null && (
+        <p className="text-[11px] mt-1">
+          <span className="text-teal-600">+{unfurl.additions}</span>
+          <span className="text-stone-400"> / </span>
+          <span className="text-red-400">−{unfurl.deletions}</span>
+          <span className="text-stone-400"> · 来自 gh 结构化取数</span>
+        </p>
+      )}
+      {/* T2：join 落空（历史 PR/未抓取）——显式「未抓取」态，不静默缺失 */}
+      {resource.type === 'pr' && resource.url && !unfurl && (
+        <p className="text-[11px] text-stone-400 mt-1">未抓取（将自动补抓）</p>
+      )}
       {expanded && resource.type !== 'fact' && resource.content && (
         <p className="mt-2 text-sm text-stone-600 leading-relaxed whitespace-pre-wrap break-words border-t border-stone-200/60 pt-2">
           {resource.content}
@@ -102,7 +137,7 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
             打开
           </a>
         )}
-        {!expanded && resource.type !== 'fact' && resource.content && resource.content.length > FILE_SNIPPET_MAX && (
+        {!expanded && resource.type !== 'fact' && resource.content && resource.content.length > FOLDED_SNIPPET_MAX && (
           <button
             onClick={() => setExpanded(true)}
             className="text-stone-400 hover:text-stone-600"

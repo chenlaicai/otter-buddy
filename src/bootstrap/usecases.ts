@@ -37,7 +37,10 @@ import { WebAssistantProvisioner } from "@usecases/conversation/web-assistant-pr
 import { AttachmentUploadService } from "@usecases/conversation/attachment-upload-service";
 import { ManageWorkspace } from "@usecases/conversation/manage-workspace";
 import { SendEntry } from "@usecases/conversation/send-entry";
+import type { ResolveTargetsDeps } from "@usecases/conversation/resolve-send-targets";
 import type { EntryRepository } from "@usecases/conversation/entry-repository";
+import type { SqliteUnfurlCacheRepository } from "@frameworks/db/conversation/sqlite-unfurl-cache-repository";
+import { parseGithubUrl, fetchGithubMeta } from "@interface-adapters/http/controllers/github-unfurl";
 import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
 
 export interface UseCaseDeps {
@@ -116,7 +119,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
     repos.otter,
     invokeRepo,
   );
-  const sendEntry = new SendEntry(entryRepo, invokeRepo, repos.otter, repos.conversation, { logger, resolveDeps, ...(memoryIndex ? { memoryIndex } : {}) });
+  const sendEntry = buildSendEntry({ entryRepo, invokeRepo, repos, logger, resolveDeps, memoryIndex });
   return {
     manageConversation, manageMemory, manageTerminology, searchMemory, scanDarkEntries,
     queryMessage, manageReadState, manageParticipant, manageKeyInfo, recordSearchQuery,
@@ -199,4 +202,125 @@ function buildMemoryUseCases(
   const deleteEdge = new DeleteEdge(repos.memoryWriter);
   const getDocProvenance = new GetDocProvenance(repos.memoryReader, repos.feature, repos.research);
   return { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries };
+}
+
+/** SendEntry 装配（拆出降 initUseCases 行数——max-lines-per-function 60） */
+function buildSendEntry(opts: {
+  entryRepo: EntryRepository;
+  invokeRepo: InvokeRepository;
+  repos: Repositories;
+  logger: Logger;
+  resolveDeps: ResolveTargetsDeps;
+  memoryIndex?: MemoryIndexGateway;
+}): SendEntry {
+  return new SendEntry(opts.entryRepo, opts.invokeRepo, opts.repos.otter, opts.repos.conversation, {
+    logger: opts.logger,
+    resolveDeps: opts.resolveDeps,
+    ...(opts.memoryIndex ? { memoryIndex: opts.memoryIndex } : {}),
+    // F20261013csv3 T1：unfurl 预抓取钩子（非阻断——逐 URL 后台抓取，失败落 failed 记录）
+    unfurlPrefetch: buildUnfurlPrefetch(opts.repos.unfurlCache, opts.logger),
+  });
+}
+
+/**
+ * F20261013csv3 T1：unfurl 预抓取回调装配（send-entry 钩子 → 后台抓取落库）。
+ * 逐 URL 非阻断：已有缓存记录（另一并发请求抓过）跳过；失败落 failed 记录。
+ * 直接调 gh/og 抓取逻辑而不复用 UnfurlController——避免 usecases → interface-adapters
+ * 反向依赖；抓取主流程（分路/TTL/落库）在此内联最小实现。
+ */
+function buildUnfurlPrefetch(
+  cache: SqliteUnfurlCacheRepository,
+  logger: Logger,
+): (urls: string[]) => void {
+  return (urls) => {
+    for (const url of urls) {
+      if (cache.has(url)) continue;
+      void prefetchOne(url, cache).catch((err: unknown) => {
+        logger.warn(`[unfurl] prefetch failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    }
+  };
+}
+
+/** 单 URL 后台抓取（与 unfurl-controller.fetchAndCache 同分路：GitHub 走 gh，其余走 og） */
+async function prefetchOne(url: string, cache: SqliteUnfurlCacheRepository): Promise<void> {
+  const gh = parseGithubUrl(url);
+  const now = new Date().toISOString();
+  try {
+    if (gh) {
+      const meta = await fetchGithubMeta(gh);
+      cache.put({
+        url,
+        title: meta.title,
+        description: meta.description,
+        image: null,
+        siteName: "GitHub",
+        host: "github.com",
+        source: "github-api",
+        state: meta.state,
+        additions: meta.additions,
+        deletions: meta.deletions,
+        error: null,
+        fetchedAt: now,
+      });
+      return;
+    }
+    // og 抓取（精简版——与 controller 同超时/体积预算）
+    const resp = await fetch(url, {
+      signal: AbortSignal.timeout(5000),
+      redirect: "follow",
+      headers: {
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+        accept: "text/html,application/xhtml+xml",
+      },
+    });
+    if (!resp.ok) {
+      cache.put({ url, title: null, description: null, image: null, siteName: null, host: safeHostname(url), source: "failed", state: null, additions: null, deletions: null, error: `HTTP ${resp.status}`, fetchedAt: now });
+      return;
+    }
+    const body = (await resp.text()).slice(0, 512 * 1024);
+    const title = pickOg(body, "og:title");
+    const description = pickOg(body, "og:description");
+    const image = pickOg(body, "og:image");
+    const siteName = pickOg(body, "og:site_name");
+    if (!title && !description && !image) {
+      cache.put({ url, title: null, description: null, image: null, siteName: null, host: safeHostname(url), source: "failed", state: null, additions: null, deletions: null, error: "no preview metadata", fetchedAt: now });
+      return;
+    }
+    cache.put({ url, title, description, image, siteName, host: safeHostname(url), source: "og", state: null, additions: null, deletions: null, error: null, fetchedAt: now });
+  } catch (err) {
+    cache.put({
+      url,
+      title: null, description: null, image: null, siteName: null,
+      host: safeHostname(url),
+      source: "failed",
+      state: null, additions: null, deletions: null,
+      error: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200),
+      fetchedAt: now,
+    });
+  }
+}
+
+/** og meta 提取（与 unfurl-controller.pickMeta 同正则口径） */
+function pickOg(html: string, key: string): string | null {
+  const metaRe = /<meta\b[^>]*>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = metaRe.exec(html)) !== null) {
+    const tag = m[0];
+    const propMatch = /(?:property|name)\s*=\s*["']([^"']+)["']/i.exec(tag);
+    if (!propMatch || propMatch[1].toLowerCase() !== key) continue;
+    const contentMatch = /content\s*=\s*["']([^"']*)["']/i.exec(tag);
+    if (!contentMatch) continue;
+    const val = contentMatch[1].trim();
+    return val.length > 0 ? val.slice(0, 500) : null;
+  }
+  return null;
+}
+
+function safeHostname(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
 }

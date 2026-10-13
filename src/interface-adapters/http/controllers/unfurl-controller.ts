@@ -1,18 +1,30 @@
 import type { Context } from "hono";
 import type { Logger } from "@usecases/ports/logger";
+import type {
+  SqliteUnfurlCacheRepository,
+  UnfurlCacheRow,
+} from "@frameworks/db/conversation/sqlite-unfurl-cache-repository";
+import { unfurlNowIso } from "@frameworks/db/conversation/sqlite-unfurl-cache-repository";
+import { fetchGithubMeta, parseGithubUrl } from "./github-unfurl";
 
-/** F20261008csf1：链类 unfurl 预览卡数据端点——服务端代理抓取目标页 og 元数据。
+/**
+ * F20261013csv3 T1：链类 unfurl 预览卡数据端点——「数据先行」架构翻转。
  *
- * Why 服务端代理而非前端直连：①CORS——绝大多数外部站点不放行浏览器跨域读 HTML；
- * ②隐私/安全——目标站只见到服务端 IP，且可做 SSRF 防护（仅 http/https、禁内网段）。
+ * 旧架构（F20261008csf1）：渲染时实时抓取 og + 失败静默退文本（41% 失败率无人察觉）。
+ * 本架构（P1 原则）：抓取结果（含失败）落库 unfurl_cache，渲染读库——同一条消息
+ * 不再有两种渲染命运；失败是显式状态（source='failed' → 前端失败卡），不静默消失。
  *
- * 降级原则（宪法「不点开就有信息增量」+ 任务要求失败降级）：任何一步失败（超时/非 2xx/
- * 解析不到 og）都返回 404 或 partial——前端拿到 404 即渲染普通链接样式，拿到 partial
- * 就渲染有什么显示什么（favicon+域名兜底总有）。
+ * 三态响应（mimo S1——预抓取未完成是常态：渲染毫秒级 vs 抓取秒级）：
+ * - 200 ok：缓存命中（含 failed 7 天内 / og 永久 / github-api 24h 内）
+ * - 200 pending：记录不存在或 github-api 过期（SWR）——前端显示骨架轮询，后台抓取补位
+ * - 200 failed：source='failed' 且 7 天窗口内——前端渲染显式失败卡（非纯文本降级）
+ * 注：404 保留为 API 契约错误（缺 url 参数/非法协议等 400；内部异常 500 降级 404 兼容旧前端）。
+ *
+ * 抓取分路：GitHub 任意 URL（PR/issue/文件/仓库主页）走 gh CLI 结构化取数
+ * （github-unfurl.ts）；其余 URL 走现有 og 抓取。结果（含失败）写缓存后返回。
  */
 
-/** 抓取预算：超时与体积上限。og 标签都在 <head>，512KB 足够覆盖巨型 head；
- *  到达上限即截断解析（stream 读法实现成本高，先整取+slice——上限内截断等价）。 */
+/** 抓取预算：超时与体积上限。og 标签都在 <head>，512KB 足够覆盖巨型 head */
 const UNFURL_TIMEOUT_MS = 5000;
 const UNFURL_MAX_BYTES = 512 * 1024;
 
@@ -88,12 +100,19 @@ export interface UnfurlResult {
   siteName: string | null;
   /** 归一化后的站点域名（favicon 兜底数据源） */
   host: string;
+  /** F20261013csv3：结构化来源标识（og 抓取 / github-api 结构化取数） */
+  source: "og" | "github-api";
+  /** github-api 记录的 PR/issue 状态（open/merged/closed）——前端状态徽章数据源 */
+  state?: string | null;
+  /** github-api 记录的 PR diff stat（T2 产物卡 join 投影数据源） */
+  additions?: number | null;
+  deletions?: number | null;
 }
 
 /** 从 <head> 片段提取 og 元数据。属性顺序两种形态都收：
  *  <meta property="og:title" content=".."> 与 <meta content=".." property="og:title">。
  *  正则而非 DOM 解析：服务端不引新依赖（cheerio/jsdom 均为重依赖），og 标签形态
- *  足够规整（meta 无嵌套），正则覆盖真实网页的绝大头——失败降级普通链接，不追求全量。 */
+ *  足够规整（meta 无嵌套），正则覆盖真实网页的绝大头——失败落 failed 记录，不追求全量。 */
 function pickMeta(html: string, key: string): string | null {
   // 匹配整个 meta 标签后从中取 content——避免 content 在 property 前/后两种顺序的分叉处理
   const metaRe = /<meta\b[^>]*>/gi;
@@ -131,30 +150,157 @@ function pickTitleTag(html: string): string | null {
   return val.length > 0 ? val : null;
 }
 
-export class UnfurlController {
-  constructor(private readonly logger: Logger) {}
+/** 三态响应载荷（与前端 UnfurlCard 的 UnfurlResponse 对齐） */
+type UnfurlResponse =
+  | { status: "ok"; data: UnfurlResult }
+  | { status: "failed"; url: string; error: string; host: string }
+  | { status: "pending"; url: string };
 
-  /** GET /api/unfurl?url=<encoded> → UnfurlResult | 404（不可预览则前端降级普通链接） */
+export class UnfurlController {
+  constructor(
+    private readonly logger: Logger,
+    private readonly cache: SqliteUnfurlCacheRepository,
+  ) {}
+
+  /**
+   * GET /api/unfurl?url=<encoded>
+   * 三态：ok（缓存命中含失败窗口）/ failed（显式失败记录）/ pending（未抓取→后台补位）。
+   * 内部异常降级 404（兼容旧前端「无预览」语义）；入参非法 400。
+   */
   async get(c: Context): Promise<Response> {
     try {
       const parsed = this.parseTarget(c.req.query("url"));
       if ("error" in parsed) return c.json({ error: parsed.error }, parsed.status);
       const target = parsed.url;
 
-      const result = await this.fetchWithTimeout(target);
-      if (!result.ok) return c.json({ error: "fetch failed" }, 404);
+      const cached = this.cache.get(target.href);
+      if (cached.kind === "hit" && cached.row) {
+        return c.json(this.rowToResponse(cached.row));
+      }
+      if (cached.kind === "stale" && cached.row) {
+        // github-api 24h SWR（R4）：先返回旧值，后台刷新结果下次渲染生效（不做实时推送）
+        this.triggerBackgroundFetch(target.href);
+        return c.json(this.rowToResponse(cached.row));
+      }
 
-      const payload = this.extractPreview(result.body, target);
-      if (!payload) return c.json({ error: "no preview" }, 404);
-      // 60s 缓存——预览卡数据不可变性强（标题/截图不会秒变），且防同一会话多卡重复抓
-      c.header("Cache-Control", "private, max-age=60");
-      return c.json(payload);
+      // miss：无记录（发送时预抓取漏网/历史消息兜底）——返回 pending + 后台抓取补位。
+      // 前端骨架轮询（500ms×12，~6s），下一次轮询命中已落库的结果。
+      this.triggerBackgroundFetch(target.href);
+      const body: UnfurlResponse = { status: "pending", url: target.href };
+      return c.json(body);
     } catch (err) {
-      // 超时/网络层失败走统一 404 降级（降级语义是「没预览」而非「服务出错」——
-      // 前端只区分「有卡/无卡」）
       this.logger.warn(`[unfurl] failed: ${err instanceof Error ? err.message : String(err)}`);
+      // 内部异常降级 404——旧前端拿到 404 渲染普通链接（兼容路径）
       return c.json({ error: "unfurl failed" }, 404);
     }
+  }
+
+  /** 后台抓取补位（不阻塞响应——pending 三态覆盖竞争窗口）。已有记录（另一并发请求
+   *  正在抓）时跳过，避免重复抓取。异常仅记日志——结果状态由下一次落库/轮询呈现。 */
+  private triggerBackgroundFetch(url: string): void {
+    if (this.cache.has(url)) return;
+    void this.fetchAndCache(url).catch(err => {
+      this.logger.warn(`[unfurl] background fetch failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }
+
+  /** 抓取主流程：GitHub URL 走 gh CLI 结构化取数；其余走 og 抓取。结果（含失败）落库。 */
+  async fetchAndCache(url: string): Promise<UnfurlResponse> {
+    const gh = parseGithubUrl(url);
+    try {
+      if (gh) {
+        const meta = await fetchGithubMeta(gh);
+        const row: UnfurlCacheRow = {
+          url,
+          title: meta.title,
+          description: meta.description,
+          image: null,
+          siteName: "GitHub",
+          host: "github.com",
+          source: "github-api",
+          state: meta.state,
+          additions: meta.additions,
+          deletions: meta.deletions,
+          error: null,
+          fetchedAt: unfurlNowIso(),
+        };
+        this.cache.put(row);
+        const data: UnfurlResult = {
+          url, title: meta.title, description: meta.description, image: null,
+          siteName: "GitHub", host: "github.com", source: "github-api",
+          state: meta.state, additions: meta.additions, deletions: meta.deletions,
+        };
+        return { status: "ok", data };
+      }
+
+      // og 抓取路径
+      const target = new URL(url);
+      const result = await this.fetchWithTimeout(target);
+      if (!result.ok) {
+        return this.putFailed(url, target.hostname, `fetch failed: HTTP ${result.status}`);
+      }
+      const payload = this.extractPreview(result.body, target);
+      if (!payload) {
+        return this.putFailed(url, target.hostname, "no preview metadata");
+      }
+      this.cache.put({
+        url,
+        title: payload.title,
+        description: payload.description,
+        image: payload.image,
+        siteName: payload.siteName,
+        host: payload.host,
+        source: "og",
+        state: null,
+        additions: null,
+        deletions: null,
+        error: null,
+        fetchedAt: unfurlNowIso(),
+      });
+      return { status: "ok", data: payload };
+    } catch (err) {
+      const host = safeHost(url);
+      return this.putFailed(url, host, err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /** 失败落库（source='failed'）并返回 failed 响应——失败是显式状态，不静默退文本 */
+  private putFailed(url: string, host: string, error: string): UnfurlResponse {
+    this.cache.put({
+      url,
+      title: null,
+      description: null,
+      image: null,
+      siteName: null,
+      host,
+      source: "failed",
+      state: null,
+      additions: null,
+      deletions: null,
+      error: error.slice(0, 200),
+      fetchedAt: unfurlNowIso(),
+    });
+    return { status: "failed", url, error: error.slice(0, 200), host };
+  }
+
+  /** 缓存行 → 三态响应。failed 记录（7 天窗口内）渲染显式失败卡 */
+  private rowToResponse(row: UnfurlCacheRow): UnfurlResponse {
+    if (row.source === "failed") {
+      return { status: "failed", url: row.url, error: row.error ?? "unknown", host: row.host };
+    }
+    const data: UnfurlResult = {
+      url: row.url,
+      title: row.title,
+      description: row.description,
+      image: row.image,
+      siteName: row.siteName,
+      host: row.host,
+      source: row.source,
+      state: row.state,
+      additions: row.additions,
+      deletions: row.deletions,
+    };
+    return { status: "ok", data };
   }
 
   /** 入参校验：URL 解析 + 协议白名单 + SSRF 内网段拦截。返回 {url} 或 {error,status} */
@@ -175,7 +321,7 @@ export class UnfurlController {
     return { url: target };
   }
 
-  /** 从 HTML 提取预览数据；og/title/description/image 全空时返回 null（前端降级普通链接） */
+  /** 从 HTML 提取预览数据；og/title/description/image 全空时返回 null（落 failed 记录） */
   private extractPreview(htmlFull: string, target: URL): UnfurlResult | null {
     const html = htmlFull.slice(0, UNFURL_MAX_BYTES);
     const title = pickMeta(html, "og:title") ?? pickTitleTag(html);
@@ -193,8 +339,7 @@ export class UnfurlController {
       }
     }
 
-    // og 全空且 title 也抓不到 → 无信息增量，让前端降级普通链接（宪法「不点开就有
-    // 信息增量」的反例：空卡片比纯链接更碍眼）
+    // og 全空且 title 也抓不到 → 无信息增量，落 failed 记录（显式状态，非静默）
     if (!title && !description && !image) return null;
 
     return {
@@ -204,11 +349,12 @@ export class UnfurlController {
       image,
       siteName,
       host: target.hostname,
+      source: "og",
     };
   }
 
   /** 带 AbortSignal.timeout 的抓取；Content-Type 非 HTML 直接判失败（PDF/图等无 og 可抓） */
-  private async fetchWithTimeout(target: URL): Promise<{ ok: boolean; body: string }> {
+  private async fetchWithTimeout(target: URL): Promise<{ ok: boolean; status: number; body: string }> {
     const resp = await fetch(target.href, {
       signal: AbortSignal.timeout(UNFURL_TIMEOUT_MS),
       redirect: "follow",
@@ -218,12 +364,20 @@ export class UnfurlController {
         accept: "text/html,application/xhtml+xml",
       },
     });
-    if (!resp.ok) return { ok: false, body: "" };
+    if (!resp.ok) return { ok: false, status: resp.status, body: "" };
     const ctype = resp.headers.get("content-type") ?? "";
     if (!ctype.includes("text/html") && !ctype.includes("application/xhtml")) {
-      return { ok: false, body: "" };
+      return { ok: false, status: resp.status, body: "" };
     }
     const body = await resp.text();
-    return { ok: true, body };
+    return { ok: true, status: resp.status, body };
+  }
+}
+
+function safeHost(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
   }
 }

@@ -21,8 +21,20 @@ import { SqliteAttachmentRepository } from "@frameworks/db/attachment/sqlite-att
 import { SqliteEntryRepository } from "@frameworks/db/conversation/sqlite-entry-repository";
 import { SqliteInvokeRepository } from "@frameworks/db/conversation/sqlite-invoke-repository";
 import { SqliteResumePendingRepository } from "@frameworks/db/conversation/sqlite-resume-pending-repository";
+import { SqliteUnfurlCacheRepository } from "@frameworks/db/conversation/sqlite-unfurl-cache-repository";
 
 import type { Logger } from "@usecases/ports/logger";
+
+/** logger 缺省时的最小静默兜底（bootstrap 测试路径可能不传 logger；静默防测试噪声） */
+function consoleLogger(): Logger {
+  return {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    child: () => consoleLogger(),
+  };
+}
 
 export function initRepositories(db: Database.Database, logger?: Logger): Repositories {
   const memoryRepo = new SqliteMemoryRepository(db);
@@ -57,6 +69,8 @@ export function initRepositories(db: Database.Database, logger?: Logger): Reposi
     entry: new SqliteEntryRepository(db),
     /** F20260913ctlv：invoke 生命周期仓库 */
     invoke: new SqliteInvokeRepository(db),
+    /** F20260913csv3 T1：unfurl 预览缓存（P1 数据先行——抓取结果落库，渲染读库） */
+    unfurlCache: new SqliteUnfurlCacheRepository(db, logger ?? consoleLogger()),
     /** F20260916b1ea：重启自动恢复队列（restart_pending_resumes 重建） */
     resumePending: new SqliteResumePendingRepository(db),
   };

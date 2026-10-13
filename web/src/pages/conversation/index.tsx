@@ -272,6 +272,9 @@ export default function ConversationPage() {
   useConversationListPolling(pageState !== 'loading' && pageState !== 'error', setConversations, visibleConvIds)
 
   /** F20260922cgrp：「加载更多」机制退役——分组分页由 LeftPanel 内部管理（每页 20 条页码跳转） */
+  /** F20261013csv3 T5：过程明细开关（内存态——刷新回默认关闭；不持久化偏好） */
+  const [showProcessDetail, setShowProcessDetail] = useState(false)
+
   const loadConversationDetail = useCallback(async (convId: string) => {
     // 检视发现 3：切对话时清理上一会话未触发的重试定时器（防旧会话 invoke 状态滞后写进新会话）
     invokeRetryTimersRef.current.forEach(clearTimeout)
@@ -283,7 +286,8 @@ export default function ConversationPage() {
       // 切对话发现右栏状态错、手动刷新才恢复（issue #1134 入口 A）。
       const invokesPromise = api.listInvokes(convId, { limit: 50 })
       const [entriesResp, keyInfo, participants] = await Promise.all([
-        api.listEntries(convId, 50),
+        // F20261013csv3 T5：开关打开时批量投影工具调用明细（includeEvents=true）
+        showProcessDetail ? api.listEntriesWithEvents(convId, 50) : api.listEntries(convId, 50),
         api.getKeyResources(convId),
         api.getParticipants(convId),
       ])
@@ -332,7 +336,7 @@ export default function ConversationPage() {
       console.error('Failed to load conversation detail:', err)
       showToast('加载对话详情失败', 'error')
     }
-  }, [ackActiveRead, syncInvokeStatesFromServer])
+  }, [ackActiveRead, syncInvokeStatesFromServer, showProcessDetail])
 
   /** 静默刷新消息列表（轮询/对账用，失败不打扰用户，下轮重试） */
   /** F20260913ctlv 增量刷新；F20261005vsyc 重构：尾页快照 + mergeMessages 幂等合并。
@@ -1622,7 +1626,7 @@ export default function ConversationPage() {
         >
           <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
         </div>
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => navigate('/settings')} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} pinRef={pinRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} linkedResources={activeLinkedRes} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => navigate('/settings')} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} pinRef={pinRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} linkedResources={activeLinkedRes} showProcessDetail={showProcessDetail} onToggleProcessDetail={() => setShowProcessDetail(v => !v)} />
         {/* 右栏：≥lg 常驻；<lg 抽屉化。md~lg 区间聊天区 = 全宽 - 左栏(224px)，不再被右栏挤 <500px */}
         <div
           id="right-panel-drawer"

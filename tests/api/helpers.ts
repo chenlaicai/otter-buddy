@@ -29,6 +29,13 @@ import { DispatchChainEngine } from "../../src/usecases/conversation/dispatch-ch
 import type { OtterConfigProvider } from "../../src/usecases/ports/otter-config-provider";
 import type { ModelPoolLike } from "../../src/usecases/ports/model-pool-like";
 import { createTestLogger } from "../helpers/logger";
+import { createTestDb } from "../helpers/db";
+import { SqliteUnfurlCacheRepository } from "../../src/frameworks/db/conversation/sqlite-unfurl-cache-repository";
+
+/** F20261013csv3 T1：测试用内存 unfurl_cache（独立实例，测试间零共享） */
+function makeUnfurlCache(): SqliteUnfurlCacheRepository {
+  return new SqliteUnfurlCacheRepository(createTestDb(), createTestLogger());
+}
 
 /** 解析 Response JSON（避免 strict 模式下 unknown 报错） */
 export async function json(res: Response): Promise<any> {
@@ -471,11 +478,13 @@ export function createTestApp(deps: TestDeps): Hono {
     deps.agentInvoker,
   );
   // F20260913ctlv 切换清扫：entries 时间线只读查询端点——默认内存 stub
+  // F20261013csv3 T5：第三参 invokeRepo（includeEvents=true 批量投影数据源；缺省空实现）
   const entryCtrl = new EntryController(
     (deps.entryRepo ?? {
       getEntries: async () => [],
     }) as unknown as ConstructorParameters<typeof EntryController>[0],
     logger,
+    (deps.invokeRepo ?? {}) as ConstructorParameters<typeof EntryController>[2],
   );
   const otterCtrl = new OtterController(
     deps.createOtterUseCase,
@@ -545,8 +554,8 @@ export function createTestApp(deps: TestDeps): Hono {
     activity: {} as any,
     /* F20261006mtlp P1：待办板只读（默认空实现，matter 专项测试另建真 sqlite） */
     matter: {} as any,
-    /* F20261008csf1 P1：unfurl 真实现（无外部依赖，抓取走全局 fetch 可被测试 stub） */
-    unfurl: new UnfurlController(logger),
+    /* F20261013csv3 T1：unfurl 三态控制器（缓存读写 + gh 取数；默认内存 sqlite cache） */
+    unfurl: new UnfurlController(logger, makeUnfurlCache()),
     /* F20261012qtbc：配额端点 mock（逻辑专项测试在 tests/usecases/quota，此处仅满足装配） */
     quota: {} as any,
   };

@@ -103,3 +103,38 @@ describe('预设类库注入（F20261006cssp）', () => {
     expect(iframe).toBeFalsy()
   })
 })
+
+/** F20261013csv3 T3/T4：折叠态摘要行 + importance 默认展开 */
+describe('折叠态摘要行 + importance 默认展开（F20261013csv3）', () => {
+  it('importance=high 默认展开（iframe 渲染），不显示折叠态摘要行', () => {
+    act(() => {
+      root.render(
+        <HtmlCard cardId="m:0" fenceIndex={0} title="简报" code="<p>关键结论：方案 B 最优</p>" interactive={false} authorId="o-1" importance="high" foldedSummary="关键结论：方案 B 最优" />,
+      )
+    })
+    expect(container.querySelector('iframe'), 'high 卡默认展开').toBeTruthy()
+    expect(container.textContent).toContain('简报')
+  })
+
+  it('importance 缺省（normal）默认折叠，折叠态渲染摘要行', () => {
+    act(() => {
+      root.render(
+        <HtmlCard cardId="m:0" fenceIndex={0} title="普通卡" code="<p>摘要文本</p>" interactive={false} authorId="o-1" foldedSummary="摘要文本" />,
+      )
+    })
+    expect(container.querySelector('iframe'), 'normal 卡默认折叠（无 iframe）').toBeNull()
+    expect(container.textContent).toContain('摘要文本')
+    expect(container.textContent).toContain('普通卡')
+  })
+
+  it('折叠态无摘要（foldedSummary=null）时不渲染摘要行', () => {
+    act(() => {
+      root.render(
+        <HtmlCard cardId="m:0" fenceIndex={0} title="空摘要" code="<script>x()</script>" interactive={false} authorId="o-1" foldedSummary={null} />,
+      )
+    })
+    expect(container.textContent).toContain('空摘要')
+    // 折叠态只有标题行（无摘要 div 的 pb-2 区块）
+    expect(container.querySelector('.pb-2'), '无摘要行').toBeNull()
+  })
+})

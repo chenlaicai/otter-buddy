@@ -19,6 +19,26 @@ import { OTTER_PALETTE_KEYS } from "@contract/api/otter-palette";
 export function migrateDatabase(db: Database.Database, logger: Logger): void {
   ensureAgentSessionFileColumn(db, logger);
   ensureMessagesSourceAndSenderNameColumns(db, logger);
+  // F20261013csv3 T1：unfurl_cache 幂等建表（与 schema.ts 单点登记同 DDL，
+  // 老库补建走本补丁，新库直建走 schema.ts——migration-equivalence guard 锁一致性）。
+  // fetched_at 无 SQL DEFAULT：应用层 ISO 8601 写入（空格格式混排会产生字典序偏移——R2）。
+  // state/additions/deletions：github-api 结构化字段（T2 join 投影数据源）。
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS unfurl_cache (
+      url TEXT PRIMARY KEY,
+      title TEXT,
+      description TEXT,
+      image TEXT,
+      site_name TEXT,
+      host TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'og',
+      state TEXT,
+      additions INTEGER,
+      deletions INTEGER,
+      error TEXT,
+      fetched_at TEXT NOT NULL
+    )
+  `).run();
 
   // 创建 otter_configs 表。
   // #506 注：此表未纳入 schema.ts（历史原因），仅此一处定义——

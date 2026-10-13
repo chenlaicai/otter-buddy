@@ -1,4 +1,4 @@
-import type { OtterDTO, ConversationDTO, ConversationListItemDTO, MessageDTO, OtterSessionDTO, LinkedResourceDTO, ParticipantDTO, EntryDTO } from '@contract/api'
+import type { OtterDTO, ConversationDTO, ConversationListItemDTO, MessageDTO, OtterSessionDTO, LinkedResourceDTO, ParticipantDTO, EntryDTO, FoldedStepDTO } from '@contract/api'
 
 /** 前端本地 Otter 类型（UI 渲染用） */
 export interface LocalOtter {
@@ -125,6 +125,9 @@ export interface LocalMessage {
   /** F20260916hcel：html-card schema版本（保留字段，供未来默认状态变化用；当前所有卡默认折叠）。
    *  ≥2 → 默认 expanded；缺失 → 默认 collapsed */
   cardSchemaVersion?: number
+  /** F20261013csv3 T5：过程明细（?includeEvents=true 批量投影——foldInvokeEvents 同源
+   *  折叠步；仅 invoke 关联条目携带；开关关闭时不存在此字段） */
+  foldedEvents?: FoldedStepDTO[]
 }
 
 // ── F20260913ctlv：时间线条目类型 ──
@@ -188,6 +191,18 @@ export interface LocalLinkedResource {
   status: 'active' | 'superseded' | 'archived'
   /** F20261008csf1 P1：登记时间——中间栏产物卡按时间轴混排的定位依据 */
   createdAt?: string
+  /** F20261013csv3 T2：unfurl join 投影（PR 卡 diff stat + 状态徽章数据源；
+   *  null = 未抓取/落空） */
+  unfurl?: {
+    source: 'og' | 'github-api' | 'failed'
+    title: string | null
+    description: string | null
+    error: string | null
+    /** PR/issue 状态（open/merged/closed/draft）——与 UnfurlCard 徽章同口径 */
+    state: string | null
+    additions: number | null
+    deletions: number | null
+  } | null
 }
 
 /** 前端本地 OtterSession 类型 */
@@ -292,6 +307,8 @@ export function mapEntryDTO(dto: EntryDTO): LocalMessage {
     yieldTargets: dto.yieldTargets ?? undefined,
     // F20260913ctlv 终审修复：附件透出（与 mapMessageDTO 的 atts 映射同款）
     ...(dto.attachments && { atts: dto.attachments }),
+    // F20261013csv3 T5：过程明细投影（includeEvents=true 时携带——foldInvokeEvents 同源折叠步）
+    ...(dto.events && { foldedEvents: dto.events }),
   }
 }
 
@@ -322,6 +339,8 @@ export function mapLinkedResourceDTO(dto: LinkedResourceDTO): LocalLinkedResourc
     // F20261008csf1 P1：登记时间透出（产物卡混排时间轴定位）
     createdAt: dto.createdAt,
     status: dto.status,
+    // F20261013csv3 T2：unfurl join 投影直透（PR 卡 diff stat/状态徽章数据源）
+    unfurl: dto.unfurl ?? null,
   }
 }
 

@@ -169,6 +169,13 @@ export function listEntries(conversationId: string, limit = 50, before?: string)
   return request(`/conversations/${conversationId}/entries?${qs}`)
 }
 
+/** F20261013csv3 T5：过程明细开关——includeEvents=true 批量投影工具调用明细 */
+export function listEntriesWithEvents(conversationId: string, limit = 50, before?: string): Promise<EntriesResponseDTO> {
+  const qs = new URLSearchParams({ limit: String(limit), includeEvents: 'true' })
+  if (before) qs.set('before', before)
+  return request(`/conversations/${conversationId}/entries?${qs}`)
+}
+
 /** F20260913ctlv 彻底切换：after 游标向下分页（增量刷新用，升序） */
 export function listEntriesAfter(conversationId: string, after: string, limit = 100): Promise<EntriesResponseDTO> {
   const qs = new URLSearchParams({ limit: String(limit), after })

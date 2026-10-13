@@ -35,6 +35,7 @@ import { PromptController, type PromptDirectory } from "@interface-adapters/http
 import { HealthController } from "@interface-adapters/http/controllers/health-controller";
 import { InboundController } from "@interface-adapters/http/controllers/inbound-controller";
 import { KeyInfoController } from "@interface-adapters/http/controllers/key-info-controller";
+import type { ManageKeyInfo } from "@usecases/conversation/manage-key-info";
 import { SettingsController } from "@interface-adapters/http/controllers/settings-controller";
 import { ScheduledTaskController } from "@interface-adapters/http/controllers/scheduled-task-controller";
 import { MatterController } from "@interface-adapters/http/controllers/matter-controller";
@@ -142,6 +143,23 @@ function buildChannelController(deps: ControllerDeps) {
   return new ChannelController(deps.registry, deps.weixinAccountStore);
 }
 
+/** F20261013csv3 T2：KeyInfoController 装配——注入 unfurl 缓存（join 投影）+
+ *  登记侧预抓取回调（非阻断包一层异常捕获——抓取失败由 unfurl 控制器落 failed 记录）。 */
+function buildKeyInfoController(
+  manageKeyInfo: ManageKeyInfo,
+  logger: Logger,
+  repos: Repositories,
+  unfurl: { fetchAndCache: (url: string) => Promise<unknown> },
+) {
+  const controller = new KeyInfoController(manageKeyInfo, logger, repos.unfurlCache);
+  controller.onPrefetch = (url) => {
+    void unfurl
+      .fetchAndCache(url)
+      .catch((err: unknown) => logger.warn(`[unfurl] prefetch failed: ${err instanceof Error ? err.message : String(err)}`));
+  };
+  return controller;
+}
+
 function buildAttachmentInjection(deps: ControllerDeps, appConfig: AppConfig, repos: Repositories, logger: Logger) {
   return new AttachmentInjectionService({
     attachmentRepo: deps.attachmentRepo ?? repos.attachment,
@@ -217,6 +235,8 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
   const settings = buildSettingsConfig(appConfig);
   const nodeFs = new NodeFileSystem();
   const rootDir = process.cwd();
+  /** F20261013csv3 T1：unfurl 预览卡控制器（先建实例——T2 的 keyInfo 装配需引用其预抓取） */
+  const unfurlController = new UnfurlController(logger, repos.unfurlCache);
 
   /** 多模态 Phase 1（审视修复 R4/R7）：附件注入服务——校验+真图+document 文本组装均在此（usecases 层策略） */
   const attachmentInjection = buildAttachmentInjection(deps, appConfig, repos, logger);
@@ -240,16 +260,15 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
     // F20260913ctlv 彻底切换：invoke 查询 + 中止 + 重试（自足调度链）
     invoke: new InvokeController(repos.invoke, logger, agentInvoker, dispatchChainEngine, messageBroadcaster),
     // F20260913ctlv 切换清扫：entries 时间线只读查询端点（前端历史数据源）
-    entry: new EntryController(repos.entry, logger),
+    entry: new EntryController(repos.entry, logger, repos.invoke),
     memory: new MemoryController(uc.searchMemory, uc.manageMemory, uc.scanDarkEntries, embeddingGateway, { repo: repos.memory, logger }),
-    keyInfo: new KeyInfoController(uc.manageKeyInfo, logger),
+    keyInfo: buildKeyInfoController(uc.manageKeyInfo, logger, repos, unfurlController),
     settings: new SettingsController(settings, settingsRepo, modelPool, logger, updateDefaultModelInYaml),
     scheduledTask: new ScheduledTaskController(uc.manageScheduledTask, schedulerService, cronParser, logger),
     // F20261006mtlp P1：待办板只读（matters 表 open 清单——右侧栏第五 tab 数据源）
     matter: new MatterController(repos.matter, logger),
-    // F20261008csf1 P1：链类 unfurl 预览卡数据源（og 元数据代理抓取，无外部依赖）
-    unfurl: new UnfurlController(logger),
-    connection: new ConnectionController(uc.manageConnection, logger),
+    // F20261013csv3 T1：链类 unfurl 预览卡——缓存读库 + gh 结构化取数 + pending 三态
+    unfurl: unfurlController,    connection: new ConnectionController(uc.manageConnection, logger),
     health: new HealthController(featureRepo, researchRepo, embeddingGateway, nodeFs, rootDir, logger),
     rhi: new RhiController(healthSnapshotRepo, signalRepo, rhiScanWorker, logger),
     quota: createQuotaController(appConfig, logger),

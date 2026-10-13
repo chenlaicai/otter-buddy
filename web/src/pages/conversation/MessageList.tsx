@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import type { Element as HastElement } from 'hast'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { AlertTriangle, Square, Copy, Check, Clock, RotateCcw, FileText, Zap, Moon, ArrowRight, X } from 'lucide-react'
+import { AlertTriangle, Square, Copy, Check, Clock, RotateCcw, FileText, Zap, Moon, ArrowRight, X, Wrench, Brain, MessageSquare, User } from 'lucide-react'
 import type { LocalMessage as Message, LocalOtter as Otter, LocalAttachment } from '../../lib/mappers'
 import { deriveEntryType, centeredEntryText } from '../../lib/mappers'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
@@ -13,7 +13,7 @@ import { getUserAvatar } from '../../lib/otter-avatars'
 import { OtterAvatar } from '../../components/OtterAvatar'
 import { fmtTokens, ctxPercent, fmtTime } from '../../lib/utils'
 import { fmtBytes } from '../../lib/attachments'
-import { parseCardTitle } from '../../lib/html-card'
+import { parseCardTitle, parseCardImportance, extractFoldedSummary } from '../../lib/html-card'
 import { remarkHtmlCardIndex } from '../../lib/remark-html-card-index'
 import { remarkBareLink } from '../../lib/remark-bare-link'
 import { HtmlCard } from './HtmlCard'
@@ -111,6 +111,8 @@ function CardAwareCode({ className, children, node, ...props }: CodeComponentPro
         authorId={ctx.authorId}
         cardSchemaVersion={ctx.cardSchemaVersion}
         playable={playable}
+        importance={parseCardImportance(meta)}
+        foldedSummary={extractFoldedSummary(text)}
       />
     )
   }
@@ -770,8 +772,10 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
     // 实时路径已由 index.tsx 映射，双重 map 幂等（名字不是 otterId 时原样返回）
     const mappedTargets = m.yieldTargets?.map(t => otters.find(o => o.id === t)?.name || t)
     const text = centeredEntryText(mappedTargets ? { ...m, yieldTargets: mappedTargets } : m)
+    // F20261013csv3 T5：过程明细（foldedEvents 携带时渲染——开关打开 + 后端投影返回）
+    const steps = m.foldedEvents
     return (
-      <div className="flex justify-center my-1.5 animate-slideIn">
+      <div className="flex flex-col items-center my-1.5 animate-slideIn">
         <div className="glass-card px-3 py-1 rounded-full flex items-center gap-1.5 text-[11px] text-stone-500 max-w-[80%]">
           {isYield ? (
             <ArrowRight className="w-3 h-3 flex-shrink-0 text-otter-400" />
@@ -783,6 +787,13 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
           <span className="truncate" title={text}>{text}</span>
           <span className="msg-meta text-[10px] flex-shrink-0">{fmtTime(m.ts)}</span>
         </div>
+        {/* T5：工具调用过程明细（折叠步——call/think/speak/error/user 五形） */}
+        {steps && steps.length > 0 && (
+          <div className="mt-1.5 w-full max-w-md rounded-xl border border-stone-200/50 bg-stone-50/40 px-3 py-2 space-y-1">
+            <div className="text-[10px] text-stone-400 mb-1">过程明细（{steps.length} 步）</div>
+            {steps.map((s, i) => <FoldedStepRow key={i} step={s} />)}
+          </div>
+        )}
       </div>
     )
   }
@@ -951,3 +962,53 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
   )
 }
 
+
+/** F20261013csv3 T5：折叠后的工具调用步渲染（call/think/speak/error/user 五形——
+ *  后端 foldInvokeEvents 投影，error 摘要 ≤200 字符，每 invoke ≤20 条） */
+function FoldedStepRow({ step }: { step: import('@contract/api').FoldedStepDTO }) {
+  switch (step.kind) {
+    case 'call': {
+      const status = step.interrupted ? '已中断' : step.pending ? '执行中' : step.isError ? '失败' : '完成'
+      const statusColor = step.interrupted ? 'text-stone-400'
+        : step.pending ? 'text-amber-500'
+        : step.isError ? 'text-red-500'
+        : 'text-teal-600'
+      return (
+        <div className="flex items-center gap-1.5 text-[11px] text-stone-600 min-w-0">
+          <Wrench className="w-3 h-3 text-stone-400 flex-shrink-0" />
+          <span className="font-medium truncate">{step.name}</span>
+          <span className={`flex-shrink-0 ${statusColor}`}>{status}</span>
+          <span className="msg-meta text-[10px] flex-shrink-0 ml-auto">{fmtTime(step.ts)}</span>
+        </div>
+      )
+    }
+    case 'think':
+      return (
+        <div className="flex items-start gap-1.5 text-[11px] text-stone-500 min-w-0">
+          <Brain className="w-3 h-3 text-stone-400 flex-shrink-0 mt-0.5" />
+          <span className="truncate flex-1" title={step.text}>思考：{step.text.slice(0, 100)}{step.text.length > 100 ? '…' : ''}</span>
+        </div>
+      )
+    case 'speak':
+      return (
+        <div className="flex items-start gap-1.5 text-[11px] text-stone-500 min-w-0">
+          <MessageSquare className="w-3 h-3 text-stone-400 flex-shrink-0 mt-0.5" />
+          <span className="truncate flex-1" title={step.body}>发言：{step.body.slice(0, 100)}{step.body.length > 100 ? '…' : ''}</span>
+        </div>
+      )
+    case 'error':
+      return (
+        <div className="flex items-start gap-1.5 text-[11px] text-red-500 min-w-0">
+          <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+          <span className="truncate flex-1" title={step.message}>{step.message.slice(0, 150)}{step.message.length > 150 ? '…' : ''}</span>
+        </div>
+      )
+    case 'user':
+      return (
+        <div className="flex items-start gap-1.5 text-[11px] text-stone-500 min-w-0">
+          <User className="w-3 h-3 text-stone-400 flex-shrink-0 mt-0.5" />
+          <span className="truncate flex-1" title={step.text}>注入：{step.text.slice(0, 100)}{step.text.length > 100 ? '…' : ''}</span>
+        </div>
+      )
+  }
+}
