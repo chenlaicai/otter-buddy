@@ -179,6 +179,9 @@ describe("dispatchTurnLoop 深度上限", () => {
       maxChainDepth: 2,
       invokeRepo: { getInvokeById: async () => ({ id: "inv-1", status: "completed", otterId: "otter-x", talkingStonePassedTo: [], endedAt: new Date().toISOString() }) },
       entryRepo: { getEntries: async () => [], getUnreadEntries: async () => [] },
+      // F20261014czgd：空批兜底依赖 idleStatsRepo.getMaxEntrySeq——stub 缺失会触发降级 warn，
+      // 污染本用例「不发 warn」断言；补 stub 走正常路径（空对话 max(seq)=0）。
+      idleStatsRepo: { getMaxEntrySeq: async () => 0, getLastSpeakBySender: async () => new Map(), getLastInvokeStartedAtByOtter: async () => new Map() },
     });
 
     const sendEntryStub2 = {
