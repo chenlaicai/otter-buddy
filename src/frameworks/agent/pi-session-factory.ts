@@ -1120,15 +1120,19 @@ export class PiSessionFactory implements AgentGateway {
    *  SDK _buildRuntime 每次用 this._cwd 重建全部工具定义（agent-session.js:2910），
    *  invoke 入口重置后 cwd 跟随当前对话。池键维持 otterId 不变。
    *  mock session（测试）可能无 _buildRuntime——检查方法存在再调。 */
+  /** F20261013cwsp S6 处置：池命中时重置 session cwd 到当前对话工作区。
+   *  先 build 后赋 _cwd——_buildRuntime 抛错时 cwd 保持原值，下次池命中重试重建
+   * （原实现先赋后 build：build 失败后 _cwd===cwd 早退，重建永久跳过，工具持续
+   *  读写上一个对话的工作区——静默跨对话串写，检视 S6）。 */
   private async _resetSessionCwd(session: AgentSession, conversationId: string): Promise<void> {
     const cwd = resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data");
     const s = session as unknown as Record<string, unknown>;
     if (s._cwd === cwd) return;
-    s._cwd = cwd;
     const build = s._buildRuntime;
     if (typeof build === "function") {
       await (build as (opts: Record<string, unknown>) => Promise<void>).call(session, {});
     }
+    s._cwd = cwd;
   }
 
   private _transferPoolOwnership(existing: { epoch?: InvokeEpoch }, otterId: string): void {

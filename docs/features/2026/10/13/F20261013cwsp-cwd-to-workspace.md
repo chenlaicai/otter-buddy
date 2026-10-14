@@ -5,7 +5,8 @@ change_type: refactor
 created: 2026-10-13
 created_in_conversation: f3567df1-e24b-49cd-a020-cdb39572f853
 summary: 海獭全部工具 cwd 统一切换对话工作区——createAgentSession({cwd}) 唯一事实源 + invoke 入口重置 cwd（池复用时跟随当前对话）；删除整套工具 override（描述引导未生效 15% bash grep、bash [cwd:] 前缀从未生效 S9、统一工作区下冗余）；守卫 projectRoot 显式注入；命令向量守卫 rewrite
-status: draft
+status: implemented
+capability_test: tests/frameworks/agent/bash-guard-session-cwd.test.ts
 ---
 
 ## 对抗审视处置（检视獭-cwd · MiMo · round 1-8 + 搭档两次拍板）
@@ -37,6 +38,19 @@ S8：`buildPiBuiltinToolDefinitions(process.cwd())` 硬编码主仓，五件套 
 - 统一工作区下前缀**冗余**（cwd 恒=工作区，前缀永远显示同一个值）
 
 **拍板：删 override（选项 3）。** 唯一保留的是 bash 无状态提示（BASH_STATELESS_SUFFIX「每条命令独立 shell，cd 不跨命令保持」）——挪到 SYSTEM.md 或 identity 注入，不在工具描述里。
+
+### 实现层 round-1（10/14 12:21，检视獭-cwd-impl · mimo-pro，PR #1480）
+
+6 项严重发现，4 项修复 + 1 项澄清 + 1 项仲裁上报：
+
+- **S1 守卫逃逸（修复）**：`gitWriteInWorkspace` 整体跳过 checkWriteChannels 收窄为 cwd 上移豁免（`skipGitLiteral` 仅跳过 git 字面 pattern[8] + 结构通道 git 段，one-liner/heredoc 照常跑）；豁免条件收窄为「sessionCwd 绝对路径 ∧ 在 `.otter/worktrees/` 显式 git 工作树内」——树外任意目录 fail-closed（落点不确定）、会话工作区（树内非 git 树）不豁免（git 写族向上发现主仓 .git，正是要根治的污染面）。resolver 绝对化堵相对 cwd 锚点。
+- **S2 旗舰修复失效（修复）**：`resolvesToMainData` 加树内 `data/workspaces/` 落点豁免（F20260923hsyn 重定向豁免同构）；重定向相对目标经 sessionCwd 解析到 workspaces 内放行。fixture 改生产真实形态（树内），树外场景仅作豁免面边界测试。
+- **S3 交付面拆分（声明）**：T4（SYSTEM.md 无状态提示）/ T5 完整 rewrite（cwd 上移语义已随 S1 处置落地，旧含义的文本 rewrite 不需要）/ ~51 处 prompt 扫改 / lint-prompt-paths 均不在本 PR——拆分为合入后跟随任务，本 PR 交付守卫 cwd 感知 + resolver + factory 接线。
+- **S4 CI 红（修复）**：PR 标题补 `[session]` 模块段。
+- **S5 撞车（上报）**：open PR #1433（写落点求值器转正）与本 PR 同文件域——S1 修复刻意最小侵入（GuardCwdCtx 打包收窄参数面、cwd 感知集中在 checkMainCheckoutWrite/judgeSegment 两点），降低归一冲突；合入顺序呈搭档仲裁。
+- **S6 半完成态（修复）**：`_resetSessionCwd` 改先 build 后赋 `_cwd`，build 失败保旧值下次重试。
+
+J1 块级 eslint-disable 已随 GuardCwdCtx 打包消除（complexity/max-params 警告归零，仅剩既有的 3 处函数级豁免）。J2-J4 采纳收窄范围。
 
 ## 背景
 

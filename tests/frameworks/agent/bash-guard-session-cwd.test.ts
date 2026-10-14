@@ -13,30 +13,51 @@ import { checkBashCommandSafety } from "@frameworks/agent/bash-safety-guard";
 
 const mainPid = 42877;
 const projectRoot = "/repo";
-/** 工作区在主仓树外——cwd 感知放行面（生产会话工作区形态） */
-const WS = "/wt/workspace-abc";
+/** F20261013cwsp round-1 处置（检视 S2）：fixture 改为生产真实形态——
+ *  会话工作区在主仓树内（data/workspaces/<conv>，非 git 工作树）。
+ *  初版用树外 /wt 给的是假信心：树外触发了逃逸面的「放行」。 */
+const WS = "/repo/data/workspaces/conv-abc";
 const optsWs = { projectRoot, sessionCwd: WS };
 const optsLegacy = { projectRoot };
+/** git 工作树（worktree）内 cwd——git 写族 cwd 感知豁免面 */
+const WT = "/repo/.otter/worktrees/feat-x";
+const optsWt = { projectRoot, sessionCwd: WT };
+/** 相对 sessionCwd（resolver 绝对化前的逃逸形态，回归锁） */
+const optsRel = { projectRoot, sessionCwd: "data/workspaces/conv-abc" };
 
-describe("F20261013cwsp：sessionCwd 感知——工作区内写放行", () => {
-  it("git commit（无 cd，cwd=工作区）→ 放行", () => {
-    expect(checkBashCommandSafety(`git commit -m x`, mainPid, undefined, optsWs)).toBeNull();
+describe("F20261013cwsp：sessionCwd 感知——git 工作树内写放行", () => {
+  it("git commit（cwd=worktree 内）→ 放行", () => {
+    expect(checkBashCommandSafety(`git commit -m x`, mainPid, undefined, optsWt)).toBeNull();
   });
 
-  it("git commit + push 链（cwd=工作区）→ 放行", () => {
-    expect(checkBashCommandSafety(`git commit -m x && git push`, mainPid, undefined, optsWs)).toBeNull();
+  it("git commit + push 链（cwd=worktree 内）→ 放行", () => {
+    expect(checkBashCommandSafety(`git commit -m x && git push`, mainPid, undefined, optsWt)).toBeNull();
+  });
+
+  it("包装词 git 写族（env git commit，cwd=worktree 内）→ 放行", () => {
+    expect(checkBashCommandSafety(`env FOO=1 git commit -m x`, mainPid, undefined, optsWt)).toBeNull();
+  });
+});
+
+describe("F20261013cwsp：sessionCwd 感知——会话工作区（树内非 git 树）", () => {
+  it("git commit（cwd=会话工作区）→ 拦（向上发现主仓 .git，写落主仓）", () => {
+    expect(checkBashCommandSafety(`git commit -m x`, mainPid, undefined, optsWs)).not.toBeNull();
+  });
+
+  it("rm -rf data（清工作区缓存）→ 放行（树内 workspaces 豁免，S2）", () => {
+    expect(checkBashCommandSafety(`rm -rf data`, mainPid, undefined, optsWs)).toBeNull();
   });
 
   it("echo x > foo.txt（相对路径重定向落工作区）→ 放行", () => {
     expect(checkBashCommandSafety(`echo x > foo.txt`, mainPid, undefined, optsWs)).toBeNull();
   });
 
-  it("rm -rf data（清工作区缓存，非主仓 data）→ 放行", () => {
-    expect(checkBashCommandSafety(`rm -rf data`, mainPid, undefined, optsWs)).toBeNull();
+  it("相对 sessionCwd + git 写族 → 拦（相对锚点无豁免，S1 逃逸面回归锁）", () => {
+    expect(checkBashCommandSafety(`git commit -m x`, mainPid, undefined, optsRel)).not.toBeNull();
   });
 
-  it("包装词 git 写族（env git commit，cwd=工作区）→ 放行", () => {
-    expect(checkBashCommandSafety(`env FOO=1 git commit -m x`, mainPid, undefined, optsWs)).toBeNull();
+  it("树外 cwd + one-liner 写主仓绝对路径 → 拦（S1 probe 形态回归锁）", () => {
+    expect(checkBashCommandSafety(`python3 -c "open('/repo/src/foo.ts','w')"`, mainPid, undefined, { projectRoot, sessionCwd: "/wt/x" })).not.toBeNull();
   });
 });
 
