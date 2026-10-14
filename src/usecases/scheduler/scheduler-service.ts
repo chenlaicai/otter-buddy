@@ -472,8 +472,10 @@ export class SchedulerService {
   }
 
   /** #1449：挤占 skip 落 healing（low）——触发被拒即见，不等 2h 硬兜底。
-   *  同任务 1h 节流防刷屏；失败不阻塞（skip 行已落 DB，本通道是可见性增强）。 */
-  private async recordPreemptionSkipHealing(task: ScheduledTask): Promise<void> {
+   *  同任务 1h 节流防刷屏；失败不阻塞（skip 行已落 DB，本通道是可见性增强）。
+   *  @param reason 跳过根因：'挤占'=claim 锁被同任务 running 执行拒绝；
+   *    '互斥保护'=#1471 守卫为保护他任务在途执行主动放弃本轮（restartBeforeInvoke 路径）。 */
+  private async recordPreemptionSkipHealing(task: ScheduledTask, reason: '挤占' | '互斥保护' = '挤占'): Promise<void> {
     if (!this.healingRepo) return;
     const last = this.preemptionSkipHealingAt.get(task.id) ?? 0;
     if (Date.now() - last < PREEMPTION_SKIP_HEALING_THROTTLE_MS) return;
@@ -486,7 +488,7 @@ export class SchedulerService {
         otterId: task.talkingStonePassedTo[0] ?? '',
         errorType: 'other',
         severity: 'low',
-        description: `定时任务「${task.name}」触发被 running 执行挤占跳过（与错过窗口对账互补：对账管错过窗口，本条管挤占根因）`,
+        description: `定时任务「${task.name}」触发跳过（根因：${reason}；与错过窗口对账互补：对账管错过窗口，本条管跳过根因）`,
         suggestion: `若连续出现，说明有执行体滞留——轮询扫描将在 ${RUNNING_STUCK_THRESHOLD_MS / 3_600_000}h 阈值机械释放；人工排查可核查目标獭是否被闸门冻结`,
         context: {
           taskId: task.id,
@@ -1012,7 +1014,7 @@ export class SchedulerService {
           // 只挡 restart 步骤（speak 路径不挡——那条路径不焚上下文，由 claim 锁天然串行）。
           await this.handleExecutionSkipped(executionId, new Error('restartBeforeInvoke skipped: executor otter has inflight execution'));
           // 挤占可见性与 claim 挤占同族，共用 1h 节流窗（同任务同小时只落一条）。
-          void this.recordPreemptionSkipHealing(task);
+          void this.recordPreemptionSkipHealing(task, '互斥保护');
           this.logger.info('Task skipped: restartBeforeInvoke blocked by inflight execution on executor otter', {
             taskId: task.id,
             otterId: executorOtterId,

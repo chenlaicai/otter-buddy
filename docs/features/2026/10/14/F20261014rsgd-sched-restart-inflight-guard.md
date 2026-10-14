@@ -59,3 +59,11 @@ issue: 1471
 - 行为变化面：`restartBeforeInvoke=true` 的任务（当前全部 9 条 active cron 任务均为 true），当执行獭有其他任务在途时，本轮触发跳过而非掐断对方。跳过可见性：execution 记 skipped + 挤占 healing（low，1h 节流）
 - 不触及：speak 路径（scheduler-triggered-message）、claim 锁、reap 扫描、看门狗
 - 遗留（不在本特性范围）：#1471 根因链二「进程重启翻篇后的 claim 挤占窗口」已由 #1449 机制覆盖，观察一轮再定是否增强；执行链假死本身（10-12 三条任务跑满 24h）的根治属链引擎/发言石域，另案
+
+## 对抗审视 round1 与处置（2026-10-14，检视獭-1474 / kimi-k28）
+
+审视结论：0 严重 / 3 建议；连环互锁、记账语义、保守放行取舍、#1449 边界四项焦点核实全部通过。
+
+- **发现 1（采纳，本 PR 修复）**：守卫跳过复用 `recordPreemptionSkipHealing` 的「挤占」文案与互斥保护语义不符 → 加 `reason: '挤占' | '互斥保护'` 可选参数，守卫路径传 '互斥保护'，排查时一眼区分
+- **发现 2（建 issue #1475）**：once+restartBeforeInvoke 组合下守卫跳过后 once 任务被静默删除（理论边界，当前 DB 无此组合）——改 once 重试语义超出 narrow-fix 范围，另案跟踪
+- **发现 3（采纳，本 PR 修复）**：测试 mock `getExecutions` 忽略 limit 与真实仓储语义漂移 → mock 补 triggeredAt DESC 排序 + limit 裁剪对齐

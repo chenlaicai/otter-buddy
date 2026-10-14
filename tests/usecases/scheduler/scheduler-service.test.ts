@@ -143,8 +143,15 @@ function createMockTaskRepo() {
         Object.assign(existing, updates);
       }
     }),
-    getExecutions: vi.fn(async (taskId: string) =>
-      Array.from(executions.values()).filter(e => e.taskId === taskId),
+    getExecutions: vi.fn(async (taskId: string, options?: { limit?: number }) =>
+      // #1474 检视发现 3：与真实仓储语义对齐——triggeredAt DESC + limit 裁剪
+      // （mock 忽略 limit 会在 >limit 条执行时查出真实仓储查不到的 running，造成误放行漂移）
+      Array.from(executions.values())
+        .filter(e => e.taskId === taskId)
+        .sort((a, b) =>
+          new Date(b.triggeredAt as string).getTime() - new Date(a.triggeredAt as string).getTime(),
+        )
+        .slice(0, options?.limit ?? 20),
     ),
     getExecutionCount: vi.fn(async () => 0),
     failAllRunningExecutions: vi.fn(async () => 0),
@@ -1841,9 +1848,9 @@ describe('SchedulerService - #1471 restartBeforeInvoke 在途互斥守卫', () =
     // 记账 skipped（非 failed——不污染 consecutiveFailures）
     const task2Exec = Array.from(taskRepo._executions.values()).find(e => e.taskId === 'task-2');
     expect(task2Exec?.status).toBe('skipped');
-    // 挤占 healing 落账（与 claim 挤占同族）
+    // 挤占 healing 落账（守卫路径传 reason='互斥保护'，与 claim 挤占区分）
     expect(healingRepo._events.length).toBe(1);
-    expect(healingRepo._events[0].description).toContain('挤占');
+    expect(healingRepo._events[0].description).toContain('互斥保护');
   });
 
   it('执行獭无在途执行时：正常重启 + invoke（守卫不误伤）', async () => {
