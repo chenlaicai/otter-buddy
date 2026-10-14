@@ -191,11 +191,25 @@ export function updateLastReadSeq(
   otterId: string,
   seq: number,
 ): void {
-  db.prepare(`
+  // F20261014czgd：单调性闸——游标语义上只增不减，拒绝任何小于等于现值的写入
+  // （事故实证：batchMaxSeq=0 哨兵经 pushCursorOnStartup 无守卫写入，把游标 2412 覆盖成 0，
+  // 下一轮 getUnreadEntries 按 seq>0 把全历史当未读注入爆窗）。
+  // NULL 行处理：WHERE 子句的 last_read_seq IS NULL 分支已覆盖（SQLite 标量 max(NULL,x)=NULL 坑已在
+  // WHERE 层绕开，不需要 COALESCE）；写入被拒（changes=0）时 warn 留痕——零日志曾致同类事故全靠推断定位。
+  const result = db.prepare(`
     UPDATE conversation_participants
     SET last_read_seq = ?
     WHERE conversation_id = ? AND otter_id = ? AND status = 'active'
-  `).run(seq, conversationId, otterId);
+      AND (last_read_seq IS NULL OR last_read_seq < ?)
+  `).run(seq, conversationId, otterId, seq);
+  if (result.changes === 0) {
+    const current = db.prepare(
+      "SELECT last_read_seq FROM conversation_participants WHERE conversation_id = ? AND otter_id = ?"
+    ).get(conversationId, otterId) as { last_read_seq: number | null } | undefined;
+    if (current && current.last_read_seq != null && current.last_read_seq >= seq) {
+      console.warn(`[cursor-guard] updateLastReadSeq 单调性拦截：${otterId}@${conversationId} 现值 ${current.last_read_seq} ≥ 写入值 ${seq}，已拒绝`);
+    }
+  }
 }
 
 /** F20260920trrt：对话内最大 sequence_num（闲置预警的全局刻度——turn 退役后唯一的「对话推进」度量） */
