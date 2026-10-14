@@ -111,7 +111,7 @@ describe("F20261013czgd 游标归零防线", () => {
         entryRepo,
         queryOtter: { getById: vi.fn().mockResolvedValue(null), getByIds: vi.fn().mockResolvedValue(new Map()) },
         logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() },
-        idleStatsRepo: { getMaxEntrySeq: (convId: string) => { const row = db.prepare("SELECT MAX(sequence_num) AS m FROM entries WHERE conversation_id=?").get(convId) as { m: number | null }; const r = row.m ?? 0; console.log('[debug] getMaxEntrySeq called:', convId, '→', r, 'row:', row); return r; } },
+        idleStatsRepo: { getMaxEntrySeq: (convId: string) => (db.prepare("SELECT MAX(sequence_num) AS m FROM entries WHERE conversation_id=?").get(convId) as { m: number | null }).m ?? 0 },
       } as unknown as ConstructorParameters<typeof DispatchChainEngine>[0]);
       return engine;
     }
@@ -128,7 +128,6 @@ describe("F20261013czgd 游标归零防线", () => {
       // 去重后未读=seq 6-9（触发消息 seq 10 被排除），batchMaxSeq 应取未读 max=9
       // 旧口径 bug 场景：若游标被写成 0，下一轮会全量涌入——本测试验证的是「空批才兜底取对话 max」
       expect(result.batchMaxSeq).toBe(9);
-      expect(result.batchMaxSeq).toBeGreaterThan(0);
       expect(result.batchMaxSeq).toBeGreaterThan(0);
     });
 
@@ -147,18 +146,26 @@ describe("F20261013czgd 游标归零防线", () => {
       expect(result.batchMaxSeq).toBe(0);
     });
 
-    it("③ pushCursorOnStartup 对 batchMaxSeq<=0 直接 return（不推进游标）", async () => {
-      // 直接测 pi-session-factory 的私有方法——通过构造实例 + 反射调用
-      // 场景：游标=5，pushCursorOnStartup(0) 应被拦截，游标保持 5
+    it("③ pushCursorOnStartup 对 batchMaxSeq<=0 直接 return（真调守卫纯函数）", async () => {
+      // 真调守卫纯函数（pi-session-factory.ts 导出的 shouldPushCursorOnStartup），
+      // 验证拦截语义：batchMaxSeq=0 → false（不推进），batchMaxSeq>0 → true（推进）
       db.prepare("INSERT INTO conversation_participants (id, conversation_id, otter_id, status, created_at, last_read_seq) VALUES ('p1','conv-1','otter-1','active','2026-01-01T00:00:00Z',5)").run();
+      const { shouldPushCursorOnStartup } = await import("@frameworks/agent/pi-session-factory");
       const { updateLastReadSeq } = await import("@frameworks/db/conversation/conversation-repository-mixins");
-      // 模拟 pushCursorOnStartup 的守卫逻辑：batchMaxSeq<=0 时不调用 updateLastReadSeq
-      const batchMaxSeq = 0;
-      if (batchMaxSeq > 0) {
-        updateLastReadSeq(db, "conv-1", "otter-1", batchMaxSeq);
+      // 守卫拦截：batchMaxSeq=0 → shouldPush=false → 不调用 updateLastReadSeq
+      expect(shouldPushCursorOnStartup(0)).toBe(false);
+      if (shouldPushCursorOnStartup(0)) {
+        updateLastReadSeq(db, "conv-1", "otter-1", 0);
       }
       const row = db.prepare("SELECT last_read_seq FROM conversation_participants WHERE conversation_id='conv-1' AND otter_id='otter-1'").get() as { last_read_seq: number };
       expect(row.last_read_seq).toBe(5); // 未被 0 覆盖
+      // 守卫放行：batchMaxSeq=10 → shouldPush=true → 正常推进
+      expect(shouldPushCursorOnStartup(10)).toBe(true);
+      if (shouldPushCursorOnStartup(10)) {
+        updateLastReadSeq(db, "conv-1", "otter-1", 10);
+      }
+      const row2 = db.prepare("SELECT last_read_seq FROM conversation_participants WHERE conversation_id='conv-1' AND otter_id='otter-1'").get() as { last_read_seq: number };
+      expect(row2.last_read_seq).toBe(10);
     });
   });
 });
