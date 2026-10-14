@@ -362,6 +362,10 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       timer = setTimeout(() => {
         this.pendingBatchRequests.delete(id);
         this.releaseSlot();
+        // F20261014selfheal：batch 超时同样是 worker 假死的可观测信号——触发自愈重建
+        // （onnxruntime 竞态卡死的是整个 worker 线程池，单条/批量同样永久挂起；
+        //  batch 路径不重建则 #1460 泄漏家族在批量路径上未闭合）
+        this.restartWorker(`embed batch timeout after ${timeoutMs}ms (${texts.length} texts)`);
         reject(new Error(`Embed batch timeout after ${timeoutMs}ms (${texts.length} texts)`));
       }, timeoutMs);
     });
