@@ -4,7 +4,7 @@ title: 海獭 cwd 统一切换对话工作区（主仓从默认落点降级为�
 change_type: refactor
 created: 2026-10-13
 created_in_conversation: f3567df1-e24b-49cd-a020-cdb39572f853
-summary: 海獭全部工具（bash/read/write/edit/grep/find/ls）cwd 统一从主仓根切换到对话工作区（data/workspaces/<conversationId>/）；守卫 projectRoot 显式注入解耦；池键加 conversationId 解跨对话复用错位；命令向量守卫 rewrite 闭环
+summary: 海獭全部工具（bash/read/write/edit/grep/find/ls）cwd 统一从主仓根切换到对话工作区（data/workspaces/<conversationId>/）；一处 resolveSessionCwd 供给、两处构造点（:451+:1253）接入；守卫 projectRoot 显式注入解耦；池键加 conversationId 解跨对话复用错位；命令向量守卫 rewrite 闭环
 status: draft
 ---
 
@@ -79,7 +79,7 @@ session _cwd      process.cwd()（主仓根）         resolveSessionCwd(convers
 
 ### 关键改造点（file:line 基于 75736f68）
 
-1. **pi-session-factory.ts:451** — `SessionManagerClass.create(process.cwd(), ...)`：改为 `resolveSessionCwd(conversationId)`（新纯函数：有 conversationId → `data/workspaces/<convId>/` 绝对路径；无 → `data/workspaces/_system/`）。**一处传入，全部 8 件工具统一跟随**（write/edit 经 `createAllToolDefinitions(this._cwd)`，read/bash/grep/find/ls 经 `buildPiBuiltinToolDefinitions` 的 cwd 参数——两组构造点都拿到工作区）
+1. **pi-session-factory.ts:451** — `SessionManagerClass.create(process.cwd(), ...)`：改为 `resolveSessionCwd(conversationId)`（新纯函数：有 conversationId → `data/workspaces/<convId>/` 绝对路径；无 → `data/workspaces/_system/`）。**一处 resolveSessionCwd 供给、两处构造点接入**（W1 采纳：改动点 1 管 write/edit 经 `createAllToolDefinitions(this._cwd)`，改动点 3 管 read/bash/grep/find/ls 经 `buildPiBuiltinToolDefinitions(cwd)`——两处都改才能全工具一致，缺一即 S6 复活）
 
 2. **pi-session-factory.ts:935, 982** — 守卫/影子评估的 `projectRoot = process.cwd()`：改为构造期注入的 `mainRepoRoot`
 
@@ -91,11 +91,11 @@ session _cwd      process.cwd()（主仓根）         resolveSessionCwd(convers
 
 6. **bash-safety-guard.ts:233** — projectRoot 来源从 process.cwd() 改为注入值，规则组不动
 
-7. **工作区目录预创建** — resolveSessionCwd 时 mkdir -p（SDK bash.js:57 对不存在 cwd 抛错）
+7. **工作区目录预创建**（W3 采纳）—— resolveSessionCwd 时 mkdir -p，覆盖 `<convId>/` 与兜底 `_system/` 两路（SDK bash.js:57 对不存在 cwd 抛错）
 
 8. **alpha 实例** — 独立数据根，天然隔离
 
-9. **命令向量守卫 rewrite**——bash-safety-guard 判定白名单脚本时，若命令形态为相对路径且 cwd 已切换（≠projectRoot），rewrite 为 projectRoot 绝对路径后放行。语义假设：「相对路径 = 主仓相对」——工作区相对路径脚本不触发 rewrite
+9. **命令向量守卫 rewrite**（W2 采纳）——bash-safety-guard 判定白名单脚本时，若命令形态为相对路径且 cwd 已切换（≠projectRoot），rewrite 为 projectRoot 绝对路径后放行。**语义假设显式声明：「相对路径 = 工作区相对」**——cwd=工作区后，獭写的相对路径天然是工作区相对；守卫 resolveScriptPath 解析到主仓 scripts/ 仅当工作区下不存在同名脚本时才 rewrite 为主仓绝对路径（防同名脚本被劫持：工作区有 `foo.mjs` + 主仓 scripts/ 也有 `foo.mjs` → 工作区优先，不 rewrite）
 
 10. **池键加 conversationId**——poolMeta 键从 otterId 改为 `${otterId}:${conversationId}`；全部 6 处 delete 调用点按新键清理（J10）
 
