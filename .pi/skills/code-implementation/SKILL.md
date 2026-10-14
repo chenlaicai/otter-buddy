@@ -43,7 +43,7 @@ category: technique
 
    **废弃资源清理（教训）**：本次变更若替换/迁移了旧路径、旧文件、旧默认值（DB 路径、配置 fallback、硬编码常量），自检必须核查四件：①旧代码引用清零；②**旧文件本体删除**——只改代码默认值不删文件，会留下“看起来正常”的孤儿文件（现场：孤儿库 otter.db 残留 6 天，schema 完整、有真实数据痕迹，误导数据核查得出「零事件」错误结论，错误数据差点胜过搭档的正确记忆）；③旧配置/环境变量迁移说明写入特性文档；④DB 等运行时副本与 git 真相源同步（update-scheduled-task-body.mjs 类脚本）。
 
-   **db 迁移类变更的真启动验证（事故教训硬规则）**：本次变更涉及 migration.ts 新增/修改迁移函数、或 schema.ts 表结构变更时，自检必须包含「生产副本真启动」：①备份生产 DB 副本；②在副本上执行完整启动路径（`scripts/otter-buddy.sh start` 或等价 bootstrap 调用），确认服务监听成功、日志无 SqliteError；③真启动结果（命令 + 关键日志行）写入自检报告与 PR Verification 节。**「跑迁移函数 + SQL 校验行数」不等于真启动**——现场：演练全绿，但崩溃点在 bootstrap enqueueRetry 的 ON CONFLICT，只有真启动能触达，SQL 校验永远摸不到。依据：同类事故已踩两次（漏迁移致启动 crash / CTAS 丢结构致启动 crash），第三次不可接受——出处见 git 历史与特性文档。
+   **db 迁移类变更的真启动验证（事故教训硬规则）**：本次变更涉及 migration.ts 新增/修改迁移函数、或 schema.ts 表结构变更时，自检必须包含「生产副本真启动」：①备份生产 DB 副本；②在副本上执行完整启动路径（`cd <worktree> && bash scripts/otter-buddy.sh start` 或等价 bootstrap 调用，cd 前缀必带），确认服务监听成功、日志无 SqliteError；③真启动结果（命令 + 关键日志行）写入自检报告与 PR Verification 节。**「跑迁移函数 + SQL 校验行数」不等于真启动**——现场：演练全绿，但崩溃点在 bootstrap enqueueRetry 的 ON CONFLICT，只有真启动能触达，SQL 校验永远摸不到。依据：同类事故已踩两次（漏迁移致启动 crash / CTAS 丢结构致启动 crash），第三次不可接受——出处见 git 历史与特性文档。
 
    **负面向验收条目（事故教训，刹车二）**：迁移/破坏性/替换类变更的验收与自检清单必须包含一条负面向条目——「**本次变更破坏了什么旧契约 / 绕过了什么既有保护**」。省事方案的标志就是绕过某个既有保护（现场：绕过 retry worker 兜底，绕过了 sqlite_master 结构保持），逼着作者把「绕过」写出来，很多雷在写的时候就会自己暴露。
 

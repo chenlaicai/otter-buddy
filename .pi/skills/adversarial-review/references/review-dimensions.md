@@ -26,7 +26,7 @@ Does relevant feature documentation exist and match the implementation?
 **判断标准（硬规则，不可降级）**：
 - 特性文档存在 → read 文档，检查与实现一致性
 - 特性文档缺失 → **严重发现（B2）**，无论变更类型（代码/prompt/skill/doc），不可降级为「可接受」或「完整」
-- **历史文档被修改 → 严重发现（B2）**：`git diff origin/main...HEAD --name-status -- docs/features/ docs/research/` 出现非 A 状态的历史文件（已在 main 出现过），除非 PR 明确声明结构性迁移（BYPASS 留痕）——正确姿势是新文档记录变更
+- **历史文档被修改 → 严重发现（B2）**：`cd <主仓> && git diff origin/main...HEAD --name-status -- docs/features/ docs/research/`（cd 前缀必带——獭 bash cwd=对话工作区，在工作区跑此命令路径限定静默失效恒过）出现非 A 状态的历史文件（已在 main 出现过），除非 PR 明确声明结构性迁移（BYPASS 留痕）——正确姿势是新文档记录变更
 - 检查步骤：`list_artifacts` 查找特性文档 → 不存在则直接标记严重发现 → 存在则 read 核对一致性
 
 ### B3. End-to-End Verification
@@ -150,7 +150,7 @@ Does the addition carry its full future cost explicitly? (加法自带全部未�
   ① 谁需要它（具体角色，不是「应该有」）② 失败后果（用户可感知，还是仅内部指标异常）③ 后续机制（它创造的新状态里哪些可能出错、会被怎么修）④ 退役条件（什么信号出现时该删它）
 - **Net-new mechanism with no four answers → 建议发现**（软维度，走决策树处置；先软后硬，跑熟后再评估升级为 B 维度）
 - ①② 答非所问（如「应该有」「提升健壮性」这类无角色无后果的答案）同视为缺失
-- Context: 病根五条（生成回路/局部有效/前提不死/路径不对称/度是全局属性）见特性文档 mechanism-budget（按标题 grep docs/features/ 定位）
+- Context: 病根五条（生成回路/局部有效/前提不死/路径不对称/度是全局属性）见特性文档 mechanism-budget（按标题 grep <主仓>/docs/features/ 定位——绝对路径，獭 bash cwd=对话工作区）
 
 ## 8. Prompt Size Budget (B8, 2026-09-17)
 
