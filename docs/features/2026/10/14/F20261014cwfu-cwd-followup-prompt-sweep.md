@@ -15,8 +15,8 @@ intent:
   problem: "F20261014cwsp 统一 cwd 到对话工作区后，注入面（SYSTEM.md/prompts/skills）中指向主仓的相对路径引用失效——命令形态（node scripts/*）会在工作区找不到文件静默失败，文档指针被 read 消费时落空。且 bash 无状态提示（BASH_STATELESS_SUFFIX）自 9/22 起休眠从未生效（S9），需以新语义激活。"
   expected_effect: "注入面命令形态相对路径清零；SYSTEM.md R4.5 告知獭 cwd=对话工作区语义；writing-skills 引用约定防新增回流"
   verify_by:
-    type: behavior_check
-    reason: "prompt 文档改动无真 LLM 能力面；生效判据 = 主服务重启后 scheduled prompt（daily-health-check 等）内的 cd 前缀命令执行成功，相对路径命令不再出现「找不到 scripts/」类失败"
+    type: human_judge
+    reason: "prompt 文档改动无自动断言面；生效判据由主服务重启后首工作日人工观察（scheduled prompt 内 cd 前缀命令执行成功）+ daily-health-check 对账豁免集 {static_only, human_judge} 语义对齐"
 ---
 
 ## 背景

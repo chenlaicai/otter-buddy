@@ -4,6 +4,8 @@ budget_bytes: 10750
 ---
 
 回顾昨日全部对话，发现系统和海獭的问题，按问题拆分提 GitHub issue（label: daily-review）。分析维度：用户情绪、系统问题（bug/工具故障/流程缺陷）、海獭行为（违规/漏流程/误判）。自己干/派小獭并行。没信号不报，宁缺毋滥。只找本系统优化点，跨对话 memory 信号先验证归属。
+
+> `<主仓>`=獭主仓绝对路径（cwd=对话工作区，R4.5）。
 ## 必须检查的数据源（先跑完再分析；调查纪律按 SYSTEM.md A1）
 **sqlite3 直查前置纪律**：直查前先 `curl -s http://localhost:3000/api/settings` 确认 dbPath——data/ 可能残留同名废弃库。关键数字双源验证，单源标「未交叉验证」。
 
@@ -57,11 +59,11 @@ budget_bytes: 10750
 ```
 
 ## 守卫误拦样本固化段（「昨日」= UTC 日界）
-昨日 guard_intercept 样本是「修复-回归循环」原料，每日：
+昨日 guard_intercept 样本是「修复-回归循环」原料：
 
-1. `cd /Users/orca/ai/otter-buddy && node scripts/generate-guard-replay.mjs --db <curl /api/settings 得到的 dbPath>`；无拦截日报写「固化：0 条」
+1. `cd <主仓> && node scripts/generate-guard-replay.mjs --db <dbPath（curl /api/settings 取）>`；无拦截日报写「固化：0 条」
 2. 逐条填 verdict：`ALLOW`（误拦）/ `BLOCK`（负门样本）/ `SKIP`（一次性/敏感/不可复现）；误拦旁证 = 查后续是否换写法绕过
-3. **非 SKIP 追加**到 `tests/frameworks/agent/guard-v2-real-replay.test.ts`（对齐既有 it 块，断言 = 裁决值）并跑该文件；期望不符先疑裁决错勿凑绿，双链不一致提 issue
+3. **非 SKIP 追加**到 `<主仓>/tests/frameworks/agent/guard-v2-real-replay.test.ts`（对齐既有 it 块，断言=裁决值）并跑（`cd <主仓> && npx vitest run <该文件>`）；期望不符先疑裁决错勿凑绿，双链不一致提 issue
 4. 日报留痕「拦截 N → 候选 M → 固化 K / SKIP S」；同 ruleId ≥3 条成规模误拦改开 issue 修规则
 
 ## healing events 消费即处置（分析过的必须本次产出内处置完毕）
@@ -77,11 +79,11 @@ budget_bytes: 10750
 
 ## issue 产出规范
 issue 必含案发现场（证据真实、含锚点）与影响。方案两态——「已排查结论」（附证据链）或「排查方向（假设）」（标置信度）；禁裸方案；写不出标「暂不修复」。**标签/标题/聚合硬规则**（真相源 `scripts/lint-issue-labels.mjs`）：type+priority+daily-review 各一；标题 `[模块] 一句话摘要`；同根因合一条。不完整率 >5% 日报标红
-**验证断言必填**：每个 issue body 含「验证断言」段——`断言`（可证伪含数据源）/`检查方式`（sqlite/gh/人工）/`到期`（+30 天）。写不出 = 问题定义不清，重写。回查由 regression-verify 到期执行。
+**验证断言必填**：每个 issue body 含「验证断言」段——`断言`（可证伪含数据源）/`检查方式`/`到期`（+30 天）；写不出 = 问题定义不清，重写。回查由 regression-verify 到期执行。
 
-**关闭标准必填**（搭档拍板）：每个 issue body 含「关闭标准」段——可验证的关闭条件。写不出 = 不该存在（并入他 issue 或转文档）。
+**关闭标准必填**（搭档拍板）：每个 issue body 含「关闭标准」段——可验证的关闭条件；写不出 = 不该存在（并入他 issue 或转文档）。
 **断言豁免标注**：纯决策/容器型 issue，「验证断言」段首行标 `暂不验证：<原因>`——回查跳过。## 止损线检查（P0-c）
-每日查评测止损线（详规见特性文档 2026-09-02；脚本 `cd /Users/orca/ai/otter-buddy && node scripts/lint-intent.mjs`）：①观察期新增 intent 率 <80%；②golden-results 从未执行；③≥5 PR 场景 passed 全 true。触发 → 开 issue（owner=大獭）
+每日查评测止损线（详规见特性文档 2026-09-02；脚本 `cd <主仓> && node scripts/lint-intent.mjs`）：①新增 intent 率 <80%；②golden-results 从未执行；③≥5 PR 场景 passed 全 true。触发 → 开 issue（owner=大獭）
 
 **golden 执行对账**：近 24h 合入软代码 PR（`gh pr list --state merged` 筛 modules 含 prompts//.pi/）× golden-results.jsonl——缺记录/fail 悬置/pending 超 72h → 开 issue（owner=大獭）
 
