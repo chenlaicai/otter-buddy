@@ -592,6 +592,29 @@ echo "=== commit exit: $? ==="`;
       expect(v.mode).toBe("positive");
     });
 
+    it("delta2：perl 无括号列表式/字符串式 exec + ruby exec → 拦（SCRIPT_EXEC_FACE 无括号形态）", () => {
+      expect(evaluateWriteVerdict(`perl -e "exec 'touch', '/repo/data/pwn'"`, ROOT).verdict).toBe("BLOCK");
+      expect(evaluateWriteVerdict(`perl -e "exec 'touch /repo/data/pwn'"`, ROOT).verdict).toBe("BLOCK");
+      expect(evaluateWriteVerdict(`ruby -e "exec 'touch /repo/data/pwn'"`, ROOT).verdict).toBe("BLOCK");
+    });
+
+    it("delta2：点号方法按参数形态区分——含命令实参→拦；纯 SQL→放（TS-e00efca3 口径不回退）", () => {
+      expect(evaluateWriteVerdict(`node -e "require('child_process').exec('touch /repo/data/pwn')"`, ROOT).verdict).toBe("BLOCK");
+      expect(evaluateWriteVerdict(`node -e "db.exec('touch /repo/x')"`, ROOT).verdict).toBe("BLOCK");
+      const ok = evaluateWriteVerdict(`node -e "const db=x(); db.exec('SELECT a, b FROM t'); console.log('ok')"`, ROOT);
+      expect(ok.verdict).toBe("ALLOW");
+    });
+
+    it("delta2：未提供载荷且脚本存在 → fail-closed（未接线≠缺席）；/dev/null 为「存在文件」稳定替身", () => {
+      expect(evaluateWriteVerdict("bash /dev/null", ROOT)).toMatchObject({ verdict: "BLOCK", mode: "fail-closed", reason: "script-payload-unreadable" });
+    });
+
+    it("delta2：显式声明 absent=证明源 → 放（声明+记档校验面，不做 fs 复核）", () => {
+      const v = evaluateWriteVerdict("bash /dev/null", ROOT, ROOT, { status: "absent" });
+      expect(v.verdict).toBe("ALLOW");
+      expect(v.mode).toBe("positive");
+    });
+
     it("载荷缺席显式记档 → 同缺席语义正面 ALLOW", () => {
       const v = evaluateWriteVerdict("sh /tmp/f1fx-commit.sh 2>&1 | tail -4", ROOT, ROOT, { status: "absent" });
       expect(v.verdict).toBe("ALLOW");

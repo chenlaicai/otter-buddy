@@ -7,7 +7,7 @@
     "generated_at": "2026-10-12T10:52:25.895869Z",
     "generated_by": "守卫修复獭（重刷期望+冻结，派工单 2026-10-12 18:36）",
     "pool": "拦截试金石",
-    "count": 68,
+    "count": 72,
     "kinds": "synthetic_probe / shadow_case / real_command / residual_face(真实误拦残余面§3.3-①如实钉)",
     "restate_changes": {
       "git_policy_flip": 68,
@@ -1684,6 +1684,90 @@
             "source": "work_order",
             "reviewer": "大獭(signal d5f2ae9a)",
             "channel": "牙2-造执动态内容"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjexec01",
+      "command": "perl -e \"exec 'touch', '/repo/data/pwn'\"",
+      "adjudication": [
+        "delta2 复核发现（检视獭1360 2026-10-14，严重）：exec 词面语法面漏——perl 无括号列表式调用不带 ( 逃过 SCRIPT_EXEC_FACE，真写主仓正面放行。修法：SCRIPT_EXEC_FACE 补无括号形态 + 点号方法按参数形态区分（dotExecCommandHits）；正向钉死不许回归"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review",
+            "reviewer": "检视獭1360(PR#1466 delta2)",
+            "channel": "exec-词面语法面"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjexec02",
+      "command": "perl -e \"exec 'touch /repo/data/pwn'\"",
+      "adjudication": [
+        "delta2 复核发现（检视獭1360 2026-10-14，严重）：exec 词面语法面漏——perl 无括号字符串式调用同逃逸（TS-smrjexec01 同族）；正向钉死不许回归"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review",
+            "reviewer": "检视獭1360(PR#1466 delta2)",
+            "channel": "exec-词面语法面"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjexec03",
+      "command": "ruby -e \"exec 'touch /repo/data/pwn'\"",
+      "adjudication": [
+        "delta2 复核发现（检视獭1360 2026-10-14，严重）：exec 词面语法面漏——ruby 无括号 exec 同逃逸（TS-smrjexec01 同族）；正向钉死不许回归"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review",
+            "reviewer": "检视獭1360(PR#1466 delta2)",
+            "channel": "exec-词面语法面"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjexec04",
+      "command": "node -e \"require('child_process').exec('touch /repo/data/pwn')\"",
+      "adjudication": [
+        "delta2 复核发现（检视獭1360 2026-10-14，严重）：点号方法全豁免把 child_process.exec 一起放行（含命令实参=exec 面）；修法=按参数形态区分（纯 SQL→数据库豁免维持，TS-e00efca3 口径）；正向钉死不许回归"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review",
+            "reviewer": "检视獭1360(PR#1466 delta2)",
+            "channel": "exec-词面语法面"
           }
         ]
       },

@@ -227,6 +227,30 @@ zdebug 实证 12 条误伤的写目标全是 `{path:"/repo", via:"cmd-arg"}` 凭
 - **`git push origin --delete` 对：双法院两案，非反判**——求值器法院管「写没写主仓」（无本地树写→ALLOW），策略层法院管「破坏性远端操作」（R1.4→BLOCK）；#1467 1013-B2 的 V1 远端删分支负门是策略层牙齿，**不随 main_write 退役**，管线终态两层各司其职
 - 本库侧层差注记已落 5 条考题 adjudication（TS-smrjreg18f0c467/c170d88c、TS-smrjregc0c9c6a6/3064857e/cb2c9109）；#1467 侧注记由固化獭补（大獭已回签 PR #1467 comment 6160667395），M-3f8d8a0d 转入等注记落位
 
+### delta2 复核补刀（exec 词面语法面 + 牙3 生产接线，2026-10-14）
+
+检视獭1360 delta 复核（PR #1466 留痕 + review-1466-delta2-report.md 产物 716e0102）两发现全采纳，修法照单：
+
+**发现 1（严重）：exec 词面语法面漏**——`perl -e "exec 'touch', '/repo/data/pwn'"`（列表/字符串式）、`ruby -e "exec '…'"`、`node -e "require('child_process').exec('…')"` 四形态正面放行真写主仓。机制：SCRIPT_EXEC_FACE 要求 `\s*\(`（perl/ruby 无括号调用逃逸）+ 点号方法 lookbehind 全豁免（当年为放 sqlite db.exec）把 child_process.exec 一起放行。修法：
+
+- SCRIPT_EXEC_FACE/EXEC_FACE 补无括号形态（`exec|system` + 引号/词头实参，实参首字符排除数字防 `exec 3>&-` fd 操作误伤）；动词表补 execFileSync（execFileSync( 整词曾缺失）
+- 点号方法按**参数形态**区分（dotExecCommandHits，与 connectCallWriteHits 同构引号感知首参提取）：纯 SQL 字面量（SQL 起手且无命令词/路径字面量）→数据库豁免维持（TS-e00efca3 `db.exec(\`CREATE TABLE …\`)` 实证面，含逗号列清单/括号参数 SQL）；含命令词/路径字面量、非 SQL 形态、首参非字面量（变量/模板插值）→不可证
+- 实现关键：shell 转义引号形态（`\``）在载荷重组文本中保留反斜杠——readStringLiteralArg 跳过转义前缀、转义结束引号按对称终结符处理（否则 TS-e00efca3 反被误伤）；词面证洗白面（能力 4 proveNoWrite）同补无括号形态（否则窄提取闸命中后被 :900 洗回）
+- 4 形态进 block 池负门（TS-smrjexec01-04）+ 单测双向钉死（含 db.exec 纯 SQL 放行对照）
+- **残余面记档**：perl 间接对象形（exec { $path } @args）、无括号点号形态（obj.exec 'cmd'）、次参携带（exec('sh','-c',x)）——词面证残余，后续 delta 可再收敛
+
+**发现 2（高建议）：牙3 生产接线**——ScriptPayloadInfo「生产调用方提供」但全仓无任何注入点（唯一 fixture 注入在考试测试），生产缺省=absent 放行记档是静默 fail-open（切换 PR 忘接线→「静态外置脚本全盲放」，unrd01 负门生产无法成立）。修法（采纳大獭工单口径）：
+
+- `buildScriptPayloadPlan` 缺省不再静默 absent：调用方不提供载荷时**求值器自查 fs**（fsAbsentPlan）——文件真实不存在=「文件不存在→执行必然失败→零写面」缺席证明→absent 放行侧；存在/不可查=无法证明缺席→script-payload-unreadable fail-closed（**未接线≠缺席**）
+- 显式声明（entry）为另一证明源（fixture 记档+考题断言+adjudication 校验面），不做 fs 复核——防考题机器依赖（/tmp 探针残留 /tmp/do-commit.sh 实证过此风险）
+- TOCTOU 记档：stat 与执行间存在时间窗
+- **切换 PR 硬验收项**：切换前必须验证生产链路真实接上 content/unreadable 判读（注入点存在 + shadow 数据中 script-payload-unreadable 归因可解释），未验证接线不得切换——防静默退化「静态外置脚本全盲放」
+- 类型层强制注入（ScriptPayloadInfo 必填化）为增强项，随切换 PR 一并做（本轮不强求，大獭工单口径）
+
+**机制识别检查点更新**：求值器新增只读 fs 查询（fsAbsentPlan statSync）——原「纯函数无 IO」声明收窄为「除牙3 缺席证明的 fs stat 只读查询外无 IO」，非持久状态/非跨模块路径，仍不命中机制开关清单；引入点已在模块头注释记档。
+
+**验证（delta2 轮）**：全仓 5518/5518 绿（363 文件）；write-target-evaluator.test.ts 95→99 例（+4 delta2 双向钉死）；judge 考试 794/72/105 全过（block 68→72=+4 exec 负门）、棘轮 added=0（TS-e00efca3 误翻红已修回）；corpus 守恒 921 恒等（TS-smrj 前缀扣减 46→50）。
+
 ### 验证
 
 - 单测：write-target-evaluator.test.ts「F20261014smrj 黑盒外置脚本三牙」放行侧 6 + 拦截侧 7（含「能力 4 豁免不得洗白牙口」负门与既有通道不误伤对照）

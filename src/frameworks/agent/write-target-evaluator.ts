@@ -37,10 +37,11 @@
  * - shadow 口径：跨规则样本（sleep_block/data_destructive 等维度拦截）从切换判据分母
  *   剔除（求值器只判 main_write 维度），单独计数披露——否则求值器永远背着别族的锅。
  *
- * 纯函数：无状态、无 IO、不写任何存储（机制识别检查点通过）。
+ * 求值纯判定：除牙3 缺席证明的 fs stat 只读查询（fsAbsentPlan，delta2 修法）外无 IO、无状态、不写任何存储（机制识别检查点：只读 fs 查询已记档特性文档）。
  */
+import { statSync } from "node:fs";
 import { parseOnce, SHELL_INTERPRETERS, type CommandModel, type Segment } from "./command-model";
-import { proveNoWrite, DYNAMIC_IMPORT_FACE, openCallUnknownMode, payloadWriteFaceHit, SCRIPT_EXEC_FACE, classifyOpenModeArg } from "./write-word-face";
+import { proveNoWrite, DYNAMIC_IMPORT_FACE, openCallUnknownMode, payloadWriteFaceHit, SCRIPT_EXEC_FACE, dotExecCommandHits, classifyOpenModeArg } from "./write-word-face";
 import { isCheckOnlySeg, checkOnlyFileArgs, SCRIPT_RUNNERS, isScriptRunnerSeg, detectScriptPayload, resolvePayloadScript } from "./payload-extract-aux";
 import type { Word } from "./command-lexer";
 
@@ -690,7 +691,7 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
     return "heredoc-script-payload";
   }
   // 规则 2 附带闸（能力 5，拍板 2026-10-13）：exec 类裸调用（new Function/eval/exec/...）一律不可证——窄提取不得绕过词面证的 exec 拦（残余面 TS-ef0d6be4 族钉死）。
-  if (SCRIPT_EXEC_FACE.test(script)) return "heredoc-script-payload";
+  if (SCRIPT_EXEC_FACE.test(script) || dotExecCommandHits(script)) return "heredoc-script-payload";
   // 载荷后参数词（argv 值传播）：node -e 与 python -c 首实参位都是 argv[1]（#1411 off-by-one
   //  修复实证：argv 错位曾致 /repo/b 假放行）。
   const argvBase = 1;
@@ -753,7 +754,7 @@ function hasNarrowExtractableScriptSeg(model: CommandModel, projectRoot: string)
 //  考题即以此过考。裁决口径：考「静态路径按重组载荷判读」不是盲放：
 //  ① 生成/动态脚本路径（$(gen).sh 族）→ fail-closed；
 //  ② 命令内造脚本再执行（echo 写 .sh && bash 同文件）→ 按造出来的内容判读；内容不可重建→fail-closed；
-//  ③ 静态路径三态：content→递归判读；unreadable→fail-closed；absent/未标→零写面（放行侧——
+//  ③ 静态路径三态：content→递归判读；unreadable→fail-closed；absent（显式声明或 fs 自查证明）→零写面（放行侧——
 //     「文件不存在→执行必然失败→零写面」校正口径；载荷缺席面在考题 fixture 记档不隐身）。
 
 /** 三牙终局态（含 parse-failed）：黑盒脚本的不可证面不进「能力 4 词面证」豁免——
@@ -844,7 +845,7 @@ function judgeScriptPayload(text: string, projectRoot: string, cwd: string, acc:
 }
 
 /** 段级载荷计划（牙2 造-执对 + 牙3 三态）：先扫「命令内造脚本再执行」对（造出内容为权威载荷），
- *  其余外置脚本段取条目级载荷信息（缺省=absent）。 */
+ *  其余外置脚本段取条目级载荷信息；显式声明与造-执均缺省时求值器自查 fs 证缺席（delta2 修法——「缺省=absent」的静默 fail-open 已收：未提供载荷 ≠ 缺席）。 */
 // eslint-disable-next-line complexity -- F20261014smrj 牙2 造-执对+牙3 三态计划合成，分支=语义枚举（合分支会遮蔽造出内容优先语义）
 function buildScriptPayloadPlan(model: CommandModel, projectRoot: string, startCwd: string, entry: ScriptPayloadInfo | undefined): Map<number, SegPayloadPlan> {
   const plan = new Map<number, SegPayloadPlan>();
@@ -872,9 +873,26 @@ function buildScriptPayloadPlan(model: CommandModel, projectRoot: string, startC
         planned = w.content === null ? { status: "dynamic" } : { status: "content", text: w.content };
       }
     }
-    plan.set(i, planned ?? entry ?? { status: "absent" });
+    plan.set(i, planned ?? entry ?? fsAbsentPlan(!ex.dynamic && v !== null ? evalPath(v, cwdAt[i]) : null));
   }
   return plan;
+}
+
+/** 牙3 缺席证明（delta2 修法，大獭工单 2026-10-14）：调用方未提供载荷时求值器自查 fs——
+ *  文件真实不存在=「文件不存在→执行必然失败→零写面」缺席证明→absent（放行侧）；存在/不可查
+ *  =无法证明缺席→unreadable fail-closed（未接线≠缺席，防「切换 PR 忘接线→静态外置脚本全盲放」）。
+ *  显式声明（entry）为另一证明源（fixture 记档+考题断言+adjudication 校验面），不做 fs 复核
+ *  （防考题机器依赖——/tmp 探针残留实证过此风险）。TOCTOU 记档：stat 与执行间存在时间窗——
+ *  切换 PR 硬验收项：生产链路必须真实注入载荷（content/unreadable 判读）并验证接线后才切换，
+ *  防静默退化「静态外置脚本全盲放」。 */
+function fsAbsentPlan(resolved: string | null): SegPayloadPlan {
+  if (resolved === null) return { status: "unreadable" };
+  try {
+    statSync(resolved);
+    return { status: "unreadable" }; // 存在但未提供载荷 → fail-closed
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "ENOENT" ? { status: "absent" } : { status: "unreadable" };
+  }
 }
 
 /** 单段求值：脚本窄提取（Phase 2）→ 脚本载荷族回落 → 重定向 → git add（Phase 2）→ git 写族 → 词表命令。返回 null 表示该段无 unevaluated。 */
@@ -920,7 +938,7 @@ function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot
     if (scriptArg.dynamic && runner !== null && SHELL_INTERPRETERS.has(runner)) return "script-path-dynamic";
     if (!scriptArg.dynamic) {
       const plan = acc.scriptPayloadPlan?.get(acc.index);
-      // 牙3 三态：unreadable→拦；content（含牙2 造-执内容）→递归判读；absent/未标→零写面放行侧
+      // 牙3 三态：unreadable（声明不可读/未提供且 fs 证存在）→拦；content（含牙2 造-执内容）→递归判读；absent（声明或 fs 证缺席）→零写面放行侧
       if (plan?.status === "unreadable") return "script-payload-unreadable";
       if (plan?.status === "dynamic") return "script-payload-dynamic";
       if (plan?.status === "content") {

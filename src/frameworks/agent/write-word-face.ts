@@ -29,14 +29,65 @@ const IMPLICIT_WRITE_FACE =
   /\bgit\s+(?:commit|amend|merge|rebase|cherry-pick|reset|revert|checkout|switch|restore|stash|clean|worktree\s+(?:add|remove|move|prune|repair)|branch\s+-[DdMm]|tag\b)|\b(?:npm|pnpm|yarn)\s+(?:install|i\b|ci\b|update|add|publish|pack|unpublish|link|dedupe)|\bpip3?\s+install|\bgem\s+install|\bcargo\s+(?:install|build|test|publish)|\bgo\s+(?:install|build|get)|\b(?:apt|apt-get|dnf|yum|brew|apk)\s+install|\bmake(?:\s|$)/;
 /** 能力 1 规则 2：exec 类词面（可调用执行/递归构造） */
 const EXEC_FACE =
-  /\b(?:exec|execSync|execFile|spawn|spawnSync|fork|system|popen|eval|Function|__import__|import_module|getattr)\s*\(|\b(?:child_process|subprocess)\b|\bos\.(?:system|popen)\b|(?<!\\)[`$]\(|(?<=[\s;(=])<\(|(?<=[\s;)=])>\(|\beval\s+["'$]|(?<=[\s;&)])[|]{1,2}\s*(?:sudo\s+)?(?:ba|z|k)?sh\b|(?<=[\s;&)])[|]{1,2}\s*(?:python3?|node|perl|ruby)\b/;
+  /\b(?:exec|execSync|execFile|execFileSync|spawn|spawnSync|fork|system|popen|eval|Function|__import__|import_module|getattr)\s*\(|(?<![\w.])(?:exec|system)\s+(?:["'`]|\$|[A-Za-z_./@%~])|\b(?:child_process|subprocess)\b|\bos\.(?:system|popen)\b|(?<!\\)[`$]\(|(?<=[\s;(=])<\(|(?<=[\s;)=])>\(|\beval\s+["'$]|(?<=[\s;&)])[|]{1,2}\s*(?:sudo\s+)?(?:ba|z|k)?sh\b|(?<=[\s;&)])[|]{1,2}\s*(?:python3?|node|perl|ruby)\b/;
 /** 能力 1 规则 2：import/require 拆分——变量/拼接/路径形态 → exec 不可证（首参紧随字面量字符串=读披露放行） */
 export const DYNAMIC_IMPORT_FACE = /\b(?:require|import)\s*\(\s*(?!['"][^'"]*['"])/;
 
-/** 规则 2「exec 类一律不可证」的载荷闸（能力 5 附带，拍板 2026-10-13）：运行时获得/构造的
- *  可调用执行（裸调用形态）→ 不可证回落。点号方法调用（db.exec 型数据库调用）不拦——
- *  实证面 TS-e00efca3；点号方法残余面（os.system 等）与 exec 词面同口径记档特性文档。 */
-export const SCRIPT_EXEC_FACE = /(?<![\w.])(?:exec|execSync|execFile|spawn|spawnSync|fork|system|popen|eval|Function|__import__|import_module|getattr|constructor)\s*\(/;
+/** 规则 2「exec 类一律不可证」的载荷闸（能力 5 附带，拍板 2026-10-13；delta2 修法 检视獭1360 2026-10-14）：
+ *  ①裸调用形态含无括号调用（perl -e "exec 'touch', '/repo/x'" 列表式 / ruby -e "exec '…'" 字符串式 /
+ *    system 同族——旧版要求 ( 致无括号调用逃逸）；无括号实参排除数字（防 exec 3>&- 良性 fd 操作误伤）。
+ *  ②点号方法（db.exec 型）不再一律豁免——按参数形态区分（dotExecCommandHits）：纯 SQL 字面量
+ *    →数据库豁免维持（实证面 TS-e00efca3）；含命令词/路径字面量/首参非字面量→不可证
+ *    （child_process.exec('touch /repo/x') 族正向钉死）。
+ *  残余面（特性文档记档）：perl 间接对象形（exec { $path } @args）、无括号点号形态（obj.exec 'cmd'）。 */
+export const SCRIPT_EXEC_FACE = /(?<![\w.])(?:exec|execSync|execFile|execFileSync|spawn|spawnSync|fork|system|popen|eval|Function|__import__|import_module|getattr|constructor)\s*\(|(?<![\w.])(?:exec|system)\s+(?:["'`]|\$|[A-Za-z_./@%~])/;
+/** delta2 修法②（检视獭1360 2026-10-14）：点号方法 exec 类（db.exec/child_process.execSync/…）按
+ *  **参数形态**区分——纯 SQL 字面量（SQL 起手且无命令词/路径字面量，TS-e00efca3 db.exec(CREATE TABLE …)
+ *  实证面）→ 数据库豁免维持；含命令词/路径字面量、非 SQL 形态、或首参非字面量（变量/调用/模板插值）
+ *  → 不可证（child_process.exec('touch /repo/x') 族正向钉死）。与 connectCallWriteHits 同构（首参
+ *  字面量分类）。残余面（特性文档记档）：无括号点号形态（obj.exec 'cmd'）、次参携带（exec('sh','-c',x)）。 */
+export function dotExecCommandHits(script: string): boolean {
+  const re = /\.(?:exec|execSync|execFile|execFileSync|spawn|spawnSync|fork|system|popen)\s*\(\s*/g;
+  let m = re.exec(script);
+  while (m !== null) {
+    const lit = readStringLiteralArg(script, re.lastIndex);
+    if (lit === null || lit.dynamic) return true; // 首参非字面量/模板插值/未闭合 → 不可证（保守）
+    const arg = lit.text;
+    const sqlStart = /^\s*(?:select|insert|update|delete|pragma|create|alter|drop|begin|commit|rollback|replace|explain|with|vacuum|attach|detach|grant|revoke)\b/i;
+    const cmdWord = /(?:^|[\s;&|()`$=,])(?:touch|mkdir|rmdir|rm|mv|cp|tee|install|dd|truncate|ln|chmod|chown|chgrp|mknod|mkfifo|shred|sed|curl|wget|sh|bash|zsh|python3?|node|perl|ruby)(?:\s|$|,)/;
+    const pathLit = /(?:^|[\s'"`=(])(?:\/[A-Za-z0-9_.-]+){2,}|\.\.?\//;
+    if (!sqlStart.test(arg) || cmdWord.test(arg) || pathLit.test(arg)) return true;
+    m = re.exec(script);
+  }
+  return false;
+}
+
+/** 读调用首参字符串字面量（引号感知，逗号/括号在引号内不截断）；null=首参非字面量形态。 */
+// eslint-disable-next-line complexity -- delta2 引号感知首参扫描（转义引号对称终结+模板插值探测，分支=词法形态穷举，合并会遮蔽转义语义）
+function readStringLiteralArg(script: string, start: number): { text: string; dynamic: boolean } | null {
+  let j = start;
+  while (j < script.length && /\s/.test(script[j])) j++;
+  let q = script[j];
+  if (q === "\\") { j++; q = script[j]; } // shell 双引号体内转义引号（\`、\"）——开引号带转义前缀
+  if (q !== '"' && q !== "'" && q !== "`") return null;
+  let k = j + 1;
+  let text = "";
+  let dynamic = false;
+  while (k < script.length) {
+    if (script[k] === q) break; // 结束引号
+    if (script[k] === "\\") {
+      k++;
+      if (k >= script.length) break;
+      if (script[k] === q) break; // 转义结束引号（与开引号对称）= 终结符
+    }
+    if (q === "`" && script[k] === "$" && script[k + 1] === "{") dynamic = true;
+    text += script[k];
+    k++;
+  }
+  if (k >= script.length) return null; // 引号未闭合 → 非字面量
+  return { text, dynamic };
+}
+
 /** 能力 1 规则 1：脚本载荷写调用（写证据——出现即有写面，落点另行求值）。
  *  修 F20261013smrj 通道 a（词面失明）：补 pathlib.Path(lit).write_text/write_bytes（路径在
  *  接收者 Path 构造里，非首参——变量接收者 f.write_text 不入词面，试金石 TS-19e22576 实证良性）、
@@ -163,5 +214,6 @@ export function proveNoWrite(command: string): boolean {
     || openCallWriteHits(command)
     || openCallUnknownMode(command)
     || connectCallWriteHits(command)
+    || dotExecCommandHits(command)
   );
 }
