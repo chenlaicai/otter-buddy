@@ -143,7 +143,16 @@ function createMockTaskRepo() {
         Object.assign(existing, updates);
       }
     }),
-    getExecutions: vi.fn(async () => []),
+    getExecutions: vi.fn(async (taskId: string, options?: { limit?: number }) =>
+      // #1474 检视发现 3：与真实仓储语义对齐——triggeredAt DESC + limit 裁剪
+      // （mock 忽略 limit 会在 >limit 条执行时查出真实仓储查不到的 running，造成误放行漂移）
+      Array.from(executions.values())
+        .filter(e => e.taskId === taskId)
+        .sort((a, b) =>
+          new Date(b.triggeredAt as string).getTime() - new Date(a.triggeredAt as string).getTime(),
+        )
+        .slice(0, options?.limit ?? 20),
+    ),
     getExecutionCount: vi.fn(async () => 0),
     failAllRunningExecutions: vi.fn(async () => 0),
   };
@@ -1767,6 +1776,138 @@ describe('SchedulerService - restartBeforeInvoke', () => {
 
     // 断言：两个任务都触发了 restart，且 invoke 也被调用
     expect(restartCallIds.length).toBeGreaterThanOrEqual(2);
+    expect(agentInvoke.invokeConversation).toHaveBeenCalled();
+  });
+});
+
+// ─── #1471: restartBeforeInvoke 在途互斥守卫 ────────────────────────────
+// 案发现场：8:00 补丁清单被 8:30 健康检查的触发前重启掐断（同獭串行任务互相残杀）。
+// 守卫语义：执行獭上有其他任务的存活 running 执行 → 不重启、记 skipped 退出。
+
+describe('SchedulerService - #1471 restartBeforeInvoke 在途互斥守卫', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2025-01-15T08:59:00.000Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** 搭建两任务同獭场景：task-1（补丁清单，已由先触发的执行占用）+ task-2（健康检查，本论触发者）。 */
+  function setupTwoTasksOneOtter() {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const task1 = makeTask({ id: 'task-1', restartBeforeInvoke: true, cron: '0 8 * * *', name: '补丁清单回看' });
+    const task2 = makeTask({ id: 'task-2', restartBeforeInvoke: true, cron: '30 8 * * *', name: '健康检查' });
+    taskRepo._store.set('task-1', task1);
+    taskRepo._store.set('task-2', task2);
+    convRepo._addConversation('conv-1', { status: 'active' });
+    return { taskRepo, convRepo, task1, task2 };
+  }
+
+  function buildService(deps: {
+    taskRepo: ReturnType<typeof createMockTaskRepo>;
+    convRepo: ReturnType<typeof createMockConvRepo>;
+    restartSession: ReturnType<typeof vi.fn>;
+    healingRepo?: ReturnType<typeof makeObservableHealingRepo>;
+  }) {
+    const sendEntry = createMockSendEntry();
+    const entryRepo = createMockEntryRepo();
+    const agentInvoke = createMockAgentInvoke();
+    const service = new SchedulerService({
+      taskRepo: deps.taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: deps.convRepo as unknown as ConversationRepository,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: { getNextTime: () => new Date('2025-01-15T09:00:00.000Z') } as unknown as CronParser,
+      logger: mockLogger,
+      manageSession: { restartSession: deps.restartSession } as unknown as ManageSession,
+      healingRepo: deps.healingRepo as never,
+    });
+    return { service, agentInvoke };
+  }
+
+  it('执行獭有存活 running 执行时：不重启、不 invoke、记 skipped', async () => {
+    const { taskRepo, convRepo } = setupTwoTasksOneOtter();
+    // 预置：task-1 有一条 10 分钟前触发的存活 running 执行（案发现场还原）
+    taskRepo._executions.set('exec-1', {
+      id: 'exec-1', taskId: 'task-1', status: 'running',
+      triggeredAt: new Date('2025-01-15T08:50:00.000Z').toISOString(),
+    });
+    const restartSession = vi.fn(async () => ({ id: 'new-session' }));
+    const healingRepo = makeObservableHealingRepo();
+    const { service, agentInvoke } = buildService({ taskRepo, convRepo, restartSession, healingRepo });
+
+    // 只触发 task-2（直接调 triggerTask 确定性高于定时器推进——假定时器下首轮 tick 会同时拉起两任务）
+    await service.trigger('task-2');
+
+    expect(restartSession).not.toHaveBeenCalled();
+    expect(agentInvoke.invokeConversation).not.toHaveBeenCalled();
+    // 记账 skipped（非 failed——不污染 consecutiveFailures）
+    const task2Exec = Array.from(taskRepo._executions.values()).find(e => e.taskId === 'task-2');
+    expect(task2Exec?.status).toBe('skipped');
+    // 挤占 healing 落账（守卫路径传 reason='互斥保护'，与 claim 挤占区分）
+    expect(healingRepo._events.length).toBe(1);
+    expect(healingRepo._events[0].description).toContain('互斥保护');
+  });
+
+  it('执行獭无在途执行时：正常重启 + invoke（守卫不误伤）', async () => {
+    const { taskRepo, convRepo } = setupTwoTasksOneOtter();
+    // task-1 无执行记录（空 store）
+    const restartSession = vi.fn(async () => ({ id: 'new-session' }));
+    const { service, agentInvoke } = buildService({ taskRepo, convRepo, restartSession });
+
+    await service.trigger('task-2');
+
+    expect(restartSession).toHaveBeenCalled();
+    expect(agentInvoke.invokeConversation).toHaveBeenCalled();
+  });
+
+  it('在途执行属于其他獭时：不拦截（守卫只看执行獭本獭）', async () => {
+    const { taskRepo, convRepo } = setupTwoTasksOneOtter();
+    // task-1 改派给 otter-2（与 task-2 的执行獭 otter-1 不同）
+    const t1 = taskRepo._store.get('task-1')!;
+    t1.talkingStonePassedTo = ['otter-2'];
+    taskRepo._executions.set('exec-1', {
+      id: 'exec-1', taskId: 'task-1', status: 'running',
+      triggeredAt: new Date('2025-01-15T08:50:00.000Z').toISOString(),
+    });
+    const restartSession = vi.fn(async () => ({ id: 'new-session' }));
+    const { service, agentInvoke } = buildService({ taskRepo, convRepo, restartSession });
+
+    await service.trigger('task-2');
+
+    expect(restartSession).toHaveBeenCalled();
+    expect(agentInvoke.invokeConversation).toHaveBeenCalled();
+  });
+
+  it('在途执行已超滞留阈值（僵尸）时：不拦截（超阈值执行由 reap/claim 判死路径管）', async () => {
+    const { taskRepo, convRepo } = setupTwoTasksOneOtter();
+    // task-1 的 running 执行触发于 3 小时前（超 RUNNING_STUCK_THRESHOLD_MS=2h）
+    taskRepo._executions.set('exec-1', {
+      id: 'exec-1', taskId: 'task-1', status: 'running',
+      triggeredAt: new Date('2025-01-15T05:50:00.000Z').toISOString(),
+    });
+    const restartSession = vi.fn(async () => ({ id: 'new-session' }));
+    const { service, agentInvoke } = buildService({ taskRepo, convRepo, restartSession });
+
+    await service.trigger('task-2');
+
+    expect(restartSession).toHaveBeenCalled();
+    expect(agentInvoke.invokeConversation).toHaveBeenCalled();
+  });
+
+  it('在途查询抛错时：保守放行（重启照常，不阻塞任务）', async () => {
+    const { taskRepo, convRepo } = setupTwoTasksOneOtter();
+    taskRepo.getAllActive = vi.fn(async () => { throw new Error('db gone'); });
+    const restartSession = vi.fn(async () => ({ id: 'new-session' }));
+    const { service, agentInvoke } = buildService({ taskRepo, convRepo, restartSession });
+
+    await service.trigger('task-2');
+
+    expect(restartSession).toHaveBeenCalled();
     expect(agentInvoke.invokeConversation).toHaveBeenCalled();
   });
 });
