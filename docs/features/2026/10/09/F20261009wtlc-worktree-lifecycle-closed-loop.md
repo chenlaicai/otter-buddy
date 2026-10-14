@@ -94,7 +94,7 @@ A/B 两协议的召唤要求均加：检视獭在 worktree 内禁 checkout/switc
 
 ### 取舍表
 
-- **budget override 9600 → 10500**：daily-health-check 加收敛段的必要代价（增量 ~900B；lint-prompt-size CI 硬闸，override 须特性文档记理由——即本节）。取舍：判定矩阵全文放 skill（真相源），daily prompt 只放压缩行动版——prompt 是给每天执行的 LLM 看的操作指令，不是文档。
+- **budget override 9600 → 10700**：daily-health-check 加收敛段的必要代价（增量 ~1100B；lint-prompt-size CI 硬闸，override 须特性文档记理由——即本节）。取舍：判定矩阵全文放 skill（真相源），daily prompt 只放压缩行动版——prompt 是给每天执行的 LLM 看的操作指令，不是文档。
 - **纯文本改动，零新代码**：daily-health-check 本是 LLM 执行的体检 prompt，扫描命令序列写进去即生效，无新依赖、无 schema 变更。
 - **不做自动 webhook/事件监听**：远程侧 GitHub 事件驱动（delete_branch_on_merge）已存在；本地侧每日收敛 + 机会性触发双通道已覆盖，webhook 引入的架构复杂度与收益不成比例（L1 拍板）。
 
@@ -106,7 +106,7 @@ A/B 两协议的召唤要求均加：检视獭在 worktree 内禁 checkout/switc
 | .pi/skills/post-merge-cleanup/SKILL.md | +硬验证闸 + 清理状态对账产出节（+17） |
 | prompts/scheduled/daily-health-check.md | +收敛段 + 检查清单第 12 项 + budget 9600→10700（+6/1改） |
 | .pi/skills/review-protocol/SKILL.md | A 协议 +只读纪律、B 协议 +引用（+2） |
-| 特性文档（本档） | +131 |
+| 特性文档（本档） | +132 |
 
 存量 22 个 worktree 不由本 PR 处置（治本 PR 不夹带治标动作）——9 个残留的清理交由落地后第一次每日收敛自动完成（全部符合「已终结 + 干净」或「dirty 待裁决」路径，unread-reform 等 WIP 走裁决线）。
 
