@@ -6,6 +6,11 @@ created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
 date: 2026-10-13
 status: development
 modification_class: deletion
+intent:
+  problem: "考题库批错答案（同命令一放一拦/读文件当写文件/字符串当写路径）与迁就错题的拟合假写证据规则（C'''/C4/D'/A'）造成 12 条 zdebug 误伤（写目标全为 {path:/repo} 凭空捏造）；工单②追加：放行库 35+ 条黑盒外置脚本考题盲放过考（bash <file> 无写面词即正面 ALLOW，探针 7 形态全盲放）"
+  expected_effect: "撤四条拟合规则+补裁簇 12 条重批后命名考题双态全过；三牙落码后 28 条回归闸+4 条三牙负门全过、黑盒考题带载荷判读不盲放；棘轮 shrink_only=PASS（177→145，added=0）；全仓 vitest 5446/5446 绿"
+  verify_by:
+    type: capability_test
 ---
 
 # bash 求值器语义模型落地（撤拟合规则 + 补裁簇重裁）
