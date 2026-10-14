@@ -22,6 +22,7 @@
 import type { Logger } from "@usecases/ports/logger";
 import type { CommandModel, Segment, Payload } from "./command-model";
 import { parseOnce } from "./command-model";
+import { isDirectExecScriptSeg } from "./write-target-evaluator";
 import { loadAllowedServicePorts } from "./allowed-service-ports";
 import type { AllowedService } from "./allowed-service-ports";
 import { SLEEP_REASON_PREFIX, buildSleepBlockMessage } from "./sleep-command-guard";
@@ -377,10 +378,31 @@ function isKillSegmentQuick(seg: Segment): boolean {
  *  r1-S3 处置：覆盖扩展到任意文件——扩展名过滤（.sh/.bash）被换扩展名绕过
  *  （bash < x.txt 同样是「从文件读脚本」，脚本内容未经逐条判定）；保留「已确认
  *  非脚本的数据文件」通过白名单外的人工通道（告知搭档）处置。 */
-const U5_BLOCK_MSG = "bash 命令从文件读取脚本执行（bash < file / bash file）——脚本内容未经守卫逐条判定，绕过面不可接受。该命令不允许：请改写为直接命令形态（把脚本内容拆成独立命令执行），或在 worktree 内以隔离实例验证。若确认此命令本意安全（文件内容是纯数据非脚本），请改用保持原语义的不含敏感字样的方式达成目的；无法规避时告知搭档人工执行。";
+const U5_BLOCK_MSG = "bash 命令从文件读取脚本执行（bash < file / bash file / ./file、/path/file 直接执行）——脚本内容未经守卫逐条判定，绕过面不可接受。该命令不允许：请改写为直接命令形态（把脚本内容拆成独立命令执行），或在 worktree 内以隔离实例验证。若确认此命令本意安全（文件内容是纯数据非脚本），请改用保持原语义的不含敏感字样的方式达成目的；无法规避时告知搭档人工执行。";
+
+/** 受管服务脚本族（otter-buddy.sh / alpha.sh）词文本识别——U5 直执分支的域分工豁免（delta5）：
+ *  词文本含族名即认领（含 $(./scripts/otter-buddy.sh …) 动态词原文）——该族已有拍板语义
+ *  （路径限定+子命令限定的 SERVICE_SCRIPT 规则域 F20260916gsrd/gtlr；alpha 引导文案的正道
+ *  入口），不是不透明脚本，放行/拦截语义以其专属规则域为准。 */
+function isManagedScriptWord(w: Segment["words"][number] | undefined): boolean {
+  if (w === undefined) return false;
+  const text = w.parts.map(p => p.text ?? "").join("") + (w.evaluated ?? "");
+  return /(?:otter-buddy|alpha)\.sh\b/.test(text);
+}
 
 function judgeBashFileScript(model: CommandModel, mainPid: number, logger: Logger | undefined): string | null {
   for (const seg of model.segments) {
+    // delta5 修法（严重 1，检视獭1360 delta5 复核）：段首直执行位同构扩面——「从文件读脚本
+    // 执行」语义同款适用（U5 不看文件来历只看执行位：造出来的与存量脚本一视同仁）。
+    // 词文本口径 + 运行器族 carve（isDirectExecScriptSeg 第三处复用，与 wv 层同源）：
+    // ./x、/x 排 //，纯展开词（$P）保守收进通道 → 与 bash $P 同款保守拦；/usr/bin/python3
+    // 族归运行器语义（同族不许自己打自己）。域分工：受管服务脚本族归 SERVICE_SCRIPT
+    // 规则域（见 isManagedScriptWord），U5 直执分支不判。
+    const w0 = seg.words[0];
+    if (isDirectExecScriptSeg(seg) && !isManagedScriptWord(w0)) {
+      logger?.warn("[guard-v2] BLOCKED direct script file exec (U5 direct-exec)", { mainPid, target: w0?.evaluated ?? "(dynamic)" });
+      return U5_BLOCK_MSG;
+    }
     const eff = effectiveCommand(seg);
     const bare = eff.name?.split("/").pop();
     if (!bare || !SHELL_INTERPRETERS.has(bare)) continue;

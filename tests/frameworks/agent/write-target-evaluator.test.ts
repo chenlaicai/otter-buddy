@@ -843,3 +843,47 @@ describe("delta4 修法（严重 1：段首直执行位同构三态，检视獭1
     expect(v.mode).toBe("positive");
   });
 });
+
+// ────────── delta5 修法（严重 2：动态直执行位词文本收口，检视獭1360 delta5 复核） ──────────
+describe("delta5 修法（严重 2：动态直执行位词文本收口——与 bash $P 同款）", () => {
+  it("动态直执四形态（$P / P=…; $P / ./$P / $DIR/x.sh）→ script-path-dynamic fail-closed", () => {
+    for (const cmd of ["$P", "P=/tmp/evil/x.sh; $P", "./$P", "DIR=/tmp/evil; $DIR/x.sh"]) {
+      expect(evaluateWriteVerdict(cmd, ROOT)).toMatchObject({
+        verdict: "BLOCK", mode: "fail-closed", reason: "script-path-dynamic",
+      });
+    }
+  });
+
+  it("对照：bash $P 解释器动态形态同判（同族一视同仁，牙1 注释与行为一致）", () => {
+    expect(evaluateWriteVerdict("bash $P", ROOT)).toMatchObject({
+      verdict: "BLOCK", mode: "fail-closed", reason: "script-path-dynamic",
+    });
+  });
+
+  it("静态直执三态不回归（真存在 → unreadable fail-closed，/dev/null 稳定替身）", () => {
+    expect(evaluateWriteVerdict("/dev/null", ROOT)).toMatchObject({ verdict: "BLOCK", reason: "script-payload-unreadable" });
+  });
+
+  it("运行器族 carve：/usr/bin/python3 与 python3 同族同判（argv0 自身不当脚本）", () => {
+    expect(evaluateWriteVerdict(`/usr/bin/python3 -c "print(1)"`, ROOT).verdict).toBe("ALLOW");
+    expect(evaluateWriteVerdict(`python3 -c "print(1)"`, ROOT).verdict).toBe("ALLOW");
+  });
+
+  it("能力 8 误收防线零回归：cmdsub/backtick/procsub 内 ./x、/abs/x 字面量不误收", () => {
+    expect(evaluateWriteVerdict(`echo $(node -e "console.log('./x')")`, ROOT).verdict).toBe("ALLOW");
+    expect(evaluateWriteVerdict("echo `cat /abs/x`", ROOT).verdict).toBe("ALLOW");
+    expect(evaluateWriteVerdict(`cat <(node -e "console.log('./x')")`, ROOT).verdict).toBe("ALLOW");
+    expect(evaluateWriteVerdict(`node -e "import('/repo/data/x')"`, ROOT).verdict).toBe("ALLOW");
+  });
+
+  it("残余面（记档钉死）：非前缀动态命令位（foo$BAR）不收进直执通道", () => {
+    // 取舍见特性文档 delta5 节：纯展开词保守收 vs 词文本非空非路径前缀不收——改口径须同步记档
+    const v = evaluateWriteVerdict("foo$BAR > /tmp/out", ROOT);
+    expect(v.reason).not.toBe("script-path-dynamic");
+    expect(v.verdict).toBe("ALLOW");
+  });
+
+  it("非运行器族绝对/./ 直执词文本口径不回归：真不存在 → absent 放行", () => {
+    expect(evaluateWriteVerdict("/tmp/no-such-delta5-1360.sh", ROOT)).toMatchObject({ verdict: "ALLOW" });
+  });
+});

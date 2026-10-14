@@ -780,12 +780,35 @@ const UNPROVABLE_TEETH: ReadonlySet<UnevalReason> = new Set<UnevalReason>([
 /** shell 外置脚本执行段（解释器族 ∪ source/.）——三牙判定的触发面 */
 const SCRIPT_FILE_RUNNERS = new Set<string>([...SHELL_INTERPRETERS, "source", "."]);
 
-/** 段首直执行位判定（./x、/x，排 // 样式）——delta4 修法（严重 1，检视獭1360 delta4 复核）：
- *  与 hasOpaqueScriptExec 直执分支同源共用（一条语义一个接口）；argv0=求值词口径
- *  （动态词不成 argv0，两处同口径不收——残余面记档）。 */
-function isDirectExecArgv0(argv0: string | null): boolean {
-  const a0 = argv0 ?? "";
-  return a0.startsWith("./") || (a0.startsWith("/") && !a0.startsWith("//"));
+/** 段首直执行位判定（./x、/x，排 // 样式）——delta4 修法（严重 1）+ delta5 修法（严重 2，
+ *  检视獭1360 delta5 复核：动态直执行位双层全漏）：与 hasOpaqueScriptExec 直执分支、
+ *  guard-model-judge U5 生产层同源共用（一条语义一个接口——经 isDirectExecScriptSeg
+ *  段级口径三处共用）。
+ *  检**词文本**而非求值词（delta5 起）：词文本 ./ 或 / 前缀（排 //）即收进通道，dynamic
+ *  由求值结果定；纯展开词（$P——词文本无可证的非路径形态）保守收进通道 → 动态直执走
+ *  script-path-dynamic fail-closed（与 bash $P 同款，牙1 注释与行为自此一致）。
+ *  残余面（记档）：foo$BAR 形态（词文本非空非路径前缀）不收——纯展开词保守收与
+ *  非前缀动态词不收的边界取舍见特性文档 delta5 节。 */
+export function isDirectExecArgv0(word: Word | null | undefined): boolean {
+  if (word === undefined || word === null) return false;
+  const raw = word.parts.map(p => (p.type === "lit" || p.type === "escape" ? p.text ?? "" : "")).join("");
+  if (raw.startsWith("./") || (raw.startsWith("/") && !raw.startsWith("//"))) return true;
+  // 纯展开词（词文本为空且求值不出）：命令位是展开结果——可能是脚本路径，保守收进通道
+  return raw === "" && word.evaluated === null;
+}
+
+/** 运行器族 argv0（解释器/脚本语言运行器，basename 口径）：argv0 是运行器族时脚本位
+ *  在其参数/载荷，argv0 自身不当脚本文件——/usr/bin/python3 与 python3 同族同判
+ *  （同族不许自己打自己；python 文件形态面不超通道 TS-74fd58ae/TS-10eb58ff 冻结口径）。 */
+function isRunnerArgv0(argv0: string | null): boolean {
+  const bare = bareName(argv0);
+  return bare !== null && (SCRIPT_FILE_RUNNERS.has(bare) || SCRIPT_RUNNERS.has(bare));
+}
+
+/** 段首直执行位脚本段判定（delta5 完整口径——wv 三处 + guard-model-judge U5 生产层
+ *  同源共用，一条语义一个接口）：词文本直执收口（isDirectExecArgv0）+ 运行器族 carve。 */
+export function isDirectExecScriptSeg(seg: Segment): boolean {
+  return !isRunnerArgv0(seg.argv0) && isDirectExecArgv0(seg.words[0]);
 }
 
 /** 解释器族外置脚本段识别（shellScriptFileArg 解释器分支；hasOpaqueScriptExec 同源复用——
@@ -805,11 +828,12 @@ function interpreterScriptFileArg(seg: Segment): { word: Word; dynamic: boolean 
 }
 
 /** shell 外置脚本执行段识别：解释器族或 source/. + 无 -c/-e 载荷旗标，或段首直执行位
- *  （delta4 修法严重 1：./x、/x 排 // 样式——脚本位=argv0 词本身；造-执对/显式声明/缺席证明
+ *  （delta4 修法严重 1：./x、/x 排 // 样式，delta5 词文本口径扩纯展开词——脚本位=argv0 词
+ *  本身；造-执对/显式声明/缺席证明
  *  同构三态自动接上：真存在→unreadable fail-closed、真不存在→absent 放行，与 bash x 一视同仁）。
  *  返回脚本位词与是否动态（生成/求值不出路径）；null=非外置脚本段。 */
 function shellScriptFileArg(seg: Segment): { word: Word; dynamic: boolean } | null {
-  if (isDirectExecArgv0(seg.argv0)) {
+  if (isDirectExecScriptSeg(seg)) {
     const w = seg.words[0];
     if (w === undefined) return null;
     const v = w.evaluated;
@@ -941,7 +965,8 @@ function hasOpaqueScriptExec(model: CommandModel, scriptText: boolean = true): b
     // 段首直执（./x、/x）：仅脚本正文类模型（根/bash-c/heredoc 体）判定——替换型载荷（cmdsub/
     //  backtick/procsub）的非壳文本（JS/Python）壳解析会把参数/字面量误收成段首路径（能力 8
     //  import(主仓路径) 30517746 口径实测翻红）；解释器脚本位判定仍全层生效（echo $(bash x.sh) 拦）
-    if (scriptText && isDirectExecArgv0(seg.argv0)) return true;
+    //  （delta5 起词文本口径——纯展开词一并收，误收防线不变）
+    if (scriptText && isDirectExecScriptSeg(seg)) return true;
   }
   return model.payloads.some(p => p.model !== null && hasOpaqueScriptExec(p.model, p.kind === "bash-c" || p.kind === "heredoc-bare"));
 }
@@ -1005,7 +1030,7 @@ function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot
     // 牙1：生成/动态脚本路径一律拦（解释器族；source/. 不进牙1——source <(sed …) 现役放行题保守面）
     // 牙1：动态脚本路径一律 fail-closed（解释器族 + 段首直执行位——delta4 修法同构；
     //  source/. 不进牙1：source <(sed …) 现役放行题保守面）
-    if (scriptArg.dynamic && (isDirectExecArgv0(seg.argv0) || (runner !== null && SHELL_INTERPRETERS.has(runner)))) return "script-path-dynamic";
+    if (scriptArg.dynamic && (isDirectExecScriptSeg(seg) || (runner !== null && SHELL_INTERPRETERS.has(runner)))) return "script-path-dynamic";
     if (!scriptArg.dynamic) {
       const plan = acc.scriptPayloadPlan?.get(acc.index);
       // 牙3 三态：unreadable（声明不可读/未提供且 fs 证存在）→拦；content（含牙2 造-执内容）→递归判读；absent（声明或 fs 证缺席）→零写面放行侧

