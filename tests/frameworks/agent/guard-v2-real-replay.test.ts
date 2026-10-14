@@ -62,7 +62,7 @@ describe("10/13 UTC 真实拦截数据回放（#1368 固化自动化首轮）", 
   // 数据源：guard-replay-candidates-2026-10-13.json（108 拦截 → 92 候选 → 45 固化）
   // 裁决：固化獭 2026-10-14，探针验证于 worktree guard-replay-freeze-1013
   // ALLOW（误拦）期望 null——暴露 V1 现存误拦；BLOCK（负门）期望 truthy——回归防护
-  // 映射表（45 条非 SKIP → 13 用例）见 docs/features/2026/10/13/F20261013grrf-guard-replay-round1.md
+  // 映射表（45 条非 SKIP → 13 用例）见 docs/features/2026/10/14/F20261014grrf-guard-replay-round1.md
 
   // ── ALLOW：误拦类（V1 现存误拦，it.skip 挂 #1468，修复 PR 内解除 skip 转绿）──
   // 分支保护 required_status_checks=["check"] + enforce_admins=true——保持红物理不可合入

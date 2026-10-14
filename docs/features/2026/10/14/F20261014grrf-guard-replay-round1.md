@@ -1,5 +1,5 @@
 ---
-id: F20261013grrf
+id: F20261014grrf
 title: 守卫回放固化首轮产出——2026-10-13 UTC 样本裁决映射与成规模误拦发现
 summary: F20261008gdcc 项 4 固化自动化首轮执行产出：108 拦截 → 92 候选 → 45 固化（ALLOW 21 / BLOCK 24）/ SKIP 47。5 类成规模误拦（main_write 19 条 ALLOW）归口 #1468：python heredoc/-c 引用 worktree fixture、git -C worktree 写族、cat/printf >> worktree、node -e 纯只读 require、data_destructive rm workspaces。45 条非 SKIP → 13 用例全量映射表落盘（可复核），6 条红 ALLOW 用例 it.skip 挂 #1468（分支保护 required check 不可合入红测试），SKIP 47 条未固化（14 条探针已放行属自愈，33 条 commandHead 截断不可裁决）。终裁注记：计数经检视獭终裁为 21/24（7daea038 实拦保留 BLOCK、13db9e46 读/写不可判 SKIP）。
 from: F20261008gdcc
