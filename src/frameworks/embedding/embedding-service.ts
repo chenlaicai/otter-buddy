@@ -27,6 +27,9 @@ interface EmbeddingConfig {
   workerExecArgv?: string[];
 }
 
+/** F20261014selfheal：worker 工厂——timeout 自愈重建 worker 时需要重新 spawn，注入以保测试可 mock */
+type WorkerFactory = () => Worker;
+
 interface EmbedRequest {
   type: "embed";
   text: string;
@@ -92,6 +95,19 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   private static testTimeoutOverride: number | null = null;
   /** 测试用覆盖 in-flight 上限 */
   private static testMaxInFlightOverride: number | null = null;
+
+  /**
+   * F20261014selfheal：embed 超时自愈——onnxruntime 1.23.2 在 Intel x86 mac 上存在偶发
+   * ThreadPool lost-wakeup 竞态（#1453/#1460 实证：worker 推理卡死永不返回，主线程超时后
+   * 只清 pending，已 postMessage 的消息堆积在假死 worker 队列造成 ~1GB/h 泄漏）。
+   * 应用层无法修复原生竞态，唯一可行的恢复手段是 terminate 整个 worker 销毁其 ThreadPool
+   * 上下文后重建。熔断防风暴：窗口内重启次数超限则降级（available=false），避免无限重建。
+   */
+  private static readonly RESTART_WINDOW_MS = 300_000; // 5min
+  private static readonly RESTART_MAX_IN_WINDOW = 3;
+  private restartTimestamps: number[] = [];
+  /** 熔断状态：true 时 waitForReady 拒绝，embedding 降级 FTS5-only */
+  private circuitBroken = false;
   
   /** 设置测试用超时覆盖（仅测试环境） */
   static setTestTimeoutOverride(ms: number | null): void {
@@ -108,8 +124,9 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   }
 
   constructor(
-    private readonly worker: Worker,
+    private worker: Worker,
     private readonly logger: Logger,
+    private readonly workerFactory?: WorkerFactory,
   ) {
     this.setupHandlers();
   }
@@ -118,6 +135,49 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.worker.on("message", (msg: EmbedResponse) => this.handleWorkerMessage(msg));
     this.worker.on("error", (err: Error) => this.handleWorkerError(err));
     this.worker.on("exit", (code: number) => this.handleWorkerExit(code));
+  }
+
+  /**
+   * F20261014selfheal：embed 超时后的自愈入口——terminate 假死 worker 并重建。
+   * terminate 会销毁 worker 的 MessagePort 队列（已 postMessage 的滞留消息随之一并清空，
+   * 这是 #1460 泄漏的唯一有效堵漏手段——假死 worker 收不到任何 flush 指令）。
+   * 重建后的 worker 重新加载模型，期间 embed 请求在 waitForReady 挂起至 ready。
+   */
+  private restartWorker(reason: string): void {
+    if (!this.workerFactory) return; // 无工厂（旧构造路径）不自愈，保持现状
+    if (this.circuitBroken) return;
+
+    const now = Date.now();
+    this.restartTimestamps = this.restartTimestamps.filter(t => now - t < EmbeddingServiceImpl.RESTART_WINDOW_MS);
+    this.restartTimestamps.push(now);
+    const restartsInWindow = this.restartTimestamps.length;
+
+    this.logger.warn(`Embedding worker unhealthy (${reason}), restarting (restart ${restartsInWindow}/${EmbeddingServiceImpl.RESTART_MAX_IN_WINDOW} in ${EmbeddingServiceImpl.RESTART_WINDOW_MS / 1000}s window)`);
+
+    if (restartsInWindow > EmbeddingServiceImpl.RESTART_MAX_IN_WINDOW) {
+      this.circuitBroken = true;
+      const err = new Error(`Embedding worker circuit breaker open: ${restartsInWindow} restarts within ${EmbeddingServiceImpl.RESTART_WINDOW_MS / 1000}s, vec disabled`);
+      this.readyState.loadError = err;
+      this.readyState.ready = false;
+      this.logger.error(`Embedding worker circuit breaker open after ${restartsInWindow} restarts, falling back to FTS5-only permanently until process restart`);
+      this.rejectAllPending(err);
+      return;
+    }
+
+    // terminate 旧 worker（销毁 ThreadPool + 清空消息队列），重建新 worker
+    const oldWorker = this.worker;
+    this.cachedMeta = null;
+    this.readyState.ready = false;
+    this.readyState.loadError = null; // 重建是恢复动作，清掉旧 loadError 让 waitForReady 重新挂起
+    this.rejectAllPending(new Error(`Embedding worker restarting (${reason})`));
+    // 放行槽位 waiter——挂起的 sync 循环恢复后由新 worker 的 embed 正常处理
+    while (this.slotWaiters.length > 0) {
+      this.slotWaiters.shift()!();
+    }
+
+    this.worker = this.workerFactory();
+    this.setupHandlers();
+    oldWorker.terminate();
   }
 
   /** F20261013ebps：worker message 统一分发（从 setupHandlers 拆出，降函数行数） */
@@ -255,6 +315,8 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       timer = setTimeout(() => {
         this.pendingRequests.delete(id);
         this.releaseSlot();
+        // F20261014selfheal：超时是 worker 假死的唯一可观测信号——触发自愈重建
+        this.restartWorker(`embed timeout after ${timeoutMs}ms`);
         reject(new Error(`Embed timeout after ${timeoutMs}ms, falling back to FTS5-only`));
       }, timeoutMs);
     });
@@ -356,14 +418,15 @@ export async function initEmbeddingService(
   logger?: Logger,
 ): Promise<{ service: EmbeddingGateway; dispose: () => void }> {
   const workerPath = embedConfig?.workerPath ?? path.join(__dirname, "bge-m3-worker.js");
-  const worker = new Worker(workerPath, {
+  // F20261014selfheal：worker 工厂——超时自愈重建时复用同一配置 spawn
+  const workerFactory: WorkerFactory = () => new Worker(workerPath, {
     ...(embedConfig?.workerExecArgv ? { execArgv: embedConfig.workerExecArgv } : {}),
     workerData: {
       modelPath: embedConfig?.modelPath ?? "Xenova/bge-m3",
       localModelPath: embedConfig?.localModelPath,
     },
   });
-  const service = new EmbeddingServiceImpl(worker, logger || noopLogger);
+  const service = new EmbeddingServiceImpl(workerFactory(), logger || noopLogger, workerFactory);
 
   return {
     service,

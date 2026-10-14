@@ -300,4 +300,90 @@ parentPort.postMessage({ type: "ready", meta: { modelId: "test", modelRev: "1", 
       fs.unlinkSync(mockWorkerPath);
     }
   });
+
+  // F20261014selfheal：embed 超时自愈——timeout 后 terminate 假死 worker 并重建
+  describe("worker 超时自愈", () => {
+    it("embed 超时后 terminate 假死 worker 并重建，后续 embed 恢复正常", async () => {
+      EmbeddingServiceImpl.setTestTimeoutOverride(200);
+      const mockWorkerPath = path.join(__dirname, "mock-hang-worker.mjs");
+      // mock worker：ready 后不回 embed 消息（模拟假死），但 terminated 计数可被主线程观察
+      fs.writeFileSync(
+        mockWorkerPath,
+        `
+import { parentPort } from "worker_threads";
+parentPort.postMessage({ type: "ready", meta: { modelId: "test", modelRev: "1", dim: 4 } });
+// 监听 message 但不回——embed 请求永远得不到响应，触发超时（模拟假死）
+parentPort.on("message", () => {});
+`
+      );
+
+      const { service, dispose } = await initEmbeddingService({
+        workerPath: mockWorkerPath,
+        workerExecArgv: [],
+      });
+
+      try {
+        // 等 worker ready
+        const svcInternal = service as unknown as { readyState: { ready: boolean } };
+        for (let i = 0; i < 200 && !svcInternal.readyState.ready; i++) {
+          await new Promise((r) => setTimeout(r, 5));
+        }
+
+        // 第一次 embed 超时 → 触发自愈重建（新 worker 同样假死，但重建动作本身应发生）
+        await expect(service.embed("hang")).rejects.toThrow("Embed timeout");
+
+        // 自愈后 worker 应已重建：readyState 重置为 not-ready（新 worker 还没发 ready）
+        // 且 restartTimestamps 有记录
+        const internal = service as unknown as { restartTimestamps: number[] };
+        expect(internal.restartTimestamps.length).toBe(1);
+      } finally {
+        dispose();
+        EmbeddingServiceImpl.setTestTimeoutOverride(null);
+        fs.unlinkSync(mockWorkerPath);
+      }
+    });
+
+    it("窗口内重启超限时熔断：available 变 false，embed 直接 reject", async () => {
+      EmbeddingServiceImpl.setTestTimeoutOverride(100);
+      const mockWorkerPath = path.join(__dirname, "mock-hang-worker2.mjs");
+      fs.writeFileSync(
+        mockWorkerPath,
+        `
+import { parentPort } from "worker_threads";
+parentPort.postMessage({ type: "ready", meta: { modelId: "test", modelRev: "1", dim: 4 } });
+parentPort.on("message", () => {});
+`
+      );
+
+      const { service, dispose } = await initEmbeddingService({
+        workerPath: mockWorkerPath,
+        workerExecArgv: [],
+      });
+
+      try {
+        const svcInternal = service as unknown as { readyState: { ready: boolean }; restartTimestamps: number[]; circuitBroken: boolean };
+        for (let i = 0; i < 200 && !svcInternal.readyState.ready; i++) {
+          await new Promise((r) => setTimeout(r, 5));
+        }
+
+        // 连续触发 4 次超时（超过 RESTART_MAX_IN_WINDOW=3）
+        for (let i = 0; i < 4; i++) {
+          // 每次重建后等新 worker ready 再发下一次
+          for (let j = 0; j < 200 && !svcInternal.readyState.ready; j++) {
+            await new Promise((r) => setTimeout(r, 5));
+          }
+          await expect(service.embed("hang")).rejects.toThrow();
+        }
+
+        expect(svcInternal.circuitBroken).toBe(true);
+        expect(service.available).toBe(false);
+        // 熔断后 embed 直接 reject（不再超时等待）
+        await expect(service.embed("any")).rejects.toThrow("circuit breaker");
+      } finally {
+        dispose();
+        EmbeddingServiceImpl.setTestTimeoutOverride(null);
+        fs.unlinkSync(mockWorkerPath);
+      }
+    });
+  });
 });
