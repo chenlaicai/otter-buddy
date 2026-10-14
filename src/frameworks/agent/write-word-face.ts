@@ -19,8 +19,11 @@
 const WRITE_FACE_WORDS = /(?:^|[\s;&|()`$])(?:touch|mkdir|rmdir|rm|mv|cp|tee|install|dd|truncate|ln|chmod|chown|chgrp|mknod|mkfifo|shred)(?:\s|$)/;
 /** 能力 2：原地编辑词面（sed -i / perl -pi / ruby -pi 族——写面=原文件） */
 const INPLACE_FACE = /(?:^|[\s;&|()`$])(?:sed\s+-[^\s]*i|perl\s+(?:-\w*p\w*|-[ip]\b)|ruby\s+(?:-\w*p\w*|-[ip]\b))/;
-/** 能力 2：参数即落点（curl -o / wget -O / dd of=） */
-const ARG_TARGET_FACE = /(?:^|[\s;&|()`$])(?:curl|wget)\s+[^\n]*\s-[oO]\s|(?:^|[\s;&|()`$])dd\s+[^\n]*\bof=/;
+/** 能力 2：参数即落点（curl -o / wget -O / dd of=）。
+ *  修 F20261013smrj 通道 c①：旧正则 `\s-[oO]\s` 要求 -o 前有空白，`curl -o f`（curl 后单空格
+ *  直接跟 -o）永不匹配——`\s+` 吃掉唯一空白后 `\s` 落空。改为 `[^\n]*?(?:--output|-[oO])(?=[=\s])`
+ *  （-o/-O/--output 后接空白或 = 即命中，前面可有任意参数）。 */
+const ARG_TARGET_FACE = /(?:^|[\s;&|()`$])(?:curl|wget)\s+[^\n]*?(?:--output|-[oO])(?=[=\s])|(?:^|[\s;&|()`$])dd\s+[^\n]*\bof=/;
 /** 能力 3：隐式写词面（元操作——写面在 cwd/仓，落点=cwd） */
 const IMPLICIT_WRITE_FACE =
   /\bgit\s+(?:commit|amend|merge|rebase|cherry-pick|reset|revert|checkout|switch|restore|stash|clean|worktree\s+(?:add|remove|move|prune|repair)|branch\s+-[DdMm]|tag\b)|\b(?:npm|pnpm|yarn)\s+(?:install|i\b|ci\b|update|add|publish|pack|unpublish|link|dedupe)|\bpip3?\s+install|\bgem\s+install|\bcargo\s+(?:install|build|test|publish)|\bgo\s+(?:install|build|get)|\b(?:apt|apt-get|dnf|yum|brew|apk)\s+install|\bmake(?:\s|$)/;
@@ -34,9 +37,13 @@ export const DYNAMIC_IMPORT_FACE = /\b(?:require|import)\s*\(\s*(?!['"][^'"]*['"
  *  可调用执行（裸调用形态）→ 不可证回落。点号方法调用（db.exec 型数据库调用）不拦——
  *  实证面 TS-e00efca3；点号方法残余面（os.system 等）与 exec 词面同口径记档特性文档。 */
 export const SCRIPT_EXEC_FACE = /(?<![\w.])(?:exec|execSync|execFile|spawn|spawnSync|fork|system|popen|eval|Function|__import__|import_module|getattr|constructor)\s*\(/;
-/** 能力 1 规则 1：脚本载荷写调用（写证据——出现即有写面，落点另行求值） */
+/** 能力 1 规则 1：脚本载荷写调用（写证据——出现即有写面，落点另行求值）。
+ *  修 F20261013smrj 通道 a（词面失明）：补 pathlib.Path(lit).write_text/write_bytes（路径在
+ *  接收者 Path 构造里，非首参——变量接收者 f.write_text 不入词面，试金石 TS-19e22576 实证良性）、
+ *  os.chmod/chown/utime/truncate、np.save/savez、extractall（#1423 dbm 族同源）。connect 由
+ *  connectCallWriteHits 单独按 mode=ro 判（TS-74bbed93 只读连接非写）。 */
 const PAYLOAD_WRITE_FACE =
-  /\b(?:writeFileSync|appendFileSync|renameSync|unlinkSync|rmSync|mkdirSync|rmdirSync|truncateSync)\s*\(|\bfs\.(?:write|writev)\s*\(|\bos\.(?:remove|rename|mkdir|makedirs|rmdir|mknod|replace)\s*\(|\bshutil\.(?:copy|copy2|copytree|move|rmtree)\s*\(|\.\s*(?:writelines|truncate|unlink)\s*\(|(?<!stdout)(?<!stderr)\.\s*write\s*\(/;
+  /\b(?:writeFileSync|appendFileSync|renameSync|unlinkSync|rmSync|mkdirSync|rmdirSync|truncateSync)\s*\(|\bfs\.(?:write|writev)\s*\(|\bos\.(?:remove|rename|mkdir|makedirs|rmdir|mknod|replace|chmod|chown|utime|truncate)\s*\(|\bshutil\.(?:copy|copy2|copytree|move|rmtree)\s*\(|\bnp\.(?:save|savez|savez_compressed)\s*\(|\.\s*(?:writelines|truncate|unlink)\s*\(|(?<!stdout)(?<!stderr)\.\s*write\s*\(|Path\s*\(\s*["'][^"']*["']\s*\)\s*\.\s*write_(?:text|bytes)\s*\(|\.\s*extractall\s*\(/;
 /** 重定向落点词面（排除 fd 复制 2>&1/>&2、比较/箭头 =>/->/<=/>=）；&>/<>/>> 单列 */
 const REDIRECT_FACE = /(?:&>{1,2}|<>|(?<![=\-<>&])>{1,2}(?!&|\(|=|\s*\/dev\/(?:null|std(?:out|err))))/;
 
@@ -46,12 +53,28 @@ const REDIRECT_FACE = /(?:&>{1,2}|<>|(?<![=\-<>&])>{1,2}(?!&|\(|=|\s*\/dev\/(?:n
  *  open 写 mode/未知 mode）命中即有写面，跨段藏写不许遮蔽。 */
 export function payloadWriteFaceHit(script: string): boolean {
   return WRITE_FACE_WORDS.test(script) || INPLACE_FACE.test(script) || ARG_TARGET_FACE.test(script)
-    || IMPLICIT_WRITE_FACE.test(script) || PAYLOAD_WRITE_FACE.test(script) || openCallWriteHits(script) || openCallUnknownMode(script);
+    || IMPLICIT_WRITE_FACE.test(script) || PAYLOAD_WRITE_FACE.test(script) || openCallWriteHits(script) || openCallUnknownMode(script) || connectCallWriteHits(script);
 }
 
 export function openCallUnknownMode(script: string): boolean {
   for (const { args } of openCallSites(script)) {
     if (openModeOf(args) === "unknown") return true; // mode 不可证 → fail-closed（默认读模式不触发）
+  }
+  return false;
+}
+
+/** 通道 a（F20261013smrj）：sqlite3.connect 词面——默认建库=写（#1423 dbm 族同源），但
+ *  mode=ro 只读连接非写（试金石 TS-74bbed93 `connect('file:...?mode=ro',uri=True)` 实证良性）。
+ *  只认首参字面量；首参非字面量（变量/调用）→ 不可证 → 有写面（保守）。 */
+export function connectCallWriteHits(script: string): boolean {
+  const re = /\bconnect\s*\(\s*([^,)]*)/g;
+  let m = re.exec(script);
+  while (m !== null) {
+    const first = m[1].trim();
+    const lit = /^["'`]([^"'`]*)[`"']$/.exec(first);
+    if (lit === null) return true; // 首参非字面量 → 不可证（保守当写）
+    if (!/mode\s*=\s*ro\b/.test(lit[1])) return true; // 非只读连接 → 建库/写
+    m = re.exec(script);
   }
   return false;
 }
@@ -139,5 +162,6 @@ export function proveNoWrite(command: string): boolean {
     || REDIRECT_FACE.test(command)
     || openCallWriteHits(command)
     || openCallUnknownMode(command)
+    || connectCallWriteHits(command)
   );
 }

@@ -72,7 +72,6 @@
     "TS-a247474d": "fail-closed(heredoc-script-payload)",
     "TS-5a991de4": "fail-closed(dynamic-path)",
     "TS-84bd8dc7": "fail-closed(cwd-unresolvable)",
-    "TS-5ef6fcf4": "fail-closed(dynamic-path)",
     "TS-03e02514": "fail-closed(heredoc-script-payload)",
     "TS-44e0771b": "fail-closed(heredoc-script-payload)",
     "TS-c104": "fail-closed(cwd-unresolvable)",
@@ -120,7 +119,6 @@
     "TS-e94be41a": "放水（求值器判 ALLOW——拦截池必须拦）",
     "TS-291c5634": "放水（求值器判 ALLOW——拦截池必须拦）",
     "TS-1c317a90": "放水（求值器判 ALLOW——拦截池必须拦）",
-    "TS-5a47bb65": "放水（求值器判 ALLOW——拦截池必须拦）",
     "TS-c140": "放水（求值器判 ALLOW——拦截池必须拦）",
     "TS-c097": "放水（求值器判 ALLOW——拦截池必须拦）",
     "TS-747bd520": "放水（求值器判 ALLOW——拦截池必须拦）"
@@ -150,7 +148,6 @@
     "TS-c027#wt": "fail-closed(cwd-unresolvable)",
     "TS-c130#main": "放水（主仓态应拦）",
     "61d75232#main": "放水（主仓态应拦）",
-    "5bfc2d8e#main": "放水（主仓态应拦）",
-    "3b399252#main": "放水（主仓态应拦）"
+    "5bfc2d8e#main": "放水（主仓态应拦）"
   }
 }

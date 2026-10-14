@@ -25,6 +25,8 @@ interface Entry {
   verdict?: string;
   conditional?: boolean;
   expectations?: Array<{ cwd: string; verdict: string }>;
+  /** F20261014smrj：外置脚本载荷（content=按真内容判读 / absent=载荷缺席记档 / unreadable=牙3负门）；判读联合类型与 ScriptPayloadInfo 对齐（content 必带 text） */
+  scriptPayload?: { status: 'content'; text: string } | { status: 'absent' } | { status: 'unreadable' };
 }
 interface Lib { meta: { count: number }; entries: Entry[] }
 const load = (name: string): Lib => JSON.parse(readFileSync(join(FIXTURES, name), 'utf8'));
@@ -40,9 +42,9 @@ const WT = '/repo/.otter/worktrees/wt';
 type GapMap = Record<string, string>;
 
 /** 单条求值（异常兜底：抛错按 fail-closed 记缺口，不让 harness 崩）。 */
-function runVerdict(command: string, startCwd: string) {
+function runVerdict(command: string, startCwd: string, scriptPayload?: Entry['scriptPayload']) {
   try {
-    return evaluateWriteVerdict(command, ROOT, startCwd);
+    return evaluateWriteVerdict(command, ROOT, startCwd, scriptPayload);
   } catch (e) {
     return { verdict: 'BLOCK' as const, mode: 'fail-closed' as const, reason: `threw: ${(e as Error).message}` };
   }
@@ -51,7 +53,7 @@ function runVerdict(command: string, startCwd: string) {
 function allowGaps(): GapMap {
   const gaps: GapMap = {};
   for (const e of allow.entries) {
-    const r = runVerdict(e.command, ROOT);
+    const r = runVerdict(e.command, ROOT, e.scriptPayload);
     if (!(r.verdict === 'ALLOW' && r.mode === 'positive')) {
       gaps[e.id] = r.mode === 'fail-closed' ? `fail-closed(${r.reason})` : '正面 BLOCK（写落点误报主仓）';
     }
@@ -62,7 +64,7 @@ function allowGaps(): GapMap {
 function blockGaps(): GapMap {
   const gaps: GapMap = {};
   for (const e of block.entries) {
-    const r = runVerdict(e.command, ROOT);
+    const r = runVerdict(e.command, ROOT, e.scriptPayload);
     if (r.verdict !== 'BLOCK') {
       gaps[e.id] = '放水（求值器判 ALLOW——拦截池必须拦）';
     }
@@ -73,11 +75,11 @@ function blockGaps(): GapMap {
 function condGaps(): GapMap {
   const gaps: GapMap = {};
   for (const e of cond.entries) {
-    const wt = runVerdict(e.command, WT);
+    const wt = runVerdict(e.command, WT, e.scriptPayload);
     if (!(wt.verdict === 'ALLOW' && wt.mode === 'positive')) {
       gaps[`${e.id}#wt`] = wt.mode === 'fail-closed' ? `fail-closed(${wt.reason})` : '正面 BLOCK（worktree 态应放）';
     }
-    const main = runVerdict(e.command, ROOT);
+    const main = runVerdict(e.command, ROOT, e.scriptPayload);
     if (main.verdict !== 'BLOCK') {
       gaps[`${e.id}#main`] = '放水（主仓态应拦）';
     }
@@ -114,16 +116,16 @@ function expectRatchet(pool: 'allow' | 'block' | 'cond', actual: GapMap): void {
   expect(actualKeys).toEqual(knownKeys);
 }
 
-describe('guard-touchstone judge 考试（988 条全量复跑）', () => {
-  it('放行池 770 条全部正面 ALLOW（fail-closed 不算过）', () => {
+describe('guard-touchstone judge 考试（全量复跑）', () => {
+  it(`放行池 ${allow.entries.length} 条全部正面 ALLOW（fail-closed 不算过）`, () => {
     expectRatchet('allow', allowGaps());
   }, 60_000);
 
-  it('拦截池 49 条全部 BLOCK（正面落点或 fail-closed 终局）', () => {
+  it(`拦截池 ${block.entries.length} 条全部 BLOCK（正面落点或 fail-closed 终局）`, () => {
     expectRatchet('block', blockGaps());
   }, 60_000);
 
-  it('条件期望 101 条双态各跑（worktree→正面 ALLOW / 主仓→BLOCK）', () => {
+  it(`条件期望 ${cond.entries.length} 条双态各跑（worktree→正面 ALLOW / 主仓→BLOCK）`, () => {
     expectRatchet('cond', condGaps());
   }, 60_000);
 });

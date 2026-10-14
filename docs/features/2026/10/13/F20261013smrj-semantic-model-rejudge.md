@@ -126,3 +126,104 @@ zdebug 实证 12 条误伤的写目标全是 `{path:"/repo", via:"cmd-arg"}` 凭
 
 - 能力 3 收尾清棘轮（148→0）为下一棒（fail-closed(heredoc-script-payload) 88 条大头）
 - 对抗审视（检视獭1360，模型错开）→ delta 复核 → 大獭/搭档终审
+
+---
+
+## 审视修复轮（严重 1：撤 A' 三通道真写缺口）—— 2026-10-14
+
+检视獭1360 对 PR #1466 对抗审视判「需修改（1 严重 + 4 建议）」，大獭逐条拍板：**严重 1 四步全做**（write-verdict fail-closed 分支 / 规则 1 未知调用闸+词表 / curl+renameSync 参序小修 / 14 形态进 block 池负门）；建议 3（REGEN 留痕升格）、4（rebase 追平 main）、5（良性零目标以棘轮反馈为准）采纳；建议 2（TS-cb4cc057 残余面转正）延后到能力 3。本节记录严重 1 的实现与取舍。
+
+### 背景（撤 A' 的连带退化）
+
+撤 A'（主仓字面量闸）后，真写词面覆盖出现三通道缺口——合成对抗 14 形态实测**正面放行真写主仓**（语料外，棘轮只看语料故不红）：通道 a 词面失明（Path.write_text/os.chmod/sqlite3.connect/np.save/extractall 被「证明无写」误判）、通道 b 写面命中但落点提取空（install/sed -i/perl -pi/dd of=）、通道 c 机械 bug（curl 单空格正则永不匹配 + renameSync/copyFileSync 参序只提 src）。A' 在位时这些形态 fail-closed，本刀撤闸后正面放行 = 从松到严反方向退化。本修复轮**关闭残余面 #2**（提取词面外写形态 × 主仓字面量间接）。
+
+### 机制判定前置
+
+本修复轮是 PR #1466（F20261013smrj）的审视反馈修复，同一特性内续——机制识别检查点七项沿用主文档判定（全未命中，不涉新增机制），不重复判定。
+
+### 设计取舍（核心：目标提取，而非兜底网）
+
+**取舍 1：以目标提取收编词面（修法 2「词表兜底」），而非修法 1 兜底网 / 未知调用闸。**
+- 修法 1「写面命中∧落点提取空→fail-closed」兜底网实测**过度拦截试金石 48 条**（`gh issue create --body "...rm..."` 词面在字符串字面量里被 raw-text 正则误命中、`git push` 远端非写空落点被误判、`dd --help` 良性零目标）——raw-text 词面匹配无法区分「命令位写词」与「字符串里的写词」，是 A' 过度拦截的同型病。
+- 修法 2「未知调用闸（未知调用+路径字面量→不可证）」同样过度拦截良性只读（`os.path.basename('/x')`/`connect('...mode=ro')` 等纯计算/只读调用带路径字面量被误判不可证），且漏接收者路径写（`Path('/x').write_text` 路径在接收者不在参数）。
+- **采纳修法 2 的「词表补 … 族兜底」形态**（审视报告明示可接受的替代）：目标提取把 install/dd/sed -i/perl -pi/curl -o/wget -O/chmod/chown/chgrp/truncate/ln/rm + 脚本方法（Path(lit).write_text/write_bytes、os.chmod/chown/utime/truncate、np.save/savez、extractall、sqlite3.connect）逐个收编，**可求值按落点判**（良性 /tmp/worktree→ALLOW，真写 /repo→BLOCK positive）。这与语义模型三条腿（可求值按落点判 / 不可证回落 / 只读正面放行）一致，不引入假写证据。
+- **修法 1 兜底网延后**：其残余价值（真未识别写命令，如 `frobnicate /repo/x`）很小（试金石写命令已被提取收编），而过度拦截面（字符串字面量写词、~ 家目录）需 parser 感知的命令位词面检测才能根治——立档为残余面（下表），不开 raw-text 拟合网。
+
+**取舍 2：~ 家目录落点 = 非主仓树。** `rm ~/Desktop/x` 等家目录写不落主仓树（home ≠ /repo）→ 放行，而非 evalPath 的 `~`→dynamic→fail-closed。`~/../`（可爬升回主仓）仍回落不可证。依据：pathWithinMain 的判定基准是主仓树，home 天然树外（试金石 TS-a32f51e7/TS-b9f11dfe 良性家目录 rm 实证）。
+
+**取舍 3：rm 补进目标提取（词表命令落点=全部非旗标参数）。** 通道 b 同类（rm 写面命中但落点提取空）。补后 `rm /repo/x`→positive BLOCK（关 rm 漏口）、`rm /tmp/x`→ALLOW、`rm ~/x`→ALLOW。附带修 2 条拦截/条件池放水缺口（见验证）。
+
+**取舍 4：4 条会话态 cwd=worktree 相对路径原地编辑改条件期望（改批错的答案，请双签）。** TS-ffde7c4f/d055ab39/f5c3141d/3fd4a55b（`perl -pi … tests/…` 无 cd）原列放行池「always-allow」，然其裁决原文即「会话态 cwd=worktree…v2 须用运行时真实 cwd 判定」= 判据本是条件期望（worktree→ALLOW / main→BLOCK）。本刀目标提取按真实 cwd 提取落点（tests/ 相对主仓=主仓写）暴露此归类错——按试金石「改的只是批错的答案」改条件期望（一道不删一道不挪，主仓态新增 BLOCK=收严非放水）。守恒 921 不变（allow 770→766 / cond 101→105）。**需检视獭/大獭双签追认**（进库冻结「追加须双签+呈报」）。
+
+**取舍 5：14 条合成对抗负门进 block 池（搭档「偷跑一个不许再开」）。** 检视獭1360 探针矩阵 14 形态（通道 a 8 + b 4 + c 2）进 block 池正向钉死必拦（id 前缀 TS-smrj）。block 50→64（+14 synthetic_probe，非真实语料——真实语料守恒 921=766+50+105 不变）。
+
+### 影响范围
+
+- `src/frameworks/agent/write-target-evaluator.ts`：新增 evalExtendedWriteTargets（install/ln/chmod/chown/chgrp/truncate/dd/curl/wget/sed -i/perl -pi/ruby -pi 目标提取）；evalScriptWriteTargets 补 renameSync/copyFileSync/copyFile/shutil 双参 dst（通道 c② 参序）、Path(lit).write_text/write_bytes、os.chmod/chown/utime/truncate、np.save/savez、extractall、sqlite3.connect（mode=ro 跳过）；TARGET_ARG_COMMANDS 补 rm；~ 家目录落点非主仓
+- `src/frameworks/agent/write-word-face.ts`：ARG_TARGET_FACE curl 单空格/`--output` 正则修复（通道 c①）；PAYLOAD_WRITE_FACE 补 Path(lit).write_text/bytes、os.chmod/chown/utime/truncate、np.save/savez、extractall；connectCallWriteHits（mode=ro 只读非写）并入 payloadWriteFaceHit/proveNoWrite
+- `tests/fixtures/guard-touchstone-{allow,conditional,block}.json`：4 条改条件期望 + block 14 条合成负门 + meta 计数/留痕
+- `tests/frameworks/agent/guard-touchstone-corpus.test.ts`：守恒计数锚同步（766/64/105，真实语料 921 分离核）
+
+### 验证
+
+- **14 合成对抗形态全 BLOCK**：通道 a（write_text/write_bytes/os.chmod/os.chown/os.utime/sqlite3.connect/np.save/extractall）+ 通道 b（install/sed -i/perl -pi/dd of=）+ 通道 c（curl -o/renameSync/copyFileSync）——正向负门钉死
+- **放行面不误伤**：sed -i/curl -o 到 worktree/tmp/dev-null、Path('x').write_text 到 worktree、connect(mode=ro) 只读、rm 到 tmp/worktree/家目录均 ALLOW
+- **棘轮 shrink_only=PASS**：148→146（added=0，removed=2：TS-5a47bb65 `rm /repo/data/…` 放水→positive BLOCK、3b399252#main `git worktree remove` 放水→BLOCK，均真修复收严）；REGEN 前后计数留痕（allow 111/block 10/cond 25）
+- **全仓**：`npx vitest run` 5429/5433 绿；4 失败全在 `tests/scripts/generate-guard-replay.test.ts`（**pre-existing，与本变更无关**——`git stash` 本变更后复跑同样 4 failed|2 passed，实证基线即坏，非自引入）
+- **最简实现检查**：已过——目标提取复用 evalPath/evalTargetArgCommand 既有落点语义，未引新框架/依赖；修法 1 兜底网经实测过度拦截后弃用（弃繁就简），非漏做
+- **负面向验收（本次变更破坏了什么旧契约/绕过了什么保护）**：① 4 条试金石「always-allow」改为条件期望（主仓态新增 BLOCK）——是收严，但动了试金石归类，故单独呈双签；② 未绕过任何既有保护——fail-closed 回落（uncovered-cmd/dynamic-path/heredoc-script-payload）全保留，#1240 heredoc 负门、$W 爬升回落族不动
+
+### 残余面与立档（更新）
+
+- **残余面 #2（Path.write_text 等提取词面外写形态）已关闭**（本修复轮词表收编）
+- **新增残余面：修法 1 兜底网延后**——真未识别写命令（词表外新写命令，如未来 `frobnicate /repo/x`）落点提取不到时仍「写面命中∧落点空→放行」。根治需 parser 感知的命令位词面检测（区分命令位写词 vs 字符串字面量写词），非 raw-text 兜底网（会误伤字符串字面量）。随词表收编与能力 3 收敛
+- TS-cb4cc057（sed -i 写 worktree fail-closed 钉 block）残余面转正留到能力 3（大獭拍板延后）
+- 检视獭1360 补签欠账（TS-080c6544/TS-f6fe2325 ID 对不上，应为 c034/c024）随 PR 审视收口
+
+## 审视修复轮——工单②：黑盒外置脚本三牙 + 回归闸（2026-10-14）
+
+### 背景与裁决
+
+红线核查（fact ea534b5b）：放行库实扫 35+ 条黑盒外置脚本考题以「盲放」过考（求值器对 `bash <file>` 形态无写面词即正面 ALLOW——探针实测 7 形态全盲放，含两条预定负门形态本身）。按「停下带数据回报」上报后大獭裁决（signal d5f2ae9a，采纳出路 A + 三项口径修正）：① 黑盒放行题一个不动，但带载荷 fixture 上考场（在仓脚本按真内容考、失传/外部脚本标「载荷缺席」记档保留放行）② 新增生成/动态路径拦截 + 命令内造脚本判读两条规则 ③「bash /tmp/不存在.sh」从负门撤销归放行侧（文件不存在→执行必然失败→零写面，是校正不是放水），危险面由两颗牙 +「载荷不可读→拦」钉死。
+
+### 三牙设计（求值器新增，write-target-evaluator.ts）
+
+- 牙1 生成/动态脚本路径（$(gen).sh / $VAR.sh 族，解释器域）→ fail-closed `script-path-dynamic`。source/. 动态源（source <(sed …)）不进牙1——5d98a85e 现役放行题答案保守（残余记档）
+- 牙2 命令内造脚本再执行（echo 写 .sh && bash 同文件）→ 按造出来的内容递归判读（能力 1 heredoc 通道同口径 evaluateFromModel）；内容不可静态重建（echo "$X"、追加、cp 族）→ fail-closed `script-payload-dynamic`
+- 牙3 静态路径三态：`content`→递归判读（子落点并入）；`unreadable`→fail-closed `script-payload-unreadable`；`absent`/未标→零写面放行侧
+- **豁免排除集 UNPROVABLE_TEETH**：三牙终局态（含 parse-failed）不进「能力 4 词面证」豁免——proveNoWrite 盲于脚本执行面，会把牙口 fail-closed 洗成正面 ALLOW（探针实证：`bash /tmp/x.sh` 无写词面被豁免洗白）
+- **载荷深判读不可证的兕底序**：词面证 → 主仓字面量闸（载荷含主仓树绝对字面量不许放，与窄提取同源口径）→ 无主仓字面量则零写面放行（残余：动态目标/相对落点不可证——记档）
+- **附带窄修（同形 bug 两处）**：evalGitAdd/evalGitWrite 的 `-C "$VAR"` 值直读 word.evaluated（var 词恒 null）使 `git -C "$WT" commit` 恒 fail-closed——补纯 var 词赋值溯源（与 evalCdTarget 同口径）。实证面：do-commit 载荷判读 + TS-5ef6fcf4（`git -C $W commit` 缺口真修复闭合）
+
+### 考题与记档（guard-touchstone 三库）
+
+- allow +28 回归闸（TS-smrjreg<8hex> 前缀）：影子 miss_block_candidate 裁决批 25+3（大獭 2026-10-14 复核「确认误拦」）固化为放行考题——修复后必须全部正面 ALLOW 防修过头
+- 黑盒载荷记档：content 6 条（do-commit ×3 + .githooks/pre-commit ×3）/ absent 31 条（载荷缺席保留放行，记档不隐身）+ block TS-291c5634 同记
+- block +4 三牙负门：TS-smrjdgen01（$(gen).sh 牙1）/ TS-smrjmade01（造-执真写主仓，正负门同形对打）/ TS-smrjmade02（造-执动态内容）/ TS-smrjunrd01（载荷不可读）
+- 守恒 921 不变（794+68+105−TS-smrj 系 46 条）；追加依据大獭工单+裁决 signal d5f2ae9a，检视獭1360 delta 复核在途
+- 棘轮 REGEN 留痕 148→145（TS-5ef6fcf4 闭合=真修复；148→146 为严重1轮两项放水口转正）
+
+### 机制识别检查点与修法分类
+
+七项清单：命中第 1 项（UnevalReason 新增 3 个判读原因标签）——判读原因词表是诊断标签非机制开关，不涉持久状态/跨模块路径；第 5 项边界（fixture 新增 scriptPayload 字段）是考题携带判读输入的数据形态，非持久化存储机制。主体走修法决策树①（在既有机制语义内修）：外置脚本载荷判读是既有载荷三通道（heredoc/-c-e/文件）中「文件通道」的缺位补齐，不涉净新增机制。
+
+### 与 #1467 的跨产线对照（M-3f8d8a0d）——⚠️ 冲突已停报
+
+13 用例逐条对照：A1-A6（python heredoc/-c 读 fixture、cat/printf >> worktree、node -e 只读、git -C worktree 写族、rm workspaces）与本库同族同判 ✓；B1/B3/B4/B6/B7（main 态 git 写、sleep/pkill/data_destructive）无同命令不涉 ✓。**2 对同命令反判**：
+
+1. `git push origin --delete feature/F20261012orcl-acceptance-oracle-gate`（全等文本）：#1467 1013-B2 钉 BLOCK（V1 远端删分支负门）vs 本库 TS-smrjreg18f0c467 + c170d88c 内嵌同形判 ALLOW（大獭复核确认误拦=远端 feature 分支清理）
+2. `bash data/workspaces/…/do-commit.sh`（同形同脚本）：#1467 1013-B5 样本 7daea038 钉 BLOCK（V1 现状，自带「翻转须重裁」注记）vs 本库 TS-smrjregc0c9c6a6/cb2c9109/3064857e 判 ALLOW（大獭裁决 signal d5f2ae9a 实质安全+载荷判读）
+
+两对均属 V1 现状行为 vs v2 目标语义的层差（双方事实认定一致：脚本内容 git -C "$WT" add/commit；远端操作非本地树写）——按工单⑤「冲突即停报我」已停推上报。
+
+**裁决落档（大獭 2026-10-14，层差注记终态）**：层差记档口径成立，双库强行对齐不走——两库考的是两个法院，硬对齐反而搅浑（L1 大獭拍板，不涉 L2 产品方向/对外承诺）：
+
+- **do-commit.sh 对：终态以 v2 为准（载荷判读→ALLOW）**——#1467 1013-B5「翻转须重裁」钩子已兑现：signal d5f2ae9a 裁决 + 2026-10-14 全天候选裁决构成重裁，结论=ALLOW
+- **`git push origin --delete` 对：双法院两案，非反判**——求值器法院管「写没写主仓」（无本地树写→ALLOW），策略层法院管「破坏性远端操作」（R1.4→BLOCK）；#1467 1013-B2 的 V1 远端删分支负门是策略层牙齿，**不随 main_write 退役**，管线终态两层各司其职
+- 本库侧层差注记已落 5 条考题 adjudication（TS-smrjreg18f0c467/c170d88c、TS-smrjregc0c9c6a6/3064857e/cb2c9109）；#1467 侧注记由固化獭补（大獭已回签 PR #1467 comment 6160667395），M-3f8d8a0d 转入等注记落位
+
+### 验证
+
+- 单测：write-target-evaluator.test.ts「F20261014smrj 黑盒外置脚本三牙」放行侧 6 + 拦截侧 7（含「能力 4 豁免不得洗白牙口」负门与既有通道不误伤对照）
+- judge 考试全量复跑：放行池 794 / 拦截池 68 / 条件期望 105，棘轮 145 键 shrink-only=PASS
+- 全仓 5446/5446 绿（360 文件）

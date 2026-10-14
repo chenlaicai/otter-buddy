@@ -67,12 +67,18 @@ export type UnevalReason =
   | "uncovered-cmd"       // 词表外命令携带写特征（重定向已单独算，此处指参数位疑似写）
   | "heredoc-script-payload" // Python/JS 等脚本载荷（Phase 1 不求值）
   | "cwd-unresolvable"    // pushd/popd/cd $VAR 溯源不出
+  | "script-path-dynamic"       // F20261014smrj 牙1：生成/动态脚本路径（$(gen).sh / $VAR.sh 族）——一律拦不进词面证豁免
+  | "script-payload-dynamic"    // F20261014smrj 牙2：命令内造脚本其内容不可静态重建（echo "$X" > f && bash f）
+  | "script-payload-unreadable" // F20261014smrj 牙3：外置脚本载荷存在但不可读（载荷不可读→拦）
   | "depth-exceeded";     // 递归深度超限
 
 // ────────────────────────────── 常量与基础工具 ──────────────────────────────
 
-/** 落点参数位词表（Phase 1）。argv0 裸名匹配。 */
-const TARGET_ARG_COMMANDS = new Set(["tee", "cp", "mv", "touch", "mkdir"]);
+/** 落点参数位词表（Phase 1）。argv0 裸名匹配。rm=全部非旗标参数（删除落点）。 */
+const TARGET_ARG_COMMANDS = new Set(["tee", "cp", "mv", "touch", "mkdir", "rm"]);
+/** 修 F20261013smrj 通道 b：扩展词表写命令（install/ln/chmod/chown/chgrp/truncate）——旧集合只有
+ *  tee/cp/mv/touch/mkdir，其余写命令写面命中但落点提取空 → 误当无写放行（通道 b）。 */
+const EXTENDED_TARGET_COMMANDS = new Set(["install", "ln", "chmod", "chown", "chgrp", "truncate"]);
 
 /** git 写族（与 bash-safety-guard.ts GIT_WRITE_SUBCOMMAND 同源——单一真相源对齐，改动须两侧同步） */
 /** git 写族（旧链正则版——F20261009phs2 起求值层改用 evalGitWrite 词级解析，本常量保留
@@ -211,7 +217,25 @@ function trackCwd(segments: Segment[], startCwd: string): string | null {
 interface SegmentEvalAcc {
   targets: WriteTarget[];
   index: number;
+  /** F20261014smrj：同命令段表——git -C "$VAR" 纯 var 词赋值溯源（evalGitWrite 值解析用） */
+  segments?: Segment[];
+  /** F20261014smrj：段号→外置脚本载荷计划（牙2 造-执对内容 / 牙3 三态） */
+  scriptPayloadPlan?: Map<number, SegPayloadPlan>;
+  /** F20261014smrj：载荷递归深度（≥2 回落 depth-exceeded） */
+  scriptDepth?: number;
 }
+
+/** 外置脚本载荷信息（考题 fixture / 生产调用方提供；缺省=缺席语义=零写面）。
+ *  「载荷重组后判读，不许盲放」（裁决 signal d5f2ae9a）：content=按重组内容判读；
+ *  absent=载荷缺席（文件不存在/内容失传——执行必然失败或无可判写面，放行侧记档）；
+ *  unreadable=载荷存在但不可读（牙3→fail-closed）。 */
+export type ScriptPayloadInfo =
+  | { status: "content"; text: string }
+  | { status: "absent" }
+  | { status: "unreadable" };
+
+/** 段级载荷计划项：dynamic=命令内造脚本但内容不可静态重建（牙2 负门→fail-closed） */
+type SegPayloadPlan = ScriptPayloadInfo | { status: "dynamic" };
 
 const WRITE_REDIR_OPS = new Set([">", ">>", ">|", "&>", "&>>", "<>"]);
 const isWriteRedirect = (op: string): boolean => {
@@ -237,7 +261,7 @@ function evalRedirects(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRe
 }
 
 /** git 写族落点（-C 目标优先，无 -C → cwd）。返回 UnevalReason | null。 */
-// eslint-disable-next-line max-statements, complexity -- git 全局旗标形态穷举（-C/-c/--git-dir/--work-tree × =值/空格值）+ 写族子命令判定，每分支对应一种已实证形态（c107 词切分错位教训：合并会再制造旗标解析 bug）
+// eslint-disable-next-line max-lines-per-function, max-statements, complexity -- git 全局旗标形态穷举（-C/-c/--git-dir/--work-tree × =值/空格值）+ 写族子命令判定，每分支对应一种已实证形态（c107 词切分错位教训：合并会再制造旗标解析 bug）；F20261014smrj 加 -C "$VAR" 赋值溯源后超 60 行
 function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReason | null {
   if (seg.argv0 !== "git") return null; // argv0 必须字面 git——非 git 命令不進旗标循环
   //  （旧版 argv0===null 守卫后从 words[1] 扫，echo "unclosed 的 words[1]=null 被误读为
@@ -253,8 +277,14 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
     const w = words[i].evaluated;
     if (w === null) return "dynamic-path";
     if (w === "-C" || w === "-c") {
-      const v = words[i + 1]?.evaluated;
-      if (v === undefined || v === null) return "dynamic-path";
+      // F20261014smrj：-C "$VAR" 纯 var 词同命令赋值溯源（与 evalCdTarget 同口径）——旧版直读
+      //  word.evaluated（var 词恒 null）使 `git -C "$WT" commit` 恒 fail-closed（do-commit 载荷判读实证面）。
+      let v = words[i + 1]?.evaluated ?? null;
+      if (v === null && words[i + 1] !== undefined && acc.segments !== undefined) {
+        const name = isPureVarWord(words[i + 1]);
+        if (name !== null) v = resolveAssign(name, acc.segments);
+      }
+      if (v === null) return "dynamic-path";
       if (w === "-C") cTarget = v;
       i += 2;
       continue;
@@ -262,8 +292,13 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
     if (w.startsWith("--git-dir=")) { i++; continue; }
     if (w.startsWith("--work-tree=")) { workTreeOverride = w.slice("--work-tree=".length); i++; continue; }
     if (w === "--git-dir" || w === "--work-tree") {
-      const v = words[i + 1]?.evaluated;
-      if (v === undefined || v === null) return "dynamic-path";
+      // F20261014smrj：与 -C 同口径——纯 var 词赋值溯源，不猜其余动态形态
+      let v = words[i + 1]?.evaluated ?? null;
+      if (v === null && words[i + 1] !== undefined && acc.segments !== undefined) {
+        const name = isPureVarWord(words[i + 1]);
+        if (name !== null) v = resolveAssign(name, acc.segments);
+      }
+      if (v === null) return "dynamic-path";
       if (w === "--work-tree") workTreeOverride = v;
       i += 2;
       continue;
@@ -314,10 +349,94 @@ function evalTargetArgCommand(bare: string, seg: Segment, cwd: string, acc: Segm
   const destArgs = (bare === "cp" || bare === "mv") ? nonFlagArgs.slice(1) : nonFlagArgs;
   if (destArgs.length === 0) return "uncovered-cmd"; // 词表命令无落点参数：形态未知，保守回落
   for (const d of destArgs) {
+    if (d.startsWith("~")) {
+      if (d.includes("..")) return "dynamic-path"; // ~/../ 可爬升到主仓 → 不可证
+      continue; // 纯家目录落点 = 非主仓树（home ≠ /repo）→ 不算主仓写
+    }
     const resolved = evalPath(d, cwd);
     if (resolved === null) return "dynamic-path";
     acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index, access: "write" });
   }
+  return null;
+}
+
+/** 修 F20261013smrj 通道 b/c：扩展写命令落点提取（install/ln/chmod/chown/chgrp/truncate/dd/curl/wget
+ *  /sed -i/perl -pi/ruby -pi）。旧 TARGET_ARG_COMMANDS 只有 tee/cp/mv/touch/mkdir，其余写命令
+ *  写面命中但落点提取空 → 误当无写放行（通道 b）；curl -o/dd of= 目标在选项值（通道 c）。 */
+// eslint-disable-next-line max-lines-per-function, max-statements, complexity -- F20261014smrj 扩展写族+三牙载荷判读穷举（每分支=一种已实证命令形态），行为等价拆分交 delta 复核定夺（lint 债已在 PR 验证节记档）
+function evalExtendedWriteTargets(bare: string, seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReason | null {
+  const words = seg.words;
+  // 先判是否本函数管辖的命令——不管的命令直接返回 null（不得因词含 var/cmdsub 就报 dynamic-path）
+  const handled = bare === "curl" || bare === "wget" || bare === "dd" || bare === "sed" || bare === "perl" || bare === "ruby"
+    || EXTENDED_TARGET_COMMANDS.has(bare);
+  if (!handled) return null;
+  const push = (d: string): UnevalReason | null => {
+    if (d.startsWith("~")) {
+      if (d.includes("..")) return "dynamic-path"; // ~/../ 可爬升到主仓 → 不可证
+      return null; // 纯家目录落点 = 非主仓树 → 不算主仓写
+    }
+    const resolved = evalPath(d, cwd);
+    if (resolved === null) return "dynamic-path";
+    acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index, access: "write" });
+    return null;
+  };
+  // 参数即落点：curl -o / wget -O / dd of=——只在**落点词**本身不可求值时才 dynamic-path，
+  //  无关词含 var/cmdsub 不触发（curl 无 -o 是只读，不得误伤）。
+  if (bare === "curl" || bare === "wget" || bare === "dd") {
+    for (let i = 1; i < words.length; i++) {
+      const w = words[i].evaluated;
+      if (bare === "dd") {
+        const raw = words[i].evaluated;
+        if (raw === null) continue; // 无关词（如 if=$VAR）不卡
+        const of = /^of=(.+)$/.exec(raw);
+        // eslint-disable-next-line max-depth -- F20261014smrj dd of= 旗标分支内嵌错误早退（早退即返回，不可平铺）
+        if (of !== null) { const e = push(of[1]); if (e !== null) return e; }
+        continue;
+      }
+      if (w === null) continue; // 无关词含 var/cmdsub → 跳过（非落点）
+      const inline = /^(?:--output|-[oO])=(.+)$/.exec(w);
+      if (inline !== null) { const e = push(inline[1]); if (e !== null) return e; continue; }
+      if (/^(?:--output|-[oO])$/.test(w)) {
+        const tv = words[i + 1]?.evaluated;
+        if (tv === undefined || tv === null) return "dynamic-path"; // 落点词不可求值
+        const e = push(tv); if (e !== null) return e;
+        i++; // 消耗落点词
+      }
+    }
+    return null;
+  }
+  // 原地编辑（sed -i / perl -pi / ruby -pi）：目标=脚本/表达式之后的文件参数。
+  //  BSD `sed -i '' expr file` 空备份后缀、表达式含反引号（evaluated=null）均非落点——只对**文件落点词**
+  //  不可求值才 dynamic-path（旧版收 nonFlag 时遇 expr 反引号即误报 dynamic-path，TS-f005a5a9 实证）。
+  if (bare === "sed" || bare === "perl" || bare === "ruby") {
+    const inplace = words.some(w => { const v = w.evaluated ?? ""; return /^-[a-zA-Z]*i[a-zA-Z]*$/.test(v) || /^-\w*p\w*$/.test(v); });
+    if (!inplace) return null;
+    const nonFlagWords: Array<string | null> = [];
+    for (let i = 1; i < words.length; i++) {
+      const v = words[i].evaluated;
+      if (v !== null && v.startsWith("-") && v !== "-") continue;
+      nonFlagWords.push(v);
+    }
+    const files = nonFlagWords.filter(v => v !== "").slice(1); // 滤掉 BSD 空备份后缀，跳过脚本/表达式
+    for (const d of files) {
+      if (d === null) return "dynamic-path"; // 文件落点词不可求值
+      const e = push(d); if (e !== null) return e;
+    }
+    return null;
+  }
+  // 词表写命令：install/ln（dest=最后非旗标）/ chmod/chown/chgrp/truncate（路径=首参之后）
+  const nonFlagArgs: string[] = [];
+  for (let i = 1; i < words.length; i++) {
+    const w = words[i].evaluated;
+    if (w === null) return "dynamic-path"; // 落点词不可求值
+    if (w.startsWith("-") && w !== "-") continue;
+    nonFlagArgs.push(w);
+  }
+  let destArgs: string[];
+  if (bare === "install" || bare === "ln") destArgs = nonFlagArgs.slice(-1); // dest=最后非旗标参数
+  else destArgs = nonFlagArgs.slice(1); // chmod/chown/chgrp/truncate：路径=mode/owner/size 之后
+  if (destArgs.length === 0) return "uncovered-cmd"; // 无落点参数：形态未知，保守回落
+  for (const d of destArgs) { const e = push(d); if (e !== null) return e; }
   return null;
 }
 
@@ -338,8 +457,13 @@ function evalGitAdd(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReaso
     const w = words[i].evaluated;
     if (w === null) return "dynamic-path";
     if (w === "-C" || w === "-c") {
-      const v = words[i + 1]?.evaluated;
-      if (v === undefined || v === null) return "dynamic-path";
+      // F20261014smrj：与 evalGitWrite 同步——纯 var 词赋值溯源（旧版两函数同形 bug，git add 段先截）
+      let v = words[i + 1]?.evaluated ?? null;
+      if (v === null && words[i + 1] !== undefined && acc.segments !== undefined) {
+        const name = isPureVarWord(words[i + 1]);
+        if (name !== null) v = resolveAssign(name, acc.segments);
+      }
+      if (v === null) return "dynamic-path";
       if (w === "-C") cTarget = v;
       i += 2;
       continue;
@@ -410,12 +534,48 @@ function foldStringConcat(expr: string): string | null {
  *  写调用存在但路径不可求值 → 返回 null（调用方回落）。argv 值传播：argvMap[N] 提供
  *  process.argv[2+N]/sys.argv[1+N] 的实际参数词（node -e s A → argv[2]=A；python -c s A → sys.argv[1]=A）。 */
 
+// eslint-disable-next-line max-statements, complexity -- F20261014smrj 脚本载荷递归判读（node -e/-c/文件三通道+argv 传播），分支=通道穷举（合分支会遮蔽通道优先级）
 function evalScriptWriteTargets(script: string, argvMap: Map<number, string>): { paths: string[] } | null {
   const paths: string[] = [];
-  // node: xxxSync('path', ...) / fs.writeFile('path', ...) / open('path','w')
-  for (const m of script.matchAll(/\b(?:writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|openSync|mkdirSync|mkdir|rmSync|rmdirSync|unlinkSync|unlink|renameSync|copyFileSync|copyFile|chmodSync|chownSync|symlinkSync)\s*\(\s*([^,)]+)/g)) {
+  // node: xxxSync('path', ...) / fs.writeFile('path', ...) —— 首参即落点（不含 rename/copy 双参族）
+  for (const m of script.matchAll(/\b(?:writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|openSync|mkdirSync|mkdir|rmSync|rmdirSync|unlinkSync|unlink|chmodSync|chownSync|symlinkSync|truncateSync)\s*\(\s*([^,)]+)/g)) {
     const arg = resolveScriptArg(m[1], argvMap);
     if (arg === null) return null; // 路径不可求值 → 写调用不可求值，回落
+    paths.push(arg);
+  }
+  // 修 F20261013smrj 通道 c②（参序 bug）：renameSync/copyFileSync/copyFile/shutil.copy/copy2/copytree/move
+  //  双参 src→dst——落点是**第二参（dst）**，旧版只提首参（src）漏 dst。提第二参。
+  for (const m of script.matchAll(/\b(?:renameSync|rename|copyFileSync|copyFile)\s*\(\s*[^,)]+\s*,\s*([^,)]+)/g)) {
+    const arg = resolveScriptArg(m[1], argvMap);
+    if (arg === null) return null;
+    paths.push(arg);
+  }
+  for (const m of script.matchAll(/\bshutil\.(?:copy|copy2|copytree|move)\s*\(\s*[^,)]+\s*,\s*([^,)]+)/g)) {
+    const arg = resolveScriptArg(m[1], argvMap);
+    if (arg === null) return null;
+    paths.push(arg);
+  }
+  // 修 F20261013smrj 通道 a（词面失明）：pathlib.Path(lit).write_text/write_bytes——路径在接收者
+  //  Path 构造里。变量接收者 f.write_text 不入本通道（未识别目标 → 不可证，但无路径字面量写证据），
+  //  试金石 TS-19e22576 良性保留。
+  for (const m of script.matchAll(/Path\s*\(\s*["']([^"']*)["']\s*\)\s*\.\s*write_(?:text|bytes)\s*\(/g)) {
+    const arg = resolveScriptArg(`"${m[1]}"`, argvMap);
+    if (arg === null) return null;
+    paths.push(arg);
+  }
+  //  通道 a：os.chmod/chown/utime/truncate、np.save/savez/extractall —— 首参即落点
+  for (const m of script.matchAll(/\b(?:os\.(?:chmod|chown|utime|truncate)|np\.(?:save|savez|savez_compressed)|\w+\.extractall)\s*\(\s*([^,)]+)/g)) {
+    const arg = resolveScriptArg(m[1], argvMap);
+    if (arg === null) return null;
+    paths.push(arg);
+  }
+  //  通道 a：sqlite3.connect —— 首参即落点；mode=ro 只读连接非写（跳过）；首参非字面量 → 不可证
+  for (const m of script.matchAll(/\bconnect\s*\(\s*([^,)]*)/g)) {
+    const first = m[1].trim();
+    const lit = /^["'`]([^"'`]*)[`"']$/.exec(first);
+    if (lit !== null && /mode\s*=\s*ro\b/.test(lit[1])) continue; // 只读连接非写
+    const arg = resolveScriptArg(m[1], argvMap);
+    if (arg === null) return null; // 首参非字面量 → 不可证（保守回落）
     paths.push(arg);
   }
   // python: open('path', 'w'/'a'/'r+'/...)——读模式 open('p') / open('p','r') 不算写
@@ -587,8 +747,138 @@ function hasNarrowExtractableScriptSeg(model: CommandModel, projectRoot: string)
   return check(model);
 }
 
+// ────────────────────────────── 黑盒外置脚本三牙（F20261014smrj 工单②，裁决 signal d5f2ae9a） ──────────────────────────────
+//
+// 背景：`bash <file>` 外置脚本段历史为盲放（无写面词→正面 ALLOW）——放行库 35+ 条黑盒脚本
+//  考题即以此过考。裁决口径：考「静态路径按重组载荷判读」不是盲放：
+//  ① 生成/动态脚本路径（$(gen).sh 族）→ fail-closed；
+//  ② 命令内造脚本再执行（echo 写 .sh && bash 同文件）→ 按造出来的内容判读；内容不可重建→fail-closed；
+//  ③ 静态路径三态：content→递归判读；unreadable→fail-closed；absent/未标→零写面（放行侧——
+//     「文件不存在→执行必然失败→零写面」校正口径；载荷缺席面在考题 fixture 记档不隐身）。
+
+/** 三牙终局态（含 parse-failed）：黑盒脚本的不可证面不进「能力 4 词面证」豁免——
+ *  否则 proveNoWrite（盲于脚本执行面）会把牙口的 fail-closed 洗成正面 ALLOW（探针实证的放水面）。 */
+const UNPROVABLE_TEETH: ReadonlySet<UnevalReason> = new Set<UnevalReason>([
+  "parse-failed",
+  "script-path-dynamic",
+  "script-payload-dynamic",
+  "script-payload-unreadable",
+]);
+
+/** shell 外置脚本执行段（解释器族 ∪ source/.）——三牙判定的触发面 */
+const SCRIPT_FILE_RUNNERS = new Set<string>([...SHELL_INTERPRETERS, "source", "."]);
+
+/** shell 外置脚本执行段识别：解释器族或 source/. + 无 -c/-e 载荷旗标。
+ *  返回脚本位词与是否动态（生成/求值不出路径）；null=非外置脚本段。 */
+function shellScriptFileArg(seg: Segment): { word: Word; dynamic: boolean } | null {
+  const bare = bareName(seg.argv0);
+  if (bare === null || !SCRIPT_FILE_RUNNERS.has(bare)) return null;
+  if (seg.args.includes("-c") || seg.args.includes("-e")) return null;
+  for (const w of seg.words.slice(1)) {
+    const raw = w.parts.map(p => (p.type === "lit" || p.type === "escape" ? p.text ?? "" : "")).join("");
+    const head = w.evaluated ?? raw;
+    if (head.startsWith("-")) continue; // 旗标位（-n 检查态等）不当脚本位
+    const v = w.evaluated;
+    return { word: w, dynamic: v === null || evalPath(v, "/") === null };
+  }
+  return null;
+}
+
+/** 造文件段内容重建（牙2）：echo/printf 静态参数、cat/tee 定界 heredoc 体 → 可重建；
+ *  其他写法（cp/mv/追加/含展开参数）→ content=null（不可重建=dynamic）。 */
+// eslint-disable-next-line complexity -- F20261014smrj 牙2 内容重建（echo/printf/cat/tee/heredoc/重定向）形态穷举，分支=已实证写法枚举
+function writerContent(seg: Segment, cwd: string): { target: string; content: string | null } | null {
+  let redirect: Segment["redirects"][number] | null = null;
+  for (const r of seg.redirects) {
+    if (!isWriteRedirect(r.op) || isFdDup(r.op, r.target)) continue;
+    redirect = r;
+    break;
+  }
+  if (redirect === null || redirect.target === null) return null;
+  const target = evalPath(redirect.target, cwd);
+  if (target === null) return null;
+  if (redirect.op.includes(">>")) return { target, content: null }; // 追加：先验内容不可知
+  const bare = bareName(seg.argv0);
+  if (bare === "echo" || bare === "printf") {
+    const vals = seg.words.slice(1).map(w => w.evaluated);
+    if (vals.some(v => v === null)) return { target, content: null };
+    const args = vals.filter((v): v is string => v !== null && !v.startsWith("-"));
+    const content = bare === "printf" ? args.slice(1).join("\n") : args.join(" ");
+    return { target, content };
+  }
+  if ((bare === "cat" || bare === "tee") && seg.heredocs.length === 1) {
+    const hd = seg.heredocs[0];
+    if (!hd.delimQuoted && /[$`]/.test(hd.body)) return { target, content: null };
+    return { target, content: hd.body };
+  }
+  return { target, content: null };
+}
+
+/** 载荷主仓字面量闸（与窄提取「载荷含主仓树字面量一律回落」同源口径的反向判据）：
+ *  载荷文本含主仓树绝对路径字面量 → 存在主仓写嫌疑，深判读不可证时不许放。 */
+function hasMainTreeLiteral(text: string, projectRoot: string): boolean {
+  const re = /(?:^|[\s"'=:(,])(\/[^\s"'`;|&()<>]+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (pathWithinMain(normalizePath(m[1]), projectRoot)) return true;
+  }
+  return false;
+}
+
+/** 外置脚本载荷判读（牙2/牙3 的 content 态）：载荷文本递归求值（能力 1 heredoc 通道同口径），
+ *  子落点并入 acc。深判读不可证时：词面证（能力 4）→ 主仓字面量闸 → 均不过才回落。
+ *  无主仓树字面量的不可证载荷按零写面放行——残余缺口（动态目标/相对落点不可证）见特性文档记档。 */
+function judgeScriptPayload(text: string, projectRoot: string, cwd: string, acc: SegmentEvalAcc): UnevalReason | null {
+  const depth = acc.scriptDepth ?? 0;
+  if (depth >= 2) return "depth-exceeded";
+  const sub = evaluateFromModel(parseOnce(text, 1), projectRoot, cwd, undefined, depth + 1);
+  if (sub.kind === "evaluated") {
+    acc.targets.push(...sub.targets.map(t => ({ ...t, via: "heredoc-body" as const, segmentIndex: acc.index })));
+    return null;
+  }
+  // 载荷内嵌套牙口（造-执对/动态路径）——不可证面直接传播不豁免；其余不可证先试词面证再过主仓字面量闸
+  if (UNPROVABLE_TEETH.has(sub.reason) && sub.reason !== "parse-failed") return sub.reason;
+  if (sub.reason !== "parse-failed" && proveNoWrite(text)) return null;
+  if (hasMainTreeLiteral(text, projectRoot)) return sub.reason;
+  return null;
+}
+
+/** 段级载荷计划（牙2 造-执对 + 牙3 三态）：先扫「命令内造脚本再执行」对（造出内容为权威载荷），
+ *  其余外置脚本段取条目级载荷信息（缺省=absent）。 */
+// eslint-disable-next-line complexity -- F20261014smrj 牙2 造-执对+牙3 三态计划合成，分支=语义枚举（合分支会遮蔽造出内容优先语义）
+function buildScriptPayloadPlan(model: CommandModel, projectRoot: string, startCwd: string, entry: ScriptPayloadInfo | undefined): Map<number, SegPayloadPlan> {
+  const plan = new Map<number, SegPayloadPlan>();
+  const segs = model.segments;
+  const cwdAt: string[] = [];
+  let cwd = startCwd;
+  for (const seg of segs) {
+    cwdAt.push(cwd);
+    if (seg.joiner !== "&" && seg.joiner !== "|" && bareName(seg.argv0) === "cd") {
+      const r = evalCdTarget(seg, segs, cwd);
+      if (r !== null) cwd = r;
+    }
+  }
+  for (let i = 0; i < segs.length; i++) {
+    const ex = shellScriptFileArg(segs[i]);
+    if (ex === null) continue;
+    let planned: SegPayloadPlan | undefined;
+    const v = ex.word.evaluated;
+    if (!ex.dynamic && v !== null) {
+      const sPath = evalPath(v, cwdAt[i]);
+      for (let j = 0; j < i && sPath !== null && planned === undefined; j++) {
+        if (segs[j].joiner === "|") continue;
+        const w = writerContent(segs[j], cwdAt[j]);
+        if (w === null || w.target !== sPath) continue;
+        planned = w.content === null ? { status: "dynamic" } : { status: "content", text: w.content };
+      }
+    }
+    plan.set(i, planned ?? entry ?? { status: "absent" });
+  }
+  return plan;
+}
+
 /** 单段求值：脚本窄提取（Phase 2）→ 脚本载荷族回落 → 重定向 → git add（Phase 2）→ git 写族 → 词表命令。返回 null 表示该段无 unevaluated。 */
-// eslint-disable-next-line complexity -- 段求值路由（窄提取/载荷回落/heredoc 递归/重定向/git/词表）六通道各对应一条已声明语义，合并会制造分支遮蔽
+// eslint-disable-next-line complexity, max-statements -- 段求值路由（窄提取/载荷回落/heredoc 递归/重定向/git/词表）六通道各对应一条已声明语义，合并会制造分支遮蔽；F20261014smrj 三牙计划接入后语句数超 25
 function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot: string, commandText: string): UnevalReason | null {
   const bare = bareName(seg.argv0);
   const accWithCwd: SegmentEvalAcc & { cwd: string } = Object.assign(acc, { cwd });
@@ -607,7 +897,7 @@ function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot
     for (const hd of seg.heredocs) {
       const sub = evaluateFromModel(parseOnce(hd.body, 1), projectRoot, cwd);
       if (sub.kind === "unevaluated") {
-        if (sub.reason === "parse-failed" || !proveNoWrite(commandText)) return sub.reason;
+        if (UNPROVABLE_TEETH.has(sub.reason) || !proveNoWrite(commandText)) return sub.reason;
         continue;
       }
       acc.targets.push(...sub.targets);
@@ -622,6 +912,24 @@ function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot
   //  ALLOW。TS-508d0cc8 的「主仓树内×1/4」证据自身错误（__HEREDOC_DATA__(/tmp/...)
   //  落主仓树内——/tmp 不在主仓树内），按同构对重裁与 TS-a6dfe989 判到一致（双 ALLOW）。
 
+  // ── 黑盒外置脚本三牙（F20261014smrj）：生成路径拦 / 造-执内容判读 / 载荷三态 ──
+  const scriptArg = shellScriptFileArg(seg);
+  if (scriptArg !== null) {
+    const runner = bareName(seg.argv0);
+    // 牙1：生成/动态脚本路径一律拦（解释器族；source/. 不进牙1——source <(sed …) 现役放行题保守面）
+    if (scriptArg.dynamic && runner !== null && SHELL_INTERPRETERS.has(runner)) return "script-path-dynamic";
+    if (!scriptArg.dynamic) {
+      const plan = acc.scriptPayloadPlan?.get(acc.index);
+      // 牙3 三态：unreadable→拦；content（含牙2 造-执内容）→递归判读；absent/未标→零写面放行侧
+      if (plan?.status === "unreadable") return "script-payload-unreadable";
+      if (plan?.status === "dynamic") return "script-payload-dynamic";
+      if (plan?.status === "content") {
+        const payloadErr = judgeScriptPayload(plan.text, projectRoot, cwd, acc);
+        if (payloadErr !== null) return payloadErr;
+      }
+    }
+  }
+
   const err = evalRedirects(seg, cwd, acc);
   if (err !== null) return err;
   const gitAddErr = evalGitAdd(seg, cwd, acc);
@@ -631,6 +939,8 @@ function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot
   if (bare !== null) {
     const cmdErr = evalTargetArgCommand(bare, seg, cwd, acc);
     if (cmdErr !== null) return cmdErr;
+    const extErr = evalExtendedWriteTargets(bare, seg, cwd, acc);
+    if (extErr !== null) return extErr;
   }
   return null;
 }
@@ -642,11 +952,17 @@ function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot
 /** 从既有模型求值。子模型（bash -c/cmdsub）先各自 trackCwd 再求值（子 shell cd 链独立——
  *  首跑实测教训：默认主仓根会漏子模型内 cd，bash -c 'cd wt && touch a' 误报主仓落点）。
  *  startCwd = 命令启动时的 cwd（默认 projectRoot）——条件期望双态各跑的维度参数。 */
-function evaluateFromModel(model: CommandModel, projectRoot: string, startCwd: string): WriteEvalResult {
+function evaluateFromModel(model: CommandModel, projectRoot: string, startCwd: string, scriptPayload?: ScriptPayloadInfo, scriptDepth: number = 0): WriteEvalResult {
   const tracked = trackCwd(model.segments, startCwd);
   if (tracked === null) return { kind: "unevaluated", reason: "cwd-unresolvable" };
 
-  const acc: SegmentEvalAcc = { targets: [], index: 0 };
+  const acc: SegmentEvalAcc = {
+    targets: [],
+    index: 0,
+    segments: model.segments,
+    scriptPayloadPlan: buildScriptPayloadPlan(model, projectRoot, startCwd, scriptPayload),
+    scriptDepth,
+  };
   let cwd = tracked;
   for (const seg of model.segments) {
     const err = evalSegment(seg, cwd, acc, projectRoot, model.raw);
@@ -683,9 +999,9 @@ function collectShellPayloadTargets(
     if (scriptSegNarrowed && p.kind === "cmdsub" && !p.model.parseOk && !detectScriptPayload(p.model)) continue; // 垃圾 cmdsub 跳过
     const sub = evaluateFromModel(p.model, projectRoot, startCwd);
     if (sub.kind === "unevaluated") {
-      // 能力 4：载荷求值失败但原文词面可证无写 → 正面 ALLOW；parse-failed 豁免（载荷内引号/
+      // 能力 4：载荷求值失败但原文词面可证无写 → 正面 ALLOW；parse-failed/三牙终局态豁免（载荷内引号/
       //  参数分裂逃逸=残余面钉死 fail-closed，不走词面放宽）
-      if (sub.reason !== "parse-failed" && proveNoWrite(command)) return { targets };
+      if (!UNPROVABLE_TEETH.has(sub.reason) && proveNoWrite(command)) return { targets };
       return { uneval: sub.reason };
     }
     targets.push(...sub.targets);
@@ -694,7 +1010,7 @@ function collectShellPayloadTargets(
 }
 
 // eslint-disable-next-line complexity -- 入口路由（parseOk 探针 + 载荷递归 + 主模型求值）三分支各对应一条已声明语义（Phase 1/Phase 2 口径注释）
-export function evaluateWriteTargets(command: string, projectRoot: string, startCwd: string = projectRoot): WriteEvalResult {
+export function evaluateWriteTargets(command: string, projectRoot: string, startCwd: string = projectRoot, scriptPayload?: ScriptPayloadInfo): WriteEvalResult {
   const model: CommandModel = parseOnce(command, 0);
 
   // 先行载荷族检测（不依赖 parseOk——可窄提取的脚本载荷段跳过短路，交给段级窄提取）。
@@ -708,7 +1024,7 @@ export function evaluateWriteTargets(command: string, projectRoot: string, start
     //  至少一段求出实质落点才走正常路径；全部段零落点且无载荷/窄提取面 → evaluated 空集
     //  是假信息，回落 parse-failed 保 Phase 1 保守语义。词法彻底失败（segments 空）同口径。
     if (model.segments.length === 0) return { kind: "unevaluated", reason: "parse-failed" };
-    const probe = evaluateFromModel(model, projectRoot, startCwd);
+    const probe = evaluateFromModel(model, projectRoot, startCwd, scriptPayload);
     if (probe.kind === "unevaluated") return probe;
     if (probe.targets.length === 0 && !hasNarrowExtractableScriptSeg(model, projectRoot) && model.payloads.length === 0) {
       // 能力 4：词面可证无写 → 正面 ALLOW；否则保 Phase 1 保守语义。有 shell 递归载荷时
@@ -729,9 +1045,9 @@ export function evaluateWriteTargets(command: string, projectRoot: string, start
   if ("uneval" in payloadResult) return { kind: "unevaluated", reason: payloadResult.uneval };
   const subTargets: WriteTarget[] = payloadResult.targets;
 
-  const main = evaluateFromModel(model, projectRoot, startCwd);
+  const main = evaluateFromModel(model, projectRoot, startCwd, scriptPayload);
   if (main.kind === "unevaluated") {
-    if (main.reason !== "parse-failed" && proveNoWrite(command)) return { kind: "evaluated", targets: subTargets };
+    if (!UNPROVABLE_TEETH.has(main.reason) && proveNoWrite(command)) return { kind: "evaluated", targets: subTargets };
     return main;
   }
   return { kind: "evaluated", targets: [...main.targets, ...subTargets] };

@@ -7,7 +7,7 @@
     "generated_at": "2026-10-12T10:52:25.895869Z",
     "generated_by": "守卫修复獭（重刷期望+冻结，派工单 2026-10-12 18:36）",
     "pool": "拦截试金石",
-    "count": 50,
+    "count": 68,
     "kinds": "synthetic_probe / shadow_case / real_command / residual_face(真实误拦残余面§3.3-①如实钉)",
     "restate_changes": {
       "git_policy_flip": 68,
@@ -18,7 +18,9 @@
     },
     "total_conserved": 1006,
     "dedup_note": "截断态 unique 1006 → 全文恢复后命令级 unique 988（17 组恢复撞车已合并，双签处置为准）",
-    "closure_2026_10_13": "PR #1448 收口（检视獭1360 3 点位 + 大獭拍板 + 2 条探针翻转裁决）：747bd520/c108/TS-c034/TS-c024→BLOCK、61d75232/5bfc2d8e/3b399252→条件期望、5 条依据错配改正、B 节 3 条归池（运维豁免+限定句）"
+    "closure_2026_10_13": "PR #1448 收口（检视獭1360 3 点位 + 大獭拍板 + 2 条探针翻转裁决）：747bd520/c108/TS-c034/TS-c024→BLOCK、61d75232/5bfc2d8e/3b399252→条件期望、5 条依据错配改正、B 节 3 条归池（运维豁免+限定句）",
+    "smrj_severe1_negative_gate": "2026-10-13 守卫修复獭补 14 条合成对抗负门（撤 A' 三通道真写缺口，检视獭1360 探针矩阵）：block 50→64（+14 synthetic_probe，非真实语料——真实语料守恒 921=766+50+105 不变）",
+    "smrj_2026_10_14_negative_gate": "工单②三牙负门 4 条（牙1 生成路径 / 牙2 造-执真写主仓 / 牙2 造-执动态内容 / 牙3 载荷不可读）——大獭裁决 signal d5f2ae9a 口径：负门只钉危险变体，「bash /tmp/不存在.sh」归放行侧（文件不存在→执行必然失败→零写面）"
   },
   "entries": [
     {
@@ -332,7 +334,10 @@
         ]
       },
       "fp_marked": [],
-      "kind": "real_command"
+      "kind": "real_command",
+      "scriptPayload": {
+        "status": "absent"
+      }
     },
     {
       "id": "TS-547d0252",
@@ -1326,6 +1331,387 @@
         "basis": ""
       },
       "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjeafe1a",
+      "command": "python3 -c \"from pathlib import Path; Path('/repo/data/x').write_text('a')\"",
+      "adjudication": [
+        "F20261013smrj 严重1 合成对抗负门（检视獭1360 探针矩阵，搭档「偷跑一个不许再开」）：通道a-词面失明——撤 A' 后此形态曾正面放行真写主仓，本条正向钉死必拦"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review_1466",
+            "reviewer": "检视獭1360",
+            "channel": "通道a-词面失明"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrj92a4f2",
+      "command": "python3 -c \"from pathlib import Path; Path('/repo/data/x').write_bytes(b'a')\"",
+      "adjudication": [
+        "F20261013smrj 严重1 合成对抗负门（检视獭1360 探针矩阵，搭档「偷跑一个不许再开」）：通道a-词面失明——撤 A' 后此形态曾正面放行真写主仓，本条正向钉死必拦"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review_1466",
+            "reviewer": "检视獭1360",
+            "channel": "通道a-词面失明"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrj4517c0",
+      "command": "python3 -c \"import os; os.chmod('/repo/data/x',0o644)\"",
+      "adjudication": [
+        "F20261013smrj 严重1 合成对抗负门（检视獭1360 探针矩阵，搭档「偷跑一个不许再开」）：通道a-词面失明——撤 A' 后此形态曾正面放行真写主仓，本条正向钉死必拦"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review_1466",
+            "reviewer": "检视獭1360",
+            "channel": "通道a-词面失明"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrj0c0444",
+      "command": "python3 -c \"import os; os.chown('/repo/data/x',0,0)\"",
+      "adjudication": [
+        "F20261013smrj 严重1 合成对抗负门（检视獭1360 探针矩阵，搭档「偷跑一个不许再开」）：通道a-词面失明——撤 A' 后此形态曾正面放行真写主仓，本条正向钉死必拦"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review_1466",
+            "reviewer": "检视獭1360",
+            "channel": "通道a-词面失明"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjcbc1c8",
+      "command": "python3 -c \"import os; os.utime('/repo/data/x')\"",
+      "adjudication": [
+        "F20261013smrj 严重1 合成对抗负门（检视獭1360 探针矩阵，搭档「偷跑一个不许再开」）：通道a-词面失明——撤 A' 后此形态曾正面放行真写主仓，本条正向钉死必拦"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review_1466",
+            "reviewer": "检视獭1360",
+            "channel": "通道a-词面失明"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjc66c60",
+      "command": "python3 -c \"import sqlite3; sqlite3.connect('/repo/data/db')\"",
+      "adjudication": [
+        "F20261013smrj 严重1 合成对抗负门（检视獭1360 探针矩阵，搭档「偷跑一个不许再开」）：通道a-词面失明——撤 A' 后此形态曾正面放行真写主仓，本条正向钉死必拦"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review_1466",
+            "reviewer": "检视獭1360",
+            "channel": "通道a-词面失明"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrj508ae7",
+      "command": "python3 -c \"import numpy as np; np.save('/repo/data/x',1)\"",
+      "adjudication": [
+        "F20261013smrj 严重1 合成对抗负门（检视獭1360 探针矩阵，搭档「偷跑一个不许再开」）：通道a-词面失明——撤 A' 后此形态曾正面放行真写主仓，本条正向钉死必拦"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review_1466",
+            "reviewer": "检视獭1360",
+            "channel": "通道a-词面失明"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrj03a64e",
+      "command": "python3 -c \"import tarfile; tarfile.open('/tmp/t.tar').extractall('/repo/data')\"",
+      "adjudication": [
+        "F20261013smrj 严重1 合成对抗负门（检视獭1360 探针矩阵，搭档「偷跑一个不许再开」）：通道a-词面失明——撤 A' 后此形态曾正面放行真写主仓，本条正向钉死必拦"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review_1466",
+            "reviewer": "检视獭1360",
+            "channel": "通道a-词面失明"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjb7b150",
+      "command": "install /tmp/a /repo/data/b",
+      "adjudication": [
+        "F20261013smrj 严重1 合成对抗负门（检视獭1360 探针矩阵，搭档「偷跑一个不许再开」）：通道b-写面命中落点空——撤 A' 后此形态曾正面放行真写主仓，本条正向钉死必拦"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review_1466",
+            "reviewer": "检视獭1360",
+            "channel": "通道b-写面命中落点空"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjf086c7",
+      "command": "sed -i s/a/b/ /repo/data/x",
+      "adjudication": [
+        "F20261013smrj 严重1 合成对抗负门（检视獭1360 探针矩阵，搭档「偷跑一个不许再开」）：通道b-写面命中落点空——撤 A' 后此形态曾正面放行真写主仓，本条正向钉死必拦"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review_1466",
+            "reviewer": "检视獭1360",
+            "channel": "通道b-写面命中落点空"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjfbb7a7",
+      "command": "perl -pi -e s/a/b/ /repo/data/x",
+      "adjudication": [
+        "F20261013smrj 严重1 合成对抗负门（检视獭1360 探针矩阵，搭档「偷跑一个不许再开」）：通道b-写面命中落点空——撤 A' 后此形态曾正面放行真写主仓，本条正向钉死必拦"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review_1466",
+            "reviewer": "检视獭1360",
+            "channel": "通道b-写面命中落点空"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjd79d45",
+      "command": "dd of=/repo/data/x if=/tmp/a",
+      "adjudication": [
+        "F20261013smrj 严重1 合成对抗负门（检视獭1360 探针矩阵，搭档「偷跑一个不许再开」）：通道b-写面命中落点空——撤 A' 后此形态曾正面放行真写主仓，本条正向钉死必拦"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review_1466",
+            "reviewer": "检视獭1360",
+            "channel": "通道b-写面命中落点空"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjd47201",
+      "command": "curl -o /repo/data/x http://y",
+      "adjudication": [
+        "F20261013smrj 严重1 合成对抗负门（检视獭1360 探针矩阵，搭档「偷跑一个不许再开」）：通道c-机械bug——撤 A' 后此形态曾正面放行真写主仓，本条正向钉死必拦"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review_1466",
+            "reviewer": "检视獭1360",
+            "channel": "通道c-机械bug"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrj91098f",
+      "command": "node -e \"require('fs').renameSync('/tmp/a','/repo/data/b');require('fs').copyFileSync('/tmp/c','/repo/data/d')\"",
+      "adjudication": [
+        "F20261013smrj 严重1 合成对抗负门（检视獭1360 探针矩阵，搭档「偷跑一个不许再开」）：通道c-机械bug——撤 A' 后此形态曾正面放行真写主仓，本条正向钉死必拦"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review_1466",
+            "reviewer": "检视獭1360",
+            "channel": "通道c-机械bug"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjdgen01",
+      "command": "bash $(mktemp -u /tmp/gen).sh",
+      "adjudication": [
+        "F20261014smrj 工单②负门（大獭裁决 signal d5f2ae9a 三牙之牙1）：生成/动态脚本路径一律拦——$(gen).sh 形态路径运行时才生成、载荷不可重建，正向钉死必拦"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "work_order",
+            "reviewer": "大獭(signal d5f2ae9a)",
+            "channel": "牙1-生成路径"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjmade01",
+      "command": "echo \"touch /repo/data/x\" > /tmp/g.sh && bash /tmp/g.sh",
+      "adjudication": [
+        "F20261014smrj 工单②负门（三牙之牙2）：命令里当场造脚本再执行→按造出来的内容判读——本条内容含 touch 主仓落点，重组判读后必须拦（载荷重组后真写主仓变体，正负门同形对打）"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "work_order",
+            "reviewer": "大獭(signal d5f2ae9a)",
+            "channel": "牙2-造执真写主仓"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjmade02",
+      "command": "echo \"$CMD\" > /tmp/g.sh && bash /tmp/g.sh",
+      "adjudication": [
+        "F20261014smrj 工单②负门（三牙之牙2）：造脚本内容不可静态重建（动态参数写脚本再执行）→fail-closed 必拦"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "work_order",
+            "reviewer": "大獭(signal d5f2ae9a)",
+            "channel": "牙2-造执动态内容"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjunrd01",
+      "command": "bash /tmp/x.sh",
+      "adjudication": [
+        "F20261014smrj 工单②负门（三牙之牙3）：外置脚本载荷存在但不可读→fail-closed 必拦（「载荷不可读→拦」正向钉；对照「不存在→放行」校正口径的反面）"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "work_order",
+            "reviewer": "大獭(signal d5f2ae9a)",
+            "channel": "牙3-载荷不可读"
+          }
+        ]
+      },
+      "verdict": "BLOCK",
+      "scriptPayload": {
+        "status": "unreadable"
+      }
     }
   ]
 }

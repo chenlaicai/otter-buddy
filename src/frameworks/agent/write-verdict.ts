@@ -5,7 +5,7 @@
  * （§3.3 读不出终局）——BLOCK 是 v2 的终局态，残余面（residual_face）即以此态如实钉 BLOCK。
  * 「judge 考试」（guard-touchstone-exam）与影子投影同用本判据，口径不得分叉。
  */
-import type { WriteTarget, UnevalReason, WriteEvalResult } from "./write-target-evaluator";
+import type { WriteTarget, UnevalReason, WriteEvalResult, ScriptPayloadInfo } from "./write-target-evaluator";
 import { evaluateWriteTargets, pathWithinMain } from "./write-target-evaluator";
 
 export type WriteVerdictResult =
@@ -18,12 +18,12 @@ export type WriteVerdictResult =
  *  · evaluated 且写落点 ∩ 主仓树内 = ∅ → ALLOW（positive，含证明无写/只读披露）
  *  · unevaluated → BLOCK（fail-closed，§3.3）
  *  只读披露（access=read）不构成写证据（能力 8/证明演算规则 3）。 */
-export function evaluateWriteVerdict(command: string, projectRoot: string, startCwd: string = projectRoot): WriteVerdictResult {
-  const r = evaluateWriteTargets(command, projectRoot, startCwd);
+export function evaluateWriteVerdict(command: string, projectRoot: string, startCwd: string = projectRoot, scriptPayload?: ScriptPayloadInfo): WriteVerdictResult {
+  const r = evaluateWriteTargets(command, projectRoot, startCwd, scriptPayload);
   if (r.kind === "unevaluated") return { verdict: "BLOCK", mode: "fail-closed", reason: r.reason };
   const mainHits = r.targets.filter(t => t.access === "write" && pathWithinMain(t.path, projectRoot));
   if (mainHits.length > 0) return { verdict: "BLOCK", mode: "positive", targets: r.targets, mainHits };
   return { verdict: "ALLOW", mode: "positive", targets: r.targets };
 }
 
-export type { WriteEvalResult };
+export type { WriteEvalResult, ScriptPayloadInfo };

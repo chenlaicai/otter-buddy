@@ -7,7 +7,7 @@
     "generated_at": "2026-10-12T10:52:25.895869Z",
     "generated_by": "守卫修复獭（重刷期望+冻结，派工单 2026-10-12 18:36）",
     "pool": "条件期望库（无 cd cwd 不可反查——worktree→ALLOW / 主仓→BLOCK 双态各跑）",
-    "count": 101,
+    "count": 105,
     "restate_changes": {
       "git_policy_flip": 68,
       "to_conditional": 108,
@@ -17,7 +17,8 @@
     },
     "total_conserved": 1006,
     "dedup_note": "截断态 unique 1006 → 全文恢复后命令级 unique 988（17 组恢复撞车已合并，双签处置为准）",
-    "closure_2026_10_13": "PR #1448 收口（检视獭1360 3 点位 + 大獭拍板 + 2 条探针翻转裁决）：747bd520/c108/TS-c034/TS-c024→BLOCK、61d75232/5bfc2d8e/3b399252→条件期望、5 条依据错配改正、B 节 3 条归池（运维豁免+限定句）"
+    "closure_2026_10_13": "PR #1448 收口（检视獭1360 3 点位 + 大獭拍板 + 2 条探针翻转裁决）：747bd520/c108/TS-c034/TS-c024→BLOCK、61d75232/5bfc2d8e/3b399252→条件期望、5 条依据错配改正、B 节 3 条归池（运维豁免+限定句）",
+    "rejudge_20261013_smrj": "收 4 条会话态 cwd=worktree 相对路径原地编辑（改批错的答案，请双签）：cond 101→105，守恒 921 不变"
   },
   "entries": [
     {
@@ -3986,6 +3987,170 @@
         }
       ],
       "conditional": true
+    },
+    {
+      "id": "TS-ffde7c4f",
+      "command": "perl -pi -e 's/\\.toMatch\\(\\/\\[([^\\]]+)\\]/.toMatch(\\/\\\\[$1\\\\]/g' tests/usecases/conversation/dispatch-chain-engine.test.ts && perl -pi -e 's/\\.toContain\\(\"\\[([^\\(\\)\\[\\]]+)\\] ([^\"\\(\\)\\[\\]]+)\"\\)/.toMatch(\\/\\\\[$1\\\\]（[^）]*）$2\\/)/g' tests/usecases/conversation/dispatch-chain-engine.test.ts && echo \"=== 剩余 toContain 行 ===\"; grep -n 'toContain(\"\\[' tests/usecases/conversation/dispatch-chain-engine.test.ts; echo \"=== toMatch 抽样 ===\"; grep -n 'toMatch(/\\\\\\[' tests/usecases/conversation/dispatch-chain-engine.test.ts | head -4",
+      "adjudication": [
+        "獭审 override：会话态 cwd=worktree（bash 工具状态保持）；原地编辑 tests/ 落点树外。v2 须用运行时真实 cwd 判定（healing 误报定性 d055ab39 佐证）",
+        "F20261013smrj 改批错的答案（补裁，请双签）：原「always-allow」系批错——本条是会话态 cwd=worktree 的相对路径原地编辑（旧判据 \"会话态 cwd=worktree...v2 须用运行时真实 cwd 判定\"），真判据是条件期望（worktree→ALLOW / main→BLOCK）。撤 A' 后求值器按真实 cwd 提取落点（tests/ 相对主仓=主仓写）暴露此归类错。守恒 921 不变（allow 770→766 / cond 101→105）。"
+      ],
+      "source": {
+        "types": [
+          "guard_intercept"
+        ],
+        "anchors": [
+          {
+            "source": "guard_intercept",
+            "event_id": "ffde7c4f-6e51-4a90-b45c-ea2d4ce0857b",
+            "ts": "2026-10-12T03:18:17.236Z",
+            "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
+            "rule_id": "main_write",
+            "resolution": "",
+            "status": "open"
+          },
+          {
+            "source": "guard_intercept",
+            "event_id": "2b404e13-c42c-4859-92c5-4e4013857146",
+            "ts": "2026-10-12T03:18:17.292Z",
+            "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
+            "rule_id": "main_write",
+            "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+            "status": "resolved"
+          }
+        ]
+      },
+      "fp_marked": [],
+      "conditional": true,
+      "expectations": [
+        {
+          "cwd": "worktree",
+          "verdict": "ALLOW"
+        },
+        {
+          "cwd": "main",
+          "verdict": "BLOCK"
+        }
+      ]
+    },
+    {
+      "id": "TS-d055ab39",
+      "command": "perl -pi -e 's/\\.toMatch\\(\\/\\[([^\\]]+)\\]/.toMatch(\\/\\\\[$1\\\\]/g' tests/usecases/conversation/dispatch-chain-engine.test.ts && perl -pi -e 's/\\.toContain\\(\"\\[([^\\(\\)\\[\\]]+)\\] ([^\"\\(\\)\\[\\]]+)\"\\)/.toMatch(\\/\\\\[$1\\\\]（[^）]*）$2\\/)/g' tests/usecases/conversation/dispatch-chain-engine.test.ts && echo \"=== 剩余 toContain(\\\"[ 行 ===\"; grep -n 'toContain(\"\\[' tests/usecases/conversation/dispatch-chain-engine.test.ts || echo \"(无)\"; echo \"=== toMatch 抽样 ===\"; grep -n 'toMatch(/\\\\\\[' tests/usecases/conversation/dispatch-chain-engine.test.ts | head -4",
+      "adjudication": [
+        "獭审 override：会话态 cwd=worktree（bash 工具状态保持）；原地编辑 tests/ 落点树外。v2 须用运行时真实 cwd 判定（healing 误报定性 d055ab39 佐证）",
+        "F20261013smrj 改批错的答案（补裁，请双签）：原「always-allow」系批错——本条是会话态 cwd=worktree 的相对路径原地编辑（旧判据 \"会话态 cwd=worktree...v2 须用运行时真实 cwd 判定\"），真判据是条件期望（worktree→ALLOW / main→BLOCK）。撤 A' 后求值器按真实 cwd 提取落点（tests/ 相对主仓=主仓写）暴露此归类错。守恒 921 不变（allow 770→766 / cond 101→105）。"
+      ],
+      "source": {
+        "types": [
+          "guard_intercept"
+        ],
+        "anchors": [
+          {
+            "source": "guard_intercept",
+            "event_id": "d055ab39-f9db-4fb5-bf15-dcb20a26619a",
+            "ts": "2026-10-12T03:20:26.396Z",
+            "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
+            "rule_id": "main_write",
+            "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+            "status": "resolved"
+          },
+          {
+            "source": "guard_intercept",
+            "event_id": "fb4c6f92-1d41-4275-b25f-dbcf9dcbb475",
+            "ts": "2026-10-12T03:20:26.452Z",
+            "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
+            "rule_id": "main_write",
+            "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
+            "status": "resolved"
+          }
+        ]
+      },
+      "fp_marked": [
+        "d055ab39"
+      ],
+      "conditional": true,
+      "expectations": [
+        {
+          "cwd": "worktree",
+          "verdict": "ALLOW"
+        },
+        {
+          "cwd": "main",
+          "verdict": "BLOCK"
+        }
+      ]
+    },
+    {
+      "id": "TS-f5c3141d",
+      "command": "perl -pi -e 's/\\.toContain\\(\"\\[([^\\(\\)\\[\\]]+)\\] ([^\"\\(\\)\\[\\]]+)\"\\)/.toMatch(\\/\\[$1\\]（[^）]*）$2\\/)/g' tests/usecases/conversation/dispatch-chain-engine.test.ts && grep -c \"toMatch(/\\[\" tests/usecases/conversation/dispatch-chain-engine.test.ts",
+      "adjudication": [
+        "獭审 override：病灶 B 族（perl -pi 原地编辑 worktree 测试）：会话态 cwd=worktree，落点树外（healing 误报定性同族佐证）；v2 须用运行时真实 cwd 判定",
+        "F20261013smrj 改批错的答案（补裁，请双签）：原「always-allow」系批错——本条是会话态 cwd=worktree 的相对路径原地编辑（旧判据 \"会话态 cwd=worktree...v2 须用运行时真实 cwd 判定\"），真判据是条件期望（worktree→ALLOW / main→BLOCK）。撤 A' 后求值器按真实 cwd 提取落点（tests/ 相对主仓=主仓写）暴露此归类错。守恒 921 不变（allow 770→766 / cond 101→105）。"
+      ],
+      "source": {
+        "types": [
+          "guard_intercept"
+        ],
+        "anchors": [
+          {
+            "source": "guard_intercept",
+            "event_id": "f5c3141d-04a2-4b47-b2c1-7f2dde1df586",
+            "ts": "2026-10-12T03:13:33.086Z",
+            "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
+            "rule_id": "main_write",
+            "resolution": "",
+            "status": "open"
+          }
+        ]
+      },
+      "fp_marked": [],
+      "conditional": true,
+      "expectations": [
+        {
+          "cwd": "worktree",
+          "verdict": "ALLOW"
+        },
+        {
+          "cwd": "main",
+          "verdict": "BLOCK"
+        }
+      ]
+    },
+    {
+      "id": "TS-3fd4a55b",
+      "command": "perl -pi -e 's/\\.toMatch\\(\\/\\[([^\\]]+)\\]/.toMatch(\\/\\\\[$1\\\\]/g' tests/usecases/conversation/dispatch-chain-engine.test.ts && perl -pi -e 's/\\.toContain\\(\"\\[([^\\(\\)\\[\\]]+)\\] ([^\"\\(\\)\\[\\]]+)\"\\)/.toMatch(\\/\\\\[$1\\\\]（[^）]*）$2\\/)/g' tests/usecases/conversation/dispatch-chain-engine.test.ts && echo \"=== 剩余 toContain(\\\"[ 行 ===\"; grep -n 'toContain(\"\\[' tests/usecases/conversation/dispatch-chain-engine.test.ts; echo \"=== toMatch 抽样 ===\"; grep -n 'toMatch(/\\\\\\[' tests/usecases/conversation/dispatch-chain-engine.test.ts | head -4",
+      "adjudication": [
+        "獭审 override：会话态 cwd=worktree（bash 工具状态保持）；原地编辑 tests/ 落点树外。v2 须用运行时真实 cwd 判定（healing 误报定性 d055ab39 佐证）",
+        "F20261013smrj 改批错的答案（补裁，请双签）：原「always-allow」系批错——本条是会话态 cwd=worktree 的相对路径原地编辑（旧判据 \"会话态 cwd=worktree...v2 须用运行时真实 cwd 判定\"），真判据是条件期望（worktree→ALLOW / main→BLOCK）。撤 A' 后求值器按真实 cwd 提取落点（tests/ 相对主仓=主仓写）暴露此归类错。守恒 921 不变（allow 770→766 / cond 101→105）。"
+      ],
+      "source": {
+        "types": [
+          "guard_intercept"
+        ],
+        "anchors": [
+          {
+            "source": "guard_intercept",
+            "event_id": "3fd4a55b-0a6b-41ba-889c-d639980ee28c",
+            "ts": "2026-10-12T03:18:07.890Z",
+            "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
+            "rule_id": "main_write",
+            "resolution": "",
+            "status": "open"
+          }
+        ]
+      },
+      "fp_marked": [],
+      "conditional": true,
+      "expectations": [
+        {
+          "cwd": "worktree",
+          "verdict": "ALLOW"
+        },
+        {
+          "cwd": "main",
+          "verdict": "BLOCK"
+        }
+      ]
     }
   ]
 }

@@ -576,3 +576,97 @@ describe("F20261013gev2 能力 1：heredoc 体脚本投递（stdin 载荷=脚本
     });
   });
 });
+
+describe("F20261014smrj 黑盒外置脚本三牙（工单②，裁决 signal d5f2ae9a）", () => {
+  const DO_COMMIT = `#!/bin/sh
+WT=/repo/.otter/worktrees/wt
+MSG=/tmp/m.txt
+git -C "$WT" add src/x.ts
+git -C "$WT" commit --author "守卫修复獭 <otter-buddy>" -F "$MSG"
+echo "=== commit exit: $? ==="`;
+
+  describe("放行侧（不误伤面）", () => {
+    it("静态脚本路径无载荷信息 → 缺席语义零写面正面 ALLOW（「文件不存在→放行」校正口径）", () => {
+      const v = evaluateWriteVerdict("bash /tmp/does-not-exist.sh", ROOT);
+      expect(v.verdict).toBe("ALLOW");
+      expect(v.mode).toBe("positive");
+    });
+
+    it("载荷缺席显式记档 → 同缺席语义正面 ALLOW", () => {
+      const v = evaluateWriteVerdict("sh /tmp/f1fx-commit.sh 2>&1 | tail -4", ROOT, ROOT, { status: "absent" });
+      expect(v.verdict).toBe("ALLOW");
+      expect(v.mode).toBe("positive");
+    });
+
+    it("载荷 content 按重组判读：do-commit 脚本（git -C \"$WT\" 赋值溯源）→ worktree 落点正面 ALLOW（不盲放）", () => {
+      const v = evaluateWriteVerdict("bash /tmp/do-commit.sh", ROOT, ROOT, { status: "content", text: DO_COMMIT });
+      expect(v.verdict).toBe("ALLOW");
+      expect(v.mode).toBe("positive");
+      if (v.mode !== "positive") throw new Error("expected positive mode");
+      expect(v.targets.some(t => t.path.includes(".otter/worktrees/wt"))).toBe(true);
+    });
+
+    it("命令内造脚本再执行（printf 静态内容）→ 按造出内容判读零写面正面 ALLOW", () => {
+      const v = evaluateWriteVerdict("cd /tmp/p && printf '%s\\n' 'echo hi' > s.sh && bash s.sh", ROOT);
+      expect(v.verdict).toBe("ALLOW");
+      expect(v.mode).toBe("positive");
+    });
+
+    it("命令内造脚本再执行（定界 heredoc 体）→ 体判读树外落点正面 ALLOW", () => {
+      const v = evaluateWriteVerdict("cat > /tmp/patch.sh <<'EOF'\ncd /repo/.otter/worktrees/wt\ncp game/index.html /tmp/bak.html\nEOF\nbash /tmp/patch.sh", ROOT);
+      expect(v.verdict).toBe("ALLOW");
+      expect(v.mode).toBe("positive");
+    });
+
+    it("git -C \"$VAR\" 赋值溯源（evalGitAdd/evalGitWrite 同步修复）→ 按 -C 实参落点判读，不再恒 fail-closed", () => {
+      const r = evaluateWriteTargets("WT=/repo/.otter/worktrees/wt\ngit -C \"$WT\" commit --author \"a <b>\" -m hi", ROOT);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") {
+        expect(r.targets.some(t => t.path.includes(".otter/worktrees/wt"))).toBe(true);
+      }
+    });
+  });
+
+  describe("拦截侧（负门面）", () => {
+    it("牙1 $(gen).sh 生成路径 → fail-closed script-path-dynamic（不进词面证豁免）", () => {
+      const v = evaluateWriteVerdict("bash $(mktemp -u /tmp/gen).sh", ROOT);
+      expect(v.verdict).toBe("BLOCK");
+      if (v.verdict === "BLOCK" && v.mode === "fail-closed") expect(v.reason).toBe("script-path-dynamic");
+    });
+
+    it("牙1 $VAR 变量路径（词面无写词）→ 同样 fail-closed（能力 4 豁免不得洗白牙口）", () => {
+      const v = evaluateWriteVerdict("bash $HOME/gen.sh", ROOT);
+      expect(v.verdict).toBe("BLOCK");
+      if (v.verdict === "BLOCK" && v.mode === "fail-closed") expect(v.reason).toBe("script-path-dynamic");
+    });
+
+    it("牙2 造-执内容含主仓写 → 按造出内容判读正面 BLOCK（载荷重组后真写主仓变体）", () => {
+      const v = evaluateWriteVerdict("echo \"touch /repo/data/x\" > /tmp/g.sh && bash /tmp/g.sh", ROOT);
+      expect(v.verdict).toBe("BLOCK");
+      expect(v.mode).toBe("positive");
+    });
+
+    it("牙2 造-执内容不可重建（动态参数写脚本）→ fail-closed script-payload-dynamic", () => {
+      const v = evaluateWriteVerdict("echo \"$CMD\" > /tmp/g.sh && bash /tmp/g.sh", ROOT);
+      expect(v.verdict).toBe("BLOCK");
+      if (v.verdict === "BLOCK" && v.mode === "fail-closed") expect(v.reason).toBe("script-payload-dynamic");
+    });
+
+    it("牙3 载荷存在但不可读 → fail-closed script-payload-unreadable（「载荷不可读→拦」）", () => {
+      const v = evaluateWriteVerdict("bash /tmp/x.sh", ROOT, ROOT, { status: "unreadable" });
+      expect(v.verdict).toBe("BLOCK");
+      if (v.verdict === "BLOCK" && v.mode === "fail-closed") expect(v.reason).toBe("script-payload-unreadable");
+    });
+
+    it("牙3 content 载荷含主仓写词面 → 按内容判读正面 BLOCK（不因脚本投递形态破防）", () => {
+      const v = evaluateWriteVerdict("bash /tmp/do-evil.sh", ROOT, ROOT, { status: "content", text: "touch /repo/data/x" });
+      expect(v.verdict).toBe("BLOCK");
+      expect(v.mode).toBe("positive");
+    });
+
+    it("既有通道不误伤：bash -c 'touch 主仓' 仍拦（窄提取通道原语义不动）", () => {
+      const v = evaluateWriteVerdict("bash -c 'touch /repo/x'", ROOT);
+      expect(v.verdict).toBe("BLOCK");
+    });
+  });
+});
