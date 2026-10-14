@@ -34,7 +34,7 @@ F20261014cwsp（PR #1480）实现层审视 round-1 S3 判「交付面 vs 方案 
 
 ## 审视处置
 
-round-1（检视獭-followup · mimo-pro）：8 严重 2 建议——扫改不穷尽（12 处漏改补齐）、补档口径裁定（独立 F 文档，禁止回改已合入主文档）、R4.5 语义一致（补 _system 兜底与部署时序说明）、lint 降级裁定（第 ③ 条 lint-prompt-paths 拆独立跟踪，见下）、B8 体积出清、commit/PR body 措辞订正。
+round-1（检视獭-followup · mimo-pro）：8 严重 2 建议——扫改不穷尽（实测 12 处漏改：round-1 补 9 处、round-2 检视再实证 2 处残留补齐，余 1 处并入纯文档指针口径不扫；round-1 「全部补齐」声明两次订正为实测口径）、补档口径裁定（独立 F 文档，禁止回改已合入主文档）、R4.5 语义一致（补 _system 兜底与部署时序说明）、lint 降级裁定（第 ③ 条 lint-prompt-paths 拆独立跟踪，见下）、B8 体积出清、commit/PR body 措辞订正。
 
 ## 不目标
 
