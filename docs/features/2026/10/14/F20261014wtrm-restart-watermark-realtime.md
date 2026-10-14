@@ -87,6 +87,9 @@ agent-invoker，但全代码库 `buildHandoffPkg` **零调用点**——F2026082
 - 运行时行为：獭水位随流式实时更新，交接判定更及时（修复僵尸死循环）
 - 删除代码：buildHandoffPackage 及其测试（零调用，无行为变化）
 - 兼容：无破坏性变更；水位语义不变（仍是服务端 usage.totalTokens）
+- **机制固有边界**：轮内（工具循环）超阈值仍靠 SDK overflow 兜底——invoke 边界检查粒度
+  决定单 invoke 内水位暴涨可能漏检（代码注释 agent-invoker.ts:323-325 已有显式声明），
+  本次修复的是「跨 invoke 水位不更新」盲区，轮内暴涨的兜底边界不变。
 
 ## 验证
 
