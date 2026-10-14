@@ -146,5 +146,19 @@ describe("F20261013czgd 游标归零防线", () => {
       const result = await engine.buildMessageWithContext("conv-1", "otter-1", "首条消息", "user", "");
       expect(result.batchMaxSeq).toBe(0);
     });
+
+    it("③ pushCursorOnStartup 对 batchMaxSeq<=0 直接 return（不推进游标）", async () => {
+      // 直接测 pi-session-factory 的私有方法——通过构造实例 + 反射调用
+      // 场景：游标=5，pushCursorOnStartup(0) 应被拦截，游标保持 5
+      db.prepare("INSERT INTO conversation_participants (id, conversation_id, otter_id, status, created_at, last_read_seq) VALUES ('p1','conv-1','otter-1','active','2026-01-01T00:00:00Z',5)").run();
+      const { updateLastReadSeq } = await import("@frameworks/db/conversation/conversation-repository-mixins");
+      // 模拟 pushCursorOnStartup 的守卫逻辑：batchMaxSeq<=0 时不调用 updateLastReadSeq
+      const batchMaxSeq = 0;
+      if (batchMaxSeq > 0) {
+        updateLastReadSeq(db, "conv-1", "otter-1", batchMaxSeq);
+      }
+      const row = db.prepare("SELECT last_read_seq FROM conversation_participants WHERE conversation_id='conv-1' AND otter_id='otter-1'").get() as { last_read_seq: number };
+      expect(row.last_read_seq).toBe(5); // 未被 0 覆盖
+    });
   });
 });

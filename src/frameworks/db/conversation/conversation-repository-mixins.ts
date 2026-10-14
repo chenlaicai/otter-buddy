@@ -194,8 +194,8 @@ export function updateLastReadSeq(
   // F20261013czgd：单调性闸——游标语义上只增不减，拒绝任何小于等于现值的写入
   // （事故实证：batchMaxSeq=0 哨兵经 pushCursorOnStartup 无守卫写入，把游标 2412 覆盖成 0，
   // 下一轮 getUnreadEntries 按 seq>0 把全历史当未读注入爆窗）。
-  // COALESCE 处理 NULL 行（SQLite 标量 max(NULL,x)=NULL，不能直接 MAX 两列）；
-  // 写入被拒（changes=0）时 warn 留痕——零日志曾致同类事故全靠推断定位。
+  // NULL 行处理：WHERE 子句的 last_read_seq IS NULL 分支已覆盖（SQLite 标量 max(NULL,x)=NULL 坑已在
+  // WHERE 层绕开，不需要 COALESCE）；写入被拒（changes=0）时 warn 留痕——零日志曾致同类事故全靠推断定位。
   const result = db.prepare(`
     UPDATE conversation_participants
     SET last_read_seq = ?

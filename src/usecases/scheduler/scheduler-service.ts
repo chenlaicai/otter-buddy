@@ -1360,6 +1360,9 @@ export class SchedulerService {
       // F20261013czgd：直连兜底补游标推进——此前不传 batchMaxSeq → pushCursorOnStartup 永不触发，
       // 定时任务消息反复当未读重注入。点火前算一次本批未读最大 seq（含锚点消息自身）。
       // 降级：entryRepo 无 getUnreadEntries（旧装配/测试 mock 最小面）时不推进，行为与修复前持平。
+      // 语义变化声明（检视建议 2 处置）：invoke 启动成功（首事件到达）即推游标——若 invoke 中途失败，
+      // 已消费的消息不再重注入（原口径：失败保持未读重注入）。取舍理由：启动成功=消息已进 LLM 上下文，
+      // 中途失败重注入会重复消费；失败场景由 invoke 级重试/告警承接，不靠游标回退。
       const unread = this.entryRepo.getUnreadEntries
         ? await this.entryRepo.getUnreadEntries(task.conversationId, task.talkingStonePassedTo[0])
         : [];
