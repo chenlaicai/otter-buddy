@@ -1,5 +1,4 @@
 import type { Context } from "hono";
-import * as path from "node:path";
 import type { AppConfig } from "@frameworks/config";
 import type { Logger } from "@usecases/ports/logger";
 import type { ModelPool } from "@frameworks/llm/model-pool";
@@ -42,26 +41,6 @@ import { MatterController } from "@interface-adapters/http/controllers/matter-co
 import { UnfurlController } from "@interface-adapters/http/controllers/unfurl-controller";
 import { ConnectionController } from "@interface-adapters/http/controllers/connection-controller";
 import { RhiController } from "@interface-adapters/http/controllers/rhi-controller";
-// F20261012qtbc：配额看板（三家控制台余量采集，纯展示不进观测）
-import { QuotaController } from "@interface-adapters/http/controllers/quota-controller";
-import { QuotaService } from "@usecases/quota/quota-service";
-import { QuotaBrowserSession } from "@frameworks/quota/browser-session";
-import { QUOTA_PROVIDERS } from "@frameworks/quota/providers";
-
-/** F20261012qtbc：配额看板装配（Playwright 持久档案 data/quota-browser/，不进 git + 5 分钟 TTL 缓存） */
-function createQuotaController(appConfig: AppConfig, logger: Logger): QuotaController {
-  return new QuotaController(
-    new QuotaService({
-      session: new QuotaBrowserSession({
-        profileDir: path.join(path.dirname(appConfig.db.path), "quota-browser"),
-        logger,
-      }),
-      providers: QUOTA_PROVIDERS,
-      logger,
-    }),
-    logger,
-  );
-}
 import { AttachmentController } from "@interface-adapters/http/controllers/attachment-controller";
 import { WorkspaceController } from "@interface-adapters/http/controllers/workspace-controller";
 import { WeixinConnectionController } from "@interface-adapters/http/controllers/weixin-connection-controller";
@@ -271,7 +250,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
     unfurl: unfurlController,    connection: new ConnectionController(uc.manageConnection, logger),
     health: new HealthController(featureRepo, researchRepo, embeddingGateway, nodeFs, rootDir, logger),
     rhi: new RhiController(healthSnapshotRepo, signalRepo, rhiScanWorker, logger),
-    quota: createQuotaController(appConfig, logger),
+
     inbound: processInboundRecruit && inboundApiKey
       ? new InboundController(
           inboundApiKey,

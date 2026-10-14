@@ -556,8 +556,7 @@ export function createTestApp(deps: TestDeps): Hono {
     matter: {} as any,
     /* F20261013csv3 T1：unfurl 三态控制器（缓存读写 + gh 取数；默认内存 sqlite cache） */
     unfurl: new UnfurlController(logger, makeUnfurlCache()),
-    /* F20261012qtbc：配额端点 mock（逻辑专项测试在 tests/usecases/quota，此处仅满足装配） */
-    quota: {} as any,
+
   };
 
   const app = createRouter(controllers, createTestLogger());
