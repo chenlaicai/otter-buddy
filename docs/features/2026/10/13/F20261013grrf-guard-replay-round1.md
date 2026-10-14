@@ -18,7 +18,7 @@ created_date: 2026-10-14
 
 ## 背景
 
-`scripts/generate-guard-replay.mjs`（F20261008gdcc 项 4）首轮每日执行：处理 2026-10-13（UTC 日界）guard_intercept 回放样本。产出 PR #1467（worktree `guard-replay-freeze-1013`，首 commit 4f98dfe6，rebase 后 tip f58e85b4）。
+`scripts/generate-guard-replay.mjs`（F20261008gdcc 项 4）首轮每日执行：处理 2026-10-13（UTC 日界）guard_intercept 回放样本。产出 PR #1467（worktree `guard-replay-freeze-1013`）。
 
 - **数据源**：`data/guard-replay-candidates-2026-10-13.json`（108 拦截 → 92 候选，commandHead 截断 120 字符 + 脱敏）
 - **裁决执行**：固化獭（kimi-k28），探针验证于 worktree 内 tsx 直跑 `checkBashCommandSafety`
@@ -63,6 +63,7 @@ created_date: 2026-10-14
 | 1013-A2 | ALLOW | cd4ea86f | python3 -c 读 worktree fixture |
 | 1013-A2 | ALLOW | 1ce469c3 | python3 -c 读 worktree fixture |
 | 1013-A2 | ALLOW | 1565d108 | python3 -c 读 worktree fixture |
+| 1013-A2 | ALLOW | 13db9e46 | cd worktree && python3 -c 读 worktree fixture |
 | 1013-A3 | ALLOW | 572b7726 | cat >> worktree test.ts |
 | 1013-A3 | ALLOW | b596b6ba | printf >> worktree test.ts |
 | 1013-A4 | ALLOW | 7bccfbf5 | node -e 纯只读 require(package.json) |
@@ -91,8 +92,7 @@ created_date: 2026-10-14
 | 1013-B4 | BLOCK | 6a33c4e8 | cd workspaces && sleep |
 | 1013-B4 | BLOCK | 1fe986c2 | cd worktree && sleep |
 | 1013-B5 | BLOCK | 040c8fc8 | bash script.sh（workspaces 内） |
-| 1013-B5 | BLOCK | 7daea038 | bash do-commit.sh（workspaces 内） |
-| 1013-B5 | BLOCK | cadd6a06 | bash 执行外部脚本 |
+| 1013-B5 | BLOCK | cadd6a06 | cd worktree && bash 外部脚本 |
 | 1013-B6 | BLOCK | 24b76637 | pkill -f（worktree 内 chromium） |
 | 1013-B7 | BLOCK | 835b22db | sqlite3 批量触主仓 data/qtest-*.db（实拦 10-13 09:10:57） |
 
