@@ -250,6 +250,8 @@ describe('文件预览 Modal 内容渲染分发（F20261014pvmd）', () => {
     // 管线接线断言：MarkdownContent 应产出真实 heading 与段落（非空壳）
     expect(md.querySelector('h1')?.textContent).toBe('标题')
     expect(md.querySelector('p')?.textContent).toBe('正文段落')
+    // 管线判别断言：PreWrapP 给 p 加 white-space: pre-wrap（裸 ReactMarkdown 无此样式，锁「回退裸管线」失败模式）
+    expect(md.querySelector('p')?.getAttribute('style')).toContain('pre-wrap')
   })
 
   it('Escape 关闭 Modal 后内容清除', async () => {
