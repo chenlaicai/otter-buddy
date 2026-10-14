@@ -90,6 +90,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # F20261014ghst: game-dev-harness 测试（tests/game/）跑真 Playwright 截图/diff——CI 需预装 chromium
+      - name: Install Playwright chromium (for game-harness tests)
+        run: npx playwright install --with-deps chromium
+
       # F20260821kgts: lint gates 接入 CI（#366 PR-2：纪律≠机制，只挂 pre-commit 会被 --no-verify 绕过）
       # 以下只读源文件、零构建依赖，放 build 前获得快速反馈
       - name: Run fast lint gates (skills / tool-manifest / tests / capability-docs)

@@ -78,6 +78,13 @@ skills:
     not_for: []
     notes: 关于 skill 的 skill。含铁律 + 三段式契约 + 模板（references/SKILL-TEMPLATE.md）+ lint 规则。
 
+  # ── 游戏开发 harness ──
+  - name: game-dev-harness
+    category: technique
+    next: [troubleshooting]   # 游戏内 bug 排查走 troubleshooting；渲染/玩法改动走本 skill
+    not_for: [code-implementation]   # 已确认方案写代码 → code-implementation；给游戏接 harness/做视觉回归 → 本 skill
+    notes: 游戏作为调试 harness（Kyle Kukshtel《Your Game Is A Harness》）。四层分级：第一性原理/底线/必需/建议，LLM 灵活取用不做强 SOP。配套原子工具 scripts/game/{game-shot,game-diff,game-state}.mjs。
+
   # ── 查表约定（原 _shared/ 拆解升格）──
   - name: signature-convention
     category: reference
