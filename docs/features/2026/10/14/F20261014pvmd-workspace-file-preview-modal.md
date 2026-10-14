@@ -34,8 +34,8 @@ modules: [web, conversation]
   - 图片（png/jpg/jpeg/gif/webp/bmp/svg）→ 新增 ImageRenderer：居中 `<img>`，maxHeight 70vh
   - 其他 → PlainRenderer
 - 弹窗宽度：图片/md 860px，html/其他 720px
-- 图片 data URL 组装：`data:image/{ext};base64,{content}`（svg 特判 `svg+xml`）
-- Modal 经 createPortal 挂 document.body（与 ctxMenu 同模式，脱离右栏 aside.glass 的 backdrop-filter containing block）
+- 图片 data URL 组装：`data:image/{MIME};base64,{content}`，MIME 由 `IMAGE_MIME_MAP` 映射表给出（jpg/jpeg→jpeg、svg→svg+xml）
+- Modal 由组件内部 portal 挂 document.body（Modal.tsx 内置，无需外层 portal；脱离右栏 aside.glass 的 backdrop-filter containing block）
 
 ### 契约（api-contract/api/workspace.ts）
 
@@ -50,8 +50,8 @@ modules: [web, conversation]
 
 ### 测试
 
-- 前端 WorkspacePanel.test.tsx：重写渲染分发测试为 Modal 形态（断言挂 document.body 的 dialog），新增图片 base64 → img data URL 用例、Escape 关闭、遮罩点击关闭
-- 后端 workspace-api.test.ts：新增图片返回 base64 用例（真实 PNG 头字节验证二进制不乱码）、扩展名大小写不敏感、非图片不返回 encoding 字段
+- 前端 WorkspacePanel.test.tsx：重写渲染分发测试为 Modal 形态（断言挂 document.body 的 dialog），新增图片 base64 → img data URL 用例、Escape 关闭、遮罩点击关闭；检视处置后新增 jpg MIME / svg MIME / 无点文件名不误路由 3 用例
+- 后端 workspace-api.test.ts：新增图片返回 base64 用例（真实 PNG 头字节验证二进制不乱码）、扩展名大小写不敏感、非图片不返回 encoding 字段；检视处置后新增无点文件名不误路由用例
 
 ## 设计取舍
 
