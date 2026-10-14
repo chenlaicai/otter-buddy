@@ -780,9 +780,17 @@ const UNPROVABLE_TEETH: ReadonlySet<UnevalReason> = new Set<UnevalReason>([
 /** shell 外置脚本执行段（解释器族 ∪ source/.）——三牙判定的触发面 */
 const SCRIPT_FILE_RUNNERS = new Set<string>([...SHELL_INTERPRETERS, "source", "."]);
 
-/** shell 外置脚本执行段识别：解释器族或 source/. + 无 -c/-e 载荷旗标。
- *  返回脚本位词与是否动态（生成/求值不出路径）；null=非外置脚本段。 */
-function shellScriptFileArg(seg: Segment): { word: Word; dynamic: boolean } | null {
+/** 段首直执行位判定（./x、/x，排 // 样式）——delta4 修法（严重 1，检视獭1360 delta4 复核）：
+ *  与 hasOpaqueScriptExec 直执分支同源共用（一条语义一个接口）；argv0=求值词口径
+ *  （动态词不成 argv0，两处同口径不收——残余面记档）。 */
+function isDirectExecArgv0(argv0: string | null): boolean {
+  const a0 = argv0 ?? "";
+  return a0.startsWith("./") || (a0.startsWith("/") && !a0.startsWith("//"));
+}
+
+/** 解释器族外置脚本段识别（shellScriptFileArg 解释器分支；hasOpaqueScriptExec 同源复用——
+ *  段首路径不进本函数：替换型载荷垃圾解析会把参数/字面量当段首路径（delta3 能力 8 口径） */
+function interpreterScriptFileArg(seg: Segment): { word: Word; dynamic: boolean } | null {
   const bare = bareName(seg.argv0);
   if (bare === null || !SCRIPT_FILE_RUNNERS.has(bare)) return null;
   if (seg.args.includes("-c") || seg.args.includes("-e")) return null;
@@ -794,6 +802,20 @@ function shellScriptFileArg(seg: Segment): { word: Word; dynamic: boolean } | nu
     return { word: w, dynamic: v === null || evalPath(v, "/") === null };
   }
   return null;
+}
+
+/** shell 外置脚本执行段识别：解释器族或 source/. + 无 -c/-e 载荷旗标，或段首直执行位
+ *  （delta4 修法严重 1：./x、/x 排 // 样式——脚本位=argv0 词本身；造-执对/显式声明/缺席证明
+ *  同构三态自动接上：真存在→unreadable fail-closed、真不存在→absent 放行，与 bash x 一视同仁）。
+ *  返回脚本位词与是否动态（生成/求值不出路径）；null=非外置脚本段。 */
+function shellScriptFileArg(seg: Segment): { word: Word; dynamic: boolean } | null {
+  if (isDirectExecArgv0(seg.argv0)) {
+    const w = seg.words[0];
+    if (w === undefined) return null;
+    const v = w.evaluated;
+    return { word: w, dynamic: v === null || evalPath(v, "/") === null };
+  }
+  return interpreterScriptFileArg(seg);
 }
 
 /** 造文件段内容重建（牙2）：echo/printf 静态参数、cat/tee 定界 heredoc 体 → 可重建；
@@ -912,17 +934,14 @@ function subPayloadWashable(reason: UnevalReason, command: string, model: Comman
  *  通道（TS-74fd58ae/TS-10eb58ff 等现役放行题按词面证裁决标准冻结），通道扩展+裁决复核立 issue。 */
 function hasOpaqueScriptExec(model: CommandModel, scriptText: boolean = true): boolean {
   for (const seg of model.segments) {
-    const ex = shellScriptFileArg(seg);
+    const ex = interpreterScriptFileArg(seg); // 解释器分支（直执另按 scriptText 门控，防替换型载荷垃圾解析误收）
     // 口径镜像 evalSegment：动态脚本位 + source/. 非 shell 解释器 → 通道放行（现役放行题
     //  5d98a85e source <(sed …) 保守面），不计入不透明执行；bash $P 等动态位照算（通道拦 script-path-dynamic）
     if (ex !== null && !(ex.dynamic && !SHELL_INTERPRETERS.has(bareName(seg.argv0) ?? ""))) return true;
     // 段首直执（./x、/x）：仅脚本正文类模型（根/bash-c/heredoc 体）判定——替换型载荷（cmdsub/
     //  backtick/procsub）的非壳文本（JS/Python）壳解析会把参数/字面量误收成段首路径（能力 8
     //  import(主仓路径) 30517746 口径实测翻红）；解释器脚本位判定仍全层生效（echo $(bash x.sh) 拦）
-    if (scriptText) {
-      const a0 = seg.argv0 ?? "";
-      if (a0.startsWith("./") || (a0.startsWith("/") && !a0.startsWith("//"))) return true;
-    }
+    if (scriptText && isDirectExecArgv0(seg.argv0)) return true;
   }
   return model.payloads.some(p => p.model !== null && hasOpaqueScriptExec(p.model, p.kind === "bash-c" || p.kind === "heredoc-bare"));
 }
@@ -984,7 +1003,9 @@ function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot
   if (scriptArg !== null) {
     const runner = bareName(seg.argv0);
     // 牙1：生成/动态脚本路径一律拦（解释器族；source/. 不进牙1——source <(sed …) 现役放行题保守面）
-    if (scriptArg.dynamic && runner !== null && SHELL_INTERPRETERS.has(runner)) return "script-path-dynamic";
+    // 牙1：动态脚本路径一律 fail-closed（解释器族 + 段首直执行位——delta4 修法同构；
+    //  source/. 不进牙1：source <(sed …) 现役放行题保守面）
+    if (scriptArg.dynamic && (isDirectExecArgv0(seg.argv0) || (runner !== null && SHELL_INTERPRETERS.has(runner)))) return "script-path-dynamic";
     if (!scriptArg.dynamic) {
       const plan = acc.scriptPayloadPlan?.get(acc.index);
       // 牙3 三态：unreadable（声明不可读/未提供且 fs 证存在）→拦；content（含牙2 造-执内容）→递归判读；absent（声明或 fs 证缺席）→零写面放行侧

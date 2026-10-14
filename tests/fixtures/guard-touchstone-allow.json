@@ -7,7 +7,7 @@
     "generated_at": "2026-10-12T10:52:25.895869Z",
     "generated_by": "守卫修复獭（重刷期望+冻结，派工单 2026-10-12 18:36）",
     "pool": "放行试金石",
-    "count": 794,
+    "count": 795,
     "restate_changes": {
       "git_policy_flip": 68,
       "to_conditional": 108,
@@ -16406,7 +16406,8 @@
       "verdict": "ALLOW",
       "adjudication": [
         "能力4+§3.2.1-3 无写词面+无隐式写→证明无写",
-        "只读/纯计算:[('head', '', '')]"
+        "只读/纯计算:[('head', '', '')]",
+        "delta4 注记（2026-10-14，守卫修复獭）：段首直执通道扩面后 /Applications/.../Tailscale 进牙3 fs 自查臂——该绝对路径在 macOS 开发机真实存在、CI 不存在=考题机器依赖；按 delta2 显式声明机制（不做 fs 复核）标 absent（裁决零写面结论不变，verdict 维持 ALLOW）"
       ],
       "source": {
         "types": [
@@ -16424,7 +16425,10 @@
           }
         ]
       },
-      "fp_marked": []
+      "fp_marked": [],
+      "scriptPayload": {
+        "status": "absent"
+      }
     },
     {
       "id": "TS-b30c886c",
@@ -21296,6 +21300,27 @@
         ]
       },
       "fp_marked": []
+    },
+    {
+      "id": "TS-smrjdir03",
+      "command": "/tmp/no-such-smrj-1360.sh",
+      "adjudication": [
+        "delta4 修法正门（严重 1 同构三态缺席臂）：直执真不存在→absent 正面放行，与 bash x 一视同仁；缺席证明口径钉死不许漂移"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review",
+            "reviewer": "检视獭1360(PR#1466 delta4)",
+            "channel": "段首直执-fs缺席臂"
+          }
+        ]
+      },
+      "verdict": "ALLOW"
     }
   ]
 }

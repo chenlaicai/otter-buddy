@@ -280,7 +280,7 @@ zdebug 实证 12 条误伤的写目标全是 `{path:"/repo", via:"cmd-arg"}` 凭
 - **执行面判定必须模型级，不能词面文本级**：文本正则把注释/提及/载荷内非壳文本当执行（实测翻红 4 条现役放行题：TS-074e7d85 JS `//` 注释行、TS-0cdf6695 注释提及 `bash toolCall`、TS-74fd58ae/TS-10eb58ff node/python 文件形态裁决面）——模型级段结构天然排除注释与引号内文本；直执判定只在脚本正文类模型（根/bash-c/heredoc 体）生效，替换型载荷（cmdsub 等）的垃圾解析不误收（能力 8 import(主仓路径) 口径）
 - **面不超通道**：node/python/perl/ruby 文件形态不在牙3 通道域（SHELL_INTERPRETERS∪source/.）——否决面同口径不收（TS-74fd58ae/TS-10eb58ff 冻结裁决按词面证标准，翻案需双签）；通道扩展+裁决标准复核立 **issue #1491**
 - **sqlite3 CLI 首参库文件写落点未判**（delta3 建议①）：正交面不进本刀，立 **issue #1490**（案发现场引 delta3 探针 B 段，含 CLI/python 对照）
-- **SQL 字面量内嵌路径保守误伤**（delta3 建议③）：dotExecCommandHits 的 SQL 豁免按首参 SQL 起手判定，SQL 字面量内嵌路径字面量仍按纯 SQL 豁免——极端形态（CREATE TABLE 含路径）保守放行，记档不改（豁免面收窄会翻红 TS-e00efca3 系）
+- **SQL 字面量内嵌路径保守误伤**（delta3 建议③，delta4 方向修正：实测三形态全 BLOCK=**保守拦/误伤面**，非保守放行）：dotExecCommandHits 的 SQL 豁免按首参 SQL 起手判定，SQL 字面量内嵌路径字面量被当成路径实参（含词首路径）→ 不可证——极端形态（CREATE TABLE 含路径）保守拦记档不改（豁免面放宽会放走路径实参逃逸）
 - **残余面（沿 delta2 记档不变）**：perl 间接对象形、无括号点号（`obj.exec 'cmd'`，Kernel.exec 同型实测仍 ALLOW）、次参携带——记档未失踪
 
 **切换 PR 硬验收项增补**：content 判读与 cwd 解析**同源复用 resolveCwdAt**（切换 PR 若沿用独立解析，攻击链接线后照样活）；载荷子模型 startCwd 锚定语义随通道扩展一并接（issue #1491）。
@@ -288,3 +288,25 @@ zdebug 实证 12 条误伤的写目标全是 `{path:"/repo", via:"cmd-arg"}` 凭
 **影响范围**：write-word-face.ts（三表词族归一）、write-target-evaluator.ts（resolveCwdAt/hasOpaqueScriptExec/buildScriptPayloadPlan 三前提/段链重放/载荷锚定）、guard-touchstone-block.json（+8 负门 TS-smrjexecv01-04+TS-smrjcwd01-04，block 72→80）、单测 +10（双向钉死）；语义收敛面=「真写主仓正面放行」→fail-closed/正面 BLOCK，无放宽面。
 
 **验证（delta3 轮）**：全仓 5540/5540 绿（364 文件；基线对照 5527/5527 同型验证——本机高负载下 5s 默认超时对 `await import` 重模块测试有排队型 flake，隔离复跑 81/81 绿、30s 超时全量绿、负载正常默认超时全量绿）；write-target-evaluator.test.ts 98→108 例；judge 考试 794/80/105 全过（block +8 delta3 负门）、棘轮零新键（4 条误翻红现役放行题已按模型级判定复原）；corpus 守恒 921 恒等（TS-smrj 前缀扣减 50→58）；probe2/probe3 攻击矩阵 10 形态全拦 + 8 对照全保住。
+
+### delta4 复核补刀（段首直执行位同构三态，2026-10-14）
+
+检视獭1360 delta4 复核 1 严重 + 3 建议，大獭裁决「扩面修」（不走面不超通道记档路线——直执行位与 bash file 同属不透明执行族，否决面收了主通道不收=delta3 自留的口径矛盾，必须本刀闭合）：
+
+**严重 1 修法：shellScriptFileArg 通道域扩段首直执行位（./x、/x 排 // 样式，与 hasOpaqueScriptExec 判定同源——isDirectExecArgv0 单函数两处共用）**：
+
+- 通道拆分：interpreterScriptFileArg（原解释器分支，hasOpaqueScriptExec 同源复用——替换型载荷垃圾解析不误收，能力 8 口径）+ shellScriptFileArg = 直执行位（脚本位=argv0 词本身）∪ 解释器分支
+- **同构三态自动接上**：造-执对（echo/printf 造出内容→判读，内容写主仓→BLOCK/positive）/ 显式声明（entry）/ fs 缺席证明（真存在→unreadable fail-closed、真不存在→absent 放行）——与 bash x 一视同仁
+- 牙1 同步：不可求值直执路径（含 .. 等 evalPath 拒收形态）→ script-path-dynamic fail-closed（解释器族 + 直执行位同构；source/. 不进牙1 维持 5d98a85e 保守面）
+- **二进制/无后缀 argv0 同入通道**（/bin/ls、./x 均算）——与 bash <file> 一视同仁是裁决口径；只读裁决走显式声明/内容判读（TS-0a7d41ee 先例：/Applications/.../Tailscale status 查询=裁决零写面，标 scriptPayload absent 显式声明防考题机器依赖——macOS 开发机真实存在、CI 不存在，fs 自查臂会机器依赖翻红；verdict 维持不变）
+- 双向钉死：TS-smrjdir01（造-执对内容臂，echo 造 touch 主仓+直执执行→BLOCK/positive）、TS-smrjdir02（fs 存在臂 /dev/null→BLOCK）、TS-smrjdir03（fs 缺席臂→ALLOW/positive 正门）+ 单测 6 例（含对照：造-执对零写面内容放、能力 8 不回归、// 注释样不收、source<( 保守面、echo 绝对路径字面量非 argv0 不受影响）
+
+**残余面（如实记档，不许失踪）**：
+
+- curl -o 下载执行（运行时创建、判读时缺席）变体同漏——造-执对不识别 curl -o 写通道（writerContent 只收重定向/echo/printf/cat/tee/heredoc），与 bash 同链同漏同构，非本刀引入
+- 动态直执（`/$VAR/x.sh`）不成 argv0（求值词=null）——hasOpaqueScriptExec/通道两处同口径不收，与 delta3 记档的动态词残余面同族
+- 生产层 checkBashCommandSafety 的 EXEC_FACE 与 dotExec SQL 豁免口径分裂（db.exec 纯 SQL 生产层保守拦）——旧保守面非本刀引入（delta4 建议②），记档随 M-bf4049a3 止血面收窄；jshell 等非 SCRIPT_RUNNERS 解释器载荷零判读（delta4 建议①）已补记 issue #1491
+
+**影响范围**：write-target-evaluator.ts（shellScriptFileArg 拆分+直执行位收编+牙1 同构）、guard-touchstone-allow/block.json（+3 双向门、TS-0a7d41ee 显式声明注记）、单测 +6；判读面收敛方向=「真存在/造出内容的不透明执行」从放行转 fail-closed/正面 BLOCK，缺席证明与显式声明两臂不动。
+
+**验证（delta4 轮）**：探针矩阵 14 形态全对（5 拦 + 7 对照 + probe10 攻击链双形转拦）；write-target-evaluator.test.ts 108→114 例；三件套 123/123 绿；judge 考试 795/82/105 全过、棘轮零新键（TS-0a7d41ee 机器依赖注记后复原）；corpus 守恒 921 恒等（TS-smrj 前缀扣减 58→61）。

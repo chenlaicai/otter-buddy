@@ -799,3 +799,47 @@ describe("delta3 修法（严重1 execv 族词表 + 严重 2 cwd 错位假缺席
     });
   });
 });
+
+describe("delta4 修法（严重 1：段首直执行位同构三态，检视獭1360 delta4 复核）", () => {
+  it("直执真存在 → fail-closed unreadable（/dev/null 稳定替身）——与 bash 同链一视同仁", () => {
+    expect(evaluateWriteVerdict("/dev/null", ROOT)).toMatchObject({
+      verdict: "BLOCK", mode: "fail-closed", reason: "script-payload-unreadable",
+    });
+    expect(evaluateWriteVerdict("bash /dev/null", ROOT)).toMatchObject({
+      verdict: "BLOCK", mode: "fail-closed", reason: "script-payload-unreadable",
+    });
+  });
+
+  it("直执真不存在 → 正面放（缺席证明同构三态缺席臂）", () => {
+    const v = evaluateWriteVerdict("/tmp/no-such-smrj-1360.sh", ROOT);
+    expect(v.verdict).toBe("ALLOW");
+    expect(v.mode).toBe("positive");
+  });
+
+  it("造-执对同构：echo 造出内容判读（touch 主仓）+直执/bash 双链 → 拦", () => {
+    expect(evaluateWriteVerdict("echo touch /repo/data/pwn > /tmp/x-smrj.sh && /tmp/x-smrj.sh", ROOT).verdict).toBe("BLOCK");
+    expect(evaluateWriteVerdict("echo touch /repo/data/pwn > /tmp/x-smrj.sh && bash /tmp/x-smrj.sh", ROOT).verdict).toBe("BLOCK");
+  });
+
+  it("对照：造-执对零写面内容 → 正面放（内容判读成立，三态内容臂）", () => {
+    const v = evaluateWriteVerdict("echo echo hi > /tmp/x-smrj.sh && /tmp/x-smrj.sh", ROOT);
+    expect(v.verdict).toBe("ALLOW");
+    expect(v.mode).toBe("positive");
+  });
+
+  it("对照：不可求值直执路径（含 ..）→ script-path-dynamic fail-closed；替换型载荷垃圾解析不误收（能力 8 口径不回归）", () => {
+    expect(evaluateWriteVerdict("/tmp/d/../x-smrj.sh", ROOT)).toMatchObject({
+      verdict: "BLOCK", mode: "fail-closed", reason: "script-path-dynamic",
+    });
+    const v = evaluateWriteVerdict(`node -e "import('/repo/dist-probe/x.js')"`, ROOT);
+    expect(v.verdict).toBe("ALLOW");
+    expect(evaluateWriteVerdict(`node -e 'const x=1; // find old\nconsole.log(x)'`, ROOT).verdict).toBe("ALLOW");
+    expect(evaluateWriteVerdict("cd /repo/.otter/worktrees/wt && source <(sed -n '4,32p' scripts/otter-buddy.sh)", ROOT).verdict).toBe("ALLOW");
+  });
+
+  it("对照：echo 绝对路径字面量（非 argv0）不受直执通道影响", () => {
+    const v = evaluateWriteVerdict("echo /repo/data/x", ROOT);
+    expect(v.verdict).toBe("ALLOW");
+    expect(v.mode).toBe("positive");
+  });
+});

@@ -103,7 +103,7 @@ describe('guard-touchstone 三库冻结完整性', () => {
     }
   });
 
-  it('全量遍历：三库合计与构建记录守恒（真实语料 921 条恒等：794+80+105−新增 TS-smrj 系 58 条）', () => {
+  it('全量遍历：三库合计与构建记录守恒（真实语料 921 条恒等：795+82+105−新增 TS-smrj 系 61 条）', () => {
     expect(all.length).toBe(allow.meta.count + block.meta.count + cond.meta.count);
     // 2026-10-13 F20261013smrj：4 条会话态 cwd=worktree 相对路径原地编辑改条件期望（改批错的答案，请双签）
     //  allow 770→766 / cond 101→105（守恒不变）；block +14 合成对抗负门（严重1）。
@@ -111,10 +111,13 @@ describe('guard-touchstone 三库冻结完整性', () => {
     //  block +4 三牙负门（TS-smrj 系）——追加依据大獭工单+裁决 signal d5f2ae9a，检视獭 delta 复核在途。
     // 2026-10-14 F20261014smrj delta3：block +8 负门（execv 族 4 + cd $VAR 全来源 4，TS-smrjexecv/TS-smrjcwd 前缀）
     //  ——追加依据大獭 delta3 工单（检视獭1360 delta3 复核两严重全采纳）。
-    expect(allow.meta.count).toBe(794);
-    expect(block.meta.count).toBe(80); // 50 真实语料 + 14 合成对抗负门（严重1）+ 4 三牙负门（工单②）+ 4 exec 负门（delta2）+ 8 delta3 负门（execv 族+cd $VAR）
+    // 2026-10-14 F20261014smrj delta4：block +2 负门 + allow +1 正门（段首直执同构三态双向，TS-smrjdir 前缀）
+    //  ——追加依据大獭 delta4 工单（检视獭1360 delta4 严重1 扩面修裁决）；TS-0a7d41ee 补显式缺席声明
+    //  （防考题机器依赖，verdict 不变）。
+    expect(allow.meta.count).toBe(795);
+    expect(block.meta.count).toBe(82); // 50 真实语料 + 14 合成对抗负门（严重1）+ 4 三牙负门（工单②）+ 4 exec 负门（delta2）+ 8 delta3 负门（execv 族+cd $VAR）+ 2 delta4 负门（段首直执）
     expect(cond.meta.count).toBe(105);
-    // 真实语料守恒 921（不含 TS-smrj 前缀新增：30 负门 + 28 回归闸）
+    // 真实语料守恒 921（不含 TS-smrj 前缀新增：32 负门 + 29 回归/正门）
     const addedGate = [...allow.entries, ...block.entries, ...cond.entries].filter((e) => e.id.startsWith('TS-smrj')).length;
     expect(allow.meta.count + block.meta.count + cond.meta.count - addedGate).toBe(921);
     // 变更计数锚（重刷期望前后差异，详见 touchstone-recheck-diff.md）
