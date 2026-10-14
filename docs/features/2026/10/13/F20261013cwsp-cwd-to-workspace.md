@@ -4,7 +4,7 @@ title: 海獭 cwd 统一切换对话工作区（主仓从默认落点降级为�
 change_type: refactor
 created: 2026-10-13
 created_in_conversation: f3567df1-e24b-49cd-a020-cdb39572f853
-summary: 海獭全部工具（bash/read/write/edit/grep/find/ls）cwd 统一从主仓根切换到对话工作区（data/workspaces/<conversationId>/）；一处 resolveSessionCwd 供给、两处构造点（:451+:1253）接入；守卫 projectRoot 显式注入解耦；池键加 conversationId 解跨对话复用错位；命令向量守卫 rewrite 闭环
+summary: 海獭全部工具 cwd 统一切换对话工作区——createAgentSession 传 cwd 参数一处搞定（SDK 内部统一分发给 SessionManager/AgentSession/全部工具）；守卫 projectRoot 显式注入解耦；池键加 conversationId；命令向量守卫 rewrite 闭环
 status: draft
 ---
 
@@ -25,7 +25,13 @@ status: draft
 - 「零迁移成本」→ 懒不是架构理由，35 处读类引用改绝对路径是一次性成本
 - 獭要读主仓代码，就像人要读图书馆的书——去图书馆读，不是把图书馆搬回家
 
-### 处置：推翻非对称，统一 cwd = 对话工作区
+### 搭档追问（2026-10-14 09:14）
+
+> 「诶等等，cwd不应该就直接是启动pi agent时指定cwd到工作区吗，然后所有工具默认执行就在工作区了吧」
+
+**核实结果：对。** `createAgentSession({ cwd: workspacePath })` 一个参数就搞定——SDK 内部（sdk.js:70-76）把 cwd 传给 SessionManager、SettingsManager、ResourceLoader、AgentSession，全部 8 件工具统一跟随。otter-buddy 当前没传这个参数（pi-session-factory.ts:1274），cwd 走 fallback 链 `options.cwd ?? sessionManager.getCwd() ?? process.cwd()` 落到主仓。v6 的「两处构造点接入」是把 SDK 已经封装好的事情拆开了——`buildPiBuiltinToolDefinitions(cwd)` 的 cwd 参数不需要单独改，SDK 的 `createAllToolDefinitions(this._cwd)` 已经从 `this._cwd`（= createAgentSession 传入的 cwd）拿了。
+
+### 处置：推翻非对称，统一 cwd = 对话工作区 + createAgentSession 一个参数
 
 方案从「非对称默认（构造期分裂）」改为「**统一 cwd = 对话工作区**」。改动大幅简化：
 - 不需要 bash 从五件套拆出、不需要 write/edit 独立构造——`SessionManagerClass.create(workspaceCwd)` 一处搞定全部 8 件工具
@@ -62,14 +68,14 @@ U1（解法：池键加 conversationId）: 池键从 otterId 改为 `otterId + c
 
 U2: 定时任务獭的 cwd → 系统级工作区 `data/workspaces/_system/`。
 
-## 方案设计（v6，统一 cwd = 工作区）
+## 方案设计（v7，统一 cwd = 工作区，createAgentSession 一个参数）
 
 ### 改动点全景
 
 ```
-                        现状                              目标（v6）
-session _cwd      process.cwd()（主仓根）         resolveSessionCwd(conversationId)（工作区）
-全部 8 件工具     this._cwd / 构造 cwd = 主仓根   统一 = 工作区（SessionManager 一处传入）
+                        现状                              目标（v7）
+session _cwd      process.cwd()（主仓根）         createAgentSession({cwd: workspacePath}) 一处传入
+全部 8 件工具     this._cwd / 构造 cwd = 主仓根   统一 = 工作区（SDK 内部统一分发）
 守卫 projectRoot  process.cwd()（与 cwd 同源）    显式注入主仓绝对路径（app.ts 传入）
 池键              otterId                          otterId + conversationId
 [cwd:] 前缀       显示主仓根                       显示工作区路径（无双 cwd 分叉）
@@ -77,13 +83,15 @@ session _cwd      process.cwd()（主仓根）         resolveSessionCwd(convers
 
 **为什么统一优于非对称**：cwd 是獭的工作位置，不是读写分裂的技术参数。非对称制造「分辨当前工具是读类还是写类」的认知负担（与 9/22 cd 不跨命令保持同构），统一 cwd 让「獭的工作位置 = 工作区」成为唯一事实。读主仓代码用绝对路径（獭已大量这么写），写文件落工作区（正确默认）——一致性本身就是防错。
 
+**为什么一个参数就够**：`createAgentSession({ cwd })` 是 SDK 的统一入口（sdk.js:70），SDK 内部把 cwd 传给 SessionManager（`getCwd()` 返回工作区）、AgentSession（`this._cwd = 工作区`）、`createAllToolDefinitions(this._cwd)`（write/edit）、`buildPiBuiltinToolDefinitions(cwd)`（read/bash/grep/find/ls override）——全部 8 件工具统一跟随，无需分开改构造点。
+
 ### 关键改造点（file:line 基于 75736f68）
 
-1. **pi-session-factory.ts:451** — `SessionManagerClass.create(process.cwd(), ...)`：改为 `resolveSessionCwd(conversationId)`（新纯函数：有 conversationId → `data/workspaces/<convId>/` 绝对路径；无 → `data/workspaces/_system/`）。**一处 resolveSessionCwd 供给、两处构造点接入**（W1 采纳：改动点 1 管 write/edit 经 `createAllToolDefinitions(this._cwd)`，改动点 3 管 read/bash/grep/find/ls 经 `buildPiBuiltinToolDefinitions(cwd)`——两处都改才能全工具一致，缺一即 S6 复活）
+1. **pi-session-factory.ts:451 + 1274** — **核心改动**：`createAgentSession({ cwd: resolveSessionCwd(conversationId), ... })` 加一个参数（sdk.js:70 `options.cwd ?? sessionManager.getCwd() ?? process.cwd()`，显式传入覆盖 fallback）。SessionManagerClass.create 的 cwd 参数同步改（451 行，保证 sessionManager.getCwd() 也返回工作区）。SDK 内部统一分发：SessionManager/SettingsManager/ResourceLoader/AgentSession/全部 8 件工具
 
 2. **pi-session-factory.ts:935, 982** — 守卫/影子评估的 `projectRoot = process.cwd()`：改为构造期注入的 `mainRepoRoot`
 
-3. **pi-session-factory.ts:1253** — `buildPiBuiltinToolDefinitions(..., process.cwd())`：cwd 参数改为 `resolveSessionCwd(conversationId)` 结果（工作区）——五件套（read/bash/grep/find/ls）统一跟随
+3. ~~pi-session-factory.ts:1253~~（v7 删除）——`buildPiBuiltinToolDefinitions(..., process.cwd())` 不需要单独改：SDK 的 `createAllToolDefinitions(this._cwd)` 已经从 `this._cwd`（= createAgentSession 传入的 cwd）拿了工作区。五件套 override 的 cwd 参数只需传同一个工作区保持一致——**但它从 createAgentSession 的 cwd 自动继承，不需要 otter-buddy 侧单独传入**
 
 4. **tool-description-overrides.ts:55** — `wrapBashWithCwdPrefix(base, workspaceCwd)`：前缀显示工作区路径。无双 cwd 分叉（全部工具同一 cwd）
 
@@ -139,7 +147,7 @@ R5: **獭读主仓代码的路径变长**——从 `grep foo src/` 变为 `grep 
 | 取舍 | 决策 | 替代方案 | 理由 |
 |---|---|---|---|
 | cwd 策略 | **统一 cwd = 对话工作区** | 非对称默认（写→工作区、读→主仓）——搭档否决（第一性原理：读写要一致，一致性是防错的架构属性） | cwd 是獭的工作位置，不是读写分裂的技术参数 |
-| 实现路径 | SessionManager 一处传入 | 写三件套独立构造（v5 遗产，统一 cwd 下不需要） | 统一 cwd 下一处搞定全部 8 件，无分组归属问题 |
+| 实现路径 | **createAgentSession 传 cwd 一个参数**（SDK 统一分发） | 两处构造点接入（v6 过度拆解）；写三件套独立构造（v5 遗产） | SDK 已封装 cwd 分发链，一个参数搞定全部 8 件 |
 | U1 解法 | 池键加 conversationId | ctx.cwd per-invoke（S4/S5 砍掉）；identity 兜底（J1 判不成立） | 结构性解法 |
 | 守卫锚点 | 显式注入主仓路径 | 继续 process.cwd() | 解耦 |
 | 命令向量 | 守卫 rewrite（拦+修） | 仅靠 [cwd:] 前缀（S2 判不收敛） | 结构性闭环 |
@@ -168,7 +176,7 @@ V4: lint-prompt-paths 回归护栏
 
 | 文件 | 操作 | 说明 |
 |---|---|---|
-| src/frameworks/agent/pi-session-factory.ts | 修改 | session cwd 解析（1）+ projectRoot 注入（2）+ 工具构造 cwd（3）+ 池键扩展（10） |
+| src/frameworks/agent/pi-session-factory.ts | 修改 | createAgentSession 传 cwd（1）+ projectRoot 注入（2）+ 池键扩展（10） |
 | src/frameworks/agent/tool-description-overrides.ts | 修改 | buildToolDescriptionOverrides 第三参传 workspaceCwd（4） |
 | src/frameworks/agent/cwd-awareness.ts | 修改 | 头注释架构断言更新（5） |
 | src/frameworks/agent/bash-safety-guard.ts | 修改 | projectRoot 来源（6）+ 命令 rewrite（9） |
