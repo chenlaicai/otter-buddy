@@ -114,11 +114,11 @@ EOF`;
     const cmd = `git add -A && git commit --amend -F /Users/orca/ai/otter-buddy/data/workspaces/11806e11-1cac-4d00-b263-badff1a80f2b/commit-msg.txt`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeTruthy();
   });
-  it("1013-B4: sleep 180 && ...（sleep_block 负门）→ 拦（样本 ca165165 等 8 条）", () => {
+  it("1013-B4: sleep 180 && ...（sleep_block 负门）→ 拦（样本 fe06ae02/84e266b8/ca165165/88712b22/127de30b/dff90d4e/6a33c4e8/1fe986c2）", () => {
     const cmd = `sleep 180 && cd ${WT}/x && gh pr checks 1451`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeTruthy();
   });
-  it("1013-B5: bash script.sh（script_file_exec 负门）→ 拦（样本 040c8fc8/7daea038）", () => {
+  it("1013-B5: bash script.sh（script_file_exec 负门）→ 拦（样本 040c8fc8/7daea038/cadd6a06）", () => {
     // 注：V1 策略现状（脚本内容未经守卫逐条判定一律拦），与双签口径 O-2「脚本内容裁决钉 hash」方向相反；翻转须重裁（残余面立册机制）
     const cmd = `bash data/workspaces/7b41e085-5c21-4bd1-adfe-dc3ef051753d/wt-test.sh tests/frameworks/agent/guard-touchstone-corpus.test.ts`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeTruthy();
@@ -128,7 +128,7 @@ EOF`;
     const cmd = `pkill -f "user-data-dir=${WT}/fix-quota-normalize" 2>/dev/null; sleep 1; ps aux | head`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeTruthy();
   });
-  it("1013-B7: rm -f 主仓 data/ 下文件（data_destructive 负门）→ 拦（构造样本，候选 JSON 无对应实拦样本）", () => {
+  it("1013-B7: sqlite3 触主仓 data/qtest-*.db（data_destructive 负门）→ 拦（样本 835b22db 实拦 10-13 09:10:57）", () => {
     const cmd = `rm -f /Users/orca/ai/otter-buddy/data/qtest-1.db`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeTruthy();
   });
