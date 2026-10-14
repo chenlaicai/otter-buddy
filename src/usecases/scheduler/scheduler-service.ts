@@ -439,6 +439,38 @@ export class SchedulerService {
     }
   }
 
+  /** #1471：在途互斥守卫查询——执行獭上是否存在其他任务的存活 running 执行。
+   *  存活 = running 且未超过滞留阈值（#1449 同口径：超阈值执行会被轮询扫描判死/claim 放行，
+   *  不构成受害者——重启它无害）。
+   *  实现：逐任务查 getExecutions（复用现有接口，不扩仓储接口面）。任务数 ~10 量级、
+   *  每任务取 5 条，触发时一次，代价可忽略。
+   *  宽严分析：prompt 已落库但发言石未消化的「待点火」执行也记 running——按宽口径视为在途，
+   *  宁跳过一轮不焚其上下文。查询失败保守放行（维持现状语义：重启照常），与 claim 路径的
+   *  台账判活双保险。 */
+  private async hasInflightExecutionOnOtter(task: ScheduledTask, otterId: string): Promise<boolean> {
+    try {
+      const tasks = await this.getAllActiveTasks();
+      const now = Date.now();
+      for (const t of tasks) {
+        if (t.id === task.id) continue;
+        if (!t.talkingStonePassedTo.includes(otterId)) continue;
+        const executions = await this.taskRepo.getExecutions(t.id, { limit: 5 });
+        const inflight = executions.some(e =>
+          e.status === 'running' && now - new Date(e.triggeredAt).getTime() < RUNNING_STUCK_THRESHOLD_MS,
+        );
+        if (inflight) return true;
+      }
+      return false;
+    } catch (err) {
+      this.logger.warn('在途互斥查询失败（保守放行重启）', {
+        taskId: task.id,
+        otterId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
+  }
+
   /** #1449：挤占 skip 落 healing（low）——触发被拒即见，不等 2h 硬兜底。
    *  同任务 1h 节流防刷屏；失败不阻塞（skip 行已落 DB，本通道是可见性增强）。 */
   private async recordPreemptionSkipHealing(task: ScheduledTask): Promise<void> {
@@ -970,6 +1002,22 @@ export class SchedulerService {
         const executorOtterId = task.talkingStonePassedTo[0];
         if (!this.manageSession) {
           this.logger.warn('restartBeforeInvoke skipped: manageSession not injected', { taskId: task.id, otterId: executorOtterId });
+        } else if (await this.hasInflightExecutionOnOtter(task, executorOtterId)) {
+          // #1471 在途互斥守卫：换世会焚毁执行獭的在途上下文——若该獭上仍有其他任务
+          // 的存活 running 执行（含其 prompt 已落库、等待发言石消化的「待点火」执行），
+          // 本任务重启会把它掐断（案发现场：8:00 补丁清单被 8:30 健康检查的重启掐断，
+          // 同獭串行任务互相残杀）。
+          // 处置：不重启、直接记账 skipped 退出——与执行被掐死相比，本轮不跑代价低
+          // （挤占 healing 让跳过可见，下个 cron 窗口自然补跑）。
+          // 只挡 restart 步骤（speak 路径不挡——那条路径不焚上下文，由 claim 锁天然串行）。
+          await this.handleExecutionSkipped(executionId, new Error('restartBeforeInvoke skipped: executor otter has inflight execution'));
+          // 挤占可见性与 claim 挤占同族，共用 1h 节流窗（同任务同小时只落一条）。
+          void this.recordPreemptionSkipHealing(task);
+          this.logger.info('Task skipped: restartBeforeInvoke blocked by inflight execution on executor otter', {
+            taskId: task.id,
+            otterId: executorOtterId,
+          });
+          return { executionId };
         } else {
           try {
             await this.manageSession.restartSession(executorOtterId,
