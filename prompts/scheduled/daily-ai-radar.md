@@ -4,7 +4,7 @@ task_name: 每日 AI 雷达
 
 每日 AI 雷达扫描。请按以下清单执行：
 
-1. 执行 `cd /Users/orca/ai/otter-buddy/data/workspaces/98bd9fdd-8e28-4de8-b782-b59f46e733dd && node /Users/orca/ai/otter-buddy/scripts/radar/scan.mjs data`（约 30 秒，串行抓取三源：HN/GitHub/Anthropic。脚本真相源在仓 `scripts/radar/`，工作区只留运行时数据；分拣规则见 `scripts/radar/README.md`）
+1. 执行 `cd /Users/orca/ai/otter-buddy/data/workspaces/98bd9fdd-8e28-4de8-b782-b59f46e733dd && node /Users/orca/ai/otter-buddy/scripts/radar/scan.mjs data`（约 30 秒，串行抓取三源：HN/GitHub/Anthropic。脚本真相源在仓 `/Users/orca/ai/otter-buddy/scripts/radar/`，工作区只留运行时数据；分拣规则见 `/Users/orca/ai/otter-buddy/scripts/radar/README.md`）
 2. 读取 stdout 摘要与 `data/last-report.json`（去重基准；首跑无此文件则跳过去重）
 3. 分拣与结合：按 scripts/radar/README.md 第②③层规则——剔除蹭热点假 AI 内容、跨源同事件合并、连报旧闻降级，综合热度×新颖性×领域权重（agent 工程/多智能体/上下文工程/MCP 为 AI/agent 领域核心议题，加权——纯领域视角）排序
 4. 内容抓取（不可跳过）：对入选 top 条目逐一抓取原文——HN 文章 curl 正文、GitHub 项目看 README——简报必须讲清每条「这是什么、为什么热」，有干货，不能只报标题光说有这个事；每条另含「核心技术点」段：核心技术是什么、亮点在哪、为什么会火、出彩的点

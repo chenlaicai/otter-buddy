@@ -54,7 +54,7 @@ budget_bytes: 9600
 ## 守卫误拦样本固化段（「昨日」= UTC 日界）
 昨日 guard_intercept 样本是「修复-回归循环」原料，每日：
 
-1. `node scripts/generate-guard-replay.mjs --db <curl /api/settings 得到的 dbPath>`；无拦截日报写「固化：0 条」
+1. `cd /Users/orca/ai/otter-buddy && node scripts/generate-guard-replay.mjs --db <curl /api/settings 得到的 dbPath>`；无拦截日报写「固化：0 条」
 2. 逐条填 verdict：`ALLOW`（误拦）/ `BLOCK`（负门样本）/ `SKIP`（一次性/敏感/不可复现）；误拦旁证 = 查后续是否换写法绕过
 3. **非 SKIP 追加**到 `tests/frameworks/agent/guard-v2-real-replay.test.ts`（对齐既有 it 块，断言 = 裁决值）并跑该文件；期望不符先疑裁决错勿凑绿，双链不一致提 issue
 4. 日报留痕「拦截 N → 候选 M → 固化 K / SKIP S」；同 ruleId ≥3 条成规模误拦改开 issue 修规则
@@ -76,7 +76,7 @@ issue 必含案发现场（证据真实、含锚点）与影响。方案两态�
 
 **关闭标准必填**（搭档拍板）：每个 issue body 含「关闭标准」段——可验证的关闭条件。写不出 = 不该存在（并入他 issue 或转文档）。
 **断言豁免标注**：纯决策/容器型 issue，「验证断言」段首行标 `暂不验证：<原因>`——回查跳过。## 止损线检查（P0-c）
-每日查评测止损线（详规特性文档 2026-09-02；脚本 `node scripts/lint-intent.mjs`）：①观察期新增 intent 率 <80%；②golden-results 从未执行；③≥5 PR 场景 passed 全 true（<5 样本记「样本不足」）。触发 → 开 issue（owner=大獭）
+每日查评测止损线（详规特性文档 2026-09-02；脚本 `cd /Users/orca/ai/otter-buddy && node scripts/lint-intent.mjs`）：①观察期新增 intent 率 <80%；②golden-results 从未执行；③≥5 PR 场景 passed 全 true（<5 样本记「样本不足」）。触发 → 开 issue（owner=大獭）
 
 **golden 执行对账**：对账近 24h 合入软代码 PR（`gh pr list --state merged` 筛 modules 含 prompts//.pi/）× golden-results.jsonl——缺记录/fail 悬置/pending 超 72h → 开 issue（owner=大獭）。不阻断合入，软曝光驱动
 

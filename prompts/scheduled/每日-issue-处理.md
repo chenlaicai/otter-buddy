@@ -66,7 +66,7 @@ task_name: 每日 issue 处理
 
 ## Issue 大盘（产出末尾必附）
 
-跑 `node scripts/lint-issue-labels.mjs` 取数，产出末尾固定附一行大盘统计：
+跑 `cd /Users/orca/ai/otter-buddy && node scripts/lint-issue-labels.mjs` 取数，产出末尾固定附一行大盘统计：
 
 ```
 issue 大盘：open N | bug:x enhancement:y tech-debt:z question:w | P0:a P1:b P2:c | 无标签:d（目标 <5%）
