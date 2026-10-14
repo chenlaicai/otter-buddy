@@ -1999,7 +1999,7 @@ export function checkBashCommandSafety(
   //（脚本自杀/PR merge/data 破坏/主仓写）仍在文本路径执行（映射表「保留」项）。
   const modelOk = modelParseOk(command);
   if (modelOk) {
-    const modelResult = checkWithModel(command, mainPid, logger, allowedServices);
+    const modelResult = checkWithModel(command, mainPid, logger, allowedServices, projectRoot);
     if (modelResult) return withDiagnostics(modelResult, command, mainPid);
     // 模型已放行 kill 族——只补模型层没有的规则（脚本自杀/data 破坏/主仓写；
     // PR merge 已由模型 argv 位判定，不再跑文本版）
