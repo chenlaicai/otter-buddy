@@ -3524,3 +3524,30 @@ describe("delta7 修法（严重 1：受管族 carve 收窄——树外同名负
     expect(checkBashCommandSafety(cmd, mainPid)).toBeNull();
   });
 });
+
+// ────────── delta8 修法（`~` 前缀族收口——前缀空间穷举，检视獭1360 delta7 复核） ──────────
+describe("delta8 修法（`~` 前缀族收口——前缀空间穷举负门）", () => {
+  const mainPid = 42877;
+
+  it("负门：~/x.sh、~user/x.sh、~、../x.sh → 拦（U5 直执，与 bash ~/x.sh 同款保守）", () => {
+    for (const cmd of ["~/x.sh", "~user/x.sh", "~", "../x.sh"]) {
+      const result = checkBashCommandSafety(cmd, mainPid);
+      expect(result).not.toBeNull();
+      expect(result).toContain("从文件读取脚本");
+    }
+  });
+
+  it("对称入口：bash ~/x.sh 与 ~/x.sh 同判 BLOCK（三次复发的对称缺口封死）", () => {
+    expect(checkBashCommandSafety("bash ~/x.sh", mainPid)).not.toBeNull();
+    expect(checkBashCommandSafety("~/x.sh", mainPid)).not.toBeNull();
+    expect(checkBashCommandSafety("bash ../x.sh", mainPid)).not.toBeNull();
+    expect(checkBashCommandSafety("../x.sh", mainPid)).not.toBeNull();
+  });
+
+  it("frozen 不回退：受管族 carve / 纯词命令名 / 读写常规形态不受 ~ 收口影响", () => {
+    expect(checkBashCommandSafety("./scripts/otter-buddy.sh start", mainPid)).toBeNull();
+    expect(checkBashCommandSafety("git status", mainPid)).toBeNull();
+    // 纯词 x.sh = PATH 命令名语义（非文件路径）——与 bash x.sh（文件操作数）非对称对，穷举表标注
+    expect(checkBashCommandSafety("x.sh", mainPid)).toBeNull();
+  });
+});

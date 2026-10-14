@@ -358,3 +358,35 @@ zdebug 实证 12 条误伤的写目标全是 `{path:"/repo", via:"cmd-arg"}` 凭
 **影响范围**：guard-model-judge.ts（isManagedScriptWord/isManagedScriptPath 路径限定收窄、checkWithModel/judgeBashFileScript 穿 projectRoot）、bash-safety-guard.ts（checkWithModel 调用点穿 projectRoot）、特性文档两处改齐 + 本节；单测 +7（prod 6：树外同名三形态负门 + 造-执链负门 + 树外 scripts/ 双形态负门 + frozen 双向保持两组 + 解释器不回退钉；wv 1：同名真存在负门）。
 
 **验证（delta7 轮）**：全仓 5569/5569 绿（364 文件；基线 5562 + 新增 7 = 5569 零回归）；tsc 全量 clean；frozen 双向保持独立复跑（受管路径放行面 start/status/logs/worktree stop/alpha start 全保绿 + 拦截面专属域文案全保持）；delta6 负门四形态全 BLOCK（prod U5 文案 + wv 三态）；delta6 已验面不回退（/usr/bin/python3 族只读不误拦钉死）。
+
+### delta8 复核补刀（`~` 前缀族收口 + 前缀空间穷举，2026-10-14）
+
+检视獭1360 delta7 复核 1 严重（`~` 前缀双层全漏——边界探针打穿）+ 方法论建议（同构一堵一漏三次复发），大獭裁决全采纳并**认领**：delta5「./ 或 / 开头即收」口径前缀空间从源头穷举不全，方法论两原则强制落档。
+
+**方法论落档（从 delta8 起为常规验收面，大獭裁决）**：
+
+1. **前缀空间穷举**：`./`、`/`、`//`、`~`（含 `~user/`）、`$VAR`、纯词、引号形态逐类过，每类确认收/放与记档一致；
+2. **对称入口原则**：同一语义的两个入口（`bash X` 与 `X`）必须同判——三次复发全是「只堵一个入口」（bash $P/$P、bash file/直执、bash ~/x.sh/~/x.sh），验收按成对核对。
+
+**修法：isDirectExecArgv0 补前缀族（词文本口径穷举化）**：① 路径前缀词（./x、/x 排 //、**../x** 新收）；② **`~` 前缀族**（~/ 与 ~user/ 形态——evalPath 不可解 → script-path-dynamic fail-closed，与 bash ~/x.sh 同款保守；真存在/不存在同判，fs 无关）；③ 纯展开词（$P）不变。镜像注记落码：resolvesToMainCheckout（bash-safety-guard.ts，F20260916gtlr）对 `~` 显式「不展开，保守拦截」——两处镜像义务：改一处另一处注记跟着走。
+
+**前缀空间穷举结果表（delta8 实测，双层语义对成对核对）**：
+
+| 类 | X 裸形态 | bash X | 对称同判 | 收口状态 |
+|---|---|---|---|---|
+| ./x.sh | prod 拦/wv 三态 | prod 拦/wv 三态 | ✓ | delta4 起收 |
+| /x.sh | prod 拦/wv 三态 | prod 拦/wv 三态 | ✓ | delta4 起收 |
+| ../x.sh | 双层拦 | 双层拦 | ✓ | **delta8 新收** |
+| ~/x.sh、~user/x.sh、~ | 双层拦（dynamic） | 双层拦 | ✓ | **delta8 新收**（本轮主刀） |
+| $P、./$P、$DIR/x.sh、"$P" | 双层拦（dynamic） | 双层拦 | ✓ | delta5 起收 |
+| 引号形态 "./x"、'./x'、"~/x"、'~/x' | 同对应裸形态 | 同 | ✓ | 剥壳后同规则，穷举验证 |
+| //x.sh | 双层放 | 双层拦 | ✗ | **例外 1**（delta4 既定排 //，防 JS 注释行误命中——对称缺口，收编与能力 8 误收防线同族，呈拍板） |
+| foo$BAR | 双层放 | 双层拦 | ✗ | **例外 2**（delta5 既定边界：非斜杠动态词不收，kill${IFS} 类不误伤取舍——记档+单测钉死，呈拍板） |
+| x.sh（纯词） | 双层放 | prod 拦 | 非对称对 | **例外 3**（语义不同对：纯词=PATH 命令名查找 vs bash 的文件操作数——非同一语义入口，非缺口） |
+| scripts/x.sh、node_modules/.bin/x（中缀斜杠族） | 放（现状） | 拦 | ✗ | **例外 4（新缺口，不并入本刀）**：收编实测翻红 TS-b42e23be（非壳载荷垃圾解析把真实目录参数词误收进牙口→unreadable fail-closed，能力 8 误收面同族）——按大獭 M-026d87ff 裁决原则「扰动 frozen 考试的收编必须独立工单带守恒验收」，带证据呈拍板，不并入本刀 |
+
+（静态三态形态如 ./x.sh 真不存在→wv 放/prod 拦 = 既定口径② absent 镜像，非缺口；wrapper 剥除形态两层同缺随 wrapper 口径工单，不变。）
+
+**影响范围**：write-target-evaluator.ts（isDirectExecArgv0 前缀族穷举化 + 镜像注记 + 残余面注记改齐）；单测 +7（wv 4：`~` 族负门/对称对/../负门/中缀斜杠族不收钉；prod 3：`~` 族负门/对称对/frozen 不回退）。
+
+**验证（delta8 轮）**：全仓 5576/5576 绿（364 文件；基线 5569 + 新增 7 = 5576 零回归）；tsc 全量 clean；judge 考试 795/82/105 全过（含 TS-b42e23be 不扰动）、棘轮零新键；穷举表 17 形态双层实测（探针）；对称对全同判，4 例外如实标注（2 项呈拍板、1 项语义不同对、1 项新缺口独立工单）。

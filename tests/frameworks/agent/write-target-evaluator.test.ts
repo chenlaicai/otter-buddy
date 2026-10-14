@@ -901,3 +901,32 @@ describe("delta7 修法（严重 1：树外同名受管族负门——wv 侧无�
     expect(evaluateWriteVerdict(fake, ROOT)).toMatchObject({ verdict: "BLOCK", reason: "script-payload-unreadable" });
   });
 });
+
+// ────────── delta8 修法（`~` 前缀族 + ../ 前缀收口——前缀空间穷举，检视獭1360 delta7 复核） ──────────
+describe("delta8 修法（`~` 前缀族收口——前缀空间穷举负门）", () => {
+  it("负门：~/x.sh、~user/x.sh、~ 真存在/不存在均 script-path-dynamic fail-closed（evalPath 不可解，fs 无关）", () => {
+    for (const cmd of ["~/x.sh", "~/no-such-1360.sh", "~user/x.sh", "~"]) {
+      expect(evaluateWriteVerdict(cmd, ROOT)).toMatchObject({
+        verdict: "BLOCK", mode: "fail-closed", reason: "script-path-dynamic",
+      });
+    }
+  });
+
+  it("对称入口：bash ~/x.sh 与 ~/x.sh 同判（双层语义对成对钉死）", () => {
+    expect(evaluateWriteVerdict("bash ~/x.sh", ROOT)).toMatchObject({ verdict: "BLOCK", reason: "script-path-dynamic" });
+    expect(evaluateWriteVerdict("~/x.sh", ROOT)).toMatchObject({ verdict: "BLOCK", reason: "script-path-dynamic" });
+    expect(evaluateWriteVerdict("bash ~user/x.sh", ROOT)).toMatchObject({ verdict: "BLOCK", reason: "script-path-dynamic" });
+  });
+
+  it("负门：../x.sh 相对上级路径前缀 → script-path-dynamic（含 .. 不可求值，对称同判）", () => {
+    expect(evaluateWriteVerdict("../x.sh", ROOT)).toMatchObject({ verdict: "BLOCK", reason: "script-path-dynamic" });
+    expect(evaluateWriteVerdict("bash ../x.sh", ROOT)).toMatchObject({ verdict: "BLOCK", reason: "script-path-dynamic" });
+  });
+
+  it("中缀斜杠族维持不收（能力 8 误收防线——TS-b42e23be 翻红实证，独立工单呈拍板）", () => {
+    // 收编会误收非壳载荷垃圾解析的参数词（真实目录路径→unreadable fail-closed）——大獭 M-026d87ff
+    // 裁决原则「扰动 frozen 考试的收编必须独立工单带守恒验收」，见穷举表呈拍板
+    const v = evaluateWriteVerdict("scripts/x.sh > /tmp/out", ROOT);
+    expect(v).toMatchObject({ verdict: "ALLOW", mode: "positive" });
+  });
+});

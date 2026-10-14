@@ -780,21 +780,29 @@ const UNPROVABLE_TEETH: ReadonlySet<UnevalReason> = new Set<UnevalReason>([
 /** shell 外置脚本执行段（解释器族 ∪ source/.）——三牙判定的触发面 */
 const SCRIPT_FILE_RUNNERS = new Set<string>([...SHELL_INTERPRETERS, "source", "."]);
 
-/** 段首直执行位判定（./x、/x，排 // 样式）——delta4 修法（严重 1）+ delta5 修法（严重 2，
- *  检视獭1360 delta5 复核：动态直执行位双层全漏）：与 hasOpaqueScriptExec 直执分支、
- *  guard-model-judge U5 生产层同源共用（一条语义一个接口——经 isDirectExecScriptSeg
- *  段级口径三处共用）。
- *  检**词文本**而非求值词（delta5 起）：词文本 ./ 或 / 前缀（排 //）即收进通道，dynamic
- *  由求值结果定；纯展开词（$P——词文本无可证的非路径形态）保守收进通道 → 动态直执走
- *  script-path-dynamic fail-closed（与 bash $P 同款，牙1 注释与行为自此一致）。
- *  残余面（记档）：foo$BAR 形态（词文本非空非路径前缀）不收——纯展开词保守收与
- *  非前缀动态词不收的边界取舍见特性文档 delta5 节。 */
+/** 段首直执行位判定（路径形态词）——delta4（严重 1）+ delta5（严重 2，动态双层全漏）
+ *  + delta8（`~` 前缀族 + 含斜杠相对路径词，检视獭1360 delta7 复核：`~/x.sh` 双层全漏、
+ *  前缀空间穷举新缺口）：与 hasOpaqueScriptExec 直执分支、guard-model-judge U5 生产层
+ *  同源共用（一条语义一个接口——经 isDirectExecScriptSeg 段级口径三处共用）。词文本口径
+ *  （前缀空间穷举，delta8 方法论落档）：
+ *  ① 路径前缀词文本（./x、/x 排 //、../x——词首特殊字符形态；中缀斜杠族（scripts/x.sh
+ *  等）收编会误收非壳载荷垃圾解析的参数词（能力 8 同族——TS-b42e23be 实测翻红），
+ *  按「扰动 frozen 考试的收编必须独立工单带守恒验收」（大獭 M-026d87ff 裁决原则）
+ *  不并入本刀，见穷举表呈拍板）；② `~` 前缀族（~/ 与 ~/user 形态——evalPath 不可解 →
+ *  dynamic fail-closed，与 bash ~/x.sh 同款保守。**镜像注记**：resolvesToMainCheckout
+ *  （bash-safety-guard.ts，F20260916gtlr）对 `~` 显式「不展开，保守拦截」——两处镜像
+ *  义务：改一处另一处注记跟着走）；③ 纯展开词（$P）保守收进通道 → 动态直执走
+ *  script-path-dynamic fail-closed（与 bash $P 同款）。
+ *  残余面（记档）：非斜杠动态命令位（foo$BAR）不收——与 kill${IFS}… 类不误伤的边界取舍
+ *  （delta5 既定 + 单测钉死，对称入口例外见穷举表）；wrapper 剥除形态两层同缺（记档）。 */
 export function isDirectExecArgv0(word: Word | null | undefined): boolean {
   if (word === undefined || word === null) return false;
-  const raw = word.parts.map(p => (p.type === "lit" || p.type === "escape" ? p.text ?? "" : "")).join("");
-  if (raw.startsWith("./") || (raw.startsWith("/") && !raw.startsWith("//"))) return true;
+  const litRaw = word.parts.map(p => (p.type === "lit" || p.type === "escape" ? p.text ?? "" : "")).join("");
+  const fullRaw = word.parts.map(p => p.text ?? "").join("");
+  if ((litRaw.startsWith("./") || litRaw.startsWith("../") || (litRaw.startsWith("/") && !litRaw.startsWith("//")))) return true;
+  if (fullRaw.startsWith("~")) return true;
   // 纯展开词（词文本为空且求值不出）：命令位是展开结果——可能是脚本路径，保守收进通道
-  return raw === "" && word.evaluated === null;
+  return litRaw === "" && word.evaluated === null;
 }
 
 /** 运行器族 argv0（解释器/脚本语言运行器，basename 口径）：argv0 是运行器族时脚本位
