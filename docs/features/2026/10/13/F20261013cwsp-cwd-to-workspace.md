@@ -1,187 +1,169 @@
 ---
 id: F20261013cwsp
-title: 海獭 cwd 统一切换对话工作区（主仓从默认落点降级为显式目标）
+title: 海獭 cwd 统一切换对话工作区（描述层非重绑，createAgentSession 唯一事实源）
 change_type: refactor
 created: 2026-10-13
 created_in_conversation: f3567df1-e24b-49cd-a020-cdb39572f853
-summary: 海獭全部工具 cwd 统一切换对话工作区——createAgentSession 传 cwd 参数一处搞定（SDK 内部统一分发给 SessionManager/AgentSession/全部工具）；守卫 projectRoot 显式注入解耦；池键加 conversationId；命令向量守卫 rewrite 闭环
+summary: 海獭全部工具 cwd 统一切换对话工作区——createAgentSession({cwd}) 唯一事实源；描述层非重绑（override 只 patch description，execute 委托 SDK base）；bash [cwd:] 前缀修复（S9：9/22 感知对齐从未生效）；守卫 projectRoot 显式注入；池键加 conversationId；命令向量守卫 rewrite
 status: draft
 ---
 
-## 对抗审视处置（检视獭-cwd · MiMo · round 1-4 + 搭档否决）
+## 对抗审视处置（检视獭-cwd · MiMo · round 1-7 + 搭档两次拍板）
 
-### Round 1-4（2026-10-13 17:36 - 21:27）
+### Round 1-5（2026-10-13 17:36 - 14/10 08:50）
 
-四轮对抗审视围绕「非对称默认」（写→工作区、读→主仓）展开，逐轮修正了 ctx.cwd 机制（S4/S5）、bash 分组归属（S6）、this._cwd 耦合（S7）。Round 4 基本通过。
+围绕「非对称默认」展开四轮，S1-S7 逐轮修正。Round 5 通过（无严重发现）。搭档否决非对称（「读写要一致」），方案转向统一 cwd。
 
-### 搭档否决（2026-10-13 21:39）
+### Round 6（2026-10-14 09:34）
 
-> 「不对，读写要一致；没必要读留在主仓啊。你留在主仓的目的是什么。重新讨论方案！第一性原理！不要臆造需求！」
+S8：`buildPiBuiltinToolDefinitions(piCodingAgent, process.cwd())`（:1253）硬编码主仓，五件套 override 盖回主仓——`createAgentSession({cwd})` 一个参数不够，读写分裂静默复活。v8 修正为「一处 resolver 两处注入」。
 
-**否决理由（第一性原理）**：cwd 是獭的工作位置，不是读写分裂的技术参数。非对称默认制造「獭需要时刻分辨当前工具是读类还是写类」的认知负担——与 9/22 事故链（獭需要记住 cd 不跨命令保持）同构，只是换了形态。**一致性本身就是防错的架构属性**。
+### Round 7（2026-10-14 09:50）
 
-「读留主仓」的论据（「污染来自写不来自读」「零迁移成本」）经不起追问：
-- 「读主仓代码高频」→ 獭读代码写的是绝对路径或 cd 到目标位置，不是靠 cwd 默认在主仓
-- 「零迁移成本」→ 懒不是架构理由，35 处读类引用改绝对路径是一次性成本
-- 獭要读主仓代码，就像人要读图书馆的书——去图书馆读，不是把图书馆搬回家
+**S9（严重）**：`buildToolDescriptionOverrides` 调用点（pi-session-factory.ts:1252-1255）只传 2 参，缺 `sessionCwd` → `if (name === "bash" && sessionCwd)` 恒 false → `wrapBashWithCwdPrefix` 从不执行。**9/22 的 bash 感知对齐（[cwd:] 前缀）从未生效。**
 
-### 搭档追问（2026-10-14 09:14）
+**重对抗门判断：v8 是治标-leaning。** 「两处注入」保留冗余重建、给两处都喂工作区，没消解「两处必须同步」的脆弱（正是 9/22 cwd 漂移同类）。**治本 = 描述层非重绑**——override 只 patch description，execute 委托 SDK base（base 已正确绑 `createAgentSession({cwd})` 的 cwd）。`createAgentSession({cwd})` 成为唯一事实源。
 
-> 「诶等等，cwd不应该就直接是启动pi agent时指定cwd到工作区吗，然后所有工具默认执行就在工作区了吧」
+**搭档拍板（09:55）**：「按你说的来」——采纳治本路线（B）。
 
-**核实结果：对。** `createAgentSession({ cwd: workspacePath })` 一个参数就搞定——SDK 内部（sdk.js:70-76）把 cwd 传给 SessionManager、SettingsManager、ResourceLoader、AgentSession，全部 8 件工具统一跟随。otter-buddy 当前没传这个参数（pi-session-factory.ts:1274），cwd 走 fallback 链 `options.cwd ?? sessionManager.getCwd() ?? process.cwd()` 落到主仓。v6 的「两处构造点接入」是把 SDK 已经封装好的事情拆开了——`buildPiBuiltinToolDefinitions(cwd)` 的 cwd 参数不需要单独改，SDK 的 `createAllToolDefinitions(this._cwd)` 已经从 `this._cwd`（= createAgentSession 传入的 cwd）拿了。
+### 处置：推翻「两处注入」，描述层非重绑
 
-### 处置：推翻非对称，统一 cwd = 对话工作区 + createAgentSession 一个参数
-
-方案从「非对称默认（构造期分裂）」改为「**统一 cwd = 对话工作区**」。改动大幅简化：
-- 不需要 bash 从五件套拆出、不需要 write/edit 独立构造——`SessionManagerClass.create(workspaceCwd)` 一处搞定全部 8 件工具
-- S6/S7 的问题自动消失（没有分裂就没有分组归属问题）
-- 迁移成本回归诚实的工作量（~51 处全部扫改，不分读写类）
+v9 核心：**消解第二处构造点**——`buildPiBuiltinToolDefinitions` 不再重建工具定义（不再传 cwd），改为纯 description patch + bash 前缀包装（委托 base execute）。`createAgentSession({cwd: workspacePath})` 一处搞定全部 8 件工具。
 
 ## 背景
 
-搭档 2026-10-13 主目录污染排查（5 个 untracked 文件：check_birthdays.py / p2-selftest.mjs / data/feishu / data/quota-browser / data/otter-buddy 空文件）后提出：
-
-> 「我现在在思考，是否应该将海獭们的启动cwd设置到各个对话的工作区目录下？」
-
-> 「bash守卫也一直反复在改还做不到（治理住写入面）。所以我思考，是否切换到工作区其实也能带来更好的架构」
-
-9/22 历史答案（F20260922scwd）：「让 agent 知道当前在哪」——感知对齐。落地 3 周后守卫 denylist 持续误拦不收敛。本方案是「换默认起点」——safe-by-default。
+搭档 2026-10-13 主目录污染排查后提出 cwd 切换工作区。9/22 感知对齐（F20260922scwd）落地 3 周不收敛——**round 7 发现根因：bash [cwd:] 前缀从未生效（S9），獭全靠守卫硬拦，守卫 denylist 天生漏**。
 
 ## 目标
 
-T1: 獭全部工具 cwd 统一切换到当前对话工作区（`data/workspaces/<conversationId>/`），盲写污染结构性关闭
-T2: 守卫 projectRoot 与进程 cwd 解耦——主仓路径显式注入
-T3: 主仓从「默认落点」降级为「显式目标」——落主仓的写命令需獭显式写绝对路径，守卫拦截语义不变
-T4: 感知对齐机制保留并简化——[cwd:] 前缀显示工作区路径，无双 cwd 分叉
+T1: 獭全部工具 cwd = 对话工作区——`createAgentSession({cwd})` 唯一事实源
+T2: 守卫 projectRoot 与进程 cwd 解耦——显式注入主仓路径
+T3: 主仓从「默认落点」降级为「显式目标」——守卫拦截语义不变
+T4: bash [cwd:] 前缀修复（S9）——感知对齐真正生效
 T5: 主仓相对命令由守卫 rewrite 为 projectRoot 绝对路径后放行
 
 ## 非目标
 
-- 不改主服务自身的 `./data` 相对路径落盘（app.ts:181）
+- 不改主服务 `./data` 相对路径落盘
 - 不改 worktree 开发流程
-- **工作区膨胀回收机制**：必需配套但非本特性交付——独立特性立项
+- **工作区膨胀回收机制**：配套但非本特性交付——独立特性立项
 
 ## 未决问题
 
-U1（解法：池键加 conversationId）: 池键从 otterId 改为 `otterId + conversationId`。膨胀因子 = 同獭活跃对话数（通常 1-2）。旧池 session 一次性清理或自然过期。
+U1: 池键加 conversationId。膨胀因子 = 同獭活跃对话数（1-2）。
+U2: 定时任务獭 cwd → `data/workspaces/_system/`。
 
-U2: 定时任务獭的 cwd → 系统级工作区 `data/workspaces/_system/`。
-
-## 方案设计（v8，统一 cwd = 工作区，一处 resolver 两处注入）
+## 方案设计（v9，描述层非重绑）
 
 ### 改动点全景
 
 ```
-                        现状                              目标（v8）
-session _cwd      process.cwd()（主仓根）         createAgentSession({cwd: workspacePath})（:1274）
-write/edit        this._cwd（主仓根）             工作区（随 createAgentSession cwd 自动跟随）
-read/bash/grep/find/ls 构造 cwd = 主仓根         工作区（buildPiBuiltinToolDefinitions cwd 参数，:1253）
-守卫 projectRoot  process.cwd()（与 cwd 同源）    显式注入主仓绝对路径（app.ts 传入）
+                        现状                              目标（v9）
+session _cwd      process.cwd()（主仓根）         createAgentSession({cwd: workspacePath}）
+全部 8 件工具     主仓根                          工作区（SDK 统一分发，唯一事实源）
+override 组       buildPiBuiltinToolDefinitions   纯 description patch（不重绑 execute cwd）
+                  (process.cwd()) 重建 5 件        + bash 前缀包装（委托 base execute）
+守卫 projectRoot  process.cwd()                   显式注入主仓绝对路径
+[cwd:] 前缀       从未生效（S9）                   修复第三参，真正生效
 池键              otterId                          otterId + conversationId
-[cwd:] 前缀       显示主仓根                       显示工作区路径（无双 cwd 分叉）
 ```
 
-**为什么统一优于非对称**：cwd 是獭的工作位置，不是读写分裂的技术参数。非对称制造「分辨当前工具是读类还是写类」的认知负担（与 9/22 cd 不跨命令保持同构），统一 cwd 让「獭的工作位置 = 工作区」成为唯一事实。读主仓代码用绝对路径（獭已大量这么写），写文件落工作区（正确默认）——一致性本身就是防错。
-
-**为什么一个参数不够（S8）**：`createAgentSession({cwd})` 经 sdk.js:70 分发给 SessionManager/AgentSession/`createAllToolDefinitions(this._cwd)`——但 `buildPiBuiltinToolDefinitions(piCodingAgent, process.cwd())`（:1253）是 otter-buddy 侧的第二个独立构造点，硬编码主仓，生成的五件套 override 盖掉同名 base。两处都改才能全工具一致。
+**为什么描述层非重绑是治本**：`buildPiBuiltinToolDefinitions` 重建工具定义时 spread 保留了绑主仓的 execute 闭包——它本不该重绑 cwd（只为加描述文本），却顺带把 execute 拽回主仓。非重绑后 execute 委托 SDK base（base 已正确绑 `createAgentSession({cwd})`），唯一事实源成立。
 
 ### 关键改造点（file:line 基于 75736f68）
 
-1. **pi-session-factory.ts:1274 + 451** — `createAgentSession({ cwd: resolveSessionCwd(conversationId), ... })`（:1274）+ `SessionManagerClass.create(workspaceCwd, ...)`（:451）——SDK fallback 链 `options.cwd ?? sessionManager.getCwd()` 两路都覆盖到工作区
+1. **pi-session-factory.ts:1274** — `createAgentSession({ cwd: resolveSessionCwd(conversationId), ... })`——唯一事实源。sdk.js:70 分发给 SessionManager/AgentSession/`createAllToolDefinitions(this._cwd)`/全部 8 件工具
 
-2. **pi-session-factory.ts:935, 982** — 守卫/影子评估的 `projectRoot = process.cwd()`：改为构造期注入的 `mainRepoRoot`
+2. **pi-session-factory.ts:451** — `SessionManagerClass.create(workspaceCwd, ...)`——保证 `sessionManager.getCwd()` 也返回工作区（fallback 链第二路）
 
-3. **pi-session-factory.ts:1253**（S8 修正，v8 核心）— `buildPiBuiltinToolDefinitions(piCodingAgent, resolveSessionCwd(conversationId))`：cwd 参数从 `process.cwd()` 改为工作区——五件套（read/bash/grep/find/ls）override 的 execute 闭包绑工作区，与 write/edit 一致。缺一即 S8 读写分裂复活
+3. **pi-session-factory.ts:1252-1255 + tool-description-overrides.ts:42-67**（v9 核心，S8+S9 一并修复）——**消解 `buildPiBuiltinToolDefinitions`**：
+   - 不再重建工具定义（不再传 cwd，不再生成 execute 闭包）
+   - `buildToolDescriptionOverrides` 改为纯 description patch：`{ name, description: base.description + suffix }`——**不动 execute**（委托 SDK base）
+   - bash 额外包装 `wrapBashWithCwdPrefix(base, workspaceCwd)` 保留 [cwd:] 前缀（S9 修复：调用点补传第三参）
+   - SDK base 工具定义从 `session.getToolDefinitions()` 或 `createAllToolDefinitions(this._cwd)` 获取（base 已正确绑 cwd）
+   - customTools 只传 `{ name, description }` 覆写（不重绑 execute）
 
-4. **tool-description-overrides.ts:55** — `wrapBashWithCwdPrefix(base, workspaceCwd)`：前缀显示工作区路径。无双 cwd 分叉（全部工具同一 cwd）
+4. **bash-safety-guard.ts:233** — projectRoot 来源从 process.cwd() 改为注入值
 
-5. **cwd-awareness.ts:6-9 头注释** — 架构断言更新：「全部工具 cwd = 对话工作区（SessionManager 统一传入）」；BASH_STATELESS_SUFFIX 保留
+5. **cwd-awareness.ts:6-9** — 头注释更新：「全部工具 cwd = 对话工作区（createAgentSession 唯一事实源）；bash [cwd:] 前缀经 wrapBashWithCwdPrefix 委托 base execute 注入」
 
-6. **bash-safety-guard.ts:233** — projectRoot 来源从 process.cwd() 改为注入值，规则组不动
+6. **工作区目录预创建** — resolveSessionCwd 时 mkdir -p（含 `_system/` 兜底）
 
-7. **工作区目录预创建**（W3 采纳）—— resolveSessionCwd 时 mkdir -p，覆盖 `<convId>/` 与兜底 `_system/` 两路（SDK bash.js:57 对不存在 cwd 抛错）
+7. **alpha 实例** — 独立数据根，天然隔离
 
-8. **alpha 实例** — 独立数据根，天然隔离
+8. **命令向量守卫 rewrite**——相对路径 rewrite 为 projectRoot 绝对路径后放行。语义假设：「相对=工作区相对」，同名脚本工作区优先
 
-9. **命令向量守卫 rewrite**（W2 采纳）——bash-safety-guard 判定白名单脚本时，若命令形态为相对路径且 cwd 已切换（≠projectRoot），rewrite 为 projectRoot 绝对路径后放行。**语义假设显式声明：「相对路径 = 工作区相对」**——cwd=工作区后，獭写的相对路径天然是工作区相对；守卫 resolveScriptPath 解析到主仓 scripts/ 仅当工作区下不存在同名脚本时才 rewrite 为主仓绝对路径（防同名脚本被劫持：工作区有 `foo.mjs` + 主仓 scripts/ 也有 `foo.mjs` → 工作区优先，不 rewrite）
-
-10. **池键加 conversationId**——poolMeta 键从 otterId 改为 `${otterId}:${conversationId}`；全部 6 处 delete 调用点按新键清理（J10）
+9. **池键加 conversationId**——poolMeta 键改为 `${otterId}:${conversationId}`；全部 delete 调用点按新键清理
 
 ### 獭行为变化对照
 
-| 场景 | 现状 | 切换后（v6 统一） |
+| 场景 | 现状 | 切换后（v9） |
 |---|---|---|
-| worktree 开发 | `cd .otter/worktrees/X && npm test` | 同左（cd 仍需要） |
+| worktree 开发 | `cd .otter/worktrees/X && npm test` | 同左 |
 | 写脚本/临时文件 | 不写路径 → 落主仓根（污染源） | 不写路径 → 落工作区 |
-| 读主仓代码 | `grep foo src/` | `grep foo /Users/orca/ai/otter-buddy/src/`（绝对路径） |
-| sqlite3 查库 | `sqlite3 data/otter-buddy.db` | `sqlite3 /Users/orca/ai/otter-buddy/data/otter-buddy.db` |
-| 主仓相对脚本 | `node scripts/foo.mjs` | 守卫 rewrite 为主仓绝对路径后正常执行 |
-| 工作区相对脚本 | `node foo.mjs`（脚本在工作区） | 正常执行（cwd=工作区） |
+| 读主仓代码 | `grep foo src/` | `grep foo /Users/orca/ai/otter-buddy/src/` |
+| bash [cwd:] 前缀 | **从未生效**（S9） | 生效——每条 bash 输出前显示 `[cwd: 工作区路径]` |
+| 主仓相对脚本 | `node scripts/foo.mjs` | 守卫 rewrite 后正常执行 |
 | 主仓写 | 拦 | 拦（语义不变） |
 
 ## 影响范围
 
-- 獭全部工具默认落点（统一切换）
-- 守卫判定基准（锚点来源变化 + rewrite 能力）
+- 獭全部工具默认落点（统一切换，唯一事实源）
+- bash [cwd:] 前缀从休眠变为生效（S9 修复的副作用——獭首次看到前缀输出）
+- 守卫判定基准（锚点来源 + rewrite）
 - session 池（键加 conversationId）
-- prompt/skill 迁移：**全部相对路径引用（~51 处）扫改**，不分读写类；lint-prompt-paths 回归护栏
+- prompt/skill 迁移：全部相对路径引用扫改（~51 处）+ lint-prompt-paths 回归护栏
 
 ## 风险与约束
 
-R1: **工作区垃圾无显形机制**——工作区是獭堆临时文件的设计语义；膨胀回收由配套机制覆盖
-
-R2: **池键切换的 session 孤儿**——旧池 session 不再命中。缓解：一次性 drain 或自然过期
-
-R3: **SDK 工具链已验**——全部 8 件工具统一跟随 SessionManager 构造 cwd（write/edit 经 `createAllToolDefinitions(this._cwd)`，read/bash/grep/find/ls 经 `buildPiBuiltinToolDefinitions(cwd)` override），无双 cwd 分叉
-
-R4: **session 文件目录编码**——session-manager.js:287-297 用 cwd 编码目录名，otter-buddy 显式传 sessionDir 不受影响
-
-R5: **獭读主仓代码的路径变长**——从 `grep foo src/` 变为 `grep foo /Users/orca/ai/otter-buddy/src/`。缓解：獭已大量使用绝对路径（样本 15%）；prompt/skill 扫改后相对路径引用消失；identity 注入的对话工作区路径每轮可见，主仓路径同理可注入
+R1: 工作区垃圾无显形机制——设计语义；膨胀回收配套机制独立立项
+R2: 池键切换 session 孤儿——一次性 drain 或自然过期
+R3: **描述层非重绑的实现路径需 spike 验证**——customTools 覆写是否支持「只传 name+description 不重绑 execute」？SDK 的 customTools 机制（agent-session.js:2831-2835 `definitionRegistry.set`）整体替换同名 base——如果只传 `{ name, description }` 会丢 execute。**实际实现可能需要从 session 拿 base 工具定义后 patch description 再覆写**（`const base = session.getToolDefinitions()[name]; override = { ...base, description: base.description + suffix }`——spread 保留 base 的 execute 闭包，只覆盖 description 字段）。这与现状的 `buildPiBuiltinToolDefinitions` 重建不同——现状是从 SDK 工厂函数重新构造（execute 绑传入的 cwd），v9 是从 session 已构造的 base 上 patch（execute 绑 session 的 cwd）
+R4: session 文件目录编码——显式传 sessionDir 不受影响
+R5: 獭读主仓代码路径变长——已大量使用绝对路径；prompt/skill 扫改后相对路径引用消失
 
 ## 不兼容更新
 
-[Incompatible] prompt/skill 中全部相对路径引用失效（~51 处，不分读写类）。一次性扫改 + lint-prompt-paths 回归护栏防静默重新引入。
+[Incompatible] prompt/skill 中全部相对路径引用失效（~51 处）。一次性扫改 + lint-prompt-paths 回归护栏。
 
 ## 设计取舍
 
 | 取舍 | 决策 | 替代方案 | 理由 |
 |---|---|---|---|
-| cwd 策略 | **统一 cwd = 对话工作区** | 非对称默认（写→工作区、读→主仓）——搭档否决（第一性原理：读写要一致，一致性是防错的架构属性） | cwd 是獭的工作位置，不是读写分裂的技术参数 |
-| 实现路径 | **一处 resolveSessionCwd 供给、两处注入**（:1274 createAgentSession cwd + :1253 buildPiBuiltinToolDefinitions cwd） | createAgentSession 一个参数（v7，S8 判失效——五件套 override 盖回主仓）；两处构造点拆开改（v6，过度拆解但方向对） | S8 实证：override 组独立于 options.cwd，两处都改才能全工具一致 |
-| U1 解法 | 池键加 conversationId | ctx.cwd per-invoke（S4/S5 砍掉）；identity 兜底（J1 判不成立） | 结构性解法 |
+| cwd 策略 | **统一 cwd = 对话工作区** | 非对称默认——搭档否决 | 一致性是防错的架构属性 |
+| 实现路径 | **createAgentSession({cwd}) 唯一事实源 + 描述层非重绑** | 两处注入（v8，round 7 判治标-leaning——没消解「两处必须同步」的脆弱） | 消解第二处构造点，execute 委托 SDK base |
+| override 机制 | **从 session 已构造 base patch description** | buildPiBuiltinToolDefinitions 重建（S8 根源——重建时 execute 绑传入 cwd） | base 已正确绑 cwd，patch 只动 description |
+| U1 解法 | 池键加 conversationId | ctx.cwd（S4/S5 砍掉） | 结构性解法 |
 | 守卫锚点 | 显式注入主仓路径 | 继续 process.cwd() | 解耦 |
 | 命令向量 | 守卫 rewrite（拦+修） | 仅靠 [cwd:] 前缀（S2 判不收敛） | 结构性闭环 |
-| 工作区位置 | 维持 data/workspaces/ | 挪出 data/ | 运行时豁免区已半通 |
 
 ## 机制预算四问
 
-机制识别检查点命中：**新增决策分支（session cwd 按 conversationId 解析 + 池键维度扩展）** + **新增跨模块调用路径（invoke 入口 → workspace 解析 → session 构造）**。
+① **谁需要它**——每只獭的每次工具调用（9/22 事故链 + 10/13 污染 + S9 发现感知对齐从未生效——獭全靠守卫硬拦，denylist 天生漏）。
 
-① **谁需要它**——每只獭的每次工具调用（9/22 事故链 + 10/13 污染事件 + 300 条样本 60%+ 手写 cd 前缀）。
+② **失败后果**——最坏 = resolveSessionCwd 解析错目录 → 写进错误工作区（轻度）；或描述层 patch 丢失 execute（R3 已标注 spike 验证点）。守卫拦截语义不变。
 
-② **失败后果**——最坏 = 池键错位 → session 不复用 → 冷启动开销（轻度）；resolveSessionCwd 解析错目录 → 写进错误工作区（轻度，workspace_list 可查）。守卫拦截语义不变。
+③ **后续机制**——池键切换旧 session 孤儿（R2）；工作区膨胀（配套机制）；prompt/skill 残留（lint-prompt-paths）。
 
-③ **后续机制**——池键切换后旧 session 孤儿（R2，一次性 drain）；工作区膨胀（配套机制，独立特性）；prompt/skill 残留（lint-prompt-paths 护栏）。
-
-④ **退役条件**——pi SDK 支持 per-command cwd 参数时可重议；或獭运行时容器化时 cwd 语义整体重议。**本机制是永久承诺**——呈搭档确认。
+④ **退役条件**——pi SDK 支持 per-command cwd 时可重议；或容器化时 cwd 语义整体重议。**本机制是永久承诺**——呈搭档确认。
 
 ## 验证
 
-V1: 单测锁 resolveSessionCwd 纯函数（有/无 conversationId 两路）+ 池键生成
-V2: 集成验证：worktree 内起 alpha 实例——獭 bash `pwd` 显示工作区；`echo x>foo.txt` 落工作区；write 工具写文件落工作区；read 工具读 `/Users/orca/ai/otter-buddy/src/app.ts` 正常（绝对路径）；`node scripts/foo.mjs` 守卫 rewrite 后正常执行；`node foo.mjs`（工作区脚本）正常执行不触发 rewrite；session 构造早于工作区 mkdir 的时序边界
-V3: 回归：现有守卫单测全绿 + 新增单测锁「全部 8 件工具 execute cwd 闭包 = 工作区」
-V4: lint-prompt-paths 回归护栏
+V1: spike 验证描述层非重绑路径——从 session 拿 base 工具定义 patch description 再覆写，execute 闭包是否保持绑 session cwd（R3）
+V2: 单测锁 resolveSessionCwd 纯函数 + 池键生成
+V3: 集成验证：alpha 实例——bash `pwd` 显示工作区；`echo x>foo.txt` 落工作区；write 工具写文件落工作区；read 工具读绝对路径正常；**bash 输出含 [cwd: 工作区] 前缀（S9 修复验证）**；**相对路径 read/grep 落工作区（S8 逃逸堵）**；`node scripts/foo.mjs` 守卫 rewrite 后正常执行
+V4: 回归：守卫单测全绿 + 新增单测锁「全部 8 件工具 execute cwd 闭包 = 工作区」+ 「bash [cwd:] 前缀注入生效」
+V5: lint-prompt-paths 回归护栏
 
 ## 改动范围
 
 | 文件 | 操作 | 说明 |
 |---|---|---|
-| src/frameworks/agent/pi-session-factory.ts | 修改 | createAgentSession 传 cwd（1）+ projectRoot 注入（2）+ 池键扩展（10） |
-| src/frameworks/agent/tool-description-overrides.ts | 修改 | buildToolDescriptionOverrides 第三参传 workspaceCwd（4） |
-| src/frameworks/agent/cwd-awareness.ts | 修改 | 头注释架构断言更新（5） |
-| src/frameworks/agent/bash-safety-guard.ts | 修改 | projectRoot 来源（6）+ 命令 rewrite（9） |
-| src/app.ts | 修改 | 启动时解析 mainRepoRoot 显式注入 |
+| src/frameworks/agent/pi-session-factory.ts | 修改 | createAgentSession cwd（1）+ SessionManager cwd（2）+ 描述层非重绑（3）+ projectRoot 注入（4）+ 池键（9） |
+| src/frameworks/agent/tool-description-overrides.ts | 重写 | buildPiBuiltinToolDefinitions 删除；buildToolDescriptionOverrides 改为纯 description patch（3） |
+| src/frameworks/agent/cwd-awareness.ts | 修改 | 头注释更新（5） |
+| src/frameworks/agent/bash-safety-guard.ts | 修改 | projectRoot 来源（4）+ 命令 rewrite（8） |
+| src/app.ts | 修改 | mainRepoRoot 显式注入 |
 | src/frameworks/agent/session-cwd-resolver.ts | 新增 | resolveSessionCwd 纯函数 |
 | SYSTEM.md + .pi/skills/*/SKILL.md + prompts/scheduled/*.md | 修改 | 全部相对路径引用扫改（~51 处） |
 | scripts/lint-prompt-paths.mjs | 新增 | 回归护栏 |
