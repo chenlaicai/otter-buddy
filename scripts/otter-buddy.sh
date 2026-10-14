@@ -20,6 +20,36 @@ resolve_config_port() {
 }
 PORT="$(resolve_config_port || echo 3000)"
 
+# 主仓根：worktree 场景 git-common-dir 指向主仓 .git（其父目录即主仓根）。
+# 与 scripts/alpha.sh main_repo_root 同口径。
+main_repo_root() {
+  local common
+  common="$(git rev-parse --git-common-dir 2>/dev/null || echo ".git")"
+  (cd "$common/.." && pwd)
+}
+
+# F20261014alps 机械闸：worktree 场景下禁止解析到主服务默认端口 3000。
+# 端口宪法：主服务 3000 只有主仓能碰；worktree 内应走 alpha.sh（3100-3198 偶数段）。
+# 此闸只拦「未显式指定端口却落到 3000」的默认路径——显式 -p 3000 是搭档特权，不拦。
+port_explicit=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -p|--port) port_explicit=true; break ;;
+    *) shift ;;
+  esac
+done
+if [ "$port_explicit" = false ] && [ "$PORT" = "3000" ]; then
+  MAIN_ROOT="$(main_repo_root)"
+  if [ "$PROJECT_DIR" != "$MAIN_ROOT" ]; then
+    echo "[error] Refusing to start on port 3000 from a worktree." >&2
+    echo "        Port 3000 is the main service port — only the main repo may use it." >&2
+    echo "        Use alpha.sh for isolated worktree validation:" >&2
+    echo "          scripts/alpha.sh start" >&2
+    echo "        (Or explicitly override with -p <port> if you really mean it.)" >&2
+    exit 1
+  fi
+fi
+
 # F20260916gtlr：本脚本是纯工具——不携带任何防海獭逻辑。
 # 「海獭不得杀主进程」由 agent 运行时守卫在 tool 调用层拦截（bash-safety-guard），
 # 海獭的一切命令必经 tool 管道，人走终端天然不在拦截域内。

@@ -1,0 +1,7 @@
+[project]
+name = "otter-buddy"
+main_port = 3000
+alpha_port_range = [3100, 3198, 2]
+worktree_pattern = ".otter/worktrees/*"
+lock_file_name = ".otter-alpha.json"
+process_pattern = "dist/src/main.js"

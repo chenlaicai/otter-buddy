@@ -5,6 +5,7 @@
 #   scripts/alpha.sh start [--port PORT] [--quick]  在当前 worktree 拉起隔离验证实例
 #   scripts/alpha.sh status                          查看当前 worktree 的 alpha 状态
 #   scripts/alpha.sh stop                            停止当前 worktree 的 alpha
+#   scripts/alpha.sh sweep [--kill]                  全局扫描孤儿实例（含已删 worktree / 无锁文件）
 #
 # 结构隔离哲学（移植自 tutu-vessel alpha.sh，适配 otter 单进程形态）：
 #   - 端口：3100-3198 偶数段（3000 主服务段之外的验证专用段），hash 建议制 + 冲突顺延
@@ -112,6 +113,43 @@ is_valid_alpha_port() {
     [ "$port" -le "$ALPHA_PORT_MAX" ] || return 1
   main="$(main_repo_root)"
   ! printf '%s\n' "$(whitelisted_ports "$main")" | grep -qx "$port"
+}
+
+# 全局孤儿扫描（sweep 子命令的扫描引擎）。输出一行一个孤儿 PID（stdout 机器通道），
+# 诊断信息走 stderr。判据：
+#   1. 监听端口属于 alpha 段（3100-3198 偶数）
+#   2. 进程 cmdline 含 dist/src/main.js（otter-buddy 形态）
+#   3. 进程 cwd 属于本仓 worktree（.otter/worktrees/ 下）
+#   4. 无对应 .otter-alpha.json 锁文件（有锁文件 = 在册实例，不归 sweep 管）
+# 孤儿形态：worktree 已删 / 锁文件被删 / 手工 detached 直拉零登记（F20261005clup 遗留）。
+sweep_orphans() {
+  local main port pid cwd wt_name lock_file
+  main="$(main_repo_root)"
+  for port in $(seq $ALPHA_PORT_MIN 2 $ALPHA_PORT_MAX); do
+    for pid in $(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true); do
+      # 排除白名单端口（外部项目 dev server 不算孤儿）
+      if printf '%s\n' "$(whitelisted_ports "$main")" | grep -qx "$port"; then
+        continue
+      fi
+      # 形态校验：必须是 node dist/src/main.js
+      if ! ps -p "$pid" -o command= 2>/dev/null | grep -q "dist/src/main.js"; then
+        continue
+      fi
+      # cwd 必须属于本仓 worktree
+      cwd="$(lsof -p "$pid" 2>/dev/null | awk '$4=="cwd"{print $NF}')"
+      case "$cwd" in
+        "$main"/.otter/worktrees/*) ;;
+        *) continue ;;
+      esac
+      # 提取 worktree 名，查锁文件
+      wt_name="${cwd#"$main"/.otter/worktrees/}"
+      wt_name="${wt_name%%/*}"
+      lock_file="$main/.otter/worktrees/$wt_name/.otter-alpha.json"
+      if [ ! -f "$lock_file" ]; then
+        echo "$pid"
+      fi
+    done
+  done
 }
 
 # ── 进程管理（tutu 移植）────────────────────────────────────
@@ -261,6 +299,17 @@ cmd_start() {
   local wt_root json_path
   wt_root="$(worktree_root)"
   json_path="$(alpha_json_path)"
+
+  # L3 兜底：start 前置自动跑一次孤儿扫描（F20261014alps）。
+  # 扫描到孤儿 = 有实例在裸奔，直接拒绝启动并引导 sweep --kill——
+  # 不让「再开一个」掩盖「上一个没收」的事故。
+  local orphans
+  orphans="$(sweep_orphans)"
+  if [ -n "$orphans" ]; then
+    echo "Error: Found orphaned alpha instance(s): $orphans" >&2
+    echo "Run 'scripts/alpha.sh sweep --kill' to clean up, then retry start." >&2
+    exit 1
+  fi
 
   # 已在跑？stale-lock 清理（对齐 tutu cmd_start）：
   # 锁 PID 已死 → 清理本 worktree 起的端口孤儿（ cmdline 精确匹配 worktree 路径，
@@ -431,6 +480,30 @@ cmd_stop() {
   rm -f "$json_path"
 }
 
+# L3 全局兜底扫描（F20261014alps）：找「无锁文件、worktree 已删或锁文件被删」的孤儿实例。
+# 默认只报告不杀；--kill 才执行清理。
+# 本命令委托给跨项目通用工具 service-lifecycle-sweep.sh（吃自己的狗粮）。
+cmd_sweep() {
+  local kill_flag=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --kill) kill_flag="--kill"; shift ;;
+      *) die "Unknown option: $1" ;;
+    esac
+  done
+
+  local main script
+  main="$(main_repo_root)"
+  script="$main/scripts/service-lifecycle-sweep.sh"
+
+  if [ ! -f "$script" ]; then
+    die "service-lifecycle-sweep.sh not found at $script"
+  fi
+
+  # 委托给通用工具（单项目模式：只扫本仓）
+  "$script" $kill_flag --project "$(basename "$main")"
+}
+
 # ── Main ────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -440,13 +513,15 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     start)  shift; cmd_start "$@" ;;
     status) cmd_status ;;
     stop)   cmd_stop ;;
+    sweep)  shift; cmd_sweep "$@" ;;
     *)
-      echo "Usage: scripts/alpha.sh start|status|stop" >&2
+      echo "Usage: scripts/alpha.sh start|status|stop|sweep" >&2
       echo "" >&2
       echo "Commands:" >&2
       echo "  start [--port PORT] [--quick]  Start isolated alpha instance (3100-3198 even, auto port)" >&2
       echo "  status                         Show current worktree's alpha status" >&2
       echo "  stop                           Stop current worktree's alpha" >&2
+      echo "  sweep [--kill]                 Scan for orphaned alpha instances (report only by default)" >&2
       exit 1
       ;;
   esac
