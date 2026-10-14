@@ -159,11 +159,12 @@ describe('WorkspacePanel 树形渲染', () => {
 })
 
 /**
- * FileContentViewer 内容渲染分发测试（S1 闭环，F20260831wsui）。
+ * 文件预览 Modal 内容渲染分发测试（F20260831wsui 基线 + F20261014pvmd 迁移到 Modal）。
  * 验证分发正确性：
- *  .md → ReactMarkdown 组件、.html → sandbox iframe、其他 → pre。
+ *  .md → ReactMarkdown、.html → sandbox iframe、图片 → img、其他 → pre；
+ *  预览经 portal 挂 document.body（Modal 形态），关闭后内容清除。
  */
-describe('FileContentViewer 内容渲染分发（S1 闭环）', () => {
+describe('文件预览 Modal 内容渲染分发（F20261014pvmd）', () => {
   const FILE_CONTENT_MD = { path: 'readme.md', content: '# Hello', truncated: false }
   const FILE_CONTENT_HTML = { path: 'page.html', content: '<p>Hi</p>', truncated: false }
   const FILE_CONTENT_TXT = { path: 'data.txt', content: 'plain', truncated: false }
@@ -175,41 +176,100 @@ describe('FileContentViewer 内容渲染分发（S1 闭环）', () => {
     ]
   }
 
-  it('.md → ReactMarkdown / .html → sandbox iframe / .txt → pre', async () => {
+  const FILE_CONTENT_PNG = { path: 'chart.png', content: 'aGVsbG8=', truncated: false, encoding: 'base64' }
+  const ROOT_IMG_ENTRIES = {
+    entries: [
+      { name: 'readme.md', isDirectory: false, isFile: true, path: 'readme.md' },
+      { name: 'page.html', isDirectory: false, isFile: true, path: 'page.html' },
+      { name: 'data.txt', isDirectory: false, isFile: true, path: 'data.txt' },
+      { name: 'chart.png', isDirectory: false, isFile: true, path: 'chart.png' },
+    ]
+  }
+
+  it('.md → ReactMarkdown / .html → sandbox iframe / .txt → pre / 图片 → img，均在 Modal 内', async () => {
     const mock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify(ROOT_FILE_ENTRIES), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(ROOT_IMG_ENTRIES), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(FILE_CONTENT_MD), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(FILE_CONTENT_HTML), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(FILE_CONTENT_TXT), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(FILE_CONTENT_PNG), { status: 200 }))
     vi.stubGlobal('fetch', mock)
     await act(async () => { root.render(<WorkspacePanel conversationId="test" />) })
 
-    // .md → ReactMarkdown
+    // .md → Modal 内 ReactMarkdown
     const mdFile = container.querySelector('[data-testid="file-readme.md"]') as HTMLButtonElement
     await act(async () => { mdFile.click() })
-    expect(container.querySelector('[data-testid="react-markdown"]')).not.toBeNull()
-    expect(container.querySelector('[data-testid="html-sandbox"]')).toBeNull()
-    expect(container.querySelector('[data-testid="plain-pre"]')).toBeNull()
+    // Modal 挂 document.body（portal），断言查 document
+    const dialog = document.querySelector('[role="dialog"]')
+    expect(dialog).not.toBeNull()
+    expect(dialog!.querySelector('[data-testid="react-markdown"]')).not.toBeNull()
+    expect(dialog!.querySelector('[data-testid="html-sandbox"]')).toBeNull()
+    expect(dialog!.querySelector('[data-testid="plain-pre"]')).toBeNull()
 
-    // .html → sandbox iframe
+    // .html → Modal 内 sandbox iframe
     const htmlFile = container.querySelector('[data-testid="file-page.html"]') as HTMLButtonElement
     await act(async () => { htmlFile.click() })
-    expect(container.querySelector('[data-testid="react-markdown"]')).toBeNull()
-    const iframe = container.querySelector('[data-testid="html-sandbox"]') as HTMLIFrameElement
+    const dialog2 = document.querySelector('[role="dialog"]')
+    expect(dialog2!.querySelector('[data-testid="react-markdown"]')).toBeNull()
+    const iframe = dialog2!.querySelector('[data-testid="html-sandbox"]') as HTMLIFrameElement
     expect(iframe).not.toBeNull()
     expect(iframe.hasAttribute('sandbox')).toBe(true)
     expect(iframe.getAttribute('sandbox')).toBe('')
     expect(iframe.srcdoc).toBe('<p>Hi</p>')
 
-    // .txt → pre
+    // .txt → Modal 内 pre
     const txtFile = container.querySelector('[data-testid="file-data.txt"]') as HTMLButtonElement
     await act(async () => { txtFile.click() })
-    expect(container.querySelector('[data-testid="react-markdown"]')).toBeNull()
-    expect(container.querySelector('[data-testid="html-sandbox"]')).toBeNull()
-    expect(container.querySelector('[data-testid="plain-pre"]')).not.toBeNull()
+    const dialog3 = document.querySelector('[role="dialog"]')
+    expect(dialog3!.querySelector('[data-testid="react-markdown"]')).toBeNull()
+    expect(dialog3!.querySelector('[data-testid="html-sandbox"]')).toBeNull()
+    expect(dialog3!.querySelector('[data-testid="plain-pre"]')).not.toBeNull()
+
+    // 图片（encoding=base64）→ Modal 内 img，src 为 data URL
+    const pngFile = container.querySelector('[data-testid="file-chart.png"]') as HTMLButtonElement
+    await act(async () => { pngFile.click() })
+    const dialog4 = document.querySelector('[role="dialog"]')
+    const img = dialog4!.querySelector('[data-testid="image-preview"] img') as HTMLImageElement
+    expect(img).not.toBeNull()
+    expect(img.src).toBe('data:image/png;base64,aGVsbG8=')
   })
 
-  it('截断标记正确显示', async () => {
+  it('Escape 关闭 Modal 后内容清除', async () => {
+    const mock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(ROOT_FILE_ENTRIES), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(FILE_CONTENT_MD), { status: 200 }))
+    vi.stubGlobal('fetch', mock)
+    await act(async () => { root.render(<WorkspacePanel conversationId="test" />) })
+
+    const mdFile = container.querySelector('[data-testid="file-readme.md"]') as HTMLButtonElement
+    await act(async () => { mdFile.click() })
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('点击遮罩关闭 Modal', async () => {
+    const mock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(ROOT_FILE_ENTRIES), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(FILE_CONTENT_MD), { status: 200 }))
+    vi.stubGlobal('fetch', mock)
+    await act(async () => { root.render(<WorkspacePanel conversationId="test" />) })
+
+    const mdFile = container.querySelector('[data-testid="file-readme.md"]') as HTMLButtonElement
+    await act(async () => { mdFile.click() })
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+
+    // 遮罩 = scrim fixed inset-0（Modal 组件外层 div）
+    const scrim = document.querySelector('body > .scrim') as HTMLElement
+    expect(scrim).not.toBeNull()
+    await act(async () => { scrim.click() })
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('截断标记在 Modal 内正确显示', async () => {
     const truncatedContent = { path: 'big.txt', content: 'x'.repeat(102400), truncated: true }
     const rootEntries = { entries: [{ name: 'big.txt', isDirectory: false, isFile: true, path: 'big.txt' }] }
     const mock = vi.fn()
@@ -220,7 +280,8 @@ describe('FileContentViewer 内容渲染分发（S1 闭环）', () => {
 
     const fileBtn = container.querySelector('[data-testid="file-big.txt"]') as HTMLButtonElement
     await act(async () => { fileBtn.click() })
-    expect(container.textContent).toContain('已截断')
+    const dialog = document.querySelector('[role="dialog"]')
+    expect(dialog!.textContent).toContain('已截断')
   })
 })
 

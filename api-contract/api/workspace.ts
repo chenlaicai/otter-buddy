@@ -22,12 +22,18 @@ export interface WorkspaceEntry {
   path: string;
 }
 
+/** 图片类扩展名（usecase 侧据此决定返回编码形态） */
+export const WORKSPACE_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'] as const;
+
 /** 工作区文件内容（超过显示层 100KB 上限时截断并置 truncated） */
 export interface WorkspaceFileContent {
   /** 相对于工作区根目录的文件路径（即请求的 path 参数） */
   path: string;
+  /** 文件内容。encoding 为 'base64' 时为原始字节的 base64（图片类二进制）；否则为 utf-8 文本 */
   content: string;
   truncated: boolean;
+  /** 内容编码形态，缺省为 utf-8 文本。图片类扩展名时后端返回 'base64' */
+  encoding?: 'base64';
 }
 
 /** GET /api/conversations/:id/workspace 响应体 */

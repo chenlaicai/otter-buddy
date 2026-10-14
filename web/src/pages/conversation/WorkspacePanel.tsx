@@ -3,9 +3,11 @@ import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ChevronRight, ExternalLink, FileText, Folder, FolderOpen, Loader2 } from 'lucide-react'
+import { Modal } from '../../components/Modal'
 // Why: Workspace DTO 单一真相源在 api-contract（issue #558）——本文件曾是手工同步副本，
 // 迁移后直接引用契约，与后端靠 web tsc --noEmit 锁死漂移
 import type { WorkspaceEntry, WorkspaceFileContent, WorkspaceListDirResponse, WorkspaceRevealRequest, WorkspaceRevealResponse } from '@contract/api/workspace'
+import { WORKSPACE_IMAGE_EXTENSIONS } from '@contract/api/workspace'
 
 interface WorkspacePanelProps {
   conversationId: string
@@ -25,6 +27,11 @@ function fileColor(name: string): string {
 /** 判断是否为可渲染内容的扩展名 */
 function getExt(name: string): string {
   return (name.split('.').pop()?.toLowerCase() ?? '')
+}
+
+/** 是否为图片扩展名（契约单一真相源，三侧共享） */
+function isImageExt(ext: string): boolean {
+  return (WORKSPACE_IMAGE_EXTENSIONS as readonly string[]).includes(ext)
 }
 
 /** 排序：文件夹在前、文件在后，各自按名称字母序 */
@@ -137,6 +144,7 @@ function TreeFolderNode({
           加载失败：{dirError}
         </div>
       )}
+
     </div>
   )
 }
@@ -240,34 +248,51 @@ function PlainRenderer({ content }: { content: string }) {
   )
 }
 
-/** 按扩展名分发渲染器 */
-function FileContentViewer({ file }: { file: WorkspaceFileContent }) {
+/** 图片 → 居中展示，max 尺寸约束（F20261014pvmd） */
+function ImageRenderer({ dataUrl }: { dataUrl: string }) {
+  return (
+    <div data-testid="image-preview" className="flex items-center justify-center p-2">
+      <img
+        src={dataUrl}
+        alt="图片预览"
+        className="max-w-full rounded-lg"
+        style={{ maxHeight: '70vh' }}
+      />
+    </div>
+  )
+}
+
+/** Modal 内按扩展名 + 编码形态分发渲染器 */
+function FilePreviewModal({ file, onClose }: { file: WorkspaceFileContent; onClose: () => void }) {
   const ext = getExt(file.path)
   const isMd = ext === 'md' || ext === 'markdown'
   const isHtml = ext === 'html' || ext === 'htm'
+  const isImage = isImageExt(ext)
+  const fileName = file.path.split('/').pop() ?? file.path
 
   return (
-    <div className="p-3 border-t border-white/20">
-      <div className="flex items-center gap-2 mb-2">
-        <FileText className={`w-4 h-4 ${fileColor(file.path)}`} />
-        <span className="text-xs font-semibold text-stone-600 truncate flex-1">
-          {file.path.split('/').pop()}
-        </span>
-        <span className="text-[10px] text-stone-400">{file.path}</span>
-        {file.truncated && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-600 shrink-0">
-            已截断
-          </span>
-        )}
-      </div>
-      {isMd ? (
+    <Modal isOpen onClose={onClose} title={fileName} width={isImage || isMd ? '860px' : '720px'} fullScreenOnMobile>
+      {/* Modal 自带 px-5 py-4 内容内边距，渲染器按弹窗宽度自行调节 */}
+      {file.encoding === 'base64' && isImage ? (
+        <ImageRenderer dataUrl={`data:image/${ext === 'svg' ? 'svg+xml' : ext};base64,${file.content}`} />
+      ) : isMd ? (
         <MarkdownRenderer content={file.content} />
       ) : isHtml ? (
         <HtmlRenderer content={file.content} />
       ) : (
         <PlainRenderer content={file.content} />
       )}
-    </div>
+      {(file.truncated || file.encoding === 'base64') && (
+        <div className="mt-2 text-[11px] text-stone-400 flex gap-2">
+          {file.truncated && (
+            <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-600">已截断</span>
+          )}
+          {file.encoding === 'base64' && (
+            <span>二进制内容以 Base64 编码传输</span>
+          )}
+        </div>
+      )}
+    </Modal>
   )
 }
 
@@ -460,16 +485,11 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
           </div>
         )}
 
-        {/* 文件加载中 */}
+        {/* 文件加载中（Modal 打开前短暂状态） */}
         {loadingFile && (
           <div className="flex items-center justify-center p-4">
             <Loader2 className="w-4 h-4 animate-spin text-stone-400" />
           </div>
-        )}
-
-        {/* 文件内容预览 */}
-        {selectedFile && !loadingFile && (
-          <FileContentViewer file={selectedFile} />
         )}
       </div>
 
@@ -498,6 +518,12 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
             </button>
           </div>
         </>,
+        document.body
+      )}
+
+      {/* 文件预览 Modal：挂 body（portal），脱离右栏 aside 的 containing block 影响（F20261014pvmd） */}
+      {selectedFile && createPortal(
+        <FilePreviewModal file={selectedFile} onClose={() => setSelectedFile(null)} />,
         document.body
       )}
     </div>

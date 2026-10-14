@@ -6,6 +6,7 @@ import { DomainError } from "@entities/errors";
 // Why: Workspace DTO 单一真相源在 api-contract（issue #558）——本文件曾是定义处，
 // 迁移后此处仅消费契约，与 controller / web 三侧靠双端 tsc 锁死漂移
 import type { WorkspaceEntry, WorkspaceFileContent } from "@contract/api/workspace";
+import { WORKSPACE_IMAGE_EXTENSIONS } from "@contract/api/workspace";
 
 export type { WorkspaceEntry, WorkspaceFileContent };
 
@@ -51,13 +52,27 @@ export class ManageWorkspace {
    * 读取工作区文件内容
    * @param conversationId 对话 ID
    * @param relativePath 相对于工作区根目录的文件路径
-   * @returns 文件内容（可能截断）
+   * @returns 文件内容（可能截断）。图片类扩展名返回 base64 编码（encoding: 'base64'），
+   *          其余返回 utf-8 文本；truncated 逻辑只适用文本路径（F20261014pvmd）
    */
   async readFile(conversationId: string, relativePath: string): Promise<WorkspaceFileContent> {
     // 检查工作区是否存在
     const exists = await this.workspaceGateway.exists(conversationId);
     if (!exists) {
       throw new DomainError('工作区不存在', 'not_found');
+    }
+
+    const ext = relativePath.split('.').pop()?.toLowerCase() ?? '';
+
+    // 图片类扩展名：走二进制路径，返回 base64（truncated 逻辑不适用——图片按原始字节完整传输）
+    if ((WORKSPACE_IMAGE_EXTENSIONS as readonly string[]).includes(ext)) {
+      const buf = await this.workspaceGateway.readFileBuffer(conversationId, relativePath);
+      return {
+        path: relativePath,
+        content: buf.toString('base64'),
+        truncated: false,
+        encoding: 'base64',
+      };
     }
 
     // 读取文件内容（WorkspaceGateway 已有 1MB 大小限制）
