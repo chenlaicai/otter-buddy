@@ -1,5 +1,5 @@
 ---
-id: F20261009wtlc
+id: F20261014wtlc
 title: worktree 生命周期闭环：出生登记 + 每日收敛 + 清理硬验证 + 检视只读纪律
 summary: 22 个 worktree 残留（9 个对应已终结 PR）的根因治理——worktree 在系统里非一等公民（无登记、无收敛、无验证、无防护），四层闭环一次落地
 change_type: prompt
