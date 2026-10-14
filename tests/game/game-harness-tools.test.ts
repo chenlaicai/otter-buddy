@@ -39,14 +39,30 @@ describe("game-dev-harness 原子工具", () => {
     expect(out).toContain("PASS");
   }, 30000);
 
-  it("game-diff 检出两张不同 PNG 的差异（非 100%）", () => {
+  it("game-diff 检出跨 seed 差异：战斗场景下烟雾粒子累积后两 seed 图像必须不同", () => {
     const a = path.join(tmp, "s1.png"), b = path.join(tmp, "s2.png");
-    shot(["--seed=42", "--ticks=80", `--out=${a}`]);
-    shot(["--seed=7", "--ticks=80", `--out=${b}`]);
+    // 开局画面 seed 差异太小（粒子未累积），改用战斗场景 + 高 tick 让烟雾粒子累积到可检出量
+    const statePath = path.join(tmp, "battle.json");
+    fs.writeFileSync(statePath, JSON.stringify({
+      tick: 100, started: true, phase: "idle", activeId: null, allDone: true,
+      player: { x: 400, y: 92, tx: 400, ty: 92 },
+      bag: ["🌱","🔍","📦","🍂","🐞","🤝","👴","🧪"],
+      done: { plant:true, seedbox:true, fert:true, fallow:true, ladybug:true, neighbor:true, elder:true, lab:true },
+      flags: { aphids:true, eggs:true, wilt:true, pile:true, slow:true, magnify:true, trial:true, matured:true },
+      codex: ["plant","seedbox","fert","fallow","ladybug","neighbor","elder","lab"],
+      battle: { on:true, hp:100, mp:60, foe:100, foeTalk:0, divined:false, ally:false, allyTired:false, allyFresh:false, insight:false, shield:0, selfChain:0, turn:1, busy:false, over:false, seal:false, barrier:false }
+    }));
+    shot(["--seed=42", `--state=${statePath}`, "--ticks=1500", `--out=${a}`]);
+    shot(["--seed=7", `--state=${statePath}`, "--ticks=1500", `--out=${b}`]);
     const out = diff(a, b);
-    // 开局画面 seed 差异主要在粒子上，比例虽小但应可检出或至少给出 FAIL（默认 <1%）
-    expect(out).toMatch(/similarity=\d+\.\d+%/);
-    expect(out).toMatch(/mismatchPixels=\d+/);
+    // 跨 seed 差异必须稳健可检出：稳态烟雾约 15 粒子 × 1-2 px ≈ 30-40 不同像素（物理上限）
+    // 断言非零 + 下限 ≥10px，防「碰巧相同」或「只抖出 1-2 个噪点」蒙混
+    const m = /mismatchRatio=([\d.]+)/.exec(out);
+    const p = /mismatchPixels=(\d+)/.exec(out);
+    expect(m).toBeTruthy();
+    expect(p).toBeTruthy();
+    expect(parseFloat(m![1])).toBeGreaterThan(0);
+    expect(parseInt(p![1], 10)).toBeGreaterThanOrEqual(10);
   }, 30000);
 
   it("__loadState 直达终战后同 seed 双跑仍 similarity=100%", () => {

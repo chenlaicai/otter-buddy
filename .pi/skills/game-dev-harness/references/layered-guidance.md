@@ -59,7 +59,7 @@ var __seed = null;
 
 ### B2. 状态可读（export/import 对称）
 
-**要求**：`window.__gameState()` 返回纯 JSON 可序列化的完整运行时状态；`window.__loadState(json)` 是它的严格逆操作（`__loadState(__gameState())` 必须等价于原状态）。
+**要求**：`window.__gameState()` 返回纯 JSON 可序列化的完整运行时状态；`window.__loadState(json)` 是它的逆操作（`__loadState(__gameState())` 应等价于原状态）。实现上**宽松匹配**——未提供的字段保持现状，不强制全字段回写；这样既支持「恢复之前导出的状态」，也支持「构造从未存在过的状态」测边界分支。
 
 **形状参考**（海藻农场）：
 
