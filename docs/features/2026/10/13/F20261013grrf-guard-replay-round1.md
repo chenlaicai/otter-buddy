@@ -1,7 +1,7 @@
 ---
 id: F20261013grrf
 title: 守卫回放固化首轮产出——2026-10-13 UTC 样本裁决映射与成规模误拦发现
-summary: F20261008gdcc 项 4 固化自动化首轮执行产出：108 拦截 → 92 候选 → 45 固化（ALLOW 22 / BLOCK 23）/ SKIP 47。6 类成规模误拦（main_write 20 条 ALLOW）归口 #1468：python heredoc/-c 引用 worktree fixture、git -C worktree 写族、cat/printf >> worktree、node -e 纯只读 require、data_destructive rm workspaces。45 条非 SKIP → 13 用例全量映射表落盘（可复核），6 条红 ALLOW 用例 it.skip 挂 #1468（分支保护 required check 不可合入红测试），SKIP 47 条未固化（14 条探针已放行属自愈，33 条 commandHead 截断不可裁决）。
+summary: F20261008gdcc 项 4 固化自动化首轮执行产出：108 拦截 → 92 候选 → 45 固化（ALLOW 21 / BLOCK 24）/ SKIP 47。5 类成规模误拦（main_write 19 条 ALLOW）归口 #1468：python heredoc/-c 引用 worktree fixture、git -C worktree 写族、cat/printf >> worktree、node -e 纯只读 require、data_destructive rm workspaces。45 条非 SKIP → 13 用例全量映射表落盘（可复核），6 条红 ALLOW 用例 it.skip 挂 #1468（分支保护 required check 不可合入红测试），SKIP 47 条未固化（14 条探针已放行属自愈，33 条 commandHead 截断不可裁决）。终裁注记：计数经检视獭终裁为 21/24（7daea038 实拦保留 BLOCK、13db9e46 读/写不可判 SKIP）。
 from: F20261008gdcc
 change_type: feature
 intent:
@@ -30,7 +30,7 @@ created_date: 2026-10-14
 |---|---|
 | 拦截 | 108 |
 | 候选（去重后） | 92 |
-| 固化（非 SKIP） | 45 = ALLOW 22 + BLOCK 23 |
+| 固化（非 SKIP） | 45 = ALLOW 21 + BLOCK 24 |
 | SKIP | 47（14 探针已放行自愈 / 33 commandHead 截断不可裁决） |
 | 新增用例 | 13（6 ALLOW skip 挂 #1468 + 7 BLOCK 负门） |
 
@@ -38,15 +38,15 @@ created_date: 2026-10-14
 
 | 形态 | 条数 | V1 根因 |
 |---|---|---|
-| python heredoc/-c 引用 worktree fixture | ~14 | `MAIN_WRITE_PATTERNS[1]` 按形态整体拦，不查 heredoc 体路径 |
-| git -C worktree add/commit | ~3 | `bash-safety-guard.ts:988` GIT_WRITE_SUBCOMMAND 跳过 -C 但不查目标路径 |
-| cat/printf >> worktree | ~1 | `isAbsNonMain` 只豁免 `data/workspaces/`，不豁免 `.otter/worktrees/` |
-| node -e 纯只读 require | ~1 | one-liner 白名单只放 fs/util/path @ `bash-safety-guard.ts:1480`（#1432 同类） |
-| data_destructive rm workspaces | ~1 | `resolvesToMainData` 不排除 workspaces sandbox |
+| python heredoc/-c 引用 worktree fixture | 13 | `MAIN_WRITE_PATTERNS[1]` 按形态整体拦，不查 heredoc 体路径 |
+| git -C worktree add/commit | 3 | `bash-safety-guard.ts:988` GIT_WRITE_SUBCOMMAND 跳过 -C 但不查目标路径 |
+| cat/printf >> worktree | 2 | `isAbsNonMain` 只豁免 `data/workspaces/`，不豁免 `.otter/worktrees/` |
+| node -e 纯只读 require | 1 | one-liner 白名单只放 fs/util/path @ `bash-safety-guard.ts:1480`（#1432 同类） |
+| data_destructive rm workspaces | 2 | `resolvesToMainData` 不排除 workspaces sandbox |
 
 ## 45 条非 SKIP → 13 用例映射表
 
-共 45 行，与统计（ALLOW 22 + BLOCK 23）一致。
+共 45 行，与统计（ALLOW 21 + BLOCK 24）一致。终裁成员：7daea038 实拦保留 BLOCK（do-commit.sh 头注释自陈规避守卫检测），13db9e46 读/写不可判 SKIP。
 
 | 用例 | 裁决 | 样本 id（前8位） | 理由 |
 |---|---|---|---|
@@ -63,7 +63,6 @@ created_date: 2026-10-14
 | 1013-A2 | ALLOW | cd4ea86f | python3 -c 读 worktree fixture |
 | 1013-A2 | ALLOW | 1ce469c3 | python3 -c 读 worktree fixture |
 | 1013-A2 | ALLOW | 1565d108 | python3 -c 读 worktree fixture |
-| 1013-A2 | ALLOW | 13db9e46 | cd worktree && python3 -c 读 worktree fixture |
 | 1013-A3 | ALLOW | 572b7726 | cat >> worktree test.ts |
 | 1013-A3 | ALLOW | b596b6ba | printf >> worktree test.ts |
 | 1013-A4 | ALLOW | 7bccfbf5 | node -e 纯只读 require(package.json) |
@@ -92,6 +91,7 @@ created_date: 2026-10-14
 | 1013-B4 | BLOCK | 6a33c4e8 | cd workspaces && sleep |
 | 1013-B4 | BLOCK | 1fe986c2 | cd worktree && sleep |
 | 1013-B5 | BLOCK | 040c8fc8 | bash script.sh（workspaces 内） |
+| 1013-B5 | BLOCK | 7daea038 | bash do-commit.sh（workspaces 内；ruleId=main_write 非脚本——脚本头注释自陈「worktree path 移出命令行规避守卫进程名模式」，内容 git -C "$WT" add/commit；翻转须重裁） |
 | 1013-B5 | BLOCK | cadd6a06 | cd worktree && bash 外部脚本 |
 | 1013-B6 | BLOCK | 24b76637 | pkill -f（worktree 内 chromium） |
 | 1013-B7 | BLOCK | 835b22db | sqlite3 批量触主仓 data/qtest-*.db（实拦 10-13 09:10:57） |

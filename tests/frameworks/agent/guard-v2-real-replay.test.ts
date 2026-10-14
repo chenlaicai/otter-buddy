@@ -118,8 +118,8 @@ EOF`;
     const cmd = `sleep 180 && cd ${WT}/x && gh pr checks 1451`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeTruthy();
   });
-  it("1013-B5: bash script.sh（script_file_exec 负门）→ 拦（样本 040c8fc8/cadd6a06）", () => {
-    // 注：V1 策略现状（脚本内容未经守卫逐条判定一律拦），与双签口径 O-2「脚本内容裁决钉 hash」方向相反；翻转须重裁（残余面立册机制）
+  it("1013-B5: bash script.sh（script_file_exec 负门）→ 拦（样本 040c8fc8/7daea038/cadd6a06）", () => {
+    // 注：7daea038 实为 main_write 拦 do-commit.sh（脚本头注释自陈把 worktree 路径移出命令行规避守卫进程名模式），与 script_file_exec 同构同判；脚本内容 git -C "$WT" add/commit，按 O-2 理想口径可议放行，但 V1 现状 = BLOCK，翻转须重裁
     const cmd = `bash data/workspaces/7b41e085-5c21-4bd1-adfe-dc3ef051753d/wt-test.sh tests/frameworks/agent/guard-touchstone-corpus.test.ts`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeTruthy();
   });
