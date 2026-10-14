@@ -9,6 +9,7 @@
  * 内部的池化编排逻辑——这是本 PR 新增的代码路径。
  */
 import { describe, it, expect, vi } from "vitest";
+import path from "node:path";
 
 // 与 identity-prefix.test.ts 同款：getConfig 需要初始化，mock 掉
 vi.mock("@frameworks/config", () => ({ getConfig: () => ({ circuitBreaker: {} }) }));
@@ -30,6 +31,11 @@ function withEpoch<T>(fn: () => Promise<T>): Promise<T> {
 type FakeSession = {
   isStreaming: boolean;
   disposed: boolean;
+  /** F20261014cwsp S7/S9：SDK 同构字段——_buildRuntime 按调用时 this._cwd 重建工具
+   * （agent-session.js:2910），build 捕获的 cwd 快照是唯一可观测行为面 */
+  _cwd: string;
+  builtWithCwd: string[];
+  _buildRuntime(): Promise<void>;
   dispose(): void;
   abort(): Promise<void>;
   steer(text: string): Promise<void>;
@@ -39,6 +45,9 @@ function fakeSession(): FakeSession {
   const s: FakeSession = {
     isStreaming: false,
     disposed: false,
+    _cwd: "",
+    builtWithCwd: [],
+    async _buildRuntime() { s.builtWithCwd.push(s._cwd); },
     dispose() { s.disposed = true; },
     abort: async () => {},
     steer: async () => {},
@@ -170,6 +179,43 @@ describe("F20260911pspl 池命中路径（_acquirePooled）", () => {
     expect(meta.register.currentInvokeId).toBe("inv-2");
     expect(meta.register.lastSpeakEntryId).toBeUndefined();
     expect(meta.register.emitEvent).toBe(emit2);
+    db.close();
+  });
+
+  it("F20261014cwsp S9：池命中切换对话——_cwd 先赋后 build（build 捕获新工作区），失败回滚重试", async () => {
+    const { internals, db } = makeFactory();
+    const first = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m1", conversationId: "conv-A" }));
+    const session = first.session;
+    // mock 边界说明：冷启动的 session 由 mock _createSessionWithTools 产出（不走真实
+    // createAgentSession 的 SDK 构造），_cwd 初值手动模拟为 conv-A 工作区——生产等价
+    // 形态（SDK 构造时 cwd=resolveSessionCwd(conv-A)）。
+    session._cwd = "/data/workspaces/conv-A";
+    const cwdA = session._cwd;
+    expect(cwdA).toContain(path.join("workspaces", "conv-A"));
+
+    // 池命中切对话：_cwd 更新为 conv-B 工作区，且 _buildRuntime 在调用时读到新 cwd
+    //（S7 回归锁——round-1「先 build 后赋」使 build 捕获旧 cwdA，成功路径必坏）
+    const second = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m2", conversationId: "conv-B" }));
+    expect(second.isPooled).toBe(true);
+    expect(session._cwd).toContain(path.join("workspaces", "conv-B"));
+    expect(session.builtWithCwd.length).toBe(1);
+    expect(session.builtWithCwd[0]).toBe(session._cwd); // build 调用时 _cwd 已是新值
+
+    // 失败回滚（S6 语义保持）：build 抛错 → _cwd 恢复旧值 → 下次命中重试
+    const cwdB = session._cwd;
+    session._buildRuntime = async () => { throw new Error("boom"); };
+    await expect(
+      withEpoch(() => internals._acquirePooled("o1", { messageId: "m3", conversationId: "conv-C" })),
+    ).rejects.toThrow("boom");
+    expect(session._cwd).toBe(cwdB); // 回滚
+
+    // 重试成功：_cwd 更新 + build 捕获新值
+    session._buildRuntime = async function (this: FakeSession) { s0_built(this); };
+    function s0_built(fs2: FakeSession) { fs2.builtWithCwd.push(fs2._cwd); }
+    const retry = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m4", conversationId: "conv-C" }));
+    expect(retry.isPooled).toBe(true);
+    expect(session._cwd).toContain(path.join("workspaces", "conv-C"));
+    expect(session.builtWithCwd[1]).toBe(session._cwd);
     db.close();
   });
 

@@ -116,7 +116,7 @@ export class SessionRestore {
 
     // 创建 session 并获取 sessionManager（延迟写入，文件可能尚未落盘）
     this.logger.debug('[SessionRestore] Creating new session', { otterId });
-    const sessionManager = this.createSessionAndPersist(otterId, config, piCodingAgent, sessionDir, true);
+    const sessionManager = this.createSessionAndPersist(otterId, config, piCodingAgent, sessionDir, { allowOverwrite: true });
     this.logger.debug('[SessionRestore] Session created and persisted', { otterId });
 
     // 验证持久化成功
@@ -132,15 +132,16 @@ export class SessionRestore {
   }
 
   /** 创建 session 并持久化，返回 sessionManager（延迟写入，文件可能尚未落盘） */
+  /** F20261014cwsp：cwd 参数挪到 options 对象（第六参超限——max-params lint） */
   createSessionAndPersist(
     otterId: string,
     config: { systemPrompt?: string | OtterPromptConfig; otterType: string; modelAlias?: string },
     piCodingAgent: unknown,
     sessionDir: string,
-    allowOverwrite: boolean,
+    opts: { allowOverwrite: boolean; cwd?: string },
   ): SessionManager {
     // 1. 检查是否已存在
-    if (!allowOverwrite) {
+    if (!opts.allowOverwrite) {
       const existing = this.sessionStore.get(otterId);
       if (existing) {
         throw new Error(`Agent already exists for otter: ${otterId}`);
@@ -149,7 +150,7 @@ export class SessionRestore {
 
     // 2. 创建 SessionManager（新 session）
     const SessionManagerClass = getSessionManagerClass(piCodingAgent);
-    const sessionManager = SessionManagerClass.create(process.cwd(), sessionDir);
+    const sessionManager = SessionManagerClass.create(opts.cwd ?? process.cwd(), sessionDir);
 
     // 3. 获取 sessionId 和 sessionFile
     const sessionId = sessionManager.getSessionId();

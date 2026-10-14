@@ -88,6 +88,8 @@ export async function createAgentGateway(options: {
   identityPromptDir?: string;
   /** 对话工作区网关 */
   workspaceGateway?: WorkspaceGateway;
+  /** F20261014cwsp: 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
+  dataDir?: string;
 }): Promise<{ agentGateway: PiSessionFactory; resolveOtterToolClient: (client: OtterToolClient) => void; resolveManageScheduledTask: (mst: ManageScheduledTask) => void }> {
   const { repos, otterConfigProvider, model, modelPool, db, logger } = options;
   // F20260929kws1：切片观测锚接线（[keeprecent-slice] cut → 主日志；密度告警已随估算机制退役）
@@ -130,6 +132,7 @@ export async function createAgentGateway(options: {
     otterRepo: repos.otter,
     settingsRepo: repos.settings,
     conversationRepo: repos.conversation,
+    dataDir: options.dataDir,
   }, logger);
 
   return {

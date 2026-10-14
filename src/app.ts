@@ -278,6 +278,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     sessionDir: options.sessionDir ?? path.join(dataDir, "sessions"),
     identityPromptDir: options.identityPromptDir,
     workspaceGateway,
+    dataDir,
   });
   const uc = initUseCases({ repos, entryRepo: repos.entry, invokeRepo: repos.invoke, agentGateway, embeddingService, memoryIndex, appConfig: config, logger, workspaceGateway, otterConfigProvider, modelPool });
   // F20260813mren 审视二轮：sync_docs 工具注入——海獭写完文档可立即触发同步入库
