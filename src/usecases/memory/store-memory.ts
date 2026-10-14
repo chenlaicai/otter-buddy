@@ -209,12 +209,62 @@ export class StoreMemory {
 
     await this.writer.replaceEntriesBySource(entries);
 
-    // 异步 fire-and-forget embedding（每 chunk 独立，chunk 长度可控 truncateForEmbed 几乎不触发）
-    for (const entry of entries) {
-      this.fireAndForgetEmbed(entry.id, entry.content);
-    }
+    // F20261013ebps：批量 embed——embedBatch 一次 postMessage 传全部文本，
+    // worker 端 batch 推理（吞吐远高于逐条 embed）。embedBatch 不可用时回落逐条。
+    // 背压溢出时 batch 直接 reject，catch 后逐条入 retry 队列（不丢失）。
+    this.fireAndForgetEmbedBatch(entries.map(e => ({ id: e.id, content: e.content })));
 
     return entries.map((e) => e.id);
+  }
+
+  /**
+   * F20261013ebps：批量 fire-and-forget embedding。
+   * 优先走 embedBatch（一次 postMessage），失败时回落逐条 fireAndForgetEmbed。
+   * 每条失败独立入 retry 队列——batch 内部分失败不拖累健康 chunk。
+   *
+   * 流速控制（对抗审视 #1465 严重发现 1）：sync 启动期 600+ 文档串行 await
+   * replaceChunksBySource，但 embed 是 fire-and-forget——前一批未完成后一批已发起，
+   * 前 50 篇即可耗尽背压 slot，第 51 篇起全部 reject 走 retry 慢路径。
+   * 发起 batch 前先 acquireSlot 挂起等空闲槽——软限流替代硬溢出，sync 速度
+   * 由 worker 真实吞吐节流，batch 收益不被背压拒绝切断。
+   * acquireSlot 不可用（mock / 旧实现）时保持原行为。
+   */
+  private fireAndForgetEmbedBatch(items: Array<{ id: string; content: string }>): void {
+    if (items.length === 0) return;
+
+    const gateway = this.embeddingGateway;
+    if (typeof gateway.embedBatch === "function") {
+      const embedBatch = gateway.embedBatch.bind(gateway);
+      const texts = items.map(item => this.truncateForEmbed(item.content));
+      const ready = typeof gateway.acquireSlot === "function"
+        ? gateway.acquireSlot()
+        : Promise.resolve();
+      ready.then(() => embedBatch(texts))
+        .then((embeddings) => {
+          for (let i = 0; i < items.length; i++) {
+            this.writer.storeEmbedding(items[i].id, embeddings[i]).catch((err) => {
+              this.logger.warn(`Failed to store embedding for ${items[i].id}: ${err}`);
+              this.queue.enqueueRetry(items[i].id, err).catch(e =>
+                this.logger.error(`enqueueRetry failed for ${items[i].id}: ${e}`),
+              );
+            });
+          }
+        })
+        .catch((err) => {
+          // batch 整体失败（背压/超时/worker 不可用）——逐条入 retry 队列
+          this.logger.debug(`Batch embedding failed (${items.length} items), enqueueing individually: ${err}`);
+          for (const item of items) {
+            this.queue.enqueueRetry(item.id, err).catch(e =>
+              this.logger.error(`enqueueRetry failed for ${item.id}: ${e}`),
+            );
+          }
+        });
+    } else {
+      // embedBatch 不可用（mock / 旧实现）——回落逐条
+      for (const item of items) {
+        this.fireAndForgetEmbed(item.id, item.content);
+      }
+    }
   }
 
   /**

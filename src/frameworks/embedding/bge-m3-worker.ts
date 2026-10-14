@@ -24,6 +24,13 @@ interface EmbedRequest {
   id: number;
 }
 
+/** F20261013ebps：批量 embed 请求 */
+interface EmbedBatchRequest {
+  type: "embed-batch";
+  texts: string[];
+  id: number;
+}
+
 /** F20260811mrpy Part 3：ready 携带的模型元信息 */
 interface EmbedModelMeta {
   modelId: string;
@@ -34,9 +41,10 @@ interface EmbedModelMeta {
 type EmbedResponse =
   | { type: "ready"; meta: EmbedModelMeta }
   | { type: "result"; embedding: Float32Array; id: number }
+  | { type: "batch-result"; embeddings: Float32Array[]; id: number }
   | { type: "error"; error: string; id: number };
 
-type Extractor = (text: string, options?: unknown) => Promise<{ data: Float32Array; dims: number[] }>;
+type Extractor = (text: string | string[], options?: unknown) => Promise<{ data: Float32Array; dims: number[] }>;
 
 /**
  * 解析 OTTER_EMBED_INTRA_OP_THREADS（#1107 检视处置）：非法值（NaN/<1）不可静默
@@ -85,8 +93,8 @@ function getExtractor(): Promise<Extractor> {
           intraOpNumThreads: resolveIntraOpThreads(),
         },
       });
-      return (text: string, options?: unknown) =>
-        (pipe as (text: string, options?: unknown) => Promise<{ data: Float32Array; dims: number[] }>)(
+      return (text: string | string[], options?: unknown) =>
+        (pipe as (text: string | string[], options?: unknown) => Promise<{ data: Float32Array; dims: number[] }>)(
           text,
           options ?? { pooling: "cls", normalize: true },
         );
@@ -118,26 +126,55 @@ getExtractor()
     port.postMessage(response);
   });
 
-port.on("message", async (msg: EmbedRequest) => {
-  if (msg.type !== "embed") return;
+port.on("message", async (msg: EmbedRequest | EmbedBatchRequest) => {
+  if (msg.type === "embed") {
+    try {
+      const fn = await getExtractor();
+      const output = await fn(msg.text);
+      const embedding = output.data;
 
-  try {
-    const fn = await getExtractor();
-    const output = await fn(msg.text);
-    const embedding = output.data;
+      const response: EmbedResponse = {
+        type: "result",
+        embedding,
+        id: msg.id,
+      };
+      port.postMessage(response);
+    } catch (err: unknown) {
+      const response: EmbedResponse = {
+        type: "error",
+        error: err instanceof Error ? err.message : String(err),
+        id: msg.id,
+      };
+      port.postMessage(response);
+    }
+    return;
+  }
 
-    const response: EmbedResponse = {
-      type: "result",
-      embedding,
-      id: msg.id,
-    };
-    port.postMessage(response);
-  } catch (err: unknown) {
-    const response: EmbedResponse = {
-      type: "error",
-      error: err instanceof Error ? err.message : String(err),
-      id: msg.id,
-    };
-    port.postMessage(response);
+  // F20261013ebps：批量 embed——pipeline 原生支持数组输入，batch 推理共享开销
+  if (msg.type === "embed-batch") {
+    try {
+      const fn = await getExtractor();
+      const output = await fn(msg.texts);
+      // output.dims = [batch, dim]，data 是连续 Float32Array（batch × dim）
+      const dim = output.dims[output.dims.length - 1];
+      const embeddings: Float32Array[] = [];
+      for (let i = 0; i < msg.texts.length; i++) {
+        embeddings.push(output.data.slice(i * dim, (i + 1) * dim));
+      }
+
+      const response: EmbedResponse = {
+        type: "batch-result",
+        embeddings,
+        id: msg.id,
+      };
+      port.postMessage(response);
+    } catch (err: unknown) {
+      const response: EmbedResponse = {
+        type: "error",
+        error: err instanceof Error ? err.message : String(err),
+        id: msg.id,
+      };
+      port.postMessage(response);
+    }
   }
 });

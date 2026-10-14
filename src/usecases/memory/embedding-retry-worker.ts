@@ -18,11 +18,21 @@ import type { MemoryQueue } from "./memory-queue";
 import type { EmbeddingGateway } from "./embedding-gateway";
 import type { Logger } from "@usecases/ports/logger";
 
+/** claimPendingTasks 返回的单条任务（MemoryQueue 接口为匿名类型，此处落名便于拆分函数签名） */
+type EmbeddingTask = { entryId: string; content: string; attempts: number };
+
 export class EmbeddingRetryWorker {
   /** bge-m3 8192 tokens 上限的 ~75%（与 StoreMemory.EMBED_MAX_CHARS 一致） */
   private static readonly EMBED_MAX_CHARS = 6000;
   /** 每次 tick 认领的任务上限 */
   private static readonly BATCH_LIMIT = 10;
+  /**
+   * F20261013ebps：连续全失败熔断——连续 N 次 tick 全部失败（10/10 超时）
+   * 说明 worker 已淹没（#1453），继续打只会加压。熔断后暂停消费，
+   * 等下一个 interval 周期自动恢复（PatrolWorker 1h 驱动，天然退避）。
+   */
+  private static readonly MAX_CONSECUTIVE_FULL_FAILURES = 3;
+  private consecutiveFullFailures = 0;
 
   private timer: NodeJS.Timeout | null = null;
   private inflightTick: Promise<void> | null = null;
@@ -89,10 +99,43 @@ export class EmbeddingRetryWorker {
     if (!this.embeddingGateway.available) return;
     if (!this.reader.isVecEnabled()) return;
 
-    // claimPendingTasks 内置指数退避（30/60/120/300/3600s）
-    const claimed = await this.queue.claimPendingTasks(EmbeddingRetryWorker.BATCH_LIMIT);
-    if (claimed.length === 0) return;
+    // F20261013ebps：熔断——连续 N 次 tick 全失败，暂停消费（worker 已淹，再打加压）
+    if (this.consecutiveFullFailures >= EmbeddingRetryWorker.MAX_CONSECUTIVE_FULL_FAILURES) {
+      if (this.consecutiveFullFailures % 10 === EmbeddingRetryWorker.MAX_CONSECUTIVE_FULL_FAILURES) {
+        this.logger.warn(
+          `EmbeddingRetryWorker circuit breaker open: ${this.consecutiveFullFailures} consecutive full-failure ticks, skipping`,
+          { action: "embedding_retry_circuit_break" },
+        );
+      }
+      this.consecutiveFullFailures++;
+      return;
+    }
 
+    const claimed = await this.queue.claimPendingTasks(EmbeddingRetryWorker.BATCH_LIMIT);
+    if (claimed.length === 0) {
+      this.consecutiveFullFailures = 0;
+      return;
+    }
+
+    const successCount = await this.processClaimedTasks(claimed);
+
+    // F20261013ebps：熔断计数——全失败才计数，有成功即重置
+    if (successCount === 0 && claimed.length > 0) {
+      this.consecutiveFullFailures++;
+      if (this.consecutiveFullFailures >= EmbeddingRetryWorker.MAX_CONSECUTIVE_FULL_FAILURES) {
+        this.logger.warn(
+          `EmbeddingRetryWorker: ${this.consecutiveFullFailures} consecutive full-failure ticks, circuit breaker will open`,
+          { action: "embedding_retry_circuit_break_warning" },
+        );
+      }
+    } else {
+      this.consecutiveFullFailures = 0;
+    }
+  }
+
+  /** F20261013ebps：处理已 claim 的任务批次（从 tick 拆出，降复杂度） */
+  private async processClaimedTasks(claimed: EmbeddingTask[]): Promise<number> {
+    let successCount = 0;
     for (const task of claimed) {
       // entry 已被删除（content 为空字符串）：调 markTaskAttemptFailed（累计 3 次后转 dead）
       if (!task.content) {
@@ -108,9 +151,9 @@ export class EmbeddingRetryWorker {
         const emb = await this.embeddingGateway.embed(truncated);
         await this.writer.storeEmbedding(task.entryId, emb);
         await this.queue.markTaskDone(task.entryId);
+        successCount++;
       } catch (err) {
         await this.queue.markTaskAttemptFailed(task.entryId, err, this.maxAttempts);
-        // 检查是否转 dead
         if (task.attempts >= this.maxAttempts) {
           this.logger.error(
             `Embedding retry dead-lettered for ${task.entryId} after ${task.attempts} attempts: ${err}`,
@@ -122,5 +165,6 @@ export class EmbeddingRetryWorker {
         }
       }
     }
+    return successCount;
   }
 }

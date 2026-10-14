@@ -33,6 +33,15 @@ interface EmbedRequest {
   id: number;
 }
 
+/** F20261013ebps：批量 embed 请求——一次 postMessage 传多条文本，
+ *  worker 端 pipeline 原生支持数组输入（batch 推理共享权重加载/分词开销），
+ *  吞吐从 1条/500ms 提升到 N条/~N×500ms（接近线性），同时减少 postMessage 往返次数。 */
+interface EmbedBatchRequest {
+  type: "embed-batch";
+  texts: string[];
+  id: number;
+}
+
 /**
  * F20260811mrpy Part 3：ready 消息携带 meta（modelId/modelRev/dim）。
  * worker 加载完模型 + dummy embed 拿到 dims 后发送。
@@ -40,10 +49,17 @@ interface EmbedRequest {
 type EmbedResponse =
   | { type: "ready"; meta: EmbedModelMeta }
   | { type: "result"; embedding: Float32Array; id: number }
+  | { type: "batch-result"; embeddings: Float32Array[]; id: number }
   | { type: "error"; error: string; id: number };
 
 type PendingRequest = {
   resolve: (value: Float32Array) => void;
+  reject: (error: Error) => void;
+};
+
+/** F20261013ebps：批量请求的 pending 结构 */
+type PendingBatchRequest = {
+  resolve: (value: Float32Array[]) => void;
   reject: (error: Error) => void;
 };
 
@@ -56,18 +72,35 @@ interface ReadyState {
 export class EmbeddingServiceImpl implements EmbeddingGateway {
   private disposed = false;
   private readonly pendingRequests = new Map<number, PendingRequest>();
+  private readonly pendingBatchRequests = new Map<number, PendingBatchRequest>();
+  /** F20261013ebps：等待空槽的 waiter 队列（acquireSlot 挂起在此，出队释放时唤醒） */
+  private readonly slotWaiters: Array<() => void> = [];
   private readonly readyState: ReadyState = { ready: false, loadError: null, waiters: [] };
   /** F20260811mrpy Part 3：worker ready 时缓存的模型元信息 */
   private cachedMeta: EmbedModelMeta | null = null;
   private requestId = 0;
   /** 单次 embed 请求超时（ms）。超时后触发 FTS5-only 降级（#306） */
   private static readonly EMBED_TIMEOUT_MS = 30_000;
+  /**
+   * F20261013ebps：in-flight 上限——pendingRequests 满时新 embed 直接 reject，
+   * 不 postMessage 到 worker（防 document sync 等批量场景瞬间打满 worker 消息队列，
+   * 后续请求全部排队超时——#1453 实证：3269 条 chunk embed 淹没 worker，27min 排不完）。
+   * 超出上限的请求由调用方 catch 后入 retry 队列，不丢失。
+   */
+  private static readonly MAX_IN_FLIGHT = 50;
   /** 测试用覆盖超时（ms） */
   private static testTimeoutOverride: number | null = null;
+  /** 测试用覆盖 in-flight 上限 */
+  private static testMaxInFlightOverride: number | null = null;
   
   /** 设置测试用超时覆盖（仅测试环境） */
   static setTestTimeoutOverride(ms: number | null): void {
     EmbeddingServiceImpl.testTimeoutOverride = ms;
+  }
+
+  /** 设置测试用 in-flight 上限覆盖（仅测试环境） */
+  static setTestMaxInFlightOverride(n: number | null): void {
+    EmbeddingServiceImpl.testMaxInFlightOverride = n;
   }
 
   get available(): boolean {
@@ -82,66 +115,110 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   }
 
   private setupHandlers(): void {
-    this.worker.on("message", (msg: EmbedResponse) => {
-      if (msg.type === "ready") {
-        this.readyState.ready = true;
-        this.cachedMeta = msg.meta;  // F20260811mrpy Part 3：缓存 meta
-        this.readyState.waiters.forEach(w => w.resolve());
-        this.readyState.waiters.length = 0;
-        this.logger.info(`Embedding model loaded: ${msg.meta.modelId} rev=${msg.meta.modelRev} dim=${msg.meta.dim}`);
-        return;
-      }
-      if (msg.type === "error" && msg.id === -1) {
-        this.readyState.loadError = new Error(msg.error);
-        this.readyState.waiters.forEach(w => w.reject(this.readyState.loadError!));
-        this.readyState.waiters.length = 0;
-        this.logger.warn(`Embedding model unavailable, falling back to FTS5-only: ${msg.error}`);
-        return;
-      }
-      if (msg.type === "result" || msg.type === "error") {
-        const pending = this.pendingRequests.get(msg.id);
-        if (pending) {
-          this.pendingRequests.delete(msg.id);
-          if (msg.type === "result") {
-            pending.resolve(msg.embedding);
-          } else {
-            pending.reject(new Error(msg.error));
-          }
-        }
-      }
-    });
+    this.worker.on("message", (msg: EmbedResponse) => this.handleWorkerMessage(msg));
+    this.worker.on("error", (err: Error) => this.handleWorkerError(err));
+    this.worker.on("exit", (code: number) => this.handleWorkerExit(code));
+  }
 
-    this.worker.on("error", (err: Error) => {
-      this.logger.error("Worker Thread error", err);
-      // F20260803mval: worker 崩溃后重置 ready + 设 loadError + 拒绝 waiters，
-      // 避免 waitForReady 永久挂起导致 waiters 数组无限增长（内存泄漏）
-      // F20260811mrpy Part 3: 清除 cachedMeta 防止 worker 重启后读到旧 meta
-      this.cachedMeta = null;
-      this.readyState.ready = false;
-      this.readyState.loadError = new Error(`Worker error: ${err.message}`);
+  /** F20261013ebps：worker message 统一分发（从 setupHandlers 拆出，降函数行数） */
+  private handleWorkerMessage(msg: EmbedResponse): void {
+    if (msg.type === "ready") {
+      this.readyState.ready = true;
+      this.cachedMeta = msg.meta;  // F20260811mrpy Part 3：缓存 meta
+      this.readyState.waiters.forEach(w => w.resolve());
+      this.readyState.waiters.length = 0;
+      this.logger.info(`Embedding model loaded: ${msg.meta.modelId} rev=${msg.meta.modelRev} dim=${msg.meta.dim}`);
+      return;
+    }
+    if (msg.type === "error" && msg.id === -1) {
+      this.readyState.loadError = new Error(msg.error);
       this.readyState.waiters.forEach(w => w.reject(this.readyState.loadError!));
       this.readyState.waiters.length = 0;
-      this.pendingRequests.forEach(({ reject }) =>
-        reject(new Error(`Worker error: ${err.message}`)),
-      );
-      this.pendingRequests.clear();
-    });
+      this.logger.warn(`Embedding model unavailable, falling back to FTS5-only: ${msg.error}`);
+      return;
+    }
+    this.handleResponseMessage(msg);
+  }
 
-    /** worker 线程退出（onnxruntime 原生崩溃等场景 error 事件可能不触发）：
-     *  必须拒绝所有 waiters/pending，否则 embed 永久挂起且无任何日志 */
-    this.worker.on("exit", (code) => {
-      /** 正常 dispose → terminate 也会触发 exit：守卫掉，否则每次正常关停都打一条误导性 ERROR */
-      if (this.disposed) return;
-      this.logger.error(`Embedding worker exited unexpectedly, code=${code}`);
-      this.cachedMeta = null;  // F20260811mrpy Part 3
-      this.readyState.ready = false;
-      const err = new Error(`Worker exited with code ${code}`);
-      this.readyState.loadError = err;
-      this.readyState.waiters.forEach(w => w.reject(err));
-      this.readyState.waiters.length = 0;
-      this.pendingRequests.forEach(({ reject }) => reject(err));
-      this.pendingRequests.clear();
+  /** 单条/批量结果分发（从 handleWorkerMessage 拆出，压 max-statements） */
+  private handleResponseMessage(msg: EmbedResponse): void {
+    if (msg.type === "result" || msg.type === "error") {
+      const pending = this.pendingRequests.get(msg.id);
+      if (!pending) return;
+      this.pendingRequests.delete(msg.id);
+      this.releaseSlot();
+      if (msg.type === "result") {
+        pending.resolve(msg.embedding);
+      } else {
+        pending.reject(new Error(msg.error));
+      }
+      return;
+    }
+    if (msg.type === "batch-result") {
+      const pending = this.pendingBatchRequests.get(msg.id);
+      if (!pending) return;
+      this.pendingBatchRequests.delete(msg.id);
+      this.releaseSlot();
+      pending.resolve(msg.embeddings);
+    }
+  }
+
+  /**
+   * F20261013ebps：等待一个空闲 in-flight 槽位（满时挂起至空出）。
+   * sync 批量路径用此做流速控制——前一批完成才发下一批，替代背压 reject 硬溢出入 retry 队列。
+   * dispose 时全部 waiter 立即放行，由调用方后续 embed 的 disposed 检查拦截。
+   */
+  acquireSlot(): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    const maxInFlight = EmbeddingServiceImpl.testMaxInFlightOverride ?? EmbeddingServiceImpl.MAX_IN_FLIGHT;
+    if (this.pendingRequests.size + this.pendingBatchRequests.size < maxInFlight) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      this.slotWaiters.push(resolve);
     });
+  }
+
+  /** in-flight 出队后唤醒一个槽位 waiter（FIFO，每出队一次只放一个，防惊群） */
+  private releaseSlot(): void {
+    const waiter = this.slotWaiters.shift();
+    if (waiter) waiter();
+  }
+
+  /** F20261013ebps：worker error 处理（从 setupHandlers 拆出） */
+  private handleWorkerError(err: Error): void {
+    this.logger.error("Worker Thread error", err);
+    // F20260803mval: worker 崩溃后重置 ready + 设 loadError + 拒绝 waiters，
+    // 避免 waitForReady 永久挂起导致 waiters 数组无限增长（内存泄漏）
+    // F20260811mrpy Part 3: 清除 cachedMeta 防止 worker 重启后读到旧 meta
+    this.cachedMeta = null;
+    this.readyState.ready = false;
+    this.readyState.loadError = new Error(`Worker error: ${err.message}`);
+    this.readyState.waiters.forEach(w => w.reject(this.readyState.loadError!));
+    this.readyState.waiters.length = 0;
+    this.rejectAllPending(new Error(`Worker error: ${err.message}`));
+  }
+
+  /** F20261013ebps：worker exit 处理（从 setupHandlers 拆出） */
+  private handleWorkerExit(code: number): void {
+    /** 正常 dispose → terminate 也会触发 exit：守卫掉，否则每次正常关停都打一条误导性 ERROR */
+    if (this.disposed) return;
+    this.logger.error(`Embedding worker exited unexpectedly, code=${code}`);
+    this.cachedMeta = null;  // F20260811mrpy Part 3
+    this.readyState.ready = false;
+    const err = new Error(`Worker exited with code ${code}`);
+    this.readyState.loadError = err;
+    this.readyState.waiters.forEach(w => w.reject(err));
+    this.readyState.waiters.length = 0;
+    this.rejectAllPending(err);
+  }
+
+  /** F20261013ebps：拒绝所有 pending 请求（单条 + 批量） */
+  private rejectAllPending(err: Error): void {
+    this.pendingRequests.forEach(({ reject }) => reject(err));
+    this.pendingRequests.clear();
+    this.pendingBatchRequests.forEach(({ reject }) => reject(err));
+    this.pendingBatchRequests.clear();
   }
 
   private waitForReady(): Promise<void> {
@@ -155,24 +232,79 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   async embed(text: string): Promise<Float32Array> {
     if (this.disposed) throw new Error("EmbeddingService has been disposed");
     await this.waitForReady();
+
+    // F20261013ebps：背压——in-flight 满时直接 reject，不 postMessage 进 worker 队列
+    const maxInFlight = EmbeddingServiceImpl.testMaxInFlightOverride ?? EmbeddingServiceImpl.MAX_IN_FLIGHT;
+    if (this.pendingRequests.size >= maxInFlight) {
+      throw new Error(
+        `Embedding backpressure: ${this.pendingRequests.size} in-flight requests exceed limit ${maxInFlight}, request rejected to prevent worker queue overflow`,
+      );
+    }
+
     const id = ++this.requestId;
-    
+
     const embedPromise = new Promise<Float32Array>((resolve, reject) => {
       this.pendingRequests.set(id, { resolve, reject });
       const request: EmbedRequest = { type: "embed", text, id };
       this.worker.postMessage(request);
     });
-    
+
     const timeoutMs = EmbeddingServiceImpl.testTimeoutOverride ?? EmbeddingServiceImpl.EMBED_TIMEOUT_MS;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<Float32Array>((_, reject) => {
       timer = setTimeout(() => {
         this.pendingRequests.delete(id);
+        this.releaseSlot();
         reject(new Error(`Embed timeout after ${timeoutMs}ms, falling back to FTS5-only`));
       }, timeoutMs);
     });
-    
+
     return Promise.race([embedPromise, timeoutPromise]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
+  }
+
+  /**
+   * F20261013ebps：批量 embed——一次 postMessage 传多条文本，worker 端 batch 推理。
+   * 与 embed() 共享背压上限（batch 算 1 个 in-flight 槽位，但 worker 端处理 N 条文本）。
+   * 批量大小建议 ≤50（bge-m3 batch 推理内存随 batch 线性增长，50×1024dim×4B≈200KB 权重激活，可控）。
+   */
+  async embedBatch(texts: string[]): Promise<Float32Array[]> {
+    if (this.disposed) throw new Error("EmbeddingService has been disposed");
+    if (texts.length === 0) return [];
+    await this.waitForReady();
+
+    // 背压——batch 也占一个 in-flight 槽位
+    const maxInFlight = EmbeddingServiceImpl.testMaxInFlightOverride ?? EmbeddingServiceImpl.MAX_IN_FLIGHT;
+    if (this.pendingRequests.size + this.pendingBatchRequests.size >= maxInFlight) {
+      throw new Error(
+        `Embedding backpressure: in-flight limit ${maxInFlight} reached, batch request rejected`,
+      );
+    }
+
+    const id = ++this.requestId;
+
+    const batchPromise = new Promise<Float32Array[]>((resolve, reject) => {
+      this.pendingBatchRequests.set(id, { resolve, reject });
+      const request: EmbedBatchRequest = { type: "embed-batch", texts, id };
+      this.worker.postMessage(request);
+    });
+
+    // batch 超时按条数缩放：每条约 500ms，上限 120s
+    const timeoutMs = Math.min(
+      texts.length * 1_000,
+      120_000,
+    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<Float32Array[]>((_, reject) => {
+      timer = setTimeout(() => {
+        this.pendingBatchRequests.delete(id);
+        this.releaseSlot();
+        reject(new Error(`Embed batch timeout after ${timeoutMs}ms (${texts.length} texts)`));
+      }, timeoutMs);
+    });
+
+    return Promise.race([batchPromise, timeoutPromise]).finally(() => {
       if (timer) clearTimeout(timer);
     });
   }
@@ -194,6 +326,14 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       reject(new Error("EmbeddingService disposed")),
     );
     this.pendingRequests.clear();
+    this.pendingBatchRequests.forEach(({ reject }) =>
+      reject(new Error("EmbeddingService disposed")),
+    );
+    this.pendingBatchRequests.clear();
+    // dispose 放行全部槽位 waiter——挂起的 sync 循环恢复后由 embed 的 disposed 检查拦截
+    while (this.slotWaiters.length > 0) {
+      this.slotWaiters.shift()!();
+    }
     this.worker.terminate();
   }
 }
