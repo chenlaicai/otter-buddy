@@ -6,7 +6,9 @@
  */
 /* eslint-disable max-lines-per-function -- 三态矩阵表驱动（每族放行/拦截/回落各一 + Phase 2 负门），拆函数会割裂「一族一表」可读性 */
 import { describe, it, expect } from "vitest";
-import { evaluateWriteTargets, pathWithinMain } from "@frameworks/agent/write-target-evaluator";
+import { evaluateWriteTargets, pathWithinMain, resolveCwdAt } from "@frameworks/agent/write-target-evaluator";
+import { parseOnce } from "@frameworks/agent/command-model";
+import { SCRIPT_EXEC_FACE, dotExecCommandHits, proveNoWrite } from "@frameworks/agent/write-word-face";
 import { evaluateWriteVerdict } from "@frameworks/agent/write-verdict";
 
 const ROOT = "/repo";
@@ -690,6 +692,110 @@ echo "=== commit exit: $? ==="`;
     it("既有通道不误伤：bash -c 'touch 主仓' 仍拦（窄提取通道原语义不动）", () => {
       const v = evaluateWriteVerdict("bash -c 'touch /repo/x'", ROOT);
       expect(v.verdict).toBe("BLOCK");
+    });
+  });
+});
+
+describe("delta3 修法（严重1 execv 族词表 + 严重 2 cwd 错位假缺席证明，检视獭1360 delta3 复核）", () => {
+  describe("严重 1：execv 族词族归一（三表 + 整命令双向钉死）", () => {
+    it("execv 族整命令四形态 → 拦（os.execv/execvp/execl/execvpe 词内后缀形态，probe2 矩阵钉死）", () => {
+      for (const cmd of [
+        `python3 -c "import os; os.execv('/bin/sh', ['sh', '-c', 'touch /repo/data/pwn'])"`,
+        `python3 -c "import os; os.execvp('touch', ['touch', '/repo/data/pwn'])"`,
+        `python3 -c "import os; os.execl('/bin/sh', 'sh', '-c', 'touch /repo/data/pwn'])"`,
+        `python3 -c "import os; os.execvpe('touch', ['touch', '/repo/data/pwn'], {})"`,
+      ]) {
+        expect(evaluateWriteVerdict(cmd, ROOT).verdict, cmd).toBe("BLOCK");
+      }
+    });
+
+    it("execv 族词面三表口径：点号形态 dotExecCommandHits/proveNoWrite 收；裸形态 SCRIPT_EXEC_FACE 收（lookbehind 词界既定口径）", () => {
+      expect(dotExecCommandHits("import os; os.execv('/bin/sh', [...])")).toBe(true);
+      expect(proveNoWrite(`python3 -c "import os; os.execv('/bin/sh', [...])"`)).toBe(false);
+      expect(SCRIPT_EXEC_FACE.test("execvp('touch', ['touch'])")).toBe(true);
+      // 点号形态不进裸表——db.exec 纯 SQL 豁免面（TS-e00efca3）依赖此词界
+      expect(SCRIPT_EXEC_FACE.test("os.execv('/bin/sh', [...])")).toBe(false);
+    });
+
+    it("对照：纯 SQL 点号方法不误伤（TS-e00efca3 口径）+ execute/executor 词不收进 exec 族", () => {
+      const ok = evaluateWriteVerdict(`node -e "const db=x(); db.exec('SELECT a, b FROM t'); console.log('ok')"`, ROOT);
+      expect(ok.verdict).toBe("ALLOW");
+      expect(dotExecCommandHits("db.execute('SELECT 1')")).toBe(false);
+      expect(SCRIPT_EXEC_FACE.test("executor.submit()")).toBe(false);
+    });
+
+    it("对照：execv 只读目标仍拦——规则 2 exec 类一律不可证（同 residual_face execSync 口径）", () => {
+      expect(evaluateWriteVerdict(`python3 -c "import os; os.execv('/bin/echo', ['echo', 'hi'])"`, ROOT).verdict).toBe("BLOCK");
+    });
+  });
+
+  describe("严重 2：cd $VAR 全来源攻击链 + 缺席证明三前提", () => {
+    it("cd $VAR 全来源攻击链 → 拦（export/环境变量/多段链/bash -c 载荷层/段首直执/无后缀脚本位）", () => {
+      for (const cmd of [
+        "export DIR=/tmp/delta3-attack-1360; cd $DIR && bash x.sh",
+        "cd $DIR && bash x.sh",
+        "cd $DIR && cd sub && bash x.sh",
+        `bash -c "cd $DIR && bash x.sh"`,
+        "cd $DIR && ./x.sh",
+        "cd $DIR && bash x",
+        "cd $DIR && bash /tmp/x.sh",
+        "cd $DIR && sh -c \"bash x.sh\"",
+      ]) {
+        expect(evaluateWriteVerdict(cmd, ROOT).verdict, cmd).toBe("BLOCK");
+      }
+    });
+
+    it("对照：赋值语句可溯源 + 真缺席脚本 → 正面放（缺席证明三前提成立，probe3「缺席正确放」口径）", () => {
+      const v = evaluateWriteVerdict("DIR=/tmp; cd $DIR && bash no-such-8f3a91c2.sh", ROOT);
+      expect(v.verdict).toBe("ALLOW");
+      expect(v.mode).toBe("positive");
+    });
+
+    it("对照：可溯源 cd + 存在脚本 → fail-closed unreadable（/dev/null 稳定替身）", () => {
+      expect(evaluateWriteVerdict("cd /dev && bash null", ROOT)).toMatchObject({
+        verdict: "BLOCK", mode: "fail-closed", reason: "script-payload-unreadable",
+      });
+    });
+
+    it("resolveCwdAt 一条语义一个接口：赋值溯源出 / export+env 溯源不出 / pushd 不可锚定 / 管道 cd 不外溢", () => {
+      expect(resolveCwdAt(parseOnce("DIR=/tmp; cd $DIR && bash x.sh", 0).segments, "/repo")).toEqual(["/repo", "/repo", "/tmp"]);
+      expect(resolveCwdAt(parseOnce("export DIR=/tmp; cd $DIR && bash x.sh", 0).segments, "/repo")).toBeNull();
+      expect(resolveCwdAt(parseOnce("cd $DIR && bash x.sh", 0).segments, "/repo")).toBeNull();
+      expect(resolveCwdAt(parseOnce("pushd /tmp", 0).segments, "/repo")).toBeNull();
+      expect(resolveCwdAt(parseOnce("echo hi | cd /tmp", 0).segments, "/repo")).toEqual(["/repo", "/repo"]);
+    });
+
+    it("段链从启动 cwd 忠实重放：写在 cd 前落启动 cwd（主仓写不许挪去链尾 sandbox——附带发现）", () => {
+      const r = evaluateWriteVerdict("echo x > pwn.txt && cd /tmp", ROOT);
+      expect(r.verdict).toBe("BLOCK");
+      expect(r.mode).toBe("positive");
+      if (r.mode === "positive") {
+        expect(r.targets.some(t => t.path === "/repo/pwn.txt")).toBe(true);
+      }
+    });
+
+    it("载荷子模型缺席证明锚定：外层 cd 链 + bash -c 内层脚本 → 不出缺席证明（fail-closed）", () => {
+      expect(evaluateWriteVerdict(`cd /dev && bash -c "bash x.sh"`, ROOT)).toMatchObject({ verdict: "BLOCK", mode: "fail-closed" });
+    });
+
+    it("对照：无 cd 链 + bash -c 内层缺席脚本 → 正面放（锚定成立，缺席证明有效）", () => {
+      const v = evaluateWriteVerdict(`bash -c "bash no-such-8f3a91c2.sh"`, ROOT);
+      expect(v.verdict).toBe("ALLOW");
+    });
+
+    it("显式缺席声明豁免不透明执行否决（82d56ad0 回归钉：截断命令 parseOk=false 洗白口）", () => {
+      const cmd = `bash /dev/null 2>&1 | tail -3; echo '`;
+      const v = evaluateWriteVerdict(cmd, ROOT, ROOT, { status: "absent" });
+      expect(v.verdict).toBe("ALLOW");
+      expect(v.mode).toBe("positive");
+      expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
+    });
+
+    it("对照：注释/提及不构成执行面（TS-074e7d85 // 注释行 / TS-0cdf6695 提及字样回归钉）", () => {
+      const v = evaluateWriteVerdict(`node -e 'const x=1; // find old big-otter\nconsole.log(x)'`, ROOT);
+      expect(v.verdict).toBe("ALLOW");
+      const v2 = evaluateWriteVerdict(`node -e 'print("bash toolCall")'`, ROOT);
+      expect(v2.verdict).toBe("ALLOW");
     });
   });
 });

@@ -27,9 +27,12 @@ const ARG_TARGET_FACE = /(?:^|[\s;&|()`$])(?:curl|wget)\s+[^\n]*?(?:--output|-[o
 /** 能力 3：隐式写词面（元操作——写面在 cwd/仓，落点=cwd） */
 const IMPLICIT_WRITE_FACE =
   /\bgit\s+(?:commit|amend|merge|rebase|cherry-pick|reset|revert|checkout|switch|restore|stash|clean|worktree\s+(?:add|remove|move|prune|repair)|branch\s+-[DdMm]|tag\b)|\b(?:npm|pnpm|yarn)\s+(?:install|i\b|ci\b|update|add|publish|pack|unpublish|link|dedupe)|\bpip3?\s+install|\bgem\s+install|\bcargo\s+(?:install|build|test|publish)|\bgo\s+(?:install|build|get)|\b(?:apt|apt-get|dnf|yum|brew|apk)\s+install|\bmake(?:\s|$)/;
-/** 能力 1 规则 2：exec 类词面（可调用执行/递归构造） */
+/** 能力 1 规则 2：exec 类词面（可调用执行/递归构造）。delta3 修法（严重 1）：动词表按**词族归一**
+ *  （exec[A-Z]\w*|exec[lv]\w* = camelCase 族 + POSIX exec(3) 族 execl/execlp/execle/execv/execvp/
+ *  execve/execvpe——词内后缀形态如 os.execv( 曾是显式枚举唯一缺口；u 起头（execute/executor）刻意不收）。
+ *  spawn 族同口径（python os.spawn[lv]*）。 */
 const EXEC_FACE =
-  /\b(?:exec|execSync|execFile|execFileSync|spawn|spawnSync|fork|system|popen|eval|Function|__import__|import_module|getattr)\s*\(|(?<![\w.])(?:exec|system)\s+(?:["'`]|\$|[A-Za-z_./@%~])|\b(?:child_process|subprocess)\b|\bos\.(?:system|popen)\b|(?<!\\)[`$]\(|(?<=[\s;(=])<\(|(?<=[\s;)=])>\(|\beval\s+["'$]|(?<=[\s;&)])[|]{1,2}\s*(?:sudo\s+)?(?:ba|z|k)?sh\b|(?<=[\s;&)])[|]{1,2}\s*(?:python3?|node|perl|ruby)\b/;
+  /\b(?:exec(?:[A-Z]\w*|[lv]\w*)?|spawn(?:[A-Z]\w*|[lv]\w*)?|fork|system|popen|eval|Function|__import__|import_module|getattr)\s*\(|(?<![\w.])(?:exec|system)\s+(?:["'`]|\$|[A-Za-z_./@%~])|\b(?:child_process|subprocess)\b|\bos\.(?:system|popen)\b|(?<!\\)[`$]\(|(?<=[\s;(=])<\(|(?<=[\s;)=])>\(|\beval\s+["'$]|(?<=[\s;&)])[|]{1,2}\s*(?:sudo\s+)?(?:ba|z|k)?sh\b|(?<=[\s;&)])[|]{1,2}\s*(?:python3?|node|perl|ruby)\b/;
 /** 能力 1 规则 2：import/require 拆分——变量/拼接/路径形态 → exec 不可证（首参紧随字面量字符串=读披露放行） */
 export const DYNAMIC_IMPORT_FACE = /\b(?:require|import)\s*\(\s*(?!['"][^'"]*['"])/;
 
@@ -40,14 +43,15 @@ export const DYNAMIC_IMPORT_FACE = /\b(?:require|import)\s*\(\s*(?!['"][^'"]*['"
  *    →数据库豁免维持（实证面 TS-e00efca3）；含命令词/路径字面量/首参非字面量→不可证
  *    （child_process.exec('touch /repo/x') 族正向钉死）。
  *  残余面（特性文档记档）：perl 间接对象形（exec { $path } @args）、无括号点号形态（obj.exec 'cmd'）。 */
-export const SCRIPT_EXEC_FACE = /(?<![\w.])(?:exec|execSync|execFile|execFileSync|spawn|spawnSync|fork|system|popen|eval|Function|__import__|import_module|getattr|constructor)\s*\(|(?<![\w.])(?:exec|system)\s+(?:["'`]|\$|[A-Za-z_./@%~])/;
+export const SCRIPT_EXEC_FACE = /(?<![\w.])(?:exec(?:[A-Z]\w*|[lv]\w*)?|spawn(?:[A-Z]\w*|[lv]\w*)?|fork|system|popen|eval|Function|__import__|import_module|getattr|constructor)\s*\(|(?<![\w.])(?:exec|system)\s+(?:["'`]|\$|[A-Za-z_./@%~])/;
 /** delta2 修法②（检视獭1360 2026-10-14）：点号方法 exec 类（db.exec/child_process.execSync/…）按
  *  **参数形态**区分——纯 SQL 字面量（SQL 起手且无命令词/路径字面量，TS-e00efca3 db.exec(CREATE TABLE …)
  *  实证面）→ 数据库豁免维持；含命令词/路径字面量、非 SQL 形态、或首参非字面量（变量/调用/模板插值）
  *  → 不可证（child_process.exec('touch /repo/x') 族正向钉死）。与 connectCallWriteHits 同构（首参
  *  字面量分类）。残余面（特性文档记档）：无括号点号形态（obj.exec 'cmd'）、次参携带（exec('sh','-c',x)）。 */
 export function dotExecCommandHits(script: string): boolean {
-  const re = /\.(?:exec|execSync|execFile|execFileSync|spawn|spawnSync|fork|system|popen)\s*\(\s*/g;
+  // delta3 修法（严重 1）：点号动词表同口径词族归一（os.execv(/os.execvp( 等词内后缀形态曾漏）
+  const re = /\.(?:exec(?:[A-Z]\w*|[lv]\w*)?|spawn(?:[A-Z]\w*|[lv]\w*)?|fork|system|popen)\s*\(\s*/g;
   let m = re.exec(script);
   while (m !== null) {
     const lit = readStringLiteralArg(script, re.lastIndex);
@@ -63,7 +67,7 @@ export function dotExecCommandHits(script: string): boolean {
 }
 
 /** 读调用首参字符串字面量（引号感知，逗号/括号在引号内不截断）；null=首参非字面量形态。 */
-// eslint-disable-next-line complexity -- delta2 引号感知首参扫描（转义引号对称终结+模板插值探测，分支=词法形态穷举，合并会遮蔽转义语义）
+// eslint-disable-next-line complexity -- F20261013smrj delta2 引号感知首参扫描（转义引号对称终结+模板插值探测，分支=词法形态穷举，合并会遮蔽转义语义）
 function readStringLiteralArg(script: string, start: number): { text: string; dynamic: boolean } | null {
   let j = start;
   while (j < script.length && /\s/.test(script[j])) j++;
@@ -200,7 +204,9 @@ function openCallSites(script: string): Array<{ args: string[] }> {
   return out;
 }
 
-/** 词面证（能力 4）：原文级证明无写——所有写面/隐式写/exec 类/载荷写调用均为 0。 */
+/** 词面证（能力 4）：原文级证明无写——所有写面/隐式写/exec 类/载荷写调用均为 0。
+ *  delta3 修法（严重 2）：外置脚本执行面不进本文本层（文本正则会把注释/提及/载荷内文本当执行——
+ *  实测 4 条现役放行题翻红），改由调用侧 hasOpaqueScriptExec 模型级判定（段结构同源口径）。 */
 export function proveNoWrite(command: string): boolean {
   return !(
     WRITE_FACE_WORDS.test(command)

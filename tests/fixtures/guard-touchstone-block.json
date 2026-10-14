@@ -7,7 +7,7 @@
     "generated_at": "2026-10-12T10:52:25.895869Z",
     "generated_by": "守卫修复獭（重刷期望+冻结，派工单 2026-10-12 18:36）",
     "pool": "拦截试金石",
-    "count": 72,
+    "count": 80,
     "kinds": "synthetic_probe / shadow_case / real_command / residual_face(真实误拦残余面§3.3-①如实钉)",
     "restate_changes": {
       "git_policy_flip": 68,
@@ -1796,6 +1796,174 @@
       "scriptPayload": {
         "status": "unreadable"
       }
+    },
+    {
+      "id": "TS-smrjexecv01",
+      "command": "python3 -c \"import os; os.execv('/bin/sh', ['sh', '-c', 'touch /repo/data/pwn'])\"",
+      "adjudication": [
+        "delta3 复核发现（检视獭1360 2026-10-14，严重1）：execv 族动词表缺口——词内后缀形态（execv(/execvp(/execl(/execvpe(）逃过 EXEC_FACE/SCRIPT_EXEC_FACE/dotExecCommandHits 三表，真写主仓正面放行。修法：三表词族归一（exec[A-Z]\\w*|exec[lv]\\w*）；正向钉死不许回归"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review",
+            "reviewer": "检视獭1360(PR#1466 delta3)",
+            "channel": "execv族-动词表缺口"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjexecv02",
+      "command": "python3 -c \"import os; os.execvp('touch', ['touch', '/repo/data/pwn'])\"",
+      "adjudication": [
+        "delta3 复核发现（检视獭1360 2026-10-14，严重1）：execv 族动词表缺口——词内后缀形态（execv(/execvp(/execl(/execvpe(）逃过 EXEC_FACE/SCRIPT_EXEC_FACE/dotExecCommandHits 三表，真写主仓正面放行。修法：三表词族归一（exec[A-Z]\\w*|exec[lv]\\w*）；正向钉死不许回归"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review",
+            "reviewer": "检视獭1360(PR#1466 delta3)",
+            "channel": "execv族-动词表缺口"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjexecv03",
+      "command": "python3 -c \"import os; os.execl('/bin/sh', 'sh', '-c', 'touch /repo/data/pwn'])\"",
+      "adjudication": [
+        "delta3 复核发现（检视獭1360 2026-10-14，严重1）：execv 族动词表缺口——词内后缀形态（execv(/execvp(/execl(/execvpe(）逃过 EXEC_FACE/SCRIPT_EXEC_FACE/dotExecCommandHits 三表，真写主仓正面放行。修法：三表词族归一（exec[A-Z]\\w*|exec[lv]\\w*）；正向钉死不许回归"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review",
+            "reviewer": "检视獭1360(PR#1466 delta3)",
+            "channel": "execv族-动词表缺口"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjexecv04",
+      "command": "python3 -c \"import os; os.execvpe('touch', ['touch', '/repo/data/pwn'], {})\"",
+      "adjudication": [
+        "delta3 复核发现（检视獭1360 2026-10-14，严重1）：execv 族动词表缺口——词内后缀形态（execv(/execvp(/execl(/execvpe(）逃过 EXEC_FACE/SCRIPT_EXEC_FACE/dotExecCommandHits 三表，真写主仓正面放行。修法：三表词族归一（exec[A-Z]\\w*|exec[lv]\\w*）；正向钉死不许回归"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review",
+            "reviewer": "检视獭1360(PR#1466 delta3)",
+            "channel": "execv族-动词表缺口"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjcwd01",
+      "command": "export DIR=/tmp; cd $DIR && bash x.sh",
+      "adjudication": [
+        "delta3 复核发现（检视獭1360 2026-10-14，严重2）：cd 动态目标（$VAR）伪造 fsAbsentPlan 缺席证明——export/环境变量来源溯源不出时解析 cwd 与执行 cwd 错位，真写主仓正面放行（攻击链 4 来源实测）。修法：resolveCwdAt 一条语义一个接口 + 不透明外置脚本执行否决洗白口；全来源攻击链钉死不许回归"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review",
+            "reviewer": "检视獭1360(PR#1466 delta3)",
+            "channel": "cd动态目标-假缺席证明"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjcwd02",
+      "command": "cd $DIR && bash x.sh",
+      "adjudication": [
+        "delta3 复核发现（检视獭1360 2026-10-14，严重2）：cd 动态目标（$VAR）伪造 fsAbsentPlan 缺席证明——export/环境变量来源溯源不出时解析 cwd 与执行 cwd 错位，真写主仓正面放行（攻击链 4 来源实测）。修法：resolveCwdAt 一条语义一个接口 + 不透明外置脚本执行否决洗白口；全来源攻击链钉死不许回归"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review",
+            "reviewer": "检视獭1360(PR#1466 delta3)",
+            "channel": "cd动态目标-假缺席证明"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjcwd03",
+      "command": "cd $DIR && cd sub && bash x.sh",
+      "adjudication": [
+        "delta3 复核发现（检视獭1360 2026-10-14，严重2）：cd 动态目标（$VAR）伪造 fsAbsentPlan 缺席证明——export/环境变量来源溯源不出时解析 cwd 与执行 cwd 错位，真写主仓正面放行（攻击链 4 来源实测）。修法：resolveCwdAt 一条语义一个接口 + 不透明外置脚本执行否决洗白口；全来源攻击链钉死不许回归"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review",
+            "reviewer": "检视獭1360(PR#1466 delta3)",
+            "channel": "cd动态目标-假缺席证明"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-smrjcwd04",
+      "command": "bash -c \"cd $DIR && bash x.sh\"",
+      "adjudication": [
+        "delta3 复核发现（检视獭1360 2026-10-14，严重2）：cd 动态目标（$VAR）伪造 fsAbsentPlan 缺席证明——export/环境变量来源溯源不出时解析 cwd 与执行 cwd 错位，真写主仓正面放行（攻击链 4 来源实测）。修法：resolveCwdAt 一条语义一个接口 + 不透明外置脚本执行否决洗白口；全来源攻击链钉死不许回归"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review",
+            "reviewer": "检视獭1360(PR#1466 delta3)",
+            "channel": "cd动态目标-假缺席证明"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
     }
   ]
 }

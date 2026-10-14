@@ -198,9 +198,16 @@ function evalCdTarget(seg: Segment, segments: Segment[], cwd: string): string | 
 /** 语句序 cwd 跟踪：返回最终 cwd 或 null（不可解）。
  *  - joiner 为 & 或 | 的段是子 shell/管道上下文，其 cd 不影响后续段（与 modelCdExemption 子 shell 化语义同源）
  *  - cd 同命令内赋值溯源；pushd/popd Phase 1 不覆盖（回落） */
-function trackCwd(segments: Segment[], startCwd: string): string | null {
+/** cd 链逐段 cwd 解析（一条语义一个接口——delta3 修法：trackCwd 与 buildScriptPayloadPlan 共用，
+ *  不许两条通道两套解析）：返回每段执行时的 cwd 快照；pushd/popd 或 cd 溯源不出 → null
+ *  （与 UnevalReason cwd-unresolvable 同语义（:70 口径）：cd $VAR 溯源不出 = 整链不可锚定）。
+ *  & / | 连接段不外溢 cd（子 shell/管道独立）。export/环境变量来源的 $VAR 同口径溯源不出——
+ *  resolveAssign 只认命令内赋值语句/前缀赋值（解析值=执行值），其余来源一律不猜。 */
+export function resolveCwdAt(segments: Segment[], startCwd: string): string[] | null {
+  const cwdAt: string[] = [];
   let cwd = startCwd;
   for (const seg of segments) {
+    cwdAt.push(cwd);
     if (seg.joiner === "&" || seg.joiner === "|") continue; // 子 shell/管道：cd 不外溢
     const bare = bareName(seg.argv0);
     if (bare === "pushd" || bare === "popd") return null;
@@ -210,7 +217,11 @@ function trackCwd(segments: Segment[], startCwd: string): string | null {
       cwd = resolved;
     }
   }
-  return cwd;
+  return cwdAt;
+}
+function trackCwd(segments: Segment[], startCwd: string): string | null {
+  const cwdAt = resolveCwdAt(segments, startCwd);
+  return cwdAt === null ? null : cwdAt[cwdAt.length - 1] ?? startCwd;
 }
 
 // ────────────────────────────── 段级求值 ──────────────────────────────
@@ -832,7 +843,7 @@ function hasMainTreeLiteral(text: string, projectRoot: string): boolean {
 function judgeScriptPayload(text: string, projectRoot: string, cwd: string, acc: SegmentEvalAcc): UnevalReason | null {
   const depth = acc.scriptDepth ?? 0;
   if (depth >= 2) return "depth-exceeded";
-  const sub = evaluateFromModel(parseOnce(text, 1), projectRoot, cwd, undefined, depth + 1);
+  const sub = evaluateFromModel(parseOnce(text, 1), projectRoot, cwd, { depth: depth + 1 });
   if (sub.kind === "evaluated") {
     acc.targets.push(...sub.targets.map(t => ({ ...t, via: "heredoc-body" as const, segmentIndex: acc.index })));
     return null;
@@ -845,26 +856,23 @@ function judgeScriptPayload(text: string, projectRoot: string, cwd: string, acc:
 }
 
 /** 段级载荷计划（牙2 造-执对 + 牙3 三态）：先扫「命令内造脚本再执行」对（造出内容为权威载荷），
- *  其余外置脚本段取条目级载荷信息；显式声明与造-执均缺省时求值器自查 fs 证缺席（delta2 修法——「缺省=absent」的静默 fail-open 已收：未提供载荷 ≠ 缺席）。 */
-// eslint-disable-next-line complexity -- F20261014smrj 牙2 造-执对+牙3 三态计划合成，分支=语义枚举（合分支会遮蔽造出内容优先语义）
-function buildScriptPayloadPlan(model: CommandModel, projectRoot: string, startCwd: string, entry: ScriptPayloadInfo | undefined): Map<number, SegPayloadPlan> {
+ *  其余外置脚本段取条目级载荷信息；显式声明与造-执均缺省时求值器自查 fs 证缺席（delta2 修法——
+ *  「缺省=absent」的静默 fail-open 已收：未提供载荷 ≠ 缺席）。delta3 修法（严重 2）：cwd 解析
+ *  与写通道同一来源（resolveCwdAt，一条语义一个接口——不许两条通道两套解析），缺席证明三前提
+ *  缺一不可：①cwd 可溯源（resolveCwdAt 成功）②落点可求值（非动态词）③执行 cwd 可锚定
+ *  （absenceAllowed——载荷子模型从调用链继承 startCwd，链上有 cd 时锚不住）。任一不成立
+ *  → 不得出具缺席证明 → fail-closed（防「解析 cwd 与执行 cwd 错位」假缺席证明，delta3 攻击链口径）。 */
+// eslint-disable-next-line complexity -- F20261014smrj 牙2 造-执对+牙3 三态计划合成+delta3 缺席证明三前提，分支=语义枚举（合分支会遮蔽造出内容优先语义）
+function buildScriptPayloadPlan(model: CommandModel, projectRoot: string, startCwd: string, entry: ScriptPayloadInfo | undefined, absenceAllowed: boolean): Map<number, SegPayloadPlan> {
   const plan = new Map<number, SegPayloadPlan>();
   const segs = model.segments;
-  const cwdAt: string[] = [];
-  let cwd = startCwd;
-  for (const seg of segs) {
-    cwdAt.push(cwd);
-    if (seg.joiner !== "&" && seg.joiner !== "|" && bareName(seg.argv0) === "cd") {
-      const r = evalCdTarget(seg, segs, cwd);
-      if (r !== null) cwd = r;
-    }
-  }
+  const cwdAt = resolveCwdAt(segs, startCwd);
   for (let i = 0; i < segs.length; i++) {
     const ex = shellScriptFileArg(segs[i]);
     if (ex === null) continue;
     let planned: SegPayloadPlan | undefined;
     const v = ex.word.evaluated;
-    if (!ex.dynamic && v !== null) {
+    if (cwdAt !== null && !ex.dynamic && v !== null) {
       const sPath = evalPath(v, cwdAt[i]);
       for (let j = 0; j < i && sPath !== null && planned === undefined; j++) {
         if (segs[j].joiner === "|") continue;
@@ -873,9 +881,50 @@ function buildScriptPayloadPlan(model: CommandModel, projectRoot: string, startC
         planned = w.content === null ? { status: "dynamic" } : { status: "content", text: w.content };
       }
     }
-    plan.set(i, planned ?? entry ?? fsAbsentPlan(!ex.dynamic && v !== null ? evalPath(v, cwdAt[i]) : null));
+    let absence: SegPayloadPlan | null = null;
+    if (planned === undefined && entry === undefined && cwdAt !== null && absenceAllowed && !ex.dynamic && v !== null) {
+      absence = fsAbsentPlan(evalPath(v, cwdAt[i]));
+    }
+    plan.set(i, planned ?? entry ?? absence ?? { status: "unreadable" });
   }
   return plan;
+}
+
+/** 载荷子模型的 startCwd 是否即其真实执行 cwd（delta3 修法）：链上有 cd（哪怕可溯源）时
+ *  载荷所属段的执行 cwd 与 startCwd 可能错位（模型层载荷不锚定段），缺席证明不得出具。 */
+function payloadsCwdAnchored(segments: Segment[]): boolean {
+  return segments.every(s => s.joiner === "&" || s.joiner === "|" || bareName(s.argv0) !== "cd");
+}
+
+/** 载荷子洗白判定（能力 4）：载荷求值失败但原文词面可证无写 → 正面 ALLOW；parse-failed/三牙
+ *  终局态豁免（载荷内引号/参数分裂逃逸=残余面钉死 fail-closed，不走词面放宽）。delta3 修法：
+ *  模型树内不透明外置脚本执行 → 不得洗白（否则 fail-closed 被洗白成放行）。 */
+function subPayloadWashable(reason: UnevalReason, command: string, model: CommandModel): boolean {
+  return !UNPROVABLE_TEETH.has(reason) && proveNoWrite(command) && !hasOpaqueScriptExec(model);
+}
+
+/** delta3 修法（严重 2）：模型树内不透明外置脚本执行——shell 解释器/source/. + 首个非旗标脚本位
+ *  （口径=shellScriptFileArg 同源，-c/-e 内联载荷段除外）或段首直执（./x、/x——排除 // 样式，
+ *  防 JS 注释行误命中）。脚本内容不在命令内 = 规则 2 不可证；词面证洗白口对含这类执行的命令
+ *  不得放行（否则「cd 溯源不出 → fail-closed」被洗白，delta3 攻击链 export DIR; cd $DIR &&
+ *  bash x.sh 正面放行实证）；递归查载荷子模型（bash -c 内层脚本同口径）。
+ *  注：node/python/perl/ruby 文件形态不在牙3 通道域（SHELL_INTERPRETERS∪source/.）——面不超
+ *  通道（TS-74fd58ae/TS-10eb58ff 等现役放行题按词面证裁决标准冻结），通道扩展+裁决复核立 issue。 */
+function hasOpaqueScriptExec(model: CommandModel, scriptText: boolean = true): boolean {
+  for (const seg of model.segments) {
+    const ex = shellScriptFileArg(seg);
+    // 口径镜像 evalSegment：动态脚本位 + source/. 非 shell 解释器 → 通道放行（现役放行题
+    //  5d98a85e source <(sed …) 保守面），不计入不透明执行；bash $P 等动态位照算（通道拦 script-path-dynamic）
+    if (ex !== null && !(ex.dynamic && !SHELL_INTERPRETERS.has(bareName(seg.argv0) ?? ""))) return true;
+    // 段首直执（./x、/x）：仅脚本正文类模型（根/bash-c/heredoc 体）判定——替换型载荷（cmdsub/
+    //  backtick/procsub）的非壳文本（JS/Python）壳解析会把参数/字面量误收成段首路径（能力 8
+    //  import(主仓路径) 30517746 口径实测翻红）；解释器脚本位判定仍全层生效（echo $(bash x.sh) 拦）
+    if (scriptText) {
+      const a0 = seg.argv0 ?? "";
+      if (a0.startsWith("./") || (a0.startsWith("/") && !a0.startsWith("//"))) return true;
+    }
+  }
+  return model.payloads.some(p => p.model !== null && hasOpaqueScriptExec(p.model, p.kind === "bash-c" || p.kind === "heredoc-bare"));
 }
 
 /** 牙3 缺席证明（delta2 修法，大獭工单 2026-10-14）：调用方未提供载荷时求值器自查 fs——
@@ -970,7 +1019,10 @@ function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot
 /** 从既有模型求值。子模型（bash -c/cmdsub）先各自 trackCwd 再求值（子 shell cd 链独立——
  *  首跑实测教训：默认主仓根会漏子模型内 cd，bash -c 'cd wt && touch a' 误报主仓落点）。
  *  startCwd = 命令启动时的 cwd（默认 projectRoot）——条件期望双态各跑的维度参数。 */
-function evaluateFromModel(model: CommandModel, projectRoot: string, startCwd: string, scriptPayload?: ScriptPayloadInfo, scriptDepth: number = 0): WriteEvalResult {
+type ScriptCtx = { payload?: ScriptPayloadInfo; depth?: number; absenceAllowed?: boolean };
+
+function evaluateFromModel(model: CommandModel, projectRoot: string, startCwd: string, ctx: ScriptCtx = {}): WriteEvalResult {
+  const { payload: scriptPayload, depth: scriptDepth = 0, absenceAllowed = true } = ctx;
   const tracked = trackCwd(model.segments, startCwd);
   if (tracked === null) return { kind: "unevaluated", reason: "cwd-unresolvable" };
 
@@ -978,10 +1030,12 @@ function evaluateFromModel(model: CommandModel, projectRoot: string, startCwd: s
     targets: [],
     index: 0,
     segments: model.segments,
-    scriptPayloadPlan: buildScriptPayloadPlan(model, projectRoot, startCwd, scriptPayload),
+    scriptPayloadPlan: buildScriptPayloadPlan(model, projectRoot, startCwd, scriptPayload, absenceAllowed),
     scriptDepth,
   };
-  let cwd = tracked;
+  // delta3 修法（严重 2 附带发现）：段链从 startCwd 忠实重放（与 trackCwd/resolveCwdAt 同口径）——
+  // 旧版从链尾 tracked 起步会把「写在 cd 前」的段挪到链尾 cwd（写在 cd 前的主仓写被判 sandbox 实证）。
+  let cwd = startCwd;
   for (const seg of model.segments) {
     const err = evalSegment(seg, cwd, acc, projectRoot, model.raw);
     if (err !== null) return { kind: "unevaluated", reason: err };
@@ -1009,17 +1063,18 @@ function collectShellPayloadTargets(
   model: CommandModel, command: string, projectRoot: string, startCwd: string, scriptSegNarrowed: boolean,
 ): { targets: WriteTarget[] } | { uneval: UnevalReason } {
   const targets: WriteTarget[] = [];
+  // delta3 修法（严重 2）：载荷子模型从 startCwd 求值——链上有 cd 时锚不住真实执行 cwd，
+  // 缺席证明不得出具（payloadsCwdAnchored=false → 子计划 fail-closed，防假缺席证明）。
+  const anchored = payloadsCwdAnchored(model.segments);
   for (const p of model.payloads) {
     if (p.kind === "heredoc-quoted") continue;
     if (p.model === null) {
       return { uneval: p.depth >= 2 ? "depth-exceeded" : "parse-failed" };
     }
     if (scriptSegNarrowed && p.kind === "cmdsub" && !p.model.parseOk && !detectScriptPayload(p.model)) continue; // 垃圾 cmdsub 跳过
-    const sub = evaluateFromModel(p.model, projectRoot, startCwd);
+    const sub = evaluateFromModel(p.model, projectRoot, startCwd, { absenceAllowed: anchored });
     if (sub.kind === "unevaluated") {
-      // 能力 4：载荷求值失败但原文词面可证无写 → 正面 ALLOW；parse-failed/三牙终局态豁免（载荷内引号/
-      //  参数分裂逃逸=残余面钉死 fail-closed，不走词面放宽）
-      if (!UNPROVABLE_TEETH.has(sub.reason) && proveNoWrite(command)) return { targets };
+      if (subPayloadWashable(sub.reason, command, model)) return { targets };
       return { uneval: sub.reason };
     }
     targets.push(...sub.targets);
@@ -1030,11 +1085,15 @@ function collectShellPayloadTargets(
 // eslint-disable-next-line complexity -- 入口路由（parseOk 探针 + 载荷递归 + 主模型求值）三分支各对应一条已声明语义（Phase 1/Phase 2 口径注释）
 export function evaluateWriteTargets(command: string, projectRoot: string, startCwd: string = projectRoot, scriptPayload?: ScriptPayloadInfo): WriteEvalResult {
   const model: CommandModel = parseOnce(command, 0);
+  // delta3 修法（严重 2）：模型树内不透明外置脚本执行 → 词面证洗白口不得放行（防「cd 溯源不出
+  //  → fail-closed」被洗白，delta3 攻击链实证）；显式缺席声明（entry absent，牙3 同一信任口径
+  //  ——声明来自裁决链非命令作者）豁免该否决（声明缺席=脚本零写）。
+  const opaqueExecVeto = hasOpaqueScriptExec(model) && scriptPayload?.status !== "absent";
 
   // 先行载荷族检测（不依赖 parseOk——可窄提取的脚本载荷段跳过短路，交给段级窄提取）。
   if (detectScriptPayload(model) && !hasNarrowExtractableScriptSeg(model, projectRoot)) {
     // 能力 4：载荷不可窄提取但原文词面可证无写 → 正面 ALLOW；否则 fail-closed。
-    if (proveNoWrite(command)) return { kind: "evaluated", targets: [] };
+    if (proveNoWrite(command) && !opaqueExecVeto) return { kind: "evaluated", targets: [] };
     return { kind: "unevaluated", reason: "heredoc-script-payload" };
   }
   if (!model.parseOk) {
@@ -1042,12 +1101,12 @@ export function evaluateWriteTargets(command: string, projectRoot: string, start
     //  至少一段求出实质落点才走正常路径；全部段零落点且无载荷/窄提取面 → evaluated 空集
     //  是假信息，回落 parse-failed 保 Phase 1 保守语义。词法彻底失败（segments 空）同口径。
     if (model.segments.length === 0) return { kind: "unevaluated", reason: "parse-failed" };
-    const probe = evaluateFromModel(model, projectRoot, startCwd, scriptPayload);
+    const probe = evaluateFromModel(model, projectRoot, startCwd, { payload: scriptPayload });
     if (probe.kind === "unevaluated") return probe;
     if (probe.targets.length === 0 && !hasNarrowExtractableScriptSeg(model, projectRoot) && model.payloads.length === 0) {
       // 能力 4：词面可证无写 → 正面 ALLOW；否则保 Phase 1 保守语义。有 shell 递归载荷时
       //  不提前返回——bash -c 'touch 主仓' 子落点必须先入账（单测负门实证的放水面）。
-      if (proveNoWrite(command)) return { kind: "evaluated", targets: [] };
+      if (proveNoWrite(command) && !opaqueExecVeto) return { kind: "evaluated", targets: [] };
       return { kind: "unevaluated", reason: "parse-failed" };
     }
     // 探针已证明可求值——走正常路径（幂等纯函数，重求值无副作用）
@@ -1063,9 +1122,9 @@ export function evaluateWriteTargets(command: string, projectRoot: string, start
   if ("uneval" in payloadResult) return { kind: "unevaluated", reason: payloadResult.uneval };
   const subTargets: WriteTarget[] = payloadResult.targets;
 
-  const main = evaluateFromModel(model, projectRoot, startCwd, scriptPayload);
+  const main = evaluateFromModel(model, projectRoot, startCwd, { payload: scriptPayload });
   if (main.kind === "unevaluated") {
-    if (!UNPROVABLE_TEETH.has(main.reason) && proveNoWrite(command)) return { kind: "evaluated", targets: subTargets };
+    if (!UNPROVABLE_TEETH.has(main.reason) && proveNoWrite(command) && !opaqueExecVeto) return { kind: "evaluated", targets: subTargets };
     return main;
   }
   return { kind: "evaluated", targets: [...main.targets, ...subTargets] };

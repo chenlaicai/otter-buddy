@@ -256,3 +256,35 @@ zdebug 实证 12 条误伤的写目标全是 `{path:"/repo", via:"cmd-arg"}` 凭
 - 单测：write-target-evaluator.test.ts「F20261014smrj 黑盒外置脚本三牙」放行侧 6 + 拦截侧 7（含「能力 4 豁免不得洗白牙口」负门与既有通道不误伤对照）
 - judge 考试全量复跑：放行池 794 / 拦截池 68 / 条件期望 105，棘轮 145 键 shrink-only=PASS
 - 全仓 5446/5446 绿（360 文件）
+
+### delta3 复核补刀（execv 族词表 + cd $VAR 假缺席证明，2026-10-14）
+
+检视獭1360 delta3 复核（PR #1466 留痕 + review-1360-delta3-report.md）两严重全采纳（大獭裁决无定级异议），修法按「设计层」执行：
+
+**发现 1（严重）：execv 族动词表缺口**——`os.execv/execvp/execl/execvpe`（词内后缀形态）逃过 EXEC_FACE/SCRIPT_EXEC_FACE/dotExecCommandHits 三表，`python3 -c "import os; os.execv('/bin/sh', [...])"` 真写主仓正面放行（probe2 A 段实测：三表全 false、proveNoWrite=true 被洗白）。显式枚举动词表挡不住词内后缀是结构性漏因。修法：
+
+- 三表动词表**词族归一**：`exec(?:[A-Z]\w*|[lv]\w*)?|spawn(?:[A-Z]\w*|[lv]\w*)?`（camelCase 族 + POSIX exec(3)/spawn 族；u 起头 execute/executor 刻意不收）——EXEC_FACE、SCRIPT_EXEC_FACE、dotExecCommandHits 三处同口径
+- 负门双向钉死：TS-smrjexecv01-04（四形态进 block 池）+ 单测（点号/裸形态词面三表分工、db.exec 纯 SQL 对照不误伤、execute/executor 不收、只读目标按规则 2 仍拦——exec 类一律不可证，同 residual_face execSync 口径）
+- **词界口径记档**：SCRIPT_EXEC_FACE 的 `(?<![\w.])` 点号排除是 db.exec SQL 豁免面（TS-e00efca3）的依赖，点号形态由 dotExecCommandHits/EXEC_FACE 收（`\b` 词界），裸形态由 SCRIPT_EXEC_FACE 收——三表分工不合并
+
+**发现 2（严重）：cd $VAR 伪造 fsAbsentPlan 缺席证明**——攻击链四来源实测（probe3：export/环境变量/多段 cd 链/bash -c 载荷层）全 ALLOW 正面放行真写主仓。机制两条：①解析 cwd 与执行 cwd 错位（cd $VAR 溯源不出时 plan 仍按错误 cwd 出「文件不存在」假证明）②不透明外置脚本执行被词面证洗白（`bash x.sh` 无写词面 → proveNoWrite=true → fail-closed 被洗回放行）。修法四件套（设计层，一条语义一个接口）：
+
+1. **resolveCwdAt 统一接口**：trackCwd 与 buildScriptPayloadPlan 共用同一 cwd 解析（逐段快照，pushd/popd/cd 溯源不出 → null）——不许两条通道两套解析（旧 :858 独立 cdTrack 已废）
+2. **缺席证明三前提**：①cwd 可溯源（resolveCwdAt 成功）②落点可求值（非动态词）③执行 cwd 可锚定（absenceAllowed——载荷子模型从调用链继承 startCwd，外层链有 cd 时锚不住）。任一不成立 → 不得出具缺席证明 → fail-closed（unreadable）
+3. **不透明外置脚本执行否决（hasOpaqueScriptExec，模型级）**：shell 解释器/source/. + 首个非旗标脚本位（口径=shellScriptFileArg 同源）或段首直执（./x、/x）→ 词面证洗白口不得放行；递归查载荷子模型（bash -c 内层同口径）；显式缺席声明（entry absent，牙3 同一信任口径）豁免该否决（声明缺席=脚本零写）——82d56ad0 截断命令回归钉
+4. **段链从启动 cwd 忠实重放**（附带发现）：evaluateFromModel 旧 `let cwd = tracked` 从链尾 cwd 起步，写在 cd 前的段被挪到链尾 sandbox（`echo x > pwn.txt && cd /tmp` 把主仓写判成 /tmp 落点）——改 `let cwd = startCwd` 与 trackCwd 同口径重放
+
+**设计取舍**（含工单点名项）：
+
+- **前缀赋值/赋值语句可静态溯源 → 维持缺席证明**：命令内赋值的解析值=执行值（`DIR=/tmp; cd $DIR && bash no-such.sh` 缺席证明成立→放行，probe3「缺席正确放」钉死）；export/环境变量/一切溯源不出来源 → unresolvable → fail-closed。「全来源」语义=溯源失败处理覆盖一切来源，不是废除可溯源的解析（否则翻红现役缺席证明裁决口径）
+- **执行面判定必须模型级，不能词面文本级**：文本正则把注释/提及/载荷内非壳文本当执行（实测翻红 4 条现役放行题：TS-074e7d85 JS `//` 注释行、TS-0cdf6695 注释提及 `bash toolCall`、TS-74fd58ae/TS-10eb58ff node/python 文件形态裁决面）——模型级段结构天然排除注释与引号内文本；直执判定只在脚本正文类模型（根/bash-c/heredoc 体）生效，替换型载荷（cmdsub 等）的垃圾解析不误收（能力 8 import(主仓路径) 口径）
+- **面不超通道**：node/python/perl/ruby 文件形态不在牙3 通道域（SHELL_INTERPRETERS∪source/.）——否决面同口径不收（TS-74fd58ae/TS-10eb58ff 冻结裁决按词面证标准，翻案需双签）；通道扩展+裁决标准复核立 **issue #1491**
+- **sqlite3 CLI 首参库文件写落点未判**（delta3 建议①）：正交面不进本刀，立 **issue #1490**（案发现场引 delta3 探针 B 段，含 CLI/python 对照）
+- **SQL 字面量内嵌路径保守误伤**（delta3 建议③）：dotExecCommandHits 的 SQL 豁免按首参 SQL 起手判定，SQL 字面量内嵌路径字面量仍按纯 SQL 豁免——极端形态（CREATE TABLE 含路径）保守放行，记档不改（豁免面收窄会翻红 TS-e00efca3 系）
+- **残余面（沿 delta2 记档不变）**：perl 间接对象形、无括号点号（`obj.exec 'cmd'`，Kernel.exec 同型实测仍 ALLOW）、次参携带——记档未失踪
+
+**切换 PR 硬验收项增补**：content 判读与 cwd 解析**同源复用 resolveCwdAt**（切换 PR 若沿用独立解析，攻击链接线后照样活）；载荷子模型 startCwd 锚定语义随通道扩展一并接（issue #1491）。
+
+**影响范围**：write-word-face.ts（三表词族归一）、write-target-evaluator.ts（resolveCwdAt/hasOpaqueScriptExec/buildScriptPayloadPlan 三前提/段链重放/载荷锚定）、guard-touchstone-block.json（+8 负门 TS-smrjexecv01-04+TS-smrjcwd01-04，block 72→80）、单测 +10（双向钉死）；语义收敛面=「真写主仓正面放行」→fail-closed/正面 BLOCK，无放宽面。
+
+**验证（delta3 轮）**：全仓 5540/5540 绿（364 文件；基线对照 5527/5527 同型验证——本机高负载下 5s 默认超时对 `await import` 重模块测试有排队型 flake，隔离复跑 81/81 绿、30s 超时全量绿、负载正常默认超时全量绿）；write-target-evaluator.test.ts 98→108 例；judge 考试 794/80/105 全过（block +8 delta3 负门）、棘轮零新键（4 条误翻红现役放行题已按模型级判定复原）；corpus 守恒 921 恒等（TS-smrj 前缀扣减 50→58）；probe2/probe3 攻击矩阵 10 形态全拦 + 8 对照全保住。
