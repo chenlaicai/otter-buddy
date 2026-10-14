@@ -269,6 +269,54 @@ describe('文件预览 Modal 内容渲染分发（F20261014pvmd）', () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull()
   })
 
+  it('jpg 生成标准 MIME image/jpeg（F20261014pvmd 处置 1）', async () => {
+    const jpgContent = { path: 'photo.jpg', content: 'aGVsbG8=', truncated: false, encoding: 'base64' }
+    const rootEntries = { entries: [{ name: 'photo.jpg', isDirectory: false, isFile: true, path: 'photo.jpg' }] }
+    const mock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(rootEntries), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(jpgContent), { status: 200 }))
+    vi.stubGlobal('fetch', mock)
+    await act(async () => { root.render(<WorkspacePanel conversationId="test" />) })
+
+    const fileBtn = container.querySelector('[data-testid="file-photo.jpg"]') as HTMLButtonElement
+    await act(async () => { fileBtn.click() })
+    const img = document.querySelector('[role="dialog"] [data-testid="image-preview"] img') as HTMLImageElement
+    expect(img.src).toBe('data:image/jpeg;base64,aGVsbG8=')
+  })
+
+  it('svg 生成 MIME image/svg+xml（F20261014pvmd 处置 1）', async () => {
+    const svgContent = { path: 'icon.svg', content: 'aGVsbG8=', truncated: false, encoding: 'base64' }
+    const rootEntries = { entries: [{ name: 'icon.svg', isDirectory: false, isFile: true, path: 'icon.svg' }] }
+    const mock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(rootEntries), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(svgContent), { status: 200 }))
+    vi.stubGlobal('fetch', mock)
+    await act(async () => { root.render(<WorkspacePanel conversationId="test" />) })
+
+    const fileBtn = container.querySelector('[data-testid="file-icon.svg"]') as HTMLButtonElement
+    await act(async () => { fileBtn.click() })
+    const img = document.querySelector('[role="dialog"] [data-testid="image-preview"] img') as HTMLImageElement
+    expect(img.src).toBe('data:image/svg+xml;base64,aGVsbG8=')
+  })
+
+  it('无点文件名（名为 png 的文本文件）不误路由为图片（F20261014pvmd 处置 2）', async () => {
+    // 后端不会对该文件返回 encoding: 'base64'，前端也不应将其当图片渲染
+    const txtContent = { path: 'png', content: 'plain text', truncated: false }
+    const rootEntries = { entries: [{ name: 'png', isDirectory: false, isFile: true, path: 'png' }] }
+    const mock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(rootEntries), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(txtContent), { status: 200 }))
+    vi.stubGlobal('fetch', mock)
+    await act(async () => { root.render(<WorkspacePanel conversationId="test" />) })
+
+    const fileBtn = container.querySelector('[data-testid="file-png"]') as HTMLButtonElement
+    await act(async () => { fileBtn.click() })
+    const dialog = document.querySelector('[role="dialog"]')
+    // 应走 PlainRenderer（pre），而非 ImageRenderer
+    expect(dialog!.querySelector('[data-testid="image-preview"]')).toBeNull()
+    expect(dialog!.querySelector('[data-testid="plain-pre"]')).not.toBeNull()
+  })
+
   it('截断标记在 Modal 内正确显示', async () => {
     const truncatedContent = { path: 'big.txt', content: 'x'.repeat(102400), truncated: true }
     const rootEntries = { entries: [{ name: 'big.txt', isDirectory: false, isFile: true, path: 'big.txt' }] }

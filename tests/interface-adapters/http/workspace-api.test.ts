@@ -395,4 +395,18 @@ describe("响应体与 api-contract 契约一致", () => {
       const body = await res.json() as WorkspaceFileContent;
       expect(body.encoding).toBeUndefined();
     });
+
+    it("readFile 无点文件名（名为 png 的文本文件）不走 base64 路径（F20261014pvmd 处置 2）", async () => {
+      const wsDir = path.join(tmpDir, "workspaces", VALID_CONV_ID);
+      await fs.writeFile(path.join(wsDir, "png"), "plain text content");
+
+      const res = await app.request(
+        `/api/conversations/${VALID_CONV_ID}/workspace/file?path=png`,
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as WorkspaceFileContent;
+      // 不应识别为图片扩展名——返回 utf-8 文本，无 encoding 字段
+      expect(body.encoding).toBeUndefined();
+      expect(body.content).toBe("plain text content");
+    });
 });

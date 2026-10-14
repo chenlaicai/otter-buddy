@@ -62,7 +62,10 @@ export class ManageWorkspace {
       throw new DomainError('工作区不存在', 'not_found');
     }
 
-    const ext = relativePath.split('.').pop()?.toLowerCase() ?? '';
+    // 扩展名提取要求存在点且不在首位（避免「名为 png 的无扩展名文本文件」误路由，F20261014pvmd 处置 2）
+    const base = relativePath.split('/').pop() ?? '';
+    const dotIdx = base.lastIndexOf('.');
+    const ext = dotIdx > 0 ? base.slice(dotIdx + 1).toLowerCase() : '';
 
     // 图片类扩展名：走二进制路径，返回 base64（truncated 逻辑不适用——图片按原始字节完整传输）
     if ((WORKSPACE_IMAGE_EXTENSIONS as readonly string[]).includes(ext)) {

@@ -25,7 +25,9 @@ export interface WorkspaceEntry {
 /** 图片类扩展名（usecase 侧据此决定返回编码形态） */
 export const WORKSPACE_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'] as const;
 
-/** 工作区文件内容（超过显示层 100KB 上限时截断并置 truncated） */
+/** 工作区文件内容。
+ * 文本路径：超过显示层 100KB 上限时截断并置 truncated；
+ * 图片路径（encoding: 'base64'）：按原始字节完整传输（1MB 网关上限），truncated 恒为 false（F20261014pvmd） */
 export interface WorkspaceFileContent {
   /** 相对于工作区根目录的文件路径（即请求的 path 参数） */
   path: string;

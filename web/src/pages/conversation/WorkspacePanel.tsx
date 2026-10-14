@@ -24,9 +24,16 @@ function fileColor(name: string): string {
   return 'text-stone-400'
 }
 
-/** 判断是否为可渲染内容的扩展名 */
+/** 判断是否为可渲染内容的扩展名。无点文件名返回 ''（避免「名为 png 的文本文件」误路由，F20261014pvmd 处置 2） */
 function getExt(name: string): string {
-  return (name.split('.').pop()?.toLowerCase() ?? '')
+  const base = name.split('/').pop() ?? ''
+  const dotIdx = base.lastIndexOf('.')
+  return dotIdx > 0 ? base.slice(dotIdx + 1).toLowerCase() : ''
+}
+
+/** 图片扩展名 → MIME 子类型映射（避免 jpg 生成非标准 image/jpg，F20261014pvmd 处置 1；契约单一真相源） */
+const IMAGE_MIME_MAP: Record<string, string> = {
+  png: 'png', jpg: 'jpeg', jpeg: 'jpeg', gif: 'gif', webp: 'webp', bmp: 'bmp', svg: 'svg+xml',
 }
 
 /** 是否为图片扩展名（契约单一真相源，三侧共享） */
@@ -274,7 +281,7 @@ function FilePreviewModal({ file, onClose }: { file: WorkspaceFileContent; onClo
     <Modal isOpen onClose={onClose} title={fileName} width={isImage || isMd ? '860px' : '720px'} fullScreenOnMobile>
       {/* Modal 自带 px-5 py-4 内容内边距，渲染器按弹窗宽度自行调节 */}
       {file.encoding === 'base64' && isImage ? (
-        <ImageRenderer dataUrl={`data:image/${ext === 'svg' ? 'svg+xml' : ext};base64,${file.content}`} />
+        <ImageRenderer dataUrl={`data:image/${IMAGE_MIME_MAP[ext] ?? ext};base64,${file.content}`} />
       ) : isMd ? (
         <MarkdownRenderer content={file.content} />
       ) : isHtml ? (
@@ -521,10 +528,9 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
         document.body
       )}
 
-      {/* 文件预览 Modal：挂 body（portal），脱离右栏 aside 的 containing block 影响（F20261014pvmd） */}
-      {selectedFile && createPortal(
-        <FilePreviewModal file={selectedFile} onClose={() => setSelectedFile(null)} />,
-        document.body
+      {/* 文件预览 Modal：Modal 组件内部自带 portal 挂 body + z-[100]，无需外层 portal（F20261014pvmd 处置 3） */}
+      {selectedFile && (
+        <FilePreviewModal file={selectedFile} onClose={() => setSelectedFile(null)} />
       )}
     </div>
   )
