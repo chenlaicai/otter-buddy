@@ -1,5 +1,5 @@
 /**
- * F20261013cwsp：守卫 sessionCwd 感知判定——统一工作区后獭 bash cwd=对话工作区，
+ * F20261014cwsp：守卫 sessionCwd 感知判定——统一工作区后獭 bash cwd=对话工作区，
  * 主仓写/data 破坏判定的语义从「位置判定」（未 cd 即拦）转为「落点判定」
  * （相对路径按 sessionCwd 解析，落主仓才拦）。
  *
@@ -13,7 +13,7 @@ import { checkBashCommandSafety } from "@frameworks/agent/bash-safety-guard";
 
 const mainPid = 42877;
 const projectRoot = "/repo";
-/** F20261013cwsp round-1 处置（检视 S2）：fixture 改为生产真实形态——
+/** F20261014cwsp round-1 处置（检视 S2）：fixture 改为生产真实形态——
  *  会话工作区在主仓树内（data/workspaces/<conv>，非 git 工作树）。
  *  初版用树外 /wt 给的是假信心：树外触发了逃逸面的「放行」。 */
 const WS = "/repo/data/workspaces/conv-abc";
@@ -25,7 +25,7 @@ const optsWt = { projectRoot, sessionCwd: WT };
 /** 相对 sessionCwd（resolver 绝对化前的逃逸形态，回归锁） */
 const optsRel = { projectRoot, sessionCwd: "data/workspaces/conv-abc" };
 
-describe("F20261013cwsp：sessionCwd 感知——git 工作树内写放行", () => {
+describe("F20261014cwsp：sessionCwd 感知——git 工作树内写放行", () => {
   it("git commit（cwd=worktree 内）→ 放行", () => {
     expect(checkBashCommandSafety(`git commit -m x`, mainPid, undefined, optsWt)).toBeNull();
   });
@@ -39,7 +39,7 @@ describe("F20261013cwsp：sessionCwd 感知——git 工作树内写放行", () 
   });
 });
 
-describe("F20261013cwsp：sessionCwd 感知——会话工作区（树内非 git 树）", () => {
+describe("F20261014cwsp：sessionCwd 感知——会话工作区（树内非 git 树）", () => {
   it("git commit（cwd=会话工作区）→ 拦（向上发现主仓 .git，写落主仓）", () => {
     expect(checkBashCommandSafety(`git commit -m x`, mainPid, undefined, optsWs)).not.toBeNull();
   });
@@ -61,7 +61,7 @@ describe("F20261013cwsp：sessionCwd 感知——会话工作区（树内非 git
   });
 });
 
-describe("F20261013cwsp：S8 收窄——跨对话工作区破坏仍拦", () => {
+describe("F20261014cwsp：S8 收窄——跨对话工作区破坏仍拦", () => {
   it("rm -rf ../OTHER-conv（相对路径越权到邻对话工作区）→ 拦", () => {
     expect(checkBashCommandSafety(`rm -rf ../OTHER-conv`, mainPid, undefined, optsWs)).not.toBeNull();
   });
@@ -79,9 +79,9 @@ describe("F20261013cwsp：S8 收窄——跨对话工作区破坏仍拦", () => 
   });
 });
 
-describe("F20261013cwsp：sessionCwd 感知——落点真主仓仍拦", () => {
+describe("F20261014cwsp：sessionCwd 感知——落点真主仓仍拦", () => {
   it("cd 主仓 && git commit → 拦", () => {
-    // F20261013cwsp 已知边界：cd 豁免（#1170/F20260922scwd）按旧语义放行
+    // F20261014cwsp 已知边界：cd 豁免（#1170/F20260922scwd）按旧语义放行
     // `cd <主仓> && git 写族`（模型版豁免不区分 cd 目标是否主仓）——本特性不收紧
     // 该面（收紧属 cd 豁免语义重议，独立立项）。绝对路径写形态仍拦。
     expect(checkBashCommandSafety(`echo x > /repo/src/foo.ts`, mainPid, undefined, optsWs)).not.toBeNull();
@@ -100,13 +100,13 @@ describe("F20261013cwsp：sessionCwd 感知——落点真主仓仍拦", () => {
   });
 });
 
-describe("F20261013cwsp：sessionCwd 感知——绝对路径工作区豁免保持", () => {
+describe("F20261014cwsp：sessionCwd 感知——绝对路径工作区豁免保持", () => {
   it("echo >> /repo/data/workspaces/conv/x.log（绝对路径工作区）→ 放行（F20260923hsyn）", () => {
     expect(checkBashCommandSafety(`echo log >> ${WS}/x.log`, mainPid, undefined, optsLegacy)).toBeNull();
   });
 });
 
-describe("F20261013cwsp：无 sessionCwd 旧行为保持（回归锁）", () => {
+describe("F20261014cwsp：无 sessionCwd 旧行为保持（回归锁）", () => {
   it("git commit（无 cd，无 sessionCwd）→ 拦（旧世界基座）", () => {
     expect(checkBashCommandSafety(`git commit -m x`, mainPid, undefined, optsLegacy)).not.toBeNull();
   });

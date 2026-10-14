@@ -28,7 +28,7 @@ import { checkWithModel, modelParseOk, modelCdExemption } from "./guard-model-ju
 
 export type { AllowedService };
 
-/** F20261013cwsp S1 处置：session 工作目录跨特性判定参数打包（max-params 约束——
+/** F20261014cwsp S1 处置：session 工作目录跨特性判定参数打包（max-params 约束——
  *  sessionCwd 引入后 V1 链各函数参数面 +1，与 MainCheckoutWriteCtx/HeredocJudgeCtx
  *  同先例打包）。调用点构造一次、全链透传；独立字段读比打包对象读更直观处
  *  （如 projectRoot 单独参与白名单加载）调用方自行解构。 */
@@ -42,7 +42,7 @@ interface GuardCwdCtx {
 /** 守卫放行判定输入（#844）：projectRoot 用于定位白名单文件 */
 export interface GuardOptions {
   projectRoot?: string;
-  /** F20261013cwsp：session 工作目录（invoke 时的对话工作区）。
+  /** F20261014cwsp：session 工作目录（invoke 时的对话工作区）。
    *  统一工作区后獭 bash cwd=工作区，data 破坏/主仓写判定的相对路径解析基准
    *  必须从 projectRoot（恒=主仓）换成本值，否则未 cd 的工作区命令被误拦。 */
   sessionCwd?: string;
@@ -432,7 +432,7 @@ function resolvesToMainData(target: string, cwd: string, projectRoot?: string, s
   // 大小写归一化后比较（同上注释）
   const resolvedLower = resolved.toLowerCase();
   const dataRootLower = dataRoot.toLowerCase();
-  // F20261013cwsp S2/S8 处置：仅豁免**本会话工作区子树**（sessionCwd 归一化后前缀）——
+  // F20261014cwsp S2/S8 处置：仅豁免**本会话工作区子树**（sessionCwd 归一化后前缀）——
   // `rm -rf data`（cwd=自己工作区，清自己缓存）放行（10/14 三连误拦实证）；
   // 整树豁免是越权面（round-2 S8：对话 A 一行 `rm -rf ../OTHER-conv` 可销毁对话 B
   // 整个工作区，legacy 无 sessionCwd 形态也失守）。无 sessionCwd 不豁免——守旧行为。
@@ -469,7 +469,7 @@ function segmentDestructive(seg: string, cwd: string, projectRoot?: string, sess
  *  cwd 跟踪：逐段扫 cd <dir> 更新当前目录，相对路径按当前 cwd 解析（
  *  `cd worktree && rm -rf data/…` 是验证正道，必须放行；子 shell / pushd 不跟踪，
  *  Known Limitations 记录）。
- *  F20261013cwsp：起始 cwd 显式入参（session 工作目录）。统一工作区后獭 bash cwd=
+ *  F20261014cwsp：起始 cwd 显式入参（session 工作目录）。统一工作区后獭 bash cwd=
  *  对话工作区，不能再以 projectRoot（主仓）为解析基准——否则未 cd 的工作区相对
  *  命令（如 `rm -rf data` 清工作区缓存）解析到主仓 data/ 被误拦（10/14 三连实证）。 */
 function checkDataDirDestructive(command: string, logger: Logger | undefined, ctx: GuardCwdCtx): string | null {
@@ -492,7 +492,7 @@ function checkDataDirDestructive(command: string, logger: Logger | undefined, ct
   return null;
 }
 
-/* eslint-disable complexity -- sleep 检测挂点（F20260928slan）新增一分支：V1 判定链原 12 分支 + sleep 检测，合并后 13——每分支对应一条已断言语义；F20261013cwsp：sessionCwd 穿透（判定基准解耦进程 cwd）参数/分支各 +1 */
+/* eslint-disable complexity -- sleep 检测挂点（F20260928slan）新增一分支：V1 判定链原 12 分支 + sleep 检测，合并后 13——每分支对应一条已断言语义；F20261014cwsp：sessionCwd 穿透（判定基准解耦进程 cwd）参数/分支各 +1 */
 function checkBashCommandSafetyOnText(
   text: string,
   mainPid: number,
@@ -1109,7 +1109,7 @@ function judgeSegment(
   if (head === "git") {
     const rest = seg.slice(offset);
     if (!GIT_WRITE_SUBCOMMAND.test(rest)) return false; // 只读子命令放行（原有语义）
-    // F20261013cwsp S1 处置：cwd 上移豁免（skipGitWrite，由 checkWriteChannels 判定
+    // F20261014cwsp S1 处置：cwd 上移豁免（skipGitWrite，由 checkWriteChannels 判定
     // 注入）——git 写族落点是 cwd 上移发现的 git 工作树，不是主仓写，放行。
     // 会话工作区（data/workspaces/，非 git 树）与相对 cwd 不注入本豁免。
     if (ctx.skipGitWrite) return false;
@@ -1715,7 +1715,7 @@ interface MainCheckoutWriteCtx {
   command: string;
   logger?: Logger;
   projectRoot?: string;
-  /** F20261013cwsp：session 工作目录——cwd 感知的写落点判定基准（重定向相对路径、
+  /** F20261014cwsp：session 工作目录——cwd 感知的写落点判定基准（重定向相对路径、
    *  cwd 内 git 写族）；缺省时退回旧行为（凡含写形态未 cd 即拦，仅限主仓 cwd 旧世界） */
   sessionCwd?: string;
   heredocReadOnly?: boolean;
@@ -1731,7 +1731,7 @@ function checkWriteChannels(
   ctx: { logger?: Logger; projectRoot?: string; sessionCwd?: string; heredocReadOnly?: boolean; oneLinerReadOnly: boolean; depth: number; skipGitLiteral?: boolean },
 ): string | null {
   // git 写族字面通道——cwd 上移豁免（skipGitLiteral）只跳过它，其余通道照常
-  //（F20261013cwsp S1 收窄；具名恒等比较替代魔法索引，数组增删不错位）。
+  //（F20261014cwsp S1 收窄；具名恒等比较替代魔法索引，数组增删不错位）。
   for (const [pi, pattern] of MAIN_WRITE_PATTERNS.slice(1).entries()) {
     if (pattern === GIT_WRITE_LITERAL_PATTERN && ctx.skipGitLiteral) continue;
     if (!pattern.test(command)) continue;
@@ -1744,7 +1744,7 @@ function checkWriteChannels(
   // （oneLinerReadOnly），命中同一拦截文案（拦截面同口径）。
   // 挂点在 git 写族循环内：cd 豁免已过、git 只读白名单未命中才走到——
   // 与正则通道同一判定位置，无新增豁免面。
-  // F20261013cwsp S1 处置：cwd 上移豁免（skipGitLiteral）同样免除结构通道的
+  // F20261014cwsp S1 处置：cwd 上移豁免（skipGitLiteral）同样免除结构通道的
   // git 写族段判定（git 落点是 cwd 上移发现的 git 工作树，非主仓）；one-liner/
   // bash -c 载荷等其余段结构照常跑（逃逸面收口）。
   if (checkSegmentStructuralWrite(command, ctx.oneLinerReadOnly, { ...ctx, skipGitWrite: ctx.skipGitLiteral })) {
@@ -1842,7 +1842,7 @@ function blankDataHeredocBodies(command: string): string {
   return out + command.slice(cursor);
 }
 
-/** F20261013cwsp：会话工作目录感知的主仓写拦截文案——统一工作区下獭 bash cwd=
+/** F20261014cwsp：会话工作目录感知的主仓写拦截文案——统一工作区下獭 bash cwd=
  *  对话工作区，拦截语义从「位置判定」（未 cd 即拦）转为「落点判定」（解析后主仓内才拦）。
  *  sessionCwd 在场时给出落点语义文案；缺省（旧调用形态）保持原文案。 */
 function rewriteMainWriteBlockMsg(sessionCwd?: string): string {
@@ -1876,7 +1876,7 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   // （`git log > /repo/hacked.txt` 在 main 拦、PR 误放行，拦截侧回归）。白名单语义收窄为：
   // 仅免除 git 写族字面判定，重定向/data 破坏等其余判定照常跑。
   const gitReadonlyCmd = allSegmentsGitReadonly(command);
-  // F20261013cwsp S1/S2 处置：git 写族 cwd 感知收窄为「cwd 在显式 git 工作树内」——
+  // F20261014cwsp S1/S2 处置：git 写族 cwd 感知收窄为「cwd 在显式 git 工作树内」——
   // 落点是该树自身的 git 操作才免除字面通道；cwd 在主仓树内（含 data/workspaces/
   // 会话工作区，非 git 工作树，git 写族会向上发现主仓 .git 写主仓）与树外任意目录
   //（落点不确定，fail-closed）都不豁免。锚点要求 sessionCwd 绝对路径（检视 S1：
@@ -1921,7 +1921,7 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   // git 写族落点是 .git/cwd 不是重定向目标，`git commit -m x > /dev/null` 高频尾缀形态曾全豁免）
   if (REDIRECT_PATTERN.test(syntaxBasis)) {
     const target = extractRedirectTarget(syntaxBasis);
-    // F20261013cwsp：cwd 感知——相对路径重定向的真实落点是 session 工作目录
+    // F20261014cwsp：cwd 感知——相对路径重定向的真实落点是 session 工作目录
     // （统一工作区后獭 bash cwd=工作区），仅当解析后主仓内才拦；无 sessionCwd
     // （旧调用形态）退回保守行为：相对目标一律拦。
     const targetInMain = (() => {
@@ -1937,7 +1937,7 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
       }
       if (ctx.sessionCwd) {
         const resolved = path.resolve(ctx.sessionCwd, target);
-        // F20261013cwsp S2 处置：树内 workspaces 落点豁免——相对路径经 sessionCwd
+        // F20261014cwsp S2 处置：树内 workspaces 落点豁免——相对路径经 sessionCwd
         // 解析到 data/workspaces/ 内是会话工作区写（sandbox 语义），不拦
         //（与 F20260923hsyn 绝对路径豁免同构；相对形态是统一工作区下的主流形态）。
         const workspacesDir = path.normalize(path.join(projectRoot, "data", "workspaces")) + path.sep;
@@ -1976,7 +1976,7 @@ interface HeredocJudgeCtx {
   logger?: Logger;
   allowedServices: AllowedService[];
   projectRoot?: string;
-  /** F20261013cwsp：session 工作目录（透传供壳体递归 V1 链的 cwd 感知判定） */
+  /** F20261014cwsp：session 工作目录（透传供壳体递归 V1 链的 cwd 感知判定） */
   sessionCwd?: string;
 }
 
@@ -2060,7 +2060,7 @@ function checkSanitizedPath(
   return checkBashCommandSafetyOnText(sanitizeQuotedText(command), mainPid, logger, allowedServices, ctx);
 }
 
-/* eslint-disable complexity, max-statements -- V1/V2 双链路由是本入口的本质形态（模型路径+兜底路径+规则补位）；F20261013cwsp：sessionCwd 提取 +1 语句 +1 分支 */
+/* eslint-disable complexity, max-statements -- V1/V2 双链路由是本入口的本质形态（模型路径+兜底路径+规则补位）；F20261014cwsp：sessionCwd 提取 +1 语句 +1 分支 */
 export function checkBashCommandSafety(
   command: string,
   mainPid: number | null,

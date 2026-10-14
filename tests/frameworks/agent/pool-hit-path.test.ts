@@ -31,7 +31,7 @@ function withEpoch<T>(fn: () => Promise<T>): Promise<T> {
 type FakeSession = {
   isStreaming: boolean;
   disposed: boolean;
-  /** F20261013cwsp S7/S9：SDK 同构字段——_buildRuntime 按调用时 this._cwd 重建工具
+  /** F20261014cwsp S7/S9：SDK 同构字段——_buildRuntime 按调用时 this._cwd 重建工具
    * （agent-session.js:2910），build 捕获的 cwd 快照是唯一可观测行为面 */
   _cwd: string;
   builtWithCwd: string[];
@@ -182,7 +182,7 @@ describe("F20260911pspl 池命中路径（_acquirePooled）", () => {
     db.close();
   });
 
-  it("F20261013cwsp S9：池命中切换对话——_cwd 先赋后 build（build 捕获新工作区），失败回滚重试", async () => {
+  it("F20261014cwsp S9：池命中切换对话——_cwd 先赋后 build（build 捕获新工作区），失败回滚重试", async () => {
     const { internals, db } = makeFactory();
     const first = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m1", conversationId: "conv-A" }));
     const session = first.session;

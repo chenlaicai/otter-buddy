@@ -1,5 +1,5 @@
 /**
- * F20261013cwsp：resolveSessionCwd 纯函数单测（V1 验证项）。
+ * F20261014cwsp：resolveSessionCwd 纯函数单测（V1 验证项）。
  *
  * 锁定语义：
  * ① 有 conversationId → data/workspaces/<conversationId>
@@ -12,7 +12,7 @@ import path from "node:path";
 import os from "node:os";
 import { resolveSessionCwd } from "@frameworks/agent/session-cwd-resolver";
 
-describe("resolveSessionCwd（F20261013cwsp）", () => {
+describe("resolveSessionCwd（F20261014cwsp）", () => {
   let dataDir: string;
 
   beforeEach(() => {

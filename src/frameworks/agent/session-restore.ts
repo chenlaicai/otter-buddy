@@ -132,7 +132,7 @@ export class SessionRestore {
   }
 
   /** 创建 session 并持久化，返回 sessionManager（延迟写入，文件可能尚未落盘） */
-  /** F20261013cwsp：cwd 参数挪到 options 对象（第六参超限——max-params lint） */
+  /** F20261014cwsp：cwd 参数挪到 options 对象（第六参超限——max-params lint） */
   createSessionAndPersist(
     otterId: string,
     config: { systemPrompt?: string | OtterPromptConfig; otterType: string; modelAlias?: string },

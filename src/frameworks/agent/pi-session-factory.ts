@@ -237,7 +237,7 @@ export interface AgentSessionFactoryConfig {
   otterRepo: OtterRepository;
   /** Settings 仓库（读取用户显示名，可选） */
   settingsRepo?: SettingsRepository;
-  /** F20261013cwsp: 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
+  /** F20261014cwsp: 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
   dataDir?: string;
   /** F20260917cvid: 对话仓库（可选）——身份注入读对话标题用 */
   conversationRepo?: ConversationRepository;
@@ -298,7 +298,7 @@ export class PiSessionFactory implements AgentGateway {
       otterConfigProvider: OtterConfigProvider;
       otterRepo: OtterRepository;
       settingsRepo?: SettingsRepository;
-      /** F20261013cwsp: 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
+      /** F20261014cwsp: 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
       dataDir?: string;
       /** F20260917cvid: 对话仓库（可选）——身份注入读对话标题用 */
       conversationRepo?: ConversationRepository;
@@ -459,7 +459,7 @@ export class PiSessionFactory implements AgentGateway {
     // 2. 创建新 SessionManager（chain，引用旧 session 作为 parent）
     // parentSession 仅是血缘元数据（SDK 只写 header，不拷贝父消息进上下文），故新 session 上下文为空，需步骤 7 标记重注入
     const SessionManagerClass = getSessionManagerClass(this.modelRuntimeRegistry.getPiCodingAgent()!);
-    // F20261013cwsp：reset/handoff 路径无 conversationId——用 _system 兜底工作区
+    // F20261014cwsp：reset/handoff 路径无 conversationId——用 _system 兜底工作区
     const workspaceCwd = resolveSessionCwd("", this.cfg.dataDir ?? "./data");
     const sessionManager = SessionManagerClass.create(workspaceCwd, this.cfg.sessionDir, {
       ...(stored?.piSessionId && { parentSession: stored.piSessionId }),
@@ -839,7 +839,7 @@ export class PiSessionFactory implements AgentGateway {
         resetInvokeRegister(existing.register, options?.messageId, { currentInvokeId: options?.currentInvokeId, emitEvent: options?.emitEvent });
         const turnText = existing.register.turnText;
         const sessionKey = options?.messageId ? `${otterId}:${options.messageId}` : otterId;
-        // F20261013cwsp：池命中时重置 cwd 到当前对话工作区（U1：invoke 入口重置，不动池结构）
+        // F20261014cwsp：池命中时重置 cwd 到当前对话工作区（U1：invoke 入口重置，不动池结构）
         await this._resetSessionCwd(existing.session, options?.conversationId ?? "");
         this._transferPoolOwnership(existing, otterId);
         this._registerActiveSession(sessionKey, existing.session);
@@ -1116,11 +1116,11 @@ export class PiSessionFactory implements AgentGateway {
    *  **不误逐新 invoke 的条目**（delta 附注①：并非「绝不被逐出」——铸造者自己的
    *  zombie 清理若携原 epoch 仍会命中，与旧代码持平非回归）；拒绝池命中本身
    *  不可取（每次冷启动是行为大变），降级面止于 warn。 */
-  /** F20261013cwsp：池命中时重置 session cwd 到当前对话工作区。
+  /** F20261014cwsp：池命中时重置 session cwd 到当前对话工作区。
    *  SDK _buildRuntime 每次用 this._cwd 重建全部工具定义（agent-session.js:2910），
    *  invoke 入口重置后 cwd 跟随当前对话。池键维持 otterId 不变。
    *  mock session（测试）可能无 _buildRuntime——检查方法存在再调。 */
-  /** F20261013cwsp：池命中时重置 session cwd 到当前对话工作区。
+  /** F20261014cwsp：池命中时重置 session cwd 到当前对话工作区。
    *  先赋 _cwd 后 build——SDK `_buildRuntime`（agent-session.js:2910）按调用时的
    * `this._cwd` 重建全部工具定义（bash execute 用创建时闭包值），顺序反了则重建的
    *  工具仍绑上一个对话的工作区（round-1 修复方向错误，round-2 S7 纠正）。
@@ -1293,7 +1293,7 @@ export class PiSessionFactory implements AgentGateway {
     const modelRuntime = this.modelRuntimeRegistry.getModelRuntime();
     const settingsManager = this.modelRuntimeRegistry.getSettingsManager();
 
-    // F20261013cwsp：cwd 统一切换对话工作区——createAgentSession({cwd}) 唯一事实源
+    // F20261014cwsp：cwd 统一切换对话工作区——createAgentSession({cwd}) 唯一事实源
     const workspaceCwd = resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data");
 
     this.logger.debug('[createSession] Calling createAgentSession', { otterId, modelAlias: resolvedAlias });

@@ -596,7 +596,7 @@ function validateUntil(
   // readMainProcessPid(cwd)——生产 cwd=主服务运行目录，PID 文件在那）——原 null 使
   // kill 族检测整体旁路（until: "pkill -f otter-buddy" 可直接过，8/30 事故同款
   // 威胁经 wait 工具新通道重开）。缺失时 null 走降级链（V1 语义）。
-  // F20261013cwsp：projectRoot 锚定主仓根（getRepoRoot 代码位置解析，与进程 cwd 无关）。
+  // F20261014cwsp：projectRoot 锚定主仓根（getRepoRoot 代码位置解析，与进程 cwd 无关）。
   // round-2 修正：不传 sessionCwd——wait until 的合法形态是状态查询命令，无写场景；
   // 传 process.cwd()（生产=主仓根）会触发 S8 子树豁免放开整个 data/ 树（rm -rf data/*
   // 全放行），缺失时守卫守旧行为（保守拦，与 cwd 统一切换前一致）。

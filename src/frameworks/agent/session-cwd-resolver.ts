@@ -1,5 +1,5 @@
 /**
- * F20261013cwsp：海獭 cwd 统一切换对话工作区——
+ * F20261014cwsp：海獭 cwd 统一切换对话工作区——
  * 按 conversationId 解析当前对话的工作区绝对路径，
  * 作为 createAgentSession({cwd}) 的唯一事实源。
  *
@@ -17,7 +17,7 @@ import fs from "node:fs";
  * @param conversationId 当前对话 ID（invoke 入口传入）
  * @param dataDir 主仓 data/ 目录路径（app.ts 注入，不再从 process.cwd() 派生）；
  *   相对值（如默认 "./data"）按 process.cwd() 解析为绝对路径——守卫 cwd 感知判定
- *   要求绝对锚点（相对 cwd 的「树内/树外」判定无意义，F20261013cwsp 检视 S1）
+ *   要求绝对锚点（相对 cwd 的「树内/树外」判定无意义，F20261014cwsp 检视 S1）
  * @returns 工作区绝对路径（已确保目录存在）
  */
 export function resolveSessionCwd(conversationId: string, dataDir: string): string {

@@ -60,7 +60,7 @@ export interface AttachGuardsParams {
   orchestrationCheck?: (toolName: string, args?: unknown) => string | null;
   /** F20260830bsgr：项目根目录（bash 安全守卫读 .otter-buddy.pid 用） */
   projectRoot?: string;
-  /** F20261013cwsp：session 工作目录（invoke 时的对话工作区）——守卫落点判定基准 */
+  /** F20261014cwsp：session 工作目录（invoke 时的对话工作区）——守卫落点判定基准 */
   sessionCwd?: string;
   /** F20260831aksp T3：bash 守卫拦截落 healing_events（框架层 medium 样本；fire-and-forget） */
   onGuardIntercept?: (input: { command: string; reason: string }) => void;

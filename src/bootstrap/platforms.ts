@@ -88,7 +88,7 @@ export async function createAgentGateway(options: {
   identityPromptDir?: string;
   /** 对话工作区网关 */
   workspaceGateway?: WorkspaceGateway;
-  /** F20261013cwsp: 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
+  /** F20261014cwsp: 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
   dataDir?: string;
 }): Promise<{ agentGateway: PiSessionFactory; resolveOtterToolClient: (client: OtterToolClient) => void; resolveManageScheduledTask: (mst: ManageScheduledTask) => void }> {
   const { repos, otterConfigProvider, model, modelPool, db, logger } = options;
