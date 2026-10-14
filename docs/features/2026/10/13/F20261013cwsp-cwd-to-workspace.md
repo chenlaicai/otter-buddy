@@ -50,7 +50,13 @@ S8：`buildPiBuiltinToolDefinitions(process.cwd())` 硬编码主仓，五件套 
 - **S5 撞车（上报）**：open PR #1433（写落点求值器转正）与本 PR 同文件域——S1 修复刻意最小侵入（GuardCwdCtx 打包收窄参数面、cwd 感知集中在 checkMainCheckoutWrite/judgeSegment 两点），降低归一冲突；合入顺序呈搭档仲裁。
 - **S6 半完成态（修复）**：`_resetSessionCwd` 改先 build 后赋 `_cwd`，build 失败保旧值下次重试。
 
-J1 块级 eslint-disable 已随 GuardCwdCtx 打包消除（complexity/max-params 警告归零，仅剩既有的 3 处函数级豁免）。J2-J4 采纳收窄范围。
+J1 块级 eslint-disable 已随 GuardCwdCtx 打包消除（complexity/max-params 警告归零）。J2（session-restore `opts.cwd` 死参数）保留待清——删除涉及 restore 签名重排，与 J3（wait sessionCwd 语义）一起在 round-2 处置范围内部分修正（J3：wait 通道撤 sessionCwd 传参，守旧保守拦）。J4 测试名已对齐。J5 status→implemented。
+
+### 实现层 round-2（10/14 12:50，检视獭-cwd-impl delta 复核）
+
+- **S7（S6 修反了，纠正）**：`_resetSessionCwd` 改「先赋 `_cwd` 后 `_buildRuntime()`，build 失败回滚」——SDK 按调用时 `this._cwd` 重建工具（agent-session.js:2910），round-1 的「先 build 后赋」使重建工具绑上一个对话工作区（成功路径必坏）。
+- **S8（豁免面过宽，收窄）**：`resolvesToMainData` 的 workspaces 豁免从「整树无条件」收窄为「sessionCwd 子树」——跨对话工作区破坏（`rm -rf ../OTHER-conv`）恢复拦截，无 sessionCwd 形态守旧行为。wait 工具 until 通道撤 sessionCwd 传参（合法形态是状态查询，无写场景；传 process.cwd() 会放开 data/ 全树）。
+- 具名化：`GIT_WRITE_LITERAL_PATTERN` 常量替代魔法索引 pi===7。
 
 ## 背景
 

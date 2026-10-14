@@ -417,7 +417,7 @@ const DATA_DESTRUCTIVE_MSG = "bash 命令对主仓 data/（运行时数据：met
  *  大小写归一化：比较双侧 toLowerCase（macOS case-insensitive FS 上 `dAta/` 实际命中
  *  主仓 data/，区分大小写比较会漏拦——检视獭-1040 严重发现，修复与本函数同步应用于
  *  resolvesToMainCheckout） */
-function resolvesToMainData(target: string, cwd: string, projectRoot?: string): boolean {
+function resolvesToMainData(target: string, cwd: string, projectRoot?: string, sessionCwd?: string): boolean {
   if (!projectRoot) return true; // projectRoot 缺失时保守拦截（与 resolvesToMainCheckout 同策略）
   if (target.startsWith("~")) return true; // ~ 不展开，保守拦截（~/…/otter-buddy/data 可能指向主仓）
   // 尾部 glob 剥除：data/metrics/* → data/metrics（glob 只影响目录内容范围，不影响目录归属）
@@ -432,12 +432,14 @@ function resolvesToMainData(target: string, cwd: string, projectRoot?: string): 
   // 大小写归一化后比较（同上注释）
   const resolvedLower = resolved.toLowerCase();
   const dataRootLower = dataRoot.toLowerCase();
-  // F20261013cwsp S2 处置：data/workspaces/ 是会话工作区（sandbox 语义，与 data/metrics|logs
-  // 等运行时数据性质不同）——落点在工作区内不判主仓 data 破坏（与 F20260923hsyn 重定向
-  // 落点豁免同构）。统一工作区后獭 bash cwd=工作区，`rm -rf data`（清工作区缓存）等
-  // 相对命令解析到工作区树内，不应拦（10/14 三连误拦实证 + 检视 S2 probe 树内实证）。
-  const workspacesLower = path.join(dataRootLower, "workspaces") + path.sep;
-  if (resolvedLower.startsWith(workspacesLower)) return false;
+  // F20261013cwsp S2/S8 处置：仅豁免**本会话工作区子树**（sessionCwd 归一化后前缀）——
+  // `rm -rf data`（cwd=自己工作区，清自己缓存）放行（10/14 三连误拦实证）；
+  // 整树豁免是越权面（round-2 S8：对话 A 一行 `rm -rf ../OTHER-conv` 可销毁对话 B
+  // 整个工作区，legacy 无 sessionCwd 形态也失守）。无 sessionCwd 不豁免——守旧行为。
+  if (sessionCwd && path.isAbsolute(sessionCwd)) {
+    const ownWs = path.normalize(sessionCwd).toLowerCase();
+    if (resolvedLower === ownWs || resolvedLower.startsWith(ownWs + path.sep)) return false;
+  }
   return resolvedLower === dataRootLower || resolvedLower.startsWith(dataRootLower + path.sep);
 }
 
@@ -449,16 +451,16 @@ function pathArgsOf(seg: string): string[] {
 }
 
 /** 形态检测：段是否对主仓 data/ 执行删除/移动（cwd 为相对路径解析基准） */
-function segmentDestructive(seg: string, cwd: string, projectRoot?: string): { kind: string; hit: boolean } {
+function segmentDestructive(seg: string, cwd: string, projectRoot?: string, sessionCwd?: string): { kind: string; hit: boolean } {
   if (isKillAtCommandPosition(seg, /\br(?:m|mdir)\b/)) {
-    return { kind: "rm", hit: pathArgsOf(seg).some(a => resolvesToMainData(a, cwd, projectRoot)) };
+    return { kind: "rm", hit: pathArgsOf(seg).some(a => resolvesToMainData(a, cwd, projectRoot, sessionCwd)) };
   }
   if (isKillAtCommandPosition(seg, /\bmv\b/)) {
     const args = pathArgsOf(seg);
-    return { kind: "mv", hit: args.length > 0 && resolvesToMainData(args[0], cwd, projectRoot) };
+    return { kind: "mv", hit: args.length > 0 && resolvesToMainData(args[0], cwd, projectRoot, sessionCwd) };
   }
   if (isKillAtCommandPosition(seg, /\bfind\b/) && /(?:^|\s)-delete\b/.test(seg)) {
-    return { kind: "find -delete", hit: pathArgsOf(seg).some(a => resolvesToMainData(a, cwd, projectRoot)) };
+    return { kind: "find -delete", hit: pathArgsOf(seg).some(a => resolvesToMainData(a, cwd, projectRoot, sessionCwd)) };
   }
   return { kind: "", hit: false };
 }
@@ -481,7 +483,7 @@ function checkDataDirDestructive(command: string, logger: Logger | undefined, ct
       cwd = path.isAbsolute(target) ? path.normalize(target) : (cwd ? path.normalize(path.resolve(cwd, target)) : "");
       continue;
     }
-    const { kind, hit } = segmentDestructive(seg, cwd, ctx.projectRoot);
+    const { kind, hit } = segmentDestructive(seg, cwd, ctx.projectRoot, ctx.sessionCwd);
     if (hit) {
       logger?.warn(`[bash-safety-guard] BLOCKED ${kind} targeting main-checkout data/`, { command: command.substring(0, 200) });
       return DATA_DESTRUCTIVE_MSG;
@@ -1162,6 +1164,10 @@ function checkSegmentStructuralWrite(
 
 /** 主仓写操作形态（F20260922scwd）：重定向/heredoc/python patch/git 写族 */
 const REDIRECT_PATTERN = /(?:^|[;&\n]|&&|\|\|)\s*(?:>|>>|<<<)\s*[^|&;\n]+|(?<!["'\w])\d*>>?\s*[^|&;\n'"]+/;  // 重定向（含 echo x > file 中段形态 + 2> 数字前缀）
+/** git 写族字面通道（MAIN_WRITE_PATTERNS 末项）——cwd 上移豁免（skipGitLiteral）
+ *  只免除本通道；具名引用替代魔法索引（round-2 建议）。定义先于数组（as const 引用）。 */
+const GIT_WRITE_LITERAL_PATTERN = /(?:^|[|&]|&&|\|\||[;\n])\s*(?:[A-Za-z_]\w*=\S*\s+)*git\s+(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push)\b/;  // git 写族（#1285 洞3：赋值前缀 \S+→\S*，空赋值 `FOO= git commit` 同拦）
+
 const MAIN_WRITE_PATTERNS = [
   REDIRECT_PATTERN,
   /(?:^|&&|\|\||[;&\n])\s*(?:[\w./-]+\/)?python[\d.]*\s+-\s*<<["']?/,       // python heredoc patch（delta r1：含版本号/路径形态；delta 2：多级+绝对路径）
@@ -1186,7 +1192,7 @@ const MAIN_WRITE_PATTERNS = [
   // 是 plumbing 只读，前缀吞噬同型），cherry-pick/apply/rebase/stash push 无 - 开头只读派生。
   // ② 段首锚前加赋值前缀串（[A-Za-z_]\w*=\S+\s+）*——`FOO=1 git commit` 的赋值是 shell
   // 前缀不是子命令，原锚要求 git 紧邻段首会漏此形态（写族判定绕过面）。
-  /(?:^|[|&]|&&|\|\||[;\n])\s*(?:[A-Za-z_]\w*=\S*\s+)*git\s+(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push)\b/,  // git 写族（#1285 洞3：赋值前缀 \S+→\S*，空赋值 `FOO= git commit` 同拦）
+  GIT_WRITE_LITERAL_PATTERN,
 ] as const;
 
 /** F20260924gfpn：git 只读子命令白名单（精确全称，非前缀匹配）。
@@ -1724,10 +1730,10 @@ function checkWriteChannels(
   command: string,
   ctx: { logger?: Logger; projectRoot?: string; sessionCwd?: string; heredocReadOnly?: boolean; oneLinerReadOnly: boolean; depth: number; skipGitLiteral?: boolean },
 ): string | null {
-  // MAIN_WRITE_PATTERNS.slice(1) 末项（index 7）是 git 写族字面通道——cwd 上移豁免
-  //（skipGitLiteral）只跳过它，其余通道照常（F20261013cwsp S1 收窄）。
+  // git 写族字面通道——cwd 上移豁免（skipGitLiteral）只跳过它，其余通道照常
+  //（F20261013cwsp S1 收窄；具名恒等比较替代魔法索引，数组增删不错位）。
   for (const [pi, pattern] of MAIN_WRITE_PATTERNS.slice(1).entries()) {
-    if (pi === 7 && ctx.skipGitLiteral) continue;
+    if (pattern === GIT_WRITE_LITERAL_PATTERN && ctx.skipGitLiteral) continue;
     if (!pattern.test(command)) continue;
     if (writeChannelExempt(pi, ctx)) continue;
     ctx.logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (no cd)", { command: command.substring(0, 200) });

@@ -596,10 +596,10 @@ function validateUntil(
   // readMainProcessPid(cwd)——生产 cwd=主服务运行目录，PID 文件在那）——原 null 使
   // kill 族检测整体旁路（until: "pkill -f otter-buddy" 可直接过，8/30 事故同款
   // 威胁经 wait 工具新通道重开）。缺失时 null 走降级链（V1 语义）。
-  // 测试形态：wait-tool.test beforeAll 在 worktree 根写临时 .otter-buddy.pid。
-  // F20261013cwsp：projectRoot/sessionCwd 锚点与 cwd 解耦——PID/白名单锚定主仓根
-  //（getRepoRoot 代码位置解析，与进程 cwd 无关），落点判定基准取 wait 工具自身
-  // 执行 cwd（wait.ts:255 execFileAsync cwd ?? process.cwd()，无 cd 能力）。
+  // F20261013cwsp：projectRoot 锚定主仓根（getRepoRoot 代码位置解析，与进程 cwd 无关）。
+  // round-2 修正：不传 sessionCwd——wait until 的合法形态是状态查询命令，无写场景；
+  // 传 process.cwd()（生产=主仓根）会触发 S8 子树豁免放开整个 data/ 树（rm -rf data/*
+  // 全放行），缺失时守卫守旧行为（保守拦，与 cwd 统一切换前一致）。
   const guardProjectRoot = getRepoRoot();
   const mainPid = readMainProcessPid(guardProjectRoot);
   // N1（delta 复核硬化）：until 通道 kill 族词样一律拒——until 的合法形态是状态查询
@@ -608,7 +608,7 @@ function validateUntil(
   if (findKillSegments(until).length > 0) {
     return { error: errorResponse("[错误] until 苏醒检查不支持进程终止类命令（kill/pkill/killall 等）——until 只用于状态查询（如 gh pr checks）。确需终止进程的报告搭档处置。") };
   }
-  const safetyBlock = checkBashCommandSafety(until, mainPid, logger, { projectRoot: guardProjectRoot, sessionCwd: process.cwd() });
+  const safetyBlock = checkBashCommandSafety(until, mainPid, logger, { projectRoot: guardProjectRoot });
   if (safetyBlock) {
     // 与 bash 同文案同纪律——透传守卫拦截文案（含进程终止/data 域引导）
     return { error: errorResponse(`[错误] until 苏醒检查命令被安全守卫拦截：${safetyBlock}`) };

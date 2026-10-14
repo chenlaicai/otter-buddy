@@ -61,6 +61,24 @@ describe("F20261013cwsp：sessionCwd 感知——会话工作区（树内非 git
   });
 });
 
+describe("F20261013cwsp：S8 收窄——跨对话工作区破坏仍拦", () => {
+  it("rm -rf ../OTHER-conv（相对路径越权到邻对话工作区）→ 拦", () => {
+    expect(checkBashCommandSafety(`rm -rf ../OTHER-conv`, mainPid, undefined, optsWs)).not.toBeNull();
+  });
+
+  it("rm -rf /repo/data/workspaces/OTHER-conv（绝对路径他人工作区）→ 拦", () => {
+    expect(checkBashCommandSafety(`rm -rf /repo/data/workspaces/OTHER-conv`, mainPid, undefined, optsWs)).not.toBeNull();
+  });
+
+  it("legacy 无 sessionCwd + rm 绝对路径工作区 → 拦（旧行为保持，S8 回归锁）", () => {
+    expect(checkBashCommandSafety(`rm -rf /repo/data/workspaces/conv-abc`, mainPid, undefined, optsLegacy)).not.toBeNull();
+  });
+
+  it("rm -rf data（自己工作区缓存）→ 放行（S2 豁免面保持）", () => {
+    expect(checkBashCommandSafety(`rm -rf data`, mainPid, undefined, optsWs)).toBeNull();
+  });
+});
+
 describe("F20261013cwsp：sessionCwd 感知——落点真主仓仍拦", () => {
   it("cd 主仓 && git commit → 拦", () => {
     // F20261013cwsp 已知边界：cd 豁免（#1170/F20260922scwd）按旧语义放行

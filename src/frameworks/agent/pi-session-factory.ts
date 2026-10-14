@@ -1120,19 +1120,25 @@ export class PiSessionFactory implements AgentGateway {
    *  SDK _buildRuntime 每次用 this._cwd 重建全部工具定义（agent-session.js:2910），
    *  invoke 入口重置后 cwd 跟随当前对话。池键维持 otterId 不变。
    *  mock session（测试）可能无 _buildRuntime——检查方法存在再调。 */
-  /** F20261013cwsp S6 处置：池命中时重置 session cwd 到当前对话工作区。
-   *  先 build 后赋 _cwd——_buildRuntime 抛错时 cwd 保持原值，下次池命中重试重建
-   * （原实现先赋后 build：build 失败后 _cwd===cwd 早退，重建永久跳过，工具持续
-   *  读写上一个对话的工作区——静默跨对话串写，检视 S6）。 */
+  /** F20261013cwsp：池命中时重置 session cwd 到当前对话工作区。
+   *  先赋 _cwd 后 build——SDK `_buildRuntime`（agent-session.js:2910）按调用时的
+   * `this._cwd` 重建全部工具定义（bash execute 用创建时闭包值），顺序反了则重建的
+   *  工具仍绑上一个对话的工作区（round-1 修复方向错误，round-2 S7 纠正）。
+   *  build 失败回滚 _cwd——保早退条件成立，下次池命中重试（S6 语义保持）。 */
   private async _resetSessionCwd(session: AgentSession, conversationId: string): Promise<void> {
     const cwd = resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data");
     const s = session as unknown as Record<string, unknown>;
     if (s._cwd === cwd) return;
     const build = s._buildRuntime;
-    if (typeof build === "function") {
-      await (build as (opts: Record<string, unknown>) => Promise<void>).call(session, {});
-    }
+    if (typeof build !== "function") { s._cwd = cwd; return; } // mock 守卫：无 build 直赋
+    const prev = s._cwd;
     s._cwd = cwd;
+    try {
+      await (build as (opts: Record<string, unknown>) => Promise<void>).call(session, {});
+    } catch (err) {
+      s._cwd = prev;
+      throw err;
+    }
   }
 
   private _transferPoolOwnership(existing: { epoch?: InvokeEpoch }, otterId: string): void {
