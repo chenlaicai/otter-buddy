@@ -30,6 +30,20 @@ export interface StateInventory {
   activity: { status: string; waitingFor?: string };
 }
 
+/** entries 读取窄接口（F20260913ctlv 收尾批1：替代 queryMessage，时间线唯一真相源）。
+ *  F20261014wtrm：从 handoff-package-builder.ts 迁入——该文件的 buildHandoffPackage 死代码出清后，
+ *  本接口的唯一活引用是 state-inventory 发言石盘点与 agent-invoker 保留段读取，归位到本文件。 */
+export interface HandoffEntryReader {
+  getEntries(conversationId: string, options?: { entryType?: string; limit?: number }): Promise<Array<{
+    senderId: string | null;
+    senderType: string | null;
+    entryType: string;
+    body: string | null;
+    yieldTargets: string[] | null;
+    createdAt: string;
+  }>>;
+}
+
 /** 盘点依赖（由 DI 注入）。
  *  F20260913ctlv 收尾批1：历史读取切 entries——queryMessage（messages 表）退役，
  *  改用 entryRepo 窄接口（getEntries，sequence_num DESC） */
