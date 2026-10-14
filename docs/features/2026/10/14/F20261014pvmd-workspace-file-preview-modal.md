@@ -29,7 +29,7 @@ modules: [web, conversation]
 
 - 内联 FileContentViewer 删除，替换为 FilePreviewModal（复用 components/Modal.tsx，Escape 关闭、焦点管理、portal 挂 body、z-[100]、fullScreenOnMobile 全内置）
 - Modal 内渲染分发：
-  - .md/.markdown → ReactMarkdown（复用现有 MarkdownRenderer）
+  - .md/.markdown → 消息流同款 MarkdownContent（event-log 变体：GFM + Prism 语法高亮 + PreWrapP；不接 unfurl 卡片——安全设计）
   - .html/.htm → sandbox iframe（复用现有 HtmlRenderer）
   - 图片（png/jpg/jpeg/gif/webp/bmp/svg）→ 新增 ImageRenderer：居中 `<img>`，maxHeight 70vh
   - 其他 → PlainRenderer
@@ -80,7 +80,7 @@ modules: [web, conversation]
 
 ### 最简实现检查
 
-已过：复用现有 Modal / ReactMarkdown / sandbox iframe / PlainRenderer，新增代码仅 ImageRenderer（~15 行）+ 后端 readFileBuffer（~10 行）+ 契约字段。无新依赖、无新 endpoint、无新组件库。
+已过：复用现有 Modal / MarkdownContent（消息流管线）/ sandbox iframe / PlainRenderer，新增代码仅 ImageRenderer（~15 行）+ 后端 readFileBuffer（~10 行）+ 契约字段。无新依赖、无新 endpoint、无新组件库。
 
 ### 测试
 

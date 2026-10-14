@@ -234,6 +234,24 @@ describe('文件预览 Modal 内容渲染分发（F20261014pvmd）', () => {
     expect(img.src).toBe('data:image/png;base64,aGVsbG8=')
   })
 
+  it('md 渲染管线接线：MarkdownContent 产出真实 heading + 段落（防管线接错壳子仍绿，F20261014pvmd 检视处置）', async () => {
+    const mdContent = { path: 'note.md', content: '# 标题\n\n正文段落', truncated: false }
+    const rootEntries = { entries: [{ name: 'note.md', isDirectory: false, isFile: true, path: 'note.md' }] }
+    const mock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(rootEntries), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(mdContent), { status: 200 }))
+    vi.stubGlobal('fetch', mock)
+    await act(async () => { root.render(<WorkspacePanel conversationId="test" />) })
+
+    const fileBtn = container.querySelector('[data-testid="file-note.md"]') as HTMLButtonElement
+    await act(async () => { fileBtn.click() })
+    const dialog = document.querySelector('[role="dialog"]')
+    const md = dialog!.querySelector('[data-testid="react-markdown"]')!
+    // 管线接线断言：MarkdownContent 应产出真实 heading 与段落（非空壳）
+    expect(md.querySelector('h1')?.textContent).toBe('标题')
+    expect(md.querySelector('p')?.textContent).toBe('正文段落')
+  })
+
   it('Escape 关闭 Modal 后内容清除', async () => {
     const mock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify(ROOT_FILE_ENTRIES), { status: 200 }))

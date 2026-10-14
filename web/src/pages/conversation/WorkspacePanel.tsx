@@ -200,7 +200,7 @@ function TreeNode(props: TreeNodeProps) {
 
 // ── 文件内容渲染 ────────────────────────────────────────────────────────────
 
-/** .md / .markdown → 消息流同款 MarkdownContent（GFM + 代码高亮 + unfurl 卡片，F20261014pvmd 对齐） */
+/** .md / .markdown → 消息流同款 MarkdownContent（event-log 变体：GFM + Prism 语法高亮；不接 unfurl 卡片/链接——安全设计，勿改 variant，F20261014pvmd 对齐） */
 function MarkdownRenderer({ content }: { content: string }) {
   return (
     <div data-testid="react-markdown" className="prose max-w-none text-stone-700 text-sm leading-relaxed
