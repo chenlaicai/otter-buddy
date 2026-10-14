@@ -126,7 +126,7 @@ describe("SessionRestore modelAlias 持久化", () => {
       { otterType: "small", modelAlias: "fast" },
       makePiCodingAgent(),
       "/tmp/sessions",
-      false,
+      { allowOverwrite: false },
     );
 
     const config = provider.getConfig("o1");
@@ -140,7 +140,7 @@ describe("SessionRestore modelAlias 持久化", () => {
       { otterType: "big" },
       makePiCodingAgent(),
       "/tmp/sessions",
-      false,
+      { allowOverwrite: false },
     );
 
     const config = provider.getConfig("o1");
