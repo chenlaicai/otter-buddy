@@ -4,6 +4,11 @@ title: 工作区文件点击弹窗预览（md/html/图片）
 summary: WorkspacePanel 点击文件从内联预览改为 Modal 弹窗展示；图片类二进制经契约 base64 编码字段返回，双端 tsc 锁死漂移
 change_type: feature
 capability_test: "n/a: 纯 UI 渲染分发 + API 编码路径变更，无 capability 场景；验证靠组件测试 + HTTP 集成测试 + Playwright 真机截图"
+intent:
+  problem: "工作区文件点击后在窄面板内联预览，看大文件体验差，且图片等二进制经 utf-8 强制读出乱码"
+  expected_effect: "点击文件弹出 Modal 预览（md/html/图片分渲染器），图片经 base64 编码正确显示，Escape/遮罩可关闭"
+  verify_by:
+    type: behavior_check
 created_in_conversation: 9107310c-1653-4495-a6e9-0df86e664448
 created_at: 2026-10-14
 tags: [workspace, web, ui, modal]
