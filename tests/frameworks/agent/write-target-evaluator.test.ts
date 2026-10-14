@@ -322,7 +322,7 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
   });
 });
 
-describe("#1432：node import/require 目标只读豁免（F20261014mirw）", () => {
+describe("#1432：node import/require 目标只读豁免（F20261014nirw）", () => {
   it("放行侧：cd 主仓 && node -e await import('./src/…')（issue 现象形态）→ evaluated 无写落点", () => {
     const cmd = `cd ${ROOT} && node -e "const m = await import('./src/usecases/signal/stop-word-scanner.ts').catch(e=>null)"`;
     const r = evaluateWriteTargets(cmd, ROOT);
