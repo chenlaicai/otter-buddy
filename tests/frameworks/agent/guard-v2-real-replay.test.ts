@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { checkBashCommandSafety } from "@frameworks/agent/bash-safety-guard";
+import { evaluateWriteTargets, pathWithinMain } from "@frameworks/agent/write-target-evaluator";
 
 const mainPid = 42877;
 const projectRoot = "/Users/orca/ai/otter-buddy";
@@ -131,5 +132,40 @@ EOF`;
   it("1013-B7: sqlite3 触主仓 data/qtest-*.db（data_destructive 负门）→ 拦（样本 835b22db 实拦 10-13 09:10:57）", () => {
     const cmd = `rm -f /Users/orca/ai/otter-buddy/data/qtest-1.db`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeTruthy();
+  });
+});
+
+describe("#1432 node import/require 只读豁免回放（10-12 现场 b4471a4f/026b37ee，旧链+求值器双侧钉住）", () => {
+  // 现场形态：session cwd 在主仓的裸命令（b4471a4f 无 cd 前缀）——guardOptions.sessionCwd 驱动判定
+  const gopts = { projectRoot, sessionCwd: projectRoot };
+  const PROBE_CMD = `node -e "const { scanStopWords } = await import('./src/usecases/signal/stop-word-scanner.ts').catch(e=>null)"`;
+
+  it("1432-A1: 现象命令（await import 主仓相对路径只读探针）→ 放行（旧链侧钉住）", () => {
+    expect(checkBashCommandSafety(PROBE_CMD, mainPid, undefined, gopts)).toBeNull();
+  });
+
+  it("1432-A2: 同命令求值器侧钉住——evaluated 且无主仓写落点", () => {
+    const r = evaluateWriteTargets(PROBE_CMD, projectRoot);
+    expect(r.kind).toBe("evaluated");
+    if (r.kind === "evaluated") {
+      expect(r.targets.filter(t => pathWithinMain(t.path, projectRoot))).toHaveLength(0);
+    }
+  });
+
+  it("1432-A3: node -e require('./src/foo.ts') 纯字面量目标 → 放行（旧链侧）", () => {
+    expect(checkBashCommandSafety(`node -e "const x = require('./src/foo.ts'); console.log(Object.keys(x))"`, mainPid, undefined, gopts)).toBeNull();
+  });
+
+  it("1432-B1 负门: import/require 动态拼接目标 → 保持拦（目标不可静态判定）", () => {
+    expect(checkBashCommandSafety(`node -e "const x = require('./src/' + p)"`, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1432-B2 负门: import 掩护真写 → 保持拦（写词面不因豁免失效）", () => {
+    const cmd = `node -e "await import('./x'); require('fs').writeFileSync('./src/evil.txt','x')"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1432-B3 负门: require('child_process') 危险模块 → 保持拦（词面禁不因豁免失效）", () => {
+    expect(checkBashCommandSafety(`node -e "const c = require('child_process')"`, mainPid, undefined, gopts)).toBeTruthy();
   });
 });

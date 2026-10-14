@@ -1505,6 +1505,9 @@ const NODE_READONLY_METHODS = new Set([
   //  管道消费 curl/grep 输出的日常取证，今晨 90d8307f 实证）；监听器注册无
   //  写盘/执行面，回调体内的写调用仍被方法门/写词门拦
   "on",
+  // #1432：Promise 链方法（import('./x').catch(…)）——链式方法无写面，
+  //  回调体内的写调用仍被方法门/写词门拦
+  "then", "catch", "finally",
 ]);
 
 /** node 体只读白名单（F20260927madr，#1275）：node -e 日常取证（fs.readFileSync 等只读 API）
@@ -1514,7 +1517,14 @@ const NODE_READONLY_METHODS = new Set([
 export function nodeBodyReadOnly(body: string): boolean {
   // F20261006gfpn (#1310)：反斜杠放行（正则需要 \n 等转义），模板串仍拒（${} 展开面）
   if (/`/.test(body)) return false;
-  if (/\b(?:eval|Function|setTimeout|setInterval|require\s*\(\s*(?!['"](?:fs|util|path)['"]))/.test(body)) return false;
+  if (/\b(?:eval|Function|setTimeout|setInterval)\b/.test(body)) return false;
+  // #1432：import/require 目标只读豁免——纯字符串字面量目标是模块解析（固有只读，
+  //  加载≠写落点）；动态拼接目标（import(p)/require('./a'+p)）不豁免（目标不可静态判定）。
+  //  危险模块面（child_process 等）由下方词面禁独立拦；模块方法使用面由调用名白名单收口。
+  //  目标表达式必须整体是纯字符串字面量——含拼接/变量/嵌套调用一律不豁免。
+  for (const mm of body.matchAll(/(?:^|[^\w$.])(?:import|require)\s*\(\s*([^)]*)\)/g)) {
+    if (!/^['"][^'"]*['"]$/.test(mm[1].trim())) return false;
+  }
   // #1275：否定检测扩展——child_process/worker_threads/vm/net/http/https/fs.promises 全禁（执行/网络面）
   // F20261006gfpn (#1310)：process 面扩 env——NODE_ENV 等环境查询是日常只读高频
   if (/\bprocess\s*\.\s*(?!pid\b|platform\b|argv\b|version\b|cwd\b|stdout\b|stderr\b|env\b|stdin\b)/.test(body)) return false; // #1416：扩 stdin——流式消费面（process.stdin.on('data',…) 管道取证形态，今晨六连拦 90d8307f 实证）
@@ -1526,7 +1536,8 @@ export function nodeBodyReadOnly(body: string): boolean {
   // 原实现 `\s*\(` 允许标识符与 ( 之间有空格 → for/if/while 条件里的 ( 被误判为函数调用。
   // 修正：标识符后必须紧跟 (（无空格）才认调用，控制流词 for/if/while 不入 bare。
   const bare = [...body.matchAll(/(?:^|[^\w$.])([A-Za-z_$][\w$]*)\(/g)].map(m2 => m2[1]).filter(c => !dotted.includes(c));
-  if (bare.some(c => !/^(?:console|JSON|Math|String|Number|Boolean|Array|Object|require|parseInt|parseFloat|isNaN)$/.test(c))) return false;
+  //  #1432：import 入白名单——动态导入目标是模块解析（固有只读，目标字面量门在上文已把关）
+  if (bare.some(c => !/^(?:console|JSON|Math|String|Number|Boolean|Array|Object|require|import|parseInt|parseFloat|isNaN)$/.test(c))) return false;
   for (const d of dotted) {
     if (!NODE_READONLY_METHODS.has(d)) return false;
   }
