@@ -47,7 +47,7 @@ S8：`buildPiBuiltinToolDefinitions(process.cwd())` 硬编码主仓，五件套 
 T1: 獭全部工具 cwd = 对话工作区——`createAgentSession({cwd})` 唯一事实源
 T2: 守卫 projectRoot 与进程 cwd 解耦——显式注入主仓路径
 T3: 主仓从「默认落点」降级为「显式目标」——守卫拦截语义不变
-T4: bash 无状态提示保留——挪到 SYSTEM.md/identity 注入（不在工具描述里）
+T4: bash 无状态提示**激活**——挪到 SYSTEM.md/identity 注入（W8 修正：BASH_STATELESS_SUFFIX 与 S9 同因休眠，挪 identity 是激活不是保留现状）
 T5: 主仓相对命令由守卫 rewrite 为 projectRoot 绝对路径后放行
 
 ## 非目标
@@ -135,7 +135,7 @@ bash 无状态提示    BASH_STATELESS_SUFFIX          挪到 SYSTEM.md/identity
 
 R1: 工作区垃圾无显形机制——设计语义；膨胀回收配套机制独立立项
 R2: 池键切换 session 孤儿——一次性 drain 或自然过期
-R3: **删 override 后描述引导消失**——15% bash grep 证明没生效，但删掉后獭完全不知道「有 grep 工具可用」。缓解：SYSTEM.md 工具描述段已有引导（「use the grep tool (not grep ...)」），且獭的 tool_search 可发现工具。残余风险低
+R3: **删 override 后描述引导消失**——15% bash grep 证明工具描述里的引导没生效，且 SYSTEM.md 本无 grep 工具选择引导（W7 修正：唯一涉 grep 处是 line 106 记忆先行原则「grep/bash 翻目录是第二步」= 检索顺序非工具选择）。删掉后獭完全不知道「有 grep 工具可用」。缓解：**SYSTEM.md 真正新增 grep 引导**（不是「已在」）；獭的 tool_search 可发现工具。残余风险低
 R4: session 文件目录编码——显式传 sessionDir 不受影响
 R5: 獭读主仓代码路径变长——已大量使用绝对路径；prompt/skill 扫改后相对路径引用消失
 
