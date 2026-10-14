@@ -129,8 +129,8 @@ import { IdentityBuilder } from "./identity-builder";
 import { buildCustomTools, createInvokeRegister, resetInvokeRegister, type InvokeRegister } from "./tool-builder";
 // F20261009tsts（#1371）：会话级 tool_search（替代 SDK createToolSearchExtension，免疫 ctx stale）
 import { buildSessionToolSearchTool, type ToolSearchSessionHolder } from "./tool-search-tool";
-// F20260904cg77（#776）：编码工具描述覆写（「如何正确使用工具」归位工具自身描述）
-import { buildToolDescriptionOverrides, buildPiBuiltinToolDefinitions } from "./tool-description-overrides";
+import { resolveSessionCwd } from "./session-cwd-resolver";
+import { getRepoRoot } from "@frameworks/repo-root";
 // F20260901mbfx（审计 F5）：readOnly 合成的自定义工具白名单（只读查询类）
 import { SYNTHESIS_READ_ONLY_TOOL_WHITELIST } from "./synthesis-prompt-builder";
 import { ModelRuntimeRegistry, otterInvokeStorage } from "./model-runtime-registry";
@@ -237,6 +237,8 @@ export interface AgentSessionFactoryConfig {
   otterRepo: OtterRepository;
   /** Settings 仓库（读取用户显示名，可选） */
   settingsRepo?: SettingsRepository;
+  /** F20261013cwsp: 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
+  dataDir?: string;
   /** F20260917cvid: 对话仓库（可选）——身份注入读对话标题用 */
   conversationRepo?: ConversationRepository;
 }
@@ -296,6 +298,8 @@ export class PiSessionFactory implements AgentGateway {
       otterConfigProvider: OtterConfigProvider;
       otterRepo: OtterRepository;
       settingsRepo?: SettingsRepository;
+      /** F20261013cwsp: 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
+      dataDir?: string;
       /** F20260917cvid: 对话仓库（可选）——身份注入读对话标题用 */
       conversationRepo?: ConversationRepository;
     },
@@ -370,7 +374,7 @@ export class PiSessionFactory implements AgentGateway {
       systemPrompt: config.systemPrompt,
       otterType: (config.context?.otterType as OtterType) ?? 'big',
       modelAlias: config.modelAlias,
-    }, piCodingAgent, this.cfg.sessionDir, allowOverwrite);
+    }, piCodingAgent, this.cfg.sessionDir, { allowOverwrite });
   }
 
   async destroy(otterId: string): Promise<void> {
@@ -455,7 +459,9 @@ export class PiSessionFactory implements AgentGateway {
     // 2. 创建新 SessionManager（chain，引用旧 session 作为 parent）
     // parentSession 仅是血缘元数据（SDK 只写 header，不拷贝父消息进上下文），故新 session 上下文为空，需步骤 7 标记重注入
     const SessionManagerClass = getSessionManagerClass(this.modelRuntimeRegistry.getPiCodingAgent()!);
-    const sessionManager = SessionManagerClass.create(process.cwd(), this.cfg.sessionDir, {
+    // F20261013cwsp：reset/handoff 路径无 conversationId——用 _system 兜底工作区
+    const workspaceCwd = resolveSessionCwd("", this.cfg.dataDir ?? "./data");
+    const sessionManager = SessionManagerClass.create(workspaceCwd, this.cfg.sessionDir, {
       ...(stored?.piSessionId && { parentSession: stored.piSessionId }),
     });
 
@@ -833,8 +839,8 @@ export class PiSessionFactory implements AgentGateway {
         resetInvokeRegister(existing.register, options?.messageId, { currentInvokeId: options?.currentInvokeId, emitEvent: options?.emitEvent });
         const turnText = existing.register.turnText;
         const sessionKey = options?.messageId ? `${otterId}:${options.messageId}` : otterId;
-        // F20261009epoc：合法池命中 = 所有权转移到命中它的 invoke（#904 语义保持：
-        // 现役合法持有者可逐自己条目，stale 旧 invoke 不可）——见 _transferPoolOwnership
+        // F20261013cwsp：池命中时重置 cwd 到当前对话工作区（U1：invoke 入口重置，不动池结构）
+        await this._resetSessionCwd(existing.session, options?.conversationId ?? "");
         this._transferPoolOwnership(existing, otterId);
         this._registerActiveSession(sessionKey, existing.session);
         return { session: existing.session, sessionKey, toolContext: existing.toolContext, turnText, isPooled: true, createdNew: false };
@@ -939,7 +945,7 @@ export class PiSessionFactory implements AgentGateway {
     const healingRepo = this.cfg.healingRepo;
     if (!healingRepo) return undefined;
     const sink = healingRepo as unknown as ShadowHealingSink;
-    const projectRoot = process.cwd();
+    const projectRoot = getRepoRoot();
     return ({ command, oldBlock }) => {
       recordShadowEval({ command, oldBlock, otterId, ids, projectRoot, sink, logger: this.logger });
     };
@@ -986,7 +992,7 @@ export class PiSessionFactory implements AgentGateway {
         this.logger.debug('[execute] Using pooled session', { otterId, sessionKey });
 
         // 2. 熔断器 + 输出退化检测 + 编排守卫（F20260821i336）+ 守卫拦截 healing（F20260831aksp T3）
-        const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName), projectRoot: process.cwd(), onGuardIntercept: this.buildGuardInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId }), onShadowEval: this.buildShadowEvalHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId }) });
+        const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName), projectRoot: getRepoRoot(), sessionCwd: resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data"), onGuardIntercept: this.buildGuardInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId }), onShadowEval: this.buildShadowEvalHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId }) });
 
         // 3. 构建用户消息（dynamicContext 仍拼在 user message；system prompt 由 extension handler 注入 system role）
         const fullMessage = buildMessageWithContext("", message, options?.dynamicContext);
@@ -1110,6 +1116,21 @@ export class PiSessionFactory implements AgentGateway {
    *  **不误逐新 invoke 的条目**（delta 附注①：并非「绝不被逐出」——铸造者自己的
    *  zombie 清理若携原 epoch 仍会命中，与旧代码持平非回归）；拒绝池命中本身
    *  不可取（每次冷启动是行为大变），降级面止于 warn。 */
+  /** F20261013cwsp：池命中时重置 session cwd 到当前对话工作区。
+   *  SDK _buildRuntime 每次用 this._cwd 重建全部工具定义（agent-session.js:2910），
+   *  invoke 入口重置后 cwd 跟随当前对话。池键维持 otterId 不变。
+   *  mock session（测试）可能无 _buildRuntime——检查方法存在再调。 */
+  private async _resetSessionCwd(session: AgentSession, conversationId: string): Promise<void> {
+    const cwd = resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data");
+    const s = session as unknown as Record<string, unknown>;
+    if (s._cwd === cwd) return;
+    s._cwd = cwd;
+    const build = s._buildRuntime;
+    if (typeof build === "function") {
+      await (build as (opts: Record<string, unknown>) => Promise<void>).call(session, {});
+    }
+  }
+
   private _transferPoolOwnership(existing: { epoch?: InvokeEpoch }, otterId: string): void {
     const hitEpoch = invokeEpochStorage.getStore();
     if (hitEpoch) {
@@ -1262,12 +1283,8 @@ export class PiSessionFactory implements AgentGateway {
     const modelRuntime = this.modelRuntimeRegistry.getModelRuntime();
     const settingsManager = this.modelRuntimeRegistry.getSettingsManager();
 
-    // F20260904cg77（#776）：编码工具描述覆写（引导归位工具描述，readOnly 不覆写——
-    // 合成路径工具已过滤，保持 prompt 最小）。机制见 tool-description-overrides.ts。
-    const descriptionOverrides = readOnly ? [] : buildToolDescriptionOverrides(
-      buildPiBuiltinToolDefinitions(piCodingAgent as unknown as Record<string, unknown>, process.cwd()),
-      filteredCodingTools,
-    );
+    // F20261013cwsp：cwd 统一切换对话工作区——createAgentSession({cwd}) 唯一事实源
+    const workspaceCwd = resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data");
 
     this.logger.debug('[createSession] Calling createAgentSession', { otterId, modelAlias: resolvedAlias });
     // F20261008tecn：有 deferred 工具时激活 tool_search（BM25 检索
@@ -1289,8 +1306,9 @@ export class PiSessionFactory implements AgentGateway {
     const { session } = await piCodingAgent.createAgentSession({
       model: resolvedModel,
       sessionManager,
+      cwd: workspaceCwd,
       tools: [...filteredCodingTools, ...filteredCustomTools.map(t => t.name), ...(hasDeferred ? ["tool_search"] : [])],
-      customTools: [...descriptionOverrides, ...filteredCustomTools, ...(hasDeferred ? [buildSessionToolSearchTool(toolSearchHolder)] : [])],
+      customTools: [...filteredCustomTools, ...(hasDeferred ? [buildSessionToolSearchTool(toolSearchHolder)] : [])],
       resourceLoader: resourceLoader ?? undefined,
       modelRuntime: modelRuntime ?? undefined,
       settingsManager: settingsManager ?? undefined,
@@ -1452,5 +1470,6 @@ export async function initAgentSessionFactory(config: AgentSessionFactoryConfig,
     otterRepo: config.otterRepo,
     settingsRepo: config.settingsRepo,
     conversationRepo: config.conversationRepo,
+    dataDir: config.dataDir,
   }, logger);
 }

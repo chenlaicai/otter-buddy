@@ -22,6 +22,7 @@ import { DomainError } from "@entities/errors";
 import { createWorkspaceTools } from "./workspace-tools";
 import { createCreateScheduledTaskTool } from "./scheduled-task-tools";
 import { checkBashCommandSafety, readMainProcessPid } from "@frameworks/agent/bash-safety-guard";
+import { getRepoRoot } from "@frameworks/repo-root";
 import { findKillSegments } from "@frameworks/agent/kill-segment-finder";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 // R20260817arnt PR-A：工具契约类型自本文件上移 @usecases/ports/agent-tools（消除 frameworks 反向依赖此文件）
@@ -596,14 +597,18 @@ function validateUntil(
   // kill 族检测整体旁路（until: "pkill -f otter-buddy" 可直接过，8/30 事故同款
   // 威胁经 wait 工具新通道重开）。缺失时 null 走降级链（V1 语义）。
   // 测试形态：wait-tool.test beforeAll 在 worktree 根写临时 .otter-buddy.pid。
-  const mainPid = readMainProcessPid(process.cwd());
+  // F20261013cwsp：projectRoot/sessionCwd 锚点与 cwd 解耦——PID/白名单锚定主仓根
+  //（getRepoRoot 代码位置解析，与进程 cwd 无关），落点判定基准取 wait 工具自身
+  // 执行 cwd（wait.ts:255 execFileAsync cwd ?? process.cwd()，无 cd 能力）。
+  const guardProjectRoot = getRepoRoot();
+  const mainPid = readMainProcessPid(guardProjectRoot);
   // N1（delta 复核硬化）：until 通道 kill 族词样一律拒——until 的合法形态是状态查询
   // 类命令（gh pr checks 等），零合法 kill 形态；fail-closed 封死 PID 文件缺失时
   // mainPid=null 走 V1 降级链的残余口（降级链对无关字面量 PID 放行）。
   if (findKillSegments(until).length > 0) {
     return { error: errorResponse("[错误] until 苏醒检查不支持进程终止类命令（kill/pkill/killall 等）——until 只用于状态查询（如 gh pr checks）。确需终止进程的报告搭档处置。") };
   }
-  const safetyBlock = checkBashCommandSafety(until, mainPid, logger, { projectRoot: process.cwd() });
+  const safetyBlock = checkBashCommandSafety(until, mainPid, logger, { projectRoot: guardProjectRoot, sessionCwd: process.cwd() });
   if (safetyBlock) {
     // 与 bash 同文案同纪律——透传守卫拦截文案（含进程终止/data 域引导）
     return { error: errorResponse(`[错误] until 苏醒检查命令被安全守卫拦截：${safetyBlock}`) };
