@@ -1100,9 +1100,36 @@ function drawAmbientSparkles() { // 各点位完成后的周期性环境光
   }
 }
 
-function render() {
-  S.tick++;
-  if (S.dirty) bake();
+/* ---------- Harness 接口（F20261014ghst：四层可读性，供 agent 截图/状态/确定性验证） ---------- */
+/* seed 模式：mulberry32 替换 Math.random；非 seed 模式走原生。B1：seed 模式全局确定（含表现层）。 */
+var __seed = null;
+(function () {
+  var m = /[?&]seed=(\d+)/.exec(location.search);
+  if (!m) return;
+  __seed = parseInt(m[1], 10) >>> 0;
+  var a = __seed;
+  Math.random = function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    var t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+})();
+/* tick 驱动：seed 模式下战斗节拍/浮层定时由 S.tick 派生（__tick 可推进），rAF 只负责渲染。 */
+var __tickQ = [];   // 待派生计时器队列（seed 模式）
+var __auto = !/[?&]seed=/.test(location.search); // seed 模式默认暂停 rAF 自驱
+function __schedule(fn, ticks) { // 统一调度：seed 模式入队 tick 驱动，非 seed 走原生 setTimeout
+  if (__seed !== null) { __tickQ.push({ fn: fn, at: S.tick + Math.max(1, Math.round(ticks)) }); return; }
+  setTimeout(fn, ticks * 16.7); // 近似 60fps 帧时长，非 seed 模式仅作节拍近似
+}
+function __pumpTick() { // 每帧推进：到期的派生计时器依序结算（保持原 setTimeout 的串行语义）
+  for (var i = 0; i < __tickQ.length; i++) {
+    if (__tickQ[i].at <= S.tick) { var q = __tickQ.splice(i, 1)[0]; i--; q.fn(); }
+  }
+  // seed 模式：战斗烟雾随 tick 派生（rAF 不自驱，drawFrame 只在最后一帧跑一次，不够累积）
+  if (__seed !== null && S.mode === "battle" && S.tick % 8 === 0) pushSmoke(434 + Math.random() * 18, 26 + Math.random() * 12);
+}
+function drawFrame() { // 一帧完整绘制：render() 与 __tick() 共用，避免两处维护漂移（检视建议 4）
   ctx.clearRect(0, 0, W, H);
   ctx.drawImage(staticCv, 0, 0, W, H); // 源 960×540 → 逻辑 480×270（设备像素 1:1，零插值）
   drawStars();
@@ -1119,7 +1146,13 @@ function render() {
   drawHero();
   drawGlowRing();
   drawFloatsAndSparkles();
-  requestAnimationFrame(render);
+}
+function render() {
+  S.tick++;
+  __pumpTick(); // seed 模式：战斗回合/浮层定时随 tick 派生，__tick 可确定性推进
+  if (S.dirty) bake();
+  drawFrame();
+  if (__auto) requestAnimationFrame(render); // seed 模式：rAF 不自驱，由 __tick(n) 步进
 }
 
 /* ---------- 交互 ---------- */
@@ -1183,10 +1216,16 @@ function say(tag, text, sub, map, mapText, anchor) {
   dlg.style.setProperty("--by", (ay / 270 * 100).toFixed(1) + "%");
   dlg.classList.toggle("upside", ay < 80); // 说话者贴近画面顶部（如镜湖 BOSS）：气泡改挂下方、尾巴朝上
   dlg.classList.remove("gone");
-  if (sayFadeT) clearTimeout(sayFadeT);
+  if (sayFadeT) { clearTimeout(sayFadeT); sayFadeT = null; }
   sayFadeT = setTimeout(function () { // 无待点按钮才散（纯旁白）；带 CTA 则留在说话者头顶等点击
     if (!document.getElementById("actions").children.length) dlg.classList.add("gone");
   }, 2400);
+  if (__seed !== null) { // seed 模式：气泡淡散改 tick 驱动（__tick 可推进；定格截图不拍到中间态）
+    clearTimeout(sayFadeT); sayFadeT = null;
+    __schedule(function () {
+      if (!document.getElementById("actions").children.length) dlg.classList.add("gone");
+    }, 144); // 2400ms ÷ 16.7 ≈ 144 ticks
+  }
   fitBubble();
 }
 var sayFadeT = null;
@@ -1267,10 +1306,10 @@ function evolve() {
   heroLv = n;
   var w = document.querySelector(".hero-wrap");
   var f = document.createElement("span"); f.className = "evo-float"; f.textContent = "🦦 大獭 Lv." + n;
-  w.appendChild(f); setTimeout(function () { f.remove(); }, 900);
+  __schedule(function () { f.remove(); }, 54); // 900ms ÷ 16.7 ≈ 54 ticks
   for (var i = 0; i < 6; i++) {
     var s = document.createElement("span"); s.className = "evo-spark"; s.style.setProperty("--a", (i * 60) + "deg");
-    w.appendChild(s); (function (sp) { setTimeout(function () { sp.remove(); }, 800); })(s);
+    w.appendChild(s); (function (sp) { __schedule(function () { sp.remove(); }, 48); })(s); // 800ms ÷ 16.7 ≈ 48 ticks
   }
   heroCv.classList.remove("flash"); void heroCv.offsetWidth; heroCv.classList.add("flash"); // 仪式感：闪一下
 }
@@ -1522,7 +1561,8 @@ function bTurn() {
   if (B.foeTalk > 1) {
     bSay("敌方回合", t + "沉默了 " + (lag / 1000).toFixed(1) + " 秒……\n它的招式描述越来越长，长到溢出气泡。（上下文在吃掉它）", null, "foe");
   }
-  setTimeout(function () {
+  var lagTicks = Math.max(1, Math.ceil(lag / 16.7)); // seed 模式：墙钟 lag 转 tick 派生（16.7ms/帧 @60fps）
+  __schedule(function () {
     if (B.over || B.seal) return; // 终局已定（封印门/重生/通关）：敌方不再结算——双亡竞态守卫（#1435 检视严重2）
     var extra = B.shield > 0 ? 0 : 3;
     var dmg = 6 + Math.floor(Math.random() * 4) + extra;
@@ -1540,7 +1580,7 @@ function bTurn() {
     if (B.foe <= 0) return; // boss 已死：bWin 挂起收束——双亡时胜者优先，不再判战败（#1435 检视严重2）
     if (B.hp <= 0) { bLose(); return; }
     B.turn++; B.busy = false; bButtons();
-  }, lag);
+  }, lagTicks);
 }
 function bLose() {
   B.over = true;
@@ -1556,10 +1596,10 @@ function actDivine() {
   if (B.busy || B.over) return; B.busy = true; actions([]);
   B.divined = true;
   bSay("🔮 占卜", "占卜展开……记忆浮现：");
-  setTimeout(function () {
+  __schedule(function () {
     bSay("🔮 占卜 · 命中旧档案", "📜 命中：「有獭击败过它。」\n弱点已入图鉴：多线程围攻；审视照出逻辑漏洞。", "（这就是种子库的动作——翻出旧结论，免重种。占卜 = search_memory）");
     B.busy = false; bButtons();
-  }, 500);
+  }, 30); // 500ms ÷ 16.7 ≈ 30 ticks
 }
 function actAttack() {
   if (B.busy || B.over) return; B.busy = true; actions([]);
@@ -1574,31 +1614,31 @@ function actAttack() {
     bSay("🗡️ 硬莽一击", "你硬莽一击 -" + d2 + "……它皮糙肉厚。数学不站在你这边。", B.divined ? "（情报已有，但缺队友——召唤一只洞察獭？）" : "（这一击毫无情报支撑。先占卜？）");
   }
   if (B.foe <= 0) { setTimeout(bWin, 400); return; }
-  setTimeout(bTurn, 400);
+  __schedule(bTurn, 24); // 400ms ÷ 16.7 ≈ 24 ticks
 }
 function actSummon() {
   if (B.busy || B.over) return; B.busy = true; actions([]);
   var wasTired = B.allyTired;
   B.ally = true; B.allyTired = false; B.allyFresh = true; B.selfChain = 0;
   bSay("✨ 召唤", wasTired ? "你举起发言石：「换獭——上一只的配额见底，重新召唤！」" : "你举起发言石：「召唤——洞察獭！」");
-  setTimeout(function () {
+  __schedule(function () {
     bSay("✨ 洞察獭就位", "🔍 洞察獭就位：「我替你看它自己看不见的东西。」", (wasTired ? "新獭带着新配额上阵——首刀必中。（邻居小獭教的：会累就换，不停工）\n" : "") + "召唤 = create_otter + 配额轮换");
     B.busy = false; bButtons();
-  }, 500);
+  }, 30); // 500ms ÷ 16.7 ≈ 30 ticks
 }
 function actInsight() {
   if (B.busy || B.over) return; B.busy = true; actions([]);
   if (!B.allyFresh && Math.random() < 0.15) {
     B.allyTired = true;
     bSay("🔍 哑火（429）", "洞察獭的剑挥到一半——哑火了。\n它疲惫地坐下：「配额见底……再召唤一只新獭吧，新獭有新配额。」", "资源管理：召唤兽也有体力。哑火后重新召唤，首刀必中。");
-    setTimeout(bTurn, 600);
+    __schedule(bTurn, 36); // 600ms ÷ 16.7 ≈ 36 ticks
   } else {
     B.insight = true;
     var d = 8 + Math.floor(Math.random() * 5);
     B.foe -= d; bUpdate(); pushFloat(424, 36, "-" + d);
     bSay("🔍 洞察獭·审视", "「你的逻辑有一环是断的——你从不验证前提。」\n✨ 漏洞显形 -" + d + "！下一次攻击翻倍。", "老农教的：自己的产出，自己看不出问题。审视 = 异体执行，不是自测。");
     if (B.foe <= 0) { setTimeout(bWin, 400); return; }
-    setTimeout(bTurn, 400);
+    __schedule(bTurn, 24); // 400ms ÷ 16.7 ≈ 24 ticks
   }
   B.allyFresh = false;
 }
@@ -1607,7 +1647,7 @@ function actBarrier() {
   B.barrier = true; B.shield = 12;
   bUpdate();
   bSay("🛡️ 结界", "你张开结界——隔离罩将你与它的输出隔开。\n接下来它的攻击先被吸收。", "试验田里你已经隔离过一次。结界 = worktree 隔离：改动不直接进主干，先隔离验证。");
-  setTimeout(bTurn, 500);
+  __schedule(bTurn, 30); // 500ms ÷ 16.7 ≈ 30 ticks
 }
 function bWin() {
   B.over = true; B.seal = true;
@@ -1652,6 +1692,54 @@ function beginFarm() {
 document.getElementById("letterBtn").onclick = beginFarm;
 letterEl.style.display = "flex";
 render();
+
+/* ---------- Harness 可读性接口（F20261014ghst T3：__gameState/__loadState/__tick） ---------- */
+window.__gameState = function () { // B3：状态文本化导出——agent 不靠读代码猜运行时状态
+  return {
+    tick: S.tick,
+    seed: __seed,
+    started: S.started,
+    phase: S.phase,
+    activeId: S.activeId,
+    allDone: S.allDone,
+    player: { x: S.player.x, y: S.player.y, tx: S.player.tx, ty: S.player.ty },
+    bag: S.bag.slice(),
+    unlocks: SPOTS.filter(function (sp) { return S.done[sp.id]; }).map(function (sp) { return sp.id; }),
+    done: JSON.parse(JSON.stringify(S.done)),
+    flags: JSON.parse(JSON.stringify(S.flags)),
+    codex: Object.keys(S.codex),
+    battle: S.mode === "battle" ? JSON.parse(JSON.stringify(B)) : null
+  };
+};
+window.__loadState = function (json) { // __gameState 的逆操作：校验+写回全局状态，直达关键场景（开局/点位/终战/图鉴）
+  if (!json || typeof json !== "object") throw new Error("__loadState: 需要 __gameState 形状的 JSON");
+  if (json.tick !== undefined) S.tick = json.tick | 0;
+  if (json.started !== undefined) S.started = !!json.started;
+  if (json.phase !== undefined) S.phase = json.phase;
+  if (json.activeId !== undefined) S.activeId = json.activeId;
+  if (json.allDone !== undefined) S.allDone = !!json.allDone;
+  if (json.player) {
+    S.player.x = +json.player.x || 0; S.player.y = +json.player.y || 0;
+    S.player.tx = +json.player.tx || 0; S.player.ty = +json.player.ty || 0;
+  }
+  if (json.bag) { S.bag = json.bag.slice(); var bagEl = document.getElementById("bag"); bagEl.innerHTML = ""; S.bag.forEach(function (e) { var sp = document.createElement("span"); sp.textContent = e; sp.className = "pop"; bagEl.appendChild(sp); }); }
+  if (json.done) { for (var k in json.done) S.done[k] = !!json.done[k]; }
+  if (json.flags) { for (var f in json.flags) S.flags[f] = json.flags[f]; }
+  if (json.codex) { json.codex.forEach(function (c) { S.codex[c] = true; }); }
+  if (json.battle) { for (var b in json.battle) B[b] = json.battle[b]; S.mode = "battle"; document.getElementById("battlebar").style.display = "flex"; bUpdate(); } // 血条 DOM 同步（检视建议 5）
+  if (json.allDone && !json.battle) { S.mode = null; }
+  if (S.bag.length !== heroLv) { heroLv = S.bag.length; heroCv.setAttribute("data-tier", String(heroLv)); document.getElementById("heroLv").textContent = "Lv." + heroLv + " " + EVO[Math.min(heroLv, 8)]; }
+  __tickQ.length = 0; // 清掉注入前残留的派生计时器，防旧节拍泄漏
+  if (json.started) { letterEl.style.display = "none"; document.getElementById("dialog").style.display = "none"; } // 直达场景：收起开场信与旁白气泡
+  markDirty();
+  return window.__gameState();
+};
+window.__tick = function (n) { // 确定性推进 n 步（seed 模式暂停 rAF 自驱后，截图脚本靠它定格）
+  n = Math.max(1, n | 0);
+  for (var i = 0; i < n; i++) { S.tick++; __pumpTick(); if (S.dirty) bake(); }
+  drawFrame(); // 与 render() 共用绘制段，避免两处维护漂移（检视建议 4）
+  return S.tick;
+};
 })();
 </script>
 </body>
