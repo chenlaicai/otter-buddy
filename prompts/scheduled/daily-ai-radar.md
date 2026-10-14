@@ -5,11 +5,11 @@ task_name: 每日 AI 雷达
 每日 AI 雷达扫描。请按以下清单执行：
 
 1. 执行 `cd /Users/orca/ai/otter-buddy/data/workspaces/98bd9fdd-8e28-4de8-b782-b59f46e733dd && node /Users/orca/ai/otter-buddy/scripts/radar/scan.mjs data`（约 30 秒，串行抓取三源：HN/GitHub/Anthropic。脚本真相源在仓 `/Users/orca/ai/otter-buddy/scripts/radar/`，工作区只留运行时数据；分拣规则见 `/Users/orca/ai/otter-buddy/scripts/radar/README.md`）
-2. 读取 stdout 摘要与 `data/last-report.json`（去重基准；首跑无此文件则跳过去重）
+2. 读取 stdout 摘要与 `data/last-report.json`（去重基准，相对第 1 步 cd 进入的工作区；用 read 工具读时须写工作区绝对路径；首跑无此文件则跳过去重）
 3. 分拣与结合：按 scripts/radar/README.md 第②③层规则——剔除蹭热点假 AI 内容、跨源同事件合并、连报旧闻降级，综合热度×新颖性×领域权重（agent 工程/多智能体/上下文工程/MCP 为 AI/agent 领域核心议题，加权——纯领域视角）排序
 4. 内容抓取（不可跳过）：对入选 top 条目逐一抓取原文——HN 文章 curl 正文、GitHub 项目看 README——简报必须讲清每条「这是什么、为什么热」，有干货，不能只报标题光说有这个事；每条另含「核心技术点」段：核心技术是什么、亮点在哪、为什么会火、出彩的点
 5. 在本对话发简报：**html-card 汇报卡**（搭档 2026-09-21 定调：汇报场景用图表达，不用裸 md）——顶部概览条（源状态/原始条数/呈报数）+ 逐条话题块（徽章：来源·热度·新或续报；「这是什么」段；「为什么值得注意」段；数据条目用条形图等图形呈现）+ 尾注提示可说「洞察第 N 条」深挖
-6. 更新 `data/last-report.json` 记录今日条目（标题+链接），供明日去重
+6. 更新 `data/last-report.json`（同第 2 步口径：相对=工作区内，工具写用绝对路径）记录今日条目（标题+链接），供明日去重
 
 边界硬约束：简报只做外部事实与技术分析（是什么、为什么热、技术脉络、领域影响），禁止任何与海獭系统或使用者项目的结合分析——「与我们的选型相关」「可借鉴」类表述一律不出现。结合分析由搭档显式发起后另行进行。
 
