@@ -129,6 +129,47 @@ describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () =
     expect(tick?.data.toolCallCount).toBe(1);
   });
 
+  /** F20261014wtrm：message_end 带 usage → 水位实时写回 lastCtxTokens（交接判定数据源）
+   *  锁定破口①核心新行为——流式过程中每轮拿到 usage 即更新水位，不等 invoke 收尾。
+   *  若未来重构删掉 emitInvokeTick 里的 setLastCtxTokens，此用例红。 */
+  it("message_end 带 usage → 实时写回 lastCtxTokens（水位随流式每轮更新）", async () => {
+    const sendEntry = mockSendEntry();
+    const invoker = makeInvoker(mockAgentInvoke({
+      events: [
+        { type: "message_end", message: { role: "assistant", usage: { input: 100, output: 50, cacheRead: 200000, cacheWrite: 0, totalTokens: 200150 } } } as AgentStreamEvent,
+        { type: "message_end", message: { role: "assistant", usage: { input: 100, output: 50, cacheRead: 240000, cacheWrite: 0, totalTokens: 240150 } } } as AgentStreamEvent,
+      ],
+      result: { text: "", tokenUsage: { input: 100, output: 50 } },
+    }), sendEntry);
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi",
+      senderId: "user-1", onSSEEvent: () => {},
+    }).catch(() => null);
+
+    // 水位应被最后一个 message_end 的 usage 更新（240150 > 240000 阈值）
+    expect(invoker["handoffState"].getLastCtxTokens("otter-1")).toBe(240150);
+  });
+
+  /** F20261014wtrm：无 message_end（invoke 直接失败）→ 水位不更新（保持 undefined）
+   *  锁定边界：截断/overflow 时 SDK 抛异常、无 message_end 事件，水位保持旧值/undefined。
+   *  这是机制固有边界——失败轮的上下文数据只能靠下一轮 invoke 开头的检查兜底。 */
+  it("无 message_end（invoke 直接失败）→ 水位不更新", async () => {
+    const sendEntry = mockSendEntry();
+    const invoker = makeInvoker(mockAgentInvoke({
+      events: [],
+      result: { text: "", tokenUsage: { input: 100, output: 50 } },
+    }), sendEntry);
+
+    await invoker.invokeConversation({
+      otterId: "otter-2", conversationId: "conv-1", userMessageContent: "Hi",
+      senderId: "user-1", onSSEEvent: () => {},
+    }).catch(() => null);
+
+    // 无 message_end → 水位不更新 → handoffState 读不到值（undefined 判定）
+    expect(invoker["handoffState"].getLastCtxTokens("otter-2")).toBeUndefined();
+  });
+
   /** F20260914evdz：persistInvokeEvent 落库后广播 invoke.event（Session 弹窗实时通道） */
   it("过程事件落库成功 → 广播 invoke.event（带落库 id/seq）", async () => {
     const sseEvents: { event: string; data: Record<string, unknown> }[] = [];
