@@ -97,7 +97,7 @@ function makeInvoker(
     undefined, // settingsRepo
     undefined, // metrics
     opts?.healingRepo, // healingRepo（熔断启用）
-    undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+    undefined, undefined, undefined, undefined, undefined, undefined,
     sendEntry,
     // invokeRepo（熔断摘要读 invoke_events——最小面）
     { getInvokeEvents: async () => [] } as never,
@@ -460,7 +460,6 @@ describe("水位触发端到端（F20260922handoff 死链修复语义锁）", ()
       undefined, // scheduledTaskRepo
       undefined, // listArtifacts
       undefined, // manageContext
-      undefined, // buildHandoffPkg
       undefined, // healthySessionThresholdMs
       (opts.threshold !== undefined
         ? { getOtterContextWindow: () => 1_048_576, getOtterHandoffThresholdTokens: () => opts.threshold }

@@ -68,7 +68,7 @@ function makeInvoker(
     sdk, mockQueryMessage(), opts?.manageSession ?? mockManageSession(), mockQueryOtter(), createTestLogger(),
     undefined, undefined, undefined, undefined,
     opts?.healingRepo,
-    undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+    undefined, undefined, undefined, undefined, undefined, undefined,
     sendEntry,
     { getInvokeEvents: async () => [] } as never,
   );

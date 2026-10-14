@@ -33,7 +33,7 @@ import type { MatterRepository } from "@usecases/matter/matter-repository";
 import type { LinkedResource } from "@entities/conversation/conversation";
 import type { OtterSession } from "@entities/otter/otter-session";
  
-import type { buildHandoffPackage, StateInventoryDeps, HandoffEntryReader } from "@frameworks/agent/handoff-package-builder";
+import type { StateInventoryDeps, HandoffEntryReader } from "@frameworks/agent/state-inventory";
  
 import type { SynthesisPrefetch } from "@frameworks/agent/synthesis-prompt-builder";
 // F20260920uhuc：统一交接引擎与 jsonl 切片的 DI 契约（层约束：interface-adapters 不
@@ -196,8 +196,6 @@ export class AgentInvoker implements AgentTurnPort {
     private readonly listArtifacts?: (conversationId: string) => Promise<LinkedResource[]>,
     /** F20260825hndf：可选注入，用于 otter_context 读写（借用式交接上下文） */
     private readonly manageContext?: ManageContext,
-    /** F20260825hndf：可选注入，四件套构建器（从 bootstrap 注入，避免 interface-adapters→frameworks 直接依赖） */
-    private readonly buildHandoffPkg?: typeof buildHandoffPackage,
     /** F20260831cbkw：可选注入，熔断 session 年龄窗口阈值（ms），缺省 2h */
     private readonly healthySessionThresholdMs?: number,
     /** F20260901cxmw：可选注入，otter 实际模型 contextWindow 解析（缺省回退 128k，兼容旧测试） */
@@ -797,7 +795,10 @@ export class AgentInvoker implements AgentTurnPort {
 
   /** F20260914rtsp：message_end 提取 usage → 发射 invoke.tick + ctx_window_used 落库。
    *  usage.totalTokens = input+output+cacheRead+cacheWrite（实测 pi session jsonl 验证，不含 reasoning）。
-   *  usage 缺失（SDK 版本差异/部分 provider 不报）→ 静默不发射，右栏显示 '—' 兑底（AT-11）。 */
+   *  usage 缺失（SDK 版本差异/部分 provider 不报）→ 静默不发射，右栏显示 '—' 兑底（AT-11）。
+   *  F20261014wtrm：同步实时写回 lastCtxTokens——水位随流式每轮更新，交接判定（invoke 开头
+   *  shouldTriggerWatermarkHandoff）永远拿最新值。此前唯一写回点在 invoke 成功收尾，overflow/截断的
+   *  invoke 恰好不留水位证据 → 满 buffer 獭交接永不触发、反复被触发反复 400（《主目录污染》僵尸死循环）。 */
   private emitInvokeTick(
     e: AgentStreamEvent,
     ctx: { otterId: string; conversationId?: string; invokeId: string; toolCallCount: number },
@@ -807,6 +808,8 @@ export class AgentInvoker implements AgentTurnPort {
     if (usage == null) return;
     const ctxWindowUsed = usage.totalTokens ?? (usage.input + usage.output + usage.cacheRead + usage.cacheWrite);
     if (!Number.isFinite(ctxWindowUsed) || ctxWindowUsed <= 0) return;
+    // F20261014wtrm：每轮流式返回即更新交接水位——不等 invoke 收尾（收尾路径在失败时不会执行）
+    this.handoffState.setLastCtxTokens(ctx.otterId, ctxWindowUsed);
     const ctxMax = this.getCtxMax(ctx.otterId);
     if (ctx.conversationId) {
       emitEvent({ event: "invoke.tick", data: { invokeId: ctx.invokeId, otterId: ctx.otterId, conversationId: ctx.conversationId, ctxWindowUsed, ctxMax, toolCallCount: ctx.toolCallCount } });
