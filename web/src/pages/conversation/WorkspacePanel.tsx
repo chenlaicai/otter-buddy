@@ -1,8 +1,7 @@
-import { useState, useEffect, useCallback, useMemo, useRef, type ComponentProps } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { ChevronRight, ExternalLink, FileText, Folder, FolderOpen, Loader2 } from 'lucide-react'
+import { MarkdownContent } from './MessageList'
 import { Modal } from '../../components/Modal'
 // Why: Workspace DTO 单一真相源在 api-contract（issue #558）——本文件曾是手工同步副本，
 // 迁移后直接引用契约，与后端靠 web tsc --noEmit 锁死漂移
@@ -201,33 +200,27 @@ function TreeNode(props: TreeNodeProps) {
 
 // ── 文件内容渲染 ────────────────────────────────────────────────────────────
 
-const MD_PLUGINS: NonNullable<ComponentProps<typeof ReactMarkdown>['remarkPlugins']> = [[remarkGfm, { singleTilde: false }] as const]
-
-/** .md / .markdown → ReactMarkdown（GFM） */
+/** .md / .markdown → 消息流同款 MarkdownContent（GFM + 代码高亮 + unfurl 卡片，F20261014pvmd 对齐） */
 function MarkdownRenderer({ content }: { content: string }) {
   return (
-    <div data-testid="react-markdown" className="prose prose-xs max-w-none text-stone-700
-      [&_h1]:text-sm [&_h1]:font-semibold [&_h1]:mt-3 [&_h1]:mb-1.5
-      [&_h2]:text-xs [&_h2]:font-semibold [&_h2]:mt-2.5 [&_h2]:mb-1
-      [&_h3]:text-xs [&_h3]:font-medium [&_h3]:mt-2 [&_h3]:mb-0.5
-      [&_p]:text-xs [&_p]:leading-relaxed [&_p]:my-1
-      [&_ul]:text-xs [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:my-1
-      [&_ol]:text-xs [&_ol]:list-decimal [&_ol]:pl-4 [&_ol]:my-1
+    <div data-testid="react-markdown" className="prose max-w-none text-stone-700 text-sm leading-relaxed
+      [&_h1]:text-xl [&_h1]:font-semibold [&_h1]:mt-4 [&_h1]:mb-2
+      [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:mt-3 [&_h2]:mb-1.5
+      [&_h3]:text-base [&_h3]:font-medium [&_h3]:mt-2.5 [&_h3]:mb-1
+      [&_p]:my-1.5
+      [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1.5
+      [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-1.5
       [&_li]:my-0.5
-      [&_code]:text-[11px] [&_code]:bg-white/50 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded
-      [&_pre]:bg-white/30 [&_pre]:rounded-lg [&_pre]:p-2 [&_pre]:overflow-x-auto
-      [&_pre_code]:bg-transparent [&_pre_code]:p-0
-      [&_blockquote]:border-l-2 [&_blockquote]:border-otter-300 [&_blockquote]:pl-3 [&_blockquote]:my-1 [&_blockquote]:text-stone-500
+      [&_blockquote]:border-l-2 [&_blockquote]:border-otter-300 [&_blockquote]:pl-4 [&_blockquote]:my-2 [&_blockquote]:text-stone-500
       [&_a]:text-otter-500 [&_a]:underline [&_a]:underline-offset-2
-      [&_hr]:border-white/30 [&_hr]:my-2
-      [&_table]:text-xs [&_table]:border-collapse
-      [&_th]:border [&_th]:border-white/30 [&_th]:px-2 [&_th]:py-1 [&_th]:bg-white/20
-      [&_td]:border [&_td]:border-white/30 [&_td]:px-2 [&_td]:py-1
+      [&_hr]:border-stone-200 [&_hr]:my-3
+      [&_table]:border-collapse [&_table]:text-sm
+      [&_th]:border [&_th]:border-stone-200 [&_th]:px-3 [&_th]:py-1.5 [&_th]:bg-stone-50
+      [&_td]:border [&_td]:border-stone-200 [&_td]:px-3 [&_td]:py-1.5
       [&_img]:max-w-full [&_img]:rounded-lg
+      [&_pre]:my-2
     ">
-      <ReactMarkdown remarkPlugins={MD_PLUGINS}>
-        {content}
-      </ReactMarkdown>
+      <MarkdownContent variant="event-log">{content}</MarkdownContent>
     </div>
   )
 }
@@ -240,7 +233,7 @@ function HtmlRenderer({ content }: { content: string }) {
       sandbox=""
       srcDoc={content}
       className="w-full rounded-lg border border-white/20 bg-white"
-      style={{ minHeight: '200px', maxHeight: '400px' }}
+      style={{ minHeight: '360px', height: '60vh' }}
       title="HTML 预览"
     />
   )
