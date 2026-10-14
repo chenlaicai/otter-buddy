@@ -5,7 +5,10 @@ budget_bytes: 9600
 
 回顾昨日全部对话，发现系统和海獭的问题，按问题拆分提 GitHub issue（label: daily-review）。分析维度：用户情绪、系统问题（bug/工具故障/流程缺陷）、海獭行为（违规/漏流程/误判）。自己干/派小獭并行。没信号不报，宁缺毋滥。只找本系统优化点，跨对话 memory 信号先验证归属。
 ## 必须检查的数据源（先跑完再分析；调查纪律按 SYSTEM.md A1）
-**sqlite3 直查前置纪律**：直查前先 `curl -s http://localhost:3000/api/settings` 确认 dbPath——data/ 可能残留同名废弃库。关键数字双源验证，单源标「未交叉验证」。1. **对话历史**：所有对话消息（跨对话用 search_memory + get_related，勿声称「只能查当前对话」；按范围约束过滤归属）2. **GitHub issues/PRs**：`gh issue list`/`gh pr list --state all --limit 50`，筛昨日创建/更新/合入
+**sqlite3 直查前置纪律**：直查前先 `curl -s http://localhost:3000/api/settings` 确认 dbPath——data/ 可能残留同名废弃库。关键数字双源验证，单源标「未交叉验证」。
+
+1. **对话历史**：所有对话消息（跨对话用 search_memory + get_related，勿声称「只能查当前对话」；按范围约束过滤归属）
+2. **GitHub issues / PRs**：`gh issue list`/`gh pr list --state all --limit 50`，筛昨日创建/更新/合入
 3. **self-healing events**：`manage_healing_events(action: query)`。**二维分账**：errorType 按「环境/系统失败」vs「獭能力失败」分列（口径 `src/entities/healing/healing-event.ts`）
 4. **memory**：`search_memory`（created_after 过滤昨日）——跨会话问题脉络、未闭环任务状态
 5. **RHI 健康信号**：`curl http://localhost:<port>/api/health/overview` 与 `/api/health/signals`——critical 优先
@@ -31,18 +34,17 @@ budget_bytes: 9600
 ## 观测器信噪比自监控（误报率比检出率更决定告警生死）
 1. **昨日统计**（日报末尾固定段）：healing resolve X / dismiss Y（dismiss 率 = Y/(X+Y)）；RHI 不处置率 L/(M+K+L)（取昨日日报闭环自检行）；产给搭档物件数。人工 dismiss 用时间差 <30 天分离
 2. **趋势**：与近 7 日均值比突增 → 标「信号源可能劣化」（<4/7 标置信低）
-3. **降级触发线**：任一信号源/healing 类型连续两周 dismiss 率或不处置率 >50% → 日报给「建议降级/关停/调阈值」（含数据锚点）；<10/14 记「数据不足」；未达线一行数字
+3. **降级触发线**：任一信号源/healing 类型连续两周 dismiss 或不处置率 >50% → 日报给「建议降级/关停/调阈值」（含数据锚点）；<10/14 记「数据不足」；未达线一行数字
 
 ## 锚点真实性抽查（证据锚点规则的外部强制）
 1. **抽样**：跨对话检索昨日含 file:line 锚点的断言，抽 5-10 条（含大獭/小獭；不足 5 全量）。途径：search_memory（message + created_after）或 sqlite3；**禁 search_messages**（独立 session 空集假阳性）
 2. **异体核对（硬规则）**：抽查獭与被抽查獭**必须不同模型**（otter_sessions.model_alias 对照）。同模型样本改派异体，无条件时降级标「同模型抽查，置信降级」
-3. **核对/处置**：每条 read 对应文件行核对（文件存在/行号在文件内/内容与断言实质相符）；产出 抽查 N/通过 M/失败 K（失败附断言原文+实际内容）+ 模型对照行；任一不通过开 P1 issue（标题含「编造锚点」）；同獭 7 日 ≥2 次升 P0
+3. **核对/处置**：每条 read 打开对应文件行核对（文件存在/行号在文件内/内容与断言实质相符）；产出 抽查 N/通过 M/失败 K（失败附断言原文+实际内容）+ 模型对照行；任一不通过开 P1 issue（标题含「编造锚点」）；同獭 7 日 ≥2 次升 P0
 
 ## 噪声带对照
 指标涨跌声明对照近 7 日序列（`/api/health/trends`）今日值 vs min-max：带内不作信号（一行「带内」），超带才进 issue。仅限比率/均值/日增量；累积量只报日增量；<7 日标「基线不足」
 ## 产出前检查清单（硬门禁）
-产出前列数据源引用清单逐项自查，漏一项不许产出（每项注来源；无异常写「无异常」）：
-```
+产出前列数据源引用清单逐项自查，漏一项不许产出（每项注来源；无异常写「无异常」）：```
 [ ] 1. 对话历史  [ ] 2. GitHub issues/PRs  [ ] 3. self-healing events  [ ] 4. memory
 [ ] 5. RHI 健康信号  [ ] 6. signal_events  [ ] 7. RHI 处置：critical N → M+K+D=N 已调 triage_signal
 [ ] 8. 锚点抽查：N/M/K + 模型对照  [ ] 9. 信噪比：dismiss 率/不处置率/物件数  [ ] 10. 压缩观测：failed 计数
@@ -73,10 +75,9 @@ issue 必含案发现场（证据真实、含锚点）与影响。方案两态�
 **验证断言必填**：每个 issue body 含「验证断言」段——`断言`（可证伪含数据源）/`检查方式`（sqlite/gh/人工）/`到期`（+30 天）。写不出 = 问题定义不清，重写。回查由 regression-verify 到期执行。
 
 **关闭标准必填**（搭档拍板）：每个 issue body 含「关闭标准」段——可验证的关闭条件。写不出 = 不该存在（并入他 issue 或转文档）。
-**断言豁免标注**：纯决策/容器型 issue，「验证断言」段首行标 `暂不验证：<原因>`——回查跳过。
-## 止损线检查（P0-c）
-每日查评测止损线（详规特性文档 2026-09-02；脚本 `node scripts/lint-intent.mjs`）：①观察期新增 intent 率 <80%；②golden-results 从未执行；③≥5 PR 场景 passed 全 true（<5 样本记「样本不足」）。触发 → 开 issue（owner=大獭）。
+**断言豁免标注**：纯决策/容器型 issue，「验证断言」段首行标 `暂不验证：<原因>`——回查跳过。## 止损线检查（P0-c）
+每日查评测止损线（详规特性文档 2026-09-02；脚本 `node scripts/lint-intent.mjs`）：①观察期新增 intent 率 <80%；②golden-results 从未执行；③≥5 PR 场景 passed 全 true（<5 样本记「样本不足」）。触发 → 开 issue（owner=大獭）
 
-**golden 执行对账**：对账近 24h 合入软代码 PR（`gh pr list --state merged` 筛 modules 含 prompts//.pi/）× golden-results.jsonl——缺记录/fail 悬置/pending 超 72h → 开 issue（owner=大獭）。不阻断合入，软曝光驱动。
+**golden 执行对账**：对账近 24h 合入软代码 PR（`gh pr list --state merged` 筛 modules 含 prompts//.pi/）× golden-results.jsonl——缺记录/fail 悬置/pending 超 72h → 开 issue（owner=大獭）。不阻断合入，软曝光驱动
 
-**verify_by 豁免**：对账前读 PR 特性文档 `intent.verify_by.type`——∈ {static_only, capability_test} 者按设计不要求 golden 落账，判「豁免」并日报标注「豁免：#<PR> (<type>)」；缺声明者不豁免（lint-intent 上游闸门），照判缺记录。
+**verify_by 豁免**：对账前读 PR 特性文档 `intent.verify_by.type`——∈ {static_only, human_judge} 者无自动断言面不产生 golden 记录，判「豁免」并日报标注「豁免：#<PR> (<type>)」；capability_test/golden_replay 应落账不豁免；缺声明者照判缺记录

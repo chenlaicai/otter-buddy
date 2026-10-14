@@ -61,8 +61,19 @@ intent:
 prompts/scheduled/daily-health-check.md 对账段追加「verify_by 豁免」小节：
 
 - 对账前读 PR 对应特性文档 frontmatter `intent.verify_by.type`
-- ∈ {static_only, capability_test} → 判「豁免」，日报标注「豁免：#<PR> (verify_by=<type>)」，不计缺记录
-- frontmatter 缺 verify_by 声明 → 不豁免（lint-intent 缺声明拦截是上游闸门），照判缺记录并注明
+- ∈ {static_only, human_judge} → 不产生 golden 记录（静态检查/人工观察即验证面，无自动断言面），判「豁免」，日报标注「豁免：#<PR> (<type>)」，不计缺记录
+- capability_test/golden_replay → 按 F20260825evgl 分层设计应落账，不豁免
+- frontmatter 缺 verify_by 声明 → 不豁免（lint-intent 缺声明拦截是上游闸门），照判缺记录
+
+## Delta（round1 检视处置，PR #1477）
+
+round1 检视（检视獭-1477，kimi-k28）抓 3 严重/2 建议，全部采纳处置：
+
+1. **严重 1（已修）**：压缩误删 `2. **GitHub issues / PRs**` 的空格，撞破纪律锁测试 `tests/usecases/scheduler/daily-health-check-prompt-discipline.test.ts:41` 正则——还回空格，本地 7/7 通过。教训：该文件存量措辞压缩前须先跑 discipline 测试，pre-commit 的 npm run check 不含此测试导致首轮自报「通过」不实
+2. **严重 2（已修）**：豁免集合初版写 {static_only, capability_test}，方向反了——按 F20260825evgl 分层表，不产生 golden 记录的是 {static_only, human_judge}（human_judge=人工观察无自动断言面）；capability_test 语义是「跑 capability/golden 套件采样断言」=应产生记录。已改豁免集合为 {static_only, human_judge}
+3. **严重 3（已处置）**：与 PR #1413（同改 daily-health-check.md，budget 9600→10700）撞车——仲裁结论：#1413 先合入，本 PR 后合入并负责 rebase 处置 budget 冲突（压缩后的文本可自然吸收 +1100B 增量，#1413 合入后本 PR 的体积出清压力解除）
+4. **建议 4（已修）**：sqlite3 前置纪律行与列表间恢复空行，可读性还原
+5. **建议 5（已修）**：锚点抽查段「read 打开对应文件行核对」恢复「打开」二字消歧
 
 ## 影响范围
 
