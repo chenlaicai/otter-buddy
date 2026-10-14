@@ -453,6 +453,18 @@ function evalScriptReadTargets(script: string, argvMap: Map<number, string>): { 
   return { paths };
 }
 
+/** #1432 只读豁免：字面量是否处于 node import('X')/require('X') 的纯目标位置。
+ *  动态导入/加载的模块解析目标固有只读（加载≠写落点）——不披露为 target；
+ *  动态拼接目标（import('./a/' + p)）除外：目标不可静态判定，不豁免（宁可保守）。
+ *  前置词边界排除 foo.import(/foo.require( 方法调用（那些可能是任意语义）。 */
+function isModuleLoadLiteralTarget(script: string, m: RegExpExecArray): boolean {
+  const idx = m.index ?? 0;
+  const before = script.slice(0, idx);
+  const after = script.slice(idx + m[0].length);
+  if (!/(?:^|[^\w$.])(?:import|require)\s*\(\s*$/.test(before)) return false;
+  return /^\s*\)/.test(after);
+}
+
 /** 从载荷文本提取静态绝对路径字面量（引号内、无 $/` 展开、/ 开头）。
  *  #1411 §3.1 口径统一：含 .. 的字面量不再跳过——交由调用方字面量闸 fail-closed
  *  （.. 解析结果不猜，与 evalPath 同源口径；披露侧由调用方跳过）。 */
@@ -546,6 +558,9 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
   for (const m of script.matchAll(/["'`]([A-Za-z0-9_.][A-Za-z0-9_./-]*\/[A-Za-z0-9_./-]+)["'`]/g)) {
     const rel = m[1];
     if (rel.startsWith("/") || rel.includes("..") || /[$`]/.test(rel)) continue;
+    // #1432 只读豁免：import('X')/require('X') 纯目标位置的字面量是模块解析目标
+    // （固有只读、非写落点）——不披露为 target；动态拼接目标不豁免（目标不可静态判定）
+    if (isModuleLoadLiteralTarget(script, m)) continue;
     const resolved = evalPath(rel, acc.cwd);
     if (resolved !== null) acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index });
   }
