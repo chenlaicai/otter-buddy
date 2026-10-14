@@ -1176,8 +1176,16 @@ export class PiSessionFactory implements AgentGateway {
     otterId: string,
     batchMaxSeq: number,
   ): void {
+    // F20261013czgd：batchMaxSeq=0 是「无新读」哨兵（上游已修为取对话 max(seq)，此处双保险），
+    // 不推进——0 写入会把游标归零，下一轮全历史当未读注入（10-13 三起同型爆窗事故）。
+    if (batchMaxSeq <= 0) return;
     try {
+      // F20261013czgd：观测补齐——游标推进打 debug 日志（prev→new），零日志曾致同类事故全靠推断定位
+      const prev = this.cfg.db.prepare(
+        "SELECT last_read_seq FROM conversation_participants WHERE conversation_id = ? AND otter_id = ?"
+      ).get(conversationId, otterId) as { last_read_seq: number | null } | undefined;
       updateLastReadSeq(this.cfg.db, conversationId, otterId, batchMaxSeq);
+      this.logger.debug?.('[cursor] startup cursor pushed', { conversationId, otterId, prev: prev?.last_read_seq ?? null, next: batchMaxSeq });
     } catch (cursorErr) {
       this.logger.warn('[cursor] startup cursor push failed (non-fatal)', { error: cursorErr instanceof Error ? cursorErr.message : String(cursorErr) });
     }

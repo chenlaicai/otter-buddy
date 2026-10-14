@@ -1357,12 +1357,20 @@ export class SchedulerService {
 
     let timer: NodeJS.Timeout | undefined;
     try {
+      // F20261013czgd：直连兜底补游标推进——此前不传 batchMaxSeq → pushCursorOnStartup 永不触发，
+      // 定时任务消息反复当未读重注入。点火前算一次本批未读最大 seq（含锚点消息自身）。
+      // 降级：entryRepo 无 getUnreadEntries（旧装配/测试 mock 最小面）时不推进，行为与修复前持平。
+      const unread = this.entryRepo.getUnreadEntries
+        ? await this.entryRepo.getUnreadEntries(task.conversationId, task.talkingStonePassedTo[0])
+        : [];
+      const batchMaxSeq = unread.length > 0 ? Math.max(...unread.map(e => e.sequenceNum)) : undefined;
       await Promise.race([
         this.agentInvokePort.invokeConversation({
           otterId: task.talkingStonePassedTo[0],
           conversationId: task.conversationId,
           userMessageContent: body ?? task.body,
           senderId: task.senderId,
+          batchMaxSeq,
         }),
         new Promise((_, reject) => {
           timer = setTimeout(() => reject(new Error('Agent invocation timeout')), SINGLE_INVOKE_TIMEOUT_MS);

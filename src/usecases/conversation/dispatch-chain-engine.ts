@@ -879,7 +879,20 @@ export class DispatchChainEngine {
     // F20260908rlcp：恢复侧 steer 去重——已消化的 entry id 剔除
     const filtered = excludeMessageIds ? unreadAll.filter(m => !excludeMessageIds.has(m.id)) : unreadAll;
     // F20260908rlcp：记录本批未读最大 seq（启动成功后推进游标；entries 序号）
-    const batchMaxSeq = filtered.length > 0 ? Math.max(...filtered.map(m => m.sequenceNum)) : 0;
+    // F20261013czgd：空批语义修正——filtered 空集（典型：触发消息是唯一未读、被 triggerMessageId
+    // 去重后为空，1:1 安静轮次必然命中）时 batchMaxSeq 取对话当前 max(seq) 而非 0。
+    // 旧口径 batchMaxSeq=0 是「无新读」哨兵，却被 pushCursorOnStartup 当合法 seq 写入游标
+    // （pi-session-factory 只挡 undefined 不挡 0、updateLastReadSeq 无单调性校验），
+    // 下一轮 getUnreadEntries 按 seq>0 把全历史当未读注入（10-13 三起同型爆窗：121K/75K/304K 字符）。
+    // 触发消息此刻已被消费（以 userMessageContent 形态在发言流末尾），游标本就该越过它；
+    // 触发消息非 entry（retry/resume 路径）时 getMaxEntrySeq 等价「读到最新」，同样正确。
+    // 取 max(filtered, unreadAll) 双保险：excludeMessageIds 剔除的可能不止触发消息。
+    const batchMaxSeq = filtered.length > 0
+      ? Math.max(...filtered.map(m => m.sequenceNum))
+      : Math.max(
+          unreadAll.length > 0 ? Math.max(...unreadAll.map(m => m.sequenceNum)) : 0,
+          this.deps.idleStatsRepo?.getMaxEntrySeq ? await this.deps.idleStatsRepo.getMaxEntrySeq(conversationId) : 0,
+        );
     // F20260922ctxi：名册 delta 注入——内容未变（同对话同獭）时不重复拼接，仅首轮/变更时注入
     const rosterSegment = this.consumeRosterSegment(conversationId, otterId, roster);
 
