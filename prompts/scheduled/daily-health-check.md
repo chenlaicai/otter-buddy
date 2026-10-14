@@ -4,6 +4,8 @@ budget_bytes: 10750
 ---
 
 回顾昨日全部对话，发现系统和海獭的问题，按问题拆分提 GitHub issue（label: daily-review）。分析维度：用户情绪、系统问题（bug/工具故障/流程缺陷）、海獭行为（违规/漏流程/误判）。自己干/派小獭并行。没信号不报，宁缺毋滥。只找本系统优化点，跨对话 memory 信号先验证归属。
+
+> `<主仓>`=獭主仓绝对路径（cwd=对话工作区，R4.5）。
 ## 必须检查的数据源（先跑完再分析；调查纪律按 SYSTEM.md A1）
 **sqlite3 直查前置纪律**：直查前先 `curl -s http://localhost:3000/api/settings` 确认 dbPath——data/ 可能残留同名废弃库。关键数字双源验证，单源标「未交叉验证」。
 
@@ -13,7 +15,7 @@ budget_bytes: 10750
 4. **memory**：`search_memory`（created_after 过滤昨日）——跨会话问题脉络、未闭环任务状态
 5. **RHI 健康信号**：`curl http://localhost:<port>/api/health/overview` 与 `/api/health/signals`——critical 优先
 6. **signal_events**：`query_signals(status=pending)` 查悬置獭间信号（跨对话统计用 sqlite3）
-7. **上下文压缩观测**：`grep '"msg":"SDK compaction failed"' data/logs/otter-buddy.log` 按日计数（禁 jq）。≥20 或连续 3 日递增 → bug issue（关联 messageId/otterId）；10-19 记观察行；hook fallback 与 shadow 失衡计入异常；无异常写「failed=N，健康」
+7. **上下文压缩观测**：`grep '"msg":"SDK compaction failed"' /Users/orca/ai/otter-buddy/data/logs/otter-buddy.log` 按日计数（禁 jq）。≥20 或连续 3 日递增 → bug issue（关联 messageId/otterId）；10-19 记观察行；hook fallback 与 shadow 失衡计入异常；无异常写「failed=N，健康」
 
 ## RHI 信号处置段（闭环硬规则：「看见」≠「处置」禁止只列数字；处置必调 triage_signal 留痕）
 1. **全部 critical**：`list_rhi_signals(status=open, severity=critical)` 逐条处置
@@ -57,11 +59,11 @@ budget_bytes: 10750
 ```
 
 ## 守卫误拦样本固化段（「昨日」= UTC 日界）
-昨日 guard_intercept 样本是「修复-回归循环」原料，每日：
+昨日 guard_intercept 样本是「修复-回归循环」原料：
 
-1. `node scripts/generate-guard-replay.mjs --db <curl /api/settings 得到的 dbPath>`；无拦截日报写「固化：0 条」
+1. `cd <主仓> && node scripts/generate-guard-replay.mjs --db <dbPath（curl /api/settings 取）>`；无拦截日报写「固化：0 条」
 2. 逐条填 verdict：`ALLOW`（误拦）/ `BLOCK`（负门样本）/ `SKIP`（一次性/敏感/不可复现）；误拦旁证 = 查后续是否换写法绕过
-3. **非 SKIP 追加**到 `tests/frameworks/agent/guard-v2-real-replay.test.ts`（对齐既有 it 块，断言 = 裁决值）并跑该文件；期望不符先疑裁决错勿凑绿，双链不一致提 issue
+3. **非 SKIP 追加**到 `<主仓>/tests/frameworks/agent/guard-v2-real-replay.test.ts`（对齐既有 it 块，断言=裁决值）并跑（`cd <主仓> && npx vitest run <该文件>`）；期望不符先疑裁决错勿凑绿，双链不一致提 issue
 4. 日报留痕「拦截 N → 候选 M → 固化 K / SKIP S」；同 ruleId ≥3 条成规模误拦改开 issue 修规则
 
 ## healing events 消费即处置（分析过的必须本次产出内处置完毕）
@@ -77,12 +79,12 @@ budget_bytes: 10750
 
 ## issue 产出规范
 issue 必含案发现场（证据真实、含锚点）与影响。方案两态——「已排查结论」（附证据链）或「排查方向（假设）」（标置信度）；禁裸方案；写不出标「暂不修复」。**标签/标题/聚合硬规则**（真相源 `scripts/lint-issue-labels.mjs`）：type+priority+daily-review 各一；标题 `[模块] 一句话摘要`；同根因合一条。不完整率 >5% 日报标红
-**验证断言必填**：每个 issue body 含「验证断言」段——`断言`（可证伪含数据源）/`检查方式`（sqlite/gh/人工）/`到期`（+30 天）。写不出 = 问题定义不清，重写。回查由 regression-verify 到期执行。
+**验证断言必填**：每个 issue body 含「验证断言」段——`断言`（可证伪含数据源）/`检查方式`/`到期`（+30 天）；写不出 = 问题定义不清，重写。回查由 regression-verify 到期执行。
 
-**关闭标准必填**（搭档拍板）：每个 issue body 含「关闭标准」段——可验证的关闭条件。写不出 = 不该存在（并入他 issue 或转文档）。
+**关闭标准必填**（搭档拍板）：每个 issue body 含「关闭标准」段——可验证的关闭条件；写不出 = 不该存在（并入他 issue 或转文档）。
 **断言豁免标注**：纯决策/容器型 issue，「验证断言」段首行标 `暂不验证：<原因>`——回查跳过。## 止损线检查（P0-c）
-每日查评测止损线（详规特性文档 2026-09-02；脚本 `node scripts/lint-intent.mjs`）：①观察期新增 intent 率 <80%；②golden-results 从未执行；③≥5 PR 场景 passed 全 true（<5 样本记「样本不足」）。触发 → 开 issue（owner=大獭）
+每日查评测止损线（详规见特性文档 2026-09-02；脚本 `cd <主仓> && node scripts/lint-intent.mjs`）：①新增 intent 率 <80%；②golden-results 从未执行；③≥5 PR 场景 passed 全 true。触发 → 开 issue（owner=大獭）
 
-**golden 执行对账**：对账近 24h 合入软代码 PR（`gh pr list --state merged` 筛 modules 含 prompts//.pi/）× golden-results.jsonl——缺记录/fail 悬置/pending 超 72h → 开 issue（owner=大獭）。不阻断合入，软曝光驱动
+**golden 执行对账**：近 24h 合入软代码 PR（`gh pr list --state merged` 筛 modules 含 prompts//.pi/）× golden-results.jsonl——缺记录/fail 悬置/pending 超 72h → 开 issue（owner=大獭）
 
-**verify_by 豁免**：对账前读 PR 特性文档 `intent.verify_by.type`——∈ {static_only, human_judge} 者无自动断言面不产生 golden 记录，判「豁免」并日报标注「豁免：#<PR> (<type>)」；capability_test/golden_replay 应落账不豁免；缺声明者照判缺记录
+**verify_by 豁免**：对账前读 PR 特性文档 `intent.verify_by.type`——∈ {static_only, human_judge} 判「豁免」并日报标注「豁免：#<PR> (<type>)」；capability_test/golden_replay 应落账不豁免；缺声明照判缺记录

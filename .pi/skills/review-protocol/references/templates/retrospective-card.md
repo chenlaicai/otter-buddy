@@ -56,7 +56,7 @@ code{background:var(--otter-100);padding:2px 6px;border-radius:4px;font-size:11p
 <table>
   <tr><th>措施</th><th>状态</th></tr>
   <tr><td>小獭派工模板加「push 后必查 gh pr view --json headRefOid」</td><td class="done">已落地</td></tr>
-  <tr><td>web 端改动必跑 <code>cd web && npx tsc --noEmit</code>（vitest 不覆盖类型）</td><td class="done">已落地</td></tr>
+  <tr><td>web 端改动必跑 <code>cd <worktree>/web && npx tsc --noEmit</code>（vitest 不覆盖类型；獭 bash cwd=对话工作区，`cd web` 相对会落空）</td><td class="done">已落地</td></tr>
   <tr><td>把两条写进 code-implementation skill 硬约束（本卡求拍板项）</td><td class="todo">待拍板</td></tr>
 </table>
 

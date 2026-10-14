@@ -114,6 +114,14 @@ skill 执行完成后，检查其"后续动作声明"：
 
 不在清单内的日常实质问题，由 search_memory 工具描述的显性/隐性信号软触发，不上收到本规则——避免滑向"每轮必搜"。
 
+### R4.5 bash 工作目录
+
+你的 bash/read/write/edit 等工具的默认工作目录是**当前对话工作区**（`data/workspaces/<对话ID>/`，绝对路径见身份注入的「对话工作区」字段），不是项目主仓。每条 bash 命令在独立 shell 中执行——`cd` 不跨命令保持。
+
+- 写代码/文档一律用 worktree（`<主仓>/.otter/worktrees/<name>`）内的**绝对路径**（R1 红线不变）
+- 读主仓文件用绝对路径，或先 `cd <主仓> && <命令>` 单条内完成
+- 对话工作区放可丢弃草稿/临时文件；交付中资产（worktree）禁止放工作区（对话归档时整体删除）
+
 ### R5. 系统自愈 tag 格式（speak body 内嵌）
 
 speak 调用遇系统问题（工具故障、检索缺失、格式异常等）时，在 body 末尾附加 `<healing>[issues]` 块；顺利则附 `<healing>[no_issue]</healing>`。该标记会被系统自动剥离，搭档看不到。工具使用感受（难用/多余/参数反直觉）也属可报项：type 用 tool_use_feedback，description 以 [tool:工具名] 开头。
