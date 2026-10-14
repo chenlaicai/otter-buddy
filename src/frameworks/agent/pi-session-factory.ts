@@ -245,7 +245,7 @@ export interface AgentSessionFactoryConfig {
 import type { SessionManager, AgentSession } from "@earendil-works/pi-coding-agent";
 import { PiSessionPool } from "@frameworks/pi/pi-session-pool";
 
-/** F20261013czgd：启动游标推进守卫——batchMaxSeq<=0（「无新读」哨兵）时不推进，
+/** F20261014czgd：启动游标推进守卫——batchMaxSeq<=0（「无新读」哨兵）时不推进，
  *  防 0 写入把游标归零、下一轮全历史当未读注入（10-13 三起同型爆窗事故）。
  *  提取为纯函数导出：供测试直接验证守卫逻辑（不依赖 PiSessionFactory 完整构造）。 */
 export function shouldPushCursorOnStartup(batchMaxSeq: number): boolean {
@@ -1183,11 +1183,11 @@ export class PiSessionFactory implements AgentGateway {
     otterId: string,
     batchMaxSeq: number,
   ): void {
-    // F20261013czgd：batchMaxSeq=0 是「无新读」哨兵（上游已修为取对话 max(seq)，此处双保险），
+    // F20261014czgd：batchMaxSeq=0 是「无新读」哨兵（上游已修为取对话 max(seq)，此处双保险），
     // 不推进——0 写入会把游标归零，下一轮全历史当未读注入（10-13 三起同型爆窗事故）。
     if (!shouldPushCursorOnStartup(batchMaxSeq)) return;
     try {
-      // F20261013czgd：观测补齐——游标推进打 debug 日志（prev→new），零日志曾致同类事故全靠推断定位
+      // F20261014czgd：观测补齐——游标推进打 debug 日志（prev→new），零日志曾致同类事故全靠推断定位
       const prev = this.cfg.db.prepare(
         "SELECT last_read_seq FROM conversation_participants WHERE conversation_id = ? AND otter_id = ?"
       ).get(conversationId, otterId) as { last_read_seq: number | null } | undefined;

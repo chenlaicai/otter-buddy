@@ -1,5 +1,5 @@
 /**
- * F20261013czgd：游标归零防线测试——batchMaxSeq=0 不再写坏游标 + updateLastReadSeq 单调性拦截。
+ * F20261014czgd：游标归零防线测试——batchMaxSeq=0 不再写坏游标 + updateLastReadSeq 单调性拦截。
  *
  * 事故实证（2026-10-13 三起同型爆窗，121K/75K/304K 字符注入）：
  * - dispatch-chain-engine.ts 空批取 batchMaxSeq=0（触发消息被 triggerMessageId 去重后空集，
@@ -39,7 +39,7 @@ function entryFixture(conversationId: string, body: string, senderId = "user"): 
   };
 }
 
-describe("F20261013czgd 游标归零防线", () => {
+describe("F20261014czgd 游标归零防线", () => {
   let db: Database.Database;
   let entryRepo: SqliteEntryRepository;
   let convRepo: SqliteConversationRepository;

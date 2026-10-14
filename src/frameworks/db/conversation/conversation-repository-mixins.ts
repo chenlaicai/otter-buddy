@@ -191,7 +191,7 @@ export function updateLastReadSeq(
   otterId: string,
   seq: number,
 ): void {
-  // F20261013czgd：单调性闸——游标语义上只增不减，拒绝任何小于等于现值的写入
+  // F20261014czgd：单调性闸——游标语义上只增不减，拒绝任何小于等于现值的写入
   // （事故实证：batchMaxSeq=0 哨兵经 pushCursorOnStartup 无守卫写入，把游标 2412 覆盖成 0，
   // 下一轮 getUnreadEntries 按 seq>0 把全历史当未读注入爆窗）。
   // NULL 行处理：WHERE 子句的 last_read_seq IS NULL 分支已覆盖（SQLite 标量 max(NULL,x)=NULL 坑已在

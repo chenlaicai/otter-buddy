@@ -1,5 +1,5 @@
 ---
-id: F20261013czgd
+id: F20261014czgd
 title: 游标归零防线——batchMaxSeq=0 哨兵无守卫写坏已读游标的全链修复
 summary: 修复「已读游标被写成 0 → 下一轮全历史当未读注入爆窗」的系统性缺陷（10-13 同日三起：121K/75K/304K 字符注入）。根因链：触发消息被 triggerMessageId 去重后空批 → batchMaxSeq=0 哨兵 → pushCursorOnStartup 只挡 undefined 不挡 0 → updateLastReadSeq 无单调性校验无条件写入 → 游标从 2412 被覆盖成 0。修复：① 空批 batchMaxSeq 取对话当前 max(seq) ② updateLastReadSeq SQL 层单调性闸 ③ pushCursorOnStartup 对 <=0 直接 return（双保险）④ scheduler 直连兜底补传 batchMaxSeq。
 change_type: fix
@@ -11,7 +11,9 @@ causal_links:
   - F20260908rlcp（batchMaxSeq 游标推进机制的原始引入）
 ---
 
-# 游标归零防线
+# F20261014czgd: 游标归零防线
+
+> 编号溯源：原 F20261013czgd（2026-10-13 事故发现日创建），2026-10-14 特性编号顺延（日期段 10/13→10/14，后缀 czgd 不变）改为现号；代码与测试内注释引用同步更新。
 
 ## 事故实证
 
