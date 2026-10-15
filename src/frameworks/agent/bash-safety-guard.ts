@@ -17,7 +17,7 @@ import fs from "fs";
 import path from "path";
 import type { Logger } from "@usecases/ports/logger";
 import { loadAllowedServicePorts, extractWhitelistedPortRefs, type AllowedService } from "./allowed-service-ports";
-import { shouldSanitizeForScan, sanitizeQuotedText, stripQuotedTextSpans, stripHeredocPayloads, extractHeredocSpans } from "./quoted-text-sanitizer";
+import { shouldSanitizeForScan, sanitizeQuotedText, sanitizeQuotedTextForIndirectCheck, stripQuotedTextSpans, stripHeredocPayloads, extractHeredocSpans } from "./quoted-text-sanitizer";
 import { findKillSegments, isKillAtCommandPosition } from "./kill-segment-finder";
 
 /** F20260928slan：sleep 命令位置判定——复用 kill-segment-finder 的位置感知
@@ -299,7 +299,11 @@ function checkServiceScriptKill(command: string, mainPid: number, logger?: Logge
   // 与形态 1 的分工：形态 1（路径限定）只拦解析到主仓的字面 stop/restart，放行 worktree 自管实例；
   // 形态 2 是全局保守拦截（不区分主仓/worktree）——变量替换子命令（otter-buddy.sh $S）静态无法
   // 判定子命令与路径，按 INDIRECT_PID_PATTERNS 先例向安全侧倾斜（检视獭-pr990 建议发现 2 留痕）。
-  if (SCRIPT_REFERENCE.test(command) && INDIRECT_CALL_FEATURE.test(command)) {
+  // F20261015qind（issue #1494）：判定基文本经 sanitizeQuotedTextForIndirectCheck 处理——
+  // 脚本名在引号段内（纯文本提及）时引号内 $ 特征抹除（echo "otter-buddy.sh $S 被拦" 放行）；
+  // 脚本名在引号外（真实执行意图）时原样保留，间接特征照常拦。
+  const indirectBasis = sanitizeQuotedTextForIndirectCheck(command);
+  if (SCRIPT_REFERENCE.test(indirectBasis) && INDIRECT_CALL_FEATURE.test(indirectBasis)) {
     logger?.warn("[bash-safety-guard] BLOCKED otter-buddy.sh indirect invocation", { mainPid, command: command.substring(0, 200) });
     return "bash 命令包含 otter-buddy.sh 引用与间接调用特征（变量/命令替换），无法静态确认是否终止主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；确需调用 otter-buddy.sh 时请用字面命令（脚本绝对路径 + 字面子命令）；服务异常请报告搭档。";
   }
