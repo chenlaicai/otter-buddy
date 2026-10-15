@@ -131,6 +131,8 @@ import { buildCustomTools, createInvokeRegister, resetInvokeRegister, type Invok
 import { buildSessionToolSearchTool, type ToolSearchSessionHolder } from "./tool-search-tool";
 import { resolveSessionCwd } from "./session-cwd-resolver";
 import { getRepoRoot } from "@frameworks/repo-root";
+// F20261015phys：bash 物理沙箱——sandbox-exec 包裹獭 bash 执行面
+import { createSandboxedTools } from "./bash-sandbox";
 // F20260901mbfx（审计 F5）：readOnly 合成的自定义工具白名单（只读查询类）
 import { SYNTHESIS_READ_ONLY_TOOL_WHITELIST } from "./synthesis-prompt-builder";
 import { ModelRuntimeRegistry, otterInvokeStorage } from "./model-runtime-registry";
@@ -1313,6 +1315,12 @@ export class PiSessionFactory implements AgentGateway {
     // 三连实证；机制详见 tool-search-tool.ts 头注）。holder 延迟绑定：customTools 入参
     // 在 session 创建前就要传，session 引用创建后回填。
     const toolSearchHolder: ToolSearchSessionHolder = {};
+    // F20261015phys：bash 物理沙箱——sandbox-exec 包裹獭 bash 执行面。
+    // 注入点：SDK baseToolsOverride 覆写内置工具集，bash 用 spawnHook 裹 sandbox-exec。
+    // readOnly 合成会话（readOnly=true）不需要沙箱——只有 read 工具，无 bash。
+    const repoRoot = getRepoRoot();
+    const dataDir = this.cfg.dataDir ?? "./data";
+    const baseToolsOverride = readOnly ? undefined : createSandboxedTools(workspaceCwd, repoRoot, dataDir);
     const { session } = await piCodingAgent.createAgentSession({
       model: resolvedModel,
       sessionManager,
@@ -1322,6 +1330,7 @@ export class PiSessionFactory implements AgentGateway {
       resourceLoader: resourceLoader ?? undefined,
       modelRuntime: modelRuntime ?? undefined,
       settingsManager: settingsManager ?? undefined,
+      ...(baseToolsOverride ? { baseToolsOverride } : {}),
     });
     if (hasDeferred) {
       // F20261008tecn（检视发现 2）：激活集计算抽纯函数 computeActiveToolNames，单测锁语义
