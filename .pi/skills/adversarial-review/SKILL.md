@@ -98,9 +98,11 @@ category: technique
    | 检视结论 | gh 命令 | 语义 |
    |---|---|---|
    | 有严重发现（任何轮次，含 delta） | `gh pr review <PR> --request-changes --body-file <f>` | 机械挡合并 |
-   | delta 复核通过（无严重发现未处置） | `gh pr review <PR> --approve --body-file <f>` | 闸门打开 |
-   | 仅建议发现、待作者处置（初轮中间态） | `gh pr review <PR> --comment --body-file <f>` | 悬置，不挡不放 |
+   | delta 复核通过（全部发现已处置，含建议级） | `gh pr review <PR> --approve --body-file <f>` | 闸门打开 |
+   | 仅建议发现、待作者处置（初轮中间态） | `gh pr review <PR> --comment --body-file <f>` | 待处置——不构成合入依据，处置终态达成前不得请求合入 |
    | 初轮 0 严重 0 建议（一次通过） | `gh pr review <PR> --approve --body-file <f>` | 闸门直接打开 |
+
+   > **发现必处置（硬规则）**：「通过」结论只适用于两种情况——初轮零发现、或全部发现（**含建议级**）均有显式处置终态（修复+delta 确认 / 反驳成立 / 建 issue+登记 / 搭档裁决，四选一）。有任何发现悬置，结论只能是「需要修改」或「待处置」。**禁用「可留可弃」「可忽略」「可选」类措辞描述任何发现**——建议级只表示优先级低于严重级，不表示可以不处置。Why：严重度评估是检视者单点判断，评错级别没有兜底；兜底只能是「每条发现必有显式终态 + 处置表呈搭档」（2026-10-14 现场：笔误被「建议/可留可弃」降级后随 PR 合入，修复悬置 worktree 成孤儿改动，处置责任被检视/开发/编排三家稀释）。
 
    > **单账号环境降级（实证修正）**：GitHub 平台硬规则——同账号下 approve 与 request-changes **均物理不可达**（"can not review your own pull request"），仅 comment 放行。单账号（獭借搭档 token 操作）时全量降级 `--comment`，严肃结论以正文首行结论词为准（「需要修改」/「通过（delta 复核）」），合并拦截靠分支保护 CI check + 大獭编排纪律。多账号环境（如 GitHub App 独立身份）接入后本表直接生效，无需改 skill。
 
