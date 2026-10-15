@@ -4,6 +4,7 @@
  */
 
 import { Worker } from "worker_threads";
+import os from "node:os";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -108,6 +109,17 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   private restartTimestamps: number[] = [];
   /** 熔断状态：true 时 waitForReady 拒绝，embedding 降级 FTS5-only */
   private circuitBroken = false;
+
+  /**
+   * F20261014selfheal 观测增强（搭档要求：不能把锅推给「生产环境无法复现」，
+   * 下次卡死必须拿到真实现场数据作线索）。worker 生命画像：
+   * 跟踪本代 worker 的存活期指标，重启时连同宿主环境快照一起落结构化日志。
+   */
+  private workerBornAt = Date.now();
+  private workerEmbedSucceeded = 0; // 本代 worker 成功 embed 次数（单条+batch 按请求计）
+  private workerEmbedAttempted = 0; // 本代 worker 收到的 embed 请求总数
+  /** 最近一次触发超时的请求画像（定位「是否特定文本模式触发嵌套算子」） */
+  private lastTimeoutContext: Record<string, unknown> | null = null;
   
   /** 设置测试用超时覆盖（仅测试环境） */
   static setTestTimeoutOverride(ms: number | null): void {
@@ -152,15 +164,11 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.restartTimestamps.push(now);
     const restartsInWindow = this.restartTimestamps.length;
 
-    this.logger.warn(`Embedding worker unhealthy (${reason}), restarting (restart ${restartsInWindow}/${EmbeddingServiceImpl.RESTART_MAX_IN_WINDOW} in ${EmbeddingServiceImpl.RESTART_WINDOW_MS / 1000}s window)`);
+    // F20261014selfheal 观测增强：重启前落结构化现场快照（拆出压 max-statements）
+    this.logRestartSnapshot(reason, restartsInWindow);
 
     if (restartsInWindow > EmbeddingServiceImpl.RESTART_MAX_IN_WINDOW) {
-      this.circuitBroken = true;
-      const err = new Error(`Embedding worker circuit breaker open: ${restartsInWindow} restarts within ${EmbeddingServiceImpl.RESTART_WINDOW_MS / 1000}s, vec disabled`);
-      this.readyState.loadError = err;
-      this.readyState.ready = false;
-      this.logger.error(`Embedding worker circuit breaker open after ${restartsInWindow} restarts, falling back to FTS5-only permanently until process restart`);
-      this.rejectAllPending(err);
+      this.openCircuit(restartsInWindow);
       return;
     }
 
@@ -178,9 +186,62 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.worker = this.workerFactory();
     this.setupHandlers();
     oldWorker.terminate();
+    // F20261014selfheal 观测增强：新代 worker 画像归零
+    this.workerBornAt = Date.now();
+    this.workerEmbedSucceeded = 0;
+    this.workerEmbedAttempted = 0;
+    this.lastTimeoutContext = null;
   }
 
-  /** F20261013ebps：worker message 统一分发（从 setupHandlers 拆出，降函数行数） */
+  /** F20261014selfheal：熔断打开（从 restartWorker 拆出，压 max-statements） */
+  private openCircuit(restartsInWindow: number): void {
+    this.circuitBroken = true;
+    const err = new Error(`Embedding worker circuit breaker open: ${restartsInWindow} restarts within ${EmbeddingServiceImpl.RESTART_WINDOW_MS / 1000}s, vec disabled`);
+    this.readyState.loadError = err;
+    this.readyState.ready = false;
+    this.logger.error(`Embedding worker circuit breaker open after ${restartsInWindow} restarts, falling back to FTS5-only permanently until process restart`);
+    this.rejectAllPending(err);
+  }
+
+  /** F20261014selfheal 观测增强：embed 文本画像（摘要级，不进全文——防隐私/体积） */
+  private static textProfile(text: string): Record<string, unknown> {
+    return {
+      chars: text.length,
+      // bge-m3 经验估算 ~1.5 char/token（中英混合语料）
+      estTokens: Math.round(text.length / 1.5),
+      head: text.slice(0, 80),
+    };
+  }
+
+  /**
+   * F20261014selfheal 观测增强（搭档 10/15 要求）：重启前落结构化现场快照——
+   * 下次卡死可 jq 聚合分析（频率/文本模式/宿主压力三个假设一次性可证伪）。
+   */
+  private logRestartSnapshot(reason: string, restartsInWindow: number): void {
+    const now = Date.now();
+    const mem = process.memoryUsage();
+    const loadavg1m = Math.round(os.loadavg()[0] * 100) / 100;
+    this.logger.warn("embedding_worker_restart", {
+      action: "embedding_worker_restart",
+      reason,
+      restartsInWindow,
+      restartWindowMs: EmbeddingServiceImpl.RESTART_WINDOW_MS,
+      // worker 画像：本代存活期指标
+      workerAgeMs: now - this.workerBornAt,
+      workerEmbedAttempted: this.workerEmbedAttempted,
+      workerEmbedSucceeded: this.workerEmbedSucceeded,
+      // 超时请求画像（若有）：文本长度/token 估算/前缀摘要，定位文本模式假设
+      ...(this.lastTimeoutContext ? { timeoutContext: this.lastTimeoutContext } : {}),
+      // 宿主环境快照：验证「宿主压力是触发变量」假设
+      host: {
+        rssMb: Math.round(mem.rss / 1048576),
+        heapUsedMb: Math.round(mem.heapUsed / 1048576),
+        loadavg1m,
+      },
+    });
+  }
+
+  /** F20261014selfheal：worker message 统一分发（从 setupHandlers 拆出，降函数行数） */
   private handleWorkerMessage(msg: EmbedResponse): void {
     if (msg.type === "ready") {
       this.readyState.ready = true;
@@ -208,6 +269,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       this.pendingRequests.delete(msg.id);
       this.releaseSlot();
       if (msg.type === "result") {
+        this.workerEmbedSucceeded++;
         pending.resolve(msg.embedding);
       } else {
         pending.reject(new Error(msg.error));
@@ -219,6 +281,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       if (!pending) return;
       this.pendingBatchRequests.delete(msg.id);
       this.releaseSlot();
+      this.workerEmbedSucceeded++;
       pending.resolve(msg.embeddings);
     }
   }
@@ -315,6 +378,13 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       timer = setTimeout(() => {
         this.pendingRequests.delete(id);
         this.releaseSlot();
+        // F20261014selfheal 观测增强：超时请求画像（定位「是否特定文本模式触发嵌套算子」）
+        this.workerEmbedAttempted++;
+        this.lastTimeoutContext = {
+          path: "embed",
+          timeoutMs,
+          text: EmbeddingServiceImpl.textProfile(text),
+        };
         // F20261014selfheal：超时是 worker 假死的唯一可观测信号——触发自愈重建
         this.restartWorker(`embed timeout after ${timeoutMs}ms`);
         reject(new Error(`Embed timeout after ${timeoutMs}ms, falling back to FTS5-only`));
@@ -362,6 +432,15 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       timer = setTimeout(() => {
         this.pendingBatchRequests.delete(id);
         this.releaseSlot();
+        // F20261014selfheal 观测增强：batch 超时画像（条数 + 总文本量 + 首条摘要）
+        this.workerEmbedAttempted++;
+        this.lastTimeoutContext = {
+          path: "embedBatch",
+          timeoutMs,
+          batchSize: texts.length,
+          totalChars: texts.reduce((sum, t) => sum + t.length, 0),
+          firstText: EmbeddingServiceImpl.textProfile(texts[0] ?? ""),
+        };
         // F20261014selfheal：batch 超时同样是 worker 假死的可观测信号——触发自愈重建
         // （onnxruntime 竞态卡死的是整个 worker 线程池，单条/批量同样永久挂起；
         //  batch 路径不重建则 #1460 泄漏家族在批量路径上未闭合）

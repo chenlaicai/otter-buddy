@@ -3,7 +3,7 @@ id: F20261014selfheal
 title: embedding worker 超时自愈——onnxruntime 竞态假死的 terminate+重建+熔断
 summary: onnxruntime 1.23.2 在 Intel x86 mac 上存在偶发 ThreadPool lost-wakeup 竞态（worker 推理卡死永不返回，主线程超时只清 pending，已 postMessage 的消息堆积在假死 worker 队列造成 ~1GB/h 泄漏）。应用层无法修复原生竞态，修复为超时自愈：embed 超时 → terminate 假死 worker（销毁 ThreadPool + 清空消息队列，堵漏的唯一手段）→ workerFactory 重建；熔断防风暴（5min 窗口重启 >3 次 → 降级 FTS5-only）；每次重启落结构化日志让偶发卡死从隐形变显性。
 change_type: fix
-capability_test: "tests/frameworks/embedding/embedding-service.test.ts（+2 用例：超时自愈重建、窗口熔断；存量 7 条全过 9/9）"
+capability_test: "tests/frameworks/embedding/embedding-service.test.ts（+3 用例：超时自愈重建、窗口熔断、batch 超时自愈、超时重启结构化快照；存量 7 条全过 11/11）"
 modules: [embedding, memory]
 created_in_conversation: f7e5e4eb-1c44-4cb2-b5fb-4d10f6f57c6c
 causal_links:
@@ -36,11 +36,19 @@ related_issues: [1453, 1460]
 
 ## 修复方案
 
-**超时自愈（terminate+重建+熔断）**——应用层无法修复 onnxruntime 原生竞态，唯一可行的恢复手段：
+**超时自愈（terminate+重建+熔断）+ 观测增强**——应用层无法修复 onnxruntime 原生竞态，唯一可行的恢复手段：
 
-1. **embed 超时触发自愈**：`embed()` 超时回调 → `restartWorker()` → terminate 旧 worker（销毁 ThreadPool 上下文 + 清空 MessagePort 队列，堵漏的唯一手段）→ 用注入的 `workerFactory` 重建新 worker
+1. **embed/embedBatch 超时触发自愈**：超时回调 → `restartWorker()` → terminate 旧 worker（销毁 ThreadPool 上下文 + 清空 MessagePort 队列，堵漏的唯一手段）→ 用注入的 `workerFactory` 重建新 worker
 2. **熔断防风暴**：5min 窗口内重启 >3 次 → `circuitBroken=true`，`available=false`，embedding 降级 FTS5-only 直至进程重启（防无限重建消耗资源）
-3. **可观测**：每次重启落 warn 日志（含窗口内计数），熔断落 error 日志——让"偶发卡死"从隐形变显性
+3. **观测增强（搭档 10/15 要求：不能把锅推给「生产环境无法复现」）**——下次卡死必须拿到真实现场数据。重启时落结构化日志 `embedding_worker_restart`：
+   - **worker 画像**：本代存活时长、成功/尝试 embed 次数（定位「固定第 N 次请求触发」假设）
+   - **超时请求画像**：文本长度/token 估算/前 80 字摘要、batch 条数与总文本量（定位「特定文本模式触发嵌套算子」假设；只留摘要不进全文，防隐私/体积）
+   - **宿主环境快照**：RSS/heapUsed/loadavg（验证「宿主压力是触发变量」假设）
+   - 三个假设一次性全部可证伪/证实，jq 可聚合分析频率与共性
+
+## 诚实边界（根因未钉死）
+
+卡死**机制**已定位（嵌套 parallel section 退出时 lost-wakeup，栈证据确凿），但**触发条件未复现**——干净进程串行 300 次/并发 16×400 次（intraOp=1/2 均试）均不卡，触发依赖生产宿主环境。「intraOp=1 嵌套自锁」假设已被实验证伪（代码默认本就是 2，且 intraOp=1 干净进程也不卡）。观测增强就是为了下次拿到触发条件的真实数据。
 
 ## 设计取舍（机制判定前置）
 

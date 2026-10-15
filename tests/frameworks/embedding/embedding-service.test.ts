@@ -300,9 +300,10 @@ parentPort.postMessage({ type: "ready", meta: { modelId: "test", modelRev: "1", 
       fs.unlinkSync(mockWorkerPath);
     }
   });
+});
 
-  // F20261014selfheal：embed 超时自愈——timeout 后 terminate 假死 worker 并重建
-  describe("worker 超时自愈", () => {
+// F20261014selfheal：embed 超时自愈——timeout 后 terminate 假死 worker 并重建
+describe("worker 超时自愈", () => {
     it("embed 超时后 terminate 假死 worker 并重建，重建后 embed 恢复正常", async () => {
       EmbeddingServiceImpl.setTestTimeoutOverride(200);
       const mockWorkerPath = path.join(__dirname, "mock-hang-worker.mjs");
@@ -437,5 +438,62 @@ parentPort.on("message", () => {});
         fs.unlinkSync(mockWorkerPath);
       }
     });
-  });
+
+    it("超时重启落结构化现场快照（观测增强：worker 画像 + 超时请求画像 + 宿主快照）", async () => {
+      EmbeddingServiceImpl.setTestTimeoutOverride(150);
+      const mockWorkerPath = path.join(__dirname, "mock-hang-observe-worker.mjs");
+      fs.writeFileSync(
+        mockWorkerPath,
+        `
+import { parentPort } from "worker_threads";
+parentPort.postMessage({ type: "ready", meta: { modelId: "test", modelRev: "1", dim: 4 } });
+parentPort.on("message", () => {});
+`
+      );
+
+      // 捕获 logger.warn 的结构化 context
+      const warnCalls: Array<{ message: string; context?: Record<string, unknown> }> = [];
+      const captureLogger = {
+        info: () => {},
+        warn: (message: string, context?: Record<string, unknown>) => { warnCalls.push({ message, context }); },
+        error: () => {},
+        debug: () => {},
+        child: () => captureLogger,
+      };
+
+      const { Worker } = await import("worker_threads");
+      const workerFactory = () => new Worker(mockWorkerPath, { execArgv: [] });
+      const service = new EmbeddingServiceImpl(workerFactory(), captureLogger as never, workerFactory);
+
+      try {
+        const svcInternal = service as unknown as { readyState: { ready: boolean } };
+        for (let i = 0; i < 200 && !svcInternal.readyState.ready; i++) {
+          await new Promise((r) => setTimeout(r, 5));
+        }
+
+        await expect(service.embed("观测增强验证文本")).rejects.toThrow("Embed timeout");
+
+        // 断言结构化快照落账
+        const restartLog = warnCalls.find(c => c.message === "embedding_worker_restart");
+        expect(restartLog).toBeDefined();
+        const ctx = restartLog!.context!;
+        expect(ctx.action).toBe("embedding_worker_restart");
+        expect(ctx.restartsInWindow).toBe(1);
+        expect(typeof ctx.workerAgeMs).toBe("number");
+        // 超时请求画像：文本长度/token 估算/前缀摘要
+        const timeoutCtx = ctx.timeoutContext as Record<string, unknown>;
+        expect(timeoutCtx.path).toBe("embed");
+        expect((timeoutCtx.text as Record<string, unknown>).chars).toBe(8);
+        expect((timeoutCtx.text as Record<string, unknown>).head).toBe("观测增强验证文本");
+        // 宿主快照：rss/heap/loadavg 齐全
+        const host = ctx.host as Record<string, unknown>;
+        expect(typeof host.rssMb).toBe("number");
+        expect(typeof host.heapUsedMb).toBe("number");
+        expect(typeof host.loadavg1m).toBe("number");
+      } finally {
+        service.dispose();
+        EmbeddingServiceImpl.setTestTimeoutOverride(null);
+        fs.unlinkSync(mockWorkerPath);
+      }
+    });
 });
