@@ -1,7 +1,7 @@
 ---
 id: F20261012gesw
 title: main_write 换岗——写落点求值器转正（观察期达标切换）
-summary: gwte 方案模块 3 终章：观察期 3 天 1405 条旁听（红线 0 / 23-23 裁决全对 / EVAL_GAIN 7）达标后，checkMainCheckoutWrite 接求值器主判——真写落主仓→终局 BLOCK、真写全在树外且非载荷面→终局 ALLOW、空真写/known-gap/载荷面→旧链全量兜底（fail-closed 不旁路）。切换修复三处求值器语义 bug（段级 cwd、只读披露 write=false、工作区 sandbox）。预注册 BC 落地（BC-1/BC-3；BC-2 新增）。嵌套载荷不接主判；脚本解释器载荷一律不终局放（delta eba7c738：处置中 15 形态漏拦 + 复审 6 形态击穿证明门，两轮实测全类归口）。语料 21 条真实命令钉回归夹具：实测修复面 3 终局修复 + 18 残余 expected-BLOCK（宣称订正，残余收编 v2）。回退开关 OTTER_GUARD_EVAL_SWITCH=0。#1363 灰区闭合、#1416 负门保持；#1395 非载荷面修复保持（载荷面回落残余归 v2）。
+summary: gwte 方案模块 3 终章：观察期 3 天 1405 条旁听（红线 0 / 23-23 裁决全对 / EVAL_GAIN 7）达标后，checkMainCheckoutWrite 接求值器主判——真写落主仓→终局 BLOCK、真写全在树外且非载荷面→终局 ALLOW、空真写/known-gap/载荷面→旧链全量兜底（fail-closed 不旁路）。切换修复三处求值器语义 bug（段级 cwd、只读披露 write=false、工作区 sandbox）。预注册 BC 落地（BC-1/BC-3；BC-2 新增）。嵌套载荷不接主判；脚本解释器载荷一律不终局放（delta eba7c738：处置中 15 形态漏拦 + 复审 6 形态击穿证明门，两轮实测全类归口）。语料 21 条真实命令钉回归夹具：实测修复面 3 终局修复 + 15 残余 expected-BLOCK（宣称订正，残余收编 v2）。回退开关 OTTER_GUARD_EVAL_SWITCH=0。#1363 灰区闭合、#1416 负门保持；#1395 非载荷面修复保持（载荷面回落残余归 v2）。
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
 status: implemented
 modification_class: mechanism-addition
@@ -118,7 +118,7 @@ evaluateWriteTargets(command, projectRoot)
 
 **主判限「求值器证明有写」而非「证明无写」**：脚本载荷的写 API 枚举（SCRIPT_WRITE_TOKENS）永远追不上真实形态（os.remove/subprocess/未枚举面）——「无写 token → 放行」会把旧链的关键词网防线旁路（初版实测 `python3 -c "os.remove('data/x')"` 漏拦）。收窄为「有真写 targets 才终局」，未证明面全回落旧链——回落面 = 与切换前同等既有面（不扩大不缩小，既有漏归词表收编 issue，不冒充防线）。
 
-**宣称订正（审视严重1 处置，实测口径）**：初版宣称「23 条误拦族全修复」被复跑证伪。处置后权威口径：观察期裁决语料反查 21 条真实命令（禁合成替代）钉进 `tests/fixtures/guard-observed-rulings.json`——**实测修复面 3 条终局修复**（cp 复制 + ssh-add 管道族，双态断言锁终局语义）/ **18 条残余 expected-BLOCK**（载荷只读面、known-gap 回落、零披露面——如实钉住防两向漂移）。残余修复面收编求值器 v2（两份 issue 预注册）。
+**宣称订正（审视严重1 处置，实测口径）**：初版宣称「23 条误拦族全修复」被复跑证伪。处置后权威口径：观察期裁决语料反查 21 条真实命令（禁合成替代）钉进 `tests/fixtures/guard-observed-rulings.json`——**实测修复面 3 条终局修复**（cp 复制 + ssh-add 管道族，双态断言锁终局语义）/ **15 条残余 expected-BLOCK + 3 条 parity-allow（#1487 归一）**（载荷只读面、known-gap 回落、零披露面——如实钉住防两向漂移）。残余修复面收编求值器 v2（两份 issue 预注册）。
 
 **write=false 语义混合记档（审视建议4）**：`write=false` 实际语义是「不在写词面表」而非「证明只读」——`os.remove('data/x')` 实测被标 w=false。任何未来「全只读 → 终局放」的放松都会踩雷；本版空真写一律回落正是避开该雷区，三态正向认定（read 白名单/unknown 回落/write）收编 v2。
 
@@ -155,7 +155,7 @@ evaluateWriteTargets(command, projectRoot)
 | 验证项 | 结果 |
 |---|---|
 | 切换专项测试 | 三态主判 + 段级 cwd + 嵌套收窄 + 旧链防线 + #1395 家族负门 + 回退开关（原 24 例） |
-| 语料夹具（新，审视严重1 处置 + delta 收口） | `guard-observed-rulings.test.ts` **49/49**：21 条真实命令回放（3 终局修复双态锁 + 18 残余 BLOCK）+ 焦点(a) 15 形态 + delta 6 形态逃逸负门 + known-gap/os.remove 负门 |
+| 语料夹具（新，审视严重1 处置 + delta 收口） | `guard-observed-rulings.test.ts` **49/49**：21 条真实命令回放（3 终局修复双态锁 + 15 残余 BLOCK）+ 焦点(a) 15 形态 + delta 6 形态逃逸负门 + known-gap/os.remove 负门 |
 | 既有测试 | agent 目录 **1539/1539**（含 B 臂收回三条负门回归 + delta 收口 5 处载荷 ALLOW 期望翻转：#1395 载荷形态族） |
 | 语料 141 例 shadow | 四判据全过（族内 91.7% / 回落 19.3% / 红线 0 / 误放 0） |
 | 报告脚本 | 族内分子含确认误拦裁决（r1 处置顺手修）|
@@ -167,7 +167,7 @@ evaluateWriteTargets(command, projectRoot)
 - **嵌套载荷仍是旧链**——#1395 家族的 bash -c/heredoc 形态误拦仍存在（收窄换取 data 感知不旁路，取舍记录在案）；求值器 v2 收编 data 语义后解除
 - **write token 枚举面**（SCRIPT_WRITE_TOKENS）仍是枚举——但失败方向已反转（漏枚举→回落旧链保守拦，不是放行）
 - **回退开关依赖重启生效**（进程 env）——回退操作手册：设 env → 重启（特性文档 + PR body 写明）
-- **语料残余 18 条 expected-BLOCK**（载荷只读探针/known-gap/零披露面）——已钉夹具防放宽，修复面收编 v2（issue 预注册）；载荷面一律回落后无词表军备面（新变形面由回落旧链关键词网与切换前同判兜底）；#1395 载荷形态误拦（node -e 写 worktree 管道族）同入残余
+- **语料残余 15 条 expected-BLOCK + 3 条 parity-allow（#1487 归一）**（载荷只读探针/known-gap/零披露面）——已钉夹具防放宽，修复面收编 v2（issue 预注册）；载荷面一律回落后无词表军备面（新变形面由回落旧链关键词网与切换前同判兜底）；#1395 载荷形态误拦（node -e 写 worktree 管道族）同入残余
 - **write=false 语义混合**（= 不在写词面表，非证明只读）——三态正向认定收编 v2，期间禁止任何「全只读→放」放松
 - **既有漏两族**（curl -o 主仓、eval 词面）旧链本就不拦——归词表收编聚合 issue，非本 PR 引入
 - kill/data/sleep 维度零改动（本 PR 不碰）；影子记录器继续旁听（切换后 EVAL_GAIN 面自然归零观察）

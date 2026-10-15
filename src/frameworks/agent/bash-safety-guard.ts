@@ -1894,11 +1894,8 @@ function evaluatorPrimaryVerdict(command: string, cwd: string, projectRoot: stri
   if (KNOWN_GAP_OUTPUT_TOKENS.test(command)) return null; // 建议3(b)：known-gap 词面不终局只回落
   const ev = evaluateWriteTargets(command, cwd, projectRoot);
   if (ev.kind !== "evaluated") return null; // unevaluated → 旧链全量兜底
-  // F20261015cwsp 归一：git 写族的 cwd 落点在 cwd 非 git 树时不是真实落点（会向上发现主仓 .git），
-  // 求值器「落点=cwd」语义与 cwsp「工作区非 git 树 git 写族写主仓」冲突。显式回落旧链让
-  // cwdInGitWorktree 收窄判定生效（git 工作树内放行 / 工作区拦）。
-  if (ev.targets.some(t => t.via === "git") && !pathWithinMain(cwd, projectRoot)) return null;
-  if (ev.targets.some(t => t.knownGap === true)) return null; // 建议3(a)：outFile 词面求值缺口回落
+  // F20261015cwsp 归一 + MiMo delta S1 修复：mainWriteHit 前置终局拦（任一真写落主仓→BLOCK），
+  // 再做 git 写族 cwd 感知回落——避免「git commit && cp a /repo/evil」回落吞掉词表写证据。
   const writeTargets = ev.targets.filter(t => t.write !== false);
   if (writeTargets.length === 0) return null; // ③ 空真写一律回落（零披露放行臂收回——零目标≠只读）
   const mainWriteHit = writeTargets.some(t => pathWithinMain(t.path, projectRoot));
@@ -1906,6 +1903,12 @@ function evaluatorPrimaryVerdict(command: string, cwd: string, projectRoot: stri
     logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (evaluator, hit)", { command: command.substring(0, 200) });
     return "BLOCK";
   }
+  // F20261015cwsp 归一：git 写族的 cwd 落点在 cwd 非 git 树时不是真实落点（会向上发现主仓 .git），
+  // 求值器「落点=cwd」语义与 cwsp「工作区非 git 树 git 写族写主仓」冲突。显式回落旧链让
+  // cwdInGitWorktree 收窄判定生效（git 工作树内放行 / 工作区拦）。
+  // 条件对齐：cwd 非主仓内容区（worktree/data/workspaces/树外都触发回落）。
+  if (ev.targets.some(t => t.via === "git") && !pathWithinMain(cwd, projectRoot)) return null;
+  if (ev.targets.some(t => t.knownGap === true)) return null; // 建议3(a)：outFile 词面求值缺口回落
   // ⑤ 载荷面一律不终局 ALLOW（delta eba7c738 收口——载荷证明门退化为禁放闸）：
   //  载荷内容对求值器不可见，「未提取写动词 + 非词表执行面 + 拼接变形 × 真实树外写
   //  诱饵」的组合空间开放（实测反例集：夹具 15 形态负门 + delta 6 形态逃逸——

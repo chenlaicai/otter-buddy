@@ -119,3 +119,17 @@ describe("F20261014cwsp：无 sessionCwd 旧行为保持（回归锁）", () => 
     expect(checkBashCommandSafety(`echo x > foo.txt`, mainPid, undefined, optsLegacy)).not.toBeNull();
   });
 });
+
+describe("F20261015cwsp 归一 + MiMo delta S1：git 写族回落不吞词表写证据", () => {
+  it("git commit（cwd=worktree 内）→ 放行（旧链 cwdInGitWorktree）", () => {
+    expect(checkBashCommandSafety(`git commit -m x`, mainPid, undefined, optsWt)).toBeNull();
+  });
+
+  it("git commit && cp a /repo/evil（cwd=worktree）→ 拦（回落不吞 cp 证据）", () => {
+    expect(checkBashCommandSafety(`git commit -m x && cp a /repo/evil`, mainPid, undefined, optsWt)).not.toBeNull();
+  });
+
+  it("git commit && cp a /repo/evil（cwd=主仓根）→ 拦（无回落时求值器拦）", () => {
+    expect(checkBashCommandSafety(`git commit -m x && cp a /repo/evil`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+});
