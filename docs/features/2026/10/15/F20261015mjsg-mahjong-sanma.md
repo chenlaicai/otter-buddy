@@ -150,3 +150,80 @@ causal_links:
 |---|---|
 | 本方案文档 | 待对抗审视 |
 | 后续：审视通过 → code-implementation 建分支实现 | 未开始 |
+
+## 机制识别检查点判定（实现期补录）
+
+> 按 commit-convention「Modification-Class」要求补录（方案阶段漏判，对抗审视未覆盖此项；本段为新增附录，不改历史正文）。判定按特性全量给出，各层 commit 按自身 diff 承接命中项。
+
+**检查点逐项**（troubleshooting skill 机制识别清单）：
+
+| 检查点 | 特性全量 | 本 commit（Referee 层） |
+|---|---|---|
+| 新增配置字段/枚举/开关 | 未命中（无运行时配置） | 未命中 |
+| 新增状态生命周期 | 命中——牌局局态（创建→存活→结算），归引擎层 commit 承接 | 未命中（纯函数无状态） |
+| 新增定时任务/后台进程 | 未命中 | 未命中 |
+| 新增信号类型/消息格式 | 命中——WS 消息帧，归页面层 commit 承接 | 未命中 |
+| 新增持久化存储 | 命中——sqlite 牌局表，归引擎层 commit 承接 | 未命中 |
+| 新增决策分支（结果被记住并影响后续行为） | 命中——振听/流局/结算分支落局面状态，归引擎层 commit 承接 | 未命中（分支为纯运行时返回值，不落盘） |
+| 新增跨模块调用路径 | 命中——引擎→裁判、页面→引擎接线，归引擎/页面层 commit 承接 | 未命中（本 commit 内裁判仅被测试引用） |
+
+判定：特性全量命中 4 项 → 走修法决策树④，首层 commit 声明 `Modification-Class: mechanism-addition`；后续各层 commit 按上表就地承接各自命中项。
+
+**机制预算四问**（作者=麻将裁判獭，实现期当场作答）：
+
+- ① **谁需要它**：搭档（chen）——日常打三麻、明确要求「先把三人麻做出来」；以及引擎层/页面层两层后续獭（裁判 API 与类型是其依赖面）。
+- ② **失败后果**：用户可感知的牌局不公——错判役/符/点会直接错和错付；防线是 326 例分层测试 + mahjong-utils oracle 实测对拍。
+- ③ **后续机制**：加法带来的未来问题类——规则口径漂移（雀魂调整役/符/点表时需同步）、引擎接线错用（振听标记时序、双响分配）、存疑口径在落地后被实测推翻；对应修法=oracle 对拍回归 + 牌谱抽样定位，存疑点已列「待核实清单」（见实现记录）。
+- ④ **退役条件**：三麻玩法下线（搭档不再玩/项目转向）随特性整体删除；或 mahjong-utils 修复三麻支持且口径对拍一致，裁判可被其替换退役。
+
+（重对抗门留痕：方案已过异模型对抗审视+delta复核，搭档 2026-10-15 批准；门控「治本/治标」三问未随该轮审视显式出证——四问系实现期补录，建议本轮代码检视追加核验。）
+
+## 实现记录（Referee 层，2026-10-15）
+
+**范围**：`src/entities/mahjong/`（tile/meld）+ `src/usecases/mahjong/referee/`（12 模块）+ `tests/usecases/mahjong/`（12 文件）。纯函数无 IO；引擎状态机/玩家适配/存储/路由/页面均不在本层。
+
+**API 面**（`referee/index.ts` 统一导出，后续獭接口）：
+
+- 向听/分解：`shanten`/`regularShanten`/`chiitoiShanten`/`kokushiShanten`、`decompose`（四形枚举）、`waits`、`isWinning`、`meldToBlocks`；类型 `ShantenResult`/`Pattern`/`Block`/`WaitType`
+- 符：`calcFu`（`FuContext`）——20 底符/听牌形+2/门清荣和+10/非平和自摸+2/暗刻/副露碰杠/雀头役牌/副露最低30/切上/七对25/国士30
+- 役：`detectYaku` + `COMMON_HAN`/`YAKUMAN_MULT` 表（28 普通役 + 13 役满，三色同顺不入表——三麻无 2-8 万不可成立）
+- 点：`pointsFromHanFu`/`yakumanPoints`（`PointBreakdown` 含三麻自摸分布字段）
+- 宝牌：`countDora`（表/里/赤/拔北）
+- 总评：`evaluateWin`（`WinContext` → `WinResult`：valid/reason/yakus/yakuHan/dora/totalHan/fu/points/pattern，高点法取最大）
+- 振听：`isFuriten`/`hasTempFuriten`/`canRon`/`multiRon`（三麻双响无头跳，放镜者对每家全额）
+- 动作：`canRiichi`/`canDiscard`（食替）/`canCall`（碰/杠/拔北，吃恒拒）/`isTenpai`
+- 流局：`detectAbortiveDraw`（三风连打/四杠散了/九种九牌）、`notenSettlement`（流局满贯 +4000 / 3000 交换）
+- 实体：`parseTiles`/`formatTiles`/`sortTiles`/`tileKind`/`doraKindFromIndicator`/`buildSanmaWall`（108 张）、`Meld`/`isMenzen`
+
+**关键口径**（以 mahjong-utils 源码 + hora API 为 oracle 实测对拍，非凭记忆）：
+
+- 点数：`a = fu × 2^(2+han)` 截 2000；子荣=4a、亲荣=6a；三麻子自摸每家 `ceil100(1.5a)`（自摸损）、亲自摸每家 2a；累计役满 `1+floor((han-13)/13)` 倍
+- oracle 钉死四个反直觉口径：役牌需刻子（雀头不算）、全带幺九需含顺子（纯老头不计）、二盃口不含一盃口、役满全叠加
+- 高点法同点 tiebreak = 翻优先（oracle 同点选了 10 番版非 9 番 40 符版）；双碰荣和 −2 符（flat）
+- 测试期望值机械生成自 oracle（dump/probe/gen 脚本），避免期望与实现同源自证
+- lint：复杂度/长度超限处按仓内既有惯例（98 处先例）附 `eslint-disable` + 理由（规则表类函数天然多分支）
+
+**测试统计**：12 文件 / **326 例全绿**（≥300 验收门 ✓）
+
+| 分层 | 文件 | 例数 |
+|---|---|---|
+| 记谱/牌实体 | tiles | 33 |
+| 点数 | points（oracle 全枚举） | 86 |
+| 普通役 | yaku（28 役逐役） | 36 |
+| 役满 | yakuman（13 役逐役） | 16 |
+| 动作合法性 | actions（立直/食替/副露） | 24 |
+| 向听 | shanten | 23 |
+| 符数 | fu（20/25/30/40/50/60/70+切上） | 23 |
+| 流局 | ryuukyoku | 22 |
+| 振听 | furiten（三变体+双响） | 20 |
+| 和牌总评 | win（e2e+非法分支+选项） | 19 |
+| 宝牌 | dora | 14 |
+| 听牌 | waits | 10 |
+
+全役种 41/41 每役 ≥1 例；仓内全量回归 378 文件 / 5951 例通过 0 失败；`tsc --noEmit` 干净；eslint 0 错误。
+
+**已知缺口/待核实**：
+
+1. `KUIKAE_SAME_WAIT`（碰后同听形替换禁令）在三麻碰牌结构下不可达（结构性论证：唯一解 = 弃牌与所鸣之牌同种，已被同种禁令先拦），分支保留作防御、无正例覆盖
+2. 待引擎层雀魂实测核实：1 万指示牌的万子宝牌口径（现按标准次序落已移除的 2 万 = 恒 0 张）、三麻亲自摸每家 2a、三风连打含北与否、流局满贯细则、累计役满阶梯、连风雀头 4 符（rounding 后不可观测故未测）
+3. 验证节「天凤三麻牌谱抽样回归」未做——需外部牌谱数据，未在本层范围，待大獭排期
