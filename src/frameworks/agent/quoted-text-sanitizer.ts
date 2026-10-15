@@ -329,6 +329,9 @@ const INDIRECT_FEATURE_IN_QUOTE = /\$[{({A-Za-z_]|`/g;
  *   → 不抹 → 拦。不按整条命令一票放行。
  * - 双引号内 $(...) / 反引号是 shell 真实展开（执行语义）——hasExecutionChannel 命中
  *   时与 sanitizeQuotedText 同哲学不处理（返回原文，由调用方保守判定）。
+ * - eval 上下文不豁免（检视獭-1509 严重 1）：eval 让引号内容成为真实执行体，
+ *   与 sh -c 同构——eval "otter-buddy.sh $S" 脱敏后绕过形态 2（基线代码拦，
+ *   本特性回归放开）。eval 在前缀语境时返回原文，形态 1/2 在原文本照常拦。
  * - 危险通道（bash -c / pipe-to-shell / one-liner / heredoc）命中时不处理。
  */
 export function sanitizeQuotedTextForIndirectCheck(command: string): string {
@@ -341,6 +344,8 @@ export function sanitizeQuotedTextForIndirectCheck(command: string): string {
   if (scriptToken.test(outsideQuoted)) return command;
   // 脚本名不在任何引号段内 → 无文本形态可护，原样返回
   if (!scriptToken.test(basis)) return command;
+  // eval 前缀语境：引号内容会被 eval 执行（非纯文本），不脱敏
+  if (/\beval\s/.test(outsideQuoted)) return command;
   // 双引号段含执行展开特征（$(...)/反引号/${...}）→ 与 sanitizeQuotedText 同哲学跳过
   if (hasExecutionChannel(basis)) return command;
 

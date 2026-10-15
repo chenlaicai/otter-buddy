@@ -3446,4 +3446,16 @@ describe("F20261015qind 文本形态脱敏（issue #1494）：引号内脚本名
     const result = checkBashCommandSafety("echo 'otter-buddy.sh $S 提及'", mainPid);
     expect(result).toBeNull();
   });
+
+  it("逃逸面：eval \"otter-buddy.sh $S\" → 拦截（eval 让引号内容成为真实执行体，不豁免——检视獭-1509 严重 1 修复回归）", () => {
+    const result = checkBashCommandSafety('eval "otter-buddy.sh $S"', mainPid);
+    expect(result).not.toBeNull();
+    expect(result).toContain("间接调用特征");
+  });
+
+  it("逃逸面：eval 'otter-buddy.sh $S'（单引号）→ 拦截", () => {
+    const result = checkBashCommandSafety("eval 'otter-buddy.sh $S'", mainPid);
+    expect(result).not.toBeNull();
+    expect(result).toContain("间接调用特征");
+  });
 });
