@@ -3414,3 +3414,36 @@ describe("#1423 审视处置：dbm 危险模块补位", () => {
     )).toBeNull();
   });
 });
+
+// ─── F20261015qind（issue #1494）：文本形态（引号内脚本名 × 引号内变量）放行，真间接执行仍拦 ───
+// 独立 describe：checkBashCommandSafety 主 describe 箭头函数超 lint 行数上限（220），此组外置
+describe("F20261015qind 文本形态脱敏（issue #1494）：引号内脚本名 × 变量特征放行", () => {
+  const mainPid = 42877;
+
+  it("文本形态：S=status && echo \"otter-buddy.sh $S 被拦\" → 放行（脚本名与变量同在引号内，纯文本）", () => {
+    const result = checkBashCommandSafety('S=status && echo "otter-buddy.sh $S 被拦"', mainPid);
+    expect(result).toBeNull();
+  });
+
+  it("文本形态：echo \"otter-buddy.sh restart 是危险操作\" → 放行（纯文本提及）", () => {
+    const result = checkBashCommandSafety('echo "otter-buddy.sh restart 是危险操作"', mainPid);
+    expect(result).toBeNull();
+  });
+
+  it("逃逸面：otter-buddy.sh \"$S\" → 拦截（脚本名在引号外=真实执行意图，不脱敏）", () => {
+    const result = checkBashCommandSafety('scripts/otter-buddy.sh "$S"', mainPid);
+    expect(result).not.toBeNull();
+    expect(result).toContain("间接调用特征");
+  });
+
+  it("伪装逃逸面：echo \"otter-buddy.sh\" && otter-buddy.sh $S → 拦截（第二段脚本名在引号外，分段不一票放行）", () => {
+    const result = checkBashCommandSafety('echo "otter-buddy.sh" && scripts/otter-buddy.sh $S', mainPid);
+    expect(result).not.toBeNull();
+    expect(result).toContain("间接调用特征");
+  });
+
+  it("单引号文本形态：echo 'otter-buddy.sh $S 提及' → 放行（单引号内 $ 不展开，纯字面文本）", () => {
+    const result = checkBashCommandSafety("echo 'otter-buddy.sh $S 提及'", mainPid);
+    expect(result).toBeNull();
+  });
+});

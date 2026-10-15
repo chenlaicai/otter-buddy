@@ -308,3 +308,45 @@ export function stripQuotedTextSpans(command: string): string {
   const after = basis.slice(payloadEnd).replace(SYNTAX_SINGLE_QUOTED, blank).replace(SYNTAX_DOUBLE_QUOTED, blank);
   return before + payload + after;
 }
+
+/** F20261015qind：引号段内间接调用特征（$VAR / ${VAR} / $(...) / 反引号）等长抹除用正则。
+ *  口径与 bash-safety-guard.ts INDIRECT_CALL_FEATURE（/\$[{({A-Za-z_]|`/）同族，改动需同步。 */
+const INDIRECT_FEATURE_IN_QUOTE = /\$[{({A-Za-z_]|`/g;
+
+/**
+ * F20261015qind（issue #1494）：checkServiceScriptKill 形态 2 专用脱敏——
+ * 引号段内敏感词元 + 间接调用特征（$VAR/`...`）一并抹除为等长 X。
+ *
+ * 背景：形态 2「脚本引用 × 间接特征」保守拦截在脱敏文本上跑，而 sanitizeQuotedText
+ * 只抹敏感词元、保留 $ 特征——`echo "otter-buddy.sh $S 被拦"` 这类纯文本形态
+ * 被当间接执行误拦。
+ *
+ * 安全边界（逃逸面论证）：
+ * - 仅当脚本名（otter-buddy.sh）位于引号段内时才抹除该命令的引号内 $ 特征；
+ *   脚本名在引号外（真实执行意图，如 otter-buddy.sh "$S"）时返回原文，形态 2 照常拦。
+ *   抹除后脚本名已变 X，调用方无法回溯其位置——故本函数内部分两段判定。
+ * - 分段逐段判定：`echo "otter-buddy.sh" && otter-buddy.sh $S` 第二段脚本名在引号外
+ *   → 不抹 → 拦。不按整条命令一票放行。
+ * - 双引号内 $(...) / 反引号是 shell 真实展开（执行语义）——hasExecutionChannel 命中
+ *   时与 sanitizeQuotedText 同哲学不处理（返回原文，由调用方保守判定）。
+ * - 危险通道（bash -c / pipe-to-shell / one-liner / heredoc）命中时不处理。
+ */
+export function sanitizeQuotedTextForIndirectCheck(command: string): string {
+  const basis = stripEmptyQuotePairs(command);
+  if (SHELL_PAYLOAD_CHANNEL.test(basis)) return command;
+
+  const scriptToken = /otter-buddy\.sh/i;
+  // 脚本名在引号外 → 真实执行意图，不脱敏（间接特征保留给形态 2 拦截）
+  const outsideQuoted = basis.replace(SINGLE_QUOTED_TEXT, "").replace(DOUBLE_QUOTED_TEXT, "");
+  if (scriptToken.test(outsideQuoted)) return command;
+  // 脚本名不在任何引号段内 → 无文本形态可护，原样返回
+  if (!scriptToken.test(basis)) return command;
+  // 双引号段含执行展开特征（$(...)/反引号/${...}）→ 与 sanitizeQuotedText 同哲学跳过
+  if (hasExecutionChannel(basis)) return command;
+
+  const scrub = (segment: string): string =>
+    sanitizeSegment(segment).replace(INDIRECT_FEATURE_IN_QUOTE, (m) => "X".repeat(m.length));
+  SINGLE_QUOTED_TEXT.lastIndex = 0;
+  DOUBLE_QUOTED_TEXT.lastIndex = 0;
+  return basis.replace(SINGLE_QUOTED_TEXT, scrub).replace(DOUBLE_QUOTED_TEXT, scrub);
+}
