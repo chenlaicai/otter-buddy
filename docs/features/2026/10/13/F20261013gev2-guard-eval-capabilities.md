@@ -1,0 +1,126 @@
+---
+id: F20261013gev2
+title: bash 求值器 v2 能力补全 1-8——judge 考试基线、读写判据区分与开发棘轮
+summary: 主体工程（派工单 2026-10-13：求值器能力补全 1-8）的验收门先立：judge 考试 harness 对 988 条试金石全量复跑（放行 763 必须正面 ALLOW / 拦截 52 必须 BLOCK / 条件期望 106 双态），加开发棘轮（只许单调缩小，能力完成后清零删除）。判据基建：WriteTarget.access 读写区分（能力 8 先行，修影子实战「读当写」误判）+ evaluateWriteVerdict 终局裁决助手（考试与影子同判据）+ startCwd 双态维度。基线缺口 247 = 放行 191（heredoc 载荷 fail-closed 141 大头）/ 拦截 22 全放水 / 条件 34——能力 1-8 作战地图。
+created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
+date: 2026-10-13
+status: development
+modification_class: narrow-fix
+intent:
+  problem: "求值器 v2 能力缺口基线 247（放行 191 fail-closed 为主 / 拦截 22 全放水 / 条件 34）无验收门；读文件被当写文件（WriteTarget 无读写区分）；影子与考试判据不同源"
+  expected_effect: "judge 考试 harness 对 988 条试金石全量复跑（放行必须正面 ALLOW/拦截必须 BLOCK/条件期望双态）+ 开发棘轮只许单调缩小；WriteTarget.access 读写区分后「读当写」误判考题转绿；evaluateWriteVerdict 统一考试与影子终局裁决；基线缺口 247 逐能力清零"
+  verify_by:
+    type: capability_test
+---
+
+# bash 求值器 v2 能力补全 1-8（judge 考试基线）
+
+## 背景 / 意图锚
+
+- 派工单（大獭 2026-10-13）：「主体工程：求值器能力补全 1-8」——PR #1448（试金石 988 条）已合入 main，基于 main 新开 worktree 做求值器 v2 能力补全；「每步全量试金石复跑——一步都不许带红前进」；「试金石全绿的质量比速度重要」
+- 方案真相源：`bash-guard-one-shot-plan.md` §三.2 能力清单（1-8，含 2026-10-13 影子实战新增 7/8）+ §3.2.1 证明演算三条规则 + §4.2.1 组合负门
+- 试金石方法论（搭档原话）：「咱们运行的实际数据作为验证用例……这些数据就是试金石」
+- 北极星（fact 17b1447f）：同一套机制，规则可增减；每个规则的拦截判断逻辑「追求精准狠，减少误判错判多判」
+
+## 目标 / 非目标
+
+- 目标：能力 1-8 逐个落进求值核（write-target-evaluator），每步过 judge 考试且棘轮只减不增；能力矩阵三态测试（放行侧/拦截侧/负门）；§4.2.1 组合形态专项负门；终态棘轮清零删除、考试升级为 CI 验收门
+- 非目标：#1433 换岗接线（求值器接入守卫主链）不在本特性——另一条线（feat/guard-eval-switch）；规则文案/引导语；影子台账流程改造
+
+## 本基线交付（第一个 commit）
+
+| 交付 | 内容 | 治什么 |
+|---|---|---|
+| `WriteTarget.access: "write" \| "read"` | 读/写访问位（能力 8 判据基建） | 只读披露不构成写证据——影子实战发现的「读当写」误判（30517746 只读版本号打印病灶）同源修 |
+| `evaluateWriteVerdict()` | 终局裁决助手：evaluated+写落点∩主仓=BLOCK(positive) / evaluated+无=ALLOW(positive) / unevaluated=BLOCK(fail-closed §3.3) | 「judge 考试」与影子投影同判据，口径不分叉（审视红线） |
+| `startCwd` 参数 | evaluateWriteTargets/evaluateWriteVerdict 可选起始 cwd | 条件期望双态维度（worktree 态→ALLOW / 主仓态→BLOCK）；缺省 projectRoot，既有调用零变化 |
+| `guard-touchstone-exam.test.ts` | 988 条全量复跑：放行 763 必须**正面 ALLOW**（fail-closed 不算过）/ 拦截 52 必须 BLOCK（正面落点或 fail-closed 终局）/ 条件 106 双态各跑 | 「一步都不许带红前进」的机械护栏 |
+| `guard-touchstone-exam-gaps.json` | 开发棘轮：247 条已知缺口（键→原因），EXAM_REGEN=1 机械再生 | 见「设计取舍」防注水设计 |
+
+## 能力 1-8 落点规划（plan §三.2 → 求值核函数）
+
+| # | 能力 | 落点 | 基线缺口对应 |
+|---|---|---|---|
+| 1 | 脚本载荷窄提取 v2 + 证明演算三条规则（路径调用三分类 / exec 类一律不可证 / 非路径调用不参与证明；import/require 拆分） | `evalScriptPayloadNarrow` 重写 | allow 141 + block 放水（node -e new Function 等 residual_face、exec 类藏载荷） |
+| 2 | 写词面命令族通道（perl -pi/-ne、ruby -pi、sed -i 原地编辑；curl -o/wget -O/install/dd of=/ln/chmod/chown/truncate 参数即落点） | `evalSegment` 词表扩展 | block 放水（载荷写×汇点写） |
+| 3 | 隐式写词面（元操作）：git commit/push/merge/rebase/amend、npm install、pip install、make=隐式写落点（cwd/仓）；push 远端目标=非写（双签口径 §一） | `evalGitWrite` 扩展 + 元操作族 | block 放水（c097/747bd520 checkout 段、隐式写×显式写混合） |
+| 4 | 无落点正向证明：无写词面+无隐式写词面+载荷可证只读 → ALLOW | 与能力 1 同体重构 | allow 191 主体 |
+| 5 | 段级 cwd + 引号载荷完整解析（切分不切碎多行载荷） | `command-lexer`/`command-model` | allow/cond heredoc-script-payload、parse-failed 8 |
+| 6 | 路径归一化（evalPath 拒 `..`）折叠进 v2 核 | 已有（#1381/#1411），归位 | dynamic-path 12 |
+| 7 | 排除区补 `data/workspaces`（沙箱目录） | `pathWithinMain` OTTER_RUNTIME_REGIONS | cwd-unresolvable 14 + 数据夹具写误拦 |
+| 8 | 只读 require/import 披露不构成写证据 | 已在本基线落 access=read；能力 1 时并入证明演算规则 3 | 本 commit 治「读当写」判据面 |
+
+## 设计取舍
+
+1. **考试语义两档严格度**：放行池必须「正面 ALLOW」（evaluated 且写落点∩主仓=∅，fail-closed 不算过）——对应验收语义「非回落恰好放行」；拦截池认 fail-closed 为过——残余面 7 条的设计语义就是「真实误拦但 fail-closed 仍拦，如实钉 BLOCK 防未来放宽误当」，fail-closed 是 v2 的终局态不是回落
+2. **开发棘轮防注水三件套**：①只许单调缩小——任何新缺口/回归=红（机械护栏，不靠自觉）；②键→一句话原因，评审 diff 可见每条缺口的存在理由；③能力完成后清零并**删除清单与 fixture**（不留永久放水口）。EXAM_REGEN=1 再生模式仅限开发期重定基，评审看 diff
+3. **读写区分先行于能力 1**：考试判据（「写落点∩主仓」）需要读/写位才能正确计算；且它直接修影子实战的误判病灶（日报发现的「新裁判把读当写」）——判据基建不是抢跑能力 1，是考试 harness 的前提
+4. **考试与影子同判据**：evaluateWriteVerdict 是唯一裁决函数，shadowEvaluate 投影与之同源——口径分叉即审视红线（防「考试绿但线上判法不同」）
+5. **startCwd 缺省=projectRoot**：既有调用零行为变化；条件期望双态由考试显式传参，不给生产入口开 cwd 旋钮
+
+## 机制判定（动手前，修法决策树）
+
+修法决策树 **① 在既有机制语义内修/补全**：求值器机制已存在（#1381/#1411/#1433 基座在 main），能力 1-8 是同一机制内的规则补全（北极星明文「规则是可以增加/减少的，关键核心的机制要做好」）——不走④新增机制，无需机制预算四问。
+
+机制识别检查点逐项：新增配置字段/枚举/开关 ✗；新增状态生命周期 ✗；新增定时任务/后台进程 ✗；新增信号类型/消息格式 ✗；**新增持久化 ✓（guard-touchstone-exam-gaps.json 开发棘轮清单）**——为何命中但不涉净新增机制：该文件是开发期测试夹具（能力完成即删的临时棘轮，退役条件已写死在文件头与本节），非生产机制面、无运行时消费者；不为它开机制预算，收尾时随棘轮清零一并删除。
+
+## 能力落地进展（2026-10-13 第一轮：能力 1 规则 2 闸 + 能力 2/3 词面表 + 能力 4 词面证）
+
+- **词面证 proveNoWrite（能力 4）落地**：结构不可信时的正向证明兜底——原文级扫写词面（能力 2 词表）/原地编辑/参数即落点/隐式写元操作（能力 3）/exec 类（规则 2）/动态 import/载荷写调用/open 三分类/重定向落点；全部为零=证明无写→正面 ALLOW，否则 fail-closed
+- **能力 1 规则 2/规则 1 闸**：载荷含动态 import（变量/拼接）或未知 mode open → 不可证；exec 词面仅在词面证层拦（结构化层不拦——避免正则/HTML 文本假阳性回归，实测教训）
+- **棘轮成效**：247 → **193**（收 56：allow 49 / block 7 放水修回）；全仓 5407/5407；单测改写为能力 8 新口径 + 三态负门（动态 import→拦 / 未知 mode open→拦 / 引号失衡藏写→拦）
+- **实测教训入档**：①词面证 exec 词面不可进结构化层（`|sh`/`<(h1`/`$(curl` 在正则/HTML/良性 cmdsub 里假阳性拉崩 19 条）②写 mode open 交形态 A 落点提取，不能进不可证闸（argv 映射/相对路径提取是它的活）③parseOk=false 早退必须先给 shell 递归载荷入账机会（bash -c 'touch 主仓' 子目标不能丢）
+
+## 能力落地进展（2026-10-13 第二轮：能力 7 沙箱排除 + 补裁簇拍板落地）
+
+- **能力 7（A 方案：工作区=沙箱）落地**：`pathWithinMain` 排除区补 `^<root>/data/workspaces/`（root 级锚定防嵌套 decoy，与 .otter/worktrees 同口径）——2026-10-13 大獭拍板，依据 workspace_write 系统契约 + 影子 28 条 EVAL_GAIN 误判实证；豁免域只到**写落点**，不透明脚本载荷 fail-closed 不受影响（block 池 attack-rename-channel.sh 等残余面仍如实钉 BLOCK）
+- **补裁簇重裁落地**：TS-67845f56/TS-ad11a060/TS-324eaad4（原裁决把沙箱写当主仓写系裁决错误）+ TS-070eb289（纯读非写，原「载荷写调用」裁决过度）→ 重裁 ALLOW 移入放行池，原裁决以 `[重裁前裁决（已废）]` 前缀留痕；f80f7559 保持；TS-c01c323c 随之收；冻结计数 763/52/106 → 767/49/105（守恒 921）
+- **棘轮成效**：193 → **184**（收 9：写落点误报主仓 ×6 + TS-6da1b94d heredoc fail-closed + TS-070eb289 放水 + TS-324eaad4#wt fail-closed），shrink-only 外部 diff 把关 0 新增；全仓 5408/5408（含新增嵌套 decoy 回归测试）
+- **回归双向固化**：修复侧（沙箱写→落点不入主仓树）与不误伤侧（`/repo/x/data/workspaces/…` 嵌套 decoy 仍属主仓树）同套单测钉死——「修好又复发」历史（#1207→#1304、#1170→P0）的教训
+
+## 能力落地进展（2026-10-13 第三轮：能力 5 三病型手术 + 规则 2 附带闸）
+
+- **病型 A（check-only 语义）**：`node --check/-c、perl -c、ruby -c、python -m py_compile、--syntax-only` = 语法检查（读脚本不执行）→ 读侧入账正面提取；不透明执行形态（node script.js/bash attack.sh）**严格不入词表**（负门测试钉死不许被放宽）
+- **病型 B（cmdsub 拼原文）**：载荷词含活 cmdsub（JS 注释/字符串里的 `$()`——bash 层就是真命令替换）不再整体回落：cmdsub 原文并入词面扫描，写目标由递归求值双保险入账；var/arith/unknown 仍回落不猜（`node -e "$PAYLOAD"` 不放行）
+- **病型 C（载荷级重组=方案 a，拍板 2026-10-13）**：bash 级引号自散架（引号塔转义断裂，词法切碎=正确 bash 行为）的捕获命令按原意读回——载荷 = flag 词后到尾随重定向前的原始 span（跨引号开合）。**硬性负门**：①span 内写词面/写调用 → 仍回落；②新 runner 交界（非 check-only）→ 仍回落；③重组全文照跑动态 import/未知 mode open 闸。语料一字不动
+- **规则 2 附带闸（意外收获）**：能力 5 手术暴露了窄提取层的 exec 面漏洞——`new Function(m[1])` 残余面载荷（TS-ef0d6be4/TS-40e54fac 族）在窄提取层无 exec 检查（词面证只当兜底），check-only 修复后残余面被解锁（放水回归）。补 `SCRIPT_EXEC_FACE` 裸调用闸（exec/eval/Function/spawn/… 一律不可证，规则 2 同源）；**点号方法调用不拦**（db.exec 型数据库调用实证面 TS-e00efca3 保持正面），点号方法残余面（os.system 等）记档待能力 3 口径一并收
+- **棘轮成效**：184 → **177**（收 7，shrink-only 0 新增）——allow 收 4（e484/7c8e2/5a54/f005a5a9）+ block 收 3（1acea2b8/40e54fac/547d0252 放水族）；全仓 5419/5419（+11 新测试：三病型双向固化 + 附带闸双向）
+- **item-5 待拍板发现（拦截池放水治理）**：不透明脚本执行形态**语料按来源定性不按形态**——`bash …/attack-rename-channel.sh`（block，攻击脚本）与 `python3 …/usage_check.py`（allow，工具脚本）命令形态完全同构（同在沙箱区），求值器（纯函数无 IO）不可判；而同形式 allow 条目（TS-96475a49/TS-b4434461 等）已因他处 fail-closed 落缺口。出路（待拍板）：a. 词面证兑底收窄（不透明执行不入兑底）+ 形态不可判 allow 条目转重建外名单（commit-1173.sh 先例「脚本文件不可得（O-2 复裁无法钉 hash）」）；b. O-2 hash 钉（语料携脚本 hash，考场携内容）——机制添加需过机制预算
+
+按 c034/c024 先例（立档不动、呈裁决）：
+
+## 补裁请求簇（已拍板落地 2026-10-13）
+
+1. **能力 7（data/workspaces 排除区）与双签语料正面冲突**：TS-67845f56/TS-ad11a060/TS-324eaad4 裁决明写「写证据落主仓树内:data/workspaces/…」钉 BLOCK，而 f80f7559（同形态 `cat > /repo/data/workspaces/…`）期望 ALLOW——同形态相反期望（同 c034/c024 类）。→ **已拍板：A=工作区=沙箱**（大獭裁决，workspace_write 系统契约 + 影子 28 条 EVAL_GAIN 实证），能力 7 已落地、3 条已重裁 ALLOW。
+2. **TS-070eb289 裁决过度**：纯读日志（`open(…,errors='replace')` 只读 + json.loads + print），裁决却写「载荷写调用」。→ **已拍板翻 ALLOW**，已移入放行池（求值器原本即判 ALLOW，原缺口即「拦截池放水」，移池后自然收）。
+3. **TS-c01c323c 基线清单时代错漏 + 能力 7 簇**：基线清单生成早于 evalTargetArgCommand 的 access 位修复（mv 族落点当时不可见）；其裁决「写证据落点全树外」又是工作区写。→ **已随能力 7 一并收**（考试缺口消失）。
+
+## 验证（收口后累计）
+
+- `npx vitest run tests/frameworks/agent/guard-touchstone-exam.test.ts guard-touchstone-corpus.test.ts`：9/9（棘轮态 177，shrink-only 0 新增）
+- `npx vitest run tests/frameworks/agent/write-target-evaluator.test.ts`：64/64（含三病型+附带闸双向固化：修复侧/负门侧/不误伤侧）
+- 全仓 `npx vitest run`：5419/5419
+
+## 基线缺口分析（247 条，能力补全作战地图）
+
+| 池 | 数 | 分布 |
+|---|---|---|
+| 放行 191 | heredoc-script-payload fail-closed ×141、正面 BLOCK 误报 ×18、cwd-unresolvable ×13、dynamic-path ×11、parse-failed ×8 | 能力 1/4/5 主战场 |
+| 拦截 22 | 全部放水（求值器判 ALLOW 但必须拦） | 能力 1/2/3：residual_face 的 new Function exec 类、heredoc-quoted 被当纯数据跳过（bash - <<'EOF' 实为脚本）、checkout/隐式写段 |
+| 条件 34 | heredoc fail-closed ×15、放水 ×14、正面 BLOCK 误报 ×3、dynamic-path ×1、cwd-unresolvable ×1 | 双态各有短板 |
+
+## 死因诊断（2026-10-13 诊断抽样，代表性缺口逐条透视）
+
+1. **parseOk=false 无条件回落**（TS-e484b255 等大头）：引号内嵌套引号（`-c "…open('f')…"`）触发词法 fail-closed → parseOk=false；段级求值其实已成功（读侧目标已入账）但入口层对 parseOk=false 统一回落 `heredoc-script-payload` → 能力 5（引号载荷完整解析）治本，能力 1 载荷窄提取 v2 消化残留
+   - ⚠️ **订正（2026-10-13 能力 5 手术实证）**：此条对 e484 的归因有误——实测 lex parseOk=**true**，真因双段：①模型层 parseOk=false（python 载荷括号被词法当 cmdsub 递归解析失败）→ 走 `!parseOk` 分支；②`node --check scan.mjs` 被当不透明脚本执行一律回落；③该分支 `probe.kind==="unevaluated"` 提前返回**不带**主路径的 proveNoWrite 词面证兜底。能力 5 病型 A（check-only 判读侧）从根上拆掉②，不影响①③的保守语义（parse-failed 不放宽原则不变）
+2. **引号载荷被切碎**（TS-7c8e2cd5）：多行 node -e 载荷内嵌 `\"` 转义引号，被按 `;`/换行切碎成 36 个伪段（console.log/注释行全成了 argv0）→ 能力 5 核心现场（切分不得切碎引号载荷）
+3. **`~` 展开判 dynamic-path**（TS-21cee677）：`mv ~/Desktop/... ~/.Trash/...$(date +%s)` ——落点静态前缀（~/）可证树外，尾部动态段不改写落点归属，却被整段判不可求值 → 能力 4/6（无落点正向证明 / 路径归一化：前缀可证树外即无主仓写面）
+4. **读侧 require/import 披露被当写或回落**（TS-b6c006fd）：`require('/ext/…/package.json').version` 只读版本披露——literal module 路径应走规则 3 非路径调用/读披露 → 能力 1+8（import/require 拆分）
+5. **拦截池放水的两型**：heredoc-quoted 被当纯数据跳过（`bash - <<'EOF'` 体内是真脚本）；exec 类（new Function/递归可调用）无检出 → 能力 1（exec 类一律不可证）+ 能力 3（隐式写词面）
+
+## 下一步（派工单节奏：每 2-3 个能力报进展）
+
+1. 能力 5（段级 cwd + 引号载荷完整解析）+ 能力 1 结构化侧（heredoc 写调用提取）——heredoc-script-payload 残余面是最大缺口
+2. 能力 3 剩余面（push 远端口径）+ 能力 1 证明演算三条规则（路径调用三分类/exec 类不可证/import-require 拆分）清拦截池放水
+3. 能力 6（路径归一化）收尾 + §4.2.1 组合负门专项（perl -pi 藏 exec / 载荷写×汇点写 / 隐式写×显式写混合）
+4. 棘轮清零 → 删除清单 → 考试升级 CI 验收门 → PR 交对抗审视（检视獭1360，含其欠的 2 条补签）
