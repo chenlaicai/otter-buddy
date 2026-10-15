@@ -977,6 +977,50 @@ function wrappedOneLinerPayloadsReadOnly(command: string): boolean {
  *  原正则未覆盖的子命令——段首解析通道既然接了 git 落点，写族口径一次补齐）。 */
 const GIT_WRITE_SUBCOMMAND = /^git\s+(?:-C\s+\S+\s+|--git-dir=\S+\s+|--work-tree=\S+\s+|-c\s+\S+\s+)*(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push|push\b(?!\s+(?:--dry-run|-n)\b)|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
 
+/** F20261015glfp（M-bf4049a3 止血）：git -C 落点解析——写族段的落点是 -C 目标（多级累积），
+ *  落 worktree 区（<projectRoot>/.otter/worktrees/<name>[/…]，root 级精确前缀）时该段
+ *  git 写是 worktree 自树的 git 操作、非主仓写——豁免语义与 cwd 形态
+ *  （cwdInGitWorktree→skipGitWrite）等价；**豁免分支**与 write-target-evaluator
+ *  evalGitWrite「-C 目标优先，无 -C → cwd」口径对齐（只对豁免分支成立——全命令
+ *  对齐声称不实：skipGitWrite 短路在前不看 -C 目标，`git -C <主仓> commit`
+ *  （cwd=worktree）与 `cd <主仓> && git commit` 均 prod:ALLOW/wv:BLOCK 反判，
+ *  差异面挂 M-026d87ff 第三项；本句是「记档说一套代码做一套」第三发的收窄修正）。
+ *  双链割裂背景：v2 求值器早有 -C 落点跟踪，V1 生产链只认 cd 形态，
+ *  `git -C <worktree> commit` 同形态两链反判。
+ *  fail-closed 面（任一命中即不豁免）：--git-dir/--work-tree 覆盖（落点被改写）、
+ *  ~ 前缀（shell 不展开）、动态/引号含空格 token（与 GIT_WRITE_SUBCOMMAND 的 \S+
+ *  词面解析同基座，解析不完整就不豁免）；无 -C 时归 cwd 形态（skipGitWrite）不重复。
+ *  段级粒度：豁免只对本 git 段生效，命令内其他段照常判定（混合段回归钉死）。 */
+function gitDashCTargetsWorktree(rest: string, projectRoot?: string, sessionCwd?: string): boolean {
+  if (!projectRoot) return false;
+  const m = /^git\s+((?:-C\s+\S+\s+|--git-dir=\S+\s+|--work-tree=\S+\s+|-c\s+\S+\s+)*)/.exec(rest);
+  if (!m || m[1].length === 0) return false;
+  const tokens = m[1].match(/-C\s+\S+|--git-dir=\S+|--work-tree=\S+|-c\s+\S+/g) ?? [];
+  let base: string | null = sessionCwd !== undefined && path.isAbsolute(sessionCwd) ? path.normalize(sessionCwd) : null;
+  let hasC = false;
+  for (const tk of tokens) {
+    if (tk.startsWith("--git-dir") || tk.startsWith("--work-tree")) return false;
+    if (tk.startsWith("-c")) continue;
+    const raw = tk.replace(/^-C\s+/, "");
+    // 引号整体包裹才剥离（`-C "/path/x"`）；剥后残余引号/$/反引号/反斜杠=动态或
+    // 解析不完整形态，不猜——fail-closed
+    const outer = /^(['"])(.*)\1$/.exec(raw);
+    const target = outer ? outer[2] : raw;
+    if (/['"$`\\]/.test(target) || target.startsWith("~")) return false;
+    hasC = true;
+    const resolved = path.isAbsolute(target)
+      ? path.normalize(target)
+      : base !== null ? path.normalize(path.resolve(base, target)) : null;
+    if (resolved === null) return false;
+    base = resolved;
+  }
+  if (!hasC || base === null) return false;
+  const wtRoot = path.normalize(path.join(projectRoot, ".otter/worktrees"));
+  const rel = path.relative(wtRoot, base);
+  // worktrees 根自身不豁免（上溯发现主仓 .git = 写主仓树）；必须是 <name>[/…] 下沉层
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
 /** 剥子壳包装（#1285 r1 严重 1 连带形态：`(git commit)` / `{ git commit; }`——
  *  子 shell/命令组剥壳后按同一段判定链重判；剥壳无界循环防护上限 8 层。
  *  注意：剥壳只在「全段恰好被一对壳包裹」时生效（正则锚定 ^$）——
@@ -1076,6 +1120,9 @@ function judgeSegment(
     // 注入）——git 写族落点是 cwd 上移发现的 git 工作树，不是主仓写，放行。
     // 会话工作区（data/workspaces/，非 git 树）与相对 cwd 不注入本豁免。
     if (ctx.skipGitWrite) return false;
+    // F20261015glfp（M-bf4049a3）：git -C 落点豁免（段级）——-C 目标累积解析后落
+    // worktree 区时本段 git 写非主仓写，与 cwd 形态等价豁免；其他段照常判定。
+    if (gitDashCTargetsWorktree(rest, ctx.projectRoot, ctx.sessionCwd)) return false;
     return true;
   }
   // ③b shell 解释器落点 → 洞1：提取 -c 载荷递归判定（r1 严重 2：三态拆分）
