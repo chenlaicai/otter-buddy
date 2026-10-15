@@ -73,12 +73,11 @@ print(d['name'])
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 
-  it("python3 -c 字符串里的 kill 字样 + 数字（数据非调用，如注释/日志分析）→ kill 检测仍触发（保守拦截，可接受误拦）", () => {
-    // 已知取舍：kill 检测看原文无法区分字符串内 kill 字样与真调用——保守拦截。
-    // 该形态在日志分析中真实出现（查 kill 相关日志），误拦可接受（改写法绕过：
-    // 用工作区脚本文件而非 one-liner）。本测试固化「保守拦」语义防未来误放行。
+  it("python3 -c 字符串里的 kill 字样 + 数字（数据非调用，如注释/日志分析）→ 放行（F20261015gsub 收敛：one-liner 军备规则已删）", () => {
+    // F20261015gsub：cmdLevel 脚本 one-liner 规则删除——字符串内 kill 字样+数字放行。
+    // 此前「保守拦可接受误拦」是军备竞赛取舍，收敛后该误拦面消除。
     const cmd = `python3 -c "print('kill test 12345')"`;
-    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
   });
 
   // ── shell 载荷不回退（引号内是 shell 代码，剥离会瞎 kill 检测）──

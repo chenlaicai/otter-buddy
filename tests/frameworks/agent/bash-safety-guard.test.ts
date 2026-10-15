@@ -190,10 +190,7 @@ describe("checkBashCommandSafety", () => {
     expect(result).toContain("本意安全");
   });
 
-  it("无法判断型拦截（eval 包装）含误拦退出引导", () => {
-    const result = checkBashCommandSafety("eval \"echo 42877\"", mainPid);
-    expect(result).toContain("本意安全");
-  });
+  // F20261015gsub 收敛：eval 包装+数字军备规则已删——eval "echo 42877" 不再拦，本条失效删除
 
   it("管道到 shell 拦截含误拦退出引导", () => {
     // #777：原用例（grep -q kill && bash -c）恰是本 issue 修的词元误拦型——
@@ -322,18 +319,7 @@ describe("F20260902gvrd 词边界收紧与拦截回显", () => {
     expect(result).toBeNull();
   });
 
-  it("命令位置 eval 在操作符后仍拦截（收紧后覆盖面回归）", () => {
-    const result = checkBashCommandSafety("cd /tmp && eval \"echo 42877\"", mainPid);
-    expect(result).not.toBeNull();
-  });
-
-  // #730 拦截回显增强：被拦命令应带诊断块（规则名 + 片段 + 位置），不再只有静态文案
-  it("拦截文案含命中详情（规则名 + 位置偏移，#730）", () => {
-    const result = checkBashCommandSafety('git -C . && eval "echo 42877"', mainPid);
-    expect(result).not.toBeNull();
-    expect(result!).toContain("【命中详情】");
-    expect(result!).toContain("@"); // 位置偏移标记
-  });
+  // F20261015gsub 收敛：eval 包装+数字军备规则已删——以下三条 eval 相关断言随规则失效删除
 
   it("拦截文案含命中详情且主进程 PID 已脱敏（#730 + F20260831aksp 铁律兼容）", () => {
     const result = checkBashCommandSafety("kill 42877", mainPid);
@@ -343,11 +329,7 @@ describe("F20260902gvrd 词边界收紧与拦截回显", () => {
     expect(result!).toContain("<main-pid>"); // 脱敏占位符可见，位置可自定位
   });
 
-  it("归一化路径拦截的诊断块引用原始命令（#730）", () => {
-    const result = checkBashCommandSafety('e""val "echo 42877"', mainPid);
-    expect(result).not.toBeNull();
-    expect(result!).toContain("【命中详情】");
-  });
+  // F20261015gsub 收敛：eval 包装规则已删——归一化路径 eval 拦截断言失效删除
 
   it("PoC-10: perl -e 'kill 15, 42877' → 拦截（perl kill 绕过）", () => {
     // perl 的 kill 不是 shell kill，但参数中有主进程 PID + kill 关键词
@@ -586,11 +568,7 @@ describe("#698 攻击链回归：wrapper/赋值/bash -c/xargs 参数/路径变�
     expect(result).not.toBeNull();
   });
 
-  // e. python -c one-liner（#698 建议3）
-  it("python3 -c 'import os; os.kill(42877, 9)' → 拦截（python -c one-liner）", () => {
-    const result = checkBashCommandSafety("python3 -c 'import os; os.kill(42877, 9)'", mainPid);
-    expect(result).not.toBeNull();
-  });
+  // e. python -c one-liner（#698 建议3）——F20261015gsub 收敛：军备规则已删，本条随规则失效删除
 
   // ─── F20260916gsrd：主服务管理脚本自杀命令（9/16 事故：獭 otter-buddy.sh restart 杀主进程 31385） ───
   // F20260916gtlr：未传 projectRoot 的调用走保守退化（全局拦），以下用例行为不变；
@@ -675,23 +653,7 @@ describe("#698 攻击链回归：wrapper/赋值/bash -c/xargs 参数/路径变�
   });
 
   // ─── F20260916gtlr：间接调用保守拦截（检视严重发现 1：变量/命令替换隐藏 stop/restart） ───
-
-  it("变量隐藏子命令：S=stop && otter-buddy.sh $S → 拦截", () => {
-    const result = checkBashCommandSafety("S=stop && scripts/otter-buddy.sh $S", mainPid);
-    expect(result).toContain("间接调用特征");
-  });
-
-  it("变量隐藏全命令：CMD=... && bash -c \"$CMD\" → 拦截（间接形态）", () => {
-    const result = checkBashCommandSafety('CMD="scripts/otter-buddy.sh stop" && bash -c "$CMD"', mainPid);
-    expect(result).not.toBeNull();
-    expect(result).toContain("主进程");
-  });
-
-  it("命令替换隐藏：bash -c \"$(echo scripts/otter-buddy.sh stop)\" → 拦截", () => {
-    const result = checkBashCommandSafety('bash -c "$(echo scripts/otter-buddy.sh stop)"', mainPid);
-    expect(result).not.toBeNull();
-    expect(result).toContain("主进程");
-  });
+  // F20261015gsub 收敛：形态 2（间接调用保守拦）已删——以下三条军备用例随规则失效删除。
 
   it("bash -c 单引号内嵌：bash -c 'scripts/otter-buddy.sh stop' → 放行（与 #970 语义一致：前导字符类 [;&|`$(] 含反引号 U+0060 但不含单引号 U+0027，故 -c 后的单引号载荷不匹配；行为同旧，非本 PR 引入的缺口）", () => {
     const result = checkBashCommandSafety("bash -c 'scripts/otter-buddy.sh stop'", mainPid);
@@ -869,10 +831,7 @@ describe("SERVICE_SCRIPT_KILL 路径限定（F20260916gtlr）", () => {
     expect(result).toContain("解析到主仓");
   });
 
-  it("mainPid=null + 主仓脚本间接形态 → 仍拦截", () => {
-    const result = checkBashCommandSafety("scripts/otter-buddy.sh $S", null, undefined, opts);
-    expect(result).toContain("间接调用特征");
-  });
+  // F20261015gsub 收敛：形态 2 已删，间接形态（$S 变量）不再拦截——本条军备用例失效删除
 
   it("projectRoot 缺失 → 保守全局拦（退化行为）", () => {
     const result = checkBashCommandSafety("/anywhere/scripts/otter-buddy.sh stop", mainPid);
@@ -901,10 +860,7 @@ describe("F20260917alph 拦截文案指向 alpha.sh + 组合杀回归", () => {
     expect(result).toContain("scripts/alpha.sh start");
   });
 
-  it("脚本间接调用拦截文案引导 alpha.sh start（gsrd 形态 2）", () => {
-    const result = checkBashCommandSafety("S=stop && scripts/otter-buddy.sh $S", mainPid);
-    expect(result).toContain("scripts/alpha.sh start");
-  });
+  // F20261015gsub 收敛：形态 2 已删，间接调用文案用例失效删除
 
   it("PID 文件引用拦截文案引导 alpha.sh start", () => {
     const result = checkBashCommandSafety("kill $(cat .otter-buddy.pid)", mainPid);
@@ -3516,7 +3472,8 @@ describe("delta7 修法（严重 1：受管族 carve 收窄——树外同名负
   it("frozen 双向保持：受管路径拦截面归专属域文案（非 U5）", () => {
     expect(checkBashCommandSafety("./scripts/otter-buddy.sh stop", mainPid)).toContain("otter-buddy.sh");
     expect(checkBashCommandSafety("$(./scripts/otter-buddy.sh restart)", mainPid)).toContain("otter-buddy.sh");
-    expect(checkBashCommandSafety("S=stop && scripts/otter-buddy.sh $S", mainPid)).toContain("间接调用特征");
+    // F20261015gsub 收敛：形态 2（间接调用拦）已删——S=stop && scripts/otter-buddy.sh $S 放行
+    expect(checkBashCommandSafety("S=stop && scripts/otter-buddy.sh $S", mainPid)).toBeNull();
   });
 
   it("解释器绝对路径不误收面不回退（delta6 已验）", () => {
@@ -3553,8 +3510,10 @@ describe("delta8 修法（`~` 前缀族收口——前缀空间穷举负门）",
 });
 
 // ─── F20261015qind（issue #1494）：文本形态（引号内脚本名 × 引号内变量）放行，真间接执行仍拦 ───
+// ─── F20261015qind（issue #1494）：文本形态放行断言——收敛后仍有效（形态 2 删了更放行） ───
+// F20261015gsub：qind 的「逃逸面仍拦」断言随形态 2 删除而失效（已删），仅留放行断言。
 // 独立 describe：checkBashCommandSafety 主 describe 箭头函数超 lint 行数上限（220），此组外置
-describe("F20261015qind 文本形态脱敏（issue #1494）：引号内脚本名 × 变量特征放行", () => {
+describe("F20261015qind 文本形态放行（issue #1494）：引号内脚本名 × 变量特征放行", () => {
   const mainPid = 42877;
 
   it("文本形态：S=status && echo \"otter-buddy.sh $S 被拦\" → 放行（脚本名与变量同在引号内，纯文本）", () => {
@@ -3567,32 +3526,8 @@ describe("F20261015qind 文本形态脱敏（issue #1494）：引号内脚本名
     expect(result).toBeNull();
   });
 
-  it("逃逸面：otter-buddy.sh \"$S\" → 拦截（脚本名在引号外=真实执行意图，不脱敏）", () => {
-    const result = checkBashCommandSafety('scripts/otter-buddy.sh "$S"', mainPid);
-    expect(result).not.toBeNull();
-    expect(result).toContain("间接调用特征");
-  });
-
-  it("伪装逃逸面：echo \"otter-buddy.sh\" && otter-buddy.sh $S → 拦截（第二段脚本名在引号外，分段不一票放行）", () => {
-    const result = checkBashCommandSafety('echo "otter-buddy.sh" && scripts/otter-buddy.sh $S', mainPid);
-    expect(result).not.toBeNull();
-    expect(result).toContain("间接调用特征");
-  });
-
   it("单引号文本形态：echo 'otter-buddy.sh $S 提及' → 放行（单引号内 $ 不展开，纯字面文本）", () => {
     const result = checkBashCommandSafety("echo 'otter-buddy.sh $S 提及'", mainPid);
     expect(result).toBeNull();
-  });
-
-  it("逃逸面：eval \"otter-buddy.sh $S\" → 拦截（eval 让引号内容成为真实执行体，不豁免——检视獭-1509 严重 1 修复回归）", () => {
-    const result = checkBashCommandSafety('eval "otter-buddy.sh $S"', mainPid);
-    expect(result).not.toBeNull();
-    expect(result).toContain("间接调用特征");
-  });
-
-  it("逃逸面：eval 'otter-buddy.sh $S'（单引号）→ 拦截", () => {
-    const result = checkBashCommandSafety("eval 'otter-buddy.sh $S'", mainPid);
-    expect(result).not.toBeNull();
-    expect(result).toContain("间接调用特征");
   });
 });
