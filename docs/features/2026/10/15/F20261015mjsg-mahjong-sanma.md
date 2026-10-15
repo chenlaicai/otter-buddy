@@ -11,7 +11,7 @@ intent:
   verify_by:
     type: behavior_check
 tags: [mahjong, game, feature]
-modules: [src/usecases/mahjong, src/entities/mahjong, web/mahjong]
+modules: [src/usecases/mahjong, src/entities/mahjong, web-mahjong]
 causal_links:
   - 2026-10-15 对话「麻将」：搭档拍板——实时同桌、LLM+规则辅助、完整规则、三人麻、独立页面入口
 ---
@@ -94,13 +94,14 @@ causal_links:
   - **熔断**：獭 LLM 异常/超时 → 规则代理代打该回合（记日志，战报标注）——不传染对局
   - **compaction/水位换世**（审视 S2——原方案「局内禁 restart/dissolve」只约束外部指令，挡不住自动换世）：水位触发器在 AgentInvoker 轮边界（agent-invoker.ts:334 `shouldTriggerWatermarkHandoff`），**SDK 直调路径天然不经此处**——牌局期间无自动换世；局终由 RoomService 统一检查水位、必要时触发交接（牌局间隙换世无明牌顾虑）。R1 风险描述相应修正
 - **獭生命周期**（审视 A3 修正——原方案「持久 participant」与「开局 create_otter」矛盾）：**持久牌搭子獭**（首次开局 create_otter ×2，挂靠开局对话；之后复用不重建——跨局记忆成立，「獭记得上局锐评」）；局终**挂起不 dissolve**；约束执行主体 = RoomService
+- **牌局中对话侧防护**（delta D2）：牌搭子獭挂靠对话后仍是 participant——牌局进行中搭档在对话 @它 会走 AgentInvoker 对话链触发水位换世（绕过局终统一检查）。对策：牌局进行中该獭对话侧自动应答「打牌中」（复用 `isRunning` 判定，sdk-invoke-port.ts 现成接口），不进入 LLM 推理
 - 唤醒协议：局面快照（自家手牌/河/副露/点数/场况，**不含他家手牌**）+ 合法操作集（Referee 预算好）→ 獭一次响应返回 `{action, speech?}`——操作与发言同帧，发言进 ChatLog 不额外烧 token
 - 兜底：獭返回非法操作 → Referee 拒绝并要求重答（最多 1 次重试）→ 仍非法则规则代理代打（记日志，战报标注）——对局不因獭发疯而崩
 - 人格化：speech 由獭自由发挥（报听宣言、毒奶、锐评），systemPrompt 里给语气基调，不做模板化
 
 ### 模块四：牌局页面（/mahjong/:roomId）
 
-- 独立静态目录（如 `web-mahjong/`）+ Hono `serveStatic` 显式路由，**注意与 SPA fallback 的交互**（server.ts:48，需显式排除 `/mahjong/*`）
+- 独立静态目录 `web-mahjong/`（仓库根，与 `game/` 同级同模式；`web/` 是 vite SPA 单入口工程，原生 HTML 进 `web/mahjong/` 会被卷进构建链——delta D1 修正统一命名）+ Hono `serveStatic` 显式路由，**注意与 SPA fallback 的交互**（server.ts:48，需显式排除 `/mahjong/*`）
 - 牌局实时推送：现有 SSE 是 conversationId 粒度（`sse-streamer.ts:25`），**room 粒度广播通道为新建**（SSE 或 WS 选型实现期定）
 - 牌桌渲染：DOM/CSS（牌面用 Unicode 麻将字符或 SVG 牌面图，不用图片资源），三家视角、手牌横排、牌河 6 列、副露区、点数/场况栏——原生 HTML/JS 单页，风格参照 game/index.html（**注意：game/ 无托管基建可复用**，src 零引用，仅风格参照——审视 S4 修正）
 - 交互：点选手牌打出、副露/立直/和了按钮按合法操作集动态显隐、倒计时（真人回合 15s+ 宽限，超时自动摸切）
@@ -114,7 +115,7 @@ causal_links:
 
 ## 影响范围
 
-- 新增：`src/usecases/mahjong/`（engine/referee/adapter/room）、`src/entities/mahjong/`、`web/mahjong/`（页面）、sqlite 两新表
+- 新增：`src/usecases/mahjong/`（engine/referee/adapter/room）、`src/entities/mahjong/`、`web-mahjong/`（页面，仓库根静态目录）、sqlite 两新表
 - 修改：Hono 静态路由注册（`/mahjong/*` 显式路由 + SPA fallback 排除）、入口卡渲染契约（复用 html-card，无契约变更）
 - 不碰：对话引擎、发言石、记忆索引、AgentInvoker 对话调度链（獭唤醒走 SDK 直调面，见模块三）
 - 依赖：无新 npm 依赖（裁判自研、页面原生）——这是选型结论的直接收益
