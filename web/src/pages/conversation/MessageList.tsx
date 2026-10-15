@@ -188,6 +188,8 @@ function MarkdownContent({ children, variant = 'otter-body', messageId = '', aut
   )
 }
 
+export { MarkdownContent }
+
 
 
 /** F20261008scpg scroll-pin 状态机常量：账本过期时长 / 归因匹配容差 / touch 脱锚位移阈值 */

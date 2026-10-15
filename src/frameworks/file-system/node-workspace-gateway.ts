@@ -79,6 +79,16 @@ export class NodeWorkspaceGateway implements WorkspaceGateway {
     return fs.readFile(fullPath, "utf-8");
   }
 
+  /** Why: readFile 强制 utf-8，二进制（图片）读出乱码——图片预览需要原始字节（F20261014pvmd） */
+  async readFileBuffer(conversationId: string, relativePath: string): Promise<Buffer> {
+    const fullPath = await this.resolveSafe(conversationId, relativePath);
+    const stat = await fs.stat(fullPath);
+    if (stat.size > MAX_FILE_SIZE_BYTES) {
+      throw new Error(`File too large (${stat.size} bytes, max ${MAX_FILE_SIZE_BYTES})`);
+    }
+    return fs.readFile(fullPath);
+  }
+
   async writeFile(conversationId: string, relativePath: string, content: string): Promise<void> {
     const byteLength = Buffer.byteLength(content, "utf-8");
     if (byteLength > MAX_FILE_SIZE_BYTES) {

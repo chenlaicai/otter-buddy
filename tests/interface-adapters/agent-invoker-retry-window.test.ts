@@ -63,7 +63,6 @@ function makeInvoker(sdk: SdkInvokePort, sendEntry: ReturnType<typeof mockSendEn
     sdk, mockQueryMessage(), mockManageSession(), mockQueryOtter(), createTestLogger(),
     undefined, undefined, undefined, undefined, undefined,
     undefined, undefined, undefined, undefined, undefined, undefined,
-    undefined,
     sendEntry,
     { getInvokeEvents: async () => [] } as never,
   );

@@ -31,11 +31,12 @@ main_repo_root() {
 # F20261014alps 机械闸：worktree 场景下禁止解析到主服务默认端口 3000。
 # 端口宪法：主服务 3000 只有主仓能碰；worktree 内应走 alpha.sh（3100-3198 偶数段）。
 # 此闸只拦「未显式指定端口却落到 3000」的默认路径——显式 -p 3000 是搭档特权，不拦。
+# 只探测不消费：用 for 遍历 "$@"，禁止 shift——shift 会吞掉全部参数，
+# 导致下方正式解析循环拿不到命令（start/stop 全落 usage，#1473 引入的回归）。
 port_explicit=false
-while [[ $# -gt 0 ]]; do
-  case "$1" in
+for arg in "$@"; do
+  case "$arg" in
     -p|--port) port_explicit=true; break ;;
-    *) shift ;;
   esac
 done
 if [ "$port_explicit" = false ] && [ "$PORT" = "3000" ]; then

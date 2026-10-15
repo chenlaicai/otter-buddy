@@ -171,7 +171,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
       invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       mockManageSession, queryOtter, createTestLogger(),
       undefined, undefined, undefined, undefined, healing.repo,
-      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined,
       wrappedEntry as never,
       { getInvokeEvents: async () => [] } as never,
     );
@@ -220,7 +220,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
       invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       mockManageSession, queryOtter, createTestLogger(),
       undefined, undefined, undefined, undefined, healing.repo,
-      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined,
       sendEntry,
       { getInvokeEvents: async () => [] } as never,
     );
@@ -258,7 +258,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
       invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       mockManageSession, queryOtter, createTestLogger(),
       undefined, undefined, undefined, undefined, healing.repo,
-      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined,
       sendEntry,
       { getInvokeEvents: async () => [] } as never,
     );
@@ -283,7 +283,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
       invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       mockManageSession, queryOtter, createTestLogger(),
       undefined, undefined, undefined, undefined, healing.repo,
-      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined,
       sendEntry,
       { getInvokeEvents: async () => [] } as never,
     );
@@ -311,7 +311,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
       invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       mockManageSession, queryOtter, createTestLogger(),
       undefined, undefined, undefined, undefined, healing.repo,
-      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined,
       sendEntry,
       { getInvokeEvents: async () => [] } as never,
     );
@@ -351,7 +351,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
       invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       mockManageSession, queryOtter, createTestLogger(),
       undefined, undefined, undefined, undefined, healing.repo,
-      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined,
       wrappedEntry as never,
       { getInvokeEvents: async () => [] } as never,
     );
@@ -392,7 +392,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
       invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       mockManageSession, queryOtter, createTestLogger(),
       undefined, undefined, undefined, undefined, healing.repo,
-      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined,
       sendEntry,
       { getInvokeEvents: async () => [] } as never,
     );
@@ -423,7 +423,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
       invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       mockManageSession, queryOtter, createTestLogger(),
       undefined, undefined, undefined, undefined, healing.repo,
-      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined,
       sendEntry,
       { getInvokeEvents: async () => [] } as never,
     );
@@ -447,7 +447,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
       invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       mockManageSession, queryOtter, createTestLogger(),
       undefined, undefined, undefined, undefined, healing.repo,
-      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined,
       sendEntry,
       { getInvokeEvents: async () => [] } as never,
     );
@@ -478,7 +478,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
       invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       mockManageSession, queryOtter, createTestLogger(),
       undefined, undefined, undefined, undefined, healing.repo,
-      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined,
       sendEntry,
       { getInvokeEvents: async () => [] } as never,
     );
@@ -523,7 +523,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
       invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       mockManageSession, queryOtter, createTestLogger(),
       undefined, undefined, undefined, undefined, healing.repo,
-      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined,
       sendEntry,
       { getInvokeEvents: async () => [] } as never,
     );

@@ -77,8 +77,7 @@ function makeInvoker(sdk: SdkInvokePort, sendEntry: ReturnType<typeof mockSendEn
     undefined,            // 12 scheduledTaskRepo
     undefined,            // 13 listArtifacts
     undefined,            // 14 manageContext
-    undefined,            // 15 buildHandoffPkg
-    undefined,            // 16 healthySessionThresholdMs
+    undefined,            // 15 healthySessionThresholdMs
     undefined,            // 17 ctxWindowProvider
     sendEntry,            // 18 sendEntry
     { getInvokeEvents: async () => [] } as never, // 19 invokeRepo
