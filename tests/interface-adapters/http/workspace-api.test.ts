@@ -358,4 +358,55 @@ describe("响应体与 api-contract 契约一致", () => {
       expect(body.content).toBe("你好世界");
       expect(body.truncated).toBe(false);
     });
+
+    it("readFile 图片扩展名返回 base64（encoding 字段 + 原始字节编码，F20261014pvmd）", async () => {
+      // 写入真实 PNG 头字节（非合法 UTF-8 序列），验证走二进制路径不乱码
+      const wsDir = path.join(tmpDir, "workspaces", VALID_CONV_ID);
+      const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe]);
+      await fs.writeFile(path.join(wsDir, "pixel.png"), pngBytes);
+
+      const res = await app.request(
+        `/api/conversations/${VALID_CONV_ID}/workspace/file?path=pixel.png`,
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as WorkspaceFileContent;
+      expect(body.encoding).toBe("base64");
+      expect(body.truncated).toBe(false);
+      expect(Buffer.from(body.content, "base64").equals(pngBytes)).toBe(true);
+    });
+
+    it("readFile 图片扩展名大小写不敏感（.PNG 同样走 base64）", async () => {
+      const wsDir = path.join(tmpDir, "workspaces", VALID_CONV_ID);
+      await fs.writeFile(path.join(wsDir, "photo.PNG"), Buffer.from([0x01, 0x02]));
+
+      const res = await app.request(
+        `/api/conversations/${VALID_CONV_ID}/workspace/file?path=photo.PNG`,
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as WorkspaceFileContent;
+      expect(body.encoding).toBe("base64");
+      expect(body.content).toBe(Buffer.from([0x01, 0x02]).toString("base64"));
+    });
+
+    it("readFile 非图片扩展名不返回 encoding 字段（文本路径行为不变）", async () => {
+      const res = await app.request(
+        `/api/conversations/${VALID_CONV_ID}/workspace/file?path=hello.txt`,
+      );
+      const body = await res.json() as WorkspaceFileContent;
+      expect(body.encoding).toBeUndefined();
+    });
+
+    it("readFile 无点文件名（名为 png 的文本文件）不走 base64 路径（F20261014pvmd 处置 2）", async () => {
+      const wsDir = path.join(tmpDir, "workspaces", VALID_CONV_ID);
+      await fs.writeFile(path.join(wsDir, "png"), "plain text content");
+
+      const res = await app.request(
+        `/api/conversations/${VALID_CONV_ID}/workspace/file?path=png`,
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as WorkspaceFileContent;
+      // 不应识别为图片扩展名——返回 utf-8 文本，无 encoding 字段
+      expect(body.encoding).toBeUndefined();
+      expect(body.content).toBe("plain text content");
+    });
 });

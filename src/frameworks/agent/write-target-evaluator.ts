@@ -639,6 +639,18 @@ function evalScriptReadTargets(script: string, argvMap: Map<number, string>): { 
   return { paths };
 }
 
+/** #1432 只读豁免：字面量是否处于 node import('X')/require('X') 的纯目标位置。
+ *  动态导入/加载的模块解析目标固有只读（加载≠写落点）——不披露为 target；
+ *  动态拼接目标（import('./a/' + p)）除外：目标不可静态判定，不豁免（宁可保守）。
+ *  前置词边界排除 foo.import(/foo.require( 方法调用（那些可能是任意语义）。 */
+function isModuleLoadLiteralTarget(script: string, m: RegExpExecArray): boolean {
+  const idx = m.index ?? 0;
+  const before = script.slice(0, idx);
+  const after = script.slice(idx + m[0].length);
+  if (!/(?:^|[^\w$.])(?:import|require)\s*\(\s*$/.test(before)) return false;
+  return /^\s*\)/.test(after);
+}
+
 /** 从载荷文本提取静态绝对路径字面量（引号内、无 $/` 展开、/ 开头）。
  *  #1411 §3.1 口径统一：含 .. 的字面量不再跳过——交由调用方字面量闸 fail-closed
  *  （.. 解析结果不猜，与 evalPath 同源口径；披露侧由调用方跳过）。 */
@@ -741,6 +753,16 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
     //  漏判 `'/wt/../../../main/config.json'` 这类主仓耦合信号；跳过=闸的盲区）
     if (paths.some(p => p.includes("..") || pathWithinMain(p, projectRoot))) return "heredoc-script-payload";
     for (const p of paths) acc.targets.push({ path: p, via: "cmd-arg", segmentIndex: acc.index, access: "read" });
+    // 相对路径字面量披露（不进门判定——只读侧 cwd 拼接为事实锚，求值不出跳过即可）。
+    //  #1487/F20261014nirw 合入保全：import('X')/require('X') 纯目标位置的字面量是模块解析
+    //  目标（固有只读、非写落点）——不披露为 target；动态拼接目标不豁免（目标不可静态判定）。
+    for (const m of script.matchAll(/["'`]([A-Za-z0-9_.][A-Za-z0-9_./-]*\/[A-Za-z0-9_./-]+)["'`]/g)) {
+      const rel = m[1];
+      if (rel.startsWith("/") || rel.includes("..") || /[$`]/.test(rel)) continue;
+      if (isModuleLoadLiteralTarget(script, m)) continue;
+      const resolved = evalPath(rel, acc.cwd);
+      if (resolved !== null) acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index, access: "read" });
+    }
   }
   return "extracted"; // 窄提取成功——调用方跳过 detectScriptPayload 短路，段求值继续
 }

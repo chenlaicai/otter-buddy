@@ -12,6 +12,8 @@ export interface WorkspaceGateway {
   exists(conversationId: string): Promise<boolean>;
   /** 读取文件内容（utf-8） */
   readFile(conversationId: string, relativePath: string): Promise<string>;
+  /** 读取文件原始字节（二进制安全，用于图片类内容，F20261014pvmd） */
+  readFileBuffer(conversationId: string, relativePath: string): Promise<Buffer>;
   /** 写入文件内容（自动创建中间目录） */
   writeFile(conversationId: string, relativePath: string, content: string): Promise<void>;
   /** 列出目录条目 */

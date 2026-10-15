@@ -70,7 +70,6 @@ import { GetBridgeStatus } from "@usecases/recruiting/get-bridge-status";
 import { ensureRecruitingConversation } from "@usecases/recruiting/ensure-recruiting-conversation";
 import { ensureRecruitingScheduler } from "@usecases/recruiting/ensure-recruiting-scheduler";
 import { resolveFeatureGates } from "./feature-gates";
-import { buildHandoffPackage } from "@frameworks/agent/handoff-package-builder";
 
 // F20260929fsqr（delta 检视严重 1）：FeishuBundle 随静态线退役删除（见 createFeishuBundle 注释）
 
@@ -88,6 +87,8 @@ export async function createAgentGateway(options: {
   identityPromptDir?: string;
   /** 对话工作区网关 */
   workspaceGateway?: WorkspaceGateway;
+  /** F20261014cwsp: 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
+  dataDir?: string;
 }): Promise<{ agentGateway: PiSessionFactory; resolveOtterToolClient: (client: OtterToolClient) => void; resolveManageScheduledTask: (mst: ManageScheduledTask) => void }> {
   const { repos, otterConfigProvider, model, modelPool, db, logger } = options;
   // F20260929kws1：切片观测锚接线（[keeprecent-slice] cut → 主日志；密度告警已随估算机制退役）
@@ -130,6 +131,7 @@ export async function createAgentGateway(options: {
     otterRepo: repos.otter,
     settingsRepo: repos.settings,
     conversationRepo: repos.conversation,
+    dataDir: options.dataDir,
   }, logger);
 
   return {
@@ -233,7 +235,6 @@ function buildAgentInvoker(o: {
     o.repos.scheduledTask,
     (conversationId) => o.repos.conversation.getLinkedResources(conversationId, { status: "active" }),
     o.uc.manageContext,
-    buildHandoffPackage,
     // F20260831cbkw：熔断 session 年龄窗口阈值（从 config 读取，缺省 2h）
     o.appConfig?.circuitBreaker.healthySessionThresholdMs,
     // F20260901cxmw：otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）

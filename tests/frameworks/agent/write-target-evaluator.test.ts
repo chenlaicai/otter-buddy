@@ -930,3 +930,38 @@ describe("delta8 修法（`~` 前缀族收口——前缀空间穷举负门）",
     expect(v).toMatchObject({ verdict: "ALLOW", mode: "positive" });
   });
 });
+
+describe("#1432：node import/require 目标只读豁免（F20261014nirw）", () => {
+  it("放行侧：cd 主仓 && node -e await import('./src/…')（issue 现象形态）→ evaluated 无写落点", () => {
+    const cmd = `cd ${ROOT} && node -e "const m = await import('./src/usecases/signal/stop-word-scanner.ts').catch(e=>null)"`;
+    const r = evaluateWriteTargets(cmd, ROOT);
+    expect(r.kind).toBe("evaluated");
+    if (r.kind === "evaluated") expect(r.targets.filter(t => pathWithinMain(t.path, ROOT))).toHaveLength(0);
+  });
+
+  it("放行侧：require('./src/foo.ts') 纯字面量目标不披露为写落点", () => {
+    const r = evaluateWriteTargets(`node -e "const x = require('./src/foo.ts')"`, ROOT);
+    expect(r.kind).toBe("evaluated");
+    if (r.kind === "evaluated") expect(r.targets).toHaveLength(0);
+  });
+
+  it("负门：require('./src/' + p) 动态拼接目标不豁免——字面量片段仍披露（保守面）", () => {
+    const r = evaluateWriteTargets(`node -e "const x = require('./src/' + p)"`, ROOT);
+    expect(r.kind).toBe("evaluated");
+    if (r.kind === "evaluated") expect(r.targets.length).toBeGreaterThan(0);
+  });
+
+  it("负门：foo.import('…') 方法调用不豁免（非模块解析语义）", () => {
+    const r = evaluateWriteTargets(`node -e "foo.import('./src/evil.txt')"`, ROOT);
+    expect(r.kind).toBe("evaluated");
+    if (r.kind === "evaluated") expect(r.targets.length).toBeGreaterThan(0);
+  });
+
+  it("回归钉子：数组/对象字面量内路径片段不产生伪路径 target（ab74f9a2 [t.path, 形态）", () => {
+    const r = evaluateWriteTargets(`node -e "const a=[t.path, t.name]; rows.map(t => [t.path, t.name])"`, ROOT);
+    expect(r.kind).toBe("evaluated");
+    if (r.kind === "evaluated") {
+      expect(r.targets.map(t => t.path).some(p => p.includes("[") || p.includes(","))).toBe(false);
+    }
+  });
+});

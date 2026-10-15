@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { checkBashCommandSafety } from "@frameworks/agent/bash-safety-guard";
+import { evaluateWriteTargets, pathWithinMain } from "@frameworks/agent/write-target-evaluator";
 
 const mainPid = 42877;
 const projectRoot = "/Users/orca/ai/otter-buddy";
@@ -55,5 +56,116 @@ describe("V9+ 真实拦截数据回放（9/28 healing events 现场）", () => {
     expect(checkBashCommandSafety("kill 42877", mainPid)).toBeTruthy();
     expect(checkBashCommandSafety("pkill -f otter-buddy", mainPid)).toBeTruthy();
     expect(checkBashCommandSafety("bash -c 'nohup kill $0' 42877", mainPid)).toBeTruthy();
+  });
+});
+
+describe("10/13 UTC 真实拦截数据回放（#1368 固化自动化首轮）", () => {
+  // 数据源：guard-replay-candidates-2026-10-13.json（108 拦截 → 92 候选 → 45 固化）
+  // 裁决：固化獭 2026-10-14，探针验证于 worktree guard-replay-freeze-1013
+  // ALLOW（误拦）期望 null——暴露 V1 现存误拦；BLOCK（负门）期望 truthy——回归防护
+  // 映射表（45 条非 SKIP → 13 用例）见 docs/features/2026/10/14/F20261014grrf-guard-replay-round1.md
+
+  // ── ALLOW：误拦类（V1 现存误拦，it.skip 挂 #1468，修复 PR 内解除 skip 转绿）──
+  // 分支保护 required_status_checks=["check"] + enforce_admins=true——保持红物理不可合入
+  // #1468 修复验收须含「解除本文件 6 处 it.skip」
+
+  it.skip("1013-A1: python3 heredoc 读 worktree fixture（无 cd）→ 应放行（样本 c6ffc656/0676ef9d/f60d9bbf/381daca8 等）", () => {
+    const cmd = `python3 - <<'PYEOF'
+import json
+p='${WT}/guard-eval-v2/tests/fixtures/guard-touchstone-exam-gaps.json'
+d=json.load(open(p))
+print(len(d))
+PYEOF`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+  it.skip("1013-A2: python3 -c 读 worktree fixture（无 cd）→ 应放行（样本 cd4ea86f 等）", () => {
+    const cmd = `python3 -c "import json; d=json.load(open('${WT}/guard-eval-v2/tests/fixtures/guard-touchstone-exam-gaps.json')); print(len(d))"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+  it.skip("1013-A3: cat >> worktree test.ts（绝对路径重定向）→ 应放行（样本 572b7726）", () => {
+    const cmd = `cat >> ${WT}/guard-eval-v2/tests/frameworks/agent/write-target-evaluator.test.ts << 'EOF'
+it('x', () => {});
+EOF`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+  it.skip("1013-A4: node -e 纯只读 require(package.json) → 应放行（样本 7bccfbf5，#1432 同类）", () => {
+    const cmd = `node -e "const s=require('./package.json').scripts; for (const k of Object.keys(s)) console.log(k, '=>', s[k])" | head -20`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+  it.skip("1013-A5: git -C worktree add && git -C worktree commit → 应放行（样本 0efc13ea/3457f89c/9a07382a）", () => {
+    const cmd = `git -C ${WT}/deps-upgrade-1009 add -A && git -C ${WT}/deps-upgrade-1009 commit -F /tmp/msg.txt`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+  it.skip("1013-A6: rm -f workspaces 内文件 → 应放行（样本 9d50f659，data_destructive 误拦 workspaces）", () => {
+    const cmd = `rm -f /Users/orca/ai/otter-buddy/data/workspaces/11806e11-1cac-4d00-b263-badff1a80f2b/quota-*.mjs`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  // ── BLOCK：规则内负门（回归防护，测试预期绿）──
+
+  it("1013-B1: git stash push（cwd 主仓，无 -C）→ 拦（样本 b35d31de/5fa4f615）", () => {
+    const cmd = `git stash push -m test-wip -- src/frameworks/agent/pi-session-factory.ts`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeTruthy();
+  });
+  it("1013-B2: git push --delete（cwd 主仓）→ 拦（样本 8ae8edb8）", () => {
+    const cmd = `git push origin --delete feature/F20261012orcl-acceptance-oracle-gate`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeTruthy();
+  });
+  it("1013-B3: git add -A && git commit --amend（cwd 主仓，无 -C）→ 拦（样本 d30aa40e 等）", () => {
+    const cmd = `git add -A && git commit --amend -F /Users/orca/ai/otter-buddy/data/workspaces/11806e11-1cac-4d00-b263-badff1a80f2b/commit-msg.txt`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeTruthy();
+  });
+  it("1013-B4: sleep 180 && ...（sleep_block 负门）→ 拦（样本 fe06ae02/84e266b8/ca165165/88712b22/127de30b/dff90d4e/6a33c4e8/1fe986c2）", () => {
+    const cmd = `sleep 180 && cd ${WT}/x && gh pr checks 1451`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeTruthy();
+  });
+  it("1013-B5: bash script.sh（script_file_exec 负门）→ 拦（样本 040c8fc8/7daea038/cadd6a06）", () => {
+    // 注：7daea038 实为 main_write 拦 do-commit.sh（脚本头注释自陈把 worktree 路径移出命令行规避守卫进程名模式），与 script_file_exec 同构同判；脚本内容 git -C "$WT" add/commit，按 O-2 理想口径可议放行，但 V1 现状 = BLOCK，翻转须重裁
+    const cmd = `bash data/workspaces/7b41e085-5c21-4bd1-adfe-dc3ef051753d/wt-test.sh tests/frameworks/agent/guard-touchstone-corpus.test.ts`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeTruthy();
+  });
+  it("1013-B6: pkill -f（self_kill_byname 负门）→ 拦（样本 24b76637）", () => {
+    // 注：V1 策略现状（按名批杀一律拦），样本实为 worktree 内 chromium 运维动作；语义可议，翻转须重裁
+    const cmd = `pkill -f "user-data-dir=${WT}/fix-quota-normalize" 2>/dev/null; sleep 1; ps aux | head`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeTruthy();
+  });
+  it("1013-B7: sqlite3 触主仓 data/qtest-*.db（data_destructive 负门）→ 拦（样本 835b22db 实拦 10-13 09:10:57）", () => {
+    const cmd = `rm -f /Users/orca/ai/otter-buddy/data/qtest-1.db`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeTruthy();
+  });
+});
+
+describe("#1432 node import/require 只读豁免回放（10-12 现场 b4471a4f/026b37ee，旧链+求值器双侧钉住）", () => {
+  // 现场形态：session cwd 在主仓的裸命令（b4471a4f 无 cd 前缀）——guardOptions.sessionCwd 驱动判定
+  const gopts = { projectRoot, sessionCwd: projectRoot };
+  const PROBE_CMD = `node -e "const { scanStopWords } = await import('./src/usecases/signal/stop-word-scanner.ts').catch(e=>null)"`;
+
+  it("1432-A1: 现象命令（await import 主仓相对路径只读探针）→ 放行（旧链侧钉住）", () => {
+    expect(checkBashCommandSafety(PROBE_CMD, mainPid, undefined, gopts)).toBeNull();
+  });
+
+  it("1432-A2: 同命令求值器侧钉住——evaluated 且无主仓写落点", () => {
+    const r = evaluateWriteTargets(PROBE_CMD, projectRoot);
+    expect(r.kind).toBe("evaluated");
+    if (r.kind === "evaluated") {
+      expect(r.targets.filter(t => pathWithinMain(t.path, projectRoot))).toHaveLength(0);
+    }
+  });
+
+  it("1432-A3: node -e require('./src/foo.ts') 纯字面量目标 → 放行（旧链侧）", () => {
+    expect(checkBashCommandSafety(`node -e "const x = require('./src/foo.ts'); console.log(Object.keys(x))"`, mainPid, undefined, gopts)).toBeNull();
+  });
+
+  it("1432-B1 负门: import/require 动态拼接目标 → 保持拦（目标不可静态判定）", () => {
+    expect(checkBashCommandSafety(`node -e "const x = require('./src/' + p)"`, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1432-B2 负门: import 掩护真写 → 保持拦（写词面不因豁免失效）", () => {
+    const cmd = `node -e "await import('./x'); require('fs').writeFileSync('./src/evil.txt','x')"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1432-B3 负门: require('child_process') 危险模块 → 保持拦（词面禁不因豁免失效）", () => {
+    expect(checkBashCommandSafety(`node -e "const c = require('child_process')"`, mainPid, undefined, gopts)).toBeTruthy();
   });
 });

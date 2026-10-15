@@ -208,7 +208,6 @@ function makeInvokerWithEngine(opts: {
     undefined, // scheduledTaskRepo
     undefined, // listArtifacts
     undefined, // manageContext
-    undefined, // buildHandoffPkg
     undefined, // healthySessionThresholdMs
     (opts.ctxWindowProvider ? {
       getOtterContextWindow: () => opts.ctxWindowProvider!.window,
@@ -630,7 +629,6 @@ describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
       undefined, // scheduledTaskRepo
       undefined, // listArtifacts
       undefined, // manageContext
-      undefined, // buildHandoffPkg
       undefined, // healthySessionThresholdMs
       undefined, // ctxWindowProvider
       sendEntry,                         // 18：invoke 生命周期

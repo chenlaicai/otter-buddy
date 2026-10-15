@@ -47,7 +47,7 @@ PR 合入后的资源回收：worktree、本地分支、远程分支、源头 is
 
 3. **清理 worktree**：
    - **先停实例再删目录**（2026-10-05 孤儿实例事故后插入，实证：fix-1252-port-tdz 的 3194 实例在 worktree 删除后空转 5 天 10 小时、单核打满 99.4% CPU）：删目录不终止进程 = 进程成孤儿且失去最后线索（锁文件随目录消失）。顺序不可反——alpha.sh 随 worktree 一并消失，先删目录则设计回收路径（锁文件 + alpha.sh stop）失效，只剩端口监听扫描（lsof -i）等事后补救。
-     - 查锁文件：`<worktree>/.otter-alpha.json` 存在 → 读其 PID，`kill -0 <pid>` 确认存活 → 在 worktree 内执行 `bash scripts/alpha.sh stop`
+     - 查锁文件：`<worktree>/.otter-alpha.json` 存在 → 读其 PID，`kill -0 <pid>` 确认存活 → 执行 `cd <worktree> && bash scripts/alpha.sh stop`（cwd 前缀必带——獭 bash cwd=对话工作区非 worktree）
      - 无锁文件兜底（手工 `node dist/src/main.js --port` / detached-launch 直拉的实例无登记）：`ps -ax -o pid,command | grep "dist/src/main.js" | grep -v grep` 列出候选（**不要用 `pgrep -f`**——macOS 上 pgrep 对截断 argv 有漏检实证：2026-10-05 实测进程在跑 `node dist/src/main.js` 但 `pgrep -f` 返回 exit 1；模式用 `dist/src/main.js` 不带 node 前缀，顺带覆盖绝对路径启动形态），逐个用 `lsof -a -p <pid> -d cwd -Fn` 取 cwd，cwd 落在该 worktree 路径下 → `kill <pid>`（cwd 精确匹配 worktree 路径，不误伤主服务与其他 worktree 实例；cwd 不在该 worktree 下的实例属于其他验证环境，不在本步骤职责内）
      - 锁文件存在但实例未在跑 → alpha.sh stop 幂等返回（"Alpha was not running"），继续清理
      - 锁文件 PID 与端口监听者不符 → alpha.sh stop **拒绝执行**（scripts/alpha.sh cmd_stop 杀伐校验：宁可让人裁决不错杀），此时按上条无锁文件兜底路径人工核实后终止
@@ -59,6 +59,11 @@ PR 合入后的资源回收：worktree、本地分支、远程分支、源头 is
      - 有未提交变更 → **不自动删除**，报告搭档决策
      - 干净 → `git worktree remove <path>`（失败重试一次，仍失败记录跳过）
    - 清理元数据残留：检查 `.git/worktrees/<name>/` 是否还存在，存在则 `rm -rf`
+   - **硬验证闸（2026-10-09 虚报实证后补）**：每步清理动作后必须回查存在性，退出码 + 磁盘状态双重确认，失败必进报告 ERROR 段——「命令执行了」≠「清理成功」，汇报 ✅ 必须对齐磁盘真实状态（事故实证：dirty worktree 使 remove 默认拒绝，执行者未查退出码照样汇报「已清理」，目录在磁盘又躺了半天）：
+     - worktree 删后：`git worktree list | grep <path>` 零命中 + `<path>/.git` 文件不存在 → 才算 ✅；任一仍存在 → ❌ 进报告，禁止打勾
+     - 分支删后：`git branch --list <branch>` 零命中才算 ✅
+     - 远程分支删后：`git ls-remote --heads origin <branch>` 零命中才算 ✅
+     - 零命中检查本身失败（命令报错）→ 同样 ❌，不得当成功
 
 4. **删除本地分支**：
    - **保护分支检查**：若分支名为 `main` / `develop` / `production`（或仓库定义的保护分支），**跳过**，不删除
@@ -123,6 +128,18 @@ PR 合入后的资源回收：worktree、本地分支、远程分支、源头 is
 5. **执行清理**：确认后逐项执行上述单 PR 清理流程
 
 ## 产出
+
+### 清理状态对账（硬闸：报告必须与磁盘/远程真实状态一致）
+
+清理报告里的每个 ✅ 必须由硬验证闸的回查结果支撑（见工作流第 3 步）。「自以为清了」与「真清了」的差距就是残留的来源（2026-10-09 实证：汇报 ✅ 后目录又在磁盘躺了半天）。对账口径：
+
+| 项 | ✅ 判据（全部满足才打勾） |
+|---|---|
+| worktree | `git worktree list` 零命中 + `<path>/.git` 不存在 + `.git/worktrees/<name>/` 元数据目录不存在 |
+| 本地分支 | `git branch --list <branch>` 零命中 |
+| 远程分支 | `git ls-remote --heads origin <branch>` 零命中 |
+| 源头 issue | `gh issue view <N> --json state` 为 CLOSED |
+
 
 ### 单 PR 清理报告
 

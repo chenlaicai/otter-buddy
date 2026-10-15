@@ -93,7 +93,7 @@ function makeInvoker(sdk: SdkInvokePort, logger?: Logger) {
     mockQueryOtter(),
     logger ?? createTestLogger(),
     undefined, undefined, undefined, undefined, undefined,
-    undefined, undefined, undefined, undefined, undefined, undefined,
+    undefined, undefined, undefined, undefined, undefined,
     { getOtterContextWindow: () => 262_144, getOtterHandoffThresholdTokens: () => 40_000 } as never,
     sendEntry,
     { getInvokeEvents: async () => [] } as never,
