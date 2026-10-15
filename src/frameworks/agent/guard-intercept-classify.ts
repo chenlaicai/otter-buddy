@@ -50,6 +50,10 @@ const FINGERPRINTS: ReadonlyArray<{ fragment: string; cls: GuardRuleClass }> = [
   { fragment: "otter-buddy.sh 引用与间接调用特征", cls: { ruleId: "self_kill_indirect", layer: "self_kill" } },
   // V2 U5（guard-model-judge.ts:362）：防绕过层——脚本文件执行未经守卫逐条判定
   { fragment: "从文件读取脚本执行", cls: { ruleId: "script_file_exec", layer: "bypass_guard" } },
+  // F20261015gali（M-edd889c2）：git alias shell 展开注入（载荷拆解/不可证 fail-closed）
+  //  双指纹同 ruleId（pidfile 先例）；载荷命中文案子文案在第二行不参与首句指纹匹配
+  { fragment: "git alias shell 展开（! 前缀）执行任意载荷", cls: { ruleId: "alias_shell_payload", layer: "bypass_guard" } },
+  { fragment: "git alias shell 展开（! 前缀）注入载荷", cls: { ruleId: "alias_shell_payload", layer: "bypass_guard" } },
   { fragment: "当前 bash 工作目录在主仓", cls: { ruleId: "main_write", layer: "r1_gate" } },
   { fragment: "主仓 data/", cls: { ruleId: "data_destructive", layer: "r1_gate" } },
   { fragment: "PR 合入是搭档专属动作", cls: { ruleId: "pr_merge", layer: "permission" } },

@@ -144,3 +144,22 @@ describe("buildGuardInterceptContext · 落账字段组装（B3 处置：hook �
     expect(ctx).toMatchObject({ ruleId: "self_kill_byname" });
   });
 });
+
+describe("classifyGuardInterceptReason · F20261015gali alias_shell_payload（宪法 L4 bypass_guard）", () => {
+  it("alias_shell_payload：载荷命中（子文案在第二行不抢首句指纹）", () => {
+    expectClass("git -C /repo/.otter/worktrees/wt -c alias.pwn='!git -C /repo reset --hard' pwn", "alias_shell_payload");
+  });
+
+  it("alias_shell_payload：持久注入 config 形态", () => {
+    expectClass("git config alias.pwn '!git -C /repo reset --hard'", "alias_shell_payload");
+  });
+
+  it("alias_shell_payload：载荷不可静态提取（opaque）", () => {
+    expectClass("git -c alias.pwn=\"!$P\" pwn", "alias_shell_payload");
+  });
+
+  it("分类归 bypass_guard 层", () => {
+    const cls = classifyGuardInterceptReason(guardReason("git config --global alias.pwn '!rm -rf /repo/data'"));
+    expect(cls).toMatchObject({ ruleId: "alias_shell_payload", layer: "bypass_guard" });
+  });
+});

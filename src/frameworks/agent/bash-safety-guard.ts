@@ -25,6 +25,8 @@ import { findKillSegments, isKillAtCommandPosition } from "./kill-segment-finder
 const isCommandPositionFor = (text: string, pattern: RegExp): boolean => isKillAtCommandPosition(text, pattern);
 import { allSegmentsGitReadonly } from "./git-readonly-whitelist";
 import { checkWithModel, modelParseOk, modelCdExemption } from "./guard-model-judge";
+import { parseOnce } from "./command-model";
+import { extractGitAliasShell } from "./payload-extract-aux";
 
 export type { AllowedService };
 
@@ -458,6 +460,55 @@ function checkDataDirDestructive(command: string, logger: Logger | undefined, ct
 }
 
 /* eslint-disable complexity -- sleep 检测挂点（F20260928slan）新增一分支：V1 判定链原 12 分支 + sleep 检测，合并后 13——每分支对应一条已断言语义；F20261014cwsp：sessionCwd 穿透（判定基准解耦进程 cwd）参数/分支各 +1 */
+/** F20261015gali（M-edd889c2）：git alias shell 展开（! 前缀）注入——载荷不可静态提取文案。 */
+export const GIT_ALIAS_SHELL_OPAQUE_REASON =
+  "bash 命令通过 git alias shell 展开（! 前缀）注入载荷，且载荷不可静态提取（动态/解析失败），无法静态确认其行为。该命令不允许：git alias 的 ! 前缀展开是任意 shell 执行通道。请直接执行目标命令；确需 git 别名时只用纯子命令别名（不含 ! 前缀）。";
+
+/** F20261015gali（M-edd889c2）：载荷递归命中文案（子文案换行携带——首句只承载本规则指纹）。 */
+export function gitAliasShellPayloadReason(sub: string): string {
+  return `bash 命令通过 git alias shell 展开（! 前缀）执行任意载荷，载荷命中拦截：\n${sub}`;
+}
+
+/** F20261015gali（M-edd889c2，宪法 L4 bypass_guard）：git alias shell 展开（! 前缀）
+ *  注入——真执行体语义（#1513 F20261015gsub 取向：内容判定而非通道封杀，与
+ *  judgeEvalPayload 载荷递归同款）。`!` 前缀 alias 值是任意 shell 执行通道（git 原生
+ *  语义：从仓库根以 shell 执行）——载荷提取后递归过全量文本路径规则（输入长度严格
+ *  递减收敛，checkHeredocScriptBodies 同口径）；载荷可证安全→放行，动态/提取不出→
+ *  fail-closed（不可证不豁免，牙3 同判据）。
+ *  检出面（payload-extract-aux 单一真相源，与 v2 求值器同源）：字面 git 段的子命令前
+ *  `-c alias.x=!载荷` 旗标定义位 + `config [旗标…] alias.x '!载荷'`。间接构造（env
+ *  注入/包装词/整词动态 k=v）不追——#1513 拍板：物理隔离才是真守卫。
+ *  双向生长自查：本规则是拆解（拆载荷交既有规则全量判定）非豁免——不新增豁免通道，
+ *  放行面=载荷过既有规则判定，不豁免任何一层拦截面。
+ *  挂点：checkBashCommandSafety 主流（parseOk 双路共喉）+ OnText 兜底链（mainPid 缺失
+ *  路径）；递归走 checkBashCommandSafety 全量（载荷过完整规则链，输入长度严格递减收敛）。 */
+function checkGitAliasShellInjection(
+  text: string,
+  mainPid: number,
+  logger: Logger | undefined,
+  guardOptions: GuardOptions | undefined,
+): string | null {
+  for (const seg of splitShellSegments(text)) {
+    const model = parseOnce(seg, 1);
+    for (const s of model.segments) {
+      const ex = extractGitAliasShell(s);
+      if (ex === null) continue;
+      if (ex.kind === "opaque") {
+        logger?.warn("[bash-safety-guard] BLOCKED git alias shell injection (opaque payload)", { command: seg.substring(0, 200) });
+        return GIT_ALIAS_SHELL_OPAQUE_REASON;
+      }
+      for (const p of ex.texts) {
+        const sub = checkBashCommandSafety(p, mainPid, logger, guardOptions);
+        if (sub !== null) {
+          logger?.warn("[bash-safety-guard] BLOCKED git alias shell injection (payload hit)", { command: seg.substring(0, 200) });
+          return gitAliasShellPayloadReason(sub);
+        }
+      }
+    }
+  }
+  return null;
+}
+
 function checkBashCommandSafetyOnText(
   text: string,
   mainPid: number,
@@ -474,6 +525,11 @@ function checkBashCommandSafetyOnText(
   // 提前判定，两路调用链（正常 / PID 缺失）都覆盖；抽函数控圈复杂度
   const pidFree = checkPidIndependentRules(text, logger, ctx);
   if (pidFree) return pidFree;
+  // F20261015gali（M-edd889c2）：git alias shell 展开注入——真执行体载荷拆解
+  //（宪法 L4 bypass_guard：与「脚本文件执行必须拆解」同款语义；载荷递归走本函数
+  // 全量规则，输入长度严格递减收敛）
+  const aliasHit = checkGitAliasShellInjection(text, mainPid, logger, { projectRoot, sessionCwd });
+  if (aliasHit) return aliasHit;
   // #1207 delta r1：heredoc 体级判定挂进 V1 OnText 链（检视严重 2b 修正——初版
   // 漏挂致未闭合 node heredoc 体 process.kill 主 PID 放行）。入口已剥闭合体的输入
   // 在此 extractHeredocSpans 只命中空白体 → 自然 no-op；未闭合（fail-closed 保留
@@ -2100,6 +2156,10 @@ export function checkBashCommandSafety(
   // U1 kill 0/U5 bash<file 由模型层承担（#1170 管道豁免误杀、#1171 文本误伤、
   // 位置参数/$VAR 传参等判定语义随模型继承）。parseOk=false（未闭合引号/$(/heredoc/
   // 深度超限）时走 V1 文本链全量兜底（D3：kill 族解析失败必拦，兜底链语义=V1 保守侧）。
+  // F20261015gali（M-edd889c2）：git alias shell 展开注入在模型判定前先跑（真执行体
+  // 载荷拆解，宪法 L4 bypass_guard）——载荷递归走 checkBashCommandSafety 全量规则链。
+  const aliasHitMain = checkGitAliasShellInjection(command, mainPid, logger, guardOptions);
+  if (aliasHitMain) return withDiagnostics(aliasHitMain, command, mainPid);
   // 模型判定通过时：kill 族文本判定不再重复跑（模型已判干净，重复文本扫描是
   // 8000 段/528KB 病态输入的性能热点）——但模型层未覆盖的 PID 无关规则
   //（脚本自杀/PR merge/data 破坏/主仓写）仍在文本路径执行（映射表「保留」项）。
