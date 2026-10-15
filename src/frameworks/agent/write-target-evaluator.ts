@@ -228,7 +228,7 @@ function evalSegmentCwds(segments: Segment[], startCwd: string): string[] | null
     // 本段处于管道左段子 shell，其 cd 不持久（POSIX：管道每段独立子 shell）。
     // 例：cd /tmp | cat && git commit —— git 的真实 cwd 是起点非 /tmp。
     const nextJoiner = segments[i + 1]?.joiner;
-    const inSubshell = seg.joiner === "&" || seg.joiner === "|" || nextJoiner === "|";
+    const inSubshell = seg.joiner === "&" || seg.joiner === "|" || nextJoiner === "|" || nextJoiner === "&" || seg.subshell === true;
     if (!inSubshell) {
       const bare = bareName(seg.argv0);
       if (bare === "pushd" || bare === "popd") return null;

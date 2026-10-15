@@ -147,3 +147,13 @@ describe("F20261015gesw MiMo 初轮 S1：管道左段 cd 泄漏不推进 mainCwd
     expect(checkBashCommandSafety(`cd /repo/.otter/worktrees/wt | git commit`, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 });
+
+describe("F20261015gesw MiMo delta S1 补全：& 左段与圆括号子 shell cd 不泄漏", () => {
+  it("cd /tmp & cat && git commit（cwd=主仓根）→ 拦（& 左段 cd 不泄漏）", () => {
+    expect(checkBashCommandSafety(`cd /tmp & cat && git commit`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("(cd /tmp) && git commit（cwd=主仓根）→ 拦（圆括号子 shell cd 不泄漏）", () => {
+    expect(checkBashCommandSafety(`(cd /tmp) && git commit`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+});
