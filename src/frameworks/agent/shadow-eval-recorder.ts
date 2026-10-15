@@ -131,7 +131,9 @@ export function shadowEvaluate(command: string, projectRoot: string): ShadowEval
   if (r.kind === "unevaluated") {
     return { evaluatorWouldAllow: false, evaluatorWouldBlock: false, targetPaths: [], unevalReason: r.reason };
   }
-  const mainHits = r.targets.filter(t => pathWithinMain(t.path, projectRoot));
+  // 能力 8（2026-10-13 影子实战发现）：只读披露（access=read）不构成写证据——只读版本号
+  //  打印被误判写的 30517746 病灶同源修；判据与 evaluateWriteVerdict 同源不得分叉。
+  const mainHits = r.targets.filter(t => t.access === "write" && pathWithinMain(t.path, projectRoot));
   // 求值器拦截口径：pathWithinMain（单一真相源——含 worktree 区 root 级排除与
   // 嵌套 decoy 防线，PR #1381 §3.3）；记录器不另造判断，口径漂移即审视红线
   const wouldBlock = mainHits.length > 0;

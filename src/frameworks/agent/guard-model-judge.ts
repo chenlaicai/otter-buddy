@@ -22,6 +22,8 @@
 import type { Logger } from "@usecases/ports/logger";
 import type { CommandModel, Segment, Payload } from "./command-model";
 import { parseOnce } from "./command-model";
+import { isDirectExecScriptSeg } from "./write-target-evaluator";
+import path from "path";
 import { loadAllowedServicePorts } from "./allowed-service-ports";
 import type { AllowedService } from "./allowed-service-ports";
 import { SLEEP_REASON_PREFIX, buildSleepBlockMessage } from "./sleep-command-guard";
@@ -377,10 +379,54 @@ function isKillSegmentQuick(seg: Segment): boolean {
  *  r1-S3 处置：覆盖扩展到任意文件——扩展名过滤（.sh/.bash）被换扩展名绕过
  *  （bash < x.txt 同样是「从文件读脚本」，脚本内容未经逐条判定）；保留「已确认
  *  非脚本的数据文件」通过白名单外的人工通道（告知搭档）处置。 */
-const U5_BLOCK_MSG = "bash 命令从文件读取脚本执行（bash < file / bash file）——脚本内容未经守卫逐条判定，绕过面不可接受。该命令不允许：请改写为直接命令形态（把脚本内容拆成独立命令执行），或在 worktree 内以隔离实例验证。若确认此命令本意安全（文件内容是纯数据非脚本），请改用保持原语义的不含敏感字样的方式达成目的；无法规避时告知搭档人工执行。";
+const U5_BLOCK_MSG = "bash 命令从文件读取脚本执行（bash < file / bash file / ./file、/path/file 直接执行）——脚本内容未经守卫逐条判定，绕过面不可接受。该命令不允许：请改写为直接命令形态（把脚本内容拆成独立命令执行），或在 worktree 内以隔离实例验证。若确认此命令本意安全（文件内容是纯数据非脚本），请改用保持原语义的不含敏感字样的方式达成目的；无法规避时告知搭档人工执行。";
 
-function judgeBashFileScript(model: CommandModel, mainPid: number, logger: Logger | undefined): string | null {
+/** delta7 修法（严重 1，检视獭1360 delta6 复核——「修复引入新盲区」活例）：受管服务脚本族
+ *  豁免的「豁免条件 = 放行判定等价」收窄（单接口原则，大獭 delta6 裁决）：豁免面不得宽于
+ *  专属域的判定面——只在 SERVICE_SCRIPT 域实际接替判定的**受管路径**上豁免（路径限定
+ *  镜像 bash-safety-guard resolvesToMainCheckout（F20260916gtlr）的解析语义，改动需同步）：
+ *  ① scripts/ 相对形态（resolve 至 <root>/scripts）② <root>/scripts/ 绝对形态
+ *  ③ <root>/.otter/worktrees/<name>/scripts/（worktree 自管实例）。
+ *  树外同名（/tmp/otter-buddy.sh、./otter-buddy.sh、/tmp/scripts/otter-buddy.sh）无域接替
+ *  ——不豁免，进 U5 直执分支（delta7 负门钉死）。projectRoot 缺失时只认文本形态
+ *  （相对 scripts/ 形态 ∨ worktree 树 scripts/ 形态——frozen 契约的降级保真）。
+ *  子命令语义不重复实现（一条语义一个接口）：stop/restart/间接调用/kill 族判定归
+ *  SERVICE_SCRIPT 域与 kill 族规则族，本判定只做路径限定（域接替的前提）。 */
+function isManagedScriptWord(w: Segment["words"][number] | undefined, projectRoot: string | undefined): boolean {
+  if (w === undefined) return false;
+  const text = w.parts.map(p => p.text ?? "").join("") + " " + (w.evaluated ?? "");
+  const m = /([^\s"'`]*scripts\/(?:otter-buddy|alpha)\.sh)\b/.exec(text);
+  return m !== null && isManagedScriptPath(m[1], projectRoot);
+}
+
+function isManagedScriptPath(scriptPath: string, projectRoot: string | undefined): boolean {
+  if (!/(?:^|\/)scripts\/(?:otter-buddy|alpha)\.sh$/.test(scriptPath)) return false;
+  if (projectRoot === undefined || projectRoot === "") {
+    // 降级口径：相对 scripts/ 形态或 worktree 树 scripts/ 形态（文本判）；树外 scripts/ 不豁免
+    return /^(?:\.{0,2}\/)?scripts\//.test(scriptPath) || /\.otter\/worktrees\/[^/]+\/scripts\//.test(scriptPath);
+  }
+  const resolved = path.isAbsolute(scriptPath) ? path.normalize(scriptPath) : path.normalize(path.resolve(projectRoot, scriptPath));
+  const dir = path.dirname(resolved).toLowerCase();
+  // ①② 主仓 scripts（大小写归一化与 resolvesToMainCheckout 同款）
+  if (dir === path.normalize(path.join(projectRoot, "scripts")).toLowerCase()) return true;
+  // ③ worktree 自管 scripts（<root>/.otter/worktrees/<name>/scripts）
+  const wtRoot = path.normalize(path.join(projectRoot, ".otter", "worktrees")).toLowerCase();
+  return dir.startsWith(wtRoot + path.sep) && dir.endsWith(path.sep + "scripts");
+}
+
+function judgeBashFileScript(model: CommandModel, mainPid: number, logger: Logger | undefined, projectRoot?: string): string | null {
   for (const seg of model.segments) {
+    // delta5 修法（严重 1，检视獭1360 delta5 复核）：段首直执行位同构扩面——「从文件读脚本
+    // 执行」语义同款适用（U5 不看文件来历只看执行位：造出来的与存量脚本一视同仁）。
+    // 词文本口径 + 运行器族 carve（isDirectExecScriptSeg 第三处复用，与 wv 层同源）：
+    // ./x、/x 排 //，纯展开词（$P）保守收进通道 → 与 bash $P 同款保守拦；/usr/bin/python3
+    // 族归运行器语义（同族不许自己打自己）。域分工（delta7 收窄——豁免条件=放行判定等价）：
+    // 受管服务脚本族仅在受管路径上豁免（见 isManagedScriptWord），树外同名进本分支。
+    const w0 = seg.words[0];
+    if (isDirectExecScriptSeg(seg) && !isManagedScriptWord(w0, projectRoot)) {
+      logger?.warn("[guard-v2] BLOCKED direct script file exec (U5 direct-exec)", { mainPid, target: w0?.evaluated ?? "(dynamic)" });
+      return U5_BLOCK_MSG;
+    }
     const eff = effectiveCommand(seg);
     const bare = eff.name?.split("/").pop();
     if (!bare || !SHELL_INTERPRETERS.has(bare)) continue;
@@ -550,6 +596,7 @@ export function checkWithModel(
   mainPid: number,
   logger?: Logger,
   allowedServices: AllowedService[] = [],
+  projectRoot?: string,
 ): string | null {
   const model = parseOnce(command);
   // S5：裸 sleep 静默检测（#1126 协同——模型路径不被短路绕过）
@@ -565,7 +612,7 @@ export function checkWithModel(
   const evalHit = judgeEvalPayload(model, mainPid, logger, allowedServices);
   if (evalHit) return evalHit;
   // U5（bash 文件脚本）——不依赖 parseOk 的段级判定（段存在即可判）
-  const bashFile = judgeBashFileScript(model, mainPid, logger);
+  const bashFile = judgeBashFileScript(model, mainPid, logger, projectRoot);
   if (bashFile) return bashFile;
   // 管道到 shell / 解码器中转
   const pipeShell = judgePipeToShell(model, mainPid, logger);
