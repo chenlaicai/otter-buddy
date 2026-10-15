@@ -121,10 +121,10 @@ kill 被拦、worktree git 链可用、多行/复合命令存活——真执行�
    的进程隔离需单独处理（同样可用 sandbox-exec (deny signal) 包裹 alpha.sh 启动命令）。
 4. **主仓 .git 在白名单内且 config 可写**——白名单收全集是为 worktree git 操作链
    （检视发现 4）。当前实际防线是 hooksPath 重定向到 .githooks（deny 域，獭不可写）；
-   残留攻击链：改 .git/config 的 core.hooksPath 回 .git/hooks 并放置钩子，等待
-   用户在主仓跑 git 触发——链长且需等待窗口，风险中低（检视 delta 复核发现 A，实测
-   .git/config 写入无拦截）。可选加固：白名单收窄到 .git/objects、.git/worktrees、
-   .git/refs 子目录。
+   理论残留链：改 .git/config 的 core.hooksPath 回 .git/hooks 并放置钩子，等待
+   用户在主仓跑 git 触发（检视 delta 复核发现 A，实测 .git/config 写入无拦截）。
+   **按 2026-10-15 搭档拍板：此理论攻击链不在 bash 守卫边界内（守卫管常见形态
+   兜底 + 物理隔离兜误写，不追理论攻击链），不加固，白名单保持全集。**
 
 ## 负面向验收
 
