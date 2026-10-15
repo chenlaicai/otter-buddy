@@ -178,9 +178,10 @@ describe("F20260924gfpn：cd worktree + git 写族正道（台账连环拦现场
     expect(checkBashCommandSafety("cd /repo/.otter/worktrees/wt1 && git apply /tmp/p.diff", mainPid, undefined, opts)).toBeNull();
   });
 
-  // 未 cd 的 git add -A（cd 豁免只到 cd 前；git add 不在写族正则但落主仓语义——现状不拦，保持）
-  it("git add -A（未 cd，add 本身不在写族判定内）→ 放行（现状保持）", () => {
-    expect(checkBashCommandSafety("git add -A", mainPid, undefined, opts)).toBeNull();
+  // 未 cd 的 git add -A：旧链「现状不拦保持」——F20261015gses 语义判据下 git add 落点=主仓
+  // 索引（evaluateWriteTargets git 通道），切换后拦截（漏拦补上面，差分审计 274 收益面之一）
+  it("git add -A（未 cd，add 落主仓索引）→ F20261015gses 切换后拦截（漏拦补上）", () => {
+    expect(checkBashCommandSafety("git add -A", mainPid, undefined, opts)).not.toBeNull();
   });
 });
 
