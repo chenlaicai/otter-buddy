@@ -11,6 +11,11 @@ change_type: feature
 capability_test: tests/frameworks/agent/bash-sandbox.test.ts
 created_in_conversation: 0d48b657-825d-46d5-bae1-6e13fc0fac7f
 created_at: 2026-10-15T13:15:00+08:00
+intent:
+  problem: "bash 守卫收敛后（F20261015gsub），绕过面（间接引用/eval 包装/混淆形态）无防护——守卫只拦常见直白形态，绕过面需物理隔离兜底"
+  expected_effect: "獭的 bash 执行面被 sandbox-exec 包裹：写主仓物理被拒（Operation not permitted），kill 主进程被拒，写工作区/worktree/alpha/tmp 放行——绕过面归零"
+  verify_by:
+    type: capability_test
 causal_links:
   - F20261015gsub
 ---
