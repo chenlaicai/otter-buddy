@@ -214,7 +214,7 @@ function evalSegmentCwds(segments: Segment[], startCwd: string): string[] | null
   const cwds: string[] = [];
   let mainCwd = startCwd;   // 主链 cwd（&& / ; / 无 joiner 段推进）
   const forkCwd = startCwd; // 并发/管道右段基准（不继承左侧 cd——恒为起点）
-  // F20261015gesw MiMo delta S1 根因重构：per-subshell cwd 栈。
+  // F20261015gesw MiMo delta S1 根因重构：per-subshell cwd 栈（单层——嵌套括号失准锚定 #1438）。
   // POSIX 子 shell（管道段/& 并发/圆括号组）内 cd 会推进，但出组即丢弃；
   // 单 mainCwd 累加器表达不了「组内推进、组外不泄漏」，需栈式管理。
   let subshellCwd: string | null = null; // 当前子 shell 组内 cwd（null=不在组内）

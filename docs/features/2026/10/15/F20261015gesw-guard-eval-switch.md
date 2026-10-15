@@ -166,6 +166,7 @@ evaluateWriteTargets(command, projectRoot)
 
 - **词表外写命令终局放行漏拦**（MiMo 初轮 F1）：`TARGET_ARG_COMMANDS={tee,cp,mv,touch,mkdir}`，`truncate`/`sed -i`/`rsync`/`ln` 不产生 target——`touch /tmp/x && truncate -s 0 /repo/evil` → eval=ALLOW（truncate 写主仓漏）。文档已认「未知写动词不可枚举」并对载荷面禁终局放，但未对顶层词表外写命令同处理（推理不对称）。**未归类的终局放行漏拦**，违背「未证明面全回落」契约。预注册求值器 v2 收编（#1438）
 - **mv source 删除面不追**（MiMo 初轮 F2）：`destArgs=slice(1)` 对 cp/mv 同用，`mv /repo/src/file /tmp/` 只记 dest、不记 source 删除 → 漏。cp 用 slice(1) 对（source 是读），mv 漏。预注册 v2
+- **嵌套括号/花括号子 shell cwd 失准**（MiMo delta 残余）：`((cd /tmp) && git commit)` 嵌套括号——`subshellCwd` 是单层变量非真栈，内层 cd 泄漏到外层；`{ cd /repo; } && touch evil` 花括号是**非子 shell**（cd 持久）但求值器不推进。两者旧链也漏（pre-existing），窄形态锚定 #1438 收编 v2
 - **cmdsub 子模型不继承段级 tracked cwd**（F20261015cwsp 归一 MiMo delta F2）：外层 `cd` 链对 `$( )` 载荷落点失效——`cd /repo/sub && echo $(touch evil)` 落点算成 `/repo/evil`（真实 `/repo/sub/evil`）；sessionCwd=ROOT=BLOCK、sessionCwd=worktree=ALLOW 分叉（探针 J/J2）。窄形态漏拦，预注册求值器 v2 收编（#1438）
 - **嵌套载荷仍是旧链**——#1395 家族的 bash -c/heredoc 形态误拦仍存在（收窄换取 data 感知不旁路，取舍记录在案）；求值器 v2 收编 data 语义后解除
 - **S1 覆盖边界**（MiMo delta 跟进2）：git 写族回落修复闭合的是**求值器看得见的词表写**（cp/mv/tee/touch/mkdir）；`curl -o`/`wget -O`/`install`/`dd of=` 走 KNOWN_GAP 早退绕过整个 evaluator——`git commit && curl -o /repo/evil` 仍 ALLOW（先前既有，非本 PR 引入）。curl -o 类残余补进 #1438 范围
