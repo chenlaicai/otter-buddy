@@ -157,3 +157,23 @@ describe("F20261015gesw MiMo delta S1 补全：& 左段与圆括号子 shell cd 
     expect(checkBashCommandSafety(`(cd /tmp) && git commit`, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 });
+
+describe("F20261015gesw MiMo delta S1 根因重构：per-subshell cwd 栈（leak-IN/leak-OUT 双向）", () => {
+  // leak-OUT：子 shell cd 不泄漏到组外
+  it("(cd /repo && touch evil)（cwd=worktree）→ 拦（组内 cd 推进，touch 落主仓）", () => {
+    expect(checkBashCommandSafety(`(cd /repo && touch evil)`, mainPid, undefined, optsWt)).not.toBeNull();
+  });
+
+  it("(cd /tmp && touch evil)（cwd=worktree）→ 放（组内 cd 推进，touch 落树外）", () => {
+    expect(checkBashCommandSafety(`(cd /tmp && touch evil)`, mainPid, undefined, optsWt)).toBeNull();
+  });
+
+  it("(cd /repo && git commit)（cwd=worktree）→ 拦（组内 cd 推进，git 落主仓）", () => {
+    expect(checkBashCommandSafety(`(cd /repo && git commit)`, mainPid, undefined, optsWt)).not.toBeNull();
+  });
+
+  // #1170 核心形态保持：主链 cd 推进对管道左段生效（cd 在主 shell 执行）
+  it("cd worktree && git commit | tail（cwd=主仓根）→ 放（主链 cd 推进，管道右段不杀豁免）", () => {
+    expect(checkBashCommandSafety(`cd /repo/.otter/worktrees/wt && git commit -m x | tail -3`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+});

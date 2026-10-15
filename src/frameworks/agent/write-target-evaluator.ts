@@ -214,28 +214,47 @@ function evalSegmentCwds(segments: Segment[], startCwd: string): string[] | null
   const cwds: string[] = [];
   let mainCwd = startCwd;   // 主链 cwd（&& / ; / 无 joiner 段推进）
   const forkCwd = startCwd; // 并发/管道右段基准（不继承左侧 cd——恒为起点）
+  // F20261015gesw MiMo delta S1 根因重构：per-subshell cwd 栈。
+  // POSIX 子 shell（管道段/& 并发/圆括号组）内 cd 会推进，但出组即丢弃；
+  // 单 mainCwd 累加器表达不了「组内推进、组外不泄漏」，需栈式管理。
+  let subshellCwd: string | null = null; // 当前子 shell 组内 cwd（null=不在组内）
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
+    const nextJoiner = segments[i + 1]?.joiner;
+    // 子 shell 判定：管道左/右段、& 左/右段、圆括号组
     let segCwd: string;
+    // cwd 基准：右段（&/| 之后）恒从 forkCwd 开始（独立子 shell，不继承左段 cd）；
+    // 左段与主链段继承 mainCwd（主链 cd 推进对所有后续段生效——含管道左段，
+    // 因为 cd 在主 shell 执行时推进的是主链状态；cd 自身是左段时另判，见下）。
     if (seg.joiner === "&" || seg.joiner === "|") {
       segCwd = forkCwd;
+      subshellCwd = null;
+    } else if (seg.subshell === true) {
+      // 圆括号组：组内 cwd 栈独立（组内 cd 推进，出组丢弃）
+      if (subshellCwd === null) subshellCwd = mainCwd;
+      segCwd = subshellCwd;
     } else {
       segCwd = mainCwd;
+      subshellCwd = null;
     }
     cwds.push(segCwd);
-    // 主链 cd 推进（&/| 段内的 cd 不外溢——与 trackCwd 同口径）
-    // F20261015gesw MiMo 初轮 S1：左段 cd 泄漏修复——段的下一段 joiner 是 | 时，
-    // 本段处于管道左段子 shell，其 cd 不持久（POSIX：管道每段独立子 shell）。
-    // 例：cd /tmp | cat && git commit —— git 的真实 cwd 是起点非 /tmp。
-    const nextJoiner = segments[i + 1]?.joiner;
-    const inSubshell = seg.joiner === "&" || seg.joiner === "|" || nextJoiner === "|" || nextJoiner === "&" || seg.subshell === true;
-    if (!inSubshell) {
-      const bare = bareName(seg.argv0);
-      if (bare === "pushd" || bare === "popd") return null;
-      if (bare === "cd") {
-        const resolved = evalCdTarget(seg, segments, mainCwd);
-        if (resolved === null) return null;
-        mainCwd = resolved;
+    // cd 推进：cd 段自身处于子 shell（下一段是 |/&，或圆括号组内）时不推进 mainCwd；
+    // 否则推进 mainCwd（即使下一段是管道——cd 的推进先于管道 fork 发生，
+    // 如 cd /wt && git commit | tail：git 落点=/wt，tail 落点=forkCwd）。
+    const bare = bareName(seg.argv0);
+    if (bare === "pushd" || bare === "popd") return null;
+    if (bare === "cd") {
+      const resolved = evalCdTarget(seg, segments, segCwd);
+      if (resolved === null) return null;
+      if (seg.subshell === true) {
+        subshellCwd = resolved; // 圆括号组内 cd 推进组内 cwd
+      } else if (nextJoiner === "|" || nextJoiner === "&") {
+        // cd 是管道/& 左段：自身在子 shell，cd 不持久，不推进 mainCwd
+        // （cd /tmp | cat && git commit → git 落点=主链 cwd 非 /tmp）
+      } else if (seg.joiner === "&" || seg.joiner === "|") {
+        // 右段 cd：子 shell 内，不影响任何后续
+      } else {
+        mainCwd = resolved; // 主链 cd 推进
       }
     }
   }
