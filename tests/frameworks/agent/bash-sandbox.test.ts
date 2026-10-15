@@ -38,13 +38,17 @@ describe("bash-sandbox", () => {
       expect(profile).toContain("(deny process*)");
     });
 
-    it("应包含白名单可写路径（workspaces/worktrees/alpha/tmp）", () => {
+    it("应包含白名单可写路径（workspaces/worktrees/alpha/tmp）", async () => {
       const profile = buildSandboxProfile("/Users/orca/ai/otter-buddy", "/Users/orca/ai/otter-buddy/data");
       expect(profile).toContain('(allow file-write* (subpath "/Users/orca/ai/otter-buddy/data/workspaces"))');
       expect(profile).toContain('(allow file-write* (subpath "/Users/orca/ai/otter-buddy/.otter/worktrees"))');
       expect(profile).toContain('(allow file-write* (subpath "/Users/test/.otter/alpha"))');
-      // tmpdir() 返回 /tmp，但 realpathSync 解析为 /private/tmp（macOS 符号链接）
-      expect(profile).toContain('(allow file-write* (subpath "/private/tmp"))');
+      // tmpdir() 的 realpath 结果依赖平台：macOS /tmp → /private/tmp（符号链接），Linux /tmp 不变。
+      // 断言用 tmpdir() 的 realpath 结果而非硬编码，兼容双平台。
+      const { realpathSync } = await import("node:fs");
+      const { tmpdir } = await import("node:os");
+      const expectedTmp = realpathSync(tmpdir());
+      expect(profile).toContain(`(allow file-write* (subpath "${expectedTmp}"))`);
     });
 
     it("应缓存 profile——同路径重复调用返回同一字符串", () => {
