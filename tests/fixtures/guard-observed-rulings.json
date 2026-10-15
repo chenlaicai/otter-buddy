@@ -10,8 +10,9 @@
    "parity-allow": "两链同放（非本 PR 修复面）。"
   },
   "counts": {
-   "residual-block": 18,
-   "rescue-terminal": 3
+   "residual-block": 15,
+   "rescue-terminal": 3,
+   "parity-allow": 3
   }
  },
  "cases": [
@@ -29,9 +30,10 @@
    "ts": "2026-10-10T03:23:26.821Z",
    "commandHead": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/kelp-farm-p0 && node -e \"import('",
    "command": "cd /Users/orca/ai/otter-buddy/.otter/worktrees/kelp-farm-p0 && node -e \"import('playwright').then(m=>console.log('esm-ok')).catch(e=>console.log('esm-fail:'+e.code))\" && node --input-type=module -e \"import { chromium } from 'playwright-core'; console.log('core-ok', typeof chromium.launch)\" 2>&1 | head -2",
-   "oldChain": "BLOCK",
-   "expect": "BLOCK",
-   "kind": "residual-block"
+   "oldChain": "ALLOW",
+   "expect": "ALLOW",
+   "kind": "parity-allow",
+   "_rebaseNote": "F20261014nirw(#1487) 修复 node import/require 只读豁免后旧链语义已放行，fixture 归一至当前行为"
   },
   {
    "id": "r003",
@@ -74,9 +76,10 @@
    "ts": "2026-10-10T06:15:29.628Z",
    "commandHead": "cd /Users/orca/ai/others/colink/dev/backend && node -e \"require('@nestjs/core');",
    "command": "cd /Users/orca/ai/others/colink/dev/backend && node -e \"require('@nestjs/core'); console.log('nest core 可解析')\" 2>&1 | head -2; ls ../../node_modules/.bin/nest 2>/dev/null && echo \"根 nest bin OK\"; npx nest --version 2>&1 | head -1",
-   "oldChain": "BLOCK",
-   "expect": "BLOCK",
-   "kind": "residual-block"
+   "oldChain": "ALLOW",
+   "expect": "ALLOW",
+   "kind": "parity-allow",
+   "_rebaseNote": "F20261014nirw(#1487) 修复 node import/require 只读豁免后旧链语义已放行，fixture 归一至当前行为"
   },
   {
    "id": "r008",
@@ -155,9 +158,10 @@
    "ts": "2026-10-10T08:33:21.518Z",
    "commandHead": "cd /Users/orca/ai/others/colink/dev/frontend && node -e \"\nconst sharp = require(",
    "command": "cd /Users/orca/ai/others/colink/dev/frontend && node -e \"\nconst sharp = require('sharp').catch ? null : null;\n\" 2>/dev/null; ls /Users/orca/ai/others/colink/dev/frontend/node_modules | grep -iE \"^sharp$|^jimp$\" | head -2; sips -Z 1100 --setProperty format jpeg --setProperty formatOptions 55 /Users/orca/ai/otter-buddy/data/workspaces/e2819402-5088-4e64-9420-fca091d3e040/screenshots/v2-2-hover-others.png --out /Users/orca/ai/otter-buddy/data/workspaces/e2819402-5088-4e64-9420-fca091d3e040/screenshots/v2-2.jpg 2>&1 | tail -1 && ls -la /Users/orca/ai/otter-buddy/data/workspaces/e2819402-5088-4e64-9420-fca091d3e040/screenshots/v2-2.jpg | awk '{print $5}'",
-   "oldChain": "BLOCK",
-   "expect": "BLOCK",
-   "kind": "residual-block"
+   "oldChain": "ALLOW",
+   "expect": "ALLOW",
+   "kind": "parity-allow",
+   "_rebaseNote": "F20261014nirw(#1487) 修复 node import/require 只读豁免后旧链语义已放行，fixture 归一至当前行为"
   },
   {
    "id": "r017",

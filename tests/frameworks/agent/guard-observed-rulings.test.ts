@@ -58,7 +58,7 @@ describe("观察期真实命令回归夹具（21 条权威反查语料，禁合�
     // 2026-10-12 实测口径：3 条终局修复（cp 复制 + ssh-add 管道族）/ 18 条残余。
     // 修复面数字变更必须同步改 _meta 与特性文档——不许只改测试。
     expect(counts["rescue-terminal"]).toBe(3);
-    expect(counts["residual-block"]).toBe(18);
+    expect(counts["residual-block"]).toBe(15); // F20261014nirw(#1487) 修复后 r002/r007/r016 归一至 parity-allow
   });
 
   for (const c of fixture.cases) {

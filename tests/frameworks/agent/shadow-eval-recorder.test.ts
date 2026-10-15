@@ -48,20 +48,20 @@ beforeEach(() => {
 
 describe("shadowEvaluate - 三态投影", () => {
   it("evaluated 且落点全在主仓外 → evaluatorWouldAllow", () => {
-    const r = shadowEvaluate(`cd ${ROOT}/.otter/worktrees/wt && git add src/x.ts`, ROOT);
+    const r = shadowEvaluate(`cd ${ROOT}/.otter/worktrees/wt && git add src/x.ts`, ROOT, ROOT);
     expect(r.evaluatorWouldAllow).toBe(true);
     expect(r.evaluatorWouldBlock).toBe(false);
   });
 
   it("evaluated 且落点命中主仓 → evaluatorWouldBlock + targetPaths", () => {
-    const r = shadowEvaluate(`cd ${ROOT}/.otter/worktrees/wt && git add ${ROOT}/docs/x.md`, ROOT);
+    const r = shadowEvaluate(`cd ${ROOT}/.otter/worktrees/wt && git add ${ROOT}/docs/x.md`, ROOT, ROOT);
     expect(r.evaluatorWouldBlock).toBe(true);
     expect(r.evaluatorWouldAllow).toBe(false);
     expect(r.targetPaths.length).toBeGreaterThan(0);
   });
 
   it("unevaluated（$VAR 拼接后缀爬升，#1381 负门形态）→ 双 false + unevalReason", () => {
-    const r = shadowEvaluate(`W=${ROOT}/.otter/worktrees/wt; cd $W/sub && touch foo`, ROOT);
+    const r = shadowEvaluate(`W=${ROOT}/.otter/worktrees/wt; cd $W/sub && touch foo`, ROOT, ROOT);
     expect(r.evaluatorWouldAllow).toBe(false);
     expect(r.evaluatorWouldBlock).toBe(false);
     expect(r.unevalReason).toBeTruthy();
@@ -213,7 +213,7 @@ describe("recordShadowEval - 防抖与 fail-safe", () => {
 
 describe("buildShadowEvalContext - 口径字段", () => {
   it("拦截事件带 oldRuleId 指纹分类；放行事件记 none；commandHead 脱敏截短；subkind 分桶键在位", () => {
-    const outcome = shadowEvaluate(`cd ${ROOT}/.otter/worktrees/wt && git add src/x.ts`, ROOT);
+    const outcome = shadowEvaluate(`cd ${ROOT}/.otter/worktrees/wt && git add src/x.ts`, ROOT, ROOT);
     const blocked = buildShadowEvalContext(outcome, `cd ${ROOT}/.otter/worktrees/wt && git add src/x.ts`, MAIN_WRITE_REASON, "miss_block_candidate");
     expect(blocked.oldVerdict).toBe("BLOCK");
     expect(blocked.oldRuleId).toBe("main_write");

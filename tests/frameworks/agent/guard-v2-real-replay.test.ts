@@ -145,7 +145,7 @@ describe("#1432 node import/require 只读豁免回放（10-12 现场 b4471a4f/0
   });
 
   it("1432-A2: 同命令求值器侧钉住——evaluated 且无主仓写落点", () => {
-    const r = evaluateWriteTargets(PROBE_CMD, projectRoot);
+    const r = evaluateWriteTargets(PROBE_CMD, projectRoot, projectRoot);
     expect(r.kind).toBe("evaluated");
     if (r.kind === "evaluated") {
       expect(r.targets.filter(t => pathWithinMain(t.path, projectRoot))).toHaveLength(0);

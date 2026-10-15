@@ -947,7 +947,7 @@ export class PiSessionFactory implements AgentGateway {
     const sink = healingRepo as unknown as ShadowHealingSink;
     const projectRoot = getRepoRoot();
     return ({ command, oldBlock }) => {
-      recordShadowEval({ command, oldBlock, otterId, ids, projectRoot, sink, logger: this.logger });
+      recordShadowEval({ command, oldBlock, otterId, ids, projectRoot, sessionCwd: resolveSessionCwd(ids.conversationId ?? "", this.cfg.dataDir ?? "./data"), sink, logger: this.logger });
     };
   }
 

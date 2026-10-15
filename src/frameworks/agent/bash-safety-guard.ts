@@ -1885,15 +1885,19 @@ function rewriteMainWriteBlockMsg(sessionCwd?: string): string {
 const KNOWN_GAP_OUTPUT_TOKENS = /\b(?:curl|wget)\b[^\n]*(?:-[oO]\s|--output(?:=|\s))|\binstall\s|(?:^|[\s;|&])dd\s+[^\n]*\bof=/;
 /** 载荷面识别：脚本解释器 -c/-e、heredoc、eval——嵌套语义，求值器对载荷内容不可见。 */
 const SCRIPT_PAYLOAD_FACE = /\b(?:python|python3|node|perl|ruby)\b[^\n]*\s-(?:c|e)\b|<<|\beval\b/;
-function evaluatorPrimaryVerdict(command: string, projectRoot: string, logger?: Logger): "ALLOW" | "BLOCK" | null {
+function evaluatorPrimaryVerdict(command: string, cwd: string, projectRoot: string, logger?: Logger): "ALLOW" | "BLOCK" | null {
   // 只认真写 targets（write!==false）——只读路径披露（open('data/x') 读、路径字面量）
   //  绝不构成拦截依据（#1416 家族；否则只读解析载荷全被误拦）。
   //  终局仅限「求值器证明有写」：真写 targets 非空且全部在主仓树外（且非载荷面）
   //  → ALLOW；任一真写落主仓 → BLOCK。真写 targets 空（write 缺省 true）＝无法证明有写
   //  （fail-closed）→ 旧链兜底。
   if (KNOWN_GAP_OUTPUT_TOKENS.test(command)) return null; // 建议3(b)：known-gap 词面不终局只回落
-  const ev = evaluateWriteTargets(command, projectRoot);
+  const ev = evaluateWriteTargets(command, cwd, projectRoot);
   if (ev.kind !== "evaluated") return null; // unevaluated → 旧链全量兜底
+  // F20261015cwsp 归一：git 写族的 cwd 落点在 cwd 非 git 树时不是真实落点（会向上发现主仓 .git），
+  // 求值器「落点=cwd」语义与 cwsp「工作区非 git 树 git 写族写主仓」冲突。显式回落旧链让
+  // cwdInGitWorktree 收窄判定生效（git 工作树内放行 / 工作区拦）。
+  if (ev.targets.some(t => t.via === "git") && !pathWithinMain(cwd, projectRoot)) return null;
   if (ev.targets.some(t => t.knownGap === true)) return null; // 建议3(a)：outFile 词面求值缺口回落
   const writeTargets = ev.targets.filter(t => t.write !== false);
   if (writeTargets.length === 0) return null; // ③ 空真写一律回落（零披露放行臂收回——零目标≠只读）
@@ -1941,7 +1945,7 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
     //  （BLOCK 方向保留主判权威——#1363 cd 豁免面的灰区闭合不能回退）。
     const hasNestedPayload = /\b(?:ba|z|da|k)?sh\b[^\n]*\s-c\s|<<|\b(?:timeout|env|sudo|nohup|watch|xargs)\b/.test(command);
     if (!hasNestedPayload) {
-      const verdict = evaluatorPrimaryVerdict(command, projectRoot, logger);
+      const verdict = evaluatorPrimaryVerdict(command, sessionCwd ?? projectRoot, projectRoot, logger);
       if (verdict === "BLOCK") return MAIN_WRITE_BLOCK_MSG;
       if (verdict === "ALLOW") return null; // 求值器终局放行：真写落点全在主仓树外
       // null → 旧链全量兜底（unevaluated / 无真写 token）

@@ -126,8 +126,8 @@ let aggregate = emptyCounters(0);
 let lastAggregateFlush = 0;
 
 /** 影子求值（纯函数，可单测）：evaluateWriteTargets 的三态投影。 */
-export function shadowEvaluate(command: string, projectRoot: string): ShadowEvalOutcome {
-  const r = evaluateWriteTargets(command, projectRoot);
+export function shadowEvaluate(command: string, cwd: string, projectRoot: string): ShadowEvalOutcome {
+  const r = evaluateWriteTargets(command, cwd, projectRoot);
   if (r.kind === "unevaluated") {
     return { evaluatorWouldAllow: false, evaluatorWouldBlock: false, targetPaths: [], unevalReason: r.reason };
   }
@@ -346,16 +346,17 @@ export function recordShadowEval(params: {
   otterId: string;
   ids: { messageId?: string; conversationId?: string };
   projectRoot: string;
+  sessionCwd?: string;
   sink: ShadowHealingSink | undefined;
   logger?: { warn: (msg: string, context?: LogContext) => void };
   now?: number;
 }): void {
-  const { command, oldBlock, otterId, ids, projectRoot, sink, logger } = params;
+  const { command, oldBlock, otterId, ids, projectRoot, sessionCwd, sink, logger } = params;
   if (!sink) return;
   const now = params.now ?? Date.now();
   let outcome: ShadowEvalOutcome;
   try {
-    outcome = shadowEvaluate(command, projectRoot);
+    outcome = shadowEvaluate(command, sessionCwd ?? projectRoot, projectRoot);
   } catch (err) {
     // 零干预铁律：求值器异常不外溢——吞掉记日志，无落账（fail-safe）
     logger?.warn("[shadow-eval] evaluator threw (swallowed, no record)", { err: err instanceof Error ? err.message : String(err) });

@@ -659,9 +659,11 @@ function detectScriptPayload(model: CommandModel): boolean {
 }
 
 /** 从既有模型求值。子模型（bash -c/cmdsub）先各自 trackCwd 再求值（子 shell cd 链独立——
- *  首跑实测教训：默认主仓根会漏子模型内 cd，bash -c 'cd wt && touch a' 误报主仓落点）。 */
-function evaluateFromModel(model: CommandModel, projectRoot: string): WriteEvalResult {
-  const tracked = evalSegmentCwds(model.segments, projectRoot);
+ *  首跑实测教训：默认主仓根会漏子模型内 cd，bash -c 'cd wt && touch a' 误报主仓落点）。
+ *  F20261015cwsp 归一：cwd 起点从 projectRoot 改为显式 cwd 参数（与 #1483 GuardCwdCtx 同构——
+ *  判定基准必须等于事实基准；sessionCwd=工作区时仍以 projectRoot 为起点是系统性假阴性）。 */
+function evaluateFromModel(model: CommandModel, cwd: string, projectRoot: string): WriteEvalResult {
+  const tracked = evalSegmentCwds(model.segments, cwd);
   if (tracked === null) return { kind: "unevaluated", reason: "cwd-unresolvable" };
 
   const acc: SegmentEvalAcc = { targets: [], index: 0 };
@@ -682,7 +684,7 @@ function evaluateFromModel(model: CommandModel, projectRoot: string): WriteEvalR
  * @returns evaluated（targets 可为空集=求值成功且无写落点）或 unevaluated（回落旧链）
  */
 // eslint-disable-next-line complexity -- 入口路由（parseOk 探针 + 载荷递归 + 主模型求值）三分支各对应一条已声明语义（Phase 1/Phase 2 口径注释）
-export function evaluateWriteTargets(command: string, projectRoot: string): WriteEvalResult {
+export function evaluateWriteTargets(command: string, cwd: string, projectRoot: string): WriteEvalResult {
   const model: CommandModel = parseOnce(command, 0);
 
   // 先行载荷族检测（不依赖 parseOk——python 函数调用括号触发词法 fail-closed 时
@@ -699,7 +701,7 @@ export function evaluateWriteTargets(command: string, projectRoot: string): Writ
     //  `echo "unclosed` 的唯一参数词 evaluated=null）→ evaluated 空集是假信息，
     //  回落 parse-failed 保 Phase 1 保守语义。词法彻底失败（segments 空）同口径回落。
     if (model.segments.length === 0) return { kind: "unevaluated", reason: "parse-failed" };
-    const probe = evaluateFromModel(model, projectRoot);
+    const probe = evaluateFromModel(model, cwd, projectRoot);
     if (probe.kind === "unevaluated") return probe;
     if (probe.targets.length === 0 && !hasNarrowExtractableScriptSeg(model, projectRoot)) {
       return { kind: "unevaluated", reason: "parse-failed" };
@@ -720,14 +722,14 @@ export function evaluateWriteTargets(command: string, projectRoot: string): Writ
       return { kind: "unevaluated", reason: p.depth >= 2 ? "depth-exceeded" : "parse-failed" };
     }
     if (scriptSegNarrowed && p.kind === "cmdsub" && !p.model.parseOk && !detectScriptPayload(p.model)) continue; // 垃圾 cmdsub 跳过
-    const sub = evaluateFromModel(p.model, projectRoot);
+    const sub = evaluateFromModel(p.model, cwd, projectRoot);
     if (sub.kind === "unevaluated") {
       return { kind: "unevaluated", reason: sub.reason === "parse-failed" ? "parse-failed" : sub.reason };
     }
     subTargets.push(...sub.targets);
   }
 
-  const main = evaluateFromModel(model, projectRoot);
+  const main = evaluateFromModel(model, cwd, projectRoot);
   if (main.kind === "unevaluated") return main;
   return { kind: "evaluated", targets: [...main.targets, ...subTargets] };
 }
