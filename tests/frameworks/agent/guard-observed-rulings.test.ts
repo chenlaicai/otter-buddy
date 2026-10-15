@@ -1,5 +1,5 @@
 /**
- * F20261012gesw 对抗审视严重1 处置：观察期「确认误拦」台账**真实命令**回归夹具。
+ * F20261015gesw 对抗审视严重1 处置：观察期「确认误拦」台账**真实命令**回归夹具。
  *
  * 审视判定：原 PR 用合成简单形态替代任务书要求的台账真实命令钉语料（测试盲区=严重1）。
  * 本文件回放 healing_events 裁决语料（error_type=guard_eval_shadow + subkind=miss_block_candidate

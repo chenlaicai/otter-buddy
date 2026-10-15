@@ -311,7 +311,7 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
       if (r.kind === "evaluated") expect(r.targets).toHaveLength(0);
     });
 
-    it("data/workspaces 豁免：写 /repo/data/workspaces/... → 落点不入主仓树（F20261012gesw：工作区 sandbox 进 OTTER_RUNTIME_REGIONS——切换主判与影子投影同口径，重定向落工作区的旧链豁免面在求值器侧等价保留）", () => {
+    it("data/workspaces 豁免：写 /repo/data/workspaces/... → 落点不入主仓树（F20261015gesw：工作区 sandbox 进 OTTER_RUNTIME_REGIONS——切换主判与影子投影同口径，重定向落工作区的旧链豁免面在求值器侧等价保留）", () => {
       const r = evaluateWriteTargets("touch /repo/data/workspaces/conv1/f", ROOT, ROOT);
       expect(r.kind).toBe("evaluated");
       if (r.kind === "evaluated") {

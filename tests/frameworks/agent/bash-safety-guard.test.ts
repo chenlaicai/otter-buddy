@@ -1087,7 +1087,7 @@ describe("#1038 主仓 data/ 破坏性命令拦截", () => {
     expect(result).not.toBeNull();
   });
 
-  it("normalize 变形：rm 数据在引号内数据位（echo 'rm -rf data' >> notes.md）→ 拦（F20261012gesw：重定向落点主仓 cwd 是真写事实，引号内文本豁免不再旁路落点判定——BC-2 行为变更）", () => {
+  it("normalize 变形：rm 数据在引号内数据位（echo 'rm -rf data' >> notes.md）→ 拦（F20261015gesw：重定向落点主仓 cwd 是真写事实，引号内文本豁免不再旁路落点判定——BC-2 行为变更）", () => {
     const result = checkBashCommandSafety("echo 'rm -rf data/metrics' >> notes.md", mainPid, undefined, { projectRoot });
     expect(result).not.toBeNull();
   });
@@ -1187,7 +1187,7 @@ describe("F20260922scwd 主仓写拦截（感知对齐保护闸）", () => {
     expect(result).toBeNull();
   });
 
-  it("cd /repo && git commit -m 'x'（BC-1 预注册变更：cd 主仓后 git 写）→ 拦截（求值器主判按落点事实，显式意图豁免退役——F20261012gesw 换岗）", () => {
+  it("cd /repo && git commit -m 'x'（BC-1 预注册变更：cd 主仓后 git 写）→ 拦截（求值器主判按落点事实，显式意图豁免退役——F20261015gesw 换岗）", () => {
     const result = checkBashCommandSafety("cd /repo && git commit -m 'x'", mainPid, undefined, { projectRoot });
     expect(result).not.toBeNull();
   });
@@ -1273,13 +1273,13 @@ describe("F20260922scwd 检视严重 1/2 绕过形态回归（mimo 终审检视�
     expect(result).toBeNull();
   });
 
-  it("cd worktree && echo x > file.txt（相对 cd 到主仓子目录——落点主仓树内，F20261012gesw 按落点事实判拦；worktree 隔离正道是绝对路径 cd .otter/worktrees/*，见下条）", () => {
+  it("cd worktree && echo x > file.txt（相对 cd 到主仓子目录——落点主仓树内，F20261015gesw 按落点事实判拦；worktree 隔离正道是绝对路径 cd .otter/worktrees/*，见下条）", () => {
     const result = checkBashCommandSafety("cd worktree && echo x > file.txt", mainPid, undefined, { projectRoot });
     expect(result).not.toBeNull();
   });
 
   // ── #1038 语义保持：纯 echo 引号文本仍放行 ──
-  it("echo 'rm -rf data/metrics' >> notes.md（#1038 语义收窄：引号内文本不拦，但重定向落主仓 cwd 拦——F20261012gesw BC-2 行为变更，落点事实优先）", () => {
+  it("echo 'rm -rf data/metrics' >> notes.md（#1038 语义收窄：引号内文本不拦，但重定向落主仓 cwd 拦——F20261015gesw BC-2 行为变更，落点事实优先）", () => {
     const result = checkBashCommandSafety("echo 'rm -rf data/metrics' >> notes.md", mainPid, undefined, { projectRoot });
     expect(result).not.toBeNull();
   });

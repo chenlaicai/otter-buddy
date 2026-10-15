@@ -52,7 +52,7 @@ export interface WriteTarget {
   segmentIndex: number;
   /** 求值写落点（真写判定缺省面 true；建议3 known-gap：curl -o/wget -O/install/dd of=
    *  是写词表缺口——outFile 词面命中时不进 targets 也不进真写集，主判显式回落）。
-   *  F20261012gesw 换岗主判语义见 evaluatorPrimaryVerdict 文档块（三态 + 空真写双闸）。 */
+   *  F20261015gesw 换岗主判语义见 evaluatorPrimaryVerdict 文档块（三态 + 空真写双闸）。 */
   write?: boolean;
   /** 建议3：known-gap 写落点词面（curl -o/wget -O/install/dd of= 的 outFile 位置）——
    *  词面命中时主判回落旧链，绝不终局放行（fail-closed 的 known-gap 通道）。 */
@@ -122,7 +122,7 @@ function isScriptRunnerSeg(seg: Segment): boolean {
  *  data/workspaces 豁免由调用方政策层另行处理——本函数只报事实。 */
 // 运行时区域（主仓树下但不属代码树）：worktrees 隔离区 / 对话工作区 sandbox（
 //  F20260923hsyn：data/workspaces 是 runtime sandbox 非追踪代码，重定向落工作区
-//  旧链有豁免先例；F20261012gesw 切换把同口径带进求值器主判——否则工作区写全被
+//  旧链有豁免先例；F20261015gesw 切换把同口径带进求值器主判——否则工作区写全被
 //  误拦，观察期外新增回归）/ 旧 workforms。metrics|logs 等其余 data/ 不在豁免面
 //  （data_destructive 维度另有防线，main_write 只管代码树）。
 const OTTER_RUNTIME_REGIONS = ["/.otter/worktrees/", "/.otter/workforms", "/data/workspaces/"];
@@ -199,9 +199,9 @@ function evalCdTarget(seg: Segment, segments: Segment[], cwd: string): string | 
   return _p;
 }
 
-// trackCwd 已由 evalSegmentCwds（段级 cwd，F20261012gesw 切换实测修复）取代
+// trackCwd 已由 evalSegmentCwds（段级 cwd，F20261015gesw 切换实测修复）取代
 
-/** F20261012gesw（切换 PR实测修复）：段级 cwd——段 i 的求值 cwd =「之前所有对外
+/** F20261015gesw（切换 PR实测修复）：段级 cwd——段 i 的求值 cwd =「之前所有对外
  *  可见 cd 的累积」（正向即时推进），而非整命令最终 cwd。两个实测错位形态：
  *  - `git commit && cd /tmp`：旧逻辑从最终 cwd（/tmp）反向求 git 段——git commit
  *    真实落点在 cd 前的主仓 cwd，旧算法把 commit 算到 /tmp（漏拦）

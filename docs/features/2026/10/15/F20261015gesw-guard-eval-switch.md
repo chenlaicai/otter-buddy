@@ -1,9 +1,9 @@
 ---
-id: F20261012gesw
+id: F20261015gesw
 title: main_write 换岗——写落点求值器转正（观察期达标切换）
 summary: gwte 方案模块 3 终章：观察期 3 天 1405 条旁听（红线 0 / 23-23 裁决全对 / EVAL_GAIN 7）达标后，checkMainCheckoutWrite 接求值器主判——真写落主仓→终局 BLOCK、真写全在树外且非载荷面→终局 ALLOW、空真写/known-gap/载荷面→旧链全量兜底（fail-closed 不旁路）。切换修复三处求值器语义 bug（段级 cwd、只读披露 write=false、工作区 sandbox）。预注册 BC 落地（BC-1/BC-3；BC-2 新增）。嵌套载荷不接主判；脚本解释器载荷一律不终局放（delta eba7c738：处置中 15 形态漏拦 + 复审 6 形态击穿证明门，两轮实测全类归口）。语料 21 条真实命令钉回归夹具：实测修复面 3 终局修复 + 15 残余 expected-BLOCK（宣称订正，残余收编 v2）。回退开关 OTTER_GUARD_EVAL_SWITCH=0。#1363 灰区闭合、#1416 负门保持；#1395 非载荷面修复保持（载荷面回落残余归 v2）。
-created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
-status: implemented
+created_in_conversation: 9993f9b1-bea7-41b6-9313-bc33ba23f77e
+status: review
 modification_class: mechanism-addition
 intent:
   problem: "旧链 main_write 词面判定误拦率高（观察期 23/23 裁决全是旧链误拦）且 #1395/#1363/#1416 家族反复修补；求值器观察期达标但未接管"

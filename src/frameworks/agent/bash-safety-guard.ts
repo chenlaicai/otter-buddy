@@ -1864,9 +1864,9 @@ function rewriteMainWriteBlockMsg(sessionCwd?: string): string {
   return MAIN_WRITE_BLOCK_MSG;
 }
 
-/** F20261012gesw：求值器主判（切换本体）——返回 null=不适用（回落旧链）/
+/** F20261015gesw：求值器主判（切换本体）——返回 null=不适用（回落旧链）/
  *  "ALLOW"=终局放行 / "BLOCK"=终局拦截。拆出控主函数语句数与嵌套深度。 */
-/** F20261012gesw 换岗主判三态（审视严重1 处置 + 焦点(a)漏拦收口）。返回 "ALLOW"=终局放行 /
+/** F20261015gesw 换岗主判三态（审视严重1 处置 + 焦点(a)漏拦收口）。返回 "ALLOW"=终局放行 /
  *  "BLOCK"=终局拦截 / null=不适用（回落旧链）。判定序：
  *  ① known-gap 词面/knownGap target（建议3）→ null；
  *  ② unevaluated → null；
@@ -1921,12 +1921,12 @@ function evaluatorPrimaryVerdict(command: string, cwd: string, projectRoot: stri
   return "ALLOW"; // 非载荷面：真写落点全在主仓树外（worktree/tmp/外部项目）且已证
 }
 
-// eslint-disable-next-line complexity, max-statements -- V1 分支语义保留（cd 豁免/git 白名单/echo 豁免/重定向 abs 豁免各对应一条已实证形态，见函数内注释）；F20261008h304 后 18；F20261012gesw 换岗入口 +1（拆 evaluatorPrimaryVerdict 后仍 26 语句——历史豁免面注释链皆必要锚点）
+// eslint-disable-next-line complexity, max-statements -- V1 分支语义保留（cd 豁免/git 白名单/echo 豁免/重定向 abs 豁免各对应一条已实证形态，见函数内注释）；F20261008h304 后 18；F20261015gesw 换岗入口 +1（拆 evaluatorPrimaryVerdict 后仍 26 语句——历史豁免面注释链皆必要锚点）
 function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   const { command, logger, projectRoot, sessionCwd, heredocReadOnly, oneLinerReadOnlyOverride } = ctx;
   const depth = ctx.depth ?? 3;
   if (!projectRoot) return null; // 无 projectRoot 时保守放行（与 resolvesToMainData 同策略）
-  // F20261012gesw（切换 PR，F20261009gwte 方案模块 3）：main_write 维度换脑——写落点
+  // F20261015gesw（切换 PR，F20261009gwte 方案模块 3）：main_write 维度换脑——写落点
   //  求值器（Phase 1 #1381 + Phase 2 #1411 + 观察期 1405 条红线 0）主判：
   //  - evaluated 且任一落点在主仓树内（pathWithinMain，含 worktree 区 root 级排除）
   //    → 终局 BLOCK（旧链不再跑——词面正则的黑名单语义被落点事实取代）
