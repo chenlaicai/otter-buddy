@@ -1,13 +1,13 @@
 ---
 id: F20261015glfp
-title: bash 守卫误拦止血——git -C <worktree> 写族落点豁免（V1 生产链对齐 v2 求值器 -C 落点语义）
-summary: V1 生产链 git 写族豁免只认 cd 形态，`git -C <worktree> commit` 无 cd 段被「写命令落点解析到主仓」误拦（落点明明是 worktree 自树）——补 git -C 多级累积落点解析（段级豁免），语义对齐 write-target-evaluator evalGitWrite「-C 目标优先」；负门（主仓根/worktrees 根/../ 逃逸/--git-dir|--work-tree 覆盖/混合段）全部保持
+title: bash 守卫误拦止血——git -C <worktree> 写族落点豁免（豁免分支对齐 v2 求值器 -C 落点语义）
+summary: V1 生产链 git 写族豁免只认 cd 形态，`git -C <worktree> commit` 无 cd 段被「写命令落点解析到主仓」误拦（落点明明是 worktree 自树）——补 git -C 多级累积落点解析（段级豁免），豁免分支对齐 write-target-evaluator evalGitWrite「-C 目标优先」（全命令对齐不成立——skipGitWrite 短路在前不看 -C 目标，差异面挂 M-026d87ff 第三项）；负门（主仓根/worktrees 根/../ 逃逸/--git-dir|--work-tree 覆盖/混合段）全部保持
 type: BugFix
 date: 2026-10-15
 capability_test: "n/a: 守卫判定逻辑修正，验证走单测（bash-safety-guard-git-dashc 20 例：放行侧 8 + 拦截侧 12），无独立 LLM 能力面"
 intent:
   problem: "M-bf4049a3 案卷实证（b9026422 三组对照）：`git -C <worktree> commit --author=$(cat …)` 被「写命令落点解析到主仓」误拦，海獭 worktree 提交被堵死只能绕 cd 形态；机制结论「词面规则只在写链里扫，cd 豁免是唯一主通道」——V1 生产链的 git 写族豁免（cwdInGitWorktree→skipGitWrite，F20261014cwsp S1）只认 cwd 形态，-C 形态落点识别缺失"
-  expected_effect: "git -C 目标（多级累积）落 worktree 区（<root>/.otter/worktrees/<name>[/…]）的 git 写族放行（worktree 自树操作非主仓写），与 cd 形态等价、与 v2 求值器语义一致；主仓根/worktrees 根自身/../ 逃逸/--git-dir|--work-tree 覆盖/嵌套 decoy/混合段主仓写全部照拦；攻击面负门（eval 注入/主服务脚本 stop·restart/pkill 族）零放水"
+  expected_effect: "git -C 目标（多级累积）落 worktree 区（<root>/.otter/worktrees/<name>[/…]）的 git 写族放行（worktree 自树操作非主仓写），与 cd 形态等价、豁免分支与 v2 求值器口径一致；主仓根/worktrees 根自身/../ 逃逸/--git-dir|--work-tree 覆盖/嵌套 decoy/混合段主仓写全部照拦；攻击面负门（eval 注入/主服务脚本 stop·restart/pkill 族）零放水"
   verify_by:
     type: behavior_check
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
@@ -60,7 +60,16 @@ M-bf4049a3（板上止血工单）原始定性是「禁令族词面规则路径�
 
 - `src/frameworks/agent/bash-safety-guard.ts`：新增 `gitDashCTargetsWorktree`（+40 行）+ `judgeSegment` ③a' 两行挂钩；其余通道（重定向/data 破坏/one-liner/kill 族/脚本自杀/PR merge）零改动
 - 豁免面增量：仅「git 写族段 + -C 目标（可累积）解析后落 <root>/.otter/worktrees/<name>[/…]」一形态；与 cwd 形态豁免同语义边界
-- v2 求值器（write-verdict/写链）零改动——corpus 冻结面不动；跨链一致性是朝求值器语义收敛（生产链补齐，不是求值器让步）
+- v2 求值器（write-verdict/写链）零改动——corpus 冻结面不动；跨链一致性是朝求值器语义收敛（生产链补齐，不是求值器让步）——**但全命令级对齐未达成**：skipGitWrite 短路在前不看 -C 目标，`git -C <主仓> commit`（cwd=worktree）与 `cd <主仓> && git commit` 反判（prod:ALLOW/wv:BLOCK，delta 复核实测），差异面挂 M-026d87ff（wv 侧语义对齐伞下第三项：skipGitWrite 短路补 -C 目标）
+
+## 对抗审视处置留痕（delta 复核 2026-10-15，检视獭1360 approve）
+
+大獭裁决（15/10 11:49）逐条处置：
+
+- **建议 1（记档说一套代码做一套 第三发）→ 本 commit 就地收窄**：「与 v2 求值器 -C 目标优先口径对齐」的声称只对豁免分支成立，措辞全部改为「豁免分支对齐」；差异面（skipGitWrite 短路补 -C 目标）立单挂 **M-026d87ff** 第三项
+- 建议 2（symlink 逃逸链）→ **M-ed285d7c**（realpath 归一化工单）——与 cwd 形态共享既有边界、非本 PR 新泄漏（「与 cwd 形态严格等价」声称成立），修时两侧同口径
+- 建议 3（反引号含空格构造双层全漏）→ 补进 **#1514**（M-46f0e74d）案面（同族：词切分失明）
+- 建议 4（git alias 注入双层全放、真写主仓）→ **M-edd889c2**，大獭定级 **严重（P0）**（与 delta7 `~` 前缀同款依据：双层全放+真写主仓+攻击成本极低），既有词表设计边界不阻塞本 PR
 
 ## 验证
 

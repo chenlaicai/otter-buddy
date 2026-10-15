@@ -980,9 +980,13 @@ const GIT_WRITE_SUBCOMMAND = /^git\s+(?:-C\s+\S+\s+|--git-dir=\S+\s+|--work-tree
 /** F20261015glfp（M-bf4049a3 止血）：git -C 落点解析——写族段的落点是 -C 目标（多级累积），
  *  落 worktree 区（<projectRoot>/.otter/worktrees/<name>[/…]，root 级精确前缀）时该段
  *  git 写是 worktree 自树的 git 操作、非主仓写——豁免语义与 cwd 形态
- *  （cwdInGitWorktree→skipGitWrite）等价，与 write-target-evaluator evalGitWrite
- *  「-C 目标优先，无 -C → cwd」口径对齐（双链语义割裂修复：v2 求值器早有 -C 落点
- *  跟踪，V1 生产链只认 cd 形态，`git -C <worktree> commit` 同形态两链反判）。
+ *  （cwdInGitWorktree→skipGitWrite）等价；**豁免分支**与 write-target-evaluator
+ *  evalGitWrite「-C 目标优先，无 -C → cwd」口径对齐（只对豁免分支成立——全命令
+ *  对齐声称不实：skipGitWrite 短路在前不看 -C 目标，`git -C <主仓> commit`
+ *  （cwd=worktree）与 `cd <主仓> && git commit` 均 prod:ALLOW/wv:BLOCK 反判，
+ *  差异面挂 M-026d87ff 第三项；本句是「记档说一套代码做一套」第三发的收窄修正）。
+ *  双链割裂背景：v2 求值器早有 -C 落点跟踪，V1 生产链只认 cd 形态，
+ *  `git -C <worktree> commit` 同形态两链反判。
  *  fail-closed 面（任一命中即不豁免）：--git-dir/--work-tree 覆盖（落点被改写）、
  *  ~ 前缀（shell 不展开）、动态/引号含空格 token（与 GIT_WRITE_SUBCOMMAND 的 \S+
  *  词面解析同基座，解析不完整就不豁免）；无 -C 时归 cwd 形态（skipGitWrite）不重复。
