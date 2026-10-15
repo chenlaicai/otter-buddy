@@ -164,7 +164,9 @@ evaluateWriteTargets(command, projectRoot)
 
 ## 风险与遗留
 
+- **cmdsub 子模型不继承段级 tracked cwd**（F20261015cwsp 归一 MiMo delta F2）：外层 `cd` 链对 `$( )` 载荷落点失效——`cd /repo/sub && echo $(touch evil)` 落点算成 `/repo/evil`（真实 `/repo/sub/evil`）；sessionCwd=ROOT=BLOCK、sessionCwd=worktree=ALLOW 分叉（探针 J/J2）。窄形态漏拦，预注册求值器 v2 收编（#1438）
 - **嵌套载荷仍是旧链**——#1395 家族的 bash -c/heredoc 形态误拦仍存在（收窄换取 data 感知不旁路，取舍记录在案）；求值器 v2 收编 data 语义后解除
+- **S1 覆盖边界**（MiMo delta 跟进2）：git 写族回落修复闭合的是**求值器看得见的词表写**（cp/mv/tee/touch/mkdir）；`curl -o`/`wget -O`/`install`/`dd of=` 走 KNOWN_GAP 早退绕过整个 evaluator——`git commit && curl -o /repo/evil` 仍 ALLOW（先前既有，非本 PR 引入）。curl -o 类残余补进 #1438 范围
 - **write token 枚举面**（SCRIPT_WRITE_TOKENS）仍是枚举——但失败方向已反转（漏枚举→回落旧链保守拦，不是放行）
 - **回退开关依赖重启生效**（进程 env）——回退操作手册：设 env → 重启（特性文档 + PR body 写明）
 - **语料残余 15 条 expected-BLOCK + 3 条 parity-allow（#1487 归一）**（载荷只读探针/known-gap/零披露面）——已钉夹具防放宽，修复面收编 v2（issue 预注册）；载荷面一律回落后无词表军备面（新变形面由回落旧链关键词网与切换前同判兜底）；#1395 载荷形态误拦（node -e 写 worktree 管道族）同入残余
