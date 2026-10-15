@@ -90,8 +90,16 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
    * 不 postMessage 到 worker（防 document sync 等批量场景瞬间打满 worker 消息队列，
    * 后续请求全部排队超时——#1453 实证：3269 条 chunk embed 淹没 worker，27min 排不完）。
    * 超出上限的请求由调用方 catch 后入 retry 队列，不丢失。
+   *
+   * F20261014selfheal 治本：50 → 1（worker 内严格串行）。
+   * 根因实验定论（/tmp/repro-long-text.mjs 对照矩阵）：onnxruntime 1.23.2 ThreadPool
+   * 嵌套 parallel section 在长文本（>1500 token）× 并发 >1 时必然 lost-wakeup 死锁——
+   * 并发=1 全过（30 次）、并发=2 第 8 条卡死、并发=4 第 6 条、并发=16 第 4 条。
+   * 串行化从触发条件上消除并发（治本，非兜底）。吞吐不受损：sync 路径本来就是
+   * acquireSlot 挂起等空闲 → embedBatch 一次一批（一批占一槽，串行节奏不变）；
+   * 查询路径并发 embed 排队，单次 ~230ms（短文本）可接受。
    */
-  private static readonly MAX_IN_FLIGHT = 50;
+  private static readonly MAX_IN_FLIGHT = 1;
   /** 测试用覆盖超时（ms） */
   private static testTimeoutOverride: number | null = null;
   /** 测试用覆盖 in-flight 上限 */

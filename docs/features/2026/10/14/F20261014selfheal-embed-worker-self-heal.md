@@ -1,7 +1,7 @@
 ---
 id: F20261014selfheal
-title: embedding worker 超时自愈——onnxruntime 竞态假死的 terminate+重建+熔断
-summary: onnxruntime 1.23.2 在 Intel x86 mac 上存在偶发 ThreadPool lost-wakeup 竞态（worker 推理卡死永不返回，主线程超时只清 pending，已 postMessage 的消息堆积在假死 worker 队列造成 ~1GB/h 泄漏）。应用层无法修复原生竞态，修复为超时自愈：embed 超时 → terminate 假死 worker（销毁 ThreadPool + 清空消息队列，堵漏的唯一手段）→ workerFactory 重建；熔断防风暴（5min 窗口重启 >3 次 → 降级 FTS5-only）；每次重启落结构化日志让偶发卡死从隐形变显性。
+title: embedding worker 假死治本——严格串行化消除 onnxruntime 并发竞态 + 超时自愈兜底 + 观测增强
+summary: 根因定论（实验矩阵闭合）：onnxruntime 1.23.2 ThreadPool 嵌套 parallel section 在长文本（>1500 token）× 并发 >1 时必然 lost-wakeup 死锁（并发=1 全过、并发=2 第 8 条卡死、并发=16 第 4 条）。治本：MAX_IN_FLIGHT 50→1 严格串行消除触发条件；兜底：超时 terminate+重建+熔断；观测：重启落结构化快照（三组画像），e2e 现场数据已验证有效。
 change_type: fix
 capability_test: "tests/frameworks/embedding/embedding-service.test.ts（+3 用例：超时自愈重建、窗口熔断、batch 超时自愈、超时重启结构化快照；存量 7 条全过 11/11）"
 modules: [embedding, memory]
@@ -36,19 +36,29 @@ related_issues: [1453, 1460]
 
 ## 修复方案
 
-**超时自愈（terminate+重建+熔断）+ 观测增强**——应用层无法修复 onnxruntime 原生竞态，唯一可行的恢复手段：
+**治本：worker 内严格串行化（MAX_IN_FLIGHT 50→1）+ 超时自愈兜底 + 观测增强**
 
-1. **embed/embedBatch 超时触发自愈**：超时回调 → `restartWorker()` → terminate 旧 worker（销毁 ThreadPool 上下文 + 清空 MessagePort 队列，堵漏的唯一手段）→ 用注入的 `workerFactory` 重建新 worker
-2. **熔断防风暴**：5min 窗口内重启 >3 次 → `circuitBroken=true`，`available=false`，embedding 降级 FTS5-only 直至进程重启（防无限重建消耗资源）
-3. **观测增强（搭档 10/15 要求：不能把锅推给「生产环境无法复现」）**——下次卡死必须拿到真实现场数据。重启时落结构化日志 `embedding_worker_restart`：
-   - **worker 画像**：本代存活时长、成功/尝试 embed 次数（定位「固定第 N 次请求触发」假设）
-   - **超时请求画像**：文本长度/token 估算/前 80 字摘要、batch 条数与总文本量（定位「特定文本模式触发嵌套算子」假设；只留摘要不进全文，防隐私/体积）
-   - **宿主环境快照**：RSS/heapUsed/loadavg（验证「宿主压力是触发变量」假设）
-   - 三个假设一次性全部可证伪/证实，jq 可聚合分析频率与共性
+### 根因定论（10/15 实验矩阵完整闭合）
 
-## 诚实边界（根因未钉死）
+观测增强在 e2e 环境抓到决定性病发现场（3 次重启快照）：卡死时 inflight=75~100、重建后 0 成功立即再卡、超时请求为 2411 字符长文本（estTokens 1607）。据此设计对照实验（/tmp/repro-long-text.mjs）：
 
-卡死**机制**已定位（嵌套 parallel section 退出时 lost-wakeup，栈证据确凿），但**触发条件未复现**——干净进程串行 300 次/并发 16×400 次（intraOp=1/2 均试）均不卡，触发依赖生产宿主环境。「intraOp=1 嵌套自锁」假设已被实验证伪（代码默认本就是 2，且 intraOp=1 干净进程也不卡）。观测增强就是为了下次拿到触发条件的真实数据。
+| 配置 | 长文本×并发 | 结果 |
+|---|---|---|
+| 短文本 × 并发 16 | ~300 字符 | ✅ 400 次全过 |
+| 长文本 × 并发 1（串行）| ~2400 字符 | ✅ 30 次全过 |
+| 长文本 × 并发 2 | 同上 | ❌ 第 8 条卡死 |
+| 长文本 × 并发 4 | 同上 | ❌ 第 6 条卡死 |
+| 长文本 × 并发 16 | 同上 | ❌ 第 4 条卡死 |
+| executionMode=sequential | 长文本 × 并发 16 | ❌ 卡死（排除）|
+| interOpNumThreads=1 | 长文本 × 并发 16 | ❌ 卡死（排除）|
+
+**触发条件确定：长文本（>1500 token）× 并发 >1**——onnxruntime 1.23.2 ThreadPool 嵌套 parallel section 在跨 Run 并发竞争时必然 lost-wakeup。之前「生产环境不可复现」声明作废——是实验设计错误（只用了短文本）。卡死机制与生产栈完全一致（EndParallelSectionInternal → SpinPause，/tmp/repro-sample.txt 与 /tmp/emb-sample.txt 逐帧一致）。
+
+### 三层修复
+
+1. **治本：MAX_IN_FLIGHT 50→1（worker 内严格串行）**——消除触发条件。并发=1 时嵌套 parallel 不跨 Run 竞争，实验证实不卡。吞吐不受损：sync 路径本来就是 acquireSlot 挂起等空闲 → embedBatch 一次一批（一批占一槽，串行节奏不变）；查询路径并发 embed 排队，单次 ~230ms 可接受。
+2. **兜底：超时自愈（terminate+重建+熔断）**——任何原生层 hang 都不应永久假死（保留，防未来 onnxruntime 升级引入新竞态）。
+3. **观测增强**：重启时落结构化日志 `embedding_worker_restart`（worker 画像/超时请求画像含 inflight/宿主环境快照）——本次根因能钉死靠的就是它抓到的 e2e 现场数据。
 
 ## 设计取舍（机制判定前置）
 
