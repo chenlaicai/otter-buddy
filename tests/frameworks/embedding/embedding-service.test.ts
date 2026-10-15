@@ -485,6 +485,8 @@ parentPort.on("message", () => {});
         expect(timeoutCtx.path).toBe("embed");
         expect((timeoutCtx.text as Record<string, unknown>).chars).toBe(8);
         expect((timeoutCtx.text as Record<string, unknown>).head).toBe("观测增强验证文本");
+        // 检视 #1493 delta 存量发现：inflight 在 delete 自身之前读（本请求已超时但还在队列里，=1）
+        expect(timeoutCtx.inflight).toBe(1);
         // 宿主快照：rss/heap/loadavg 齐全
         const host = ctx.host as Record<string, unknown>;
         expect(typeof host.rssMb).toBe("number");

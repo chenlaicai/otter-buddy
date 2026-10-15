@@ -117,7 +117,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
    */
   private workerBornAt = Date.now();
   private workerEmbedSucceeded = 0; // 本代 worker 成功 embed 次数（单条+batch 按请求计）
-  private workerEmbedAttempted = 0; // 本代 worker 收到的 embed 请求总数
+  private workerEmbedTimeouts = 0; // 本代 worker embed 超时次数（检视 #1493 delta 观察 1：原名 attempted 只计超时，名实不符）
   /** 最近一次触发超时的请求画像（定位「是否特定文本模式触发嵌套算子」） */
   private lastTimeoutContext: Record<string, unknown> | null = null;
   
@@ -189,7 +189,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     // F20261014selfheal 观测增强：新代 worker 画像归零
     this.workerBornAt = Date.now();
     this.workerEmbedSucceeded = 0;
-    this.workerEmbedAttempted = 0;
+    this.workerEmbedTimeouts = 0;
     this.lastTimeoutContext = null;
   }
 
@@ -228,7 +228,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       restartWindowMs: EmbeddingServiceImpl.RESTART_WINDOW_MS,
       // worker 画像：本代存活期指标
       workerAgeMs: now - this.workerBornAt,
-      workerEmbedAttempted: this.workerEmbedAttempted,
+      workerEmbedTimeouts: this.workerEmbedTimeouts,
       workerEmbedSucceeded: this.workerEmbedSucceeded,
       // 超时请求画像（若有）：文本长度/token 估算/前缀摘要，定位文本模式假设
       ...(this.lastTimeoutContext ? { timeoutContext: this.lastTimeoutContext } : {}),
@@ -376,13 +376,17 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<Float32Array>((_, reject) => {
       timer = setTimeout(() => {
+        // 检视 #1493 delta 存量发现：inflight 必须在 delete 自身之前读，否则少计 1
+        const inflight = this.pendingRequests.size + this.pendingBatchRequests.size;
         this.pendingRequests.delete(id);
         this.releaseSlot();
         // F20261014selfheal 观测增强：超时请求画像（定位「是否特定文本模式触发嵌套算子」）
-        this.workerEmbedAttempted++;
+        this.workerEmbedTimeouts++;
         this.lastTimeoutContext = {
           path: "embed",
           timeoutMs,
+          // 卡死时在途请求总数是判断泄漏速率的关键信号
+          inflight,
           text: EmbeddingServiceImpl.textProfile(text),
         };
         // F20261014selfheal：超时是 worker 假死的唯一可观测信号——触发自愈重建
@@ -430,15 +434,18 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<Float32Array[]>((_, reject) => {
       timer = setTimeout(() => {
+        // inflight 必须在 delete 自身之前读（与 embed 路径同口径）
+        const inflight = this.pendingRequests.size + this.pendingBatchRequests.size;
         this.pendingBatchRequests.delete(id);
         this.releaseSlot();
         // F20261014selfheal 观测增强：batch 超时画像（条数 + 总文本量 + 首条摘要）
-        this.workerEmbedAttempted++;
+        this.workerEmbedTimeouts++;
         this.lastTimeoutContext = {
           path: "embedBatch",
           timeoutMs,
           batchSize: texts.length,
           totalChars: texts.reduce((sum, t) => sum + t.length, 0),
+          inflight,
           firstText: EmbeddingServiceImpl.textProfile(texts[0] ?? ""),
         };
         // F20261014selfheal：batch 超时同样是 worker 假死的可观测信号——触发自愈重建
