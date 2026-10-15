@@ -17,7 +17,7 @@ import fs from "fs";
 import path from "path";
 import type { Logger } from "@usecases/ports/logger";
 import { loadAllowedServicePorts, extractWhitelistedPortRefs, type AllowedService } from "./allowed-service-ports";
-import { shouldSanitizeForScan, sanitizeQuotedText, sanitizeQuotedTextForIndirectCheck, stripQuotedTextSpans, stripHeredocPayloads, extractHeredocSpans } from "./quoted-text-sanitizer";
+import { shouldSanitizeForScan, sanitizeQuotedText, stripQuotedTextSpans, stripHeredocPayloads, extractHeredocSpans } from "./quoted-text-sanitizer";
 import { findKillSegments, isKillAtCommandPosition } from "./kill-segment-finder";
 
 /** F20260928slan：sleep 命令位置判定——复用 kill-segment-finder 的位置感知
@@ -240,10 +240,7 @@ function pkillTargetsOtter(segment: string): boolean {
 /** F20260916gtlr：脚本路径提取（捕获组），与 SERVICE_SCRIPT_KILL 路径词元口径 + 前导约束一致，改动需同步。
  *  前导分组（^/操作符/命令替换位）保证只匹配命令位置——中文语境裸文本提及（echo otter-buddy.sh restart 是危险操作）不误拦。 */
 const SCRIPT_PATH_EXTRACT = /(?:^|[;&|`$(])\s*(?:sudo\s+)?(?:(?:bash|sh)\s+)?((?:[\w.~/-]*\/)?(?:scripts\/)?otter-buddy\.sh)\s+(?:stop|restart)\b/gi;
-/** F20260916gtlr：脚本引用（间接形态检测用） */
-const SCRIPT_REFERENCE = /otter-buddy\.sh/i;
-/** F20260916gtlr：间接调用特征（$VAR / $(...) / ${...} / 反引号），与 INDIRECT_PID_PATTERNS 同族 */
-const INDIRECT_CALL_FEATURE = /\$[{({A-Za-z_]|`/;
+// F20261015gsub 收敛：SCRIPT_REFERENCE / INDIRECT_CALL_FEATURE 随形态 2 删除而删除。
 
 /** F20260916gtlr：脚本路径解析——相对路径基于 projectRoot（=主仓根，海獭 bash cwd 恒为主仓）resolve 并归一化。
  *  返回 true 表示解析到主仓 scripts（目标是进程1 的管理脚本）。projectRoot 缺失时保守按主仓对待。
@@ -285,7 +282,10 @@ function checkPrMergeCommand(command: string, logger?: Logger): string | null {
 
 /** F20260916gsrd：主服务脚本自杀命令检测（独立规则，调用点在 checkBashCommandSafetyOnText）
  *  F20260916gtlr：从全局文本拦改为主仓路径限定拦（worktree 绝对路径调用放行，脚本层兜底已删，
- *  守卫是唯一防线）+ 间接调用保守拦截（变量/命令替换隐藏 stop/restart 的形态）。 */
+ *  守卫是唯一防线）。
+ *  F20261015gsub 收敛：形态 2（间接调用保守拦截）删除——守卫定位从「防绕过军备竞赛」退回
+ *  「常见直白形态兜底」（搭档 10/15 决策：bash 守卫永远无法百分百，物理隔离才是真正守卫）。
+ *  间接形态（变量/命令替换隐藏子命令）由形态 1 字面检测 + 物理隔离兜底，不再静态保守拦。 */
 function checkServiceScriptKill(command: string, mainPid: number, logger?: Logger, projectRoot?: string): string | null {
   // 形态 1：字面 stop/restart——提取全部脚本路径，任一解析到主仓 scripts 即拦；全部不在主仓（worktree 自管实例）放行
   const matches = [...command.matchAll(SCRIPT_PATH_EXTRACT)];
@@ -295,52 +295,13 @@ function checkServiceScriptKill(command: string, mainPid: number, logger?: Logge
     logger?.warn("[bash-safety-guard] BLOCKED otter-buddy.sh stop/restart targeting main checkout", { mainPid, command: command.substring(0, 200) });
     return "bash 命令调用的 otter-buddy.sh 解析到主仓，其 stop/restart 会终止主进程。该命令不允许：主进程是海獭运行环境，任何形态不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；确需管理主服务时请用脚本绝对路径 + 字面子命令，由搭档人工执行；服务异常请报告搭档。";
   }
-  // 形态 2：间接调用——含脚本引用 + 间接特征（$VAR/$()/反引号）但无字面 stop/restart，保守拦截。
-  // 与形态 1 的分工：形态 1（路径限定）只拦解析到主仓的字面 stop/restart，放行 worktree 自管实例；
-  // 形态 2 是全局保守拦截（不区分主仓/worktree）——变量替换子命令（otter-buddy.sh $S）静态无法
-  // 判定子命令与路径，按 INDIRECT_PID_PATTERNS 先例向安全侧倾斜（检视獭-pr990 建议发现 2 留痕）。
-  // F20261015qind（issue #1494）：判定基文本经 sanitizeQuotedTextForIndirectCheck 处理——
-  // 脚本名在引号段内（纯文本提及）时引号内 $ 特征抹除（echo "otter-buddy.sh $S 被拦" 放行）；
-  // 脚本名在引号外（真实执行意图）时原样保留，间接特征照常拦。
-  const indirectBasis = sanitizeQuotedTextForIndirectCheck(command);
-  if (SCRIPT_REFERENCE.test(indirectBasis) && INDIRECT_CALL_FEATURE.test(indirectBasis)) {
-    logger?.warn("[bash-safety-guard] BLOCKED otter-buddy.sh indirect invocation", { mainPid, command: command.substring(0, 200) });
-    return "bash 命令包含 otter-buddy.sh 引用与间接调用特征（变量/命令替换），无法静态确认是否终止主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；确需调用 otter-buddy.sh 时请用字面命令（脚本绝对路径 + 字面子命令）；服务异常请报告搭档。";
-  }
   return null;
 }
-
-function checkCommandLevelPatterns(
-  command: string,
-  cmdLower: string,
-  mainPid: number,
-  logger?: Logger,
-): string | null {
-  // eval 包装 + 数字参数 → 保守拦截（eval "kil""l 42877" 等字符串拼接绕过）。
-  // 词边界限定命令位置（F20260902gvrd）：原 /\beval\b/ 匹配路径/标识符中的 eval-xxx
-  //（连字符是词边界，eval-activation-p0 / guard-eval-fix 均命中），叠加任意 2-6 位数字
-  //（路径里的日期、行号）即误拦纯 git/grep 命令。收紧为：行首或 shell 操作符/管道后的
-  // 独立 eval 单词——字符串拼接绕过仍被覆盖（eval 必在命令位置才执行），路径中的
-  // eval-xxx 不再触发。归一化文本同步收紧（塔死 k\ill 后接 eval 的拼接形态由
-  // normalizeForDetection 段落化后仍在命令位置）。
-  const evalInCommandPosition = /(?:^|[;&|]\s*|\|\s*)eval\s/.test(cmdLower) || /(?:^|[;&|]\s*)eval\b"/.test(cmdLower);
-  if (evalInCommandPosition && /\b\d{2,6}\b/.test(command)) {
-    logger?.warn("[bash-safety-guard] BLOCKED eval with numeric arguments", { mainPid, command: command.substring(0, 200) });
-    return "bash 命令使用 eval 包装了含数字参数的操作，可能隐藏终止进程的命令。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
-  }
-  // 管道到 shell 执行且含 kill 关键词
-  if (/\|\s*(sh|bash|zsh)\b/.test(command) && /\bkill\b/.test(cmdLower)) {
-    logger?.warn("[bash-safety-guard] BLOCKED pipe-to-shell with kill content", { mainPid, command: command.substring(0, 200) });
-    return "bash 命令通过管道传入 shell 执行且包含终止进程操作，可能针对主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
-  }
-  // 脚本语言 one-liner 执行 kill：perl/ruby/python -e '...kill N...'
-  // F20260923glay：加 node -e/--eval（与 SCRIPT_ONELINER_CHANNEL 口径对齐——脚本载荷剥离后，
-  // kill 检测必须覆盖全部 one-liner 形态，防 node -e 'process.kill(42877)' 绕过；
-  // 审视焦点 2 实证 node --eval 等价旗标此前漏覆盖）
-  if (/(?:perl|ruby|python\d?)\s+.*(?:-e|-c)\s|\bnode\s+.*(?:-e|--eval)\s/.test(cmdLower) && /\bkill\b/.test(cmdLower) && /\b\d{2,6}\b/.test(command)) {
-    logger?.warn("[bash-safety-guard] BLOCKED scripting language one-liner with kill", { mainPid, command: command.substring(0, 200) });
-    return "bash 命令通过脚本语言执行了终止进程操作，无法判断目标。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
-  }
+// F20261015gsub 收敛：checkCommandLevelPatterns 军备规则族（eval 包装+数字 / 管道 shell kill /
+// 脚本 one-liner kill）全部删除——守卫定位退回「常见直白形态兜底」（搭档 10/15 决策）。
+// eval 载荷递归（judgeEvalPayload V2 层）仍保留（真执行体语义）；kill 段检测仍拦字面 PID/
+// 间接目标。壳函数恒 null 避免调用点改动，后续清理。
+function checkCommandLevelPatterns(): string | null {
   return null;
 }
 
@@ -523,10 +484,8 @@ function checkBashCommandSafetyOnText(
   // 命中返回带 SLEEP_REASON_PREFIX 标记的文案，出口处由 checkBashCommandSafety 剥离标记
   const sleepBlock = checkSleepCommand(text, logger, { isCommandPosition: isCommandPositionFor });
   if (sleepBlock) return sleepBlock;
-  // 全命令级高危模式检测（在分段前检查，防止 eval/pipe-to-shell 绕过分段检测）。
-  // #918 检视严重 1：必须先于白名单放行——否则 `lsof -t -i:3100 | sh -c 'k...'` 类
-  // 形态借白名单端口 lsof 做左段，跳过 pipe-to-shell 检测（defense-in-depth 失效）
-  const cmdLevelResult = checkCommandLevelPatterns(text, text.toLowerCase(), mainPid, logger);
+  // F20261015gsub：cmdLevel 军备规则已删（壳函数恒 null），调用点保留占位。
+  const cmdLevelResult = checkCommandLevelPatterns();
   if (cmdLevelResult) return cmdLevelResult;
 
   const killSegments = findKillSegments(text);

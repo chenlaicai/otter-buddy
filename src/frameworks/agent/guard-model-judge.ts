@@ -544,33 +544,10 @@ const INDIRECT_BLOCK_MSG = "bash 命令中终止进程的目标为变量或命�
  *     展开器，数字参数无法静态确认非 PID → 保守拦
  *  2. 管道到 shell 且上游含 kill 词样（judgePipeToShell 已承担）
  *  3. 脚本 one-liner（perl/ruby/python -e/-c、node -e/--eval）+ kill 词样 + 数字 */
-function judgeCmdLevelModel(model: CommandModel, mainPid: number, logger: Logger | undefined): string | null {
-  const EVAL_MSG = "bash 命令使用 eval 包装了含数字参数的操作，可能隐藏终止进程的命令。该命令不允许：主进程是海獭运行时环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
-  const ONELINER_MSG = "bash 命令通过脚本语言执行了终止进程操作，无法判断目标。该命令不允许：主进程是海獭运行时环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
-  for (const seg of model.segments) {
-    // 规则 1：eval 命令位（段内命令位置——模型天然保证）
-    const eff = effectiveCommand(seg);
-    if (eff.name === "eval") {
-      const payloadText = seg.words.slice(1).map(w => w.evaluated ?? w.parts.map(p => p.text).join("")).join(" ");
-      if (/\b\d{2,6}\b/.test(payloadText)) {
-        logger?.warn("[guard-v2] BLOCKED eval with numeric arguments", { mainPid });
-        return EVAL_MSG;
-      }
-    }
-    // 规则 3：脚本 one-liner 载荷词样 + 数字
-    if (eff.name) {
-      const bare = eff.name.split("/").pop()!;
-      const isOneliner = (/^(?:python\d?|perl|ruby)$/.test(bare) && seg.words.some((w, idx) => idx > 0 && (w.evaluated === "-e" || w.evaluated === "-c")))
-        || (bare === "node" && seg.words.some((w, idx) => idx > 0 && (w.evaluated === "-e" || w.evaluated === "--eval")));
-      if (isOneliner) {
-        const payloadText = seg.words.map(w => w.evaluated ?? w.parts.map(p => p.text).join("")).join(" ");
-        if (/\bkill\b/i.test(payloadText) && /\b\d{2,6}\b/.test(payloadText)) {
-          logger?.warn("[guard-v2] BLOCKED scripting one-liner with kill", { mainPid });
-          return ONELINER_MSG;
-        }
-      }
-    }
-  }
+function judgeCmdLevelModel(): string | null {
+  // F20261015gsub 收敛：eval 命令位+数字 / 脚本 one-liner kill 词样两条军备规则删除——
+  // 守卫定位退回「常见直白形态兜底」（搭档 10/15 决策）。eval 载荷递归（judgeEvalPayload）
+  // 仍保留（真执行体语义），kill 段检测仍拦字面 PID/间接目标。保留壳函数避免调用点改动。
   return null;
 }
 
@@ -605,8 +582,8 @@ export function checkWithModel(
   // PR merge partner-gate（模型版 argv 位判定——先于 kill 族，V1 顺序保持）
   const prMerge = judgePrMergeModel(model, logger);
   if (prMerge) return prMerge;
-  // V1 cmdLevel 规则模型版（eval+数字 / one-liner 词样——管道到 shell 在下方）
-  const cmdLevel = judgeCmdLevelModel(model, mainPid, logger);
+  // F20261015gsub：cmdLevel 军备规则已删（壳函数恒 null），调用点保留占位。
+  const cmdLevel = judgeCmdLevelModel();
   if (cmdLevel) return cmdLevel;
   // eval 载荷递归（展开器语义）
   const evalHit = judgeEvalPayload(model, mainPid, logger, allowedServices);

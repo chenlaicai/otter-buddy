@@ -275,13 +275,11 @@ describe("F20260924gfpn：node -e 载荷字符串剥离（#4 延伸）", () => {
   // glay 已让 node -e 字符串里的 > | & 不误触重定向判定；本组补 kill 字样数据。
   // node -e 是脚本 one-liner 读形态（非写形态），未 cd 也不落主仓——但与 heredoc 不同，
   // 它不命中 python heredoc 写族正则，因此未 cd 也应放行（现状 glay 语义保持）。
-  it("node -e（载荷字符串含 kill 字样测试文本）→ 仍拦截（glay 保守拦语义不回退）", () => {
-    // glay 固化语义：node -e 字符串内 kill 字样 + 数字保守拦（cmdLevel 脚本 one-liner）。
-    // 分析脚本要绕开：写成 .mjs 文件（node scripts/x.mjs）或 cd worktree 后跑，不走 one-liner。
-    // 台账连环拦的解决路径是「载荷整体剥离防误触主仓写」+「kill 检测看原文」，
-    // node -e 的 kill 字样保守拦是既定取舍（本测试固化防误放行）。
+  it("node -e（载荷字符串含 kill 字样测试文本）→ 放行（F20261015gsub 收敛：one-liner 军备规则已删，字符串内 kill 字样不再保守拦）", () => {
+    // F20261015gsub：cmdLevel 脚本 one-liner 规则删除——字符串内 kill 字样+数字放行。
+    // 真调用（process.kill/os.kill）由别的路径（写族/主仓写检测）拦，见同组下一条。
     const cmd = 'node -e \'const t = "kill 12345 fixture"; console.log(t)\'';
-    expect(checkBashCommandSafety(cmd, mainPid, undefined, opts)).not.toBeNull();
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, opts)).toBeNull();
   });
 
   it("node -e（载荷字符串含项目路径）→ 放行", () => {
@@ -300,9 +298,8 @@ describe("F20260924gfpn：node -e 载荷字符串剥离（#4 延伸）", () => {
     expect(checkBashCommandSafety('node -e "process.kill(42877)"', mainPid, undefined, opts)).not.toBeNull();
   });
 
-  it("node -e 载荷含 kill + 数字（保守拦语义不回退）→ 仍拦截", () => {
-    // 与 glay 固化语义一致：字符串内 kill 字样 + 数字保守拦（测试固化防误放行）
-    expect(checkBashCommandSafety('node -e "console.log(\'kill 12345\')"', mainPid, undefined, opts)).not.toBeNull();
+  it("node -e 载荷含 kill + 数字（字符串数据非调用）→ 放行（F20261015gsub 收敛：one-liner 军备规则已删）", () => {
+    expect(checkBashCommandSafety('node -e "console.log(\'kill 12345\')"', mainPid, undefined, opts)).toBeNull();
   });
 });
 

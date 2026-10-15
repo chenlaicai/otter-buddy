@@ -58,16 +58,10 @@ describe("classifyGuardInterceptReason · 真实文案回归（探针 = 守卫�
     expectClass("python3 -c \"import os; os.kill(12345, 9)\"", "main_write");
   });
 
-  it("self_kill_eval：eval 拼接 kill", () => {
-    expectClass("eval \"ki\"\"ll 12345\"", "self_kill_eval");
-  });
+  // F20261015gsub 收敛：eval 包装与形态 2 间接规则已删——两条分类断言随规则失效删除
 
   it("self_kill_script_stop：otter-buddy.sh stop（直接调用形态，不带 bash 前缀）", () => {
     expectClass("/repo/scripts/otter-buddy.sh stop", "self_kill_script_stop");
-  });
-
-  it("self_kill_indirect：otter-buddy.sh 变量形态（直接调用，不带 bash 前缀）", () => {
-    expectClass("/repo/scripts/otter-buddy.sh ${MODE}", "self_kill_indirect");
   });
 
   it("script_file_exec：bash 脚本文件执行（V2 U5 防绕过层）", () => {

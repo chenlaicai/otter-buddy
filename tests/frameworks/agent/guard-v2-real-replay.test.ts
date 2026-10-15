@@ -44,13 +44,13 @@ describe("V9+ 真实拦截数据回放（9/28 healing events 现场）", () => {
     const r = checkBashCommandSafety(`cd ${WT}/guard-v2-redesign && git commit -F /tmp/x.txt 2>&1 | grep -v notice | head -30`, mainPid, undefined, { projectRoot });
     expect(r).toBeNull();
   });
-  it("E2 对照: node -e 载荷词样+PID → 保持拦（V1 防绕过语义，本獭 03:50 现场属规则内）", () => {
-    // 现场原命令形态：one-liner 载荷含连续词样与 PID 数字（防绕过规则保持）
+  it("E2 对照: node -e 载荷词样+PID → 放行（F20261015gsub 收敛：one-liner 军备规则已删，字符串词样+数字不再保守拦）", () => {
+    // F20261015gsub：V1 防绕过语义（one-liner kill 词样+数字保守拦）已随军备规则删除失效。
     const k = "k";
     const payload = `${k}ill 42877`;
     const cmd2 = `cd ${WT}/guard-v2-redesign && node -e "console.log('${payload}')"`;
     const r = checkBashCommandSafety(cmd2, mainPid, undefined, { projectRoot });
-    expect(r).toBeTruthy();
+    expect(r).toBeNull();
   });
   it("拦截面对照: kill 主PID / pkill 特征名 / bash -c 'kill $0' 主PID → 拦", () => {
     expect(checkBashCommandSafety("kill 42877", mainPid)).toBeTruthy();
