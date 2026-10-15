@@ -610,8 +610,17 @@ echo "=== commit exit: $? ==="`;
       expect(ok.verdict).toBe("ALLOW");
     });
 
-    it("delta2：未提供载荷且脚本存在 → fail-closed（未接线≠缺席）；/dev/null 为「存在文件」稳定替身", () => {
-      expect(evaluateWriteVerdict("bash /dev/null", ROOT)).toMatchObject({ verdict: "BLOCK", mode: "fail-closed", reason: "script-payload-unreadable" });
+    it("P0 sourcing 接线：未提供载荷且脚本存在 → 真实读取判读（/dev/null 零写面内容 → content 判读零落点放行）", () => {
+      // F20261015gses P0：未接线≠缺席 的未接线态已被真实读取取代——存在即读出内容按内容判读；
+      // /dev/null 读出空串=零写面脚本，正面 ALLOW（fail-closed 仅剩真读不出形态）
+      expect(evaluateWriteVerdict("bash /dev/null", ROOT)).toMatchObject({ verdict: "ALLOW", mode: "positive" });
+    });
+
+    it("P0 sourcing 接线：存在且内容含主仓写 → content 判读拦（未接线盲放被根治）", () => {
+      const dir = path.join(os.tmpdir(), "guard-p0-src-block");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "evil.sh"), "echo x > /repo/data/pwn\n");
+      expect(evaluateWriteVerdict(`bash ${path.join(dir, "evil.sh")}`, ROOT)).toMatchObject({ verdict: "BLOCK", mode: "positive" });
     });
 
     it("delta2：显式声明 absent=证明源 → 放（声明+记档校验面，不做 fs 复核）", () => {
@@ -754,9 +763,9 @@ describe("delta3 修法（严重1 execv 族词表 + 严重 2 cwd 错位假缺席
       expect(v.mode).toBe("positive");
     });
 
-    it("对照：可溯源 cd + 存在脚本 → fail-closed unreadable（/dev/null 稳定替身）", () => {
+    it("对照：可溯源 cd + 存在脚本 → 真实读取判读（/dev/null 空内容零写面放行；P0 sourcing 接线后）", () => {
       expect(evaluateWriteVerdict("cd /dev && bash null", ROOT)).toMatchObject({
-        verdict: "BLOCK", mode: "fail-closed", reason: "script-payload-unreadable",
+        verdict: "ALLOW", mode: "positive",
       });
     });
 
@@ -804,12 +813,12 @@ describe("delta3 修法（严重1 execv 族词表 + 严重 2 cwd 错位假缺席
 });
 
 describe("delta4 修法（严重 1：段首直执行位同构三态，检视獭1360 delta4 复核）", () => {
-  it("直执真存在 → fail-closed unreadable（/dev/null 稳定替身）——与 bash 同链一视同仁", () => {
+  it("直执真存在 → 真实读取判读（/dev/null 空内容零写面放行）——与 bash 同链一视同仁（P0 sourcing）", () => {
     expect(evaluateWriteVerdict("/dev/null", ROOT)).toMatchObject({
-      verdict: "BLOCK", mode: "fail-closed", reason: "script-payload-unreadable",
+      verdict: "ALLOW", mode: "positive",
     });
     expect(evaluateWriteVerdict("bash /dev/null", ROOT)).toMatchObject({
-      verdict: "BLOCK", mode: "fail-closed", reason: "script-payload-unreadable",
+      verdict: "ALLOW", mode: "positive",
     });
   });
 
@@ -863,8 +872,8 @@ describe("delta5 修法（严重 2：动态直执行位词文本收口——与 
     });
   });
 
-  it("静态直执三态不回归（真存在 → unreadable fail-closed，/dev/null 稳定替身）", () => {
-    expect(evaluateWriteVerdict("/dev/null", ROOT)).toMatchObject({ verdict: "BLOCK", reason: "script-payload-unreadable" });
+  it("静态直执三态（P0 sourcing 接线：真存在 → 真实读取判读，/dev/null 空内容零写面放行）", () => {
+    expect(evaluateWriteVerdict("/dev/null", ROOT)).toMatchObject({ verdict: "ALLOW", mode: "positive" });
   });
 
   it("运行器族 carve：/usr/bin/python3 与 python3 同族同判（argv0 自身不当脚本）", () => {
@@ -893,12 +902,12 @@ describe("delta5 修法（严重 2：动态直执行位词文本收口——与 
 
 // ────────── delta7 修法（严重 1：受管族 carve 收窄，检视獭1360 delta6 复核） ──────────
 describe("delta7 修法（严重 1：树外同名受管族负门——wv 侧无名字豁免）", () => {
-  it("负门：树外同名受管族脚本真存在直执 → unreadable fail-closed（三态不看名字）", () => {
+  it("负门：树外同名受管族脚本真存在直执 → 真实读取判读内容含主仓写 → 拦（三态不看名字，sourcing 后看内容）", () => {
     const dir = path.join(os.tmpdir(), "guard-delta7-fake");
     const fake = path.join(dir, "otter-buddy.sh");
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(fake, "touch /repo/data/pwn\n");
-    expect(evaluateWriteVerdict(fake, ROOT)).toMatchObject({ verdict: "BLOCK", reason: "script-payload-unreadable" });
+    expect(evaluateWriteVerdict(fake, ROOT)).toMatchObject({ verdict: "BLOCK", mode: "positive" });
   });
 });
 
