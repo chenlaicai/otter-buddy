@@ -13,7 +13,7 @@
 | L1 防自杀 | `self_kill` | **不可逆**：主进程死亡 = 全场急停，所有会话上下文丢失 | 实时拦，宁可误拦；变体翻转策略（非字面量保守拦） | self_kill_literal / pidfile / byname / nonliteral / pipe_shell / script / eval / process_group / script_stop / indirect |
 | L2 R1 闸门 | `r1_gate` | **高但可逆**：主仓写受 git 保护（可 reset），data/ 破坏部分可逆 | 实时拦，误报治理走 #1207 路径（cwd 感知持续精化） | main_write / data_destructive |
 | L3 权限边界 | `permission` | **制度不可逆**：PR 合入是对外动作，合了就是合了 | 实时拦（机械闸，partnerApproval 原话校验） | pr_merge |
-| L4 防绕过 | `bypass_guard` | **守卫完整性**：绕过面 = 上述所有层失效 | 实时拦，脚本文件执行必须拆解 | script_file_exec |
+| L4 防绕过 | `bypass_guard` | **守卫完整性**：绕过面 = 上述所有层失效 | 实时拦，脚本文件执行必须拆解 | script_file_exec / alias_shell_payload |
 | L5 习惯 | `habit` | **无损害**：感知问题非安全问题 | 实时拦 + 指引（wait 工具） | sleep_block |
 
 **降级判据**：只有 L5 有资格未来降级为「放行+结构化记录」（等 ruleId 数据 2-4 周再议）。L1/L3/L4 永不降级。L2 的误报治理靠精化判定（#1207 路径）而非降级。
@@ -46,6 +46,8 @@
 | 命令结构层 vs 脚本体层不分：开发獭命令中嵌守卫文案样本（kill 字样）被全文匹配误拦 | **部分缓解**（F20260930l573/#1239：python heredoc 体感知判定已合入——纯只读体放行；但 dev-server 引导误附、非 python 形态的误拦残余仍在，#1239 未覆盖） | F20260930l573（#1239，已合入）；残余面待观察 |
 | shell 重定向截断（`> data/…`）、路径前段 glob 变形（`dat[glob]…`）不覆盖 | 已知局限（#1038 首版声明） | bash-safety-guard.ts 文件头注释 |
 | S1 双链割裂：V1 兜底链 `hasRealCdSegment` 裸 `\|` 分支把 `\|\|` 备用链当管道误杀 cd 豁免（与 V2 段级语义割裂，#1170 修复只落 V2 的复发面） | **已修复**（F20261008gduc/#1360：lookaround 形态对齐 V2 语义，worktree 写用例钉住修复） | F20261008gduc（#1360） |
+| git alias shell 展开（`!` 前缀）注入：载荷是任意 shell 执行通道，双层全放（检视獭1360 建议 4 构造实证 + 探针 S2-S6：持久注入/kill 主 PID 载荷/动态载荷/嵌套 sh -c 全部 ALLOW） | **已修复**（F20261015gali/M-edd889c2：载荷拆解递归过全量规则（与直接执行同待遇，等价性不变量钉死）+ 不可证 fail-closed；间接构造（env 注入/包装词）不追，#1513 物理隔离拍板面；**边界注**：wrapper 静态旗标（`--no-pager` 等字面量）属静态构造必须防——首轮枚举不全洞由 X1 两侧同修） | F20261015gali（M-edd889c2） |
+| prod 侧 `rm -rf <非 data 主仓路径>` 直接执行不拦（X1/X2 探针：prod:ALLOW / wv:BLOCK 双层反判；data-destructive 只盖 data/，rm 族写词面归 wv） | **开放**（非 alias 通道洞——alias 载荷与直接执行同待遇（等价性测试钉死）；建议随 M-026d87ff 伞统一） | 待立单（M-026d87ff 建议） |
 | unknown 兜底事件在代码里归 self_kill 层（guard-intercept-classify.ts:61），按层聚合时污染 L1 统计 | 已知（聚合时建议剔 unknown 单列） | F20260930gslog 实现注记 |
 
 新洞发现时：先入本表 + issue，再修——**洞的公开是守卫可信度的一部分**（对齐 Anthropic 安全公告的透明实践）。

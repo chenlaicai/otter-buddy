@@ -52,12 +52,24 @@ describe("F20261015glfp git -C worktree 落点豁免（放行侧）", () => {
     expect(allow(`git -C ${WT} push -u origin fix/x`)).toBeNull();
   });
 
+  it("X1 同修：wrapper 旗标 + git -C <wt> commit（豁免同宽不误伤）", () => {
+    expect(allow(`git --no-pager -C ${WT} commit -m x`)).toBeNull();
+  });
+
   it("git -C <wt> commit | tail（管道右段不影响豁免，#1170 族）", () => {
     expect(allow(`git -C ${WT} commit -m x | tail -2`)).toBeNull();
   });
 });
 
 describe("F20261015glfp git -C 落点负门（拦截侧，不许放水）", () => {
+  it("X1 同修：wrapper 旗标 + git -C 主仓 commit（写族判定不得因旗标逃逸）→ 拦", () => {
+    expect(block(`git --no-pager -C ${projectRoot} commit -m x`)).toContain("写命令落点解析到主仓");
+  });
+
+  it("X1 同修：wrapper 旗标 + git -C 主仓 reset --hard（evalGitWrite 同构洞）→ 拦", () => {
+    expect(block(`git --no-pager -C ${projectRoot} reset --hard`)).toContain("写命令落点解析到主仓");
+  });
+
   it("git -C 主仓根 commit → 拦", () => {
     expect(block(`git -C ${projectRoot} commit -m x`)).toContain("写命令落点解析到主仓");
   });

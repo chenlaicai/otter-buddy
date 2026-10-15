@@ -42,7 +42,7 @@
 import { statSync } from "node:fs";
 import { parseOnce, SHELL_INTERPRETERS, type CommandModel, type Segment } from "./command-model";
 import { proveNoWrite, DYNAMIC_IMPORT_FACE, openCallUnknownMode, payloadWriteFaceHit, SCRIPT_EXEC_FACE, dotExecCommandHits, classifyOpenModeArg } from "./write-word-face";
-import { isCheckOnlySeg, checkOnlyFileArgs, SCRIPT_RUNNERS, isScriptRunnerSeg, detectScriptPayload, resolvePayloadScript } from "./payload-extract-aux";
+import { isCheckOnlySeg, checkOnlyFileArgs, SCRIPT_RUNNERS, isScriptRunnerSeg, detectScriptPayload, resolvePayloadScript, extractGitAliasShell } from "./payload-extract-aux";
 import type { Word } from "./command-lexer";
 
 // ────────────────────────────── 类型 ──────────────────────────────
@@ -51,7 +51,7 @@ export interface WriteTarget {
   /** 求值后的绝对路径 */
   path: string;
   /** 写通道（诊断/文案用） */
-  via: "redirect" | "cmd-arg" | "heredoc-body" | "git";
+  via: "redirect" | "cmd-arg" | "heredoc-body" | "git" | "alias-shell";
   /** 溯源段号 */
   segmentIndex: number;
   /** 访问类型（能力 8：只读披露不构成写证据）——只有 write 参与拦截判定，read 是事实披露 */
@@ -85,7 +85,7 @@ const EXTENDED_TARGET_COMMANDS = new Set(["install", "ln", "chmod", "chown", "ch
 /** git 写族（旧链正则版——F20261009phs2 起求值层改用 evalGitWrite 词级解析，本常量保留
  *  作旧链单一真相源对齐锚：改动须两侧同步——求值层 isWrite 子命令表与本正则一致） */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- 对齐锚（见上注释）
-const GIT_WRITE_SUBCOMMAND = /^git\s+(?:-C\s+\S+\s+|--git-dir=\S+\s+|--work-tree=\S+\s+|-c\s+\S+\s+)*(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push|push\b(?!\s+(?:--dry-run|-n)\b)(?!\s+\S+\s+(?:--delete|:))(?![^|;&]*(?:--delete|(?::\s*refs\/)))|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
+const GIT_WRITE_SUBCOMMAND = /^git\s+(?:-C\s+\S+\s+|-c\s+\S+\s+|--(?:git-dir|work-tree)(?:=\S+|\s+\S+)\s+|--(?:exec-path|namespace)(?:=\S+|\s+\S+)?\s+|(?:--\S+|-[^Cc\s]\S*)\s+)*(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push|push\b(?!\s+(?:--dry-run|-n)\b)(?!\s+\S+\s+(?:--delete|:))(?![^|;&]*(?:--delete|(?::\s*refs\/)))|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
 
 /** Python/JS 等脚本解释器（载荷族）→ payload-extract-aux.SCRIPT_RUNNERS（单一真相源） */
 
@@ -315,7 +315,17 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
       i += 2;
       continue;
     }
-    break;
+    if (w === "--exec-path" || w === "--namespace") {
+      const nxt = words[i + 1]?.evaluated ?? null;
+      i += nxt !== null && !nxt.startsWith("-") ? 2 : 1; // 取值旗标（无值单写形不吞后词）
+      continue;
+    }
+    if (/^--(?:exec-path|namespace)=/.test(w)) { i++; continue; }
+    // X1 同修（检视獭1518，与 extractGitAliasShell 两侧一次修齐）：静态旗标一律
+    // continue 不 break——`git --no-pager -C <主仓> reset --hard` 类 wrapper 旗标
+    // 曾使走查折断→子命令位误读→写族判定失明（fail-open）
+    if (w.startsWith("-")) { i++; continue; }
+    break; // 首个非旗标词=子命令位
   }
   const sub = words[i]?.evaluated;
   if (sub === undefined || sub === null) return null;
@@ -916,12 +926,18 @@ function hasMainTreeLiteral(text: string, projectRoot: string): boolean {
 /** 外置脚本载荷判读（牙2/牙3 的 content 态）：载荷文本递归求值（能力 1 heredoc 通道同口径），
  *  子落点并入 acc。深判读不可证时：词面证（能力 4）→ 主仓字面量闸 → 均不过才回落。
  *  无主仓树字面量的不可证载荷按零写面放行——残余缺口（动态目标/相对落点不可证）见特性文档记档。 */
-function judgeScriptPayload(text: string, projectRoot: string, cwd: string, acc: SegmentEvalAcc): UnevalReason | null {
+function judgeScriptPayload(text: string, projectRoot: string, cwd: string, acc: SegmentEvalAcc, via: "heredoc-body" | "alias-shell" = "heredoc-body"): UnevalReason | null {
   const depth = acc.scriptDepth ?? 0;
   if (depth >= 2) return "depth-exceeded";
-  const sub = evaluateFromModel(parseOnce(text, 1), projectRoot, cwd, { depth: depth + 1 });
+  // F20261015gali 修法（M-edd889c2 排查发现）：载荷递归走 evaluateWriteTargets 入口
+  //（与直接执行同待遇）——旧版走 evaluateFromModel 少了入口层 shell 递归载荷收集
+  //（collectShellPayloadTargets），`sh -c "rm -rf 主仓"` 嵌套载荷在载荷内被静默放过
+  //（S6 探针实证）；入口层的词面证/不透明执行否决/parseOk 探针语义随之对齐。
+  // 递归终止：每层载荷 ⊊ 原文（文本长度严格递减）单翼收敛——X2（检视獭1518）如实记：
+  // depth 记账经 evaluateWriteTargets 入口不透传，非双保险，终止性由长度递减保证。
+  const sub = evaluateWriteTargets(text, projectRoot, cwd);
   if (sub.kind === "evaluated") {
-    acc.targets.push(...sub.targets.map(t => ({ ...t, via: "heredoc-body" as const, segmentIndex: acc.index })));
+    acc.targets.push(...sub.targets.map(t => ({ ...t, via: via as "heredoc-body" | "alias-shell", segmentIndex: acc.index })));
     return null;
   }
   // 载荷内嵌套牙口（造-执对/动态路径）——不可证面直接传播不豁免；其余不可证先试词面证再过主仓字面量闸
@@ -1019,10 +1035,32 @@ function fsAbsentPlan(resolved: string | null): SegPayloadPlan {
 }
 
 /** 单段求值：脚本窄提取（Phase 2）→ 脚本载荷族回落 → 重定向 → git add（Phase 2）→ git 写族 → 词表命令。返回 null 表示该段无 unevaluated。 */
+/** F20261015gali（M-edd889c2）：git alias shell 展开（! 前缀）载荷求值——提取基座
+ *  payload-extract-aux.extractGitAliasShell（与 prod 文本路径同源）。返回 null=本段无
+ *  定义位或载荷已证安全；UnevalReason=不可证（fail-closed）或载荷写面命中落点后
+ *  由调用链末端按「∩ 主仓树」裁决。 */
+function evalGitAliasShell(seg: Segment, projectRoot: string, cwd: string, acc: SegmentEvalAcc): UnevalReason | null {
+  const ex = extractGitAliasShell(seg);
+  if (ex === null) return null;
+  if (ex.kind === "opaque") return "script-payload-dynamic";
+  for (const p of ex.texts) {
+    const r = judgeScriptPayload(p, projectRoot, cwd, acc, "alias-shell");
+    if (r !== null) return r;
+  }
+  return null;
+}
+
 // eslint-disable-next-line complexity, max-statements -- 段求值路由（窄提取/载荷回落/heredoc 递归/重定向/git/词表）六通道各对应一条已声明语义，合并会制造分支遮蔽；F20261014smrj 三牙计划接入后语句数超 25
 function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot: string, commandText: string): UnevalReason | null {
   const bare = bareName(seg.argv0);
   const accWithCwd: SegmentEvalAcc & { cwd: string } = Object.assign(acc, { cwd });
+
+  // F20261015gali（M-edd889c2）：git alias shell 展开（! 前缀）=真执行体载荷——
+  //  载荷写面递归求值（judgeScriptPayload 同口径，via:"alias-shell"）；载荷可证安全→
+  //  放行，动态/提取不出→fail-closed（script-payload-dynamic 同语义，不可证不豁免）。
+  //  域分工：载荷非写面（kill 等）由文本路径规则承担（F20261015smrj 口径），本层只判写面。
+  const aliasHit = evalGitAliasShell(seg, projectRoot, cwd, accWithCwd);
+  if (aliasHit !== null) return aliasHit;
 
   // Phase 2 窄提取：可静态求值的只读脚本载荷段，不等 Phase 1 整段回落就放行
   const narrow = evalScriptPayloadNarrow(seg, projectRoot, accWithCwd, commandText);

@@ -124,3 +124,149 @@ export function resolvePayloadScript(payloadWord: Word, flagWord: Word, commandT
   }
   return { script: null, cMode };
 }
+
+// ────────────── git alias shell 展开提取（F20261015gali，M-edd889c2） ──────────────
+
+export type GitAliasShellExtraction =
+  | { kind: "payload"; texts: string[] }
+  | { kind: "opaque" }
+  | null;
+
+/** 词的字面前缀（首个展开 part 之前的 lit/escape/hex 拼接）——动态词的可证部分。 */
+function literalPrefixOf(word: Word): string {
+  let s = "";
+  for (const p of word.parts) {
+    if (p.type === "lit" || p.type === "escape" || p.type === "hex") s += p.text;
+    else break;
+  }
+  return s;
+}
+
+/** alias k=v 词解析：evaluated 词整词归一（引号三形态由词法层剥除）；动态词仅当字面
+ *  前缀可见完整 alias 键（`alias.x=`）时判 opaque（键可见、值不可证）。其余=null。 */
+function aliasDefOf(word: Word): { value: string } | "opaque" | null {
+  if (word.evaluated !== null) {
+    const m = /^alias\.[\w.-]+=(.*)$/i.exec(word.evaluated);
+    return m ? { value: m[1] } : null;
+  }
+  // 动态词：字面前缀可见 alias 键（`alias.x=`）或键+`!`（`alias.x=!`载荷动态）→ 均不可证
+  return /^alias\.[\w.-]+=!?$/i.test(literalPrefixOf(word)) ? "opaque" : null;
+}
+
+/** config 形态的独立值词（`git config alias.x '!cmd'`）：! 前缀=shell 展开载荷。 */
+function aliasShellValueOf(word: Word): { payload: string } | "opaque" | null {
+  if (word.evaluated !== null) {
+    return word.evaluated.startsWith("!") ? { payload: word.evaluated.slice(1) } : null;
+  }
+  return literalPrefixOf(word).startsWith("!") ? "opaque" : null;
+}
+
+/** config 键值对处理（早退平铺，消 max-depth）：单词形 k=v / 独立键+值词。
+ *  consumed=本对占用词数（独立键+值=2）；"stop"=首个非旗标键非 alias（无定义位）。 */
+function configAliasPair(words: Word[], j: number): { texts: string[]; consumed: number } | "opaque" | "stop" {
+  const wj = words[j];
+  const d = aliasDefOf(wj);
+  if (d === "opaque") return "opaque";
+  if (d !== null) {
+    return d.value.startsWith("!")
+      ? { texts: [d.value.slice(1)], consumed: 1 }
+      : { texts: [], consumed: 1 };
+  }
+  if (wj.evaluated === null || !/^alias\.[\w.-]+$/i.test(wj.evaluated)) return "stop";
+  const val = words[j + 1];
+  if (val === undefined) return { texts: [], consumed: 1 };
+  const sv = aliasShellValueOf(val);
+  if (sv === "opaque") return "opaque";
+  return { texts: sv !== null ? [sv.payload] : [], consumed: 2 };
+}
+
+/** config 子命令形扫描（k/v 分离或 k=v 单词形，旗标位跳过）。
+ *  返回载荷集 / "opaque" / null（无定义位）。 */
+function scanConfigAliasWords(words: Word[], start: number): { texts: string[] } | "opaque" | null {
+  const texts: string[] = [];
+  let j = start;
+  while (j < words.length) {
+    const v = words[j].evaluated;
+    if (v === null) break;
+    if (v.startsWith("--") && v.includes("=")) { j++; continue; } // 附着形旗标
+    if (v === "--file" || v === "-f" || v === "--blob") { j += 2; continue; } // 取值旗标
+    if (v.startsWith("-")) { j++; continue; } // 无值旗标（--global/--unset/--get…）
+    const pair = configAliasPair(words, j);
+    if (pair === "opaque") return "opaque";
+    if (pair === "stop") break;
+    texts.push(...pair.texts);
+    j += pair.consumed;
+  }
+  return texts.length > 0 ? { texts } : null;
+}
+
+/** F20261015gali（M-edd889c2）：git alias shell 展开（! 前缀）定义提取——真执行体载荷。
+ *  `!` 前缀 alias 值是任意 shell 执行通道（git 原生语义：从仓库根以 shell 执行）。
+ *  检出位（字面 argv0==="git"）：
+ *   ① 子命令前全局旗标位 `-c alias.x=!载荷`（值词引号三形态由词法层归一）；
+ *   ② `config [旗标…] alias.x '!载荷'`（含 `config 'alias.x=!载荷'` 单词形）。
+ *  -c 只认子命令前旗标位——`git grep -c 'alias.x=!x'` 的 -c 是子命令参数非全局旗标
+ *  （FP 陷阱：提及/参数位不得误判定义位）。非 ! 前缀=纯子命令别名（git 原生语义不进
+ *  shell）不检出。间接构造（env 注入/包装词/整词动态 k=v）不追——F20261015gsub
+ *  （#1513）拍板：常见直白形态兜底，物理隔离才是真守卫。
+ *  返回 {kind:"payload",texts}（可静态提取载荷→调用方递归判读）| {kind:"opaque"}
+ *  （检出 ! 定义但载荷不可静态提取→调用方 fail-closed）| null（无定义位）。 */
+/** 引号平衡校验（X4，检视獭1518）：单引号/双引号各自成对（双引号内反斜杠可转义）——
+ *  `'\'''` 转义截断伪影会留下不平残痕，判 opaque 防伪影载荷带病过递归。 */
+function quotesBalanced(s: string): boolean {
+  let sq = false;
+  let dq = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (sq) { if (c === "'") sq = false; continue; }
+    if (dq) { if (c === "\\") { i++; continue; } if (c === '"') dq = false; continue; }
+    if (c === "'") sq = true;
+    else if (c === '"') dq = true;
+    else if (c === "\\") i++;
+  }
+  return !sq && !dq;
+}
+
+// eslint-disable-next-line max-statements, complexity -- git 全局旗标位形态穷举（-C/-c/--git-dir/--work-tree × =值/空格值）+ config 键值位判定，每分支对应一种已声明形态（c107 词切分错位教训：合并会再制造旗标解析 bug）
+export function extractGitAliasShell(seg: Segment): GitAliasShellExtraction {
+  if (seg.argv0 !== "git") return null;
+  const words = seg.words;
+  const texts: string[] = [];
+  let i = 1;
+  // 子命令前全局旗标位走查（与 write-target-evaluator evalGitWrite 旗标循环同构）：
+  // 首个非旗标词=子命令位才停。X1（检视獭1518）：静态旗标一律 continue 不 break——
+  // `git --no-pager -c alias.pwn='!x' pwn` 类 wrapper 旗标曾使走查提前折断→提取
+  // 静默失效；取值旗标（git 全局集 -C/-c/--git-dir/--work-tree/--exec-path/--namespace
+  //，=附着形或独立值形）消费其值，其余静态旗标无值跳过。
+  while (i < words.length) {
+    const w = words[i].evaluated;
+    if (w === null) break; // 旗标/子命令位动态词——间接构造不追（#1513），后续定义位扫描失去锚，按无定义位处置
+    if (w === "-c") {
+      const next = words[i + 1];
+      if (next === undefined) { i++; continue; }
+      const d = aliasDefOf(next);
+      if (d === "opaque") return { kind: "opaque" };
+      if (d !== null && d.value.startsWith("!")) texts.push(d.value.slice(1));
+      i += 2;
+      continue;
+    }
+    if (w === "-C" || w === "--git-dir" || w === "--work-tree" || w === "--exec-path" || w === "--namespace") {
+      const nxt = words[i + 1]?.evaluated ?? null;
+      i += nxt !== null && !nxt.startsWith("-") ? 2 : 1; // 无值单写形（--exec-path 单独出现）不吞后词
+      continue;
+    }
+    if (/^--(?:git-dir|work-tree|exec-path|namespace)=/.test(w)) { i++; continue; }
+    if (w.startsWith("-")) { i++; continue; } // 其余静态旗标（无值全局旗标全集）——X1：continue 非 break
+    break;
+  }
+  // config 子命令形（k/v 分离或 k=v 单词形）
+  if (i < words.length && words[i].evaluated === "config") {
+    const r = scanConfigAliasWords(words, i + 1);
+    if (r === "opaque") return { kind: "opaque" };
+    if (r !== null) texts.push(...r.texts);
+  }
+  if (texts.length === 0) return null;
+  // X4：引号截断伪影（`'\'''` 转义形态词法层截断）载荷不完整→opaque（不可证不豁免）
+  if (texts.some(t => !quotesBalanced(t))) return { kind: "opaque" };
+  return { kind: "payload", texts };
+}
