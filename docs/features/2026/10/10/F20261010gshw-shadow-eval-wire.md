@@ -11,7 +11,7 @@ intent:
   expected_effect: "每条真实 bash 命令获得求值器旁听判定（只记录不干预），双向对照落 healing_events；观察期积累真误拦候选（人工裁决）与 EVAL_GAIN（旧链漏拦面）数据，为切换 PR 提供实战证据"
   verify_by:
     type: behavior_check
-capability_test: "tests/frameworks/agent/shadow-eval-recorder.test.ts"
+capability_test: "n/a: 影子记账已随 F20261015gses 转正下线（shadow-eval-recorder 及其测试删除；守卫行为验收由 guard-touchstone-exam + bash-safety-guard.test 承担）"
 change_type: feature
 tags: [guard, shadow, evaluator, observability]
 causal_links:
