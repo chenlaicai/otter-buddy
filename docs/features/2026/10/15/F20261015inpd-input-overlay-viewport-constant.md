@@ -108,6 +108,7 @@ className="min-h-[24px] max-h-[120px] field-sizing-content"
 | 取舍 | 理由 |
 |------|------|
 | 输入框遮挡消息列表底部 | 消息列表 padding-bottom: 170px 预留，滚到底时最后一条消息在遮挡区上方。Slack/Discord 用户已习惯 |
+| **附件区+上传错误同现溢出** | 170px 预留量只覆盖无附件场景（textarea 120px + padding 40px + 余量 10px）。附件中转区（每项 ~60px，flex-wrap 多行）+ 上传错误行同现时输入区可超 240px，溢出部分遮挡消息列表底部且滚不出来。**本轮不修**（附件场景频率低，溢出时用户可移除附件或清空错误恢复）；若实测体感差，下轮把 padding-bottom 改为动态监听输入框高度（ResizeObserver 桥） |
 | 输入框最大高度 120px（旧 140px） | textarea max-h 120px + 附件区/padding 40px = 总 160px，预留 170px 余量。120px 约 5 行中文，够日常输入 |
 | field-sizing: content（Chrome 123+） | 2024 年 3 月可用，项目无 browserslist 声明，搭档环境 Chrome 最新。低版本浏览器回退为 min-h 24px 固定（不撑高但可用） |
 | 删 autoResize | CSS 自适应已覆盖所有场景，JS 写 height 是冗余且是抖动源 |
