@@ -156,18 +156,21 @@ export function ChatView(props: ChatViewProps) {
         </div>
       )}
 
-      {/* Input */}
-      <MessageInput
-        onSend={handleSendWithStaging}
-        disabled={c?.status === 'archived'}
-        otters={props.otters}
-        conversationId={props.conversationId}
-        staged={staging.staged}
-        onRemoveAttachment={staging.remove}
-        onPickFiles={staging.addFiles}
-        uploadError={staging.uploadError}
-        onDismissUploadError={() => staging.setUploadError(null)}
-      />
+      {/* Input：F20261015inpd 覆盖层——absolute 悬浮在底部，脱离文档流不挤压消息列表。
+          消息列表 padding-bottom 预留 170px，视口高度恒定，输入框撑高零干扰。 */}
+      <div className="absolute bottom-0 left-0 right-0 z-10">
+        <MessageInput
+          onSend={handleSendWithStaging}
+          disabled={c?.status === 'archived'}
+          otters={props.otters}
+          conversationId={props.conversationId}
+          staged={staging.staged}
+          onRemoveAttachment={staging.remove}
+          onPickFiles={staging.addFiles}
+          uploadError={staging.uploadError}
+          onDismissUploadError={() => staging.setUploadError(null)}
+        />
+      </div>
     </main>
   )
 }
