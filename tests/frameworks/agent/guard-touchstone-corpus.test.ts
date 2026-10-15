@@ -105,7 +105,7 @@ describe('guard-touchstone 三库冻结完整性', () => {
 
   it('全量遍历：三库合计与构建记录守恒（真实语料 921 条恒等：795+82+105−新增 TS-smrj 系 61 条）', () => {
     expect(all.length).toBe(allow.meta.count + block.meta.count + cond.meta.count);
-    // 2026-10-13 F20261013smrj：4 条会话态 cwd=worktree 相对路径原地编辑改条件期望（改批错的答案，请双签）
+    // 2026-10-13 F20261015smrj：4 条会话态 cwd=worktree 相对路径原地编辑改条件期望（改批错的答案，请双签）
     //  allow 770→766 / cond 101→105（守恒不变）；block +14 合成对抗负门（严重1）。
     // 2026-10-14 F20261014smrj 工单②：allow +28 回归闸（影子裁决批 25+3，TS-smrjreg 前缀）
     //  block +4 三牙负门（TS-smrj 系）——追加依据大獭工单+裁决 signal d5f2ae9a，检视獭 delta 复核在途。

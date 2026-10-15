@@ -1,4 +1,4 @@
-/* eslint-disable max-lines -- F20261013smrj 语义模型手术（撤拟合规则+三分类+git 口径）与能力 1 heredoc 递归后 457>450；提取通道/段通道的结构性拆分随能力 3 收尾 PR 一并做（避免语义修正 PR 夹带零语义拆分撑大审查面，先例 platforms.ts/rhi-controller.ts） */
+/* eslint-disable max-lines -- F20261015smrj 语义模型手术（撤拟合规则+三分类+git 口径）与能力 1 heredoc 递归后 457>450；提取通道/段通道的结构性拆分随能力 3 收尾 PR 一并做（避免语义修正 PR 夹带零语义拆分撑大审查面，先例 platforms.ts/rhi-controller.ts） */
 /**
  * F20261009gwte Phase 1：bash 写落点静态求值器（shell 形态族）。
  *
@@ -77,7 +77,7 @@ export type UnevalReason =
 
 /** 落点参数位词表（Phase 1）。argv0 裸名匹配。rm=全部非旗标参数（删除落点）。 */
 const TARGET_ARG_COMMANDS = new Set(["tee", "cp", "mv", "touch", "mkdir", "rm"]);
-/** 修 F20261013smrj 通道 b：扩展词表写命令（install/ln/chmod/chown/chgrp/truncate）——旧集合只有
+/** 修 F20261015smrj 通道 b：扩展词表写命令（install/ln/chmod/chown/chgrp/truncate）——旧集合只有
  *  tee/cp/mv/touch/mkdir，其余写命令写面命中但落点提取空 → 误当无写放行（通道 b）。 */
 const EXTENDED_TARGET_COMMANDS = new Set(["install", "ln", "chmod", "chown", "chgrp", "truncate"]);
 
@@ -372,7 +372,7 @@ function evalTargetArgCommand(bare: string, seg: Segment, cwd: string, acc: Segm
   return null;
 }
 
-/** 修 F20261013smrj 通道 b/c：扩展写命令落点提取（install/ln/chmod/chown/chgrp/truncate/dd/curl/wget
+/** 修 F20261015smrj 通道 b/c：扩展写命令落点提取（install/ln/chmod/chown/chgrp/truncate/dd/curl/wget
  *  /sed -i/perl -pi/ruby -pi）。旧 TARGET_ARG_COMMANDS 只有 tee/cp/mv/touch/mkdir，其余写命令
  *  写面命中但落点提取空 → 误当无写放行（通道 b）；curl -o/dd of= 目标在选项值（通道 c）。 */
 // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- F20261014smrj 扩展写族+三牙载荷判读穷举（每分支=一种已实证命令形态），行为等价拆分交 delta 复核定夺（lint 债已在 PR 验证节记档）
@@ -555,7 +555,7 @@ function evalScriptWriteTargets(script: string, argvMap: Map<number, string>): {
     if (arg === null) return null; // 路径不可求值 → 写调用不可求值，回落
     paths.push(arg);
   }
-  // 修 F20261013smrj 通道 c②（参序 bug）：renameSync/copyFileSync/copyFile/shutil.copy/copy2/copytree/move
+  // 修 F20261015smrj 通道 c②（参序 bug）：renameSync/copyFileSync/copyFile/shutil.copy/copy2/copytree/move
   //  双参 src→dst——落点是**第二参（dst）**，旧版只提首参（src）漏 dst。提第二参。
   for (const m of script.matchAll(/\b(?:renameSync|rename|copyFileSync|copyFile)\s*\(\s*[^,)]+\s*,\s*([^,)]+)/g)) {
     const arg = resolveScriptArg(m[1], argvMap);
@@ -567,7 +567,7 @@ function evalScriptWriteTargets(script: string, argvMap: Map<number, string>): {
     if (arg === null) return null;
     paths.push(arg);
   }
-  // 修 F20261013smrj 通道 a（词面失明）：pathlib.Path(lit).write_text/write_bytes——路径在接收者
+  // 修 F20261015smrj 通道 a（词面失明）：pathlib.Path(lit).write_text/write_bytes——路径在接收者
   //  Path 构造里。变量接收者 f.write_text 不入本通道（未识别目标 → 不可证，但无路径字面量写证据），
   //  试金石 TS-19e22576 良性保留。
   for (const m of script.matchAll(/Path\s*\(\s*["']([^"']*)["']\s*\)\s*\.\s*write_(?:text|bytes)\s*\(/g)) {
@@ -653,7 +653,7 @@ function extractAbsPathLiterals(script: string): string[] {
 }
 
 /** 脚本段窄提取。返回 null=不适用（非脚本段/无载荷）；"heredoc-script-payload"=回落。 */
-// eslint-disable-next-line max-lines-per-function, max-statements, complexity -- F20261013smrj 载荷三通道（heredoc/-e-c/文件）+ open 三分类 + 形态A/B 双形态后 63 行/48 语句/复杂度 31；窄提取通道拆分随能力 3 收尾 PR（先例 clients.ts max-lines-per-function + 本函数既有 max-statements 豁免合并）
+// eslint-disable-next-line max-lines-per-function, max-statements, complexity -- F20261015smrj 载荷三通道（heredoc/-e-c/文件）+ open 三分类 + 形态A/B 双形态后 63 行/48 语句/复杂度 31；窄提取通道拆分随能力 3 收尾 PR（先例 clients.ts max-lines-per-function + 本函数既有 max-statements 豁免合并）
 function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: SegmentEvalAcc & { cwd: string }, commandText: string): "skip" | "heredoc-script-payload" | "extracted" {
   if (!isScriptRunnerSeg(seg)) return "skip";
   // 病型 A（拍板 2026-10-13）：check-only=语法检查（读脚本不执行）→ 读侧入账直接提取（先于载荷旗标判定）。
@@ -714,7 +714,7 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
   const hasWriteCall = SCRIPT_WRITE_TOKENS.test(script);
   const wr = hasWriteCall ? evalScriptWriteTargets(script, argvMap) : null;
   const rd = SCRIPT_READ_TOKENS.test(script) || /\bopen\s*\(/.test(script) ? evalScriptReadTargets(script, argvMap) : null;
-  // 【拟合规则撤除（方案 A，2026-10-13）】C'''/C4 假写证据已撤——zdebug 12 条误伤实证，F20261013smrj。
+  // 【拟合规则撤除（方案 A，2026-10-13）】C'''/C4 假写证据已撤——zdebug 12 条误伤实证，F20261015smrj。
   if (hasWriteCall) {
     if (wr === null) return "heredoc-script-payload"; // 写调用存在但路径求值不出 → 保守回落
     if (wr.paths.length === 0) return "heredoc-script-payload"; // 写词面命中但未匹配到调用形态（方法调用/write 属性等）→ 回落
@@ -724,7 +724,7 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
       acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index, access: "write" });
     }
   }
-  // 【拟合规则撤除（方案 A）】A' 主仓字面量闸已撤——依据 TS-66da667b 翻正 + TS-ee23c745 双签，F20261013smrj。
+  // 【拟合规则撤除（方案 A）】A' 主仓字面量闸已撤——依据 TS-66da667b 翻正 + TS-ee23c745 双签，F20261015smrj。
   // 形态B：只读载荷（无写调用）——读落点披露（读哪报哪）+ 路径字面量闸（安全负门，只读载荷
   //  专属：写载荷落点已由形态A正面判定）：绝对路径字面量 ∩ 主仓树非空 → 回落旧链
   //  （c062/c100 语义——不猜运行时读取后果，字面量防线不破）。

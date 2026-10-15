@@ -20,7 +20,7 @@ const WRITE_FACE_WORDS = /(?:^|[\s;&|()`$])(?:touch|mkdir|rmdir|rm|mv|cp|tee|ins
 /** 能力 2：原地编辑词面（sed -i / perl -pi / ruby -pi 族——写面=原文件） */
 const INPLACE_FACE = /(?:^|[\s;&|()`$])(?:sed\s+-[^\s]*i|perl\s+(?:-\w*p\w*|-[ip]\b)|ruby\s+(?:-\w*p\w*|-[ip]\b))/;
 /** 能力 2：参数即落点（curl -o / wget -O / dd of=）。
- *  修 F20261013smrj 通道 c①：旧正则 `\s-[oO]\s` 要求 -o 前有空白，`curl -o f`（curl 后单空格
+ *  修 F20261015smrj 通道 c①：旧正则 `\s-[oO]\s` 要求 -o 前有空白，`curl -o f`（curl 后单空格
  *  直接跟 -o）永不匹配——`\s+` 吃掉唯一空白后 `\s` 落空。改为 `[^\n]*?(?:--output|-[oO])(?=[=\s])`
  *  （-o/-O/--output 后接空白或 = 即命中，前面可有任意参数）。 */
 const ARG_TARGET_FACE = /(?:^|[\s;&|()`$])(?:curl|wget)\s+[^\n]*?(?:--output|-[oO])(?=[=\s])|(?:^|[\s;&|()`$])dd\s+[^\n]*\bof=/;
@@ -67,7 +67,7 @@ export function dotExecCommandHits(script: string): boolean {
 }
 
 /** 读调用首参字符串字面量（引号感知，逗号/括号在引号内不截断）；null=首参非字面量形态。 */
-// eslint-disable-next-line complexity -- F20261013smrj delta2 引号感知首参扫描（转义引号对称终结+模板插值探测，分支=词法形态穷举，合并会遮蔽转义语义）
+// eslint-disable-next-line complexity -- F20261015smrj delta2 引号感知首参扫描（转义引号对称终结+模板插值探测，分支=词法形态穷举，合并会遮蔽转义语义）
 function readStringLiteralArg(script: string, start: number): { text: string; dynamic: boolean } | null {
   let j = start;
   while (j < script.length && /\s/.test(script[j])) j++;
@@ -93,7 +93,7 @@ function readStringLiteralArg(script: string, start: number): { text: string; dy
 }
 
 /** 能力 1 规则 1：脚本载荷写调用（写证据——出现即有写面，落点另行求值）。
- *  修 F20261013smrj 通道 a（词面失明）：补 pathlib.Path(lit).write_text/write_bytes（路径在
+ *  修 F20261015smrj 通道 a（词面失明）：补 pathlib.Path(lit).write_text/write_bytes（路径在
  *  接收者 Path 构造里，非首参——变量接收者 f.write_text 不入词面，试金石 TS-19e22576 实证良性）、
  *  os.chmod/chown/utime/truncate、np.save/savez、extractall（#1423 dbm 族同源）。connect 由
  *  connectCallWriteHits 单独按 mode=ro 判（TS-74bbed93 只读连接非写）。 */
@@ -118,7 +118,7 @@ export function openCallUnknownMode(script: string): boolean {
   return false;
 }
 
-/** 通道 a（F20261013smrj）：sqlite3.connect 词面——默认建库=写（#1423 dbm 族同源），但
+/** 通道 a（F20261015smrj）：sqlite3.connect 词面——默认建库=写（#1423 dbm 族同源），但
  *  mode=ro 只读连接非写（试金石 TS-74bbed93 `connect('file:...?mode=ro',uri=True)` 实证良性）。
  *  只认首参字面量；首参非字面量（变量/调用）→ 不可证 → 有写面（保守）。 */
 export function connectCallWriteHits(script: string): boolean {
