@@ -302,7 +302,7 @@ parentPort.postMessage({ type: "ready", meta: { modelId: "test", modelRev: "1", 
   });
 });
 
-// F20261014selfheal：embed 超时自愈——timeout 后 terminate 假死 worker 并重建
+// F20261015selfheal：embed 超时自愈——timeout 后 terminate 假死 worker 并重建
 describe("worker 超时自愈", () => {
     it("embed 超时后 terminate 假死 worker 并重建，重建后 embed 恢复正常", async () => {
       EmbeddingServiceImpl.setTestTimeoutOverride(200);

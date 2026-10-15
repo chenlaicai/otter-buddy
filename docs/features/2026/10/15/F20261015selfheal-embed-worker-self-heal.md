@@ -1,5 +1,5 @@
 ---
-id: F20261014selfheal
+id: F20261015selfheal
 title: embedding worker 假死治本——严格串行化消除 onnxruntime 并发竞态 + 超时自愈兜底 + 观测增强
 summary: 根因定论（实验矩阵闭合）：onnxruntime 1.23.2 ThreadPool 嵌套 parallel section 在长文本（>1500 token）× 并发 >1 时必然 lost-wakeup 死锁（并发=1 全过、并发=2 第 8 条卡死、并发=16 第 4 条）。治本：MAX_IN_FLIGHT 50→1 严格串行消除触发条件；兜底：超时 terminate+重建+熔断；观测：重启落结构化快照（三组画像），e2e 现场数据已验证有效。
 change_type: fix
