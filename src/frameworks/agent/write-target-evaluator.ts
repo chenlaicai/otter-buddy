@@ -214,7 +214,8 @@ function evalSegmentCwds(segments: Segment[], startCwd: string): string[] | null
   const cwds: string[] = [];
   let mainCwd = startCwd;   // 主链 cwd（&& / ; / 无 joiner 段推进）
   const forkCwd = startCwd; // 并发/管道右段基准（不继承左侧 cd——恒为起点）
-  for (const seg of segments) {
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
     let segCwd: string;
     if (seg.joiner === "&" || seg.joiner === "|") {
       segCwd = forkCwd;
@@ -223,7 +224,12 @@ function evalSegmentCwds(segments: Segment[], startCwd: string): string[] | null
     }
     cwds.push(segCwd);
     // 主链 cd 推进（&/| 段内的 cd 不外溢——与 trackCwd 同口径）
-    if (seg.joiner !== "&" && seg.joiner !== "|") {
+    // F20261015gesw MiMo 初轮 S1：左段 cd 泄漏修复——段的下一段 joiner 是 | 时，
+    // 本段处于管道左段子 shell，其 cd 不持久（POSIX：管道每段独立子 shell）。
+    // 例：cd /tmp | cat && git commit —— git 的真实 cwd 是起点非 /tmp。
+    const nextJoiner = segments[i + 1]?.joiner;
+    const inSubshell = seg.joiner === "&" || seg.joiner === "|" || nextJoiner === "|";
+    if (!inSubshell) {
       const bare = bareName(seg.argv0);
       if (bare === "pushd" || bare === "popd") return null;
       if (bare === "cd") {

@@ -133,3 +133,17 @@ describe("F20261015cwsp 归一 + MiMo delta S1：git 写族回落不吞词表写
     expect(checkBashCommandSafety(`git commit -m x && cp a /repo/evil`, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 });
+
+describe("F20261015gesw MiMo 初轮 S1：管道左段 cd 泄漏不推进 mainCwd", () => {
+  it("cd /tmp | cat && git commit（cwd=主仓根）→ 拦（左段 cd 不泄漏，git 落点仍主仓）", () => {
+    expect(checkBashCommandSafety(`cd /tmp | cat && git commit`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("cd /tmp && git commit（cwd=主仓根）→ 放（正常 cd && 链推进，git 落点树外）", () => {
+    expect(checkBashCommandSafety(`cd /tmp && git commit`, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("cd /wt | git commit（cwd=主仓根）→ 拦（管道右段不继承左段 cd，既有行为保持）", () => {
+    expect(checkBashCommandSafety(`cd /repo/.otter/worktrees/wt | git commit`, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+});
