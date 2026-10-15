@@ -125,6 +125,48 @@ export function resolvePayloadScript(payloadWord: Word, flagWord: Word, commandT
   return { script: null, cMode };
 }
 
+// ────────────── git 写族子命令判定（F20261015gwr1，M-46f0e74d） ──────────────
+
+/** git 写族子命令词表（求值器 isWrite 口径=宽词表，双签终版 2026-10-12：reset/clean/
+ *  stash/pull 一律写族、落点/排除语义在上层判定；**与 prod 严格语义不同**——prod gate
+ *  的 push --dry-run 排除/stash push 限定/reset --hard 限定见 gitWriteSubcommandHit）。 */
+export const GIT_WRITE_SUBS = new Set(["commit", "rebase", "merge", "cherry-pick", "apply", "reset", "clean", "push", "stash", "pull"]);
+
+/** F20261015gwr1（M-46f0e74d）：git 写族子命令判定（词级，prod 严格语义）——引号含空格/
+ *  attached/反引号值全覆盖（旧 GIT_WRITE_SUBCOMMAND 正则 \S+ 词面解析对这三形态整体
+ *  失明=fail-open 实证，正则已退役）。语义=旧正则锚同款（r2-C 基线）：push 排除
+ *  --dry-run/-n、stash 限 push、reset 限 --hard、clean 限 f 旗标；词等值天然排除
+ *  commit-tree/merge-base 词族。走查与 extractGitAliasShell/evalGitWrite 同构（c107
+ *  教训：不合并走查，语义注释对齐）。动态值位照常消费后找子命令；动态旗标/子命令位
+ *  →false（间接构造不追，#1513 边界）。 */
+// eslint-disable-next-line complexity -- 旗标位穷举 × 写族子命令严格语义（push 排除/stash 限定/reset 限定/clean f 旗标），每分支对应一种已声明形态（c107 教训：合并会再制造旗标解析 bug）
+export function gitWriteSubcommandHit(seg: Segment): boolean {
+  if (seg.argv0 !== "git") return false;
+  const words = seg.words;
+  const VALUE_FLAGS = new Set(["-C", "-c", "--git-dir", "--work-tree", "--exec-path", "--namespace"]);
+  let i = 1;
+  while (i < words.length) {
+    const w = words[i].evaluated;
+    if (w === null) return false; // 动态旗标/子命令位——子命令不可知
+    if (VALUE_FLAGS.has(w)) {
+      const nxt = words[i + 1]?.evaluated ?? null;
+      i += words[i + 1] !== undefined && !(nxt ?? "").startsWith("-") ? 2 : 1; // 值位（含动态值）照常消费
+      continue;
+    }
+    if (w.startsWith("-")) { i++; continue; } // 静态旗标（含 attached 值形——子命令识别不受影响）
+    break;
+  }
+  const sub = words[i]?.evaluated ?? null;
+  if (sub === null) return false;
+  const next = words[i + 1]?.evaluated ?? null;
+  if (sub === "commit" || sub === "rebase" || sub === "merge" || sub === "cherry-pick" || sub === "apply") return true;
+  if (sub === "stash") return next === "push";
+  if (sub === "push") return next !== "--dry-run" && next !== "-n";
+  if (sub === "reset") return next === "--hard";
+  if (sub === "clean") return next !== null && /^-[a-zA-Z]*f/.test(next);
+  return false;
+}
+
 // ────────────── git alias shell 展开提取（F20261015gali，M-edd889c2） ──────────────
 
 export type GitAliasShellExtraction =
@@ -142,12 +184,17 @@ function literalPrefixOf(word: Word): string {
   return s;
 }
 
+/** alias k=v 字符串解析（attached -c<kv> 形态共用）。 */
+function aliasKvOfString(kv: string): { value: string } | null {
+  const m = /^alias\.[\w.-]+=(.*)$/i.exec(kv);
+  return m ? { value: m[1] } : null;
+}
+
 /** alias k=v 词解析：evaluated 词整词归一（引号三形态由词法层剥除）；动态词仅当字面
  *  前缀可见完整 alias 键（`alias.x=`）时判 opaque（键可见、值不可证）。其余=null。 */
 function aliasDefOf(word: Word): { value: string } | "opaque" | null {
   if (word.evaluated !== null) {
-    const m = /^alias\.[\w.-]+=(.*)$/i.exec(word.evaluated);
-    return m ? { value: m[1] } : null;
+    return aliasKvOfString(word.evaluated);
   }
   // 动态词：字面前缀可见 alias 键（`alias.x=`）或键+`!`（`alias.x=!`载荷动态）→ 均不可证
   return /^alias\.[\w.-]+=!?$/i.test(literalPrefixOf(word)) ? "opaque" : null;
@@ -248,6 +295,13 @@ export function extractGitAliasShell(seg: Segment): GitAliasShellExtraction {
       if (d === "opaque") return { kind: "opaque" };
       if (d !== null && d.value.startsWith("!")) texts.push(d.value.slice(1));
       i += 2;
+      continue;
+    }
+    if (w.startsWith("-c") && w.length > 2) {
+      // F20261015gwr1（M-46f0e74d）：attached -ckey=val 形态（值在词内）
+      const d = aliasKvOfString(w.slice(2));
+      if (d !== null && d.value.startsWith("!")) texts.push(d.value.slice(1));
+      i++;
       continue;
     }
     if (w === "-C" || w === "--git-dir" || w === "--work-tree" || w === "--exec-path" || w === "--namespace") {

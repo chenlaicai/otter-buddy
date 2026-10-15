@@ -42,7 +42,7 @@
 import { statSync } from "node:fs";
 import { parseOnce, SHELL_INTERPRETERS, type CommandModel, type Segment } from "./command-model";
 import { proveNoWrite, DYNAMIC_IMPORT_FACE, openCallUnknownMode, payloadWriteFaceHit, SCRIPT_EXEC_FACE, dotExecCommandHits, classifyOpenModeArg } from "./write-word-face";
-import { isCheckOnlySeg, checkOnlyFileArgs, SCRIPT_RUNNERS, isScriptRunnerSeg, detectScriptPayload, resolvePayloadScript, extractGitAliasShell } from "./payload-extract-aux";
+import { isCheckOnlySeg, checkOnlyFileArgs, SCRIPT_RUNNERS, isScriptRunnerSeg, detectScriptPayload, resolvePayloadScript, extractGitAliasShell, gitWriteSubcommandHit, GIT_WRITE_SUBS } from "./payload-extract-aux";
 import type { Word } from "./command-lexer";
 
 // ────────────────────────────── 类型 ──────────────────────────────
@@ -81,10 +81,11 @@ const TARGET_ARG_COMMANDS = new Set(["tee", "cp", "mv", "touch", "mkdir", "rm"])
  *  tee/cp/mv/touch/mkdir，其余写命令写面命中但落点提取空 → 误当无写放行（通道 b）。 */
 const EXTENDED_TARGET_COMMANDS = new Set(["install", "ln", "chmod", "chown", "chgrp", "truncate"]);
 
-/** git 写族（与 bash-safety-guard.ts GIT_WRITE_SUBCOMMAND 同源——单一真相源对齐，改动须两侧同步） */
-/** git 写族（旧链正则版——F20261009phs2 起求值层改用 evalGitWrite 词级解析，本常量保留
- *  作旧链单一真相源对齐锚：改动须两侧同步——求值层 isWrite 子命令表与本正则一致） */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- 对齐锚（见上注释）
+/** git 写族判定：F20261015gwr1（M-46f0e74d）正则锚已退役——\S+ 词面解析对引号含空格/
+ *  attached/反引号三形态整体失明（fail-open 实证）。单一真相源=词级
+ *  payload-extract-aux.gitWriteSubcommandHit + GIT_WRITE_SUBS（与 prod 侧共用）。
+ *  下方 GIT_WRITE_SUBCOMMAND 常量为退役死代码（保留仅作历史对照，勿再引接）。 */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- 退役死代码（见上注释，F20261015gwr1）
 const GIT_WRITE_SUBCOMMAND = /^git\s+(?:-C\s+\S+\s+|-c\s+\S+\s+|--(?:git-dir|work-tree)(?:=\S+|\s+\S+)\s+|--(?:exec-path|namespace)(?:=\S+|\s+\S+)?\s+|(?:--\S+|-[^Cc\s]\S*)\s+)*(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push|push\b(?!\s+(?:--dry-run|-n)\b)(?!\s+\S+\s+(?:--delete|:))(?![^|;&]*(?:--delete|(?::\s*refs\/)))|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
 
 /** Python/JS 等脚本解释器（载荷族）→ payload-extract-aux.SCRIPT_RUNNERS（单一真相源） */
@@ -321,6 +322,14 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
       continue;
     }
     if (/^--(?:exec-path|namespace)=/.test(w)) { i++; continue; }
+    if (w.startsWith("-C") && w.length > 2) {
+      // F20261015gwr1（M-46f0e74d）：attached -C<path>（值在词内，词法层已归一引号）——
+      // 旧版通用旗标跳过把 -C/repo 的值丢掉，落点回落 cwd 被工作区豁免洗白（P3 实证）
+      cTarget = w.slice(2);
+      i++;
+      continue;
+    }
+    if (w.startsWith("-c") && w.length > 2) { i++; continue; } // attached -c<kv>（配置项不改 cTarget）
     // X1 同修（检视獭1518，与 extractGitAliasShell 两侧一次修齐）：静态旗标一律
     // continue 不 break——`git --no-pager -C <主仓> reset --hard` 类 wrapper 旗标
     // 曾使走查折断→子命令位误读→写族判定失明（fail-open）
@@ -329,11 +338,9 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
   }
   const sub = words[i]?.evaluated;
   if (sub === undefined || sub === null) return null;
-  // 写族口径与旧链 GIT_WRITE_SUBCOMMAND 同源（单一真相源在旧链，改动须两侧同步）
-  const isWrite = sub === "commit" || sub === "rebase" || sub === "merge" || sub === "cherry-pick"
-    || sub === "apply" || sub === "reset" || sub === "clean" || sub === "push" || sub === "stash"
-    || sub === "pull"; // 双签终版（2026-10-12）：pull=fetch+merge/rebase 归写按落点判（检视獭驳回「pull 非写」）
-  if (!isWrite) return null;
+  // 写族口径单一真相源=GIT_WRITE_SUBS（F20261015gwr1 词级共享，旧正则锚已退役）；
+  // 双签终版（2026-10-12）：pull=fetch+merge/rebase 归写按落点判（检视獭驳回「pull 非写」）
+  if (!GIT_WRITE_SUBS.has(sub)) return null;
   const rest = words.slice(i + 1).map(w => w.evaluated).filter((v): v is string => v !== null);
   if (sub === "push") {
     if (rest.some(a => a === "--dry-run" || a === "-n")) return null;
@@ -1203,11 +1210,15 @@ export function evaluateWriteTargets(command: string, projectRoot: string, start
   //  → fail-closed」被洗白，delta3 攻击链实证）；显式缺席声明（entry absent，牙3 同一信任口径
   //  ——声明来自裁决链非命令作者）豁免该否决（声明缺席=脚本零写）。
   const opaqueExecVeto = hasOpaqueScriptExec(model) && scriptPayload?.status !== "absent";
+  // F20261015gwr1（M-46f0e74d）：git 写族段不得被词面证洗白——git 写动词不在词面写
+  // 清单，proveNoWrite 把 `git -c <反引号载荷> commit` 类洗成零写面（P5 双层漏实证）；
+  // 写族段的不可证必须按落点判定语义 fail-closed。
+  const gitWriteSeg = model.segments.some(gitWriteSubcommandHit);
 
   // 先行载荷族检测（不依赖 parseOk——可窄提取的脚本载荷段跳过短路，交给段级窄提取）。
   if (detectScriptPayload(model) && !hasNarrowExtractableScriptSeg(model, projectRoot)) {
     // 能力 4：载荷不可窄提取但原文词面可证无写 → 正面 ALLOW；否则 fail-closed。
-    if (proveNoWrite(command) && !opaqueExecVeto) return { kind: "evaluated", targets: [] };
+    if (proveNoWrite(command) && !opaqueExecVeto && !gitWriteSeg) return { kind: "evaluated", targets: [] };
     return { kind: "unevaluated", reason: "heredoc-script-payload" };
   }
   if (!model.parseOk) {
@@ -1220,7 +1231,7 @@ export function evaluateWriteTargets(command: string, projectRoot: string, start
     if (probe.targets.length === 0 && !hasNarrowExtractableScriptSeg(model, projectRoot) && model.payloads.length === 0) {
       // 能力 4：词面可证无写 → 正面 ALLOW；否则保 Phase 1 保守语义。有 shell 递归载荷时
       //  不提前返回——bash -c 'touch 主仓' 子落点必须先入账（单测负门实证的放水面）。
-      if (proveNoWrite(command) && !opaqueExecVeto) return { kind: "evaluated", targets: [] };
+      if (proveNoWrite(command) && !opaqueExecVeto && !gitWriteSeg) return { kind: "evaluated", targets: [] };
       return { kind: "unevaluated", reason: "parse-failed" };
     }
     // 探针已证明可求值——走正常路径（幂等纯函数，重求值无副作用）
@@ -1238,7 +1249,11 @@ export function evaluateWriteTargets(command: string, projectRoot: string, start
 
   const main = evaluateFromModel(model, projectRoot, startCwd, { payload: scriptPayload });
   if (main.kind === "unevaluated") {
-    if (!UNPROVABLE_TEETH.has(main.reason) && proveNoWrite(command) && !opaqueExecVeto) return { kind: "evaluated", targets: subTargets };
+    // F20261015gwr1 收窄（corpus 守恒）：仅「git 写族 + dynamic-path（git 调用自身参数
+    // 动态——-c/-C 值可改写树发现，落点真不可证）」不洗白；cwd-unresolvable/parse-failed
+    // 族维持词面证放行（能力 4 既有语义+双签背书：96a21f3c pushd+remote-push 正面 ALLOW，
+    // pushd 不进 cd 跟踪是 Phase 1 设计内缺口）。
+    if (!UNPROVABLE_TEETH.has(main.reason) && proveNoWrite(command) && !opaqueExecVeto && !(gitWriteSeg && main.reason === "dynamic-path")) return { kind: "evaluated", targets: subTargets };
     return main;
   }
   return { kind: "evaluated", targets: [...main.targets, ...subTargets] };
