@@ -39,18 +39,17 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
   /** 附件携带时允许空文本发送（纯图/纯文件消息），与纯文本发送互斥条件分开判定 */
   const canSend = !disabled && (draft.trim().length > 0 || staged.some(s => !s.uploading))
 
-  /** 自动高度：随内容增长，封顶 140px，超出后内部滚动 */
-  function autoResize() {
-    const el = textareaRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 140)}px`
-  }
+  /** F20261015inpd：输入框独立滚动区——textarea 高度由 CSS 控制（min-h-[24px] max-h-[120px]），
+   *  不再 JS 写 style.height 撑高容器。旧实现 autoResize() 每个按键写 style.height，容器
+   *  被撑高挤压消息列表视口，scrollTop 累计 clamp 损失在封顶帧一次性补回（输入多行时中间栏
+   *  跳动，10/15 搭档报告）。新方案：输入框区独立滚动（ChatView 固定 max-h-[160px]），
+   *  textarea 用 CSS min-h/max-h 控制，内容超出 max-h 后 textarea 内部滚动（overflow-y-auto），
+   *  容器高度恒定——消息列表视口高度恒定，跳动机制链第一环（视口压缩）消失。
+   *  微信桌面端/Telegram Desktop 同方案。 */
 
   function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const val = e.target.value
     saveDraft(val)
-    autoResize()
 
     // Detect @mention
     const cp = e.target.selectionStart
@@ -104,9 +103,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
     clearDraft()
     setMentionQuery(null)
     setPickedMentions(new Map())
-    requestAnimationFrame(() => {
-      if (textareaRef.current) textareaRef.current.style.height = 'auto'
-    })
+    // F20261015inpd：发送后不再重置 style.height（textarea 高度由 CSS 控制，无 JS 写入可重置）
   }
 
   function insertMention(otter: Otter) {
@@ -260,7 +257,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
             }}
             disabled={disabled}
             placeholder={placeholder}
-            className="flex-1 bg-transparent text-sm text-stone-700 placeholder-stone-400 resize-none outline-none min-h-[24px] max-h-[var(--input-scroll-max-h)] leading-relaxed disabled:opacity-50 overflow-y-auto"
+            className="flex-1 bg-transparent text-sm text-stone-700 placeholder-stone-400 resize-none outline-none min-h-[24px] max-h-[120px] leading-relaxed disabled:opacity-50 overflow-y-auto field-sizing-content"
           />
           <MagicWordHelp />
           {/* F20260913ctlv：双发送模式——主=steer（打断插话，默认）/ 副=followUp（排队等这轮

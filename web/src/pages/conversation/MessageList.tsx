@@ -594,7 +594,7 @@ export function MessageList({
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden relative">
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative" style={{ paddingBottom: '170px' }}>
       {loadingMore && (
         <div className="text-center py-2 text-xs text-stone-400">加载中...</div>
       )}
