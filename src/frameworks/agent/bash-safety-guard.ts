@@ -488,7 +488,10 @@ function checkGitAliasShellInjection(
   logger: Logger | undefined,
   guardOptions: GuardOptions | undefined,
 ): string | null {
-  for (const seg of splitShellSegments(text)) {
+  // X5（检视獭1518，「记档说一套代码做一套」第四发改齐）：heredoc 体是数据（写入文件的
+  // 文本提及非定义位）——剥闭合体后扫描，与本文档承诺「heredoc 文本体不检出」一致；
+  // 否则体内的 `git -c alias.x='!y'` 行被切段伪命中（写复盘/文档场景误拦）。
+  for (const seg of splitShellSegments(stripHeredocPayloads(text))) {
     const model = parseOnce(seg, 1);
     for (const s of model.segments) {
       const ex = extractGitAliasShell(s);
@@ -1031,7 +1034,11 @@ function wrappedOneLinerPayloadsReadOnly(command: string): boolean {
  *  正则锚只认赋值前缀不认包装词，`env git commit` / `sudo git commit` 曾全放。
  *  比 MAIN_WRITE_PATTERNS[5] 宽：补 push / reset --hard / clean -f 等同属写族但
  *  原正则未覆盖的子命令——段首解析通道既然接了 git 落点，写族口径一次补齐）。 */
-const GIT_WRITE_SUBCOMMAND = /^git\s+(?:-C\s+\S+\s+|--git-dir=\S+\s+|--work-tree=\S+\s+|-c\s+\S+\s+)*(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push|push\b(?!\s+(?:--dry-run|-n)\b)|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
+/** git 写族子命令判定（同源镜像契约：write-target-evaluator.ts:88 同款，改动须两侧同步）。
+ *  前缀组 F20261015gali X1 同修：git 全局旗标全集——取值旗标（-C/-c/--git-dir/--work-tree/
+ *  --exec-path/--namespace，=附着形或独立值形）消费其值，其余静态旗标无值跳过——
+ *  旧版枚举不全使 `git --no-pager -C <主仓> reset --hard` 类 wrapper 旗标逃逸（fail-open）。 */
+const GIT_WRITE_SUBCOMMAND = /^git\s+(?:-C\s+\S+\s+|-c\s+\S+\s+|--(?:git-dir|work-tree)(?:=\S+|\s+\S+)\s+|--(?:exec-path|namespace)(?:=\S+|\s+\S+)?\s+|(?:--\S+|-[^Cc\s]\S*)\s+)*(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push|push\b(?!\s+(?:--dry-run|-n)\b)|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
 
 /** F20261015glfp（M-bf4049a3 止血）：git -C 落点解析——写族段的落点是 -C 目标（多级累积），
  *  落 worktree 区（<projectRoot>/.otter/worktrees/<name>[/…]，root 级精确前缀）时该段
@@ -1049,15 +1056,16 @@ const GIT_WRITE_SUBCOMMAND = /^git\s+(?:-C\s+\S+\s+|--git-dir=\S+\s+|--work-tree
  *  段级粒度：豁免只对本 git 段生效，命令内其他段照常判定（混合段回归钉死）。 */
 function gitDashCTargetsWorktree(rest: string, projectRoot?: string, sessionCwd?: string): boolean {
   if (!projectRoot) return false;
-  const m = /^git\s+((?:-C\s+\S+\s+|--git-dir=\S+\s+|--work-tree=\S+\s+|-c\s+\S+\s+)*)/.exec(rest);
+  // F20261015gali X1 同修：前缀组与 GIT_WRITE_SUBCOMMAND 同宽（wrapper 静态旗标不折断走查）
+  const m = /^git\s+((?:-C\s+\S+\s+|-c\s+\S+\s+|--(?:git-dir|work-tree)(?:=\S+|\s+\S+)\s+|--(?:exec-path|namespace)(?:=\S+|\s+\S+)?\s+|(?:--\S+|-[^Cc\s]\S*)\s+)*)/.exec(rest);
   if (!m || m[1].length === 0) return false;
-  const tokens = m[1].match(/-C\s+\S+|--git-dir=\S+|--work-tree=\S+|-c\s+\S+/g) ?? [];
+  const tokens = m[1].match(/-C\s+\S+|-c\s+\S+|--(?:git-dir|work-tree)(?:=\S+|\s+\S+)?|--(?:exec-path|namespace)(?:=\S+|\s+\S+)?|(?:--\S+|-[^Cc\s]\S*)/g) ?? [];
   let base: string | null = sessionCwd !== undefined && path.isAbsolute(sessionCwd) ? path.normalize(sessionCwd) : null;
   let hasC = false;
   for (const tk of tokens) {
     if (tk.startsWith("--git-dir") || tk.startsWith("--work-tree")) return false;
-    if (tk.startsWith("-c")) continue;
-    const raw = tk.replace(/^-C\s+/, "");
+    if (!tk.startsWith("-C")) continue; // -c 配置项/--exec-path 等取值旗标/其余静态旗标——不改 git 树发现基点，跳过
+    const raw = tk.replace(/^-C\s*/, "");
     // 引号整体包裹才剥离（`-C "/path/x"`）；剥后残余引号/$/反引号/反斜杠=动态或
     // 解析不完整形态，不猜——fail-closed
     const outer = /^(['"])(.*)\1$/.exec(raw);

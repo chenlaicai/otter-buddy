@@ -85,7 +85,7 @@ const EXTENDED_TARGET_COMMANDS = new Set(["install", "ln", "chmod", "chown", "ch
 /** git 写族（旧链正则版——F20261009phs2 起求值层改用 evalGitWrite 词级解析，本常量保留
  *  作旧链单一真相源对齐锚：改动须两侧同步——求值层 isWrite 子命令表与本正则一致） */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- 对齐锚（见上注释）
-const GIT_WRITE_SUBCOMMAND = /^git\s+(?:-C\s+\S+\s+|--git-dir=\S+\s+|--work-tree=\S+\s+|-c\s+\S+\s+)*(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push|push\b(?!\s+(?:--dry-run|-n)\b)(?!\s+\S+\s+(?:--delete|:))(?![^|;&]*(?:--delete|(?::\s*refs\/)))|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
+const GIT_WRITE_SUBCOMMAND = /^git\s+(?:-C\s+\S+\s+|-c\s+\S+\s+|--(?:git-dir|work-tree)(?:=\S+|\s+\S+)\s+|--(?:exec-path|namespace)(?:=\S+|\s+\S+)?\s+|(?:--\S+|-[^Cc\s]\S*)\s+)*(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push|push\b(?!\s+(?:--dry-run|-n)\b)(?!\s+\S+\s+(?:--delete|:))(?![^|;&]*(?:--delete|(?::\s*refs\/)))|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
 
 /** Python/JS 等脚本解释器（载荷族）→ payload-extract-aux.SCRIPT_RUNNERS（单一真相源） */
 
@@ -315,7 +315,17 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
       i += 2;
       continue;
     }
-    break;
+    if (w === "--exec-path" || w === "--namespace") {
+      const nxt = words[i + 1]?.evaluated ?? null;
+      i += nxt !== null && !nxt.startsWith("-") ? 2 : 1; // 取值旗标（无值单写形不吞后词）
+      continue;
+    }
+    if (/^--(?:exec-path|namespace)=/.test(w)) { i++; continue; }
+    // X1 同修（检视獭1518，与 extractGitAliasShell 两侧一次修齐）：静态旗标一律
+    // continue 不 break——`git --no-pager -C <主仓> reset --hard` 类 wrapper 旗标
+    // 曾使走查折断→子命令位误读→写族判定失明（fail-open）
+    if (w.startsWith("-")) { i++; continue; }
+    break; // 首个非旗标词=子命令位
   }
   const sub = words[i]?.evaluated;
   if (sub === undefined || sub === null) return null;
@@ -923,7 +933,8 @@ function judgeScriptPayload(text: string, projectRoot: string, cwd: string, acc:
   //（与直接执行同待遇）——旧版走 evaluateFromModel 少了入口层 shell 递归载荷收集
   //（collectShellPayloadTargets），`sh -c "rm -rf 主仓"` 嵌套载荷在载荷内被静默放过
   //（S6 探针实证）；入口层的词面证/不透明执行否决/parseOk 探针语义随之对齐。
-  //  递归终止：每层载荷 ⊊ 原文（长度严格递减）+ depth 记账双保险。
+  // 递归终止：每层载荷 ⊊ 原文（文本长度严格递减）单翼收敛——X2（检视獭1518）如实记：
+  // depth 记账经 evaluateWriteTargets 入口不透传，非双保险，终止性由长度递减保证。
   const sub = evaluateWriteTargets(text, projectRoot, cwd);
   if (sub.kind === "evaluated") {
     acc.targets.push(...sub.targets.map(t => ({ ...t, via: via as "heredoc-body" | "alias-shell", segmentIndex: acc.index })));

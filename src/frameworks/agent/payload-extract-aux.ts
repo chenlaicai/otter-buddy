@@ -211,6 +211,22 @@ function scanConfigAliasWords(words: Word[], start: number): { texts: string[] }
  *  （#1513）拍板：常见直白形态兜底，物理隔离才是真守卫。
  *  返回 {kind:"payload",texts}（可静态提取载荷→调用方递归判读）| {kind:"opaque"}
  *  （检出 ! 定义但载荷不可静态提取→调用方 fail-closed）| null（无定义位）。 */
+/** 引号平衡校验（X4，检视獭1518）：单引号/双引号各自成对（双引号内反斜杠可转义）——
+ *  `'\'''` 转义截断伪影会留下不平残痕，判 opaque 防伪影载荷带病过递归。 */
+function quotesBalanced(s: string): boolean {
+  let sq = false;
+  let dq = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (sq) { if (c === "'") sq = false; continue; }
+    if (dq) { if (c === "\\") { i++; continue; } if (c === '"') dq = false; continue; }
+    if (c === "'") sq = true;
+    else if (c === '"') dq = true;
+    else if (c === "\\") i++;
+  }
+  return !sq && !dq;
+}
+
 // eslint-disable-next-line max-statements, complexity -- git 全局旗标位形态穷举（-C/-c/--git-dir/--work-tree × =值/空格值）+ config 键值位判定，每分支对应一种已声明形态（c107 词切分错位教训：合并会再制造旗标解析 bug）
 export function extractGitAliasShell(seg: Segment): GitAliasShellExtraction {
   if (seg.argv0 !== "git") return null;
@@ -218,7 +234,10 @@ export function extractGitAliasShell(seg: Segment): GitAliasShellExtraction {
   const texts: string[] = [];
   let i = 1;
   // 子命令前全局旗标位走查（与 write-target-evaluator evalGitWrite 旗标循环同构）：
-  // -C/-c/--git-dir/--work-tree（含 =附着形）外的词=子命令位，停止旗标走查
+  // 首个非旗标词=子命令位才停。X1（检视獭1518）：静态旗标一律 continue 不 break——
+  // `git --no-pager -c alias.pwn='!x' pwn` 类 wrapper 旗标曾使走查提前折断→提取
+  // 静默失效；取值旗标（git 全局集 -C/-c/--git-dir/--work-tree/--exec-path/--namespace
+  //，=附着形或独立值形）消费其值，其余静态旗标无值跳过。
   while (i < words.length) {
     const w = words[i].evaluated;
     if (w === null) break; // 旗标/子命令位动态词——间接构造不追（#1513），后续定义位扫描失去锚，按无定义位处置
@@ -231,8 +250,13 @@ export function extractGitAliasShell(seg: Segment): GitAliasShellExtraction {
       i += 2;
       continue;
     }
-    if (w === "-C" || w === "--git-dir" || w === "--work-tree") { i += 2; continue; }
-    if (w.startsWith("--git-dir=") || w.startsWith("--work-tree=")) { i++; continue; }
+    if (w === "-C" || w === "--git-dir" || w === "--work-tree" || w === "--exec-path" || w === "--namespace") {
+      const nxt = words[i + 1]?.evaluated ?? null;
+      i += nxt !== null && !nxt.startsWith("-") ? 2 : 1; // 无值单写形（--exec-path 单独出现）不吞后词
+      continue;
+    }
+    if (/^--(?:git-dir|work-tree|exec-path|namespace)=/.test(w)) { i++; continue; }
+    if (w.startsWith("-")) { i++; continue; } // 其余静态旗标（无值全局旗标全集）——X1：continue 非 break
     break;
   }
   // config 子命令形（k/v 分离或 k=v 单词形）
@@ -241,5 +265,8 @@ export function extractGitAliasShell(seg: Segment): GitAliasShellExtraction {
     if (r === "opaque") return { kind: "opaque" };
     if (r !== null) texts.push(...r.texts);
   }
-  return texts.length > 0 ? { kind: "payload", texts } : null;
+  if (texts.length === 0) return null;
+  // X4：引号截断伪影（`'\'''` 转义形态词法层截断）载荷不完整→opaque（不可证不豁免）
+  if (texts.some(t => !quotesBalanced(t))) return { kind: "opaque" };
+  return { kind: "payload", texts };
 }

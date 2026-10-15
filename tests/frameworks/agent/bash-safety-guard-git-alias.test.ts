@@ -93,6 +93,8 @@ describe("F20261015gali 一致性不变量：alias 通道不得强于直接执�
   // 设计承诺：载荷判词 === 同载荷直接执行判词（载荷递归走 checkBashCommandSafety 全量）。
   // rm -rf 主仓根的 prod 既有洞（X1/X2 探针：直接执行也放，wv 侧正判）是独立工单面，
   // 本规则不得比直接执行更宽——等价性钉死比单点期望更稳。
+  // X1（检视獭1518）：wrapper 旗标形态（--no-pager 等静态全局旗标）入环——旧版走查
+  // 折断使 4/7 等价性破坏，修后双形态（裸/wrapper）都要与直接执行同判。
   const payloads = [
     `git -C /repo reset --hard`,
     `kill 42877`,
@@ -102,11 +104,44 @@ describe("F20261015gali 一致性不变量：alias 通道不得强于直接执�
     `git -C ${WT} commit`,
     `git -C ${WT}/../../.. commit`,
   ];
+  const wrappers = ["", "--no-pager ", "--no-optional-locks --bare "];
   for (const p of payloads) {
-    it(`载荷等价：${p.slice(0, 50)}`, () => {
-      const wrapped = check(`git -c alias.pwn='!${p.replace(/'/g, `'\\''`)}' pwn`);
-      const direct = check(p);
-      expect(wrapped === null).toBe(direct === null);
-    });
+    for (const w of wrappers) {
+      it(`载荷等价${w ? `（wrapper: ${w.trim()}）` : ""}：${p.slice(0, 50)}`, () => {
+        const wrapped = check(`git ${w}-c alias.pwn='!${p.replace(/'/g, `'\\''`)}' pwn`);
+        const direct = check(p);
+        expect(wrapped === null).toBe(direct === null);
+      });
+    }
   }
+});
+
+describe("F20261015gali X1 wrapper 旗标洞回归（检视獭1518 severe 修法钉死）", () => {
+  it("wrapper + -c alias 注入 → 拦（旧版走查折断双层全放）", () => {
+    expect(check(`git --no-pager -c alias.pwn='!git -C /repo reset --hard' pwn`)).toContain("git alias shell 展开（! 前缀）执行任意载荷");
+  });
+
+  it("wrapper + config 形持久注入 → 拦", () => {
+    expect(check(`git --no-pager config alias.pwn '!kill 42877'`)).toContain("git alias shell 展开（! 前缀）执行任意载荷");
+  });
+
+  it("wrapper + 引号动态载荷 → 拦（opaque）", () => {
+    expect(check(`git --no-pager -c alias.pwn="!$P" pwn`)).toBe(GIT_ALIAS_SHELL_OPAQUE_REASON);
+  });
+
+  it("X5：heredoc 体内提及（写复盘/文档场景）→ 放（承诺口径：文本体不检出）", () => {
+    expect(check(`cat > retro.md << 'EOF'\ngit -c alias.pwn='!evil' pwn\nEOF`)).toBeNull();
+  });
+
+  it("X4：引号截断伪影（'\\'' 转义形态）→ 不得带病过递归（opaque 或完整判读）", () => {
+    const r = check(`git -c alias.pwn='!echo it'\\''s' pwn`);
+    // 伪影方向全 FP 无 bypass——判定要么 opaque fail-closed，要么完整载荷判读；
+    // 不得静默放行截断载荷（引号平衡校验兜底）
+    if (r === null) {
+      // 若词法层拼出完整字面量（echo it's 无害）→ 放行合理，断言直接执行同判（等价性）
+      expect(check(`echo it's`)).toBeNull();
+    } else {
+      expect(r === GIT_ALIAS_SHELL_OPAQUE_REASON || r.includes("git alias shell 展开")).toBe(true);
+    }
+  });
 });

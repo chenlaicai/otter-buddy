@@ -83,3 +83,25 @@ describe("F20261015gali 求值器侧：放行侧（carve-out）", () => {
     expect(r.mode).toBe("positive");
   });
 });
+
+describe("F20261015gali X1 wrapper 旗标洞回归（evalGitWrite 同修）", () => {
+  it("wrapper 旗标 + -c alias 注入 → BLOCK 正判（旧版走查折断双层全放）", () => {
+    const r = wv(`git --no-pager -c alias.pwn='!git -C /repo reset --hard' pwn`);
+    expect(r.verdict).toBe("BLOCK");
+    expect(r.mode).toBe("positive");
+    expect(targetsOf(r).some(t => t.via === "alias-shell" && t.path === "/repo")).toBe(true);
+  });
+
+  it("wrapper 旗标 + git -C 主仓 reset --hard（写族判定不因旗标逃逸）→ BLOCK 正判", () => {
+    const r = wv(`git --no-pager -C /repo reset --hard`);
+    expect(r.verdict).toBe("BLOCK");
+    expect(r.mode).toBe("positive");
+    expect(targetsOf(r).some(t => t.path === "/repo" && t.access === "write")).toBe(true);
+  });
+
+  it("wrapper 旗标 + git -C worktree commit（豁免同宽）→ 正面 ALLOW", () => {
+    const r = wv(`git --no-pager -C ${WT} commit`);
+    expect(r.verdict).toBe("ALLOW");
+    expect(r.mode).toBe("positive");
+  });
+});
