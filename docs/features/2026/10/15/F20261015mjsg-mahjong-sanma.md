@@ -370,3 +370,53 @@ causal_links:
 - **战报卡（未落地，卡在「目标对话不可得」）**：触发点在 RoomService 局终广播（`room-service.ts:378 publishGame`），但**房间全程无 conversationId**——`createRoom(roomId, config)`（`room-service.ts:140`）与 GameConfig/PlayerConfig 只有 `otterId`，HTTP 建房 body 亦无（`mahjong-controller.ts:55`）。可行推导已存在：`agent-invoker.ts:1728 resolveFirstConversationId(otterId)` → `conversationQuery.getIdsByOtterId`（牌搭子獭挂靠对话）。**提案**：RoomService 加一个局终回调端口 `onGameover(roomId, settlement, ranking)`，bootstrap 装配时接 `SendEntry`（`src/usecases/conversation/send-entry.ts:115`，html-card 正文 + `create_linked_resource` 登记）→ 改动点在 `room/` + `bootstrap/`，**属引擎层，页面侧不自行改，待裁决**。
 
 - **D2「打牌中」应答（未实现，口径需裁决）**：`grep 打牌中 src/` 为空（未落地）；`sdk-invoke-port.ts:120 isRunning?` / `agent-invoker.ts:868 isRunning()` 已在位，但它是「有进行中 invoke」的**通用**忙碌口径（`agent-invoker.ts:1671` 已用于手动重启 409）。直接拿它当「牌局中」会把所有忙碌獭（定时任务/长任务）都答成「打牌中」。精确谓词要「谁在某局牌里」（RoomService 座位表），同样是引擎层状态。**提案**：引擎侧暴露 `isSeated(otterId)`（或常驻房间表查询），对话派发点前置判断 → 自动回「打牌中」不进 LLM；派发插入点未核实（凭 `agent-invoker.ts:1671` 有忙碌分支，具体 @ 派发链待排查）。
+
+---
+
+## 实现记录（Engine 层收尾：模块五三条跨层缺口，2026-10-16，麻将引擎獭）
+
+大獭 10/16 裁决：页面獭上报的三条跨层缺口（战报卡 / D2 应答 / 真人回话端点）归引擎层收尾。本节追加记录，不改上文历史。
+
+### 提交与测试
+
+| commit | 内容 |
+|---|---|
+| `e6d6078e` | RoomService 核心三钩：isSeated + addChat/下局开局注入 + onGameover 上报（含 room-types.ts 拆分） |
+| `b01159d1` | 真人回话 HTTP 端点 `POST /api/mahjong/rooms/:roomId/chat` |
+| `6a21bc5f` | D2：AgentInvoker 入座拦截 + 自动应答「打牌中」+ 安全词例外（含 CreateSpeakEntryInput.invokeId 可选化） |
+| `a157a42a` | 战报卡：gameover-report.ts 渲染/编排 + bootstrap 装配 |
+
+- 新增测试 18 例（room 7 + api 1 + D2 4 + 战报 6）；全仓 **390 文件 / 6027 过 / 6 跳 / 0 败**；tsc + eslint 0 error
+- 一轮全量中 `rhi-signal-tools-batch-bind`「单批100 截断」抖动 1 次（单跑双绿、次轮全量未复现，与本特性无代码交集）——如实记录
+- lint 触顶（max-lines/complexity）处置 = 拆函数（advanceRound/collectStepReport/winLine…）+ 拆类型文件（room-types.ts），**未用 disable**
+
+### 1. 真人回话（方案「内嵌聊天框」后半 + 回话注入）
+
+- 第 9 端点 `POST /rooms/:roomId/chat {seat,text}`：400 校验 / 404 未知房 / 409 已终局 / 200 回执含视图
+- `RoomService.addChat`：按 **otter 座位分队**入队（一言双獭各自消费）+ SSE `chat` 事件广播（页面 sse.js 未知类型已确认安全忽略；聊天框实时回显待页面层接）
+- **下局开局注入**：跨局 nextRound 后各 otter **并行**经 gateway 直调 `buildChatInjectionPrompt`（独立首段 user 消息——方案「不走运行中 reset/不走 systemPrompt」口径）；成功清队、失败留次局重试；终局轮不注入
+- 取舍：独立 invoke（非并入唤醒 prompt）= 方案字面口径，代价是每次注入每 otter 1 次 LLM 调用（回话稀少，可接受）；**注入回复文本当前丢弃**（仅入 session 上下文）——獭回应回显聊天框需页面层接新事件，未做
+- 队列仅内存态：进程重启丢失（帧链不含聊天）——聊天是易失交互，接受，留痕
+
+### 2. D2「打牌中」应答（方案 delta D2）
+
+- **插入点核实结论**（方案留白项）：对话派发多入口（message-controller dispatchTurnLoop / signalRouter 点火 / agent-dispatch-service / scheduler / recruiting / invoke-controller 重试）**全部收敛于 `AgentInvoker.invokeConversation`**——单点拦截即覆盖 web/feishu/weixin 全链
+- 拦截行为：speak entry 自动应答（metadata `source:mahjong-d2`）+ `entry.speak` SSE 广播（实时气泡）+ 合成 turn 结果 `d2-<uuid>`（链引擎 fetchProducedMessage 查 invokes 无此 id → tsp 空 → 链自然收束，既有降级容错不新增分支）
+- **安全词保底（自查发现，差点埋雷）**：链引擎「停下」reminder 是附在消息尾随靠 LLM 确认（`dispatch-chain-engine.ts:210-216`「不硬拦」）——若无例外直接拦截，入座獭永远看不到急停指令。例外口径：拦截前 `scanStopWords` 命中即放行走 LLM；扫的是全量消息（含历史），误报方向 = 放行（安全方向，顶多一轮 LLM）
+- `CreateSpeakEntryInput.invokeId` 改可选 + 落库 `?? null`：`entries.invoke_id` 外键 ON（`schema.ts:1069`），无 invoke 场景不能造假 id
+- 挂接：`attachMahjongSeatQuery` 延迟 attach（同 attachAgentDispatchService 先例；app.ts initControllers 后挂 `controllers.mahjong.roomService.isSeated`）
+- **已知边界**：入座獭牌局进行中的定时任务 invoke 同样被拦（同走 invokeConversation——局中换世正是 D2 要防的）→ 该轮任务以「打牌中」应答代替执行；入座判定 `status==="playing"`，终局即恢复对话侧正常
+
+### 3. 战报卡（方案「终局回调」）
+
+- `RoomService.onGameover` 端口 + `GameoverReport`：gameOver 事件名次（publishGame 单点聚合）+ **跨局**结算亮点（`round.settlement` 只留末局，须在 publishGame 采集）+ wake 发言/代理代打计数（step 内）；loop 顶一次性 fire（reportedOver 幂等）；回调抛错仅告警不回滚牌局
+- **recover 已终局牌局不补发**：防跨重启重复播报；重启窗口内未发的战报丢失（接受，留痕）
+- `gameover-report.ts`：`renderGameoverCard`（单卡 title 围栏 / 名次 kv / ron·tsumo·noten·abortive 四类亮点行 / 锐评末 8 条截断 / 全量 HTML 转义 / 64KB 上限内）→ `sendGameoverReport`（**首个 otter 座位**的 `getIdsByOtterId[0]`——与 resolveFirstConversationId 同源同缺陷（无 ORDER BY 返回序未定义），选对话策略仍为独立议题）；无 otter 座位/无挂靠对话跳过告警；`linkResource` fact ≤500 失败不回滚发卡
+- **锐评口径**：取 wake.speech 原文末 8 条直展，**不调 LLM 二次总结**（方案写「獭锐评摘要」——原文零成本零延迟；需要 LLM 摘要时再加一次局终调用）
+- 入口卡不需新码（沿用模块五研究结论）：建房后大獭 speak 裸链或 html-card 即可
+
+### 页面层接口面补充（供页面獭/大獭知悉）
+
+- 第 9 端点：`POST /api/mahjong/rooms/:roomId/chat`
+- SSE 新事件：`{type:"chat", roomId, seat, text, at}`（实时回显人声；页面未消费，安全忽略）
+- 战报走对话侧 entry（sendEntry），不经牌局 SSE；D2 应答同样走对话 entry + `entry.speak` 广播
