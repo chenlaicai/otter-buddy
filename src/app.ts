@@ -596,7 +596,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     promptDirectory,
   }, logger);
 
-  const app = buildHttpApp(controllers, logger, options.staticRoot ?? path.resolve(import.meta.dirname, "../..", "web/dist"));
+  const mahjongRoot = options.staticRoot === false ? false : path.resolve(import.meta.dirname, "../..", "web-mahjong");
+  const app = buildHttpApp(controllers, logger, options.staticRoot ?? path.resolve(import.meta.dirname, "../..", "web/dist"), mahjongRoot);
 
   // 飞书长连接启动（原 startServer 内的副作用，装配语义上属于"启动平台集成"）
   // #460：捕获 stopFeishu 句柄接入 dispose 链（防 WSClient 重连阻止退出）
