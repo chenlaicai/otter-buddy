@@ -23,6 +23,7 @@
 import { SanmaEngine, restoreEngine, notation } from "../engine/engine";
 import { proxyChooseAction, isTrivialDecision } from "../engine/proxy";
 import { buildChatInjectionPrompt } from "./otter-adapter";
+import { publishOtterChat } from "./room-chat";
 import type {
   DecisionPoint,
   EngineAction,
@@ -194,7 +195,7 @@ export class RoomService {
         room.chatQueues.set(p.otterId, q);
       }
     }
-    this.deps.bus.publish(roomId, { type: "chat", roomId, seat, text: trimmed, at: msg.at });
+    this.deps.bus.publish(roomId, { type: "chat", roomId, seat, name: player.name, from: "human", text: trimmed, at: msg.at });
     return { ok: true };
   }
 
@@ -460,8 +461,10 @@ export class RoomService {
       [...room.chatQueues.entries()].map(async ([otterId, msgs]) => {
         if (msgs.length === 0) return;
         try {
-          await this.deps.gateway.invoke(otterId, buildChatInjectionPrompt(msgs, roundNo));
+          const reply = await this.deps.gateway.invoke(otterId, buildChatInjectionPrompt(msgs, roundNo));
           room.chatQueues.set(otterId, []);
+          // #1532：獭回应广播进 chat 流（页面回显/观战同流）；空白不发泡（room-chat.ts）
+          publishOtterChat(this.deps.bus, room.roomId, room.engine.state.config.players, otterId, reply);
         } catch (e) {
           this.deps.logger?.warn("mahjong chat injection failed, kept for next round", {
             roomId: room.roomId,
