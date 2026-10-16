@@ -596,13 +596,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     promptDirectory,
   }, logger);
 
-  // F20261015mjsg D2：入座谓词挂接（延迟 attach——同 agentDispatchService 先例）——
-  // 对话侧对入座獭自动应答「打牌中」不进 LLM（防局中水位换世打穿牌局上下文）
-  if (controllers.mahjong) {
-    const mahjongRooms = controllers.mahjong.roomService;
-    agentInvoker.attachMahjongSeatQuery({ isSeated: (otterId: string) => mahjongRooms.isSeated(otterId) });
-  }
-
   const mahjongRoot = options.staticRoot === false ? false : path.resolve(import.meta.dirname, "../..", "web-mahjong");
   const app = buildHttpApp(controllers, logger, options.staticRoot ?? path.resolve(import.meta.dirname, "../..", "web/dist"), mahjongRoot);
 

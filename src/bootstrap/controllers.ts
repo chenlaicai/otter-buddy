@@ -144,6 +144,9 @@ function buildMahjongController(deps: ControllerDeps, logger: Logger): MahjongCo
       logger,
     }, report),
   });
+  // F20261015mjsg D2：入座谓词挂接（装配内完成——同 agentDispatchService 先例）——
+  // 对话侧对入座獭自动应答「打牌中」不进 LLM（防局中水位换世打穿牌局上下文）
+  deps.agentInvoker.attachMahjongSeatQuery({ isSeated: (otterId: string) => rooms.isSeated(otterId) });
   return new MahjongController(rooms, store, logger);
 }
 
