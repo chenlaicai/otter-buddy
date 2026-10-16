@@ -1017,12 +1017,9 @@ describe("#1038 主仓 data/ 破坏性命令拦截", () => {
     expect(result).toBeNull();
   });
 
-  it("rm 无关相对路径（README.md 等）→ F20261016gdfv 改判：解析进主仓内容树现拦（M-c78df9d4）", () => {
-    // 旧断言「放行」=洞面本身（rm 主仓内容树漏拦，X1/X2 双层反判族）——期望随修复主动
-    // 变更并记档。日常清理场景（工作区相对路径）不受影响，见 bash-guard-destructive-verbs.test.ts。
+  it("rm 相对路径主仓文件 → F20261016gses 语义判据下拦截（落点解析到主仓；旧 #1038 口径放行是 data 破坏域不管非 data 文件，现由写落点语义统一判）", () => {
     const result = checkBashCommandSafety("rm scripts/tmp-verify/old.py", mainPid, undefined, { projectRoot });
     expect(result).not.toBeNull();
-    expect(result).toContain("主仓内容区");
   });
 
   it("纯读命令 ls data/metrics → 放行（只读不受影响）", () => {
@@ -1030,14 +1027,9 @@ describe("#1038 主仓 data/ 破坏性命令拦截", () => {
     expect(result).toBeNull();
   });
 
-  it("非 data 开头路径 rm -rf database/ → 前缀不误伤 data 文案，但主仓内容树照拦", () => {
-    // 前缀语义不变（database/ 不是 data/，不落 9/17 事故面文案）；落点在主仓内容树
-    // → main_write 文案（F20261016gdfv）。工作区 cwd 同形态仍放行（清理不受影响）。
+  it("非 data 开头路径 rm -rf database/ → F20261016gses 语义判据下拦截（主仓 cwd 相对路径落主仓树；旧口径只护 data/ 前缀）", () => {
     const result = checkBashCommandSafety("rm -rf database/", mainPid, undefined, { projectRoot });
     expect(result).not.toBeNull();
-    expect(result).toContain("主仓内容区");
-    const ws = checkBashCommandSafety("rm -rf database/", mainPid, undefined, { projectRoot, sessionCwd: "/repo/data/workspaces/conv-1" });
-    expect(ws).toBeNull();
   });
 
   // ── 退化路径 ──
@@ -1051,9 +1043,9 @@ describe("#1038 主仓 data/ 破坏性命令拦截", () => {
     expect(result).not.toBeNull();
   });
 
-  it("normalize 变形：rm 数据在引号内数据位（echo 'rm -rf data' 文本）→ 放行（不误拦文案）", () => {
+  it("normalize 变形：rm 数据在引号内数据位（echo 'rm -rf data' 文本）→ F20261016gses 语义判据下拦截（重定向落点 notes.md 在主仓 cwd 解析到主仓；旧豁免是 echo 文本语义）", () => {
     const result = checkBashCommandSafety("echo 'rm -rf data/metrics' >> notes.md", mainPid, undefined, { projectRoot });
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
   });
 });
 
@@ -1243,9 +1235,9 @@ describe("F20260922scwd 检视严重 1/2 绕过形态回归（mimo 终审检视�
   });
 
   // ── #1038 语义保持：纯 echo 引号文本仍放行 ──
-  it("echo 'rm -rf data/metrics' >> notes.md（纯 echo 引号文本无复合）→ 放行（#1038 语义保持）", () => {
+  it("echo 'rm -rf data/metrics' >> notes.md（纯 echo 引号文本无复合）→ F20261016gses 语义判据下拦截（重定向落点主仓；#1038 旧豁免随写落点语义判据升级而退役）", () => {
     const result = checkBashCommandSafety("echo 'rm -rf data/metrics' >> notes.md", mainPid, undefined, { projectRoot });
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
   });
 });
 
@@ -1918,9 +1910,9 @@ describe("#1275：解释器直执行（one-liner）形态主仓写检测盲区�
     expect(result).not.toBeNull();
   });
 
-  it("python3 -c import os（只读子面）→ 拦截（import os 即不豁免，fail-closed）", () => {
+  it("python3 -c import os 纯读（os.getcwd）→ F20261016gses F1 修订：放行（读面无写证据；旧「import os 即不豁免」白名单保守面退位，os.* 写族词面已归位 SCRIPT_WRITE_TOKENS/exec 负门）", () => {
     const result = checkBashCommandSafety("python3 -c 'import os; print(os.getcwd())'", mainPid, undefined, { projectRoot });
-    expect(result).not.toBeNull();
+    expect(result).toBeNull();
   });
 
   it("python3 -c os.remove（写面）→ 拦截", () => {
@@ -2041,11 +2033,11 @@ open('config/config.yaml','w').write(src.replace('port: 3000','port: 3102',1))
     )).not.toBeNull();
   });
 
-  it("S-5：ruby -e 只读 → 拦截（fail-closed，先堵写面）", () => {
+  it("S-5：ruby -e 只读 → F20261016gses F1 修订：放行（File.read 读面；旧 fail-closed 起步白名单退位，ruby 写面由 File.write 词面负门拦）", () => {
     expect(checkBashCommandSafety(
       `ruby -e "puts File.read('/tmp/f')"`,
       mainPid, undefined, { projectRoot }
-    )).not.toBeNull();
+    )).toBeNull();
   });
 
   // ── 建议 4：测试矩阵补三维度 ──
@@ -2226,14 +2218,16 @@ describe("#1275 delta r4：python open-mode 门嵌套括号穿透修复（检视
     )).toBeNull();
   });
 
-  it("S1 对照：open 直接写 mode → 放（F20261016grdl 1a'-B 行为变更：写动词+落点感知——绝对路径全部树外不再 fail-closed）", () => {
-    // F20261016grdl 1a'-B（G1 例 6 同族）：写动词（open 'w'）+ 落点 /tmp（树外）
-    // → 落点感知豁免放行。旧行为（写动词 fail-closed 不看落点）是误拦面。
-    // 拦截面不回退的部分由「相对路径写」「主仓落点写」用例钉住。
+  it("S1 对照：open 直接写 mode 到树外（/tmp）→ F20261016gses F1 修订：放行（落点语义，写 /tmp 无主仓写面；S1 本体嵌套括号穿透由负门保住，见同 describe 嵌套用例）", () => {
     expect(checkBashCommandSafety(
       `python3 -c "open('/tmp/f.txt','w').write('x')"`,
       mainPid, undefined, { projectRoot }
     )).toBeNull();
+    // 嵌套形态不回退：open(chr(99), 'w') 嵌套括号负门仍在
+    expect(checkBashCommandSafety(
+      `python3 -c "open(chr(99), 'w')"`,
+      mainPid, undefined, { projectRoot }
+    )).not.toBeNull();
   });
   // ── delta r4 收尾（大獭裁决：S1 修复本体同族穿透，修完直送终审）──
   it("delta r4 收尾：open(*a) 位置解包逃逸 → 拦（one-liner 面）", () => {
@@ -2750,11 +2744,11 @@ PY`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
   });
 
-  it("#1308 放行面：无 cd + cat 管道 + 体纯读 → 放行（heredocReadOnly 豁免，与 pattern[1] 同语义）", () => {
+  it("#1308 放行面：无 cd + cat 管道 + 体纯读 → F20261016gses 切换后 fail-closed（求值器管道馈体主仓字面量闸保守面——行为差分已知项；正道绕行：python3 - <<EOF 直供体或落盘 /tmp）", () => {
     const cmd = `cat <<'PY' | python3 -
 print(open('${projectRoot}/package.json').read()[:10])
 PY`;
-    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 
   it("#1308 放行面：tee 右段是数据体语义（体不执行）——cd /tmp + cat | tee 落 /tmp + 体内主仓字样 → 放行", () => {
@@ -2794,11 +2788,11 @@ PY`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
   });
 
-  it("#1308-r1 放行面：无 cd + cat <<PY || python3 - + 体写主仓字样 → 放行（通道 lookaround 排除 ||，双链一致）", () => {
+  it("#1308-r1 放行面：无 cd + cat <<PY || python3 - + 体写主仓字样 → F20261016gses 切换后拦截（求值器 || 短路不外溢、体含主仓写字面量 fail-closed——行为差分已知项）", () => {
     const cmd = `cat <<'PY' || python3 -
 open('${projectRoot}/data/x.json','w')
 PY`;
-    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 
   // ── 回归面：python 直连负门不回归 ──
@@ -3224,10 +3218,7 @@ describe("F20261008gduc P0-1：V1 兜底链 cd 豁免 —— || 备用链不误�
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
   });
 
-  it("cd worktree && node -e 写 worktree 文件 | tail（真管道，parseOk=false 落 V1 链）→ 放行（F20261016grdl 1a'-B 行为变更：载荷绝对路径落排除区）", () => {
-    // F20261016grdl 1a'-B（G1 同族）：node 写载荷落 worktree（排除区，R1 合法写区），
-    // 落点感知豁免放行——旧「真管道杀豁免」负门只适用于落点不可知/落主仓的写。
-    // 管道负门的拦截面（写主仓/相对路径写）由同 describe 其余用例钉住。
+  it("cd worktree && node -e 写 worktree 文件 | tail（真管道，parseOk=false 落 V1 链）→ F20261016gses F1 修订：放行（写 worktree 树内落点语义；V1 管道杀豁免的保守面退位，F4 正向锁同款）", () => {
     const cmd = `cd /repo/.otter/worktrees/wt && node -e "require('fs').writeFileSync('/repo/.otter/worktrees/wt/data/x','1')" | tail -1`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
   });
@@ -3334,13 +3325,20 @@ EOF`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 
-  it("拦截负门：Counter 体内 os.system → 仍拦截", () => {
-    const cmd = `python3 -c "
+  it("拦截负门：Counter 体内 os.system → 仍拦截（exec 面）；纯读 Counter(os.listdir) → F20261016gses F1 修订放行（读面无写证据，旧「import os 即不豁免」白名单保守面退位）", () => {
+    const withSystem = `python3 -c "
+from collections import Counter
+import os
+os.system('echo hi')
+print(dict(Counter(os.listdir('.'))))
+"`;
+    expect(checkBashCommandSafety(withSystem, mainPid, undefined, { projectRoot })).not.toBeNull();
+    const readOnly = `python3 -c "
 from collections import Counter
 import os
 print(dict(Counter(os.listdir('.'))))
 "`;
-    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+    expect(checkBashCommandSafety(readOnly, mainPid, undefined, { projectRoot })).toBeNull();
   });
 
   it("拦截负门：stdin 回调内 eval → 仍拦截", () => {

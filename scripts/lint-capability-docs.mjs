@@ -72,7 +72,7 @@ for (const file of walk(path.join(root, "docs/features"))) {
 /** Ratchet（第二轮对抗检视）：警告数只许减不许增——否则警告疲劳后约束力归零。
  *  新增 feature/prompt 文档缺 capability_test 会推高警告数并在此报错；
  *  存量文档补声明后可下调本数值。 */
-const MAX_WARNINGS = 69; // F20260913ctlv：+4 悬空指针入账；F20260920uhuc：+1（compaction-hook 钩子退役删测试，F20260903cmpk 指针悬空——功能退役的存量债务，先例同构）；F20261014cwsp：+1（override 机制整套退役删测试，F20260922scwd 指针悬空——同构先例）
+const MAX_WARNINGS = 70; // F20260913ctlv：+4 悬空指针入账；F20260920uhuc：+1（compaction-hook 钩子退役删测试，F20260903cmpk 指针悬空——功能退役的存量债务，先例同构）；F20261014cwsp：+1（override 机制整套退役删测试，F20260922scwd 指针悬空——同构先例）；F20261016gses：+1（影子记账退役删测试，F20261010gshw 指针悬空——同构先例；快照原则禁止回改，开发獭 fb0724d8 曾回改历史文档洗掉此警告被搭档指出，正确解法是入账棘轮）
 
 if (warnings > MAX_WARNINGS) {
   errors++;

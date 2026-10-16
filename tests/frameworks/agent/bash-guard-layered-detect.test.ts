@@ -21,14 +21,14 @@ const projectRoot = "/repo";
 
 describe("F20260923glay Part A：脚本 one-liner 载荷字符串剥离（误拦修复）", () => {
   // ── 误拦面：python/node 内联分析脚本，载荷字符串含 > | & 文本 ──
-  it("python3 -c 载荷含 > 文本（f-string / 比较符）→ 放行", () => {
+  it("python3 -c 载荷含 > 文本（f-string / 比较符）→ F20261016gses 切换后 fail-closed（只读载荷主仓字面量闸保守面——行为差分已知项；正道：cd worktree 或载荷避免主仓字面量）", () => {
     const cmd = `python3 -c "
 data = open('/repo/web/dist/assets/index.js').read()
 import re
 for pat in ['const Qm=', 'a > b']:
     print(data.find(pat))
 "`;
-    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 
   it("node -e 载荷含 > 与 | 文本 → 放行（F20261006gfpn #1310：readFileSync 在 NODE_READONLY_METHODS 白名单，误拦修复）", () => {

@@ -35,6 +35,11 @@ const EXEC_FACE =
   /\b(?:exec(?:[A-Z]\w*|[lv]\w*)?|spawn(?:[A-Z]\w*|[lv]\w*)?|fork|system|popen|eval|Function|__import__|import_module|getattr)\s*\(|(?<![\w.])(?:exec|system)\s+(?:["'`]|\$|[A-Za-z_./@%~])|\b(?:child_process|subprocess)\b|\bos\.(?:system|popen)\b|(?<!\\)[`$]\(|(?<=[\s;(=])<\(|(?<=[\s;)=])>\(|\beval\s+["'$]|(?<=[\s;&)])[|]{1,2}\s*(?:sudo\s+)?(?:ba|z|k)?sh\b|(?<=[\s;&)])[|]{1,2}\s*(?:python3?|node|perl|ruby)\b/;
 /** 能力 1 规则 2：import/require 拆分——变量/拼接/路径形态 → exec 不可证（首参紧随字面量字符串=读披露放行） */
 export const DYNAMIC_IMPORT_FACE = /\b(?:require|import)\s*\(\s*(?!['"][^'"]*['"])/;
+// F20261016gses F1 连带：主仓字面量拼接分支（import('/repo/x' + y) 首参主仓字面量开头——
+//  动态拼接主仓目标全不可证，1432-B1 实证；相对字面量拼接（'./src/' + p）保持字面量片段
+//  披露保守面，不在此闸）。由 evalScriptPayloadNarrow 负门消费（DYNAMIC_IMPORT_FACE 主体
+//  不动——proveNoWrite 同源口径不溢出）。
+export const MAIN_LIT_CONCAT_IMPORT_FACE = /\b(?:require|import)\s*\(\s*['"]\/[^'"]*['"]\s*\+/
 
 /** 规则 2「exec 类一律不可证」的载荷闸（能力 5 附带，拍板 2026-10-13；delta2 修法 检视獭1360 2026-10-14）：
  *  ①裸调用形态含无括号调用（perl -e "exec 'touch', '/repo/x'" 列表式 / ruby -e "exec '…'" 字符串式 /
