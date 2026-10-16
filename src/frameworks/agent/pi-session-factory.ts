@@ -27,7 +27,7 @@ import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import { createAgentSessionStore } from "./agent-session-store";
 import { classifyGuardInterceptReason } from "./guard-intercept-classify";
-// F20261015gses P0 影子下线：shadow-eval-recorder import 已删（观察期对照机制随转正移除）
+// F20261016gses P0 影子下线：shadow-eval-recorder import 已删（观察期对照机制随转正移除）
 import { sanitizeQuotedText } from "./quoted-text-sanitizer";
 
 /**
@@ -940,7 +940,7 @@ export class PiSessionFactory implements AgentGateway {
    * 双向对照落 healing_events（真误拦候选 / EVAL_GAIN）。只记录不干预；
    * healingRepo 缺失时无回调（影子静默关）。projectRoot 与拦截钩子同源（process.cwd()）。
    */
-  /** F20261015gses P0 影子下线：buildShadowEvalHook（观察期对照构造）已删——主判定切
+  /** F20261016gses P0 影子下线：buildShadowEvalHook（观察期对照构造）已删——主判定切
    *  evaluateWriteVerdict 后无「旧链 vs 新链」对照面，shadow-eval-recorder 模块整体移除。 */
 
   /** 使用 session 执行 invoke（F20260911pspl：session 由 _acquirePooled 获取，本方法不再创建；

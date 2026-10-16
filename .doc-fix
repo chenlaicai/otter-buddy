@@ -1,1 +1,1 @@
-F20261015gses P0 影子下线连带：capability_test 悬空指针订正（指向的 shadow-eval-recorder.test.ts 已随观察期机制转正删除，标 n:a 理由留档）。frontmatter 元数据订正，不改正文。
+id 订正：F20261010gshw capability_test 字段中的特性引用 F20261015gses → F20261016gses（日期顺延连带引用同步；引用对象为本 PR 新建文档，尚未合入历史，非改写交付语义）

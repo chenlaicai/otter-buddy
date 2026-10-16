@@ -231,7 +231,7 @@ function trackCwd(segments: Segment[], startCwd: string): string | null {
 interface SegmentEvalAcc {
   targets: WriteTarget[];
   index: number;
-  /** F20261015gses F1 连带：负门族命中标记（kill/危险模块/open 嵌套/exec 词面拦）——
+  /** F20261016gses F1 连带：负门族命中标记（kill/危险模块/open 嵌套/exec 词面拦）——
    *  hasNarrowExtractableScriptSeg 据此区分「负门实质判定」与「字面量闸回落」 */
   hadNegGate?: boolean;
   /** F20261014smrj：同命令段表——git -C "$VAR" 纯 var 词赋值溯源（evalGitWrite 值解析用） */
@@ -626,7 +626,7 @@ function evalGitAdd(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReaso
  *  读文件后的方法调用链（c032 `print(open('a').read())` 实证）；真正写语义由
  *  evalScriptWriteTargets 的调用形态匹配判定（open 带写模式 / writeFileSync 等明确写函数）。 */
 const SCRIPT_WRITE_TOKENS = /\b(?:writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|openSync|mkdirSync|mkdir|rmSync|rmdirSync|unlinkSync|unlink|renameSync|rename|copyFileSync|copyFile|chmodSync|chownSync|symlinkSync|dump|dumps|shelve|os\.(?:remove|rmdir|rename|replace|link|symlink|truncate|chmod|chown|utime|mknod|mkdir))\b|\bopen\s*\([^)]*,\s*["'`][wa]|\.write(?:Sync)?\s*\(/;
-// F20261015gses F1 连带：补 os.* 写族词面（os.remove("config.yaml") 相对路径落主仓曾放——
+// F20261016gses F1 连带：补 os.* 写族词面（os.remove("config.yaml") 相对路径落主仓曾放——
 //  pythonBodyReadOnly 的 os 面全禁随 ③a 收窄退位，写面词面归位此表）
 
 /** argv[N] / sys.argv[N] 引用提取（值传播的键）。 */
@@ -706,7 +706,7 @@ function evalScriptWriteTargets(script: string, argvMap: Map<number, string>, va
 }
 
 /** 求值脚本参数表达式：纯字面量/字面量拼接 → 折叠值；argv[N] → argvMap 值传播；
- *  裸变量名 → varEnv 值传播（F20261015gses P0 载荷能力补全：`p = 'x.py'; open(p, 'w')` 变量
+ *  裸变量名 → varEnv 值传播（F20261016gses P0 载荷能力补全：`p = 'x.py'; open(p, 'w')` 变量
  *  赋值传播——静态收集的保守面）；其他（调用/运算/属性访问）→ null。 */
 function resolveScriptArg(expr: string, argvMap: Map<number, string>, varEnv?: Map<string, string>): string | null {
   const t = expr.trim();
@@ -724,7 +724,7 @@ function resolveScriptArg(expr: string, argvMap: Map<number, string>, varEnv?: M
   return null;
 }
 
-/** 载荷内变量赋值环境（F20261015gses P0：变量赋值传播——87 缺口族最大单一杠杆 52/87，
+/** 载荷内变量赋值环境（F20261016gses P0：变量赋值传播——87 缺口族最大单一杠杆 52/87，
  *  `p = 'docs/x.md'; s = open(p).read(); open(p, 'w').write(s)` 路径在变量里）。
  *  保守面：只收「单次赋值 + 纯字面量值」——python 行首裸名 `p = 'lit'` / js `const|let|var p = 'lit'`；
  *  值后必须紧跟行尾/;/注释（负门：`p = 'a' + 'b'` 拼接 RHS 不得截断收集成 'a'——单测钉死）；
@@ -820,7 +820,7 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
     //  否则 evaluated 优先、null 时 cmdsub 拼原文（B）；var/arith 不猜；负门①写词面→回落（下行 cMode 闸）。
     const payloadWord = seg.words[flagIdx + 1];
     if (!payloadWord) return "skip";
-    // F20261015gses F1 连带：无引号裸词载荷（python3 -c print(...) 被 shell 词法截断
+    // F20261016gses F1 连带：无引号裸词载荷（python3 -c print(...) 被 shell 词法截断
     //（words 只收首词 print，写面藏在后续文本里提取不到）→ fail-closed——带引号
     //（quoted 部件在场）才是完整载荷，裸标识符词是截断信号（旧 ③a 形态判拦过的面归位）。
     // 归一化豁免防线：归一化文本（剥引号形态）不触发本门——剥引号是归一化链的合法差异
@@ -860,7 +860,7 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
     return "heredoc-script-payload";
   }
   // 规则 2 附带闸（能力 5，拍板 2026-10-13）：exec 类裸调用（new Function/eval/exec/...）一律不可证——窄提取不得绕过词面证的 exec 拦（残余面 TS-ef0d6be4 族钉死）。
-  // F20261015gses F1 修复连带：kill 主进程词面负门（非重叠危险面归位——③a 收窄到包装
+  // F20261016gses F1 修复连带：kill 主进程词面负门（非重叠危险面归位——③a 收窄到包装
   //  形态后，plain one-liner 载荷的 os.kill(主PID)/process.kill(主PID) 不再有通道附带拦。
   //  kill 是 kill 域同族安全面（与写落点判定不重叠）：载荷词面含 kill **调用形态**
   //（os.kill(/process.kill(/process.abort() 即不可证（目标可能是主进程——fail-closed；
@@ -871,7 +871,7 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
     acc.hadNegGate = true;
     return "heredoc-script-payload";
   }
-  // F20261015gses F1 修复连带：1432-B 危险模块/动态目标词面负门（同上归位）——
+  // F20261016gses F1 修复连带：1432-B 危险模块/动态目标词面负门（同上归位）——
   //  child_process 齐携 exec/spawn 面、import 拼接目标不可静态判定（能力 8 词面证同源）。
   if (/\brequire\s*\(\s*["'`]child_process["'`]|\bfrom\s+["'`]child_process["'`]/.test(script)
       || /\b(?:import|require)\s*\(\s*[^"'`\s]/.test(script)
@@ -879,12 +879,12 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
     acc.hadNegGate = true;
     return "heredoc-script-payload";
   }
-  // F20261015gses F1 连带：open 实参区嵌套括号负门（pythonOpenModesReadOnly S1 修复先例的
+  // F20261016gses F1 连带：open 实参区嵌套括号负门（pythonOpenModesReadOnly S1 修复先例的
   //  one-liner 版归位）：`open(chr(99), 'w')` 嵌套括号使词面提取截断（[^)]* 在 chr(99)
   // 的 ) 停），mode/路径不可见——实参区见嵌套 ( 即不豁免（fail-closed）；* 解包同拒
   //（mode 藏在解包元组里完全不可见，open(*a) 穿透，r4 先例）。dbm.open 缺省 'c' 创建
   // 可写（#1423 同源）——dbm/shelve 模块 open 词面即拦。
-  // F20261015gses F1 连带：ruby/perl 载荷写面词面负门——ruby/perl 不在 SCRIPT_RUNNERS 解析域
+  // F20261016gses F1 连带：ruby/perl 载荷写面词面负门——ruby/perl 不在 SCRIPT_RUNNERS 解析域
   //（F2 族记档），但 perl 写形态（open(F,">f") 文件句柄模式）/ ruby File.write 写面
   // 不可放：相对路径落主仓的真写面（perl 相对写 config.yaml 实证放行）。词面拦
   //（fail-closed）优先于 F2 的「绝对路径字面量闸兜底」（相对路径无字面量可兜）。
@@ -911,7 +911,7 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
   return judgeScriptText(script, argvMap, projectRoot, acc) ?? "extracted";
 }
 
-/** 脚本文本判读（F20261015gses P0 三通道共享：-e/-c 内联 / heredoc 体 / 外置脚本 content）。
+/** 脚本文本判读（F20261016gses P0 三通道共享：-e/-c 内联 / heredoc 体 / 外置脚本 content）。
  *  write-verdict 头注释「judge 考试与影子投影同判据，口径不得分叉」的函数化——负门之外的
  *  形态A/B 判读全部集中于此（负门留在各通道：cMode 重组门是内联通道专属）。
  *  返回 "heredoc-script-payload"=不可证回落；null=零写面放行侧（extracted）。
@@ -957,7 +957,7 @@ function judgeScriptText(script: string, argvMap: Map<number, string>, projectRo
 /** 模型内是否存在可窄提取的脚本载荷段（顶层 + 递归子模型同口径）。
  *  用于 evaluateWriteTargets 的 detectScriptPayload 短路前置：存在可提取段 → 不先行短路，
  *  交给 evalSegment 段级窄提取；不存在 → 保持 Phase 1 先行回落（parseOk=false 语义兜底）。
- *  F20261015gses F1 连带：「heredoc-script-payload」（负门命中——kill/危险模块/exec 词面
+ *  F20261016gses F1 连带：「heredoc-script-payload」（负门命中——kill/危险模块/exec 词面
  *  回落）同样算「有实质判定」——proveNoWrite 先行短路曾绕过段级负门放行 os.kill(主PID)
  *  （kill 词面非写词面，词面证判无写→假 ALLOW，探针实证）。 */
 function hasNarrowExtractableScriptSeg(model: CommandModel, projectRoot: string): boolean {
@@ -965,7 +965,7 @@ function hasNarrowExtractableScriptSeg(model: CommandModel, projectRoot: string)
   const check = (m: CommandModel): boolean => {
     for (const seg of m.segments) {
       const r = evalScriptPayloadNarrow(seg, projectRoot, probe, m.raw);
-      // F20261015gses F1 连带修正：负门族命中（kill/危险模块/open 嵌套/exec）才算「有实质判定」
+      // F20261016gses F1 连带修正：负门族命中（kill/危险模块/open 嵌套/exec）才算「有实质判定」
       //（proveNoWrite 词面证不含 kill 词面，短路曾放行 os.kill(主PID)，探针实证）。
       // 字面量闸回落不算——proveNoWrite 先行短路对字面量只读载荷（require('/repo/src/x.js')）
       // 是能力 8 披露正道（30517746 病灶口径），窄提取的字面量闸不构成绕过它的理由
@@ -1040,7 +1040,7 @@ export function isDirectExecScriptSeg(seg: Segment): boolean {
 
 /** 解释器族外置脚本段识别（shellScriptFileArg 解释器分支；hasOpaqueScriptExec 同源复用——
  *  段首路径不进本函数：替换型载荷垃圾解析会把参数/字面量当段首路径（delta3 能力 8 口径）。
- *  F20261015gses P0：SCRIPT_RUNNERS 文件形态（node x.mjs / python x.py）接入同通道——
+ *  F20261016gses P0：SCRIPT_RUNNERS 文件形态（node x.mjs / python x.py）接入同通道——
  *  K 类 34 条缺口主通道；只认「静态路径 + 可读后缀」保守面，动态路径交牙1。 */
 const SCRIPT_FILE_SUFFIXES = /\.(?:sh|bash|zsh|mjs|cjs|js|mts|cts|ts|py|pyw|rb|pl|pm|scpt|applescript)$/;
 // eslint-disable-next-line complexity -- 双域判定（shell 解释器族 + SCRIPT_RUNNERS 文件形态）通道穷举
@@ -1173,7 +1173,7 @@ function buildScriptPayloadPlan(model: CommandModel, projectRoot: string, startC
     }
     let absence: SegPayloadPlan | null = null;
     if (planned === undefined && entry === undefined && cwdAt !== null && absenceAllowed && !ex.dynamic && v !== null) {
-      // F20261015gses P0 运行时 sourcing：真实读取取代纯缺席自查——content（判读）/absent（缺席证明）
+      // F20261016gses P0 运行时 sourcing：真实读取取代纯缺席自查——content（判读）/absent（缺席证明）
       // /unreadable（存在但读不出）三态齐备，「未接线≠缺席」硬验收项的接线本体。
       absence = fsContentPlan(evalPath(v, cwdAt[i]));
     }
@@ -1217,7 +1217,7 @@ function hasOpaqueScriptExec(model: CommandModel, scriptText: boolean = true): b
   return model.payloads.some(p => p.model !== null && hasOpaqueScriptExec(p.model, p.kind === "bash-c" || p.kind === "heredoc-bare"));
 }
 
-/** 载荷三态的真实内容源（F20261015gses P0 运行时 payload sourcing）：静态路径外置脚本
+/** 载荷三态的真实内容源（F20261016gses P0 运行时 payload sourcing）：静态路径外置脚本
  *  在裁决链调用时真实读取磁盘内容——「未接线≠缺席」硬验收项的接线本体。fs 存在→读 content；
  *  ENOENT→absent（缺席证明，牙3 同口径）；读失败→unreadable（fail-closed）。
  *  只读操作（与 fsAbsentPlan 同一信任口径），TOCTOU 窗口已在牙3 记档。 */
@@ -1230,7 +1230,7 @@ function fsContentPlan(resolved: string | null): SegPayloadPlan {
   }
 }
 
-/** 牙3 缺席证明（delta2 修法，大獭工单 2026-10-14；F20261015gses P0 被 fsContentPlan 取代
+/** 牙3 缺席证明（delta2 修法，大獭工单 2026-10-14；F20261016gses P0 被 fsContentPlan 取代
  *  升级为真实读取三态）：delta2 时代的缺席自查（存在→unreadable fail-closed）保留为历史口径
  *  记档——P0 运行时 sourcing 后「未接线≠缺席」保守面已下线，fs 存在即真实读出判读。
  *  TOCTOU 记档：read 与执行间存在时间窗——切换 PR 硬验收项：生产链路必须真实注入载荷
@@ -1270,12 +1270,12 @@ function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot
 
   // Python/JS 等脚本载荷族：Phase 1 显式回落（审视 S1 锚点：载荷 model 是 shell 模型非脚本 AST）。
   //  窄提取已过的段（narrow==="extracted"）不再走本行——窄提取承诺双闸全过。
-  //  F20261015gses P0：文件形态 runner（node x.mjs / python x.py）不再盲黑盒——
+  //  F20261016gses P0：文件形态 runner（node x.mjs / python x.py）不再盲黑盒——
   //  shellScriptFileArg 已扩到 SCRIPT_RUNNERS 文件形态，上方三牙分支（scriptArg !== null）
   //  会接住并走载荷计划三态；此处只拦「skip 且非外置脚本位」的残余（-e/-c 无载荷等）。
   // Python/JS 等脚本载荷族：Phase 1 显式回落（审视 S1 锚点：载荷 model 是 shell 模型非脚本 AST）。
   //  窄提取已过的段（narrow==="extracted"）不再走本行——窄提取承诺双闸全过。
-  //  F20261015gses P0：文件形态 runner（node x.mjs / python x.py）不再盲黑盒——shellScriptFileArg
+  //  F20261016gses P0：文件形态 runner（node x.mjs / python x.py）不再盲黑盒——shellScriptFileArg
   //  已扩到 SCRIPT_RUNNERS 文件形态，下方三牙分支（scriptArg !== null）接住并走载荷计划
   //  三态（含 P0 运行时 sourcing：fsContentPlan 真实读取）；本行只拦「skip 且非外置脚本位」
   //  的残余（-e/-c 载荷不可求值等真黑盒形态）。
@@ -1316,7 +1316,7 @@ function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot
       if (plan?.status === "unreadable") return "script-payload-unreadable";
       if (plan?.status === "dynamic") return "script-payload-dynamic";
       if (plan?.status === "content") {
-        // F20261015gses P0：按载荷语言分发判读——shell 载荷递归 shell 模型（历史口径，
+        // F20261016gses P0：按载荷语言分发判读——shell 载荷递归 shell 模型（历史口径，
         //  含直执行位/shebang 载荷）；SCRIPT_RUNNERS（node/python/ruby/perl）载荷是脚本语言，
         //  shell 解析器抓不到其写调用（writer.mjs 实证：fs.writeFileSync 被 shell 模型盲放）
         //  → judgeScriptText 同判据。语言信号：解释器 runner（isRunnerArgv0）为第一信号；

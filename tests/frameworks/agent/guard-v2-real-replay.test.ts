@@ -156,7 +156,7 @@ describe("#1432 node import/require 只读豁免回放（10-12 现场 b4471a4f/0
     expect(checkBashCommandSafety(`node -e "const x = require('./src/foo.ts'); console.log(Object.keys(x))"`, mainPid, undefined, gopts)).toBeNull();
   });
 
-  it("1432-B1（F20261015gses F1 修订）：require('./src/' + p) 相对字面量拼接 → 求值器字面量片段披露（evaluated+read target）整链放行——动态拼接目标不可静态判定但读面无写证据；主仓字面量拼接（import('/repo/x' + y)）由 MAIN_LIT_CONCAT_IMPORT_FACE 负门拦（写耦合信号强）", () => {
+  it("1432-B1（F20261016gses F1 修订）：require('./src/' + p) 相对字面量拼接 → 求值器字面量片段披露（evaluated+read target）整链放行——动态拼接目标不可静态判定但读面无写证据；主仓字面量拼接（import('/repo/x' + y)）由 MAIN_LIT_CONCAT_IMPORT_FACE 负门拦（写耦合信号强）", () => {
     expect(checkBashCommandSafety(`node -e "const x = require('./src/' + p)"`, mainPid, undefined, gopts)).toBeNull();
     expect(checkBashCommandSafety(`node -e "const x = require('/repo/src/' + p)"`, mainPid, undefined, gopts)).toBeTruthy();
   });

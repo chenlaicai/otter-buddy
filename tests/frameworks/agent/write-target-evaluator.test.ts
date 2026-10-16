@@ -611,7 +611,7 @@ echo "=== commit exit: $? ==="`;
     });
 
     it("P0 sourcing 接线：未提供载荷且脚本存在 → 真实读取判读（/dev/null 零写面内容 → content 判读零落点放行）", () => {
-      // F20261015gses P0：未接线≠缺席 的未接线态已被真实读取取代——存在即读出内容按内容判读；
+      // F20261016gses P0：未接线≠缺席 的未接线态已被真实读取取代——存在即读出内容按内容判读；
       // /dev/null 读出空串=零写面脚本，正面 ALLOW（fail-closed 仅剩真读不出形态）
       expect(evaluateWriteVerdict("bash /dev/null", ROOT)).toMatchObject({ verdict: "ALLOW", mode: "positive" });
     });

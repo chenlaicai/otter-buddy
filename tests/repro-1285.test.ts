@@ -1,6 +1,6 @@
 // #1285 三洞复现载荷的真断言回归（原修复前探针：13 载荷修复前实测全部 ALLOWED，
 // 修复后全部应 BLOCKED——r1 检视 B 级处置：伪断言 expect(true).toBe(true) 改真断言）
-// F20261015gses F1 修订：W 落点改为 projectRoot 动态拼接（旧固定 /repo 与测试的
+// F20261016gses F1 修订：W 落点改为 projectRoot 动态拼接（旧固定 /repo 与测试的
 // projectRoot=__dirname 不匹配——F1 落点语义判据下虚构落点不在主仓树内而放行；
 // 空赋值前缀洞的本体是「赋值不破坏拦截」，落点对齐后语义判据同拦）。
 import { describe, it, expect } from "vitest";
