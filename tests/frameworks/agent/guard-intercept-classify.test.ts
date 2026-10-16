@@ -76,6 +76,18 @@ describe("classifyGuardInterceptReason · 真实文案回归（探针 = 守卫�
     expectClass("echo 'git commit -m x' > notes.md", "main_write");
   });
 
+  it("main_write：破坏命令落主仓内容树（F20261016gdfv，非 data/ 目标新文案）", () => {
+    expectClass("rm -rf /repo/src", "main_write");
+  });
+
+  it("main_write_resolve：写命令落点解析到主仓（session 形态）——fragment 去重后随 #1527 具体形态归因", () => {
+    // F20261016gdfv 原补宽 fragment（写命令落点解析到主仓）→ main_write；#1527 先合后按
+    // 合入顺序提案删宽条目，此文案归因随 #1527 G1 细化（main_write_resolve/r1_gate），覆盖不变。
+    const reason = checkBashCommandSafety("echo hi > /repo/newfile.md", 12345, undefined, { projectRoot: "/repo", sessionCwd: "/repo/data/workspaces/conv-1" });
+    expect(reason).toBeTruthy();
+    expect(classifyGuardInterceptReason(reason as string)).toMatchObject({ ruleId: "main_write_resolve", layer: "r1_gate" });
+  });
+
   it("data_destructive：rm 主仓 data/（文案带括注形态）", () => {
     expectClass("rm -rf /repo/data/logs", "data_destructive");
   });

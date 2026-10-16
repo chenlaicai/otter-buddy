@@ -1017,9 +1017,12 @@ describe("#1038 主仓 data/ 破坏性命令拦截", () => {
     expect(result).toBeNull();
   });
 
-  it("rm 无关相对路径（README.md 等）→ 放行（日常清理不受影响）", () => {
+  it("rm 无关相对路径（README.md 等）→ F20261016gdfv 改判：解析进主仓内容树现拦（M-c78df9d4）", () => {
+    // 旧断言「放行」=洞面本身（rm 主仓内容树漏拦，X1/X2 双层反判族）——期望随修复主动
+    // 变更并记档。日常清理场景（工作区相对路径）不受影响，见 bash-guard-destructive-verbs.test.ts。
     const result = checkBashCommandSafety("rm scripts/tmp-verify/old.py", mainPid, undefined, { projectRoot });
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result).toContain("主仓内容区");
   });
 
   it("纯读命令 ls data/metrics → 放行（只读不受影响）", () => {
@@ -1027,9 +1030,14 @@ describe("#1038 主仓 data/ 破坏性命令拦截", () => {
     expect(result).toBeNull();
   });
 
-  it("非 data 开头路径 rm -rf database/ → 放行（前缀不误伤）", () => {
+  it("非 data 开头路径 rm -rf database/ → 前缀不误伤 data 文案，但主仓内容树照拦", () => {
+    // 前缀语义不变（database/ 不是 data/，不落 9/17 事故面文案）；落点在主仓内容树
+    // → main_write 文案（F20261016gdfv）。工作区 cwd 同形态仍放行（清理不受影响）。
     const result = checkBashCommandSafety("rm -rf database/", mainPid, undefined, { projectRoot });
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result).toContain("主仓内容区");
+    const ws = checkBashCommandSafety("rm -rf database/", mainPid, undefined, { projectRoot, sessionCwd: "/repo/data/workspaces/conv-1" });
+    expect(ws).toBeNull();
   });
 
   // ── 退化路径 ──
