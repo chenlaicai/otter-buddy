@@ -48,7 +48,7 @@
 | S1 双链割裂：V1 兜底链 `hasRealCdSegment` 裸 `\|` 分支把 `\|\|` 备用链当管道误杀 cd 豁免（与 V2 段级语义割裂，#1170 修复只落 V2 的复发面） | **已修复**（F20261008gduc/#1360：lookaround 形态对齐 V2 语义，worktree 写用例钉住修复） | F20261008gduc（#1360） |
 | git alias shell 展开（`!` 前缀）注入：载荷是任意 shell 执行通道，双层全放（检视獭1360 建议 4 构造实证 + 探针 S2-S6：持久注入/kill 主 PID 载荷/动态载荷/嵌套 sh -c 全部 ALLOW） | **已修复**（F20261015gali/M-edd889c2：载荷拆解递归过全量规则（与直接执行同待遇，等价性不变量钉死）+ 不可证 fail-closed；间接构造（env 注入/包装词）不追，#1513 物理隔离拍板面；**边界注**：wrapper 静态旗标（`--no-pager` 等字面量）属静态构造必须防——首轮枚举不全洞由 X1 两侧同修） | F20261015gali（M-edd889c2） |
 | prod 侧 `rm -rf <非 data 主仓路径>` 直接执行不拦（X1/X2 探针：prod:ALLOW / wv:BLOCK 双层反判；data-destructive 只盖 data/，rm 族写词面归 wv） | **开放**（非 alias 通道洞——alias 载荷与直接执行同待遇（等价性测试钉死）；建议随 M-026d87ff 伞统一） | 待立单（M-026d87ff 建议） |
-| git 写族判定词面失明：GIT_WRITE_SUBCOMMAND 正则 \S+ 对引号含空格/attached/反引号三形态 fail-open（#1514/M-46f0e74d：`git -C "/主仓/<含空格>" commit` 真写主仓双层漏） | **已修复**（F20261015gwr1：写族判定/落点解析词级化，旧正则两侧退役；洗白面收窄——git 写族 dynamic-path 不洗白，corpus 棘轮零缺口） | F20261015gwr1（M-46f0e74d） |
+| git 写族判定词面失明：GIT_WRITE_SUBCOMMAND 正则 \S+ 对引号含空格/attached/反引号三形态 fail-open（#1514/M-46f0e74d：`git -C "/主仓/<含空格>" commit` 真写主仓双层漏） | **已修复**（F20261016gwr1：写族判定/落点解析词级化，旧正则两侧退役；洗白面收窄——git 写族 dynamic-path 不洗白，corpus 棘轮零缺口） | F20261016gwr1（M-46f0e74d） |
 | unknown 兜底事件在代码里归 self_kill 层（guard-intercept-classify.ts:61），按层聚合时污染 L1 统计 | 已知（聚合时建议剔 unknown 单列） | F20260930gslog 实现注记 |
 
 新洞发现时：先入本表 + issue，再修——**洞的公开是守卫可信度的一部分**（对齐 Anthropic 安全公告的透明实践）。

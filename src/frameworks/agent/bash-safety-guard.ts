@@ -1035,7 +1035,7 @@ function wrappedOneLinerPayloadsReadOnly(command: string): boolean {
  *  正则锚只认赋值前缀不认包装词，`env git commit` / `sudo git commit` 曾全放。
  *  比 MAIN_WRITE_PATTERNS[5] 宽：补 push / reset --hard / clean -f 等同属写族但
  *  原正则未覆盖的子命令——段首解析通道既然接了 git 落点，写族口径一次补齐）。 */
-/** git 写族子命令判定：F20261015gwr1（M-46f0e74d）起词级化——GIT_WRITE_SUBCOMMAND
+/** git 写族子命令判定：F20261016gwr1（M-46f0e74d）起词级化——GIT_WRITE_SUBCOMMAND
  *  正则已退役（\S+ 词面对引号含空格/attached/反引号三形态整体失明 fail-open），
  *  单一真相源=payload-extract-aux.gitWriteSubcommandHit（与 v2 求值器共用）。 */
 
@@ -1056,7 +1056,7 @@ function wrappedOneLinerPayloadsReadOnly(command: string): boolean {
 // eslint-disable-next-line max-statements -- git 旗标形态穷举（-C/-c/--git-dir/--work-tree/--exec-path/--namespace × =值/空格值/attached）+ fail-closed 面逐条对照，每分支对应一种已声明形态（c107 教训：合并会再制造旗标解析 bug）
 function gitDashCTargetsWorktree(gseg: Segment, projectRoot?: string, sessionCwd?: string): boolean {
   if (!projectRoot) return false;
-  // F20261015gwr1（M-46f0e74d）：解析基座词级化（词法层归一引号/attached/转义）——旧版
+  // F20261016gwr1（M-46f0e74d）：解析基座词级化（词法层归一引号/attached/转义）——旧版
   // 字符串正则对引号含空格/attached 形态失明。fail-closed 面：--git-dir/--work-tree
   // 覆盖（落点被改写）、core.worktree/core.bare/core.gitdir 配置改写树发现、动态 -c
   // 值（不可证非树发现改写）、动态旗标/值位、~ 前缀、相对 -C 无绝对基准、worktrees
@@ -1213,7 +1213,7 @@ function judgeSegment(
   // 本层，这里显式放只读防误拦）。
   if (head === "git") {
     const rest = seg.slice(offset);
-    // F20261015gwr1（M-46f0e74d）：写族判定词级化——旧 GIT_WRITE_SUBCOMMAND 正则 \S+
+    // F20261016gwr1（M-46f0e74d）：写族判定词级化——旧 GIT_WRITE_SUBCOMMAND 正则 \S+
     // 词面对引号含空格/attached/反引号三形态整体失明（fail-open 实证），正则退役；
     // 词级判定=单一真相源 payload-extract-aux.gitWriteSubcommandHit（与 v2 求值器同款）。
     const gseg = parseOnce(rest, 1).segments[0] ?? null;

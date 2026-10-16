@@ -1,5 +1,5 @@
 /**
- * F20261015gwr1（M-46f0e74d/#1514）：git 旗标词面判定词级化——引号含空格/attached/反引号
+ * F20261016gwr1（M-46f0e74d/#1514）：git 旗标词面判定词级化——引号含空格/attached/反引号
  * 三形态 fail-open 修复。
  *
  * 病灶（探针修前实证）：旧 GIT_WRITE_SUBCOMMAND 正则 \S+ 词面对
@@ -19,7 +19,7 @@ const sessionCwd = "/repo/data/workspaces/conv-1";
 const prod = (cmd: string) => checkBashCommandSafety(cmd, 42877, undefined, { projectRoot, sessionCwd });
 const wv = (cmd: string) => evaluateWriteVerdict(cmd, projectRoot, sessionCwd);
 
-describe("F20261015gwr1 负门（修前双层 fail-open 形态，prod 拦 + wv 正判）", () => {
+describe("F20261016gwr1 负门（修前双层 fail-open 形态，prod 拦 + wv 正判）", () => {
   it("双引号含空格主仓路径 commit → prod 拦 + wv 正判（落点证据）", () => {
     expect(prod(`git -C "/repo/work space" commit -m x`)).toContain("写命令落点解析到主仓");
     const r = wv(`git -C "/repo/work space" commit -m x`);
@@ -58,7 +58,7 @@ describe("F20261015gwr1 负门（修前双层 fail-open 形态，prod 拦 + wv �
   });
 });
 
-describe("F20261015gwr1 放行侧（豁免正道 + 空格一致性不变量）", () => {
+describe("F20261016gwr1 放行侧（豁免正道 + 空格一致性不变量）", () => {
   it("worktree 含空格路径 commit（豁免引号感知）→ prod 放 + wv 正面 ALLOW", () => {
     expect(prod(`git -C "${WT}/a b" commit -m x`)).toBeNull();
     const r = wv(`git -C "${WT}/a b" commit -m x`);
@@ -92,7 +92,7 @@ describe("F20261015gwr1 放行侧（豁免正道 + 空格一致性不变量）",
   });
 });
 
-describe("F20261015gwr1 修复轮（检视獭1519 一审严重 1 + 建议 1/2/3）", () => {
+describe("F20261016gwr1 修复轮（检视獭1519 一审严重 1 + 建议 1/2/3）", () => {
   it("严重 1：附着+动态混合形态 -c\"$P\" commit → 双层拦（红线：同语义不得拼接反判）", () => {
     expect(prod(`git -c"$P" commit`)).toBeTruthy();
     expect(wv(`git -c"$P" commit`).verdict).toBe("BLOCK");
@@ -135,7 +135,7 @@ describe("F20261015gwr1 修复轮（检视獭1519 一审严重 1 + 建议 1/2/3�
   });
 });
 
-describe("F20261015gwr1 修复轮二（检视獭1519 delta 残留 1/2，大獭 16/10 10:27 裁决）", () => {
+describe("F20261016gwr1 修复轮二（检视獭1519 delta 残留 1/2，大獭 16/10 10:27 裁决）", () => {
   it("残留 1 放行侧：越位扫参不误判——参数词 push 不当子命令位，与静态形态同判", () => {
     expect(prod(`git -C /repo log -G push`)).toBeNull();
     expect(prod(`git -C"$P" log -G push`)).toBeNull();

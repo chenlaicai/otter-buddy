@@ -1,9 +1,9 @@
 ---
-id: F20261015gwr1
+id: F20261016gwr1
 title: bash 守卫 P0——git 旗标词面判定词级化（引号含空格/attached/反引号三形态 fail-open 修复）
 summary: GIT_WRITE_SUBCOMMAND 正则 \S+ 词面对 `git -C "/x y" commit`（引号含空格）/`git -C/x`（attached）/`git -c \`echo /repo\` commit`（反引号）整体失明=写族判定 fail-open（#1514/M-46f0e74d 实证）——写族判定/落点解析词级化（词法层归一），旧正则两侧退役；wv 侧 attached 值回收 + git 写族 dynamic-path 不洗白（词面证盲点收窄），corpus 棘轮零新增缺口
 type: BugFix
-date: 2026-10-15
+date: 2026-10-16
 capability_test: "n/a: 守卫判定解析基座修正，验证走单测（bash-guard-git-flag-wording 11 例）+ 全量回归 + corpus 棘轮精确复位"
 intent:
   problem: "M-46f0e74d/#1514：git 写族判定门（GIT_WRITE_SUBCOMMAND 正则）的 \\S+ 词面解析对引号含空格路径/attached 旗标/反引号动态值三形态整体失明——`git -C \"/repo/<含空格>\" commit` 类真写主仓双层漏（prod gate 盲 + wv attached 值丢失回落 cwd 洗白 + 动态 -c 载荷被词面证洗白）；检视獭1518 建议 3 补强的反引号构造双层全漏同族"
@@ -15,6 +15,8 @@ pr: ""
 related_issues: ["#1514", "#1513", "#1285"]
 causal_links: ["F20261015gali", "F20261015glfp", "F20261015gsub"]
 ---
+
+编号溯源：原 F20261015gwr1（2026-10-15 创建），2026-10-16 特性编号顺延（日期段 10/15→10/16，合入定稿按 F20260914prdb「定稿时改名为合入当天日期」，搭档指令「特性日期顺延到今日」）改为现号。
 
 # bash 守卫 P0：git 旗标词面判定词级化（#1514 fail-open 家族）
 
@@ -34,7 +36,7 @@ causal_links: ["F20261015gali", "F20261015glfp", "F20261015gsub"]
 1. **词级化而非再补正则**：gate 正则已修过三轮（S1 偶然命中、X1 旗标加宽、今次引号盲）——每次补一层漏一层（c107 教训的正则版）。词法层本就存在且归一引号/attached/转义，写族判定与落点解析全部改走词级（`gitWriteSubcommandHit` + `gitDashCTargetsWorktree` 词级化），**旧 GIT_WRITE_SUBCOMMAND 正则两侧退役**（同源镜像契约随共享词级真相源结构性治愈）。
 2. **严格/宽词表双语义如实分立**：prod gate 严格语义（push 排除 --dry-run/-n、stash 限 push、reset 限 --hard、clean 限 f 旗标——r2-C 基线原文）≠ 求值器 isWrite 宽词表（双签终版 2026-10-12：reset/clean/stash/pull 一律写族、落点判在上层）——此前「同源」注释掩盖了这处分歧（记档说一套代码做一套同族），现两词表分立命名 + 注释互指。
 3. **洗白面收窄到 P5 家族（corpus 棘轮教出的精确刀口）**：git 写族 + `dynamic-path`（git 调用自身参数动态——-c/-C 值可改写树发现，落点真不可证）不洗白；`cwd-unresolvable`/`parse-failed` 族维持词面证放行——**能力 4 既有语义 + 双签背书**（corpus 96a21f3c `pushd <wt> && git push -u origin <branch> && popd` 正面 ALLOW：pushd 不进 cd 跟踪是 Phase 1 设计内缺口，词面证是其既定兜底）。首版 wash-guard 过宽（全 reason 禁洗）被棘轮拦红——corpus 守恒闸是对的，收窄后棘轮精确复位。
-4. **严格 fail-closed 面**：--git-dir/--work-tree 覆盖、动态 -c 值、~ 前缀、worktrees 根自身一律不豁免（gitDashCTargetsWorktree 词级化后语义保持）；**core.worktree/core.bare/core.gitdir 配置改写树发现是净新增**（检视獭1519 建议 4 正名：18b0577a 基线零命中——旧正则对此无任何检查）——prod 侧不豁免 + wv 侧 fail-closed（F20261015gwr1 修复轮 建议 3 对称）。
+4. **严格 fail-closed 面**：--git-dir/--work-tree 覆盖、动态 -c 值、~ 前缀、worktrees 根自身一律不豁免（gitDashCTargetsWorktree 词级化后语义保持）；**core.worktree/core.bare/core.gitdir 配置改写树发现是净新增**（检视獭1519 建议 4 正名：18b0577a 基线零命中——旧正则对此无任何检查）——prod 侧不豁免 + wv 侧 fail-closed（F20261016gwr1 修复轮 建议 3 对称）。
 5. **known-gap 意外收获**：走查循环体 `i += 2; continue` 在 for 循环里被 i++ 追加推进（跳词过冲）——审查实证的低级陷阱，改 while 形态并注记「勿改 for」。
 
 ## 一审修复轮留痕（检视獭1519 request-changes + 大獭 16/10 09:46 裁决）
@@ -72,7 +74,7 @@ causal_links: ["F20261015gali", "F20261015glfp", "F20261015gsub"]
 - **残留 1 已修（lookAhead 越位扫参，本 PR 新引入）**：`lookAheadWriteSubcommand` 旧版从动态词后全量扫描，把参数词当子命令位——`git -C"$P" log -G push` wv BLOCK vs `git -C /repo log -G push` wv ALLOW（静动同形反判=本 PR 病核复发，误拦方向；gate 层被只读白名单盾住，风险面=wv 判词层）。修法：前瞻与主走查同构——旗标/取值旗标消费后停在**首个静态非旗标词位**就地判 write 即停（GIT_VALUE_FLAGS 两走查共享防漂移；**取值旗标必须吞值**——`git -c"$P" -C /repo commit` 的 /repo 是值不是子命令位，漏吞=新 fail-open，测试钉死）；红线 `git -C"$P" status` 照常放。
 - **残留 2 已修（wv bare stash 半边反判，pre-existing）**：`evalGitWrite` `rest[0] !== "push"` 把 bare `git stash`/旗标形（`stash -m x`）归非写（main-cwd 实测 bare→ALLOW/targets=[] vs push→BLOCK/targets=[/repo]）——prod 收 wv 不收=「只落一条链」同病族。修法：与 prod `isWriteVerbAt` 同口径（缺省/push/旗标形归写，显式 list/show 不写）；`git stash` ≡ `git stash push` 第四对不变量扩至 wv 侧（main-cwd 形态钉测试；工作区 cwd 写面归沙盒区 OTTER_RUNTIME_REGIONS 不判主仓写，另归 M-49a4909d 族）。
 - **残留 3 已立 issue #1522（不扩面）**：`git stash pop/apply/drop/clear` 双层放行（真写面漏判，pre-existing）——探针实证（pop/apply/drop/clear 双层 ALLOW vs push 双层 BLOCK）+ 根因三侧（isWriteVerbAt/evalGitWrite/白名单回落）+ 修复方向标假设，挂 M-026d87ff 伞旁。
-- **残留 4 已修（档案悬空引用）**：一审修复轮全部 `F20261016smrj` 引用（8 处）改指 F20261015gwr1 修复轮段——同一特性的修复轮不分裂档案（建议 4「记档不许留尾巴」同族）。
+- **残留 4 已修（档案悬空引用）**：一审修复轮全部 `F20261016smrj` 引用（8 处）改指 F20261016gwr1 修复轮段——同一特性的修复轮不分裂档案（建议 4「记档不许留尾巴」同族）。
 - **CI 转绿（终审前置）**：delta 轮 failure=「PR branch is behind main」（main 进 #1520/#1521 embedding 域零交集）→ rebase origin/main（c6593a61），零冲突。
 
 验证（本轮）：bash-guard-git-flag-wording 19→25 例（残留 1 放行/拦截/红线三例 + 残留 2 bare/旗标形/只读面三例）；全仓 `npx vitest run` 370 文件 **5729 passed + 6 skipped**（rebase 前，基线 5723 + 新 6）→ rebase 后 **5735 passed + 6 skipped**（main 带来 +6）双跑零回归、exam 棘轮无 GAP_DIFF；`npx eslint` 改动面零告警；`npx tsc --noEmit` 通过。
