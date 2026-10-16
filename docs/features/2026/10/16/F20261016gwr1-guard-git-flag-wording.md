@@ -4,7 +4,7 @@ title: bash 守卫 P0——git 旗标词面判定词级化（引号含空格/att
 summary: GIT_WRITE_SUBCOMMAND 正则 \S+ 词面对 `git -C "/x y" commit`（引号含空格）/`git -C/x`（attached）/`git -c \`echo /repo\` commit`（反引号）整体失明=写族判定 fail-open（#1514/M-46f0e74d 实证）——写族判定/落点解析词级化（词法层归一），旧正则两侧退役；wv 侧 attached 值回收 + git 写族 dynamic-path 不洗白（词面证盲点收窄），corpus 棘轮零新增缺口
 type: BugFix
 date: 2026-10-16
-capability_test: "n/a: 守卫判定解析基座修正，验证走单测（bash-guard-git-flag-wording 11 例）+ 全量回归 + corpus 棘轮精确复位"
+capability_test: "n/a: 守卫判定解析基座修正，验证走单测（bash-guard-git-flag-wording 25 例）+ 全量回归 + corpus 棘轮精确复位"
 intent:
   problem: "M-46f0e74d/#1514：git 写族判定门（GIT_WRITE_SUBCOMMAND 正则）的 \\S+ 词面解析对引号含空格路径/attached 旗标/反引号动态值三形态整体失明——`git -C \"/repo/<含空格>\" commit` 类真写主仓双层漏（prod gate 盲 + wv attached 值丢失回落 cwd 洗白 + 动态 -c 载荷被词面证洗白）；检视獭1518 建议 3 补强的反引号构造双层全漏同族"
   expected_effect: "三形态写族判定归位：prod 拦（正道豁免仍可用——worktree 落点引号/attached 感知）、wv 正判落点证据（引号归一/attached 值回收）；反引号/动态 -c 载荷 wv fail-closed（dynamic-path 不洗白）；push --dry-run/stash push 等严格语义与 r2-C 基线一致；空格形态与无空格形态判词一致（病核=同语义两形态反判）"
