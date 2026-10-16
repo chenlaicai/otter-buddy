@@ -248,3 +248,48 @@ causal_links:
 - mahjong-utils 离线安装：npmmirror 缓存命中 `mahjong-utils@0.7.7`（空壳依赖包）+ `mahjong-utils-entry@0.7.7`（真身，Kotlin→JS bundle）；`--no-save` 临时装，未入 package.json。oracle 动态入口 `call(method, json)`，HoraArgs 字段为 `agari`(单张)/`tsumo`/`tiles`(单张字符串数组)/`dora`(**番数整数不是指示牌数组**)/`selfWind`/`roundWind`(枚举名 `East`/`West`/`South`/`North`)。
 - 曾疑裁判 shanten/decompose 缺字牌顺子（`kind < 27` 限定 decompose.ts:114）——**自查撤回**：字牌不可构成顺子为各玩法通用规则，裁判与 oracle 判「非和了形」均正确，探针期望标错，无缺陷。
 - oracle 另实测：连风雀头双风判役为 0（仅符）、切上满贯默认关（hasKiriageMangan=false，同雀魂）、kiriage/aotenjou 选项口径与裁判 ScoreOptions 默认值一致。
+
+## 实现记录（Engine 层，2026-10-16，麻将引擎獭）
+
+**范围**：`src/usecases/mahjong/engine/`（状态机+代理）+ `src/usecases/mahjong/room/`（落帧/适配/编排）+ `src/interface-adapters/http/controllers/mahjong-controller.ts` + router/bootstrap 装配 + `mahjong_games`/`mahjong_frames` 新表。逐模块提交（每模块一 commit）：
+
+| commit | 模块 |
+|---|---|
+| 4bf29d43 | 六项口径核实冻结（见上节） |
+| 1beaf78a | 引擎骨架：types.ts 单帧快照模型 + rng.ts 种子洗牌 |
+| 835c94a8 | 状态机主体（配牌→摸打→副露窗口→立直→和了/流局）+ 剧本测试 5 例 |
+| 902d46f5 | 规则代理 + 节流阀判定 + 路径覆盖测试 9 例 |
+| 66136d44 | sqlite 落帧（新表+哈希链+恢复往返）+ 测试 3 例 |
+| 646a568c | 獭调度适配 + 房间编排 + 测试 11 例 |
+| 1e2f0b23 | Hono 八端点 + SSE + bootstrap 装配 + API 集成测试 2 例 |
+
+引擎层测试合计 30 例（engine 5 / proxy+覆盖 9 / frames 3 / room+adapter 11 / API 2，另 0 例属口径探针已删）；动作合法性全部委托裁判层，引擎零规则实现。
+
+**页面獭接口面（/api/mahjong，Hono JSON+SSE）**：
+
+- `POST /api/mahjong/rooms` 建房即开局：`{roomId?, seed?, players:[{kind:"human"|"otter"|"proxy", name, otterId?}×3]}` → 201 `{roomId, gameId, seed, status}`（players 校验失败 400，房间已存在 409）
+- `POST /api/mahjong/rooms/:roomId/join` `{seat:0|1|2}` → 该座私有视图（手牌可见）；他人座 `hand:null`
+- `POST /api/mahjong/rooms/:roomId/start` 幂等开局回执（未知房尝试 recover，仍无 → 404）
+- `POST /api/mahjong/rooms/:roomId/actions` `{seat, action}` 真人动作注入 → `{accepted, view}`；非停驻位/非该座 → 400（action 必须逐字来自 decision.actions）
+- `GET /api/mahjong/rooms/:roomId/view?seat=` 视图（无 `seat` = 观战全览含三家手牌）。视图字段：`{roomId, gameId, status, roundNo, honba, sticks, dealer, phase, seatWinds, wallRemaining, doraIndicators, players[3]{seat,name,kind,points,hand|null,melds[{type,tiles,from}],kita,discards,riichi,riichiTurn,ippatsu}, decision{kind:"turn"|"claim",seat,actions[],drawn?,claim?{discardSeat,discardTile}}|null, awaitingHuman{seat,deadline}|null, settlement}`
+- `GET /api/mahjong/rooms/:roomId/frames` 复盘：`{count, chainOk, brokenAt, frames[{seq,action,prevHash,hash,createdAt}]}`；`?state=1` 每帧附全量 `state` 快照
+- `GET /api/mahjong/rooms/:roomId/events` SSE：`text/event-stream`，首帧 `{"type":"hello",roomId,gameId}`，其后 `data:` 推送 `RoomEvent`——`game`（`{events[], decision, frameSeq, wake{via:"trivial"|"proxy"|"otter"|"fallback"|"human"|"timeout-fallback", speech?, fallbackReason?, attempts?}}`）/ `human-wait{seat,deadline}` / `error{message}`；15s `: ping` 心跳
+- `POST /api/mahjong/rooms/:roomId/recover` 断线恢复：最新帧还原 + 续推（无库内房间 → 404）
+
+**关键实现决策**：
+
+1. **唤醒路径（S1/S2）**：`SdkOtterGateway` 直调 `SdkInvokePort.invoke(otterId, prompt)`，**不带 conversationId**（纯 session，不落对话 entry）。失败链：解析/非法/异常/超时 → 携反馈重试 1 次 → 规则代理兜底（`fallbackReason` 广播留痕）。超时默认 90s。
+2. **方案 delta（实现期发现，留痕供审视）**：方案「Invoke 前调 `acquireSessionLock`（sdk-invoke-port.ts:112）」不可执行——`PiSessionFactory.invoke()` 内部已取同键 per-otter 锁（pi-session-factory.ts:712 invoke 带锁、:690 acquireSessionLock 同 `session:${otterId}`），外层再取同键锁 = 嵌套等待 → 每次唤醒悬挂至超时。**以实现为准不在外层取锁**，串行化由端口 invoke 自带锁保证。
+3. **节流阀（方案 S3）**：`isTrivialDecision` = 回合无特殊动作（和/立直/杠/拔北/九种九牌/副露窗）且代理结论 = 摸切 → 直接执行不唤醒；`proxy` 座位任何回合均直接代理（经由分流修复，不进唤醒）。
+4. **落帧**：每步动作后全量快照入 `mahjong_frames`，`hash = sha256(prev_hash ∥ seq ∥ action_json ∥ state_json)`（基于库内存储串重算，恢复/复盘重算一致）；`verifyChain` 定位篡改帧号。恢复 = `restoreEngine(最新帧.state)` 逐字节等价（测试断言）+ 续推。
+5. **口径实现注记（均非 oracle 可核实项，沿「实现记录·口径核实」表结论执行）**：拔北补牌从活山取（雀魂实盘待对照）；三麻本场荣和 +200×本场、自摸每家 +100×本场（结构对称推定，置信度中）；双响供托均分；包牌（大三元/大四喜）仅荣和且全部刻子由打出牌完成才有包牌人（取最后完成者）；立直后不提供拔北（引擎口径）；王牌固定布局 `[0..3]岭上 [4..8]表宝牌([4]初始) [9..13]里宝牌`。
+6. **副露窗口**：候选家按离打出者近者先问、全员答完裁决；和 > 碰/杠（ron 胜 pon 不受座位序影响）、双响允许；加杠先开枪杠调查窗（全员过才落杠）。四杠散了在「第 4 杠后首次无人和的打牌」触发（岭上和了/枪杠/荣和优先，条款函数仍全在裁判层）。
+7. **立直/一发/同巡振听时序**：一发在任何鸣牌（含自家杠）与自己下一次打牌时清除；同巡振听在自己摸牌清除（仅立直者，裁判 hasTempFuriten 口径）；食替经 `canDiscard(justCalled)` 全权过滤。
+
+**已知缺口/待办（引擎层）**：
+
+1. **无外网联调**：无 conversationId 的 SDK 直调运行时行为（签名可选、未实测）与真獭唤醒全链路（mock 已测解析/重试/兜底）待有网环境联调；雀魂口径实盘对照（1 万指示牌宝牌/三风连打含北/拔北补牌源/本场荣和 200）同待实盘。
+2. **暗杠 vs 对手立直的跨家约束**：引擎未加额外守卫，全权委托 `canCall`——若裁判层对「立直者等待形不变」类约束有缺口，属裁判层裁决范围（引擎不越权改规则）。
+3. **静态页挂载**：`GET /mahjong/:roomId` 页面静态资源不在本层（web-mahjong/ 属页面层）；JSON/SSE 已就绪。
+4. **局终形态**：东风战 4 局毕即终局（无连庄延长/突破协议）；包牌细则为简化版（见决策 5）；观战帧端点无鉴权（内网单机假设，随 web 面统一收口）。
+5. oracle 曾发现 kazoe 阶梯与 mahjong-utils 分叉（见上节）——若雀魂实盘推翻累计阶梯口径，改动点在裁判 `points.ts`，非引擎。
