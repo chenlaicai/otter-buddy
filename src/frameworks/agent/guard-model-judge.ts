@@ -17,7 +17,7 @@
  *   词样字面量、$VAR 传参（r1-S3 口径由模型层继承）
  * - 白名单外零变化（V1 234 用例锁定——精确表述，避免全量宣称）
  */
-/* eslint-disable max-statements, complexity, max-depth, max-params, max-lines -- 判定层承载 V1 全量规则 + V2 白名单新拦 + r1 五项处置，450 行与规则密度本质冲突 */
+/* eslint-disable max-statements, complexity, max-params, max-lines -- 判定层承载 V1 全量规则 + V2 白名单新拦 + r1 五项处置，450 行与规则密度本质冲突（max-depth 已随 F20261016syml cdSegmentStaticTarget 抽取退役） */
 
 import type { Logger } from "@usecases/ports/logger";
 import type { CommandModel, Segment, Payload } from "./command-model";
@@ -660,9 +660,20 @@ export { loadAllowedServicePorts };
  *  cd 豁免（管道右段在子进程、分号段继承 cwd——shell 语义）。
  *  cd 目标可静态求值且非主仓 → 豁免；目标含展开不可求值 → 不豁免（保守，与 V1
  *  「引号假 cd 不豁免」同向）。 */
-export function modelCdExemption(command: string, v1Fallback: (c: string) => boolean): boolean {
+export function modelCdExemption(command: string, v1Fallback: (c: string) => boolean, targetVeto?: (target: string) => boolean): boolean {
   const model = parseOnce(command);
   if (!model.parseOk) return v1Fallback(command); // 解析失败回 V1 判定（保守侧一致）
+  // F20261016syml（M-ed285d7c）：显式意图豁免只在「声明形态=真实落点」时成立——链上
+  // 任一 cd 目标经 symlink 撒谎（字面形态与真实落点归类分歧）即整体不豁免，落严格
+  // 通道按真实落点判（诚实 cd 主仓照旧豁免——探针实证显式意图边界不动）。预扫覆盖
+  // 整条链（含首 cd 授予短路看不见的后段 cd）。
+  if (targetVeto) {
+    for (const seg of model.segments) {
+      if (effectiveCommandOfSegment(seg) !== "cd") continue;
+      const t = cdSegmentStaticTarget(seg, model);
+      if (t !== null && targetVeto(t)) return false;
+    }
+  }
   // 找首段链上的 cd：从段 0 开始沿 && 链前进，遇 cd 则解析目标；遇非 cd 命令段则停。
   // 关键 shell 语义（V1 行为保持）：cd 段自己被 & 后台化或 | 管道化时，cd 只影响
   // 子 shell——父 shell cwd 不变，后续段落主仓 → 不豁免。判定：cd 段的「下游
@@ -685,27 +696,34 @@ export function modelCdExemption(command: string, v1Fallback: (c: string) => boo
       if (nextJoiner === "&" || nextJoiner === "|") return false;
       // cd 目标求值：静态词直接用；单变量引用 → 同命令赋值段溯源（F20260924gfpn #5：
       // W=/repo; cd $W && git commit 的 $W 溯源到赋值）；多次赋值只认最后一次（#918）
-      const targetWord = seg.words[1];
-      let target = targetWord?.evaluated ?? null;
-      if (target === null && targetWord && targetWord.parts[0]?.type === "var"
-          && targetWord.parts.slice(1).every(p => p.type === "lit" || p.type === "escape")) {
-        // 首 part 变量 + 尾部静态拼接（$W/.otter/worktrees/x）：溯源赋值后拼接尾部
-        const varName = /^\$\{?([A-Za-z_]\w*)/.exec(targetWord.parts[0].text)?.[1];
-        if (varName) {
-          const assigns = model.segments.flatMap(s => s.assignments).filter(a => a.name === varName && a.value !== null && a.value !== "");
-          if (assigns.length > 0) {
-            const tail = targetWord.parts.slice(1).map(p => p.type === "escape" ? (p.text.length === 2 ? p.text[1] : "") : p.text).join("");
-            target = assigns[assigns.length - 1].value! + tail;
-          }
-        }
-      }
-      // 溯源后仍含展开（$/…）→ 不可静态求值 → 不豁免（保守）
-      if (target !== null && target !== "" && target !== "." && !/[$`]/.test(target)) return true;
+      const target = cdSegmentStaticTarget(seg, model);
+      if (target !== null) return true;
       return false;
     }
     break; // 非 cd 命令段 → 无豁免
   }
   return false;
+}
+
+/** cd 段静态目标求值（F20261016syml 抽出共用）：静态词直接用；单变量引用 →
+ *  同命令赋值段溯源（F20260924gfpn #5：W=/repo; cd $W 的 $W 溯源到赋值）；多次
+ *  赋值只认最后一次（#918）；首 part 变量 + 尾部静态拼接溯源后拼接尾部。
+ *  溯源后仍含展开（$/…）或非平凡目标（空/.）→ null（不可静态求值，保守不豁免）。 */
+function cdSegmentStaticTarget(seg: Segment, model: { segments: Segment[] }): string | null {
+  const targetWord = seg.words[1];
+  let target = targetWord?.evaluated ?? null;
+  if (target === null && targetWord && targetWord.parts[0]?.type === "var"
+      && targetWord.parts.slice(1).every(p => p.type === "lit" || p.type === "escape")) {
+    const varName = /^\$\{?([A-Za-z_]\w*)/.exec(targetWord.parts[0].text)?.[1];
+    if (varName) {
+      const assigns = model.segments.flatMap(s => s.assignments).filter(a => a.name === varName && a.value !== null && a.value !== "");
+      if (assigns.length > 0) {
+        const tail = targetWord.parts.slice(1).map(p => p.type === "escape" ? (p.text.length === 2 ? p.text[1] : "") : p.text).join("");
+        target = assigns[assigns.length - 1].value! + tail;
+      }
+    }
+  }
+  return target !== null && target !== "" && target !== "." && !/[$`]/.test(target) ? target : null;
 }
 
 /** 段的裸命令名（剥 wrapper），供 cd 链判定 */

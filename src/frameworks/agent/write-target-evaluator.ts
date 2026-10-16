@@ -40,6 +40,7 @@
  * 求值纯判定：除牙3 缺席证明的 fs stat 只读查询（fsAbsentPlan，delta2 修法）外无 IO、无状态、不写任何存储（机制识别检查点：只读 fs 查询已记档特性文档）。
  */
 import { statSync } from "node:fs";
+import { safeRealpath } from "./fs-realpath";
 import path from "node:path";
 import { parseOnce, SHELL_INTERPRETERS, type CommandModel, type Segment } from "./command-model";
 import { proveNoWrite, DYNAMIC_IMPORT_FACE, openCallUnknownMode, payloadWriteFaceHit, SCRIPT_EXEC_FACE, dotExecCommandHits, classifyOpenModeArg } from "./write-word-face";
@@ -125,10 +126,17 @@ function bareName(argv0: string | null): string | null {
 //  fail-closed 不受本区影响（block 池 attack-rename-channel.sh 等残余面仍如实钉 BLOCK）。
 const OTTER_RUNTIME_REGIONS = ["/.otter/worktrees/", "/.otter/workforms", "/data/workspaces/"];
 export function pathWithinMain(absPath: string, projectRoot: string): boolean {
-  const p = normalizePath(absPath);
-  const root = normalizePath(projectRoot);
+  // F20261016syml（M-ed285d7c）：symlink 穿透归一——字符串落点在运行时区但真实落点在
+  //  主仓内容树的穿链形态（ln -s + 写/删穿链）在此收口；区基同 realpath 后按原 region
+  //  尾杠形态重建前缀（裸区目录名豁免语义逐字保持：带尾杠=仅子树，不带=含裸名——
+  //  M-cf899ad2 口径之争不受本刀影响）。
+  const p = normalizePath(safeRealpath(absPath));
+  const rootNorm = normalizePath(projectRoot);
+  const root = normalizePath(safeRealpath(rootNorm));
   for (const region of OTTER_RUNTIME_REGIONS) {
-    if (p.startsWith(`${root}${region}`)) return false;
+    const regionBase = normalizePath(safeRealpath(rootNorm + region.replace(/\/+$/, "")));
+    const prefix = region.endsWith("/") ? `${regionBase}/` : regionBase;
+    if (p.startsWith(prefix)) return false;
   }
   if (p === root) return true;
   return p.startsWith(root.endsWith("/") ? root : `${root}/`);

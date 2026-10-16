@@ -28,6 +28,7 @@ import { checkWithModel, modelParseOk, modelCdExemption } from "./guard-model-ju
 import { parseOnce } from "./command-model";
 import type { Segment } from "./command-model";
 import { extractGitAliasShell, gitWriteSubcommandHit } from "./payload-extract-aux";
+import { safeRealpath, safeRealpathParent } from "./fs-realpath";
 
 export type { AllowedService };
 
@@ -406,26 +407,34 @@ function classifyDestructiveTarget(target: string, cwd: string, projectRoot?: st
   if (!stripped) return null;
   // 相对路径且 cwd 不可知（cd ~ 后）-> 静态无法解析，保守拦截
   if (!path.isAbsolute(stripped) && !cwd) return "data";
-  const resolved = path.isAbsolute(stripped)
+  const resolvedRaw = path.isAbsolute(stripped)
     ? path.normalize(stripped)
     : path.normalize(path.resolve(cwd, stripped));
-  const rootLower = path.normalize(projectRoot).toLowerCase();
+  // F20261016syml（M-ed285d7c）：symlink 穿透归一——默认末分量不穿链（unlink/rename
+  //  语义：rm <link> 删链本体无害放行；link 作父目录时由 dirname 侧穿链收口）；原目标
+  //  带尾杠/glob（操作发生在链内，如 rm link/* 删进真实目录）时全穿链。
+  const actsInside = target !== stripped;
+  const resolved = actsInside ? safeRealpath(resolvedRaw) : safeRealpathParent(resolvedRaw);
+  const rootLower = path.normalize(safeRealpath(projectRoot)).toLowerCase();
   const resolvedLower = resolved.toLowerCase();
   // F20261014cwsp S2/S8 处置：仅豁免**本会话工作区子树**（sessionCwd 归一化后前缀）——
   // 清自己工作区缓存放行（10/14 三连误拦实证）；整树豁免是越权面（round-2 S8）。
   // 无 sessionCwd 不豁免——守旧行为。
   if (sessionCwd && path.isAbsolute(sessionCwd)) {
-    const ownWs = path.normalize(sessionCwd).toLowerCase();
+    const ownWs = path.normalize(safeRealpath(sessionCwd)).toLowerCase();
     if (resolvedLower === ownWs || resolvedLower.startsWith(ownWs + path.sep)) return null;
   }
-  const dataRootLower = path.normalize(path.join(projectRoot, "data")).toLowerCase();
+  const dataRootLower = path.normalize(safeRealpath(path.join(projectRoot, "data"))).toLowerCase();
   if (resolvedLower === dataRootLower || resolvedLower.startsWith(dataRootLower + path.sep)) return "data";
   // F20261016gdfv（M-c78df9d4）：主仓内容树补齐——X1/X2 反判的 prod 侧缺口（rm -rf 主仓根
   //  曾漏拦）。与 wv pathWithinMain 同口径豁免运行时区（OTTER_RUNTIME_REGIONS 三区）——
   //  worktree 清理/工作区操作照常放；边界同 wv（精确子树前缀，裸区目录名不豁免）。
   if (resolvedLower === rootLower || resolvedLower.startsWith(rootLower + path.sep)) {
     for (const region of ["/.otter/worktrees/", "/.otter/workforms", "/data/workspaces/"]) {
-      if (resolvedLower.startsWith(rootLower + region.toLowerCase())) return null;
+      // F20261016syml：区基同 realpath，尾杠形态逐字保持（带尾杠=仅子树，不带=含裸名）
+      const regionBase = path.normalize(safeRealpath(projectRoot + region.replace(/\/+$/, ""))).toLowerCase();
+      const prefix = region.endsWith("/") ? regionBase + path.sep : regionBase;
+      if (resolvedLower.startsWith(prefix)) return null;
     }
     return "mainTree";
   }
@@ -1145,8 +1154,11 @@ function gitDashCTargetsWorktree(gseg: Segment, projectRoot?: string, sessionCwd
     break; // 子命令位——后续词是子命令参数非 git 全局旗标
   }
   if (!hasC || base === null) return false;
-  const wtRoot = path.normalize(path.join(projectRoot, ".otter/worktrees"));
-  const rel = path.relative(wtRoot, base);
+  // F20261016syml（M-ed285d7c）：-C 目标 symlink 穿透归一——git -C <link>（链进主仓内容）
+  //  不得因字符串形态在 worktrees 下沉层而豁免。
+  const wtRoot = safeRealpath(path.normalize(path.join(projectRoot, ".otter/worktrees")));
+  const realBase = safeRealpath(base);
+  const rel = path.relative(wtRoot, realBase);
   // worktrees 根自身不豁免（上溯发现主仓 .git = 写主仓树）；必须是 <name>[/…] 下沉层
   return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
 }
@@ -1797,9 +1809,23 @@ function hasRealCdSegment(command: string): boolean {
  *  主仓内 src/data/workspaces 之类的同名嵌套路径不匹配（G1 对照组）。 */
 const MAIN_CHECKOUT_WRITE_EXEMPT_REGIONS = ["data/workspaces", ".otter/worktrees", ".otter/workforms"] as const;
 
-function isInsideMainCheckout(target: string, projectRoot: string): boolean {
+/** 字符串形态归类（不做 realpath）——F20261016syml 撒谎形态分歧对比的基准侧。 */
+function isInsideMainCheckoutRaw(target: string, projectRoot: string): boolean {
   const r = path.normalize(projectRoot).toLowerCase();
   const t = path.normalize(target).toLowerCase();
+  if (!(t === r || t.startsWith(r + path.sep))) return false;
+  for (const region of MAIN_CHECKOUT_WRITE_EXEMPT_REGIONS) {
+    const regionAbs = path.normalize(path.join(projectRoot, region)).toLowerCase();
+    if (t === regionAbs || t.startsWith(regionAbs + path.sep)) return false;
+  }
+  return true;
+}
+
+function isInsideMainCheckout(target: string, projectRoot: string): boolean {
+  // F20261016syml（M-ed285d7c）：symlink 穿透归一——写穿链（echo > <link>/f）真实落点
+  //  判主仓；区基同 realpath（.otter/worktrees 本身是链时豁免面不塌）。
+  const r = path.normalize(safeRealpath(projectRoot)).toLowerCase();
+  const t = path.normalize(safeRealpath(target)).toLowerCase();
   if (!(t === r || t.startsWith(r + path.sep))) return false;
   // F20261016grdl 1a'：排除区下沉到基元——此前豁免以「通道×形态」散落修补
   // （redirect 相对路径 :2015 / 相对路径写 :2025 / git -C :1044），绝对路径形态
@@ -1807,10 +1833,17 @@ function isInsideMainCheckout(target: string, projectRoot: string): boolean {
   // （G1 归因报告族 A：healing 043bb7e9/2828e798/0765e2e7/bc49f605）。
   // 基元级下沉 = 三通道（redirect/字面/one-liner 锚）一次继承豁免。
   for (const region of MAIN_CHECKOUT_WRITE_EXEMPT_REGIONS) {
-    const regionAbs = path.normalize(path.join(projectRoot, region)).toLowerCase();
+    const regionAbs = path.normalize(safeRealpath(path.join(projectRoot, region))).toLowerCase();
     if (t === regionAbs || t.startsWith(regionAbs + path.sep)) return false;
   }
   return true;
+}
+
+/** F20261016syml：cd 目标撒谎形态判定——字符串形态归类与真实落点归类分歧
+ *  （字面在运行时区/区外而真身落主仓内容树，或反向）时禁发显式意图豁免，落严格
+ *  通道按真实落点判。同归类不杀（macOS /tmp→/private/tmp 等无辜链不误伤）。 */
+function cdFormDiverges(target: string, projectRoot: string): boolean {
+  return isInsideMainCheckoutRaw(target, projectRoot) !== isInsideMainCheckout(target, projectRoot);
 }
 
 /** #1240（F20261006c1240）：heredoc 解释器判定（负门专用，python/node 双族）。
@@ -2002,6 +2035,15 @@ function onelinerAbsPathsOutsideMain(command: string, projectRoot: string): bool
  */
 function segmentCdTarget(command: string, projectRoot: string): string | null {
   const segs = command.split(/\n|&&|\|\||;|&(?=&)|\|(?=\|)/).map(s => s.trim()).filter(Boolean);
+  // F20261016syml：撒谎 cd 一票否决——链上任一 cd 目标形态与真实落点分歧 → 整链不锚定
+  // （诚实主仓 cd 照旧 continue——显式意图边界不动）。预扫覆盖全链（含首 cd 早返后的段）。
+  for (const seg of segs) {
+    const lm = /^cd\s+(?!\.\.?(?:\/|\s|$))(\S+)\s*$/.exec(seg);
+    if (!lm) continue;
+    const lt = lm[1].replace(/^[ '"]|[ '"]$/g, "");
+    if (!lt.startsWith("/") || /[$`]/.test(lt)) continue;
+    if (cdFormDiverges(path.normalize(lt), projectRoot)) return null;
+  }
   for (let i = 0; i < segs.length; i++) {
     // 排除 . / .. 相对 cd（不改变到已知绝对落点）——负向先行锚段首，路径内 . 不误伤
     const m = /^cd\s+(?!\.\.?(?:\/|\s|$))(\S+)\s*$/.exec(segs[i]);
@@ -2167,7 +2209,7 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   // #1170 根治：模型版 cd 豁免——管道/分号不再杀死豁免（`cd wt && git commit | tail` 放行）
   // #1240（F20261006c1240）：cd 豁免加负门——python/node heredoc 体含绝对路径落主仓时不豁免，
   // 防止 `cd /tmp && python3 - <<'PY'…open('<repo>/…','w')…PY` 顶层豁免放行逃逸。
-  if (modelCdExemption(command, hasRealCdSegment)) return cdExemptionWithVeto(command, logger, { projectRoot, sessionCwd });
+  if (modelCdExemption(command, hasRealCdSegment, (t) => cdFormDiverges(path.normalize(t), projectRoot))) return cdExemptionWithVeto(command, logger, { projectRoot, sessionCwd });
   // F20260924gfpn：git 写族字面判定先于只读白名单——写族正则
   // （merge(?!-) 负向断言后）在命令文本上跑，命中即拦；`git stash push` 的 push 在写族
   // 正则内，先于白名单命中，杜绝 stash 白名单词被显式写子命令借壳。
