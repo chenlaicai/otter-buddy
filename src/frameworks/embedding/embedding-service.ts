@@ -1,9 +1,16 @@
 /**
- * Embedding 服务主线程：通过 Worker Thread 调用 bge-m3 模型。
+ * Embedding 服务主线程：通过 child_process.fork 调用 bge-m3 模型子进程。
  * 实现 EmbeddingGateway 接口，dispose() 通过工厂返回值暴露。
+ *
+ * F20261015kill：worker_threads → child_process 进程隔离。
+ * 根因（2026-10-15 21:22 进程 abort 实锤）：F20261015selfheal 的
+ * oldWorker.terminate() 拆 isolate 时，onnxruntime InferenceSession
+ * 方法回调抛 Napi::Error，ThrowAsJavaScriptException 在 teardown 路径
+ * 退化成 C++ 异常 → std::terminate → 打死整个主进程。
+ * 子进程 SIGKILL 不触发 N-API teardown，原生死只带走自己。
  */
 
-import { Worker } from "worker_threads";
+import { fork, type ChildProcess } from "child_process";
 import os from "node:os";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -21,7 +28,7 @@ interface EmbeddingConfig {
   /** worker 脚本路径覆盖（测试用），默认本模块同目录的 bge-m3-worker.js */
   workerPath?: string;
   /**
-   * worker 线程的 execArgv 覆盖。默认继承 process.execArgv——
+   * worker 子进程的 execArgv 覆盖。默认继承 process.execArgv——
    * vitest 等宿主注入的 --conditions development 会让 worker 内 @huggingface/transformers
    * 解析到非生产构建导致推理挂起，测试环境必须显式传 []。
    */
@@ -29,7 +36,7 @@ interface EmbeddingConfig {
 }
 
 /** F20261015selfheal：worker 工厂——timeout 自愈重建 worker 时需要重新 spawn，注入以保测试可 mock */
-type WorkerFactory = () => Worker;
+type WorkerFactory = () => ChildProcess;
 
 interface EmbedRequest {
   type: "embed";
@@ -37,9 +44,9 @@ interface EmbedRequest {
   id: number;
 }
 
-/** F20261013ebps：批量 embed 请求——一次 postMessage 传多条文本，
+/** F20261013ebps：批量 embed 请求——一次 send 传多条文本，
  *  worker 端 pipeline 原生支持数组输入（batch 推理共享权重加载/分词开销），
- *  吞吐从 1条/500ms 提升到 N条/~N×500ms（接近线性），同时减少 postMessage 往返次数。 */
+ *  吞吐从 1条/500ms 提升到 N条/~N×500ms（接近线性），同时减少 IPC 往返次数。 */
 interface EmbedBatchRequest {
   type: "embed-batch";
   texts: string[];
@@ -87,7 +94,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   private static readonly EMBED_TIMEOUT_MS = 30_000;
   /**
    * F20261013ebps：in-flight 上限——pendingRequests 满时新 embed 直接 reject，
-   * 不 postMessage 到 worker（防 document sync 等批量场景瞬间打满 worker 消息队列，
+   * 不 send 到 worker（防 document sync 等批量场景瞬间打满 worker 消息队列，
    * 后续请求全部排队超时——#1453 实证：3269 条 chunk embed 淹没 worker，27min 排不完）。
    * 超出上限的请求由调用方 catch 后入 retry 队列，不丢失。
    *
@@ -108,15 +115,25 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   /**
    * F20261015selfheal：embed 超时自愈——onnxruntime 1.23.2 在 Intel x86 mac 上存在偶发
    * ThreadPool lost-wakeup 竞态（#1453/#1460 实证：worker 推理卡死永不返回，主线程超时后
-   * 只清 pending，已 postMessage 的消息堆积在假死 worker 队列造成 ~1GB/h 泄漏）。
-   * 应用层无法修复原生竞态，唯一可行的恢复手段是 terminate 整个 worker 销毁其 ThreadPool
+   * 只清 pending，已 send 的消息堆积在假死 worker 队列造成 ~1GB/h 泄漏）。
+   * 应用层无法修复原生竞态，唯一可行的恢复手段是杀掉假死进程销毁其 ThreadPool
    * 上下文后重建。熔断防风暴：窗口内重启次数超限则降级（available=false），避免无限重建。
+   *
+   * F20261015kill：恢复手段从 worker.terminate() 改为 child.kill('SIGKILL')——
+   * terminate 拆 isolate 触发 Napi::Error 未捕获 C++ 异常 abort 主进程。
    */
   private static readonly RESTART_WINDOW_MS = 300_000; // 5min
   private static readonly RESTART_MAX_IN_WINDOW = 3;
   private restartTimestamps: number[] = [];
   /** 熔断状态：true 时 waitForReady 拒绝，embedding 降级 FTS5-only */
   private circuitBroken = false;
+
+  /**
+   * F20261015kill：worker 代际号——重建时递增，旧 worker 的事件回调因代际不匹配被丢弃，
+   * 防止 kill/exit 滞后事件污染新一代 readyState（原 handleWorkerExit 会把
+   * ready 打回 false + rejectAllPending，把刚 ready 的新 worker 一并打死）。
+   */
+  private workerGeneration = 0;
 
   /**
    * F20261015selfheal 观测增强（搭档要求：不能把锅推给「生产环境无法复现」，
@@ -128,7 +145,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   private workerEmbedTimeouts = 0; // 本代 worker embed 超时次数（检视 #1493 delta 观察 1：原名 attempted 只计超时，名实不符）
   /** 最近一次触发超时的请求画像（定位「是否特定文本模式触发嵌套算子」） */
   private lastTimeoutContext: Record<string, unknown> | null = null;
-  
+
   /** 设置测试用超时覆盖（仅测试环境） */
   static setTestTimeoutOverride(ms: number | null): void {
     EmbeddingServiceImpl.testTimeoutOverride = ms;
@@ -144,7 +161,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   }
 
   constructor(
-    private worker: Worker,
+    private worker: ChildProcess,
     private readonly logger: Logger,
     private readonly workerFactory?: WorkerFactory,
   ) {
@@ -152,15 +169,27 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   }
 
   private setupHandlers(): void {
-    this.worker.on("message", (msg: EmbedResponse) => this.handleWorkerMessage(msg));
-    this.worker.on("error", (err: Error) => this.handleWorkerError(err));
-    this.worker.on("exit", (code: number) => this.handleWorkerExit(code));
+    // F20261015kill：捕获当前代际，旧 worker 滞后事件直接丢弃
+    const generation = this.workerGeneration;
+    this.worker.on("message", (msg: EmbedResponse) => {
+      if (generation !== this.workerGeneration) return;
+      this.handleWorkerMessage(msg);
+    });
+    this.worker.on("error", (err: Error) => {
+      if (generation !== this.workerGeneration) return;
+      this.handleWorkerError(err);
+    });
+    this.worker.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
+      if (generation !== this.workerGeneration) return;
+      this.handleWorkerExit(code, signal);
+    });
   }
 
   /**
-   * F20261015selfheal：embed 超时后的自愈入口——terminate 假死 worker 并重建。
-   * terminate 会销毁 worker 的 MessagePort 队列（已 postMessage 的滞留消息随之一并清空，
-   * 这是 #1460 泄漏的唯一有效堵漏手段——假死 worker 收不到任何 flush 指令）。
+   * F20261015selfheal：embed 超时后的自愈入口——SIGKILL 假死 worker 并重建。
+   * SIGKILL 会销毁 worker 的整个进程（含 onnxruntime ThreadPool + IPC 队列，
+   * 已 send 的滞留消息随之一并清空——这是 #1460 泄漏的唯一有效堵漏手段，
+   * 假死 worker 收不到任何 flush 指令）。
    * 重建后的 worker 重新加载模型，期间 embed 请求在 waitForReady 挂起至 ready。
    */
   private restartWorker(reason: string): void {
@@ -180,8 +209,28 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       return;
     }
 
-    // terminate 旧 worker（销毁 ThreadPool + 清空消息队列），重建新 worker
+    this.killAndResetOldWorker(reason);
+
+    this.worker = this.workerFactory();
+    this.setupHandlers();
+    // F20261015selfheal 观测增强：新代 worker 画像归零
+    this.workerBornAt = Date.now();
+    this.workerEmbedSucceeded = 0;
+    this.workerEmbedTimeouts = 0;
+    this.lastTimeoutContext = null;
+  }
+
+  /**
+   * F20261015kill：摘旧 worker 监听器 + SIGKILL + 重置服务态（从 restartWorker 拆出，压 max-statements）。
+   * 先摘监听器再 kill——防止 exit/error 滞后回调把新 worker 的 readyState 打回未就绪。
+   * SIGKILL 不跑析构/N-API teardown（terminate 在此路径抛 Napi::Error abort 主进程）。
+   */
+  private killAndResetOldWorker(reason: string): void {
     const oldWorker = this.worker;
+    this.workerGeneration++;
+    oldWorker.removeAllListeners();
+    oldWorker.kill("SIGKILL");
+
     this.cachedMeta = null;
     this.readyState.ready = false;
     this.readyState.loadError = null; // 重建是恢复动作，清掉旧 loadError 让 waitForReady 重新挂起
@@ -190,15 +239,6 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     while (this.slotWaiters.length > 0) {
       this.slotWaiters.shift()!();
     }
-
-    this.worker = this.workerFactory();
-    this.setupHandlers();
-    oldWorker.terminate();
-    // F20261015selfheal 观测增强：新代 worker 画像归零
-    this.workerBornAt = Date.now();
-    this.workerEmbedSucceeded = 0;
-    this.workerEmbedTimeouts = 0;
-    this.lastTimeoutContext = null;
   }
 
   /** F20261015selfheal：熔断打开（从 restartWorker 拆出，压 max-statements） */
@@ -318,7 +358,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
 
   /** F20261013ebps：worker error 处理（从 setupHandlers 拆出） */
   private handleWorkerError(err: Error): void {
-    this.logger.error("Worker Thread error", err);
+    this.logger.error("Embedding worker process error", err);
     // F20260803mval: worker 崩溃后重置 ready + 设 loadError + 拒绝 waiters，
     // 避免 waitForReady 永久挂起导致 waiters 数组无限增长（内存泄漏）
     // F20260811mrpy Part 3: 清除 cachedMeta 防止 worker 重启后读到旧 meta
@@ -331,13 +371,13 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   }
 
   /** F20261013ebps：worker exit 处理（从 setupHandlers 拆出） */
-  private handleWorkerExit(code: number): void {
-    /** 正常 dispose → terminate 也会触发 exit：守卫掉，否则每次正常关停都打一条误导性 ERROR */
+  private handleWorkerExit(code: number | null, signal: NodeJS.Signals | null): void {
+    /** 正常 dispose → kill 也会触发 exit：守卫掉，否则每次正常关停都打一条误导性 ERROR */
     if (this.disposed) return;
-    this.logger.error(`Embedding worker exited unexpectedly, code=${code}`);
+    this.logger.error(`Embedding worker process exited unexpectedly, code=${code} signal=${signal}`);
     this.cachedMeta = null;  // F20260811mrpy Part 3
     this.readyState.ready = false;
-    const err = new Error(`Worker exited with code ${code}`);
+    const err = new Error(`Worker exited with code=${code} signal=${signal}`);
     this.readyState.loadError = err;
     this.readyState.waiters.forEach(w => w.reject(err));
     this.readyState.waiters.length = 0;
@@ -364,7 +404,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     if (this.disposed) throw new Error("EmbeddingService has been disposed");
     await this.waitForReady();
 
-    // F20261013ebps：背压——in-flight 满时直接 reject，不 postMessage 进 worker 队列
+    // F20261013ebps：背压——in-flight 满时直接 reject，不 send 进 worker 队列
     const maxInFlight = EmbeddingServiceImpl.testMaxInFlightOverride ?? EmbeddingServiceImpl.MAX_IN_FLIGHT;
     if (this.pendingRequests.size >= maxInFlight) {
       throw new Error(
@@ -377,7 +417,10 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     const embedPromise = new Promise<Float32Array>((resolve, reject) => {
       this.pendingRequests.set(id, { resolve, reject });
       const request: EmbedRequest = { type: "embed", text, id };
-      this.worker.postMessage(request);
+      if (!this.worker.send(request)) {
+        this.pendingRequests.delete(id);
+        reject(new Error("Embedding worker IPC channel closed"));
+      }
     });
 
     const timeoutMs = EmbeddingServiceImpl.testTimeoutOverride ?? EmbeddingServiceImpl.EMBED_TIMEOUT_MS;
@@ -409,7 +452,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   }
 
   /**
-   * F20261013ebps：批量 embed——一次 postMessage 传多条文本，worker 端 batch 推理。
+   * F20261013ebps：批量 embed——一次 send 传多条文本，worker 端 batch 推理。
    * 与 embed() 共享背压上限（batch 算 1 个 in-flight 槽位，但 worker 端处理 N 条文本）。
    * 批量大小建议 ≤50（bge-m3 batch 推理内存随 batch 线性增长，50×1024dim×4B≈200KB 权重激活，可控）。
    */
@@ -431,7 +474,10 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     const batchPromise = new Promise<Float32Array[]>((resolve, reject) => {
       this.pendingBatchRequests.set(id, { resolve, reject });
       const request: EmbedBatchRequest = { type: "embed-batch", texts, id };
-      this.worker.postMessage(request);
+      if (!this.worker.send(request)) {
+        this.pendingBatchRequests.delete(id);
+        reject(new Error("Embedding worker IPC channel closed"));
+      }
     });
 
     // batch 超时按条数缩放：每条约 500ms，上限 120s
@@ -457,7 +503,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
           firstText: EmbeddingServiceImpl.textProfile(texts[0] ?? ""),
         };
         // F20261015selfheal：batch 超时同样是 worker 假死的可观测信号——触发自愈重建
-        // （onnxruntime 竞态卡死的是整个 worker 线程池，单条/批量同样永久挂起；
+        // （onnxruntime 竞态卡死的是整个 worker 进程，单条/批量同样永久挂起；
         //  batch 路径不重建则 #1460 泄漏家族在批量路径上未闭合）
         this.restartWorker(`embed batch timeout after ${timeoutMs}ms (${texts.length} texts)`);
         reject(new Error(`Embed batch timeout after ${timeoutMs}ms (${texts.length} texts)`));
@@ -494,7 +540,9 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     while (this.slotWaiters.length > 0) {
       this.slotWaiters.shift()!();
     }
-    this.worker.terminate();
+    this.workerGeneration++;
+    this.worker.removeAllListeners();
+    this.worker.kill("SIGKILL");
   }
 }
 
@@ -509,20 +557,26 @@ const noopLogger: Logger = {
 
 /**
  * 初始化 Embedding 服务。
- * 创建 Worker Thread 运行 bge-m3 模型，通过 postMessage 通信。
+ * fork 子进程运行 bge-m3 模型，通过 IPC（serialization: advanced）通信。
  */
 export async function initEmbeddingService(
   embedConfig?: EmbeddingConfig,
   logger?: Logger,
 ): Promise<{ service: EmbeddingGateway; dispose: () => void }> {
   const workerPath = embedConfig?.workerPath ?? path.join(__dirname, "bge-m3-worker.js");
-  // F20261015selfheal：worker 工厂——超时自愈重建时复用同一配置 spawn
-  const workerFactory: WorkerFactory = () => new Worker(workerPath, {
+  // F20261015kill：worker 工厂——超时自愈重建时复用同一配置 fork
+  // serialization:'advanced' 走 structured clone，Float32Array 保真（默认 JSON 会退化成对象）
+  const workerFactory: WorkerFactory = () => fork(workerPath, [], {
     ...(embedConfig?.workerExecArgv ? { execArgv: embedConfig.workerExecArgv } : {}),
-    workerData: {
-      modelPath: embedConfig?.modelPath ?? "Xenova/bge-m3",
-      localModelPath: embedConfig?.localModelPath,
+    env: {
+      ...process.env,
+      // fork 无 workerData，配置走 env（bge-m3-worker 侧 readWorkerConfig 解析）
+      OTTER_EMBED_WORKER_CONFIG: JSON.stringify({
+        modelPath: embedConfig?.modelPath ?? "Xenova/bge-m3",
+        localModelPath: embedConfig?.localModelPath,
+      }),
     },
+    serialization: "advanced",
   });
   const service = new EmbeddingServiceImpl(workerFactory(), logger || noopLogger, workerFactory);
 

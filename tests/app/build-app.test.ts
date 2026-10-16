@@ -17,8 +17,7 @@ import { createCapturingLogger, type CapturedLogs } from "../helpers/logger";
 
 /** 立即上报 load error 的 stub embedding worker（CJS：tmp 目录无 package.json type:module） */
 const STUB_WORKER = `
-const { parentPort } = require("worker_threads");
-parentPort.postMessage({ type: "error", error: "test stub worker", id: -1 });
+process.send({ type: "error", error: "test stub worker", id: -1 });
 `;
 
 describe("buildApp 组装根启动", () => {

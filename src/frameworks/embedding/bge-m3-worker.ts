@@ -1,22 +1,27 @@
 /**
- * bge-m3 Embedding Worker Thread。
+ * bge-m3 Embedding Worker（child_process.fork 子进程）。
+ *
+ * F20261015kill：从 worker_threads 迁到 child_process——
+ * worker.terminate() 拆 isolate 时 onnxruntime N-API 回调抛 Napi::Error
+ * 会 std::terminate 打死整个主进程（2026-10-15 21:22 实锤，.ips 栈
+ * InferenceSessionWrap::InstanceMethodCallbackWrapper → abort）。
+ * 子进程 SIGKILL 不跑析构/N-API teardown，原生死在子进程里主进程无感。
  *
  * 通信协议（F20260811mrpy Part 3：ready 携带 meta）：
- * 主线程 -> Worker: { type: 'embed', text: string, id: number }
- * Worker -> 主线程:
+ * 父进程 -> Worker: { type: 'embed', text: string, id: number }
+ *          { type: 'embed-batch', texts: string[], id: number }
+ * Worker -> 父进程:
  *   - { type: 'ready', meta: { modelId, modelRev, dim } }
  *   - { type: 'result', embedding: Float32Array, id: number }
+ *   - { type: 'batch-result', embeddings: Float32Array[], id: number }
  *   - { type: 'error', error: string, id: number }
  */
 
-import { parentPort, workerData } from "worker_threads";
 import { resolveEnvSettings, type WorkerConfig } from "./embedding-env-config";
 
-if (!parentPort) {
-  throw new Error("embedding worker must be started as a Worker Thread");
+if (typeof process.send !== "function") {
+  throw new Error("embedding worker must be started via child_process.fork (IPC channel)");
 }
-
-const port = parentPort;
 
 interface EmbedRequest {
   type: "embed";
@@ -46,6 +51,22 @@ type EmbedResponse =
 
 type Extractor = (text: string | string[], options?: unknown) => Promise<{ data: Float32Array; dims: number[] }>;
 
+/** F20261015kill：父进程 fork 时用 env 传配置（fork 无 workerData） */
+function readWorkerConfig(): WorkerConfig {
+  const raw = process.env.OTTER_EMBED_WORKER_CONFIG;
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as WorkerConfig;
+  } catch {
+    return {};
+  }
+}
+
+function post(msg: EmbedResponse): void {
+  // serialization:'advanced' 下 TypedArray 走 structured clone，保真
+  process.send?.(msg);
+}
+
 /**
  * 解析 OTTER_EMBED_INTRA_OP_THREADS（#1107 检视处置）：非法值（NaN/<1）不可静默
  * 回退到 onnxruntime 默认（=物理核数，钳制失效不可见）——warn 后回落到 2。
@@ -55,7 +76,7 @@ function resolveIntraOpThreads(): number {
   if (raw === undefined) return 2;
   const n = parseInt(raw, 10);
   if (!Number.isFinite(n) || n < 1) {
-    // eslint-disable-next-line no-console -- worker 线程内无 logger，console.warn 兜底
+    // eslint-disable-next-line no-console -- worker 子进程内无 logger，console.warn 兜底
     console.warn(`[embedding] OTTER_EMBED_INTRA_OP_THREADS="${raw}" 非法，回落默认 2`);
     return 2;
   }
@@ -75,7 +96,7 @@ function getExtractor(): Promise<Extractor> {
     extractorPromise = (async () => {
       const { pipeline, env } = await import("@huggingface/transformers");
 
-      const cfg = (workerData ?? {}) as WorkerConfig;
+      const cfg = readWorkerConfig();
       const settings = resolveEnvSettings(cfg);
 
       env.allowLocalModels = settings.allowLocalModels;
@@ -109,43 +130,33 @@ getExtractor()
     // dummy embed 拿实际维度（transformers.js pipeline 无公开 .config.dim）
     const dummy = await fn("ping");
     const meta: EmbedModelMeta = {
-      modelId: resolveEnvSettings((workerData ?? {}) as WorkerConfig).modelId,
+      modelId: resolveEnvSettings(readWorkerConfig()).modelId,
       modelRev: "unknown",
       // dims 是形状数组 [batch, dim]，取最后一维才是向量维度——取 [0] 会恒拿到 batch=1
       dim: dummy.dims[dummy.dims.length - 1],
     };
-    const response: EmbedResponse = { type: "ready", meta };
-    port.postMessage(response);
+    post({ type: "ready", meta });
   })
   .catch((err: unknown) => {
-    const response: EmbedResponse = {
+    post({
       type: "error",
       error: err instanceof Error ? err.message : String(err),
       id: -1,
-    };
-    port.postMessage(response);
+    });
   });
 
-port.on("message", async (msg: EmbedRequest | EmbedBatchRequest) => {
+process.on("message", async (msg: EmbedRequest | EmbedBatchRequest) => {
   if (msg.type === "embed") {
     try {
       const fn = await getExtractor();
       const output = await fn(msg.text);
-      const embedding = output.data;
-
-      const response: EmbedResponse = {
-        type: "result",
-        embedding,
-        id: msg.id,
-      };
-      port.postMessage(response);
+      post({ type: "result", embedding: output.data, id: msg.id });
     } catch (err: unknown) {
-      const response: EmbedResponse = {
+      post({
         type: "error",
         error: err instanceof Error ? err.message : String(err),
         id: msg.id,
-      };
-      port.postMessage(response);
+      });
     }
     return;
   }
@@ -161,20 +172,16 @@ port.on("message", async (msg: EmbedRequest | EmbedBatchRequest) => {
       for (let i = 0; i < msg.texts.length; i++) {
         embeddings.push(output.data.slice(i * dim, (i + 1) * dim));
       }
-
-      const response: EmbedResponse = {
-        type: "batch-result",
-        embeddings,
-        id: msg.id,
-      };
-      port.postMessage(response);
+      post({ type: "batch-result", embeddings, id: msg.id });
     } catch (err: unknown) {
-      const response: EmbedResponse = {
+      post({
         type: "error",
         error: err instanceof Error ? err.message : String(err),
         id: msg.id,
-      };
-      port.postMessage(response);
+      });
     }
   }
 });
+
+// 父进程 kill/断连：直接退出，不留半死孤儿
+process.on("disconnect", () => process.exit(0));

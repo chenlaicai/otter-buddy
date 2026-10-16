@@ -41,8 +41,7 @@ import { createCapturingLogger, type CapturedLogs } from "../helpers/logger";
 
 /** 立即上报 load error 的 stub embedding worker（CJS：tmp 目录无 package.json type:module） */
 const STUB_WORKER = `
-const { parentPort } = require("worker_threads");
-parentPort.postMessage({ type: "error", error: "test stub worker", id: -1 });
+process.send({ type: "error", error: "test stub worker", id: -1 });
 `;
 
 /** 预置存量库：先跑 initSchema 建全新库，再删掉 healing_events 的补列回退到 #1365 前形态。 */
