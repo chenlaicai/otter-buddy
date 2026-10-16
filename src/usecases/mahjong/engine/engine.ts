@@ -70,6 +70,13 @@ const HONBA_RON = 200;
 const HONBA_TSUMO = 100;
 
 /** 动作非法（动作不在该座位的合法集内 / 阶段不符） */
+/** 从落帧快照恢复引擎（断线重连/进程重启/复盘续跑）——state 全量替换，config 同源于快照 */
+export function restoreEngine(state: GameState): SanmaEngine {
+  const engine = new SanmaEngine(state.config);
+  Object.assign(engine.state, state);
+  return engine;
+}
+
 export class IllegalActionError extends Error {
   constructor(message: string) {
     super(message);
