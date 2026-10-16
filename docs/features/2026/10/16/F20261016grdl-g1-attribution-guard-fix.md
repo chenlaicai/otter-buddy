@@ -2,17 +2,15 @@
 id: F20261016grdl
 title: bash 守卫基建（一期止血 1a/1b/1c）：判定基元排除区下沉 + 落点感知豁免 + ruleId 指纹补齐
 summary: |
-  G1 归因（healing 台账 10/16 六例 + 调查期亲历三例，生产日志/原 session jsonl 双锚）
-  修正诊断演进链：v1「V1/V2 双链不对称」（×，连接图错误）→ 检视「通道散落豁免」（表象）
-  → 真根因「判定基元 isInsideMainCheckout 不知道排除区 + 豁免按形态后挂」。修复：
-  ① 基元下沉排除区（MAIN_CHECKOUT_WRITE_EXEMPT_REGIONS，root 级锚定防 decoy）；
-  ② one-liner 落点感知豁免（onelinerAbsPathsOutsideMain，按载荷逐个判防聚合洞）；
-  ③ 段级 cd 豁免（segmentCdExemptsGitLiteral + checkSegmentStructuralWrite 段序列 cwd
-  跟踪——混合段命令族 E）；④ guard-intercept-classify 补 main_write_resolve 指纹
-  （:1935 文案是 10/16 全部 70 条 ruleId=unknown 的直接来源）。行为变更（4 用例翻转）：
-  写动词+落点全部合法 → 放行（旧 fail-closed 不看落点=误拦面）；管道负门收窄为
-  落点语义。G1 归因报告与完整命令提取件在工作区 drafts/。
-change_type: bug_fix
+  G1 归因（healing 10/16 六例 + 调查亲历三例，生产日志/session jsonl 双锚）修正诊断链：
+  v1 双链不对称（连接图错）→ 检视通道散落（表象）→ 真根因「判定基元 isInsideMainCheckout
+  不知道排除区 + 豁免按形态后挂」。修复四族：A 基元下沉排除区（root 级锚定防 decoy）；
+  B one-liner 落点感知豁免（载荷内逐字面量判 + 动态派生 fail-closed，检视 H1/H3
+  处置版）；E 段级 cd 豁免（segmentCdTarget + 段序列 cwd 跟踪——混合段命令）；1b
+  指纹补 main_write_resolve（:1935 文案，10/16 全部 70 条 unknown 的直接来源）。
+  行为变更（4 用例翻转）：写动词+落点全部合法→放行（旧 fail-closed 不看落点=误拦面）；
+  管道负门收窄为落点语义。证据件：工作区 drafts/（归因报告+完整命令）。
+change_type: fix
 capability_test: tests/frameworks/agent/bash-guard-grdl-g1-fix.test.ts（24 用例）+ 全量 1708 passed + tsc clean + eslint clean
 created_in_conversation: 98bd9fdd-8e28-4de8-b782-b59f46e733dd
 causal_links:
@@ -82,8 +80,8 @@ const MAIN_CHECKOUT_WRITE_EXEMPT_REGIONS = ["data/workspaces", ".otter/worktrees
 | one-liner 写动词 fail-closed 不看落点（`open('/tmp/f','w')` 拦） | 写动词+载荷绝对路径全部树外 → 放行 | bash-safety-guard.test.ts「S1 对照」→放 |
 | 管道负门：node 写 worktree + \| tail 拦（cd 豁免被管道杀） | 落点排除区 → 放行；落点主仓/相对路径写仍拦 | gduc P0-1 / gdcc 双链一致 / shadow-eval 三处 →放 |
 
-安全边界不回退（新增用例钉死）：主仓绝对路径写拦 / 相对路径写（cwd 主仓树内）拦 / 掩蔽写拦（聚合洞修复后）/ git -C 主仓拦 / data 破坏护栏完整（跨会话工作区删拦、data 根删拦、cd 主仓 rm -rf data 拦）/ cd 变量不可求值拦 / & 切断子 shell 拦。
-已知边界（行为保持，非本次变更）：`cd <主仓> && git commit` 放行（显式意图，F20261014cwsp 已声明收紧属独立立项）。
+安全边界不回退（新增用例钉死）：主仓绝对路径写拦 / 相对路径写（cwd 主仓树内）拦 / 掩蔽写拦（载荷间聚合洞 + **载荷内 decoy/拼接/f-string/join 动态派生全 fail-closed，检视 H1/H3 处置后新增 5 用例**）/ git -C 主仓拦 / data 破坏护栏完整（跨会话工作区删拦、data 根删拦、cd 主仓 rm -rf data 拦）/ cd 变量不可求值拦 / & 切断子 shell 拦。
+已知边界（行为保持，非本次变更；检视发现 5 按基线实测扩准）：cd 链形态放行面不限于 git commit——`cd <主仓> && python3 -c "open('src/x','w')…"` 与 `cd <树外> && cd <主仓> && git commit` 在 merge-base 基线就放行（#1363/cwsp 已立项族，收紧属独立立项）；`cd <主仓> && git commit` 同为显式意图放行（F20261014cwsp 已声明）。
 
 ## 影响范围
 
@@ -94,7 +92,9 @@ const MAIN_CHECKOUT_WRITE_EXEMPT_REGIONS = ["data/workspaces", ".otter/worktrees
 
 ## 下一步
 
+- **网络外发零防护窗口（检视发现 6，显式声明）**：本 PR 修复例 5 误拦后、二期 2c 窄规则（POST/PUT 上传族 + 服务白名单含 huawei-colink.com）落地前，密钥外发面为零防护——沙箱 `(allow default)` 无网络 deny，守卫无 curl 窄规则。窗口截止挂 2c 验收（大獭仲裁合并顺序 #1526→#1527→#1523 后，本 PR 合入即开始计时）；窗口期风险接受理由：单机单人部署、攻击面需搭档会话内注入诱导。窄规则本体不进本 PR（方案 S5 已拍板二期）。
 - 族 D 展示层：retry-policy.ts:72 kill 域文案无差别拼接 → 独立小修（按 ruleLayer 分流文案），随二期或独立 PR
-- 二期 2a/2b/2c：沙箱可用性探测 + main_write 族条件退役（G3 枚举表门）+ 保留面
+- 二期 2a/2b/2c：沙箱可用性探测 + main_write 族条件退役（G3 枚举表门）+ 保留面（含上条窄规则）
 - harness 与生产 redirect 通道差异（例 1 复现需长体）：实现期已消解——完整命令（session jsonl 提取）复现成功，差异源是此前 harness 用骨架命令（短体）不含族 E git 段
 - T4 验收：交付后第 7 天 healing guard_intercept 分账复盘（1c 口径）
+- #1519 合并交叠（rebase 后验证）：git 旗标词级化探针 gseg 与本 PR 段内 cwd 豁免同段共存，全量 1740 passed（含 #1519 新测试）——语义叠加无回归

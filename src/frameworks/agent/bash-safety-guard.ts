@@ -1180,7 +1180,7 @@ function judgeShellCSegment(
 }
 
 /** 段级判定（checkSegmentStructuralWrite 的单段处理，抽函数控圈复杂度） */
- 
+// eslint-disable-next-line max-statements -- F20261016grdl 1a'-B/E：onelinerPathsOutsideMain 豁免 +1 语句（落点感知豁免挂段级）；语句数 26=判定分支逐形态对应，合并会牺牲「一形态一分支」可读性（同 :1056 先例）
 function judgeSegment(
   rawSeg: string,
   ctx: { logger?: Logger; projectRoot?: string; sessionCwd?: string; oneLinerReadOnly: boolean; depth: number; skipGitWrite?: boolean; onelinerPathsOutsideMain?: boolean },
@@ -1204,7 +1204,7 @@ function judgeSegment(
     // 只读豁免：oneLinerReadOnly（全命令基座，与正则通道同一豁免值——
     // 豁免基座对齐：拦截与豁免同一提取基座，载荷只读性由既有白名单承担）。
     // F20261016grdl 1a'-B：落点感知豁免——非只读载荷但全部绝对路径落主仓外
-    //（或 cd 段锰定非主仓 cwd）时放行（例 6 实证：save('/tmp/x') 写动词 fail-closed 误拦）。
+    //（或 cd 段锚定非主仓 cwd）时放行（例 6 实证：save('/tmp/x') 写动词 fail-closed 误拦）。
     if (ctx.onelinerPathsOutsideMain) return false;
     return segHasOneLiner && !ctx.oneLinerReadOnly;
   }
@@ -1904,6 +1904,7 @@ interface MainCheckoutWriteCtx {
  *     主仓树内 → 豁免；否则不豁免（cwd 不可知面保守）。
  *  注意：cd 目标在排除区（worktree）时——排除区是 git 工作树，python 相对路径
  *  写落排除区合法（R1 允许），同样豁免。 */
+// eslint-disable-next-line max-statements -- F20261016grdl delta（检视 H1/H3）：否决面逐形态对应（拼接/f-string/join/解包/续行各一条 + 字面量逐判），合并会模糊 fail-closed 边界（H1/H3 教训：以提取器证伪代替 fail-closed 即洞）
 function onelinerAbsPathsOutsideMain(command: string, projectRoot: string): boolean {
   const payloads: string[] = [];
   for (const interp of ["python", "node"] as const) {
@@ -2032,7 +2033,7 @@ function checkWriteChannels(
 function writeChannelExempt(pi: number, ctx: { command?: string; projectRoot?: string; heredocReadOnly?: boolean; oneLinerReadOnly: boolean }): boolean {
   if (pi === 0 && ctx.heredocReadOnly) return true;
   // F20261016grdl 1a'-B：one-liner 落点感知豁免——非只读载荷但全部绝对路径落
-  // 主仓外（或 cd 段锰定非主仓 cwd）时放行（例 6：cd 树外 && python3 -c save('/tmp/x')）
+  // 主仓外（或 cd 段锚定非主仓 cwd）时放行（例 6：cd 树外 && python3 -c save('/tmp/x')）
   if (pi >= 1 && pi <= 4 && ctx.oneLinerReadOnly) return true;
   if (pi >= 1 && pi <= 4 && ctx.projectRoot && ctx.command && onelinerAbsPathsOutsideMain(ctx.command, ctx.projectRoot)) return true;
   if ((pi === 5 || pi === 6) && ctx.heredocReadOnly) return true;
