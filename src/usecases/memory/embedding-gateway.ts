@@ -22,11 +22,60 @@ export class EmbedTimeoutError extends Error {
   }
 }
 
+/**
+ * F20261016slvg：背压错误——lane 占用（in-flight 满且调用方未要求排队）。
+ * retry worker 见此错误不计入 maxAttempts：这是「现在忙」，不是「这条坏了」，
+ * 任务保持 pending 按退避下次再来。
+ */
+export class EmbedBackpressureError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EmbedBackpressureError";
+  }
+}
+
+/**
+ * F20261016slvg：瞬态错误——worker 重建/崩溃/熔断期间 rejectAllPending 用的类型。
+ * 对抗审视洞 2（埋单链）：claim 即 attempts+1，超时循环会把 attempts 撑到 ≥3；
+ * 若 worker 重启的 reject 走普通 Error → markTaskAttemptFailed → 成批 dead-letter。
+ * 瞬态错误与超时/背压同待遇：不计 attempts，任务保持 pending 重来。
+ */
+export class EmbedTransientError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EmbedTransientError";
+  }
+}
+
+/**
+ * F20261016slvg：embed 调用选项。
+ *
+ * 核心不变量（根治 #1521 后写 lane 活锁）：**超时 ≠ 取消**。
+ * - 超时只是「调用者不再等待」（reject 调用方 promise），请求条目保留到 worker 响应为止，
+ *   期间槽位不释放——准入门控量测的是 worker 真实占用，不是调用方耐心。
+ * - worker 晚到的结果不丢弃：若提供 salvage 回调则交给调用方持久化（如 storeEmbedding）。
+ */
+export interface EmbedCallOptions {
+  /**
+   * 槽满时挂起排队而非 reject（写路径软限流用）。
+   * 默认 false：查询路径必须 fail-fast 走 FTS5 降级，不该排队。
+   */
+  waitSlot?: boolean;
+  /** 调用方超时放弃后，worker 晚到结果的持久化回调。service 包裹吞错（异步 fire-and-forget） */
+  salvage?: (embedding: Float32Array) => void;
+}
+
+/** F20261016slvg：embedBatch 调用选项（语义同 EmbedCallOptions，salvage 收整批） */
+export interface EmbedBatchCallOptions {
+  waitSlot?: boolean;
+  salvage?: (embeddings: Float32Array[]) => void;
+}
+
 /** Embedding 网关接口（由 frameworks/embedding/ 实现） */
 export interface EmbeddingGateway {
   /** 模型是否已就绪可用来生成 embedding */
   readonly available: boolean;
-  embed(text: string): Promise<Float32Array>;
+  embed(text: string, opts?: EmbedCallOptions): Promise<Float32Array>;
   /**
    * F20261013ebps：等待一个空闲 in-flight 槽位（满时挂起至空出），
    * 供 sync 批量路径做流速控制——替代背压 reject 硬溢出入 retry 队列。
@@ -37,7 +86,7 @@ export interface EmbeddingGateway {
    * 实现方内部走 batch 推理（吞吐远高于逐条 embed）。
    * 可选——mock 实现可不提供，调用方用 typeof === "function" 守卫。
    */
-  embedBatch?(texts: string[]): Promise<Float32Array[]>;
+  embedBatch?(texts: string[], opts?: EmbedBatchCallOptions): Promise<Float32Array[]>;
   /**
    * 返回当前 worker 加载的模型元信息（F20260811mrpy Part 3）。
    * 可选——避免破坏现有 mock 实现。bootstrap 校验时通过 typeof === "function" 守卫。

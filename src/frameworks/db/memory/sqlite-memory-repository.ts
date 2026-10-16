@@ -38,6 +38,7 @@ import {
   claimPendingTasks,
   markTaskDone,
   markTaskAttemptFailed,
+  resetPendingAttempts,
 } from "./embedding-task-queue";
 
 import { escapeFtsQuery } from "../fts-utils";
@@ -733,6 +734,11 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   /** F20260812mrcq Part 1：task 失败；attempts 耗尽转 dead */
   async markTaskAttemptFailed(entryId: string, error: unknown, maxAttempts: number): Promise<void> {
     markTaskAttemptFailed(this.db, entryId, error, maxAttempts);
+  }
+
+  /** F20261016slvg：启动迁移——pending 任务 attempts 归零（对抗审视洞 2 处置） */
+  async resetPendingAttempts(): Promise<number> {
+    return resetPendingAttempts(this.db);
   }
 
   // ---- F20260813mren: 记忆关系层 ----

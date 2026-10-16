@@ -10,76 +10,31 @@
  * 子进程 SIGKILL 不触发 N-API teardown，原生死只带走自己。
  */
 
-import { fork, type ChildProcess } from "child_process";
+import type { ChildProcess } from "child_process";
 import os from "node:os";
-import path from "path";
-import { fileURLToPath } from "url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-import type { EmbeddingGateway, EmbedModelMeta } from "@usecases/memory/embedding-gateway";
-import { EmbedTimeoutError } from "@usecases/memory/embedding-gateway";
+import type {
+  EmbeddingGateway,
+  EmbedModelMeta,
+  EmbedCallOptions,
+  EmbedBatchCallOptions,
+} from "@usecases/memory/embedding-gateway";
+import { EmbedTimeoutError, EmbedBackpressureError, EmbedTransientError } from "@usecases/memory/embedding-gateway";
 import type { Logger } from "@usecases/ports/logger";
 
-interface EmbeddingConfig {
-  /** 模型标识：local 模式下为 localModelPath 下的目录名；remote 模式下为 HF repo id */
-  modelPath?: string;
-  /** 本地模型根目录。设置后 worker 走本地加载、禁用远程下载 */
-  localModelPath?: string;
-  /** worker 脚本路径覆盖（测试用），默认本模块同目录的 bge-m3-worker.js */
-  workerPath?: string;
-  /**
-   * worker 子进程的 execArgv 覆盖。默认继承 process.execArgv——
-   * vitest 等宿主注入的 --conditions development 会让 worker 内 @huggingface/transformers
-   * 解析到非生产构建导致推理挂起，测试环境必须显式传 []。
-   */
-  workerExecArgv?: string[];
-}
 
 /** F20261015selfheal：worker 工厂——timeout 自愈重建 worker 时需要重新 spawn，注入以保测试可 mock */
-type WorkerFactory = () => ChildProcess;
+export type WorkerFactory = () => ChildProcess;
 
-interface EmbedRequest {
-  type: "embed";
-  text: string;
-  id: number;
-}
-
-/** F20261013ebps：批量 embed 请求——一次 send 传多条文本，
- *  worker 端 pipeline 原生支持数组输入（batch 推理共享权重加载/分词开销），
- *  吞吐从 1条/500ms 提升到 N条/~N×500ms（接近线性），同时减少 IPC 往返次数。 */
-interface EmbedBatchRequest {
-  type: "embed-batch";
-  texts: string[];
-  id: number;
-}
-
-/**
- * F20260811mrpy Part 3：ready 消息携带 meta（modelId/modelRev/dim）。
- * worker 加载完模型 + dummy embed 拿到 dims 后发送。
- */
-type EmbedResponse =
-  | { type: "ready"; meta: EmbedModelMeta }
-  | { type: "result"; embedding: Float32Array; id: number }
-  | { type: "batch-result"; embeddings: Float32Array[]; id: number }
-  | { type: "error"; error: string; id: number };
-
-type PendingRequest = {
-  resolve: (value: Float32Array) => void;
-  reject: (error: Error) => void;
-};
-
-/** F20261013ebps：批量请求的 pending 结构 */
-type PendingBatchRequest = {
-  resolve: (value: Float32Array[]) => void;
-  reject: (error: Error) => void;
-};
-
-interface ReadyState {
-  ready: boolean;
-  loadError: Error | null;
-  waiters: Array<{ resolve: () => void; reject: (err: Error) => void }>;
-}
+// F20261016slvg：IPC 协议与 pending 簿记类型拆到 embedding-protocol.ts（压文件行数上限）
+import type {
+  EmbedRequest,
+  EmbedBatchRequest,
+  EmbedResponse,
+  PendingRequest,
+  PendingBatchRequest,
+  ReadyState,
+} from "./embedding-protocol";
 
 export class EmbeddingServiceImpl implements EmbeddingGateway {
   private disposed = false;
@@ -120,6 +75,22 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   private static testTimeoutOverride: number | null = null;
   /** 测试用覆盖 in-flight 上限 */
   private static testMaxInFlightOverride: number | null = null;
+  /**
+   * F20261016slvg：无进展看门狗——「死」的定义从「墙钟超预算」（超时自杀，#1493 误杀；
+   * 慢≠死闭锁，#1521 活锁）改为「lane 占用且 worker 无任何响应」。
+   * 慢 batch（健康但 100-200s）持续有响应 → 不杀；真死锁（SpinPause 永不返回）→ 无响应 → 必触发。
+   *
+   * 耦合旋钮警示（#948 教训：旋钮必须联动核对）：
+   * 阈值必须 > batch 超时预算上限（120s）× 安全余量。若未来放宽 BATCH_TIMEOUT 上限
+   * 或 BATCH_LIMIT，此处必须同步调整。
+   */
+  private static readonly WATCHDOG_INTERVAL_MS = 60_000;
+  private static readonly WATCHDOG_NO_PROGRESS_MS = 300_000;
+  /** 测试用看门狗阈值覆盖 */
+  private static testWatchdogOverride: number | null = null;
+  /** 最近一次 worker 活动（send / 任何响应 / ready / 重建）时间戳 */
+  private lastWorkerActivityAt = Date.now();
+  private watchdogTimer: ReturnType<typeof setInterval> | null = null;
 
   /**
    * F20261015selfheal：embed 超时自愈——onnxruntime 1.23.2 在 Intel x86 mac 上存在偶发
@@ -152,12 +123,19 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   private workerBornAt = Date.now();
   private workerEmbedSucceeded = 0; // 本代 worker 成功 embed 次数（单条+batch 按请求计）
   private workerEmbedTimeouts = 0; // 本代 worker embed 超时次数（检视 #1493 delta 观察 1：原名 attempted 只计超时，名实不符）
+  /** F20261016slvg：本代 worker 晚到结果被 salvage 的次数（原先是静默丢弃，不可观测） */
+  private workerSalvagedResults = 0;
   /** 最近一次触发超时的请求画像（定位「是否特定文本模式触发嵌套算子」） */
   private lastTimeoutContext: Record<string, unknown> | null = null;
 
   /** 设置测试用超时覆盖（仅测试环境） */
   static setTestTimeoutOverride(ms: number | null): void {
     EmbeddingServiceImpl.testTimeoutOverride = ms;
+  }
+
+  /** 设置测试用看门狗阈值覆盖（仅测试环境） */
+  static setTestWatchdogOverride(ms: number | null): void {
+    EmbeddingServiceImpl.testWatchdogOverride = ms;
   }
 
   /** 设置测试用 in-flight 上限覆盖（仅测试环境） */
@@ -175,6 +153,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     private readonly workerFactory?: WorkerFactory,
   ) {
     this.setupHandlers();
+    this.startWatchdog();
   }
 
   private setupHandlers(): void {
@@ -195,16 +174,33 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   }
 
   /**
-   * F20261016ebrt：慢≠死判别——只有本代零成功才视为真死锁并自愈重建。
-   * 本代有成功记录说明 worker 活着（只是这批慢），只 reject 不动 worker。
-   * 这是「超时自杀」语义收窄的核心：把 1s/条 误杀慢 worker 的路径堵死，
-   * 保留 onnxruntime lost-wakeup 真死锁的逃生通道（零成功 + 超时 = 死）。
+   * F20261016slvg：无进展看门狗——「死」的判定入口，取代两代失败方案
+   * （#1493 超时自杀误杀慢 worker；#1521 慢≠死把活锁逃生通道闭锁）。
+   * 判据与墙钟超时解耦：lane 有 outstanding 且 worker 超过阈值无任何响应。
+   * 慢而健康（响应持续到达）永不触发；真死锁（SpinPause 永不返回）必触发。
    */
-  private restartWorkerIfHung(reason: string): void {
-    if (this.workerEmbedSucceeded === 0) {
-      this.restartWorker(reason);
+  private startWatchdog(): void {
+    if (this.watchdogTimer) return;
+    this.watchdogTimer = setInterval(
+      () => this.watchdogTick(),
+      EmbeddingServiceImpl.WATCHDOG_INTERVAL_MS,
+    );
+    this.watchdogTimer.unref?.();
+  }
+
+  private watchdogTick(): void {
+    if (this.disposed || this.circuitBroken || !this.workerFactory) return;
+    if (!this.readyState.ready) return; // 加载期/重建期不算无进展
+    const outstanding = this.pendingRequests.size + this.pendingBatchRequests.size;
+    if (outstanding === 0) return;
+    const threshold = EmbeddingServiceImpl.testWatchdogOverride
+      ?? EmbeddingServiceImpl.WATCHDOG_NO_PROGRESS_MS;
+    const silentMs = Date.now() - this.lastWorkerActivityAt;
+    if (silentMs > threshold) {
+      this.restartWorker(
+        `watchdog: no worker response for ${silentMs}ms with ${outstanding} outstanding request(s)`,
+      );
     }
-    // 有成功记录：worker 健康，这批超时只是慢——不杀，让调用方走 retry
   }
 
   /**
@@ -239,7 +235,10 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.workerBornAt = Date.now();
     this.workerEmbedSucceeded = 0;
     this.workerEmbedTimeouts = 0;
+    this.workerSalvagedResults = 0;
     this.lastTimeoutContext = null;
+    // F20261016slvg：新 worker 加载期锚定活动时间，防止加载 + 首条慢请求叠加误判
+    this.lastWorkerActivityAt = Date.now();
   }
 
   /**
@@ -256,21 +255,30 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.cachedMeta = null;
     this.readyState.ready = false;
     this.readyState.loadError = null; // 重建是恢复动作，清掉旧 loadError 让 waitForReady 重新挂起
-    this.rejectAllPending(new Error(`Embedding worker restarting (${reason})`));
+    // F20261016slvg 对抗审视洞 2：瞬态错误专用类型——retry worker 不计 attempts，防成批 dead-letter
+    this.rejectAllPending(new EmbedTransientError(`Embedding worker restarting (${reason})`));
     // 放行槽位 waiter——挂起的 sync 循环恢复后由新 worker 的 embed 正常处理
-    while (this.slotWaiters.length > 0) {
-      this.slotWaiters.shift()!();
-    }
+    this.drainSlotWaiters();
   }
 
   /** F20261015selfheal：熔断打开（从 restartWorker 拆出，压 max-statements） */
   private openCircuit(restartsInWindow: number): void {
     this.circuitBroken = true;
-    const err = new Error(`Embedding worker circuit breaker open: ${restartsInWindow} restarts within ${EmbeddingServiceImpl.RESTART_WINDOW_MS / 1000}s, vec disabled`);
+    const err = new EmbedTransientError(`Embedding worker circuit breaker open: ${restartsInWindow} restarts within ${EmbeddingServiceImpl.RESTART_WINDOW_MS / 1000}s, vec disabled`);
     this.readyState.loadError = err;
     this.readyState.ready = false;
     this.logger.error(`Embedding worker circuit breaker open after ${restartsInWindow} restarts, falling back to FTS5-only permanently until process restart`);
     this.rejectAllPending(err);
+    // F20261016slvg 对抗审视洞 1：熔断后无任何唤醒来源（看门狗被 circuitBroken 守卫挡掉）——
+    // 必须在此放行全部 waiter，否则 parked 调用方永久悬挂并沿 tickNow 堵死 PatrolWorker
+    this.drainSlotWaiters();
+  }
+
+  /** F20261016slvg：放行全部槽位 waiter（waiter 醒来后经 loadError 检查 fail-fast） */
+  private drainSlotWaiters(): void {
+    while (this.slotWaiters.length > 0) {
+      this.slotWaiters.shift()!();
+    }
   }
 
   /** F20261015selfheal 观测增强：embed 文本画像（摘要级，不进全文——防隐私/体积） */
@@ -300,6 +308,8 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       workerAgeMs: now - this.workerBornAt,
       workerEmbedTimeouts: this.workerEmbedTimeouts,
       workerEmbedSucceeded: this.workerEmbedSucceeded,
+      workerSalvagedResults: this.workerSalvagedResults,
+      outstandingRequests: this.pendingRequests.size + this.pendingBatchRequests.size,
       // 超时请求画像（若有）：文本长度/token 估算/前缀摘要，定位文本模式假设
       ...(this.lastTimeoutContext ? { timeoutContext: this.lastTimeoutContext } : {}),
       // 宿主环境快照：验证「宿主压力是触发变量」假设
@@ -313,6 +323,8 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
 
   /** F20261015selfheal：worker message 统一分发（从 setupHandlers 拆出，降函数行数） */
   private handleWorkerMessage(msg: EmbedResponse): void {
+    // F20261016slvg：任何 worker 消息都是「活着」的证据——喂看门狗
+    this.lastWorkerActivityAt = Date.now();
     if (msg.type === "ready") {
       this.readyState.ready = true;
       this.cachedMeta = msg.meta;  // F20260811mrpy Part 3：缓存 meta
@@ -331,7 +343,13 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.handleResponseMessage(msg);
   }
 
-  /** 单条/批量结果分发（从 handleWorkerMessage 拆出，压 max-statements） */
+  /**
+   * 单条/批量结果分发（从 handleWorkerMessage 拆出，压 max-statements）。
+   *
+   * F20261016slvg：abandoned 条目（调用方已超时放弃）的响应不再丢弃——
+   * 成功结果交 salvage 持久化（worker 花真 CPU 算出的向量不能白扔），
+   * 错误响应对应任务留 pending（retry 队列兜底）。槽位在此处才释放。
+   */
   private handleResponseMessage(msg: EmbedResponse): void {
     if (msg.type === "result" || msg.type === "error") {
       const pending = this.pendingRequests.get(msg.id);
@@ -340,7 +358,15 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       this.releaseSlot();
       if (msg.type === "result") {
         this.workerEmbedSucceeded++;
-        pending.resolve(msg.embedding);
+        if (pending.abandoned) {
+          this.salvageLateResult(msg.id, pending.salvage, msg.embedding);
+        } else {
+          pending.resolve(msg.embedding);
+        }
+      } else if (pending.abandoned) {
+        this.logger.warn(
+          `Embedding late error for abandoned request ${msg.id} (task stays pending for retry): ${msg.error}`,
+        );
       } else {
         pending.reject(new Error(msg.error));
       }
@@ -352,8 +378,27 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       this.pendingBatchRequests.delete(msg.id);
       this.releaseSlot();
       this.workerEmbedSucceeded++;
-      pending.resolve(msg.embeddings);
+      if (pending.abandoned) {
+        this.salvageLateResult(msg.id, pending.salvage, msg.embeddings);
+      } else {
+        pending.resolve(msg.embeddings);
+      }
     }
+  }
+
+  /**
+   * F20261016slvg：晚到结果 salvage——包裹成独立 microtask 并吞错，
+   * 防 salvage 回调同步 throw 沿 EventEmitter 冒泡成 uncaughtException
+   * 打死主进程（本代码库已因原生层异常死过一次，JS 层不能再引入同类）。
+   * 对抗审视洞 5：命中时打点——salvage 此前是不可观测的静默路径，上线验证需要抓手。
+   */
+  private salvageLateResult<T>(requestId: number, salvage: ((value: T) => void) | undefined, value: T): void {
+    if (!salvage) return; // 无回调（如 query lane 晚到结果无意义）才真正丢弃
+    this.workerSalvagedResults++;
+    this.logger.info(`Embedding salvage landed for request ${requestId} (caller timed out, late result persisted)`);
+    Promise.resolve()
+      .then(() => salvage(value))
+      .catch(err => this.logger.warn(`Embedding salvage callback failed: ${err}`));
   }
 
   /**
@@ -386,10 +431,13 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     // F20260811mrpy Part 3: 清除 cachedMeta 防止 worker 重启后读到旧 meta
     this.cachedMeta = null;
     this.readyState.ready = false;
-    this.readyState.loadError = new Error(`Worker error: ${err.message}`);
+    this.readyState.loadError = new EmbedTransientError(`Worker error: ${err.message}`);
     this.readyState.waiters.forEach(w => w.reject(this.readyState.loadError!));
     this.readyState.waiters.length = 0;
-    this.rejectAllPending(new Error(`Worker error: ${err.message}`));
+    this.rejectAllPending(this.readyState.loadError!);
+    // F20261016slvg 对抗审视洞 1：worker 死亡路径必须放行 slot waiter——
+    // 否则 parked 的 waitSlot 调用方永久悬挂（且看门狗被 !ready 守卫挡掉，无自愈）
+    this.drainSlotWaiters();
   }
 
   /** F20261013ebps：worker exit 处理（从 setupHandlers 拆出） */
@@ -399,11 +447,13 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.logger.error(`Embedding worker process exited unexpectedly, code=${code} signal=${signal}`);
     this.cachedMeta = null;  // F20260811mrpy Part 3
     this.readyState.ready = false;
-    const err = new Error(`Worker exited with code=${code} signal=${signal}`);
+    const err = new EmbedTransientError(`Worker exited with code=${code} signal=${signal}`);
     this.readyState.loadError = err;
     this.readyState.waiters.forEach(w => w.reject(err));
     this.readyState.waiters.length = 0;
     this.rejectAllPending(err);
+    // F20261016slvg 对抗审视洞 1：同 handleWorkerError——放行全部 waiter
+    this.drainSlotWaiters();
   }
 
   /** F20261013ebps：拒绝所有 pending 请求（单条 + 批量） */
@@ -422,26 +472,53 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     });
   }
 
-  async embed(text: string): Promise<Float32Array> {
+  async embed(text: string, opts?: EmbedCallOptions): Promise<Float32Array> {
     if (this.disposed) throw new Error("EmbeddingService has been disposed");
     await this.waitForReady();
 
-    // F20261013ebps：背压——in-flight 满时直接 reject，不 send 进 worker 队列
+    // F20261016slvg：waitSlot——写路径软限流：槽满挂起排队。
+    // 循环直接内联（不经 helper）——唤醒后的重查→准入→set+send 必须在同一同步段，
+    // 消灭 acquireSlot→embed 配对的 TOCTOU 竞态（await helper 会多一个 microtask 边界）
     const maxInFlight = EmbeddingServiceImpl.testMaxInFlightOverride ?? EmbeddingServiceImpl.MAX_IN_FLIGHT;
-    if (this.pendingRequests.size >= maxInFlight) {
-      throw new Error(
-        `Embedding backpressure: ${this.pendingRequests.size} in-flight requests exceed limit ${maxInFlight}, request rejected to prevent worker queue overflow`,
+    if (opts?.waitSlot) {
+      while (this.pendingRequests.size + this.pendingBatchRequests.size >= maxInFlight) {
+        await new Promise<void>((resolve) => {
+          this.slotWaiters.push(resolve);
+        });
+        if (this.disposed) throw new Error("EmbeddingService has been disposed");
+        // F20261016slvg 对抗审视洞 1：worker 崩溃/熔断被唤醒后 fail-fast——
+        // 不把请求 send 给死 worker（重建路径 loadError 为 null，走新 worker）
+        if (this.readyState.loadError) throw this.readyState.loadError;
+      }
+    }
+
+    // F20261013ebps：背压——in-flight 满时直接 reject，不 send 进 worker 队列。
+    // F20261016slvg：口径统一为两 map 总和（原 embed 只查单条 map，batch 占槽期间
+    // 单条可从缝里钻入，破坏 MAX_IN_FLIGHT=1 的串行前提）；reject 用专门错误类型
+    // （retry worker 对背压不计 attempts，防 3 次埋掉可恢复任务）
+    if (this.pendingRequests.size + this.pendingBatchRequests.size >= maxInFlight) {
+      throw new EmbedBackpressureError(
+        `Embedding backpressure: ${this.pendingRequests.size + this.pendingBatchRequests.size} in-flight requests exceed limit ${maxInFlight}, request rejected to prevent worker queue overflow`,
       );
     }
 
     const id = ++this.requestId;
 
     const embedPromise = new Promise<Float32Array>((resolve, reject) => {
-      this.pendingRequests.set(id, { resolve, reject });
+      this.pendingRequests.set(id, { resolve, reject, salvage: opts?.salvage });
       const request: EmbedRequest = { type: "embed", text, id };
-      if (!this.worker.send(request)) {
+      // F20261016slvg 对抗审视洞 5：channel 已关时 send 可能同步 throw 而非返回 false——
+      // 不捕获会把条目泄漏在 map 里（in-flight 永久 =1，lane 堵死且看门狗不介入）
+      try {
+        if (!this.worker.send(request)) {
+          this.pendingRequests.delete(id);
+          reject(new EmbedTransientError("Embedding worker IPC channel closed"));
+        } else {
+          this.lastWorkerActivityAt = Date.now();
+        }
+      } catch (sendErr) {
         this.pendingRequests.delete(id);
-        reject(new Error("Embedding worker IPC channel closed"));
+        reject(new EmbedTransientError(`Embedding worker send failed: ${sendErr}`));
       }
     });
 
@@ -449,21 +526,20 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<Float32Array>((_, reject) => {
       timer = setTimeout(() => {
-        // 检视 #1493 delta 存量发现：inflight 必须在 delete 自身之前读，否则少计 1
+        // F20261016slvg：超时 ≠ 取消——只标记 abandoned + reject 调用方。
+        // 条目保留、槽位不释放（消息已 send，worker 会算完；晚到结果走 salvage）。
+        // 准入从此量测 worker 真实占用，队列不可能在 worker 侧积压（#1521 活锁根因）。
+        const pending = this.pendingRequests.get(id);
+        if (pending) pending.abandoned = true;
+        // 观测：在途请求总数（含自身——abandoned 条目也占 worker 队列）
         const inflight = this.pendingRequests.size + this.pendingBatchRequests.size;
-        this.pendingRequests.delete(id);
-        this.releaseSlot();
-        // F20261015selfheal 观测增强：超时请求画像（定位「是否特定文本模式触发嵌套算子」）
         this.workerEmbedTimeouts++;
         this.lastTimeoutContext = {
           path: "embed",
           timeoutMs,
-          // 卡死时在途请求总数是判断泄漏速率的关键信号
           inflight,
           text: EmbeddingServiceImpl.textProfile(text),
         };
-        // F20261016ebrt：慢≠死——本代有成功记录说明 worker 活着，只 reject 不杀
-        this.restartWorkerIfHung(`embed timeout after ${timeoutMs}ms`);
         reject(new EmbedTimeoutError(`Embed timeout after ${timeoutMs}ms, falling back to FTS5-only`));
       }, timeoutMs);
     });
@@ -478,15 +554,26 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
    * 与 embed() 共享背压上限（batch 算 1 个 in-flight 槽位，但 worker 端处理 N 条文本）。
    * 批量大小建议 ≤50（bge-m3 batch 推理内存随 batch 线性增长，50×1024dim×4B≈200KB 权重激活，可控）。
    */
-  async embedBatch(texts: string[]): Promise<Float32Array[]> {
+  async embedBatch(texts: string[], opts?: EmbedBatchCallOptions): Promise<Float32Array[]> {
     if (this.disposed) throw new Error("EmbeddingService has been disposed");
     if (texts.length === 0) return [];
     await this.waitForReady();
 
-    // 背压——batch 也占一个 in-flight 槽位
+    // F20261016slvg：waitSlot 软限流（循环内联，同 embed() 的原子性论证 + fail-fast 检查）
     const maxInFlight = EmbeddingServiceImpl.testMaxInFlightOverride ?? EmbeddingServiceImpl.MAX_IN_FLIGHT;
+    if (opts?.waitSlot) {
+      while (this.pendingRequests.size + this.pendingBatchRequests.size >= maxInFlight) {
+        await new Promise<void>((resolve) => {
+          this.slotWaiters.push(resolve);
+        });
+        if (this.disposed) throw new Error("EmbeddingService has been disposed");
+        if (this.readyState.loadError) throw this.readyState.loadError;
+      }
+    }
+
+    // 背压——batch 也占一个 in-flight 槽位
     if (this.pendingRequests.size + this.pendingBatchRequests.size >= maxInFlight) {
-      throw new Error(
+      throw new EmbedBackpressureError(
         `Embedding backpressure: in-flight limit ${maxInFlight} reached, batch request rejected`,
       );
     }
@@ -494,28 +581,32 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     const id = ++this.requestId;
 
     const batchPromise = new Promise<Float32Array[]>((resolve, reject) => {
-      this.pendingBatchRequests.set(id, { resolve, reject });
+      this.pendingBatchRequests.set(id, { resolve, reject, salvage: opts?.salvage });
       const request: EmbedBatchRequest = { type: "embed-batch", texts, id };
-      if (!this.worker.send(request)) {
+      // F20261016slvg 对抗审视洞 5：同 embed() 的 send 同步 throw 防护
+      try {
+        if (!this.worker.send(request)) {
+          this.pendingBatchRequests.delete(id);
+          reject(new EmbedTransientError("Embedding worker IPC channel closed"));
+        } else {
+          this.lastWorkerActivityAt = Date.now();
+        }
+      } catch (sendErr) {
         this.pendingBatchRequests.delete(id);
-        reject(new Error("Embedding worker IPC channel closed"));
+        reject(new EmbedTransientError(`Embedding worker send failed: ${sendErr}`));
       }
     });
 
     // F20261016ebrt：batch 超时预算——5s/条，不低于 30s（对齐单条），上限 120s
     // 测试环境 testTimeoutOverride 覆盖（与 embed() 同口径，否则测试等不到生产预算）
-    const timeoutMs = EmbeddingServiceImpl.testTimeoutOverride ?? Math.min(
-      Math.max(texts.length * EmbeddingServiceImpl.BATCH_TIMEOUT_PER_TEXT_MS, EmbeddingServiceImpl.BATCH_TIMEOUT_FLOOR_MS),
-      120_000,
-    );
+    const timeoutMs = this.batchTimeoutBudgetMs(texts);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<Float32Array[]>((_, reject) => {
       timer = setTimeout(() => {
-        // inflight 必须在 delete 自身之前读（与 embed 路径同口径）
+        // F20261016slvg：超时 ≠ 取消——同 embed() 路径，条目保留 + 槽位不释放
+        const pending = this.pendingBatchRequests.get(id);
+        if (pending) pending.abandoned = true;
         const inflight = this.pendingRequests.size + this.pendingBatchRequests.size;
-        this.pendingBatchRequests.delete(id);
-        this.releaseSlot();
-        // F20261015selfheal 观测增强：batch 超时画像（条数 + 总文本量 + 首条摘要）
         this.workerEmbedTimeouts++;
         this.lastTimeoutContext = {
           path: "embedBatch",
@@ -525,8 +616,6 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
           inflight,
           firstText: EmbeddingServiceImpl.textProfile(texts[0] ?? ""),
         };
-        // F20261016ebrt：慢≠死——本代有成功记录说明 worker 活着，只 reject 不杀
-        this.restartWorkerIfHung(`embed batch timeout after ${timeoutMs}ms (${texts.length} texts)`);
         reject(new EmbedTimeoutError(`Embed batch timeout after ${timeoutMs}ms (${texts.length} texts)`));
       }, timeoutMs);
     });
@@ -534,6 +623,14 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     return Promise.race([batchPromise, timeoutPromise]).finally(() => {
       if (timer) clearTimeout(timer);
     });
+  }
+
+  /** F20261016slvg：batch 超时预算计算（从 embedBatch 拆出压函数行数） */
+  private batchTimeoutBudgetMs(texts: string[]): number {
+    return EmbeddingServiceImpl.testTimeoutOverride ?? Math.min(
+      Math.max(texts.length * EmbeddingServiceImpl.BATCH_TIMEOUT_PER_TEXT_MS, EmbeddingServiceImpl.BATCH_TIMEOUT_FLOOR_MS),
+      120_000,
+    );
   }
 
   /** F20260811mrpy Part 3：返回 worker 加载的模型元信息 */
@@ -549,73 +646,23 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    // F20261016slvg：停看门狗（unref 已保证不阻退出，显式清更干净）
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
     this.pendingRequests.forEach(({ reject }) =>
-      reject(new Error("EmbeddingService disposed")),
+      reject(new EmbedTransientError("EmbeddingService disposed")),
     );
     this.pendingRequests.clear();
     this.pendingBatchRequests.forEach(({ reject }) =>
-      reject(new Error("EmbeddingService disposed")),
+      reject(new EmbedTransientError("EmbeddingService disposed")),
     );
     this.pendingBatchRequests.clear();
     // dispose 放行全部槽位 waiter——挂起的 sync 循环恢复后由 embed 的 disposed 检查拦截
-    while (this.slotWaiters.length > 0) {
-      this.slotWaiters.shift()!();
-    }
+    this.drainSlotWaiters();
     this.workerGeneration++;
     this.worker.removeAllListeners();
     this.worker.kill("SIGKILL");
   }
-}
-
-/** Noop Logger 实现 */
-const noopLogger: Logger = {
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  debug: () => {},
-  child: () => noopLogger,
-};
-
-/**
- * 初始化 Embedding 服务（F20261016ebrt：读写双 lane）。
- *
- * fork 两个独立子进程，各自加载一份 bge-m3：
- * - queryService：只服务 search_memory 查询 embed（延迟优先，不排在回填后面）
- * - writeService：服务 store/sync/retry 回填 embed（吞吐优先，可放开了批量）
- *
- * 为什么必须分进程：onnxruntime 1.23.2 要求 worker 内串行（MAX_IN_FLIGHT=1，
- * 长文×并发>1 必死锁）——串行是原生约束，但「串行」≠「共用一条队列」。
- * 共用时回填/写入把查询排队拖死（处理直接影响读）。两进程各自串行，互不排队。
- * 代价：2 份 bge-m3 ≈ 4.5GB，比「重启时短暂双份 + 泄漏」更可控。
- */
-export async function initEmbeddingService(
-  embedConfig?: EmbeddingConfig,
-  logger?: Logger,
-): Promise<{ queryService: EmbeddingGateway; writeService: EmbeddingGateway; dispose: () => void }> {
-  const workerPath = embedConfig?.workerPath ?? path.join(__dirname, "bge-m3-worker.js");
-  // F20261015kill：worker 工厂——超时自愈重建时复用同一配置 fork
-  // serialization:'advanced' 走 structured clone，Float32Array 保真（默认 JSON 会退化成对象）
-  const workerFactory: WorkerFactory = () => fork(workerPath, [], {
-    ...(embedConfig?.workerExecArgv ? { execArgv: embedConfig.workerExecArgv } : {}),
-    env: {
-      ...process.env,
-      // fork 无 workerData，配置走 env（bge-m3-worker 侧 readWorkerConfig 解析）
-      OTTER_EMBED_WORKER_CONFIG: JSON.stringify({
-        modelPath: embedConfig?.modelPath ?? "Xenova/bge-m3",
-        localModelPath: embedConfig?.localModelPath,
-      }),
-    },
-    serialization: "advanced",
-  });
-  const queryService = new EmbeddingServiceImpl(workerFactory(), logger || noopLogger, workerFactory);
-  const writeService = new EmbeddingServiceImpl(workerFactory(), logger || noopLogger, workerFactory);
-
-  return {
-    queryService,
-    writeService,
-    dispose: () => {
-      queryService.dispose();
-      writeService.dispose();
-    },
-  };
 }
