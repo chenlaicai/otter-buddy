@@ -477,8 +477,11 @@ async function enterRoom(seat, opts = {}) {
   if (state.seat === null) sessionStorage.removeItem(state.seatKey());
   else sessionStorage.setItem(state.seatKey(), String(state.seat));
   try {
-    const view = await api.view(state.roomId, state.seat);
-    state.view = view;
+    // 方案模块四流程：join 入座（拿该座私有视图）→ start 幂等开局确认
+    const entered = state.seat === null ? await api.view(state.roomId, null) : await api.join(state.roomId, state.seat);
+    state.view = entered.view ?? entered;
+    // start 回执内部是 seats=null 的全览视图——只当“开局/恢复确认”用，绝不覆盖 state.view（否则坐家用全览 = 看得见对手底牌）
+    await api.start(state.roomId).catch(() => {});
     state.screen = "room";
     state.streamSettle = null;
     state.overlay = opts.join ? "join" : opts.created ? "created" : null;
@@ -549,8 +552,9 @@ function bindEvents() {
       render();
     } else if (what === "recover") {
       try {
-        const res = await api.recover(state.roomId);
-        state.view = res.view ?? (await api.view(state.roomId, state.seat));
+        await api.recover(state.roomId);
+        // recover 回执是 seats=null 全览视图——恢复后按自己座位重取私有视图（手牌可见性不降级）
+        state.view = await api.view(state.roomId, state.seat);
         state.screen = "room";
         state.overlay = null;
         pushLog("已从最新帧恢复", "is-wake");
