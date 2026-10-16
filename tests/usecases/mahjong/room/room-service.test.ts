@@ -142,28 +142,23 @@ describe("wakeOtterForDecision 唤醒与兜底", () => {
   });
 });
 
-describe("SdkOtterGateway 超时与锁", () => {
-  it("invoke 悬挂超时→释放锁→wake 走代理兜底", async () => {
+describe("SdkOtterGateway 超时", () => {
+  it("invoke 悬挂超时→wake 走代理兜底（锁由端口 invoke 自带，不再外层取锁）", async () => {
     const engine = new SanmaEngine(cfg("w3"));
     engine.startRound();
     const dp = engine.decisionPoint()!;
-    let locked = 0;
-    let released = 0;
+    let invokeCalls = 0;
     const port = {
-      invoke: () => new Promise<never>(() => undefined), // 悬挂不返
-      acquireSessionLock: async () => {
-        locked += 1;
-        return () => {
-          released += 1;
-        };
+      invoke: () => {
+        invokeCalls += 1;
+        return new Promise<never>(() => undefined); // 悬挂不返
       },
     };
-    const gateway = new SdkOtterGateway(port as never, "conv-1", 30);
+    const gateway = new SdkOtterGateway(port as never, undefined, 30);
     const res = await wakeOtterForDecision({ gateway, engine }, dp);
     expect(res.via).toBe("fallback");
     expect(res.fallbackReason).toContain("timeout");
-    expect(locked).toBe(2); // 两次尝试各取锁一次
-    expect(released).toBe(2); // 超时后 finally 释放
+    expect(invokeCalls).toBe(2); // 两次尝试各 invoke 一次（超时各 30ms）
     expect(dp.actions).toContain(res.action);
   });
 });
