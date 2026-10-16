@@ -3,7 +3,13 @@
 import { describe, it, expect } from "vitest";
 import { checkBashCommandSafety } from "../src/frameworks/agent/bash-safety-guard";
 
-const W = "write payload: require('fs').writeFileSync('/repo/config.yaml','x')";
+// F20261016grdl 1a'-B 行为变更适配：W 落点从硬编码 /repo 改为 projectRoot 真实路径——
+// 「写动词 fail-closed 不看落点」翻转为「落点感知」后，/repo 字面路径落在测试 projectRoot
+//（__dirname）树外会被（正确的）落点感知豁免放行；#1285 语义是「空赋值前缀绕过通道」，
+// 落点改真主仓路径后该绕过面仍应拦（通道命中语义不变）。
+import path from "node:path";
+const MAIN = path.resolve(__dirname);
+const W = `write payload: require('fs').writeFileSync('${MAIN}/config.yaml','x')`;
 const cases: [string, string][] = [
   ["洞1a bash -c", `bash -c 'node -e "${W}"'`],
   ["洞1b sh -c", `sh -c 'node -e "${W}"'`],
