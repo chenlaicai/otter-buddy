@@ -39,7 +39,7 @@
  *
  * 求值纯判定：除牙3 缺席证明的 fs stat 只读查询（fsAbsentPlan，delta2 修法）外无 IO、无状态、不写任何存储（机制识别检查点：只读 fs 查询已记档特性文档）。
  */
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { parseOnce, SHELL_INTERPRETERS, type CommandModel, type Segment } from "./command-model";
 import { proveNoWrite, DYNAMIC_IMPORT_FACE, MAIN_LIT_CONCAT_IMPORT_FACE, openCallUnknownMode, payloadWriteFaceHit, SCRIPT_EXEC_FACE, dotExecCommandHits, classifyOpenModeArg } from "./write-word-face";
@@ -139,12 +139,34 @@ function normalizePath(p: string): string {
   return p.replace(/\/{2,}/g, "/").replace(/(.+)\/$/, "$1");
 }
 
-/** 路径词求值：相对 → cwd 拼接；含 $/`/~（家目录）/.. → null（动态，unevaluated）。
- *  ~ 按主仓 home 不可知原则不猜；.. 不猜目录爬升结果（首跑实测：cd /repo/../.. 回落）。 */
+/** 词法路径爬升（纯字符串分段栈：空段/`.` 跳过，`..` 出栈，普通段入栈；栈空再出=根 `/`）。
+ *  确定性与边界：与 shell 词法语义一致——不触盘、不解析 symlink（projectRoot 全链均按
+ *  词法绝对路径判定，同口径）；路径开头是 `/` 时绝对词直接爬升，否则先拼 cwd 再爬升。
+ *  F20261016gses rebase 回归修（大獭 2026-10-16 派工）：`..` 从首跑「一律不猜」收窄为
+ *  「可静态爬升则解析」——`path.resolve(cwd, '../')` 是确定性的（wt/src + ../ = wt
+ *  自树仍在 worktree 区），`git -C ../ commit` 从 worktree 子目录发车曾 fail-closed
+ *  误拦（bash-safety-guard-git-dashc.test.ts 第 6 例 rebase 后翻红实证）。动态形态
+ *  （$/`/~）不进本函数（evalPath 前置短路）——`$W/../main` 类溯源面口径不变。 */
+function climbPath(p: string): string {
+  const out: string[] = [];
+  for (const seg of p.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") { out.pop(); continue; }
+    out.push(seg);
+  }
+  return `/${out.join("/")}`;
+}
+
+/** 路径词求值：相对 → cwd 拼接；含 $/`/~（家目录）→ null（动态，unevaluated）。
+ *  ~ 按主仓 home 不可知原则不猜；.. 可静态爬升则词法解析（climbPath——F20261016gses
+ *  收窄，见 climbPath 注释；首跑「不猜爬升结果」保守口径就此退役，`cd /repo/../..`
+ *  现解析到 `/`）。 */
 function evalPath(word: string, cwd: string): string | null {
   if (word === null || word === undefined) return null;
   if (/[$`~]/.test(word)) return null;
-  if (word.includes("..")) return null;
+  if (word.includes("..")) {
+    return climbPath(word.startsWith("/") ? word : `${cwd.endsWith("/") ? cwd : `${cwd}/`}${word}`);
+  }
   if (word.startsWith("/")) return normalizePath(word);
   return normalizePath(`${cwd.endsWith("/") ? cwd : `${cwd}/`}${word}`);
 }

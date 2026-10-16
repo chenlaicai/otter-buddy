@@ -826,7 +826,8 @@
       "command": "cd /repo/../elsewhere && touch x",
       "verdict": "BLOCK",
       "adjudication": [
-        "獭审 override：`..` 路径归一化拒绝（能力6）→ 不可证 fail-closed"
+        "F20261016gses rebase 回归修（evalPath 可静态爬升收窄）：/repo/../elsewhere 词法解析=/elsewhere 树外 → 本条原 BLOCK 理由（能力6 .. 拒绝）失效。但改判 ALLOW 需动 block 池确定性判决=改考试口径，属棘轮收缩须带守恒验收，不在本回归修范围——仍按原判 BLOCK 归入 gaps（reason 更新为 cwd 爬升解析后树外零写面）",
+        "獭审 override：.. 路径归一化拒绝（能力6，首跑口径）→ 不可证 fail-closed"
       ],
       "source": {
         "types": [

@@ -12,7 +12,6 @@
     "TS-eb5940d6": "fail-closed(heredoc-script-payload)",
     "TS-5c342b6a": "fail-closed(cwd-unresolvable)",
     "TS-fe9fb143": "fail-closed(cwd-unresolvable)",
-    "TS-0bdb0b14": "fail-closed(cwd-unresolvable)",
     "TS-dceec874": "fail-closed(dynamic-path)",
     "TS-9279de65": "fail-closed(dynamic-path)",
     "TS-bba854f7": "fail-closed(heredoc-script-payload)",
@@ -43,7 +42,6 @@
     "TS-c037": "fail-closed(cwd-unresolvable)",
     "TS-c038": "fail-closed(cwd-unresolvable)",
     "TS-c040": "fail-closed(cwd-unresolvable)",
-    "TS-c041": "fail-closed(cwd-unresolvable)",
     "TS-c137": "fail-closed(heredoc-script-payload)",
     "TS-c138": "fail-closed(heredoc-script-payload)",
     "TS-a8570f53": "fail-closed(parse-failed)",
@@ -59,7 +57,8 @@
     "TS-c140": "放水（求值器判 ALLOW——拦截池必须拦）",
     "TS-c097": "放水（求值器判 ALLOW——拦截池必须拦）",
     "TS-747bd520": "放水（求值器判 ALLOW——拦截池必须拦）",
-    "TS-smrjdir02": "放水（求值器判 ALLOW——拦截池必须拦）"
+    "TS-smrjdir02": "放水（求值器判 ALLOW——拦截池必须拦）",
+    "TS-c028": "放水（F20261016gses evalPath 爬升收窄：cd /repo/../elsewhere → /elsewhere 树外零写面 ALLOW；原 .. 拒绝回落 BLOCK 理由失效。改判需动守池确定性判决=棘轮收缩工单带守恒验收，本回归修先如实钉 gap）"
   },
   "cond": {
     "TS-c062#main": "放水（主仓态应拦）",

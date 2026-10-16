@@ -106,6 +106,14 @@ bash 命令进来
 - 行为断言更新 9 条（旧形态判口径→落点语义口径，逐条注明 F1 修订语义）；1285 repro 落点对齐 projectRoot（虚构 /repo 错位修正）
 - 棘轮 78→77（allow 48 / block 10 / cond 19）
 
+### evalPath `..` 可静态爬升收窄（2026-10-16 rebase 回归修）
+
+- **回归现场**：`git -C ../ commit` 从 worktree 子目录发车（bash-safety-guard-git-dashc.test.ts 第 6 例）rebase #1519 后翻红——#1515 时代 V1 豁免通道用 path.resolve 处理相对路径放行，P0 切求值器后 evalPath 对含 `..` 一律 null（首跑「不猜爬升」保守口径）→ dynamic-path fail-closed 误拦。大獭 13:50 裁决：`..` 爬升不是不可判（path.resolve 确定性），精确收窄。
+- **修法**：evalPath 新增 climbPath 词法分段栈（空段/`.` 跳过、`..` 出栈、栈空再出=根 `/`；不触盘、不解析 symlink——全链词法口径同源）；动态形态（$/`/~）不进爬升（前置短路）不变。首跑「不猜」口径就此退役。
+- **拦截面验证**：`<wt>/../../../main/y` 绝对爬升命中主仓 → evaluated 拦（reason 从回落变落点命中，更精确）；拼接形 `<wt>/x+'/../../../main/y'` 折叠落 `/repo/.otter/main/y` —— OTTER_RUNTIME_REGIONS 只豁免 worktrees/workforms/data-workspaces，.otter 杂散面属主仓判定域 → 仍拦。树外爬升（cd /repo/../elsewhere、/tmp/d/../x、../x.sh fs 缺席）→ 解析后零写面放行。
+- **棘轮影响**：allow 池 TS-0bdb0b14/TS-c041（cwd-unresolvable）随收窄实测通过移出 gaps（77→75）；block 池 TS-c028（cd /repo/../elsewhere）实测 ALLOW 与守池 BLOCK 判决冲突——改判需动守池确定性判决=棘轮收缩工程，本修如实钉 block gaps（75→76），余 76（allow 46 / block 11 / cond 19）。净效果 77→76。
+- **边界记档**：symlink 词法/fs 语义差异非新面（normalizePath/pathWithinMain 全链同口径）；TS-c028 型守池改判待 P2 棘轮收缩工单带守恒验收。
+
 ## 下一步（派工单节奏：每完成一期报进展）
 
 1. P0 载荷能力补全 + 运行时 sourcing 接线 + 路由切换（本期 PR 主体，顺序修订后）
