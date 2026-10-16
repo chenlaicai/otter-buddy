@@ -293,3 +293,80 @@ causal_links:
 3. **静态页挂载**：`GET /mahjong/:roomId` 页面静态资源不在本层（web-mahjong/ 属页面层）；JSON/SSE 已就绪。
 4. **局终形态**：东风战 4 局毕即终局（无连庄延长/突破协议）；包牌细则为简化版（见决策 5）；观战帧端点无鉴权（内网单机假设，随 web 面统一收口）。
 5. oracle 曾发现 kazoe 阶梯与 mahjong-utils 分叉（见上节）——若雀魂实盘推翻累计阶梯口径，改动点在裁判 `points.ts`，非引擎。
+
+## 实现记录（Web 层，2026-10-16，麻将页面獭）
+
+**范围**：`web-mahjong/`（原生单页）+ `src/bootstrap/server.ts` / `src/app.ts` 静态挂载（引擎层缺口④）+ `tests/web-mahjong/`、`tests/bootstrap/server-mahjong-static.test.ts`、`eslint.config.mjs`（web-mahjong 浏览器 globals 块）。逐模块提交：
+
+| commit | 模块 |
+|---|---|
+| 7d0b55e2 | 模块四·牌局页全量：静态挂载 + 牌桌渲染 + SSE 实时联动 + 动作注入 + 开局流程（36 例测试） |
+| c3daadef | 模块四·开局流程接 join/start 端点 + 恢复后按座位重取私有视图（手牌可见性防线） |
+
+**页面文件清单**（web-mahjong/，无图片、无新 npm 依赖、不进 vite 构建链）：
+
+- `index.html`——牌桌挂载点（场况栏/左右家/中央/自己区/遮罩/提示条），空壳，内容全由 app.js 渲染
+- `style.css`——配色参照 `game/index.html`（只读参考）；牌河 6 列 grid、立直横置、窄屏单列降级
+- `js/view.js`（318 行·纯函数，零 DOM 零网络）——视角变换/手牌排序/牌面字形与标签/暗牌张数推导/动作按钮状态机/手牌可点性
+- `js/api.js`——7 个 JSON 端点薄封装（动作对象原样透传）
+- `js/sse.js`——EventSource 订阅 + 退避重连 + recover 前置 + 静默断链看门狗
+- `js/app.js`——URL 路由/遮罩流程/DOM 组装/事件绑定/倒计时/结算与终局展示
+
+**八端点对接确认表**（路由注册：`src/interface-adapters/http/router.ts:264-271`）：
+
+| # | 端点 | 页面消费点 | 状态 |
+|---|---|---|---|
+| 1 | POST /api/mahjong/rooms | 大厅「建房开局」→ `api.createRoom` | ✅ 已消费 |
+| 2 | POST /api/mahjong/rooms/:id/join | 入座遮罩选座 → `enterRoom` | ✅ 已消费 |
+| 3 | POST /api/mahjong/rooms/:id/start | `enterRoom` 末位幂等开局确认（回执丢弃，见决策 5） | ✅ 已消费 |
+| 4 | POST /api/mahjong/rooms/:id/actions | 手牌点击/动作按钮 → `dispatch` | ✅ 已消费 |
+| 5 | GET /api/mahjong/rooms/:id/view?seat= | 初始载入/每轮刷新/恢复后按座位重取 | ✅ 已消费 |
+| 6 | GET /api/mahjong/rooms/:id/frames | `api.frames` 已封装，页面未消费 | ⬜ 封装就绪·未消费（复盘 UI 非方案模块四范围） |
+| 7 | GET /api/mahjong/rooms/:id/events (SSE) | `sse.js` 全程订阅（hello/game/human-wait/error） | ✅ 已消费 |
+| 8 | POST /api/mahjong/rooms/:id/recover | 遮罩「尝试断线恢复」+ `sse.js` 第 2 次重连前置 | ✅ 已消费 |
+
+（7/8 消费；#6 复盘留待后续）
+
+**关键实现决策**：
+
+1. **静态挂载**：serveStatic 的 `path` 选项不可靠（`server.ts` 既有注释），故 `/mahjong` 与 `/mahjong/:roomId` 用 readFile 直读 index.html（对齐 SPA fallback 写法）；资源走 `serveStatic + rewriteRequestPath` 把 `/mahjong/assets/*` 削成 `/*`。两组路由注册在 `app.use("/*", serveStatic)`/`app.get("*")` **之前**，fallback 内再显式 404 排除 `/mahjong*`（双保险）。新参数 `mahjongStaticRoot` 缺省跟随 `staticRoot` 总开关（false 时不挂）。
+2. **座位方向**：right = seat+1（下家）、left = seat+2（上家）——锚 `engine.ts:103` `(caller + 1) % 3 === discardSeat → shimocha`。
+3. **动作逐字透传**：`tileAction` 返回 `decision.actions` 里的**原对象**（identity 断言写进测试），HTTP 面「action 必须逐字来自 decision.actions」天然满足。打牌/立直/加杠按记谱**逐字匹配**——按种类匹配会把点红五 `0p` 发成普通五 `5p`（写测试时发现）；暗杠按种类匹配（动作给 `kind`，同种类张等价）。
+4. **暗牌张数推导**：视图对非本人 `hand: null` 无张数可用 → `13 +（轮到该家且已摸牌 ? 1 : 0) − Σ副露扣除（吃/碰 2、明杠 3、暗杠 4、加杠 3）`；拔北不改张数（引擎 `doKita` 从活山补牌、不进 melds，`engine.ts:721`）。
+5. **全览视图防泄漏**：`start`/`recover`/无 seat 的 `view` 回执都是 `seats=null` 全览（三家底牌可见）。页面只把「自己座位的私有视图」写进 `state.view`，全览回执仅当确认信号用；恢复后必按座位重取（c3daadef）。
+6. **手牌排序与刚摸的张**：种类升序 + 赤五在前（稳定保序）；刚摸的张拆到手牌**右端**单独标绿——不能按 code 全匹配，同码张会被一并标成「刚摸的」（真机截图发现，已修）。
+7. **SSE 看门狗**：15s 心跳是 `: ping` 注释帧，EventSource 不上抛 → 页面量「距最后 data 帧 35s」主动断开重连；重连从第 2 次起先 POST `/recover` 再重开事件流（进程重启后房间不在内存时的唯一入口）。
+
+**测试**（页面层 36 例；`npm run test` 全量 387 文件 6009 例通过）：
+
+- `tests/web-mahjong/view.test.ts` **21 例**——视角变换/手牌排序/牌面字形与标签/牌河立直横置/场况栏/动作按钮状态机/手牌可点性/暗牌张数推导
+- `tests/bootstrap/server-mahjong-static.test.ts` **8 例**——深链接不被 SPA 吞、资源映射、staticRoot=false 不挂、仓库真页面可达
+- `tests/web-mahjong/api-sse.test.ts` **4 例**——api.js × 真路由（join 私有/观战全览/动作注入/帧链/404）、断线退避+recover+close 干净、看门狗重连、真 SSE 流桥接（hello→game→human-wait）
+- `tests/web-mahjong/page-visual.test.ts` **3 例**——真 Chrome + 真 HTTP 端口（入座→牌桌→出牌、观战、大厅）：零控制台报错、牌河 6 列、手牌张数与服务端一致、牌面为 U+1F000+ 麻将字符；截图留档 `MAHJONG_SHOT_DIR`（不入库）
+
+**已知缺口（页面层）**：
+
+1. **对话侧入口卡/战报卡与 D2 防护未落地**——见下节，跨层归属待大獭裁决。
+2. **内嵌聊天框只落地前半**：「獭 speech 实时流入」可由 `game` 事件 `wake.speech` 取到（页面已进对局日志），但**真人回话无端点**（8 端点里没有 chat 注入口），方案「回话在下局开局时作为首条 user 消息注入獭 session」在 engine/room 侧亦未见实现——需引擎层补口。
+3. **复盘 UI 未做**（#6 frames 封装未消费）。
+4. 观战/页面无鉴权（引擎缺口④同源，随 web 面统一收口）；`/mahjong/assets` 与 `:roomId` 同层，roomId 恰为 `assets` 时会返回 index.html（无实际影响）。
+5. 真机截图只跑本机 Chromium——Windows/无麻将字符块字体的回落未验证；牌面已备 `title`/`aria-label` 中文名兜底。
+
+### 模块五（对话侧触点）研究结论与待裁决项
+
+**html-card 机制**（`api-contract/api/html-card.ts:8/12/18`）：一条消息最多 2 卡、单卡 65536B、schema v2；围栏 `html-card` 体内是 HTML。**围栏内的链接不算裸链**（`send-entry-unfurl-scan.ts:6`：URL 独占一段才算，围栏体内不算）——要 unfurl 预览就得让链接独占一段且不进围栏。
+
+- **入口卡（无需新码，随时可用）**：建房后由大獭在对话 speak，两种形态二选一：
+  ① 裸链（触发自动 unfurl 预览卡）：`三麻桌已开 🀄 {origin}/mahjong/{roomId}` 独占一段；
+  ② html-card 链接卡：
+
+  ```html-card title="🀄 三麻桌已开"
+  <p>东风战 · 35000 点 · 1 真人 + 2 獭</p>
+  <p><a href="{origin}/mahjong/{roomId}">进牌桌 →</a></p>
+  ```
+
+  建房接口：`POST /api/mahjong/rooms {roomId?, seed?, players:[{kind,name,otterId?}×3]}` → 201 `{roomId, gameId, seed}`；页面大厅同款表单在 `/mahjong`（分享链接 → 对方打开即入座遮罩）。
+
+- **战报卡（未落地，卡在「目标对话不可得」）**：触发点在 RoomService 局终广播（`room-service.ts:378 publishGame`），但**房间全程无 conversationId**——`createRoom(roomId, config)`（`room-service.ts:140`）与 GameConfig/PlayerConfig 只有 `otterId`，HTTP 建房 body 亦无（`mahjong-controller.ts:55`）。可行推导已存在：`agent-invoker.ts:1728 resolveFirstConversationId(otterId)` → `conversationQuery.getIdsByOtterId`（牌搭子獭挂靠对话）。**提案**：RoomService 加一个局终回调端口 `onGameover(roomId, settlement, ranking)`，bootstrap 装配时接 `SendEntry`（`src/usecases/conversation/send-entry.ts:115`，html-card 正文 + `create_linked_resource` 登记）→ 改动点在 `room/` + `bootstrap/`，**属引擎层，页面侧不自行改，待裁决**。
+
+- **D2「打牌中」应答（未实现，口径需裁决）**：`grep 打牌中 src/` 为空（未落地）；`sdk-invoke-port.ts:120 isRunning?` / `agent-invoker.ts:868 isRunning()` 已在位，但它是「有进行中 invoke」的**通用**忙碌口径（`agent-invoker.ts:1671` 已用于手动重启 409）。直接拿它当「牌局中」会把所有忙碌獭（定时任务/长任务）都答成「打牌中」。精确谓词要「谁在某局牌里」（RoomService 座位表），同样是引擎层状态。**提案**：引擎侧暴露 `isSeated(otterId)`（或常驻房间表查询），对话派发点前置判断 → 自动回「打牌中」不进 LLM；派发插入点未核实（凭 `agent-invoker.ts:1671` 有忙碌分支，具体 @ 派发链待排查）。
