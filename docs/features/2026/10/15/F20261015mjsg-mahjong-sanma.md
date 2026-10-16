@@ -420,3 +420,31 @@ causal_links:
 - 第 9 端点：`POST /api/mahjong/rooms/:roomId/chat`
 - SSE 新事件：`{type:"chat", roomId, seat, text, at}`（实时回显人声；页面未消费，安全忽略）
 - 战报走对话侧 entry（sendEntry），不经牌局 SSE；D2 应答同样走对话 entry + `entry.speak` 广播
+
+---
+
+## 实现记录（对抗检视处置，2026-10-16，麻将引擎獭）
+
+PR #1529 检视（麻将方案检视獭）：3 严重 + 6 建议。严重①（PR 标题缺模块 tag）大獭已修；②③ 与建议 5/7 本层处置如下，每条均有 commit 或留档。
+
+### 严重修复
+
+| 发现 | 处置 | commit/锚点 |
+|---|---|---|
+| ② 真人注入异常路径房间永久冻结 | `injectHumanAction` catch 内 `kick()` 重挂推进链——apply 合法性检查先于状态变更（`engine.ts` IllegalActionError 前置），引擎状态未动，loop 按同一决策位重新 park 开窗；测试：非法记谱 9z 注入 → 400 → 窗口重开 → 合法注入续推至终局 | `2b7516f8` |
+| ③ 终局房间永不清理（泄漏+重开 409） | `fireGameover` 先行 `updateGameStatus('finished')` + 宽限驱逐（默认 10min，`evictFinishedMs` 可调；代际校验防误删重开新房；unref 不拖进程）；`createRoom` 终局旧房 close 后重开=新 gameId；`recover` 已终局 reportedOver 置位 + status 幂等补写 | `2fc5401a` |
+| ⑥ `updateGameStatus` 死代码 | 随③一并复活（findGameByRoom 优先 playing 的语义钥匙） | `2fc5401a` |
+
+**forceTimer 路径（检视附带提及的同类理论冻结）：分析后不改**——代理动作取自 `dp.actions` 合法集（同源），apply 对其不可能拒绝；即便引擎 bug 理论成立，该路径已广播 `{type:"error"}` 可观测，而盲目 kick 会变成 30s 周期的无限重试噪音。若未来 apply 出现「合法集自矛盾」，与②同方修复。
+
+### 建议处置与决策留档
+
+| 发现 | 处置 |
+|---|---|
+| ④ 暴露面无闸门 | **同根因聚合进 #1322**（对话域控制器系统性无鉴权——新评论含 mahjong 9 端点面与 seat=权限分析）；L2 鉴权选型连同该 issue 呈搭档拍板；PR 描述补「自用单机，绑定面安全责任在部署侧」 |
+| ⑤ 客户端可指定 seed | **保留客户端 seed + 本节决策记录（不悬置）**。理由：a) 方案 L80 明文承诺「确定性洗牌（可复现对局）」——全部集成测试/复盘排障依赖 seed 复现（tests/api 与 room 域均以 seed 钉死）；b) 自用单机无博弈性公平诉求（检视自身也判「安全性弱于鉴权面」）；c) 单边透明的受益方 = 部署者自己，无对手可被剥削。**剩余风险接受并留档**：若未来对外联机/比赛，服务端随机 seed 是单点改动（createRoom 忽略入参即可），届时与④的鉴权选型一并处理 |
+| ⑦ D2 扫描面偏窄疑虑 | **核实后成立性否决**：链引擎在 invoke 前已把 roster+未读批+触发消息拼进 `userMessageContent`（dispatch-chain-engine.ts:844 buildMessageWithContext → executeOneHop 全量透传），批次/历史行含「停下」同样命中放行——已补代码注释锚定 + 批形状测试钉死 | `74d0488d` |
+| ⑧ 聊天回显断链 | **建 issue #1532**（页面接 chat 事件回显 + 引擎广播獭注入回应 + 可选 chat 历史端点）——跨层且页面未消费，不在此 PR 半边修 |
+| ⑨ invokeId 契约放松未声明 | PR 描述补一行声明（`CreateSpeakEntryInput.invokeId` 改可选、落库 `?? null` 守 `entries.invoke_id` 外键——全仓回归 0 败已验） |
+
+检视建议与本处置对照见 PR #1529 review 线程；delta 复核以本节 + PR 描述为准。
