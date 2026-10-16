@@ -11,6 +11,7 @@ import { createApi } from "./api.js";
 import {
   actionBar,
   fieldInfo,
+  formatChatLine,
   panelsByPosition,
   settlementModel,
   tileAction,
@@ -258,6 +259,9 @@ function settleHtml(s) {
 
 function render() {
   document.getElementById("app").dataset.state = state.screen;
+  // #1532：聊天条只在牌局页且入座后可见（观战/大厅隐藏——发言必须有合法 seat）
+  const chatBar = document.getElementById("chatBar");
+  if (chatBar) chatBar.hidden = state.screen !== "room" || state.seat === null;
   if (state.screen === "room" && state.view) {
     renderField();
     renderPlayers();
@@ -586,6 +590,26 @@ function bindEvents() {
       render();
     }
   });
+
+  // #1532：聊天发送（回显靠 SSE chat 帧，不本地假回显——断线时不会自己骗自己）
+  const sendChat = async () => {
+    const input = $("chatInput");
+    const text = input.value.trim();
+    if (!text || state.seat === null) return;
+    try {
+      await api.chat(state.roomId, state.seat, text);
+      input.value = "";
+    } catch (err) {
+      toast(err.message || "发送失败");
+    }
+  };
+  $("chatSend").addEventListener("click", sendChat);
+  $("chatInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      sendChat();
+    }
+  });
 }
 
 async function onCreate() {
@@ -686,6 +710,12 @@ function handleStreamEvent(ev) {
     if (ev.wake?.speech) pushLog(`${ev.wake.via}：${ev.wake.speech}`, "is-wake");
     else if (ev.wake) pushLog(`（${ev.wake.via}${ev.wake.fallbackReason ? ` · ${ev.wake.fallbackReason}` : ""}）`);
     safeRefresh();
+    return;
+  }
+  if (ev.type === "chat") {
+    // #1532：chat 帧回显（自己/他者/獭回应同流）——聊天不改视图，直接重渲染日志
+    pushLog(formatChatLine(ev, state.seat), "is-chat");
+    render();
     return;
   }
   if (ev.type === "human-wait") {

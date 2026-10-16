@@ -64,6 +64,8 @@ export function createApi(opts = {}) {
     start: (roomId) => post(room(roomId, "/start")),
     /** 真人动作注入 → {accepted:true, view}（400 = 非该座停驻或动作非法） */
     action: (roomId, seat, action) => post(room(roomId, "/actions"), { seat, action }),
+    /** 真人回话 → {accepted:true, roomId, seat, view}（#1532：入队广播 chat 帧，回显靠 SSE） */
+    chat: (roomId, seat, text) => post(room(roomId, "/chat"), { seat, text }),
     /** 断线恢复（最新帧还原 + 续推） */
     recover: (roomId) => post(room(roomId, "/recover")),
     /** 视图：seat 缺省 = 观战全览（三家手牌可见） */
