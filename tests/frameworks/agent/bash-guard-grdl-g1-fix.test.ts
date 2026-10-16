@@ -36,6 +36,12 @@ describe("F20261016grdl 1a'：G1 六例修复面（放行）", () => {
   it("例6：cd 树外 && python3 -c im.save('/tmp/x.png')（写动词+落点树外）→ 放行", () => {
     expect(guard(`cd /Users/orca/ai/others/x && python3 -c "\nfrom PIL import Image\nim = Image.open('a.png')\nim.save('/tmp/a_view.png')\n" | tail -5`)).toBeNull();
   });
+  it("例6 变体：无 cd，载荷绝对路径全部树外（输入输出都在 /tmp）→ 放行", () => {
+    expect(guard(`python3 -c "\nfrom PIL import Image\nim = Image.open('/tmp/in.png')\nim.save('/tmp/a_view.png')\n"`)).toBeNull();
+  });
+  it("例6 变体：cd worktree + 相对路径写（resolve 到 cd 锚定=排除区）→ 放行", () => {
+    expect(guard(`cd ${WT} && python3 -c "open('config/x.yaml','w').write('x')"`)).toBeNull();
+  });
 });
 
 describe("F20261016grdl：调查期亲历三例（族 D，放行）", () => {
@@ -68,6 +74,18 @@ describe("F20261016grdl：拦截面不回退（拦截）", () => {
   });
   it("掩蔽写：只读载荷 + 'node' 掩蔽相对路径写 → 拦（聚合洞已修）", () => {
     expect(guard(`node -e "console.log(require('fs').readFileSync('/tmp/f','utf8').length)" && 'node' -e "require('fs').writeFileSync('config.yaml','x')"`)).not.toBeNull();
+  });
+  it("H1：decoy 树外绝对路径掩蔽同载荷相对写 → 拦（检视 1527 严重 1，载荷内完备性）", () => {
+    expect(guard(`python3 -c "open('src/index.ts','w').write('x'); print('/tmp/decoy')"`)).not.toBeNull();
+  });
+  it("H3：拼接穿越 '/tmp/'+'../../…主仓' → 拦（提取器只见 /tmp/，拼接形态 fail-closed）", () => {
+    expect(guard(`python3 -c "open('/tmp/'+'../../Users/orca/ai/otter-buddy/src/x.ts','w').write('x')"`)).not.toBeNull();
+  });
+  it("H3 变体：f-string 插值路径 → 拦（动态派生 fail-closed）", () => {
+    expect(guard(`python3 -c "import sys; open(f'/tmp/{sys.argv[1]}','w').write('x')"`)).not.toBeNull();
+  });
+  it("H3 变体：os.path.join 多参派生 → 拦", () => {
+    expect(guard(`python3 -c "import os; open(os.path.join('/tmp','../x'),'w').write('x')"`)).not.toBeNull();
   });
   it("git -C 主仓 commit（落点主仓）→ 拦", () => {
     expect(guard(`git -C ${ROOT} commit -m x`)).not.toBeNull();

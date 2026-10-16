@@ -162,4 +162,16 @@ describe("classifyGuardInterceptReason · F20261015gali alias_shell_payload（�
     const cls = classifyGuardInterceptReason(guardReason("git config --global alias.pwn '!rm -rf /repo/data'"));
     expect(cls).toMatchObject({ ruleId: "alias_shell_payload", layer: "bypass_guard" });
   });
+
+  it("F20261016grdl 1b：main_write_resolve——写落点解析到主仓（sessionCwd 版文案）", () => {
+    // 探针：主仓写落点（无 cd）触发 :1935 文案；修复前该文案不在指纹表 → unknown
+    // + self_kill 兑底（10/16 全部 70 条 unknown 的来源），修复后 → main_write_resolve/r1_gate
+    const reason = checkBashCommandSafety(
+      "cat >> /repo/README.md <<'EOF'\nx\nEOF",
+      12345, undefined, { projectRoot: "/repo", sessionCwd: "/repo" },
+    );
+    expect(reason).not.toBeNull();
+    expect(classifyGuardInterceptReason(reason as string)).toMatchObject({ ruleId: "main_write_resolve", layer: "r1_gate" });
+  });
+
 });

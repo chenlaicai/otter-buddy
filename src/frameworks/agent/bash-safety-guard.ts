@@ -1911,24 +1911,44 @@ function onelinerAbsPathsOutsideMain(command: string, projectRoot: string): bool
     if (ps) payloads.push(...ps);
   }
   if (payloads.length === 0) return false;
-  // 按载荷逐个判（非聚合）：每个载荷必须自证落点安全——
-  // ① 含绝对路径：全部落主仓外（任一落主仓→ false）；
-  // ② 无绝对路径：相对路径写落 cwd——仅当 cd 段锰定非主仓 cwd 才安全，
-  //    否则该载荷是不安全面 → false。
-  // （聚合判定的洞：载荷 A 的 /tmp 绝对路径为载荷 B 的相对路径写开绿灯——
-  //   回归实证 delta r3 H1：只读掩护 'node' 掩蔽写 config.yaml，检视獭-1278 同族）
+  // F20261016grdl delta 修复（检视 H1/H3）：载荷内完备性——不再「任一绝对路径存在即跳过相对写校验」。
+  // H1：`open('src/index.ts','w'); print('/tmp/decoy')` —— decoy 绝对路径掩蔽同载荷相对写（基线拦，v1 豁免放）。
+  // H3：`open('/tmp/'+'../../Users/…/src/x.ts','w')` —— 拼接穿越，提取器只见 /tmp/（基线拦，v1 豁免放）。
+  // 修法：逐个字符串字面量判——绝对字面量必须落主仓外；相对路径字面量必须 resolve(cd 锚定) 落主仓外；
+  // 任何动态形态（拼接 +、f-string {}、os.path.join 多参、变量引用）出现在载荷 → 整体不豁免（fail-closed）。
+  const cwdBase = segmentCdTarget(command, projectRoot);
   let sawAnyPayload = false;
   for (const body of payloads) {
-    const ABS_PATH = /(?:^|[\s'"=(,])(\/[A-Za-z0-9_~][A-Za-z0-9_~./\\-]*)/gm;
-    let sawAbsPath = false;
+    // ① 动态形态否决（H3 拼接穿越面 + 变量/f-string 派生路径面）：
+    //    字符串拼接（'…'+'…'）、f-string 插值（{} 含 / ）、os.path.join、open(*a) 解包、
+    //    反斜杠续行（pythonBodyReadOnly 同款保守）——任一出现即整体不豁免
+    if (/[`\\]/.test(body)) return false;
+    if (/'[\s,)]*\+|\+[\s,(]*'/.test(body)) return false; // 字符串拼接
+    if (/f"[^"]*\{|f'[^']*\{/.test(body)) return false;     // f-string 插值路径
+    if (/os\.path\.join\s*\(/.test(body)) return false;   // join 多参派生
+    if (/open\s*\(\s*\*/.test(body)) return false;         // 解包穿透
+    // ② 字符串字面量逐个判（H1 decoy 面：相对路径写必须过 resolve，不能被同载荷绝对路径豁免）
+    const STR_LIT = /'([^']*)'|"([^"]*)"/g;
     let m: RegExpExecArray | null;
-    while ((m = ABS_PATH.exec(body)) !== null) {
-      const resolved = path.normalize(m[1]);
-      sawAbsPath = true;
-      if (isInsideMainCheckout(resolved, projectRoot)) return false;
+    let sawPathLit = false;
+    while ((m = STR_LIT.exec(body)) !== null) {
+      const lit = (m[1] ?? m[2] ?? "");
+      // 非路径字面量跳过：无 / 或 .（纯值字符串 'x'、'utf8'、'w' 等）
+      if (!/[/.]/.test(lit)) continue;
+      sawPathLit = true;
+      if (lit.startsWith("/")) {
+        // 绝对字面量：normalize 后必须落主仓外（排除区/树外均可）
+        if (isInsideMainCheckout(path.normalize(lit), projectRoot)) return false;
+      } else {
+        // 相对路径字面量：resolve 到 cd 锚定 cwd；无 cd 锚定 → cwd=sessionCwd（主仓树内不可知面）→ 不豁免
+        if (!cwdBase) return false;
+        const resolved = path.resolve(cwdBase, lit);
+        if (isInsideMainCheckout(resolved, projectRoot)) return false;
+      }
     }
     sawAnyPayload = true;
-    if (!sawAbsPath && !segmentCdExemptsGitLiteral(command, projectRoot)) return false;
+    // ③ 载荷内无任何路径字面量：写动词无从落点——同 ② 无 cd 锚定不豁免；有锚定（cd 落主仓外）才豁免
+    if (!sawPathLit && !cwdBase) return false;
   }
   return sawAnyPayload;
 }
@@ -1942,26 +1962,32 @@ function onelinerAbsPathsOutsideMain(command: string, projectRoot: string): bool
  *  该 cd 段之后（沿 &&/;/\n 语句序，不含被 &/| 切断的子 shell——cd 只影响子 shell）
  *  的 git 写族字面命中免除拦截。保守面：cd 目标含变量/展开不可求值、落主仓、
  *  或 cd 段被 &/| 切断 → 不豁免（保持 fail-closed）。 */
-function segmentCdExemptsGitLiteral(command: string, projectRoot: string): boolean {
-  // 段切分：按语句序连接符切段，保留段与连接符
+/**
+ * F20261016grdl delta 修复（检视 H1/H3）：cd 段锚定目标提取（返回 cwd 基准）。
+ *  与 segmentCdExemptsGitLiteral 同判定逻辑，但返回目标路径供落点 resolve 用
+ *  （onelinerAbsPathsOutsideMain 相对路径分支需要 resolve(cwdBase, rel)）。
+ */
+function segmentCdTarget(command: string, projectRoot: string): string | null {
   const segs = command.split(/\n|&&|\|\||;|&(?=&)|\|(?=\|)/).map(s => s.trim()).filter(Boolean);
   for (let i = 0; i < segs.length; i++) {
-    // 排除 . / .. 相对 cd（不改变到已知绝对落点）——用负向先行锚段首，路径内 . 不误伤
+    // 排除 . / .. 相对 cd（不改变到已知绝对落点）——负向先行锚段首，路径内 . 不误伤
     const m = /^cd\s+(?!\.\.?(?:\/|\s|$))(\S+)\s*$/.exec(segs[i]);
     if (!m) continue;
     const target = m[1].replace(/^['"]|['"]$/g, "");
-    // cd 目标必须可静态求值：无变量/展开、非相对形态（. / .. / 空除外已在正则排掉 . 开头）
+    // cd 目标必须可静态求值：无变量/展开、绝对路径
     if (!target.startsWith("/") || /[$`]/.test(target)) continue;
-    // 落点必须不在主仓工作树内（排除区或树外均豁免 cd 后的 git 写——git 写落点=cd 目标树）
     if (isInsideMainCheckout(path.normalize(target), projectRoot)) continue;
-    // cd 段被 & / | 切断（子 shell）→ cd 不影响后续段，不豁免。切分已把 & | 作为
-    // 连接符消耗，这里检查原始文本中 cd 段结尾到下一段之间是否有单 & / |
+    // cd 段被 & / | 切断（子 shell）→ cd 不影响后续段，不锚定
     const after = command.slice(command.indexOf(segs[i]) + segs[i].length);
     const nextJoiner = /^\s*(&&|\|\||[;&|\n])/.exec(after)?.[1] ?? "";
     if (nextJoiner === "&" || nextJoiner === "|") continue;
-    return true;
+    return path.normalize(target);
   }
-  return false;
+  return null;
+}
+
+function segmentCdExemptsGitLiteral(command: string, projectRoot: string): boolean {
+  return segmentCdTarget(command, projectRoot) !== null;
 }
 
 function checkWriteChannels(
