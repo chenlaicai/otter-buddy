@@ -59,6 +59,7 @@ import type Database from "better-sqlite3";
 import type { SdkInvokePort } from "@usecases/ports/sdk-invoke-port";
 import { SqliteFrameStore } from "@usecases/mahjong/room/frames";
 import { RoomBus, RoomService } from "@usecases/mahjong/room/room-service";
+import { sendGameoverReport } from "@usecases/mahjong/room/gameover-report";
 import { SdkOtterGateway } from "@usecases/mahjong/room/otter-adapter";
 import { MahjongController } from "@interface-adapters/http/controllers/mahjong-controller";
 
@@ -134,6 +135,14 @@ function buildMahjongController(deps: ControllerDeps, logger: Logger): MahjongCo
     store,
     gateway: new SdkOtterGateway(deps.mahjongDeps.sdkPort),
     bus: new RoomBus(),
+    logger,
+    // F20261015mjsg 模块五：局终战报卡——首个 otter 座位挂靠对话发 html-card + 登记 fact
+    onGameover: (report) => sendGameoverReport({
+      sendEntry: deps.uc.sendEntry,
+      conversationRepo: deps.repos.conversation,
+      linkResource: (input) => deps.uc.manageKeyInfo.linkResource(input),
+      logger,
+    }, report),
   });
   return new MahjongController(rooms, store, logger);
 }
