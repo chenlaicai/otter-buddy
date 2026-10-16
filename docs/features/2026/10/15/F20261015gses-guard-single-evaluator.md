@@ -87,6 +87,15 @@ bash 命令进来
 - **F2 记档（#1438 族谱）**：.rb/.pl/.scpt 相对路径/变量写目标可能漏（绝对主仓路径靠字面量闸兜住；相对写由 File.write/perl open(F,">f") 词面负门兼底——完整解析待 P2 载荷 AST）
 - 物理隔离 OS 层加固（gsub 非目标，另立调研）不在本特性范围
 
+### 判定链三段真相源（2026-10-16 delta 复核 F-c 采纳，如实标注）
+
+主仓写判定这一类规则升级为语义判据后的**运行时真实结构**：**plain one-liner/文件形态走求值器落点判，包装形态（sudo/env/timeout/nohup/未知包装词）走段首结构通道形态判，unparseable 形态落 V1 文本兜底保守拦**。求值器对包装形态确实无 argv 基座（F-a 实证：sudo env 包装写主仓求值器 ALLOW，结构通道是唯一拦截）——「单一求值器」指判定规则从双判据收敛为「求值器为主、包装/unparseable 两段保守兕底」，非求值器包打天下。求值器剥包装词根治待 P2。
+
+### 求值器包装盲区（F-a 记档，2026-10-16 delta 复核）
+
+- 求值器对包装形态瞎（无 argv 基座），结构通道是唯一拦截——必要互补非 bug；潜在残余：`strace python3 /tmp/x.py`（包装+脚本文件，非 one-liner）③d 不命中+求值器瞎 → 极 exotic，P2「求值器剥包装词」根治
+- ③d over-block（F-b）：未知包装+写 tmp（如 `strace python3 -c 写/tmp`）被形态判拦——与包装保守同源，低频可接受，P2 随剥包装词根治
+
 ### F1 修复实录（2026-10-16，检视对抗审视 + 大獭 L1 裁决采纳方向 a）
 
 - ③a 收窄到**包装形态**（parseSegmentHead 新增 wrapped 标记——sudo/env/timeout/nohup 等前缀，求值器无 argv 基座的真盲区）；plain/纯赋值前缀交求值器落点判——F1 实证的「python3 -c 写 /tmp 求值器 ALLOW 整链 BLOCK」双判据冲突根除
