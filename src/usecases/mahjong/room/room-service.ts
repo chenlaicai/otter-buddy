@@ -33,7 +33,7 @@ export type RoomEvent =
       events: readonly EngineEvent[];
       decision: DecisionPoint | null;
       frameSeq: number;
-      wake?: { via: "trivial" | "otter" | "fallback" | "human" | "timeout-fallback"; speech?: string; fallbackReason?: string; attempts?: number };
+      wake?: { via: "trivial" | "proxy" | "otter" | "fallback" | "human" | "timeout-fallback"; speech?: string; fallbackReason?: string; attempts?: number };
     }
   | { type: "human-wait"; roomId: string; seat: Seat; deadline: string }
   | { type: "error"; roomId: string; message: string };
@@ -295,6 +295,11 @@ export class RoomService {
       if (player.kind === "human") {
         this.parkHuman(room, dp);
         return;
+      }
+      // ①.5 proxy 座位（非真人非獭）：规则代理直接执行（不走唤醒）
+      if (player.kind !== "otter") {
+        this.step(room, dp.seat, proxyChooseAction(engine, dp), isTrivialDecision(engine, dp) ? "trivial" : "proxy");
+        continue;
       }
       // ② 节流阀：trivial 直接代理
       if (isTrivialDecision(engine, dp)) {

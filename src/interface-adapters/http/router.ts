@@ -24,6 +24,7 @@ import type { PromptController } from "./controllers/prompt-controller";
 import type { ActivityController } from "./controllers/activity-controller";
 import type { MatterController } from "./controllers/matter-controller";
 import type { UnfurlController } from "./controllers/unfurl-controller";
+import type { MahjongController } from "./controllers/mahjong-controller";
 
 
 
@@ -62,6 +63,8 @@ export interface Controllers {
   matter: MatterController;
   /** F20261008csf1 P1：链类 unfurl 预览卡数据端点（og 元数据代理抓取） */
   unfurl: UnfurlController;
+  /** F20261015mjsg：三麻将局 API（建房/入座/开局/动作/视图/复盘/SSE/恢复）——可选装配 */
+  mahjong?: MahjongController;
   inbound: { optionsEvents: (c: Context) => Response | Promise<Response>; receiveEvents: (c: Context) => Response | Promise<Response>; getStatus: (c: Context) => Response | Promise<Response> };
 }
 
@@ -227,6 +230,7 @@ function registerWorkspaceRoutes(app: Hono, c: Controllers): void {
 }
 
 /** 创建 Hono 路由并挂载所有 Controller 端点 */
+// eslint-disable-next-line max-statements -- 路由注册表：每资源域一行注册，语句数随端点域线性增长（可选域条件注册同体）
 export function createRouter(ctrl: Controllers, logger: Logger): Hono {
   const app = new Hono();
 
@@ -253,6 +257,19 @@ export function createRouter(ctrl: Controllers, logger: Logger): Hono {
 
   registerConvRoutes(app, ctrl);
   registerMsgRoutes(app, ctrl);
+
+  /** F20261015mjsg：三麻将局域端点（控制器注入时挂载） */
+  if (ctrl.mahjong) {
+    const m = ctrl.mahjong;
+    app.post("/api/mahjong/rooms", (ctx) => m.create(ctx));
+    app.post("/api/mahjong/rooms/:roomId/join", (ctx) => m.join(ctx));
+    app.post("/api/mahjong/rooms/:roomId/start", (ctx) => m.start(ctx));
+    app.post("/api/mahjong/rooms/:roomId/actions", (ctx) => m.action(ctx));
+    app.get("/api/mahjong/rooms/:roomId/view", (ctx) => m.view(ctx));
+    app.get("/api/mahjong/rooms/:roomId/frames", (ctx) => m.frames(ctx));
+    app.get("/api/mahjong/rooms/:roomId/events", (ctx) => m.events(ctx));
+    app.post("/api/mahjong/rooms/:roomId/recover", (ctx) => m.recover(ctx));
+  }
   registerOtterRoutes(app, ctrl);
   registerDataRoutes(app, ctrl);
   registerScheduledTaskRoutes(app, ctrl);

@@ -518,6 +518,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     signalEventRepo: repos.signalEvent,
     // F20260902sgp2 S2：信号路由器重挂（web 主入口换轨；未注入时 MC 降级直连链）
     signalRouter,
+    // F20261015mjsg：三麻将局域装配（db + PiSessionFactory 作为 SdkInvokePort）
+    mahjongDeps: { db, sdkPort: agentGateway },
     // 多模态 Phase 1（D1 修复）：显式传递附件 repo——漏传会导致附件路由生产 404
     attachmentRepo: repos.attachment,
     // 微信连接管理（issue #566）
