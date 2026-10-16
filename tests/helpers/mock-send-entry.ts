@@ -94,8 +94,8 @@ export function mockSendEntry(options?: {
       store.entries.push(entry);
       return { entry, talkingStonePassedTo: ["otter-1"] };
     },
-    createSpeakEntry: async (input: { conversationId: string; invokeId: string; otterId: string; body: string }) => {
-      const entry = makeEntry(input.conversationId, { entryType: "speak", senderType: "otter", senderId: input.otterId, body: input.body, invokeId: input.invokeId });
+    createSpeakEntry: async (input: { conversationId: string; invokeId?: string; otterId: string; body: string; metadata?: Record<string, unknown> }) => {
+      const entry = makeEntry(input.conversationId, { entryType: "speak", senderType: "otter", senderId: input.otterId, body: input.body, invokeId: input.invokeId ?? null, metadata: input.metadata ?? null });
       store.entries.push(entry);
       return { entry };
     },

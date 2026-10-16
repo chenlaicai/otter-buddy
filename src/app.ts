@@ -518,6 +518,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     signalEventRepo: repos.signalEvent,
     // F20260902sgp2 S2：信号路由器重挂（web 主入口换轨；未注入时 MC 降级直连链）
     signalRouter,
+    // F20261015mjsg：三麻将局域装配（db + PiSessionFactory 作为 SdkInvokePort）
+    mahjongDeps: { db, sdkPort: agentGateway },
     // 多模态 Phase 1（D1 修复）：显式传递附件 repo——漏传会导致附件路由生产 404
     attachmentRepo: repos.attachment,
     // 微信连接管理（issue #566）
@@ -594,7 +596,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     promptDirectory,
   }, logger);
 
-  const app = buildHttpApp(controllers, logger, options.staticRoot ?? path.resolve(import.meta.dirname, "../..", "web/dist"));
+  const mahjongRoot = options.staticRoot === false ? false : path.resolve(import.meta.dirname, "../..", "web-mahjong");
+  const app = buildHttpApp(controllers, logger, options.staticRoot ?? path.resolve(import.meta.dirname, "../..", "web/dist"), mahjongRoot);
 
   // 飞书长连接启动（原 startServer 内的副作用，装配语义上属于"启动平台集成"）
   // #460：捕获 stopFeishu 句柄接入 dispose 链（防 WSClient 重连阻止退出）
