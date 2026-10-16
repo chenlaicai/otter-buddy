@@ -32,7 +32,7 @@ dots 生态调研结论（research 报告 :55-59）：invisible_dots 策略闸�
 
 **真不对称 = 排除逻辑以通道为单位散落，heredoc 字面通道没吃到**。例 1（043bb7e9）走的正是带 :2020 豁免的重定向形态却仍被拦——豁免为何没触发**尚未归因**（G1 已扩到全部 6 例，禁止不归因就加豁免规则）。heredoc / 未闭合引号 / $() 嵌套等形态 parseOk=false，全量回落 V1 文本正则链（bash-safety-guard.ts:2165/:2206）。bash-safety-guard.ts:1674 注释（字面对象是 #1170 管道豁免未同步）是「V1 兜底链未同步会复发」的历史自认，引作旁证（非排除区缺失的直接自认）。
 
-**今晨 10/16 healing 台账实证（全部 V1 链吃掉的工作区/worktree 合法写）**：
+**今晨 10/16 healing 台账实证（V1/共用检查器吃掉的工作区/worktree 合法写；例 1/2 有 :2165/:2206 强锚定，例 3-6 链归属待 G1 归因落定）**：
 
 | 时间 | 事件 | 命令 | 误拦机制 |
 |---|---|---|---|
@@ -79,7 +79,7 @@ F20261015phys（PR #1517 已合入）：**sandbox-exec 物理沙箱已包裹獭 
 |---|---|---|
 | G1 | D1 全部 6 例归因 | 例 1-4：heredoc/动态形态为何没吃到 :2020/:2025 既有豁免；例 5：curl 进写族词表来源（疑 $( 命令替换特征误伤）；例 6：**session cwd=workspace（主仓树内排除区）为何未豁免**（guardReason :1935 原文实证）——**禁止不归因就加豁免规则** |
 | G2 | 沙箱 profile 排除区口径对表 | 沙箱 allow 清单与排除区（worktrees/workforms/workspaces/tmp/alpha）逐项对表，盖「误放」与「沙箱侧误拦」双向。**首个核对项已实证有缺口**：workforms 在 OTTER_RUNTIME_REGIONS（write-target-evaluator.ts:124）但不在沙箱 allow 白名单（bash-sandbox.ts:101-106）——处置已拍：沙箱白名单补 workforms（与 worktrees 同性质的 .otter/ 运行时区域，口径应齐） |
-| G3 | 2b 退役 ruleId 枚举表 | 退役面按规则族逐项去留（见 2b 枚举表），缺表不退役 |
+| G3 | 2b 退役 ruleId 枚举表 + 1a 通道插入点清单 | 退役面按规则族逐项去留（见 2b 枚举表）且 6 通道插入点逐一对账，缺一不退役 |
 
 ## 方案设计
 
@@ -108,14 +108,14 @@ F20261015phys（PR #1517 已合入）：**sandbox-exec 物理沙箱已包裹獭 
 | data 破坏族（DATA_DESTRUCTIVE_MSG） | ❌ **保留** | 保护主仓 data/ 非排除区内容，沙箱 allow 范围外的护栏 |
 | 网络外发族（POST/PUT 上传，见 2c） | ❌ **保留（窄规则）** | 密钥外发风险（S5） |
 | 引导类（sleep→wait 等 habit 层） | ❌ 不动 | 合法引导非拦截 |
-**2c. 守卫保留面（沙箱覆盖不了）**：gh merge 等网络/git 服务面、引导类（sleep→wait）；沙箱 deny 范围内的写面可一并退役，网络面保留。
+**2c. 守卫保留面（沙箱覆盖不了）**：gh merge 等网络/git 服务面、引导类（sleep→wait）；**退役范围以 2b 枚举表为准**（缺表不退役），网络面保留。
 **2d. 退役量预期**：bash-safety-guard.ts 2314 行 + write-target-evaluator 1245 行中 bash 写面判定部分预期显著缩减——**本步修改类 = deletion 为主**，与 gsub 收敛方向同棘轮。
 
 **沙箱盲区清单（实现前必须核实，防退役后裸奔）**：
 - write/edit 工具面（非 bash spawn，无沙箱）→ 由 write-target-evaluator 继续判（现状保持）
 - 主服务自身 bash → 不经 createAgentSession，本就不在守卫面（现状）
 - 沙箱 profile 的排除区与 V1/V2 排除区口径一致性 → 验证门 G2 逐项对表
-- 沙箱执行失败（profile 解析崩溃 exit 65 曾实测）时的 fallback 语义 → 必须保守（fail-closed 到守卫写面）
+- 沙箱执行失败时的 fallback 语义 → 必须保守（fail-closed 到守卫写面）；注：profile 解析崩溃 exit 65 曾被观测，但「65 与内层命令退出码混淆」面待实测（见 R-2b）
 - **网络数据外发面**（S5 处置：保留窄规则）：POST/PUT 上传族保留预判 + 合法服务白名单豁免（白名单须含项目自身 MCP 端点 huawei-colink.com 等合法 POST 目标）——修复 D1 例 5 误拦时不得把密钥外发面一并放成零防护
 - 排除区内删除（rm -rf workspaces/worktrees 内文件）属 worktree/工作区自治面——data 破坏护栏只护主仓 data/；R4 破坏性 git 操作靠纪律+事后 review（已接受面，显式声明）
 - 边界诚实声明：沙箱判「写成功与否」物理不可能误判，但「该不该写」仍由 allow 清单决定——清单口径错=**误放**、白名单窄=**沙箱侧误拦**（workforms 即反例），故 G2 对表是退役前提且须双向核对
