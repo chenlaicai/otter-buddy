@@ -39,6 +39,11 @@ export class MahjongController {
     private readonly logger: Logger,
   ) {}
 
+  /** F20261015mjsg D2：app.ts 用——挂接入座谓词到 AgentInvoker（对话侧「打牌中」拦截） */
+  get roomService(): RoomService {
+    return this.rooms;
+  }
+
   /** body.players 合法性（3 座位/种类/otterId 齐全）——通过即返回配置，否则 null */
   private static parsePlayers(raw: unknown): GameConfig["players"] | null {
     const players = raw;

@@ -39,6 +39,7 @@ import type { SynthesisPrefetch } from "@frameworks/agent/synthesis-prompt-build
 // F20260920uhuc：统一交接引擎与 jsonl 切片的 DI 契约（层约束：interface-adapters 不
 // import frameworks 实现——同 buildHandoffPackage 注入先例，运行时由 bootstrap 装配）
 import { DomainError } from "@entities/errors";
+import { scanStopWords } from "@usecases/signal/stop-word-scanner";
 
 /** F20260923hlck：合成 prompt 长度→token 估算比率——9/23 生产日志实测校准。
  *  F20260924swin 起退役：预检与 trim 共享 synthesisFullBudgetChars（引擎端口注入），
@@ -251,6 +252,16 @@ export class AgentInvoker implements AgentTurnPort {
     this.agentDispatchService = service;
   }
 
+  /** F20261015mjsg D2：入座獺谓词（RoomService.isSeated）延迟挂接——
+   *  时序：agentInvoker 先于 controllers 诞生（app.ts initAgentAndScheduler → initControllers），
+   *  与 agentDispatchService 同款 setter 补偿，对既有构造零侵入。缺省不拦（非三麻部署降级）。 */
+  private mahjongSeatQuery?: { isSeated(otterId: string): boolean };
+
+  /** F20261015mjsg D2：装配后挂接入座谓词（app.ts initControllers 之后调用） */
+  attachMahjongSeatQuery(query: { isSeated(otterId: string): boolean }): void {
+    this.mahjongSeatQuery = query;
+  }
+
   /**
    * 驱动 Agent 对话：构建上下文 -> 创建 streaming 消息 -> invoke -> 事件映射 -> 完成/失败。
    * B7-B11 行为实现。
@@ -275,10 +286,61 @@ export class AgentInvoker implements AgentTurnPort {
     /** F20260908rlcp：本批未读消息的最大 sequence_num（启动成功后推进游标用） */
     batchMaxSeq?: number;
   }): Promise<AgentTurnResult> {
+    // F20261015mjsg D2 牌局中对话侧防护：入座獺不进 LLM 推理（局中水位换世会打穿牌局上下文）——
+    // 自动应答「打牌中」。判据 = RoomService.isSeated 精确谓词（非通用 isRunning——定时任务里的
+    // 獺不误伤，大獭 10/16 裁决）。安全词例外：消息命中「停下」→ 放行走 LLM（L2 急停不能被牌局
+    // 吞掉；reminder 已由链引擎附在消息尾随，扫到即放行）——过度放行是安全方向（顶多一轮 LLM）。
+    if (this.mahjongSeatQuery?.isSeated(params.otterId) && scanStopWords(params.userMessageContent).matched.length === 0) {
+      return this.blockSeatedInvoke(params);
+    }
     if (getTraceContext().traceId) {
       return this.invokeConversationInner(params);
     }
     return runWithTrace({ traceId: newTraceId(), source: "direct" }, () => this.invokeConversationInner(params));
+  }
+
+  /** F20261015mjsg D2：入座獺的对话 invoke 拦截——speak entry 自动应答 + entry.speak 广播（实时气泡），
+   *  不进 LLM、不建 invoke。返回合成 turn 结果：链引擎 fetchProducedMessage 查 invokes 无此 id →
+   *  tsp 空 → 发言链自然收束（降级路径既有的容错语义，不新增分支）。 */
+  private async blockSeatedInvoke(params: { otterId: string; conversationId: string }): Promise<AgentTurnResult> {
+    const start = Date.now();
+    const body = "【打牌中】我正在牌局里（对局进行中），这轮先不进推理——牌局结束后回来说话。";
+    let entryId: string | undefined;
+    try {
+      const created = await this.sendEntry?.createSpeakEntry({
+        conversationId: params.conversationId,
+        otterId: params.otterId,
+        body,
+        metadata: { source: "mahjong-d2" },
+      });
+      entryId = created?.entry.id;
+      if (created) {
+        this.messageBroadcaster?.broadcastEvent(params.conversationId, {
+          event: "entry.speak",
+          data: {
+            entryId: created.entry.id,
+            otterId: params.otterId,
+            body,
+            otterName: created.entry.senderName,
+            sequenceNum: created.entry.sequenceNum,
+            createdAt: created.entry.createdAt,
+          },
+        });
+      }
+    } catch (err) {
+      this.logger.warn('[mahjong-d2] seated auto-reply failed（仍拦截，不进 LLM）', {
+        otterId: params.otterId,
+        conversationId: params.conversationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    this.logger.info('[mahjong-d2] conversation invoke blocked (seated in mahjong game)', {
+      otterId: params.otterId,
+      conversationId: params.conversationId,
+      entryId,
+    });
+    const d2Id = `d2-${crypto.randomUUID()}`;
+    return { invokeId: d2Id, messageId: d2Id, duration: Date.now() - start };
   }
 
    
