@@ -230,7 +230,14 @@ function evalCdTarget(seg: Segment, segments: Segment[], cwd: string): string | 
 export function resolveCwdAt(segments: Segment[], startCwd: string): string[] | null {
   const cwdAt: string[] = [];
   let cwd = startCwd;
-  for (const seg of segments) {
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    // F20261016gses rebase 回归修（#1527 G1 例 1 同族）：& 右段是独立命令，cd 段的
+    // 效应不应外溢到它——快照用 cd 前 cwd。旧实现先应用 cd 更新再被下一段 push，
+    // cd WT & git 的 git 段错拿 WT（cwdAt=[start, WT]）→ git commit 落 worktree 豁免放行
+    //（真漏拦面，#1527 断言拦）。正确：cwdAt[i] 记录段 i 执行时的 cwd；cd 段更新 cwd
+    // 但若下一段 joiner=&/| 则回退（cd 在子 shell 里跑，父 cwd 不变）。
+    const joinerNext = segments[i + 1]?.joiner ?? "";
     cwdAt.push(cwd);
     if (seg.joiner === "&" || seg.joiner === "|") continue; // 子 shell/管道：cd 不外溢
     const bare = bareName(seg.argv0);
@@ -239,6 +246,12 @@ export function resolveCwdAt(segments: Segment[], startCwd: string): string[] | 
       const resolved = evalCdTarget(seg, segments, cwd);
       if (resolved === null) return null;
       cwd = resolved;
+      // cd 段若通过 &/| 连接到下一段：cd 在子 shell/管道内执行，父 shell cwd 不变——
+      // 快照链上后续段仍用旧 cwd（不回写 cwd 变量的做法：直接还原）
+      if (joinerNext === "&" || joinerNext === "|") {
+        cwd = cwdAt[cwdAt.length - 1];
+        cwdAt[cwdAt.length - 1] = resolved; // cd 段自己仍拿到新 cwd（它自己的执行 cwd）
+      }
     }
   }
   return cwdAt;
@@ -1379,6 +1392,7 @@ function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot
  *  startCwd = 命令启动时的 cwd（默认 projectRoot）——条件期望双态各跑的维度参数。 */
 type ScriptCtx = { payload?: ScriptPayloadInfo; depth?: number; absenceAllowed?: boolean };
 
+// eslint-disable-next-line complexity -- F20261016gses rebase 回归修 +3 分支（cd 外溢双处守卫：&/| 下游 joiner 检查 ×2）——段链 cd 推进与 resolveCwdAt 同语义耦合，拆函数会分叉口径，基线 12+3
 function evaluateFromModel(model: CommandModel, projectRoot: string, startCwd: string, ctx: ScriptCtx = {}): WriteEvalResult {
   const { payload: scriptPayload, depth: scriptDepth = 0, absenceAllowed = true } = ctx;
   const tracked = trackCwd(model.segments, startCwd);
@@ -1394,13 +1408,20 @@ function evaluateFromModel(model: CommandModel, projectRoot: string, startCwd: s
   // delta3 修法（严重 2 附带发现）：段链从 startCwd 忠实重放（与 trackCwd/resolveCwdAt 同口径）——
   // 旧版从链尾 tracked 起步会把「写在 cd 前」的段挪到链尾 cwd（写在 cd 前的主仓写被判 sandbox 实证）。
   let cwd = startCwd;
-  for (const seg of model.segments) {
+  for (let i = 0; i < model.segments.length; i++) {
+    const seg = model.segments[i];
     const err = evalSegment(seg, cwd, acc, projectRoot, model.raw);
     if (err !== null) return { kind: "unevaluated", reason: err };
-    // 段内 cd 推进（与 trackCwd 同口径）
+    // 段内 cd 推进（与 trackCwd 同口径）。
+    // F20261016gses rebase 回归修（#1527 G1 例 1 同族）：cd 段若通过 &/| 连接到下一段，
+    // cd 在子 shell/管道内执行，父 shell cwd 不变——不推进 cwd（否则 cd WT & git commit
+    // 的 git 段错拿 WT，主仓写被 worktree 豁免洗白——真漏拦面）。
     if (seg.joiner !== "&" && seg.joiner !== "|" && bareName(seg.argv0) === "cd") {
-      const r = evalCdTarget(seg, model.segments, cwd);
-      if (r !== null) cwd = r;
+      const nextJoiner = model.segments[i + 1]?.joiner ?? "";
+      if (nextJoiner !== "&" && nextJoiner !== "|") {
+        const r = evalCdTarget(seg, model.segments, cwd);
+        if (r !== null) cwd = r;
+      }
     }
     acc.index++;
   }

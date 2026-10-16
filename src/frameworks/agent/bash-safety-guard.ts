@@ -1247,7 +1247,7 @@ function judgeSegment(
     // F20261016grdl 1a'-B：落点感知豁免——非只读载荷但全部绝对路径落主仓外
     //（或 cd 段锚定非主仓 cwd）时放行（例 6 实证：save('/tmp/x') 写动词 fail-closed 误拦）。
     if (ctx.onelinerPathsOutsideMain) return false;
-    return wrapped && segHasOneLiner && !ctx.oneLinerReadOnly; ([F20261015gses][guard][Refactor] F1修复：段首结构通道③a收窄到包装形态+负门族归位+F4一致性锁)
+    return wrapped && segHasOneLiner && !ctx.oneLinerReadOnly;
   }
   // ③a' git 落点（#1285 r1 严重 1：词包装 git 写族全绕——正则锚只认赋值前缀，
   // `env git commit` / `sudo git commit` / `timeout 5 git commit` 曾全放）。
