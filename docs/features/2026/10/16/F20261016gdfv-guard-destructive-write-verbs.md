@@ -58,6 +58,8 @@ M-c78df9d4 的 X1/X2 探针（独立复跑实证，`checkBashCommandSafety` prod
 
 **双向生长检查（豁免面自查）**：①运行时三区豁免会不会放走主仓内容？三区均为运行时产物非 git 内容（.otter/worktrees=worktree 清理正道、.otter/workforms=平台运行时、data/workspaces=对话沙盒），且 data/workspaces 落 data 分支先命中（S8 刻意保留跨工作区保护）；②stash 读面豁免逃逸面：create 悬空对象无 refs/工作区副作用（git-stash(1) 明文）；③find 读形态豁免：-delete 条件收口。
 
+**对抗审视发现 1 处置（改判不修，口径之争归 M-cf899ad2）**：检视獭1526 建议 workforms 前缀补尾杠收严（`workforms-x` 三层放行判同型洞）。机械实验（补尾杠后跑 exam）：GAP_DIFF allow 113 vs 110，新缺口键恰为 TS-c8c1cafc / TS-4bd50e86 / TS-5e30a8d5 三条冻结语料裁决（`cd /repo/.otter/workforms-retire && git commit …`，verdict=ALLOW，adjudication「§3.2.1-1 写证据落点全树外→按落点判放行」，台账 2026-10-09）——即收严修法机械翻台账裁决。冻结裁决「workforms 前缀族 sibling=ALLOW」与收严诉求「workforms-x=BLOCK」在同一前缀族上互斥（无第三匹配形态，retire 特判=过拟合禁区）；bare root 不对称（`rm -rf .otter/workforms` 现 ALLOW vs `worktrees` BLOCK）同挂该前缀形态。大獭裁决（objection 3383396e）：方向 C——本 PR 不修，两方向（A 补尾杠+翻台账 / B region 边界改 `^<root>/\.otter/` 口径落码，贴 wv 侧「分界线画在 .otter/ 之外」既有口径注记）均属口径级变更（翻台账=L2、扩豁免面=违反本 PR 射程约束），登记 M-cf899ad2 独立工单拍板。实验改动已回退，本 PR 语义零改动（工作树 clean、exam 3/3 绿）。
+
 ## 影响范围
 
 - `src/frameworks/agent/bash-safety-guard.ts`：classifyDestructiveTarget（resolvesToMainData 重写）+ segmentDestructive 目标域/mv 双端 + checkDataDirDestructive 文案分流 + 两条写族正则 stash 词位 + MAIN_DESTRUCTIVE_MSG；
