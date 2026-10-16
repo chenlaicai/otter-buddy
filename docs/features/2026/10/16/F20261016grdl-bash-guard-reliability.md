@@ -26,11 +26,11 @@ dots 生态调研结论（research 报告 :55-59）：invisible_dots 策略闸�
 
 **诊断前言（修正记录）**：大獭初判「路线病」（语义猜测路线注定拟合不完）；glm-会诊 读码修正为「双链不对称」——今晨误拦的直接病根是 V2 修复没同步到 V1 兜底链（工程病）。两者不矛盾：不对称是今日流血点，语义裁判天花板是长期病；但**处置优先级按不对称修**（小时级止血），路线换血靠沙箱让位实现（沙箱已就位，无需新建物理边界）。
 
-### D1 双链不对称——修复落 V2，V1 兜底链吃不到（今晨仍在流血的主根因）
+### D1 通道散落豁免不对称——排除逻辑以通道为单位散落，heredoc 字面通道没吃到（今晨仍在流血的主根因）
 
-守卫是双链架构：V2 词法模型解析成功（parseOk=true）才走语义求值；**heredoc / 未闭合引号 / $() 嵌套等形态 parseOk=false，全量回落 V1 文本正则链**（bash-safety-guard.ts:2165「parseOk=false（未闭合引号/$(/heredoc/…）走 V1 判定链全量兜底」、:2206）。
+⚠️ 机制描述修正（经检视獭独立复验，v2）：早前「排除区语义只在 V2 求值器」的双链叙事**建立在错误的连接图上**——write-target-evaluator.ts 不被 bash-safety-guard.ts import（只被 write-verdict.ts / shadow-eval-recorder.ts 引用），不在 bash 双链任何一链上。真实结构：bash 守卫共用检查器 `checkMainCheckoutWrite`（bash-safety-guard.ts:1941，调用点 :1121/:2111/:2198——V2/modelOk 路径 :2198 在链上）**已自带零散的内联排除豁免**：:2015-2020（重定向目标落 data/workspaces→豁免）、:2025-2029（相对路径解析入 workspace→豁免）、:1044-1082（worktree root 级前缀/git -C 豁免）。
 
-而 10/13~10/15 的关键修复——worktrees/workspaces 排除区语义——落在 V2 求值器（write-target-evaluator.ts:92-124 `OTTER_RUNTIME_REGIONS = ["/.otter/worktrees/", "/.otter/workforms", "/data/workspaces/"]`）——**V1 文本链没有同等的排除区判定**。这不是推测：bash-safety-guard.ts:1674 代码注释原文自认「（语义、V1 兜底链未同步的复发面，近 7 天 main_write 误拦大头）」。
+**真不对称 = 排除逻辑以通道为单位散落，heredoc 字面通道没吃到**。例 1（043bb7e9）走的正是带 :2020 豁免的重定向形态却仍被拦——豁免为何没触发**尚未归因**（G1 已扩到全部 6 例，禁止不归因就加豁免规则）。heredoc / 未闭合引号 / $() 嵌套等形态 parseOk=false，全量回落 V1 文本正则链（bash-safety-guard.ts:2165/:2206）。bash-safety-guard.ts:1674 注释（字面对象是 #1170 管道豁免未同步）是「V1 兜底链未同步会复发」的历史自认，引作旁证（非排除区缺失的直接自认）。
 
 **今晨 10/16 healing 台账实证（全部 V1 链吃掉的工作区/worktree 合法写）**：
 
@@ -68,6 +68,8 @@ F20261015phys（PR #1517 已合入）：**sandbox-exec 物理沙箱已包裹獭 
 - 不做转世承诺保全（另案，排本方案后）
 - 不改 write/edit 工具面的 write-target-evaluator 判定（无 V1/V2 双链问题，沙箱不覆盖非 bash 工具——现状保持）
 - 守卫的引导类规则（sleep → wait 工具引导等 habit 层）不动——今晨 03:15 sleep 事件是合法引导非误拦
+- 不做 ask 审批流的真理由补充：单机单人下同需求已由 yield/L2 升级通道覆盖（invisible_dots 的 ask 闸是多用户/多租户自治生态机制——pending 调用存 DB、停整轮、批准后重发），「收益低」指场景错配
+- 排除区内删除属 worktree/工作区自治面（显式声明已接受风险，见盲区清单）
 
 ## 未决问题
 
@@ -75,25 +77,37 @@ F20261015phys（PR #1517 已合入）：**sandbox-exec 物理沙箱已包裹獭 
 
 | # | 验证门 | 说明 |
 |---|---|---|
-| G1 | D1 第 5/6 例归因 | curl 进写族词表的来源（疑 $( 命令替换特征误伤）、主仓外目录为何进主仓判定（疑 V1 路径归属 bug）——**禁止不归因就加豁免规则** |
-| G2 | 沙箱 profile 排除区口径对表 | 沙箱 allow 清单与 V1/V2 排除区（worktrees/workforms/workspaces/tmp/alpha）逐项对表——口径不一致会「退役后裸奔」 |
+| G1 | D1 全部 6 例归因 | 例 1-4：heredoc/动态形态为何没吃到 :2020/:2025 既有豁免；例 5：curl 进写族词表来源（疑 $( 命令替换特征误伤）；例 6：**session cwd=workspace（主仓树内排除区）为何未豁免**（guardReason :1935 原文实证）——**禁止不归因就加豁免规则** |
+| G2 | 沙箱 profile 排除区口径对表 | 沙箱 allow 清单与排除区（worktrees/workforms/workspaces/tmp/alpha）逐项对表，盖「误放」与「沙箱侧误拦」双向。**首个核对项已实证有缺口**：workforms 在 OTTER_RUNTIME_REGIONS（write-target-evaluator.ts:124）但不在沙箱 allow 白名单（bash-sandbox.ts:101-106）——处置已拍：沙箱白名单补 workforms（与 worktrees 同性质的 .otter/ 运行时区域，口径应齐） |
+| G3 | 2b 退役 ruleId 枚举表 | 退役面按规则族逐项去留（见 2b 枚举表），缺表不退役 |
 
 ## 方案设计
 
 ### 第一步：止血（T1+T2，纯收窄拦截方向，零新机制）
 
-**1a. V1 兜底链排除区对齐**：V1 文本链在产出「落点解析到主仓」判定前，对候选落点路径（命令文本中的绝对路径字样 / cd 目标 / 重定向目标）统一过 `pathWithinMain()`（复用 write-target-evaluator 现有函数，含排除区）。落点在排除区 → 放行。把 V2 已有的排除语义**下沉为双链共用的判定基元**——不是加新规则，是修 V1 的判定完备性。先例：#1515（F20261015glfp）已做过同方向单点（git -C 豁免 V1 对齐 V2），本次是该模式的全形态推广。
+**1a. 通道级排除豁免收敛**：把 `checkMainCheckoutWrite` 现有内联豁免收敛为共用基元（root 级 `pathWithinMain` 语义，复用 write-target-evaluator.ts:123-129 现有函数；R-1 防嵌套 decoy），并**按通道逐个插入**——插入点清单（G3 stop 门，缺一通道即留复发面）：① 重定向目标（cat/echo > file）② heredoc 字面目标（<<'EOF'）③ cd 目标 ④ session cwd 判定 ⑤ payload 递归（:1121）⑥ V1 文本链候选路径提取。**先归因再修**：例 1-4 为何没吃到 :2020/:2025 既有豁免（G1）——禁止不归因就加新豁免规则（:1674 历史模式）。先例：#1515（F20261015glfp）同方向单点（git -C 豁免对齐），本次是全通道推广。
 - 预期覆盖：heredoc cat/echo 重定向、cd && 写、动态路径不可证回落——D1 表 1/2/3 例
-- D1 表 5/6 例（curl 词表污染、主仓外只读误拦）走验证门 G1 归因后逐条修
+- D1 表 5/6 例（curl 词表污染、session cwd=workspace 未豁免）同走 G1 归因后逐条修
 
 **1b. ruleId 指纹补齐**：guard-intercept-classify.ts 补 main_write 规则族名映射，healing context.ruleId 落具体名（main_write_heredoc / main_write_literal / main_write_dynamic…按形态分指纹）。#844 聚合立即受益。
 
-**1c. 误报台账分账**：healing guard_intercept 事件补可统计维度（误拦 vs 合法引导），验收时输出修复前后对比。
+**1c. 误报台账分账（派生方案，不新增字段）**：误拦 vs 合法引导分类由 1b 落地后的 ruleId + ruleLayer **派生**（habit 引导类=合法引导；main_write 族=误拦嫌疑），落点文件 `guard-intercept-classify.ts` 的分类函数（报表口径由验收脚本消费）——不新增 schema 字段，「无新增 schema」声明保持成立。
 
 ### 第二步：换血（T3，职责切分——删为主）
 
 **2a. 沙箱可用性探测**：运行时探测（平台 macOS 且 OTTER_BASH_SANDBOX≠off 且 profile 注入成功）。探测结果决定守卫写面启停。
-**2b. 守卫写面条件退役**：沙箱可用时，bash 工具的「文件写落点」判定整体不启用（V2 求值器 + V1 兜底链的 main_write 族对 bash 面 let-through）；真写主仓由沙箱兜底（Operation not permitted + 命中即 healing 落账——**拦截语义没丢，从预判降为事证**）。沙箱不可用 → 守卫写面原样回位（降级不降安全）。
+**2b. 守卫写面条件退役**：沙箱可用时，bash 工具的「文件写落点」判定不启用（main_write 族对 bash 面 let-through）；真写主仓由沙箱兜底（Operation not permitted + 命中即 healing 落账——**拦截语义没丢，从预判降为事证**）。沙箱不可用 → 守卫写面原样回位（降级不降安全）。
+
+**退役粒度约束（必守）**：let-through 必须是**规则族级**——跳过写面规则、其余规则族照跑（一条命令同时含写面+网络面时网络面照判）；**禁止命令级 early-return**（会把网络面/引导面一并放掉）。标本：D1 例 5 本身就是「cat > out.sse && curl」写面+网络面同现形态。
+
+**退役 ruleId 枚举表（G3 stop 门，逐项去留）**：
+| 规则族 | 退役？ | 理由 |
+|---|---|---|
+| main_write 文件写落点族（字面/重定向/heredoc/动态） | ✅ 退役 | 沙箱 file-write deny 精确接防 |
+| git 写族（push / commit / reset --hard / clean -f，含 GIT_WRITE_SUBCOMMAND 镜像） | ❌ **保留预判** | R1 红线「禁止直推受保护分支」不可让位——沙箱对 gitDir 写+网络全放，物理层不判分支保护 |
+| data 破坏族（DATA_DESTRUCTIVE_MSG） | ❌ **保留** | 保护主仓 data/ 非排除区内容，沙箱 allow 范围外的护栏 |
+| 网络外发族（POST/PUT 上传，见 2c） | ❌ **保留（窄规则）** | 密钥外发风险（S5） |
+| 引导类（sleep→wait 等 habit 层） | ❌ 不动 | 合法引导非拦截 |
 **2c. 守卫保留面（沙箱覆盖不了）**：gh merge 等网络/git 服务面、引导类（sleep→wait）；沙箱 deny 范围内的写面可一并退役，网络面保留。
 **2d. 退役量预期**：bash-safety-guard.ts 2314 行 + write-target-evaluator 1245 行中 bash 写面判定部分预期显著缩减——**本步修改类 = deletion 为主**，与 gsub 收敛方向同棘轮。
 
@@ -102,7 +116,9 @@ F20261015phys（PR #1517 已合入）：**sandbox-exec 物理沙箱已包裹獭 
 - 主服务自身 bash → 不经 createAgentSession，本就不在守卫面（现状）
 - 沙箱 profile 的排除区与 V1/V2 排除区口径一致性 → 验证门 G2 逐项对表
 - 沙箱执行失败（profile 解析崩溃 exit 65 曾实测）时的 fallback 语义 → 必须保守（fail-closed 到守卫写面）
-- 边界诚实声明：沙箱判「写成功与否」物理不可能误判，但「该不该写」仍由 allow 清单决定——清单口径错=误放，故 G2 对表是退役前提
+- **网络数据外发面**（S5 处置：保留窄规则）：POST/PUT 上传族保留预判 + 合法服务白名单豁免（白名单须含项目自身 MCP 端点 huawei-colink.com 等合法 POST 目标）——修复 D1 例 5 误拦时不得把密钥外发面一并放成零防护
+- 排除区内删除（rm -rf workspaces/worktrees 内文件）属 worktree/工作区自治面——data 破坏护栏只护主仓 data/；R4 破坏性 git 操作靠纪律+事后 review（已接受面，显式声明）
+- 边界诚实声明：沙箱判「写成功与否」物理不可能误判，但「该不该写」仍由 allow 清单决定——清单口径错=**误放**、白名单窄=**沙箱侧误拦**（workforms 即反例），故 G2 对表是退役前提且须双向核对
 
 ### 第三步（P2 骨架，不做实装）
 
@@ -130,6 +146,7 @@ F20261015phys（PR #1517 已合入）：**sandbox-exec 物理沙箱已包裹獭 
 
 - **R-1**：V1 排除区对齐若做成「主仓字样前缀排除」，嵌套 decoy（/repo/x/data/workspaces/ 是主仓内容区）会误放——**必须复用 pathWithinMain 的 root 级锚定语义**（write-target-evaluator.ts:92-100 注释已论证），不新写前缀判断
 - **R-2**：守卫写面退役后，LLM 写主仓将收到沙箱 Operation not permitted——错误文案的引导性（告诉 LLM 用 worktree）需在沙箱层补充，否则 LLM 可能反复重试
+- **R-2b（探测同源约束）**：守卫写面启停的探测**必须与沙箱 spawnHook 挂载判定同源**（同一 isSandboxEnabled + profileBuild 单一真相源）——探测报可用但挂钩未挂载=命令裸跑零告警（最危险模式，无信号）；探测结果缓存策略：**不缓存**或仅按「平台+env 键」缓存且 env 变更即失效（降级检测延迟窗口须有上界）；exit 65 信号混淆（内层命令 diff(1) 惯例也退 65）**标待实测**，实测前 fallback 不得单凭 65 判定沙箱失效
 - **R-3**：非 macOS 部署（若存在）完全依赖守卫写面回位——探测分支的测试覆盖必须含「模拟沙箱不可用」用例
 - **R-4**：12+ 条 open 守卫误拦 issue（gsub 时批量处置过一批）需随 1a 落地重新对账归并
 
@@ -139,7 +156,7 @@ F20261015phys（PR #1517 已合入）：**sandbox-exec 物理沙箱已包裹獭 
 |---|---|---|---|
 | V1 排除区对齐 vs V1 链整体废弃 | 对齐 | 废 V1（沙箱可用时） | 废链是第二步的事；第一步先止血，非 macOS/=off 依赖 V1 |
 | 写面退役 vs 收窄求值器 | 退役（沙箱可用时） | 继续收窄语义模型（smrj 路线） | smrj 已证明语义模型能减误拦但治不了「不可证形态」（动态路径永远 fail-closed）；物理边界是 dots 生态的真答案 |
-| main_write 事证化 vs 保留预判 | 事证化（沙箱 deny 命中→healing） | 双层都预判 | 双层预判=双层误拦面；事证零误拦（物理判「写成功与否」不可能误） |
+| main_write 事证化 vs 保留预判 | 事证化（沙箱 deny 命中→healing） | 双层都预判 | 双层预判=双层误拦面；**守卫侧**事证零误拦（物理判「写成功与否」不可能误）；沙箱侧误拦面=G2 对表结果（workforms 缺口已实证，处置补白名单） |
 | ask 审批流 | 不做（P2 骨架也不实装） | 照搬 invisible_dots | 多用户场景错配（glm-会诊判断，大獭采纳） |
 
 ## 不兼容更新
@@ -148,11 +165,12 @@ F20261015phys（PR #1517 已合入）：**sandbox-exec 物理沙箱已包裹獭 
 
 ## 验证
 
-1. 试金石棘轮（tests/frameworks/agent/guard-touchstone-exam.test.ts）：D1 六例形态入 corpus，修复后 ALLOW 且棘轮 shrink_only=PASS
+1. 试金石棘轮（guard-touchstone-exam.test.ts 持棘轮；语料在 guard-touchstone-corpus.test.ts）：D1 六例形态入 corpus，修复后 ALLOW 且棘轮 shrink_only=PASS
 2. 沙箱兜底实证：退役面命令实测写主仓 → Operation not permitted（bash-sandbox.test.ts 扩用例）
 3. 降级实证：OTTER_BASH_SANDBOX=off 下同命令 → 守卫拦截（写面回位）
-4. 误报率对比：healing 台账 guard_intercept 修复前后 7 天窗口误拦/合法引导分账（验收呈搭档「从 X 到 Y」）
+4. G2 对表结果列入验证记录（workforms 缺口处置已拍，对表双向核对存档）；G3 枚举表逐项对账（缺表不退役）
 5. 全量：vitest 全绿
+6. **T4 = 交付后第 7 天延后复盘门**（非 PR 门）：healing 台账 guard_intercept 修复前后 7 天窗口误拦/合法引导分账对比，呈搭档「从 X 到 Y」；零分母口径预定义（修复后窗口内 0 误拦 → 表述为「样本 N 条中误拦 0」，N 为窗口内 guard_intercept 总量，禁报「误报率 0%」）
 
 ## 改动范围
 
