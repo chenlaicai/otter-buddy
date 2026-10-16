@@ -10,6 +10,18 @@ export interface EmbedModelMeta {
   dim: number;
 }
 
+/**
+ * F20261016ebrt：embed 超时错误（慢 ≠ 死）。
+ * retry worker 见此错误不计入 maxAttempts——超时是「这批太慢」，
+ * 不是「这条坏了」，不该 3 次就 dead-letter 埋掉。
+ */
+export class EmbedTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EmbedTimeoutError";
+  }
+}
+
 /** Embedding 网关接口（由 frameworks/embedding/ 实现） */
 export interface EmbeddingGateway {
   /** 模型是否已就绪可用来生成 embedding */

@@ -27,7 +27,10 @@ export interface DatabaseBootstrapResult {
   otterConfigProvider: OtterConfigProvider;
   model: Model<Api>;
   modelPool: ModelPool;
-  embeddingService: EmbeddingGateway;
+  /** F20261016ebrt：查询 lane——只服务 search_memory（延迟优先） */
+  queryEmbedding: EmbeddingGateway;
+  /** F20261016ebrt：写入 lane——store/sync/retry 回填（吞吐优先） */
+  writeEmbedding: EmbeddingGateway;
   dispose: () => void;
 }
 
@@ -64,13 +67,13 @@ export async function initDatabaseAndModels(
   const { model, modelPool } = modelsOverride
     ? { model: modelsOverride.model, modelPool: modelsOverride.modelPool ?? synthesizePool(modelsOverride.model, appConfig.llm) }
     : await initModels(appConfig.llm, logger);
-  const { service: embeddingService, dispose: disposeEmbedding } = await initEmbeddingService(appConfig.embedding, logger);
+  const { queryService: queryEmbedding, writeService: writeEmbedding, dispose: disposeEmbedding } = await initEmbeddingService(appConfig.embedding, logger);
 
   if (isNewDb) {
     migrateExistingData(db, otterConfigProvider, logger);
   }
 
-  return { db, otterConfigProvider, model, modelPool, embeddingService, dispose: disposeEmbedding };
+  return { db, otterConfigProvider, model, modelPool, queryEmbedding, writeEmbedding, dispose: disposeEmbedding };
 }
 
 export function initRepositoriesWithDb(db: Database.Database, logger?: Logger): Repositories {

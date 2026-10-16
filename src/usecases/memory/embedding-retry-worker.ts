@@ -16,6 +16,7 @@ import type { MemoryReader } from "./memory-reader";
 import type { MemoryWriter } from "./memory-writer";
 import type { MemoryQueue } from "./memory-queue";
 import type { EmbeddingGateway } from "./embedding-gateway";
+import { EmbedTimeoutError } from "./embedding-gateway";
 import type { Logger } from "@usecases/ports/logger";
 
 /** claimPendingTasks 返回的单条任务（MemoryQueue 接口为匿名类型，此处落名便于拆分函数签名） */
@@ -24,8 +25,15 @@ type EmbeddingTask = { entryId: string; content: string; attempts: number };
 export class EmbeddingRetryWorker {
   /** bge-m3 8192 tokens 上限的 ~75%（与 StoreMemory.EMBED_MAX_CHARS 一致） */
   private static readonly EMBED_MAX_CHARS = 6000;
-  /** 每次 tick 认领的任务上限 */
-  private static readonly BATCH_LIMIT = 10;
+  /**
+   * 每次 tick 认领的任务上限。
+   * F20261016ebrt：10 → 50——#948 闹钟瘦身把 tick 从 30s 调到 1h，却没调 BATCH_LIMIT，
+   * 吞吐被打掉 120 倍（1200/时 → 10/时），1000 积压要 4 天才能吃完。
+   * 50 条/tick × 1h = 50/时，配合下方 drain 循环可在一个 tick 内连吃多批。
+   */
+  private static readonly BATCH_LIMIT = 50;
+  /** F20261016ebrt：单次 tick 最多连吃几批（积压泄洪）。50×20=1000 条/tick 上限 */
+  private static readonly MAX_DRAIN_ROUNDS = 20;
   /**
    * F20261013ebps：连续全失败熔断——连续 N 次 tick 全部失败（10/10 超时）
    * 说明 worker 已淹没（#1453），继续打只会加压。熔断后暂停消费，
@@ -111,25 +119,33 @@ export class EmbeddingRetryWorker {
       return;
     }
 
-    const claimed = await this.queue.claimPendingTasks(EmbeddingRetryWorker.BATCH_LIMIT);
-    if (claimed.length === 0) {
-      this.consecutiveFullFailures = 0;
-      return;
-    }
-
-    const successCount = await this.processClaimedTasks(claimed);
-
-    // F20261013ebps：熔断计数——全失败才计数，有成功即重置
-    if (successCount === 0 && claimed.length > 0) {
-      this.consecutiveFullFailures++;
-      if (this.consecutiveFullFailures >= EmbeddingRetryWorker.MAX_CONSECUTIVE_FULL_FAILURES) {
-        this.logger.warn(
-          `EmbeddingRetryWorker: ${this.consecutiveFullFailures} consecutive full-failure ticks, circuit breaker will open`,
-          { action: "embedding_retry_circuit_break_warning" },
-        );
+    // F20261016ebrt：积压泄洪——吃满一批立即再 claim，直到队列见底或达轮次上限。
+    // 修复 #948 后「1h 只吃 10 条」的吞吐失衡：一个 tick 内可连吃 MAX_DRAIN_ROUNDS 批。
+    for (let round = 0; round < EmbeddingRetryWorker.MAX_DRAIN_ROUNDS; round++) {
+      const claimed = await this.queue.claimPendingTasks(EmbeddingRetryWorker.BATCH_LIMIT);
+      if (claimed.length === 0) {
+        this.consecutiveFullFailures = 0;
+        return;
       }
-    } else {
-      this.consecutiveFullFailures = 0;
+
+      const successCount = await this.processClaimedTasks(claimed);
+
+      // F20261013ebps：熔断计数——全失败才计数，有成功即重置
+      if (successCount === 0 && claimed.length > 0) {
+        this.consecutiveFullFailures++;
+        if (this.consecutiveFullFailures >= EmbeddingRetryWorker.MAX_CONSECUTIVE_FULL_FAILURES) {
+          this.logger.warn(
+            `EmbeddingRetryWorker: ${this.consecutiveFullFailures} consecutive full-failure ticks, circuit breaker will open`,
+            { action: "embedding_retry_circuit_break_warning" },
+          );
+          return;
+        }
+      } else {
+        this.consecutiveFullFailures = 0;
+      }
+
+      // 没吃满一批：队列已见底，结束本轮
+      if (claimed.length < EmbeddingRetryWorker.BATCH_LIMIT) return;
     }
   }
 
@@ -153,6 +169,15 @@ export class EmbeddingRetryWorker {
         await this.queue.markTaskDone(task.entryId);
         successCount++;
       } catch (err) {
+        // F20261016ebrt：超时 ≠ 坏条目——不计入 maxAttempts，不 dead-letter。
+        // 超时是「这批太慢/worker 暂时忙」，3 次就埋掉会把可恢复条目永久暗化。
+        // 保持 pending 让它按退避下次重来（claimPendingTasks 已设 next_retry_at）。
+        if (err instanceof EmbedTimeoutError) {
+          this.logger.warn(
+            `Embedding retry timeout for ${task.entryId} (not counted toward dead-letter): ${err}`,
+          );
+          continue;
+        }
         await this.queue.markTaskAttemptFailed(task.entryId, err, this.maxAttempts);
         if (task.attempts >= this.maxAttempts) {
           this.logger.error(
