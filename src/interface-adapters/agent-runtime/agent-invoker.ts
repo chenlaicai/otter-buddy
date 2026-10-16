@@ -290,6 +290,9 @@ export class AgentInvoker implements AgentTurnPort {
     // 自动应答「打牌中」。判据 = RoomService.isSeated 精确谓词（非通用 isRunning——定时任务里的
     // 獺不误伤，大獭 10/16 裁决）。安全词例外：消息命中「停下」→ 放行走 LLM（L2 急停不能被牌局
     // 吞掉；reminder 已由链引擎附在消息尾随，扫到即放行）——过度放行是安全方向（顶多一轮 LLM）。
+    // 扫描面口径（检视发现7 核实钉死）：链引擎在 invoke 前已把 roster+未读批+触发消息拼进
+    // userMessageContent（dispatch-chain-engine.ts:844 buildMessageWithContext → executeOneHop 全量透传）
+    // ——批次/历史行里含「停下」同样命中放行，多消息批不是盲区；非链直调（scheduler/重试）无批次语义。
     if (this.mahjongSeatQuery?.isSeated(params.otterId) && scanStopWords(params.userMessageContent).matched.length === 0) {
       return this.blockSeatedInvoke(params);
     }

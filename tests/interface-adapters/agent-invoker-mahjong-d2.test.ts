@@ -159,4 +159,28 @@ describe("D2 牌局中对话侧防护（入座獭自动应答「打牌中」）"
 
     expect(calls()).toBeGreaterThanOrEqual(1);
   });
+
+  it("检视发现7：扫描面 = 链组装全量消息——历史行（未读批）含「停下」亦放行", async () => {
+    const { sdk, calls } = countingSdk();
+    const sendEntry = mockSendEntry();
+    const invoker = makeInvoker(sdk, sendEntry);
+    invoker.attachMahjongSeatQuery({ isSeated: () => true });
+
+    // 模拟链侧 buildMessageWithContext 的组装产物：历史批在前、本条指令在后（批次不是盲区口径）
+    const composed = [
+      "对话历史（未读批次）：",
+      "搭档 14:01：牌桌上别打了，快停下",
+      "本条指令：还在吗？",
+    ].join("\n");
+
+    await invoker.invokeConversation({
+      otterId: "otter-1",
+      conversationId: "conv-1",
+      userMessageContent: composed,
+      senderId: "user-1",
+    }).catch(() => null);
+
+    expect(calls()).toBeGreaterThanOrEqual(1); // 历史行命中安全词 → 放行（不被「打牌中」拦截）
+    expect(sendEntry.store.entries.filter((e) => e.entryType === "speak")).toHaveLength(0);
+  });
 });
