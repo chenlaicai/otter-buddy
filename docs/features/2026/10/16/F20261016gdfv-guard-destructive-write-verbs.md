@@ -7,9 +7,10 @@ date: 2026-10-16
 capability_test: "n/a（change_type=BugFix）：回归钉 tests/frameworks/agent/bash-guard-destructive-verbs.test.ts 10 例（修复侧+不误伤侧）+ guard-intercept-classify 2 例；guard-touchstone exam 棘轮对照零 GAP_DIFF"
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
 intent:
-  trigger: "大獭 16/10 12:08 派工：M-c78df9d4 rm 族破坏面 prod 洞 + issue #1522 并案（「同为破坏/写词表补齐族，一个 PR 修齐」）"
-  deliverable: "破坏/写词表两侧同口径补齐（prod gate / wv 判词层），双链同判，正负测试对齐"
-  quality_bar: "全量测试绿（含 exam 棘轮无 GAP_DIFF）+ 修复侧与不误伤侧都钉测试 + 宪法洞表同步 + lint/tsc 净"
+  problem: "M-c78df9d4 + issue #1522 并案（大獭 16/10 12:08 派工「一个 PR 修齐」）：破坏/写词表三处覆盖缺口——① prod 侧破坏命令目标域只盖 data/，rm -rf /repo（主仓根/内容树）prod:ALLOW / wv:BLOCK 双层反判（X1/X2 探针实证，宪法洞表开放洞），mv 只查源端漏移入主仓；② git stash 写族子命令只认 push，pop/apply/drop/clear/store/branch（git-stash(1) 明文写面）双层放行；③ find 不在 wv 词表，find -delete 双层放行"
+  expected_effect: "探针矩阵反判/双放行面收口：rm -rf /repo 与 /repo/src、mv 移入主仓、find -delete、stash pop/apply/drop/clear/store/branch 两层同判 BLOCK；worktree/工作区清理正道（运行时三区豁免与 wv 同口径）、stash 读面 list/show/create、find 无 -delete 形态照常放行；修复侧与不误伤侧都钉回归测试（bash-guard-destructive-verbs 10 例 + 分类 2 例）；全量 vitest 绿 + guard-touchstone exam 棘轮无 GAP_DIFF + 宪法洞表同步"
+  verify_by:
+    type: behavior_check
 from: []
 supersedes: []
 ---
