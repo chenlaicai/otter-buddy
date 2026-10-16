@@ -26,7 +26,8 @@ const isCommandPositionFor = (text: string, pattern: RegExp): boolean => isKillA
 import { allSegmentsGitReadonly } from "./git-readonly-whitelist";
 import { checkWithModel, modelParseOk, modelCdExemption } from "./guard-model-judge";
 import { parseOnce } from "./command-model";
-import { extractGitAliasShell } from "./payload-extract-aux";
+import type { Segment } from "./command-model";
+import { extractGitAliasShell, gitWriteSubcommandHit } from "./payload-extract-aux";
 
 export type { AllowedService };
 
@@ -1034,11 +1035,9 @@ function wrappedOneLinerPayloadsReadOnly(command: string): boolean {
  *  正则锚只认赋值前缀不认包装词，`env git commit` / `sudo git commit` 曾全放。
  *  比 MAIN_WRITE_PATTERNS[5] 宽：补 push / reset --hard / clean -f 等同属写族但
  *  原正则未覆盖的子命令——段首解析通道既然接了 git 落点，写族口径一次补齐）。 */
-/** git 写族子命令判定（同源镜像契约：write-target-evaluator.ts:88 同款，改动须两侧同步）。
- *  前缀组 F20261015gali X1 同修：git 全局旗标全集——取值旗标（-C/-c/--git-dir/--work-tree/
- *  --exec-path/--namespace，=附着形或独立值形）消费其值，其余静态旗标无值跳过——
- *  旧版枚举不全使 `git --no-pager -C <主仓> reset --hard` 类 wrapper 旗标逃逸（fail-open）。 */
-const GIT_WRITE_SUBCOMMAND = /^git\s+(?:-C\s+\S+\s+|-c\s+\S+\s+|--(?:git-dir|work-tree)(?:=\S+|\s+\S+)\s+|--(?:exec-path|namespace)(?:=\S+|\s+\S+)?\s+|(?:--\S+|-[^Cc\s]\S*)\s+)*(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push|push\b(?!\s+(?:--dry-run|-n)\b)|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
+/** git 写族子命令判定：F20261016gwr1（M-46f0e74d）起词级化——GIT_WRITE_SUBCOMMAND
+ *  正则已退役（\S+ 词面对引号含空格/attached/反引号三形态整体失明 fail-open），
+ *  单一真相源=payload-extract-aux.gitWriteSubcommandHit（与 v2 求值器共用）。 */
 
 /** F20261015glfp（M-bf4049a3 止血）：git -C 落点解析——写族段的落点是 -C 目标（多级累积），
  *  落 worktree 区（<projectRoot>/.otter/worktrees/<name>[/…]，root 级精确前缀）时该段
@@ -1054,29 +1053,64 @@ const GIT_WRITE_SUBCOMMAND = /^git\s+(?:-C\s+\S+\s+|-c\s+\S+\s+|--(?:git-dir|wor
  *  ~ 前缀（shell 不展开）、动态/引号含空格 token（与 GIT_WRITE_SUBCOMMAND 的 \S+
  *  词面解析同基座，解析不完整就不豁免）；无 -C 时归 cwd 形态（skipGitWrite）不重复。
  *  段级粒度：豁免只对本 git 段生效，命令内其他段照常判定（混合段回归钉死）。 */
-function gitDashCTargetsWorktree(rest: string, projectRoot?: string, sessionCwd?: string): boolean {
+// eslint-disable-next-line max-statements -- git 旗标形态穷举（-C/-c/--git-dir/--work-tree/--exec-path/--namespace × =值/空格值/attached）+ fail-closed 面逐条对照，每分支对应一种已声明形态（c107 教训：合并会再制造旗标解析 bug）
+function gitDashCTargetsWorktree(gseg: Segment, projectRoot?: string, sessionCwd?: string): boolean {
   if (!projectRoot) return false;
-  // F20261015gali X1 同修：前缀组与 GIT_WRITE_SUBCOMMAND 同宽（wrapper 静态旗标不折断走查）
-  const m = /^git\s+((?:-C\s+\S+\s+|-c\s+\S+\s+|--(?:git-dir|work-tree)(?:=\S+|\s+\S+)\s+|--(?:exec-path|namespace)(?:=\S+|\s+\S+)?\s+|(?:--\S+|-[^Cc\s]\S*)\s+)*)/.exec(rest);
-  if (!m || m[1].length === 0) return false;
-  const tokens = m[1].match(/-C\s+\S+|-c\s+\S+|--(?:git-dir|work-tree)(?:=\S+|\s+\S+)?|--(?:exec-path|namespace)(?:=\S+|\s+\S+)?|(?:--\S+|-[^Cc\s]\S*)/g) ?? [];
+  // F20261016gwr1（M-46f0e74d）：解析基座词级化（词法层归一引号/attached/转义）——旧版
+  // 字符串正则对引号含空格/attached 形态失明。fail-closed 面：--git-dir/--work-tree
+  // 覆盖（落点被改写）、core.worktree/core.bare/core.gitdir 配置改写树发现、动态 -c
+  // 值（不可证非树发现改写）、动态旗标/值位、~ 前缀、相对 -C 无绝对基准、worktrees
+  // 根自身（上溯发现主仓 .git）一律不豁免；段级粒度（混合段回归钉死）。
+  const words = gseg.words;
   let base: string | null = sessionCwd !== undefined && path.isAbsolute(sessionCwd) ? path.normalize(sessionCwd) : null;
   let hasC = false;
-  for (const tk of tokens) {
-    if (tk.startsWith("--git-dir") || tk.startsWith("--work-tree")) return false;
-    if (!tk.startsWith("-C")) continue; // -c 配置项/--exec-path 等取值旗标/其余静态旗标——不改 git 树发现基点，跳过
-    const raw = tk.replace(/^-C\s*/, "");
-    // 引号整体包裹才剥离（`-C "/path/x"`）；剥后残余引号/$/反引号/反斜杠=动态或
-    // 解析不完整形态，不猜——fail-closed
-    const outer = /^(['"])(.*)\1$/.exec(raw);
-    const target = outer ? outer[2] : raw;
-    if (/['"$`\\]/.test(target) || target.startsWith("~")) return false;
-    hasC = true;
-    const resolved = path.isAbsolute(target)
-      ? path.normalize(target)
-      : base !== null ? path.normalize(path.resolve(base, target)) : null;
+  const resolveTarget = (v: string): boolean => {
+    if (v.startsWith("~")) return false;
+    const resolved = path.isAbsolute(v)
+      ? path.normalize(v)
+      : base !== null ? path.normalize(path.resolve(base, v)) : null;
     if (resolved === null) return false;
     base = resolved;
+    hasC = true;
+    return true;
+  };
+  // while 形态（勿改 for：for 的 i++ 在 continue 后照跑会跳词过冲——审查实证踩过）
+  let i = 1;
+  while (i < words.length) {
+    const w = words[i].evaluated;
+    if (w === null) return false; // 动态旗标/值位——不可证，不豁免
+    if (w.startsWith("--git-dir") || w.startsWith("--work-tree")) return false;
+    if (w === "-C") {
+      const v = words[i + 1]?.evaluated ?? null;
+      if (v === null || !resolveTarget(v)) return false;
+      i += 2;
+      continue;
+    }
+    if (w.startsWith("-C") && w.length > 2) {
+      // attached -C<path>（值在词内，词 evaluated 已归一引号）
+      if (!resolveTarget(w.slice(2))) return false;
+      i++;
+      continue;
+    }
+    if (w === "-c") {
+      const kv = words[i + 1]?.evaluated ?? null;
+      if (kv === null) return false; // 动态 -c 值——不可证非树发现改写
+      if (/^core\.(worktree|bare|gitdir)=/i.test(kv)) return false; // 配置改写树发现
+      i += 2;
+      continue;
+    }
+    if (w.startsWith("-c") && w.length > 2) {
+      if (/^core\.(worktree|bare|gitdir)=/i.test(w.slice(2))) return false;
+      i++;
+      continue;
+    }
+    if (w === "--exec-path" || w === "--namespace") {
+      const nxt = words[i + 1]?.evaluated ?? null;
+      i += nxt !== null && !nxt.startsWith("-") ? 2 : 1;
+      continue;
+    }
+    if (w.startsWith("-")) { i++; continue; }
+    break; // 子命令位——后续词是子命令参数非 git 全局旗标
   }
   if (!hasC || base === null) return false;
   const wtRoot = path.normalize(path.join(projectRoot, ".otter/worktrees"));
@@ -1179,14 +1213,19 @@ function judgeSegment(
   // 本层，这里显式放只读防误拦）。
   if (head === "git") {
     const rest = seg.slice(offset);
-    if (!GIT_WRITE_SUBCOMMAND.test(rest)) return false; // 只读子命令放行（原有语义）
+    // F20261016gwr1（M-46f0e74d）：写族判定词级化——旧 GIT_WRITE_SUBCOMMAND 正则 \S+
+    // 词面对引号含空格/attached/反引号三形态整体失明（fail-open 实证），正则退役；
+    // 词级判定=单一真相源 payload-extract-aux.gitWriteSubcommandHit（与 v2 求值器同款）。
+    const gseg = parseOnce(rest, 1).segments[0] ?? null;
+    if (gseg === null || gseg.argv0 !== "git") return true; // 词法与文本头不一致——保守按写族拦（fail-closed）
+    if (!gitWriteSubcommandHit(gseg)) return false; // 只读子命令放行（原有语义）
     // F20261014cwsp S1 处置：cwd 上移豁免（skipGitWrite，由 checkWriteChannels 判定
     // 注入）——git 写族落点是 cwd 上移发现的 git 工作树，不是主仓写，放行。
     // 会话工作区（data/workspaces/，非 git 树）与相对 cwd 不注入本豁免。
     if (ctx.skipGitWrite) return false;
     // F20261015glfp（M-bf4049a3）：git -C 落点豁免（段级）——-C 目标累积解析后落
     // worktree 区时本段 git 写非主仓写，与 cwd 形态等价豁免；其他段照常判定。
-    if (gitDashCTargetsWorktree(rest, ctx.projectRoot, ctx.sessionCwd)) return false;
+    if (gitDashCTargetsWorktree(gseg, ctx.projectRoot, ctx.sessionCwd)) return false;
     return true;
   }
   // ③b shell 解释器落点 → 洞1：提取 -c 载荷递归判定（r1 严重 2：三态拆分）

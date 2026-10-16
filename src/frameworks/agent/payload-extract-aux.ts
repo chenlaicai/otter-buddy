@@ -125,6 +125,86 @@ export function resolvePayloadScript(payloadWord: Word, flagWord: Word, commandT
   return { script: null, cMode };
 }
 
+// ────────────── git 写族子命令判定（F20261016gwr1，M-46f0e74d） ──────────────
+
+/** git 写族子命令词表（求值器 isWrite 口径=宽词表，双签终版 2026-10-12：reset/clean/
+ *  stash/pull 一律写族、落点/排除语义在上层判定；**与 prod 严格语义不同**——prod gate
+ *  的 push --dry-run 排除/stash push 限定/reset --hard 限定见 gitWriteSubcommandHit）。 */
+export const GIT_WRITE_SUBS = new Set(["commit", "rebase", "merge", "cherry-pick", "apply", "reset", "clean", "push", "stash", "pull"]);
+
+/** F20261016gwr1（M-46f0e74d）：git 写族子命令判定（词级，prod 严格语义）——引号含空格/
+ *  attached/反引号值全覆盖（旧 GIT_WRITE_SUBCOMMAND 正则 \S+ 词面解析对这三形态整体
+ *  失明=fail-open 实证，正则已退役）。语义=旧正则锚同款（r2-C 基线）：push 排除
+ *  --dry-run/-n、stash 限 push、reset 限 --hard、clean 限 f 旗标；词等值天然排除
+ *  commit-tree/merge-base 词族。走查与 extractGitAliasShell/evalGitWrite 同构（c107
+ *  教训：不合并走查，语义注释对齐）。动态值位照常消费后找子命令；动态旗标/子命令位
+ *  →false（间接构造不追，#1513 边界）。 */
+/** git 取值型全局旗标（旗标词后跟独立值词）——gitWriteSubcommandHit 与 lookAheadWriteSubcommand
+ *  两走查共享（词表漂移会再造静动反判；走查不合并=c107 教训，语义注释对齐）。 */
+const GIT_VALUE_FLAGS = new Set(["-C", "-c", "--git-dir", "--work-tree", "--exec-path", "--namespace"]);
+
+export function gitWriteSubcommandHit(seg: Segment): boolean {
+  if (seg.argv0 !== "git") return false;
+  const words = seg.words;
+  let i = 1;
+  while (i < words.length) {
+    const w = words[i].evaluated;
+    if (w === null) {
+      // F20261016gwr1 修复轮（M-46f0e74d 严重 1，检视獭1519）：动态词位不弃权——后续静态写族
+      // 子命令照判 write（`git -c"$P" commit`/`git -C$P commit` 附着+动态混合形态曾双层
+      // fail-open，同语义空格/附着拼接反判）。红线：后续无写族子命令（`git -C"$P" status`
+      //）照常 false，只读面不误拦。间接构造（整词动态子命令 `git "$X"`）仍不追（#1513）。
+      return lookAheadWriteSubcommand(words, i + 1);
+    }
+    if (GIT_VALUE_FLAGS.has(w)) {
+      const nxt = words[i + 1]?.evaluated ?? null;
+      i += words[i + 1] !== undefined && !(nxt ?? "").startsWith("-") ? 2 : 1; // 值位（含动态值）照常消费
+      continue;
+    }
+    if (w.startsWith("-")) { i++; continue; } // 静态旗标（含 attached 值形——子命令识别不受影响）
+    break;
+  }
+  return isWriteVerbAt(words, i);
+}
+
+/** 写族子命令判定（严格语义，位置定在 words[i]）：push 排除 --dry-run/-n、stash 限 push
+ *  （F20261016gwr1 修复轮 建议 2：bare `git stash` ≡ `git stash push`——git 原生语义，缺省即 push）
+ *  、reset 限 --hard、clean 限 f 旗标；词等值天然排除 commit-tree/merge-base 词族。 */
+// eslint-disable-next-line complexity -- 写族子命令严格语义逐分支（push 排除/stash 限定/reset --hard 限定/clean f 旗标，r2-C 基线形态穷举）
+function isWriteVerbAt(words: Word[], i: number): boolean {
+  const sub = words[i]?.evaluated ?? null;
+  if (sub === null) return false;
+  const next = words[i + 1]?.evaluated ?? null;
+  if (sub === "commit" || sub === "rebase" || sub === "merge" || sub === "cherry-pick" || sub === "apply") return true;
+  if (sub === "stash") return next === null || next === "push" || (next !== null && next.startsWith("-"));
+  if (sub === "push") return next !== "--dry-run" && next !== "-n";
+  if (sub === "reset") return next === "--hard";
+  if (sub === "clean") return next !== null && /^-[a-zA-Z]*f/.test(next);
+  return false;
+}
+
+/** F20261016gwr1 修复轮二（delta 残留 1，检视獭1519）：动态词位后的写族前瞻——与主走查
+ *  同构（旗标/取值旗标消费后停在首个静态非旗标词=子命令位）就地判 write 即停，**不越位
+ *  扫参数**——旧版从 from 全量扫描把参数词当子命令位（`git -C"$P" log -G push` 的 push 被
+ *  isWriteVerbAt 命中 → 与静态 `git -C /repo log -G push` 反判=本 PR 病核复发，误拦方向）。
+ *  取值旗标必须吞值（`git -c"$P" -C /repo commit` 的 /repo 是值不是子命令位，漏吞=新 fail-open）。
+ *  动态词跳过不追（间接构造不追，#1513）；后续无静态非旗标词（`git -C"$P" status` 红线）照常 false。 */
+function lookAheadWriteSubcommand(words: Word[], from: number): boolean {
+  let j = from;
+  while (j < words.length) {
+    const w = words[j].evaluated;
+    if (w === null) { j++; continue; } // 动态词跳过（非静态子命令候选）
+    if (GIT_VALUE_FLAGS.has(w)) {
+      const nxt = words[j + 1]?.evaluated ?? null;
+      j += words[j + 1] !== undefined && !(nxt ?? "").startsWith("-") ? 2 : 1; // 值位照常消费（漏吞=值词误当子命令位）
+      continue;
+    }
+    if (w.startsWith("-")) { j++; continue; }
+    return isWriteVerbAt(words, j); // 首个静态非旗标词=子命令位，就地判定（勿越位扫参数）
+  }
+  return false;
+}
+
 // ────────────── git alias shell 展开提取（F20261015gali，M-edd889c2） ──────────────
 
 export type GitAliasShellExtraction =
@@ -142,12 +222,17 @@ function literalPrefixOf(word: Word): string {
   return s;
 }
 
+/** alias k=v 字符串解析（attached -c<kv> 形态共用）。 */
+function aliasKvOfString(kv: string): { value: string } | null {
+  const m = /^alias\.[\w.-]+=(.*)$/i.exec(kv);
+  return m ? { value: m[1] } : null;
+}
+
 /** alias k=v 词解析：evaluated 词整词归一（引号三形态由词法层剥除）；动态词仅当字面
  *  前缀可见完整 alias 键（`alias.x=`）时判 opaque（键可见、值不可证）。其余=null。 */
 function aliasDefOf(word: Word): { value: string } | "opaque" | null {
   if (word.evaluated !== null) {
-    const m = /^alias\.[\w.-]+=(.*)$/i.exec(word.evaluated);
-    return m ? { value: m[1] } : null;
+    return aliasKvOfString(word.evaluated);
   }
   // 动态词：字面前缀可见 alias 键（`alias.x=`）或键+`!`（`alias.x=!`载荷动态）→ 均不可证
   return /^alias\.[\w.-]+=!?$/i.test(literalPrefixOf(word)) ? "opaque" : null;
@@ -240,7 +325,14 @@ export function extractGitAliasShell(seg: Segment): GitAliasShellExtraction {
   //，=附着形或独立值形）消费其值，其余静态旗标无值跳过。
   while (i < words.length) {
     const w = words[i].evaluated;
-    if (w === null) break; // 旗标/子命令位动态词——间接构造不追（#1513），后续定义位扫描失去锚，按无定义位处置
+    if (w === null) {
+      // F20261016gwr1 修复轮（严重 1 对称面）：附着+动态 alias 定义（`-c"alias.x=!$P"`）——
+      // 键+! 字面前缀可见证、载荷动态 → opaque（与 evaluate 词位同病同治）；其余动态词位
+      // 间接构造不追（#1513），后续定义位扫描失去锚，按无定义位处置
+      const p = literalPrefixOf(words[i]);
+      if (/^-c["']?alias\.[\w.-]+=/.test(p)) return { kind: "opaque" };
+      break;
+    }
     if (w === "-c") {
       const next = words[i + 1];
       if (next === undefined) { i++; continue; }
@@ -248,6 +340,13 @@ export function extractGitAliasShell(seg: Segment): GitAliasShellExtraction {
       if (d === "opaque") return { kind: "opaque" };
       if (d !== null && d.value.startsWith("!")) texts.push(d.value.slice(1));
       i += 2;
+      continue;
+    }
+    if (w.startsWith("-c") && w.length > 2) {
+      // F20261016gwr1（M-46f0e74d）：attached -ckey=val 形态（值在词内）
+      const d = aliasKvOfString(w.slice(2));
+      if (d !== null && d.value.startsWith("!")) texts.push(d.value.slice(1));
+      i++;
       continue;
     }
     if (w === "-C" || w === "--git-dir" || w === "--work-tree" || w === "--exec-path" || w === "--namespace") {

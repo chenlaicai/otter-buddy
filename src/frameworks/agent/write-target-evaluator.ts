@@ -11,7 +11,7 @@
  * Phase 1 覆盖面（显式声明，方案 v2 求值规则表）：
  * - 重定向（> >> >| 及 fd 写向形态）——Segment.redirects evaluated target
  * - 词表命令（tee/cp/mv/touch/mkdir）落点参数位
- * - git 写族（GIT_WRITE_SUBCOMMAND 同源正则）→ -C 目标或 cwd 跟踪结果
+ * - git 写族（词级真相源 payload-extract-aux.gitWriteSubcommandHit/GIT_WRITE_SUBS，旧同源正则 F20261016gwr1 已退役）→ -C 目标或 cwd 跟踪结果
  * - bash heredoc 体 / bash -c 体：shell 递归模型可用时体内通道重走
  *
  * Phase 1 显式回落（unevaluated）：
@@ -28,7 +28,7 @@
  *   （载荷含主仓树字面量一律回落旧链——c062 import() 主仓路径实证）；
  *   词法把脚本括号误当 $( 产生的垃圾 cmdsub 子模型不计回落（命令内层已求值载荷，
  *   子模型再回落是同一事实的重复保守——parseOk=false 假载荷族实证 c032）。
- * - git add index：GIT_WRITE_SUBCOMMAND 不含 add 是因 index 落点非 cwd——Phase 2 单独
+ * - git add index：写族词表不含 add 是因 index 落点非 cwd——Phase 2 单独
  *   求值（落点 = -C/cwd 的索引 + add 路径参数按工作树根求值，主仓 cwd 下 add 相对路径
  *   落主仓工作树，判拦实证依据）。
  * - remote ref：push --delete / push :refs/... 远端侧操作不落本地主仓树 → evaluated 放行。
@@ -40,9 +40,10 @@
  * 求值纯判定：除牙3 缺席证明的 fs stat 只读查询（fsAbsentPlan，delta2 修法）外无 IO、无状态、不写任何存储（机制识别检查点：只读 fs 查询已记档特性文档）。
  */
 import { statSync } from "node:fs";
+import path from "node:path";
 import { parseOnce, SHELL_INTERPRETERS, type CommandModel, type Segment } from "./command-model";
 import { proveNoWrite, DYNAMIC_IMPORT_FACE, openCallUnknownMode, payloadWriteFaceHit, SCRIPT_EXEC_FACE, dotExecCommandHits, classifyOpenModeArg } from "./write-word-face";
-import { isCheckOnlySeg, checkOnlyFileArgs, SCRIPT_RUNNERS, isScriptRunnerSeg, detectScriptPayload, resolvePayloadScript, extractGitAliasShell } from "./payload-extract-aux";
+import { isCheckOnlySeg, checkOnlyFileArgs, SCRIPT_RUNNERS, isScriptRunnerSeg, detectScriptPayload, resolvePayloadScript, extractGitAliasShell, gitWriteSubcommandHit, GIT_WRITE_SUBS } from "./payload-extract-aux";
 import type { Word } from "./command-lexer";
 
 // ────────────────────────────── 类型 ──────────────────────────────
@@ -81,10 +82,11 @@ const TARGET_ARG_COMMANDS = new Set(["tee", "cp", "mv", "touch", "mkdir", "rm"])
  *  tee/cp/mv/touch/mkdir，其余写命令写面命中但落点提取空 → 误当无写放行（通道 b）。 */
 const EXTENDED_TARGET_COMMANDS = new Set(["install", "ln", "chmod", "chown", "chgrp", "truncate"]);
 
-/** git 写族（与 bash-safety-guard.ts GIT_WRITE_SUBCOMMAND 同源——单一真相源对齐，改动须两侧同步） */
-/** git 写族（旧链正则版——F20261009phs2 起求值层改用 evalGitWrite 词级解析，本常量保留
- *  作旧链单一真相源对齐锚：改动须两侧同步——求值层 isWrite 子命令表与本正则一致） */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- 对齐锚（见上注释）
+/** git 写族判定：F20261016gwr1（M-46f0e74d）正则锚已退役——\S+ 词面解析对引号含空格/
+ *  attached/反引号三形态整体失明（fail-open 实证）。单一真相源=词级
+ *  payload-extract-aux.gitWriteSubcommandHit + GIT_WRITE_SUBS（与 prod 侧共用）。
+ *  下方 GIT_WRITE_SUBCOMMAND 常量为退役死代码（保留仅作历史对照，勿再引接）。 */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- 退役死代码（见上注释，F20261016gwr1）
 const GIT_WRITE_SUBCOMMAND = /^git\s+(?:-C\s+\S+\s+|-c\s+\S+\s+|--(?:git-dir|work-tree)(?:=\S+|\s+\S+)\s+|--(?:exec-path|namespace)(?:=\S+|\s+\S+)?\s+|(?:--\S+|-[^Cc\s]\S*)\s+)*(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push|push\b(?!\s+(?:--dry-run|-n)\b)(?!\s+\S+\s+(?:--delete|:))(?![^|;&]*(?:--delete|(?::\s*refs\/)))|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
 
 /** Python/JS 等脚本解释器（载荷族）→ payload-extract-aux.SCRIPT_RUNNERS（单一真相源） */
@@ -272,6 +274,64 @@ function evalRedirects(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRe
   return null;
 }
 
+/** F20261016gwr1 修复轮（M-46f0e74d 建议 1，检视獭1519）：git 段自身写证据——词面证洗白的
+ *  禁入键从全局 reason 字符串改为段自身证据（不依赖段序）：段内携带可证主仓落点
+ *  （-C 链静态解析入主仓树）或不可证落点（动态 -c/-C 值/--git-dir|--work-tree 覆盖/
+ *  core.* 树发现改写）→ true（洗白不得覆盖——`pushd /tmp && git -C "/repo/x y" commit`
+ *  前导 pushd 改全局 reason 也不旁落）。无 -C 且全静态（`git push -u origin x`）→ false
+ *  （目标=cwd 归全局链，词面证语义保留——corpus 96a21f3c pushd+remote-push 正面 ALLOW
+ *  保绿）。相对 -C 无基准 → true（落点不可证，保守侧）。 */
+// eslint-disable-next-line max-statements, complexity -- git 旗标形态穷举（-C/-c 附着/分离 × core.* 树改写 × 覆盖旗标）+ fail-closed 面逐条对照，每分支对应一种已声明形态（c107 教训：合并会再制造旗标解析 bug）
+function gitSegSelfWriteEvidence(seg: Segment, projectRoot: string): boolean {
+  if (!gitWriteSubcommandHit(seg)) return false;
+  const words = seg.words;
+  let base: string | null = null;
+  let hasC = false;
+  let i = 1;
+  while (i < words.length) {
+    const w = words[i].evaluated;
+    if (w === null) return true; // 动态旗标/值位——落点不可证
+    if (w.startsWith("--git-dir") || w.startsWith("--work-tree")) return true; // 落点改写
+    if (w === "-C") {
+      const v = words[i + 1]?.evaluated ?? null;
+      if (v === null) return true;
+      if (!path.isAbsolute(v)) return true; // 相对 -C 无基准——不可证
+      base = path.normalize(v);
+      hasC = true;
+      i += 2;
+      continue;
+    }
+    if (w.startsWith("-C") && w.length > 2) {
+      const v = w.slice(2);
+      if (!path.isAbsolute(v)) return true;
+      base = path.normalize(v);
+      hasC = true;
+      i++;
+      continue;
+    }
+    if (w === "-c") {
+      const kv = words[i + 1]?.evaluated ?? null;
+      if (kv === null) return true; // 动态配置——树发现改写不可证
+      if (/^core\.(worktree|bare|gitdir)=/i.test(kv)) return true;
+      i += 2;
+      continue;
+    }
+    if (w.startsWith("-c") && w.length > 2) {
+      // F20261016gwr1 修复轮 建议 3：attached -c<kv> 同样查 core.* 树发现改写
+      if (/^core\.(worktree|bare|gitdir)=/i.test(w.slice(2))) return true;
+      i++;
+      continue;
+    }
+    if (w.startsWith("-")) {
+      const nxt = words[i + 1]?.evaluated ?? null;
+      i += /^(?:--exec-path|--namespace)$/.test(w) && nxt !== null && !nxt.startsWith("-") ? 2 : 1;
+      continue;
+    }
+    break;
+  }
+  return hasC && base !== null && pathWithinMain(base, projectRoot);
+}
+
 /** git 写族落点（-C 目标优先，无 -C → cwd）。返回 UnevalReason | null。 */
 // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- git 全局旗标形态穷举（-C/-c/--git-dir/--work-tree × =值/空格值）+ 写族子命令判定，每分支对应一种已实证形态（c107 词切分错位教训：合并会再制造旗标解析 bug）；F20261014smrj 加 -C "$VAR" 赋值溯源后超 60 行
 function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReason | null {
@@ -297,6 +357,9 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
         if (name !== null) v = resolveAssign(name, acc.segments);
       }
       if (v === null) return "dynamic-path";
+      // F20261016gwr1 修复轮（M-46f0e74d 建议 3，检视獭1519）：core.worktree/bare/gitdir 配置改写
+      // 树发现——落点计算不可信，fail-closed（与 prod 侧 gitDashCTargetsWorktree 对称）
+      if (w === "-c" && /^core\.(worktree|bare|gitdir)=/i.test(v)) return "dynamic-path";
       if (w === "-C") cTarget = v;
       i += 2;
       continue;
@@ -321,6 +384,19 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
       continue;
     }
     if (/^--(?:exec-path|namespace)=/.test(w)) { i++; continue; }
+    if (w.startsWith("-C") && w.length > 2) {
+      // F20261016gwr1（M-46f0e74d）：attached -C<path>（值在词内，词法层已归一引号）——
+      // 旧版通用旗标跳过把 -C/repo 的值丢掉，落点回落 cwd 被工作区豁免洗白（P3 实证）
+      cTarget = w.slice(2);
+      i++;
+      continue;
+    }
+    if (w.startsWith("-c") && w.length > 2) {
+      // F20261016gwr1 修复轮（建议 3）：attached -c<kv> 同样查 core.* 树发现改写
+      if (/^core\.(worktree|bare|gitdir)=/i.test(w.slice(2))) return "dynamic-path";
+      i++;
+      continue;
+    }
     // X1 同修（检视獭1518，与 extractGitAliasShell 两侧一次修齐）：静态旗标一律
     // continue 不 break——`git --no-pager -C <主仓> reset --hard` 类 wrapper 旗标
     // 曾使走查折断→子命令位误读→写族判定失明（fail-open）
@@ -329,11 +405,9 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
   }
   const sub = words[i]?.evaluated;
   if (sub === undefined || sub === null) return null;
-  // 写族口径与旧链 GIT_WRITE_SUBCOMMAND 同源（单一真相源在旧链，改动须两侧同步）
-  const isWrite = sub === "commit" || sub === "rebase" || sub === "merge" || sub === "cherry-pick"
-    || sub === "apply" || sub === "reset" || sub === "clean" || sub === "push" || sub === "stash"
-    || sub === "pull"; // 双签终版（2026-10-12）：pull=fetch+merge/rebase 归写按落点判（检视獭驳回「pull 非写」）
-  if (!isWrite) return null;
+  // 写族口径单一真相源=GIT_WRITE_SUBS（F20261016gwr1 词级共享，旧正则锚已退役）；
+  // 双签终版（2026-10-12）：pull=fetch+merge/rebase 归写按落点判（检视獭驳回「pull 非写」）
+  if (!GIT_WRITE_SUBS.has(sub)) return null;
   const rest = words.slice(i + 1).map(w => w.evaluated).filter((v): v is string => v !== null);
   if (sub === "push") {
     if (rest.some(a => a === "--dry-run" || a === "-n")) return null;
@@ -351,7 +425,15 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
   }
   if (sub === "reset" && !rest.some(a => a === "--hard")) return null;
   if (sub === "clean" && !rest.some(a => /^-[a-zA-Z]*f/.test(a))) return null;
-  if (sub === "stash" && rest[0] !== "push") return null;
+  // F20261016gwr1 修复轮二（delta 残留 2，检视獭1519）：wv 半边对称补齐——bare `git stash`
+  //  ≡ `git stash push`（git-stash(1) 明文）+ 旗标形（stash -m …）同归写，与 prod
+  //  isWriteVerbAt 同口径；显式 list/show 等非写面照旧不入账。旧 `rest[0] !== "push"` 把
+  //  bare/旗标形归非写（prod 收 wv 不收=只落一条链反判）。stash pop/apply/drop 写面漏判
+  //  另立 issue 归口（M-026d87ff 伞旁），不在本行扩面。
+  if (sub === "stash") {
+    const s0 = rest[0];
+    if (s0 !== undefined && s0 !== "push" && !s0.startsWith("-")) return null;
+  }
   const base = cTarget !== null ? evalPath(cTarget, cwd) : cwd;
   if (base === null) return "dynamic-path";
   acc.targets.push({ path: workTreeOverride !== null ? (evalPath(workTreeOverride, cwd) ?? base) : base, via: "git", segmentIndex: acc.index, access: "write" });
@@ -486,6 +568,8 @@ function evalGitAdd(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReaso
         if (name !== null) v = resolveAssign(name, acc.segments);
       }
       if (v === null) return "dynamic-path";
+      // F20261016gwr1 修复轮（建议 3 同步）：core.* 树发现改写——fail-closed（两走查同形同治）
+      if (w === "-c" && /^core\.(worktree|bare|gitdir)=/i.test(v)) return "dynamic-path";
       if (w === "-C") cTarget = v;
       i += 2;
       continue;
@@ -1203,11 +1287,15 @@ export function evaluateWriteTargets(command: string, projectRoot: string, start
   //  → fail-closed」被洗白，delta3 攻击链实证）；显式缺席声明（entry absent，牙3 同一信任口径
   //  ——声明来自裁决链非命令作者）豁免该否决（声明缺席=脚本零写）。
   const opaqueExecVeto = hasOpaqueScriptExec(model) && scriptPayload?.status !== "absent";
+  // F20261016gwr1（M-46f0e74d）：git 写族段不得被词面证洗白——git 写动词不在词面写
+  // 清单，proveNoWrite 把 `git -c <反引号载荷> commit` 类洗成零写面（P5 双层漏实证）；
+  // 写族段的不可证必须按落点判定语义 fail-closed。
+  const gitWriteSeg = model.segments.some(gitWriteSubcommandHit);
 
   // 先行载荷族检测（不依赖 parseOk——可窄提取的脚本载荷段跳过短路，交给段级窄提取）。
   if (detectScriptPayload(model) && !hasNarrowExtractableScriptSeg(model, projectRoot)) {
     // 能力 4：载荷不可窄提取但原文词面可证无写 → 正面 ALLOW；否则 fail-closed。
-    if (proveNoWrite(command) && !opaqueExecVeto) return { kind: "evaluated", targets: [] };
+    if (proveNoWrite(command) && !opaqueExecVeto && !gitWriteSeg) return { kind: "evaluated", targets: [] };
     return { kind: "unevaluated", reason: "heredoc-script-payload" };
   }
   if (!model.parseOk) {
@@ -1220,7 +1308,7 @@ export function evaluateWriteTargets(command: string, projectRoot: string, start
     if (probe.targets.length === 0 && !hasNarrowExtractableScriptSeg(model, projectRoot) && model.payloads.length === 0) {
       // 能力 4：词面可证无写 → 正面 ALLOW；否则保 Phase 1 保守语义。有 shell 递归载荷时
       //  不提前返回——bash -c 'touch 主仓' 子落点必须先入账（单测负门实证的放水面）。
-      if (proveNoWrite(command) && !opaqueExecVeto) return { kind: "evaluated", targets: [] };
+      if (proveNoWrite(command) && !opaqueExecVeto && !gitWriteSeg) return { kind: "evaluated", targets: [] };
       return { kind: "unevaluated", reason: "parse-failed" };
     }
     // 探针已证明可求值——走正常路径（幂等纯函数，重求值无副作用）
@@ -1238,7 +1326,12 @@ export function evaluateWriteTargets(command: string, projectRoot: string, start
 
   const main = evaluateFromModel(model, projectRoot, startCwd, { payload: scriptPayload });
   if (main.kind === "unevaluated") {
-    if (!UNPROVABLE_TEETH.has(main.reason) && proveNoWrite(command) && !opaqueExecVeto) return { kind: "evaluated", targets: subTargets };
+    // F20261016gwr1 收窄（corpus 守恒）+ F20261016gwr1 修复轮 建议 1（检视獭1519）：洗白禁入键
+    // =git 段自身证据（不依赖段序/全局 reason）——段内携带可证主仓落点或不可证落点时
+    // 词面证不得洗白；无 -C 且全静态（96a21f3c pushd+remote-push）维持词面证放行
+    //（能力 4 既有语义+双签背书，corpus 棘轮保绿）。
+    const gitSelfEvidence = model.segments.some(s => gitSegSelfWriteEvidence(s, projectRoot));
+    if (!UNPROVABLE_TEETH.has(main.reason) && proveNoWrite(command) && !opaqueExecVeto && !gitSelfEvidence) return { kind: "evaluated", targets: subTargets };
     return main;
   }
   return { kind: "evaluated", targets: [...main.targets, ...subTargets] };
