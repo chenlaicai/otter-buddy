@@ -64,6 +64,28 @@ function recordingGateway(): RecordingGateway {
   return gw;
 }
 
+/** 等停驻；停在真人位则注入首选合法动作，直到终局（模块级——控 describe 回调行数） */
+async function driveUntilFinished(svc: RoomService, roomId: string): Promise<void> {
+  let guard = 0;
+  for (;;) {
+    guard += 1;
+    if (guard > 20000) throw new Error("drive exceeded guard");
+    await svc.settled(roomId);
+    const view = svc.view(roomId, null);
+    expect(view).not.toBeNull();
+    if (view!.status === "finished") return;
+    const wait = view!.awaitingHuman;
+    if (wait) {
+      const dp = view!.decision as DecisionPoint;
+      const humanSeat = [0, 1, 2].find((s) => view!.players[s]!.kind === "human")!;
+      const res = svc.injectHumanAction(roomId, humanSeat as 0 | 1 | 2, dp.actions[0]!);
+      expect(res.ok).toBe(true);
+      continue;
+    }
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
 describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
   let db: Database.Database;
   let store: SqliteFrameStore;
@@ -79,28 +101,6 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
     bus.subscribe("r1", (e) => events.push(e));
   });
   afterEach(() => db.close());
-
-  /** 等停驻；停在真人位则注入首选合法动作，直到终局 */
-  async function driveUntilFinished(svc: RoomService, roomId: string): Promise<void> {
-    let guard = 0;
-    for (;;) {
-      guard += 1;
-      if (guard > 20000) throw new Error("drive exceeded guard");
-      await svc.settled(roomId);
-      const view = svc.view(roomId, null);
-      expect(view).not.toBeNull();
-      if (view!.status === "finished") return;
-      const wait = view!.awaitingHuman;
-      if (wait) {
-        const dp = view!.decision as DecisionPoint;
-        const humanSeat = [0, 1, 2].find((s) => view!.players[s]!.kind === "human")!;
-        const res = svc.injectHumanAction(roomId, humanSeat as 0 | 1 | 2, dp.actions[0]!);
-        expect(res.ok).toBe(true);
-        continue;
-      }
-      await new Promise((r) => setTimeout(r, 5));
-    }
-  }
 
   it("isSeated：入座且进行中 true；未知 otter false；终局后 false", async () => {
     const svc = new RoomService({
@@ -283,5 +283,51 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
     await svc2.settled("r1");
     expect(reports).toHaveLength(1); // 恢复不补发
     svc2.close("r1");
+  });
+
+  it("检视发现3/6：终局 status 落库 + 宽限内 view 可用 + 同 roomId 重开（新 gameId、代际不误删）", async () => {
+    const svc = new RoomService({
+      store,
+      gateway: recordingGateway(),
+      bus,
+      humanTimeoutMs: 60_000,
+      humanGraceMs: 60_000,
+      evictFinishedMs: 200,
+    });
+    const first = svc.createRoom("r1", cfg("evict-seed-1"));
+    await driveUntilFinished(svc, "r1");
+
+    // ① 宽限内 view 可用（页面终局展示不破）+ status 落库（updateGameStatus 不再是死代码）
+    const finishedView = svc.view("r1", null);
+    expect(finishedView?.status).toBe("finished");
+    expect(store.findGameByRoom("r1")!.status).toBe("finished"); // updateGameStatus 落库实证
+    expect(svc.getGameId("r1")).toBe(first.gameId); // 宽限期内仍占位
+
+    // ② 同 roomId 重开：终局旧房出 Map，新 gameId（修复前永久 409）
+    const reopened = svc.createRoom("r1", cfg("evict-seed-2"));
+    expect(reopened.gameId).not.toBe(first.gameId);
+    expect(svc.view("r1", null)!.status).toBe("playing");
+
+    // ③ 代际校验：旧房驱逐定时器到期不得误删新房
+    await new Promise((r) => setTimeout(r, 260));
+    expect(svc.view("r1", null)!.status).toBe("playing");
+    svc.close("r1");
+  });
+
+  it("检视发现3：驱逐到期终局房出 Map（view null）", async () => {
+    const svc = new RoomService({
+      store,
+      gateway: recordingGateway(),
+      bus,
+      humanTimeoutMs: 60_000,
+      humanGraceMs: 60_000,
+      evictFinishedMs: 20,
+    });
+    svc.createRoom("r1", cfg("evict-seed-3"));
+    await driveUntilFinished(svc, "r1");
+    expect(svc.view("r1", null)).not.toBeNull(); // 驱逐前可读
+    await new Promise((r) => setTimeout(r, 80));
+    expect(svc.view("r1", null)).toBeNull(); // 到期出 Map
+    svc.close("r1"); // 不存在也幂等
   });
 });

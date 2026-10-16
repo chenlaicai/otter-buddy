@@ -30,55 +30,12 @@ import type {
   GameConfig,
   Seat,
 } from "../engine/types";
-import type { Logger } from "../../ports/logger";
-import type { SqliteFrameStore } from "./frames";
-import { wakeOtterForDecision, type OtterGateway, type WakeResult } from "./otter-adapter";
-export type { ChatMessage, GameoverReport, RoomEvent, RoomEventListener, RoomView } from "./room-types";
-import type { ChatMessage, GameoverReport, RoomEvent, RoomEventListener, RoomView } from "./room-types";
+import { wakeOtterForDecision, type WakeResult } from "./otter-adapter";
+export type { ChatMessage, GameoverReport, RoomEvent, RoomEventListener, RoomServiceDeps, RoomView } from "./room-types";
+export { RoomBus } from "./room-types";
+import type { ChatMessage, GameoverReport, RoomEvent, RoomEventListener, RoomServiceDeps, RoomView } from "./room-types";
 
-/** 房间粒度事件总线（SSE/WS 订阅点） */
-export class RoomBus {
-  private readonly subs = new Map<string, Set<RoomEventListener>>();
-
-  subscribe(roomId: string, listener: RoomEventListener): () => void {
-    let set = this.subs.get(roomId);
-    if (!set) {
-      set = new Set();
-      this.subs.set(roomId, set);
-    }
-    set.add(listener);
-    return () => {
-      set!.delete(listener);
-      if (set!.size === 0) this.subs.delete(roomId);
-    };
-  }
-
-  publish(roomId: string, event: RoomEvent): void {
-    const set = this.subs.get(roomId);
-    if (!set) return;
-    for (const fn of [...set]) {
-      try {
-        fn(event);
-      } catch {
-        /* 订阅者异常不阻塞牌局 */
-      }
-    }
-  }
-}
-
-export interface RoomServiceDeps {
-  store: SqliteFrameStore;
-  gateway: OtterGateway;
-  bus: RoomBus;
-  /** 真人决策超时（默认 15000，方案口径） */
-  humanTimeoutMs?: number;
-  /** 超时后宽限（默认 15000，宽限内广播 deadline；到期代理自动摸切） */
-  humanGraceMs?: number;
-  /** F20261015mjsg 局终回调（战报卡数据口）——bootstrap 装配 SendEntry；失败仅告警不回滚牌局 */
-  onGameover?: (report: GameoverReport) => void | Promise<void>;
-  /** 失败路径留痕（回调/注入异常）；缺省静默降级 */
-  logger?: Pick<Logger, "warn">;
-}
+/** 房间粒度事件总线（RoomBus）与装配依赖（RoomServiceDeps）已拆至 room-types.ts（控 max-lines） */
 
 interface AwaitingHuman {
   seat: Seat;
@@ -93,8 +50,10 @@ interface RoomInternal {
   chain: Promise<void>;
   awaiting: AwaitingHuman | null;
   startedAt: number;
-  /** 局终已上报（防重复：loop 顶只 fire 一次） */
+  /** 局终已上报（防重复：loop 顶只 fire 一次；recover 已终局也置位） */
   reportedOver: boolean;
+  /** 终局宽限驱逐定时器（scheduleEvict；close/同房重开后由代际校验失效） */
+  evictTimer?: ReturnType<typeof setTimeout>;
   /** 待注入聊天（按 otterId 分队；下局开局消费，成功即清、失败保留次局重试） */
   chatQueues: Map<string, ChatMessage[]>;
   /** 战报累积器（publishGame/step 单点采集；内部可变、上报时作 readonly 视图） */
@@ -114,13 +73,23 @@ export class RoomService {
   constructor(private readonly deps: RoomServiceDeps) {
     this.humanTimeoutMs = deps.humanTimeoutMs ?? 15_000;
     this.humanGraceMs = deps.humanGraceMs ?? 15_000;
+    this.evictFinishedMs = deps.evictFinishedMs ?? 10 * 60_000;
   }
+
+  /** 终局房宽限出 Map（检视发现3）：宽限内 view/recover 可用（页面终局展示），到期驱逐防 rooms Map 无界 */
+  private readonly evictFinishedMs: number;
 
   // ── 生命周期 ──
 
   /** 建房开局：配牌 + 首帧 + 广播，推进异步起跑 */
   createRoom(roomId: string, config: GameConfig): { gameId: string } {
-    if (this.rooms.has(roomId)) throw new Error(`room already exists: ${roomId}`);
+    const existing = this.rooms.get(roomId);
+    if (existing) {
+      // 检视发现3：终局旧房占位曾致同 roomId 永久 409——单房间单赛（头部口径），
+      // 终局即换局：旧房出 Map（旧宽限定时器由代际校验自失效），重开 = 新 gameId
+      if (existing.engine.state.status === "playing") throw new Error(`room already exists: ${roomId}`);
+      this.close(roomId);
+    }
     const gameId = `${roomId}-${Date.now().toString(36)}`;
     const engine = new SanmaEngine(config);
     const events = engine.startRound();
@@ -146,7 +115,21 @@ export class RoomService {
     const engine = restoreEngine(frame.state);
     const room = this.newRoom(roomId, game.id, engine);
     this.rooms.set(roomId, room);
-    if (engine.state.status !== "playing") return { gameId: game.id };
+    if (engine.state.status !== "playing") {
+      // 恢复到已终局：不进推进链且 reportedOver 置位（战报不重复 fire）；status 幂等补写——
+      // 覆盖「终局后进程即崩、updateGameStatus 未及落库」的窗口（检视发现3）
+      room.reportedOver = true;
+      try {
+        this.deps.store.updateGameStatus(game.id, "finished");
+      } catch (e) {
+        this.deps.logger?.warn("mahjong recover updateGameStatus failed", {
+          gameId: game.id,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+      this.scheduleEvict(room);
+      return { gameId: game.id };
+    }
     this.kick(roomId);
     return { gameId: game.id };
   }
@@ -490,10 +473,37 @@ export class RoomService {
     );
   }
 
+  /** 终局房宽限驱逐（检视发现3）：到期出 Map；代际校验（gameId）防误删同 roomId 重开的新局 */
+  private scheduleEvict(room: RoomInternal): void {
+    if (room.evictTimer) clearTimeout(room.evictTimer);
+    const ms = this.evictFinishedMs;
+    if (ms <= 0) {
+      this.close(room.roomId);
+      return;
+    }
+    const timer = setTimeout(() => {
+      const cur = this.rooms.get(room.roomId);
+      if (cur && cur.gameId === room.gameId) this.close(room.roomId);
+    }, ms);
+    (timer as { unref?: () => void }).unref?.();
+    room.evictTimer = timer;
+  }
+
   /** 局终一次性上报（loop 顶触发；回调异常仅告警——牌局状态不回滚） */
   private async fireGameover(room: RoomInternal): Promise<void> {
     if (room.reportedOver) return;
     room.reportedOver = true;
+    // 检视发现3/6：状态落库（updateGameStatus 死代码复活——findGameByRoom 优先 playing 的语义钥匙，
+    // 同 roomId 重开后恢复优先选活局）+ 宽限驱逐（防 rooms Map 无界）；与战报回调解耦（无 onGameover 也治理）
+    try {
+      this.deps.store.updateGameStatus(room.gameId, "finished");
+    } catch (e) {
+      this.deps.logger?.warn("mahjong updateGameStatus failed", {
+        gameId: room.gameId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+    this.scheduleEvict(room);
     const cb = this.deps.onGameover;
     if (!cb) return;
     const cfg = room.engine.state.config;

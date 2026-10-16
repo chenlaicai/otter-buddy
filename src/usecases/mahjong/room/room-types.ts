@@ -4,6 +4,9 @@
  */
 
 import type { DecisionPoint, EngineEvent, Seat, Settlement } from "../engine/types";
+import type { Logger } from "../../ports/logger";
+import type { SqliteFrameStore } from "./frames";
+import type { OtterGateway } from "./otter-adapter";
 
 /** 真人回话（下局开局注入各 otter session；本条即时广播供聊天框回显） */
 export interface ChatMessage {
@@ -75,4 +78,50 @@ export interface RoomView {
   decision: DecisionPoint | null;
   awaitingHuman: { seat: Seat; deadline: string } | null;
   settlement: unknown;
+}
+
+/** 房间粒度事件总线（SSE/WS 订阅点；自 room-service.ts 拆出） */
+export class RoomBus {
+  private readonly subs = new Map<string, Set<RoomEventListener>>();
+
+  subscribe(roomId: string, listener: RoomEventListener): () => void {
+    let set = this.subs.get(roomId);
+    if (!set) {
+      set = new Set();
+      this.subs.set(roomId, set);
+    }
+    set.add(listener);
+    return () => {
+      set!.delete(listener);
+      if (set!.size === 0) this.subs.delete(roomId);
+    };
+  }
+
+  publish(roomId: string, event: RoomEvent): void {
+    const set = this.subs.get(roomId);
+    if (!set) return;
+    for (const fn of [...set]) {
+      try {
+        fn(event);
+      } catch {
+        /* 订阅者异常不阻塞牌局 */
+      }
+    }
+  }
+}
+
+export interface RoomServiceDeps {
+  store: SqliteFrameStore;
+  gateway: OtterGateway;
+  bus: RoomBus;
+  /** 真人决策超时（默认 15000，方案口径） */
+  humanTimeoutMs?: number;
+  /** 超时后宽限（默认 15000，宽限内广播 deadline；到期代理自动摸切） */
+  humanGraceMs?: number;
+  /** F20261015mjsg 局终回调（战报卡数据口）——bootstrap 装配 SendEntry；失败仅告警不回滚牌局 */
+  onGameover?: (report: GameoverReport) => void | Promise<void>;
+  /** 失败路径留痕（回调/注入异常）；缺省静默降级 */
+  logger?: Pick<Logger, "warn">;
+  /** 检视发现3：终局房宽限出 Map 的毫秒数（≤0 = 立即驱逐；默认 10 分钟——宽限内 view/recover 可用） */
+  evictFinishedMs?: number;
 }
