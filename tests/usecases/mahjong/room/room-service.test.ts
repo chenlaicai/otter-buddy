@@ -303,4 +303,43 @@ describe("RoomService 全流程", () => {
     expect(store.verifyChain(gameId)).toBeNull();
     svc2.close("r1");
   });
+
+  it("检视发现2：注入非法动作 → 400 且房间不冻结（重开窗口后续推至终局）", async () => {
+    const svc = new RoomService({
+      store,
+      gateway: scriptedGateway({ count: 0 }),
+      bus,
+      humanTimeoutMs: 60_000,
+      humanGraceMs: 60_000,
+    });
+    svc.createRoom("r1", cfg("bad-action-seed"));
+    const humanSeat = [0, 1, 2].find((s) => svc.view("r1", null)!.players[s]!.kind === "human")! as 0 | 1 | 2;
+
+    // 推进到真人停驻（dealer 是 otter 位时链自驱至人位）
+    let guard = 0;
+    while (!svc.view("r1", null)!.awaitingHuman) {
+      guard += 1;
+      if (guard > 20000) throw new Error("park guard");
+      await svc.settled("r1");
+      await new Promise((r) => setTimeout(r, 5));
+    }
+
+    // 非法动作（非法记谱 9z，不在任何合法集）
+    const bad = svc.injectHumanAction("r1", humanSeat, { type: "discard", tile: "9z" } as never);
+    expect(bad.ok).toBe(false);
+
+    // 关键断言：重挂推进链后窗口重开（修复前 awaiting=null 且无 kick = 永久冻结）
+    await svc.settled("r1");
+    const reopened = svc.view("r1", null)!;
+    expect(reopened.awaitingHuman).not.toBeNull();
+    expect(reopened.decision?.seat).toBe(humanSeat);
+
+    // 合法注入可续推 → 全场至终局（不冻结实证）
+    const dp2 = reopened.decision!;
+    const legal = dp2.actions.find((a) => a.type === "discard") ?? dp2.actions[0]!;
+    expect(svc.injectHumanAction("r1", humanSeat, legal as never).ok).toBe(true);
+    await driveUntilFinished(svc, "r1");
+    expect(svc.view("r1", null)!.status).toBe("finished");
+    svc.close("r1");
+  });
 });

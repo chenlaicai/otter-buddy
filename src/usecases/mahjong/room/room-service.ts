@@ -232,6 +232,11 @@ export class RoomService {
     try {
       this.step(room, seat, action, "human");
     } catch (e) {
+      // 检视发现2：异常路径曾冻结（awaiting 已清、无人续推，非法动作永久死房）——
+      // 重挂推进链让 loop 重新 park。安全前提：engine.apply 合法性检查先于一切状态变更
+      //（IllegalActionError 在 submit/do* 之前抛），引擎状态未动，同一决策位重新开窗；
+      // 若抛错来自落帧等已变更之后的环节，kick 同样能续推（loop 按当前状态重新 park/推进）。
+      this.kick(roomId);
       return { ok: false, reason: e instanceof Error ? e.message : String(e) };
     }
     this.kick(roomId);
