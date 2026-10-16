@@ -68,7 +68,9 @@ function runProxyGame(seed: string, opts: { forcePon?: boolean } = {}): RunLog {
 describe("规则代理", () => {
   const SEEDS = ["p1", "p2", "p3", "p4", "p5"];
 
-  it("整场代理跑通：动作全合法（apply 校验）+ 守恒 + 终局", () => {
+  // 显式超时预算（检视轮发现的负载抖动实证）：本文件整场扫描 solo ~2.6s，vitest 默认 5s
+  // 全量并行负载下越线即报 timed out（`--testTimeout=1500` 可稳定复现同型失败）——非行为问题
+  it("整场代理跑通：动作全合法（apply 校验）+ 守恒 + 终局", { timeout: 20_000 }, () => {
     const kinds = new Set<string>();
     const settle = new Set<string>();
     let trivial = 0;
@@ -95,7 +97,7 @@ describe("规则代理", () => {
     expect([...settle].sort()).toEqual(["draw:noten", "win:ron", "win:tsumo"]);
   });
 
-  it("副露路径：forcePon 下整场出现碰/杠事件", () => {
+  it("副露路径：forcePon 下整场出现碰/杠事件", { timeout: 20_000 }, () => {
     const kinds = new Set<string>();
     let anyMeld = false;
     for (const seed of ["fp1", "fp2", "fp3"]) {
@@ -108,7 +110,7 @@ describe("规则代理", () => {
   });
 
   // eslint-disable-next-line complexity -- 定向 seed 扫描脚本：双扫描循环（九种九牌/三风连打）+ 命中种子复验过程式串写，拆为子函数需跨闭包传递扫描状态与复验上下文
-  it("流局条款接线：三风连打/九种九牌定向扫描命中", () => {
+  it("流局条款接线：三风连打/九种九牌定向扫描命中", { timeout: 20_000 }, () => {
     // ① 九种九牌：仅需开局（配牌+第一摸）后合法动作含流局——deal-only 扫描极廉
     let nineSeed: string | undefined;
     for (let i = 0; i < 4000 && !nineSeed; i++) {
