@@ -42,8 +42,8 @@
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { parseOnce, SHELL_INTERPRETERS, type CommandModel, type Segment } from "./command-model";
-import { proveNoWrite, DYNAMIC_IMPORT_FACE, openCallUnknownMode, payloadWriteFaceHit, SCRIPT_EXEC_FACE, dotExecCommandHits, classifyOpenModeArg } from "./write-word-face";
-import { isCheckOnlySeg, checkOnlyFileArgs, SCRIPT_RUNNERS, isScriptRunnerSeg, detectScriptPayload, resolvePayloadScript, extractGitAliasShell, gitWriteSubcommandHit, GIT_WRITE_SUBS, STASH_WRITE_SUBS } from "./payload-extract-aux";
+import { proveNoWrite, DYNAMIC_IMPORT_FACE, MAIN_LIT_CONCAT_IMPORT_FACE, openCallUnknownMode, payloadWriteFaceHit, SCRIPT_EXEC_FACE, dotExecCommandHits, classifyOpenModeArg } from "./write-word-face";
+import { isCheckOnlySeg, checkOnlyFileArgs, SCRIPT_RUNNERS, isScriptRunnerSeg, detectScriptPayload, resolvePayloadScript, extractGitAliasShell, gitWriteSubcommandHit, GIT_WRITE_SUBS, STASH_WRITE_SUBS } from "./payload-extract-aux"; ([F20261015gses][guard][Refactor] F1修复：段首结构通道③a收窄到包装形态+负门族归位+F4一致性锁)
 import type { Word } from "./command-lexer";
 
 // ────────────────────────────── 类型 ──────────────────────────────
@@ -231,6 +231,9 @@ function trackCwd(segments: Segment[], startCwd: string): string | null {
 interface SegmentEvalAcc {
   targets: WriteTarget[];
   index: number;
+  /** F20261015gses F1 连带：负门族命中标记（kill/危险模块/open 嵌套/exec 词面拦）——
+   *  hasNarrowExtractableScriptSeg 据此区分「负门实质判定」与「字面量闸回落」 */
+  hadNegGate?: boolean;
   /** F20261014smrj：同命令段表——git -C "$VAR" 纯 var 词赋值溯源（evalGitWrite 值解析用） */
   segments?: Segment[];
   /** F20261014smrj：段号→外置脚本载荷计划（牙2 造-执对内容 / 牙3 三态） */
@@ -622,7 +625,9 @@ function evalGitAdd(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReaso
  *  注意：open/write 单独命中不算写调用——python open('p') 默认读模式、`.write()` 是
  *  读文件后的方法调用链（c032 `print(open('a').read())` 实证）；真正写语义由
  *  evalScriptWriteTargets 的调用形态匹配判定（open 带写模式 / writeFileSync 等明确写函数）。 */
-const SCRIPT_WRITE_TOKENS = /\b(?:writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|openSync|mkdirSync|mkdir|rmSync|rmdirSync|unlinkSync|unlink|renameSync|rename|copyFileSync|copyFile|chmodSync|chownSync|symlinkSync|dump|dumps|shelve)\b|\bopen\s*\([^)]*,\s*["'`][wa]|\.write(?:Sync)?\s*\(/;
+const SCRIPT_WRITE_TOKENS = /\b(?:writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|openSync|mkdirSync|mkdir|rmSync|rmdirSync|unlinkSync|unlink|renameSync|rename|copyFileSync|copyFile|chmodSync|chownSync|symlinkSync|dump|dumps|shelve|os\.(?:remove|rmdir|rename|replace|link|symlink|truncate|chmod|chown|utime|mknod|mkdir))\b|\bopen\s*\([^)]*,\s*["'`][wa]|\.write(?:Sync)?\s*\(/;
+// F20261015gses F1 连带：补 os.* 写族词面（os.remove("config.yaml") 相对路径落主仓曾放——
+//  pythonBodyReadOnly 的 os 面全禁随 ③a 收窄退位，写面词面归位此表）
 
 /** argv[N] / sys.argv[N] 引用提取（值传播的键）。 */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- 值传播键模式备查（resolveScriptArg 内联正则同源）
@@ -815,6 +820,21 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
     //  否则 evaluated 优先、null 时 cmdsub 拼原文（B）；var/arith 不猜；负门①写词面→回落（下行 cMode 闸）。
     const payloadWord = seg.words[flagIdx + 1];
     if (!payloadWord) return "skip";
+    // F20261015gses F1 连带：无引号裸词载荷（python3 -c print(...) 被 shell 词法截断
+    //（words 只收首词 print，写面藏在后续文本里提取不到）→ fail-closed——带引号
+    //（quoted 部件在场）才是完整载荷，裸标识符词是截断信号（旧 ③a 形态判拦过的面归位）。
+    // 归一化豁免防线：归一化文本（剥引号形态）不触发本门——剥引号是归一化链的合法差异
+    //（scanNormalizedWithOneLinerExemption 的载荷集合差分承担），裸词门只管原文真裸形态。
+    // 判据：flag 词在原文的尾偏移后仍存在非空白载荷字符（说明载荷跨词被截断）。
+    const flagWordEnd = seg.words[flagIdx].span.end ?? 0;
+    const tailAfterFlag = _commandText.slice(flagWordEnd).trimStart();
+    const tailNonEmpty = tailAfterFlag.length > 0 && !tailAfterFlag.startsWith(';') && !tailAfterFlag.startsWith('&') && !tailAfterFlag.startsWith('|');
+    const isQuotedPayload = payloadWord.parts.some(p => p.quoted);
+    const isBareWord = /^[A-Za-z_][\w$.]*$/.test(payloadWord.evaluated ?? '');
+    if (!isQuotedPayload && isBareWord && tailNonEmpty) {
+      acc.hadNegGate = true;
+      return "heredoc-script-payload";
+    }
     const res = resolvePayloadScript(payloadWord, seg.words[flagIdx], _commandText);
     script = res.script;
     cMode = res.cMode;
@@ -840,6 +860,45 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
     return "heredoc-script-payload";
   }
   // 规则 2 附带闸（能力 5，拍板 2026-10-13）：exec 类裸调用（new Function/eval/exec/...）一律不可证——窄提取不得绕过词面证的 exec 拦（残余面 TS-ef0d6be4 族钉死）。
+  // F20261015gses F1 修复连带：kill 主进程词面负门（非重叠危险面归位——③a 收窄到包装
+  //  形态后，plain one-liner 载荷的 os.kill(主PID)/process.kill(主PID) 不再有通道附带拦。
+  //  kill 是 kill 域同族安全面（与写落点判定不重叠）：载荷词面含 kill **调用形态**
+  //（os.kill(/process.kill(/process.abort() 即不可证（目标可能是主进程——fail-closed；
+  //  真要 kill 的运维场景走 scripts/alpha.sh 正道）。裸 pkill/killall 词不收——那是
+  //  shell 层 kill 域的域，载荷内文本数据（源码分析/正则测试脚本，TS-d41c4ce2/
+  //  TS-acd4d18a 实证误伤）不算调用。
+  if (/\b(?:os\.)?kill\s*\(|\bprocess\.(?:kill|abort)\s*\(/.test(script)) {
+    acc.hadNegGate = true;
+    return "heredoc-script-payload";
+  }
+  // F20261015gses F1 修复连带：1432-B 危险模块/动态目标词面负门（同上归位）——
+  //  child_process 齐携 exec/spawn 面、import 拼接目标不可静态判定（能力 8 词面证同源）。
+  if (/\brequire\s*\(\s*["'`]child_process["'`]|\bfrom\s+["'`]child_process["'`]/.test(script)
+      || /\b(?:import|require)\s*\(\s*[^"'`\s]/.test(script)
+      || MAIN_LIT_CONCAT_IMPORT_FACE.test(script)) {
+    acc.hadNegGate = true;
+    return "heredoc-script-payload";
+  }
+  // F20261015gses F1 连带：open 实参区嵌套括号负门（pythonOpenModesReadOnly S1 修复先例的
+  //  one-liner 版归位）：`open(chr(99), 'w')` 嵌套括号使词面提取截断（[^)]* 在 chr(99)
+  // 的 ) 停），mode/路径不可见——实参区见嵌套 ( 即不豁免（fail-closed）；* 解包同拒
+  //（mode 藏在解包元组里完全不可见，open(*a) 穿透，r4 先例）。dbm.open 缺省 'c' 创建
+  // 可写（#1423 同源）——dbm/shelve 模块 open 词面即拦。
+  // F20261015gses F1 连带：ruby/perl 载荷写面词面负门——ruby/perl 不在 SCRIPT_RUNNERS 解析域
+  //（F2 族记档），但 perl 写形态（open(F,">f") 文件句柄模式）/ ruby File.write 写面
+  // 不可放：相对路径落主仓的真写面（perl 相对写 config.yaml 实证放行）。词面拦
+  //（fail-closed）优先于 F2 的「绝对路径字面量闸兜底」（相对路径无字面量可兜）。
+  // 注意：python/node 的 open('f','w')/writeFileSync 走形态 A 落点求值（evaluated
+  // 命中主仓才拦）——此负门不覆盖（词面全拦会误伤树外合法写，Phase 2 窄提取
+  //「写调用落点求值」测试实证回归）。
+  if (/\bopen\s*\(\s*[A-Za-z_][\w$]*\s*,\s*["'`]?>|\bFile\.write/.test(script)) {
+    acc.hadNegGate = true;
+    return "heredoc-script-payload";
+  }
+  if (/(?:^|[^.\w])open\s*\([^)]*\(|\.open\s*\([^)]*\(|\bopen\s*\([^)]*\*|\bdbm\.|\bshelve\./.test(script)) {
+    acc.hadNegGate = true;
+    return "heredoc-script-payload";
+  }
   if (SCRIPT_EXEC_FACE.test(script) || dotExecCommandHits(script)) return "heredoc-script-payload";
   // 载荷后参数词（argv 值传播）：node -e 与 python -c 首实参位都是 argv[1]（#1411 off-by-one
   //  修复实证：argv 错位曾致 /repo/b 假放行）。
@@ -897,12 +956,22 @@ function judgeScriptText(script: string, argvMap: Map<number, string>, projectRo
 
 /** 模型内是否存在可窄提取的脚本载荷段（顶层 + 递归子模型同口径）。
  *  用于 evaluateWriteTargets 的 detectScriptPayload 短路前置：存在可提取段 → 不先行短路，
- *  交给 evalSegment 段级窄提取；不存在 → 保持 Phase 1 先行回落（parseOk=false 语义兜底）。 */
+ *  交给 evalSegment 段级窄提取；不存在 → 保持 Phase 1 先行回落（parseOk=false 语义兜底）。
+ *  F20261015gses F1 连带：「heredoc-script-payload」（负门命中——kill/危险模块/exec 词面
+ *  回落）同样算「有实质判定」——proveNoWrite 先行短路曾绕过段级负门放行 os.kill(主PID)
+ *  （kill 词面非写词面，词面证判无写→假 ALLOW，探针实证）。 */
 function hasNarrowExtractableScriptSeg(model: CommandModel, projectRoot: string): boolean {
   const probe: SegmentEvalAcc & { cwd: string } = { targets: [], index: 0, cwd: projectRoot };
   const check = (m: CommandModel): boolean => {
     for (const seg of m.segments) {
-      if (evalScriptPayloadNarrow(seg, projectRoot, probe, m.raw) === "extracted") return true;
+      const r = evalScriptPayloadNarrow(seg, projectRoot, probe, m.raw);
+      // F20261015gses F1 连带修正：负门族命中（kill/危险模块/open 嵌套/exec）才算「有实质判定」
+      //（proveNoWrite 词面证不含 kill 词面，短路曾放行 os.kill(主PID)，探针实证）。
+      // 字面量闸回落不算——proveNoWrite 先行短路对字面量只读载荷（require('/repo/src/x.js')）
+      // 是能力 8 披露正道（30517746 病灶口径），窄提取的字面量闸不构成绕过它的理由
+      //（guard-v2-real-replay「能力 8 披露→evaluated」实证回归）。
+      if (r === "extracted" || (r === "heredoc-script-payload" && probe.hadNegGate === true)) return true;
+      probe.hadNegGate = false; // 每段重置（负门标记只在命中段有效）
     }
     return m.payloads.some(p => p.model !== null && check(p.model));
   };

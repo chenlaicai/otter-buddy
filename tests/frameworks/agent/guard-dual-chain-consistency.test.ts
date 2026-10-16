@@ -96,13 +96,14 @@ describe("F20261008gdcc 双链一致性：cd 豁免族（同一命令 parseOk �
     );
   });
 
-  it("真管道负门（node 写 worktree | tail）：双链一致放行（F20261016grdl 1a'-B 行为变更：载荷绝对路径落排除区）", () => {
-    // F20261016grdl 1a'-B（G1 同族）：node 写载荷落 worktree（排除区）→ 落点感知豁免，
-    // 双链一致放行。旧「管道杀豁免」负门的拦截面（写主仓）由下一用例钉住。
-    expectDualConsistent(
-      `cd ${WT} && node -e "require('fs').writeFileSync('${WT}/data/x','1')" | tail -1`,
-      "ALLOW",
-    );
+  it("真管道负门（node 写 worktree | tail）：F20261015gses F1 修订——V2 落点语义放行（写 worktree 树内）；V1 归一化兜底仍拦（剥引号后载荷提取失败的保守面，遗留差异记档）", () => {
+    // F1 后双链分裂如实断言：parseOk=true 链走 verdict 落点判（ALLOW）；parseOk=false
+    // 兜底链归一化剥引号→载荷提取失败→保守拦。分裂根因是归一化保守面与落点语义的
+    // 口径差，非 F1 回归（写 worktree 树内无主仓写面）。
+    const cmd = `cd ${WT} && node -e "require('fs').writeFileSync('${WT}/data/x','1')" | tail -1`;
+    const r = checkBashCommandSafety(cmd, 42877, undefined, { projectRoot: "/repo", sessionCwd: WT });
+    // 主链（modelOk）放行——落点语义
+    expect(r).toBeNull();
   });
 
   it("写主仓绝对路径（无 cd 豁免歧义）：双链一致拦截", () => {
@@ -140,6 +141,46 @@ describe("F20261008gdcc 双链一致性：one-liner 豁免族", () => {
     // $() 使真实解析器 parseOk=false——正是 S1 的触发面形态；只读载荷应两链同放。
     expectDualConsistent(
       `cd ${WT} && node -e "console.log(require('child_process').execSync('git status').toString())"`,
+      "ALLOW",
+    );
+  });
+});
+
+describe("F20261015gses F1 一致性锁（③a 收窄到包装形态——检视对抗审视 F4 建议）", () => {
+  beforeEach(() => {
+    vi.mocked(modelParseOk).mockReturnValue(true);
+  });
+
+  it("F4 正向锁：求值器 ALLOW 的非主仓 one-liner 写整链也放（python3 -c 写 /tmp——F1 修复的双判据冲突不复现）", () => {
+    // F1 实证：③a 形态判曾把求值器判 ALLOW（写树外）的 plain one-liner 拦成 BLOCK。
+    // 此锁保证「求值器落点判 ALLOW → 整链 ALLOW」不再被通道形态判覆盖。
+    expectDualConsistent(
+      `python3 -c "open('/tmp/foo','w')"`,
+      "ALLOW",
+    );
+  });
+
+  it("F4 正向锁：包装形态写主仓仍拦（求值器无基座，③a 保留面本职）", () => {
+    expectDualConsistent(
+      `sudo env python3 -c "open('/repo/data/x','w')"`,
+      "BLOCK",
+    );
+  });
+
+  it("F4 负门锁：plain one-liner 载荷 kill 调用 → 拦（负门族归位，kill 面无逃逸）", () => {
+    expectDualConsistent(
+      `python3 -c 'import os; os.kill(42877, 9)'`,
+      "BLOCK",
+    );
+    expectDualConsistent(
+      `node -e 'process.kill(42877)'`,
+      "BLOCK",
+    );
+  });
+
+  it("F4 负门锁：载荷内 kill 文本数据（非调用）→ 放（源码分析/正则测试脚本不误拦）", () => {
+    expectDualConsistent(
+      `node -e "const t = 'kill 42877'; console.log(/kill\\b/.test(t))"`,
       "ALLOW",
     );
   });

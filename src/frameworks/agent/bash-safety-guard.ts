@@ -805,6 +805,10 @@ interface SegmentHead {
   head: string;
   /** 落点在全段中的字符 offset（shell -c 载荷定位用）；-1 = 无落点。 */
   offset: number;
+  /** F20261015gses F1 修复：落点前是否消耗过包装词（sudo/env/timeout/nohup 等
+   *  WRAPPER_SPECS 族）——true=包装形态（求值器无此基座，结构通道承担）；
+   *  false=plain/纯赋值前缀（求值器判定完备，结构通道不得重复拦）。 */
+  wrapped: boolean;
 }
 
 /** 单 token 扫描（tokenizeSegment 内层，抽函数控圈复杂度）。
@@ -865,16 +869,18 @@ function skipWrapperArgs(tokens: { text: string; offset: number }[], k: number, 
 function parseSegmentHead(seg: string): SegmentHead | null {
   const tokens = tokenizeSegment(seg);
   if (tokens === null) return null;
-  if (tokens.length === 0) return { head: "", offset: -1 };
+  if (tokens.length === 0) return { head: "", offset: -1, wrapped: false };
   let k = 0;
+  let wrapped = false;
   for (;;) {
-    if (k >= tokens.length) return { head: "", offset: -1 };
+    if (k >= tokens.length) return { head: "", offset: -1, wrapped };
     const t = tokens[k].text;
-    // 赋值前缀（含空值 #1285 洞3：FOO= 合法赋值）
+    // 赋值前缀（含空值 #1285 洞3：FOO= 合法赋值）——不算包装
     if (/^[A-Za-z_]\w*=\S*$/.test(t)) { k++; continue; }
     const base = tokenBasename(t);
     const spec = WRAPPER_SPECS[base];
-    if (!spec) return { head: base, offset: tokens[k].offset };
+    if (!spec) return { head: base, offset: tokens[k].offset, wrapped };
+    wrapped = true;
     k = skipWrapperArgs(tokens, k + 1, spec);
   }
 }
@@ -1219,19 +1225,29 @@ function judgeSegment(
     // 解析失败（未闭合引号等）——段内含 one-liner/shell 特征才拦
     return segHasOneLiner || segHasShellC;
   }
-  const { head, offset } = parsed;
+  const { head, offset, wrapped } = parsed;
   if (head === "") return false;
-  // ③a one-liner 解释器落点（python/node/ruby/perl，含版本号尾缀）
+  // ③a one-liner 解释器落点（python/node/ruby/perl，含版本号尾缀）。
+  // F20261015gses F1 修复（检视对抗审视 + 大獭 L1 裁决）：收窄到**包装形态**
+  // （wrapped=true——sudo/env/timeout/nohup 等前缀，求值器 argv 基座不含包装词，
+  // 探针实证：sudo env/timeout/nohup 包装写主仓求值器全放——真盲区由本通道收口）。
+  // plain/纯赋值前缀（FOO=1 python3 -c）交求值器落点判（判定完备：写主仓 BLOCK/
+  // 写树外 ALLOW/动态 f-string fail-closed，探针 7 形态验证）——本通道不得重复
+  // 形态判，否则写 /tmp 的合法 one-liner 被误拦（F1 实证：python3 -c 写 /tmp
+  // 求值器 ALLOW 整链 BLOCK 的双判据冲突）。
   const interpKey = ONELINER_INTERP_NAMES[head.replace(/[\d.]+$/, "")];
   if (interpKey) {
     // 通道判定：段内含该解释器的 one-liner 形态（-c/-e/--eval）才命中——
     // 裸 `python3 script.py` 不是 one-liner 通道（写面由重定向/git 族承担）。
     // 只读豁免：oneLinerReadOnly（全命令基座，与正则通道同一豁免值——
     // 豁免基座对齐：拦截与豁免同一提取基座，载荷只读性由既有白名单承担）。
+    // F1（F20261016gses delta 复核）：③a 收窄到包装形态——plain one-liner 交求值器
+    // 落点判（形态判退位，双判据冲突根因修复）；求值器对包装形态无 argv 基座，
+    // 结构通道是唯一拦截。
     // F20261016grdl 1a'-B：落点感知豁免——非只读载荷但全部绝对路径落主仓外
     //（或 cd 段锚定非主仓 cwd）时放行（例 6 实证：save('/tmp/x') 写动词 fail-closed 误拦）。
     if (ctx.onelinerPathsOutsideMain) return false;
-    return segHasOneLiner && !ctx.oneLinerReadOnly;
+    return wrapped && segHasOneLiner && !ctx.oneLinerReadOnly; ([F20261015gses][guard][Refactor] F1修复：段首结构通道③a收窄到包装形态+负门族归位+F4一致性锁)
   }
   // ③a' git 落点（#1285 r1 严重 1：词包装 git 写族全绕——正则锚只认赋值前缀，
   // `env git commit` / `sudo git commit` / `timeout 5 git commit` 曾全放）。
@@ -2180,6 +2196,16 @@ export function checkBashCommandSafety(
   };
   const result = scan(heredocStripped);
   if (result) return result;
+
+  // F20261015gses F1 修订：原文语义判定（write-verdict）已 ALLOW 时，归一化文本的
+  // 判读翻转不采纳——剥引号是归一化链自造形态（open('f','w') 剥成 open('f',w)，
+  // 引号内 mode 变裸词→判读翻转 fail-closed），非原文真风险。归一化链只兜「剥引号
+  // 出土新写词面」的真差异（差分集合逻辑）。
+  const ctxHere = { projectRoot, sessionCwd };
+  if (ctxHere.projectRoot !== undefined
+      && evaluateWriteVerdict(command, ctxHere.projectRoot, ctxHere.sessionCwd ?? ctxHere.projectRoot).verdict === "ALLOW") {
+    return null;
+  }
 
   return scanNormalizedWithOneLinerExemption(heredocStripped, command, scan);
 }

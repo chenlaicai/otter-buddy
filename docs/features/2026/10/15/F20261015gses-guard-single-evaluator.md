@@ -83,7 +83,19 @@ bash 命令进来
 
 - 切换期行为漂移风险：**已于 2026-10-15 完成差分审计**（988 条×双态 V1×v2 四象限，数据见分期节修订注）——收益 274 翻正 + 23 漏拦补上；回归 40 新增误拦（载荷族先行补全后收敛）+ 7 放水（逐条复核：含 fixture TOCTOU 污染与 argv 传播口径差，P2 处置）
 - 载荷族 87 条是最大工程面：heredoc 33 / node -e 17 / python3 -c 17 / other 19 子类逐个正向证明，预计占 P0 主要工时
+- **TOCTOU（F3 记档，2026-10-16 检视确认）**：fsContentPlan 裁决时读、执行在后——脚本判读与执行间被替换则判读≠执行。代码与文档已记档，fail-closed + 物理隔离兜底下可接受；残余面显式记档：运行时脚本替换（mv/rm 后重建同路径）不在静态防线域，靠运行时 kill 域/审计日志兑底
+- **F2 记档（#1438 族谱）**：.rb/.pl/.scpt 相对路径/变量写目标可能漏（绝对主仓路径靠字面量闸兜住；相对写由 File.write/perl open(F,">f") 词面负门兼底——完整解析待 P2 载荷 AST）
 - 物理隔离 OS 层加固（gsub 非目标，另立调研）不在本特性范围
+
+### F1 修复实录（2026-10-16，检视对抗审视 + 大獭 L1 裁决采纳方向 a）
+
+- ③a 收窄到**包装形态**（parseSegmentHead 新增 wrapped 标记——sudo/env/timeout/nohup 等前缀，求值器无 argv 基座的真盲区）；plain/纯赋值前缀交求值器落点判——F1 实证的「python3 -c 写 /tmp 求值器 ALLOW 整链 BLOCK」双判据冲突根除
+- **负门族归位**（③a 形态判退位后的安全面承接，evalScriptPayloadNarrow 内）：kill 调用形态（os.kill(/process.kill(，裸 pkill 文本数据不收——TS-d41c4ce2/TS-acd4d18a 误伤实证）/ child_process 危险模块 / import 拼接（主仓字面量拼接 MAIN_LIT_CONCAT_IMPORT_FACE；相对字面量拼接保持披露保守面）/ open 实参区嵌套括号与解包（S1/r4 先例）/ dbm/shelve / os.* 写族词面（SCRIPT_WRITE_TOKENS 补齐）/ ruby-perl 写面词面 / 无引号裸词载荷（提取基座截断）
+- **hasNarrowExtractableScriptSeg 精化**：负门命中（hadNegGate 标记）才算实质判定（proveNoWrite 先行短路曾绕过段级负门放行 os.kill(主PID)）；字面量闸回落不算（能力 8 披露正道不阻断，guard-v2-real-replay 实证）
+- **归一化链原文 verdict 对照**：兜底链归一化文本判读翻转（剥引号使 mode 变裸词）不采纳——原文语义判 ALLOW 时归一化差异不构成拦截依据
+- **F4 一致性锁**（guard-dual-chain-consistency 新 describe）：正向锁（非主仓 one-liner 写整链放）/ 包装写主仓拦 / kill 负门锁 / kill 文本数据不误拦四锁钉死
+- 行为断言更新 9 条（旧形态判口径→落点语义口径，逐条注明 F1 修订语义）；1285 repro 落点对齐 projectRoot（虚构 /repo 错位修正）
+- 棘轮 78→77（allow 48 / block 10 / cond 19）
 
 ## 下一步（派工单节奏：每完成一期报进展）
 
